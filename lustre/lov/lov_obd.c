@@ -1070,13 +1070,15 @@ static int lov_clear_orphans(struct obd_export *export, struct obdo *src_oa,
                 /* XXX: LOV STACKING: use real "obj_mdp" sub-data */
                 err = obd_create(NULL, lov->lov_tgts[i]->ltd_exp,
                                  tmp_oa, &obj_mdp, oti);
-                if (err) {
-                        /* This export will be disabled until it is recovered,
-                           and then orphan recovery will be completed. */
-                        CERROR("error in orphan recovery on OST idx %d/%d: "
-                               "rc = %d\n", i, lov->desc.ld_tgt_count, err);
-                        rc = err;
-                }
+		if (err) {
+			/* This export will be disabled until it is recovered,
+			   and then orphan recovery will be completed. */
+			CDEBUG(D_HA, "error %d in orphan recovery for %s "
+			       "(idx %d/%d); will retry\n", err,
+			       obd_uuid2str(ost_uuid), i,
+			       lov->desc.ld_tgt_count);
+			rc = err;
+		}
 
                 if (ost_uuid)
                         break;
