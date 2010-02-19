@@ -1752,9 +1752,10 @@ int mds_quota_recovery(struct obd_device *obd)
 
         cfs_mutex_lock(&obd->obd_dev_mutex);
         if (mds->mds_lov_desc.ld_active_tgt_count != mds->mds_lov_objid_count) {
-                CWARN("Only %u/%u OSTs are active, abort quota recovery\n",
-                      mds->mds_lov_desc.ld_active_tgt_count,
-                      mds->mds_lov_objid_count);
+                CDEBUG(D_QUOTA, "Only %u/%u OSTs are active, "
+                       "abort quota recovery\n",
+                       mds->mds_lov_desc.ld_active_tgt_count,
+                       mds->mds_lov_objid_count);
                 cfs_mutex_unlock(&obd->obd_dev_mutex);
                 RETURN(rc);
         }
