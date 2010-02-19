@@ -877,15 +877,15 @@ static int filter_init_server_data(struct obd_device *obd, struct file * filp)
                  * need to be set up like real exports as filter_connect() does.
                  */
                 exp = class_new_export(obd, (struct obd_uuid *)lcd->lcd_uuid);
-                if (IS_ERR(exp)) {
-                        if (PTR_ERR(exp) == -EALREADY) {
-                                /* export already exists, zero out this one */
-                                CERROR("Duplicate export %s!\n", lcd->lcd_uuid);
-                                continue;
-                        }
-                        OBD_FREE_PTR(lcd);
-                        GOTO(err_client, rc = PTR_ERR(exp));
-                }
+		if (IS_ERR(exp)) {
+			if (PTR_ERR(exp) == -EALREADY) {
+				/* export already exists */
+				CERROR("Duplicate export %s!\n", lcd->lcd_uuid);
+				continue;
+			}
+			OBD_FREE_PTR(lcd);
+			GOTO(err_client, rc = PTR_ERR(exp));
+		}
 
                 fed = &exp->exp_filter_data;
                 *fed->fed_ted.ted_lcd = *lcd;
@@ -1630,11 +1630,12 @@ static int filter_destroy_internal(struct obd_device *obd, obd_id objid,
                        atomic_read(&inode->i_count));
         }
 
-        rc = filter_vfs_unlink(dparent->d_inode, dchild, obd->u.obt.obt_vfsmnt);
-        if (rc)
-                CERROR("error unlinking objid %.*s: rc %d\n",
-                       dchild->d_name.len, dchild->d_name.name, rc);
-        return(rc);
+	rc = filter_vfs_unlink(dparent->d_inode, dchild, obd->u.obt.obt_vfsmnt);
+	if (rc)
+		CDEBUG_LIMIT(rc == -ENOENT ? D_INODE : D_ERROR,
+			     "error unlinking objid %.*s: rc %d\n",
+			     dchild->d_name.len, dchild->d_name.name, rc);
+	return(rc);
 }
 
 struct filter_intent_args {
@@ -2114,14 +2115,14 @@ int filter_common_setup(struct obd_device *obd, struct lustre_cfg* lcfg,
         if (rc)
                 GOTO(err_post, rc);
 
-        q = bdev_get_queue(mnt->mnt_sb->s_bdev);
-        if (queue_max_sectors(q) < queue_max_hw_sectors(q) &&
-            queue_max_sectors(q) < PTLRPC_MAX_BRW_SIZE >> 9)
-                LCONSOLE_INFO("%s: underlying device %s should be tuned "
-                              "for larger I/O requests: max_sectors = %u "
-                              "could be up to max_hw_sectors=%u\n",
-                              obd->obd_name, mnt->mnt_sb->s_id,
-                              queue_max_sectors(q), queue_max_hw_sectors(q));
+	q = bdev_get_queue(mnt->mnt_sb->s_bdev);
+	if (queue_max_sectors(q) < queue_max_hw_sectors(q) &&
+	    queue_max_sectors(q) < PTLRPC_MAX_BRW_SIZE >> 9)
+		LCONSOLE_INFO("%s: Underlying device %s should be tuned "
+			"for larger I/O requests: max_sectors = %u "
+			"could be up to max_hw_sectors=%u\n",
+			obd->obd_name, mnt->mnt_sb->s_id,
+			queue_max_sectors(q), queue_max_hw_sectors(q));
 
         uuid_ptr = fsfilt_uuid(obd, obd->u.obt.obt_sb);
         if (uuid_ptr != NULL) {

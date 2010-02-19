@@ -868,21 +868,21 @@ static int __mds_lov_synchronize(void *data)
         OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_LLOG_SYNC_TIMEOUT, 60);
         rc = llog_connect(ctxt, NULL, NULL, uuid);
         llog_ctxt_put(ctxt);
-        if (rc != 0) {
-                CERROR("%s failed at llog_origin_connect: %d\n",
-                       obd_uuid2str(uuid), rc);
-                GOTO(out, rc);
-        }
+	if (rc != 0) {
+		CERROR("%s: %s failed at llog_origin_connect: %d\n",
+		       obd->obd_name, obd_uuid2str(uuid), rc);
+		GOTO(out, rc);
+	}
 
-        LCONSOLE_INFO("MDS %s: %s now active, resetting orphans\n",
-              obd->obd_name, obd_uuid2str(uuid));
+	LCONSOLE_INFO("%s: %s now active, resetting orphans\n",
+		      obd->obd_name, obd_uuid2str(uuid));
 
-        rc = mds_lov_clear_orphans(mds, uuid);
-        if (rc != 0) {
-                CERROR("%s failed at mds_lov_clear_orphans: %d\n",
-                       obd_uuid2str(uuid), rc);
-                GOTO(out, rc);
-        }
+	rc = mds_lov_clear_orphans(mds, uuid);
+	if (rc != 0) {
+		LCONSOLE_WARN("%s: Failed to clear orphan objects on OST: %d\n",
+			      obd_uuid2str(uuid), rc);
+		GOTO(out, rc);
+	}
 
 #ifdef HAVE_QUOTA_SUPPORT
         if (obd->obd_upcall.onu_owner) {
@@ -900,8 +900,8 @@ out:
         cfs_up_read(&mds->mds_notify_lock);
         if (rc) {
                 /* Deactivate it for safety */
-                CERROR("%s sync failed %d, deactivating\n", obd_uuid2str(uuid),
-                       rc);
+                LCONSOLE_WARN("%s: Sync failed deactivating: rc %d\n",
+                              obd_uuid2str(uuid), rc);
                 if (!obd->obd_stopping && mds->mds_lov_obd &&
                     !mds->mds_lov_obd->obd_stopping && !watched->obd_stopping)
                         obd_notify(mds->mds_lov_obd, watched,

@@ -847,14 +847,14 @@ static int ptlrpc_check_req(struct ptlrpc_request *req)
 {
         int rc = 0;
 
-        if (unlikely(lustre_msg_get_conn_cnt(req->rq_reqmsg) <
-                     req->rq_export->exp_conn_cnt)) {
-                DEBUG_REQ(D_ERROR, req,
-                          "DROPPING req from old connection %d < %d",
-                          lustre_msg_get_conn_cnt(req->rq_reqmsg),
-                          req->rq_export->exp_conn_cnt);
-                return -EEXIST;
-        }
+	if (unlikely(lustre_msg_get_conn_cnt(req->rq_reqmsg) <
+		     req->rq_export->exp_conn_cnt)) {
+		DEBUG_REQ(D_RPCTRACE, req,
+			  "DROPPING req from old connection %d < %d",
+			  lustre_msg_get_conn_cnt(req->rq_reqmsg),
+			  req->rq_export->exp_conn_cnt);
+		return -EEXIST;
+	}
         if (unlikely(req->rq_export->exp_obd &&
                      req->rq_export->exp_obd->obd_fail)) {
              /* Failing over, don't handle any more reqs, send
@@ -1727,15 +1727,15 @@ put_conn:
         lu_context_exit(&request->rq_session);
         lu_context_fini(&request->rq_session);
 
-        if (unlikely(cfs_time_current_sec() > request->rq_deadline)) {
-                DEBUG_REQ(D_WARNING, request, "Request x"LPU64" took longer "
-                          "than estimated ("CFS_DURATION_T":"CFS_DURATION_T"s);"
-                          " client may timeout.",
-                          request->rq_xid, cfs_time_sub(request->rq_deadline,
-                          request->rq_arrival_time.tv_sec),
-                          cfs_time_sub(cfs_time_current_sec(),
-                          request->rq_deadline));
-        }
+	if (unlikely(cfs_time_current_sec() > request->rq_deadline)) {
+		     DEBUG_REQ(D_WARNING, request, "Request took longer "
+			       "than estimated ("CFS_DURATION_T":"CFS_DURATION_T"s);"
+			       " client may timeout.",
+			       cfs_time_sub(request->rq_deadline,
+					    request->rq_arrival_time.tv_sec),
+			       cfs_time_sub(cfs_time_current_sec(),
+					    request->rq_deadline));
+	}
 
         cfs_gettimeofday(&work_end);
         timediff = cfs_timeval_sub(&work_end, &work_start, NULL);
@@ -1843,15 +1843,14 @@ ptlrpc_handle_rs (struct ptlrpc_reply_state *rs)
         nlocks = rs->rs_nlocks;                 /* atomic "steal", but */
         rs->rs_nlocks = 0;                      /* locks still on rs_locks! */
 
-        if (nlocks == 0 && !been_handled) {
-                /* If we see this, we should already have seen the warning
-                 * in mds_steal_ack_locks()  */
-                CWARN("All locks stolen from rs %p x"LPD64".t"LPD64
-                      " o%d NID %s\n",
-                      rs,
-                      rs->rs_xid, rs->rs_transno, rs->rs_opc,
-                      libcfs_nid2str(exp->exp_connection->c_peer.nid));
-        }
+	if (nlocks == 0 && !been_handled) {
+		/* If we see this, we should already have seen the warning
+		 * in mds_steal_ack_locks()  */
+		CDEBUG(D_RPCTRACE, "All locks stolen from rs %p x"
+		       LPD64".t"LPD64" o%d NID %s\n",
+		       rs, rs->rs_xid, rs->rs_transno, rs->rs_opc,
+		       libcfs_nid2str(exp->exp_connection->c_peer.nid));
+	}
 
         if ((!been_handled && rs->rs_on_net) || nlocks > 0) {
                 cfs_spin_unlock(&rs->rs_lock);
