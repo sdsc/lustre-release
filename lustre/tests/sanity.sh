@@ -9474,14 +9474,13 @@ run_test 162 "path lookup sanity"
 test_163() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return
-	copytool --test $FSNAME || { skip "copytool not runnable: $?" && return; }
-	copytool $FSNAME &
+	lhsmtool_posix --commcheck --noexecute $FSNAME ||
+		{ skip "copytool not runnable: $?" && return; }
+	mkdir -p $DIR/$tdir/d1
+	cp /etc/hosts $DIR/$tdir/.
 	sleep 1
-	local uuid=$($LCTL get_param -n mdc.${FSNAME}-MDT0000-mdc-*.uuid)
-	# this proc file is temporary and linux-only
-	do_facet $SINGLEMDS lctl set_param mdt.${FSNAME}-MDT0000.mdccomm=$uuid ||\
-         error "kernel->userspace send failed"
-	kill -INT $!
+	$LFS hsm_archive $DIR/$tdir/hosts $DIR/$tdir/d1 ||
+		error "hsm_archive"
 }
 run_test 163 "kernel <-> userspace comms"
 

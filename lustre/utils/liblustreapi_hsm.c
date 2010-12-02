@@ -62,7 +62,8 @@
 #define CT_PRIV_MAGIC 0xC0BE2001
 struct hsm_copytool_private {
 	int			 magic;
-	char			*fsname;
+	char			*mnt;
+	int			 mnt_fd;
 	lustre_kernelcomm	 kuc;
 	__u32			 archives;
 };
@@ -71,13 +72,14 @@ struct hsm_copytool_private {
 
 /** Register a copytool
  * \param[out] priv Opaque private control structure
- * \param fsname Lustre filesystem
+ * \param mnt Lustre filesystem mount point
  * \param flags Open flags, currently unused (e.g. O_NONBLOCK)
  * \param archive_count
  * \param archives Which archive numbers this copytool is responsible for
  */
-int llapi_hsm_copytool_start(struct hsm_copytool_private **priv, char *fsname,
-			     int flags, int archive_count, int *archives)
+int llapi_hsm_copytool_start(struct hsm_copytool_private **priv,
+			     const char *mnt, int flags, int archive_count,
+			     int *archives)
 {
 	struct hsm_copytool_private	*ct;
 	int				 rc;
@@ -92,12 +94,18 @@ int llapi_hsm_copytool_start(struct hsm_copytool_private **priv, char *fsname,
 	if (ct == NULL)
 		return -ENOMEM;
 
-	ct->fsname = malloc(strlen(fsname) + 1);
-	if (ct->fsname == NULL) {
+	ct->mnt_fd = open(mnt, O_DIRECTORY | O_RDONLY | O_NONBLOCK);
+	if (rc == -1) {
+		rc = -errno;
+		goto out_err;
+	}
+
+	ct->mnt = strdup(mnt);
+	if (ct->mnt == NULL) {
 		rc = -ENOMEM;
 		goto out_err;
 	}
-	strcpy(ct->fsname, fsname);
+
 	ct->magic = CT_PRIV_MAGIC;
 
 	/* no archives specified means "match all". */
@@ -126,8 +134,15 @@ int llapi_hsm_copytool_start(struct hsm_copytool_private **priv, char *fsname,
 
 	/* Storing archive(s) in lk_data; see mdc_ioc_hsm_ct_start */
 	ct->kuc.lk_data = ct->archives;
-	rc = root_ioctl(ct->fsname, LL_IOC_HSM_CT_START, &(ct->kuc), NULL,
-			WANT_ERROR);
+	rc = ioctl(ct->mnt_fd, LL_IOC_HSM_CT_START, &(ct->kuc));
+	if (rc == -1) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "ioctl %d err %d",
+			    LL_IOC_HSM_CT_START, rc);
+		goto out_err;
+	} else
+		rc = 0;
+
 	/* Only the kernel reference keeps the write side open */
 	close(ct->kuc.lk_wfd);
 	ct->kuc.lk_wfd = 0;
@@ -141,8 +156,10 @@ out_kuc:
 	/* cleanup the kuc channel */
 	libcfs_ukuc_stop(&ct->kuc);
 out_err:
-	if (ct->fsname)
-		free(ct->fsname);
+	if (ct->mnt_fd != -1)
+		close(ct->mnt_fd);
+	if (ct->mnt)
+		free(ct->mnt);
 	free(ct);
 	return rc;
 }
@@ -162,12 +179,13 @@ int llapi_hsm_copytool_fini(struct hsm_copytool_private **priv)
 
 	/* Tell the kernel to stop sending us messages */
 	ct->kuc.lk_flags = LK_FLG_STOP;
-	root_ioctl(ct->fsname, LL_IOC_HSM_CT_START, &(ct->kuc), NULL, 0);
+	ioctl(ct->mnt_fd, LL_IOC_HSM_CT_START, &(ct->kuc));
 
 	/* Shut down the kernelcomms */
 	libcfs_ukuc_stop(&ct->kuc);
 
-	free(ct->fsname);
+	close(ct->mnt_fd);
+	free(ct->mnt);
 	free(ct);
 	*priv = NULL;
 	return 0;
@@ -275,7 +293,7 @@ int llapi_hsm_copytool_free(struct hsm_action_list **hal)
  *
  * \return 0 on success.
  */
-int llapi_hsm_copy_start(char *mnt, struct hsm_copy *copy,
+int llapi_hsm_copy_start(const char *mnt, struct hsm_copy *copy,
 			 const struct hsm_action_item *hai)
 {
 	int	fd;
@@ -284,9 +302,9 @@ int llapi_hsm_copy_start(char *mnt, struct hsm_copy *copy,
 	if (memcpy(&copy->hc_hai, hai, sizeof(*hai)) == NULL)
 		RETURN(-EFAULT);
 
-	rc = get_root_path(WANT_FD, NULL, &fd, mnt, -1);
-	if (rc)
-		return rc;
+	fd = open(mnt, O_DIRECTORY | O_RDONLY | O_NONBLOCK);
+	if (rc == -1)
+		return -errno;
 
 	rc = ioctl(fd, LL_IOC_HSM_COPY_START, copy);
 	/* If error, return errno value */
@@ -311,7 +329,7 @@ int llapi_hsm_copy_start(char *mnt, struct hsm_copy *copy,
  *
  * \return 0 on success.
  */
-int llapi_hsm_copy_end(char *mnt, struct hsm_copy *copy,
+int llapi_hsm_copy_end(const char *mnt, struct hsm_copy *copy,
 		       const struct hsm_progress *hp)
 {
 	int	end_only = 0;
@@ -344,9 +362,11 @@ int llapi_hsm_copy_end(char *mnt, struct hsm_copy *copy,
 	 * to use here. */
 	copy->hc_hai.hai_fid = hp->hp_fid;
 
-	rc = get_root_path(WANT_FD, NULL, &fd, mnt, -1);
-	if (rc)
+	fd = open(mnt, O_DIRECTORY | O_RDONLY | O_NONBLOCK);
+	if (fd == -1) {
+		rc = -errno;
 		goto out_free;
+	}
 
 	rc = ioctl(fd, LL_IOC_HSM_COPY_END, copy);
 	/* If error, return errno value */
@@ -367,14 +387,14 @@ out_free:
  *
  * \return 0 on success, an error code otherwise.
  */
-int llapi_hsm_progress(char *mnt, struct hsm_progress *hp)
+int llapi_hsm_progress(const char *mnt, const struct hsm_progress *hp)
 {
 	int	fd;
 	int	rc;
 
-	rc = get_root_path(WANT_FD, NULL, &fd, mnt, -1);
-	if (rc)
-		return rc;
+	fd = open(mnt, O_DIRECTORY | O_RDONLY | O_NONBLOCK);
+	if (fd == -1)
+		return -errno;
 
 	rc = ioctl(fd, LL_IOC_HSM_PROGRESS, hp);
 	/* If error, save errno value */
@@ -397,7 +417,7 @@ int llapi_hsm_progress(char *mnt, struct hsm_progress *hp)
  *                 be used.
  * \param newfid[out] Filled with new Lustre fid.
  */
-int llapi_hsm_import(const char *dst, int archive, struct stat *st,
+int llapi_hsm_import(const char *dst, int archive, const struct stat *st,
 		     unsigned long long stripe_size, int stripe_offset,
 		     int stripe_count, int stripe_pattern, char *pool_name,
 		     lustre_fid *newfid)
@@ -570,14 +590,14 @@ struct hsm_user_request *llapi_hsm_user_request_alloc(int itemcount,
  * \param mnt Should be the Lustre moint point.
  * \return 0 on success, an error code otherwise.
  */
-int llapi_hsm_request(char *mnt, struct hsm_user_request *request)
+int llapi_hsm_request(const char *mnt, const struct hsm_user_request *request)
 {
 	int rc;
 	int fd;
 
-	rc = get_root_path(WANT_FD, NULL, &fd, mnt, -1);
-	if (rc)
-		return rc;
+	fd = open(mnt, O_DIRECTORY | O_RDONLY | O_NONBLOCK);
+	if (fd == -1)
+		return -errno;
 
 	rc = ioctl(fd, LL_IOC_HSM_REQUEST, request);
 	/* If error, save errno value */
