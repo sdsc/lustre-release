@@ -184,6 +184,31 @@ test_3() {
 }
 run_test 3 "Check file dirtyness when opening for write"
 
+test_11() {
+	mkdir -p $DIR/$tdir $ARC/$tdir
+	cp /etc/hosts $ARC/$tdir/$tfile
+	f=$DIR/$tdir/$tfile
+	$HT --archive $AN --hsm_root $ARC --import $tdir/$tfile $f ||
+		error "import failed"
+	echo -n "Verifying released state: "
+	$LFS hsm_state $f
+	$LFS hsm_state $f | grep -q "released exists archived" ||
+		error "flags not set"
+	LSZ=$(stat -c "%s" $f)
+	ASZ=$(stat -c "%s" $ARC/$tdir/$tfile)
+	echo "Verifying imported size $LSZ=$ASZ"
+	[[ $LSZ -eq $ASZ ]] || error "Incorrect size $LSZ != $ASZ"
+	echo -n "Verifying released pattern: "
+	PTRN=$($GETSTRIPE -P $f)
+	echo $PTRN
+	[[ $PTRN == 80000001 ]] || error "Is not released"
+	fid=$(path2fid $f)
+	echo "Verifying new fid $fid in archive"
+	AFILE=$(ls $ARC/*/*/*/*/*/*/$fid) || \
+		error "fid $fid not in archive $ARC"
+}
+run_test 11 "Import a file"
+
 log "cleanup: ======================================================"
 cd $ORIG_PWD
 check_and_cleanup_lustre
