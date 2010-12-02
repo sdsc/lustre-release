@@ -275,7 +275,7 @@ int llapi_hsm_copytool_free(struct hsm_action_list **hal)
  *
  * \return 0 on success.
  */
-int llapi_hsm_copy_start(char *mnt, struct hsm_copy *copy,
+int llapi_hsm_copy_start(const char *mnt, struct hsm_copy *copy,
 			 const struct hsm_action_item *hai)
 {
 	int	fd;
@@ -284,7 +284,7 @@ int llapi_hsm_copy_start(char *mnt, struct hsm_copy *copy,
 	if (memcpy(&copy->hc_hai, hai, sizeof(*hai)) == NULL)
 		RETURN(-EFAULT);
 
-	rc = get_root_path(WANT_FD, NULL, &fd, mnt, -1);
+	rc = get_root_path(WANT_FD, NULL, &fd, (char *)mnt, -1);
 	if (rc)
 		return rc;
 
@@ -309,7 +309,7 @@ int llapi_hsm_copy_start(char *mnt, struct hsm_copy *copy,
  *
  * \return 0 on success.
  */
-int llapi_hsm_copy_end(char *mnt, struct hsm_copy *copy,
+int llapi_hsm_copy_end(const char *mnt, struct hsm_copy *copy,
 		       const struct hsm_progress *hp)
 {
 	int	end_only = 0;
@@ -339,7 +339,7 @@ int llapi_hsm_copy_end(char *mnt, struct hsm_copy *copy,
 	/* Update hai if it has changed since start */
 	copy->hc_hai.hai_extent = hp->hp_extent;
 
-	rc = get_root_path(WANT_FD, NULL, &fd, mnt, -1);
+	rc = get_root_path(WANT_FD, NULL, &fd, (char *)mnt, -1);
 	if (rc)
 		goto out_free;
 
@@ -360,12 +360,12 @@ out_free:
  *
  * \return 0 on success, an error code otherwise.
  */
-int llapi_hsm_progress(char *mnt, struct hsm_progress *hp)
+int llapi_hsm_progress(const char *mnt, const struct hsm_progress *hp)
 {
 	int	fd;
 	int	rc;
 
-	rc = get_root_path(WANT_FD, NULL, &fd, mnt, -1);
+	rc = get_root_path(WANT_FD, NULL, &fd, (char *)mnt, -1);
 	if (rc)
 		return rc;
 
@@ -613,12 +613,12 @@ struct hsm_user_request *llapi_hsm_user_request_alloc(int itemcount,
  * \param mnt Should be the Lustre moint point.
  * \return 0 on success, an error code otherwise.
  */
-int llapi_hsm_request(char *mnt, struct hsm_user_request *request)
+int llapi_hsm_request(const char *mnt, const struct hsm_user_request *request)
 {
 	int rc;
 	int fd;
 
-	rc = get_root_path(WANT_FD, NULL, &fd, mnt, -1);
+	rc = get_root_path(WANT_FD, NULL, &fd, (char *)mnt, -1);
 	if (rc)
 		return rc;
 
