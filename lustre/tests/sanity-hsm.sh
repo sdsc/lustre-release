@@ -10,7 +10,7 @@ set -e
 set +o monitor
 
 SRCDIR=`dirname $0`
-export PATH=$PWD/$SRCDIR:$SRCDIR:$PWD/$SRCDIR/utils:$PATH:/sbin
+export PATH=$PWD/$SRCDIR:$SRCDIR:$PWD/$SRCDIR/utils:$PATH:/sbin:/usr/sbin/
 
 ONLY=${ONLY:-"$*"}
 SANITY_HSM_EXCEPT=${SANITY_HSM_EXCEPT:-""}
@@ -26,6 +26,7 @@ TMP=${TMP:-/tmp}
 ORIG_PWD=${PWD}
 
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
@@ -49,6 +50,18 @@ DIR=${DIR:-$MOUNT}
 assert_DIR
 
 build_test_filter
+
+export HT=${HT:-"lhsmtool_posix"}
+export HT_VERB=${HT_VERB:-""}
+ARC=${ARC:-$TMP/arc}
+AN=2
+
+path2fid() {
+	$LFS path2fid $1 | tr -d '[]'
+}
+
+rm -rf $ARC
+mkdir -p $ARC
 
 test_1() {
 	mkdir -p $DIR/$tdir
@@ -183,6 +196,31 @@ test_3() {
 		error "wrong hsm state: !0x3"
 }
 run_test 3 "Check file dirtyness when opening for write"
+
+test_11() {
+	mkdir -p $DIR/$tdir $ARC/$tdir
+	cp /etc/hosts $ARC/$tdir/$tfile
+	local f=$DIR/$tdir/$tfile
+	$HT $HT_VERB --archive $AN --hsm_root $ARC --import $tdir/$tfile \
+		$f $FSNAME || error "import failed"
+	echo -n "Verifying released state: "
+	$LFS hsm_state $f
+	$LFS hsm_state $f | grep -q "released exists archived" ||
+		error "flags not set"
+	local LSZ=$(stat -c "%s" $f)
+	local ASZ=$(stat -c "%s" $ARC/$tdir/$tfile)
+	echo "Verifying imported size $LSZ=$ASZ"
+	[[ $LSZ -eq $ASZ ]] || error "Incorrect size $LSZ != $ASZ"
+	echo -n "Verifying released pattern: "
+	local PTRN=$($GETSTRIPE -L $f)
+	echo $PTRN
+	[[ $PTRN == 80000001 ]] || error "Is not released"
+	local fid=$(path2fid $f)
+	echo "Verifying new fid $fid in archive"
+	local AFILE=$(ls $ARC/*/*/*/*/*/*/$fid) || \
+		error "fid $fid not in archive $ARC"
+}
+run_test 11 "Import a file"
 
 log "cleanup: ======================================================"
 cd $ORIG_PWD
