@@ -28,7 +28,7 @@ if SERVER
 sbin_PROGRAMS += mkfs.lustre tunefs.lustre
 endif
 if LIBPTHREAD
-sbin_PROGRAMS += loadgen
+sbin_PROGRAMS += loadgen lhsmd_posix lhsmtool_posix
 endif
 bin_PROGRAMS = lfs req_layout
 bin_SCRIPTS = $(bin_scripts)
@@ -171,6 +171,13 @@ l_getidentity_LDADD := $(LIBPTLCTL)
 l_getidentity_DEPENDENCIES := $(LIBPTLCTL)
 
 ltrack_stats_SOURCES = ltrack_stats.c
+
+lhsmtool_posix_SOURCES = lhsmtool_posix.c
+lhsmtool_posix_LDADD := liblustreapi.a $(PTHREAD_LIBS)
+lhsmtool_posix_DEPENDENCIES := liblustreapi.a
+lhsmd_posix_SOURCES = lhsmtool_posix.c
+lhsmd_posix_LDADD := liblustreapi.a $(PTHREAD_LIBS)
+lhsmd_posix_DEPENDENCIES := liblustreapi.a
 
 EXTRA_DIST = $(sbin_scripts) $(bin_scripts)
 
