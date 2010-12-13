@@ -2703,7 +2703,6 @@ static int lov_set_info_async(struct obd_export *exp, obd_count keylen,
                         err = obd_set_info_async(tgt->ltd_exp, keylen, key,
                                                  sizeof(*info->capa),
                                                  info->capa, set);
-                       
                 } else {
                         /* Only want a specific OSC */
                         if (check_uuid &&
