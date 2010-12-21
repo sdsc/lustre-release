@@ -13,6 +13,9 @@ grep -q 'Enterprise Server 10' /etc/SuSE-release && ALWAYS_EXCEPT="$ALWAYS_EXCEP
 # Tests that fail on uml
 [ "$UML" = "true" ] && EXCEPT="$EXCEPT 7"
 
+# It will be ported soon.
+EXCEPT="$EXCEPT 22"
+
 SRCDIR=`dirname $0`
 PATH=$PWD/$SRCDIR:$SRCDIR:$SRCDIR/../utils:$PATH
 
@@ -38,6 +41,7 @@ CLEANUP=${CLEANUP:-:}
 SETUP=${SETUP:-:}
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
+init_logging
 
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="12 16"
 
@@ -45,6 +49,8 @@ FAIL_ON_ERROR=${FAIL_ON_ERROR:-false}
 
 SETUP=${SETUP:-:}
 TRACE=${TRACE:-""}
+
+[ "$SANITYLOG" ] && rm -f $SANITYLOG || true
 
 check_and_setup_lustre
 
@@ -63,6 +69,9 @@ dd if=/dev/urandom of=$SAMPLE_FILE bs=1M count=1
 check_runas_id $RUNAS_ID $RUNAS_GID $RUNAS
 
 build_test_filter
+
+mkdir -p $MOUNT2
+mount_client $MOUNT2
 
 test_1a() {
 	touch $DIR1/f1
@@ -697,6 +706,77 @@ test_32b() { # bug 11270
 }
 run_test 32b "lockless i/o"
 
+print_jbd_stat () {
+        local dev
+        local mdts=$(get_facets MDS)
+        local varcvs
+        local mds
+
+        local stat=0
+        for mds in ${mdts//,/ }; do
+                varsvc=${mds}_svc
+                dev=$(basename $(do_facet $mds lctl get_param -n osd.${!varsvc}.mntdev))
+                val=$(do_facet $mds "procfile=/proc/fs/jbd/$dev/info;
+                [ -f \\\$procfile ] || procfile=/proc/fs/jbd2/$dev/info;
+                [ -f \\\$procfile ] || procfile=/proc/fs/jbd2/${dev}\:\\\*/info;
+                cat \\\$procfile | head -1;")
+                val=${val%% *};
+                stat=$(( stat + val))
+        done
+        echo $stat
+}
+
+# commit on sharing tests
+test_33a() {
+        remote_mds_nodsh && skip "remote MDS with nodsh" && return
+
+        [ -n "$CLIENTS" ] || { skip "Need two or more clients" && return 0; }
+        [ $CLIENTCOUNT -ge 2 ] || \
+                { skip "Need two or more clients, have $CLIENTCOUNT" && return 0; }
+
+        local nfiles=${TEST33_NFILES:-10000}
+        local param_file=$TMP/$tfile-params
+
+        save_lustre_params $(comma_list $(mdts_nodes)) "mdt.*.commit_on_sharing" > $param_file
+
+        local COS
+        local jbdold
+        local jbdnew
+        local jbd
+
+        for COS in 0 1; do
+                do_facet $SINGLEMDS lctl set_param mdt.*.commit_on_sharing=$COS
+                avgjbd=0
+                avgtime=0
+                for i in 1 2 3; do
+                        do_nodes $CLIENT1,$CLIENT2 "mkdir -p $DIR1/$tdir-\\\$(hostname)-$i"
+
+                        jbdold=$(print_jbd_stat)
+                        echo "=== START createmany old: $jbdold transaction"
+                        local elapsed=$(do_and_time "do_nodes $CLIENT1,$CLIENT2 createmany -o $DIR1/$tdir-\\\$(hostname)-$i/f- -r $DIR2/$tdir-\\\$(hostname)-$i/f- $nfiles > /dev/null 2>&1")
+                        jbdnew=$(print_jbd_stat)
+                        jbd=$(( jbdnew - jbdold ))
+                        echo "=== END   createmany new: $jbdnew transaction :  $jbd transactions  nfiles $nfiles time $elapsed COS=$COS"
+                        avgjbd=$(( avgjbd + jbd ))
+                        avgtime=$(( avgtime + elapsed ))
+                done
+                eval cos${COS}_jbd=$((avgjbd / 3))
+                eval cos${COS}_time=$((avgtime / 3))
+        done
+
+        echo "COS=0 transactions (avg): $cos0_jbd  time (avg): $cos0_time"
+        echo "COS=1 transactions (avg): $cos1_jbd  time (avg): $cos1_time"
+        [ "$cos0_jbd" != 0 ] && echo "COS=1 vs COS=0 jbd:  $((((cos1_jbd/cos0_jbd - 1)) * 100 )) %"
+        [ "$cos0_time" != 0 ] && echo "COS=1 vs COS=0 time: $((((cos1_time/cos0_time - 1)) * 100 )) %"
+
+        restore_lustre_params < $param_file
+        rm -f $param_file
+        return 0
+}
+run_test 33a "commit on sharing, cross crete/delete, 2 clients, benchmark"
+
+# End commit on sharing tests
+
 get_ost_lock_timeouts() {
     local nodes=${1:-$(comma_list $(osts_nodes))}
 
@@ -706,7 +786,7 @@ get_ost_lock_timeouts() {
     echo $locks
 }
 
-test_33() { #16129
+test_34() { #16129
         local OPER
         local lock_in
         local lock_out
@@ -749,7 +829,7 @@ test_33() { #16129
                 fi
         done
 }
-run_test 33 "no lock timeout under IO"
+run_test 34 "no lock timeout under IO"
 
 test_35() { # bug 17645
         local generation=[]

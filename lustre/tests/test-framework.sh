@@ -16,6 +16,7 @@ export CATASTROPHE=${CATASTROPHE:-/proc/sys/lnet/catastrophe}
 # function used by scripts run on remote nodes
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
 . $LUSTRE/tests/functions.sh
+. $LUSTRE/tests/yaml.sh
 
 LUSTRE_TESTS_CFG_DIR=${LUSTRE_TESTS_CFG_DIR:-${LUSTRE}/tests/cfg}
 
@@ -48,14 +49,15 @@ usage() {
 
 print_summary () {
     trap 0
-    [ "$TESTSUITE" == "lfscktest" ] && return 0
+    [ "$TESTSUITE" == "lfsck" ] && return 0
     [ -n "$ONLY" ] && echo "WARNING: ONLY is set to $(echo $ONLY)"
     local details
     local form="%-13s %-17s %-9s %s %s\n"
     printf "$form" "status" "script" "Total(sec)" "E(xcluded) S(low)"
     echo "------------------------------------------------------------------------------------"
-    for O in $TESTSUITE_LIST; do
+    for O in $DEFAULT_SUITES; do
         [ "${!O}" = "no" ] && continue || true
+        O=$(echo $O  | tr "-" "_" | tr "[:lower:]" "[:upper:]")
         local o=$(echo $O | tr "[:upper:]" "[:lower:]")
         o=${o//_/-}
         local log=${TMP}/${o}.log
@@ -82,7 +84,8 @@ print_summary () {
         printf "$form" "-" "-" "-" "S=$(echo $slow)"
     done
 
-    for O in $TESTSUITE_LIST; do
+    for O in $DEFAULT_SUITES; do
+        O=$(echo $O  | tr "-" "_" | tr "[:lower:]" "[:upper:]")
         if [ "${!O}" = "no" ]; then
             # FIXME.
             # only for those tests suits which are run directly from acc-sm script:
@@ -95,10 +98,11 @@ print_summary () {
         fi
     done
 
-    # print the detailed tests durations if DDETAILS=true
-    if $DDETAILS; then
-        echo "$details"
-    fi
+    for O in $DEFAULT_SUITES; do
+        O=$(echo $O  | tr "-" "_" | tr "[:lower:]" "[:upper:]")
+        [ "${!O}" = "done" -o "${!O}" = "no" ] || \
+            printf "$form" "UNFINISHED" "$O" ""
+    done
 }
 
 init_test_env() {
@@ -134,12 +138,16 @@ init_test_env() {
     #[ -d /r ] && export ROOT=${ROOT:-/r}
     export TMP=${TMP:-$ROOT/tmp}
     export TESTSUITELOG=${TMP}/${TESTSUITE}.log
+    if [[ -z $LOGDIRSET ]]; then
+        export LOGDIR=${LOGDIR:-${TMP}/test_logs/}/$(date +%s)
+        export LOGDIRSET=true
+    fi
     export HOSTNAME=${HOSTNAME:-`hostname`}
     if ! echo $PATH | grep -q $LUSTRE/utils; then
-	export PATH=$PATH:$LUSTRE/utils
+        export PATH=$PATH:$LUSTRE/utils
     fi
     if ! echo $PATH | grep -q $LUSTRE/test; then
-	export PATH=$PATH:$LUSTRE/tests
+        export PATH=$PATH:$LUSTRE/tests
     fi
     if ! echo $PATH | grep -q $LUSTRE/../lustre-iokit/sgpdd-survey; then
         export PATH=$PATH:$LUSTRE/../lustre-iokit/sgpdd-survey
@@ -154,7 +162,7 @@ init_test_env() {
     export MDSRATE=${MDSRATE:-"$LUSTRE/tests/mpi/mdsrate"}
     [ ! -f "$MDSRATE" ] && export MDSRATE=$(which mdsrate 2> /dev/null)
     if ! echo $PATH | grep -q $LUSTRE/tests/racer; then
-        export PATH=$PATH:$LUSTRE/tests/racer
+        export PATH=$LUSTRE/tests/racer:$PATH:
     fi
     if ! echo $PATH | grep -q $LUSTRE/tests/mpi; then
         export PATH=$PATH:$LUSTRE/tests/mpi
@@ -1575,12 +1583,12 @@ do_node() {
 
     if [ "$myPDSH" = "rsh" ]; then
 # we need this because rsh does not return exit code of an executed command
-	local command_status="$TMP/cs"
-	rsh $HOST ":> $command_status"
-	rsh $HOST "(PATH=\$PATH:$RLUSTRE/utils:$RLUSTRE/tests:/sbin:/usr/sbin;
-		    cd $RPWD; sh -c \"$@\") ||
-		    echo command failed >$command_status"
-	[ -n "$($myPDSH $HOST cat $command_status)" ] && return 1 || true
+        local command_status="$TMP/cs"
+        rsh $HOST ":> $command_status"
+        rsh $HOST "(PATH=\$PATH:$RLUSTRE/utils:$RLUSTRE/tests:/sbin:/usr/sbin;
+                    cd $RPWD; sh -c \"$@\") ||
+                    echo command failed >$command_status"
+        [ -n "$($myPDSH $HOST cat $command_status)" ] && return 1 || true
         return 0
     fi
 
@@ -1616,7 +1624,7 @@ do_nodes() {
     local rnodes=$1
     shift
 
-    if $(single_local_node $rnodes); then
+    if single_local_node $rnodes; then
         if $verbose; then
            do_nodev $rnodes "$@"
         else
@@ -1824,8 +1832,8 @@ mount_client() {
 
 remount_client()
 {
-	zconf_umount `hostname` $1 || error "umount failed"
-	zconf_mount `hostname` $1 || error "mount failed"
+        zconf_umount `hostname` $1 || error "umount failed"
+        zconf_mount `hostname` $1 || error "mount failed"
 }
 
 writeconf_facet () {
@@ -1894,7 +1902,7 @@ setupall() {
 }
 
 mounted_lustre_filesystems() {
-	awk '($3 ~ "lustre" && $1 ~ ":") { print $2 }' /proc/mounts
+        awk '($3 ~ "lustre" && $1 ~ ":") { print $2 }' /proc/mounts
 }
 
 init_facet_vars () {
@@ -2153,7 +2161,7 @@ cleanup_and_setup_lustre() {
         lctl set_param debug=0 || true
         cleanupall
         if [ "$ONLY" == "cleanup" ]; then
-    	    exit 0
+            exit 0
         fi
     fi
     check_and_setup_lustre
@@ -2599,7 +2607,6 @@ debugrestore() {
 
 error_noexit() {
     local TYPE=${TYPE:-"FAIL"}
-    local ERRLOG
     local tmp=$TMP
     [ -d "$SHARED_DIR_LOGS" ] && tmp=$SHARED_DIR_LOGS
 
@@ -2612,17 +2619,14 @@ error_noexit() {
 
     log " ${TESTSUITE} ${TESTNAME}: @@@@@@ ${TYPE}: $@ "
 
+    # We need to dump the logs on all nodes
     if $dump; then
-        ERRLOG=$tmp/lustre_${TESTSUITE}_${TESTNAME}.$(date +%s)
-        [[ $cntlog -eq 0 ]] || ERRLOG=$ERRLOG.$cntlog
-        (( cntlog+=1 )) 
-        echo "Dumping lctl log to $ERRLOG"
-        # We need to dump the logs on all nodes
-        do_nodes $(comma_list $(nodes_list)) $NODE $LCTL dk $ERRLOG
+        gather_logs $(comma_list $(nodes_list))
     fi
+
     debugrestore
     [ "$TESTSUITELOG" ] && echo "$0: ${TYPE}: $TESTNAME $@" >> $TESTSUITELOG
-    TEST_FAILED=true
+    echo "$@" > $LOGDIR/err
 }
 
 exit_status () {
@@ -2684,7 +2688,7 @@ build_test_filter() {
     done
     for G in $GRANT_CHECK_LIST; do
         eval GCHECK_ONLY_${G}=true
-   	done
+        done
 }
 
 basetest() {
@@ -2705,13 +2709,13 @@ run_test() {
         testname=ONLY_$1
         if [ ${!testname}x != x ]; then
             [ "$LAST_SKIPPED" ] && echo "" && LAST_SKIPPED=
-            run_one $1 "$2"
+            run_one_logged $1 "$2"
             return $?
         fi
         testname=ONLY_$base
         if [ ${!testname}x != x ]; then
             [ "$LAST_SKIPPED" ] && echo "" && LAST_SKIPPED=
-            run_one $1 "$2"
+            run_one_logged $1 "$2"
             return $?
         fi
         LAST_SKIPPED="y"
@@ -2744,7 +2748,7 @@ run_test() {
     fi
 
     LAST_SKIPPED=
-    run_one $1 "$2"
+    run_one_logged $1 "$2"
 
     return $?
 }
@@ -2790,9 +2794,13 @@ complete () {
 }
 
 pass() {
-    local status=PASS
-    $TEST_FAILED && status=FAIL
-    echo "$status $testnum $@" 2>&1 | tee -a $TESTSUITELOG
+    # Set TEST_STATUS here; will be used for logging the result
+    if [ -f $LOGDIR/err ]; then
+        TEST_STATUS="FAIL"
+    else
+        TEST_STATUS="PASS"
+    fi
+    echo $TEST_STATUS " " $@
 }
 
 check_mds() {
@@ -2812,28 +2820,48 @@ run_one() {
     message=$2
     tfile=f${testnum}
     export tdir=d0.${TESTSUITE}/d${base}
-
+    export TESTNAME=test_$testnum
     local SAVE_UMASK=`umask`
     umask 0022
 
-    local BEFORE=`date +%s`
     echo
-    log "== test $testnum: $message == `date +%H:%M:%S` ($BEFORE)"
-    export TESTNAME=test_$testnum
-    TEST_FAILED=false
-    cntlog=0
+    log "== test $testnum: $message == `date +%H:%M:%S`"
     test_${testnum} || error "test_$testnum failed with $?"
     cd $SAVE_PWD
     reset_fail_loc
-    check_grant ${testnum} || $TEST_FAILED || error "check_grant $testnum failed"
-    check_catastrophe || $TEST_FAILED || error "LBUG/LASSERT detected"
-    ps auxww | grep -v grep | grep -q multiop && ($TEST_FAILED || error "multiop still running")
-    pass "($((`date +%s` - $BEFORE))s)"
-    TEST_FAILED=false
-    cntlog=0
+    check_grant ${testnum} || error "check_grant $testnum failed with $?"
+    check_catastrophe || error "LBUG/LASSERT detected"
+    ps auxww | grep -v grep | grep -q multiop && error "multiop still running"
     unset TESTNAME
     unset tdir
     umask $SAVE_UMASK
+    return 0
+}
+
+run_one_logged() {
+    local BEFORE=`date +%s`
+    local TEST_ERROR
+    local name=${TESTSUITE}.test_${1}.test_log.$(hostname).log
+    local test_log=$LOGDIR/$name
+    rm -rf $LOGDIR/err
+
+    log_sub_test_begin test_${1}
+    (run_one $1 "$2") 2>&1 | tee $test_log
+    local RC=${PIPESTATUS[0]}
+
+    [ $RC -ne 0 ] && [ ! -f $LOGDIR/err ] && \
+        echo "test_$1 returned $RC" | tee $LOGDIR/err
+
+    duration=$((`date +%s` - $BEFORE))
+    pass "(${duration}s)"
+    [ -f $LOGDIR/err ] && TEST_ERROR=$(cat $LOGDIR/err)
+    log_sub_test_end $TEST_STATUS $duration "$RC" "$TEST_ERROR"
+
+    if [ -f $LOGDIR/err ]; then
+        $FAIL_ON_ERROR && exit $RC
+    fi
+
+    return 0
 }
 
 canonical_path() {
@@ -2906,6 +2934,13 @@ remote_mds_nodsh()
     remote_mds && [ "$PDSH" = "no_dsh" -o -z "$PDSH" -o -z "$mds_HOST" ]
 }
 
+require_dsh_mds()
+{
+        remote_mds_nodsh && echo "SKIP: $TESTSUITE: remote MDS with nodsh" && \
+            MSKIPPED=1 && return 1
+        return 0
+}
+
 remote_ost ()
 {
     local node
@@ -2919,6 +2954,13 @@ remote_ost_nodsh()
 {
     [ "$CLIENTONLY" ] && return 0 || true 
     remote_ost && [ "$PDSH" = "no_dsh" -o -z "$PDSH" -o -z "$ost_HOST" ]
+}
+
+require_dsh_ost()
+{
+        remote_ost_nodsh && echo "SKIP: $TESTSUITE: remote OST with nodsh" && \
+            OSKIPPED=1 && return 1
+        return 0
 }
 
 remote_mgs_nodsh()
@@ -3210,19 +3252,19 @@ exit \\\$rc;"
 # $2 file
 # $3 $RUNAS
 get_stripe_info() {
-	local tmp_file
+        local tmp_file
 
-	stripe_size=0
-	stripe_count=0
-	stripe_index=0
-	tmp_file=$(mktemp)
+        stripe_size=0
+        stripe_count=0
+        stripe_index=0
+        tmp_file=$(mktemp)
 
-	do_facet $1 $3 lfs getstripe -v $2 > $tmp_file
+        do_facet $1 $3 lfs getstripe -v $2 > $tmp_file
 
-	stripe_size=`awk '$1 ~ /size/ {print $2}' $tmp_file`
-	stripe_count=`awk '$1 ~ /count/ {print $2}' $tmp_file`
-	stripe_index=`awk '$1 ~ /stripe_offset/ {print $2}' $tmp_file`
-	rm -f $tmp_file
+        stripe_size=`awk '$1 ~ /size/ {print $2}' $tmp_file`
+        stripe_count=`awk '$1 ~ /count/ {print $2}' $tmp_file`
+        stripe_index=`awk '$1 ~ /stripe_offset/ {print $2}' $tmp_file`
+        rm -f $tmp_file
 }
 
 mdsrate_cleanup () {
@@ -3438,7 +3480,6 @@ wait_osc_import_state() {
     log "${ost_facet} now in ${CONN_STATE} state"
     return 0
 }
-
 get_clientmdc_proc_path() {
     echo "${1}-mdc-*"
 }
@@ -3447,7 +3488,8 @@ do_rpc_nodes () {
     local list=$1
     shift
 
-    local RPATH="PATH=$LUSTRE/tests/:$PATH"
+    # Add paths to lustre tests for 32 and 64 bit systems.
+    local RPATH="PATH=$RLUSTRE/tests:/usr/lib/lustre/tests:/usr/lib64/lustre/tests:$PATH"
     do_nodesv $list "${RPATH} NAME=${NAME} sh rpc.sh $@ "
 }
 
@@ -3545,27 +3587,30 @@ gather_logs () {
     # of writing the file to an NFS directory so it doesn't need to be copied.
     local tmp=$TMP
     local docp=true
-    [ -d "$SHARED_DIR_LOGS" ] && tmp=$SHARED_DIR_LOGS && docp=false
-
+    [ -f $LOGDIR/shared ] && docp=false
+ 
     # dump lustre logs, dmesg
-    do_nodes $list "log=$tmp/\\\$(hostname)-debug-$ts.log ;
-lctl dk \\\$log >/dev/null;
-log=$tmp/\\\$(hostname)-dmesg-$ts.log;
-dmesg > \\\$log; "
 
-    # FIXME: does it make sense to collect the logs for $ts only, but all
-    # TESTSUITE logs?
-    # rsync $TMP/*${TESTSUITE}* to gather the logs dumped by error fn
-    local logs=$TMP/'*'${TESTSUITE}'*'
-    if $docp; then
-        logs=$logs' '$tmp/'*'$ts'*'
+    prefix="$LOGDIR/${TESTSUITE}.${TESTNAME}"
+    suffix="$ts.log"
+    echo "Dumping lctl log to ${prefix}.*.${suffix}"
+
+    if [ "$CLIENTONLY" -o "$PDSH" == "no_dsh" ]; then
+        echo "Dumping logs only on local client."
+        $LCTL dk > ${prefix}.debug_log.$(hostname).${suffix}
+        dmesg > ${prefix}.dmesg.$(hostname).${suffix}
+        return
     fi
-    for node in ${list//,/ }; do
-        rsync -az $node:"$logs" $TMP
-    done
 
-    local archive=$TMP/${TESTSUITE}-$ts.tar.bz2
-    tar -jcf $archive $tmp/*$ts* $TMP/*${TESTSUITE}*
+    do_nodes --verbose $list \
+        "$LCTL dk > ${prefix}.debug_log.\\\$(hostname).${suffix};
+         dmesg > ${prefix}.dmesg.\\\$(hostname).${suffix}"
+    if [ ! -f $LOGDIR/shared ]; then
+        do_nodes $list rsync -az "${prefix}.*.${suffix}" $HOSTNAME:$LOGDIR
+      fi
+
+    local archive=$LOGDIR/${TESTSUITE}-$ts.tar.bz2
+    tar -jcf $archive $LOGDIR/*$ts* $LOGDIR/*${TESTSUITE}*
 
     echo $archive
 }
@@ -3708,3 +3753,65 @@ min_ost_size () {
     $LCTL get_param -n osc.*.kbytesavail | sort -n | head -n1
 }
 
+check_logdir() {
+    local dir=$1
+    # Checking for shared logdir
+    if [ ! -d $dir ]; then
+        # Not found. Create local logdir
+        mkdir -p $dir
+    else
+        touch $dir/node.$(hostname).yml
+    fi
+    return 0
+}
+
+check_write_access() {
+    local dir=$1
+    for node in $(nodes_list); do
+        if [ ! -f "$dir/node.${node}.yml" ]; then
+            # Logdir not accessible/writable from this node.
+            return 1
+        fi
+    done
+    return 0
+}
+
+init_logging() {
+    if [[ -n $YAML_LOG ]]; then
+        return
+    fi
+    export YAML_LOG=${LOGDIR}/results.yml
+    mkdir -p $LOGDIR
+    init_clients_lists
+
+    do_rpc_nodes $(comma_list $(nodes_list)) check_logdir $LOGDIR
+    if check_write_access $LOGDIR; then
+        touch $LOGDIR/shared
+        echo "Logging to shared log directory: $LOGDIR"
+    else
+        echo "Logging to local directory: $LOGDIR"
+    fi
+
+    yml_nodes_file $LOGDIR >> $YAML_LOG
+    yml_results_file >> $YAML_LOG
+}
+
+log_test() {
+    yml_log_test $1 >> $YAML_LOG
+}
+
+log_sub_test() {
+    yml_log_sub_test $@ >> $YAML_LOG
+}
+
+log_test_status() {
+     yml_log_test_status $@ >> $YAML_LOG
+}
+
+log_sub_test_begin() {
+    yml_log_sub_test_begin $@ >> $YAML_LOG
+}
+
+log_sub_test_end() {
+    yml_log_sub_test_end $@ >> $YAML_LOG
+}

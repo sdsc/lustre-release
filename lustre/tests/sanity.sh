@@ -65,7 +65,7 @@ LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
-
+init_logging
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 27m 36f 36g 36h 51b 51c 60c 63 64b 68 71 73 77f 78 101 103 115 120g 124b"
 
 FAIL_ON_ERROR=${FAIL_ON_ERROR:-false}

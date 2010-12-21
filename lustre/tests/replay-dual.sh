@@ -14,8 +14,8 @@ MOUNT_2=${MOUNT_2:-"yes"}
 . $LUSTRE/tests/test-framework.sh
 
 init_test_env $@
-
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
+init_logging
 
 remote_mds_nodsh && skip "remote MDS with nodsh" && exit 0
 

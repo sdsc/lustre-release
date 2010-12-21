@@ -8,6 +8,7 @@ LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
+init_logging
 
 LIBLUSTRETESTS=${LIBLUSTRETESTS:-$LUSTRE/liblustre/tests}
 
@@ -27,7 +28,6 @@ test_1() {
 	skip "$LIBLUSTRETESTS/sanity: not found"
     else
 	mkdir -p $MOUNT2
-	echo $LIBLUSTRETESTS/sanity --target=$LIBLUSTRE_MOUNT_TARGET
 	$LIBLUSTRETESTS/sanity --target=$LIBLUSTRE_MOUNT_TARGET
 	if [ "$LIBLUSTRE_EXCEPT" ]; then
 	    LIBLUSTRE_OPT="$LIBLUSTRE_OPT \
@@ -38,7 +38,3 @@ test_1() {
     fi
 }
 run_test 1 "liblustre sanity"
-
-complete $(basename $0) $SECONDS
-check_and_cleanup_lustre
-exit_status

@@ -31,6 +31,7 @@ HOSTNAME=`hostname`
 
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
+init_logging
 # STORED_MDSSIZE is used in test_18
 if [ -n "$MDSSIZE" ]; then
     STORED_MDSSIZE=$MDSSIZE
@@ -40,15 +41,14 @@ MDSSIZE=40000
 OSTSIZE=40000
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 
+require_dsh_mds || exit 0
+require_dsh_ost || exit 0
+
 if ! combined_mgs_mds; then
     # bug number for skipped test:    23954
     ALWAYS_EXCEPT="$ALWAYS_EXCEPT       24b"
 fi
 
-remote_mds_nodsh && skip "remote MDS with nodsh" && exit 0
-remote_ost_nodsh && skip "remote OST with nodsh" && exit 0
-
-#
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="30 31 45"
 
 assert_DIR
