@@ -187,7 +187,7 @@ debs:
 			mkdir ../patched; \
 			rm -f 00list *.dpatch; \
 			for file in [0-9][0-9][0-9][0-9]-*.patch; do \
-				if ! grep -q "^ debian/changelog" $$file; then \
+				if ! grep -q "^--- a/debian/" $$file; then \
 					desc=$$(cat $$file | sed -e '1,/^$$/d' \
 								 -e '/^---$$/,$$d'); \
 					dpatch_file=$${file/.patch/.dpatch}; \
@@ -203,7 +203,7 @@ debs:
 		fi; \
 	fi
 	rm -rf debs
-	dpkg-buildpackage || { \
+	dpkg-buildpackage -I.git -I\*.out[0-9]\* -I\*.swp || { \
 		rc=$${PIPESTATUS[0]}; \
 		[ $${rc} -gt 1 ] && exit $${rc}; \
 		exit 0; \
