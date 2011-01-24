@@ -899,7 +899,8 @@ LC_CONDITIONALS
 AC_DEFUN([LB_CONFIG_FILES],
 [
 AC_CONFIG_FILES(
-[Makefile
+[Makefile:Makefile.in]
+[
 autoMakefile
 ]
 [Rules:build/Rules.in]
