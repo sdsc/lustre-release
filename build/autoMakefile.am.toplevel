@@ -153,6 +153,7 @@ srpm:
 # configure first, so we could use the easier method of digging the
 # version out of the config.h file.
 debs:
+	set -x; \
 	lversion=$$(sed -ne 's/^#define VERSION "\(.*\)"$$/\1/p' config.h); \
 	cversion=$$(sed -ne '1s/^lustre (\(.*\)-[0-9][0-9]*).*$$/\1/p' debian/changelog); \
 	if [ "$$lversion" != "$$cversion" ]; then \
@@ -201,6 +202,9 @@ debs:
 				rm -f $$file; \
 			done; \
 		fi; \
+	else \
+		pwd; \
+		ls -la; \
 	fi
 	rm -rf debs
 	dpkg-buildpackage -I.git -I\*.out[0-9]\* -I\*.swp || { \
