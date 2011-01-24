@@ -51,3 +51,6 @@ module-dist-hook:
 	    echo -e "I have no idea how to create a META file in $(distdir).\nPlease file a bug at http://bugzilla.lustre.org/"; \
 	    exit 1; \
 	fi
+	if [ -d .git ]; then \
+		build/extract_patches $(distdir); \
+	fi
