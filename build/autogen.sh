@@ -21,39 +21,6 @@ compare_versions() {
 error_msg() {
 	echo "$cmd is $1.  version $required is required to build Lustre."
 
-	if [ -e /usr/lib/autolustre/bin/$cmd ]; then
-		cat >&2 <<-EOF
-		You apparently already have Lustre-specific autoconf/make RPMs
-		installed on your system at /usr/lib/autolustre/share/$cmd.
-		Please set your PATH to point to those versions:
-
-		export PATH="/usr/lib/autolustre/bin:\$PATH"
-		EOF
-	else
-		cat >&2 <<-EOF
-		Sun provides RPMs which can be installed alongside your
-		existing autoconf/make RPMs, if you are nervous about
-		upgrading.  See
-
-		http://downloads.lustre.org/public/tools/autolustre/README.autolustre
-
-		You may be able to download newer version from:
-
-		http://ftp.gnu.org/gnu/$tool/$tool-$required.tar.gz
-	EOF
-	fi
-	[ "$cmd" = "autoconf" -a "$required" = "2.57" ] && cat >&2 <<EOF
-
-or for RH9 systems you can use:
-
-ftp://fr2.rpmfind.net/linux/redhat/9/en/os/i386/RedHat/RPMS/autoconf-2.57-3.noarch.rpm
-EOF
-	[ "$cmd" = "automake-1.7" -a "$required" = "1.7.8" ] && cat >&2 <<EOF
-
-or for RH9 systems you can use:
-
-ftp://fr2.rpmfind.net/linux/fedora/core/1/i386/os/Fedora/RPMS/automake-1.7.8-1.noarch.rpm
-EOF
 	exit 1
 }
 
@@ -105,13 +72,13 @@ for dir in $OPTIONAL_DIRS; do
     fi
 done
 
-for AMVER in 1.7 1.8 1.9 1.10 1.11; do
+for AMVER in 1.9 1.10 1.11; do
      [ "$(which automake-$AMVER 2> /dev/null)" ] && break
 done
 
 [ "${AMVER#1.}" -ge "10" ] && AMOPT="-W no-portability"
 
-check_version automake automake-$AMVER "1.7.8"
+check_version automake automake-$AMVER "1.9"
 check_version autoconf autoconf "2.57"
 
 run_cmd()
@@ -132,6 +99,9 @@ run_cmd "aclocal-$AMVER $ACLOCAL_FLAGS"
 run_cmd "autoheader"
 run_cmd "automake-$AMVER -a -c $AMOPT"
 run_cmd autoconf
+
+export ACLOCAL="aclocal-$AMVER"
+export AUTOMAKE="automake-$AMVER"
 
 # Run autogen.sh in these directories
 for dir in $CONFIGURE_DIRS; do
