@@ -6993,6 +6993,21 @@ test_204d() {
 }
 run_test 204d "Print default stripe count and size ============="
 
+test_204e() {
+	mkdir -p $DIR/$tdir
+	$SETSTRIPE --count 0 --size 0 --offset -1 $DIR/$tdir
+
+	[ `$GETSTRIPE --raw --count $DIR/$tdir` -ne 0 ] &&
+		error "dir has incorrect stripe count"
+	[ `$GETSTRIPE --raw --size $DIR/$tdir` -ne 0 ] &&
+		error "dir has incorrect stripe size"
+	[ `$GETSTRIPE --raw --offset $DIR/$tdir` -ne -1 ] &&
+		error "dir has incorrect stripe offset"
+
+	return 0
+}
+run_test 204e "Print raw stripe attributes ================="
+
 test_204f() {
 	mkdir -p $DIR/$tdir
 	$SETSTRIPE --count 1 $DIR/$tdir

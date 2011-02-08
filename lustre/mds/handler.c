@@ -566,6 +566,14 @@ static int mds_getstatus(struct ptlrpc_request *req)
         RETURN(0);
 }
 
+static int is_rootdir(struct obd_device *obd, struct inode *inode)
+{
+        if (obd->u.mds.mds_rootfid.id == inode->i_ino)
+                return 1;
+        else
+                return 0;
+}
+
 /* get the LOV EA from @inode and store it into @md.  It can be at most
  * @size bytes, and @size is updated with the actual EA size.
  * The EA size is also returned on success, and -ve errno on failure.
@@ -581,7 +589,7 @@ int mds_get_md(struct obd_device *obd, struct inode *inode, void *md,
                 LOCK_INODE_MUTEX(inode);
         rc = fsfilt_get_md(obd, inode, md, *size, "lov");
 
-        if (rc == 0 && flags == MDS_GETATTR)
+        if (rc == 0 && flags == MDS_GETATTR && is_rootdir(obd, inode))
                 rc = mds_get_default_md(obd, md);
 
         if (rc < 0) {
