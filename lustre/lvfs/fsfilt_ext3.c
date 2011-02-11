@@ -68,10 +68,14 @@
 # include <quota/quotaio_v2.h>
 # include <quota/quota_tree.h>
 # define V2_DQTREEOFF    QT_TREEOFF
-#else
+#elif defined(HAVE_FS_QUOTAIO_V1_H)
 # include <quotaio_v1.h>
 # include <quotaio_v2.h>
 # include <quota_tree.h>
+# define V2_DQTREEOFF    QT_TREEOFF
+#else
+# include <quotaio_v2.h>     /* Fall back to internal compatibility header */
+# define QT_TREEOFF            1       /* Offset of tree in file in blocks */
 # define V2_DQTREEOFF    QT_TREEOFF
 #endif
 
