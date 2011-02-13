@@ -829,6 +829,20 @@ static inline struct cl_env *cl_env_container(struct lu_env *env)
         return container_of(env, struct cl_env, ce_lu);
 }
 
+void cl_env_decover(struct lu_env *env)
+{
+        struct cl_env *cle = cl_env_container(env);
+        cl_env_detach(cle);
+}
+EXPORT_SYMBOL(cl_env_decover);
+
+void cl_env_recover(struct lu_env *env)
+{
+        struct cl_env *cle = cl_env_container(env);
+        cl_env_attach(cle);
+}
+EXPORT_SYMBOL(cl_env_recover);
+
 struct lu_env *cl_env_peek(int *refcheck)
 {
         struct lu_env *env;

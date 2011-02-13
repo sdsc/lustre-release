@@ -550,6 +550,9 @@ static int osc_lock_upcall(void *cookie, int errcode)
                         cl_lock_delete(env, lock);
                         /* Hide the error. */
                         rc = 0;
+                } else if (rc == -EAGAIN) {
+                        /* for non-granted async glimpse size */
+                        cl_lock_delete(env, lock);
                 }
 
                 if (rc == 0)

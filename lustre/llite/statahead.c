@@ -110,6 +110,29 @@ static inline int sa_is_stopped(struct ll_statahead_info *sai)
         return !!(sai->sai_thread.t_flags & SVC_STOPPED);
 }
 
+static inline int sa_agl_recent_fail(struct inode *inode)
+{
+        struct ll_inode_info *lli = ll_i2info(inode);
+
+        if (lli->lli_agl_last_fail != 0 &&
+            cfs_time_before(cfs_time_current(),
+                            cfs_time_add(lli->lli_agl_last_fail,
+                                         cfs_time_seconds(10))))
+                return 1;
+        return 0;
+}
+
+static inline int sa_agl_should_run(struct ll_statahead_info *sai,
+                                    struct inode *inode, int index)
+{
+        if (inode != NULL && S_ISREG(inode->i_mode) &&
+            ll_i2info(inode)->lli_smd != NULL &&
+            sai->sai_index_next + ll_i2sbi(inode)->ll_sa_agl <= index &&
+            !sa_agl_recent_fail(inode))
+                return 1;
+        return 0;
+}
+
 /**
  * (1) hit ratio less than 80%
  * or
@@ -153,6 +176,145 @@ static void ll_sai_entry_cleanup(struct ll_sai_entry *entry, int free)
         EXIT;
 }
 
+static inline
+struct ll_statahead_info *ll_sai_get(struct ll_statahead_info *sai)
+{
+        LASSERT(sai);
+        cfs_atomic_inc(&sai->sai_refcount);
+        return sai;
+}
+
+static void ll_sai_put(struct ll_statahead_info *sai);
+
+static void ll_sai_agl_insert(struct inode *child, struct inode *parent,
+                              int index)
+{
+        struct ll_inode_info *clli = ll_i2info(child);
+        struct ll_inode_info *plli = ll_i2info(parent);
+        struct ll_inode_info *tlli;
+        struct ll_statahead_info *sai = ll_sai_get(plli->lli_sai);
+        int found = 0;
+        ENTRY;
+
+        clli->lli_agl_idx = index;
+        /* hold reference on child */
+        igrab(child);
+
+        cfs_spin_lock(&plli->lli_sa_lock);
+        cfs_list_for_each_entry_reverse(tlli, &sai->sai_agl_list, lli_agl_list){
+                if (tlli->lli_agl_idx < index) {
+                        cfs_list_add(&clli->lli_agl_list, &tlli->lli_agl_list);
+                        found = 1;
+                        break;
+                }
+        }
+
+        if (found == 0)
+                cfs_list_add(&clli->lli_agl_list, &sai->sai_agl_list);
+
+        sai->sai_agl_count++;
+        cfs_spin_unlock(&plli->lli_sa_lock);
+
+        ll_sai_put(sai);
+        EXIT;
+}
+
+static void ll_sai_glimpse_async(struct dentry *dentry, unsigned int index)
+{
+        struct inode *child = dentry->d_inode;
+        struct ll_inode_info *clli = ll_i2info(child);
+        int rc;
+        ENTRY;
+
+        cfs_spin_lock(&clli->lli_sa_lock);
+        /* to prevent multiple linked file async glimpse concurrently */
+        if (likely(clli->lli_agl_stat == SA_AGL_FREE)) {
+                LASSERT(cfs_list_empty(&clli->lli_agl_list));
+                clli->lli_agl_stat = SA_AGL_BUSY;
+                /* since only me in SA_AGL_BUSY status,
+                 * no need to hold child lock again */
+                cfs_spin_unlock(&clli->lli_sa_lock);
+
+                /* top half of async glimpse */
+                rc = cl_agl_init(child, &clli->lli_agl_args);
+                if (rc == 0)
+                        ll_sai_agl_insert(child, dentry->d_parent->d_inode,
+                                          index);
+                else
+                        clli->lli_agl_stat = SA_AGL_FREE;
+        } else {
+                cfs_spin_unlock(&clli->lli_sa_lock);
+        }
+        EXIT;
+}
+
+/* hold parent lock already */
+static void do_agl_cleanup_one(struct ll_inode_info *clli,
+                               struct ll_inode_info *plli,
+                               struct ll_statahead_info *sai, int force, int rc)
+{
+        int rc1;
+        ENTRY;
+
+        LASSERT_SPIN_LOCKED(&plli->lli_sa_lock);
+        LASSERT(!cfs_list_empty(&clli->lli_agl_list));
+
+        cfs_list_del_init(&clli->lli_agl_list);
+        sai->sai_agl_count--;
+        cfs_spin_unlock(&plli->lli_sa_lock);
+
+        if (force == 0)
+                /* bottom half of async glimpse */
+                rc1 = cl_agl_fini(&clli->lli_agl_args, rc);
+        else
+                rc1 = cl_agl_cleanup(&clli->lli_agl_args);
+
+        /* no need to hold child lock here*/
+        LASSERT(clli->lli_agl_stat == SA_AGL_BUSY);
+        if (rc == -EAGAIN || rc1 == -EAGAIN)
+                clli->lli_agl_last_fail = cfs_time_current();
+        else
+                clli->lli_agl_last_fail = 0;
+        clli->lli_agl_stat = SA_AGL_FREE;
+
+        /* drop reference on child */
+        iput(&clli->lli_vfs_inode);
+        cfs_spin_lock(&plli->lli_sa_lock);
+        EXIT;
+}
+
+static void ll_sai_glimpse_async_scan(struct inode *parent, int wait, int want)
+{
+        struct ll_inode_info *plli = ll_i2info(parent);
+        struct ll_inode_info *clli, *tlli;
+        struct ll_statahead_info *sai = plli->lli_sai;
+        int count = 0, rc;
+        ENTRY;
+
+        cfs_spin_lock(&plli->lli_sa_lock);
+        cfs_list_for_each_entry_safe(clli, tlli, &sai->sai_agl_list,
+                                     lli_agl_list) {
+                if (clli->lli_agl_idx < sai->sai_index_next) {
+                        do_agl_cleanup_one(clli, plli, sai, 1, 0);
+                        continue;
+                }
+
+                cfs_spin_unlock(&plli->lli_sa_lock);
+                rc = cl_agl_check(&clli->lli_agl_args, wait);
+                cfs_spin_lock(&plli->lli_sa_lock);
+
+                if (rc == CLO_WAIT)
+                        LASSERT(wait == 0);
+                else
+                        do_agl_cleanup_one(clli, plli, sai, 0, rc);
+
+                if (want != 0 && ++count > want)
+                        break;
+        }
+        cfs_spin_unlock(&plli->lli_sa_lock);
+        EXIT;
+}
+
 static struct ll_statahead_info *ll_sai_alloc(void)
 {
         struct ll_statahead_info *sai;
@@ -173,14 +335,7 @@ static struct ll_statahead_info *ll_sai_alloc(void)
         CFS_INIT_LIST_HEAD(&sai->sai_entries_sent);
         CFS_INIT_LIST_HEAD(&sai->sai_entries_received);
         CFS_INIT_LIST_HEAD(&sai->sai_entries_stated);
-        return sai;
-}
-
-static inline
-struct ll_statahead_info *ll_sai_get(struct ll_statahead_info *sai)
-{
-        LASSERT(sai);
-        cfs_atomic_inc(&sai->sai_refcount);
+        CFS_INIT_LIST_HEAD(&sai->sai_agl_list);
         return sai;
 }
 
@@ -194,16 +349,15 @@ static void ll_sai_put(struct ll_statahead_info *sai)
         lli = ll_i2info(inode);
         LASSERT(lli->lli_sai == sai);
 
-        if (cfs_atomic_dec_and_test(&sai->sai_refcount)) {
+        if (cfs_atomic_dec_and_lock(&sai->sai_refcount, &lli->lli_sa_lock)) {
                 struct ll_sai_entry *entry, *next;
+                struct ll_inode_info *clli, *tlli;
 
-                cfs_spin_lock(&lli->lli_sa_lock);
                 if (unlikely(cfs_atomic_read(&sai->sai_refcount) > 0)) {
                         /* It is race case, the interpret callback just hold
                          * a reference count */
                         cfs_spin_unlock(&lli->lli_sa_lock);
-                        EXIT;
-                        return;
+                        RETURN_EXIT;
                 }
 
                 LASSERT(lli->lli_opendir_key == NULL);
@@ -236,6 +390,18 @@ static void ll_sai_put(struct ll_statahead_info *sai)
                         cfs_list_del_init(&entry->se_list);
                         ll_sai_entry_cleanup(entry, 1);
                 }
+                cfs_spin_lock(&lli->lli_sa_lock);
+                if (sai->sai_agl_count > 0) {
+                        cfs_list_for_each_entry_safe(clli, tlli,
+                                                     &sai->sai_agl_list,
+                                                     lli_agl_list)
+                                do_agl_cleanup_one(clli, lli, sai, 1, 0);
+                }
+                LASSERTF(cfs_list_empty(&sai->sai_agl_list) &&
+                         sai->sai_agl_count == 0, "invalid agl_count = %d\n",
+                         sai->sai_agl_count);
+                cfs_spin_unlock(&lli->lli_sa_lock);
+
                 iput(inode);
                 OBD_FREE_PTR(sai);
         }
@@ -391,6 +557,7 @@ static int do_statahead_interpret(struct ll_statahead_info *sai)
         struct dentry          *dentry;
         int                     rc = 0;
         struct mdt_body        *body;
+        struct inode           *inode;
         ENTRY;
 
         cfs_spin_lock(&lli->lli_sa_lock);
@@ -423,7 +590,7 @@ static int do_statahead_interpret(struct ll_statahead_info *sai)
                 /*
                  * lookup.
                  */
-                struct dentry    *save = dentry;
+                struct dentry    *save = dentry, *fake;
                 struct it_cb_data icbd = {
                         .icbd_parent   = minfo->mi_dir,
                         .icbd_childp   = &dentry
@@ -435,6 +602,12 @@ static int do_statahead_interpret(struct ll_statahead_info *sai)
                  * SA can't handle it yet. */
                 if (body->valid & OBD_MD_MDS)
                         GOTO(out, rc = -EAGAIN);
+
+                fake = d_lookup(dentry->d_parent, &dentry->d_name);
+                if (fake != NULL) { 
+                        dput(fake);
+                        GOTO(out, rc = 1);
+                }
 
                 /* Here dentry->d_inode might be NULL, because the entry may
                  * have been removed before we start doing stat ahead. */
@@ -473,11 +646,16 @@ static int do_statahead_interpret(struct ll_statahead_info *sai)
 
                 ll_lookup_finish_locks(it, dentry);
         }
+
+        inode = dentry->d_inode;
+        if (rc == 0 && sa_agl_should_run(sai, inode, entry->se_index))
+                ll_sai_glimpse_async(dentry, entry->se_index);
+
         EXIT;
 
 out:
         /* The "ll_sai_entry_to_stated()" will drop related ldlm ibits lock
-         * reference count with ll_intent_drop_lock() called in spite of the
+         * reference count by calling "ll_intent_drop_lock()" in spite of the
          * above operations failed or not. Do not worry about calling
          * "ll_intent_drop_lock()" more than once. */
         if (likely(ll_sai_entry_to_stated(sai, entry)))
@@ -691,7 +869,7 @@ static int ll_statahead_one(struct dentry *parent, const char* entry_name,
         struct ll_inode_info     *lli = ll_i2info(dir);
         struct ll_statahead_info *sai = lli->lli_sai;
         struct qstr               name;
-        struct dentry            *dentry;
+        struct dentry            *dentry = NULL;
         struct ll_sai_entry      *se;
         int                       rc;
         ENTRY;
@@ -711,26 +889,31 @@ static int ll_statahead_one(struct dentry *parent, const char* entry_name,
         dentry = d_lookup(parent, &name);
         if (!dentry) {
                 dentry = d_alloc(parent, &name);
-                if (dentry) {
+                if (dentry)
                         rc = do_sa_lookup(dir, dentry);
-                        if (rc)
-                                dput(dentry);
-                } else {
+                else
                         GOTO(out, rc = -ENOMEM);
-                }
         } else {
+                if (unlikely(dentry->d_flags & DCACHE_LUSTRE_EARLY)) {
+                        /* we found the half-created entry, ignore it */
+                        CDEBUG(D_READA, "find half-created entry, ignore it\n");
+                        GOTO(out, rc = 1);
+                }
                 rc = do_sa_revalidate(dir, dentry);
-                if (rc)
-                        dput(dentry);
+                if (rc == 1 && sa_agl_should_run(sai, dentry->d_inode,
+                                                 se->se_index))
+                        ll_sai_glimpse_async(dentry, se->se_index);
         }
 
         EXIT;
 
 out:
         if (rc) {
+                if (dentry != NULL)
+                        dput(dentry);
+                se->se_stat = rc < 0 ? rc : SA_ENTRY_STATED;
                 CDEBUG(D_READA, "set sai entry %p index %u stat %d rc %d\n",
                        se, se->se_index, se->se_stat, rc);
-                se->se_stat = rc < 0 ? rc : SA_ENTRY_STATED;
                 if (ll_sai_entry_to_stated(sai, se))
                         cfs_waitq_signal(&sai->sai_waitq);
         } else {
@@ -765,6 +948,7 @@ static int ll_statahead_thread(void *arg)
         atomic_inc(&sbi->ll_sa_total);
         cfs_spin_lock(&lli->lli_sa_lock);
         thread->t_flags = SVC_RUNNING;
+        lli->lli_statahead_pid = cfs_curproc_pid();
         cfs_spin_unlock(&lli->lli_sa_lock);
         cfs_waitq_signal(&thread->t_ctl_waitq);
         CDEBUG(D_READA, "start doing statahead for %s\n", parent->d_name.name);
@@ -821,16 +1005,17 @@ static int ll_statahead_thread(void *arg)
                         /*
                          * don't stat-ahead first entry.
                          */
-                        if (unlikely(!first)) {
-                                first++;
+                        if (unlikely(++first == 1))
                                 continue;
-                        }
 
 keep_de:
                         l_wait_event(thread->t_ctl_waitq,
                                      !sa_is_running(sai) || sa_not_full(sai) ||
-                                     !sa_received_empty(sai),
-                                     &lwi);
+                                     !sa_received_empty(sai), &lwi);
+
+                        if (sai->sai_agl_count > 0 && sa_is_running(sai))
+                                ll_sai_glimpse_async_scan(dir, 0,
+                                        max(sai->sai_agl_count >> 2, 1));
 
                         while (!sa_received_empty(sai) && sa_is_running(sai))
                                 do_statahead_interpret(sai);
@@ -840,11 +1025,14 @@ keep_de:
                                 GOTO(out, rc);
                         }
 
-                        if (!sa_not_full(sai))
+                        if (!sa_not_full(sai)) {
+                                if (sai->sai_agl_count > 0)
+                                        ll_sai_glimpse_async_scan(dir, 0, 0);
                                 /*
                                  * do not skip the current de.
                                  */
                                 goto keep_de;
+                        }
 
                         rc = ll_statahead_one(parent, name, namelen);
                         if (rc < 0) {
@@ -858,17 +1046,35 @@ keep_de:
                         /*
                          * End of directory reached.
                          */
+                        first = 0;
                         while (1) {
                                 l_wait_event(thread->t_ctl_waitq,
                                              !sa_is_running(sai) ||
                                              !sa_received_empty(sai) ||
                                              sai->sai_sent == sai->sai_replied,
                                              &lwi);
-                                if (!sa_received_empty(sai) &&
-                                    sa_is_running(sai))
+
+                                if (sai->sai_agl_count >0 && sa_is_running(sai))
+                                        ll_sai_glimpse_async_scan(dir, 0,
+                                                max(sai->sai_agl_count >> 1,1));
+
+                                while (!sa_received_empty(sai) &&
+                                       sa_is_running(sai))
                                         do_statahead_interpret(sai);
-                                else
-                                        GOTO(out, rc);
+
+                                if (!sa_is_running(sai))
+                                        GOTO(out, rc = 0);
+
+                                if (sai->sai_sent == sai->sai_replied) {
+                                        /* maybe race just after above while()*/
+                                        if(++first == 1)
+                                                continue;
+
+                                        if (sai->sai_agl_count > 0)
+                                                ll_sai_glimpse_async_scan(dir,
+                                                                        1, 0);
+                                        GOTO(out, rc = 0);
+                                }
                         }
                 } else if (1) {
                         /*
@@ -888,6 +1094,7 @@ out:
         ll_dir_chain_fini(&chain);
         cfs_spin_lock(&lli->lli_sa_lock);
         thread->t_flags = SVC_STOPPED;
+        lli->lli_statahead_pid = 0;
         cfs_spin_unlock(&lli->lli_sa_lock);
         cfs_waitq_signal(&sai->sai_waitq);
         cfs_waitq_signal(&thread->t_ctl_waitq);
@@ -956,7 +1163,7 @@ enum {
          */
         LS_FIRST_DE,
         /**
-         * the first hidden dirent, that is "." 
+         * the first hidden dirent, that is "."
          */
         LS_FIRST_DOT_DE
 };
@@ -1075,7 +1282,7 @@ out:
 int do_statahead_enter(struct inode *dir, struct dentry **dentryp, int lookup)
 {
         struct ll_inode_info     *lli;
-        struct ll_statahead_info *sai;
+        struct ll_statahead_info *sai = NULL;
         struct dentry            *parent;
         struct l_wait_info        lwi = { 0 };
         int                       rc = 0;
@@ -1127,7 +1334,7 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp, int lookup)
                                           ll_sai_entry_stated(sai) ||
                                           sa_is_stopped(sai),
                                           &lwi);
-                        if (unlikely(rc == -EINTR))
+                        if (unlikely(rc < 0))
                                 RETURN(rc);
                 }
 
@@ -1165,7 +1372,6 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp, int lookup)
         if (unlikely(sai->sai_inode == NULL)) {
                 CWARN("Do not start stat ahead on dying inode "DFID"\n",
                       PFID(&lli->lli_fid));
-                OBD_FREE_PTR(sai);
                 GOTO(out, rc = -ESTALE);
         }
 
@@ -1180,8 +1386,7 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp, int lookup)
                       PFID(&lli->lli_fid), PFID(&nlli->lli_fid));
                 dput(parent);
                 iput(sai->sai_inode);
-                OBD_FREE_PTR(sai);
-                RETURN(-EAGAIN);
+                GOTO(out, rc = -EAGAIN);
         }
 
         lli->lli_sai = sai;
@@ -1207,6 +1412,8 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp, int lookup)
         RETURN(-EEXIST);
 
 out:
+        if (sai != NULL)
+                OBD_FREE_PTR(sai);
         cfs_spin_lock(&lli->lli_sa_lock);
         lli->lli_opendir_key = NULL;
         lli->lli_opendir_pid = 0;

@@ -43,6 +43,41 @@
 #ifndef LCLIENT_H
 #define LCLIENT_H
 
+int cl_agl_init(struct inode *inode, struct cl_agl_args *caa);
+
+int __cl_agl_check(struct cl_agl_args *caa, int wait);
+static inline int cl_agl_check(struct cl_agl_args *caa, int wait)
+{
+        int ret;
+
+        cl_env_recover(caa->caa_env);
+        ret = __cl_agl_check(caa, wait);
+        cl_env_decover(caa->caa_env);
+        return ret;
+}
+
+int __cl_agl_fini(struct cl_agl_args *caa, int rc);
+static inline int cl_agl_fini(struct cl_agl_args *caa, int rc)
+{
+        int ret;
+
+        cl_env_recover(caa->caa_env);
+        ret = __cl_agl_fini(caa, rc);
+        cl_env_decover(caa->caa_env);
+        return ret;
+}
+
+int __cl_agl_cleanup(struct cl_agl_args *caa);
+static inline int cl_agl_cleanup(struct cl_agl_args *caa)
+{
+        int ret;
+
+        cl_env_recover(caa->caa_env);
+        ret = __cl_agl_cleanup(caa);
+        cl_env_decover(caa->caa_env);
+        return ret;
+}
+
 int cl_glimpse_size(struct inode *inode);
 int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
                     struct inode *inode, struct cl_object *clob);
