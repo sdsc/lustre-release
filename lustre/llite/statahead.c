@@ -202,8 +202,7 @@ static void ll_sai_put(struct ll_statahead_info *sai)
                         /* It is race case, the interpret callback just hold
                          * a reference count */
                         cfs_spin_unlock(&lli->lli_sa_lock);
-                        EXIT;
-                        return;
+                        RETURN_EXIT;
                 }
 
                 LASSERT(lli->lli_opendir_key == NULL);
@@ -423,7 +422,7 @@ static int do_statahead_interpret(struct ll_statahead_info *sai)
                 /*
                  * lookup.
                  */
-                struct dentry    *save = dentry;
+                struct dentry    *save = dentry, *fake;
                 struct it_cb_data icbd = {
                         .icbd_parent   = minfo->mi_dir,
                         .icbd_childp   = &dentry
@@ -435,6 +434,16 @@ static int do_statahead_interpret(struct ll_statahead_info *sai)
                  * SA can't handle it yet. */
                 if (body->valid & OBD_MD_MDS)
                         GOTO(out, rc = -EAGAIN);
+
+                /* It is very rare case: some item is deleted and recreated with
+                 * the same name, and just between the delete and recreate,
+                 * statahead triggers lookup RPC with such specified name. */
+                fake = d_lookup(dentry->d_parent, &dentry->d_name);
+                if (unlikely(fake != NULL &&
+                             fake->d_flags & DCACHE_LUSTRE_EARLY)) {
+                        dput(fake);
+                        GOTO(out, rc = 1);
+                }
 
                 /* Here dentry->d_inode might be NULL, because the entry may
                  * have been removed before we start doing stat ahead. */
@@ -477,7 +486,7 @@ static int do_statahead_interpret(struct ll_statahead_info *sai)
 
 out:
         /* The "ll_sai_entry_to_stated()" will drop related ldlm ibits lock
-         * reference count with ll_intent_drop_lock() called in spite of the
+         * reference count by calling "ll_intent_drop_lock()" in spite of the
          * above operations failed or not. Do not worry about calling
          * "ll_intent_drop_lock()" more than once. */
         if (likely(ll_sai_entry_to_stated(sai, entry)))
@@ -691,7 +700,7 @@ static int ll_statahead_one(struct dentry *parent, const char* entry_name,
         struct ll_inode_info     *lli = ll_i2info(dir);
         struct ll_statahead_info *sai = lli->lli_sai;
         struct qstr               name;
-        struct dentry            *dentry;
+        struct dentry            *dentry = NULL;
         struct ll_sai_entry      *se;
         int                       rc;
         ENTRY;
@@ -711,26 +720,28 @@ static int ll_statahead_one(struct dentry *parent, const char* entry_name,
         dentry = d_lookup(parent, &name);
         if (!dentry) {
                 dentry = d_alloc(parent, &name);
-                if (dentry) {
+                if (dentry)
                         rc = do_sa_lookup(dir, dentry);
-                        if (rc)
-                                dput(dentry);
-                } else {
+                else
                         GOTO(out, rc = -ENOMEM);
-                }
         } else {
+                if (unlikely(dentry->d_flags & DCACHE_LUSTRE_EARLY)) {
+                        /* we found the half-created entry, ignore it */
+                        CDEBUG(D_READA, "find half-created entry, ignore it\n");
+                        GOTO(out, rc = 1);
+                }
                 rc = do_sa_revalidate(dir, dentry);
-                if (rc)
-                        dput(dentry);
         }
 
         EXIT;
 
 out:
         if (rc) {
+                if (dentry != NULL)
+                        dput(dentry);
+                se->se_stat = rc < 0 ? rc : SA_ENTRY_STATED;
                 CDEBUG(D_READA, "set sai entry %p index %u stat %d rc %d\n",
                        se, se->se_index, se->se_stat, rc);
-                se->se_stat = rc < 0 ? rc : SA_ENTRY_STATED;
                 if (ll_sai_entry_to_stated(sai, se))
                         cfs_waitq_signal(&sai->sai_waitq);
         } else {
@@ -765,6 +776,7 @@ static int ll_statahead_thread(void *arg)
         atomic_inc(&sbi->ll_sa_total);
         cfs_spin_lock(&lli->lli_sa_lock);
         thread->t_flags = SVC_RUNNING;
+        lli->lli_statahead_pid = cfs_curproc_pid();
         cfs_spin_unlock(&lli->lli_sa_lock);
         cfs_waitq_signal(&thread->t_ctl_waitq);
         CDEBUG(D_READA, "start doing statahead for %s\n", parent->d_name.name);
@@ -888,6 +900,7 @@ out:
         ll_dir_chain_fini(&chain);
         cfs_spin_lock(&lli->lli_sa_lock);
         thread->t_flags = SVC_STOPPED;
+        lli->lli_statahead_pid = 0;
         cfs_spin_unlock(&lli->lli_sa_lock);
         cfs_waitq_signal(&sai->sai_waitq);
         cfs_waitq_signal(&thread->t_ctl_waitq);
@@ -956,7 +969,7 @@ enum {
          */
         LS_FIRST_DE,
         /**
-         * the first hidden dirent, that is "." 
+         * the first hidden dirent, that is "."
          */
         LS_FIRST_DOT_DE
 };
@@ -1075,7 +1088,7 @@ out:
 int do_statahead_enter(struct inode *dir, struct dentry **dentryp, int lookup)
 {
         struct ll_inode_info     *lli;
-        struct ll_statahead_info *sai;
+        struct ll_statahead_info *sai = NULL;
         struct dentry            *parent;
         struct l_wait_info        lwi = { 0 };
         int                       rc = 0;
@@ -1127,7 +1140,7 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp, int lookup)
                                           ll_sai_entry_stated(sai) ||
                                           sa_is_stopped(sai),
                                           &lwi);
-                        if (unlikely(rc == -EINTR))
+                        if (unlikely(rc < 0))
                                 RETURN(rc);
                 }
 
@@ -1165,7 +1178,6 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp, int lookup)
         if (unlikely(sai->sai_inode == NULL)) {
                 CWARN("Do not start stat ahead on dying inode "DFID"\n",
                       PFID(&lli->lli_fid));
-                OBD_FREE_PTR(sai);
                 GOTO(out, rc = -ESTALE);
         }
 
@@ -1180,8 +1192,7 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp, int lookup)
                       PFID(&lli->lli_fid), PFID(&nlli->lli_fid));
                 dput(parent);
                 iput(sai->sai_inode);
-                OBD_FREE_PTR(sai);
-                RETURN(-EAGAIN);
+                GOTO(out, rc = -EAGAIN);
         }
 
         lli->lli_sai = sai;
@@ -1207,6 +1218,8 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp, int lookup)
         RETURN(-EEXIST);
 
 out:
+        if (sai != NULL)
+                OBD_FREE_PTR(sai);
         cfs_spin_lock(&lli->lli_sa_lock);
         lli->lli_opendir_key = NULL;
         lli->lli_opendir_pid = 0;
