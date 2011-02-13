@@ -56,6 +56,12 @@
 #define DCACHE_LUSTRE_INVALID 0x4000
 #endif
 
+/* Create family functions will add dentry into dcache with DCACHE_LUSTRE_EARLY
+ * to tell statahead thread that NOT process it. */
+#ifndef DCACHE_LUSTRE_EARLY
+#define DCACHE_LUSTRE_EARLY 0x8000
+#endif
+
 #define LL_IT2STR(it) ((it) ? ldlm_it2str((it)->it_op) : "0")
 #define LUSTRE_FPRIVATE(file) ((file)->private_data)
 
@@ -176,13 +182,14 @@ struct ll_inode_info {
 
         /* metadata statahead */
         /* protect statahead stuff: lli_opendir_pid, lli_opendir_key, lli_sai,
-         * and so on. */
+         * lli_statahead_pid, and so on. */
         cfs_spinlock_t          lli_sa_lock;
         /*
          * "opendir_pid" is the token when lookup/revalid -- I am the owner of
          * dir statahead.
          */
         pid_t                   lli_opendir_pid;
+        pid_t                   lli_statahead_pid;
         /*
          * since parent-child threads can share the same @file struct,
          * "opendir_key" is the token when dir close for case of parent exit
@@ -192,6 +199,7 @@ struct ll_inode_info {
         struct cl_object       *lli_clob;
         /* the most recent timestamps obtained from mds */
         struct ost_lvb          lli_lvb;
+        cfs_semaphore_t         lli_readdir_sem; /* protect readdir and statahead */
 };
 
 /*
