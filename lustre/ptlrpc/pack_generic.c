@@ -1570,6 +1570,9 @@ void lustre_swab_connect(struct obd_connect_data *ocd)
         __swab64s(&ocd->ocd_transno);
         __swab32s(&ocd->ocd_group);
         __swab32s(&ocd->ocd_cksum_types);
+        __swab32s(&ocd->ocd_max_easize);
+        __swab32s(&ocd->padding);
+        __swab64s(&ocd->ocd_maxbytes);
         CLASSERT(offsetof(typeof(*ocd), padding1) != 0);
         CLASSERT(offsetof(typeof(*ocd), padding2) != 0);
 }
