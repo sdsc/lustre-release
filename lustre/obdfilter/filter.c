@@ -1740,6 +1740,12 @@ static int filter_intent_policy(struct ldlm_namespace *ns,
                 RETURN(err);
         }
 
+        /* do not send GL callback for async glimpse size */
+        if (flags & LDLM_FL_AGL) {
+                unlock_res(res);
+                RETURN(ELDLM_LOCK_ABORTED);
+        }
+
         /* Do not grant any lock, but instead send GL callbacks.  The extent
          * policy nicely created a list of all PW locks for us.  We will choose
          * the highest of those which are larger than the size in the LVB, if
