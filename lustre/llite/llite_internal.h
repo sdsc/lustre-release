@@ -56,6 +56,12 @@
 #define DCACHE_LUSTRE_INVALID 0x4000
 #endif
 
+/* Create family functions will add dentry into dcache with DCACHE_LUSTRE_EARLY
+ * to tell statahead thread that NOT process it. */
+#ifndef DCACHE_LUSTRE_EARLY
+#define DCACHE_LUSTRE_EARLY 0x8000
+#endif
+
 #define LL_IT2STR(it) ((it) ? ldlm_it2str((it)->it_op) : "0")
 #define LUSTRE_FPRIVATE(file) ((file)->private_data)
 
@@ -140,6 +146,7 @@ struct ll_inode_info {
         int                     lli_async_rc;
 
         struct posix_acl       *lli_posix_acl;
+        struct posix_acl       *lli_def_acl;
 
         /* remote permission hash */
         cfs_hlist_head_t       *lli_remote_perms;
@@ -176,13 +183,14 @@ struct ll_inode_info {
 
         /* metadata statahead */
         /* protect statahead stuff: lli_opendir_pid, lli_opendir_key, lli_sai,
-         * and so on. */
+         * lli_statahead_pid, and so on. */
         cfs_spinlock_t          lli_sa_lock;
         /*
          * "opendir_pid" is the token when lookup/revalid -- I am the owner of
          * dir statahead.
          */
         pid_t                   lli_opendir_pid;
+        pid_t                   lli_statahead_pid;
         /*
          * since parent-child threads can share the same @file struct,
          * "opendir_key" is the token when dir close for case of parent exit
@@ -192,6 +200,50 @@ struct ll_inode_info {
         struct cl_object       *lli_clob;
         /* the most recent timestamps obtained from mds */
         struct ost_lvb          lli_lvb;
+
+        /**
+         * async glimpse status.
+         */
+        unsigned int            lli_agl_stat;
+        unsigned int            lli_agl_ref;
+        union {
+                /**
+                 * to prevent statahead scan for ever.
+                 */
+                unsigned int    lau_idx;
+                /**
+                 * the one taken over the async glimpse.
+                 */
+                pid_t           lau_owner;
+        } lli_agl_u;
+        /**
+         * to parent that the async glimpse is under.
+         */
+        struct inode           *lli_agl_parent;
+        /**
+         * non-statahead threads wait here.
+         */
+        cfs_waitq_t             lli_agl_waitq;
+        /**
+         * for child items, to link into parent's sai_agl_list.
+         */
+        cfs_list_t              lli_agl_list;
+        /**
+         * for async glimpse lock process
+         */
+        struct cl_agl_args      lli_agl_args;
+        cfs_time_t              lli_agl_last_fail;
+
+        cfs_semaphore_t         lli_readdir_sem; /* protect readdir and statahead */
+};
+
+enum {
+        SA_AGL_INIT     = 0,
+        SA_AGL_PREP     = 1,
+        SA_AGL_ENQU     = 2,
+        SA_AGL_TAKE     = 3,
+        SA_AGL_SUCC     = 4,
+        SA_AGL_FAIL     = 5
 };
 
 /*
@@ -394,6 +446,7 @@ struct ll_sb_info {
 
         /* metadata stat-ahead */
         unsigned int              ll_sa_max;     /* max statahead RPCs */
+        unsigned int              ll_sa_agl;     /* for async glimpse size */
         atomic_t                  ll_sa_total;   /* statahead thread started
                                                   * count */
         atomic_t                  ll_sa_wrong;   /* statahead thread stopped for
@@ -1094,6 +1147,7 @@ void et_fini(struct eacl_table *et);
 
 #define LL_SA_RPC_MIN   2
 #define LL_SA_RPC_DEF   32
+#define LL_AGL_DEF      0
 #define LL_SA_RPC_MAX   8192
 
 /* per inode struct, for dir only */
@@ -1129,11 +1183,29 @@ struct ll_statahead_info {
         cfs_list_t              sai_entries_sent;     /* entries sent out */
         cfs_list_t              sai_entries_received; /* entries returned */
         cfs_list_t              sai_entries_stated;   /* entries stated */
+        cfs_list_t              sai_agl_list;
+        int                     sai_agl_count;
 };
 
+int do_agl_check(struct inode *inode);
 int do_statahead_enter(struct inode *dir, struct dentry **dentry, int lookup);
 void ll_statahead_exit(struct inode *dir, struct dentry *dentry, int result);
 void ll_stop_statahead(struct inode *dir, void *key);
+
+static inline int ll_agl_check(struct dentry *dentry)
+{
+        struct inode *inode = dentry->d_inode;
+        struct ll_sb_info *sbi = ll_i2sbi(inode);
+        struct ll_inode_info *lli = ll_i2info(dentry->d_parent->d_inode);
+        int rc = -EAGAIN;
+
+        LASSERT(S_ISREG(inode->i_mode) && ll_i2info(inode)->lli_smd != NULL);
+
+        if (sbi->ll_sa_agl < sbi->ll_sa_max &&
+            lli->lli_opendir_pid == cfs_curproc_pid())
+                rc = do_agl_check(inode);
+        return rc;
+}
 
 static inline
 void ll_statahead_mark(struct inode *dir, struct dentry *dentry)
