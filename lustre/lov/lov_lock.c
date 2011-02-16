@@ -523,7 +523,7 @@ static int lov_lock_enqueue_one(const struct lu_env *env, struct lov_lock *lck,
 
         /* first, try to enqueue a sub-lock ... */
         result = cl_enqueue_try(env, sublock, io, enqflags);
-        if (sublock->cll_state == CLS_ENQUEUED)
+        if (sublock->cll_state == CLS_ENQUEUED && !(enqflags & CEF_AGL))
                 /* if it is enqueued, try to `wait' on it---maybe it's already
                  * granted */
                 result = cl_wait_try(env, sublock);
@@ -533,7 +533,7 @@ static int lov_lock_enqueue_one(const struct lu_env *env, struct lov_lock *lck,
          * before proceeding to the next one.
          */
         if (result == CLO_WAIT && sublock->cll_state <= CLS_HELD &&
-            enqflags & CEF_ASYNC && !last)
+            enqflags & CEF_ASYNC && (!last || enqflags & CEF_AGL))
                 result = 0;
         RETURN(result);
 }
@@ -813,6 +813,8 @@ static int lov_lock_wait(const struct lu_env *env,
                         minstate = min(minstate, sublock->cll_state);
                         lov_sublock_unlock(env, sub, closure, subenv);
                 }
+                if (rc == CLO_REENQUEUED)
+                        rc = 0;
                 result = lov_subresult(result, rc);
                 if (result != 0)
                         break;

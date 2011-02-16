@@ -95,6 +95,16 @@ static struct ptlrpcd_scope_ctl ptlrpcd_scopes[PSCOPE_NR] = {
                         }
                 }
         },
+        [PSCOPE_AGL] = {
+                .pscope_thread = {
+                        [PT_NORMAL] = {
+                                .pt_name = "ptlrpcd-agl"
+                        },
+                        [PT_RECOVERY] = {
+                                .pt_name = "ptlrpcd-agl-rcv"
+                        }
+                }
+        },
         [PSCOPE_OTHER] = {
                 .pscope_thread = {
                         [PT_NORMAL] = {
@@ -197,11 +207,6 @@ int ptlrpcd_add_req(struct ptlrpc_request *req, enum ptlrpcd_scope scope)
                 ptlrpc_req_interpret(NULL, req, -EBADR);
                 req->rq_set = NULL;
                 ptlrpc_req_finished(req);
-        } else if (req->rq_send_state == LUSTRE_IMP_CONNECTING) {
-                /*
-                 * The request is for recovery, should be sent ASAP.
-                 */
-                cfs_waitq_signal(&pc->pc_set->set_waitq);
         }
 
         return rc;

@@ -368,6 +368,7 @@ static int osd_fid_lookup(const struct lu_env *env,
         struct osd_inode_id    *id;
         struct osd_oi          *oi;
         struct inode           *inode;
+        struct osd_obj_id      *ooi = &osd_oti_get(env)->oti_ooi;
         int                     result;
 
         LINVRNT(osd_invariant(obj));
@@ -390,7 +391,15 @@ static int osd_fid_lookup(const struct lu_env *env,
         if (OBD_FAIL_CHECK(OBD_FAIL_OST_ENOENT))
                 RETURN(-ENOENT);
 
-        result = osd_oi_lookup(info, oi, fid, id);
+        if (ooi->ooi_valid && lu_fid_eq(fid, &ooi->ooi_fid)) {
+                id->oii_ino = ooi->ooi_ino;
+                id->oii_gen = ooi->ooi_gen;
+                result = 0;
+        } else {
+                result = osd_oi_lookup(info, oi, fid, id);
+        }
+        /* For each obj, "fid <=> ino" mapping is used only once when init. */
+        ooi->ooi_valid = 0;
         if (result == 0) {
                 inode = osd_iget(info, dev, id);
                 if (!IS_ERR(inode)) {
@@ -871,12 +880,16 @@ static void osd_conf_get(const struct lu_env *env,
                          const struct dt_device *dev,
                          struct dt_device_param *param)
 {
+        struct super_block *sb = osd_sb(osd_dt_dev(dev));
+
         /*
          * XXX should be taken from not-yet-existing fs abstraction layer.
          */
         param->ddp_max_name_len  = LDISKFS_NAME_LEN;
         param->ddp_max_nlink     = LDISKFS_LINK_MAX;
         param->ddp_block_shift   = osd_sb(osd_dt_dev(dev))->s_blocksize_bits;
+        param->ddp_mntopt_acl    = !!test_opt(sb, POSIX_ACL);
+        param->ddp_mntopt_uxattr = !!test_opt(sb, XATTR_USER);
 }
 
 /**
@@ -1885,7 +1898,7 @@ int osd_fid_unpack(struct lu_fid *fid, const struct osd_fid_pack *pack)
  * \retval 0 on success
  */
 static int osd_ea_fid_get(const struct lu_env *env, struct osd_object *obj,
-                          __u32 ino, struct lu_fid *fid)
+                          __u32 ino, struct lu_fid *fid, struct osd_obj_id *ooi)
 {
         struct osd_thread_info  *info      = osd_oti_get(env);
         struct lustre_mdt_attrs *mdt_attrs = &info->oti_mdt_attrs;
@@ -1929,6 +1942,12 @@ static int osd_ea_fid_get(const struct lu_env *env, struct osd_object *obj,
         } else if (rc == -ENODATA) {
                 osd_igif_get(env, inode, fid);
                 rc = 0;
+        }
+        if (ooi != NULL) {
+                ooi->ooi_fid = *fid;
+                ooi->ooi_ino = inode->i_ino;
+                ooi->ooi_gen = inode->i_generation;
+                ooi->ooi_valid = 1;
         }
         iput(inode);
 out:
@@ -3037,6 +3056,7 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
         struct ldiskfs_dir_entry_2 *de;
         struct buffer_head         *bh;
         struct lu_fid              *fid = (struct lu_fid *) rec;
+        struct osd_obj_id          *ooi = &osd_oti_get(env)->oti_ooi;
         int ino;
         int rc;
 
@@ -3053,8 +3073,14 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
 
                 /* done with de, release bh */
                 brelse(bh);
-                if (rc != 0)
-                        rc = osd_ea_fid_get(env, obj, ino, fid);
+                if (rc == 0) {
+                        ooi->ooi_fid = *fid;
+                        ooi->ooi_ino = ino;
+                        ooi->ooi_gen = OSD_OII_NOGEN;
+                        ooi->ooi_valid = 1;
+                } else {
+                        rc = osd_ea_fid_get(env, obj, ino, fid, ooi);
+                }
         } else
                 rc = -ENOENT;
 
@@ -3691,7 +3717,8 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
         ENTRY;
 
         if (!fid_is_sane(fid))
-                rc = osd_ea_fid_get(env, obj, it->oie_dirent->oied_ino, fid);
+                rc = osd_ea_fid_get(env, obj, it->oie_dirent->oied_ino, fid,
+                                    NULL);
 
         if (rc == 0)
                 osd_it_pack_dirent(lde, fid, it->oie_dirent->oied_off,
