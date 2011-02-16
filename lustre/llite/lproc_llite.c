@@ -562,6 +562,34 @@ static int ll_wr_statahead_max(struct file *file, const char *buffer,
         return count;
 }
 
+static int ll_rd_statahead_agl(char *page, char **start, off_t off,
+                               int count, int *eof, void *data)
+{
+        struct super_block *sb = data;
+        struct ll_sb_info *sbi = ll_s2sbi(sb);
+
+        return snprintf(page, count, "%u\n", sbi->ll_sa_agl);
+}
+
+static int ll_wr_statahead_agl(struct file *file, const char *buffer,
+                               unsigned long count, void *data)
+{
+        struct super_block *sb = data;
+        struct ll_sb_info *sbi = ll_s2sbi(sb);
+        int val, rc;
+
+        rc = lprocfs_write_helper(buffer, count, &val);
+        if (rc)
+                return rc;
+
+        if (val >= 0)
+                sbi->ll_sa_agl = val;
+        else
+                CERROR("Bad statahead_agl value %d, which should not be negative.\n", val);
+
+        return count;
+}
+
 static int ll_rd_statahead_stats(char *page, char **start, off_t off,
                                  int count, int *eof, void *data)
 {
@@ -630,6 +658,7 @@ static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
         { "stats_track_ppid", ll_rd_track_ppid, ll_wr_track_ppid, 0 },
         { "stats_track_gid",  ll_rd_track_gid, ll_wr_track_gid, 0 },
         { "statahead_max",    ll_rd_statahead_max, ll_wr_statahead_max, 0 },
+        { "statahead_agl",    ll_rd_statahead_agl, ll_wr_statahead_agl, 0 },
         { "statahead_stats",  ll_rd_statahead_stats, 0, 0 },
         { "lazystatfs",         ll_rd_lazystatfs, ll_wr_lazystatfs, 0 },
         { 0 }

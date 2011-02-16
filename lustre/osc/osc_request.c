@@ -3207,7 +3207,8 @@ static int osc_enqueue_fini(struct ptlrpc_request *req, struct ost_lvb *lvb,
                 }
         }
 
-        if ((intent && rc == ELDLM_LOCK_ABORTED) || !rc) {
+        if ((intent && rc == ELDLM_LOCK_ABORTED && !(*flags & LDLM_FL_AGL)) ||
+             !rc) {
                 *flags |= LDLM_FL_LVB_READY;
                 CDEBUG(D_INODE,"got kms "LPU64" blocks "LPU64" mtime "LPU64"\n",
                        lvb->lvb_size, lvb->lvb_blocks, lvb->lvb_mtime);
@@ -3432,10 +3433,14 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
 
                         req->rq_interpret_reply =
                                 (ptlrpc_interpterer_t)osc_enqueue_interpret;
-                        if (rqset == PTLRPCD_SET)
-                                ptlrpcd_add_req(req, PSCOPE_OTHER);
-                        else
+                        if (rqset == PTLRPCD_SET) {
+                                if (*flags & LDLM_FL_AGL)
+                                        ptlrpcd_add_req(req, PSCOPE_AGL);
+                                else
+                                        ptlrpcd_add_req(req, PSCOPE_OTHER);
+                        } else {
                                 ptlrpc_set_add_req(rqset, req);
+                        }
                 } else if (intent) {
                         ptlrpc_req_finished(req);
                 }
