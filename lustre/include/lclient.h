@@ -43,6 +43,8 @@
 #ifndef LCLIENT_H
 #define LCLIENT_H
 
+int cl_agl_init(struct inode *inode, struct cl_agl_args *caa, int rough);
+int cl_agl_fini(struct inode *inode, struct cl_agl_args *caa, int wait);
 int cl_glimpse_size(struct inode *inode);
 int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
                     struct inode *inode, struct cl_object *clob);
