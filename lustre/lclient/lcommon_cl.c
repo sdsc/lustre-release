@@ -1167,6 +1167,11 @@ int cl_inode_init(struct inode *inode, struct lustre_md *md)
         int result = 0;
         int refcheck;
 
+#ifdef __KERNEL__
+        CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p)\n",
+               inode->i_ino, inode->i_generation, inode);
+#endif
+
         /* LASSERT(inode->i_state & I_NEW); */
         LASSERT(md->body->valid & OBD_MD_FLID);
 
