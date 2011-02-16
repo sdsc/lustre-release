@@ -3196,7 +3196,7 @@ static int osc_enqueue_fini(struct ptlrpc_request *req, struct ost_lvb *lvb,
 
         if (intent) {
                 /* The request was created before ldlm_cli_enqueue call. */
-                if (rc == ELDLM_LOCK_ABORTED) {
+                if (rc == ELDLM_LOCK_ABORTED && !(*flags & LDLM_FL_AGL)) {
                         struct ldlm_reply *rep;
                         rep = req_capsule_server_get(&req->rq_pill,
                                                      &RMF_DLM_REP);
@@ -3207,14 +3207,19 @@ static int osc_enqueue_fini(struct ptlrpc_request *req, struct ost_lvb *lvb,
                 }
         }
 
-        if ((intent && rc == ELDLM_LOCK_ABORTED) || !rc) {
+        if ((intent && rc == ELDLM_LOCK_ABORTED && !(*flags & LDLM_FL_AGL)) ||
+             !rc) {
                 *flags |= LDLM_FL_LVB_READY;
                 CDEBUG(D_INODE,"got kms "LPU64" blocks "LPU64" mtime "LPU64"\n",
                        lvb->lvb_size, lvb->lvb_blocks, lvb->lvb_mtime);
         }
 
         /* Call the update callback. */
-        rc = (*upcall)(cookie, rc);
+        if (rc == ELDLM_LOCK_ABORTED && *flags & LDLM_FL_AGL)
+                /* for non-granted async glimpse size */
+                (*upcall)(cookie, -EAGAIN);
+        else
+                rc = (*upcall)(cookie, rc);
         RETURN(rc);
 }
 

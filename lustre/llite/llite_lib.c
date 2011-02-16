@@ -132,6 +132,7 @@ static struct ll_sb_info *ll_init_sbi(void)
 
         /* metadata statahead is enabled by default */
         sbi->ll_sa_max = LL_SA_RPC_DEF;
+        sbi->ll_sa_agl = LL_AGL_DEF;
         atomic_set(&sbi->ll_sa_total, 0);
         atomic_set(&sbi->ll_sa_wrong, 0);
 
@@ -423,7 +424,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt)
         if (sbi->ll_flags & LL_SBI_RMT_CLIENT)
                 valid |= OBD_MD_FLRMTPERM;
         else if (sbi->ll_flags & LL_SBI_ACL)
-                valid |= OBD_MD_FLACL;
+                valid |= OBD_MD_FLACL | OBD_MD_FLDEFACL;
 
         OBD_ALLOC_PTR(op_data);
         if (op_data == NULL) 
@@ -463,6 +464,10 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt)
                 if (lmd.posix_acl) {
                         posix_acl_release(lmd.posix_acl);
                         lmd.posix_acl = NULL;
+                }
+                if (lmd.def_acl) {
+                        posix_acl_release(lmd.def_acl);
+                        lmd.def_acl = NULL;
                 }
 #endif
                 err = IS_ERR(root) ? PTR_ERR(root) : -EBADF;
@@ -815,6 +820,16 @@ void ll_lli_init(struct ll_inode_info *lli)
         cfs_sema_init(&lli->lli_rmtperm_sem, 1);
         CFS_INIT_LIST_HEAD(&lli->lli_oss_capas);
         cfs_spin_lock_init(&lli->lli_sa_lock);
+
+        lli->lli_agl_stat = SA_AGL_INIT;
+        lli->lli_agl_ref = 0;
+        lli->lli_agl_u.lau_idx = 0;
+        CFS_INIT_LIST_HEAD(&lli->lli_agl_list);
+        lli->lli_agl_parent = NULL;
+        cfs_waitq_init(&lli->lli_agl_waitq);
+        lli->lli_agl_last_fail = 0;
+
+        cfs_sema_init(&lli->lli_readdir_sem, 1);
 }
 
 #ifdef HAVE_NEW_BACKING_DEV_INFO
@@ -1066,10 +1081,18 @@ void ll_clear_inode(struct inode *inode)
                 posix_acl_release(lli->lli_posix_acl);
                 lli->lli_posix_acl = NULL;
         }
+        if (lli->lli_def_acl) {
+                LASSERT(cfs_atomic_read(&lli->lli_def_acl->a_refcount) == 1);
+                posix_acl_release(lli->lli_def_acl);
+                lli->lli_def_acl = NULL;
+        }
 #endif
         lli->lli_inode_magic = LLI_INODE_DEAD;
 
         ll_clear_inode_capas(inode);
+
+        LASSERT(cfs_list_empty(&lli->lli_agl_list));
+
         /*
          * XXX This has to be done before lsm is freed below, because
          * cl_object still uses inode lsm.
@@ -1520,6 +1543,13 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
                 lli->lli_posix_acl = md->posix_acl;
                 cfs_spin_unlock(&lli->lli_lock);
         }
+        if (body->valid & OBD_MD_FLDEFACL) {
+                cfs_spin_lock(&lli->lli_lock);
+                if (lli->lli_def_acl)
+                        posix_acl_release(lli->lli_def_acl);
+                lli->lli_def_acl = md->def_acl;
+                cfs_spin_unlock(&lli->lli_lock);
+        }
 #endif
         inode->i_ino = cl_fid_build_ino(&body->fid1);
         inode->i_generation = cl_fid_build_gen(&body->fid1);
@@ -1954,6 +1984,10 @@ int ll_prep_inode(struct inode **inode,
                         if (md.posix_acl) {
                                 posix_acl_release(md.posix_acl);
                                 md.posix_acl = NULL;
+                        }
+                        if (md.def_acl) {
+                                posix_acl_release(md.def_acl);
+                                md.def_acl = NULL;
                         }
 #endif
                         rc = IS_ERR(*inode) ? PTR_ERR(*inode) : -ENOMEM;
