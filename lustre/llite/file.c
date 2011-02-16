@@ -1861,7 +1861,7 @@ loff_t ll_file_seek(struct file *file, loff_t offset, int origin)
                 if (file->f_flags & O_NONBLOCK)
                         nonblock = LDLM_FL_BLOCK_NOWAIT;
 
-                rc = cl_glimpse_size(inode);
+                rc = ll_glimpse_size(inode);
                 if (rc != 0)
                         RETURN(rc);
 
@@ -2168,6 +2168,9 @@ int __ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
 
         exp = ll_i2mdexp(inode);
 
+        /* XXX: Enable OBD_CONNECT_ATTRFID to reduce unnecessary getattr RPC.
+         *      But under CMD case, it maybe cause some lock issues, should
+         *      be fixed with new CMD ibits lock. See bug 12718 */
         if (exp->exp_connect_flags & OBD_CONNECT_ATTRFID) {
                 struct lookup_intent oit = { .it_op = IT_GETATTR };
                 struct md_op_data *op_data;
@@ -2265,11 +2268,11 @@ int ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it)
                 RETURN(0);
         }
 
-        /* cl_glimpse_size will prefer locally cached writes if they extend
+        /* ll_glimpse_size will prefer locally cached writes if they extend
          * the file */
 
         if (rc == 0)
-                rc = cl_glimpse_size(inode);
+                rc = ll_glimpse_size(inode);
 
         RETURN(rc);
 }

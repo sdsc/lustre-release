@@ -272,6 +272,7 @@ struct page *ll_get_dir_page(struct inode *dir, __u64 hash, int exact,
         int rc;
         __u64 start = 0;
         __u64 end = 0;
+        struct ll_inode_info *lli = ll_i2info(dir);
 
         mode = LCK_PR;
         rc = md_lock_match(ll_i2sbi(dir)->ll_md_exp, LDLM_FL_BLOCK_GRANTED,
@@ -310,6 +311,7 @@ struct page *ll_get_dir_page(struct inode *dir, __u64 hash, int exact,
         }
         ldlm_lock_dump_handle(D_OTHER, &lockh);
 
+        cfs_down(&lli->lli_readdir_sem);
         page = ll_dir_page_locate(dir, hash, &start, &end);
         if (IS_ERR(page)) {
                 CERROR("dir page locate: "DFID" at "LPU64": rc %ld\n",
@@ -385,6 +387,7 @@ hash_collision:
                 goto fail;
         }
 out_unlock:
+        cfs_up(&lli->lli_readdir_sem);
         ldlm_lock_decref(&lockh, mode);
         return page;
 
