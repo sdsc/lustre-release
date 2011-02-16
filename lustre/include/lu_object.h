@@ -169,11 +169,22 @@ struct lu_device_operations {
 };
 
 /**
+ * For lu_object_conf flags
+ */
+enum {
+        LOC_F_NOLOOKUP = 0x1
+};
+
+/**
  * Object configuration, describing particulars of object being created. On
  * server this is not used, as server objects are full identified by fid. On
  * client configuration contains struct lustre_md.
  */
 struct lu_object_conf {
+        /**
+         * Some hints for obj find and alloc.
+         */
+        unsigned int    loc_flags;
 };
 
 /**
