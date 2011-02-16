@@ -7777,6 +7777,21 @@ run_test 218 "parallel read and truncate should not deadlock ===================
 # tests that do cleanup/setup should be run at the end
 #
 
+test_219 () {
+	rm -rf $DIR/$tdir
+	mkdir -p $DIR/$tdir
+	$LFS setstripe -c 1 -i 0 $DIR/$tdir
+	for ((i=0;i<48;i++)) do touch $DIR/$tdir/$i; done
+	cancel_lru_locks mdc
+	cancel_lru_locks osc
+	#define OBD_FAIL_LDLM_AGL                0x31a
+	$LCTL set_param fail_loc=0x8000031a
+	ls -l $DIR/$tdir > /dev/null || error "reenqueue failed"
+	$LCTL set_param fail_loc=0
+	rm -rf $DIR/$tdir
+}
+run_test 219 "osc reenqueue if without AGL lock granted ============================"
+
 test_900() {
         local ls
         #define OBD_FAIL_MGC_PAUSE_PROCESS_LOG   0x903

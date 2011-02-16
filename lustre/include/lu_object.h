@@ -169,11 +169,22 @@ struct lu_device_operations {
 };
 
 /**
+ * For lu_object_conf flags
+ */
+enum {
+        LOC_F_NOLOOKUP = 0x1
+};
+
+/**
  * Object configuration, describing particulars of object being created. On
  * server this is not used, as server objects are full identified by fid. On
  * client configuration contains struct lustre_md.
  */
 struct lu_object_conf {
+        /**
+         * Some hints for obj find and alloc.
+         */
+        unsigned int    loc_flags;
 };
 
 /**
@@ -847,6 +858,13 @@ static inline __u32 lu_object_attr(const struct lu_object *o)
 {
         LASSERT(lu_object_exists(o) > 0);
         return o->lo_header->loh_attr;
+}
+
+static inline struct lu_ref_link *lu_object_ref_add_nosleep(struct lu_object *o,
+                                                            const char *scope,
+                                                            const void *source)
+{
+        return lu_ref_add_nosleep(&o->lo_header->loh_reference, scope, source);
 }
 
 static inline struct lu_ref_link *lu_object_ref_add(struct lu_object *o,

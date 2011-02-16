@@ -553,11 +553,12 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
                                             cfs_waitlink_t *waiter)
 {
         struct lu_object      *o;
-        struct lu_object      *shadow;
+        struct lu_object      *shadow = NULL;
         struct lu_site        *s;
         cfs_hash_t            *hs;
         cfs_hash_bd_t          bd;
         __u64                  version = 0;
+        int                    lookup = 1;
 
         /*
          * This uses standard index maintenance protocol:
@@ -572,16 +573,26 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
          *     - unlock index;
          *     - return object.
          *
+         * For "LOC_F_NOLOOKUP case, we are sure the object is new created.
+         * It is nunecessay to perform lookup-alloc-lookup-insert, instead,
+         * just alloc and insert directly.
+         *
          * If dying object is found during index search, add @waiter to the
          * site wait-queue and return ERR_PTR(-EAGAIN).
          */
+        if (conf && conf->loc_flags & LOC_F_NOLOOKUP)
+                lookup = 0;
+
         s  = dev->ld_site;
         hs = s->ls_obj_hash;
-        cfs_hash_bd_get_and_lock(hs, (void *)f, &bd, 1);
-        o = htable_lookup(s, &bd, f, waiter, &version);
-        cfs_hash_bd_unlock(hs, &bd, 1);
-        if (o != NULL)
-                return o;
+        cfs_hash_bd_get(hs, (void *)f, &bd);
+        if (lookup) {
+                cfs_hash_bd_lock(hs, &bd, 1);
+                o = htable_lookup(s, &bd, f, waiter, &version);
+                cfs_hash_bd_unlock(hs, &bd, 1);
+                if (o != NULL)
+                        return o;
+        }
 
         /*
          * Allocate new object. This may result in rather complicated
@@ -595,7 +606,8 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
 
         cfs_hash_bd_lock(hs, &bd, 1);
 
-        shadow = htable_lookup(s, &bd, f, waiter, &version);
+        if (lookup)
+                shadow = htable_lookup(s, &bd, f, waiter, &version);
         if (likely(shadow == NULL)) {
                 struct lu_site_bkt_data *bkt;
 

@@ -1158,7 +1158,7 @@ int cl_inode_init(struct inode *inode, struct lustre_md *md)
         struct cl_object     *clob;
         struct lu_site       *site;
         struct lu_fid        *fid;
-        const struct cl_object_conf conf = {
+        struct cl_object_conf conf = {
                 .coc_inode = inode,
                 .u = {
                         .coc_md    = md
@@ -1167,7 +1167,6 @@ int cl_inode_init(struct inode *inode, struct lustre_md *md)
         int result = 0;
         int refcheck;
 
-        /* LASSERT(inode->i_state & I_NEW); */
         LASSERT(md->body->valid & OBD_MD_FLID);
 
         if (!S_ISREG(cl_inode_mode(inode)))
@@ -1183,6 +1182,14 @@ int cl_inode_init(struct inode *inode, struct lustre_md *md)
         LASSERT(fid_is_sane(fid));
 
         if (lli->lli_clob == NULL) {
+                /* clob is slave of inode, empty lli_clob means for new inode,
+                 * there is not clob in cache with the given fid, so it is
+                 * unnecessary to perform lookup-alloc-lookup-insert, just
+                 * alloc and insert directly. */
+#ifdef __KERNEL__
+                LASSERT(inode->i_state & I_NEW);
+#endif
+                conf.coc_lu.loc_flags = LOC_F_NOLOOKUP;
                 clob = cl_object_find(env, lu2cl_dev(site->ls_top_dev),
                                       fid, &conf);
                 if (!IS_ERR(clob)) {
@@ -1193,7 +1200,7 @@ int cl_inode_init(struct inode *inode, struct lustre_md *md)
                          * XXX not true for call from ll_update_inode().
                          */
                         lli->lli_clob = clob;
-                        lu_object_ref_add(&clob->co_lu, "inode", inode);
+                        lu_object_ref_add_nosleep(&clob->co_lu, "inode", inode);
                 } else
                         result = PTR_ERR(clob);
         } else

@@ -185,6 +185,13 @@ static inline void lu_ref_fini(struct lu_ref *ref)
 {
 }
 
+static inline struct lu_ref_link *lu_ref_add_nosleep(struct lu_ref *ref,
+                                                     const char *scope,
+                                                     const void *source)
+{
+        return NULL;
+}
+
 static inline struct lu_ref_link *lu_ref_add(struct lu_ref *ref,
                                              const char *scope,
                                              const void *source)
