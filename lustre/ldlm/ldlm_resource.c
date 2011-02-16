@@ -398,7 +398,8 @@ static unsigned ldlm_res_hop_fid_hash(cfs_hash_t *hs, void *key, unsigned mask)
         fid.f_ver = (__u32)id->name[LUSTRE_RES_ID_VER_OFF];
 
         hash = fid_flatten(&fid);
-        hash = cfs_hash_long(hash, hs->hs_bkt_bits);
+        hash = cfs_hash_long(hash, hs->hs_bkt_bits + 5);
+        hash -= cfs_hash_long((unsigned long)hs, min(2, (int)(hash & 0x2f)));
         /* ignore a few low bits */
         if (id->name[LUSTRE_RES_ID_HSH_OFF] != 0)
                 hash += id->name[LUSTRE_RES_ID_HSH_OFF] >> 5;

@@ -1496,6 +1496,24 @@ static int mdd_iocontrol(const struct lu_env *env, struct md_device *m,
                 struct changelog_setinfo *cs = karg;
                 rc = mdd_changelog_user_purge(mdd, cs->cs_id, cs->cs_recno);
                 RETURN(rc);
+        } else if (cmd == OBD_IOC_CHK_MNTOPT) {
+                int mntopt = *(int *)karg;
+
+                switch (mntopt) {
+                case MNTOPT_USER_XATTR: {
+                        rc = !mdd->mdd_dt_conf.ddp_mntopt_uxattr;
+                        break;
+                }
+                case MNTOPT_ACL:{
+                        rc = !mdd->mdd_dt_conf.ddp_mntopt_acl;
+                        break;
+                }
+                default: {
+                        rc = -EOPNOTSUPP;
+                        break;
+                }
+                }
+                RETURN(rc);
         }
 
         /* Below ioctls use obd_ioctl_data */
