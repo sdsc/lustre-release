@@ -209,6 +209,13 @@ struct osd_it_iam {
         struct iam_iterator    oi_it;
 };
 
+struct osd_obj_id {
+        struct lu_fid ooi_fid;
+        __u32         ooi_ino;
+        __u32         ooi_gen;
+        int           ooi_valid;
+};
+
 struct osd_thread_info {
         const struct lu_env   *oti_env;
         /**
@@ -287,6 +294,8 @@ struct osd_thread_info {
 #define OSD_FID_REC_SZ 32
         char                   oti_ldp[OSD_FID_REC_SZ];
         char                   oti_ldp2[OSD_FID_REC_SZ];
+        /** cache mapping fid <=> ino */
+        struct osd_obj_id      oti_ooi;
 };
 
 #ifdef LPROCFS

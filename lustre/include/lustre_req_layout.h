@@ -251,6 +251,7 @@ extern struct req_msg_field RMF_MDT_MD;
 extern struct req_msg_field RMF_REC_REINT;
 extern struct req_msg_field RMF_EADATA;
 extern struct req_msg_field RMF_ACL;
+extern struct req_msg_field RMF_DEFACL;
 extern struct req_msg_field RMF_LOGCOOKIES;
 extern struct req_msg_field RMF_CAPA1;
 extern struct req_msg_field RMF_CAPA2;
