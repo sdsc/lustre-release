@@ -273,6 +273,8 @@ static int osc_enq2ldlm_flags(__u32 enqflags)
                 result |= LDLM_FL_HAS_INTENT;
         if (enqflags & CEF_DISCARD_DATA)
                 result |= LDLM_AST_DISCARD_DATA;
+        if (enqflags & CEF_AGL)
+                result |= LDLM_FL_AGL;
         return result;
 }
 
@@ -549,6 +551,10 @@ static int osc_lock_upcall(void *cookie, int errcode)
                         osc_lock_lvb_update(env, olck, rc);
                         cl_lock_delete(env, lock);
                         /* Hide the error. */
+                        rc = 0;
+                } else if (rc == -EAGAIN) {
+                        /* for non-granted async glimpse lock */
+                        cl_lock_delete(env, lock);
                         rc = 0;
                 }
 
