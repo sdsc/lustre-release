@@ -1082,7 +1082,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 #define MDT_CONNECT_SUPPORTED  (OBD_CONNECT_RDONLY | OBD_CONNECT_VERSION | \
                                 OBD_CONNECT_ACL | OBD_CONNECT_XATTR | \
                                 OBD_CONNECT_IBITS | OBD_CONNECT_JOIN | \
-                                OBD_CONNECT_NODEVOH |/* OBD_CONNECT_ATTRFID |*/\
+                                OBD_CONNECT_NODEVOH | OBD_CONNECT_ATTRFID | \
                                 OBD_CONNECT_CANCELSET | OBD_CONNECT_AT | \
                                 OBD_CONNECT_RMT_CLIENT | \
                                 OBD_CONNECT_RMT_CLIENT_FORCE | \
@@ -1145,6 +1145,11 @@ typedef enum {
         OBD_CKSUM_CRC32 = 0x00000001,
         OBD_CKSUM_ADLER = 0x00000002,
 } cksum_type_t;
+
+enum {
+        MNTOPT_USER_XATTR       = 0,
+        MNTOPT_ACL              = 1,
+};
 
 /*
  *   OST requests: OBDO & OBD request records
@@ -1319,6 +1324,8 @@ struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
 #define OBD_MD_FLRMTLGETFACL    (0x0002000000000000ULL) /* lfs lgetfacl case */
 #define OBD_MD_FLRMTRSETFACL    (0x0004000000000000ULL) /* lfs rsetfacl case */
 #define OBD_MD_FLRMTRGETFACL    (0x0008000000000000ULL) /* lfs rgetfacl case */
+
+#define OBD_MD_FLDEFACL    (0x0010000000000000ULL) /* default ACL */
 
 #define OBD_MD_FLGETATTR (OBD_MD_FLID    | OBD_MD_FLATIME | OBD_MD_FLMTIME | \
                           OBD_MD_FLCTIME | OBD_MD_FLSIZE  | OBD_MD_FLBLKSZ | \
@@ -1619,7 +1626,7 @@ struct mdt_body {
         __u32          max_cookiesize;
         __u32          uid_h; /* high 32-bits of uid, for FUID */
         __u32          gid_h; /* high 32-bits of gid, for FUID */
-        __u32          padding_5; /* also fix lustre_swab_mdt_body */
+        __u32          defaclsize;
         __u64          padding_6;
         __u64          padding_7;
         __u64          padding_8;
