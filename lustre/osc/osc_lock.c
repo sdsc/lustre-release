@@ -273,6 +273,10 @@ static int osc_enq2ldlm_flags(__u32 enqflags)
                 result |= LDLM_FL_HAS_INTENT;
         if (enqflags & CEF_DISCARD_DATA)
                 result |= LDLM_AST_DISCARD_DATA;
+        if (enqflags & CEF_AGL)
+                result |= LDLM_FL_AGL;
+        if (enqflags & CEF_AGL_ROUGH)
+                result |= LDLM_FL_AGL_ROUGH;
         return result;
 }
 
@@ -1214,8 +1218,14 @@ static int osc_lock_wait(const struct lu_env *env,
         struct cl_lock  *lock = olck->ols_cl.cls_lock;
 
         LINVRNT(osc_lock_invariant(olck));
-        if (olck->ols_glimpse && olck->ols_state >= OLS_UPCALL_RECEIVED)
-                return 0;
+        if (olck->ols_glimpse && olck->ols_state >= OLS_UPCALL_RECEIVED) {
+                if ((olck->ols_flags & LDLM_FL_AGL) &&
+                   !(olck->ols_flags & LDLM_FL_AGL_ROUGH) &&
+                   !(olck->ols_flags & LDLM_FL_LVB_READY))
+                        return -ENAVAIL;
+                else
+                        return 0;
+        }
 
         LASSERT(equi(olck->ols_state >= OLS_UPCALL_RECEIVED &&
                      lock->cll_error == 0, olck->ols_lock != NULL));
@@ -1332,6 +1342,10 @@ static void osc_lock_cancel(const struct lu_env *env,
                                       "lock %p cancel failure with error(%d)\n",
                                       lock, result);
         }
+        /* for async glimpse size, no lock means no size */
+        if (olck->ols_glimpse && olck->ols_flags & LDLM_FL_AGL &&
+            !(olck->ols_flags & LDLM_FL_AGL_ROUGH))
+                olck->ols_flags &= ~LDLM_FL_LVB_READY;
         olck->ols_state = OLS_CANCELLED;
         osc_lock_detach(env, olck);
 }

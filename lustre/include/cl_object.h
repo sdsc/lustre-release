@@ -1592,6 +1592,18 @@ struct cl_lock {
 };
 
 /**
+ * for async glimpse argument
+ */
+struct cl_agl_args {
+        struct lu_env   *caa_env;
+        struct cl_lock  *caa_lock;
+        char            *caa_scope;
+        void            *caa_source;
+        struct cl_io    *caa_io;
+        int              caa_refcheck;
+};
+
+/**
  * Per-layer part of cl_lock
  *
  * \see ccc_lock, lov_lock, lovsub_lock, osc_lock
@@ -2152,9 +2164,19 @@ enum cl_enq_flags {
          */
         CEF_NEVER        = 0x00000010,
         /**
+         * for async glimpse lock.
+         */
+        CEF_AGL          = 0x00000020,
+        /**
+         * the async glimpse size will be cached on client until someone (ls)
+         * use it or top-level lock released, which maybe different from the
+         * the real file size when someone use it, it is not serious for "ls".
+         */
+        CEF_AGL_ROUGH    = 0x00000040,
+        /**
          * mask of enq_flags.
          */
-        CEF_MASK         = 0x0000001f
+        CEF_MASK         = 0x0000007f
 };
 
 /**
@@ -2801,6 +2823,8 @@ int cl_lock_is_intransit(struct cl_lock *lock);
 int cl_lock_enqueue_wait(const struct lu_env *env, struct cl_lock *lock,
                          int keep_mutex);
 
+int cl_wait_cancel(const struct lu_env *env, struct cl_lock *lock, int cancel);
+
 /** \name statemachine statemachine
  * Interface to lock state machine consists of 3 parts:
  *
@@ -3091,6 +3115,8 @@ struct cl_env_nest {
         void *cen_cookie;
 };
 
+void           lu_env_detach     (struct lu_env *env);
+void           lu_env_attach     (struct lu_env *env);
 struct lu_env *cl_env_peek       (int *refcheck);
 struct lu_env *cl_env_get        (int *refcheck);
 struct lu_env *cl_env_alloc      (int *refcheck, __u32 tags);
