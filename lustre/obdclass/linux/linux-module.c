@@ -120,9 +120,11 @@ int obd_ioctl_getdata(char **buf, int *len, void *arg)
                 RETURN(-EINVAL);
         }
 
-        /* XXX allocate this more intelligently, using kmalloc when
-         * appropriate */
-        OBD_VMALLOC(*buf, hdr.ioc_len);
+        /* When there are lots of processes calling vmalloc on multi-core
+         * system, the high lock contention will hurt performance badly,
+         * obdfilter-survey is an example, which relies on ioctl. So we'd
+         * better avoid vmalloc on ioctl path. LU-66 */
+        OBD_ALLOC(*buf, hdr.ioc_len);
         if (*buf == NULL) {
                 CERROR("Cannot allocate control buffer of len %d\n",
                        hdr.ioc_len);
@@ -133,13 +135,13 @@ int obd_ioctl_getdata(char **buf, int *len, void *arg)
 
         err = copy_from_user(*buf, (void *)arg, hdr.ioc_len);
         if ( err ) {
-                OBD_VFREE(*buf, hdr.ioc_len);
+                OBD_FREE(*buf, hdr.ioc_len);
                 RETURN(err);
         }
 
         if (obd_ioctl_is_invalid(data)) {
                 CERROR("ioctl not correctly formatted\n");
-                OBD_VFREE(*buf, hdr.ioc_len);
+                OBD_FREE(*buf, hdr.ioc_len);
                 RETURN(-EINVAL);
         }
 
