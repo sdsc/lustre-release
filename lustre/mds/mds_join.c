@@ -96,7 +96,7 @@ static int mds_insert_join_lmm(struct llog_handle *llh,
 
         CDEBUG(D_INFO, "insert extent "LPU64":"LPU64" lmm \n", start, len);
 
-        OBD_ALLOC(med, sz_med);
+        OBD_ALLOC_LARGE(med, sz_med);
         if (med == NULL)
                 RETURN(-ENOMEM);
 
@@ -107,7 +107,7 @@ static int mds_insert_join_lmm(struct llog_handle *llh,
                                 LOV_MAGIC));
 
         rc = llog_write_rec(llh, &rec, NULL, 0, med, -1);
-        OBD_FREE(med, sz_med);
+        OBD_FREE_LARGE(med, sz_med);
 
         if (lmmj) {
                 /*modify lmmj for join stripe info*/
@@ -175,8 +175,8 @@ static int mdsea_cancel_last_extent(struct llog_handle *llh_tail,
                        med->med_start, cbdata->mc_headfile_sz);
                 if (!cbdata->mc_lmm) {
                         int stripe = le32_to_cpu(med->med_lmm.lmm_stripe_count);
-                        OBD_ALLOC(cbdata->mc_lmm,
-                                  lov_mds_md_size(stripe, LOV_MAGIC));
+                        OBD_ALLOC_LARGE(cbdata->mc_lmm,
+                                        lov_mds_md_size(stripe, LOV_MAGIC));
                         if (!cbdata->mc_lmm)
                                 RETURN(-ENOMEM);
                         memcpy(cbdata->mc_lmm, &med->med_lmm,
@@ -222,9 +222,9 @@ static int  mds_adjust_last_extent(struct llog_handle *llh_head,
                 CERROR("error insert the lmm rc %d \n", rc);
 exit:
         if (cbdata && cbdata->mc_lmm)
-                OBD_FREE(cbdata->mc_lmm,
-                         lov_mds_md_size(cbdata->mc_lmm->lmm_stripe_count,
-                                         LOV_MAGIC));
+                OBD_FREE_LARGE(cbdata->mc_lmm,
+                               lov_mds_md_size(cbdata->mc_lmm->lmm_stripe_count,
+                                               LOV_MAGIC));
         if (cbdata)
                 OBD_FREE_PTR(cbdata);
 
@@ -385,8 +385,8 @@ int mds_join_file(struct mds_update_record *rec, struct ptlrpc_request *req,
 
         size = mds->mds_max_mdsize;
         lmm_size = mds->mds_max_mdsize;
-        OBD_ALLOC(head_lmm, lmm_size);
-        OBD_ALLOC(tail_lmm, lmm_size);
+        OBD_ALLOC_LARGE(head_lmm, lmm_size);
+        OBD_ALLOC_LARGE(tail_lmm, lmm_size);
         if (!head_lmm || !tail_lmm)
                 GOTO(cleanup, rc = -ENOMEM);
 
@@ -519,9 +519,9 @@ cleanup:
                 UNLOCK_INODE_MUTEX(head_inode);
         case 0:
                 if (tail_lmm != NULL)
-                        OBD_FREE(tail_lmm, lmm_size);
+                        OBD_FREE_LARGE(tail_lmm, lmm_size);
                 if (head_lmm != NULL)
-                        OBD_FREE(head_lmm, lmm_size);
+                        OBD_FREE_LARGE(head_lmm, lmm_size);
                 break;
         default:
                 CERROR("invalid cleanup_phase %d\n", cleanup_phase);

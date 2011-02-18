@@ -1301,7 +1301,7 @@ static int ll_dir_ioctl(struct inode *inode, struct file *file,
                 EXIT;
         out_lmm:
                 if (lmm && lmm->lmm_magic == LOV_MAGIC_JOIN)
-                        OBD_FREE(lmm, lmmsize);
+                        OBD_FREE_LARGE(lmm, lmmsize);
         out_req:
                 ptlrpc_req_finished(request);
                 if (filename)
@@ -1324,7 +1324,7 @@ static int ll_dir_ioctl(struct inode *inode, struct file *file,
                 if (rc)
                         RETURN(rc);
 
-                OBD_ALLOC(lmm, lmmsize);
+                OBD_ALLOC_LARGE(lmm, lmmsize);
                 if (copy_from_user(lmm, lum, lmmsize))
                         GOTO(free_lmm, rc = -EFAULT);
 
@@ -1361,7 +1361,7 @@ static int ll_dir_ioctl(struct inode *inode, struct file *file,
         free_lsm:
                 obd_free_memmd(sbi->ll_osc_exp, &lsm);
         free_lmm:
-                OBD_FREE(lmm, lmmsize);
+                OBD_FREE_LARGE(lmm, lmmsize);
                 return rc;
         }
         case OBD_IOC_LLOG_CATINFO: {

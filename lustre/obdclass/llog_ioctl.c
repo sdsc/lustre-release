@@ -432,7 +432,7 @@ int llog_catalog_list(struct obd_device *obd, int count,
         ENTRY;
         size = sizeof(*idarray) * count;
 
-        OBD_VMALLOC(idarray, size);
+        OBD_ALLOC_LARGE(idarray, size);
         if (!idarray)
                 RETURN(-ENOMEM);
 
@@ -459,7 +459,7 @@ out:
         /* release semaphore */
         mutex_up(&obd->obd_llog_cat_process);
 
-        OBD_VFREE(idarray, size);
+        OBD_FREE_LARGE(idarray, size);
         RETURN(rc);
 
 }

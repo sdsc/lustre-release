@@ -459,7 +459,7 @@ static int mds_cleanup_mfd(struct obd_export *exp)
         spin_unlock(&med->med_open_lock);
 
         lmm_sz = mds->mds_max_mdsize;
-        OBD_ALLOC(lmm, lmm_sz);
+        OBD_ALLOC_LARGE(lmm, lmm_sz);
         if (lmm == NULL) {
                 CWARN("%s: allocation failure during cleanup; can not force "
                       "close file handles on this service.\n", obd->obd_name);
@@ -471,7 +471,7 @@ static int mds_cleanup_mfd(struct obd_export *exp)
         if (logcookies == NULL) {
                 CWARN("%s: allocation failure during cleanup; can not force "
                       "close file handles on this service.\n", obd->obd_name);
-                OBD_FREE(lmm, lmm_sz);
+                OBD_FREE_LARGE(lmm, lmm_sz);
                 GOTO(out, rc = -ENOMEM);
         }
 
@@ -524,7 +524,7 @@ static int mds_cleanup_mfd(struct obd_export *exp)
         }
         pop_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
         OBD_FREE(logcookies, cookie_sz);
-        OBD_FREE(lmm, lmm_sz);
+        OBD_FREE_LARGE(lmm, lmm_sz);
 out:
         RETURN(rc);
 }

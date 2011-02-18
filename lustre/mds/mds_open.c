@@ -415,7 +415,7 @@ static int mds_create_objects(struct ptlrpc_request *req, int offset,
                                 GOTO(out_oa, rc);
                 } else {
                         __u32 lmm_sz = mds->mds_max_mdsize;
-                        OBD_ALLOC(lmm, lmm_sz);
+                        OBD_ALLOC_LARGE(lmm, lmm_sz);
                         if (lmm == NULL)
                                 GOTO(out_oa, rc = -ENOMEM);
 
@@ -427,7 +427,7 @@ static int mds_create_objects(struct ptlrpc_request *req, int offset,
                                 rc = obd_iocontrol(OBD_IOC_LOV_SETSTRIPE,
                                                    mds->mds_lov_exp,
                                                    0, &oinfo.oi_md, lmm);
-                        OBD_FREE(lmm, lmm_sz);
+                        OBD_FREE_LARGE(lmm, lmm_sz);
                         if (rc)
                                 GOTO(out_oa, rc);
                 }

@@ -306,7 +306,7 @@ static int unpack_reply(struct ptlrpc_request *req)
 
 static inline void unpack_reply_free_msg(struct lustre_msg *msg, int len)
 {
-        OBD_FREE(msg, len);
+        OBD_FREE_LARGE(msg, len);
 }
 
 static int unpack_reply_copy_msg(struct ptlrpc_request *req,
@@ -329,7 +329,7 @@ static int unpack_reply_copy_msg(struct ptlrpc_request *req,
         lencpy = req->rq_replen;
         spin_unlock(&req->rq_lock);
 
-        OBD_ALLOC(msgcpy, lencpy);
+        OBD_ALLOC_LARGE(msgcpy, lencpy);
         if (!msgcpy) {
                 spin_lock(&req->rq_lock);
                 RETURN(-ENOMEM);
@@ -425,7 +425,7 @@ void ptlrpc_free_rq_pool(struct ptlrpc_request_pool *pool)
                 req = list_entry(l, struct ptlrpc_request, rq_list);
                 list_del(&req->rq_list);
                 LASSERT(req->rq_reqmsg);
-                OBD_FREE(req->rq_reqmsg, pool->prp_rq_size);
+                OBD_FREE_LARGE(req->rq_reqmsg, pool->prp_rq_size);
                 OBD_FREE(req, sizeof(*req));
         }
         spin_unlock(&pool->prp_lock);
@@ -454,7 +454,7 @@ void ptlrpc_add_rqs_to_pool(struct ptlrpc_request_pool *pool, int num_rq)
                 OBD_ALLOC(req, sizeof(struct ptlrpc_request));
                 if (!req)
                         return;
-                OBD_ALLOC_GFP(msg, size, CFS_ALLOC_STD);
+                OBD_ALLOC_LARGE(msg, size);
                 if (!msg) {
                         OBD_FREE(req, sizeof(struct ptlrpc_request));
                         return;
@@ -1025,7 +1025,7 @@ static int after_reply(struct ptlrpc_request *req)
                         RETURN(-EOVERFLOW);
                 }
 
-                OBD_FREE(req->rq_repbuf, req->rq_replen);
+                OBD_FREE_LARGE(req->rq_repbuf, req->rq_replen);
                 req->rq_repbuf = NULL;
                 /* Pass the required reply buffer size (include
                  * space for early reply) */
@@ -1767,7 +1767,7 @@ static void __ptlrpc_free_req(struct ptlrpc_request *request, int locked)
         }
 
         if (request->rq_repbuf != NULL) {
-                OBD_FREE(request->rq_repbuf, request->rq_replen);
+                OBD_FREE_LARGE(request->rq_repbuf, request->rq_replen);
                 request->rq_repbuf = NULL;
                 request->rq_repmsg = NULL;
         }
@@ -1786,7 +1786,7 @@ static void __ptlrpc_free_req(struct ptlrpc_request *request, int locked)
                 __ptlrpc_free_req_to_pool(request);
         } else {
                 if (request->rq_reqmsg != NULL) {
-                        OBD_FREE(request->rq_reqmsg, request->rq_reqlen);
+                        OBD_FREE_LARGE(request->rq_reqmsg, request->rq_reqlen);
                         request->rq_reqmsg = NULL;
                 }
                 OBD_FREE(request, sizeof(*request));

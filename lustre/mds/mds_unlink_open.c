@@ -136,7 +136,7 @@ static int mds_unlink_orphan(struct obd_device *obd, struct dentry *dchild,
         }
 
         lmm_size = mds->mds_max_mdsize;
-        OBD_ALLOC(lmm, lmm_size);
+        OBD_ALLOC_LARGE(lmm, lmm_size);
         if (lmm == NULL)
                 RETURN(-ENOMEM);
 
@@ -180,7 +180,7 @@ static int mds_unlink_orphan(struct obd_device *obd, struct dentry *dchild,
         if (logcookies != NULL)
                 OBD_FREE(logcookies, cookie_size);
 out_free_lmm:
-        OBD_FREE(lmm, mds->mds_max_mdsize);
+        OBD_FREE_LARGE(lmm, mds->mds_max_mdsize);
         RETURN(rc);
 }
 

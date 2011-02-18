@@ -334,7 +334,7 @@ ldlm_namespace_new(struct obd_device *obd, char *name,
         if (!ns)
                 GOTO(out_ref, NULL);
 
-        OBD_VMALLOC(ns->ns_hash, sizeof(*ns->ns_hash) * RES_HASH_SIZE);
+        OBD_ALLOC_LARGE(ns->ns_hash, sizeof(*ns->ns_hash) * RES_HASH_SIZE);
         if (!ns->ns_hash)
                 GOTO(out_ns, NULL);
 
@@ -393,7 +393,7 @@ out_proc:
         ldlm_namespace_cleanup(ns, 0);
         OBD_FREE(ns->ns_name, namelen + 1);
 out_hash:
-        OBD_VFREE(ns->ns_hash, sizeof(*ns->ns_hash) * RES_HASH_SIZE);
+        OBD_FREE_LARGE(ns->ns_hash, sizeof(*ns->ns_hash) * RES_HASH_SIZE);
 out_ns:
         OBD_FREE_PTR(ns);
 out_ref:
@@ -629,7 +629,7 @@ void ldlm_namespace_free_post(struct ldlm_namespace *ns)
                 }
         }
 #endif
-        OBD_VFREE(ns->ns_hash, sizeof(*ns->ns_hash) * RES_HASH_SIZE);
+        OBD_FREE_LARGE(ns->ns_hash, sizeof(*ns->ns_hash) * RES_HASH_SIZE);
         OBD_FREE(ns->ns_name, strlen(ns->ns_name) + 1);
 
         /* @ns should be not on list in this time, otherwise this will cause

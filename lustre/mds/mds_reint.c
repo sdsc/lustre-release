@@ -746,7 +746,7 @@ static int mds_reint_setattr(struct mds_update_record *rec, int offset,
         if (S_ISREG(inode->i_mode) &&
             rec->ur_iattr.ia_valid & (ATTR_UID | ATTR_GID)) {
                 lmm_size = mds->mds_max_mdsize;
-                OBD_ALLOC(lmm, lmm_size);
+                OBD_ALLOC_LARGE(lmm, lmm_size);
                 if (lmm == NULL)
                         GOTO(cleanup, rc = -ENOMEM);
 
@@ -880,7 +880,7 @@ static int mds_reint_setattr(struct mds_update_record *rec, int offset,
 
         switch (cleanup_phase) {
         case 2:
-                OBD_FREE(lmm, mds->mds_max_mdsize);
+                OBD_FREE_LARGE(lmm, mds->mds_max_mdsize);
                 if (logcookies)
                         OBD_FREE(logcookies, cookie_size);
         case 1:

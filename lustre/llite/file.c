@@ -2220,7 +2220,7 @@ static int ll_lov_recreate(struct inode *inode, obd_id id, obd_gr gr,
         lsm_size = sizeof(*lsm) + (sizeof(struct lov_oinfo) *
                    (lsm->lsm_stripe_count));
 
-        OBD_ALLOC(lsm2, lsm_size);
+        OBD_ALLOC_LARGE(lsm2, lsm_size);
         if (lsm2 == NULL)
                 GOTO(out, rc = -ENOMEM);
 
@@ -2235,7 +2235,7 @@ static int ll_lov_recreate(struct inode *inode, obd_id id, obd_gr gr,
         memcpy(lsm2, lsm, lsm_size);
         rc = obd_create(exp, oa, &lsm2, &oti);
 
-        OBD_FREE(lsm2, lsm_size);
+        OBD_FREE_LARGE(lsm2, lsm_size);
         GOTO(out, rc);
 out:
         up(&lli->lli_size_sem);
@@ -2401,7 +2401,7 @@ int ll_lov_getstripe_ea_info(struct inode *inode, const char *filename,
                 lmj_size = sizeof(struct lov_user_md_join) +
                         lsm->lsm_stripe_count *
                         sizeof(struct lov_user_ost_data_join);
-                OBD_ALLOC(lmj, lmj_size);
+                OBD_ALLOC_LARGE(lmj, lmj_size);
                 if (!lmj)
                         GOTO(out_free_memmd, rc = -ENOMEM);
 
@@ -2456,19 +2456,19 @@ static int ll_lov_setea(struct inode *inode, struct file *file,
         if (!cfs_capable(CFS_CAP_SYS_ADMIN))
                 RETURN(-EPERM);
 
-        OBD_ALLOC(lump, lum_size);
+        OBD_ALLOC_LARGE(lump, lum_size);
         if (lump == NULL) {
                 RETURN(-ENOMEM);
         }
         rc = copy_from_user(lump, (struct lov_user_md  *)arg, lum_size);
         if (rc) {
-                OBD_FREE(lump, lum_size);
+                OBD_FREE_LARGE(lump, lum_size);
                 RETURN(-EFAULT);
         }
 
         rc = ll_lov_setstripe_ea_info(inode, file, flags, lump, lum_size);
 
-        OBD_FREE(lump, lum_size);
+        OBD_FREE_LARGE(lump, lum_size);
         RETURN(rc);
 }
 
@@ -2863,7 +2863,7 @@ static int ll_ioctl_fiemap(struct inode *inode, unsigned long arg)
         num_bytes = sizeof(*fiemap_s) + (extent_count *
                                          sizeof(struct ll_fiemap_extent));
 
-        OBD_VMALLOC(fiemap_s, num_bytes);
+        OBD_ALLOC_LARGE(fiemap_s, num_bytes);
         if (fiemap_s == NULL)
                 RETURN(-ENOMEM);
 
@@ -2896,7 +2896,7 @@ static int ll_ioctl_fiemap(struct inode *inode, unsigned long arg)
                 rc = -EFAULT;
 
 error:
-        OBD_VFREE(fiemap_s, num_bytes);
+        OBD_FREE_LARGE(fiemap_s, num_bytes);
         RETURN(rc);
 }
 
@@ -3497,7 +3497,7 @@ int ll_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 
         num_bytes = sizeof(*fiemap) + (extent_count *
                                        sizeof(struct ll_fiemap_extent));
-        OBD_VMALLOC(fiemap, num_bytes);
+        OBD_ALLOC_LARGE(fiemap, num_bytes);
 
         if (fiemap == NULL)
                 RETURN(-ENOMEM);
@@ -3516,7 +3516,7 @@ int ll_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
         memcpy(fieinfo->fi_extents_start, &fiemap->fm_extents[0],
                fiemap->fm_mapped_extents * sizeof(struct ll_fiemap_extent));
 
-        OBD_VFREE(fiemap, num_bytes);
+        OBD_FREE_LARGE(fiemap, num_bytes);
         return rc;
 }
 #endif
