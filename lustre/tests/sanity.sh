@@ -7746,11 +7746,12 @@ run_test 216 "check lockless direct write works and updates file size and kms co
 test_217() { # bug 22430
 	local node
 	for node in $(nodes_list); do
-		if [[ $node = *-* ]] ; then
-			echo "lctl ping $node@$NETTYPE"
-			lctl ping $node@$NETTYPE
+		nid=$(do_node $node $LCTL list_nids)
+		if [[ $nid = *-* ]] ; then
+			echo "lctl ping $nid"
+			lctl ping $nid
 		else
-			echo "skipping $node (no hiphen detected)"
+			echo "skipping $nid (no hiphen detected)"
 		fi
 	done
 }
