@@ -3367,24 +3367,26 @@ remote_nodes_list () {
 
 init_clients_lists () {
     # Sanity check: exclude the local client from RCLIENTS
-    local rclients=$(echo " $RCLIENTS " | sed -re "s/\s+$HOSTNAME\s+/ /g")
+    local clients=$RCLIENTS
+    local rclients=$(exclude_items_from_list "$clients" $(hostname))
 
     # Sanity check: exclude the dup entries
     rclients=$(for i in $rclients; do echo $i; done | sort -u)
 
-    local clients="$SINGLECLIENT $HOSTNAME $rclients"
+    clients=$(comma_list "$SINGLECLIENT $HOSTNAME $rclients")
 
     # Sanity check: exclude the dup entries from CLIENTS
     # for those configs which has SINGLCLIENT set to local client
     clients=$(for i in $clients; do echo $i; done | sort -u)
 
-    CLIENTS=`comma_list $clients`
-    local -a remoteclients=($rclients)
+    CLIENTS=$(comma_list $clients)
+    local -a remoteclients=(${rclients//,/ })
     for ((i=0; $i<${#remoteclients[@]}; i++)); do
             varname=CLIENT$((i + 2))
             eval $varname=${remoteclients[i]}
     done
 
+    RCLIENTS=${rclients//,/ }
     CLIENTCOUNT=$((${#remoteclients[@]} + 1))
 }
 

@@ -1826,7 +1826,7 @@ test_70b () {
 	do_nodesv $clients "set -x; MISSING_DBENCH_OK=$MISSING_DBENCH_OK \
 		PATH=:$PATH:$LUSTRE/utils:$LUSTRE/tests/:$DBENCH_LIB \
 		DBENCH_LIB=$DBENCH_LIB TESTSUITE=$TESTSUITE TESTNAME=$TESTNAME \
-		LCTL=$LCTL $cmd" &
+		MOUNT=$MOUNT LCTL=$LCTL $cmd" &
 	pid=$!
 	log "Started rundbench load pid=$pid ..."
 
@@ -1852,6 +1852,7 @@ test_70b () {
 	done
 
 	wait $pid || error "rundbench load on $clients failed!"
+	rm -rf $MOUNT/*
 }
 run_test 70b "mds recovery; $CLIENTCOUNT clients"
 # end multi-client tests
