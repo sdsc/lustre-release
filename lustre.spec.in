@@ -55,7 +55,7 @@ Release: %{fullrelease}
 License: GPL
 Group: Utilities/System
 Source: lustre-%{version}.tar.gz
-URL: http://www.sun.com/software/products/lustre/index.xml
+URL: http://wiki.whamcloud.com/
 BuildRoot: %{_tmppath}/lustre-%{version}-root
 Obsoletes: lustre-lite, lustre-lite-utils, lustre-ldap nfs-utils-lustre
 Provides: lustre-lite = %{version}, lustre-lite-utils = %{version}
@@ -301,14 +301,6 @@ if [ -x /sbin/weak-modules ]; then
     rpm -ql %{name}-modules-%{version}-%{release} | grep '\.ko$' |
         /sbin/weak-modules --add-modules
 fi
-
-cat <<EOF
-Congratulations on finishing your Lustre installation!  To register
-your copy of Lustre and find out more about Lustre Support, Service,
-and Training offerings please visit
-
-http://www.sun.com/software/products/lustre/lustre_reg.jsp
-EOF
 
 # for update from < v1.4.6
 
