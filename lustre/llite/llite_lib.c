@@ -1230,7 +1230,7 @@ void ll_put_super(struct super_block *sb)
         EXIT;
 } /* client_put_super */
 
-int ll_shrink_cache(int nr_to_scan, SHRINKER_MASK_T gfp_mask)
+KERN_SHRINKER(ll_shrink_cache)
 {
         struct ll_sb_info *sbi;
         int count = 0;
