@@ -1842,6 +1842,60 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
+# RHEL6(backport from 2.6.34) removes 2 functions blk_queue_max_phys_segments and
+# blk_queue_max_hw_segments add blk_queue_max_segments
+AC_DEFUN([LC_BLK_QUEUE_MAX_SEGMENTS],
+[AC_MSG_CHECKING([if blk_queue_max_segments is defined])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/blkdev.h>
+],[
+        blk_queue_max_segments(NULL, 0);
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(HAVE_BLK_QUEUE_MAX_SEGMENTS, 1,
+                  [blk_queue_max_segments is defined])
+],[
+        AC_MSG_RESULT(no)
+])
+])
+
+# RHEL6(backport from 2.6.34) removes blk_queue_max_sectors and add blk_queue_max_hw_sectors
+# check blk_queue_max_sectors and use it until disappear.
+AC_DEFUN([LC_BLK_QUEUE_MAX_SECTORS],
+[AC_MSG_CHECKING([if blk_queue_max_sectors is defined])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/blkdev.h>
+],[
+        blk_queue_max_sectors(NULL, 0);
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(HAVE_BLK_QUEUE_MAX_SECTORS, 1,
+                  [blk_queue_max_sectors is defined])
+],[
+        AC_MSG_RESULT(no)
+])
+])
+
+
+
+# 2.6.32-71 adds an argument to shrink callback
+AC_DEFUN([LC_SHRINK_3ARGS],
+[AC_MSG_CHECKING([if shrink has 3 arguments])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/mm.h>
+],[
+        struct shrinker s;
+        return s.shrink(NULL, 0, 0);
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(HAVE_SHRINK_3ARGS, 1,
+                  [shrink has 3 arguments])
+],[
+        AC_MSG_RESULT(no)
+])
+])
+
+
 #
 # LC_PROG_LINUX
 #
@@ -2006,6 +2060,9 @@ AC_DEFUN([LC_PROG_LINUX],
           fi
           LC_DQUOT_INIT
           LC_REQUEST_QUEUE_LIMITS
+          LC_BLK_QUEUE_MAX_SECTORS
+          LC_BLK_QUEUE_MAX_SEGMENTS
+          LC_SHRINK_3ARGS
 
           #
           if test x$enable_server = xyes ; then
