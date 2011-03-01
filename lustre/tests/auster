@@ -19,6 +19,7 @@ Run Lustre regression tests suites.
       -c CONFIG Test environment config file
       -d LOGDIR Top level directory for logs
       -f STR    Config name (cfg/<name>.sh)
+      -g GROUP  Test group file (Overrides tests listed on command line)
       -i N      Repeat tests N times (default 1). A new directory
                 will be created under LOGDIR for each iteration.
       -k        Don't stop when subtests fail
@@ -47,9 +48,9 @@ the default "local" configuration.
 
   auster -s sanity replay-single --except 70b
 
-Run test listed in batch-list 5 times  using large config.
+Run all tests in the regression group 5 times using large config.
 
-  auster -f large -r 5 -b batch-list
+  auster -f large -g test-groups/regression  -r 5 
 
 EOF
     exit
@@ -62,13 +63,15 @@ repeat_count=1
 upload_logs=false
 reformat=false
 test_logs_dir=/tmp/test_logs
+test_group_file=
 export SLOW=no
 export ${NAME:=local}
-while getopts "c:d:nkf:i:rRslhv" opt
+while getopts "c:d:nkf:g:i:rRslhv" opt
 do
     case "$opt" in
 	c) CONFIG=$OPTARG;;
 	d) test_logs_dir=$OPTARG;;
+	g) test_group_file=$OPTARG;;
 	k) export FAIL_ON_ERROR=false;;
         n) dry_run=:;;
         v) verbose=:;;
@@ -81,7 +84,13 @@ do
         h|\?) usage;;
     esac
 done
-shift $((OPTIND -1))
+
+# If a test_group_file is specified, then ignore rest of command line
+if [[ $test_group_file ]]; then
+    set $(sed 's/#.*$//' $test_group_file)
+else
+    shift $((OPTIND -1))
+fi
 
 #
 # Various paramters for the tests scripts
@@ -308,6 +317,7 @@ assert_env mds_HOST MDS_MKFS_OPTS
 assert_env ost_HOST OST_MKFS_OPTS OSTCOUNT
 assert_env FSNAME MOUNT MOUNT2
 
+echo "Started at `date`"
 setup_if_needed
 
 run_suites "$@"
