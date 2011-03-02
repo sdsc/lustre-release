@@ -1064,6 +1064,7 @@ static ssize_t ll_file_writev(struct file *file, const struct iovec *iov,
 
         result = ll_file_io_generic(env, args, file, CIT_WRITE, ppos, count);
         cl_env_put(env, &refcheck);
+        ll_i2info(file->f_dentry->d_inode)->lli_write_rc = result < 0 ? : 0;
         RETURN(result);
 }
 
@@ -1086,6 +1087,7 @@ static ssize_t ll_file_write(struct file *file, const char *buf, size_t count,
 
         result = ll_file_writev(file, local_iov, 1, ppos);
         cl_env_put(env, &refcheck);
+        ll_i2info(file->f_dentry->d_inode)->lli_write_rc = result < 0 ? : 0;
         RETURN(result);
 }
 
@@ -1116,6 +1118,8 @@ static ssize_t ll_file_aio_write(struct kiocb *iocb, const struct iovec *iov,
         result = ll_file_io_generic(env, args, iocb->ki_filp, CIT_WRITE,
                                   &iocb->ki_pos, count);
         cl_env_put(env, &refcheck);
+        ll_i2info(iocb->ki_filp->f_dentry->d_inode)->lli_write_rc =
+                                                        result < 0 ? : 0;
         RETURN(result);
 }
 
@@ -1892,6 +1896,10 @@ int ll_flush(struct file *file)
         struct lov_stripe_md *lsm = lli->lli_smd;
         int rc, err;
 
+        /* the application should know write failure already. */
+        if (lli->lli_write_rc)
+                return 0;
+
         /* catch async errors that were recorded back when async writeback
          * failed for pages in this mapping. */
         rc = lli->lli_async_rc;
@@ -1965,6 +1973,7 @@ int ll_fsync(struct file *file, struct dentry *dentry, int data)
                 if (!rc)
                         rc = err;
                 OBDO_FREE(oa);
+                lli->lli_write_rc = err < 0 ? : 0;
         }
 
         RETURN(rc);
