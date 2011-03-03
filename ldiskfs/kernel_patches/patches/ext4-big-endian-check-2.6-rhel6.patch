@@ -1,0 +1,56 @@
+Index: linux-2.6.32-el6-beta/fs/ext4/super.c
+===================================================================
+--- linux-2.6.32-el6-beta.orig/fs/ext4/super.c
++++ linux-2.6.32-el6-beta/fs/ext4/super.c
+@@ -72,6 +72,8 @@ static void ext4_write_super(struct supe
+ static int ext4_freeze(struct super_block *sb);
+ 
+ 
++static int bigendian_extents;
++
+ ext4_fsblk_t ext4_block_bitmap(struct super_block *sb,
+ 			       struct ext4_group_desc *bg)
+ {
+@@ -1454,6 +1456,7 @@ enum {
+ 	Opt_inode_readahead_blks, Opt_journal_ioprio,
+ 	Opt_discard, Opt_nodiscard,
+ 	Opt_iopen, Opt_noiopen, Opt_iopen_nopriv,
++	Opt_bigendian_extents,
+ };
+ 
+ static const match_table_t tokens = {
+@@ -1523,6 +1526,7 @@ static const match_table_t tokens = {
+ 	{Opt_auto_da_alloc, "auto_da_alloc=%u"},
+ 	{Opt_auto_da_alloc, "auto_da_alloc"},
+ 	{Opt_noauto_da_alloc, "noauto_da_alloc"},
++	{Opt_bigendian_extents, "bigendian_extents"},
+ 	{Opt_discard, "discard"},
+ 	{Opt_nodiscard, "nodiscard"},
+ 	{Opt_err, NULL},
+@@ -1962,6 +1966,9 @@ set_qf_format:
+ 			else
+ 				set_opt(sbi->s_mount_opt,NO_AUTO_DA_ALLOC);
+ 			break;
++		case Opt_bigendian_extents:
++			bigendian_extents = 1;
++			break;
+ 		case Opt_discard:
+ 			set_opt(sbi->s_mount_opt, DISCARD);
+ 			break;
+@@ -3040,6 +3047,16 @@ static int ext4_fill_super(struct super_
+ 		goto failed_mount;
+ 	}
+ 
++#ifdef __BIG_ENDIAN
++	if (bigendian_extents == 0) {
++		printk(KERN_ERR "EXT4-fs: extents feature is not guaranteed to "
++		       "work on big-endian systems. Use \"bigendian_extents\" "
++		       "mount option to override.\n");
++		goto failed_mount;
++	}
++#endif
++
++
+ #ifdef CONFIG_PROC_FS
+ 	if (ext4_proc_root)
+ 		sbi->s_proc = proc_mkdir(sb->s_id, ext4_proc_root);
