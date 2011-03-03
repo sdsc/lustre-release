@@ -1,0 +1,34 @@
+Index: linux-2.6.32.i386/fs/ext4/Makefile
+===================================================================
+--- linux-2.6.32.i386.orig/fs/ext4/Makefile	2010-04-15 07:16:07.000000000 +0530
++++ linux-2.6.32.i386/fs/ext4/Makefile	2010-04-16 04:56:30.000000000 +0530
+@@ -6,7 +6,8 @@
+ 
+ ext4-y	:= balloc.o bitmap.o dir.o file.o fsync.o ialloc.o inode.o iopen.o \
+ 		ioctl.o namei.o super.o symlink.o hash.o resize.o extents.o \
+-		ext4_jbd2.o migrate.o mballoc.o block_validity.o move_extent.o
++		ext4_jbd2.o migrate.o mballoc.o block_validity.o move_extent.o \
++                dynlocks.o
+ 
+ ext4-$(CONFIG_EXT4_FS_XATTR)		+= xattr.o xattr_user.o xattr_trusted.o
+ ext4-$(CONFIG_EXT4_FS_POSIX_ACL)	+= acl.o
+Index: linux-2.6.32.i386/fs/ext4/super.c
+===================================================================
+--- linux-2.6.32.i386.orig/fs/ext4/super.c	2010-04-16 04:55:46.000000000 +0530
++++ linux-2.6.32.i386/fs/ext4/super.c	2010-04-16 04:56:10.000000000 +0530
+@@ -4435,6 +4435,7 @@
+ 	err = init_inodecache();
+ 	if (err)
+ 		goto out1;
++	dynlock_cache_init();
+ 	err = register_filesystem(&ext4_fs_type);
+ 	if (err)
+ 		goto out;
+@@ -4460,6 +4461,7 @@
+ {
+ 	unregister_filesystem(&ext4_fs_type);
+ 	destroy_inodecache();
++	dynlock_cache_exit();
+ 	exit_ext4_xattr();
+ 	exit_ext4_mballoc();
+ 	remove_proc_entry("fs/ext4", NULL);
