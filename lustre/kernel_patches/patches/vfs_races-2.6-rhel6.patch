@@ -1,0 +1,92 @@
+This patch is used by ldiskfs to provide the __iopen__
+functionality needed for open-by-fid and recovery.
+
+Index: linux-2.6.32-71.18.1.el6-master/fs/dcache.c
+===================================================================
+--- linux-2.6.32-71.18.1.el6-master.orig/fs/dcache.c	2011-03-05 11:35:55.160951268 +0800
++++ linux-2.6.32-71.18.1.el6-master/fs/dcache.c	2011-03-05 11:36:03.814897298 +0800
+@@ -280,6 +280,13 @@
+ 		spin_unlock(&dcache_lock);
+ 		return 0;
+ 	}
++
++	/* network invalidation by Lustre */
++	if (dentry->d_flags & DCACHE_LUSTRE_INVALID) {
++		spin_unlock(&dcache_lock);
++		return 0;
++	}
++
+ 	/*
+ 	 * Check whether to do a partial shrink_dcache
+ 	 * to get rid of unused child entries.
+@@ -1547,13 +1554,21 @@
+  * Adds a dentry to the hash according to its name.
+  */
+  
+-void d_rehash(struct dentry * entry)
++void d_rehash_cond(struct dentry * entry, int lock)
+ {
+-	spin_lock(&dcache_lock);
++ 	if (lock)
++	    spin_lock(&dcache_lock);
+ 	spin_lock(&entry->d_lock);
+ 	_d_rehash(entry);
+ 	spin_unlock(&entry->d_lock);
+-	spin_unlock(&dcache_lock);
++ 	if (lock)
++	    spin_unlock(&dcache_lock);
++}
++EXPORT_SYMBOL(d_rehash_cond);
++
++void d_rehash(struct dentry * entry)
++{
++	d_rehash_cond(entry, 1);
+ }
+ 
+ /*
+@@ -1628,7 +1643,7 @@
+  * Update the dcache to reflect the move of a file name. Negative
+  * dcache entries should not be moved in this way.
+  */
+-static void d_move_locked(struct dentry * dentry, struct dentry * target)
++void d_move_locked(struct dentry * dentry, struct dentry * target)
+ {
+ 	struct hlist_head *list;
+ 
+@@ -1686,6 +1701,8 @@
+ 	write_sequnlock(&rename_lock);
+ }
+ 
++EXPORT_SYMBOL(d_move_locked);
++
+ /**
+  * d_move - move a dentry
+  * @dentry: entry to move
+Index: linux-2.6.32-71.18.1.el6-master/include/linux/dcache.h
+===================================================================
+--- linux-2.6.32-71.18.1.el6-master.orig/include/linux/dcache.h	2011-03-05 11:35:55.135951424 +0800
++++ linux-2.6.32-71.18.1.el6-master/include/linux/dcache.h	2011-03-05 11:36:33.110714613 +0800
+@@ -185,6 +185,7 @@
+ #define DCACHE_COOKIE		0x0040	/* For use by dcookie subsystem */
+ 
+ #define DCACHE_FSNOTIFY_PARENT_WATCHED	0x0080 /* Parent inode is watched by some fsnotify listener */
++#define DCACHE_LUSTRE_INVALID	0x0100  /* Lustre invalidated */
+ 
+ extern spinlock_t dcache_lock;
+ extern seqlock_t rename_lock;
+@@ -261,6 +262,7 @@
+  * This adds the entry to the hash queues.
+  */
+ extern void d_rehash(struct dentry *);
++extern void d_rehash_cond(struct dentry *, int lock);
+ 
+ /**
+  * d_add - add dentry to hash queues
+@@ -296,6 +298,7 @@
+ 
+ /* used for rename() and baskets */
+ extern void d_move(struct dentry *, struct dentry *);
++extern void d_move_locked(struct dentry *, struct dentry *);
+ extern struct dentry *d_ancestor(struct dentry *, struct dentry *);
+ 
+ /* appendix may either be NULL or be used for transname suffixes */
