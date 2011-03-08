@@ -1,0 +1,42 @@
+Index: linux-2.6.32-el6-beta/fs/ext4/super.c
+===================================================================
+--- linux-2.6.32-el6-beta.orig/fs/ext4/super.c
++++ linux-2.6.32-el6-beta/fs/ext4/super.c
+@@ -1462,6 +1462,7 @@ enum {
+ 	Opt_iopen, Opt_noiopen, Opt_iopen_nopriv,
+ 	Opt_bigendian_extents,
+ 	Opt_mballoc,
++	Opt_extents,
+ };
+ 
+ static const match_table_t tokens = {
+@@ -1533,6 +1534,7 @@ static const match_table_t tokens = {
+ 	{Opt_noauto_da_alloc, "noauto_da_alloc"},
+ 	{Opt_bigendian_extents, "bigendian_extents"},
+ 	{Opt_mballoc, "mballoc"},
++	{Opt_extents, "extents"},
+ 	{Opt_discard, "discard"},
+ 	{Opt_nodiscard, "nodiscard"},
+ 	{Opt_err, NULL},
+@@ -1983,6 +1985,8 @@ set_qf_format:
+ 		case Opt_nodiscard:
+ 			clear_opt(sbi->s_mount_opt, DISCARD);
+ 			break;
++		case Opt_extents:
++			break;
+ 		default:
+ 			ext4_msg(sb, KERN_ERR,
+ 			       "Unrecognized mount option \"%s\" "
+Index: linux-2.6.32-el6-beta/fs/ext4/ext4_extents.h
+===================================================================
+--- linux-2.6.32-el6-beta.orig/fs/ext4/ext4_extents.h
++++ linux-2.6.32-el6-beta/fs/ext4/ext4_extents.h
+@@ -254,6 +254,8 @@ extern int ext4_ext_try_to_merge(struct 
+ 				 struct ext4_ext_path *path,
+ 				 struct ext4_extent *);
+ extern unsigned int ext4_ext_check_overlap(struct inode *, struct ext4_extent *, struct ext4_ext_path *);
++/* Used in fsfilt_ext3.c */
++#define EXT_INSERT_EXTENT_WITH_5ARGS
+ extern int ext4_ext_insert_extent(handle_t *, struct inode *, struct ext4_ext_path *, struct ext4_extent *, int);
+ extern int ext4_ext_walk_space(struct inode *, ext4_lblk_t, ext4_lblk_t,
+ 							ext_prepare_callback, void *);
