@@ -368,6 +368,16 @@ struct cl_object_operations {
          */
         int (*coo_glimpse)(const struct lu_env *env,
                            const struct cl_object *obj, struct ost_lvb *lvb);
+        /**
+         * Pin the object. Bottom to top call to pin the object in memory.
+         */
+        int (*coo_pin)    (const struct lu_env *env,
+                           const struct cl_object *obj);
+        /**
+         * Unpin the object. Reverse operation of coo_pin().
+         */
+        void (*coo_unpin) (const struct lu_env *env,
+                           const struct cl_object *obj);
 };
 
 /**
@@ -2636,6 +2646,8 @@ int  cl_object_attr_set   (const struct lu_env *env, struct cl_object *obj,
                            const struct cl_attr *attr, unsigned valid);
 int  cl_object_glimpse    (const struct lu_env *env, struct cl_object *obj,
                            struct ost_lvb *lvb);
+int  cl_object_pin        (const struct lu_env *env, const struct cl_object *o);
+void cl_object_unpin      (const struct lu_env *env, const struct cl_object *o);
 int  cl_conf_set          (const struct lu_env *env, struct cl_object *obj,
                            const struct cl_object_conf *conf);
 void cl_object_prune      (const struct lu_env *env, struct cl_object *obj);

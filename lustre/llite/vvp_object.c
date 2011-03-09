@@ -123,6 +123,26 @@ static int vvp_attr_set(const struct lu_env *env, struct cl_object *obj,
         return 0;
 }
 
+static int vvp_object_pin(const struct lu_env *env,
+                          const struct cl_object *obj)
+{
+        struct inode *inode = ccc_object_inode(obj);
+
+        if (igrab(inode))
+                return 0;
+
+        return -EBUSY;
+}
+
+static void vvp_object_unpin(const struct lu_env *env,
+                             const struct cl_object *obj)
+{
+        struct inode *inode = ccc_object_inode(obj);
+
+        LASSERT(atomic_read(&inode->i_count) > 0);
+        iput(inode);
+}
+
 static const struct cl_object_operations vvp_ops = {
         .coo_page_init = vvp_page_init,
         .coo_lock_init = vvp_lock_init,
@@ -130,7 +150,9 @@ static const struct cl_object_operations vvp_ops = {
         .coo_attr_get  = vvp_attr_get,
         .coo_attr_set  = vvp_attr_set,
         .coo_conf_set  = ccc_conf_set,
-        .coo_glimpse   = ccc_object_glimpse
+        .coo_glimpse   = ccc_object_glimpse,
+        .coo_pin       = vvp_object_pin,
+        .coo_unpin     = vvp_object_unpin
 };
 
 static const struct lu_object_operations vvp_lu_obj_ops = {
