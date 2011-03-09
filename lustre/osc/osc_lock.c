@@ -613,6 +613,7 @@ static int osc_dlm_blocking_ast0(const struct lu_env *env,
                                  struct ldlm_lock *dlmlock,
                                  void *data, int flag)
 {
+        struct cl_object *obj;
         struct osc_lock *olck;
         struct cl_lock  *lock;
         int result;
@@ -624,7 +625,23 @@ static int osc_dlm_blocking_ast0(const struct lu_env *env,
         olck = osc_ast_data_get(dlmlock);
         if (olck != NULL) {
                 lock = olck->ols_cl.cls_lock;
+                obj = lock->cll_descr.cld_obj;
+                result = cl_object_pin(env, obj);
                 cl_lock_mutex_get(env, lock);
+                if (result) {
+                        result = 0;
+                        while (lock->cll_state != CLS_FREEING) {
+                                result = cl_lock_state_wait(env, lock);
+                                if (result)
+                                        break;
+                        }
+                        cl_lock_mutex_put(env, lock);
+                        if (result)
+                                CL_LOCK_DEBUG(D_ERROR, env, lock,
+                                              "dlm blocking %d\n", result);
+                        goto out;
+                }
+
                 LINVRNT(osc_lock_invariant(olck));
                 if (olck->ols_ast_wait) {
                         /* wake up osc_lock_use() */
@@ -655,6 +672,9 @@ static int osc_dlm_blocking_ast0(const struct lu_env *env,
                 } else
                         cancel = 1;
                 cl_lock_mutex_put(env, lock);
+                cl_object_unpin(env, obj);
+
+        out:
                 osc_ast_data_put(env, olck);
         } else
                 /*

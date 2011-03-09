@@ -311,6 +311,48 @@ int cl_object_glimpse(const struct lu_env *env, struct cl_object *obj,
 EXPORT_SYMBOL(cl_object_glimpse);
 
 /**
+ * Pin the object in memory. If successful, the object cannot be killed until
+ * cl_object_unpin is called.
+ */
+int cl_object_pin(const struct lu_env *env, const struct cl_object *obj)
+{
+        struct lu_object_header *top;
+        int result;
+        ENTRY;
+
+        top = obj->co_lu.lo_header;
+        result = 0;
+        cfs_list_for_each_entry_reverse(obj, &top->loh_layers,
+                                        co_lu.lo_linkage) {
+                if (obj->co_ops->coo_pin != NULL) {
+                        result = obj->co_ops->coo_pin(env, obj);
+                        if (result != 0)
+                                break;
+                }
+        }
+        RETURN(result);
+}
+EXPORT_SYMBOL(cl_object_pin);
+
+/**
+ * Unpin the object, after the object is unpined, it may be freed anytime.
+ */
+void cl_object_unpin(const struct lu_env *env, const struct cl_object *obj)
+{
+        struct lu_object_header *top;
+        ENTRY;
+
+        top = obj->co_lu.lo_header;
+        cfs_list_for_each_entry_reverse(obj, &top->loh_layers,
+                                        co_lu.lo_linkage) {
+                if (obj->co_ops->coo_pin != NULL)
+                        obj->co_ops->coo_unpin(env, obj);
+        }
+        EXIT;
+}
+EXPORT_SYMBOL(cl_object_unpin);
+
+/**
  * Updates a configuration of an object \a obj.
  */
 int cl_conf_set(const struct lu_env *env, struct cl_object *obj,

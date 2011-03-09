@@ -124,13 +124,30 @@ static int lovsub_object_glimpse(const struct lu_env *env,
         RETURN(cl_object_glimpse(env, &los->lso_super->lo_cl, lvb));
 }
 
+static int lovsub_object_pin(const struct lu_env *env,
+                             const struct cl_object *obj)
+{
+        struct lovsub_object *los = cl2lovsub(obj);
 
+        ENTRY;
+        RETURN(cl_object_pin(env, &los->lso_super->lo_cl));
+}
+
+static void lovsub_object_unpin(const struct lu_env *env,
+                                const struct cl_object *obj)
+{
+        struct lovsub_object *los = cl2lovsub(obj);
+
+        cl_object_unpin(env, &los->lso_super->lo_cl);
+}
 
 static const struct cl_object_operations lovsub_ops = {
         .coo_page_init = lovsub_page_init,
         .coo_lock_init = lovsub_lock_init,
         .coo_attr_set  = lovsub_attr_set,
-        .coo_glimpse   = lovsub_object_glimpse
+        .coo_glimpse   = lovsub_object_glimpse,
+        .coo_pin       = lovsub_object_pin,
+        .coo_unpin     = lovsub_object_unpin
 };
 
 static const struct lu_object_operations lovsub_lu_obj_ops = {
