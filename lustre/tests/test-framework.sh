@@ -4374,7 +4374,7 @@ check_logdir() {
         # Not found. Create local logdir
         mkdir -p $dir
     else
-        touch $dir/node.$(hostname).yml
+        touch $dir/node.$(short_hostname $(hostname)).yml
     fi
     return 0
 }
@@ -4382,7 +4382,7 @@ check_logdir() {
 check_write_access() {
     local dir=$1
     for node in $(nodes_list); do
-        if [ ! -f "$dir/node.${node}.yml" ]; then
+        if [ ! -f "$dir/node.$(short_hostname ${node}).yml" ]; then
             # Logdir not accessible/writable from this node.
             return 1
         fi
@@ -4533,5 +4533,14 @@ is_sanity_benchmark() {
 
 min_ost_size () {
     $LCTL get_param -n osc.*.kbytesavail | sort -n | head -n1
+}
+
+###
+# short_hostname
+#
+# Passed a single argument, strips everything off following and includes the first period.
+# client-20.lab.whamcloud.com becomes client-20
+short_hostname() {
+  echo $(sed 's/\..*//' <<< $1)
 }
 
