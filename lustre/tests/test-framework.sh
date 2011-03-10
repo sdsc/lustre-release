@@ -4374,7 +4374,7 @@ check_logdir() {
         # Not found. Create local logdir
         mkdir -p $dir
     else
-        touch $dir/node.$(hostname).yml
+        touch $dir/node.$(sed 's/\..*//' <<< $(hostname)).yml
     fi
     return 0
 }
@@ -4382,7 +4382,7 @@ check_logdir() {
 check_write_access() {
     local dir=$1
     for node in $(nodes_list); do
-        if [ ! -f "$dir/node.${node}.yml" ]; then
+        if [ ! -f "$dir/node.$(sed 's/\..*//' <<< ${node}).yml" ]; then
             # Logdir not accessible/writable from this node.
             return 1
         fi
