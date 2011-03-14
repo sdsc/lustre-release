@@ -1715,12 +1715,22 @@ int lprocfs_exp_rd_uuid(char *page, char **start, off_t off, int count,
         struct obd_device *obd = stats->nid_obd;
         int len = 0;
 
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (obd->obd_stopping || !obd->obd_set_up) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                CERROR("OBD %d already stopping\n", obd->obd_minor);
+                return -ENODEV;
+        }
+
         *eof = 1;
         page[0] = '\0';
         lprocfs_exp_rd_cb_data_init(&cb_data, page, count, eof, &len);
         cfs_hash_for_each_key(obd->obd_nid_hash, &stats->nid,
                               lprocfs_exp_print_uuid, &cb_data);
-        return (*cb_data.len);
+        len = *cb_data.len;
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
+        return len;
 }
 
 int lprocfs_exp_print_hash(cfs_hash_t *hs, cfs_hash_bd_t *bd,
@@ -1750,13 +1760,23 @@ int lprocfs_exp_rd_hash(char *page, char **start, off_t off, int count,
         struct obd_device *obd = stats->nid_obd;
         int len = 0;
 
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (obd->obd_stopping || !obd->obd_set_up) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                CERROR("OBD %d already stopping\n", obd->obd_minor);
+                return -ENODEV;
+        }
+
         *eof = 1;
         page[0] = '\0';
         lprocfs_exp_rd_cb_data_init(&cb_data, page, count, eof, &len);
 
         cfs_hash_for_each_key(obd->obd_nid_hash, &stats->nid,
                               lprocfs_exp_print_hash, &cb_data);
-        return (*cb_data.len);
+        len = *cb_data.len;
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
+        return len;
 }
 
 int lprocfs_nid_stats_clear_read(char *page, char **start, off_t off,
@@ -1801,6 +1821,13 @@ int lprocfs_nid_stats_clear_write(struct file *file, const char *buffer,
         struct nid_stat *client_stat;
         CFS_LIST_HEAD(free_list);
 
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (obd->obd_stopping || !obd->obd_set_up) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                CERROR("OBD %d already stopping\n", obd->obd_minor);
+                return -ENODEV;
+        }
+
         cfs_hash_cond_del(obd->obd_nid_stats_hash,
                           lprocfs_nid_stats_clear_write_cb, &free_list);
 
@@ -1810,6 +1837,7 @@ int lprocfs_nid_stats_clear_write(struct file *file, const char *buffer,
                 cfs_list_del_init(&client_stat->nid_list);
                 lprocfs_free_client_stats(client_stat);
         }
+        cfs_spin_unlock(&obd->obd_dev_lock);
 
         return count;
 }
@@ -2183,6 +2211,13 @@ int lprocfs_obd_rd_hash(char *page, char **start, off_t off,
         if (obd == NULL)
                 return 0;
 
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (obd->obd_stopping || !obd->obd_set_up) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                CERROR("OBD %d already stopping\n", obd->obd_minor);
+                return -ENODEV;
+        }
+
         c += cfs_hash_debug_header(page, count);
         c += cfs_hash_debug_str(obd->obd_uuid_hash, page + c, count - c);
         c += cfs_hash_debug_str(obd->obd_nid_hash, page + c, count - c);
@@ -2192,6 +2227,7 @@ int lprocfs_obd_rd_hash(char *page, char **start, off_t off,
                 c += cfs_hash_debug_str(obd->u.obt.obt_qctxt.lqc_lqs_hash,
                                         page + c, count - c);
 #endif
+        cfs_spin_unlock(&obd->obd_dev_lock);
 
         return c;
 }
