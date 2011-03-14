@@ -47,22 +47,42 @@ static int lprocfs_mds_rd_mntdev(char *page, char **start, off_t off, int count,
                                  int *eof, void *data)
 {
         struct obd_device* obd = (struct obd_device *)data;
+        int rc;
 
         LASSERT(obd != NULL);
-        LASSERT(obd->u.mds.mds_vfsmnt->mnt_devname);
         *eof = 1;
 
-        return snprintf(page, count, "%s\n",obd->u.mds.mds_vfsmnt->mnt_devname);
+        spin_lock(&obd->obd_dev_lock);
+        if (obd->obd_stopping || !obd->obd_set_up) {
+                spin_unlock(&obd->obd_dev_lock);
+                CERROR("OBD %d already stopping\n", obd->obd_minor);
+                return -ENODEV;
+        }
+        LASSERT(obd->u.mds.mds_vfsmnt->mnt_devname);
+
+        rc = snprintf(page, count, "%s\n",obd->u.mds.mds_vfsmnt->mnt_devname);
+        spin_unlock(&obd->obd_dev_lock);
+        return rc;
 }
 
 static int lprocfs_mds_rd_evictostnids(char *page, char **start, off_t off,
                                        int count, int *eof, void *data)
 {
         struct obd_device* obd = (struct obd_device *)data;
+        int rc;
 
         LASSERT(obd != NULL);
 
-        return snprintf(page, count, "%d\n", obd->u.mds.mds_evict_ost_nids);
+        spin_lock(&obd->obd_dev_lock);
+        if (obd->obd_stopping || !obd->obd_set_up) {
+                spin_unlock(&obd->obd_dev_lock);
+                CERROR("OBD %d already stopping\n", obd->obd_minor);
+                return -ENODEV;
+        }
+
+        rc = snprintf(page, count, "%d\n", obd->u.mds.mds_evict_ost_nids);
+        spin_unlock(&obd->obd_dev_lock);
+        return rc;
 }
 
 static int lprocfs_mds_wr_evictostnids(struct file *file, const char *buffer,
@@ -186,10 +206,20 @@ static int lprocfs_rd_group_expire(char *page, char **start, off_t off,
                                    int count, int *eof, void *data)
 {
         struct obd_device *obd = data;
+        int rc;
+
+        spin_lock(&obd->obd_dev_lock);
+        if (obd->obd_stopping || !obd->obd_set_up) {
+                spin_unlock(&obd->obd_dev_lock);
+                CERROR("OBD %d already stopping\n", obd->obd_minor);
+                return -ENODEV;
+        }
 
         *eof = 1;
-        return snprintf(page, count, "%lu\n",
-                        obd->u.mds.mds_group_hash->uc_entry_expire / HZ);
+        rc = snprintf(page, count, "%lu\n",
+                      obd->u.mds.mds_group_hash->uc_entry_expire / HZ);
+        spin_unlock(&obd->obd_dev_lock);
+        return rc;
 }
 
 static int lprocfs_wr_group_expire(struct file *file, const char *buffer,
@@ -214,10 +244,20 @@ static int lprocfs_rd_group_acquire_expire(char *page, char **start, off_t off,
                                            int count, int *eof, void *data)
 {
         struct obd_device *obd = data;
+        int rc;
+
+        spin_lock(&obd->obd_dev_lock);
+        if (obd->obd_stopping || !obd->obd_set_up) {
+                spin_unlock(&obd->obd_dev_lock);
+                CERROR("OBD %d already stopping\n", obd->obd_minor);
+                return -ENODEV;
+        }
 
         *eof = 1;
-        return snprintf(page, count, "%lu\n",
-                        obd->u.mds.mds_group_hash->uc_acquire_expire / HZ);
+        rc = snprintf(page, count, "%lu\n",
+                      obd->u.mds.mds_group_hash->uc_acquire_expire / HZ);
+        spin_unlock(&obd->obd_dev_lock);
+        return rc;
 }
 
 static int lprocfs_wr_group_acquire_expire(struct file *file,const char *buffer,
@@ -240,10 +280,20 @@ static int lprocfs_rd_group_upcall(char *page, char **start, off_t off,
                                    int count, int *eof, void *data)
 {
         struct obd_device *obd = data;
+        int rc;
+
+        spin_lock(&obd->obd_dev_lock);
+        if (obd->obd_stopping || !obd->obd_set_up) {
+                spin_unlock(&obd->obd_dev_lock);
+                CERROR("OBD %d already stopping\n", obd->obd_minor);
+                return -ENODEV;
+        }
 
         *eof = 1;
-        return snprintf(page, count, "%s\n",
-                        obd->u.mds.mds_group_hash->uc_upcall);
+        rc = snprintf(page, count, "%s\n",
+                      obd->u.mds.mds_group_hash->uc_upcall);
+        spin_unlock(&obd->obd_dev_lock);
+        return rc;
 }
 
 static int lprocfs_wr_group_upcall(struct file *file, const char *buffer,

@@ -1568,6 +1568,11 @@ int lprocfs_exp_rd_uuid(char *page, char **start, off_t off, int count,
         struct obd_device *obd = stats->nid_obd;
         int len = 0;
 
+        if (obd->obd_stopping || !obd->obd_set_up) {
+                CERROR("OBD %d already stopping\n", obd->obd_minor);
+                return -ENODEV;
+        }
+
         *eof = 1;
         page[0] = '\0';
         lprocfs_exp_rd_cb_data_init(&cb_data, page, count, eof, &len);
@@ -1601,6 +1606,11 @@ int lprocfs_exp_rd_hash(char *page, char **start, off_t off, int count,
         struct exp_uuid_cb_data cb_data;
         struct obd_device *obd = stats->nid_obd;
         int len = 0;
+
+        if (obd->obd_stopping || !obd->obd_set_up) {
+                CERROR("OBD %d already stopping\n", obd->obd_minor);
+                return -ENODEV;
+        }
 
         *eof = 1;
         page[0] = '\0';
@@ -1651,6 +1661,11 @@ int lprocfs_nid_stats_clear_write(struct file *file, const char *buffer,
         struct obd_device *obd = (struct obd_device *)data;
         struct nid_stat *client_stat;
         CFS_LIST_HEAD(free_list);
+
+        if (obd->obd_stopping || !obd->obd_set_up) {
+                CERROR("OBD %d already stopping\n", obd->obd_minor);
+                return -ENODEV;
+        }
 
         lustre_hash_cond_del(obd->obd_nid_stats_hash,
                              lprocfs_nid_stats_clear_write_cb, &free_list);
@@ -2139,6 +2154,11 @@ int lprocfs_obd_rd_hash(char *page, char **start, off_t off,
 
         if (obd == NULL)
                 return 0;
+
+        if (obd->obd_stopping || !obd->obd_set_up) {
+                CERROR("OBD %d already stopping\n", obd->obd_minor);
+                return -ENODEV;
+        }
 
         c += lustre_hash_debug_header(page, count);
         c += lustre_hash_debug_str(obd->obd_uuid_hash, page + c, count - c);
