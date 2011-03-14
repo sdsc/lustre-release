@@ -133,8 +133,8 @@ int mdt_procfs_fini(struct mdt_device *mdt)
                 obd->obd_proc_exports_entry = NULL;
         }
         ptlrpc_lprocfs_unregister_obd(obd);
-        lprocfs_free_md_stats(obd);
         lprocfs_obd_cleanup(obd);
+        lprocfs_free_md_stats(obd);
 
         RETURN(0);
 }
@@ -154,10 +154,20 @@ static int lprocfs_rd_identity_expire(char *page, char **start, off_t off,
 {
         struct obd_device *obd = data;
         struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+        int rc;
+
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (!OBD_DEV_IS_ACTIVE(obd)) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                return -ENODEV;
+        }
 
         *eof = 1;
-        return snprintf(page, count, "%u\n",
-                        mdt->mdt_identity_cache->uc_entry_expire);
+        rc = snprintf(page, count, "%u\n",
+                      mdt->mdt_identity_cache->uc_entry_expire);
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
+        return rc;
 }
 
 static int lprocfs_wr_identity_expire(struct file *file, const char *buffer,
@@ -172,6 +182,7 @@ static int lprocfs_wr_identity_expire(struct file *file, const char *buffer,
                 return rc;
 
         mdt->mdt_identity_cache->uc_entry_expire = val;
+
         return count;
 }
 
@@ -181,10 +192,20 @@ static int lprocfs_rd_identity_acquire_expire(char *page, char **start,
 {
         struct obd_device *obd = data;
         struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+        int rc;
+
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (!OBD_DEV_IS_ACTIVE(obd)) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                return -ENODEV;
+        }
 
         *eof = 1;
-        return snprintf(page, count, "%u\n",
-                        mdt->mdt_identity_cache->uc_acquire_expire);
+        rc = snprintf(page, count, "%u\n",
+                      mdt->mdt_identity_cache->uc_acquire_expire);
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
+        return rc;
 }
 
 static int lprocfs_wr_identity_acquire_expire(struct file *file,
@@ -201,6 +222,7 @@ static int lprocfs_wr_identity_acquire_expire(struct file *file,
                 return rc;
 
         mdt->mdt_identity_cache->uc_acquire_expire = val;
+
         return count;
 }
 
@@ -209,13 +231,22 @@ static int lprocfs_rd_identity_upcall(char *page, char **start, off_t off,
 {
         struct obd_device *obd = data;
         struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-        struct upcall_cache *hash = mdt->mdt_identity_cache;
+        struct upcall_cache *hash;
         int len;
 
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (!OBD_DEV_IS_ACTIVE(obd)) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                return -ENODEV;
+        }
+
+        hash = mdt->mdt_identity_cache;
         *eof = 1;
         cfs_read_lock(&hash->uc_upcall_rwlock);
         len = snprintf(page, count, "%s\n", hash->uc_upcall);
         cfs_read_unlock(&hash->uc_upcall_rwlock);
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
         return len;
 }
 
@@ -224,18 +255,29 @@ static int lprocfs_wr_identity_upcall(struct file *file, const char *buffer,
 {
         struct obd_device *obd = data;
         struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-        struct upcall_cache *hash = mdt->mdt_identity_cache;
+        struct upcall_cache *hash;
         char kernbuf[UC_CACHE_UPCALL_MAXPATH] = { '\0' };
 
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (!OBD_DEV_IS_ACTIVE(obd)) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                return -ENODEV;
+        }
+
         if (count >= UC_CACHE_UPCALL_MAXPATH) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
                 CERROR("%s: identity upcall too long\n", obd->obd_name);
                 return -EINVAL;
         }
 
         if (cfs_copy_from_user(kernbuf, buffer,
                                min_t(unsigned long, count,
-                                     UC_CACHE_UPCALL_MAXPATH - 1)))
+                                     UC_CACHE_UPCALL_MAXPATH - 1))) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
                 return -EFAULT;
+        }
+
+        hash = mdt->mdt_identity_cache;
 
         /* Remove any extraneous bits from the upcall (e.g. linefeeds) */
         cfs_write_lock(&hash->uc_upcall_rwlock);
@@ -251,6 +293,8 @@ static int lprocfs_wr_identity_upcall(struct file *file, const char *buffer,
                       "cause unexpected \"EACCESS\"\n", obd->obd_name);
 
         CWARN("%s: identity upcall set to %s\n", obd->obd_name, hash->uc_upcall);
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
         return count;
 }
 
@@ -266,6 +310,7 @@ static int lprocfs_wr_identity_flush(struct file *file, const char *buffer,
                 return rc;
 
         mdt_flush_identity(mdt->mdt_identity_cache, uid);
+
         return count;
 }
 
@@ -339,10 +384,20 @@ static int lprocfs_rd_capa(char *page, char **start, off_t off,
 {
         struct obd_device *obd = data;
         struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+        int rc;
 
-        return snprintf(page, count, "capability on: %s %s\n",
-                        mdt->mdt_opts.mo_oss_capa ? "oss" : "",
-                        mdt->mdt_opts.mo_mds_capa ? "mds" : "");
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (!OBD_DEV_IS_ACTIVE(obd)) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                return -ENODEV;
+        }
+
+        rc = snprintf(page, count, "capability on: %s %s\n",
+                      mdt->mdt_opts.mo_oss_capa ? "oss" : "",
+                      mdt->mdt_opts.mo_mds_capa ? "mds" : "");
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
+        return rc;
 }
 
 static int lprocfs_wr_capa(struct file *file, const char *buffer,
@@ -397,8 +452,18 @@ static int lprocfs_rd_site_stats(char *page, char **start, off_t off,
 {
         struct obd_device *obd = data;
         struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+        int rc;
 
-        return lu_site_stats_print(mdt_lu_site(mdt), page, count);
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (!OBD_DEV_IS_ACTIVE(obd)) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                return -ENODEV;
+        }
+
+        rc = lu_site_stats_print(mdt_lu_site(mdt), page, count);
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
+        return rc;
 }
 
 static int lprocfs_rd_capa_timeout(char *page, char **start, off_t off,
@@ -406,8 +471,18 @@ static int lprocfs_rd_capa_timeout(char *page, char **start, off_t off,
 {
         struct obd_device *obd = data;
         struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+        int rc;
 
-        return snprintf(page, count, "%lu\n", mdt->mdt_capa_timeout);
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (!OBD_DEV_IS_ACTIVE(obd)) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                return -ENODEV;
+        }
+
+        rc = snprintf(page, count, "%lu\n", mdt->mdt_capa_timeout);
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
+        return rc;
 }
 
 static int lprocfs_wr_capa_timeout(struct file *file, const char *buffer,
@@ -431,8 +506,18 @@ static int lprocfs_rd_ck_timeout(char *page, char **start, off_t off, int count,
 {
         struct obd_device *obd = data;
         struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+        int rc;
 
-        return snprintf(page, count, "%lu\n", mdt->mdt_ck_timeout);
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (!OBD_DEV_IS_ACTIVE(obd)) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                return -ENODEV;
+        }
+
+        rc = snprintf(page, count, "%lu\n", mdt->mdt_ck_timeout);
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
+        return rc;
 }
 
 static int lprocfs_wr_ck_timeout(struct file *file, const char *buffer,
@@ -471,8 +556,18 @@ static int lprocfs_rd_sec_level(char *page, char **start, off_t off,
 {
         struct obd_device *obd = data;
         struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+        int rc;
 
-        return snprintf(page, count, "%d\n", mdt->mdt_sec_level);
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (!OBD_DEV_IS_ACTIVE(obd)) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                return -ENODEV;
+        }
+
+        rc = snprintf(page, count, "%d\n", mdt->mdt_sec_level);
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
+        return rc;
 }
 
 static int lprocfs_wr_sec_level(struct file *file, const char *buffer,
@@ -504,8 +599,18 @@ static int lprocfs_rd_cos(char *page, char **start, off_t off,
 {
         struct obd_device *obd = data;
         struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+        int rc;
 
-        return snprintf(page, count, "%u\n", mdt_cos_is_enabled(mdt));
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (!OBD_DEV_IS_ACTIVE(obd)) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                return -ENODEV;
+        }
+
+        rc = snprintf(page, count, "%u\n", mdt_cos_is_enabled(mdt));
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
+        return rc;
 }
 
 static int lprocfs_wr_cos(struct file *file, const char *buffer,
@@ -527,10 +632,19 @@ static int lprocfs_rd_root_squash(char *page, char **start, off_t off,
 {
         struct obd_device *obd = data;
         struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-        ENTRY;
+        int rc;
 
-        return snprintf(page, count, "%u:%u\n", mdt->mdt_squash_uid,
-                        mdt->mdt_squash_gid);
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (!OBD_DEV_IS_ACTIVE(obd)) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                return -ENODEV;
+        }
+
+        rc = snprintf(page, count, "%u:%u\n", mdt->mdt_squash_uid,
+                      mdt->mdt_squash_gid);
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
+        return rc;
 }
 
 static int safe_strtoul(const char *str, char **endp, unsigned long *res)
@@ -611,10 +725,21 @@ static int lprocfs_rd_nosquash_nids(char *page, char **start, off_t off,
 {
         struct obd_device *obd = data;
         struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+        int rc;
+
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (!OBD_DEV_IS_ACTIVE(obd)) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                return -ENODEV;
+        }
 
         if (mdt->mdt_nosquash_str)
-                return snprintf(page, count, "%s\n", mdt->mdt_nosquash_str);
-        return snprintf(page, count, "NONE\n");
+                rc = snprintf(page, count, "%s\n", mdt->mdt_nosquash_str);
+        else 
+                rc = snprintf(page, count, "NONE\n");
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
+        return rc;
 }
 
 static int lprocfs_wr_nosquash_nids(struct file *file, const char *buffer,
@@ -688,9 +813,19 @@ static int lprocfs_rd_mdt_som(char *page, char **start, off_t off,
 {
         struct obd_device *obd = data;
         struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+        int rc;
 
-        return snprintf(page, count, "%sabled\n",
-                        mdt->mdt_som_conf ? "en" : "dis");
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (!OBD_DEV_IS_ACTIVE(obd)) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                return -ENODEV;
+        }
+
+        rc = snprintf(page, count, "%sabled\n",
+                      mdt->mdt_som_conf ? "en" : "dis");
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
+        return rc;
 }
 
 static int lprocfs_wr_mdt_som(struct file *file, const char *buffer,

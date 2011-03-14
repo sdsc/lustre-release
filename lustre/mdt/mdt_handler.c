@@ -4341,6 +4341,11 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 #endif
         lut_fini(env, &m->mdt_lut);
         mdt_fs_cleanup(env, m);
+
+        lprocfs_free_per_client_stats(obd);
+        mdt_procfs_fini(m);
+        lprocfs_free_obd_stats(obd);
+
         upcall_cache_cleanup(m->mdt_identity_cache);
         m->mdt_identity_cache = NULL;
 
@@ -4370,10 +4375,6 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
          * Finish the stack
          */
         mdt_stack_fini(env, m, md2lu_dev(m->mdt_child));
-
-        lprocfs_free_per_client_stats(obd);
-        lprocfs_free_obd_stats(obd);
-        mdt_procfs_fini(m);
 
         if (ls) {
                 struct md_site *mite;
