@@ -217,7 +217,8 @@ struct lustre_intent_data {
         __u64     it_lock_handle;
         void     *it_data;
         int       it_lock_mode;
-        int it_int_flags;
+        int       it_int_flags;
+        int       it_lock_to_join;
 };
 struct lookup_intent {
         int     it_magic;
