@@ -193,6 +193,7 @@ struct ll_inode_info {
         struct cl_object       *lli_clob;
         /* the most recent timestamps obtained from mds */
         struct ost_lvb          lli_lvb;
+        cfs_semaphore_t         lli_readdir_sem; /* protect readdir and statahead */
 };
 
 /*
