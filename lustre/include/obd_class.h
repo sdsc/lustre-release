@@ -245,7 +245,6 @@ static inline enum obd_option exp_flags_from_obd(struct obd_device *obd)
 void obdo_cpy_md(struct obdo *dst, struct obdo *src, obd_flag valid);
 void obdo_to_ioobj(struct obdo *oa, struct obd_ioobj *ioobj);
 
-
 #define OBT(dev)        (dev)->obd_type
 #define OBP(dev, op)    (dev)->obd_type->typ_ops->o_ ## op
 #define CTXTP(ctxt, op) (ctxt)->loc_logops->lop_##op
@@ -260,17 +259,18 @@ do {                                                            \
         }                                                       \
 } while (0)
 
+#define OBD_DEV_IS_ACTIVE(obd) ((obd)->obd_set_up && !(obd)->obd_stopping)
+
 /* ensure obd_setup and !obd_stopping */
 #define OBD_CHECK_DEV_ACTIVE(obd)                               \
 do {                                                            \
         OBD_CHECK_DEV(obd);                                     \
-        if (!(obd)->obd_set_up || (obd)->obd_stopping) {        \
+        if (!OBD_DEV_IS_ACTIVE(obd)) {                          \
                 CERROR("Device %d not setup\n",                 \
                        (obd)->obd_minor);                       \
                 RETURN(-ENODEV);                                \
         }                                                       \
 } while (0)
-
 
 #ifdef LPROCFS
 #define OBD_COUNTER_OFFSET(op)                                  \

@@ -2281,8 +2281,8 @@ static int filter_cleanup(struct obd_device *obd)
 
         remove_proc_entry("clear", obd->obd_proc_exports_entry);
         lprocfs_free_per_client_stats(obd);
-        lprocfs_free_obd_stats(obd);
         lprocfs_obd_cleanup(obd);
+        lprocfs_free_obd_stats(obd);
 
         lquota_cleanup(filter_quota_interface_ref, obd);
 
