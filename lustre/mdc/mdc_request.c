@@ -2036,6 +2036,11 @@ static int mdc_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
                         cfs_up_write(&obd->u.cli.cl_sem);
                         obd->u.cli.cl_import = NULL;
                 }
+
+                ptlrpc_lprocfs_unregister_obd(obd);
+                lprocfs_obd_cleanup(obd);
+                ptlrpcd_decref();
+
                 rc = obd_llog_finish(obd, 0);
                 if (rc != 0)
                         CERROR("failed to cleanup llogging subsystems\n");
@@ -2051,10 +2056,6 @@ static int mdc_cleanup(struct obd_device *obd)
         OBD_FREE(cli->cl_rpc_lock, sizeof (*cli->cl_rpc_lock));
         OBD_FREE(cli->cl_setattr_lock, sizeof (*cli->cl_setattr_lock));
         OBD_FREE(cli->cl_close_lock, sizeof (*cli->cl_close_lock));
-
-        ptlrpc_lprocfs_unregister_obd(obd);
-        lprocfs_obd_cleanup(obd);
-        ptlrpcd_decref();
 
         return client_obd_cleanup(obd);
 }

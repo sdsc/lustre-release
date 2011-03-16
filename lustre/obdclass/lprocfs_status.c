@@ -1134,13 +1134,13 @@ static void lprocfs_free_client_stats(struct nid_stat *client_stat)
                client_stat->nid_brw_stats);
 
         LASSERTF(cfs_atomic_read(&client_stat->nid_exp_ref_count) == 0,
-                 "count %d\n",
-                 cfs_atomic_read(&client_stat->nid_exp_ref_count));
+                 "nid %s:count %d\n", libcfs_nid2str(client_stat->nid),
+                 atomic_read(&client_stat->nid_exp_ref_count));
 
-        cfs_hlist_del_init(&client_stat->nid_hash);
-
-        if (client_stat->nid_proc)
+        if (client_stat->nid_proc) {
                 lprocfs_remove(&client_stat->nid_proc);
+                client_stat->nid_proc = NULL;
+        }
 
         if (client_stat->nid_stats)
                 lprocfs_free_stats(&client_stat->nid_stats);
@@ -1158,18 +1158,31 @@ static void lprocfs_free_client_stats(struct nid_stat *client_stat)
 
 void lprocfs_free_per_client_stats(struct obd_device *obd)
 {
+        cfs_hash_t *hash = obd->obd_nid_stats_hash;
+        cfs_hash_bd_t bd;
         struct nid_stat *stat;
         ENTRY;
 
         /* we need extra list - because hash_exit called to early */
         /* not need locking because all clients is died */
-        while(!cfs_list_empty(&obd->obd_nid_stats)) {
+        while (!cfs_list_empty(&obd->obd_nid_stats)) {
                 stat = cfs_list_entry(obd->obd_nid_stats.next,
                                       struct nid_stat, nid_list);
+                if (stat->nid_proc) {
+                        lprocfs_remove(&stat->nid_proc);
+                        stat->nid_proc = NULL;
+                }
                 cfs_list_del_init(&stat->nid_list);
+
+                cfs_hash_lock(hash, 0);
+                cfs_hash_bd_get(hash, &stat->nid, &bd);
+                cfs_hash_bd_lock(hash, &bd, 1);
+                cfs_hash_bd_del_locked(hash, &bd, &stat->nid_hash);
+                cfs_hash_bd_unlock(hash, &bd, 1);
+                cfs_hash_unlock(hash, 0);
+
                 lprocfs_free_client_stats(stat);
         }
-
         EXIT;
 }
 
@@ -1769,7 +1782,7 @@ int lprocfs_nid_stats_clear_read(char *page, char **start, off_t off,
 }
 EXPORT_SYMBOL(lprocfs_nid_stats_clear_read);
 
-int lprocfs_nid_stats_clear_write_cb(void *obj, void *data)
+static int lprocfs_nid_stats_clear_write_cb(void *obj, void *data)
 {
         struct nid_stat *stat = obj;
         int i;
