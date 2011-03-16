@@ -553,9 +553,13 @@ int lprocfs_rd_blksize(char *page, char **start, off_t off, int count,
                        int *eof, void *data)
 {
         struct obd_statfs osfs;
-        int rc = obd_statfs(data, &osfs,
-                            cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
-                            OBD_STATFS_NODELAY);
+        int rc;
+
+        OBD_CHECK_DEV_ACTIVE((struct obd_device *)data);
+
+        rc = obd_statfs(data, &osfs,
+                        cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
+                        OBD_STATFS_NODELAY);
         if (!rc) {
                 *eof = 1;
                 rc = snprintf(page, count, "%u\n", osfs.os_bsize);
@@ -567,9 +571,13 @@ int lprocfs_rd_kbytestotal(char *page, char **start, off_t off, int count,
                            int *eof, void *data)
 {
         struct obd_statfs osfs;
-        int rc = obd_statfs(data, &osfs,
-                            cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
-                            OBD_STATFS_NODELAY);
+        int rc;
+
+        OBD_CHECK_DEV_ACTIVE((struct obd_device *)data);
+
+        rc = obd_statfs(data, &osfs,
+                        cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
+                        OBD_STATFS_NODELAY);
         if (!rc) {
                 __u32 blk_size = osfs.os_bsize >> 10;
                 __u64 result = osfs.os_blocks;
@@ -587,9 +595,13 @@ int lprocfs_rd_kbytesfree(char *page, char **start, off_t off, int count,
                           int *eof, void *data)
 {
         struct obd_statfs osfs;
-        int rc = obd_statfs(data, &osfs,
-                            cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
-                            OBD_STATFS_NODELAY);
+        int rc;
+
+        OBD_CHECK_DEV_ACTIVE((struct obd_device *)data);
+
+        rc = obd_statfs(data, &osfs,
+                        cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
+                        OBD_STATFS_NODELAY);
         if (!rc) {
                 __u32 blk_size = osfs.os_bsize >> 10;
                 __u64 result = osfs.os_bfree;
@@ -607,9 +619,13 @@ int lprocfs_rd_kbytesavail(char *page, char **start, off_t off, int count,
                            int *eof, void *data)
 {
         struct obd_statfs osfs;
-        int rc = obd_statfs(data, &osfs,
-                            cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
-                            OBD_STATFS_NODELAY);
+        int rc;
+
+        OBD_CHECK_DEV_ACTIVE((struct obd_device *)data);
+
+        rc = obd_statfs(data, &osfs,
+                        cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
+                        OBD_STATFS_NODELAY);
         if (!rc) {
                 __u32 blk_size = osfs.os_bsize >> 10;
                 __u64 result = osfs.os_bavail;
@@ -627,9 +643,13 @@ int lprocfs_rd_filestotal(char *page, char **start, off_t off, int count,
                           int *eof, void *data)
 {
         struct obd_statfs osfs;
-        int rc = obd_statfs(data, &osfs,
-                            cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
-                            OBD_STATFS_NODELAY);
+        int rc;
+
+        OBD_CHECK_DEV_ACTIVE((struct obd_device *)data);
+
+        rc = obd_statfs(data, &osfs,
+                        cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
+                        OBD_STATFS_NODELAY);
         if (!rc) {
                 *eof = 1;
                 rc = snprintf(page, count, LPU64"\n", osfs.os_files);
@@ -642,9 +662,13 @@ int lprocfs_rd_filesfree(char *page, char **start, off_t off, int count,
                          int *eof, void *data)
 {
         struct obd_statfs osfs;
-        int rc = obd_statfs(data, &osfs,
-                            cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
-                            OBD_STATFS_NODELAY);
+        int rc;
+
+        OBD_CHECK_DEV_ACTIVE((struct obd_device *)data);
+
+        rc = obd_statfs(data, &osfs,
+                        cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
+                        OBD_STATFS_NODELAY);
         if (!rc) {
                 *eof = 1;
                 rc = snprintf(page, count, LPU64"\n", osfs.os_ffree);
@@ -1715,11 +1739,20 @@ int lprocfs_exp_rd_uuid(char *page, char **start, off_t off, int count,
         struct obd_device *obd = stats->nid_obd;
         int len = 0;
 
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (!OBD_DEV_IS_ACTIVE(obd)) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                CDEBUG(D_INFO, "%s: already stopping\n", obd->obd_name);
+                return -ENODEV;
+        }
+
         *eof = 1;
         page[0] = '\0';
         lprocfs_exp_rd_cb_data_init(&cb_data, page, count, eof, &len);
         cfs_hash_for_each_key(obd->obd_nid_hash, &stats->nid,
                               lprocfs_exp_print_uuid, &cb_data);
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
         return (*cb_data.len);
 }
 
@@ -1750,12 +1783,21 @@ int lprocfs_exp_rd_hash(char *page, char **start, off_t off, int count,
         struct obd_device *obd = stats->nid_obd;
         int len = 0;
 
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (!OBD_DEV_IS_ACTIVE(obd)) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                CDEBUG(D_INFO, "%s: already stopping\n", obd->obd_name);
+                return -ENODEV;
+        }
+
         *eof = 1;
         page[0] = '\0';
         lprocfs_exp_rd_cb_data_init(&cb_data, page, count, eof, &len);
 
         cfs_hash_for_each_key(obd->obd_nid_hash, &stats->nid,
                               lprocfs_exp_print_hash, &cb_data);
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
         return (*cb_data.len);
 }
 
@@ -2183,6 +2225,13 @@ int lprocfs_obd_rd_hash(char *page, char **start, off_t off,
         if (obd == NULL)
                 return 0;
 
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (!OBD_DEV_IS_ACTIVE(obd)) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                CDEBUG(D_INFO, "%s: already stopping\n", obd->obd_name);
+                return -ENODEV;
+        }
+
         c += cfs_hash_debug_header(page, count);
         c += cfs_hash_debug_str(obd->obd_uuid_hash, page + c, count - c);
         c += cfs_hash_debug_str(obd->obd_nid_hash, page + c, count - c);
@@ -2192,6 +2241,7 @@ int lprocfs_obd_rd_hash(char *page, char **start, off_t off,
                 c += cfs_hash_debug_str(obd->u.obt.obt_qctxt.lqc_lqs_hash,
                                         page + c, count - c);
 #endif
+        cfs_spin_unlock(&obd->obd_dev_lock);
 
         return c;
 }
