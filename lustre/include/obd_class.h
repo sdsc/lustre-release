@@ -314,11 +314,13 @@ do {                                                            \
         }                                                       \
 } while (0)
 
+#define OBD_DEV_IS_ACTIVE(obd) ((obd)->obd_set_up && !(obd)->obd_stopping)
+
 /* ensure obd_setup and !obd_stopping */
 #define OBD_CHECK_DEV_ACTIVE(obd)                               \
 do {                                                            \
         OBD_CHECK_DEV(obd);                                     \
-        if (!(obd)->obd_set_up || (obd)->obd_stopping) {        \
+        if (!OBD_DEV_IS_ACTIVE(obd)) {                          \
                 CERROR("Device %d not setup\n",                 \
                        (obd)->obd_minor);                       \
                 RETURN(-ENODEV);                                \
