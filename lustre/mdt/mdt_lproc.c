@@ -767,6 +767,14 @@ static int lprocfs_mdt_wr_mdc(struct file *file, const char *buffer,
         return count;
 }
 
+static int mdt_lprocfs_quota_wr_type(struct file *file, const char *buffer,
+                                     unsigned long count, void *data)
+{
+        CERROR("mdt.quota_type parameter not supported, use mdd.quota_type"
+               " instead\n");
+        return count;
+}
+
 static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
         { "uuid",                       lprocfs_rd_uuid,                 0, 0 },
         { "recovery_status",            lprocfs_obd_rd_recovery_status,  0, 0 },
@@ -799,6 +807,8 @@ static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
         { "som",                        lprocfs_rd_mdt_som,
                                         lprocfs_wr_mdt_som, 0 },
         { "mdccomm",                    0, lprocfs_mdt_wr_mdc,              0 },
+        /* 1.8 compat */
+        { "quota_type",                 NULL, mdt_lprocfs_quota_wr_type, 0 },
         { 0 }
 };
 

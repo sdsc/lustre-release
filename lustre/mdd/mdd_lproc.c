@@ -273,6 +273,21 @@ static int mdd_lprocfs_quota_wr_type(struct file *file, const char *buffer,
         struct mdd_device *mdd = data;
         return lprocfs_quota_wr_type(file, buffer, count, mdd->mdd_obd_dev);
 }
+#else
+/**
+ we need to fake that configuration parameter, mds failed to start othewise
+ */
+static int mdd_lprocfs_quota_rd_type(char *page, char **start, off_t off,
+                                     int count, int *eof, void *data)
+{
+	return -ENOENT;
+}
+
+static int mdd_lprocfs_quota_wr_type(struct file *file, const char *buffer,
+                                     unsigned long count, void *data)
+{
+        return -ENOENT;
+}
 #endif
 
 static int lprocfs_rd_sync_perm(char *page, char **start, off_t off,
@@ -304,10 +319,8 @@ static struct lprocfs_vars lprocfs_mdd_obd_vars[] = {
         { "changelog_mask",  lprocfs_rd_changelog_mask,
                              lprocfs_wr_changelog_mask, 0 },
         { "changelog_users", lprocfs_rd_changelog_users, 0, 0},
-#ifdef HAVE_QUOTA_SUPPORT
         { "quota_type",      mdd_lprocfs_quota_rd_type,
                              mdd_lprocfs_quota_wr_type, 0 },
-#endif
         { "sync_permission", lprocfs_rd_sync_perm, lprocfs_wr_sync_perm, 0 },
         { 0 }
 };
