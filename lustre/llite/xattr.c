@@ -429,17 +429,28 @@ ssize_t ll_getxattr(struct dentry *dentry, const char *name,
              strcmp(name + sizeof(XATTR_LUSTRE_PREFIX) - 1, "lov") == 0)) {
                 struct lov_user_md *lump;
                 struct lov_mds_md *lmm = NULL;
+                struct lov_mds_md *new_lmm = NULL;
                 struct ptlrpc_request *request = NULL;
                 int rc = 0, lmmsize = 0;
 
-                if (S_ISREG(inode->i_mode)) {
-                        rc = ll_lov_getstripe_ea_info(dentry->d_parent->d_inode,
-                                                      dentry->d_name.name, &lmm,
-                                                      &lmmsize, &request);
-                } else if (S_ISDIR(inode->i_mode)) {
+                if (!S_ISREG(inode->i_mode) && !S_ISDIR(inode->i_mode))
+                        return -ENODATA;
+
+                if (size == 0) {
+                        /* size == 0 just ask for buffer size */
+                        rc = ll_get_max_mdsize(ll_i2sbi(inode), &lmmsize);
+                } else if (S_ISDIR(inode->i_mode) &&
+                           !ll_i2info(inode)->lli_smd)
+                {
                         rc = ll_dir_getstripe(inode, &lmm, &lmmsize, &request);
                 } else {
-                        rc = -ENODATA;
+                        LASSERT(ll_i2info(inode)->lli_smd != NULL);
+
+                        /* LSM is present already after lookup/getattr call.
+                         * we need grab layout look later */
+                        rc = obd_packmd(ll_i2dtexp(inode), &new_lmm,
+                                        ll_i2info(inode)->lli_smd);
+                        lmmsize = rc;
                 }
 
                 if (rc < 0)
@@ -454,10 +465,12 @@ ssize_t ll_getxattr(struct dentry *dentry, const char *name,
                 }
 
                 lump = (struct lov_user_md *)buffer;
-                memcpy(lump, lmm, lmmsize);
+                memcpy(lump, lmm ? lmm : new_lmm, lmmsize);
 
                 rc = lmmsize;
 out:
+                if (new_lmm)
+                        obd_free_diskmd(ll_i2dtexp(inode), &new_lmm);
                 ptlrpc_req_finished(request);
                 return(rc);
         }
