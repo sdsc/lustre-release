@@ -423,18 +423,13 @@ extern void lprocfs_clear_stats(struct lprocfs_stats *stats);
 extern void lprocfs_free_stats(struct lprocfs_stats **stats);
 extern void lprocfs_init_ops_stats(int num_private_stats,
                                    struct lprocfs_stats *stats);
-extern void lprocfs_init_mps_stats(int num_private_stats,
-                                   struct lprocfs_stats *stats);
 extern void lprocfs_init_ldlm_stats(struct lprocfs_stats *ldlm_stats);
 extern int lprocfs_alloc_obd_stats(struct obd_device *obddev,
                                    unsigned int num_private_stats);
-extern int lprocfs_alloc_md_stats(struct obd_device *obddev,
-                                  unsigned int num_private_stats);
 extern void lprocfs_counter_init(struct lprocfs_stats *stats, int index,
                                  unsigned conf, const char *name,
                                  const char *units);
 extern void lprocfs_free_obd_stats(struct obd_device *obddev);
-extern void lprocfs_free_md_stats(struct obd_device *obddev);
 struct obd_export;
 struct nid_stat;
 extern int lprocfs_add_clear_entry(struct obd_device * obd,
@@ -741,20 +736,12 @@ static inline int lprocfs_register_stats(cfs_proc_dir_entry_t *root,
 static inline void lprocfs_init_ops_stats(int num_private_stats,
                                           struct lprocfs_stats *stats)
 { return; }
-static inline void lprocfs_init_mps_stats(int num_private_stats,
-                                          struct lprocfs_stats *stats)
-{ return; }
 static inline void lprocfs_init_ldlm_stats(struct lprocfs_stats *ldlm_stats)
 { return; }
 static inline int lprocfs_alloc_obd_stats(struct obd_device *obddev,
                                           unsigned int num_private_stats)
 { return 0; }
-static inline int lprocfs_alloc_md_stats(struct obd_device *obddev,
-                                         unsigned int num_private_stats)
-{ return 0; }
 static inline void lprocfs_free_obd_stats(struct obd_device *obddev)
-{ return; }
-static inline void lprocfs_free_md_stats(struct obd_device *obddev)
 { return; }
 
 struct obd_export;
