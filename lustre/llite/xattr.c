@@ -427,39 +427,27 @@ ssize_t ll_getxattr(struct dentry *dentry, const char *name,
             (strncmp(name, XATTR_LUSTRE_PREFIX,
                      sizeof(XATTR_LUSTRE_PREFIX) - 1) == 0 &&
              strcmp(name + sizeof(XATTR_LUSTRE_PREFIX) - 1, "lov") == 0)) {
-                struct lov_user_md *lump;
                 struct lov_mds_md *lmm = NULL;
-                struct ptlrpc_request *request = NULL;
-                int rc = 0, lmmsize = 0;
+                int lmmsize;
 
-                if (S_ISREG(inode->i_mode)) {
-                        rc = ll_lov_getstripe_ea_info(dentry->d_parent->d_inode,
-                                                      dentry->d_name.name, &lmm,
-                                                      &lmmsize, &request);
-                } else if (S_ISDIR(inode->i_mode)) {
-                        rc = ll_dir_getstripe(inode, &lmm, &lmmsize, &request);
-                } else {
-                        rc = -ENODATA;
-                }
+                if (!S_ISREG(inode->i_mode) && !S_ISDIR(inode->i_mode))
+                        return -ENODATA;
 
-                if (rc < 0)
-                       GOTO(out, rc);
-                if (size == 0)
-                       GOTO(out, rc = lmmsize);
-
-                if (size < lmmsize) {
+                /* LSM is present already after lookup/getattr call.
+                 * we need grab layout look later */
+                lmmsize = obd_packmd(ll_i2dtexp(inode), &lmm, ll_i2info(inode)->lli_smd);
+                /* size == 0 just ask for buffer size */
+                if (size && size < lmmsize) {
                         CERROR("server bug: replied size %d > %d for %s (%s)\n",
                                lmmsize, (int)size, dentry->d_name.name, name);
-                        GOTO(out, rc = -ERANGE);
+                         lmmsize = -ERANGE;
+                } else {
+                        memcpy(buffer, lmm, size ? lmmsize : 0);
                 }
 
-                lump = (struct lov_user_md *)buffer;
-                memcpy(lump, lmm, lmmsize);
+                obd_free_diskmd(ll_i2dtexp(inode), &lmm);
 
-                rc = lmmsize;
-out:
-                ptlrpc_req_finished(request);
-                return(rc);
+                return(lmmsize);
         }
 
         return ll_getxattr_common(inode, name, buffer, size, OBD_MD_FLXATTR);
