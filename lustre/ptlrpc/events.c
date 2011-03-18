@@ -223,7 +223,8 @@ void request_in_callback(lnet_event_t *ev)
 {
         struct ptlrpc_cb_id               *cbid = ev->md.user_ptr;
         struct ptlrpc_request_buffer_desc *rqbd = cbid->cbid_arg;
-        struct ptlrpc_service             *service = rqbd->rqbd_service;
+        struct ptlrpc_svc_cpud            *svcd = rqbd->rqbd_svcd;
+        struct ptlrpc_service             *svc  = svcd->scd_service;
         struct ptlrpc_request             *req;
         ENTRY;
 
@@ -231,11 +232,11 @@ void request_in_callback(lnet_event_t *ev)
                  ev->type == LNET_EVENT_UNLINK);
         LASSERT ((char *)ev->md.start >= rqbd->rqbd_buffer);
         LASSERT ((char *)ev->md.start + ev->offset + ev->mlength <=
-                 rqbd->rqbd_buffer + service->srv_buf_size);
+                 rqbd->rqbd_buffer + svc->srv_buf_size);
 
         CDEBUG((ev->status == 0) ? D_NET : D_ERROR,
                "event type %d, status %d, service %s\n",
-               ev->type, ev->status, service->srv_name);
+               ev->type, ev->status, svc->srv_name);
 
         if (ev->unlinked) {
                 /* If this is the last request message to fit in the
@@ -255,8 +256,7 @@ void request_in_callback(lnet_event_t *ev)
                 if (req == NULL) {
                         CERROR("Can't allocate incoming request descriptor: "
                                "Dropping %s RPC from %s\n",
-                               service->srv_name,
-                               libcfs_id2str(ev->initiator));
+                               svc->srv_name, libcfs_id2str(ev->initiator));
                         return;
                 }
         }
@@ -285,23 +285,28 @@ void request_in_callback(lnet_event_t *ev)
 
         CDEBUG(D_RPCTRACE, "peer: %s\n", libcfs_id2str(req->rq_peer));
 
-        cfs_spin_lock(&service->srv_lock);
+        cfs_spin_lock(&svcd->scd_lock);
 
-        req->rq_history_seq = service->srv_request_seq++;
-        cfs_list_add_tail(&req->rq_history_list, &service->srv_request_history);
+        if (svc->srv_hist_rqbd_max != 0) {
+                cfs_spin_lock(&svc->srv_hist_lock);
+                req->rq_history_seq = svc->srv_hist_req_seq++;
+                cfs_list_add_tail(&req->rq_history_list, &svc->srv_hist_req);
+                cfs_spin_unlock(&svc->srv_hist_lock);
+        } else {
+                CFS_INIT_LIST_HEAD(&req->rq_history_list);
+        }
 
         if (ev->unlinked) {
-                service->srv_nrqbd_receiving--;
+                svcd->scd_rqbd_nposted--;
                 CDEBUG(D_INFO, "Buffer complete: %d buffers still posted\n",
-                       service->srv_nrqbd_receiving);
+                       svcd->scd_rqbd_nposted);
 
                 /* Normally, don't complain about 0 buffers posted; LNET won't
                  * drop incoming reqs since we set the portal lazy */
                 if (test_req_buffer_pressure &&
                     ev->type != LNET_EVENT_UNLINK &&
-                    service->srv_nrqbd_receiving == 0)
-                        CWARN("All %s request buffers busy\n",
-                              service->srv_name);
+                    svcd->scd_rqbd_nposted == 0)
+                        CWARN("All %s request buffers busy\n", svc->srv_name);
 
                 /* req takes over the network's ref on rqbd */
         } else {
@@ -309,14 +314,15 @@ void request_in_callback(lnet_event_t *ev)
                 rqbd->rqbd_refcount++;
         }
 
-        cfs_list_add_tail(&req->rq_list, &service->srv_req_in_queue);
-        service->srv_n_queued_reqs++;
+        req->rq_svcd = svcd;
+        cfs_list_add_tail(&req->rq_list, &svcd->scd_req_in_queue);
+        svcd->scd_req_in_nqueued++;
 
         /* NB everything can disappear under us once the request
          * has been queued and we unlock, so do the wake now... */
-        cfs_waitq_signal(&service->srv_waitq);
+        cfs_waitq_signal(&svcd->scd_waitq);
 
-        cfs_spin_unlock(&service->srv_lock);
+        cfs_spin_unlock(&svcd->scd_lock);
         EXIT;
 }
 
@@ -327,7 +333,7 @@ void reply_out_callback(lnet_event_t *ev)
 {
         struct ptlrpc_cb_id       *cbid = ev->md.user_ptr;
         struct ptlrpc_reply_state *rs = cbid->cbid_arg;
-        struct ptlrpc_service     *svc = rs->rs_service;
+        struct ptlrpc_svc_cpud    *svcd = rs->rs_svcd;
         ENTRY;
 
         LASSERT (ev->type == LNET_EVENT_SEND ||
@@ -348,14 +354,14 @@ void reply_out_callback(lnet_event_t *ev)
         if (ev->unlinked) {
                 /* Last network callback. The net's ref on 'rs' stays put
                  * until ptlrpc_handle_rs() is done with it */
-                cfs_spin_lock(&svc->srv_rs_lock);
+                cfs_spin_lock(&svcd->scd_rs_lock);
                 cfs_spin_lock(&rs->rs_lock);
                 rs->rs_on_net = 0;
                 if (!rs->rs_no_ack ||
                     rs->rs_transno <= rs->rs_export->exp_obd->obd_last_committed)
                         ptlrpc_schedule_difficult_reply (rs);
                 cfs_spin_unlock(&rs->rs_lock);
-                cfs_spin_unlock(&svc->srv_rs_lock);
+                cfs_spin_unlock(&svcd->scd_rs_lock);
         }
 
         EXIT;
@@ -380,6 +386,9 @@ void server_bulk_callback (lnet_event_t *ev)
         CDEBUG((ev->status == 0) ? D_NET : D_ERROR,
                "event type %d, status %d, desc %p\n",
                ev->type, ev->status, desc);
+
+        if (ev->type == LNET_EVENT_SEND && !ev->unlinked)
+                return;
 
         cfs_spin_lock(&desc->bd_lock);
 

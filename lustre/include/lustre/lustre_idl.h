@@ -761,6 +761,16 @@ static inline int lu_fid_eq(const struct lu_fid *f0,
         return memcmp(f0, f1, sizeof *f0) == 0;
 }
 
+static inline int lu_fid_invalid(const struct lu_fid *fid)
+{
+        return fid_is_zero(fid);
+}
+
+static inline void lu_fid_invalidate(struct lu_fid *fid)
+{
+        memset(fid, 0, sizeof(*fid));
+}
+
 #define __diff_normalize(val0, val1)                            \
 ({                                                              \
         typeof(val0) __val0 = (val0);                           \

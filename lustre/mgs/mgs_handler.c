@@ -166,6 +166,15 @@ static int mgs_llog_finish(struct obd_device *obd, int count)
         RETURN(rc);
 }
 
+static ptlrpc_svc_ops_t mgs_svc_ops = {
+        .sop_thread_init        = NULL,
+        .sop_thread_done        = NULL,
+        .sop_req_dispatcher     = NULL,
+        .sop_req_handler        = mgs_handle,
+        .sop_hpreq_handler      = NULL,
+        .sop_req_printer        = target_print_req,
+};
+
 /* Start the MGS obd */
 static int mgs_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
@@ -237,13 +246,13 @@ static int mgs_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 
         /* Start the service threads */
         mgs->mgs_service =
-                ptlrpc_init_svc(MGS_NBUFS, MGS_BUFSIZE, MGS_MAXREQSIZE,
-                                MGS_MAXREPSIZE, MGS_REQUEST_PORTAL,
-                                MGC_REPLY_PORTAL, 2,
-                                mgs_handle, LUSTRE_MGS_NAME,
-                                obd->obd_proc_entry, target_print_req,
+                ptlrpc_init_svc(LUSTRE_MGS_NAME, "ll_mgs",
+                                &mgs_svc_ops, 0, 0,
                                 MGS_THREADS_AUTO_MIN, MGS_THREADS_AUTO_MAX,
-                                "ll_mgs", LCT_MD_THREAD, NULL);
+                                MGS_REQUEST_PORTAL, MGC_REPLY_PORTAL,
+                                MGS_NBUFS, MGS_BUFSIZE,
+                                MGS_MAXREQSIZE, MGS_MAXREPSIZE,
+                                2, obd->obd_proc_entry, LCT_MD_THREAD);
 
         if (!mgs->mgs_service) {
                 CERROR("failed to start service\n");

@@ -58,6 +58,30 @@ typedef struct proc_dir_entry           cfs_proc_dir_entry_t;
 /*
  * Just present a single processor until will add thread support.
  */
+typedef unsigned long           cfs_hw_cpumask_t;
+
+#ifdef _SC_NPROCESSORS_ONLN
+# define cfs_hw_cpus_online()   sysconf(_SC_NPROCESSORS_ONLN)
+# define cfs_hw_cpus_possible() cfs_hw_cpus_online()
+# define cfs_hw_cpu_id()        0       /* XXX */
+#else
+# define cfs_hw_cpus_online()   1
+# define cfs_hw_cpus_possible() 1
+# define cfs_hw_cpu_id()        0
+#endif
+
+static inline unsigned
+cfs_node_num_estimate(int numa)
+{
+        return 1;
+}
+
+/*
+ * Just present a single processor until will add thread support.
+ *
+ * NB: these defines should be removed in the future, they should be
+ * replaced by cfs_hw_cpu_id, cfs_hw_cpus_possible and cfs_hw_cpus_online.
+ */
 #ifndef smp_processor_id
 #define cfs_smp_processor_id() 0
 #else
@@ -199,6 +223,8 @@ typedef struct cfs_group_info {
 #ifndef max
 # define max(x,y) ((x)>(y) ? (x) : (y))
 #endif
+
+#define cfs_mb()        do {} while (0)
 
 #define cfs_get_random_bytes_prim(val, size)     (*val) = 0
 

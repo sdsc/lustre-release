@@ -63,36 +63,39 @@ CFS_MODULE_PARM(at_extra, "i", int, 0644,
 
 
 /* forward ref */
-static int ptlrpc_server_post_idle_rqbds (struct ptlrpc_service *svc);
+static int ptlrpc_server_post_idle_rqbds (struct ptlrpc_svc_cpud *svcd);
+
 
 static CFS_LIST_HEAD(ptlrpc_all_services);
 cfs_spinlock_t ptlrpc_all_services_lock;
+static unsigned ptlrpc_svc_cpu_id = 0;
 
 struct ptlrpc_request_buffer_desc *
-ptlrpc_alloc_rqbd (struct ptlrpc_service *svc)
+ptlrpc_alloc_rqbd (struct ptlrpc_svc_cpud *svcd)
 {
         struct ptlrpc_request_buffer_desc *rqbd;
 
-        OBD_ALLOC_PTR(rqbd);
+        OBD_NODE_ALLOC(rqbd, svcd->scd_cpuid, sizeof(*rqbd));
         if (rqbd == NULL)
                 return (NULL);
 
-        rqbd->rqbd_service = svc;
+        rqbd->rqbd_svcd = svcd;
         rqbd->rqbd_refcount = 0;
         rqbd->rqbd_cbid.cbid_fn = request_in_callback;
         rqbd->rqbd_cbid.cbid_arg = rqbd;
         CFS_INIT_LIST_HEAD(&rqbd->rqbd_reqs);
-        OBD_ALLOC_LARGE(rqbd->rqbd_buffer, svc->srv_buf_size);
+        OBD_NODE_ALLOC_LARGE(rqbd->rqbd_buffer, svcd->scd_cpuid,
+                             svcd->scd_service->srv_buf_size);
 
         if (rqbd->rqbd_buffer == NULL) {
-                OBD_FREE_PTR(rqbd);
+                OBD_NODE_FREE(rqbd, sizeof(*rqbd));
                 return (NULL);
         }
 
-        cfs_spin_lock(&svc->srv_lock);
-        cfs_list_add(&rqbd->rqbd_list, &svc->srv_idle_rqbds);
-        svc->srv_nbufs++;
-        cfs_spin_unlock(&svc->srv_lock);
+        cfs_spin_lock(&svcd->scd_lock);
+        cfs_list_add(&rqbd->rqbd_list, &svcd->scd_rqbd_idle);
+        svcd->scd_nbufs++;
+        cfs_spin_unlock(&svcd->scd_lock);
 
         return (rqbd);
 }
@@ -100,31 +103,33 @@ ptlrpc_alloc_rqbd (struct ptlrpc_service *svc)
 void
 ptlrpc_free_rqbd (struct ptlrpc_request_buffer_desc *rqbd)
 {
-        struct ptlrpc_service *svc = rqbd->rqbd_service;
+        struct ptlrpc_svc_cpud *svcd = rqbd->rqbd_svcd;
 
         LASSERT (rqbd->rqbd_refcount == 0);
         LASSERT (cfs_list_empty(&rqbd->rqbd_reqs));
 
-        cfs_spin_lock(&svc->srv_lock);
+        cfs_spin_lock(&svcd->scd_lock);
         cfs_list_del(&rqbd->rqbd_list);
-        svc->srv_nbufs--;
-        cfs_spin_unlock(&svc->srv_lock);
+        svcd->scd_nbufs--;
+        cfs_spin_unlock(&svcd->scd_lock);
 
-        OBD_FREE_LARGE(rqbd->rqbd_buffer, svc->srv_buf_size);
-        OBD_FREE_PTR(rqbd);
+        OBD_NODE_FREE_LARGE(rqbd->rqbd_buffer,
+                            svcd->scd_service->srv_buf_size);
+        OBD_NODE_FREE(rqbd, sizeof(*rqbd));
 }
 
 int
-ptlrpc_grow_req_bufs(struct ptlrpc_service *svc)
+ptlrpc_grow_req_bufs(struct ptlrpc_svc_cpud *svcd, int post)
 {
+        struct ptlrpc_service             *svc = svcd->scd_service;
         struct ptlrpc_request_buffer_desc *rqbd;
-        int                                i;
+        int    i;
 
         CDEBUG(D_RPCTRACE, "%s: allocate %d new %d-byte reqbufs (%d/%d left)\n",
                svc->srv_name, svc->srv_nbuf_per_group, svc->srv_buf_size,
-               svc->srv_nrqbd_receiving, svc->srv_nbufs);
+               svcd->scd_rqbd_nposted, svcd->scd_nbufs);
         for (i = 0; i < svc->srv_nbuf_per_group; i++) {
-                rqbd = ptlrpc_alloc_rqbd(svc);
+                rqbd = ptlrpc_alloc_rqbd(svcd);
 
                 if (rqbd == NULL) {
                         CERROR ("%s: Can't allocate request buffer\n",
@@ -132,11 +137,12 @@ ptlrpc_grow_req_bufs(struct ptlrpc_service *svc)
                         return (-ENOMEM);
                 }
 
-                if (ptlrpc_server_post_idle_rqbds(svc) < 0)
-                        return (-EAGAIN);
         }
 
-        return (0);
+        if (post && ptlrpc_server_post_idle_rqbds(svcd) < 0)
+                return (-EAGAIN);
+        else
+                return (0);
 }
 
 /**
@@ -166,34 +172,52 @@ ptlrpc_save_lock(struct ptlrpc_request *req,
 
 #ifdef __KERNEL__
 
-#define HRT_RUNNING 0
-#define HRT_STOPPING 1
+typedef struct ptlrpc_rsh_cpud {
+        /** serialize */
+        cfs_spinlock_t          rsh_lock;
+        /** sleep waitq */
+        cfs_waitq_t             rsh_wait;
+        /** cpu id */
+        unsigned int            rsh_cpuid;
+        /** rs queue */
+        cfs_list_t              rsh_queue;
+        /** # of started threads */
+        cfs_atomic_t            rsh_nstarted;
+        /** # of stopped threads */
+        cfs_atomic_t            rsh_nstopped;
+} ptlrpc_rsh_cpud_t;
 
-struct ptlrpc_hr_thread {
-        cfs_spinlock_t        hrt_lock;
-        unsigned long         hrt_flags;
-        cfs_waitq_t           hrt_wait;
-        cfs_list_t            hrt_queue;
-        cfs_completion_t      hrt_completion;
-};
+typedef struct {
+        /** status */
+        unsigned                rsc_stopping;
+        /** roundrobin index for non-affinity threads */
+        unsigned                rsc_index;
+        /** controller sleep waitq */
+        cfs_waitq_t             rsc_waitq;
+        /** percpu data */
+        ptlrpc_rsh_cpud_t     **rsc_cpuds;
+} ptlrpc_rsh_service_t;
 
-struct ptlrpc_hr_service {
-        int                     hr_index;
-        int                     hr_n_threads;
-        int                     hr_size;
-        struct ptlrpc_hr_thread hr_threads[0];
-};
+static ptlrpc_rsh_service_t ptlrpc_rsh_service;
+
+static ptlrpc_rsh_cpud_t *ptlrpc_rsh_select(struct ptlrpc_svc_cpud *svcd)
+{
+        int index;
+
+        if (svcd->scd_cpuid >= 0)
+                return ptlrpc_rsh_service.rsc_cpuds[svcd->scd_cpuid];
+
+        index = ptlrpc_rsh_service.rsc_index++;
+        index %= cfs_cpu_node_num();
+
+        return ptlrpc_rsh_service.rsc_cpuds[index];
+}
 
 struct rs_batch {
         cfs_list_t              rsb_replies;
-        struct ptlrpc_service  *rsb_svc;
+        struct ptlrpc_svc_cpud *rsb_svcd;
         unsigned int            rsb_n_replies;
 };
-
-/**
- *  A pointer to per-node reply handling service.
- */
-static struct ptlrpc_hr_service *ptlrpc_hr = NULL;
 
 /**
  * maximum mumber of replies scheduled in one batch
@@ -212,22 +236,6 @@ static void rs_batch_init(struct rs_batch *b)
 }
 
 /**
- * Choose an hr thread to dispatch requests to.
- */
-static unsigned int get_hr_thread_index(struct ptlrpc_hr_service *hr)
-{
-        unsigned int idx;
-
-        /* Concurrent modification of hr_index w/o any spinlock
-           protection is harmless as long as the result fits
-           [0..(hr_n_threads-1)] range and each thread gets near equal
-           load. */
-        idx = hr->hr_index;
-        hr->hr_index = (idx >= hr->hr_n_threads - 1) ? 0 : idx + 1;
-        return idx;
-}
-
-/**
  * Dispatch all replies accumulated in the batch to one from
  * dedicated reply handling threads.
  *
@@ -236,16 +244,15 @@ static unsigned int get_hr_thread_index(struct ptlrpc_hr_service *hr)
 static void rs_batch_dispatch(struct rs_batch *b)
 {
         if (b->rsb_n_replies != 0) {
-                struct ptlrpc_hr_service *hr = ptlrpc_hr;
-                int idx;
+                struct ptlrpc_rsh_cpud *rsh;
 
-                idx = get_hr_thread_index(hr);
+                rsh = ptlrpc_rsh_select(b->rsb_svcd);
 
-                cfs_spin_lock(&hr->hr_threads[idx].hrt_lock);
-                cfs_list_splice_init(&b->rsb_replies,
-                                     &hr->hr_threads[idx].hrt_queue);
-                cfs_spin_unlock(&hr->hr_threads[idx].hrt_lock);
-                cfs_waitq_signal(&hr->hr_threads[idx].hrt_wait);
+                cfs_spin_lock(&rsh->rsh_lock);
+                cfs_list_splice_init(&b->rsb_replies, &rsh->rsh_queue);
+                cfs_spin_unlock(&rsh->rsh_lock);
+                if (cfs_waitq_active(&rsh->rsh_wait))
+                        cfs_waitq_signal(&rsh->rsh_wait);
                 b->rsb_n_replies = 0;
         }
 }
@@ -259,15 +266,15 @@ static void rs_batch_dispatch(struct rs_batch *b)
  */
 static void rs_batch_add(struct rs_batch *b, struct ptlrpc_reply_state *rs)
 {
-        struct ptlrpc_service *svc = rs->rs_service;
+        struct ptlrpc_svc_cpud *svcd = rs->rs_svcd;
 
-        if (svc != b->rsb_svc || b->rsb_n_replies >= MAX_SCHEDULED) {
-                if (b->rsb_svc != NULL) {
+        if (svcd != b->rsb_svcd || b->rsb_n_replies >= MAX_SCHEDULED) {
+                if (b->rsb_svcd != NULL) {
                         rs_batch_dispatch(b);
-                        cfs_spin_unlock(&b->rsb_svc->srv_rs_lock);
+                        cfs_spin_unlock(&b->rsb_svcd->scd_rs_lock);
                 }
-                cfs_spin_lock(&svc->srv_rs_lock);
-                b->rsb_svc = svc;
+                cfs_spin_lock(&svcd->scd_rs_lock);
+                b->rsb_svcd = svcd;
         }
         cfs_spin_lock(&rs->rs_lock);
         rs->rs_scheduled_ever = 1;
@@ -289,9 +296,9 @@ static void rs_batch_add(struct rs_batch *b, struct ptlrpc_reply_state *rs)
  */
 static void rs_batch_fini(struct rs_batch *b)
 {
-        if (b->rsb_svc != 0) {
+        if (b->rsb_svcd != 0) {
                 rs_batch_dispatch(b);
-                cfs_spin_unlock(&b->rsb_svc->srv_rs_lock);
+                cfs_spin_unlock(&b->rsb_svcd->scd_rs_lock);
         }
 }
 
@@ -313,20 +320,22 @@ static void rs_batch_fini(struct rs_batch *b)
 void ptlrpc_dispatch_difficult_reply(struct ptlrpc_reply_state *rs)
 {
 #ifdef __KERNEL__
-        struct ptlrpc_hr_service *hr = ptlrpc_hr;
-        int idx;
+        ptlrpc_rsh_cpud_t *rsh;
         ENTRY;
 
         LASSERT(cfs_list_empty(&rs->rs_list));
 
-        idx = get_hr_thread_index(hr);
-        cfs_spin_lock(&hr->hr_threads[idx].hrt_lock);
-        cfs_list_add_tail(&rs->rs_list, &hr->hr_threads[idx].hrt_queue);
-        cfs_spin_unlock(&hr->hr_threads[idx].hrt_lock);
-        cfs_waitq_signal(&hr->hr_threads[idx].hrt_wait);
+        rsh = ptlrpc_rsh_select(rs->rs_svcd);
+
+        cfs_spin_lock(&rsh->rsh_lock);
+        cfs_list_add_tail(&rs->rs_list, &rsh->rsh_queue);
+        cfs_spin_unlock(&rsh->rsh_lock);
+
+        if (cfs_waitq_active(&rsh->rsh_wait))
+                cfs_waitq_signal(&rsh->rsh_wait);
         EXIT;
 #else
-        cfs_list_add_tail(&rs->rs_list, &rs->rs_service->srv_reply_queue);
+        cfs_list_add_tail(&rs->rs_list, &rs->rs_svcd->scd_rs_queue);
 #endif
 }
 
@@ -335,7 +344,7 @@ ptlrpc_schedule_difficult_reply (struct ptlrpc_reply_state *rs)
 {
         ENTRY;
 
-        LASSERT_SPIN_LOCKED(&rs->rs_service->srv_rs_lock);
+        LASSERT_SPIN_LOCKED(&rs->rs_svcd->scd_rs_lock);
         LASSERT_SPIN_LOCKED(&rs->rs_lock);
         LASSERT (rs->rs_difficult);
         rs->rs_scheduled_ever = 1;  /* flag any notification attempt */
@@ -379,30 +388,30 @@ void ptlrpc_commit_replies(struct obd_export *exp)
 }
 
 static int
-ptlrpc_server_post_idle_rqbds (struct ptlrpc_service *svc)
+ptlrpc_server_post_idle_rqbds(struct ptlrpc_svc_cpud *svcd)
 {
         struct ptlrpc_request_buffer_desc *rqbd;
         int                                rc;
         int                                posted = 0;
 
         for (;;) {
-                cfs_spin_lock(&svc->srv_lock);
+                cfs_spin_lock(&svcd->scd_lock);
 
-                if (cfs_list_empty (&svc->srv_idle_rqbds)) {
-                        cfs_spin_unlock(&svc->srv_lock);
+                if (cfs_list_empty(&svcd->scd_rqbd_idle)) {
+                        cfs_spin_unlock(&svcd->scd_lock);
                         return (posted);
                 }
 
-                rqbd = cfs_list_entry(svc->srv_idle_rqbds.next,
+                rqbd = cfs_list_entry(svcd->scd_rqbd_idle.next,
                                       struct ptlrpc_request_buffer_desc,
                                       rqbd_list);
-                cfs_list_del (&rqbd->rqbd_list);
+                cfs_list_del(&rqbd->rqbd_list);
 
                 /* assume we will post successfully */
-                svc->srv_nrqbd_receiving++;
-                cfs_list_add (&rqbd->rqbd_list, &svc->srv_active_rqbds);
+                svcd->scd_rqbd_nposted++;
+                cfs_list_add(&rqbd->rqbd_list, &svcd->scd_rqbd_active);
 
-                cfs_spin_unlock(&svc->srv_lock);
+                cfs_spin_unlock(&svcd->scd_lock);
 
                 rc = ptlrpc_register_rqbd(rqbd);
                 if (rc != 0)
@@ -411,16 +420,16 @@ ptlrpc_server_post_idle_rqbds (struct ptlrpc_service *svc)
                 posted = 1;
         }
 
-        cfs_spin_lock(&svc->srv_lock);
+        cfs_spin_lock(&svcd->scd_lock);
 
-        svc->srv_nrqbd_receiving--;
+        svcd->scd_rqbd_nposted--;
         cfs_list_del(&rqbd->rqbd_list);
-        cfs_list_add_tail(&rqbd->rqbd_list, &svc->srv_idle_rqbds);
+        cfs_list_add_tail(&rqbd->rqbd_list, &svcd->scd_rqbd_idle);
 
         /* Don't complain if no request buffers are posted right now; LNET
          * won't drop requests because we set the portal lazy! */
 
-        cfs_spin_unlock(&svc->srv_lock);
+        cfs_spin_unlock(&svcd->scd_lock);
 
         return (-1);
 }
@@ -429,28 +438,28 @@ ptlrpc_server_post_idle_rqbds (struct ptlrpc_service *svc)
  * Start a service with parameters from struct ptlrpc_service_conf \a c
  * as opposed to directly calling ptlrpc_init_svc with tons of arguments.
  */
-struct ptlrpc_service *ptlrpc_init_svc_conf(struct ptlrpc_service_conf *c,
-                                            svc_handler_t h, char *name,
-                                            struct proc_dir_entry *proc_entry,
-                                            svc_req_printfn_t prntfn,
-                                            char *threadname)
+struct ptlrpc_service *ptlrpc_init_svc_conf(char *name, char *threadname,
+                                            struct ptlrpc_service_conf *c,
+                                            struct proc_dir_entry *proc_entry)
 {
-        return ptlrpc_init_svc(c->psc_nbufs, c->psc_bufsize,
-                               c->psc_max_req_size, c->psc_max_reply_size,
+        return ptlrpc_init_svc(name, threadname, c->psc_ops,
+                               c->psc_cpu_affinity, c->psc_ncpus,
+                               c->psc_min_threads, c->psc_max_threads,
                                c->psc_req_portal, c->psc_rep_portal,
-                               c->psc_watchdog_factor,
-                               h, name, proc_entry,
-                               prntfn, c->psc_min_threads, c->psc_max_threads,
-                               threadname, c->psc_ctx_tags, NULL);
+                               c->psc_nbufs, c->psc_bufsize,
+                               c->psc_max_req_size, c->psc_max_rep_size,
+                               c->psc_watchdog_factor, proc_entry,
+                               c->psc_ctx_tags);
 }
 EXPORT_SYMBOL(ptlrpc_init_svc_conf);
 
 static void ptlrpc_at_timer(unsigned long castmeharder)
 {
-        struct ptlrpc_service *svc = (struct ptlrpc_service *)castmeharder;
-        svc->srv_at_check = 1;
-        svc->srv_at_checktime = cfs_time_current();
-        cfs_waitq_signal(&svc->srv_waitq);
+        struct ptlrpc_svc_cpud *svcd = (struct ptlrpc_svc_cpud *)castmeharder;
+
+        svcd->scd_at_check = 1;
+        svcd->scd_at_checktime = cfs_time_current();
+        cfs_waitq_signal(&svcd->scd_waitq);
 }
 
 /**
@@ -472,118 +481,206 @@ static void ptlrpc_at_timer(unsigned long castmeharder)
  * \a hp_handler - function to determine priority of the request, also called
  *                 on every new request.
  */
-struct ptlrpc_service *
-ptlrpc_init_svc(int nbufs, int bufsize, int max_req_size, int max_reply_size,
-                int req_portal, int rep_portal, int watchdog_factor,
-                svc_handler_t handler, char *name,
-                cfs_proc_dir_entry_t *proc_entry,
-                svc_req_printfn_t svcreq_printfn,
-                int min_threads, int max_threads,
-                char *threadname, __u32 ctx_tags,
-                svc_hpreq_handler_t hp_handler)
+static int
+ptlrpc_svc_cpud_init(struct ptlrpc_service *svc,
+                     struct ptlrpc_svc_cpud *svcd, int cpuid)
 {
-        int                     rc;
         struct ptlrpc_at_array *array;
-        struct ptlrpc_service  *service;
-        unsigned int            size, index;
-        ENTRY;
+        int                     size;
+        int                     index;
+        int                     rc;
 
-        LASSERT (nbufs > 0);
-        LASSERT (bufsize >= max_req_size + SPTLRPC_MAX_PAYLOAD);
-        LASSERT (ctx_tags != 0);
+        svcd->scd_cpuid = cpuid;
+        CFS_INIT_LIST_HEAD(&svcd->scd_threads);
 
-        OBD_ALLOC_PTR(service);
-        if (service == NULL)
-                RETURN(NULL);
+        /* rqbd and preprocessing request queue */
+        cfs_spin_lock_init(&svcd->scd_lock);
+        CFS_INIT_LIST_HEAD(&svcd->scd_rqbd_idle);
+        CFS_INIT_LIST_HEAD(&svcd->scd_rqbd_active);
+        CFS_INIT_LIST_HEAD(&svcd->scd_req_in_queue);
+        cfs_waitq_init(&svcd->scd_waitq);
 
-        /* First initialise enough for early teardown */
+        /* acitve requests and hp requests */
+        cfs_spin_lock_init(&svcd->scd_rq_lock);
+        CFS_INIT_LIST_HEAD(&svcd->scd_hpreq_queue);
+        CFS_INIT_LIST_HEAD(&svcd->scd_req_queue);
 
-        service->srv_name = name;
-        cfs_spin_lock_init(&service->srv_lock);
-        cfs_spin_lock_init(&service->srv_rq_lock);
-        cfs_spin_lock_init(&service->srv_rs_lock);
-        CFS_INIT_LIST_HEAD(&service->srv_threads);
-        cfs_waitq_init(&service->srv_waitq);
-
-        service->srv_nbuf_per_group = test_req_buffer_pressure ? 1 : nbufs;
-        service->srv_max_req_size = max_req_size + SPTLRPC_MAX_PAYLOAD;
-        service->srv_buf_size = bufsize;
-        service->srv_rep_portal = rep_portal;
-        service->srv_req_portal = req_portal;
-        service->srv_watchdog_factor = watchdog_factor;
-        service->srv_handler = handler;
-        service->srv_req_printfn = svcreq_printfn;
-        service->srv_request_seq = 1;           /* valid seq #s start at 1 */
-        service->srv_request_max_cull_seq = 0;
-        service->srv_threads_min = min_threads;
-        service->srv_threads_max = max_threads;
-        service->srv_thread_name = threadname;
-        service->srv_ctx_tags = ctx_tags;
-        service->srv_hpreq_handler = hp_handler;
-        service->srv_hpreq_ratio = PTLRPC_SVC_HP_RATIO;
-        service->srv_hpreq_count = 0;
-        service->srv_n_active_hpreq = 0;
-
-        rc = LNetSetLazyPortal(service->srv_req_portal);
-        LASSERT (rc == 0);
-
-        CFS_INIT_LIST_HEAD(&service->srv_request_queue);
-        CFS_INIT_LIST_HEAD(&service->srv_request_hpq);
-        CFS_INIT_LIST_HEAD(&service->srv_idle_rqbds);
-        CFS_INIT_LIST_HEAD(&service->srv_active_rqbds);
-        CFS_INIT_LIST_HEAD(&service->srv_history_rqbds);
-        CFS_INIT_LIST_HEAD(&service->srv_request_history);
-        CFS_INIT_LIST_HEAD(&service->srv_active_replies);
+        /* reply states */
+        cfs_spin_lock_init(&svcd->scd_rs_lock);
+        CFS_INIT_LIST_HEAD(&svcd->scd_rs_active);
 #ifndef __KERNEL__
-        CFS_INIT_LIST_HEAD(&service->srv_reply_queue);
+        CFS_INIT_LIST_HEAD(&svcd->scd_rs_queue);
 #endif
-        CFS_INIT_LIST_HEAD(&service->srv_free_rs_list);
-        cfs_waitq_init(&service->srv_free_rs_waitq);
-        cfs_atomic_set(&service->srv_n_difficult_replies, 0);
+        CFS_INIT_LIST_HEAD(&svcd->scd_rs_idle);
+        cfs_waitq_init(&svcd->scd_rs_waitq);
+        cfs_atomic_set(&svcd->scd_rs_ndifficult, 0);
 
-        cfs_spin_lock_init(&service->srv_at_lock);
-        CFS_INIT_LIST_HEAD(&service->srv_req_in_queue);
+        /* adaptive timeout */
+        cfs_spin_lock_init(&svcd->scd_at_lock);
+        array = &svcd->scd_at_array;
 
-        array = &service->srv_at_array;
         size = at_est2timeout(at_max);
-        array->paa_size = size;
-        array->paa_count = 0;
+        array->paa_size     = size;
+        array->paa_count    = 0;
         array->paa_deadline = -1;
 
         /* allocate memory for srv_at_array (ptlrpc_at_array) */
-        OBD_ALLOC(array->paa_reqs_array, sizeof(cfs_list_t) * size);
+        OBD_NODE_ALLOC(array->paa_reqs_array,
+                       cpuid, sizeof(cfs_list_t) * size);
         if (array->paa_reqs_array == NULL)
-                GOTO(failed, NULL);
+                return -ENOMEM;
 
         for (index = 0; index < size; index++)
                 CFS_INIT_LIST_HEAD(&array->paa_reqs_array[index]);
 
-        OBD_ALLOC(array->paa_reqs_count, sizeof(__u32) * size);
+        OBD_NODE_ALLOC(array->paa_reqs_count, cpuid, sizeof(__u32) * size);
         if (array->paa_reqs_count == NULL)
-                GOTO(failed, NULL);
+                goto error;
 
-        cfs_timer_init(&service->srv_at_timer, ptlrpc_at_timer, service);
+        cfs_timer_init(&svcd->scd_at_timer, ptlrpc_at_timer, svcd);
         /* At SOW, service time should be quick; 10s seems generous. If client
-           timeout is less than this, we'll be sending an early reply. */
-        at_init(&service->srv_at_estimate, 10, 0);
+         * timeout is less than this, we'll be sending an early reply. */
+        at_init(&svcd->scd_at_estimate, 10, 0);
+
+        /* assign this before call ptlrpc_grow_req_bufs */
+        svcd->scd_service = svc;
+        /* Now allocate the request buffers, but don't post them now */
+        rc = ptlrpc_grow_req_bufs(svcd, 0);
+        /* We shouldn't be under memory pressure at startup, so
+         * fail if we can't allocate all our buffers at this time. */
+        if (rc == 0)
+                return 0;
+
+        /* it's clean if scd_service is NULL, so we don't need to
+         * cleanup it again while shutting down */
+        svcd->scd_service = NULL;
+ error:
+        if (array->paa_reqs_count != NULL)
+                OBD_NODE_FREE(array->paa_reqs_count, sizeof(__u32) * size);
+
+        if (array->paa_reqs_array != NULL) {
+                OBD_NODE_FREE(array->paa_reqs_array,
+                              sizeof(cfs_list_t) * array->paa_size);
+        }
+        return -ENOMEM;
+}
+
+struct ptlrpc_service *
+ptlrpc_init_svc(char *name, char *threadname, ptlrpc_svc_ops_t *svops,
+                int cpu_affinity, int cpu_num, int min_threads, int max_threads,
+                int req_portal, int rep_portal, int nbufs, int bufsize,
+                int max_req_size, int max_reply_size, int watchdog_factor,
+                cfs_proc_dir_entry_t *proc_entry, __u32 ctx_tags)
+{
+        struct ptlrpc_service  *service;
+        int                     cpuid;
+        int                     hprq;
+        int                     rc;
+        int                     i;
+        ENTRY;
+
+        LASSERT(svops != NULL && svops->sop_req_handler != NULL);
+        LASSERT(bufsize >= max_req_size + SPTLRPC_MAX_PAYLOAD);
+        LASSERT(nbufs > 0);
+        LASSERT(ctx_tags != 0);
+
+#ifndef __KERNEL__
+        cpu_affinity = 0;
+#else
+        if (cfs_cpu_node_num() == 1)
+                cpu_affinity = 0;
+#endif
+        hprq = svops->sop_hpreq_handler != NULL;
+        if (cpu_affinity) {
+                if (cpu_num <= 0 || cpu_num > cfs_cpu_node_num())
+                        cpu_num = cfs_cpu_node_num();
+        } else {
+                cpu_num = 1;
+        }
+
+        /* NB: we want a wide legal range for threads number so we don't
+         * use ptlrpc_cpu_threads* at here */
+        if (min_threads < PTLRPC_THREADS_MIN(hprq))
+                min_threads = PTLRPC_THREADS_MIN(hprq);
+        if (max_threads > PTLRPC_THREADS_MAX)
+                max_threads = PTLRPC_THREADS_MAX;
+
+        if (max_threads < min_threads)
+                max_threads = min_threads;
+
+        OBD_ALLOC_ALIGNED(service, offsetof(struct ptlrpc_service,
+                                            srv_cpuds[cpu_num]));
+        if (service == NULL)
+                RETURN(NULL);
+
+
+        cfs_spin_lock_init(&service->srv_lock);
+
+        /* First initialise enough for early teardown */
+        service->srv_name               = name;
+        service->srv_thread_name        = threadname;
+        service->srv_cpu_affinity       = cpu_affinity;
+        service->srv_cpu_num            = cpu_num;
+        service->srv_ops                = svops;
+        service->srv_nbuf_per_group     = test_req_buffer_pressure ? 1 : nbufs;
+        service->srv_req_max_size       = max_req_size + SPTLRPC_MAX_PAYLOAD;
+        service->srv_buf_size           = bufsize;
+        service->srv_rep_portal         = rep_portal;
+        service->srv_req_portal         = req_portal;
+        service->srv_watchdog_factor    = watchdog_factor;
+        service->srv_hist_req_seq       = 1;  /* valid seq #s start at 1 */
+        service->srv_hist_req_cull_max  = 0;
+        service->srv_threads_min        = min_threads;
+        service->srv_threads_max        = max_threads;
+        service->srv_ctx_tags           = ctx_tags;
+        service->srv_hpreq_ratio        = PTLRPC_SVC_HP_RATIO;
+
+        /* Now allocate pool of reply buffers */
+        /* Increase max reply size to next power of two */
+        service->srv_rep_max_size = 1;
+        while (service->srv_rep_max_size <
+               max_reply_size + SPTLRPC_MAX_PAYLOAD) {
+                service->srv_rep_max_size <<= 1;
+        }
+
+        cfs_spin_lock_init(&service->srv_hist_lock);
+        CFS_INIT_LIST_HEAD(&service->srv_hist_rqbd);
+        CFS_INIT_LIST_HEAD(&service->srv_hist_req);
+
+        if (!cpu_affinity) {
+                cpuid = CFS_CPU_ANY;
+
+        } else {
+                if (cpu_num == cfs_cpu_node_num()) {
+                        cpuid = 0;
+                } else {
+                        cfs_spin_lock (&ptlrpc_all_services_lock);
+                        cpuid = ptlrpc_svc_cpu_id++;
+                        cfs_spin_unlock (&ptlrpc_all_services_lock);
+                }
+        }
+
+        for (i = 0; i < cpu_num; i++, cpuid++) {
+                struct ptlrpc_svc_cpud *svcd;
+
+                if (cpuid >= cfs_cpu_node_num())
+                        cpuid %= cfs_cpu_node_num();
+
+                OBD_NODE_ALLOC_ALIGNED(svcd, cpuid, sizeof(*svcd));
+                if (svcd == NULL)
+                        GOTO(failed, NULL);
+                service->srv_cpuds[i] = svcd;
+                rc = ptlrpc_svc_cpud_init(service, svcd, cpuid);
+                if (rc != 0)
+                        GOTO(failed, NULL);
+        }
+
+        rc = LNetSetLazyPortal(service->srv_req_portal);
+        LASSERT (rc == 0);
 
         cfs_spin_lock (&ptlrpc_all_services_lock);
         cfs_list_add (&service->srv_list, &ptlrpc_all_services);
         cfs_spin_unlock (&ptlrpc_all_services_lock);
-
-        /* Now allocate the request buffers */
-        rc = ptlrpc_grow_req_bufs(service);
-        /* We shouldn't be under memory pressure at startup, so
-         * fail if we can't post all our buffers at this time. */
-        if (rc != 0)
-                GOTO(failed, NULL);
-
-        /* Now allocate pool of reply buffers */
-        /* Increase max reply size to next power of two */
-        service->srv_max_reply_size = 1;
-        while (service->srv_max_reply_size <
-               max_reply_size + SPTLRPC_MAX_PAYLOAD)
-                service->srv_max_reply_size <<= 1;
 
         if (proc_entry != NULL)
                 ptlrpc_lprocfs_register_service(proc_entry, service);
@@ -621,25 +718,136 @@ static void ptlrpc_server_free_request(struct ptlrpc_request *req)
 }
 
 /**
+ * hold both svc::srv_hist_lock and svcd::scd_lock
+ */
+static void ptlrpc_rqbd_hist_recycle(struct ptlrpc_svc_cpud *svcd,
+                                     struct ptlrpc_request_buffer_desc *rqbd)
+{
+        struct ptlrpc_service  *svc = svcd->scd_service;
+        struct ptlrpc_request  *req;
+
+        /* remove from history list or active rqbd list,
+         * we have both locks anyway */
+        cfs_list_del(&rqbd->rqbd_list);
+        if (cfs_list_empty(&rqbd->rqbd_reqs)) {
+                /* no history request on this rqbd */
+                cfs_list_add_tail(&rqbd->rqbd_list, &svcd->scd_rqbd_idle);
+                return;
+        }
+
+        /* remove rqbd's reqs from svc's req history */
+        cfs_list_for_each_entry(req, &rqbd->rqbd_reqs, rq_list) {
+                /* Track the highest culled req seq */
+                if (req->rq_history_seq > svc->srv_hist_req_cull_max)
+                        svc->srv_hist_req_cull_max = req->rq_history_seq;
+                cfs_list_del(&req->rq_history_list);
+        }
+        cfs_spin_unlock(&svc->srv_hist_lock);
+        cfs_spin_unlock(&svcd->scd_lock);
+
+        while (!cfs_list_empty(&rqbd->rqbd_reqs)) {
+                req = cfs_list_entry(rqbd->rqbd_reqs.next,
+                                     struct ptlrpc_request, rq_list);
+                cfs_list_del(&req->rq_list);
+                ptlrpc_server_free_request(req);
+        }
+
+        cfs_spin_lock(&svcd->scd_lock);
+        cfs_spin_lock(&svc->srv_hist_lock);
+        /*
+         * now all reqs including the embedded req has been
+         * disposed, schedule request buffer for re-use.
+         */
+        LASSERT(cfs_atomic_read(&rqbd->rqbd_req.rq_refcount) == 0);
+        cfs_list_add_tail(&rqbd->rqbd_list, &svcd->scd_rqbd_idle);
+}
+
+/**
+ * queue rqbd of @req on history list. It should hold
+ * req::rq_rqbd::rqbd_svcd::scd_lock
+ */
+static void ptlrpc_rqbd_hist_enqueue(struct ptlrpc_svc_cpud *svcd,
+                                     struct ptlrpc_request *req)
+{
+        struct ptlrpc_request_buffer_desc *rqbd = req->rq_rqbd;
+        struct ptlrpc_service *svc = svcd->scd_service;
+        int need_wakeup = svcd != req->rq_svcd;
+
+        if (rqbd->rqbd_refcount != 0)
+                return;
+
+        /* request buffer is now idle: add to history */
+        cfs_spin_lock(&svc->srv_hist_lock);
+        cfs_list_move_tail(&rqbd->rqbd_list, &svc->srv_hist_rqbd);
+        svc->srv_hist_nrqbd++;
+        /* cull some history?
+         * I expect only about 1 or 2 rqbds need to be recycled here */
+        while (svc->srv_hist_nrqbd > svc->srv_hist_rqbd_max) {
+                rqbd = cfs_list_entry(svc->srv_hist_rqbd.next,
+                                      struct ptlrpc_request_buffer_desc,
+                                      rqbd_list);
+
+                svc->srv_hist_nrqbd--;
+                ptlrpc_rqbd_hist_recycle(svcd, rqbd);
+                need_wakeup++;
+        }
+        cfs_spin_unlock(&svc->srv_hist_lock);
+        if (need_wakeup > 1)
+                cfs_waitq_signal(&svcd->scd_waitq);
+}
+
+/**
+ * recycle rqbd of @req. It should hold req::rq_rqbd::rqbd_svcd::scd_lock
+ */
+static void ptlrpc_rqbd_recycle(struct ptlrpc_svc_cpud *svcd,
+                                struct ptlrpc_request *req)
+{
+        struct ptlrpc_request_buffer_desc *rqbd = req->rq_rqbd;
+        int need_wakeup = (rqbd->rqbd_refcount == 0) &&
+                          (svcd != req->rq_svcd);
+
+        if (cfs_list_empty(&req->rq_history_list) &&
+            cfs_list_empty(&rqbd->rqbd_reqs)) {
+                /* this req is not on history lits and no history req
+                 * on this rqbd */
+                if (rqbd->rqbd_refcount == 0) {
+                        cfs_list_move_tail(&rqbd->rqbd_list,
+                                           &svcd->scd_rqbd_idle);
+                }
+        } else {
+                struct ptlrpc_service *svc = svcd->scd_service;
+
+                cfs_spin_lock(&svc->srv_hist_lock);
+                if (!cfs_list_empty(&req->rq_history_list))
+                        cfs_list_del_init(&req->rq_history_list);
+
+                if (rqbd->rqbd_refcount == 0)
+                        ptlrpc_rqbd_hist_recycle(svcd, rqbd);
+                cfs_spin_unlock(&svc->srv_hist_lock);
+        }
+
+        if (need_wakeup)
+                cfs_waitq_signal(&svcd->scd_waitq);
+}
+
+/**
  * drop a reference count of the request. if it reaches 0, we either
  * put it into history list, or free it immediately.
  */
 void ptlrpc_server_drop_request(struct ptlrpc_request *req)
 {
         struct ptlrpc_request_buffer_desc *rqbd = req->rq_rqbd;
-        struct ptlrpc_service             *svc = rqbd->rqbd_service;
-        int                                refcount;
-        cfs_list_t                        *tmp;
-        cfs_list_t                        *nxt;
+        struct ptlrpc_svc_cpud            *svcd = rqbd->rqbd_svcd;
 
         if (!cfs_atomic_dec_and_test(&req->rq_refcount))
                 return;
 
-        cfs_spin_lock(&svc->srv_at_lock);
         if (req->rq_at_linked) {
-                struct ptlrpc_at_array *array = &svc->srv_at_array;
+                struct ptlrpc_at_array *array = &req->rq_svcd->scd_at_array;
                 __u32 index = req->rq_at_index;
 
+                /* NB: req->rq_svcd can be different with rqbd->rqbd_svcd */
+                cfs_spin_lock(&req->rq_svcd->scd_at_lock);
                 LASSERT(!cfs_list_empty(&req->rq_timed_list));
                 cfs_list_del_init(&req->rq_timed_list);
                 cfs_spin_lock(&req->rq_lock);
@@ -647,9 +855,10 @@ void ptlrpc_server_drop_request(struct ptlrpc_request *req)
                 cfs_spin_unlock(&req->rq_lock);
                 array->paa_reqs_count[index]--;
                 array->paa_count--;
-        } else
+                cfs_spin_unlock(&req->rq_svcd->scd_at_lock);
+        } else {
                 LASSERT(cfs_list_empty(&req->rq_timed_list));
-        cfs_spin_unlock(&svc->srv_at_lock);
+        }
 
         /* finalize request */
         if (req->rq_export) {
@@ -657,86 +866,38 @@ void ptlrpc_server_drop_request(struct ptlrpc_request *req)
                 req->rq_export = NULL;
         }
 
-        cfs_spin_lock(&svc->srv_lock);
+        cfs_spin_lock(&svcd->scd_lock);
+        rqbd->rqbd_refcount--;
 
-        cfs_list_add(&req->rq_list, &rqbd->rqbd_reqs);
-
-        refcount = --(rqbd->rqbd_refcount);
-        if (refcount == 0) {
-                /* request buffer is now idle: add to history */
-                cfs_list_del(&rqbd->rqbd_list);
-                cfs_list_add_tail(&rqbd->rqbd_list, &svc->srv_history_rqbds);
-                svc->srv_n_history_rqbds++;
-
-                /* cull some history?
-                 * I expect only about 1 or 2 rqbds need to be recycled here */
-                while (svc->srv_n_history_rqbds > svc->srv_max_history_rqbds) {
-                        rqbd = cfs_list_entry(svc->srv_history_rqbds.next,
-                                              struct ptlrpc_request_buffer_desc,
-                                              rqbd_list);
-
-                        cfs_list_del(&rqbd->rqbd_list);
-                        svc->srv_n_history_rqbds--;
-
-                        /* remove rqbd's reqs from svc's req history while
-                         * I've got the service lock */
-                        cfs_list_for_each(tmp, &rqbd->rqbd_reqs) {
-                                req = cfs_list_entry(tmp, struct ptlrpc_request,
-                                                     rq_list);
-                                /* Track the highest culled req seq */
-                                if (req->rq_history_seq >
-                                    svc->srv_request_max_cull_seq)
-                                        svc->srv_request_max_cull_seq =
-                                                req->rq_history_seq;
-                                cfs_list_del(&req->rq_history_list);
-                        }
-
-                        cfs_spin_unlock(&svc->srv_lock);
-
-                        cfs_list_for_each_safe(tmp, nxt, &rqbd->rqbd_reqs) {
-                                req = cfs_list_entry(rqbd->rqbd_reqs.next,
-                                                     struct ptlrpc_request,
-                                                     rq_list);
-                                cfs_list_del(&req->rq_list);
-                                ptlrpc_server_free_request(req);
-                        }
-
-                        cfs_spin_lock(&svc->srv_lock);
-                        /*
-                         * now all reqs including the embedded req has been
-                         * disposed, schedule request buffer for re-use.
-                         */
-                        LASSERT(cfs_atomic_read(&rqbd->rqbd_req.rq_refcount) ==
-                                0);
-                        cfs_list_add_tail(&rqbd->rqbd_list,
-                                          &svc->srv_idle_rqbds);
-                }
-
-                cfs_spin_unlock(&svc->srv_lock);
-        } else if (req->rq_reply_state && req->rq_reply_state->rs_prealloc) {
-                /* If we are low on memory, we are not interested in history */
-                cfs_list_del(&req->rq_list);
-                cfs_list_del_init(&req->rq_history_list);
-                cfs_spin_unlock(&svc->srv_lock);
-
-                ptlrpc_server_free_request(req);
+        if (cfs_list_empty(&req->rq_history_list) ||
+            (req->rq_reply_state && req->rq_reply_state->rs_prealloc)) {
+                /* If history is disabled, or we are low on memory
+                 * and not interested in history */
+                ptlrpc_rqbd_recycle(svcd, req);
         } else {
-                cfs_spin_unlock(&svc->srv_lock);
+                cfs_list_add(&req->rq_list, &rqbd->rqbd_reqs);
+                ptlrpc_rqbd_hist_enqueue(svcd, req);
+                req = NULL;
         }
+
+        cfs_spin_unlock(&svcd->scd_lock);
+        if (req != NULL)
+                ptlrpc_server_free_request(req);
 }
 
 /**
  * to finish a request: stop sending more early replies, and release
  * the request. should be called after we finished handling the request.
  */
-static void ptlrpc_server_finish_request(struct ptlrpc_service *svc,
-                                         struct ptlrpc_request *req)
+static void ptlrpc_server_finish_request(struct ptlrpc_request *req)
 {
-        cfs_spin_lock(&svc->srv_rq_lock);
-        svc->srv_n_active_reqs--;
+        struct ptlrpc_svc_cpud *svcd = req->rq_svcd;
+
+        cfs_spin_lock(&svcd->scd_rq_lock);
+        svcd->scd_req_nactive--;
         if (req->rq_hp)
-                svc->srv_n_active_hpreq--;
-        cfs_spin_unlock(&svc->srv_rq_lock);
+                svcd->scd_hpreq_nactive--;
+        cfs_spin_unlock(&svcd->scd_rq_lock);
 
         ptlrpc_server_drop_request(req);
 }
@@ -761,9 +922,9 @@ static void ptlrpc_update_export_timer(struct obd_export *exp, long extra_delay)
            at the exact right moment.  Eventually, all silent exports
            will make it to the top of the list. */
 
-        /* Do not pay attention on 1sec or smaller renewals. */
+        /* Do not pay attention on 2 secs or smaller renewals. */
         new_time = cfs_time_current_sec() + extra_delay;
-        if (exp->exp_last_request_time + 1 /*second */ >= new_time)
+        if (exp->exp_last_request_time + 2 /* 2 seconds */ >= new_time)
                 RETURN_EXIT;
 
         exp->exp_last_request_time = new_time;
@@ -853,37 +1014,35 @@ static int ptlrpc_check_req(struct ptlrpc_request *req)
         return 0;
 }
 
-static void ptlrpc_at_set_timer(struct ptlrpc_service *svc)
+static void ptlrpc_at_set_timer(struct ptlrpc_svc_cpud *svcd)
 {
-        struct ptlrpc_at_array *array = &svc->srv_at_array;
+        struct ptlrpc_at_array *array = &svcd->scd_at_array;
         __s32 next;
 
-        cfs_spin_lock(&svc->srv_at_lock);
         if (array->paa_count == 0) {
-                cfs_timer_disarm(&svc->srv_at_timer);
-                cfs_spin_unlock(&svc->srv_at_lock);
+                cfs_timer_disarm(&svcd->scd_at_timer);
                 return;
         }
 
         /* Set timer for closest deadline */
         next = (__s32)(array->paa_deadline - cfs_time_current_sec() -
                        at_early_margin);
-        if (next <= 0)
-                ptlrpc_at_timer((unsigned long)svc);
-        else
-                cfs_timer_arm(&svc->srv_at_timer, cfs_time_shift(next));
-        cfs_spin_unlock(&svc->srv_at_lock);
-        CDEBUG(D_INFO, "armed %s at %+ds\n", svc->srv_name, next);
+        if (next <= 0) {
+                ptlrpc_at_timer((unsigned long)svcd);
+        } else {
+                cfs_timer_arm(&svcd->scd_at_timer, cfs_time_shift(next));
+                CDEBUG(D_INFO, "armed %s at %+ds\n",
+                       svcd->scd_service->srv_name, next);
+        }
 }
 
 /* Add rpc to early reply check list */
 static int ptlrpc_at_add_timed(struct ptlrpc_request *req)
 {
-        struct ptlrpc_service *svc = req->rq_rqbd->rqbd_service;
-        struct ptlrpc_request *rq = NULL;
-        struct ptlrpc_at_array *array = &svc->srv_at_array;
+        struct ptlrpc_svc_cpud *svcd  = req->rq_svcd;
+        struct ptlrpc_at_array *array = &svcd->scd_at_array;
+        struct ptlrpc_request  *rq    = NULL;
         __u32 index;
-        int found = 0;
 
         if (AT_OFF)
                 return(0);
@@ -894,7 +1053,7 @@ static int ptlrpc_at_add_timed(struct ptlrpc_request *req)
         if ((lustre_msghdr_get_flags(req->rq_reqmsg) & MSGHDR_AT_SUPPORT) == 0)
                 return(-ENOSYS);
 
-        cfs_spin_lock(&svc->srv_at_lock);
+        cfs_spin_lock(&svcd->scd_at_lock);
         LASSERT(cfs_list_empty(&req->rq_timed_list));
 
         index = (unsigned long)req->rq_deadline % array->paa_size;
@@ -913,9 +1072,10 @@ static int ptlrpc_at_add_timed(struct ptlrpc_request *req)
         }
 
         /* Add the request at the head of the list */
-        if (cfs_list_empty(&req->rq_timed_list))
+        if (cfs_list_empty(&req->rq_timed_list)) {
                 cfs_list_add(&req->rq_timed_list,
                              &array->paa_reqs_array[index]);
+        }
 
         cfs_spin_lock(&req->rq_lock);
         req->rq_at_linked = 1;
@@ -925,19 +1085,16 @@ static int ptlrpc_at_add_timed(struct ptlrpc_request *req)
         array->paa_count++;
         if (array->paa_count == 1 || array->paa_deadline > req->rq_deadline) {
                 array->paa_deadline = req->rq_deadline;
-                found = 1;
+                ptlrpc_at_set_timer(svcd);
         }
-        cfs_spin_unlock(&svc->srv_at_lock);
-
-        if (found)
-                ptlrpc_at_set_timer(svc);
+        cfs_spin_unlock(&svcd->scd_at_lock);
 
         return 0;
 }
 
 static int ptlrpc_at_send_early_reply(struct ptlrpc_request *req)
 {
-        struct ptlrpc_service *svc = req->rq_rqbd->rqbd_service;
+        struct ptlrpc_svc_cpud *svcd = req->rq_svcd;
         struct ptlrpc_request *reqcopy;
         struct lustre_msg *reqmsg;
         cfs_duration_t olddl = req->rq_deadline - cfs_time_current_sec();
@@ -950,8 +1107,8 @@ static int ptlrpc_at_send_early_reply(struct ptlrpc_request *req)
         DEBUG_REQ(D_ADAPTTO, req,
                   "%ssending early reply (deadline %+lds, margin %+lds) for "
                   "%d+%d", AT_OFF ? "AT off - not " : "",
-                  olddl, olddl - at_get(&svc->srv_at_estimate),
-                  at_get(&svc->srv_at_estimate), at_extra);
+                  olddl, olddl - at_get(&svcd->scd_at_estimate),
+                  at_get(&svcd->scd_at_estimate), at_extra);
 
         if (AT_OFF)
                 RETURN(0);
@@ -980,28 +1137,28 @@ static int ptlrpc_at_send_early_reply(struct ptlrpc_request *req)
                  * during the recovery period send at least 4 early replies,
                  * spacing them every at_extra if we can. at_estimate should
                  * always equal this fixed value during recovery. */
-                at_measured(&svc->srv_at_estimate, min(at_extra,
+                at_measured(&svcd->scd_at_estimate, min(at_extra,
                             req->rq_export->exp_obd->obd_recovery_timeout / 4));
         } else {
                 /* Fake our processing time into the future to ask the clients
                  * for some extra amount of time */
-                at_measured(&svc->srv_at_estimate, at_extra +
+                at_measured(&svcd->scd_at_estimate, at_extra +
                             cfs_time_current_sec() -
                             req->rq_arrival_time.tv_sec);
 
                 /* Check to see if we've actually increased the deadline -
                  * we may be past adaptive_max */
                 if (req->rq_deadline >= req->rq_arrival_time.tv_sec +
-                    at_get(&svc->srv_at_estimate)) {
+                    at_get(&svcd->scd_at_estimate)) {
                         DEBUG_REQ(D_WARNING, req, "Couldn't add any time "
                                   "(%ld/%ld), not sending early reply\n",
                                   olddl, req->rq_arrival_time.tv_sec +
-                                  at_get(&svc->srv_at_estimate) -
+                                  at_get(&svcd->scd_at_estimate) -
                                   cfs_time_current_sec());
                         RETURN(-ETIMEDOUT);
                 }
         }
-        newdl = cfs_time_current_sec() + at_get(&svc->srv_at_estimate);
+        newdl = cfs_time_current_sec() + at_get(&svcd->scd_at_estimate);
 
         OBD_ALLOC(reqcopy, sizeof *reqcopy);
         if (reqcopy == NULL)
@@ -1073,11 +1230,11 @@ out:
 
 /* Send early replies to everybody expiring within at_early_margin
    asking for at_extra time */
-static int ptlrpc_at_check_timed(struct ptlrpc_service *svc)
+static int ptlrpc_at_check_timed(struct ptlrpc_svc_cpud *svcd)
 {
         struct ptlrpc_request *rq, *n;
         cfs_list_t work_list;
-        struct ptlrpc_at_array *array = &svc->srv_at_array;
+        struct ptlrpc_at_array *array = &svcd->scd_at_array;
         __u32  index, count;
         time_t deadline;
         time_t now = cfs_time_current_sec();
@@ -1085,16 +1242,16 @@ static int ptlrpc_at_check_timed(struct ptlrpc_service *svc)
         int first, counter = 0;
         ENTRY;
 
-        cfs_spin_lock(&svc->srv_at_lock);
-        if (svc->srv_at_check == 0) {
-                cfs_spin_unlock(&svc->srv_at_lock);
+        cfs_spin_lock(&svcd->scd_at_lock);
+        if (svcd->scd_at_check == 0) {
+                cfs_spin_unlock(&svcd->scd_at_lock);
                 RETURN(0);
         }
-        delay = cfs_time_sub(cfs_time_current(), svc->srv_at_checktime);
-        svc->srv_at_check = 0;
+        delay = cfs_time_sub(cfs_time_current(), svcd->scd_at_checktime);
+        svcd->scd_at_check = 0;
 
         if (array->paa_count == 0) {
-                cfs_spin_unlock(&svc->srv_at_lock);
+                cfs_spin_unlock(&svcd->scd_at_lock);
                 RETURN(0);
         }
 
@@ -1102,8 +1259,8 @@ static int ptlrpc_at_check_timed(struct ptlrpc_service *svc)
         first = array->paa_deadline - now;
         if (first > at_early_margin) {
                 /* We've still got plenty of time.  Reset the timer. */
-                cfs_spin_unlock(&svc->srv_at_lock);
-                ptlrpc_at_set_timer(svc);
+                ptlrpc_at_set_timer(svcd);
+                cfs_spin_unlock(&svcd->scd_at_lock);
                 RETURN(0);
         }
 
@@ -1147,10 +1304,9 @@ static int ptlrpc_at_check_timed(struct ptlrpc_service *svc)
                         index = 0;
         }
         array->paa_deadline = deadline;
-        cfs_spin_unlock(&svc->srv_at_lock);
-
         /* we have a new earliest deadline, restart the timer */
-        ptlrpc_at_set_timer(svc);
+        ptlrpc_at_set_timer(svcd);
+        cfs_spin_unlock(&svcd->scd_at_lock);
 
         CDEBUG(D_ADAPTTO, "timeout in %+ds, asking for %d secs on %d early "
                "replies\n", first, at_extra, counter);
@@ -1158,11 +1314,13 @@ static int ptlrpc_at_check_timed(struct ptlrpc_service *svc)
                 /* We're already past request deadlines before we even get a
                    chance to send early replies */
                 LCONSOLE_WARN("%s: This server is not able to keep up with "
-                              "request traffic (cpu-bound).\n", svc->srv_name);
+                              "request traffic (cpu-bound).\n",
+                              svcd->scd_service->srv_name);
                 CWARN("earlyQ=%d reqQ=%d recA=%d, svcEst=%d, "
                       "delay="CFS_DURATION_T"(jiff)\n",
-                      counter, svc->srv_n_queued_reqs, svc->srv_n_active_reqs,
-                      at_get(&svc->srv_at_estimate), delay);
+                      counter, svcd->scd_req_in_nqueued,
+                      svcd->scd_req_nactive,
+                      at_get(&svcd->scd_at_estimate), delay);
         }
 
         /* we took additional refcount so entries can't be deleted from list, no
@@ -1178,7 +1336,7 @@ static int ptlrpc_at_check_timed(struct ptlrpc_service *svc)
                 ptlrpc_server_drop_request(rq);
         }
 
-        RETURN(0);
+        RETURN(1);
 }
 
 /**
@@ -1191,8 +1349,8 @@ static int ptlrpc_hpreq_init(struct ptlrpc_service *svc,
         int rc;
         ENTRY;
 
-        if (svc->srv_hpreq_handler) {
-                rc = svc->srv_hpreq_handler(req);
+        if (svc->srv_ops->sop_hpreq_handler != NULL) {
+                rc = svc->srv_ops->sop_hpreq_handler(req);
                 if (rc)
                         RETURN(rc);
         }
@@ -1222,23 +1380,23 @@ static void ptlrpc_hpreq_fini(struct ptlrpc_request *req)
  * Make the request a high priority one.
  *
  * All the high priority requests are queued in a separate FIFO
- * ptlrpc_service::srv_request_hpq list which is parallel to
- * ptlrpc_service::srv_request_queue list but has a higher priority
+ * ptlrpc_service::srv_hprq_queue list which is parallel to
+ * ptlrpc_service::srv_req_queue list but has a higher priority
  * for handling.
  *
  * \see ptlrpc_server_handle_request().
  */
-static void ptlrpc_hpreq_reorder_nolock(struct ptlrpc_service *svc,
+static void ptlrpc_hpreq_reorder_nolock(struct ptlrpc_svc_cpud *svcd,
                                         struct ptlrpc_request *req)
 {
         ENTRY;
-        LASSERT(svc != NULL);
+
         cfs_spin_lock(&req->rq_lock);
         if (req->rq_hp == 0) {
                 int opc = lustre_msg_get_opc(req->rq_reqmsg);
 
                 /* Add to the high priority queue. */
-                cfs_list_move_tail(&req->rq_list, &svc->srv_request_hpq);
+                cfs_list_move_tail(&req->rq_list, &svcd->scd_hpreq_queue);
                 req->rq_hp = 1;
                 if (opc != OBD_PING)
                         DEBUG_REQ(D_NET, req, "high priority req");
@@ -1252,15 +1410,15 @@ static void ptlrpc_hpreq_reorder_nolock(struct ptlrpc_service *svc,
  */
 void ptlrpc_hpreq_reorder(struct ptlrpc_request *req)
 {
-        struct ptlrpc_service *svc = req->rq_rqbd->rqbd_service;
+        struct ptlrpc_svc_cpud *svcd = req->rq_svcd;
         ENTRY;
 
-        cfs_spin_lock(&svc->srv_rq_lock);
+        cfs_spin_lock(&svcd->scd_rq_lock);
         /* It may happen that the request is already taken for the processing
          * but still in the export list, do not re-add it into the HP list. */
         if (req->rq_phase == RQ_PHASE_NEW)
-                ptlrpc_hpreq_reorder_nolock(svc, req);
-        cfs_spin_unlock(&svc->srv_rq_lock);
+                ptlrpc_hpreq_reorder_nolock(svcd, req);
+        cfs_spin_unlock(&svcd->scd_rq_lock);
         EXIT;
 }
 
@@ -1282,7 +1440,7 @@ static int ptlrpc_server_hpreq_check(struct ptlrpc_request *req)
 }
 
 /** Check if a request is a high priority one. */
-static int ptlrpc_server_request_add(struct ptlrpc_service *svc,
+static int ptlrpc_server_request_add(struct ptlrpc_svc_cpud *svcd,
                                      struct ptlrpc_request *req)
 {
         int rc;
@@ -1292,18 +1450,17 @@ static int ptlrpc_server_request_add(struct ptlrpc_service *svc,
         if (rc < 0)
                 RETURN(rc);
 
-        cfs_spin_lock(&svc->srv_rq_lock);
+        cfs_spin_lock(&svcd->scd_rq_lock);
         /* Before inserting the request into the queue, check if it is not
          * inserted yet, or even already handled -- it may happen due to
          * a racing ldlm_server_blocking_ast(). */
         if (req->rq_phase == RQ_PHASE_NEW && cfs_list_empty(&req->rq_list)) {
                 if (rc)
-                        ptlrpc_hpreq_reorder_nolock(svc, req);
+                        ptlrpc_hpreq_reorder_nolock(svcd, req);
                 else
-                        cfs_list_add_tail(&req->rq_list,
-                                          &svc->srv_request_queue);
+                        cfs_list_add_tail(&req->rq_list, &svcd->scd_req_queue);
         }
-        cfs_spin_unlock(&svc->srv_rq_lock);
+        cfs_spin_unlock(&svcd->scd_rq_lock);
 
         RETURN(0);
 }
@@ -1313,22 +1470,22 @@ static int ptlrpc_server_request_add(struct ptlrpc_service *svc,
  * User can call it w/o any lock but need to hold ptlrpc_service::srv_rq_lock
  * to get reliable result
  */
-static int ptlrpc_server_allow_high(struct ptlrpc_service *svc, int force)
+static int ptlrpc_server_allow_high(struct ptlrpc_svc_cpud *svcd, int force)
 {
         if (force)
                 return 1;
 
-        if (svc->srv_n_active_reqs >= svc->srv_threads_running - 1)
+        if (svcd->scd_req_nactive >= svcd->scd_threads_running - 1)
                 return 0;
 
-        return cfs_list_empty(&svc->srv_request_queue) ||
-               svc->srv_hpreq_count < svc->srv_hpreq_ratio;
+        return cfs_list_empty(&svcd->scd_req_queue) ||
+               svcd->scd_hpreq_count < svcd->scd_service->srv_hpreq_ratio;
 }
 
-static int ptlrpc_server_high_pending(struct ptlrpc_service *svc, int force)
+static int ptlrpc_server_high_pending(struct ptlrpc_svc_cpud *svcd, int force)
 {
-        return ptlrpc_server_allow_high(svc, force) &&
-               !cfs_list_empty(&svc->srv_request_hpq);
+        return ptlrpc_server_allow_high(svcd, force) &&
+               !cfs_list_empty(&svcd->scd_hpreq_queue);
 }
 
 /**
@@ -1340,26 +1497,27 @@ static int ptlrpc_server_high_pending(struct ptlrpc_service *svc, int force)
  * User can call it w/o any lock but need to hold ptlrpc_service::srv_rq_lock
  * to get reliable result
  */
-static int ptlrpc_server_allow_normal(struct ptlrpc_service *svc, int force)
+static int ptlrpc_server_allow_normal(struct ptlrpc_svc_cpud *svcd, int force)
 {
 #ifndef __KERNEL__
         if (1) /* always allow to handle normal request for liblustre */
                 return 1;
 #endif
         if (force ||
-            svc->srv_n_active_reqs < svc->srv_threads_running - 2)
+            svcd->scd_req_nactive < svcd->scd_threads_running - 2)
                 return 1;
 
-        if (svc->srv_n_active_reqs >= svc->srv_threads_running - 1)
+        if (svcd->scd_req_nactive >= svcd->scd_threads_running - 1)
                 return 0;
 
-        return svc->srv_n_active_hpreq > 0 || svc->srv_hpreq_handler == NULL;
+        return svcd->scd_hpreq_nactive > 0 ||
+               svcd->scd_service->srv_ops->sop_hpreq_handler == NULL;
 }
 
-static int ptlrpc_server_normal_pending(struct ptlrpc_service *svc, int force)
+static int ptlrpc_server_normal_pending(struct ptlrpc_svc_cpud *svcd, int force)
 {
-        return ptlrpc_server_allow_normal(svc, force) &&
-               !cfs_list_empty(&svc->srv_request_queue);
+        return ptlrpc_server_allow_normal(svcd, force) &&
+               !cfs_list_empty(&svcd->scd_req_queue);
 }
 
 /**
@@ -1371,10 +1529,10 @@ static int ptlrpc_server_normal_pending(struct ptlrpc_service *svc, int force)
  * \see ptlrpc_server_allow high
  */
 static inline int
-ptlrpc_server_request_pending(struct ptlrpc_service *svc, int force)
+ptlrpc_server_request_pending(struct ptlrpc_svc_cpud *svcd, int force)
 {
-        return ptlrpc_server_high_pending(svc, force) ||
-               ptlrpc_server_normal_pending(svc, force);
+        return ptlrpc_server_high_pending(svcd, force) ||
+               ptlrpc_server_normal_pending(svcd, force);
 }
 
 /**
@@ -1383,23 +1541,23 @@ ptlrpc_server_request_pending(struct ptlrpc_service *svc, int force)
  * Returns a pointer to fetched request.
  */
 static struct ptlrpc_request *
-ptlrpc_server_request_get(struct ptlrpc_service *svc, int force)
+ptlrpc_server_request_get(struct ptlrpc_svc_cpud *svcd, int force)
 {
         struct ptlrpc_request *req;
         ENTRY;
 
-        if (ptlrpc_server_high_pending(svc, force)) {
-                req = cfs_list_entry(svc->srv_request_hpq.next,
+        if (ptlrpc_server_high_pending(svcd, force)) {
+                req = cfs_list_entry(svcd->scd_hpreq_queue.next,
                                      struct ptlrpc_request, rq_list);
-                svc->srv_hpreq_count++;
+                svcd->scd_hpreq_count++;
                 RETURN(req);
 
         }
 
-        if (ptlrpc_server_normal_pending(svc, force)) {
-                req = cfs_list_entry(svc->srv_request_queue.next,
+        if (ptlrpc_server_normal_pending(svcd, force)) {
+                req = cfs_list_entry(svcd->scd_req_queue.next,
                                      struct ptlrpc_request, rq_list);
-                svc->srv_hpreq_count = 0;
+                svcd->scd_hpreq_count = 0;
                 RETURN(req);
         }
         RETURN(NULL);
@@ -1412,25 +1570,24 @@ ptlrpc_server_request_get(struct ptlrpc_service *svc, int force)
  * ptlrpc_server_handle_req later on.
  */
 static int
-ptlrpc_server_handle_req_in(struct ptlrpc_service *svc)
+ptlrpc_server_handle_req_in(struct ptlrpc_svc_cpud *svcd)
 {
+        struct ptlrpc_service *svc = svcd->scd_service;
         struct ptlrpc_request *req;
         __u32                  deadline;
         int                    rc;
         ENTRY;
 
-        LASSERT(svc);
-
-        cfs_spin_lock(&svc->srv_lock);
-        if (cfs_list_empty(&svc->srv_req_in_queue)) {
-                cfs_spin_unlock(&svc->srv_lock);
+        cfs_spin_lock(&svcd->scd_lock);
+        if (cfs_list_empty(&svcd->scd_req_in_queue)) {
+                cfs_spin_unlock(&svcd->scd_lock);
                 RETURN(0);
         }
 
-        req = cfs_list_entry(svc->srv_req_in_queue.next,
+        req = cfs_list_entry(svcd->scd_req_in_queue.next,
                              struct ptlrpc_request, rq_list);
         cfs_list_del_init (&req->rq_list);
-        svc->srv_n_queued_reqs--;
+        svcd->scd_req_in_nqueued--;
         /* Consider this still a "queued" request as far as stats are
            concerned */
         /* ptlrpc_hpreq_init() inserts it to the export list and by the time
@@ -1438,7 +1595,13 @@ ptlrpc_server_handle_req_in(struct ptlrpc_service *svc)
          * released. To not lose request in between, take an extra reference
          * on the request. */
         ptlrpc_request_addref(req);
-        cfs_spin_unlock(&svc->srv_lock);
+        cfs_spin_unlock(&svcd->scd_lock);
+
+        LASSERT(req->rq_svcd == svcd);
+        if (req->rq_svcd != req->rq_rqbd->rqbd_svcd) {
+                /* req is caught by another CPU, already unwarpped */
+                goto handle_req_in;
+        }
 
         /* go through security check/transform */
         rc = sptlrpc_svc_unwrap_request(req);
@@ -1503,7 +1666,23 @@ ptlrpc_server_handle_req_in(struct ptlrpc_service *svc)
         }
 
         CDEBUG(D_NET, "got req "LPU64"\n", req->rq_xid);
+        if (svc->srv_ops->sop_req_dispatcher != NULL) {
+                svc->srv_ops->sop_req_dispatcher(req, NULL);
+                /* req::rq_svcd could be changed by sop_req_dispatcher */
+                if (req->rq_svcd == svcd)
+                        goto handle_req_in;
 
+                svcd = req->rq_svcd;
+                /* queue the request to another CPU */
+                cfs_spin_lock(&svcd->scd_lock);
+                cfs_list_add_tail(&req->rq_list, &svcd->scd_req_in_queue);
+                svcd->scd_req_in_nqueued++;
+                cfs_waitq_signal(&svcd->scd_waitq);
+                cfs_spin_unlock(&svcd->scd_lock);
+                RETURN(1);
+        }
+
+ handle_req_in:
         req->rq_export = class_conn2export(
                 lustre_msg_get_handle(req->rq_reqmsg));
         if (req->rq_export) {
@@ -1521,10 +1700,12 @@ ptlrpc_server_handle_req_in(struct ptlrpc_service *svc)
         }
 
         /* req_in handling should/must be fast */
-        if (cfs_time_current_sec() - req->rq_arrival_time.tv_sec > 5)
-                DEBUG_REQ(D_WARNING, req, "Slow req_in handling "CFS_DURATION_T"s",
+        if (cfs_time_current_sec() - req->rq_arrival_time.tv_sec > 5) {
+                DEBUG_REQ(D_WARNING, req,
+                          "Slow req_in handling "CFS_DURATION_T"s",
                           cfs_time_sub(cfs_time_current_sec(),
                                        req->rq_arrival_time.tv_sec));
+        }
 
         /* Set rpc server deadline and add it to the timed list */
         deadline = (lustre_msghdr_get_flags(req->rq_reqmsg) &
@@ -1543,19 +1724,20 @@ ptlrpc_server_handle_req_in(struct ptlrpc_service *svc)
                 GOTO(err_req, rc);
 
         /* Move it over to the request processing queue */
-        rc = ptlrpc_server_request_add(svc, req);
+        rc = ptlrpc_server_request_add(svcd, req);
         if (rc)
                 GOTO(err_req, rc);
-        cfs_waitq_signal(&svc->srv_waitq);
+        /* Liang: it's unnecessary to wake up another thread.
+         * cfs_waitq_signal(&scd->scd_waitq); */
         ptlrpc_server_drop_request(req);
         RETURN(1);
 
 err_req:
         ptlrpc_server_drop_request(req);
-        cfs_spin_lock(&svc->srv_rq_lock);
-        svc->srv_n_active_reqs++;
-        cfs_spin_unlock(&svc->srv_rq_lock);
-        ptlrpc_server_finish_request(svc, req);
+        cfs_spin_lock(&svcd->scd_rq_lock);
+        svcd->scd_req_nactive++;
+        cfs_spin_unlock(&svcd->scd_rq_lock);
+        ptlrpc_server_finish_request(req);
 
         RETURN(1);
 }
@@ -1565,31 +1747,33 @@ err_req:
  * Calls handler function from service to do actual processing.
  */
 static int
-ptlrpc_server_handle_request(struct ptlrpc_service *svc,
+ptlrpc_server_handle_request(struct ptlrpc_svc_cpud *svcd,
                              struct ptlrpc_thread *thread)
 {
+        struct ptlrpc_service *svc = svcd->scd_service;
         struct obd_export     *export = NULL;
         struct ptlrpc_request *request;
         struct timeval         work_start;
         struct timeval         work_end;
         long                   timediff;
-        int                    opc, rc;
         int                    fail_opc = 0;
+        int                    rc = 1;
+        int                    opc;
         ENTRY;
 
         LASSERT(svc);
 
-        cfs_spin_lock(&svc->srv_rq_lock);
+        cfs_spin_lock(&svcd->scd_rq_lock);
 #ifndef __KERNEL__
         /* !@%$# liblustre only has 1 thread */
-        if (cfs_atomic_read(&svc->srv_n_difficult_replies) != 0) {
-                cfs_spin_unlock(&svc->srv_rq_lock);
+        if (cfs_atomic_read(&svcd->scd_rs_ndifficult) != 0) {
+                cfs_spin_unlock(&svcd->scd_rq_lock);
                 RETURN(0);
         }
 #endif
-        request = ptlrpc_server_request_get(svc, 0);
+        request = ptlrpc_server_request_get(svcd, 0);
         if  (request == NULL) {
-                cfs_spin_unlock(&svc->srv_rq_lock);
+                cfs_spin_unlock(&svcd->scd_rq_lock);
                 RETURN(0);
         }
 
@@ -1601,26 +1785,26 @@ ptlrpc_server_handle_request(struct ptlrpc_service *svc,
 
         if (unlikely(fail_opc)) {
                 if (request->rq_export && request->rq_ops) {
-                        cfs_spin_unlock(&svc->srv_rq_lock);
+                        cfs_spin_unlock(&svcd->scd_rq_lock);
                         OBD_FAIL_TIMEOUT(fail_opc, 4);
-                        cfs_spin_lock(&svc->srv_rq_lock);
-                        request = ptlrpc_server_request_get(svc, 0);
+                        cfs_spin_lock(&svcd->scd_rq_lock);
+                        request = ptlrpc_server_request_get(svcd, 0);
                         if  (request == NULL) {
-                                cfs_spin_unlock(&svc->srv_rq_lock);
+                                cfs_spin_unlock(&svcd->scd_rq_lock);
                                 RETURN(0);
                         }
                 }
         }
 
         cfs_list_del_init(&request->rq_list);
-        svc->srv_n_active_reqs++;
+        svcd->scd_req_nactive++;
         if (request->rq_hp)
-                svc->srv_n_active_hpreq++;
+                svcd->scd_hpreq_nactive++;
 
         /* The phase is changed under the lock here because we need to know
          * the request is under processing (see ptlrpc_hpreq_reorder()). */
         ptlrpc_rqphase_move(request, RQ_PHASE_INTERPRET);
-        cfs_spin_unlock(&svc->srv_rq_lock);
+        cfs_spin_unlock(&svcd->scd_rq_lock);
 
         ptlrpc_hpreq_fini(request);
 
@@ -1633,11 +1817,11 @@ ptlrpc_server_handle_request(struct ptlrpc_service *svc,
                 lprocfs_counter_add(svc->srv_stats, PTLRPC_REQWAIT_CNTR,
                                     timediff);
                 lprocfs_counter_add(svc->srv_stats, PTLRPC_REQQDEPTH_CNTR,
-                                    svc->srv_n_queued_reqs);
+                                    svcd->scd_req_in_nqueued);
                 lprocfs_counter_add(svc->srv_stats, PTLRPC_REQACTIVE_CNTR,
-                                    svc->srv_n_active_reqs);
+                                    svcd->scd_req_nactive);
                 lprocfs_counter_add(svc->srv_stats, PTLRPC_TIMEOUT,
-                                    at_get(&svc->srv_at_estimate));
+                                    at_get(&svcd->scd_at_estimate));
         }
 
         rc = lu_context_init(&request->rq_session,
@@ -1689,7 +1873,7 @@ ptlrpc_server_handle_request(struct ptlrpc_service *svc,
         if (lustre_msg_get_opc(request->rq_reqmsg) != OBD_PING)
                 OBD_FAIL_TIMEOUT_MS(OBD_FAIL_PTLRPC_PAUSE_REQ, obd_fail_val);
 
-        rc = svc->srv_handler(request);
+        rc = svc->srv_ops->sop_req_handler(request);
 
         ptlrpc_rqphase_move(request, RQ_PHASE_COMPLETE);
 
@@ -1752,7 +1936,7 @@ put_conn:
         }
 
 out_req:
-        ptlrpc_server_finish_request(svc, request);
+        ptlrpc_server_finish_request(request);
 
         RETURN(1);
 }
@@ -1763,7 +1947,8 @@ out_req:
 static int
 ptlrpc_handle_rs (struct ptlrpc_reply_state *rs)
 {
-        struct ptlrpc_service     *svc = rs->rs_service;
+        struct ptlrpc_svc_cpud    *svcd = rs->rs_svcd;
+        struct ptlrpc_service     *svc = svcd->scd_service;
         struct obd_export         *exp;
         struct obd_device         *obd;
         int                        nlocks;
@@ -1853,9 +2038,9 @@ ptlrpc_handle_rs (struct ptlrpc_reply_state *rs)
                 class_export_put (exp);
                 rs->rs_export = NULL;
                 ptlrpc_rs_decref (rs);
-                if (cfs_atomic_dec_and_test(&svc->srv_n_difficult_replies) &&
+                if (cfs_atomic_dec_and_test(&svcd->scd_rs_ndifficult) &&
                     svc->srv_is_stopping)
-                        cfs_waitq_broadcast(&svc->srv_waitq);
+                        cfs_waitq_broadcast(&svcd->scd_waitq);
                 RETURN(1);
         }
 
@@ -1875,19 +2060,19 @@ ptlrpc_handle_rs (struct ptlrpc_reply_state *rs)
  * \retval 1 one reply processed
  */
 static int
-ptlrpc_server_handle_reply(struct ptlrpc_service *svc)
+ptlrpc_server_handle_reply(struct ptlrpc_svc_cpud *svcd)
 {
         struct ptlrpc_reply_state *rs = NULL;
         ENTRY;
 
-        cfs_spin_lock(&svc->srv_rs_lock);
-        if (!cfs_list_empty(&svc->srv_reply_queue)) {
-                rs = cfs_list_entry(svc->srv_reply_queue.prev,
+        cfs_spin_lock(&svcd->scd_rs_lock);
+        if (!cfs_list_empty(&svcd->scd_rs_queue)) {
+                rs = cfs_list_entry(svcd->scd_rs_queue.prev,
                                     struct ptlrpc_reply_state,
                                     rs_list);
                 cfs_list_del_init(&rs->rs_list);
         }
-        cfs_spin_unlock(&svc->srv_rs_lock);
+        cfs_spin_unlock(&svcd->scd_rs_lock);
         if (rs != NULL)
                 ptlrpc_handle_rs(rs);
         RETURN(rs != NULL);
@@ -1907,8 +2092,10 @@ liblustre_check_services (void *arg)
         cfs_list_for_each_safe (tmp, nxt, &ptlrpc_all_services) {
                 struct ptlrpc_service *svc =
                         cfs_list_entry (tmp, struct ptlrpc_service, srv_list);
+                struct ptlrpc_svc_cpud *svcd = svc->srv_cpuds[0];
 
-                if (svc->srv_threads_running != 0)     /* I've recursed */
+                LASSERT(svc->srv_cpu_num == 1);
+                if (svcd->scd_threads_running != 0)     /* I've recursed */
                         continue;
 
                 /* service threads can block for bulk, so this limits us
@@ -1916,18 +2103,18 @@ liblustre_check_services (void *arg)
                  * Note that the problem with recursion is that we have to
                  * unwind completely before our caller can resume. */
 
-                svc->srv_threads_running++;
+                svcd->scd_threads_running++;
 
                 do {
-                        rc = ptlrpc_server_handle_req_in(svc);
-                        rc |= ptlrpc_server_handle_reply(svc);
-                        rc |= ptlrpc_at_check_timed(svc);
-                        rc |= ptlrpc_server_handle_request(svc, NULL);
-                        rc |= (ptlrpc_server_post_idle_rqbds(svc) > 0);
+                        rc = ptlrpc_server_handle_req_in(svcd);
+                        rc |= ptlrpc_server_handle_reply(svcd);
+                        rc |= ptlrpc_at_check_timed(svcd);
+                        rc |= ptlrpc_server_handle_request(svcd, NULL);
+                        rc |= (ptlrpc_server_post_idle_rqbds(svcd) > 0);
                         did_something |= rc;
                 } while (rc);
 
-                svc->srv_threads_running--;
+                svcd->scd_threads_running--;
         }
 
         RETURN(did_something);
@@ -1937,11 +2124,11 @@ liblustre_check_services (void *arg)
 #else /* __KERNEL__ */
 
 static void
-ptlrpc_check_rqbd_pool(struct ptlrpc_service *svc)
+ptlrpc_check_rqbd_pool(struct ptlrpc_svc_cpud *svcd)
 {
-        int avail = svc->srv_nrqbd_receiving;
+        int avail = svcd->scd_rqbd_nposted;
         int low_water = test_req_buffer_pressure ? 0 :
-                        svc->srv_nbuf_per_group/2;
+                        svcd->scd_service->srv_nbuf_per_group / 2;
 
         /* NB I'm not locking; just looking. */
 
@@ -1951,27 +2138,29 @@ ptlrpc_check_rqbd_pool(struct ptlrpc_service *svc)
          * space. */
 
         if (avail <= low_water)
-                ptlrpc_grow_req_bufs(svc);
+                ptlrpc_grow_req_bufs(svcd, 1);
 
-        if (svc->srv_stats)
-                lprocfs_counter_add(svc->srv_stats, PTLRPC_REQBUF_AVAIL_CNTR,
-                                    avail);
+        if (svcd->scd_service->srv_stats != NULL) {
+                lprocfs_counter_add(svcd->scd_service->srv_stats,
+                                    PTLRPC_REQBUF_AVAIL_CNTR, avail);
+        }
 }
 
 static int
 ptlrpc_retry_rqbds(void *arg)
 {
-        struct ptlrpc_service *svc = (struct ptlrpc_service *)arg;
+        struct ptlrpc_svc_cpud *svcd = (struct ptlrpc_svc_cpud *)arg;
 
-        svc->srv_rqbd_timeout = 0;
+        svcd->scd_rqbd_timeout = 0;
         return (-ETIMEDOUT);
 }
 
 static inline int
-ptlrpc_threads_enough(struct ptlrpc_service *svc)
+ptlrpc_threads_enough(struct ptlrpc_svc_cpud *svcd)
 {
-        return svc->srv_n_active_reqs <
-               svc->srv_threads_running - 1 - (svc->srv_hpreq_handler != NULL);
+        return svcd->scd_req_nactive <
+               svcd->scd_threads_running - 1 -
+               (svcd->scd_service->srv_ops->sop_hpreq_handler != NULL);
 }
 
 /**
@@ -1980,39 +2169,40 @@ ptlrpc_threads_enough(struct ptlrpc_service *svc)
  * get reliable result
  */
 static inline int
-ptlrpc_threads_increasable(struct ptlrpc_service *svc)
+ptlrpc_threads_increasable(struct ptlrpc_svc_cpud *svcd)
 {
-        return svc->srv_threads_running +
-               svc->srv_threads_starting < svc->srv_threads_max;
+        return svcd->scd_threads_running +
+               svcd->scd_threads_starting < svcd->scd_service->srv_threads_max;
 }
 
 /**
  * too many requests and allowed to create more threads
  */
 static inline int
-ptlrpc_threads_need_create(struct ptlrpc_service *svc)
+ptlrpc_threads_need_create(struct ptlrpc_svc_cpud *svcd)
 {
-        return !ptlrpc_threads_enough(svc) && ptlrpc_threads_increasable(svc);
+        return !ptlrpc_threads_enough(svcd) &&
+               ptlrpc_threads_increasable(svcd);
 }
 
 static inline int
 ptlrpc_thread_stopping(struct ptlrpc_thread *thread)
 {
         return (thread->t_flags & SVC_STOPPING) != 0 ||
-                thread->t_svc->srv_is_stopping;
+               thread->t_svcd->scd_service->srv_is_stopping;
 }
 
 static inline int
-ptlrpc_rqbd_pending(struct ptlrpc_service *svc)
+ptlrpc_rqbd_pending(struct ptlrpc_svc_cpud *svcd)
 {
-        return !cfs_list_empty(&svc->srv_idle_rqbds) &&
-               svc->srv_rqbd_timeout == 0;
+        return !cfs_list_empty(&svcd->scd_rqbd_idle) &&
+               svcd->scd_rqbd_timeout == 0;
 }
 
 static inline int
-ptlrpc_at_check(struct ptlrpc_service *svc)
+ptlrpc_at_check(struct ptlrpc_svc_cpud *svcd)
 {
-        return svc->srv_at_check;
+        return svcd->scd_at_check;
 }
 
 /**
@@ -2021,34 +2211,34 @@ ptlrpc_at_check(struct ptlrpc_service *svc)
  * get reliable result
  */
 static inline int
-ptlrpc_server_request_waiting(struct ptlrpc_service *svc)
+ptlrpc_server_request_waiting(struct ptlrpc_svc_cpud *svcd)
 {
-        return !cfs_list_empty(&svc->srv_req_in_queue);
+        return !cfs_list_empty(&svcd->scd_req_in_queue);
 }
 
 static __attribute__((__noinline__)) int
-ptlrpc_wait_event(struct ptlrpc_service *svc,
+ptlrpc_wait_event(struct ptlrpc_svc_cpud *svcd,
                   struct ptlrpc_thread *thread)
 {
         /* Don't exit while there are replies to be handled */
-        struct l_wait_info lwi = LWI_TIMEOUT(svc->srv_rqbd_timeout,
-                                             ptlrpc_retry_rqbds, svc);
+        struct l_wait_info lwi = LWI_TIMEOUT(svcd->scd_rqbd_timeout,
+                                             ptlrpc_retry_rqbds, svcd);
 
         lc_watchdog_disable(thread->t_watchdog);
 
         cfs_cond_resched();
 
-        l_wait_event_exclusive_head(svc->srv_waitq,
-                               ptlrpc_thread_stopping(thread) ||
-                               ptlrpc_server_request_waiting(svc) ||
-                               ptlrpc_server_request_pending(svc, 0) ||
-                               ptlrpc_rqbd_pending(svc) ||
-                               ptlrpc_at_check(svc), &lwi);
+        l_wait_event_exclusive_head(svcd->scd_waitq,
+                                    ptlrpc_thread_stopping(thread) ||
+                                    ptlrpc_server_request_waiting(svcd) ||
+                                    ptlrpc_server_request_pending(svcd, 0) ||
+                                    ptlrpc_rqbd_pending(svcd) ||
+                                    ptlrpc_at_check(svcd), &lwi);
 
         if (ptlrpc_thread_stopping(thread))
                 return -EINTR;
 
-        lc_watchdog_touch(thread->t_watchdog, CFS_GET_TIMEOUT(svc));
+        lc_watchdog_touch(thread->t_watchdog, ptlrpc_svcd_get_timeout(svcd));
 
         return 0;
 }
@@ -2061,38 +2251,28 @@ ptlrpc_wait_event(struct ptlrpc_service *svc,
  */
 static int ptlrpc_main(void *arg)
 {
-        struct ptlrpc_svc_data *data = (struct ptlrpc_svc_data *)arg;
-        struct ptlrpc_service  *svc = data->svc;
-        struct ptlrpc_thread   *thread = data->thread;
+        struct ptlrpc_svc_data    *data   = (struct ptlrpc_svc_data *)arg;
+        struct ptlrpc_thread      *thread = data->thread;
+        struct ptlrpc_svc_cpud    *svcd   = thread->t_svcd;
+        struct ptlrpc_service     *svc    = svcd->scd_service;
         struct ptlrpc_reply_state *rs;
 #ifdef WITH_GROUP_INFO
         cfs_group_info_t *ginfo = NULL;
 #endif
         struct lu_env env;
-        int counter = 0, rc = 0;
+        int counter = 0;
+        int rc = 0;
         ENTRY;
 
         thread->t_pid = cfs_curproc_pid();
         cfs_daemonize_ctxt(data->name);
 
-#if defined(HAVE_NODE_TO_CPUMASK) && defined(CONFIG_NUMA)
         /* we need to do this before any per-thread allocation is done so that
          * we get the per-thread allocations on local node.  bug 7342 */
-        if (svc->srv_cpu_affinity) {
-                int cpu, num_cpu;
-
-                for (cpu = 0, num_cpu = 0; cpu < cfs_num_possible_cpus();
-                     cpu++) {
-                        if (!cfs_cpu_online(cpu))
-                                continue;
-                        if (num_cpu == thread->t_id % cfs_num_online_cpus())
-                                break;
-                        num_cpu++;
-                }
-                cfs_set_cpus_allowed(cfs_current(),
-                                     node_to_cpumask(cpu_to_node(cpu)));
+        if (svc->srv_cpu_affinity && cfs_cpu_bind(svcd->scd_cpuid) != 0) {
+                CWARN("Failed to bind %s on CPU node: %d\n",
+                      data->name, svcd->scd_cpuid);
         }
-#endif
 
 #ifdef WITH_GROUP_INFO
         ginfo = cfs_groups_alloc(0);
@@ -2105,8 +2285,8 @@ static int ptlrpc_main(void *arg)
         cfs_put_group_info(ginfo);
 #endif
 
-        if (svc->srv_init != NULL) {
-                rc = svc->srv_init(thread);
+        if (svc->srv_ops->sop_thread_init != NULL) {
+                rc = svc->srv_ops->sop_thread_init(thread);
                 if (rc)
                         goto out;
         }
@@ -2120,26 +2300,37 @@ static int ptlrpc_main(void *arg)
         env.le_ctx.lc_thread = thread;
         env.le_ctx.lc_cookie = 0x6;
 
+        while (!cfs_list_empty(&svcd->scd_rqbd_idle)) {
+                rc = ptlrpc_server_post_idle_rqbds(svcd);
+                if (rc >= 0)
+                        continue;
+                CERROR("Failed to post rqbd on CPU %d, %d\n",
+                       svcd->scd_cpuid, rc);
+                goto out_srv_fini;
+        }
+
         /* Alloc reply state structure for this one */
-        OBD_ALLOC_LARGE(rs, svc->srv_max_reply_size);
+        OBD_ALLOC_LARGE(rs, svc->srv_rep_max_size);
         if (!rs) {
                 rc = -ENOMEM;
                 goto out_srv_fini;
         }
 
-        cfs_spin_lock(&svc->srv_lock);
+        cfs_spin_lock(&svcd->scd_lock);
 
         LASSERT((thread->t_flags & SVC_STARTING) != 0);
         thread->t_flags &= ~SVC_STARTING;
-        svc->srv_threads_starting--;
+
+        LASSERT(svcd->scd_threads_starting == 1);
+        svcd->scd_threads_starting--;
 
         /* SVC_STOPPING may already be set here if someone else is trying
          * to stop the service while this new thread has been dynamically
          * forked. We still set SVC_RUNNING to let our creator know that
          * we are now running, however we will exit as soon as possible */
         thread->t_flags |= SVC_RUNNING;
-        svc->srv_threads_running++;
-        cfs_spin_unlock(&svc->srv_lock);
+        svcd->scd_threads_running++;
+        cfs_spin_unlock(&svcd->scd_lock);
 
         /*
          * wake up our creator. Note: @data is invalid after this point,
@@ -2147,54 +2338,55 @@ static int ptlrpc_main(void *arg)
          */
         cfs_waitq_signal(&thread->t_ctl_waitq);
 
-        thread->t_watchdog = lc_watchdog_add(CFS_GET_TIMEOUT(svc), NULL, NULL);
+        thread->t_watchdog = lc_watchdog_add(ptlrpc_svcd_get_timeout(svcd),
+                                             NULL, NULL);
 
-        cfs_spin_lock(&svc->srv_rs_lock);
-        cfs_list_add(&rs->rs_list, &svc->srv_free_rs_list);
-        cfs_waitq_signal(&svc->srv_free_rs_waitq);
-        cfs_spin_unlock(&svc->srv_rs_lock);
+        cfs_spin_lock(&svcd->scd_rs_lock);
+        cfs_list_add(&rs->rs_list, &svcd->scd_rs_idle);
+        cfs_waitq_signal(&svcd->scd_rs_waitq);
+        cfs_spin_unlock(&svcd->scd_rs_lock);
 
         CDEBUG(D_NET, "service thread %d (#%d) started\n", thread->t_id,
-               svc->srv_threads_running);
+               svcd->scd_threads_running);
 
         /* XXX maintain a list of all managed devices: insert here */
         while (!ptlrpc_thread_stopping(thread)) {
-                if (ptlrpc_wait_event(svc, thread))
+                if (ptlrpc_wait_event(svcd, thread))
                         break;
 
-                ptlrpc_check_rqbd_pool(svc);
+                ptlrpc_check_rqbd_pool(svcd);
 
-                if (ptlrpc_threads_need_create(svc)) {
+                if (ptlrpc_threads_need_create(svcd)) {
                         /* Ignore return code - we tried... */
-                        ptlrpc_start_thread(svc);
+                        ptlrpc_start_thread(svcd, 0);
                 }
 
                 /* Process all incoming reqs before handling any */
-                if (ptlrpc_server_request_waiting(svc)) {
-                        ptlrpc_server_handle_req_in(svc);
+                if (ptlrpc_server_request_waiting(svcd)) {
+                        ptlrpc_server_handle_req_in(svcd);
                         /* but limit ourselves in case of flood */
                         if (counter++ < 100)
                                 continue;
                         counter = 0;
                 }
 
-                if (ptlrpc_at_check(svc))
-                        ptlrpc_at_check_timed(svc);
+                if (ptlrpc_at_check(svcd))
+                        ptlrpc_at_check_timed(svcd);
 
-                if (ptlrpc_server_request_pending(svc, 0)) {
+                if (ptlrpc_server_request_pending(svcd, 0)) {
                         lu_context_enter(&env.le_ctx);
-                        ptlrpc_server_handle_request(svc, thread);
+                        ptlrpc_server_handle_request(svcd, thread);
                         lu_context_exit(&env.le_ctx);
                 }
 
-                if (ptlrpc_rqbd_pending(svc) &&
-                    ptlrpc_server_post_idle_rqbds(svc) < 0) {
+                if (ptlrpc_rqbd_pending(svcd) &&
+                    ptlrpc_server_post_idle_rqbds(svcd) < 0) {
                         /* I just failed to repost request buffers.
                          * Wait for a timeout (unless something else
                          * happens) before I try again */
-                        svc->srv_rqbd_timeout = cfs_time_seconds(1)/10;
+                        svcd->scd_rqbd_timeout = cfs_time_seconds(1) / 10;
                         CDEBUG(D_RPCTRACE,"Posted buffers: %d\n",
-                               svc->srv_nrqbd_receiving);
+                               svcd->scd_rqbd_nposted);
                 }
         }
 
@@ -2205,23 +2397,27 @@ out_srv_fini:
         /*
          * deconstruct service specific state created by ptlrpc_start_thread()
          */
-        if (svc->srv_done != NULL)
-                svc->srv_done(thread);
+        if (svc->srv_ops->sop_thread_done != NULL)
+                svc->srv_ops->sop_thread_done(thread);
 
         lu_context_fini(&env.le_ctx);
 out:
         CDEBUG(D_RPCTRACE, "service thread [ %p : %u ] %d exiting: rc %d\n",
                thread, thread->t_pid, thread->t_id, rc);
 
-        cfs_spin_lock(&svc->srv_lock);
+        cfs_spin_lock(&svcd->scd_lock);
         if ((thread->t_flags & SVC_STARTING) != 0) {
-                svc->srv_threads_starting--;
+                LASSERT(svcd->scd_threads_starting == 1);
+
+                svcd->scd_threads_starting--;
+                /* early quit, rollback scd_thread_next_id */
+                svcd->scd_threads_next_id--;
                 thread->t_flags &= ~SVC_STARTING;
         }
 
         if ((thread->t_flags & SVC_RUNNING) != 0) {
                 /* must know immediately */
-                svc->srv_threads_running--;
+                svcd->scd_threads_running--;
                 thread->t_flags &= ~SVC_RUNNING;
         }
 
@@ -2229,27 +2425,20 @@ out:
         thread->t_flags |= SVC_STOPPED;
 
         cfs_waitq_signal(&thread->t_ctl_waitq);
-        cfs_spin_unlock(&svc->srv_lock);
+        cfs_spin_unlock(&svcd->scd_lock);
 
         return rc;
 }
 
-struct ptlrpc_hr_args {
-        int                       thread_index;
-        int                       cpu_index;
-        struct ptlrpc_hr_service *hrs;
-};
-
-static int hrt_dont_sleep(struct ptlrpc_hr_thread *t,
+static int rsh_dont_sleep(ptlrpc_rsh_cpud_t *rsh,
                           cfs_list_t *replies)
 {
         int result;
 
-        cfs_spin_lock(&t->hrt_lock);
-        cfs_list_splice_init(&t->hrt_queue, replies);
-        result = cfs_test_bit(HRT_STOPPING, &t->hrt_flags) ||
-                !cfs_list_empty(replies);
-        cfs_spin_unlock(&t->hrt_lock);
+        cfs_spin_lock(&rsh->rsh_lock);
+        cfs_list_splice_init(&rsh->rsh_queue, replies);
+        result = ptlrpc_rsh_service.rsc_stopping || !cfs_list_empty(replies);
+        cfs_spin_unlock(&rsh->rsh_lock);
         return result;
 }
 
@@ -2257,28 +2446,23 @@ static int hrt_dont_sleep(struct ptlrpc_hr_thread *t,
  * Main body of "handle reply" function.
  * It processes acked reply states
  */
-static int ptlrpc_hr_main(void *arg)
+static int ptlrpc_rsh_main(void *arg)
 {
-        struct ptlrpc_hr_args * hr_args = arg;
-        struct ptlrpc_hr_service *hr = hr_args->hrs;
-        struct ptlrpc_hr_thread *t = &hr->hr_threads[hr_args->thread_index];
-        char threadname[20];
-        CFS_LIST_HEAD(replies);
+        ptlrpc_rsh_cpud_t   *rsh = arg;
+        CFS_LIST_HEAD       (replies);
+        char                 name[20];
 
-        snprintf(threadname, sizeof(threadname),
-                 "ptlrpc_hr_%d", hr_args->thread_index);
+        snprintf(name, sizeof(name), "ptlrpc_hr_%d", rsh->rsh_cpuid);
 
-        cfs_daemonize_ctxt(threadname);
-#if defined(CONFIG_SMP) && defined(HAVE_NODE_TO_CPUMASK)
-        cfs_set_cpus_allowed(cfs_current(),
-                             node_to_cpumask(cpu_to_node(hr_args->cpu_index)));
-#endif
-        cfs_set_bit(HRT_RUNNING, &t->hrt_flags);
-        cfs_waitq_signal(&t->hrt_wait);
+        cfs_daemonize_ctxt(name);
+        if (cfs_cpu_bind(rsh->rsh_cpuid) != 0)
+                CWARN("Can't bind %s on CPU node %d\n", name, rsh->rsh_cpuid);
 
-        while (!cfs_test_bit(HRT_STOPPING, &t->hrt_flags)) {
+        cfs_atomic_inc(&rsh->rsh_nstarted);
+        cfs_waitq_signal(&ptlrpc_rsh_service.rsc_waitq);
 
-                l_wait_condition(t->hrt_wait, hrt_dont_sleep(t, &replies));
+        while (!ptlrpc_rsh_service.rsc_stopping) {
+                l_wait_condition(rsh->rsh_wait, rsh_dont_sleep(rsh, &replies));
                 while (!cfs_list_empty(&replies)) {
                         struct ptlrpc_reply_state *rs;
 
@@ -2290,115 +2474,99 @@ static int ptlrpc_hr_main(void *arg)
                 }
         }
 
-        cfs_clear_bit(HRT_RUNNING, &t->hrt_flags);
-        cfs_complete(&t->hrt_completion);
+        cfs_atomic_inc(&rsh->rsh_nstopped);
+        cfs_waitq_signal(&ptlrpc_rsh_service.rsc_waitq);
 
         return 0;
 }
 
-static int ptlrpc_start_hr_thread(struct ptlrpc_hr_service *hr, int n, int cpu)
+static void ptlrpc_stop_rsh_threads(void)
 {
-        struct ptlrpc_hr_thread *t = &hr->hr_threads[n];
-        struct ptlrpc_hr_args args;
-        int rc;
-        ENTRY;
+        ptlrpc_rsh_cpud_t *rsh;
+        int                i;
 
-        args.thread_index = n;
-        args.cpu_index = cpu;
-        args.hrs = hr;
+        ptlrpc_rsh_service.rsc_stopping = 1;
 
-        rc = cfs_kernel_thread(ptlrpc_hr_main, (void*)&args,
-                               CLONE_VM|CLONE_FILES);
-        if (rc < 0) {
-                cfs_complete(&t->hrt_completion);
-                GOTO(out, rc);
+        cfs_percpu_for_each(rsh, i, ptlrpc_rsh_service.rsc_cpuds)
+                cfs_waitq_broadcast(&rsh->rsh_wait);
+
+        cfs_percpu_for_each(rsh, i, ptlrpc_rsh_service.rsc_cpuds) {
+                cfs_wait_event(ptlrpc_rsh_service.rsc_waitq,
+                               cfs_atomic_read(&rsh->rsh_nstopped) ==
+                               cfs_atomic_read(&rsh->rsh_nstarted));
         }
-        l_wait_condition(t->hrt_wait, cfs_test_bit(HRT_RUNNING, &t->hrt_flags));
-        RETURN(0);
- out:
-        return rc;
 }
 
-static void ptlrpc_stop_hr_thread(struct ptlrpc_hr_thread *t)
+static int ptlrpc_start_rsh_threads(void)
 {
+        ptlrpc_rsh_cpud_t  *rsh;
+        int                 i;
         ENTRY;
 
-        cfs_set_bit(HRT_STOPPING, &t->hrt_flags);
-        cfs_waitq_signal(&t->hrt_wait);
-        cfs_wait_for_completion(&t->hrt_completion);
+        cfs_percpu_for_each(rsh, i, ptlrpc_rsh_service.rsc_cpuds) {
+                int     num = cfs_cpu_node_weight(i);
+                int     rc  = 0;
+                int     j;
 
-        EXIT;
-}
-
-static void ptlrpc_stop_hr_threads(struct ptlrpc_hr_service *hrs)
-{
-        int n;
-        ENTRY;
-
-        for (n = 0; n < hrs->hr_n_threads; n++)
-                ptlrpc_stop_hr_thread(&hrs->hr_threads[n]);
-
-        EXIT;
-}
-
-static int ptlrpc_start_hr_threads(struct ptlrpc_hr_service *hr)
-{
-        int rc = -ENOMEM;
-        int n, cpu, threads_started = 0;
-        ENTRY;
-
-        LASSERT(hr != NULL);
-        LASSERT(hr->hr_n_threads > 0);
-
-        for (n = 0, cpu = 0; n < hr->hr_n_threads; n++) {
-#if defined(CONFIG_SMP) && defined(HAVE_NODE_TO_CPUMASK)
-                while(!cfs_cpu_online(cpu)) {
-                        cpu++;
-                        if (cpu >= cfs_num_possible_cpus())
-                                cpu = 0;
+                for (j = 0; j < num; j++) {
+                        rc = cfs_kernel_thread(ptlrpc_rsh_main, rsh,
+                                               CLONE_VM|CLONE_FILES);
+                        if (rc < 0)
+                                break;
                 }
-#endif
-                rc = ptlrpc_start_hr_thread(hr, n, cpu);
-                if (rc != 0)
-                        break;
-                threads_started++;
-                cpu++;
-        }
-        if (threads_started == 0) {
-                CERROR("No reply handling threads started\n");
+                cfs_wait_event(ptlrpc_rsh_service.rsc_waitq,
+                               cfs_atomic_read(&rsh->rsh_nstarted) == j);
+                if (rc >= 0) /* all created */
+                        continue;
+
+                /* one of them failed */
+                CERROR("Failed to start %d:%d reply handling thread\n", i, j);
+                ptlrpc_stop_rsh_threads();
                 RETURN(-ESRCH);
         }
-        if (threads_started < hr->hr_n_threads) {
-                CWARN("Started only %d reply handling threads from %d\n",
-                      threads_started, hr->hr_n_threads);
-                hr->hr_n_threads = threads_started;
-        }
         RETURN(0);
 }
 
-static void ptlrpc_stop_thread(struct ptlrpc_service *svc,
-                               struct ptlrpc_thread *thread)
+static void ptlrpc_svcd_stop_threads(struct ptlrpc_svc_cpud *svcd)
 {
         struct l_wait_info lwi = { 0 };
+        struct ptlrpc_thread *thread;
+        CFS_LIST_HEAD        (zombie);
+
         ENTRY;
 
-        CDEBUG(D_RPCTRACE, "Stopping thread [ %p : %u ]\n",
-               thread, thread->t_pid);
+        CDEBUG(D_RPCTRACE, "Stopping %s thread on cpu: %u\n",
+               svcd->scd_service->srv_name, svcd->scd_cpuid);
 
-        cfs_spin_lock(&svc->srv_lock);
+        cfs_spin_lock(&svcd->scd_lock);
         /* let the thread know that we would like it to stop asap */
-        thread->t_flags |= SVC_STOPPING;
-        cfs_spin_unlock(&svc->srv_lock);
+        list_for_each_entry(thread, &svcd->scd_threads, t_link)
+                thread->t_flags |= SVC_STOPPING;
 
-        cfs_waitq_broadcast(&svc->srv_waitq);
-        l_wait_event(thread->t_ctl_waitq,
-                     (thread->t_flags & SVC_STOPPED), &lwi);
+        cfs_waitq_broadcast(&svcd->scd_waitq);
+        while (!cfs_list_empty(&svcd->scd_threads)) {
+                thread = cfs_list_entry(svcd->scd_threads.next,
+                                        struct ptlrpc_thread, t_link);
+                if ((thread->t_flags & SVC_STOPPED) != 0) {
+                        cfs_list_del(&thread->t_link);
+                        cfs_list_add(&thread->t_link, &zombie);
+                        continue;
+                }
+                cfs_spin_unlock(&svcd->scd_lock);
+                CDEBUG(D_RPCTRACE, "waiting for stopping-thread %s #%u\n",
+                       svcd->scd_service->srv_thread_name, thread->t_id);
+                l_wait_event(thread->t_ctl_waitq,
+                             (thread->t_flags & SVC_STOPPED) != 0, &lwi);
+                cfs_spin_lock(&svcd->scd_lock);
+        }
+        cfs_spin_unlock(&svcd->scd_lock);
 
-        cfs_spin_lock(&svc->srv_lock);
-        cfs_list_del(&thread->t_link);
-        cfs_spin_unlock(&svc->srv_lock);
-
-        OBD_FREE_PTR(thread);
+        while (!cfs_list_empty(&zombie)) {
+                thread = cfs_list_entry(zombie.next,
+                                        struct ptlrpc_thread, t_link);
+                cfs_list_del(&thread->t_link);
+                OBD_NODE_FREE(thread, sizeof(*thread));
+        }
         EXIT;
 }
 
@@ -2407,50 +2575,53 @@ static void ptlrpc_stop_thread(struct ptlrpc_service *svc,
  */
 void ptlrpc_stop_all_threads(struct ptlrpc_service *svc)
 {
-        struct ptlrpc_thread *thread;
+        int     i;
         ENTRY;
 
-        cfs_spin_lock(&svc->srv_lock);
-        while (!cfs_list_empty(&svc->srv_threads)) {
-                thread = cfs_list_entry(svc->srv_threads.next,
-                                        struct ptlrpc_thread, t_link);
+        for (i = 0; i < svc->srv_cpu_num; i++) {
+                struct ptlrpc_svc_cpud *svcd = svc->srv_cpuds[i];
 
-                cfs_spin_unlock(&svc->srv_lock);
-                ptlrpc_stop_thread(svc, thread);
-                cfs_spin_lock(&svc->srv_lock);
+                if (svcd != NULL && svcd->scd_service != NULL)
+                        ptlrpc_svcd_stop_threads(svcd);
         }
-
-        cfs_spin_unlock(&svc->srv_lock);
         EXIT;
 }
 
 int ptlrpc_start_threads(struct ptlrpc_service *svc)
 {
-        int i, rc = 0;
+        int rc = 0;
+        int i;
+        int j;
         ENTRY;
 
         /* We require 2 threads min - see note in
            ptlrpc_server_handle_request */
         LASSERT(svc->srv_threads_min >= 2);
-        for (i = 0; i < svc->srv_threads_min; i++) {
-                rc = ptlrpc_start_thread(svc);
-                /* We have enough threads, don't start more.  b=15759 */
-                if (rc == -EMFILE) {
-                        rc = 0;
-                        break;
-                }
-                if (rc) {
-                        CERROR("cannot start %s thread #%d: rc %d\n",
-                               svc->srv_thread_name, i, rc);
-                        ptlrpc_stop_all_threads(svc);
+
+        for (i = 0; i < svc->srv_cpu_num; i++) {
+                for (j = 0; j < svc->srv_threads_min; j++) {
+                        rc = ptlrpc_start_thread(svc->srv_cpuds[i], 1);
+                        if (rc == 0)
+                                continue;
+
+                        if (rc == -EMFILE)
+                                rc = 0;
                         break;
                 }
         }
+
+        if (rc == 0)
+                RETURN(0);
+
+        CERROR("cannot start %s thread #%d_%d: rc %d\n",
+               svc->srv_thread_name, i, j, rc);
+        ptlrpc_stop_all_threads(svc);
         RETURN(rc);
 }
 
-int ptlrpc_start_thread(struct ptlrpc_service *svc)
+int ptlrpc_start_thread(struct ptlrpc_svc_cpud *svcd, int wait)
 {
+        struct ptlrpc_service *svc = svcd->scd_service;
         struct l_wait_info lwi = { 0 };
         struct ptlrpc_svc_data d;
         struct ptlrpc_thread *thread;
@@ -2459,39 +2630,57 @@ int ptlrpc_start_thread(struct ptlrpc_service *svc)
         ENTRY;
 
         CDEBUG(D_RPCTRACE, "%s started %d min %d max %d running %d\n",
-               svc->srv_name, svc->srv_threads_running, svc->srv_threads_min,
-               svc->srv_threads_max, svc->srv_threads_running);
+               svc->srv_name, svcd->scd_threads_running,
+               svc->srv_threads_min, svc->srv_threads_max,
+               svcd->scd_threads_running);
 
+ again:
         if (unlikely(svc->srv_is_stopping))
                 RETURN(-ESRCH);
 
-        if (!ptlrpc_threads_increasable(svc) ||
+        if (!ptlrpc_threads_increasable(svcd) ||
             (OBD_FAIL_CHECK(OBD_FAIL_TGT_TOOMANY_THREADS) &&
-             svc->srv_threads_running == svc->srv_threads_min - 1))
+             svcd->scd_threads_running == svc->srv_threads_min - 1))
                 RETURN(-EMFILE);
 
-        OBD_ALLOC_PTR(thread);
+        OBD_NODE_ALLOC(thread, svcd->scd_cpuid, sizeof(*thread));
         if (thread == NULL)
                 RETURN(-ENOMEM);
         cfs_waitq_init(&thread->t_ctl_waitq);
 
-        cfs_spin_lock(&svc->srv_lock);
-        if (!ptlrpc_threads_increasable(svc)) {
-                cfs_spin_unlock(&svc->srv_lock);
-                OBD_FREE_PTR(thread);
+        cfs_spin_lock(&svcd->scd_lock);
+        if (!ptlrpc_threads_increasable(svcd)) {
+                cfs_spin_unlock(&svcd->scd_lock);
+                OBD_NODE_FREE(thread, sizeof(*thread));
                 RETURN(-EMFILE);
         }
 
-        svc->srv_threads_starting++;
-        thread->t_id    = svc->srv_threads_next_id++;
+        if (svcd->scd_threads_starting != 0) {
+                /* serialize starting because obdfilter needs unique and
+                 * contiguous t_id, probably change this in the future */
+                cfs_spin_unlock(&svcd->scd_lock);
+                OBD_NODE_FREE(thread, sizeof(*thread));
+                if (!wait)
+                        return -EAGAIN;
+
+                cfs_schedule();
+                goto again;
+        }
+
+        svcd->scd_threads_starting++;
+        thread->t_id    = svcd->scd_threads_next_id++;
         thread->t_flags |= SVC_STARTING;
-        thread->t_svc   = svc;
+        thread->t_svcd  = svcd;
 
-        cfs_list_add(&thread->t_link, &svc->srv_threads);
-        cfs_spin_unlock(&svc->srv_lock);
+        cfs_list_add(&thread->t_link, &svcd->scd_threads);
+        cfs_spin_unlock(&svcd->scd_lock);
+        if (svcd->scd_cpuid >= 0) {
+                sprintf(name, "%s_%02d_%02d",
+                        svc->srv_thread_name, svcd->scd_cpuid, thread->t_id);
+        } else {
+                sprintf(name, "%s_x_%02d", svc->srv_thread_name, thread->t_id);
+        }
 
-        sprintf(name, "%s_%02d", svc->srv_thread_name, thread->t_id);
-        d.svc = svc;
         d.name = name;
         d.thread = thread;
 
@@ -2504,12 +2693,16 @@ int ptlrpc_start_thread(struct ptlrpc_service *svc)
         if (rc < 0) {
                 CERROR("cannot start thread '%s': rc %d\n", name, rc);
 
-                cfs_spin_lock(&svc->srv_lock);
+                cfs_spin_lock(&svcd->scd_lock);
                 cfs_list_del(&thread->t_link);
-                --svc->srv_threads_starting;
-                cfs_spin_unlock(&svc->srv_lock);
 
-                OBD_FREE(thread, sizeof(*thread));
+                LASSERT(svcd->scd_threads_starting == 1);
+                svcd->scd_threads_starting--;
+                /* rollback t_id */
+                svcd->scd_threads_next_id--;
+                cfs_spin_unlock(&svcd->scd_lock);
+
+                OBD_NODE_FREE(thread, sizeof(*thread));
                 RETURN(rc);
         }
         l_wait_event(thread->t_ctl_waitq,
@@ -2519,49 +2712,44 @@ int ptlrpc_start_thread(struct ptlrpc_service *svc)
         RETURN(rc);
 }
 
-
-int ptlrpc_hr_init(void)
+void ptlrpc_rsh_fini(void)
 {
-        int i;
-        int n_cpus = cfs_num_online_cpus();
-        struct ptlrpc_hr_service *hr;
-        int size;
-        int rc;
-        ENTRY;
+        if (ptlrpc_rsh_service.rsc_cpuds == NULL)
+                return;
 
-        LASSERT(ptlrpc_hr == NULL);
-
-        size = offsetof(struct ptlrpc_hr_service, hr_threads[n_cpus]);
-        OBD_ALLOC(hr, size);
-        if (hr == NULL)
-                RETURN(-ENOMEM);
-        for (i = 0; i < n_cpus; i++) {
-                struct ptlrpc_hr_thread *t = &hr->hr_threads[i];
-
-                cfs_spin_lock_init(&t->hrt_lock);
-                cfs_waitq_init(&t->hrt_wait);
-                CFS_INIT_LIST_HEAD(&t->hrt_queue);
-                cfs_init_completion(&t->hrt_completion);
-        }
-        hr->hr_n_threads = n_cpus;
-        hr->hr_size = size;
-        ptlrpc_hr = hr;
-
-        rc = ptlrpc_start_hr_threads(hr);
-        if (rc) {
-                OBD_FREE(hr, hr->hr_size);
-                ptlrpc_hr = NULL;
-        }
-        RETURN(rc);
+        ptlrpc_stop_rsh_threads();
+        cfs_percpu_free(ptlrpc_rsh_service.rsc_cpuds);
+        ptlrpc_rsh_service.rsc_cpuds = NULL;
 }
 
-void ptlrpc_hr_fini(void)
+int ptlrpc_rsh_init(void)
 {
-        if (ptlrpc_hr != NULL) {
-                ptlrpc_stop_hr_threads(ptlrpc_hr);
-                OBD_FREE(ptlrpc_hr, ptlrpc_hr->hr_size);
-                ptlrpc_hr = NULL;
+        ptlrpc_rsh_cpud_t *rsh;
+        int rc;
+        int i;
+        ENTRY;
+
+        memset(&ptlrpc_rsh_service, 0, sizeof(ptlrpc_rsh_service));
+        ptlrpc_rsh_service.rsc_cpuds = cfs_percpu_alloc(sizeof(*rsh));
+        if (ptlrpc_rsh_service.rsc_cpuds == NULL)
+                RETURN(-ENOMEM);
+
+        cfs_waitq_init(&ptlrpc_rsh_service.rsc_waitq);
+        cfs_percpu_for_each(rsh, i, ptlrpc_rsh_service.rsc_cpuds) {
+                cfs_spin_lock_init(&rsh->rsh_lock);
+                CFS_INIT_LIST_HEAD(&rsh->rsh_queue);
+                cfs_waitq_init(&rsh->rsh_wait);
+                rsh->rsh_cpuid = i;
+
+                cfs_atomic_set(&rsh->rsh_nstarted, 0);
+                cfs_atomic_set(&rsh->rsh_nstopped, 0);
+
         }
+
+        rc = ptlrpc_start_rsh_threads();
+        if (rc != 0)
+                ptlrpc_rsh_fini();
+        RETURN(rc);
 }
 
 #endif /* __KERNEL__ */
@@ -2569,160 +2757,216 @@ void ptlrpc_hr_fini(void)
 /**
  * Wait until all already scheduled replies are processed.
  */
-static void ptlrpc_wait_replies(struct ptlrpc_service *svc)
+static void ptlrpc_wait_replies(struct ptlrpc_svc_cpud *svcd)
 {
         while (1) {
                 int rc;
                 struct l_wait_info lwi = LWI_TIMEOUT(cfs_time_seconds(10),
                                                      NULL, NULL);
-                rc = l_wait_event(svc->srv_waitq, cfs_atomic_read(&svc-> \
-                                  srv_n_difficult_replies) == 0,
-                                  &lwi);
+                rc = l_wait_event(svcd->scd_waitq,
+                       cfs_atomic_read(&svcd->scd_rs_ndifficult) == 0, &lwi);
                 if (rc == 0)
                         break;
-                CWARN("Unexpectedly long timeout %p\n", svc);
+                CWARN("Unexpectedly long timeout %s %p\n",
+                      svcd->scd_service->srv_name, svcd->scd_service);
         }
+}
+
+static void
+ptlrpc_svc_unlink_rqbd(struct ptlrpc_service *svc)
+{
+        struct ptlrpc_svc_cpud            *svcd;
+        struct ptlrpc_request_buffer_desc *rqbd;
+        struct l_wait_info                 lwi;
+        int                                rc;
+        int                                i;
+
+        rc = LNetClearLazyPortal(svc->srv_req_portal);
+        for (i = 0; i < svc->srv_cpu_num; i++) {
+                svcd = svc->srv_cpuds[i];
+                if (svcd == NULL || svcd->scd_service == NULL)
+                        continue;
+
+                /* NB, it shouldn't be here, but...
+                 * I don't want an extra function to disarm timers */
+                cfs_timer_disarm(&svcd->scd_at_timer);
+
+                /* Unlink all the request buffers.  This forces a 'final'
+                 * event with its 'unlink' flag set for each posted rqbd */
+                cfs_list_for_each_entry(rqbd, &svcd->scd_rqbd_active,
+                                        rqbd_list) {
+                        int rc = LNetMDUnlink(rqbd->rqbd_md_h);
+                        LASSERT (rc == 0 || rc == -ENOENT);
+                }
+        }
+
+        for (i = 0; i < svc->srv_cpu_num; i++) {
+                svcd = svc->srv_cpuds[i];
+                if (svcd == NULL || svcd->scd_service == NULL)
+                        continue;
+
+                /* Wait for the network to release any buffers
+                 * it's currently filling */
+                cfs_spin_lock(&svcd->scd_lock);
+                while (svcd->scd_rqbd_nposted != 0) {
+                        cfs_spin_unlock(&svcd->scd_lock);
+                        /* Network access will complete in finite time but
+                         * the HUGE timeout lets us CWARN for visibility
+                         * of sluggish NALs */
+                        lwi = LWI_TIMEOUT_INTERVAL(
+                                  cfs_time_seconds(LONG_UNLINK),
+                                  cfs_time_seconds(1), NULL, NULL);
+                        rc = l_wait_event(svcd->scd_waitq,
+                                          svcd->scd_rqbd_nposted == 0, &lwi);
+                        if (rc == -ETIMEDOUT) {
+                                CWARN("Service %s: %d waiting for "
+                                      "request buffers\n",
+                                      svcd->scd_service->srv_name, i);
+                        }
+                        cfs_spin_lock(&svcd->scd_lock);
+                }
+                cfs_spin_unlock(&svcd->scd_lock);
+        }
+}
+
+static void
+ptlrpc_svc_purge_all(struct ptlrpc_service *svc)
+{
+        struct ptlrpc_svc_cpud     *svcd;
+        struct ptlrpc_request      *req;
+        struct ptlrpc_reply_state  *rs;
+        struct ptlrpc_reply_state  *t;
+        int                         i;
+
+        for (i = 0; i < svc->srv_cpu_num; i++) {
+                /* schedule all outstanding replies to terminate them */
+                svcd = svc->srv_cpuds[i];
+                if (svcd == NULL || svcd->scd_service == NULL)
+                        continue;
+
+                cfs_spin_lock(&svcd->scd_rs_lock);
+                while (!cfs_list_empty(&svcd->scd_rs_active)) {
+                        rs = cfs_list_entry(svcd->scd_rs_active.next,
+                                            struct ptlrpc_reply_state, rs_list);
+                        cfs_spin_lock(&rs->rs_lock);
+                        ptlrpc_schedule_difficult_reply(rs);
+                        cfs_spin_unlock(&rs->rs_lock);
+                }
+                cfs_spin_unlock(&svcd->scd_rs_lock);
+
+                /* purge the request queue.  NB No new replies (rqbds
+                 * all unlinked) and no service threads, so I'm the only
+                 * thread noodling the request queue now */
+                while (!cfs_list_empty(&svcd->scd_req_in_queue)) {
+                        req = cfs_list_entry(svcd->scd_req_in_queue.next,
+                                               struct ptlrpc_request,
+                                               rq_list);
+
+                        cfs_list_del(&req->rq_list);
+                        svcd->scd_req_in_nqueued--;
+                        svcd->scd_req_nactive++;
+                        ptlrpc_server_finish_request(req);
+                }
+
+                while (ptlrpc_server_request_pending(svcd, 1)) {
+                        req = ptlrpc_server_request_get(svcd, 1);
+                        cfs_list_del(&req->rq_list);
+                        svcd->scd_req_in_nqueued--;
+                        svcd->scd_req_nactive++;
+                        ptlrpc_hpreq_fini(req);
+                        ptlrpc_server_finish_request(req);
+                }
+
+                LASSERT(svcd->scd_req_in_nqueued == 0);
+                LASSERT(svcd->scd_req_nactive == 0);
+                LASSERT(cfs_list_empty(&svcd->scd_rqbd_active));
+
+                /* Now free all the request buffers since nothing
+                 * references them any more... */
+
+                while (!cfs_list_empty(&svcd->scd_rqbd_idle)) {
+                        struct ptlrpc_request_buffer_desc *rqbd =
+                                cfs_list_entry(svcd->scd_rqbd_idle.next,
+                                       struct ptlrpc_request_buffer_desc,
+                                       rqbd_list);
+
+                        ptlrpc_free_rqbd(rqbd);
+                }
+                ptlrpc_wait_replies(svcd);
+
+                cfs_list_for_each_entry_safe(rs, t, &svcd->scd_rs_idle,
+                                             rs_list) {
+                        cfs_list_del(&rs->rs_list);
+                        OBD_FREE_LARGE(rs, svc->srv_rep_max_size);
+                }
+        }
+}
+
+static void
+ptlrpc_svc_fini(struct ptlrpc_service *svc)
+{
+        struct ptlrpc_svc_cpud     *svcd;
+        struct ptlrpc_at_array     *array;
+        int                         i;
+
+        LASSERT(svc->srv_hist_nrqbd == 0);
+
+        for (i = 0; i < svc->srv_cpu_num; i++) {
+                svcd = svc->srv_cpuds[i];
+                if (svcd == NULL || svcd->scd_service == NULL)
+                        continue;
+
+                cfs_timer_disarm(&svcd->scd_at_timer);
+                array = &svcd->scd_at_array;
+
+                if (array->paa_reqs_array != NULL) {
+                        OBD_NODE_FREE(array->paa_reqs_array,
+                                      sizeof(cfs_list_t) * array->paa_size);
+                        array->paa_reqs_array = NULL;
+                }
+
+                if (array->paa_reqs_count != NULL) {
+                        OBD_NODE_FREE(array->paa_reqs_count,
+                                      sizeof(__u32) * array->paa_size);
+                        array->paa_reqs_count= NULL;
+                }
+                svcd->scd_service = NULL;
+        }
+
+        for (i = 0; i < svc->srv_cpu_num; i++) {
+                svcd = svc->srv_cpuds[i];
+                if (svcd != NULL)
+                        OBD_NODE_FREE_ALIGNED(svcd, sizeof(*svcd));
+        }
+
+        OBD_FREE_ALIGNED(svc, offsetof(struct ptlrpc_service,
+                                       srv_cpuds[svc->srv_cpu_num]));
 }
 
 int ptlrpc_unregister_service(struct ptlrpc_service *service)
 {
-        int                   rc;
-        struct l_wait_info    lwi;
-        cfs_list_t           *tmp;
-        struct ptlrpc_reply_state *rs, *t;
-        struct ptlrpc_at_array *array = &service->srv_at_array;
         ENTRY;
 
         service->srv_is_stopping = 1;
-        cfs_timer_disarm(&service->srv_at_timer);
 
         ptlrpc_stop_all_threads(service);
-        LASSERT(cfs_list_empty(&service->srv_threads));
 
-        cfs_spin_lock (&ptlrpc_all_services_lock);
-        cfs_list_del_init (&service->srv_list);
-        cfs_spin_unlock (&ptlrpc_all_services_lock);
+        cfs_spin_lock(&ptlrpc_all_services_lock);
+        cfs_list_del_init(&service->srv_list);
+        cfs_spin_unlock(&ptlrpc_all_services_lock);
 
         ptlrpc_lprocfs_unregister_service(service);
 
         /* All history will be culled when the next request buffer is
          * freed */
-        service->srv_max_history_rqbds = 0;
+        service->srv_hist_rqbd_max = 0;
 
         CDEBUG(D_NET, "%s: tearing down\n", service->srv_name);
 
-        rc = LNetClearLazyPortal(service->srv_req_portal);
-        LASSERT (rc == 0);
+        ptlrpc_svc_unlink_rqbd(service);
+        ptlrpc_svc_purge_all(service);
+        ptlrpc_svc_fini(service);
 
-        /* Unlink all the request buffers.  This forces a 'final' event with
-         * its 'unlink' flag set for each posted rqbd */
-        cfs_list_for_each(tmp, &service->srv_active_rqbds) {
-                struct ptlrpc_request_buffer_desc *rqbd =
-                        cfs_list_entry(tmp, struct ptlrpc_request_buffer_desc,
-                                       rqbd_list);
-
-                rc = LNetMDUnlink(rqbd->rqbd_md_h);
-                LASSERT (rc == 0 || rc == -ENOENT);
-        }
-
-        /* Wait for the network to release any buffers it's currently
-         * filling */
-        for (;;) {
-                cfs_spin_lock(&service->srv_lock);
-                rc = service->srv_nrqbd_receiving;
-                cfs_spin_unlock(&service->srv_lock);
-
-                if (rc == 0)
-                        break;
-
-                /* Network access will complete in finite time but the HUGE
-                 * timeout lets us CWARN for visibility of sluggish NALs */
-                lwi = LWI_TIMEOUT_INTERVAL(cfs_time_seconds(LONG_UNLINK),
-                                           cfs_time_seconds(1), NULL, NULL);
-                rc = l_wait_event(service->srv_waitq,
-                                  service->srv_nrqbd_receiving == 0,
-                                  &lwi);
-                if (rc == -ETIMEDOUT)
-                        CWARN("Service %s waiting for request buffers\n",
-                              service->srv_name);
-        }
-
-        /* schedule all outstanding replies to terminate them */
-        cfs_spin_lock(&service->srv_rs_lock);
-        while (!cfs_list_empty(&service->srv_active_replies)) {
-                struct ptlrpc_reply_state *rs =
-                        cfs_list_entry(service->srv_active_replies.next,
-                                       struct ptlrpc_reply_state, rs_list);
-                cfs_spin_lock(&rs->rs_lock);
-                ptlrpc_schedule_difficult_reply(rs);
-                cfs_spin_unlock(&rs->rs_lock);
-        }
-        cfs_spin_unlock(&service->srv_rs_lock);
-
-        /* purge the request queue.  NB No new replies (rqbds all unlinked)
-         * and no service threads, so I'm the only thread noodling the
-         * request queue now */
-        while (!cfs_list_empty(&service->srv_req_in_queue)) {
-                struct ptlrpc_request *req =
-                        cfs_list_entry(service->srv_req_in_queue.next,
-                                       struct ptlrpc_request,
-                                       rq_list);
-
-                cfs_list_del(&req->rq_list);
-                service->srv_n_queued_reqs--;
-                service->srv_n_active_reqs++;
-                ptlrpc_server_finish_request(service, req);
-        }
-        while (ptlrpc_server_request_pending(service, 1)) {
-                struct ptlrpc_request *req;
-
-                req = ptlrpc_server_request_get(service, 1);
-                cfs_list_del(&req->rq_list);
-                service->srv_n_queued_reqs--;
-                service->srv_n_active_reqs++;
-                ptlrpc_hpreq_fini(req);
-                ptlrpc_server_finish_request(service, req);
-        }
-        LASSERT(service->srv_n_queued_reqs == 0);
-        LASSERT(service->srv_n_active_reqs == 0);
-        LASSERT(service->srv_n_history_rqbds == 0);
-        LASSERT(cfs_list_empty(&service->srv_active_rqbds));
-
-        /* Now free all the request buffers since nothing references them
-         * any more... */
-        while (!cfs_list_empty(&service->srv_idle_rqbds)) {
-                struct ptlrpc_request_buffer_desc *rqbd =
-                        cfs_list_entry(service->srv_idle_rqbds.next,
-                                       struct ptlrpc_request_buffer_desc,
-                                       rqbd_list);
-
-                ptlrpc_free_rqbd(rqbd);
-        }
-
-        ptlrpc_wait_replies(service);
-
-        cfs_list_for_each_entry_safe(rs, t, &service->srv_free_rs_list,
-                                     rs_list) {
-                cfs_list_del(&rs->rs_list);
-                OBD_FREE_LARGE(rs, service->srv_max_reply_size);
-        }
-
-        /* In case somebody rearmed this in the meantime */
-        cfs_timer_disarm(&service->srv_at_timer);
-
-        if (array->paa_reqs_array != NULL) {
-                OBD_FREE(array->paa_reqs_array,
-                         sizeof(cfs_list_t) * array->paa_size);
-                array->paa_reqs_array = NULL;
-        }
-
-        if (array->paa_reqs_count != NULL) {
-                OBD_FREE(array->paa_reqs_count,
-                         sizeof(__u32) * array->paa_size);
-                array->paa_reqs_count= NULL;
-        }
-
-        OBD_FREE_PTR(service);
         RETURN(0);
 }
 
@@ -2732,38 +2976,54 @@ int ptlrpc_unregister_service(struct ptlrpc_service *service)
  * Right now, it just checks to make sure that requests aren't languishing
  * in the queue.  We'll use this health check to govern whether a node needs
  * to be shot, so it's intentionally non-aggressive. */
-int ptlrpc_service_health_check(struct ptlrpc_service *svc)
+int ptlrpc_svcd_health_check(struct ptlrpc_svc_cpud *svcd)
 {
         struct ptlrpc_request *request;
         struct timeval         right_now;
         long                   timediff;
 
-        if (svc == NULL)
-                return 0;
-
         cfs_gettimeofday(&right_now);
 
-        cfs_spin_lock(&svc->srv_rq_lock);
-        if (!ptlrpc_server_request_pending(svc, 1)) {
-                cfs_spin_unlock(&svc->srv_rq_lock);
+        cfs_spin_lock(&svcd->scd_rq_lock);
+        if (!ptlrpc_server_request_pending(svcd, 1)) {
+                cfs_spin_unlock(&svcd->scd_rq_lock);
                 return 0;
         }
 
         /* How long has the next entry been waiting? */
-        if (cfs_list_empty(&svc->srv_request_queue))
-                request = cfs_list_entry(svc->srv_request_hpq.next,
+        if (cfs_list_empty(&svcd->scd_req_queue)) {
+                request = cfs_list_entry(svcd->scd_hpreq_queue.next,
                                          struct ptlrpc_request, rq_list);
-        else
-                request = cfs_list_entry(svc->srv_request_queue.next,
+        } else {
+                request = cfs_list_entry(svcd->scd_req_queue.next,
                                          struct ptlrpc_request, rq_list);
+        }
         timediff = cfs_timeval_sub(&right_now, &request->rq_arrival_time, NULL);
-        cfs_spin_unlock(&svc->srv_rq_lock);
+        cfs_spin_unlock(&svcd->scd_rq_lock);
 
-        if ((timediff / ONE_MILLION) > (AT_OFF ? obd_timeout * 3/2 :
-                                        at_max)) {
+        if ((timediff / ONE_MILLION) >
+            (AT_OFF ? obd_timeout * 3/2 : at_max)) {
                 CERROR("%s: unhealthy - request has been waiting %lds\n",
-                       svc->srv_name, timediff / ONE_MILLION);
+                       svcd->scd_service->srv_name, timediff / ONE_MILLION);
                 return (-1);
+        }
+
+        return 0;
+}
+
+int
+ptlrpc_service_health_check(struct ptlrpc_service *svc)
+{
+        int     rc;
+        int     i;
+
+        if (svc == NULL)
+                return 0;
+
+        for (i = 0; i < svc->srv_cpu_num; i++) {
+                rc = ptlrpc_svcd_health_check(svc->srv_cpuds[i]);
+                if (rc != 0)
+                        return rc;
         }
 
         return 0;

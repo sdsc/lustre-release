@@ -36,6 +36,11 @@ typedef struct page {
 #define CFS_PAGE_SIZE (1UL << CFS_PAGE_SHIFT)
 #define CFS_PAGE_MASK (~((__u64)CFS_PAGE_SIZE-1))
 
+static inline unsigned long cfs_physpages_num(void)
+{
+        return 1UL << (32 - CFS_PAGE_SHIFT);
+}
+
 cfs_page_t *cfs_alloc_page(unsigned int flags);
 void cfs_free_page(cfs_page_t *pg);
 void *cfs_page_address(cfs_page_t *pg);
@@ -53,7 +58,7 @@ void cfs_kunmap(cfs_page_t *pg);
  * Inline function, so utils can use them without linking of libcfs
  */
 #define __ALLOC_ZERO    (1 << 2)
-static inline void *cfs_alloc(size_t nr_bytes, u_int32_t flags)
+static inline void *cfs_alloc(size_t nr_bytes, unsigned flags)
 {
         void *result;
 
@@ -63,9 +68,33 @@ static inline void *cfs_alloc(size_t nr_bytes, u_int32_t flags)
         return result;
 }
 
-#define cfs_free(addr)  free(addr)
-#define cfs_alloc_large(nr_bytes) cfs_alloc(nr_bytes, 0)
-#define cfs_free_large(addr) cfs_free(addr)
+#define cfs_free(addr)                                    \
+        free(addr)
+
+#define cfs_alloc_large(nr_bytes, flags)                  \
+        cfs_alloc(nr_bytes, flags)
+#define cfs_free_large(addr)                              \
+        cfs_free(addr)
+
+#define cfs_node_alloc(node, bytes, flags)                \
+        cfs_alloc(bytes, flags)
+#define cfs_node_free(addr)                               \
+        cfs_free(addr)
+
+#define cfs_node_alloc_aligned(node, bytes)               \
+        cfs_alloc(bytes, __ALLOC_ZERO)
+#define cfs_node_free_aligned(addr, size)                 \
+        cfs_free(addr)
+
+#define cfs_node_alloc_page(node, mask)                   \
+        cfs_alloc_page(mask)
+#define cfs_node_free_page(pg)                            \
+        cfs_free_page(pg)
+
+#define cfs_node_alloc_large(node, bytes, flags)          \
+        cfs_alloc(bytes, flags)
+#define cfs_node_free_large(addr)                         \
+        cfs_free(addr)
 
 #define CFS_ALLOC_ATOMIC_TRY   (0)
 /*

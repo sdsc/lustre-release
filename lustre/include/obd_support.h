@@ -637,12 +637,11 @@ static inline void obd_pages_sub(int order)
 #if defined(LUSTRE_UTILS) /* this version is for utils only */
 #define OBD_ALLOC_GFP(ptr, size, gfp_mask)                                    \
 do {                                                                          \
-        (ptr) = cfs_alloc(size, (gfp_mask));                                  \
+        (ptr) = cfs_alloc(size, (gfp_mask) | CFS_ALLOC_ZERO);                 \
         if (unlikely((ptr) == NULL)) {                                        \
                 CERROR("kmalloc of '" #ptr "' (%d bytes) failed at %s:%d\n",  \
                        (int)(size), __FILE__, __LINE__);                      \
         } else {                                                              \
-                memset(ptr, 0, size);                                         \
                 CDEBUG(D_MALLOC, "kmalloced '" #ptr "': %d at %p\n",          \
                        (int)(size), ptr);                                     \
         }                                                                     \
@@ -656,13 +655,12 @@ do {                                                                          \
 })
 #define OBD_ALLOC_GFP(ptr, size, gfp_mask)                                    \
 do {                                                                          \
-        (ptr) = cfs_alloc(size, (gfp_mask));                                  \
+        (ptr) = cfs_alloc(size, (gfp_mask) | CFS_ALLOC_ZERO);                 \
         if (likely((ptr) != NULL &&                                           \
                    (!HAS_FAIL_ALLOC_FLAG || obd_alloc_fail_rate == 0 ||       \
                     !obd_alloc_fail(ptr, #ptr, "km", size,                    \
                                     __FILE__, __LINE__) ||                    \
                     OBD_FREE_RTN0(ptr)))){                                    \
-                memset(ptr, 0, size);                                         \
                 OBD_ALLOC_POST(ptr, size, "kmalloced");                       \
         }                                                                     \
 } while (0)
@@ -677,23 +675,56 @@ do {                                                                          \
 #define OBD_ALLOC_PTR(ptr) OBD_ALLOC(ptr, sizeof *(ptr))
 #define OBD_ALLOC_PTR_WAIT(ptr) OBD_ALLOC_WAIT(ptr, sizeof *(ptr))
 
+#define OBD_ALLOC_POST_CHECK(func, ptr, size)                                 \
+do {                                                                          \
+        if (likely((ptr) != NULL)) {                                          \
+                OBD_ALLOC_POST(ptr, size, func);                              \
+                break;                                                        \
+        }                                                                     \
+        CERROR("%s '" #ptr "' (%d bytes) failed\n", func, (int)(size));       \
+        CERROR(LPU64" total bytes allocated by Lustre, %d by LNET\n",         \
+               obd_memory_sum(), cfs_atomic_read(&libcfs_kmemory));           \
+} while(0)
+
+/** please see comment on LIBCFS_ALLOC_ALIGNED */
+#define OBD_ALLOC_ALIGNED(ptr, size)                                          \
+do {                                                                          \
+        (ptr) = cfs_node_alloc_aligned(CFS_CPU_ANY, size);                    \
+        OBD_ALLOC_POST_CHECK("alloc_aligned", ptr, size);                     \
+} while (0)
+
+/** please see comment on LIBCFS_NODE_ALLOC */
+#define OBD_NODE_ALLOC(ptr, n, size)                                          \
+do {                                                                          \
+        (ptr) = cfs_node_alloc(n, size, OBD_ALLOC_MASK | CFS_ALLOC_ZERO );    \
+        OBD_ALLOC_POST_CHECK("node_alloc", ptr, size);                        \
+} while (0)
+
+/** please see comment on LIBCFS_NODE_ALLOC_ALIGNED */
+#define OBD_NODE_ALLOC_ALIGNED(ptr, n, size)                                  \
+do {                                                                          \
+        (ptr) = cfs_node_alloc_aligned(n, size);                              \
+        OBD_ALLOC_POST_CHECK("node_alloc_aligned", ptr, size);                \
+} while (0)
+
 #ifdef __arch_um__
-# define OBD_VMALLOC(ptr, size) OBD_ALLOC(ptr, size)
-#else
+# define OBD_VMALLOC(ptr, size)         OBD_ALLOC(ptr, size)
+# define OBD_NODE_VALLOC(ptr, n, size)  OBD_NODE_ALLOC(ptr, n, size)
+
+#else /* !__arch_um__ */
 # define OBD_VMALLOC(ptr, size)                                               \
 do {                                                                          \
-        (ptr) = cfs_alloc_large(size);                                        \
-        if (unlikely((ptr) == NULL)) {                                        \
-                CERROR("vmalloc of '" #ptr "' (%d bytes) failed\n",           \
-                       (int)(size));                                          \
-                CERROR(LPU64" total bytes allocated by Lustre, %d by LNET\n", \
-                       obd_memory_sum(), cfs_atomic_read(&libcfs_kmemory));   \
-        } else {                                                              \
-                memset(ptr, 0, size);                                         \
-                OBD_ALLOC_POST(ptr, size, "vmalloced");                       \
-        }                                                                     \
+        (ptr) = cfs_alloc_large(size, CFS_ALLOC_ZERO);                        \
+        OBD_ALLOC_POST_CHECK("vmalloc", ptr, size);                           \
 } while(0)
-#endif
+
+# define OBD_NODE_VALLOC(ptr, n, size)                                        \
+do {                                                                          \
+        (ptr) = cfs_node_alloc_large(n, size, CFS_ALLOC_ZERO );               \
+        OBD_ALLOC_POST_CHECK("node_valloc", ptr, size);                       \
+} while (0)
+
+#endif /* __arch_um__ */
 
 #ifdef __KERNEL__
 
@@ -721,9 +752,28 @@ do {                                                                          \
         else                                                                  \
                 OBD_FREE(ptr, size);                                          \
 } while (0)
+
+#define OBD_NODE_ALLOC_LARGE(ptr, n, size)                                    \
+do {                                                                          \
+        if (size > OBD_ALLOC_BIG)                                             \
+                OBD_NODE_VALLOC(ptr, n, size);                                \
+        else                                                                  \
+                OBD_NODE_ALLOC(ptr, n, size);                                 \
+} while (0)
+
+#define OBD_NODE_FREE_LARGE(ptr, size)                                        \
+do {                                                                          \
+        if (size > OBD_ALLOC_BIG)                                             \
+                OBD_NODE_VFREE(ptr, size);                                    \
+        else                                                                  \
+                OBD_NODE_FREE(ptr, size);                                     \
+} while (0)
+
 #else
 #define OBD_ALLOC_LARGE(ptr, size) OBD_ALLOC(ptr, size)
 #define OBD_FREE_LARGE(ptr, size) OBD_FREE(ptr,size)
+#define OBD_NODE_ALLOC_LARGE(ptr, n, size) OBD_ALLOC(ptr, size)
+#define OBD_NODE_FREE_LARGE(ptr, size) OBD_FREE(ptr,size)
 #endif
 
 #ifdef CONFIG_DEBUG_SLAB
@@ -772,22 +822,57 @@ do {                                                                          \
 } while(0)
 #define OBD_FREE_RCU(ptr, size, handle) OBD_FREE_RCU_CB(ptr, size, handle, NULL)
 
-#else
+#else /* !__KERNEL__ */
 #define OBD_FREE(ptr, size) ((void)(size), free((ptr)))
 #define OBD_FREE_RCU(ptr, size, handle) (OBD_FREE(ptr, size))
 #define OBD_FREE_RCU_CB(ptr, size, handle, cb)     ((*(cb))(ptr, size))
 #endif /* ifdef __KERNEL__ */
 
+/** please see comment on LIBCFS_FREE_ALIGNED */
+#define OBD_FREE_ALIGNED(ptr, size)                                           \
+do {                                                                          \
+        OBD_FREE_PRE(ptr, size, "free_aligned");                              \
+        cfs_node_free_aligned(ptr, size);                                     \
+        POISON_PTR(ptr);                                                      \
+} while(0)
+
+/** please see comment on LIBCFS_NODE_FREE */
+#define OBD_NODE_FREE(ptr, size)                                              \
+do {                                                                          \
+        OBD_FREE_PRE(ptr, size, "node_free");                                 \
+        cfs_node_free(ptr);                                                   \
+        POISON_PTR(ptr);                                                      \
+} while(0)
+
+/** please see comment on LIBCFS_NODE_FREE_ALIGNED */
+#define OBD_NODE_FREE_ALIGNED(ptr, size)                                      \
+do {                                                                          \
+        OBD_FREE_PRE(ptr, size, "node_free_aligned");                         \
+        cfs_node_free_aligned(ptr, size);                                     \
+        POISON_PTR(ptr);                                                      \
+} while(0)
+
 #ifdef __arch_um__
-# define OBD_VFREE(ptr, size) OBD_FREE(ptr, size)
-#else
+
+# define OBD_VFREE(ptr, size)           OBD_FREE(ptr, size)
+# define OBD_NODE_VFREE(ptr, size)      OBD_NODE_FREE(ptr, size)
+
+#else /* !__arch_um__ */
 # define OBD_VFREE(ptr, size)                                                 \
 do {                                                                          \
         OBD_FREE_PRE(ptr, size, "vfreed");                                    \
         cfs_free_large(ptr);                                                  \
         POISON_PTR(ptr);                                                      \
 } while(0)
-#endif
+
+#define OBD_NODE_VFREE(ptr, size)                                             \
+do {                                                                          \
+        OBD_FREE_PRE(ptr, size, "node_vfree");                                \
+        cfs_node_free_large(ptr);                                             \
+        POISON_PTR(ptr);                                                      \
+} while(0)
+
+#endif /* __arch_um__ */
 
 /* we memset() the slab object to 0 when allocation succeeds, so DO NOT
  * HAVE A CTOR THAT DOES ANYTHING.  its work will be cleared here.  we'd

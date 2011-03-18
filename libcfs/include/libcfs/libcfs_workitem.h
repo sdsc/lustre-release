@@ -83,10 +83,13 @@ typedef struct cfs_workitem {
 } cfs_workitem_t;
 
 /**
- * positive values are reserved as CPU id of future implementation of
- * per-cpu scheduler, so user can "bind" workitem on specific CPU.
+ * non-affinity workitem scheduler
  */
 #define CFS_WI_SCHED_ANY        (-1)
+/**
+ * serialized workitem scheduler, all workitems are executed one by one
+ * without any concurrency
+ */
 #define CFS_WI_SCHED_SERIAL     (-2)
 
 static inline void
@@ -107,6 +110,8 @@ int  cfs_wi_cancel(cfs_workitem_t *wi);
 void cfs_wi_schedule(cfs_workitem_t *wi);
 int  cfs_wi_startup(void);
 void cfs_wi_shutdown(void);
+int  cfs_wi_sched_start(int sched_id);
+void cfs_wi_sched_stop(int sched_id);
 
 #ifdef __KERNEL__
 /** # workitem scheduler loops before reschedule */

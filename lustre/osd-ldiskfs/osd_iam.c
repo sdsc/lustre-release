@@ -191,6 +191,8 @@ EXPORT_SYMBOL(iam_container_setup);
  */
 void iam_container_fini(struct iam_container *c)
 {
+        brelse(c->ic_root_bh);
+        c->ic_root_bh = NULL;
 }
 EXPORT_SYMBOL(iam_container_fini);
 
@@ -268,6 +270,18 @@ int iam_node_read(struct iam_container *c, iam_ptr_t ptr,
                   handle_t *h, struct buffer_head **bh)
 {
         int result = 0;
+
+        /* NB: it can be called by iam_lfix_guess() which is still at
+         * very early stage, c->ic_root_bh and c->ic_descr->id_ops
+         * haven't been intialized yet.
+         * Also, we don't have this for IAM dir.
+         */
+        if (c->ic_root_bh != NULL &&
+            c->ic_descr->id_ops->id_root_ptr(c) == ptr) {
+                get_bh(c->ic_root_bh);
+                *bh = c->ic_root_bh;
+                return 0;
+        }
 
         *bh = ldiskfs_bread(h, c->ic_object, (int)ptr, 0, &result);
         if (*bh == NULL)
@@ -607,7 +621,6 @@ void iam_container_read_unlock(struct iam_container *ic)
 int  iam_it_init(struct iam_iterator *it, struct iam_container *c, __u32 flags,
                  struct iam_path_descr *pd)
 {
-        memset(it, 0, sizeof *it);
         it->ii_flags  = flags;
         it->ii_state  = IAM_IT_DETACHED;
         iam_path_init(&it->ii_path, c, pd);

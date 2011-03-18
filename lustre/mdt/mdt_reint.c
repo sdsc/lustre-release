@@ -310,7 +310,8 @@ static int mdt_md_create(struct mdt_thread_info *info)
         /* save version of file name for replay, it must be ENOENT here */
         mdt_enoent_version_save(info, 1);
 
-        child = mdt_object_find(info->mti_env, mdt, rr->rr_fid2);
+        child = mdt_object_find_hint(info->mti_env, mdt,
+                                     rr->rr_fid2, MOC_HINT_OI_NOENT);
         if (likely(!IS_ERR(child))) {
                 struct md_object *next = mdt_object_child(parent);
 
