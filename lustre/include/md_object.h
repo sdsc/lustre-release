@@ -511,6 +511,21 @@ struct md_object {
         const struct md_dir_operations    *mo_dir_ops;
 };
 
+typedef enum {
+        MOC_HINT_OI_NOENT,
+} md_oc_hint_t;
+
+typedef struct md_object_conf {
+        struct lu_object_conf   moc_lu_conf;
+        md_oc_hint_t            moc_hint;
+} md_object_conf_t;
+
+static inline const md_object_conf_t *
+lu2md_conf(const struct lu_object_conf *conf)
+{
+        return container_of0(conf, md_object_conf_t, moc_lu_conf);
+}
+
 /**
  * md-server site.
  */

@@ -116,8 +116,12 @@ ldlm_lock_create(struct ldlm_namespace *ns, const struct ldlm_res_id *,
                  ldlm_type_t type, ldlm_mode_t,
                  const struct ldlm_callback_suite *cbs,
                  void *data, __u32 lvb_len);
-ldlm_error_t ldlm_lock_enqueue(struct ldlm_namespace *, struct ldlm_lock **,
-                               void *cookie, int *flags);
+ldlm_it_status_t ldlm_lock_intent_check(struct ldlm_namespace *,
+                                        void *cookie, int flags);
+int ldlm_lock_intent(struct ldlm_namespace *, struct ldlm_lock **,
+                     void *cookie, ldlm_mode_t mode, int *flags);
+int ldlm_lock_enqueue(struct ldlm_namespace *,
+                      struct ldlm_lock *, int *flags);
 void ldlm_lock_addref_internal(struct ldlm_lock *, __u32 mode);
 void ldlm_lock_addref_internal_nolock(struct ldlm_lock *, __u32 mode);
 void ldlm_lock_decref_internal(struct ldlm_lock *, __u32 mode);

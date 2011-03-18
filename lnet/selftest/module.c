@@ -38,11 +38,13 @@
 
 #include "selftest.h"
 
-
-#define LST_INIT_NONE           0
-#define LST_INIT_RPC            1
-#define LST_INIT_FW             2
-#define LST_INIT_CONSOLE        3
+enum {
+        LST_INIT_NONE = 0,
+        LST_INIT_WI,
+        LST_INIT_RPC,
+        LST_INIT_FW,
+        LST_INIT_CONSOLE,
+};
 
 extern int lstcon_console_init(void);
 extern int lstcon_console_fini(void);
@@ -54,21 +56,28 @@ lnet_selftest_fini (void)
 {
         switch (lst_init_step) {
 #ifdef __KERNEL__
-                case LST_INIT_CONSOLE:
-                        lstcon_console_fini();
+        case LST_INIT_CONSOLE:
+                lstcon_console_fini();
 #endif
-                case LST_INIT_FW:
-                        sfw_shutdown();
-                case LST_INIT_RPC:
-                        srpc_shutdown();
-                case LST_INIT_NONE:
-                        break;
-                default:
-                        LBUG();
+        case LST_INIT_FW:
+                sfw_shutdown();
+        case LST_INIT_RPC:
+                srpc_shutdown();
+        case LST_INIT_WI:
+                if (cfs_cpu_node_num() > 1) {
+                        int cpuid;
+
+                        cfs_cpus_for_each(cpuid)
+                                cfs_wi_sched_stop(cpuid);
+                }
+                cfs_wi_sched_stop(CFS_WI_SCHED_SERIAL);
+        case LST_INIT_NONE:
+                break;
+        default:
+                LBUG();
         }
         return;
 }
-
 
 void
 lnet_selftest_structure_assertion(void)
@@ -84,7 +93,21 @@ lnet_selftest_structure_assertion(void)
 int
 lnet_selftest_init (void)
 {
+        int     cpuid;
         int	rc;
+
+        rc = cfs_wi_sched_start(CFS_WI_SCHED_SERIAL);
+        if (rc != 0)
+                goto error;
+
+        if (cfs_cpu_node_num() > 1) {
+                cfs_cpus_for_each(cpuid) {
+                        rc = cfs_wi_sched_start(cpuid);
+                        if (rc != 0)
+                                goto error;
+                }
+        }
+        lst_init_step = LST_INIT_WI;
 
         rc = srpc_startup();
         if (rc != 0) {
@@ -106,7 +129,7 @@ lnet_selftest_init (void)
                 CERROR("LST can't startup console\n");
                 goto error;
         }
-        lst_init_step = LST_INIT_CONSOLE;  
+        lst_init_step = LST_INIT_CONSOLE;
 #endif
 
         return 0;

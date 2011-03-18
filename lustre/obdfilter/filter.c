@@ -1898,13 +1898,14 @@ static int filter_iobuf_pool_init(struct filter_obd *filter)
 
         ENTRY;
 
-
-        OBD_ALLOC_GFP(filter->fo_iobuf_pool, OSS_THREADS_MAX * sizeof(*pool),
-                      GFP_KERNEL);
+        OBD_ALLOC_GFP(filter->fo_iobuf_pool,
+                      OSS_CPU_THREADS_MAX(PTLRPC_THREADS_MAX) *
+                      cfs_cpu_node_num() * sizeof(*pool), GFP_KERNEL);
         if (filter->fo_iobuf_pool == NULL)
                 RETURN(-ENOMEM);
 
-        filter->fo_iobuf_count = OSS_THREADS_MAX;
+        filter->fo_iobuf_count = OSS_CPU_THREADS_MAX(PTLRPC_THREADS_MAX) *
+                                 cfs_cpu_node_num();
 
         RETURN(0);
 }
@@ -1921,6 +1922,10 @@ void *filter_iobuf_get(struct filter_obd *filter, struct obd_trans_info *oti)
         struct filter_iobuf **pool_place = NULL;
 
         if (thread_id >= 0) {
+                struct ptlrpc_svc_cpud *svcd = oti->oti_thread->t_svcd;
+                int    cpuid = max(svcd->scd_cpuid, 0);
+
+                thread_id += cpuid * OSS_CPU_THREADS_MAX(PTLRPC_THREADS_MAX);
                 LASSERT(thread_id < filter->fo_iobuf_count);
                 pool = *(pool_place = &filter->fo_iobuf_pool[thread_id]);
         }
@@ -2070,7 +2075,7 @@ int filter_common_setup(struct obd_device *obd, struct lustre_cfg* lcfg,
                 GOTO(err_post, rc = -ENOMEM);
         obd->obd_namespace->ns_lvbp = obd;
         obd->obd_namespace->ns_lvbo = &filter_lvbo;
-        ldlm_register_intent(obd->obd_namespace, filter_intent_policy);
+        ldlm_register_intent(obd->obd_namespace, filter_intent_policy, NULL);
 
         ptlrpc_init_client(LDLM_CB_REQUEST_PORTAL, LDLM_CB_REPLY_PORTAL,
                            "filter_ldlm_cb_client", &obd->obd_ldlm_client);

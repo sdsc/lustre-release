@@ -161,8 +161,14 @@ typedef enum {
  * or after the last item in the list.
  */
 typedef enum {
+        /** no insert, see lnet_objcd_from_match */
+        LNET_INS_NONE   = 0,
+        /** insert ME before current position or head of the list */
         LNET_INS_BEFORE,
-        LNET_INS_AFTER
+        /** insert ME after current position or tail of the list */
+        LNET_INS_AFTER,
+        /** insert CPU affinihty ME after tail of percpu ME list */
+        LNET_INS_AFTER_CPU,
 } lnet_ins_pos_t;
 
 /** @} lnet_me */

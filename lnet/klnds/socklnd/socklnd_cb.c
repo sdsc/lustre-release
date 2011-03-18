@@ -1393,17 +1393,18 @@ int ksocknal_scheduler (void *arg)
         ksock_sched_t     *sched = (ksock_sched_t *)arg;
         ksock_conn_t      *conn;
         ksock_tx_t        *tx;
+        int                cpuid = sched->kss_cpuid;
         int                rc;
         int                nloops = 0;
-        int                id = (int)(sched - ksocknal_data.ksnd_schedulers);
         char               name[16];
 
-        snprintf (name, sizeof (name),"socknal_sd%02d", id);
+        snprintf(name, sizeof (name),"socknal_sd%02d_%02d", cpuid,
+                 (int)(sched - ksocknal_data.ksnd_schedulers[cpuid]));
         cfs_daemonize (name);
         cfs_block_allsigs ();
 
-        if (ksocknal_lib_bind_thread_to_cpu(id))
-                CERROR ("Can't set CPU affinity for %s to %d\n", name, id);
+        if (cfs_cpu_bind(cpuid) != 0)
+                CERROR ("Can't set CPU affinity for %s to %d\n", name, cpuid);
 
         cfs_spin_lock_bh (&sched->kss_lock);
 

@@ -364,9 +364,27 @@ struct ldlm_pool {
         struct lprocfs_stats  *pl_stats;
 };
 
-typedef int (*ldlm_res_policy)(struct ldlm_namespace *, struct ldlm_lock **,
-                               void *req_cookie, ldlm_mode_t mode, int flags,
-                               void *data);
+enum {
+        /** intent policy is enabled */
+        LDLM_ENQ_IT_POLICY      = (1 << 0),
+        /** need prepare a ldlm lock */
+        LDLM_ENQ_PREP_LOCK      = (1 << 1),
+};
+
+typedef enum {
+        /** policy are not executed */
+        LDLM_IT_POLICY_OFF      = LDLM_ENQ_PREP_LOCK,
+        /** execute intent policy */
+        LDLM_IT_POLICY_ON       = LDLM_ENQ_IT_POLICY | LDLM_ENQ_PREP_LOCK,
+        /** execute intent policy without creating lock */
+        LDLM_IT_POLICY_NOPREP   = LDLM_ENQ_IT_POLICY,
+} ldlm_it_status_t;
+
+typedef int (*ldlm_it_policy_t)(struct ldlm_namespace *, struct ldlm_lock **,
+                                void *req_cookie, ldlm_mode_t mode, int flags,
+                                void *data);
+typedef ldlm_it_status_t (*ldlm_it_policy_check_t)(struct ldlm_namespace *,
+                                                   void *req_cookie, int flags);
 
 typedef int (*ldlm_cancel_for_recovery)(struct ldlm_lock *lock);
 
@@ -481,8 +499,14 @@ struct ldlm_namespace {
          * Next debug dump, jiffies.
          */
         cfs_time_t             ns_next_dump;
-
-        ldlm_res_policy        ns_policy;
+        /**
+         * intent policy
+         */
+        ldlm_it_policy_t       ns_policy;
+        /**
+         * check whether ns_policy should be executed or not
+         */
+        ldlm_it_policy_check_t ns_policy_check;
         struct ldlm_valblock_ops *ns_lvbo;
         void                  *ns_lvbp;
         cfs_waitq_t            ns_waitq;
@@ -945,7 +969,9 @@ void ldlm_destroy_export(struct obd_export *exp);
 
 /* ldlm_lock.c */
 ldlm_processing_policy ldlm_get_processing_policy(struct ldlm_resource *res);
-void ldlm_register_intent(struct ldlm_namespace *ns, ldlm_res_policy arg);
+void ldlm_register_intent(struct ldlm_namespace *ns,
+                          ldlm_it_policy_t it_policy,
+                          ldlm_it_policy_check_t it_checker);
 void ldlm_lock2handle(const struct ldlm_lock *lock,
                       struct lustre_handle *lockh);
 struct ldlm_lock *__ldlm_handle2lock(const struct lustre_handle *, int flags);
@@ -1216,10 +1242,20 @@ static inline void unlock_res(struct ldlm_resource *res)
         cfs_spin_unlock(&res->lr_lock);
 }
 
+#define CHECK_RES_LOCKED        0
+
+#if CHECK_RES_LOCKED
+
 static inline void check_res_locked(struct ldlm_resource *res)
 {
         LASSERT_SPIN_LOCKED(&res->lr_lock);
 }
+
+#else
+
+#define check_res_locked(res)   do {} while (0)
+
+#endif
 
 struct ldlm_resource * lock_res_and_lock(struct ldlm_lock *lock);
 void unlock_res_and_lock(struct ldlm_lock *lock);

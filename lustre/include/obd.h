@@ -926,7 +926,7 @@ struct obd_notify_upcall {
 };
 
 struct target_recovery_data {
-        svc_handler_t     trd_recovery_handler;
+        svc_req_handler_t trd_recovery_handler;
         pid_t             trd_processing_task;
         cfs_completion_t  trd_starting;
         cfs_completion_t  trd_finishing;

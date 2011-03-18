@@ -36,6 +36,10 @@
  * lnet/selftest/rpc.c
  *
  * Author: Isaac Huang <isaac@clusterfs.com>
+ *
+ * 2011-02-13: Liang Zhen <liang@whamcloud.com>
+ * - percpu data for service to improve smp performance
+ * - code cleanup
  */
 
 #define DEBUG_SUBSYSTEM S_LNET
@@ -59,6 +63,13 @@ struct smoketest_rpc {
         srpc_counters_t   rpc_counters;
         __u64             rpc_matchbits; /* matchbits counter */
 } srpc_data;
+
+static inline int
+srpc_svc_portal(int svc_id)
+{
+        return svc_id < SRPC_FRAMEWORK_SERVICE_MAX_ID ?
+               SRPC_FRAMEWORK_REQUEST_PORTAL : SRPC_REQUEST_PORTAL;
+}
 
 /* forward ref's */
 int srpc_handle_rpc (swi_workitem_t *wi);
@@ -186,31 +197,125 @@ srpc_next_id (void)
 
 void
 srpc_init_server_rpc (srpc_server_rpc_t *rpc,
-                      srpc_service_t *sv, srpc_buffer_t *buffer)
+                      srpc_svc_cpud_t *scd, srpc_buffer_t *buffer)
 {
         memset(rpc, 0, sizeof(*rpc));
-        swi_init_workitem(&rpc->srpc_wi, rpc, srpc_handle_rpc,
-                          sv->sv_id <= SRPC_FRAMEWORK_SERVICE_MAX_ID ?
-                          CFS_WI_SCHED_SERIAL : CFS_WI_SCHED_ANY);
+        swi_init_workitem(&rpc->srpc_wi, rpc, srpc_handle_rpc, scd->scd_wid);
 
         rpc->srpc_ev.ev_fired = 1; /* no event expected now */
 
-        rpc->srpc_service  = sv;
+        rpc->srpc_scd      = scd;
         rpc->srpc_reqstbuf = buffer;
         rpc->srpc_peer     = buffer->buf_peer;
         rpc->srpc_self     = buffer->buf_self;
         LNetInvalidateHandle(&rpc->srpc_replymdh);
 }
 
+static void
+srpc_service_fini(srpc_service_t *svc)
+{
+        srpc_server_rpc_t *rpc;
+        srpc_buffer_t     *buf;
+        srpc_svc_cpud_t   *scd;
+        cfs_list_t        *q;
+        int                i;
+
+        if (svc->sv_cpuds == NULL)
+                return;
+
+        cfs_percpu_for_each(scd, i, svc->sv_cpuds) {
+                while (!cfs_list_empty(&scd->scd_buf_posted) ||
+                       !cfs_list_empty(&scd->scd_buf_blocked)) {
+                        q = !cfs_list_empty(&scd->scd_buf_posted) ?
+                            &scd->scd_buf_posted : &scd->scd_buf_blocked;
+
+                        while (!cfs_list_empty(q)) {
+                                buf = cfs_list_entry(q->next,
+                                                     srpc_buffer_t, buf_list);
+                                cfs_list_del(&buf->buf_list);
+                                LIBCFS_FREE(buf, sizeof(*buf));
+                        }
+                }
+
+                LASSERT(cfs_list_empty(&scd->scd_rpc_active));
+
+                while (!cfs_list_empty(&scd->scd_rpc_free)) {
+                        rpc = cfs_list_entry(scd->scd_rpc_free.next,
+                                             srpc_server_rpc_t, srpc_list);
+                        cfs_list_del(&rpc->srpc_list);
+                        LIBCFS_FREE(rpc, sizeof(*rpc));
+                }
+
+                if (srpc_svc_is_framework(svc))
+                        break;
+        }
+
+        cfs_percpu_free(svc->sv_cpuds);
+        svc->sv_cpuds = NULL;
+}
+
+int srpc_add_buffer(swi_workitem_t *wi);
+
+static int
+srpc_service_init(srpc_service_t *svc)
+{
+        srpc_svc_cpud_t   *scd;
+        srpc_server_rpc_t *rpc;
+        int     i;
+        int     j;
+
+        svc->sv_rpc_total = max(svc->sv_rpc_total, SRPC_SVC_RPC_MIN);
+        svc->sv_rpc_total = min(svc->sv_rpc_total, SRPC_SVC_RPC_MAX);
+
+        svc->sv_cpuds = cfs_percpu_alloc(sizeof(srpc_svc_cpud_t));
+        if (svc->sv_cpuds == NULL)
+                return -ENOMEM;
+
+        cfs_percpu_for_each(scd, i, svc->sv_cpuds) {
+                scd->scd_wid = srpc_svc_is_framework(svc) ?
+                               CFS_WI_SCHED_SERIAL : i;
+                scd->scd_svc           = svc;
+                scd->scd_buf_adjust    = 0;
+                scd->scd_buf_err       = 0;
+                scd->scd_buf_err_stamp = 0;
+
+                cfs_spin_lock_init(&scd->scd_lock);
+                CFS_INIT_LIST_HEAD(&scd->scd_rpc_free);
+                CFS_INIT_LIST_HEAD(&scd->scd_rpc_active);
+                CFS_INIT_LIST_HEAD(&scd->scd_buf_posted);
+                CFS_INIT_LIST_HEAD(&scd->scd_buf_blocked);
+
+                scd->scd_ev.ev_data = scd;
+                scd->scd_ev.ev_type = SRPC_REQUEST_RCVD;
+
+                swi_init_workitem(&scd->scd_buf_wi, scd,
+                                  srpc_add_buffer, scd->scd_wid);
+                if (i != 0 && srpc_svc_is_framework(svc))
+                        continue;
+
+                for (j = 0; j < svc->sv_rpc_total; j++) {
+                        LIBCFS_NODE_ALLOC(rpc, j, sizeof(*rpc));
+                        if (rpc == NULL) {
+                                srpc_service_fini(svc);
+                                return -ENOMEM;
+                        }
+                        cfs_list_add(&rpc->srpc_list, &scd->scd_rpc_free);
+                }
+        }
+        return 0;
+}
+
 int
 srpc_add_service (srpc_service_t *sv)
 {
-        int                id = sv->sv_id;
-        int                i;
-        srpc_server_rpc_t *rpc;
+        int id = sv->sv_id;
 
-        LASSERT (sv->sv_concur > 0);
         LASSERT (0 <= id && id <= SRPC_SERVICE_MAX_ID);
+
+        sv->sv_shuttingdown = 0;
+
+        if (srpc_service_init(sv) != 0)
+                return -ENOMEM;
 
         cfs_spin_lock(&srpc_data.rpc_glock);
 
@@ -224,41 +329,8 @@ srpc_add_service (srpc_service_t *sv)
         srpc_data.rpc_services[id] = sv;
         cfs_spin_unlock(&srpc_data.rpc_glock);
 
-        sv->sv_nprune       = 0;
-        sv->sv_nposted_msg  = 0;
-        sv->sv_shuttingdown = 0;
-        cfs_spin_lock_init(&sv->sv_lock);
-        CFS_INIT_LIST_HEAD(&sv->sv_free_rpcq);
-        CFS_INIT_LIST_HEAD(&sv->sv_active_rpcq);
-        CFS_INIT_LIST_HEAD(&sv->sv_posted_msgq);
-        CFS_INIT_LIST_HEAD(&sv->sv_blocked_msgq);
-
-        sv->sv_ev.ev_data = sv;
-        sv->sv_ev.ev_type = SRPC_REQUEST_RCVD;
-
-        for (i = 0; i < sv->sv_concur; i++) {
-                LIBCFS_ALLOC(rpc, sizeof(*rpc));
-                if (rpc == NULL) goto enomem;
-
-                cfs_list_add(&rpc->srpc_list, &sv->sv_free_rpcq);
-        }
-
-        CDEBUG (D_NET, "Adding service: id %d, name %s, concurrency %d\n",
-                id, sv->sv_name, sv->sv_concur);
+        CDEBUG(D_NET, "Adding service: id %d, name %s\n", id, sv->sv_name);
         return 0;
-
-enomem:
-        while (!cfs_list_empty(&sv->sv_free_rpcq)) {
-                rpc = cfs_list_entry(sv->sv_free_rpcq.next,
-                                     srpc_server_rpc_t, srpc_list);
-                cfs_list_del(&rpc->srpc_list);
-                LIBCFS_FREE(rpc, sizeof(*rpc));
-        }
-
-        cfs_spin_lock(&srpc_data.rpc_glock);
-        srpc_data.rpc_services[id] = NULL;
-        cfs_spin_unlock(&srpc_data.rpc_glock);
-        return -ENOMEM;
 }
 
 int
@@ -279,7 +351,7 @@ srpc_remove_service (srpc_service_t *sv)
 }
 
 int
-srpc_post_passive_rdma(int portal, __u64 matchbits, void *buf,
+srpc_post_passive_rdma(int portal, int cpu_aff, __u64 matchbits, void *buf,
                        int len, int options, lnet_process_id_t peer,
                        lnet_handle_md_t *mdh, srpc_event_t *ev)
 {
@@ -287,8 +359,8 @@ srpc_post_passive_rdma(int portal, __u64 matchbits, void *buf,
         lnet_md_t        md;
         lnet_handle_me_t meh;
 
-        rc = LNetMEAttach(portal, peer, matchbits, 0,
-                          LNET_UNLINK, LNET_INS_AFTER, &meh);
+        rc = LNetMEAttach(portal, peer, matchbits, 0, LNET_UNLINK,
+                          cpu_aff ? LNET_INS_AFTER_CPU : LNET_INS_AFTER, &meh);
         if (rc != 0) {
                 CERROR ("LNetMEAttach failed: %d\n", rc);
                 LASSERT (rc == -ENOMEM);
@@ -374,269 +446,321 @@ int
 srpc_post_active_rqtbuf(lnet_process_id_t peer, int service, void *buf,
                         int len, lnet_handle_md_t *mdh, srpc_event_t *ev)
 {
-        int rc;
-        int portal;
-
-        if (service > SRPC_FRAMEWORK_SERVICE_MAX_ID)
-                portal = SRPC_REQUEST_PORTAL;
-        else
-                portal = SRPC_FRAMEWORK_REQUEST_PORTAL;
-
-        rc = srpc_post_active_rdma(portal, service, buf, len,
-                                   LNET_MD_OP_PUT, peer,
-                                   LNET_NID_ANY, mdh, ev);
-        return rc;
+        return srpc_post_active_rdma(srpc_svc_portal(service), service,
+                                     buf, len, LNET_MD_OP_PUT, peer,
+                                     LNET_NID_ANY, mdh, ev);
 }
 
 int
-srpc_post_passive_rqtbuf(int service, void *buf, int len,
+srpc_post_passive_rqtbuf(int service, int cpu_affinity, void *buf, int len,
                          lnet_handle_md_t *mdh, srpc_event_t *ev)
 {
-        int               rc;
-        int               portal;
         lnet_process_id_t any = {0};
 
         any.nid = LNET_NID_ANY;
         any.pid = LNET_PID_ANY;
 
-        if (service > SRPC_FRAMEWORK_SERVICE_MAX_ID)
-                portal = SRPC_REQUEST_PORTAL;
-        else
-                portal = SRPC_FRAMEWORK_REQUEST_PORTAL;
-
-        rc = srpc_post_passive_rdma(portal, service, buf, len,
-                                    LNET_MD_OP_PUT, any, mdh, ev);
-        return rc;
+        return srpc_post_passive_rdma(srpc_svc_portal(service),
+                                      cpu_affinity, service, buf, len,
+                                      LNET_MD_OP_PUT, any, mdh, ev);
 }
 
 int
-srpc_service_post_buffer (srpc_service_t *sv, srpc_buffer_t *buf)
+srpc_service_post_buffer(srpc_svc_cpud_t *scd, srpc_buffer_t *buf)
 {
+        srpc_service_t *sv = scd->scd_svc;
         srpc_msg_t *msg = &buf->buf_msg;
         int         rc;
 
-        LASSERT (!sv->sv_shuttingdown);
-
         LNetInvalidateHandle(&buf->buf_mdh);
-        cfs_list_add(&buf->buf_list, &sv->sv_posted_msgq);
-        sv->sv_nposted_msg++;
-        cfs_spin_unlock(&sv->sv_lock);
+        cfs_list_add(&buf->buf_list, &scd->scd_buf_posted);
+        scd->scd_buf_nposted++;
+        cfs_spin_unlock(&scd->scd_lock);
 
-        rc = srpc_post_passive_rqtbuf(sv->sv_id, msg, sizeof(*msg),
-                                      &buf->buf_mdh, &sv->sv_ev);
+        rc = srpc_post_passive_rqtbuf(sv->sv_id, scd->scd_wid >= 0,
+                                      msg, sizeof(*msg), &buf->buf_mdh,
+                                      &scd->scd_ev);
 
         /* At this point, a RPC (new or delayed) may have arrived in
          * msg and its event handler has been called. So we must add
-         * buf to sv_posted_msgq _before_ dropping sv_lock */
+         * buf to scd_buf_posted _before_ dropping sv_lock */
 
-        cfs_spin_lock(&sv->sv_lock);
+        cfs_spin_lock(&scd->scd_lock);
 
         if (rc == 0) {
-                if (sv->sv_shuttingdown) {
-                        cfs_spin_unlock(&sv->sv_lock);
+                if (!sv->sv_shuttingdown)
+                        return 0;
 
-                        /* srpc_shutdown_service might have tried to unlink me
-                         * when my buf_mdh was still invalid */
-                        LNetMDUnlink(buf->buf_mdh);
-
-                        cfs_spin_lock(&sv->sv_lock);
-                }
+                cfs_spin_unlock(&scd->scd_lock);
+                /* srpc_shutdown_service might have tried to unlink me
+                 * when my buf_mdh was still invalid */
+                LNetMDUnlink(buf->buf_mdh);
+                cfs_spin_lock(&scd->scd_lock);
                 return 0;
         }
 
-        sv->sv_nposted_msg--;
-        if (sv->sv_shuttingdown) return rc;
+        scd->scd_buf_nposted--;
+        if (sv->sv_shuttingdown)
+                return rc; /* don't allow to change scd_buf_posted */
 
         cfs_list_del(&buf->buf_list);
 
-        cfs_spin_unlock(&sv->sv_lock);
+        cfs_spin_unlock(&scd->scd_lock);
         LIBCFS_FREE(buf, sizeof(*buf));
-        cfs_spin_lock(&sv->sv_lock);
+        cfs_spin_lock(&scd->scd_lock);
         return rc;
 }
 
 int
-srpc_service_add_buffers (srpc_service_t *sv, int nbuffer)
+srpc_add_buffer(swi_workitem_t *wi)
 {
-        int                rc;
-        int                posted;
-        srpc_buffer_t     *buf;
+        srpc_svc_cpud_t *scd = wi->swi_workitem.wi_data;
+        srpc_buffer_t   *buf;
+        int              rc;
+
+        cfs_spin_lock(&scd->scd_lock);
+
+        while (scd->scd_buf_adjust > 0 &&
+               !scd->scd_svc->sv_shuttingdown) {
+                scd->scd_buf_adjust--;
+                cfs_spin_unlock(&scd->scd_lock);
+
+                LIBCFS_ALLOC(buf, sizeof(*buf));
+                if (buf == NULL) {
+                        CERROR("Failed to add new buf to service: %s: %d\n",
+                               scd->scd_svc->sv_name, scd->scd_wid);
+                        cfs_spin_lock(&scd->scd_lock);
+                        scd->scd_buf_err_stamp = cfs_time_current_sec();
+                        scd->scd_buf_err = -ENOMEM;
+                        break;
+                }
+
+                cfs_spin_lock(&scd->scd_lock);
+                if (scd->scd_svc->sv_shuttingdown) {
+                        cfs_spin_unlock(&scd->scd_lock);
+                        LIBCFS_FREE(buf, sizeof(*buf));
+                        cfs_spin_lock(&scd->scd_lock);
+                        break;
+                }
+
+                rc = srpc_service_post_buffer(scd, buf);
+                if (rc != 0) {
+                        scd->scd_buf_err_stamp = cfs_time_current_sec();
+                        scd->scd_buf_err = rc;
+                        break; /* buf has been freed inside */
+                }
+
+                scd->scd_buf_total++;
+                scd->scd_buf_low_water = MAX(2, scd->scd_buf_total / 4);
+        }
+
+        cfs_spin_unlock(&scd->scd_lock);
+        return 0;
+}
+
+int
+srpc_service_add_buffers(srpc_service_t *sv, int nbuffer)
+{
+        srpc_svc_cpud_t   *scd;
+        int                rc = 0;
+        int                i;
 
         LASSERTF (nbuffer > 0,
                   "nbuffer must be positive: %d\n", nbuffer);
 
-        for (posted = 0; posted < nbuffer; posted++) {
-                LIBCFS_ALLOC(buf, sizeof(*buf));
-                if (buf == NULL) break;
+        cfs_percpu_for_each(scd, i, sv->sv_cpuds) {
+                cfs_spin_lock(&scd->scd_lock);
 
-                cfs_spin_lock(&sv->sv_lock);
-                rc = srpc_service_post_buffer(sv, buf);
-                cfs_spin_unlock(&sv->sv_lock);
+                scd->scd_buf_err = 0;
+                scd->scd_buf_err_stamp = 0;
+                scd->scd_buf_adjust = nbuffer;
+                swi_schedule_workitem(&scd->scd_buf_wi);
+                cfs_spin_unlock(&scd->scd_lock);
 
-                if (rc != 0) break;
+                if (srpc_svc_is_framework(sv))
+                        break; /* non-affinity service */
         }
 
-        return posted;
+        cfs_percpu_for_each(scd, i, sv->sv_cpuds) {
+                cfs_spin_lock(&scd->scd_lock);
+
+                lst_wait_until(scd->scd_buf_err != 0 ||
+                               scd->scd_buf_adjust == 0,
+                               scd->scd_lock, "waiting for adding buffer");
+
+                if (scd->scd_buf_err != 0 && rc == 0)
+                        rc = scd->scd_buf_err;
+
+                cfs_spin_unlock(&scd->scd_lock);
+
+                if (srpc_svc_is_framework(sv))
+                        break; /* non-affinity service */
+        }
+
+        return rc;
 }
 
 void
 srpc_service_remove_buffers (srpc_service_t *sv, int nbuffer)
 {
-        LASSERTF (nbuffer > 0,
-                  "nbuffer must be positive: %d\n", nbuffer);
+        srpc_svc_cpud_t   *scd;
+        int     i;
 
-        cfs_spin_lock(&sv->sv_lock);
-
-        LASSERT (sv->sv_nprune >= 0);
         LASSERT (!sv->sv_shuttingdown);
 
-        sv->sv_nprune += nbuffer;
+        cfs_percpu_for_each(scd, i, sv->sv_cpuds) {
+                cfs_spin_lock(&scd->scd_lock);
 
-        cfs_spin_unlock(&sv->sv_lock);
-        return;
+                if (nbuffer > 0)
+                        scd->scd_buf_adjust -= nbuffer;
+                else
+                        scd->scd_buf_adjust = -scd->scd_buf_total;
+
+                if (scd->scd_buf_adjust + scd->scd_buf_total < 0)
+                        scd->scd_buf_adjust = -scd->scd_buf_total;
+
+                cfs_spin_unlock(&scd->scd_lock);
+
+                if (srpc_svc_is_framework(sv))
+                        break; /* non-affinity service */
+        }
 }
 
 /* returns 1 if sv has finished, otherwise 0 */
 int
 srpc_finish_service (srpc_service_t *sv)
 {
+        srpc_svc_cpud_t   *scd;
         srpc_server_rpc_t *rpc;
-        srpc_buffer_t     *buf;
-
-        cfs_spin_lock(&sv->sv_lock);
+        int  i;
 
         LASSERT (sv->sv_shuttingdown); /* srpc_shutdown_service called */
 
-        if (sv->sv_nposted_msg != 0 || !cfs_list_empty(&sv->sv_active_rpcq)) {
-                CDEBUG (D_NET,
-                        "waiting for %d posted buffers to unlink and "
-                        "in-flight RPCs to die.\n",
-                        sv->sv_nposted_msg);
+        cfs_percpu_for_each(scd, i, sv->sv_cpuds) {
+                cfs_spin_lock(&scd->scd_lock);
+                if (!swi_cancel_workitem(&scd->scd_buf_wi))
+                        return 0;
 
-                if (!cfs_list_empty(&sv->sv_active_rpcq)) {
-                        rpc = cfs_list_entry(sv->sv_active_rpcq.next,
-                                             srpc_server_rpc_t, srpc_list);
-                        CNETERR("Active RPC %p on shutdown: sv %s, peer %s, "
-                                "wi %s scheduled %d running %d, "
-                                "ev fired %d type %d status %d lnet %d\n",
-                                rpc, sv->sv_name, libcfs_id2str(rpc->srpc_peer),
-                                swi_state2str(rpc->srpc_wi.swi_state),
-                                rpc->srpc_wi.swi_workitem.wi_scheduled,
-                                rpc->srpc_wi.swi_workitem.wi_running,
-                                rpc->srpc_ev.ev_fired,
-                                rpc->srpc_ev.ev_type,
-                                rpc->srpc_ev.ev_status,
-                                rpc->srpc_ev.ev_lnet);
+                if (scd->scd_buf_nposted > 0) {
+                        CDEBUG(D_NET, "waiting for %d posted buffers to unlink",
+                               scd->scd_buf_nposted);
+                        cfs_spin_unlock(&scd->scd_lock);
+                        return 0;
                 }
 
-                cfs_spin_unlock(&sv->sv_lock);
+                if (cfs_list_empty(&scd->scd_rpc_active)) {
+                        cfs_spin_unlock(&scd->scd_lock);
+                        continue;
+                }
+
+                rpc = cfs_list_entry(scd->scd_rpc_active.next,
+                                     srpc_server_rpc_t, srpc_list);
+                CNETERR("Active RPC %p on shutdown: sv %s, peer %s, "
+                        "wi %s scheduled %d running %d, "
+                        "ev fired %d type %d status %d lnet %d\n",
+                        rpc, sv->sv_name, libcfs_id2str(rpc->srpc_peer),
+                        swi_state2str(rpc->srpc_wi.swi_state),
+                        rpc->srpc_wi.swi_workitem.wi_scheduled,
+                        rpc->srpc_wi.swi_workitem.wi_running,
+                        rpc->srpc_ev.ev_fired, rpc->srpc_ev.ev_type,
+                        rpc->srpc_ev.ev_status, rpc->srpc_ev.ev_lnet);
+                cfs_spin_unlock(&scd->scd_lock);
                 return 0;
         }
 
-        cfs_spin_unlock(&sv->sv_lock); /* no lock needed from now on */
-
-        for (;;) {
-                cfs_list_t *q;
-
-                if (!cfs_list_empty(&sv->sv_posted_msgq))
-                        q = &sv->sv_posted_msgq;
-                else if (!cfs_list_empty(&sv->sv_blocked_msgq))
-                        q = &sv->sv_blocked_msgq;
-                else
-                        break;
-
-                buf = cfs_list_entry(q->next, srpc_buffer_t, buf_list);
-                cfs_list_del(&buf->buf_list);
-
-                LIBCFS_FREE(buf, sizeof(*buf));
-        }
-
-        while (!cfs_list_empty(&sv->sv_free_rpcq)) {
-                rpc = cfs_list_entry(sv->sv_free_rpcq.next,
-                                     srpc_server_rpc_t, srpc_list);
-                cfs_list_del(&rpc->srpc_list);
-                LIBCFS_FREE(rpc, sizeof(*rpc));
-        }
-
+        /* no lock needed from now on */
+        srpc_service_fini(sv);
         return 1;
 }
 
 /* called with sv->sv_lock held */
 void
-srpc_service_recycle_buffer (srpc_service_t *sv, srpc_buffer_t *buf)
+srpc_service_recycle_buffer(srpc_svc_cpud_t *scd, srpc_buffer_t *buf)
 {
-        if (sv->sv_shuttingdown) goto free;
-
-        if (sv->sv_nprune == 0) {
-                if (srpc_service_post_buffer(sv, buf) != 0)
-                        CWARN ("Failed to post %s buffer\n", sv->sv_name);
+        if (!scd->scd_svc->sv_shuttingdown && scd->scd_buf_adjust >= 0) {
+                if (srpc_service_post_buffer(scd, buf) != 0) {
+                        CWARN("Failed to post %s buffer\n",
+                              scd->scd_svc->sv_name);
+                }
                 return;
         }
 
-        sv->sv_nprune--;
-free:
-        cfs_spin_unlock(&sv->sv_lock);
-        LIBCFS_FREE(buf, sizeof(*buf));
-        cfs_spin_lock(&sv->sv_lock);
-}
+        /* service is shutting down, or we want to recycle some buffers */
+        LASSERT(scd->scd_buf_total > 0);
+        scd->scd_buf_total--;
 
-/* called with srpc_service_t::sv_lock held */
-inline void
-srpc_schedule_server_rpc (srpc_server_rpc_t *rpc)
-{
-        swi_schedule_workitem(&rpc->srpc_wi);
+        if (scd->scd_buf_adjust < 0) {
+                scd->scd_buf_adjust++;
+                if (scd->scd_buf_total == 0)
+                        scd->scd_buf_adjust = 0;
+        }
+
+        cfs_spin_unlock(&scd->scd_lock);
+        LIBCFS_FREE(buf, sizeof(*buf));
+        cfs_spin_lock(&scd->scd_lock);
 }
 
 void
 srpc_abort_service (srpc_service_t *sv)
 {
+        srpc_svc_cpud_t   *scd;
         srpc_server_rpc_t *rpc;
-
-        cfs_spin_lock(&sv->sv_lock);
+        int  i;
 
         CDEBUG(D_NET, "Aborting service: id %d, name %s\n",
                sv->sv_id, sv->sv_name);
 
-        /* schedule in-flight RPCs to notice the abort, NB:
-         * racing with incoming RPCs; complete fix should make test
-         * RPCs carry session ID in its headers */
-        cfs_list_for_each_entry (rpc, &sv->sv_active_rpcq, srpc_list) {
-                rpc->srpc_aborted = 1;
-                srpc_schedule_server_rpc(rpc);
-        }
+        cfs_percpu_for_each(scd, i, sv->sv_cpuds) {
+                cfs_spin_lock(&scd->scd_lock);
 
-        cfs_spin_unlock(&sv->sv_lock);
+                /* schedule in-flight RPCs to notice the abort, NB:
+                 * racing with incoming RPCs; complete fix should make test
+                 * RPCs carry session ID in its headers */
+                cfs_list_for_each_entry(rpc, &scd->scd_rpc_active, srpc_list) {
+                        rpc->srpc_aborted = 1;
+                        swi_schedule_workitem(&rpc->srpc_wi);
+                }
+
+                cfs_spin_unlock(&scd->scd_lock);
+        }
         return;
 }
 
 void
 srpc_shutdown_service (srpc_service_t *sv)
 {
+        srpc_svc_cpud_t   *scd;
         srpc_server_rpc_t *rpc;
         srpc_buffer_t     *buf;
-
-        cfs_spin_lock(&sv->sv_lock);
+        int  i;
 
         CDEBUG(D_NET, "Shutting down service: id %d, name %s\n",
                sv->sv_id, sv->sv_name);
 
+        cfs_percpu_for_each(scd, i, sv->sv_cpuds)
+                cfs_spin_lock(&scd->scd_lock);
+
         sv->sv_shuttingdown = 1; /* i.e. no new active RPC */
 
-        /* schedule in-flight RPCs to notice the shutdown */
-        cfs_list_for_each_entry_typed (rpc, &sv->sv_active_rpcq,
-                                       srpc_server_rpc_t, srpc_list) {
-                srpc_schedule_server_rpc(rpc);
+        cfs_percpu_for_each(scd, i, sv->sv_cpuds)
+                cfs_spin_unlock(&scd->scd_lock);
+
+        cfs_percpu_for_each(scd, i, sv->sv_cpuds) {
+                cfs_spin_lock(&scd->scd_lock);
+
+                /* schedule in-flight RPCs to notice the shutdown */
+                cfs_list_for_each_entry_typed(rpc, &scd->scd_rpc_active,
+                                              srpc_server_rpc_t, srpc_list)
+                        swi_schedule_workitem(&rpc->srpc_wi);
+
+                cfs_spin_unlock(&scd->scd_lock);
+
+                /* OK to traverse scd_buf_posted without lock, since no one
+                 * touches scd_buf_posted now */
+                cfs_list_for_each_entry_typed(buf, &scd->scd_buf_posted,
+                                              srpc_buffer_t, buf_list)
+                        LNetMDUnlink(buf->buf_mdh);
         }
-
-        cfs_spin_unlock(&sv->sv_lock);
-
-        /* OK to traverse sv_posted_msgq without lock, since no one
-         * touches sv_posted_msgq now */
-        cfs_list_for_each_entry_typed (buf, &sv->sv_posted_msgq,
-                                       srpc_buffer_t, buf_list)
-                LNetMDUnlink(buf->buf_mdh);
-
-        return;
 }
 
 int
@@ -672,7 +796,7 @@ srpc_prepare_reply (srpc_client_rpc_t *rpc)
 
         *id = srpc_next_id();
 
-        rc = srpc_post_passive_rdma(SRPC_RDMA_PORTAL, *id,
+        rc = srpc_post_passive_rdma(SRPC_RDMA_PORTAL, 0, *id,
                                     &rpc->crpc_replymsg, sizeof(srpc_msg_t),
                                     LNET_MD_OP_PUT, rpc->crpc_dest,
                                     &rpc->crpc_replymdh, ev);
@@ -709,7 +833,7 @@ srpc_prepare_bulk (srpc_client_rpc_t *rpc)
 
         *id = srpc_next_id();
 
-        rc = srpc_post_passive_rdma(SRPC_RDMA_PORTAL, *id,
+        rc = srpc_post_passive_rdma(SRPC_RDMA_PORTAL, 0, *id,
                                     &bk->bk_iovs[0], bk->bk_niov, opt,
                                     rpc->crpc_dest, &bk->bk_mdh, ev);
         if (rc != 0) {
@@ -754,8 +878,9 @@ srpc_do_bulk (srpc_server_rpc_t *rpc)
 void
 srpc_server_rpc_done (srpc_server_rpc_t *rpc, int status)
 {
-        srpc_service_t *sv = rpc->srpc_service;
-        srpc_buffer_t  *buffer;
+        srpc_svc_cpud_t *scd = rpc->srpc_scd;
+        srpc_service_t  *sv  = scd->scd_svc;
+        srpc_buffer_t   *buffer;
 
         LASSERT (status != 0 || rpc->srpc_wi.swi_state == SWI_STATE_DONE);
 
@@ -776,39 +901,39 @@ srpc_server_rpc_done (srpc_server_rpc_t *rpc, int status)
                 (*rpc->srpc_done) (rpc);
         LASSERT (rpc->srpc_bulk == NULL);
 
-        cfs_spin_lock(&sv->sv_lock);
+        cfs_spin_lock(&scd->scd_lock);
 
         if (rpc->srpc_reqstbuf != NULL) {
                 /* NB might drop sv_lock in srpc_service_recycle_buffer, but
-                 * sv won't go away for sv_active_rpcq must not be empty */
-                srpc_service_recycle_buffer(sv, rpc->srpc_reqstbuf);
+                 * sv won't go away for scd_rpc_active must not be empty */
+                srpc_service_recycle_buffer(scd, rpc->srpc_reqstbuf);
                 rpc->srpc_reqstbuf = NULL;
         }
 
-        cfs_list_del(&rpc->srpc_list); /* from sv->sv_active_rpcq */
+        cfs_list_del(&rpc->srpc_list); /* from scd->scd_rpc_active */
 
         /*
          * No one can schedule me now since:
-         * - I'm not on sv_active_rpcq.
+         * - I'm not on scd_rpc_active.
          * - all LNet events have been fired.
          * Cancel pending schedules and prevent future schedule attempts:
          */
         LASSERT (rpc->srpc_ev.ev_fired);
-        swi_kill_workitem(&rpc->srpc_wi);
+        swi_exit_workitem(&rpc->srpc_wi);
 
-        if (!sv->sv_shuttingdown && !cfs_list_empty(&sv->sv_blocked_msgq)) {
-                buffer = cfs_list_entry(sv->sv_blocked_msgq.next,
-                                    srpc_buffer_t, buf_list);
+        if (!sv->sv_shuttingdown && !cfs_list_empty(&scd->scd_buf_blocked)) {
+                buffer = cfs_list_entry(scd->scd_buf_blocked.next,
+                                        srpc_buffer_t, buf_list);
                 cfs_list_del(&buffer->buf_list);
 
-                srpc_init_server_rpc(rpc, sv, buffer);
-                cfs_list_add_tail(&rpc->srpc_list, &sv->sv_active_rpcq);
-                srpc_schedule_server_rpc(rpc);
+                srpc_init_server_rpc(rpc, scd, buffer);
+                cfs_list_add_tail(&rpc->srpc_list, &scd->scd_rpc_active);
+                swi_schedule_workitem(&rpc->srpc_wi);
         } else {
-                cfs_list_add(&rpc->srpc_list, &sv->sv_free_rpcq);
+                cfs_list_add(&rpc->srpc_list, &scd->scd_rpc_free);
         }
 
-        cfs_spin_unlock(&sv->sv_lock);
+        cfs_spin_unlock(&scd->scd_lock);
         return;
 }
 
@@ -817,16 +942,17 @@ int
 srpc_handle_rpc (swi_workitem_t *wi)
 {
         srpc_server_rpc_t *rpc = wi->swi_workitem.wi_data;
-        srpc_service_t    *sv = rpc->srpc_service;
+        srpc_svc_cpud_t   *scd = rpc->srpc_scd;
+        srpc_service_t    *sv = scd->scd_svc;
         srpc_event_t      *ev = &rpc->srpc_ev;
         int                rc = 0;
 
         LASSERT (wi == &rpc->srpc_wi);
 
-        cfs_spin_lock(&sv->sv_lock);
+        cfs_spin_lock(&scd->scd_lock);
 
         if (sv->sv_shuttingdown || rpc->srpc_aborted) {
-                cfs_spin_unlock(&sv->sv_lock);
+                cfs_spin_unlock(&scd->scd_lock);
 
                 if (rpc->srpc_bulk != NULL)
                         LNetMDUnlink(rpc->srpc_bulk->bk_mdh);
@@ -839,7 +965,7 @@ srpc_handle_rpc (swi_workitem_t *wi)
                 return 0;
         }
 
-        cfs_spin_unlock(&sv->sv_lock);
+        cfs_spin_unlock(&scd->scd_lock);
 
         switch (wi->swi_state) {
         default:
@@ -907,7 +1033,7 @@ srpc_handle_rpc (swi_workitem_t *wi)
         case SWI_STATE_REPLY_SUBMITTED:
                 if (!ev->ev_fired) {
                         CERROR("RPC %p: bulk %p, service %d\n",
-                               rpc, rpc->srpc_bulk, rpc->srpc_service->sv_id);
+                               rpc, rpc->srpc_bulk, sv->sv_id);
                         CERROR("Event: status %d, type %d, lnet %d\n",
                                ev->ev_status, ev->ev_type, ev->ev_lnet);
                         LASSERT (ev->ev_fired);
@@ -1017,7 +1143,7 @@ srpc_client_rpc_done (srpc_client_rpc_t *rpc, int status)
          * Cancel pending schedules and prevent future schedule attempts:
          */
         LASSERT (!srpc_event_pending(rpc));
-        swi_kill_workitem(wi);
+        swi_exit_workitem(wi);
 
         cfs_spin_unlock(&rpc->crpc_lock);
 
@@ -1205,28 +1331,28 @@ srpc_post_rpc (srpc_client_rpc_t *rpc)
 int
 srpc_send_reply (srpc_server_rpc_t *rpc)
 {
-        srpc_event_t   *ev = &rpc->srpc_ev;
-        srpc_msg_t     *msg = &rpc->srpc_replymsg;
-        srpc_buffer_t  *buffer = rpc->srpc_reqstbuf;
-        srpc_service_t *sv = rpc->srpc_service;
-        __u64           rpyid;
-        int             rc;
+        srpc_event_t    *ev = &rpc->srpc_ev;
+        srpc_msg_t      *msg = &rpc->srpc_replymsg;
+        srpc_buffer_t   *buffer = rpc->srpc_reqstbuf;
+        srpc_svc_cpud_t *scd = rpc->srpc_scd;
+        srpc_service_t  *sv = scd->scd_svc;
+        __u64            rpyid;
+        int              rc;
 
         LASSERT (buffer != NULL);
         rpyid = buffer->buf_msg.msg_body.reqst.rpyid;
 
-        cfs_spin_lock(&sv->sv_lock);
+        cfs_spin_lock(&scd->scd_lock);
 
-        if (!sv->sv_shuttingdown &&
-            sv->sv_id > SRPC_FRAMEWORK_SERVICE_MAX_ID) {
+        if (!sv->sv_shuttingdown && !srpc_svc_is_framework(sv)) {
                 /* Repost buffer before replying since test client
                  * might send me another RPC once it gets the reply */
-                if (srpc_service_post_buffer(sv, buffer) != 0)
+                if (srpc_service_post_buffer(scd, buffer) != 0)
                         CWARN ("Failed to repost %s buffer\n", sv->sv_name);
                 rpc->srpc_reqstbuf = NULL;
         }
 
-        cfs_spin_unlock(&sv->sv_lock);
+        cfs_spin_unlock(&scd->scd_lock);
 
         ev->ev_fired = 0;
         ev->ev_data  = rpc;
@@ -1253,6 +1379,7 @@ srpc_lnet_ev_handler (lnet_event_t *ev)
         srpc_client_rpc_t *crpc;
         srpc_server_rpc_t *srpc;
         srpc_buffer_t     *buffer;
+        srpc_svc_cpud_t   *scd;
         srpc_service_t    *sv;
         srpc_msg_t        *msg;
         srpc_msg_type_t    type;
@@ -1305,11 +1432,12 @@ srpc_lnet_ev_handler (lnet_event_t *ev)
                 break;
 
         case SRPC_REQUEST_RCVD:
-                sv = rpcev->ev_data;
+                scd = rpcev->ev_data;
+                sv = scd->scd_svc;
 
-                LASSERT (rpcev == &sv->sv_ev);
+                LASSERT (rpcev == &scd->scd_ev);
 
-                cfs_spin_lock(&sv->sv_lock);
+                cfs_spin_lock(&scd->scd_lock);
 
                 LASSERT (ev->unlinked);
                 LASSERT (ev->type == LNET_EVENT_PUT ||
@@ -1321,17 +1449,31 @@ srpc_lnet_ev_handler (lnet_event_t *ev)
                 buffer->buf_peer = ev->initiator;
                 buffer->buf_self = ev->target.nid;
 
-                sv->sv_nposted_msg--;
-                LASSERT (sv->sv_nposted_msg >= 0);
+                scd->scd_buf_nposted--;
+                LASSERT (scd->scd_buf_nposted >= 0);
 
                 if (sv->sv_shuttingdown) {
-                        /* Leave buffer on sv->sv_posted_msgq since
+                        /* Leave buffer on scd->scd_buf_nposted since
                          * srpc_finish_service needs to traverse it. */
-                        cfs_spin_unlock(&sv->sv_lock);
+                        cfs_spin_unlock(&scd->scd_lock);
                         break;
                 }
 
-                cfs_list_del(&buffer->buf_list); /* from sv->sv_posted_msgq */
+                if (scd->scd_buf_err_stamp != 0 &&
+                    scd->scd_buf_err_stamp < cfs_time_current_sec()) {
+                        scd->scd_buf_err_stamp = 0;
+                        scd->scd_buf_err = 0;
+                }
+
+                if (scd->scd_buf_err == 0 &&
+                    scd->scd_buf_adjust == 0 &&
+                    scd->scd_buf_nposted < scd->scd_buf_low_water) {
+                        scd->scd_buf_adjust = MAX(scd->scd_buf_total / 2,
+                                                  SRPC_SVC_RPC_MIN);
+                        swi_schedule_workitem(&scd->scd_buf_wi);
+                }
+
+                cfs_list_del(&buffer->buf_list); /* from scd->scd_buf_posted */
                 msg = &buffer->buf_msg;
                 type = srpc_service2request(sv->sv_id);
 
@@ -1352,21 +1494,21 @@ srpc_lnet_ev_handler (lnet_event_t *ev)
                         msg->msg_magic = 0;
                 }
 
-                if (!cfs_list_empty(&sv->sv_free_rpcq)) {
-                        srpc = cfs_list_entry(sv->sv_free_rpcq.next,
+                if (!cfs_list_empty(&scd->scd_rpc_free)) {
+                        srpc = cfs_list_entry(scd->scd_rpc_free.next,
                                               srpc_server_rpc_t, srpc_list);
                         cfs_list_del(&srpc->srpc_list);
 
-                        srpc_init_server_rpc(srpc, sv, buffer);
+                        srpc_init_server_rpc(srpc, scd, buffer);
                         cfs_list_add_tail(&srpc->srpc_list,
-                                          &sv->sv_active_rpcq);
-                        srpc_schedule_server_rpc(srpc);
+                                          &scd->scd_rpc_active);
+                        swi_schedule_workitem(&srpc->srpc_wi);;
                 } else {
                         cfs_list_add_tail(&buffer->buf_list,
-                                          &sv->sv_blocked_msgq);
+                                          &scd->scd_buf_blocked);
                 }
 
-                cfs_spin_unlock(&sv->sv_lock);
+                cfs_spin_unlock(&scd->scd_lock);
 
                 cfs_spin_lock(&srpc_data.rpc_glock);
                 srpc_data.rpc_counters.rpcs_rcvd++;
@@ -1394,18 +1536,18 @@ srpc_lnet_ev_handler (lnet_event_t *ev)
                 }
         case SRPC_REPLY_SENT:
                 srpc = rpcev->ev_data;
-                sv = srpc->srpc_service;
+                scd  = srpc->srpc_scd;
 
                 LASSERT (rpcev == &srpc->srpc_ev);
 
-                cfs_spin_lock(&sv->sv_lock);
+                cfs_spin_lock(&scd->scd_lock);
 
                 rpcev->ev_fired  = 1;
                 rpcev->ev_status = (ev->type == LNET_EVENT_UNLINK) ?
                                                 -EINTR : ev->status;
-                srpc_schedule_server_rpc(srpc);
+                swi_schedule_workitem(&srpc->srpc_wi);
 
-                cfs_spin_unlock(&sv->sv_lock);
+                cfs_spin_unlock(&scd->scd_lock);
                 break;
         }
 
@@ -1481,6 +1623,8 @@ srpc_startup (void)
 
         rc = LNetSetLazyPortal(SRPC_FRAMEWORK_REQUEST_PORTAL);
         LASSERT (rc == 0);
+        rc = LNetSetLazyPortal(SRPC_REQUEST_PORTAL);
+        LASSERT (rc == 0);
 
         srpc_data.rpc_state = SRPC_STATE_EQ_INIT;
 
@@ -1525,6 +1669,7 @@ srpc_shutdown (void)
 
         case SRPC_STATE_EQ_INIT:
                 rc = LNetClearLazyPortal(SRPC_FRAMEWORK_REQUEST_PORTAL);
+                rc = LNetClearLazyPortal(SRPC_REQUEST_PORTAL);
                 LASSERT (rc == 0);
                 rc = LNetEQFree(srpc_data.rpc_lnet_eq);
                 LASSERT (rc == 0); /* the EQ should have no user by now */

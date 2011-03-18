@@ -191,6 +191,13 @@ EXPORT_SYMBOL(lnet_create_reply_msg);
 EXPORT_SYMBOL(lnet_set_reply_msg_len);
 EXPORT_SYMBOL(lnet_msgtyp2str);
 EXPORT_SYMBOL(lnet_net2ni_locked);
+EXPORT_SYMBOL(lnet_net2ni);
+EXPORT_SYMBOL(lnet_ni_addref);
+EXPORT_SYMBOL(lnet_ni_decref);
+EXPORT_SYMBOL(lnet_get_counters);
+EXPORT_SYMBOL(lnet_reset_counters);
+EXPORT_SYMBOL(lnet_net_to_cpuid);
+EXPORT_SYMBOL(lnet_net_to_cpuid_locked);
 
 MODULE_AUTHOR("Peter J. Braam <braam@clusterfs.com>");
 MODULE_DESCRIPTION("Portals v3.1");

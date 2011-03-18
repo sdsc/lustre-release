@@ -445,18 +445,21 @@ static int quota_chk_acq_common(struct obd_device *obd, struct obd_export *exp,
 
                 cfs_spin_lock(&qctxt->lqc_lock);
                 if (!qctxt->lqc_import && oti) {
+                        struct ptlrpc_thread *thr;
+
                         cfs_spin_unlock(&qctxt->lqc_lock);
 
-                        LASSERT(oti && oti->oti_thread &&
-                                oti->oti_thread->t_watchdog);
+                        LASSERT(oti != NULL);
+                        thr = oti->oti_thread;
+                        LASSERT(thr != NULL && thr->t_watchdog);
 
-                        lc_watchdog_disable(oti->oti_thread->t_watchdog);
+                        lc_watchdog_disable(thr->t_watchdog);
                         CDEBUG(D_QUOTA, "sleep for quota master\n");
                         l_wait_event(qctxt->lqc_wait_for_qmaster, check_qm(qctxt),
                                      &lwi);
                         CDEBUG(D_QUOTA, "wake up when quota master is back\n");
-                        lc_watchdog_touch(oti->oti_thread->t_watchdog,
-                                 CFS_GET_TIMEOUT(oti->oti_thread->t_svc));
+                        lc_watchdog_touch(thr->t_watchdog,
+                                    ptlrpc_svcd_get_timeout(thr->t_svcd));
                 } else {
                         cfs_spin_unlock(&qctxt->lqc_lock);
                 }
@@ -495,12 +498,15 @@ static int quota_chk_acq_common(struct obd_device *obd, struct obd_export *exp,
 
                 /* -EBUSY and others, wait a second and try again */
                 if (rc < 0) {
-                        cfs_waitq_t        waitq;
-                        struct l_wait_info lwi;
+                        struct ptlrpc_thread *thr;
+                        cfs_waitq_t           waitq;
+                        struct l_wait_info    lwi;
 
-                        if (oti && oti->oti_thread && oti->oti_thread->t_watchdog)
-                                lc_watchdog_touch(oti->oti_thread->t_watchdog,
-                                       CFS_GET_TIMEOUT(oti->oti_thread->t_svc));
+                        if (oti && (thr = oti->oti_thread) != NULL &&
+                            thr->t_watchdog != NULL) {
+                                lc_watchdog_touch(thr->t_watchdog,
+                                   ptlrpc_svcd_get_timeout(thr->t_svcd));
+                        }
                         CDEBUG(D_QUOTA, "rc: %d, count_err: %d\n", rc,
                                count_err++);
 
