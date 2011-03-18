@@ -288,6 +288,7 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
         const char              *xattr_name;
         int                      xattr_len = 0;
         __u64                    lockpart;
+        int                      lockmode;
         int                      rc;
         posix_acl_xattr_header  *new_xattr = NULL;
         __u32                    remote = exp_connect_rmtclient(info->mti_exp);
@@ -344,11 +345,16 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
         }
 
         lockpart = MDS_INODELOCK_UPDATE;
-        if (!strcmp(xattr_name, XATTR_NAME_ACL_ACCESS))
+        if (!strcmp(xattr_name, XATTR_NAME_ACL_ACCESS)) {
+                /* acl has send to client as part lock with LCK_CR mode */
                 lockpart |= MDS_INODELOCK_LOOKUP;
+                lockmode = LCK_EX;
+        } else {
+                lockmode = LCK_PW;
+        }
 
         lh = &info->mti_lh[MDT_LH_PARENT];
-        mdt_lock_reg_init(lh, LCK_PW);
+        mdt_lock_reg_init(lh, lockmode);
         obj = mdt_object_find_lock(info, rr->rr_fid1, lh, lockpart);
         if (IS_ERR(obj))
                 GOTO(out, rc =  PTR_ERR(obj));
