@@ -49,13 +49,14 @@
 
 static char debug_file_name[1024];
 
-unsigned int libcfs_subsystem_debug = ~0;
+unsigned int libcfs_subsystem_debug __cfs_read_mostly = ~0;
 CFS_MODULE_PARM(libcfs_subsystem_debug, "i", int, 0644,
                 "Lustre kernel debug subsystem mask");
 EXPORT_SYMBOL(libcfs_subsystem_debug);
 
-unsigned int libcfs_debug = (D_EMERG | D_ERROR | D_WARNING | D_CONSOLE |
-                             D_NETERROR | D_HA | D_CONFIG | D_IOCTL);
+unsigned int libcfs_debug __cfs_read_mostly =
+                         (D_EMERG | D_ERROR | D_WARNING | D_CONSOLE |
+                          D_NETERROR | D_HA | D_CONFIG | D_IOCTL);
 CFS_MODULE_PARM(libcfs_debug, "i", int, 0644,
                 "Lustre kernel debug mask");
 EXPORT_SYMBOL(libcfs_debug);
@@ -65,7 +66,7 @@ CFS_MODULE_PARM(libcfs_debug_mb, "i", uint, 0644,
                 "Total debug buffer size.");
 EXPORT_SYMBOL(libcfs_debug_mb);
 
-unsigned int libcfs_printk = D_CANTMASK;
+unsigned int libcfs_printk __cfs_read_mostly = D_CANTMASK;
 CFS_MODULE_PARM(libcfs_printk, "i", uint, 0644,
                 "Lustre kernel debug console mask");
 EXPORT_SYMBOL(libcfs_printk);

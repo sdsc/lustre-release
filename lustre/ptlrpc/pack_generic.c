@@ -266,34 +266,34 @@ do {                                            \
 # define PTLRPC_RS_DEBUG_LRU_DEL(rs) do {} while(0)
 #endif
 
-struct ptlrpc_reply_state *lustre_get_emerg_rs(struct ptlrpc_service *svc)
+struct ptlrpc_reply_state *lustre_get_emerg_rs(struct ptlrpc_svc_cpud *svcd)
 {
         struct ptlrpc_reply_state *rs = NULL;
 
-        cfs_spin_lock(&svc->srv_rs_lock);
+        cfs_spin_lock(&svcd->scd_rs_lock);
         /* See if we have anything in a pool, and wait if nothing */
-        while (cfs_list_empty(&svc->srv_free_rs_list)) {
+        while (cfs_list_empty(&svcd->scd_rs_idle)) {
                 struct l_wait_info lwi;
                 int rc;
-                cfs_spin_unlock(&svc->srv_rs_lock);
+                cfs_spin_unlock(&svcd->scd_rs_lock);
                 /* If we cannot get anything for some long time, we better
                    bail out instead of waiting infinitely */
                 lwi = LWI_TIMEOUT(cfs_time_seconds(10), NULL, NULL);
-                rc = l_wait_event(svc->srv_free_rs_waitq,
-                                  !cfs_list_empty(&svc->srv_free_rs_list),
+                rc = l_wait_event(svcd->scd_rs_waitq,
+                                  !cfs_list_empty(&svcd->scd_rs_idle),
                                   &lwi);
                 if (rc)
                         goto out;
-                cfs_spin_lock(&svc->srv_rs_lock);
+                cfs_spin_lock(&svcd->scd_rs_lock);
         }
 
-        rs = cfs_list_entry(svc->srv_free_rs_list.next,
+        rs = cfs_list_entry(svcd->scd_rs_idle.next,
                             struct ptlrpc_reply_state, rs_list);
         cfs_list_del(&rs->rs_list);
-        cfs_spin_unlock(&svc->srv_rs_lock);
+        cfs_spin_unlock(&svcd->scd_rs_lock);
         LASSERT(rs);
-        memset(rs, 0, svc->srv_max_reply_size);
-        rs->rs_service = svc;
+        memset(rs, 0, svcd->scd_service->srv_rep_max_size);
+        rs->rs_svcd = svcd;
         rs->rs_prealloc = 1;
 out:
         return rs;
@@ -301,14 +301,14 @@ out:
 
 void lustre_put_emerg_rs(struct ptlrpc_reply_state *rs)
 {
-        struct ptlrpc_service *svc = rs->rs_service;
+        struct ptlrpc_svc_cpud *svcd = rs->rs_svcd;
 
-        LASSERT(svc);
+        LASSERT(svcd != NULL);
 
-        cfs_spin_lock(&svc->srv_rs_lock);
-        cfs_list_add(&rs->rs_list, &svc->srv_free_rs_list);
-        cfs_spin_unlock(&svc->srv_rs_lock);
-        cfs_waitq_signal(&svc->srv_free_rs_waitq);
+        cfs_spin_lock(&svcd->scd_rs_lock);
+        cfs_list_add(&rs->rs_list, &svcd->scd_rs_idle);
+        cfs_spin_unlock(&svcd->scd_rs_lock);
+        cfs_waitq_signal(&svcd->scd_rs_waitq);
 }
 
 int lustre_pack_reply_v2(struct ptlrpc_request *req, int count,
@@ -335,7 +335,7 @@ int lustre_pack_reply_v2(struct ptlrpc_request *req, int count,
         cfs_atomic_set(&rs->rs_refcount, 1);    /* 1 ref for rq_reply_state */
         rs->rs_cb_id.cbid_fn = reply_out_callback;
         rs->rs_cb_id.cbid_arg = rs;
-        rs->rs_service = req->rq_rqbd->rqbd_service;
+        rs->rs_svcd = req->rq_svcd;
         CFS_INIT_LIST_HEAD(&rs->rs_exp_list);
         CFS_INIT_LIST_HEAD(&rs->rs_obd_list);
         CFS_INIT_LIST_HEAD(&rs->rs_list);

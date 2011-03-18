@@ -73,7 +73,7 @@ void cfs_waitq_signal(cfs_waitq_t *waitq);
 void cfs_waitq_signal_nr(cfs_waitq_t *waitq, int nr);
 void cfs_waitq_broadcast(cfs_waitq_t *waitq);
 void cfs_waitq_wait(cfs_waitlink_t *link, cfs_task_state_t state);
-int64_t cfs_waitq_timedwait(cfs_waitlink_t *link, cfs_task_state_t state, 
+int64_t cfs_waitq_timedwait(cfs_waitlink_t *link, cfs_task_state_t state,
 			    int64_t timeout);
 
 /*

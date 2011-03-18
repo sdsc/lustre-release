@@ -173,7 +173,14 @@ struct lu_device_operations {
  * server this is not used, as server objects are full identified by fid. On
  * client configuration contains struct lustre_md.
  */
+typedef enum {
+        LU_OC_MD        = 1,
+        LU_OC_DT,
+        LU_OC_CL,
+} lu_oc_type_t;
+
 struct lu_object_conf {
+        lu_oc_type_t    loc_type;
 };
 
 /**
@@ -960,6 +967,10 @@ struct lu_context {
          * Debugging cookie.
          */
         unsigned               lc_cookie;
+        /**
+         * key guard id
+         */
+        int                    lc_guard_id;
 };
 
 /**
@@ -1082,9 +1093,9 @@ struct lu_context_key {
         int      lct_index;
         /**
          * Internal implementation detail: number of values created for this
-         * key.
+         * key, it's per-cpu refcount
          */
-        cfs_atomic_t lct_used;
+        cfs_atomic_t **lct_refs;
         /**
          * Internal implementation detail: module for this key.
          */

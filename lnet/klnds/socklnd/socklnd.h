@@ -74,6 +74,7 @@ typedef struct                                  /* per scheduler state */
         cfs_list_t        kss_zombie_noop_txs;  /* zombie noop tx list */
         cfs_waitq_t       kss_waitq;            /* where scheduler sleeps */
         int               kss_nconns;           /* # connections assigned to this scheduler */
+        int               kss_cpuid;
 #if !SOCKNAL_SINGLE_FRAG_RX
         struct page      *kss_rx_scratch_pgs[LNET_MAX_IOV];
 #endif
@@ -84,9 +85,7 @@ typedef struct                                  /* per scheduler state */
 
 typedef struct
 {
-        unsigned int      ksni_valid:1;         /* been set yet? */
-        unsigned int      ksni_bound:1;         /* bound to a cpu yet? */
-        unsigned int      ksni_sched:6;         /* which scheduler (assumes < 64) */
+        unsigned int      ksni_bound;           /* bound to a cpu yet? */
 } ksock_irqinfo_t;
 
 typedef struct                                  /* in-use interface */
@@ -161,8 +160,8 @@ typedef struct
 
         int               ksnd_nthreads;       /* # live threads */
         int               ksnd_shuttingdown;   /* tell threads to exit */
-        int               ksnd_nschedulers;    /* # schedulers */
-        ksock_sched_t    *ksnd_schedulers;     /* their state */
+        int               ksnd_sched_wt;       /* # schedulers */
+        ksock_sched_t   **ksnd_schedulers;     /* their state */
 
         cfs_atomic_t      ksnd_nactive_txs;    /* #active txs */
 
@@ -577,7 +576,7 @@ extern void ksocknal_lib_save_callback(cfs_socket_t *sock, ksock_conn_t *conn);
 extern void ksocknal_lib_set_callback(cfs_socket_t *sock,  ksock_conn_t *conn);
 extern void ksocknal_lib_reset_callback(cfs_socket_t *sock, ksock_conn_t *conn);
 extern void ksocknal_lib_push_conn (ksock_conn_t *conn);
-extern void ksocknal_lib_bind_irq (unsigned int irq);
+extern void ksocknal_lib_bind_irq (unsigned int irq, ksock_sched_t *kss);
 extern int ksocknal_lib_get_conn_addrs (ksock_conn_t *conn);
 extern unsigned int ksocknal_lib_sock_irq (cfs_socket_t *sock);
 extern int ksocknal_lib_setup_sock (cfs_socket_t *so);
@@ -597,4 +596,3 @@ extern void ksocknal_lib_tunables_fini(void);
 extern void ksocknal_lib_csum_tx(ksock_tx_t *tx);
 
 extern int ksocknal_lib_memory_pressure(ksock_conn_t *conn);
-extern int ksocknal_lib_bind_thread_to_cpu(int id);

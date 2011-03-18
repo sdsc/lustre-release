@@ -555,7 +555,7 @@ static int mdd_path(const struct lu_env *env, struct md_object *obj,
 
 int mdd_get_flags(const struct lu_env *env, struct mdd_object *obj)
 {
-        struct lu_attr *la = &mdd_env_info(env)->mti_la;
+        struct lu_attr *la = &mdd_env_info(env)->mti_la_tmp;
         int rc;
 
         ENTRY;
@@ -873,31 +873,6 @@ int mdd_object_create_internal(const struct lu_env *env, struct mdd_object *p,
         RETURN(rc);
 }
 
-/**
- * Make sure the ctime is increased only.
- */
-static inline int mdd_attr_check(const struct lu_env *env,
-                                 struct mdd_object *obj,
-                                 struct lu_attr *attr)
-{
-        struct lu_attr *tmp_la = &mdd_env_info(env)->mti_la;
-        int rc;
-        ENTRY;
-
-        if (attr->la_valid & LA_CTIME) {
-                rc = mdd_la_get(env, obj, tmp_la, BYPASS_CAPA);
-                if (rc)
-                        RETURN(rc);
-
-                if (attr->la_ctime < tmp_la->la_ctime)
-                        attr->la_valid &= ~(LA_MTIME | LA_CTIME);
-                else if (attr->la_valid == LA_CTIME &&
-                         attr->la_ctime == tmp_la->la_ctime)
-                        attr->la_valid &= ~LA_CTIME;
-        }
-        RETURN(0);
-}
-
 int mdd_attr_set_internal(const struct lu_env *env,
                           struct mdd_object *obj,
                           struct lu_attr *attr,
@@ -915,21 +890,35 @@ int mdd_attr_set_internal(const struct lu_env *env,
         RETURN(rc);
 }
 
-int mdd_attr_check_set_internal(const struct lu_env *env,
-                                struct mdd_object *obj,
-                                struct lu_attr *attr,
-                                struct thandle *handle,
-                                int needacl)
+int mdd_cmtime_check_set_internal(const struct lu_env *env,
+                                  struct mdd_object *obj,
+                                  struct lu_attr *la_org,
+                                  struct lu_attr *la, struct thandle *handle)
 {
         int rc;
         ENTRY;
 
-        rc = mdd_attr_check(env, obj, attr);
-        if (rc)
-                RETURN(rc);
+        LASSERT(la->la_valid & LA_CTIME);
 
-        if (attr->la_valid)
-                rc = mdd_attr_set_internal(env, obj, attr, handle, needacl);
+        if (la_org == NULL) {
+                la_org = &mdd_env_info(env)->mti_la_tmp;
+                rc = mdd_la_get(env, obj, la_org, BYPASS_CAPA);
+                if (rc)
+                        RETURN(rc);
+        }
+
+        /* Make sure the ctime is increased only, however, it's not strickly
+         * reliable at here because there is not guarantee to hold lock on
+         * object, so we just bypass some unnecessary cmtime setting first
+         * and OSD has to check it again. */
+        if (la->la_ctime < la_org->la_ctime)
+                la->la_valid &= ~(LA_MTIME | LA_CTIME);
+        else if (la->la_valid == LA_CTIME &&
+                 la->la_ctime == la_org->la_ctime)
+                la->la_valid &= ~LA_CTIME;
+
+        if (la->la_valid != 0)
+                rc = mdd_attr_set_internal(env, obj, la, handle, 0);
         RETURN(rc);
 }
 
@@ -946,24 +935,6 @@ static int mdd_attr_set_internal_locked(const struct lu_env *env,
         if (needacl)
                 mdd_write_lock(env, obj, MOR_TGT_CHILD);
         rc = mdd_attr_set_internal(env, obj, attr, handle, needacl);
-        if (needacl)
-                mdd_write_unlock(env, obj);
-        RETURN(rc);
-}
-
-int mdd_attr_check_set_internal_locked(const struct lu_env *env,
-                                       struct mdd_object *obj,
-                                       struct lu_attr *attr,
-                                       struct thandle *handle,
-                                       int needacl)
-{
-        int rc;
-        ENTRY;
-
-        needacl = needacl && (attr->la_valid & LA_MODE);
-        if (needacl)
-                mdd_write_lock(env, obj, MOR_TGT_CHILD);
-        rc = mdd_attr_check_set_internal(env, obj, attr, handle, needacl);
         if (needacl)
                 mdd_write_unlock(env, obj);
         RETURN(rc);
@@ -995,7 +966,7 @@ int __mdd_xattr_set(const struct lu_env *env, struct mdd_object *obj,
 static int mdd_fix_attr(const struct lu_env *env, struct mdd_object *obj,
                         struct lu_attr *la, const struct md_attr *ma)
 {
-        struct lu_attr   *tmp_la     = &mdd_env_info(env)->mti_la;
+        struct lu_attr   *tmp_la     = &mdd_env_info(env)->mti_la_tmp;
         struct md_ucred  *uc;
         int               rc;
         ENTRY;
@@ -1026,7 +997,7 @@ static int mdd_fix_attr(const struct lu_env *env, struct mdd_object *obj,
                 if (!(ma->ma_attr_flags & MDS_PERM_BYPASS))
                         /* This is only for set ctime when rename's source is
                          * on remote MDS. */
-                        rc = mdd_may_delete(env, NULL, obj,
+                        rc = mdd_may_delete(env, NULL, NULL, obj,
                                             (struct md_attr *)ma, 1, 0);
                 if (rc == 0 && la->la_ctime <= tmp_la->la_ctime)
                         la->la_valid &= ~LA_CTIME;
@@ -1448,7 +1419,7 @@ static int mdd_attr_set(const struct lu_env *env, struct md_object *obj,
 #ifdef HAVE_QUOTA_SUPPORT
         if (mds->mds_quota && la_copy->la_valid & (LA_UID | LA_GID)) {
                 struct obd_export *exp = md_quota(env)->mq_exp;
-                struct lu_attr *la_tmp = &mdd_env_info(env)->mti_la;
+                struct lu_attr *la_tmp = &mdd_env_info(env)->mti_la_tmp;
 
                 rc = mdd_la_get(env, mdd_obj, la_tmp, BYPASS_CAPA);
                 if (!rc) {
@@ -1559,7 +1530,7 @@ int mdd_xattr_set_txn(const struct lu_env *env, struct mdd_object *obj,
 static int mdd_xattr_sanity_check(const struct lu_env *env,
                                   struct mdd_object *obj)
 {
-        struct lu_attr  *tmp_la = &mdd_env_info(env)->mti_la;
+        struct lu_attr  *tmp_la = &mdd_env_info(env)->mti_la_tmp;
         struct md_ucred *uc     = md_ucred(env);
         int rc;
         ENTRY;
@@ -1690,7 +1661,7 @@ static int mdd_ref_del(const struct lu_env *env, struct md_object *obj,
 
         mdd_write_lock(env, mdd_obj, MOR_TGT_CHILD);
 
-        rc = mdd_unlink_sanity_check(env, NULL, mdd_obj, ma);
+        rc = mdd_unlink_sanity_check(env, NULL, NULL, mdd_obj, ma);
         if (rc)
                 GOTO(cleanup, rc);
 
@@ -1705,7 +1676,7 @@ static int mdd_ref_del(const struct lu_env *env, struct md_object *obj,
         la_copy->la_ctime = ma->ma_attr.la_ctime;
 
         la_copy->la_valid = LA_CTIME;
-        rc = mdd_attr_check_set_internal(env, mdd_obj, la_copy, handle, 0);
+        rc = mdd_cmtime_check_set_internal(env, mdd_obj, NULL, la_copy, handle);
         if (rc)
                 GOTO(cleanup, rc);
 
@@ -1898,7 +1869,7 @@ static int mdd_ref_add(const struct lu_env *env, struct md_object *obj,
                 RETURN(-ENOMEM);
 
         mdd_write_lock(env, mdd_obj, MOR_TGT_CHILD);
-        rc = mdd_link_sanity_check(env, NULL, NULL, mdd_obj);
+        rc = mdd_link_sanity_check(env, NULL, NULL, NULL, mdd_obj);
         if (rc == 0)
                 __mdd_ref_add(env, mdd_obj, handle);
         mdd_write_unlock(env, mdd_obj);
@@ -1907,8 +1878,8 @@ static int mdd_ref_add(const struct lu_env *env, struct md_object *obj,
                 la_copy->la_ctime = ma->ma_attr.la_ctime;
 
                 la_copy->la_valid = LA_CTIME;
-                rc = mdd_attr_check_set_internal_locked(env, mdd_obj, la_copy,
-                                                        handle, 0);
+                rc = mdd_cmtime_check_set_internal(env, mdd_obj, NULL,
+                                                   la_copy, handle);
         }
         mdd_trans_stop(env, mdd, 0, handle);
 
@@ -1947,7 +1918,7 @@ int accmode(const struct lu_env *env, struct lu_attr *la, int flags)
 static int mdd_open_sanity_check(const struct lu_env *env,
                                  struct mdd_object *obj, int flag)
 {
-        struct lu_attr *tmp_la = &mdd_env_info(env)->mti_la;
+        struct lu_attr *tmp_la = &mdd_env_info(env)->mti_la_tmp;
         int mode, rc;
         ENTRY;
 

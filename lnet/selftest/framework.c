@@ -57,10 +57,16 @@ static int rpc_timeout = 64;
 CFS_MODULE_PARM(rpc_timeout, "i", int, 0644,
                 "rpc timeout in seconds (64 by default, 0 == never)");
 
-#define SFW_TEST_CONCURRENCY     1792
-#define SFW_EXTRA_TEST_BUFFERS   8 /* tolerate buggy peers with extra buffers */
+#define SFW_TEST_RPC_MIN        SRPC_SVC_RPC_MIN
+#define SFW_TEST_RPC_MAX        1024
 
-#define sfw_test_buffers(tsi)    ((tsi)->tsi_loop + SFW_EXTRA_TEST_BUFFERS)
+static inline int
+sfw_test_buffers(sfw_test_instance_t *tsi)
+{
+        int nbuf = min(tsi->tsi_loop, SFW_TEST_RPC_MAX);
+
+        return max(nbuf, SFW_TEST_RPC_MIN);
+}
 
 #define sfw_unpack_id(id)               \
 do {                                    \
@@ -312,7 +318,7 @@ sfw_init_session (sfw_session_t *sn, lst_sid_t sid, const char *name)
 void
 sfw_server_rpc_done (srpc_server_rpc_t *rpc)
 {
-        srpc_service_t *sv = rpc->srpc_service;
+        srpc_service_t *sv = rpc->srpc_scd->scd_svc;
         int             status = rpc->srpc_status;
 
         CDEBUG (D_NET,
@@ -416,10 +422,7 @@ sfw_get_stats (srpc_stat_reqst_t *request, srpc_stat_reply_t *reply)
                 return 0;
         }
 
-        LNET_LOCK();
-        reply->str_lnet = the_lnet.ln_counters;
-        LNET_UNLOCK();
-
+        lnet_get_counters(&reply->str_lnet);
         srpc_get_counters(&reply->str_rpc);
 
         cnt->brw_errors      = cfs_atomic_read(&sn->sn_brw_errors);
@@ -558,8 +561,9 @@ int
 sfw_load_test (sfw_test_instance_t *tsi)
 {
         sfw_test_case_t *tsc = sfw_find_test_case(tsi->tsi_service);
-        int              nrequired = sfw_test_buffers(tsi);
-        int              nposted;
+        srpc_service_t  *svc = tsc->tsc_srv_service;
+        int              nbuf = sfw_test_buffers(tsi);
+        int              rc;
 
         LASSERT (tsc != NULL);
 
@@ -568,17 +572,20 @@ sfw_load_test (sfw_test_instance_t *tsi)
                 return 0;
         }
 
-        nposted = srpc_service_add_buffers(tsc->tsc_srv_service, nrequired);
-        if (nposted != nrequired) {
+        rc = srpc_service_add_buffers(svc, nbuf);
+        if (rc != 0) {
                 CWARN ("Failed to reserve enough buffers: "
-                       "service %s, %d needed, %d reserved\n",
-                       tsc->tsc_srv_service->sv_name, nrequired, nposted);
-                srpc_service_remove_buffers(tsc->tsc_srv_service, nposted);
+                       "service %s, %d needed: %d\n",
+                       svc->sv_name, nbuf, rc);
+                /* NB: this error handler is not strictly correct, because
+                 * it may release more buffers than already allocated */
+                srpc_service_remove_buffers(svc, nbuf);
                 return -ENOMEM;
         }
 
         CDEBUG (D_NET, "Reserved %d buffers for test %s\n",
-                nposted, tsc->tsc_srv_service->sv_name);
+                nbuf * (srpc_svc_is_framework(svc) ? 1 : cfs_cpu_node_num()),
+                svc->sv_name);
         return 0;
 }
 
@@ -589,9 +596,13 @@ sfw_unload_test (sfw_test_instance_t *tsi)
 
         LASSERT (tsc != NULL);
 
-        if (!tsi->tsi_is_client)
+        if (!tsi->tsi_is_client) {
+                /* shrink buffers, because request portal is lazy portal
+                 * which can grow buffers at runtime so we may leave
+                 * some buffers behind, but never mind... */
                 srpc_service_remove_buffers(tsc->tsc_srv_service,
                                             sfw_test_buffers(tsi));
+        }
         return;
 }
 
@@ -901,18 +912,20 @@ sfw_create_test_rpc (sfw_test_unit_t *tsu, lnet_process_id_t peer,
                                      srpc_client_rpc_t, crpc_list);
                 LASSERT (nblk == rpc->crpc_bulk.bk_niov);
                 cfs_list_del_init(&rpc->crpc_list);
+        }
 
+        cfs_spin_unlock(&tsi->tsi_lock);
+
+        if (rpc == NULL) {
+                rpc = srpc_create_client_rpc(peer, tsi->tsi_service, nblk,
+                                             blklen, sfw_test_rpc_done, 
+                                             sfw_test_rpc_fini, tsu);
+        } else {
                 srpc_init_client_rpc(rpc, peer, tsi->tsi_service, nblk,
                                      blklen, sfw_test_rpc_done,
                                      sfw_test_rpc_fini, tsu);
         }
 
-        cfs_spin_unlock(&tsi->tsi_lock);
-        
-        if (rpc == NULL)
-                rpc = srpc_create_client_rpc(peer, tsi->tsi_service, nblk,
-                                             blklen, sfw_test_rpc_done, 
-                                             sfw_test_rpc_fini, tsu);
         if (rpc == NULL) {
                 CERROR ("Can't create rpc for test %d\n", tsi->tsi_service);
                 return -ENOMEM;
@@ -967,7 +980,7 @@ test_done:
          * - my batch is still active; no one can run it again now.
          * Cancel pending schedules and prevent future schedule attempts:
          */
-        swi_kill_workitem(wi);
+        swi_exit_workitem(wi);
         sfw_test_unit_done(tsu);
         return 1;
 }
@@ -1001,7 +1014,7 @@ sfw_run_batch (sfw_batch_t *tsb)
                         tsu->tsu_loop = tsi->tsi_loop;
                         wi = &tsu->tsu_worker;
                         swi_init_workitem(wi, tsu, sfw_run_test,
-                                          CFS_WI_SCHED_ANY);
+                                          lnet_nid_to_cpuid(tsu->tsu_dest.nid));
                         swi_schedule_workitem(wi);
                 }
         }
@@ -1130,7 +1143,7 @@ sfw_add_test (srpc_server_rpc_t *rpc)
         bat = sfw_bid2batch(request->tsr_bid);
         if (bat == NULL) {
                 CERROR ("Dropping RPC (%s) from %s under memory pressure.\n",
-                        rpc->srpc_service->sv_name,
+                        rpc->srpc_scd->scd_svc->sv_name,
                         libcfs_id2str(rpc->srpc_peer));
                 return -ENOMEM;
         }
@@ -1201,7 +1214,7 @@ sfw_control_batch (srpc_batch_reqst_t *request, srpc_batch_reply_t *reply)
 int
 sfw_handle_server_rpc (srpc_server_rpc_t *rpc)
 {
-        srpc_service_t *sv = rpc->srpc_service;
+        srpc_service_t *sv = rpc->srpc_scd->scd_svc;
         srpc_msg_t     *reply = &rpc->srpc_replymsg;
         srpc_msg_t     *request = &rpc->srpc_reqstbuf->buf_msg;
         int             rc = 0;
@@ -1282,7 +1295,7 @@ sfw_handle_server_rpc (srpc_server_rpc_t *rpc)
 int
 sfw_bulk_ready (srpc_server_rpc_t *rpc, int status)
 {
-        srpc_service_t *sv = rpc->srpc_service;
+        srpc_service_t *sv = rpc->srpc_scd->scd_svc;
         int             rc;
 
         LASSERT (rpc->srpc_bulk != NULL);
@@ -1653,7 +1666,7 @@ sfw_startup (void)
         cfs_list_for_each_entry_typed (tsc, &sfw_data.fw_tests,
                                        sfw_test_case_t, tsc_list) {
                 sv = tsc->tsc_srv_service;
-                sv->sv_concur = SFW_TEST_CONCURRENCY;
+                sv->sv_rpc_total = SFW_TEST_RPC_MAX;
 
                 rc = srpc_add_service(sv);
                 LASSERT (rc != -EBUSY);
@@ -1670,7 +1683,7 @@ sfw_startup (void)
 
                 sv->sv_bulk_ready = NULL;
                 sv->sv_handler    = sfw_handle_server_rpc;
-                sv->sv_concur     = SFW_SERVICE_CONCURRENCY;
+                sv->sv_rpc_total  = SFW_SVC_RPC_MAX;
                 if (sv->sv_id == SRPC_SERVICE_TEST)
                         sv->sv_bulk_ready = sfw_bulk_ready;
 
@@ -1685,11 +1698,11 @@ sfw_startup (void)
                 /* about to sfw_shutdown, no need to add buffer */
                 if (error) continue;
 
-                rc = srpc_service_add_buffers(sv, SFW_POST_BUFFERS);
-                if (rc != SFW_POST_BUFFERS) {
+                rc = srpc_service_add_buffers(sv, SFW_SVC_BUF_MAX);
+                if (rc != 0) {
                         CWARN ("Failed to reserve enough buffers: "
-                               "service %s, %d needed, %d reserved\n",
-                               sv->sv_name, SFW_POST_BUFFERS, rc);
+                               "service %s, %d needed: %d\n",
+                               sv->sv_name, SFW_SVC_BUF_MAX, rc);
                         error = -ENOMEM;
                 }
         }

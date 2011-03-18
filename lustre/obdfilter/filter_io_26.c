@@ -274,13 +274,20 @@ void filter_free_iobuf(struct filter_iobuf *iobuf)
 void filter_iobuf_put(struct filter_obd *filter, struct filter_iobuf *iobuf,
                       struct obd_trans_info *oti)
 {
+        struct ptlrpc_svc_cpud *svcd;
         int thread_id = (oti && oti->oti_thread) ?
                         oti->oti_thread->t_id : -1;
+        int cpuid;
 
         if (unlikely(thread_id < 0)) {
                 filter_free_iobuf(iobuf);
                 return;
         }
+
+        svcd = oti->oti_thread->t_svcd;
+
+        cpuid = max(svcd->scd_cpuid, 0);
+        thread_id += cpuid * OSS_CPU_THREADS_MAX(PTLRPC_THREADS_MAX);
 
         LASSERTF(filter->fo_iobuf_pool[thread_id] == iobuf,
                  "iobuf mismatch for thread %d: pool %p iobuf %p\n",

@@ -42,9 +42,23 @@
 
 #include <lnet/lib-lnet.h>
 
-/* must be called with LNET_LOCK held */
+/* must be called with LNET_OBJ_LOCK held */
 void
-lnet_md_unlink(lnet_libmd_t *md)
+lnet_build_unlink_event (lnet_libmd_t *md, lnet_event_t *ev)
+{
+        memset(ev, 0, sizeof(*ev));
+
+        ev->status   = 0;
+        ev->unlinked = 1;
+        ev->type     = LNET_EVENT_UNLINK;
+        ev->md.threshold = md->md_threshold;
+        lnet_md_deconstruct(md, &ev->md);
+        lnet_md2handle(&ev->md_handle, md);
+}
+
+/* must be called with LNET_OBJ_LOCK held */
+void
+lnet_md_unlink(lnet_obj_cpud_t *objcd, lnet_libmd_t *md)
 {
         if ((md->md_flags & LNET_MD_FLAG_ZOMBIE) == 0) {
                 /* first unlink attempt... */
@@ -52,13 +66,13 @@ lnet_md_unlink(lnet_libmd_t *md)
 
                 md->md_flags |= LNET_MD_FLAG_ZOMBIE;
 
-                /* Disassociate from ME (if any), and unlink it if it was created
-                 * with LNET_UNLINK */
+                /* Disassociate from ME (if any), and unlink it if
+                 * it was created with LNET_UNLINK */
                 if (me != NULL) {
                         md->md_me = NULL;
                         me->me_md = NULL;
                         if (me->me_unlink == LNET_UNLINK)
-                                lnet_me_unlink(me);
+                                lnet_me_unlink(objcd, me);
                 }
 
                 /* ensure all future handle lookups fail */
@@ -73,54 +87,32 @@ lnet_md_unlink(lnet_libmd_t *md)
         CDEBUG(D_NET, "Unlinking md %p\n", md);
 
         if (md->md_eq != NULL) {
-                md->md_eq->eq_refcount--;
-                LASSERT (md->md_eq->eq_refcount >= 0);
+                md->md_eq->eq_cpuds[objcd->loc_cpuid]->ec_count--;
+                LASSERT(md->md_eq->eq_cpuds[objcd->loc_cpuid]->ec_count >= 0);
         }
 
         LASSERT (!cfs_list_empty(&md->md_list));
-        cfs_list_del_init (&md->md_list);
+        cfs_list_del_init(&md->md_list);
         lnet_md_free(md);
 }
 
-/* must be called with LNET_LOCK held */
 static int
-lib_md_build(lnet_libmd_t *lmd, lnet_md_t *umd, int unlink)
+lnet_md_build(lnet_libmd_t *lmd, lnet_md_t *umd, int unlink)
 {
-        lnet_eq_t   *eq = NULL;
         int          i;
         unsigned int niov;
         int          total_length = 0;
 
-        /* NB we are passed an allocated, but uninitialised/active md.
-         * if we return success, caller may lnet_md_unlink() it.
-         * otherwise caller may only lnet_md_free() it.
-         */
-
-        if (!LNetHandleIsInvalid (umd->eq_handle)) {
-                eq = lnet_handle2eq(&umd->eq_handle);
-                if (eq == NULL)
-                        return -ENOENT;
-        }
-
-        /* This implementation doesn't know how to create START events or
-         * disable END events.  Best to LASSERT our caller is compliant so
-         * we find out quickly...  */
-        /*  TODO - reevaluate what should be here in light of 
-         * the removal of the start and end events
-         * maybe there we shouldn't even allow LNET_EQ_NONE!)
-        LASSERT (eq == NULL);
-         */
-
-        lmd->md_me = NULL;
-        lmd->md_start = umd->start;
-        lmd->md_offset = 0;
-        lmd->md_max_size = umd->max_size;
-        lmd->md_options = umd->options;
-        lmd->md_user_ptr = umd->user_ptr;
-        lmd->md_eq = eq;
+        lmd->md_me        = NULL;
+        lmd->md_options   = umd->options;
         lmd->md_threshold = umd->threshold;
-        lmd->md_refcount = 0;
-        lmd->md_flags = (unlink == LNET_UNLINK) ? LNET_MD_FLAG_AUTO_UNLINK : 0;
+        lmd->md_refcount  = 0;
+        lmd->md_flags     = (unlink == LNET_UNLINK) ?
+                            LNET_MD_FLAG_AUTO_UNLINK : 0;
+        lmd->md_offset    = 0;
+        lmd->md_max_size  = umd->max_size;
+        lmd->md_start     = umd->start;
+        lmd->md_user_ptr  = umd->user_ptr;
 
         if ((umd->options & LNET_MD_IOVEC) != 0) {
 
@@ -182,18 +174,42 @@ lib_md_build(lnet_libmd_t *lmd, lnet_md_t *umd, int unlink)
                         return -EINVAL;
         }
 
-        if (eq != NULL)
-                eq->eq_refcount++;
+        return 0;
+}
 
-        /* It's good; let handle2md succeed and add to active mds */
-        lnet_initialise_handle (&lmd->md_lh, LNET_COOKIE_TYPE_MD);
-        LASSERT (cfs_list_empty(&lmd->md_list));
-        cfs_list_add (&lmd->md_list, &the_lnet.ln_active_mds);
+/* must be called with LNET_OBJ_LOCK held */
+static int
+lnet_md_activate(lnet_obj_cpud_t *objcd, lnet_libmd_t *md,
+                 lnet_handle_eq_t eq_handle, int type)
+{
+
+        /* NB we are passed an allocated, but inactive md.
+         * if we return success, caller may lnet_md_unlink() it.
+         * otherwise caller may only lnet_md_free() it.
+         */
+        /* This implementation doesn't know how to create START events or
+         * disable END events.  Best to LASSERT our caller is compliant so
+         * we find out quickly...  */
+        /*  TODO - reevaluate what should be here in light of
+         * the removal of the start and end events
+         * maybe there we shouldn't even allow LNET_EQ_NONE!)
+         * LASSERT (eq == NULL);
+         */
+        if (!LNetHandleIsInvalid(eq_handle)) {
+                md->md_eq = lnet_handle2eq(objcd, &eq_handle);
+
+                if (md->md_eq == NULL)
+                        return -ENOENT;
+                md->md_eq->eq_cpuds[objcd->loc_cpuid]->ec_count++;
+        }
+
+        lnet_initialise_handle(objcd, &md->md_lh, type);
+        LASSERT(cfs_list_empty(&md->md_list));
+        cfs_list_add(&md->md_list, &objcd->loc_active_mds);
 
         return 0;
 }
 
-/* must be called with LNET_LOCK held */
 void
 lnet_md_deconstruct(lnet_libmd_t *lmd, lnet_md_t *umd)
 {
@@ -202,13 +218,12 @@ lnet_md_deconstruct(lnet_libmd_t *lmd, lnet_md_t *umd)
          * original iov pointer (in start) and the number of entries it had
          * and that's all.
          */
-        umd->start = lmd->md_start;
-        umd->length = ((lmd->md_options & (LNET_MD_IOVEC | LNET_MD_KIOV)) == 0) ?
-                      lmd->md_length : lmd->md_niov;
-        umd->threshold = lmd->md_threshold;
-        umd->max_size = lmd->md_max_size;
-        umd->options = lmd->md_options;
-        umd->user_ptr = lmd->md_user_ptr;
+        umd->options   = lmd->md_options;
+        umd->length    = ((lmd->md_options & (LNET_MD_IOVEC | LNET_MD_KIOV)) == 0) ?
+                         lmd->md_length : lmd->md_niov;
+        umd->max_size  = lmd->md_max_size;
+        umd->start     = lmd->md_start;
+        umd->user_ptr  = lmd->md_user_ptr;
         lnet_eq2handle(&umd->eq_handle, lmd->md_eq);
 }
 
@@ -259,9 +274,10 @@ int
 LNetMDAttach(lnet_handle_me_t meh, lnet_md_t umd,
              lnet_unlink_t unlink, lnet_handle_md_t *handle)
 {
-        lnet_me_t     *me;
-        lnet_libmd_t  *md;
-        int            rc;
+        lnet_obj_cpud_t     *objcd;
+        lnet_libmd_t        *md;
+        lnet_me_t           *me;
+        int                  rc;
 
         LASSERT (the_lnet.ln_init);
         LASSERT (the_lnet.ln_refcount > 0);
@@ -278,35 +294,38 @@ LNetMDAttach(lnet_handle_me_t meh, lnet_md_t umd,
         if (md == NULL)
                 return -ENOMEM;
 
-        LNET_LOCK();
+        rc  = lnet_md_build(md, &umd, unlink);
 
-        me = lnet_handle2me(&meh);
+        objcd = lnet_objcd_from_cookie(meh.cookie);
+        LNET_OBJ_LOCK(objcd);
+        if (rc != 0)
+                goto out;
+
+        me = lnet_handle2me(objcd, &meh);
         if (me == NULL) {
                 rc = -ENOENT;
         } else if (me->me_md != NULL) {
                 rc = -EBUSY;
         } else {
-                rc = lib_md_build(md, &umd, unlink);
-                if (rc == 0) {
-                        the_lnet.ln_portals[me->me_portal].ptl_ml_version++;
-
-                        me->me_md = md;
-                        md->md_me = me;
-
-                        lnet_md2handle(handle, md);
-
-                        /* check if this MD matches any blocked msgs */
-                        lnet_match_blocked_msg(md);   /* expects LNET_LOCK held */
-
-                        LNET_UNLOCK();
-                        return (0);
-                }
+                rc = lnet_md_activate(objcd, md, umd.eq_handle,
+                                      LNET_COOKIE_TYPE_MD);
         }
 
-        lnet_md_free (md);
+        if (rc != 0)
+                goto out;
 
-        LNET_UNLOCK();
-        return (rc);
+        me->me_md = md;
+        md->md_me = me;
+        lnet_md2handle(handle, md);
+
+        /* check if this MD matches any blocked msgs */
+        lnet_match_blocked_msg(objcd, md);
+ out:
+        if (rc != 0)
+                lnet_md_free(md);
+        LNET_OBJ_UNLOCK(objcd);
+
+        return rc;
 }
 
 /**
@@ -328,8 +347,9 @@ LNetMDAttach(lnet_handle_me_t meh, lnet_md_t umd,
 int
 LNetMDBind(lnet_md_t umd, lnet_unlink_t unlink, lnet_handle_md_t *handle)
 {
-        lnet_libmd_t  *md;
-        int            rc;
+        lnet_obj_cpud_t   *objcd;
+        lnet_libmd_t      *md;
+        int                rc;
 
         LASSERT (the_lnet.ln_init);
         LASSERT (the_lnet.ln_refcount > 0);
@@ -346,21 +366,23 @@ LNetMDBind(lnet_md_t umd, lnet_unlink_t unlink, lnet_handle_md_t *handle)
         if (md == NULL)
                 return -ENOMEM;
 
-        LNET_LOCK();
+        rc  = lnet_md_build(md, &umd, unlink);
+        objcd = lnet_objcd_current();
 
-        rc = lib_md_build(md, &umd, unlink);
-
+        LNET_OBJ_LOCK(objcd);
         if (rc == 0) {
-                lnet_md2handle(handle, md);
-
-                LNET_UNLOCK();
-                return (0);
+                rc = lnet_md_activate(objcd, md, umd.eq_handle,
+                                      LNET_COOKIE_TYPE_MD);
         }
 
-        lnet_md_free (md);
+        if (rc == 0)
+                lnet_md2handle(handle, md);
+        else
+                lnet_md_free(md);
 
-        LNET_UNLOCK();
-        return (rc);
+        LNET_OBJ_UNLOCK(objcd);
+
+        return rc;
 }
 
 /**
@@ -395,17 +417,19 @@ LNetMDBind(lnet_md_t umd, lnet_unlink_t unlink, lnet_handle_md_t *handle)
 int
 LNetMDUnlink (lnet_handle_md_t mdh)
 {
-        lnet_event_t     ev;
-        lnet_libmd_t    *md;
+        lnet_obj_cpud_t   *objcd;
+        lnet_libmd_t      *md;
+        lnet_event_t       ev;
 
         LASSERT (the_lnet.ln_init);
         LASSERT (the_lnet.ln_refcount > 0);
 
-        LNET_LOCK();
+        objcd = lnet_objcd_from_cookie(mdh.cookie);
+        LNET_OBJ_LOCK(objcd);
 
-        md = lnet_handle2md(&mdh);
+        md = lnet_handle2md(objcd, &mdh);
         if (md == NULL) {
-                LNET_UNLOCK();
+                LNET_OBJ_UNLOCK(objcd);
                 return -ENOENT;
         }
 
@@ -416,11 +440,11 @@ LNetMDUnlink (lnet_handle_md_t mdh)
         if (md->md_eq != NULL &&
             md->md_refcount == 0) {
                 lnet_build_unlink_event(md, &ev);
-                lnet_enq_event_locked(md->md_eq, &ev);
+                lnet_enq_event_locked(objcd, md->md_eq, &ev);
         }
 
-        lnet_md_unlink(md);
+        lnet_md_unlink(objcd, md);
 
-        LNET_UNLOCK();
+        LNET_OBJ_UNLOCK(objcd);
         return 0;
 }

@@ -1050,7 +1050,7 @@ schedule_dqacq(struct obd_device *obd, struct lustre_quota_ctxt *qctxt,
                                      check_qm(qctxt), &lwi);
                         CDEBUG(D_QUOTA, "wake up when quota master is back\n");
                         lc_watchdog_touch(oti->oti_thread->t_watchdog,
-                                 CFS_GET_TIMEOUT(oti->oti_thread->t_svc));
+                           ptlrpc_svcd_get_timeout(oti->oti_thread->t_svcd));
                 } else {
                         cfs_spin_unlock(&qctxt->lqc_lock);
                 }

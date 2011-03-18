@@ -1,0 +1,1977 @@
+--- /dev/null	2011-03-18 18:05:50.000000000 +0800
++++ linux-2.6.18-194.17.1-ldiskfs-pdirop/include/linux/htree_lock.h	2011-03-17 12:59:54.000000000 +0800
+@@ -0,0 +1,171 @@
++/*
++ * include/linux/htree_lock.h
++ *
++ * Author: Liang Zhen <liang@whamcloud.com>
++ */
++
++/*
++ * htree lock
++ *
++ * htree_lock is a advanced lock, it can support five lock modes (concept is
++ * taken from DLM) and it's a blocking lock.
++ *
++ * most common use case is:
++ * - create a htree_lock_head_t for data
++ * - each thread (contender) creates it's own htree_lock_t
++ * - contender needs to call htree_lock(lock_node, mode) to protect data and
++ *   call htree_unlock to release lock
++ *
++ * Also, there is some advanced use-cases which are more complex, user can
++ * PW or PR lock a particular key, it's mostly used while user holding shared
++ * lock on the htree (CW, CR)
++ *
++ * htree_lock(lock_node, HTREE_LOCK_CR);; lock the htree with CR
++ * htree_node_lock(lock_node, HTREE_LOCK_PR, key...);; lock @key with PR
++ * ...
++ * htree_node_unlock(lock_node);; unlock the key
++ *
++ * Another tip is, we can have N-levels of this kind of keys, all we need to
++ * do is, specify N-levels while creating htree_lock_head_t, then we can
++ * lock/unlock a speicific level by:
++ * htree_node_lock(lock_node, mode, key, level...);
++ * htree_node_unlock(lock_node, level);
++ *
++ * NB: for multi-levels, should be careful about locking order to avoid deadlock
++ */
++
++#ifndef _LINUX_HTREE_LOCK_H
++#define _LINUX_HTREE_LOCK_H
++
++#include <linux/list.h>
++#include <linux/spinlock.h>
++#include <linux/sched.h>
++
++/* Lock Modes, please refer to lock modes of DLM */
++typedef enum {
++	HTREE_LOCK_EX	= 0,
++	HTREE_LOCK_PW,
++	HTREE_LOCK_PR,
++	HTREE_LOCK_CW,
++	HTREE_LOCK_CR,
++	HTREE_LOCK_MAX,
++} htree_lock_mode_t;
++
++#define HTREE_LOCK_NL		HTREE_LOCK_MAX
++#define HTREE_LOCK_INVAL	0xdeadbeaf
++
++enum {
++	HTREE_HBITS_MIN		= 2,
++	HTREE_HBITS_DEF		= 10,
++	HTREE_HBITS_MAX		= 16,
++};
++
++enum {
++	HTREE_EVENT_DISABLE	= (0),
++	HTREE_EVENT_RD		= (1 << HTREE_LOCK_PR),
++	HTREE_EVENT_WR		= (1 << HTREE_LOCK_PW),
++	HTREE_EVENT_RDWR	= (HTREE_EVENT_RD | HTREE_EVENT_WR),
++};
++
++struct htree_lock;
++
++typedef void (*htree_event_cb_t)(void *target, void *event);
++
++typedef struct htree_lock_child {
++	struct list_head	lc_list;	/* granted list */
++	htree_event_cb_t	lc_callback;	/* event callback */
++	unsigned		lc_events;	/* event types */
++} htree_lock_child_t;
++
++typedef struct htree_lock_head {
++	unsigned long		lh_lock;	/* bits lock */
++	unsigned		lh_depth;	/* # key levels */
++	/* hash bits for key and limit number of locks */
++	unsigned		lh_hbits;
++	/* blocked lock list (htree_lock_t) */
++	struct list_head	lh_blocked_list;
++	/* counters for blocked locks */
++	unsigned		lh_nblocked[HTREE_LOCK_MAX];
++	/* counters for granted locks */
++	unsigned		lh_ngranted[HTREE_LOCK_MAX];
++	/* array of children locks */
++	htree_lock_child_t	lh_children[0];
++} htree_lock_head_t;
++
++/* htree_lock_node_t is child-lock for a specific key (ln_value) */
++typedef struct htree_lock_node {
++	htree_lock_mode_t	ln_mode;
++	u32			ln_key;
++	void			*ln_event;
++	struct list_head	ln_child_list;
++	struct list_head	ln_alive_list;
++	struct list_head	ln_blocked_list;
++	struct list_head	ln_granted_list;
++} htree_lock_node_t;
++
++typedef struct htree_lock{
++	struct task_struct	*lk_task;
++	htree_lock_head_t	*lk_head;
++	void			*lk_private;
++	unsigned		lk_depth;
++	htree_lock_mode_t	lk_mode;
++	struct list_head	lk_blocked_list;
++	htree_lock_node_t	lk_nodes[0];
++} htree_lock_t;
++
++/* create a lock head, which stands for a resource */
++htree_lock_head_t *htree_lock_head_alloc(unsigned depth, unsigned hbits);
++/* free a lock head */
++void htree_lock_head_free(htree_lock_head_t *lhead);
++/* register event callback for child lock at level @depth */
++void htree_lock_event_attach(htree_lock_head_t *lhead, unsigned depth,
++		             unsigned events, htree_event_cb_t callback);
++/* create a child lock, which stands for a thread */
++htree_lock_t *htree_lock_alloc(unsigned depth, unsigned pbytes);
++/* free a lock node */
++void htree_lock_free(htree_lock_t *lck);
++/* lock htree, when @wait is ture, 0 is returned if the lock can't be granted */
++int htree_lock_try(htree_lock_t *lck, htree_lock_head_t *lhead,
++		   htree_lock_mode_t mode, int wait);
++/* unlock htree */
++void htree_unlock(htree_lock_t *lck);
++/* unlock and relock htree with @new_mode */
++int htree_change_lock_try(htree_lock_t *lck,
++			  htree_lock_mode_t new_mode, int wait);
++void htree_change_mode(htree_lock_t *lck, htree_lock_mode_t mode);
++/* require child lock (key) of htree at level @dep, @event will be sent to all
++ * listeners on this @key on lock granting */
++int htree_node_lock_try(htree_lock_t *lck, htree_lock_mode_t mode,
++		        u32 key, unsigned dep, int wait, void *event);
++/* release child lock at level @dep, this lock will listen on it's key
++ * if @event isn't NULL, event_cb will send event to this lock while granting
++ * any other lock at level @dep with the same key */
++void htree_node_unlock(htree_lock_t *lck, unsigned dep, void *event);
++/* stop listening on child lock at level @dep */
++void htree_node_stop_listen(htree_lock_t *lck, unsigned dep);
++void htree_lock_stat_print(int depth);
++void htree_lock_stat_reset(void);
++
++#define htree_lock(lck, lh, mode)	htree_lock_try(lck, lh, mode, 1)
++#define htree_change_lock(lck, mode)	htree_change_lock_try(lck, mode, 1)
++
++#define htree_lock_mode(lck)		((lck)->lk_mode)
++#define htree_lock_pr_safe(lck)			\
++	((lck)->lk_mode == HTREE_LOCK_EX ||	\
++	 (lck)->lk_mode == HTREE_LOCK_PW || (lck)->lk_mode == HTREE_LOCK_PR)
++#define htree_lock_pw_safe(lck)			\
++	((lck)->lk_mode == HTREE_LOCK_EX || (lck)->lk_mode == HTREE_LOCK_PW)
++#define htree_lock_ex_safe(lck)			\
++	((lck)->lk_mode == HTREE_LOCK_EX)
++
++#define htree_node_lock(lck, mode, key, dep)	\
++	htree_node_lock_try(lck, mode, key, dep, 1, NULL)
++/* this is only safe in thread context of lock owner */
++#define htree_node_is_granted(lck, dep)		\
++	((lck)->lk_nodes[dep].ln_mode != HTREE_LOCK_INVAL && \
++	 (lck)->lk_nodes[dep].ln_mode != HTREE_LOCK_NL)
++/* this is only safe in thread context of lock owner */
++#define htree_node_is_listening(lck, dep)	\
++	((lck)->lk_nodes[dep].ln_mode == HTREE_LOCK_NL)
++
++#endif
+--- /dev/null	2011-03-18 18:05:50.000000000 +0800
++++ linux-2.6.18-194.17.1-ldiskfs-pdirop/fs/ext4/htree_lock.c	2011-03-17 13:33:32.000000000 +0800
+@@ -0,0 +1,733 @@
++/*
++ * fs/ext4/htree_lock.c
++ *
++ * Author: Liang Zhen <liang@whamcloud.com>
++ */
++#include <linux/jbd2.h>
++#include <linux/hash.h>
++#include <linux/module.h>
++#include <linux/htree_lock.h>
++
++enum {
++	HTREE_LOCK_BIT_EX	= (1 << HTREE_LOCK_EX),
++	HTREE_LOCK_BIT_PW	= (1 << HTREE_LOCK_PW),
++	HTREE_LOCK_BIT_PR	= (1 << HTREE_LOCK_PR),
++	HTREE_LOCK_BIT_CW	= (1 << HTREE_LOCK_CW),
++	HTREE_LOCK_BIT_CR	= (1 << HTREE_LOCK_CR),
++};
++
++enum {
++	HTREE_LOCK_COMPAT_EX	= 0,
++	HTREE_LOCK_COMPAT_PW	= HTREE_LOCK_COMPAT_EX | HTREE_LOCK_BIT_CR,
++	HTREE_LOCK_COMPAT_PR	= HTREE_LOCK_COMPAT_PW | HTREE_LOCK_BIT_PR,
++	HTREE_LOCK_COMPAT_CW	= HTREE_LOCK_COMPAT_PW | HTREE_LOCK_BIT_CW,
++	HTREE_LOCK_COMPAT_CR	= HTREE_LOCK_COMPAT_CW | HTREE_LOCK_BIT_PR |
++				  HTREE_LOCK_BIT_PW,
++};
++
++static int htree_lock_compat[] = {
++	[HTREE_LOCK_EX]		HTREE_LOCK_COMPAT_EX,
++	[HTREE_LOCK_PW]		HTREE_LOCK_COMPAT_PW,
++	[HTREE_LOCK_PR]		HTREE_LOCK_COMPAT_PR,
++	[HTREE_LOCK_CW]		HTREE_LOCK_COMPAT_CW,
++	[HTREE_LOCK_CR]		HTREE_LOCK_COMPAT_CR,
++};
++
++#define HTREE_LOCK_DEP_MAX	32
++
++#define HTREE_LOCK_DEBUG	0
++
++#if HTREE_LOCK_DEBUG
++
++static char *hl_name[] = {
++	[HTREE_LOCK_EX]		"EX",
++	[HTREE_LOCK_PW]		"PW",
++	[HTREE_LOCK_PR]		"PR",
++	[HTREE_LOCK_CW]		"CW",
++	[HTREE_LOCK_CR]		"CR",
++};
++
++/* lock stats */
++typedef struct {
++	unsigned long long	blocked[HTREE_LOCK_MAX];
++	unsigned long long	granted[HTREE_LOCK_MAX];
++	unsigned long long	retried[HTREE_LOCK_MAX];
++	unsigned long long	events;
++} htree_lock_node_stats_t;
++
++typedef struct {
++	htree_lock_node_stats_t	nodes[HTREE_LOCK_DEP_MAX];
++	unsigned long long	granted[HTREE_LOCK_MAX];
++	unsigned long long	blocked[HTREE_LOCK_MAX];
++} htree_lock_stats_t;
++
++static htree_lock_stats_t hl_stats;
++
++void htree_lock_stat_reset(void)
++{
++	memset(&hl_stats, 0, sizeof(hl_stats));
++}
++
++void htree_lock_stat_print(int depth)
++{
++	int     i;
++	int	j;
++
++	printk("HTREE LOCK STATS:\n");
++	for (i = 0; i < HTREE_LOCK_MAX; i++) {
++		printk("[%s]: G [%10llu], B [%10llu]\n",
++		       hl_name[i], hl_stats.granted[i], hl_stats.blocked[i]);
++	}
++	for (i = 0; i < depth; i++) {
++		printk("HTREE CHILD [%d] STATS:\n", i);
++		for (j = 0; j < HTREE_LOCK_MAX; j++) {
++			printk("[%s]: G [%10llu], B [%10llu], R [%10llu]\n",
++				hl_name[j], hl_stats.nodes[i].granted[j],
++				hl_stats.nodes[i].blocked[j],
++				hl_stats.nodes[i].retried[j]);
++		}
++	}
++}
++
++#define lk_grant_inc(m)       do { hl_stats.granted[m]++; } while (0)
++#define lk_block_inc(m)       do { hl_stats.blocked[m]++; } while (0)
++#define ln_grant_inc(d, m)    do { hl_stats.nodes[d].granted[m]++; } while (0)
++#define ln_block_inc(d, m)    do { hl_stats.nodes[d].blocked[m]++; } while (0)
++#define ln_retry_inc(d, m)    do { hl_stats.nodes[d].retried[m]++; } while (0)
++#define ln_event_inc(d)	      do { hl_stats.nodes[d].events++; } while (0)
++
++#else /* !DEBUG */
++
++void htree_lock_stat_reset(void) {}
++void htree_lock_stat_print(int depth) {}
++
++#define lk_grant_inc(m)	      do {} while (0)
++#define lk_block_inc(m)	      do {} while (0)
++#define ln_grant_inc(d, m)    do {} while (0)
++#define ln_block_inc(d, m)    do {} while (0)
++#define ln_retry_inc(d, m)    do {} while (0)
++#define ln_event_inc(d)	      do {} while (0)
++
++#endif /* DEBUG */
++EXPORT_SYMBOL(htree_lock_stat_reset);
++EXPORT_SYMBOL(htree_lock_stat_print);
++
++#ifndef assert
++#define assert(test)		  J_ASSERT(test)
++#endif
++
++#define HTREE_DEP_ROOT		  (-1)
++
++#define htree_spin_lock(lhead, dep)		\
++	bit_spin_lock((dep) + 1, &(lhead)->lh_lock)
++#define htree_spin_unlock(lhead, dep)		\
++	bit_spin_unlock((dep) + 1, &(lhead)->lh_lock)
++
++#define htree_child_event_ignore(child, ln)	\
++	(!((child)->lc_events & (1 << (ln)->ln_mode)))
++
++static void
++htree_node_enqueue_event(htree_lock_child_t *child,
++		         htree_lock_node_t *ln, int dep, void *event)
++{
++	htree_lock_node_t *tmp;
++
++	assert(ln->ln_mode != HTREE_LOCK_NL);
++	if (event == NULL || htree_child_event_ignore(child, ln))
++		return;
++
++	list_for_each_entry(tmp, &ln->ln_alive_list, ln_alive_list) {
++		if (tmp->ln_mode == HTREE_LOCK_NL) {
++			ln_event_inc(dep);
++			if (child->lc_callback != NULL)
++				child->lc_callback(tmp->ln_event, event);
++		}
++	}
++}
++
++static int
++htree_node_try_lock(htree_lock_t *newlk, htree_lock_t *curlk,
++		    unsigned dep, int wait, void *event)
++{
++	htree_lock_child_t *child = &newlk->lk_head->lh_children[dep];
++	htree_lock_node_t *newln = &newlk->lk_nodes[dep];
++	htree_lock_node_t *curln = &curlk->lk_nodes[dep];
++
++	/* NB: ALWAYS called holding lhead::lh_lock */
++	if ((curln->ln_mode == HTREE_LOCK_NL) ||
++	    (curln->ln_mode != HTREE_LOCK_PW &&
++	     newln->ln_mode != HTREE_LOCK_PW)) {
++		/* no conflict, attach it on granted list of @curlk */
++		if (curln->ln_mode != HTREE_LOCK_NL) {
++			list_add(&newln->ln_granted_list,
++				 &curln->ln_granted_list);
++		} else {
++			list_replace_init(&curln->ln_child_list,
++					  &newln->ln_child_list);
++		}
++		list_add(&newln->ln_alive_list, &curln->ln_alive_list);
++		htree_node_enqueue_event(child, newln, dep, event);
++		ln_grant_inc(dep, newln->ln_mode);
++		return 1; /* still hold lh_lock */
++	}
++	if (!wait) { /* can't grant and don't want to wait */
++		ln_retry_inc(dep, newln->ln_mode);
++		newln->ln_mode = HTREE_LOCK_INVAL;
++		return -1; /* don't wait and just return -1 */
++	}
++	newlk->lk_task = current;
++	set_current_state(TASK_UNINTERRUPTIBLE);
++	/* conflict, attach it on blocked list of curlk */
++	list_add_tail(&newln->ln_blocked_list, &curln->ln_blocked_list);
++	list_add(&newln->ln_alive_list, &curln->ln_alive_list);
++	ln_block_inc(dep, newln->ln_mode);
++
++	htree_spin_unlock(newlk->lk_head, dep);
++	/* wait to be given the lock */
++	if (newlk->lk_task != NULL)
++		schedule();
++	/* granted, no doubt, wake up will set me RUNNING */
++	if (event == NULL || htree_child_event_ignore(child, newln))
++		return 0; /* granted without lh_lock */
++
++	htree_spin_lock(newlk->lk_head, dep);
++	htree_node_enqueue_event(child, newln, dep, event);
++	return 1; /* still hold lh_lock */
++}
++
++/*
++ * get PR/PW access to pariticular tree-node according to @dep and @key,
++ * it will return -1 if @wait is false and can't immediately grant this lock.
++ * All listeners(HTREE_LOCK_NL) on @dep and with the same @key will get
++ * @event if it's not NULL.
++ * NB: ALWAYS called holding lhead::lh_lock
++ */
++static int
++htree_node_lock_internal(htree_lock_head_t *lhead, htree_lock_t *lck,
++		         htree_lock_mode_t mode, u32 key, unsigned dep,
++			 int wait, void *event)
++{
++	htree_lock_t	*tmp;
++	int		reverse;
++
++	assert(mode == HTREE_LOCK_PW || mode == HTREE_LOCK_PR);
++	assert(!htree_node_is_granted(lck, dep));
++
++	key = (lhead->lh_hbits == 0) ? key : hash_long(key, lhead->lh_hbits);
++	reverse = (lhead->lh_hbits == 0) ? 0 :
++		  (key >= (1 << (lhead->lh_hbits - 1)));
++	/*
++	 * NB: ln_child_list is an ordered list.
++	 *
++	 * Length of the list is limited by number of threads which is
++	 * normally short, or at most a few hundreds, so iteration is not
++	 * a big overhead.
++	 *
++	 * List length is also limited by valid hash bits (lhead::lh_bits)
++	 * which has default value 10(1024 keys) so the max searching
++	 * length is 512 (1024 / 2) because we will search on reverse
++	 * direction if key >= max_key / 2.
++	 */
++	lck->lk_nodes[dep].ln_key = key;
++	lck->lk_nodes[dep].ln_mode = mode;
++	if (reverse) {
++		list_for_each_entry_reverse(tmp,
++					    &lhead->lh_children[dep].lc_list,
++					    lk_nodes[dep].ln_child_list) {
++			if (tmp->lk_nodes[dep].ln_key == key) {
++				return htree_node_try_lock(lck, tmp,
++							   dep, wait, event);
++			} else if (tmp->lk_nodes[dep].ln_key < key) {
++				/* attach _after_ @tmp */
++				list_add(&lck->lk_nodes[dep].ln_child_list,
++					 &tmp->lk_nodes[dep].ln_child_list);
++				goto out;
++			}
++		}
++		list_add(&lck->lk_nodes[dep].ln_child_list,
++			 &lhead->lh_children[dep].lc_list);
++	} else {
++		list_for_each_entry(tmp, &lhead->lh_children[dep].lc_list,
++				    lk_nodes[dep].ln_child_list) {
++			if (tmp->lk_nodes[dep].ln_key == key) {
++				return htree_node_try_lock(lck, tmp,
++							   dep, wait, event);
++			} else if (tmp->lk_nodes[dep].ln_key > key) {
++				/* insert _before_ @tmp */
++				list_add_tail(&lck->lk_nodes[dep].ln_child_list,
++					&tmp->lk_nodes[dep].ln_child_list);
++				goto out;
++			}
++		}
++		list_add_tail(&lck->lk_nodes[dep].ln_child_list,
++			      &lhead->lh_children[dep].lc_list);
++	}
++ out:
++	ln_grant_inc(dep, lck->lk_nodes[dep].ln_mode);
++	return 1; /* granted with holding lh_lock */
++}
++
++/*
++ * release the key of @lck at level @dep, and grant any blocked locks.
++ * caller will still listen on @key if @event is not NULL, which means
++ * caller can see a event (by event_cb) while granting any lock with
++ * the same key at level @dep. 
++ * NB: ALWAYS called holding lhead::lh_lock
++ * NB: listener will not block anyone because listening mode is HTREE_LOCK_NL
++ */
++static void
++htree_node_unlock_internal(htree_lock_head_t *lhead,
++			   htree_lock_t *curlk, unsigned dep, void *event)
++{
++	htree_lock_node_t *cln = &curlk->lk_nodes[dep];
++	htree_lock_t	  *grt = NULL;
++	htree_lock_node_t *gln;
++	htree_lock_node_t *tln;
++	htree_lock_t	  *tmp;
++	htree_lock_t	  *tmp2;
++
++	if (!htree_node_is_granted(curlk, dep))
++		return;
++
++	if (!list_empty(&cln->ln_granted_list)) {
++		/* there is another granted lock */
++		grt = list_entry(cln->ln_granted_list.next, htree_lock_t,
++				 lk_nodes[dep].ln_granted_list);
++		list_del_init(&cln->ln_granted_list);
++	}
++
++	if (grt == NULL && !list_empty(&cln->ln_blocked_list)) {
++		/*
++		 * @curlk is the only granted lock, so we confirmed:
++		 * a) cln is owner of this key (attached on ln_child_list),
++		 *    so if there is any blocked lock, it should be attached
++		 *    on cln->ln_blocked_list
++		 * b) we always can grant the first blocked lock
++		 */
++		grt = list_entry(cln->ln_blocked_list.next, htree_lock_t,
++				 lk_nodes[dep].ln_blocked_list);
++		assert(grt->lk_task != NULL);
++		wake_up_process(grt->lk_task);
++		grt->lk_task = NULL;
++	}
++
++	if ((cln->ln_event = event) != NULL &&
++	    lhead->lh_children[dep].lc_events != HTREE_EVENT_DISABLE)
++		cln->ln_mode = HTREE_LOCK_NL; /* listen! */
++	else
++		cln->ln_mode = HTREE_LOCK_INVAL;
++
++	if (grt == NULL) { /* I must be the only one hanging with this key */
++		assert(!list_empty(&cln->ln_child_list));
++		if (cln->ln_mode == HTREE_LOCK_NL) /* listening */
++			return;
++		/* not listening */
++		if (list_empty(&cln->ln_alive_list)) { /* no more listener */
++			list_del_init(&cln->ln_child_list);
++			return;
++		}
++		tln = list_entry(cln->ln_alive_list.next,
++				 htree_lock_node_t, ln_alive_list);
++		assert(tln->ln_mode == HTREE_LOCK_NL);
++		list_replace_init(&cln->ln_child_list, &tln->ln_child_list);
++		list_del_init(&cln->ln_alive_list);
++		return;
++	}
++	/* have a granted lock */
++	gln = &grt->lk_nodes[dep];
++	if (!list_empty(&cln->ln_blocked_list)) {
++		/* only key owner can on both lists */
++		assert(!list_empty(&cln->ln_child_list));
++
++		if (list_empty(&gln->ln_blocked_list))
++			list_add(&gln->ln_blocked_list, &cln->ln_blocked_list);
++		list_del_init(&cln->ln_blocked_list);
++	}
++	/*
++	 * NB: this is the tricky part:
++	 * We have only two modes for child-lock (PR and PW), also,
++	 * only owner of the key (attached on ln_child_list) can be on
++	 * both blocked_list and granted_list, so @grt must be one
++	 * of these two cases:
++	 *
++	 * a) @grt is taken from granted_list, which means we've granted
++	 *    more than one lock so @grt has to be PR, the first blocked
++	 *    lock must be PW and we can't grant it at all.
++	 *    So even @grt is not owner of the key (empty blocked_list),
++	 *    we don't care because we can't grant any lock.
++	 * b) we just grant a new lock which is taken from head of blocked
++	 *    list, and it should be the first granted lock, and it should
++	 *    be the first one linked on blocked_list.
++	 *
++	 * Either way, we can get correct result by iterating blocked_list
++	 * of @grt, and don't have to bother on how to find out
++	 * owner of current key.
++	 */
++	list_for_each_entry_safe(tmp, tmp2, &gln->ln_blocked_list,
++				 lk_nodes[dep].ln_blocked_list) {
++		if (grt->lk_nodes[dep].ln_mode == HTREE_LOCK_PW ||
++		    tmp->lk_nodes[dep].ln_mode == HTREE_LOCK_PW)
++			break;
++		/* grant all readers */
++		list_del_init(&tmp->lk_nodes[dep].ln_blocked_list);
++		list_add(&tmp->lk_nodes[dep].ln_granted_list,
++			 &gln->ln_granted_list);
++
++		assert(tmp->lk_task != NULL);
++		wake_up_process(tmp->lk_task);
++		tmp->lk_task = NULL;
++	}
++	if (!list_empty(&cln->ln_child_list)) {
++		/* @curlk is the owner of this key, replace it with @grt */
++		list_replace_init(&cln->ln_child_list, &gln->ln_child_list);
++        }
++	if (cln->ln_mode == HTREE_LOCK_INVAL)
++		list_del_init(&cln->ln_alive_list);
++}
++
++/*
++ * it's just wrapper of htree_node_lock_internal, though it return 1 on granted
++ * and 0 only if @wait is false and can't grant it immediately
++ */
++int
++htree_node_lock_try(htree_lock_t *lck, htree_lock_mode_t mode,
++		    u32 key, unsigned dep, int wait, void *event)
++{
++	htree_lock_head_t *lhead = lck->lk_head;
++	int rc;
++
++	assert(dep < lck->lk_depth);
++	assert(lck->lk_mode != HTREE_LOCK_INVAL);
++
++	htree_spin_lock(lhead, dep);
++	rc = htree_node_lock_internal(lhead, lck, mode, key, dep, wait, event);
++	if (rc != 0)
++		htree_spin_unlock(lhead, dep);
++	return rc >= 0;
++}
++EXPORT_SYMBOL(htree_node_lock_try);
++
++/* it's wrapper of htree_node_unlock_internal */
++void
++htree_node_unlock(htree_lock_t *lck, unsigned dep, void *event)
++{
++	htree_lock_head_t *lhead = lck->lk_head;
++
++	assert(dep < lck->lk_depth);
++	assert(lck->lk_mode != HTREE_LOCK_INVAL);
++
++	htree_spin_lock(lhead, dep);
++	htree_node_unlock_internal(lhead, lck, dep, event);
++	htree_spin_unlock(lhead, dep);
++}
++EXPORT_SYMBOL(htree_node_unlock);
++
++/* stop listening on child-lock level @dep */
++void
++htree_node_stop_listen(htree_lock_t *lck, unsigned dep)
++{
++	htree_lock_node_t *ln = &lck->lk_nodes[dep];
++	htree_lock_node_t *tmp;
++
++	assert(!htree_node_is_granted(lck, dep));
++	assert(list_empty(&ln->ln_blocked_list));
++	assert(list_empty(&ln->ln_granted_list));
++
++	if (!htree_node_is_listening(lck, dep))
++		return;
++
++	htree_spin_lock(lck->lk_head, dep);
++	ln->ln_mode = HTREE_LOCK_INVAL;
++	ln->ln_event = NULL;
++	if (list_empty(&ln->ln_child_list)) { /* not owner */
++		list_del_init(&ln->ln_alive_list);
++		goto out;
++	}
++	/* I'm the owner... */
++	if (list_empty(&ln->ln_alive_list)) { /* no more listener */
++		list_del_init(&ln->ln_child_list);
++		goto out;
++	}
++	tmp = list_entry(ln->ln_alive_list.next,
++			 htree_lock_node_t, ln_alive_list);
++	assert(tmp->ln_mode == HTREE_LOCK_NL);
++	list_replace_init(&ln->ln_child_list, &tmp->ln_child_list);
++	list_del_init(&ln->ln_alive_list);
++ out:
++	htree_spin_unlock(lck->lk_head, dep);
++}
++EXPORT_SYMBOL(htree_node_stop_listen);
++
++/* release all child-locks if we have any */
++static void
++htree_node_release_all(htree_lock_t *lck)
++{
++	int	i;
++
++	for (i = 0; i < lck->lk_depth; i++) {
++		if (htree_node_is_granted(lck, i))
++			htree_node_unlock(lck, i, NULL);
++		else if (htree_node_is_listening(lck, i))
++			htree_node_stop_listen(lck, i);
++	}
++}
++
++/*
++ * obtain htree lock, it could be blocked inside if there's conflict
++ * with any granted or blocked lock and @wait is true.
++ * NB: ALWAYS called holding lhead::lh_lock
++ */
++static int
++htree_lock_internal(htree_lock_t *lck, int wait)
++{
++	htree_lock_head_t *lhead = lck->lk_head;
++	int	granted = 0;
++	int	blocked = 0;
++	int	i;
++
++	for (i = 0; i < HTREE_LOCK_MAX; i++) {
++		if (lhead->lh_ngranted[i] != 0)
++			granted |= 1 << i;
++		if (lhead->lh_nblocked[i] != 0)
++			blocked |= 1 << i;
++	}
++	if ((htree_lock_compat[lck->lk_mode] & granted) != granted ||
++	    (htree_lock_compat[lck->lk_mode] & blocked) != blocked) {
++		/* will block current lock even it just conflicts with any
++		 * other blocked lock, so lock like EX wouldn't starve */
++		if (!wait)
++			return -1;
++		lhead->lh_nblocked[lck->lk_mode]++;
++		lk_block_inc(lck->lk_mode);
++
++		lck->lk_task = current;
++		list_add_tail(&lck->lk_blocked_list, &lhead->lh_blocked_list);
++
++		set_current_state(TASK_UNINTERRUPTIBLE);
++		htree_spin_unlock(lhead, HTREE_DEP_ROOT);
++		/* wait to be given the lock */
++		if (lck->lk_task != NULL)
++			schedule();
++		/* granted, no doubt. wake up will set me RUNNING */
++		return 0; /* without lh_lock */
++	}
++	lhead->lh_ngranted[lck->lk_mode]++;
++	lk_grant_inc(lck->lk_mode);
++	return 1;
++}
++
++/* release htree lock. NB: ALWAYS called holding lhead::lh_lock */
++static void
++htree_unlock_internal(htree_lock_t *lck)
++{
++	htree_lock_head_t *lhead = lck->lk_head;
++	htree_lock_t *tmp;
++	htree_lock_t *tmp2;
++	int granted = 0;
++	int i;
++
++	assert(lhead->lh_ngranted[lck->lk_mode] > 0);
++
++	lhead->lh_ngranted[lck->lk_mode]--;
++	lck->lk_mode = HTREE_LOCK_INVAL;
++
++	for (i = 0; i < HTREE_LOCK_MAX; i++) {
++		if (lhead->lh_ngranted[i] != 0)
++			granted |= 1 << i;
++	}
++	list_for_each_entry_safe(tmp, tmp2,
++				 &lhead->lh_blocked_list, lk_blocked_list) {
++		/* conflict with any granted lock? */
++		if ((htree_lock_compat[tmp->lk_mode] & granted) != granted)
++			break;
++
++		list_del_init(&tmp->lk_blocked_list);
++
++		assert(lhead->lh_nblocked[tmp->lk_mode] > 0);
++
++		lhead->lh_nblocked[tmp->lk_mode]--;
++		lhead->lh_ngranted[tmp->lk_mode]++;
++		granted |= 1 << tmp->lk_mode;
++
++		assert(tmp->lk_task != NULL);
++		wake_up_process(tmp->lk_task);
++		tmp->lk_task = NULL;
++	}
++}
++
++/* it's wrapper of htree_lock_internal and exported interface */
++int
++htree_lock_try(htree_lock_t *lck, htree_lock_head_t *lhead,
++	       htree_lock_mode_t mode, int wait)
++{
++	int	rc;
++
++	assert(lck->lk_depth <= lhead->lh_depth);
++	assert(lck->lk_head == NULL);
++	assert(lck->lk_task == NULL);
++
++	lck->lk_head = lhead;
++	lck->lk_mode = mode;
++
++	htree_spin_lock(lhead, HTREE_DEP_ROOT);
++	rc = htree_lock_internal(lck, wait);
++	if (rc != 0)
++		htree_spin_unlock(lhead, HTREE_DEP_ROOT);
++	return rc >= 0;
++}
++EXPORT_SYMBOL(htree_lock_try);
++
++/* it's wrapper of htree_unlock_internal and exported interface */
++void
++htree_unlock(htree_lock_t *lck)
++{
++	assert(lck->lk_head != NULL);
++	assert(lck->lk_mode != HTREE_LOCK_INVAL);
++
++	htree_node_release_all(lck);
++
++	htree_spin_lock(lck->lk_head, HTREE_DEP_ROOT);
++	htree_unlock_internal(lck);
++	htree_spin_unlock(lck->lk_head, HTREE_DEP_ROOT);
++	lck->lk_head = NULL;
++}
++EXPORT_SYMBOL(htree_unlock);
++
++/* change lock mode */
++void
++htree_change_mode(htree_lock_t *lck, htree_lock_mode_t mode)
++{
++	assert(lck->lk_mode != HTREE_LOCK_INVAL);
++	lck->lk_mode = mode;
++}
++EXPORT_SYMBOL(htree_change_mode);
++
++/* release parallel lock, and lock it again with new mode and keys */
++int
++htree_change_lock_try(htree_lock_t *lck, htree_lock_mode_t mode, int wait)
++{
++	htree_lock_head_t *lhead = lck->lk_head;
++	int rc;
++
++	assert(lhead != NULL);
++	assert(lck->lk_mode != mode);
++	assert(lck->lk_mode != HTREE_LOCK_INVAL && mode != HTREE_LOCK_INVAL);
++
++	htree_node_release_all(lck);
++
++	htree_spin_lock(lhead, HTREE_DEP_ROOT);
++	htree_unlock_internal(lck);
++	lck->lk_mode = mode;
++	rc = htree_lock_internal(lck, wait);
++	if (rc != 0)
++		htree_spin_unlock(lhead, HTREE_DEP_ROOT);
++	return rc >= 0;
++}
++EXPORT_SYMBOL(htree_change_lock_try);
++
++/* create a htree_lock head with @depth levels (number of child-locks),
++ * it is a per resoruce structure */
++htree_lock_head_t *
++htree_lock_head_alloc(unsigned depth, unsigned hbits)
++{
++	htree_lock_head_t *lhead;
++	int  i;
++
++	if (depth > HTREE_LOCK_DEP_MAX) {
++		printk("%d is too large for htree_lock, max value is %d\n",
++			depth, HTREE_LOCK_DEP_MAX);
++		return NULL;
++	}
++	lhead = kzalloc(offsetof(htree_lock_head_t,
++				 lh_children[depth]), GFP_NOFS);
++	if (lhead == NULL)
++		return NULL;
++
++	if (hbits == 0)
++		lhead->lh_hbits = 0;
++	else if (hbits < HTREE_HBITS_MIN)
++		lhead->lh_hbits = HTREE_HBITS_MIN;
++	else if (hbits > HTREE_HBITS_MAX)
++		lhead->lh_hbits = HTREE_HBITS_MAX;
++
++	lhead->lh_lock = 0;
++	lhead->lh_depth = depth;
++	INIT_LIST_HEAD(&lhead->lh_blocked_list);
++
++	for (i = 0; i < depth; i++) {
++		INIT_LIST_HEAD(&lhead->lh_children[i].lc_list);
++		lhead->lh_children[i].lc_events = HTREE_EVENT_DISABLE;
++	}
++	return lhead;
++}
++EXPORT_SYMBOL(htree_lock_head_alloc);
++
++/* free the htree_lock head */
++void
++htree_lock_head_free(htree_lock_head_t *lhead)
++{
++	int     i;
++
++	assert(list_empty(&lhead->lh_blocked_list));
++	for (i = 0; i < lhead->lh_depth; i++)
++		assert(list_empty(&lhead->lh_children[i].lc_list));
++	kfree(lhead);
++}
++EXPORT_SYMBOL(htree_lock_head_free);
++
++/* register event callback for @events of child-lock at level @dep */
++void
++htree_lock_event_attach(htree_lock_head_t *lhead, unsigned dep,
++			unsigned events, htree_event_cb_t callback)
++{
++	assert(lhead->lh_depth > dep);
++	lhead->lh_children[dep].lc_events = events;
++	lhead->lh_children[dep].lc_callback = callback;
++}
++EXPORT_SYMBOL(htree_lock_event_attach);
++
++/* allocate a htree_lock_t, which is per-thread structure, @pbytes is some
++ * extra-bytes as private data for caller */
++htree_lock_t *
++htree_lock_alloc(unsigned depth, unsigned pbytes)
++{
++	htree_lock_t *lck;
++	int i = offsetof(htree_lock_t, lk_nodes[depth]);
++
++	if (depth > HTREE_LOCK_DEP_MAX) {
++		printk("%d is too large for htree_lock, max value is %d\n",
++			depth, HTREE_LOCK_DEP_MAX);
++		return NULL;
++	}
++	lck = kzalloc(i + pbytes, GFP_NOFS);
++	if (lck == NULL)
++		return NULL;
++
++	if (pbytes != 0)
++		lck->lk_private = (void *)lck + i;
++	lck->lk_mode = HTREE_LOCK_INVAL;
++	lck->lk_depth = depth;
++	INIT_LIST_HEAD(&lck->lk_blocked_list);
++
++	for (i = 0; i < depth; i++) {
++		htree_lock_node_t *node = &lck->lk_nodes[i];
++
++		node->ln_mode = HTREE_LOCK_INVAL;
++		INIT_LIST_HEAD(&node->ln_child_list);
++		INIT_LIST_HEAD(&node->ln_alive_list);
++		INIT_LIST_HEAD(&node->ln_blocked_list);
++		INIT_LIST_HEAD(&node->ln_granted_list);
++	}
++
++	return lck;
++}
++EXPORT_SYMBOL(htree_lock_alloc);
++
++/* free htree_lock node */
++void
++htree_lock_free(htree_lock_t *lck)
++{
++	assert(lck->lk_mode == HTREE_LOCK_INVAL);
++	kfree(lck);
++}
++EXPORT_SYMBOL(htree_lock_free);
+--- linux-2.6.18-194.17.1-ldiskfs/fs/ext4/ext4.h	2011-01-07 06:03:50.000000000 +0800
++++ linux-2.6.18-194.17.1-ldiskfs-pdirop/fs/ext4/ext4.h	2011-03-14 15:46:36.000000000 +0800
+@@ -27,6 +27,7 @@
+ #include <linux/mutex.h>
+ #include <linux/timer.h>
+ #include <linux/wait.h>
++#include <linux/htree_lock.h>
+ #include <linux/blockgroup_lock.h>
+ #include <linux/percpu_counter.h>
+ 
+@@ -1345,6 +1346,61 @@ ext4_group_first_block_no(struct super_b
+  */
+ #define ERR_BAD_DX_DIR	-75000
+ 
++/* htree levels for ext4 */
++#define EXT4_HTREE_LEVEL	3
++/* assume name-hash is protected by upper layer */
++#define EXT4_HTREE_LOCK_HASH	0
++enum {
++#if EXT4_HTREE_LOCK_HASH
++	EXT4_LK_HASH,
++#endif
++	EXT4_LK_DX,		/* index block */
++	EXT4_LK_DE,		/* directory entry block */
++	EXT4_LK_SPIN,		/* non-blocking lock */
++	EXT4_LK_MAX,
++};
++
++/* read-only bit */
++#define EXT4_LB_RO(b)		(1 << (b))
++/* high bits for writer */
++#define EXT4_LB_WR(b)		((1 << (b)) | (1 << (EXT4_LK_MAX + (b))))
++
++enum {
++	EXT4_LB_DX_RO		= EXT4_LB_RO(EXT4_LK_DX),
++	EXT4_LB_DX		= EXT4_LB_WR(EXT4_LK_DX),
++	EXT4_LB_DE_RO		= EXT4_LB_RO(EXT4_LK_DE),
++	EXT4_LB_DE		= EXT4_LB_WR(EXT4_LK_DE),
++	EXT4_LB_SPIN_RO		= EXT4_LB_RO(EXT4_LK_SPIN),
++	EXT4_LB_SPIN		= EXT4_LB_WR(EXT4_LK_SPIN),
++	/* accurate searching */
++	EXT4_LB_EXACT		= EXT4_LB_RO(EXT4_LK_MAX << 1),
++};
++
++enum {
++	/* externel */
++	EXT4_HLOCK_READDIR	= (EXT4_LB_DE_RO | EXT4_LB_DX_RO),
++	EXT4_HLOCK_LOOKUP	= (EXT4_LB_DE_RO | EXT4_LB_SPIN_RO |
++				   EXT4_LB_EXACT),
++	EXT4_HLOCK_DEL		= (EXT4_LB_DE | EXT4_LB_SPIN_RO |
++				   EXT4_LB_EXACT),
++	EXT4_HLOCK_ADD		= (EXT4_LB_DE | EXT4_LB_SPIN_RO),
++	/* internal */
++	EXT4_HLOCK_LOOKUP_SAFE	= (EXT4_LB_DE_RO | EXT4_LB_DX_RO |
++				   EXT4_LB_EXACT),
++	EXT4_HLOCK_DEL_SAFE	= (EXT4_LB_DE | EXT4_LB_DX_RO | EXT4_LB_EXACT),
++	EXT4_HLOCK_SPLIT	= (EXT4_LB_DE | EXT4_LB_DX | EXT4_LB_SPIN),
++};
++
++extern htree_lock_head_t *ext4_htree_lock_head_alloc(unsigned hbits);
++#define ext4_htree_lock_head_free(lhead)	htree_lock_head_free(lhead)
++
++extern htree_lock_t *ext4_htree_lock_alloc(void);
++#define ext4_htree_lock_free(lck)		htree_lock_free(lck)
++
++extern void ext4_htree_lock(htree_lock_t *lck, htree_lock_head_t *lhead,
++		            struct inode *dir, unsigned flags);
++#define ext4_htree_unlock(lck)			htree_unlock(lck)
++
+ void ext4_get_group_no_and_offset(struct super_block *sb, ext4_fsblk_t blocknr,
+ 			ext4_group_t *blockgrpp, ext4_grpblk_t *offsetp);
+ 
+@@ -1546,14 +1602,16 @@ extern int ext4_ext_migrate(struct inode
+ extern struct inode *ext4_create_inode(handle_t *handle,
+ 					  struct inode * dir, int mode);
+ extern int ext4_add_entry(handle_t *handle, struct dentry *dentry,
+-			     struct inode *inode);
++			     struct inode *inode, htree_lock_t *lck);
+ extern int ext4_delete_entry(handle_t *handle, struct inode * dir,
+ 				struct ext4_dir_entry_2 * de_del,
+ 				struct buffer_head * bh);
+ extern struct buffer_head * ext4_find_entry(struct inode *dir,
+ 					    const struct qstr *d_name,
+-					    struct ext4_dir_entry_2 ** res_dir);
+-#define ll_ext4_find_entry(inode, dentry, res_dir) ext4_find_entry(dir, &(dentry)->d_name, res_dir)
++					    struct ext4_dir_entry_2 ** res_dir,
++					    htree_lock_t *lck);
++#define ll_ext4_find_entry(inode, dentry, res_dir, lck) \
++	ext4_find_entry(dir, &(dentry)->d_name, res_dir, lck)
+ extern int ext4_add_dot_dotdot(handle_t *handle, struct inode *dir,
+ 			  struct inode *inode, const void *, const void *);
+ extern unsigned int ext4_rec_len_from_disk(__le16 dlen, unsigned blocksize);
+--- linux-2.6.18-194.17.1-ldiskfs/fs/ext4/namei.c	2011-01-07 06:03:50.000000000 +0800
++++ linux-2.6.18-194.17.1-ldiskfs-pdirop/fs/ext4/namei.c	2011-03-20 20:19:44.000000000 +0800
+@@ -65,15 +65,16 @@ struct buffer_head *ext4_append(handle_t
+ 	bh = ext4_bread(handle, inode, *block, 1, err);
+ 	if (bh) {
+ 		inode->i_size += inode->i_sb->s_blocksize;
+-		EXT4_I(inode)->i_disksize = inode->i_size;
++		ei->i_disksize = inode->i_size;
++		up(&ei->i_append_sem);
+ 		*err = ext4_journal_get_write_access(handle, bh);
+ 		if (*err) {
+ 			brelse(bh);
+ 			bh = NULL;
+ 		}
+-		ei->i_disksize = inode->i_size;
++	} else {
++		up(&ei->i_append_sem);
+ 	}
+-	up(&ei->i_append_sem);
+ 	return bh;
+ }
+ EXPORT_SYMBOL(ext4_append);
+@@ -180,7 +181,7 @@ static struct dx_frame *dx_probe(const s
+ 				 struct inode *dir,
+ 				 struct dx_hash_info *hinfo,
+ 				 struct dx_frame *frame,
+-				 int *err);
++				 htree_lock_t *lck, int *err);
+ static void dx_release(struct dx_frame *frames);
+ static int dx_make_map(struct ext4_dir_entry_2 *de, unsigned blocksize,
+ 		       struct dx_hash_info *hinfo, struct dx_map_entry map[]);
+@@ -193,13 +194,12 @@ static void dx_insert_block(struct dx_fr
+ static int ext4_htree_next_block(struct inode *dir, __u32 hash,
+ 				 struct dx_frame *frame,
+ 				 struct dx_frame *frames,
+-				 __u32 *start_hash);
++				 __u32 *start_hash, htree_lock_t *lck);
+ static struct buffer_head * ext4_dx_find_entry(struct inode *dir,
+ 		const struct qstr *d_name,
+-		struct ext4_dir_entry_2 **res_dir,
+-		int *err);
++		struct ext4_dir_entry_2 **res_dir, htree_lock_t *lck, int *err);
+ static int ext4_dx_add_entry(handle_t *handle, struct dentry *dentry,
+-			     struct inode *inode);
++			     struct inode *inode, htree_lock_t *lck);
+ 
+ unsigned int ext4_rec_len_from_disk(__le16 dlen, unsigned blocksize)
+ {
+@@ -396,6 +396,202 @@ struct stats dx_show_entries(struct dx_h
+ }
+ #endif /* DX_DEBUG */
+ 
++/* private data for htree_lock */
++typedef struct {
++	unsigned	ld_flags;	/* bits-map for lock types */
++	unsigned	ld_count;	/* # entries of the last DX block */
++	struct dx_entry	*ld_at;		/* dx_entry of leaf (DE) block */
++	struct dx_entry	ld_at_entry;	/* copy of ld_get */
++	u64		ld_at_block;	/* logic block number of ld_at */
++} ext4_htree_lock_data_t;
++
++#define ext4_htree_lock_data(l)	((ext4_htree_lock_data_t *)(l)->lk_private)
++
++/* NB: ext4_lblk_t is 32 bits so we use high bits to identify invalid blk */
++#define EXT4_HTREE_NODE_CHANGED	(0xcafeULL << 32)
++static void ext4_htree_event_cb(void *target, void *event)
++{
++	ext4_htree_lock_data_t *ld = (ext4_htree_lock_data_t *)target;
++
++	if (ld->ld_at_block == dx_get_block((struct dx_entry *)event))
++		ld->ld_at_block = EXT4_HTREE_NODE_CHANGED;
++}
++
++htree_lock_head_t *ext4_htree_lock_head_alloc(unsigned hbits)
++{
++	htree_lock_head_t *lhead;
++
++	lhead = htree_lock_head_alloc(EXT4_LK_MAX, hbits);
++	if (lhead != NULL) {
++		htree_lock_event_attach(lhead, EXT4_LK_SPIN, HTREE_EVENT_WR,
++					ext4_htree_event_cb);
++	}
++	return lhead;
++}
++EXPORT_SYMBOL(ext4_htree_lock_head_alloc);
++
++htree_lock_t *ext4_htree_lock_alloc(void)
++{
++	return htree_lock_alloc(EXT4_LK_MAX, sizeof(ext4_htree_lock_data_t));
++}
++EXPORT_SYMBOL(ext4_htree_lock_alloc);
++
++static htree_lock_mode_t ext4_htree_mode(unsigned flags)
++{
++	switch (flags) {
++	default:
++		return HTREE_LOCK_EX;
++	case EXT4_HLOCK_READDIR:
++		return HTREE_LOCK_PR;
++	case EXT4_HLOCK_LOOKUP:
++		return HTREE_LOCK_CR;
++	case EXT4_HLOCK_DEL:
++	case EXT4_HLOCK_ADD:
++		return HTREE_LOCK_CW;
++	}
++}
++
++static inline htree_lock_mode_t ext4_htree_safe_mode(unsigned flags)
++{
++	return (flags == 0 || (flags & EXT4_LB_DE) == EXT4_LB_DE) ?
++		HTREE_LOCK_EX : HTREE_LOCK_PR;
++}
++
++static inline int ext4_htree_safe_locked(htree_lock_t *lck)
++{
++	return (lck == NULL) ? 1 : /* pdirop is disabled */
++		(htree_lock_ex_safe(lck) || htree_lock_pr_safe(lck));
++}
++
++static void ext4_htree_safe_relock(htree_lock_t *lck)
++{
++	if (!ext4_htree_safe_locked(lck)) {
++		unsigned flags = ext4_htree_lock_data(lck)->ld_flags;
++		htree_change_lock(lck, ext4_htree_safe_mode(flags));
++	}
++}
++
++void ext4_htree_lock(htree_lock_t *lck, htree_lock_head_t *lhead,
++		     struct inode *dir, unsigned flags)
++{
++	htree_lock_mode_t mode = is_dx(dir) ? ext4_htree_mode(flags) :
++					      ext4_htree_safe_mode(flags);
++	ext4_htree_lock_data(lck)->ld_flags = flags;
++	htree_lock(lck, lhead, mode);
++	if (unlikely(!is_dx(dir)))
++		ext4_htree_safe_relock(lck);
++}
++EXPORT_SYMBOL(ext4_htree_lock);
++
++static int ext4_htree_node_lock(htree_lock_t *lck, struct dx_entry *at,
++				unsigned lbits, int wait, void *ev)
++{
++	u32	key = (at == NULL) ? 0 : dx_get_block(at);
++	u32	mode;
++
++	/* NOOP if htree is well protected or caller doesn't have the bit */
++	if (ext4_htree_safe_locked(lck) ||
++	   !(ext4_htree_lock_data(lck)->ld_flags & lbits))
++		return 1;
++
++	mode = (ext4_htree_lock_data(lck)->ld_flags & lbits) == lbits ?
++		HTREE_LOCK_PW : HTREE_LOCK_PR;
++	while (1) {
++		if (htree_node_lock_try(lck, mode, key, ffz(~lbits), wait, ev))
++			return 1;
++		if (!(lbits & EXT4_LB_SPIN)) /* not a spinlock */
++			return 0;
++		cpu_relax(); /* spin until granted */
++	}
++}
++
++static int ext4_htree_node_locked(htree_lock_t *lck, unsigned lbits)
++{
++	return ext4_htree_safe_locked(lck) ||
++	       htree_node_is_granted(lck, ffz(~lbits));
++}
++
++static void ext4_htree_node_unlock(htree_lock_t *lck, unsigned lbits, void *buf)
++{
++	/* NB: it's safe to call mutiple times or even it's not locked */
++	if (!ext4_htree_safe_locked(lck) &&
++	     htree_node_is_granted(lck, ffz(~lbits)))
++		htree_node_unlock(lck, ffz(~lbits), buf);
++}
++
++#define ext4_htree_dx_lock(lck, key)		\
++	ext4_htree_node_lock(lck, key, EXT4_LB_DX, 1, NULL)
++#define ext4_htree_dx_lock_try(lck, key)	\
++	ext4_htree_node_lock(lck, key, EXT4_LB_DX, 0, NULL)
++#define ext4_htree_dx_unlock(lck)		\
++	ext4_htree_node_unlock(lck, EXT4_LB_DX, NULL)
++#define ext4_htree_dx_locked(lck)		\
++	ext4_htree_node_locked(lck, EXT4_LB_DX)
++
++static void ext4_htree_need_dx_lock(htree_lock_t *lck)
++{
++	ext4_htree_lock_data_t *ld;
++
++	if (ext4_htree_safe_locked(lck))
++		return;
++
++	ld = ext4_htree_lock_data(lck);
++	switch (ld->ld_flags) {
++	default:
++		return;
++	case EXT4_HLOCK_LOOKUP:
++		ld->ld_flags = EXT4_HLOCK_LOOKUP_SAFE;
++		return;
++	case EXT4_HLOCK_DEL:
++		ld->ld_flags = EXT4_HLOCK_DEL_SAFE;
++		return;
++	case EXT4_HLOCK_ADD:
++		ld->ld_flags = EXT4_HLOCK_SPLIT;
++		return;
++	}
++}
++
++#define ext4_htree_de_lock(lck, key)		\
++	ext4_htree_node_lock(lck, key, EXT4_LB_DE, 1, NULL)
++#define ext4_htree_de_unlock(lck)		\
++	ext4_htree_node_unlock(lck, EXT4_LB_DE, NULL)
++
++#define ext4_htree_spin_lock(lck, key, event)	\
++	ext4_htree_node_lock(lck, key, EXT4_LB_SPIN, 0, event)
++#define ext4_htree_spin_unlock(lck)		\
++	ext4_htree_node_unlock(lck, EXT4_LB_SPIN, NULL)
++#define ext4_htree_spin_unlock_listen(lck)	\
++	ext4_htree_node_unlock(lck, EXT4_LB_SPIN, lck->lk_private)
++
++static void ext4_htree_spin_stop_listen(htree_lock_t *lck)
++{
++	if (!ext4_htree_safe_locked(lck) &&
++	    htree_node_is_listening(lck, ffz(~EXT4_LB_SPIN)))
++		htree_node_stop_listen(lck, ffz(~EXT4_LB_SPIN));
++}
++
++enum {
++	DX_HASH_COL_IGNORE,	/* ignore collision while probing frames */
++	DX_HASH_COL_YES,	/* there is collision and it does matter */
++	DX_HASH_COL_NO,		/* there is no collision */
++};
++
++static int dx_probe_hash_collision(htree_lock_t *lck,
++				   struct dx_entry *entries,
++				   struct dx_entry *at, u32 hash)
++{
++	if (!(ext4_htree_lock_data(lck)->ld_flags & EXT4_LB_EXACT)) {
++		return DX_HASH_COL_IGNORE; /* don't care about collision */
++
++	} else if (at == entries + dx_get_count(entries) - 1) {
++		return DX_HASH_COL_IGNORE; /* not in any leaf of this DX */
++
++	} else { /* hash collision? */
++		return ((dx_get_hash(at + 1) & ~1) == hash) ?
++			DX_HASH_COL_YES : DX_HASH_COL_NO;
++	}
++}
++
+ /*
+  * Probe for a directory leaf block to search.
+  *
+@@ -407,16 +603,17 @@ struct stats dx_show_entries(struct dx_h
+  */
+ static struct dx_frame *
+ dx_probe(const struct qstr *d_name, struct inode *dir,
+-	 struct dx_hash_info *hinfo, struct dx_frame *frame_in, int *err)
++	 struct dx_hash_info *hinfo, struct dx_frame *frame_in,
++	 htree_lock_t *lck, int *err)
+ {
+ 	unsigned count, indirect;
+-	struct dx_entry *at, *entries, *p, *q, *m;
++	struct dx_entry *at, *entries, *p, *q, *m, *dx = NULL;
+ 	struct dx_root_info * info;
+ 	struct buffer_head *bh;
+ 	struct dx_frame *frame = frame_in;
+ 	u32 hash;
+ 
+-	frame->bh = NULL;
++	memset(frame_in, 0, EXT4_HTREE_LEVEL * sizeof(frame_in[0]));
+ 	if (!(bh = ext4_bread (NULL,dir, 0, 0, err)))
+ 		goto fail;
+ 
+@@ -448,7 +645,7 @@ dx_probe(const struct qstr *d_name, stru
+ 		goto fail;
+ 	}
+ 
+-	if ((indirect = info->indirect_levels) > 1) {
++	if ((indirect = info->indirect_levels) >= EXT4_HTREE_LEVEL) {
+ 		ext4_warning(dir->i_sb, __func__,
+ 			     "Unimplemented inode hash depth: %#06x",
+ 			     info->indirect_levels);
+@@ -472,8 +669,14 @@ dx_probe(const struct qstr *d_name, stru
+ 	dxtrace(printk("Look up %x", hash));
+ 	while (1)
+ 	{
++	again:
++		if (!indirect) { /* the last index level */
++			ext4_htree_dx_lock(lck, dx);
++			ext4_htree_spin_lock(lck, dx, NULL);
++		}
+ 		count = dx_get_count(entries);
+ 		if (!count || count > dx_get_limit(entries)) {
++			ext4_htree_spin_unlock(lck); /* release spin */
+ 			ext4_warning(dir->i_sb, __func__,
+ 				     "dx entry: no count or count > limit");
+ 			brelse(bh);
+@@ -514,9 +717,48 @@ dx_probe(const struct qstr *d_name, stru
+ 		frame->bh = bh;
+ 		frame->entries = entries;
+ 		frame->at = at;
+-		if (!indirect--) return frame;
++
++		if (!indirect) {
++			ext4_htree_lock_data_t *ld;
++
++			if (ext4_htree_dx_locked(lck)) {
++				ext4_htree_spin_unlock(lck);
++				if (!ext4_htree_safe_locked(lck))
++					ext4_htree_de_lock(lck, frame->at);
++				return frame;
++			}
++			/* it's pdirop and no DX lock */
++			if (dx_probe_hash_collision(lck, entries, at, hash) ==
++			    DX_HASH_COL_YES) { /* need lock DX block */
++				ext4_htree_spin_unlock(lck);
++				ext4_htree_need_dx_lock(lck);
++				goto again;
++			}
++			ld = ext4_htree_lock_data(lck);
++			/* because I don't lock DX, so @at can't be trusted
++			 * after I release spinlock so I have to backup it */
++			ld->ld_at = at;
++			ld->ld_at_entry = *at;
++			ld->ld_at_block = dx_get_block(at);
++			ld->ld_count = dx_get_count(entries);
++			frame->at = &ld->ld_at_entry;
++
++			/* NB: ordering locking */
++			ext4_htree_spin_unlock_listen(lck);
++			ext4_htree_de_lock(lck, frame->at);
++			ext4_htree_spin_stop_listen(lck);
++			/* someone changed DE block before i lock it */
++			if (ld->ld_at_block == EXT4_HTREE_NODE_CHANGED) {
++				ext4_htree_de_unlock(lck);
++				goto again;
++			}
++			return frame;
++		}
++		dx = at;
++		indirect--;
+ 		if (!(bh = ext4_bread (NULL,dir, dx_get_block(at), 0, err)))
+ 			goto fail2;
++
+ 		entries = ((struct dx_node *) bh->b_data)->entries;
+ 		if (dx_get_limit(entries) != dx_node_limit (dir)) {
+ 			ext4_warning(dir->i_sb, __func__,
+@@ -547,13 +789,18 @@ fail:
+ static void dx_release (struct dx_frame *frames)
+ {
+ 	struct dx_root_info *info;
++	int i;
++
+ 	if (frames[0].bh == NULL)
+ 		return;
+ 
+ 	info = dx_get_dx_info((struct ext4_dir_entry_2*)frames[0].bh->b_data);
+-	if (info->indirect_levels)
+-		brelse(frames[1].bh);
+-	brelse(frames[0].bh);
++	for (i = 0; i <= info->indirect_levels; i++) {
++		if (frames[i].bh == NULL)
++			break;
++		brelse(frames[i].bh);
++		frames[i].bh = NULL;
++	}
+ }
+ 
+ /*
+@@ -576,7 +823,7 @@ static void dx_release (struct dx_frame 
+ static int ext4_htree_next_block(struct inode *dir, __u32 hash,
+ 				 struct dx_frame *frame,
+ 				 struct dx_frame *frames,
+-				 __u32 *start_hash)
++				 __u32 *start_hash, htree_lock_t *lck)
+ {
+ 	struct dx_frame *p;
+ 	struct buffer_head *bh;
+@@ -591,12 +838,19 @@ static int ext4_htree_next_block(struct 
+ 	 * this loop, num_frames indicates the number of interior
+ 	 * nodes need to be read.
+ 	 */
++	ext4_htree_de_unlock(lck);
+ 	while (1) {
+-		if (++(p->at) < p->entries + dx_get_count(p->entries))
+-			break;
++		if (ext4_htree_dx_locked(lck) || num_frames > 0) {
++			/* frame->at is reliable pointer returned by dx_probe,
++			 * otherwise dx_probe already knew no collision */
++			if (++(p->at) < p->entries + dx_get_count(p->entries))
++				break;
++		}
+ 		if (p == frames)
+ 			return 0;
+ 		num_frames++;
++		if (num_frames == 1)
++			ext4_htree_dx_unlock(lck);
+ 		p--;
+ 	}
+ 
+@@ -619,6 +873,9 @@ static int ext4_htree_next_block(struct 
+ 	 * block so no check is necessary
+ 	 */
+ 	while (num_frames--) {
++		if (num_frames == 0)
++			ext4_htree_dx_lock(lck, p->at);
++
+ 		if (!(bh = ext4_bread(NULL, dir, dx_get_block(p->at),
+ 				      0, &err)))
+ 			return err; /* Failure */
+@@ -627,6 +884,7 @@ static int ext4_htree_next_block(struct 
+ 		p->bh = bh;
+ 		p->at = p->entries = ((struct dx_node *) bh->b_data)->entries;
+ 	}
++	ext4_htree_de_lock(lck, p->at);
+ 	return 1;
+ }
+ 
+@@ -696,7 +954,7 @@ int ext4_htree_fill_tree(struct file *di
+ {
+ 	struct dx_hash_info hinfo;
+ 	struct ext4_dir_entry_2 *de;
+-	struct dx_frame frames[2], *frame;
++	struct dx_frame frames[EXT4_HTREE_LEVEL], *frame;
+ 	struct inode *dir;
+ 	ext4_lblk_t block;
+ 	int count = 0;
+@@ -719,10 +977,9 @@ int ext4_htree_fill_tree(struct file *di
+ 	}
+ 	hinfo.hash = start_hash;
+ 	hinfo.minor_hash = 0;
+-	frame = dx_probe(NULL, dir, &hinfo, frames, &err);
++	frame = dx_probe(NULL, dir, &hinfo, frames, NULL, &err);
+ 	if (!frame)
+ 		return err;
+-
+ 	/* Add '.' and '..' from the htree header */
+ 	if (!start_hash && !start_minor_hash) {
+ 		de = (struct ext4_dir_entry_2 *) frames[0].bh->b_data;
+@@ -749,7 +1006,7 @@ int ext4_htree_fill_tree(struct file *di
+ 		count += ret;
+ 		hashval = ~0;
+ 		ret = ext4_htree_next_block(dir, HASH_NB_ALWAYS,
+-					    frame, frames, &hashval);
++					    frame, frames, &hashval, NULL);
+ 		*next_hash = hashval;
+ 		if (ret < 0) {
+ 			err = ret;
+@@ -924,8 +1181,9 @@ static inline int search_dirblock(struct
+  * to brelse() it when appropriate.
+  */
+ struct buffer_head * ext4_find_entry(struct inode *dir,
+-				      const struct qstr *d_name,
+-				      struct ext4_dir_entry_2 ** res_dir)
++				     const struct qstr *d_name,
++				     struct ext4_dir_entry_2 ** res_dir,
++				     htree_lock_t *lck)
+ {
+ 	struct super_block *sb;
+ 	struct buffer_head *bh_use[NAMEI_RA_SIZE];
+@@ -946,7 +1204,7 @@ struct buffer_head * ext4_find_entry(str
+ 	if (namelen > EXT4_NAME_LEN)
+ 		return NULL;
+ 	if (is_dx(dir)) {
+-		bh = ext4_dx_find_entry(dir, d_name, res_dir, &err);
++		bh = ext4_dx_find_entry(dir, d_name, res_dir, lck, &err);
+ 		/*
+ 		 * On success, or if the error was file not found,
+ 		 * return.  Otherwise, fall back to doing a search the
+@@ -956,6 +1214,7 @@ struct buffer_head * ext4_find_entry(str
+ 			return bh;
+ 		dxtrace(printk(KERN_DEBUG "ext4_find_entry: dx failed, "
+ 			       "falling back\n"));
++		ext4_htree_safe_relock(lck);
+ 	}
+ 	nblocks = dir->i_size >> EXT4_BLOCK_SIZE_BITS(sb);
+ 	start = EXT4_I(dir)->i_dir_start_lookup;
+@@ -1034,13 +1293,15 @@ cleanup_and_exit:
+ }
+ EXPORT_SYMBOL(ext4_find_entry);
+ 
+-static struct buffer_head * ext4_dx_find_entry(struct inode *dir, const struct qstr *d_name,
+-		       struct ext4_dir_entry_2 **res_dir, int *err)
++static struct buffer_head * ext4_dx_find_entry(struct inode *dir,
++				const struct qstr *d_name,
++				struct ext4_dir_entry_2 **res_dir,
++				htree_lock_t *lck, int *err)
+ {
+ 	struct super_block * sb;
+ 	struct dx_hash_info	hinfo;
+ 	u32 hash;
+-	struct dx_frame frames[2], *frame;
++	struct dx_frame frames[EXT4_HTREE_LEVEL], *frame;
+ 	struct ext4_dir_entry_2 *de, *top;
+ 	struct buffer_head *bh;
+ 	ext4_lblk_t block;
+@@ -1051,13 +1312,15 @@ static struct buffer_head * ext4_dx_find
+ 	sb = dir->i_sb;
+ 	/* NFS may look up ".." - look at dx_root directory block */
+ 	if (namelen > 2 || name[0] != '.'||(name[1] != '.' && name[1] != '\0')){
+-		if (!(frame = dx_probe(d_name, dir, &hinfo, frames, err)))
++		if (!(frame = dx_probe(d_name, dir, &hinfo, frames, lck, err)))
+ 			return NULL;
+ 	} else {
+ 		frame = frames;
+ 		frame->bh = NULL;			/* for dx_release() */
+ 		frame->at = (struct dx_entry *)frames;	/* hack for zero entry*/
+ 		dx_set_block(frame->at, 0);		/* dx_root block is 0 */
++		ext4_htree_need_dx_lock(lck);		/* yes, it's DX */
++		ext4_htree_dx_lock(lck, NULL);
+ 	}
+ 	hash = hinfo.hash;
+ 	do {
+@@ -1086,7 +1349,7 @@ static struct buffer_head * ext4_dx_find
+ 		brelse(bh);
+ 		/* Check to see if we should continue to search */
+ 		retval = ext4_htree_next_block(dir, hash, frame,
+-					       frames, NULL);
++					       frames, NULL, lck);
+ 		if (retval < 0) {
+ 			ext4_warning(sb, __func__,
+ 			     "error reading index page in directory #%lu",
+@@ -1112,7 +1375,7 @@ static struct dentry *ext4_lookup(struct
+ 	if (dentry->d_name.len > EXT4_NAME_LEN)
+ 		return ERR_PTR(-ENAMETOOLONG);
+ 
+-	bh = ext4_find_entry(dir, &dentry->d_name, &de);
++	bh = ext4_find_entry(dir, &dentry->d_name, &de, NULL);
+ 	inode = NULL;
+ 	if (bh) {
+ 		__u32 ino = le32_to_cpu(de->inode);
+@@ -1181,7 +1444,7 @@ struct dentry *ext4_get_parent(struct de
+ 	struct ext4_dir_entry_2 * de;
+ 	struct buffer_head *bh;
+ 
+-	bh = ext4_find_entry(child->d_inode, &dotdot, &de);
++	bh = ext4_find_entry(child->d_inode, &dotdot, &de, NULL);
+ 	inode = NULL;
+ 	if (!bh)
+ 		return ERR_PTR(-ENOENT);
+@@ -1270,8 +1533,9 @@ static struct ext4_dir_entry_2* dx_pack_
+  * Returns pointer to de in block into which the new entry will be inserted.
+  */
+ static struct ext4_dir_entry_2 *do_split(handle_t *handle, struct inode *dir,
+-			struct buffer_head **bh,struct dx_frame *frame,
+-			struct dx_hash_info *hinfo, int *error)
++			struct buffer_head **bh, struct dx_frame *frames,
++			struct dx_frame *frame, struct dx_hash_info *hinfo,
++			htree_lock_t *lck, int *error)
+ {
+ 	unsigned blocksize = dir->i_sb->s_blocksize;
+ 	unsigned count, continued;
+@@ -1343,7 +1607,19 @@ static struct ext4_dir_entry_2 *do_split
+ 		swap(*bh, bh2);
+ 		de = de2;
+ 	}
+-	dx_insert_block(frame, hash2 + continued, newblock);
++	ext4_htree_spin_lock(lck, frame > frames ? (frame - 1)->at : NULL,
++			     frame->at); /* notify block is being changed */
++	dx_insert_block(frame, hash2 + continued, newblock); /* visible now */
++	ext4_htree_spin_unlock(lck);
++
++	if (hinfo->hash >= hash2 && !ext4_htree_safe_locked(lck)) {
++		/* NB: new block is already visible to other threads, so it's
++		 * possible to get ENOSPC again in later add_dirent_to_buf */
++		ext4_htree_de_unlock(lck);
++		ext4_htree_de_lock(lck, frame->at + 1);
++	}
++	ext4_htree_dx_unlock(lck);
++
+ 	err = ext4_handle_dirty_metadata(handle, dir, bh2);
+ 	if (err)
+ 		goto journal_error;
+@@ -1460,11 +1736,12 @@ static int add_dirent_to_buf(handle_t *h
+ 	 * happen is that the times are slightly out of date
+ 	 * and/or different from the directory change time.
+ 	 */
+-	if (!IS_NOCMTIME(dir))
++	if (!IS_NOCMTIME(dir)) {
+ 		dir->i_mtime = dir->i_ctime = ext4_current_time(dir);
++		ext4_mark_inode_dirty(handle, dir);
++	}
+ 	ext4_update_dx_flag(dir);
+-	dir->i_version++;
+-	ext4_mark_inode_dirty(handle, dir);
++	inode_inc_iversion(dir);
+ 	BUFFER_TRACE(bh, "call ext4_handle_dirty_metadata");
+ 	err = ext4_handle_dirty_metadata(handle, dir, bh);
+ 	if (err)
+@@ -1484,7 +1761,7 @@ static int make_indexed_dir(handle_t *ha
+ 	const char	*name = dentry->d_name.name;
+ 	int		namelen = dentry->d_name.len;
+ 	struct buffer_head *bh2;
+-	struct dx_frame	frames[2], *frame;
++	struct dx_frame	frames[EXT4_HTREE_LEVEL], *frame;
+ 	struct dx_entry *entries;
+ 	struct ext4_dir_entry_2 *de, *de2, *dot_de, *dotdot_de;
+ 	char		*data1, *top;
+@@ -1563,7 +1840,7 @@ static int make_indexed_dir(handle_t *ha
+ 	frame->at = entries;
+ 	frame->bh = bh;
+ 	bh = bh2;
+-	de = do_split(handle,dir, &bh, frame, &hinfo, &retval);
++	de = do_split(handle,dir, &bh, frames, frame, &hinfo, NULL, &retval);
+ 	dx_release (frames);
+ 	if (!(de))
+ 		return retval;
+@@ -1660,7 +1937,7 @@ out:
+  * the entry, as someone else might have used it while you slept.
+  */
+ int ext4_add_entry(handle_t *handle, struct dentry *dentry,
+-		   struct inode *inode)
++		   struct inode *inode, htree_lock_t *lck)
+ {
+ 	struct inode *dir = dentry->d_parent->d_inode;
+ 	struct buffer_head *bh;
+@@ -1679,9 +1956,10 @@ int ext4_add_entry(handle_t *handle, str
+ 		if (dentry->d_name.len == 2 &&
+ 		    memcmp(dentry->d_name.name, "..", 2) == 0)
+ 			return ext4_update_dotdot(handle, dentry, inode);
+-		retval = ext4_dx_add_entry(handle, dentry, inode);
++		retval = ext4_dx_add_entry(handle, dentry, inode, lck);
+ 		if (!retval || (retval != ERR_BAD_DX_DIR))
+ 			return retval;
++		ext4_htree_safe_relock(lck);
+ 		EXT4_I(dir)->i_flags &= ~EXT4_INDEX_FL;
+ 		dx_fallback++;
+ 		ext4_mark_inode_dirty(handle, dir);
+@@ -1714,18 +1992,20 @@ EXPORT_SYMBOL(ext4_add_entry);
+  * Returns 0 for success, or a negative error value
+  */
+ static int ext4_dx_add_entry(handle_t *handle, struct dentry *dentry,
+-			     struct inode *inode)
++			     struct inode *inode, htree_lock_t *lck)
+ {
+-	struct dx_frame frames[2], *frame;
++	struct dx_frame frames[EXT4_HTREE_LEVEL], *frame;
+ 	struct dx_entry *entries, *at;
+ 	struct dx_hash_info hinfo;
+ 	struct buffer_head *bh;
+ 	struct inode *dir = dentry->d_parent->d_inode;
+ 	struct super_block *sb = dir->i_sb;
+ 	struct ext4_dir_entry_2 *de;
++	int restart = 0;
+ 	int err;
+ 
+-	frame = dx_probe(&dentry->d_name, dir, &hinfo, frames, &err);
++again:
++	frame = dx_probe(&dentry->d_name, dir, &hinfo, frames, lck, &err);
+ 	if (!frame)
+ 		return err;
+ 	entries = frame->entries;
+@@ -1734,11 +2014,6 @@ static int ext4_dx_add_entry(handle_t *h
+ 	if (!(bh = ext4_bread(handle,dir, dx_get_block(frame->at), 0, &err)))
+ 		goto cleanup;
+ 
+-	BUFFER_TRACE(bh, "get_write_access");
+-	err = ext4_journal_get_write_access(handle, bh);
+-	if (err)
+-		goto journal_error;
+-
+ 	err = add_dirent_to_buf(handle, dentry, inode, NULL, bh);
+ 	if (err != -ENOSPC) {
+ 		bh = NULL;
+@@ -1751,19 +2026,35 @@ static int ext4_dx_add_entry(handle_t *h
+ 	/* Need to split index? */
+ 	if (dx_get_count(entries) == dx_get_limit(entries)) {
+ 		ext4_lblk_t newblock;
+-		unsigned icount = dx_get_count(entries);
+-		int levels = frame - frames;
++		int levels = frame - frames + 1;
++		unsigned icount;
++		int add_level = 1;
+ 		struct dx_entry *entries2;
+ 		struct dx_node *node2;
+ 		struct buffer_head *bh2;
+ 
+-		if (levels && (dx_get_count(frames->entries) ==
+-			       dx_get_limit(frames->entries))) {
+-			ext4_warning(sb, __func__,
+-				     "Directory index full!");
++		if (!ext4_htree_safe_locked(lck)) { /* retry with EX lock */
++			ext4_htree_safe_relock(lck);
++			restart = 1;
++			goto cleanup;
++		}
++		while (frame > frames) {
++			if (dx_get_count((frame - 1)->entries) <
++			    dx_get_limit((frame - 1)->entries)) {
++				add_level = 0;
++				break;
++			}
++			frame--; /* split higher index block */
++			at = frame->at;
++			entries = frame->entries;
++			restart = 1;
++		}
++		if (add_level && levels == EXT4_HTREE_LEVEL) {
++			ext4_warning(sb, __func__, "Directory index full!");
+ 			err = -ENOSPC;
+ 			goto cleanup;
+ 		}
++		icount = dx_get_count(entries);
+ 		bh2 = ext4_append (handle, dir, &newblock, &err);
+ 		if (!(bh2))
+ 			goto cleanup;
+@@ -1776,7 +2067,7 @@ static int ext4_dx_add_entry(handle_t *h
+ 		err = ext4_journal_get_write_access(handle, frame->bh);
+ 		if (err)
+ 			goto journal_error;
+-		if (levels) {
++		if (!add_level) {
+ 			unsigned icount1 = icount/2, icount2 = icount - icount1;
+ 			unsigned hash2 = dx_get_hash(entries + icount1);
+ 			dxtrace(printk(KERN_DEBUG "Split index %i/%i\n",
+@@ -1784,7 +2075,7 @@ static int ext4_dx_add_entry(handle_t *h
+ 
+ 			BUFFER_TRACE(frame->bh, "get_write_access"); /* index root */
+ 			err = ext4_journal_get_write_access(handle,
+-							     frames[0].bh);
++							    (frame - 1)->bh);
+ 			if (err)
+ 				goto journal_error;
+ 
+@@ -1800,18 +2091,24 @@ static int ext4_dx_add_entry(handle_t *h
+ 				frame->entries = entries = entries2;
+ 				swap(frame->bh, bh2);
+ 			}
+-			dx_insert_block(frames + 0, hash2, newblock);
+-			dxtrace(dx_show_index("node", frames[1].entries));
++			dx_insert_block((frame - 1), hash2, newblock);
++			dxtrace(dx_show_index("node", frame->entries));
+ 			dxtrace(dx_show_index("node",
+ 			       ((struct dx_node *) bh2->b_data)->entries));
+ 			err = ext4_handle_dirty_metadata(handle, inode, bh2);
+ 			if (err)
+ 				goto journal_error;
+ 			brelse (bh2);
++			ext4_handle_dirty_metadata(handle, inode,
++						   (frame - 1)->bh);
++			if (restart) {
++				ext4_handle_dirty_metadata(handle, inode,
++							   frame->bh);
++				goto cleanup;
++			}
+ 		} else {
+ 			struct dx_root_info * info;
+-			dxtrace(printk(KERN_DEBUG
+-				       "Creating second level index...\n"));
++
+ 			memcpy((char *) entries2, (char *) entries,
+ 			       icount * sizeof(struct dx_entry));
+ 			dx_set_limit(entries2, dx_node_limit(dir));
+@@ -1821,33 +2118,55 @@ static int ext4_dx_add_entry(handle_t *h
+ 			dx_set_block(entries + 0, newblock);
+ 			info = dx_get_dx_info((struct ext4_dir_entry_2*)
+ 					frames[0].bh->b_data);
+-			info->indirect_levels = 1;
++			info->indirect_levels += 1;
++			dxtrace(printk(KERN_DEBUG
++				       "Creating %d level index...\n",
++				       info->indirect_levels));
++			ext4_handle_dirty_metadata(handle, inode, frame->bh);
++			ext4_handle_dirty_metadata(handle, inode, bh2);
++			brelse(bh2);
++			restart = 1;
++			goto cleanup;
++		}
++	} else if (!ext4_htree_dx_locked(lck)) {
++		ext4_htree_lock_data_t *ld = ext4_htree_lock_data(lck);
+ 
+-			/* Add new access path frame */
+-			frame = frames + 1;
+-			frame->at = at = at - entries + entries2;
+-			frame->entries = entries = entries2;
+-			frame->bh = bh2;
+-			err = ext4_journal_get_write_access(handle,
+-							     frame->bh);
+-			if (err)
+-				goto journal_error;
++		/* not well protected yet */
++		ext4_htree_need_dx_lock(lck); /* need DX lock to split */
++		at = frame > frames ? (frame - 1)->at : NULL;
++		/* NB: no risk of deadlock because it's just a try.
++		 * NB: we check ld_count for twice, the first time before
++		 * having DX lock, the second time after holding DX lock */
++		if ((ld->ld_count != dx_get_count(entries)) ||
++		    !ext4_htree_dx_lock_try(lck, at) ||
++		    (ld->ld_count != dx_get_count(entries))) {
++			restart = 1;
++			goto cleanup;
+ 		}
+-		ext4_handle_dirty_metadata(handle, inode, frames[0].bh);
++		/* OK, I've got DX lock and nothing changed */
++		frame->at = ld->ld_at;
+ 	}
+-	de = do_split(handle, dir, &bh, frame, &hinfo, &err);
++	de = do_split(handle, dir, &bh, frames, frame, &hinfo, lck, &err);
+ 	if (!de)
+ 		goto cleanup;
++
+ 	err = add_dirent_to_buf(handle, dentry, inode, de, bh);
++	restart = (err == -ENOSPC);
+ 	bh = NULL;
+ 	goto cleanup;
+ 
+ journal_error:
+ 	ext4_std_error(dir->i_sb, err);
+ cleanup:
++	ext4_htree_dx_unlock(lck);
++	ext4_htree_de_unlock(lck);
+ 	if (bh)
+ 		brelse(bh);
+ 	dx_release(frames);
++	if (restart) {
++		restart = 0;
++		goto again;
++	}
+ 	return err;
+ }
+ 
+@@ -1882,7 +2201,7 @@ int ext4_delete_entry(handle_t *handle,
+ 					blocksize);
+ 			else
+ 				de->inode = 0;
+-			dir->i_version++;
++			inode_inc_iversion(dir);
+ 			BUFFER_TRACE(bh, "call ext4_handle_dirty_metadata");
+ 			ext4_handle_dirty_metadata(handle, dir, bh);
+ 			return 0;
+@@ -1926,7 +2245,7 @@ static void ext4_dec_count(handle_t *han
+ static int ext4_add_nondir(handle_t *handle,
+ 		struct dentry *dentry, struct inode *inode)
+ {
+-	int err = ext4_add_entry(handle, dentry, inode);
++	int err = ext4_add_entry(handle, dentry, inode, NULL);
+ 	if (!err) {
+ 		ext4_mark_inode_dirty(handle, inode);
+ 		d_instantiate(dentry, inode);
+@@ -2154,7 +2473,7 @@ retry:
+ 	if (err)
+ 		goto out_stop;
+ 
+-	err = ext4_add_entry(handle, dentry, inode);
++	err = ext4_add_entry(handle, dentry, inode, NULL);
+ 	if (err) {
+ 		clear_nlink(inode);
+ 		unlock_new_inode(inode);
+@@ -2415,7 +2734,7 @@ static int ext4_rmdir(struct inode *dir,
+ 		return PTR_ERR(handle);
+ 
+ 	retval = -ENOENT;
+-	bh = ext4_find_entry(dir, &dentry->d_name, &de);
++	bh = ext4_find_entry(dir, &dentry->d_name, &de, NULL);
+ 	if (!bh)
+ 		goto end_rmdir;
+ 
+@@ -2477,7 +2796,7 @@ static int ext4_unlink(struct inode *dir
+ 		ext4_handle_sync(handle);
+ 
+ 	retval = -ENOENT;
+-	bh = ext4_find_entry(dir, &dentry->d_name, &de);
++	bh = ext4_find_entry(dir, &dentry->d_name, &de, NULL);
+ 	if (!bh)
+ 		goto end_unlink;
+ 
+@@ -2602,7 +2921,7 @@ retry:
+ 	ext4_inc_count(handle, inode);
+ 	atomic_inc(&inode->i_count);
+ 
+-	err = ext4_add_entry(handle, dentry, inode);
++	err = ext4_add_entry(handle, dentry, inode, NULL);
+ 	if (!err) {
+ 		ext4_mark_inode_dirty(handle, inode);
+ 		d_instantiate(dentry, inode);
+@@ -2647,7 +2966,7 @@ static int ext4_rename(struct inode *old
+ 	if (IS_DIRSYNC(old_dir) || IS_DIRSYNC(new_dir))
+ 		ext4_handle_sync(handle);
+ 
+-	old_bh = ext4_find_entry(old_dir, &old_dentry->d_name, &old_de);
++	old_bh = ext4_find_entry(old_dir, &old_dentry->d_name, &old_de, NULL);
+ 	/*
+ 	 *  Check for inode number is _not_ due to possible IO errors.
+ 	 *  We might rmdir the source, keep it as pwd of some process
+@@ -2660,7 +2979,7 @@ static int ext4_rename(struct inode *old
+ 		goto end_rename;
+ 
+ 	new_inode = new_dentry->d_inode;
+-	new_bh = ext4_find_entry(new_dir, &new_dentry->d_name, &new_de);
++	new_bh = ext4_find_entry(new_dir, &new_dentry->d_name, &new_de, NULL);
+ 	if (new_bh) {
+ 		if (!new_inode) {
+ 			brelse(new_bh);
+@@ -2686,7 +3005,7 @@ static int ext4_rename(struct inode *old
+ 			goto end_rename;
+ 	}
+ 	if (!new_bh) {
+-		retval = ext4_add_entry(handle, new_dentry, old_inode);
++		retval = ext4_add_entry(handle, new_dentry, old_inode, NULL);
+ 		if (retval)
+ 			goto end_rename;
+ 	} else {
+@@ -2728,7 +3047,8 @@ static int ext4_rename(struct inode *old
+ 		struct buffer_head *old_bh2;
+ 		struct ext4_dir_entry_2 *old_de2;
+ 
+-		old_bh2 = ext4_find_entry(old_dir, &old_dentry->d_name, &old_de2);
++		old_bh2 = ext4_find_entry(old_dir, &old_dentry->d_name,
++					  &old_de2, NULL);
+ 		if (old_bh2) {
+ 			retval = ext4_delete_entry(handle, old_dir,
+ 						   old_de2, old_bh2);
+--- linux-2.6.18-194.17.1-ldiskfs/fs/ext4/Makefile	2011-01-07 06:03:50.000000000 +0800
++++ linux-2.6.18-194.17.1-ldiskfs-pdirop/fs/ext4/Makefile	2011-02-25 16:37:50.000000000 +0800
+@@ -7,7 +7,7 @@ obj-$(CONFIG_EXT4_FS) += ext4.o
+ ext4-y	:= balloc.o bitmap.o dir.o file.o fsync.o ialloc.o inode.o \
+ 		ioctl.o namei.o super.o symlink.o hash.o resize.o extents.o \
+ 		ext4_jbd2.o migrate.o mballoc.o block_validity.o move_extent.o \
+-		dynlocks.o
++		dynlocks.o htree_lock.o
+ 
+ ext4-$(CONFIG_EXT4_FS_XATTR)		+= xattr.o xattr_user.o xattr_trusted.o
+ ext4-$(CONFIG_EXT4_FS_POSIX_ACL)	+= acl.o
+--- linux-2.6.18-194.17.1-ldiskfs/fs/ext4/ialloc.c	2011-01-07 06:03:50.000000000 +0800
++++ linux-2.6.18-194.17.1-ldiskfs-pdirop/fs/ext4/ialloc.c	2011-03-06 21:53:07.000000000 +0800
+@@ -875,6 +875,8 @@ got_group:
+ 		goto out;
+ 
+ 	for (i = 0; i < ngroups; i++, ino = 0) {
++		int has_wacc = 0;
++
+ 		err = -EIO;
+ 
+ 		gdp = ext4_get_group_desc(sb, group, &group_desc_bh);
+@@ -894,14 +896,20 @@ repeat_in_this_group:
+ 		if (ino < EXT4_INODES_PER_GROUP(sb)) {
+ 
+ 			BUFFER_TRACE(inode_bitmap_bh, "get_write_access");
+-			err = ext4_journal_get_write_access(handle,
++			err = 0;
++			if (!has_wacc) {
++				err = ext4_journal_get_write_access(handle,
+ 							    inode_bitmap_bh);
++			}
+ 			if (err)
+ 				goto fail;
+ 
+ 			BUFFER_TRACE(group_desc_bh, "get_write_access");
+-			err = ext4_journal_get_write_access(handle,
++			if (!has_wacc) {
++				has_wacc = 1;
++				err = ext4_journal_get_write_access(handle,
+ 								group_desc_bh);
++			}
+ 			if (err)
+ 				goto fail;
+ 			if (!ext4_claim_inode(sb, inode_bitmap_bh,
+@@ -919,13 +927,15 @@ repeat_in_this_group:
+ 				goto got;
+ 			}
+ 			/* we lost it */
+-			ext4_handle_release_buffer(handle, inode_bitmap_bh);
+-			ext4_handle_release_buffer(handle, group_desc_bh);
+-
+ 			if (++ino < EXT4_INODES_PER_GROUP(sb))
+ 				goto repeat_in_this_group;
+ 		}
+ 
++		if (has_wacc) {
++			ext4_handle_release_buffer(handle, inode_bitmap_bh);
++			ext4_handle_release_buffer(handle, group_desc_bh);
++		}
++
+ 		/*
+ 		 * This case is possible in concurrent environment.  It is very
+ 		 * rare.  We cannot repeat the find_group_xxx() call because

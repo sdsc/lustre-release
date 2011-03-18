@@ -164,7 +164,7 @@ ksocknal_lib_tunables_fini ()
 #define KSOCKNAL_MAX_BUFFER        (1152*1024)
 
 void
-ksocknal_lib_bind_irq (unsigned int irq)
+ksocknal_lib_bind_irq (unsigned int irq, ksock_sched_t *sched)
 {
         return;
 }
