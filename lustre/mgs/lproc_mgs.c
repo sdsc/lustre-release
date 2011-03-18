@@ -182,7 +182,6 @@ int lproc_mgs_cleanup(struct obd_device *obd)
         }
         lprocfs_free_per_client_stats(obd);
         lprocfs_free_obd_stats(obd);
-        lprocfs_free_md_stats(obd);
 
         return lprocfs_obd_cleanup(obd);
 }
@@ -263,7 +262,8 @@ struct lprocfs_vars lprocfs_mgs_module_vars[] = {
 
 void mgs_counter_incr(struct obd_export *exp, int opcode)
 {
-        lprocfs_counter_incr(exp->exp_obd->obd_stats, opcode);
+        if (exp->exp_obd && exp->exp_obd->obd_stats)
+                lprocfs_counter_incr(exp->exp_obd->obd_stats, opcode);
         if (exp->exp_nid_stats && exp->exp_nid_stats->nid_stats != NULL)
                 lprocfs_counter_incr(exp->exp_nid_stats->nid_stats, opcode);
 }
@@ -281,7 +281,7 @@ void mgs_stats_counter_init(struct lprocfs_stats *stats)
 
 void lprocfs_mgs_init_vars(struct lprocfs_static_vars *lvars)
 {
-    lvars->module_vars  = lprocfs_mgs_module_vars;
-    lvars->obd_vars     = lprocfs_mgs_obd_vars;
+        lvars->module_vars  = lprocfs_mgs_module_vars;
+        lvars->obd_vars     = lprocfs_mgs_obd_vars;
 }
 #endif

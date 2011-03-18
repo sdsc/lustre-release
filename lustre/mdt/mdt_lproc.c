@@ -71,6 +71,7 @@
 enum {
         LPROC_MDT_NR
 };
+
 static const char *mdt_proc_names[LPROC_MDT_NR] = {
 };
 
@@ -90,7 +91,6 @@ int mdt_procfs_init(struct mdt_device *mdt, const char *name)
                 CERROR("Can't init lprocfs, rc %d\n", rc);
                 return rc;
         }
-        ptlrpc_lprocfs_register_obd(obd);
 
         mdt->mdt_proc_entry = obd->obd_proc_entry;
         LASSERT(mdt->mdt_proc_entry != NULL);
@@ -111,10 +111,16 @@ int mdt_procfs_init(struct mdt_device *mdt, const char *name)
                 lprocfs_add_simple(obd->obd_proc_exports_entry,
                                    "clear", lprocfs_nid_stats_clear_read,
                                    lprocfs_nid_stats_clear_write, obd, NULL);
-        rc = lprocfs_alloc_md_stats(obd, LPROC_MDT_LAST);
-        if (rc == 0)
-                mdt_stats_counter_init(obd->md_stats);
+        LASSERT(obd->md_stats == NULL);
+        LASSERT(obd->obd_proc_entry != NULL);
+        LASSERT(obd->md_cntr_base == 0);
 
+        rc = mdt_procfs_alloc_stats(&obd->md_stats, obd->obd_proc_entry, 
+                                    LPROC_MDT_LAST, 0);
+        if (rc == 0) {
+                obd->md_cntr_base = LPROC_MDT_LAST;
+                mdt_stats_counter_init(obd->md_stats);
+        }
         RETURN(rc);
 }
 
@@ -132,8 +138,9 @@ int mdt_procfs_fini(struct mdt_device *mdt)
                 lprocfs_remove_proc_entry("clear", obd->obd_proc_exports_entry);
                 obd->obd_proc_exports_entry = NULL;
         }
-        ptlrpc_lprocfs_unregister_obd(obd);
-        lprocfs_free_md_stats(obd);
+        mdt_procfs_free_stats(obd->md_stats);
+        obd->md_cntr_base = 0;
+        obd->md_stats = NULL;
         lprocfs_obd_cleanup(obd);
 
         RETURN(0);
@@ -809,8 +816,8 @@ static struct lprocfs_vars lprocfs_mdt_module_vars[] = {
 
 void lprocfs_mdt_init_vars(struct lprocfs_static_vars *lvars)
 {
-    lvars->module_vars  = lprocfs_mdt_module_vars;
-    lvars->obd_vars     = lprocfs_mdt_obd_vars;
+        lvars->module_vars  = lprocfs_mdt_module_vars;
+        lvars->obd_vars     = lprocfs_mdt_obd_vars;
 }
 
 void mdt_counter_incr(struct obd_export *exp, int opcode)
