@@ -25,7 +25,7 @@ noinst_SCRIPTS += run_dbench.sh run_IOR.sh recovery-double-scale.sh
 noinst_SCRIPTS += recovery-random-scale.sh parallel-scale.sh metadata-updates.sh
 noinst_SCRIPTS += lustre-rsync-test.sh ost-pools.sh rpc.sh yaml.sh liblustre.sh
 noinst_SCRIPTS += lnet-selftest.sh obdfilter-survey.sh mmp.sh
-noinst_SCRIPTS += sgpdd-survey.sh maloo_upload.sh auster
+noinst_SCRIPTS += sgpdd-survey.sh maloo_upload.sh auster local_meta.sh
 nobase_noinst_SCRIPTS = cfg/local.sh
 nobase_noinst_SCRIPTS += test-groups/regression test-groups/regression-mpi
 nobase_noinst_SCRIPTS += acl/make-tree acl/run cfg/ncli.sh
@@ -55,7 +55,7 @@ noinst_PROGRAMS += small_write multiop ll_sparseness_verify
 noinst_PROGRAMS += ll_sparseness_write mrename ll_dirstripe_verify mkdirmany
 noinst_PROGRAMS += openfilleddirunlink rename_many memhog iopentest1 iopentest2
 noinst_PROGRAMS += mmap_sanity flock_test writemany reads flocks_test
-noinst_PROGRAMS += write_time_limit rwv copytool
+noinst_PROGRAMS += write_time_limit rwv copytool local_meta
 # noinst_PROGRAMS += copy_attr mkdirdeep 
 bin_PROGRAMS = mcreate munlink
 testdir = $(libdir)/lustre/tests
@@ -77,4 +77,6 @@ ll_dirstripe_verify_LDADD= -L$(top_builddir)/lustre/utils -llustreapi
 
 flocks_test_SOURCES=flocks_test.c
 flocks_test_LDADD=-lpthread
+local_meta_SOURCES=local_meta.c
+local_meta_LDADD=-lpthread
 

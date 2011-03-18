@@ -171,11 +171,80 @@ struct mdd_object {
 #endif
 };
 
+/**
+ * Operations need transaction
+ */
+typedef enum {
+        /* dir ops */
+        MDD_TRANS_OPC_CREATE    = 1 << 0,
+        MDD_TRANS_OPC_RENAME    = 1 << 1,
+        MDD_TRANS_OPC_LINK      = 1 << 2,
+        MDD_TRANS_OPC_UNLINK    = 1 << 3,
+        MDD_TRANS_OPC_NMINSERT  = 1 << 4,
+        MDD_TRANS_OPC_NMREMOVE  = 1 << 5,
+        MDD_TRANS_OPC_RENAMETGT = 1 << 6,
+        MDD_TRANS_OPC_CREATEDT  = 1 << 7,
+
+        /* object ops */
+        MDD_TRANS_OPC_ATTRSET   = 1 << 10,
+        MDD_TRANS_OPC_XATTRSET  = 1 << 11,
+        MDD_TRANS_OPC_XATTRDEL  = 1 << 12,
+        MDD_TRANS_OPC_OBJCREATE = 1 << 13,
+        MDD_TRANS_OPC_REFADD    = 1 << 14,
+        MDD_TRANS_OPC_REFDEL    = 1 << 15,
+        MDD_TRANS_OPC_OBJSYNC   = 1 << 16,
+} mdd_trans_opc_t;
+
+/** if it's necessary, expand more operations in the futuren */
+#define MDD_TRANS_OPC_DEFAULT           \
+       (MDD_TRANS_OPC_CREATE    |       \
+        MDD_TRANS_OPC_UNLINK)
+
+typedef struct mdd_create_arg {
+        struct md_object               *mc_pobj;
+        const struct lu_name           *mc_lname;
+        struct md_object               *mc_child;
+        struct md_op_spec              *mc_spec;
+        struct md_attr                 *mc_ma;
+        struct lov_mds_md              *mc_lmm;
+        int                             mc_lmm_size;
+        int                             mc_have_acl;
+} mdd_create_req_t;
+
+typedef struct mdd_unlink_arg {
+        struct md_object               *mu_pobj;
+        struct md_object               *mu_cobj;
+        const struct lu_name           *mu_lname;
+        struct md_attr                 *mu_ma;
+} mdd_unlink_req_t;
+
+typedef struct mdd_trans_req {
+        const struct lu_env            *mtr_env;
+        cfs_list_t                      mtr_link;
+        cfs_waitq_t                     mtr_waitq;
+        mdd_trans_opc_t                 mtr_opc;
+        int                             mtr_cpuid;
+        int                             mtr_rc;
+        union {
+                mdd_create_req_t        create;
+                mdd_unlink_req_t        unlink;
+        }                               mtr_req;
+} mdd_trans_req_t;
+
 struct mdd_thread_info {
         struct txn_param          mti_param;
         struct lu_fid             mti_fid;
         struct lu_fid             mti_fid2; /* used for be & cpu converting */
+        /**
+         * only be used by MDD interfaces, can be passed into local MDD APIs
+         */
         struct lu_attr            mti_la;
+        /**
+         * can be used anyway, can't be pased into local APIs because it could
+         * be overwriten by anyone.
+         */
+        struct lu_attr            mti_la_tmp;
+        /** using for setattr */
         struct lu_attr            mti_la_for_fix;
         struct md_attr            mti_ma;
         struct obd_info           mti_oi;
@@ -193,6 +262,7 @@ struct mdd_thread_info {
         int                       mti_max_cookie_size;
         struct dt_object_format   mti_dof;
         struct obd_quotactl       mti_oqctl;
+        mdd_trans_req_t           mti_trans_req;
 };
 
 extern const char orph_index_name[];
@@ -245,11 +315,10 @@ int mdd_attr_set_internal(const struct lu_env *env,
                           struct lu_attr *attr,
                           struct thandle *handle,
                           int needacl);
-int mdd_attr_check_set_internal(const struct lu_env *env,
-                                struct mdd_object *obj,
-                                struct lu_attr *attr,
-                                struct thandle *handle,
-                                int needacl);
+int mdd_cmtime_check_set_internal(const struct lu_env *env,
+                                  struct mdd_object *obj,
+                                  struct lu_attr *la_org, struct lu_attr *la,
+                                  struct thandle *handle);
 int mdd_object_kill(const struct lu_env *env, struct mdd_object *obj,
                     struct md_attr *ma);
 int mdd_iattr_get(const struct lu_env *env, struct mdd_object *mdd_obj,
@@ -263,11 +332,6 @@ int mdd_object_create_internal(const struct lu_env *env, struct mdd_object *p,
                                struct mdd_object *c, struct md_attr *ma,
                                struct thandle *handle,
                                const struct md_op_spec *spec);
-int mdd_attr_check_set_internal_locked(const struct lu_env *env,
-                                       struct mdd_object *obj,
-                                       struct lu_attr *attr,
-                                       struct thandle *handle,
-                                       int needacl);
 int mdd_lmm_get_locked(const struct lu_env *env, struct mdd_object *mdd_obj,
                        struct md_attr *ma);
 
@@ -301,14 +365,18 @@ void __mdd_ref_add(const struct lu_env *env, struct mdd_object *obj,
                    struct thandle *handle);
 void __mdd_ref_del(const struct lu_env *env, struct mdd_object *obj,
                    struct thandle *handle, int is_dot);
-int mdd_may_create(const struct lu_env *env, struct mdd_object *pobj,
+int mdd_may_create(const struct lu_env *env,
+                   struct mdd_object *pobj, struct lu_attr *la_pobj,
                    struct mdd_object *cobj, int check_perm, int check_nlink);
-int mdd_may_unlink(const struct lu_env *env, struct mdd_object *pobj,
+int mdd_may_unlink(const struct lu_env *env,
+                   struct mdd_object *pobj, struct lu_attr *la_pobj,
                    const struct md_attr *ma);
-int mdd_may_delete(const struct lu_env *env, struct mdd_object *pobj,
+int mdd_may_delete(const struct lu_env *env,
+                   struct mdd_object *pobj, struct lu_attr *la_pobj,
                    struct mdd_object *cobj, struct md_attr *ma,
                    int check_perm, int check_empty);
-int mdd_unlink_sanity_check(const struct lu_env *env, struct mdd_object *pobj,
+int mdd_unlink_sanity_check(const struct lu_env *env,
+                            struct mdd_object *pobj, struct lu_attr *la_pobj,
                             struct mdd_object *cobj, struct md_attr *ma);
 int mdd_finish_unlink(const struct lu_env *env, struct mdd_object *obj,
                       struct md_attr *ma, struct thandle *th);
@@ -316,7 +384,8 @@ int mdd_object_initialize(const struct lu_env *env, const struct lu_fid *pfid,
                           const struct lu_name *lname, struct mdd_object *child,
                           struct md_attr *ma, struct thandle *handle,
                           const struct md_op_spec *spec);
-int mdd_link_sanity_check(const struct lu_env *env, struct mdd_object *tgt_obj,
+int mdd_link_sanity_check(const struct lu_env *env,
+                          struct mdd_object *tgt_obj, struct lu_attr *la_tobj,
                           const struct lu_name *lname, struct mdd_object *src_obj);
 int mdd_is_root(struct mdd_device *mdd, const struct lu_fid *fid);
 int mdd_lookup(const struct lu_env *env,
@@ -762,5 +831,11 @@ static inline struct obd_capa *mdo_capa_get(const struct lu_env *env,
         LASSERT(mdd_object_exists(obj));
         return next->do_ops->do_capa_get(env, next, old, opc);
 }
+
+extern int mdd_trans_req_init(const struct lu_env *env, mdd_trans_req_t *req,
+                              const struct lu_fid *pfid, mdd_trans_opc_t opc);
+extern int mdd_trans_req_run(mdd_trans_req_t *req);
+extern int mdd_trans_mod_init(void);
+extern void mdd_trans_mod_fini(void);
 
 #endif

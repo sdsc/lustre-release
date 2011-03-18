@@ -135,9 +135,6 @@ struct lc_watchdog *lc_watchdog_add(int time,
 
 /* Enables a watchdog and resets its timer. */
 void lc_watchdog_touch(struct lc_watchdog *lcw, int timeout);
-#define CFS_GET_TIMEOUT(svc) (max_t(int, obd_timeout,                   \
-                          AT_OFF ? 0 : at_get(&svc->srv_at_estimate)) * \
-                          svc->srv_watchdog_factor)
 
 /* Disable a watchdog; touch it to restart it. */
 void lc_watchdog_disable(struct lc_watchdog *lcw);
@@ -198,8 +195,9 @@ enum cfs_alloc_flags {
         /* don't report allocation failure to the console */
         CFS_ALLOC_NOWARN = 0x20,
         /* standard allocator flag combination */
-        CFS_ALLOC_STD    = CFS_ALLOC_FS | CFS_ALLOC_IO,
-        CFS_ALLOC_USER   = CFS_ALLOC_WAIT | CFS_ALLOC_FS | CFS_ALLOC_IO,
+        CFS_ALLOC_STD    = CFS_ALLOC_WAIT | CFS_ALLOC_IO | CFS_ALLOC_ZERO,
+        CFS_ALLOC_USER   = CFS_ALLOC_WAIT | CFS_ALLOC_FS | CFS_ALLOC_IO | \
+                           CFS_ALLOC_ZERO,
 };
 
 /* flags for cfs_page_alloc() in addition to enum cfs_alloc_flags */
@@ -207,7 +205,8 @@ enum cfs_alloc_page_flags {
         /* allow to return page beyond KVM. It has to be mapped into KVM by
          * cfs_page_map(); */
         CFS_ALLOC_HIGH   = 0x40,
-        CFS_ALLOC_HIGHUSER = CFS_ALLOC_WAIT | CFS_ALLOC_FS | CFS_ALLOC_IO | CFS_ALLOC_HIGH,
+        CFS_ALLOC_HIGHUSER = CFS_ALLOC_WAIT | CFS_ALLOC_FS | CFS_ALLOC_IO | \
+                             CFS_ALLOC_HIGH,
 };
 
 /*
@@ -300,6 +299,7 @@ void cfs_srand(unsigned int, unsigned int);
 void cfs_get_random_bytes(void *buf, int size);
 
 #include <libcfs/libcfs_debug.h>
+#include <libcfs/libcfs_cpu.h>
 #include <libcfs/libcfs_private.h>
 #include <libcfs/libcfs_ioctl.h>
 #include <libcfs/libcfs_prim.h>

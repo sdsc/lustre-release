@@ -405,11 +405,12 @@ ksocknal_lib_tunables_fini ()
 #endif /* # if CONFIG_SYSCTL && !CFS_SYSFS_MODULE_PARM */
 
 void
-ksocknal_lib_bind_irq (unsigned int irq)
+ksocknal_lib_bind_irq (unsigned int irq, ksock_sched_t *kss)
 {
 #if (defined(CONFIG_SMP) && defined(CPU_AFFINITY))
         int              bind;
-        int              cpu;
+        int              hwcpu;
+        int              nht;
         char             cmdline[64];
         ksock_irqinfo_t *info;
         char            *argv[] = {"/bin/sh",
@@ -437,12 +438,18 @@ ksocknal_lib_bind_irq (unsigned int irq)
         if (!bind)                              /* bound already */
                 return;
 
-        cpu = ksocknal_irqsched2cpu(info->ksni_sched);
+        LASSERT(cfs_cpu_node_weight(kss->kss_cpuid) > 0);
+        nht = 0;
+        cfs_hw_cpus_for_each(hwcpu, cfs_cpu_hwmask(kss->kss_cpuid)) {
+                if (++nht == cfs_hw_cpu_hts())
+                        break;
+        }
+
         snprintf (cmdline, sizeof (cmdline),
-                  "echo %d > /proc/irq/%u/smp_affinity", 1 << cpu, irq);
+                  "echo %d > /proc/irq/%u/smp_affinity", 1 << hwcpu, irq);
 
         LCONSOLE_INFO("Binding irq %u to CPU %d with cmd: %s\n",
-                      irq, cpu, cmdline);
+                      irq, hwcpu, cmdline);
 
         /* FIXME: Find a better method of setting IRQ affinity...
          */
@@ -1268,23 +1275,4 @@ ksocknal_lib_memory_pressure(ksock_conn_t *conn)
         cfs_spin_unlock_bh (&sched->kss_lock);
 
         return rc;
-}
-
-int
-ksocknal_lib_bind_thread_to_cpu(int id)
-{
-#if defined(CONFIG_SMP) && defined(CPU_AFFINITY)
-        id = ksocknal_sched2cpu(id);
-        if (cpu_online(id)) {
-                cpumask_t m = CPU_MASK_NONE;
-                cpu_set(id, m);
-                set_cpus_allowed(current, m);
-                return 0;
-        }
-
-        return -1;
-
-#else
-        return 0;
-#endif
 }

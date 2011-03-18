@@ -201,7 +201,7 @@ extern void  cfs_free(void *addr);
 
 #define kmalloc cfs_alloc
 
-extern void *cfs_alloc_large(size_t nr_bytes);
+extern void *cfs_alloc_large(size_t nr_bytes, unsigned flags);
 extern void  cfs_free_large(void *addr);
 
 /*

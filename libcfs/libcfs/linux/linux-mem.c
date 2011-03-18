@@ -41,7 +41,7 @@
 #include <linux/highmem.h>
 #include <libcfs/libcfs.h>
 
-static unsigned int cfs_alloc_flags_to_gfp(u_int32_t flags)
+static unsigned int cfs_alloc_flags_to_gfp(unsigned flags)
 {
 	unsigned int mflags = 0;
 
@@ -61,14 +61,11 @@ static unsigned int cfs_alloc_flags_to_gfp(u_int32_t flags)
 }
 
 void *
-cfs_alloc(size_t nr_bytes, u_int32_t flags)
+ cfs_alloc(size_t nr_bytes, unsigned flags)
 {
-	void *ptr = NULL;
-
-	ptr = kmalloc(nr_bytes, cfs_alloc_flags_to_gfp(flags));
-	if (ptr != NULL && (flags & CFS_ALLOC_ZERO))
-		memset(ptr, 0, nr_bytes);
-	return ptr;
+        return ((flags & CFS_ALLOC_ZERO) != 0) ?
+               kzalloc(nr_bytes, cfs_alloc_flags_to_gfp(flags)) :
+               kmalloc(nr_bytes, cfs_alloc_flags_to_gfp(flags));
 }
 
 void
@@ -78,9 +75,13 @@ cfs_free(void *addr)
 }
 
 void *
-cfs_alloc_large(size_t nr_bytes)
+cfs_alloc_large(size_t nr_bytes, unsigned flags)
 {
-	return vmalloc(nr_bytes);
+        void *ptr = vmalloc(nr_bytes);
+
+        if (ptr != NULL && (flags & CFS_ALLOC_ZERO) != 0)
+                memset(ptr, 0, nr_bytes);
+        return ptr;
 }
 
 void
@@ -88,6 +89,75 @@ cfs_free_large(void *addr)
 {
 	vfree(addr);
 }
+
+static int
+cfs_cpu_hwnode(cfs_cpumap_t *cpumap, int cpunode)
+{
+        int     hwcpu  = -1;
+        int     hwnode;
+
+        if (cpumap == NULL) /* no cpumap, cpunode is HW cpu id */
+                hwcpu = cpunode;
+        else if (cpunode >= 0 && cpunode < cpumap->cpm_node_num)
+                hwcpu = first_cpu(cpumap->cpm_nodes[cpunode].cpn_mask);
+
+        if (hwcpu < 0 && hwcpu >= NR_CPUS)
+                return -1;
+
+        hwnode = cpu_to_node(hwcpu);
+        return node_online(hwnode) ? hwnode : -1;
+}
+
+void *
+__cfs_node_alloc(cfs_cpumap_t *cpumap, int cpunode,
+                 size_t nr_bytes, unsigned flags)
+{
+        unsigned int  f = cfs_alloc_flags_to_gfp(flags);
+        void         *ptr;
+
+        ptr = kmalloc_node(nr_bytes, f, cfs_cpu_hwnode(cpumap, cpunode));
+        if ((flags & CFS_ALLOC_ZERO) != 0)
+                memset(ptr, 0, nr_bytes);
+        return ptr;
+}
+
+EXPORT_SYMBOL(__cfs_node_alloc);
+
+void *
+__cfs_node_alloc_large(cfs_cpumap_t *cpumap, int cpunode,
+                       size_t nr_bytes, unsigned flags)
+{
+        void         *ptr;
+
+        ptr = vmalloc_node(nr_bytes, cfs_cpu_hwnode(cpumap, cpunode));
+        if ((flags & CFS_ALLOC_ZERO) != 0)
+                memset(ptr, 0, nr_bytes);
+        return ptr;
+}
+
+EXPORT_SYMBOL(__cfs_node_alloc_large);
+
+void *
+__cfs_node_alloc_aligned(cfs_cpumap_t *cpumap, int cpunode, unsigned int size)
+{
+        void   *var;
+        int     rsize = cfs_cacheline_align(size);
+
+        /* all the general caches are L1 aligned */
+        var = __cfs_node_alloc(cpumap, cpunode, rsize,
+                               CFS_ALLOC_IO | CFS_ALLOC_ZERO);
+        return var;
+}
+
+EXPORT_SYMBOL(__cfs_node_alloc_aligned);
+
+void
+cfs_node_free_aligned(void *ptr, unsigned int size)
+{
+        kfree(ptr);
+}
+
+EXPORT_SYMBOL(cfs_node_free_aligned);
 
 cfs_page_t *cfs_alloc_page(unsigned int flags)
 {
@@ -102,6 +172,15 @@ void cfs_free_page(cfs_page_t *page)
 {
         __free_page(page);
 }
+
+cfs_page_t *__cfs_node_alloc_page(cfs_cpumap_t *cpumap, int cpunode,
+                                   unsigned int flags)
+{
+        return alloc_pages_node(cfs_cpu_hwnode(cpumap, cpunode),
+                                cfs_alloc_flags_to_gfp(flags), 0);
+}
+
+EXPORT_SYMBOL(__cfs_node_alloc_page);
 
 cfs_mem_cache_t *
 cfs_mem_cache_create (const char *name, size_t size, size_t offset,
@@ -160,8 +239,8 @@ int cfs_mem_is_in_cache(const void *addr, const cfs_mem_cache_t *kmem)
         return 1;
 #endif
 }
-EXPORT_SYMBOL(cfs_mem_is_in_cache);
 
+EXPORT_SYMBOL(cfs_mem_is_in_cache);
 
 EXPORT_SYMBOL(cfs_alloc);
 EXPORT_SYMBOL(cfs_free);
