@@ -103,25 +103,6 @@ static unsigned long mdt_num_threads;
 static unsigned long mdt_min_threads;
 static unsigned long mdt_max_threads;
 
-/* ptlrpc request handler for MDT. All handlers are
- * grouped into several slices - struct mdt_opc_slice,
- * and stored in an array - mdt_handlers[].
- */
-struct mdt_handler {
-        /* The name of this handler. */
-        const char *mh_name;
-        /* Fail id for this handler, checked at the beginning of this handler*/
-        int         mh_fail_id;
-        /* Operation code for this handler */
-        __u32       mh_opc;
-        /* flags are listed in enum mdt_handler_flags below. */
-        __u32       mh_flags;
-        /* The actual handler function to execute. */
-        int (*mh_act)(struct mdt_thread_info *info);
-        /* Request format for this request. */
-        const struct req_format *mh_fmt;
-};
-
 enum mdt_handler_flags {
         /*
          * struct mdt_body is passed in the incoming message, and object
@@ -2960,6 +2941,18 @@ static int mdt_handle0(struct ptlrpc_request *req,
                         h = mdt_handler_find(lustre_msg_get_opc(msg),
                                              supported);
                         if (likely(h != NULL)) {
+                                struct obd_export *exp = req->rq_export;
+
+                                if (likely(exp != NULL) &&
+                                    likely(exp->exp_obd) &&
+                                    likely(exp->exp_obd->md_stats) &&
+                                    h->mh_pos >= 0)
+                                {
+                                        lprocfs_counter_incr(
+                                                exp->exp_obd->md_stats,
+                                                LPROC_MDT_LAST + h->mh_pos);
+                                }
+
                                 rc = mdt_req_handle(info, h, req);
                         } else {
                                 CERROR("The unsupported opc: 0x%x\n",
@@ -5795,109 +5788,113 @@ static void __exit mdt_mod_exit(void)
         class_unregister_type(LUSTRE_MDT_NAME);
 }
 
-
-#define DEF_HNDL(prefix, base, suffix, flags, opc, fn, fmt)             \
+#define DEF_HNDL(prefix, base, suffix, flags, opc, fn, stat, fmt)       \
 [prefix ## _ ## opc - prefix ## _ ## base] = {                          \
         .mh_name    = #opc,                                             \
+        .mh_stat    = #stat,                                            \
         .mh_fail_id = OBD_FAIL_ ## prefix ## _  ## opc ## suffix,       \
         .mh_opc     = prefix ## _  ## opc,                              \
         .mh_flags   = flags,                                            \
         .mh_act     = fn,                                               \
-        .mh_fmt     = fmt                                               \
+        .mh_fmt     = fmt,                                              \
+        .mh_pos     = -1,                                               \
 }
 
-#define DEF_MDT_HNDL(flags, name, fn, fmt)                                  \
-        DEF_HNDL(MDS, GETATTR, _NET, flags, name, fn, fmt)
+#define DEF_MDT_HNDL(flags, name, fn, stat, fmt)                \
+        DEF_HNDL(MDS, GETATTR, _NET, flags, name, fn, stat, fmt)
 
-#define DEF_SEQ_HNDL(flags, name, fn, fmt)                      \
-        DEF_HNDL(SEQ, QUERY, _NET, flags, name, fn, fmt)
+#define DEF_SEQ_HNDL(flags, name, fn, stat, fmt)                \
+        DEF_HNDL(SEQ, QUERY, _NET, flags, name, fn, stat, fmt)
 
-#define DEF_FLD_HNDL(flags, name, fn, fmt)                      \
-        DEF_HNDL(FLD, QUERY, _NET, flags, name, fn, fmt)
+#define DEF_FLD_HNDL(flags, name, fn, stat, fmt)                \
+        DEF_HNDL(FLD, QUERY, _NET, flags, name, fn, stat, fmt)
 /*
  * Request with a format known in advance
  */
-#define DEF_MDT_HNDL_F(flags, name, fn)                                 \
-        DEF_HNDL(MDS, GETATTR, _NET, flags, name, fn, &RQF_MDS_ ## name)
+#define DEF_MDT_HNDL_F(flags, name, fn, stat)                          \
+        DEF_HNDL(MDS, GETATTR, _NET, flags, name, fn, stat, &RQF_MDS_ ## name)
 
-#define DEF_SEQ_HNDL_F(flags, name, fn)                                 \
-        DEF_HNDL(SEQ, QUERY, _NET, flags, name, fn, &RQF_SEQ_ ## name)
+#define DEF_SEQ_HNDL_F(flags, name, fn, stat)                          \
+        DEF_HNDL(SEQ, QUERY, _NET, flags, name, fn, stat, &RQF_SEQ_ ## name)
 
-#define DEF_FLD_HNDL_F(flags, name, fn)                                 \
-        DEF_HNDL(FLD, QUERY, _NET, flags, name, fn, &RQF_FLD_ ## name)
+#define DEF_FLD_HNDL_F(flags, name, fn, stat)                          \
+        DEF_HNDL(FLD, QUERY, _NET, flags, name, fn, stat, &RQF_FLD_ ## name)
 /*
  * Request with a format we do not yet know
  */
-#define DEF_MDT_HNDL_0(flags, name, fn)                                 \
-        DEF_HNDL(MDS, GETATTR, _NET, flags, name, fn, NULL)
+#define DEF_MDT_HNDL_0(flags, name, fn, stat)                          \
+        DEF_HNDL(MDS, GETATTR, _NET, flags, name, fn, stat, NULL)
 
 static struct mdt_handler mdt_mds_ops[] = {
-DEF_MDT_HNDL_F(0,                         CONNECT,      mdt_connect),
-DEF_MDT_HNDL_F(0,                         DISCONNECT,   mdt_disconnect),
-DEF_MDT_HNDL  (0,                         SET_INFO,     mdt_set_info,
-                                                             &RQF_OBD_SET_INFO),
-DEF_MDT_HNDL_F(0,                         GET_INFO,     mdt_get_info),
-DEF_MDT_HNDL_F(0           |HABEO_REFERO, GETSTATUS,    mdt_getstatus),
-DEF_MDT_HNDL_F(HABEO_CORPUS,              GETATTR,      mdt_getattr),
-DEF_MDT_HNDL_F(HABEO_CORPUS|HABEO_REFERO, GETATTR_NAME, mdt_getattr_name),
-DEF_MDT_HNDL_F(HABEO_CORPUS,              GETXATTR,     mdt_getxattr),
-DEF_MDT_HNDL_F(0           |HABEO_REFERO, STATFS,       mdt_statfs),
-DEF_MDT_HNDL_F(0           |MUTABOR,      REINT,        mdt_reint),
-DEF_MDT_HNDL_F(HABEO_CORPUS,              CLOSE,        mdt_close),
-DEF_MDT_HNDL_F(HABEO_CORPUS,              DONE_WRITING, mdt_done_writing),
-DEF_MDT_HNDL_F(0           |HABEO_REFERO, PIN,          mdt_pin),
-DEF_MDT_HNDL_0(0,                         SYNC,         mdt_sync),
-DEF_MDT_HNDL_F(HABEO_CORPUS|HABEO_REFERO, IS_SUBDIR,    mdt_is_subdir),
+DEF_MDT_HNDL_F(0,                         CONNECT,      mdt_connect,      connect),
+DEF_MDT_HNDL_F(0,                         DISCONNECT,   mdt_disconnect,   disconnect),
+
+DEF_MDT_HNDL  (0,                         SET_INFO,     mdt_set_info,     set_info,
+               &RQF_OBD_SET_INFO),
+
+DEF_MDT_HNDL_F(0,                         GET_INFO,     mdt_get_info,     get_info),
+DEF_MDT_HNDL_F(0           |HABEO_REFERO, GETSTATUS,    mdt_getstatus,    getstatus),
+DEF_MDT_HNDL_F(HABEO_CORPUS,              GETATTR,      mdt_getattr,      getattr),
+DEF_MDT_HNDL_F(HABEO_CORPUS|HABEO_REFERO, GETATTR_NAME, mdt_getattr_name, getattr_name),
+DEF_MDT_HNDL_F(HABEO_CORPUS,              GETXATTR,     mdt_getxattr,     getxattr),
+DEF_MDT_HNDL_F(0           |HABEO_REFERO, STATFS,       mdt_statfs,       statfs),
+DEF_MDT_HNDL_F(0           |MUTABOR,      REINT,        mdt_reint,        reint),
+DEF_MDT_HNDL_F(HABEO_CORPUS,              CLOSE,        mdt_close,        close),
+DEF_MDT_HNDL_F(HABEO_CORPUS,              DONE_WRITING, mdt_done_writing, done_writing),
+DEF_MDT_HNDL_F(0           |HABEO_REFERO, PIN,          mdt_pin,          pin),
+DEF_MDT_HNDL_0(0,                         SYNC,         mdt_sync,         sync),
+DEF_MDT_HNDL_F(HABEO_CORPUS|HABEO_REFERO, IS_SUBDIR,    mdt_is_subdir,    is_subdir),
 #ifdef HAVE_QUOTA_SUPPORT
-DEF_MDT_HNDL_F(0,                         QUOTACHECK,   mdt_quotacheck_handle),
-DEF_MDT_HNDL_F(0,                         QUOTACTL,     mdt_quotactl_handle)
+DEF_MDT_HNDL_F(0,                         QUOTACHECK,   mdt_quotacheck_handle,
+               mds_quotacheck),
+DEF_MDT_HNDL_F(0,                         QUOTACTL,     mdt_quotactl_handle,
+               mds_quotactl)
 #endif
 };
 
-#define DEF_OBD_HNDL(flags, name, fn)                   \
-        DEF_HNDL(OBD, PING, _NET, flags, name, fn, NULL)
-
+#define DEF_OBD_HNDL(flags, name, fn, stat)              \
+        DEF_HNDL(OBD, PING, _NET, flags, name, fn, stat, NULL)
 
 static struct mdt_handler mdt_obd_ops[] = {
-        DEF_OBD_HNDL(0, PING,           mdt_obd_ping),
-        DEF_OBD_HNDL(0, LOG_CANCEL,     mdt_obd_log_cancel),
-        DEF_OBD_HNDL(0, QC_CALLBACK,    mdt_obd_qc_callback)
+        DEF_OBD_HNDL(0, PING,           mdt_obd_ping,        ping),
+        DEF_OBD_HNDL(0, LOG_CANCEL,     mdt_obd_log_cancel,  log_cancel),
+        DEF_OBD_HNDL(0, QC_CALLBACK,    mdt_obd_qc_callback, qc_callback)
 };
 
-#define DEF_DLM_HNDL_0(flags, name, fn)                   \
-        DEF_HNDL(LDLM, ENQUEUE, , flags, name, fn, NULL)
-#define DEF_DLM_HNDL_F(flags, name, fn)                   \
-        DEF_HNDL(LDLM, ENQUEUE, , flags, name, fn, &RQF_LDLM_ ## name)
+#define DEF_DLM_HNDL_0(flags, name, fn, stat)             \
+        DEF_HNDL(LDLM, ENQUEUE, , flags, name, fn, stat, NULL)
+#define DEF_DLM_HNDL_F(flags, name, fn, stat)             \
+        DEF_HNDL(LDLM, ENQUEUE, , flags, name, fn, stat, &RQF_LDLM_ ## name)
 
 static struct mdt_handler mdt_dlm_ops[] = {
-        DEF_DLM_HNDL_F(HABEO_CLAVIS, ENQUEUE,        mdt_enqueue),
-        DEF_DLM_HNDL_0(HABEO_CLAVIS, CONVERT,        mdt_convert),
-        DEF_DLM_HNDL_0(0,            BL_CALLBACK,    mdt_bl_callback),
-        DEF_DLM_HNDL_0(0,            CP_CALLBACK,    mdt_cp_callback)
+        DEF_DLM_HNDL_F(HABEO_CLAVIS, ENQUEUE,        mdt_enqueue,     ldlm_enqueue),
+        DEF_DLM_HNDL_0(HABEO_CLAVIS, CONVERT,        mdt_convert,     ldlm_convert),
+        DEF_DLM_HNDL_0(0,            BL_CALLBACK,    mdt_bl_callback, ldlm_bl_callback),
+        DEF_DLM_HNDL_0(0,            CP_CALLBACK,    mdt_cp_callback, ldlm_cp_callback)
 };
 
-#define DEF_LLOG_HNDL(flags, name, fn)                   \
-        DEF_HNDL(LLOG, ORIGIN_HANDLE_CREATE, _NET, flags, name, fn, NULL)
+#define DEF_LLOG_HNDL(flags, name, fn, stat)              \
+        DEF_HNDL(LLOG, ORIGIN_HANDLE_CREATE, _NET, flags, name, fn, stat, NULL)
 
 static struct mdt_handler mdt_llog_ops[] = {
-        DEF_LLOG_HNDL(0, ORIGIN_HANDLE_CREATE,      mdt_llog_create),
-        DEF_LLOG_HNDL(0, ORIGIN_HANDLE_NEXT_BLOCK,  mdt_llog_next_block),
-        DEF_LLOG_HNDL(0, ORIGIN_HANDLE_READ_HEADER, mdt_llog_read_header),
-        DEF_LLOG_HNDL(0, ORIGIN_HANDLE_WRITE_REC,   NULL),
-        DEF_LLOG_HNDL(0, ORIGIN_HANDLE_CLOSE,       NULL),
-        DEF_LLOG_HNDL(0, ORIGIN_CONNECT,            NULL),
-        DEF_LLOG_HNDL(0, CATINFO,                   NULL),
-        DEF_LLOG_HNDL(0, ORIGIN_HANDLE_PREV_BLOCK,  mdt_llog_prev_block),
-        DEF_LLOG_HNDL(0, ORIGIN_HANDLE_DESTROY,     mdt_llog_destroy),
+        DEF_LLOG_HNDL(0, ORIGIN_HANDLE_CREATE,      mdt_llog_create,     llog_create),
+        DEF_LLOG_HNDL(0, ORIGIN_HANDLE_NEXT_BLOCK,  mdt_llog_next_block, llog_next_block),
+        DEF_LLOG_HNDL(0, ORIGIN_HANDLE_READ_HEADER, mdt_llog_read_header,llog_read_handle),
+        DEF_LLOG_HNDL(0, ORIGIN_HANDLE_WRITE_REC,   NULL,                llog_write_rec),
+        DEF_LLOG_HNDL(0, ORIGIN_HANDLE_CLOSE,       NULL,                llog_close),
+        DEF_LLOG_HNDL(0, ORIGIN_CONNECT,            NULL,                llog_connect),
+        DEF_LLOG_HNDL(0, CATINFO,                   NULL,                llo_catinfo),
+        DEF_LLOG_HNDL(0, ORIGIN_HANDLE_PREV_BLOCK,  mdt_llog_prev_block, llog_prev_block),
+        DEF_LLOG_HNDL(0, ORIGIN_HANDLE_DESTROY,     mdt_llog_destroy,    llog_destroy)
 };
 
-#define DEF_SEC_CTX_HNDL(name, fn)                      \
-        DEF_HNDL(SEC_CTX, INIT, _NET, 0, name, fn, NULL)
+#define DEF_SEC_CTX_HNDL(name, fn, stat)                 \
+        DEF_HNDL(SEC_CTX, INIT, _NET, 0, name, fn, stat, NULL)
 
 static struct mdt_handler mdt_sec_ctx_ops[] = {
-        DEF_SEC_CTX_HNDL(INIT,          mdt_sec_ctx_handle),
-        DEF_SEC_CTX_HNDL(INIT_CONT,     mdt_sec_ctx_handle),
-        DEF_SEC_CTX_HNDL(FINI,          mdt_sec_ctx_handle)
+        DEF_SEC_CTX_HNDL(INIT,          mdt_sec_ctx_handle,              sec_init),
+        DEF_SEC_CTX_HNDL(INIT_CONT,     mdt_sec_ctx_handle,              sec_init_cont),
+        DEF_SEC_CTX_HNDL(FINI,          mdt_sec_ctx_handle,              sec_fini)
 };
 
 static struct mdt_opc_slice mdt_regular_handlers[] = {
@@ -5932,18 +5929,19 @@ static struct mdt_opc_slice mdt_regular_handlers[] = {
 };
 
 static struct mdt_handler mdt_readpage_ops[] = {
-        DEF_MDT_HNDL_F(0,                         CONNECT,  mdt_connect),
-        DEF_MDT_HNDL_F(HABEO_CORPUS|HABEO_REFERO, READPAGE, mdt_readpage),
+        DEF_MDT_HNDL_F(0,                         CONNECT,  mdt_connect,    connect),
+        DEF_MDT_HNDL_F(HABEO_CORPUS|HABEO_REFERO, READPAGE, mdt_readpage,   readpage),
 #ifdef HAVE_SPLIT_SUPPORT
-        DEF_MDT_HNDL_F(HABEO_CORPUS|HABEO_REFERO, WRITEPAGE, mdt_writepage),
+        DEF_MDT_HNDL_F(HABEO_CORPUS|HABEO_REFERO, WRITEPAGE, mdt_writepage, writepage),
 #endif
 
         /*
          * XXX: this is ugly and should be fixed one day, see mdc_close() for
          * detailed comments. --umka
          */
-        DEF_MDT_HNDL_F(HABEO_CORPUS,              CLOSE,    mdt_close),
-        DEF_MDT_HNDL_F(HABEO_CORPUS,              DONE_WRITING,    mdt_done_writing),
+        DEF_MDT_HNDL_F(HABEO_CORPUS,              CLOSE,    mdt_close,      close),
+        DEF_MDT_HNDL_F(HABEO_CORPUS,              DONE_WRITING,    mdt_done_writing,
+                       done_writing)
 };
 
 static struct mdt_opc_slice mdt_readpage_handlers[] = {
@@ -5958,10 +5956,10 @@ static struct mdt_opc_slice mdt_readpage_handlers[] = {
 };
 
 static struct mdt_handler mdt_xmds_ops[] = {
-        DEF_MDT_HNDL_F(0,                         CONNECT,      mdt_connect),
-        DEF_MDT_HNDL_F(HABEO_CORPUS             , GETATTR,      mdt_getattr),
-        DEF_MDT_HNDL_F(0 | MUTABOR              , REINT,        mdt_reint),
-        DEF_MDT_HNDL_F(HABEO_CORPUS|HABEO_REFERO, IS_SUBDIR,    mdt_is_subdir),
+        DEF_MDT_HNDL_F(0,                         CONNECT,      mdt_connect,   connect),
+        DEF_MDT_HNDL_F(HABEO_CORPUS             , GETATTR,      mdt_getattr,   getattr),
+        DEF_MDT_HNDL_F(0 | MUTABOR              , REINT,        mdt_reint,     reint),
+        DEF_MDT_HNDL_F(HABEO_CORPUS|HABEO_REFERO, IS_SUBDIR,    mdt_is_subdir, is_subdir)
 };
 
 static struct mdt_opc_slice mdt_xmds_handlers[] = {
@@ -5986,7 +5984,7 @@ static struct mdt_opc_slice mdt_xmds_handlers[] = {
 };
 
 static struct mdt_handler mdt_seq_ops[] = {
-        DEF_SEQ_HNDL_F(0, QUERY, (int (*)(struct mdt_thread_info *))seq_query)
+        DEF_SEQ_HNDL_F(0, QUERY, (int (*)(struct mdt_thread_info *))seq_query, seq_query)
 };
 
 static struct mdt_opc_slice mdt_seq_handlers[] = {
@@ -6001,7 +5999,7 @@ static struct mdt_opc_slice mdt_seq_handlers[] = {
 };
 
 static struct mdt_handler mdt_fld_ops[] = {
-        DEF_FLD_HNDL_F(0, QUERY, (int (*)(struct mdt_thread_info *))fld_query)
+        DEF_FLD_HNDL_F(0, QUERY, (int (*)(struct mdt_thread_info *))fld_query, fld_query)
 };
 
 static struct mdt_opc_slice mdt_fld_handlers[] = {
@@ -6014,6 +6012,55 @@ static struct mdt_opc_slice mdt_fld_handlers[] = {
                 .mos_hs        = NULL
         }
 };
+
+#define SLICE_WIDTH(s)       \
+        (s->mos_opc_end - s->mos_opc_start)
+
+void mdt_procfs_init_stats(struct lprocfs_stats *stats, int num_private_stats)
+{
+        struct mdt_opc_slice *s;
+        int i, pos = 0;
+
+        for (s = mdt_regular_handlers; s->mos_hs != NULL; s++) {
+                for (i = 0; i < SLICE_WIDTH(s); i++) {
+                        s->mos_hs[i].mh_pos = pos;
+                        lprocfs_counter_init(stats, num_private_stats + pos++,
+                                             0, s->mos_hs[i].mh_stat, "reqs");
+                }
+        }
+}
+
+int mdt_procfs_alloc_stats(struct lprocfs_stats **stats,
+                           struct proc_dir_entry *dir,
+                           unsigned num_private_stats,
+                           int flags)
+{
+        struct mdt_opc_slice *s;
+        unsigned int num_stats;
+        int rc;
+
+        num_stats = num_private_stats;
+
+        for (s = mdt_regular_handlers; s->mos_hs != NULL; s++)
+                num_stats += SLICE_WIDTH(s);
+
+        *stats = lprocfs_alloc_stats(num_stats, flags);
+        if (*stats == NULL)
+                return -ENOMEM;
+
+        mdt_procfs_init_stats(*stats, num_private_stats);
+
+        rc = lprocfs_register_stats(dir, "stats", *stats);
+        if (rc < 0)
+                lprocfs_free_stats(stats);
+        return rc;
+}
+
+void mdt_procfs_free_stats(struct lprocfs_stats *stats)
+{
+        if (stats != NULL)
+                lprocfs_free_stats(&stats);
+}
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Meta-data Target ("LUSTRE_MDT_NAME")");

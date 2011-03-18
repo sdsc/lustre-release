@@ -1313,8 +1313,40 @@ static mdt_reinter reinters[REINT_MAX] = {
 int mdt_reint_rec(struct mdt_thread_info *info,
                   struct mdt_lock_handle *lhc)
 {
-        int rc;
+        struct ptlrpc_service *svc;
+        int rc, op;
         ENTRY;
+
+        switch (info->mti_rr.rr_opcode) {
+        case REINT_CREATE:
+                op = PTLRPC_LAST_CNTR + MDS_REINT_CREATE;
+                break;
+        case REINT_LINK:
+                op = PTLRPC_LAST_CNTR + MDS_REINT_LINK;
+                break;
+        case REINT_OPEN:
+                op = PTLRPC_LAST_CNTR + MDS_REINT_OPEN;
+                break;
+        case REINT_SETATTR:
+                op = PTLRPC_LAST_CNTR + MDS_REINT_SETATTR;
+                break;
+        case REINT_RENAME:
+                op = PTLRPC_LAST_CNTR + MDS_REINT_RENAME;
+                break;
+        case REINT_UNLINK:
+                op = PTLRPC_LAST_CNTR + MDS_REINT_UNLINK;
+                break;
+        case REINT_SETXATTR:
+                op = PTLRPC_LAST_CNTR + MDS_REINT_SETXATTR;
+                break;
+        default:
+                op = 0;
+                break;
+        }
+
+        svc = info->mti_pill->rc_req->rq_rqbd->rqbd_service;
+        if (op && svc->srv_stats)
+                lprocfs_counter_incr(svc->srv_stats, op);
 
         rc = reinters[info->mti_rr.rr_opcode](info, lhc);
 
