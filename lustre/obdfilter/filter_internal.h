@@ -123,7 +123,7 @@ extern int *obdfilter_created_scratchpad;
 
 extern void target_recovery_fini(struct obd_device *obd);
 extern void target_recovery_init(struct lu_target *lut,
-                                 svc_handler_t handler);
+                                 svc_req_handler_t handler);
 
 /* filter.c */
 void f_dput(struct dentry *);

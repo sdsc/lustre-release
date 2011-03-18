@@ -76,7 +76,7 @@ __init int ptlrpc_init(void)
         if (rc)
                 RETURN(rc);
 
-        rc = ptlrpc_hr_init();
+        rc = ptlrpc_rsh_init();
         if (rc)
                 RETURN(rc);
 
@@ -128,7 +128,7 @@ cleanup:
         case 2:
                 ptlrpc_exit_portals();
         case 1:
-                ptlrpc_hr_fini();
+                ptlrpc_rsh_fini();
                 req_layout_fini();
         default: ;
         }
@@ -144,7 +144,7 @@ static void __exit ptlrpc_exit(void)
         ldlm_exit();
         ptlrpc_stop_pinger();
         ptlrpc_exit_portals();
-        ptlrpc_hr_fini();
+        ptlrpc_rsh_fini();
         ptlrpc_connection_fini();
 }
 

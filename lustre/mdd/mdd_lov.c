@@ -293,7 +293,7 @@ static int mdd_lov_set_dir_md(const struct lu_env *env,
 
 int mdd_lsm_sanity_check(const struct lu_env *env,  struct mdd_object *obj)
 {
-        struct lu_attr   *tmp_la = &mdd_env_info(env)->mti_la;
+        struct lu_attr   *tmp_la = &mdd_env_info(env)->mti_la_tmp;
         struct md_ucred  *uc     = md_ucred(env);
         int rc;
         ENTRY;
@@ -791,7 +791,7 @@ int mdd_lov_setattr_async(const struct lu_env *env, struct mdd_object *obj,
 {
         struct mdd_device   *mdd = mdo2mdd(&obj->mod_obj);
         struct obd_device   *obd = mdd2obd_dev(mdd);
-        struct lu_attr      *tmp_la = &mdd_env_info(env)->mti_la;
+        struct lu_attr      *tmp_la = &mdd_env_info(env)->mti_la_tmp;
         const struct lu_fid *fid = mdd_object_fid(obj);
         int rc = 0;
         ENTRY;

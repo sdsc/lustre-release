@@ -122,9 +122,11 @@ lnet_net_unique(__u32 net, cfs_list_t *nilist)
 }
 
 lnet_ni_t *
-lnet_new_ni(__u32 net, cfs_list_t *nilist)
+lnet_new_ni(__u32 net, int cpuid, cfs_list_t *nilist)
 {
-        lnet_ni_t *ni;
+        lnet_ni_t      *ni;
+        lnet_ni_cpud_t *nc;
+        int             i;
 
         if (!lnet_net_unique(net, nilist)) {
                 LCONSOLE_ERROR_MSG(0x111, "Duplicate network specified: %s\n",
@@ -140,13 +142,25 @@ lnet_new_ni(__u32 net, cfs_list_t *nilist)
         }
 
         /* zero counters/flags, NULL pointers... */
-        memset(ni, 0, sizeof(*ni));
+        ni->ni_cpuds = cfs_percpu_alloc(sizeof(lnet_ni_cpud_t));
+        if (ni->ni_cpuds == NULL) {
+                CERROR("Out of memory creating network %s private data\n",
+                       libcfs_net2str(net));
+                LIBCFS_FREE(ni, sizeof(*ni));
+                return NULL;
+        }
+
+        cfs_percpu_for_each(nc, i, ni->ni_cpuds) {
+                CFS_INIT_LIST_HEAD(&nc->nc_txq);
+                nc->nc_refcount = 0;
+        }
 
         /* LND will fill in the address part of the NID */
+        ni->ni_cpuid = cpuid;
         ni->ni_nid = LNET_MKNID(net, 0);
-        CFS_INIT_LIST_HEAD(&ni->ni_txq);
-        ni->ni_last_alive = cfs_time_current();
+        ni->ni_last_alive = cfs_time_current_sec();
 
+        CFS_INIT_LIST_HEAD(&ni->ni_list_cpu);
         cfs_list_add_tail(&ni->ni_list, nilist);
         return ni;
 }
@@ -159,6 +173,7 @@ lnet_parse_networks(cfs_list_t *nilist, char *networks)
         char      *str;
         lnet_ni_t *ni;
         __u32      net;
+        int        cpuid;
         int        nnets = 0;
 
 	if (strlen(networks) > LNET_SINGLE_TEXTBUF_NOB) {
@@ -178,15 +193,16 @@ lnet_parse_networks(cfs_list_t *nilist, char *networks)
         the_lnet.ln_network_tokens_nob = tokensize;
         memcpy (tokens, networks, tokensize);
         str = tokens;
-        
+
         /* Add in the loopback network */
-        ni = lnet_new_ni(LNET_MKNET(LOLND, 0), nilist);
+        ni = lnet_new_ni(LNET_MKNET(LOLND, 0), -1, nilist);
         if (ni == NULL)
                 goto failed;
-        
+
         while (str != NULL && *str != 0) {
                 char      *comma = strchr(str, ',');
                 char      *bracket = strchr(str, '(');
+                char      *colon = strchr(str, ':');
                 int        niface;
 		char      *iface;
 
@@ -201,7 +217,7 @@ lnet_parse_networks(cfs_list_t *nilist, char *networks)
 			if (comma != NULL)
 				*comma++ = 0;
 			net = libcfs_str2net(lnet_trimwhite(str));
-			
+
 			if (net == LNET_NIDNET(LNET_NID_ANY)) {
                                 lnet_syntax("networks", networks, 
                                             (int)(str - tokens), strlen(str));
@@ -210,8 +226,8 @@ lnet_parse_networks(cfs_list_t *nilist, char *networks)
                                 goto failed;
                         }
 
-                        if (LNET_NETTYP(net) != LOLND && /* loopback is implicit */
-                            lnet_new_ni(net, nilist) == NULL)
+                        if (LNET_NETTYP(net) != LOLND && /* LO is implicit */
+                            lnet_new_ni(net, -1, nilist) == NULL)
                                 goto failed;
 
 			str = comma;
@@ -219,15 +235,27 @@ lnet_parse_networks(cfs_list_t *nilist, char *networks)
 		}
 
 		*bracket = 0;
+                cpuid = -1;
+                if (colon != NULL && colon < bracket) {
+                        *colon = 0;
+#ifdef __KERNEL__
+                        cpuid = simple_strtol(colon + 1, NULL, 10);
+#else
+                        cpuid = atoi(colon + 1);
+#endif
+                        if (cpuid < 0 || cpuid >= cfs_cpu_node_num())
+                                cpuid = -1;
+                }
+
 		net = libcfs_str2net(lnet_trimwhite(str));
 		if (net == LNET_NIDNET(LNET_NID_ANY)) {
                         lnet_syntax("networks", networks,
                                     (int)(str - tokens), strlen(str));
                         goto failed;
-                } 
+                }
 
                 nnets++;
-                ni = lnet_new_ni(net, nilist);
+                ni = lnet_new_ni(net, cpuid, nilist);
                 if (ni == NULL)
                         goto failed;
 

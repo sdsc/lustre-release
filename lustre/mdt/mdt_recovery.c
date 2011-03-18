@@ -959,7 +959,7 @@ static void mdt_steal_ack_locks(struct ptlrpc_request *req)
         struct obd_export         *exp = req->rq_export;
         cfs_list_t                *tmp;
         struct ptlrpc_reply_state *oldrep;
-        struct ptlrpc_service     *svc;
+        struct ptlrpc_svc_cpud    *svcd;
         int                        i;
 
         /* CAVEAT EMPTOR: spinlock order */
@@ -977,8 +977,8 @@ static void mdt_steal_ack_locks(struct ptlrpc_request *req)
                                 lustre_msg_get_opc(req->rq_reqmsg),
                                 oldrep->rs_opc);
 
-                svc = oldrep->rs_service;
-                cfs_spin_lock (&svc->srv_rs_lock);
+                svcd = oldrep->rs_svcd;
+                cfs_spin_lock(&svcd->scd_rs_lock);
 
                 cfs_list_del_init (&oldrep->rs_exp_list);
 
@@ -998,7 +998,7 @@ static void mdt_steal_ack_locks(struct ptlrpc_request *req)
                 ptlrpc_schedule_difficult_reply (oldrep);
                 cfs_spin_unlock(&oldrep->rs_lock);
 
-                cfs_spin_unlock (&svc->srv_rs_lock);
+                cfs_spin_unlock(&svcd->scd_rs_lock);
                 break;
         }
         cfs_spin_unlock(&exp->exp_lock);

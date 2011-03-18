@@ -257,6 +257,11 @@ struct obd_export {
         } u;
 };
 
+static inline lnet_nid_t export_to_nid(struct obd_export *exp)
+{
+        return exp->exp_connection->c_peer.nid;
+}
+
 #define exp_target_data u.eu_target_data
 #define exp_mdt_data    u.eu_mdt_data
 #define exp_filter_data u.eu_filter_data

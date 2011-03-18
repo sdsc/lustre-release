@@ -574,14 +574,14 @@ int server_disconnect_export(struct obd_export *exp)
                 struct ptlrpc_reply_state *rs =
                         cfs_list_entry(exp->exp_outstanding_replies.next,
                                        struct ptlrpc_reply_state, rs_exp_list);
-                struct ptlrpc_service *svc = rs->rs_service;
+                struct ptlrpc_svc_cpud *svcd = rs->rs_svcd;
 
-                cfs_spin_lock(&svc->srv_rs_lock);
+                cfs_spin_lock(&svcd->scd_rs_lock);
                 cfs_list_del_init(&rs->rs_exp_list);
                 cfs_spin_lock(&rs->rs_lock);
                 ptlrpc_schedule_difficult_reply(rs);
                 cfs_spin_unlock(&rs->rs_lock);
-                cfs_spin_unlock(&svc->srv_rs_lock);
+                cfs_spin_unlock(&svcd->scd_rs_lock);
         }
         cfs_spin_unlock(&exp->exp_lock);
 
@@ -1385,8 +1385,7 @@ target_start_and_reset_recovery_timer(struct obd_device *obd,
         if (!new_client && service_time)
                 /* Teach server about old server's estimates, as first guess
                  * at how long new requests will take. */
-                at_measured(&req->rq_rqbd->rqbd_service->srv_at_estimate,
-                            service_time);
+                at_measured(&req->rq_svcd->scd_at_estimate, service_time);
 
         check_and_start_recovery_timer(obd);
 
@@ -1653,7 +1652,7 @@ static struct ptlrpc_request *target_next_final_ping(struct obd_device *obd)
 
 static int handle_recovery_req(struct ptlrpc_thread *thread,
                                struct ptlrpc_request *req,
-                               svc_handler_t handler)
+                               svc_req_handler_t handler)
 {
         int rc;
         ENTRY;
@@ -1822,7 +1821,7 @@ static int target_recovery_thread(void *arg)
 }
 
 static int target_start_recovery_thread(struct lu_target *lut,
-                                        svc_handler_t handler)
+                                        svc_req_handler_t handler)
 {
         struct obd_device *obd = lut->lut_obd;
         int rc = 0;
@@ -1879,7 +1878,7 @@ static void target_recovery_expired(unsigned long castmeharder)
         cfs_waitq_signal(&obd->obd_next_transno_waitq);
 }
 
-void target_recovery_init(struct lu_target *lut, svc_handler_t handler)
+void target_recovery_init(struct lu_target *lut, svc_req_handler_t handler)
 {
         struct obd_device *obd = lut->lut_obd;
         if (obd->obd_max_recoverable_clients == 0) {
@@ -2131,7 +2130,7 @@ void target_send_reply(struct ptlrpc_request *req, int rc, int fail_id)
         struct ptlrpc_reply_state *rs;
         struct obd_device         *obd;
         struct obd_export         *exp;
-        struct ptlrpc_service     *svc;
+        struct ptlrpc_svc_cpud    *svcd;
         ENTRY;
 
         if (req->rq_no_reply) {
@@ -2139,7 +2138,7 @@ void target_send_reply(struct ptlrpc_request *req, int rc, int fail_id)
                 return;
         }
 
-        svc = req->rq_rqbd->rqbd_service;
+        svcd = req->rq_svcd;
         rs = req->rq_reply_state;
         if (rs == NULL || !rs->rs_difficult) {
                 /* no notifiers */
@@ -2151,7 +2150,7 @@ void target_send_reply(struct ptlrpc_request *req, int rc, int fail_id)
         /* must be an export if locks saved */
         LASSERT (req->rq_export != NULL);
         /* req/reply consistent */
-        LASSERT (rs->rs_service == svc);
+        LASSERT (rs->rs_svcd == svcd);
 
         /* "fresh" reply */
         LASSERT (!rs->rs_scheduled);
@@ -2189,9 +2188,9 @@ void target_send_reply(struct ptlrpc_request *req, int rc, int fail_id)
 
         netrc = target_send_reply_msg (req, rc, fail_id);
 
-        cfs_spin_lock(&svc->srv_rs_lock);
+        cfs_spin_lock(&svcd->scd_rs_lock);
 
-        cfs_atomic_inc(&svc->srv_n_difficult_replies);
+        cfs_atomic_inc(&svcd->scd_rs_ndifficult);
 
         if (netrc != 0) {
                 /* error sending: reply is off the net.  Also we need +1
@@ -2211,11 +2210,11 @@ void target_send_reply(struct ptlrpc_request *req, int rc, int fail_id)
                 CDEBUG(D_HA, "Schedule reply immediately\n");
                 ptlrpc_dispatch_difficult_reply(rs);
         } else {
-                cfs_list_add (&rs->rs_list, &svc->srv_active_replies);
+                cfs_list_add (&rs->rs_list, &svcd->scd_rs_active);
                 rs->rs_scheduled = 0;           /* allow notifier to schedule */
         }
         cfs_spin_unlock(&rs->rs_lock);
-        cfs_spin_unlock(&svc->srv_rs_lock);
+        cfs_spin_unlock(&svcd->scd_rs_lock);
         EXIT;
 }
 

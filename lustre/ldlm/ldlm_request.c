@@ -419,7 +419,7 @@ int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
         if (type == LDLM_EXTENT)
                 lock->l_req_extent = policy->l_extent;
 
-        err = ldlm_lock_enqueue(ns, &lock, policy, flags);
+        err = ldlm_lock_enqueue(ns, lock, flags);
         if (unlikely(err != ELDLM_OK))
                 GOTO(out, err);
 
@@ -628,7 +628,7 @@ int ldlm_cli_enqueue_fini(struct obd_export *exp, struct ptlrpc_request *req,
         }
 
         if (!is_replay) {
-                rc = ldlm_lock_enqueue(ns, &lock, NULL, flags);
+                rc = ldlm_lock_enqueue(ns, lock, flags);
                 if (lock->l_completion_ast != NULL) {
                         int err = lock->l_completion_ast(lock, *flags, NULL);
                         if (!rc)

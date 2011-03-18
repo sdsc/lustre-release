@@ -69,6 +69,7 @@
 /* class_register_type(), class_unregister_type(), class_get_type() */
 #include <obd_class.h>
 #include <lustre_disk.h>
+#include <lustre_fid.h>
 
 #include <dt_object.h>
 #include "osd_oi.h"
@@ -219,6 +220,7 @@ struct osd_thread_info {
 
         /** dentry for Iterator context. */
         struct dentry          oti_it_dentry;
+        htree_lock_t          *oti_hlock;
 
         struct lu_fid          oti_fid;
         struct osd_inode_id    oti_id;
@@ -341,6 +343,15 @@ static inline int osd_fid_is_root(const struct lu_fid *fid)
 static inline int osd_fid_is_igif(const struct lu_fid *fid)
 {
         return fid_is_igif(fid) || osd_fid_is_root(fid);
+}
+
+static inline int fid_is_oi_fid(const struct lu_fid *fid)
+{
+        /* We need to filter-out oi obj's fid. As we can not store it, while
+         * oi-index create operation.
+         */
+        return (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE &&
+                         fid_oid(fid) == OSD_OI_FID_16_OID));
 }
 
 #endif /* __KERNEL__ */

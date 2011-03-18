@@ -89,7 +89,7 @@ void ptlrpc_add_bulk_page(struct ptlrpc_bulk_desc *desc, cfs_page_t *page,
                           int pageoffset, int len);
 
 /* pack_generic.c */
-struct ptlrpc_reply_state *lustre_get_emerg_rs(struct ptlrpc_service *svc);
+struct ptlrpc_reply_state *lustre_get_emerg_rs(struct ptlrpc_svc_cpud *svcd);
 void lustre_put_emerg_rs(struct ptlrpc_reply_state *rs);
 
 /* pinger.c */

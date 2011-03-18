@@ -533,6 +533,10 @@ void mdt_object_unlock(struct mdt_thread_info *,
 struct mdt_object *mdt_object_find(const struct lu_env *,
                                    struct mdt_device *,
                                    const struct lu_fid *);
+struct mdt_object *mdt_object_find_hint(const struct lu_env *,
+                                        struct mdt_device *,
+                                        const struct lu_fid *,
+                                        md_oc_hint_t hint);
 struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *,
                                         const struct lu_fid *,
                                         struct mdt_lock_handle *,
@@ -561,7 +565,7 @@ void mdt_reconstruct_generic(struct mdt_thread_info *mti,
 
 extern void target_recovery_fini(struct obd_device *obd);
 extern void target_recovery_init(struct lu_target *lut,
-                                 svc_handler_t handler);
+                                 svc_req_handler_t handler);
 int mdt_fs_setup(const struct lu_env *, struct mdt_device *,
                  struct obd_device *, struct lustre_sb_info *lsi);
 void mdt_fs_cleanup(const struct lu_env *, struct mdt_device *);

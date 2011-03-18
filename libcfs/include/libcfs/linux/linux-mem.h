@@ -57,6 +57,8 @@
 # include <linux/mm_inline.h>
 #endif
 
+#define CFS_ALLOC_CACHE_ALIGN
+
 typedef struct page                     cfs_page_t;
 #define CFS_PAGE_SIZE                   PAGE_CACHE_SIZE
 #define CFS_PAGE_SHIFT                  PAGE_CACHE_SHIFT
@@ -66,6 +68,11 @@ typedef struct page                     cfs_page_t;
 
 #define cfs_copy_from_user(to, from, n) copy_from_user(to, from, n)
 #define cfs_copy_to_user(to, from, n)   copy_to_user(to, from, n)
+
+static inline unsigned long cfs_physpages_num(void)
+{
+        return num_physpages;
+}
 
 static inline void *cfs_page_address(cfs_page_t *page)
 {
@@ -108,11 +115,33 @@ static inline int cfs_page_count(cfs_page_t *page)
 extern void *cfs_alloc(size_t nr_bytes, u_int32_t flags);
 extern void  cfs_free(void *addr);
 
-extern void *cfs_alloc_large(size_t nr_bytes);
+extern void *cfs_alloc_large(size_t nr_bytes, unsigned flags);
 extern void  cfs_free_large(void *addr);
+
+struct cfs_cpumap;
+extern void *__cfs_node_alloc(struct cfs_cpumap *cpumap, int node,
+                              size_t nr_bytes, u_int32_t flags);
+extern void *__cfs_node_alloc_large(struct cfs_cpumap *cpumap,
+                                    int node, size_t nr_bytes, unsigned flags);
+#define cfs_node_alloc(node, bytes, flags)              \
+        __cfs_node_alloc(cfs_cpumap, node, bytes, flags)
+#define cfs_node_free(addr)                             \
+        cfs_free(addr)
+
+#define cfs_node_alloc_large(node, bytes, flags)        \
+        __cfs_node_alloc_large(cfs_cpumap, node, bytes, flags)
+#define cfs_node_free_large(addr)                       \
+        cfs_free_large(addr)
 
 extern cfs_page_t *cfs_alloc_page(unsigned int flags);
 extern void cfs_free_page(cfs_page_t *page);
+
+extern cfs_page_t *__cfs_node_alloc_page(struct cfs_cpumap *cpumap,
+                                         int node, unsigned int flags);
+#define cfs_node_alloc_page(node, flags)                \
+        __cfs_node_alloc_page(cfs_cpumap, node, flags)
+#define cfs_node_free_page(pg)                          \
+        cfs_free_page(pg)
 
 #define cfs_memory_pressure_get() (current->flags & PF_MEMALLOC)
 #define cfs_memory_pressure_set() do { current->flags |= PF_MEMALLOC; } while (0)

@@ -1620,6 +1620,12 @@ static struct lu_local_obj_desc llod_mdd_root = {
 static int __init mdd_mod_init(void)
 {
         struct lprocfs_static_vars lvars;
+        int    rc;
+
+        rc = mdd_trans_mod_init();
+        if (rc != 0)
+                return rc;
+
         lprocfs_mdd_init_vars(&lvars);
 
         llo_local_obj_register(&llod_capa_key);
@@ -1636,6 +1642,7 @@ static void __exit mdd_mod_exit(void)
         llo_local_obj_unregister(&llod_mdd_orphan);
         llo_local_obj_unregister(&llod_mdd_root);
 
+        mdd_trans_mod_fini();
         class_unregister_type(LUSTRE_MDD_NAME);
 }
 

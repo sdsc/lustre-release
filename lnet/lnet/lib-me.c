@@ -46,54 +46,39 @@ static int
 lnet_me_match_portal(lnet_portal_t *ptl, lnet_process_id_t id,
                      __u64 match_bits, __u64 ignore_bits)
 {
-        cfs_list_t       *mhash = NULL;
-        int               unique;
+        int unique = lnet_match_is_unique(id, match_bits, ignore_bits);;
 
-        LASSERT (!(lnet_portal_is_unique(ptl) &&
-                   lnet_portal_is_wildcard(ptl)));
+        LASSERT(!lnet_portal_is_unique(ptl) ||
+                !lnet_portal_is_wildcard(ptl));
 
         /* prefer to check w/o any lock */
-        unique = lnet_match_is_unique(id, match_bits, ignore_bits);
         if (likely(lnet_portal_is_unique(ptl) ||
                    lnet_portal_is_wildcard(ptl)))
                 goto match;
 
         /* unset, new portal */
-        if (unique) {
-                mhash = lnet_portal_mhash_alloc();
-                if (mhash == NULL)
-                        return -ENOMEM;
-        }
+        LNET_OBJ_LOCK(lnet_objcd_default());
 
-        LNET_LOCK();
-        if (lnet_portal_is_unique(ptl) ||
-            lnet_portal_is_wildcard(ptl)) {
-                /* someone set it before me */
-                if (mhash != NULL)
-                        lnet_portal_mhash_free(mhash);
-                LNET_UNLOCK();
+        if (unlikely(lnet_portal_is_unique(ptl) ||
+                     lnet_portal_is_wildcard(ptl))) {
+                LNET_OBJ_UNLOCK(lnet_objcd_default());
                 goto match;
         }
 
         /* still not set */
-        LASSERT (ptl->ptl_mhash == NULL);
-        if (unique) {
-                ptl->ptl_mhash = mhash;
+        if (unique)
                 lnet_portal_setopt(ptl, LNET_PTL_MATCH_UNIQUE);
-        } else {
+        else
                 lnet_portal_setopt(ptl, LNET_PTL_MATCH_WILDCARD);
-        }
-        LNET_UNLOCK();
-        return 0;
-
+        LNET_OBJ_UNLOCK(lnet_objcd_default());
+        return 1;
  match:
         if (lnet_portal_is_unique(ptl) && !unique)
-                return -EPERM;
-
-        if (lnet_portal_is_wildcard(ptl) && unique)
-                return -EPERM;
-
-        return 0;
+                return 0;
+        else if (lnet_portal_is_wildcard(ptl) && unique)
+                return 0;
+        else
+                return 1;
 }
 
 /**
@@ -133,6 +118,7 @@ LNetMEAttach(unsigned int portal,
              lnet_unlink_t unlink, lnet_ins_pos_t pos,
              lnet_handle_me_t *handle)
 {
+        lnet_obj_cpud_t  *objcd;
         lnet_me_t        *me;
         lnet_portal_t    *ptl;
         cfs_list_t       *head;
@@ -141,39 +127,51 @@ LNetMEAttach(unsigned int portal,
         LASSERT (the_lnet.ln_init);
         LASSERT (the_lnet.ln_refcount > 0);
 
-        if ((int)portal >= the_lnet.ln_nportals)
+        if ((int)portal >= MAX_PORTALS)
                 return -EINVAL;
 
-        ptl = &the_lnet.ln_portals[portal];
+        ptl = the_lnet.ln_portals[portal];
         rc = lnet_me_match_portal(ptl, match_id, match_bits, ignore_bits);
-        if (rc != 0)
-                return rc;
+        if (!rc)
+                return -EPERM;
 
         me = lnet_me_alloc();
         if (me == NULL)
                 return -ENOMEM;
 
-        LNET_LOCK();
-
-        me->me_portal = portal;
-        me->me_match_id = match_id;
-        me->me_match_bits = match_bits;
+        me->me_portal      = portal;
+        me->me_match_id    = match_id;
+        me->me_match_bits  = match_bits;
         me->me_ignore_bits = ignore_bits;
-        me->me_unlink = unlink;
-        me->me_md = NULL;
+        me->me_unlink      = unlink;
+        me->me_md          = NULL;
 
-        lnet_initialise_handle (&me->me_lh, LNET_COOKIE_TYPE_ME);
-        head = lnet_portal_me_head(portal, match_id, match_bits);
+        objcd = lnet_objcd_from_match(portal, pos, match_id, match_bits);
+        LNET_OBJ_LOCK(objcd);
+
+        if (unlikely(objcd->loc_ptl_ents[portal].pte_deadline == 0) &&
+            lnet_portal_is_wildcard(ptl)) {
+                LNET_OBJ_LOCK_MORE(objcd, lnet_objcd_default());
+                lnet_ptl_ent_activate(the_lnet.ln_portals[portal],
+                                      objcd->loc_cpuid);
+                LNET_OBJ_UNLOCK_MORE(objcd, lnet_objcd_default());
+        }
+
+        objcd->loc_ptl_ents[portal].pte_deadline =
+                cfs_time_shift(LNET_PTL_ENT_DEADLINE);
+
+        lnet_initialise_handle(objcd, &me->me_lh, LNET_COOKIE_TYPE_ME);
+        lnet_me2handle(handle, me);
+
+        head = lnet_portal_me_head(objcd, portal, match_id, match_bits);
         LASSERT (head != NULL);
 
-        if (pos == LNET_INS_AFTER)
+        if (pos == LNET_INS_AFTER || pos == LNET_INS_AFTER_CPU)
                 cfs_list_add_tail(&me->me_list, head);
         else
                 cfs_list_add(&me->me_list, head);
 
-        lnet_me2handle(handle, me);
-
-        LNET_UNLOCK();
+        LNET_OBJ_UNLOCK(objcd);
 
         return 0;
 }
@@ -202,9 +200,10 @@ LNetMEInsert(lnet_handle_me_t current_meh,
              lnet_unlink_t unlink, lnet_ins_pos_t pos,
              lnet_handle_me_t *handle)
 {
-        lnet_me_t     *current_me;
-        lnet_me_t     *new_me;
-        lnet_portal_t *ptl;
+        lnet_me_t        *current_me;
+        lnet_me_t        *new_me;
+        lnet_obj_cpud_t  *objcd;
+        lnet_portal_t    *ptl;
 
         LASSERT (the_lnet.ln_init);
         LASSERT (the_lnet.ln_refcount > 0);
@@ -213,44 +212,42 @@ LNetMEInsert(lnet_handle_me_t current_meh,
         if (new_me == NULL)
                 return -ENOMEM;
 
-        LNET_LOCK();
+        objcd = lnet_objcd_from_cookie(current_meh.cookie);
+        LNET_OBJ_LOCK(objcd);
 
-        current_me = lnet_handle2me(&current_meh);
+        current_me = lnet_handle2me(objcd, &current_meh);
         if (current_me == NULL) {
-                lnet_me_free (new_me);
-
-                LNET_UNLOCK();
+                lnet_me_free(new_me);
+                LNET_OBJ_UNLOCK(objcd);
                 return -ENOENT;
         }
 
-        LASSERT (current_me->me_portal < the_lnet.ln_nportals);
+        LASSERT (current_me->me_portal < MAX_PORTALS);
 
-        ptl = &the_lnet.ln_portals[current_me->me_portal];
+        ptl = the_lnet.ln_portals[current_me->me_portal];
         if (lnet_portal_is_unique(ptl)) {
                 /* nosense to insertion on unique portal */
                 lnet_me_free (new_me);
-                LNET_UNLOCK();
+                LNET_OBJ_UNLOCK(objcd);
                 return -EPERM;
         }
 
-        new_me->me_portal = current_me->me_portal;
-        new_me->me_match_id = match_id;
-        new_me->me_match_bits = match_bits;
+        new_me->me_portal      = current_me->me_portal;
+        new_me->me_match_id    = match_id;
+        new_me->me_match_bits  = match_bits;
         new_me->me_ignore_bits = ignore_bits;
-        new_me->me_unlink = unlink;
-        new_me->me_md = NULL;
+        new_me->me_unlink      = unlink;
+        new_me->me_md          = NULL;
 
-        lnet_initialise_handle (&new_me->me_lh, LNET_COOKIE_TYPE_ME);
+        lnet_initialise_handle(objcd, &new_me->me_lh, LNET_COOKIE_TYPE_ME);
+        lnet_me2handle(handle, new_me);
 
         if (pos == LNET_INS_AFTER)
                 cfs_list_add(&new_me->me_list, &current_me->me_list);
         else
                 cfs_list_add_tail(&new_me->me_list, &current_me->me_list);
 
-        lnet_me2handle(handle, new_me);
-
-        LNET_UNLOCK();
-
+        LNET_OBJ_UNLOCK(objcd);
         return 0;
 }
 
@@ -271,18 +268,20 @@ LNetMEInsert(lnet_handle_me_t current_meh,
 int
 LNetMEUnlink(lnet_handle_me_t meh)
 {
-        lnet_me_t    *me;
-        lnet_libmd_t *md;
-        lnet_event_t  ev;
+        lnet_obj_cpud_t   *objcd;
+        lnet_me_t         *me;
+        lnet_libmd_t      *md;
+        lnet_event_t       ev;
 
         LASSERT (the_lnet.ln_init);
         LASSERT (the_lnet.ln_refcount > 0);
 
-        LNET_LOCK();
+        objcd = lnet_objcd_from_cookie(meh.cookie);
+        LNET_OBJ_LOCK(objcd);
 
-        me = lnet_handle2me(&meh);
+        me = lnet_handle2me(objcd, &meh);
         if (me == NULL) {
-                LNET_UNLOCK();
+                LNET_OBJ_UNLOCK(objcd);
                 return -ENOENT;
         }
 
@@ -291,29 +290,30 @@ LNetMEUnlink(lnet_handle_me_t meh)
             md->md_eq != NULL &&
             md->md_refcount == 0) {
                 lnet_build_unlink_event(md, &ev);
-                lnet_enq_event_locked(md->md_eq, &ev);
+                lnet_enq_event_locked(objcd, md->md_eq, &ev);
         }
 
-        lnet_me_unlink(me);
+        lnet_me_unlink(objcd, me);
 
-        LNET_UNLOCK();
+        LNET_OBJ_UNLOCK(objcd);
         return 0;
 }
 
-/* call with LNET_LOCK please */
+/* call with LNET_OBJ_LOCK please */
 void
-lnet_me_unlink(lnet_me_t *me)
+lnet_me_unlink(lnet_obj_cpud_t *objcd, lnet_me_t *me)
 {
         cfs_list_del (&me->me_list);
 
         if (me->me_md != NULL) {
                 me->me_md->md_me = NULL;
-                lnet_md_unlink(me->me_md);
+                lnet_md_unlink(objcd, me->me_md);
         }
 
         lnet_invalidate_handle (&me->me_lh);
         lnet_me_free(me);
 }
+
 
 #if 0
 static void

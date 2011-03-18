@@ -211,9 +211,9 @@ cfs_free(void *addr)
  */
 
 void *
-cfs_alloc_large(size_t nr_bytes)
+cfs_alloc_large(size_t nr_bytes, unsigned flags)
 {
-    return cfs_alloc(nr_bytes, 0);
+    return cfs_alloc(nr_bytes, (flags & CFS_ALLOC_ZERO) != 0);
 }
 
 /*

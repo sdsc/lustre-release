@@ -662,37 +662,20 @@ ksocknal_get_conn_by_idx (lnet_ni_t *ni, int index)
 }
 
 ksock_sched_t *
-ksocknal_choose_scheduler_locked (unsigned int irq)
+ksocknal_choose_scheduler_locked (unsigned int irq, ksock_conn_t *conn)
 {
         ksock_sched_t    *sched;
-        ksock_irqinfo_t  *info;
+        ksock_sched_t    *best;
         int               i;
 
-        LASSERT (irq < CFS_NR_IRQS);
-        info = &ksocknal_data.ksnd_irqinfo[irq];
+        i = lnet_nid_to_cpuid(conn->ksnc_peer->ksnp_id.nid);
 
-        if (irq != 0 &&                         /* hardware NIC */
-            info->ksni_valid) {                 /* already set up */
-                return (&ksocknal_data.ksnd_schedulers[info->ksni_sched]);
+        best = sched = ksocknal_data.ksnd_schedulers[i];
+        for (i = 1; i < ksocknal_data.ksnd_sched_wt; i++) {
+                if (best->kss_nconns > sched[i].kss_nconns)
+                        best = &sched[i];
         }
-
-        /* software NIC (irq == 0) || not associated with a scheduler yet.
-         * Choose the CPU with the fewest connections... */
-        sched = &ksocknal_data.ksnd_schedulers[0];
-        for (i = 1; i < ksocknal_data.ksnd_nschedulers; i++)
-                if (sched->kss_nconns >
-                    ksocknal_data.ksnd_schedulers[i].kss_nconns)
-                        sched = &ksocknal_data.ksnd_schedulers[i];
-
-        if (irq != 0) {                         /* Hardware NIC */
-                info->ksni_valid = 1;
-                info->ksni_sched = (unsigned int)(sched - ksocknal_data.ksnd_schedulers);
-
-                /* no overflow... */
-                LASSERT (info->ksni_sched == (unsigned int)(sched - ksocknal_data.ksnd_schedulers));
-        }
-
-        return (sched);
+        return best;
 }
 
 int
@@ -1273,7 +1256,7 @@ ksocknal_create_conn (lnet_ni_t *ni, ksock_route_t *route,
         peer->ksnp_send_keepalive = 0;
         peer->ksnp_error = 0;
 
-        sched = ksocknal_choose_scheduler_locked (irq);
+        sched = ksocknal_choose_scheduler_locked (irq, conn);
         sched->kss_nconns++;
         conn->ksnc_scheduler = sched;
 
@@ -1309,14 +1292,14 @@ ksocknal_create_conn (lnet_ni_t *ni, ksock_route_t *route,
          *        socket callbacks.
          */
 
-        ksocknal_lib_bind_irq (irq);
+        ksocknal_lib_bind_irq(irq, sched);
 
         CDEBUG(D_NET, "New conn %s p %d.x %u.%u.%u.%u -> %u.%u.%u.%u/%d"
                " incarnation:"LPD64" sched[%d]/%d\n",
                libcfs_id2str(peerid), conn->ksnc_proto->pro_version,
                HIPQUAD(conn->ksnc_myipaddr), HIPQUAD(conn->ksnc_ipaddr),
                conn->ksnc_port, incarnation,
-               (int)(conn->ksnc_scheduler - ksocknal_data.ksnd_schedulers), irq);
+               conn->ksnc_scheduler->kss_cpuid, irq);
 
         if (active) {
                 /* additional routes after interface exchange? */
@@ -2196,8 +2179,7 @@ ksocknal_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
                 data->ioc_u32[1] = conn->ksnc_port;
                 data->ioc_u32[2] = conn->ksnc_myipaddr;
                 data->ioc_u32[3] = conn->ksnc_type;
-                data->ioc_u32[4] = (__u32)(conn->ksnc_scheduler -
-                                   ksocknal_data.ksnd_schedulers);
+                data->ioc_u32[4] = (__u32)(conn->ksnc_scheduler->kss_cpuid);
                 data->ioc_u32[5] = rxmem;
                 data->ioc_u32[6] = conn->ksnc_peer->ksnp_id.pid;
                 ksocknal_conn_decref(conn);
@@ -2237,8 +2219,7 @@ ksocknal_free_buffers (void)
         LASSERT (cfs_atomic_read(&ksocknal_data.ksnd_nactive_txs) == 0);
 
         if (ksocknal_data.ksnd_schedulers != NULL)
-                LIBCFS_FREE (ksocknal_data.ksnd_schedulers,
-                             sizeof (ksock_sched_t) * ksocknal_data.ksnd_nschedulers);
+                cfs_percpu_free(ksocknal_data.ksnd_schedulers);
 
         LIBCFS_FREE (ksocknal_data.ksnd_peers,
                      sizeof (cfs_list_t) *
@@ -2267,8 +2248,9 @@ ksocknal_free_buffers (void)
 void
 ksocknal_base_shutdown (void)
 {
-        ksock_sched_t *sched;
+        ksock_sched_t *kss;
         int            i;
+        int            j;
 
         CDEBUG(D_MALLOC, "before NAL cleanup: kmem %d\n",
                cfs_atomic_read (&libcfs_kmemory));
@@ -2289,28 +2271,27 @@ ksocknal_base_shutdown (void)
                 LASSERT (cfs_list_empty (&ksocknal_data.ksnd_connd_connreqs));
                 LASSERT (cfs_list_empty (&ksocknal_data.ksnd_connd_routes));
 
-                if (ksocknal_data.ksnd_schedulers != NULL)
-                        for (i = 0; i < ksocknal_data.ksnd_nschedulers; i++) {
-                                ksock_sched_t *kss =
-                                        &ksocknal_data.ksnd_schedulers[i];
-
-                                LASSERT (cfs_list_empty (&kss->kss_tx_conns));
-                                LASSERT (cfs_list_empty (&kss->kss_rx_conns));
-                                LASSERT (cfs_list_empty (&kss-> \
-                                                         kss_zombie_noop_txs));
-                                LASSERT (kss->kss_nconns == 0);
-                        }
-
                 /* flag threads to terminate; wake and wait for them to die */
                 ksocknal_data.ksnd_shuttingdown = 1;
                 cfs_waitq_broadcast (&ksocknal_data.ksnd_connd_waitq);
                 cfs_waitq_broadcast (&ksocknal_data.ksnd_reaper_waitq);
 
-                if (ksocknal_data.ksnd_schedulers != NULL)
-                        for (i = 0; i < ksocknal_data.ksnd_nschedulers; i++) {
-                                sched = &ksocknal_data.ksnd_schedulers[i];
-                                cfs_waitq_broadcast(&sched->kss_waitq);
+                if (ksocknal_data.ksnd_schedulers != NULL) {
+                        cfs_percpu_for_each(kss, i,
+                                            ksocknal_data.ksnd_schedulers) {
+                                for (j = 0;
+                                     j < ksocknal_data.ksnd_sched_wt; j++) {
+                                        LASSERT(cfs_list_empty(&kss[j].\
+                                                         kss_tx_conns));
+                                        LASSERT(cfs_list_empty(&kss[j].\
+                                                         kss_rx_conns));
+                                        LASSERT(cfs_list_empty(&kss[j].\
+                                                         kss_zombie_noop_txs));
+                                        LASSERT(kss[j].kss_nconns == 0);
+                                        cfs_waitq_broadcast(&kss[j].kss_waitq);
+                                }
                         }
+                }
 
                 i = 4;
                 cfs_read_lock (&ksocknal_data.ksnd_global_lock);
@@ -2355,8 +2336,10 @@ ksocknal_new_incarnation (void)
 int
 ksocknal_base_startup (void)
 {
+        ksock_sched_t    *kss;
         int               rc;
         int               i;
+        int               j;
 
         LASSERT (ksocknal_data.ksnd_init == SOCKNAL_INIT_NOTHING);
         LASSERT (ksocknal_data.ksnd_nnets == 0);
@@ -2396,26 +2379,39 @@ ksocknal_base_startup (void)
         ksocknal_data.ksnd_init = SOCKNAL_INIT_DATA;
         PORTAL_MODULE_USE;
 
-        ksocknal_data.ksnd_nschedulers = ksocknal_nsched();
-        LIBCFS_ALLOC(ksocknal_data.ksnd_schedulers,
-                     sizeof(ksock_sched_t) * ksocknal_data.ksnd_nschedulers);
+        ksocknal_data.ksnd_sched_wt = 0;
+        cfs_cpus_for_each(i) {
+                if (ksocknal_data.ksnd_sched_wt < cfs_cpu_node_weight(i))
+                        ksocknal_data.ksnd_sched_wt = cfs_cpu_node_weight(i);
+        }
+
+        if (ksocknal_data.ksnd_sched_wt >= cfs_hw_cpu_hts())
+                ksocknal_data.ksnd_sched_wt /= cfs_hw_cpu_hts();
+
+        ksocknal_data.ksnd_schedulers =
+                      cfs_percpu_alloc(sizeof(ksock_sched_t) *
+                                       ksocknal_data.ksnd_sched_wt);
+
         if (ksocknal_data.ksnd_schedulers == NULL)
                 goto failed;
 
-        for (i = 0; i < ksocknal_data.ksnd_nschedulers; i++) {
-                ksock_sched_t *kss = &ksocknal_data.ksnd_schedulers[i];
-
-                cfs_spin_lock_init (&kss->kss_lock);
-                CFS_INIT_LIST_HEAD (&kss->kss_rx_conns);
-                CFS_INIT_LIST_HEAD (&kss->kss_tx_conns);
-                CFS_INIT_LIST_HEAD (&kss->kss_zombie_noop_txs);
-                cfs_waitq_init (&kss->kss_waitq);
+        cfs_percpu_for_each(kss, i, ksocknal_data.ksnd_schedulers) {
+                for (j = 0; j < ksocknal_data.ksnd_sched_wt; j++) {
+                        cfs_spin_lock_init(&kss[j].kss_lock);
+                        CFS_INIT_LIST_HEAD(&kss[j].kss_rx_conns);
+                        CFS_INIT_LIST_HEAD(&kss[j].kss_tx_conns);
+                        CFS_INIT_LIST_HEAD(&kss[j].kss_zombie_noop_txs);
+                        cfs_waitq_init (&kss[j].kss_waitq);
+                        kss[j].kss_cpuid = i;
+                }
         }
 
-        for (i = 0; i < ksocknal_data.ksnd_nschedulers; i++) {
-                rc = ksocknal_thread_start (ksocknal_scheduler,
-                                            &ksocknal_data.ksnd_schedulers[i]);
-                if (rc != 0) {
+        cfs_percpu_for_each(kss, i, ksocknal_data.ksnd_schedulers) {
+                for (j = 0; j < ksocknal_data.ksnd_sched_wt; j++) {
+                        rc = ksocknal_thread_start (ksocknal_scheduler,
+                                                    &kss[j]);
+                        if (rc == 0)
+                                continue;
                         CERROR("Can't spawn socknal scheduler[%d]: %d\n",
                                i, rc);
                         goto failed;

@@ -185,15 +185,6 @@ void osd_oi_fini(struct osd_thread_info *info, struct osd_oi *oi)
         }
 }
 
-static inline int fid_is_oi_fid(const struct lu_fid *fid)
-{
-        /* We need to filter-out oi obj's fid. As we can not store it, while
-         * oi-index create operation.
-         */
-        return (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE &&
-                fid_oid(fid) == OSD_OI_FID_16_OID));
-}
-
 int osd_oi_lookup(struct osd_thread_info *info, struct osd_oi *oi,
                   const struct lu_fid *fid, struct osd_inode_id *id)
 {
