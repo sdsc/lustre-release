@@ -114,9 +114,12 @@ ldlm_processing_policy ldlm_get_processing_policy(struct ldlm_resource *res)
         return ldlm_processing_policy_table[res->lr_type];
 }
 
-void ldlm_register_intent(struct ldlm_namespace *ns, ldlm_res_policy arg)
+void ldlm_register_intent(struct ldlm_namespace *ns,
+                          ldlm_it_policy_t it_policy,
+                          ldlm_it_policy_check_t it_checker)
 {
-        ns->ns_policy = arg;
+        ns->ns_policy       = it_policy;
+        ns->ns_policy_check = it_checker;
 }
 
 /*
@@ -663,9 +666,9 @@ void ldlm_lock_addref_internal(struct ldlm_lock *lock, __u32 mode)
 }
 
 /* only called in ldlm_flock_destroy and for local locks.
- *  * for LDLM_FLOCK type locks, l_blocking_ast is null, and
- *   * ldlm_lock_remove_from_lru() does nothing, it is safe
- *    * for ldlm_flock_destroy usage by dropping some code */
+ * for LDLM_FLOCK type locks, l_blocking_ast is null, and
+ * ldlm_lock_remove_from_lru() does nothing, it is safe
+ * for ldlm_flock_destroy usage by dropping some code */
 void ldlm_lock_decref_internal_nolock(struct ldlm_lock *lock, __u32 mode)
 {
         LDLM_DEBUG(lock, "ldlm_lock_decref(%s)", ldlm_lockname[mode]);
@@ -691,22 +694,23 @@ void ldlm_lock_decref_internal(struct ldlm_lock *lock, __u32 mode)
 
         lock_res_and_lock(lock);
 
-        ns = ldlm_lock_to_ns(lock);
-
         ldlm_lock_decref_internal_nolock(lock, mode);
+        if (lock->l_readers || lock->l_writers) { /* not the last reference */
+                unlock_res_and_lock(lock);
+                EXIT;
+                return;
+        }
 
-        if (lock->l_flags & LDLM_FL_LOCAL &&
-            !lock->l_readers && !lock->l_writers) {
-                /* If this is a local lock on a server namespace and this was
-                 * the last reference, cancel the lock. */
+        /* it's the last reference */
+        if (lock->l_flags & LDLM_FL_LOCAL) {
+                /* If this is a local lock on a server namespace, cancel it */
                 CDEBUG(D_INFO, "forcing cancel of local lock\n");
                 lock->l_flags |= LDLM_FL_CBPENDING;
         }
 
-        if (!lock->l_readers && !lock->l_writers &&
-            (lock->l_flags & LDLM_FL_CBPENDING)) {
-                /* If we received a blocked AST and this was the last reference,
-                 * run the callback. */
+        ns = ldlm_lock_to_ns(lock);
+        if (lock->l_flags & LDLM_FL_CBPENDING) {
+                /* If we received a blocked AST, run the callback. */
                 if (lock->l_ns_srv && lock->l_export)
                         CERROR("FL_CBPENDING set on non-local lock--just a "
                                "warning\n");
@@ -723,11 +727,9 @@ void ldlm_lock_decref_internal(struct ldlm_lock *lock, __u32 mode)
                 if ((lock->l_flags & LDLM_FL_ATOMIC_CB) ||
                     ldlm_bl_to_thread_lock(ns, NULL, lock) != 0)
                         ldlm_handle_bl_callback(ns, NULL, lock);
-        } else if (ns_is_client(ns) &&
-                   !lock->l_readers && !lock->l_writers &&
-                   !(lock->l_flags & LDLM_FL_BL_AST)) {
-                /* If this is a client-side namespace and this was the last
-                 * reference, put it on the LRU. */
+
+        } else if (!lock->l_ns_srv && !(lock->l_flags & LDLM_FL_BL_AST)) {
+                /* If this is a client-side namespace, put it on the LRU. */
                 ldlm_lock_add_to_lru(lock);
                 unlock_res_and_lock(lock);
 
@@ -1228,51 +1230,80 @@ out:
         return NULL;
 }
 
-ldlm_error_t ldlm_lock_enqueue(struct ldlm_namespace *ns,
-                               struct ldlm_lock **lockp,
-                               void *cookie, int *flags)
+ldlm_it_status_t ldlm_lock_intent_check(struct ldlm_namespace *ns,
+                                        void *cookie, int flags)
+{
+        if (ns->ns_policy == NULL)
+                return LDLM_IT_POLICY_OFF;
+
+        if ((flags & LDLM_FL_REPLAY) || !(flags & LDLM_FL_HAS_INTENT))
+                return LDLM_IT_POLICY_OFF;
+
+        return ns->ns_policy_check != NULL ?
+               ns->ns_policy_check(ns, cookie, flags) : LDLM_IT_POLICY_ON;
+}
+
+int ldlm_lock_intent(struct ldlm_namespace *ns,
+                     struct ldlm_lock **lockp,
+                     void *cookie, ldlm_mode_t mode, int *flags)
 {
         struct ldlm_lock *lock = *lockp;
+        int    rc;
+
+        /* NB: *lockp can be NULL */
+        rc = ns->ns_policy(ns, lockp, cookie, mode, *flags, NULL);
+
+        switch (rc) {
+        case ELDLM_LOCK_REPLACED:
+                /* The lock that was returned has already been granted,
+                 * and placed into lockp.  If it's not the same as the
+                 * one we passed in, then destroy the old one and our
+                 * work here is done. */
+                LASSERT(*lockp != NULL);
+                if (lock != NULL && lock != *lockp) {
+                        ldlm_lock_destroy(lock);
+                        LDLM_LOCK_RELEASE(lock);
+                }
+
+                *flags |= LDLM_FL_LOCK_CHANGED;
+                /* NB: my caller should call ldlm_reprocess_all for me */
+                RETURN(ELDLM_OK);
+
+        case ELDLM_OK: /* intent_only, no lock is returned from ns_policy */
+                LASSERT(*flags & LDLM_FL_INTENT_ONLY);
+                /* fall through */
+        case ELDLM_LOCK_ABORTED: /* did what you want, but can't grant lock */
+                /* fall through */
+        default: /* errors ... */
+                /* policy should never return a new lock with above values */
+                LASSERT(lock == *lockp);
+                if (lock != NULL)
+                        ldlm_lock_destroy(lock);
+                RETURN(rc);
+        }
+}
+
+int ldlm_lock_enqueue(struct ldlm_namespace *ns,
+                      struct ldlm_lock *lock, int *flags)
+{
         struct ldlm_resource *res = lock->l_resource;
-        int local = ns_is_client(ldlm_res_to_ns(res));
         ldlm_processing_policy policy;
         ldlm_error_t rc = ELDLM_OK;
         struct ldlm_interval *node = NULL;
         ENTRY;
 
         lock->l_last_activity = cfs_time_current_sec();
-        /* policies are not executed on the client or during replay */
-        if ((*flags & (LDLM_FL_HAS_INTENT|LDLM_FL_REPLAY)) == LDLM_FL_HAS_INTENT
-            && !local && ns->ns_policy) {
-                rc = ns->ns_policy(ns, lockp, cookie, lock->l_req_mode, *flags,
-                                   NULL);
-                if (rc == ELDLM_LOCK_REPLACED) {
-                        /* The lock that was returned has already been granted,
-                         * and placed into lockp.  If it's not the same as the
-                         * one we passed in, then destroy the old one and our
-                         * work here is done. */
-                        if (lock != *lockp) {
-                                ldlm_lock_destroy(lock);
-                                LDLM_LOCK_RELEASE(lock);
-                        }
-                        *flags |= LDLM_FL_LOCK_CHANGED;
-                        RETURN(0);
-                } else if (rc != ELDLM_OK ||
-                           (rc == ELDLM_OK && (*flags & LDLM_FL_INTENT_ONLY))) {
-                        ldlm_lock_destroy(lock);
-                        RETURN(rc);
-                }
-        }
 
         /* For a replaying lock, it might be already in granted list. So
          * unlinking the lock will cause the interval node to be freed, we
          * have to allocate the interval node early otherwise we can't regrant
          * this lock in the future. - jay */
-        if (!local && (*flags & LDLM_FL_REPLAY) && res->lr_type == LDLM_EXTENT)
+        if (lock->l_ns_srv &&
+            (*flags & LDLM_FL_REPLAY) && res->lr_type == LDLM_EXTENT)
                 OBD_SLAB_ALLOC_PTR_GFP(node, ldlm_interval_slab, CFS_ALLOC_IO);
 
         lock_res_and_lock(lock);
-        if (local && lock->l_req_mode == lock->l_granted_mode) {
+        if (!lock->l_ns_srv && lock->l_req_mode == lock->l_granted_mode) {
                 /* The server returned a blocked lock, but it was granted
                  * before we got a chance to actually enqueue it.  We don't
                  * need to do anything else. */
@@ -1308,7 +1339,7 @@ ldlm_error_t ldlm_lock_enqueue(struct ldlm_namespace *ns,
          *
          * FIXME (bug 268): Detect obvious lies by checking compatibility in
          * granted/converting queues. */
-        if (local) {
+        if (!lock->l_ns_srv) {
                 if (*flags & LDLM_FL_BLOCK_CONV)
                         ldlm_resource_add_lock(res, &res->lr_converting, lock);
                 else if (*flags & (LDLM_FL_BLOCK_WAIT | LDLM_FL_BLOCK_GRANTED))
@@ -1337,7 +1368,7 @@ out:
         unlock_res_and_lock(lock);
         if (node)
                 OBD_SLAB_FREE(node, ldlm_interval_slab, sizeof(*node));
-        return rc;
+        RETURN(rc);
 }
 
 /* Must be called with namespace taken: queue is waiting or converting. */

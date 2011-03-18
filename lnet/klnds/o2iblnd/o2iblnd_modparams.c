@@ -52,7 +52,7 @@ static int timeout = 50;
 CFS_MODULE_PARM(timeout, "i", int, 0644,
                 "timeout (seconds)");
 
-static int ntx = 256;
+static int ntx = 512;
 CFS_MODULE_PARM(ntx, "i", int, 0444,
                 "# of message descriptors");
 

@@ -761,6 +761,16 @@ static inline int lu_fid_eq(const struct lu_fid *f0,
         return memcmp(f0, f1, sizeof *f0) == 0;
 }
 
+static inline int lu_fid_invalid(const struct lu_fid *fid)
+{
+        return fid_is_zero(fid);
+}
+
+static inline void lu_fid_invalidate(struct lu_fid *fid)
+{
+        memset(fid, 0, sizeof(*fid));
+}
+
 #define __diff_normalize(val0, val1)                            \
 ({                                                              \
         typeof(val0) __val0 = (val0);                           \
@@ -1082,7 +1092,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 #define MDT_CONNECT_SUPPORTED  (OBD_CONNECT_RDONLY | OBD_CONNECT_VERSION | \
                                 OBD_CONNECT_ACL | OBD_CONNECT_XATTR | \
                                 OBD_CONNECT_IBITS | OBD_CONNECT_JOIN | \
-                                OBD_CONNECT_NODEVOH | OBD_CONNECT_ATTRFID | \
+                                OBD_CONNECT_NODEVOH |/* OBD_CONNECT_ATTRFID |*/\
                                 OBD_CONNECT_CANCELSET | OBD_CONNECT_AT | \
                                 OBD_CONNECT_RMT_CLIENT | \
                                 OBD_CONNECT_RMT_CLIENT_FORCE | \

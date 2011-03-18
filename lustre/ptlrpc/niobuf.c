@@ -361,7 +361,8 @@ int ptlrpc_unregister_bulk(struct ptlrpc_request *req, int async)
 
 static void ptlrpc_at_set_reply(struct ptlrpc_request *req, int flags)
 {
-        struct ptlrpc_service *svc = req->rq_rqbd->rqbd_service;
+        struct ptlrpc_svc_cpud *svcd = req->rq_svcd;
+        struct ptlrpc_service *svc  = svcd->scd_service;
         int service_time = max_t(int, cfs_time_current_sec() -
                                  req->rq_arrival_time.tv_sec, 1);
 
@@ -373,12 +374,12 @@ static void ptlrpc_at_set_reply(struct ptlrpc_request *req, int flags)
                MSG_REQ_REPLAY_DONE | MSG_LOCK_REPLAY_DONE))) {
                 /* early replies, errors and recovery requests don't count
                  * toward our service time estimate */
-                int oldse = at_measured(&svc->srv_at_estimate, service_time);
+                int oldse = at_measured(&svcd->scd_at_estimate, service_time);
                 if (oldse != 0)
                         DEBUG_REQ(D_ADAPTTO, req,
                                   "svc %s changed estimate from %d to %d",
                                   svc->srv_name, oldse,
-                                  at_get(&svc->srv_at_estimate));
+                                  at_get(&svcd->scd_at_estimate));
         }
         /* Report actual service time for client latency calc */
         lustre_msg_set_service_time(req->rq_repmsg, service_time);
@@ -390,7 +391,7 @@ static void ptlrpc_at_set_reply(struct ptlrpc_request *req, int flags)
                 lustre_msg_set_timeout(req->rq_repmsg, 0);
         else
                 lustre_msg_set_timeout(req->rq_repmsg,
-                                       at_get(&svc->srv_at_estimate));
+                                       at_get(&svcd->scd_at_estimate));
 
         if (req->rq_reqmsg &&
             !(lustre_msghdr_get_flags(req->rq_reqmsg) & MSGHDR_AT_SUPPORT)) {
@@ -410,7 +411,7 @@ static void ptlrpc_at_set_reply(struct ptlrpc_request *req, int flags)
  */
 int ptlrpc_send_reply(struct ptlrpc_request *req, int flags)
 {
-        struct ptlrpc_service     *svc = req->rq_rqbd->rqbd_service;
+        struct ptlrpc_svc_cpud    *svcd = req->rq_svcd;
         struct ptlrpc_reply_state *rs = req->rq_reply_state;
         struct ptlrpc_connection  *conn;
         int                        rc;
@@ -474,7 +475,8 @@ int ptlrpc_send_reply(struct ptlrpc_request *req, int flags)
         rc = ptl_send_buf (&rs->rs_md_h, rs->rs_repbuf, rs->rs_repdata_len,
                            (rs->rs_difficult && !rs->rs_no_ack) ?
                            LNET_ACK_REQ : LNET_NOACK_REQ,
-                           &rs->rs_cb_id, conn, svc->srv_rep_portal,
+                           &rs->rs_cb_id, conn,
+                           svcd->scd_service->srv_rep_portal,
                            req->rq_xid, req->rq_reply_off);
 out:
         if (unlikely(rc != 0))
@@ -716,9 +718,9 @@ int ptl_send_rpc(struct ptlrpc_request *request, int noreply)
  */
 int ptlrpc_register_rqbd(struct ptlrpc_request_buffer_desc *rqbd)
 {
-        struct ptlrpc_service   *service = rqbd->rqbd_service;
+        struct ptlrpc_service    *service = rqbd->rqbd_svcd->scd_service;
         static lnet_process_id_t  match_id = {LNET_NID_ANY, LNET_PID_ANY};
-        int                      rc;
+        int                       rc;
         lnet_md_t                 md;
         lnet_handle_me_t          me_h;
 
@@ -728,8 +730,21 @@ int ptlrpc_register_rqbd(struct ptlrpc_request_buffer_desc *rqbd)
         if (OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_RQBD))
                 return (-ENOMEM);
 
+        /**
+         * NB: LNET_INS_AFTER_CPU should only be used by cpu-affinity threads,
+         * otherwise we will lost performance because overhead of buffer
+         * "stealing" between CPUs in LNet.
+         *
+         * however, thread can lost CPU affinity on hot-plug/unplug of CPU,
+         * In the future, we might need to check CPU id on each main loop,
+         * and change a flag on ptlrpc_thread or ptlrpc_svc_cpud if we
+         * found cpu-affinity changed, so we wouldn't continue to use
+         * LNET_INS_AFTER_CPU flag for non-affinity threads.
+         */
         rc = LNetMEAttach(service->srv_req_portal,
-                          match_id, 0, ~0, LNET_UNLINK, LNET_INS_AFTER, &me_h);
+                          match_id, 0, ~0, LNET_UNLINK,
+                          service->srv_cpu_affinity ?
+                          LNET_INS_AFTER_CPU : LNET_INS_AFTER, &me_h);
         if (rc != 0) {
                 CERROR("LNetMEAttach failed: %d\n", rc);
                 return (-ENOMEM);
@@ -740,7 +755,7 @@ int ptlrpc_register_rqbd(struct ptlrpc_request_buffer_desc *rqbd)
 
         md.start     = rqbd->rqbd_buffer;
         md.length    = service->srv_buf_size;
-        md.max_size  = service->srv_max_req_size;
+        md.max_size  = service->srv_req_max_size;
         md.threshold = LNET_MD_THRESH_INF;
         md.options   = PTLRPC_MD_OPTIONS | LNET_MD_OP_PUT | LNET_MD_MAX_SIZE;
         md.user_ptr  = &rqbd->rqbd_cbid;

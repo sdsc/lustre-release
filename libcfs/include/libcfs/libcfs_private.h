@@ -138,72 +138,188 @@ void lbug_with_loc(const char *file, const char *func, const int line)
 
 #define LBUG() lbug_with_loc(__FILE__, __FUNCTION__, __LINE__)
 
+void  cfs_node_free_aligned(void *var, unsigned int size);
+void *__cfs_node_alloc_aligned(cfs_cpumap_t *cpumap,
+                               int node, unsigned int size);
+#define cfs_node_alloc_aligned(i, s)           \
+        __cfs_node_alloc_aligned(cfs_cpumap, i, s)
+
 extern cfs_atomic_t libcfs_kmemory;
 /*
  * Memory
  */
 #ifdef LIBCFS_DEBUG
 
-# define libcfs_kmem_inc(ptr, size)             \
-do {                                            \
-        cfs_atomic_add(size, &libcfs_kmemory);  \
+# define libcfs_kmem_inc(ptr, size)                     \
+do {                                                    \
+        cfs_atomic_add(size, &libcfs_kmemory);          \
 } while (0)
 
-# define libcfs_kmem_dec(ptr, size) do {        \
-        cfs_atomic_sub(size, &libcfs_kmemory);  \
+# define libcfs_kmem_dec(ptr, size)                     \
+do {                                                    \
+        cfs_atomic_sub(size, &libcfs_kmemory);          \
 } while (0)
+
+# define libcfs_kmem_read()     cfs_atomic_read(&libcfs_kmemory)
 
 #else
 # define libcfs_kmem_inc(ptr, size) do {} while (0)
 # define libcfs_kmem_dec(ptr, size) do {} while (0)
+# define libcfs_kmem_read()         (0)
 #endif /* LIBCFS_DEBUG */
 
 #ifndef LIBCFS_VMALLOC_SIZE
 #define LIBCFS_VMALLOC_SIZE        (2 << CFS_PAGE_SHIFT) /* 2 pages */
 #endif
 
-#define LIBCFS_ALLOC_GFP(ptr, size, mask)                                 \
-do {                                                                      \
+#define LIBCFS_ALLOC_PRE(size, mask)                                      \
         LASSERT(!cfs_in_interrupt() ||                                    \
-               (size <= LIBCFS_VMALLOC_SIZE && mask == CFS_ALLOC_ATOMIC));\
-        if (unlikely((size) > LIBCFS_VMALLOC_SIZE))                       \
-                (ptr) = cfs_alloc_large(size);                            \
-        else                                                              \
-                (ptr) = cfs_alloc((size), (mask));                        \
+               ((size) <= LIBCFS_VMALLOC_SIZE &&                          \
+                ((mask) & CFS_ALLOC_ATOMIC)) != 0)                        \
+
+#define LIBCFS_ALLOC_POST(ptr, size)                                      \
+do {                                                                      \
         if (unlikely((ptr) == NULL)) {                                    \
                 CERROR("LNET: out of memory at %s:%d (tried to alloc '"   \
                        #ptr "' = %d)\n", __FILE__, __LINE__, (int)(size));\
                 CERROR("LNET: %d total bytes allocated by lnet\n",        \
-                       cfs_atomic_read(&libcfs_kmemory));                 \
-                break;                                                    \
+                       libcfs_kmem_read());                               \
+        } else {                                                          \
+                libcfs_kmem_inc((ptr), (size));                           \
+                CDEBUG(D_MALLOC, "alloc '" #ptr "': %d at %p (tot %d).\n",\
+                       (int)(size), (ptr), libcfs_kmem_read());           \
         }                                                                 \
-        libcfs_kmem_inc((ptr), (size));                                   \
-        memset((ptr), 0, (size));                                         \
-        CDEBUG(D_MALLOC, "kmalloced '" #ptr "': %d at %p (tot %d).\n",    \
-               (int)(size), (ptr), cfs_atomic_read (&libcfs_kmemory));    \
 } while (0)
 
-#define LIBCFS_ALLOC(ptr, size) \
-        LIBCFS_ALLOC_GFP(ptr, size, CFS_ALLOC_IO)
+/*
+ * allocate memory with GFP flags @mask
+ */
+#define LIBCFS_ALLOC_GFP(ptr, size, mask)                                 \
+do {                                                                      \
+        LIBCFS_ALLOC_PRE((size), (mask));                                 \
+        if (likely((size) <= LIBCFS_VMALLOC_SIZE))                        \
+                (ptr) = cfs_alloc((size), (mask));                        \
+        else                                                              \
+                (ptr) = cfs_alloc_large((size), (mask));                  \
+        LIBCFS_ALLOC_POST((ptr), (size));                                 \
+} while (0)
 
-#define LIBCFS_ALLOC_ATOMIC(ptr, size) \
-        LIBCFS_ALLOC_GFP(ptr, size, CFS_ALLOC_ATOMIC)
+/*
+ * allocate memory from specified NUMA node
+ *   @cpumap != NULL, @n is node id of @cpumap
+ *   @cpumap == NULL, @n is HW node id
+ */
+#define LIBCFS_NODE_ALLOC_VERBOSE(ptr, cpumap, n, size, mask)             \
+do {                                                                      \
+        LIBCFS_ALLOC_PRE((size), (mask));                                 \
+        if (likely((size) <= LIBCFS_VMALLOC_SIZE)) {                      \
+                (ptr) = __cfs_node_alloc((cpumap), (n), (size), (mask));  \
+        } else {                                                          \
+                (ptr) = __cfs_node_alloc_large((cpumap), (n),             \
+                                               (size), (mask));           \
+        }                                                                 \
+        LIBCFS_ALLOC_POST((ptr), (size));                                 \
+} while (0)
 
-#define LIBCFS_FREE(ptr, size)                                          \
-do {                                                                    \
-        int s = (size);                                                 \
-        if (unlikely((ptr) == NULL)) {                                  \
-                CERROR("LIBCFS: free NULL '" #ptr "' (%d bytes) at "    \
-                       "%s:%d\n", s, __FILE__, __LINE__);               \
-                break;                                                  \
-        }                                                               \
-        libcfs_kmem_dec((ptr), s);                                      \
-        CDEBUG(D_MALLOC, "kfreed '" #ptr "': %d at %p (tot %d).\n",     \
-               s, (ptr), cfs_atomic_read(&libcfs_kmemory));             \
-        if (unlikely(s > LIBCFS_VMALLOC_SIZE))                          \
-                cfs_free_large(ptr);                                    \
-        else                                                            \
-                cfs_free(ptr);                                          \
+/*
+ * allocate cacheline aligned memory from specified NUMA node
+ *   @cpumap != NULL, @n is node id of @cpumap
+ *   @cpumap == NULL, @n is HW node id
+ */
+#define LIBCFS_NODE_ALLOC_ALIGNED_VERBOSE(ptr, cpumap, n, size)           \
+do {                                                                      \
+        LIBCFS_ALLOC_PRE((size), 0);                                      \
+        (ptr) = __cfs_node_alloc_aligned(cpumap, n, (size));              \
+        LIBCFS_ALLOC_POST((ptr), (size));                                 \
+} while (0)
+
+/*
+ * default allocator
+ */
+#define LIBCFS_ALLOC(ptr, size)                                           \
+        LIBCFS_ALLOC_GFP(ptr, size, CFS_ALLOC_IO | CFS_ALLOC_ZERO)
+
+/*
+ * non-blocking allocator
+ */
+#define LIBCFS_ALLOC_ATOMIC(ptr, size)                                    \
+        LIBCFS_ALLOC_GFP(ptr, size, CFS_ALLOC_ATOMIC | CFS_ALLOC_ZERO)
+
+/*
+ * allocate cacheline aligned memory:
+ *  - returned address will be cacheline size aligned
+ *  - actual size will roundup to cacheline size
+ */
+#define LIBCFS_ALLOC_ALIGNED(ptr, size)                                   \
+        LIBCFS_NODE_ALLOC_ALIGNED_VERBOSE(ptr, NULL, CFS_CPU_ANY, size)
+
+/*
+ * allocate memory from specified NUMA node @node, @node is node_id
+ * of global cfs_cpumap
+ */
+#define LIBCFS_NODE_ALLOC(ptr, node, size)                                \
+        LIBCFS_NODE_ALLOC_VERBOSE(ptr, cfs_cpumap, node, size, CFS_ALLOC_IO)
+
+/*
+ * allocate cacheline aligned memory from specified NUMA node @node,
+ * @node is node_id in global cfs_cpumap
+ *  - returned address will be cacheline size aligned
+ *  - actual size will roundup to cacheline size
+ */
+#define LIBCFS_NODE_ALLOC_ALIGNED(ptr, node, size)                        \
+        LIBCFS_NODE_ALLOC_ALIGNED_VERBOSE(ptr, cfs_cpumap, node, size)
+
+#define LIBCFS_FREE_PRE(ptr, size)                                        \
+        if (unlikely((ptr) == NULL)) {                                    \
+                CERROR("LIBCFS: free NULL '" #ptr "' (%d bytes) at "      \
+                       "%s:%d\n", (int)(size), __FILE__, __LINE__);       \
+                break;                                                    \
+        } else {                                                          \
+                libcfs_kmem_dec((ptr), (int)(size));                      \
+                CDEBUG(D_MALLOC, "freed '" #ptr "': %d at %p (tot %d).\n",\
+                       (int)(size), (ptr), libcfs_kmem_read());           \
+        }                                                                 \
+
+/*
+ * free memory allocated by LIBCFS_ALLOC & LIBCFS_ALLOC_GFP
+ */
+#define LIBCFS_FREE(ptr, size)                                            \
+do {                                                                      \
+        LIBCFS_FREE_PRE((ptr), (size));                                   \
+        if (unlikely((size) > LIBCFS_VMALLOC_SIZE))                       \
+                cfs_free_large(ptr);                                      \
+        else                                                              \
+                cfs_free(ptr);                                            \
+} while (0)
+
+/*
+ * free memory allocated by LIBCFS_ALLOC_ALIGNED
+ */
+#define LIBCFS_FREE_ALIGNED(ptr, size)                                    \
+do {                                                                      \
+        LIBCFS_FREE_PRE((ptr), (size));                                   \
+        cfs_node_free_aligned(ptr, size);                                 \
+} while (0)
+
+/*
+ * free memory allocated by LIBCFS_NODE_ALLOC*
+ */
+#define LIBCFS_NODE_FREE(ptr, size)                                       \
+do {                                                                      \
+        LIBCFS_FREE_PRE((ptr), (size));                                   \
+        if (unlikely((size) > LIBCFS_VMALLOC_SIZE))                       \
+                cfs_node_free_large((ptr));                               \
+        else                                                              \
+                cfs_node_free((ptr));                                     \
+} while (0)
+
+/*
+ * free memory allcoated by LIBCFS_NODE_ALLOC_ALIGNED*
+ */
+#define LIBCFS_NODE_FREE_ALIGNED(ptr, size)                               \
+do {                                                                      \
+        LIBCFS_FREE_PRE((ptr), (size));                                   \
+        cfs_node_free_aligned(ptr, size);                                 \
 } while (0)
 
 /******************************************************************************/
@@ -267,6 +383,23 @@ do {                                                                           \
 # endif
 # define LIBCFS_FREE(a, b) do { free(a); } while (0)
 
+# define LIBCFS_ALLOC_ALIGNED(ptr, size)                        \
+         LIBCFS_ALLOC(ptr, size)
+# define LIBCFS_NODE_ALLOC_VERBOSE(ptr, cpum, n, size, f)       \
+         LIBCFS_ALLOC(ptr, size)
+# define LIBCFS_NODE_ALLOC(ptr, node, size)                     \
+         LIBCFS_ALLOC(ptr, size)
+# define LIBCFS_NODE_ALLOC_ALIGNED_VERBOSE(ptr, cpum, n, size)  \
+         LIBCFS_ALLOC(ptr, size)
+# define LIBCFS_NODE_ALLOC_ALIGNED(ptr, node, size)             \
+         LIBCFS_ALLOC(ptr, size)
+# define LIBCFS_FREE_ALIGNED(ptr, size)                         \
+         LIBCFS_FREE(ptr, size)
+# define LIBCFS_NODE_FREE(ptr, size)                            \
+         LIBCFS_FREE(ptr, size)
+# define LIBCFS_NODE_FREE_ALIGNED(ptr, size)                    \
+         LIBCFS_FREE(ptr, size)
+
 void libcfs_debug_dumplog(void);
 int libcfs_debug_init(unsigned long bufsize);
 int libcfs_debug_cleanup(void);
@@ -287,6 +420,36 @@ int libcfs_debug_cleanup(void);
 #endif
 /* !__KERNEL__ */
 #endif
+
+/*
+ * allocate percpu variable, returned value is an array of pointers,
+ * variable can be indexed by CPU ID.
+ *      cpumap != NULL: size of array is node_num of cpumap
+ *      cpumap == NULL: size of array is number of HW cores
+ *
+ * if aligned is true, address and size of each variable are
+ * cacheline aligned.
+ */
+void *__cfs_percpu_alloc(cfs_cpumap_t *cpumap,
+                         unsigned int size, int aligned);
+#define cfs_percpu_alloc(s)     __cfs_percpu_alloc(cfs_cpumap, s, 1)
+/*
+ * destory percpu variable
+ */
+void  cfs_percpu_free(void *vars);
+
+int   cfs_percpu_count(void *vars);
+void *cfs_percpu_current(void *vars);
+
+void  cfs_array_free(void *vars);
+/*
+ * allocate a variable array, returned value is an array of pointers.
+ * Caller can specify length of array by count.
+ */
+void *cfs_array_alloc(int count, unsigned int size, int aligned);
+
+#define cfs_percpu_for_each(var, i, vars)               \
+        for (i = 0; i < cfs_percpu_count(vars) && (var = vars[i]) != NULL; i++)
 
 #define LASSERT_ATOMIC_ENABLED          (1)
 
@@ -382,6 +545,156 @@ do {                                                            \
 
 #define CFS_ALLOC_PTR(ptr)      LIBCFS_ALLOC(ptr, sizeof (*(ptr)));
 #define CFS_FREE_PTR(ptr)       LIBCFS_FREE(ptr, sizeof (*(ptr)));
+
+/*
+ * scalable lock
+ *
+ * There are some use-cases like this in Lustre:
+ * . each CPU has it's own private data which is frequently changed, and mostly
+ *   by the local CPU.
+ * . all CPUs share some data, these data are rarely changed.
+ * 
+ * LNet is typical example.
+ * Scalable lock is designed for this kind of use-cases:
+ * . scalable lock is actually a set of percpu lock, each CPU has
+ *   it's own private lock
+ * . change on private data just needs to take the private lock
+ * . read on shared data just needs to take any of private locks
+ * . change on shared data needs to take _all_ private locks,
+ *   which is slow and should be really rare.
+ */
+#include <libcfs/libcfs_workitem.h>
+#include <libcfs/libcfs_hash.h>
+
+struct cfs_scale_lock;
+
+#define CFS_SCLOCK_EXCL       (-1)
+#define CFS_SCLOCK_CURRENT    (-2)
+
+typedef struct {
+        /** guard */
+        cfs_spinlock_t          pl_lock;
+        /** padding data */
+        unsigned char          *pl_data[0];
+} cfs_private_lock_t;
+
+typedef struct cfs_scale_lock {
+        /** parent rwlock of sclock */
+        cfs_rwlock_t            sl_rwlock;
+        /** size of private lock + size of padding data */
+        unsigned int            sl_psize;
+        /** set to 1 if write_lock on sl_rwlock */
+        unsigned short          sl_locked;
+        /** bits for number of private locks */
+        unsigned short          sl_bits;
+        /** based cpumap of sclock */
+        cfs_cpumap_t           *sl_cpumap;
+        /** private lock table */
+        cfs_private_lock_t    **sl_locks;
+} cfs_scale_lock_t;
+
+/* create a scalable lock based on @cpumap,
+ * each private lock has extra @psize bytes padding data */
+struct cfs_scale_lock *__cfs_sclock_alloc(cfs_cpumap_t *cpumap,
+                                          unsigned int psize);
+/* destroy a scalable lock */
+void cfs_sclock_free(struct cfs_scale_lock *sclock);
+/* create a scalable lock with default cfs_cpumap */
+#define cfs_sclock_alloc(psize) __cfs_sclock_alloc(cfs_cpumap, psize)
+
+/* return number of private lock */
+static inline int
+cfs_sclock_concurrency(cfs_scale_lock_t *sclock)
+{
+        return cfs_percpu_count(sclock->sl_locks);
+}
+
+/* return lock_id of current CPU */
+static inline int
+cfs_sclock_cur_index(cfs_scale_lock_t *sclock)
+{
+        return sclock->sl_cpumap == NULL ?
+               cfs_hw_cpu_id() : __cfs_cpu_current(sclock->sl_cpumap);
+}
+
+/* hash @key to a lock_id and return it */
+static inline int
+cfs_sclock_key_index(cfs_scale_lock_t *sclock, __u64 key)
+{
+        int concur;
+
+        if (sclock->sl_bits == 0)
+                return 0; /* only one configured CPU node */
+
+        concur = cfs_sclock_concurrency(sclock);
+        if ((1 << sclock->sl_bits) == concur)
+                return cfs_hash_long(key, sclock->sl_bits);
+        else /* not power2 */
+                return cfs_hash_long(key, 32) % concur;
+}
+
+/* return padding data of private lock indexed by @index */
+static inline void *
+cfs_sclock_index_data(cfs_scale_lock_t *sclock, int index)
+{
+        LASSERT(sclock->sl_psize > 0); /* otherwise don't allow to do this */
+        LASSERT(index >= 0 && index < cfs_sclock_concurrency(sclock));
+
+        return &sclock->sl_locks[index]->pl_data[0];
+}
+
+/* hash @key to a private lock, and return padding data of the private lock */
+#define cfs_sclock_key_data(sclock, key)        \
+        cfs_sclock_index_data(sclock, cfs_sclock_key_index(sclock, key))
+/* shadow current CPU id to a private lock then return
+ * padding data of the lock */
+#define cfs_sclock_cur_data(sclock)             \
+        cfs_sclock_index_data(sclock, cfs_sclock_cur_index(sclock))
+
+/* lock private lock @index of @sclock */
+int  cfs_sclock_lock(struct cfs_scale_lock *sclock, int index);
+/* unlock private lock @index of @sclock */
+void cfs_sclock_unlock(struct cfs_scale_lock *sclock, int index);
+/* hash @key to a private lock of @sclock, then lock it
+ * and return lock_id */
+#define cfs_sclock_lock_key(sclock, key)        \
+        cfs_sclock_lock(sclock, cfs_sclock_key_index(sclock, key))
+/* shadow current CPU id to a private lock of @sclock,
+ * then lock it and return lock_id */
+#define cfs_sclock_lock_current(sclock)         \
+        cfs_sclock_lock(sclock, CFS_SCLOCK_CURRENT)
+
+/* exclusively lock @sclock, so nobody can take any of private lock */
+#define cfs_sclock_lock_all(sclock)             \
+        cfs_sclock_lock(sclock, CFS_SCLOCK_EXCL)
+/* release exclusive lock on @sclock */
+#define cfs_sclock_unlock_all(sclock)           \
+        cfs_sclock_unlock(sclock, CFS_SCLOCK_EXCL)
+
+/* iterate over all private locks of @sclock by lock_id @idx */
+#define cfs_sclock_for_each(idx, sclock)        \
+        for (idx = 0; idx < cfs_sclock_concurrency(sclock); idx++)
+
+/* roundup @val to power2 */
+int  cfs_power2_roundup(int val);
+/* create a table of cfs_list_t with @size */
+cfs_list_t *cfs_list_table_alloc(unsigned int size);
+/* free a table of cfs_list_t, assert all list_head to be empty
+ * if @assert_empty is true */
+void cfs_list_table_free(cfs_list_t *table,
+                         unsigned int size, int assert_empty);
+/* create percpu (atomic) refcount based on @cpumap */
+cfs_atomic_t **__cfs_percpu_ref_alloc(cfs_cpumap_t *cpumap, int init_val);
+/* destroy percpu refcount */
+void cfs_percpu_ref_free(cfs_atomic_t **refs);
+/* return sum of all percpu refs */
+int cfs_percpu_ref_value(cfs_atomic_t **refs);
+/* create percpu (atomic) refcount based on default cfs_cpumap */
+#define cfs_percpu_ref_alloc(v)                 \
+        __cfs_percpu_ref_alloc(cfs_cpumap, v)
+/* shadow current CPU to percpu ref */
+#define cfs_percpu_ref_current(refs)            \
+        ((cfs_atomic_t *)cfs_percpu_current(refs))
 
 /** Compile-time assertion.
 
