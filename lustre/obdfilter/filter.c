@@ -2731,6 +2731,9 @@ static int filter_connect_internal(struct obd_export *exp,
                                    obd_export_nid2str(exp));
         }
 
+        if (data->ocd_connect_flags & OBD_CONNECT_MAXBYTES)
+                data->ocd_maxbytes = exp->exp_obd->u.obt.obt_sb->s_maxbytes;
+
         RETURN(0);
 }
 
@@ -3487,7 +3490,7 @@ static int filter_unpackmd(struct obd_export *exp, struct lov_stripe_md **lsmp,
                 LASSERT((*lsmp)->lsm_object_id);
         }
 
-        (*lsmp)->lsm_maxbytes = LUSTRE_STRIPE_MAXBYTES;
+        (*lsmp)->lsm_maxbytes = exp->exp_obd->u.obt.obt_sb->s_maxbytes;
 
         RETURN(lsm_size);
 }

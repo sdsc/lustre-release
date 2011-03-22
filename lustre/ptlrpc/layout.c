@@ -1645,6 +1645,8 @@ static void *__req_capsule_get(struct req_capsule *pill,
                                field->rmf_name, len, field->rmf_size, loc);
                         return NULL;
                 }
+        } else if (field->rmf_flags & RMF_F_NO_SIZE_CHECK) {
+                len = min(field->rmf_size, lustre_msg_buflen(msg, offset));
         } else if (pill->rc_area[loc][offset] != -1) {
                 len = pill->rc_area[loc][offset];
         } else {
