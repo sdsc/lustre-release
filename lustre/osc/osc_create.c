@@ -575,7 +575,7 @@ int osc_create(struct obd_export *exp, struct obdo *oa,
                 cfs_spin_lock(&oscc->oscc_lock);
                 oscc->oscc_flags &= ~OSCC_FLAG_SYNC_IN_PROGRESS;
                 if (rc == 0 || rc == -ENOSPC) {
-                        struct obd_connect_data *ocd;
+                        obd_connect_data_t *ocd;
 
                         if (rc == -ENOSPC)
                                 oscc->oscc_flags |= OSCC_FLAG_NOSPC;

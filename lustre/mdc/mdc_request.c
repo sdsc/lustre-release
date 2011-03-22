@@ -1669,7 +1669,7 @@ int mdc_get_info(struct obd_export *exp, __u32 keylen, void *key,
         }
         if (KEY_IS(KEY_CONN_DATA)) {
                 struct obd_import *imp = class_exp2cliimp(exp);
-                struct obd_connect_data *data = val;
+                obd_connect_data_t *data = val;
 
                 if (*vallen != sizeof(*data))
                         RETURN(-EINVAL);
@@ -2227,7 +2227,7 @@ static int mdc_renew_capa(struct obd_export *exp, struct obd_capa *oc,
 static int mdc_connect(const struct lu_env *env,
                        struct obd_export **exp,
                        struct obd_device *obd, struct obd_uuid *cluuid,
-                       struct obd_connect_data *data,
+                       obd_connect_data_t *data,
                        void *localdata)
 {
         struct obd_import *imp = obd->u.cli.cl_import;

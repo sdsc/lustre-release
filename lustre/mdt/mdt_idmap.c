@@ -94,7 +94,7 @@ int mdt_init_sec_level(struct mdt_thread_info *info)
         char *client = libcfs_nid2str(req->rq_peer.nid);
         struct obd_export *exp = req->rq_export;
         struct obd_device *obd = exp->exp_obd;
-        struct obd_connect_data *data, *reply;
+        obd_connect_data_t *data, *reply;
         int rc = 0, remote;
         ENTRY;
 

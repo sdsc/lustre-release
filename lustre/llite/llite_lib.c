@@ -165,7 +165,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt)
         struct obd_capa *oc = NULL;
         struct obd_statfs osfs;
         struct ptlrpc_request *request = NULL;
-        struct obd_connect_data *data = NULL;
+        obd_connect_data_t *data = NULL;
         struct obd_uuid *uuid;
         struct md_op_data *op_data;
         struct lustre_md lmd;
@@ -342,7 +342,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt)
                                   OBD_CONNECT_SRVLOCK   | OBD_CONNECT_TRUNCLOCK|
                                   OBD_CONNECT_AT | OBD_CONNECT_RMT_CLIENT |
                                   OBD_CONNECT_OSS_CAPA | OBD_CONNECT_VBR|
-                                  OBD_CONNECT_FULL20;
+                                  OBD_CONNECT_FULL20   | OBD_CONNECT_MAXBYTES;
 
         if (sbi->ll_flags & LL_SBI_SOM_PREVIEW)
                 data->ocd_connect_flags |= OBD_CONNECT_SOM;
@@ -426,7 +426,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt)
                 valid |= OBD_MD_FLACL;
 
         OBD_ALLOC_PTR(op_data);
-        if (op_data == NULL) 
+        if (op_data == NULL)
                 GOTO(out_lock_cn_cb, err = -ENOMEM);
 
         op_data->op_fid1 = sbi->ll_root_fid;

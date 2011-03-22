@@ -128,7 +128,7 @@ static int lov_notify(struct obd_device *obd, struct obd_device *watched,
 
 #define MAX_STRING_SIZE 128
 int lov_connect_obd(struct obd_device *obd, __u32 index, int activate,
-                    struct obd_connect_data *data)
+                    obd_connect_data_t *data)
 {
         struct lov_obd *lov = &obd->u.lov;
         struct obd_uuid *tgt_uuid;
@@ -231,7 +231,7 @@ int lov_connect_obd(struct obd_device *obd, __u32 index, int activate,
 
 static int lov_connect(const struct lu_env *env,
                        struct obd_export **exp, struct obd_device *obd,
-                       struct obd_uuid *cluuid, struct obd_connect_data *data,
+                       struct obd_uuid *cluuid, obd_connect_data_t *data,
                        void *localdata)
 {
         struct lov_obd *lov = &obd->u.lov;
@@ -2703,7 +2703,6 @@ static int lov_set_info_async(struct obd_export *exp, obd_count keylen,
                         err = obd_set_info_async(tgt->ltd_exp, keylen, key,
                                                  sizeof(*info->capa),
                                                  info->capa, set);
-                       
                 } else {
                         /* Only want a specific OSC */
                         if (check_uuid &&

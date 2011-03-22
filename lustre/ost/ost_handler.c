@@ -1567,7 +1567,7 @@ static int ost_init_sec_level(struct ptlrpc_request *req)
         struct obd_device *obd = exp->exp_obd;
         struct filter_obd *filter = &obd->u.filter;
         char *client = libcfs_nid2str(req->rq_peer.nid);
-        struct obd_connect_data *data, *reply;
+        obd_connect_data_t *data, *reply;
         int rc = 0, remote;
         ENTRY;
 

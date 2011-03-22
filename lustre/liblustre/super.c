@@ -1854,7 +1854,7 @@ llu_fsswop_mount(const char *source,
         char *zconf_mgsnid, *zconf_profile;
         char *osc = NULL, *mdc = NULL;
         int async = 1, err = -EINVAL;
-        struct obd_connect_data ocd = {0,};
+        obd_connect_data_t ocd = {0,};
         struct md_op_data op_data = {{0}};
 
         ENTRY;

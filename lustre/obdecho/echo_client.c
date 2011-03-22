@@ -1945,7 +1945,7 @@ static int echo_client_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
         struct echo_client_obd *ec = &obddev->u.echo_client;
         struct obd_device *tgt;
         struct obd_uuid echo_uuid = { "ECHO_UUID" };
-        struct obd_connect_data *ocd = NULL;
+        obd_connect_data_t *ocd = NULL;
         int rc;
         ENTRY;
 
@@ -2020,7 +2020,7 @@ static int echo_client_cleanup(struct obd_device *obddev)
 static int echo_client_connect(const struct lu_env *env,
                                struct obd_export **exp,
                                struct obd_device *src, struct obd_uuid *cluuid,
-                               struct obd_connect_data *data, void *localdata)
+                               obd_connect_data_t *data, void *localdata)
 {
         int                rc;
         struct lustre_handle conn = { 0 };

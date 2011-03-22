@@ -2620,7 +2620,7 @@ static int filter_cleanup(struct obd_device *obd)
 }
 
 static int filter_connect_internal(struct obd_export *exp,
-                                   struct obd_connect_data *data,
+                                   obd_connect_data_t *data,
                                    int reconnect)
 {
         struct filter_export_data *fed = &exp->exp_filter_data;
@@ -2731,13 +2731,16 @@ static int filter_connect_internal(struct obd_export *exp,
                                    obd_export_nid2str(exp));
         }
 
+        if (data->ocd_connect_flags & OBD_CONNECT_MAXBYTES)
+                data->ocd_maxbytes = exp->exp_obd->u.obt.obt_sb->s_maxbytes;
+
         RETURN(0);
 }
 
 static int filter_reconnect(const struct lu_env *env,
                             struct obd_export *exp, struct obd_device *obd,
                             struct obd_uuid *cluuid,
-                            struct obd_connect_data *data,
+                            obd_connect_data_t *data,
                             void *localdata)
 {
         int rc;
@@ -2757,7 +2760,7 @@ static int filter_reconnect(const struct lu_env *env,
 static int filter_connect(const struct lu_env *env,
                           struct obd_export **exp, struct obd_device *obd,
                           struct obd_uuid *cluuid,
-                          struct obd_connect_data *data, void *localdata)
+                          obd_connect_data_t *data, void *localdata)
 {
         struct lvfs_run_ctxt saved;
         struct lustre_handle conn = { 0 };
@@ -3487,7 +3490,7 @@ static int filter_unpackmd(struct obd_export *exp, struct lov_stripe_md **lsmp,
                 LASSERT((*lsmp)->lsm_object_id);
         }
 
-        (*lsmp)->lsm_maxbytes = LUSTRE_STRIPE_MAXBYTES;
+        (*lsmp)->lsm_maxbytes = exp->exp_obd->u.obt.obt_sb->s_maxbytes;
 
         RETURN(lsm_size);
 }

@@ -986,7 +986,7 @@ static void osc_lock_to_lockless(const struct lu_env *env,
                 struct cl_object *obj  = slice->cls_obj;
                 struct osc_object *oob = cl2osc(obj);
                 const struct osc_device *osd = lu2osc_dev(obj->co_lu.lo_dev);
-                struct obd_connect_data *ocd;
+                obd_connect_data_t *ocd;
 
                 LASSERT(io->ci_lockreq == CILR_MANDATORY ||
                         io->ci_lockreq == CILR_MAYBE ||

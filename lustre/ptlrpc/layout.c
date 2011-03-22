@@ -818,7 +818,13 @@ EXPORT_SYMBOL(RMF_CONN);
 struct req_msg_field RMF_CONNECT_DATA =
         DEFINE_MSGF("cdata",
                     RMF_F_NO_SIZE_CHECK /* we allow extra space for interop */,
-                    sizeof(struct obd_connect_data), lustre_swab_connect, NULL);
+#if LUSTRE_VERSION_CODE > OBD_OCD_VERSION(2, 9, 0, 0)
+                    sizeof(struct obd_connect_data_v2),
+#else
+/*for interop with 1.8+2.0 clients/servers */
+                    sizeof(struct obd_connect_data_v1),
+#endif
+                    lustre_swab_connect, NULL);
 EXPORT_SYMBOL(RMF_CONNECT_DATA);
 
 struct req_msg_field RMF_DLM_REQ =

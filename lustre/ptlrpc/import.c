@@ -693,7 +693,7 @@ int ptlrpc_connect_import(struct obd_import *imp, char *new_uuid)
         request->rq_send_state = LUSTRE_IMP_CONNECTING;
         /* Allow a slightly larger reply for future growth compatibility */
         req_capsule_set_size(&request->rq_pill, &RMF_CONNECT_DATA, RCL_SERVER,
-                             sizeof(struct obd_connect_data)+16*sizeof(__u64));
+                             sizeof(obd_connect_data_t)+16*sizeof(__u64));
         ptlrpc_request_set_replen(request);
         request->rq_interpret_reply = ptlrpc_connect_interpret;
 
@@ -958,7 +958,7 @@ finish:
                         RETURN(0);
                 }
         } else {
-                struct obd_connect_data *ocd;
+                obd_connect_data_t *ocd;
                 struct obd_export *exp;
                 int ret;
                 ret = req_capsule_get_size(&request->rq_pill, &RMF_CONNECT_DATA,
@@ -1128,7 +1128,7 @@ out:
                 }
 
                 if (rc == -EPROTO) {
-                        struct obd_connect_data *ocd;
+                        obd_connect_data_t *ocd;
 
                         /* reply message might not be ready */
                         if (request->rq_repmsg == NULL)
@@ -1276,7 +1276,7 @@ static int ptlrpc_invalidate_import_thread(void *data)
  * If we came to server that is in recovery, we enter IMP_REPLAY import state.
  * We go through our list of requests to replay and send them to server one by
  * one.
- * After sending all request from the list we change import state to 
+ * After sending all request from the list we change import state to
  * IMP_REPLAY_LOCKS and re-request all the locks we believe we have from server
  * and also all the locks we don't yet have and wait for server to grant us.
  * After that we send a special "replay completed" request and change import

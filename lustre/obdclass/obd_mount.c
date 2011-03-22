@@ -581,7 +581,7 @@ CFS_DECLARE_MUTEX(mgc_start_lock);
  */
 static int lustre_start_mgc(struct super_block *sb)
 {
-        struct obd_connect_data *data = NULL;
+        obd_connect_data_t *data = NULL;
         struct lustre_sb_info *lsi = s2lsi(sb);
         struct obd_device *obd;
         struct obd_export *exp;

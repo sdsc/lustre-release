@@ -263,7 +263,7 @@ struct obd_import {
                                   imp_resend_replay:1,    /* resend for replay */
                                   imp_force_reconnect:1;  /* import must be reconnected instead of chouse new connection */
         __u32                     imp_connect_op;
-        struct obd_connect_data   imp_connect_data;
+        obd_connect_data_t        imp_connect_data;
         __u64                     imp_connect_flags_orig;
         int                       imp_connect_error;
 

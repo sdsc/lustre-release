@@ -4892,7 +4892,7 @@ static int mdt_obd_set_info_async(struct obd_export *exp,
 /* mds_connect_internal */
 static int mdt_connect_internal(struct obd_export *exp,
                                 struct mdt_device *mdt,
-                                struct obd_connect_data *data)
+                                obd_connect_data_t *data)
 {
         if (data != NULL) {
                 data->ocd_connect_flags &= MDT_CONNECT_SUPPORTED;
@@ -4994,7 +4994,7 @@ static int mdt_connect_check_sptlrpc(struct mdt_device *mdt,
 static int mdt_obd_connect(const struct lu_env *env,
                            struct obd_export **exp, struct obd_device *obd,
                            struct obd_uuid *cluuid,
-                           struct obd_connect_data *data,
+                           obd_connect_data_t *data,
                            void *localdata)
 {
         struct mdt_thread_info *info;
@@ -5052,7 +5052,7 @@ out:
 static int mdt_obd_reconnect(const struct lu_env *env,
                              struct obd_export *exp, struct obd_device *obd,
                              struct obd_uuid *cluuid,
-                             struct obd_connect_data *data,
+                             obd_connect_data_t *data,
                              void *localdata)
 {
         struct mdt_thread_info *info;

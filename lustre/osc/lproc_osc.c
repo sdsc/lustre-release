@@ -97,7 +97,7 @@ static int osc_wr_max_pages_per_rpc(struct file *file, const char *buffer,
 {
         struct obd_device *dev = data;
         struct client_obd *cli = &dev->u.cli;
-        struct obd_connect_data *ocd = &cli->cl_import->imp_connect_data;
+        obd_connect_data_t *ocd = &cli->cl_import->imp_connect_data;
         int val, rc;
 
         rc = lprocfs_write_helper(buffer, count, &val);

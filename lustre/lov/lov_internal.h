@@ -266,7 +266,7 @@ void lov_fix_desc_pattern(__u32 *val);
 void lov_fix_desc_qos_maxage(__u32 *val);
 int lov_get_stripecnt(struct lov_obd *lov, __u32 stripe_count);
 int lov_connect_obd(struct obd_device *obd, __u32 index, int activate,
-                    struct obd_connect_data *data);
+                    obd_connect_data_t *data);
 int lov_setup(struct obd_device *obd, struct lustre_cfg *lcfg);
 int lov_process_config_base(struct obd_device *obd, struct lustre_cfg *lcfg,
                             __u32 *indexp, int *genp);
@@ -289,7 +289,7 @@ int lov_setea(struct obd_export *exp, struct lov_stripe_md **lsmp,
 int lov_getstripe(struct obd_export *exp,
                   struct lov_stripe_md *lsm, struct lov_user_md *lump);
 int lov_alloc_memmd(struct lov_stripe_md **lsmp, int stripe_count,
-                      int pattern, int magic);
+                    int pattern, int magic);
 void lov_free_memmd(struct lov_stripe_md **lsmp);
 
 void lov_dump_lmm_v1(int level, struct lov_mds_md_v1 *lmm);

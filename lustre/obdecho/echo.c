@@ -69,7 +69,7 @@ enum {
 
 static int echo_connect(const struct lu_env *env,
                         struct obd_export **exp, struct obd_device *obd,
-                        struct obd_uuid *cluuid, struct obd_connect_data *data,
+                        struct obd_uuid *cluuid, obd_connect_data_t *data,
                         void *localdata)
 {
         struct lustre_handle conn = { 0 };

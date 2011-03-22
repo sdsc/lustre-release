@@ -310,7 +310,7 @@ static inline int exp_connect_som(struct obd_export *exp)
 
 static inline int imp_connect_lru_resize(struct obd_import *imp)
 {
-        struct obd_connect_data *ocd;
+        obd_connect_data_t *ocd;
 
         LASSERT(imp != NULL);
         ocd = &imp->imp_connect_data;

@@ -917,7 +917,7 @@ static inline struct obd_uuid *obd_get_uuid(struct obd_export *exp)
 static inline int obd_connect(const struct lu_env *env,
                               struct obd_export **exp,struct obd_device *obd,
                               struct obd_uuid *cluuid,
-                              struct obd_connect_data *d,
+                              obd_connect_data_t *d,
                               void *localdata)
 {
         int rc;
@@ -940,7 +940,7 @@ static inline int obd_reconnect(const struct lu_env *env,
                                 struct obd_export *exp,
                                 struct obd_device *obd,
                                 struct obd_uuid *cluuid,
-                                struct obd_connect_data *d,
+                                obd_connect_data_t *d,
                                 void *localdata)
 {
         int rc;

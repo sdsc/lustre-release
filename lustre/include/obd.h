@@ -702,7 +702,7 @@ struct lov_obd {
         struct ost_pool         lov_packed;            /* all OSTs in a packed
                                                           array */
         cfs_semaphore_t         lov_lock;
-        struct obd_connect_data lov_ocd;
+        obd_connect_data_t      lov_ocd;
         struct lov_qos          lov_qos;               /* qos info per lov */
         cfs_atomic_t            lov_refcount;
         __u32                   lov_tgt_count;         /* how many OBD's */
@@ -753,10 +753,10 @@ struct lmv_obd {
         struct lmv_tgt_desc     *tgts;
         int                     tgts_size;
 
-        struct obd_connect_data *datas;
+        obd_connect_data_t      *datas;
         int                     datas_size;
 
-        struct obd_connect_data conn_data;
+        obd_connect_data_t      conn_data;
 };
 
 struct niobuf_local {
@@ -1274,12 +1274,12 @@ struct obd_ops {
          * asked for. If @ocd == NULL, use default parameters. */
         int (*o_connect)(const struct lu_env *env,
                          struct obd_export **exp, struct obd_device *src,
-                         struct obd_uuid *cluuid, struct obd_connect_data *ocd,
+                         struct obd_uuid *cluuid, obd_connect_data_t *ocd,
                          void *localdata);
         int (*o_reconnect)(const struct lu_env *env,
                            struct obd_export *exp, struct obd_device *src,
                            struct obd_uuid *cluuid,
-                           struct obd_connect_data *ocd,
+                           obd_connect_data_t *ocd,
                            void *localdata);
         int (*o_disconnect)(struct obd_export *exp);
 

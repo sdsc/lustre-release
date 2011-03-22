@@ -409,11 +409,11 @@ int client_obd_cleanup(struct obd_device *obddev)
 int client_connect_import(const struct lu_env *env,
                           struct obd_export **exp,
                           struct obd_device *obd, struct obd_uuid *cluuid,
-                          struct obd_connect_data *data, void *localdata)
+                          obd_connect_data_t *data, void *localdata)
 {
         struct client_obd *cli = &obd->u.cli;
         struct obd_import *imp = cli->cl_import;
-        struct obd_connect_data *ocd;
+        obd_connect_data_t *ocd;
         struct lustre_handle conn = { 0 };
         int rc;
         ENTRY;
@@ -662,7 +662,7 @@ int target_handle_connect(struct ptlrpc_request *req)
         char *str;
         int rc = 0;
         int mds_conn = 0;
-        struct obd_connect_data *data, *tmpdata;
+        obd_connect_data_t *data, *tmpdata;
         lnet_nid_t *client_nid = NULL;
         ENTRY;
 

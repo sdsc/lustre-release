@@ -82,7 +82,7 @@ static int mdc_obd_update(struct obd_device *host,
                 CDEBUG(D_INFO|D_WARNING, "Device %s is inactive now\n",
                        watched->obd_name);
         } else if (ev == OBD_NOTIFY_OCD) {
-                struct obd_connect_data *conn_data =
+                obd_connect_data_t *conn_data =
                                   &watched->u.cli.cl_import->imp_connect_data;
                 /*
                  * Update exp_connect_flags.
@@ -137,7 +137,7 @@ static int mdc_obd_add(const struct lu_env *env,
                 CERROR("target %s not set up\n", mdc->obd_name);
                 rc = -EINVAL;
         } else {
-                struct obd_connect_data *ocd;
+                obd_connect_data_t *ocd;
 
                 CDEBUG(D_CONFIG, "connect to %s(%s)\n",
                        mdc->obd_name, mdc->obd_uuid.uuid);

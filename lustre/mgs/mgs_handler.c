@@ -64,7 +64,7 @@
 /* Establish a connection to the MGS.*/
 static int mgs_connect(const struct lu_env *env,
                        struct obd_export **exp, struct obd_device *obd,
-                       struct obd_uuid *cluuid, struct obd_connect_data *data,
+                       struct obd_uuid *cluuid, obd_connect_data_t *data,
                        void *localdata)
 {
         struct obd_export *lexp;
@@ -103,7 +103,7 @@ static int mgs_connect(const struct lu_env *env,
 
 static int mgs_reconnect(const struct lu_env *env,
                          struct obd_export *exp, struct obd_device *obd,
-                         struct obd_uuid *cluuid, struct obd_connect_data *data,
+                         struct obd_uuid *cluuid, obd_connect_data_t *data,
                          void *localdata)
 {
         ENTRY;

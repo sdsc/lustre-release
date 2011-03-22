@@ -670,7 +670,7 @@ out:
 int mds_lov_connect(struct obd_device *obd, char * lov_name)
 {
         struct mds_obd *mds = &obd->u.mds;
-        struct obd_connect_data *data;
+        obd_connect_data_t *data;
         int rc;
         ENTRY;
 

@@ -137,7 +137,7 @@ static int lmv_set_mdc_active(struct lmv_obd *lmv, struct obd_uuid *uuid,
 }
 
 static int lmv_set_mdc_data(struct lmv_obd *lmv, struct obd_uuid *uuid,
-                            struct obd_connect_data *data)
+                            obd_connect_data_t *data)
 {
         struct lmv_tgt_desc    *tgt;
         int                     i;
@@ -168,7 +168,7 @@ struct obd_uuid *lmv_get_uuid(struct obd_export *exp) {
 static int lmv_notify(struct obd_device *obd, struct obd_device *watched,
                       enum obd_notify_event ev, void *data)
 {
-        struct obd_connect_data *conn_data;
+        obd_connect_data_t *conn_data;
         struct lmv_obd          *lmv = &obd->u.lmv;
         struct obd_uuid         *uuid;
         int                      rc = 0;
@@ -239,7 +239,7 @@ static int lmv_notify(struct obd_device *obd, struct obd_device *watched,
  */
 static int lmv_connect(const struct lu_env *env,
                        struct obd_export **exp, struct obd_device *obd,
-                       struct obd_uuid *cluuid, struct obd_connect_data *data,
+                       struct obd_uuid *cluuid, obd_connect_data_t *data,
                        void *localdata)
 {
 #ifdef __KERNEL__
@@ -381,7 +381,7 @@ int lmv_connect_mdc(struct obd_device *obd, struct lmv_tgt_desc *tgt)
 #endif
         struct lmv_obd          *lmv = &obd->u.lmv;
         struct obd_uuid         *cluuid = &lmv->cluuid;
-        struct obd_connect_data *mdc_data = NULL;
+        obd_connect_data_t      *mdc_data = NULL;
         struct obd_uuid          lmv_mdc_uuid = { "LMV_MDC_UUID" };
         struct obd_device       *mdc_obd;
         struct obd_export       *mdc_exp;
@@ -1080,7 +1080,7 @@ static int lmv_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
                 lmv->tgts[i].ltd_idx = i;
         }
 
-        lmv->datas_size = LMV_MAX_TGT_COUNT * sizeof(struct obd_connect_data);
+        lmv->datas_size = LMV_MAX_TGT_COUNT * sizeof(obd_connect_data_t);
 
         OBD_ALLOC(lmv->datas, lmv->datas_size);
         if (lmv->datas == NULL)
@@ -2630,7 +2630,7 @@ static int lmv_get_info(struct obd_export *exp, __u32 keylen,
                                   vallen, val, NULL);
                 if (!rc && KEY_IS(KEY_CONN_DATA)) {
                         exp->exp_connect_flags =
-                        ((struct obd_connect_data *)val)->ocd_connect_flags;
+                        ((obd_connect_data_t *)val)->ocd_connect_flags;
                 }
                 RETURN(rc);
         }

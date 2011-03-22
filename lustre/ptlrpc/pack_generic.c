@@ -1557,7 +1557,7 @@ void lustre_swab_ptlrpc_body(struct ptlrpc_body *b)
         CLASSERT(offsetof(typeof(*b), pb_padding) != 0);
 }
 
-void lustre_swab_connect(struct obd_connect_data *ocd)
+void lustre_swab_connect(obd_connect_data_t *ocd)
 {
         __swab64s(&ocd->ocd_connect_flags);
         __swab32s(&ocd->ocd_version);
@@ -1570,8 +1570,26 @@ void lustre_swab_connect(struct obd_connect_data *ocd)
         __swab64s(&ocd->ocd_transno);
         __swab32s(&ocd->ocd_group);
         __swab32s(&ocd->ocd_cksum_types);
+        if (ocd->ocd_connect_flags & OBD_CONNECT_MAX_EASIZE)
+                __swab32s(&ocd->ocd_max_easize);
+        CLASSERT(offsetof(typeof(*ocd), padding) != 0);
+        if (ocd->ocd_connect_flags & OBD_CONNECT_MAXBYTES)
+                __swab64s(&ocd->ocd_maxbytes);
         CLASSERT(offsetof(typeof(*ocd), padding1) != 0);
         CLASSERT(offsetof(typeof(*ocd), padding2) != 0);
+        CLASSERT(offsetof(typeof(*ocd), padding3) != 0);
+        CLASSERT(offsetof(typeof(*ocd), padding4) != 0);
+        CLASSERT(offsetof(typeof(*ocd), padding5) != 0);
+        CLASSERT(offsetof(typeof(*ocd), padding6) != 0);
+        CLASSERT(offsetof(typeof(*ocd), padding7) != 0);
+        CLASSERT(offsetof(typeof(*ocd), padding8) != 0);
+        CLASSERT(offsetof(typeof(*ocd), padding9) != 0);
+        CLASSERT(offsetof(typeof(*ocd), paddingA) != 0);
+        CLASSERT(offsetof(typeof(*ocd), paddingB) != 0);
+        CLASSERT(offsetof(typeof(*ocd), paddingC) != 0);
+        CLASSERT(offsetof(typeof(*ocd), paddingD) != 0);
+        CLASSERT(offsetof(typeof(*ocd), paddingE) != 0);
+        CLASSERT(offsetof(typeof(*ocd), paddingF) != 0);
 }
 
 void lustre_swab_obdo (struct obdo  *o)
