@@ -463,7 +463,10 @@ int lov_quota_ctl(struct obd_export *exp, struct obd_quotactl *oqctl)
                 struct obd_quotactl *oqc;
 
                 if (!lov->lov_tgts[i] || !lov->lov_tgts[i]->ltd_active) {
-                        if (oqctl->qc_cmd == Q_GETOQUOTA) {
+                        /* Skip Q_GETOQUOTA on administratively disabled OSTs.
+                         */
+                        if (oqctl->qc_cmd == Q_GETOQUOTA &&
+                            lov->lov_tgts[i]->ltd_activate) {
                                 CERROR("ost %d is inactive\n", i);
                                 rc = -EIO;
                         } else {
