@@ -252,6 +252,14 @@ int lov_quota_check(struct obd_export *exp, struct obd_quotactl *oqctl)
                 if (!lov->lov_tgts[i])
                         continue;
 
+                /* Skip quota check on the administratively disabled OSTs.
+                 * XXX Layer violation: accessing client import in LOV layer.
+                 */
+                if (lov->lov_tgts[i]->ltd_obd->u.cli.cl_import->imp_deactive) {
+                        CWARN("lov idx %d was administratively disabled\n", i);
+                        continue;
+                }
+
                 if (!lov->lov_tgts[i]->ltd_active) {
                         CERROR("lov idx %d inactive\n", i);
                         rc = -EIO;
@@ -262,7 +270,7 @@ int lov_quota_check(struct obd_export *exp, struct obd_quotactl *oqctl)
         for (i = 0; i < lov->desc.ld_tgt_count; i++) {
                 int err;
 
-                if (!lov->lov_tgts[i])
+                if (!lov->lov_tgts[i] || !lov->lov_tgts[i]->ltd_active)
                         continue;
 
                 err = obd_quotacheck(lov->lov_tgts[i]->ltd_exp, oqctl);

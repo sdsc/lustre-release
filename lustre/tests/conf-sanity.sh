@@ -1072,6 +1072,9 @@ test_29() {
 	    echo "New client success: got $RESULT"
 	fi
 
+        # quotacheck should not fail
+	[ -n "$ENABLE_QUOTA" ] && { $LFS quotacheck -ug $MOUNT || error "quotacheck has failed" ; }
+
 	# make sure it reactivates
 	set_and_check client "lctl get_param -n $PROC_ACT" "$PARAM" $ACTV || return 6
 
