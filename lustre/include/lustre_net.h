@@ -285,6 +285,7 @@ struct ptlrpc_request_set {
         cfs_spinlock_t        set_new_req_lock;
         /** List of new yet unsent requests. Only used with ptlrpcd now. */
         cfs_list_t            set_new_requests;
+        unsigned int          set_new_count;
 };
 
 /**
@@ -1837,6 +1838,8 @@ int ptlrpc_check_and_wait_suspend(struct ptlrpc_request *req);
 enum ptlrpcd_scope {
         /** Scope of bulk read-write rpcs. */
         PSCOPE_BRW,
+        /** Scope of async glimpse rpcs. */
+        PSCOPE_AGL,
         /** Everything else. */
         PSCOPE_OTHER,
         PSCOPE_NR

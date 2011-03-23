@@ -882,6 +882,7 @@ struct ptlrpc_request_set *ptlrpc_prep_set(void)
         cfs_atomic_set(&set->set_remaining, 0);
         cfs_spin_lock_init(&set->set_new_req_lock);
         CFS_INIT_LIST_HEAD(&set->set_new_requests);
+        set->set_new_count = 0;
         CFS_INIT_LIST_HEAD(&set->set_cblist);
 
         RETURN(set);
@@ -1006,7 +1007,9 @@ int ptlrpc_set_add_new_req(struct ptlrpcd_ctl *pc,
          * The set takes over the caller's request reference.
          */
         cfs_list_add_tail(&req->rq_set_chain, &set->set_new_requests);
+        set->set_new_count++;
         req->rq_set = set;
+        req->rq_queued_time = cfs_time_current();
         cfs_spin_unlock(&set->set_new_req_lock);
 
         cfs_waitq_signal(&set->set_waitq);
