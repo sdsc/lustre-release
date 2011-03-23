@@ -130,10 +130,12 @@ struct inode *ll_iget(struct super_block *sb, ino_t hash,
 
         if (inode) {
                 if (inode->i_state & I_NEW) {
-                        int rc;
+                        int rc = 0;
 
                         ll_read_inode2(inode, md);
-                        rc = cl_inode_init(inode, md);
+                        if (S_ISREG(inode->i_mode) &&
+                            ll_i2info(inode)->lli_clob == NULL)
+                                rc = cl_inode_init(inode, md);
                         if (rc != 0) {
                                 md->lsm = NULL;
                                 make_bad_inode(inode);
@@ -165,7 +167,8 @@ restart:
                                                  &dentry->d_subdirs,
                                                  d_child) {
                                 /* XXX Print some debug here? */
-                                if (!child->d_inode)
+                                if (!child->d_inode &&
+                                    !(child->d_flags & DCACHE_LUSTRE_EARLY))
                                 /* Negative dentry. If we were
                                    dropping dcache lock, go
                                    throught the list again */
@@ -332,14 +335,51 @@ static void ll_d_add(struct dentry *de, struct inode *inode)
                 list_add(&de->d_alias, &inode->i_dentry);
         de->d_inode = inode;
 
-        /* d_rehash */
-        if (!d_unhashed(de)) {
-                spin_unlock(&dcache_lock);
-                CERROR("dentry %.*s %p hash next %p\n",
-                       de->d_name.len, de->d_name.name, de, de->d_hash.next);
-                LBUG();
+        if (de->d_flags & DCACHE_LUSTRE_EARLY) {
+                LASSERT(!d_unhashed(de));
+                lock_dentry(de);
+                de->d_flags &= ~DCACHE_LUSTRE_EARLY;
+                unlock_dentry(de);
+        } else {
+                /* d_rehash */
+                if (!d_unhashed(de)) {
+                        spin_unlock(&dcache_lock);
+                        CERROR("dentry %.*s %p hash next %p\n",
+                               de->d_name.len, de->d_name.name, de,
+                               de->d_hash.next);
+                        LBUG();
+                }
+                d_rehash_cond(de, 0);
         }
-        d_rehash_cond(de, 0);
+}
+
+static void ll_d_add_early(struct dentry *dentry)
+{
+        ll_dops_init(dentry, 1);
+
+        LASSERT(dentry->d_inode == NULL);
+        lock_dentry(dentry);
+        LASSERT(!(dentry->d_flags & DCACHE_LUSTRE_EARLY));
+        dentry->d_flags |= DCACHE_LUSTRE_EARLY;
+        unlock_dentry(dentry);
+
+        spin_lock(&dcache_lock);
+        LASSERT(d_unhashed(dentry));
+        d_rehash_cond(dentry, 0);
+        spin_unlock(&dcache_lock);
+}
+
+static void ll_d_del_early(struct dentry *dentry)
+{
+        if (dentry != NULL) {
+                spin_lock(&dcache_lock);
+                lock_dentry(dentry);
+                __d_drop(dentry);
+                if (dentry->d_flags & DCACHE_LUSTRE_EARLY)
+                        dentry->d_flags &= ~DCACHE_LUSTRE_EARLY;
+                unlock_dentry(dentry);
+                spin_unlock(&dcache_lock);
+        }
 }
 
 /* Search "inode"'s alias list for a dentry that has the same name and parent
@@ -386,6 +426,7 @@ static struct dentry *ll_find_alias(struct inode *inode, struct dentry *de)
 
                 dget_locked(dentry);
                 lock_dentry(dentry);
+                LASSERT(!(dentry->d_flags & DCACHE_LUSTRE_EARLY));
                 __d_drop(dentry);
                 unlock_dentry(dentry);
                 ll_dops_init(dentry, 0);
@@ -432,7 +473,6 @@ int ll_lookup_it_finish(struct ptlrpc_request *request,
         struct it_cb_data *icbd = data;
         struct dentry **de = icbd->icbd_childp;
         struct inode *parent = icbd->icbd_parent;
-        struct ll_sb_info *sbi = ll_i2sbi(parent);
         struct inode *inode = NULL;
         int rc;
         ENTRY;
@@ -441,16 +481,13 @@ int ll_lookup_it_finish(struct ptlrpc_request *request,
          * when I return */
         if (!it_disposition(it, DISP_LOOKUP_NEG)) {
                 struct dentry *save = *de;
-                __u32 bits;
+                __u32 bits = 0;
 
                 rc = ll_prep_inode(&inode, request, (*de)->d_sb);
                 if (rc)
                         RETURN(rc);
 
-                CDEBUG(D_DLMTRACE, "setting l_data to inode %p (%lu/%u)\n",
-                       inode, inode->i_ino, inode->i_generation);
-                md_set_lock_data(sbi->ll_md_exp,
-                                 &it->d.lustre.it_lock_handle, inode, &bits);
+                ll_set_lock_data(ll_i2sbi(parent)->ll_md_exp, inode, it, &bits);
 
                 /* We used to query real size from OSTs here, but actually
                    this is not needed. For stat() calls size would be updated
@@ -458,7 +495,7 @@ int ll_lookup_it_finish(struct ptlrpc_request *request,
                    2.4 and
                    vfs_getattr_it->ll_getattr()->ll_inode_revalidate_it() in 2.6
                    Everybody else who needs correct file size would call
-                   cl_glimpse_size or some equivalent themselves anyway.
+                   ll_glimpse_size or some equivalent themselves anyway.
                    Also see bug 7198. */
                 ll_dops_init(*de, 1);
                 *de = ll_find_alias(inode, *de);
@@ -470,7 +507,8 @@ int ll_lookup_it_finish(struct ptlrpc_request *request,
                                 ll_dops_init(*de, 1);
                 }
                 /* we have lookup look - unhide dentry */
-                if (bits & MDS_INODELOCK_LOOKUP) {
+                if ((*de)->d_flags & DCACHE_LUSTRE_INVALID &&
+                    bits & MDS_INODELOCK_LOOKUP) {
                         lock_dentry(*de);
                         (*de)->d_flags &= ~DCACHE_LUSTRE_INVALID;
                         unlock_dentry(*de);
@@ -489,16 +527,23 @@ int ll_lookup_it_finish(struct ptlrpc_request *request,
                          * parent */
                         lock_dentry(*de);
                         (*de)->d_flags |= DCACHE_LUSTRE_INVALID;
-                        unlock_dentry(*de);
+                        if ((*de)->d_flags & DCACHE_LUSTRE_EARLY) {
+                                /* it is create case */
+                                unlock_dentry(*de);
+                                LASSERT(!d_unhashed(*de));
+                                LASSERT((*de)->d_inode == NULL);
+                        } else {
+                                unlock_dentry(*de);
 
-                        (*de)->d_inode = NULL;
-                        /* We do not want to hash the dentry if don`t have a
-                         * lock, but if this dentry is later used in d_move,
-                         * we'd hit uninitialised list head d_hash, so we just
-                         * do this to init d_hash field but leave dentry
-                         * unhashed. (bug 10796). */
-                        d_rehash(*de);
-                        d_drop(*de);
+                                (*de)->d_inode = NULL;
+                                /* We do not want to hash the dentry if don`t
+                                 * have a lock, but if this dentry is later used
+                                 * in d_move, we'd hit uninitialised list head
+                                 * d_hash, so we just do this to init d_hash field
+                                 * but leave dentry unhashed. (bug 10796). */
+                                d_rehash(*de);
+                                d_drop(*de);
+                        }
                 }
         }
 
@@ -562,6 +607,9 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
         if (IS_ERR(op_data))
                 RETURN((void *)op_data);
 
+        if (opc == LUSTRE_OPC_CREATE)
+                ll_d_add_early(dentry);
+
         it->it_create_mode &= ~cfs_curproc_umask();
 
         rc = md_intent_lock(ll_i2mdexp(parent), op_data, NULL, 0, it,
@@ -591,6 +639,8 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
         else
                 GOTO(out, retval = dentry);
  out:
+        if (opc == LUSTRE_OPC_CREATE && (IS_ERR(retval) || dentry != save))
+                ll_d_del_early(save);
         if (req)
                 ptlrpc_req_finished(req);
         return retval;
@@ -661,10 +711,12 @@ static struct dentry *ll_lookup_nd(struct inode *parent, struct dentry *dentry,
                         it = ll_d2d(dentry)->lld_it;
                         ll_d2d(dentry)->lld_it = NULL;
                 } else {
-                        if ((nd->flags & LOOKUP_CREATE ) && !(nd->flags & LOOKUP_OPEN)) {
-                                /* We are sure this is new dentry, so we need to create
-                                   our private data and set the dentry ops */ 
-                                ll_dops_init(dentry, 1);
+                        if ((nd->flags & LOOKUP_CREATE ) &&
+                           !(nd->flags & LOOKUP_OPEN)) {
+                                /* We are sure this is new dentry, so we need
+                                 * to create our private data and set the dentry
+                                 * ops, which will be done in ll_d_add_early. */
+                                ll_d_add_early(dentry);
                                 RETURN(NULL);
                         }
                         it = ll_convert_intent(&nd->intent.open, nd->flags);
@@ -762,8 +814,7 @@ static struct inode *ll_create_node(struct inode *dir, const char *name,
          * stuff it in the lock. */
         CDEBUG(D_DLMTRACE, "setting l_ast_data to inode %p (%lu/%u)\n",
                inode, inode->i_ino, inode->i_generation);
-        md_set_lock_data(sbi->ll_md_exp,
-                         &it->d.lustre.it_lock_handle, inode, NULL);
+        ll_set_lock_data(sbi->ll_md_exp, inode, it, NULL);
         EXIT;
  out:
         ptlrpc_req_finished(request);
@@ -797,22 +848,29 @@ static int ll_create_it(struct inode *dir, struct dentry *dentry, int mode,
 
         rc = it_open_error(DISP_OPEN_CREATE, it);
         if (rc)
-                RETURN(rc);
+                GOTO(out, rc);
 
         inode = ll_create_node(dir, dentry->d_name.name, dentry->d_name.len,
                                NULL, 0, mode, 0, it);
         if (IS_ERR(inode))
-                RETURN(PTR_ERR(inode));
+                GOTO(out, rc = PTR_ERR(inode));
 
         d_instantiate(dentry, inode);
         /* Negative dentry may be unhashed if parent does not have UPDATE lock,
          * but some callers, e.g. do_coredump, expect dentry to be hashed after
          * successful create. Hash it here. */
         spin_lock(&dcache_lock);
+        lock_dentry(dentry);
+        dentry->d_flags &= ~DCACHE_LUSTRE_EARLY;
+        unlock_dentry(dentry);
         if (d_unhashed(dentry))
                 d_rehash_cond(dentry, 0);
         spin_unlock(&dcache_lock);
-        RETURN(0);
+        EXIT;
+out:
+        if (rc != 0)
+                ll_d_del_early(dentry);
+        return rc;
 }
 
 static void ll_update_times(struct ptlrpc_request *request,
@@ -867,11 +925,11 @@ static int ll_new_node(struct inode *dir, struct qstr *name,
                 if (err)
                      GOTO(err_exit, err);
 
-                d_drop(dchild);
                 d_instantiate(dchild, inode);
         }
         EXIT;
 err_exit:
+        ll_d_del_early(dchild);
         ptlrpc_req_finished(request);
 
         return err;
@@ -880,7 +938,7 @@ err_exit:
 static int ll_mknod_generic(struct inode *dir, struct qstr *name, int mode,
                             unsigned rdev, struct dentry *dchild)
 {
-        int err;
+        int err, cleanup = 1;
         ENTRY;
 
         CDEBUG(D_VFSTRACE, "VFS Op:name=%.*s,dir=%lu/%u(%p) mode %o dev %x\n",
@@ -899,6 +957,7 @@ static int ll_mknod_generic(struct inode *dir, struct qstr *name, int mode,
         case S_IFSOCK:
                 err = ll_new_node(dir, name, NULL, mode, rdev, dchild,
                                   LUSTRE_OPC_MKNOD);
+                cleanup = 0;
                 break;
         case S_IFDIR:
                 err = -EPERM;
@@ -906,6 +965,9 @@ static int ll_mknod_generic(struct inode *dir, struct qstr *name, int mode,
         default:
                 err = -EINVAL;
         }
+
+        if (cleanup == 1)
+                ll_d_del_early(dchild);
         RETURN(err);
 }
 
@@ -924,6 +986,7 @@ static int ll_create_nd(struct inode *dir, struct dentry *dentry,
         /* Was there an error? Propagate it! */
         if (it->d.lustre.it_status) {
                 rc = it->d.lustre.it_status;
+                ll_d_del_early(dentry);
                 goto out;
         }
 
@@ -987,18 +1050,17 @@ static int ll_link_generic(struct inode *src,  struct inode *dir,
         op_data = ll_prep_md_op_data(NULL, src, dir, name->name, name->len,
                                      0, LUSTRE_OPC_ANY, NULL);
         if (IS_ERR(op_data))
-                RETURN(PTR_ERR(op_data));
+                GOTO(out, err = PTR_ERR(op_data));
 
         err = md_link(sbi->ll_md_exp, op_data, &request);
         ll_finish_md_op_data(op_data);
         if (err)
                 GOTO(out, err);
-        if (dchild)
-                d_drop(dchild);
 
         ll_update_times(request, dir);
         EXIT;
 out:
+        ll_d_del_early(dchild);
         ptlrpc_req_finished(request);
         RETURN(err);
 }

@@ -1520,7 +1520,7 @@ int do_set_info_async(struct obd_import *imp,
 
         if (set) {
                 ptlrpc_set_add_req(set, req);
-                ptlrpc_check_set(NULL, set);
+                ptlrpc_check_set(NULL, set, 0);
         } else {
                 rc = ptlrpc_queue_wait(req);
                 ptlrpc_req_finished(req);
@@ -1738,7 +1738,8 @@ void lustre_swab_mdt_body (struct mdt_body *b)
         __swab32s (&b->max_cookiesize);
         __swab32s (&b->uid_h);
         __swab32s (&b->gid_h);
-        CLASSERT(offsetof(typeof(*b), padding_5) != 0);
+        __swab32s (&b->defaclsize);
+        CLASSERT(offsetof(typeof(*b), padding_6) != 0);
 }
 
 void lustre_swab_mdt_ioepoch (struct mdt_ioepoch *b)
