@@ -1837,6 +1837,8 @@ int ptlrpc_check_and_wait_suspend(struct ptlrpc_request *req);
 enum ptlrpcd_scope {
         /** Scope of bulk read-write rpcs. */
         PSCOPE_BRW,
+        /** Scope of async glimpse rpcs. */
+        PSCOPE_AGL,
         /** Everything else. */
         PSCOPE_OTHER,
         PSCOPE_NR
