@@ -1914,6 +1914,26 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
+# in 2.6.38 ->d_compare takes 7 args
+AC_DEFUN([LC_D_COMPARE_3ARGS],
+[AC_MSG_CHECKING([d_compare takes 3 arguments])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        struct dentry *dentry;
+        struct qstr *name;
+
+        dentry->d_op->d_compare(dentry, name, name);
+],[
+        AC_DEFINE(HAVE_D_COMPARE_3ARGS, 1,
+                [d_compare takes 3 arguments])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+
 #
 # 2.6.27 sles11 move the quotaio_v1{2}.h from include/linux to fs
 # 2.6.32 move the quotaio_v1{2}.h from fs to fs/quota
@@ -2338,6 +2358,9 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_BLK_QUEUE_MAX_SEGMENTS
          LC_SHRINK_3ARGS
          LC_EXT4_SINGLEDATA_TRANS_BLOCKS_SB
+
+         # 2.6.38
+         LC_D_COMPARE_3ARGS
 
          #
          if test x$enable_server = xyes ; then
