@@ -98,3 +98,9 @@ unpack_linux_devel_rpm-rhel5() {
     return 0
 
 }
+
+kernel_srpm_location() {
+
+    echo "http://mirror.centos.org/centos-5/5/updates/SRPMS/"
+
+}
