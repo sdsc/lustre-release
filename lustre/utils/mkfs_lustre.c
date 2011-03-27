@@ -523,10 +523,10 @@ static void enable_default_backfs_features(struct mkfs_opts *mop)
         int ret;
 
         if (IS_OST(&mop->mo_ldd))
-                strscat(mop->mo_mkfsopts, " -O dir_index,extents",
+                strscat(mop->mo_mkfsopts, " -O dir_index",
                         sizeof(mop->mo_mkfsopts));
         else if (IS_MDT(&mop->mo_ldd))
-                strscat(mop->mo_mkfsopts, " -O dir_index,dirdata",
+                strscat(mop->mo_mkfsopts, " -O dir_index",
                         sizeof(mop->mo_mkfsopts));
         else
                 strscat(mop->mo_mkfsopts, " -O dir_index",
@@ -1625,7 +1625,7 @@ int main(int argc, char *const argv[])
                 if (IS_OST(ldd) &&
                     (ldd->ldd_mount_type == LDD_MT_LDISKFS ||
                      ldd->ldd_mount_type == LDD_MT_LDISKFS2)) {
-                        strscat(default_mountopts, ",extents,mballoc",
+                        strscat(default_mountopts, ",mballoc",
                                 sizeof(default_mountopts));
                 }
                 break;
