@@ -520,6 +520,17 @@ static void lov_io_iter_fini(const struct lu_env *env,
         EXIT;
 }
 
+static void lov_io_post_lock(const struct lu_env *env,
+                             const struct cl_io_slice *ios)
+{
+        struct cl_io         *io  = ios->cis_io;
+
+        if (!io->ci_ll_dropped) {
+                layout_lock_put(io->ci_ll);
+                io->ci_ll_dropped = 1;
+        }
+}
+
 static void lov_io_unlock(const struct lu_env *env,
                           const struct cl_io_slice *ios)
 {
@@ -733,6 +744,7 @@ static const struct cl_io_operations lov_io_ops = {
                         .cio_iter_init = lov_io_rw_iter_init,
                         .cio_iter_fini = lov_io_iter_fini,
                         .cio_lock      = lov_io_lock,
+                        .cio_post_lock = lov_io_post_lock,
                         .cio_unlock    = lov_io_unlock,
                         .cio_start     = lov_io_start,
                         .cio_end       = lov_io_end
@@ -742,6 +754,7 @@ static const struct cl_io_operations lov_io_ops = {
                         .cio_iter_init = lov_io_rw_iter_init,
                         .cio_iter_fini = lov_io_iter_fini,
                         .cio_lock      = lov_io_lock,
+                        .cio_post_lock = lov_io_post_lock,
                         .cio_unlock    = lov_io_unlock,
                         .cio_start     = lov_io_start,
                         .cio_end       = lov_io_end
@@ -760,11 +773,13 @@ static const struct cl_io_operations lov_io_ops = {
                         .cio_iter_init = lov_io_iter_init,
                         .cio_iter_fini = lov_io_iter_fini,
                         .cio_lock      = lov_io_lock,
+                        .cio_post_lock = lov_io_post_lock,
                         .cio_unlock    = lov_io_unlock,
                         .cio_start     = lov_io_fault_start,
                         .cio_end       = lov_io_end
                 },
                 [CIT_MISC] = {
+                        .cio_post_lock = lov_io_post_lock,
                         .cio_fini   = lov_io_fini
                 }
         },

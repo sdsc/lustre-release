@@ -89,10 +89,13 @@ struct llu_sb_info {
 };
 
 #define LL_SBI_NOLCK            0x1
+#define LL_SBI_LAYOUT_LOCK      0x4000 /* layout lock use */
 
 enum lli_flags {
         /* MDS has an authority for the Size-on-MDS attributes. */
         LLIF_MDS_SIZE_LOCK      = (1 << 0),
+        /* layout is invalid */
+        LLIF_LAYOUT_CANCELED    = (1 << 6),
 };
 
 struct llu_inode_info {
@@ -100,6 +103,7 @@ struct llu_inode_info {
         struct lu_fid           lli_fid;
 
         struct lov_stripe_md   *lli_smd;
+        struct layout_lock      lli_ll;
         char                   *lli_symlink_name;
         cfs_semaphore_t         lli_open_sem;
         __u64                   lli_maxbytes;
@@ -174,6 +178,8 @@ static inline int llu_is_root_inode(struct inode *inode)
                 fid_oid(&llu_i2info(inode)->lli_fid) ==
                 fid_oid(&llu_i2info(inode)->lli_sbi->ll_root_fid));
 }
+
+
 
 #define LL_SAVE_INTENT(inode, it)                                              \
 do {                                                                           \
@@ -301,6 +307,8 @@ struct inode *llu_inode_from_lock(struct ldlm_lock *lock);
 int llu_md_blocking_ast(struct ldlm_lock *lock,
                         struct ldlm_lock_desc *desc,
                         void *data, int flag);
+int llu_layout_lock_get(struct inode *inode);
+int llu_layout_lock_put(struct inode *inode);
 
 /* dir.c */
 ssize_t llu_iop_filldirentries(struct inode *ino, _SYSIO_OFF_T *basep,
@@ -405,11 +413,14 @@ static inline struct slp_io *slp_env_io(const struct lu_env *env)
 #define cl_isize_write(inode,kms)        do{llu_i2stat(inode)->st_size = kms;}while(0)
 #define cl_isize_write_nolock(inode,kms) cl_isize_write(inode,kms)
 
-static inline void cl_isize_lock(struct inode *inode, int lsmlock)
+static inline struct lov_stripe_md *cl_isize_lock(struct inode *inode,
+                                                  int lsmlock)
 {
+        return llu_i2info(inode)->lli_smd;
 }
 
-static inline void cl_isize_unlock(struct inode *inode, int lsmlock)
+static inline void cl_isize_unlock(struct inode *inode,
+                                   struct lov_stripe_md **lsmp, int lsmlock)
 {
 }
 
@@ -426,6 +437,110 @@ static inline struct obd_capa *cl_capa_lookup(struct inode *inode,
                                               enum cl_req_type crt)
 {
         return NULL;
+}
+
+
+/**
+ * return the lsm associated to an inode
+ * if inode is a file:
+ *  get a layout lock on it
+ *  if not for an io, returns it before return
+ * get a reference on lsm associated to inode
+ * \param struct inode *inode entry inode
+ * \io this lsm is for an io (ll is held after return)
+ * \retval lsm
+ */
+static inline struct lov_stripe_md *__llu_lsm_get(struct inode *inode, int io)
+{
+        struct lov_stripe_md *lsm;
+        struct llu_inode_info *lli = llu_i2info(inode);
+        ENTRY;
+
+        if (io)
+                LASSERT(S_ISREG(inode->i_mode));
+
+        if (S_ISREG(inode->i_mode))
+                llu_layout_lock_get(inode);
+
+        if (lli->lli_flags & LLIF_LAYOUT_CANCELED)
+                lsm = NULL;
+        else
+                lsm = lli->lli_smd;
+
+        if (lsm)
+                lsm_addref(lsm);
+
+        if (S_ISREG(inode->i_mode) && !io)
+                llu_layout_lock_put(inode);
+
+        RETURN(lsm);
+}
+
+static inline struct lov_stripe_md *llu_lsm_get_io(struct inode *inode)
+{
+        return __llu_lsm_get(inode, 1);
+}
+
+static inline struct lov_stripe_md *llu_lsm_get(struct inode *inode)
+{
+        return __llu_lsm_get(inode, 0);
+}
+
+/*
+ * put a reference on a lsm, last ref free it
+ * lsmp may be different from ll_i2info(inode)->lli_smd
+ * in this case inode is used to get export for lsm methods
+ * \param struct inode *inode entry inode
+ * \param struct lov_stripe_md **lsmp lsm, set to NULL if freed
+ */
+static inline void llu_lsm_put(struct inode *inode,
+                               struct lov_stripe_md **lsmp)
+{
+        ENTRY;
+
+        if (S_ISREG(inode->i_mode))
+                llu_layout_lock_put(inode);
+
+        if (*lsmp && lsm_decref(*lsmp)) {
+                if (*lsmp == llu_i2info(inode)->lli_smd)
+                        obd_free_memmd(llu_i2sbi(inode)->ll_dt_exp,
+                                       &llu_i2info(inode)->lli_smd);
+                else
+                        obd_free_memmd(llu_i2sbi(inode)->ll_dt_exp, lsmp);
+        }
+
+        EXIT;
+}
+
+static inline struct lov_stripe_md *cl_lsm_get_io(struct inode *inode)
+{
+        return llu_lsm_get_io(inode);
+}
+
+static inline struct lov_stripe_md *cl_lsm_get(struct inode *inode)
+{
+        return llu_lsm_get(inode);
+}
+
+static inline void cl_lsm_put(struct inode *inode,
+                              struct lov_stripe_md **lsmp)
+{
+        llu_lsm_put(inode, lsmp);
+}
+
+static inline void cl_layout_lock_put(struct inode *inode)
+{
+        llu_layout_lock_put(inode);
+}
+
+static inline loff_t i_size_read(struct inode *inode)
+{
+        return inode->i_stbuf.st_size;
+}
+
+static inline void i_size_write(struct inode *inode, loff_t i_sz)
+{
+        inode->i_stbuf.st_size = i_sz;
 }
 
 #endif
