@@ -127,7 +127,7 @@ enum ma_valid {
         MA_LMV       = (1 << 4),
         MA_ACL_DEF   = (1 << 5),
         MA_LOV_DEF   = (1 << 6),
-/* (Layout lock will used #7 here) */
+        MA_LAY_GEN   = (1 << 7),
         MA_HSM       = (1 << 8),
         MA_SOM       = (1 << 9),
         MA_PFID      = (1 << 10)
@@ -172,6 +172,7 @@ struct md_attr {
         struct lu_attr          ma_attr;
         struct lov_mds_md      *ma_lmm;
         int                     ma_lmm_size;
+        __u32                   ma_layout_gen;
         struct lmv_stripe_md   *ma_lmv;
         int                     ma_lmv_size;
         void                   *ma_acl;
@@ -330,6 +331,14 @@ struct md_dir_operations {
         int (*mdo_unlink)(const struct lu_env *env, struct md_object *pobj,
                           struct md_object *cobj, const struct lu_name *lname,
                           struct md_attr *ma);
+
+        /** This method is used to compare a requested layout to an existing
+         * layout (struct lov_mds_md_v1/3 vs struct lov_mds_md_v1/3)
+         */
+        int (*mdo_lum_lmm_cmp)(const struct lu_env *env,
+                               struct md_object *cobj,
+                               const struct md_op_spec *spec,
+                               struct md_attr *ma);
 
         /** partial ops for cross-ref case */
         int (*mdo_name_insert)(const struct lu_env *env,
@@ -867,6 +876,15 @@ static inline int mdo_unlink(const struct lu_env *env,
 {
         LASSERT(c->mo_dir_ops->mdo_unlink);
         return c->mo_dir_ops->mdo_unlink(env, p, c, lname, ma);
+}
+
+static inline int mdo_lum_lmm_cmp(const struct lu_env *env,
+                                  struct md_object *c,
+                                  const struct md_op_spec *spec,
+                                  struct md_attr *ma)
+{
+        LASSERT(c->mo_dir_ops->mdo_lum_lmm_cmp);
+        return c->mo_dir_ops->mdo_lum_lmm_cmp(env, c, spec, ma);
 }
 
 static inline int mdo_name_insert(const struct lu_env *env,
