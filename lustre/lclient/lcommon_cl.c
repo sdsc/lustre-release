@@ -650,6 +650,7 @@ void ccc_lock_state(const struct lu_env *env,
          * of finding lock in the cache.
          */
         if (state == CLS_HELD && lock->cll_state < CLS_HELD) {
+                struct lov_stripe_md *lsm;
                 int rc;
 
                 obj   = slice->cls_obj;
@@ -666,7 +667,7 @@ void ccc_lock_state(const struct lu_env *env,
                  * cancel the result of the truncate.  Getting the
                  * ll_inode_size_lock() after the enqueue maintains the DLM
                  * -> ll_inode_size_lock() acquiring order. */
-                cl_isize_lock(inode, 0);
+                lsm = cl_isize_lock(inode, 0);
                 cl_object_attr_lock(obj);
                 rc = cl_object_attr_get(env, obj, attr);
                 if (rc == 0) {
@@ -685,7 +686,7 @@ void ccc_lock_state(const struct lu_env *env,
                         CL_LOCK_DEBUG(D_INFO, env, lock, "attr_get: %d\n", rc);
                 }
                 cl_object_attr_unlock(obj);
-                cl_isize_unlock(inode, 0);
+                cl_isize_unlock(inode, &lsm, 0);
         }
         EXIT;
 }
@@ -807,22 +808,27 @@ void ccc_io_advance(const struct lu_env *env,
         }
 }
 
-static void ccc_object_size_lock(struct cl_object *obj, int vfslock)
+static struct lov_stripe_md *ccc_object_size_lock(struct cl_object *obj,
+                                                  int vfslock)
 {
         struct inode *inode = ccc_object_inode(obj);
+        struct lov_stripe_md *lsm = NULL;
 
         if (vfslock)
-                cl_isize_lock(inode, 0);
+                lsm = cl_isize_lock(inode, 0);
+
         cl_object_attr_lock(obj);
+        return lsm;
 }
 
-static void ccc_object_size_unlock(struct cl_object *obj, int vfslock)
+static void ccc_object_size_unlock(struct cl_object *obj,
+                                   struct lov_stripe_md **lsmp, int vfslock)
 {
         struct inode *inode = ccc_object_inode(obj);
 
         cl_object_attr_unlock(obj);
         if (vfslock)
-                cl_isize_unlock(inode, 0);
+                cl_isize_unlock(inode, lsmp, 0);
 }
 
 /**
@@ -848,6 +854,7 @@ int ccc_prep_size(const struct lu_env *env, struct cl_object *obj,
         loff_t          pos   = start + count - 1;
         loff_t kms;
         int result;
+        struct lov_stripe_md *lsm;
 
         /*
          * Consistency guarantees: following possibilities exist for the
@@ -868,7 +875,7 @@ int ccc_prep_size(const struct lu_env *env, struct cl_object *obj,
          * ll_inode_size_lock(). This guarantees that short reads are handled
          * correctly in the face of concurrent writes and truncates.
          */
-        ccc_object_size_lock(obj, vfslock);
+        lsm = ccc_object_size_lock(obj, vfslock);
         result = cl_object_attr_get(env, obj, attr);
         if (result == 0) {
                 kms = attr->cat_kms;
@@ -878,7 +885,7 @@ int ccc_prep_size(const struct lu_env *env, struct cl_object *obj,
                          * return a short read (B) or some zeroes at the end
                          * of the buffer (C)
                          */
-                        ccc_object_size_unlock(obj, vfslock);
+                        ccc_object_size_unlock(obj, &lsm, vfslock);
                         result = cl_glimpse_lock(env, io, inode, obj);
                         if (result == 0 && exceed != NULL) {
                                 /* If objective page index exceed end-of-file
@@ -931,7 +938,7 @@ int ccc_prep_size(const struct lu_env *env, struct cl_object *obj,
                         }
                 }
         }
-        ccc_object_size_unlock(obj, vfslock);
+        ccc_object_size_unlock(obj, &lsm, vfslock);
         return result;
 }
 
@@ -1026,6 +1033,7 @@ int cl_setattr_ost(struct inode *inode, const struct iattr *attr,
         struct cl_io  *io;
         int            result;
         int            refcheck;
+        struct lov_stripe_md *lsm;
 
         ENTRY;
 
@@ -1043,11 +1051,16 @@ int cl_setattr_ost(struct inode *inode, const struct iattr *attr,
         io->u.ci_setattr.sa_valid = attr->ia_valid;
         io->u.ci_setattr.sa_capa = capa;
 
-        if (cl_io_init(env, io, CIT_SETATTR, io->ci_obj) == 0)
+        lsm = cl_lsm_get(inode);
+        if (cl_io_init(env, io, CIT_SETATTR, io->ci_obj,
+                       &cl_i2info(inode)->lli_ll) == 0)
                 result = cl_io_loop(env, io);
         else
                 result = io->ci_result;
+        if (!io->ci_ll_dropped)
+                cl_layout_lock_put(inode);
         cl_io_fini(env, io);
+        cl_lsm_put(inode, &lsm);
         cl_env_put(env, &refcheck);
         RETURN(result);
 }
@@ -1194,10 +1207,13 @@ int cl_inode_init(struct inode *inode, struct lustre_md *md)
                          */
                         lli->lli_clob = clob;
                         lu_object_ref_add(&clob->co_lu, "inode", inode);
-                } else
+                } else {
                         result = PTR_ERR(clob);
-        } else
+                }
+        } else {
                 result = cl_conf_set(env, lli->lli_clob, &conf);
+        }
+
         cl_env_put(env, &refcheck);
 
         if (result != 0)

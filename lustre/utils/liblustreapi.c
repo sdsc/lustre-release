@@ -1628,6 +1628,14 @@ static void lov_dump_user_lmm_header(struct lov_user_md *lum, char *path,
                              lum->lmm_pattern, nl);
         }
 
+        if ((verbose & VERBOSE_GENERATION) && !is_dir) {
+                if (verbose & ~VERBOSE_GENERATION)
+                        llapi_printf(LLAPI_MSG_NORMAL, "%slayout_gen:     ",
+                                     prefix);
+                llapi_printf(LLAPI_MSG_NORMAL, "%u%c",
+                             (int)lum->u.lum_layout_gen, nl);
+        }
+
         if (verbose & VERBOSE_OFFSET) {
                 if (verbose & ~VERBOSE_OFFSET)
                         llapi_printf(LLAPI_MSG_NORMAL, "%sstripe_offset:  ",
@@ -1817,7 +1825,7 @@ static int find_value_cmp(unsigned int file, unsigned int limit, int sign,
                           int negopt, unsigned long long margin, int mds)
 {
         int ret = -1;
-        
+
         if (sign > 0) {
                 if (file <= limit)
                         ret = mds ? 0 : 1;
@@ -1851,7 +1859,7 @@ static int find_time_check(lstat_t *st, struct find_param *param, int mds)
         /* Check if file is accepted. */
         if (param->atime) {
                 ret = find_value_cmp(st->st_atime, param->atime,
-                                     param->asign, param->exclude_atime, 
+                                     param->asign, param->exclude_atime,
                                      24 * 60 * 60, mds);
                 if (ret < 0)
                         return ret;
@@ -1860,7 +1868,7 @@ static int find_time_check(lstat_t *st, struct find_param *param, int mds)
 
         if (param->mtime) {
                 ret = find_value_cmp(st->st_mtime, param->mtime,
-                                     param->msign, param->exclude_mtime, 
+                                     param->msign, param->exclude_mtime,
                                      24 * 60 * 60, mds);
                 if (ret < 0)
                         return ret;
@@ -2108,7 +2116,8 @@ obd_matches:
            'glimpse-size-ioctl'. */
         if (!decision && S_ISREG(st->st_mode) &&
             param->lmd->lmd_lmm.lmm_stripe_count &&
-            (param->check_size ||param->atime || param->mtime || param->ctime)) {
+            (param->check_size ||param->atime || param->mtime ||
+             param->ctime)) {
                 if (param->obdindex != OBD_NOT_FOUND) {
                         /* Check whether the obd is active or not, if it is
                          * not active, just print the object affected by this
