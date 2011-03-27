@@ -149,10 +149,13 @@ int llu_md_blocking_ast(struct ldlm_lock *lock,
                     lock->l_resource->lr_name.name[1] != fid_oid(fid) ||
                     lock->l_resource->lr_name.name[2] != fid_ver(fid)) {
                         LDLM_ERROR(lock,"data mismatch with ino %llu/%llu/%llu",
-                                  (long long)fid_seq(fid), 
+                                  (long long)fid_seq(fid),
                                   (long long)fid_oid(fid),
                                   (long long)fid_ver(fid));
                 }
+                if (bits & MDS_INODELOCK_LAYOUT)
+                        lli->lli_flags |= LLIF_LAYOUT_CANCELED;
+
                 if (S_ISDIR(st->st_mode) &&
                     (bits & MDS_INODELOCK_UPDATE)) {
                         CDEBUG(D_INODE, "invalidating inode %llu\n",
@@ -360,15 +363,17 @@ static int lookup_it_finish(struct ptlrpc_request *request, int offset,
                 /* If this is a stat, get the authoritative file size */
                 if (it->it_op == IT_GETATTR && S_ISREG(st->st_mode) &&
                     lli->lli_smd != NULL) {
-                        struct lov_stripe_md *lsm = lli->lli_smd;
+                        struct lov_stripe_md *lsm;
                         ldlm_error_t rc;
 
+                        lsm = llu_lsm_get(inode);
                         LASSERT(lsm->lsm_object_id != 0);
 
                         /* bug 2334: drop MDS lock before acquiring OST lock */
                         ll_intent_drop_lock(it);
 
                         rc = cl_glimpse_size(inode);
+                        llu_lsm_put(inode, &lsm);
                         if (rc) {
                                 I_RELE(inode);
                                 RETURN(rc);
@@ -587,3 +592,100 @@ out:
         liblustre_wait_event(0);
         RETURN(rc);
 }
+
+/**
+ * take a layout lock on inode
+ * \param struct inode *inode
+ * \retval 0 success
+ * \retval -ve failure
+ */
+int llu_layout_lock_get(struct inode *inode)
+{
+        struct llu_inode_info *lli = llu_i2info(inode);
+        struct obd_export *md_exp = llu_i2mdexp(inode);
+        struct lu_fid *fid = ll_inode2fid(inode);
+        struct md_op_data op_data = {{ 0 }};
+        struct ptlrpc_request *req = NULL;
+        struct lookup_intent it = { .it_op = IT_LAYOUT };
+        struct obd_export *exp;
+        int rc;
+        ENTRY;
+
+        if (!(llu_i2sbi(inode)->ll_flags & LL_SBI_LAYOUT_LOCK))
+                        RETURN(0);
+
+        /* sanity checks */
+        LASSERT(fid_is_sane(fid));
+        LASSERT(S_ISREG(llu_i2stat(inode)->st_mode));
+
+        if (layout_lock_get_ref_if_used(&lli->lli_ll))
+                RETURN(0);
+
+        llu_prep_md_op_data(&op_data, inode, inode, NULL, 0, 0, LUSTRE_OPC_ANY);
+
+        exp = llu_i2mdexp(inode);
+        rc = md_intent_lock(exp, &op_data, NULL, 0, &it, 0,
+                            &req, llu_md_blocking_ast,
+                            LDLM_FL_CANCEL_ON_BLOCK);
+        if (req == NULL && rc >= 0)
+                GOTO(out, rc);
+
+        if (rc < 0)
+                GOTO(out, rc = 0);
+
+        if (rc == 0) {
+                /* we get a new lock, so update the lock data */
+                md_set_lock_data(md_exp, &it.d.lustre.it_lock_handle,
+                                 inode, NULL);
+        }
+
+        /* save layout lock to allow put */
+        /* to save a lock reference, we save the cookie */
+        layout_lock_set(&lli->lli_ll, it.d.lustre.it_lock_handle,
+                        it.d.lustre.it_lock_mode, 1);
+
+        if (((lli->lli_smd == NULL) ||
+             (lli->lli_flags & LLIF_LAYOUT_CANCELED)) &&
+            (req != NULL)) {
+                /* layout is missing or wrong in inode due to a restripe */
+                struct llu_sb_info *sbi = llu_i2sbi(inode);
+                struct lustre_md md;
+
+                rc = md_get_lustre_md(sbi->ll_md_exp, req, sbi->ll_dt_exp,
+                                      sbi->ll_md_exp, &md);
+                if (rc)
+                        GOTO(out, rc);
+
+                llu_update_inode(inode, &md);
+                lli->lli_flags &= ~LLIF_LAYOUT_CANCELED;
+                md_free_lustre_md(sbi->ll_md_exp, &md);
+        }
+        rc = 0;
+
+out:
+        if (req && rc == 1) {
+                ptlrpc_req_finished(req);
+                rc = 0;
+        }
+        RETURN(rc);
+}
+
+/**
+ * put a layout lock on inode
+ * \param struct inode *inode
+ * \retval 0 success
+ * \retval -ve failure
+ */
+int llu_layout_lock_put(struct inode *inode)
+{
+        ENTRY;
+
+        /* sanity checks */
+        LASSERT(inode != NULL);
+        LASSERT(S_ISREG(llu_i2stat(inode)->st_mode));
+
+        layout_lock_put(&(llu_i2info(inode)->lli_ll));
+
+        RETURN(0);
+}
+

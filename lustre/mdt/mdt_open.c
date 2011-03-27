@@ -49,6 +49,45 @@
 #include <lustre_mds.h>
 #include "mdt_internal.h"
 
+/**
+ * take a layout lock on a mdt_object
+ * \param info
+ * \param obj mdt_object
+ * \param ll mdt_lock_handle
+ * \retval 0 success
+ * \retval -ve failure
+ */
+int mdt_layout_lock(struct mdt_thread_info *info, struct mdt_object *obj,
+                    struct mdt_lock_handle *ll)
+{
+        int rc;
+        ENTRY;
+
+        mdt_lock_handle_init(ll);
+        mdt_lock_reg_init(ll, LCK_EX);
+        rc = mdt_object_lock(info, obj, ll, MDS_INODELOCK_LAYOUT,
+                             MDT_CROSS_LOCK);
+        RETURN(rc);
+}
+
+
+/**
+ * give back a layout lock on a mdt_object
+ * \param info
+ * \param obj mdt_object
+ * \param ll mdt_lock_handle
+ */
+void mdt_layout_unlock(struct mdt_thread_info *info, struct mdt_object *obj,
+                       struct mdt_lock_handle *ll)
+{
+        ENTRY;
+
+        mdt_object_unlock(info, obj, ll, 1);
+
+        EXIT;
+        return;
+}
+
 /* we do nothing because we do not have refcount now */
 static void mdt_mfd_get(void *mfdp)
 {
@@ -114,8 +153,11 @@ static int mdt_create_data(struct mdt_thread_info *info,
         if (!md_should_create(spec->sp_cr_flags))
                 RETURN(0);
 
-        ma->ma_need = MA_INODE | MA_LOV;
-        ma->ma_valid = 0;
+        /* at file restore, lov need to recreated,
+         * hsm flags are needed to check if an executable is released
+         */
+        ma->ma_need = MA_INODE | MA_LOV | MA_HSM;
+        ma->ma_valid = MA_LAY_GEN;
         rc = mdo_create_data(info->mti_env,
                              p ? mdt_object_child(p) : NULL,
                              mdt_object_child(o), spec, ma);
@@ -1140,6 +1182,84 @@ out:
         RETURN(rc);
 }
 
+/*
+ * fake function: real one is coordinator patch
+ *  static declaration is used to make a compilation error
+ *  if fake definition is not removed in final patch
+ */
+static int mdt_hsm_coordinator_actions(struct mdt_thread_info *mti,
+                                       struct hsm_action_list *hal,
+                                       __u64 *compound_id,
+                                       int mti_attr_is_valid)
+{
+        return 0;
+}
+
+static int mdt_restore_file(struct mdt_thread_info *info,
+                            struct mdt_object *child, __u64 create_flags,
+                            struct md_attr *ma)
+{
+        struct hsm_action_list *hal;
+        struct hsm_action_item *hai;
+        __u64 compound_id;
+        int rc;
+        ENTRY;
+
+        if (create_flags & MDS_OPEN_TRUNC) {
+                struct md_attr *ma_tmp;
+
+                OBD_ALLOC_PTR(ma_tmp);
+                if (ma_tmp == NULL)
+                        RETURN(-ENOMEM);
+
+                /* open O_TRUNC, no need to restore, just update
+                 * hsm flags: clear released and set dirty
+                 * ma is updated but not used when calling mo_attr_set()
+                 * because * we want to set only hsm flags and not
+                 * other attributes
+                 */
+                ma->ma_hsm.mh_flags &= ~HS_RELEASED;
+                ma->ma_hsm.mh_flags |= HS_DIRTY;
+                ma_tmp->ma_hsm.mh_flags = ma->ma_hsm.mh_flags;
+                ma_tmp->ma_valid = MA_HSM;
+                rc = mo_attr_set(info->mti_env, mdt_object_child(child),
+                                 ma_tmp);
+                OBD_FREE_PTR(ma_tmp);
+        } else {
+                int len;
+
+                /* call coordinator */
+                len = sizeof(*hal);
+                len += cfs_size_round(MTI_NAME_MAXLEN + 1);
+                len += cfs_size_round(sizeof(struct hsm_action_item));
+                OBD_ALLOC(hal, len);
+                if (hal == NULL)
+                        RETURN(-ENOMEM);
+
+                hal->hal_version = HAL_VERSION;
+                hal->hal_archive_num = ma->ma_hsm.mh_archive_number;
+                obd_uuid2fsname(hal->hal_fsname,
+                                        mdt2obd_dev(info->mti_mdt)->obd_name,
+                                        MTI_NAME_MAXLEN);
+
+                hal->hal_count = 1;
+                hai = hai_zero(hal);
+                hai->hai_action = HSMA_RESTORE;
+                hai->hai_cookie = 0;
+                hai->hai_gid = 0;
+                memcpy(&hai->hai_fid, mdt_object_fid(child),
+                       sizeof(hai->hai_fid));
+                hai->hai_extent.offset = 0;
+                hai->hai_extent.length = OBD_OBJECT_EOF;
+                hai->hai_len = sizeof(*hai);
+
+                rc = mdt_hsm_coordinator_actions(info, hal, &compound_id, 1);
+                OBD_FREE(hal, len);
+        }
+
+        RETURN(rc);
+}
+
 int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 {
         struct mdt_device       *mdt = info->mti_mdt;
@@ -1157,6 +1277,9 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         int                      result, rc;
         int                      created = 0;
         __u32                    msg_flags;
+        struct mdt_lock_handle   ll;
+        int                      layout_lock_taken = 0;
+        int                      restore_needed = 0;
         ENTRY;
 
         OBD_FAIL_TIMEOUT_ORSET(OBD_FAIL_MDS_PAUSE_OPEN, OBD_FAIL_ONCE,
@@ -1357,7 +1480,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                                         LBUG();
                                 }
                                 LASSERT(fid_res_name_eq(mdt_object_fid(child),
-                                                        &lock->l_resource->lr_name));
+                                                   &lock->l_resource->lr_name));
                                 LDLM_LOCK_PUT(lock);
                                 rc = 0;
                         } else {
@@ -1365,7 +1488,8 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                                 mdt_lock_reg_init(lhc, LCK_PR);
 
                                 rc = mdt_object_lock(info, child, lhc,
-                                                     MDS_INODELOCK_LOOKUP,
+                                                     MDS_INODELOCK_LOOKUP |
+                                                     MDS_INODELOCK_LAYOUT,
                                                      MDT_CROSS_LOCK);
                         }
                         repbody->fid1 = *mdt_object_fid(child);
@@ -1391,7 +1515,8 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                 mdt_lock_handle_init(lhc);
                 mdt_lock_reg_init(lhc, lm);
                 rc = mdt_object_lock(info, child, lhc,
-                                     MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN,
+                                     MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN |
+                                     MDS_INODELOCK_LAYOUT,
                                      MDT_CROSS_LOCK);
                 if (rc) {
                         result = rc;
@@ -1401,6 +1526,70 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                         mdt_set_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
                 }
         }
+
+        if ((create_flags & MDS_OPEN_HAS_EA) &&
+            (ma->ma_valid & MA_LOV) &&
+            (info->mti_spec.u.sp_ea.eadatalen != 0)) {
+                /* restripe request */
+                if ((ma->ma_valid & MA_HSM) &&
+                    (ma->ma_hsm.mh_flags & HS_RELEASED)) {
+                        /* restripe of released file is forbidden */
+                        result = -EBUSY;
+                        GOTO(out_child,  result);
+                }
+
+                rc = mdo_lum_lmm_cmp(info->mti_env, mdt_object_child(child),
+                                      &info->mti_spec, &info->mti_attr);
+                if (rc < 0)
+                        GOTO(out_child, result = rc);
+
+                switch (rc) {
+                case 0:
+                        /* new stripe request is same as actual */
+                        result = -EEXIST;
+                        GOTO(out_child, result);
+                default:
+                        /* restripe request is different from actual, so we accept it */
+                        rc = mdt_layout_lock(info, child, &ll);
+                        if (rc)
+                                GOTO(out_child, result = rc);
+                        layout_lock_taken = 1;
+                        /*
+                         * object destruction is implemented in hsm release patch
+                        rc = mo_release(info->mti_env,
+                                        mdt_object_child(child),
+                                        &info->mti_attr, 1);
+                        */
+                        rc = 0;
+                        if (rc)
+                                GOTO(out_child, result = rc);
+
+                        ma->ma_valid &= ~MA_LOV;
+                        create_flags |= MDS_OPEN_NEWSTRIPE;
+                        info->mti_spec.sp_cr_flags = create_flags;
+                        break;
+                }
+        }
+
+        /* restore is needed only if:
+         * - file is released
+         * - restore is not forbidden
+         * - file has no lov ea (if file has a love ea, open comes from copy tool)
+         */
+        if ((ma->ma_valid & MA_HSM) && (ma->ma_hsm.mh_flags & HS_RELEASED) &&
+            (!(create_flags & MDS_OPEN_NORESTORE)) &&
+            (!(ma->ma_valid & MA_LOV))) {
+                rc = mdt_layout_lock(info, child, &ll);
+                if (rc)
+                        GOTO(out_child, result = rc);
+                layout_lock_taken = 1;
+
+                /* force new layout creation */
+                create_flags |= MDS_OPEN_NEWSTRIPE;
+                info->mti_spec.sp_cr_flags = create_flags;
+                restore_needed = 1;
+        }
+
 
         /* Try to open it now. */
         rc = mdt_finish_open(info, parent, child, create_flags,
@@ -1425,8 +1614,18 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                                 CERROR("Error in cleanup of open\n");
                 }
         }
+
+        if (restore_needed == 1) {
+                rc = mdt_restore_file(info, child, create_flags, ma);
+                if (rc)
+                        GOTO(out_child, result = rc);
+        }
         EXIT;
+
 out_child:
+        if (layout_lock_taken == 1)
+                mdt_layout_unlock(info, child, &ll);
+
         mdt_object_put(info->mti_env, child);
 out_parent:
         mdt_object_unlock_put(info, parent, lh, result || !created);

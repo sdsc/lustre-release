@@ -1448,6 +1448,14 @@ static void lov_dump_user_lmm_header(struct lov_user_md *lum, char *path,
                              lum->lmm_pattern, nl);
         }
 
+        if ((verbose & VERBOSE_GENERATION) && !is_dir) {
+                if (verbose & ~VERBOSE_GENERATION)
+                        llapi_printf(LLAPI_MSG_NORMAL, "%slayout_gen:     ",
+                                     prefix);
+                llapi_printf(LLAPI_MSG_NORMAL, "%u%c",
+                             (int)lum->u.lum_layout_gen, nl);
+        }
+
         if (verbose & VERBOSE_OFFSET) {
                 if (verbose & ~VERBOSE_OFFSET)
                         llapi_printf(LLAPI_MSG_NORMAL, "%sstripe_offset:  ",

@@ -624,7 +624,8 @@ static int __mdd_lmm_get(const struct lu_env *env,
                 rc = mdd_get_default_md(mdd_obj, ma->ma_lmm);
         if (rc > 0) {
                 ma->ma_lmm_size = rc;
-                ma->ma_valid |= MA_LOV;
+                ma->ma_layout_gen = ma->ma_lmm->lmm_layout_gen;
+                ma->ma_valid |= MA_LOV | MA_LAY_GEN;
                 rc = 0;
         }
         RETURN(rc);
