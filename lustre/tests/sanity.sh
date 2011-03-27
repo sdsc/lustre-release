@@ -1138,13 +1138,16 @@ test_27q() {
 	reset_enospc
 	rm -f $DIR/$tdir/$tfile
 
+$LCTL dk > /dev/null # CEA
 	$MCREATE $DIR/$tdir/$tfile || error "mcreate $DIR/$tdir/$tfile failed"
 	$TRUNCATE $DIR/$tdir/$tfile 80000000 ||error "truncate $DIR/$tdir/$tfile failed"
 	$CHECKSTAT -s 80000000 $DIR/$tdir/$tfile || error "checkstat failed"
 
 	exhaust_all_precreations 0x215
 
+echo "before echo" #CEA
 	echo foo >> $DIR/$tdir/$tfile && error "append succeeded"
+echo "after echo" #CEA
 	$CHECKSTAT -s 80000000 $DIR/$tdir/$tfile || error "checkstat 2 failed"
 
 	reset_enospc
@@ -1343,7 +1346,7 @@ check_seq_oid()
         [ "$FSTYPE" != "ldiskfs" ] && skip "can not check trusted.fid FSTYPE=$FSTYPE" && return 0
 
         # check the trusted.fid attribute of the OST objects of the file
-        for (( i=0, j=19; i < ${lmm[8]}; i++, j+=4 )); do
+        for (( i=0, j=21; i < ${lmm[8]}; i++, j+=4 )); do
                 local obdidx=${lmm[$j]}
                 local devnum=$((obdidx + 1))
                 local objid=${lmm[$((j+1))]}
@@ -1986,7 +1989,7 @@ test_34f() { # bug 6242, 6243
 	SIZE34F=48000
 	rm -f $DIR/f34f
 	$MCREATE $DIR/f34f || error
-	$TRUNCATE $DIR/f34f $SIZE34F || error "truncating $DIR/f3f to $SIZE34F"
+	$TRUNCATE $DIR/f34f $SIZE34F || error "truncating $DIR/f34f to $SIZE34F"
 	dd if=$DIR/f34f of=$TMP/f34f
 	$CHECKSTAT -s $SIZE34F $TMP/f34f || error "$TMP/f34f not $SIZE34F bytes"
 	dd if=/dev/zero of=$TMP/f34fzero bs=$SIZE34F count=1
@@ -3855,6 +3858,111 @@ test_65l() { # bug 12836
 }
 run_test 65l "lfs find on -1 stripe dir ========================"
 
+test_65m() {
+        [ $CLIENTCOUNT -ge 2 ] || \
+                { skip "Need two or more clients, have $CLIENTCOUNT" && return 0; }
+        do_node $CLIENT1 mkdir -p $DIR/$tdir
+        do_node $CLIENT1 $SETSTRIPE -c 1 $DIR/$tdir/empty
+        count1=$(do_node $CLIENT2 $GETSTRIPE -c $DIR/$tdir/empty)
+        gen1=$(do_node $CLIENT2 $GETSTRIPE -g $DIR/$tdir/empty)
+        do_node $CLIENT2 $SETSTRIPE -c 2 $DIR/$tdir/empty
+        count2=$(do_node $CLIENT1 $GETSTRIPE -c $DIR/$tdir/empty)
+        count3=$(do_node $CLIENT2 $GETSTRIPE -c $DIR/$tdir/empty)
+        gen2=$(do_node $CLIENT1 $GETSTRIPE -g $DIR/$tdir/empty)
+        [[ ( $count2 = $count3 ) && ( $count1 != $count2 ) ]] || error "Restripe failed"
+        [[ $gen1 != $gen2 ]] || error "Layout generation does not change"
+}
+run_test 65m "test layout lock with restriping of empty file"
+
+test_65n() {
+        mkdir -p $DIR/$tdir
+        $SETSTRIPE -c 1 $DIR/$tdir/non_empty
+        cp /etc/hosts $DIR/$tdir/non_empty
+        $SETSTRIPE -c 2 $DIR/$tdir/non_empty && error "restripe failed" || true
+}
+run_test 65n "restriping of non empty file (should return error)"
+
+test_65o() {
+    [ $OSTCOUNT -ge 2 ] || \
+        { skip_env "skipping layout generation number test, need 2 OST" && return 0; }
+    mkdir -p $DIR/$tdir
+    f=$DIR/$tdir/file
+    $SETSTRIPE -c 1 $f
+    gen1=$($GETSTRIPE -g $f)
+    $SETSTRIPE -c 2 $f
+    gen2=$($GETSTRIPE -g $f)
+    [[ $gen1 != $gen2 ]] || error "Layout generation does not change ($gen1 == $gen2)"
+}
+run_test 65o "check layout generation number"
+
+test_65p() {
+    mkdir -p $DIR/$tdir
+    f=$DIR/$tdir/file
+    dd if=/dev/zero of=$f bs=1M count=8k &
+    ddpid=$!
+	rm -f $f.rm
+	( sleep 0.1 ; rm -f $f ; touch $f.rm ; echo "rm done" ) &
+    sleep 5
+	if [[ -f $f.rm ]]; then
+		rc=0
+	else
+		echo "rm is blocked"
+		killall rm
+		rc=1
+    fi
+	kill -9 $ddpid || true
+    [[ $rc == 0 ]] || error "rm does not succeed before end of dd"
+}
+run_test 65p "concurrent dd/rm, must not block rm"
+
+test_65q() {
+    mkdir -p $DIR/$tdir
+    f=$DIR/$tdir/file
+    cp -p /bin/sleep $f
+    $f 5 &
+    pid=$!
+    sleep 1
+    rm -f $f
+    echo "rm done"
+    ps -p $pid > /dev/null
+    [[ $? == 0 ]] || error "rm does not succeed before end of execution"
+    echo "waiting for end of exec (max 5s)"
+    wait $pid
+}
+run_test 65q "concurrent exec/rm, must not block rm"
+
+test_65r() {
+	mkdir -p $DIR/$tdir
+	f=$DIR/$tdir/file
+	cp /etc/passwd $f
+	refsz=$(stat -c "%s" /etc/passwd)
+	cancel_lru_locks mdc
+	echo ls
+	ls -l $f
+	[[ $? == 0 ]] || err=" ls"
+	sz=$(stat -c "%s" $f)
+	[[ $sz == $refsz ]] || err=$err" size"
+	$GETSTRIPE -v $f
+	[[ $? == 0 ]] || err=$err" getstripe"
+	cancel_lru_locks mdc
+	echo read
+	$GETSTRIPE -v $f
+	cmp /etc/passwd $f
+	[[ $? == 0 ]] || err=$err" read"
+	ls -l $f # CEA
+	cancel_lru_locks mdc
+	echo rewrite
+	cp /etc/group $f
+	[[ $? == 0 ]] || err=$err" rewrite"
+	cmp /etc/group $f
+	[[ $? == 0 ]] || err=$err" check-rewrite"
+	cancel_lru_locks mdc
+	echo rm
+	rm -rf $f
+	[[ "$err" == "" ]] || error "Tests $err failed"
+}
+run_test 65r "create file, cancel layout lock, access file"
+
 # bug 2543 - update blocks count on client
 test_66() {
 	COUNT=${COUNT:-8}
@@ -5700,7 +5808,7 @@ test_118k()
 	set_nodes_failloc "$(osts_nodes)" 0x20e
 	mkdir -p $DIR/$tdir
 
-	for ((i=0;i<10;i++)); do
+	for ((i=0;i<20;i++)); do
 		(dd if=/dev/zero of=$DIR/$tdir/$tfile-$i bs=1M count=10 || \
 			error "dd to $DIR/$tdir/$tfile-$i failed" )&
 		SLEEPPID=$!
@@ -5710,7 +5818,9 @@ test_118k()
 	done
 
 	set_nodes_failloc "$(osts_nodes)" 0
+	echo rm file done
 	rm -rf $DIR/$tdir
+	echo rm dir done
 }
 run_test 118k "bio alloc -ENOMEM and IO TERM handling ========="
 
@@ -7809,6 +7919,21 @@ test_200h() { # b=24039
 		error "unable to create $tfile-2 in $POOL_DIR"
 }
 run_test 200h "Create files in a pool with relative pathname ============"
+
+test_200i() {
+        remote_mgs_nodsh && skip "remote MGS with nodsh" && return
+        [ "$OSTCOUNT" -lt "4" ] && skip "skipping layout generation in a pool test" && return
+        mkdir -p $DIR/$tdir
+        $SETSTRIPE -c 1 -p $POOL $DIR/$tdir/empty
+        count1=$($GETSTRIPE -c $DIR/$tdir/empty)
+        gen1=$($GETSTRIPE -g $DIR/$tdir/empty)
+        $SETSTRIPE -c 2 -p $POOL $DIR/$tdir/empty
+        count2=$($GETSTRIPE -c $DIR/$tdir/empty)
+        gen2=$($GETSTRIPE -g $DIR/$tdir/empty)
+        [[ ( $count1 != $count2 ) ]] || error "Restripe failed"
+        [[ ( $gen1 != $gen2 ) ]] || error "Layout generation does not change"
+}
+run_test 200i "Test layout generation within a pool ====================="
 
 test_201a() {
 	remote_mgs_nodsh && skip "remote MGS with nodsh" && return

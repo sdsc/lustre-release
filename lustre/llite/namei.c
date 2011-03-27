@@ -190,7 +190,7 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
         ENTRY;
 
         switch (flag) {
-        case LDLM_CB_BLOCKING:
+        case LDLM_CB_BLOCKING: {
                 ldlm_lock2handle(lock, &lockh);
                 rc = ldlm_cli_cancel(&lockh);
                 if (rc < 0) {
@@ -198,6 +198,7 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
                         RETURN(rc);
                 }
                 break;
+        }
         case LDLM_CB_CANCELING: {
                 struct inode *inode = ll_inode_from_lock(lock);
                 struct ll_inode_info *lli;
@@ -210,7 +211,9 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
                         break;
 
                 LASSERT(lock->l_flags & LDLM_FL_CANCELING);
-                /* For OPEN locks we differentiate between lock modes - CR, CW. PR - bug 22891 */
+                /* For OPEN locks we differentiate between lock modes - CR, CW, PR - bug 22891 */
+                /* if the requested bits are also in another lock,
+                * we ignore the request */
                 if ((bits & MDS_INODELOCK_LOOKUP) &&
                     ll_have_md_lock(inode, MDS_INODELOCK_LOOKUP, LCK_MINMODE))
                         bits &= ~MDS_INODELOCK_LOOKUP;
@@ -220,6 +223,9 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
                 if ((bits & MDS_INODELOCK_OPEN) &&
                     ll_have_md_lock(inode, MDS_INODELOCK_OPEN, mode))
                         bits &= ~MDS_INODELOCK_OPEN;
+                if ((bits & MDS_INODELOCK_LAYOUT) &&
+                    ll_have_md_lock(inode, MDS_INODELOCK_LAYOUT, LCK_MINMODE))
+                        bits &= ~MDS_INODELOCK_LAYOUT;
 
                 fid = ll_inode2fid(inode);
                 if (lock->l_resource->lr_name.name[0] != fid_seq(fid) ||
@@ -250,8 +256,23 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
                 }
 
                 lli = ll_i2info(inode);
-                if (bits & MDS_INODELOCK_UPDATE)
+                if (bits & MDS_INODELOCK_UPDATE) {
+                        cfs_spin_lock(&lli->lli_lock);
                         lli->lli_flags &= ~LLIF_MDS_SIZE_LOCK;
+                        cfs_spin_unlock(&lli->lli_lock);
+                }
+
+                if ((bits & MDS_INODELOCK_LAYOUT) && S_ISREG(inode->i_mode)) {
+                        CDEBUG(D_INODE,
+                               "canceling layout %p for inode %lu/%u(%p)\n",
+                               lli->lli_smd, inode->i_ino, inode->i_generation,
+                               inode);
+                        /* lli_smd cannot be set to NULL because clio
+                         * and find_cbdata() need it */
+                        cfs_spin_lock(&lli->lli_lock);
+                        lli->lli_flags |= LLIF_LAYOUT_CANCELED;
+                        cfs_spin_unlock(&lli->lli_lock);
+                }
 
                 if (S_ISDIR(inode->i_mode) &&
                      (bits & MDS_INODELOCK_UPDATE)) {
@@ -1125,10 +1146,11 @@ static int ll_unlink_generic(struct inode *dir, struct dentry *dparent,
         struct ptlrpc_request *request = NULL;
         struct md_op_data *op_data;
         int rc;
+        struct lov_stripe_md *lsm;
         ENTRY;
+
         CDEBUG(D_VFSTRACE, "VFS Op:name=%.*s,dir=%lu/%u(%p)\n",
                name->len, name->name, dir->i_ino, dir->i_generation, dir);
-
         /*
          * XXX: unlink bind mountpoint maybe call to here,
          * just check it as vfs_unlink does.
@@ -1136,10 +1158,13 @@ static int ll_unlink_generic(struct inode *dir, struct dentry *dparent,
         if (unlikely(ll_d_mountpoint(dparent, dchild, name)))
                 RETURN(-EBUSY);
 
+        lsm = ll_lsm_get(dchild->d_inode);
         op_data = ll_prep_md_op_data(NULL, dir, NULL, name->name,
                                      name->len, 0, LUSTRE_OPC_ANY, NULL);
-        if (IS_ERR(op_data))
+        if (IS_ERR(op_data)) {
+                ll_lsm_put(dchild->d_inode, &lsm);
                 RETURN(PTR_ERR(op_data));
+        }
 
         ll_get_child_fid(dir, name, &op_data->op_fid3);
         rc = md_unlink(ll_i2sbi(dir)->ll_md_exp, op_data, &request);
@@ -1152,6 +1177,8 @@ static int ll_unlink_generic(struct inode *dir, struct dentry *dparent,
         rc = ll_objects_destroy(request, dir);
  out:
         ptlrpc_req_finished(request);
+        ll_lsm_put(dchild->d_inode, &lsm);
+
         RETURN(rc);
 }
 
