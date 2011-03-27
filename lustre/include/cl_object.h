@@ -2015,6 +2015,16 @@ struct cl_io_operations {
                 int  (*cio_lock) (const struct lu_env *env,
                                   const struct cl_io_slice *slice);
                 /**
+                 *  Lock post-processings
+                 *
+                 * Called top-to-bottom for post lock aquisition
+                 * enent, called after all lock are
+                 * acquired by cl_io_operations::cio_lock().
+                 * One use is to release layout lock
+                 */
+                void (*cio_post_lock)(const struct lu_env *env,
+                                      const struct cl_io_slice *slice);
+                /**
                  * Finalize unlocking.
                  *
                  * Called bottom-to-top to finish layer specific unlocking
@@ -2245,6 +2255,11 @@ struct cl_io {
         enum cl_io_state               ci_state;
         /** main object this io is against. Immutable after creation. */
         struct cl_object              *ci_obj;
+        /** layout lock */
+        struct layout_lock            *ci_ll;
+        /** layout lock was dropped */
+        /* reviewer: do we merge this with ci_no_srvlock in a bit field ? */
+        int                            ci_ll_dropped;
         /**
          * Upper layer io, of which this io is a part of. Immutable after
          * creation.
@@ -2891,17 +2906,20 @@ unsigned long cl_lock_weigh(const struct lu_env *env, struct cl_lock *lock);
  * @{ */
 
 int   cl_io_init         (const struct lu_env *env, struct cl_io *io,
-                          enum cl_io_type iot, struct cl_object *obj);
+                          enum cl_io_type iot, struct cl_object *obj,
+                          struct layout_lock *ll);
 int   cl_io_sub_init     (const struct lu_env *env, struct cl_io *io,
                           enum cl_io_type iot, struct cl_object *obj);
 int   cl_io_rw_init      (const struct lu_env *env, struct cl_io *io,
-                          enum cl_io_type iot, loff_t pos, size_t count);
+                          enum cl_io_type iot, loff_t pos, size_t count,
+                          struct layout_lock *ll);
 int   cl_io_loop         (const struct lu_env *env, struct cl_io *io);
 
 void  cl_io_fini         (const struct lu_env *env, struct cl_io *io);
 int   cl_io_iter_init    (const struct lu_env *env, struct cl_io *io);
 void  cl_io_iter_fini    (const struct lu_env *env, struct cl_io *io);
 int   cl_io_lock         (const struct lu_env *env, struct cl_io *io);
+void  cl_io_post_lock    (const struct lu_env *env, struct cl_io *io);
 void  cl_io_unlock       (const struct lu_env *env, struct cl_io *io);
 int   cl_io_start        (const struct lu_env *env, struct cl_io *io);
 void  cl_io_end          (const struct lu_env *env, struct cl_io *io);

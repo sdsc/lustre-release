@@ -486,6 +486,7 @@ int osc_real_create(struct obd_export *exp, struct obdo *oa,
          */
         lsm->lsm_object_id = oa->o_id;
         lsm->lsm_object_seq = oa->o_seq;
+        lsm->lsm_layout_gen = oa->o_layout_gen;
         *ea = lsm;
 
         if (oti != NULL) {

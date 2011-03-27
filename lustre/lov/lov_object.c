@@ -137,12 +137,13 @@ static int lov_init_sub(const struct lu_env *env, struct lov_object *lov,
 
         oinfo = r0->lo_lsm->lsm_oinfo[idx];
         CDEBUG(D_INODE, DFID"@%p[%d] -> "DFID"@%p: id: "LPU64" seq: "LPU64
-               " idx: %d gen: %d\n",
+               " idx: %d\n",
                PFID(&subhdr->coh_lu.loh_fid), subhdr, idx,
                PFID(&hdr->coh_lu.loh_fid), hdr,
                oinfo->loi_id, oinfo->loi_seq,
-               oinfo->loi_ost_idx, oinfo->loi_ost_gen);
+               oinfo->loi_ost_idx);
 
+        result = 0;
         if (parent == NULL) {
                 subhdr->coh_parent = hdr;
                 subhdr->coh_nesting = hdr->coh_nesting + 1;
@@ -150,9 +151,12 @@ static int lov_init_sub(const struct lu_env *env, struct lov_object *lov,
                 r0->lo_sub[idx] = cl2lovsub(stripe);
                 r0->lo_sub[idx]->lso_super = lov;
                 r0->lo_sub[idx]->lso_index = idx;
-                result = 0;
-        } else {
-                CERROR("Stripe is already owned by other file (%d).\n", idx);
+        } else if (!lu_fid_eq(lu_object_fid(&stripe->co_lu),
+                              lu_object_fid(lu_object_top(&parent->coh_lu)))) {
+                CERROR("Stripe (%d) is already owned by another file"
+                        " "DFID" != "DFID"\n", idx,
+                        PFID(lu_object_fid(&stripe->co_lu)),
+                        PFID(lu_object_fid(lu_object_top(&parent->coh_lu))));
                 LU_OBJECT_DEBUG(D_ERROR, env, &stripe->co_lu, "\n");
                 LU_OBJECT_DEBUG(D_ERROR, env, lu_object_top(&parent->coh_lu),
                                 "old\n");
@@ -300,6 +304,7 @@ static void lov_fini_raid0(const struct lu_env *env, struct lov_object *lov,
 
         ENTRY;
         if (r0->lo_sub != NULL) {
+                lov_delete_raid0(env, lov, state);
                 OBD_FREE_LARGE(r0->lo_sub, r0->lo_nr * sizeof r0->lo_sub[0]);
                 r0->lo_sub = NULL;
         }
@@ -549,7 +554,9 @@ static int lov_conf_set(const struct lu_env *env, struct cl_object *obj,
 
         ENTRY;
         /*
-         * Currently only LLT_EMPTY -> LLT_RAID0 transition is supported.
+         * LLT_EMPTY -> LLT_RAID0 : layout creation
+         * LLT_RAID0 -> LLT_RAID0 : restripe layout
+         * LLT_RAID0 -> LLT_EMPTY : release layout
          */
         LASSERT(lov->lo_owner != cfs_current());
         cfs_down_write(&lov->lo_type_guard);
@@ -557,6 +564,10 @@ static int lov_conf_set(const struct lu_env *env, struct cl_object *obj,
         lov->lo_owner = cfs_current();
         if (lov->lo_type == LLT_EMPTY && conf->u.coc_md->lsm != NULL)
                 result = lov_layout_change(env, lov, LLT_RAID0, conf);
+        else if ((lov->lo_type == LLT_RAID0) && (conf->u.coc_md->lsm != NULL))
+                result = lov_layout_change(env, lov, LLT_RAID0, conf);
+        else if ((lov->lo_type == LLT_RAID0) && (conf->u.coc_md->lsm == NULL))
+                result = lov_layout_change(env, lov, LLT_EMPTY, conf);
         else
                 result = -EOPNOTSUPP;
         lov->lo_owner = NULL;

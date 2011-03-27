@@ -156,7 +156,8 @@ struct mdt_device {
         struct ptlrpc_thread       mdt_ck_thread;
         struct lustre_capa_key     mdt_capa_keys[2];
         unsigned int               mdt_capa_conf:1,
-                                   mdt_som_conf:1;
+                                   mdt_som_conf:1,
+                                   mdt_layout_lock_conf:1;
 
         /* root squash */
         uid_t                      mdt_squash_uid;
@@ -541,6 +542,11 @@ void mdt_object_unlock_put(struct mdt_thread_info *,
                            struct mdt_object *,
                            struct mdt_lock_handle *,
                            int decref);
+
+int mdt_layout_lock(struct mdt_thread_info *info, struct mdt_object *obj,
+                    struct mdt_lock_handle *ll);
+void mdt_layout_unlock(struct mdt_thread_info *info, struct mdt_object *obj,
+                       struct mdt_lock_handle *ll);
 
 int mdt_close_unpack(struct mdt_thread_info *info);
 int mdt_reint_unpack(struct mdt_thread_info *info, __u32 op);

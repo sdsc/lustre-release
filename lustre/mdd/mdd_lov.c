@@ -274,8 +274,9 @@ static int mdd_lov_set_dir_md(const struct lu_env *env,
         LASSERT(S_ISDIR(mdd_object_type(obj)));
         lum = (struct lov_user_md*)buf->lb_buf;
 
-        /* if { size, offset, count } = { 0, -1, 0 } and no pool (i.e. all default
-         * values specified) then delete default striping from dir. */
+        /* if { size, offset, count } = { 0, -1, 0 } and no pool
+         * (i.e. all default values specified) then delete default
+         * striping from dir. */
         if (LOVEA_DELETE_VALUES(lum->lmm_stripe_size, lum->lmm_stripe_count,
                                 lum->lmm_stripe_offset) &&
             lum->lmm_magic != LOV_USER_MAGIC_V3) {
@@ -379,7 +380,8 @@ void mdd_lov_create_finish(const struct lu_env *env, struct mdd_device *mdd,
 int mdd_lov_create(const struct lu_env *env, struct mdd_device *mdd,
                    struct mdd_object *parent, struct mdd_object *child,
                    struct lov_mds_md **lmm, int *lmm_size,
-                   const struct md_op_spec *spec, struct lu_attr *la)
+                   const struct md_op_spec *spec, struct lu_attr *la,
+                   int *layout_gen)
 {
         struct obd_device     *obd = mdd2obd_dev(mdd);
         struct obd_export     *lov_exp = obd->u.mds.mds_lov_exp;
@@ -387,7 +389,7 @@ int mdd_lov_create(const struct lu_env *env, struct mdd_device *mdd,
         struct obdo           *oa;
         struct lov_stripe_md  *lsm = NULL;
         const void            *eadata = spec->u.sp_ea.eadata;
-        __u32                  create_flags = spec->sp_cr_flags;
+        __u64                  create_flags = spec->sp_cr_flags;
         struct obd_trans_info *oti = &mdd_env_info(env)->mti_oti;
         int                    rc = 0;
         ENTRY;
@@ -422,8 +424,10 @@ int mdd_lov_create(const struct lu_env *env, struct mdd_device *mdd,
         oa->o_seq = mdt_to_obd_objseq(lu_site2md(site)->ms_node_id);
         oa->o_mode = S_IFREG | 0600;
         oa->o_id = fid_ver_oid(mdd_object_fid(child));
+        oa->o_layout_gen = *layout_gen;
         oa->o_valid = OBD_MD_FLID | OBD_MD_FLTYPE | OBD_MD_FLFLAGS |
-                OBD_MD_FLMODE | OBD_MD_FLUID | OBD_MD_FLGID | OBD_MD_FLGROUP;
+                OBD_MD_FLMODE | OBD_MD_FLUID | OBD_MD_FLGID | OBD_MD_FLGROUP |
+                OBD_MD_FLLAYOUTGEN;
         oa->o_size = 0;
 
         if (!(create_flags & MDS_OPEN_HAS_OBJS)) {
@@ -433,10 +437,40 @@ int mdd_lov_create(const struct lu_env *env, struct mdd_device *mdd,
                                            0, &lsm, (void*)eadata);
                         if (rc)
                                 GOTO(out_oti, rc);
-                } else if (parent != NULL) {
+                } else {
                         /* get lov ea from parent and set to lov */
                         struct lov_mds_md *_lmm;
                         int _lmm_size;
+
+                        if (parent == NULL) {
+                                struct lu_buf *buf = NULL;
+                                struct link_ea_header *leh;
+                                struct link_ea_entry *lee;
+                                struct lu_name *tmpname =
+                                                   &mdd_env_info(env)->mti_name;
+                                struct lu_fid  *tmpfid =
+                                                   &mdd_env_info(env)->mti_fid;
+                                int reclen;
+
+                                /* parent not provided by caller, we find it
+                                 * from ea link */
+                                mdd_read_lock(env, child, MOR_TGT_CHILD);
+                                buf = mdd_links_get(env, child);
+                                mdd_read_unlock(env, child);
+                                if (IS_ERR(buf))
+                                        GOTO(out_ids, rc = PTR_ERR(buf));
+
+                                leh = buf->lb_buf;
+                                /* in case of hard linked file, first parent is taken */
+                                lee = (struct link_ea_entry *)(leh + 1);
+                                mdd_lee_unpack(lee, &reclen, tmpname, tmpfid);
+                                mdd_buf_put(buf);
+
+                                parent = mdd_object_find(env, mdd, tmpfid);
+                                if (parent == NULL || IS_ERR(parent))
+                                        GOTO(out_ids, PTR_ERR(parent));
+                                mdd_object_put(env, parent);
+                        }
 
                         _lmm_size = mdd_lov_mdsize(env, mdd);
                         _lmm = mdd_max_lmm_get(env, mdd);
@@ -474,6 +508,7 @@ int mdd_lov_create(const struct lu_env *env, struct mdd_device *mdd,
                 if (rc)
                         GOTO(out_oti, rc);
 
+                lsm->lsm_layout_gen = oa->o_layout_gen;
         }
 
         lsm->lsm_object_id = fid_ver_oid(mdd_object_fid(child));
@@ -970,3 +1005,38 @@ int mdd_file_unlock(const struct lu_env *env, struct md_object *obj,
 
         RETURN(rc);
 }
+
+/* file lov is in ma->ma_lmm */
+/* requested lov is in info->mti_spec.u.sp_ea.eadata */
+int mdd_lum_lmm_cmp(const struct lu_env *env, struct md_object *cobj,
+                    const struct md_op_spec *spec, struct md_attr *ma)
+{
+        struct obd_export *lov_exp =
+                mdd2obd_dev(mdo2mdd(cobj))->u.mds.mds_lov_exp;
+        struct lov_mds_md *lmm = ma->ma_lmm;
+        struct lov_user_md_v3 *lum =
+                (struct lov_user_md_v3 *)(spec->u.sp_ea.eadata);
+        struct lov_stripe_md *lsm = NULL;
+        int lmm_magic, rc;
+        ENTRY;
+
+        rc = obd_unpackmd(lov_exp, &lsm, lmm,
+                          lov_mds_md_size(lmm->lmm_stripe_count,
+                                          lmm->lmm_magic));
+        ma->ma_layout_gen = lsm->lsm_layout_gen;
+        ma->ma_valid |= MA_LAY_GEN;
+
+        rc = lov_lum_swab_if_needed(lum, &lmm_magic, NULL);
+        if (rc)
+                GOTO(out, rc);
+
+        rc = lov_lum_lsm_cmp((struct lov_user_md *)lum, lsm);
+        if (rc)
+                GOTO(out, rc);  /* keep GOTO to for traces */
+
+out:
+        /* free lsm */
+        obd_unpackmd(lov_exp, &lsm, NULL, 0);
+        return rc;
+}
+

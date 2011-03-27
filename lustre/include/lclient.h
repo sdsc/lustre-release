@@ -346,7 +346,6 @@ struct ccc_object  *cl_inode2ccc    (struct inode *inode);
 
 int cl_setattr_ost(struct inode *inode, const struct iattr *attr,
                    struct obd_capa *capa);
-
 struct cl_page *ccc_vmpage_page_transient(cfs_page_t *vmpage);
 int ccc_object_invariant(const struct cl_object *obj);
 int cl_inode_init(struct inode *inode, struct lustre_md *md);

@@ -353,6 +353,7 @@ int ldlm_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
  */
 int ldlm_glimpse_ast(struct ldlm_lock *lock, void *reqp)
 {
+        ENTRY;
         /*
          * Returning -ELDLM_NO_LOCK_DATA actually works, but the reason for
          * that is rather subtle: with OST-side locking, it may so happen that
@@ -371,7 +372,7 @@ int ldlm_glimpse_ast(struct ldlm_lock *lock, void *reqp)
          * that is, after glimpse_ast() fails, filter_lvbo_update() runs, and
          * returns correct file size to the client.
          */
-        return -ELDLM_NO_LOCK_DATA;
+        RETURN(-ELDLM_NO_LOCK_DATA);
 }
 
 int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
@@ -820,7 +821,8 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
                             !(exp->exp_connect_flags & OBD_CONNECT_IBITS))
                                 lock->l_policy_data.l_inodebits.bits =
                                         MDS_INODELOCK_LOOKUP |
-                                        MDS_INODELOCK_UPDATE;
+                                        MDS_INODELOCK_UPDATE |
+                                        MDS_INODELOCK_LAYOUT;
                         else
                                 lock->l_policy_data = *policy;
                 }
