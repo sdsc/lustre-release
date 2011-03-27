@@ -61,10 +61,10 @@ typedef ssize_t llu_file_piov_t(const struct iovec *iovec, int iovlen,
 
 size_t llap_cookie_size;
 
-static int llu_lock_to_stripe_offset(struct inode *inode, struct ldlm_lock *lock)
+static int llu_lock_to_stripe_offset(struct inode *inode,
+                                     struct ldlm_lock *lock)
 {
-        struct llu_inode_info *lli = llu_i2info(inode);
-        struct lov_stripe_md *lsm = lli->lli_smd;
+        struct lov_stripe_md *lsm;
         struct obd_export *exp = llu_i2obdexp(inode);
         struct {
                 char name[16];
@@ -74,8 +74,11 @@ static int llu_lock_to_stripe_offset(struct inode *inode, struct ldlm_lock *lock
         int rc;
         ENTRY;
 
-        if (lsm->lsm_stripe_count == 1)
+        lsm = llu_lsm_get(inode);
+        if (lsm->lsm_stripe_count == 1) {
+                llu_lsm_put(inode, &lsm);
                 RETURN(0);
+        }
 
         /* get our offset in the lov */
         rc = obd_get_info(exp, sizeof(key), &key, &vallen, &stripe, lsm);
@@ -84,6 +87,7 @@ static int llu_lock_to_stripe_offset(struct inode *inode, struct ldlm_lock *lock
                 LBUG();
         }
         LASSERT(stripe < lsm->lsm_stripe_count);
+        llu_lsm_put(inode, &lsm);
         RETURN(stripe);
 }
 
@@ -336,7 +340,7 @@ ssize_t llu_file_prwv(const struct iovec *iovec, int iovlen,
         io = &ccc_env_info(env)->cti_io;
         if (cl_io_rw_init(env, io, session->lis_cmd == OBD_BRW_WRITE?CIT_WRITE:
                                                                       CIT_READ,
-                          pos, len) == 0) {
+                          pos, len, &lli->lli_ll) == 0) {
                 struct ccc_io *cio;
                 sio = slp_env_io(env);
                 cio = ccc_env_io(env);

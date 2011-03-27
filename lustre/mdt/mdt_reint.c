@@ -598,6 +598,7 @@ static int mdt_reint_setattr(struct mdt_thread_info *info,
 out_put:
         mdt_object_put(info->mti_env, mo);
 out:
+        mdt_client_compatibility(info);
         mdt_shrink_reply(info);
         return rc;
 }
