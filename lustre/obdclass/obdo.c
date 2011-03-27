@@ -85,7 +85,7 @@ void obdo_from_inode(struct obdo *dst, struct inode *src, struct lu_fid *parent,
                 newvalid |= OBD_MD_FLCTIME;
         }
         if (valid & OBD_MD_FLSIZE) {
-                dst->o_size = src->i_size;
+                dst->o_size = i_size_read(src);
                 newvalid |= OBD_MD_FLSIZE;
         }
         if (valid & OBD_MD_FLBLOCKS) {  /* allocation of space (x512 bytes) */
@@ -162,6 +162,8 @@ void obdo_cpy_md(struct obdo *dst, struct obdo *src, obd_flag valid)
                 dst->o_handle = src->o_handle;
         if (valid & OBD_MD_FLCOOKIE)
                 dst->o_lcookie = src->o_lcookie;
+        if (valid & OBD_MD_FLLAYOUTGEN)
+                dst->o_layout_gen = src->o_layout_gen;
 
         dst->o_valid |= valid;
 }
