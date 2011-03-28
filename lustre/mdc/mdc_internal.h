@@ -40,6 +40,17 @@
 #include <lustre_mdc.h>
 #include <lustre_mds.h>
 
+struct mdc_getattr_args {
+        struct obd_export           *ga_exp;
+        struct md_enqueue_info      *ga_minfo;
+        struct ldlm_enqueue_info    *ga_einfo;
+};
+
+struct mdc_renew_capa_args {
+        struct obd_capa             *ra_oc;
+        renew_capa_cb_t              ra_cb;
+};
+
 #ifdef LPROCFS
 void lprocfs_mdc_init_vars(struct lprocfs_static_vars *lvars);
 #else

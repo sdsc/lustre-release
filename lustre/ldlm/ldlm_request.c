@@ -62,10 +62,6 @@ struct lock_wait_data {
         __u32             lwd_conn_cnt;
 };
 
-struct ldlm_async_args {
-        struct lustre_handle lock_handle;
-};
-
 int ldlm_expired_completion_wait(void *data)
 {
         struct lock_wait_data *lwd = data;
@@ -2011,7 +2007,7 @@ static int ldlm_chain_lock_for_replay(struct ldlm_lock *lock, void *closure)
 
 static int replay_lock_interpret(const struct lu_env *env,
                                  struct ptlrpc_request *req,
-                                 struct ldlm_async_args *aa, int rc)
+                                 struct ldlm_replay_async_args *aa, int rc)
 {
         struct ldlm_lock     *lock;
         struct ldlm_reply    *reply;
@@ -2022,16 +2018,15 @@ static int replay_lock_interpret(const struct lu_env *env,
         if (rc != ELDLM_OK)
                 GOTO(out, rc);
 
-
         reply = req_capsule_server_get(&req->rq_pill, &RMF_DLM_REP);
         if (reply == NULL)
                 GOTO(out, rc = -EPROTO);
 
-        lock = ldlm_handle2lock(&aa->lock_handle);
+        lock = ldlm_handle2lock(&aa->ra_lhandle);
         if (!lock) {
                 CERROR("received replay ack for unknown local cookie "LPX64
                        " remote cookie "LPX64 " from server %s id %s\n",
-                       aa->lock_handle.cookie, reply->lock_handle.cookie,
+                       aa->ra_lhandle.cookie, reply->lock_handle.cookie,
                        req->rq_export->exp_client_uuid.uuid,
                        libcfs_id2str(req->rq_peer));
                 GOTO(out, rc = -ESTALE);
@@ -2061,7 +2056,7 @@ out:
 static int replay_one_lock(struct obd_import *imp, struct ldlm_lock *lock)
 {
         struct ptlrpc_request *req;
-        struct ldlm_async_args *aa;
+        struct ldlm_replay_async_args *aa;
         struct ldlm_request   *body;
         int flags;
         ENTRY;
@@ -2134,7 +2129,7 @@ static int replay_one_lock(struct obd_import *imp, struct ldlm_lock *lock)
         cfs_atomic_inc(&req->rq_import->imp_replay_inflight);
         CLASSERT(sizeof(*aa) <= sizeof(req->rq_async_args));
         aa = ptlrpc_req_async_args(req);
-        aa->lock_handle = body->lock_handle[0];
+        aa->ra_lhandle = body->lock_handle[0];
         req->rq_interpret_reply = (ptlrpc_interpterer_t)replay_lock_interpret;
         ptlrpcd_add_req(req, PSCOPE_OTHER);
 

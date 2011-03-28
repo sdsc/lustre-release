@@ -104,6 +104,15 @@ struct ldlm_cb_set_arg {
         __u32 type; /* LDLM_BL_CALLBACK or LDLM_CP_CALLBACK */
 };
 
+struct ldlm_cb_async_args {
+        struct ldlm_cb_set_arg *ca_set_arg;
+        struct ldlm_lock       *ca_lock;
+};
+
+struct ldlm_replay_async_args {
+        struct lustre_handle    ra_lhandle;
+};
+
 typedef enum {
         LDLM_WORK_BL_AST,
         LDLM_WORK_CP_AST,
