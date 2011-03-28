@@ -1043,23 +1043,27 @@ check_pdo_conflict() {
 # pdirop tests
 # test 40: check non-blocking operations
 test_40a() {
+	local PDIR1=$DIR1/PDO
+	local PDIR2=$DIR2/PDO
+
+	mkdir -p $PDIR1
 #define OBD_FAIL_ONCE|OBD_FAIL_MDS_PDO_LOCK    0x145
 	do_facet $SINGLEMDS lctl set_param fail_loc=0x80000145
-	mkdir $DIR1/$tfile &
+	mkdir $PDIR1/$tfile &
 	PID1=$!
 	sleep 1
-	touch $DIR2/$tfile-2
+	touch $PDIR2/$tfile-2
 	check_pdo_conflict $PID1 || error "create is blocked"
-	mkdir $DIR2/$tfile-3
+	mkdir $PDIR2/$tfile-3
 	check_pdo_conflict $PID1 || error "mkdir is blocked"
-	link $DIR2/$tfile-2 $DIR2/$tfile-4
+	link $PDIR2/$tfile-2 $PDIR2/$tfile-4
 	check_pdo_conflict $PID1 || error "link is blocked"
-	mv $DIR2/$tfile-2 $DIR2/$tfile-5
+	mv $PDIR2/$tfile-2 $PDIR2/$tfile-5
 	check_pdo_conflict $PID1 || error "rename is blocked"
-	stat $DIR2/$tfile-3 $DIR2/$tfile-4 > /dev/null
+	stat $PDIR2/$tfile-3 $PDIR2/$tfile-4 > /dev/null
 	check_pdo_conflict $PID1 || error "getattr is blocked"
-	rm $DIR2/$tfile-4 $DIR2/$tfile-5
-	rmdir $DIR2/$tfile-3
+	rm $PDIR2/$tfile-4 $PDIR2/$tfile-5
+	rmdir $PDIR2/$tfile-3
 	check_pdo_conflict $PID1 || error "unlink is blocked"
 	# all operations above shouldn't wait the first one
 	check_pdo_conflict $PID1 || error "parallel operation is blocked"
@@ -1070,24 +1074,28 @@ test_40a() {
 run_test 40a "pdirops: create vs others =============="
 
 test_40b() {
+	local PDIR1=$DIR1/PDO
+	local PDIR2=$DIR2/PDO
+
+	mkdir -p $PDIR1
 #define OBD_FAIL_ONCE|OBD_FAIL_MDS_PDO_LOCK    0x145
 	do_facet $SINGLEMDS lctl set_param fail_loc=0x80000145
-	touch $DIR1/$tfile &
+	touch $PDIR1/$tfile &
 	PID1=$!
 	sleep 1
 	# open|create
-	touch $DIR2/$tfile-2
+	touch $PDIR2/$tfile-2
 	check_pdo_conflict $PID1 || error "create is blocked"
-	mkdir $DIR2/$tfile-3
+	mkdir $PDIR2/$tfile-3
 	check_pdo_conflict $PID1 || error "mkdir is blocked"
-	link $DIR2/$tfile-2 $DIR2/$tfile-4
+	link $PDIR2/$tfile-2 $PDIR2/$tfile-4
 	check_pdo_conflict $PID1 || error "link is blocked"
-	mv $DIR2/$tfile-2 $DIR2/$tfile-5
+	mv $PDIR2/$tfile-2 $PDIR2/$tfile-5
 	check_pdo_conflict $PID1 || error "rename is blocked"
-	stat $DIR2/$tfile-3 $DIR2/$tfile-4 > /dev/null
+	stat $PDIR2/$tfile-3 $PDIR2/$tfile-4 > /dev/null
 	check_pdo_conflict $PID1 || error "getattr is blocked"
-	rm $DIR2/$tfile-4 $DIR2/$tfile-5
-	rmdir $DIR2/$tfile-3
+	rm $PDIR2/$tfile-4 $PDIR2/$tfile-5
+	rmdir $PDIR2/$tfile-3
 	check_pdo_conflict $PID1 || error "unlink is blocked"
 	# all operations above shouldn't wait the first one
 	check_pdo_conflict $PID1 || error "parallel operation is blocked"
@@ -1098,25 +1106,29 @@ test_40b() {
 run_test 40b "pdirops: open|create and others =============="
 
 test_40c() {
-	touch $DIR1/$tfile
+	local PDIR1=$DIR1/PDO
+	local PDIR2=$DIR2/PDO
+
+	mkdir -p $PDIR1
+	touch $PDIR1/$tfile
 #define OBD_FAIL_ONCE|OBD_FAIL_MDS_PDO_LOCK    0x145
 	do_facet $SINGLEMDS lctl set_param fail_loc=0x80000145
-	link $DIR1/$tfile $DIR1/$tfile-0 &
+	link $PDIR1/$tfile $PDIR1/$tfile-0 &
 	PID1=$!
 	sleep 1
 	# open|create
-	touch $DIR2/$tfile-2
+	touch $PDIR2/$tfile-2
 	check_pdo_conflict $PID1 || error "create is blocked"
-	mkdir $DIR2/$tfile-3
+	mkdir $PDIR2/$tfile-3
 	check_pdo_conflict $PID1 || error "mkdir is blocked"
-	link $DIR2/$tfile-2 $DIR2/$tfile-4
+	link $PDIR2/$tfile-2 $PDIR2/$tfile-4
 	check_pdo_conflict $PID1 || error "link is blocked"
-	mv $DIR2/$tfile-2 $DIR2/$tfile-5
+	mv $PDIR2/$tfile-2 $PDIR2/$tfile-5
 	check_pdo_conflict $PID1 || error "rename is blocked"
-	stat $DIR2/$tfile-3 $DIR2/$tfile-4 > /dev/null
+	stat $PDIR2/$tfile-3 $PDIR2/$tfile-4 > /dev/null
 	check_pdo_conflict $PID1 || error "getattr is blocked"
-	rm $DIR2/$tfile-4 $DIR2/$tfile-5
-	rmdir $DIR2/$tfile-3
+	rm $PDIR2/$tfile-4 $PDIR2/$tfile-5
+	rmdir $PDIR2/$tfile-3
 	check_pdo_conflict $PID1 || error "unlink is blocked"
 	# all operations above shouldn't wait the first one
 	check_pdo_conflict $PID1 || error "parallel operation is blocked"
@@ -1127,25 +1139,29 @@ test_40c() {
 run_test 40c "pdirops: link and others =============="
 
 test_40d() {
-	touch $DIR1/$tfile
+	local PDIR1=$DIR1/PDO
+	local PDIR2=$DIR2/PDO
+
+	mkdir -p $PDIR1
+	touch $PDIR1/$tfile
 #define OBD_FAIL_ONCE|OBD_FAIL_MDS_PDO_LOCK    0x145
 	do_facet $SINGLEMDS lctl set_param fail_loc=0x80000145
-	rm $DIR1/$tfile &
+	rm $PDIR1/$tfile &
 	PID1=$!
 	sleep 1
 	# open|create
-	touch $DIR2/$tfile-2
+	touch $PDIR2/$tfile-2
 	check_pdo_conflict $PID1 || error "create is blocked"
-	mkdir $DIR2/$tfile-3
+	mkdir $PDIR2/$tfile-3
 	check_pdo_conflict $PID1 || error "mkdir is blocked"
-	link $DIR2/$tfile-2 $DIR2/$tfile-4
+	link $PDIR2/$tfile-2 $PDIR2/$tfile-4
 	check_pdo_conflict $PID1 || error "link is blocked"
-	mv $DIR2/$tfile-2 $DIR2/$tfile-5
+	mv $PDIR2/$tfile-2 $PDIR2/$tfile-5
 	check_pdo_conflict $PID1 || error "rename is blocked"
-	stat $DIR2/$tfile-3 $DIR2/$tfile-4 > /dev/null
+	stat $PDIR2/$tfile-3 $PDIR2/$tfile-4 > /dev/null
 	check_pdo_conflict $PID1 || error "getattr is blocked"
-	rm $DIR2/$tfile-4 $DIR2/$tfile-5
-	rmdir $DIR2/$tfile-3
+	rm $PDIR2/$tfile-4 $PDIR2/$tfile-5
+	rmdir $PDIR2/$tfile-3
 	check_pdo_conflict $PID1 || error "unlink is blocked"
 	# all operations above shouldn't wait the first one
 	check_pdo_conflict $PID1 || error "parallel operation is blocked"
@@ -1155,23 +1171,27 @@ test_40d() {
 run_test 40d "pdirops: unlink and others =============="
 
 test_40e() {
-	touch $DIR1/$tfile
+	local PDIR1=$DIR1/PDO
+	local PDIR2=$DIR2/PDO
+
+	mkdir -p $PDIR1
+	touch $PDIR1/$tfile
 #define OBD_FAIL_ONCE|OBD_FAIL_MDS_PDO_LOCK    0x145
 	do_facet $SINGLEMDS lctl set_param fail_loc=0x80000145
-	mv $DIR1/$tfile $DIR1/$tfile-0 &
+	mv $PDIR1/$tfile $PDIR1/$tfile-0 &
 	PID1=$!
 	sleep 1
 	# open|create
-	touch $DIR2/$tfile-2
+	touch $PDIR2/$tfile-2
 	check_pdo_conflict $PID1 || error "create is blocked"
-	mkdir $DIR2/$tfile-3
+	mkdir $PDIR2/$tfile-3
 	check_pdo_conflict $PID1 || error "mkdir is blocked"
-	link $DIR2/$tfile-2 $DIR2/$tfile-4
+	link $PDIR2/$tfile-2 $PDIR2/$tfile-4
 	check_pdo_conflict $PID1 || error "link is blocked"
-	stat $DIR2/$tfile-3 $DIR2/$tfile-4 > /dev/null
+	stat $PDIR2/$tfile-3 $PDIR2/$tfile-4 > /dev/null
 	check_pdo_conflict $PID1 || error "getattr is blocked"
-	rm $DIR2/$tfile-4 $DIR2/$tfile-2
-	rmdir $DIR2/$tfile-3
+	rm $PDIR2/$tfile-4 $PDIR2/$tfile-2
+	rmdir $PDIR2/$tfile-3
 	check_pdo_conflict $PID1 || error "unlink is blocked"
 	# all operations above shouldn't wait the first one
 	check_pdo_conflict $PID1 || error "parallel operation is blocked"
