@@ -98,3 +98,27 @@ unpack_linux_devel_rpm-rhel5() {
     return 0
 
 }
+
+# this of course requires a sudo rule on the builder:
+# hudson ALL= NOPASSWD: /usr/bin/yumdownloader
+find_linux_rpm-rhel5() {
+    local prefix="$1"
+    local wanted_kernel="$2"
+    local pathtorpms=${3:-"${KERNELRPMSBASE}/${lnxmaj}/${DISTRO}/${TARGET_ARCH}"}
+
+    local tmpdir=$(mktemp -d $pathtorpms/yumXXXXXX)
+    yumdownloader --destdir "$tmpdir" kernel-devel-"$wanted_kernel" > /dev/null
+    local rpm=$(cd $tmpdir; echo *)
+    mv "$tmpdir/$rpm" "$pathtorpms"
+    rmdir $tmpdir
+    echo "$rpm"
+
+    return 0
+
+}
+
+kernel_srpm_location() {
+
+    echo "http://mirror.centos.org/centos-5/5/updates/SRPMS/"
+
+}
