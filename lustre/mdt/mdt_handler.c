@@ -954,8 +954,13 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
          */
         child = mdt_object_find(info->mti_env, info->mti_mdt, child_fid);
 
-        if (unlikely(IS_ERR(child)))
-                GOTO(out_parent, rc = PTR_ERR(child));
+        if (unlikely(IS_ERR(child))) {
+                rc = PTR_ERR(child);
+                if (rc == -ESTALE && lname == NULL)
+                        rc = -ENOENT;
+
+                GOTO(out_parent, rc);
+        }
         if (is_resent) {
                 /* Do not take lock for resent case. */
                 lock = ldlm_handle2lock(&lhc->mlh_reg_lh);
@@ -992,7 +997,11 @@ relock:
                         LU_OBJECT_DEBUG(D_WARNING, info->mti_env,
                                         &child->mot_obj.mo_lu,
                                         "Object doesn't exist!\n");
-                        GOTO(out_child, rc = -ESTALE);
+                        if (lname == NULL)
+                                rc = -ENOENT;
+                        else
+                                rc = -ESTALE;
+                        GOTO(out_child, rc);
                 }
 
                 if (!(child_bits & MDS_INODELOCK_UPDATE)) {
