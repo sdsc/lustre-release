@@ -98,13 +98,14 @@ static int osc_interpret_create(const struct lu_env *env,
                         int diff =ostid_id(&body->oa.o_oi)- oscc->oscc_last_id;
 
                         /* oscc_internal_create() stores the original value of
-                         * grow_count in rq_async_args.space[0].
+                         * grow_count in rq_async_args.pointer_arg[1].
                          * We can't compare against oscc_grow_count directly,
                          * because it may have been increased while the RPC
                          * is in flight, so we would always find ourselves
                          * having created fewer objects and decreasing the
                          * precreate request size.  b=18577 */
-                        if (diff < (int) req->rq_async_args.space[0]) {
+                        if (diff < (int)(unsigned long)
+                                   req->rq_async_args.pointer_arg[1]) {
                                 /* the OST has not managed to create all the
                                  * objects we asked for */
                                 oscc->oscc_grow_count = max(diff,
@@ -251,7 +252,8 @@ static int oscc_internal_create(struct osc_creator *oscc)
         }
 
         body->oa.o_valid |= OBD_MD_FLID | OBD_MD_FLGROUP;
-        request->rq_async_args.space[0] = oscc->oscc_grow_count;
+        request->rq_async_args.pointer_arg[1] =
+                (void *)(unsigned long)oscc->oscc_grow_count;
         cfs_spin_unlock(&oscc->oscc_lock);
         CDEBUG(D_RPCTRACE, "prealloc through id "LPU64" (last seen "LPU64")\n",
                body->oa.o_id, oscc->oscc_last_id);
