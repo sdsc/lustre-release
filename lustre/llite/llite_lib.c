@@ -134,6 +134,9 @@ static struct ll_sb_info *ll_init_sbi(void)
         sbi->ll_sa_max = LL_SA_RPC_DEF;
         atomic_set(&sbi->ll_sa_total, 0);
         atomic_set(&sbi->ll_sa_wrong, 0);
+        sbi->ll_sa_agl = 1;
+        sbi->ll_agl_rough = 0;
+        sbi->ll_agl_balance = 0;
 
         RETURN(sbi);
 }
@@ -423,7 +426,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt)
         if (sbi->ll_flags & LL_SBI_RMT_CLIENT)
                 valid |= OBD_MD_FLRMTPERM;
         else if (sbi->ll_flags & LL_SBI_ACL)
-                valid |= OBD_MD_FLACL;
+                valid |= OBD_MD_FLACL | OBD_MD_FLDEFACL;
 
         OBD_ALLOC_PTR(op_data);
         if (op_data == NULL) 
@@ -463,6 +466,10 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt)
                 if (lmd.posix_acl) {
                         posix_acl_release(lmd.posix_acl);
                         lmd.posix_acl = NULL;
+                }
+                if (lmd.def_acl) {
+                        posix_acl_release(lmd.def_acl);
+                        lmd.def_acl = NULL;
                 }
 #endif
                 err = IS_ERR(root) ? PTR_ERR(root) : -EBADF;
@@ -815,6 +822,10 @@ void ll_lli_init(struct ll_inode_info *lli)
         cfs_sema_init(&lli->lli_rmtperm_sem, 1);
         CFS_INIT_LIST_HEAD(&lli->lli_oss_capas);
         cfs_spin_lock_init(&lli->lli_sa_lock);
+        lli->lli_clob = NULL;
+        lli->lli_agl_idx = 0;
+        CFS_INIT_LIST_HEAD(&lli->lli_agl_list);
+        lli->lli_agl_parent = NULL;
         cfs_sema_init(&lli->lli_readdir_sem, 1);
 }
 
@@ -1079,10 +1090,18 @@ void ll_clear_inode(struct inode *inode)
                 posix_acl_release(lli->lli_posix_acl);
                 lli->lli_posix_acl = NULL;
         }
+        if (lli->lli_def_acl) {
+                LASSERT(cfs_atomic_read(&lli->lli_def_acl->a_refcount) == 1);
+                posix_acl_release(lli->lli_def_acl);
+                lli->lli_def_acl = NULL;
+        }
 #endif
         lli->lli_inode_magic = LLI_INODE_DEAD;
 
         ll_clear_inode_capas(inode);
+
+        LASSERT(cfs_list_empty(&lli->lli_agl_list));
+
         /*
          * XXX This has to be done before lsm is freed below, because
          * cl_object still uses inode lsm.
@@ -1490,46 +1509,6 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
         struct lov_stripe_md *lsm = md->lsm;
         struct ll_sb_info *sbi = ll_i2sbi(inode);
 
-        LASSERT ((lsm != NULL) == ((body->valid & OBD_MD_FLEASIZE) != 0));
-        if (lsm != NULL) {
-                cfs_down(&lli->lli_och_sem);
-                if (lli->lli_smd == NULL) {
-                        if (lsm->lsm_magic != LOV_MAGIC_V1 &&
-                            lsm->lsm_magic != LOV_MAGIC_V3) {
-                                dump_lsm(D_ERROR, lsm);
-                                LBUG();
-                        }
-                        CDEBUG(D_INODE, "adding lsm %p to inode %lu/%u(%p)\n",
-                               lsm, inode->i_ino, inode->i_generation, inode);
-                        /* cl_inode_init must go before lli_smd or a race is
-                         * possible where client thinks the file has stripes,
-                         * but lov raid0 is not setup yet and parallel e.g.
-                         * glimpse would try to use uninitialized lov */
-                        cl_inode_init(inode, md);
-                        lli->lli_smd = lsm;
-                        cfs_up(&lli->lli_och_sem);
-                        lli->lli_maxbytes = lsm->lsm_maxbytes;
-                        if (lli->lli_maxbytes > PAGE_CACHE_MAXBYTES)
-                                lli->lli_maxbytes = PAGE_CACHE_MAXBYTES;
-                } else {
-                        cfs_up(&lli->lli_och_sem);
-                        LASSERT(lli->lli_smd->lsm_magic == lsm->lsm_magic &&
-                                lli->lli_smd->lsm_stripe_count ==
-                                lsm->lsm_stripe_count);
-                        if (lov_stripe_md_cmp(lli->lli_smd, lsm)) {
-                                CERROR("lsm mismatch for inode %ld\n",
-                                       inode->i_ino);
-                                CERROR("lli_smd:\n");
-                                dump_lsm(D_ERROR, lli->lli_smd);
-                                CERROR("lsm:\n");
-                                dump_lsm(D_ERROR, lsm);
-                                LBUG();
-                        }
-                }
-                if (lli->lli_smd != lsm)
-                        obd_free_memmd(ll_i2dtexp(inode), &lsm);
-        }
-
         if (sbi->ll_flags & LL_SBI_RMT_CLIENT) {
                 if (body->valid & OBD_MD_FLRMTPERM)
                         ll_update_remote_perm(inode, md->remote_perm);
@@ -1540,6 +1519,13 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
                 if (lli->lli_posix_acl)
                         posix_acl_release(lli->lli_posix_acl);
                 lli->lli_posix_acl = md->posix_acl;
+                cfs_spin_unlock(&lli->lli_lock);
+        }
+        if (body->valid & OBD_MD_FLDEFACL) {
+                cfs_spin_lock(&lli->lli_lock);
+                if (lli->lli_def_acl)
+                        posix_acl_release(lli->lli_def_acl);
+                lli->lli_def_acl = md->def_acl;
                 cfs_spin_unlock(&lli->lli_lock);
         }
 #endif
@@ -1603,6 +1589,46 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
 
         LASSERT(fid_seq(&lli->lli_fid) != 0);
 
+        LASSERT ((lsm != NULL) == ((body->valid & OBD_MD_FLEASIZE) != 0));
+        if (lsm != NULL) {
+                cfs_down(&lli->lli_och_sem);
+                if (lli->lli_smd == NULL) {
+                        if (lsm->lsm_magic != LOV_MAGIC_V1 &&
+                            lsm->lsm_magic != LOV_MAGIC_V3) {
+                                dump_lsm(D_ERROR, lsm);
+                                LBUG();
+                        }
+                        CDEBUG(D_INODE, "adding lsm %p to inode %lu/%u(%p)\n",
+                               lsm, inode->i_ino, inode->i_generation, inode);
+                        /* cl_inode_init must go before lli_smd or a race is
+                         * possible where client thinks the file has stripes,
+                         * but lov raid0 is not setup yet and parallel e.g.
+                         * glimpse would try to use uninitialized lov */
+                        cl_inode_init(inode, md);
+                        lli->lli_smd = lsm;
+                        cfs_up(&lli->lli_och_sem);
+                        lli->lli_maxbytes = lsm->lsm_maxbytes;
+                        if (lli->lli_maxbytes > PAGE_CACHE_MAXBYTES)
+                                lli->lli_maxbytes = PAGE_CACHE_MAXBYTES;
+                } else {
+                        cfs_up(&lli->lli_och_sem);
+                        LASSERT(lli->lli_smd->lsm_magic == lsm->lsm_magic &&
+                                lli->lli_smd->lsm_stripe_count ==
+                                lsm->lsm_stripe_count);
+                        if (lov_stripe_md_cmp(lli->lli_smd, lsm)) {
+                                CERROR("lsm mismatch for inode %ld\n",
+                                       inode->i_ino);
+                                CERROR("lli_smd:\n");
+                                dump_lsm(D_ERROR, lli->lli_smd);
+                                CERROR("lsm:\n");
+                                dump_lsm(D_ERROR, lsm);
+                                LBUG();
+                        }
+                }
+                if (lli->lli_smd != lsm)
+                        obd_free_memmd(ll_i2dtexp(inode), &lsm);
+        }
+
         if (body->valid & OBD_MD_FLSIZE) {
                 if (exp_connect_som(ll_i2mdexp(inode)) &&
                     S_ISREG(inode->i_mode) && lli->lli_smd) {
@@ -1660,8 +1686,8 @@ void ll_read_inode2(struct inode *inode, void *opaque)
         struct ll_inode_info *lli = ll_i2info(inode);
         ENTRY;
 
-        CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p)\n",
-               inode->i_ino, inode->i_generation, inode);
+        CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p)\n",
+               PFID(&lli->lli_fid), inode);
 
         ll_lli_init(lli);
 
@@ -1976,6 +2002,10 @@ int ll_prep_inode(struct inode **inode,
                         if (md.posix_acl) {
                                 posix_acl_release(md.posix_acl);
                                 md.posix_acl = NULL;
+                        }
+                        if (md.def_acl) {
+                                posix_acl_release(md.def_acl);
+                                md.def_acl = NULL;
                         }
 #endif
                         rc = IS_ERR(*inode) ? PTR_ERR(*inode) : -ENOMEM;

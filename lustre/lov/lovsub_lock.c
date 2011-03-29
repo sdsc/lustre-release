@@ -302,6 +302,7 @@ static int lovsub_lock_delete_one(const struct lu_env *env,
         result = 0;
         switch (parent->cll_state) {
         case CLS_QUEUING:
+        case CLS_ENQUEUED:
         case CLS_FREEING:
                 cl_lock_signal(env, parent);
                 break;
@@ -376,7 +377,6 @@ static int lovsub_lock_delete_one(const struct lu_env *env,
                         }
                 }
                 break;
-        case CLS_ENQUEUED:
         case CLS_HELD:
                 CL_LOCK_DEBUG(D_ERROR, env, parent, "Delete CLS_HELD lock\n");
         default:
