@@ -72,6 +72,8 @@ struct dt_device_param {
         unsigned           ddp_max_name_len;
         unsigned           ddp_max_nlink;
         unsigned           ddp_block_shift;
+        unsigned           ddp_mntopt_uxattr:1,
+                           ddp_mntopt_acl:1;
 };
 
 /**

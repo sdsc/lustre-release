@@ -95,6 +95,16 @@ static struct ptlrpcd_scope_ctl ptlrpcd_scopes[PSCOPE_NR] = {
                         }
                 }
         },
+        [PSCOPE_AGL] = {
+                .pscope_thread = {
+                        [PT_NORMAL] = {
+                                .pt_name = "ptlrpcd-agl"
+                        },
+                        [PT_RECOVERY] = {
+                                .pt_name = "ptlrpcd-agl-rcv"
+                        }
+                }
+        },
         [PSCOPE_OTHER] = {
                 .pscope_thread = {
                         [PT_NORMAL] = {
@@ -141,6 +151,25 @@ void ptlrpcd_add_rqset(struct ptlrpc_request_set *set)
         LASSERT(cfs_atomic_read(&set->set_remaining) == 0);
 }
 EXPORT_SYMBOL(ptlrpcd_add_rqset);
+
+int ptlrpcd_req_balance(struct ptlrpc_request *req,
+                        enum ptlrpcd_scope s1, int w1,
+                        enum ptlrpcd_scope s2, int w2)
+{
+        enum pscope_thread pt = req->rq_send_state == LUSTRE_IMP_FULL ?
+                                                      PT_NORMAL : PT_RECOVERY;
+        struct ptlrpc_request_set *set1, *set2;
+
+        set1 = ptlrpcd_scopes[s1].pscope_thread[pt].pt_ctl.pc_set;
+        set2 = ptlrpcd_scopes[s2].pscope_thread[pt].pt_ctl.pc_set;
+
+        if ((set1->set_new_count + cfs_atomic_read(&set1->set_remaining)) * w1 <
+            (set2->set_new_count + cfs_atomic_read(&set2->set_remaining)) * w2)
+                return s1;
+        else
+                return s2;
+}
+EXPORT_SYMBOL(ptlrpcd_req_balance);
 
 /**
  * Requests that are added to the ptlrpcd queue are sent via
@@ -197,11 +226,6 @@ int ptlrpcd_add_req(struct ptlrpc_request *req, enum ptlrpcd_scope scope)
                 ptlrpc_req_interpret(NULL, req, -EBADR);
                 req->rq_set = NULL;
                 ptlrpc_req_finished(req);
-        } else if (req->rq_send_state == LUSTRE_IMP_CONNECTING) {
-                /*
-                 * The request is for recovery, should be sent ASAP.
-                 */
-                cfs_waitq_signal(&pc->pc_set->set_waitq);
         }
 
         return rc;
@@ -213,49 +237,31 @@ int ptlrpcd_add_req(struct ptlrpc_request *req, enum ptlrpcd_scope scope)
  */
 static int ptlrpcd_check(const struct lu_env *env, struct ptlrpcd_ctl *pc)
 {
-        cfs_list_t *tmp, *pos;
-        struct ptlrpc_request *req;
+        struct ptlrpc_request_set *set = pc->pc_set;
         int rc = 0;
         ENTRY;
 
-        cfs_spin_lock(&pc->pc_set->set_new_req_lock);
-        cfs_list_for_each_safe(pos, tmp, &pc->pc_set->set_new_requests) {
-                req = cfs_list_entry(pos, struct ptlrpc_request, rq_set_chain);
-                cfs_list_del_init(&req->rq_set_chain);
-                ptlrpc_set_add_req(pc->pc_set, req);
-                /*
-                 * Need to calculate its timeout.
-                 */
+        cfs_spin_lock(&set->set_new_req_lock);
+        if (set->set_new_count) {
+                /* joint set_new_requests to set_requests tail */
+                cfs_list_splice_init(&set->set_new_requests,
+                                     set->set_requests.prev);
+                cfs_atomic_add(set->set_new_count, &set->set_remaining);
+                set->set_new_count = 0;
                 rc = 1;
         }
-        cfs_spin_unlock(&pc->pc_set->set_new_req_lock);
+        cfs_spin_unlock(&set->set_new_req_lock);
 
-        if (cfs_atomic_read(&pc->pc_set->set_remaining)) {
-                rc = rc | ptlrpc_check_set(env, pc->pc_set);
-
-                /*
-                 * XXX: our set never completes, so we prune the completed
-                 * reqs after each iteration. boy could this be smarter.
-                 */
-                cfs_list_for_each_safe(pos, tmp, &pc->pc_set->set_requests) {
-                        req = cfs_list_entry(pos, struct ptlrpc_request,
-                                         rq_set_chain);
-                        if (req->rq_phase != RQ_PHASE_COMPLETE)
-                                continue;
-
-                        cfs_list_del_init(&req->rq_set_chain);
-                        req->rq_set = NULL;
-                        ptlrpc_req_finished (req);
-                }
-        }
+        if (cfs_atomic_read(&set->set_remaining))
+                rc = rc | ptlrpc_check_set(env, set, 1);
 
         if (rc == 0) {
                 /*
                  * If new requests have been added, make sure to wake up.
                  */
-                cfs_spin_lock(&pc->pc_set->set_new_req_lock);
-                rc = !cfs_list_empty(&pc->pc_set->set_new_requests);
-                cfs_spin_unlock(&pc->pc_set->set_new_req_lock);
+                cfs_spin_lock(&set->set_new_req_lock);
+                rc = !!set->set_new_count;
+                cfs_spin_unlock(&set->set_new_req_lock);
         }
 
         RETURN(rc);
@@ -271,6 +277,7 @@ static int ptlrpcd_check(const struct lu_env *env, struct ptlrpcd_ctl *pc)
 static int ptlrpcd(void *arg)
 {
         struct ptlrpcd_ctl *pc = arg;
+        struct ptlrpc_request_set *set = pc->pc_set;
         struct lu_env env = { .le_ses = NULL };
         int rc, exit = 0;
         ENTRY;
@@ -318,12 +325,12 @@ static int ptlrpcd(void *arg)
                         continue;
                 }
 
-                timeout = ptlrpc_set_next_timeout(pc->pc_set);
+                timeout = ptlrpc_set_next_timeout(set);
                 lwi = LWI_TIMEOUT(cfs_time_seconds(timeout ? timeout : 1),
-                                  ptlrpc_expired_set, pc->pc_set);
+                                  ptlrpc_expired_set, set);
 
                 lu_context_enter(&env.le_ctx);
-                l_wait_event(pc->pc_set->set_waitq,
+                l_wait_event(set->set_waitq,
                              ptlrpcd_check(&env, pc), &lwi);
                 lu_context_exit(&env.le_ctx);
 
@@ -332,7 +339,7 @@ static int ptlrpcd(void *arg)
                  */
                 if (cfs_test_bit(LIOD_STOP, &pc->pc_flags)) {
                         if (cfs_test_bit(LIOD_FORCE, &pc->pc_flags))
-                                ptlrpc_abort_set(pc->pc_set);
+                                ptlrpc_abort_set(set);
                         exit++;
                 }
 
@@ -345,8 +352,8 @@ static int ptlrpcd(void *arg)
         /*
          * Wait for inflight requests to drain.
          */
-        if (!cfs_list_empty(&pc->pc_set->set_requests))
-                ptlrpc_set_wait(pc->pc_set);
+        if (!cfs_list_empty(&set->set_requests))
+                ptlrpc_set_wait(set);
         lu_context_fini(&env.le_ctx);
         cfs_complete(&pc->pc_finishing);
 

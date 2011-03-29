@@ -882,6 +882,7 @@ struct ptlrpc_request_set *ptlrpc_prep_set(void)
         cfs_atomic_set(&set->set_remaining, 0);
         cfs_spin_lock_init(&set->set_new_req_lock);
         CFS_INIT_LIST_HEAD(&set->set_new_requests);
+        set->set_new_count = 0;
         CFS_INIT_LIST_HEAD(&set->set_cblist);
 
         RETURN(set);
@@ -1006,7 +1007,9 @@ int ptlrpc_set_add_new_req(struct ptlrpcd_ctl *pc,
          * The set takes over the caller's request reference.
          */
         cfs_list_add_tail(&req->rq_set_chain, &set->set_new_requests);
+        set->set_new_count++;
         req->rq_set = set;
+        req->rq_queued_time = cfs_time_current();
         cfs_spin_unlock(&set->set_new_req_lock);
 
         cfs_waitq_signal(&set->set_waitq);
@@ -1406,16 +1409,17 @@ static int ptlrpc_send_new_req(struct ptlrpc_request *req)
  * (it is possible to get less replies than requests sent e.g. due to timed out
  * requests or requests that we had trouble to send out)
  */
-int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
+int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set,
+                     int unlink)
 {
-        cfs_list_t *tmp;
+        cfs_list_t *tmp, *next;
         int force_timer_recalc = 0;
         ENTRY;
 
         if (cfs_atomic_read(&set->set_remaining) == 0)
                 RETURN(1);
 
-        cfs_list_for_each(tmp, &set->set_requests) {
+        cfs_list_for_each_safe(tmp, next, &set->set_requests) {
                 struct ptlrpc_request *req =
                         cfs_list_entry(tmp, struct ptlrpc_request,
                                        rq_set_chain);
@@ -1476,8 +1480,14 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
                         ptlrpc_rqphase_move(req, req->rq_next_phase);
                 }
 
-                if (req->rq_phase == RQ_PHASE_COMPLETE)
+                if (req->rq_phase == RQ_PHASE_COMPLETE) {
+                        if (unlink) {
+                                cfs_list_del_init(&req->rq_set_chain);
+                                req->rq_set = NULL;
+                                ptlrpc_req_finished(req);
+                        }
                         continue;
+                }
 
                 if (req->rq_phase == RQ_PHASE_INTERPRET)
                         GOTO(interpret, req->rq_status);
@@ -1735,6 +1745,12 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 
                 cfs_atomic_dec(&set->set_remaining);
                 cfs_waitq_broadcast(&imp->imp_recovery_waitq);
+
+                if (unlink) {
+                        cfs_list_del_init(&req->rq_set_chain);
+                        req->rq_set = NULL;
+                        ptlrpc_req_finished(req);
+                }
         }
 
         /* If we hit an error, we want to recover promptly. */
@@ -2005,7 +2021,8 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
                         lwi = LWI_TIMEOUT(cfs_time_seconds(timeout? timeout : 1),
                                           ptlrpc_expired_set, set);
 
-                rc = l_wait_event(set->set_waitq, ptlrpc_check_set(NULL, set), &lwi);
+                rc = l_wait_event(set->set_waitq,
+                                  ptlrpc_check_set(NULL, set, 0), &lwi);
 
                 LASSERT(rc == 0 || rc == -EINTR || rc == -ETIMEDOUT);
 
