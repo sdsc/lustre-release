@@ -1409,6 +1409,7 @@ static struct vfsmount *server_kernel_mount(struct super_block *sb)
         char *options = NULL;
         unsigned long page, s_flags;
         struct page *__page;
+        int len;
         int rc;
         ENTRY;
 
@@ -1464,9 +1465,14 @@ static struct vfsmount *server_kernel_mount(struct super_block *sb)
         memset(options, 0, CFS_PAGE_SIZE);
         strncpy(options, ldd->ldd_mount_opts, CFS_PAGE_SIZE - 2);
 
+        len = CFS_PAGE_SIZE - strlen(options) - 2;
+        if (*options != 0)
+                strcat(options, ",");
+        strncat(options, "no_mbcache", len);
+
         /* Add in any mount-line options */
         if (lmd->lmd_opts && (*(lmd->lmd_opts) != 0)) {
-                int len = CFS_PAGE_SIZE - strlen(options) - 2;
+                len = CFS_PAGE_SIZE - strlen(options) - 2;
                 if (*options != 0)
                         strcat(options, ",");
                 strncat(options, lmd->lmd_opts, len);
