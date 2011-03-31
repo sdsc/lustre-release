@@ -1029,7 +1029,7 @@ check_progs_installed () {
 
 # recovery-scale functions
 client_var_name() {
-    echo __$(echo $1 | tr '-' 'X')
+    echo __$(echo $1 | tr '-' 'X' | tr '.' 'Y')
 }
 
 start_client_load() {
