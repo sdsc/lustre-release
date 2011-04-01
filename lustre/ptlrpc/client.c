@@ -2564,13 +2564,9 @@ static int ptlrpc_replay_interpret(const struct lu_env *env,
          * Errors while replay can set transno to 0, but
          * imp_last_replay_transno shouldn't be set to 0 anyway
          */
-        if (req->rq_transno > 0) {
-                cfs_spin_lock(&imp->imp_lock);
-                LASSERT(req->rq_transno <= imp->imp_last_replay_transno);
-                imp->imp_last_replay_transno = req->rq_transno;
-                cfs_spin_unlock(&imp->imp_lock);
-        } else
+        if (req->rq_transno == 0)
                 CERROR("Transno is 0 during replay!\n");
+
         /* continue with recovery */
         rc = ptlrpc_import_recovery_state_machine(imp);
  out:
