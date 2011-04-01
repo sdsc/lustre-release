@@ -1331,6 +1331,8 @@ check_seq_oid()
                 local group=${lmm[$((j+3))]}
                 local dev=$(ostdevname $devnum)
                 local dir=${MOUNT%/*}/ost$devnum
+
+                stop ost$devnum
                 do_facet ost$devnum mount -t $FSTYPE $dev $dir $OST_MOUNT_OPTS ||
                         { error "mounting $dev as $FSTYPE failed"; return 3; }
 
@@ -1348,7 +1350,8 @@ check_seq_oid()
                 [ $stripe -eq $i ] || { error "stripe mismatch"; return 6; }
 
                 echo -e "\t\tost $obdidx, objid $objid, group $group"
-                do_facet ost$devnum umount -d $dev
+                stop ost$devnum
+                start ost$devnum $dev $OST_MOUNT_OPTS
         done
 }
 
