@@ -163,7 +163,7 @@ static int slp_object_print(const struct lu_env *env, void *cookie,
 static const struct lu_object_operations slp_lu_obj_ops = {
         .loo_object_init      = ccc_object_init,
         .loo_object_start     = NULL,
-        .loo_object_delete    = NULL,
+        .loo_object_delete    = ccc_object_delete,
         .loo_object_release   = NULL,
         .loo_object_free      = ccc_object_free,
         .loo_object_print     = slp_object_print,

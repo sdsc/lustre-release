@@ -141,14 +141,14 @@ void *ccc_key_init(const struct lu_context *ctx,
 }
 
 void ccc_key_fini(const struct lu_context *ctx,
-                         struct lu_context_key *key, void *data)
+                  struct lu_context_key *key, void *data)
 {
         struct ccc_thread_info *info = data;
         OBD_SLAB_FREE_PTR(info, ccc_thread_kmem);
 }
 
 void *ccc_session_key_init(const struct lu_context *ctx,
-                                  struct lu_context_key *key)
+                           struct lu_context_key *key)
 {
         struct ccc_session *session;
 
@@ -362,7 +362,7 @@ int ccc_object_init0(const struct lu_env *env,
 }
 
 int ccc_object_init(const struct lu_env *env, struct lu_object *obj,
-                           const struct lu_object_conf *conf)
+                    const struct lu_object_conf *conf)
 {
         struct ccc_device *dev = lu2ccc_dev(obj->lo_dev);
         struct ccc_object *vob = lu2ccc(obj);
@@ -382,6 +382,24 @@ int ccc_object_init(const struct lu_env *env, struct lu_object *obj,
         } else
                 result = -ENOMEM;
         return result;
+}
+
+/**
+ * The object is going to go, cleanup all of pages and locks.
+ */
+void ccc_object_delete(const struct lu_env *env, struct lu_object *obj)
+{
+        const struct ccc_object *ccc = lu2ccc(obj);
+        struct cl_inode_info    *lli = cl_i2info(ccc->cob_inode);
+
+        /* TODO: will purge locks and pages, maybe we don't do that because
+         * sublocks and subpages have been purged, this will cause top locks
+         * purged.
+         */
+
+        cfs_mutex_lock(&lli->lli_clob_lock);
+        lli->lli_clob = NULL;
+        cfs_mutex_unlock(&lli->lli_clob_lock);
 }
 
 void ccc_object_free(const struct lu_env *env, struct lu_object *obj)
@@ -1033,8 +1051,12 @@ int cl_setattr_ost(struct inode *inode, const struct iattr *attr,
         if (IS_ERR(env))
                 RETURN(PTR_ERR(env));
 
+        result = cl_object_hold(inode);
+        if (result)
+                GOTO(out, result);
+
         io = &ccc_env_info(env)->cti_io;
-        io->ci_obj = cl_i2info(inode)->lli_clob;
+        io->ci_obj = cl_object_dereference(inode);
 
         io->u.ci_setattr.sa_attr.lvb_atime = LTIME_S(attr->ia_atime);
         io->u.ci_setattr.sa_attr.lvb_mtime = LTIME_S(attr->ia_mtime);
@@ -1048,6 +1070,9 @@ int cl_setattr_ost(struct inode *inode, const struct iattr *attr,
         else
                 result = io->ci_result;
         cl_io_fini(env, io);
+        cl_object_release(inode);
+
+out:
         cl_env_put(env, &refcheck);
         RETURN(result);
 }
@@ -1145,30 +1170,22 @@ struct cl_page *ccc_vmpage_page_transient(cfs_page_t *vmpage)
 }
 
 /**
- * Initializes or updates CLIO part when new meta-data arrives from the
- * server.
+ * Initializes CLIO object with the inode, return a referenced cl_object,
+ * callers must release it with cl_object_release.
  *
  *     - allocates cl_object if necessary,
  *     - updated layout, if object was already here.
  */
-int cl_inode_init(struct inode *inode, struct lustre_md *md)
+int cl_object_hold(struct inode *inode)
 {
         struct lu_env        *env;
         struct cl_inode_info *lli;
         struct cl_object     *clob;
         struct lu_site       *site;
+        struct lu_site_bkt_data *bkt;
         struct lu_fid        *fid;
-        const struct cl_object_conf conf = {
-                .coc_inode = inode,
-                .u = {
-                        .coc_md    = md
-                }
-        };
-        int result = 0;
+        int result;
         int refcheck;
-
-        /* LASSERT(inode->i_state & I_NEW); */
-        LASSERT(md->body->valid & OBD_MD_FLID);
 
         if (!S_ISREG(cl_inode_mode(inode)))
                 return 0;
@@ -1182,22 +1199,38 @@ int cl_inode_init(struct inode *inode, struct lustre_md *md)
         fid  = &lli->lli_fid;
         LASSERT(fid_is_sane(fid));
 
-        if (lli->lli_clob == NULL) {
+        bkt = lu_site_bkt_from_fid(site, fid);
+
+        cfs_mutex_lock(&lli->lli_clob_lock);
+again:
+        clob = lli->lli_clob;
+        if (clob == NULL) {
+                const struct cl_object_conf conf = {
+                        .coc_inode = inode,
+                        .u = {
+                                .coc_md = lli->lli_smd
+                        }
+                };
+
+                result = 0;
                 clob = cl_object_find(env, lu2cl_dev(site->ls_top_dev),
                                       fid, &conf);
-                if (!IS_ERR(clob)) {
-                        /*
-                         * No locking is necessary, as new inode is
-                         * locked by I_NEW bit.
-                         *
-                         * XXX not true for call from ll_update_inode().
-                         */
+                if (!IS_ERR(clob))
                         lli->lli_clob = clob;
-                        lu_object_ref_add(&clob->co_lu, "inode", inode);
-                } else
+                else
                         result = PTR_ERR(clob);
-        } else
-                result = cl_conf_set(env, lli->lli_clob, &conf);
+        } else {
+                /* ->lli_clob is a weak pointer. */
+                result = cl_object_get_try(clob);
+                if (result < 0) {
+                        LASSERT(result == -EAGAIN);
+                        cfs_sleep_on(&bkt->lsb_marche_funebre,
+                                     &lli->lli_clob_lock);
+                        goto again;
+                }
+        }
+        lu_object_ref_add(&clob->co_lu, "inode", inode);
+        cfs_mutex_unlock(&lli->lli_clob_lock);
         cl_env_put(env, &refcheck);
 
         if (result != 0)
@@ -1205,7 +1238,102 @@ int cl_inode_init(struct inode *inode, struct lustre_md *md)
                        PFID(fid), result);
         return result;
 }
+EXPORT_SYMBOL(cl_object_hold);
 
+/**
+ * Dereference an object, the caller has to make sure the object
+ * has already held a refcount.
+ */
+struct cl_object *cl_object_dereference(struct inode *inode)
+{
+        struct cl_inode_info *lli = cl_i2info(inode);
+        struct cl_object     *obj = lli->lli_clob;
+
+        LASSERT(obj != NULL);
+        LASSERT(S_ISREG(cl_inode_mode(inode)));
+        LASSERT(cfs_atomic_read(&obj->co_lu.lo_header->loh_ref) > 0);
+        return obj;
+}
+EXPORT_SYMBOL(cl_object_dereference);
+
+static struct lu_env *cl_object_env_get(int *refcheck)
+{
+        struct lu_env *env;
+        void *cookie;
+
+        cookie = cl_env_reenter();
+        env = cl_env_get(refcheck);
+        if (IS_ERR(env)) {
+                cfs_mutex_lock(&ccc_inode_fini_guard);
+                LASSERT(ccc_inode_fini_env != NULL);
+                cl_env_implant(ccc_inode_fini_env, refcheck);
+                env = ccc_inode_fini_env;
+        }
+
+        return env;
+}
+
+static void cl_object_env_put(struct lu_env *env, int *refcheck)
+{
+        if (env == ccc_inode_fini_env) {
+                cl_env_unplant(ccc_inode_fini_env, refcheck);
+                cfs_mutex_unlock(&ccc_inode_fini_guard);
+        } else
+                cl_env_put(env, refcheck);
+}
+
+/**
+ * Release cl_object - this must be called after cl_object_hold().
+ */
+void cl_object_release(struct inode *inode)
+{
+        struct cl_object *obj;
+        struct lu_env    *env;
+        int refcheck;
+
+        if (!S_ISREG(cl_inode_mode(inode)))
+                return;
+
+        env = cl_object_env_get(&refcheck);
+
+        obj = cl_object_dereference(inode);
+        lu_object_ref_del(&obj->co_lu, "inode", inode);
+        cl_object_put(env, obj);
+        cl_object_env_put(env, &refcheck);
+}
+EXPORT_SYMBOL(cl_object_release);
+
+int cl_object_layout_change(struct inode *inode, struct cl_object_conf *conf)
+{
+        struct cl_inode_info *lli = cl_i2info(inode);
+        struct cl_object *obj;
+        struct lu_env *env;
+        int refcheck;
+        int result = 0;
+
+        cfs_mutex_lock(&lli->lli_clob_lock);
+        obj = lli->lli_clob;
+        if (obj == NULL || cl_object_get_try(obj) < 0) {
+                /* XXX: maybe it's good if the object is being destroyed. */
+                lli->lli_smd = conf->u.coc_md;
+                obj = NULL;
+        }
+        cfs_mutex_unlock(&lli->lli_clob_lock);
+
+        if (obj) {
+                env = cl_object_env_get(&refcheck);
+                result = cl_conf_set(env, obj, conf);
+                cl_object_put(env, obj);
+                cl_object_env_put(env, &refcheck);
+                if (result == 0)
+                        lli->lli_smd = conf->u.coc_md;
+        }
+
+        return result;
+}
+EXPORT_SYMBOL(cl_object_layout_change);
+
+#if 0
 /**
  * Wait for others drop their references of the object at first, then we drop
  * the last one, which will lead to the object be destroyed immediately.
@@ -1280,6 +1408,7 @@ void cl_inode_fini(struct inode *inode)
                 cl_env_reexit(cookie);
         }
 }
+#endif
 
 /**
  * return IF_* type for given lu_dirent entry.

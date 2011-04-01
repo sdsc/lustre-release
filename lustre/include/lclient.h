@@ -174,13 +174,13 @@ struct ccc_object {
          * the lifetime of transient pages must be covered by inode sem,
          * we don't need to hold any lock..
          */
-        int                     cob_transient_pages;
+        int                    cob_transient_pages;
         /**
          * Number of outstanding mmaps on this file.
          *
          * \see ll_vm_open(), ll_vm_close().
          */
-        cfs_atomic_t            cob_mmap_cnt;
+        cfs_atomic_t           cob_mmap_cnt;
 };
 
 /**
@@ -261,6 +261,7 @@ int ccc_object_init0(const struct lu_env *env,struct ccc_object *vob,
 int ccc_object_init(const struct lu_env *env, struct lu_object *obj,
                     const struct lu_object_conf *conf);
 void ccc_object_free(const struct lu_env *env, struct lu_object *obj);
+void ccc_object_delete(const struct lu_env *env, struct lu_object *obj);
 int ccc_lock_init(const struct lu_env *env, struct cl_object *obj,
                   struct cl_lock *lock, const struct cl_io *io,
                   const struct cl_lock_operations *lkops);
@@ -349,8 +350,10 @@ int cl_setattr_ost(struct inode *inode, const struct iattr *attr,
 
 struct cl_page *ccc_vmpage_page_transient(cfs_page_t *vmpage);
 int ccc_object_invariant(const struct cl_object *obj);
-int cl_inode_init(struct inode *inode, struct lustre_md *md);
-void cl_inode_fini(struct inode *inode);
+int cl_object_hold(struct inode *inode);
+struct cl_object *cl_object_dereference(struct inode *inode);
+void cl_object_release(struct inode *inode);
+int cl_object_layout_change(struct inode *inode, struct cl_object_conf *conf);
 int cl_local_size(struct inode *inode);
 
 __u16 ll_dirent_type_get(struct lu_dirent *ent);

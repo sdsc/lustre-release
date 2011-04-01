@@ -196,7 +196,7 @@ static int do_bio_lustrebacked(struct lloop_device *lo, struct bio *head)
         const struct lu_env  *env   = lo->lo_env;
         struct cl_io         *io    = &lo->lo_io;
         struct inode         *inode = lo->lo_backing_file->f_dentry->d_inode;
-        struct cl_object     *obj = ll_i2info(inode)->lli_clob;
+        struct cl_object     *obj = cl_object_dereference(inode);
         pgoff_t               offset;
         int                   ret;
         int                   i;

@@ -183,6 +183,8 @@ struct ll_inode_info {
         struct ll_statahead_info *lli_sai;
         __u64                   lli_sa_pos;
         struct cl_object       *lli_clob;
+        cfs_mutex_t             lli_clob_lock;
+
         /* the most recent timestamps obtained from mds */
         struct ost_lvb          lli_lvb;
         /**
@@ -1055,8 +1057,6 @@ extern struct lu_device_type vvp_device_type;
 
 int cl_sb_init(struct super_block *sb);
 int cl_sb_fini(struct super_block *sb);
-int cl_inode_init(struct inode *inode, struct lustre_md *md);
-void cl_inode_fini(struct inode *inode);
 
 enum cl_lock_mode  vvp_mode_from_vma(struct vm_area_struct *vma);
 void ll_io_init(struct cl_io *io, const struct file *file, int write);

@@ -144,24 +144,35 @@ static int cl_io_get(struct inode *inode, struct lu_env **envout,
         struct ccc_thread_info *info;
         struct lu_env          *env;
         struct cl_io           *io;
-        struct cl_inode_info   *lli = cl_i2info(inode);
-        struct cl_object       *clob = lli->lli_clob;
         int result;
 
         if (S_ISREG(cl_inode_mode(inode))) {
                 env = cl_env_get(refcheck);
                 if (!IS_ERR(env)) {
-                        info = ccc_env_info(env);
-                        io = &info->cti_io;
-                        io->ci_obj = clob;
-                        *envout = env;
-                        *ioout  = io;
-                        result = +1;
-                } else
+                        result = cl_object_hold(inode);
+                        if (result == 0) {
+                                info = ccc_env_info(env);
+                                io = &info->cti_io;
+                                io->ci_obj = cl_object_dereference(inode);
+                                *envout = env;
+                                *ioout  = io;
+                                result = +1;
+                        }
+                } else {
                         result = PTR_ERR(env);
+                }
+
         } else
                 result = 0;
         return result;
+}
+
+static void cl_io_put(struct inode *inode, struct lu_env *env, struct cl_io *io,
+                      int *refcheck)
+{
+        cl_io_fini(env, io);
+        cl_object_release(inode);
+        cl_env_put(env, refcheck);
 }
 
 int cl_glimpse_size(struct inode *inode)
@@ -194,8 +205,7 @@ int cl_glimpse_size(struct inode *inode)
                         result = io->ci_result;
                 else if (result == 0)
                         result = cl_glimpse_lock(env, io, inode, io->ci_obj);
-                cl_io_fini(env, io);
-                cl_env_put(env, &refcheck);
+                cl_io_put(inode, env, io, &refcheck);
         }
         RETURN(result);
 }
@@ -239,8 +249,7 @@ int cl_local_size(struct inode *inode)
                 } else
                         result = -ENODATA;
         }
-        cl_io_fini(env, io);
-        cl_env_put(env, &refcheck);
+        cl_io_put(inode, env, io, &refcheck);
         RETURN(result);
 }
 

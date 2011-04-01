@@ -137,6 +137,66 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
 EXPORT_SYMBOL(lu_object_put);
 
 /**
+ * Try to acquire a reference count to an object \a o. The caller
+ * has a weak pointer of this object, but not sure if the object
+ * is in cache.
+ *
+ * Return:
+ *          0: ok
+ *    -EAGAIN: the object is being destroyed
+ */
+int lu_object_get_try(struct lu_object *o)
+{
+        struct lu_object_header *top;
+        cfs_hash_bd_t            bd;
+        cfs_hash_t              *hs;
+        int                      result = -EAGAIN;
+
+        top = o->lo_header;
+        hs = o->lo_dev->ld_site->ls_obj_hash;
+        cfs_hash_bd_get(hs, &top->loh_fid, &bd);
+        cfs_hash_bd_lock(hs, &bd, 0);
+        /* check if the object is still in cache. We cannot do this
+         * w/o holding bucket lock */
+        if (!cfs_hlist_unhashed(&top->loh_hash) && !lu_object_is_dying(top)) {
+                cfs_hash_get(hs, &top->loh_hash);
+                result = 0;
+        }
+        cfs_hash_bd_unlock(hs, &bd, 0);
+        return result;
+}
+EXPORT_SYMBOL(lu_object_get_try);
+
+/**
+ * Kill an object.
+ *
+ * The caller must have at most one reference count against this object,
+ * and must have set LU_OBJECT_HEARD_BANSHEE. This function will wait for
+ * itself to be the last holder before calling lu_object_put.
+ * The object cannot be accessed any more afterward.
+ */
+void lu_object_kill(const struct lu_env *env, struct lu_object *o)
+{
+        struct lu_object_header *header = o->lo_header;
+        struct lu_site          *site   = o->lo_dev->ld_site;
+        struct lu_site_bkt_data *bkt;
+        struct l_wait_info lwi = { 0 };
+
+        cfs_might_sleep();
+
+        LASSERT(cfs_test_bit(LU_OBJECT_HEARD_BANSHEE, &header->loh_flags));
+        LASSERT(cfs_atomic_read(&header->loh_ref) > 0);
+
+        bkt = lu_site_bkt_from_fid(site, &header->loh_fid);
+        l_wait_event(bkt->lsb_marche_funebre,
+                     cfs_atomic_read(&header->loh_ref) == 1,
+                     &lwi);
+
+        lu_object_put(env, o);
+}
+EXPORT_SYMBOL(lu_object_kill);
+
+/**
  * Allocate new object.
  *
  * This follows object creation protocol, described in the comment within
@@ -835,9 +895,19 @@ static void lu_obj_hop_get(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
         }
 }
 
-static void lu_obj_hop_put_locked(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
+static void lu_obj_hop_put(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
 {
-        LBUG(); /* we should never called it */
+        struct lu_object_header *h;
+        
+        h = cfs_hlist_entry(hnode, struct lu_object_header, loh_hash);
+        if (cfs_atomic_dec_and_test(&h->loh_ref)) {
+                /* the last reference is put, check if it is dying */
+                if (lu_object_is_dying(h)) {
+                        /* XXX: need to free this object */
+                        CERROR("A dying object is being purged. Cannot handle"
+                               "this yet, sorry!\n");
+                }
+        }
 }
 
 cfs_hash_ops_t lu_site_hash_ops = {
@@ -846,7 +916,7 @@ cfs_hash_ops_t lu_site_hash_ops = {
         .hs_keycmp      = lu_obj_hop_keycmp,
         .hs_object      = lu_obj_hop_object,
         .hs_get         = lu_obj_hop_get,
-        .hs_put_locked  = lu_obj_hop_put_locked,
+        .hs_put         = lu_obj_hop_put,
 };
 
 /**
