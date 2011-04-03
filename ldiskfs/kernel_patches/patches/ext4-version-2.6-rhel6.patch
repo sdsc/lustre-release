@@ -1,0 +1,19 @@
+Index: linux-stage/fs/ext4/super.c
+===================================================================
+--- linux-stage.orig/fs/ext4/super.c
++++ linux-stage/fs/ext4/super.c
+@@ -4071,6 +4071,7 @@ static int __init init_ext4_fs(void)
+ 	err = register_filesystem(&ext4_fs_type);
+ 	if (err)
+ 		goto out;
++	printk(KERN_INFO "ldiskfs created from ext4-2.6-rhel6\n");
+ 	return 0;
+ out:
+ 	destroy_inodecache();
+Index: linux-stage/fs/ext4/fiemap.h
+===================================================================
+--- /dev/null
++++ linux-stage/fs/ext4/fiemap.h
+@@ -0,0 +1,2 @@
++
++#include_next <fiemap.h>
