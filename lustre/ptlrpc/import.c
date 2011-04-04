@@ -378,6 +378,23 @@ void ptlrpc_invalidate_import(struct obd_import *imp)
 
         cfs_atomic_dec(&imp->imp_inval_count);
         cfs_waitq_broadcast(&imp->imp_recovery_waitq);
+
+        /* XXX debug LU-184 */
+        cfs_spin_lock(&imp->imp_lock);
+        if (!cfs_list_empty(&imp->imp_replay_list)) {
+                CERROR("Replay list isn't empty after invalidation\n");
+                CERROR("import generation: %d\n", imp->imp_generation);
+
+                cfs_list_for_each_safe(tmp, n, &imp->imp_replay_list) {
+                        req = cfs_list_entry(tmp, struct ptlrpc_request,
+                                             rq_replay_list);
+
+                        DEBUG_REQ(D_ERROR, req, "still on replay list");
+                        CERROR("rq_replay: %d, rq_import_generation: %d\n",
+                               req->rq_replay, req->rq_import_generation);
+                }
+        }
+        cfs_spin_unlock(&imp->imp_lock);
 }
 
 /* unset imp_invalid */
