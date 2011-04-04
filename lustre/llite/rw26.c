@@ -524,5 +524,8 @@ struct address_space_operations ll_aops = {
 #endif
         .invalidatepage = ll_invalidatepage,
         .releasepage    = (void *)ll_releasepage,
+#ifdef CONFIG_MIGRATION
+        .migratepage    = fail_migrate_page,
+#endif
         .bmap           = NULL
 };
