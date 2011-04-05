@@ -216,9 +216,21 @@ static int vvp_page_prep_read(const struct lu_env *env,
                               const struct cl_page_slice *slice,
                               struct cl_io *unused)
 {
+        struct ccc_page *cpg = cl2ccc_page(slice);
+        int rc = 0;
         ENTRY;
-        /* Skip the page already marked as PG_uptodate. */
-        RETURN(PageUptodate(cl2vm_page(slice)) ? -EALREADY : 0);
+
+        /* Skip the page already marked as PG_uptodate.
+         * In case the applications are doing direct IO and regular IO
+         * against the same file concurrently, they may try to issue a
+         * ra page with ->cpg_defer_uptodate set. I'm reluctant to export
+         * the page in the directIO code path because it may confuse readahead.
+         * -jay
+         */
+        if (PageUptodate(cpg->cpg_page) || cpg->cpg_defer_uptodate)
+                rc = -EALREADY;
+
+        RETURN(rc);
 }
 
 static int vvp_page_prep_write(const struct lu_env *env,
