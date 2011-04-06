@@ -247,6 +247,13 @@ ssize_t ll_direct_rw_pages(const struct lu_env *env, struct cl_io *io,
                         break;
                 }
 
+                rc = cl_page_own(env, io, clp);
+                if (rc) {
+                        LASSERT(clp->cp_state == CPS_FREEING);
+                        cl_page_put(env, clp);
+                        break;
+                }
+
                 /* check the page type: if the page is a host page, then do
                  * write directly */
                 /*
@@ -275,6 +282,7 @@ ssize_t ll_direct_rw_pages(const struct lu_env *env, struct cl_io *io,
                          * cl_io_submit()->...->vvp_page_prep_write(). */
                         if (rw == WRITE)
                                 set_page_dirty(vmpage);
+                                
                         /*
                          * If direct-io read finds up-to-date page in the
                          * cache, just copy it to the user space. Page will be
@@ -284,12 +292,6 @@ ssize_t ll_direct_rw_pages(const struct lu_env *env, struct cl_io *io,
                          */
                 }
 
-                rc = cl_page_own(env, io, clp);
-                if (rc) {
-                        LASSERT(clp->cp_state == CPS_FREEING);
-                        cl_page_put(env, clp);
-                        break;
-                }
 
                 cl_2queue_add(queue, clp);
 
