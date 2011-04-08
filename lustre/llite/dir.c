@@ -434,9 +434,14 @@ static inline void ll_dir_chain_fini(struct ll_dir_chain *chain)
 {
 }
 
-static inline __u32 hash_x_index(__u32 value)
+static inline unsigned long hash_x_index(__u64 hash)
 {
-        return ((__u32)~0) - value;
+#ifdef __KERNEL__
+# if BITS_PER_LONG == 32
+        hash >>= 32;
+# endif
+#endif
+        return ~0UL - hash;
 }
 
 /**
@@ -589,7 +594,11 @@ static int ll_dir_readpage_20(struct file *file, struct page *page)
         int rc;
         ENTRY;
 
-        hash = hash_x_index(page->index);
+        /*XXX: statahead is disabled by force under interoperability mode.
+         *     So file must not be NULL here. Fix me when enable statahead
+         *     under interoperability mode. */
+        LASSERT(file != NULL);
+        hash = ((struct ll_file_data *)LUSTRE_FPRIVATE(file))->fd_dir.lfd_next;
         CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p) off %lu\n",
                inode->i_ino, inode->i_generation, inode, (unsigned long)hash);
 
@@ -627,7 +636,7 @@ static void ll_check_page(struct inode *dir, struct page *page)
 /*
  * Find, kmap and return page that contains given hash.
  */
-static struct page *ll_dir_page_locate(struct inode *dir, unsigned long hash,
+static struct page *ll_dir_page_locate(struct inode *dir, __u64 *hash,
                                        __u64 *start, __u64 *end)
 {
         struct address_space *mapping = dir->i_mapping;
@@ -636,7 +645,7 @@ static struct page *ll_dir_page_locate(struct inode *dir, unsigned long hash,
          * radix_tree_gang_lookup() can be used to find a page with starting
          * hash _smaller_ than one we are looking for.
          */
-        unsigned long offset = hash_x_index(hash);
+        unsigned long offset = hash_x_index(*hash);
         struct page *page;
         int found;
         ENTRY;
@@ -660,10 +669,17 @@ static struct page *ll_dir_page_locate(struct inode *dir, unsigned long hash,
                 wait_on_page(page);
                 if (PageUptodate(page)) {
                         dp = kmap(page);
+#if BITS_PER_LONG == 32
+                        *start = le64_to_cpu(dp->ldp_hash_start) >> 32;
+                        *end   = le64_to_cpu(dp->ldp_hash_end) >> 32;
+                        *hash  = *hash >> 32;
+#else
                         *start = le64_to_cpu(dp->ldp_hash_start);
                         *end   = le64_to_cpu(dp->ldp_hash_end);
-                        LASSERT(*start <= hash);
-                        if (hash > *end || (*end != *start && hash == *end)) {
+#endif
+                        LASSERTF(*start <= *hash, "start = "LPX64",end = "
+                                 LPX64",hash = "LPX64"\n", *start, *end, *hash);
+                        if (*hash > *end || (*end != *start && *hash == *end)) {
                                 kunmap(page);
                                 lock_page(page);
                                 ll_truncate_complete_page(page);
@@ -683,7 +699,8 @@ static struct page *ll_dir_page_locate(struct inode *dir, unsigned long hash,
         RETURN(page);
 }
 
-static struct page *ll_get_dir_page_20(struct inode *dir, __u64 hash, int exact,
+static struct page *ll_get_dir_page_20(struct file *filp, struct inode *dir,
+                                       __u64 hash, int exact,
                                        struct ll_dir_chain *chain)
 {
         struct ldlm_res_id res_id;
@@ -697,6 +714,7 @@ static struct page *ll_get_dir_page_20(struct inode *dir, __u64 hash, int exact,
         int rc;
         __u64 start = 0;
         __u64 end = 0;
+        __u64 lhash = hash;
         ENTRY;
  
         fid_build_reg_res_name(ll_inode_lu_fid(dir), &res_id);
@@ -725,7 +743,7 @@ static struct page *ll_get_dir_page_20(struct inode *dir, __u64 hash, int exact,
         }
         ldlm_lock_dump_handle(D_OTHER, &lockh);
 
-        page = ll_dir_page_locate(dir, hash, &start, &end);
+        page = ll_dir_page_locate(dir, &lhash, &start, &end);
         if (IS_ERR(page))
                 GOTO(out_unlock, page);
 
@@ -752,7 +770,7 @@ static struct page *ll_get_dir_page_20(struct inode *dir, __u64 hash, int exact,
                          * be invalidated, and new one fetched.
                          */
                         CDEBUG(D_INFO, "Stale readpage page %p: %#lx != %#lx\n",
-                              page, (unsigned long)hash, (unsigned long)start);
+                              page, (unsigned long)lhash, (unsigned long)start);
                         lock_page(page);
                         ll_truncate_complete_page(page);
                         unlock_page(page);
@@ -763,7 +781,7 @@ static struct page *ll_get_dir_page_20(struct inode *dir, __u64 hash, int exact,
         }
 
         page = read_cache_page(mapping, hash_x_index(hash),
-                               (filler_t*)ll_dir_readpage_20, NULL);
+                               (filler_t*)ll_dir_readpage_20, filp);
         if (IS_ERR(page))
                 GOTO(out_unlock, page);
 
@@ -778,11 +796,23 @@ static struct page *ll_get_dir_page_20(struct inode *dir, __u64 hash, int exact,
 hash_collision:
         dp = page_address(page);
 
+#if BITS_PER_LONG == 32
+        start = le64_to_cpu(dp->ldp_hash_start) >> 32;
+        end   = le64_to_cpu(dp->ldp_hash_end) >> 32;
+        lhash = hash >> 32;
+#else
         start = le64_to_cpu(dp->ldp_hash_start);
         end   = le64_to_cpu(dp->ldp_hash_end);
+        lhash = hash;
+#endif
         if (end == start) {
-                LASSERT(start == hash);
-                CWARN("Page-wide hash collision: %#lx\n", (unsigned long)end);
+                LASSERT(start == lhash);
+                CWARN("Page-wide hash collision: "LPU64"\n", end);
+#if BITS_PER_LONG == 32
+                CWARN("Real page-wide hash collision at ["LPU64" "LPU64"] with "
+                      "hash "LPU64"\n", le64_to_cpu(dp->ldp_hash_start),
+                      le64_to_cpu(dp->ldp_hash_end), hash);
+#endif
                 /*
                  * Fetch whole overflow chain...
                  *
@@ -803,8 +833,9 @@ fail:
 static int ll_readdir_20(struct file *filp, void *cookie, filldir_t filldir)
 {
         struct inode         *inode = filp->f_dentry->d_inode;
-        __u64                 pos   = filp->f_pos;
         struct ll_sb_info    *sbi   = ll_i2sbi(inode);
+        struct ll_file_data  *fd    = LUSTRE_FPRIVATE(filp);
+        __u64                 pos   = fd->fd_dir.lfd_pos;
         struct page          *page;
         struct ll_dir_chain   chain;
         int rc;
@@ -830,7 +861,9 @@ static int ll_readdir_20(struct file *filp, void *cookie, filldir_t filldir)
         shift = 0;
         ll_dir_chain_init(&chain);
 
-        page = ll_get_dir_page_20(inode, pos, 0, &chain);
+        fd->fd_dir.lfd_next = pos;
+        page = ll_get_dir_page_20(filp, inode, pos, 0, &chain);
+
 
         while (rc == 0 && !done) {
                 struct lu_dirpage *dp;
@@ -851,10 +884,9 @@ static int ll_readdir_20(struct file *filp, void *cookie, filldir_t filldir)
                                 int            namelen;
                                 struct lu_fid  fid;
                                 __u64          ino;
+                                __u64          lhash;
 
-                                hash    = le64_to_cpu(ent->lde_hash);
-                                namelen = le16_to_cpu(ent->lde_namelen);
-
+                                hash = le64_to_cpu(ent->lde_hash);
                                 if (hash < pos)
                                         /*
                                          * Skip until we find target hash
@@ -862,41 +894,46 @@ static int ll_readdir_20(struct file *filp, void *cookie, filldir_t filldir)
                                          */
                                         continue;
 
+                                namelen = le16_to_cpu(ent->lde_namelen);
                                 if (namelen == 0)
                                         /*
                                          * Skip dummy record.
                                          */
                                         continue;
 
-                                fid  = ent->lde_fid;
                                 name = ent->lde_name;
-                                fid_le_to_cpu(&fid, &fid);
-                                if (need_32bit)
+                                fid_le_to_cpu(&fid, &ent->lde_fid);
+                                if (need_32bit) {
+                                        lhash = hash >> 32;
                                         ino = ll_fid_build_ino32((struct ll_fid *)&fid);
-                                else
+                                } else {
+                                        lhash = hash;
                                         ino = ll_fid_build_ino((struct ll_fid *)&fid);
+                                }
 
                                 type = ll_dirent_type_get(ent);
                                 done = filldir(cookie, name, namelen,
-                                               (loff_t)hash, ino, type);
+                                               lhash, ino, type);
                         }
                         next = le64_to_cpu(dp->ldp_hash_end);
                         ll_put_page(page);
                         if (!done) {
                                 pos = next;
-                                if (pos == DIR_END_OFF)
+                                if (pos == DIR_END_OFF) {
                                         /*
                                          * End of directory reached.
                                          */
                                         done = 1;
-                                else if (1 /* chain is exhausted*/)
+                                } else if (1 /* chain is exhausted*/) {
                                         /*
                                          * Normal case: continue to the next
                                          * page.
                                          */
-                                        page = ll_get_dir_page_20(inode, pos, 1,
+                                        fd->fd_dir.lfd_next = pos;
+                                        page = ll_get_dir_page_20(filp, inode,
+                                                                  pos, 1,
                                                                   &chain);
-                                else {
+                                } else {
                                         /*
                                          * go into overflow page.
                                          */
@@ -912,7 +949,11 @@ static int ll_readdir_20(struct file *filp, void *cookie, filldir_t filldir)
                 }
         }
 
-        filp->f_pos = (loff_t)(__s32)pos;
+        fd->fd_dir.lfd_pos = pos;
+        if (need_32bit)
+                filp->f_pos = pos >> 32;
+        else
+                filp->f_pos = pos;
         filp->f_version = inode->i_version;
         touch_atime(filp->f_vfsmnt, filp->f_dentry);
 
@@ -1612,8 +1653,40 @@ static int ll_dir_ioctl(struct inode *inode, struct file *file,
         }
 }
 
+static loff_t ll_dir_seek(struct file *file, loff_t offset, int origin)
+{
+        struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
+        loff_t pos = file->f_pos;
+        loff_t ret;
+        ENTRY;
+
+        if (origin == 1 && offset >= 0 && file->f_pos == DIR_END_OFF) {
+                CWARN("end of dir hash, DIR_END_OFF(-2) is returned\n");
+                RETURN(DIR_END_OFF);
+        }
+
+        ret = default_llseek(file, offset, origin);
+        if (ret >= 0) {
+                struct ll_sb_info *sbi = ll_i2sbi(file->f_dentry->d_inode);
+
+                if (ll_need_32bit_api(sbi)) {
+                        if (file->f_pos >> 32) {
+                                /* hash overflow, simple revert */
+                                file->f_pos = pos;
+                                RETURN(-EOVERFLOW);
+                        } else {
+                                fd->fd_dir.lfd_pos = file->f_pos << 32;
+                        }
+                } else {
+                        fd->fd_dir.lfd_pos = file->f_pos;
+                }
+        }
+        RETURN(ret);
+}
+
 struct file_operations ll_dir_operations = {
         .open     = ll_file_open,
+        .llseek   = ll_dir_seek,
         .release  = ll_file_release,
         .read     = generic_read_dir,
         .readdir  = ll_readdir,

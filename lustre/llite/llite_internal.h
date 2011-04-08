@@ -565,6 +565,11 @@ struct ll_readahead_state {
         unsigned long ras_consecutive_stride_requests;
 };
 
+struct ll_file_dir {
+        __u64 lfd_pos;
+        __u64 lfd_next;
+};
+
 extern cfs_mem_cache_t *ll_file_data_slab;
 extern struct rw_semaphore ll_sb_sem;
 struct lustre_handle;
@@ -573,6 +578,7 @@ struct ll_file_data {
         int fd_omode;
         struct lustre_handle fd_cwlockh;
         unsigned long fd_gid;
+        struct ll_file_dir fd_dir;
         __u32 fd_flags;
 };
 
