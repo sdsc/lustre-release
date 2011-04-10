@@ -1,8 +1,8 @@
-Index: linux-2.6.18.8/fs/ext3/dir.c
+Index: linux-stage/fs/ext3/dir.c
 ===================================================================
---- linux-2.6.18.8.orig/fs/ext3/dir.c	2007-02-24 00:52:30.000000000 +0100
-+++ linux-2.6.18.8/fs/ext3/dir.c	2007-07-17 09:18:14.000000000 +0200
-@@ -131,8 +131,7 @@ static int ext3_readdir(struct file * fi
+--- linux-stage.orig/fs/ext3/dir.c
++++ linux-stage/fs/ext3/dir.c
+@@ -132,8 +132,7 @@ static int ext3_readdir(struct file * fi
  		struct buffer_head *bh = NULL;
  
  		map_bh.b_state = 0;
@@ -12,11 +12,11 @@ Index: linux-2.6.18.8/fs/ext3/dir.c
  		if (err > 0) {
  			page_cache_readahead(sb->s_bdev->bd_inode->i_mapping,
  				&filp->f_ra,
-Index: linux-2.6.18.8/fs/ext3/extents.c
+Index: linux-stage/fs/ext3/extents.c
 ===================================================================
---- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ linux-2.6.18.8/fs/ext3/extents.c	2007-07-17 11:08:59.000000000 +0200
-@@ -0,0 +1,2276 @@
+--- /dev/null
++++ linux-stage/fs/ext3/extents.c
+@@ -0,0 +1,2277 @@
 +/*
 + * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
 + * Written by Alex Tomas <alex@clusterfs.com>
@@ -1270,7 +1270,8 @@ Index: linux-2.6.18.8/fs/ext3/extents.c
 + */
 +int ext3_ext_insert_extent(handle_t *handle, struct inode *inode,
 +				struct ext3_ext_path *path,
-+				struct ext3_extent *newext)
++				struct ext3_extent *newext,
++				int flag /* unused */)
 +{
 +	struct ext3_extent_header * eh;
 +	struct ext3_extent *ex, *fex;
@@ -2167,7 +2168,7 @@ Index: linux-2.6.18.8/fs/ext3/extents.c
 +	newex.ee_start = cpu_to_le32(newblock);
 +	newex.ee_start_hi = 0;
 +	newex.ee_len = cpu_to_le16(allocated);
-+	err = ext3_ext_insert_extent(handle, inode, path, &newex);
++	err = ext3_ext_insert_extent(handle, inode, path, &newex, 0);
 +	if (err) {
 +		/* free data blocks we just allocated */
 +		ext3_free_blocks(handle, inode, le32_to_cpu(newex.ee_start),
@@ -2293,11 +2294,11 @@ Index: linux-2.6.18.8/fs/ext3/extents.c
 +EXPORT_SYMBOL(ext3_ext_walk_space);
 +EXPORT_SYMBOL(ext3_ext_find_goal);
 +EXPORT_SYMBOL(ext3_ext_calc_credits_for_insert);
-Index: linux-2.6.18.8/fs/ext3/ialloc.c
+Index: linux-stage/fs/ext3/ialloc.c
 ===================================================================
---- linux-2.6.18.8.orig/fs/ext3/ialloc.c	2007-07-17 09:18:09.000000000 +0200
-+++ linux-2.6.18.8/fs/ext3/ialloc.c	2007-07-17 11:08:09.000000000 +0200
-@@ -652,6 +652,17 @@ got:
+--- linux-stage.orig/fs/ext3/ialloc.c
++++ linux-stage/fs/ext3/ialloc.c
+@@ -651,6 +651,17 @@ got:
  		ext3_std_error(sb, err);
  		goto fail_free_drop;
  	}
@@ -2315,10 +2316,10 @@ Index: linux-2.6.18.8/fs/ext3/ialloc.c
  
  	ext3_debug("allocating inode %lu\n", inode->i_ino);
  	goto really_out;
-Index: linux-2.6.18.8/fs/ext3/inode.c
+Index: linux-stage/fs/ext3/inode.c
 ===================================================================
---- linux-2.6.18.8.orig/fs/ext3/inode.c	2007-07-17 09:18:12.000000000 +0200
-+++ linux-2.6.18.8/fs/ext3/inode.c	2007-07-17 11:08:11.000000000 +0200
+--- linux-stage.orig/fs/ext3/inode.c
++++ linux-stage/fs/ext3/inode.c
 @@ -40,8 +40,6 @@
  #include "xattr.h"
  #include "acl.h"
@@ -2336,9 +2337,9 @@ Index: linux-2.6.18.8/fs/ext3/inode.c
  	J_ASSERT(handle != NULL || create == 0);
  	depth = ext3_block_to_path(inode,iblock,offsets,&blocks_to_boundary);
  
-@@ -984,12 +983,10 @@ static int ext3_get_block(struct inode *
-		started = 1;
-	}
+@@ -972,12 +971,10 @@ static int ext3_get_block(struct inode *
+ 		started = 1;
+ 	}
  
 -	ret = ext3_get_blocks_handle(handle, inode, iblock,
 +	ret = ext3_get_blocks_wrap(handle, inode, iblock,
@@ -2348,10 +2349,10 @@ Index: linux-2.6.18.8/fs/ext3/inode.c
 +	if (ret > 0)
  		ret = 0;
 -	}
-	if (started)
-		ext3_journal_stop(handle);
+ 	if (started)
+ 		ext3_journal_stop(handle);
  out:
-@@ -1008,7 +1005,7 @@ struct buffer_head *ext3_getblk(handle_t
+@@ -1005,7 +1002,7 @@ struct buffer_head *ext3_getblk(handle_t
  	dummy.b_state = 0;
  	dummy.b_blocknr = -1000;
  	buffer_trace_init(&dummy.b_history);
@@ -2360,7 +2361,7 @@ Index: linux-2.6.18.8/fs/ext3/inode.c
  					&dummy, create, 1);
  	/*
  	 * ext3_get_blocks_handle() returns number of blocks
-@@ -1759,7 +1756,7 @@ void ext3_set_aops(struct inode *inode)
+@@ -1841,7 +1838,7 @@ void ext3_set_aops(struct inode *inode)
   * This required during truncate. We need to physically zero the tail end
   * of that block so it doesn't yield old data if the file is later grown.
   */
@@ -2369,7 +2370,7 @@ Index: linux-2.6.18.8/fs/ext3/inode.c
  		struct address_space *mapping, loff_t from)
  {
  	ext3_fsblk_t index = from >> PAGE_CACHE_SHIFT;
-@@ -2263,6 +2260,9 @@ void ext3_truncate(struct inode *inode)
+@@ -2345,6 +2342,9 @@ void ext3_truncate(struct inode *inode)
  			return;
  	}
  
@@ -2379,7 +2380,7 @@ Index: linux-2.6.18.8/fs/ext3/inode.c
  	handle = start_transaction(inode);
  	if (IS_ERR(handle)) {
  		if (page) {
-@@ -3008,12 +3008,15 @@ err_out:
+@@ -3095,12 +3095,15 @@ err_out:
   * block and work out the exact number of indirects which are touched.  Pah.
   */
  
@@ -2396,7 +2397,7 @@ Index: linux-2.6.18.8/fs/ext3/inode.c
  	if (ext3_should_journal_data(inode))
  		ret = 3 * (bpp + indirects) + 2;
  	else
-@@ -3260,7 +3263,7 @@ int ext3_map_inode_page(struct inode *in
+@@ -3347,7 +3350,7 @@ int ext3_map_inode_page(struct inode *in
  		if (blocks[i] != 0)
  			continue;
  
@@ -2405,10 +2406,10 @@ Index: linux-2.6.18.8/fs/ext3/inode.c
  		if (rc < 0) {
  			printk(KERN_INFO "ext3_map_inode_page: error reading "
  					"block %ld\n", iblock);
-Index: linux-2.6.18.8/fs/ext3/Makefile
+Index: linux-stage/fs/ext3/Makefile
 ===================================================================
---- linux-2.6.18.8.orig/fs/ext3/Makefile	2007-07-17 09:18:11.000000000 +0200
-+++ linux-2.6.18.8/fs/ext3/Makefile	2007-07-17 11:08:11.000000000 +0200
+--- linux-stage.orig/fs/ext3/Makefile
++++ linux-stage/fs/ext3/Makefile
 @@ -5,7 +5,7 @@
  obj-$(CONFIG_EXT3_FS) += ext3.o
  
@@ -2418,19 +2419,19 @@ Index: linux-2.6.18.8/fs/ext3/Makefile
  
  ext3-$(CONFIG_EXT3_FS_XATTR)	 += xattr.o xattr_user.o xattr_trusted.o
  ext3-$(CONFIG_EXT3_FS_POSIX_ACL) += acl.o
-Index: linux-2.6.18.8/fs/ext3/super.c
+Index: linux-stage/fs/ext3/super.c
 ===================================================================
---- linux-2.6.18.8.orig/fs/ext3/super.c	2007-07-17 09:18:12.000000000 +0200
-+++ linux-2.6.18.8/fs/ext3/super.c	2007-07-17 11:08:12.000000000 +0200
-@@ -391,6 +391,7 @@ static void ext3_put_super (struct super
+--- linux-stage.orig/fs/ext3/super.c
++++ linux-stage/fs/ext3/super.c
+@@ -392,6 +392,7 @@ static void ext3_put_super (struct super
  	struct ext3_super_block *es = sbi->s_es;
- 	int i;
+ 	int i, err;
  
 +	ext3_ext_release(sb);
  	ext3_xattr_put_super(sb);
- 	journal_destroy(sbi->s_journal);
- 	if (!(sb->s_flags & MS_RDONLY)) {
-@@ -455,6 +456,8 @@ static struct inode *ext3_alloc_inode(st
+ 	err = journal_destroy(sbi->s_journal);
+ 	sbi->s_journal = NULL;
+@@ -460,6 +461,8 @@ static struct inode *ext3_alloc_inode(st
  #endif
  	ei->i_block_alloc_info = NULL;
  	ei->vfs_inode.i_version = 1;
@@ -2439,7 +2440,7 @@ Index: linux-2.6.18.8/fs/ext3/super.c
  	return &ei->vfs_inode;
  }
  
-@@ -680,7 +683,8 @@ enum {
+@@ -706,7 +709,8 @@ enum {
  	Opt_jqfmt_vfsold, Opt_jqfmt_vfsv0, Opt_quota, Opt_noquota,
  	Opt_ignore, Opt_barrier, Opt_err, Opt_resize, Opt_usrquota,
  	Opt_iopen, Opt_noiopen, Opt_iopen_nopriv,
@@ -2449,7 +2450,7 @@ Index: linux-2.6.18.8/fs/ext3/super.c
  };
  
  static match_table_t tokens = {
-@@ -733,6 +737,9 @@ static match_table_t tokens = {
+@@ -759,6 +763,9 @@ static match_table_t tokens = {
  	{Opt_noiopen, "noiopen"},
  	{Opt_iopen_nopriv, "iopen_nopriv"},
  	{Opt_barrier, "barrier=%u"},
@@ -2459,7 +2460,7 @@ Index: linux-2.6.18.8/fs/ext3/super.c
  	{Opt_err, NULL},
  	{Opt_resize, "resize"},
  };
-@@ -1077,6 +1084,15 @@ clear_qf_name:
+@@ -1095,6 +1102,15 @@ clear_qf_name:
  		case Opt_bh:
  			clear_opt(sbi->s_mount_opt, NOBH);
  			break;
@@ -2475,7 +2476,7 @@ Index: linux-2.6.18.8/fs/ext3/super.c
  		default:
  			printk (KERN_ERR
  				"EXT3-fs: Unrecognized mount option \"%s\" "
-@@ -1806,6 +1822,8 @@ static int ext3_fill_super (struct super
+@@ -1832,6 +1848,8 @@ static int ext3_fill_super (struct super
  		test_opt(sb,DATA_FLAGS) == EXT3_MOUNT_ORDERED_DATA ? "ordered":
  		"writeback");
  
@@ -2484,10 +2485,10 @@ Index: linux-2.6.18.8/fs/ext3/super.c
  	lock_kernel();
  	return 0;
  
-Index: linux-2.6.18.8/include/linux/ext3_extents.h
+Index: linux-stage/include/linux/ext3_extents.h
 ===================================================================
---- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ linux-2.6.18.8/include/linux/ext3_extents.h	2007-07-17 09:18:14.000000000 +0200
+--- /dev/null
++++ linux-stage/include/linux/ext3_extents.h
 @@ -0,0 +1,232 @@
 +/*
 + * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
@@ -2715,16 +2716,16 @@ Index: linux-2.6.18.8/include/linux/ext3_extents.h
 +extern int ext3_ext_search_right(struct inode *, struct ext3_ext_path *, unsigned long *, unsigned long *);
 +extern int ext3_extent_tree_init(handle_t *, struct inode *);
 +extern int ext3_ext_calc_credits_for_insert(struct inode *, struct ext3_ext_path *);
-+extern int ext3_ext_insert_extent(handle_t *, struct inode *, struct ext3_ext_path *, struct ext3_extent *);
++extern int ext3_ext_insert_extent(handle_t *, struct inode *, struct ext3_ext_path *, struct ext3_extent *, int flag);
 +extern int ext3_ext_walk_space(struct inode *, unsigned long, unsigned long, ext_prepare_callback, void *);
 +extern struct ext3_ext_path * ext3_ext_find_extent(struct inode *, int, struct ext3_ext_path *);
 +
 +#endif /* _LINUX_EXT3_EXTENTS */
 +
-Index: linux-2.6.18.8/include/linux/ext3_fs.h
+Index: linux-stage/include/linux/ext3_fs.h
 ===================================================================
---- linux-2.6.18.8.orig/include/linux/ext3_fs.h	2007-07-17 09:18:13.000000000 +0200
-+++ linux-2.6.18.8/include/linux/ext3_fs.h	2007-07-17 11:08:12.000000000 +0200
+--- linux-stage.orig/include/linux/ext3_fs.h
++++ linux-stage/include/linux/ext3_fs.h
 @@ -182,8 +182,9 @@ struct ext3_group_desc
  #define EXT3_DIRSYNC_FL			0x00010000 /* dirsync behaviour (directories only) */
  #define EXT3_TOPDIR_FL			0x00020000 /* Top of directory hierarchies*/
@@ -2736,7 +2737,7 @@ Index: linux-2.6.18.8/include/linux/ext3_fs.h
  #define EXT3_FL_USER_MODIFIABLE		0x000380FF /* User modifiable flags */
  
  /*
-@@ -373,6 +374,8 @@ struct ext3_inode {
+@@ -371,6 +372,8 @@ struct ext3_inode {
  #define EXT3_MOUNT_QUOTA		0x80000 /* Some quota option set */
  #define EXT3_MOUNT_USRQUOTA		0x100000 /* "old" user quota */
  #define EXT3_MOUNT_GRPQUOTA		0x200000 /* "old" group quota */
@@ -2745,7 +2746,7 @@ Index: linux-2.6.18.8/include/linux/ext3_fs.h
  
  /* Compatibility, for having both ext2_fs.h and ext3_fs.h included at once */
  #ifndef clear_opt
-@@ -572,11 +575,13 @@ static inline int ext3_valid_inum(struct
+@@ -570,11 +573,13 @@ static inline int ext3_valid_inum(struct
  #define EXT3_FEATURE_INCOMPAT_RECOVER		0x0004 /* Needs recovery */
  #define EXT3_FEATURE_INCOMPAT_JOURNAL_DEV	0x0008 /* Journal device */
  #define EXT3_FEATURE_INCOMPAT_META_BG		0x0010
@@ -2760,10 +2761,10 @@ Index: linux-2.6.18.8/include/linux/ext3_fs.h
  #define EXT3_FEATURE_RO_COMPAT_SUPP	(EXT3_FEATURE_RO_COMPAT_SPARSE_SUPER| \
  					 EXT3_FEATURE_RO_COMPAT_LARGE_FILE| \
  					 EXT3_FEATURE_RO_COMPAT_BTREE_DIR)
-@@ -816,6 +821,9 @@ extern int ext3_get_inode_loc(struct ino
+@@ -816,6 +821,9 @@ extern void ext3_set_inode_flags(struct 
  extern void ext3_set_aops(struct inode *inode);
  extern int ext3_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
-		       u64 start, u64 len);
+ 		       u64 start, u64 len);
 +extern int ext3_writepage_trans_blocks(struct inode *);
 +extern int ext3_block_truncate_page(handle_t *handle, struct page *page,
 +		struct address_space *mapping, loff_t from);
@@ -2801,10 +2802,10 @@ Index: linux-2.6.18.8/include/linux/ext3_fs.h
  
  #endif	/* __KERNEL__ */
  
-Index: linux-2.6.18.8/include/linux/ext3_fs_i.h
+Index: linux-stage/include/linux/ext3_fs_i.h
 ===================================================================
---- linux-2.6.18.8.orig/include/linux/ext3_fs_i.h	2007-02-24 00:52:30.000000000 +0100
-+++ linux-2.6.18.8/include/linux/ext3_fs_i.h	2007-07-17 11:08:11.000000000 +0200
+--- linux-stage.orig/include/linux/ext3_fs_i.h
++++ linux-stage/include/linux/ext3_fs_i.h
 @@ -65,6 +65,16 @@ struct ext3_block_alloc_info {
  #define rsv_end rsv_window._rsv_end
  
@@ -2831,11 +2832,11 @@ Index: linux-2.6.18.8/include/linux/ext3_fs_i.h
  };
  
  #endif	/* _LINUX_EXT3_FS_I */
-Index: linux-2.6.18.8/include/linux/ext3_fs_sb.h
+Index: linux-stage/include/linux/ext3_fs_sb.h
 ===================================================================
---- linux-2.6.18.8.orig/include/linux/ext3_fs_sb.h	2007-02-24 00:52:30.000000000 +0100
-+++ linux-2.6.18.8/include/linux/ext3_fs_sb.h	2007-07-17 11:08:12.000000000 +0200
-@@ -78,6 +78,16 @@ struct ext3_sb_info {
+--- linux-stage.orig/include/linux/ext3_fs_sb.h
++++ linux-stage/include/linux/ext3_fs_sb.h
+@@ -79,6 +79,16 @@ struct ext3_sb_info {
  	char *s_qf_names[MAXQUOTAS];		/* Names of quota files with journalled quota */
  	int s_jquota_fmt;			/* Format of quota to use */
  #endif
@@ -2852,11 +2853,11 @@ Index: linux-2.6.18.8/include/linux/ext3_fs_sb.h
  };
  
  #endif	/* _LINUX_EXT3_FS_SB */
-Index: linux-2.6.18.8/include/linux/ext3_jbd.h
+Index: linux-stage/include/linux/ext3_jbd.h
 ===================================================================
---- linux-2.6.18.8.orig/include/linux/ext3_jbd.h	2007-02-24 00:52:30.000000000 +0100
-+++ linux-2.6.18.8/include/linux/ext3_jbd.h	2007-07-17 09:18:14.000000000 +0200
-@@ -23,12 +23,20 @@
+--- linux-stage.orig/include/linux/ext3_jbd.h
++++ linux-stage/include/linux/ext3_jbd.h
+@@ -23,12 +23,22 @@
  
  /* Define the number of blocks we need to account to a transaction to
   * modify one block of data.
@@ -2865,6 +2866,8 @@ Index: linux-2.6.18.8/include/linux/ext3_jbd.h
   * We may have to touch one inode, one bitmap buffer, up to three
   * indirection blocks, the group and superblock summaries, and the data
 - * block to complete the transaction.  */
+-
+-#define EXT3_SINGLEDATA_TRANS_BLOCKS	8U
 + * block to complete the transaction.
 + *
 + * For extents-enabled fs we may have to allocate and modify upto
@@ -2873,14 +2876,15 @@ Index: linux-2.6.18.8/include/linux/ext3_jbd.h
 +#define EXT3_SINGLEDATA_TRANS_BLOCKS(sb)				\
 +	(EXT3_HAS_INCOMPAT_FEATURE(sb, EXT3_FEATURE_INCOMPAT_EXTENTS)	\
 +		|| test_opt(sb, EXTENTS) ? 27U : 8U)
- 
--#define EXT3_SINGLEDATA_TRANS_BLOCKS	8U
++
 +/* Indicate that EXT3_SINGLEDATA_TRANS_BLOCKS takes the sb as argument */
++#ifndef EXT3_SINGLEDATA_TRANS_BLOCKS_HAS_SB
 +#define EXT3_SINGLEDATA_TRANS_BLOCKS_HAS_SB
++#endif
  
  /* Extended attribute operations touch at most two data buffers,
   * two bitmap buffers, and two group summaries, in addition to the inode
-@@ -42,7 +50,7 @@
+@@ -42,7 +52,7 @@
   * superblock only gets updated once, of course, so don't bother
   * counting that again for the quota updates. */
  
@@ -2889,7 +2893,7 @@ Index: linux-2.6.18.8/include/linux/ext3_jbd.h
  					 EXT3_XATTR_TRANS_BLOCKS - 2 + \
  					 2*EXT3_QUOTA_TRANS_BLOCKS(sb))
  
-@@ -78,9 +86,9 @@
+@@ -78,9 +88,9 @@
  /* Amount of blocks needed for quota insert/delete - we do some block writes
   * but inode, sb and group updates are done only once */
  #define EXT3_QUOTA_INIT_BLOCKS(sb) (test_opt(sb, QUOTA) ? (DQUOT_INIT_ALLOC*\
