@@ -293,7 +293,7 @@ Index: linux-2.6.18.8/fs/ext3/extents.c
  	newex.ee_start_hi = 0;
 -	newex.ee_len = cpu_to_le16(allocated);
 +	newex.ee_len = cpu_to_le16(ar.len);
- 	err = ext3_ext_insert_extent(handle, inode, path, &newex);
+ 	err = ext3_ext_insert_extent(handle, inode, path, &newex, 0);
  	if (err) {
  		/* free data blocks we just allocated */
 -		ext3_free_blocks(handle, inode, le32_to_cpu(newex.ee_start),

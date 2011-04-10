@@ -127,7 +127,7 @@ extern int ext3_xattr_set_handle(handle_t *, struct inode *, int, const char *, 
                ext3_ext_insert_extent(handle, inode, path, newext)
 #endif
 
-#ifdef EXT3_DISCARD_PREALLOCATIONS
+#if defined(HAVE_EXT4_LDISKFS) && defined(EXT3_DISCARD_PREALLOCATIONS)
 #define ext3_mb_discard_inode_preallocations(inode) \
                  ext3_discard_preallocations(inode)
 #endif
