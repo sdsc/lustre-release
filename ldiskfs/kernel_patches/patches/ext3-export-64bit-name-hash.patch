@@ -1,7 +1,7 @@
-Index: linux-2.6.18-194.17.1-ext3/fs/ext3/dir.c
+Index: linux-stage/fs/ext3/dir.c
 ===================================================================
---- linux-2.6.18-194.17.1-ext3.orig/fs/ext3/dir.c	2010-11-30 22:46:09.000000000 +0300
-+++ linux-2.6.18-194.17.1-ext3/fs/ext3/dir.c	2010-12-16 00:10:12.000000000 +0300
+--- linux-stage.orig/fs/ext3/dir.c
++++ linux-stage/fs/ext3/dir.c
 @@ -240,19 +240,34 @@ out:
  /*
   * These functions convert from the major/minor hash to an f_pos
@@ -98,29 +98,30 @@ Index: linux-2.6.18-194.17.1-ext3/fs/ext3/dir.c
  	}
  
  	/*
-Index: linux-2.6.18-194.17.1-ext3/fs/ext3/super.c
+Index: linux-stage/fs/ext3/super.c
 ===================================================================
---- linux-2.6.18-194.17.1-ext3.orig/fs/ext3/super.c	2010-11-30 22:48:01.000000000 +0300
-+++ linux-2.6.18-194.17.1-ext3/fs/ext3/super.c	2010-12-16 00:11:59.000000000 +0300
-@@ -742,6 +742,7 @@ enum {
+--- linux-stage.orig/fs/ext3/super.c
++++ linux-stage/fs/ext3/super.c
+@@ -742,7 +742,7 @@ enum {
  	Opt_grpquota,
  	Opt_extents, Opt_noextents, Opt_bigendian_extents, Opt_extdebug,
  	Opt_mballoc, Opt_nomballoc, Opt_stripe, Opt_maxdirsize, Opt_force_over_8tb,
-+	Opt_64bithash,
+-	Opt_no_mbcache,
++	Opt_no_mbcache, Opt_64bithash,
  };
  
  static match_table_t tokens = {
-@@ -808,6 +809,7 @@ static match_table_t tokens = {
- 	{Opt_force_over_8tb, "force_over_8tb"},
+@@ -810,6 +810,7 @@ static match_table_t tokens = {
  	{Opt_resize, "resize"},
  	{Opt_maxdirsize, "maxdirsize=%u"},
-+	{Opt_64bithash, "64bithash"},
+ 	{Opt_no_mbcache, "no_mbcache"},
++        {Opt_64bithash, "64bithash"},
  	{Opt_err, NULL}
  };
  
-@@ -1195,6 +1197,9 @@ clear_qf_name:
- 		case Opt_force_over_8tb:
- 			force_over_8tb = 1;
+@@ -1192,6 +1193,9 @@ clear_qf_name:
+ 		case Opt_no_mbcache:
+ 			set_opt(sbi->s_mount_opt, NO_MBCACHE);
  			break;
 +		case Opt_64bithash:
 +			set_opt(sbi->s_mount_opt, 64BITHASH);
@@ -128,13 +129,13 @@ Index: linux-2.6.18-194.17.1-ext3/fs/ext3/super.c
  		default:
  			printk (KERN_ERR
  				"EXT3-fs: Unrecognized mount option \"%s\" "
-Index: linux-2.6.18-194.17.1-ext3/include/linux/ext3_fs.h
+Index: linux-stage/include/linux/ext3_fs.h
 ===================================================================
---- linux-2.6.18-194.17.1-ext3.orig/include/linux/ext3_fs.h	2010-11-30 22:52:58.000000000 +0300
-+++ linux-2.6.18-194.17.1-ext3/include/linux/ext3_fs.h	2010-12-16 00:12:45.000000000 +0300
+--- linux-stage.orig/include/linux/ext3_fs.h
++++ linux-stage/include/linux/ext3_fs.h
 @@ -483,6 +483,8 @@ do {									       \
- #define EXT3_MOUNT_JOURNAL_ASYNC_COMMIT 0x20000000 /* Journal Async Commit */
- #endif
+ 
+ #define EXT3_MOUNT_NO_MBCACHE           0x40000000 /* Disable mbcache */
  
 +#define EXT3_MOUNT_64BITHASH            0x40000000 /* export 64-bit name hash */
 +
