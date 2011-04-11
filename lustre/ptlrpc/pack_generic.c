@@ -2215,67 +2215,56 @@ int quota_copy_qdata(void *r, struct qunit_data *qdata, int is_req,
 EXPORT_SYMBOL(quota_copy_qdata);
 #endif /* __KERNEL__ */
 
-static inline int req_ptlrpc_body_swabbed(struct ptlrpc_request *req)
-{
-        LASSERT(req->rq_reqmsg);
-
-        switch (req->rq_reqmsg->lm_magic) {
-        case LUSTRE_MSG_MAGIC_V2:
-                return lustre_req_swabbed(req, MSG_PTLRPC_BODY_OFF);
-        default:
-                CERROR("bad lustre msg magic: %#08X\n",
-                       req->rq_reqmsg->lm_magic);
-        }
-        return 0;
-}
-
-static inline int rep_ptlrpc_body_swabbed(struct ptlrpc_request *req)
-{
-        LASSERT(req->rq_repmsg);
-
-        switch (req->rq_repmsg->lm_magic) {
-        case LUSTRE_MSG_MAGIC_V2:
-                return lustre_rep_swabbed(req, MSG_PTLRPC_BODY_OFF);
-        default:
-                /* uninitialized yet */
-                return 0;
-        }
-}
-
 void _debug_req(struct ptlrpc_request *req, __u32 mask,
                 struct libcfs_debug_msg_data *data, const char *fmt, ... )
 {
         va_list args;
+        int opc = -1;
+        int req_fl = 0;
+        int rep_fl = 0;
+        int rep_status = 0;
+        __u64 transno = 0;
+
+        /* Caller is responsible holding a reference on the request */
+        LASSERT(req && atomic_read(&req->rq_refcount) > 0);
+
+        if (req->rq_reqmsg &&
+            (!(req->rq_reqmsg->lm_magic == LUSTRE_MSG_MAGIC_V2_SWABBED) ||
+             (ptlrpc_req_need_swab(req) &&
+              lustre_req_swabbed(req, MSG_PTLRPC_BODY_OFF)))) {
+                opc = lustre_msg_get_opc(req->rq_reqmsg);
+                req_fl = lustre_msg_get_flags(req->rq_reqmsg);
+                transno = lustre_msg_get_transno(req->rq_reqmsg);
+        }
+
+        if (req->rq_repmsg &&
+            (!(req->rq_repmsg->lm_magic == LUSTRE_MSG_MAGIC_V2_SWABBED) ||
+             (ptlrpc_rep_need_swab(req) &&
+              lustre_rep_swabbed(req, MSG_PTLRPC_BODY_OFF)))) {
+                rep_fl = lustre_msg_get_flags(req->rq_repmsg);
+                rep_status = lustre_msg_get_status(req->rq_repmsg);
+        }
+
         va_start(args, fmt);
-        libcfs_debug_vmsg2(data->msg_cdls, data->msg_subsys, mask, data->msg_file,
-                           data->msg_fn, data->msg_line, fmt, args,
-                           " req@%p x"LPU64"/t"LPD64"("LPD64") o%d->%s@%s:%d/%d"
-                           " lens %d/%d e %d to %d dl "CFS_TIME_T" ref %d "
-                           "fl "REQ_FLAGS_FMT"/%x/%x rc %d/%d\n",
-                           req, req->rq_xid, req->rq_transno,
-                           req->rq_reqmsg ? lustre_msg_get_transno(req->rq_reqmsg) : 0,
-                           req->rq_reqmsg && req_ptlrpc_body_swabbed(req) ?
-                           lustre_msg_get_opc(req->rq_reqmsg) : -1,
-                           req->rq_import ? obd2cli_tgt(req->rq_import->imp_obd) :
-                           req->rq_export ?
-                           (char*)req->rq_export->exp_client_uuid.uuid : "<?>",
-                           req->rq_import ?
-                           (char *)req->rq_import->imp_connection->c_remote_uuid.uuid :
-                           req->rq_export ?
-                           (char *)req->rq_export->exp_connection->c_remote_uuid.uuid : "<?>",
-                           req->rq_request_portal, req->rq_reply_portal,
-                           req->rq_reqlen, req->rq_replen,
-                           req->rq_early_count, req->rq_timedout,
-                           req->rq_deadline,
-                           cfs_atomic_read(&req->rq_refcount),
-                           DEBUG_REQ_FLAGS(req),
-                           req->rq_reqmsg && req_ptlrpc_body_swabbed(req) ?
-                           lustre_msg_get_flags(req->rq_reqmsg) : -1,
-                           req->rq_repmsg && rep_ptlrpc_body_swabbed(req) ?
-                           lustre_msg_get_flags(req->rq_repmsg) : -1,
-                           req->rq_status,
-                           req->rq_repmsg && rep_ptlrpc_body_swabbed(req) ?
-                           lustre_msg_get_status(req->rq_repmsg) : -1);
+        libcfs_debug_vmsg2(data->msg_cdls, data->msg_subsys, mask,
+                data->msg_file, data->msg_fn, data->msg_line, fmt, args,
+                " req@%p x"LPU64"/t"LPD64"("LPD64") o%d->%s@%s:%d/%d"
+                " lens %d/%d e %d to %d dl "CFS_TIME_T" ref %d "
+                "fl "REQ_FLAGS_FMT"/%x/%x rc %d/%d\n",
+                req, req->rq_xid, req->rq_transno, transno, opc,
+                req->rq_import ? obd2cli_tgt(req->rq_import->imp_obd) :
+                req->rq_export ?
+                (char*)req->rq_export->exp_client_uuid.uuid : "<?>",
+                req->rq_import ?
+                (char *)req->rq_import->imp_connection->c_remote_uuid.uuid :
+                req->rq_export ?
+                (char *)req->rq_export->exp_connection->c_remote_uuid.uuid :
+                "<?>", req->rq_request_portal, req->rq_reply_portal,
+                req->rq_reqlen, req->rq_replen,
+                req->rq_early_count, !!req->rq_timedout, req->rq_deadline,
+                cfs_atomic_read(&req->rq_refcount), DEBUG_REQ_FLAGS(req),
+                req_fl, rep_fl, req->rq_status, rep_status);
+        va_end(args);
 }
 EXPORT_SYMBOL(_debug_req);
 
