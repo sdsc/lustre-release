@@ -1136,8 +1136,6 @@ static int lmv_cleanup(struct obd_device *obd)
         struct lmv_obd   *lmv = &obd->u.lmv;
         ENTRY;
 
-        fld_client_fini(&lmv->lmv_fld);
-        lprocfs_obd_cleanup(obd);
         lmv_object_cleanup(obd);
         OBD_FREE(lmv->datas, lmv->datas_size);
         OBD_FREE(lmv->tgts, lmv->tgts_size);
@@ -2557,7 +2555,8 @@ repeat:
 
 static int lmv_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
 {
-        int        rc = 0;
+        struct lmv_obd *lmv = &obd->u.lmv;
+        int rc = 0;
 
         switch (stage) {
         case OBD_CLEANUP_EARLY:
@@ -2565,6 +2564,8 @@ static int lmv_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
                  * stack. */
                 break;
         case OBD_CLEANUP_EXPORTS:
+                fld_client_fini(&lmv->lmv_fld);
+                lprocfs_obd_cleanup(obd);
                 rc = obd_llog_finish(obd, 0);
                 if (rc != 0)
                         CERROR("failed to cleanup llogging subsystems\n");
