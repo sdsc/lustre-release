@@ -4337,8 +4337,12 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
         mdt_stop_ptlrpc_service(m);
         mdt_llog_ctxt_unclone(env, m, LLOG_CHANGELOG_ORIG_CTXT);
         mdt_obd_llog_cleanup(obd);
+
         obd_exports_barrier(obd);
         obd_zombie_barrier();
+
+        mdt_procfs_fini(m);
+
 #ifdef HAVE_QUOTA_SUPPORT
         next->md_ops->mdo_quota.mqo_cleanup(env, next);
 #endif
@@ -4373,10 +4377,6 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
          * Finish the stack
          */
         mdt_stack_fini(env, m, md2lu_dev(m->mdt_child));
-
-        lprocfs_free_per_client_stats(obd);
-        lprocfs_free_obd_stats(obd);
-        mdt_procfs_fini(m);
 
         if (ls) {
                 struct md_site *mite;
@@ -4566,12 +4566,6 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
                 GOTO(err_free_site, rc);
         }
 
-        rc = mdt_procfs_init(m, dev);
-        if (rc) {
-                CERROR("Can't init MDT lprocfs, rc %d\n", rc);
-                GOTO(err_fini_proc, rc);
-        }
-
         /* set server index */
         lu_site2md(s)->ms_node_id = node_id;
 
@@ -4595,7 +4589,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         rc = mdt_stack_init((struct lu_env *)env, m, cfg, lmi);
         if (rc) {
                 CERROR("Can't init device stack, rc %d\n", rc);
-                GOTO(err_fini_proc, rc);
+                GOTO(err_lu_site, rc);
         }
 
         rc = lut_init(env, &m->mdt_lut, obd, m->mdt_bottom);
@@ -4689,6 +4683,12 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         if (ldlm_timeout == LDLM_TIMEOUT_DEFAULT)
                 ldlm_timeout = MDS_LDLM_TIMEOUT_DEFAULT;
 
+        rc = mdt_procfs_init(m, dev);
+        if (rc) {
+                CERROR("Can't init MDT lprocfs, rc %d\n", rc);
+                GOTO(err_stop_service, rc);
+        }
+
         RETURN(0);
 
 err_stop_service:
@@ -4720,8 +4720,7 @@ err_lut:
         lut_fini(env, &m->mdt_lut);
 err_fini_stack:
         mdt_stack_fini(env, m, md2lu_dev(m->mdt_child));
-err_fini_proc:
-        mdt_procfs_fini(m);
+err_lu_site:
         lu_site_fini(s);
 err_free_site:
         OBD_FREE_PTR(mite);

@@ -849,7 +849,8 @@ static int lov_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
 {
         int rc = 0;
         struct lov_obd *lov = &obd->u.lov;
-
+        cfs_list_t *pos, *tmp;
+        struct pool_desc *pool;
         ENTRY;
 
         switch (stage) {
@@ -864,6 +865,43 @@ static int lov_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
                 break;
         }
         case OBD_CLEANUP_EXPORTS:
+                cfs_list_for_each_safe(pos, tmp, &lov->lov_pool_list) {
+                        pool = cfs_list_entry(pos, struct pool_desc, pool_list);
+                        /* free pool structs */
+                        CDEBUG(D_INFO, "delete pool %p\n", pool);
+                        lov_pool_del(obd, pool->pool_name);
+                }
+                cfs_hash_putref(lov->lov_pools_hash_body);
+                lov_ost_pool_free(&(lov->lov_qos.lq_rr.lqr_pool));
+                lov_ost_pool_free(&lov->lov_packed);
+
+                if (lov->lov_tgts) {
+                        int i;
+                        obd_getref(obd);
+                        for (i = 0; i < lov->desc.ld_tgt_count; i++) {
+                                if (!lov->lov_tgts[i])
+                                        continue;
+
+                                /* Inactive targets may never have connected */
+                                if (lov->lov_tgts[i]->ltd_active ||
+                                    cfs_atomic_read(&lov->lov_refcount))
+                                    /* We should never get here - these
+                                       should have been removed in the
+                                     disconnect. */
+                                        CERROR("lov tgt %d not cleaned!"
+                                               " deathrow=%d, lovrc=%d\n",
+                                               i, lov->lov_death_row,
+                                               cfs_atomic_read(&lov->
+                                                               lov_refcount));
+                                lov_del_target(obd, i, 0, 0);
+                        }
+                        obd_putref(obd);
+                }
+
+                /* clear pools parent proc entry only after all pools is killed
+                 */
+                lprocfs_obd_cleanup(obd);
+
                 rc = obd_llog_finish(obd, 0);
                 if (rc != 0)
                         CERROR("failed to cleanup llogging subsystems\n");
@@ -875,47 +913,13 @@ static int lov_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
 static int lov_cleanup(struct obd_device *obd)
 {
         struct lov_obd *lov = &obd->u.lov;
-        cfs_list_t *pos, *tmp;
-        struct pool_desc *pool;
-
-        cfs_list_for_each_safe(pos, tmp, &lov->lov_pool_list) {
-                pool = cfs_list_entry(pos, struct pool_desc, pool_list);
-                /* free pool structs */
-                CDEBUG(D_INFO, "delete pool %p\n", pool);
-                lov_pool_del(obd, pool->pool_name);
-        }
-        cfs_hash_putref(lov->lov_pools_hash_body);
-        lov_ost_pool_free(&(lov->lov_qos.lq_rr.lqr_pool));
-        lov_ost_pool_free(&lov->lov_packed);
+        ENTRY;
 
         if (lov->lov_tgts) {
-                int i;
-                obd_getref(obd);
-                for (i = 0; i < lov->desc.ld_tgt_count; i++) {
-                        if (!lov->lov_tgts[i])
-                                continue;
-
-                        /* Inactive targets may never have connected */
-                        if (lov->lov_tgts[i]->ltd_active ||
-                            cfs_atomic_read(&lov->lov_refcount))
-                            /* We should never get here - these
-                               should have been removed in the
-                             disconnect. */
-                                CERROR("lov tgt %d not cleaned!"
-                                       " deathrow=%d, lovrc=%d\n",
-                                       i, lov->lov_death_row,
-                                       cfs_atomic_read(&lov->lov_refcount));
-                        lov_del_target(obd, i, 0, 0);
-                }
-                obd_putref(obd);
                 OBD_FREE(lov->lov_tgts, sizeof(*lov->lov_tgts) *
-                         lov->lov_tgt_size);
+                                        lov->lov_tgt_size);
                 lov->lov_tgt_size = 0;
         }
-
-        /* clear pools parent proc entry only after all pools is killed */
-        lprocfs_obd_cleanup(obd);
-
         OBD_FREE_PTR(lov->lov_qos.lq_statfs_data);
         RETURN(0);
 }
