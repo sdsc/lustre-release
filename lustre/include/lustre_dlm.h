@@ -892,6 +892,7 @@ int ldlm_cancel_resource_local(struct ldlm_resource *res,
                                int lock_flags, int cancel_flags, void *opaque);
 int ldlm_cli_cancel_list(struct list_head *head, int count,
                          struct ptlrpc_request *req, int off);
+int ldlm_cancel_list(struct list_head *cancels, int count, int flags);
 
 /* ioctls for trying requests */
 #define IOC_LDLM_TYPE                   'f'
