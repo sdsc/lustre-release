@@ -722,7 +722,8 @@ setup_quota(){
 zconf_mount() {
     local client=$1
     local mnt=$2
-    local OPTIONS=${3:-$MOUNTOPT}
+    shift 2
+    local OPTIONS=${@:-$MOUNTOPT}
 
     local device=$MGSNID:/$FSNAME
     if [ -z "$mnt" -o -z "$FSNAME" ]; then
@@ -830,7 +831,8 @@ sanity_mount_check () {
 zconf_mount_clients() {
     local clients=$1
     local mnt=$2
-    local OPTIONS=${3:-$MOUNTOPT}
+    shift 2
+    local OPTIONS=${@:-$MOUNTOPT}
 
     local device=$MGSNID:/$FSNAME
     if [ -z "$mnt" -o -z "$FSNAME" ]; then
