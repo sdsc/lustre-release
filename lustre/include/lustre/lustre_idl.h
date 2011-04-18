@@ -790,8 +790,9 @@ static inline int lu_fid_cmp(const struct lu_fid *f0,
  * enumeration.
  */
 enum lu_dirent_attrs {
-        LUDA_FID    = 0x0001,
-        LUDA_TYPE   = 0x0002,
+        LUDA_FID        = 0x0001,
+        LUDA_TYPE       = 0x0002,
+        LUDA_64BITHASH  = 0x0004,
 };
 
 /**
@@ -901,6 +902,7 @@ static inline int lu_dirent_size(struct lu_dirent *ent)
 }
 
 #define DIR_END_OFF              0xfffffffffffffffeULL
+#define DIR_END_OFF_32BIT        0xfffffffeUL
 
 /** @} lu_dir */
 
@@ -1070,6 +1072,8 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 #define OBD_CONNECT_MAX_EASIZE    0x800000000ULL /* preserved for large EA */
 #define OBD_CONNECT_FULL20       0x1000000000ULL /* it is 2.0 client */
 #define OBD_CONNECT_LAYOUTLOCK   0x2000000000ULL /* client supports layout lock */
+#define OBD_CONNECT_64BITHASH    0x4000000000ULL /* client supports 64-bits
+                                                  * directory hash */
 /* also update obd_connect_names[] for lprocfs_rd_connect_flags()
  * and lustre/utils/wirecheck.c */
 
@@ -1090,7 +1094,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                 OBD_CONNECT_MDS_MDS | OBD_CONNECT_FID | \
                                 LRU_RESIZE_CONNECT_FLAG | OBD_CONNECT_VBR | \
                                 OBD_CONNECT_LOV_V3 | OBD_CONNECT_SOM | \
-                                OBD_CONNECT_FULL20)
+                                OBD_CONNECT_FULL20 | OBD_CONNECT_64BITHASH)
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
                                 OBD_CONNECT_TRUNCLOCK | OBD_CONNECT_INDEX | \
@@ -1145,6 +1149,11 @@ typedef enum {
         OBD_CKSUM_CRC32 = 0x00000001,
         OBD_CKSUM_ADLER = 0x00000002,
 } cksum_type_t;
+
+enum {
+        MNTOPT_USER_XATTR       = 0,
+        MNTOPT_ACL              = 1,
+};
 
 /*
  *   OST requests: OBDO & OBD request records
@@ -1319,6 +1328,8 @@ struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
 #define OBD_MD_FLRMTLGETFACL    (0x0002000000000000ULL) /* lfs lgetfacl case */
 #define OBD_MD_FLRMTRSETFACL    (0x0004000000000000ULL) /* lfs rsetfacl case */
 #define OBD_MD_FLRMTRGETFACL    (0x0008000000000000ULL) /* lfs rgetfacl case */
+
+#define OBD_MD_FLDEFACL    (0x0010000000000000ULL) /* default ACL */
 
 #define OBD_MD_FLGETATTR (OBD_MD_FLID    | OBD_MD_FLATIME | OBD_MD_FLMTIME | \
                           OBD_MD_FLCTIME | OBD_MD_FLSIZE  | OBD_MD_FLBLKSZ | \
@@ -1619,7 +1630,7 @@ struct mdt_body {
         __u32          max_cookiesize;
         __u32          uid_h; /* high 32-bits of uid, for FUID */
         __u32          gid_h; /* high 32-bits of gid, for FUID */
-        __u32          padding_5; /* also fix lustre_swab_mdt_body */
+        __u32          defaclsize;
         __u64          padding_6;
         __u64          padding_7;
         __u64          padding_8;
