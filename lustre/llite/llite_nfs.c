@@ -73,7 +73,8 @@ static struct inode *search_inode_for_lustre(struct super_block *sb,
         struct ptlrpc_request *req = NULL;
         struct inode          *inode = NULL;
         int                   eadatalen = 0;
-        unsigned long         hash = (unsigned long) cl_fid_build_ino(fid);
+        unsigned long         hash = (unsigned long) cl_fid_build_ino(fid,
+                                                        sbi->ll_32bitapi);
         struct  md_op_data    *op_data;
         int                   rc;
         ENTRY;
@@ -141,7 +142,7 @@ static struct dentry *ll_iget_for_nfs(struct super_block *sb,
         if (!result)
                 RETURN(ERR_PTR(-ENOMEM));
 
-        ll_dops_init(result, 1);
+        ll_dops_init(result, 1, 0);
 
         RETURN(result);
 }
