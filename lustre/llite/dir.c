@@ -440,16 +440,15 @@ int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
         __u64                 pos   = fd->fd_dir.lfd_pos;
         struct page          *page;
         struct ll_dir_chain   chain;
-        int rc, need_32bit;
+        int rc;
         int done;
         int shift;
         __u16 type;
         ENTRY;
 
-        need_32bit = ll_need_32bit_api(sbi);
         CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p) pos %lu/%llu 32bit_api %d\n",
                inode->i_ino, inode->i_generation, inode,
-               (unsigned long)pos, i_size_read(inode), need_32bit);
+               (unsigned long)pos, i_size_read(inode), sbi->ll_32bitapi);
 
         if (pos == DIR_END_OFF)
                 /*
@@ -507,16 +506,30 @@ int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
 
                                 name = ent->lde_name;
                                 fid_le_to_cpu(&fid, &ent->lde_fid);
-                                if (need_32bit) {
-                                        lhash = hash >> 32;
-                                        ino = cl_fid_build_ino32(&fid);
+
+                                if (filp->f_flags & O_NFSFIND) {
+                                        struct ll_getname_callback *lgc =cookie;
+
+                                        if (lu_fid_eq(&fid, &lgc->lgc_fid)) {
+                                                memcpy(lgc->lgc_name,
+                                                       name, namelen);
+                                                lgc->lgc_name[namelen] = 0;
+                                                lgc->lgc_found = 1;
+                                                ll_put_page(page);
+                                                RETURN(0);
+                                        }
+                                        continue;
                                 } else {
-                                        lhash = hash;
-                                        ino = cl_fid_build_ino(&fid);
+                                        if (sbi->ll_32bitapi)
+                                                lhash = hash >> 32;
+                                        else
+                                                lhash = hash;
+                                        ino = cl_fid_build_ino(&fid,
+                                                        sbi->ll_32bitapi);
+                                        type = ll_dirent_type_get(ent);
+                                        done = filldir(cookie, name, namelen,
+                                                       lhash, ino, type);
                                 }
-                                type = ll_dirent_type_get(ent);
-                                done = filldir(cookie, name, namelen,
-                                               lhash, ino, type);
                         }
                         next = le64_to_cpu(dp->ldp_hash_end);
                         ll_put_page(page);
@@ -551,10 +564,14 @@ int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
         }
 
         fd->fd_dir.lfd_pos = pos;
-        if (need_32bit)
-                filp->f_pos = pos >> 32;
-        else
+        if (sbi->ll_32bitapi) {
+                if (pos == DIR_END_OFF)
+                        filp->f_pos = DIR_END_OFF_32BIT;
+                else
+                        filp->f_pos = pos >> 32;
+        } else {
                 filp->f_pos = pos;
+        }
         filp->f_version = inode->i_version;
         touch_atime(filp->f_vfsmnt, filp->f_dentry);
 
@@ -1365,33 +1382,55 @@ out_free:
 
 static loff_t ll_dir_seek(struct file *file, loff_t offset, int origin)
 {
+        struct inode *inode = file->f_mapping->host;
+        struct ll_sb_info *sbi = ll_i2sbi(inode);
         struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
-        loff_t pos = file->f_pos;
-        loff_t ret;
+        loff_t ret = -EINVAL;
         ENTRY;
 
-        if (origin == 1 && offset >= 0 && file->f_pos == DIR_END_OFF) {
-                CWARN("end of dir hash, DIR_END_OFF(-2) is returned\n");
-                RETURN(DIR_END_OFF);
-        }
-
-        ret = default_llseek(file, offset, origin);
-        if (ret >= 0) {
-                struct ll_sb_info *sbi = ll_i2sbi(file->f_dentry->d_inode);
-
-                if (ll_need_32bit_api(sbi)) {
-                        if (file->f_pos >> 32) {
-                                /* hash overflow, simple revert */
-                                file->f_pos = pos;
-                                RETURN(-EOVERFLOW);
-                        } else {
-                                fd->fd_dir.lfd_pos = file->f_pos << 32;
+        cfs_mutex_lock(&inode->i_mutex);
+        switch (origin) {
+                case 2:
+                        offset += inode->i_size;
+                        break;
+                case 1:
+                        if ((sbi->ll_32bitapi &&
+                             file->f_pos == DIR_END_OFF_32BIT) ||
+                            (!sbi->ll_32bitapi &&
+                             file->f_pos == DIR_END_OFF)) {
+                                if (offset == 0)
+                                        GOTO(out, ret = file->f_pos);
+                                else if (offset > 0)
+                                        GOTO(out, ret);
                         }
-                } else {
-                        fd->fd_dir.lfd_pos = file->f_pos;
-                }
+                        offset += file->f_pos;
+                        break;
         }
-        RETURN(ret);
+
+        if (sbi->ll_32bitapi && offset >= 0 && offset <= DIR_END_OFF_32BIT) {
+                if (offset != file->f_pos) {
+                        if (offset == DIR_END_OFF_32BIT)
+                                fd->fd_dir.lfd_pos = DIR_END_OFF;
+                        else
+                                fd->fd_dir.lfd_pos = offset << 32;
+                        file->f_pos = offset;
+                        file->f_version = 0;
+                }
+                ret = offset;
+        } else if (!sbi->ll_32bitapi &&
+                   (offset >= 0 || offset == DIR_END_OFF)) {
+                if (offset != file->f_pos) {
+                        fd->fd_dir.lfd_pos = offset;
+                        file->f_pos = offset;
+                        file->f_version = 0;
+                }
+                ret = offset;
+        }
+        EXIT;
+
+out:
+        cfs_mutex_unlock(&inode->i_mutex);
+        return ret;
 }
 
 int ll_dir_open(struct inode *inode, struct file *file)

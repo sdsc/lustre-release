@@ -73,7 +73,7 @@ static struct inode *search_inode_for_lustre(struct super_block *sb,
         struct ptlrpc_request *req = NULL;
         struct inode          *inode = NULL;
         int                   eadatalen = 0;
-        unsigned long         hash = (unsigned long) cl_fid_build_ino(fid);
+        unsigned long         hash = (unsigned long) cl_fid_build_ino(fid, 0);
         struct  md_op_data    *op_data;
         int                   rc;
         ENTRY;
@@ -141,7 +141,7 @@ static struct dentry *ll_iget_for_nfs(struct super_block *sb,
         if (!result)
                 RETURN(ERR_PTR(-ENOMEM));
 
-        ll_dops_init(result, 1);
+        ll_dops_init(result, 1, 0);
 
         RETURN(result);
 }
@@ -182,6 +182,46 @@ static int ll_encode_fh(struct dentry *de, __u32 *fh, int *plen,
         *plen = sizeof(struct lustre_nfs_fid)/4;
 
         RETURN(LUSTRE_NFS_FID);
+}
+
+static int ll_get_name(struct dentry *dentry, char *name,
+                       struct dentry *child)
+{
+        struct inode *dir = dentry->d_inode;
+        struct file *filp;
+        struct ll_getname_callback lgc;
+        int rc;
+        ENTRY;
+
+        if (!dir || !S_ISDIR(dir->i_mode))
+                GOTO(out, rc = -ENOTDIR);
+
+        if (!dir->i_fop)
+                GOTO(out, rc = -EINVAL);
+
+        filp = dentry_open(dget(dentry), NULL, O_RDONLY);
+        if (IS_ERR(filp))
+                GOTO(out, rc = PTR_ERR(filp));
+
+        if (!filp->f_op->readdir)
+                GOTO(out_close, rc = -EINVAL);
+
+        filp->f_flags = O_NFSFIND;
+        lgc.lgc_name = name;
+        lgc.lgc_fid = ll_i2info(child->d_inode)->lli_fid;
+        lgc.lgc_found = 0;
+
+        cfs_mutex_lock(&dir->i_mutex);
+        rc = ll_readdir(filp, &lgc, NULL);
+        cfs_mutex_unlock(&dir->i_mutex);
+        if (!rc && !lgc.lgc_found)
+                rc = -ENOENT;
+        EXIT;
+
+out_close:
+        fput(filp);
+out:
+        return rc;
 }
 
 #ifdef HAVE_FH_TO_DENTRY
@@ -290,6 +330,7 @@ static struct dentry *ll_get_parent(struct dentry *dchild)
 struct export_operations lustre_export_operations = {
        .get_parent = ll_get_parent,
        .encode_fh  = ll_encode_fh,
+       .get_name   = ll_get_name,
 #ifdef HAVE_FH_TO_DENTRY
         .fh_to_dentry = ll_fh_to_dentry,
         .fh_to_parent = ll_fh_to_parent,
