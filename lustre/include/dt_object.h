@@ -72,6 +72,8 @@ struct dt_device_param {
         unsigned           ddp_max_name_len;
         unsigned           ddp_max_nlink;
         unsigned           ddp_block_shift;
+        unsigned           ddp_mntopt_uxattr:1,
+                           ddp_mntopt_acl:1;
 };
 
 /**
@@ -457,6 +459,7 @@ struct dt_index_operations {
                  */
                 struct dt_it *(*init)(const struct lu_env *env,
                                       struct dt_object *dt,
+                                      __u32 attr,
                                       struct lustre_capa *capa);
                 void          (*fini)(const struct lu_env *env,
                                       struct dt_it *di);

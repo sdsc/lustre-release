@@ -140,6 +140,7 @@ int lmv_intent_remote(struct obd_export *exp, void *lmm,
         }
         it->d.lustre.it_lock_handle = plock.cookie;
         it->d.lustre.it_lock_mode = pmode;
+        it->d.lustre.it_lock_to_join = 1;
 
         EXIT;
 out_free_op_data:
@@ -720,6 +721,7 @@ release_lock:
                 if (master_valid == 0) {
                         oit->d.lustre.it_lock_handle = master_lockh.cookie;
                         oit->d.lustre.it_lock_mode = master_lockm;
+                        oit->d.lustre.it_lock_to_join = 1;
                 }
                 rc = 0;
         } else {
