@@ -285,6 +285,7 @@ struct ptlrpc_request_set {
         cfs_spinlock_t        set_new_req_lock;
         /** List of new yet unsent requests. Only used with ptlrpcd now. */
         cfs_list_t            set_new_requests;
+        unsigned int          set_new_count;
 };
 
 /**
@@ -507,7 +508,8 @@ struct ptlrpc_request {
                 rq_reply_truncate:1,
                 rq_committed:1,
                 /* whether the "rq_set" is a valid one */
-                rq_invalid_rqset:1;
+                rq_invalid_rqset:1,
+                rq_no_elc:1;
 
         enum rq_phase rq_phase; /* one of RQ_PHASE_* */
         enum rq_phase rq_next_phase; /* one of RQ_PHASE_* to be used next */
@@ -1386,7 +1388,8 @@ struct ptlrpc_request_set *ptlrpc_prep_set(void);
 int ptlrpc_set_add_cb(struct ptlrpc_request_set *set,
                       set_interpreter_func fn, void *data);
 int ptlrpc_set_next_timeout(struct ptlrpc_request_set *);
-int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set);
+int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set,
+                     int unlink);
 int ptlrpc_set_wait(struct ptlrpc_request_set *);
 int ptlrpc_expired_set(void *data);
 void ptlrpc_interrupted_set(void *data);
@@ -1845,6 +1848,7 @@ enum ptlrpcd_scope {
 int ptlrpcd_start(const char *name, struct ptlrpcd_ctl *pc);
 void ptlrpcd_stop(struct ptlrpcd_ctl *pc, int force);
 void ptlrpcd_wake(struct ptlrpc_request *req);
+int ptlrpcd_agl_add_req(struct ptlrpc_request *req, int idx);
 int ptlrpcd_add_req(struct ptlrpc_request *req, enum ptlrpcd_scope scope);
 void ptlrpcd_add_rqset(struct ptlrpc_request_set *set);
 int ptlrpcd_addref(void);

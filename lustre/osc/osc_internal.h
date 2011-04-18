@@ -124,11 +124,11 @@ extern struct ptlrpc_request_set *PTLRPCD_SET;
 
 int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
                      int *flags, ldlm_policy_data_t *policy,
-                     struct ost_lvb *lvb, int kms_valid,
+                     int idx, struct ost_lvb *lvb, int kms_valid,
                      obd_enqueue_update_f upcall,
                      void *cookie, struct ldlm_enqueue_info *einfo,
                      struct lustre_handle *lockh,
-                     struct ptlrpc_request_set *rqset, int async);
+                     struct ptlrpc_request_set *rqset, int async, int enqflags);
 int osc_cancel_base(struct lustre_handle *lockh, __u32 mode);
 
 int osc_match_base(struct obd_export *exp, struct ldlm_res_id *res_id,

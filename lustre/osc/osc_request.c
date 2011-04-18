@@ -3224,7 +3224,9 @@ static int osc_enqueue_fini(struct ptlrpc_request *req, struct ost_lvb *lvb,
                 }
         }
 
-        if ((intent && rc == ELDLM_LOCK_ABORTED) || !rc) {
+        if ((intent != 0 && rc == ELDLM_LOCK_ABORTED &&
+             !(*flags & LDLM_FL_NO_CALLBACK)) ||
+            rc == 0) {
                 *flags |= LDLM_FL_LVB_READY;
                 CDEBUG(D_INODE,"got kms "LPU64" blocks "LPU64" mtime "LPU64"\n",
                        lvb->lvb_size, lvb->lvb_blocks, lvb->lvb_mtime);
@@ -3334,11 +3336,11 @@ struct ptlrpc_request_set *PTLRPCD_SET = (void *)1;
  * release locks just after they are obtained. */
 int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
                      int *flags, ldlm_policy_data_t *policy,
-                     struct ost_lvb *lvb, int kms_valid,
+                     int idx, struct ost_lvb *lvb, int kms_valid,
                      obd_enqueue_update_f upcall, void *cookie,
                      struct ldlm_enqueue_info *einfo,
                      struct lustre_handle *lockh,
-                     struct ptlrpc_request_set *rqset, int async)
+                     struct ptlrpc_request_set *rqset, int async, int enqflags)
 {
         struct obd_device *obd = exp->exp_obd;
         struct ptlrpc_request *req = NULL;
@@ -3418,6 +3420,8 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
                 if (req == NULL)
                         RETURN(-ENOMEM);
 
+                if (enqflags & CEF_AGL)
+                        req->rq_no_elc = 1;
                 rc = ldlm_prep_enqueue_req(exp, req, &cancels, 0);
                 if (rc) {
                         ptlrpc_request_free(req);
@@ -3449,10 +3453,18 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
 
                         req->rq_interpret_reply =
                                 (ptlrpc_interpterer_t)osc_enqueue_interpret;
-                        if (rqset == PTLRPCD_SET)
-                                ptlrpcd_add_req(req, PSCOPE_OTHER);
-                        else
+                        if (rqset == PTLRPCD_SET) {
+                                if (enqflags & CEF_AGL) {
+                                        rc = ptlrpcd_agl_add_req(req, idx);
+                                        if (rc < 0)
+                                                rc = ptlrpcd_add_req(req,
+                                                                PSCOPE_OTHER);
+                                } else {
+                                        ptlrpcd_add_req(req, PSCOPE_OTHER);
+                                }
+                        } else {
                                 ptlrpc_set_add_req(rqset, req);
+                        }
                 } else if (intent) {
                         ptlrpc_req_finished(req);
                 }
@@ -3478,10 +3490,11 @@ static int osc_enqueue(struct obd_export *exp, struct obd_info *oinfo,
                            oinfo->oi_md->lsm_object_seq, &res_id);
 
         rc = osc_enqueue_base(exp, &res_id, &oinfo->oi_flags, &oinfo->oi_policy,
+                              oinfo->oi_md->lsm_oinfo[0]->loi_ost_idx,
                               &oinfo->oi_md->lsm_oinfo[0]->loi_lvb,
                               oinfo->oi_md->lsm_oinfo[0]->loi_kms_valid,
                               oinfo->oi_cb_up, oinfo, einfo, oinfo->oi_lockh,
-                              rqset, rqset != NULL);
+                              rqset, rqset != NULL, 0);
         RETURN(rc);
 }
 
@@ -4136,7 +4149,7 @@ static int osc_set_info_async(struct obd_export *exp, obd_count keylen,
         if (!KEY_IS(KEY_GRANT_SHRINK)) {
                 LASSERT(set != NULL);
                 ptlrpc_set_add_req(set, req);
-                ptlrpc_check_set(NULL, set);
+                ptlrpc_check_set(NULL, set, 0);
         } else
                 ptlrpcd_add_req(req, PSCOPE_OTHER);
 

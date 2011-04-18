@@ -47,6 +47,7 @@
 /* for struct cl_lock_descr and struct cl_io */
 #include <cl_object.h>
 #include <lclient.h>
+#include <linux/lustre_intent.h>
 
 #ifndef FMODE_EXEC
 #define FMODE_EXEC 0
@@ -54,6 +55,12 @@
 
 #ifndef DCACHE_LUSTRE_INVALID
 #define DCACHE_LUSTRE_INVALID 0x4000000
+#endif
+
+/* Create family functions will add dentry into dcache with DCACHE_LUSTRE_EARLY
+ * to tell statahead thread that NOT process it. */
+#ifndef DCACHE_LUSTRE_EARLY
+#define DCACHE_LUSTRE_EARLY 0x8000
 #endif
 
 #define LL_IT2STR(it) ((it) ? ldlm_it2str((it)->it_op) : "0")
@@ -77,6 +84,16 @@ extern struct file_operations ll_pgcache_seq_fops;
 
 /* remote client permission cache */
 #define REMOTE_PERM_HASHSIZE 16
+
+#ifndef O_NFSFIND
+# define O_NFSFIND      0x40000000
+#endif
+
+struct ll_getname_callback {
+        char            *lgc_name;      /* points to a buffer with NAME_MAX+1 size */
+        struct lu_fid    lgc_fid;       /* fid we are looking for */
+        int              lgc_found;     /* inode matched? */
+};
 
 /* llite setxid/access permission for user on remote client */
 struct ll_remote_perm {
@@ -117,7 +134,6 @@ struct ll_inode_info {
         __u64                   lli_maxbytes;
         __u64                   lli_ioepoch;
         unsigned long           lli_flags;
-        cfs_time_t              lli_contention_time;
 
         /* this lock protects posix_acl, pending_write_llaps, mmap_cnt */
         cfs_spinlock_t          lli_lock;
@@ -132,6 +148,7 @@ struct ll_inode_info {
         int                     lli_write_rc;
 
         struct posix_acl       *lli_posix_acl;
+        struct posix_acl       *lli_def_acl;
 
         /* remote permission hash */
         cfs_hlist_head_t       *lli_remote_perms;
@@ -168,13 +185,14 @@ struct ll_inode_info {
 
         /* metadata statahead */
         /* protect statahead stuff: lli_opendir_pid, lli_opendir_key, lli_sai,
-         * and so on. */
+         * lli_statahead_pid, and so on. */
         cfs_spinlock_t          lli_sa_lock;
         /*
          * "opendir_pid" is the token when lookup/revalid -- I am the owner of
          * dir statahead.
          */
         pid_t                   lli_opendir_pid;
+        pid_t                   lli_statahead_pid;
         /*
          * since parent-child threads can share the same @file struct,
          * "opendir_key" is the token when dir close for case of parent exit
@@ -182,6 +200,25 @@ struct ll_inode_info {
         void                   *lli_opendir_key;
         struct ll_statahead_info *lli_sai;
         __u64                   lli_sa_pos;
+
+        /* Async glimpse lock */
+        /* protect AGL stuff: lli_agl_idx, lli_agl_parent, lli_agl_list,
+         * lli_agl_args, and so on. */
+        cfs_spinlock_t          lli_agl_lock;
+        unsigned int            lli_agl_idx;
+        /**
+         * to parent that the AGL is under.
+         */
+        struct inode           *lli_agl_parent;
+        /**
+         * for child items, to link into parent's sai_agl_{prep/sent}.
+         */
+        cfs_list_t              lli_agl_list;
+        /**
+         * for AGL process
+         */
+        struct cl_agl_args      lli_agl_args;
+
         struct cl_object       *lli_clob;
         /* the most recent timestamps obtained from mds */
         struct ost_lvb          lli_lvb;
@@ -391,15 +428,27 @@ struct ll_sb_info {
 
         /* metadata stat-ahead */
         unsigned int              ll_sa_max;     /* max statahead RPCs */
+        unsigned int              ll_sa_slow;    /* statahead thread runs slows
+                                                  * if the busy statahead window
+                                                  * is smaller than it */
         atomic_t                  ll_sa_total;   /* statahead thread started
                                                   * count */
         atomic_t                  ll_sa_wrong;   /* statahead thread stopped for
                                                   * low hit ratio */
+        atomic_t                  ll_agl_total;  /* AGL thread started count */
+        unsigned int              ll_agl_enabled:1,/* enable/disable agl*/
+        /**
+         * the async glimpse size will be cached on client until someone (ls)
+         * use it or top-level lock released, which maybe different from the
+         * the real file size when someone use it, it is not serious for "ls".
+         */
+                                  ll_agl_rough:1;
 
         dev_t                     ll_sdev_orig; /* save s_dev before assign for
                                                  * clustred nfs */
         struct rmtacl_ctl_table   ll_rct;
         struct eacl_table         ll_et;
+        unsigned long             ll_32bitapi:1;
 };
 
 #define LL_DEFAULT_MAX_RW_CHUNK      (32 * 1024 * 1024)
@@ -581,6 +630,7 @@ extern struct file_operations ll_dir_operations;
 extern struct inode_operations ll_dir_inode_operations;
 struct page *ll_get_dir_page(struct file *filp, struct inode *dir, __u64 hash,
                              int exact, struct ll_dir_chain *chain);
+int ll_readdir(struct file *filp, void *cookie, filldir_t filldir);
 
 int ll_get_mdt_idx(struct inode *inode);
 /* llite/namei.c */
@@ -679,7 +729,7 @@ int ll_fid2path(struct obd_export *exp, void *arg);
 /**
  * protect race ll_find_aliases vs ll_revalidate_it vs ll_unhash_aliases
  */
-int ll_dops_init(struct dentry *de, int block);
+int ll_dops_init(struct dentry *de, int block, int init_sa);
 extern cfs_spinlock_t ll_lookup_lock;
 extern struct dentry_operations ll_d_ops;
 void ll_intent_drop_lock(struct lookup_intent *);
@@ -1089,46 +1139,50 @@ void et_fini(struct eacl_table *et);
 
 /* statahead.c */
 
-#define LL_SA_RPC_MIN   2
+#define LL_SA_RPC_MIN   4
 #define LL_SA_RPC_DEF   32
 #define LL_SA_RPC_MAX   8192
 
 /* per inode struct, for dir only */
 struct ll_statahead_info {
         struct inode           *sai_inode;
-        unsigned int            sai_generation; /* generation for statahead */
-        cfs_atomic_t            sai_refcount;   /* when access this struct, hold
-                                                 * refcount */
-        unsigned int            sai_sent;       /* stat requests sent count */
-        unsigned int            sai_replied;    /* stat requests which received
-                                                 * reply */
+        cfs_atomic_t            sai_refcount;
         unsigned int            sai_max;        /* max ahead of lookup */
-        unsigned int            sai_index;      /* index of statahead entry */
-        unsigned int            sai_index_next; /* index for the next statahead
-                                                 * entry to be stated */
+        unsigned int            sai_generation; /* generation for statahead */
         unsigned int            sai_hit;        /* hit count */
         unsigned int            sai_miss;       /* miss count:
-                                                 * for "ls -al" case, it includes
+                                                 * for "ls -al" case, includes
                                                  * hidden dentry miss;
                                                  * for "ls -l" case, it does not
                                                  * include hidden dentry miss.
                                                  * "sai_miss_hidden" is used for
-                                                 * the later case.
-                                                 */
+                                                 * the later case. */
         unsigned int            sai_consecutive_miss; /* consecutive miss */
         unsigned int            sai_miss_hidden;/* "ls -al", but first dentry
                                                  * is not a hidden one */
-        unsigned int            sai_skip_hidden;/* skipped hidden dentry count */
-        unsigned int            sai_ls_all:1;   /* "ls -al", do stat-ahead for
+        unsigned int            sai_skip_hidden;/* skipped hidden dentry count*/
+        unsigned int            sai_ls_all:1,   /* "ls -al", do stat-ahead for
                                                  * hidden entries */
-        cfs_waitq_t             sai_waitq;      /* stat-ahead wait queue */
-        struct ptlrpc_thread    sai_thread;     /* stat-ahead thread */
-        cfs_list_t              sai_entries_sent;     /* entries sent out */
-        cfs_list_t              sai_entries_received; /* entries returned */
-        cfs_list_t              sai_entries_stated;   /* entries stated */
+                                sai_in_readpage:1,/* statahead is in readdir()*/
+                                sai_agl_valid:1;/* AGL is valid for the dir */
+        unsigned int            sai_c_sent;     /* count for sent requests */
+        unsigned int            sai_c_replied;  /* count for replied requests */
+        cfs_waitq_t             sai_waitq;      /* "ls -l" thread wait queue */
+        struct ptlrpc_thread    sai_thread;     /* statahead thread */
+        struct ptlrpc_thread    sai_agl_thread; /* AGL thread */
+        cfs_list_t              sai_e_sent;     /* stat entries sent out */
+        cfs_list_t              sai_e_received; /* stat entries returned */
+        cfs_list_t              sai_e_stated;   /* stat entries stated */
+        cfs_list_t              sai_agl_e_prep; /* AGL entries to be sent */
+        cfs_list_t              sai_agl_e_sent; /* AGL entries have been sent */
+        unsigned int            sai_i_next_lookup;/* next index to be lookup */
+        unsigned int            sai_i_next_stated;/* expected next index in
+                                                 * sai_e_stated */
+        unsigned int            sai_agl_i_min;  /* min index in sai_agl_e_sent*/
         pid_t                   sai_pid;        /* pid of statahead itself */
 };
 
+int ll_glimpse_size(struct inode *inode);
 int do_statahead_enter(struct inode *dir, struct dentry **dentry, int lookup);
 void ll_statahead_exit(struct inode *dir, struct dentry *dentry, int result);
 void ll_stop_statahead(struct inode *dir, void *key);
@@ -1312,4 +1366,17 @@ static inline int ll_file_nolock(const struct file *file)
         return ((fd->fd_flags & LL_FILE_IGNORE_LOCK) ||
                 (ll_i2sbi(inode)->ll_flags & LL_SBI_NOLCK));
 }
+
+static inline void ll_set_lock_data(struct obd_export *exp, struct inode *inode,
+                                    struct lookup_intent *it, __u32 *bits)
+{
+        if (it->d.lustre.it_lock_to_join) {
+                it->d.lustre.it_lock_to_join = 0;
+                CDEBUG(D_DLMTRACE, "setting l_data to inode %p (%lu/%u)\n",
+                       inode, inode->i_ino, inode->i_generation);
+                md_set_lock_data(exp, &it->d.lustre.it_lock_handle,
+                                 inode, bits);
+        }
+}
+
 #endif /* LLITE_INTERNAL_H */

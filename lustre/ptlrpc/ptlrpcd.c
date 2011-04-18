@@ -71,6 +71,12 @@
 #include <cl_object.h> /* cl_env_{get,put}() */
 #include <lprocfs_status.h>
 
+static struct ptlrpcd_ctl **ptlrpcd_agl = NULL;
+static int ptlrpcd_agl_num = 0;
+CFS_MODULE_PARM(ptlrpcd_agl_num, "i", int, 0444,
+                "number of ptlrpcd for AGL to start");
+static int ptlrpcd_agl_num_shift = -1;
+
 enum pscope_thread {
         PT_NORMAL,
         PT_RECOVERY,
@@ -142,6 +148,19 @@ void ptlrpcd_add_rqset(struct ptlrpc_request_set *set)
 }
 EXPORT_SYMBOL(ptlrpcd_add_rqset);
 
+static inline int ptlrpcd_idx_hash(int idx)
+{
+        return idx - ((idx >> ptlrpcd_agl_num_shift) << ptlrpcd_agl_num_shift);
+}
+
+int ptlrpcd_agl_add_req(struct ptlrpc_request *req, int idx)
+{
+        if (ptlrpcd_agl_num_shift < 0)
+                return -EAGAIN;
+        return ptlrpc_set_add_new_req(ptlrpcd_agl[ptlrpcd_idx_hash(idx)], req);
+}
+EXPORT_SYMBOL(ptlrpcd_agl_add_req);
+
 /**
  * Requests that are added to the ptlrpcd queue are sent via
  * ptlrpcd_check->ptlrpc_check_set().
@@ -197,11 +216,6 @@ int ptlrpcd_add_req(struct ptlrpc_request *req, enum ptlrpcd_scope scope)
                 ptlrpc_req_interpret(NULL, req, -EBADR);
                 req->rq_set = NULL;
                 ptlrpc_req_finished(req);
-        } else if (req->rq_send_state == LUSTRE_IMP_CONNECTING) {
-                /*
-                 * The request is for recovery, should be sent ASAP.
-                 */
-                cfs_waitq_signal(&pc->pc_set->set_waitq);
         }
 
         return rc;
@@ -213,49 +227,31 @@ int ptlrpcd_add_req(struct ptlrpc_request *req, enum ptlrpcd_scope scope)
  */
 static int ptlrpcd_check(const struct lu_env *env, struct ptlrpcd_ctl *pc)
 {
-        cfs_list_t *tmp, *pos;
-        struct ptlrpc_request *req;
+        struct ptlrpc_request_set *set = pc->pc_set;
         int rc = 0;
         ENTRY;
 
-        cfs_spin_lock(&pc->pc_set->set_new_req_lock);
-        cfs_list_for_each_safe(pos, tmp, &pc->pc_set->set_new_requests) {
-                req = cfs_list_entry(pos, struct ptlrpc_request, rq_set_chain);
-                cfs_list_del_init(&req->rq_set_chain);
-                ptlrpc_set_add_req(pc->pc_set, req);
-                /*
-                 * Need to calculate its timeout.
-                 */
+        cfs_spin_lock(&set->set_new_req_lock);
+        if (set->set_new_count) {
+                /* joint set_new_requests to set_requests tail */
+                cfs_list_splice_init(&set->set_new_requests,
+                                     set->set_requests.prev);
+                cfs_atomic_add(set->set_new_count, &set->set_remaining);
+                set->set_new_count = 0;
                 rc = 1;
         }
-        cfs_spin_unlock(&pc->pc_set->set_new_req_lock);
+        cfs_spin_unlock(&set->set_new_req_lock);
 
-        if (cfs_atomic_read(&pc->pc_set->set_remaining)) {
-                rc = rc | ptlrpc_check_set(env, pc->pc_set);
-
-                /*
-                 * XXX: our set never completes, so we prune the completed
-                 * reqs after each iteration. boy could this be smarter.
-                 */
-                cfs_list_for_each_safe(pos, tmp, &pc->pc_set->set_requests) {
-                        req = cfs_list_entry(pos, struct ptlrpc_request,
-                                         rq_set_chain);
-                        if (req->rq_phase != RQ_PHASE_COMPLETE)
-                                continue;
-
-                        cfs_list_del_init(&req->rq_set_chain);
-                        req->rq_set = NULL;
-                        ptlrpc_req_finished (req);
-                }
-        }
+        if (cfs_atomic_read(&set->set_remaining))
+                rc = rc | ptlrpc_check_set(env, set, 1);
 
         if (rc == 0) {
                 /*
                  * If new requests have been added, make sure to wake up.
                  */
-                cfs_spin_lock(&pc->pc_set->set_new_req_lock);
-                rc = !cfs_list_empty(&pc->pc_set->set_new_requests);
-                cfs_spin_unlock(&pc->pc_set->set_new_req_lock);
+                cfs_spin_lock(&set->set_new_req_lock);
+                rc = !!set->set_new_count;
+                cfs_spin_unlock(&set->set_new_req_lock);
         }
 
         RETURN(rc);
@@ -271,6 +267,7 @@ static int ptlrpcd_check(const struct lu_env *env, struct ptlrpcd_ctl *pc)
 static int ptlrpcd(void *arg)
 {
         struct ptlrpcd_ctl *pc = arg;
+        struct ptlrpc_request_set *set = pc->pc_set;
         struct lu_env env = { .le_ses = NULL };
         int rc, exit = 0;
         ENTRY;
@@ -318,12 +315,12 @@ static int ptlrpcd(void *arg)
                         continue;
                 }
 
-                timeout = ptlrpc_set_next_timeout(pc->pc_set);
+                timeout = ptlrpc_set_next_timeout(set);
                 lwi = LWI_TIMEOUT(cfs_time_seconds(timeout ? timeout : 1),
-                                  ptlrpc_expired_set, pc->pc_set);
+                                  ptlrpc_expired_set, set);
 
                 lu_context_enter(&env.le_ctx);
-                l_wait_event(pc->pc_set->set_waitq,
+                l_wait_event(set->set_waitq,
                              ptlrpcd_check(&env, pc), &lwi);
                 lu_context_exit(&env.le_ctx);
 
@@ -332,7 +329,7 @@ static int ptlrpcd(void *arg)
                  */
                 if (cfs_test_bit(LIOD_STOP, &pc->pc_flags)) {
                         if (cfs_test_bit(LIOD_FORCE, &pc->pc_flags))
-                                ptlrpc_abort_set(pc->pc_set);
+                                ptlrpc_abort_set(set);
                         exit++;
                 }
 
@@ -345,8 +342,8 @@ static int ptlrpcd(void *arg)
         /*
          * Wait for inflight requests to drain.
          */
-        if (!cfs_list_empty(&pc->pc_set->set_requests))
-                ptlrpc_set_wait(pc->pc_set);
+        if (!cfs_list_empty(&set->set_requests))
+                ptlrpc_set_wait(set);
         lu_context_fini(&env.le_ctx);
         cfs_complete(&pc->pc_finishing);
 
@@ -479,6 +476,70 @@ void ptlrpcd_stop(struct ptlrpcd_ctl *pc, int force)
         ptlrpc_set_destroy(pc->pc_set);
 }
 
+static void ptlrpcd_agl_stop(int num)
+{
+        int i;
+        ENTRY;
+
+        for (i = 0; i < num; i++) {
+                LASSERT(ptlrpcd_agl[i] != NULL);
+                ptlrpcd_stop(ptlrpcd_agl[i], 0);
+                OBD_FREE_PTR(ptlrpcd_agl[i]);
+                ptlrpcd_agl[i] = NULL;
+        }
+
+        if (ptlrpcd_agl != NULL) {
+                OBD_FREE(ptlrpcd_agl,
+                         sizeof(struct ptlrpcd_ctl) * ptlrpcd_agl_num);
+                ptlrpcd_agl = NULL;
+        }
+
+        EXIT;
+}
+
+static int ptlrpcd_agl_start(void)
+{
+        int  rc = 0;
+        int  i;
+        char name[20];
+        ENTRY;
+
+        if (ptlrpcd_agl_num < 0)
+                RETURN(0);
+        else if (ptlrpcd_agl_num == 0)
+                ptlrpcd_agl_num = cfs_num_online_cpus() / 4 + 1;
+        else if (ptlrpcd_agl_num > cfs_num_online_cpus())
+                ptlrpcd_agl_num = cfs_num_online_cpus();
+
+        for (ptlrpcd_agl_num_shift = 1;
+             1 << ptlrpcd_agl_num_shift <= ptlrpcd_agl_num;
+             ptlrpcd_agl_num_shift++);
+        ptlrpcd_agl_num_shift--;
+        ptlrpcd_agl_num = 1 << ptlrpcd_agl_num_shift;
+
+        OBD_ALLOC(ptlrpcd_agl, sizeof(struct ptlrpcd_ctl) * ptlrpcd_agl_num);
+        if (ptlrpcd_agl == NULL)
+                RETURN(-ENOMEM);
+
+        for (i = 0; i < ptlrpcd_agl_num; i++) {
+                OBD_ALLOC_PTR(ptlrpcd_agl[i]);
+                if (ptlrpcd_agl[i] == NULL) {
+                        ptlrpcd_agl_stop(i);
+                        RETURN(-ENOMEM);
+                }
+
+                snprintf(name, 19, "ptlrpcd_agl_%d", i);
+                rc = ptlrpcd_start(name, ptlrpcd_agl[i]);
+                if (rc != 0) {
+                        OBD_FREE_PTR(ptlrpcd_agl[i]);
+                        ptlrpcd_agl[i] = NULL;
+                        ptlrpcd_agl_stop(i);
+                        RETURN(rc);
+                }
+        }
+        RETURN(0);
+}
+
 void ptlrpcd_fini(void)
 {
         int i;
@@ -508,11 +569,15 @@ int ptlrpcd_addref(void)
 
         cfs_mutex_down(&ptlrpcd_sem);
         if (++ptlrpcd_users == 1) {
-                for (i = 0; rc == 0 && i < PSCOPE_NR; ++i) {
-                        for (j = 0; rc == 0 && j < PT_NR; ++j) {
-                                struct ptlrpcd_thread *pt;
-                                struct ptlrpcd_ctl    *pc;
+                rc = ptlrpcd_agl_start();
+                if (rc != 0)
+                        GOTO(out, rc);
 
+                for (i = 0; rc == 0 && i < PSCOPE_NR; ++i) {
+                        struct ptlrpcd_thread *pt;
+                        struct ptlrpcd_ctl    *pc;
+
+                        for (j = 0; rc == 0 && j < PT_NR; ++j) {
                                 pt = &ptlrpcd_scopes[i].pscope_thread[j];
                                 pc = &pt->pt_ctl;
                                 if (j == PT_RECOVERY)
@@ -523,17 +588,23 @@ int ptlrpcd_addref(void)
                 if (rc != 0) {
                         --ptlrpcd_users;
                         ptlrpcd_fini();
+                        ptlrpcd_agl_stop(ptlrpcd_agl_num);
                 }
         }
+        EXIT;
+
+out:
         cfs_mutex_up(&ptlrpcd_sem);
-        RETURN(rc);
+        return rc;
 }
 
 void ptlrpcd_decref(void)
 {
         cfs_mutex_down(&ptlrpcd_sem);
-        if (--ptlrpcd_users == 0)
+        if (--ptlrpcd_users == 0) {
                 ptlrpcd_fini();
+                ptlrpcd_agl_stop(ptlrpcd_agl_num);
+        }
         cfs_mutex_up(&ptlrpcd_sem);
 }
 /** @} ptlrpcd */
