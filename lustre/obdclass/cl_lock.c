@@ -1293,7 +1293,8 @@ static int cl_enqueue_locked(const struct lu_env *env, struct cl_lock *lock,
                 cl_lock_user_del(env, lock);
                 cl_lock_error(env, lock, result);
         }
-        LASSERT(ergo(result == 0, lock->cll_state == CLS_ENQUEUED ||
+        LASSERT(ergo(result == 0 && !(enqflags & CEF_AGL),
+                     lock->cll_state == CLS_ENQUEUED ||
                      lock->cll_state == CLS_HELD));
         RETURN(result);
 }
@@ -1450,9 +1451,6 @@ int cl_wait_try(const struct lu_env *env, struct cl_lock *lock)
         do {
                 LINVRNT(cl_lock_is_mutexed(lock));
                 LINVRNT(cl_lock_invariant(env, lock));
-                LASSERT(lock->cll_state == CLS_ENQUEUED ||
-                        lock->cll_state == CLS_HELD ||
-                        lock->cll_state == CLS_INTRANSIT);
                 LASSERT(lock->cll_users > 0);
                 LASSERT(lock->cll_holds > 0);
 
@@ -1496,7 +1494,7 @@ EXPORT_SYMBOL(cl_wait_try);
  *
  * \post ergo(result == 0, lock->cll_state == CLS_HELD)
  */
-int cl_wait(const struct lu_env *env, struct cl_lock *lock)
+int cl_wait_cancel(const struct lu_env *env, struct cl_lock *lock, int cancel)
 {
         int result;
 
@@ -1504,28 +1502,36 @@ int cl_wait(const struct lu_env *env, struct cl_lock *lock)
         cl_lock_mutex_get(env, lock);
 
         LINVRNT(cl_lock_invariant(env, lock));
-        LASSERTF(lock->cll_state == CLS_ENQUEUED || lock->cll_state == CLS_HELD,
-                 "Wrong state %d \n", lock->cll_state);
         LASSERT(lock->cll_holds > 0);
 
         do {
                 result = cl_wait_try(env, lock);
-                if (result == CLO_WAIT) {
+                if (result == CLO_WAIT && cancel == 0) {
                         result = cl_lock_state_wait(env, lock);
                         if (result == 0)
                                 continue;
                 }
                 break;
         } while (1);
-        if (result < 0) {
+        if (result != 0) {
+                LASSERT(ergo(result == CLO_WAIT, cancel != 0));
                 cl_lock_user_del(env, lock);
-                cl_lock_error(env, lock, result);
+                if (result < 0)
+                        cl_lock_error(env, lock, result);
+                else
+                        cl_lock_cancel(env, lock);
                 cl_lock_lockdep_release(env, lock);
         }
         cl_lock_trace(D_DLMTRACE, env, "wait lock", lock);
         cl_lock_mutex_put(env, lock);
         LASSERT(ergo(result == 0, lock->cll_state == CLS_HELD));
         RETURN(result);
+}
+EXPORT_SYMBOL(cl_wait_cancel);
+
+int cl_wait(const struct lu_env *env, struct cl_lock *lock)
+{
+        return cl_wait_cancel(env, lock, 0);
 }
 EXPORT_SYMBOL(cl_wait);
 

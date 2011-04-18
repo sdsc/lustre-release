@@ -1436,7 +1436,8 @@ enum {
         LUSTRE_OPC_SYMLINK  = (1 << 1),
         LUSTRE_OPC_MKNOD    = (1 << 2),
         LUSTRE_OPC_CREATE   = (1 << 3),
-        LUSTRE_OPC_ANY      = (1 << 4)
+        LUSTRE_OPC_ANY      = (1 << 4),
+        LUSTER_OPC_AGETATTR = (1 << 5)
 };
 
 /* lmv structures */
@@ -1454,6 +1455,7 @@ struct lustre_md {
         struct lmv_stripe_md    *mea;
 #ifdef CONFIG_FS_POSIX_ACL
         struct posix_acl        *posix_acl;
+        struct posix_acl        *def_acl;
 #endif
         struct mdt_remote_perm  *remote_perm;
         struct obd_capa         *mds_capa;

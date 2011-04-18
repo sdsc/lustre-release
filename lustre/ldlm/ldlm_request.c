@@ -705,13 +705,17 @@ int ldlm_prep_elc_req(struct obd_export *exp, struct ptlrpc_request *req,
         int rc;
         ENTRY;
 
+        LASSERT(ergo(req->rq_no_elc, count == 0));
+
         if (cancels == NULL)
                 cancels = &head;
         if (exp_connect_cancelset(exp)) {
                 /* Estimate the amount of available space in the request. */
                 bufcount = req_capsule_filled_sizes(pill, RCL_CLIENT);
-                avail = ldlm_capsule_handles_avail(pill, RCL_CLIENT, canceloff);
+                if (req->rq_no_elc)
+                        goto set_size;
 
+                avail = ldlm_capsule_handles_avail(pill, RCL_CLIENT, canceloff);
                 flags = ns_connect_lru_resize(ns) ?
                         LDLM_CANCEL_LRUR : LDLM_CANCEL_AGED;
                 to_free = !ns_connect_lru_resize(ns) &&
@@ -727,6 +731,8 @@ int ldlm_prep_elc_req(struct obd_export *exp, struct ptlrpc_request *req,
                         pack = count;
                 else
                         pack = avail;
+
+set_size:
                 req_capsule_set_size(pill, &RMF_DLM_REQ, RCL_CLIENT,
                                      ldlm_request_bufsize(pack, opc));
         }

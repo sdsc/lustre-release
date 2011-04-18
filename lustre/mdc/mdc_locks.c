@@ -405,7 +405,8 @@ static struct ptlrpc_request *mdc_intent_getattr_pack(struct obd_export *exp,
                                        OBD_MD_FLMODEASIZE | OBD_MD_FLDIREA |
                                        OBD_MD_FLMDSCAPA | OBD_MD_MEA |
                                        (client_is_remote(exp) ?
-                                               OBD_MD_FLRMTPERM : OBD_MD_FLACL);
+                                                OBD_MD_FLRMTPERM :
+                                                (OBD_MD_FLACL|OBD_MD_FLDEFACL));
         struct ldlm_intent    *lit;
         int                    rc;
         ENTRY;
@@ -419,6 +420,8 @@ static struct ptlrpc_request *mdc_intent_getattr_pack(struct obd_export *exp,
         req_capsule_set_size(&req->rq_pill, &RMF_NAME, RCL_CLIENT,
                              op_data->op_namelen + 1);
 
+        if (op_data->op_opc == LUSTER_OPC_AGETATTR)
+                req->rq_no_elc = 1;
         rc = ldlm_prep_enqueue_req(exp, req, NULL, 0);
         if (rc) {
                 ptlrpc_request_free(req);
@@ -508,6 +511,7 @@ static int mdc_finish_enqueue(struct obd_export *exp,
         it->d.lustre.it_lock_mode = einfo->ei_mode;
         it->d.lustre.it_lock_handle = lockh->cookie;
         it->d.lustre.it_data = req;
+        it->d.lustre.it_lock_to_join = 1;
 
         if (it->d.lustre.it_status < 0 && req->rq_replay)
                 mdc_clear_replay_flag(req, it->d.lustre.it_status);
@@ -832,6 +836,7 @@ static int mdc_finish_intent_lock(struct obd_export *exp,
                                                     it->d.lustre.it_lock_mode);
                         memcpy(lockh, &old_lock, sizeof(old_lock));
                         it->d.lustre.it_lock_handle = lockh->cookie;
+                        it->d.lustre.it_lock_to_join = 1;
                 }
         }
         CDEBUG(D_DENTRY,"D_IT dentry %.*s intent: %s status %d disp %x rc %d\n",
@@ -862,6 +867,7 @@ int mdc_revalidate_lock(struct obd_export *exp, struct lookup_intent *it,
         if (mode) {
                 it->d.lustre.it_lock_handle = lockh.cookie;
                 it->d.lustre.it_lock_mode = mode;
+                it->d.lustre.it_lock_to_join = 1;
         }
 
         RETURN(!!mode);
