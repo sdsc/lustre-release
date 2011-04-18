@@ -285,6 +285,7 @@ struct ptlrpc_request_set {
         cfs_spinlock_t        set_new_req_lock;
         /** List of new yet unsent requests. Only used with ptlrpcd now. */
         cfs_list_t            set_new_requests;
+        unsigned int          set_new_count;
 };
 
 /**
@@ -1386,7 +1387,8 @@ struct ptlrpc_request_set *ptlrpc_prep_set(void);
 int ptlrpc_set_add_cb(struct ptlrpc_request_set *set,
                       set_interpreter_func fn, void *data);
 int ptlrpc_set_next_timeout(struct ptlrpc_request_set *);
-int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set);
+int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set,
+                     int unlink);
 int ptlrpc_set_wait(struct ptlrpc_request_set *);
 int ptlrpc_expired_set(void *data);
 void ptlrpc_interrupted_set(void *data);
@@ -1837,6 +1839,8 @@ int ptlrpc_check_and_wait_suspend(struct ptlrpc_request *req);
 enum ptlrpcd_scope {
         /** Scope of bulk read-write rpcs. */
         PSCOPE_BRW,
+        /** Scope of async glimpse rpcs. */
+        PSCOPE_AGL,
         /** Everything else. */
         PSCOPE_OTHER,
         PSCOPE_NR
@@ -1845,6 +1849,9 @@ enum ptlrpcd_scope {
 int ptlrpcd_start(const char *name, struct ptlrpcd_ctl *pc);
 void ptlrpcd_stop(struct ptlrpcd_ctl *pc, int force);
 void ptlrpcd_wake(struct ptlrpc_request *req);
+int ptlrpcd_req_balance(struct ptlrpc_request *req,
+                        enum ptlrpcd_scope s1, int w1,
+                        enum ptlrpcd_scope s2, int w2);
 int ptlrpcd_add_req(struct ptlrpc_request *req, enum ptlrpcd_scope scope);
 void ptlrpcd_add_rqset(struct ptlrpc_request_set *set);
 int ptlrpcd_addref(void);

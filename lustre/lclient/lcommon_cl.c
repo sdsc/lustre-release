@@ -1158,7 +1158,7 @@ int cl_inode_init(struct inode *inode, struct lustre_md *md)
         struct cl_object     *clob;
         struct lu_site       *site;
         struct lu_fid        *fid;
-        const struct cl_object_conf conf = {
+        struct cl_object_conf conf = {
                 .coc_inode = inode,
                 .u = {
                         .coc_md    = md
@@ -1167,7 +1167,6 @@ int cl_inode_init(struct inode *inode, struct lustre_md *md)
         int result = 0;
         int refcheck;
 
-        /* LASSERT(inode->i_state & I_NEW); */
         LASSERT(md->body->valid & OBD_MD_FLID);
 
         if (!S_ISREG(cl_inode_mode(inode)))
@@ -1183,6 +1182,14 @@ int cl_inode_init(struct inode *inode, struct lustre_md *md)
         LASSERT(fid_is_sane(fid));
 
         if (lli->lli_clob == NULL) {
+                /* clob is slave of inode, empty lli_clob means for new inode,
+                 * there is not clob in cache with the given fid, so it is
+                 * unnecessary to perform lookup-alloc-lookup-insert, just
+                 * alloc and insert directly. */
+#ifdef __KERNEL__
+                LASSERT(inode->i_state & I_NEW);
+#endif
+                conf.coc_lu.loc_flags = LOC_F_NOLOOKUP;
                 clob = cl_object_find(env, lu2cl_dev(site->ls_top_dev),
                                       fid, &conf);
                 if (!IS_ERR(clob)) {
@@ -1304,21 +1311,16 @@ __u16 ll_dirent_type_get(struct lu_dirent *ent)
 }
 
 /**
- * for 32 bit inode numbers directly map seq+oid to 32bit number.
- */
-__u32 cl_fid_build_ino32(const struct lu_fid *fid)
-{
-        RETURN(fid_flatten32(fid));
-}
-
-/**
  * build inode number from passed @fid */
-__u64 cl_fid_build_ino(const struct lu_fid *fid)
+__u64 cl_fid_build_ino(const struct lu_fid *fid, int need_32bit)
 {
 #if BITS_PER_LONG == 32
         RETURN(fid_flatten32(fid));
 #else
-        RETURN(fid_flatten(fid));
+        if (need_32bit)
+                RETURN(fid_flatten32(fid));
+        else
+                RETURN(fid_flatten(fid));
 #endif
 }
 

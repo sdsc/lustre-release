@@ -392,9 +392,8 @@ static int ll_intent_file_open(struct file *file, void *lmm,
 
         rc = ll_prep_inode(&file->f_dentry->d_inode, req, NULL);
         if (!rc && itp->d.lustre.it_lock_mode)
-                md_set_lock_data(sbi->ll_md_exp,
-                                 &itp->d.lustre.it_lock_handle,
-                                 file->f_dentry->d_inode, NULL);
+                ll_set_lock_data(sbi->ll_md_exp, file->f_dentry->d_inode,
+                                 itp, NULL);
 
 out:
         ptlrpc_req_finished(itp->d.lustre.it_data);
@@ -1865,7 +1864,7 @@ loff_t ll_file_seek(struct file *file, loff_t offset, int origin)
                 if (file->f_flags & O_NONBLOCK)
                         nonblock = LDLM_FL_BLOCK_NOWAIT;
 
-                rc = cl_glimpse_size(inode);
+                rc = ll_glimpse_size(inode);
                 if (rc != 0)
                         RETURN(rc);
 
@@ -2285,11 +2284,11 @@ int ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
                 RETURN(0);
         }
 
-        /* cl_glimpse_size will prefer locally cached writes if they extend
+        /* ll_glimpse_size will prefer locally cached writes if they extend
          * the file */
 
         if (rc == 0)
-                rc = cl_glimpse_size(inode);
+                rc = ll_glimpse_size(inode);
 
         RETURN(rc);
 }
@@ -2298,6 +2297,7 @@ int ll_getattr_it(struct vfsmount *mnt, struct dentry *de,
                   struct lookup_intent *it, struct kstat *stat)
 {
         struct inode *inode = de->d_inode;
+        struct ll_sb_info *sbi = ll_i2sbi(inode);
         struct ll_inode_info *lli = ll_i2info(inode);
         int res = 0;
 
@@ -2309,11 +2309,7 @@ int ll_getattr_it(struct vfsmount *mnt, struct dentry *de,
                 return res;
 
         stat->dev = inode->i_sb->s_dev;
-        if (ll_need_32bit_api(ll_i2sbi(inode)))
-                stat->ino = cl_fid_build_ino32(&lli->lli_fid);
-        else
-                stat->ino = inode->i_ino;
-
+        stat->ino = cl_fid_build_ino(&lli->lli_fid, sbi->ll_32bitapi);
         stat->mode = inode->i_mode;
         stat->nlink = inode->i_nlink;
         stat->uid = inode->i_uid;
