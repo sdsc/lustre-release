@@ -1115,6 +1115,25 @@ out:
 
 static void ll_ra_stats_inc_sbi(struct ll_sb_info *sbi, enum ra_stat which);
 
+/* ra_io_arg will be filled in the beginning of ll_readahead with
+ * ras_lock, then the following ll_read_ahead_pages will read RA
+ * pages according to this arg, all the items in this structure are
+ * counted by page index.
+ */
+struct ra_io_arg {
+        unsigned long ria_start;  /* start offset of read-ahead*/
+        unsigned long ria_end;    /* end offset of read-ahead*/
+        /* If stride read pattern is detected, ria_stoff means where
+         * stride read is started. Note: for normal read-ahead, the
+         * value here is meaningless, and also it will not be accessed*/
+        pgoff_t ria_stoff;
+        /* ria_length and ria_pages are the length and pages length in the
+         * stride I/O mode. And they will also be used to check whether
+         * it is stride I/O read-ahead in the read-ahead pages*/
+        unsigned long ria_length;
+        unsigned long ria_pages;
+};
+
 /* WARNING: This algorithm is used to reduce the contention on
  * sbi->ll_lock. It should work well if the ra_max_pages is much
  * greater than the single file's read-ahead window.
@@ -1125,7 +1144,8 @@ static void ll_ra_stats_inc_sbi(struct ll_sb_info *sbi, enum ra_stat which);
  * ll_ra_count_get at the exactly same time. All of them will get a zero ra
  * window, although the global window is 100M. -jay
  */
-static unsigned long ll_ra_count_get(struct ll_sb_info *sbi, unsigned long len)
+static unsigned long ll_ra_count_get(struct ll_sb_info *sbi, struct ra_io_arg *ria, 
+                                     unsigned long len)
 {
         struct ll_ra_info *ra = &sbi->ll_ra_info;
         unsigned long ret = 0;
@@ -1137,13 +1157,22 @@ static unsigned long ll_ra_count_get(struct ll_sb_info *sbi, unsigned long len)
          * performance a lot.
          */
         ret = min(ra->ra_max_pages - atomic_read(&ra->ra_cur_pages), len);
-        if ((int)ret < min((unsigned long)PTLRPC_MAX_BRW_PAGES, len))
+        if ((int)ret < 0  || ret < min((unsigned long)PTLRPC_MAX_BRW_PAGES, len))
                 GOTO(out, ret = 0);
+
+        if (ria->ria_pages == 0) {
+                /* it needs 1M align again after trimed by ra_max_pages*/
+                if (ret >= ((ria->ria_start + ret) % PTLRPC_MAX_BRW_PAGES))
+                        ret -= (ria->ria_start + ret) % PTLRPC_MAX_BRW_PAGES;
+                else
+                        GOTO(out, ret = 0);
+        }
 
         if (atomic_add_return(ret, &ra->ra_cur_pages) > ra->ra_max_pages) {
                 atomic_sub(ret, &ra->ra_cur_pages);
                 ret = 0;
         }
+
 out:
         RETURN(ret);
 }
@@ -1546,25 +1575,6 @@ unlock_page:
         return rc;
 }
 
-/* ra_io_arg will be filled in the beginning of ll_readahead with
- * ras_lock, then the following ll_read_ahead_pages will read RA
- * pages according to this arg, all the items in this structure are
- * counted by page index.
- */
-struct ra_io_arg {
-        unsigned long ria_start;  /* start offset of read-ahead*/
-        unsigned long ria_end;    /* end offset of read-ahead*/
-        /* If stride read pattern is detected, ria_stoff means where
-         * stride read is started. Note: for normal read-ahead, the
-         * value here is meaningless, and also it will not be accessed*/
-        pgoff_t ria_stoff;
-        /* ria_length and ria_pages are the length and pages length in the
-         * stride I/O mode. And they will also be used to check whether
-         * it is stride I/O read-ahead in the read-ahead pages*/
-        unsigned long ria_length;
-        unsigned long ria_pages;
-};
-
 #define RIA_DEBUG(ria)                                                \
         CDEBUG(D_READA, "rs %lu re %lu ro %lu rl %lu rp %lu\n",       \
         ria->ria_start, ria->ria_end, ria->ria_stoff, ria->ria_length,\
@@ -1759,9 +1769,6 @@ static int ll_read_ahead_pages(struct obd_export *exp,
  *       ra_max_pages: how much max in-flight read-ahead pages on the client.
  *       ra_max_pages_per_file: how much max in-flight read-ahead pages per file.
  **/
-
-
-
 static int ll_readahead(struct ll_readahead_state *ras,
                         struct obd_export *exp, struct address_space *mapping,
                         struct obd_io_group *oig, int flags)
@@ -1832,7 +1839,7 @@ static int ll_readahead(struct ll_readahead_state *ras,
         if (len == 0)
                 RETURN(0);
 
-        reserved = ll_ra_count_get(ll_i2sbi(inode), len);
+        reserved = ll_ra_count_get(ll_i2sbi(inode), &ria, len);
         if (reserved < len)
                 ll_ra_stats_inc(mapping, RA_STAT_MAX_IN_FLIGHT);
 
@@ -2033,7 +2040,7 @@ static void ras_increase_window(struct ll_readahead_state *ras,
         else
                 ras->ras_window_len = min(ras->ras_window_len +
                                           (unsigned long)step,
-                                          ra->ra_max_pages);
+                                          ra->ra_max_pages_per_file);
 }
 
 static void ras_update(struct ll_sb_info *sbi, struct inode *inode,
@@ -2316,7 +2323,8 @@ int ll_readpage(struct file *filp, struct page *page)
                 GOTO(out, rc = PTR_ERR(llap));
         }
 
-        if (ll_i2sbi(inode)->ll_ra_info.ra_max_pages_per_file)
+        if (ll_i2sbi(inode)->ll_ra_info.ra_max_pages_per_file &&
+	    ll_i2sbi(inode)->ll_ra_info.ra_max_pages)
                 ras_update(ll_i2sbi(inode), inode, &fd->fd_ras, page->index,
                            llap->llap_defer_uptodate);
 
@@ -2324,8 +2332,10 @@ int ll_readpage(struct file *filp, struct page *page)
         if (llap->llap_defer_uptodate) {
                 /* This is the callpath if we got the page from a readahead */
                 llap->llap_ra_used = 1;
-                rc = ll_readahead(&fd->fd_ras, exp, page->mapping, oig,
-                                  fd->fd_flags);
+        	if (ll_i2sbi(inode)->ll_ra_info.ra_max_pages_per_file &&
+            	    ll_i2sbi(inode)->ll_ra_info.ra_max_pages)
+                	rc = ll_readahead(&fd->fd_ras, exp, page->mapping, oig,
+                                  	  fd->fd_flags);
                 if (rc > 0)
                         obd_trigger_group_io(exp, ll_i2info(inode)->lli_smd,
                                              NULL, oig);
@@ -2342,12 +2352,12 @@ int ll_readpage(struct file *filp, struct page *page)
         LL_CDEBUG_PAGE(D_PAGE, page, "queued readpage\n");
         /* We have just requested the actual page we want, see if we can tack
          * on some readahead to that page's RPC before it is sent. */
-        if (ll_i2sbi(inode)->ll_ra_info.ra_max_pages_per_file)
+        if (ll_i2sbi(inode)->ll_ra_info.ra_max_pages_per_file &&
+            ll_i2sbi(inode)->ll_ra_info.ra_max_pages)
                 ll_readahead(&fd->fd_ras, exp, page->mapping, oig,
                              fd->fd_flags);
-
+       
         rc = obd_trigger_group_io(exp, ll_i2info(inode)->lli_smd, NULL, oig);
-
 out:
         if (rc)
                 unlock_page(page);
