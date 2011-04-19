@@ -210,58 +210,63 @@ done " || return ${PIPESTATUS[0]}
     return 0
 }
 
-STATUS=0
+test_metadata-updates()
+{
+  STATUS=0
 
-chmod 0777 $MOUNT   || exit 1
-mkdir -p $TESTDIR   || exit 1
-chmod 0777 $TESTDIR || exit 1
+  chmod 0777 $MOUNT   || exit 1
+  mkdir -p $TESTDIR   || exit 1
+  chmod 0777 $TESTDIR || exit 1
 
-cleanup_prepare     || error_exit "cleanup failed"
+  cleanup_prepare     || error_exit "cleanup failed"
 
-# create file(s) (mknod (2)), write data, check data, check file attributes
-echo "Part 1. create file(s) (mknod (2)), write data, check data, check file attributes."
-do_mknod              || error_exit "mknod failed"
-echo "Writing data to file(s) ... store md5sum ... "
-do_write              || error_exit "write data failed"
-do_check_data         || error_exit "md5sum verification failed"
-get_stat              || { error_noexit "attributes check failed" ; STATUS=1; }
+  # create file(s) (mknod (2)), write data, check data, check file attributes
+  echo "Part 1. create file(s) (mknod (2)), write data, check data, check file attributes."
+  do_mknod              || error_exit "mknod failed"
+  echo "Writing data to file(s) ... store md5sum ... "
+  do_write              || error_exit "write data failed"
+  do_check_data         || error_exit "md5sum verification failed"
+  get_stat              || { error_noexit "attributes check failed" ; STATUS=1; }
 
-# file(s) attributes modification
-echo "Part 2. file(s) attributes modification."
-do_chmod              || error_exit "chmod failed"
-get_stat              || { error_noexit "wrong attributes after chmod"; STATUS=1; }
+  # file(s) attributes modification
+  echo "Part 2. file(s) attributes modification."
+  do_chmod              || error_exit "chmod failed"
+  get_stat              || { error_noexit "wrong attributes after chmod"; STATUS=1; }
 
-do_change_timestamps  || error_exit "timestamps change failed"
-do_check_timestamps   || { error_noexit "wrong timestamps"; STATUS=1; }
+  do_change_timestamps  || error_exit "timestamps change failed"
+  do_check_timestamps   || { error_noexit "wrong timestamps"; STATUS=1; }
 
-# truncate file(s) to 0 size, check new file size
-echo "Part 3. truncate file(s) to 0 size, check new file size."
-do_truncate     || error_exit"truncate failed"
-get_stat        || { error_noexit "wrong attributes after truncate"; STATUS=1; }
+  # truncate file(s) to 0 size, check new file size
+  echo "Part 3. truncate file(s) to 0 size, check new file size."
+  do_truncate     || error_exit"truncate failed"
+  get_stat        || { error_noexit "wrong attributes after truncate"; STATUS=1; }
 
-# directory content solidity
-echo "Part 4. directory content solidity: fill up directory, check dir content, remove some files, check dir content."
-do_fill_dir        || error_exit "dir creation failed"
-check_dir_contents || { error_noexit "dir contents check failed"; STATUS=1; }
+  # directory content solidity
+  echo "Part 4. directory content solidity: fill up directory, check dir content, remove some files, check dir content."
+  do_fill_dir        || error_exit "dir creation failed"
+  check_dir_contents || { error_noexit "dir contents check failed"; STATUS=1; }
 
-do_partial_delete $(($NUM_FILES / 2))      || error_exit "delete failed"
-check_dir_contents $(($NUM_FILES / 2 + 1)) ||
-    { error_noexit "dir contents check after delete failed"; STATUS=1; }
+  do_partial_delete $(($NUM_FILES / 2))      || error_exit "delete failed"
+  check_dir_contents $(($NUM_FILES / 2 + 1)) ||
+      { error_noexit "dir contents check after delete failed"; STATUS=1; }
 
-# "write_disjoint" test
-echo "Part 5. write_disjoint test: see lustre/tests/mpi/write_disjoint.c for details"
-if [ -f "$WRITE_DISJOINT" ]; then
-    set $TRACE
-    MACHINEFILE=${MACHINEFILE:-$TMP/$(basename $0 .sh).machines}
-    generate_machine_file $NODES_TO_USE $MACHINEFILE
-    mpi_run -np $(get_node_count ${NODES_TO_USE//,/ }) -machinefile $MACHINEFILE \
-    $WRITE_DISJOINT -f $WRITE_DISJOINT_FILE -n $NUMLOOPS || STATUS=1
-else
-    skip_env "$0 : write_disjoint not found "
-fi
+  # "write_disjoint" test
+  echo "Part 5. write_disjoint test: see lustre/tests/mpi/write_disjoint.c for details"
+  if [ -f "$WRITE_DISJOINT" ]; then
+      set $TRACE
+      MACHINEFILE=${MACHINEFILE:-$TMP/$(basename $0 .sh).machines}
+      generate_machine_file $NODES_TO_USE $MACHINEFILE
+      mpi_run -np $(get_node_count ${NODES_TO_USE//,/ }) -machinefile $MACHINEFILE \
+      $WRITE_DISJOINT -f $WRITE_DISJOINT_FILE -n $NUMLOOPS || STATUS=1
+  else
+      skip_env "$0 : write_disjoint not found "
+  fi
 
+  rm -rf $TESTDIR
+  rm -f $MACHINEFILE
+}
+
+run_test metadata-updates "A Metadata Update Test tests that metadata updates are properly completed when multiple clients create/delete files and modify the attributes of files."
 complete $(basename $0) $SECONDS
-rm -rf $TESTDIR
-rm -f $MACHINEFILE
 check_and_cleanup_lustre
 exit_status

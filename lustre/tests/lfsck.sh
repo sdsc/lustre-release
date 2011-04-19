@@ -205,82 +205,87 @@ duplicate_files() {
 
 init_logging
 
-# get the server target devices
-get_svr_devs
+test_lfsck() {
+    # get the server target devices
+    get_svr_devs
 
-if [ "$SKIP_LFSCK" = "no" ] && is_empty_fs $MOUNT; then
-    # create test directory
-    TESTDIR=$DIR/d0.$TESTSUITE
-    mkdir -p $TESTDIR || error "mkdir $TESTDIR failed"
+    if [ "$SKIP_LFSCK" = "no" ] && is_empty_fs $MOUNT; then
+        # create test directory
+        TESTDIR=$DIR/d0.$TESTSUITE
+        mkdir -p $TESTDIR || error "mkdir $TESTDIR failed"
 
-    # create some dirs and files on the filesystem
-    create_files $TESTDIR $NUMDIRS $NUMFILES
+        # create some dirs and files on the filesystem
+        create_files $TESTDIR $NUMDIRS $NUMFILES
 
-    # get the objids for files in group $OBJGRP on the OST with index $OSTIDX
-    OST_REMOVE=$(get_objects $OSTIDX $OBJGRP \
-                $(seq -f $TESTDIR/testfile.%g $NUMFILES))
+        # get the objids for files in group $OBJGRP on the OST with index $OSTIDX
+        OST_REMOVE=$(get_objects $OSTIDX $OBJGRP \
+                   $(seq -f $TESTDIR/testfile.%g $NUMFILES))
 
-    # get the node name and target device for the OST with index $OSTIDX
-    OSTNODE=$(get_ost_node $OSTIDX) || error "get_ost_node by index $OSTIDX failed"
-    OSTDEV=$(get_ost_dev $OSTNODE $OSTIDX) || \
-	error "get_ost_dev $OSTNODE $OSTIDX failed"
+        # get the node name and target device for the OST with index $OSTIDX
+        OSTNODE=$(get_ost_node $OSTIDX) || error "get_ost_node by index $OSTIDX failed"
+        OSTDEV=$(get_ost_dev $OSTNODE $OSTIDX) || \
+      	error "get_ost_dev $OSTNODE $OSTIDX failed"
 
-    # get the file names to be duplicated on the MDS
-    MDS_DUPE=$(get_files dup $TESTDIR $NUMFILES) || error "$MDS_DUPE"
-    # get the file names to be removed from the MDS
-    MDS_REMOVE=$(get_files remove $TESTDIR $NUMFILES) || error "$MDS_REMOVE"
+        # get the file names to be duplicated on the MDS
+        MDS_DUPE=$(get_files dup $TESTDIR $NUMFILES) || error "$MDS_DUPE"
+        # get the file names to be removed from the MDS
+        MDS_REMOVE=$(get_files remove $TESTDIR $NUMFILES) || error "$MDS_REMOVE"
 
-    stopall -f || error "cleanupall failed"
+        stopall -f || error "cleanupall failed"
 
-    # remove objects associated with files in group $OBJGRP
-    # on the OST with index $OSTIDX
-    remove_objects $OSTNODE $OSTDEV $OBJGRP $OST_REMOVE || \
-        error "removing objects failed"
+        # remove objects associated with files in group $OBJGRP
+        # on the OST with index $OSTIDX
+        remove_objects $OSTNODE $OSTDEV $OBJGRP $OST_REMOVE || \
+            error "removing objects failed"
 
-    # remove files from MDS
-    remove_files $SINGLEMDS $MDTDEV $MDS_REMOVE || error "removing files failed"
+        # remove files from MDS
+        remove_files $SINGLEMDS $MDTDEV $MDS_REMOVE || error "removing files failed"
 
-    # create EAs on files so objects are referenced from different files
-    duplicate_files $SINGLEMDS $MDTDEV $MDS_DUPE || \
-        error "duplicating files failed"
-    FSCK_MAX_ERR=1   # file system errors corrected
-else    # I_MOUNTED=no
-    FSCK_MAX_ERR=4   # file system errors left uncorrected
-fi
-
-# Test 1a - check and repair the filesystem
-# lfsck will return 1 if the filesystem had errors fixed
-# run e2fsck to generate databases used for lfsck
-generate_db
-if [ "$SKIP_LFSCK" != "no" ]; then
-    echo "skip lfsck"
-else
-    # remount filesystem
-    REFORMAT=""
-    check_and_setup_lustre
-
-    # run lfsck
-    rc=0
-    run_lfsck || rc=$?
-    if [ $rc -eq 0 ]; then
-	echo "clean after the first check"
-    else
-        # run e2fsck again to generate databases used for lfsck
-	generate_db
-
-        # run lfsck again
-	rc=0
-	run_lfsck || rc=$?
-	if [ $rc -eq 0 ]; then
-	    echo "clean after the second check"
-	else
-	    error "lfsck test 2 - finished with rc=$rc"
-	fi
+        # create EAs on files so objects are referenced from different files
+        duplicate_files $SINGLEMDS $MDTDEV $MDS_DUPE || \
+            error "duplicating files failed"
+        FSCK_MAX_ERR=1   # file system errors corrected
+    else    # I_MOUNTED=no
+        FSCK_MAX_ERR=4   # file system errors left uncorrected
     fi
-fi
 
-LFSCK_ALWAYS=no
+    # Test 1a - check and repair the filesystem
+    # lfsck will return 1 if the filesystem had errors fixed
+    # run e2fsck to generate databases used for lfsck
+    generate_db
+    if [ "$SKIP_LFSCK" != "no" ]; then
+        echo "skip lfsck"
+    else
+        # remount filesystem
+        REFORMAT=""
+        check_and_setup_lustre
+
+        # run lfsck
+        rc=0
+        run_lfsck || rc=$?
+        if [ $rc -eq 0 ]; then
+	          echo "clean after the first check"
+        else
+            # run e2fsck again to generate databases used for lfsck
+          	generate_db
+
+            # run lfsck again
+            rc=0
+	          run_lfsck || rc=$?
+    	      if [ $rc -eq 0 ]; then
+	              echo "clean after the second check"
+           	else
+	              error "lfsck test 2 - finished with rc=$rc"
+            fi
+        fi
+    fi
+
+    LFSCK_ALWAYS=no
+}
+
+run_test lfsck " e2fsck and lfsck to detect and fix filesystem corruption"
 
 complete $(basename $0) $SECONDS
 check_and_cleanup_lustre
 exit_status
+
