@@ -1744,13 +1744,13 @@ test_23_sub() {
 }
 
 test_23() {
-	log "run for $((OSTCOUNT * 4))MB test file"
-	test_23_sub $((OSTCOUNT * 4 * 1024))
+	log "run for 4MB test file"
+	test_23_sub $((4 * 1024))
 
-	OST0_MIN=120000
+	OST0_MIN=$((80 * 1024)) # extra space for meta blocks.
 	check_whether_skip && return 0
-	log "run for $((OSTCOUNT * 40))MB test file"
-	test_23_sub $((OSTCOUNT * 40 * 1024))
+	log "run for 40MB test file"
+	test_23_sub $((40 * 1024))
 }
 run_test_with_stat 23 "run for fixing bug16125 ==========="
 
