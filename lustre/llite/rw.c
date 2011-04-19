@@ -335,7 +335,8 @@ static void ll_ra_stats_inc_sbi(struct ll_sb_info *sbi, enum ra_stat which);
  * ll_ra_count_get at the exactly same time. All of them will get a zero ra
  * window, although the global window is 100M. -jay
  */
-static unsigned long ll_ra_count_get(struct ll_sb_info *sbi, unsigned long len)
+static unsigned long ll_ra_count_get(struct ll_sb_info *sbi, struct ra_io_arg *ria, 
+                                     unsigned long len)
 {
         struct ll_ra_info *ra = &sbi->ll_ra_info;
         unsigned long ret;
@@ -350,8 +351,16 @@ static unsigned long ll_ra_count_get(struct ll_sb_info *sbi, unsigned long len)
         if ((int)ret < 0 || ret < min((unsigned long)PTLRPC_MAX_BRW_PAGES, len))
                 GOTO(out, ret = 0);
 
-        if (cfs_atomic_add_return(ret, &ra->ra_cur_pages) > ra->ra_max_pages) {
-                cfs_atomic_sub(ret, &ra->ra_cur_pages);
+        if (ria->ria_pages == 0) {
+                /* it needs 1M align again after trimed by ra_max_pages*/
+                if (ret >= ((ria->ria_start + ret) % PTLRPC_MAX_BRW_PAGES))
+                        ret -= (ria->ria_start + ret) % PTLRPC_MAX_BRW_PAGES;
+                else
+                        GOTO(out, ret = 0);
+        }
+
+        if (atomic_add_return(ret, &ra->ra_cur_pages) > ra->ra_max_pages) {
+                atomic_sub(ret, &ra->ra_cur_pages);
                 ret = 0;
         }
 out:
@@ -784,8 +793,7 @@ int ll_readahead(const struct lu_env *env, struct cl_io *io,
         if (len == 0)
                 RETURN(0);
 
-        reserved = ll_ra_count_get(ll_i2sbi(inode), len);
-
+        reserved = ll_ra_count_get(ll_i2sbi(inode), ria, len);
         if (reserved < len)
                 ll_ra_stats_inc(mapping, RA_STAT_MAX_IN_FLIGHT);
 
