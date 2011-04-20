@@ -923,8 +923,6 @@ static int server_sb2mti(struct super_block *sb, struct mgs_target_info *mti)
         struct lustre_sb_info   *lsi = s2lsi(sb);
         struct lustre_disk_data *ldd = lsi->lsi_ldd;
         lnet_process_id_t        id;
-        lnet_nid_t               nid;
-        char                    *ptr;
         int i = 0;
         ENTRY;
 
@@ -940,19 +938,17 @@ static int server_sb2mti(struct super_block *sb, struct mgs_target_info *mti)
         while (LNetGetId(i++, &id) != -ENOENT) {
                 if (LNET_NETTYP(LNET_NIDNET(id.nid)) == LOLND)
                         continue;
-                if ((ldd->ldd_flags & LDD_F_NO_PRIMNODE) != 0) {
-                        /* server use --servicenode param, only allow specified
-                         * nids be registered */
-                        ptr = ldd->ldd_params;
-                        while (class_find_param(ptr, PARAM_FAILNODE, &ptr) ==0){
-                                while (class_parse_nid(ptr, &nid, &ptr) == 0) {
-                                        if (nid == id.nid)
-                                                goto allowed;
-                                }
-                        }
+                /* server use --servicenode param, only allow specified
+                 * nids be registered */
+                if ((ldd->ldd_flags & LDD_F_NO_PRIMNODE) != 0 &&
+                    !class_match_nid(ldd->ldd_params, PARAM_FAILNODE, id.nid))
                         continue;
-                }
-allowed:
+
+                /* match specified network? */
+                if (!class_match_net(ldd->ldd_params,
+                                     PARAM_NETWORK, LNET_NIDNET(id.nid)))
+                        continue;
+
                 mti->mti_nids[mti->mti_nid_count] = id.nid;
                 mti->mti_nid_count++;
                 if (mti->mti_nid_count >= MTI_NIDS_MAX) {
