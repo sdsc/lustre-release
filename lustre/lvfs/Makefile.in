@@ -18,6 +18,6 @@ EXTRA_DIST = $(lvfs-objs:.o=.c)  $(quotafmt-objs:.o=.c) \
 	lustre_quota_fmt.c lustre_quota_fmt.h quotafmt_test.c
 
 # for <ext3/xattr.h> on 2.6
-EXTRA_PRE_CFLAGS := -I@LINUX@/fs -I@LDISKFS_DIR@ -I@LDISKFS_DIR@/ldiskfs
+EXTRA_PRE_CFLAGS := -I@LINUX@/fs -I@LDISKFS_DIR@ -I@LDISKFS_DIR@/ldiskfs -I@LDISKFS_DIR@/include
 
 @INCLUDE_RULES@
