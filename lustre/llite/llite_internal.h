@@ -47,6 +47,7 @@
 /* for struct cl_lock_descr and struct cl_io */
 #include <cl_object.h>
 #include <lclient.h>
+#include <linux/lustre_intent.h>
 
 #ifndef FMODE_EXEC
 #define FMODE_EXEC 0
@@ -54,6 +55,12 @@
 
 #ifndef DCACHE_LUSTRE_INVALID
 #define DCACHE_LUSTRE_INVALID 0x4000000
+#endif
+
+/* Create family functions will add dentry into dcache with DCACHE_LUSTRE_EARLY
+ * to tell statahead thread that NOT process it. */
+#ifndef DCACHE_LUSTRE_EARLY
+#define DCACHE_LUSTRE_EARLY 0x8000
 #endif
 
 #define LL_IT2STR(it) ((it) ? ldlm_it2str((it)->it_op) : "0")
@@ -132,6 +139,7 @@ struct ll_inode_info {
         int                     lli_write_rc;
 
         struct posix_acl       *lli_posix_acl;
+        struct posix_acl       *lli_def_acl;
 
         /* remote permission hash */
         cfs_hlist_head_t       *lli_remote_perms;
@@ -168,13 +176,14 @@ struct ll_inode_info {
 
         /* metadata statahead */
         /* protect statahead stuff: lli_opendir_pid, lli_opendir_key, lli_sai,
-         * and so on. */
+         * lli_statahead_pid, and so on. */
         cfs_spinlock_t          lli_sa_lock;
         /*
          * "opendir_pid" is the token when lookup/revalid -- I am the owner of
          * dir statahead.
          */
         pid_t                   lli_opendir_pid;
+        pid_t                   lli_statahead_pid;
         /*
          * since parent-child threads can share the same @file struct,
          * "opendir_key" is the token when dir close for case of parent exit
@@ -185,6 +194,19 @@ struct ll_inode_info {
         struct cl_object       *lli_clob;
         /* the most recent timestamps obtained from mds */
         struct ost_lvb          lli_lvb;
+        unsigned int            lli_agl_idx;
+        /**
+         * to parent that the async glimpse is under.
+         */
+        struct inode           *lli_agl_parent;
+        /**
+         * for child items, to link into parent's sai_agl_list.
+         */
+        cfs_list_t              lli_agl_list;
+        /**
+         * for async glimpse lock process
+         */
+        struct cl_agl_args      lli_agl_args;
         /**
          * serialize normal readdir and statahead-readdir
          */
@@ -391,10 +413,26 @@ struct ll_sb_info {
 
         /* metadata stat-ahead */
         unsigned int              ll_sa_max;     /* max statahead RPCs */
+        unsigned int              ll_sa_slow;    /* statahead thread runs slows
+                                                  * if the busy statahead window
+                                                  * is smaller than it */
         atomic_t                  ll_sa_total;   /* statahead thread started
                                                   * count */
         atomic_t                  ll_sa_wrong;   /* statahead thread stopped for
                                                   * low hit ratio */
+        unsigned int              ll_sa_agl:1,   /* enable/disable agl*/
+        /**
+         * the async glimpse size will be cached on client until someone (ls)
+         * use it or top-level lock released, which maybe different from the
+         * the real file size when someone use it, it is not serious for "ls".
+         */
+                                  ll_agl_rough:1,
+        /**
+         * Load balance between ptlrpcds for agl.
+         * Disable it by default.
+         * Should be enabled when ptlrpcd_agl overload.
+         */
+                                  ll_agl_balance:1;
 
         dev_t                     ll_sdev_orig; /* save s_dev before assign for
                                                  * clustred nfs */
@@ -1089,7 +1127,7 @@ void et_fini(struct eacl_table *et);
 
 /* statahead.c */
 
-#define LL_SA_RPC_MIN   2
+#define LL_SA_RPC_MIN   4
 #define LL_SA_RPC_DEF   32
 #define LL_SA_RPC_MAX   8192
 
@@ -1119,16 +1157,21 @@ struct ll_statahead_info {
         unsigned int            sai_miss_hidden;/* "ls -al", but first dentry
                                                  * is not a hidden one */
         unsigned int            sai_skip_hidden;/* skipped hidden dentry count */
-        unsigned int            sai_ls_all:1;   /* "ls -al", do stat-ahead for
+        unsigned int            sai_ls_all:1,   /* "ls -al", do stat-ahead for
                                                  * hidden entries */
+                                sai_nextent_is_reg:1; /* next entry to be
+                                                 * interpreted is regular file */
         cfs_waitq_t             sai_waitq;      /* stat-ahead wait queue */
         struct ptlrpc_thread    sai_thread;     /* stat-ahead thread */
         cfs_list_t              sai_entries_sent;     /* entries sent out */
         cfs_list_t              sai_entries_received; /* entries returned */
         cfs_list_t              sai_entries_stated;   /* entries stated */
+        cfs_list_t              sai_agl_list;   /* entries for async glimpse */
+        int                     sai_agl_count;  /* count for async glimpse */
         pid_t                   sai_pid;        /* pid of statahead itself */
 };
 
+int ll_glimpse_size(struct inode *inode);
 int do_statahead_enter(struct inode *dir, struct dentry **dentry, int lookup);
 void ll_statahead_exit(struct inode *dir, struct dentry *dentry, int result);
 void ll_stop_statahead(struct inode *dir, void *key);
@@ -1312,4 +1355,17 @@ static inline int ll_file_nolock(const struct file *file)
         return ((fd->fd_flags & LL_FILE_IGNORE_LOCK) ||
                 (ll_i2sbi(inode)->ll_flags & LL_SBI_NOLCK));
 }
+
+static inline void ll_set_lock_data(struct obd_export *exp, struct inode *inode,
+                                    struct lookup_intent *it, __u32 *bits)
+{
+        if (it->d.lustre.it_lock_to_join) {
+                it->d.lustre.it_lock_to_join = 0;
+                CDEBUG(D_DLMTRACE, "setting l_data to inode %p (%lu/%u)\n",
+                       inode, inode->i_ino, inode->i_generation);
+                md_set_lock_data(exp, &it->d.lustre.it_lock_handle,
+                                 inode, bits);
+        }
+}
+
 #endif /* LLITE_INTERNAL_H */
