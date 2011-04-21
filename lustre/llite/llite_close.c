@@ -85,7 +85,7 @@ void vvp_write_complete(struct ccc_object *club, struct ccc_page *page)
 void ll_queue_done_writing(struct inode *inode, unsigned long flags)
 {
         struct ll_inode_info *lli = ll_i2info(inode);
-        struct ccc_object *club = cl2ccc(ll_i2info(inode)->lli_clob);
+        struct ccc_object *club = cl2ccc(cl_object_dereference(inode));
         ENTRY;
 
         cfs_spin_lock(&lli->lli_lock);
@@ -149,7 +149,7 @@ void ll_ioepoch_close(struct inode *inode, struct md_op_data *op_data,
                       struct obd_client_handle **och, unsigned long flags)
 {
         struct ll_inode_info *lli = ll_i2info(inode);
-        struct ccc_object *club = cl2ccc(ll_i2info(inode)->lli_clob);
+        struct ccc_object *club = cl2ccc(cl_object_dereference(inode));
         ENTRY;
 
         cfs_spin_lock(&lli->lli_lock);

@@ -130,18 +130,8 @@ struct inode *ll_iget(struct super_block *sb, ino_t hash,
 
         if (inode) {
                 if (inode->i_state & I_NEW) {
-                        int rc;
-
                         ll_read_inode2(inode, md);
-                        rc = cl_inode_init(inode, md);
-                        if (rc != 0) {
-                                md->lsm = NULL;
-                                make_bad_inode(inode);
-                                unlock_new_inode(inode);
-                                iput(inode);
-                                inode = ERR_PTR(rc);
-                        } else
-                                unlock_new_inode(inode);
+                        unlock_new_inode(inode);
                 } else if (!(inode->i_state & (I_FREEING | I_CLEAR)))
                                 ll_update_inode(inode, md);
                 CDEBUG(D_VFSTRACE, "got inode: %p for "DFID"\n",

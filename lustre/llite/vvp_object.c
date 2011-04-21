@@ -133,17 +133,42 @@ static const struct cl_object_operations vvp_ops = {
         .coo_glimpse   = ccc_object_glimpse
 };
 
+int vvp_object_init(const struct lu_env *env, struct lu_object *obj,
+                    const struct lu_object_conf *conf)
+{
+        int result;
+        struct ccc_object *ccc = lu2ccc(obj);
+
+        result = ccc_object_init(env, obj, conf);
+        if (result == 0) {
+                struct inode *inode = ccc->cob_inode;
+                inode = igrab(inode);
+                LASSERT(inode != NULL);
+        }
+        return result;
+}
+
+void vvp_object_delete(const struct lu_env *env, struct lu_object *obj)
+{
+        struct ccc_object *ccc   = lu2ccc(obj);
+        struct inode      *inode = ccc->cob_inode;
+
+        ccc_object_delete(env, obj);
+        if (inode)
+                iput(inode);
+}
+
 static const struct lu_object_operations vvp_lu_obj_ops = {
-        .loo_object_init  = ccc_object_init,
-        .loo_object_free  = ccc_object_free,
-        .loo_object_print = vvp_object_print
+        .loo_object_init   = vvp_object_init,
+        .loo_object_free   = ccc_object_free,
+        .loo_object_delete = vvp_object_delete,
+        .loo_object_print  = vvp_object_print
 };
 
 struct ccc_object *cl_inode2ccc(struct inode *inode)
 {
-        struct cl_inode_info *lli = cl_i2info(inode);
-        struct cl_object     *obj = lli->lli_clob;
-        struct lu_object     *lu;
+        struct cl_object *obj = cl_object_dereference(inode);
+        struct lu_object *lu;
 
         LASSERT(obj != NULL);
         lu = lu_object_locate(obj->co_lu.lo_header, &vvp_device_type);

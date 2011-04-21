@@ -148,7 +148,6 @@ void llu_update_inode(struct inode *inode, struct lustre_md *md)
 
         if (lsm != NULL) {
                 if (lli->lli_smd == NULL) {
-                        cl_inode_init(inode, md);
                         lli->lli_smd = lsm;
                         lli->lli_maxbytes = lsm->lsm_maxbytes;
                         if (lli->lli_maxbytes > PAGE_CACHE_MAXBYTES)
@@ -355,6 +354,7 @@ static struct inode* llu_new_inode(struct filesys *fs,
         lli->lli_sysio_fid.fid_data = &lli->lli_fid;
         lli->lli_sysio_fid.fid_len = sizeof(lli->lli_fid);
         lli->lli_fid = *fid;
+        cfs_mutex_init(&lli->lli_clob_lock);
 
         /* file identifier is needed by functions like _sysio_i_find() */
         inode = _sysio_i_new(fs, &lli->lli_sysio_fid,
@@ -525,7 +525,7 @@ void llu_clear_inode(struct inode *inode)
                 obd_change_cbdata(sbi->ll_dt_exp, lli->lli_smd,
                                   null_if_equal, inode);
 
-        cl_inode_fini(inode);
+        LASSERT(lli->lli_clob == NULL);
 
         if (lli->lli_smd) {
                 obd_free_memmd(sbi->ll_dt_exp, &lli->lli_smd);
@@ -1553,7 +1553,7 @@ static int llu_get_grouplock(struct inode *inode, unsigned long arg)
         }
         LASSERT(fd->fd_grouplock.cg_lock == NULL);
 
-        rc = cl_get_grouplock(cl_i2info(inode)->lli_clob,
+        rc = cl_get_grouplock(cl_object_dereference(inode),
                               arg, (lli->lli_open_flags & O_NONBLOCK),
                               &grouplock);
 

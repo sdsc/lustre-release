@@ -134,7 +134,7 @@ static struct ll_cl_context *ll_cl_init(struct file *file,
         int refcheck;
         int result = 0;
 
-        clob = ll_i2info(vmpage->mapping->host)->lli_clob;
+        clob = cl_object_dereference(vmpage->mapping->host);
         LASSERT(clob != NULL);
 
         env = cl_env_get(&refcheck);
@@ -506,7 +506,7 @@ static int ll_read_ahead_page(const struct lu_env *env, struct cl_io *io,
                               pgoff_t index, struct address_space *mapping)
 {
         struct page      *vmpage;
-        struct cl_object *clob  = ll_i2info(mapping->host)->lli_clob;
+        struct cl_object *clob  = cl_object_dereference(mapping->host);
         struct cl_page   *page;
         enum ra_stat      which = _NR_RA_STAT; /* keep gcc happy */
         unsigned int      gfp_mask;
@@ -705,15 +705,13 @@ int ll_readahead(const struct lu_env *env, struct cl_io *io,
         struct inode *inode;
         struct ll_ra_read *bead;
         struct ra_io_arg *ria = &vti->vti_ria;
-        struct ll_inode_info *lli;
         struct cl_object *clob;
         int ret = 0;
         __u64 kms;
         ENTRY;
 
         inode = mapping->host;
-        lli = ll_i2info(inode);
-        clob = lli->lli_clob;
+        clob = cl_object_dereference(inode);
 
         memset(ria, 0, sizeof *ria);
 
@@ -1144,7 +1142,7 @@ int ll_writepage(struct page *vmpage, struct writeback_control *unused)
 
         io    = &ccc_env_info(env)->cti_io;
         queue = &vvp_env_info(env)->vti_queue;
-        clob  = ll_i2info(inode)->lli_clob;
+        clob  = cl_object_dereference(inode);
         LASSERT(clob != NULL);
 
         io->ci_obj = clob;

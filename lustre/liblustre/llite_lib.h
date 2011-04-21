@@ -126,6 +126,7 @@ struct llu_inode_info {
         int                     lli_st_flags;
         unsigned long           lli_st_generation;
         struct cl_object       *lli_clob;
+        cfs_mutex_t             lli_clob_lock;
         /* the most recent timestamps obtained from mds */
         struct ost_lvb          lli_lvb;
 };
@@ -370,8 +371,6 @@ void put_io_group(struct llu_io_group *group);
 
 int cl_sb_init(struct llu_sb_info *sbi);
 int cl_sb_fini(struct llu_sb_info *sbi);
-int cl_inode_init(struct inode *inode, struct lustre_md *md);
-void cl_inode_fini(struct inode *inode);
 
 void llu_io_init(struct cl_io *io, struct inode *inode, int write);
 

@@ -157,6 +157,16 @@ void cl_object_get(struct cl_object *o)
 EXPORT_SYMBOL(cl_object_get);
 
 /**
+ * Try to acquire a reference count to the object \a o.
+ * The caller himself just holds a weak pointer, so it may fail.
+ */
+int cl_object_get_try(struct cl_object *o)
+{
+        return lu_object_get_try(&o->co_lu);
+}
+EXPORT_SYMBOL(cl_object_get_try);
+
+/**
  * Returns the top-object for a given \a o.
  *
  * \see cl_page_top(), cl_io_top()
@@ -357,6 +367,9 @@ void cl_object_kill(const struct lu_env *env, struct cl_object *obj)
          * waiting on __wait_on_freeing_inode().
          */
         cl_locks_prune(env, obj, 0);
+
+        lu_object_kill(env, &obj->co_lu);
+        /* Don't access the object any more.. */
 }
 EXPORT_SYMBOL(cl_object_kill);
 
@@ -366,8 +379,8 @@ EXPORT_SYMBOL(cl_object_kill);
 void cl_object_prune(const struct lu_env *env, struct cl_object *obj)
 {
         ENTRY;
-        cl_pages_prune(env, obj);
         cl_locks_prune(env, obj, 1);
+        cl_pages_prune(env, obj);
         EXIT;
 }
 EXPORT_SYMBOL(cl_object_prune);
@@ -1142,11 +1155,44 @@ struct cl_device *cl_type_setup(const struct lu_env *env, struct lu_site *site,
 }
 EXPORT_SYMBOL(cl_type_setup);
 
+struct cl_site_prune_arg {
+        struct lu_device    *lsp_dev;
+        const struct lu_env *lsp_env;
+};
+
+static int cl_site_object_prune(cfs_hash_t *hs, cfs_hash_bd_t *bd,
+                                cfs_hlist_node_t *hnode, void *data)
+{
+        struct lu_object_header  *hdr;
+        struct lu_object         *obj;
+        struct cl_site_prune_arg *arg = data;
+
+        hdr = cfs_hlist_entry(hnode, struct lu_object_header, loh_hash);
+        obj = lu_object_locate(hdr, arg->lsp_dev->ld_type);
+        if (obj)
+                cl_object_prune(arg->lsp_env, lu2cl(obj));
+
+        return 0;
+}
+
+static void cl_site_prune(const struct lu_env *env, struct cl_device *cl)
+{
+        struct lu_device *ld   = cl2lu_dev(cl);
+        struct lu_site   *site = ld->ld_site;
+        struct cl_site_prune_arg arg = {
+                .lsp_dev = ld,
+                .lsp_env = env
+        };
+
+        cfs_hash_for_each_nolock(site->ls_obj_hash, cl_site_object_prune, &arg);
+}
+
 /**
  * Finalize device stack by calling lu_stack_fini().
  */
 void cl_stack_fini(const struct lu_env *env, struct cl_device *cl)
 {
+        cl_site_prune(env, cl);
         lu_stack_fini(env, cl2lu_dev(cl));
 }
 EXPORT_SYMBOL(cl_stack_fini);
