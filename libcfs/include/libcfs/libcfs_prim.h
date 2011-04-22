@@ -76,6 +76,21 @@ void cfs_waitq_wait(cfs_waitlink_t *link, cfs_task_state_t state);
 int64_t cfs_waitq_timedwait(cfs_waitlink_t *link, cfs_task_state_t state, 
 			    int64_t timeout);
 
+static inline void cfs_sleep_on(cfs_waitq_t *waitq, cfs_mutex_t *lock)
+{
+        cfs_waitlink_t link;
+
+        cfs_waitlink_init(&link);
+        cfs_waitq_add(waitq, &link);
+        if (lock)
+                cfs_mutex_unlock(lock);
+
+        cfs_waitq_wait(&link, CFS_TASK_UNINT);
+        cfs_waitq_del(waitq, &link);
+        if (lock)
+                cfs_mutex_lock(lock);
+}
+
 /*
  * Timer
  */

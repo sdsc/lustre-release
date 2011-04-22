@@ -1306,6 +1306,7 @@ static void osc_lock_cancel(const struct lu_env *env,
         struct ldlm_lock *dlmlock = olck->ols_lock;
         int               result  = 0;
         int               discard;
+        ENTRY;
 
         LASSERT(cl_lock_is_mutexed(lock));
         LINVRNT(osc_lock_invariant(olck));
@@ -1335,6 +1336,7 @@ static void osc_lock_cancel(const struct lu_env *env,
         }
         olck->ols_state = OLS_CANCELLED;
         osc_lock_detach(env, olck);
+        EXIT;
 }
 
 void cl_lock_page_list_fixup(const struct lu_env *env,

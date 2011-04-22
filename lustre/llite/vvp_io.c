@@ -173,7 +173,7 @@ static int vvp_mmap_locks(const struct lu_env *env,
                          */
                         policy_from_vma(&policy, vma, addr, count);
                         descr->cld_mode = vvp_mode_from_vma(vma);
-                        descr->cld_obj = ll_i2info(inode)->lli_clob;
+                        descr->cld_obj = cl_inode_deref(inode);
                         descr->cld_start = cl_index(descr->cld_obj,
                                                     policy.l_extent.start);
                         descr->cld_end = cl_index(descr->cld_obj,

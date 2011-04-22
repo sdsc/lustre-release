@@ -733,8 +733,23 @@ out_it:
 void ll_d_iput(struct dentry *de, struct inode *inode)
 {
         LASSERT(inode);
-        if (!find_cbdata(inode))
+
+#if 0
+        /* Kill cl_object. */
+        spin_lock(&dcache_lock);
+        kill_object = S_ISREG(inode->i_mode) && list_empty(&inode->i_dentry);
+        spin_unlock(&dcache_lock);
+        if (kill_object)
+                cl_inode_fini(inode);
+#endif
+
+        if (!find_cbdata(inode)) {
                 inode->i_nlink = 0;
+                /* Kill cl_object so that inode can be freed */
+                if (S_ISREG(inode->i_mode))
+                        cl_inode_fini(inode);
+        }
+
         iput(inode);
 }
 

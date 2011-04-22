@@ -98,6 +98,7 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
                 return;
         }
 
+        LASSERT(cfs_list_empty(&top->loh_lru));
         LASSERT(bkt->lsb_busy > 0);
         bkt->lsb_busy--;
         /*
@@ -110,6 +111,7 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
         }
 
         if (!lu_object_is_dying(top)) {
+                cfs_list_add_tail(&top->loh_lru, &bkt->lsb_lru);
                 cfs_hash_bd_unlock(site->ls_obj_hash, &bd, 1);
                 return;
         }
@@ -126,7 +128,6 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
          * and we can safely destroy object below.
          */
         cfs_hash_bd_del_locked(site->ls_obj_hash, &bd, &top->loh_hash);
-        cfs_list_del_init(&top->loh_lru);
         cfs_hash_bd_unlock(site->ls_obj_hash, &bd, 1);
         /*
          * Object was already removed from hash and lru above, can
@@ -135,6 +136,37 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
         lu_object_free(env, orig);
 }
 EXPORT_SYMBOL(lu_object_put);
+
+/**
+ * Try to acquire a reference count to an object \a o. The caller
+ * has a weak pointer of this object, but not sure if the object
+ * is in cache.
+ *
+ * Return:
+ *          0: ok
+ *    -EAGAIN: the object is being destroyed
+ */
+int lu_object_get_try(struct lu_object *o)
+{
+        struct lu_object_header *top;
+        cfs_hash_bd_t            bd;
+        cfs_hash_t              *hs;
+        int                      result = -EAGAIN;
+
+        top = o->lo_header;
+        hs = o->lo_dev->ld_site->ls_obj_hash;
+        cfs_hash_bd_get(hs, &top->loh_fid, &bd);
+        cfs_hash_bd_lock(hs, &bd, 1);
+        /* check if the object is still in cache. We cannot do this
+         * w/o holding bucket lock */
+        if (!cfs_hlist_unhashed(&top->loh_hash) && !lu_object_is_dying(top)) {
+                cfs_hash_get(hs, &top->loh_hash);
+                result = 0;
+        }
+        cfs_hash_bd_unlock(hs, &bd, 1);
+        return result;
+}
+EXPORT_SYMBOL(lu_object_get_try);
 
 /**
  * Allocate new object.
@@ -282,20 +314,7 @@ int lu_site_purge(const struct lu_env *env, struct lu_site *s, int nr)
                 bkt = cfs_hash_bd_extra_get(s->ls_obj_hash, &bd);
 
                 cfs_list_for_each_entry_safe(h, temp, &bkt->lsb_lru, loh_lru) {
-                        /*
-                         * Objects are sorted in lru order, and "busy"
-                         * objects (ones with h->loh_ref > 0) naturally tend to
-                         * live near hot end that we scan last. Unfortunately,
-                         * sites usually have small (less then ten) number of
-                         * busy yet rarely accessed objects (some global
-                         * objects, accessed directly through pointers,
-                         * bypassing hash table).
-                         * Currently algorithm scans them over and over again.
-                         * Probably we should move busy objects out of LRU,
-                         * or we can live with that.
-                         */
-                        if (cfs_atomic_read(&h->loh_ref) > 0)
-                                continue;
+                        LASSERT(cfs_atomic_read(&h->loh_ref) == 0);
 
                         cfs_hash_bd_get(s->ls_obj_hash, &h->loh_fid, &bd2);
                         LASSERT(bd.bd_bucket == bd2.bd_bucket);
@@ -601,7 +620,6 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
 
                 bkt = cfs_hash_bd_extra_get(hs, &bd);
                 cfs_hash_bd_add_locked(hs, &bd, &o->lo_header->loh_hash);
-                cfs_list_add_tail(&o->lo_header->loh_lru, &bkt->lsb_lru);
                 bkt->lsb_busy++;
                 cfs_hash_bd_unlock(hs, &bd, 1);
                 return o;
@@ -663,6 +681,24 @@ struct lu_object *lu_object_find_slice(const struct lu_env *env,
         return obj;
 }
 EXPORT_SYMBOL(lu_object_find_slice);
+
+int lu_object_peek(const struct lu_env *env, struct lu_device *dev,
+                   const struct lu_fid *f)
+{
+        struct lu_site   *s;
+        cfs_hash_t       *hs;
+        cfs_hash_bd_t     bd;
+        cfs_hlist_node_t *hnode;
+
+        s  = dev->ld_site;
+        hs = s->ls_obj_hash;
+        cfs_hash_bd_get_and_lock(hs, (void *)f, &bd, 1);
+        hnode = cfs_hash_bd_peek_locked(hs, &bd, (void *)f);
+        cfs_hash_bd_unlock(hs, &bd, 1);
+
+        return (hnode != NULL);
+}
+EXPORT_SYMBOL(lu_object_peek);
 
 /**
  * Global list of all device types.
@@ -830,15 +866,20 @@ static void lu_obj_hop_get(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
                 struct lu_site_bkt_data *bkt;
                 cfs_hash_bd_t            bd;
 
+                LASSERT(!cfs_list_empty(&h->loh_lru));
+                cfs_list_del_init(&h->loh_lru);
                 cfs_hash_bd_get(hs, &h->loh_fid, &bd);
                 bkt = cfs_hash_bd_extra_get(hs, &bd);
                 bkt->lsb_busy++;
         }
 }
 
-static void lu_obj_hop_put_locked(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
+static void lu_obj_hop_put(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
 {
-        LBUG(); /* we should never called it */
+        /*
+         * XXX: the object refcount must have been dropped already.
+         * See cl_site_object_prune() for an example.
+         */
 }
 
 cfs_hash_ops_t lu_site_hash_ops = {
@@ -847,7 +888,7 @@ cfs_hash_ops_t lu_site_hash_ops = {
         .hs_keycmp      = lu_obj_hop_keycmp,
         .hs_object      = lu_obj_hop_object,
         .hs_get         = lu_obj_hop_get,
-        .hs_put_locked  = lu_obj_hop_put_locked,
+        .hs_put         = lu_obj_hop_put,
 };
 
 /**

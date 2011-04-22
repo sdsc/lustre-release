@@ -663,6 +663,14 @@ cfs_hash_bd_lookup_locked(cfs_hash_t *hs, cfs_hash_bd_t *bd, const void *key)
 CFS_EXPORT_SYMBOL(cfs_hash_bd_lookup_locked);
 
 cfs_hlist_node_t *
+cfs_hash_bd_peek_locked(cfs_hash_t *hs, cfs_hash_bd_t *bd, const void *key)
+{
+        return cfs_hash_bd_lookup_intent(hs, bd, key, NULL,
+                                         CFS_HS_LOOKUP_IT_PEEK);
+}
+CFS_EXPORT_SYMBOL(cfs_hash_bd_peek_locked);
+
+cfs_hlist_node_t *
 cfs_hash_bd_findadd_locked(cfs_hash_t *hs, cfs_hash_bd_t *bd,
                            const void *key, cfs_hlist_node_t *hnode,
                            int noref)
@@ -1027,7 +1035,7 @@ cfs_hash_create(char *name, unsigned cur_bits, unsigned max_bits,
         LASSERT(ops->hs_object);
         LASSERT(ops->hs_keycmp);
         LASSERT(ops->hs_get != NULL);
-        LASSERT(ops->hs_put_locked != NULL);
+        LASSERT(ops->hs_put_locked != NULL || ops->hs_put != NULL);
 
         if ((flags & CFS_HASH_REHASH) != 0)
                 flags |= CFS_HASH_COUNTER; /* must have counter */
