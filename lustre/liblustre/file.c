@@ -228,6 +228,9 @@ int llu_iop_open(struct pnode *pnode, int flags, mode_t mode)
         /*XXX: open_flags are overwritten and the previous ones are lost */
         lli->lli_open_flags = flags & ~(O_CREAT | O_EXCL | O_TRUNC);
 
+        /* initialize cl_object because it may be needed soon */
+        rc = cl_inode_hold(inode);
+
  out_release:
         request = it->d.lustre.it_data;
         ptlrpc_req_finished(request);
@@ -493,6 +496,8 @@ int llu_file_release(struct inode *inode)
         /* still opened by others? */
         if (--lli->lli_open_count)
                 RETURN(0);
+
+        cl_inode_release(inode);
 
         fd = lli->lli_file_data;
         if (!fd) /* no process opened the file after an mcreate */

@@ -816,6 +816,7 @@ void ll_lli_init(struct ll_inode_info *lli)
         CFS_INIT_LIST_HEAD(&lli->lli_oss_capas);
         cfs_spin_lock_init(&lli->lli_sa_lock);
         cfs_sema_init(&lli->lli_readdir_sem, 1);
+        cfs_mutex_init(&lli->lli_clob_lock);
 }
 
 static inline int ll_bdi_register(struct backing_dev_info *bdi)
@@ -1084,11 +1085,8 @@ void ll_clear_inode(struct inode *inode)
         lli->lli_inode_magic = LLI_INODE_DEAD;
 
         ll_clear_inode_capas(inode);
-        /*
-         * XXX This has to be done before lsm is freed below, because
-         * cl_object still uses inode lsm.
-         */
-        cl_inode_fini(inode);
+
+        LASSERT(lli->lli_clob == NULL);
 
         if (lli->lli_smd) {
                 obd_free_memmd(sbi->ll_dt_exp, &lli->lli_smd);
@@ -1495,6 +1493,13 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
         if (lsm != NULL) {
                 cfs_down(&lli->lli_och_sem);
                 if (lli->lli_smd == NULL) {
+                        struct cl_object_conf conf = {
+                                .coc_inode = inode,
+                                .u = {
+                                        .coc_md = lsm
+                                }
+                        };
+
                         if (lsm->lsm_magic != LOV_MAGIC_V1 &&
                             lsm->lsm_magic != LOV_MAGIC_V3) {
                                 dump_lsm(D_ERROR, lsm);
@@ -1502,12 +1507,10 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
                         }
                         CDEBUG(D_INODE, "adding lsm %p to inode %lu/%u(%p)\n",
                                lsm, inode->i_ino, inode->i_generation, inode);
-                        /* cl_inode_init must go before lli_smd or a race is
-                         * possible where client thinks the file has stripes,
-                         * but lov raid0 is not setup yet and parallel e.g.
-                         * glimpse would try to use uninitialized lov */
-                        cl_inode_init(inode, md);
-                        lli->lli_smd = lsm;
+                        /* Make sure cl_object with old layout gone before
+                         * applying the new one */
+                        cl_inode_layout_change(inode, &conf);
+                        /* lli->lli_smd = lsm; */
                         cfs_up(&lli->lli_och_sem);
                         lli->lli_maxbytes = lsm->lsm_maxbytes;
                         if (lli->lli_maxbytes > PAGE_CACHE_MAXBYTES)

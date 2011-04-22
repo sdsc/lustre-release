@@ -651,6 +651,7 @@ int  lu_object_init       (struct lu_object *o,
 void lu_object_fini       (struct lu_object *o);
 void lu_object_add_top    (struct lu_object_header *h, struct lu_object *o);
 void lu_object_add        (struct lu_object *before, struct lu_object *o);
+int  lu_object_get_try    (struct lu_object *o);
 
 /**
  * Helpers to initialize and finalize device types.
@@ -704,6 +705,9 @@ struct lu_object *lu_object_find_slice(const struct lu_env *env,
                                        struct lu_device *dev,
                                        const struct lu_fid *f,
                                        const struct lu_object_conf *conf);
+int lu_object_peek(const struct lu_env *env, struct lu_device *dev,
+                   const struct lu_fid *f);
+
 /** @} caching */
 
 /** \name helpers

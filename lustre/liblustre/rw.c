@@ -430,7 +430,7 @@ void llu_io_init(struct cl_io *io, struct inode *inode, int write)
         io->u.ci_rw.crw_nonblock = lli->lli_open_flags & O_NONBLOCK;
         if (write)
                 io->u.ci_wr.wr_append = lli->lli_open_flags & O_APPEND;
-        io->ci_obj  = llu_i2info(inode)->lli_clob;
+        io->ci_obj  = cl_inode_deref(inode);
 
         if ((lli->lli_open_flags & O_APPEND) && write)
                 io->ci_lockreq = CILR_MANDATORY;
