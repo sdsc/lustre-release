@@ -970,7 +970,7 @@ test_9() {
         quota_show_check a g $TSTUSR
 
         echo "  Set stripe"
-        $LFS setstripe $TESTFILE -c 1
+        $LFS setstripe $TESTFILE -c 1 -i 0
         touch $TESTFILE
         chown $TSTUSR.$TSTUSR $TESTFILE
 
@@ -1025,7 +1025,7 @@ test_10() {
         quota_show_check a g $TSTUSR
 
         echo "  Set stripe"
-        $LFS setstripe $TESTFILE -c 1
+        $LFS setstripe $TESTFILE -c 1 -i 0
         touch $TESTFILE
         chown $TSTUSR.$TSTUSR $TESTFILE
 
@@ -1819,7 +1819,7 @@ test_23_sub() {
         sleep 3
         quota_show_check b u $TSTUSR
 
-        $LFS setstripe $TESTFILE -c 1
+        $LFS setstripe $TESTFILE -c 1 -i 0
         chown $TSTUSR.$TSTUSR $TESTFILE
 
         log "    Step1: trigger quota with 0_DIRECT"
@@ -1845,13 +1845,13 @@ test_23_sub() {
 }
 
 test_23() {
-        log "run for $((OSTCOUNT * 3))MB test file"
-        test_23_sub $((OSTCOUNT * 3 * 1024))
+        log "run for 3MB test file"
+        test_23_sub $((3 * 1024))
 
-        OST0_MIN=120000
+        OST0_MIN=$((60 * 1024)) # extra space for metadata
         check_whether_skip && return 0
-        log "run for $((OSTCOUNT * 30))MB test file"
-        test_23_sub $((OSTCOUNT * 30 * 1024))
+        log "run for 30MB test file"
+        test_23_sub $((30 * 1024))
 }
 run_test_with_stat 23 "run for fixing bug16125 ==========="
 
