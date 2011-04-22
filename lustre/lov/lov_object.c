@@ -76,6 +76,7 @@ struct lov_layout_operations {
                             struct cl_object *obj, struct cl_io *io);
         int  (*llo_getattr)(const struct lu_env *env, struct cl_object *obj,
                             struct cl_attr *attr);
+        void (*llo_prune)(const struct lu_env *env, struct cl_object *obj);
 };
 
 /*****************************************************************************
@@ -174,13 +175,13 @@ static int lov_init_raid0(const struct lu_env *env,
         struct cl_object        *stripe;
         struct lov_thread_info  *lti     = lov_env_info(env);
         struct cl_object_conf   *subconf = &lti->lti_stripe_conf;
-        struct lov_stripe_md    *lsm     = conf->u.coc_md->lsm;
+        struct lov_stripe_md    *lsm     = conf->u.coc_md;
         struct lu_fid           *ofid    = &lti->lti_fid;
         struct lov_layout_raid0 *r0      = &state->raid0;
 
         ENTRY;
-        r0->lo_nr  = conf->u.coc_md->lsm->lsm_stripe_count;
-        r0->lo_lsm = conf->u.coc_md->lsm;
+        r0->lo_nr  = lsm->lsm_stripe_count;
+        r0->lo_lsm = lsm;
         LASSERT(r0->lo_nr <= lov_targets_nr(dev));
 
         OBD_ALLOC_LARGE(r0->lo_sub, r0->lo_nr * sizeof r0->lo_sub[0]);
@@ -223,45 +224,16 @@ static void lov_subobject_kill(const struct lu_env *env, struct lov_object *lov,
 {
         struct cl_object        *sub;
         struct lov_layout_raid0 *r0;
-        struct lu_site          *site;
-        struct lu_site_bkt_data *bkt;
-        cfs_waitlink_t          *waiter;
 
         r0  = &lov->u.raid0;
         LASSERT(r0->lo_sub[idx] == los);
 
         sub  = lovsub2cl(los);
-        site = sub->co_lu.lo_dev->ld_site;
-        bkt  = lu_site_bkt_from_fid(site, &sub->co_lu.lo_header->loh_fid);
 
-        cl_object_kill(env, sub);
         /* release a reference to the sub-object and ... */
         lu_object_ref_del(&sub->co_lu, "lov-parent", lov);
-        cl_object_put(env, sub);
+        cl_object_kill(env, sub);
 
-        /* ... wait until it is actually destroyed---sub-object clears its
-         * ->lo_sub[] slot in lovsub_object_fini() */
-        if (r0->lo_sub[idx] == los) {
-                waiter = &lov_env_info(env)->lti_waiter;
-                cfs_waitlink_init(waiter);
-                cfs_waitq_add(&bkt->lsb_marche_funebre, waiter);
-                cfs_set_current_state(CFS_TASK_UNINT);
-                while (1) {
-                        /* this wait-queue is signaled at the end of
-                         * lu_object_free(). */
-                        cfs_set_current_state(CFS_TASK_UNINT);
-                        cfs_spin_lock(&r0->lo_sub_lock);
-                        if (r0->lo_sub[idx] == los) {
-                                cfs_spin_unlock(&r0->lo_sub_lock);
-                                cfs_waitq_wait(waiter, CFS_TASK_UNINT);
-                        } else {
-                                cfs_spin_unlock(&r0->lo_sub_lock);
-                                cfs_set_current_state(CFS_TASK_RUNNING);
-                                break;
-                        }
-                }
-                cfs_waitq_del(&bkt->lsb_marche_funebre, waiter);
-        }
         LASSERT(r0->lo_sub[idx] == NULL);
 }
 
@@ -392,6 +364,26 @@ static int lov_attr_get_raid0(const struct lu_env *env, struct cl_object *obj,
         RETURN(result);
 }
 
+static void lov_prune_empty(const struct lu_env *env, struct cl_object *obj)
+{
+}
+
+static void lov_prune_raid0(const struct lu_env *env, struct cl_object *obj)
+{
+        struct lov_object       *lov = cl2lov(obj);
+        struct lov_layout_raid0 *r0 = lov_r0(lov);
+        int                      i;
+
+        ENTRY;
+        for (i = 0; i < r0->lo_nr; ++i) {
+                struct lovsub_object *los = r0->lo_sub[i];
+
+                if (los != NULL)
+                        cl_object_prune(env, lovsub2cl(los));
+        }
+        EXIT;
+}
+
 const static struct lov_layout_operations lov_dispatch[] = {
         [LLT_EMPTY] = {
                 .llo_init      = lov_init_empty,
@@ -402,7 +394,8 @@ const static struct lov_layout_operations lov_dispatch[] = {
                 .llo_page_init = lov_page_init_empty,
                 .llo_lock_init = NULL,
                 .llo_io_init   = lov_io_init_empty,
-                .llo_getattr   = lov_attr_get_empty
+                .llo_getattr   = lov_attr_get_empty,
+                .llo_prune     = lov_prune_empty 
         },
         [LLT_RAID0] = {
                 .llo_init      = lov_init_raid0,
@@ -413,7 +406,8 @@ const static struct lov_layout_operations lov_dispatch[] = {
                 .llo_page_init = lov_page_init_raid0,
                 .llo_lock_init = lov_lock_init_raid0,
                 .llo_io_init   = lov_io_init_raid0,
-                .llo_getattr   = lov_attr_get_raid0
+                .llo_getattr   = lov_attr_get_raid0,
+                .llo_prune     = lov_prune_raid0
         }
 };
 
@@ -531,7 +525,7 @@ int lov_object_init(const struct lu_env *env, struct lu_object *obj,
         cfs_init_rwsem(&lov->lo_type_guard);
 
         /* no locking is necessary, as object is being created */
-        lov->lo_type = cconf->u.coc_md->lsm != NULL ? LLT_RAID0 : LLT_EMPTY;
+        lov->lo_type = cconf->u.coc_md != NULL ? LLT_RAID0 : LLT_EMPTY;
         ops = &lov_dispatch[lov->lo_type];
         result = ops->llo_init(env, dev, lov, cconf, set);
         if (result == 0)
@@ -555,7 +549,7 @@ static int lov_conf_set(const struct lu_env *env, struct cl_object *obj,
         cfs_down_write(&lov->lo_type_guard);
         LASSERT(lov->lo_owner == NULL);
         lov->lo_owner = cfs_current();
-        if (lov->lo_type == LLT_EMPTY && conf->u.coc_md->lsm != NULL)
+        if (lov->lo_type == LLT_EMPTY && conf->u.coc_md != NULL)
                 result = lov_layout_change(env, lov, LLT_RAID0, conf);
         else
                 result = -EOPNOTSUPP;
@@ -649,10 +643,16 @@ int lov_lock_init(const struct lu_env *env, struct cl_object *obj,
         return LOV_2DISPATCH(cl2lov(obj), llo_lock_init, env, obj, lock, io);
 }
 
+void lov_object_prune(const struct lu_env *env, struct cl_object *obj)
+{
+        LOV_2DISPATCH_NOLOCK(cl2lov(obj), llo_prune, env, obj);
+}
+
 static const struct cl_object_operations lov_ops = {
         .coo_page_init = lov_page_init,
         .coo_lock_init = lov_lock_init,
         .coo_io_init   = lov_io_init,
+        .coo_prune     = lov_object_prune,
         .coo_attr_get  = lov_attr_get,
         .coo_attr_set  = lov_attr_set,
         .coo_conf_set  = lov_conf_set

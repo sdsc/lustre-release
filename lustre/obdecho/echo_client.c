@@ -189,7 +189,6 @@ static struct echo_thread_info *echo_env_info(const struct lu_env *env);
 
 struct echo_thread_info {
         struct echo_object_conf eti_conf;
-        struct lustre_md        eti_md;
 
         struct cl_2queue        eti_queue;
         struct cl_io            eti_io;
@@ -928,11 +927,7 @@ static struct echo_object *cl_echo_object_find(struct echo_device *d,
                         oinfo->loi_seq = lsm->lsm_object_seq;
                         conf->eoc_cl.u.coc_oinfo = oinfo;
                 } else {
-                        struct lustre_md *md;
-                        md = &info->eti_md;
-                        memset(md, 0, sizeof *md);
-                        md->lsm = lsm;
-                        conf->eoc_cl.u.coc_md = md;
+                        conf->eoc_cl.u.coc_md = lsm;
                 }
         }
         conf->eoc_md = lsmp;

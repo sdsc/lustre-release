@@ -294,6 +294,9 @@ int ll_file_release(struct inode *inode, struct file *file)
         CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p)\n", inode->i_ino,
                inode->i_generation, inode);
 
+        /* release cl_object which is held on ll_file_open */
+        cl_inode_release(inode);
+
 #ifdef CONFIG_FS_POSIX_ACL
         if (sbi->ll_flags & LL_SBI_RMT_CLIENT &&
             inode == inode->i_sb->s_root->d_inode) {
@@ -660,6 +663,7 @@ restart:
                         GOTO(out, rc);
                 }
         }
+
         file->f_flags &= ~O_LOV_DELAY_CREATE;
         GOTO(out, rc);
 out:
@@ -678,6 +682,10 @@ out_openerr:
                 if (opendir_set != 0)
                         ll_stop_statahead(inode, lli->lli_opendir_key);
         }
+
+        if (rc == 0 && S_ISREG(inode->i_mode))
+                /* initialize cl_object for inode */
+                rc = cl_inode_hold(inode);
 
         return rc;
 }
@@ -812,7 +820,7 @@ void ll_io_init(struct cl_io *io, const struct file *file, int write)
         io->u.ci_rw.crw_nonblock = file->f_flags & O_NONBLOCK;
         if (write)
                 io->u.ci_wr.wr_append = !!(file->f_flags & O_APPEND);
-        io->ci_obj     = ll_i2info(inode)->lli_clob;
+        io->ci_obj     = cl_inode_deref(inode);
         io->ci_lockreq = CILR_MAYBE;
         if (ll_file_nolock(file)) {
                 io->ci_lockreq = CILR_NEVER;
@@ -1490,7 +1498,7 @@ int ll_get_grouplock(struct inode *inode, struct file *file, unsigned long arg)
         LASSERT(fd->fd_grouplock.cg_lock == NULL);
         cfs_spin_unlock(&lli->lli_lock);
 
-        rc = cl_get_grouplock(cl_i2info(inode)->lli_clob,
+        rc = cl_get_grouplock(cl_inode_deref(inode),
                               arg, (file->f_flags & O_NONBLOCK), &grouplock);
         if (rc)
                 RETURN(rc);

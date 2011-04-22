@@ -651,6 +651,8 @@ int  lu_object_init       (struct lu_object *o,
 void lu_object_fini       (struct lu_object *o);
 void lu_object_add_top    (struct lu_object_header *h, struct lu_object *o);
 void lu_object_add        (struct lu_object *before, struct lu_object *o);
+int  lu_object_get_try    (struct lu_object *o);
+void lu_object_kill       (const struct lu_env *env, struct lu_object *o);
 
 /**
  * Helpers to initialize and finalize device types.

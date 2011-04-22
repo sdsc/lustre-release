@@ -157,6 +157,16 @@ void cl_object_get(struct cl_object *o)
 EXPORT_SYMBOL(cl_object_get);
 
 /**
+ * Try to acquire a reference count to the object \a o.
+ * The caller himself just holds a weak pointer, so it may fail.
+ */
+int cl_object_get_try(struct cl_object *o)
+{
+        return lu_object_get_try(&o->co_lu);
+}
+EXPORT_SYMBOL(cl_object_get_try);
+
+/**
  * Returns the top-object for a given \a o.
  *
  * \see cl_page_top(), cl_io_top()
@@ -338,7 +348,11 @@ EXPORT_SYMBOL(cl_conf_set);
  * deletion. All object pages must have been deleted at this point.
  *
  * This is called by cl_inode_fini() and lov_object_delete() to destroy top-
- * and sub- objects respectively.
+ * and sub-objects respectively.
+ *
+ * Caller must be sure that this object won't be accessed any more, otherwise,
+ * If a new cl_lock can be created after setting LU_OBJECT_HEARD_BANSHEE,
+ * there is a livelock case - see bug 22520 for details.
  */
 void cl_object_kill(const struct lu_env *env, struct cl_object *obj)
 {
@@ -357,17 +371,42 @@ void cl_object_kill(const struct lu_env *env, struct cl_object *obj)
          * waiting on __wait_on_freeing_inode().
          */
         cl_locks_prune(env, obj, 0);
+
+        if (cfs_atomic_read(&hdr->coh_lu.loh_ref) > 1)
+                LU_OBJECT_DEBUG(D_ERROR, env, &obj->co_lu,
+                                "kill an object with refcount %d\n",
+                                cfs_atomic_read(&hdr->coh_lu.loh_ref));
+
+        lu_object_kill(env, &obj->co_lu);
+        /* Don't access the object any more.. */
 }
 EXPORT_SYMBOL(cl_object_kill);
 
 /**
  * Prunes caches of pages and locks for this object.
+ * This function will purge pages of this object unconditionally, so the caller
+ * must be sure that this object is not being used.
  */
 void cl_object_prune(const struct lu_env *env, struct cl_object *obj)
 {
+        struct lu_object_header *top;
+        struct cl_object        *o;
         ENTRY;
-        cl_pages_prune(env, obj);
+
+        top = obj->co_lu.lo_header;
+        cfs_list_for_each_entry_reverse(o, &top->loh_layers,
+                                        co_lu.lo_linkage) {
+                if (o->co_ops->coo_prune != NULL)
+                        o->co_ops->coo_prune(env, o);
+        }
+
         cl_locks_prune(env, obj, 1);
+        /*
+         * Must purge pages since cl_locks_prune() doesn't help with no-stripe
+         * objects.
+         */
+        cl_pages_prune(env, obj);
+
         EXIT;
 }
 EXPORT_SYMBOL(cl_object_prune);
@@ -1142,11 +1181,44 @@ struct cl_device *cl_type_setup(const struct lu_env *env, struct lu_site *site,
 }
 EXPORT_SYMBOL(cl_type_setup);
 
+struct cl_site_prune_arg {
+        struct lu_device    *lsp_dev;
+        const struct lu_env *lsp_env;
+};
+
+static int cl_site_object_prune(cfs_hash_t *hs, cfs_hash_bd_t *bd,
+                                cfs_hlist_node_t *hnode, void *data)
+{
+        struct lu_object_header  *hdr;
+        struct lu_object         *obj;
+        struct cl_site_prune_arg *arg = data;
+
+        hdr = cfs_hlist_entry(hnode, struct lu_object_header, loh_hash);
+        obj = lu_object_locate(hdr, arg->lsp_dev->ld_type);
+        if (obj)
+                cl_object_prune(arg->lsp_env, lu2cl(obj));
+
+        return 0;
+}
+
+static void cl_site_prune(const struct lu_env *env, struct cl_device *cl)
+{
+        struct lu_device *ld   = cl2lu_dev(cl);
+        struct lu_site   *site = ld->ld_site;
+        struct cl_site_prune_arg arg = {
+                .lsp_dev = ld,
+                .lsp_env = env
+        };
+
+        cfs_hash_for_each_nolock(site->ls_obj_hash, cl_site_object_prune, &arg);
+}
+
 /**
  * Finalize device stack by calling lu_stack_fini().
  */
 void cl_stack_fini(const struct lu_env *env, struct cl_device *cl)
 {
+        cl_site_prune(env, cl);
         lu_stack_fini(env, cl2lu_dev(cl));
 }
 EXPORT_SYMBOL(cl_stack_fini);

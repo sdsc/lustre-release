@@ -265,7 +265,7 @@ struct cl_object_conf {
                 /**
                  * Object layout. This is consumed by lov.
                  */
-                struct lustre_md *coc_md;
+                struct lov_stripe_md *coc_md;
                 /**
                  * Description of particular stripe location in the
                  * cluster. This is consumed by osc.
@@ -368,6 +368,10 @@ struct cl_object_operations {
          */
         int (*coo_glimpse)(const struct lu_env *env,
                            const struct cl_object *obj, struct ost_lvb *lvb);
+        /**
+         * Prune the object's pages and locks.
+         */
+        void (*coo_prune)(const struct lu_env *env, struct cl_object *obj);
 };
 
 /**
@@ -2628,6 +2632,7 @@ int  cl_object_header_init(struct cl_object_header *h);
 void cl_object_header_fini(struct cl_object_header *h);
 void cl_object_put        (const struct lu_env *env, struct cl_object *o);
 void cl_object_get        (struct cl_object *o);
+int  cl_object_get_try    (struct cl_object *o);
 void cl_object_attr_lock  (struct cl_object *o);
 void cl_object_attr_unlock(struct cl_object *o);
 int  cl_object_attr_get   (const struct lu_env *env, struct cl_object *obj,

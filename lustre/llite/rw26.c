@@ -101,7 +101,7 @@ static int cl_invalidatepage(struct page *vmpage, unsigned long offset)
                 env = cl_env_get(&refcheck);
                 if (!IS_ERR(env)) {
                         inode = vmpage->mapping->host;
-                        obj = ll_i2info(inode)->lli_clob;
+                        obj = cl_inode_deref(inode);
                         if (obj != NULL) {
                                 page = cl_vmpage_page(vmpage, obj);
                                 if (page != NULL) {
