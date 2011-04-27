@@ -793,18 +793,18 @@ static int lfs_find(int argc, char **argv)
 static int lfs_getstripe(int argc, char **argv)
 {
         struct option long_opts[] = {
+                {"count", 0, 0, 'c'},
+                {"directory", 0, 0, 'd'},
+                {"index", 0, 0, 'i'},
+                {"mdt", 0, 0, 'M'},
+                {"offset", 0, 0, 'o'},
                 {"obd", 1, 0, 'O'},
+                {"pool", 0, 0, 'p'},
                 {"quiet", 0, 0, 'q'},
                 {"recursive", 0, 0, 'r'},
-                {"count", 0, 0, 'c'},
-                {"size", 0, 0, 's'},
-                {"index", 0, 0, 'i'},
-                {"offset", 0, 0, 'o'},
-                {"pool", 0, 0, 'p'},
                 {"raw", 0, 0, 'R'},
+                {"size", 0, 0, 's'},
                 {"verbose", 0, 0, 'v'},
-                {"directory", 0, 0, 'd'},
-                {"mdt", 0, 0, 'M'},
                 {0, 0, 0, 0}
         };
         int c, rc;
