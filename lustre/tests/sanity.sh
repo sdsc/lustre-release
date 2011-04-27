@@ -7590,9 +7590,16 @@ default_attr() {
 	$LCTL get_param -n lov.$FSNAME-clilov-\*.stripe${1}
 }
 
+# usage: trim <string>
+# Trims leading and trailing whitespace from the parameter string
+trim() {
+    echo $@
+}
+
 # usage: check_default_stripe_attr <count | size | offset>
 check_default_stripe_attr() {
-	ACTUAL=`$GETSTRIPE --$1 $DIR/$tdir`
+	# $GETSTRIPE returns trailing whitespace which needs to be trimmed off
+	ACTUAL=$(trim $($GETSTRIPE --$1 $DIR/$tdir))
 	if [ $1 = "count" -o $1 = "size" ]; then
 		EXPECTED=`default_attr $1`;
 	else
@@ -7600,20 +7607,21 @@ check_default_stripe_attr() {
 		# until this is fixed we hard-code -1 here
 		EXPECTED=-1;
 	fi
-	[ $ACTUAL -ne $EXPECTED ] &&
-		error "$DIR/$tdir has stripe $1 $ACTUAL, not $EXPECTED"
+	[ "x$ACTUAL" != "x$EXPECTED" ] &&
+		error "$DIR/$tdir has stripe $1 '$ACTUAL', not '$EXPECTED'"
 }
 
 # usage: check_raw_stripe_attr <count | size | offset>
 check_raw_stripe_attr() {
-	ACTUAL=`$GETSTRIPE --raw --$1 $DIR/$tdir`
+	# $GETSTRIPE returns trailing whitespace which needs to be trimmed off
+	ACTUAL=$(trim $($GETSTRIPE --raw --$1 $DIR/$tdir))
 	if [ $1 = "count" -o $1 = "size" ]; then
 		EXPECTED=0;
 	else
 		EXPECTED=-1;
 	fi
-	[ $ACTUAL -ne $EXPECTED ] &&
-		error "$DIR/$tdir has raw stripe $1 $ACTUAL, not $EXPECTED"
+	[ "x$ACTUAL" != "x$EXPECTED" ] &&
+		error "$DIR/$tdir has raw stripe $1 '$ACTUAL', not '$EXPECTED'"
 }
 
 
@@ -7661,6 +7669,18 @@ test_204d() {
 	return 0
 }
 run_test 204d "Print default stripe count and size ============="
+
+test_204e() {
+	mkdir -p $DIR/$tdir
+	$SETSTRIPE -d $DIR/$tdir
+
+	check_raw_stripe_attr count
+	check_raw_stripe_attr size
+	check_raw_stripe_attr offset
+
+	return 0
+}
+run_test 204e "Print raw stripe attributes ================="
 
 test_204f() {
 	mkdir -p $DIR/$tdir
