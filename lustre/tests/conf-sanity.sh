@@ -190,6 +190,7 @@ setup() {
 	start_mds || error "MDT start failed"
 	start_ost || error "OST start failed"
 	mount_client $MOUNT || error "client start failed"
+	client_up || error "client_up failed"
 }
 
 setup_noconfig() {
@@ -1356,6 +1357,7 @@ test_33a() { # bug 12333, was test_33
 run_test 33a "Mount ost with a large index number"
 
 test_33b() {	# was test_34
+        writeconf
         setup
 
         do_facet client dd if=/dev/zero of=$MOUNT/24 bs=1024k count=1
@@ -2477,6 +2479,7 @@ thread_sanity() {
         local msg="Insane $modname thread counts"
         shift 4
 
+        writeconf
         setup
         check_mount || return 41
 
@@ -2652,6 +2655,29 @@ count_osts() {
         do_facet mgs $LCTL get_param mgs.MGS.live.$FSNAME | grep OST | wc -l
 }
 
+test_58() { # bug 22658
+        [ "$FSTYPE" != "ldiskfs" ] && skip "not supported for $FSTYPE" && return
+	writeconf
+	setup
+	mkdir -p $DIR/$tdir
+	createmany -o $DIR/$tdir/$tfile-%d 100
+	# make sure that OSTs do not cancel llog cookies before we unmount the MDS
+#define OBD_FAIL_OBD_LOG_CANCEL_NET      0x601
+	do_facet mds "lctl set_param fail_loc=0x601"
+	unlinkmany $DIR/$tdir/$tfile-%d 100
+	stop mds
+	local MNTDIR=$(facet_mntpt mds)
+	# remove all files from the OBJECTS dir
+	do_facet mds "mount -t ldiskfs $MDSDEV $MNTDIR"
+	do_facet mds "find $MNTDIR/OBJECTS -type f -delete"
+	do_facet mds "umount $MNTDIR"
+	# restart MDS with missing llog files
+	start_mds
+	do_facet mds "lctl set_param fail_loc=0"
+	reformat
+}
+run_test 58 "missing llog files must not prevent MDT from mounting"
+
 test_59() {
 	start_mgsmds >> /dev/null
 	local C1=$(count_osts)
@@ -2681,29 +2707,6 @@ test_59() {
 	cleanup_nocli >> /dev/null
 }
 run_test 59 "writeconf mount option"
-
-
-test_58() { # bug 22658
-        [ "$FSTYPE" != "ldiskfs" ] && skip "not supported for $FSTYPE" && return
-	setup
-	mkdir -p $DIR/$tdir
-	createmany -o $DIR/$tdir/$tfile-%d 100
-	# make sure that OSTs do not cancel llog cookies before we unmount the MDS
-#define OBD_FAIL_OBD_LOG_CANCEL_NET      0x601
-	do_facet mds "lctl set_param fail_loc=0x601"
-	unlinkmany $DIR/$tdir/$tfile-%d 100
-	stop mds
-	local MNTDIR=$(facet_mntpt mds)
-	# remove all files from the OBJECTS dir
-	do_facet mds "mount -t ldiskfs $MDSDEV $MNTDIR"
-	do_facet mds "find $MNTDIR/OBJECTS -type f -delete"
-	do_facet mds "umount $MNTDIR"
-	# restart MDS with missing llog files
-	start_mds
-	do_facet mds "lctl set_param fail_loc=0"
-	reformat
-}
-run_test 58 "missing llog files must not prevent MDT from mounting"
 
 if ! combined_mgs_mds ; then
 	stop mgs
