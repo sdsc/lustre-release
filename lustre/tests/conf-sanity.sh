@@ -190,6 +190,7 @@ setup() {
 	start_mds || error "MDT start failed"
 	start_ost || error "OST start failed"
 	mount_client $MOUNT || error "client start failed"
+	client_up || error "client_up failed"
 }
 
 setup_noconfig() {
