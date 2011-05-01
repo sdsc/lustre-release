@@ -2443,7 +2443,7 @@ struct obd_llog_group *filter_find_olg(struct obd_device *obd, int group)
  */
 struct obd_llog_group *filter_find_create_olg(struct obd_device *obd, int group)
 {
-        struct obd_llog_group *olg = NULL;
+        struct obd_llog_group *olg = NULL, *olg_new = NULL;
         struct filter_obd *filter;
         int rc;
 
@@ -2454,6 +2454,7 @@ struct obd_llog_group *filter_find_create_olg(struct obd_device *obd, int group)
 
         cfs_spin_lock(&filter->fo_llog_list_lock);
         olg = filter_find_olg_internal(filter, group);
+existing:
         if (olg) {
                 if (olg->olg_initializing) {
                         GOTO(out_unlock, olg = ERR_PTR(-EBUSY));
@@ -2461,9 +2462,20 @@ struct obd_llog_group *filter_find_create_olg(struct obd_device *obd, int group)
                         GOTO(out_unlock, olg);
                 }
         }
-        OBD_ALLOC_PTR(olg);
-        if (olg == NULL)
-               GOTO(out_unlock, olg = ERR_PTR(-ENOMEM));
+        cfs_spin_unlock(&filter->fo_llog_list_lock);
+
+        OBD_ALLOC_PTR(olg_new);
+        if (olg_new == NULL)
+               GOTO(out, olg = ERR_PTR(-ENOMEM));
+
+        cfs_spin_lock(&filter->fo_llog_list_lock);
+        olg = filter_find_olg_internal(filter, group);
+        if (olg) {
+               OBD_FREE_PTR(olg_new);
+               GOTO(existing, olg);
+        }
+        /* set as the newly allocated one */
+        olg = olg_new;
 
         llog_group_init(olg, group);
         cfs_list_add(&olg->olg_list, &filter->fo_llog_list);
