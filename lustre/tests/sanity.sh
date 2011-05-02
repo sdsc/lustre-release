@@ -6838,8 +6838,7 @@ test_155_load() {
     log "min available OST size is $min_avail KB"
 
     [ $min_avail -le $large_file_size ] && \
-        skip "the minimum available OST size needs > $large_file_size KB" && \
-        return 0
+        error "the minimum available OST size needs > $large_file_size KB"
 
     dd if=/dev/urandom of=$temp bs=6096 count=1 || \
         error "dd of=$temp bs=6096 count=1 failed"
