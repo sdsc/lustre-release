@@ -7,6 +7,9 @@ BUILD_GEN+=".0"
 
 source ${0%/*}/lbuild-sles
 
+# sles11 SP1 puts the goodies in kernel-default-devel package
+DEVEL_KERNEL_TYPE="default-devel"
+
 edit_specs() {
 
     # edit the SPECs with our changes
@@ -74,5 +77,21 @@ unpack_linux_devel_rpm-sles11() {
     if ! rpm2cpio < "$rpmdir/$kernelrpm" | cpio -id > /dev/null 2>&1; then
         fatal 1 "Unpack error for $kernelrpm"
     fi
+
+}
+
+find_linux_rpm-sles11() {
+    local prefix="$1"
+    local wanted_kernel="$2"
+    local pathtorpms=${3:-"${KERNELRPMSBASE}/${lnxmaj}/${DISTRO}/${TARGET_ARCH}"}
+
+    # what, oh what, do we do for sles11?
+    # if anyone knows how we get an arbitrary (kernel-source and
+    # kernel-default-base in this case) from the Suse update mechanism,
+    # please feel free to fix this
+
+    fatal 1 "I don't know how to get packages for SLES11"
+
+    return 0
 
 }
