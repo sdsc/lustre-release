@@ -2,6 +2,8 @@
 
 DEVEL_KERNEL_TYPE="source"
 RPM_HELPERS_DIR="/usr/lib/rpm"
+# the location of the ofed-devel-<version>.<arch>.rpm
+OFED_DEVEL_LOCATION="$KERNELTREE"
 
 prepare_and_build_srpm() {
 
