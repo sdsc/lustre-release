@@ -848,18 +848,26 @@ static int fsfilt_ext3_sync(struct super_block *sb)
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,17))
 # define fsfilt_up_truncate_sem(inode)  up(&LDISKFS_I(inode)->truncate_sem);
 # define fsfilt_down_truncate_sem(inode)  down(&LDISKFS_I(inode)->truncate_sem);
+# define fsfilt_up_truncate_sem_in_cb(inode) do { } while (0)
+# define fsfilt_down_truncate_sem_in_cb(inode) do { } while (0)
 #else
 # ifdef HAVE_EXT4_LDISKFS
 #  ifdef WALK_SPACE_HAS_DATA_SEM /* We only use it in fsfilt_map_nblocks() for now */
 #   define fsfilt_up_truncate_sem(inode) do{ }while(0)
 #   define fsfilt_down_truncate_sem(inode) do{ }while(0)
+#   define fsfilt_up_truncate_sem_in_cb(inode) up_write((&EXT4_I(inode)->i_data_sem))
+#   define fsfilt_down_truncate_sem_in_cb(inode) down_write((&EXT4_I(inode)->i_data_sem))
 #  else
 #   define fsfilt_up_truncate_sem(inode) up_write((&EXT4_I(inode)->i_data_sem))
 #   define fsfilt_down_truncate_sem(inode) down_write((&EXT4_I(inode)->i_data_sem))
+#   define fsfilt_up_truncate_sem_in_cb(inode) do { } while (0)
+#   define fsfilt_down_truncate_sem_in_cb(inode) do { } while (0)
 #  endif
 # else
 #  define fsfilt_up_truncate_sem(inode)  mutex_unlock(&EXT3_I(inode)->truncate_mutex)
 #  define fsfilt_down_truncate_sem(inode)  mutex_lock(&EXT3_I(inode)->truncate_mutex)
+#  define fsfilt_up_truncate_sem_in_cb(inode) do { } while (0)
+#  define fsfilt_down_truncate_sem_in_cb(inode) do { } while (0)
 # endif
 #endif
 
@@ -1044,20 +1052,21 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
 
         tgen = EXT_GENERATION(base);
         count = ext3_ext_calc_credits_for_insert(base, path);
-        fsfilt_up_truncate_sem(inode);
 
         handle = ext3_journal_start(inode, count+EXT3_ALLOC_NEEDED+1);
-        if (IS_ERR(handle)) {
-                fsfilt_down_truncate_sem(inode);
+        if (IS_ERR(handle))
                 return PTR_ERR(handle);
-        }
 
-        fsfilt_down_truncate_sem(inode);
         if (tgen != EXT_GENERATION(base)) {
                 /* the tree has changed. so path can be invalid at moment */
                 ext3_journal_stop(handle);
                 return EXT_REPEAT;
         }
+
+        /* In 2.6.32 kernel, ext4_ext_walk_space()'s callback func is not
+         * protected by i_data_sem, we need do it ourselves, since we create
+         * file system blocks */
+        fsfilt_down_truncate_sem_in_cb(inode);
 
         count = cex->ec_len;
         pblock = new_blocks(handle, base, path, cex->ec_block, &count, &err);
@@ -1093,6 +1102,7 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
         BUG_ON(le32_to_cpu(nex.ee_block) != cex->ec_block);
 
 out:
+        fsfilt_up_truncate_sem_in_cb(inode);
         ext3_journal_stop(handle);
 map:
         if (err >= 0) {
