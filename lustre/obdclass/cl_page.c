@@ -398,7 +398,7 @@ static struct cl_page *cl_page_find0(const struct lu_env *env,
                                      enum cl_page_type type,
                                      struct cl_page *parent)
 {
-        struct cl_page          *page;
+        struct cl_page          *page  = NULL;
         struct cl_page          *ghost = NULL;
         struct cl_object_header *hdr;
         struct cl_site          *site = cl_object_site(o);
@@ -431,10 +431,6 @@ static struct cl_page *cl_page_find0(const struct lu_env *env,
                              cl_page_vmpage(env, page) == vmpage &&
                              (void *)radix_tree_lookup(&hdr->coh_tree,
                                                        idx) == page));
-        } else {
-                cfs_spin_lock(&hdr->coh_page_guard);
-                page = cl_page_lookup(hdr, idx);
-                cfs_spin_unlock(&hdr->coh_page_guard);
         }
         if (page != NULL) {
                 cfs_atomic_inc(&site->cs_pages.cs_hit);
@@ -445,6 +441,16 @@ static struct cl_page *cl_page_find0(const struct lu_env *env,
         err = cl_page_alloc(env, o, idx, vmpage, type, &page);
         if (err != 0)
                 RETURN(page);
+
+        if (type == CPT_TRANSIENT) {
+                if (parent) {
+                        LASSERT(page->cp_parent == NULL);
+                        page->cp_parent = parent;
+                        parent->cp_child = page;
+                }
+                RETURN(page);
+        }
+
         /*
          * XXX optimization: use radix_tree_preload() here, and change tree
          * gfp mask to GFP_KERNEL in cl_object_header_init().
@@ -1159,23 +1165,26 @@ static void cl_page_delete0(const struct lu_env *env, struct cl_page *pg,
         cl_page_export(env, pg, 0);
         cl_page_state_set0(env, pg, CPS_FREEING);
 
-        if (!radix)
-                /*
-                 * !radix means that @pg is not yet in the radix tree, skip
-                 * removing it.
-                 */
-                tmp = pg->cp_child;
-        for (; tmp != NULL; tmp = tmp->cp_child) {
-                void                    *value;
-                struct cl_object_header *hdr;
+        if (tmp->cp_type == CPT_CACHEABLE) {
+                if (!radix)
+                        /*
+                         * !radix means that @pg is not yet in the radix tree,
+                         * skip removing it.
+                         */
+                        tmp = pg->cp_child;
+                for (; tmp != NULL; tmp = tmp->cp_child) {
+                        void                    *value;
+                        struct cl_object_header *hdr;
 
-                hdr = cl_object_header(tmp->cp_obj);
-                cfs_spin_lock(&hdr->coh_page_guard);
-                value = radix_tree_delete(&hdr->coh_tree, tmp->cp_index);
-                PASSERT(env, tmp, value == tmp);
-                PASSERT(env, tmp, hdr->coh_pages > 0);
-                hdr->coh_pages--;
-                cfs_spin_unlock(&hdr->coh_page_guard);
+                        hdr = cl_object_header(tmp->cp_obj);
+                        cfs_spin_lock(&hdr->coh_page_guard);
+                        value = radix_tree_delete(&hdr->coh_tree,
+                                                  tmp->cp_index);
+                        PASSERT(env, tmp, value == tmp);
+                        PASSERT(env, tmp, hdr->coh_pages > 0);
+                        hdr->coh_pages--;
+                        cfs_spin_unlock(&hdr->coh_page_guard);
+                }
         }
 
         CL_PAGE_INVOID(env, pg, CL_PAGE_OP(cpo_delete),
