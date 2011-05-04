@@ -3,13 +3,13 @@ It will also print the current process stack, which is useful.
 
 This is a nice-to-have but not required for Lustre to work.
 
-Index: linux-2.6/kernel/sched.c
+Index: linux-2.6.18-194.3.1-head/kernel/sched.c
 ===================================================================
---- linux-2.6.orig/kernel/sched.c	2006-07-15 11:51:46.000000000 +0800
-+++ linux-2.6/kernel/sched.c	2006-07-15 16:24:35.000000000 +0800
-@@ -4698,6 +4698,7 @@ static void show_task(struct task_struct
+--- linux-2.6.18-194.3.1-head.orig/kernel/sched.c
++++ linux-2.6.18-194.3.1-head/kernel/sched.c
+@@ -7052,6 +7052,7 @@ void sched_show_task(struct task_struct 
  
- 		show_stack(p, NULL);
+ 	show_stack(p, NULL);
  }
 +EXPORT_SYMBOL(sched_show_task);
  
