@@ -20,6 +20,8 @@
 %{!?lustre_name: %define lustre_name lustre}
 %{!?build_lustre_tests: %define build_lustre_tests 1}
 
+AutoReqProv: no
+
 # in order to get kernel symset and/or kernel module dependencies into
 # the RPM, in order to support weak-modules, the internal dependency gen-
 # erator needs to be disabled

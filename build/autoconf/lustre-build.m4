@@ -776,9 +776,6 @@ AC_DEFUN([LB_PATH_DEFAULTS],
 [# directories for binaries
 AC_PREFIX_DEFAULT([/usr])
 
-sysconfdir='/etc'
-AC_SUBST(sysconfdir)
-
 # Directories for documentation and demos.
 docdir='${datadir}/doc/$(PACKAGE)'
 AC_SUBST(docdir)
