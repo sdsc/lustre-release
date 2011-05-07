@@ -4536,6 +4536,9 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
                 if (lsi->lsi_lmd && lsi->lsi_lmd->lmd_recovery_time_hard)
                         obd->obd_recovery_time_hard =
                                 lsi->lsi_lmd->lmd_recovery_time_hard;
+
+                obd->u.obt.obt_magic = OBT_MAGIC;
+                obd->u.obt.obt_instance = s2lsi(lmi->lmi_sb)->lsi_instance;
         }
 
         cfs_rwlock_init(&m->mdt_sptlrpc_lock);

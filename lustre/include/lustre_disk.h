@@ -63,6 +63,7 @@
 #define HEALTH_CHECK      "health_check"
 #define CAPA_KEYS         "capa_keys"
 #define CHANGELOG_USERS   "changelog_users"
+#define MGS_NIDTBL_DIR    "NIDTBL_VERSIONS"
 
 
 /****************** persistent mount data *********************/
@@ -430,6 +431,7 @@ struct ll_sb_info;
 
 struct lustre_sb_info {
         int                       lsi_flags;
+        unsigned int              lsi_instance;
         struct obd_device        *lsi_mgc;     /* mgc obd */
         struct lustre_mount_data *lsi_lmd;     /* mount command info */
         struct lustre_disk_data  *lsi_ldd;     /* mount info on-disk */
@@ -480,7 +482,7 @@ struct mgs_target_info;
 int server_mti_print(char *title, struct mgs_target_info *mti);
 
 /* mgc_request.c */
-int mgc_fsname2resid(char *fsname, struct ldlm_res_id *res_id);
+int mgc_fsname2resid(char *fsname, struct ldlm_res_id *res_id, int is_cfg);
 
 #endif
 
