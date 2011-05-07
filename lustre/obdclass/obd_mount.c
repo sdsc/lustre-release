@@ -1007,6 +1007,7 @@ static int server_sb2mti(struct super_block *sb, struct mgs_target_info *mti)
                 CERROR("params too big for mti\n");
                 RETURN(-ENOMEM);
         }
+        mti->mti_instance = lsi->lsi_instance;
         memcpy(mti->mti_params, ldd->ldd_params, sizeof(mti->mti_params));
         RETURN(0);
 }
@@ -1116,7 +1117,7 @@ static int server_start_targets(struct super_block *sb, struct vfsmount *mnt)
 #endif
 
         /* If we're an OST, make sure the global OSS is running */
-        if (lsi->lsi_ldd->ldd_flags & LDD_F_SV_TYPE_OST) {
+        if (IS_OST(lsi->lsi_ldd)) {
                 /* make sure OSS is started */
                 cfs_mutex_down(&server_start_lock);
                 obd = class_name2obd(LUSTRE_OSS_OBDNAME);
@@ -1139,6 +1140,9 @@ static int server_start_targets(struct super_block *sb, struct vfsmount *mnt)
         rc = server_mgc_set_fs(lsi->lsi_mgc, sb);
         if (rc)
                 RETURN(rc);
+
+        /* generate an unique instance # for this target */
+        lsi->lsi_instance = cfs_rand();
 
         /* Register with MGS */
         rc = server_register_target(sb);

@@ -1951,6 +1951,7 @@ int filter_common_setup(struct obd_device *obd, struct lustre_cfg* lcfg,
         char *str, *label;
         char ns_name[48];
         struct request_queue *q;
+        unsigned int instance = 0;
         int rc, i;
         ENTRY;
 
@@ -1974,6 +1975,7 @@ int filter_common_setup(struct obd_device *obd, struct lustre_cfg* lcfg,
                 if (lsi->lsi_lmd && lsi->lsi_lmd->lmd_recovery_time_hard)
                         obd->obd_recovery_time_hard =
                                 lsi->lsi_lmd->lmd_recovery_time_hard;
+                instance = lsi->lsi_instance;
         } else {
                 /* old path - used by lctl */
                 CERROR("Using old MDS mount method\n");
@@ -2013,9 +2015,10 @@ int filter_common_setup(struct obd_device *obd, struct lustre_cfg* lcfg,
                 }
         }
 
+        obd->u.obt.obt_magic = OBT_MAGIC;
+        obd->u.obt.obt_instance = instance;
         obd->u.obt.obt_vfsmnt = mnt;
         obd->u.obt.obt_sb = mnt->mnt_sb;
-        obd->u.obt.obt_magic = OBT_MAGIC;
         filter->fo_fstype = mnt->mnt_sb->s_type->name;
         CDEBUG(D_SUPER, "%s: mnt = %p\n", filter->fo_fstype, mnt);
 

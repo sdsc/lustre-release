@@ -844,10 +844,12 @@ int lprocfs_rd_import(char *page, char **start, off_t off, int count,
                      "    name: %s\n"
                      "    target: %s\n"
                      "    state: %s\n"
+                     "    instance: %u\n"
                      "    connect_flags: [",
                      obd->obd_name,
                      obd2cli_tgt(obd),
-                     ptlrpc_import_state_name(imp->imp_state));
+                     ptlrpc_import_state_name(imp->imp_state),
+                     imp->imp_connect_data.ocd_instance);
         i += obd_connect_flags2str(page + i, count - i,
                                    imp->imp_connect_data.ocd_connect_flags,
                                    ", ");

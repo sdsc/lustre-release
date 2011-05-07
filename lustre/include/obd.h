@@ -229,6 +229,7 @@ struct ost_server_data;
 /* hold common fields for "target" device */
 struct obd_device_target {
         __u32                     obt_magic;
+        __u32                     obt_instance;
         struct super_block       *obt_sb;
         /** last_rcvd file */
         struct file              *obt_rcvd_filp;
@@ -1167,6 +1168,7 @@ enum obd_cleanup_stage {
 #define KEY_SPTLRPC_CONF        "sptlrpc_conf"
 #define KEY_CONNECT_FLAG        "connect_flags"
 #define KEY_SYNC_LOCK_CANCEL    "sync_lock_cancel"
+#define KEY_IR_LOGS             "ir_logs"
 
 
 struct lu_context;
