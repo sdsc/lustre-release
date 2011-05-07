@@ -882,10 +882,21 @@ static int ll_glimpse_callback(struct ldlm_lock *lock, void *reqp)
                 GOTO(iput, rc);
 
         lvb = lustre_msg_buf(req->rq_repmsg, REPLY_REC_OFF, sizeof(*lvb));
+
+        lock_res_and_lock(lock);
+
+        /* The lock is being canceled, and the kms has been shrinked,
+         * just inform the server to update LVB from disk. LU-287 */
+        if (unlikely(lock->l_flags & LDLM_FL_KMS_IGNORE)) {
+                unlock_res_and_lock(lock);
+                GOTO(iput, rc = -EINVAL);
+        }
+
         lvb->lvb_size = lli->lli_smd->lsm_oinfo[stripe]->loi_kms;
         lvb->lvb_mtime = LTIME_S(inode->i_mtime);
         lvb->lvb_atime = LTIME_S(inode->i_atime);
         lvb->lvb_ctime = LTIME_S(inode->i_ctime);
+        unlock_res_and_lock(lock);
 
         LDLM_DEBUG(lock, "i_size: %llu -> stripe number %u -> kms "LPU64
                    " atime "LPU64", mtime "LPU64", ctime "LPU64,

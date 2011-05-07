@@ -1751,10 +1751,14 @@ static int filter_intent_policy(struct ldlm_namespace *ns,
 
         LASSERTF(l->l_glimpse_ast != NULL, "l == %p", l);
         rc = l->l_glimpse_ast(l, NULL); /* this will update the LVB */
-        /* Update the LVB from disk if the AST failed (this is a legal race) */
-        /* Client might return -ELDLM_NO_LOCK_DATA if the inode has been cleared
-         * in client cache, since the data must has been flushed to OST in such
-         * case, we should update LVB from disk. LU-274 */
+        /* Update the LVB from disk if the AST failed (this is a legal race)
+         *
+         * - Glimpse callback of local lock just return -ELDLM_NO_LOCK_DATA.
+         * - Glimpse callback of remote lock might return -ELDLM_NO_LOCK_DATA
+         *   when inode is cleared. LU-274
+         * - Glimpse callback of remote lock might return -EINVAL when the
+         *   glimpse race with lock cancel. LU-287
+         */
         if (rc != 0)
                 ldlm_res_lvbo_update(res, NULL, 0, 1);
 
