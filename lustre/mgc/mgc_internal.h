@@ -46,13 +46,31 @@
 
 #ifdef LPROCFS
 void lprocfs_mgc_init_vars(struct lprocfs_static_vars *lvars);
+int lprocfs_mgc_dump_recover_logs(char *page, char **start, off_t off,
+                                  int count, int *eof, void *data);
 #else
 static void lprocfs_mgc_init_vars(struct lprocfs_static_vars *lvars)
 {
         memset(lvars, 0, sizeof(*lvars));
 }
+static inline int lprocfs_mgc_dump_recover_logs(char *page, char **start,
+        off_t off, int count, int *eof, void *data)
+{
+        return 0;
+}
 #endif  /* LPROCFS */
 
 int mgc_process_log(struct obd_device *mgc, struct config_llog_data *cld);
+
+static inline int cld_is_sptlrpc(struct config_llog_data *cld)
+{
+        return cld->cld_type == CLD_T_SPTLRPC;
+}
+
+static inline int cld_is_recover(struct config_llog_data *cld)
+{
+        return cld->cld_type == CLD_T_RECOVER;
+}
+
 
 #endif  /* _MGC_INTERNAL_H */

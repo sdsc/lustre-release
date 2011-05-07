@@ -181,6 +181,12 @@ int class_config_parse_llog(struct llog_ctxt *ctxt, char *name,
 int class_config_dump_llog(struct llog_ctxt *ctxt, char *name,
                            struct config_llog_instance *cfg);
 
+enum {
+        CLD_T_CONFIG  = 1,
+        CLD_T_SPTLRPC = 2,
+        CLD_T_RECOVER = 3
+};
+
 /* list of active configuration logs  */
 struct config_llog_data {
         char                       *cld_logname;
@@ -189,12 +195,13 @@ struct config_llog_data {
         cfs_list_t                  cld_list_chain;
         cfs_atomic_t                cld_refcount;
         struct config_llog_data    *cld_sptlrpc;/* depended sptlrpc log */
+        struct config_llog_data    *cld_recover;    /* imperative recover log */
         struct obd_export          *cld_mgcexp;
         cfs_mutex_t                 cld_lock;
+        int                         cld_type;
         unsigned int                cld_stopping:1, /* we were told to stop
                                                      * watching */
-                                    cld_lostlock:1, /* lock not requeued */
-                                    cld_is_sptlrpc:1;
+                                    cld_lostlock:1; /* lock not requeued */
 };
 
 struct lustre_profile {
@@ -2273,6 +2280,7 @@ void class_uuid_unparse(class_uuid_t in, struct obd_uuid *out);
 int lustre_uuid_to_peer(const char *uuid, lnet_nid_t *peer_nid, int index);
 int class_add_uuid(const char *uuid, __u64 nid);
 int class_del_uuid (const char *uuid);
+int class_find_uuid(__u64 nid, char *uuid, int uuidlen);
 void class_init_uuidlist(void);
 void class_exit_uuidlist(void);
 

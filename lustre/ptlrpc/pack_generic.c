@@ -1570,6 +1570,7 @@ void lustre_swab_connect(struct obd_connect_data *ocd)
         __swab64s(&ocd->ocd_transno);
         __swab32s(&ocd->ocd_group);
         __swab32s(&ocd->ocd_cksum_types);
+        __swab32s(&ocd->ocd_instance);
         CLASSERT(offsetof(typeof(*ocd), padding1) != 0);
         CLASSERT(offsetof(typeof(*ocd), padding2) != 0);
 }
@@ -1756,10 +1757,30 @@ void lustre_swab_mgs_target_info(struct mgs_target_info *mti)
         __swab32s(&mti->mti_stripe_index);
         __swab32s(&mti->mti_config_ver);
         __swab32s(&mti->mti_flags);
+        __swab32s(&mti->mti_instance);
         __swab32s(&mti->mti_nid_count);
         CLASSERT(sizeof(lnet_nid_t) == sizeof(__u64));
         for (i = 0; i < MTI_NIDS_MAX; i++)
                 __swab64s(&mti->mti_nids[i]);
+}
+
+void lustre_swab_mgs_nidtbl_entry(struct mgs_nidtbl_entry *entry)
+{
+        int i;
+        __swab64s(&entry->mne_version);
+        __swab32s(&entry->mne_instance);
+        CLASSERT(sizeof(lnet_nid_t) == sizeof(__u64));
+        /* mne_nid_count must be one byte size because we're gonna access it
+         * w/o swapping. */
+        CLASSERT(sizeof(entry->mne_nid_count) == sizeof(__u8));
+        for (i = 0; i < entry->mne_nid_count; i++)
+                __swab64s(&entry->mne_nids[i]);
+}
+
+void lustre_swab_mgs_nidtbl_vers(struct mgs_nidtbl_vers *mnt)
+{
+        __swab64s(&mnt->mnv_cur);
+        __swab64s(&mnt->mnv_latest);
 }
 
 static void lustre_swab_obd_dqinfo (struct obd_dqinfo *i)

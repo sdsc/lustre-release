@@ -196,6 +196,9 @@ static int mgs_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
                 GOTO(err_ops, rc = -EROFS);
         }
 
+        obd->u.obt.obt_magic = OBT_MAGIC;
+        obd->u.obt.obt_instance = lsi->lsi_instance;
+
         /* namespace for mgs llog */
         obd->obd_namespace = ldlm_namespace_new(obd ,"MGS",
                                                 LDLM_NAMESPACE_SERVER,
@@ -325,50 +328,50 @@ static int mgs_cleanup(struct obd_device *obd)
 }
 
 /* similar to filter_prepare_destroy */
-static int mgs_get_cfg_lock(struct obd_device *obd, char *fsname,
-                            struct lustre_handle *lockh)
+static int mgs_get_lock(struct obd_device *obd, struct ldlm_res_id *res,
+                        struct lustre_handle *lockh)
 {
-        struct ldlm_res_id res_id;
         int rc, flags = 0;
         ENTRY;
 
-        rc = mgc_fsname2resid(fsname, &res_id);
-        if (!rc)
-                rc = ldlm_cli_enqueue_local(obd->obd_namespace, &res_id,
-                                            LDLM_PLAIN, NULL, LCK_EX,
-                                            &flags, ldlm_blocking_ast,
-                                            ldlm_completion_ast, NULL,
-                                            fsname, 0, NULL, lockh);
-        if (rc)
-                CERROR("can't take cfg lock for %s (%d)\n", fsname, rc);
-
+        rc = ldlm_cli_enqueue_local(obd->obd_namespace, res,
+                                    LDLM_PLAIN, NULL, LCK_EX,
+                                    &flags, ldlm_blocking_ast,
+                                    ldlm_completion_ast, NULL,
+                                    NULL, 0, NULL, lockh);
         RETURN(rc);
 }
 
-static int mgs_put_cfg_lock(struct lustre_handle *lockh)
+static int mgs_put_lock(struct lustre_handle *lockh)
 {
         ENTRY;
         ldlm_lock_decref(lockh, LCK_EX);
         RETURN(0);
 }
 
-void mgs_revoke_lock(struct obd_device *obd, struct fs_db *fsdb)
+void mgs_revoke_lock(struct obd_device *obd, struct fs_db *fsdb, int is_cfg)
 {
         struct lustre_handle lockh;
+        struct ldlm_res_id   res_id;
         int                  lockrc;
+        int                  bit;
+        int                  rc;
 
         LASSERT(fsdb->fsdb_name[0] != '\0');
+        rc = mgc_fsname2resid(fsdb->fsdb_name, &res_id, is_cfg);
+        LASSERT(rc == 0);
 
-        if (cfs_test_and_set_bit(FSDB_REVOKING_LOCK, &fsdb->fsdb_flags) == 0) {
-                lockrc = mgs_get_cfg_lock(obd, fsdb->fsdb_name, &lockh);
+        bit = is_cfg ? FSDB_REVOKING_LOCK : FSDB_REVOKING_IR_LOCK;
+        if (!rc && cfs_test_and_set_bit(bit, &fsdb->fsdb_flags) == 0) {
+                lockrc = mgs_get_lock(obd, &res_id, &lockh);
                 /* clear the bit before lock put */
-                cfs_clear_bit(FSDB_REVOKING_LOCK, &fsdb->fsdb_flags);
+                cfs_clear_bit(bit, &fsdb->fsdb_flags);
 
                 if (lockrc != ELDLM_OK)
                         CERROR("lock error %d for fs %s\n",
                                lockrc, fsdb->fsdb_name);
                 else
-                        mgs_put_cfg_lock(&lockh);
+                        mgs_put_lock(&lockh);
         }
 }
 
@@ -527,12 +530,27 @@ static int mgs_handle_target_reg(struct ptlrpc_request *req)
         }
 
 out:
-        mgs_revoke_lock(obd, fsdb);
+        mgs_revoke_cfg_lock(obd, fsdb);
 
 out_nolock:
         CDEBUG(D_MGS, "replying with %s, index=%d, rc=%d\n", mti->mti_svname,
                mti->mti_stripe_index, rc);
         req->rq_status = rc;
+        if (rc) {
+                /* we need an error flag to tell the target what's going on,
+                 * instead of just doing it by error code only. */
+                mti->mti_flags |= LDD_F_ERROR;
+        }
+
+        /* Write NID Table for this target. */
+        if (rc == 0) {
+                rc = mgs_nidtbl_write(obd, mti);
+                if (rc) {
+                        LASSERT(!(mti->mti_flags & LDD_F_IR_CAPABLE));
+                        CERROR("Write to nidtbl return with %d(ignore)\n", rc);
+                }
+        }
+
         rc = req_capsule_server_pack(&req->rq_pill);
         if (rc)
                 RETURN(rc);
@@ -577,6 +595,26 @@ static int mgs_set_info_rpc(struct ptlrpc_request *req)
                 rep_msp = req_capsule_server_get(&req->rq_pill, &RMF_MGS_SEND_PARAM);
                 rep_msp = msp;
         }
+        RETURN(rc);
+}
+
+static int mgs_get_info_rpc(struct ptlrpc_request *req)
+{
+        void *key;
+        int keylen;
+        int rc;
+        ENTRY;
+
+        key = req_capsule_client_get(&req->rq_pill, &RMF_GETINFO_KEY);
+        if (key == NULL)
+                RETURN(-EINVAL);
+        keylen = req_capsule_get_size(&req->rq_pill, &RMF_GETINFO_KEY,
+                                      RCL_CLIENT);
+
+        if (KEY_IS(KEY_IR_LOGS))
+                rc = mgs_get_ir_logs(req);
+        else
+                rc = -EINVAL;
         RETURN(rc);
 }
 
@@ -720,7 +758,11 @@ int mgs_handle(struct ptlrpc_request *req)
                 req_capsule_set(&req->rq_pill, &RQF_MGS_SET_INFO);
                 rc = mgs_set_info_rpc(req);
                 break;
-
+        case MGS_GET_INFO:
+                DEBUG_REQ(D_MGS, req, "get info");
+                req_capsule_set(&req->rq_pill, &RQF_MGS_GET_INFO);
+                rc = mgs_get_info_rpc(req);
+                break;
         case LDLM_ENQUEUE:
                 DEBUG_REQ(D_MGS, req, "enqueue");
                 req_capsule_set(&req->rq_pill, &RQF_LDLM_ENQUEUE);

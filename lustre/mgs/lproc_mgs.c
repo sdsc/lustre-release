@@ -191,6 +191,8 @@ static int mgs_live_seq_show(struct seq_file *seq, void *v)
 {
         struct fs_db             *fsdb = seq->private;
         struct mgs_tgt_srpc_conf *srpc_tgt;
+        struct mgs_nidtbl        *tbl;
+        const char               *ir_strings[] = IR_STRINGS;
         int i;
 
         cfs_down(&fsdb->fsdb_sem);
@@ -205,6 +207,9 @@ static int mgs_live_seq_show(struct seq_file *seq, void *v)
                  if (cfs_test_bit(i, fsdb->fsdb_ost_index_map))
                          seq_printf(seq, "%s-OST%04x\n", fsdb->fsdb_name, i);
 
+        tbl = &fsdb->fsdb_nidtbl;
+        seq_printf(seq, "ir state: %s, nidtlb version: %lld\n",
+                   ir_strings[tbl->mn_state], tbl->mn_version);
         seq_printf(seq, "\nSecure RPC Config Rules:\n");
 #if 0
         seq_printf(seq, "%s.%s=%s\n", fsdb->fsdb_name,
@@ -254,6 +259,7 @@ struct lprocfs_vars lprocfs_mgs_obd_vars[] = {
         { "num_exports",     lprocfs_rd_num_exports, 0, 0 },
         { "hash_stats",      lprocfs_obd_rd_hash,    0, 0 },
         { "evict_client",    0, lprocfs_wr_evict_client, 0 },
+        { "ir_ctl",          0, lprocfs_wr_ir_status, 0, 0 },
         { 0 }
 };
 
