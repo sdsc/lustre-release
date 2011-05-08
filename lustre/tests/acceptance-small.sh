@@ -120,7 +120,7 @@ run_suite() {
         bash $suite_script ${!suite_only}
         rc=$?
         duration=$(($(date +%s) - $start_ts))
-        if [ -f $TF_FAIL -o $rc -ne 0 ]; then
+        if [ -f "$TF_FAIL" -o $rc -ne 0 ]; then
             status="FAIL"
         else
             status="PASS"
