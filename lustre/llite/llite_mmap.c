@@ -149,6 +149,7 @@ int ll_fault_io_init(struct vm_area_struct *vma, struct lu_env **env_ret,
         *env_ret = env;
 
         io = &ccc_env_info(env)->cti_io;
+        memset(io, 0, sizeof(*io));
         io->ci_obj = ll_i2info(inode)->lli_clob;
         LASSERT(io->ci_obj != NULL);
 

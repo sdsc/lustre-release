@@ -1142,10 +1142,11 @@ int ll_writepage(struct page *vmpage, struct writeback_control *unused)
         if (IS_ERR(env))
                 RETURN(PTR_ERR(env));
 
-        io    = &ccc_env_info(env)->cti_io;
         queue = &vvp_env_info(env)->vti_queue;
         clob  = ll_i2info(inode)->lli_clob;
         LASSERT(clob != NULL);
+        io    = &ccc_env_info(env)->cti_io;
+        memset(io, 0, sizeof(*io));
 
         io->ci_obj = clob;
         result = cl_io_init(env, io, CIT_MISC, clob);
