@@ -1145,6 +1145,7 @@ reuse() {
         if $use_links; then
             if ls $REUSEBUILD/$signature/$module/* >/dev/null 2>&1; then
                 cp -al $REUSEBUILD/$signature/$module/* $dest/
+rm -rf $dest/BUILD
             fi
         else
             # copying is pretty heavy
