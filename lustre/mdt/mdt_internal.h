@@ -81,6 +81,7 @@ static inline int req_xid_is_last(struct ptlrpc_request *req)
 }
 
 struct mdt_object;
+
 /* file data for open files on MDS */
 struct mdt_file_data {
         struct portals_handle mfd_handle; /* must be first */
@@ -391,6 +392,30 @@ struct mdt_thread_info {
         /* Ops object filename */
         struct lu_name             mti_name;
         struct md_attr             mti_tmp_attr;
+};
+
+/*
+ * ptlrpc request handler for MDT. All handlers are
+ * grouped into several slices - struct mdt_opc_slice,
+ * and stored in an array - mdt_handlers[].
+ */
+struct mdt_handler {
+        /* The name of this handler. */
+        const char *mh_name;
+        /* The name of proc stat. */
+        const char *mh_stat;
+        /* Fail id for this handler, checked at the beginning of this handler*/
+        int         mh_fail_id;
+        /* The position of the handler in mdt_regular_handlers */
+        int         mh_pos;
+        /* Operation code for this handler */
+        __u32       mh_opc;
+        /* flags are listed in enum mdt_handler_flags below. */
+        __u32       mh_flags;
+        /* The actual handler function to execute. */
+        int (*mh_act)(struct mdt_thread_info *info);
+        /* Request format for this request. */
+        const struct req_format *mh_fmt;
 };
 
 typedef void (*mdt_cb_t)(const struct mdt_device *mdt, __u64 transno,
@@ -818,6 +843,15 @@ enum {
         LPROC_MDT_SETXATTR,
         LPROC_MDT_LAST,
 };
+
+void mdt_procfs_init_stats(struct lprocfs_stats *stats,
+                           int num_private_stats);
+int mdt_procfs_alloc_stats(struct lprocfs_stats **stats,
+                           struct proc_dir_entry *dir,
+                           unsigned num_private_stats,
+                           int flags);
+void mdt_procfs_free_stats(struct lprocfs_stats *stats);
+
 void mdt_counter_incr(struct obd_export *exp, int opcode);
 void mdt_stats_counter_init(struct lprocfs_stats *stats);
 void lprocfs_mdt_init_vars(struct lprocfs_static_vars *lvars);
