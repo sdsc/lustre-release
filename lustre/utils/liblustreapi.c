@@ -1557,8 +1557,8 @@ static void lov_dump_user_lmm_header(struct lov_user_md *lum, char *path,
         char *prefix = is_dir ? "" : "lmm_";
         char nl = is_dir ? ' ' : '\n';
 
-        if (is_dir && lum->lmm_object_seq == LOV_OBJECT_GROUP_DEFAULT) {
-                lum->lmm_object_seq = LOV_OBJECT_GROUP_CLEAR;
+        if (is_dir && lum->lmm_object_seq == FID_SEQ_LOV_DEFAULT) {
+                lum->lmm_object_seq = FID_SEQ_OST_MDT0;
                 if (verbose & VERBOSE_DETAIL)
                         llapi_printf(LLAPI_MSG_NORMAL, "(Default) ");
         }
