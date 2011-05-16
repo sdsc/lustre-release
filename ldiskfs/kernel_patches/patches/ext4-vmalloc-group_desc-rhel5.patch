@@ -1,0 +1,159 @@
+Index: linux-stage/fs/ext4/super.c
+===================================================================
+--- linux-stage.orig/fs/ext4/super.c
++++ linux-stage/fs/ext4/super.c
+@@ -660,9 +660,22 @@ static void ext4_put_super(struct super_
+ 	}
+ 	kobject_del(&sbi->s_kobj);
+ 
+-	for (i = 0; i < sbi->s_gdb_count; i++)
++	for (i = 0; i < sbi->s_gdb_count; i++) {
++		ext4_msg(sb, KERN_INFO, "release sbi->s_group_desc[%u]", i);
+ 		brelse(sbi->s_group_desc[i]);
+-	kfree(sbi->s_group_desc);
++	}
++
++	if (sbi->s_group_desc) {
++		ext4_msg(sb, KERN_INFO, "free the memory for sbi->s_group_desc");
++		if (is_vmalloc_addr(sbi->s_group_desc)) {
++			ext4_msg(sb, KERN_INFO, "free the memory by using vfree()");
++			vfree(sbi->s_group_desc);
++		} else {
++			ext4_msg(sb, KERN_INFO, "free the memory by using kfree()");
++			kfree(sbi->s_group_desc);
++		}
++	}
++
+ 	if (is_vmalloc_addr(sbi->s_flex_groups))
+ 		vfree(sbi->s_flex_groups);
+ 	else
+@@ -2408,6 +2421,7 @@ static int ext4_fill_super(struct super_
+ 	int ret = -EINVAL;
+ 	int blocksize;
+ 	unsigned int db_count;
++	size_t size;
+ 	unsigned int i;
+ 	int needs_recovery, has_huge_files;
+ 	__u64 blocks_count;
+@@ -2718,10 +2732,23 @@ static int ext4_fill_super(struct super_
+ 			(EXT4_MAX_BLOCK_FILE_PHYS / EXT4_BLOCKS_PER_GROUP(sb)));
+ 	db_count = (sbi->s_groups_count + EXT4_DESC_PER_BLOCK(sb) - 1) /
+ 		   EXT4_DESC_PER_BLOCK(sb);
+-	sbi->s_group_desc = kmalloc(db_count * sizeof(struct buffer_head *),
+-				    GFP_KERNEL);
++	size = (size_t) db_count * sizeof(struct buffer_head *);
++	sbi->s_group_desc = kzalloc(size, GFP_KERNEL);
++	if (sbi->s_group_desc == NULL) {
++		ext4_msg(sb, KERN_INFO, "not enough memory for %u groups (%u), "
++			"falling back to vmalloc()",
++			sbi->s_groups_count, (unsigned int) size);
++		sbi->s_group_desc = vmalloc(size);
++		if (sbi->s_group_desc) {
++			memset(sbi->s_group_desc, 0, size);
++			ext4_msg(sb, KERN_INFO, "allocted enough memory for %u groups (%u) "
++				"by running vmalloc()",
++				sbi->s_groups_count, (unsigned int) size);
++		}
++	}
+ 	if (sbi->s_group_desc == NULL) {
+-		ext4_msg(sb, KERN_ERR, "not enough memory");
++		ext4_msg(sb, KERN_ERR, "not enough memory for %u groups (%u)\n",
++			sbi->s_groups_count, (unsigned int) size);
+ 		goto failed_mount;
+ 	}
+ 
+@@ -2740,8 +2767,12 @@ static int ext4_fill_super(struct super_
+ 			       "can't read group descriptor %d", i);
+ 			db_count = i;
+ 			goto failed_mount2;
++		} else {
++			ext4_msg(sb, KERN_INFO, "init sbi->s_group_desc[%u]", i);
+ 		}
+ 	}
++
++	ext4_msg(sb, KERN_INFO, "ext4_check_descriptors");
+ 	if (!ext4_check_descriptors(sb)) {
+ 		ext4_msg(sb, KERN_ERR, "group descriptors corrupted!");
+ 		goto failed_mount2;
+@@ -2766,6 +2797,7 @@ static int ext4_fill_super(struct super_
+ 				ext4_count_dirs(sb));
+ 	percpu_counter_init(&sbi->s_dirtyblocks_counter, 0);
+ 
++	ext4_msg(sb, KERN_INFO, "ext4_get_stripe_size");
+ 	sbi->s_stripe = ext4_get_stripe_size(sbi);
+ 
+ 	/*
+@@ -2903,6 +2935,7 @@ no_journal:
+ 	 * so we can safely mount the rest of the filesystem now.
+ 	 */
+ 
++	ext4_msg(sb, KERN_INFO, "ext4_iget");
+ 	root = ext4_iget(sb, EXT4_ROOT_INO);
+ 	if (IS_ERR(root)) {
+ 		ext4_msg(sb, KERN_ERR, "get root inode failed");
+@@ -2922,6 +2955,7 @@ no_journal:
+ 		goto failed_mount4;
+ 	}
+ 
++	ext4_msg(sb, KERN_INFO, "ext4_setup_super");
+ 	ext4_setup_super(sb, es, sb->s_flags & MS_RDONLY);
+ 
+ 	/* determine the minimum size of new large inodes, if present */
+@@ -2956,6 +2990,7 @@ no_journal:
+ 		clear_opt(sbi->s_mount_opt, DELALLOC);
+ 	}
+ 
++	ext4_msg(sb, KERN_INFO, "ext4_setup_system_zone");
+ 	err = ext4_setup_system_zone(sb);
+ 	if (err) {
+ 		ext4_msg(sb, KERN_ERR, "failed to initialize system "
+@@ -2963,7 +2998,9 @@ no_journal:
+ 		goto failed_mount4;
+ 	}
+ 
++	ext4_msg(sb, KERN_INFO, "ext4_ext_init");
+ 	ext4_ext_init(sb);
++	ext4_msg(sb, KERN_INFO, "ext4_mb_init");
+ 	err = ext4_mb_init(sb, needs_recovery);
+ 	if (err) {
+ 		ext4_msg(sb, KERN_ERR, "failed to initalize mballoc (%d)",
+@@ -2974,6 +3011,7 @@ no_journal:
+ 	sbi->s_kobj.kset = &ext4_kset;
+ 	sbi->s_kobj.ktype = &ext4_ktype;
+ 	init_completion(&sbi->s_kobj_unregister);
++	ext4_msg(sb, KERN_INFO, "kobject_set_name");
+ 	err = kobject_set_name(&sbi->s_kobj, "%s", sb->s_id);
+ 	if (!err)
+ 		err = kobject_register(&sbi->s_kobj);
+@@ -2984,6 +3022,7 @@ no_journal:
+ 	};
+ 
+ 	EXT4_SB(sb)->s_mount_state |= EXT4_ORPHAN_FS;
++	ext4_msg(sb, KERN_INFO, "ext4_orphan_cleanup");
+ 	ext4_orphan_cleanup(sb, es);
+ 	EXT4_SB(sb)->s_mount_state &= ~EXT4_ORPHAN_FS;
+ 	if (needs_recovery) {
+@@ -3031,9 +3070,21 @@ failed_mount3:
+ 	percpu_counter_destroy(&sbi->s_dirs_counter);
+ 	percpu_counter_destroy(&sbi->s_dirtyblocks_counter);
+ failed_mount2:
+-	for (i = 0; i < db_count; i++)
++	for (i = 0; i < db_count; i++) {
++		ext4_msg(sb, KERN_INFO, "release sbi->s_group_desc[%u]", i);
+ 		brelse(sbi->s_group_desc[i]);
+-	kfree(sbi->s_group_desc);
++	}
++
++	if (sbi->s_group_desc) {
++		ext4_msg(sb, KERN_INFO, "free the memory for sbi->s_group_desc");
++		if (is_vmalloc_addr(sbi->s_group_desc)) {
++			ext4_msg(sb, KERN_INFO, "free the memory by using vfree()");
++			vfree(sbi->s_group_desc);
++		} else {
++			ext4_msg(sb, KERN_INFO, "free the memory by using kfree()");
++			kfree(sbi->s_group_desc);
++		}
++	}
+ failed_mount:
+ 	if (sbi->s_proc) {
+ 		remove_proc_entry(sb->s_id, ext4_proc_root);
