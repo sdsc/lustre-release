@@ -208,7 +208,7 @@ init_logging
 # get the server target devices
 get_svr_devs
 
-if [ "$SKIP_LFSCK" = "no" ] && is_empty_fs $MOUNT; then
+if [ "$SKIP_LFSCK" != "yes" ] && is_empty_fs $MOUNT; then
     # create test directory
     TESTDIR=$DIR/d0.$TESTSUITE
     mkdir -p $TESTDIR || error "mkdir $TESTDIR failed"
@@ -252,8 +252,8 @@ fi
 # lfsck will return 1 if the filesystem had errors fixed
 # run e2fsck to generate databases used for lfsck
 generate_db
-if [ "$SKIP_LFSCK" != "no" ]; then
-    echo "skip lfsck"
+if [ "$SKIP_LFSCK" == "yes" ]; then
+    skip_env "skip lfsck due to SKIP_LFSCK"
 else
     # remount filesystem
     REFORMAT=""

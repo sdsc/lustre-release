@@ -118,7 +118,7 @@ init_test_env() {
     export E2FSCK=${E2FSCK:-e2fsck}
     export LFSCK_BIN=${LFSCK_BIN:-lfsck}
     export LFSCK_ALWAYS=${LFSCK_ALWAYS:-"no"} # check filesystem after each test suit
-    export SKIP_LFSCK=${SKIP_LFSCK:-"yes"} # bug 13698, change to "no" when fixed
+    export SKIP_LFSCK=${SKIP_LFSCK:-"no"}
     export SHARED_DIRECTORY=${SHARED_DIRECTORY:-"/tmp"}
     export FSCK_MAX_ERR=4   # File system errors left uncorrected
     if [ "$SKIP_LFSCK" == "no" ]; then
@@ -2513,8 +2513,6 @@ check_and_cleanup_lustre() {
         generate_db
         if [ "$SKIP_LFSCK" == "no" ]; then
             run_lfsck
-        else
-            echo "skip lfsck"
         fi
     fi
 
