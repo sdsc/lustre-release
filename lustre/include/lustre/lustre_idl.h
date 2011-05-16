@@ -402,13 +402,13 @@ static inline obd_id fid_ver_oid(const struct lu_fid *fid)
  * http://arch.lustre.org/index.php?title=Interoperability_fids_zfs#NEW.0
  */
 enum fid_seq {
-        FID_SEQ_OST_MDT0   = 0,
-        FID_SEQ_LLOG       = 1,
-        FID_SEQ_ECHO       = 2,
-        FID_SEQ_OST_MDT1   = 3,
-        FID_SEQ_OST_MAX    = 9, /* Max MDT count before OST_on_FID */
-        FID_SEQ_RSVD       = 11,
-        FID_SEQ_IGIF       = 12,
+        FID_SEQ_OST_MDT0   = 0ULL,
+        FID_SEQ_LLOG       = 1ULL,
+        FID_SEQ_ECHO       = 2ULL,
+        FID_SEQ_OST_MDT1   = 3ULL,
+        FID_SEQ_OST_MAX    = 9ULL, /* Max MDT count before OST_on_FID */
+        FID_SEQ_RSVD       = 11ULL,
+        FID_SEQ_IGIF       = 12ULL,
         FID_SEQ_IGIF_MAX   = 0x0ffffffffULL,
         FID_SEQ_IDIF       = 0x100000000ULL,
         FID_SEQ_IDIF_MAX   = 0x1ffffffffULL,
@@ -416,7 +416,8 @@ enum fid_seq {
         FID_SEQ_START      = 0x200000000ULL,
         FID_SEQ_LOCAL_FILE = 0x200000001ULL,
         FID_SEQ_DOT_LUSTRE = 0x200000002ULL,
-        FID_SEQ_NORMAL     = 0x200000400ULL
+        FID_SEQ_NORMAL     = 0x200000400ULL,
+        FID_SEQ_LOV_DEFAULT= 0xffffffffffffffffULL
 };
 
 #define OBIF_OID_MAX_BITS           32
@@ -1214,9 +1215,6 @@ enum obdo_flags {
 #define LOV_PATTERN_RAID1 0x002   /* stripes are mirrors of each other */
 #define LOV_PATTERN_FIRST 0x100   /* first stripe is not in round-robin */
 #define LOV_PATTERN_CMOBD 0x200
-
-#define LOV_OBJECT_GROUP_DEFAULT ~0ULL
-#define LOV_OBJECT_GROUP_CLEAR 0ULL
 
 #define lov_ost_data lov_ost_data_v1
 struct lov_ost_data_v1 {          /* per-stripe data structure (little-endian)*/
