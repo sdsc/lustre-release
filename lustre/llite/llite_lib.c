@@ -2105,6 +2105,14 @@ struct md_op_data * ll_prep_md_op_data(struct md_op_data *op_data,
         op_data->op_mds = 0;
         op_data->op_data = data;
 
+        if (opc == LUSTRE_OPC_CREATE && i1 == i2 && S_ISREG(i2->i_mode)) {
+                struct ll_inode_info *lli = ll_i2info(i2);
+
+                if (lli->lli_smd == NULL && !fid_is_zero(&lli->lli_pfid))
+                        op_data->op_fid1 = lli->lli_pfid;
+                /** We ignore parent's capability temporary. */
+        }
+
         return op_data;
 }
 
