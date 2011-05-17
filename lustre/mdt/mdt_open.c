@@ -107,8 +107,8 @@ static int mdt_create_data(struct mdt_thread_info *info,
                            struct mdt_object *p, struct mdt_object *o)
 {
         struct md_op_spec     *spec = &info->mti_spec;
-        struct md_attr        *ma = &info->mti_attr;
-        int rc;
+        struct md_attr        *ma   = &info->mti_attr;
+        int                    rc   = 0;
         ENTRY;
 
         if (!md_should_create(spec->sp_cr_flags))
@@ -116,9 +116,15 @@ static int mdt_create_data(struct mdt_thread_info *info,
 
         ma->ma_need = MA_INODE | MA_LOV;
         ma->ma_valid = 0;
-        rc = mdo_create_data(info->mti_env,
-                             p ? mdt_object_child(p) : NULL,
-                             mdt_object_child(o), spec, ma);
+        cfs_down(&o->mot_lov_sem);
+        if (!(o->mot_flags & MOF_LOV_CREATED)) {
+                rc = mdo_create_data(info->mti_env,
+                                     p ? mdt_object_child(p) : NULL,
+                                     mdt_object_child(o), spec, ma);
+                if (rc == 0 && ma->ma_valid & MA_LOV)
+                        o->mot_flags |= MOF_LOV_CREATED;
+        }
+        cfs_up(&o->mot_lov_sem);
         RETURN(rc);
 }
 
@@ -551,10 +557,8 @@ static void mdt_empty_transno(struct mdt_thread_info* info)
 
         ENTRY;
         /* transaction has occurred already */
-        if (lustre_msg_get_transno(req->rq_repmsg) != 0) {
-                EXIT;
-                return;
-        }
+        if (lustre_msg_get_transno(req->rq_repmsg) != 0)
+                RETURN_EXIT;
 
         cfs_spin_lock(&mdt->mdt_lut.lut_translock);
         if (info->mti_transno == 0) {
@@ -930,12 +934,11 @@ void mdt_reconstruct_open(struct mdt_thread_info *info,
                         rc = PTR_ERR(parent);
                         LCONSOLE_WARN("Parent "DFID" lookup error %d."
                                       " Evicting client %s with export %s.\n",
-                                      PFID(mdt_object_fid(parent)), rc,
+                                      PFID(rr->rr_fid1), rc,
                                       obd_uuid2str(&exp->exp_client_uuid),
                                       obd_export_nid2str(exp));
                         mdt_export_evict(exp);
-                        EXIT;
-                        return;
+                        RETURN_EXIT;
                 }
                 child = mdt_object_find(env, mdt, rr->rr_fid2);
                 if (IS_ERR(child)) {
@@ -947,8 +950,7 @@ void mdt_reconstruct_open(struct mdt_thread_info *info,
                                       obd_export_nid2str(exp));
                         mdt_object_put(env, parent);
                         mdt_export_evict(exp);
-                        EXIT;
-                        return;
+                        RETURN_EXIT;
                 }
                 rc = mdt_object_exists(child);
                 if (rc > 0) {
@@ -1028,7 +1030,8 @@ static int mdt_open_by_fid(struct mdt_thread_info* info,
 
 static int mdt_open_anon_by_fid(struct mdt_thread_info* info,
                                 struct ldlm_reply *rep, 
-                                struct mdt_lock_handle *lhc)
+                                struct mdt_lock_handle *lhc,
+                                struct mdt_object *p)
 {
         __u32                    flags = info->mti_spec.sp_cr_flags;
         struct mdt_reint_record *rr = &info->mti_rr;
@@ -1077,7 +1080,7 @@ static int mdt_open_anon_by_fid(struct mdt_thread_info* info,
 
         if (flags & MDS_OPEN_LOCK)
                 mdt_set_disposition(info, rep, DISP_OPEN_LOCK);
-        rc = mdt_finish_open(info, NULL, o, flags, 0, rep);
+        rc = mdt_finish_open(info, p, o, flags, 0, rep);
 
         if (!(flags & MDS_OPEN_LOCK) || rc)
                 mdt_object_unlock(info, o, lhc, 1);
@@ -1146,7 +1149,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 {
         struct mdt_device       *mdt = info->mti_mdt;
         struct ptlrpc_request   *req = mdt_info_req(info);
-        struct mdt_object       *parent;
+        struct mdt_object       *parent = NULL;
         struct mdt_object       *child;
         struct mdt_lock_handle  *lh;
         struct ldlm_reply       *ldlm_rep;
@@ -1219,7 +1222,25 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                        "regular open\n");
         } else if (rr->rr_namelen == 0 && !info->mti_cross_ref &&
                    create_flags & MDS_OPEN_LOCK) {
-                result = mdt_open_anon_by_fid(info, ldlm_rep, lhc);
+                const struct lu_env *env = info->mti_env;
+
+                if (!lu_fid_eq(rr->rr_fid1, rr->rr_fid2)) {
+                        /* It is mostly for NFSD open case. If parent does not
+                         * exist, then means related NFS_FH is stale. */
+                        parent = mdt_object_find(env, mdt, rr->rr_fid1);
+                        if (IS_ERR(parent)) {
+                                result = PTR_ERR(parent);
+                                LCONSOLE_WARN("Find parent "DFID" for anonymous"
+                                              " open_create(delay) error %d.\n",
+                                              PFID(rr->rr_fid1), result);
+                                GOTO(out, result);
+                        }
+                }
+                result = mdt_open_anon_by_fid(info, ldlm_rep, lhc, parent);
+                if (parent != NULL) {
+                        mdt_object_put(env, parent);
+                        parent = NULL;
+                }
                 GOTO(out, result);
         }
 

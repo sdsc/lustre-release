@@ -1507,7 +1507,9 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
                          * but lov raid0 is not setup yet and parallel e.g.
                          * glimpse would try to use uninitialized lov */
                         cl_inode_init(inode, md);
+                        cfs_spin_lock(&lli->lli_lock);
                         lli->lli_smd = lsm;
+                        cfs_spin_unlock(&lli->lli_lock);
                         cfs_up(&lli->lli_och_sem);
                         lli->lli_maxbytes = lsm->lsm_maxbytes;
                         if (lli->lli_maxbytes > PAGE_CACHE_MAXBYTES)
@@ -2104,6 +2106,18 @@ struct md_op_data * ll_prep_md_op_data(struct md_op_data *op_data,
         op_data->op_opc = opc;
         op_data->op_mds = 0;
         op_data->op_data = data;
+
+        if (opc == LUSTRE_OPC_CREATE && i1 == i2 && S_ISREG(i2->i_mode) &&
+            ll_i2info(i2)->lli_smd == NULL) {
+                struct ll_inode_info *lli = ll_i2info(i2);
+
+                cfs_spin_lock(&lli->lli_lock);
+                if (likely(lli->lli_smd == NULL &&
+                           !fid_is_zero(&lli->lli_pfid)))
+                        op_data->op_fid1 = lli->lli_pfid;
+                cfs_spin_unlock(&lli->lli_lock);
+                /** We ignore parent's capability temporary. */
+        }
 
         return op_data;
 }
