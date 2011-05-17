@@ -444,8 +444,10 @@ static inline struct dentry *d_obtain_alias(struct inode *inode)
 {
 	struct dentry *anon = d_alloc_anon(inode);
 
-	if (anon == NULL)
+	if (anon == NULL) {
 		iput(inode);
+                anon = ERR_PTR(-ENOMEM);
+        }
 
 	return anon;
 }
