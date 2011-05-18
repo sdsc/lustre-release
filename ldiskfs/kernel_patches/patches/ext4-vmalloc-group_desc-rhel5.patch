@@ -1,0 +1,137 @@
+Index: linux-stage/fs/ext4/super.c
+===================================================================
+--- linux-stage.orig/fs/ext4/super.c
++++ linux-stage/fs/ext4/super.c
+@@ -660,9 +660,22 @@ static void ext4_put_super(struct super_
+ 	}
+ 	kobject_del(&sbi->s_kobj);
+ 
+-	for (i = 0; i < sbi->s_gdb_count; i++)
++	for (i = 0; i < sbi->s_gdb_count; i++) {
++		printk(KERN_INFO "release sbi->s_group_desc[%u]\n", i);
+ 		brelse(sbi->s_group_desc[i]);
+-	kfree(sbi->s_group_desc);
++	}
++
++	if (sbi->s_group_desc) {
++		printk(KERN_INFO "free the memory for sbi->s_group_desc\n");
++		if (is_vmalloc_addr(sbi->s_group_desc)) {
++			printk(KERN_INFO "free the memory by using vfree()\n");
++			vfree(sbi->s_group_desc);
++		} else {
++			printk(KERN_INFO "free the memory by using kfree()\n");
++			kfree(sbi->s_group_desc);
++		}
++	}
++
+ 	if (is_vmalloc_addr(sbi->s_flex_groups))
+ 		vfree(sbi->s_flex_groups);
+ 	else
+@@ -2394,6 +2407,7 @@ static int ext4_fill_super(struct super_
+ 				__acquires(kernel_lock)
+ {
+ 	struct buffer_head *bh;
++	struct buffer_head *tmp_bh;
+ 	struct ext4_super_block *es = NULL;
+ 	struct ext4_sb_info *sbi;
+ 	ext4_fsblk_t block;
+@@ -2408,6 +2422,7 @@ static int ext4_fill_super(struct super_
+ 	int ret = -EINVAL;
+ 	int blocksize;
+ 	unsigned int db_count;
++	size_t size;
+ 	unsigned int i;
+ 	int needs_recovery, has_huge_files;
+ 	__u64 blocks_count;
+@@ -2716,12 +2731,28 @@ static int ext4_fill_super(struct super_
+ 	sbi->s_groups_count = blocks_count;
+ 	sbi->s_blockfile_groups = min_t(ext4_group_t, sbi->s_groups_count,
+ 			(EXT4_MAX_BLOCK_FILE_PHYS / EXT4_BLOCKS_PER_GROUP(sb)));
++	printk(KERN_INFO "sbi->s_groups_count is %u\n", sbi->s_groups_count);
+ 	db_count = (sbi->s_groups_count + EXT4_DESC_PER_BLOCK(sb) - 1) /
+ 		   EXT4_DESC_PER_BLOCK(sb);
+-	sbi->s_group_desc = kmalloc(db_count * sizeof(struct buffer_head *),
+-				    GFP_KERNEL);
++	size = (size_t) db_count * sizeof(struct buffer_head *);
++	printk(KERN_INFO "db_count is %u\n", db_count);
++	printk(KERN_INFO "buffer_head size is %u\n", (unsigned int) sizeof(struct buffer_head *));
++	sbi->s_group_desc = kzalloc(size, GFP_KERNEL);
++	if (sbi->s_group_desc == NULL) {
++		ext4_msg(sb, KERN_INFO, "not enough memory for %u groups (%u), "
++			"falling back to vmalloc()",
++			sbi->s_groups_count, (unsigned int) size);
++		sbi->s_group_desc = vmalloc(size);
++		if (sbi->s_group_desc) {
++			memset(sbi->s_group_desc, 0, size);
++			ext4_msg(sb, KERN_INFO, "allocted enough memory for %u groups (%u) "
++				"by running vmalloc()",
++				sbi->s_groups_count, (unsigned int) size);
++		}
++	}
+ 	if (sbi->s_group_desc == NULL) {
+-		ext4_msg(sb, KERN_ERR, "not enough memory");
++		ext4_msg(sb, KERN_ERR, "not enough memory for %u groups (%u)\n",
++			sbi->s_groups_count, (unsigned int) size);
+ 		goto failed_mount;
+ 	}
+ 
+@@ -2732,16 +2763,39 @@ static int ext4_fill_super(struct super_
+ 
+ 	bgl_lock_init(sbi->s_blockgroup_lock);
+ 
++	printk(KERN_INFO "logical_sb_block is %llu\n", logical_sb_block);
++	for (i = 0; i < db_count; i++) {
++		block = descriptor_loc(sb, logical_sb_block, i);
++		printk(KERN_INFO "block[%u] is %llu\n", i, block);
++		tmp_bh = sb_bread(sb, block);
++		brelse(tmp_bh);
++		schedule_timeout_uninterruptible(1);
++	}
++
++	for (i = 0; i < db_count; i++) {
++		printk(KERN_INFO "VMALLOC_START[%u], %p\n", i, (void *) VMALLOC_START);
++		printk(KERN_INFO "VMALLOC_END[%u], %p\n", i, (void *) VMALLOC_END);
++		printk(KERN_INFO "address of sbi->s_group_desc[%u], %p\n", i, &sbi->s_group_desc[i]);
++		schedule_timeout_uninterruptible(1);
++	}
++
++	printk(KERN_INFO "logical_sb_block is %llu\n", logical_sb_block);
+ 	for (i = 0; i < db_count; i++) {
+ 		block = descriptor_loc(sb, logical_sb_block, i);
++		printk(KERN_INFO "block[%u] is %llu\n", i, block);
++		printk(KERN_INFO "address of sbi->s_group_desc[%u], %p\n", i, &sbi->s_group_desc[i]);
+ 		sbi->s_group_desc[i] = sb_bread(sb, block);
++		printk(KERN_INFO "init sbi->s_group_desc[%u]\n", i);
+ 		if (!sbi->s_group_desc[i]) {
+ 			ext4_msg(sb, KERN_ERR,
+ 			       "can't read group descriptor %d", i);
+ 			db_count = i;
+ 			goto failed_mount2;
+ 		}
++		schedule_timeout_uninterruptible(1);
+ 	}
++	printk(KERN_INFO "init sbi->s_group_desc[%u] succeed\n", i);
++
+ 	if (!ext4_check_descriptors(sb)) {
+ 		ext4_msg(sb, KERN_ERR, "group descriptors corrupted!");
+ 		goto failed_mount2;
+@@ -3031,9 +3085,17 @@ failed_mount3:
+ 	percpu_counter_destroy(&sbi->s_dirs_counter);
+ 	percpu_counter_destroy(&sbi->s_dirtyblocks_counter);
+ failed_mount2:
+-	for (i = 0; i < db_count; i++)
++	for (i = 0; i < db_count; i++) {
+ 		brelse(sbi->s_group_desc[i]);
+-	kfree(sbi->s_group_desc);
++	}
++
++	if (sbi->s_group_desc) {
++		if (is_vmalloc_addr(sbi->s_group_desc)) {
++			vfree(sbi->s_group_desc);
++		} else {
++			kfree(sbi->s_group_desc);
++		}
++	}
+ failed_mount:
+ 	if (sbi->s_proc) {
+ 		remove_proc_entry(sb->s_id, ext4_proc_root);
