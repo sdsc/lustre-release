@@ -1,10 +1,166 @@
-Index: linux-2.6.18.i386/fs/ext4/ext4.h
-===================================================================
---- linux-2.6.18.i386.orig/fs/ext4/ext4.h
-+++ linux-2.6.18.i386/fs/ext4/ext4.h
-@@ -541,12 +541,13 @@ do {									       \
- #define EXT4_MOUNT_IOPEN		0x8000000 /* Allow access via iopen */
- #define EXT4_MOUNT_IOPEN_NOPRIV		0x10000000 /* Make iopen world-readable */
+diff -ur linux-stage.orig/fs/ext4/ext4.h linux-stage/fs/ext4/ext4.h
+--- linux-stage.orig/fs/ext4/ext4.h	2011-05-10 10:54:42.000000000 -0400
++++ linux-stage/fs/ext4/ext4.h	2011-05-10 12:00:01.000000000 -0400
+@@ -20,7 +20,17 @@
+ #include <linux/blkdev.h>
+ #include <linux/magic.h>
+ #include <linux/jbd2.h>
+-#include "ext4_i.h"
++#include <linux/rwsem.h>
++#include <linux/rbtree.h>
++#include <linux/seqlock.h>
++#include <linux/mutex.h>
++#include <linux/timer.h>
++#include <linux/wait.h>
++#include <linux/blockgroup_lock.h>
++#include <linux/percpu_counter.h>
++#ifdef __KERNEL__
++#include <linux/compat.h>
++#endif
+ 
+ /*
+  * The fourth extended filesystem constants/structures
+@@ -53,7 +63,20 @@
+ #define ext4_debug(f, a...)	do {} while (0)
+ #endif
+ 
+-#define EXT4_MULTIBLOCK_ALLOCATOR	1
++/* data type for block offset of block group */
++typedef int ext4_grpblk_t;
++
++/* data type for filesystem-wide blocks number */
++typedef unsigned long long ext4_fsblk_t;
++
++/* data type for file logical block number */
++typedef __u32 ext4_lblk_t;
++
++/* data type for block group number */
++typedef unsigned int ext4_group_t;
++
++#define rsv_start rsv_window._rsv_start
++#define rsv_end rsv_window._rsv_end
+ 
+ /* prefer goal again. length */
+ #define EXT4_MB_HINT_MERGE		1
+@@ -496,6 +519,115 @@
+ #endif /* defined(__KERNEL__) || defined(__linux__) */
+ 
+ /*
++ * storage for cached extent
++ */
++struct ext4_ext_cache {
++	ext4_fsblk_t	ec_start;
++	ext4_lblk_t	ec_block;
++	__u32		ec_len;	/* must be 32bit to return holes */
++	__u32		ec_type;
++};
++
++/*
++ * fourth extended file system inode data in memory
++ */
++struct ext4_inode_info {
++	__le32	i_data[15];	/* unconverted */
++	__u32	i_flags;
++	__u32	i_dtime;
++	ext4_fsblk_t	i_file_acl;
++
++	/*
++	 * i_block_group is the number of the block group which contains
++	 * this file's inode.  Constant across the lifetime of the inode,
++	 * it is ued for making block allocation decisions - we try to
++	 * place a file's data blocks near its inode block, and new inodes
++	 * near to their parent directory's inode.
++	 */
++	ext4_group_t	i_block_group;
++	__u32	i_state;		/* Dynamic state flags for ext4 */
++
++	ext4_lblk_t		i_dir_start_lookup;
++#if defined(CONFIG_EXT4_FS_XATTR) || defined(CONFIG_EXT4DEV_FS_XATTR)
++	/*
++	 * Extended attributes can be read independently of the main file
++	 * data. Taking i_mutex even when reading would cause contention
++	 * between readers of EAs and writers of regular file data, so
++	 * instead we synchronize on xattr_sem when reading or changing
++	 * EAs.
++	 */
++	struct rw_semaphore xattr_sem;
++#endif
++#if defined(CONFIG_EXT4_FS_POSIX_ACL) || defined(CONFIG_EXT4DEV_FS_POSIX_ACL)
++	struct posix_acl	*i_acl;
++	struct posix_acl	*i_default_acl;
++#endif
++
++	struct list_head i_orphan;	/* unlinked but open inodes */
++
++	/* 
++	 * i_disksize keeps track of what the inode size is ON DISK, not
++	 * in memory.  During truncate, i_size is set to the new size by
++	 * the VFS prior to calling ext4_truncate(), but the filesystem won't
++	 * set i_disksize to 0 until the truncate is actually under way. 
++	 *
++	 * The intent is that i_disksize always represents the blocks which
++	 * are used by this file.  This allows recovery to restart truncate
++	 * on orphans if we crash during truncate.  We actually write i_disksize
++	 * into the on-disk inode when writing inodes out, instead of i_size.
++	 *
++	 * The only time when i_disksize and i_size may be different is when
++	 * a truncate is in progress.  The only things which change i_disksize
++	 * are ext4_get_block (growth) and ext4_truncate (shrinkth).
++	 */
++	loff_t  i_disksize;
++
++	/*
++	 * i_data_sem is for serialising ext4_truncate() against
++	 * ext4_getblock().  In the 2.4 ext2 design, great chunks of inode's
++	 * data tree are chopped off during truncate. We can't do that in
++	 * ext4 because whenever we perform intermediate commits during
++	 * truncate, the inode and all the metadata blocks *must* be in a
++	 * consistent state which allows truncation of the orphans to restart
++	 * during recovery.  Hence we must fix the get_block-vs-truncate race
++	 * by other means, so we have i_data_sem.
++	 */
++	struct rw_semaphore i_data_sem;
++	struct inode vfs_inode;
++	struct jbd2_inode jinode;
++
++	struct ext4_ext_cache i_cached_extent;
++	/*
++	 * File creation time. Its function is same as that of
++	 * struct timespec i_{a,c,m}time in the generic inode.
++	 */
++	struct timespec i_crtime;
++
++	/* mballoc */
++	struct list_head i_prealloc_list;
++	spinlock_t i_prealloc_lock;
++
++	/* ialloc */
++	ext4_group_t	i_last_alloc_group;
++
++	/* allocation reservation info for delalloc */
++	unsigned int i_reserved_data_blocks;
++	unsigned int i_reserved_meta_blocks;
++	unsigned int i_allocated_meta_blocks;
++	unsigned short i_delalloc_reserved_flag;
++
++	/* on-disk additional length */
++	__u16 i_extra_isize;
++
++	spinlock_t i_block_reservation_lock;
++
++	/*
++	 */
++	tid_t i_sync_tid;
++	tid_t i_datasync_tid;
++};
++
++/*
+  * File system states
+  */
+ #define	EXT4_VALID_FS			0x0001	/* Unmounted cleanly */
+@@ -543,12 +675,13 @@
+ #define EXT4_MOUNT_IOPEN		0x10000000 /* Allow access via iopen */
+ #define EXT4_MOUNT_IOPEN_NOPRIV		0x20000000 /* Make iopen world-readable */
  /* Compatibility, for having both ext2_fs.h and ext4_fs.h included at once */
 -#ifndef _LINUX_EXT2_FS_H
 +#ifndef clear_opt
@@ -18,3 +174,61 @@ Index: linux-2.6.18.i386/fs/ext4/ext4.h
  #define EXT2_MOUNT_NOLOAD		EXT4_MOUNT_NOLOAD
  #define EXT2_MOUNT_ABORT		EXT4_MOUNT_ABORT
  #define EXT2_MOUNT_DATA_FLAGS		EXT4_MOUNT_DATA_FLAGS
+@@ -807,6 +940,12 @@
+ #define EXT4_DEFM_JMODE_WBACK	0x0060
+ 
+ /*
++ * Default journal batch times
++ */
++#define EXT4_DEF_MIN_BATCH_TIME	0
++#define EXT4_DEF_MAX_BATCH_TIME	15000 /* 15ms */
++
++/*
+  * Structure of a directory entry
+  */
+ #define EXT4_NAME_LEN 255
+Only in linux-stage.orig/fs/ext4: ext4_i.h
+diff -ur linux-stage.orig/fs/ext4/ext4_sb.h linux-stage/fs/ext4/ext4_sb.h
+--- linux-stage.orig/fs/ext4/ext4_sb.h	2011-05-10 10:54:42.000000000 -0400
++++ linux-stage/fs/ext4/ext4_sb.h	2011-05-10 11:29:38.000000000 -0400
+@@ -75,6 +75,7 @@
+ 	struct journal_s *s_journal;
+ 	struct list_head s_orphan;
+ 	unsigned long s_commit_interval;
++	u32 s_min_batch_time, s_max_batch_time;
+ 	struct block_device *journal_bdev;
+ #ifdef CONFIG_JBD2_DEBUG
+ 	struct timer_list turn_ro_timer;	/* For turning read-only (crash simulation) */
+diff -ur linux-stage.orig/fs/ext4/ialloc.c linux-stage/fs/ext4/ialloc.c
+--- linux-stage.orig/fs/ext4/ialloc.c	2011-05-10 10:54:42.000000000 -0400
++++ linux-stage/fs/ext4/ialloc.c	2011-05-10 11:57:40.000000000 -0400
+@@ -886,6 +886,7 @@
+ 	ei->i_file_acl = 0;
+ 	ei->i_dtime = 0;
+ 	ei->i_block_group = group;
++	ei->i_last_alloc_group = ~0;
+ 
+ 	ext4_set_inode_flags(inode);
+ 	if (IS_DIRSYNC(inode))
+diff -ur linux-stage.orig/fs/ext4/super.c linux-stage/fs/ext4/super.c
+--- linux-stage.orig/fs/ext4/super.c	2011-05-10 10:54:42.000000000 -0400
++++ linux-stage/fs/ext4/super.c	2011-05-10 11:34:23.000000000 -0400
+@@ -2058,6 +2058,8 @@
+ 	else if ((def_mount_opts & EXT4_DEFM_JMODE) == EXT4_DEFM_JMODE_WBACK)
+ 		sbi->s_mount_opt |= EXT4_MOUNT_WRITEBACK_DATA;
+ 
++	set_opt(sbi->s_mount_opt, RESERVATION);
++
+ 	if (le16_to_cpu(sbi->s_es->s_errors) == EXT4_ERRORS_PANIC)
+ 		set_opt(sbi->s_mount_opt, ERRORS_PANIC);
+ 	else if (le16_to_cpu(sbi->s_es->s_errors) == EXT4_ERRORS_CONTINUE)
+@@ -2067,8 +2069,8 @@
+ 
+ 	sbi->s_resuid = le16_to_cpu(es->s_def_resuid);
+ 	sbi->s_resgid = le16_to_cpu(es->s_def_resgid);
++	sbi->s_max_batch_time = EXT4_DEF_MAX_BATCH_TIME;
+ 
+-	set_opt(sbi->s_mount_opt, RESERVATION);
+ 	set_opt(sbi->s_mount_opt, BARRIER);
+ 
+ 	/*
