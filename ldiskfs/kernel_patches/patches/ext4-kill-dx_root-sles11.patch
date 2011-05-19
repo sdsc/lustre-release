@@ -1,0 +1,718 @@
+diff -ur linux-stage.orig/fs/ext4/dir.c linux-stage/fs/ext4/dir.c
+--- linux-stage.orig/fs/ext4/dir.c	2011-05-16 13:23:04.000000000 -0400
++++ linux-stage/fs/ext4/dir.c	2011-05-16 13:24:58.000000000 -0400
+@@ -67,7 +67,8 @@
+ 			 unsigned int offset)
+ {
+ 	const char *error_msg = NULL;
+-	const int rlen = ext4_rec_len_from_disk(de->rec_len);
++	const int rlen = ext4_rec_len_from_disk(de->rec_len,
++						dir->i_sb->s_blocksize);
+ 
+ 	if (rlen < EXT4_DIR_REC_LEN(1))
+ 		error_msg = "rec_len is smaller than minimal";
+@@ -178,10 +179,11 @@
+ 				 * least that it is non-zero.  A
+ 				 * failure will be detected in the
+ 				 * dirent test below. */
+-				if (ext4_rec_len_from_disk(de->rec_len)
+-						< EXT4_DIR_REC_LEN(1))
++				if (ext4_rec_len_from_disk(de->rec_len,
++					sb->s_blocksize) < EXT4_DIR_REC_LEN(1))
+ 					break;
+-				i += ext4_rec_len_from_disk(de->rec_len);
++				i += ext4_rec_len_from_disk(de->rec_len,
++							    sb->s_blocksize);
+ 			}
+ 			offset = i;
+ 			filp->f_pos = (filp->f_pos & ~(sb->s_blocksize - 1))
+@@ -203,7 +205,8 @@
+ 				ret = stored;
+ 				goto out;
+ 			}
+-			offset += ext4_rec_len_from_disk(de->rec_len);
++			offset += ext4_rec_len_from_disk(de->rec_len,
++					sb->s_blocksize);
+ 			if (le32_to_cpu(de->inode)) {
+ 				/* We might block in the next section
+ 				 * if the data destination is
+@@ -225,7 +228,8 @@
+ 					goto revalidate;
+ 				stored++;
+ 			}
+-			filp->f_pos += ext4_rec_len_from_disk(de->rec_len);
++			filp->f_pos += ext4_rec_len_from_disk(de->rec_len,
++						sb->s_blocksize);
+ 		}
+ 		offset = 0;
+ 		brelse(bh);
+diff -ur linux-stage.orig/fs/ext4/ext4.h linux-stage/fs/ext4/ext4.h
+--- linux-stage.orig/fs/ext4/ext4.h	2011-05-16 13:23:04.000000000 -0400
++++ linux-stage/fs/ext4/ext4.h	2011-05-16 14:24:35.000000000 -0400
+@@ -1004,24 +1004,6 @@
+ 					 ~EXT4_DIR_ROUND)
+ #define EXT4_MAX_REC_LEN		((1<<16)-1)
+ 
+-static inline unsigned ext4_rec_len_from_disk(__le16 dlen)
+-{
+-	unsigned len = le16_to_cpu(dlen);
+-
+-	if (len == EXT4_MAX_REC_LEN)
+-		return 1 << 16;
+-	return len;
+-}
+-
+-static inline __le16 ext4_rec_len_to_disk(unsigned len)
+-{
+-	if (len == (1 << 16))
+-		return cpu_to_le16(EXT4_MAX_REC_LEN);
+-	else if (len > (1 << 16))
+-		BUG();
+-	return cpu_to_le16(len);
+-}
+-
+ /*
+  * Hash Tree Directory indexing
+  * (c) Daniel Phillips, 2001
+@@ -1320,6 +1302,8 @@
+ #define ll_ext4_find_entry(inode, dentry, res_dir) ext4_find_entry(dir, &(dentry)->d_name, res_dir)
+ extern int ext4_add_dot_dotdot(handle_t *handle, struct inode *dir,
+ 				  struct inode *inode);
++extern unsigned int ext4_rec_len_from_disk(__le16 dlen, unsigned blocksize);
++extern __le16 ext4_rec_len_to_disk(unsigned len, unsigned blocksize);
+ extern int ext4_orphan_add(handle_t *, struct inode *);
+ extern int ext4_orphan_del(handle_t *, struct inode *);
+ extern int ext4_htree_fill_tree(struct file *dir_file, __u32 start_hash,
+diff -ur linux-stage.orig/fs/ext4/namei.c linux-stage/fs/ext4/namei.c
+--- linux-stage.orig/fs/ext4/namei.c	2011-05-16 13:23:04.000000000 -0400
++++ linux-stage/fs/ext4/namei.c	2011-05-16 14:27:36.000000000 -0400
+@@ -119,22 +119,13 @@
+  * hash version mod 4 should never be 0.  Sincerely, the paranoia department.
+  */
+ 
+-struct dx_root
++struct dx_root_info
+ {
+-	struct fake_dirent dot;
+-	char dot_name[4];
+-	struct fake_dirent dotdot;
+-	char dotdot_name[4];
+-	struct dx_root_info
+-	{
+-		__le32 reserved_zero;
+-		u8 hash_version;
+-		u8 info_length; /* 8 */
+-		u8 indirect_levels;
+-		u8 unused_flags;
+-	}
+-	info;
+-	struct dx_entry	entries[0];
++	__le32 reserved_zero;
++	u8 hash_version;
++	u8 info_length; /* 8 */
++	u8 indirect_levels;
++	u8 unused_flags;
+ };
+ 
+ struct dx_node
+@@ -195,8 +186,8 @@
+ 		       struct dx_hash_info *hinfo, struct dx_map_entry map[]);
+ static void dx_sort_map(struct dx_map_entry *map, unsigned count);
+ static struct ext4_dir_entry_2 *dx_move_dirents(char *from, char *to,
+-		struct dx_map_entry *offsets, int count);
+-static struct ext4_dir_entry_2* dx_pack_dirents(char *base, int size);
++		struct dx_map_entry *offsets, int count, unsigned blocksize);
++static struct ext4_dir_entry_2* dx_pack_dirents(char *base, unsigned blocksize);
+ static void dx_insert_block(struct dx_frame *frame,
+ 					u32 hash, ext4_lblk_t block);
+ static int ext4_htree_next_block(struct inode *dir, __u32 hash,
+@@ -210,20 +201,54 @@
+ static int ext4_dx_add_entry(handle_t *handle, struct dentry *dentry,
+ 			     struct inode *inode);
+ 
++unsigned int ext4_rec_len_from_disk(__le16 dlen, unsigned blocksize)
++{
++	unsigned len = le16_to_cpu(dlen);
++
++	if (len == EXT4_MAX_REC_LEN || len == 0)
++		return blocksize;
++	return (len & 65532) | ((len & 3) << 16);
++}
++
++__le16 ext4_rec_len_to_disk(unsigned len, unsigned blocksize)
++{
++	if ((len > blocksize) || (blocksize > (1 << 18)) || (len & 3))
++		BUG();
++	if (len < 65536)
++		return cpu_to_le16(len);
++	if (len == blocksize) {
++		if (blocksize == 65536)
++			return cpu_to_le16(EXT4_MAX_REC_LEN);
++		else
++			return cpu_to_le16(0);
++	}
++	return cpu_to_le16((len & 65532) | ((len >> 16) & 3));
++}
++
+ /*
+  * p is at least 6 bytes before the end of page
+  */
+ static inline struct ext4_dir_entry_2 *
+-ext4_next_entry(struct ext4_dir_entry_2 *p)
++ext4_next_entry(struct ext4_dir_entry_2 *p, unsigned long blocksize)
+ {
+ 	return (struct ext4_dir_entry_2 *)((char *)p +
+-		ext4_rec_len_from_disk(p->rec_len));
+-}
++		ext4_rec_len_from_disk(p->rec_len, blocksize));
++	}
+ 
+ /*
+  * Future: use high four bits of block for coalesce-on-delete flags
+  * Mask them off for now.
+  */
++struct dx_root_info * dx_get_dx_info(struct ext4_dir_entry_2 *de)
++{
++       /* get dotdot first */
++       de = (struct ext4_dir_entry_2 *)((char *)de + EXT4_DIR_REC_LEN(1));
++
++       /* dx root info is after dotdot entry */
++       de = (struct ext4_dir_entry_2 *)((char *)de + EXT4_DIR_REC_LEN(2));
++
++       return (struct dx_root_info *) de;
++}
+ 
+ static inline ext4_lblk_t dx_get_block(struct dx_entry *entry)
+ {
+@@ -324,7 +349,7 @@
+ 			space += EXT4_DIR_REC_LEN(de->name_len);
+ 			names++;
+ 		}
+-		de = ext4_next_entry(de);
++		de = ext4_next_entry(de, size);
+ 	}
+ 	printk("(%i)\n", names);
+ 	return (struct stats) { names, space, 1 };
+@@ -378,7 +403,7 @@
+ {
+ 	unsigned count, indirect;
+ 	struct dx_entry *at, *entries, *p, *q, *m;
+-	struct dx_root *root;
++	struct dx_root_info * info;
+ 	struct buffer_head *bh;
+ 	struct dx_frame *frame = frame_in;
+ 	u32 hash;
+@@ -386,18 +411,19 @@
+ 	frame->bh = NULL;
+ 	if (!(bh = ext4_bread (NULL,dir, 0, 0, err)))
+ 		goto fail;
+-	root = (struct dx_root *) bh->b_data;
+-	if (root->info.hash_version != DX_HASH_TEA &&
+-	    root->info.hash_version != DX_HASH_HALF_MD4 &&
+-	    root->info.hash_version != DX_HASH_LEGACY) {
++
++	info = dx_get_dx_info((struct ext4_dir_entry_2*)bh->b_data);
++	if (info->hash_version != DX_HASH_TEA &&
++	    info->hash_version != DX_HASH_HALF_MD4 &&
++	    info->hash_version != DX_HASH_LEGACY) {
+ 		ext4_warning(dir->i_sb, __func__,
+ 			     "Unrecognised inode hash code %d for directory "
+-			     "#%lu", root->info.hash_version, dir->i_ino);
++			     "#%lu", info->hash_version, dir->i_ino);
+ 		brelse(bh);
+ 		*err = ERR_BAD_DX_DIR;
+ 		goto fail;
+ 	}
+-	hinfo->hash_version = root->info.hash_version;
++	hinfo->hash_version = info->hash_version;
+ 	if (hinfo->hash_version <= DX_HASH_TEA)
+ 		hinfo->hash_version += EXT4_SB(dir->i_sb)->s_hash_unsigned;
+ 	hinfo->seed = EXT4_SB(dir->i_sb)->s_hash_seed;
+@@ -405,29 +431,28 @@
+ 		ext4fs_dirhash(d_name->name, d_name->len, hinfo);
+ 	hash = hinfo->hash;
+ 
+-	if (root->info.unused_flags & 1) {
++	if (info->unused_flags & 1) {
+ 		ext4_warning(dir->i_sb, __func__,
+ 			     "Unimplemented inode hash flags: %#06x",
+-			     root->info.unused_flags);
++			     info->unused_flags);
+ 		brelse(bh);
+ 		*err = ERR_BAD_DX_DIR;
+ 		goto fail;
+ 	}
+ 
+-	if ((indirect = root->info.indirect_levels) > 1) {
++	if ((indirect = info->indirect_levels) > 1) {
+ 		ext4_warning(dir->i_sb, __func__,
+ 			     "Unimplemented inode hash depth: %#06x",
+-			     root->info.indirect_levels);
++			     info->indirect_levels);
+ 		brelse(bh);
+ 		*err = ERR_BAD_DX_DIR;
+ 		goto fail;
+ 	}
+ 
+-	entries = (struct dx_entry *) (((char *)&root->info) +
+-				       root->info.info_length);
++	entries = (struct dx_entry *) (((char *)info) + info->info_length);
+ 
+ 	if (dx_get_limit(entries) != dx_root_limit(dir,
+-						   root->info.info_length)) {
++						   info->info_length)) {
+ 		ext4_warning(dir->i_sb, __func__,
+ 			     "dx entry: limit != root limit");
+ 		brelse(bh);
+@@ -509,10 +534,12 @@
+ 
+ static void dx_release (struct dx_frame *frames)
+ {
++	struct dx_root_info *info;
+ 	if (frames[0].bh == NULL)
+ 		return;
+ 
+-	if (((struct dx_root *) frames[0].bh->b_data)->info.indirect_levels)
++	info = dx_get_dx_info((struct ext4_dir_entry_2*)frames[0].bh->b_data);
++	if (info->indirect_levels)
+ 		brelse(frames[1].bh);
+ 	brelse(frames[0].bh);
+ }
+@@ -615,7 +642,7 @@
+ 	top = (struct ext4_dir_entry_2 *) ((char *) de +
+ 					   dir->i_sb->s_blocksize -
+ 					   EXT4_DIR_REC_LEN(0));
+-	for (; de < top; de = ext4_next_entry(de)) {
++	for (; de < top; de = ext4_next_entry(de, dir->i_sb->s_blocksize)) {
+ 		if (!ext4_check_dir_entry("htree_dirblock_to_tree", dir, de, bh,
+ 					(block<<EXT4_BLOCK_SIZE_BITS(dir->i_sb))
+ 						+((char *)de - bh->b_data))) {
+@@ -693,7 +720,7 @@
+ 	}
+ 	if (start_hash < 2 || (start_hash ==2 && start_minor_hash==0)) {
+ 		de = (struct ext4_dir_entry_2 *) frames[0].bh->b_data;
+-		de = ext4_next_entry(de);
++		de = ext4_next_entry(de, dir->i_sb->s_blocksize);
+ 		if ((err = ext4_htree_store_dirent(dir_file, 2, 0, de)) != 0)
+ 			goto errout;
+ 		count++;
+@@ -743,14 +770,14 @@
+  * Create map of hash values, offsets, and sizes, stored at end of block.
+  * Returns number of entries mapped.
+  */
+-static int dx_make_map (struct ext4_dir_entry_2 *de, int size,
++static int dx_make_map (struct ext4_dir_entry_2 *de, int blocksize,
+ 			struct dx_hash_info *hinfo, struct dx_map_entry *map_tail)
+ {
+ 	int count = 0;
+ 	char *base = (char *) de;
+ 	struct dx_hash_info h = *hinfo;
+ 
+-	while ((char *) de < base + size)
++	while ((char *) de < base + blocksize)
+ 	{
+ 		if (de->name_len && de->inode) {
+ 			ext4fs_dirhash(de->name, de->name_len, &h);
+@@ -762,7 +789,7 @@
+ 			cond_resched();
+ 		}
+ 		/* XXX: do we need to check rec_len == 0 case? -Chris */
+-		de = ext4_next_entry(de);
++		de = ext4_next_entry(de, blocksize);
+ 	}
+ 	return count;
+ }
+@@ -862,7 +889,8 @@
+ 			return 1;
+ 		}
+ 		/* prevent looping on a bad block */
+-		de_len = ext4_rec_len_from_disk(de->rec_len);
++		de_len = ext4_rec_len_from_disk(de->rec_len,
++						dir->i_sb->s_blocksize);
+ 		if (de_len <= 0)
+ 			return -1;
+ 		offset += de_len;
+@@ -1027,7 +1055,7 @@
+ 		de = (struct ext4_dir_entry_2 *) bh->b_data;
+ 		top = (struct ext4_dir_entry_2 *) ((char *) de + sb->s_blocksize -
+ 				       EXT4_DIR_REC_LEN(0));
+-		for (; de < top; de = ext4_next_entry(de)) {
++		for (; de < top; de = ext4_next_entry(de, sb->s_blocksize)) {
+ 			int off = (block << EXT4_BLOCK_SIZE_BITS(sb))
+ 				  + ((char *) de - bh->b_data);
+ 
+@@ -1182,16 +1210,18 @@
+  * Returns pointer to last entry moved.
+  */
+ static struct ext4_dir_entry_2 *
+-dx_move_dirents(char *from, char *to, struct dx_map_entry *map, int count)
++dx_move_dirents(char *from, char *to, struct dx_map_entry *map, int count,
++		unsigned blocksize)
+ {
+ 	unsigned rec_len = 0;
+ 
+ 	while (count--) {
+-		struct ext4_dir_entry_2 *de = (struct ext4_dir_entry_2 *) (from + map->offs);
++		struct ext4_dir_entry_2 *de = (struct ext4_dir_entry_2 *)
++						(from + (map->offs<<2));
+ 		rec_len = EXT4_DIR_REC_LEN(de->name_len);
+ 		memcpy (to, de, rec_len);
+ 		((struct ext4_dir_entry_2 *) to)->rec_len =
+-				ext4_rec_len_to_disk(rec_len);
++				ext4_rec_len_to_disk(rec_len, blocksize);
+ 		de->inode = 0;
+ 		map++;
+ 		to += rec_len;
+@@ -1203,19 +1233,19 @@
+  * Compact each dir entry in the range to the minimal rec_len.
+  * Returns pointer to last entry in range.
+  */
+-static struct ext4_dir_entry_2* dx_pack_dirents(char *base, int size)
++static struct ext4_dir_entry_2* dx_pack_dirents(char *base, unsigned blocksize)
+ {
+ 	struct ext4_dir_entry_2 *next, *to, *prev, *de = (struct ext4_dir_entry_2 *) base;
+ 	unsigned rec_len = 0;
+ 
+ 	prev = to = de;
+-	while ((char*)de < base + size) {
+-		next = ext4_next_entry(de);
++	while ((char*)de < base + blocksize) {
++		next = ext4_next_entry(de, blocksize);
+ 		if (de->inode && de->name_len) {
+ 			rec_len = EXT4_DIR_REC_LEN(de->name_len);
+ 			if (de > to)
+ 				memmove(to, de, rec_len);
+-			to->rec_len = ext4_rec_len_to_disk(rec_len);
++			to->rec_len = ext4_rec_len_to_disk(rec_len, blocksize);
+ 			prev = to;
+ 			to = (struct ext4_dir_entry_2 *) (((char *) to) + rec_len);
+ 		}
+@@ -1288,10 +1318,12 @@
+ 					hash2, split, count-split));
+ 
+ 	/* Fancy dance to stay within two buffers */
+-	de2 = dx_move_dirents(data1, data2, map + split, count - split);
++	de2 = dx_move_dirents(data1, data2, map + split, count - split, blocksize);
+ 	de = dx_pack_dirents(data1, blocksize);
+-	de->rec_len = ext4_rec_len_to_disk(data1 + blocksize - (char *) de);
+-	de2->rec_len = ext4_rec_len_to_disk(data2 + blocksize - (char *) de2);
++	de->rec_len = ext4_rec_len_to_disk(data1 + blocksize - (char *) de,
++					   blocksize);
++	de2->rec_len = ext4_rec_len_to_disk(data2 + blocksize - (char *) de2,
++					    blocksize);
+ 	dxtrace(dx_show_leaf (hinfo, (struct ext4_dir_entry_2 *) data1, blocksize, 1));
+ 	dxtrace(dx_show_leaf (hinfo, (struct ext4_dir_entry_2 *) data2, blocksize, 1));
+ 
+@@ -1338,6 +1370,7 @@
+ 	const char	*name = dentry->d_name.name;
+ 	int		namelen = dentry->d_name.len;
+ 	unsigned int	offset = 0;
++	unsigned int	blocksize = dir->i_sb->s_blocksize;
+ 	unsigned short	reclen;
+ 	int		nlen, rlen, err;
+ 	char		*top;
+@@ -1348,12 +1381,16 @@
+ 		top = bh->b_data + dir->i_sb->s_blocksize - reclen;
+ 		while ((char *) de <= top) {
+ 			if (!ext4_check_dir_entry("ext4_add_entry", dir, de,
+-						  bh, offset))
++						  bh, offset)) {
++				brelse(bh);
+ 				return -EIO;
+-			if (ext4_match(namelen, name, de))
++			}
++			if (ext4_match(namelen, name, de)) {
++				brelse (bh);	
+ 				return -EEXIST;
++			}
+ 			nlen = EXT4_DIR_REC_LEN(de->name_len);
+-			rlen = ext4_rec_len_from_disk(de->rec_len);
++			rlen = ext4_rec_len_from_disk(de->rec_len, blocksize);
+ 			if ((de->inode? rlen - nlen: rlen) >= reclen)
+ 				break;
+ 			de = (struct ext4_dir_entry_2 *)((char *)de + rlen);
+@@ -1366,16 +1403,17 @@
+ 	err = ext4_journal_get_write_access(handle, bh);
+ 	if (err) {
+ 		ext4_std_error(dir->i_sb, err);
++		brelse(bh);
+ 		return err;
+ 	}
+ 
+ 	/* By now the buffer is marked for journaling */
+ 	nlen = EXT4_DIR_REC_LEN(de->name_len);
+-	rlen = ext4_rec_len_from_disk(de->rec_len);
++	rlen = ext4_rec_len_from_disk(de->rec_len, blocksize);
+ 	if (de->inode) {
+ 		struct ext4_dir_entry_2 *de1 = (struct ext4_dir_entry_2 *)((char *)de + nlen);
+-		de1->rec_len = ext4_rec_len_to_disk(rlen - nlen);
+-		de->rec_len = ext4_rec_len_to_disk(nlen);
++		de1->rec_len = ext4_rec_len_to_disk(rlen - nlen, blocksize);
++		de->rec_len = ext4_rec_len_to_disk(nlen, blocksize);
+ 		de = de1;
+ 	}
+ 	de->file_type = EXT4_FT_UNKNOWN;
+@@ -1405,6 +1443,7 @@
+ 	err = ext4_journal_dirty_metadata(handle, bh);
+ 	if (err)
+ 		ext4_std_error(dir->i_sb, err);
++	brelse(bh);
+ 	return 0;
+ }
+ 
+@@ -1419,17 +1458,16 @@
+ 	const char	*name = dentry->d_name.name;
+ 	int		namelen = dentry->d_name.len;
+ 	struct buffer_head *bh2;
+-	struct dx_root	*root;
+ 	struct dx_frame	frames[2], *frame;
+ 	struct dx_entry *entries;
+-	struct ext4_dir_entry_2	*de, *de2;
++	struct ext4_dir_entry_2 *de, *de2, *dot_de, *dotdot_de;
+ 	char		*data1, *top;
+ 	unsigned	len;
+ 	int		retval;
+ 	unsigned	blocksize;
+ 	struct dx_hash_info hinfo;
+ 	ext4_lblk_t  block;
+-	struct fake_dirent *fde;
++	struct dx_root_info *dx_info;
+ 
+ 	blocksize =  dir->i_sb->s_blocksize;
+ 	dxtrace(printk(KERN_DEBUG "Creating index\n"));
+@@ -1439,9 +1477,23 @@
+ 		brelse(bh);
+ 		return retval;
+ 	}
+-	root = (struct dx_root *) bh->b_data;
++
++	dot_de = (struct ext4_dir_entry_2 *) bh->b_data;
++	dotdot_de = ext4_next_entry(dot_de, blocksize); 
+ 
+ 	/* The 0th block becomes the root, move the dirents out */
++	de = (struct ext4_dir_entry_2 *)((char *)dotdot_de +
++		ext4_rec_len_from_disk(dotdot_de->rec_len, blocksize));
++	if ((char *) de >= (((char *) dot_de) + blocksize)) {
++		ext4_error(dir->i_sb, __func__,
++			   "invalid rec_len for '..' in inode %lu",
++			   dir->i_ino);
++		brelse(bh);
++		return -EIO;
++	}
++	len = ((char *) dot_de) + blocksize - (char *) de;
++
++	/* Allocate new block for the 0th block's dirents */
+ 	bh2 = ext4_append(handle, dir, &block, &retval);
+ 	if (!(bh2)) {
+ 		brelse(bh);
+@@ -1450,30 +1502,31 @@
+ 	EXT4_I(dir)->i_flags |= EXT4_INDEX_FL;
+ 	data1 = bh2->b_data;
+ 
+-	/* The 0th block becomes the root, move the dirents out */
+-	fde = &root->dotdot;
+-	de = (struct ext4_dir_entry_2 *)((char *)fde +
+-		ext4_rec_len_from_disk(fde->rec_len));
+-	len = ((char *) root) + blocksize - (char *) de;
+ 	memcpy (data1, de, len);
+ 	de = (struct ext4_dir_entry_2 *) data1;
+ 	top = data1 + len;
+-	while ((char *)(de2 = ext4_next_entry(de)) < top)
++	while ((char *)(de2 = ext4_next_entry(de, blocksize)) < top)
+ 		de = de2;
+-	de->rec_len = ext4_rec_len_to_disk(data1 + blocksize - (char *) de);
++	de->rec_len = ext4_rec_len_to_disk(data1 + blocksize - (char *) de,
++					   blocksize);
+ 	/* Initialize the root; the dot dirents already exist */
+-	de = (struct ext4_dir_entry_2 *) (&root->dotdot);
+-	de->rec_len = ext4_rec_len_to_disk(blocksize - EXT4_DIR_REC_LEN(2));
+-	memset (&root->info, 0, sizeof(root->info));
+-	root->info.info_length = sizeof(root->info);
+-	root->info.hash_version = EXT4_SB(dir->i_sb)->s_def_hash_version;
+-	entries = root->entries;
++	dotdot_de->rec_len = ext4_rec_len_to_disk(blocksize - 
++			le16_to_cpu(dot_de->rec_len), blocksize);
++
++	/* initialize hashing info */
++	dx_info = dx_get_dx_info(dot_de);
++	memset (dx_info, 0, sizeof(*dx_info));
++	dx_info->info_length = sizeof(*dx_info);
++	dx_info->hash_version = EXT4_SB(dir->i_sb)->s_def_hash_version;
++
++	entries = (void *)dx_info + sizeof(*dx_info);
++
+ 	dx_set_block(entries, 1);
+ 	dx_set_count(entries, 1);
+-	dx_set_limit(entries, dx_root_limit(dir, sizeof(root->info)));
++	dx_set_limit(entries, dx_root_limit(dir, sizeof(*dx_info)));
+ 
+ 	/* Initialize as for dx_probe */
+-	hinfo.hash_version = root->info.hash_version;
++	hinfo.hash_version = dx_info->hash_version;
+ 	if (hinfo.hash_version <= DX_HASH_TEA)
+ 		hinfo.hash_version += EXT4_SB(dir->i_sb)->s_hash_unsigned;
+ 	hinfo.seed = EXT4_SB(dir->i_sb)->s_hash_seed;
+@@ -1617,7 +1670,7 @@
+ 		return retval;
+ 	de = (struct ext4_dir_entry_2 *) bh->b_data;
+ 	de->inode = 0;
+-	de->rec_len = ext4_rec_len_to_disk(blocksize);
++	de->rec_len = ext4_rec_len_to_disk(blocksize, blocksize);
+ 	retval = add_dirent_to_buf(handle, dentry, inode, de, bh);
+ 	brelse(bh);
+ 	return retval;
+@@ -1681,7 +1734,8 @@
+ 			goto cleanup;
+ 		node2 = (struct dx_node *)(bh2->b_data);
+ 		entries2 = node2->entries;
+-		node2->fake.rec_len = ext4_rec_len_to_disk(sb->s_blocksize);
++		node2->fake.rec_len = ext4_rec_len_to_disk(sb->s_blocksize,
++							   sb->s_blocksize);
+ 		node2->fake.inode = 0;
+ 		BUFFER_TRACE(frame->bh, "get_write_access");
+ 		err = ext4_journal_get_write_access(handle, frame->bh);
+@@ -1720,6 +1774,7 @@
+ 				goto journal_error;
+ 			brelse (bh2);
+ 		} else {
++			struct dx_root_info * info;
+ 			dxtrace(printk(KERN_DEBUG
+ 				       "Creating second level index...\n"));
+ 			memcpy((char *) entries2, (char *) entries,
+@@ -1729,7 +1784,9 @@
+ 			/* Set up root */
+ 			dx_set_count(entries, 1);
+ 			dx_set_block(entries + 0, newblock);
+-			((struct dx_root *) frames[0].bh->b_data)->info.indirect_levels = 1;
++			info = dx_get_dx_info((struct ext4_dir_entry_2*)
++					frames[0].bh->b_data);
++			info->indirect_levels = 1;
+ 
+ 			/* Add new access path frame */
+ 			frame = frames + 1;
+@@ -1768,6 +1825,7 @@
+ 		      struct buffer_head *bh)
+ {
+ 	struct ext4_dir_entry_2 *de, *pde;
++	unsigned int blocksize = dir->i_sb->s_blocksize;
+ 	int i;
+ 
+ 	i = 0;
+@@ -1781,8 +1839,11 @@
+ 			ext4_journal_get_write_access(handle, bh);
+ 			if (pde)
+ 				pde->rec_len = ext4_rec_len_to_disk(
+-					ext4_rec_len_from_disk(pde->rec_len) +
+-					ext4_rec_len_from_disk(de->rec_len));
++					ext4_rec_len_from_disk(pde->rec_len,
++							       blocksize) +
++					ext4_rec_len_from_disk(de->rec_len,
++							       blocksize),
++					blocksize);
+ 			else
+ 				de->inode = 0;
+ 			dir->i_version++;
+@@ -1790,9 +1851,9 @@
+ 			ext4_journal_dirty_metadata(handle, bh);
+ 			return 0;
+ 		}
+-		i += ext4_rec_len_from_disk(de->rec_len);
++		i += ext4_rec_len_from_disk(de->rec_len, blocksize);
+ 		pde = de;
+-		de = ext4_next_entry(de);
++		de = ext4_next_entry(de, blocksize);
+ 	}
+ 	return -ENOENT;
+ }
+@@ -1960,6 +2021,7 @@
+ int ext4_add_dot_dotdot(handle_t *handle, struct inode * dir,
+ 			struct inode *inode)
+ {
++	unsigned int blocksize = dir->i_sb->s_blocksize;
+ 	struct buffer_head * dir_block;
+ 	struct ext4_dir_entry_2 * de;
+ 	int err = 0;
+@@ -1985,13 +2047,14 @@
+ 	de = (struct ext4_dir_entry_2 *) dir_block->b_data;
+ 	de->inode = cpu_to_le32(inode->i_ino);
+ 	de->name_len = 1;
+-	de->rec_len = ext4_rec_len_to_disk(EXT4_DIR_REC_LEN(de->name_len));
+-	strcpy (de->name, ".");
++	de->rec_len = ext4_rec_len_to_disk(EXT4_DIR_REC_LEN(de->name_len),
++					   blocksize);
++	strcpy(de->name, ".");
+ 	ext4_set_de_type(dir->i_sb, de, S_IFDIR);
+-	de = ext4_next_entry(de);
++	de = ext4_next_entry(de, blocksize);
+ 	de->inode = cpu_to_le32(dir->i_ino);
+-	de->rec_len = ext4_rec_len_to_disk(inode->i_sb->s_blocksize -
+-					      EXT4_DIR_REC_LEN(1));
++	de->rec_len = ext4_rec_len_to_disk(blocksize - EXT4_DIR_REC_LEN(1),
++					   blocksize);
+ 	de->name_len = 2;
+ 	strcpy(de->name, "..");
+ 	ext4_set_de_type(dir->i_sb, de, S_IFDIR);
+@@ -2078,7 +2141,7 @@
+ 		return 1;
+ 	}
+ 	de = (struct ext4_dir_entry_2 *) bh->b_data;
+-	de1 = ext4_next_entry(de);
++	de1 = ext4_next_entry(de, sb->s_blocksize);
+ 	if (le32_to_cpu(de->inode) != inode->i_ino ||
+ 			!le32_to_cpu(de1->inode) ||
+ 			strcmp(".", de->name) ||
+@@ -2089,9 +2152,9 @@
+ 		brelse(bh);
+ 		return 1;
+ 	}
+-	offset = ext4_rec_len_from_disk(de->rec_len) +
+-		 ext4_rec_len_from_disk(de1->rec_len);
+-	de = ext4_next_entry(de1);
++	offset = ext4_rec_len_from_disk(de->rec_len, sb->s_blocksize) +
++		 ext4_rec_len_from_disk(de1->rec_len, sb->s_blocksize);
++	de = ext4_next_entry(de1, sb->s_blocksize);
+ 	while (offset < inode->i_size) {
+ 		if (!bh ||
+ 			(void *) de >= (void *) (bh->b_data+sb->s_blocksize)) {
+@@ -2120,8 +2183,8 @@
+ 			brelse(bh);
+ 			return 0;
+ 		}
+-		offset += ext4_rec_len_from_disk(de->rec_len);
+-		de = ext4_next_entry(de);
++		offset += ext4_rec_len_from_disk(de->rec_len, sb->s_blocksize);
++		de = ext4_next_entry(de, sb->s_blocksize);
+ 	}
+ 	brelse(bh);
+ 	return 1;
+@@ -2478,8 +2541,8 @@
+ 	return err;
+ }
+ 
+-#define PARENT_INO(buffer) \
+-	(ext4_next_entry((struct ext4_dir_entry_2 *)(buffer))->inode)
++#define PARENT_INO(buffer, size) \
++	(ext4_next_entry((struct ext4_dir_entry_2 *)(buffer), size)->inode)
+ 
+ /*
+  * Anybody can rename anything with this: the permission checks are left to the
+@@ -2539,7 +2602,8 @@
+ 		dir_bh = ext4_bread(handle, old_inode, 0, 0, &retval);
+ 		if (!dir_bh)
+ 			goto end_rename;
+-		if (le32_to_cpu(PARENT_INO(dir_bh->b_data)) != old_dir->i_ino)
++		if (le32_to_cpu(PARENT_INO(dir_bh->b_data,
++				old_dir->i_sb->s_blocksize)) != old_dir->i_ino)
+ 			goto end_rename;
+ 		retval = -EMLINK;
+ 		if (!new_inode && new_dir != old_dir &&
+@@ -2611,7 +2675,8 @@
+ 	if (dir_bh) {
+ 		BUFFER_TRACE(dir_bh, "get_write_access");
+ 		ext4_journal_get_write_access(handle, dir_bh);
+-		PARENT_INO(dir_bh->b_data) = cpu_to_le32(new_dir->i_ino);
++		PARENT_INO(dir_bh->b_data, new_dir->i_sb->s_blocksize) =
++						cpu_to_le32(new_dir->i_ino);
+ 		BUFFER_TRACE(dir_bh, "call ext4_journal_dirty_metadata");
+ 		ext4_journal_dirty_metadata(handle, dir_bh);
+ 		ext4_dec_count(handle, old_dir);

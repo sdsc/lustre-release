@@ -1,21 +1,111 @@
-Index: linux-2.6.27.21-0.1/fs/ext4/ext4_jbd2.h
-===================================================================
---- linux-2.6.27.21-0.1.orig/fs/ext4/ext4_jbd2.h	2009-07-07 14:47:19.000000000 +0530
-+++ linux-2.6.27.21-0.1/fs/ext4/ext4_jbd2.h	2009-07-07 14:47:22.000000000 +0530
-@@ -35,6 +35,9 @@
- 	(EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_EXTENTS)	\
- 		|| test_opt(sb, EXTENTS) ? 27U : 8U)
+diff -urp linux-stage.orig/fs/ext4/ext4_extents.h linux-stage/fs/ext4/ext4_extents.h
+--- linux-stage.orig/fs/ext4/ext4_extents.h	2011-05-19 09:06:41.000000000 -0400
++++ linux-stage/fs/ext4/ext4_extents.h	2011-05-19 09:07:19.000000000 -0400
+@@ -59,6 +59,11 @@
+  */
+ #define EXT_STATS_
  
-+/* Indicate that EXT4_SINGLEDATA_TRANS_BLOCKS takes the sb as argument */
-+#define EXT4_SINGLEDATA_TRANS_BLOCKS_HAS_SB
++/*
++ * define EXT4_ALLOC_NEEDED to 0 since block bitmap, group desc. and sb
++ * are now accounted in ext4_ext_calc_credits_for_insert()
++ */
++#define EXT4_ALLOC_NEEDED 0
+ 
+ /*
+  * ext4_inode has i_block array (60 bytes total).
+@@ -124,6 +129,7 @@ struct ext4_ext_path {
+ #define EXT4_EXT_CACHE_GAP	1
+ #define EXT4_EXT_CACHE_EXTENT	2
+ 
++#define EXT4_EXT_HAS_NO_TREE  /* ext4_extents_tree struct is not used*/
+ 
+ #define EXT_MAX_BLOCK	0xffffffff
+ 
+@@ -223,10 +229,14 @@ static inline int ext4_ext_get_actual_le
+ 		(le16_to_cpu(ext->ee_len) - EXT_INIT_MAX_LEN));
+ }
+ 
++extern ext4_fsblk_t ext_pblock(struct ext4_extent *ex);
++extern void ext4_ext_store_pblock(struct ext4_extent *ex, ext4_fsblk_t pb);
+ extern int ext4_ext_calc_metadata_amount(struct inode *inode, int blocks);
+ extern ext4_fsblk_t idx_pblock(struct ext4_extent_idx *);
+ extern void ext4_ext_store_pblock(struct ext4_extent *, ext4_fsblk_t);
+ extern int ext4_extent_tree_init(handle_t *, struct inode *);
++extern int ext4_ext_calc_credits_for_insert(struct inode *,
++					    struct ext4_ext_path *);
+ extern int ext4_ext_calc_credits_for_single_extent(struct inode *inode,
+ 						   int num,
+ 						   struct ext4_ext_path *path);
+diff -urp linux-stage.orig/fs/ext4/ext4.h linux-stage/fs/ext4/ext4.h
+--- linux-stage.orig/fs/ext4/ext4.h	2011-05-19 09:06:41.000000000 -0400
++++ linux-stage/fs/ext4/ext4.h	2011-05-19 09:07:19.000000000 -0400
+@@ -36,6 +36,9 @@
+  * The fourth extended filesystem constants/structures
+  */
+ 
++/* Has been moved to linux/magic.h but we need it for Lustre */
++#define EXT4_SUPER_MAGIC	0xEF53
 +
- /* Extended attribute operations touch at most two data buffers,
-  * two bitmap buffers, and two group summaries, in addition to the inode
-  * and the superblock, which are already accounted for. */
-Index: linux-2.6.27.21-0.1/fs/ext4/extents.c
-===================================================================
---- linux-2.6.27.21-0.1.orig/fs/ext4/extents.c	2009-07-07 14:47:19.000000000 +0530
-+++ linux-2.6.27.21-0.1/fs/ext4/extents.c	2009-07-07 14:48:03.000000000 +0530
+ /*
+  * Define EXT4FS_DEBUG to produce debug messages
+  */
+@@ -423,7 +426,6 @@ struct ext4_inode {
+ 	__le32  i_version_hi;	/* high 32 bits for 64-bit version */
+ };
+ 
+-
+ #define EXT4_EPOCH_BITS 2
+ #define EXT4_EPOCH_MASK ((1 << EXT4_EPOCH_BITS) - 1)
+ #define EXT4_NSEC_MASK  (~0UL << EXT4_EPOCH_BITS)
+@@ -667,6 +669,8 @@ struct ext4_inode_info {
+ #define EXT4_MOUNT_JOURNAL_ASYNC_COMMIT	0x1000000 /* Journal Async Commit */
+ #define EXT4_MOUNT_I_VERSION            0x2000000 /* i_version support */
+ #define EXT4_MOUNT_DELALLOC		0x8000000 /* Delalloc support */
++#define EXT4_MOUNT_DISCARD		0x40000000 /* Issue DISCARD requests */
++
+ /* Compatibility, for having both ext2_fs.h and ext4_fs.h included at once */
+ #ifndef clear_opt
+ #define clear_opt(o, opt)		o &= ~EXT4_MOUNT_##opt
+@@ -1251,6 +1255,8 @@ extern void ext4_mb_update_group_info(st
+ extern int ext4_mb_get_buddy_cache_lock(struct super_block *, ext4_group_t);
+ extern void ext4_mb_put_buddy_cache_lock(struct super_block *,
+ 						ext4_group_t, int);
++extern void ext4_mb_discard_inode_preallocations(struct inode *);
++
+ /* inode.c */
+ int ext4_forget(handle_t *handle, int is_metadata, struct inode *inode,
+ 		struct buffer_head *bh, ext4_fsblk_t blocknr);
+diff -urp linux-stage.orig/fs/ext4/ext4_jbd2.c linux-stage/fs/ext4/ext4_jbd2.c
+--- linux-stage.orig/fs/ext4/ext4_jbd2.c	2011-05-19 09:06:41.000000000 -0400
++++ linux-stage/fs/ext4/ext4_jbd2.c	2011-05-19 09:14:50.000000000 -0400
+@@ -21,6 +21,7 @@ int __ext4_journal_get_write_access(cons
+ 		ext4_journal_abort_handle(where, __func__, bh, handle, err);
+ 	return err;
+ }
++EXPORT_SYMBOL(__ext4_journal_get_write_access);
+ 
+ int __ext4_journal_forget(const char *where, handle_t *handle,
+ 				struct buffer_head *bh)
+@@ -57,3 +58,4 @@ int __ext4_journal_dirty_metadata(const 
+ 		ext4_journal_abort_handle(where, __func__, bh, handle, err);
+ 	return err;
+ }
++EXPORT_SYMBOL(__ext4_journal_dirty_metadata);
+diff -urp linux-stage.orig/fs/ext4/ext4_jbd2.h linux-stage/fs/ext4/ext4_jbd2.h
+--- linux-stage.orig/fs/ext4/ext4_jbd2.h	2011-05-19 09:06:41.000000000 -0400
++++ linux-stage/fs/ext4/ext4_jbd2.h	2011-05-19 09:14:54.000000000 -0400
+@@ -161,6 +161,8 @@ int __ext4_journal_dirty_metadata(const 
+ 	__ext4_journal_dirty_metadata(__func__, (handle), (bh))
+ #define ext4_journal_forget(handle, bh) \
+ 	__ext4_journal_forget(__func__, (handle), (bh))
++#define ext4_handle_dirty_metadata(handle, inode, bh) \
++	__ext4_journal_dirty_metadata(__func__, (handle), (bh))
+ 
+ handle_t *ext4_journal_start_sb(struct super_block *sb, int nblocks);
+ int __ext4_journal_stop(const char *where, handle_t *handle);
+diff -urp linux-stage.orig/fs/ext4/extents.c linux-stage/fs/ext4/extents.c
+--- linux-stage.orig/fs/ext4/extents.c	2011-05-19 09:06:41.000000000 -0400
++++ linux-stage/fs/ext4/extents.c	2011-05-19 09:07:19.000000000 -0400
 @@ -48,7 +48,7 @@
   * ext_pblock:
   * combine low and high parts of physical block number into ext4_fsblk_t
@@ -25,7 +115,7 @@ Index: linux-2.6.27.21-0.1/fs/ext4/extents.c
  {
  	ext4_fsblk_t block;
  
-@@ -58,6 +58,17 @@
+@@ -58,6 +58,17 @@ static ext4_fsblk_t ext_pblock(struct ex
  }
  
  /*
@@ -43,7 +133,7 @@ Index: linux-2.6.27.21-0.1/fs/ext4/extents.c
   * idx_pblock:
   * combine low and high parts of a leaf physical block number into ext4_fsblk_t
   */
-@@ -71,17 +82,6 @@
+@@ -71,17 +82,6 @@ ext4_fsblk_t idx_pblock(struct ext4_exte
  }
  
  /*
@@ -61,7 +151,7 @@ Index: linux-2.6.27.21-0.1/fs/ext4/extents.c
   * ext4_idx_store_pblock:
   * stores a large physical block number into an index struct,
   * breaking it into parts
-@@ -1852,6 +1852,56 @@
+@@ -1852,6 +1852,56 @@ static int ext4_ext_rm_idx(handle_t *han
  }
  
  /*
@@ -118,7 +208,7 @@ Index: linux-2.6.27.21-0.1/fs/ext4/extents.c
   * ext4_ext_calc_credits_for_single_extent:
   * This routine returns max. credits that needed to insert an extent
   * to the extent tree.
-@@ -3171,3 +3221,13 @@
+@@ -3177,3 +3227,13 @@ int ext4_fiemap(struct inode *inode, str
  
  	return error;
  }
@@ -132,69 +222,50 @@ Index: linux-2.6.27.21-0.1/fs/ext4/extents.c
 +EXPORT_SYMBOL(ext4_ext_calc_credits_for_insert);
 +EXPORT_SYMBOL(ext4_mark_inode_dirty);
 +
-Index: linux-2.6.27.21-0.1/fs/ext4/ext4_extents.h
-===================================================================
---- linux-2.6.27.21-0.1.orig/fs/ext4/ext4_extents.h	2009-07-07 14:47:19.000000000 +0530
-+++ linux-2.6.27.21-0.1/fs/ext4/ext4_extents.h	2009-07-07 14:47:22.000000000 +0530
-@@ -59,6 +59,11 @@
-  */
- #define EXT_STATS_
- 
-+/*
-+ * define EXT4_ALLOC_NEEDED to 0 since block bitmap, group desc. and sb
-+ * are now accounted in ext4_ext_calc_credits_for_insert()
-+ */
-+#define EXT4_ALLOC_NEEDED 0
- 
- /*
-  * ext4_inode has i_block array (60 bytes total).
-@@ -124,6 +129,7 @@
- #define EXT4_EXT_CACHE_GAP	1
- #define EXT4_EXT_CACHE_EXTENT	2
- 
-+#define EXT4_EXT_HAS_NO_TREE  /* ext4_extents_tree struct is not used*/
- 
- #define EXT_MAX_BLOCK	0xffffffff
- 
-@@ -223,10 +229,14 @@
- 		(le16_to_cpu(ext->ee_len) - EXT_INIT_MAX_LEN));
+diff -urp linux-stage.orig/fs/ext4/inode.c linux-stage/fs/ext4/inode.c
+--- linux-stage.orig/fs/ext4/inode.c	2011-05-19 09:06:41.000000000 -0400
++++ linux-stage/fs/ext4/inode.c	2011-05-19 09:07:19.000000000 -0400
+@@ -4260,6 +4260,7 @@ bad_inode:
+ 	iget_failed(inode);
+ 	return ERR_PTR(ret);
  }
++EXPORT_SYMBOL(ext4_iget);
  
-+extern ext4_fsblk_t ext_pblock(struct ext4_extent *ex);
-+extern void ext4_ext_store_pblock(struct ext4_extent *ex, ext4_fsblk_t pb);
- extern int ext4_ext_calc_metadata_amount(struct inode *inode, int blocks);
- extern ext4_fsblk_t idx_pblock(struct ext4_extent_idx *);
- extern void ext4_ext_store_pblock(struct ext4_extent *, ext4_fsblk_t);
- extern int ext4_extent_tree_init(handle_t *, struct inode *);
-+extern int ext4_ext_calc_credits_for_insert(struct inode *,
-+					    struct ext4_ext_path *);
- extern int ext4_ext_calc_credits_for_single_extent(struct inode *inode,
- 						   int num,
- 						   struct ext4_ext_path *path);
-Index: linux-2.6.27.21-0.1/fs/ext4/mballoc.c
-===================================================================
---- linux-2.6.27.21-0.1.orig/fs/ext4/mballoc.c	2009-07-07 14:47:19.000000000 +0530
-+++ linux-2.6.27.21-0.1/fs/ext4/mballoc.c	2009-07-07 14:47:22.000000000 +0530
-@@ -4355,6 +4355,7 @@
+ static int ext4_inode_blocks_set(handle_t *handle,
+ 				struct ext4_inode *raw_inode,
+diff -urp linux-stage.orig/fs/ext4/mballoc.c linux-stage/fs/ext4/mballoc.c
+--- linux-stage.orig/fs/ext4/mballoc.c	2011-05-19 09:06:41.000000000 -0400
++++ linux-stage/fs/ext4/mballoc.c	2011-05-19 09:07:19.000000000 -0400
+@@ -4297,6 +4297,7 @@ repeat:
+ 	if (ac)
  		kmem_cache_free(ext4_ac_cachep, ac);
  }
 +EXPORT_SYMBOL(ext4_discard_preallocations);
  
  /*
   * finds all preallocated spaces and return blocks being freed to them
-  * if preallocated space becomes full (no block is used from the space)
-@@ -5177,3 +5184,6 @@
+@@ -5124,3 +5125,6 @@ error_return:
  		kmem_cache_free(ext4_ac_cachep, ac);
  	return;
  }
 +
 +EXPORT_SYMBOL(ext4_free_blocks);
 +
-Index: linux-2.6.27.21-0.1/fs/ext4/super.c
-===================================================================
---- linux-2.6.27.21-0.1.orig/fs/ext4/super.c	2009-07-07 14:47:19.000000000 +0530
-+++ linux-2.6.27.21-0.1/fs/ext4/super.c	2009-07-07 14:48:53.000000000 +0530
-@@ -91,6 +91,7 @@
+diff -urp linux-stage.orig/fs/ext4/namei.c linux-stage/fs/ext4/namei.c
+--- linux-stage.orig/fs/ext4/namei.c	2011-05-19 09:06:41.000000000 -0400
++++ linux-stage/fs/ext4/namei.c	2011-05-19 09:07:19.000000000 -0400
+@@ -1425,6 +1425,7 @@ static int make_indexed_dir(handle_t *ha
+ 	}
+ 	root = (struct dx_root *) bh->b_data;
+ 
++	/* The 0th block becomes the root, move the dirents out */
+ 	bh2 = ext4_append(handle, dir, &block, &retval);
+ 	if (!(bh2)) {
+ 		brelse(bh);
+diff -urp linux-stage.orig/fs/ext4/super.c linux-stage/fs/ext4/super.c
+--- linux-stage.orig/fs/ext4/super.c	2011-05-19 09:06:41.000000000 -0400
++++ linux-stage/fs/ext4/super.c	2011-05-19 09:07:19.000000000 -0400
+@@ -89,6 +89,7 @@ ext4_fsblk_t ext4_inode_bitmap(struct su
  		(EXT4_DESC_SIZE(sb) >= EXT4_MIN_DESC_SIZE_64BIT ?
  		(ext4_fsblk_t)le32_to_cpu(bg->bg_inode_bitmap_hi) << 32 : 0);
  }
@@ -202,32 +273,57 @@ Index: linux-2.6.27.21-0.1/fs/ext4/super.c
  
  ext4_fsblk_t ext4_inode_table(struct super_block *sb,
  			      struct ext4_group_desc *bg)
-@@ -1286,6 +1287,7 @@
+@@ -1294,14 +1295,17 @@ enum {
+ 	Opt_user_xattr, Opt_nouser_xattr, Opt_acl, Opt_noacl,
+ 	Opt_reservation, Opt_noreservation, Opt_noload, Opt_nobh, Opt_bh,
+ 	Opt_commit, Opt_journal_update, Opt_journal_inum, Opt_journal_dev,
+-	Opt_journal_checksum, Opt_journal_async_commit,
++	Opt_journal_checksum, Opt_journal_async_commit, Opt_stripe,
+ 	Opt_abort, Opt_data_journal, Opt_data_ordered, Opt_data_writeback,
++	Opt_delalloc, Opt_nodelalloc, Opt_noauto_da_alloc, Opt_auto_da_alloc,
+ 	Opt_usrjquota, Opt_grpjquota, Opt_offusrjquota, Opt_offgrpjquota,
  	Opt_jqfmt_vfsold, Opt_jqfmt_vfsv0, Opt_quota, Opt_noquota,
  	Opt_ignore, Opt_barrier, Opt_err, Opt_resize, Opt_usrquota,
  	Opt_grpquota, Opt_extents, Opt_noextents, Opt_i_version,
+-	Opt_stripe, Opt_delalloc, Opt_nodelalloc,
+-	Opt_inode_readahead_blks
++	Opt_block_validity, Opt_noblock_validity,
++	Opt_inode_readahead_blks, Opt_journal_ioprio,
++	Opt_discard, Opt_nodiscard,
 +	Opt_mballoc,
- 	Opt_stripe, Opt_delalloc, Opt_nodelalloc,
- 	Opt_inode_readahead_blks, Opt_bigendian_extents,
- 	Opt_iopen, Opt_noiopen, Opt_iopen_nopriv,
-@@ -1346,6 +1348,7 @@
+ };
+ 
+ static const match_table_t tokens = {
+@@ -1356,9 +1360,15 @@ static const match_table_t tokens = {
  	{Opt_i_version, "i_version"},
  	{Opt_stripe, "stripe=%u"},
  	{Opt_resize, "resize"},
++	{Opt_inode_readahead_blks, "inode_readahead_blks=%u"},
 +	{Opt_mballoc, "mballoc"},
  	{Opt_delalloc, "delalloc"},
  	{Opt_nodelalloc, "nodelalloc"},
- 	{Opt_inode_readahead_blks, "inode_readahead_blks=%u"},
-@@ -1768,6 +1771,8 @@
- 		case Opt_bigendian_extents:
- 			bigendian_extents = 1;
+-	{Opt_inode_readahead_blks, "inode_readahead_blks=%u"},
++	{Opt_auto_da_alloc, "auto_da_alloc"},
++	{Opt_noauto_da_alloc, "noauto_da_alloc"},
++	{Opt_mballoc, "mballoc"},
++	{Opt_discard, "discard"},
++	{Opt_nodiscard, "nodiscard"},
+ 	{Opt_err, NULL},
+ };
+ 
+@@ -1762,6 +1772,11 @@ set_qf_format:
+ 				return 0;
+ 			sbi->s_inode_readahead_blks = option;
  			break;
-+		case Opt_mballoc:
++		case Opt_mballoc: 
++			break;
++		case Opt_discard:
++			set_opt(sbi->s_mount_opt, DISCARD);
 +			break;
  		default:
  			printk(KERN_ERR
  			       "EXT4-fs: Unrecognized mount option \"%s\" "
-@@ -4094,7 +4099,7 @@
+@@ -4079,7 +4094,7 @@ static struct file_system_type ext4dev_f
  	.kill_sb	= kill_block_super,
  	.fs_flags	= FS_REQUIRES_DEV,
  };
@@ -236,64 +332,16 @@ Index: linux-2.6.27.21-0.1/fs/ext4/super.c
  
  static int __init init_ext4_fs(void)
  {
-Index: linux-2.6.27.21-0.1/fs/ext4/ext4_jbd2.c
-===================================================================
---- linux-2.6.27.21-0.1.orig/fs/ext4/ext4_jbd2.c	2009-07-07 14:47:19.000000000 +0530
-+++ linux-2.6.27.21-0.1/fs/ext4/ext4_jbd2.c	2009-07-07 14:47:22.000000000 +0530
-@@ -21,6 +21,7 @@
- 		ext4_journal_abort_handle(where, __func__, bh, handle, err);
- 	return err;
- }
-+EXPORT_SYMBOL(__ext4_journal_get_write_access);
- 
- int __ext4_journal_forget(const char *where, handle_t *handle,
- 				struct buffer_head *bh)
-@@ -57,3 +58,4 @@
- 		ext4_journal_abort_handle(where, __func__, bh, handle, err);
- 	return err;
- }
-+EXPORT_SYMBOL(__ext4_journal_dirty_metadata);
-Index: linux-2.6.27.21-0.1/fs/ext4/ext4.h
-===================================================================
---- linux-2.6.27.21-0.1.orig/fs/ext4/ext4.h	2009-07-07 14:47:19.000000000 +0530
-+++ linux-2.6.27.21-0.1/fs/ext4/ext4.h	2009-07-07 14:47:22.000000000 +0530
-@@ -26,6 +26,9 @@
-  * The fourth extended filesystem constants/structures
-  */
- 
-+/* Has been moved to linux/magic.h but we need it for Lustre */
-+#define EXT4_SUPER_MAGIC	0xEF53
-+
- /*
-  * Define EXT4FS_DEBUG to produce debug messages
-  */
-@@ -400,6 +403,8 @@
- 	__le32  i_version_hi;	/* high 32 bits for 64-bit version */
- };
- 
-+/* SLES11 kernel already has 64-bit inode->i_version field */
-+#define HAVE_DISK_INODE_VERSION
- 
- #define EXT4_EPOCH_BITS 2
- #define EXT4_EPOCH_MASK ((1 << EXT4_EPOCH_BITS) - 1)
-@@ -1123,6 +1128,8 @@
- extern int ext4_mb_get_buddy_cache_lock(struct super_block *, ext4_group_t);
- extern void ext4_mb_put_buddy_cache_lock(struct super_block *,
- 						ext4_group_t, int);
-+extern void ext4_mb_discard_inode_preallocations(struct inode *);
-+
- /* inode.c */
- int ext4_forget(handle_t *handle, int is_metadata, struct inode *inode,
- 		struct buffer_head *bh, ext4_fsblk_t blocknr);
-Index: linux-2.6.27.21-0.1/fs/ext4/inode.c
-===================================================================
---- linux-2.6.27.21-0.1.orig/fs/ext4/inode.c	2009-07-07 14:47:19.000000000 +0530
-+++ linux-2.6.27.21-0.1/fs/ext4/inode.c	2009-07-07 14:47:22.000000000 +0530
-@@ -4240,6 +4240,7 @@
- 	iget_failed(inode);
- 	return ERR_PTR(ret);
- }
-+EXPORT_SYMBOL(ext4_iget);
- 
- static int ext4_inode_blocks_set(handle_t *handle,
- 				struct ext4_inode *raw_inode,
+diff -urp linux-stage.orig/fs/ext4/xattr.c linux-stage/fs/ext4/xattr.c
+--- linux-stage.orig/fs/ext4/xattr.c	2011-05-19 09:06:41.000000000 -0400
++++ linux-stage/fs/ext4/xattr.c	2011-05-19 09:09:33.000000000 -0400
+@@ -833,7 +833,8 @@ getblk_failed:
+ 			set_buffer_uptodate(new_bh);
+ 			unlock_buffer(new_bh);
+ 			ext4_xattr_cache_insert(new_bh);
+-			error = ext4_journal_dirty_metadata(handle, new_bh);
++			error = ext4_handle_dirty_metadata(handle,
++							   inode, new_bh);
+ 			if (error)
+ 				goto cleanup;
+ 		}

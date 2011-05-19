@@ -1,8 +1,7 @@
-Index: linux-2.6.27.21-0.1/fs/ext4/super.c
-===================================================================
---- linux-2.6.27.21-0.1.orig/fs/ext4/super.c
-+++ linux-2.6.27.21-0.1/fs/ext4/super.c
-@@ -74,6 +74,8 @@ static void ext4_write_super_lockfs(stru
+diff -ur linux-stage.orig/fs/ext4/super.c linux-stage/fs/ext4/super.c
+--- linux-stage.orig/fs/ext4/super.c	2011-05-12 11:02:00.000000000 -0400
++++ linux-stage/fs/ext4/super.c	2011-05-12 11:04:40.000000000 -0400
+@@ -74,6 +74,8 @@
  
  struct proc_dir_entry *proc_root_ext4;
  
@@ -11,16 +10,16 @@ Index: linux-2.6.27.21-0.1/fs/ext4/super.c
  ext4_fsblk_t ext4_block_bitmap(struct super_block *sb,
  			       struct ext4_group_desc *bg)
  {
-@@ -1291,7 +1293,7 @@ enum {
+@@ -1301,7 +1303,7 @@
  	Opt_ignore, Opt_barrier, Opt_err, Opt_resize, Opt_usrquota,
  	Opt_grpquota, Opt_extents, Opt_noextents, Opt_i_version,
  	Opt_stripe, Opt_delalloc, Opt_nodelalloc,
--	Opt_inode_readahead_blks,
-+	Opt_inode_readahead_blks, Opt_bigendian_extents,
- 	Opt_iopen, Opt_noiopen, Opt_iopen_nopriv,
+-	Opt_inode_readahead_blks
++	Opt_inode_readahead_blks, Opt_bigendian_extents
  };
  
-@@ -1353,6 +1355,7 @@ static const match_table_t tokens = {
+ static const match_table_t tokens = {
+@@ -1359,6 +1361,7 @@
  	{Opt_delalloc, "delalloc"},
  	{Opt_nodelalloc, "nodelalloc"},
  	{Opt_inode_readahead_blks, "inode_readahead_blks=%u"},
@@ -28,7 +27,7 @@ Index: linux-2.6.27.21-0.1/fs/ext4/super.c
  	{Opt_err, NULL},
  };
  
-@@ -1768,6 +1771,9 @@ set_qf_format:
+@@ -1762,6 +1765,9 @@
  				return 0;
  			sbi->s_inode_readahead_blks = option;
  			break;
@@ -38,9 +37,9 @@ Index: linux-2.6.27.21-0.1/fs/ext4/super.c
  		default:
  			printk(KERN_ERR
  			       "EXT4-fs: Unrecognized mount option \"%s\" "
-@@ -2673,6 +2679,15 @@ static int ext4_fill_super(struct super_
- 				 &sbi->s_inode_readahead_blks);
- #endif
+@@ -2657,6 +2663,15 @@
+ 		goto failed_mount;
+ 	}
  
 +#ifdef __BIG_ENDIAN
 +	if (bigendian_extents == 0) {
@@ -51,6 +50,6 @@ Index: linux-2.6.27.21-0.1/fs/ext4/super.c
 +	}
 +#endif
 +
- 	bgl_lock_init(&sbi->s_blockgroup_lock);
- 
- 	sbi->s_last_alloc_group = -1;
+ #ifdef CONFIG_PROC_FS
+ 	if (ext4_proc_root)
+ 		sbi->s_proc = proc_mkdir(sb->s_id, ext4_proc_root);

@@ -1,0 +1,23 @@
+diff -ur linux-stage.orig/fs/ext4/mballoc.c linux-stage/fs/ext4/mballoc.c
+--- linux-stage.orig/fs/ext4/mballoc.c	2011-05-13 10:53:18.345040000 -0400
++++ linux-stage/fs/ext4/mballoc.c	2011-05-13 10:58:45.067991000 -0400
+@@ -3810,8 +3810,8 @@
+ 
+ 		err = ext4_mb_load_buddy(sb, group, &e4b);
+ 		if (err) {
+-			ext4_error(sb, __func__, "Error in loading buddy "
+-					"information for %u", group);
++			ext4_error(sb, "Error in loading buddy information for u%",
++					group);
+ 			continue;
+ 		}
+ 
+@@ -3944,7 +3944,7 @@
+ 
+ 	/* don't use group allocation for large files */
+ 	size = max(size, isize);
+-	if (size >= sbi->s_mb_stream_request) {
++	if (size > sbi->s_mb_stream_request) {
+ 		ac->ac_flags |= EXT4_MB_STREAM_ALLOC;
+ 		return;
+ 	}

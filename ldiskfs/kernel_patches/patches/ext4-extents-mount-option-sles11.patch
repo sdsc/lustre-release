@@ -1,0 +1,37 @@
+diff -ur linux-stage.orig/fs/ext4/super.c linux-stage/fs/ext4/super.c
+--- linux-stage.orig/fs/ext4/super.c	2011-05-19 08:54:16.000000000 -0400
++++ linux-stage/fs/ext4/super.c	2011-05-19 09:04:31.000000000 -0400
+@@ -1307,12 +1307,13 @@
+ 	Opt_delalloc, Opt_nodelalloc, Opt_noauto_da_alloc, Opt_auto_da_alloc,
+ 	Opt_usrjquota, Opt_grpjquota, Opt_offusrjquota, Opt_offgrpjquota,
+ 	Opt_jqfmt_vfsold, Opt_jqfmt_vfsv0, Opt_quota, Opt_noquota,
+-	Opt_ignore, Opt_barrier, Opt_err, Opt_resize, Opt_usrquota,
+-	Opt_grpquota, Opt_extents, Opt_noextents, Opt_i_version,
++	Opt_ignore, Opt_barrier, Opt_err, Opt_resize,
++	Opt_usrquota, Opt_grpquota, Opt_i_version,
+ 	Opt_block_validity, Opt_noblock_validity,
+ 	Opt_inode_readahead_blks, Opt_journal_ioprio,
+ 	Opt_discard, Opt_nodiscard,
+ 	Opt_mballoc, Opt_bigendian_extents, Opt_force_over_16tb,
++	Opt_extents, Opt_noextents,
+ };
+ 
+ static match_table_t tokens = {
+@@ -1362,8 +1363,6 @@
+ 	{Opt_quota, "quota"},
+ 	{Opt_usrquota, "usrquota"},
+ 	{Opt_barrier, "barrier=%u"},
+-	{Opt_extents, "extents"},
+-	{Opt_noextents, "noextents"},
+ 	{Opt_i_version, "i_version"},
+ 	{Opt_stripe, "stripe=%u"},
+ 	{Opt_resize, "resize"},
+@@ -1378,6 +1377,8 @@
+ 	{Opt_mballoc, "mballoc"},
+ 	{Opt_discard, "discard"},
+ 	{Opt_nodiscard, "nodiscard"},
++	{Opt_extents, "extents"},
++	{Opt_noextents, "noextents"},
+ 	{Opt_err, NULL},
+ };
+ 

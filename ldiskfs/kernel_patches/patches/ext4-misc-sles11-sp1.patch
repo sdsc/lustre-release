@@ -1,0 +1,225 @@
+diff -ur linux-stage.orig/fs/ext4/mballoc.c linux-stage/fs/ext4/mballoc.c
+--- linux-stage.orig/fs/ext4/mballoc.c	2011-05-13 12:06:52.079210000 -0400
++++ linux-stage/fs/ext4/mballoc.c	2011-05-13 12:17:21.838825000 -0400
+@@ -693,7 +693,7 @@
+ 	if (free != grp->bb_free) {
+ 		struct ext4_group_desc *gdp;
+ 		gdp = ext4_get_group_desc (sb, group, NULL);
+-		ext4_error(sb, "group %lu: %u blocks in bitmap, %u in bb, "
++		ext4_error(sb, __func__, "group %lu: %u blocks in bitmap, %u in bb, "
+ 			"%u in gd, %lu pa's\n", (long unsigned int)group,
+ 			free, grp->bb_free, ext4_free_blks_count(sb, gdp),
+ 			grp->bb_prealloc_nr);
+@@ -3392,7 +3392,7 @@
+ 	}
+ 
+ 	if (free != ext4_free_blks_count(sb, gdp)) {
+-		ext4_error(sb, "on-disk bitmap for group %d"
++		ext4_error(sb, __func__, "on-disk bitmap for group %d"
+ 			"corrupted: %u blocks free in bitmap, %u - in gd\n",
+ 			group, free, ext4_free_blks_count(sb, gdp));
+ 		return -EIO;
+@@ -3455,7 +3455,7 @@
+ 		count++;
+ 	}
+ 	if (count + skip != grp->bb_prealloc_nr) {
+-		ext4_error(sb, "lost preallocations: "
++		ext4_error(sb, __func__, "lost preallocations: "
+ 			   "count %d, bb_prealloc_nr %lu, skip %d\n",
+ 			   count, grp->bb_prealloc_nr, skip);
+ 		return -EIO;
+@@ -3763,7 +3763,7 @@
+ 	/* "free < pa->pa_free" means we maybe double alloc the same blocks,
+ 	 * otherwise maybe leave some free blocks unavailable, no need to BUG.*/
+ 	if ((free > pa->pa_free && !pa->pa_error) || (free < pa->pa_free)) {
+-		ext4_error(sb, "pa free mismatch: [pa %p] "
++		ext4_error(sb, __func__, "pa free mismatch: [pa %p] "
+ 				"[phy %lu] [logic %lu] [len %u] [free %u] "
+ 				"[error %u] [inode %lu] [freed %u]", pa,
+ 				(unsigned long)pa->pa_pstart,
+@@ -4027,8 +4027,8 @@
+ 
+ 		err = ext4_mb_load_buddy(sb, group, &e4b);
+ 		if (err) {
+-			ext4_error(sb, "Error in loading buddy information for u%",
+-					group);
++			ext4_error(sb, __func__, "Error in loading buddy "
++					"information for %u", group);
+ 			return;
+ 		}
+ 
+@@ -4467,24 +4467,6 @@
+ 
+ 	trace_ext4_request_blocks(ar);
+ 
+-
+-	if (dev_check_rdonly(sb->s_bdev)) {
+-		struct block_device *bdev = sb->s_bdev;
+-
+-		printk(KERN_WARNING "Alloc from readonly device %s (%#x): "
+-			"[inode %lu] [logic %llu] [goal %llu] [ll %llu] "
+-			"[pl %llu] [lr %llu] [pr %llu] [len %u] [flags %u]\n",
+-			bdev->bd_disk ? bdev->bd_disk->disk_name : "",
+-			bdev->bd_dev, ar->inode->i_ino,
+-			(unsigned long long)ar->logical,
+-			(unsigned long long)ar->goal,
+-			(unsigned long long)ar->lleft,
+-			(unsigned long long)ar->pleft,
+-			(unsigned long long)ar->lright,
+-			(unsigned long long)ar->pright,
+-			ar->len, ar->flags);
+-	}
+-
+ 	/*
+ 	 * For delayed allocation, we could skip the ENOSPC and
+ 	 * EDQUOT check, as blocks and quotas have been already
+@@ -4571,7 +4553,7 @@
+ 				 * been updated or not when fail case. So can
+ 				 * not revert pa_free back, just mark pa_error*/
+ 				pa->pa_error++;
+-				ext4_error(sb,
++				ext4_error(sb, __func__,
+ 					"Updating bitmap error: [err %d] "
+ 					"[pa %p] [phy %lu] [logic %lu] "
+ 					"[len %u] [free %u] [error %u] "
+@@ -4746,15 +4728,6 @@
+ 		goto error_return;
+ 	}
+ 
+-	if (dev_check_rdonly(sb->s_bdev)) {
+-		struct block_device *bdev = sb->s_bdev;
+-
+-		printk(KERN_WARNING "Release to readonly device %s (%#x): "
+-			"[inode %lu] [block %llu] [count %lu] [is_meta %d]\n",
+-			bdev->bd_disk ? bdev->bd_disk->disk_name : "",
+-			bdev->bd_dev, inode->i_ino, block, count, metadata);
+-	}
+-
+ 	ext4_debug("freeing block %llu\n", block);
+ 	trace_ext4_free_blocks(inode, block, count, metadata);
+ 
+diff -ur linux-stage.orig/fs/ext4/super.c linux-stage/fs/ext4/super.c
+--- linux-stage.orig/fs/ext4/super.c	2011-05-13 12:06:52.185102000 -0400
++++ linux-stage/fs/ext4/super.c	2011-05-13 12:18:08.038591000 -0400
+@@ -984,7 +984,7 @@
+ 	}
+ #endif
+ 	if (!*bh) {
+-		ext4_warning(sb,
++		ext4_warning(sb, __func__,
+ 			     "Error while reading MMP block %lu", mmp_block);
+ 		return -EIO;
+ 	}
+@@ -1002,8 +1002,8 @@
+ static void dump_mmp_msg(struct super_block *sb, struct mmp_struct *mmp,
+ 			 const char *function, const char *msg)
+ {
+-	__ext4_warning(sb, function, msg);
+-	__ext4_warning(sb, function, "MMP failure info: last update time: %llu, "
++	ext4_warning(sb, __func__, function, msg);
++	ext4_warning(sb, function, "MMP failure info: last update time: %llu, "
+ 		     "last update node: %s, last update device: %s\n",
+ 		     (long long unsigned int)le64_to_cpu(mmp->mmp_time),
+ 		     mmp->mmp_nodename, mmp->mmp_bdevname);
+@@ -1056,21 +1056,21 @@
+ 		 * (s_mmp_update_interval * 60) seconds.
+ 		 */
+ 		if (retval && (failed_writes % 60) == 0) {
+-			ext4_error(sb,
++			ext4_error(sb, __func__,
+ 				   "Error writing to MMP block");
+ 			failed_writes++;
+ 		}
+ 
+ 		if (!(le32_to_cpu(es->s_feature_incompat) &
+ 		    EXT4_FEATURE_INCOMPAT_MMP)) {
+-			ext4_warning(sb, "kmmpd being stopped "
++			ext4_warning(sb, __func__, "kmmpd being stopped "
+ 				     "since MMP feature has been disabled.");
+ 			EXT4_SB(sb)->s_mmp_tsk = NULL;
+ 			goto failed;
+ 		}
+ 
+ 		if (sb->s_flags & MS_RDONLY) {
+-			ext4_warning(sb, "kmmpd being stopped "
++			ext4_warning(sb, __func__, "kmmpd being stopped "
+ 				     "since filesystem has been remounted as "
+ 				     "readonly.");
+ 			EXT4_SB(sb)->s_mmp_tsk = NULL;
+@@ -1095,7 +1095,7 @@
+ 			retval = read_mmp_block(sb, &bh_check, mmp_block);
+ 			if (retval) {
+ 				EXT4_SB(sb)->s_mmp_tsk = NULL;
+-				ext4_error(sb, "error reading MMP data: %d",
++				ext4_error(sb, __func__, "error reading MMP data: %d",
+ 					   retval);
+ 				goto failed;
+ 			}
+@@ -1108,7 +1108,7 @@
+ 					     "Error while updating MMP info. "
+ 					     "The filesystem seems to have "
+ 					     "been multiply mounted.");
+-				ext4_error(sb, "abort");
++				ext4_error(sb, __func__, "abort");
+ 				goto failed;
+ 			}
+ 			put_bh(bh_check);
+@@ -1170,7 +1170,7 @@
+ 
+ 	if (mmp_block < le32_to_cpu(es->s_first_data_block) ||
+ 	    mmp_block >= ext4_blocks_count(es)) {
+-		ext4_warning(sb,
++		ext4_warning(sb, __func__,
+ 			     "Invalid MMP block in superblock");
+ 		goto failed;
+ 	}
+@@ -1206,11 +1206,11 @@
+ 
+ 	/* Print MMP interval if more than 20 secs. */
+ 	if (wait_time > EXT4_MMP_MIN_CHECK_INTERVAL * 4)
+-		ext4_warning(sb, "MMP interval %u higher than "
++		ext4_warning(sb, __func__, "MMP interval %u higher than "
+ 			     "expected, please wait.\n", wait_time * 2);
+ 
+ 	if (schedule_timeout_interruptible(HZ * wait_time) != 0) {
+-		ext4_warning(sb, "MMP startup interrupted, failing "
++		ext4_warning(sb, __func__, "MMP startup interrupted, failing "
+ 			     "mount\n");
+ 		goto failed;
+ 	}
+@@ -1239,7 +1239,7 @@
+ 	 * wait for MMP interval and check mmp_seq.
+ 	 */
+ 	if (schedule_timeout_interruptible(HZ * wait_time) != 0) {
+-		ext4_warning(sb, "MMP startup interrupted, failing "
++		ext4_warning(sb, __func__, "MMP startup interrupted, failing "
+ 			     "mount\n");
+ 		goto failed;
+ 	}
+@@ -1256,7 +1256,7 @@
+ 
+ 	mmpd_data = kmalloc(sizeof(struct mmpd_data), GFP_KERNEL);
+ 	if (!mmpd_data) {
+-		ext4_warning(sb, "not enough memory for mmpd_data");
++		ext4_warning(sb, __func__, "not enough memory for mmpd_data");
+ 		goto failed;
+ 	}
+ 	mmpd_data->sb = sb;
+@@ -2015,7 +2015,7 @@
+ 		case Opt_extents:
+ 			if (!EXT4_HAS_INCOMPAT_FEATURE(sb,
+ 					EXT4_FEATURE_INCOMPAT_EXTENTS)) {
+-				ext4_warning(sb, "extents feature not enabled "
++				ext4_warning(sb, __func__, "extents feature not enabled "
+ 						 "on this filesystem, use tune2fs");
+ 				return 0;
+ 			}
+@@ -2915,7 +2915,7 @@
+ 	if (EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_EXTENTS))
+ 		set_opt(sbi->s_mount_opt, EXTENTS);
+ 	else
+-		ext4_warning(sb, "extents feature not enabled on this filesystem, "
++		ext4_warning(sb, __func__, "extents feature not enabled on this filesystem, "
+ 				 "use tune2fs.");
+ 
+ 	/*
