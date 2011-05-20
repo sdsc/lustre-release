@@ -1,0 +1,1 @@
+EXTRA_CONFIGURE_ARGS="--enable-ext4"
