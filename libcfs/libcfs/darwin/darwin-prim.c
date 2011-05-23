@@ -408,6 +408,22 @@ void cfs_clear_sigpending(void)
 #endif
 }
 
+void cfs_sigaddset(cfs_sigset_t *set, int sig)
+{
+}
+
+void cfs_sigdelset(cfs_sigset_t *set, int sig)
+{
+}
+
+void cfs_sigemptyset(cfs_sigset_t *set)
+{
+}
+
+void cfs_sigfillset(cfs_sigset_t *set)
+{
+}
+
 #ifdef __DARWIN8__
 
 #else /* !__DARWIN8__ */

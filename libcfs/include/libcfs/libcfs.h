@@ -227,6 +227,11 @@ cfs_sigset_t cfs_block_sigs(cfs_sigset_t bits);
 void cfs_restore_sigs(cfs_sigset_t);
 int cfs_signal_pending(void);
 void cfs_clear_sigpending(void);
+void cfs_sigaddset(cfs_sigset_t *set, int sig);
+void cfs_sigdelset(cfs_sigset_t *set, int sig);
+void cfs_sigemptyset(cfs_sigset_t *set);
+void cfs_sigfillset(cfs_sigset_t *set);
+
 /*
  * XXX Liang:
  * these macros should be removed in the future,

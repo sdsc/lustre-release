@@ -351,6 +351,30 @@ cfs_clear_sigpending(void)
         SIGNAL_MASK_UNLOCK(current, flags);
 }
 
+void
+cfs_sigaddset(cfs_sigset_t *set, int sig)
+{
+        sigaddset(set, sig);
+}
+
+void
+cfs_sigdelset(cfs_sigset_t *set, int sig)
+{
+        sigdelset(set, sig);
+}
+
+void
+cfs_sigemptyset(cfs_sigset_t *set)
+{
+        sigemptyset(set);
+}
+
+void
+cfs_sigfillset(cfs_sigset_t *set)
+{
+        sigfillset(set);
+}
+
 int
 libcfs_arch_init(void)
 {
@@ -373,3 +397,7 @@ EXPORT_SYMBOL(cfs_block_sigs);
 EXPORT_SYMBOL(cfs_restore_sigs);
 EXPORT_SYMBOL(cfs_signal_pending);
 EXPORT_SYMBOL(cfs_clear_sigpending);
+EXPORT_SYMBOL(cfs_sigaddset);
+EXPORT_SYMBOL(cfs_sigdelset);
+EXPORT_SYMBOL(cfs_sigemptyset);
+EXPORT_SYMBOL(cfs_sigfillset);
