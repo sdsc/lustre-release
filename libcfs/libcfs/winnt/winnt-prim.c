@@ -557,6 +557,11 @@ cfs_sigset_t cfs_block_sigs(sigset_t bit)
         return 0;
 }
 
+cfs_sigset_t cfs_block_sigsinv(int sigs)
+{
+        return 0;
+}
+
 void cfs_restore_sigs(cfs_sigset_t old)
 {
 }

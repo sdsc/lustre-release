@@ -303,6 +303,17 @@ cfs_sigset_t cfs_block_sigs(cfs_sigset_t blocks)
         return old;
 }
 
+cfs_sigset_t cfs_block_sigsinv(int sigs)
+{
+        cfs_sigset_t old;
+        int rc;
+
+        rc = sigprocmask(SIG_SETMASK, NULL, &old);
+        LASSERT(rc == 0);
+
+        return old;
+}
+
 void cfs_restore_sigs(cfs_sigset_t old)
 {
         int   rc = sigprocmask(SIG_SETMASK, &old, NULL);
