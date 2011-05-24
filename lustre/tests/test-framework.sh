@@ -554,6 +554,54 @@ ostdevlabel() {
     echo -n $label
 }
 
+set_debug_size () {
+    local dz=${1:-$DEBUG_SIZE}
+    local cpus=$(getconf _NPROCESSORS_CONF)
+
+    # bug 19944, adjust size to be -gt num_possible_cpus()
+    # promise 2MB for every cpu at least
+    if [ -n "$cpus" ] && [ $((cpus * 2)) -gt $dz ]; then
+        dz=$((cpus * 2))
+    fi
+    lctl set_param debug_mb=$dz
+}
+
+set_default_debug () {
+    local debug=${1:-"$PTLDEBUG"}
+    local subsystem_debug=${2:-"$SUBSYSTEM"}
+    local debug_size=${3:-$DEBUG_SIZE}
+
+    lctl set_param debug="$debug"
+    lctl set_param subsystem_debug="${subsystem_debug# }"
+
+    set_debug_size $debug_size
+    sync
+}
+
+remote_node () {
+    local node=$1
+    [ "$node" != "$(hostname)" ]
+}
+
+set_default_debug_nodes () {
+    local nodes=$1
+
+    if remote_node $nodes; then
+	do_rpc_nodes $nodes set_default_debug \
+            \\\"$PTLDEBUG\\\" \\\"$SUBSYSTEM\\\" $DEBUG_SIZE
+    else
+	set_default_debug
+    fi
+}
+
+set_default_debug_facet () {
+    local facet=$1
+    local node=$(facet_active_host $facet)
+    [ -z "$node" ] && echo "No host defined for facet $facet" && exit 1
+
+    set_default_debug_nodes $node
+}
+
 # Facet functions
 mount_facets () {
     local facets=${1:-$(get_facets)}
@@ -578,10 +626,7 @@ mount_facet() {
         echo "mount -t lustre $@ ${!dev} $mntpt"
         echo "Start of ${!dev} on ${facet} failed ${RC}"
     else
-        do_facet ${facet} "lctl set_param debug=\\\"$PTLDEBUG\\\"; \
-            lctl set_param subsystem_debug=\\\"${SUBSYSTEM# }\\\"; \
-            lctl set_param debug_mb=${DEBUG_SIZE}; \
-            sync"
+        set_default_debug_facet $facet
 
         label=$(do_facet ${facet} "$E2LABEL ${!dev}")
         [ -z "$label" ] && echo no label for ${!dev} && exit 1
@@ -734,9 +779,7 @@ zconf_mount() {
     do_node $client mkdir -p $mnt
     do_node $client mount -t lustre $OPTIONS $device $mnt || return 1
 
-    do_node $client "lctl set_param debug=\\\"$PTLDEBUG\\\";
-        lctl set_param subsystem_debug=\\\"${SUBSYSTEM# }\\\";
-        lctl set_param debug_mb=${DEBUG_SIZE}"
+    set_default_debug_nodes $client
 
     return 0
 }
@@ -853,9 +896,7 @@ exit \\\$rc" || return ${PIPESTATUS[0]}
     echo "Started clients $clients: "
     do_nodes $clients "mount | grep -w $mnt"
 
-    do_nodes $clients "lctl set_param debug=\\\"$PTLDEBUG\\\";
-        lctl set_param subsystem_debug=\\\"${SUBSYSTEM# }\\\";
-        lctl set_param debug_mb=${DEBUG_SIZE};"
+    set_default_debug_nodes $clients
 
     return 0
 }
@@ -2364,10 +2405,7 @@ check_and_setup_lustre() {
         init_facets_vars
         init_param_vars
 
-        do_nodes $(comma_list $(nodes_list)) "lctl set_param debug=\\\"$PTLDEBUG\\\";
-            lctl set_param subsystem_debug=\\\"${SUBSYSTEM# }\\\";
-            lctl set_param debug_mb=${DEBUG_SIZE};
-            sync"
+        set_default_debug_nodes $(comma_list $(nodes_list))
     fi
 
     init_gss
@@ -3245,11 +3283,6 @@ osc_to_ost()
 ostuuid_from_index()
 {
     $LFS osts $2 | awk '/^'$1'/ { print $2 }'
-}
-
-remote_node () {
-    local node=$1
-    [ "$node" != "$(hostname)" ]
 }
 
 remote_mds ()
