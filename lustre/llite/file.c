@@ -1976,6 +1976,7 @@ out:
         retval = (sum > 0) ? sum : retval;
         ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_WRITE_BYTES,
                            retval > 0 ? retval : 0);
+        ll_i2info(inode)->lli_write_rc = retval < 0 ? : 0;
         RETURN(retval);
 }
 
@@ -3096,6 +3097,10 @@ int ll_flush(struct file *file)
                         rc = err;
         }
 
+        /* The application should be told write failure already. */
+        if (lli->lli_write_rc)
+                rc = 0;
+
         return rc ? -EIO : 0;
 }
 
@@ -3159,6 +3164,7 @@ int ll_fsync(struct file *file, struct dentry *dentry, int data)
                         rc = err;
                 OBDO_FREE(oinfo->oi_oa);
                 OBD_FREE_PTR(oinfo);
+                lli->lli_write_rc = err < 0 ? : 0;
         }
 
         RETURN(rc);

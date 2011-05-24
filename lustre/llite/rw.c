@@ -2243,6 +2243,7 @@ out:
         if (rc) {
                 if (!lli->lli_async_rc)
                         lli->lli_async_rc = rc;
+
                 /* resend page only for not started IO*/
                 unlock_page(page);
         }
