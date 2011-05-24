@@ -1895,10 +1895,6 @@ int ll_flush(struct file *file)
         struct lov_stripe_md *lsm = lli->lli_smd;
         int rc, err;
 
-        /* the application should know write failure already. */
-        if (lli->lli_write_rc)
-                return 0;
-
         /* catch async errors that were recorded back when async writeback
          * failed for pages in this mapping. */
         rc = lli->lli_async_rc;
@@ -1908,6 +1904,10 @@ int ll_flush(struct file *file)
                 if (rc == 0)
                         rc = err;
         }
+
+        /* the application should know write failure already. */
+        if (lli->lli_write_rc)
+                rc = 0;
 
         return rc ? -EIO : 0;
 }
