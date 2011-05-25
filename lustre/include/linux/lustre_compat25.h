@@ -48,6 +48,12 @@
 
 #include <linux/lustre_patchless_compat.h>
 
+#ifndef SEEK_SET
+ #define SEEK_SET 0
+ #define SEEK_CUR 1
+ #define SEEK_END 2
+#endif
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,14)
 struct ll_iattr {
         struct iattr    iattr;
