@@ -754,7 +754,7 @@ void lu_site_print(const struct lu_env *env, struct lu_site *s, void *cookie,
 EXPORT_SYMBOL(lu_site_print);
 
 enum {
-        LU_CACHE_PERCENT   = 20,
+        LU_CACHE_PERCENT   = 2,
 };
 
 /**
