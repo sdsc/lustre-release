@@ -78,6 +78,12 @@ extern struct file_operations ll_pgcache_seq_fops;
 /* remote client permission cache */
 #define REMOTE_PERM_HASHSIZE 16
 
+struct ll_getname_data {
+        char            *lgd_name;      /* points to a buffer with NAME_MAX+1 size */
+        struct lu_fid    lgd_fid;       /* target fid we are looking for */
+        int              lgd_found;     /* inode matched? */
+};
+
 /* llite setxid/access permission for user on remote client */
 struct ll_remote_perm {
         cfs_hlist_node_t        lrp_list;
@@ -581,6 +587,7 @@ extern struct file_operations ll_dir_operations;
 extern struct inode_operations ll_dir_inode_operations;
 struct page *ll_get_dir_page(struct file *filp, struct inode *dir, __u64 hash,
                              int exact, struct ll_dir_chain *chain);
+int ll_readdir(struct file *filp, void *cookie, filldir_t filldir);
 
 int ll_get_mdt_idx(struct inode *inode);
 /* llite/namei.c */
@@ -679,7 +686,7 @@ int ll_fid2path(struct obd_export *exp, void *arg);
 /**
  * protect race ll_find_aliases vs ll_revalidate_it vs ll_unhash_aliases
  */
-int ll_dops_init(struct dentry *de, int block);
+int ll_dops_init(struct dentry *de, int block, int init_sa);
 extern cfs_spinlock_t ll_lookup_lock;
 extern struct dentry_operations ll_d_ops;
 void ll_intent_drop_lock(struct lookup_intent *);
@@ -739,6 +746,8 @@ struct md_op_data *ll_prep_md_op_data(struct md_op_data *op_data,
 void ll_finish_md_op_data(struct md_op_data *op_data);
 
 /* llite/llite_nfs.c */
+int ll_nfs_get_name_filldir(void *cookie, const char *name, int namelen,
+                            loff_t hash, u64 ino, unsigned type);
 extern struct export_operations lustre_export_operations;
 __u32 get_uuid2int(const char *name, int len);
 
