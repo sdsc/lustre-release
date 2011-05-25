@@ -1083,11 +1083,11 @@ test_61()
 	$LFS setstripe -c 1 --index 0 $DIR/$tdir
 
 	replay_barrier $SINGLEMDS
-	createmany -o $DIR/$tdir/$tfile-%d 10 
+	createmany -o $DIR/$tdir/$tfile-%d 10
 	local oid=`do_facet ost1 "lctl get_param -n obdfilter.${ost1_svc}.last_id"`
 
 	fail_abort $SINGLEMDS
-	
+
 	touch $DIR/$tdir/$tfile
 	local id=`$LFS getstripe $DIR/$tdir/$tfile |awk '($1 ~ 0 && $2 ~ /^[1-9]+/) {print $2}'`
 	[ $id -le $oid ] && error "the orphan objid was reused, failed"
@@ -1096,6 +1096,75 @@ test_61()
 	rm -rf $DIR/$tdir
 }
 run_test 61 "Verify to not reuse orphan objects - bug 17025"
+
+nidtbl_versions_match()
+{
+        server_version=`do_facet mgs "lctl get_param mgs.MGS.live.$FSNAME | \
+                        grep nidtbl |cut -d : -f 3"`
+        client_version=`lctl get_param mgc.*.nidtbl_version | \
+                        grep $FSNAME-client |cut -d : -f 3`
+        return `[ $client_version -eq $server_version ]`
+}
+
+target_instance_match()
+{
+        local srv=$1
+        local obdtype
+        local cliname
+
+        obdtype=${srv/[0-9]*/}
+        case $obdtype in
+        mds)
+                obdname="mdt"
+                cliname="mdc"
+                ;;
+        ost)
+                obdname="obdfilter"
+                cliname="osc"
+                ;;
+        *)
+                error "invalid target type" $srv
+                return 1
+                ;;
+        esac
+
+        target=${srv}_svc
+        server_instance=`do_facet $srv lctl get_param -n $obdname.${!target}.instance`
+        client_instance=`lctl get_param -n $cliname.${!target}-${cliname}-*.import | \
+                         grep instance |head -1 |cut -d : -f 2`
+
+        return `[ $server_instance -eq $client_instance ]`
+}
+
+test_100()
+{
+        # disable IR
+        do_facet mgs lctl set_param -n mgs.MGS.live.$FSNAME="status=Disabled"
+        local saved_FAILURE_MODE=$FAILURE_MODE
+        [ `facet_host mgs` = `facet_host ost1` ] && FAILURE_MODE="SOFT"
+        fail ost1
+
+        # valid check
+        nidtbl_versions_match && error "version must be mismatched since IR disabled"
+        target_instance_match ost1 || error "instance mismatch"
+
+        # restore env
+        do_facet mgs lctl set_param -n mgs.MGS.live.$FSNAME="status=Full"
+        FAILURE_MODE=$saved_FAILURE_MODE
+}
+run_test 100 "IR: Make sure normal recovery works"
+
+test_101()
+{
+        # disable pinger recovery 0x515=OBD_FAIL_PTLRPC_DISABLE_PINGER_RECOVER
+        lctl set_param fail_loc=0x515
+        do_facet mgs lctl set_param -n mgs.MGS.live.$FSNAME="status=Full"
+        fail ost1
+        lctl set_param fail_loc=0
+        nidtbl_versions_match || error "version must match"
+        target_instance_match ost1 || error "instance mismatch"
+}
+run_test 101 "IR: Make sure IR works"
 
 complete $(basename $0) $SECONDS
 check_and_cleanup_lustre
