@@ -4531,13 +4531,9 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
                         GOTO(err_lmi, rc = -EINVAL);
                 }
                 /* Read recovery timeouts */
-                if (lsi->lsi_lmd && lsi->lsi_lmd->lmd_recovery_time_soft)
-                        obd->obd_recovery_timeout =
-                                lsi->lsi_lmd->lmd_recovery_time_soft;
-
-                if (lsi->lsi_lmd && lsi->lsi_lmd->lmd_recovery_time_hard)
-                        obd->obd_recovery_time_hard =
-                                lsi->lsi_lmd->lmd_recovery_time_hard;
+                server_calc_timeout(lsi, obd);
+                obd->u.obt.obt_magic = OBT_MAGIC;
+                obd->u.obt.obt_instance = s2lsi(lmi->lmi_sb)->lsi_instance;
         }
 
         cfs_rwlock_init(&m->mdt_sptlrpc_lock);
