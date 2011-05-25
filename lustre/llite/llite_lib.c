@@ -953,7 +953,7 @@ void ll_put_super(struct super_block *sb)
 
         sprintf(ll_instance, "%p", sb);
         cfg.cfg_instance = ll_instance;
-        lustre_end_log(sb, NULL, &cfg);
+        lustre_end_log(sb, profilenm, &cfg);
 
         if (sbi->ll_md_exp) {
                 obd = class_exp2obd(sbi->ll_md_exp);

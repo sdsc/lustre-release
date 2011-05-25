@@ -806,6 +806,7 @@ static const char *obd_connect_names[] = {
         "full20",
         "layout_lock",
         "64bithash",
+        "imperative_recovery",
         NULL
 };
 
@@ -845,10 +846,12 @@ int lprocfs_rd_import(char *page, char **start, off_t off, int count,
                      "    name: %s\n"
                      "    target: %s\n"
                      "    state: %s\n"
+                     "    instance: %u\n"
                      "    connect_flags: [",
                      obd->obd_name,
                      obd2cli_tgt(obd),
-                     ptlrpc_import_state_name(imp->imp_state));
+                     ptlrpc_import_state_name(imp->imp_state),
+                     imp->imp_connect_data.ocd_instance);
         i += obd_connect_flags2str(page + i, count - i,
                                    imp->imp_connect_data.ocd_connect_flags,
                                    ", ");
@@ -2346,7 +2349,7 @@ int lprocfs_obd_rd_recovery_time_hard(char *page, char **start, off_t off,
         struct obd_device *obd = data;
         LASSERT(obd != NULL);
 
-        return snprintf(page, count, "%lu\n", obd->obd_recovery_time_hard);
+        return snprintf(page, count, "%u\n", obd->obd_recovery_time_hard);
 }
 EXPORT_SYMBOL(lprocfs_obd_rd_recovery_time_hard);
 
@@ -2378,6 +2381,19 @@ int lprocfs_obd_rd_mntdev(char *page, char **start, off_t off,
                         obd->u.obt.obt_vfsmnt->mnt_devname);
 }
 EXPORT_SYMBOL(lprocfs_obd_rd_mntdev);
+
+int lprocfs_target_rd_instance(char *page, char **start, off_t off,
+                               int count, int *eof, void *data)
+{
+        struct obd_device *obd = (struct obd_device *)data;
+        struct obd_device_target *target = &obd->u.obt;
+
+        LASSERT(obd != NULL);
+        LASSERT(target->obt_magic == OBT_MAGIC);
+        *eof = 1;
+        return snprintf(page, count, "%u\n", obd->u.obt.obt_instance);
+}
+EXPORT_SYMBOL(lprocfs_target_rd_instance);
 
 EXPORT_SYMBOL(lprocfs_register);
 EXPORT_SYMBOL(lprocfs_srch);
