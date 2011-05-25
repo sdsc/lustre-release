@@ -1709,6 +1709,7 @@ static int echo_client_brw_ioctl(int rw, struct obd_export *exp,
         struct echo_object *eco;
         int rc;
         int async = 1;
+        int test_mode;
         ENTRY;
 
         LASSERT(oa->o_valid & OBD_MD_FLGROUP);
@@ -1719,7 +1720,14 @@ static int echo_client_brw_ioctl(int rw, struct obd_export *exp,
 
         oa->o_valid &= ~OBD_MD_FLHANDLE;
 
-        switch((long)data->ioc_pbuf1) {
+        /** obdfilter don't supported obd_brw now, simulate via prep_commit */
+        test_mode = (long)data->ioc_pbuf1;
+        if (ed->ed_next == NULL) {
+                test_mode = 3;
+                data->ioc_plen1 = data->ioc_count;
+        }
+
+        switch(test_mode) {
         case 1:
                 async = 0;
                 /* fall through */
