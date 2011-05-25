@@ -147,6 +147,8 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 /* The max delay between connects is SWITCH_MAX + SWITCH_INC + INITIAL */
 #define RECONNECT_DELAY_MAX (CONNECTION_SWITCH_MAX + CONNECTION_SWITCH_INC + \
                              INITIAL_CONNECT_TIMEOUT)
+/* The min time a target should wait for clients to reconnect in recovery */
+#define OBD_RECOVERY_TIME_MIN    (2*RECONNECT_DELAY_MAX)
 #define LONG_UNLINK 300          /* Unlink should happen before now */
 
 /**
@@ -345,6 +347,7 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 #define OBD_FAIL_PTLRPC_HPREQ_NOTIMEOUT  0x512
 #define OBD_FAIL_PTLRPC_DROP_REQ_OPC     0x513
 #define OBD_FAIL_PTLRPC_FINISH_REPLAY    0x514
+#define OBD_FAIL_PTLRPC_DISABLE_PINGER_RECOVER   0x515
 
 #define OBD_FAIL_OBD_PING_NET            0x600
 #define OBD_FAIL_OBD_LOG_CANCEL_NET      0x601
