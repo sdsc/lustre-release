@@ -94,14 +94,10 @@ void ldlm_namespace_free_prior(struct ldlm_namespace *ns,
 void ldlm_namespace_free_post(struct ldlm_namespace *ns);
 /* ldlm_lock.c */
 
-/* Number of blocking/completion callbacks that will be sent in
- * parallel (see bug 11301). */
-#define PARALLEL_AST_LIMIT      200
-
 struct ldlm_cb_set_arg {
         struct ptlrpc_request_set *set;
         cfs_atomic_t restart;
-        __u32 type; /* LDLM_BL_CALLBACK or LDLM_CP_CALLBACK */
+        int type; /* LDLM_BL_CALLBACK or LDLM_CP_CALLBACK */
 };
 
 typedef enum {

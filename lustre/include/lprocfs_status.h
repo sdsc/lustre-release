@@ -536,6 +536,8 @@ extern int lprocfs_wr_evict_client(struct file *file, const char *buffer,
                                    unsigned long count, void *data);
 extern int lprocfs_wr_ping(struct file *file, const char *buffer,
                            unsigned long count, void *data);
+extern int lprocfs_wr_import(struct file *file, const char *buffer,
+                             unsigned long count, void *data);
 
 /* Statfs helpers */
 extern int lprocfs_rd_blksize(char *page, char **start, off_t off,
@@ -641,6 +643,8 @@ int lprocfs_obd_wr_recovery_time_hard(struct file *file,
                                       unsigned long count, void *data);
 int lprocfs_obd_rd_mntdev(char *page, char **start, off_t off,
                           int count, int *eof, void *data);
+int lprocfs_target_rd_instance(char *page, char **start, off_t off,
+                               int count, int *eof, void *data);
 /* all quota proc functions */
 extern int lprocfs_quota_rd_bunit(char *page, char **start,
                                   off_t off, int count,

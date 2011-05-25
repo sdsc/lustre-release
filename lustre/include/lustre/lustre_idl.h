@@ -1074,6 +1074,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 #define OBD_CONNECT_LAYOUTLOCK   0x2000000000ULL /* client supports layout lock */
 #define OBD_CONNECT_64BITHASH    0x4000000000ULL /* client supports 64-bits
                                                   * directory hash */
+#define OBD_CONNECT_IR           0x8000000000ULL /* imperative recovery support */
 /* also update obd_connect_names[] for lprocfs_rd_connect_flags()
  * and lustre/utils/wirecheck.c */
 
@@ -1133,7 +1134,8 @@ struct obd_connect_data {
         __u64 ocd_transno;       /* first transno from client to be replayed */
         __u32 ocd_group;         /* MDS group on OST */
         __u32 ocd_cksum_types;   /* supported checksum algorithms */
-        __u64 padding1;          /* also fix lustre_swab_connect */
+        __u32 ocd_instance;      /* instance # of this target */
+        __u32 padding1;          /* also fix lustre_swab_connect */
         __u64 padding2;          /* also fix lustre_swab_connect */
 };
 
@@ -2306,6 +2308,7 @@ typedef enum {
         MGS_TARGET_REG,        /* whenever target starts up */
         MGS_TARGET_DEL,
         MGS_SET_INFO,
+        MGS_GET_INFO,
         MGS_LAST_OPC
 } mgs_cmd_t;
 #define MGS_FIRST_OPC MGS_CONNECT
@@ -2318,24 +2321,40 @@ struct mgs_send_param {
 };
 
 /* We pass this info to the MGS so it can write config logs */
-#define MTI_NAME_MAXLEN 64
+#define MTI_NAME_MAXLEN  64
 #define MTI_PARAM_MAXLEN 4096
-#define MTI_NIDS_MAX 32
+#define MTI_NIDS_MAX     32
 struct mgs_target_info {
         __u32            mti_lustre_ver;
         __u32            mti_stripe_index;
         __u32            mti_config_ver;
         __u32            mti_flags;
         __u32            mti_nid_count;
-        __u32            padding;                    /* 64 bit align */
+        __u32            mti_instance; /* Running instance of target */
         char             mti_fsname[MTI_NAME_MAXLEN];
         char             mti_svname[MTI_NAME_MAXLEN];
         char             mti_uuid[sizeof(struct obd_uuid)];
         __u64            mti_nids[MTI_NIDS_MAX];     /* host nids (lnet_nid_t)*/
         char             mti_params[MTI_PARAM_MAXLEN];
 };
-
 extern void lustre_swab_mgs_target_info(struct mgs_target_info *oinfo);
+
+struct mgs_nidtbl_entry {
+        char            mne_tgtname[MTI_NAME_MAXLEN];
+        __u64           mne_version;
+        __u32           mne_instance;
+        __u16           mne_pad;
+        __u8            mne_type;  /* LDD_F_SV_TYPE_OST or LDD_F_SV_TYPE_MDT */
+        __u8            mne_nid_count;
+        __u64           mne_nids[MTI_NIDS_MAX];
+};
+extern void lustre_swab_mgs_nidtbl_entry(struct mgs_nidtbl_entry *oinfo);
+
+struct mgs_nidtbl_vers {
+        __u64           mnv_cur;
+        __u64           mnv_latest;
+};
+extern void lustre_swab_mgs_nidtbl_vers(struct mgs_nidtbl_vers *mnt);
 
 /* Config marker flags (in config log) */
 #define CM_START       0x01
