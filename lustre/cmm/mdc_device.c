@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
@@ -156,10 +159,12 @@ static int mdc_obd_add(const struct lu_env *env,
                                          OBD_CONNECT_MDS_CAPA |
                                          OBD_CONNECT_OSS_CAPA |
                                          OBD_CONNECT_IBITS |
+                                         OBD_CONNECT_BRW_SIZE |
                                          OBD_CONNECT_MDS_MDS |
                                          OBD_CONNECT_FID |
                                          OBD_CONNECT_AT |
                                          OBD_CONNECT_FULL20;
+                ocd->ocd_brw_size = PTLRPC_MAX_BRW_SIZE;
                 rc = obd_connect(env, &desc->cl_exp, mdc, &mdc->obd_uuid, ocd, NULL);
                 OBD_FREE_PTR(ocd);
                 if (rc) {
