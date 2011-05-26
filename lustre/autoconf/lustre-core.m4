@@ -2438,6 +2438,26 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
+# 2.6.29 split file and anonymous page queues
+AC_DEFUN([LC_PAGEVEC_LRU_ADD_FILE],
+[AC_MSG_CHECKING([if kernel has .pagevec_lru_add_file])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/mm.h>
+        #include <linux/pagevec.h>
+],[
+        struct pagevec lru_pagevec;
+
+        pagevec_init(&lru_pagevec, 0);
+        pagevec_lru_add_file(&lru_pagevec);
+],[
+        AC_MSG_RESULT([yes])
+        AC_DEFINE(HAVE_PAGEVEC_LRU_ADD_FILE, 1,
+                [kernel has .pagevec_lru_add_file])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
 #
 # --enable-mpitest
 #
@@ -2675,6 +2695,7 @@ fi
          LC_D_OBTAIN_ALIAS
          LC_BLKDEV_PUT_2ARGS
          LC_DENTRY_OPEN_4ARGS
+         LC_PAGEVEC_LRU_ADD_FILE
 
 ])
 
