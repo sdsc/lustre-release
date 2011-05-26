@@ -72,7 +72,7 @@ Index: linux-stage/fs/ext4/ext4.h
 +					      ext4_group_t group)
  {
 -	struct ext4_group_info *grinfo = ext4_get_group_info(sb, group);
-+	struct blockgroup_lock *bgl = &EXT4_SB(sb)->s_blockgroup_lock;
++	struct blockgroup_lock *bgl = EXT4_SB(sb)->s_blockgroup_lock;
 +	return &bgl->locks[group & (NR_BG_LOCKS-1)].lock;
 +}
  
@@ -398,15 +398,6 @@ Index: linux-stage/fs/ext4/mballoc.c
  	}
  
  	err = ext4_journal_dirty_metadata(handle, bitmap_bh);
-@@ -3686,7 +3669,7 @@ ext4_mb_use_preallocated(struct ext4_all
-  * the function goes through all block freed in the group
-  * but not yet committed and marks them used in in-core bitmap.
-  * buddy must be generated from this bitmap
-- * Need to be called with ext4 group lock (ext4_lock_group)
-+ * Need to be called with the ext4 group lock held
-  */
- static void ext4_mb_generate_from_freelist(struct super_block *sb, void *bitmap,
- 						ext4_group_t group)
 @@ -3700,9 +3683,7 @@ static void ext4_mb_generate_from_freeli
  
  	while (n) {
@@ -418,15 +409,6 @@ Index: linux-stage/fs/ext4/mballoc.c
  		n = rb_next(n);
  	}
  	return;
-@@ -3744,7 +3725,7 @@ int ext4_mb_check_ondisk_bitmap(struct s
- /*
-  * the function goes through all preallocation in this group and marks them
-  * used in in-core bitmap. buddy must be generated from this bitmap
-- * Need to be called with ext4 group lock (ext4_lock_group)
-+ * Need to be called with ext4 group lock held.
-  */
- static int ext4_mb_generate_from_pa(struct super_block *sb, void *bitmap,
- 					ext4_group_t group)
 @@ -3790,8 +3771,7 @@ static int ext4_mb_generate_from_pa(stru
  			continue;
  		}
