@@ -793,7 +793,24 @@ test_24v() {
 
 	mkdir -p $DIR/d24v
 	createmany -m $DIR/d24v/$tfile $NRFILES
+
+	cancel_lru_locks mdc
+	lctl set_param mdc.*.stats clear
+
 	ls $DIR/d24v >/dev/null || error "error in listing large dir"
+
+	# LU-5 large readdir
+	# DIRENT_SIZE = 32 bytes for sizeof(struct lu_dirent) +
+	#               8 bytes for name(filename is mostly 5 in this test) +
+	#               8 bytes for luda_type 
+	# take into account of overhead in lu_dirpage header and end mark in each
+	# page, plus one in RPC_NUM calculation.
+	LU_PAGE_SIZE=4096
+	DIRENT_SIZE=48
+	RPC_SIZE=$(($(lctl get_param -n mdc.*.max_pages_per_rpc) * LU_PAGE_SIZE))
+	RPC_NUM=$(((NRFILES * DIRENT_SIZE + RPC_SIZE - 1) / RPC_SIZE + 1))
+	mds_readpage=`lctl get_param mdc.*.stats | awk '/^mds_readpage/ {print $2}'`
+	[ $mds_readpage -gt $RPC_NUM ] && error "large readdir doesn't take effect"
 
 	rm $DIR/d24v -rf
 }
