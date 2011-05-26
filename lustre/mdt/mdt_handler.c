@@ -1207,7 +1207,7 @@ static int mdt_disconnect(struct mdt_thread_info *info)
 }
 
 static int mdt_sendpage(struct mdt_thread_info *info,
-                        struct lu_rdpg *rdpg)
+                        struct lu_rdpg *rdpg, int nob)
 {
         struct ptlrpc_request   *req = mdt_info_req(info);
         struct obd_export       *exp = req->rq_export;
@@ -1225,13 +1225,13 @@ static int mdt_sendpage(struct mdt_thread_info *info,
         if (desc == NULL)
                 RETURN(-ENOMEM);
 
-        for (i = 0, tmpcount = rdpg->rp_count;
-                i < rdpg->rp_npages; i++, tmpcount -= tmpsize) {
+        for (i = 0, tmpcount = nob;
+                i < rdpg->rp_npages && tmpcount > 0; i++, tmpcount -= tmpsize) {
                 tmpsize = min_t(int, tmpcount, CFS_PAGE_SIZE);
                 ptlrpc_prep_bulk_page(desc, rdpg->rp_pages[i], 0, tmpsize);
         }
 
-        LASSERT(desc->bd_nob == rdpg->rp_count);
+        LASSERT(desc->bd_nob == nob);
         rc = sptlrpc_svc_wrap_bulk(req, desc);
         if (rc)
                 GOTO(free_desc, rc);
@@ -1260,7 +1260,7 @@ static int mdt_sendpage(struct mdt_thread_info *info,
 
         if (rc == 0) {
                 if (desc->bd_success &&
-                    desc->bd_nob_transferred == rdpg->rp_count)
+                    desc->bd_nob_transferred == nob)
                         GOTO(free_desc, rc);
 
                 rc = -ETIMEDOUT;
@@ -1270,7 +1270,7 @@ static int mdt_sendpage(struct mdt_thread_info *info,
 
         DEBUG_REQ(D_ERROR, req, "bulk failed: %s %d(%d), evicting %s@%s",
                   (rc == -ETIMEDOUT) ? "timeout" : "network error",
-                  desc->bd_nob_transferred, rdpg->rp_count,
+                  desc->bd_nob_transferred, nob,
                   exp->exp_client_uuid.uuid,
                   exp->exp_connection->c_remote_uuid.uuid);
 
@@ -1503,11 +1503,11 @@ static int mdt_readpage(struct mdt_thread_info *info)
 
         /* call lower layers to fill allocated pages with directory data */
         rc = mo_readpage(info->mti_env, mdt_object_child(object), rdpg);
-        if (rc)
+        if (rc < 0)
                 GOTO(free_rdpg, rc);
 
         /* send pages to client */
-        rc = mdt_sendpage(info, rdpg);
+        rc = mdt_sendpage(info, rdpg, rc);
 
         EXIT;
 free_rdpg:
@@ -4917,6 +4917,16 @@ static int mdt_connect_internal(struct obd_export *exp,
 
                 if (!mdt->mdt_som_conf)
                         data->ocd_connect_flags &= ~OBD_CONNECT_SOM;
+
+                if (data->ocd_connect_flags & OBD_CONNECT_BRW_SIZE) {
+                        data->ocd_brw_size = min(data->ocd_brw_size,
+                               (__u32)(PTLRPC_MAX_BRW_PAGES << CFS_PAGE_SHIFT));
+                        if (data->ocd_brw_size == 0) {
+                                CWARN("%s: zero brw size!\n",
+                                    mdt->mdt_md_dev.md_lu_dev.ld_obd->obd_name);
+                                return -EINVAL;
+                        }
+                }
 
                 cfs_spin_lock(&exp->exp_lock);
                 exp->exp_connect_flags = data->ocd_connect_flags;

@@ -1167,6 +1167,7 @@ enum obd_cleanup_stage {
 #define KEY_SPTLRPC_CONF        "sptlrpc_conf"
 #define KEY_CONNECT_FLAG        "connect_flags"
 #define KEY_SYNC_LOCK_CANCEL    "sync_lock_cancel"
+#define KEY_MAX_PAGES_PER_RPC   "max_pages_per_rpc"
 
 
 struct lu_context;
@@ -1509,8 +1510,8 @@ struct md_ops {
         int (*m_sync)(struct obd_export *, const struct lu_fid *,
                       struct obd_capa *, struct ptlrpc_request **);
         int (*m_readpage)(struct obd_export *, const struct lu_fid *,
-                          struct obd_capa *, __u64, struct page *,
-                          struct ptlrpc_request **);
+                          struct obd_capa *, __u64, struct page **,
+                          unsigned, struct ptlrpc_request **);
 
         int (*m_unlink)(struct obd_export *, struct md_op_data *,
                         struct ptlrpc_request **);

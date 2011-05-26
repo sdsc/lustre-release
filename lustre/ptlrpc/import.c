@@ -1071,10 +1071,11 @@ finish:
                         cli->cl_cksum_type = OBD_CKSUM_CRC32;
                 }
 
-                if (ocd->ocd_connect_flags & OBD_CONNECT_BRW_SIZE) {
+                if (ocd->ocd_connect_flags & OBD_CONNECT_BRW_SIZE)
                         cli->cl_max_pages_per_rpc =
                                 ocd->ocd_brw_size >> CFS_PAGE_SHIFT;
-                }
+                else
+                        cli->cl_max_pages_per_rpc = 1;
 
                 /* Reset ns_connect_flags only for initial connect. It might be
                  * changed in while using FS and if we reset it in reconnect

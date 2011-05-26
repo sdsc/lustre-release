@@ -240,6 +240,7 @@ struct md_object_operations {
         int (*moo_xattr_del)(const struct lu_env *env, struct md_object *obj,
                              const char *name);
 
+        /** \retval number of bytes actually read upon success */
         int (*moo_readpage)(const struct lu_env *env, struct md_object *obj,
                             const struct lu_rdpg *rdpg);
 

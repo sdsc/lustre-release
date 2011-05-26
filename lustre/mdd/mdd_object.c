@@ -2191,20 +2191,20 @@ static int mdd_readpage_sanity_check(const struct lu_env *env,
 }
 
 static int mdd_dir_page_build(const struct lu_env *env, struct mdd_device *mdd,
-                              int first, void *area, int nob,
+                              struct lu_dirpage *dp, int nob,
                               const struct dt_it_ops *iops, struct dt_it *it,
-                              __u64 *start, __u64 *end,
-                              struct lu_dirent **last, __u32 attr)
+                              __u32 attr)
 {
+        void                   *area = dp;
         int                     result;
         __u64                   hash = 0;
         struct lu_dirent       *ent;
+        struct lu_dirent       *last = NULL;
+        int                     first = 1;
 
-        if (first) {
-                memset(area, 0, sizeof (struct lu_dirpage));
-                area += sizeof (struct lu_dirpage);
-                nob  -= sizeof (struct lu_dirpage);
-        }
+        memset(area, 0, sizeof (*dp));
+        area += sizeof (*dp);
+        nob  -= sizeof (*dp);
 
         ent  = area;
         do {
@@ -2220,7 +2220,7 @@ static int mdd_dir_page_build(const struct lu_env *env, struct mdd_device *mdd,
                 hash = iops->store(env, it);
                 if (unlikely(first)) {
                         first = 0;
-                        *start = hash;
+                        dp->ldp_hash_start = cpu_to_le64(hash);
                 }
 
                 /* calculate max space required for lu_dirent */
@@ -2237,20 +2237,10 @@ static int mdd_dir_page_build(const struct lu_env *env, struct mdd_device *mdd,
                          * so recheck rec length */
                         recsize = le16_to_cpu(ent->lde_reclen);
                 } else {
-                        /*
-                         * record doesn't fit into page, enlarge previous one.
-                         */
-                        if (*last) {
-                                (*last)->lde_reclen =
-                                        cpu_to_le16(le16_to_cpu((*last)->lde_reclen) +
-                                                        nob);
-                                result = 0;
-                        } else
-                                result = -EINVAL;
-
+                        result = (last != NULL) ? 0 :-EINVAL;
                         goto out;
                 }
-                *last = ent;
+                last = ent;
                 ent = (void *)ent + recsize;
                 nob -= recsize;
 
@@ -2261,7 +2251,9 @@ next:
         } while (result == 0);
 
 out:
-        *end = hash;
+        dp->ldp_hash_end = cpu_to_le64(hash);
+        if (last != NULL)
+                last->lde_reclen = 0; /* end mark */
         return result;
 }
 
@@ -2272,13 +2264,10 @@ static int __mdd_readpage(const struct lu_env *env, struct mdd_object *obj,
         struct dt_object  *next = mdd_object_child(obj);
         const struct dt_it_ops  *iops;
         struct page       *pg;
-        struct lu_dirent  *last = NULL;
         struct mdd_device *mdd = mdo2mdd(&obj->mod_obj);
         int i;
         int rc;
         int nob;
-        __u64 hash_start;
-        __u64 hash_end = 0;
 
         LASSERT(rdpg->rp_pages != NULL);
         LASSERT(next->do_index_ops != NULL);
@@ -2296,7 +2285,7 @@ static int __mdd_readpage(const struct lu_env *env, struct mdd_object *obj,
 
         rc = iops->load(env, it, rdpg->rp_hash);
 
-        if (rc == 0){
+        if (rc == 0) {
                 /*
                  * Iterator didn't find record with exactly the key requested.
                  *
@@ -2321,39 +2310,39 @@ static int __mdd_readpage(const struct lu_env *env, struct mdd_object *obj,
          */
         for (i = 0, nob = rdpg->rp_count; rc == 0 && nob > 0;
              i++, nob -= CFS_PAGE_SIZE) {
+                struct lu_dirpage *dp;
+
                 LASSERT(i < rdpg->rp_npages);
                 pg = rdpg->rp_pages[i];
-                rc = mdd_dir_page_build(env, mdd, !i, cfs_kmap(pg),
+                dp = cfs_kmap(pg);
+                rc = mdd_dir_page_build(env, mdd, dp,
                                         min_t(int, nob, CFS_PAGE_SIZE), iops,
-                                        it, &hash_start, &hash_end, &last,
-                                        rdpg->rp_attrs);
-                if (rc != 0 || i == rdpg->rp_npages - 1) {
-                        if (last)
-                                last->lde_reclen = 0;
-                }
+                                        it, rdpg->rp_attrs);
+                if (rc > 0)
+                        /*
+                         * end of directory.
+                         */
+                        dp->ldp_hash_end = cpu_to_le64(DIR_END_OFF);
+                else if (rc < 0)
+                        CWARN("build page failed: %d!\n", rc);
+
                 cfs_kunmap(pg);
         }
-        if (rc > 0) {
-                /*
-                 * end of directory.
-                 */
-                hash_end = DIR_END_OFF;
-                rc = 0;
-        }
-        if (rc == 0) {
+        if (rc >= 0) {
                 struct lu_dirpage *dp;
 
                 dp = cfs_kmap(rdpg->rp_pages[0]);
                 dp->ldp_hash_start = cpu_to_le64(rdpg->rp_hash);
-                dp->ldp_hash_end   = cpu_to_le64(hash_end);
-                if (i == 0)
+                if (i == 0) {
                         /*
                          * No pages were processed, mark this.
                          */
-                        dp->ldp_flags |= LDF_EMPTY;
-
-                dp->ldp_flags = cpu_to_le32(dp->ldp_flags);
+                        dp->ldp_flags  = cpu_to_le32(LDF_EMPTY);
+                        i = 1; /* send rp_pages[0] back with LDF_EMPTY flag. */
+                }
                 cfs_kunmap(rdpg->rp_pages[0]);
+
+                rc = min_t(unsigned int, i * CFS_PAGE_SIZE, rdpg->rp_count);
         }
         iops->put(env, it);
         iops->fini(env, it);
@@ -2398,7 +2387,7 @@ int mdd_readpage(const struct lu_env *env, struct md_object *obj,
                 dp->ldp_flags |= LDF_EMPTY;
                 dp->ldp_flags = cpu_to_le32(dp->ldp_flags);
                 cfs_kunmap(pg);
-                GOTO(out_unlock, rc = 0);
+                GOTO(out_unlock, rc = CFS_PAGE_SIZE);
         }
 
         rc = __mdd_readpage(env, mdd_obj, rdpg);

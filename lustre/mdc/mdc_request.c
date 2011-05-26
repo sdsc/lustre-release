@@ -1020,11 +1020,12 @@ EXPORT_SYMBOL(mdc_sendpage);
 #endif
 
 int mdc_readpage(struct obd_export *exp, const struct lu_fid *fid,
-                 struct obd_capa *oc, __u64 offset, struct page *page,
-                 struct ptlrpc_request **request)
+                 struct obd_capa *oc, __u64 offset, struct page **pages,
+                 unsigned npages, struct ptlrpc_request **request)
 {
         struct ptlrpc_request   *req;
         struct ptlrpc_bulk_desc *desc;
+        int                      i;
         int                      rc;
         ENTRY;
 
@@ -1044,15 +1045,18 @@ int mdc_readpage(struct obd_export *exp, const struct lu_fid *fid,
         req->rq_request_portal = MDS_READPAGE_PORTAL;
         ptlrpc_at_set_req_timeout(req);
 
-        desc = ptlrpc_prep_bulk_imp(req, 1, BULK_PUT_SINK, MDS_BULK_PORTAL);
+        desc = ptlrpc_prep_bulk_imp(req, npages, BULK_PUT_SINK,
+                                    MDS_BULK_PORTAL);
         if (desc == NULL) {
                 ptlrpc_request_free(req);
                 RETURN(-ENOMEM);
         }
 
         /* NB req now owns desc and will free it when it gets freed */
-        ptlrpc_prep_bulk_page(desc, page, 0, CFS_PAGE_SIZE);
-        mdc_readdir_pack(req, offset, CFS_PAGE_SIZE, fid, oc);
+        for (i = 0; i < npages; i++)
+                ptlrpc_prep_bulk_page(desc, pages[i], 0, CFS_PAGE_SIZE);
+
+        mdc_readdir_pack(req, offset, CFS_PAGE_SIZE * npages, fid, oc);
 
         ptlrpc_request_set_replen(req);
         rc = ptlrpc_queue_wait(req);
@@ -1068,9 +1072,10 @@ int mdc_readpage(struct obd_export *exp, const struct lu_fid *fid,
                 RETURN(rc);
         }
 
-        if (req->rq_bulk->bd_nob_transferred != CFS_PAGE_SIZE) {
+        if (req->rq_bulk->bd_nob_transferred % CFS_PAGE_SIZE != 0) {
                 CERROR("Unexpected # bytes transferred: %d (%ld expected)\n",
-                        req->rq_bulk->bd_nob_transferred, CFS_PAGE_SIZE);
+                        req->rq_bulk->bd_nob_transferred,
+                        CFS_PAGE_SIZE * npages);
                 ptlrpc_req_finished(req);
                 RETURN(-EPROTO);
         }
@@ -1675,6 +1680,13 @@ int mdc_get_info(struct obd_export *exp, __u32 keylen, void *key,
                         RETURN(-EINVAL);
 
                 *data = imp->imp_connect_data;
+                RETURN(0);
+        }
+        if (KEY_IS(KEY_MAX_PAGES_PER_RPC)) {
+                struct obd_import *imp = class_exp2cliimp(exp);
+                if (*vallen != sizeof(int))
+                        RETURN(-EINVAL);
+                *(int *)val = imp->imp_obd->u.cli.cl_max_pages_per_rpc;
                 RETURN(0);
         }
 
