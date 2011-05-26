@@ -793,7 +793,17 @@ test_24v() {
 
 	mkdir -p $DIR/d24v
 	createmany -m $DIR/d24v/$tfile $NRFILES
+
 	ls $DIR/d24v >/dev/null || error "error in listing large dir"
+
+	cancel_lru_locks mdc
+	lctl set_param mdc.*.stats clear
+	/bin/ls $DIR/d24v >/dev/null || error "error in listing large dir"
+	mds_readpage=`lctl get_param mdc.*.stats | awk '/^mds_readpage/ {print $2}'`
+	# LU-5
+	# it's 672 dir pages total, but with large readdir, 3 RPC can fetch all,
+	# and two extra RPC for mountpoint and $DIR
+	[ $mds_readpage -gt 5 ] && error "large readdir doesn't take effect"
 
 	rm $DIR/d24v -rf
 }
