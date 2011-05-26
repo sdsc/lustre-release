@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
@@ -2342,7 +2345,8 @@ static __u32 lmv_node_rank(struct obd_export *exp, const struct lu_fid *fid)
 }
 
 static int lmv_readpage(struct obd_export *exp, const struct lu_fid *fid,
-                        struct obd_capa *oc, __u64 offset64, struct page *page,
+                        struct obd_capa *oc, __u64 offset64,
+                        struct page **pages, unsigned npages,
                         struct ptlrpc_request **request)
 {
         struct obd_device       *obd = exp->exp_obd;
@@ -2358,6 +2362,8 @@ static int lmv_readpage(struct obd_export *exp, const struct lu_fid *fid,
         int                      tgt0_idx = 0;
         int                      rc;
         int                      nr = 0;
+        int                      i;
+        int                      nrdpgs;
         struct lmv_stripe       *los;
         struct lmv_tgt_desc     *tgt;
         struct lu_dirpage       *dp;
@@ -2435,11 +2441,19 @@ static int lmv_readpage(struct obd_export *exp, const struct lu_fid *fid,
         if (IS_ERR(tgt))
                 GOTO(cleanup, rc = PTR_ERR(tgt));
 
-        rc = md_readpage(tgt->ltd_exp, &rid, oc, offset, page, request);
+        rc = md_readpage(tgt->ltd_exp, &rid, oc, offset, pages, npages,
+                         request);
         if (rc)
                 GOTO(cleanup, rc);
-        if (obj) {
-                dp = cfs_kmap(page);
+        if (!obj)
+                RETURN(0);
+
+        nrdpgs = (*request)->rq_bulk->bd_nob_transferred >> CFS_PAGE_SHIFT;
+        LASSERT(!((*request)->rq_bulk->bd_nob_transferred & ~CFS_PAGE_MASK));
+        LASSERT(nrdpgs > 0 && nrdpgs <= npages);
+
+        for (i = 0; i < nrdpgs; i++) {
+                dp = cfs_kmap(pages[i]);
 
                 lmv_hash_adjust(&dp->ldp_hash_start, hash_adj);
                 lmv_hash_adjust(&dp->ldp_hash_end,   hash_adj);
@@ -2462,7 +2476,7 @@ static int lmv_readpage(struct obd_export *exp, const struct lu_fid *fid,
                                        (__u64)le64_to_cpu(dp->ldp_hash_end), tgt_idx);
                         }
                 }
-                cfs_kunmap(page);
+                cfs_kunmap(pages[i]);
         }
         EXIT;
 cleanup:
