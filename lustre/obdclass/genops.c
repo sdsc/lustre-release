@@ -515,12 +515,23 @@ const char *obd_dev_status(struct obd_device *obd)
 void obd_devlist_first(struct obd_device **pos)
 {
         struct obd_device *obd;
+        cfs_list_t *node = obd_dev_list.next;
 
         cfs_spin_lock(&obd_dev_lock);
-        obd = cfs_list_entry_safe(obd_dev_list.next, &obd_dev_list,
-                                  struct obd_device, obd_list);
-        if (obd != NULL)
+next:
+        obd = cfs_list_entry_safe(node, &obd_dev_list, struct obd_device,
+                                  obd_list);
+        if (obd != NULL) {
+                cfs_spin_lock(&obd->obd_dev_lock);
+                if (obd->obd_stopping) {
+                        cfs_spin_unlock(&obd->obd_dev_lock);
+
+                        node = node->next;
+                        goto next;
+                }
                 class_incref(obd, "devlist", obd);
+                cfs_spin_unlock(&obd->obd_dev_lock);
+        }
         cfs_spin_unlock(&obd_dev_lock);
 
         *pos = obd;
@@ -529,12 +540,23 @@ void obd_devlist_first(struct obd_device **pos)
 void obd_devlist_next(struct obd_device **pos)
 {
         struct obd_device *obd = NULL;
+        cfs_list_t *node = (*pos)->obd_list.next;
 
         cfs_spin_lock(&obd_dev_lock);
-        obd = cfs_list_entry_safe((*pos)->obd_list.next, &obd_dev_list,
-                                  struct obd_device, obd_list);
-        if (obd)
+next:
+        obd = cfs_list_entry_safe(node, &obd_dev_list, struct obd_device,
+                                  obd_list);
+        if (obd != NULL) {
+                cfs_spin_lock(&obd->obd_dev_lock);
+                if (obd->obd_stopping) {
+                        cfs_spin_unlock(&obd->obd_dev_lock);
+
+                        node = node->next;
+                        goto next;
+                }
                 class_incref(obd, "devlist", obd);
+                cfs_spin_unlock(&obd->obd_dev_lock);
+        }
         cfs_spin_unlock(&obd_dev_lock);
 
         class_decref(*pos, "devlist", *pos);
@@ -544,7 +566,7 @@ void obd_devlist_next(struct obd_device **pos)
 void obd_devlist_last(struct obd_device *pos)
 {
         if (pos)
-                class_decref(pos,"devlist", pos);
+                class_decref(pos, "devlist", pos);
 
 }
 
