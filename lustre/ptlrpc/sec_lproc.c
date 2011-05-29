@@ -196,6 +196,7 @@ int sptlrpc_lproc_init(void)
         if (IS_ERR(sptlrpc_proc_root)) {
                 rc = PTR_ERR(sptlrpc_proc_root);
                 sptlrpc_proc_root = NULL;
+                CERROR("Failed to register proc root\n");
                 return rc;
         }
         return 0;

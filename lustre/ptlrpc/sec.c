@@ -2501,34 +2501,35 @@ EXPORT_SYMBOL(sptlrpc_flavor_has_bulk);
 int __init sptlrpc_init(void)
 {
         int rc;
+        ENTRY;
 
         cfs_rwlock_init(&policy_lock);
 
         rc = sptlrpc_gc_init();
         if (rc)
-                goto out;
+                GOTO(out, rc);
 
         rc = sptlrpc_conf_init();
         if (rc)
-                goto out_gc;
+                GOTO(out_gc, rc);
 
         rc = sptlrpc_enc_pool_init();
         if (rc)
-                goto out_conf;
+                GOTO(out_conf, rc);
 
         rc = sptlrpc_null_init();
         if (rc)
-                goto out_pool;
+                GOTO(out_pool, rc);
 
         rc = sptlrpc_plain_init();
         if (rc)
-                goto out_null;
+                GOTO(out_null, rc);
 
         rc = sptlrpc_lproc_init();
         if (rc)
-                goto out_plain;
+                GOTO(out_plain, rc);
 
-        return 0;
+        RETURN(0);
 
 out_plain:
         sptlrpc_plain_fini();
@@ -2541,7 +2542,7 @@ out_conf:
 out_gc:
         sptlrpc_gc_fini();
 out:
-        return rc;
+        RETURN(rc);
 }
 
 void __exit sptlrpc_fini(void)
