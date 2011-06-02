@@ -339,6 +339,11 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt)
                 sbi->ll_flags |= LL_SBI_OSS_CAPA;
         }
 
+        if (data->ocd_connect_flags & OBD_CONNECT_64BITHASH) {
+                LCONSOLE_INFO("client supports 64-bits dir hash/offset!\n");
+                sbi->ll_flags |= LL_SBI_64BIT_HASH;
+        }
+
         obd = class_name2obd(dt);
         if (!obd) {
                 CERROR("DT %s: not setup or attached\n", dt);
