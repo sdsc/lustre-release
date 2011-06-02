@@ -2505,4 +2505,3 @@ void lustre_assert_wire_constants(void)
                  (long long)(int)sizeof(((xattr_acl_header *)0)->a_entries));
 #endif
 }
-
