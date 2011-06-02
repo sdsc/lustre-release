@@ -2504,5 +2504,7 @@ void lustre_assert_wire_constants(void)
         LASSERTF((int)sizeof(((xattr_acl_header *)0)->a_entries) == 0, " found %lld\n",
                  (long long)(int)sizeof(((xattr_acl_header *)0)->a_entries));
 #endif
+        /* Checks for DIR_END_OFF */
+        CLASSERT(DIR_END_OFF == 0xfffffffffffffffeULL);
 }
 
