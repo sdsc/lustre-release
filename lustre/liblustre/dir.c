@@ -100,7 +100,7 @@ static int llu_dir_do_readpage(struct inode *inode, struct page *page)
         }
         ldlm_lock_dump_handle(D_OTHER, &lockh);
 
-        offset = (__u64)hash_x_index(page->index);
+        offset = (__u64)hash_x_index(page->index, 0);
         rc = md_readpage(sbi->ll_md_exp, &lli->lli_fid, NULL,
                          offset, page, &request);
         if (!rc) {
@@ -129,7 +129,7 @@ static cfs_page_t *llu_dir_read_page(struct inode *ino, __u64 hash,
         OBD_PAGE_ALLOC(page, 0);
         if (!page)
                 RETURN(ERR_PTR(-ENOMEM));
-        page->index = hash_x_index(hash);
+        page->index = hash_x_index(hash, 0);
 
         rc = llu_dir_do_readpage(ino, page);
         if (rc) {

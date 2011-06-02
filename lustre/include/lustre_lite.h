@@ -150,11 +150,12 @@ static inline void ll_dir_chain_fini(struct ll_dir_chain *chain)
 {
 }
 
-static inline unsigned long hash_x_index(__u64 hash)
+static inline unsigned long hash_x_index(__u64 hash, int hash64)
 {
 #ifdef __KERNEL__
 # if BITS_PER_LONG == 32
-        hash >>= 32;
+        if (hash64)
+                hash >>= 32;
 # endif
 #endif
         return ~0UL - hash;

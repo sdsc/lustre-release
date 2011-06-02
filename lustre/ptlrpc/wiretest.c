@@ -2696,5 +2696,7 @@ void lustre_assert_wire_constants(void)
                  (long long)(int)offsetof(struct link_ea_entry, lee_name));
         LASSERTF((int)sizeof(((struct link_ea_entry *)0)->lee_name) == 0, " found %lld\n",
                  (long long)(int)sizeof(((struct link_ea_entry *)0)->lee_name));
-}
 
+        /* Checks for DIR_END_OFF */
+        CLASSERT(DIR_END_OFF == 0xfffffffffffffffeULL);
+}
