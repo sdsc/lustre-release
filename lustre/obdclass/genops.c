@@ -1467,6 +1467,9 @@ EXPORT_SYMBOL(obd_exports_barrier);
 /**
  * kill zombie imports and exports
  */
+
+static int zombies_in_destroy = 0;
+
 void obd_zombie_impexp_cull(void)
 {
         struct obd_import *import;
@@ -1481,6 +1484,7 @@ void obd_zombie_impexp_cull(void)
                         import = cfs_list_entry(obd_zombie_imports.next,
                                                 struct obd_import,
                                                 imp_zombie_chain);
+                        zombies_in_destroy ++;
                         cfs_list_del_init(&import->imp_zombie_chain);
                 }
 
@@ -1489,16 +1493,25 @@ void obd_zombie_impexp_cull(void)
                         export = cfs_list_entry(obd_zombie_exports.next,
                                                 struct obd_export,
                                                 exp_obd_chain);
+                        zombies_in_destroy ++;
                         cfs_list_del_init(&export->exp_obd_chain);
                 }
 
                 cfs_spin_unlock(&obd_zombie_impexp_lock);
 
-                if (import != NULL)
+                if (import != NULL) {
                         class_import_destroy(import);
+                        cfs_spin_lock(&obd_zombie_impexp_lock);
+                        zombies_in_destroy --;
+                        cfs_spin_unlock(&obd_zombie_impexp_lock);
+                }
 
-                if (export != NULL)
+                if (export != NULL) {
                         class_export_destroy(export);
+                        cfs_spin_lock(&obd_zombie_impexp_lock);
+                        zombies_in_destroy --;
+                        cfs_spin_unlock(&obd_zombie_impexp_lock);
+                }
 
                 cfs_cond_resched();
         } while (import != NULL || export != NULL);
@@ -1580,7 +1593,8 @@ static int obd_zombie_is_idle(void)
         LASSERT(!cfs_test_bit(OBD_ZOMBIE_STOP, &obd_zombie_flags));
         cfs_spin_lock(&obd_zombie_impexp_lock);
         rc = cfs_list_empty(&obd_zombie_imports) &&
-             cfs_list_empty(&obd_zombie_exports);
+             cfs_list_empty(&obd_zombie_exports) &&
+             (zombies_in_destroy == 0);
         cfs_spin_unlock(&obd_zombie_impexp_lock);
         return rc;
 }
