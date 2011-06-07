@@ -2430,6 +2430,7 @@ osc_send_oap_rpc(const struct lu_env *env, struct client_obd *cli,
         unsigned int ending_offset;
         unsigned  starting_offset = 0;
         int srvlock = 0, mem_tight = 0;
+        int grant = (cmd == OBD_BRW_WRITE);
         struct cl_object *clob = NULL;
         ENTRY;
 
@@ -2437,7 +2438,7 @@ osc_send_oap_rpc(const struct lu_env *env, struct client_obd *cli,
          * to be canceled, the pages covered by the lock will be sent out
          * with ASYNC_HP. We have to send out them as soon as possible. */
         cfs_list_for_each_entry_safe(oap, tmp, &lop->lop_urgent, oap_urgent_item) {
-                if (oap->oap_async_flags & ASYNC_HP) 
+                if (oap->oap_async_flags & ASYNC_HP)
                         cfs_list_move(&oap->oap_pending_item, &tmp_list);
                 else
                         cfs_list_move_tail(&oap->oap_pending_item, &tmp_list);
@@ -2464,7 +2465,10 @@ osc_send_oap_rpc(const struct lu_env *env, struct client_obd *cli,
                 }
 
                 if (page_count != 0 &&
-                    srvlock != !!(oap->oap_brw_flags & OBD_BRW_SRVLOCK)) {
+                    (srvlock != !!(oap->oap_brw_flags & OBD_BRW_SRVLOCK) ||
+                        /* do not mix sync and async write page.
+                         * See LU-394 for details. -jay */
+                     grant != !!(oap->oap_brw_flags & OBD_BRW_FROM_GRANT))) {
                         CDEBUG(D_PAGE, "SRVLOCK flag mismatch,"
                                " oap %p, page %p, srvlock %u\n",
                                oap, oap->oap_brw_page.pg, (unsigned)!srvlock);
@@ -2575,8 +2579,12 @@ osc_send_oap_rpc(const struct lu_env *env, struct client_obd *cli,
                 cfs_list_add_tail(&oap->oap_rpc_item, &rpc_list);
                 if (oap->oap_brw_flags & OBD_BRW_MEMALLOC)
                         mem_tight = 1;
-                if (page_count == 0)
+                if (page_count == 0) {
                         srvlock = !!(oap->oap_brw_flags & OBD_BRW_SRVLOCK);
+                        grant = !!(oap->oap_brw_flags & OBD_BRW_FROM_GRANT);
+                        /* for write only. */
+                        LASSERT(ergo(grant, oap->oap_cmd == OBD_BRW_WRITE));
+                }
                 if (++page_count >= cli->cl_max_pages_per_rpc)
                         break;
 
