@@ -1462,6 +1462,7 @@ static int mdt_readpage(struct mdt_thread_info *info)
 {
         struct mdt_object *object = info->mti_object;
         struct lu_rdpg    *rdpg = &info->mti_u.rdpg.mti_rdpg;
+        struct obd_export *exp = info->mti_exp;
         struct mdt_body   *reqbody;
         struct mdt_body   *repbody;
         int                rc;
@@ -1489,7 +1490,9 @@ static int mdt_readpage(struct mdt_thread_info *info)
         }
 
         rdpg->rp_attrs = reqbody->mode;
-        if (info->mti_exp->exp_connect_flags & OBD_CONNECT_64BITHASH)
+        /* Liblustre client does not support 64-bit dir hash */
+        if ((exp->exp_connect_flags & OBD_CONNECT_64BITHASH) &&
+            !exp->exp_libclient)
                 rdpg->rp_attrs |= LUDA_64BITHASH;
         rdpg->rp_count  = reqbody->nlink;
         rdpg->rp_npages = (rdpg->rp_count + CFS_PAGE_SIZE - 1)>>CFS_PAGE_SHIFT;

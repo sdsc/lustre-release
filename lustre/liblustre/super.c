@@ -1925,9 +1925,15 @@ llu_fsswop_mount(const char *source,
         obd_set_info_async(obd->obd_self_export, sizeof(KEY_ASYNC), KEY_ASYNC,
                            sizeof(async), &async, NULL);
 
+        /* XXX: It is hack here, the 'OBD_CONNECT_SEQ_RANGE' is for 2.1 or newer
+         *      client to do 'FLD_LOOKUP'. 'OBD_CONNECT_SEQ_RANGE' is defined as
+         *      'OBD_CONNECT_64BITHASH', but liblustre client does not support
+         *      64-bit dir hash. It is server's duty to distinguish liblustre
+         *      client and return 32-bit dir hash for it. */
         ocd.ocd_connect_flags = OBD_CONNECT_IBITS | OBD_CONNECT_VERSION |
                                 OBD_CONNECT_FID | OBD_CONNECT_AT |
-                                OBD_CONNECT_VBR | OBD_CONNECT_FULL20;
+                                OBD_CONNECT_VBR | OBD_CONNECT_FULL20 |
+                                OBD_CONNECT_SEQ_RANGE;
 
 #ifdef LIBLUSTRE_POSIX_ACL
         ocd.ocd_connect_flags |= OBD_CONNECT_ACL;
@@ -1965,7 +1971,7 @@ llu_fsswop_mount(const char *source,
         ocd.ocd_connect_flags = OBD_CONNECT_SRVLOCK | OBD_CONNECT_REQPORTAL |
                                 OBD_CONNECT_VERSION | OBD_CONNECT_TRUNCLOCK |
                                 OBD_CONNECT_FID | OBD_CONNECT_AT |
-                                OBD_CONNECT_FULL20;
+                                OBD_CONNECT_FULL20 | OBD_CONNECT_SEQ_RANGE;
 
         ocd.ocd_version = LUSTRE_VERSION_CODE;
         err = obd_connect(NULL, &sbi->ll_dt_exp, obd, &sbi->ll_sb_uuid, &ocd, NULL);
