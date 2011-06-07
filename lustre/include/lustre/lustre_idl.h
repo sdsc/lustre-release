@@ -186,8 +186,9 @@ typedef __u32 obd_count;
  * of the home mdt.
  */
 
-#define LU_SEQ_RANGE_MDT        0x0
-#define LU_SEQ_RANGE_OST        0x1
+#define LU_SEQ_RANGE_MDT        0x0000
+#define LU_SEQ_RANGE_OST        0x0001
+#define LU_SEQ_RANGE_NULL       0x0010
 
 struct lu_seq_range {
         __u64 lsr_start;

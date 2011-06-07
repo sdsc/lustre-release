@@ -271,7 +271,8 @@ int fld_server_lookup(struct lu_server_fld *fld,
         /* Lookup it in the cache. */
         rc = fld_cache_lookup(fld->lsf_cache, seq, erange);
         if (rc == 0) {
-                if (unlikely(erange->lsr_flags != range->lsr_flags)) {
+                if (unlikely(erange->lsr_flags != range->lsr_flags &&
+                             LU_SEQ_RANGE_NULL != range->lsr_flags)) {
                         CERROR("FLD cache found a range "DRANGE" doesn't "
                                "match the requested flag %x\n",
                                PRANGE(erange), range->lsr_flags);
@@ -284,7 +285,8 @@ int fld_server_lookup(struct lu_server_fld *fld,
         if (fld->lsf_obj) {
                 rc = fld_index_lookup(fld, env, seq, erange);
                 if (rc == 0) {
-                        if (unlikely(erange->lsr_flags != range->lsr_flags)) {
+                        if (unlikely(erange->lsr_flags != range->lsr_flags &&
+                                     LU_SEQ_RANGE_NULL != range->lsr_flags)) {
                                 CERROR("FLD found a range "DRANGE" doesn't "
                                        "match the requested flag %x\n",
                                        PRANGE(erange), range->lsr_flags);
@@ -342,6 +344,7 @@ static int fld_server_handle(struct lu_server_fld *fld,
 static int fld_req_handle(struct ptlrpc_request *req,
                           struct fld_thread_info *info)
 {
+        struct obd_export *exp = req->rq_export;
         struct lu_site *site;
         struct lu_seq_range *in;
         struct lu_seq_range *out;
@@ -349,7 +352,7 @@ static int fld_req_handle(struct ptlrpc_request *req,
         __u32 *opc;
         ENTRY;
 
-        site = req->rq_export->exp_obd->obd_lu_dev->ld_site;
+        site = exp->exp_obd->obd_lu_dev->ld_site;
 
         rc = req_capsule_server_pack(info->fti_pill);
         if (rc)
@@ -364,6 +367,10 @@ static int fld_req_handle(struct ptlrpc_request *req,
                 if (out == NULL)
                         RETURN(err_serious(-EPROTO));
                 *out = *in;
+                /* Supporting '64BITHASH' means it is new 2.x client, although
+                 * it is not strict. For old 2.0 client, ignore 'lsr_flags'. */
+                if (!(exp->exp_connect_flags & OBD_CONNECT_64BITHASH))
+                        out->lsr_flags = LU_SEQ_RANGE_NULL;
 
                 rc = fld_server_handle(lu_site2md(site)->ms_server_fld,
                                        req->rq_svc_thread->t_env,
