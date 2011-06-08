@@ -664,7 +664,6 @@ void osc_io_submit_page(const struct lu_env *env,
                         enum cl_req_type crt)
 {
         struct osc_async_page *oap = &opg->ops_oap;
-        struct client_obd     *cli = oap->oap_cli;
         int flags = 0;
 
         LINVRNT(osc_page_protected(env, opg,
@@ -688,8 +687,11 @@ void osc_io_submit_page(const struct lu_env *env,
 
         if (oap->oap_cmd & OBD_BRW_READ)
                 flags = ASYNC_COUNT_STABLE;
+#if 0
+        /* Do not consume grant if we know this page is gonna be written now. */
         else if (!(oap->oap_brw_page.flag & OBD_BRW_FROM_GRANT))
-                osc_enter_cache_try(env, cli, oap->oap_loi, oap, 1);
+                osc_enter_cache_try(env, oap->oap_cli, oap->oap_loi, oap, 1);
+#endif
 
         cfs_spin_lock(&oap->oap_lock);
         oap->oap_async_flags |= OSC_FLAGS | flags;
