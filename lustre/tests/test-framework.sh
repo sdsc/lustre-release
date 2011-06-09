@@ -380,9 +380,9 @@ load_modules_local() {
     $LCTL modules > $OGDB/ogdb-$HOSTNAME
 
     # 'mount' doesn't look in $PATH, just sbin
-    local bindmount=$(mount | grep "/sbin/mount.lustre")
+    local bindmount=$(mount | grep -e "/sbin/mount\.lustre.*bind")
     if [ -f $LUSTRE/utils/mount.lustre ] && [ "x$bindmount" == "x" ]; then
-	    mount --bind $LUSTRE/utils/mount.lustre /sbin/mount.lustre || true
+        mount --bind $LUSTRE/utils/mount.lustre /sbin/mount.lustre || true
     fi
 }
 
@@ -424,8 +424,11 @@ unload_modules() {
             do_rpc_nodes $list check_mem_leak
         fi
     fi
-
-    umount /sbin/mount.lustre
+ 
+    local bindmount=$(mount | grep -e "/sbin/mount\.lustre.*bind")
+    if [ "x$bindmount" != "x" ]; then
+        umount /sbin/mount.lustre
+    fi
 
     check_mem_leak || return 254
 
