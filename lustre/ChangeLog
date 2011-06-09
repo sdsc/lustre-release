@@ -49,6 +49,13 @@ Description: Update RHEL5.5 kernel to 2.6.18-194.17.1.el5
 	 2.6.29.4-167.fc11 (FC11)
        * Recommended e2fsprogs version: 1.41.10-sun2
 
+Severity   : normal
+Jira       : LU-163
+Description: MDS returns 32/64-bit dir name hash according to client type
+Details    : Liblustre client, 1.8.5 or older client do not support 64-bit dir
+             name hash. For lustre re-export through NFSv4, should specify the
+             mount option of "-o 32bitapi" on lustre client.
+
 Severity   : enhancement
 Bugzilla   : 22481
 Description: Distribute lfs_migrate script with lustre
