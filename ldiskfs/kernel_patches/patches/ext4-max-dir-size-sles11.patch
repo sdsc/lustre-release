@@ -142,10 +142,10 @@ Index: linux-2.6.27.21-0.1/fs/ext4/super.c
  /*
   * Have we just finished recovery?  If so, and if we are mounting (or
   * remounting) the filesystem readonly, then we will end up with a
-Index: linux-2.6.27.21-0.1/fs/ext4/ext4_sb.h
+Index: linux-2.6.27.21-0.1/fs/ext4/ext4.h
 ===================================================================
---- linux-2.6.27.21-0.1.orig/fs/ext4/ext4_sb.h	2009-07-07 14:36:58.000000000 +0530
-+++ linux-2.6.27.21-0.1/fs/ext4/ext4_sb.h	2009-07-07 14:38:17.000000000 +0530
+--- linux-2.6.27.21-0.1.orig/fs/ext4/ext4.h	2009-07-07 14:36:58.000000000 +0530
++++ linux-2.6.27.21-0.1/fs/ext4/ext4.h	2009-07-07 14:38:17.000000000 +0530
 @@ -119,6 +119,7 @@
  	/* where last allocation was done - for stream allocation */
  	unsigned long s_mb_last_group;

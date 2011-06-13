@@ -376,8 +376,7 @@ Index: linux-2.6.27.21-0.1/fs/ext4/extents.c
  static void
  ext4_ext_put_in_cache(struct inode *inode, ext4_lblk_t block,
  			__u32 len, ext4_fsblk_t start, int type)
-@@ -2966,3 +3074,100 @@
- 	mutex_unlock(&inode->i_mutex);
+@@ -3035,6 +3143,103 @@
  	return ret > 0 ? ret2 : ret;
  }
 +
@@ -477,6 +476,10 @@ Index: linux-2.6.27.21-0.1/fs/ext4/extents.c
 +
 +	return error;
 +}
+
+ EXPORT_SYMBOL(ext4_ext_store_pblock);
+ EXPORT_SYMBOL(ext4_ext_search_right);
+ EXPORT_SYMBOL(ext4_ext_search_left);
 Index: linux-2.6.27.21-0.1/fs/ext4/fiemap.h
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
