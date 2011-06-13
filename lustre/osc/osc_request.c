@@ -4514,9 +4514,11 @@ static int osc_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
                                 imp->imp_rq_pool = NULL;
                         }
                         class_destroy_import(imp);
-                        cfs_up_write(&obd->u.cli.cl_sem);
                         obd->u.cli.cl_import = NULL;
+                        cfs_up_write(&obd->u.cli.cl_sem);
                 }
+                ptlrpc_lprocfs_unregister_obd(obd);
+                lprocfs_obd_cleanup(obd);
                 rc = obd_llog_finish(obd, 0);
                 if (rc != 0)
                         CERROR("failed to cleanup llogging subsystems\n");
@@ -4531,8 +4533,6 @@ int osc_cleanup(struct obd_device *obd)
         int rc;
 
         ENTRY;
-        ptlrpc_lprocfs_unregister_obd(obd);
-        lprocfs_obd_cleanup(obd);
 
         /* free memory of osc quota cache */
         lquota_cleanup(quota_interface, obd);
