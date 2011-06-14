@@ -1979,7 +1979,7 @@ int cl_lock_page_out(const struct lu_env *env, struct cl_lock *lock,
         struct cl_2queue      *queue = &info->clt_queue;
         struct cl_lock_descr  *descr = &lock->cll_descr;
         long page_count;
-        int nonblock = 1, resched;
+        int res;
         int result;
 
         LINVRNT(cl_lock_invariant(env, lock));
@@ -1992,9 +1992,9 @@ int cl_lock_page_out(const struct lu_env *env, struct cl_lock *lock,
 
         do {
                 cl_2queue_init(queue);
-                cl_page_gang_lookup(env, descr->cld_obj, io, descr->cld_start,
-                                    descr->cld_end, &queue->c2_qin, nonblock,
-                                    &resched);
+                res = cl_page_gang_lookup(env, descr->cld_obj, io,
+                                          descr->cld_start, descr->cld_end,
+                                          &queue->c2_qin);
                 page_count = queue->c2_qin.pl_nr;
                 if (page_count > 0) {
                         result = cl_page_list_unmap(env, io, &queue->c2_qin);
@@ -2017,9 +2017,9 @@ int cl_lock_page_out(const struct lu_env *env, struct cl_lock *lock,
                 }
                 cl_2queue_fini(env, queue);
 
-                if (resched)
+                if (res == GANG_RESCHED)
                         cfs_cond_resched();
-        } while (resched || nonblock--);
+        } while (res != GANG_OKAY);
 out:
         cl_io_fini(env, io);
         RETURN(result);

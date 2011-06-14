@@ -47,7 +47,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#define BUFSIZE (1024*1024)   
+#define BUFSIZE (1024*1024)
 
 /* Function: pwrite character '+' to <filename> at <offset> (man pwrite)
  * Return:   0 success
@@ -56,13 +56,14 @@ int main(int argc, char**argv)
 {
         int p_size;
         unsigned int offset;
+        unsigned int len = 1;
         char *filename;
         int fd;
-        char buf[] = "+++";
+        char buf[BUFSIZE];
         char *end;
 
-        if(argc != 3) {
-                fprintf(stderr, "Usage: %s <filename> <offset>(KB)\n", argv[0]);
+        if(argc != 3 && argc != 4) {
+                fprintf(stderr, "Usage: %s <filename> <offset> [size]\n", argv[0]);
                 exit(1);
         }
 
@@ -73,22 +74,31 @@ int main(int argc, char**argv)
                 exit(1);
         }
 
+        if (argc == 4) {
+                len = strtoul(argv[3], &end, 10);
+                if (*end || len > BUFSIZE) {
+                        fprintf(stderr, "size is too large or incorrect\n");
+                        exit(2);
+                }
+        }
+
         fd = open(filename, O_CREAT|O_RDWR, 0644);
         if (fd == -1) {
-                fprintf(stderr, "Opening %s fails (%s)\n", 
+                fprintf(stderr, "Opening %s fails (%s)\n",
                         filename, strerror(errno));
                 return 1;
         }
 
         /* write the character '+' at offset */
-        p_size = pwrite(fd, buf, 1, offset);
-        if (p_size != 1) {
-                fprintf(stderr, "pwrite %s fails (%s)\n", 
-                        filename, strerror(errno));
+        memset(buf, '+', len);
+        p_size = pwrite(fd, buf, len, offset);
+        if (p_size != len) {
+                fprintf(stderr, "pwrite %s returned(%d/%d/%d)\n",
+                        filename, len, p_size, errno);
                 close(fd);
                 return 1;
         }
-                
+
         close(fd);
         return 0;
 }
