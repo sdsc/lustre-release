@@ -851,14 +851,18 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
         struct lustre_profile *lprof;
         struct lustre_sb_info *lsi = s2lsi(sb);
         struct ll_sb_info *sbi;
-        char  *dt = NULL, *md = NULL;
+        char  *dt = NULL, *md = NULL, *ll_instance = NULL;
         char  *profilenm = get_profile_name(sb);
-        struct config_llog_instance cfg = {0, };
-        char   ll_instance[sizeof(sb) * 2 + 1];
+        struct config_llog_instance *cfg;
         int    err;
         ENTRY;
 
         CDEBUG(D_VFSTRACE, "VFS Op: sb %p\n", sb);
+
+        OBD_ALLOC(cfg, sizeof(*cfg) + sizeof(sb) * 2 + 1);
+        if (cfg == NULL)
+                RETURN(-ENOMEM);
+        ll_instance = (char*)cfg + sizeof(*cfg);
 
         cfs_module_get();
 
@@ -866,6 +870,7 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
         lsi->lsi_llsbi = sbi = ll_init_sbi();
         if (!sbi) {
                 cfs_module_put(THIS_MODULE);
+                OBD_FREE(cfg, sizeof(*cfg) + sizeof(sb) * 2 + 1);
                 RETURN(-ENOMEM);
         }
 
@@ -890,11 +895,11 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
            to mount the same fs at two mount points.
            Use the address of the super itself.*/
         sprintf(ll_instance, "%p", sb);
-        cfg.cfg_instance = ll_instance;
-        cfg.cfg_uuid = lsi->lsi_llsbi->ll_sb_uuid;
+        cfg->cfg_instance = ll_instance;
+        cfg->cfg_uuid = lsi->lsi_llsbi->ll_sb_uuid;
 
         /* set up client obds */
-        err = lustre_process_log(sb, profilenm, &cfg);
+        err = lustre_process_log(sb, profilenm, cfg);
         if (err < 0) {
                 CERROR("Unable to process log: %d\n", err);
                 GOTO(out_free, err);
@@ -936,6 +941,7 @@ out_free:
         else
                 LCONSOLE_WARN("Client %s has started\n", profilenm);
 
+        OBD_FREE(cfg, sizeof(*cfg) + sizeof(sb) * 2 + 1);
         RETURN(err);
 } /* ll_fill_super */
 
