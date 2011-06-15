@@ -713,7 +713,7 @@ int ldlm_process_extent_lock(struct ldlm_lock *lock, int *flags, int first_enq,
                 if (OBD_FAIL_CHECK(OBD_FAIL_LDLM_OST_FAIL_RACE) &&
                     !ns_is_client(ldlm_res_to_ns(res)))
                         class_fail_export(lock->l_export);
- 
+
                 lock_res(res);
                 if (rc == -ERESTART) {
 
