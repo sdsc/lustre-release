@@ -94,6 +94,19 @@ static const struct req_msg_field *mgs_set_info[] = {
         &RMF_MGS_SEND_PARAM
 };
 
+static const struct req_msg_field *mgs_get_info_client[] = {
+        &RMF_PTLRPC_BODY,
+        &RMF_GETINFO_KEY,
+        &RMF_NAME,
+        &RMF_MGS_NIDTBL_VERS
+};
+
+static const struct req_msg_field *mgs_get_info_server[] = {
+        &RMF_PTLRPC_BODY,
+        &RMF_GETINFO_VAL,
+        &RMF_MGS_NIDTBL_VERS
+};
+
 static const struct req_msg_field *log_cancel_client[] = {
         &RMF_PTLRPC_BODY,
         &RMF_LOGCOOKIES
@@ -552,6 +565,7 @@ static struct req_format *req_formats[] = {
         &RQF_SEC_CTX,
         &RQF_MGS_TARGET_REG,
         &RQF_MGS_SET_INFO,
+        &RQF_MGS_GET_INFO,
         &RQF_SEQ_QUERY,
         &RQF_FLD_QUERY,
         &RQF_MDS_CONNECT,
@@ -686,6 +700,11 @@ struct req_msg_field RMF_MGS_SEND_PARAM =
                     sizeof(struct mgs_send_param),
                     NULL, NULL);
 EXPORT_SYMBOL(RMF_MGS_SEND_PARAM);
+
+struct req_msg_field RMF_MGS_NIDTBL_VERS =
+        DEFINE_MSGF("mgs nidtbl version", 0, sizeof(struct mgs_nidtbl_vers),
+                    lustre_swab_mgs_nidtbl_vers, NULL);
+EXPORT_SYMBOL(RMF_MGS_NIDTBL_VERS);
 
 struct req_msg_field RMF_SETINFO_VAL =
         DEFINE_MSGF("setinfo_val", 0, -1, NULL, NULL);
@@ -966,6 +985,11 @@ struct req_format RQF_MGS_SET_INFO =
         DEFINE_REQ_FMT0("MGS_SET_INFO", mgs_set_info,
                          mgs_set_info);
 EXPORT_SYMBOL(RQF_MGS_SET_INFO);
+
+struct req_format RQF_MGS_GET_INFO =
+        DEFINE_REQ_FMT0("MGS_GET_INFO", mgs_get_info_client,
+                         mgs_get_info_server);
+EXPORT_SYMBOL(RQF_MGS_GET_INFO);
 
 struct req_format RQF_SEQ_QUERY =
         DEFINE_REQ_FMT0("SEQ_QUERY", seq_query_client, seq_query_server);
