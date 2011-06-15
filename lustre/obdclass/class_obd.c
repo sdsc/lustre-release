@@ -389,6 +389,7 @@ EXPORT_SYMBOL(class_num2obd);
 /* uuid.c */
 EXPORT_SYMBOL(class_uuid_unparse);
 EXPORT_SYMBOL(lustre_uuid_to_peer);
+EXPORT_SYMBOL(class_find_uuid);
 
 EXPORT_SYMBOL(class_handle_hash);
 EXPORT_SYMBOL(class_handle_unhash);

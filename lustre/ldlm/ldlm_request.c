@@ -389,8 +389,7 @@ int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
         int err;
         const struct ldlm_callback_suite cbs = { .lcs_completion = completion,
                                                  .lcs_blocking   = blocking,
-                                                 .lcs_glimpse    = glimpse,
-        };
+                                                 .lcs_glimpse    = glimpse };
         ENTRY;
 
         LASSERT(!(*flags & LDLM_FL_REPLAY));
