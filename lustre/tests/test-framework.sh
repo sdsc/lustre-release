@@ -3733,9 +3733,7 @@ convert_facet2label() {
 }
 
 get_clientosc_proc_path() {
-    local ost=$1
-
-    echo "${1}-osc-*"
+    echo "${1}-osc-[^M]*"
 }
 
 get_lustre_version () {
