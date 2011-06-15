@@ -589,7 +589,7 @@ static int lustre_start_mgc(struct super_block *sb)
         struct obd_uuid *uuid;
         class_uuid_t uuidc;
         lnet_nid_t nid;
-        char *mgcname, *niduuid, *mgssec;
+        char *mgcname = NULL, *niduuid = NULL, *mgssec = NULL;
         char *ptr;
         int recov_bk;
         int rc = 0, i = 0, j, len;
@@ -625,6 +625,8 @@ static int lustre_start_mgc(struct super_block *sb)
                 RETURN(-EINVAL);
         }
 
+        cfs_mutex_down(&mgc_start_lock);
+
         len = strlen(LUSTRE_MGC_OBDNAME) + strlen(libcfs_nid2str(nid)) + 1;
         OBD_ALLOC(mgcname, len);
         OBD_ALLOC(niduuid, len + 2);
@@ -634,7 +636,9 @@ static int lustre_start_mgc(struct super_block *sb)
 
         mgssec = lsi->lsi_lmd->lmd_mgssec ? lsi->lsi_lmd->lmd_mgssec : "";
 
-        cfs_mutex_down(&mgc_start_lock);
+        OBD_ALLOC_PTR(data);
+        if (data == NULL)
+                GOTO(out_free, rc = -ENOMEM);
 
         obd = class_name2obd(mgcname);
         if (obd && !obd->obd_stopping) {
@@ -646,6 +650,31 @@ static int lustre_start_mgc(struct super_block *sb)
 
                 /* Re-using an existing MGC */
                 cfs_atomic_inc(&obd->u.cli.cl_mgc_refcount);
+
+                /* IR compatibility check, only for clients */
+                if (lmd_is_client(lsi->lsi_lmd)) {
+                        int has_ir;
+                        int vallen = sizeof(*data);
+                        __u32 *flags = &lsi->lsi_lmd->lmd_flags;
+
+                        rc = obd_get_info(obd->obd_self_export,
+                                          strlen(KEY_CONN_DATA), KEY_CONN_DATA,
+                                          &vallen, data, NULL);
+                        LASSERT(rc == 0);
+                        has_ir = !!(data->ocd_connect_flags & OBD_CONNECT_IR);
+                        if (has_ir ^ !!(*flags & LMD_FLG_NOIR)) {
+                                LCONSOLE_WARN(
+                                    "Trying to mount a client with IR setting "
+                                    "not compatible with current mgc. "
+                                    "Force to use current mgc setting that is "
+                                    "IR %s.\n",
+                                    has_ir ? "enabled" : "disabled");
+                                if (has_ir)
+                                        *flags &= ~LMD_FLG_NOIR;
+                                else
+                                        *flags |= LMD_FLG_NOIR;
+                        }
+                }
 
                 recov_bk = 0;
                 /* If we are restarting the MGS, don't try to keep the MGC's
@@ -776,14 +805,14 @@ static int lustre_start_mgc(struct super_block *sb)
                 /* nonfatal */
                 CWARN("can't set %s %d\n", KEY_INIT_RECOV_BACKUP, rc);
         /* We connect to the MGS at setup, and don't disconnect until cleanup */
-        OBD_ALLOC_PTR(data);
-        if (data == NULL)
-                GOTO(out, rc = -ENOMEM);
         data->ocd_connect_flags = OBD_CONNECT_VERSION | OBD_CONNECT_FID |
-                                  OBD_CONNECT_AT | OBD_CONNECT_FULL20;
+                                  OBD_CONNECT_AT | OBD_CONNECT_FULL20   |
+                                  OBD_CONNECT_IR;
+        if (lmd_is_client(lsi->lsi_lmd) &&
+            lsi->lsi_lmd->lmd_flags & LMD_FLG_NOIR)
+                data->ocd_connect_flags &= ~OBD_CONNECT_IR;
         data->ocd_version = LUSTRE_VERSION_CODE;
         rc = obd_connect(NULL, &exp, obd, &(obd->obd_uuid), data, NULL);
-        OBD_FREE_PTR(data);
         if (rc) {
                 CERROR("connect failed %d\n", rc);
                 GOTO(out, rc);
@@ -798,6 +827,8 @@ out:
 out_free:
         cfs_mutex_up(&mgc_start_lock);
 
+        if (data)
+                OBD_FREE_PTR(data);
         if (mgcname)
                 OBD_FREE(mgcname, len);
         if (niduuid)
@@ -1013,6 +1044,7 @@ static int server_sb2mti(struct super_block *sb, struct mgs_target_info *mti)
                 CERROR("params too big for mti\n");
                 RETURN(-ENOMEM);
         }
+        mti->mti_instance = lsi->lsi_instance;
         memcpy(mti->mti_params, ldd->ldd_params, sizeof(mti->mti_params));
         RETURN(0);
 }
@@ -1025,6 +1057,7 @@ int server_register_target(struct super_block *sb)
         struct obd_device *mgc = lsi->lsi_mgc;
         struct lustre_disk_data *ldd = lsi->lsi_ldd;
         struct mgs_target_info *mti = NULL;
+        bool writeconf;
         int rc;
         ENTRY;
 
@@ -1045,16 +1078,38 @@ int server_register_target(struct super_block *sb)
                libcfs_nid2str(mti->mti_nids[0]), mti->mti_stripe_index,
                mti->mti_flags);
 
+        /* if write_conf is true, the registration must succeed */
+        writeconf = !!(ldd->ldd_flags & (LDD_F_NEED_INDEX |
+                                         LDD_F_UPDATE | LDD_F_UPGRADE14));
         /* Register the target */
         /* FIXME use mgc_process_config instead */
         rc = obd_set_info_async(mgc->u.cli.cl_mgc_mgsexp,
                                 sizeof(KEY_REGISTER_TARGET), KEY_REGISTER_TARGET,
                                 sizeof(*mti), mti, NULL);
-        if (rc)
+        if (rc) {
+                if (mti->mti_flags & LDD_F_ERROR) {
+                        LCONSOLE_ERROR_MSG(0x160,
+                                "The MGS is refusing to allow this "
+                                "server (%s) to start. Please see messages"
+                                " on the MGS node.\n", ldd->ldd_svname);
+                } else if (writeconf) {
+                        LCONSOLE_ERROR_MSG(0x15f,
+                                "Communication to the MGS return error %d. "
+                                "Is the MGS running?\n", rc);
+                } else {
+                        CERROR("Cannot talk to the MGS: %d, not fatal\n", rc);
+                        /* reset the error code for non-fatal error. */
+                        rc = 0;
+                }
                 GOTO(out, rc);
+        }
 
         /* Always update our flags */
-        ldd->ldd_flags = mti->mti_flags & ~LDD_F_REWRITE_LDD;
+        ldd->ldd_flags = mti->mti_flags & LDD_F_ONDISK_MASK;
+
+        /* Imperative recovery: if the mgs informs us to use IR? */
+        if (mti->mti_flags & LDD_F_IR_CAPABLE)
+                lsi->lsi_flags |= LSI_IR_CAPABLE;
 
         /* If this flag is set, it means the MGS wants us to change our
            on-disk data. (So far this means just the index.) */
@@ -1122,7 +1177,7 @@ static int server_start_targets(struct super_block *sb, struct vfsmount *mnt)
 #endif
 
         /* If we're an OST, make sure the global OSS is running */
-        if (lsi->lsi_ldd->ldd_flags & LDD_F_SV_TYPE_OST) {
+        if (IS_OST(lsi->lsi_ldd)) {
                 /* make sure OSS is started */
                 cfs_mutex_down(&server_start_lock);
                 obd = class_name2obd(LUSTRE_OSS_OBDNAME);
@@ -1146,28 +1201,13 @@ static int server_start_targets(struct super_block *sb, struct vfsmount *mnt)
         if (rc)
                 RETURN(rc);
 
+        /* generate an unique instance # for this target */
+        lsi->lsi_instance = cfs_rand();
+
         /* Register with MGS */
         rc = server_register_target(sb);
-        if (rc && (lsi->lsi_ldd->ldd_flags &
-                   (LDD_F_NEED_INDEX | LDD_F_UPDATE | LDD_F_UPGRADE14))){
-                CERROR("Required registration failed for %s: %d\n",
-                       lsi->lsi_ldd->ldd_svname, rc);
-                if (rc == -EIO) {
-                        LCONSOLE_ERROR_MSG(0x15f, "Communication error with "
-                                           "the MGS.  Is the MGS running?\n");
-                }
-                GOTO(out_mgc, rc);
-        }
-        if (rc == -EINVAL) {
-                LCONSOLE_ERROR_MSG(0x160, "The MGS is refusing to allow this "
-                                   "server (%s) to start. Please see messages"
-                                   " on the MGS node.\n",
-                                   lsi->lsi_ldd->ldd_svname);
-                GOTO(out_mgc, rc);
-        }
-        /* non-fatal error of registeration with MGS */
         if (rc)
-                CDEBUG(D_MOUNT, "Cannot register with MGS: %d\n", rc);
+                GOTO(out_mgc, rc);
 
         /* Let the target look up the mount using the target's name
            (we can't pass the sb or mnt through class_process_config.) */
@@ -1207,6 +1247,9 @@ out_mgc:
 
                 /* log has been fully processed */
                 obd_notify(obd, NULL, OBD_NOTIFY_CONFIG, (void *)CONFIG_LOG);
+
+                /* calculate recovery timeout, do it after lustre_process_log */
+                server_calc_timeout(lsi, obd);
         }
 
         RETURN(rc);
@@ -1231,6 +1274,7 @@ struct lustre_sb_info *lustre_init_lsi(struct super_block *sb)
         lsi->lsi_lmd->lmd_exclude_count = 0;
         lsi->lsi_lmd->lmd_recovery_time_soft = 0;
         lsi->lsi_lmd->lmd_recovery_time_hard = 0;
+        lsi->lsi_lmd->lmd_recovery_ir_factor = OBD_IR_FACTOR_DEFAULT;
         s2lsi_nocast(sb) = lsi;
         /* we take 1 extra ref for our setup */
         cfs_atomic_set(&lsi->lsi_mounts, 1);
@@ -1769,6 +1813,66 @@ int server_name2index(char *svname, __u32 *idx, char **endptr)
         return rc;
 }
 
+/*
+ * Calculate timeout value for a target.
+ */
+void server_calc_timeout(struct lustre_sb_info *lsi, struct obd_device *obd)
+{
+        struct lustre_mount_data *lmd;
+        int soft = 0;
+        int hard = 0;
+        int factor = 0;
+        bool has_ir = !!(lsi->lsi_flags & LSI_IR_CAPABLE);
+        int min = OBD_RECOVERY_TIME_MIN;
+
+        LASSERT(lsi->lsi_flags & LSI_SERVER);
+
+        lmd = lsi->lsi_lmd;
+        if (lmd) {
+                factor = lmd->lmd_recovery_ir_factor;
+                soft   = lmd->lmd_recovery_time_soft;
+                hard   = lmd->lmd_recovery_time_hard;
+                has_ir = has_ir && !(lmd->lmd_flags & LMD_FLG_NOIR);
+        }
+
+        if (soft == 0)
+                soft = OBD_RECOVERY_TIME_SOFT;
+        if (hard == 0)
+                hard = OBD_RECOVERY_TIME_HARD;
+
+        /* target may have ir_factor configured. */
+        if (obd->obd_recovery_ir_factor)
+                factor = obd->obd_recovery_ir_factor;
+        if (factor == 0)
+                factor = OBD_IR_FACTOR_DEFAULT;
+
+        if (has_ir) {
+                int new_soft = soft;
+                int new_hard = hard;
+
+                /* adjust timeout value by imperative recovery */
+
+                new_soft = soft / factor;
+                new_hard = hard / factor;
+
+                /* make sure the timeout is not too short */
+                new_soft = max_t(int, min, new_soft);
+                new_hard = max_t(int, new_soft, new_hard);
+
+                LCONSOLE_INFO("%s: Imperative Recovery enabled, recovery "
+                              "window is shrunk from (%d/%d) to (%d/%d)\n",
+                              obd->obd_name, soft, hard, new_soft, new_hard);
+
+                soft = new_soft;
+                hard = new_hard;
+        }
+
+        /* we're done */
+        obd->obd_recovery_timeout   = soft;
+        obd->obd_recovery_time_hard = hard;
+        obd->obd_recovery_ir_factor = factor;
+}
+
 /*************** mount common betweeen server and client ***************/
 
 /* Common umount */
@@ -1961,8 +2065,7 @@ static int lmd_parse(char *options, struct lustre_mount_data *lmd)
         s1 = options;
         while (*s1) {
                 int clear = 0;
-                int time_min = 2 * (CONNECTION_SWITCH_MAX +
-                               2 * INITIAL_CONNECT_TIMEOUT);
+                int time_min = OBD_RECOVERY_TIME_MIN;
 
                 /* Skip whitespace and extra commas */
                 while (*s1 == ' ' || *s1 == ',')
@@ -1983,6 +2086,13 @@ static int lmd_parse(char *options, struct lustre_mount_data *lmd)
                 } else if (strncmp(s1, "recovery_time_hard=", 19) == 0) {
                         lmd->lmd_recovery_time_hard = max_t(int,
                                 simple_strtoul(s1 + 19, NULL, 10), time_min);
+                        clear++;
+                } else if (strncmp(s1, "ir_factor=", 10) == 0) {
+                        lmd->lmd_recovery_ir_factor = simple_strtoul(s1 + 10,
+                                                                     NULL, 10);
+                        clear++;
+                } else if (strncmp(s1, "noir", 4) == 0) {
+                        lmd->lmd_flags |= LMD_FLG_NOIR;
                         clear++;
                 } else if (strncmp(s1, "nosvc", 5) == 0) {
                         lmd->lmd_flags |= LMD_FLG_NOSVC;
@@ -2235,4 +2345,5 @@ EXPORT_SYMBOL(server_put_mount_2);
 EXPORT_SYMBOL(server_register_target);
 EXPORT_SYMBOL(server_name2index);
 EXPORT_SYMBOL(server_mti_print);
+EXPORT_SYMBOL(server_calc_timeout);
 EXPORT_SYMBOL(do_lcfg);
