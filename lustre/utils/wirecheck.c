@@ -224,6 +224,7 @@ static void check_obd_connect_data(void)
         CHECK_CDEFINE(OBD_CONNECT_FULL20);
         CHECK_CDEFINE(OBD_CONNECT_LAYOUTLOCK);
         CHECK_CDEFINE(OBD_CONNECT_64BITHASH);
+        CHECK_CDEFINE(OBD_CONNECT_IMP_RECOV);
 }
 
 static void
