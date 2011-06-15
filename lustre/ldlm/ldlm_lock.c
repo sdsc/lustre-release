@@ -1413,32 +1413,13 @@ int ldlm_reprocess_queue(struct ldlm_resource *res, cfs_list_t *queue,
         RETURN(rc);
 }
 
-/* Helper function for ldlm_run_ast_work().
- *
- * Send an existing rpc set specified by @arg->set and then
- * destroy it. Create new one if @do_create flag is set. */
-static void
-ldlm_send_and_maybe_create_set(struct ldlm_cb_set_arg *arg, int do_create)
-{
-        ENTRY;
-
-        ptlrpc_set_wait(arg->set);
-        if (arg->type == LDLM_BL_CALLBACK)
-                OBD_FAIL_TIMEOUT(OBD_FAIL_LDLM_GLIMPSE, 2);
-        ptlrpc_set_destroy(arg->set);
-
-        if (do_create)
-                arg->set = ptlrpc_prep_set();
-
-        EXIT;
-}
-
 static int
 ldlm_work_bl_ast_lock(cfs_list_t *tmp, struct ldlm_cb_set_arg *arg)
 {
         struct ldlm_lock_desc d;
         struct ldlm_lock *lock = cfs_list_entry(tmp, struct ldlm_lock,
                                                 l_bl_ast);
+        int rc;
         ENTRY;
 
         /* nobody should touch l_bl_ast */
@@ -1453,13 +1434,13 @@ ldlm_work_bl_ast_lock(cfs_list_t *tmp, struct ldlm_cb_set_arg *arg)
 
         ldlm_lock2desc(lock->l_blocking_lock, &d);
 
-        lock->l_blocking_ast(lock, &d, (void *)arg,
-                             LDLM_CB_BLOCKING);
+        rc = lock->l_blocking_ast(lock, &d, (void *)arg,
+                                  LDLM_CB_BLOCKING);
         LDLM_LOCK_RELEASE(lock->l_blocking_lock);
         lock->l_blocking_lock = NULL;
         LDLM_LOCK_RELEASE(lock);
 
-        RETURN(1);
+        RETURN(rc);
 }
 
 static int
@@ -1491,10 +1472,8 @@ ldlm_work_cp_ast_lock(cfs_list_t *tmp, struct ldlm_cb_set_arg *arg)
         lock->l_flags &= ~LDLM_FL_CP_REQD;
         unlock_res_and_lock(lock);
 
-        if (completion_callback != NULL) {
-                completion_callback(lock, 0, (void *)arg);
-                rc = 1;
-        }
+        if (completion_callback != NULL)
+                rc = completion_callback(lock, 0, (void *)arg);
         LDLM_LOCK_RELEASE(lock);
 
         RETURN(rc);
@@ -1506,6 +1485,7 @@ ldlm_work_revoke_ast_lock(cfs_list_t *tmp, struct ldlm_cb_set_arg *arg)
         struct ldlm_lock_desc desc;
         struct ldlm_lock *lock = cfs_list_entry(tmp, struct ldlm_lock,
                                                 l_rk_ast);
+        int rc;
         ENTRY;
 
         cfs_list_del_init(&lock->l_rk_ast);
@@ -1515,27 +1495,29 @@ ldlm_work_revoke_ast_lock(cfs_list_t *tmp, struct ldlm_cb_set_arg *arg)
         desc.l_req_mode = LCK_EX;
         desc.l_granted_mode = 0;
 
-        lock->l_blocking_ast(lock, &desc, (void*)arg, LDLM_CB_BLOCKING);
+        rc = lock->l_blocking_ast(lock, &desc, (void*)arg, LDLM_CB_BLOCKING);
         LDLM_LOCK_RELEASE(lock);
 
-        RETURN(1);
+        RETURN(rc);
 }
 
 int ldlm_run_ast_work(cfs_list_t *rpc_list, ldlm_desc_ast_t ast_type)
 {
+        struct ptlrpc_request_set *set;
         struct ldlm_cb_set_arg arg;
         cfs_list_t *tmp, *pos;
         int (*work_ast_lock)(cfs_list_t *tmp, struct ldlm_cb_set_arg *arg);
-        int ast_count;
         ENTRY;
 
         if (cfs_list_empty(rpc_list))
                 RETURN(0);
 
-        arg.set = ptlrpc_prep_set();
-        if (NULL == arg.set)
-                RETURN(-ERESTART);
+        set = ptlrpc_prep_set();
+        if (set == NULL)
+                RETURN(-ENOMEM);
+
         cfs_atomic_set(&arg.restart, 0);
+        arg.set = set;
         switch (ast_type) {
         case LDLM_WORK_BL_AST:
                 arg.type = LDLM_BL_CALLBACK;
@@ -1553,27 +1535,12 @@ int ldlm_run_ast_work(cfs_list_t *rpc_list, ldlm_desc_ast_t ast_type)
                 LBUG();
         }
 
-        ast_count = 0;
-        cfs_list_for_each_safe(tmp, pos, rpc_list) {
-                ast_count += work_ast_lock(tmp, &arg);
+        cfs_list_for_each_safe(tmp, pos, rpc_list)
+                (void)work_ast_lock(tmp, &arg);
 
-                /* Send the request set if it exceeds the PARALLEL_AST_LIMIT,
-                 * and create a new set for requests that remained in
-                 * @rpc_list */
-                if (unlikely(ast_count == PARALLEL_AST_LIMIT)) {
-                        ldlm_send_and_maybe_create_set(&arg, 1);
-                        ast_count = 0;
-                }
-        }
-
-        if (ast_count > 0)
-                ldlm_send_and_maybe_create_set(&arg, 0);
-        else
-                /* In case when number of ASTs is multiply of
-                 * PARALLEL_AST_LIMIT or @rpc_list was initially empty,
-                 * @arg.set must be destroyed here, otherwise we get
-                 * write memory leaking. */
-                ptlrpc_set_destroy(arg.set);
+        /* TODO: will add sync and async handling. */
+        ptlrpc_set_wait(set);
+        ptlrpc_set_destroy(set);
 
         RETURN(cfs_atomic_read(&arg.restart) ? -ERESTART : 0);
 }
@@ -1704,15 +1671,19 @@ void ldlm_lock_cancel(struct ldlm_lock *lock)
 int ldlm_lock_set_data(struct lustre_handle *lockh, void *data)
 {
         struct ldlm_lock *lock = ldlm_handle2lock(lockh);
+        int rc = -EINVAL;
         ENTRY;
 
-        if (lock == NULL)
-                RETURN(-EINVAL);
-
-        lock->l_ast_data = data;
-        LDLM_LOCK_PUT(lock);
-        RETURN(0);
+        if (lock) {
+                if (lock->l_ast_data == NULL) {
+                        lock->l_ast_data = data;
+                        rc = 0;
+                }
+                LDLM_LOCK_PUT(lock);
+        }
+        RETURN(rc);
 }
+EXPORT_SYMBOL(ldlm_lock_set_data);
 
 int ldlm_cancel_locks_for_export_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
                                     cfs_hlist_node_t *hnode, void *data)
