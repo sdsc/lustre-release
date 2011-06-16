@@ -1428,20 +1428,12 @@ static inline void init_obd_quota_ops(quota_interface_t *interface,
  * Checksums
  */
 
-#ifdef HAVE_ADLER
-/* Default preferred checksum algorithm to use (if supported by the server) */
-#define OSC_DEFAULT_CKSUM OBD_CKSUM_ADLER
-/* Adler-32 is supported */
-#define CHECKSUM_ADLER OBD_CKSUM_ADLER
-#else
-#define OSC_DEFAULT_CKSUM OBD_CKSUM_CRC32
+#ifndef CHECKSUM_ADLER
 #define CHECKSUM_ADLER 0
 #endif
 
-#define OBD_CKSUM_ALL (OBD_CKSUM_CRC32 | CHECKSUM_ADLER)
-
 /* Checksum algorithm names. Must be defined in the same order as the
  * OBD_CKSUM_* flags. */
-#define DECLARE_CKSUM_NAME char *cksum_name[] = {"crc32", "adler"}
+#define DECLARE_CKSUM_NAME char *cksum_name[] = {"crc32", "adler", "crc32c"}
 
 #endif /* __OBD_H */

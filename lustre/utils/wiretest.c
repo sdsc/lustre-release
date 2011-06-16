@@ -731,11 +731,13 @@ void lustre_assert_wire_constants(void)
         CLASSERT(OBD_FL_TRUNCLOCK == 0x00000800);
         CLASSERT(OBD_FL_CKSUM_CRC32 == 0x00001000);
         CLASSERT(OBD_FL_CKSUM_ADLER == 0x00002000);
+        CLASSERT(OBD_FL_CKSUM_CRC32C == 0x00004000);
         CLASSERT(OBD_FL_SHRINK_GRANT == 0x00020000);
         CLASSERT(OBD_FL_MMAP == 0x00040000);
         CLASSERT(OBD_FL_RECOV_RESEND == 0x00080000);
         CLASSERT(OBD_CKSUM_CRC32 == 0x00000001);
         CLASSERT(OBD_CKSUM_ADLER == 0x00000002);
+        CLASSERT(OBD_CKSUM_CRC32C == 0x00000004);
 
         /* Checks for struct lov_mds_md_v1 */
         LASSERTF((int)sizeof(struct lov_mds_md_v1) == 32, " found %lld\n",

@@ -3666,7 +3666,7 @@ set_checksums()
 }
 
 export ORIG_CSUM_TYPE=""
-CKSUM_TYPES=${CKSUM_TYPES:-"crc32 adler"}
+CKSUM_TYPES=${CKSUM_TYPES:-"crc32 adler crc32c"}
 set_checksum_type()
 {
 	[ "$ORIG_CSUM_TYPE" ] || \

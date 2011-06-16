@@ -1382,11 +1382,8 @@ static int check_write_checksum(struct obdo *oa, const lnet_process_id_t *peer,
         if (oa->o_valid & OBD_MD_FLFLAGS && oa->o_flags & OBD_FL_MMAP)
                 return 1;
 
-        if (oa->o_valid & OBD_MD_FLFLAGS)
-                cksum_type = cksum_type_unpack(oa->o_flags);
-        else
-                cksum_type = OBD_CKSUM_CRC32;
-
+        cksum_type = cksum_type_unpack(oa->o_valid & OBD_MD_FLFLAGS ?
+                                       oa->o_flags : 0);
         new_cksum = osc_checksum_bulk(nob, page_count, pga, OST_WRITE,
                                       cksum_type, pshift);
 
@@ -1500,10 +1497,8 @@ static int osc_brw_fini_request(struct ptlrpc_request *req, int rc)
                 char      *router;
                 cksum_type_t cksum_type;
 
-                if (body->oa.o_valid & OBD_MD_FLFLAGS)
-                        cksum_type = cksum_type_unpack(body->oa.o_flags);
-                else
-                        cksum_type = OBD_CKSUM_CRC32;
+                cksum_type = cksum_type_unpack(body->oa.o_valid &OBD_MD_FLFLAGS?
+                                               body->oa.o_flags : 0);
                 client_cksum = osc_checksum_bulk(rc, aa->aa_page_count,
                                                  aa->aa_ppga, OST_READ,
                                                  cksum_type, aa->aa_pshift);
@@ -2277,10 +2272,10 @@ static int brw_interpret(struct ptlrpc_request *request, void *data, int rc)
                     aa->aa_oa->o_flags & OBD_FL_MMAP) {
                         rc = 0;
                 } else {
-                	rc = osc_brw_redo_request(request, aa);
-                	if (rc == 0)
-                        	RETURN(0);
-		}
+                        rc = osc_brw_redo_request(request, aa);
+                        if (rc == 0)
+                                RETURN(0);
+                }
         }
 
         cli = aa->aa_cli;
