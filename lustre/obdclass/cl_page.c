@@ -185,10 +185,9 @@ EXPORT_SYMBOL(cl_page_lookup);
  * Gang tree lookup (radix_tree_gang_lookup()) optimization is absolutely
  * crucial in the face of [offset, EOF] locks.
  */
-void cl_page_gang_lookup(const struct lu_env *env, struct cl_object *obj,
-                         struct cl_io *io, pgoff_t start, pgoff_t end,
-                         struct cl_page_list *queue, int nonblock,
-                         int *resched)
+int cl_page_gang_lookup(const struct lu_env *env, struct cl_object *obj,
+                        struct cl_io *io, pgoff_t start, pgoff_t end,
+                        struct cl_page_list *queue)
 {
         struct cl_object_header *hdr;
         struct cl_page          *page;
@@ -199,14 +198,9 @@ void cl_page_gang_lookup(const struct lu_env *env, struct cl_object *obj,
         unsigned int             nr;
         unsigned int             i;
         unsigned int             j;
-        int                    (*page_own)(const struct lu_env *env,
-                                           struct cl_io *io,
-                                           struct cl_page *pg);
+        int                      res = CLP_GANG_OKAY;
+        int                      tree_lock = 1;
         ENTRY;
-
-        if (resched != NULL)
-                *resched = 0;
-        page_own = nonblock ? cl_page_own_try : cl_page_own;
 
         idx = start;
         hdr = cl_object_header(obj);
@@ -258,24 +252,37 @@ void cl_page_gang_lookup(const struct lu_env *env, struct cl_object *obj,
                  * error in the latter case).
                  */
                 cfs_spin_unlock(&hdr->coh_page_guard);
+                tree_lock = 0;
+
                 for (i = 0; i < j; ++i) {
                         page = pvec[i];
-                        if (page_own(env, io, page) == 0)
-                                cl_page_list_add(queue, page);
+                        if (res == CLP_GANG_OKAY) {
+                                typeof(cl_page_own) *page_own;
+
+                                page_own = queue->pl_nr ?
+                                           cl_page_own_try : cl_page_own;
+                                if (page_own(env, io, page) == 0)
+                                        cl_page_list_add(queue, page);
+                                else if (page->cp_state != CPS_FREEING)
+                                        res = CLP_GANG_AGAIN;
+                        }
                         lu_ref_del(&page->cp_reference,
                                    "page_list", cfs_current());
                         cl_page_put(env, page);
                 }
-                cfs_spin_lock(&hdr->coh_page_guard);
                 if (nr < CLT_PVEC_SIZE)
                         break;
-                if (resched != NULL && cfs_need_resched()) {
-                        *resched = 1;
+                if (cfs_need_resched())
+                        res = CLP_GANG_RESCHED;
+                if (res != CLP_GANG_OKAY)
                         break;
-                }
+
+                cfs_spin_lock(&hdr->coh_page_guard);
+                tree_lock = 1;
         }
-        cfs_spin_unlock(&hdr->coh_page_guard);
-        EXIT;
+        if (tree_lock)
+                cfs_spin_unlock(&hdr->coh_page_guard);
+        RETURN(res);
 }
 EXPORT_SYMBOL(cl_page_gang_lookup);
 
@@ -975,7 +982,7 @@ static int cl_page_own0(const struct lu_env *env, struct cl_io *io,
         io = cl_io_top(io);
 
         if (pg->cp_state == CPS_FREEING) {
-                result = -EAGAIN;
+                result = -ENOENT;
         } else {
                 result = CL_PAGE_INVOKE(env, pg, CL_PAGE_OP(cpo_own),
                                         (const struct lu_env *,
@@ -992,7 +999,7 @@ static int cl_page_own0(const struct lu_env *env, struct cl_io *io,
                                 cl_page_state_set(env, pg, CPS_OWNED);
                         } else {
                                 cl_page_disown0(env, io, pg);
-                                result = -EAGAIN;
+                                result = -ENOENT;
                         }
                 }
         }
@@ -1478,7 +1485,6 @@ int cl_pages_prune(const struct lu_env *env, struct cl_object *clobj)
         struct cl_object        *obj = cl_object_top(clobj);
         struct cl_io            *io;
         struct cl_page_list     *plist;
-        int                      resched;
         int                      result;
 
         ENTRY;
@@ -1499,8 +1505,8 @@ int cl_pages_prune(const struct lu_env *env, struct cl_object *clobj)
 
         do {
                 cl_page_list_init(plist);
-                cl_page_gang_lookup(env, obj, io, 0, CL_PAGE_EOF, plist, 0,
-                                    &resched);
+                result = cl_page_gang_lookup(env, obj, io, 0, CL_PAGE_EOF,
+                                             plist);
                 /*
                  * Since we're purging the pages of an object, we don't care
                  * the possible outcomes of the following functions.
@@ -1510,9 +1516,9 @@ int cl_pages_prune(const struct lu_env *env, struct cl_object *clobj)
                 cl_page_list_disown(env, io, plist);
                 cl_page_list_fini(env, plist);
 
-                if (resched)
+                if (result == CLP_GANG_RESCHED)
                         cfs_cond_resched();
-        } while (resched);
+        } while (result != CLP_GANG_OKAY);
 
         cl_io_fini(env, io);
         RETURN(result);
