@@ -1585,7 +1585,7 @@ test_65a() #bug 3055
     createmany -o $DIR/$tfile 10 > /dev/null
     unlinkmany $DIR/$tfile 10 > /dev/null
     # check for log message
-    $LCTL dk | grep "Early reply #" || error "No early reply"
+    $LCTL dk | tee /tmp/test_65a_client | grep "Early reply #" || error "No early reply"
     debugrestore
     # client should show REQ_DELAY estimates
     lctl get_param -n mdc.${FSNAME}-MDT0000-mdc-*.timeouts | grep portal
