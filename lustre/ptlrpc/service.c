@@ -1704,8 +1704,19 @@ ptlrpc_server_handle_request(struct ptlrpc_service *svc,
                libcfs_id2str(request->rq_peer),
                lustre_msg_get_opc(request->rq_reqmsg));
 
-        if (lustre_msg_get_opc(request->rq_reqmsg) != OBD_PING)
+        if (lustre_msg_get_opc(request->rq_reqmsg) != OBD_PING &&
+            lustre_msg_get_opc(request->rq_reqmsg) != SEQ_QUERY) {
+                CDEBUG(D_RPCTRACE, "XXXXXXXXXXXXXXXXX Handling RPC pname:cluuid+ref:pid:xid:nid:opc "
+                       "%s:%s+%d:%d:x"LPU64":%s:%d\n", cfs_curproc_comm(),
+                       (request->rq_export ?
+                        (char *)request->rq_export->exp_client_uuid.uuid : "0"),
+                       (request->rq_export ?
+                        cfs_atomic_read(&request->rq_export->exp_refcount) : -99),
+                       lustre_msg_get_status(request->rq_reqmsg), request->rq_xid,
+                       libcfs_id2str(request->rq_peer),
+                       lustre_msg_get_opc(request->rq_reqmsg));
                 CFS_FAIL_TIMEOUT_MS(OBD_FAIL_PTLRPC_PAUSE_REQ, cfs_fail_val);
+        }
 
         rc = svc->srv_handler(request);
 

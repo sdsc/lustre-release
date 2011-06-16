@@ -1573,6 +1573,8 @@ test_65a() #bug 3055
     $LCTL dk > /dev/null
     debugsave
     sysctl -w lnet.debug="+other"
+    lctl set_param debug=-1
+    do_facet $SINGLEMDS lctl set_param debug=-1
     # Slow down a request to the current service time, this is critical
     # because previous tests may have caused this value to increase.
     REQ_DELAY=`lctl get_param -n mdc.${FSNAME}-MDT0000-mdc-*.timeouts |
@@ -1585,7 +1587,7 @@ test_65a() #bug 3055
     createmany -o $DIR/$tfile 10 > /dev/null
     unlinkmany $DIR/$tfile 10 > /dev/null
     # check for log message
-    $LCTL dk | grep "Early reply #" || error "No early reply"
+    $LCTL dk | tee /tmp/test_65a_client | grep "Early reply #" || error "No early reply"
     debugrestore
     # client should show REQ_DELAY estimates
     lctl get_param -n mdc.${FSNAME}-MDT0000-mdc-*.timeouts | grep portal
