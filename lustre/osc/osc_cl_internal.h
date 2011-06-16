@@ -108,7 +108,8 @@ struct osc_object {
          */
         int                oo_contended;
         cfs_time_t         oo_contention_time;
-#ifdef INVARIANT_CHECK
+//#ifdef INVARIANT_CHECK
+#if 1
         /**
          * IO context used for invariant checks in osc_lock_has_pages().
          */

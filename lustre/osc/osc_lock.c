@@ -1279,7 +1279,8 @@ static int osc_lock_flush(struct osc_lock *ols, int discard)
                 result = PTR_ERR(env);
         if (result == 0) {
                 ols->ols_flush = 1;
-                LINVRNT(!osc_lock_has_pages(ols));
+                //LINVRNT(!osc_lock_has_pages(ols));
+                LASSERT(!osc_lock_has_pages(ols));
         }
         return result;
 }
@@ -1313,7 +1314,7 @@ static void osc_lock_cancel(const struct lu_env *env,
         if (dlmlock != NULL) {
                 int do_cancel;
 
-                discard = dlmlock->l_flags & LDLM_FL_DISCARD_DATA;
+                discard = !!(dlmlock->l_flags & LDLM_FL_DISCARD_DATA);
                 result = osc_lock_flush(olck, discard);
                 osc_lock_unhold(olck);
 
@@ -1341,7 +1342,8 @@ void cl_lock_page_list_fixup(const struct lu_env *env,
                              struct cl_io *io, struct cl_lock *lock,
                              struct cl_page_list *queue);
 
-#ifdef INVARIANT_CHECK
+//#ifdef INVARIANT_CHECK
+#if 1
 /**
  * Returns true iff there are pages under \a olck not protected by other
  * locks.
@@ -1374,8 +1376,7 @@ static int osc_lock_has_pages(struct osc_lock *olck)
                 io->ci_obj = cl_object_top(obj);
                 cl_io_init(env, io, CIT_MISC, io->ci_obj);
                 cl_page_gang_lookup(env, obj, io,
-                                    descr->cld_start, descr->cld_end, plist, 0,
-                                    NULL);
+                                    descr->cld_start, descr->cld_end, plist);
                 cl_lock_page_list_fixup(env, io, lock, plist);
                 if (plist->pl_nr > 0) {
                         CL_LOCK_DEBUG(D_ERROR, env, lock, "still has pages\n");
@@ -1412,7 +1413,8 @@ static void osc_lock_delete(const struct lu_env *env,
         }
 
         LINVRNT(osc_lock_invariant(olck));
-        LINVRNT(!osc_lock_has_pages(olck));
+        //LINVRNT(!osc_lock_has_pages(olck));
+        LASSERT(!osc_lock_has_pages(olck));
 
         osc_lock_unhold(olck);
         osc_lock_detach(env, olck);
