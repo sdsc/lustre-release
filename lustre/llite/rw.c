@@ -266,12 +266,13 @@ void ll_truncate(struct inode *inode)
                         struct ll_async_page *llap = llap_cast_private(page);
                         if (llap != NULL) {
                                 char *kaddr = kmap_atomic(page, KM_USER0);
-                                llap->llap_checksum =
-                                        init_checksum(OSC_DEFAULT_CKSUM);
+                                cksum_type_t ctype =
+                                     cksum_type_select(cksum_types_supported());
+                                llap->llap_checksum = init_checksum(ctype);
                                 llap->llap_checksum =
                                         compute_checksum(llap->llap_checksum,
                                                          kaddr, CFS_PAGE_SIZE,
-                                                         OSC_DEFAULT_CKSUM);
+                                                         ctype);
                                 kunmap_atomic(kaddr, KM_USER0);
                         }
                         page_cache_release(page);
@@ -903,11 +904,12 @@ static struct ll_async_page *llap_from_page_with_lockh(struct page *page,
 
  out:
         if (unlikely(sbi->ll_flags & LL_SBI_LLITE_CHECKSUM)) {
-                __u32 csum;
+                cksum_type_t ctype = cksum_type_select(cksum_types_supported());
                 char *kaddr = kmap_atomic(page, KM_USER0);
-                csum = init_checksum(OSC_DEFAULT_CKSUM);
-                csum = compute_checksum(csum, kaddr, CFS_PAGE_SIZE,
-                                        OSC_DEFAULT_CKSUM);
+                __u32 csum;
+
+                csum = init_checksum(ctype);
+                csum = compute_checksum(csum, kaddr, CFS_PAGE_SIZE, ctype);
                 kunmap_atomic(kaddr, KM_USER0);
                 if (origin == LLAP_ORIGIN_READAHEAD ||
                     origin == LLAP_ORIGIN_READPAGE) {
@@ -992,12 +994,13 @@ static int queue_or_sync_write(struct obd_export *exp, struct inode *inode,
         /* compare the checksum once before the page leaves llite */
         if (unlikely((sbi->ll_flags & LL_SBI_LLITE_CHECKSUM) &&
                      llap->llap_checksum != 0)) {
-                __u32 csum;
+                cksum_type_t ctype = cksum_type_select(cksum_types_supported());
                 struct page *page = llap->llap_page;
                 char *kaddr = kmap_atomic(page, KM_USER0);
-                csum = init_checksum(OSC_DEFAULT_CKSUM);
-                csum = compute_checksum(csum, kaddr, CFS_PAGE_SIZE,
-                                        OSC_DEFAULT_CKSUM);
+                __u32 csum;
+
+                csum = init_checksum(ctype);
+                csum = compute_checksum(csum, kaddr, CFS_PAGE_SIZE, ctype);
                 kunmap_atomic(kaddr, KM_USER0);
                 if (llap->llap_checksum == csum) {
                         CDEBUG(D_PAGE, "page %p cksum %x confirmed\n",
