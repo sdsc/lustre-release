@@ -1704,7 +1704,8 @@ ptlrpc_server_handle_request(struct ptlrpc_service *svc,
                libcfs_id2str(request->rq_peer),
                lustre_msg_get_opc(request->rq_reqmsg));
 
-        if (lustre_msg_get_opc(request->rq_reqmsg) != OBD_PING)
+        if (lustre_msg_get_opc(request->rq_reqmsg) != OBD_PING &&
+            lustre_msg_get_opc(request->rq_reqmsg) != SEQ_ALLOC_META)
                 CFS_FAIL_TIMEOUT_MS(OBD_FAIL_PTLRPC_PAUSE_REQ, cfs_fail_val);
 
         rc = svc->srv_handler(request);
