@@ -1979,7 +1979,8 @@ int cl_lock_page_out(const struct lu_env *env, struct cl_lock *lock,
         struct cl_2queue      *queue = &info->clt_queue;
         struct cl_lock_descr  *descr = &lock->cll_descr;
         long page_count;
-        int nonblock = 1, resched;
+        pgoff_t next_index;
+        int res;
         int result;
 
         LINVRNT(cl_lock_invariant(env, lock));
@@ -1990,36 +1991,37 @@ int cl_lock_page_out(const struct lu_env *env, struct cl_lock *lock,
         if (result != 0)
                 GOTO(out, result);
 
+        next_index = descr->cld_start;
         do {
                 cl_2queue_init(queue);
-                cl_page_gang_lookup(env, descr->cld_obj, io, descr->cld_start,
-                                    descr->cld_end, &queue->c2_qin, nonblock,
-                                    &resched);
+                res = cl_page_gang_lookup(env, descr->cld_obj, io,
+                                          next_index, descr->cld_end,
+                                          &queue->c2_qin);
                 page_count = queue->c2_qin.pl_nr;
-                if (page_count > 0) {
-                        result = cl_page_list_unmap(env, io, &queue->c2_qin);
-                        if (!discard) {
-                                long timeout = 600; /* 10 minutes. */
-                                /* for debug purpose, if this request can't be
-                                 * finished in 10 minutes, we hope it can
-                                 * notify us.
-                                 */
-                                result = cl_io_submit_sync(env, io, CRT_WRITE,
-                                                           queue, CRP_CANCEL,
-                                                           timeout);
-                                if (result)
-                                        CWARN("Writing %lu pages error: %d\n",
-                                              page_count, result);
-                        }
-                        cl_lock_page_list_fixup(env, io, lock, &queue->c2_qout);
-                        cl_2queue_discard(env, io, queue);
-                        cl_2queue_disown(env, io, queue);
+                if (page_count == 0)
+                        break;
+
+                next_index = cl_page_list_last(&queue->c2_qin)->cp_index + 1;
+                result = cl_page_list_unmap(env, io, &queue->c2_qin);
+                if (!discard) {
+                        long timeout = 600; /* 10 minutes. */
+                        /* for debug purpose, if this request can't be
+                         * finished in 10 minutes, we hope it can notify us.
+                         */
+                        result = cl_io_submit_sync(env, io, CRT_WRITE, queue,
+                                                   CRP_CANCEL, timeout);
+                        if (result)
+                                CWARN("Writing %lu pages error: %d\n",
+                                      page_count, result);
                 }
+                cl_lock_page_list_fixup(env, io, lock, &queue->c2_qout);
+                cl_2queue_discard(env, io, queue);
+                cl_2queue_disown(env, io, queue);
                 cl_2queue_fini(env, queue);
 
-                if (resched)
+                if (res == CLP_GANG_RESCHED)
                         cfs_cond_resched();
-        } while (resched || nonblock--);
+        } while (res != CLP_GANG_OKAY);
 out:
         cl_io_fini(env, io);
         RETURN(result);
