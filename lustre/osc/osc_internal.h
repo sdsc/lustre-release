@@ -224,4 +224,6 @@ static inline struct osc_device *obd2osc_dev(const struct obd_device *d)
 
 int osc_dlm_lock_pageref(struct ldlm_lock *dlm);
 
+#define OSC_FILE2MEM_OFF(fileoff,pshift) ((fileoff) + (pshift))
+
 #endif /* OSC_INTERNAL_H */

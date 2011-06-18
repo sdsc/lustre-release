@@ -491,6 +491,91 @@ static ssize_t lustre_generic_file_write(struct file *file,
 }
 #endif
 
+static ssize_t lustre_direct_read(struct file *file,
+                                  struct ccc_io *vio, loff_t *ppos)
+{
+        struct address_space *mapping = file->f_mapping;
+        struct inode *inode = mapping->host;
+        ssize_t err, ocount;
+        unsigned long nrsegs_copy;
+        ENTRY;
+
+        nrsegs_copy = vio->cui_nrsegs;
+        err = generic_segment_checks(vio->cui_iov, &nrsegs_copy, &ocount,
+                                     VERIFY_WRITE);
+        if (err)
+                RETURN(err);
+
+        if (!ocount)
+                RETURN(0);
+
+        if (*ppos >= i_size_read(inode))
+                RETURN(0);
+
+        err = ll_direct_IO(READ, file, vio->cui_iov, *ppos, nrsegs_copy);
+        RETURN(err);
+}
+
+/* iov_shorten from linux kernel */
+static unsigned long ll_iov_shorten(struct iovec *iov,
+                                    unsigned long nr_segs, size_t to)
+{
+        unsigned long seg = 0;
+        size_t len = 0;
+
+        while (seg < nr_segs) {
+                seg++;
+                if (len + iov->iov_len >= to) {
+                        iov->iov_len = to - len;
+                        break;
+                }
+                len += iov->iov_len;
+                iov++;
+        }
+        return seg;
+}
+
+static ssize_t lustre_direct_write(struct file *file,
+                                   struct ccc_io *vio, loff_t *ppos)
+{
+        struct address_space *mapping = file->f_mapping;
+        struct inode *inode = mapping->host;
+        ssize_t err, written = 0, ocount, count;
+        unsigned long nrsegs_copy;
+        ENTRY;
+
+        mutex_lock(&inode->i_mutex);
+
+        nrsegs_copy = vio->cui_nrsegs;
+        err = generic_segment_checks(vio->cui_iov, &nrsegs_copy, &ocount,
+                                     VERIFY_READ);
+        if (err)
+                GOTO(out, err);
+
+        count = ocount;
+        err = generic_write_checks(file, ppos, &count, 0);
+        if (err)
+                GOTO(out, err);
+
+        if (count == 0)
+                GOTO(out, err);
+
+        err = ll_remove_suid(file, file->f_vfsmnt);
+        if (err)
+                GOTO(out, err);
+
+        file_update_time(file);
+
+        if (count != ocount)
+                nrsegs_copy = ll_iov_shorten(vio->cui_iov, nrsegs_copy, count);
+
+        written = ll_direct_IO(WRITE, file, vio->cui_iov, *ppos, nrsegs_copy);
+
+out:
+        mutex_unlock(&inode->i_mutex);
+        RETURN(written ? written : err);
+}
+
 static int vvp_io_read_start(const struct lu_env *env,
                              const struct cl_io_slice *ios)
 {
@@ -506,7 +591,7 @@ static int vvp_io_read_start(const struct lu_env *env,
         loff_t  pos = io->u.ci_rd.rd.crw_pos;
         long    cnt = io->u.ci_rd.rd.crw_count;
         long    tot = cio->cui_tot_count;
-        int     exceed = 0;
+        int     exceed = 0, lockless = 0;
 
         CLOBINVRNT(env, obj, ccc_object_invariant(obj));
 
@@ -540,8 +625,13 @@ static int vvp_io_read_start(const struct lu_env *env,
         file_accessed(file);
         switch (vio->cui_io_subtype) {
         case IO_NORMAL:
-                 result = lustre_generic_file_read(file, cio, &pos);
-                 break;
+                cl_io_is_lockless(env, io, &lockless);
+
+                if (!lockless)
+                        result = lustre_generic_file_read(file, cio, &pos);
+                else
+                        result = lustre_direct_read(file, cio, &pos);
+                break;
 #ifdef HAVE_KERNEL_SENDFILE
         case IO_SENDFILE:
                 result = generic_file_sendfile(file, &pos, cnt,
@@ -584,7 +674,7 @@ static int vvp_io_write_start(const struct lu_env *env,
         ssize_t result = 0;
         loff_t pos = io->u.ci_wr.wr.crw_pos;
         size_t cnt = io->u.ci_wr.wr.crw_count;
-
+        int lockless = 0;
         ENTRY;
 
         if (cl_io_is_append(io)) {
@@ -599,11 +689,14 @@ static int vvp_io_write_start(const struct lu_env *env,
         }
 
         CDEBUG(D_VFSTRACE, "write: [%lli, %lli)\n", pos, pos + (long long)cnt);
+        cl_io_is_lockless(env, io, &lockless);
 
         if (cio->cui_iov == NULL) /* from a temp io in ll_cl_init(). */
                 result = 0;
-        else
+        else if (!lockless)
                 result = lustre_generic_file_write(file, cio, &pos);
+        else
+                result = lustre_direct_write(file, cio, &pos);
 
         if (result > 0) {
                 if (result < cnt)
