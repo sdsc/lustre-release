@@ -185,6 +185,213 @@ static int osc_io_submit(const struct lu_env *env,
 	return qout->pl_nr > 0 ? 0 : result;
 }
 
+/* DIO needs to consume the grant as well, otherwise, it could fail with
+ * -ENOSPC even if the client is still holding lots of not used grant.
+ */
+long osc_dio_consume_grant(struct client_obd *cli, struct brw_page **ppga,
+			   int page_count)
+{
+	struct brw_page	*brw_page;
+	long		 start_chk, end_chk, last_chk, grant, consumed = 0;
+	int		 i, chunksize = 1 << cli->cl_chunkbits;
+
+	/* check without lock firstly */
+	if (cli->cl_avail_grant < chunksize)
+		return consumed;
+
+	client_obd_list_lock(&cli->cl_loi_list_lock);
+
+	last_chk = -1;
+	for (i = 0; i < page_count; i++) {
+		brw_page = ppga[i];
+
+		start_chk = brw_page->file_off >> cli->cl_chunkbits;
+		end_chk = (brw_page->file_off + brw_page->count +
+			   chunksize - 1) >> cli->cl_chunkbits;
+
+		LASSERT(end_chk >= last_chk); /* pages are sorted */
+		if (end_chk == last_chk) {
+			brw_page->flag |= OBD_BRW_FROM_GRANT;
+			continue;
+		} else if (end_chk > last_chk) {
+			start_chk = max(start_chk, last_chk);
+		}
+
+		LASSERT(end_chk > start_chk);
+		grant = (end_chk - start_chk) * chunksize;
+
+		if (cli->cl_avail_grant < grant)
+			break;
+
+		brw_page->flag |= OBD_BRW_FROM_GRANT;
+		cli->cl_avail_grant -= grant;
+		consumed += grant;
+		last_chk = end_chk;
+	}
+	osc_update_next_shrink(cli);
+
+	/* Server grant code assumes granted pages are all come from cache,
+	 * so we have to report it a dirty number which match up with the
+	 * granted number. */
+	cli->cl_dirty += consumed;
+	cfs_atomic_add(consumed >> PAGE_CACHE_SHIFT, &obd_dirty_pages);
+
+	client_obd_list_unlock(&cli->cl_loi_list_lock);
+
+	return consumed;
+}
+
+void osc_dio_drop_grant(struct client_obd *cli, struct brw_page **pga,
+			int page_count, long consumed, int rc)
+{
+	struct brw_page	*brw_page;
+	int		 i;
+	long		 bytes = 0;
+
+	if (consumed == 0)
+		return;
+
+	client_obd_list_lock(&cli->cl_loi_list_lock);
+
+	for (i = 0; i < page_count; i++) {
+		brw_page = pga[i];
+		if (brw_page->flag & OBD_BRW_FROM_GRANT) {
+			brw_page->flag &= ~OBD_BRW_FROM_GRANT;
+			bytes += brw_page->count;
+		}
+	}
+	LASSERT(consumed >= bytes);
+	cli->cl_lost_grant += rc ? consumed : (consumed - bytes);
+	cli->cl_dirty -= consumed;
+	cfs_atomic_sub(consumed >> PAGE_CACHE_SHIFT, &obd_dirty_pages);
+
+	osc_wake_cache_waiters(cli);
+	client_obd_list_unlock(&cli->cl_loi_list_lock);
+}
+
+static int osc_io_dio(const struct lu_env *env,
+		      const struct cl_io_slice *ios,
+		      struct cl_dio_data *dio_data)
+{
+	struct cl_object	*obj = ios->cis_obj;
+	struct osc_io		*oio = cl2osc_io(env, ios);
+	struct osc_device	*osc = lu2osc_dev(obj->co_lu.lo_dev);
+	int			 obd_cmd = dio_data->cdd_cmd == CRT_READ ? \
+					   OBD_BRW_READ : OBD_BRW_WRITE;
+	struct brw_page		*pga, **ppga, **orig;
+	int			 page_count = dio_data->cdd_page_count;
+	int			 page_count_orig, i, rc = 0;
+	pgoff_t			 pgoff = dio_data->cdd_pgoff;
+	int			 unaligned = pgoff ? 1 : 0;
+	loff_t			 file_offset = dio_data->cdd_offset;
+	size_t			 length = dio_data->cdd_size;
+	struct lov_oinfo	*oinfo;
+	struct obdo		*saved_oa = NULL;
+	struct client_obd	*cli;
+	long			 consumed;
+	ENTRY;
+
+	/* Prepare dio data */
+	oinfo = cl2osc(obj)->oo_oinfo;
+	dio_data->cdd_oa.o_oi = oinfo->loi_oi;
+	dio_data->cdd_oa.o_valid |= OBD_MD_FLID | OBD_MD_FLGROUP;
+
+	page_count_orig = page_count;
+
+	OBD_ALLOC(pga, sizeof(*pga) * page_count);
+	if (pga == NULL)
+		RETURN(-ENOMEM);
+
+	orig = ppga = osc_build_ppga(pga, page_count);
+	if (ppga == NULL)
+		GOTO(free_pga, rc = -ENOMEM);
+
+	for (i = 0; length > 0; i++) {
+		LASSERT(i < page_count);
+
+		pga[i].pg = dio_data->cdd_pages[i];
+		pga[i].file_off = file_offset;
+		pga[i].pg_off = pgoff;
+		/* To the end of the page, or the length, whatever is less */
+		pga[i].count = min_t(int, PAGE_CACHE_SIZE - pgoff, length);
+		pga[i].flag = OBD_BRW_SYNC;
+
+		if (!client_is_remote(osc->od_exp) &&
+		    cfs_capable(CFS_CAP_SYS_RESOURCE))
+			pga[i].flag |= OBD_BRW_NOQUOTA;
+
+		if (osc_io_srvlock(oio))
+			pga[i].flag |= OBD_BRW_SRVLOCK;
+
+		length -= pga[i].count;
+		file_offset += pga[i].count;
+		pgoff = (pgoff + pga[i].count) & ~CFS_PAGE_MASK;
+	}
+
+	cli = &class_exp2cliimp(osc->od_exp)->imp_obd->u.cli;
+
+	while (page_count) {
+		obd_count pages_per_brw;
+
+		/* One page less for unaligned dio */
+                if (page_count > cli->cl_max_pages_per_rpc - unaligned)
+			pages_per_brw = cli->cl_max_pages_per_rpc - unaligned;
+		else
+			pages_per_brw = page_count;
+
+		if (saved_oa != NULL) {
+			/* restore previously saved oa */
+			dio_data->cdd_oa = *saved_oa;
+		} else if (page_count > pages_per_brw) {
+			/* save a copy of oa (brw will clobber it) */
+			OBDO_ALLOC(saved_oa);
+			if (saved_oa == NULL) {
+				rc = -ENOMEM;
+				break;
+			}
+			*saved_oa = dio_data->cdd_oa;
+		}
+
+		if (obd_cmd == OBD_BRW_WRITE)
+			consumed = osc_dio_consume_grant(cli, ppga,
+							 pages_per_brw);
+
+		rc = osc_brw_internal(obd_cmd, osc->od_exp, &dio_data->cdd_oa,
+				      pages_per_brw, ppga, dio_data->cdd_capa);
+
+		if (obd_cmd == OBD_BRW_WRITE)
+			osc_dio_drop_grant(cli, ppga, pages_per_brw,
+					   consumed, rc);
+
+		if (rc != 0)
+			break;
+
+		page_count -= pages_per_brw;
+		ppga += pages_per_brw;
+	}
+
+	if (rc) {
+                CERROR("%s: osc dio failed: %d\n",
+		       osc->od_exp->exp_obd->obd_name, rc);
+	} else if (osc_io_srvlock(oio)) {
+		/* lockless io statistics */
+		struct lu_device *ld    = obj->co_lu.lo_dev;
+		struct osc_stats *stats = &lu2osc_dev(ld)->od_stats;
+
+		if (dio_data->cdd_cmd == CRT_READ)
+			stats->os_lockless_reads += dio_data->cdd_size;
+		else
+			stats->os_lockless_writes += dio_data->cdd_size;
+	}
+
+	osc_release_ppga(orig, page_count_orig);
+	if (saved_oa != NULL)
+		OBDO_FREE(saved_oa);
+free_pga:
+	OBD_FREE(pga, sizeof(*pga) * page_count_orig);
+	RETURN(rc);
+}
+
 static void osc_page_touch_at(const struct lu_env *env,
                               struct cl_object *obj, pgoff_t idx, unsigned to)
 {
@@ -269,12 +476,8 @@ static int osc_io_prepare_write(const struct lu_env *env,
 
         if (imp == NULL || imp->imp_invalid)
                 result = -EIO;
-        if (result == 0 && oio->oi_lockless)
-                /* this page contains `invalid' data, but who cares?
-                 * nobody can access the invalid data.
-                 * in osc_io_commit_write(), we're going to write exact
-                 * [from, to) bytes of this page to OST. -jay */
-                cl_page_export(env, slice->cpl_page, 1);
+	/* No buffered lockless io. */
+	LASSERT(!oio->oi_lockless);
 
         RETURN(result);
 }
@@ -302,11 +505,17 @@ static int osc_io_commit_write(const struct lu_env *env,
             cfs_capable(CFS_CAP_SYS_RESOURCE))
                 oap->oap_brw_flags |= OBD_BRW_NOQUOTA;
 
-        if (oio->oi_lockless)
-                /* see osc_io_prepare_write() for lockless io handling. */
-                cl_page_clip(env, slice->cpl_page, from, to);
+	/* No buffered lockless io. */
+	LASSERT(!oio->oi_lockless);
 
         RETURN(0);
+}
+
+static int osc_io_is_cacheable(const struct lu_env *env,
+			       const struct cl_io_slice *ios)
+{
+	struct osc_io *oio = cl2osc_io(env, ios);
+	return !osc_io_srvlock(oio);
 }
 
 static int osc_io_fault_start(const struct lu_env *env,
@@ -702,14 +911,17 @@ static const struct cl_io_operations osc_io_ops = {
         },
         .req_op = {
                  [CRT_READ] = {
-                         .cio_submit    = osc_io_submit
+			 .cio_submit    = osc_io_submit,
+			 .cio_dio       = osc_io_dio
                  },
                  [CRT_WRITE] = {
-                         .cio_submit    = osc_io_submit
+			 .cio_submit    = osc_io_submit,
+			 .cio_dio       = osc_io_dio
                  }
          },
         .cio_prepare_write = osc_io_prepare_write,
-        .cio_commit_write  = osc_io_commit_write
+	.cio_commit_write  = osc_io_commit_write,
+	.cio_is_cacheable  = osc_io_is_cacheable
 };
 
 /*****************************************************************************

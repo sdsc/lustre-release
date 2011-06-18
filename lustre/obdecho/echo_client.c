@@ -2524,7 +2524,7 @@ static int echo_client_kbrw(struct echo_device *ed, int rw, struct obdo *oa,
 
                 pages[i] = pgp->pg;
 		pgp->count = PAGE_CACHE_SIZE;
-                pgp->off = off;
+		pgp->file_off = off;
                 pgp->flag = brw_flags;
 
 		if (verify)
@@ -2549,7 +2549,8 @@ static int echo_client_kbrw(struct echo_device *ed, int rw, struct obdo *oa,
 			int vrc;
 			vrc = echo_client_page_debug_check(lsm, pgp->pg,
 							   ostid_id(&oa->o_oi),
-							   pgp->off, pgp->count);
+							   pgp->file_off,
+							   pgp->count);
 			if (vrc != 0 && rc == 0)
 				rc = vrc;
 		}

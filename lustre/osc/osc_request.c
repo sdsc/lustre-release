@@ -1096,7 +1096,7 @@ static void osc_init_grant(struct client_obd *cli, struct obd_connect_data *ocd)
  * via the LOV, and it _knows_ it's reading inside the file, it's just that
  * this stripe never got written at or beyond this stripe offset yet. */
 static void handle_short_read(int nob_read, obd_count page_count,
-                              struct brw_page **pga)
+			      struct brw_page **pga)
 {
         char *ptr;
         int i = 0;
@@ -1107,8 +1107,8 @@ static void handle_short_read(int nob_read, obd_count page_count,
 
 		if (pga[i]->count > nob_read) {
 			/* EOF inside this page */
-			ptr = kmap(pga[i]->pg) +
-				(pga[i]->off & ~CFS_PAGE_MASK);
+			LASSERT(pga[i]->pg_off < PAGE_CACHE_SIZE);
+			ptr = kmap(pga[i]->pg) + pga[i]->pg_off;
 			memset(ptr + nob_read, 0, pga[i]->count - nob_read);
 			kunmap(pga[i]->pg);
 			page_count--;
@@ -1123,7 +1123,8 @@ static void handle_short_read(int nob_read, obd_count page_count,
 
 	/* zero remaining pages */
 	while (page_count-- > 0) {
-		ptr = kmap(pga[i]->pg) + (pga[i]->off & ~CFS_PAGE_MASK);
+		LASSERT(pga[i]->pg_off < PAGE_CACHE_SIZE);
+		ptr = kmap(pga[i]->pg) + pga[i]->pg_off;
 		memset(ptr, 0, pga[i]->count);
 		kunmap(pga[i]->pg);
 		i++;
@@ -1182,7 +1183,7 @@ static inline int can_merge_pages(struct brw_page *p1, struct brw_page *p2)
                 return 0;
         }
 
-        return (p1->off + p1->count == p2->off);
+	return (p1->file_off + p1->count == p2->file_off);
 }
 
 static obd_count osc_checksum_bulk(int nob, obd_count pg_count,
@@ -1213,16 +1214,14 @@ static obd_count osc_checksum_bulk(int nob, obd_count pg_count,
 		if (i == 0 && opc == OST_READ &&
 		    OBD_FAIL_CHECK(OBD_FAIL_OSC_CHECKSUM_RECEIVE)) {
 			unsigned char *ptr = kmap(pga[i]->pg);
-			int off = pga[i]->off & ~CFS_PAGE_MASK;
+			int off = pga[i]->pg_off;
 			memcpy(ptr + off, "bad1", min(4, nob));
 			kunmap(pga[i]->pg);
 		}
 		cfs_crypto_hash_update_page(hdesc, pga[i]->pg,
-				  pga[i]->off & ~CFS_PAGE_MASK,
-				  count);
+				  pga[i]->pg_off, count);
 		LL_CDEBUG_PAGE(D_PAGE, pga[i]->pg, "off %d\n",
-			       (int)(pga[i]->off & ~CFS_PAGE_MASK));
-
+			       (int)(pga[i]->pg_off));
 		nob -= pga[i]->count;
 		pg_count--;
 		i++;
@@ -1242,12 +1241,11 @@ static obd_count osc_checksum_bulk(int nob, obd_count pg_count,
 	return cksum;
 }
 
-static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
-                                struct lov_stripe_md *lsm, obd_count page_count,
-                                struct brw_page **pga,
-                                struct ptlrpc_request **reqp,
-                                struct obd_capa *ocapa, int reserve,
-                                int resend)
+static int osc_brw_prep_request(int cmd, struct client_obd *cli,
+				struct obdo *oa, obd_count page_count,
+				struct brw_page **pga,
+				struct ptlrpc_request **reqp,
+				struct obd_capa *ocapa, int reserve, int resend)
 {
         struct ptlrpc_request   *req;
         struct ptlrpc_bulk_desc *desc;
@@ -1329,40 +1327,41 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
 	pg_prev = pga[0];
         for (requested_nob = i = 0; i < page_count; i++, niobuf++) {
                 struct brw_page *pg = pga[i];
-                int poff = pg->off & ~CFS_PAGE_MASK;
 
                 LASSERT(pg->count > 0);
                 /* make sure there is no gap in the middle of page array */
 		LASSERTF(page_count == 1 ||
-			 (ergo(i == 0, poff + pg->count == PAGE_CACHE_SIZE) &&
+			 (ergo(i == 0,
+			       pg->pg_off + pg->count == PAGE_CACHE_SIZE) &&
 			  ergo(i > 0 && i < page_count - 1,
-			       poff == 0 && pg->count == PAGE_CACHE_SIZE)   &&
-			  ergo(i == page_count - 1, poff == 0)),
-			 "i: %d/%d pg: %p off: "LPU64", count: %u\n",
-			 i, page_count, pg, pg->off, pg->count);
+			       pg->pg_off == 0 && pg->count == PAGE_CACHE_SIZE) &&
+			  ergo(i == page_count - 1, pg->pg_off == 0)),
+			 "i: %d/%d pg: %p file_off: "LPU64", pg_off: %d, "
+			 "count: %u\n", i, page_count, pg, pg->file_off,
+			 pg->pg_off, pg->count);
 #ifdef __linux__
-                LASSERTF(i == 0 || pg->off > pg_prev->off,
-                         "i %d p_c %u pg %p [pri %lu ind %lu] off "LPU64
-                         " prev_pg %p [pri %lu ind %lu] off "LPU64"\n",
-                         i, page_count,
-                         pg->pg, page_private(pg->pg), pg->pg->index, pg->off,
-                         pg_prev->pg, page_private(pg_prev->pg),
-                         pg_prev->pg->index, pg_prev->off);
+		LASSERTF(i == 0 || pg->file_off > pg_prev->file_off,
+			 "i %d p_c %u pg %p [pri %lu ind %lu] off "LPU64""
+			 " prev_pg %p [pri %lu ind %lu] off "LPU64"\n",
+			 i, page_count, pg->pg, page_private(pg->pg),
+			 pg->pg->index, pg->file_off, pg_prev->pg,
+			 page_private(pg_prev->pg),
+			 pg_prev->pg->index, pg_prev->file_off);
 #else
-                LASSERTF(i == 0 || pg->off > pg_prev->off,
-                         "i %d p_c %u\n", i, page_count);
+		LASSERTF(i == 0 || pg->file_off > pg_prev->file_off,
+			 "i %d p_c %u\n", i, page_count);
 #endif
                 LASSERT((pga[0]->flag & OBD_BRW_SRVLOCK) ==
                         (pg->flag & OBD_BRW_SRVLOCK));
 
-		ptlrpc_prep_bulk_page_pin(desc, pg->pg, poff, pg->count);
+		ptlrpc_prep_bulk_page_pin(desc, pg->pg, pg->pg_off, pg->count);
                 requested_nob += pg->count;
 
                 if (i > 0 && can_merge_pages(pg_prev, pg)) {
                         niobuf--;
                         niobuf->len += pg->count;
                 } else {
-                        niobuf->offset = pg->off;
+			niobuf->offset = pg->file_off;
                         niobuf->len    = pg->count;
                         niobuf->flags  = pg->flag;
                 }
@@ -1487,8 +1486,9 @@ static int check_write_checksum(struct obdo *oa, const lnet_process_id_t *peer,
 			   oa->o_valid & OBD_MD_FLFID ? oa->o_parent_seq : (__u64)0,
 			   oa->o_valid & OBD_MD_FLFID ? oa->o_parent_oid : 0,
 			   oa->o_valid & OBD_MD_FLFID ? oa->o_parent_ver : 0,
-			   POSTID(&oa->o_oi), pga[0]->off,
-			   pga[page_count-1]->off + pga[page_count-1]->count - 1);
+			   POSTID(&oa->o_oi), pga[0]->file_off,
+			   pga[page_count-1]->file_off + \
+			   pga[page_count-1]->count - 1);
 	CERROR("original client csum %x (type %x), server csum %x (type %x), "
 	       "client csum now %x\n", client_cksum, client_cksum_type,
 	       server_cksum, cksum_type, new_cksum);
@@ -1620,8 +1620,8 @@ static int osc_brw_fini_request(struct ptlrpc_request *req, int rc)
 					   body->oa.o_valid & OBD_MD_FLFID ?
 						body->oa.o_parent_ver : 0,
 					   POSTID(&body->oa.o_oi),
-					   aa->aa_ppga[0]->off,
-					   aa->aa_ppga[aa->aa_page_count-1]->off +
+					   aa->aa_ppga[0]->file_off,
+					   aa->aa_ppga[aa->aa_page_count-1]->file_off +
 					   aa->aa_ppga[aa->aa_page_count-1]->count -
 									1);
 			CERROR("client %x, server %x, cksum_type %x\n",
@@ -1652,10 +1652,9 @@ out:
         RETURN(rc);
 }
 
-static int osc_brw_internal(int cmd, struct obd_export *exp, struct obdo *oa,
-                            struct lov_stripe_md *lsm,
-                            obd_count page_count, struct brw_page **pga,
-                            struct obd_capa *ocapa)
+int osc_brw_internal(int cmd, struct obd_export *exp, struct obdo *oa,
+		     obd_count page_count, struct brw_page **pga,
+		     struct obd_capa *ocapa)
 {
         struct ptlrpc_request *req;
         int                    rc;
@@ -1669,8 +1668,8 @@ static int osc_brw_internal(int cmd, struct obd_export *exp, struct obdo *oa,
         generation = exp->exp_obd->u.cli.cl_import->imp_generation;
 
 restart_bulk:
-        rc = osc_brw_prep_request(cmd, &exp->exp_obd->u.cli, oa, lsm,
-                                  page_count, pga, &req, ocapa, 0, resends);
+	rc = osc_brw_prep_request(cmd, &exp->exp_obd->u.cli, oa, page_count,
+				  pga, &req, ocapa, 0, resends);
         if (rc != 0)
                 return (rc);
 
@@ -1734,11 +1733,9 @@ static int osc_brw_redo_request(struct ptlrpc_request *request,
 		  "redo for recoverable error %d", rc);
 
         rc = osc_brw_prep_request(lustre_msg_get_opc(request->rq_reqmsg) ==
-                                        OST_WRITE ? OBD_BRW_WRITE :OBD_BRW_READ,
-                                  aa->aa_cli, aa->aa_oa,
-                                  NULL /* lsm unused by osc currently */,
-                                  aa->aa_page_count, aa->aa_ppga,
-                                  &new_req, aa->aa_ocapa, 0, 1);
+					OST_WRITE ? OBD_BRW_WRITE :OBD_BRW_READ,
+				  aa->aa_cli, aa->aa_oa, aa->aa_page_count,
+				  aa->aa_ppga, &new_req, aa->aa_ocapa, 0, 1);
         if (rc)
                 RETURN(rc);
 
@@ -1817,7 +1814,8 @@ static void sort_brw_pages(struct brw_page **array, int num)
                 for (i = stride ; i < num ; i++) {
                         tmp = array[i];
                         j = i;
-                        while (j >= stride && array[j - stride]->off > tmp->off) {
+			while (j >= stride &&
+			       array[j - stride]->file_off > tmp->file_off) {
                                 array[j] = array[j - stride];
                                 j -= stride;
                         }
@@ -1828,48 +1826,26 @@ static void sort_brw_pages(struct brw_page **array, int num)
 
 static obd_count max_unfragmented_pages(struct brw_page **pg, obd_count pages)
 {
-        int count = 1;
-        int offset;
-        int i = 0;
+	int count = 1, i = 0;
 
-        LASSERT (pages > 0);
-        offset = pg[i]->off & ~CFS_PAGE_MASK;
+	LASSERT (pages > 0);
+	for (;;) {
+		pages--;
+		/* that's all */
+		if (pages == 0)
+			return count;
 
-        for (;;) {
-                pages--;
-                if (pages == 0)         /* that's all */
-                        return count;
-
-		if (offset + pg[i]->count < PAGE_CACHE_SIZE)
-                        return count;   /* doesn't end on page boundary */
+		/* doesn't end on page boundary */
+		if (pg[i]->pg_off + pg[i]->count < PAGE_CACHE_SIZE)
+			return count;
 
                 i++;
-                offset = pg[i]->off & ~CFS_PAGE_MASK;
-                if (offset != 0)        /* doesn't start on page boundary */
-                        return count;
+		/* doesn't start on page boundary */
+		if (pg[i]->pg_off != 0)
+			return count;
 
-                count++;
-        }
-}
-
-static struct brw_page **osc_build_ppga(struct brw_page *pga, obd_count count)
-{
-        struct brw_page **ppga;
-        int i;
-
-        OBD_ALLOC(ppga, sizeof(*ppga) * count);
-        if (ppga == NULL)
-                return NULL;
-
-        for (i = 0; i < count; i++)
-                ppga[i] = pga + i;
-        return ppga;
-}
-
-static void osc_release_ppga(struct brw_page **ppga, obd_count count)
-{
-        LASSERT(ppga != NULL);
-        OBD_FREE(ppga, sizeof(*ppga) * count);
+		count++;
+	}
 }
 
 static int osc_brw(int cmd, struct obd_export *exp, struct obd_info *oinfo,
@@ -1927,8 +1903,8 @@ static int osc_brw(int cmd, struct obd_export *exp, struct obd_info *oinfo,
                         *saved_oa = *oinfo->oi_oa;
                 }
 
-                rc = osc_brw_internal(cmd, exp, oinfo->oi_oa, oinfo->oi_md,
-                                      pages_per_brw, ppga, oinfo->oi_capa);
+		rc = osc_brw_internal(cmd, exp, oinfo->oi_oa, pages_per_brw,
+				      ppga, oinfo->oi_capa);
 
                 if (rc != 0)
                         break;
@@ -2131,7 +2107,8 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 		if (mem_tight)
 			oap->oap_brw_flags |= OBD_BRW_MEMALLOC;
 		pga[i] = &oap->oap_brw_page;
-		pga[i]->off = oap->oap_obj_off + oap->oap_page_off;
+		pga[i]->file_off = oap->oap_obj_off + oap->oap_page_off;
+		pga[i]->pg_off = oap->oap_page_off;
 		CDEBUG(0, "put page %p index %lu oap %p flg %x to pga\n",
 		       pga[i]->pg, page_index(oap->oap_page), oap,
 		       pga[i]->flag);
@@ -2155,7 +2132,7 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 	}
 
 	sort_brw_pages(pga, page_count);
-	rc = osc_brw_prep_request(cmd, cli, oa, NULL, page_count,
+	rc = osc_brw_prep_request(cmd, cli, oa, page_count,
 			pga, &req, crattr->cra_capa, 1, 0);
 	if (rc != 0) {
 		CERROR("prep_req failed: %d\n", rc);

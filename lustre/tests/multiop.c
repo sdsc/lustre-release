@@ -46,6 +46,7 @@
 #include <sys/mman.h>
 #include <sys/vfs.h>
 #include <sys/ioctl.h>
+#include <sys/time.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -62,10 +63,12 @@ char *buf, *buf_align;
 int bufsize = 0;
 sem_t sem;
 #define ALIGN_LEN 65535
+#define MAX_SHIFT 4096
 
 char usage[] =
 "Usage: %s filename command-sequence [path...]\n"
 "    command-sequence items:\n"
+"	 b[num] write optional length from random in-memory offset\n"
 "	 c  close\n"
 "	 B[num] call setstripe ioctl to create stripes\n"
 "	 C[num] create with optional stripes\n"
@@ -225,6 +228,7 @@ int main(int argc, char **argv)
         sigaction(SIGUSR1, &(const struct sigaction){.sa_handler = &usr1_handler},
                   NULL);
 
+	srandom(time(NULL));
         fname = argv[1];
 
         for (commands = argv[2]; *commands; commands++) {
@@ -521,12 +525,15 @@ int main(int argc, char **argv)
 				exit(fd);
 			}
 			break;
+		case 'b':
 		case 'w':
 			len = atoi(commands+1);
 			if (len <= 0)
 				len = 1;
 			if (bufsize < len) {
-				buf = realloc(buf, len + ALIGN_LEN);
+				int shift = (*commands == 'b') ?
+					(random() % MAX_SHIFT) : 0;
+				buf = realloc(buf, len + ALIGN_LEN + shift);
 				if (buf == NULL) {
 					save_errno = errno;
 					perror("allocating buf for write\n");
@@ -534,7 +541,7 @@ int main(int argc, char **argv)
 				}
 				bufsize = len;
 				buf_align = (char *)((long)(buf + ALIGN_LEN) &
-						     ~ALIGN_LEN);
+						~ALIGN_LEN) + shift;
 				strncpy(buf_align, msg, bufsize);
 			}
 			while (len > 0) {

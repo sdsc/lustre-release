@@ -665,6 +665,22 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
+# 2.6.27 has file_remove_suid instead of remove_suid
+AC_DEFUN([LC_FILE_REMOVE_SUID],
+[AC_MSG_CHECKING([kernel has file_remove_suid])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        file_remove_suid(NULL);
+],[
+        AC_DEFINE(HAVE_FILE_REMOVE_SUID, 1,
+                  [kernel have file_remove_suid])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
 # 2.6.27 use 5th parameter in quota_on for remount.
 AC_DEFUN([LC_QUOTA_ON_5ARGS],
 [AC_MSG_CHECKING([quota_on needs 5 parameters])
@@ -1658,6 +1674,7 @@ AC_DEFUN([LC_PROG_LINUX],
          # 2.6.27
          LC_SECURITY_PLUG  # for SLES10 SP2
          LC_INODE_PERMISION_2ARGS
+         LC_FILE_REMOVE_SUID
          LC_QUOTA_ON_5ARGS
          LC_QUOTA_OFF_3ARGS
          LC_LOCK_MAP_ACQUIRE

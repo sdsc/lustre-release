@@ -688,14 +688,14 @@ enum cl_page_state {
 };
 
 enum cl_page_type {
-        /** Host page, the page is from the host inode which the cl_page
-         * belongs to. */
-        CPT_CACHEABLE = 1,
+	/** Host page, the page is from the host inode which the cl_page
+	 * belongs to. */
+	CPT_CACHEABLE = 1,
 
-        /** Transient page, the transient cl_page is used to bind a cl_page
-         *  to vmpage which is not belonging to the same object of cl_page.
-         *  it is used in DirectIO, lockless IO and liblustre. */
-        CPT_TRANSIENT,
+	/** Transient page, the transient cl_page is used to bind a cl_page
+	 *  to vmpage which is not belonging to the same object of cl_page.
+	 *  it is used in echo client and liblustre. */
+	CPT_TRANSIENT,
 };
 
 /**
@@ -2022,6 +2022,19 @@ struct cl_io_slice {
         cfs_list_t                     cis_linkage;
 };
 
+/**
+ * DIO data propagated between layers.
+ */
+struct cl_dio_data {
+	enum cl_req_type        cdd_cmd;
+	struct page	      **cdd_pages;
+	size_t                  cdd_size;
+	loff_t                  cdd_offset; /* offset in file */
+	int			cdd_pgoff;  /* offset in first page */
+	int                     cdd_page_count;
+	struct obdo             cdd_oa;
+	struct obd_capa        *cdd_capa;
+};
 
 /**
  * Per-layer io operations.
@@ -2119,6 +2132,12 @@ struct cl_io_operations {
                                    const struct cl_io_slice *slice,
                                    enum cl_req_type crt,
 				   struct cl_2queue *queue);
+		/**
+		 * Direct IO
+		 */
+		int (*cio_dio)(const struct lu_env *env,
+			       const struct cl_io_slice *slice,
+			       struct cl_dio_data *dio_data);
         } req_op[CRT_NR];
         /**
          * Read missing page.
@@ -2156,6 +2175,11 @@ struct cl_io_operations {
                                 const struct cl_io_slice *slice,
                                 const struct cl_page_slice *page,
                                 unsigned from, unsigned to);
+	/**
+	 *  Check if this io is lockless.
+	 */
+	int (*cio_is_cacheable)(const struct lu_env *env,
+				const struct cl_io_slice *slice);
         /**
          * Optional debugging helper. Print given io slice.
          */
@@ -3071,6 +3095,9 @@ void  cl_io_rw_advance   (const struct lu_env *env, struct cl_io *io,
 int   cl_io_cancel       (const struct lu_env *env, struct cl_io *io,
                           struct cl_page_list *queue);
 int   cl_io_is_going     (const struct lu_env *env);
+int   cl_direct_rw       (const struct lu_env *env, struct cl_io *io,
+			  struct cl_dio_data *dio_data);
+int   cl_io_is_cacheable (const struct lu_env *env, struct cl_io *io);
 
 /**
  * True, iff \a io is an O_APPEND write(2).
