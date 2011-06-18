@@ -933,6 +933,50 @@ test_37() { # bug 18695
 }
 run_test 37 "check i_size is not updated for directory on close (bug 18695) =============="
 
+test_38() { # bug 18801, based on the code of test_32b
+        remote_ost_nodsh && skip "remote OST with nodsh" && return
+
+        local node
+        local p="$TMP/sanityN-$TESTNAME.parameters"
+        local random="$TMP/sanityN-$TESTNAME.random"
+        # 1. locked unaligned non-DIRECT_IO write of 8192 bytes to file A
+        # 2a. locked unaligned DIRECT_IO write of 4000 bytes to file B
+        # 2b. locked unaligned DIRECT_IO write of 4000 bytes to file B
+        # 3. unaligned "lockless DIRECT_IO" write of 192 bytes in the end of file B
+        # 4. compare A and B
+        log "creating the initial file"
+        multiop $random Ob4000b4000b192c || error "failed creating random file"
+        log "creating a file with the same contents"
+        multiop $DIR1/$tfile oO_CREAT:O_DIRECT:O_RDWR:b4000c || error "first multiop failed"
+        multiop $DIR1/$tfile oO_CREAT:O_DIRECT:O_RDWR:z4000b4000c || error "second multiop failed"
+        save_lustre_params $HOSTNAME "osc.*.contention_seconds" > $p
+        for node in $(osts_nodes); do
+                save_lustre_params $node "ldlm.namespaces.filter-*.max_nolock_bytes" >> $p
+                save_lustre_params $node "ldlm.namespaces.filter-*.contended_locks" >> $p
+                save_lustre_params $node "ldlm.namespaces.filter-*.contention_seconds" >> $p
+        done
+        log "enforcing lockless I/O"
+        clear_osc_stats
+        # agressive lockless i/o settings
+        for node in $(osts_nodes); do
+                do_node $node 'lctl set_param -n ldlm.namespaces.filter-*.max_nolock_bytes 2000000; lctl set_param -n ldlm.namespaces.filter-*.contended_locks 0; lctl set_param -n ldlm.namespaces.filter-*.contention_seconds 60'
+        done
+        lctl set_param -n osc.*.contention_seconds 60
+
+        for i in $(seq 5); do
+                multiop $DIR1/$tfile o:O_DIRECT:O_RDWR:z8000b192c || error "the last multiop failed"
+                multiop $DIR2/$tfile o:O_DIRECT:O_RDWR:z8000b192c || error "the last multiop failed"
+        done
+        [ $(calc_osc_stats lockless_write_bytes) -ne 0 ] || error "lockless i/o was not triggered"
+        restore_lustre_params <$p
+        log "comparing"
+        cmp $DIR1/$tfile $random || error "O_DIRECT+lockless results do not match the original file"
+        rm -f $DIR1/$tfile
+        rm -f $p
+        rm -f $random
+}
+run_test 38 "lockless i/o with O_DIRECT and unaligned writes"
+
 # this should be set to past
 TEST_39_MTIME=`date -d "1 year ago" +%s`
 
