@@ -52,6 +52,14 @@
 # include <liblustre.h>
 #endif
 
+#ifndef QUOTA_OK
+#define QUOTA_OK 0
+#endif
+#ifndef NO_QUOTA
+#define NO_QUOTA 1
+#endif
+
+
 #include <obd_class.h>
 #include <lustre_mds.h>
 #include <lustre_dlm.h>

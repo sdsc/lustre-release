@@ -60,6 +60,10 @@
 #include <stdio.h>
 #endif
 
+#ifndef NO_QUOTA
+#define NO_QUOTA 1
+#endif
+
 /* Controlled via configure key */
 /* #define LIBCFS_DEBUG */
 

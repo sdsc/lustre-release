@@ -45,6 +45,11 @@
 # include <liblustre.h>
 #endif
 
+#ifndef NO_QUOTA
+#define NO_QUOTA 1
+#endif
+
+
 # include <lustre_dlm.h>
 #include <libcfs/kp30.h>
 #include <lustre_net.h>
