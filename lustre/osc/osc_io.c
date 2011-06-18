@@ -228,6 +228,90 @@ static int osc_io_submit(const struct lu_env *env,
         return qout->pl_nr > 0 ? 0 : result;
 }
 
+static int osc_io_dio(const struct lu_env *env,
+                      const struct cl_io_slice *ios,
+                      struct cl_dio_data *dio_data)
+{
+        struct cl_object    *obj = ios->cis_obj;
+        struct osc_io       *oio = cl2osc_io(env, ios);
+        struct osc_device   *osd = lu2osc_dev(obj->co_lu.lo_dev);
+        int                  obd_cmd = dio_data->cdd_cmd == CRT_READ ? \
+                                       OBD_BRW_READ : OBD_BRW_WRITE;
+        struct brw_page     *pga;
+        int                  page_count = dio_data->cdd_page_count;
+        unsigned int         pgoff = dio_data->cdd_pgoff;
+        loff_t               file_offset = dio_data->cdd_offset;
+        size_t               length = dio_data->cdd_size;
+        int                  pshift, i, rc;
+        struct lov_oinfo    *oinfo;
+        struct obd_info      info;
+        ENTRY;
+
+        /* Prepare dio data */
+        oinfo = cl2osc(obj)->oo_oinfo;
+        dio_data->cdd_oa.o_id = oinfo->loi_id;
+        dio_data->cdd_oa.o_seq = oinfo->loi_seq;
+        dio_data->cdd_oa.o_valid |= OBD_MD_FLID|OBD_MD_FLGROUP;
+
+        /*
+         * XXX To minimize the code changes, obd_brw() is re-used here.
+         * We should probably abandon the obd_brw() in future, and build/send
+         * io requests directly according to the @dio_data.
+         */
+        OBD_ALLOC(pga, sizeof(*pga) * page_count);
+        if (pga == NULL) {
+                CERROR("Not enough memory\n");
+                RETURN(-ENOMEM);
+        }
+
+        /*
+         * pshift is something we'll add to ->off to get the in-memory offset,
+         * also see the OSC_FILE2MEM_OFF macro
+         */
+        pshift = pgoff - (file_offset & ~CFS_PAGE_MASK);
+
+        for (i = 0; length > 0; i++) {
+                LASSERT(i < page_count);
+
+                pga[i].pg = dio_data->cdd_pages[i];
+                pga[i].off = file_offset;
+                /* To the end of the page, or the length, whatever is less */
+                pga[i].count = min_t(int, CFS_PAGE_SIZE - pgoff, length);
+                pga[i].flag = OBD_BRW_SYNC;
+
+                if (!client_is_remote(osd->od_exp) &&
+                    cfs_capable(CFS_CAP_SYS_RESOURCE))
+                        pga[i].flag |= OBD_BRW_NOQUOTA;
+
+                if (osc_io_srvlock(oio))
+                        pga[i].flag |= OBD_BRW_SRVLOCK;
+
+                length -= pga[i].count;
+                file_offset += pga[i].count;
+                pgoff = (pgoff + pga[i].count) & ~CFS_PAGE_MASK;
+        }
+
+        info.oi_oa = &dio_data->cdd_oa;
+        info.oi_capa = dio_data->cdd_capa;
+        info.oi_md = (struct lov_stripe_md *)(long)pshift;
+        rc = obd_brw(obd_cmd, osd->od_exp, &info, page_count, pga, NULL);
+        if (rc) {
+                CERROR("OSC brw failed: %d\n", rc);
+        } else if (osc_io_srvlock(oio)) {
+                /* lockless io statistics */
+                struct lu_device *ld    = obj->co_lu.lo_dev;
+                struct osc_stats *stats = &lu2osc_dev(ld)->od_stats;
+
+                if (dio_data->cdd_cmd == CRT_READ)
+                        stats->os_lockless_reads += dio_data->cdd_size;
+                else
+                        stats->os_lockless_writes += dio_data->cdd_size;
+        }
+
+        OBD_FREE(pga, sizeof(*pga) * page_count);
+        RETURN(rc);
+}
+
 static void osc_page_touch_at(const struct lu_env *env,
                               struct cl_object *obj, pgoff_t idx, unsigned to)
 {
@@ -312,12 +396,8 @@ static int osc_io_prepare_write(const struct lu_env *env,
 
         if (imp == NULL || imp->imp_invalid)
                 result = -EIO;
-        if (result == 0 && oio->oi_lockless)
-                /* this page contains `invalid' data, but who cares?
-                 * nobody can access the invalid data.
-                 * in osc_io_commit_write(), we're going to write exact
-                 * [from, to) bytes of this page to OST. -jay */
-                cl_page_export(env, slice->cpl_page, 1);
+        /* No buffered lockless io. */
+        LASSERT(!oio->oi_lockless);
 
         RETURN(result);
 }
@@ -345,11 +425,17 @@ static int osc_io_commit_write(const struct lu_env *env,
             cfs_capable(CFS_CAP_SYS_RESOURCE))
                 oap->oap_brw_flags |= OBD_BRW_NOQUOTA;
 
-        if (oio->oi_lockless)
-                /* see osc_io_prepare_write() for lockless io handling. */
-                cl_page_clip(env, slice->cpl_page, from, to);
+        /* No buffered lockless io. */
+        LASSERT(!oio->oi_lockless);
 
         RETURN(0);
+}
+
+static int osc_io_is_lockless(const struct lu_env *env,
+                              const struct cl_io_slice *ios)
+{
+        struct osc_io *oio = cl2osc_io(env, ios);
+        return osc_io_srvlock(oio);
 }
 
 static int osc_io_fault_start(const struct lu_env *env,
@@ -620,14 +706,18 @@ static const struct cl_io_operations osc_io_ops = {
         },
         .req_op = {
                  [CRT_READ] = {
-                         .cio_submit    = osc_io_submit
+                         .cio_submit    = osc_io_submit,
+                         .cio_dio       = osc_io_dio
                  },
                  [CRT_WRITE] = {
-                         .cio_submit    = osc_io_submit
+                         .cio_submit    = osc_io_submit,
+                         .cio_dio       = osc_io_dio
                  }
          },
         .cio_prepare_write = osc_io_prepare_write,
-        .cio_commit_write  = osc_io_commit_write
+        .cio_commit_write  = osc_io_commit_write,
+        .cio_is_lockless   = osc_io_is_lockless
+
 };
 
 /*****************************************************************************
