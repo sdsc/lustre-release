@@ -258,11 +258,16 @@ struct obd_type {
 	spinlock_t obd_type_lock;
 };
 
+#ifndef pgoff_t
+#define pgoff_t unsigned long
+#endif
+
 struct brw_page {
-        obd_off  off;
-        cfs_page_t *pg;
-        int count;
-        obd_flag flag;
+	obd_off		 file_off; /* file offset */
+	int		 pg_off;   /* page offset */
+	int		 count;
+	cfs_page_t	*pg;
+	obd_flag	 flag;
 };
 
 /* Individual type definitions */

@@ -752,7 +752,7 @@ int lov_prep_brw_set(struct obd_export *exp, struct obd_info *oinfo,
 
         /* calculate the page count for each stripe */
         for (i = 0; i < oa_bufs; i++) {
-                int stripe = lov_stripe_number(oinfo->oi_md, pga[i].off);
+		int stripe = lov_stripe_number(oinfo->oi_md, pga[i].file_off);
                 info[stripe].count++;
         }
 
@@ -817,13 +817,13 @@ int lov_prep_brw_set(struct obd_export *exp, struct obd_info *oinfo,
 
         /* rotate & sort the brw_page array */
         for (i = 0; i < oa_bufs; i++) {
-                int stripe = lov_stripe_number(oinfo->oi_md, pga[i].off);
+		int stripe = lov_stripe_number(oinfo->oi_md, pga[i].file_off);
 
                 shift = info[stripe].index + info[stripe].off;
                 LASSERT(shift < oa_bufs);
                 set->set_pga[shift] = pga[i];
-                lov_stripe_offset(oinfo->oi_md, pga[i].off, stripe,
-                                  &set->set_pga[shift].off);
+		lov_stripe_offset(oinfo->oi_md, pga[i].file_off, stripe,
+				  &set->set_pga[shift].file_off);
                 info[stripe].off++;
         }
 out:
