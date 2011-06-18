@@ -621,7 +621,12 @@ libcfs_sock_accept (struct socket **newsockp, struct socket *sock)
         newsock->ops = sock->ops;
 
         set_current_state(TASK_INTERRUPTIBLE);
+#ifdef HAVE_SOCK_SK_SLEEP
         add_wait_queue(sock->sk->sk_sleep, &wait);
+#else
+        add_wait_queue(sk_sleep(sock->sk), &wait);
+#endif
+
 
         rc = sock->ops->accept(sock, newsock, O_NONBLOCK);
         if (rc == -EAGAIN) {
@@ -630,7 +635,11 @@ libcfs_sock_accept (struct socket **newsockp, struct socket *sock)
                 rc = sock->ops->accept(sock, newsock, O_NONBLOCK);
         }
 
+#ifdef HAVE_SOCK_SK_SLEEP
         remove_wait_queue(sock->sk->sk_sleep, &wait);
+#else
+        remove_wait_queue(sk_sleep(sock->sk), &wait);
+#endif
         set_current_state(TASK_RUNNING);
 
         if (rc != 0)
@@ -649,7 +658,12 @@ EXPORT_SYMBOL(libcfs_sock_accept);
 void
 libcfs_sock_abort_accept (struct socket *sock)
 {
+#ifdef HAVE_SOCK_SK_SLEEP
         wake_up_all(sock->sk->sk_sleep);
+#else
+        wake_up_all(sk_sleep(sock->sk));
+#endif
+
 }
 
 EXPORT_SYMBOL(libcfs_sock_abort_accept);
