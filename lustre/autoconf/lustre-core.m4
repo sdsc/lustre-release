@@ -504,6 +504,28 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
+#
+# LC_FUNC_SOCK_SK_SLEEP
+#
+# Checks kernel has sock->sk->sk_sleep field
+#
+AC_DEFUN([LC_FUNC_SOCK_SK_SLEEP],
+[AC_MSG_CHECKING([if struct sock has sk_sleep field])
+LB_LINUX_TRY_COMPILE([
+        #include <net/sock.h>
+],[
+        struct socket *sock;
+        sock->sk->sk_sleep = NULL;
+],[
+        AC_DEFINE(HAVE_SOCK_SK_SLEEP, 1,
+                [struct sock has sk_sleep field])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+
 # LC_EXPORT_SYNCHRONIZE_RCU
 # after 2.6.12 synchronize_rcu is preferred over synchronize_kernel
 AC_DEFUN([LC_EXPORT_SYNCHRONIZE_RCU],
@@ -2051,6 +2073,9 @@ AC_DEFUN([LC_PROG_LINUX],
           if test x$enable_server = xyes ; then
               LC_QUOTA64    # must after LC_HAVE_QUOTAIO_V1_H
           fi
+
+          # 2.6.35
+          LC_FUNC_SOCK_SK_SLEEP
 ])
 
 #
