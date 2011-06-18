@@ -93,6 +93,30 @@ int osc_real_create(struct obd_export *exp, struct obdo *oa,
 void osc_wake_cache_waiters(struct client_obd *cli);
 int osc_shrink_grant_to_target(struct client_obd *cli, __u64 target_bytes);
 void osc_update_next_shrink(struct client_obd *cli);
+int osc_brw_internal(int cmd, struct obd_export *exp, struct obdo *oa,
+		     obd_count page_count, struct brw_page **pga,
+		     struct obd_capa *ocapa);
+
+static inline struct brw_page **osc_build_ppga(struct brw_page *pga,
+					       obd_count count)
+{
+	struct brw_page	**ppga;
+	int		  i;
+
+	OBD_ALLOC(ppga, sizeof(*ppga) * count);
+	if (ppga == NULL)
+		return NULL;
+
+	for (i = 0; i < count; i++)
+		ppga[i] = pga + i;
+	return ppga;
+}
+
+static inline void osc_release_ppga(struct brw_page **ppga, obd_count count)
+{
+	LASSERT(ppga != NULL);
+	OBD_FREE(ppga, sizeof(*ppga) * count);
+}
 
 /*
  * cl integration.
