@@ -873,6 +873,50 @@ int cl_io_commit_write(const struct lu_env *env, struct cl_io *io,
 EXPORT_SYMBOL(cl_io_commit_write);
 
 /**
+ * Direct IO
+ */
+int cl_direct_rw(const struct lu_env *env, struct cl_io *io,
+                 struct cl_dio_data *dio_data)
+{
+        const struct cl_io_slice *scan;
+        int result = 0;
+        enum cl_req_type cmd = dio_data->cdd_cmd;
+
+        LINVRNT(cmd < ARRAY_SIZE(scan->cis_iop->req_op));
+        ENTRY;
+
+        cl_io_for_each(scan, io) {
+                if (scan->cis_iop->req_op[cmd].cio_dio == NULL)
+                        continue;
+                result = scan->cis_iop->req_op[cmd].cio_dio(env, scan,
+                                                            dio_data);
+                if (result != 0)
+                        break;
+        }
+        RETURN(result);
+
+}
+EXPORT_SYMBOL(cl_direct_rw);
+
+int cl_io_is_lockless(const struct lu_env *env, struct cl_io *io)
+{
+        const struct cl_io_slice *scan;
+        int lockless = 0;
+        ENTRY;
+
+        cl_io_for_each(scan, io) {
+                if (scan->cis_iop->cio_is_lockless == NULL)
+                        continue;
+                lockless = scan->cis_iop->cio_is_lockless(env, scan);
+                if (lockless)
+                        break;
+        }
+        RETURN(lockless);
+
+}
+EXPORT_SYMBOL(cl_io_is_lockless);
+
+/**
  * Submits a list of pages for immediate io.
  *
  * After the function gets returned, The submitted pages are moved to

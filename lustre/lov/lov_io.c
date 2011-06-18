@@ -668,6 +668,107 @@ static int lov_io_submit(const struct lu_env *env,
 #undef QIN
 }
 
+static int lov_io_dio(const struct lu_env *env,
+                      const struct cl_io_slice *ios,
+                      struct cl_dio_data *dio_data)
+{
+        struct lov_io           *lio = cl2lov_io(env, ios);
+        struct lov_object       *obj = lio->lis_object;
+        struct lov_layout_raid0 *r0 = lov_r0(obj);
+        struct lov_io_sub       *sub;
+        struct lovsub_object    *subobj;
+        loff_t                   offset, end;
+        ssize_t                  bytes, total_bytes, ssize;
+        unsigned long            addr;
+        cfs_page_t             **pages;
+        int                      stripe, rc = 0;
+        struct obdo             *oa = NULL;
+        ENTRY;
+
+        LASSERTF(dio_data->cdd_size > 0, "cdd_size=%lu\n", dio_data->cdd_size);
+        CDEBUG(D_VFSTRACE, "lov_dio: offset="LPU64" size=%ld addr=%lu pages=%p"
+               " page_count=%d\n", (__u64)dio_data->cdd_offset,
+               dio_data->cdd_size, dio_data->cdd_addr, dio_data->cdd_pages,
+               dio_data->cdd_page_count);
+
+        /* Figure out whether it cross stripe, only append write or single
+         * stripe file could have cross stripe io. */
+        ssize = r0->lo_lsm->lsm_stripe_size;
+        offset = dio_data->cdd_offset;
+        do_div(offset, ssize);
+        end = offset * ssize + ssize;
+
+        if (end > dio_data->cdd_offset + dio_data->cdd_size) {
+                bytes = dio_data->cdd_size;
+        } else { /* io cross stripe boundary */
+                bytes = end - dio_data->cdd_offset;
+                OBD_ALLOC_PTR(oa);
+                if (oa == NULL)
+                        RETURN(-ENOMEM);
+                *oa = dio_data->cdd_oa;
+        }
+
+        offset = dio_data->cdd_offset;
+        total_bytes = dio_data->cdd_size;
+        pages = dio_data->cdd_pages;
+        addr = dio_data->cdd_addr;
+
+        /* Fire io one stripe bye one stripe */
+        while (total_bytes > 0) {
+                obd_off  obj_off;
+                stripe = lov_stripe_number(r0->lo_lsm, offset);
+
+                sub = lov_sub_get(env, lio, stripe);
+                if (IS_ERR(sub)) {
+                        rc = PTR_ERR(sub);
+                        break;
+                }
+                subobj = cl2lovsub(sub->sub_io->ci_obj);
+
+                /* The oa could be changed after calling cl_direct_rw(),
+                 * so we need to restore original oa each round */
+                if (oa != NULL)
+                        dio_data->cdd_oa = *oa;
+                /* There is no OBD_MD_* flag for obdo::o_stripe_idx, so set it
+                 * unconditionally. It never changes anyway. */
+                dio_data->cdd_oa.o_stripe_idx = subobj->lso_index;
+
+                /* Convert the file offset into object offset */
+                lov_stripe_offset(r0->lo_lsm, offset, stripe, &obj_off);
+
+                dio_data->cdd_offset = obj_off;
+                dio_data->cdd_addr = addr;
+                dio_data->cdd_size = bytes;
+                dio_data->cdd_pages = pages;
+                dio_data->cdd_page_count =
+                        ((addr + bytes + CFS_PAGE_SIZE - 1) >> CFS_PAGE_SHIFT) -
+                        (addr >> CFS_PAGE_SHIFT);
+
+                CDEBUG(D_VFSTRACE, "stripe_io: offset="LPU64" size=%ld addr=%lu"
+                       " pages=%p page_count=%d\n", (__u64)dio_data->cdd_offset,
+                       dio_data->cdd_size, dio_data->cdd_addr,
+                       dio_data->cdd_pages, dio_data->cdd_page_count);
+
+                rc = cl_direct_rw(sub->sub_env, sub->sub_io, dio_data);
+                lov_sub_put(sub);
+                if (rc)
+                        break;
+
+                pages += (((addr + bytes) >> CFS_PAGE_SHIFT) -
+                          (addr >> CFS_PAGE_SHIFT));
+                offset += bytes;
+                total_bytes -= bytes;
+                addr += bytes;
+                bytes = min(ssize, total_bytes);
+        }
+
+        if (oa != NULL)
+                OBD_FREE_PTR(oa);
+
+        RETURN(rc);
+}
+
+
 static int lov_io_prepare_write(const struct lu_env *env,
                                 const struct cl_io_slice *ios,
                                 const struct cl_page_slice *slice,
@@ -708,6 +809,24 @@ static int lov_io_commit_write(const struct lu_env *env,
         } else
                 result = PTR_ERR(sub);
         RETURN(result);
+}
+
+static int lov_io_is_lockless(const struct lu_env *env,
+                              const struct cl_io_slice *ios)
+{
+        struct lov_io_sub *sub;
+        struct lov_io *lio = cl2lov_io(env, ios);
+        int lockless = 0;
+        ENTRY;
+
+        cfs_list_for_each_entry(sub, &lio->lis_active, sub_linkage) {
+                lov_sub_enter(sub);
+                lockless = cl_io_is_lockless(sub->sub_env, sub->sub_io);
+                lov_sub_exit(sub);
+                if (lockless)
+                        break;
+        }
+        RETURN(lockless);
 }
 
 static int lov_io_fault_start(const struct lu_env *env,
@@ -770,14 +889,17 @@ static const struct cl_io_operations lov_io_ops = {
         },
         .req_op = {
                  [CRT_READ] = {
-                         .cio_submit    = lov_io_submit
+                         .cio_submit    = lov_io_submit,
+                         .cio_dio       = lov_io_dio
                  },
                  [CRT_WRITE] = {
-                         .cio_submit    = lov_io_submit
+                         .cio_submit    = lov_io_submit,
+                         .cio_dio       = lov_io_dio
                  }
          },
         .cio_prepare_write = lov_io_prepare_write,
-        .cio_commit_write  = lov_io_commit_write
+        .cio_commit_write  = lov_io_commit_write,
+        .cio_is_lockless   = lov_io_is_lockless
 };
 
 /*****************************************************************************
@@ -842,13 +964,15 @@ static const struct cl_io_operations lov_empty_io_ops = {
         },
         .req_op = {
                  [CRT_READ] = {
-                         .cio_submit    = LOV_EMPTY_IMPOSSIBLE
+                         .cio_submit    = LOV_EMPTY_IMPOSSIBLE,
+                         .cio_dio       = LOV_EMPTY_IMPOSSIBLE
                  },
                  [CRT_WRITE] = {
-                         .cio_submit    = LOV_EMPTY_IMPOSSIBLE
+                         .cio_submit    = LOV_EMPTY_IMPOSSIBLE,
+                         .cio_dio       = LOV_EMPTY_IMPOSSIBLE
                  }
          },
-        .cio_commit_write = LOV_EMPTY_IMPOSSIBLE
+        .cio_commit_write = LOV_EMPTY_IMPOSSIBLE,
 };
 
 int lov_io_init_raid0(const struct lu_env *env, struct cl_object *obj,
