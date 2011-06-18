@@ -15,6 +15,8 @@ export GSS_KRB5=false
 export GSS_PIPEFS=false
 export IDENTITY_UPCALL=default
 export QUOTA_AUTO=1
+# LOAD_LLOOP: LU-409 stop loading the llite_lloop module for >= 2.6.32 kernels
+export LOAD_LLOOP=false
 
 #export PDSH="pdsh -S -Rssh -w"
 
@@ -365,7 +367,9 @@ load_modules_local() {
     fi
 
     load_module llite/lustre
-    load_module llite/llite_lloop
+    if $LOAD_LLOOP; then
+        load_module llite/llite_lloop
+    fi
     [ -d /r ] && OGDB=${OGDB:-"/r/tmp"}
     OGDB=${OGDB:-$TMP}
     rm -f $OGDB/ogdb-$HOSTNAME
