@@ -238,6 +238,8 @@ static void ll_free_user_pages(struct page **pages, int npages, int do_dirty)
         OBD_FREE_LARGE(pages, npages * sizeof(*pages));
 }
 
+/* FIXME This function is deprecated, it should be removed once we cleanup
+ * the lloop */
 ssize_t ll_direct_rw_pages(const struct lu_env *env, struct cl_io *io,
                            int rw, struct inode *inode,
                            struct ll_dio_pages *pv)
@@ -345,19 +347,37 @@ ssize_t ll_direct_rw_pages(const struct lu_env *env, struct cl_io *io,
 EXPORT_SYMBOL(ll_direct_rw_pages);
 
 static ssize_t ll_direct_IO_26_seg(const struct lu_env *env, struct cl_io *io,
-                                   int rw, struct inode *inode,
-                                   struct address_space *mapping,
-                                   size_t size, loff_t file_offset,
-                                   struct page **pages, int page_count)
+				   int rw, struct inode *inode, size_t size,
+				   loff_t file_offset, struct page **pages,
+				   int page_count, int pgoff)
 {
-    struct ll_dio_pages pvec = { .ldp_pages        = pages,
-                                 .ldp_nr           = page_count,
-                                 .ldp_size         = size,
-                                 .ldp_offsets      = NULL,
-                                 .ldp_start_offset = file_offset
-                               };
+	struct cl_dio_data *dio_data = &vvp_env_info(env)->vti_dio_data;
+	obd_flag	 valid_flags;
+	struct obdo	*oa;
+	ssize_t		 retval;
+	ENTRY;
 
-    return ll_direct_rw_pages(env, io, rw, inode, &pvec);
+	/* Prepare dio data */
+	dio_data->cdd_cmd = rw == READ ? CRT_READ : CRT_WRITE;
+	dio_data->cdd_pages = pages;
+	dio_data->cdd_page_count = page_count;
+	dio_data->cdd_size = size;
+	dio_data->cdd_offset = file_offset;
+	dio_data->cdd_pgoff = pgoff;
+
+	oa = &dio_data->cdd_oa;
+	valid_flags = OBD_MD_FLTYPE | OBD_MD_FLATIME;
+	if (dio_data->cdd_cmd == CRT_WRITE)
+		valid_flags |= OBD_MD_FLMTIME | OBD_MD_FLCTIME | OBD_MD_FLUID |
+			       OBD_MD_FLGID;
+	obdo_from_inode(oa, inode, valid_flags);
+	dio_data->cdd_capa = cl_capa_lookup(inode, dio_data->cdd_cmd);
+
+	retval = cl_direct_rw(env, io, dio_data);
+	if (retval == 0)
+		retval = size;
+
+	RETURN(retval);
 }
 
 #ifdef KMALLOC_MAX_SIZE
@@ -373,13 +393,11 @@ static ssize_t ll_direct_IO_26_seg(const struct lu_env *env, struct cl_io *io,
  * up to 22MB for 128kB kmalloc and up to 682MB for 4MB kmalloc. */
 #define MAX_DIO_SIZE ((MAX_MALLOC / sizeof(struct brw_page) * PAGE_CACHE_SIZE) & \
 		      ~(DT_MAX_BRW_SIZE - 1))
-static ssize_t ll_direct_IO_26(int rw, struct kiocb *iocb,
-                               const struct iovec *iov, loff_t file_offset,
-                               unsigned long nr_segs)
+ssize_t ll_direct_IO(int rw, struct file *file, const struct iovec *iov,
+		     loff_t file_offset, unsigned long nr_segs)
 {
         struct lu_env *env;
         struct cl_io *io;
-        struct file *file = iocb->ki_filp;
         struct inode *inode = file->f_mapping->host;
         struct ccc_object *obj = cl_inode2ccc(inode);
         long count = iov_length(iov, nr_segs);
@@ -393,22 +411,11 @@ static ssize_t ll_direct_IO_26(int rw, struct kiocb *iocb,
 	if (!lli->lli_has_smd)
                 RETURN(-EBADF);
 
-        /* FIXME: io smaller than PAGE_SIZE is broken on ia64 ??? */
-        if ((file_offset & ~CFS_PAGE_MASK) || (count & ~CFS_PAGE_MASK))
-                RETURN(-EINVAL);
-
         CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p), size=%lu (max %lu), "
                "offset=%lld=%llx, pages %lu (max %lu)\n",
                inode->i_ino, inode->i_generation, inode, count, MAX_DIO_SIZE,
 	       file_offset, file_offset, count >> PAGE_CACHE_SHIFT,
 	       MAX_DIO_SIZE >> PAGE_CACHE_SHIFT);
-
-        /* Check that all user buffers are aligned as well */
-        for (seg = 0; seg < nr_segs; seg++) {
-                if (((unsigned long)iov[seg].iov_base & ~CFS_PAGE_MASK) ||
-                    (iov[seg].iov_len & ~CFS_PAGE_MASK))
-                        RETURN(-EINVAL);
-        }
 
         env = cl_env_get(&refcheck);
         LASSERT(!IS_ERR(env));
@@ -446,9 +453,10 @@ static ssize_t ll_direct_IO_26(int rw, struct kiocb *iocb,
                                 if (unlikely(page_count <  max_pages))
 					bytes = page_count << PAGE_CACHE_SHIFT;
                                 result = ll_direct_IO_26_seg(env, io, rw, inode,
-                                                             file->f_mapping,
-                                                             bytes, file_offset,
-                                                             pages, page_count);
+							     bytes, file_offset,
+							     pages, page_count,
+							     (int)(user_addr &
+							      ~CFS_PAGE_MASK));
                                 ll_free_user_pages(pages, max_pages, rw==READ);
                         } else if (page_count == 0) {
                                 GOTO(out, result = -EFAULT);
@@ -501,6 +509,13 @@ out:
 
 	cl_env_put(env, &refcheck);
 	RETURN(tot_bytes ? : result);
+}
+
+static ssize_t ll_direct_IO_26(int rw, struct kiocb *iocb,
+			       const struct iovec *iov, loff_t file_offset,
+			       unsigned long nr_segs)
+{
+	return ll_direct_IO(rw, iocb->ki_filp, iov, file_offset, nr_segs);
 }
 
 static int ll_write_begin(struct file *file, struct address_space *mapping,

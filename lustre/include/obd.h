@@ -258,10 +258,11 @@ struct obd_type {
 };
 
 struct brw_page {
-	obd_off  off;
-	struct page *pg;
-	int count;
-	obd_flag flag;
+	obd_off		 file_off; /* file offset */
+	int		 pg_off;   /* page offset */
+	int		 count;
+	struct page	*pg;
+	obd_flag	 flag;
 };
 
 /* llog contexts */

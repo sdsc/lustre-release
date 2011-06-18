@@ -149,6 +149,16 @@ static inline struct file *ll_dentry_open(struct path *path, int flags,
 }
 #endif
 
+#ifdef HAVE_FILE_REMOVE_SUID
+# define ll_remove_suid(file, mnt)       file_remove_suid(file)
+#else
+# ifdef HAVE_SECURITY_PLUG
+#  define ll_remove_suid(file,mnt)      remove_suid(file->f_dentry,mnt)
+# else
+#  define ll_remove_suid(file,mnt)      remove_suid(file->f_dentry)
+# endif
+#endif
+
 #ifdef HAVE_SECURITY_PLUG
 #define ll_vfs_symlink(dir, dentry, mnt, path, mode) \
                 vfs_symlink(dir, dentry, mnt, path, mode)
