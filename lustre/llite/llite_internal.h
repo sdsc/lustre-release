@@ -632,6 +632,10 @@ int ll_readahead(const struct lu_env *env, struct cl_io *io,
                  struct ll_readahead_state *ras, struct address_space *mapping,
                  struct cl_page_list *queue, int flags);
 
+/* llite/rw26.c */
+ssize_t ll_direct_IO(int rw, struct file *file, const struct iovec *iov,
+                     loff_t file_offset, unsigned long nr_segs);
+
 /* llite/file.c */
 extern struct file_operations ll_file_operations;
 extern struct file_operations ll_file_operations_flock;
@@ -907,6 +911,7 @@ struct vvp_thread_info {
         struct ra_io_arg     vti_ria;
         struct kiocb         vti_kiocb;
         struct ll_cl_context vti_io_ctx;
+        struct cl_dio_data   vti_dio_data;
 };
 
 static inline struct vvp_thread_info *vvp_env_info(const struct lu_env *env)
@@ -1300,6 +1305,8 @@ static inline int cl_merge_lvb(struct inode *inode)
 
 struct obd_capa *cl_capa_lookup(struct inode *inode, enum cl_req_type crt);
 
+/* FIXME This structure is deprecated, it'll be removed once we cleanup
+ * the lloop */
 /** direct write pages */
 struct ll_dio_pages {
         /** page array to be written. we don't support
