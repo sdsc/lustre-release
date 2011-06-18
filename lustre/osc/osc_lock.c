@@ -1145,7 +1145,7 @@ static int osc_lock_enqueue_wait(const struct lu_env *env,
  */
 static int osc_lock_enqueue(const struct lu_env *env,
                             const struct cl_lock_slice *slice,
-                            struct cl_io *unused, __u32 enqflags)
+                            struct cl_io *io, __u32 enqflags)
 {
         struct osc_lock          *ols     = cl2osc_lock(slice);
         struct cl_lock           *lock    = ols->ols_cl.cls_lock;
@@ -1571,8 +1571,9 @@ static void osc_lock_lockless_state(const struct lu_env *env,
 
                 /* set the io to be lockless if this lock is for io's
                  * host object */
-                if (cl_object_same(oio->oi_cl.cis_obj, slice->cls_obj))
+                if (cl_object_same(oio->oi_cl.cis_obj, slice->cls_obj)) {
                         oio->oi_lockless = 1;
+                }
         }
 }
 
