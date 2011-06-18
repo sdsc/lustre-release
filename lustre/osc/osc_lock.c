@@ -1537,12 +1537,9 @@ static void osc_lock_lockless_cancel(const struct lu_env *env,
                                      const struct cl_lock_slice *slice)
 {
         struct osc_lock   *ols  = cl2osc_lock(slice);
-        int result;
+        LINVRNT(!osc_lock_has_pages(ols));
 
-        result = osc_lock_flush(ols, 0);
-        if (result)
-                CERROR("Pages for lockless lock %p were not purged(%d)\n",
-                       ols, result);
+        ols->ols_flush = 1;
         ols->ols_state = OLS_CANCELLED;
 }
 

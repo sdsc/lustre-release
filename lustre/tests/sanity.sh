@@ -8326,6 +8326,32 @@ test_221() {
 }
 run_test 221 "make sure fault and truncate race to not cause OOM"
 
+test_222() {
+        local offset=$(($STRIPESIZE + 4000))
+        local count=$(($STRIPESIZE * 2 + 4000))
+        local tmpfile=$TMP/$tfile
+
+        rm -f $tmpfile
+        log "Creating sample file: $tmpfile [$offset, $count]"
+        multiop $tmpfile Oz$((offset))b$((count))c ||
+        error "first write to sample file failed"
+        multiop $tmpfile Oz$(($offset + $count))b$((count))c ||
+        error "second write to sample file failed"
+        
+        log "Creating file with same content"
+        multiop $DIR/$tfile \
+        oO_CREAT:O_DIRECT:O_RDWR:z$((offset))b$((count))c ||
+        error "first multiop failed"
+        multiop $DIR/$tfile \
+        oO_DIRECT:O_APPEND:O_RDWR:z$(($offset + $count))b$((count))c ||
+        error "second multiop failed"
+
+        log "Comparing"
+        cmp $DIR/$tfile $tmpfile || error "Doesn't match"
+        rm -f $tmpfile
+}
+run_test 222 "Verify unaglined Direct-IO"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
