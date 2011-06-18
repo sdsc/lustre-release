@@ -1557,13 +1557,14 @@ static int lov_brw_check(struct lov_obd *lov, struct obd_info *lov_oinfo,
         /* The caller just wants to know if there's a chance that this
          * I/O can succeed */
         for (i = 0; i < oa_bufs; i++) {
-                int stripe = lov_stripe_number(lov_oinfo->oi_md, pga[i].off);
+		int stripe = lov_stripe_number(lov_oinfo->oi_md,
+					       pga[i].file_off);
                 int ost = lov_oinfo->oi_md->lsm_oinfo[stripe]->loi_ost_idx;
                 obd_off start, end;
 
-                if (!lov_stripe_intersects(lov_oinfo->oi_md, i, pga[i].off,
-                                           pga[i].off + pga[i].count - 1,
-                                           &start, &end))
+		if (!lov_stripe_intersects(lov_oinfo->oi_md, i, pga[i].file_off,
+					   pga[i].file_off + pga[i].count - 1,
+					   &start, &end))
                         continue;
 
                 if (!lov->lov_tgts[ost] || !lov->lov_tgts[ost]->ltd_active) {

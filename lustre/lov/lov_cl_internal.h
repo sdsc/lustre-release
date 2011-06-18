@@ -435,6 +435,7 @@ struct lov_thread_info {
         struct cl_2queue        lti_cl2q;
         struct cl_lock_closure  lti_closure;
         cfs_waitlink_t          lti_waiter;
+	struct cl_dio_data      lti_dio_data;
 };
 
 /**
