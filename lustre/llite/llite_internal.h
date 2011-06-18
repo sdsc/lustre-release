@@ -626,6 +626,10 @@ int ll_sync_page_range(struct inode *, struct address_space *, loff_t, size_t);
 int ll_readahead(const struct lu_env *env, struct cl_io *io, struct ll_readahead_state *ras,
                  struct address_space *mapping, struct cl_page_list *queue, int flags);
 
+/* llite/rw26.c */
+ssize_t ll_direct_IO(int rw, struct file *file, const struct iovec *iov,
+                     loff_t file_offset, unsigned long nr_segs);
+
 /* llite/file.c */
 extern struct file_operations ll_file_operations;
 extern struct file_operations ll_file_operations_flock;
