@@ -118,6 +118,31 @@ int osc_real_create(struct obd_export *exp, struct obdo *oa,
 void oscc_init(struct obd_device *obd);
 void osc_wake_cache_waiters(struct client_obd *cli);
 int osc_shrink_grant_to_target(struct client_obd *cli, long target);
+int osc_brw_internal(int cmd, struct obd_export *exp, struct obdo *oa,
+                     int pshift, obd_count page_count,
+                     struct brw_page **pga, struct obd_capa *ocapa);
+
+static inline struct brw_page **osc_build_ppga(struct brw_page *pga,
+                                               obd_count count)
+{
+        struct brw_page **ppga;
+        int i;
+
+        OBD_ALLOC(ppga, sizeof(*ppga) * count);
+        if (ppga == NULL)
+                return NULL;
+
+        for (i = 0; i < count; i++)
+                ppga[i] = pga + i;
+        return ppga;
+}
+
+static inline void osc_release_ppga(struct brw_page **ppga, obd_count count)
+{
+        LASSERT(ppga != NULL);
+        OBD_FREE(ppga, sizeof(*ppga) * count);
+}
+
 
 /*
  * cl integration.
@@ -223,5 +248,7 @@ static inline struct osc_device *obd2osc_dev(const struct obd_device *d)
 }
 
 int osc_dlm_lock_pageref(struct ldlm_lock *dlm);
+
+#define OSC_FILE2MEM_OFF(fileoff,pshift) ((fileoff) + (pshift))
 
 #endif /* OSC_INTERNAL_H */
