@@ -1946,6 +1946,28 @@ LB_LINUX_TRY_COMPILE([
 
 
 #
+# LC_FUNC_FOP_FSYNC_3ARGS
+#
+# Checks if f_op->fsync gets 3 arguments
+#
+AC_DEFUN([LC_FUNC_F_OP_FSYNC_3ARGS],
+[AC_MSG_CHECKING([if f_op->fsync gets 3 arguments])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        struct file_operations *f_op;
+        f_op->fsync(NULL, NULL, 0); 
+],[
+        AC_DEFINE(HAVE_F_OP_FSYNC_3ARGS, 1,
+                [f_op->fsync gets 3 arguments])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+
+#
 # LC_PROG_LINUX
 #
 # Lustre linux kernel checks
@@ -2123,6 +2145,7 @@ AC_DEFUN([LC_PROG_LINUX],
 
           # 2.6.35
           LC_FUNC_SOCK_SK_SLEEP
+          LC_FUNC_F_OP_FSYNC_3ARGS
 ])
 
 #

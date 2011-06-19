@@ -75,7 +75,11 @@ cfs_file_t *cfs_filp_open (const char *name, int flags, int mode, int *err);
 #define cfs_filp_close(f)                   filp_close(f, NULL)
 #define cfs_filp_read(fp, buf, size, pos)   (fp)->f_op->read((fp), (buf), (size), pos)
 #define cfs_filp_write(fp, buf, size, pos)  (fp)->f_op->write((fp), (buf), (size), pos)
+#ifdef HAVE_F_OP_FSYNC_3ARGS
 #define cfs_filp_fsync(fp)                  (fp)->f_op->fsync((fp), (fp)->f_dentry, 1)
+#else
+#define cfs_filp_fsync(fp)                  (fp)->f_op->fsync((fp), 1)
+#endif
 
 #define cfs_get_file(f)                     get_file(f)
 #define cfs_put_file(f)                     fput(f)
