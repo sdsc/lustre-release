@@ -428,7 +428,11 @@ int lustre_fsync(struct file *file)
         if (!file || !file->f_op || !file->f_op->fsync)
                 RETURN(-ENOSYS);
 
+#ifdef HAVE_F_OP_FSYNC_3ARGS
         RETURN(file->f_op->fsync(file, file->f_dentry, 0));
+#else
+        RETURN(file->f_op->fsync(file, 0));
+#endif
 }
 EXPORT_SYMBOL(lustre_fsync);
 
