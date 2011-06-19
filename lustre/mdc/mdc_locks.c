@@ -185,7 +185,7 @@ static inline void mdc_clear_replay_flag(struct ptlrpc_request *req, int rc)
         }
 }
 
-static int round_up(int val)
+static int round_up_lustre(int val)
 {
         int ret = 1;
         while (val) {
@@ -301,7 +301,7 @@ static struct ptlrpc_request *mdc_intent_open_pack(struct obd_export *exp,
         rc = lustre_msg_size(class_exp2cliimp(exp)->imp_msg_magic,
                              bufcount, size);
         if (rc & (rc - 1))
-                size[bufcount - 1] = min(size[bufcount - 1] + round_up(rc) - rc,
+                size[bufcount - 1] = min(size[bufcount - 1] + round_up_lustre(rc) - rc,
                                          (__u32)obddev->u.cli.cl_max_mds_easize);
 
         /* If inode is known, cancel conflicting OPEN locks. */
