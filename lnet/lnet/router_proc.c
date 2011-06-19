@@ -672,37 +672,49 @@ static cfs_sysctl_table_t lnet_table[] = {
          * to go via /proc for portability.
          */
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = PSDEV_LNET_STATS,
+#endif
                 .procname = "stats",
                 .mode     = 0644,
                 .proc_handler = &proc_lnet_stats,
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = PSDEV_LNET_ROUTES,
+#endif
                 .procname = "routes",
                 .mode     = 0444,
                 .proc_handler = &proc_lnet_routes,
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = PSDEV_LNET_ROUTERS,
+#endif
                 .procname = "routers",
                 .mode     = 0444,
                 .proc_handler = &proc_lnet_routers,
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = PSDEV_LNET_PEERS,
+#endif
                 .procname = "peers",
                 .mode     = 0444,
                 .proc_handler = &proc_lnet_peers,
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = PSDEV_LNET_PEERS,
+#endif
                 .procname = "buffers",
                 .mode     = 0444,
                 .proc_handler = &proc_lnet_buffers,
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = PSDEV_LNET_NIS,
+#endif
                 .procname = "nis",
                 .mode     = 0444,
                 .proc_handler = &proc_lnet_nis,
@@ -712,7 +724,9 @@ static cfs_sysctl_table_t lnet_table[] = {
 
 static cfs_sysctl_table_t top_table[] = {
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = CTL_LNET,
+#endif
                 .procname = "lnet",
                 .mode     = 0555,
                 .data     = NULL,
@@ -720,7 +734,9 @@ static cfs_sysctl_table_t top_table[] = {
                 .child    = lnet_table,
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = 0
+#endif
         }
 };
 
