@@ -342,7 +342,9 @@ int LL_PROC_PROTO(proc_at_history)
 #ifdef CONFIG_SYSCTL
 static cfs_sysctl_table_t obd_table[] = {
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = OBD_FAIL_LOC,
+#endif
                 .procname = "fail_loc",
                 .data     = &obd_fail_loc,
                 .maxlen   = sizeof(int),
@@ -350,16 +352,22 @@ static cfs_sysctl_table_t obd_table[] = {
                 .proc_handler = &proc_fail_loc
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = OBD_FAIL_VAL,
+#endif
                 .procname = "fail_val",
                 .data     = &obd_fail_val,
                 .maxlen   = sizeof(int),
                 .mode     = 0644,
                 .proc_handler = &proc_dointvec,
+#ifdef HAVE_CTL_TABLE_STRATEGY
                 .strategy = &sysctl_intvec,
+#endif
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = OBD_TIMEOUT,
+#endif
                 .procname = "timeout",
                 .data     = &obd_timeout,
                 .maxlen   = sizeof(int),
@@ -367,7 +375,9 @@ static cfs_sysctl_table_t obd_table[] = {
                 .proc_handler = &proc_set_timeout
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = OBD_DEBUG_PEER_ON_TIMEOUT,
+#endif
                 .procname = "debug_peer_on_timeout",
                 .data     = &obd_debug_peer_on_timeout,
                 .maxlen   = sizeof(int),
@@ -375,7 +385,9 @@ static cfs_sysctl_table_t obd_table[] = {
                 .proc_handler = &proc_dointvec,
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = OBD_DUMP_ON_TIMEOUT,
+#endif
                 .procname = "dump_on_timeout",
                 .data     = &obd_dump_on_timeout,
                 .maxlen   = sizeof(int),
@@ -383,7 +395,9 @@ static cfs_sysctl_table_t obd_table[] = {
                 .proc_handler = &proc_dointvec,
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = OBD_DUMP_ON_EVICTION,
+#endif
                 .procname = "dump_on_eviction",
                 .data     = &obd_dump_on_eviction,
                 .maxlen   = sizeof(int),
@@ -391,7 +405,9 @@ static cfs_sysctl_table_t obd_table[] = {
                 .proc_handler = &proc_dointvec,
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = OBD_MEMUSED,
+#endif
                 .procname = "memused",
                 .data     = NULL,
                 .maxlen   = 0,
@@ -399,7 +415,9 @@ static cfs_sysctl_table_t obd_table[] = {
                 .proc_handler = &proc_memory_alloc,
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = OBD_PAGESUSED,
+#endif
                 .procname = "pagesused",
                 .data     = NULL,
                 .maxlen   = 0,
@@ -407,7 +425,9 @@ static cfs_sysctl_table_t obd_table[] = {
                 .proc_handler = &proc_pages_alloc,
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = OBD_MAXMEMUSED,
+#endif
                 .procname = "memused_max",
                 .data     = NULL,
                 .maxlen   = 0,
@@ -415,7 +435,9 @@ static cfs_sysctl_table_t obd_table[] = {
                 .proc_handler = &proc_mem_max,
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = OBD_MAXPAGESUSED,
+#endif
                 .procname = "pagesused_max",
                 .data     = NULL,
                 .maxlen   = 0,
@@ -423,7 +445,9 @@ static cfs_sysctl_table_t obd_table[] = {
                 .proc_handler = &proc_pages_max,
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = OBD_LDLM_TIMEOUT,
+#endif
                 .procname = "ldlm_timeout",
                 .data     = &ldlm_timeout,
                 .maxlen   = sizeof(int),
@@ -432,7 +456,9 @@ static cfs_sysctl_table_t obd_table[] = {
         },
 #ifdef RANDOM_FAIL_ALLOC
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = OBD_ALLOC_FAIL_RATE,
+#endif
                 .procname = "alloc_fail_rate",
                 .data     = &obd_alloc_fail_rate,
                 .maxlen   = sizeof(int),
@@ -441,7 +467,9 @@ static cfs_sysctl_table_t obd_table[] = {
         },
 #endif
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = OBD_MAX_DIRTY_PAGES,
+#endif
                 .procname = "max_dirty_mb",
                 .data     = &obd_max_dirty_pages,
                 .maxlen   = sizeof(int),
@@ -449,7 +477,9 @@ static cfs_sysctl_table_t obd_table[] = {
                 .proc_handler = &proc_max_dirty_pages_in_mb
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = OBD_AT_MIN,
+#endif
                 .procname = "at_min",
                 .data     = &at_min,
                 .maxlen   = sizeof(int),
@@ -457,7 +487,9 @@ static cfs_sysctl_table_t obd_table[] = {
                 .proc_handler = &proc_at_min
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = OBD_AT_MAX,
+#endif
                 .procname = "at_max",
                 .data     = &at_max,
                 .maxlen   = sizeof(int),
@@ -465,7 +497,9 @@ static cfs_sysctl_table_t obd_table[] = {
                 .proc_handler = &proc_at_max
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = OBD_AT_EXTRA,
+#endif
                 .procname = "at_extra",
                 .data     = &at_extra,
                 .maxlen   = sizeof(int),
@@ -473,7 +507,9 @@ static cfs_sysctl_table_t obd_table[] = {
                 .proc_handler = &proc_at_extra
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = OBD_AT_EARLY_MARGIN,
+#endif
                 .procname = "at_early_margin",
                 .data     = &at_early_margin,
                 .maxlen   = sizeof(int),
@@ -481,7 +517,9 @@ static cfs_sysctl_table_t obd_table[] = {
                 .proc_handler = &proc_at_early_margin
         },
         {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                 .ctl_name = OBD_AT_HISTORY,
+#endif
                 .procname = "at_history",
                 .data     = &at_history,
                 .maxlen   = sizeof(int),
@@ -493,7 +531,9 @@ static cfs_sysctl_table_t obd_table[] = {
 
 static cfs_sysctl_table_t parent_table[] = {
        {
+#ifdef HAVE_CTL_TABLE_CTL_NAME
                .ctl_name = CTL_LUSTRE,
+#endif
                .procname = "lustre",
                .data     = NULL,
                .maxlen   = 0,

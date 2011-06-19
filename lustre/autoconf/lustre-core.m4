@@ -525,6 +525,49 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
+#
+# LC_FUNC_CTL_TABLE_CTL_NAME
+#
+# Checks ctl_table has ctl_name field
+#
+AC_DEFUN([LC_FUNC_CTL_TABLE_CTL_NAME],
+[AC_MSG_CHECKING([if ctl_table has ctl_name field])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/sysctl.h>
+],[
+        struct ctl_table *sys_ctl_table;
+        sys_ctl_table->ctl_name = NULL;
+],[
+        AC_DEFINE(HAVE_CTL_TABLE_CTL_NAME, 1,
+                [struct ctl_table has ctl_name field])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+
+#
+# LC_FUNC_CTL_TABLE_STRATEGY
+#
+# Checks ctl_table has strategy field
+#
+AC_DEFUN([LC_FUNC_CTL_TABLE_STRATEGY],
+[AC_MSG_CHECKING([if ctl_table has strategy field])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/sysctl.h>
+],[
+        struct ctl_table *sys_ctl_table;
+        sys_ctl_table->strategy = NULL;
+],[
+        AC_DEFINE(HAVE_CTL_TABLE_STRATEGY, 1,
+                [struct ctl_table has strategy field])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
 
 # LC_EXPORT_SYNCHRONIZE_RCU
 # after 2.6.12 synchronize_rcu is preferred over synchronize_kernel
@@ -2073,6 +2116,10 @@ AC_DEFUN([LC_PROG_LINUX],
           if test x$enable_server = xyes ; then
               LC_QUOTA64    # must after LC_HAVE_QUOTAIO_V1_H
           fi
+
+          # 2.6.33
+          LC_FUNC_CTL_TABLE_CTL_NAME
+          LC_FUNC_CTL_TABLE_STRATEGY
 
           # 2.6.35
           LC_FUNC_SOCK_SK_SLEEP
