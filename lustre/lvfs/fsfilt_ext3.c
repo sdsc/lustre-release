@@ -79,10 +79,12 @@
 #define QFMT_LUSTRE QFMT_VFS_V0
 #endif
 
-#if defined(HAVE_EXT3_XATTR_H)
 #include <ext3/xattr.h>
-#else
+
+#ifndef EXT3_XATTR_INDEX_TRUSTED
 /* ext3 xattr.h not available in rh style kernel-devel rpm */
+/* CHAOS kernel-devel package will not include fs/ldiskfs/xattr.h */
+#define EXT3_XATTR_INDEX_TRUSTED        4
 extern int ext3_xattr_get(struct inode *, int, const char *, void *, size_t);
 extern int ext3_xattr_set_handle(handle_t *, struct inode *, int, const char *, const void *, size_t, int);
 #endif
@@ -130,6 +132,19 @@ extern int ext3_xattr_set_handle(handle_t *, struct inode *, int, const char *, 
                  ext3_discard_preallocations(inode)
 #endif
 
+#ifdef HAVE_EXT4_LDISKFS
+#define journal_callback ext4_journal_cb_entry
+#define fsfilt_log_start_commit(journal, tid) jbd2_log_start_commit(journal, tid)
+#define fsfilt_log_wait_commit(journal, tid) jbd2_log_wait_commit(journal, tid)
+#define fsfilt_journal_callback_set(handle, func, jcb) ext4_journal_callback_add(handle, func, jcb)
+#else
+#define fsfilt_log_start_commit(journal, tid) log_start_commit(journal, tid)
+#define fsfilt_log_wait_commit(journal, tid) log_wait_commit(journal, tid)
+#define fsfilt_journal_callback_set(handle, func, jcb) journal_callback_set(handle, func, jcb)
+#define ext_pblock(ex) le32_to_cpu((ex)->ee_start)
+#define ext3_ext_store_pblock(ex, pblock)  ((ex)->ee_start = cpu_to_le32(pblock))
+#define ext3_inode_bitmap(sb,desc) le32_to_cpu((desc)->bg_inode_bitmap)
+#endif
 
 static cfs_mem_cache_t *fcb_cache;
 
@@ -140,23 +155,6 @@ struct fsfilt_cb_data {
         __u64 cb_last_rcvd;             /* MDS/OST last committed operation */
         void *cb_data;                  /* MDS/OST completion function data */
 };
-
-#ifndef EXT3_XATTR_INDEX_TRUSTED        /* temporary until we hit l28 kernel */
-#define EXT3_XATTR_INDEX_TRUSTED        4
-#endif
-
-#ifdef HAVE_EXT4_LDISKFS
-#define fsfilt_log_start_commit(journal, tid) jbd2_log_start_commit(journal, tid)
-#define fsfilt_log_wait_commit(journal, tid) jbd2_log_wait_commit(journal, tid)
-#define fsfilt_journal_callback_set(handle, func, jcb) jbd2_journal_callback_set(handle, func, jcb)
-#else
-#define fsfilt_log_start_commit(journal, tid) log_start_commit(journal, tid)
-#define fsfilt_log_wait_commit(journal, tid) log_wait_commit(journal, tid)
-#define fsfilt_journal_callback_set(handle, func, jcb) journal_callback_set(handle, func, jcb)
-#define ext_pblock(ex) le32_to_cpu((ex)->ee_start)
-#define ext3_ext_store_pblock(ex, pblock)  ((ex)->ee_start = cpu_to_le32(pblock))
-#define ext3_inode_bitmap(sb,desc) le32_to_cpu((desc)->bg_inode_bitmap)
-#endif
 
 #ifndef ext3_find_next_bit
 #define ext3_find_next_bit           ext2_find_next_bit
@@ -782,7 +780,7 @@ static ssize_t fsfilt_ext3_readpage(struct file *file, char *buf, size_t count,
         return rc;
 }
 
-static void fsfilt_ext3_cb_func(struct journal_callback *jcb, int error)
+static void fsfilt_ext3_cb_func(struct super_block *sb, struct journal_callback *jcb, int error)
 {
         struct fsfilt_cb_data *fcb = (struct fsfilt_cb_data *)jcb;
 
