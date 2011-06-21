@@ -833,9 +833,10 @@ int llog_put_cat_list(struct obd_device *obd, struct obd_device *disk_obd,
 {
         struct lvfs_run_ctxt saved;
         struct l_file *file;
+        void *buf = NULL;
         int rc, rc1 = 0;
         int size = sizeof(*idarray) * count;
-        loff_t off = idx * sizeof(*idarray);
+        loff_t filesize, off = idx * sizeof(*idarray);
 
         if (!count)
                 GOTO(out1, rc = 0);
@@ -854,6 +855,18 @@ int llog_put_cat_list(struct obd_device *obd, struct obd_device *disk_obd,
                 CERROR("%s is not a regular file!: mode = %o\n", name,
                        file->f_dentry->d_inode->i_mode);
                 GOTO(out, rc = -ENOENT);
+        }
+
+        filesize = i_size_read(file->f_dentry->d_inode);
+        if (filesize < off) {
+                loff_t count = off - filesize;
+                OBD_ALLOC(buf, count);
+                if (buf == NULL)
+                        GOTO(out, rc = -ENOMEM);
+
+                /* fill the unused trunk beyond file end with zero */
+                fsfilt_write_record(disk_obd, file, buf, count, &filesize, 1);
+                OBD_FREE(buf, count);
         }
 
         rc = fsfilt_write_record(disk_obd, file, idarray, size, &off, 1);
