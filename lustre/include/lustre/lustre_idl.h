@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
@@ -1550,48 +1553,6 @@ static inline int ll_inode_to_ext_flags(int iflags)
 }
 #endif
 
-/*
- * while mds_body is to interact with 1.6, mdt_body is to interact with 2.0.
- * both of them should have the same fields layout, because at client side
- * one could be dynamically cast to the other.
- *
- * mdt_body has large size than mds_body, with unused padding (48 bytes)
- * at the end. client always use size of mdt_body to prepare request/reply
- * buffers, and actual data could be interepeted as mdt_body or mds_body
- * accordingly.
- */
-struct mds_body {
-        struct ll_fid  fid1;
-        struct ll_fid  fid2;
-        struct lustre_handle handle;
-        __u64          valid;
-        __u64          size;   /* Offset, in the case of MDS_READPAGE */
-        obd_time       mtime;
-        obd_time       atime;
-        obd_time       ctime;
-        __u64          blocks; /* XID, in the case of MDS_READPAGE */
-        __u64          io_epoch;
-        __u64          ino;
-        __u32          fsuid;
-        __u32          fsgid;
-        __u32          capability;
-        __u32          mode;
-        __u32          uid;
-        __u32          gid;
-        __u32          flags; /* from vfs for pin/unpin, MDS_BFLAG for close */
-        __u32          rdev;
-        __u32          nlink; /* #bytes to read in the case of MDS_READPAGE */
-        __u32          generation;
-        __u32          suppgid;
-        __u32          eadatasize;
-        __u32          aclsize;
-        __u32          max_mdsize;
-        __u32          max_cookiesize;
-        __u32          padding_4; /* also fix lustre_swab_mds_body */
-};
-
-extern void lustre_swab_mds_body (struct mds_body *b);
-
 struct mdt_body {
         struct lu_fid  fid1;
         struct lu_fid  fid2;
@@ -1710,16 +1671,6 @@ extern void lustre_swab_quota_adjust_qunit(struct quota_adjust_qunit *q);
 #define QAQ_SET_ADJINO(qaq) ((qaq)->qaq_flags |= LQUOTA_FLAGS_ADJINO)
 #define QAQ_SET_CREATE_LQS(qaq) ((qaq)->qaq_flags |= LQUOTA_QAQ_CREATE_LQS)
 
-/* inode access permission for remote user, the inode info are omitted,
- * for client knows them. */
-struct mds_remote_perm {
-        __u32           rp_uid;
-        __u32           rp_gid;
-        __u32           rp_fsuid;
-        __u32           rp_fsgid;
-        __u32           rp_access_perm; /* MAY_READ/WRITE/EXEC */
-};
-
 /* permissions for md_perm.mp_perm */
 enum {
         CFS_SETUID_PERM = 0x01,
@@ -1729,8 +1680,8 @@ enum {
         CFS_RMTOWN_PERM = 0x10
 };
 
-extern void lustre_swab_mds_remote_perm(struct mds_remote_perm *p);
-
+/* inode access permission for remote user, the inode info are omitted,
+ * for client knows them. */
 struct mdt_remote_perm {
         __u32           rp_uid;
         __u32           rp_gid;

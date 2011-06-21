@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
@@ -1997,7 +2000,7 @@ int target_queue_recovery_request(struct ptlrpc_request *req,
 
         /* CAVEAT EMPTOR: The incoming request message has been swabbed
          * (i.e. buflens etc are in my own byte order), but type-dependent
-         * buffers (eg mds_body, ost_body etc) have NOT been swabbed. */
+         * buffers (eg mdt_body, ost_body etc) have NOT been swabbed. */
 
         if (!transno) {
                 CFS_INIT_LIST_HEAD(&req->rq_list);
