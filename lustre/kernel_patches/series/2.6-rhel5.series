@@ -22,7 +22,6 @@ raid5-mmp-unplug-dev.patch
 small-fixes-about-jbd.patch
 mpt-fusion-max-sge.patch
 prune-icache-use-trylock-rhel5.patch
-jbd2-jcberr-2.6-rhel5.patch
 jbd2-commit-timer-no-jiffies-rounding.diff
 md-avoid-bug_on-when-bmc-overflow.patch
 export-symbols-for-dmu.patch
