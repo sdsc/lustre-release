@@ -614,7 +614,8 @@ static int osd_param_is_sane(const struct osd_device *dev,
 /*
  * Concurrency: shouldn't matter.
  */
-static void osd_trans_commit_cb(struct journal_callback *jcb, int error)
+static void osd_trans_commit_cb(struct super_block *sb,
+                                struct journal_callback *jcb, int error)
 {
         struct osd_thandle *oh = container_of0(jcb, struct osd_thandle, ot_jcb);
         struct thandle     *th  = &oh->ot_super;
