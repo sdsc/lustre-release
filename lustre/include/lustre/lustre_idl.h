@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
@@ -1304,23 +1307,23 @@ struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
 #define OBD_MD_MEA         (0x0000000400000000ULL) /* CMD split EA  */
 #define OBD_MD_MDTIDX      (0x0000000800000000ULL) /* Get MDT index  */
 
-#define OBD_MD_FLXATTR     (0x0000001000000000ULL) /* xattr */
-#define OBD_MD_FLXATTRLS   (0x0000002000000000ULL) /* xattr list */
-#define OBD_MD_FLXATTRRM   (0x0000004000000000ULL) /* xattr remove */
-#define OBD_MD_FLACL       (0x0000008000000000ULL) /* ACL */
-#define OBD_MD_FLRMTPERM   (0x0000010000000000ULL) /* remote permission */
-#define OBD_MD_FLMDSCAPA   (0x0000020000000000ULL) /* MDS capability */
-#define OBD_MD_FLOSSCAPA   (0x0000040000000000ULL) /* OSS capability */
-#define OBD_MD_FLCKSPLIT   (0x0000080000000000ULL) /* Check split on server */
-#define OBD_MD_FLCROSSREF  (0x0000100000000000ULL) /* Cross-ref case */
+#define OBD_MD_FLXATTR       (0x0000001000000000ULL) /* xattr */
+#define OBD_MD_FLXATTRLS     (0x0000002000000000ULL) /* xattr list */
+#define OBD_MD_FLXATTRRM     (0x0000004000000000ULL) /* xattr remove */
+#define OBD_MD_FLACL         (0x0000008000000000ULL) /* ACL */
+#define OBD_MD_FLRMTPERM     (0x0000010000000000ULL) /* remote permission */
+#define OBD_MD_FLMDSCAPA     (0x0000020000000000ULL) /* MDS capability */
+#define OBD_MD_FLOSSCAPA     (0x0000040000000000ULL) /* OSS capability */
+#define OBD_MD_FLCKSPLIT     (0x0000080000000000ULL) /* Check split on server */
+#define OBD_MD_FLCROSSREF    (0x0000100000000000ULL) /* Cross-ref case */
 #define OBD_MD_FLGETATTRLOCK (0x0000200000000000ULL) /* Get IOEpoch attributes
                                                       * under lock */
-#define OBD_FL_TRUNC       (0x0000200000000000ULL) /* for filter_truncate */
+#define OBD_MD_FLTRUNC       (0x0000400000000000ULL) /* for filter_truncate */
 
-#define OBD_MD_FLRMTLSETFACL    (0x0001000000000000ULL) /* lfs lsetfacl case */
-#define OBD_MD_FLRMTLGETFACL    (0x0002000000000000ULL) /* lfs lgetfacl case */
-#define OBD_MD_FLRMTRSETFACL    (0x0004000000000000ULL) /* lfs rsetfacl case */
-#define OBD_MD_FLRMTRGETFACL    (0x0008000000000000ULL) /* lfs rgetfacl case */
+#define OBD_MD_FLRMTLSETFACL (0x0001000000000000ULL) /* lfs lsetfacl case */
+#define OBD_MD_FLRMTLGETFACL (0x0002000000000000ULL) /* lfs lgetfacl case */
+#define OBD_MD_FLRMTRSETFACL (0x0004000000000000ULL) /* lfs rsetfacl case */
+#define OBD_MD_FLRMTRGETFACL (0x0008000000000000ULL) /* lfs rgetfacl case */
 
 #define OBD_MD_FLGETATTR (OBD_MD_FLID    | OBD_MD_FLATIME | OBD_MD_FLMTIME | \
                           OBD_MD_FLCTIME | OBD_MD_FLSIZE  | OBD_MD_FLBLKSZ | \
@@ -1333,16 +1336,6 @@ struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
 
 
 extern void lustre_swab_obd_statfs (struct obd_statfs *os);
-#define OBD_STATFS_NODELAY      0x0001  /* requests should be send without delay
-                                         * and resends for avoid deadlocks */
-#define OBD_STATFS_FROM_CACHE   0x0002  /* the statfs callback should not update
-                                         * obd_osfs_age */
-#define OBD_STATFS_PTLRPCD      0x0004  /* requests will be sent via ptlrpcd
-                                         * instead of a specific set. This
-                                         * means that we cannot rely on the set
-                                         * interpret routine to be called.
-                                         * lov_statfs_fini() must thus be called
-                                         * by the request interpret routine */
 
 /* ost_body.data values for OST_BRW */
 
@@ -1550,48 +1543,6 @@ static inline int ll_inode_to_ext_flags(int iflags)
 }
 #endif
 
-/*
- * while mds_body is to interact with 1.6, mdt_body is to interact with 2.0.
- * both of them should have the same fields layout, because at client side
- * one could be dynamically cast to the other.
- *
- * mdt_body has large size than mds_body, with unused padding (48 bytes)
- * at the end. client always use size of mdt_body to prepare request/reply
- * buffers, and actual data could be interepeted as mdt_body or mds_body
- * accordingly.
- */
-struct mds_body {
-        struct ll_fid  fid1;
-        struct ll_fid  fid2;
-        struct lustre_handle handle;
-        __u64          valid;
-        __u64          size;   /* Offset, in the case of MDS_READPAGE */
-        obd_time       mtime;
-        obd_time       atime;
-        obd_time       ctime;
-        __u64          blocks; /* XID, in the case of MDS_READPAGE */
-        __u64          io_epoch;
-        __u64          ino;
-        __u32          fsuid;
-        __u32          fsgid;
-        __u32          capability;
-        __u32          mode;
-        __u32          uid;
-        __u32          gid;
-        __u32          flags; /* from vfs for pin/unpin, MDS_BFLAG for close */
-        __u32          rdev;
-        __u32          nlink; /* #bytes to read in the case of MDS_READPAGE */
-        __u32          generation;
-        __u32          suppgid;
-        __u32          eadatasize;
-        __u32          aclsize;
-        __u32          max_mdsize;
-        __u32          max_cookiesize;
-        __u32          padding_4; /* also fix lustre_swab_mds_body */
-};
-
-extern void lustre_swab_mds_body (struct mds_body *b);
-
 struct mdt_body {
         struct lu_fid  fid1;
         struct lu_fid  fid2;
@@ -1603,7 +1554,7 @@ struct mdt_body {
        obd_time        ctime;
         __u64          blocks; /* XID, in the case of MDS_READPAGE */
         __u64          ioepoch;
-        __u64          ino;    /* for 1.6 compatibility */
+        __u64          ino;
         __u32          fsuid;
         __u32          fsgid;
         __u32          capability;
@@ -1613,7 +1564,7 @@ struct mdt_body {
         __u32          flags; /* from vfs for pin/unpin, MDS_BFLAG for close */
         __u32          rdev;
         __u32          nlink; /* #bytes to read in the case of MDS_READPAGE */
-        __u32          generation; /* for 1.6 compatibility */
+        __u32          generation;
         __u32          suppgid;
         __u32          eadatasize;
         __u32          aclsize;
@@ -1710,16 +1661,6 @@ extern void lustre_swab_quota_adjust_qunit(struct quota_adjust_qunit *q);
 #define QAQ_SET_ADJINO(qaq) ((qaq)->qaq_flags |= LQUOTA_FLAGS_ADJINO)
 #define QAQ_SET_CREATE_LQS(qaq) ((qaq)->qaq_flags |= LQUOTA_QAQ_CREATE_LQS)
 
-/* inode access permission for remote user, the inode info are omitted,
- * for client knows them. */
-struct mds_remote_perm {
-        __u32           rp_uid;
-        __u32           rp_gid;
-        __u32           rp_fsuid;
-        __u32           rp_fsgid;
-        __u32           rp_access_perm; /* MAY_READ/WRITE/EXEC */
-};
-
 /* permissions for md_perm.mp_perm */
 enum {
         CFS_SETUID_PERM = 0x01,
@@ -1729,8 +1670,8 @@ enum {
         CFS_RMTOWN_PERM = 0x10
 };
 
-extern void lustre_swab_mds_remote_perm(struct mds_remote_perm *p);
-
+/* inode access permission for remote user, the inode info are omitted,
+ * for client knows them. */
 struct mdt_remote_perm {
         __u32           rp_uid;
         __u32           rp_gid;
@@ -1801,18 +1742,18 @@ extern void lustre_swab_mdt_rec_setattr (struct mdt_rec_setattr *sa);
 #define FMODE_WRITE              00000002
 #endif
 
+#define MDS_FMODE_CLOSED         00000000
+#define MDS_FMODE_EXEC           00000004
 /* IO Epoch is opened on a closed file. */
-#define FMODE_EPOCH              01000000
+#define MDS_FMODE_EPOCH          01000000
 /* IO Epoch is opened on a file truncate. */
-#define FMODE_TRUNC              02000000
+#define MDS_FMODE_TRUNC          02000000
 /* Size-on-MDS Attribute Update is pending. */
-#define FMODE_SOM                04000000
-#define FMODE_CLOSED             0
+#define MDS_FMODE_SOM            04000000
 
 #define MDS_OPEN_CREATED         00000010
 #define MDS_OPEN_CROSS           00000020
 
-#define MDS_FMODE_EXEC           00000004
 #define MDS_OPEN_CREAT           00000100
 #define MDS_OPEN_EXCL            00000200
 #define MDS_OPEN_TRUNC           00001000
