@@ -3381,14 +3381,30 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
                                einfo->ei_type, policy, mode, lockh, 0);
         if (mode) {
                 struct ldlm_lock *matched = ldlm_handle2lock(lockh);
+                int found = 0;
 
-                if (matched->l_ast_data == NULL ||
-                    matched->l_ast_data == einfo->ei_cbdata) {
+                LASSERT(matched->l_blocking_ast == einfo->ei_cb_bl);
+                LASSERT(matched->l_resource->lr_type == einfo->ei_type);
+                LASSERT(matched->l_completion_ast == einfo->ei_cb_cp);
+                LASSERT(matched->l_glimpse_ast == einfo->ei_cb_gl);
+
+                lock_res_and_lock(matched);
+                cfs_spin_lock(&osc_ast_guard);
+
+                if (matched->l_ast_data == NULL)
+                        matched->l_ast_data = einfo->ei_cbdata;
+
+                if (matched->l_ast_data == einfo->ei_cbdata)
+                        found = 1;
+
+                cfs_spin_unlock(&osc_ast_guard);
+                unlock_res_and_lock(matched);
+
+                if (found) {
                         /* addref the lock only if not async requests and PW
                          * lock is matched whereas we asked for PR. */
                         if (!rqset && einfo->ei_mode != mode)
                                 ldlm_lock_addref(lockh, LCK_PR);
-                        osc_set_lock_data_with_check(matched, einfo, *flags);
                         if (intent) {
                                 /* I would like to be able to ASSERT here that
                                  * rss <= kms, but I can't, for reasons which
