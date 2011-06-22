@@ -1785,6 +1785,7 @@ jt_lst_stat(int argc, char **argv)
         int                   optidx  = 0;
         int                   timeout = 5; /* default timeout, 5 sec */
         int                   delay   = 5; /* default delay, 5 sec */
+        int                   count   = -1; /* run forever */
         int                   lnet    = 1; /* lnet stat by default */
         int                   bwrt    = 0;
         int                   rdwr    = 0;
@@ -1797,6 +1798,7 @@ jt_lst_stat(int argc, char **argv)
         {
                 {"timeout", required_argument, 0, 't' },
                 {"delay"  , required_argument, 0, 'd' },
+                {"count"  , required_argument, 0, 'o' },
                 {"lnet"   , no_argument,       0, 'l' },
                 {"rpc"    , no_argument,       0, 'c' },
                 {"bw"     , no_argument,       0, 'b' },
@@ -1827,6 +1829,10 @@ jt_lst_stat(int argc, char **argv)
                         break;
                 case 'd':
                         delay = atoi(optarg);
+                        break;
+                case 'o':
+                        /* extra count to get first data point */
+                        count = atoi(optarg) + 1;
                         break;
                 case 'l':
                         lnet = 1;
@@ -1893,7 +1899,7 @@ jt_lst_stat(int argc, char **argv)
                 cfs_list_add_tail(&srp->srp_link, &head);
         }
 
-        while (1) {
+        do {
                 time_t  now = time(NULL);
 
                 if (now - last < delay) {
@@ -1921,7 +1927,10 @@ jt_lst_stat(int argc, char **argv)
                 }
 
                 idx = 1 - idx;
-        }
+
+                if (count > 0)
+                        count--;
+        } while (count == -1 || count > 0);
 
 out:
         while (!cfs_list_empty(&head)) {
@@ -3139,7 +3148,7 @@ static command_t lst_cmdlist[] = {
           "Usage: lst list_group [--active] [--busy] [--down] [--unknown] GROUP ..."    },
         {"stat",                jt_lst_stat,            NULL,
          "Usage: lst stat [--bw] [--rate] [--read] [--write] [--max] [--min] [--avg] "
-         " [--timeout #] [--delay #] GROUP [GROUP]"                                     },
+         " [--timeout #] [--delay #] [--count #] GROUP [GROUP]"                                     },
         {"show_error",          jt_lst_show_error,      NULL,
          "Usage: lst show_error NAME | IDS ..."                                         },
         {"add_batch",           jt_lst_add_batch,       NULL,
