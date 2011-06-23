@@ -878,7 +878,6 @@ static void lloop_exit(void)
         ll_iocontrol_unregister(ll_iocontrol_magic);
         for (i = 0; i < max_loop; i++) {
                 del_gendisk(disks[i]);
-                blk_cleanup_queue(loop_dev[i].lo_queue);
                 put_disk(disks[i]);
         }
         if (ll_unregister_blkdev(lloop_major, "lloop"))
