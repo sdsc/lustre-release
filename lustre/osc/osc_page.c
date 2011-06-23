@@ -680,11 +680,6 @@ void osc_io_submit_page(const struct lu_env *env,
                 oap->oap_brw_flags |= OBD_BRW_SRVLOCK;
 
         oap->oap_cmd = crt == CRT_WRITE ? OBD_BRW_WRITE : OBD_BRW_READ;
-        if (!client_is_remote(osc_export(cl2osc(opg->ops_cl.cpl_obj))) &&
-            cfs_capable(CFS_CAP_SYS_RESOURCE)) {
-                oap->oap_brw_flags |= OBD_BRW_NOQUOTA;
-                oap->oap_cmd |= OBD_BRW_NOQUOTA;
-        }
 
         if (oap->oap_cmd & OBD_BRW_READ)
                 flags = ASYNC_COUNT_STABLE;
