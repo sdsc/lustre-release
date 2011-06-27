@@ -4408,6 +4408,23 @@ test_80() { # bug 10718
 }
 run_test 80 "Page eviction is equally fast at high offsets too  ===="
 
+test_81() { # LU-456
+        # define OBD_FAIL_OST_MAPBLK_ENOSPC    0x228
+        # MUST OR with the OBD_FAIL_ONCE (0x80000000)
+        lctl set_param fail_loc=0x80000228
+
+        # write should trigger a retry and success
+        tfile=f81
+        dd if=/dev/zero of=$DIR/$tfile bs=1M count=1 oflag=dsync
+        RC=$?
+        if [ $RC -ne 0 ] ; then
+                error "dd failed for $RC"
+        fi
+        lctl set_param fail_loc=0
+        rm -f $DIR/$tfile
+}
+run_test 81 "OST should retry write when get -ENOSPC ==============="
+
 test_99a() {
         [ -z "$(which cvs 2>/dev/null)" ] && skip_env "could not find cvs" && \
 	    return
