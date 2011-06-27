@@ -516,6 +516,17 @@ int filter_direct_io(int rw, struct dentry *dchild, struct filter_iobuf *iobuf,
                                 attr->ia_valid |= ATTR_SIZE;
                         rc = fsfilt_setattr(obd, dchild,
                                             oti->oti_handle, attr, 0);
+                } else if (rc == -ENOSPC) {
+                        /* Force commit to make the just-deleted blocks
+                         * reusable. LU-456 */
+                        fsfilt_commit(obd, inode, oti->oti_handle, 0);
+
+                        if (fsfilt_force_commit(obd, inode)) {
+                                RETURN(-EAGAIN);
+                        } else {
+                                UNLOCK_INODE_MUTEX(inode);
+                                RETURN(rc);
+                        }
                 }
 
                 UNLOCK_INODE_MUTEX(inode);
@@ -597,6 +608,7 @@ int filter_commitrw_write(struct obd_export *exp, struct obdo *oa,
         unsigned int qcids[MAXQUOTAS] = { oa->o_uid, oa->o_gid };
         int rec_pending[MAXQUOTAS] = { 0, 0 }, quota_pages = 0;
         int sync_journal_commit = obd->u.filter.fo_syncjournal;
+        int retries = 0;
         ENTRY;
 
         LASSERT(oti != NULL);
@@ -686,6 +698,7 @@ int filter_commitrw_write(struct obd_export *exp, struct obdo *oa,
 
         LOCK_INODE_MUTEX(inode);
         fsfilt_check_slow(obd, now, "i_mutex");
+retry:
         oti->oti_handle = fsfilt_brw_start(obd, objcount, &fso, niocount, res,
                                            oti);
         if (IS_ERR(oti->oti_handle)) {
@@ -742,6 +755,12 @@ int filter_commitrw_write(struct obd_export *exp, struct obdo *oa,
         /* filter_direct_io drops i_mutex */
         rc = filter_direct_io(OBD_BRW_WRITE, res->dentry, iobuf, exp, &iattr,
                               oti, sync_journal_commit ? &wait_handle : NULL);
+        if (rc == -EAGAIN && retries++ < 3) {
+                CDEBUG(D_INODE, "retry after force commit, retries:%d\n",
+                       retries);
+                oti->oti_handle = NULL;
+                goto retry;
+        }
 
         obdo_from_inode(oa, inode, NULL, rc == 0 ? FILTER_VALID_FLAGS : 0 |
                                                    OBD_MD_FLUID |OBD_MD_FLGID);

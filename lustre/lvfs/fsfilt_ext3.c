@@ -579,6 +579,16 @@ static int fsfilt_ext3_commit_wait(struct inode *inode, void *h)
         return 0;
 }
 
+static int fsfilt_ext3_force_commit(struct inode *inode)
+{
+        journal_t *journal = EXT3_JOURNAL(inode);
+
+        if (!journal)
+                return 0;
+
+        return jbd2_journal_force_commit_nested(journal);
+}
+
 static int fsfilt_ext3_setattr(struct dentry *dentry, void *handle,
                                struct iattr *iattr, int do_trunc)
 {
@@ -2429,6 +2439,7 @@ static struct fsfilt_operations fsfilt_ext3_ops = {
         .fs_commit              = fsfilt_ext3_commit,
         .fs_commit_async        = fsfilt_ext3_commit_async,
         .fs_commit_wait         = fsfilt_ext3_commit_wait,
+        .fs_force_commit        = fsfilt_ext3_force_commit,
         .fs_setattr             = fsfilt_ext3_setattr,
         .fs_iocontrol           = fsfilt_ext3_iocontrol,
         .fs_set_md              = fsfilt_ext3_set_md,
