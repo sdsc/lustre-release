@@ -27,6 +27,7 @@ Patch99995: linux-%{version}-lustre.patch' \
 # lustre patch\
 ApplyOptionalPatch linux-%{version}-lustre.patch\
 ' \
+           -e 's/^\(make -f %{SOURCE20} VERSION=%{version} configs\)/# \1/'
           SPECS/$SPEC_NAME 2>&1 || \
         fatal 1 "Error while editing SPECS/$SPEC_NAME"
 
