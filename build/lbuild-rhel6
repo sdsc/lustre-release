@@ -27,6 +27,9 @@ Patch99995: linux-%{version}-lustre.patch' \
 # lustre patch\
 ApplyOptionalPatch linux-%{version}-lustre.patch\
 ' \
+           -e "/^# now run oldconfig over all the config files/i\
+# lustre config file\
+cp $CONFIG_FILE kernel-%{version}-$(head -1 $CONFIG_FILE | cut -b 3-).config"\
           SPECS/$SPEC_NAME 2>&1 || \
         fatal 1 "Error while editing SPECS/$SPEC_NAME"
 
