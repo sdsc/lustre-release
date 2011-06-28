@@ -1572,7 +1572,7 @@ test_65a() #bug 3055
     at_start || return 0
     $LCTL dk > /dev/null
     debugsave
-    sysctl -w lnet.debug="+other"
+    sysctl -w lnet.debug="other"
     # Slow down a request to the current service time, this is critical
     # because previous tests may have caused this value to increase.
     REQ_DELAY=`lctl get_param -n mdc.${FSNAME}-MDT0000-mdc-*.timeouts |
