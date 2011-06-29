@@ -312,6 +312,7 @@ ssize_t llu_file_prwv(const struct iovec *iovec, int iovlen,
         struct cl_io  *io;
         struct slp_io *sio;
         int refcheck;
+        int rw = session->lis_cmd == OBD_BRW_WRITE ? CIT_WRITE : CIT_READ;
         ENTRY;
 
         /* in a large iov read/write we'll be repeatedly called.
@@ -330,9 +331,8 @@ ssize_t llu_file_prwv(const struct iovec *iovec, int iovlen,
                 RETURN(PTR_ERR(env));
 
         io = ccc_env_thread_io(env);
-        if (cl_io_rw_init(env, io, session->lis_cmd == OBD_BRW_WRITE?CIT_WRITE:
-                                                                      CIT_READ,
-                          pos, len) == 0) {
+        llu_io_init(io, inode, rw);
+        if (cl_io_rw_init(env, io, rw, pos, len) == 0) {
                 struct ccc_io *cio;
                 sio = slp_env_io(env);
                 cio = ccc_env_io(env);
