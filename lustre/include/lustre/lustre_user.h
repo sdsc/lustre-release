@@ -153,6 +153,10 @@ struct obd_statfs {
 #define LL_IOC_HSM_CT_START             _IOW ('f', 176,struct lustre_kernelcomm)
 /* see <lustre_lib.h> for ioctl numbers 177-210 */
 
+#define LL_IOC_HSM_STATE_GET            _IOR ('f', 211, struct hsm_user_state)
+#define LL_IOC_HSM_STATE_SET            _IOW ('f', 212, struct hsm_state_set)
+#define LL_IOC_HSM_ACTION               _IOR ('f', 213, struct hsm_current_action)
+
 #define LL_IOC_DATA_VERSION             _IOR ('f', 218, struct ioc_data_version)
 
 #define LL_STATFS_LMV           1
@@ -707,17 +711,17 @@ struct hsm_user_state {
         /** Current HSM states, from enum hsm_states. */
         __u32              hus_states;
         __u32              hus_archive_num;
-        /**  The current undergoing action, if there is one */
-        __u32              hus_in_progress_state;
-        __u32              hus_in_progress_action;
-        struct hsm_extent  hus_in_progress_location;
-        char               hus_extended_info[];
 };
 
-struct hsm_state_set_ioc {
-        struct lu_fid  hssi_fid;
-        __u64          hssi_setmask;
-        __u64          hssi_clearmask;
+/*
+ * This structure purpose is to be sent to user-space mainly.
+ * It describes the current in-progress action for a file.
+ */
+struct hsm_current_action {
+        /**  The current undergoing action, if there is one */
+        __u32              hca_state;
+        __u32              hca_action;
+        struct hsm_extent  hca_location;
 };
 
 /***** HSM user requests ******/
@@ -734,7 +738,7 @@ enum hsm_user_action {
 static inline char *hsm_user_action2name(enum hsm_user_action  a)
 {
         switch  (a) {
-        case HUA_NONE:    return "NOOP";
+        case HUA_NONE:    return "NONE";
         case HUA_ARCHIVE: return "ARCHIVE";
         case HUA_RESTORE: return "RESTORE";
         case HUA_RELEASE: return "RELEASE";

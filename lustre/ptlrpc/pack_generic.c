@@ -2397,13 +2397,35 @@ void lustre_swab_lustre_capa_key(struct lustre_capa_key *k)
         CLASSERT(offsetof(typeof(*k), lk_padding) != 0);
 }
 
-void lustre_swab_hsm_state(struct hsm_state_set_ioc *hssi)
+void lustre_swab_hsm_extent(struct hsm_extent *extent)
 {
-        lustre_swab_lu_fid(&hssi->hssi_fid);
-        __swab64s(&hssi->hssi_setmask);
-        __swab64s(&hssi->hssi_clearmask);
+        __swab64s (&extent->offset);
+        __swab64s (&extent->length);
 }
-EXPORT_SYMBOL(lustre_swab_hsm_state);
+
+void lustre_swab_hsm_user_state(struct hsm_user_state *state)
+{
+        __swab32s (&state->hus_states);
+        __swab32s (&state->hus_archive_num);
+}
+EXPORT_SYMBOL(lustre_swab_hsm_user_state);
+
+void lustre_swab_hsm_current_action(struct hsm_current_action *action)
+{
+        __swab32s (&action->hca_state);
+        __swab32s (&action->hca_action);
+        lustre_swab_hsm_extent(&action->hca_location);
+}
+EXPORT_SYMBOL(lustre_swab_hsm_current_action);
+
+void lustre_swab_hsm_state_set(struct hsm_state_set *hss)
+{
+        __swab32s(&hss->hss_valid);
+        __swab64s(&hss->hss_setmask);
+        __swab64s(&hss->hss_clearmask);
+        __swab32s(&hss->hss_archive_num);
+}
+EXPORT_SYMBOL(lustre_swab_hsm_state_set);
 
 void lustre_swab_hsm_user_request(struct hsm_user_request *hur)
 {

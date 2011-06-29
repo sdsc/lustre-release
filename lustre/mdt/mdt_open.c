@@ -672,7 +672,13 @@ static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
                         repbody->ioepoch = o->mot_ioepoch;
                 }
         } else if (flags & MDS_FMODE_EXEC) {
-                rc = mdt_write_deny(o);
+                /* if file is released, we can't deny write because we must
+                 * restore (write) it to access it.*/
+                if ((ma->ma_valid & MA_HSM) &&
+                    (ma->ma_hsm.mh_flags & HS_RELEASED))
+                        rc = 0;
+                else
+                        rc = mdt_write_deny(o);
         }
         if (rc)
                 RETURN(rc);
@@ -952,7 +958,7 @@ void mdt_reconstruct_open(struct mdt_thread_info *info,
         ma->ma_lmm = req_capsule_server_get(pill, &RMF_MDT_MD);
         ma->ma_lmm_size = req_capsule_get_size(pill, &RMF_MDT_MD,
                                                RCL_SERVER);
-        ma->ma_need = MA_INODE;
+        ma->ma_need = MA_INODE | MA_HSM;
         if (ma->ma_lmm_size > 0)
                 ma->ma_need |= MA_LOV;
 
@@ -1414,7 +1420,9 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                 }
                 created = 1;
         } else {
-                /* We have to get attr & lov ea for this object */
+                /* We have to get attr & lov ea, hsm bits, layout generation
+                 * number for this object */
+                ma->ma_need |= MA_HSM;
                 result = mo_attr_get(info->mti_env, mdt_object_child(child),
                                      ma);
                 /*
@@ -1467,7 +1475,11 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 
                 if (create_flags & FMODE_WRITE)
                         lm = LCK_CW;
-                else if (create_flags & MDS_FMODE_EXEC)
+                /* if file is released, we can't deny write because we must
+                 * restore (write) it to access it. */
+                else if ((create_flags & MDS_FMODE_EXEC) &&
+                         !((ma->ma_valid & MA_HSM) &&
+                           (ma->ma_hsm.mh_flags & HS_RELEASED)))
                         lm = LCK_PR;
                 else
                         lm = LCK_CR;

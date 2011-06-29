@@ -530,7 +530,7 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
         } else {
                 ma->ma_lmm = buffer->lb_buf;
                 ma->ma_lmm_size = buffer->lb_len;
-                ma->ma_need = MA_LOV | MA_INODE;
+                ma->ma_need = MA_LOV | MA_INODE | MA_HSM;
         }
 
         if (S_ISDIR(lu_object_attr(&next->mo_lu)) &&
@@ -2905,6 +2905,9 @@ static int mdt_msg_check_version(struct lustre_msg *msg)
         case MDS_SETXATTR:
         case MDS_SET_INFO:
         case MDS_GET_INFO:
+        case MDS_HSM_STATE_GET:
+        case MDS_HSM_STATE_SET:
+        case MDS_HSM_ACTION:
         case MDS_QUOTACHECK:
         case MDS_QUOTACTL:
         case QUOTA_DQACQ:
@@ -5882,6 +5885,9 @@ DEF_MDT_HNDL_F(HABEO_CORPUS,              DONE_WRITING, mdt_done_writing),
 DEF_MDT_HNDL_F(0           |HABEO_REFERO, PIN,          mdt_pin),
 DEF_MDT_HNDL_0(0,                         SYNC,         mdt_sync),
 DEF_MDT_HNDL_F(HABEO_CORPUS|HABEO_REFERO, IS_SUBDIR,    mdt_is_subdir),
+DEF_MDT_HNDL_F(HABEO_CORPUS|HABEO_REFERO, HSM_STATE_GET, mdt_hsm_state_get),
+DEF_MDT_HNDL_F(HABEO_CORPUS|HABEO_REFERO, HSM_STATE_SET, mdt_hsm_state_set),
+DEF_MDT_HNDL_F(HABEO_CORPUS|HABEO_REFERO, HSM_ACTION,   mdt_hsm_action),
 #ifdef HAVE_QUOTA_SUPPORT
 DEF_MDT_HNDL_F(0,                         QUOTACHECK,   mdt_quotacheck_handle),
 DEF_MDT_HNDL_F(0,                         QUOTACTL,     mdt_quotactl_handle)

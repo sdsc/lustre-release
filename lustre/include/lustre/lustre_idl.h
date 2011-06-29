@@ -307,6 +307,10 @@ struct lustre_mdt_attrs {
         __u64   lma_som_blocks;
         /** mds mount id the size is valid for */
         __u64   lma_som_mountid;
+        /** backend archive number when file is archived */
+        __u32   lma_archive_number;
+        /** layout generation number at release time */
+        __u32   lma_released_layout_gen;
 };
 
 /**
@@ -324,12 +328,14 @@ static inline void lustre_lma_init(struct lustre_mdt_attrs *lma,
         lma->lma_som_size    = 0;
         lma->lma_som_blocks  = 0;
         lma->lma_som_mountid = 0;
+        lma->lma_archive_number = 0;
+        lma->lma_released_layout_gen = 0;
 
         /* If a field is added in struct lustre_mdt_attrs, zero it explicitly
          * and change the test below. */
         LASSERT(sizeof(*lma) ==
-                (offsetof(struct lustre_mdt_attrs, lma_som_mountid) +
-                 sizeof(lma->lma_som_mountid)));
+                (offsetof(struct lustre_mdt_attrs, lma_released_layout_gen) +
+                 sizeof(lma->lma_released_layout_gen)));
 };
 
 extern void lustre_swab_lu_fid(struct lu_fid *fid);
@@ -350,6 +356,8 @@ static inline void lustre_lma_swab(struct lustre_mdt_attrs *lma)
                 __swab64s(&lma->lma_som_size);
                 __swab64s(&lma->lma_som_blocks);
                 __swab64s(&lma->lma_som_mountid);
+                __swab32s(&lma->lma_archive_number);
+                __swab32s(&lma->lma_released_layout_gen);
         }
 };
 
@@ -1561,27 +1569,30 @@ struct ost_lvb {
 
 /* opcodes */
 typedef enum {
-        MDS_GETATTR      = 33,
-        MDS_GETATTR_NAME = 34,
-        MDS_CLOSE        = 35,
-        MDS_REINT        = 36,
-        MDS_READPAGE     = 37,
-        MDS_CONNECT      = 38,
-        MDS_DISCONNECT   = 39,
-        MDS_GETSTATUS    = 40,
-        MDS_STATFS       = 41,
-        MDS_PIN          = 42,
-        MDS_UNPIN        = 43,
-        MDS_SYNC         = 44,
-        MDS_DONE_WRITING = 45,
-        MDS_SET_INFO     = 46,
-        MDS_QUOTACHECK   = 47,
-        MDS_QUOTACTL     = 48,
-        MDS_GETXATTR     = 49,
-        MDS_SETXATTR     = 50, /* obsolete, now it's MDS_REINT op */
-        MDS_WRITEPAGE    = 51,
-        MDS_IS_SUBDIR    = 52,
-        MDS_GET_INFO     = 53,
+        MDS_GETATTR           = 33,
+        MDS_GETATTR_NAME      = 34,
+        MDS_CLOSE             = 35,
+        MDS_REINT             = 36,
+        MDS_READPAGE          = 37,
+        MDS_CONNECT           = 38,
+        MDS_DISCONNECT        = 39,
+        MDS_GETSTATUS         = 40,
+        MDS_STATFS            = 41,
+        MDS_PIN               = 42,
+        MDS_UNPIN             = 43,
+        MDS_SYNC              = 44,
+        MDS_DONE_WRITING      = 45,
+        MDS_SET_INFO          = 46,
+        MDS_QUOTACHECK        = 47,
+        MDS_QUOTACTL          = 48,
+        MDS_GETXATTR          = 49,
+        MDS_SETXATTR          = 50, /* obsolete, now it's MDS_REINT op */
+        MDS_WRITEPAGE         = 51,
+        MDS_IS_SUBDIR         = 52,
+        MDS_GET_INFO          = 53,
+        MDS_HSM_STATE_GET     = 54,
+        MDS_HSM_STATE_SET     = 55,
+        MDS_HSM_ACTION        = 56,
         MDS_LAST_OPC
 } mds_cmd_t;
 
@@ -3072,6 +3083,22 @@ struct getinfo_fid2path {
 
 void lustre_swab_fid2path (struct getinfo_fid2path *gf);
 
+
+enum hss_valid {
+        HSS_SETMASK     = 0x01,
+        HSS_CLEARMASK   = 0x02,
+        HSS_ARCHIVE_NUM = 0x04,
+};
+struct hsm_state_set {
+        __u32          hss_valid;
+        __u64          hss_setmask;
+        __u64          hss_clearmask;
+        __u32          hss_archive_num;
+};
+
+extern void lustre_swab_hsm_user_state(struct hsm_user_state *hus);
+extern void lustre_swab_hsm_state_set(struct hsm_state_set *hss);
+extern void lustre_swab_hsm_current_action(struct hsm_current_action *action);
 
 #endif
 /** @} lustreidl */

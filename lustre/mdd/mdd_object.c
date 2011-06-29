@@ -776,15 +776,27 @@ static int __mdd_lma_get(const struct lu_env *env, struct mdd_object *mdd_obj,
 
         /* Swab and copy LMA */
         if (ma->ma_need & MA_HSM) {
-                if (lma->lma_compat & LMAC_HSM)
+                if (lma->lma_compat & LMAC_HSM) {
                         ma->ma_hsm.mh_flags = lma->lma_flags & HSM_FLAGS_MASK;
-                else
+                        if (ma->ma_hsm.mh_flags & (HS_ARCHIVED | HS_EXISTS))
+                                ma->ma_hsm.mh_archive_number =
+                                                        lma->lma_archive_number;
+                        else
+                                ma->ma_hsm.mh_archive_number = 0;
+                        if (ma->ma_hsm.mh_flags & HS_RELEASED) {
+                                ma->ma_layout_gen =
+                                                   lma->lma_released_layout_gen;
+                                ma->ma_valid |= MA_LAY_GEN;
+                        }
+                } else {
                         ma->ma_hsm.mh_flags = 0;
+                        ma->ma_hsm.mh_archive_number = 0;
+                }
                 ma->ma_valid |= MA_HSM;
         }
 
         /* Copy SOM */
-        if (ma->ma_need & MA_SOM && lma->lma_compat & LMAC_SOM) {
+        if ((ma->ma_need & MA_SOM) && (lma->lma_compat & LMAC_SOM)) {
                 LASSERT(ma->ma_som != NULL);
                 ma->ma_som->msd_ioepoch = lma->lma_ioepoch;
                 ma->ma_som->msd_size    = lma->lma_som_size;
@@ -1339,6 +1351,22 @@ static int mdd_fix_attr(const struct lu_env *env, struct mdd_object *obj,
         RETURN(0);
 }
 
+/**
+ * Check that current permission are ok to change HSM information for this
+ * object.
+ */
+static int mdd_may_hsm_set(const struct lu_env *env, struct mdd_object *obj,
+                           const struct md_attr *ma)
+{
+        int rc;
+        ENTRY;
+
+        rc = mdd_permission_internal_locked(env, obj, NULL, MAY_WRITE,
+                                            MOR_TGT_CHILD);
+
+        RETURN(rc);
+}
+
 /** Store a data change changelog record
  * If this fails, we must fail the whole transaction; we don't
  * want the change to commit without the log entry.
@@ -1464,6 +1492,9 @@ static int __mdd_lma_set(const struct lu_env *env, struct mdd_object *mdd_obj,
         if (ma->ma_valid & MA_HSM) {
                 lma->lma_flags  |= ma->ma_hsm.mh_flags & HSM_FLAGS_MASK;
                 lma->lma_compat |= LMAC_HSM;
+                lma->lma_archive_number = ma->ma_hsm.mh_archive_number;
+                if (ma->ma_valid & MA_LAY_GEN)
+                        lma->lma_released_layout_gen = ma->ma_layout_gen;
         }
 
         /* Copy SOM data */
@@ -1762,8 +1793,16 @@ static int mdd_attr_set(const struct lu_env *env, struct md_object *obj,
                 }
 
         }
-        if (rc == 0 && ma->ma_valid & (MA_HSM | MA_SOM)) {
+
+        if (rc == 0 && ma->ma_valid & (MA_HSM | MA_SOM | MA_LAY_GEN)) {
                 cfs_umode_t mode;
+
+                /* Permission check */
+                if (ma->ma_valid & MA_HSM) {
+                        rc = mdd_may_hsm_set(env, mdd_obj, ma);
+                        if (rc)
+                                GOTO(cleanup, rc);
+                }
 
                 mode = mdd_object_type(mdd_obj);
                 if (S_ISREG(mode))

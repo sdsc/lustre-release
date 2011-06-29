@@ -1712,6 +1712,17 @@ check_link_ea_entry(void)
 }
 
 static void
+check_hsm_state_set(void)
+{
+        BLANK_LINE();
+        CHECK_STRUCT(hsm_state_set);
+        CHECK_MEMBER(hsm_state_set, hss_valid);
+        CHECK_MEMBER(hsm_state_set, hss_setmask);
+        CHECK_MEMBER(hsm_state_set, hss_clearmask);
+        CHECK_MEMBER(hsm_state_set, hss_archive_num);
+}
+
+static void
 check_hsm_user_item(void)
 {
         BLANK_LINE();
@@ -1738,9 +1749,6 @@ check_hsm_user_state(void)
         CHECK_STRUCT(hsm_user_state);
         CHECK_MEMBER(hsm_user_state, hus_states);
         CHECK_MEMBER(hsm_user_state, hus_archive_num);
-        CHECK_MEMBER(hsm_user_state, hus_in_progress_state);
-        CHECK_MEMBER(hsm_user_state, hus_in_progress_action);
-        CHECK_MEMBER(hsm_user_state, hus_in_progress_location);
 }
 
 static void
@@ -2094,6 +2102,7 @@ main(int argc, char **argv)
         check_link_ea_entry();
         check_hsm_user_item();
         check_hsm_user_request();
+        check_hsm_state_set();
         check_hsm_user_state();
 
         printf("}\n\n");
