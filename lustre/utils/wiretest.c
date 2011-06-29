@@ -3906,16 +3906,5 @@ void lustre_assert_wire_constants(void)
                  (long long)(int)offsetof(struct hsm_user_state, hus_archive_num));
         LASSERTF((int)sizeof(((struct hsm_user_state *)0)->hus_archive_num) == 4, "found %lld\n",
                  (long long)(int)sizeof(((struct hsm_user_state *)0)->hus_archive_num));
-        LASSERTF((int)offsetof(struct hsm_user_state, hus_in_progress_state) == 8, "found %lld\n",
-                 (long long)(int)offsetof(struct hsm_user_state, hus_in_progress_state));
-        LASSERTF((int)sizeof(((struct hsm_user_state *)0)->hus_in_progress_state) == 4, "found %lld\n",
-                 (long long)(int)sizeof(((struct hsm_user_state *)0)->hus_in_progress_state));
-        LASSERTF((int)offsetof(struct hsm_user_state, hus_in_progress_action) == 12, "found %lld\n",
-                 (long long)(int)offsetof(struct hsm_user_state, hus_in_progress_action));
-        LASSERTF((int)sizeof(((struct hsm_user_state *)0)->hus_in_progress_action) == 4, "found %lld\n",
-                 (long long)(int)sizeof(((struct hsm_user_state *)0)->hus_in_progress_action));
-        LASSERTF((int)offsetof(struct hsm_user_state, hus_in_progress_location) == 16, "found %lld\n",
-                 (long long)(int)offsetof(struct hsm_user_state, hus_in_progress_location));
-        LASSERTF((int)sizeof(((struct hsm_user_state *)0)->hus_in_progress_location) == 16, "found %lld\n",
-                 (long long)(int)sizeof(((struct hsm_user_state *)0)->hus_in_progress_location));
 }
+

@@ -553,6 +553,23 @@ static const struct req_msg_field *ost_get_fiemap_server[] = {
         &RMF_FIEMAP_VAL
 };
 
+static const struct req_msg_field *mdt_hsm_state_get_server[] = {
+        &RMF_PTLRPC_BODY,
+        &RMF_HSM_USER_STATE,
+};
+
+static const struct req_msg_field *mdt_hsm_state_set[] = {
+        &RMF_PTLRPC_BODY,
+        &RMF_MDT_BODY,
+        &RMF_CAPA1,
+        &RMF_HSM_STATE_SET,
+};
+
+static const struct req_msg_field *mdt_hsm_action_server[] = {
+        &RMF_PTLRPC_BODY,
+        &RMF_HSM_CURRENT_ACTION,
+};
+
 static struct req_format *req_formats[] = {
         &RQF_OBD_PING,
         &RQF_OBD_SET_INFO,
@@ -592,6 +609,9 @@ static struct req_format *req_formats[] = {
         &RQF_MDS_QUOTACHECK,
         &RQF_MDS_QUOTACTL,
         &RQF_MDS_QUOTA_DQACQ,
+        &RQF_MDS_HSM_STATE_GET,
+        &RQF_MDS_HSM_STATE_SET,
+        &RQF_MDS_HSM_ACTION,
         &RQF_QC_CALLBACK,
         &RQF_OST_CONNECT,
         &RQF_OST_DISCONNECT,
@@ -952,6 +972,21 @@ struct req_msg_field RMF_FIEMAP_VAL =
         DEFINE_MSGF("fiemap", 0, -1, lustre_swab_fiemap, NULL);
 EXPORT_SYMBOL(RMF_FIEMAP_VAL);
 
+struct req_msg_field RMF_HSM_USER_STATE =
+        DEFINE_MSGF("hsm_user_state", 0, sizeof(struct hsm_user_state),
+                    lustre_swab_hsm_user_state, NULL);
+EXPORT_SYMBOL(RMF_HSM_USER_STATE);
+
+struct req_msg_field RMF_HSM_STATE_SET =
+        DEFINE_MSGF("hsm_state_set", 0, sizeof(struct hsm_state_set),
+                    lustre_swab_hsm_state_set, NULL);
+EXPORT_SYMBOL(RMF_HSM_STATE_SET);
+
+struct req_msg_field RMF_HSM_CURRENT_ACTION =
+        DEFINE_MSGF("hsm_current_action", 0, sizeof(struct hsm_current_action),
+                    lustre_swab_hsm_current_action, NULL);
+EXPORT_SYMBOL(RMF_HSM_CURRENT_ACTION);
+
 /*
  * Request formats.
  */
@@ -1228,6 +1263,19 @@ struct req_format RQF_MDS_READPAGE =
         DEFINE_REQ_FMT0("MDS_READPAGE",
                         mdt_body_capa, mdt_body_only);
 EXPORT_SYMBOL(RQF_MDS_READPAGE);
+
+struct req_format RQF_MDS_HSM_STATE_GET =
+        DEFINE_REQ_FMT0("MDS_HSM_STATE_GET",
+                        mdt_body_capa, mdt_hsm_state_get_server);
+EXPORT_SYMBOL(RQF_MDS_HSM_STATE_GET);
+
+struct req_format RQF_MDS_HSM_STATE_SET =
+        DEFINE_REQ_FMT0("MDS_HSM_STATE_SET", mdt_hsm_state_set, empty);
+EXPORT_SYMBOL(RQF_MDS_HSM_STATE_SET);
+
+struct req_format RQF_MDS_HSM_ACTION =
+        DEFINE_REQ_FMT0("MDS_HSM_ACTION", mdt_body_capa, mdt_hsm_action_server);
+EXPORT_SYMBOL(RQF_MDS_HSM_ACTION);
 
 /* This is for split */
 struct req_format RQF_MDS_WRITEPAGE =

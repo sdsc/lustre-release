@@ -78,6 +78,9 @@
 #define lustre_swab_lvb NULL
 #define lustre_swab_mgs_config_body NULL
 #define lustre_swab_mgs_config_res NULL
+#define lustre_swab_hsm_user_state NULL
+#define lustre_swab_hsm_current_action NULL
+#define lustre_swab_hsm_state_set NULL
 #define dump_rniobuf NULL
 #define dump_ioo NULL
 #define dump_obdo NULL

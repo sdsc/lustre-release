@@ -79,6 +79,14 @@ lfs \- Lustre utility to create a file with specific striping pattern, find the 
 .br
 .B lfs data_version [-n] \fB<filename>\fR
 .br
+.B lfs hsm_state \fB<filename>\fR
+.br
+.B lfs hsm_action \fB<filename>\fR
+.br
+.B lfs hsm_set|hsm_clear [-norelease] [--noarchive] [--dirty] [--exists]
+            \fB[--archived] [--lost]
+            \fB<filename>\fR
+.br
 .B lfs help
 .SH DESCRIPTION
 .B lfs
@@ -241,6 +249,15 @@ has less impact on filesystem.
 Even without -n, race conditions are possible and data version should be
 checked before and after an operation to be confident the data did not change
 during it.
+.TP
+.B hsm_state <filename>
+Display the current HSM status set for the provided file. This includes HSM flags, archive ID if the file is archived and in-progress HSM actions.
+.TP
+.B hsm_action <filename>
+Display the in-progress HSM actions for the provided file.
+.TP
+.B hsm_set|hsm_clear [--norelease] [--noarchive] [--dirty] [--exists] [--archived] [--lost] <filename>
+Either set or clear provided HSM flags for the specific file. Non-privileged user can only change some of them: norelease, noarchive and dirty.
 .TP
 .B help 
 Provides brief help on the various arguments

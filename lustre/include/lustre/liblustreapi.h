@@ -210,6 +210,16 @@ extern int llapi_getname(const char *path, char *buf, size_t size);
 
 extern void llapi_ping_target(char *obd_type, char *obd_name,
                               char *obd_uuid, void *args);
+extern int llapi_hsm_state_get(const char *path, struct hsm_user_state *hus);
+extern int llapi_hsm_state_set(const char *path, __u64 setmask, __u64 clearmask,
+                               __u32 archive_num);
+extern int llapi_hsm_current_action(const char *path,
+                                    struct hsm_current_action *hca);
+extern int llapi_hsm_import(const char *dst, int archive, struct stat *st,
+                            unsigned long long stripe_size, int stripe_offset,
+                            int stripe_count, int stripe_pattern,
+                            char *pool_name, lustre_fid *newfid);
+
 
 struct mntent;
 #define HAVE_LLAPI_IS_LUSTRE_MNT

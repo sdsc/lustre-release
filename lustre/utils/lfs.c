@@ -113,6 +113,10 @@ static int lfs_changelog_clear(int argc, char **argv);
 static int lfs_fid2path(int argc, char **argv);
 static int lfs_path2fid(int argc, char **argv);
 static int lfs_data_version(int argc, char **argv);
+static int lfs_hsm_state(int argc, char **argv);
+static int lfs_hsm_set(int argc, char **argv);
+static int lfs_hsm_clear(int argc, char **argv);
+static int lfs_hsm_action(int argc, char **argv);
 
 /* all avaialable commands */
 command_t cmdlist[] = {
@@ -257,6 +261,17 @@ command_t cmdlist[] = {
          "usage: path2fid <path>"},
         {"data_version", lfs_data_version, 0, "Display file data version for "
          "a given path.\n" "usage: data_version [-n] <path>"},
+        {"hsm_state", lfs_hsm_state, 0, "Display the HSM information (states, "
+         "undergoing actions) for given files.\n" "usage: hsm_state <file>"},
+        {"hsm_set", lfs_hsm_set, 0, "Set HSM user flag on specified files.\n"
+         "usage: hsm_set [--norelease] [--noarchive] [--dirty] [--exists] "
+         "[--archived] [--lost] <file> ..."},
+        {"hsm_action", lfs_hsm_action, 0, "Display current HSM request for "
+         "given files.\n" "usage: hsm_action <file> ..."},
+        {"hsm_clear", lfs_hsm_clear, 0, "Clear HSM user flag on specified "
+         "files.\n"
+         "usage: hsm_clear [--norelease] [--noarchive] [--dirty] [--exists] "
+         "[--archived] [--lost] <file> ..."},
         {"help", Parser_help, 0, "help"},
         {"exit", Parser_quit, 0, "quit"},
         {"quit", Parser_quit, 0, "quit"},
@@ -2790,6 +2805,202 @@ static int lfs_data_version(int argc, char **argv)
 	close(fd);
 
 	return 0;
+}
+
+static int lfs_hsm_state(int argc, char **argv)
+{
+        int rc;
+        int i = 1;
+        char *path;
+        struct hsm_user_state hus;
+
+        if (argc < 2)
+                return CMD_HELP;
+
+        do {
+                path = argv[i];
+
+                rc = llapi_hsm_state_get(path, &hus);
+                if (rc) {
+                        fprintf(stderr, "can't get hsm state for %s: %s\n",
+                                path, strerror(errno = -rc));
+                        return rc;
+                }
+
+                /* Display path name and status flags */
+                printf("%s: (0x%08x)", path, hus.hus_states);
+
+                if (hus.hus_states & HS_RELEASED)
+                        printf(" released");
+                if (hus.hus_states & HS_EXISTS)
+                        printf(" exists");
+                if (hus.hus_states & HS_DIRTY)
+                        printf(" dirty");
+                if (hus.hus_states & HS_ARCHIVED)
+                        printf(" archived");
+                /* Display user-settable flags */
+                if (hus.hus_states & HS_NORELEASE)
+                        printf(" never_release");
+                if (hus.hus_states & HS_NOARCHIVE)
+                        printf(" never_archive");
+                if (hus.hus_states & HS_LOST)
+                        printf(" lost_from_hsm");
+
+                if (hus.hus_archive_num != 0)
+                        printf(", archive_num:%d", hus.hus_archive_num);
+                printf("\n");
+
+        } while (++i < argc);
+
+        return 0;
+}
+
+static int lfs_hsm_action(int argc, char **argv)
+{
+        int rc;
+        int i = 1;
+        char *path;
+        struct hsm_current_action hca;
+
+        struct hsm_extent he;
+        enum hsm_user_action hua;
+        enum hsm_progress_states hps;
+
+        if (argc < 2)
+                return CMD_HELP;
+
+        do {
+                path = argv[i];
+
+                rc = llapi_hsm_current_action(path, &hca);
+                if (rc) {
+                        fprintf(stderr, "can't get hsm action for %s: %s\n",
+                                path, strerror(errno = -rc));
+                        return rc;
+                }
+
+                he = hca.hca_location;
+                hua = hca.hca_action;
+                hps = hca.hca_state;
+
+                printf("%s: %s", path, hsm_user_action2name(hua));
+
+                /* Skip file without action */
+                if (hca.hca_action == HUA_NONE) {
+                        printf("\n");
+                        continue;
+                }
+
+                printf(" %s ", hsm_progress_state2name(hps));
+
+                if (hps == HPS_RUNNING &&
+                    (hua == HUA_ARCHIVE || hua == HUA_RESTORE))
+                        printf("("LPX64 " bytes moved)\n", he.length);
+
+                else if ((he.offset + he.length) == OBD_OBJECT_EOF)
+                        printf("(from "LPX64 " to EOF)\n", he.offset);
+                else
+                        printf("(from "LPX64 " to "LPX64")\n",
+                               he.offset, he.offset + he.length);
+
+        } while (++i < argc);
+
+        return 0;
+}
+
+
+#define LFS_HSM_SET   0
+#define LFS_HSM_CLEAR 1
+
+/**
+ * Generic function to set or clear HSM flags.
+ * Used by hsm_set and hsm_clear.
+ *
+ * @mode  if LFS_HSM_SET, set the flags, if LFS_HSM_CLEAR, clear the flags.
+ */
+static int lfs_hsm_change_flags(int argc, char **argv, int mode)
+{
+        struct option long_opts[] = {
+                {"lost", 0, 0, 'l'},
+                {"norelease", 0, 0, 'r'},
+                {"noarchive", 0, 0, 'a'},
+                {"archived", 0, 0, 'A'},
+                {"dirty", 0, 0, 'd'},
+                {"exists", 0, 0, 'e'},
+                {0, 0, 0, 0}
+        };
+        char short_opts[] = "lraAde";
+        __u64 mask = 0;
+        int c, rc;
+        char *path;
+
+        if (argc < 3)
+                return CMD_HELP;
+
+        optind = 0;
+        while ((c = getopt_long(argc, argv, short_opts,
+                                long_opts, NULL)) != -1) {
+                switch (c) {
+                case 'l':
+                        mask |= HS_LOST;
+                        break;
+                case 'a':
+                        mask |= HS_NOARCHIVE;
+                        break;
+                case 'A':
+                        mask |= HS_ARCHIVED;
+                        break;
+                case 'r':
+                        mask |= HS_NORELEASE;
+                        break;
+                case 'd':
+                        mask |= HS_DIRTY;
+                        break;
+                case 'e':
+                        mask |= HS_EXISTS;
+                        break;
+                case '?':
+                        return CMD_HELP;
+                default:
+                        fprintf(stderr, "error: %s: option '%s' unrecognized\n",
+                                argv[0], argv[optind - 1]);
+                        return CMD_HELP;
+                }
+        }
+
+        /* User should have specified a flag */
+        if (mask == 0)
+                return CMD_HELP;
+
+        while (optind < argc) {
+
+                path = argv[optind];
+
+                /* If mode == 0, this means we apply the mask. */
+                if (mode == LFS_HSM_SET)
+                        rc = llapi_hsm_state_set(path, mask, 0, 0);
+                else
+                        rc = llapi_hsm_state_set(path, 0, mask, 0);
+
+                if (rc != 0) {
+                        fprintf(stderr, "Can't change hsm flags for %s: %s\n", path,
+                                strerror(errno = -rc));
+                        return rc;
+                }
+                optind++;
+        }
+
+        return 0;
+}
+
+static int lfs_hsm_set(int argc, char **argv)
+{
+        return lfs_hsm_change_flags(argc, argv, LFS_HSM_SET);
+}
+
+static int lfs_hsm_clear(int argc, char **argv)
+{
+        return lfs_hsm_change_flags(argc, argv, LFS_HSM_CLEAR);
 }
 
 int main(int argc, char **argv)
