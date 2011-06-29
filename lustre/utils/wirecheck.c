@@ -208,7 +208,7 @@ check_lustre_mdt_attrs(void)
         CHECK_MEMBER(lustre_mdt_attrs, lma_self_fid);
         CHECK_MEMBER(lustre_mdt_attrs, lma_flags);
 
-        CHECK_DEFINE(LMA_INCOMPAT_SUPP);
+	CHECK_DEFINE(LMA_INCOMPAT_SUPP);
 
 	CHECK_VALUE_X(LMAI_RELEASED);
 
@@ -1849,6 +1849,17 @@ check_link_ea_entry(void)
 }
 
 static void
+check_hsm_state_set(void)
+{
+	BLANK_LINE();
+	CHECK_STRUCT(hsm_state_set);
+	CHECK_MEMBER(hsm_state_set, hss_valid);
+	CHECK_MEMBER(hsm_state_set, hss_setmask);
+	CHECK_MEMBER(hsm_state_set, hss_clearmask);
+	CHECK_MEMBER(hsm_state_set, hss_archive_num);
+}
+
+static void
 check_hsm_user_item(void)
 {
         BLANK_LINE();
@@ -1875,9 +1886,6 @@ check_hsm_user_state(void)
         CHECK_STRUCT(hsm_user_state);
         CHECK_MEMBER(hsm_user_state, hus_states);
         CHECK_MEMBER(hsm_user_state, hus_archive_num);
-        CHECK_MEMBER(hsm_user_state, hus_in_progress_state);
-        CHECK_MEMBER(hsm_user_state, hus_in_progress_action);
-        CHECK_MEMBER(hsm_user_state, hus_in_progress_location);
 }
 
 static void
@@ -2009,12 +2017,14 @@ main(int argc, char **argv)
         CHECK_VALUE(MDS_QUOTACTL);
         CHECK_VALUE(MDS_GETXATTR);
         CHECK_VALUE(MDS_SETXATTR);
-        CHECK_VALUE(MDS_WRITEPAGE);
-        CHECK_VALUE(MDS_IS_SUBDIR);
-        CHECK_VALUE(MDS_GET_INFO);
-        CHECK_VALUE(MDS_LAST_OPC);
+	CHECK_VALUE(MDS_WRITEPAGE);
+	CHECK_VALUE(MDS_IS_SUBDIR);
+	CHECK_VALUE(MDS_GET_INFO);
+	CHECK_VALUE(MDS_HSM_STATE_GET);
+	CHECK_VALUE(MDS_HSM_STATE_SET);
+	CHECK_VALUE(MDS_LAST_OPC);
 
-        CHECK_VALUE(REINT_SETATTR);
+	CHECK_VALUE(REINT_SETATTR);
         CHECK_VALUE(REINT_CREATE);
         CHECK_VALUE(REINT_LINK);
         CHECK_VALUE(REINT_UNLINK);
@@ -2233,6 +2243,7 @@ main(int argc, char **argv)
         check_link_ea_entry();
         check_hsm_user_item();
         check_hsm_user_request();
+	check_hsm_state_set();
         check_hsm_user_state();
 
         printf("}\n\n");

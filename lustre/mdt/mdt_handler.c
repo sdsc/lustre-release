@@ -807,7 +807,7 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
         } else {
                 ma->ma_lmm = buffer->lb_buf;
                 ma->ma_lmm_size = buffer->lb_len;
-                ma->ma_need = MA_LOV | MA_INODE;
+		ma->ma_need = MA_LOV | MA_INODE | MA_HSM;
         }
 
         if (S_ISDIR(lu_object_attr(&next->mo_lu)) &&
@@ -3170,6 +3170,8 @@ static int mdt_msg_check_version(struct lustre_msg *msg)
         case MDS_SETXATTR:
         case MDS_SET_INFO:
         case MDS_GET_INFO:
+	case MDS_HSM_STATE_GET:
+	case MDS_HSM_STATE_SET:
         case MDS_QUOTACHECK:
         case MDS_QUOTACTL:
         case QUOTA_DQACQ:
@@ -6378,7 +6380,11 @@ DEF_MDT_HDL(0		| HABEO_REFERO,	MDS_PIN,	  mdt_pin),
 DEF_MDT_HDL_VAR(0,			MDS_SYNC,	  mdt_sync),
 DEF_MDT_HDL(HABEO_CORPUS| HABEO_REFERO,	MDS_IS_SUBDIR,	  mdt_is_subdir),
 DEF_MDT_HDL(0,				MDS_QUOTACHECK,	  mdt_quotacheck),
-DEF_MDT_HDL(0,				MDS_QUOTACTL,	  mdt_quotactl)
+DEF_MDT_HDL(0,				MDS_QUOTACTL,	  mdt_quotactl),
+DEF_MDT_HDL(HABEO_CORPUS| HABEO_REFERO,	MDS_HSM_STATE_GET,
+							mdt_hsm_state_get),
+DEF_MDT_HDL(HABEO_CORPUS| HABEO_REFERO,	MDS_HSM_STATE_SET,
+							mdt_hsm_state_set),
 };
 
 #define DEF_OBD_HDL(flags, name, fn)					\

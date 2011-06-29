@@ -164,7 +164,11 @@ void lustre_assert_wire_constants(void)
                  (long long)MDS_IS_SUBDIR);
         LASSERTF(MDS_GET_INFO == 53, "found %lld\n",
                  (long long)MDS_GET_INFO);
-        LASSERTF(MDS_LAST_OPC == 54, "found %lld\n",
+        LASSERTF(MDS_HSM_STATE_GET == 54, "found %lld\n",
+                 (long long)MDS_HSM_STATE_GET);
+        LASSERTF(MDS_HSM_STATE_SET == 55, "found %lld\n",
+                 (long long)MDS_HSM_STATE_SET);
+        LASSERTF(MDS_LAST_OPC == 56, "found %lld\n",
                  (long long)MDS_LAST_OPC);
         LASSERTF(REINT_SETATTR == 1, "found %lld\n",
                  (long long)REINT_SETATTR);
@@ -451,7 +455,7 @@ void lustre_assert_wire_constants(void)
                  (long long)(int)sizeof(((struct som_attrs *)0)->som_mountid));
 
         /* Checks for struct hsm_attrs */
-        LASSERTF((int)sizeof(struct hsm_attrs) == 24, "found %lld\n",
+        LASSERTF((int)sizeof(struct hsm_attrs) == 32, "found %lld\n",
                  (long long)(int)sizeof(struct hsm_attrs));
         LASSERTF((int)offsetof(struct hsm_attrs, hsm_compat) == 0, "found %lld\n",
                  (long long)(int)offsetof(struct hsm_attrs, hsm_compat));
@@ -4138,8 +4142,28 @@ void lustre_assert_wire_constants(void)
         LASSERTF((int)sizeof(((struct hsm_user_request *)0)->hur_data_len) == 4, "found %lld\n",
                  (long long)(int)sizeof(((struct hsm_user_request *)0)->hur_data_len));
 
+        /* Checks for struct hsm_state_set */
+        LASSERTF((int)sizeof(struct hsm_state_set) == 32, "found %lld\n",
+                 (long long)(int)sizeof(struct hsm_state_set));
+        LASSERTF((int)offsetof(struct hsm_state_set, hss_valid) == 0, "found %lld\n",
+                 (long long)(int)offsetof(struct hsm_state_set, hss_valid));
+        LASSERTF((int)sizeof(((struct hsm_state_set *)0)->hss_valid) == 4, "found %lld\n",
+                 (long long)(int)sizeof(((struct hsm_state_set *)0)->hss_valid));
+        LASSERTF((int)offsetof(struct hsm_state_set, hss_setmask) == 8, "found %lld\n",
+                 (long long)(int)offsetof(struct hsm_state_set, hss_setmask));
+        LASSERTF((int)sizeof(((struct hsm_state_set *)0)->hss_setmask) == 8, "found %lld\n",
+                 (long long)(int)sizeof(((struct hsm_state_set *)0)->hss_setmask));
+        LASSERTF((int)offsetof(struct hsm_state_set, hss_clearmask) == 16, "found %lld\n",
+                 (long long)(int)offsetof(struct hsm_state_set, hss_clearmask));
+        LASSERTF((int)sizeof(((struct hsm_state_set *)0)->hss_clearmask) == 8, "found %lld\n",
+                 (long long)(int)sizeof(((struct hsm_state_set *)0)->hss_clearmask));
+        LASSERTF((int)offsetof(struct hsm_state_set, hss_archive_num) == 24, "found %lld\n",
+                 (long long)(int)offsetof(struct hsm_state_set, hss_archive_num));
+        LASSERTF((int)sizeof(((struct hsm_state_set *)0)->hss_archive_num) == 4, "found %lld\n",
+                 (long long)(int)sizeof(((struct hsm_state_set *)0)->hss_archive_num));
+
         /* Checks for struct hsm_user_state */
-        LASSERTF((int)sizeof(struct hsm_user_state) == 32, "found %lld\n",
+        LASSERTF((int)sizeof(struct hsm_user_state) == 8, "found %lld\n",
                  (long long)(int)sizeof(struct hsm_user_state));
         LASSERTF((int)offsetof(struct hsm_user_state, hus_states) == 0, "found %lld\n",
                  (long long)(int)offsetof(struct hsm_user_state, hus_states));
@@ -4149,17 +4173,5 @@ void lustre_assert_wire_constants(void)
                  (long long)(int)offsetof(struct hsm_user_state, hus_archive_num));
         LASSERTF((int)sizeof(((struct hsm_user_state *)0)->hus_archive_num) == 4, "found %lld\n",
                  (long long)(int)sizeof(((struct hsm_user_state *)0)->hus_archive_num));
-        LASSERTF((int)offsetof(struct hsm_user_state, hus_in_progress_state) == 8, "found %lld\n",
-                 (long long)(int)offsetof(struct hsm_user_state, hus_in_progress_state));
-        LASSERTF((int)sizeof(((struct hsm_user_state *)0)->hus_in_progress_state) == 4, "found %lld\n",
-                 (long long)(int)sizeof(((struct hsm_user_state *)0)->hus_in_progress_state));
-        LASSERTF((int)offsetof(struct hsm_user_state, hus_in_progress_action) == 12, "found %lld\n",
-                 (long long)(int)offsetof(struct hsm_user_state, hus_in_progress_action));
-        LASSERTF((int)sizeof(((struct hsm_user_state *)0)->hus_in_progress_action) == 4, "found %lld\n",
-                 (long long)(int)sizeof(((struct hsm_user_state *)0)->hus_in_progress_action));
-        LASSERTF((int)offsetof(struct hsm_user_state, hus_in_progress_location) == 16, "found %lld\n",
-                 (long long)(int)offsetof(struct hsm_user_state, hus_in_progress_location));
-        LASSERTF((int)sizeof(((struct hsm_user_state *)0)->hus_in_progress_location) == 16, "found %lld\n",
-                 (long long)(int)sizeof(((struct hsm_user_state *)0)->hus_in_progress_location));
 }
 
