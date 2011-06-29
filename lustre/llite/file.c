@@ -1924,6 +1924,97 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         case OBD_IOC_GETDTNAME:
         case OBD_IOC_GETMDNAME:
                 RETURN(ll_get_obd_name(inode, cmd, arg));
+        case LL_IOC_HSM_STATE_GET: {
+                struct md_op_data *op_data;
+                struct hsm_user_state *hus;
+                int rc;
+
+                OBD_ALLOC_PTR(hus);
+                if (hus == NULL)
+                        RETURN(-ENOMEM);
+
+                op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL, 0, 0,
+                                             LUSTRE_OPC_ANY, hus);
+                if (op_data == NULL) {
+                        OBD_FREE_PTR(hus);
+                        RETURN(-ENOMEM);
+                }
+
+                rc = obd_iocontrol(cmd, ll_i2mdexp(inode), sizeof(*op_data),
+                                   op_data, NULL);
+
+                if (cfs_copy_to_user((char *)arg, hus,
+                                     sizeof(struct hsm_user_state)))
+                        rc = -EFAULT;
+
+                ll_finish_md_op_data(op_data);
+                OBD_FREE_PTR(hus);
+                RETURN(rc);
+        }
+        case LL_IOC_HSM_STATE_SET: {
+                struct md_op_data *op_data;
+                struct hsm_state_set *hss;
+                int rc;
+
+                OBD_ALLOC_PTR(hss);
+                if (hss == NULL)
+                        RETURN(-ENOMEM);
+                if (cfs_copy_from_user(hss, (char *)arg, sizeof(*hss))) {
+                        OBD_FREE_PTR(hss);
+                        RETURN(-EFAULT);
+                }
+
+                /* Non-root users are forbidden to set or clear flags which are
+                 * defined in HSM_USER_MASK. */
+                if (((hss->hss_setmask | hss->hss_clearmask) & ~HSM_USER_MASK)
+                     && !cfs_capable(CFS_CAP_SYS_ADMIN)) {
+                        OBD_FREE_PTR(hss);
+                        RETURN(-EPERM);
+                }
+
+                op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL, 0, 0,
+                                             LUSTRE_OPC_ANY, hss);
+                if (op_data == NULL) {
+                        OBD_FREE_PTR(hss);
+                        RETURN(-ENOMEM);
+                }
+
+                rc = obd_iocontrol(cmd, ll_i2mdexp(inode), sizeof(*op_data),
+                                   op_data, NULL);
+
+                ll_finish_md_op_data(op_data);
+
+                OBD_FREE_PTR(hss);
+                RETURN(rc);
+        }
+        case LL_IOC_HSM_ACTION: {
+                struct md_op_data *op_data;
+                struct hsm_current_action *hca;
+                int rc;
+
+                OBD_ALLOC_PTR(hca);
+                if (hca == NULL)
+                        RETURN(-ENOMEM);
+
+                op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL, 0, 0,
+                                             LUSTRE_OPC_ANY, hca);
+                if (op_data == NULL) {
+                        OBD_FREE_PTR(hca);
+                        RETURN(-ENOMEM);
+                }
+
+                rc = obd_iocontrol(cmd, ll_i2mdexp(inode), sizeof(*op_data),
+                                   op_data, NULL);
+
+                if (cfs_copy_to_user((char *)arg, hca,
+                                     sizeof(struct hsm_current_action)))
+                        rc = -EFAULT;
+
+                ll_finish_md_op_data(op_data);
+                OBD_FREE_PTR(hca);
+                RETURN(rc);
+        }
+
         default: {
                 int err;
 

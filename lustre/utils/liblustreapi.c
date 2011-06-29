@@ -67,6 +67,7 @@
 #include <unistd.h>
 #endif
 #include <poll.h>
+#include <utime.h>
 
 #include <liblustre.h>
 #include <lnet/lnetctl.h>
@@ -4019,3 +4020,163 @@ int llapi_get_data_version(int fd, __u64 *data_version, __u64 flags)
 
         return rc;
 }
+
+/**
+ * Return the current HSM states and HSM requests related to file pointed by \a
+ * path.
+ *
+ * \param hus  Should be allocated by caller. Will be filled with current file
+ *             states.
+ *
+ * \retval 0 on success.
+ * \retval -errno on error.
+ */
+int llapi_hsm_state_get(const char *path, struct hsm_user_state *hus)
+{
+        int fd;
+        int rc;
+
+        fd = open(path, O_RDONLY | O_NONBLOCK);
+        if (fd < 0)
+                return -errno;
+
+        rc = ioctl(fd, LL_IOC_HSM_STATE_GET, hus);
+        /* If error, save errno value */
+        rc = rc ? -errno : 0;
+
+        close(fd);
+        return rc;
+}
+
+/**
+ * Set HSM states of file pointed by \a path.
+ *
+ * Using the provided bitmasks, the current HSM states for this file will be
+ * changed. \a archive_num could be used to change the archive number also. Set
+ * it to 0 if you do not want to change it.
+ *
+ * \param setmask      Bitmask for flag to be set.
+ * \param clearmask    Bitmask for flag to be cleared.
+ * \param archive_num  Archive number identifier to use. 0 means no change.
+ *
+ * \retval 0 on success.
+ * \retval -errno on error.
+ */
+int llapi_hsm_state_set(const char *path, __u64 setmask, __u64 clearmask,
+                        __u32 archive_num)
+{
+        struct hsm_state_set hss;
+        int fd;
+        int rc;
+
+        fd = open(path, O_WRONLY | O_LOV_DELAY_CREATE | O_NONBLOCK);
+        if (fd < 0)
+                return -errno;
+
+        hss.hss_valid = HSS_SETMASK|HSS_CLEARMASK;
+        hss.hss_setmask = setmask;
+        hss.hss_clearmask = clearmask;
+        /* Change archive_num if provided. We can only change
+         * to set something different than 0. */
+        if (archive_num > 0) {
+                hss.hss_valid |= HSS_ARCHIVE_NUM;
+                hss.hss_archive_num = archive_num;
+        }
+        rc = ioctl(fd, LL_IOC_HSM_STATE_SET, &hss);
+        /* If error, save errno value */
+        rc = rc ? -errno : 0;
+
+        close(fd);
+        return rc;
+}
+
+/**
+ * Return the current HSM request related to file pointed by \a path.
+ *
+ * \param hca  Should be allocated by caller. Will be filled with current file
+ *             actions.
+ *
+ * \retval 0 on success.
+ * \retval -errno on error.
+ */
+int llapi_hsm_current_action(const char *path, struct hsm_current_action *hca)
+{
+        int fd;
+        int rc;
+
+        fd = open(path, O_RDONLY | O_NONBLOCK);
+        if (fd < 0)
+                return -errno;
+
+        rc = ioctl(fd, LL_IOC_HSM_ACTION, hca);
+        /* If error, save errno value */
+        rc = rc ? -errno : 0;
+
+        close(fd);
+        return rc;
+}
+
+/**
+ * Import an existing hsm-archived file into Lustre.
+ *
+ * Caller must access file by (returned) newfid value from now on.
+ *
+ * \param dst      path to Lustre destination (e.g. /mnt/lustre/my/file).
+ * \param archive  archive number.
+ * \param st       struct stat buffer containing file ownership, perm, etc.
+ * \param stripe_* Striping options.  Currently ignored, since the restore
+ *                 operation will set the striping.  In V2, this striping might
+ *                 be used.
+ * \param newfid[out] Filled with new Lustre fid.
+ */
+int llapi_hsm_import(const char *dst, int archive, struct stat *st,
+                     unsigned long long stripe_size, int stripe_offset,
+                     int stripe_count, int stripe_pattern, char *pool_name,
+                     lustre_fid *newfid)
+{
+        struct utimbuf time;
+        int fd;
+        int rc = 0;
+
+        /* Create a non-striped file */
+        fd = open(dst, O_CREAT | O_EXCL | O_LOV_DELAY_CREATE | O_NONBLOCK,
+                  st->st_mode);
+
+        if (fd < 0)
+                return -errno;
+        close(fd);
+
+        /* set size on MDT */
+        if (truncate(dst, st->st_size) != 0) {
+               rc = -errno;
+               goto out_unlink;
+         }
+        /* Mark archived */
+        rc = llapi_hsm_state_set(dst, HS_EXISTS | HS_RELEASED | HS_ARCHIVED, 0,
+                                 archive);
+        if (rc)
+                goto out_unlink;
+
+        /* Get the new fid in the archive. Caller needs to use this fid
+           from now on. */
+        rc = llapi_path2fid(dst, newfid);
+        if (rc)
+                goto out_unlink;
+
+        /* Copy the file attributes */
+        time.actime = st->st_atime;
+        time.modtime = st->st_mtime;
+        if (utime(dst, &time) == -1 ||
+            chmod(dst, st->st_mode) == -1 ||
+            chown(dst, st->st_uid, st->st_gid) == -1) {
+                /* we might fail here because we change perms/owner */
+                rc = -errno;
+                goto out_unlink;
+        }
+
+out_unlink:
+        if (rc)
+                unlink(dst);
+        return rc;
+}
+

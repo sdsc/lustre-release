@@ -14,7 +14,7 @@ DEFAULT_SUITES="runtests sanity sanity-benchmark sanityn lfsck
                 sanity-sec sanity-gss performance-sanity large-scale
                 recovery-mds-scale recovery-double-scale recovery-random-scale
                 parallel-scale lustre_rsync-test metadata-updates ost-pools
-                lnet-selftest mmp obdfilter-survey sgpdd-survey"
+                lnet-selftest mmp obdfilter-survey sgpdd-survey sanity-hsm"
 
 if [[ -n $@ ]]; then
     ACC_SM_ONLY="${ACC_SM_ONLY} $@"
