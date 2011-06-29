@@ -142,6 +142,7 @@ void lustre_hsm_swab(struct hsm_attrs *attrs)
 		__swab32s(&attrs->hsm_flags);
 		__swab64s(&attrs->hsm_arch_id);
 		__swab64s(&attrs->hsm_arch_ver);
+		__swab32s(&attrs->hsm_arch_num);
 	}
 };
 EXPORT_SYMBOL(lustre_hsm_swab);
@@ -174,6 +175,7 @@ int lustre_buf2hsm(void *buf, int rc, struct md_hsm *mh)
 	mh->mh_flags    = attrs->hsm_flags;
 	mh->mh_arch_id  = attrs->hsm_arch_id;
 	mh->mh_arch_ver = attrs->hsm_arch_ver;
+	mh->mh_arch_num = attrs->hsm_arch_num;
 
 	RETURN(0);
 }
@@ -195,6 +197,7 @@ void lustre_hsm2buf(void *buf, struct md_hsm *mh)
 	attrs->hsm_flags    = mh->mh_flags;
 	attrs->hsm_arch_id  = mh->mh_arch_id;
 	attrs->hsm_arch_ver = mh->mh_arch_ver;
+	attrs->hsm_arch_num = mh->mh_arch_num;
 
 	/* pack xattr */
 	lustre_hsm_swab(attrs);

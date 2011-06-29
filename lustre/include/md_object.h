@@ -139,6 +139,7 @@ struct md_hsm {
 	__u32	mh_flags;
 	__u64	mh_arch_id;
 	__u64	mh_arch_ver;
+	__u32   mh_arch_num;
 };
 
 #define IOEPOCH_INVAL 0

@@ -186,6 +186,9 @@ extern struct req_format RQF_MDS_QUOTACHECK;
 extern struct req_format RQF_MDS_QUOTACTL;
 extern struct req_format RQF_QC_CALLBACK;
 extern struct req_format RQF_QUOTA_DQACQ;
+/* MDS hsm formats */
+extern struct req_format RQF_MDS_HSM_STATE_GET;
+extern struct req_format RQF_MDS_HSM_STATE_SET;
 /* OST req_format */
 extern struct req_format RQF_OST_CONNECT;
 extern struct req_format RQF_OST_DISCONNECT;
@@ -268,6 +271,8 @@ extern struct req_msg_field RMF_OBD_QUOTACHECK;
 extern struct req_msg_field RMF_OBD_QUOTACTL;
 extern struct req_msg_field RMF_QUOTA_BODY;
 extern struct req_msg_field RMF_STRING;
+extern struct req_msg_field RMF_HSM_USER_STATE;
+extern struct req_msg_field RMF_HSM_STATE_SET;
 
 /* seq-mgr fields */
 extern struct req_msg_field RMF_SEQ_OPC;
