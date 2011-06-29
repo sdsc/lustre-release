@@ -1189,6 +1189,7 @@ test_41a() {
 	PID1=$!
 	sleep 1
 	mkdir $DIR2/$tfile && error "mkdir must fail"
+	sleep 1 # to ensure the first multiop close is done.
 	check_pdo_conflict $PID1 && { wait $PID1; echo "mkdir isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1202,6 +1203,7 @@ test_41b() {
 	PID1=$!
 	sleep 1
 	multiop $DIR2/$tfile oO_CREAT:O_EXCL:c && error "create must fail"
+	sleep 1 # to ensure the first multiop close is done.
 	check_pdo_conflict $PID1 && { wait $PID1; error "create isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1216,6 +1218,7 @@ test_41c() {
 	PID1=$!
 	sleep 1
 	link $DIR2/$tfile-2 $DIR2/$tfile && error "link must fail"
+	sleep 1 # to ensure the first multiop close is done.
 	check_pdo_conflict $PID1 && { wait $PID1; error "link isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1229,6 +1232,7 @@ test_41d() {
 	PID1=$!
 	sleep 1
 	rm $DIR2/$tfile || error "unlink must succeed"
+	sleep 1 # to ensure the first multiop close is done.
 	check_pdo_conflict $PID1 && { wait $PID1; error "unlink isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1243,6 +1247,7 @@ test_41e() {
 	PID1=$!
 	sleep 1
 	mv $DIR2/$tfile-2 $DIR2/$tfile || error "rename must succeed"
+	sleep 1 # to ensure the first multiop close is done.
 	check_pdo_conflict $PID1 && { wait $PID1; error "rename isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1256,6 +1261,7 @@ test_41f() {
 	PID1=$!
 	sleep 1
 	mv $DIR2/$tfile $DIR2/$tfile-2 || error "rename must succeed"
+	sleep 1 # to ensure the first multiop close is done.
 	check_pdo_conflict $PID1 && { wait $PID1; error "rename isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1269,6 +1275,7 @@ test_41g() {
 	PID1=$!
 	sleep 1
 	stat $DIR2/$tfile > /dev/null || error "stat must succeed"
+	sleep 1 # to ensure the first multiop close is done.
 	check_pdo_conflict $PID1 && { wait $PID1; error "getattr isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1282,6 +1289,7 @@ test_41h() {
 	PID1=$!
 	sleep 1
 	ls -lia $DIR2/ > /dev/null
+	sleep 1 # to ensure the first multiop close is done.
 	check_pdo_conflict $PID1 && { wait $PID1; error "readdir isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1296,6 +1304,7 @@ test_42a() {
 	PID1=$!
 	sleep 1
 	mkdir $DIR2/$tfile && error "mkdir must fail"
+	sleep 1 # to ensure the first mkdir is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "mkdir isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1309,6 +1318,7 @@ test_42b() {
 	PID1=$!
 	sleep 1
 	multiop $DIR2/$tfile oO_CREAT:O_EXCL:c && error "create must fail"
+	sleep 1 # to ensure the first mkdir is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "create isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1323,6 +1333,7 @@ test_42c() {
 	PID1=$!
 	sleep 1
 	link $DIR2/$tfile-2 $DIR2/$tfile && error "link must fail"
+	sleep 1 # to ensure the first mkdir is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "link isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1336,6 +1347,7 @@ test_42d() {
 	PID1=$!
 	sleep 1
 	rmdir $DIR2/$tfile || error "unlink must succeed"
+	sleep 1 # to ensure the first mkdir is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "unlink isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1350,6 +1362,7 @@ test_42e() {
 	PID1=$!
 	sleep 1
 	mv -T $DIR2/$tfile-2 $DIR2/$tfile && error "rename must fail"
+	sleep 1 # to ensure the first mkdir is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "rename isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1363,6 +1376,7 @@ test_42f() {
 	PID1=$!
 	sleep 1
 	mv $DIR2/$tfile $DIR2/$tfile-2 || error "rename must succeed"
+	sleep 1 # to ensure the first mkdir is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "rename isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1376,6 +1390,7 @@ test_42g() {
 	PID1=$!
 	sleep 1
 	stat $DIR2/$tfile > /dev/null || error "stat must succeed"
+	sleep 1 # to ensure the first mkdir is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "getattr isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1389,6 +1404,7 @@ test_42h() {
 	PID1=$!
 	sleep 1
 	ls -lia $DIR2/ > /dev/null
+	sleep 1 # to ensure the first mkdir is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "readdir isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1404,6 +1420,7 @@ test_43a() {
 	PID1=$!
 	sleep 1
 	mkdir $DIR2/$tfile || error "mkdir must succeed"
+	sleep 1 # to ensure the first unlink is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "mkdir isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1418,6 +1435,7 @@ test_43b() {
 	PID1=$!
 	sleep 1
 	multiop $DIR2/$tfile oO_CREAT:O_EXCL:c || error "create must succeed"
+	sleep 1 # to ensure the first unlink is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "create isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1433,6 +1451,7 @@ test_43c() {
 	PID1=$!
 	sleep 1
 	link $DIR2/$tfile-2 $DIR2/$tfile || error "link must succeed"
+	sleep 1 # to ensure the first unlink is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "link isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1447,6 +1466,7 @@ test_43d() {
 	PID1=$!
 	sleep 1
 	rm $DIR2/$tfile && error "unlink must fail"
+	sleep 1 # to ensure the first unlink is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "unlink isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1462,6 +1482,7 @@ test_43e() {
 	PID1=$!
 	sleep 1
 	mv -u $DIR2/$tfile-2 $DIR2/$tfile || error "rename must succeed"
+	sleep 1 # to ensure the first unlink is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "rename isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1476,6 +1497,7 @@ test_43f() {
 	PID1=$!
 	sleep 1
 	mv $DIR2/$tfile $DIR2/$tfile-2 && error "rename must fail"
+	sleep 1 # to ensure the first unlink is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "rename isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1490,6 +1512,7 @@ test_43g() {
 	PID1=$!
 	sleep 1
 	stat $DIR2/$tfile > /dev/null && error "stat must fail"
+	sleep 1 # to ensure the first unlink is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "getattr isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1504,6 +1527,7 @@ test_43h() {
 	PID1=$!
 	sleep 1
 	ls -lia $DIR2/ > /dev/null
+	sleep 1 # to ensure the first unlink is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "readdir isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1519,6 +1543,7 @@ test_44a() {
 	PID1=$!
 	sleep 1
 	mkdir $DIR2/$tfile && error "mkdir must fail"
+	sleep 1 # to ensure the first rename is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "mkdir isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1533,6 +1558,7 @@ test_44b() {
 	PID1=$!
 	sleep 1
 	multiop $DIR2/$tfile oO_CREAT:O_EXCL:c && error "create must fail"
+	sleep 1 # to ensure the first rename is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "create isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1548,6 +1574,7 @@ test_44c() {
 	PID1=$!
 	sleep 1
 	link $DIR2/$tfile-3 $DIR2/$tfile && error "link must fail"
+	sleep 1 # to ensure the first rename is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "link isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1562,6 +1589,7 @@ test_44d() {
 	PID1=$!
 	sleep 1
 	rm $DIR2/$tfile || error "unlink must succeed"
+	sleep 1 # to ensure the first rename is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "unlink isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1578,6 +1606,7 @@ test_44e() {
 	PID1=$!
 	sleep 1
 	mv $DIR2/$tfile-3 $DIR2/$tfile || error "rename must succeed"
+	sleep 1 # to ensure the first rename is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "rename isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1593,6 +1622,7 @@ test_44f() {
 	PID1=$!
 	sleep 1
 	mv $DIR2/$tfile $DIR2/$tfile-3 || error "rename must succeed"
+	sleep 1 # to ensure the first rename is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "rename isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1607,6 +1637,7 @@ test_44g() {
 	PID1=$!
 	sleep 1
 	stat $DIR2/$tfile > /dev/null || error "stat must succeed"
+	sleep 1 # to ensure the first rename is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "getattr isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1621,6 +1652,7 @@ test_44h() {
 	PID1=$!
 	sleep 1
 	ls -lia $DIR2/ > /dev/null
+	sleep 1 # to ensure the first rename is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "readdir isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1636,6 +1668,7 @@ test_45a() {
 	PID1=$!
 	sleep 1
 	mkdir $DIR2/$tfile || error "mkdir must succeed"
+	sleep 1 # to ensure the first rename is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "mkdir isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1650,6 +1683,7 @@ test_45b() {
 	PID1=$!
 	sleep 1
 	multiop $DIR2/$tfile oO_CREAT:O_EXCL:c || error "create must succeed"
+	sleep 1 # to ensure the first rename is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "create isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1665,6 +1699,7 @@ test_45c() {
 	PID1=$!
 	sleep 1
 	link $DIR2/$tfile-3 $DIR2/$tfile || error "link must succeed"
+	sleep 1 # to ensure the first rename is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "link isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1679,6 +1714,7 @@ test_45d() {
 	PID1=$!
 	sleep 1
 	rm $DIR2/$tfile && error "unlink must fail"
+	sleep 1 # to ensure the first rename is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "unlink isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1694,6 +1730,7 @@ test_45e() {
 	PID1=$!
 	sleep 1
 	mv $DIR2/$tfile-3 $DIR2/$tfile || error "rename must succeed"
+	sleep 1 # to ensure the first rename is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "rename isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1708,6 +1745,7 @@ test_45f() {
 	PID1=$!
 	sleep 1
 	mv $DIR2/$tfile $DIR2/$tfile-3 && error "rename must fail"
+	sleep 1 # to ensure the first rename is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "rename isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1722,6 +1760,7 @@ test_45g() {
 	PID1=$!
 	sleep 1
 	stat $DIR2/$tfile > /dev/null && "stat must fail"
+	sleep 1 # to ensure the first rename is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "getattr isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1736,6 +1775,7 @@ test_45h() {
 	PID1=$!
 	sleep 1
 	ls -lia $DIR2/ > /dev/null
+	sleep 1 # to ensure the first rename is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "readdir isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1751,6 +1791,7 @@ test_46a() {
 	PID1=$!
 	sleep 1
 	mkdir $DIR2/$tfile && error "mkdir must fail"
+	sleep 1 # to ensure the first link is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "mkdir isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1765,6 +1806,7 @@ test_46b() {
 	PID1=$!
 	sleep 1
 	multiop $DIR2/$tfile oO_CREAT:O_EXCL:c && error "create must fail"
+	sleep 1 # to ensure the first link is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "create isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1779,6 +1821,7 @@ test_46c() {
 	PID1=$!
 	sleep 1
 	link $DIR2/$tfile $DIR2/$tfile && error "link must fail"
+	sleep 1 # to ensure the first link is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "link isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1793,6 +1836,7 @@ test_46d() {
 	PID1=$!
 	sleep 1
 	rm $DIR2/$tfile || error "unlink must succeed"
+	sleep 1 # to ensure the first link is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "unlink isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1808,6 +1852,7 @@ test_46e() {
 	PID1=$!
 	sleep 1
 	mv $DIR2/$tfile-3 $DIR2/$tfile || error "rename must succeed"
+	sleep 1 # to ensure the first link is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "rename isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1823,6 +1868,7 @@ test_46f() {
 	PID1=$!
 	sleep 1
 	mv $DIR2/$tfile $DIR2/$tfile-3 || error "rename must succeed"
+	sleep 1 # to ensure the first link is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "rename isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1837,6 +1883,7 @@ test_46g() {
 	PID1=$!
 	sleep 1
 	stat $DIR2/$tfile > /dev/null || error "stat must succeed"
+	sleep 1 # to ensure the first link is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "getattr isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1851,6 +1898,7 @@ test_46h() {
 	PID1=$!
 	sleep 1
 	ls -lia $DIR2/ > /dev/null
+	sleep 1 # to ensure the first link is done as expected.
 	check_pdo_conflict $PID1 && { wait $PID1; error "readdir isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
