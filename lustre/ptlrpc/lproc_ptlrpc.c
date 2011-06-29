@@ -94,6 +94,8 @@ struct ll_rpc_opcode {
         { MDS_WRITEPAGE,    "mds_writepage" },
         { MDS_IS_SUBDIR,    "mds_is_subdir" },
         { MDS_GET_INFO,     "mds_get_info" },
+	{ MDS_HSM_STATE_GET,"mds_hsm_state_get" },
+	{ MDS_HSM_STATE_SET,"mds_hsm_state_set" },
         { LDLM_ENQUEUE,     "ldlm_enqueue" },
         { LDLM_CONVERT,     "ldlm_convert" },
         { LDLM_CANCEL,      "ldlm_cancel" },

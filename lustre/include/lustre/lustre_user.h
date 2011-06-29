@@ -121,41 +121,45 @@ struct obd_statfs {
  * *INFO    - set/get lov_user_mds_data
  */
 /* see <lustre_lib.h> for ioctl numberss 101-150 */
-#define LL_IOC_GETFLAGS                 _IOR ('f', 151, long)
-#define LL_IOC_SETFLAGS                 _IOW ('f', 152, long)
-#define LL_IOC_CLRFLAGS                 _IOW ('f', 153, long)
+#define LL_IOC_GETFLAGS			_IOR('f', 151, long)
+#define LL_IOC_SETFLAGS			_IOW('f', 152, long)
+#define LL_IOC_CLRFLAGS			_IOW('f', 153, long)
 /* LL_IOC_LOV_SETSTRIPE: See also OBD_IOC_LOV_SETSTRIPE */
-#define LL_IOC_LOV_SETSTRIPE            _IOW ('f', 154, long)
+#define LL_IOC_LOV_SETSTRIPE		_IOW('f', 154, long)
 /* LL_IOC_LOV_GETSTRIPE: See also OBD_IOC_LOV_GETSTRIPE */
-#define LL_IOC_LOV_GETSTRIPE            _IOW ('f', 155, long)
+#define LL_IOC_LOV_GETSTRIPE		_IOW('f', 155, long)
 /* LL_IOC_LOV_SETEA: See also OBD_IOC_LOV_SETEA */
-#define LL_IOC_LOV_SETEA                _IOW ('f', 156, long)
-#define LL_IOC_RECREATE_OBJ             _IOW ('f', 157, long)
-#define LL_IOC_RECREATE_FID             _IOW ('f', 157, struct lu_fid)
-#define LL_IOC_GROUP_LOCK               _IOW ('f', 158, long)
-#define LL_IOC_GROUP_UNLOCK             _IOW ('f', 159, long)
+#define LL_IOC_LOV_SETEA		_IOW('f', 156, long)
+#define LL_IOC_RECREATE_OBJ		_IOW('f', 157, long)
+#define LL_IOC_RECREATE_FID		_IOW('f', 157, struct lu_fid)
+#define LL_IOC_GROUP_LOCK		_IOW('f', 158, long)
+#define LL_IOC_GROUP_UNLOCK		_IOW('f', 159, long)
 /* LL_IOC_QUOTACHECK: See also OBD_IOC_QUOTACHECK */
-#define LL_IOC_QUOTACHECK               _IOW ('f', 160, int)
+#define LL_IOC_QUOTACHECK		_IOW('f', 160, int)
 /* LL_IOC_POLL_QUOTACHECK: See also OBD_IOC_POLL_QUOTACHECK */
-#define LL_IOC_POLL_QUOTACHECK          _IOR ('f', 161, struct if_quotacheck *)
+#define LL_IOC_POLL_QUOTACHECK		_IOR('f', 161, struct if_quotacheck *)
 /* LL_IOC_QUOTACTL: See also OBD_IOC_QUOTACTL */
-#define LL_IOC_QUOTACTL                 _IOWR('f', 162, struct if_quotactl)
-#define IOC_OBD_STATFS                  _IOWR('f', 164, struct obd_statfs *)
-#define IOC_LOV_GETINFO                 _IOWR('f', 165, struct lov_user_mds_data *)
-#define LL_IOC_FLUSHCTX                 _IOW ('f', 166, long)
-#define LL_IOC_RMTACL                   _IOW ('f', 167, long)
-#define LL_IOC_GETOBDCOUNT              _IOR ('f', 168, long)
-#define LL_IOC_LLOOP_ATTACH             _IOWR('f', 169, long)
-#define LL_IOC_LLOOP_DETACH             _IOWR('f', 170, long)
-#define LL_IOC_LLOOP_INFO               _IOWR('f', 171, struct lu_fid)
-#define LL_IOC_LLOOP_DETACH_BYDEV       _IOWR('f', 172, long)
-#define LL_IOC_PATH2FID                 _IOR ('f', 173, long)
-#define LL_IOC_GET_CONNECT_FLAGS        _IOWR('f', 174, __u64 *)
-#define LL_IOC_GET_MDTIDX               _IOR ('f', 175, int)
-#define LL_IOC_HSM_CT_START             _IOW ('f', 176,struct lustre_kernelcomm)
+#define LL_IOC_QUOTACTL			_IOWR('f', 162, struct if_quotactl)
+#define IOC_OBD_STATFS			_IOWR('f', 164, struct obd_statfs *)
+#define IOC_LOV_GETINFO			_IOWR('f', 165, \
+						struct lov_user_mds_data *)
+#define LL_IOC_FLUSHCTX			_IOW('f', 166, long)
+#define LL_IOC_RMTACL			_IOW('f', 167, long)
+#define LL_IOC_GETOBDCOUNT		_IOR('f', 168, long)
+#define LL_IOC_LLOOP_ATTACH		_IOWR('f', 169, long)
+#define LL_IOC_LLOOP_DETACH		_IOWR('f', 170, long)
+#define LL_IOC_LLOOP_INFO		_IOWR('f', 171, struct lu_fid)
+#define LL_IOC_LLOOP_DETACH_BYDEV	_IOWR('f', 172, long)
+#define LL_IOC_PATH2FID			_IOR('f', 173, long)
+#define LL_IOC_GET_CONNECT_FLAGS	_IOWR('f', 174, __u64 *)
+#define LL_IOC_GET_MDTIDX		_IOR('f', 175, int)
+#define LL_IOC_HSM_CT_START		_IOW('f', 176, \
+						struct lustre_kernelcomm)
 /* see <lustre_lib.h> for ioctl numbers 177-210 */
+#define LL_IOC_HSM_STATE_GET		_IOR('f', 211, struct hsm_user_state)
+#define LL_IOC_HSM_STATE_SET		_IOW('f', 212, struct hsm_state_set)
 
-#define LL_IOC_DATA_VERSION             _IOR ('f', 218, struct ioc_data_version)
+#define LL_IOC_DATA_VERSION             _IOR('f', 218, struct ioc_data_version)
 
 #define LL_STATFS_LMV           1
 #define LL_STATFS_LOV           2
@@ -730,13 +734,13 @@ struct ioc_data_version {
  * See HSM_FLAGS below.
  */
 enum hsm_states {
-        HS_EXISTS    = 0x00000001,
-        HS_DIRTY     = 0x00000002,
-        HS_RELEASED  = 0x00000004,
-        HS_ARCHIVED  = 0x00000008,
-        HS_NORELEASE = 0x00000010,
-        HS_NOARCHIVE = 0x00000020,
-        HS_LOST      = 0x00000040,
+	HS_EXISTS	= 0x00000001,
+	HS_DIRTY	= 0x00000002,
+	HS_RELEASED	= 0x00000004,
+	HS_ARCHIVED	= 0x00000008,
+	HS_NORELEASE	= 0x00000010,
+	HS_NOARCHIVE	= 0x00000020,
+	HS_LOST		= 0x00000040,
 };
 
 /* HSM user-setable flags. */
@@ -755,25 +759,25 @@ enum hsm_states {
  * HSM request progress state
  */
 enum hsm_progress_states {
-        HPS_WAITING     = 1,
-        HPS_RUNNING     = 2,
-        HPS_DONE        = 3,
+	HPS_WAITING	= 1,
+	HPS_RUNNING	= 2,
+	HPS_DONE	= 3,
 };
-#define HPS_NONE        0
+#define HPS_NONE	0
 
 static inline char *hsm_progress_state2name(enum hsm_progress_states s)
 {
-        switch  (s) {
-        case HPS_WAITING: return "waiting";
-        case HPS_RUNNING: return "running";
-        case HPS_DONE:    return "done";
-        default:          return "unknown";
-        }
+	switch  (s) {
+	case HPS_WAITING:	return "waiting";
+	case HPS_RUNNING:	return "running";
+	case HPS_DONE:		return "done";
+	default:		return "unknown";
+	}
 }
 
 struct hsm_extent {
-        __u64 offset;
-        __u64 length;
+	__u64 offset;
+	__u64 length;
 } __attribute__((packed));
 
 /**
@@ -783,113 +787,105 @@ struct hsm_extent {
  * current HSM flags and in-progress action.
  */
 struct hsm_user_state {
-        /** Current HSM states, from enum hsm_states. */
-        __u32              hus_states;
-        __u32              hus_archive_num;
-        /**  The current undergoing action, if there is one */
-        __u32              hus_in_progress_state;
-        __u32              hus_in_progress_action;
-        struct hsm_extent  hus_in_progress_location;
-        char               hus_extended_info[];
-};
-
-struct hsm_state_set_ioc {
-        struct lu_fid  hssi_fid;
-        __u64          hssi_setmask;
-        __u64          hssi_clearmask;
+	/** Current HSM states, from enum hsm_states. */
+	__u32	hus_states;
+	__u32	hus_archive_num;
 };
 
 /***** HSM user requests ******/
 /* User-generated (lfs/ioctl) request types */
 enum hsm_user_action {
-        HUA_NONE    =  1, /* no action (noop) */
-        HUA_ARCHIVE = 10, /* copy to hsm */
-        HUA_RESTORE = 11, /* prestage */
-        HUA_RELEASE = 12, /* drop ost objects */
-        HUA_REMOVE  = 13, /* remove from archive */
-        HUA_CANCEL  = 14  /* cancel a request */
+	HUA_NONE	=  1, /* no action (noop) */
+	HUA_ARCHIVE	= 10, /* copy to hsm */
+	HUA_RESTORE	= 11, /* prestage */
+	HUA_RELEASE	= 12, /* drop ost objects */
+	HUA_REMOVE	= 13, /* remove from archive */
+	HUA_CANCEL	= 14  /* cancel a request */
 };
 
 static inline char *hsm_user_action2name(enum hsm_user_action  a)
 {
-        switch  (a) {
-        case HUA_NONE:    return "NOOP";
-        case HUA_ARCHIVE: return "ARCHIVE";
-        case HUA_RESTORE: return "RESTORE";
-        case HUA_RELEASE: return "RELEASE";
-        case HUA_REMOVE:  return "REMOVE";
-        case HUA_CANCEL:  return "CANCEL";
-        default:          return "UNKNOWN";
-        }
+	switch  (a) {
+	case HUA_NONE:		return "NONE";
+	case HUA_ARCHIVE:	return "ARCHIVE";
+	case HUA_RESTORE:	return "RESTORE";
+	case HUA_RELEASE:	return "RELEASE";
+	case HUA_REMOVE:	return "REMOVE";
+	case HUA_CANCEL:	return "CANCEL";
+	default:		return "UNKNOWN";
+	}
 }
 
 struct hsm_user_item {
-       lustre_fid        hui_fid;
-       struct hsm_extent hui_extent;
+	lustre_fid		hui_fid;
+	struct hsm_extent	hui_extent;
 } __attribute__((packed));
 
 struct hsm_user_request {
-        __u32 hur_action;    /* enum hsm_user_action */
-        __u32 hur_archive_num; /* archive number, used only with HUA_ARCHIVE */
-        __u32 hur_itemcount;
-        __u32 hur_data_len;
-        struct hsm_user_item hur_user_item[0];
-        /* extra data blob at end of struct (after all
-         * hur_user_items), only use helpers to access it
-         */
+	__u32			hur_action;	/* enum hsm_user_action */
+	__u32			hur_archive_num;/* archive number, used only
+						 * with HUA_ARCHIVE */
+	__u32			hur_itemcount;
+	__u32			hur_data_len;
+	struct hsm_user_item	hur_user_item[0];
+	/* extra data blob at end of struct (after all
+	 * hur_user_items), only use helpers to access it
+	 */
 } __attribute__((packed));
 
 /** Return pointer to data field in a hsm user request */
 static inline void *hur_data(struct hsm_user_request *hur)
 {
-        return &(hur->hur_user_item[hur->hur_itemcount]);
+	return &(hur->hur_user_item[hur->hur_itemcount]);
 }
 
 /** Compute the current length of the provided hsm_user_request. */
 static inline int hur_len(struct hsm_user_request *hur)
 {
-        int data_offset;
+	int	data_offset;
 
-        data_offset = hur_data(hur) - (void *)hur;
-        return (data_offset + hur->hur_data_len);
+	data_offset = hur_data(hur) - (void *)hur;
+	return data_offset + hur->hur_data_len;
 }
 
 /****** HSM RPCs to copytool *****/
 /* Message types the copytool may receive */
 enum hsm_message_type {
-        HMT_ACTION_LIST = 100, /* message is a hsm_action_list */
+	HMT_ACTION_LIST = 100, /* message is a hsm_action_list */
 };
 
 /* Actions the copytool may be instructed to take for a given action_item */
 enum hsm_copytool_action {
-        HSMA_NONE    = 10, /* no action */
-        HSMA_ARCHIVE = 20, /* arbitrary offset */
-        HSMA_RESTORE = 21,
-        HSMA_REMOVE  = 22,
-        HSMA_CANCEL  = 23
+	HSMA_NONE	= 10, /* no action */
+	HSMA_ARCHIVE	= 20, /* arbitrary offset */
+	HSMA_RESTORE	= 21,
+	HSMA_REMOVE	= 22,
+	HSMA_CANCEL	= 23
 };
 
 static inline char *hsm_copytool_action2name(enum hsm_copytool_action  a)
 {
-        switch  (a) {
-        case HSMA_NONE:    return "NOOP";
-        case HSMA_ARCHIVE: return "ARCHIVE";
-        case HSMA_RESTORE: return "RESTORE";
-        case HSMA_REMOVE:  return "REMOVE";
-        case HSMA_CANCEL:  return "CANCEL";
-        default:           return "UNKNOWN";
-        }
+	switch  (a) {
+	case HSMA_NONE:		return "NONE";
+	case HSMA_ARCHIVE:	return "ARCHIVE";
+	case HSMA_RESTORE:	return "RESTORE";
+	case HSMA_REMOVE:	return "REMOVE";
+	case HSMA_CANCEL:	return "CANCEL";
+	default:		return "UNKNOWN";
+	}
 }
 
 /* Copytool item action description */
 struct hsm_action_item {
-        __u32      hai_len;     /* valid size of this struct */
-        __u32      hai_action;  /* hsm_copytool_action, but use known size */
-        lustre_fid hai_fid;     /* Lustre FID to operated on */
-        struct hsm_extent hai_extent;  /* byte range to operate on */
-        __u64      hai_cookie;  /* action cookie from coordinator */
-        __u64      hai_gid;     /* grouplock id */
-        char       hai_data[0]; /* variable length */
+	__u32			hai_len;	/* valid size of this struct */
+	__u32			hai_action;	/* hsm_copytool_action,
+						 * but use known size */
+	lustre_fid		hai_fid;	/* Lustre FID to operated on */
+	struct hsm_extent	hai_extent;	/* byte range to operate on */
+	__u64			hai_cookie;	/* action cookie from
+						 * coordinator */
+	__u64			hai_gid;	/* grouplock id */
+	char			hai_data[0];	/* variable length */
 } __attribute__((packed));
 
 /*
@@ -901,45 +897,44 @@ struct hsm_action_item {
  * \retval buffer
  */
 static inline char *hai_dump_data_field(struct hsm_action_item *hai,
-                                        char *buffer, int len)
+					char *buffer, int len)
 {
-        int i, sz, data_len;
-        char *ptr;
+	int	 i, sz, data_len;
+	char	*ptr;
 
-        ptr = buffer;
-        sz = len;
-        data_len = hai->hai_len - sizeof(*hai);
-        for (i = 0 ; (i < data_len) && (sz > 0) ; i++)
-        {
-                int cnt;
+	ptr = buffer;
+	sz = len;
+	data_len = hai->hai_len - sizeof(*hai);
+	for (i = 0 ; (i < data_len) && (sz > 0) ; i++) {
+		int	cnt;
 
-                cnt = snprintf(ptr, sz, "%.2X",
-                               (unsigned char)hai->hai_data[i]);
-                ptr += cnt;
-                sz -= cnt;
-        }
-        *ptr = '\0';
-        return buffer;
+		cnt = snprintf(ptr, sz, "%.2X",
+			(unsigned char)hai->hai_data[i]);
+		ptr += cnt;
+		sz -= cnt;
+	}
+	*ptr = '\0';
+	return buffer;
 }
 
 /* Copytool action list */
 #define HAL_VERSION 1
 #define HAL_MAXSIZE 4096 /* bytes, used in userspace only */
 struct hsm_action_list {
-        __u32 hal_version;
-        __u32 hal_count;       /* number of hai's to follow */
-        __u64 hal_compound_id; /* returned by coordinator */
-        __u32 hal_archive_num; /* which archive backend */
-        __u32 padding1;
-        char  hal_fsname[0];   /* null-terminated */
-        /* struct hsm_action_item[hal_count] follows, aligned on 8-byte
-           boundaries. See hai_zero */
+	__u32 hal_version;
+	__u32 hal_count;	/* number of hai's to follow */
+	__u64 hal_compound_id;	/* returned by coordinator */
+	__u32 hal_archive_num;	/* which archive backend */
+	__u32 padding1;
+	char  hal_fsname[0];	/* null-terminated */
+	/* struct hsm_action_item[hal_count] follows, aligned on 8-byte
+	 * boundaries. See hai_zero */
 } __attribute__((packed));
 
 #ifndef HAVE_CFS_SIZE_ROUND
 static inline int cfs_size_round (int val)
 {
-        return (val + 7) & (~0x7);
+	return (val + 7) & (~0x7);
 }
 #define HAVE_CFS_SIZE_ROUND
 #endif
@@ -947,42 +942,42 @@ static inline int cfs_size_round (int val)
 /* Return pointer to first hai in action list */
 static inline struct hsm_action_item * hai_zero(struct hsm_action_list *hal)
 {
-        return (struct hsm_action_item *)(hal->hal_fsname +
-                                          cfs_size_round(strlen(hal-> \
-                                                                hal_fsname)));
+	return (struct hsm_action_item *)(hal->hal_fsname +
+						cfs_size_round(strlen(hal-> \
+								hal_fsname)));
 }
 /* Return pointer to next hai */
 static inline struct hsm_action_item * hai_next(struct hsm_action_item *hai)
 {
-        return (struct hsm_action_item *)((char *)hai +
-                                          cfs_size_round(hai->hai_len));
+	return (struct hsm_action_item *)((char *)hai +
+						cfs_size_round(hai->hai_len));
 }
 
 /* Return size of an hsm_action_list */
 static inline int hal_size(struct hsm_action_list *hal)
 {
-        int i, sz;
-        struct hsm_action_item *hai;
+	int			 i, sz;
+	struct hsm_action_item	*hai;
 
-        sz = sizeof(*hal) + cfs_size_round(strlen(hal->hal_fsname));
-        hai = hai_zero(hal);
-        for (i = 0 ; i < hal->hal_count ; i++) {
-                sz += cfs_size_round(hai->hai_len);
-                hai = hai_next(hai);
-        }
-        return(sz);
+	sz = sizeof(*hal) + cfs_size_round(strlen(hal->hal_fsname));
+	hai = hai_zero(hal);
+	for (i = 0 ; i < hal->hal_count ; i++) {
+		sz += cfs_size_round(hai->hai_len);
+		hai = hai_next(hai);
+	}
+	return sz;
 }
 
 /* Copytool progress reporting */
-#define HP_FLAG_COMPLETED 0x01
-#define HP_FLAG_RETRY     0x02
+#define HP_FLAG_COMPLETED	0x01
+#define HP_FLAG_RETRY		0x02
 
 struct hsm_progress {
-        lustre_fid        hp_fid;
-        __u64             hp_cookie;
-        struct hsm_extent hp_extent;
-        __u16             hp_flags;
-        __u16             hp_errval; /* positive val */
+	lustre_fid		hp_fid;
+	__u64			hp_cookie;
+	struct hsm_extent	hp_extent;
+	__u16			hp_flags;
+	__u16			hp_errval; /* positive val */
 } __attribute__((packed));
 
 /** @} lustreuser */

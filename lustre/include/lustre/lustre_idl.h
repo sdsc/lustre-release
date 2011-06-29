@@ -351,6 +351,8 @@ struct hsm_attrs {
 	__u64	hsm_arch_id;
 	/** version associated with the last archiving, if any */
 	__u64	hsm_arch_ver;
+	/** external storage ID where file data is archived, if any */
+	__u32   hsm_arch_num;
 };
 extern void lustre_hsm_swab(struct hsm_attrs *attrs);
 
@@ -1805,28 +1807,30 @@ typedef enum {
 
 /* opcodes */
 typedef enum {
-        MDS_GETATTR      = 33,
-        MDS_GETATTR_NAME = 34,
-        MDS_CLOSE        = 35,
-        MDS_REINT        = 36,
-        MDS_READPAGE     = 37,
-        MDS_CONNECT      = 38,
-        MDS_DISCONNECT   = 39,
-        MDS_GETSTATUS    = 40,
-        MDS_STATFS       = 41,
-        MDS_PIN          = 42,
-        MDS_UNPIN        = 43,
-        MDS_SYNC         = 44,
-        MDS_DONE_WRITING = 45,
-        MDS_SET_INFO     = 46,
-        MDS_QUOTACHECK   = 47,
-        MDS_QUOTACTL     = 48,
-        MDS_GETXATTR     = 49,
-        MDS_SETXATTR     = 50, /* obsolete, now it's MDS_REINT op */
-        MDS_WRITEPAGE    = 51,
-        MDS_IS_SUBDIR    = 52,
-        MDS_GET_INFO     = 53,
-        MDS_LAST_OPC
+	MDS_GETATTR		= 33,
+	MDS_GETATTR_NAME	= 34,
+	MDS_CLOSE		= 35,
+	MDS_REINT		= 36,
+	MDS_READPAGE		= 37,
+	MDS_CONNECT		= 38,
+	MDS_DISCONNECT		= 39,
+	MDS_GETSTATUS		= 40,
+	MDS_STATFS		= 41,
+	MDS_PIN			= 42,
+	MDS_UNPIN		= 43,
+	MDS_SYNC		= 44,
+	MDS_DONE_WRITING	= 45,
+	MDS_SET_INFO		= 46,
+	MDS_QUOTACHECK		= 47,
+	MDS_QUOTACTL		= 48,
+	MDS_GETXATTR		= 49,
+	MDS_SETXATTR		= 50, /* obsolete, now it's MDS_REINT op */
+	MDS_WRITEPAGE		= 51,
+	MDS_IS_SUBDIR		= 52,
+	MDS_GET_INFO		= 53,
+	MDS_HSM_STATE_GET	= 54,
+	MDS_HSM_STATE_SET	= 55,
+	MDS_LAST_OPC
 } mds_cmd_t;
 
 #define MDS_FIRST_OPC    MDS_GETATTR
@@ -3249,6 +3253,21 @@ struct getinfo_fid2path {
 
 void lustre_swab_fid2path (struct getinfo_fid2path *gf);
 
+enum hss_valid {
+	HSS_SETMASK     = 0x01,
+	HSS_CLEARMASK   = 0x02,
+	HSS_ARCHIVE_NUM = 0x04,
+};
+
+struct hsm_state_set {
+	__u32	hss_valid;
+	__u32	hss_archive_num;
+	__u64	hss_setmask;
+	__u64	hss_clearmask;
+};
+
+extern void lustre_swab_hsm_user_state(struct hsm_user_state *hus);
+extern void lustre_swab_hsm_state_set(struct hsm_state_set *hss);
 
 #endif
 /** @} lustreidl */
