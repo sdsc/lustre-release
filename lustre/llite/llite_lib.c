@@ -267,6 +267,17 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                 GOTO(out, err);
         }
 
+        valid = sbi->ll_md_exp->exp_connect_flags & CLIENT_CONNECT_MDT_REQD;
+        if (valid != CLIENT_CONNECT_MDT_REQD) {
+                LCONSOLE_ERROR_MSG(0x170, "Server %s does not support "
+                                   "feature(s) needed for correct operation "
+                                   "of this client ("LPX64"). Please upgrade "
+                                   "server or downgrade client.\n",
+                                   sbi->ll_md_exp->exp_obd->obd_name,
+                                   valid ^ CLIENT_CONNECT_MDT_REQD);
+                GOTO(out_md, err = -EPROTO);
+        }
+
         err = obd_fid_init(sbi->ll_md_exp);
         if (err) {
                 CERROR("Can't init metadata layer FID infrastructure, "
