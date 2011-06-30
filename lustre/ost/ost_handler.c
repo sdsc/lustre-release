@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
@@ -411,6 +414,7 @@ static int ost_punch(struct obd_export *exp, struct ptlrpc_request *req,
                 oinfo->oi_policy.l_extent.start = oinfo->oi_oa->o_size;
                 oinfo->oi_policy.l_extent.end = oinfo->oi_oa->o_blocks;
                 oinfo->oi_capa = capa;
+                oinfo->oi_flags = OBD_FL_PUNCH;
 
                 req->rq_status = obd_punch(exp, oinfo, oti, NULL);
                 OBD_FREE_PTR(oinfo);

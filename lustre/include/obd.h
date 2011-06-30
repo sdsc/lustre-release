@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
@@ -169,6 +172,7 @@ struct obd_info {
            - while lock handling, the flags obtained on the enqueue
            request are set here.
            - while stats, the flags used for control delay/resend.
+           - while setattr, the flags used for distinguish punch operation
          */
         int                     oi_flags;
         /* Lock handle specific for every OSC lock. */
