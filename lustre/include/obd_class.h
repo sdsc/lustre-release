@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
@@ -57,6 +60,19 @@
 #else
 #error Unsupported operating system.
 #endif
+
+#define OBD_STATFS_NODELAY      0x0001  /* requests should be send without delay
+                                         * and resends for avoid deadlocks */
+#define OBD_STATFS_FROM_CACHE   0x0002  /* the statfs callback should not update
+                                         * obd_osfs_age */
+#define OBD_STATFS_PTLRPCD      0x0004  /* requests will be sent via ptlrpcd
+                                         * instead of a specific set. This
+                                         * means that we cannot rely on the set
+                                         * interpret routine to be called.
+                                         * lov_statfs_fini() must thus be called
+                                         * by the request interpret routine */
+
+#define OBD_FL_PUNCH    0x00000001      /* To indicate it is punch operation */
 
 /* OBD Device Declarations */
 extern struct obd_device *obd_devs[MAX_OBD_DEVICES];

@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
@@ -51,7 +54,6 @@
 
 #define lustre_swab_generic_32s NULL
 #define lustre_swab_lu_seq_range NULL
-#define lustre_swab_md_fld NULL
 #define lustre_swab_mdt_body NULL
 #define lustre_swab_mdt_ioepoch NULL
 #define lustre_swab_ptlrpc_body NULL

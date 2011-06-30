@@ -436,7 +436,7 @@ struct obd_dqblk {
         __u64 dqb_btime;
         __u64 dqb_itime;
         __u32 dqb_valid;
-        __u32 padding;
+        __u32 dqb_padding;
 };
 
 enum {
