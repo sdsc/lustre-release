@@ -389,6 +389,9 @@ int set_blockdev_tunables(char *source, int fan_out)
         if (strncmp(real_path, "/dev/loop", 9) == 0)
                 return 0;
 
+        if (strncmp(real_path, "/dev/mapper", 11) == 0)
+                return 0;
+
         if ((real_path[0] != '/') && (strpbrk(real_path, ",:") != NULL))
                 return 0;
 
