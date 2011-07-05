@@ -783,7 +783,8 @@ test_23a() {	# was test_23
 	ps --ppid $MOUNT_PID
 	ps --ppid $MOUNT_LUSTRE_PID
 	# FIXME why o why can't I kill these? Manual "ctrl-c" works...
-	kill -TERM $MOUNT_LUSTRE_PID
+	# ctrl-c sends SIGINT signal
+	kill -s SIGINT $MOUNT_PID
 	echo "waiting for mount to finish"
 	ps -ef | grep mount
 	# we can not wait $MOUNT_PID because it is not a child of this shell
