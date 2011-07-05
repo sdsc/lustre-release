@@ -23,6 +23,6 @@ Index: linux-stage/fs/ext4/ialloc.c
 -	if (!ext4_clear_bit_atomic(ext4_group_lock_ptr(sb, block_group),
 -		                   bit, bitmap_bh->b_data))
 +	if (!cleared)
- 		ext4_error(sb, "ext4_free_inode",
- 			   "bit already cleared for inode %lu", ino);
+ 		ext4_error(sb, "bit already cleared for inode %lu", ino);
  	else {
+ 		gdp = ext4_get_group_desc(sb, block_group, &bh2);
