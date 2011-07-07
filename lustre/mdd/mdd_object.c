@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
@@ -2391,6 +2394,8 @@ static int __mdd_readpage(const struct lu_env *env, struct mdd_object *obj,
                          * No pages were processed, mark this.
                          */
                         dp->ldp_flags |= LDF_EMPTY;
+                else if (last && le32_to_cpu(last->lde_hash) == hash_end)
+                        dp->ldp_flags |= LDF_COLLIDE;
 
                 dp->ldp_flags = cpu_to_le32(dp->ldp_flags);
                 cfs_kunmap(rdpg->rp_pages[0]);
