@@ -34,6 +34,9 @@
  * Subcontract No. B514193
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
@@ -415,8 +418,7 @@ reprocess:
                                              &new2->l_exp_hash);
                 }
                 if (*flags == LDLM_FL_WAIT_NOREPROC)
-                        ldlm_lock_addref_internal_nolock(new2,
-                                                         lock->l_granted_mode);
+                        ldlm_lock_addref_nolock(new2, lock->l_granted_mode);
 
                 /* insert new2 at lock */
                 ldlm_resource_add_lock(res, ownlocks, new2);

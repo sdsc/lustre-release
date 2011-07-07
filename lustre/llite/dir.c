@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
@@ -160,15 +163,7 @@ static int ll_dir_readpage(struct file *file, struct page *page)
 
                 hash = fd->fd_dir.lfd_next;
         } else {
-                struct ll_inode_info *lli = ll_i2info(inode);
-
-                cfs_spin_lock(&lli->lli_sa_lock);
-                if (lli->lli_sai)
-                        LASSERT(lli->lli_sai->sai_pid == cfs_curproc_pid());
-                else
-                        LASSERT(lli->lli_opendir_pid == cfs_curproc_pid());
-                hash = lli->lli_sa_pos;
-                cfs_spin_unlock(&lli->lli_sa_lock);
+                hash = ll_i2info(inode)->lli_sa_pos;
         }
         CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p) off %lu\n",
                inode->i_ino, inode->i_generation, inode, (unsigned long)hash);
@@ -209,19 +204,14 @@ static void ll_check_page(struct inode *dir, struct page *page)
         SetPageChecked(page);
 }
 
-static void ll_release_page(struct page *page, __u64 hash,
-                            __u64 start, __u64 end)
+void ll_release_page(struct page *page, int remove)
 {
         kunmap(page);
-        lock_page(page);
-        if (likely(page->mapping != NULL)) {
-                ll_truncate_complete_page(page);
+        if (remove) {
+                lock_page(page);
+                if (likely(page->mapping != NULL))
+                        ll_truncate_complete_page(page);
                 unlock_page(page);
-        } else {
-                unlock_page(page);
-                CWARN("NULL mapping page %p, truncated by others: "
-                      "hash("LPX64") | start("LPX64") | end("LPX64")\n",
-                      page, hash, start, end);
         }
         page_cache_release(page);
 }
@@ -272,8 +262,12 @@ static struct page *ll_dir_page_locate(struct inode *dir, __u64 *hash,
                         }
                         LASSERTF(*start <= *hash, "start = "LPX64",end = "
                                  LPX64",hash = "LPX64"\n", *start, *end, *hash);
-                        if (*hash > *end || (*end != *start && *hash == *end)) {
-                                ll_release_page(page, *hash, *start, *end);
+                        if (*hash > *end) {
+                                ll_release_page(page, 0);
+                                page = NULL;
+                        } else if (*end != *start && *hash == *end) {
+                                ll_release_page(page,
+                                    le32_to_cpu(dp->ldp_flags) & LDF_COLLIDE);
                                 page = NULL;
                         }
                 } else {
@@ -289,7 +283,7 @@ static struct page *ll_dir_page_locate(struct inode *dir, __u64 *hash,
 }
 
 struct page *ll_get_dir_page(struct file *filp, struct inode *dir, __u64 hash,
-                             int exact, struct ll_dir_chain *chain)
+                             struct ll_dir_chain *chain)
 {
         ldlm_policy_data_t policy = {.l_inodebits = {MDS_INODELOCK_UPDATE} };
         struct address_space *mapping = dir->i_mapping;
@@ -347,9 +341,7 @@ struct page *ll_get_dir_page(struct file *filp, struct inode *dir, __u64 hash,
                 CERROR("dir page locate: "DFID" at "LPU64": rc %ld\n",
                        PFID(ll_inode2fid(dir)), lhash, PTR_ERR(page));
                 GOTO(out_unlock, page);
-        }
-
-        if (page != NULL) {
+        } else if (page != NULL) {
                 /*
                  * XXX nikita: not entirely correct handling of a corner case:
                  * suppose hash chain of entries with hash value HASH crosses
@@ -364,20 +356,7 @@ struct page *ll_get_dir_page(struct file *filp, struct inode *dir, __u64 hash,
                  * it as an "overflow" page. 1. invalidate all pages at
                  * once. 2. use HASH|1 as an index for P1.
                  */
-                if (exact && lhash != start) {
-                        /*
-                         * readdir asked for a page starting _exactly_ from
-                         * given hash, but cache contains stale page, with
-                         * entries with smaller hash values. Stale page should
-                         * be invalidated, and new one fetched.
-                         */
-                        CDEBUG(D_OTHER, "Stale readpage page %p: "
-                               "start = "LPX64",end = "LPX64"hash ="LPX64"\n",
-                               page, start, end, lhash);
-                        ll_release_page(page, lhash, start, end);
-                } else {
-                        GOTO(hash_collision, page);
-                }
+                GOTO(hash_collision, page);
         }
 
         page = read_cache_page(mapping, hash_x_index(hash, hash64),
@@ -434,7 +413,7 @@ out_unlock:
         return page;
 
 fail:
-        ll_put_page(page);
+        ll_release_page(page, 1);
         page = ERR_PTR(-EIO);
         goto out_unlock;
 }
@@ -471,7 +450,7 @@ int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
         ll_dir_chain_init(&chain);
 
         fd->fd_dir.lfd_next = pos;
-        page = ll_get_dir_page(filp, inode, pos, 0, &chain);
+        page = ll_get_dir_page(filp, inode, pos, &chain);
 
         while (rc == 0 && !done) {
                 struct lu_dirpage *dp;
@@ -528,7 +507,6 @@ int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
                                                lhash, ino, type);
                         }
                         next = le64_to_cpu(dp->ldp_hash_end);
-                        ll_put_page(page);
                         if (!done) {
                                 pos = next;
                                 if (pos == MDS_DIR_END_OFF) {
@@ -536,21 +514,27 @@ int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
                                          * End of directory reached.
                                          */
                                         done = 1;
+                                        ll_release_page(page, 0);
                                 } else if (1 /* chain is exhausted*/) {
                                         /*
                                          * Normal case: continue to the next
                                          * page.
                                          */
+                                        ll_release_page(page,
+                                            le32_to_cpu(dp->ldp_flags) &
+                                                        LDF_COLLIDE);
                                         fd->fd_dir.lfd_next = pos;
                                         page = ll_get_dir_page(filp, inode, pos,
-                                                               1, &chain);
+                                                               &chain);
                                 } else {
                                         /*
                                          * go into overflow page.
                                          */
+                                        ll_release_page(page, 0);
                                 }
                         } else {
                                 pos = hash;
+                                ll_release_page(page, 0);
                         }
                 } else {
                         rc = PTR_ERR(page);

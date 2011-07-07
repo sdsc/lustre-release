@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
@@ -60,10 +63,9 @@ static void ll_release(struct dentry *de)
         ENTRY;
         LASSERT(de != NULL);
         lld = ll_d2d(de);
-        if (lld == NULL) { /* NFS copies the de->d_op methods (bug 4655) */
-                EXIT;
-                return;
-        }
+        if (lld == NULL) /* NFS copies the de->d_op methods (bug 4655) */
+                RETURN_EXIT;
+
         if (lld->lld_it) {
                 ll_intent_release(lld->lld_it);
                 OBD_FREE(lld->lld_it, sizeof(*lld->lld_it));
@@ -401,7 +403,7 @@ int ll_revalidate_it(struct dentry *de, int lookup_flags,
         struct lookup_intent lookup_it = { .it_op = IT_LOOKUP };
         struct obd_export *exp;
         struct inode *parent = de->d_parent->d_inode;
-        int rc, first = 0;
+        int rc;
 
         ENTRY;
         CDEBUG(D_VFSTRACE, "VFS Op:name=%s,intent=%s\n", de->d_name.name,
@@ -443,13 +445,7 @@ int ll_revalidate_it(struct dentry *de, int lookup_flags,
         LASSERT(it);
 
         if (it->it_op == IT_LOOKUP && !(de->d_flags & DCACHE_LUSTRE_INVALID))
-                GOTO(out_sa, rc = 1);
-
-        op_data = ll_prep_md_op_data(NULL, parent, de->d_inode,
-                                     de->d_name.name, de->d_name.len,
-                                     0, LUSTRE_OPC_ANY, NULL);
-        if (IS_ERR(op_data))
-                RETURN(PTR_ERR(op_data));
+                RETURN(1);
 
         if ((it->it_op == IT_OPEN) && de->d_inode) {
                 struct inode *inode = de->d_inode;
@@ -493,17 +489,25 @@ int ll_revalidate_it(struct dentry *de, int lookup_flags,
                            if it would be, we'll reopen the open request to
                            MDS later during file open path */
                         cfs_up(&lli->lli_och_sem);
-                        ll_finish_md_op_data(op_data);
                         RETURN(1);
                 } else {
                         cfs_up(&lli->lli_och_sem);
                 }
         }
 
-        if (it->it_op == IT_GETATTR)
-                first = ll_statahead_enter(parent, &de, 0);
+        if (it->it_op == IT_GETATTR) {
+                rc = ll_statahead_enter(parent, &de, 0);
+                if (rc == 1)
+                        goto mark;
+        }
 
 do_lock:
+        op_data = ll_prep_md_op_data(NULL, parent, de->d_inode,
+                                     de->d_name.name, de->d_name.len,
+                                     0, LUSTRE_OPC_ANY, NULL);
+        if (IS_ERR(op_data))
+                RETURN(PTR_ERR(op_data));
+
         it->it_create_mode &= ~cfs_curproc_umask();
         it->it_create_mode |= M_CHECK_STALE;
         rc = md_intent_lock(exp, op_data, NULL, 0, it,
@@ -511,13 +515,6 @@ do_lock:
                             &req, ll_md_blocking_ast, 0);
         it->it_create_mode &= ~M_CHECK_STALE;
         ll_finish_md_op_data(op_data);
-        if (it->it_op == IT_GETATTR && !first)
-                /* If there are too many locks on client-side, then some
-                 * locks taken by statahead maybe dropped automatically
-                 * before the real "revalidate" using them. */
-                ll_statahead_exit(parent, de, req == NULL ? rc : 0);
-        else if (first == -EEXIST)
-                ll_statahead_mark(parent, de);
 
         /* If req is NULL, then md_intent_lock only tried to do a lock match;
          * if all was well, it will return 1 if it found locks, 0 otherwise. */
@@ -584,6 +581,10 @@ out:
                 }
                 ll_lookup_finish_locks(it, de);
         }
+
+mark:
+        if (it != NULL && it->it_op == IT_GETATTR && rc > 0)
+                ll_statahead_mark(parent, de);
         RETURN(rc);
 
         /*
@@ -644,15 +645,9 @@ out_sa:
          * For rc == 1 case, should not return directly to prevent losing
          * statahead windows; for rc == 0 case, the "lookup" will be done later.
          */
-        if (it && it->it_op == IT_GETATTR && rc == 1) {
-                first = ll_statahead_enter(parent, &de, 0);
-                if (first >= 0)
-                        ll_statahead_exit(parent, de, 1);
-                else if (first == -EEXIST)
-                        ll_statahead_mark(parent, de);
-        }
-
-        return rc;
+        if (it != NULL && it->it_op == IT_GETATTR && rc == 1)
+                ll_statahead_enter(parent, &de, 1);
+        goto mark;
 }
 
 int ll_revalidate_nd(struct dentry *dentry, struct nameidata *nd)

@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
@@ -856,7 +859,8 @@ struct lu_dirpage {
 };
 
 enum lu_dirpage_flags {
-        LDF_EMPTY = 1 << 0
+        LDF_EMPTY       = 1 << 0,
+        LDF_COLLIDE     = 1 << 1
 };
 
 static inline struct lu_dirent *lu_dirent_start(struct lu_dirpage *dp)

@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
@@ -3013,7 +3016,7 @@ int lmv_intent_getattr_async(struct obd_export *exp,
 }
 
 int lmv_revalidate_lock(struct obd_export *exp, struct lookup_intent *it,
-                        struct lu_fid *fid)
+                        struct lu_fid *fid, __u32 *bits)
 {
         struct obd_device       *obd = exp->exp_obd;
         struct lmv_obd          *lmv = &obd->u.lmv;
@@ -3029,7 +3032,7 @@ int lmv_revalidate_lock(struct obd_export *exp, struct lookup_intent *it,
         if (IS_ERR(tgt))
                 RETURN(PTR_ERR(tgt));
 
-        rc = md_revalidate_lock(tgt->ltd_exp, it, fid);
+        rc = md_revalidate_lock(tgt->ltd_exp, it, fid, bits);
         RETURN(rc);
 }
 
