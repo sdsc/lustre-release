@@ -107,6 +107,8 @@ if test x$with_ldiskfs = xyes; then
 	LB_LDISKFS_EXT_DIR
 	LB_LDISKFS_BUILD
 	LB_LDISKFS_DEFINE_OPTIONS
+        LB_LDISKFS_SERIES([true])
+        LB_LDISKFS_PDO([$LDISKFS_DIR])
 fi
 
 #
@@ -463,4 +465,15 @@ else
 	LDISKFS_SERIES=
 fi
 AC_SUBST(LDISKFS_SERIES)
+])
+
+AC_DEFUN([LB_LDISKFS_PDO],
+[
+with_ldiskfs_pdo=no
+series_file=$1/kernel_patches/series/ldiskfs-${LDISKFS_SERIES}
+if test -f "$series_file" && grep -q "pdirop" $series_file >/dev/null; then
+	with_ldiskfs_pdo=yes
+	AC_DEFINE(HAVE_LDISKFS_PDO, 1, [have ldiskfs PDO patch])
+fi
+AM_CONDITIONAL(LDISKFS_PDO, test x$with_ldiskfs_pdo = xyes)
 ])

@@ -62,6 +62,7 @@ fi
 fi
 
 LB_LDISKFS_SERIES([test x$enable_dist = xno])
+LB_LDISKFS_PDO([$PWD])
 
 AC_MSG_CHECKING([whether to build Lustre server support])
 AC_ARG_ENABLE([server],
