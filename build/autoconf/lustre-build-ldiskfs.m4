@@ -442,6 +442,7 @@ AC_DEFUN([LB_LDISKFS_SERIES],
 [
 if $1; then
 	AC_MSG_CHECKING([which ldiskfs series to use])
+	with_ldiskfs_pdo=no
 	case $LINUXRELEASE in
 	2.6.18*)
 		if test x$RHEL_KERNEL = xyes; then
@@ -451,6 +452,7 @@ if $1; then
 	2.6.32*)
 		if test x$RHEL_KERNEL = xyes; then
 			LDISKFS_SERIES="2.6-rhel6.series"
+			with_ldiskfs_pdo=yes
 		fi
 		;;
 	*)
@@ -463,4 +465,5 @@ else
 	LDISKFS_SERIES=
 fi
 AC_SUBST(LDISKFS_SERIES)
+AM_CONDITIONAL(LDISKFS_PDO, test x$with_ldiskfs_pdo = xyes)
 ])
