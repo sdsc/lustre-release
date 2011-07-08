@@ -1,0 +1,45 @@
+--- linux-2.6.32-131.6.1/fs/buffer.c	2011-06-21 01:27:00.000000000 +0800
++++ linux-2.6.32-131.6.1-pdo/fs/buffer.c	2011-10-11 12:19:25.000000000 +0800
+@@ -1250,8 +1250,17 @@ static struct buffer_head *__bread_slow(
+  * The LRUs themselves only need locking against invalidate_bh_lrus.  We use
+  * a local interrupt disable for that.
+  */
++#ifdef CONFIG_BH_LRU_SIZE_8
++# define BH_LRU_SIZE	8
++#endif
++
++#ifdef CONFIG_BH_LRU_SIZE_16
++# define BH_LRU_SIZE	16
++#endif
+ 
+-#define BH_LRU_SIZE	8
++#ifdef CONFIG_BH_LRU_SIZE_32
++# define BH_LRU_SIZE	32
++#endif
+ 
+ struct bh_lru {
+ 	struct buffer_head *bhs[BH_LRU_SIZE];
+--- linux-2.6.32-131.6.1/fs/Kconfig	2011-06-21 01:25:13.000000000 +0800
++++ linux-2.6.32-131.6.1-pdo/fs/Kconfig	2011-10-11 12:22:09.000000000 +0800
+@@ -253,4 +253,21 @@ endif
+ source "fs/nls/Kconfig"
+ source "fs/dlm/Kconfig"
+ 
++choice
++	prompt "buffer head LRU size"
++	default BH_LRU_SIZE_16
++	help
++	  This sets the percpu LRU size for buffer head, it can be 8, 16, 32
++
++config BH_LRU_SIZE_8
++	bool "8"
++
++config BH_LRU_SIZE_16
++	bool "16"
++
++config BH_LRU_SIZE_32
++	bool "32"
++
++endchoice
++
+ endmenu
