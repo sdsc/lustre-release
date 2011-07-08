@@ -1130,6 +1130,8 @@ static int mgs_steal_llog_handler(struct llog_handle *llh,
                                            mti->mti_svname,"add osc(copied)");
                         rc = record_end_log(obd, &mdt_llh);
                         last_step = marker->cm_step;
+                        memcpy(tmti->mti_svname, marker->cm_tgtname,
+                               strlen(marker->cm_tgtname));
                         RETURN(rc);
                 }
                 if (!strncmp(marker->cm_comment,"add osc",7) &&
@@ -1204,8 +1206,17 @@ static int mgs_steal_llog_handler(struct llog_handle *llh,
         if (lcfg->lcfg_command == LCFG_LOV_ADD_OBD) {
                 char mdt_index[9];
                 char *logname, *lovname;
+                int index;
 
-                name_create_mdt_and_lov(&logname, &lovname, fsdb, mti->mti_stripe_index);
+                if (sscanf(lustre_cfg_buf(lcfg, 2), "%d", &index) != 1)
+                        RETURN (-EINVAL);
+
+                memcpy(tmti->mti_fsname, mti->mti_fsname,
+                       strlen(mti->mti_fsname));
+                tmti->mti_stripe_index = index;
+
+                name_create_mdt_and_lov(&logname, &lovname, fsdb,
+                                        mti->mti_stripe_index);
                 sprintf(mdt_index, "-MDT%04x", mti->mti_stripe_index);
 
                 mgs_write_log_osc_to_lov(obd, fsdb, tmti, logname,
