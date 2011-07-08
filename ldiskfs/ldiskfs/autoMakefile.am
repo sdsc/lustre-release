@@ -75,7 +75,9 @@ endif
 	sed $(strip $(ldiskfs_sed_flags)) \
         linux-stage/include/linux/dynlocks.h \
         > linux/dynlocks.h
-
+	sed $(strip $(ldiskfs_sed_flags)) \
+        linux-stage/include/linux/htree_lock.h \
+        > linux/htree_lock.h
 
 	@echo
 	touch sources
