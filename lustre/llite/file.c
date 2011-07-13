@@ -830,6 +830,7 @@ static ssize_t ll_file_io_generic(const struct lu_env *env,
                 enum cl_io_type iot, loff_t *ppos, size_t count)
 {
         struct ll_inode_info *lli = ll_i2info(file->f_dentry->d_inode);
+        struct ll_sb_info    *sbi = ll_i2sbi(file->f_dentry->d_inode);
         struct cl_io         *io;
         ssize_t               result;
         ENTRY;
@@ -891,6 +892,13 @@ static ssize_t ll_file_io_generic(const struct lu_env *env,
         GOTO(out, result);
 out:
         cl_io_fini(env, io);
+
+        if (iot == CIT_READ && result >= 0)
+                ll_stats_ops_tally(sbi, LPROC_LL_READ_BYTES, result);
+
+        if (iot == CIT_WRITE && result >= 0)
+                ll_stats_ops_tally(sbi, LPROC_LL_WRITE_BYTES, result);
+
         if (iot == CIT_WRITE)
                 lli->lli_write_rc = result < 0 ? : 0;
         return result;
