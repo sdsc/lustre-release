@@ -1,11 +1,40 @@
-Disable the DELALLOC feature because it is not robust in ext4 versions < 2.6.31.
-
---
-Index: linux-2.6.27.21-0.1/fs/ext4/super.c
-===================================================================
---- linux-2.6.27.21-0.1.orig/fs/ext4/super.c	2009-06-15 05:36:44.000000000 -0400
-+++ linux-2.6.27.21-0.1/fs/ext4/super.c	2009-06-15 05:40:38.000000000 -0400
-@@ -2462,13 +2462,6 @@ static int ext4_fill_super(struct super_
+diff -urpN linux-stage.orig/fs/ext4/super.c linux-stage/fs/ext4/super.c
+--- linux-stage.orig/fs/ext4/super.c	2011-06-10 14:16:26.000000000 -0400
++++ linux-stage/fs/ext4/super.c	2011-06-10 14:22:36.000000000 -0400
+@@ -974,12 +974,13 @@ enum {
+ 	Opt_usrjquota, Opt_grpjquota, Opt_offusrjquota, Opt_offgrpjquota,
+ 	Opt_jqfmt_vfsold, Opt_jqfmt_vfsv0, Opt_quota, Opt_noquota,
+ 	Opt_ignore, Opt_barrier, Opt_err, Opt_resize, Opt_usrquota,
+-	Opt_grpquota, Opt_extents, Opt_noextents, Opt_i_version,
++	Opt_grpquota, Opt_i_version,
+ 	Opt_delalloc, Opt_nodelalloc, Opt_noauto_da_alloc, Opt_auto_da_alloc,
+ 	Opt_block_validity, Opt_noblock_validity,
+ 	Opt_inode_readahead_blks, Opt_journal_ioprio,
+ 	Opt_discard, Opt_nodiscard,
+ 	Opt_mballoc, Opt_bigendian_extents, Opt_force_over_128tb,
++	Opt_extents, Opt_noextents,
+ };
+ 
+ static match_table_t tokens = {
+@@ -1030,8 +1031,6 @@ static match_table_t tokens = {
+ 	{Opt_usrquota, "usrquota"},
+ 	{Opt_inode_readahead_blks, "inode_readahead_blks=%u"},
+ 	{Opt_barrier, "barrier=%u"},
+-	{Opt_extents, "extents"},
+-	{Opt_noextents, "noextents"},
+ 	{Opt_i_version, "i_version"},
+ 	{Opt_stripe, "stripe=%u"},
+ 	{Opt_resize, "resize"},
+@@ -1044,6 +1043,8 @@ static match_table_t tokens = {
+ 	{Opt_mballoc, "mballoc"},
+ 	{Opt_discard, "discard"},
+ 	{Opt_nodiscard, "nodiscard"},
++	{Opt_extents, "extents"},
++	{Opt_noextents, "noextents"},
+ 	{Opt_err, NULL},
+ };
+ 
+@@ -2147,13 +2148,6 @@ static int ext4_fill_super(struct super_
  			"extents feature not enabled on this filesystem, "
  			"use tune2fs.\n");
  
