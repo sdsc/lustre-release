@@ -39,6 +39,7 @@ rm -rf $DIR/[df][0-9]*
 [ "$DAEMONFILE" ] && $LCTL debug_daemon start $DAEMONFILE $DAEMONSIZE
 
 test_0a() {
+    sleep 10
     touch $MOUNT2/$tfile-A # force sync FLD/SEQ update before barrier
     replay_barrier $SINGLEMDS
 #define OBD_FAIL_PTLRPC_FINISH_REPLAY | OBD_FAIL_ONCE
