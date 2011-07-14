@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
@@ -1671,43 +1674,6 @@ void lustre_swab_ost_lvb(struct ost_lvb *lvb)
         __swab64s(&lvb->lvb_blocks);
 }
 
-void lustre_swab_mds_status_req (struct mds_status_req *r)
-{
-        __swab32s (&r->flags);
-        __swab32s (&r->repbuf);
-}
-
-void lustre_swab_mds_body (struct mds_body *b)
-{
-        lustre_swab_ll_fid (&b->fid1);
-        lustre_swab_ll_fid (&b->fid2);
-        /* handle is opaque */
-        __swab64s (&b->valid);
-        __swab64s (&b->size);
-        __swab64s (&b->mtime);
-        __swab64s (&b->atime);
-        __swab64s (&b->ctime);
-        __swab64s (&b->blocks);
-        __swab64s (&b->io_epoch);
-        __swab64s (&b->ino);
-        __swab32s (&b->fsuid);
-        __swab32s (&b->fsgid);
-        __swab32s (&b->capability);
-        __swab32s (&b->mode);
-        __swab32s (&b->uid);
-        __swab32s (&b->gid);
-        __swab32s (&b->flags);
-        __swab32s (&b->rdev);
-        __swab32s (&b->nlink);
-        __swab32s (&b->generation);
-        __swab32s (&b->suppgid);
-        __swab32s (&b->eadatasize);
-        __swab32s (&b->aclsize);
-        __swab32s (&b->max_mdsize);
-        __swab32s (&b->max_cookiesize);
-        CLASSERT(offsetof(typeof(*b), padding_4) != 0);
-}
-
 void lustre_swab_mdt_body (struct mdt_body *b)
 {
         lustre_swab_lu_fid (&b->fid1);
@@ -1757,6 +1723,7 @@ void lustre_swab_mgs_target_info(struct mgs_target_info *mti)
         __swab32s(&mti->mti_config_ver);
         __swab32s(&mti->mti_flags);
         __swab32s(&mti->mti_nid_count);
+        __swab32s(&mti->mti_padding);
         CLASSERT(sizeof(lnet_nid_t) == sizeof(__u64));
         for (i = 0; i < MTI_NIDS_MAX; i++)
                 __swab64s(&mti->mti_nids[i]);
@@ -1781,7 +1748,7 @@ static void lustre_swab_obd_dqblk (struct obd_dqblk *b)
         __swab64s (&b->dqb_btime);
         __swab64s (&b->dqb_itime);
         __swab32s (&b->dqb_valid);
-        CLASSERT(offsetof(typeof(*b), padding) != 0);
+        CLASSERT(offsetof(typeof(*b), dqb_padding) != 0);
 }
 
 void lustre_swab_obd_quotactl (struct obd_quotactl *q)
@@ -1803,15 +1770,6 @@ void lustre_swab_quota_adjust_qunit (struct quota_adjust_qunit *q)
         __swab64s (&q->padding1);
 }
 
-void lustre_swab_mds_remote_perm (struct mds_remote_perm *p)
-{
-        __swab32s (&p->rp_uid);
-        __swab32s (&p->rp_gid);
-        __swab32s (&p->rp_fsuid);
-        __swab32s (&p->rp_fsgid);
-        __swab32s (&p->rp_access_perm);
-};
-
 void lustre_swab_mdt_remote_perm (struct mdt_remote_perm *p)
 {
         __swab32s (&p->rp_uid);
@@ -1821,6 +1779,7 @@ void lustre_swab_mdt_remote_perm (struct mdt_remote_perm *p)
         __swab32s (&p->rp_fsgid);
         __swab32s (&p->rp_fsgid_h);
         __swab32s (&p->rp_access_perm);
+        __swab32s (&p->rp_padding);
 };
 
 void lustre_swab_fid2path(struct getinfo_fid2path *gf)
