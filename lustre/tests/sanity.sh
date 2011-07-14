@@ -6246,6 +6246,49 @@ test_127() { # bug 15521
 }
 run_test 127 "verify the client stats are sane"
 
+test_127b() { # bug LU-333
+        $SETSTRIPE -i 0 -c 1 $DIR/$tfile || error "setstripe failed"
+        $LCTL set_param llite.*.stats=0
+        FSIZE=65536 # sized fixed to match PAGE_SIZE for most clients
+		# perform 2 reads and writes so MAX is different from SUM.
+        dd if=/dev/zero of=$DIR/$tfile bs=$FSIZE count=1
+        dd if=/dev/zero of=$DIR/$tfile bs=$FSIZE count=1
+        cancel_lru_locks osc
+        dd if=$DIR/$tfile of=/dev/null bs=$FSIZE
+        dd if=$DIR/$tfile of=/dev/null bs=$FSIZE
+
+        $LCTL get_param llite.*.stats | grep samples > $TMP/${tfile}.tmp
+        while read NAME COUNT SAMP UNIT MIN MAX SUM SUMSQ; do
+                echo "got $COUNT $NAME"
+                eval $NAME=$COUNT || error "Wrong proc format"
+
+		case $NAME in
+			read_bytes)
+                        [ $COUNT -ne 4 ] && error "count is not 4: $COUNT"
+                        [ $MIN -ne 0 ] && error "min is non zero: $MIN"
+                        [ $MAX -ne $FSIZE ] && error "max is incorrect: $MAX"
+                        [ $SUM -ne $((FSIZE * 2)) ] && error "sum is wrong: $SUM"
+                        ;;
+			write_bytes)
+                        [ $COUNT -ne 2 ] && error "count is not 4: $COUNT"
+                        [ $MIN -ne $FSIZE ] && error "min is non zero: $MIN"
+                        [ $MAX -ne $FSIZE ] && error "max is incorrect: $MAX"
+                        [ $SUM -ne $((FSIZE * 2)) ] && error "sum is wrong: $SUM"
+                        ;;
+                        *) ;;
+                esac
+
+		done < $TMP/${tfile}.tmp
+		rm -f $TMP/${tfile}.tmp
+
+        #check that we actually got some stats
+        [ "$read_bytes" ] || error "Missing read_bytes stats"
+        [ "$write_bytes" ] || error "Missing write_bytes stats"
+        [ "$read_bytes" != 0 ] || error "no read done"
+        [ "$write_bytes" != 0 ] || error "no write done"
+}
+run_test 127b "verify the llite client stats are sane"
+
 test_128() { # bug 15212
 	touch $DIR/$tfile
 	$LFS 2>&1 <<-EOF | tee $TMP/$tfile.log
