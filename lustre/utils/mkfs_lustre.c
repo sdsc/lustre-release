@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
@@ -515,28 +518,63 @@ static void disp_old_kernel_msg(char *feature)
                "feature.\n\n", feature);
 }
 
-static void enable_default_backfs_features(struct mkfs_opts *mop)
+/**
+ * append_unique: append @key or @key=@val pair to @buf only if @key does not
+ *                exists
+ *      @buf: buffer to hold @key or @key=@val
+ *      @prefix: prefix string before @key
+ *      @key: key string
+ *      @val: value string if it's a @key=@val pair
+ */
+static void append_unique(char *buf, char *prefix, char *key, char *val,
+                          size_t maxbuflen)
+{
+        char *anchor, *end;
+        int  len;
+
+        if (key == NULL)
+                return;
+
+        anchor = end = strstr(buf, key);
+        /* try to find exact match string in @buf */
+        while (end && *end != '\0' && *end != ',' && *end != ' ' && *end != '=')
+                ++end;
+        len = end - anchor;
+        if (anchor == NULL || strlen(key) != len ||
+            strncmp(anchor, key, len) != 0) {
+                if (prefix != NULL)
+                        strscat(buf, prefix, maxbuflen);
+
+                strscat(buf, key, maxbuflen);
+                if (val != NULL) {
+                        strscat(buf, "=", maxbuflen);
+                        strscat(buf, val, maxbuflen);
+                }
+        }
+}
+
+static void enable_default_backfs_features(struct mkfs_opts *mop, char *anchor,
+                                           size_t maxbuflen, int user_spec)
 {
         struct utsname uts;
         int maj_high, maj_low, min;
         int ret;
 
 	if (IS_OST(&mop->mo_ldd)) {
-        	strscat(mop->mo_mkfsopts, " -O dir_index,extents",
-			sizeof(mop->mo_mkfsopts));
+                append_unique(anchor, user_spec ? "," : " -O ",
+                              "dir_index", NULL, maxbuflen);
+                append_unique(anchor, ",", "extents", NULL, maxbuflen);
 	} else {
-        	strscat(mop->mo_mkfsopts, " -O dir_index",
-			sizeof(mop->mo_mkfsopts));
+                append_unique(anchor, user_spec ? "," : " -O ",
+                              "dir_index", NULL, maxbuflen);
 	}
 
         /* Upstream e2fsprogs called our uninit_groups feature uninit_bg,
          * check for both of them when testing e2fsprogs features. */
         if (is_e2fsprogs_feature_supp("uninit_groups") == 0)
-                strscat(mop->mo_mkfsopts, ",uninit_groups",
-                        sizeof(mop->mo_mkfsopts));
+                append_unique(anchor, ",", "uninit_groups", NULL, maxbuflen);
         else if (is_e2fsprogs_feature_supp("uninit_bg") == 0)
-                strscat(mop->mo_mkfsopts, ",uninit_bg",
-                        sizeof(mop->mo_mkfsopts));
+                append_unique(anchor, ",", "uninit_bg", NULL, maxbuflen);
         else
                 disp_old_e2fsprogs_msg("uninit_bg", 1);
 
@@ -553,23 +591,65 @@ static void enable_default_backfs_features(struct mkfs_opts *mop)
                 if (KERNEL_VERSION(maj_high, maj_low, min) >=
                     KERNEL_VERSION(2,6,9)) {
                         if (is_e2fsprogs_feature_supp("mmp") == 0)
-                                strscat(mop->mo_mkfsopts, ",mmp",
-                                        sizeof(mop->mo_mkfsopts));
+                                append_unique(anchor, ",", "mmp", NULL, maxbuflen);
                         else
                                 disp_old_e2fsprogs_msg("mmp", 1);
                 } else {
                         disp_old_kernel_msg("mmp");
                 }
         }
+        /* Don't add any more "-O" options here, see last comment above */
 }
+
+/**
+ * moveopts_to_end: find the option string, move remaining strings to
+ *                  where option string starts, and append the option
+ *                  string at the end
+ *      @start: where the option string starts before the move
+ *      RETURN: where the option string starts after the move
+ */
+static char *moveopts_to_end(char *start)
+{
+        char save[512];
+        char *end, *idx;
+
+        /* skip whitespace before options */
+        end = start + 2;
+        while (*end == ' ')
+                ++end;
+
+        /* find end of option characters */
+        while (*end != ' ' && *end != '\0')
+                ++end;
+
+        /* save options */
+        strncpy(save, start, end - start);
+        save[end - start] = '\0';
+
+        /* move remaining options up front */
+        if (*end)
+                memmove(start, end, strlen(end));
+        *(start + strlen(end)) = '\0';
+
+        /* append the specified options */
+        if (*(start + strlen(start) - 1) != ' ')
+                strcat(start, " ");
+        idx = start + strlen(start);
+        strcat(start, save);
+
+        return idx;
+}
+
 /* Build fs according to type */
 int make_lustre_backfs(struct mkfs_opts *mop)
 {
         __u64 device_sz = mop->mo_device_sz, block_count = 0;
         char mkfs_cmd[PATH_MAX];
         char buf[64];
+        char *start;
         char *dev;
-        int ret = 0;
+        int ret = 0, ext_opts = 0;
+        size_t maxbuflen;
 
         if (!(mop->mo_flags & MO_IS_LOOP)) {
                 mop->mo_device_sz = get_device_size(mop->mo_device);
@@ -672,8 +752,44 @@ int make_lustre_backfs(struct mkfs_opts *mop)
                                 sizeof(mop->mo_mkfsopts));
                 }
 
-                if (strstr(mop->mo_mkfsopts, "-O") == NULL)
-                        enable_default_backfs_features(mop);
+                /* start handle -O mkfs options */
+                if ((start = strstr(mop->mo_mkfsopts, "-O")) != NULL) {
+                        if (strstr(start + 2, "-O") != NULL) {
+                                fprintf(stderr,
+                                        "%s: don't specify multiple -O options\n",
+                                        progname);
+                                return EINVAL;
+                        }
+                        start = moveopts_to_end(start);
+                        maxbuflen = sizeof(mop->mo_mkfsopts) -
+                                    (start - mop->mo_mkfsopts) - strlen(start);
+                        enable_default_backfs_features(mop, start, maxbuflen, 1);
+                } else {
+                        start = mop->mo_mkfsopts + strlen(mop->mo_mkfsopts),
+                        maxbuflen = sizeof(mop->mo_mkfsopts) -
+                                    strlen(mop->mo_mkfsopts);
+                        enable_default_backfs_features(mop, start, maxbuflen, 0);
+                }
+                /* end handle -O mkfs options */
+
+                /* start handle -E mkfs options */
+                if ((start = strstr(mop->mo_mkfsopts, "-E")) != NULL) {
+                        if (strstr(start + 2, "-E") != NULL) {
+                                fprintf(stderr,
+                                        "%s: don't specify multiple -E options\n",
+                                        progname);
+                                return EINVAL;
+                        }
+                        start = moveopts_to_end(start);
+                        maxbuflen = sizeof(mop->mo_mkfsopts) -
+                                    (start - mop->mo_mkfsopts) - strlen(start);
+                        ext_opts = 1;
+                } else {
+                        start = mop->mo_mkfsopts + strlen(mop->mo_mkfsopts);
+                        maxbuflen = sizeof(mop->mo_mkfsopts) -
+                                    strlen(mop->mo_mkfsopts);
+                }
+                /* end handle -E mkfs options */
 
                 /* Allow reformat of full devices (as opposed to
                    partitions.)  We already checked for mounted dev. */

@@ -2370,6 +2370,31 @@ test_59() {
 }
 run_test 59 "writeconf mount option"
 
+test_60() { # LU-471
+	add mds $MDS_MKFS_OPTS --mkfsoptions='\" -E stride=64 \"' --reformat $MDSDEV
+
+	dump=$(do_facet mds dumpe2fs -h $MDSDEV)
+	rc=${PIPESTATUS[0]}
+	[ $rc -eq 0 ] || error "dumpe2fs $MDSDEV failed"
+
+	# MDT default has dir_index feature
+	echo $dump | grep dir_index > /dev/null || error "dir_index is not set"
+	# we set stride extended options
+	echo $dump | grep stride > /dev/null || error "stride is not set"
+
+	add mds $MDS_MKFS_OPTS --mkfsoptions='\" -E stride=64 -O ^dir_index\"' --reformat $MDSDEV
+	dump=$(do_facet mds dumpe2fs -h $MDSDEV)
+	rc=${PIPESTATUS[0]}
+	[ $rc -eq 0 ] || error "dumpe2fs $MDSDEV failed"
+
+	# we disabled dir_index feature
+	echo $dump | grep dir_index > /dev/null && error "dir_index is set"
+	# we set stride extended options
+	echo $dump | grep stride > /dev/null || error "stride is not set"
+	reformat
+}
+run_test 60 "check mkfs.lustre --mkfsoptions -E -O options setting"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
