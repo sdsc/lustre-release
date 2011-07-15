@@ -2198,6 +2198,8 @@ int ost_handle(struct ptlrpc_request *req)
                         GOTO(out, rc = -ENOSPC);
                 if (OBD_FAIL_CHECK(OBD_FAIL_OST_EROFS))
                         GOTO(out, rc = -EROFS);
+                if (req->rq_export->exp_connect_flags & OBD_CONNECT_JOBSTATS)
+                        oti->oti_jobid = lustre_msg_get_jobid(req->rq_reqmsg);
                 rc = ost_brw_write(req, oti);
                 LASSERT(current->journal_info == NULL);
                 /* ost_brw_write sends its own replies */
@@ -2215,6 +2217,8 @@ int ost_handle(struct ptlrpc_request *req)
                 }
                 if (OBD_FAIL_CHECK(OBD_FAIL_OST_BRW_NET))
                         RETURN(0);
+                if (req->rq_export->exp_connect_flags & OBD_CONNECT_JOBSTATS)
+                        oti->oti_jobid = lustre_msg_get_jobid(req->rq_reqmsg);
                 rc = ost_brw_read(req, oti);
                 LASSERT(current->journal_info == NULL);
                 /* ost_brw_read sends its own replies */

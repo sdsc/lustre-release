@@ -86,6 +86,57 @@ int at_extra = 30;
 cfs_atomic_t obd_dirty_pages;
 cfs_atomic_t obd_dirty_transit_pages;
 
+char obd_jobid_var[JOBSTATS_JOBID_VAR_MAX_LEN + 1] = JOBSTATS_DISABLE;
+
+#ifdef __KERNEL__
+/* Get jobid of current process by reading the environment variable
+ * stored in between the "env_start" & "env_end" of task struct.
+ *
+ * TODO:
+ * It's better to cache the jobid for later use if there is any
+ * efficient way, the cl_env code probably could be reused for this
+ * purpose.
+ *
+ * If some job scheduler doesn't store jobid in the "env_start/end",
+ * then an upcall could be issued here to get the jobid by utilizing
+ * the userspace tools/api. Then, the jobid must be cached.
+ * 
+ */
+int lustre_get_jobid(char *jobid)
+{
+        int jobid_len = JOBSTATS_JOBID_SIZE, ret;
+        ENTRY;
+
+        memset(jobid, 0, JOBSTATS_JOBID_SIZE);
+        /* Jobstats isn't enabled */
+        if (!memcmp(obd_jobid_var, JOBSTATS_DISABLE,
+                    strlen(JOBSTATS_DISABLE))) {
+                RETURN(0);
+        }
+
+        /* For testing in non-job environment. */
+        if (OBD_FAIL_CHECK(OBD_FAIL_FAKE_JOBID)) {
+                sprintf(jobid, "%u", cfs_curproc_pid());
+                RETURN(0);
+        }
+
+        ret = cfs_get_environ(obd_jobid_var, jobid, &jobid_len);
+        if (ret) {
+                CDEBUG(ret == -ENOENT ? D_OTHER : D_ERROR,
+                       "Get jobid for (%s) failed(%d).\n",
+                       obd_jobid_var, ret);
+        }
+        RETURN(ret);
+}
+#else
+int lustre_get_jobid(char *jobid)
+{
+        memset(jobid, 0, JOBSTATS_JOBID_SIZE);
+        return 0;
+}
+#endif
+EXPORT_SYMBOL(lustre_get_jobid);
+
 static inline void obd_data2conn(struct lustre_handle *conn,
                                  struct obd_ioctl_data *data)
 {
@@ -365,6 +416,7 @@ EXPORT_SYMBOL(at_extra);
 EXPORT_SYMBOL(at_early_margin);
 EXPORT_SYMBOL(at_history);
 EXPORT_SYMBOL(ptlrpc_put_connection_superhack);
+EXPORT_SYMBOL(obd_jobid_var);
 
 EXPORT_SYMBOL(proc_lustre_root);
 

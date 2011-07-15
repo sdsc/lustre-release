@@ -477,6 +477,8 @@ static struct lprocfs_vars lprocfs_filter_obd_vars[] = {
                           lprocfs_filter_wr_syncjournal, 0 },
         { "sync_on_lock_cancel", lprocfs_filter_rd_sync_lock_cancel,
                                  lprocfs_filter_wr_sync_lock_cancel, 0 },
+        { "job_cleanup_interval", lprocfs_rd_job_interval,
+                                  lprocfs_wr_job_interval, 0},
         { 0 }
 };
 
@@ -679,4 +681,14 @@ static ssize_t filter_per_nid_stats_seq_write(struct file *file,
 }
 
 LPROC_SEQ_FOPS(filter_per_nid_stats);
+
+void filter_stats_counter_init(struct lprocfs_stats *stats)
+{
+        LASSERT(stats && stats->ls_num == 2);
+        lprocfs_counter_init(stats, LPROC_FILTER_READ_BYTES,
+                             LPROCFS_CNTR_AVGMINMAX, "read", "bytes");
+        lprocfs_counter_init(stats, LPROC_FILTER_WRITE_BYTES,
+                             LPROCFS_CNTR_AVGMINMAX, "write", "bytes");
+}
+
 #endif /* LPROCFS */

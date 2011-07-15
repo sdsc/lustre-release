@@ -219,6 +219,7 @@ void filter_tally(struct obd_export *exp, struct page **pages, int nr_pages,
                   unsigned long *blocks, int blocks_per_page, int wr);
 int lproc_filter_attach_seqstat(struct obd_device *dev);
 void lprocfs_filter_init_vars(struct lprocfs_static_vars *lvars);
+void filter_stats_counter_init(struct lprocfs_stats *stats);
 #else
 static inline void filter_tally(struct obd_export *exp, struct page **pages,
                                 int nr_pages, unsigned long *blocks,
@@ -228,6 +229,7 @@ static void lprocfs_filter_init_vars(struct lprocfs_static_vars *lvars)
 {
         memset(lvars, 0, sizeof(*lvars));
 }
+static inline void filter_stats_counter_init(struct lprocfs_stats *stats) {}
 #endif
 
 /* Quota stuff */

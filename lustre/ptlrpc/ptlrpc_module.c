@@ -298,6 +298,7 @@ EXPORT_SYMBOL(lustre_msg_get_limit);
 EXPORT_SYMBOL(lustre_msg_set_slv);
 EXPORT_SYMBOL(lustre_msg_set_limit);
 EXPORT_SYMBOL(lustre_msg_get_conn_cnt);
+EXPORT_SYMBOL(lustre_msg_get_jobid);
 EXPORT_SYMBOL(lustre_msg_is_v1);
 EXPORT_SYMBOL(lustre_msg_get_magic);
 EXPORT_SYMBOL(lustre_msg_set_handle);
