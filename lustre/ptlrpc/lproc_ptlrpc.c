@@ -369,6 +369,65 @@ ptlrpc_lprocfs_wr_threads_max(struct file *file, const char *buffer,
         return count;
 }
 
+static int
+ptlrpc_lprocfs_rd_nrs(char *page, char **start, off_t off,
+                      int count, int *eof, void *data)
+{
+        struct ptlrpc_service *svc = data;
+        int    fifo = 0;
+        int    crr  = 0;
+        int    crr2 = 0;
+
+        /* XXX it's temporary workaround, FIXME */
+        ptlrpc_server_nrs_ctl(svc, PTLRPC_NRS_QUEUE_REG, PTLRPC_NRS_FIFO,
+                              PTLRPC_NRS_CTL_GET_STATE, &fifo);
+        ptlrpc_server_nrs_ctl(svc, PTLRPC_NRS_QUEUE_REG, PTLRPC_NRS_CRR,
+                              PTLRPC_NRS_CTL_GET_STATE, &crr);
+        ptlrpc_server_nrs_ctl(svc, PTLRPC_NRS_QUEUE_REG, PTLRPC_NRS_CRR2,
+                              PTLRPC_NRS_CTL_GET_STATE, &crr2);
+
+        return snprintf(page, count, "fifo %d crr %d crr2 %d\n",
+                        fifo, crr, crr2);
+}
+
+static int
+ptlrpc_lprocfs_wr_nrs(struct file *file, const char *buffer,
+                      unsigned long count, void *data)
+{
+        struct ptlrpc_service *svc = data;
+        int    type;
+        int    val;
+
+        /* XXX it's temporary workaround, FIXME */
+        lprocfs_write_helper(buffer, count, &val);
+
+        /* XXX these operation codes are just temporary workaround, FIXME */
+        switch (val) {
+        default:
+                return -EINVAL;
+        case 10:
+                type = PTLRPC_NRS_CRR;
+                val = 0;
+                break;
+        case 11:
+                type = PTLRPC_NRS_CRR;
+                val = 1;
+                break;
+        case 20:
+                type = PTLRPC_NRS_CRR2;
+                val = 0;
+                break;
+        case 21:
+                type = PTLRPC_NRS_CRR2;
+                val = 1;
+                break;
+        }
+
+        ptlrpc_server_nrs_ctl(svc, PTLRPC_NRS_QUEUE_BOTH, type,
+                              PTLRPC_NRS_CTL_SET_STATE, &val);
+        return count;
+}
+
 struct ptlrpc_srh_iterator {
         __u64                  srhi_seq;
         struct ptlrpc_request *srhi_req;
@@ -645,6 +704,10 @@ void ptlrpc_lprocfs_register_service(struct proc_dir_entry *entry,
                  .data       = svc},
                 {.name       = "timeouts",
                  .read_fptr  = ptlrpc_lprocfs_rd_timeouts,
+                 .data       = svc},
+                {.name       = "nrs_polices",
+                 .read_fptr  = ptlrpc_lprocfs_rd_nrs,
+                 .write_fptr = ptlrpc_lprocfs_wr_nrs,
                  .data       = svc},
                 {NULL}
         };

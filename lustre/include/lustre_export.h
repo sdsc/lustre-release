@@ -242,6 +242,8 @@ struct obd_export {
                                    * but couldn't because of active rpcs */
                                   exp_abort_active_req:1;
         cfs_list_t                exp_queued_rpc;  /* RPC to be handled */
+        nrs_crr_obj_t             exp_nrs_obj;
+        nrs_crr_obj_t             exp_nrs_obj_hp;
         /* also protected by exp_lock */
         enum lustre_sec_part      exp_sp_peer;
         struct sptlrpc_flavor     exp_flvr;             /* current */

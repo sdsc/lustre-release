@@ -79,6 +79,34 @@ void ptlrpc_lprocfs_do_request_stat (struct ptlrpc_request *req,
 #define ptlrpc_lprocfs_do_request_stat(params...) do{}while(0)
 #endif /* LPROCFS */
 
+/* NRS */
+static inline ptlrpc_nrs_head_t *
+nrs_policy_head(struct ptlrpc_service *svc, int hp)
+{
+        return hp ? &svc->srv_hpreq_nrs : &svc->srv_req_nrs;
+}
+
+void nrs_objects_get_safe(ptlrpc_nrs_head_t *nrs_hd,
+                          ptlrpc_nrs_request_t *nrq,
+                          ptlrpc_nrs_object_t **objs);
+void nrs_objects_put_safe(ptlrpc_nrs_object_t **objs);
+void nrs_request_init(ptlrpc_nrs_head_t *nrs_hd, ptlrpc_nrs_request_t *nrq);
+void nrs_request_fini(ptlrpc_nrs_request_t *nrq);
+
+ptlrpc_nrs_policy_t *nrs_request_add(ptlrpc_nrs_request_t *nrq);
+ptlrpc_nrs_policy_t *nrs_request_del(ptlrpc_nrs_request_t *nrq);
+ptlrpc_nrs_request_t *nrs_request_poll(ptlrpc_nrs_policy_t *policy, void *arg);
+
+void ptlrpc_server_req_add_nolock(struct ptlrpc_service *svc,
+                                  struct ptlrpc_request *req);
+int  ptlrpc_server_req_pending_nolock(struct ptlrpc_service *svc, int hp);
+struct ptlrpc_request *ptlrpc_server_req_poll_nolock(struct ptlrpc_service *svc,
+                                                     int hp);
+void ptlrpc_server_req_del_nolock(struct ptlrpc_service *svc,
+                                  struct ptlrpc_request *req);
+void ptlrpc_server_nrs_setup(struct ptlrpc_service *svc);
+void ptlrpc_server_nrs_cleanup(struct ptlrpc_service *svc);
+
 /* recovd_thread.c */
 
 int ptlrpc_expire_one_request(struct ptlrpc_request *req, int async_unlink);

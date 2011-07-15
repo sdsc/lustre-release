@@ -265,6 +265,7 @@ do {                                                                           \
 # else
 #  define LIBCFS_ALLOC(ptr, size) do { (ptr) = calloc(1,size); } while (0)
 # endif
+# define LIBCFS_ALLOC_ATOMIC(ptr, size) LIBCFS_ALLOC(ptr, size)
 # define LIBCFS_FREE(a, b) do { free(a); } while (0)
 
 void libcfs_debug_dumplog(void);
