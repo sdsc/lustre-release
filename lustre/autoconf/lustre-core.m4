@@ -853,6 +853,51 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
+#
+# LC_EXT4_DISCARD_PREALLOCATIONS
+#
+AC_DEFUN([LC_EXT4_DISCARD_PREALLOCATIONS],
+[AC_MSG_CHECKING([if ext4_discard_preallocatoins defined])
+tmp_flags="$EXTRA_KCFLAGS"
+EXTRA_KCFLAGS="-I$LINUX/fs"
+LB_LINUX_TRY_COMPILE([
+        #include <ext4/ext4.h>
+],[
+        struct inode i;
+        ext4_discard_preallocations(&i);
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(LDISKFS_DISCARD_PREALLOCATIONS, 1,
+                  [ext4_discard_preacllocations defined])
+],[
+        AC_MSG_RESULT(no)
+])
+EXTRA_KCFLAGS="$tmp_flags"
+])
+
+#
+# LC_EXT_INSERT_EXTENT_WITH_5ARGS
+#
+AC_DEFUN([LC_EXT_INSERT_EXTENT_WITH_5ARGS],
+[AC_MSG_CHECKING([ext4_ext_insert_extent needs 5 arguments])
+tmp_flags="$EXTRA_KCFLAGS"
+EXTRA_KCFLAGS="-I$LINUX/fs"
+LB_LINUX_TRY_COMPILE([
+        #include <ext4/ext4_extents.h>
+],[
+        ext4_ext_insert_extent(NULL, NULL, NULL, NULL, 0);
+],[
+        AC_DEFINE([EXT_INSERT_EXTENT_WITH_5ARGS], 1,
+                  [ext4_ext_insert_exent needs 5 arguments])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+EXTRA_KCFLAGS="$tmp_flags"
+])
+
+#2.6.18 + RHEL5 (fc6)
+
 # RHEL5 in FS-cache patch rename PG_checked flag into PG_fs_misc
 AC_DEFUN([LC_PG_FS_MISC],
 [AC_MSG_CHECKING([kernel has PG_fs_misc])
@@ -1794,24 +1839,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-# LC_WALK_SPACE_HAS_DATA_SEM
-#
-# 2.6.33 ext4_ext_walk_space() takes i_data_sem internally.
-# Not a very robust check, but it will hopefully last long
-# enough until it can avoid being conditional.
-#
-AC_DEFUN([LC_WALK_SPACE_HAS_DATA_SEM],
-[AC_MSG_CHECKING([if ext4_ext_walk_space() takes i_data_sem])
-WALK_SPACE_DATA_SEM="$(awk '/ext4_ext_walk_space/,/ext4_ext_find_extent/' $LINUX/fs/ext4/extents.c | grep -c 'down_read.*i_data_sem')"
-if test "$WALK_SPACE_DATA_SEM" != 0 ; then
-        AC_DEFINE(WALK_SPACE_HAS_DATA_SEM, 1,
-                  [ext4_ext_walk_space takes i_data_sem])
-        AC_MSG_RESULT([yes])
-else
-        AC_MSG_RESULT([no])
-fi
-])
-
 # 2.6.32 without DQUOT_INIT defined.
 AC_DEFUN([LC_DQUOT_INIT],
 [AC_MSG_CHECKING([if DQUOT_INIT is defined])
@@ -1879,6 +1906,49 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
+#
+# LC_EXT4_SINGLEDATA_TRANS_BLOCKS_SB
+#
+AC_DEFUN([LC_EXT4_SINGLEDATA_TRANS_BLOCKS_SB],
+[AC_MSG_CHECKING([if EXT4_SINGLEDATA_TRANS_BLOCKS takes the sb as argument])
+tmp_flags="$EXTRA_KCFLAGS"
+EXTRA_KCFLAGS="-I$LINUX/fs"
+LB_LINUX_TRY_COMPILE([
+        #include <ext4/ext4.h>
+        #include <ext4/ext4_jbd2.h>
+],[
+        struct super_block sb;
+        EXT4_SINGLEDATA_TRANS_BLOCKS(&sb);
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(LDISKFS_SINGLEDATA_TRANS_BLOCKS_HAS_SB, 1,
+                  [EXT4_SINGLEDATA_TRANS_BLOCKS takes sb as argument])
+],[
+        AC_MSG_RESULT(no)
+])
+EXTRA_KCFLAGS="$tmp_flags"
+])
+
+#
+# LC_WALK_SPACE_HAS_DATA_SEM
+#
+# 2.6.32 ext4_ext_walk_space() takes i_data_sem internally.
+#
+AC_DEFUN([LC_WALK_SPACE_HAS_DATA_SEM],
+[AC_MSG_CHECKING([if ext4_ext_walk_space() takes i_data_sem])
+WALK_SPACE_DATA_SEM="$(awk 'BEGIN { in_walk_space = 0 }                                 \
+                            /^int ext4_ext_walk_space\(/ { in_walk_space = 1 }          \
+                            /^}/ { if (in_walk_space) in_walk_space = 0 }               \
+                            /i_data_sem/ { if (in_walk_space) { print("yes"); exit } }' \
+                       $LINUX/fs/ext4/extents.c)"
+if test x"$WALK_SPACE_DATA_SEM" == xyes ; then
+       AC_DEFINE(WALK_SPACE_HAS_DATA_SEM, 1,
+                 [ext4_ext_walk_space takes i_data_sem])
+       AC_MSG_RESULT([yes])
+else
+       AC_MSG_RESULT([no])
+fi
+])
 
 #
 # LC_PROG_LINUX
@@ -1962,6 +2032,8 @@ AC_DEFUN([LC_PROG_LINUX],
           if test x$enable_server = xyes ; then
                 LC_EXPORT_INVALIDATE_MAPPING_PAGES
           fi
+         LC_EXT4_DISCARD_PREALLOCATIONS
+         LC_EXT_INSERT_EXTENT_WITH_5ARGS
 
           #2.6.18 + RHEL5 (fc6)
           LC_PG_FS_MISC
@@ -2046,6 +2118,8 @@ AC_DEFUN([LC_PROG_LINUX],
           LC_REQUEST_QUEUE_LIMITS
           LC_BLK_QUEUE_MAX_SECTORS
           LC_BLK_QUEUE_MAX_SEGMENTS
+         LC_EXT4_SINGLEDATA_TRANS_BLOCKS_SB
+         LC_WALK_SPACE_HAS_DATA_SEM
 
           #
           if test x$enable_server = xyes ; then

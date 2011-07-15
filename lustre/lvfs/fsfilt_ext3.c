@@ -58,20 +58,24 @@
 #include <linux/bitops.h>
 #include <linux/quota.h>
 #ifdef HAVE_QUOTAIO_V1_H
-# include <linux/quotaio_v1.h>
 # include <linux/quotaio_v2.h>
 #elif defined(HAVE_FS_QUOTA_QUOTAIO_V1_H)
-# include <quota/quotaio_v1.h>
 # include <quota/quotaio_v2.h>
 # include <quota/quota_tree.h>
 # define V2_DQTREEOFF    QT_TREEOFF
 #else
-# include <quotaio_v1.h>
 # include <quotaio_v2.h>
 # include <quota_tree.h>
 # define V2_DQTREEOFF    QT_TREEOFF
+# define V2_INITQVERSIONS_R1 V2_INITQVERSIONS
 #endif
-#include <linux/parser.h>
+
+#ifdef QFMT_VFS_V1
+#define QFMT_LUSTRE QFMT_VFS_V1
+#else
+#define QFMT_LUSTRE QFMT_VFS_V0
+#endif
+
 #if defined(HAVE_EXT3_XATTR_H)
 #include <ext3/xattr.h>
 #else
@@ -116,6 +120,11 @@ extern int ext3_xattr_set_handle(handle_t *, struct inode *, int, const char *, 
 #else
 #define fsfilt_ext3_ext_insert_extent(handle, inode, path, newext, flag) \
                ext3_ext_insert_extent(handle, inode, path, newext)
+#endif
+
+#ifdef EXT3_DISCARD_PREALLOCATIONS
+#define ext3_mb_discard_inode_preallocations(inode) \
+                 ext3_discard_preallocations(inode)
 #endif
 
 
@@ -866,19 +875,13 @@ static int fsfilt_ext3_sync(struct super_block *sb)
 #define ext3_ext_base                   inode
 #define ext3_ext_base2inode(inode)      (inode)
 #define EXT_DEPTH(inode)                ext_depth(inode)
-# if defined(HAVE_EXT4_LDISKFS) && defined(WALK_SPACE_HAS_DATA_SEM)
-/* for kernels 2.6.18-238 and later */
-#  define fsfilt_ext3_ext_walk_space(inode, block, num, cb, cbdata, locked) \
-                        ext3_ext_walk_space(inode, block, num, cb, cbdata, locked);
-# else
-#  define fsfilt_ext3_ext_walk_space(inode, block, num, cb, cbdata, locked) \
-                        ext3_ext_walk_space(inode, block, num, cb, cbdata);
-# endif
+#define fsfilt_ext3_ext_walk_space(inode, block, num, cb, cbdata, locked) \
+                        ext3_ext_walk_space(inode, block, num, cb, cbdata)
 #else
 #define ext3_ext_base                   ext3_extents_tree
 #define ext3_ext_base2inode(tree)       (tree->inode)
 #define fsfilt_ext3_ext_walk_space(tree, block, num, cb, cbdata, locked) \
-                        ext3_ext_walk_space(tree, block, num, cb);
+                        ext3_ext_walk_space(tree, block, num, cb)
 #endif
 
 #ifdef EXT_INSERT_EXTENT_WITH_5ARGS
@@ -1818,48 +1821,6 @@ static int add_inode_quota(struct inode *inode, struct qchk_ctxt *qctxt,
         return rc;
 }
 
-static int v2_write_dqheader(struct file *f, int type)
-{
-        static const __u32 quota_magics[] = V2_INITQMAGICS;
-        static const __u32 quota_versions[] = LUSTRE_INITQVERSIONS_V1;
-        struct v2_disk_dqheader dqhead;
-        loff_t offset = 0;
-
-        CLASSERT(ARRAY_SIZE(quota_magics) == ARRAY_SIZE(quota_versions));
-        LASSERT(0 <= type && type < ARRAY_SIZE(quota_magics));
-
-        dqhead.dqh_magic = cpu_to_le32(quota_magics[type]);
-        dqhead.dqh_version = cpu_to_le32(quota_versions[type]);
-
-        return cfs_user_write(f, (char *)&dqhead, sizeof(dqhead), &offset);
-}
-
-/* write dqinfo struct in a new quota file */
-static int v2_write_dqinfo(struct file *f, int type, struct if_dqinfo *info)
-{
-        struct v2_disk_dqinfo dqinfo;
-        __u32 blocks = V2_DQTREEOFF + 1;
-        loff_t offset = V2_DQINFOOFF;
-
-        if (info) {
-                dqinfo.dqi_bgrace = cpu_to_le32(info->dqi_bgrace);
-                dqinfo.dqi_igrace = cpu_to_le32(info->dqi_igrace);
-                dqinfo.dqi_flags = cpu_to_le32(info->dqi_flags & DQF_MASK &
-                                               ~DQF_INFO_DIRTY);
-        } else {
-                dqinfo.dqi_bgrace = cpu_to_le32(MAX_DQ_TIME);
-                dqinfo.dqi_igrace = cpu_to_le32(MAX_IQ_TIME);
-                dqinfo.dqi_flags = 0;
-        }
-
-        dqinfo.dqi_blocks = cpu_to_le32(blocks);
-        dqinfo.dqi_free_blk = 0;
-        dqinfo.dqi_free_entry = 0;
-
-        return cfs_user_write(f, (char *)&dqinfo, sizeof(dqinfo), &offset);
-}
-
-#ifdef HAVE_QUOTA64
 static int v3_write_dqheader(struct file *f, int type)
 {
         static const __u32 quota_magics[] = V2_INITQMAGICS;
@@ -1881,7 +1842,6 @@ static int v3_write_dqinfo(struct file *f, int type, struct if_dqinfo *info)
 {
         return v2_write_dqinfo(f, type, info);
 }
-#endif
 
 static int create_new_quota_files(struct qchk_ctxt *qctxt,
                                   struct obd_quotactl *oqc)
@@ -1917,26 +1877,13 @@ static int create_new_quota_files(struct qchk_ctxt *qctxt,
 
                 ll_vfs_dq_drop(file->f_dentry->d_inode);
 
-                switch (oqc->qc_id) {
-                case LUSTRE_QUOTA_V1 : write_dqheader = v2_write_dqheader;
-                                       write_dqinfo   = v2_write_dqinfo;
-                                       break;
-#ifdef HAVE_QUOTA64
-                case LUSTRE_QUOTA_V2 : write_dqheader = v3_write_dqheader;
-                                       write_dqinfo   = v3_write_dqinfo;
-                                       break;
-#endif
-                default              : CERROR("unknown quota format!\n");
-                                       LBUG();
-                }
-
-                rc = (*write_dqheader)(file, i);
+                rc = v3_write_dqheader(file, i);
                 if (rc) {
                         filp_close(file, 0);
                         GOTO(out, rc);
                 }
 
-                rc = (*write_dqinfo)(file, i, info);
+                rc = v3_write_dqinfo(file, i, info);
                 filp_close(file, 0);
                 if (rc)
                         GOTO(out, rc);
