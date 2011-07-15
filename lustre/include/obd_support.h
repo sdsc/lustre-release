@@ -76,6 +76,7 @@ extern unsigned int obd_max_dirty_pages;
 extern cfs_atomic_t obd_dirty_pages;
 extern cfs_atomic_t obd_dirty_transit_pages;
 extern unsigned int obd_alloc_fail_rate;
+extern char obd_jobid_var[];
 
 /* lvfs.c */
 int obd_alloc_fail(const void *ptr, const char *name, const char *type,
@@ -105,6 +106,9 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 #define HASH_EXP_LOCK_MAX_BITS  16
 #define HASH_CL_ENV_BKT_BITS    5
 #define HASH_CL_ENV_BITS        10
+#define HASH_JOB_STATS_BKT_BITS 5
+#define HASH_JOB_STATS_CUR_BITS 7
+#define HASH_JOB_STATS_MAX_BITS 12
 
 /* Timeout definitions */
 #define OBD_TIMEOUT_DEFAULT             100
@@ -414,6 +418,7 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 #define OBD_FAIL_LLOG_CATINFO_NET                   0x1309
 #define OBD_FAIL_MDS_SYNC_CAPA_SL                   0x1310
 #define OBD_FAIL_SEQ_ALLOC                          0x1311
+#define OBD_FAIL_FAKE_JOBID                         0x1312
 
 /* Assign references to moved code to reduce code changes */
 #define OBD_FAIL_PRECHECK(id)                   CFS_FAIL_PRECHECK(id)

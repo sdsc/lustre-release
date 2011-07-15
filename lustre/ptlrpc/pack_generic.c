@@ -610,7 +610,7 @@ static inline int lustre_unpack_ptlrpc_body_v2(struct ptlrpc_request *req,
         struct ptlrpc_body *pb;
         struct lustre_msg_v2 *m = inout ? req->rq_reqmsg : req->rq_repmsg;
 
-        pb = lustre_msg_buf_v2(m, offset, sizeof(*pb));
+        pb = lustre_msg_buf_v2(m, offset, sizeof(struct ptlrpc_body_v2));
         if (!pb) {
                 CERROR("error unpacking ptlrpc body\n");
                 return -EFAULT;
@@ -784,7 +784,7 @@ static inline void *__lustre_swab_buf(struct lustre_msg *msg, int index,
 static inline struct ptlrpc_body *lustre_msg_ptlrpc_body(struct lustre_msg *msg)
 {
         return lustre_msg_buf_v2(msg, MSG_PTLRPC_BODY_OFF,
-                                 sizeof(struct ptlrpc_body));
+                                 sizeof(struct ptlrpc_body_v2));
 }
 
 __u32 lustre_msghdr_get_flags(struct lustre_msg *msg)
@@ -1244,6 +1244,27 @@ __u32 lustre_msg_get_service_time(struct lustre_msg *msg)
         }
 }
 
+char *lustre_msg_get_jobid(struct lustre_msg *msg)
+{
+        switch (msg->lm_magic) {
+        case LUSTRE_MSG_MAGIC_V1:
+        case LUSTRE_MSG_MAGIC_V1_SWABBED:
+                return NULL;
+        case LUSTRE_MSG_MAGIC_V2: {
+                struct ptlrpc_body *pb = lustre_msg_ptlrpc_body(msg);
+                if (!pb) {
+                        CERROR("invalid msg %p: no ptlrpc body!\n", msg);
+                        return NULL;
+
+                }
+                return pb->pb_jobid;
+        }
+        default:
+                CERROR("incorrect message magic: %08x\n", msg->lm_magic);
+                return NULL;
+        }
+}
+
 __u32 lustre_msg_get_cksum(struct lustre_msg *msg)
 {
         switch (msg->lm_magic) {
@@ -1453,6 +1474,24 @@ void lustre_msg_set_service_time(struct lustre_msg *msg, __u32 service_time)
         }
 }
 
+void lustre_msg_set_jobid(struct lustre_msg *msg, char *jobid)
+{
+        switch (msg->lm_magic) {
+        case LUSTRE_MSG_MAGIC_V1:
+                return;
+        case LUSTRE_MSG_MAGIC_V2: {
+                struct ptlrpc_body *pb = lustre_msg_ptlrpc_body(msg);
+                LASSERTF(pb, "invalid msg %p: no ptlrpc body!\n", msg);
+                LASSERT(strlen(jobid) < JOBSTATS_JOBID_SIZE);
+                strncpy(pb->pb_jobid, jobid, strlen(jobid));
+                return;
+        }
+        default:
+                LASSERTF(0, "incorrect message magic: %08x\n", msg->lm_magic);
+        }
+}
+EXPORT_SYMBOL(lustre_msg_set_jobid);
+
 void lustre_msg_set_cksum(struct lustre_msg *msg, __u32 cksum)
 {
         switch (msg->lm_magic) {
@@ -1558,6 +1597,7 @@ void lustre_swab_ptlrpc_body(struct ptlrpc_body *b)
         __swab64s (&b->pb_pre_versions[2]);
         __swab64s (&b->pb_pre_versions[3]);
         CLASSERT(offsetof(typeof(*b), pb_padding) != 0);
+        CLASSERT(offsetof(typeof(*b), pb_jobid) != 0);
 }
 
 void lustre_swab_connect(struct obd_connect_data *ocd)

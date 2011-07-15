@@ -215,6 +215,122 @@ int cfs_curproc_is_32bit(void)
 #endif
 }
 
+/* Read the environment variable of current process specified by @key. */
+int cfs_get_environ(const char *key, char *value, int *val_len)
+{
+        struct mm_struct *mm;
+        char *buffer, *tmp_buf = NULL;
+        int buf_len = CFS_PAGE_SIZE;
+        unsigned long off = 0;
+        int ret = 0, buf_off = 0;
+        ENTRY;
+
+        buffer = (char *)cfs_alloc(buf_len, CFS_ALLOC_USER);
+        if (!buffer)
+                RETURN(-ENOMEM);
+
+        mm = get_task_mm(current);
+        if (!mm) {
+                cfs_free((void *)buffer);
+                RETURN(-EINVAL);
+        }
+
+        while (ret == 0) {
+                int this_len, retval, scan_len;
+                char *env_start, *env_end;
+
+                memset(buffer, 0, buf_len);
+                this_len = mm->env_end - (mm->env_start + off);
+                if (this_len <= 0) {
+                        ret = -ENOENT;
+                        break;
+                }
+
+                this_len = (this_len > buf_len) ? buf_len : this_len;
+                retval = access_process_vm(current, (mm->env_start + off),
+                                           buffer, this_len, 0);
+                if (retval <= 0) {
+                        ret = retval;
+                        break;
+                }
+
+                /* Parse the buffer to find out the specified key/value pair.
+                 * The "key=value" entries are separated by '\0'. */
+                env_start = buffer;
+                scan_len = this_len;
+                while (scan_len) {
+                        char *entry;
+                        int entry_len;
+
+                        env_end = (char *)memscan(env_start, '\0', scan_len);
+                        LASSERT(env_end >= env_start &&
+                                env_end <= env_start + scan_len);
+
+                        /* The last entry of this buffer cross the buffer
+                         * boundary, copy it to a temporary buffer. */
+                        if (unlikely(env_end - env_start == scan_len)) {
+                                if (unlikely(buf_off)) {
+                                        CERROR("Too long env variable.\n");
+                                        ret = -EINVAL;
+                                        break;
+                                }
+                                if (!tmp_buf)
+                                        tmp_buf = (char *)cfs_alloc(buf_len,
+                                                              CFS_ALLOC_USER);
+                                if (!tmp_buf) {
+                                        ret = -ENOMEM;
+                                        break;
+                                }
+                                memset(tmp_buf, 0, buf_len);
+                                memcpy(tmp_buf, env_start, scan_len);
+                                buf_off = scan_len;
+                                break;
+                        }
+
+                        if (unlikely(buf_off)) {
+                                /* Combine with the incomplete entry in the
+                                 * temporary buffer.*/
+                                memcpy(tmp_buf + buf_off, env_start,
+                                       env_end - env_start);
+                                entry = tmp_buf;
+                                entry_len = buf_off + env_end - env_start;
+                                buf_off = 0;
+                        } else {
+                                entry = env_start;
+                                entry_len = env_end - env_start;
+                        }
+
+                        /* Key length + length of '=' */
+                        if (entry_len > strlen(key) + 1 &&
+                            !memcmp(entry, key, strlen(key))) {
+                                entry += (strlen(key) + 1);
+                                entry_len -= (strlen(key) + 1);
+                                /* The 'value' buffer passed in is too small.*/
+                                if (entry_len >= *val_len) {
+                                        CERROR("Buffer is too small. "
+                                               "entry_len=%d buffer_len=%d\n",
+                                               entry_len, *val_len);
+                                        ret = -EOVERFLOW;
+                                        break;
+                                }
+                                memcpy(value, entry, entry_len);
+                                *val_len = entry_len;
+                                goto out;
+                        }
+
+                        scan_len -= (env_end - env_start + 1);
+                        env_start = env_end + 1;
+                }
+                off += retval;
+        }
+out:
+        mmput(mm);
+        cfs_free((void *)buffer);
+        if (tmp_buf)
+                cfs_free((void *)tmp_buf);
+        RETURN(ret);
+}
+
 EXPORT_SYMBOL(cfs_curproc_uid);
 EXPORT_SYMBOL(cfs_curproc_pid);
 EXPORT_SYMBOL(cfs_curproc_euid);
@@ -234,6 +350,7 @@ EXPORT_SYMBOL(cfs_curproc_cap_pack);
 EXPORT_SYMBOL(cfs_curproc_cap_unpack);
 EXPORT_SYMBOL(cfs_capable);
 EXPORT_SYMBOL(cfs_curproc_is_32bit);
+EXPORT_SYMBOL(cfs_get_environ);
 
 /*
  * Local variables:
