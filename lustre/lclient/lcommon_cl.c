@@ -1011,6 +1011,9 @@ void ccc_req_attr_set(const struct lu_env *env,
                         oa->o_flags |= OBD_FL_MMAP;
                 }
         }
+
+        strncpy(attr->cra_jobid, cl_i2info(inode)->lli_jobid,
+                strlen(cl_i2info(inode)->lli_jobid));
 #endif
 }
 

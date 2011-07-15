@@ -977,11 +977,16 @@ int ptlrpc_set_add_cb(struct ptlrpc_request_set *set,
 void ptlrpc_set_add_req(struct ptlrpc_request_set *set,
                         struct ptlrpc_request *req)
 {
+        char jobid[JOBSTATS_JOBID_SIZE];
+
         /* The set takes over the caller's request reference */
         cfs_list_add_tail(&req->rq_set_chain, &set->set_requests);
         req->rq_set = set;
         cfs_atomic_inc(&set->set_remaining);
         req->rq_queued_time = cfs_time_current(); /* Where is the best place to set this? */
+
+        lustre_get_jobid(jobid);
+        lustre_msg_set_jobid(req->rq_reqmsg, jobid);
 }
 
 /**
@@ -2470,6 +2475,7 @@ void ptlrpc_retain_replayable_request(struct ptlrpc_request *req,
 int ptlrpc_queue_wait(struct ptlrpc_request *req)
 {
         struct ptlrpc_request_set *set;
+        char jobid[JOBSTATS_JOBID_SIZE];
         int rc;
         ENTRY;
 
@@ -2484,6 +2490,9 @@ int ptlrpc_queue_wait(struct ptlrpc_request *req)
 
         /* for distributed debugging */
         lustre_msg_set_status(req->rq_reqmsg, cfs_curproc_pid());
+
+        lustre_get_jobid(jobid);
+        lustre_msg_set_jobid(req->rq_reqmsg, jobid);
 
         /* add a ref for the set (see comment in ptlrpc_set_add_req) */
         ptlrpc_request_addref(req);

@@ -8281,6 +8281,24 @@ test_220() { #LU-325
 }
 run_test 220 "the preallocated objects in MDS still can be used if ENOSPC is returned by OST with enough disk space"
 
+test_221() { # Job stats
+        if [ -z $SLURM_JOB_ID ] ; then
+                echo "SLURM isn't running, using fake JobID"
+                $LCTL conf_param $FSNAME.llite.jobid_var=FAKE_JOBID
+                wait_update $HOSTNAME "$LCTL get_param -n llite.*.jobid_var" FAKE_JOBID || return 1
+                FAKE_JOBID=test_id dd if=/dev/zero of=/mnt/lustre/$tfile bs=1M count=1 oflag=sync
+                JOBID=test_id
+        else
+                echo "SLRUM is running, SLURM_JOB_ID=$SLURM_JOB_ID"
+                dd if=/dev/zero of=/mnt/lustre/$tfile bs=1M count=1 oflag=sync
+                JOBID=$SLURM_JOB_ID
+        fi
+
+        cat /proc/fs/lustre/mdt/*/job_stats | grep $JOBID || error "No job stats found on mdt"
+        cat /proc/fs/lustre/obdfilter/*/job_stats | grep $JOBID || error "No job stats found on filter"
+}
+run_test 221 "Verify job stats"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
