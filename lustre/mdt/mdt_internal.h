@@ -71,6 +71,7 @@
 #include <lustre_idmap.h>
 #include <lustre_eacl.h>
 #include <lustre_fsfilt.h>
+#include <obd_lov.h>
 
 /* check if request's xid is equal to last one or not*/
 static inline int req_xid_is_last(struct ptlrpc_request *req)
@@ -882,5 +883,43 @@ static inline struct obd_device *mdt2obd_dev(const struct mdt_device *mdt)
 {
         return mdt->mdt_md_dev.md_lu_dev.ld_obd;
 }
+
+/* wide striping compat code */
+/* 362 + old max stripes (160) * 56 */
+#define MDS_OLD_REPSIZE 9322
+/* This is how much space we would have left in request for other buffers
+ *  * should there actually be 160 stripes in old-style small RPC */
+#define MDS_REP_RSVD 256
+static inline void mdt_update_pill_mdsize(const struct mdt_device *mdt,
+                                          struct req_capsule *pill)
+{
+        __u32 size = mdt->mdt_max_mdsize;
+
+        if (ptlrpc_req_get_repsize(pill->rc_req) <= MDS_OLD_REPSIZE)
+                size = min(lov_mds_md_size(LOV_MAX_STRIPE_COUNT_OLD,
+                                           LOV_MAGIC_V3) - MDS_REP_RSVD,
+                           size);
+
+        req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER, size);
+}
+
+
+static inline void mdt_update_pill_cookiesize(const struct mdt_device *mdt,
+                                              struct req_capsule *pill)
+{
+        __u32 size = mdt->mdt_max_cookiesize;
+
+        if (ptlrpc_req_get_repsize(pill->rc_req) <= MDS_OLD_REPSIZE)
+                /* Kludge. Since there is no lov_mds_md_size equivalent for
+                 * cookies and here is the only need so far, we will just
+                 * replicate the calculation inline. */
+                size =min_t(__u32,
+                            LOV_MAX_STRIPE_COUNT_OLD*sizeof(struct llog_cookie),
+                            size);
+
+        req_capsule_set_size(pill, &RMF_LOGCOOKIES, RCL_SERVER, size);
+}
+
+
 #endif /* __KERNEL__ */
 #endif /* _MDT_H */

@@ -1134,7 +1134,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                 OBD_CONNECT_RMT_CLIENT_FORCE | OBD_CONNECT_VBR | \
                                 OBD_CONNECT_MDS | OBD_CONNECT_SKIP_ORPHAN | \
                                 OBD_CONNECT_GRANT_SHRINK | OBD_CONNECT_FULL20 | \
-                                OBD_CONNECT_64BITHASH)
+                                OBD_CONNECT_64BITHASH | OBD_CONNECT_MAX_EASIZE)
 #define ECHO_CONNECT_SUPPORTED (0)
 #define MGS_CONNECT_SUPPORTED  (OBD_CONNECT_VERSION | OBD_CONNECT_AT | \
                                 OBD_CONNECT_FULL20)
@@ -1162,7 +1162,8 @@ struct obd_connect_data {
         __u64 ocd_transno;       /* first transno from client to be replayed */
         __u32 ocd_group;         /* MDS group on OST */
         __u32 ocd_cksum_types;   /* supported checksum algorithms */
-        __u64 padding1;          /* also fix lustre_swab_connect */
+        __u32 ocd_max_easize;    /* How big LOV EA can be on MDS */
+        __u32 padding1;          /* also fix lustre_swab_connect */
         __u64 padding2;          /* also fix lustre_swab_connect */
 };
 
@@ -2149,7 +2150,17 @@ enum seq_op {
 
 #define LOV_MIN_STRIPE_BITS 16   /* maximum PAGE_SIZE (ia64), power of 2 */
 #define LOV_MIN_STRIPE_SIZE (1<<LOV_MIN_STRIPE_BITS)
-#define LOV_MAX_STRIPE_COUNT  160   /* until bug 4424 is fixed */
+#define LOV_MAX_STRIPE_COUNT_OLD 160
+/* This calculation is crafted so that input of 4096 will result in 160
+ * which in turn is equal to old maximal stripe count.
+ * XXX: In fact this is too simpified for now, what it also need is to get
+ * ea_type argument to clearly know how much space each stripe consumes.
+ *
+ * The limit of 8 pages is somewhat arbitrary, but is a reasonably large
+ * allocation that is sufficient for the current generation of systems.
+ *
+ * (max buffer size - lov+rpc header) / sizeof(struct lov_ost_data_v1) */
+#define LOV_MAX_STRIPE_COUNT 1350  /* ((8 * 4096 - 256) / 24) */
 #define LOV_V1_INSANE_STRIPE_COUNT 65532 /* maximum stripe count bz13933 */
 
 #define LOV_MAX_UUID_BUFFER_SIZE  8192

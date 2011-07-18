@@ -190,6 +190,7 @@ static void check_obd_connect_data(void)
         CHECK_MEMBER(obd_connect_data, ocd_transno);
         CHECK_MEMBER(obd_connect_data, ocd_group);
         CHECK_MEMBER(obd_connect_data, ocd_cksum_types);
+        CHECK_MEMBER(obd_connect_data, ocd_max_easize);
         CHECK_MEMBER(obd_connect_data, padding1);
         CHECK_MEMBER(obd_connect_data, padding2);
 

@@ -228,6 +228,10 @@ struct brw_page {
 
 struct ost_server_data;
 
+struct fsfilt_fs_properties {
+        size_t ffp_max_ea_size;
+};
+
 #define OBT_MAGIC       0xBDDECEAE
 /* hold common fields for "target" device */
 struct obd_device_target {
@@ -243,6 +247,7 @@ struct obd_device_target {
         cfs_rw_semaphore_t        obt_rwsem;
         struct vfsmount          *obt_vfsmnt;
         struct file              *obt_health_check_filp;
+        struct fsfilt_fs_properties obt_fs_params;
 };
 
 /* llog contexts */
