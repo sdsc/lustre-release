@@ -205,10 +205,10 @@ int llog_setup_named(struct obd_device *obd,  struct obd_llog_group *olg,
                 RETURN(rc);
         }
 
-        if (OBD_FAIL_CHECK(OBD_FAIL_OBD_LLOG_SETUP)) {
-                rc = -ENOTSUPP;
-        } else {
-                if (op->lop_setup)
+        if (op->lop_setup) {
+                if (OBD_FAIL_CHECK(OBD_FAIL_OBD_LLOG_SETUP))
+                        rc = -ENOTSUPP;
+                else
                         rc = op->lop_setup(obd, olg, index, disk_obd, count,
                                            logid, logname);
         }
@@ -412,8 +412,7 @@ int llog_obd_origin_cleanup(struct llog_ctxt *ctxt)
                                              &cathandle->u.chd.chd_head,
                                              u.phd.phd_entry) {
                         llh = loghandle->lgh_hdr;
-                        if ((llh->llh_flags &
-                                LLOG_F_ZAP_WHEN_EMPTY) &&
+                        if ((llh->llh_flags & LLOG_F_ZAP_WHEN_EMPTY) &&
                             (llh->llh_count == 1)) {
                                 rc = llog_destroy(loghandle);
                                 if (rc)
