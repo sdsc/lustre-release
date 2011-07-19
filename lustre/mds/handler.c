@@ -137,7 +137,9 @@ static int mds_postsetup(struct obd_device *obd)
         if (rc)
                 GOTO(err_llog, rc);
 
-        mds_changelog_llog_init(obd, obd);
+        rc = mds_changelog_llog_init(obd, obd);
+        if (rc != 0)
+                GOTO(err_cleanup, rc);
 
         if (mds->mds_profile) {
                 struct lustre_profile *lprof;
@@ -346,11 +348,13 @@ static int mds_cmd_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
         */
 
         if (rc)
-                GOTO(err_objects, rc);
+                GOTO(err_objids, rc);
 
 err_pop:
         pop_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
         RETURN(rc);
+err_objids:
+        mds_lov_destroy_objids(obd);
 err_objects:
         dput(mds->mds_objects_dir);
 err_putfs:

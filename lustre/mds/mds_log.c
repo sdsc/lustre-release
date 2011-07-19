@@ -187,6 +187,10 @@ int mds_changelog_llog_init(struct obd_device *obd, struct obd_device *tgt)
                               tgt, 1, NULL, CHANGELOG_USERS,
                               &changelog_orig_logops);
         if (rc) {
+                struct llog_ctxt       *ctxt;
+
+                ctxt = llog_get_context(obd, LLOG_CHANGELOG_ORIG_CTXT);
+                llog_cleanup(ctxt);
                 CERROR("changelog users llog setup failed %d\n", rc);
                 RETURN(rc);
         }
