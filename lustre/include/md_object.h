@@ -172,6 +172,7 @@ struct md_attr {
         struct lu_attr          ma_attr;
         struct lov_mds_md      *ma_lmm;
         int                     ma_lmm_size;
+        int                     ma_big_lmm_used:1;
         struct lmv_stripe_md   *ma_lmv;
         int                     ma_lmv_size;
         void                   *ma_acl;
