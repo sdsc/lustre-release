@@ -227,10 +227,13 @@ static int seq_fid_alloc_prep(struct lu_client_seq *seq,
         cfs_waitq_add(&seq->lcs_waitq, link);
         if (seq->lcs_update) {
                 cfs_up(&seq->lcs_sem);
+
                 cfs_set_current_state(CFS_TASK_UNINT);
                 cfs_waitq_wait(link, CFS_TASK_UNINT);
                 cfs_set_current_state(CFS_TASK_RUNNING);
+
                 cfs_down(&seq->lcs_sem);
+                cfs_waitq_del(&seq->lcs_waitq, link);
                 return -EAGAIN;
         }
         ++seq->lcs_update;
@@ -280,6 +283,7 @@ int seq_client_alloc_fid(struct lu_client_seq *seq, struct lu_fid *fid)
                 if (rc) {
                         CERROR("%s: Can't allocate new sequence, "
                                "rc %d\n", seq->lcs_name, rc);
+                        seq_fid_alloc_fini(seq, &link);
                         cfs_up(&seq->lcs_sem);
                         RETURN(rc);
                 }
