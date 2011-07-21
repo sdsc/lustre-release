@@ -299,14 +299,26 @@ static int osc_io_prepare_write(const struct lu_env *env,
 {
         struct osc_device *dev = lu2osc_dev(slice->cpl_obj->co_lu.lo_dev);
         struct obd_import *imp = class_exp2cliimp(dev->od_exp);
-
+        struct osc_io     *oio = cl2osc_io(env, ios);
+        int result = 0;
         ENTRY;
 
         /*
          * This implements OBD_BRW_CHECK logic from old client.
          */
 
-        RETURN(imp == NULL || imp->imp_invalid ? -EIO : 0);
+        if (imp == NULL || imp->imp_invalid)
+                result = -EIO;
+        if (result == 0 && oio->oi_lockless) {
+                struct cl_page *page = slice->cpl_page;
+
+                cl_page_clip(env, page, from, to);
+
+                /* this page may not contain uptodate data, but who cares?
+                 * nobody can access the stale data. -jay */
+                cl_page_export(env, page, 1);
+        }
+        RETURN(result);
 }
 
 static int osc_io_commit_write(const struct lu_env *env,
