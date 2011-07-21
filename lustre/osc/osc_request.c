@@ -2960,9 +2960,8 @@ int osc_prep_async_page(struct obd_export *exp, struct lov_stripe_md *lsm,
 
 int osc_queue_async_io(const struct lu_env *env, struct obd_export *exp,
                        struct lov_stripe_md *lsm, struct lov_oinfo *loi,
-                       struct osc_async_page *oap, int cmd, obd_off off,
-                       int count, obd_flag brw_flags,
-                       enum async_flags async_flags)
+                       struct osc_async_page *oap, int cmd, int off,
+                       int count, obd_flag brw_flags, enum async_flags async_flags)
 {
         struct client_obd *cli = &exp->exp_obd->u.cli;
         int rc = 0;
