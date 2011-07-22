@@ -212,6 +212,16 @@ static int vvp_io_rw_lock(const struct lu_env *env, struct cl_io *io,
 
         if (io->u.ci_rw.crw_nonblock)
                 ast_flags |= CEF_NONBLOCK;
+
+        if (mode == CLM_WRITE &&
+            (start & ~CFS_PAGE_MASK || (end + 1) & ~CFS_PAGE_MASK))
+                /* Prevent osc layer from turning this lock into lockless
+                 * if it is a page unaligned write. Otherwise, this may cause
+                 * data corruption because vvp_io_prepare_write will read
+                 * some data into cache w/o being covered any lock and then
+                 * write them back. */
+                ast_flags |= CEF_MUST;
+
         result = vvp_mmap_locks(env, cio, io);
         if (result == 0)
                 result = ccc_io_one_lock(env, io, ast_flags, mode, start, end);
