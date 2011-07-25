@@ -197,7 +197,7 @@ static int filter_quota_getflag(struct obd_device *obd, struct obdo *oa)
                                        qctxt, 0);
                 if (lqs == NULL || IS_ERR(lqs)) {
                         rc = PTR_ERR(lqs);
-                        break;
+                        continue;
                 } else {
                         spin_lock(&lqs->lqs_lock);
                         if (lqs->lqs_bunit_sz <= qctxt->lqc_sync_blk) {
