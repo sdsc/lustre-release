@@ -1,0 +1,9 @@
+Verified+1: Hudson
+Code-Review+2: Johann Lombardi <johann@whamcloud.com>
+Code-Review+1: Niu Yawei <yawei.niu@gmail.com>
+Code-Review+1: Yu Jian <yujian@whamcloud.com>
+Submitted-by: Johann Lombardi <johann@whamcloud.com>
+Submitted-at: Tue, 26 Jul 2011 16:56:09 -0400
+Reviewed-on: http://review.whamcloud.com/942
+Project: fs/lustre-release
+Branch: refs/heads/b1_8
