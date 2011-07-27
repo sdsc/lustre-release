@@ -359,7 +359,7 @@ int  osc_lvb_print     (const struct lu_env *env, void *cookie,
                         lu_printer_t p, const struct ost_lvb *lvb);
 void osc_io_submit_page(const struct lu_env *env,
                         struct osc_io *oio, struct osc_page *opg,
-                        enum cl_req_type crt);
+                        enum cl_req_type crt, int dio);
 
 void osc_object_set_contended  (struct osc_object *obj);
 void osc_object_clear_contended(struct osc_object *obj);

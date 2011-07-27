@@ -1372,8 +1372,8 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
                 LASSERTF(i == 0 || pg->off > pg_prev->off,
                          "i %d p_c %u\n", i, page_count);
 #endif
-                LASSERT((pga[0]->flag & OBD_BRW_SRVLOCK) ==
-                        (pg->flag & OBD_BRW_SRVLOCK));
+                LASSERT((pga[0]->flag & (OBD_BRW_SRVLOCK|OBD_BRW_DIO)) ==
+                        (pg->flag & (OBD_BRW_SRVLOCK|OBD_BRW_DIO)));
 
                 ptlrpc_prep_bulk_page(desc, pg->pg, poff, pg->count);
                 requested_nob += pg->count;
@@ -2439,7 +2439,8 @@ osc_send_oap_rpc(const struct lu_env *env, struct client_obd *cli,
         struct osc_brw_async_args *aa;
         const struct obd_async_page_ops *ops;
         CFS_LIST_HEAD(rpc_list);
-        int srvlock = 0, mem_tight = 0;
+        int mem_tight = 0;
+        obd_flag flag = 0;
         struct cl_object *clob = NULL;
         obd_off starting_offset = OBD_OBJECT_EOF;
         unsigned int ending_offset;
@@ -2472,13 +2473,22 @@ osc_send_oap_rpc(const struct lu_env *env, struct client_obd *cli,
                         cl_object_get(clob);
                 }
 
-                if (page_count != 0 &&
-                    srvlock != !!(oap->oap_brw_flags & OBD_BRW_SRVLOCK)) {
-                        CDEBUG(D_PAGE, "SRVLOCK flag mismatch,"
-                               " oap %p, page %p, srvlock %u\n",
-                               oap, oap->oap_brw_page.pg, (unsigned)!srvlock);
+                if (page_count == 0) {
+                        flag = oap->oap_brw_flags &
+                               (OBD_BRW_SRVLOCK | OBD_BRW_DIO);
+                } else if (flag != (oap->oap_brw_flags &
+                                    (OBD_BRW_SRVLOCK | OBD_BRW_DIO))) {
+                        CDEBUG(D_PAGE, "flags mismatch: oap %p, page %p, "
+                                       "flags %x/%x\n",
+                               oap, oap->oap_brw_page.pg,
+                               oap->oap_brw_flags, flag);
                         break;
                 }
+
+                /* we will be in trouble if async commit is used for direct IO
+                 * pages because application may update it. */
+                LASSERT(ergo(flag & OBD_BRW_DIO,
+                             oap->oap_brw_flags & OBD_BRW_SYNC));
 
                 /* If there is a gap at the start of this page, it can't merge
                  * with any previous page, so we'll hand the network a
@@ -2584,11 +2594,11 @@ osc_send_oap_rpc(const struct lu_env *env, struct client_obd *cli,
 
                 /* now put the page back in our accounting */
                 cfs_list_add_tail(&oap->oap_rpc_item, &rpc_list);
-                if (page_count++ == 0)
-                        srvlock = !!(oap->oap_brw_flags & OBD_BRW_SRVLOCK);
-
                 if (oap->oap_brw_flags & OBD_BRW_MEMALLOC)
                         mem_tight = 1;
+
+                if (++page_count >= cli->cl_max_pages_per_rpc)
+                        break;
 
                 /* End on a PTLRPC_MAX_BRW_SIZE boundary.  We want full-sized
                  * RPCs aligned on PTLRPC_MAX_BRW_SIZE boundaries to help reads
@@ -2597,9 +2607,6 @@ osc_send_oap_rpc(const struct lu_env *env, struct client_obd *cli,
                 ending_offset = oap->oap_obj_off + oap->oap_page_off +
                                 oap->oap_count;
                 if (!(ending_offset & (PTLRPC_MAX_BRW_SIZE - 1)))
-                        break;
-
-                if (page_count >= cli->cl_max_pages_per_rpc)
                         break;
 
                 /* If there is a gap at the end of this page, it can't merge

@@ -662,7 +662,7 @@ struct cl_page *osc_page_init(const struct lu_env *env,
  */
 void osc_io_submit_page(const struct lu_env *env,
                         struct osc_io *oio, struct osc_page *opg,
-                        enum cl_req_type crt)
+                        enum cl_req_type crt, int dio)
 {
         struct osc_async_page *oap = &opg->ops_oap;
         struct client_obd     *cli = oap->oap_cli;
@@ -676,9 +676,12 @@ void osc_io_submit_page(const struct lu_env *env,
         /* Give a hint to OST that requests are coming from kswapd - bug19529 */
         if (cfs_memory_pressure_get())
                 oap->oap_brw_flags |= OBD_BRW_MEMALLOC;
+        oap->oap_brw_flags &= ~OBD_BRW_ASYNC;
         oap->oap_brw_flags |= OBD_BRW_SYNC;
         if (osc_io_srvlock(oio))
                 oap->oap_brw_flags |= OBD_BRW_SRVLOCK;
+        if (dio)
+                oap->oap_brw_flags |= OBD_BRW_DIO;
 
         oap->oap_cmd = crt == CRT_WRITE ? OBD_BRW_WRITE : OBD_BRW_READ;
         if (!client_is_remote(osc_export(cl2osc(opg->ops_cl.cpl_obj))) &&

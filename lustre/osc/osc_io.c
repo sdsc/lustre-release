@@ -124,6 +124,7 @@ static int osc_io_submit(const struct lu_env *env,
         struct cl_page_list *qout     = &queue->c2_qout;
         int queued = 0;
         int result = 0;
+        int dio = 0;
 
         LASSERT(qin->pl_nr > 0);
 
@@ -166,15 +167,20 @@ static int osc_io_submit(const struct lu_env *env,
                 } else /* check that all pages are against the same object
                         * (for now) */
                         LASSERT(osc == osc0);
-                if (queued++ == 0)
+                if (queued++ == 0) {
                         client_obd_list_lock(&cli->cl_loi_list_lock);
+                        dio = page->cp_type == CPT_TRANSIENT;
+                } else {
+                        LASSERT(dio == (page->cp_type == CPT_TRANSIENT));
+                }
                 result = cl_page_prep(env, io, page, crt);
                 if (result == 0) {
                         cl_page_list_move(qout, qin, page);
                         if (cfs_list_empty(&oap->oap_pending_item)) {
                                 osc_io_submit_page(env, cl2osc_io(env, ios),
-                                                   opg, crt);
+                                                   opg, crt, dio);
                         } else {
+                                LASSERT(dio == 0);
                                 result = osc_set_async_flags_base(cli,
                                                                   osc->oo_oinfo,
                                                                   oap,
