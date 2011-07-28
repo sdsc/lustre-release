@@ -145,6 +145,7 @@ void llapi_err(int level, char *fmt, ...)
                 fprintf(stderr, "\n");
         else
                 fprintf(stderr, ": %s (%d)\n", strerror(tmp_errno), tmp_errno);
+        errno = tmp_errno;
 }
 
 #define llapi_err_noerrno(level, fmt, a...)                             \
@@ -241,19 +242,19 @@ int llapi_stripe_limit_check(unsigned long long stripe_size, int stripe_offset,
                 return -EINVAL;
         }
         if (stripe_offset < -1 || stripe_offset > MAX_OBD_DEVICES) {
-                errno = -EINVAL;
+                errno = EINVAL;
                 llapi_err(LLAPI_MSG_ERROR, "error: bad stripe offset %d",
                           stripe_offset);
                 return -EINVAL;
         }
         if (stripe_count < -1 || stripe_count > LOV_MAX_STRIPE_COUNT) {
-                errno = -EINVAL;
+                errno = EINVAL;
                 llapi_err(LLAPI_MSG_ERROR, "error: bad stripe count %d",
                           stripe_count);
                 return -EINVAL;
         }
         if (stripe_size >= (1ULL << 32)){
-                errno = -EINVAL;
+                errno = EINVAL;
                 llapi_err(LLAPI_MSG_ERROR, "warning: stripe size larger than 4G"
                           " is not currently supported and would wrap");
                 return -EINVAL;
@@ -409,10 +410,8 @@ int llapi_file_open_pool(const char *name, int flags, int mode,
         }
 
         if ((rc = llapi_stripe_limit_check(stripe_size, stripe_offset,
-                                           stripe_count, stripe_pattern)) != 0){
-                errno = rc;
+                                           stripe_count, stripe_pattern)) != 0)
                 goto out;
-        }
 
         /*  Initialize IOCTL striping pattern structure */
         lum.lmm_magic = LOV_USER_MAGIC_V3;
@@ -441,6 +440,7 @@ out:
         if (rc) {
                 close(fd);
                 fd = rc;
+                errno = -rc;
         }
 
         return fd;
@@ -1135,7 +1135,7 @@ int llapi_file_fget_lov_uuid(int fd, struct obd_uuid *lov_name)
 {
         int rc = ioctl(fd, OBD_IOC_GETNAME, lov_name);
         if (rc) {
-                rc = errno;
+                rc = -errno;
                 llapi_err(LLAPI_MSG_ERROR, "error: can't get lov name.");
         }
         return rc;
@@ -1147,7 +1147,7 @@ int llapi_file_get_lov_uuid(const char *path, struct obd_uuid *lov_uuid)
 
         fd = open(path, O_RDONLY);
         if (fd < 0) {
-                rc = errno;
+                rc = -errno;
                 llapi_err(LLAPI_MSG_ERROR, "error opening %s", path);
                 return rc;
         }
@@ -1155,6 +1155,9 @@ int llapi_file_get_lov_uuid(const char *path, struct obd_uuid *lov_uuid)
         rc = llapi_file_fget_lov_uuid(fd, lov_uuid);
 
         close(fd);
+
+        if (rc)
+                errno = -rc;
 
         return rc;
 }
@@ -1182,7 +1185,7 @@ int llapi_lov_get_uuids(int fd, struct obd_uuid *uuidp, int *ost_count)
                  lov_name.uuid);
         fp = fopen(buf, "r");
         if (fp == NULL) {
-                rc = errno;
+                rc = -errno;
                 llapi_err(LLAPI_MSG_ERROR, "error: opening '%s'", buf);
                 return rc;
         }
@@ -1262,7 +1265,7 @@ static int setup_obd_uuid(DIR *dir, char *dname, struct find_param *param)
         rc = llapi_file_fget_lov_uuid(dirfd(dir), &lov_uuid);
         if (rc) {
                 if (errno != ENOTTY) {
-                        rc = errno;
+                        rc = -errno;
                         llapi_err(LLAPI_MSG_ERROR,
                                   "error: can't get lov name: %s", dname);
                 } else {
@@ -1278,7 +1281,7 @@ static int setup_obd_uuid(DIR *dir, char *dname, struct find_param *param)
                  lov_uuid.uuid);
         fp = fopen(buf, "r");
         if (fp == NULL) {
-                rc = errno;
+                rc = -errno;
                 llapi_err(LLAPI_MSG_ERROR, "error: opening '%s'", buf);
                 return rc;
         }
@@ -1440,7 +1443,7 @@ static int sattr_read_attr(const char *const fpath,
 
         if ((f = fopen(fpath, "r")) == NULL) {
                 llapi_err(LLAPI_MSG_ERROR, "Cannot open '%s'", fpath);
-                return errno;
+                return -errno;
         }
 
         if (fgets(line, sizeof(line), f) != NULL) {
@@ -1751,17 +1754,17 @@ int llapi_file_get_stripe(const char *path, struct lov_user_md *lum)
         }
 
         if ((fd = open(dname, O_RDONLY)) == -1) {
-                rc = errno;
+                rc = -errno;
                 free(dname);
                 return rc;
         }
 
         strcpy((char *)lum, fname);
         if (ioctl(fd, IOC_MDC_GETFILESTRIPE, (void *)lum) == -1)
-                rc = errno;
+                rc = -errno;
 
         if (close(fd) == -1 && rc == 0)
-                rc = errno;
+                rc = -errno;
 
         free(dname);
 
@@ -2391,6 +2394,8 @@ int llapi_obd_statfs(char *path, __u32 type, __u32 index,
                 rc = errno ? -errno : -EINVAL;
 
         close(fd);
+        if (rc)
+                errno = -rc;
         return rc;
 }
 
@@ -2408,7 +2413,7 @@ int llapi_ping(char *obd_type, char *obd_name)
 
         fd = open(path, O_WRONLY);
         if (fd < 0) {
-                rc = errno;
+                rc = -errno;
                 llapi_err(LLAPI_MSG_ERROR, "error opening %s", path);
                 return rc;
         }
@@ -2428,7 +2433,7 @@ int llapi_target_iterate(int type_num, char **obd_type,void *args,llapi_cb_t cb)
         int i, rc = 0;
 
         if (fp == NULL) {
-                rc = errno;
+                rc = -errno;
                 llapi_err(LLAPI_MSG_ERROR, "error: opening "DEVICES_LIST);
                 return rc;
         }
@@ -2515,7 +2520,7 @@ int llapi_catinfo(char *dir, char *keyword, char *node_name)
 
         root = opendir(dir);
         if (root == NULL) {
-                rc = errno;
+                rc = -errno;
                 llapi_err(LLAPI_MSG_ERROR, "open %s failed", dir);
                 return rc;
         }
@@ -2637,7 +2642,7 @@ static int cb_quotachown(char *path, DIR *parent, DIR *d, void *data,
                                   __func__, path);
                         rc = 0;
                 } else if (errno != EISDIR) {
-                        rc = errno;
+                        rc = -errno;
                         llapi_err(LLAPI_MSG_ERROR, "%s ioctl failed for %s.",
                                   d ? "LL_IOC_MDC_GETINFO" :
                                   "IOC_MDC_GETFILEINFO", path);
@@ -3282,7 +3287,7 @@ static int path2fid_from_lma(const char *path, lustre_fid *fid)
 
 int llapi_path2fid(const char *path, lustre_fid *fid)
 {
-        int fd, rc;
+        int fd, rc, errnosave;
 
         memset(fid, 0, sizeof(*fid));
         fd = open(path, O_RDONLY | O_NONBLOCK | O_NOFOLLOW);
@@ -3296,7 +3301,11 @@ int llapi_path2fid(const char *path, lustre_fid *fid)
         if (rc == -EINVAL) /* char special device */
                 rc = path2fid_from_lma(path, fid);
 
+        if (rc)
+                errnosave = errno;
         close(fd);
+        if (rc)
+                errno = errnosave;
         return rc;
 }
 
@@ -3515,7 +3524,7 @@ int llapi_get_version(char *buffer, int buffer_size,
 
         rc = ioctl(fd, OBD_GET_VERSION, buffer);
         if (rc == -1) {
-                rc = errno;
+                rc = -errno;
                 close(fd);
                 return -rc;
         }
