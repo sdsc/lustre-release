@@ -276,68 +276,114 @@ static int lprocfs_wr_identity_flush(struct file *file, const char *buffer,
         return count;
 }
 
+union identity_downcall_param {
+        struct identity_downcall_data idp_2x;
+        struct mds_grp_downcall_data idp_18;
+};
+
+/*XXX: To distinguish whether the downcall is from 1.8 utils or not.
+ *
+ *     The 1.8 utils downcall structure is:
+ *     struct mds_grp_downcall_data {
+ *             __u32           mgd_magic;
+ *             __u32           mgd_err;
+ *             __u32           mgd_uid;
+ *             __u32           mgd_gid;
+ *             __u32           mgd_ngroups;
+ *             __u32           mgd_groups[0];
+ *     };
+ *
+ *     The 2.x utils downcall structure is:
+ *     struct identity_downcall_data {
+ *             __u32                            idd_magic;
+ *             __u32                            idd_err;
+ *             __u32                            idd_uid;
+ *             __u32                            idd_gid;
+ *             __u32                            idd_nperms;
+ *             struct perm_downcall_data idd_perms[N_PERMS_MAX];
+ *             __u32                            idd_ngroups;
+ *             __u32                            idd_groups[0];
+ *     };
+ *
+ *     So "mgd_ngroups" and "idd_nperms" are at the same offset.
+ *     1) If the value of such field is larger than N_PERMS_MAX, then
+ *        it is from 1.8 downcall;
+ *     2) otherwise if "count < sizeof(struct identity_downcall_data)",
+ *        then it is also from 1.8 downcall;
+ *     3) Other cases are from 2.x downcall.
+ */
+
 static int lprocfs_wr_identity_info(struct file *file, const char *buffer,
                                     unsigned long count, void *data)
 {
         struct obd_device *obd = data;
         struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-        struct identity_downcall_data sparam, *param = &sparam;
+        union identity_downcall_param *idp = NULL;
         int size = 0, rc = 0;
 
-        if (count < sizeof(*param)) {
+        if (count < sizeof(struct mds_grp_downcall_data)) {
                 CERROR("%s: invalid data size %lu\n", obd->obd_name, count);
-                return count;
+                GOTO(out, rc = -EINVAL);
         }
 
-        if (cfs_copy_from_user(&sparam, buffer, sizeof(sparam))) {
-                CERROR("%s: bad identity data\n", obd->obd_name);
+        size = offsetof(struct identity_downcall_data, idd_groups[NGROUPS_MAX]);
+        OBD_ALLOC(idp, size);
+        if (unlikely(idp == NULL)) {
+                CERROR("%s: identity downcall failed for no enough memory %d\n",
+                       obd->obd_name, size);
+                GOTO(out, rc = -ENOMEM);
+        }
+
+        if (cfs_copy_from_user(idp, buffer, size < count ? : count)) {
+                CERROR("%s: identity downcall failed for bad data\n",
+                       obd->obd_name);
                 GOTO(out, rc = -EFAULT);
         }
 
-        if (sparam.idd_magic != IDENTITY_DOWNCALL_MAGIC) {
-                CERROR("%s: MDS identity downcall bad params\n", obd->obd_name);
+        if (idp->idp_2x.idd_magic != IDENTITY_DOWNCALL_MAGIC) {
+                CERROR("%s: identity downcall failed for bad magic 0x%x\n",
+                       obd->obd_name, idp->idp_2x.idd_magic);
                 GOTO(out, rc = -EINVAL);
         }
 
-        if (sparam.idd_nperms > N_PERMS_MAX) {
-                CERROR("%s: perm count %d more than maximum %d\n",
-                       obd->obd_name, sparam.idd_nperms, N_PERMS_MAX);
-                GOTO(out, rc = -EINVAL);
-        }
+        if (idp->idp_2x.idd_nperms > N_PERMS_MAX ||
+            count < sizeof(struct identity_downcall_data)) {
+                /* it is from 1.8 utils downcall */
+                if (idp->idp_18.mgd_ngroups > NGROUPS_MAX) {
+                        CWARN("%s: group count %d is more than maximum %d, "
+                              "shrink to %d\n", obd->obd_name,
+                              idp->idp_18.mgd_ngroups, NGROUPS_MAX,NGROUPS_MAX);
+                        idp->idp_18.mgd_ngroups = NGROUPS_MAX;
+                }
 
-        if (sparam.idd_ngroups > NGROUPS_MAX) {
-                CERROR("%s: group count %d more than maximum %d\n",
-                       obd->obd_name, sparam.idd_ngroups, NGROUPS_MAX);
-                GOTO(out, rc = -EINVAL);
-        }
-
-        if (sparam.idd_ngroups) {
-                size = offsetof(struct identity_downcall_data,
-                                idd_groups[sparam.idd_ngroups]);
-                OBD_ALLOC(param, size);
-                if (!param) {
-                        CERROR("%s: fail to alloc %d bytes for uid %u"
-                               " with %d groups\n", obd->obd_name, size,
-                               sparam.idd_uid, sparam.idd_ngroups);
-                        param = &sparam;
-                        param->idd_ngroups = 0;
-                } else if (cfs_copy_from_user(param, buffer, size)) {
-                        CERROR("%s: uid %u bad supplementary group data\n",
-                               obd->obd_name, sparam.idd_uid);
-                        OBD_FREE(param, size);
-                        param = &sparam;
-                        param->idd_ngroups = 0;
+                /* convert 1.8 format to 2.x format */
+                idp->idp_2x.idd_ngroups = idp->idp_18.mgd_ngroups;
+                memmove(idp->idp_2x.idd_groups, idp->idp_18.mgd_groups,
+                        idp->idp_18.mgd_ngroups);
+                idp->idp_2x.idd_nperms = 1;
+                idp->idp_2x.idd_perms[0].pdd_nid = LNET_NID_ANY;
+                idp->idp_2x.idd_perms[0].pdd_perm = CFS_SETUID_PERM |
+                                                    CFS_SETGID_PERM |
+                                                    CFS_SETGRP_PERM;
+        } else {
+                if (idp->idp_2x.idd_ngroups > NGROUPS_MAX) {
+                        CWARN("%s: group count %d is more than maximum %d, "
+                              "shrink to %d\n", obd->obd_name,
+                              idp->idp_2x.idd_ngroups, NGROUPS_MAX,NGROUPS_MAX);
+                        idp->idp_2x.idd_ngroups = NGROUPS_MAX;
                 }
         }
 
-        rc = upcall_cache_downcall(mdt->mdt_identity_cache, param->idd_err,
-                                   param->idd_uid, param);
+        rc = upcall_cache_downcall(mdt->mdt_identity_cache, idp->idp_2x.idd_err,
+                                   idp->idp_2x.idd_uid, &idp->idp_2x);
+
+        EXIT;
 
 out:
-        if (param && (param != &sparam))
-                OBD_FREE(param, size);
+        if (idp != NULL)
+                OBD_FREE(idp, size);
 
-        return rc ?: count;
+        return rc ? : count;
 }
 
 /* for debug only */

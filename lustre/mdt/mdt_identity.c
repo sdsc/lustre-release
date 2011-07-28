@@ -102,7 +102,7 @@ static void mdt_identity_entry_free(struct upcall_cache *cache,
 static int mdt_identity_do_upcall(struct upcall_cache *cache,
                                   struct upcall_cache_entry *entry)
 {
-        char *upcall, keystr[16];
+        char keystr[16];
         char *argv[] = {
                   [0] = cache->uc_upcall,
                   [1] = cache->uc_name,
@@ -115,31 +115,22 @@ static int mdt_identity_do_upcall(struct upcall_cache *cache,
                   [2] = NULL
         };
         struct timeval start, end;
-        int size, rc;
+        int rc;
         ENTRY;
 
         /* There is race condition:
          * "uc_upcall" was changed just after "is_identity_get_disabled" check.
          */
-        size = strlen(cache->uc_upcall) + 1;
-        OBD_ALLOC(upcall, size);
-        if (unlikely(!upcall))
-                RETURN(-ENOMEM);
-
         cfs_read_lock(&cache->uc_upcall_rwlock);
-        memcpy(upcall, cache->uc_upcall, size - 1);
-        cfs_read_unlock(&cache->uc_upcall_rwlock);
-        upcall[size - 1] = 0;
-        if (unlikely(!strcmp(upcall, "NONE"))) {
+        CDEBUG(D_INFO, "The upcall is: '%s'\n", cache->uc_upcall);
+
+        if (unlikely(!strcmp(cache->uc_upcall, "NONE"))) {
                 CERROR("no upcall set\n");
                 GOTO(out, rc = -EREMCHG);
         }
 
-        argv[0] = upcall;
-
+        argv[0] = cache->uc_upcall;
         snprintf(keystr, sizeof(keystr), LPU64, entry->ue_key);
-
-        CDEBUG(D_INFO, "The upcall is: '%s'\n", cache->uc_upcall);
 
         cfs_gettimeofday(&start);
         rc = USERMODEHELPER(argv[0], argv, envp);
@@ -158,7 +149,7 @@ static int mdt_identity_do_upcall(struct upcall_cache *cache,
         }
         EXIT;
 out:
-        OBD_FREE(upcall, size);
+        cfs_read_unlock(&cache->uc_upcall_rwlock);
         return rc;
 }
 
