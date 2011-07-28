@@ -210,7 +210,7 @@ static int filter_quota_getflag(struct obd_device *obd, struct obdo *oa)
                                        cnt == USRQUOTA ? "user" : "group",
                                        cnt == USRQUOTA ? oa->o_uid : oa->o_gid,
                                        rc);
-                        break;
+                        continue;
                 } else {
                         cfs_spin_lock(&lqs->lqs_lock);
                         if (lqs->lqs_bunit_sz <= qctxt->lqc_sync_blk) {
