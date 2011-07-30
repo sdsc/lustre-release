@@ -870,7 +870,7 @@ static inline int ll_bdi_register(struct backing_dev_info *bdi)
 
 int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
 {
-        struct lustre_profile *lprof;
+        struct lustre_profile *lprof = NULL;
         struct lustre_sb_info *lsi = s2lsi(sb);
         struct ll_sb_info *sbi;
         char  *dt = NULL, *md = NULL;
@@ -915,7 +915,7 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
         /* Generate a string unique to this super, in case some joker tries
            to mount the same fs at two mount points.
            Use the address of the super itself.*/
-        snprintf(cfg->cfg_instance, sizeof(cfg->cfg_instance), "%p", sb);
+        cfg->cfg_instance = sb;
         cfg->cfg_uuid = lsi->lsi_llsbi->ll_sb_uuid;
 
         /* set up client obds */
@@ -936,26 +936,24 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
         CDEBUG(D_CONFIG, "Found profile %s: mdc=%s osc=%s\n", profilenm,
                lprof->lp_md, lprof->lp_dt);
 
-        OBD_ALLOC(dt, strlen(lprof->lp_dt) +
-                  strlen(cfg->cfg_instance) + 2);
+        OBD_ALLOC(dt, strlen(lprof->lp_dt) + 18);
         if (!dt)
                 GOTO(out_free, err = -ENOMEM);
-        sprintf(dt, "%s-%s", lprof->lp_dt, cfg->cfg_instance);
+        sprintf(dt, "%s-%p", lprof->lp_dt, cfg->cfg_instance);
 
-        OBD_ALLOC(md, strlen(lprof->lp_md) +
-                  strlen(cfg->cfg_instance) + 2);
+        OBD_ALLOC(md, strlen(lprof->lp_md) + 18);
         if (!md)
                 GOTO(out_free, err = -ENOMEM);
-        sprintf(md, "%s-%s", lprof->lp_md, cfg->cfg_instance);
+        sprintf(md, "%s-%p", lprof->lp_md, cfg->cfg_instance);
 
         /* connections, registrations, sb setup */
         err = client_common_fill_super(sb, md, dt, mnt);
 
 out_free:
         if (md)
-                OBD_FREE(md, strlen(md) + 1);
+                OBD_FREE(md, strlen(lprof->lp_md) + 18);
         if (dt)
-                OBD_FREE(dt, strlen(dt) + 1);
+                OBD_FREE(dt, strlen(lprof->lp_dt) + 18);
         if (err)
                 ll_put_super(sb);
         else
@@ -982,8 +980,8 @@ void ll_put_super(struct super_block *sb)
 
         ll_print_capa_stat(sbi);
 
-        snprintf(cfg.cfg_instance, sizeof(cfg.cfg_instance), "%p", sb);
-        lustre_end_log(sb, NULL, &cfg);
+        cfg.cfg_instance = sb;
+        lustre_end_log(sb, profilenm, &cfg);
 
         if (sbi->ll_md_exp) {
                 obd = class_exp2obd(sbi->ll_md_exp);
@@ -1026,7 +1024,7 @@ void ll_put_super(struct super_block *sb)
 
         cl_env_cache_purge(~0);
 
-        LCONSOLE_WARN("client %s umount complete\n", cfg.cfg_instance);
+        LCONSOLE_WARN("client %p umount complete\n", cfg.cfg_instance);
 
         cfs_module_put(THIS_MODULE);
 
