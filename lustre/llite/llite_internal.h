@@ -146,7 +146,6 @@ struct ll_inode_info {
 
         /* for writepage() only to communicate to fsync */
         int                     lli_async_rc;
-        int                     lli_write_rc;
 
         struct posix_acl       *lli_posix_acl;
 
@@ -534,6 +533,8 @@ struct ll_file_data {
         struct ll_file_dir fd_dir;
         __u32 fd_flags;
         struct file *fd_file;
+        /* for the last write/fsync result. */
+        int fd_last_write;
 };
 
 struct lov_stripe_md;
