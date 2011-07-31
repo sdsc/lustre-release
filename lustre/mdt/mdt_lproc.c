@@ -276,68 +276,101 @@ static int lprocfs_wr_identity_flush(struct file *file, const char *buffer,
         return count;
 }
 
+/*XXX: To distinguish whether the downcall is from 1.8 utils or not.
+ *
+ *     The 1.8 utils downcall structure is:
+ *     struct mds_grp_downcall_data {
+ *             __u32           mgd_magic;
+ *             __u32           mgd_err;
+ *             __u32           mgd_uid;
+ *             __u32           mgd_gid;
+ *             __u32           mgd_ngroups;
+ *             __u32           mgd_groups[0];
+ *     };
+ *
+ *     The 2.x utils downcall structure is:
+ *     struct identity_downcall_data {
+ *             __u32                            idd_magic;
+ *             __u32                            idd_err;
+ *             __u32                            idd_uid;
+ *             __u32                            idd_gid;
+ *             __u32                            idd_nperms;
+ *             struct perm_downcall_data idd_perms[N_PERMS_MAX];
+ *             __u32                            idd_ngroups;
+ *             __u32                            idd_groups[0];
+ *     };
+ *
+ *     So "mgd_ngroups" and "idd_nperms" are at the same offset.
+ *     1) If the value of such field is larger than N_PERMS_MAX, then
+ *        it is from 1.8 downcall;
+ *     2) otherwise if "count < sizeof(struct identity_downcall_data)",
+ *        then it is also from 1.8 downcall;
+ *     3) Other cases are from 2.x downcall.
+ */
+
 static int lprocfs_wr_identity_info(struct file *file, const char *buffer,
                                     unsigned long count, void *data)
 {
         struct obd_device *obd = data;
         struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-        struct identity_downcall_data sparam, *param = &sparam;
-        int size = 0, rc = 0;
+        struct identity_downcall_param idp = { { 0 }, 0 };
+        int rc = 0;
 
-        if (count < sizeof(*param)) {
+        if (count < sizeof(struct mds_grp_downcall_data) ||
+            count > offsetof(struct identity_downcall_data,
+                             idd_groups[NGROUPS_MAX])) {
                 CERROR("%s: invalid data size %lu\n", obd->obd_name, count);
-                return count;
+                GOTO(out, rc = -EINVAL);
         }
 
-        if (cfs_copy_from_user(&sparam, buffer, sizeof(sparam))) {
-                CERROR("%s: bad identity data\n", obd->obd_name);
+        OBD_ALLOC(idp.u.idp_2x, count);
+        if (unlikely(idp.u.idp_2x == NULL))
+                GOTO(out, rc = -ENOMEM);
+
+        if (cfs_copy_from_user(idp.u.idp_2x, buffer, count)) {
+                CERROR("%s: identity downcall failed for bad data\n",
+                       obd->obd_name);
                 GOTO(out, rc = -EFAULT);
         }
 
-        if (sparam.idd_magic != IDENTITY_DOWNCALL_MAGIC) {
-                CERROR("%s: MDS identity downcall bad params\n", obd->obd_name);
+        if (idp.u.idp_2x->idd_magic != IDENTITY_DOWNCALL_MAGIC) {
+                CERROR("%s: identity downcall failed for bad magic 0x%x\n",
+                       obd->obd_name, idp.u.idp_2x->idd_magic);
                 GOTO(out, rc = -EINVAL);
         }
 
-        if (sparam.idd_nperms > N_PERMS_MAX) {
-                CERROR("%s: perm count %d more than maximum %d\n",
-                       obd->obd_name, sparam.idd_nperms, N_PERMS_MAX);
-                GOTO(out, rc = -EINVAL);
-        }
-
-        if (sparam.idd_ngroups > NGROUPS_MAX) {
-                CERROR("%s: group count %d more than maximum %d\n",
-                       obd->obd_name, sparam.idd_ngroups, NGROUPS_MAX);
-                GOTO(out, rc = -EINVAL);
-        }
-
-        if (sparam.idd_ngroups) {
-                size = offsetof(struct identity_downcall_data,
-                                idd_groups[sparam.idd_ngroups]);
-                OBD_ALLOC(param, size);
-                if (!param) {
-                        CERROR("%s: fail to alloc %d bytes for uid %u"
-                               " with %d groups\n", obd->obd_name, size,
-                               sparam.idd_uid, sparam.idd_ngroups);
-                        param = &sparam;
-                        param->idd_ngroups = 0;
-                } else if (cfs_copy_from_user(param, buffer, size)) {
-                        CERROR("%s: uid %u bad supplementary group data\n",
-                               obd->obd_name, sparam.idd_uid);
-                        OBD_FREE(param, size);
-                        param = &sparam;
-                        param->idd_ngroups = 0;
+        if (idp.u.idp_2x->idd_nperms > N_PERMS_MAX ||
+            count < sizeof(struct identity_downcall_data)) {
+                /* it is from 1.8 utils downcall */
+                if (idp.u.idp_18->mgd_ngroups > NGROUPS_MAX) {
+                        CWARN("%s: group count %d is more than maximum %d, "
+                              "shrink to %d\n", obd->obd_name,
+                              idp.u.idp_18->mgd_ngroups,
+                              NGROUPS_MAX, NGROUPS_MAX);
+                        idp.u.idp_18->mgd_ngroups = NGROUPS_MAX;
                 }
+                idp.is_18 = 1;
+        } else {
+                if (idp.u.idp_2x->idd_ngroups > NGROUPS_MAX) {
+                        CWARN("%s: group count %d is more than maximum %d, "
+                              "shrink to %d\n", obd->obd_name,
+                              idp.u.idp_2x->idd_ngroups,
+                              NGROUPS_MAX, NGROUPS_MAX);
+                        idp.u.idp_2x->idd_ngroups = NGROUPS_MAX;
+                }
+                idp.is_18 = 0;
         }
 
-        rc = upcall_cache_downcall(mdt->mdt_identity_cache, param->idd_err,
-                                   param->idd_uid, param);
+        rc = upcall_cache_downcall(mdt->mdt_identity_cache, idp.u.idp_2x->idd_err,
+                                   idp.u.idp_2x->idd_uid, &idp);
+
+        EXIT;
 
 out:
-        if (param && (param != &sparam))
-                OBD_FREE(param, size);
+        if (idp.u.idp_2x != NULL)
+                OBD_FREE(idp.u.idp_2x, count);
 
-        return rc ?: count;
+        return rc < 0 ? rc : count;
 }
 
 /* for debug only */

@@ -379,6 +379,16 @@ struct perm_downcall_data {
         __u32 pdd_perm;
 };
 
+/* for b1_8 utils */
+struct mds_grp_downcall_data {
+        __u32           mgd_magic;
+        __u32           mgd_err;
+        __u32           mgd_uid;
+        __u32           mgd_gid;
+        __u32           mgd_ngroups;
+        __u32           mgd_groups[0];
+};
+
 struct identity_downcall_data {
         __u32                            idd_magic;
         __u32                            idd_err;
@@ -388,6 +398,14 @@ struct identity_downcall_data {
         struct perm_downcall_data idd_perms[N_PERMS_MAX];
         __u32                            idd_ngroups;
         __u32                            idd_groups[0];
+};
+
+struct identity_downcall_param {
+        union {
+                struct identity_downcall_data *idp_2x;
+                struct mds_grp_downcall_data *idp_18;
+        } u;
+        int is_18;
 };
 
 /* for non-mapped uid/gid */
