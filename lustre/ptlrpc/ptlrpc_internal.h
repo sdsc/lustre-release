@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
@@ -46,6 +49,9 @@ struct obd_import;
 struct ldlm_res_id;
 struct ptlrpc_request_set;
 extern int test_req_buffer_pressure;
+
+/* ptlrpcd.c */
+int ptlrpcd_start(int index, int max, const char *name, struct ptlrpcd_ctl *pc);
 
 /* client.c */
 void ptlrpc_init_xid(void);
