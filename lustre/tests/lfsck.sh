@@ -18,6 +18,8 @@ OBJGRP=${OBJGRP:-0} # the OST object group
 [ -d "$SHARED_DIRECTORY" ] || \
     { skip "SHARED_DIRECTORY should be specified with a shared directory \
 which can be accessable on all of the nodes" && exit 0; }
+export MDSDB=${$SHARED_DIRECTORY/mdsdb}
+export OSTDB=${$SHARED_DIRECTORY/ostdb}
 
 which getfattr &>/dev/null || { skip_env "could not find getfattr" && exit 0; }
 which setfattr &>/dev/null || { skip_env "could not find setfattr" && exit 0; }
