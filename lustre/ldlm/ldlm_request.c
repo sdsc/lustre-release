@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
@@ -1148,7 +1151,7 @@ int ldlm_cli_cancel_req(struct obd_export *exp, cfs_list_t *cancels,
 
                 ptlrpc_request_set_replen(req);
                 if (flags & LCF_ASYNC) {
-                        ptlrpcd_add_req(req, PSCOPE_OTHER);
+                        ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
                         sent = count;
                         GOTO(out, 0);
                 } else {
@@ -2139,7 +2142,7 @@ static int replay_one_lock(struct obd_import *imp, struct ldlm_lock *lock)
         aa = ptlrpc_req_async_args(req);
         aa->lock_handle = body->lock_handle[0];
         req->rq_interpret_reply = (ptlrpc_interpterer_t)replay_lock_interpret;
-        ptlrpcd_add_req(req, PSCOPE_OTHER);
+        ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
 
         RETURN(0);
 }
