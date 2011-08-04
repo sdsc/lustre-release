@@ -46,6 +46,8 @@ remote_ost_nodsh && skip "remote OST with nodsh" && exit 0
 
 check_timeout || exit 1
 
+check_shared_dir()
+
 [[ $FAILURE_MODE = SOFT ]] && \
     log "WARNING: $0 is not functional with FAILURE_MODE = SOFT, bz22797"
 

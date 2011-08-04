@@ -42,6 +42,8 @@ LOAD_PID_FILE=${LOAD_PID_FILE:-$TMP/client-load.pid}
 remote_mds_nodsh && skip "remote MDS with nodsh" && exit 0
 remote_ost_nodsh && skip "remote OST with nodsh" && exit 0
 
+check_shared_dir()
+
 build_test_filter
 
 check_and_setup_lustre
