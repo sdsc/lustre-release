@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
@@ -1237,6 +1240,10 @@ struct ptlrpcd_ctl {
          * Environment for request interpreters to run in.
          */
         struct lu_env               pc_env;
+        /**
+         * On which CPU the thread is bonud.
+         */
+        int                         pc_cpuindex;
 #ifndef __KERNEL__
         /**
          * Async rpcs flag to make sure that ptlrpcd_check() is called only
@@ -1825,25 +1832,9 @@ int ptlrpc_check_and_wait_suspend(struct ptlrpc_request *req);
 /** @} */
 
 /* ptlrpc/ptlrpcd.c */
-
-/**
- * Ptlrpcd scope is a set of two threads: ptlrpcd-foo and ptlrpcd-foo-rcv,
- * these threads are used to asynchronously send requests queued with
- * ptlrpcd_add_req(req, PCSOPE_FOO), and to handle completion call-backs for
- * such requests. Multiple scopes are needed to avoid dead-locks.
- */
-enum ptlrpcd_scope {
-        /** Scope of bulk read-write rpcs. */
-        PSCOPE_BRW,
-        /** Everything else. */
-        PSCOPE_OTHER,
-        PSCOPE_NR
-};
-
-int ptlrpcd_start(const char *name, struct ptlrpcd_ctl *pc);
 void ptlrpcd_stop(struct ptlrpcd_ctl *pc, int force);
 void ptlrpcd_wake(struct ptlrpc_request *req);
-int ptlrpcd_add_req(struct ptlrpc_request *req, enum ptlrpcd_scope scope);
+int ptlrpcd_add_req(struct ptlrpc_request *req);
 void ptlrpcd_add_rqset(struct ptlrpc_request_set *set);
 int ptlrpcd_addref(void);
 void ptlrpcd_decref(void);

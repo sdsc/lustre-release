@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
@@ -71,41 +74,20 @@
 #include <cl_object.h> /* cl_env_{get,put}() */
 #include <lprocfs_status.h>
 
-enum pscope_thread {
-        PT_NORMAL,
-        PT_RECOVERY,
-        PT_NR
+struct ptlrpcd {
+        int                pd_size;
+        int                pd_index;
+        int                pd_nthreads;
+        struct ptlrpcd_ctl pd_threads[0];
 };
 
-struct ptlrpcd_scope_ctl {
-        struct ptlrpcd_thread {
-                const char        *pt_name;
-                struct ptlrpcd_ctl pt_ctl;
-        } pscope_thread[PT_NR];
-};
-
-static struct ptlrpcd_scope_ctl ptlrpcd_scopes[PSCOPE_NR] = {
-        [PSCOPE_BRW] = {
-                .pscope_thread = {
-                        [PT_NORMAL] = {
-                                .pt_name = "ptlrpcd-brw"
-                        },
-                        [PT_RECOVERY] = {
-                                .pt_name = "ptlrpcd-brw-rcv"
-                        }
-                }
-        },
-        [PSCOPE_OTHER] = {
-                .pscope_thread = {
-                        [PT_NORMAL] = {
-                                .pt_name = "ptlrpcd"
-                        },
-                        [PT_RECOVERY] = {
-                                .pt_name = "ptlrpcd-rcv"
-                        }
-                }
-        }
-};
+static int max_ptlrpcds = 0;
+CFS_MODULE_PARM(max_ptlrpcds, "i", int, 0644,
+                "Max ptlrpcd thread count to be started.");
+static struct ptlrpcd *ptlrpcds = NULL;
+#ifndef __KERNEL__
+static struct ptlrpcd_ctl *ptlrpcd_rcv = NULL;
+#endif
 
 cfs_semaphore_t ptlrpcd_sem;
 static int ptlrpcd_users = 0;
@@ -135,7 +117,7 @@ void ptlrpcd_add_rqset(struct ptlrpc_request_set *set)
                 LASSERT(req->rq_phase == RQ_PHASE_NEW);
                 cfs_list_del_init(&req->rq_set_chain);
                 req->rq_set = NULL;
-                ptlrpcd_add_req(req, PSCOPE_OTHER);
+                ptlrpcd_add_req(req);
                 cfs_atomic_dec(&set->set_remaining);
         }
         LASSERT(cfs_atomic_read(&set->set_remaining) == 0);
@@ -146,14 +128,11 @@ EXPORT_SYMBOL(ptlrpcd_add_rqset);
  * Requests that are added to the ptlrpcd queue are sent via
  * ptlrpcd_check->ptlrpc_check_set().
  */
-int ptlrpcd_add_req(struct ptlrpc_request *req, enum ptlrpcd_scope scope)
+int ptlrpcd_add_req(struct ptlrpc_request *req)
 {
-        struct ptlrpcd_ctl *pc;
-        enum pscope_thread  pt;
+        struct ptlrpcd_ctl *pc = NULL;
         int rc;
 
-        LASSERT(scope < PSCOPE_NR);
-        
         cfs_spin_lock(&req->rq_lock);
         if (req->rq_invalid_rqset) {
                 cfs_duration_t timeout;
@@ -174,19 +153,31 @@ int ptlrpcd_add_req(struct ptlrpc_request *req, enum ptlrpcd_scope scope)
                 cfs_spin_unlock(&req->rq_lock);
 
                 cfs_waitq_signal(&req->rq_set->set_waitq);
+                return 0;
         } else {
                 cfs_spin_unlock(&req->rq_lock);
         }
 
-        pt = req->rq_send_state == LUSTRE_IMP_FULL ? PT_NORMAL : PT_RECOVERY;
-        pc = &ptlrpcd_scopes[scope].pscope_thread[pt].pt_ctl;
+#ifndef __KERNEL__
+        if (req->rq_send_state != LUSTRE_IMP_FULL)
+                pc = ptlrpcd_rcv;
+#endif
+        if (pc == NULL) {
+                int idx = ptlrpcds->pd_index;
+
+idx =0;
+                /* We do not care whether it is strict load balance. */
+                if (idx >= ptlrpcds->pd_nthreads - 1)
+                        ptlrpcds->pd_index = 0;
+                else
+                        ptlrpcds->pd_index = idx + 1;
+                pc = &ptlrpcds->pd_threads[idx];
+        }
+
         rc = ptlrpc_set_add_new_req(pc, req);
-        /*
-         * XXX disable this for CLIO: environment is needed for interpreter.
-         *     add debug temporary to check rc.
-         */
-        LASSERTF(rc == 0, "ptlrpcd_add_req failed (rc = %d)\n", rc);
-        if (rc && 0) {
+        if (unlikely(rc)) {
+                struct lu_env env = { .le_ses = NULL };
+
                 /*
                  * Thread is probably in stop now so we need to
                  * kill this rpc as it was not added. Let's call
@@ -194,14 +185,26 @@ int ptlrpcd_add_req(struct ptlrpc_request *req, enum ptlrpcd_scope scope)
                  * so that higher levels might free associated
                  * resources.
                  */
-                ptlrpc_req_interpret(NULL, req, -EBADR);
-                req->rq_set = NULL;
-                ptlrpc_req_finished(req);
-        } else if (req->rq_send_state == LUSTRE_IMP_CONNECTING) {
-                /*
-                 * The request is for recovery, should be sent ASAP.
-                 */
-                cfs_waitq_signal(&pc->pc_set->set_waitq);
+
+                rc = lu_context_init(&env.le_ctx,
+                             LCT_CL_THREAD|LCT_REMEMBER|LCT_NOREF);
+                if (rc == 0) {
+                        env.le_ctx.lc_cookie = 0x7;
+                        lu_context_enter(&env.le_ctx);
+                        ptlrpc_req_interpret(&env, req, -EBADR);
+                        lu_context_exit(&env.le_ctx);
+                        lu_context_fini(&env.le_ctx);
+
+                        req->rq_set = NULL;
+                        ptlrpc_req_finished(req);
+                } else {
+                        /*
+                         * If code come here, we cannot process such req.
+                         * The caller should process the failure.
+                         */
+                        DEBUG_REQ(D_ERROR, req,
+                                  "ptlrpcd_add_req failed with %d", rc);
+                }
         }
 
         return rc;
@@ -275,17 +278,19 @@ static int ptlrpcd(void *arg)
         int rc, exit = 0;
         ENTRY;
 
-        rc = cfs_daemonize_ctxt(pc->pc_name);
-        if (rc == 0) {
-                /*
-                 * XXX So far only "client" ptlrpcd uses an environment. In
-                 * the future, ptlrpcd thread (or a thread-set) has to given
-                 * an argument, describing its "scope".
-                 */
-                rc = lu_context_init(&env.le_ctx,
-                                     LCT_CL_THREAD|LCT_REMEMBER|LCT_NOREF);
-        }
-
+        cfs_daemonize_ctxt(pc->pc_name);
+#if defined(CONFIG_SMP) && defined(HAVE_NODE_TO_CPUMASK)
+        if (pc->pc_cpuindex >= 0 && pc->pc_cpuindex < cfs_num_possible_cpus())
+                cfs_set_cpus_allowed(cfs_current(),
+                                node_to_cpumask(cpu_to_node(pc->pc_cpuindex)));
+#endif
+        /*
+         * XXX So far only "client" ptlrpcd uses an environment. In
+         * the future, ptlrpcd thread (or a thread-set) has to given
+         * an argument, describing its "scope".
+         */
+        rc = lu_context_init(&env.le_ctx,
+                             LCT_CL_THREAD|LCT_REMEMBER|LCT_NOREF);
         cfs_complete(&pc->pc_starting);
 
         if (rc != 0)
@@ -378,7 +383,6 @@ int ptlrpcd_check_async_rpcs(void *arg)
                 if (rc == 0) {
                         lu_context_enter(&pc->pc_env.le_ctx);
                         rc = ptlrpcd_check(&pc->pc_env, pc);
-                        lu_context_exit(&pc->pc_env.le_ctx);
                         if (!rc)
                                 ptlrpc_expired_set(pc->pc_set);
                         /*
@@ -386,6 +390,7 @@ int ptlrpcd_check_async_rpcs(void *arg)
                          */
                         if (cfs_test_bit(LIOD_RECOVERY, &pc->pc_flags))
                                 rc = ptlrpcd_check(&pc->pc_env, pc);
+                        lu_context_exit(&pc->pc_env.le_ctx);
                 }
         }
 
@@ -403,7 +408,7 @@ int ptlrpcd_idle(void *arg)
 
 #endif
 
-int ptlrpcd_start(const char *name, struct ptlrpcd_ctl *pc)
+int ptlrpcd_start(int index, const char *name, struct ptlrpcd_ctl *pc)
 {
         int rc;
         ENTRY;
@@ -412,11 +417,20 @@ int ptlrpcd_start(const char *name, struct ptlrpcd_ctl *pc)
          * Do not allow start second thread for one pc.
          */
         if (cfs_test_and_set_bit(LIOD_START, &pc->pc_flags)) {
-                CERROR("Starting second thread (%s) for same pc %p\n",
+                CWARN("Starting second thread (%s) for same pc %p\n",
                        name, pc);
-                RETURN(-EALREADY);
+                RETURN(0);
         }
 
+#if defined(CONFIG_SMP) && defined(HAVE_NODE_TO_CPUMASK)
+        if (index >= 0 && index < cfs_num_possible_cpus()) {
+                while(!cfs_cpu_online(index)) {
+                        if (++index >= cfs_num_possible_cpus())
+                                index = 0;
+                }
+        }
+#endif
+        pc->pc_cpuindex = index;
         cfs_init_completion(&pc->pc_starting);
         cfs_init_completion(&pc->pc_finishing);
         cfs_spin_lock_init(&pc->pc_lock);
@@ -460,9 +474,11 @@ out:
 
 void ptlrpcd_stop(struct ptlrpcd_ctl *pc, int force)
 {
+        ENTRY;
+
         if (!cfs_test_bit(LIOD_START, &pc->pc_flags)) {
-                CERROR("Thread for pc %p was not started\n", pc);
-                return;
+                CWARN("Thread for pc %p was not started\n", pc);
+                RETURN_EXIT;
         }
 
         cfs_set_bit(LIOD_STOP, &pc->pc_flags);
@@ -477,54 +493,95 @@ void ptlrpcd_stop(struct ptlrpcd_ctl *pc, int force)
 #endif
         lu_context_fini(&pc->pc_env.le_ctx);
         ptlrpc_set_destroy(pc->pc_set);
+        EXIT;
 }
 
-void ptlrpcd_fini(void)
+static void ptlrpcd_fini(void)
 {
         int i;
-        int j;
-
         ENTRY;
 
-        for (i = 0; i < PSCOPE_NR; ++i) {
-                for (j = 0; j < PT_NR; ++j) {
-                        struct ptlrpcd_ctl *pc;
-
-                        pc = &ptlrpcd_scopes[i].pscope_thread[j].pt_ctl;
-
-                        if (cfs_test_bit(LIOD_START, &pc->pc_flags))
-                                ptlrpcd_stop(pc, 0);
-                }
+        if (ptlrpcds != NULL) {
+                for (i = 0; i < ptlrpcds->pd_nthreads; i++)
+                        ptlrpcd_stop(&ptlrpcds->pd_threads[i], 0);
+                OBD_FREE(ptlrpcds, ptlrpcds->pd_size);
+                ptlrpcds = NULL;
         }
+
+#ifndef __KERNEL__
+        if (ptlrpcd_rcv != NULL) {
+                ptlrpcd_stop(ptlrpcd_rcv, 0);
+                OBD_FREE_PTR(ptlrpcd_rcv);
+                ptlrpcd_rcv = NULL;
+        }
+#endif
         EXIT;
+}
+
+static int ptlrpcd_init(void)
+{
+        int nthreads = cfs_num_online_cpus();
+        char name[16];
+        int size, i, j, rc = 0;
+        ENTRY;
+
+        LASSERT(ptlrpcds == NULL);
+
+        if (max_ptlrpcds > 0 && max_ptlrpcds < nthreads)
+                nthreads = max_ptlrpcds;
+        if (nthreads < 2)
+                nthreads = 2;
+
+        size = offsetof(struct ptlrpcd, pd_threads[nthreads]);
+        OBD_ALLOC(ptlrpcds, size);
+        if (ptlrpcds == NULL)
+                RETURN(-ENOMEM);
+
+        for (i = 0; i < nthreads; i++) {
+                snprintf(name, 15, "ptlrpcd_%d", i);
+                rc = ptlrpcd_start(i, name, &ptlrpcds->pd_threads[i]);
+                if (rc < 0)
+                        break;
+        }
+
+        if (rc < 0) {
+                for (j = 0; j < i; j++)
+                        ptlrpcd_stop(&ptlrpcds->pd_threads[j], 0);
+                OBD_FREE(ptlrpcds, size);
+                ptlrpcds = NULL;
+        } else {
+                ptlrpcds->pd_size = size;
+                ptlrpcds->pd_index = 0;
+                ptlrpcds->pd_nthreads = nthreads;
+
+#ifndef __KERNEL__
+                LASSERT(ptlrpcd_rcv == NULL);
+
+                OBD_ALLOC_PTR(ptlrpcd_rcv);
+                if (ptlrpcd_rcv == NULL) {
+                        ptlrpcd_fini();
+                        RETURN(-ENOMEM);
+                }
+
+                cfs_set_bit(LIOD_RECOVERY, &ptlrpcd_rcv->pc_flags);
+                snprintf(name, 15, "ptlrpcd_rcv");
+                rc = ptlrpcd_start(-1, name, ptlrpcd_rcv);
+                if (rc < 0)
+                        ptlrpcd_fini();
+#endif
+        }
+
+        RETURN(rc);
 }
 
 int ptlrpcd_addref(void)
 {
         int rc = 0;
-        int i;
-        int j;
         ENTRY;
 
         cfs_mutex_down(&ptlrpcd_sem);
-        if (++ptlrpcd_users == 1) {
-                for (i = 0; rc == 0 && i < PSCOPE_NR; ++i) {
-                        for (j = 0; rc == 0 && j < PT_NR; ++j) {
-                                struct ptlrpcd_thread *pt;
-                                struct ptlrpcd_ctl    *pc;
-
-                                pt = &ptlrpcd_scopes[i].pscope_thread[j];
-                                pc = &pt->pt_ctl;
-                                if (j == PT_RECOVERY)
-                                        cfs_set_bit(LIOD_RECOVERY, &pc->pc_flags);
-                                rc = ptlrpcd_start(pt->pt_name, pc);
-                        }
-                }
-                if (rc != 0) {
-                        --ptlrpcd_users;
-                        ptlrpcd_fini();
-                }
-        }
+        if (++ptlrpcd_users == 1)
+                rc = ptlrpcd_init();
         cfs_mutex_up(&ptlrpcd_sem);
         RETURN(rc);
 }

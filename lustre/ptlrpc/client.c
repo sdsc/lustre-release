@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
@@ -993,6 +996,8 @@ int ptlrpc_set_add_new_req(struct ptlrpcd_ctl *pc,
                            struct ptlrpc_request *req)
 {
         struct ptlrpc_request_set *set = pc->pc_set;
+
+        LASSERT(req->rq_set == NULL);
 
         /*
          * Let caller know that we stopped and will not handle this request.
@@ -2625,7 +2630,7 @@ int ptlrpc_replay_req(struct ptlrpc_request *req)
         cfs_atomic_inc(&req->rq_import->imp_replay_inflight);
         ptlrpc_request_addref(req); /* ptlrpcd needs a ref */
 
-        ptlrpcd_add_req(req, PSCOPE_OTHER);
+        ptlrpcd_add_req(req);
         RETURN(0);
 }
 

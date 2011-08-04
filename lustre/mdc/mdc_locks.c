@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
@@ -1062,7 +1065,7 @@ int mdc_intent_getattr_async(struct obd_export *exp,
         ga->ga_einfo = einfo;
 
         req->rq_interpret_reply = mdc_intent_getattr_async_interpret;
-        ptlrpcd_add_req(req, PSCOPE_OTHER);
+        ptlrpcd_add_req(req);
 
         RETURN(0);
 }

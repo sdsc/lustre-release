@@ -403,7 +403,7 @@ int osc_setattr_async_base(struct obd_export *exp, struct obd_info *oinfo,
         /* do mds to ost setattr asynchronously */
         if (!rqset) {
                 /* Do not wait for response. */
-                ptlrpcd_add_req(req, PSCOPE_OTHER);
+                ptlrpcd_add_req(req);
         } else {
                 req->rq_interpret_reply =
                         (ptlrpc_interpterer_t)osc_setattr_interpret;
@@ -415,7 +415,7 @@ int osc_setattr_async_base(struct obd_export *exp, struct obd_info *oinfo,
                 sa->sa_cookie = cookie;
 
                 if (rqset == PTLRPCD_SET)
-                        ptlrpcd_add_req(req, PSCOPE_OTHER);
+                        ptlrpcd_add_req(req);
                 else
                         ptlrpc_set_add_req(rqset, req);
         }
@@ -554,7 +554,7 @@ int osc_punch_base(struct obd_export *exp, struct obd_info *oinfo,
         sa->sa_upcall = upcall;
         sa->sa_cookie = cookie;
         if (rqset == PTLRPCD_SET)
-                ptlrpcd_add_req(req, PSCOPE_OTHER);
+                ptlrpcd_add_req(req);
         else
                 ptlrpc_set_add_req(rqset, req);
 
@@ -768,7 +768,7 @@ static int osc_destroy(struct obd_export *exp, struct obdo *oa,
         }
 
         /* Do not wait for response */
-        ptlrpcd_add_req(req, PSCOPE_OTHER);
+        ptlrpcd_add_req(req);
         RETURN(0);
 }
 
@@ -2675,7 +2675,7 @@ osc_send_oap_rpc(const struct lu_env *env, struct client_obd *cli,
                   page_count, aa, cli->cl_r_in_flight, cli->cl_w_in_flight);
 
         req->rq_interpret_reply = brw_interpret;
-        ptlrpcd_add_req(req, PSCOPE_BRW);
+        ptlrpcd_add_req(req);
         RETURN(1);
 }
 
@@ -3456,7 +3456,7 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
                         req->rq_interpret_reply =
                                 (ptlrpc_interpterer_t)osc_enqueue_interpret;
                         if (rqset == PTLRPCD_SET)
-                                ptlrpcd_add_req(req, PSCOPE_OTHER);
+                                ptlrpcd_add_req(req);
                         else
                                 ptlrpc_set_add_req(rqset, req);
                 } else if (intent) {
@@ -4149,7 +4149,7 @@ static int osc_set_info_async(struct obd_export *exp, obd_count keylen,
                 ptlrpc_set_add_req(set, req);
                 ptlrpc_check_set(NULL, set);
         } else
-                ptlrpcd_add_req(req, PSCOPE_OTHER);
+                ptlrpcd_add_req(req);
 
         RETURN(0);
 }
