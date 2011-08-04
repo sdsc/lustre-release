@@ -2639,24 +2639,37 @@ run_e2fsck() {
     return 0
 }
 
-# Run e2fsck on MDT and OST(s) to generate databases used for lfsck.
-generate_db() {
-    local i
-    local ostidx
-    local dev
+# verify a directory is shared between nodes.
+check_shared_dir() {
     local tmp_file
 
-    [ $MDSCOUNT -eq 1 ] || error "CMD is not supported"
-    tmp_file=$(mktemp -p $SHARED_DIRECTORY || 
-        error "fail to create file in $SHARED_DIRECTORY")
+    [ "x$1" = "x" ] && error "<$1> is a invalid directory"
+
+    tmp_file=$(mktemp -p $1 || 
+        error "fail to create file in $1")
 
     # make sure everything gets to the backing store
     local list=$(comma_list $CLIENTS $(facet_host $SINGLEMDS) $(osts_nodes))
     do_nodes $list "sync; sleep 2; sync"
 
     do_nodes $list ls $tmp_file || \
-        error "$SHARED_DIRECTORY is not a shared directory"
+        error "$1 is not a shared directory"
     rm $tmp_file
+    return 0
+}
+
+# Run e2fsck on MDT and OST(s) to generate databases used for lfsck.
+generate_db() {
+    local i
+    local ostidx
+    local dev
+
+    check_shared_dir $SHARED_DIRECTORY
+
+    export MDSDB=$SHARED_DIRECTORY/mdsdb
+    export OSTDB=$SHARED_DIRECTORY/ostdb
+
+    [ $MDSCOUNT -eq 1 ] || error "CMD is not supported"
 
     run_e2fsck $(mdts_nodes) $MDTDEV "--mdsdb $MDSDB"
 
