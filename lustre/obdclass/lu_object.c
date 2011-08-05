@@ -758,12 +758,23 @@ enum {
 };
 
 /**
+ * Initialize site \a s, with \a d as the top level device.
+ */
+#define LU_SITE_BITS_MIN    12
+#define LU_SITE_BITS_MAX    23
+
+/**
  * Return desired hash table order.
  */
-static int lu_htable_order(void)
+static int lu_htable_order(int type)
 {
         unsigned long cache_size;
-        int bits;
+        int bits = LU_SITE_BITS_MIN;
+
+        LASSERT(type == LU_SITE_CLIENT || type == LU_SITE_SERVER);
+
+        if (type == LU_SITE_CLIENT)
+                return bits;
 
         /*
          * Calculate hash table size, assuming that we want reasonable
@@ -783,9 +794,9 @@ static int lu_htable_order(void)
         cache_size = cache_size / 100 * LU_CACHE_PERCENT *
                 (CFS_PAGE_SIZE / 1024);
 
-        for (bits = 1; (1 << bits) < cache_size; ++bits) {
+        for (; (1 << bits) < cache_size && bits < LU_SITE_BITS_MAX; ++bits)
                 ;
-        }
+
         return bits;
 }
 
@@ -851,18 +862,13 @@ cfs_hash_ops_t lu_site_hash_ops = {
 };
 
 /**
- * Initialize site \a s, with \a d as the top level device.
- */
-#define LU_SITE_BITS_MIN    12
-#define LU_SITE_BITS_MAX    23
-/**
  * total 128 buckets, we don't want too many buckets because:
  * - consume too much memory
  * - avoid unbalanced LRU list
  */
 #define LU_SITE_BKT_BITS    7
 
-int lu_site_init(struct lu_site *s, struct lu_device *top)
+int lu_site_init(struct lu_site *s, struct lu_device *top, int type)
 {
         struct lu_site_bkt_data *bkt;
         cfs_hash_bd_t bd;
@@ -871,9 +877,9 @@ int lu_site_init(struct lu_site *s, struct lu_device *top)
         ENTRY;
 
         memset(s, 0, sizeof *s);
-        bits = lu_htable_order();
-        for (bits = min(max(LU_SITE_BITS_MIN, bits), LU_SITE_BITS_MAX);
-             bits >= LU_SITE_BITS_MIN; bits--) {
+        bits = lu_htable_order(type);
+        LASSERT(bits >= LU_SITE_BITS_MIN && bits <= LU_SITE_BITS_MAX);
+        for (bits = LU_SITE_BITS_MAX; bits >= LU_SITE_BITS_MIN; bits--) {
                 s->ls_obj_hash = cfs_hash_create("lu_site", bits, bits,
                                                  bits - LU_SITE_BKT_BITS,
                                                  sizeof(*bkt), 0, 0,
