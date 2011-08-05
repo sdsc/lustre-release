@@ -753,42 +753,6 @@ void lu_site_print(const struct lu_env *env, struct lu_site *s, void *cookie,
 }
 EXPORT_SYMBOL(lu_site_print);
 
-enum {
-        LU_CACHE_PERCENT   = 20,
-};
-
-/**
- * Return desired hash table order.
- */
-static int lu_htable_order(void)
-{
-        unsigned long cache_size;
-        int bits;
-
-        /*
-         * Calculate hash table size, assuming that we want reasonable
-         * performance when 20% of total memory is occupied by cache of
-         * lu_objects.
-         *
-         * Size of lu_object is (arbitrary) taken as 1K (together with inode).
-         */
-        cache_size = cfs_num_physpages;
-
-#if BITS_PER_LONG == 32
-        /* limit hashtable size for lowmem systems to low RAM */
-        if (cache_size > 1 << (30 - CFS_PAGE_SHIFT))
-                cache_size = 1 << (30 - CFS_PAGE_SHIFT) * 3 / 4;
-#endif
-
-        cache_size = cache_size / 100 * LU_CACHE_PERCENT *
-                (CFS_PAGE_SIZE / 1024);
-
-        for (bits = 1; (1 << bits) < cache_size; ++bits) {
-                ;
-        }
-        return bits;
-}
-
 static unsigned lu_obj_hop_hash(cfs_hash_t *hs,
                                 const void *key, unsigned mask)
 {
@@ -862,18 +826,20 @@ cfs_hash_ops_t lu_site_hash_ops = {
  */
 #define LU_SITE_BKT_BITS    7
 
-int lu_site_init(struct lu_site *s, struct lu_device *top)
+int lu_site_init(struct lu_site *s, struct lu_device *top, int where)
 {
         struct lu_site_bkt_data *bkt;
         cfs_hash_bd_t bd;
-        int bits;
+        int bits = LU_SITE_BITS_MIN;
         int i;
         ENTRY;
 
         memset(s, 0, sizeof *s);
-        bits = lu_htable_order();
-        for (bits = min(max(LU_SITE_BITS_MIN, bits), LU_SITE_BITS_MAX);
-             bits >= LU_SITE_BITS_MIN; bits--) {
+
+        LASSERT(where == LU_SITE_CLIENT || where == LU_SITE_SERVER);
+        if (where == LU_SITE_SERVER)
+                bits = LU_SITE_BITS_MAX;
+        for (; bits >= LU_SITE_BITS_MIN; bits--) {
                 s->ls_obj_hash = cfs_hash_create("lu_site", bits, bits,
                                                  bits - LU_SITE_BKT_BITS,
                                                  sizeof(*bkt), 0, 0,

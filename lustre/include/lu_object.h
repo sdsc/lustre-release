@@ -636,7 +636,12 @@ lu_site_bkt_from_fid(struct lu_site *site, struct lu_fid *fid)
  * @{
  */
 
-int  lu_site_init         (struct lu_site *s, struct lu_device *d);
+enum {
+        LU_SITE_CLIENT = 0,
+        LU_SITE_SERVER = 1
+};
+
+int  lu_site_init         (struct lu_site *s, struct lu_device *d, int where);
 void lu_site_fini         (struct lu_site *s);
 int  lu_site_init_finish  (struct lu_site *s);
 void lu_stack_fini        (const struct lu_env *env, struct lu_device *top);
