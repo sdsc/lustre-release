@@ -431,7 +431,7 @@ int cl_site_init(struct cl_site *s, struct cl_device *d)
         int i;
         int result;
 
-        result = lu_site_init(&s->cs_lu, &d->cd_lu_dev);
+        result = lu_site_init(&s->cs_lu, &d->cd_lu_dev, LU_SITE_CLIENT);
         if (result == 0) {
                 cache_stats_init(&s->cs_pages, "pages");
                 cache_stats_init(&s->cs_locks, "locks");
