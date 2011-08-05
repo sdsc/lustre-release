@@ -4540,7 +4540,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         /* set this lu_device to obd, because error handling need it */
         obd->obd_lu_dev = &m->mdt_md_dev.md_lu_dev;
 
-        rc = lu_site_init(s, &m->mdt_md_dev.md_lu_dev);
+        rc = lu_site_init(s, &m->mdt_md_dev.md_lu_dev, LU_SITE_SERVER);
         if (rc) {
                 CERROR("Can't init lu_site, rc %d\n", rc);
                 GOTO(err_free_site, rc);
