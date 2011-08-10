@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
@@ -57,7 +60,6 @@
 
 #define DEBUG_SUBSYSTEM S_LLITE
 
-//#include <lustre_mdc.h>
 #include <lustre_lite.h>
 #include "llite_internal.h"
 #include <linux/lustre_compat25.h>

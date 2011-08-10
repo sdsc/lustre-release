@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
@@ -2681,6 +2684,7 @@ EXPORT_SYMBOL(ldlm_lock_put);
 EXPORT_SYMBOL(ldlm_lock_match);
 EXPORT_SYMBOL(ldlm_lock_cancel);
 EXPORT_SYMBOL(ldlm_lock_addref);
+EXPORT_SYMBOL(ldlm_lock_addref_nolock);
 EXPORT_SYMBOL(ldlm_lock_addref_try);
 EXPORT_SYMBOL(ldlm_lock_decref);
 EXPORT_SYMBOL(ldlm_lock_decref_and_cancel);

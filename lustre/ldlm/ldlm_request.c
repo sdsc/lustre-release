@@ -410,7 +410,7 @@ int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
 
         /* NB: we don't have any lock now (lock_res_and_lock)
          * because it's a new lock */
-        ldlm_lock_addref_internal_nolock(lock, mode);
+        ldlm_lock_addref_nolock(lock, mode);
         lock->l_flags |= LDLM_FL_LOCAL;
         if (*flags & LDLM_FL_ATOMIC_CB)
                 lock->l_flags |= LDLM_FL_ATOMIC_CB;
