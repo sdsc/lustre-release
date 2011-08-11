@@ -1763,7 +1763,8 @@ void lustre_swab_mdt_body (struct mdt_body *b)
         __swab32s (&b->max_cookiesize);
         __swab32s (&b->uid_h);
         __swab32s (&b->gid_h);
-        CLASSERT(offsetof(typeof(*b), padding_5) != 0);
+        __swab32s (&b->defaclsize);
+        CLASSERT(offsetof(typeof(*b), padding_6) != 0);
 }
 
 void lustre_swab_mdt_ioepoch (struct mdt_ioepoch *b)
