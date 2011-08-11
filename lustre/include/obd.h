@@ -1450,6 +1450,7 @@ struct lustre_md {
         struct lmv_stripe_md    *mea;
 #ifdef CONFIG_FS_POSIX_ACL
         struct posix_acl        *posix_acl;
+        struct posix_acl        *def_acl;
 #endif
         struct mdt_remote_perm  *remote_perm;
         struct obd_capa         *mds_capa;

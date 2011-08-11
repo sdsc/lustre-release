@@ -1394,6 +1394,8 @@ struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
 #define OBD_MD_FLRMTRSETFACL    (0x0004000000000000ULL) /* lfs rsetfacl case */
 #define OBD_MD_FLRMTRGETFACL    (0x0008000000000000ULL) /* lfs rgetfacl case */
 
+#define OBD_MD_FLDEFACL    (0x0010000000000000ULL) /* default ACL */
+
 #define OBD_MD_FLGETATTR (OBD_MD_FLID    | OBD_MD_FLATIME | OBD_MD_FLMTIME | \
                           OBD_MD_FLCTIME | OBD_MD_FLSIZE  | OBD_MD_FLBLKSZ | \
                           OBD_MD_FLMODE  | OBD_MD_FLTYPE  | OBD_MD_FLUID   | \
@@ -1693,7 +1695,7 @@ struct mdt_body {
         __u32          max_cookiesize;
         __u32          uid_h; /* high 32-bits of uid, for FUID */
         __u32          gid_h; /* high 32-bits of gid, for FUID */
-        __u32          padding_5; /* also fix lustre_swab_mdt_body */
+        __u32          defaclsize;
         __u64          padding_6;
         __u64          padding_7;
         __u64          padding_8;

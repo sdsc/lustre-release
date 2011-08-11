@@ -382,6 +382,7 @@ static const struct req_msg_field *ldlm_intent_getattr_server[] = {
         &RMF_MDT_BODY,
         &RMF_MDT_MD,
         &RMF_ACL,
+        &RMF_DEFACL,
         &RMF_CAPA1
 };
 
@@ -434,6 +435,7 @@ static const struct req_msg_field *mds_getattr_server[] = {
         &RMF_MDT_BODY,
         &RMF_MDT_MD,
         &RMF_ACL,
+        &RMF_DEFACL,
         &RMF_CAPA1,
         &RMF_CAPA2
 };
@@ -442,7 +444,6 @@ static const struct req_msg_field *mds_setattr_server[] = {
         &RMF_PTLRPC_BODY,
         &RMF_MDT_BODY,
         &RMF_MDT_MD,
-        &RMF_ACL,
         &RMF_CAPA1,
         &RMF_CAPA2
 };
@@ -875,6 +876,11 @@ struct req_msg_field RMF_ACL =
         DEFINE_MSGF("acl", RMF_F_NO_SIZE_CHECK,
                     LUSTRE_POSIX_ACL_MAX_SIZE, NULL, NULL);
 EXPORT_SYMBOL(RMF_ACL);
+
+struct req_msg_field RMF_DEFACL =
+        DEFINE_MSGF("defacl", RMF_F_NO_SIZE_CHECK,
+                    LUSTRE_POSIX_ACL_MAX_SIZE, NULL, NULL);
+EXPORT_SYMBOL(RMF_DEFACL);
 
 /* FIXME: this should be made to use RMF_F_STRUCT_ARRAY */
 struct req_msg_field RMF_LOGCOOKIES =
