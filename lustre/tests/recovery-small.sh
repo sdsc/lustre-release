@@ -1100,6 +1100,269 @@ test_61()
 }
 run_test 61 "Verify to not reuse orphan objects - bug 17025"
 
+check_cli_ir_state()
+{
+        local NODE=${1:-`hostname`}
+        local st
+        st=$(do_node $NODE "lctl get_param mgc.*.ir_state |grep IR |cut -d: -f2")
+        [ $st != ON -o $st != OFF ] || error "Error state $st, must be ON or OFF"
+        echo -n $st
+}
+
+check_target_ir_state()
+{
+        local target=${1}
+        local name=${target}_svc
+        local st
+
+        st=`do_facet $target "lctl get_param -n obdfilter.${!name}.recovery_status |
+                              grep IR |cut -d' ' -f 2"`
+        [ $st != ON -o $st != OFF ] || error "Error state $st, must be ON or OFF"
+        echo -n $st
+}
+
+set_ir_status()
+{
+        do_facet mgs lctl set_param -n mgs.MGS.live.$FSNAME="status=$1"
+}
+
+get_ir_status()
+{
+        local state=$(do_facet mgs "lctl get_param -n mgs.MGS.live.$FSNAME |
+                                    grep 'state:' |cut -d, -f1 |cut -d: -f2")
+        echo -n $state
+}
+
+nidtbl_version_mgs()
+{
+        do_facet mgs "lctl get_param -n mgs.MGS.live.$FSNAME | \
+                      grep nidtbl |cut -d' ' -f3"
+}
+
+# nidtbl_version_client <mds1|client> [node]
+nidtbl_version_client()
+{
+        local cli=$1
+        local node=${2:-`hostname`}
+
+        if [ X$cli = Xclient ]; then
+                cli=$FSNAME-client
+        else
+                local obdtype=${cli/%[0-9]*/}
+                [ $obdtype != mds ] && error "wrong parameters $cli"
+
+                node=`facet_active_host $cli`
+                local t=${cli}_svc
+                cli=${!t}
+        fi
+
+        local vers=$(do_node $node "lctl get_param -n mgc.*.ir_state | \
+                                    grep $cli |cut -d: -f3 |sort -u")
+
+        # in case there are multiple mounts on the client node
+        local arr=($vers)
+        [ ${#arr[@]} -ne 1 ] && error "versions on client node mismatch"
+        echo -n $vers
+}
+
+nidtbl_versions_match()
+{
+        cli=${1:-client}
+        local server_version=$(nidtbl_version_mgs)
+        local client_version=$(nidtbl_version_client $cli)
+        return `[ $client_version -eq $server_version ]`
+}
+
+target_instance_match()
+{
+        local srv=$1
+        local obdtype
+        local cliname
+
+        obdtype=${srv/%[0-9]*/}
+        case $obdtype in
+        mds)
+                obdname="mdt"
+                cliname="mdc"
+                ;;
+        ost)
+                obdname="obdfilter"
+                cliname="osc"
+                ;;
+        *)
+                error "invalid target type" $srv
+                return 1
+                ;;
+        esac
+
+        local target=${srv}_svc
+        local server_instance=`do_facet $srv lctl get_param -n $obdname.${!target}.instance`
+        local client_instance=`lctl get_param -n $cliname.${!target}-${cliname}-*.import | \
+                               grep instance |head -1 |cut -d : -f 2`
+
+        return `[ $server_instance -eq $client_instance ]`
+}
+
+test_100()
+{
+        # disable IR
+        set_ir_status Disabled
+
+        local saved_FAILURE_MODE=$FAILURE_MODE
+        [ `facet_host mgs` = `facet_host ost1` ] && FAILURE_MODE="SOFT"
+        fail ost1
+
+        # valid check
+        nidtbl_versions_match && error "version must be mismatched since IR disabled"
+        target_instance_match ost1 || error "instance mismatch"
+
+        # restore env
+        set_ir_status Full
+        FAILURE_MODE=$saved_FAILURE_MODE
+}
+run_test 100 "IR: Make sure normal recovery still works w/o IR"
+
+test_101()
+{
+        set_ir_status Full
+
+        # disable pinger recovery
+        lctl set_param -n osc.`get_osc_import_name client ost1`.pinger_recov=0
+
+        fail ost1
+
+        target_instance_match ost1 || error "instance mismatch"
+        nidtbl_versions_match || error "version must match"
+
+        lctl set_param -n osc.`get_osc_import_name client ost1`.pinger_recov=1
+}
+run_test 101 "IR: Make sure IR works w/o normal recovery"
+
+test_102()
+{
+        local clients=${CLIENTS:-`hostname`}
+        local old_version
+        local new_version
+        local mgsdev=mgs
+
+        set_ir_status Full
+
+        # let's have a new nidtbl version
+        fail ost1
+
+        # sleep for a while so that clients can see the failure of ost
+        sleep 5
+
+        nidtbl_versions_match || error "nidtbl version mismatch"
+
+        # get the version #
+        old_version=`nidtbl_version_client client`
+
+        zconf_umount_clients $clients $MOUNT || error "Cannot umount client"
+
+        # restart mgs
+        combined_mgs_mds && mgsdev=mds1
+        remount_facet $mgsdev
+        fail ost1
+
+        zconf_mount_clients $clients $MOUNT || error "Cannot mount client"
+
+        # check new version
+        new_version=`nidtbl_version_client client`
+        [ $new_version -lt $old_version ] && error "nidtbl version wrong after mgs restarts"
+        return 0
+}
+run_test 102 "IR: New client must get up-to-date nidtbl version after MGS restarts"
+
+test_103()
+{
+        combined_mgs_mds && skip "mgs and mds on the same target" && return 0
+
+        # workaround solution to generate config log on the mds
+        remount_facet mds1
+
+        stop mgs
+        stop mds1
+
+        # start mds1 must fail because mgs is down.
+        # We need this test because mds is kinda client in IR context.
+        start mds1 $MDSDEV1 || error "MDS should start w/o mgs"
+
+        # start mgs and remount mds w/ ir
+        start mgs $MGSDEV
+        clients_up
+
+        # remount client so that fsdb will be created on the MGS
+        umount_client $MOUNT || error "umount failed"
+        mount_client $MOUNT || error "mount failed"
+
+        # sleep 10 seconds so the MDS has a chance to detect MGS restarting
+        sleep 10
+
+        # after a while, mds should be able to reconnect to mgs and fetch up-to-date nidtbl version
+        nidtbl_versions_match mds1 || error "instance mismatch"
+
+        # reset everything
+        set_ir_status Full
+}
+run_test 103 "IR: NOIR mount options must work for MDS"
+
+test_104()
+{
+        set_ir_status Full
+        stop ost1
+        start ost1 $OSTDEV1 "-onoir" || error "OST1 cannot start"
+        clients_up
+
+        local ir_state=$(check_target_ir_state ost1)
+        [ $ir_state = "OFF" ] || error "ir status on ost1 should be OFF"
+        ost1_opt=
+}
+run_test 104 "IR: ost can disable IR voluntarily"
+
+test_105()
+{
+        [ -z "$RCLIENTS" ] && { skip "This test needs multiple clients" && return 0; }
+
+        set_ir_status Full
+
+        # get one of the clients from client list
+        rcli=`echo $RCLIENTS |cut -d' ' -f 1`
+
+        local old_MOUNTOPT=$MOUNTOPT
+        MOUNTOPT=${MOUNTOPT},noir
+        zconf_umount $rcli $MOUNT || error "umount failed"
+        zconf_mount $rcli $MOUNT || error "mount failed"
+
+        # make sure lustre mount at $rcli disabling IR
+        local ir_state=$(check_cli_ir_state $rcli)
+        [ $ir_state = OFF ] || error "ir status must be OFF at $rcli"
+
+        # make sure MGS's state is Partial
+        [ `get_ir_status` = "Partial" ] || error "MGS ir status must be Partial"
+
+        fail ost1
+        # make sure IR on ost1 is OFF
+        local ir_state=$(check_target_ir_state ost1)
+        [ $ir_state = "OFF" ] || error "ir status on ost1 should be OFF"
+
+        # restore it
+        MOUNTOPT=$old_MOUNTOPT
+        zconf_umount $rcli $MOUNT || error "umount failed"
+        zconf_mount $rcli $MOUNT || error "mount failed"
+
+        # make sure MGS's state is Full
+        [ `get_ir_status` = "Full" ] || error "MGS ir status must be Partial"
+
+        fail ost1
+        # make sure IR on ost1 is ON
+        local ir_state=$(check_target_ir_state ost1)
+        [ $ir_state = "ON" ] || error "ir status on ost1 should be OFF"
+
+        return 0
+}
+run_test 105 "IR: NON IR clients support - needs multiple clients node"
+
 complete $(basename $0) $SECONDS
 check_and_cleanup_lustre
 exit_status
