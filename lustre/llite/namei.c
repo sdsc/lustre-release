@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
@@ -49,7 +52,6 @@
 #include <lustre_lite.h>
 #include <lustre_dlm.h>
 #include <lustre_ver.h>
-#include <lustre_mdc.h>
 #include "llite_internal.h"
 
 /*
