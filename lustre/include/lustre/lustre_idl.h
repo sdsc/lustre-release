@@ -1218,6 +1218,11 @@ typedef enum {
         OBD_CKSUM_ADLER = 0x00000002,
 } cksum_type_t;
 
+typedef enum {
+        MNTOPT_USERXATTR        = 0x1,
+        MNTOPT_ACL              = 0x2
+} mntopt_t;
+
 /*
  *   OST requests: OBDO & OBD request records
  */

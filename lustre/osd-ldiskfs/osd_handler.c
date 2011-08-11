@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
@@ -871,12 +874,16 @@ static void osd_conf_get(const struct lu_env *env,
                          const struct dt_device *dev,
                          struct dt_device_param *param)
 {
+        struct super_block *sb = osd_sb(osd_dt_dev(dev));
+
         /*
          * XXX should be taken from not-yet-existing fs abstraction layer.
          */
-        param->ddp_max_name_len  = LDISKFS_NAME_LEN;
-        param->ddp_max_nlink     = LDISKFS_LINK_MAX;
-        param->ddp_block_shift   = osd_sb(osd_dt_dev(dev))->s_blocksize_bits;
+        param->ddp_max_name_len         = LDISKFS_NAME_LEN;
+        param->ddp_max_nlink            = LDISKFS_LINK_MAX;
+        param->ddp_block_shift          = osd_sb(osd_dt_dev(dev))->s_blocksize_bits;
+        param->ddp_mntopt_acl           = !!test_opt(sb, POSIX_ACL);
+        param->ddp_mntopt_userxattr     = !!test_opt(sb, XATTR_USER);
 }
 
 /**
