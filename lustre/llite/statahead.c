@@ -536,8 +536,7 @@ static void do_statahead_interpret(struct ll_statahead_info *sai)
 
         CDEBUG(D_DLMTRACE, "setting l_data to inode %p (%lu/%u)\n",
                child, child->i_ino, child->i_generation);
-        md_set_lock_data(sbi->ll_md_exp, &it->d.lustre.it_lock_handle, child,
-                         NULL);
+        ll_set_lock_data(sbi->ll_md_exp, child, it, NULL);
 
         entry->se_handle = it->d.lustre.it_lock_handle;
         entry->se_inode = child;
