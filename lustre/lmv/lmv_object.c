@@ -63,7 +63,7 @@ extern cfs_mem_cache_t *lmv_object_cache;
 extern cfs_atomic_t lmv_object_count;
 
 static CFS_LIST_HEAD(obj_list);
-static cfs_spinlock_t obj_list_lock = CFS_SPIN_LOCK_UNLOCKED;
+cfs_spinlock_t obj_list_lock = CFS_SPIN_LOCK_UNLOCKED;
 
 struct lmv_object *lmv_object_alloc(struct obd_device *obd,
                                     const struct lu_fid *fid,
@@ -206,7 +206,7 @@ void lmv_object_put_unlock(struct lmv_object *obj)
         lmv_object_put(obj);
 }
 
-static struct lmv_object *__lmv_object_find(struct obd_device *obd, const struct lu_fid *fid)
+struct lmv_object *__lmv_object_find(struct obd_device *obd, const struct lu_fid *fid)
 {
         struct lmv_object       *obj;
         cfs_list_t              *cur;
@@ -239,19 +239,6 @@ static struct lmv_object *__lmv_object_find(struct obd_device *obd, const struct
         }
 
         return NULL;
-}
-
-struct lmv_object *lmv_object_find(struct obd_device *obd, 
-                                   const struct lu_fid *fid)
-{
-        struct lmv_object       *obj;
-        ENTRY;
-
-        cfs_spin_lock(&obj_list_lock);
-        obj = __lmv_object_find(obd, fid);
-        cfs_spin_unlock(&obj_list_lock);
-
-        RETURN(obj);
 }
 
 struct lmv_object *lmv_object_find_lock(struct obd_device *obd, 
