@@ -424,6 +424,15 @@ struct dt_key;
 struct dt_it;
 
 /**
+ * Flags for dt_it initialization.
+ */
+typedef enum it_init_flags {
+        /* The dt_it object is not necessary handled by 1 thread only. */
+        II_MULTI_THREAD = 1,
+        II_LAST
+} it_init_flags_t;
+
+/**
  * Per-dt-object operations on object as index.
  */
 struct dt_index_operations {
@@ -446,6 +455,15 @@ struct dt_index_operations {
         int (*dio_delete)(const struct lu_env *env, struct dt_object *dt,
                           const struct dt_key *key, struct thandle *handle,
                           struct lustre_capa *capa);
+
+        /**
+         * precondition: dt_object_exists(dt);
+         */
+        int (*dio_rebuild)(const struct lu_env *env, struct dt_object *dt,
+                           struct dt_rec *rec, struct dt_rec *new_rec,
+                           const struct dt_key *key, struct thandle *th,
+                           int flags);
+
         /**
          * Iterator interface
          */
@@ -458,6 +476,7 @@ struct dt_index_operations {
                 struct dt_it *(*init)(const struct lu_env *env,
                                       struct dt_object *dt,
                                       __u32 attr,
+                                      it_init_flags_t flags,
                                       struct lustre_capa *capa);
                 void          (*fini)(const struct lu_env *env,
                                       struct dt_it *di);
@@ -475,6 +494,13 @@ struct dt_index_operations {
                 int            (*rec)(const struct lu_env *env,
                                       const struct dt_it *di,
                                       struct lu_dirent *lde,
+                                      __u32 attr);
+                int        (*rebuild)(const struct lu_env *env,
+                                      const struct dt_it *di,
+                                      struct lu_dirent *lde,
+                                      struct lu_fid *fid,
+                                      struct thandle *th,
+                                      __u32 flags,
                                       __u32 attr);
                 __u64        (*store)(const struct lu_env *env,
                                       const struct dt_it *di);
@@ -628,6 +654,12 @@ struct dt_object *dt_store_open(const struct lu_env *env,
                                 const char *dirname,
                                 const char *filename,
                                 struct lu_fid *fid);
+
+int dt_store_lookup(const struct lu_env *env,
+                    struct dt_object *dir,
+                    const char *name,
+                    struct lu_fid *fid,
+                    struct lustre_capa *capa);
 
 struct dt_object *dt_locate(const struct lu_env *env,
                             struct dt_device *dev,

@@ -1359,6 +1359,9 @@ EXPORT_SYMBOL(lu_context_key_quiesce_many);
 void *lu_context_key_get(const struct lu_context *ctx,
                          const struct lu_context_key *key)
 {
+        LASSERT(ctx != NULL);
+        LASSERT(key != NULL);
+        LASSERT(ctx->lc_value != NULL);
         LINVRNT(ctx->lc_state == LCS_ENTERED);
         LINVRNT(0 <= key->lct_index && key->lct_index < ARRAY_SIZE(lu_keys));
         LASSERT(lu_keys[key->lct_index] == key);

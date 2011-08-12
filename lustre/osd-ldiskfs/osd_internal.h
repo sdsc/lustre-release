@@ -150,6 +150,10 @@ enum {
         LPROC_OSD_THANDLE_OPEN,
         LPROC_OSD_THANDLE_CLOSING,
 #endif
+        LPROC_OSD_REBUILD_LMA,
+        LPROC_OSD_REBUILD_OI_ADD,
+        LPROC_OSD_REBUILD_OI_RM,
+        LPROC_OSD_REBUILD_DIRENTRY,
         LPROC_OSD_NR
 };
 #endif
@@ -248,7 +252,6 @@ struct osd_thread_info {
          */
 
         /** osd iterator context used for iterator session */
-
         union {
                 struct osd_it_iam      oti_it;
                 /** ldiskfs iterator data structure, see osd_it_ea_{init, fini} */
