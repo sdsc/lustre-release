@@ -453,7 +453,6 @@ static int mdc_unpack_acl(struct ptlrpc_request *req, struct lustre_md *md)
                 RETURN(0);
 
         buf = req_capsule_server_sized_get(pill, &RMF_ACL, body->aclsize);
-
         if (!buf)
                 RETURN(-EPROTO);
 
@@ -474,8 +473,43 @@ static int mdc_unpack_acl(struct ptlrpc_request *req, struct lustre_md *md)
         md->posix_acl = acl;
         RETURN(0);
 }
+
+static int mdc_unpack_defacl(struct ptlrpc_request *req, struct lustre_md *md)
+{
+        struct req_capsule     *pill = &req->rq_pill;
+        struct mdt_body        *body = md->body;
+        struct posix_acl       *defacl;
+        void                   *buf;
+        int                     rc;
+        ENTRY;
+
+        if (!body->defaclsize)
+                RETURN(0);
+
+        buf = req_capsule_server_sized_get(pill, &RMF_DEFACL, body->defaclsize);
+        if (!buf)
+                RETURN(-EPROTO);
+
+        defacl = posix_acl_from_xattr(buf, body->defaclsize);
+        if (IS_ERR(defacl)) {
+                rc = PTR_ERR(defacl);
+                CERROR("convert xattr to default acl: %d\n", rc);
+                RETURN(rc);
+        }
+
+        rc = posix_acl_valid(defacl);
+        if (rc) {
+                CERROR("validate default acl: %d\n", rc);
+                posix_acl_release(defacl);
+                RETURN(rc);
+        }
+
+        md->def_acl = defacl;
+        RETURN(0);
+}
 #else
 #define mdc_unpack_acl(req, md) 0
+#define mdc_unpack_defacl(req, md) 0
 #endif
 
 int mdc_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,
@@ -567,22 +601,37 @@ int mdc_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,
                                                 lustre_swab_mdt_remote_perm);
                 if (!md->remote_perm)
                         GOTO(out, rc = -EPROTO);
-        }
-        else if (md->body->valid & OBD_MD_FLACL) {
-                /* for ACL, it's possible that FLACL is set but aclsize is zero.
-                 * only when aclsize != 0 there's an actual segment for ACL
-                 * in reply buffer.
-                 */
-                if (md->body->aclsize) {
-                        rc = mdc_unpack_acl(req, md);
-                        if (rc)
-                                GOTO(out, rc);
+        } else {
+                if (md->body->valid & OBD_MD_FLACL) {
+                        /* for ACL, it's possible that FLACL is set but aclsize
+                         * is zero. Only when aclsize != 0 there's an actual
+                         * segment for ACL in reply buffer. */
+                        if (md->body->aclsize) {
+                                rc = mdc_unpack_acl(req, md);
+                                if (rc)
+                                        GOTO(out, rc);
+                        }
 #ifdef CONFIG_FS_POSIX_ACL
-                } else {
-                        md->posix_acl = NULL;
+                        else {
+                                md->posix_acl = NULL;
+                        }
+#endif
+                }
+
+                if (md->body->valid & OBD_MD_FLDEFACL) {
+                        if (md->body->defaclsize) {
+                                rc = mdc_unpack_defacl(req, md);
+                                if (rc)
+                                        GOTO(out, rc);
+                        }
+#ifdef CONFIG_FS_POSIX_ACL
+                        else {
+                                md->def_acl = NULL;
+                        }
 #endif
                 }
         }
+
         if (md->body->valid & OBD_MD_FLMDSCAPA) {
                 struct obd_capa *oc = NULL;
 
@@ -614,6 +663,7 @@ out:
                 }
 #ifdef CONFIG_FS_POSIX_ACL
                 posix_acl_release(md->posix_acl);
+                posix_acl_release(md->def_acl);
 #endif
                 if (md->lsm)
                         obd_free_memmd(dt_exp, &md->lsm);

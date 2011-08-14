@@ -598,28 +598,59 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
                 }
         }
 #ifdef CONFIG_FS_POSIX_ACL
-        else if ((req->rq_export->exp_connect_flags & OBD_CONNECT_ACL) &&
-                 (reqbody->valid & OBD_MD_FLACL)) {
-                buffer->lb_buf = req_capsule_server_get(pill, &RMF_ACL);
-                buffer->lb_len = req_capsule_get_size(pill,
+        else if (req->rq_export->exp_connect_flags & OBD_CONNECT_ACL) {
+                if  (reqbody->valid & OBD_MD_FLACL) {
+                        buffer->lb_buf = req_capsule_server_get(pill, &RMF_ACL);
+                        buffer->lb_len = req_capsule_get_size(pill,
                                                       &RMF_ACL, RCL_SERVER);
-                if (buffer->lb_len > 0) {
-                        rc = mo_xattr_get(env, next, buffer,
-                                          XATTR_NAME_ACL_ACCESS);
-                        if (rc < 0) {
-                                if (rc == -ENODATA) {
-                                        repbody->aclsize = 0;
+                        if (buffer->lb_len > 0) {
+                                rc = mo_xattr_get(env, next, buffer,
+                                                  XATTR_NAME_ACL_ACCESS);
+                                if (rc < 0) {
+                                        if (rc == -ENODATA) {
+                                                repbody->aclsize = 0;
+                                                repbody->valid |= OBD_MD_FLACL;
+                                                rc = 0;
+                                        } else if (rc == -EOPNOTSUPP) {
+                                                rc = 0;
+                                        } else {
+                                                CERROR("got acl size: %d\n",
+                                                       rc);
+                                        }
+                                } else {
+                                        repbody->aclsize = rc;
                                         repbody->valid |= OBD_MD_FLACL;
                                         rc = 0;
-                                } else if (rc == -EOPNOTSUPP) {
-                                        rc = 0;
-                                } else {
-                                        CERROR("got acl size: %d\n", rc);
                                 }
-                        } else {
-                                repbody->aclsize = rc;
-                                repbody->valid |= OBD_MD_FLACL;
-                                rc = 0;
+                        }
+                }
+
+                if(reqbody->valid & OBD_MD_FLDEFACL &&
+                   S_ISDIR(lu_object_attr(&next->mo_lu))) {
+                        buffer->lb_buf = req_capsule_server_get(pill,
+                                                                &RMF_DEFACL);
+                        buffer->lb_len = req_capsule_get_size(pill,
+                                                      &RMF_DEFACL, RCL_SERVER);
+                        if (buffer->lb_len > 0) {
+                                rc = mo_xattr_get(env, next, buffer,
+                                                  XATTR_NAME_ACL_DEFAULT);
+                                if (rc < 0) {
+                                        if (rc == -ENODATA) {
+                                                repbody->defaclsize = 0;
+                                                repbody->valid |=
+                                                        OBD_MD_FLDEFACL;
+                                                rc = 0;
+                                        } else if (rc == -EOPNOTSUPP) {
+                                                rc = 0;
+                                        } else {
+                                                CERROR("got def acl size: %d\n",
+                                                       rc);
+                                        }
+                                } else {
+                                        repbody->defaclsize = rc;
+                                        repbody->valid |= OBD_MD_FLDEFACL;
+                                        rc = 0;
+                                }
                         }
                 }
         }
