@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
@@ -251,6 +254,7 @@ extern struct req_msg_field RMF_MDT_MD;
 extern struct req_msg_field RMF_REC_REINT;
 extern struct req_msg_field RMF_EADATA;
 extern struct req_msg_field RMF_ACL;
+extern struct req_msg_field RMF_DEFACL;
 extern struct req_msg_field RMF_LOGCOOKIES;
 extern struct req_msg_field RMF_CAPA1;
 extern struct req_msg_field RMF_CAPA2;
