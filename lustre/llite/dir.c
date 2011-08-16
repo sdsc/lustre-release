@@ -1494,8 +1494,15 @@ out_free:
                         count = lov->desc.ld_tgt_count;
                 } else {
                         /* get mdt count */
-                        struct lmv_obd *lmv = &sbi->ll_md_exp->exp_obd->u.lmv;
-                        count = lmv->desc.ld_tgt_count;
+                        struct obd_device *obd = sbi->ll_md_exp->exp_obd;
+                        if (!strcmp(obd->obd_type->typ_name, LUSTRE_LMV_NAME)) {
+                                struct lmv_obd *lmv = &obd->u.lmv;
+                                count = lmv->desc.ld_tgt_count;
+                        } else {
+                                LASSERT(!strcmp(obd->obd_type->typ_name,
+                                                LUSTRE_MDC_NAME));
+                                count = 1;
+                        }
                 }
 
                 if (cfs_copy_to_user((int *)arg, &count, sizeof(int)))

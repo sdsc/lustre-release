@@ -1427,10 +1427,11 @@ static int mdc_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                 rc = ptlrpc_obd_ping(obd);
                 GOTO(out, rc);
         /*
-         * Normally IOC_OBD_STATFS iocontrol is handled by LMV instead of MDC.
-         * But when the cluster is upgraded from 1.8, there'd be no LMV layer
-         * thus we might be called here. Eventually this code should be removed.
-         * bz20731.
+         * Normally IOC_OBD_STATFS, OBD_IOC_QUOTACTL iocontrol are handled by
+         * LMV instead of MDC. But when the cluster is upgraded from 1.8,
+         * there'd be no LMV layer thus we might be called here. Eventually
+         * this code should be removed.
+         * bz20731, LU-592.
          */
         case IOC_OBD_STATFS: {
                 struct obd_statfs stat_buf = {0};
@@ -1456,6 +1457,24 @@ static int mdc_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                         GOTO(out, rc = -EFAULT);
 
                 GOTO(out, rc = 0);
+        }
+        case OBD_IOC_QUOTACTL: {
+                struct if_quotactl *qctl = karg;
+                struct obd_quotactl *oqctl;
+
+                OBD_ALLOC_PTR(oqctl);
+                if (!oqctl)
+                        RETURN(-ENOMEM);
+
+                QCTL_COPY(oqctl, qctl);
+                rc = obd_quotactl(exp, oqctl);
+                if (rc == 0) {
+                        QCTL_COPY(qctl, oqctl);
+                        qctl->qc_valid = QC_MDTIDX;
+                        qctl->obd_uuid = obd->u.cli.cl_target_uuid;
+                }
+                OBD_FREE_PTR(oqctl);
+                break;
         }
         case LL_IOC_GET_CONNECT_FLAGS: {
                 if (cfs_copy_to_user(uarg, &exp->exp_connect_flags,
