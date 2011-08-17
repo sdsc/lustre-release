@@ -1595,7 +1595,7 @@ int mds_get_parent_child_locked(struct obd_device *obd, struct mds_obd *mds,
                                 char *name, int namelen,
                                 struct lustre_handle *child_lockh,
                                 struct dentry **dchildp, int child_mode,
-                                __u64 child_lockpart)
+                                __u64 child_lockpart, int it_op, __u32 flags)
 {
         struct ldlm_res_id child_res_id = { .name = {0} };
         struct ldlm_res_id parent_res_id = { .name = {0} };
@@ -1624,6 +1624,7 @@ int mds_get_parent_child_locked(struct obd_device *obd, struct mds_obd *mds,
 
         if (name == NULL)
                 GOTO(retry_locks, rc);
+
         /* Step 2: Lookup child (without DLM lock, to get resource name) */
         *dchildp = mds_lookup(obd, name, *dparentp, namelen - 1);
         if (IS_ERR(*dchildp)) {
@@ -1644,8 +1645,10 @@ int mds_get_parent_child_locked(struct obd_device *obd, struct mds_obd *mds,
                 }
                 inode = igrab(inode);
         }
-        if (inode == NULL)
+        if (inode == NULL) {
+                child_lockh = NULL;
                 goto retry_locks;
+        }
 
         child_res_id.name[0] = inode->i_ino;
         child_res_id.name[1] = inode->i_generation;
@@ -1658,6 +1661,19 @@ int mds_get_parent_child_locked(struct obd_device *obd, struct mds_obd *mds,
            later STAT. */
         if ((child_mode & (LCK_CR|LCK_PR|LCK_CW)) && INODE_CTIME_OLD(inode))
                 child_policy.l_inodebits.bits |= MDS_INODELOCK_UPDATE;
+
+        if (it_op == IT_OPEN && !(flags & MDS_OPEN_LOCK)) {
+                /*
+                 * LU-146
+                 * if this is an executable, and a non-nfsd client open write or
+                 * execute it, revoke open lock in case other client holds an
+                 * open lock which denies write/execute in mds_finish_open().
+                 */
+                if (!(S_ISREG(inode->i_mode) &&
+                      (inode->i_mode & S_IXUGO) &&
+                      (flags & (FMODE_WRITE | MDS_FMODE_EXEC))))
+                        child_lockh = NULL;
+        }
 
         iput(inode);
 
@@ -1686,6 +1702,16 @@ retry_locks:
                 goto retry_locks;
         if (rc < 0) {
                 GOTO(cleanup, rc);
+        }
+
+        if (it_op == IT_OPEN && !(flags & MDS_OPEN_LOCK) && child_lockh) {
+                /*
+                 * LU-146
+                 * See above, revoke open lock only, no need to reply child
+                 * lock back to client.
+                 */
+                ldlm_lock_decref(child_lockh, child_mode);
+                memset(child_lockh, 0, sizeof(*child_lockh));
         }
 
 cleanup:
@@ -1926,7 +1952,8 @@ static int mds_reint_unlink(struct mds_update_record *rec, int offset,
                                          MDS_INODELOCK_UPDATE, 
                                          rec->ur_name, rec->ur_namelen,
                                          &child_lockh, &dchild, LCK_EX, 
-                                         MDS_INODELOCK_FULL);
+                                         MDS_INODELOCK_FULL,
+                                         IT_UNLINK, 0);
         if (rc)
                 GOTO(cleanup, rc);
 

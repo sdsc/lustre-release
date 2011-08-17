@@ -178,7 +178,6 @@ static int mds_get_write_access(struct mds_obd *mds, struct inode *inode,
                 RETURN(-ETXTBSY);
         }
 
-
         if (MDS_FILTERDATA(inode) && MDS_FILTERDATA(inode)->io_epoch != 0) {
                 CDEBUG(D_INODE, "continuing MDS epoch "LPU64" for ino %lu/%u\n",
                        MDS_FILTERDATA(inode)->io_epoch, inode->i_ino,
@@ -1156,11 +1155,11 @@ int mds_open(struct mds_update_record *rec, int offset,
                                          MDS_INODELOCK_UPDATE,
                                          use_parent ? NULL : rec->ur_name,
                                          rec->ur_namelen,
-                                         (rec->ur_flags & MDS_OPEN_LOCK) ?
-                                                child_lockh : NULL,
+                                         child_lockh,
                                          &dchild, child_mode,
                                          MDS_INODELOCK_LOOKUP |
-                                         MDS_INODELOCK_OPEN);
+                                         MDS_INODELOCK_OPEN,
+                                         IT_OPEN, rec->ur_flags);
 
         if (rc) {
                 if (rc != -ENOENT) {
@@ -1382,20 +1381,6 @@ found_child:
                         GOTO(cleanup, rc);
                 /* Let mds_intent_policy know that we have a lock to return */
                 ldlm_reply_set_disposition(rep, DISP_OPEN_LOCK);
-        } else if (!(rec->ur_flags & MDS_OPEN_LOCK)    &&
-                   S_ISREG(dchild->d_inode->i_mode)    &&
-                   (dchild->d_inode->i_mode & S_IXUGO) &&
-                   (rec->ur_flags & (FMODE_WRITE | MDS_FMODE_EXEC))) {
-                /* if this is an executable, and a non-nfsd client open write or
-                 * execute it, revoke open lock in case other client holds a
-                 * open lock which denies writing/executing in mds_finish_open()
-                 * below. LU-146
-                 */
-                rc = mds_get_open_lock(obd, dchild, child_mode, child_lockh);
-                if (rc != ELDLM_OK)
-                        GOTO(cleanup, rc);
-                ldlm_lock_decref(child_lockh, child_mode);
-                memset(child_lockh, 0, sizeof(*child_lockh));
         }
 
         if (!S_ISREG(dchild->d_inode->i_mode) &&
