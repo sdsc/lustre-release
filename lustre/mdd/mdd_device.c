@@ -1396,12 +1396,37 @@ static int mdd_changelog_user_purge_cb(struct llog_handle *llh,
         /* Special case: unregister this user */
         if (mcud->mcud_endrec == MCUD_UNREGISTER) {
                 struct llog_cookie cookie;
+                struct obd_device *obd;
+                void *trans_h;
+                struct inode *inode;
+                int err;
+
                 cookie.lgc_lgl = llh->lgh_id;
                 cookie.lgc_index = hdr->lrh_index;
+                obd = llh->lgh_ctxt->loc_exp->exp_obd;
+                inode = llh->lgh_file->f_dentry->d_inode;
+
+                /* XXX This is a workaround for the deadlock of changelog
+                 * adding vs. changelog cancelling. LU-81. */
+                trans_h = fsfilt_start_log(obd, inode, FSFILT_OP_CANCEL_UNLINK,
+                                           NULL, 1);
+                if (IS_ERR(trans_h)) {
+                        CERROR("fsfilt_start_log failed: %ld\n",
+                               PTR_ERR(trans_h));
+                        RETURN(PTR_ERR(trans_h));
+                }
+
                 rc = llog_cat_cancel_records(llh->u.phd.phd_cat_handle,
                                              1, &cookie);
                 if (rc == 0)
                         mcud->mcud_usercount--;
+
+                err = fsfilt_commit(obd, inode, trans_h, 0);
+                if (err) {
+                        CERROR("fsfilt_commit failed: %d\n", err);
+                        rc = (rc >= 0) ? err : rc;
+                }
+
                 RETURN(rc);
         }
 
