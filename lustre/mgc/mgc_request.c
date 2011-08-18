@@ -1715,7 +1715,7 @@ int mgc_process_log(struct obd_device *mgc, struct config_llog_data *cld)
         if (rcl == 0) {
                 /* Get the cld, it will be released in mgc_blocking_ast. */
                 config_log_get(cld);
-                rc = ldlm_lock_set_data(&lockh, (void *)cld);
+                rc = ldlm_lock_set_data(&lockh, (void *)cld, LDLM_FL_NO_LRU);
                 LASSERT(rc == 0);
         } else {
                 CDEBUG(D_MGC, "Can't get cfg lock: %d\n", rcl);
