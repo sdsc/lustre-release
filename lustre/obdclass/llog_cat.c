@@ -57,6 +57,7 @@
 #include <obd_class.h>
 #include <lustre_log.h>
 #include <libcfs/list.h>
+#include <lustre_fsfilt.h>
 
 /* Create a new log handle and add it to the open list.
  * This log handle will be closed when all of the records in it are removed.
@@ -323,7 +324,37 @@ int llog_cat_cancel_records(struct llog_handle *cathandle, int count,
                             struct llog_cookie *cookies)
 {
         int i, index, rc = 0;
+#ifdef __KERNEL__
+        struct obd_device *obd;
+        void *trans_h = NULL;
+        struct inode *inode;
+        int rc1;
+#endif
         ENTRY;
+
+        /* XXX This is a workaround for the deadlock of changelog adding
+         * vs. changelog cancelling. Changelog adding always start
+         * transaction before acquiring the lgh_lock, whereas, changelog
+         * cancelling do start transaction after holding lgh_lock. LU-81.
+         *
+         * Since changelog cancelling always pass @count=1 when calling
+         * this function, we just need to start transaction prior lgh_lock
+         * only when "count == 1", and the journal credits for OP_UNLINK
+         * should be enough for cancelling one record (plus one plain log
+         * destroy and one catlog record cancelling probably). */
+#ifdef __KERNEL__
+        obd = cathandle->lgh_ctxt->loc_exp->exp_obd;
+        inode = cathandle->lgh_file->f_dentry->d_parent->d_inode;
+        if (count == 1) {
+                trans_h = fsfilt_start_log(obd, inode, FSFILT_OP_UNLINK,
+                                           NULL, 1);
+                if (IS_ERR(trans_h)) {
+                        CERROR("fsfilt_start_log failed: %ld\n",
+                               PTR_ERR(trans_h));
+                        RETURN(PTR_ERR(trans_h));
+                }
+        }
+#endif
 
         cfs_down_write_nested(&cathandle->lgh_lock, LLOGH_CAT);
         for (i = 0; i < count; i++, cookies++) {
@@ -356,6 +387,16 @@ int llog_cat_cancel_records(struct llog_handle *cathandle, int count,
                 }
         }
         cfs_up_write(&cathandle->lgh_lock);
+
+#ifdef __KERNEL__
+        if (trans_h) {
+                rc1 = fsfilt_commit(obd, inode, trans_h, 0);
+                if (rc1) {
+                        CERROR("fsfilt_commit failed: %d\n", rc1);
+                        rc = (rc >= 0) ? rc1 : rc;
+                }
+        }
+#endif
 
         RETURN(rc);
 }
