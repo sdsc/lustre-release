@@ -1573,13 +1573,13 @@ void lustre_swab_connect(struct obd_connect_data *ocd)
         __swab64s(&ocd->ocd_transno);
         __swab32s(&ocd->ocd_group);
         __swab32s(&ocd->ocd_cksum_types);
+        __swab32s(&ocd->ocd_instance);
         /* Fields after ocd_cksum_types are only accessible by the receiver
          * if the corresponding flag in ocd_connect_flags is set. Accessing
          * any field after ocd_maxbytes on the receiver without a valid flag
          * may result in out-of-bound memory access and kernel oops. */
         if (ocd->ocd_connect_flags & OBD_CONNECT_MAX_EASIZE)
                 __swab32s(&ocd->ocd_max_easize);
-        CLASSERT(offsetof(typeof(*ocd), padding) != 0);
         if (ocd->ocd_connect_flags & OBD_CONNECT_MAXBYTES)
                 __swab64s(&ocd->ocd_maxbytes);
         CLASSERT(offsetof(typeof(*ocd), padding1) != 0);
@@ -1781,11 +1781,44 @@ void lustre_swab_mgs_target_info(struct mgs_target_info *mti)
         __swab32s(&mti->mti_stripe_index);
         __swab32s(&mti->mti_config_ver);
         __swab32s(&mti->mti_flags);
+        __swab32s(&mti->mti_instance);
         __swab32s(&mti->mti_nid_count);
         CLASSERT(sizeof(lnet_nid_t) == sizeof(__u64));
         for (i = 0; i < MTI_NIDS_MAX; i++)
                 __swab64s(&mti->mti_nids[i]);
 }
+
+void lustre_swab_mgs_nidtbl_entry(struct mgs_nidtbl_entry *entry)
+{
+        int i;
+        __swab64s(&entry->mne_version);
+        __swab32s(&entry->mne_instance);
+        __swab32s(&entry->mne_index);
+        __swab32s(&entry->mne_length);
+        CLASSERT(sizeof(lnet_nid_t) == sizeof(__u64));
+        /* mne_bufcnt must be one byte size because we're gonna access it
+         * w/o swapping. */
+        CLASSERT(sizeof(entry->mne_bufcnt) == sizeof(__u8));
+        for (i = 0; i < entry->mne_bufcnt; i++)
+                __swab64s(&entry->mne_nids[i]);
+}
+EXPORT_SYMBOL(lustre_swab_mgs_nidtbl_entry);
+
+void lustre_swab_mgs_config_body(struct mgs_config_body *body)
+{
+        __swab64s(&body->mcb_offset);
+        __swab16s(&body->mcb_type);
+        __swab16s(&body->mcb_bits);
+        __swab32s(&body->mcb_units);
+}
+EXPORT_SYMBOL(lustre_swab_mgs_config_body);
+
+void lustre_swab_mgs_config_res(struct mgs_config_res *body)
+{
+        __swab64s(&body->mcr_offset);
+        __swab64s(&body->mcr_size);
+}
+EXPORT_SYMBOL(lustre_swab_mgs_config_res);
 
 static void lustre_swab_obd_dqinfo (struct obd_dqinfo *i)
 {
