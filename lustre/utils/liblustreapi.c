@@ -186,35 +186,35 @@ int parse_size(char *optarg, unsigned long long *size,
         *size = strtoull(optarg, &end, 0);
 
         if (*end != '\0') {
-                if ((*end == 'b') && *(end+1) == '\0' &&
+                if ((*end == 'b') && *(end + 1) == '\0' &&
                     (*size & (~0ULL << (64 - 9))) == 0 &&
                     !bytes_spec) {
                         *size_units = 1 << 9;
-                } else if ((*end == 'b') && *(end+1) == '\0' &&
+                } else if ((*end == 'b') && *(end + 1) == '\0' &&
                            bytes_spec) {
                         *size_units = 1;
                 } else if ((*end == 'k' || *end == 'K') &&
-                           *(end+1) == '\0' && (*size &
+                           *(end + 1) == '\0' && (*size &
                            (~0ULL << (64 - 10))) == 0) {
                         *size_units = 1 << 10;
                 } else if ((*end == 'm' || *end == 'M') &&
-                           *(end+1) == '\0' && (*size &
+                           *(end + 1) == '\0' && (*size &
                            (~0ULL << (64 - 20))) == 0) {
                         *size_units = 1 << 20;
                 } else if ((*end == 'g' || *end == 'G') &&
-                           *(end+1) == '\0' && (*size &
+                           *(end + 1) == '\0' && (*size &
                            (~0ULL << (64 - 30))) == 0) {
                         *size_units = 1 << 30;
                 } else if ((*end == 't' || *end == 'T') &&
-                           *(end+1) == '\0' && (*size &
+                           *(end + 1) == '\0' && (*size &
                            (~0ULL << (64 - 40))) == 0) {
                         *size_units = 1ULL << 40;
                 } else if ((*end == 'p' || *end == 'P') &&
-                           *(end+1) == '\0' && (*size &
+                           *(end + 1) == '\0' && (*size &
                            (~0ULL << (64 - 50))) == 0) {
                         *size_units = 1ULL << 50;
                 } else if ((*end == 'e' || *end == 'E') &&
-                           *(end+1) == '\0' && (*size &
+                           *(end + 1) == '\0' && (*size &
                            (~0ULL << (64 - 60))) == 0) {
                         *size_units = 1ULL << 60;
                 } else {
@@ -1591,12 +1591,21 @@ retry_get_uuids:
                 return -ENOMEM;
 
         for (obdnum = 0; obdnum < param->num_obds; obdnum++) {
-                for (i = 0; i < obdcount; i++) {
-                        if (llapi_uuid_match(uuids[i].uuid,
-                                             param->obduuid[obdnum].uuid)) {
-                                param->obdindexes[obdnum] = i;
-                                obd_valid++;
-                                break;
+                char *end = NULL;
+
+                /* The user may have specified a simple index */
+                i = strtol(param->obduuid[obdnum].uuid, &end, 0);
+                if (end && *end == '\0' && i < obdcount) {
+                        param->obdindexes[obdnum] = i;
+                        obd_valid++;
+                } else {
+                        for (i = 0; i < obdcount; i++) {
+                                if (llapi_uuid_match(uuids[i].uuid,
+                                                param->obduuid[obdnum].uuid)) {
+                                        param->obdindexes[obdnum] = i;
+                                        obd_valid++;
+                                        break;
+                                }
                         }
                 }
                 if (i >= obdcount) {
@@ -1917,8 +1926,8 @@ static void lov_dump_user_lmm_header(struct lov_user_md *lum, char *path,
 
 void lov_dump_user_lmm_v1v3(struct lov_user_md *lum, char *pool_name,
                             struct lov_user_ost_data_v1 *objects,
-                            char *path, int is_dir,
-                            int obdindex, int depth, int header, int raw)
+                            char *path, int is_dir, int obdindex,
+                            int depth, int header, int raw)
 {
         int i, obdstripe = (obdindex != OBD_NOT_FOUND) ? 0 : 1;
 
@@ -2192,14 +2201,14 @@ static int cb_find_init(char *path, DIR *parent, DIR *dir,
                 }
         }
 
-
         ret = 0;
 
         /* Request MDS for the stat info if some of these parameters need
          * to be compared. */
         if (param->obduuid    || param->check_uid || param->check_gid ||
             param->check_pool || param->atime     || param->ctime     ||
-            param->mtime      || param->check_size)
+            param->mtime      || param->check_size ||
+            param->check_stripecount || param->check_stripesize)
                 decision = 0;
         if (param->type && checked_type == 0)
                 decision = 0;
@@ -2248,6 +2257,25 @@ static int cb_find_init(char *path, DIR *parent, DIR *dir,
                         param->got_uuids = 0;
                         param->obdindex = OBD_NOT_FOUND;
                 }
+        }
+
+        if (param->check_stripesize) {
+                decision = find_value_cmp(param->lmd->lmd_lmm.lmm_stripe_size,
+                                          param->stripesize,
+                                          param->stripesize_sign,
+                                          param->exclude_stripesize,
+                                          param->stripesize_units, 0);
+                if (decision == -1)
+                        goto decided;
+        }
+
+        if (param->check_stripecount) {
+                decision = find_value_cmp(param->lmd->lmd_lmm.lmm_stripe_count,
+                                          param->stripecount,
+                                          param->stripecount_sign,
+                                          param->exclude_stripecount, 1, 0);
+                if (decision == -1)
+                        goto decided;
         }
 
         /* If an OBD UUID is specified but no one matches, skip this file. */
