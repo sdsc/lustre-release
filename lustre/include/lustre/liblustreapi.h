@@ -144,7 +144,13 @@ struct find_param {
                         exclude_mtime:1,
                         exclude_ctime:1,
                         get_mdt_index:1,
-                        raw:1;
+                        raw:1,
+                        stripesize_sign:2,
+                        stripecount_sign:2,
+                        stripesize_check:1,
+                        exclude_stripesize:1,
+                        stripecount_check:1,
+                        exclude_stripecount:1;
 
         int     verbose;
         int     quiet;
@@ -163,11 +169,15 @@ struct find_param {
         int     lumlen;
         struct  lov_user_mds_data *lmd;
 
-        /* In-precess parameters. */
+        char poolname[LOV_MAXPOOLNAME + 1];
+
+        unsigned long long stripesize;
+        unsigned long long stripesize_units;
+        unsigned long long stripecount;
+
+        /* In-process parameters. */
         unsigned int depth;
         dev_t   st_dev;
-
-        char poolname[LOV_MAXPOOLNAME + 1];
 };
 
 extern int llapi_ostlist(char *path, struct find_param *param);
