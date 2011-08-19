@@ -85,6 +85,9 @@ static int mgc_name2resid(char *name, int len, struct ldlm_res_id *res_id,
         case CONFIG_T_SPTLRPC:
                 resname = 0;
                 break;
+        case CONFIG_T_RECOVER:
+                resname = type;
+                break;
         default:
                 LBUG();
         }
@@ -146,6 +149,8 @@ static void config_log_put(struct config_llog_data *cld)
 
                 CDEBUG(D_MGC, "dropping config log %s\n", cld->cld_logname);
 
+                if (cld->cld_recover)
+                        config_log_put(cld->cld_recover);
                 if (cld->cld_sptlrpc)
                         config_log_put(cld->cld_sptlrpc);
                 if (cld_is_sptlrpc(cld))
@@ -249,6 +254,37 @@ struct config_llog_data *do_config_log_add(struct obd_device *obd,
         RETURN(cld);
 }
 
+static struct config_llog_data *config_recover_log_add(struct obd_device *obd,
+        char *fsname,
+        struct config_llog_instance *cfg,
+        struct super_block *sb)
+{
+        struct config_llog_instance lcfg = *cfg;
+        struct lustre_sb_info *lsi = s2lsi(sb);
+        struct config_llog_data *cld;
+        char logname[32];
+
+        if ((lsi->lsi_flags & LSI_SERVER) && IS_OST(lsi->lsi_ldd))
+                return NULL;
+
+        /* we have to use different llog for clients and mdts for cmd
+         * where only clients are notified if one of cmd server restarts */
+        LASSERT(strlen(fsname) < sizeof(logname) / 2);
+        strcpy(logname, fsname);
+        if (lsi->lsi_flags & LSI_SERVER) { /* mdt */
+                LASSERT(lcfg.cfg_instance == NULL);
+                lcfg.cfg_instance = sb;
+                strcat(logname, "-mdtir");
+        } else {
+                LASSERT(lcfg.cfg_instance != NULL);
+                strcat(logname, "-cliir");
+        }
+
+        cld = do_config_log_add(obd, logname, CONFIG_T_RECOVER, &lcfg, sb);
+        return cld;
+}
+
+
 /** Add this log to the list of active logs watched by an MGC.
  * Active means we're watching for updates.
  * We have one active log per "mount" - client instance or servername.
@@ -258,6 +294,7 @@ static int config_log_add(struct obd_device *obd, char *logname,
                           struct config_llog_instance *cfg,
                           struct super_block *sb)
 {
+        struct lustre_sb_info *lsi = s2lsi(sb);
         struct config_llog_data *cld;
         struct config_llog_data *sptlrpc_cld;
         char                     seclogname[32];
@@ -298,6 +335,18 @@ static int config_log_add(struct obd_device *obd, char *logname,
 
         cld->cld_sptlrpc = sptlrpc_cld;
 
+        LASSERT(lsi->lsi_lmd);
+        if (!(lsi->lsi_lmd->lmd_flags & LMD_FLG_NOIR)) {
+                struct config_llog_data *recover_cld;
+                *strrchr(seclogname, '-') = 0;
+                recover_cld = config_recover_log_add(obd, seclogname, cfg, sb);
+                if (IS_ERR(recover_cld)) {
+                        config_log_put(cld);
+                        RETURN(PTR_ERR(recover_cld));
+                }
+                cld->cld_recover = recover_cld;
+        }
+
         RETURN(0);
 }
 
@@ -307,7 +356,9 @@ CFS_DECLARE_MUTEX(llog_process_lock);
  */
 static int config_log_end(char *logname, struct config_llog_instance *cfg)
 {
-        struct config_llog_data *cld, *cld_sptlrpc = NULL;
+        struct config_llog_data *cld;
+        struct config_llog_data *cld_sptlrpc = NULL;
+        struct config_llog_data *cld_recover = NULL;
         int rc = 0;
         ENTRY;
 
@@ -331,7 +382,17 @@ static int config_log_end(char *logname, struct config_llog_instance *cfg)
         }
 
         cld->cld_stopping = 1;
+
+        cld_recover = cld->cld_recover;
+        cld->cld_recover = NULL;
         cfs_mutex_unlock(&cld->cld_lock);
+
+        if (cld_recover) {
+                cfs_mutex_lock(&cld_recover->cld_lock);
+                cld_recover->cld_stopping = 1;
+                cfs_mutex_unlock(&cld_recover->cld_lock);
+                config_log_put(cld_recover);
+        }
 
         cfs_spin_lock(&config_list_lock);
         cld_sptlrpc = cld->cld_sptlrpc;
@@ -1015,6 +1076,24 @@ int mgc_set_info_async(struct obd_export *exp, obd_count keylen,
         RETURN(rc);
 }
 
+static int mgc_get_info(struct obd_export *exp, __u32 keylen, void *key,
+                        __u32 *vallen, void *val, struct lov_stripe_md *unused)
+{
+        int rc = -EINVAL;
+
+        if (KEY_IS(KEY_CONN_DATA)) {
+                struct obd_import *imp = class_exp2cliimp(exp);
+                struct obd_connect_data *data = val;
+
+                if (*vallen == sizeof(*data)) {
+                        *data = imp->imp_connect_data;
+                        rc = 0;
+                }
+        }
+
+        return rc;
+}
+
 static int mgc_import_event(struct obd_device *obd,
                             struct obd_import *imp,
                             enum obd_import_event event)
@@ -1106,6 +1185,243 @@ static int mgc_llog_finish(struct obd_device *obd, int count)
                 rc = rc2;
 
         RETURN(rc);
+}
+
+static int mgc_apply_recover_logs(struct obd_device *obd,
+                                  struct config_llog_data *cld,
+                                  u64 max_version,
+                                  void *data, int datalen)
+{
+        struct config_llog_instance *cfg = &cld->cld_cfg;
+        struct lustre_sb_info       *lsi = s2lsi(cfg->cfg_sb);
+        struct mgs_nidtbl_entry *entry;
+        struct lustre_cfg       *lcfg;
+        struct lustre_cfg_bufs   bufs;
+        u64   prev_version = 0;
+        char *inst;
+        char *buf;
+        int   bufsz = CFS_PAGE_SIZE;
+        int   pos;
+        int   rc  = 0;
+        int   off = 0;
+
+        OBD_ALLOC(buf, CFS_PAGE_SIZE);
+        if (buf == NULL)
+                return -ENOMEM;
+
+        LASSERT(cfg->cfg_instance != NULL);
+        LASSERT(cfg->cfg_sb == cfg->cfg_instance);
+        inst = buf;
+        if (!(lsi->lsi_flags & LSI_SERVER)) {
+                sprintf(inst, "%p", cfg->cfg_instance);
+        } else {
+                LASSERT(IS_MDT(lsi->lsi_ldd));
+                sprintf(inst, "MDT%04x", lsi->lsi_ldd->ldd_svindex);
+        }
+        buf   += strlen(inst) + 1;
+        bufsz -= strlen(inst) + 1;
+
+        while (datalen > 0) {
+                int   entry_len = sizeof(*entry);
+                int   is_ost;
+                struct obd_device *obd;
+                char *obdname;
+                char *cname;
+                char *params;
+                char *uuid;
+
+                rc = -EINVAL;
+                if (datalen < sizeof(*entry))
+                        break;
+
+                entry = (typeof(entry))(data + off);
+                if (entry->mne_nid_type != 0) /* mbz, no need to swap now */
+                        break;
+                if (entry->mne_nid_count == 0) /* at least one nid entry */
+                        break;
+
+                entry_len += sizeof(entry->mne_nid_count) * sizeof(lnet_nid_t);
+                off     += entry_len;
+                datalen -= entry_len;
+                if (datalen < 0)
+                        break;
+
+                lustre_swab_mgs_nidtbl_entry(entry);
+                if (entry->mne_version > max_version) {
+                        CERROR("entry index(%lld) is over max_index(%lld)\n",
+                               entry->mne_version, max_version);
+                        break;
+                }
+
+                if (prev_version >= entry->mne_version) {
+                        CERROR("index unsorted, prev %lld, now %lld\n",
+                               prev_version, entry->mne_version);
+                        break;
+                }
+                prev_version = entry->mne_version;
+
+                /*
+                 * Write a string with format "nid::instance" to
+                 * lustre/<osc|mdc>/<target>-<osc|mdc>-<instance>/import.
+                 */
+
+                is_ost = entry->mne_type == LDD_F_SV_TYPE_OST;
+                memset(buf, 0, bufsz);
+                obdname = buf;
+                pos = 0;
+
+                /* lustre-OST0001-osc-<instance #> */
+                strcpy(obdname, cld->cld_logname);
+                *strrchr(obdname, '-') = 0;
+                pos = strlen(obdname);
+                pos += sprintf(obdname + pos, "-%s%04x",
+                                  is_ost ? "OST" : "MDT", entry->mne_index);
+
+                cname = is_ost ? "osc" : "mdc",
+                pos += sprintf(obdname + pos, "-%s-%s", cname, inst);
+                lustre_cfg_bufs_reset(&bufs, obdname);
+
+                /* find the obd by obdname */
+                obd = class_name2obd(obdname);
+                if (obd == NULL) {
+                        CDEBUG(D_INFO, "cannot find obdname %s\n", obdname);
+
+                        /* this is a safe race, when the ost is starting up...*/
+                        continue;
+                }
+
+                /* osc.import = "<Conn UUID>::<target instance>" */
+                ++pos;
+                params = buf + pos;
+                pos += sprintf(params, "%s.import=", cname);
+                uuid = buf + pos;
+
+                /* TODO: iterate all nids to find one */
+                /* find uuid by nid */
+                rc = client_import_find_conn(obd->u.cli.cl_import,
+                                             entry->mne_nids[0],
+                                             (struct obd_uuid *)uuid);
+                if (rc < 0) {
+                        CERROR("cannot find uuid by nid %s\n",
+                               libcfs_nid2str(entry->mne_nids[0]));
+                        break;
+                }
+
+                CDEBUG(D_INFO, "Find uuid %s by nid %s\n",
+                       uuid, libcfs_nid2str(entry->mne_nids[0]));
+
+                pos += strlen(uuid);
+                pos += sprintf(buf + pos, "::%u", entry->mne_instance);
+                LASSERT(pos < bufsz);
+
+                lustre_cfg_bufs_set_string(&bufs, 1, params);
+
+                rc = -ENOMEM;
+                lcfg = lustre_cfg_new(LCFG_PARAM, &bufs);
+                if (lcfg == NULL) {
+                        CERROR("cannot allocate memory\n");
+                        break;
+                }
+
+                CDEBUG(D_INFO, "ir apply logs "LPD64"/"LPD64" for %s -> %s\n",
+                       prev_version, max_version, obdname, params);
+
+                rc = class_process_config(lcfg);
+                lustre_cfg_free(lcfg);
+                if (rc)
+                        CDEBUG(D_INFO, "process config for %s error %d\n",
+                               obdname, rc);
+
+                /* continue, even one with error */
+        }
+        OBD_FREE(inst, CFS_PAGE_SIZE);
+        if (rc < 0)
+                CERROR("Process recover log %s error %d\n",
+                       cld->cld_logname, rc);
+        return 0; /* ignore error */
+}
+
+static int mgc_process_recover_log(struct obd_device *obd,
+                                   struct config_llog_data *cld)
+{
+        struct ptlrpc_request *req;
+        struct config_llog_instance *cfg = &cld->cld_cfg;
+        struct mgs_nidtbl_vers *vers;
+        void *ptr;
+        bool more = false;
+        int ealen;
+        int rc;
+        ENTRY;
+
+again:
+        LASSERT(cld_is_recover(cld));
+        LASSERT(cfs_mutex_is_locked(&cld->cld_lock));
+        req = ptlrpc_request_alloc(class_exp2cliimp(cld->cld_mgcexp),
+                                   &RQF_MGS_GET_INFO);
+        if (req == NULL)
+                RETURN(-ENOMEM);
+
+        req_capsule_set_size(&req->rq_pill, &RMF_GETINFO_KEY, RCL_CLIENT,
+                             sizeof(KEY_IR_LOGS) + 1);
+        req_capsule_set_size(&req->rq_pill, &RMF_NAME, RCL_CLIENT,
+                             strlen(cld->cld_logname) + 1);
+        rc = ptlrpc_request_pack(req, LUSTRE_MGS_VERSION, MGS_GET_INFO);
+        if (rc)
+                GOTO(out, rc);
+
+        ptr = req_capsule_client_get(&req->rq_pill, &RMF_GETINFO_KEY);
+        LASSERT(ptr);
+        strcpy(ptr, KEY_IR_LOGS);
+        ptr = req_capsule_client_get(&req->rq_pill, &RMF_NAME);
+        LASSERT(ptr);
+        strcpy(ptr, cld->cld_logname);
+        vers = req_capsule_client_get(&req->rq_pill, &RMF_MGS_NIDTBL_VERS);
+        LASSERT(vers);
+        vers->mnv_cur = cfg->cfg_last_idx + 1;
+        vers->mnv_latest = 0;
+
+        /* set the maximum log size to LLOG_CHUNK_SIZE */
+        req_capsule_set_size(&req->rq_pill, &RMF_GETINFO_VAL, RCL_SERVER,
+                             LLOG_CHUNK_SIZE);
+        ptlrpc_request_set_replen(req);
+
+        rc = ptlrpc_queue_wait(req);
+        if (rc)
+                GOTO(out, rc);
+
+        vers = req_capsule_server_get(&req->rq_pill, &RMF_MGS_NIDTBL_VERS);
+        if (vers->mnv_latest < vers->mnv_cur)
+                GOTO(out, rc = -EINVAL);
+
+        /* always update the index even though it might have errors with
+         * handling the recover logs */
+        cfg->cfg_last_idx = vers->mnv_cur;
+        more = (vers->mnv_cur < vers->mnv_latest);
+
+        CDEBUG(D_INFO, "Latest version "LPD64"/"LPD64", more %d.\n",
+               vers->mnv_cur, vers->mnv_latest, more);
+
+        /* get size from message buffer. */
+        ealen = req_capsule_get_size(&req->rq_pill, &RMF_GETINFO_VAL,
+                                     RCL_SERVER);
+        if (ealen == 0) { /* no logs, always means a client gets log 1st time */
+                if (vers->mnv_cur != vers->mnv_latest)
+                        rc = -EINVAL;
+                GOTO(out, rc);
+        }
+
+        ptr = req_capsule_server_sized_get(&req->rq_pill,
+                                           &RMF_GETINFO_VAL, ealen);
+        LASSERT(ptr != NULL);
+
+        rc = mgc_apply_recover_logs(obd, cld, vers->mnv_cur, ptr, ealen);
+out:
+        ptlrpc_req_finished(req);
+        if (rc == 0 && more) {
+                more = false;
+                goto again;
+        }
+        return rc;
 }
 
 /* identical to mgs_log_is_empty */
@@ -1383,7 +1699,14 @@ int mgc_process_log(struct obd_device *mgc, struct config_llog_data *cld)
                 config_log_get(cld);
         }
 
-        rc = mgc_process_cfg_log(mgc, cld, rcl != 0);
+
+        if (cld_is_recover(cld)) {
+                rc = 0; /* this is not a fatal error for recover log */
+                if (rcl == 0)
+                        rc = mgc_process_recover_log(mgc, cld);
+        } else {
+                rc = mgc_process_cfg_log(mgc, cld, rcl != 0);
+        }
 
         CDEBUG(D_MGC, "%s: configuration from log '%s' %sed (%d).\n",
                mgc->obd_name, cld->cld_logname, rc ? "fail" : "succeed", rc);
@@ -1465,6 +1788,11 @@ static int mgc_process_config(struct obd_device *obd, obd_count len, void *buf)
                 cld->cld_cfg.cfg_flags |= CFG_F_COMPAT146;
 
                 rc = mgc_process_log(obd, cld);
+                if (rc == 0 && cld->cld_recover) {
+                        rc = mgc_process_log(obd, cld->cld_recover);
+                        if (rc)
+                                CERROR("Cannot process recover llog %d\n", rc);
+                }
                 config_log_put(cld);
 
                 break;
@@ -1501,6 +1829,7 @@ struct obd_ops mgc_obd_ops = {
         .o_cancel       = mgc_cancel,
         //.o_iocontrol    = mgc_iocontrol,
         .o_set_info_async = mgc_set_info_async,
+        .o_get_info       = mgc_get_info,
         .o_import_event = mgc_import_event,
         .o_llog_init    = mgc_llog_init,
         .o_llog_finish  = mgc_llog_finish,
