@@ -1386,12 +1386,21 @@ retry_get_uuids:
                 return -ENOMEM;
 
         for (obdnum = 0; obdnum < param->num_obds; obdnum++) {
-                for (i = 0; i < obdcount; i++) {
-                        if (llapi_uuid_match(uuids[i].uuid,
-                                             param->obduuid[obdnum].uuid)) {
-                                param->obdindexes[obdnum] = i;
-                                obd_valid++;
-                                break;
+                char *end = NULL;
+
+                /* The user may have specified a simple index */
+                i = strtol(param->obduuid[obdnum].uuid, &end, 0);
+                if (end && *end == '\0' && i < obdcount) {
+                        param->obdindexes[obdnum] = i;
+                        obd_valid++;
+                } else {
+                        for (i = 0; i < obdcount; i++) {
+                                if (llapi_uuid_match(uuids[i].uuid,
+                                                param->obduuid[obdnum].uuid)) {
+                                        param->obdindexes[obdnum] = i;
+                                        obd_valid++;
+                                        break;
+                                }
                         }
                 }
                 if (i >= obdcount) {
@@ -1704,8 +1713,8 @@ static void lov_dump_user_lmm_header(struct lov_user_md *lum, char *path,
 
 void lov_dump_user_lmm_v1v3(struct lov_user_md *lum, char *pool_name,
                             struct lov_user_ost_data_v1 *objects,
-                            char *path, int is_dir,
-                            int obdindex, int depth, int header, int raw)
+                            char *path, int is_dir, int obdindex,
+                            int depth, int header, int raw)
 {
         int i, obdstripe = (obdindex != OBD_NOT_FOUND) ? 0 : 1;
 
@@ -2060,6 +2069,25 @@ static int cb_find_init(char *path, DIR *parent, DIR *dir,
                         param->got_uuids = 0;
                         param->obdindex = OBD_NOT_FOUND;
                 }
+        }
+
+        if (param->stripesize_check) {
+                decision = find_value_cmp(param->lmd->lmd_lmm.lmm_stripe_size,
+                                          param->stripesize,
+                                          param->stripesize_sign,
+                                          param->exclude_stripesize,
+                                          param->stripesize_units, 0);
+                if (decision == -1)
+                        goto decided;
+        }
+
+        if (param->stripecount_check) {
+                decision = find_value_cmp(param->lmd->lmd_lmm.lmm_stripe_count,
+                                          param->stripecount,
+                                          param->stripecount_sign,
+                                          param->exclude_stripecount, 0, 0);
+                if (decision == -1)
+                        goto decided;
         }
 
         /* If an OBD UUID is specified but no one matches, skip this file. */
