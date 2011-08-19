@@ -34,7 +34,6 @@ CREATETEST=${CREATETEST:-createtest}
 LFS=${LFS:-lfs}
 SETSTRIPE=${SETSTRIPE:-"$LFS setstripe"}
 GETSTRIPE=${GETSTRIPE:-"$LFS getstripe"}
-LSTRIPE=${LSTRIPE:-"$LFS setstripe"}
 LFIND=${LFIND:-"$LFS find"}
 LVERIFY=${LVERIFY:-ll_dirstripe_verify}
 LCTL=${LCTL:-lctl}
@@ -467,7 +466,7 @@ run_test 17g "symlinks: really long symlink name ===============================
 
 test_17h() { #bug 17378
         mkdir -p $DIR/$tdir
-        $SETSTRIPE $DIR/$tdir -c -1
+        $SETSTRIPE -c -1 $DIR/$tdir
 #define OBD_FAIL_MDS_LOV_PREP_CREATE 0x141
         do_facet $SINGLEMDS lctl set_param fail_loc=0x80000141
         touch $DIR/$tdir/$tfile || true
@@ -904,7 +903,7 @@ test_27a() {
 	echo '== stripe sanity =============================================='
 	mkdir -p $DIR/d27 || error "mkdir failed"
 	$GETSTRIPE $DIR/d27
-	$SETSTRIPE $DIR/d27/f0 -c 1 || error "lstripe failed"
+	$SETSTRIPE -c 1 $DIR/d27/f0 || error "setstripe failed"
 	$CHECKSTAT -t file $DIR/d27/f0 || error "checkstat failed"
 	pass
 	log "== test_27a: write to one stripe file ========================="
@@ -915,7 +914,7 @@ run_test 27a "one stripe file =================================="
 test_27c() {
 	[ "$OSTCOUNT" -lt "2" ] && skip_env "skipping 2-stripe test" && return
 	mkdir -p $DIR/d27
-	$SETSTRIPE $DIR/d27/f01 -c 2 || error "lstripe failed"
+	$SETSTRIPE -c 2 $DIR/d27/f01 || error "setstripe failed"
 	[ `$GETSTRIPE $DIR/d27/f01 | grep -A 10 obdidx | wc -l` -eq 4 ] ||
 		error "two-stripe file doesn't have two stripes"
 	pass
@@ -926,7 +925,7 @@ run_test 27c "create two stripe file f01 ======================="
 
 test_27d() {
 	mkdir -p $DIR/d27
-	$SETSTRIPE -c0 -i-1 -s0 $DIR/d27/fdef || error "lstripe failed"
+	$SETSTRIPE -c0 -i-1 -s0 $DIR/d27/fdef || error "setstripe failed"
 	$CHECKSTAT -t file $DIR/d27/fdef || error "checkstat failed"
 	dd if=/dev/zero of=$DIR/d27/fdef bs=4k count=4 || error
 }
@@ -934,15 +933,15 @@ run_test 27d "create file with default settings ================"
 
 test_27e() {
 	mkdir -p $DIR/d27
-	$SETSTRIPE $DIR/d27/f12 -c 2 || error "lstripe failed"
-	$SETSTRIPE $DIR/d27/f12 -c 2 && error "lstripe succeeded twice"
+	$SETSTRIPE -c 2 $DIR/d27/f12 || error "setstripe failed"
+	$SETSTRIPE -c 2 $DIR/d27/f12 && error "setstripe succeeded twice"
 	$CHECKSTAT -t file $DIR/d27/f12 || error "checkstat failed"
 }
 run_test 27e "setstripe existing file (should return error) ======"
 
 test_27f() {
 	mkdir -p $DIR/d27
-	$SETSTRIPE $DIR/d27/fbad -s 100 -i 0 -c 1 && error "lstripe failed"
+	$SETSTRIPE -s 100 -i 0 -c 1 $DIR/d27/fbad && error "setstripe failed"
 	dd if=/dev/zero of=$DIR/d27/f12 bs=4k count=4 || error "dd failed"
 	$GETSTRIPE $DIR/d27/fbad || error "lfs getstripe failed"
 }
@@ -963,7 +962,7 @@ run_test 27g "test lfs getstripe ==========================================="
 
 test_27j() {
 	mkdir -p $DIR/d27
-	$SETSTRIPE $DIR/d27/f27j -i $OSTCOUNT && error "lstripe failed"||true
+	$SETSTRIPE -i $OSTCOUNT $DIR/d27/f27j && error "setstripe failed"||true
 }
 run_test 27j "setstripe with bad stripe offset (should return error)"
 
@@ -972,7 +971,7 @@ test_27k() { # bug 2844
 	FILE=$DIR/d27/f27k
 	LL_MAX_BLKSIZE=$((4 * 1024 * 1024))
 	[ ! -d $DIR/d27 ] && mkdir -p $DIR/d27
-	$SETSTRIPE $FILE -s 67108864 || error "lstripe failed"
+	$SETSTRIPE -s 67108864 $FILE || error "setstripe failed"
 	BLKSIZE=`stat $FILE | awk '/IO Block:/ { print $7 }'`
 	[ $BLKSIZE -le $LL_MAX_BLKSIZE ] || error "$BLKSIZE > $LL_MAX_BLKSIZE"
 	dd if=/dev/zero of=$FILE bs=4k count=1
@@ -984,8 +983,8 @@ run_test 27k "limit i_blksize for broken user apps ============="
 test_27l() {
 	mkdir -p $DIR/d27
 	mcreate $DIR/f27l || error "creating file"
-	$RUNAS $SETSTRIPE $DIR/f27l -c 1 && \
-		error "lstripe should have failed" || true
+	$RUNAS $SETSTRIPE -c 1 $DIR/f27l && \
+		error "setstripe should have failed" || true
 }
 run_test 27l "check setstripe permissions (should return error)"
 
@@ -996,11 +995,11 @@ test_27m() {
 		return
 	fi
 	mkdir -p $DIR/d27
-	$SETSTRIPE $DIR/d27/f27m_1 -i 0 -c 1
+	$SETSTRIPE -i 0 -c 1 $DIR/d27/f27m_1
 	dd if=/dev/zero of=$DIR/d27/f27m_1 bs=1024 count=$MAXFREE && \
 		error "dd should fill OST0"
 	i=2
-	while $SETSTRIPE $DIR/d27/f27m_$i -i 0 -c 1 ; do
+	while $SETSTRIPE -i 0 -c 1 $DIR/d27/f27m_$i; do
 		i=`expr $i + 1`
 		[ $i -gt 256 ] && break
 	done
@@ -1059,7 +1058,7 @@ exhaust_precreations() {
 	do_facet mds${MDSIDX} lctl get_param osc.$mdtosc_proc2.prealloc*
 
 	mkdir -p $DIR/$tdir/${OST}
-	$SETSTRIPE $DIR/$tdir/${OST} -i $OSTIDX -c 1
+	$SETSTRIPE -i $OSTIDX -c 1 $DIR/$tdir/${OST}
 #define OBD_FAIL_OST_ENOSPC              0x215
 	do_facet ost$((OSTIDX + 1)) lctl set_param fail_val=$FAILIDX
 	do_facet ost$((OSTIDX + 1)) lctl set_param fail_loc=0x215
@@ -1160,7 +1159,7 @@ test_27r() {
 	rm -f $DIR/$tdir/$tfile
 	exhaust_precreations 0 0x80000215
 
-	$SETSTRIPE $DIR/$tdir/$tfile -i 0 -c 2 # && error
+	$SETSTRIPE -i 0 -c 2 $DIR/$tdir/$tfile # && error
 
 	reset_enospc
 }
@@ -1171,7 +1170,7 @@ test_27s() { # bug 10725
 	local stripe_size=$((4096 * 1024 * 1024))	# 2^32
 	local stripe_count=0
 	[ $OSTCOUNT -eq 1 ] || stripe_count=2
-	$SETSTRIPE $DIR/$tdir -s $stripe_size -c $stripe_count && \
+	$SETSTRIPE -s $stripe_size -c $stripe_count $DIR/$tdir &&
 		error "stripe width >= 2^32 succeeded" || true
 
 }
@@ -1215,7 +1214,7 @@ test_27v() { # bug 4900
         reset_enospc
 
         mkdir -p $DIR/$tdir
-        $SETSTRIPE $DIR/$tdir -c 1         # 1 stripe / file
+        $SETSTRIPE -c 1 $DIR/$tdir         # 1 stripe / file
 
         touch $DIR/$tdir/$tfile
         #define OBD_FAIL_TGT_DELAY_PRECREATE     0x705
@@ -1238,7 +1237,7 @@ run_test 27v "skip object creation on slow OST ================="
 
 test_27w() { # bug 10997
         mkdir -p $DIR/$tdir || error "mkdir failed"
-        $LSTRIPE $DIR/$tdir/f0 -s 65536 || error "lstripe failed"
+        $SETSTRIPE -s 65536 $DIR/$tdir/f0 || error "setstripe failed"
         size=`$GETSTRIPE $DIR/$tdir/f0 -s`
         [ $size -ne 65536 ] && error "stripe size $size != 65536" || true
         gsdir=$($LFS getstripe -d $DIR/$tdir)
@@ -1247,7 +1246,8 @@ test_27w() { # bug 10997
         [ "$OSTCOUNT" -lt "2" ] && skip_env "skipping multiple stripe count/offset test" && return
         for i in `seq 1 $OSTCOUNT`; do
                 offset=$(($i-1))
-                $LSTRIPE $DIR/$tdir/f$i -c $i -i $offset || error "lstripe -c $i -i $offset failed"
+                $SETSTRIPE -c $i -i $offset $DIR/$tdir/f$i ||
+                       error "setstripe -c $i -i $offset failed"
                 count=`$GETSTRIPE -c $DIR/$tdir/f$i`
                 index=`$GETSTRIPE -o $DIR/$tdir/f$i`
                 [ $count -ne $i ] && error "stripe count $count != $i" || true
@@ -1263,7 +1263,7 @@ test_27x() {
 	local OST=$(lfs osts | awk '/'${OSTIDX}': / { print $2 }' | sed -e 's/_UUID$//')
 
 	mkdir -p $DIR/$tdir
-	$SETSTRIPE $DIR/$tdir -c 1	# 1 stripe per file
+	$SETSTRIPE -c 1 $DIR/$tdir	# 1 stripe per file
 	do_facet ost$((OSTIDX + 1)) lctl set_param -n obdfilter.$OST.degraded 1
 	sleep_maxage
 	createmany -o $DIR/$tdir/$tfile $OSTCOUNT
@@ -1302,7 +1302,7 @@ test_27y() {
 
         OSTIDX=$(lfs osts | grep ${OST} | awk '{print $1}' | sed -e 's/://')
         mkdir -p $DIR/$tdir
-        $SETSTRIPE $DIR/$tdir -c 1      # 1 stripe / file
+        $SETSTRIPE -c 1 $DIR/$tdir      # 1 stripe / file
 
         do_facet ost$OSTIDX lctl set_param -n obdfilter.$OST.degraded 1
         sleep_maxage
@@ -1377,11 +1377,11 @@ check_seq_oid()
 
 test_27z() {
         mkdir -p $DIR/$tdir
-        $SETSTRIPE $DIR/$tdir/$tfile-1 -c 1 -o 0 -s 1m ||
+        $SETSTRIPE -c 1 -i 0 -s 1m $DIR/$tdir/$tfile-1 ||
                 { error "setstripe -c -1 failed"; return 1; }
         dd if=/dev/zero of=$DIR/$tdir/$tfile-1 bs=1M count=1 ||
                 { error "dd 1 mb failed"; return 2; }
-        $SETSTRIPE $DIR/$tdir/$tfile-2 -c -1 -o $(($OSTCOUNT - 1)) -s 1m ||
+        $SETSTRIPE -c -1 -i $(($OSTCOUNT - 1)) -s 1m $DIR/$tdir/$tfile-2 ||
                 { error "setstripe -c 1 failed"; return 3; }
         dd if=/dev/zero of=$DIR/$tdir/$tfile-2 bs=1M count=$OSTCOUNT ||
                 { error "dd $OSTCOUNT mb failed"; return 4; }
@@ -1396,15 +1396,16 @@ test_27A() { # b=19102
         local restore_size=`$GETSTRIPE -s $MOUNT`
         local restore_count=`$GETSTRIPE -c $MOUNT`
         local restore_offset=`$GETSTRIPE -o $MOUNT`
-        $SETSTRIPE -c 0 -o -1 -s 0 $MOUNT
+        $SETSTRIPE -c 0 -i -1 -s 0 $MOUNT
         local default_size=`$GETSTRIPE -s $MOUNT`
         local default_count=`$GETSTRIPE -c $MOUNT`
         local default_offset=`$GETSTRIPE -o $MOUNT`
         local dsize=$((1024 * 1024))
-        [ $default_size -eq $dsize ] || error "stripe size $default_size != $dsize"
+        [ $default_size -eq $dsize ] ||
+                error "stripe size $default_size != $dsize"
         [ $default_count -eq 1 ] || error "stripe count $default_count != 1"
-        [ $default_offset -eq -1 ] || error "stripe offset $default_offset != -1"
-        $SETSTRIPE -c $restore_count -o $restore_offset -s $restore_size $MOUNT
+        [ $default_offset -eq -1 ] ||error "stripe offset $default_offset != -1"
+        $SETSTRIPE -c $restore_count -i $restore_offset -s $restore_size $MOUNT
 }
 run_test 27A "check filesystem-wide default LOV EA values"
 
@@ -1529,7 +1530,7 @@ run_test 31e "remove of open non-empty directory ==============="
 test_31f() { # bug 4554
 	set -vx
 	mkdir $DIR/d31f
-	$SETSTRIPE $DIR/d31f -s 1048576 -c 1
+	$SETSTRIPE -s 1048576 -c 1 $DIR/d31f
 	cp /etc/hosts $DIR/d31f
 	ls -l $DIR/d31f
 	$GETSTRIPE $DIR/d31f/hosts
@@ -1538,7 +1539,7 @@ test_31f() { # bug 4554
 
 	rm -rv $DIR/d31f || error "first of $DIR/d31f"
 	mkdir $DIR/d31f
-	$SETSTRIPE $DIR/d31f -s 1048576 -c 1
+	$SETSTRIPE -s 1048576 -c 1 $DIR/d31f
 	cp /etc/hosts $DIR/d31f
 	ls -l $DIR/d31f
 	$GETSTRIPE $DIR/d31f/hosts
@@ -3275,10 +3276,13 @@ run_test 56a "check lfs getstripe ===================================="
 NUMFILES=3
 NUMDIRS=3
 setup_56() {
-        LOCAL_NUMFILES=$1
-        LOCAL_NUMDIRS=$2
+        local LOCAL_NUMFILES="$1"
+        local LOCAL_NUMDIRS="$2"
+        local MKDIR_PARAMS="$3"
+
         if [ ! -d "$DIR/${tdir}g" ] ; then
                 mkdir -p $DIR/${tdir}g
+                [ "$MKDIR_PARAMS" ] && $SETSTRIPE $MKDIR_PARAMS $DIR/${tdir}g
                 for i in `seq 1 $LOCAL_NUMFILES` ; do
                         touch $DIR/${tdir}g/file$i
                 done
@@ -3311,34 +3315,34 @@ setup_56_special() {
 }
 
 test_56g() {
-        $LSTRIPE -d $DIR
+        $SETSTRIPE -d $DIR
 
         setup_56 $NUMFILES $NUMDIRS
 
         EXPECTED=$(($NUMDIRS + 2))
         # test lfs find with -name
-        for i in `seq 1 $NUMFILES` ; do
-                NUMS=`$LFIND -name "*$i" $DIR/${tdir}g | wc -l`
-                [ $NUMS -eq $EXPECTED ] || error \
-                        "lfs find -name \"*$i\" $DIR/${tdir}g wrong: found $NUMS, expected $EXPECTED"
+        for i in $(seq 1 $NUMFILES) ; do
+                NUMS=$($LFIND -name "*$i" $DIR/${tdir}g | wc -l)
+                [ $NUMS -eq $EXPECTED ] ||
+                        error "lfs find -name \"*$i\" $DIR/${tdir}g wrong: "\
+                              "found $NUMS, expected $EXPECTED"
         done
-        echo "lfs find -name passed."
 }
 run_test 56g "check lfs find -name ============================="
 
 test_56h() {
-        $LSTRIPE -d $DIR
+        $SETSTRIPE -d $DIR
 
         setup_56 $NUMFILES $NUMDIRS
 
-        EXPECTED=$((($NUMDIRS+1)*($NUMFILES-1)+$NUMFILES))
+        EXPECTED=$(((NUMDIRS + 1) * (NUMFILES - 1) + NUMFILES))
         # test lfs find with ! -name
-        for i in `seq 1 $NUMFILES` ; do
-                NUMS=`$LFIND ! -name "*$i" $DIR/${tdir}g | wc -l`
-                [ $NUMS -eq $EXPECTED ] || error \
-                        "lfs find ! -name \"*$i\" $DIR/${tdir}g wrong: found $NUMS, expected $EXPECTED"
+        for i in $(seq 1 $NUMFILES) ; do
+                NUMS=$($LFIND ! -name "*$i" $DIR/${tdir}g | wc -l)
+                [ $NUMS -eq $EXPECTED ] ||
+                        error "lfs find ! -name \"*$i\" $DIR/${tdir}g wrong: "\
+                              "found $NUMS, expected $EXPECTED"
         done
-        echo "lfs find ! -name passed."
 }
 run_test 56h "check lfs find ! -name ============================="
 
@@ -3354,20 +3358,22 @@ run_test 56i "check 'lfs find -ost UUID' skips directories ======="
 test_56j() {
 	setup_56_special $NUMFILES $NUMDIRS
 
-	EXPECTED=$((NUMDIRS+1))
-	NUMS=`$LFIND -type d $DIR/${tdir}g | wc -l`
-	[ $NUMS -eq $EXPECTED ] || \
-		error "lfs find -type d $DIR/${tdir}g wrong: found $NUMS, expected $EXPECTED"
+	EXPECTED=$((NUMDIRS + 1))
+	CMD="$LFIND -type d $DIR/${tdir}g"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
 }
 run_test 56j "check lfs find -type d ============================="
 
 test_56k() {
 	setup_56_special $NUMFILES $NUMDIRS
 
-	EXPECTED=$(((NUMDIRS+1) * NUMFILES))
-	NUMS=`$LFIND -type f $DIR/${tdir}g | wc -l`
-	[ $NUMS -eq $EXPECTED ] || \
-		error "lfs find -type f $DIR/${tdir}g wrong: found $NUMS, expected $EXPECTED"
+	EXPECTED=$(((NUMDIRS + 1) * NUMFILES))
+	CMD="$LFIND -type f $DIR/${tdir}g"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
 }
 run_test 56k "check lfs find -type f ============================="
 
@@ -3375,9 +3381,10 @@ test_56l() {
 	setup_56_special $NUMFILES $NUMDIRS
 
 	EXPECTED=$((NUMDIRS + NUMFILES))
-	NUMS=`$LFIND -type b $DIR/${tdir}g | wc -l`
-	[ $NUMS -eq $EXPECTED ] || \
-		error "lfs find -type b $DIR/${tdir}g wrong: found $NUMS, expected $EXPECTED"
+	CMD="$LFIND -type b $DIR/${tdir}g"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
 }
 run_test 56l "check lfs find -type b ============================="
 
@@ -3385,9 +3392,10 @@ test_56m() {
 	setup_56_special $NUMFILES $NUMDIRS
 
 	EXPECTED=$((NUMDIRS + NUMFILES))
-	NUMS=`$LFIND -type c $DIR/${tdir}g | wc -l`
-	[ $NUMS -eq $EXPECTED ] || \
-		error "lfs find -type c $DIR/${tdir}g wrong: found $NUMS, expected $EXPECTED"
+	CMD="$LFIND -type c $DIR/${tdir}g"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
 }
 run_test 56m "check lfs find -type c ============================="
 
@@ -3395,9 +3403,10 @@ test_56n() {
 	setup_56_special $NUMFILES $NUMDIRS
 
 	EXPECTED=$((NUMDIRS + NUMFILES))
-	NUMS=`$LFIND -type l $DIR/${tdir}g | wc -l`
-	[ $NUMS -eq $EXPECTED ] || \
-		error "lfs find -type l $DIR/${tdir}g wrong: found $NUMS, expected $EXPECTED"
+	CMD="$LFIND -type l $DIR/${tdir}g"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
 }
 run_test 56n "check lfs find -type l ============================="
 
@@ -3412,14 +3421,16 @@ test_56o() {
 	utime $TDIR/dir1/file1 > /dev/null || error "utime (5)"
 
 	EXPECTED=5
-	NUMS=`$LFIND -mtime +1 $TDIR | wc -l`
-	[ $NUMS -eq $EXPECTED ] || \
-		error "lfs find -mtime $TDIR wrong: found $NUMS, expected $EXPECTED"
+	CMD="$LFIND -mtime +1 $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
 }
 run_test 56o "check lfs find -mtime for old files =========================="
 
 test_56p() {
-	[ $RUNAS_ID -eq $UID ] && skip_env "RUNAS_ID = UID = $UID -- skipping" && return
+	[ $RUNAS_ID -eq $UID ] &&
+		skip_env "RUNAS_ID = UID = $UID -- skipping" && return
 
 	TDIR=$DIR/${tdir}g
 	rm -rf $TDIR
@@ -3428,39 +3439,42 @@ test_56p() {
 
 	chown $RUNAS_ID $TDIR/file* || error "chown $DIR/${tdir}g/file$i failed"
 	EXPECTED=$NUMFILES
-	NUMS="`$LFIND -uid $RUNAS_ID $TDIR | wc -l`"
+	CMD="$LFIND -uid $RUNAS_ID $TDIR"
+	NUMS=$($CMD | wc -l)
 	[ $NUMS -eq $EXPECTED ] || \
-		error "lfs find -uid $TDIR wrong: found $NUMS, expected $EXPECTED"
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
 
-	EXPECTED=$(( ($NUMFILES+1) * $NUMDIRS + 1))
-	NUMS="`$LFIND ! -uid $RUNAS_ID $TDIR | wc -l`"
+	EXPECTED=$(((NUMFILES + 1) * NUMDIRS + 1))
+	CMD="$LFIND ! -uid $RUNAS_ID $TDIR"
+	NUMS=$($CMD | wc -l)
 	[ $NUMS -eq $EXPECTED ] || \
-		error "lfs find ! -uid $TDIR wrong: found $NUMS, expected $EXPECTED"
-
-	echo "lfs find -uid and ! -uid passed."
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
 }
 run_test 56p "check lfs find -uid and ! -uid ==============================="
 
 test_56q() {
-	[ $RUNAS_ID -eq $UID ] && skip_env "RUNAS_ID = UID = $UID -- skipping" && return
+	[ $RUNAS_ID -eq $UID ] &&
+		skip_env "RUNAS_ID = UID = $UID -- skipping" && return
 
 	TDIR=$DIR/${tdir}g
-        rm -rf $TDIR
+	rm -rf $TDIR
 
 	setup_56 $NUMFILES $NUMDIRS
 
-	chgrp $RUNAS_GID $TDIR/file* || error "chown $DIR/${tdir}g/file$i failed"
+	chgrp $RUNAS_GID $TDIR/file* ||
+		error "chown $DIR/${tdir}g/file$i failed"
+
 	EXPECTED=$NUMFILES
-	NUMS="`$LFIND -gid $RUNAS_GID $TDIR | wc -l`"
-	[ $NUMS -eq $EXPECTED ] || \
-		error "lfs find -gid $TDIR wrong: found $NUMS, expected $EXPECTED"
+	CMD="$LFIND -gid $RUNAS_GID $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
 
 	EXPECTED=$(( ($NUMFILES+1) * $NUMDIRS + 1))
-	NUMS="`$LFIND ! -gid $RUNAS_GID $TDIR | wc -l`"
-	[ $NUMS -eq $EXPECTED ] || \
-		error "lfs find ! -gid $TDIR wrong: found $NUMS, expected $EXPECTED"
-
-	echo "lfs find -gid and ! -gid passed."
+	CMD="$LFIND ! -gid $RUNAS_GID $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
 }
 run_test 56q "check lfs find -gid and ! -gid ==============================="
 
@@ -3469,33 +3483,183 @@ test_56r() {
 	TDIR=$DIR/${tdir}g
 
 	EXPECTED=12
-	NUMS=`$LFIND -size 0 -t f $TDIR | wc -l`
-	[ $NUMS -eq $EXPECTED ] || \
-		error "lfs find $TDIR -size 0 wrong: found $NUMS, expected $EXPECTED"
+	CMD="$LFIND -size 0 -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
 	EXPECTED=0
-	NUMS=`$LFIND ! -size 0 -t f $TDIR | wc -l`
-	[ $NUMS -eq $EXPECTED ] || \
-		error "lfs find $TDIR ! -size 0 wrong: found $NUMS, expected $EXPECTED"
-	echo "test" > $TDIR/56r && sync
+	CMD="$LFIND ! -size 0 -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+	echo "test" > $TDIR/$tfile && sync
 	EXPECTED=1
-	NUMS=`$LFIND -size 5 -t f $TDIR | wc -l`
-	[ $NUMS -eq $EXPECTED ] || \
-		error "lfs find $TDIR -size 5 wrong: found $NUMS, expected $EXPECTED"
+	CMD="$LFIND -size 5 -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
 	EXPECTED=1
-	NUMS=`$LFIND -size +5 -t f $TDIR | wc -l`
-	[ $NUMS -eq $EXPECTED ] || \
-		error "lfs find $TDIR -size +5 wrong: found $NUMS, expected $EXPECTED"
+	CMD="$LFIND -size +5 -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
 	EXPECTED=13
-	NUMS=`$LFIND -size +0 -t f $TDIR | wc -l`
-	[ $NUMS -eq $EXPECTED ] || \
-		error "lfs find $TDIR -size +0 wrong: found $NUMS, expected $EXPECTED"
+	CMD="$LFIND -size +0 -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
 	EXPECTED=0
-	NUMS=`$LFIND ! -size -5 -t f $TDIR | wc -l`
-	[ $NUMS -eq $EXPECTED ] || \
-		error "lfs find $TDIR ! -size -5 wrong: found $NUMS, expected $EXPECTED"
+	CMD="$LFIND ! -size -5 -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
 }
-
 run_test 56r "check lfs find -size works =========================="
+
+test_56s() { # LU-611
+	TDIR=$DIR/${tdir}g
+	rm -rf $TDIR
+
+	setup_56 $NUMFILES $NUMDIRS "-c $OSTCOUNT"
+
+	if [ $OSTCOUNT -gt 1 ]; then
+		$SETSTRIPE -c 1 $TDIR/$tfile.{0,1,2,3}
+		ONESTRIPE=4
+		EXTRA=4
+	else
+		ONESTRIPE=$(((NUMDIRS + 1) * NUMFILES))
+		EXTRA=0
+	fi
+
+	EXPECTED=$(((NUMDIRS + 1) * NUMFILES + EXTRA))
+	CMD="$LFIND -stripe_count $OSTCOUNT -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+
+	CMD="$LFIND -stripe_count +0 -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+
+	EXPECTED=$ONESTRIPE
+	CMD="$LFIND -stripe_count 1 -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+
+	CMD="$LFIND -stripe_count -2 -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+
+	EXPECTED=0
+	CMD="$LFIND -stripe_count $((OSTCOUNT+1)) -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+}
+run_test 56s "check lfs find -stripe_count works"
+
+test_56t() { # LU-611
+	TDIR=$DIR/${tdir}g
+	rm -rf $TDIR
+
+	setup_56 $NUMFILES $NUMDIRS "-s 512k"
+
+	$SETSTRIPE -s 256k $TDIR/$tfile.{0,1,2,3}
+
+	EXPECTED=$(((NUMDIRS + 1) * NUMFILES))
+	CMD="$LFIND -stripe_size 512k -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+
+	CMD="$LFIND -stripe_size +320k -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+
+	EXPECTED=$(((NUMDIRS + 1) * NUMFILES + 4))
+	CMD="$LFIND -stripe_size +256k -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+
+	CMD="$LFIND -stripe_size -640k -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+
+	EXPECTED=4
+	CMD="$LFIND -stripe_size 256k -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+
+	CMD="$LFIND -stripe_count -320k -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+
+	EXPECTED=0
+	CMD="$LFIND -stripe_count 1024k -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+}
+run_test 56t "check lfs find -stripe_size works"
+
+test_56u() { # LU-611
+	TDIR=$DIR/${tdir}g
+	rm -rf $TDIR
+
+	setup_56 $NUMFILES $NUMDIRS "-i 0"
+
+	if [ $OSTCOUNT -gt 1 ]; then
+		$SETSTRIPE -i 1 $TDIR/$tfile.{0,1,2,3}
+		ONESTRIPE=4
+		EXTRA=4
+	else
+		ONESTRIPE=0
+		EXTRA=0
+	fi
+
+	EXPECTED=$(((NUMDIRS + 1) * NUMFILES))
+	CMD="$LFIND -stripe_index 0 -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+
+	EXPECTED=$ONESTRIPE
+	CMD="$LFIND -stripe_index 1 -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+
+	CMD="$LFIND ! -stripe_index 0 -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+
+	EXPECTED=$(((NUMDIRS + 1) * NUMFILES + EXTRA))
+	CMD="$LFIND -stripe_index -2 -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+
+	CMD="$LFIND -stripe_index 0,1 -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+
+	EXPECTED=0
+	CMD="$LFIND -stripe_index $OSTCOUNT -type f $TDIR"
+	NUMS=$($CMD | wc -l)
+	[ $NUMS -eq $EXPECTED ] ||
+		error "\"$CMD\" wrong: found $NUMS, expected $EXPECTED"
+}
+run_test 56u "check lfs find -stripe_index works"
 
 test_57a() {
 	# note test will not do anything if MDS is not local
@@ -3504,7 +3668,8 @@ test_57a() {
 	DEV=$(do_facet $SINGLEMDS lctl get_param -n $MNTDEV)
 	[ -z "$DEV" ] && error "can't access $MNTDEV"
 	for DEV in $(do_facet $SINGLEMDS lctl get_param -n $MNTDEV); do
-		do_facet $SINGLEMDS $DUMPE2FS -h $DEV > $TMP/t57a.dump || error "can't access $DEV"
+		do_facet $SINGLEMDS $DUMPE2FS -h $DEV > $TMP/t57a.dump ||
+			error "can't access $DEV"
 		DEVISIZE=`awk '/Inode size:/ { print $3 }' $TMP/t57a.dump`
 		[ "$DEVISIZE" -gt 128 ] || error "inode size $DEVISIZE"
 		rm $TMP/t57a.dump
@@ -3718,7 +3883,7 @@ run_test 65a "directory with no stripe info ===================="
 
 test_65b() {
 	mkdir -p $DIR/d65
-	$SETSTRIPE $DIR/d65 -s $(($STRIPESIZE * 2)) -i 0 -c 1 || error "setstripe"
+	$SETSTRIPE -s $(($STRIPESIZE * 2)) -i 0 -c 1 $DIR/d65||error "setstripe"
 	touch $DIR/d65/f2
 	$LVERIFY $DIR/d65 $DIR/d65/f2 || error "lverify failed"
 }
@@ -3745,7 +3910,7 @@ test_65d() {
 	else
         	sc=$(($STRIPECOUNT - 1))
 	fi
-	$SETSTRIPE $DIR/d65 -s $STRIPESIZE -c $sc || error "setstripe"
+	$SETSTRIPE -s $STRIPESIZE -c $sc $DIR/d65 || error "setstripe"
 	touch $DIR/d65/f4 $DIR/d65/f5
 	$LVERIFY $DIR/d65 $DIR/d65/f4 $DIR/d65/f5 || error "lverify failed"
 }
@@ -3769,7 +3934,7 @@ run_test 65f "dir setstripe permission (should return error) ==="
 
 test_65g() {
         mkdir -p $DIR/d65
-        $SETSTRIPE $DIR/d65 -s $(($STRIPESIZE * 2)) -i 0 -c 1 || error "setstripe"
+        $SETSTRIPE -s $(($STRIPESIZE * 2)) -i 0 -c 1 $DIR/d65||error "setstripe"
         $SETSTRIPE -d $DIR/d65 || error "setstripe"
         $GETSTRIPE -v $DIR/d65 | grep "Default" || \
 		error "delete default stripe failed"
@@ -3778,15 +3943,16 @@ run_test 65g "directory setstripe -d ==========================="
 
 test_65h() {
         mkdir -p $DIR/d65
-        $SETSTRIPE $DIR/d65 -s $(($STRIPESIZE * 2)) -i 0 -c 1 || error "setstripe"
+        $SETSTRIPE -s $(($STRIPESIZE * 2)) -i 0 -c 1 $DIR/d65||error "setstripe"
         mkdir -p $DIR/d65/dd1
         [ "`$GETSTRIPE -v $DIR/d65 | grep "^count"`" == \
-          "`$GETSTRIPE -v $DIR/d65/dd1 | grep "^count"`" ] || error "stripe info inherit failed"
+          "`$GETSTRIPE -v $DIR/d65/dd1 | grep "^count"`" ] ||
+		  error "stripe info inherit failed"
 }
 run_test 65h "directory stripe info inherit ===================="
 
 test_65i() { # bug6367
-        $SETSTRIPE $MOUNT -s 65536 -c -1
+        $SETSTRIPE -s 65536 -c -1 $MOUNT
 }
 run_test 65i "set non-default striping on root directory (bug 6367)="
 
@@ -3817,40 +3983,42 @@ test_65j() { # bug6367
 run_test 65j "set default striping on root directory (bug 6367)="
 
 test_65k() { # bug11679
-        [ "$OSTCOUNT" -lt 2 ] && skip_env "too few OSTs" && return
-        remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	[ "$OSTCOUNT" -lt 2 ] && skip_env "too few OSTs" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 
-        echo "Check OST status: "
-        MDS_OSCS=`do_facet $SINGLEMDS lctl dl | awk '/[oO][sS][cC].*md[ts]/ { print $4 }'`
-        for OSC in $MDS_OSCS; do
-                echo $OSC "is activate"
-                do_facet $SINGLEMDS lctl --device %$OSC activate
-        done
-        do_facet client mkdir -p $DIR/$tdir
-        for INACTIVE_OSC in $MDS_OSCS; do
-                echo $INACTIVE_OSC "is Deactivate:"
-                do_facet $SINGLEMDS lctl --device  %$INACTIVE_OSC deactivate
-                for STRIPE_OSC in $MDS_OSCS; do
-                        STRIPE_OST=`osc_to_ost $STRIPE_OSC`
-                        STRIPE_INDEX=`do_facet $SINGLEMDS lctl get_param -n lov.*md*.target_obd |
-                                      grep $STRIPE_OST | awk -F: '{print $1}' | head -n 1`
+	echo "Check OST status: "
+	MDS_OSCS=`do_facet $SINGLEMDS lctl dl|awk '/[oO][sS][cC].*md*/ {print $4}'`
 
-                [ -f $DIR/$tdir/${STRIPE_INDEX} ] && continue
-                        echo "$SETSTRIPE $DIR/$tdir/${STRIPE_INDEX} -i ${STRIPE_INDEX} -c 1"
-                        do_facet client $SETSTRIPE $DIR/$tdir/${STRIPE_INDEX} -i ${STRIPE_INDEX} -c 1
-                        RC=$?
-                        [ $RC -ne 0 ] && error "setstripe should have succeeded"
-                done
-                do_facet client rm -f $DIR/$tdir/*
-                echo $INACTIVE_OSC "is Activate."
-                do_facet $SINGLEMDS lctl --device  %$INACTIVE_OSC activate
-        done
+	for OSC in $MDS_OSCS; do
+		echo $OSC "is activate"
+		do_facet $SINGLEMDS lctl --device %$OSC activate
+	done
+
+	do_facet client mkdir -p $DIR/$tdir
+	for INACTIVE_OSC in $MDS_OSCS; do
+		echo $INACTIVE_OSC "is Deactivate:"
+		do_facet $SINGLEMDS lctl --device  %$INACTIVE_OSC deactivate
+		for OSC in $MDS_OSCS; do
+			OST=`osc_to_ost $OSC`
+			IDX=`do_facet $SINGLEMDS lctl get_param -n lov.*md*.target_obd |
+				grep $OST | awk -F: '{print $1}' | head -n 1`
+
+			[ -f $DIR/$tdir/${IDX} ] && continue
+			echo "$SETSTRIPE -i $IDX -c 1 $DIR/$tdir/$IDX"
+			do_facet client $SETSTRIPE -i $IDX -c 1 $DIR/$tdir/$IDX
+			RC=$?
+			[ $RC -ne 0 ] && error "setstripe should have succeeded"
+		done
+		do_facet client rm -f $DIR/$tdir/*
+		echo $INACTIVE_OSC "is Activate."
+		do_facet $SINGLEMDS lctl --device  %$INACTIVE_OSC activate
+	done
 }
 run_test 65k "validate manual striping works properly with deactivated OSCs"
 
 test_65l() { # bug 12836
 	mkdir -p $DIR/$tdir/test_dir
-	$SETSTRIPE $DIR/$tdir/test_dir -c -1
+	$SETSTRIPE -c -1 $DIR/$tdir/test_dir
 	$LFS find -mtime -1 $DIR/$tdir >/dev/null
 }
 run_test 65l "lfs find on -1 stripe dir ========================"
@@ -3965,7 +4133,7 @@ test_69() {
 	remote_ost_nodsh && skip "remote OST with nodsh" && return
 
 	f="$DIR/$tfile"
-	$SETSTRIPE $f -c 1 -i 0
+	$SETSTRIPE -c 1 -i 0 $f
 
 	$DIRECTIO write ${f}.2 0 1 || error "directio write error"
 
@@ -4279,7 +4447,7 @@ test_77g() { # bug 10889
 
 	[ ! -f $F77_TMP ] && setup_f77
 
-	$SETSTRIPE $DIR/f77g -c 1 -i 0
+	$SETSTRIPE -c 1 -i 0 $DIR/f77g
 	#define OBD_FAIL_OST_CHECKSUM_RECEIVE       0x21a
 	do_facet ost1 lctl set_param fail_loc=0x8000021a
 	set_checksums 1
@@ -4370,7 +4538,7 @@ test_78() { # bug 10901
 
 	[ "$SLOW" = "no" ] && NSEQ=1 && [ $F78SIZE -gt 32 ] && F78SIZE=32
 	echo "File size: $F78SIZE"
-	$SETSTRIPE $DIR/$tfile -c $OSTCOUNT || error "setstripe failed"
+	$SETSTRIPE -c $OSTCOUNT $DIR/$tfile || error "setstripe failed"
  	for i in `seq 1 $NSEQ`
  	do
  		FSIZE=$(($F78SIZE / ($NSEQ - $i + 1)))
@@ -4612,7 +4780,7 @@ setup_test101b() {
 
 	trap cleanup_test101b EXIT
 	# prepare the read-ahead file
-	$SETSTRIPE $DIR/$tfile -s $STRIPE_SIZE -i $STRIPE_OFFSET -c $OSTCOUNT
+	$SETSTRIPE -s $STRIPE_SIZE -i $STRIPE_OFFSET -c $OSTCOUNT $DIR/$tfile
 
 	dd if=/dev/zero of=$DIR/$tfile bs=1024k count=100 2> /dev/null
 }
@@ -4728,17 +4896,14 @@ setup_test102() {
 
 	trap cleanup_test102 EXIT
 	cd $DIR
-	$1 $SETSTRIPE $tdir -s $STRIPE_SIZE -i $STRIPE_OFFSET -c $STRIPE_COUNT
+	$1 $SETSTRIPE -s $STRIPE_SIZE -i $STRIPE_OFFSET -c $STRIPE_COUNT $tdir
 	cd $DIR/$tdir
-	for num in 1 2 3 4
-	do
-		for count in `seq 1 $STRIPE_COUNT`
-		do
-			for offset in `seq 0 $[$STRIPE_COUNT - 1]`
-			do
-				local stripe_size=`expr $STRIPE_SIZE \* $num`
-				local file=file"$num-$offset-$count"
-				$1 $SETSTRIPE $file -s $stripe_size -i $offset -c $count
+	for num in 1 2 3 4; do
+		for count in $(seq 1 $STRIPE_COUNT); do
+			for idx in $(seq 0 $[$STRIPE_COUNT - 1]); do
+				local size=`expr $STRIPE_SIZE \* $num`
+				local file=file"$num-$idx-$count"
+				$1 $SETSTRIPE -s $size -i $idx -c $count $file
 			done
 		done
 	done
@@ -4760,9 +4925,11 @@ test_102a() {
         touch $testfile
 
 	[ "$UID" != 0 ] && skip_env "must run as root" && return
-	[ -z "`lctl get_param -n mdc.*-mdc-*.connect_flags | grep xattr`" ] && skip_env "must have user_xattr" && return
+	[ -z "`lctl get_param -n mdc.*-mdc-*.connect_flags | grep xattr`" ] &&
+		skip_env "must have user_xattr" && return
 
-	[ -z "$(which setfattr 2>/dev/null)" ] && skip_env "could not find setfattr" && return
+	[ -z "$(which setfattr 2>/dev/null)" ] &&
+		skip_env "could not find setfattr" && return
 
 	echo "set/get xattr..."
         setfattr -n trusted.name1 -v value1 $testfile || error
@@ -5013,14 +5180,18 @@ test_102k() {
         local default_size=`$GETSTRIPE -s $test_kdir`
         local default_count=`$GETSTRIPE -c $test_kdir`
         local default_offset=`$GETSTRIPE -o $test_kdir`
-        $SETSTRIPE -s 65536 -i 1 -c $OSTCOUNT $test_kdir || error 'dir setstripe failed'
+        $SETSTRIPE -s 65536 -i 1 -c $OSTCOUNT $test_kdir ||
+                error 'dir setstripe failed'
         setfattr -n trusted.lov $test_kdir
         local stripe_size=`$GETSTRIPE -s $test_kdir`
         local stripe_count=`$GETSTRIPE -c $test_kdir`
         local stripe_offset=`$GETSTRIPE -o $test_kdir`
-        [ $stripe_size -eq $default_size ] || error "stripe size $stripe_size != $default_size"
-        [ $stripe_count -eq $default_count ] || error "stripe count $stripe_count != $default_count"
-        [ $stripe_offset -eq $default_offset ] || error "stripe offset $stripe_offset != $default_offset"
+        [ $stripe_size -eq $default_size ] ||
+                error "stripe size $stripe_size != $default_size"
+        [ $stripe_count -eq $default_count ] ||
+                error "stripe count $stripe_count != $default_count"
+        [ $stripe_offset -eq $default_offset ] ||
+                error "stripe offset $stripe_offset != $default_offset"
         rm -rf $DIR/$tfile $test_kdir
 }
 run_test 102k "setfattr without parameter of value shouldn't cause a crash"
@@ -5305,7 +5476,7 @@ test_116() {
 
 	# now fill using QOS
 	echo writing a bunch of files to QOS-assigned OSTs
-	$SETSTRIPE $DIR/$tdir -c 1
+	$SETSTRIPE -c 1 $DIR/$tdir
 	i=0
 	while [ $FILL -gt 0 ]; do
 	    i=$(($i + 1))
@@ -5373,10 +5544,10 @@ reset_async() {
 	FILE=$DIR/reset_async
 
 	# Ensure all OSCs are cleared
-	$LSTRIPE -c -1 $FILE
-        dd if=/dev/zero of=$FILE bs=64k count=$OSTCOUNT
+	$SETSTRIPE -c -1 $FILE
+	dd if=/dev/zero of=$FILE bs=64k count=$OSTCOUNT
 	sync
-        rm $FILE
+	rm $FILE
 }
 
 test_118a() #bug 11710
@@ -6839,7 +7010,7 @@ test_133c() {
 	mkdir -p ${testdir} || error "mkdir failed"
 
 	# verify obdfilter stats.
-	$LFS setstripe -c 1 -o 0 ${testdir}/${tfile}
+	$LFS setstripe -c 1 -i 0 ${testdir}/${tfile}
 	sync
 	cancel_lru_locks osc
 
@@ -7901,7 +8072,7 @@ check_raw_stripe_attr() {
 
 test_204a() {
 	mkdir -p $DIR/$tdir
-	$SETSTRIPE --count 0 --size 0 --offset -1 $DIR/$tdir
+	$SETSTRIPE --stripe_count 0 --stripe_size 0 --ost_index -1 $DIR/$tdir
 
 	check_default_stripe_attr count
 	check_default_stripe_attr size
@@ -7913,7 +8084,7 @@ run_test 204a "Print default stripe attributes ================="
 
 test_204b() {
 	mkdir -p $DIR/$tdir
-	$SETSTRIPE --count 1 $DIR/$tdir
+	$SETSTRIPE --stripe_count 1 $DIR/$tdir
 
 	check_default_stripe_attr size
 	check_default_stripe_attr offset
@@ -7924,7 +8095,7 @@ run_test 204b "Print default stripe size and offset  ==========="
 
 test_204c() {
 	mkdir -p $DIR/$tdir
-	$SETSTRIPE --size 65536 $DIR/$tdir
+	$SETSTRIPE --stripe_size 65536 $DIR/$tdir
 
 	check_default_stripe_attr count
 	check_default_stripe_attr offset
@@ -7935,7 +8106,7 @@ run_test 204c "Print default stripe count and offset ==========="
 
 test_204d() {
 	mkdir -p $DIR/$tdir
-	$SETSTRIPE --offset 0 $DIR/$tdir
+	$SETSTRIPE --stripe_index 0 $DIR/$tdir
 
 	check_default_stripe_attr count
 	check_default_stripe_attr size
@@ -7958,7 +8129,7 @@ run_test 204e "Print raw stripe attributes ================="
 
 test_204f() {
 	mkdir -p $DIR/$tdir
-	$SETSTRIPE --count 1 $DIR/$tdir
+	$SETSTRIPE --stripe_count 1 $DIR/$tdir
 
 	check_raw_stripe_attr size
 	check_raw_stripe_attr offset
@@ -7969,7 +8140,7 @@ run_test 204f "Print raw stripe size and offset  ==========="
 
 test_204g() {
 	mkdir -p $DIR/$tdir
-	$SETSTRIPE --size 65536 $DIR/$tdir
+	$SETSTRIPE --stripe_size 65536 $DIR/$tdir
 
 	check_raw_stripe_attr count
 	check_raw_stripe_attr offset
@@ -7980,7 +8151,7 @@ run_test 204g "Print raw stripe count and offset ==========="
 
 test_204h() {
 	mkdir -p $DIR/$tdir
-	$SETSTRIPE --offset 0 $DIR/$tdir
+	$SETSTRIPE --stripe_index 0 $DIR/$tdir
 
 	check_raw_stripe_attr count
 	check_raw_stripe_attr size
