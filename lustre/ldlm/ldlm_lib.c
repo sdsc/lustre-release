@@ -193,6 +193,35 @@ out:
         RETURN(rc);
 }
 
+/**
+ * Find conn uuid by peer nid.
+ */
+int client_import_find_conn(struct obd_import *imp, lnet_nid_t peer,
+                            struct obd_uuid *uuid)
+{
+        struct obd_import_conn *conn;
+        int rc = -ENOENT;
+        ENTRY;
+
+        cfs_spin_lock(&imp->imp_lock);
+        cfs_list_for_each_entry(conn, &imp->imp_conn_list, oic_item) {
+                int count = 0;
+
+                /* probe conn uuid by nid */
+                while (!class_find_uuid(peer, uuid, count++)) {
+                        if (obd_uuid_equals(uuid, &conn->oic_uuid)) {
+                                rc = 0;
+                                break;
+                        }
+                }
+                if (rc == 0)
+                        break;
+        }
+        cfs_spin_unlock(&imp->imp_lock);
+        RETURN(rc);
+}
+EXPORT_SYMBOL(client_import_find_conn);
+
 void client_destroy_import(struct obd_import *imp)
 {
         /* drop security policy instance after all rpc finished/aborted
@@ -926,6 +955,11 @@ dont_check_exports:
         }
         if (rc)
                 GOTO(out, rc);
+
+        /* get instance number of target, do we need a flag for this? */
+        //LASSERT(target->u.obt.obt_magic == OBT_MAGIC);
+        data->ocd_instance = target->u.obt.obt_instance;
+
         /* Return only the parts of obd_connect_data that we understand, so the
          * client knows that we don't understand the rest. */
         if (data) {

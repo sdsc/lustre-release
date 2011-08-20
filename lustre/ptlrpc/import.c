@@ -447,10 +447,9 @@ int ptlrpc_reconnect_import(struct obd_import *imp)
         /* Remove 'invalid' flag */
         ptlrpc_activate_import(imp);
         /* Attempt a new connect */
-        ptlrpc_recover_import(imp, NULL);
+        ptlrpc_recover_import(imp, NULL, 0);
         return 0;
 }
-
 EXPORT_SYMBOL(ptlrpc_reconnect_import);
 
 /**
@@ -949,6 +948,8 @@ finish:
                 }
 
                 imp->imp_connect_data = *ocd;
+                CDEBUG(D_INFO, "obd %s to target with inst %u\n",
+                       imp->imp_obd->obd_name, ocd->ocd_instance);
 
                 exp = class_conn2export(&imp->imp_dlm_handle);
                 cfs_spin_unlock(&imp->imp_lock);
