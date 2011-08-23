@@ -1379,6 +1379,8 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
                 RETURN(rc);
 
         mdd_txn_param_build(env, mdd, MDD_TXN_CREATE_DATA_OP);
+        /* add possible orphan unlink rec credits used in lov_objid update */
+        mdd_txn_fix_credits(env, lmm);
         handle = mdd_trans_start(env, mdd);
         if (IS_ERR(handle))
                 GOTO(out_free, rc = PTR_ERR(handle));

@@ -357,6 +357,7 @@ int __mdd_orphan_del(const struct lu_env *, struct mdd_object *,
 int orph_index_init(const struct lu_env *env, struct mdd_device *mdd);
 void orph_index_fini(const struct lu_env *env, struct mdd_device *mdd);
 int mdd_txn_init_credits(const struct lu_env *env, struct mdd_device *mdd);
+int mdd_txn_fix_credits(const struct lu_env *env, struct lov_mds_md *lmm);
 
 /* mdd_lproc.c */
 void lprocfs_mdd_init_vars(struct lprocfs_static_vars *lvars);

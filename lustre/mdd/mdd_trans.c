@@ -258,6 +258,28 @@ int mdd_txn_init_credits(const struct lu_env *env, struct mdd_device *mdd)
         RETURN(0);
 }
 
+int mdd_txn_fix_credits(const struct lu_env *env, struct lov_mds_md *lmm)
+{
+	int stripes = 0, log_credits;
+
+	if (lmm == NULL)
+		RETURN(0);
+
+	if (le32_to_cpu(lmm->lmm_magic) == LOV_MAGIC_V1) {
+		stripes = le32_to_cpu(((struct lov_mds_md_v1*)lmm)
+				      ->lmm_stripe_count);
+	} else if (le32_to_cpu(lmm->lmm_magic) == LOV_MAGIC_V3){
+		stripes = le32_to_cpu(((struct lov_mds_md_v3*)lmm)
+				      ->lmm_stripe_count);
+	} else {
+                CERROR("Unknown lmm type %X\n", le32_to_cpu(lmm->lmm_magic));
+                LBUG();
+        }
+	log_credits = stripes * dto_txn_credits[DTO_LOG_REC];
+	txn_param_credit_add(&mdd_env_info(env)->mti_param, log_credits);
+	RETURN(0);
+}
+
 struct thandle* mdd_trans_start(const struct lu_env *env,
                                 struct mdd_device *mdd)
 {
