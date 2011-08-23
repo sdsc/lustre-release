@@ -28,6 +28,9 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2011 Whamcloud, Inc.
+ *
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -57,6 +60,7 @@
 #ifdef HAVE_QUOTA_SUPPORT
 /* quota stuff */
 extern quota_interface_t *mds_quota_interface_ref;
+extern int dto_txn_credits[DTO_NR];
 
 static inline void mdd_quota_wrapper(struct lu_attr *la, unsigned int *qids)
 {
@@ -421,6 +425,8 @@ int mdd_quota_finvalidate(const struct lu_env *env, struct md_device *m,
 /* mdd_trans.c */
 void mdd_txn_param_build(const struct lu_env *env, struct mdd_device *mdd,
                          enum mdd_txn_op);
+int mdd_create_txn_param_build(const struct lu_env *env, struct mdd_device *mdd,
+                               struct lov_mds_md *lmm, enum mdd_txn_op op);
 int mdd_log_txn_param_build(const struct lu_env *env, struct md_object *obj,
                             struct md_attr *ma, enum mdd_txn_op);
 int mdd_setattr_txn_param_build(const struct lu_env *env, struct md_object *obj,
