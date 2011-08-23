@@ -318,10 +318,11 @@ static int orphan_object_destroy(const struct lu_env *env,
 {
         struct thandle *th = NULL;
         struct mdd_device *mdd = mdo2mdd(&obj->mod_obj);
+        struct md_attr *ma = &mdd_env_info(env)->mti_ma;
         int rc = 0;
         ENTRY;
 
-        mdd_txn_param_build(env, mdd, MDD_TXN_UNLINK_OP);
+        mdd_log_txn_param_build(env, &obj->mod_obj, ma, MDD_TXN_UNLINK_OP, 0);
         th = mdd_trans_start(env, mdd);
         if (IS_ERR(th)) {
                 CERROR("Cannot get thandle\n");
