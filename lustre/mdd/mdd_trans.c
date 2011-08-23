@@ -28,6 +28,9 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2011 Whamcloud, Inc.
+ *
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -110,6 +113,33 @@ void mdd_txn_param_build(const struct lu_env *env, struct mdd_device *mdd,
 
         txn_param_init(&mdd_env_info(env)->mti_param,
                        mdd->mdd_tod[op].mod_credits);
+}
+
+int mdd_cd_txn_param_build(const struct lu_env *env, struct mdd_device *mdd,
+                           struct lov_mds_md *lmm, enum mdd_txn_op op)
+{
+        int stripes = 0, log_credits;
+        ENTRY;
+
+        LASSERT(op == MDD_TXN_CREATE_DATA_OP);
+        mdd_txn_param_build(env, mdd, op);
+        if (lmm == NULL)
+                RETURN(0);
+
+        /* add possible orphan unlink rec credits used in lov_objid update */
+        if (le32_to_cpu(lmm->lmm_magic) == LOV_MAGIC_V1) {
+                stripes = le32_to_cpu(((struct lov_mds_md_v1*)lmm)
+                                      ->lmm_stripe_count);
+        } else if (le32_to_cpu(lmm->lmm_magic) == LOV_MAGIC_V3){
+                stripes = le32_to_cpu(((struct lov_mds_md_v3*)lmm)
+                                      ->lmm_stripe_count);
+        } else {
+                CERROR("Unknown lmm type %X\n", le32_to_cpu(lmm->lmm_magic));
+                LBUG();
+        }
+        log_credits = stripes * dto_txn_credits[DTO_LOG_REC];
+        txn_param_credit_add(&mdd_env_info(env)->mti_param, log_credits);
+        RETURN(0);
 }
 
 int mdd_log_txn_param_build(const struct lu_env *env, struct md_object *obj,

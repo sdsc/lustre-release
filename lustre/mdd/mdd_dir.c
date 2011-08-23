@@ -1378,7 +1378,7 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
         if (rc)
                 RETURN(rc);
 
-        mdd_txn_param_build(env, mdd, MDD_TXN_CREATE_DATA_OP);
+        mdd_cd_txn_param_build(env, mdd, lmm, MDD_TXN_CREATE_DATA_OP);
         handle = mdd_trans_start(env, mdd);
         if (IS_ERR(handle))
                 GOTO(out_free, rc = PTR_ERR(handle));
