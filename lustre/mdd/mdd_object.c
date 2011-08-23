@@ -1657,7 +1657,7 @@ static int mdd_xattr_set(const struct lu_env *env, struct md_object *obj,
         if (rc)
                 RETURN(rc);
 
-        mdd_txn_param_build(env, mdd, MDD_TXN_XATTR_SET_OP);
+        mdd_txn_param_build(env, mdd, MDD_TXN_XATTR_SET_OP, 0);
         /* security-replated changes may require sync */
         if (!strcmp(name, XATTR_NAME_ACL_ACCESS) &&
             mdd->mdd_sync_permission == 1)
@@ -1695,7 +1695,7 @@ int mdd_xattr_del(const struct lu_env *env, struct md_object *obj,
         if (rc)
                 RETURN(rc);
 
-        mdd_txn_param_build(env, mdd, MDD_TXN_XATTR_SET_OP);
+        mdd_txn_param_build(env, mdd, MDD_TXN_XATTR_SET_OP, 0);
         handle = mdd_trans_start(env, mdd);
         if (IS_ERR(handle))
                 RETURN(PTR_ERR(handle));
@@ -1741,7 +1741,7 @@ static int mdd_ref_del(const struct lu_env *env, struct md_object *obj,
 
         LASSERT(mdd_object_exists(mdd_obj) > 0);
 
-        rc = mdd_log_txn_param_build(env, obj, ma, MDD_TXN_UNLINK_OP);
+        rc = mdd_log_txn_param_build(env, obj, ma, MDD_TXN_UNLINK_OP, 0);
         if (rc)
                 RETURN(rc);
 
@@ -1866,7 +1866,7 @@ static int mdd_object_create(const struct lu_env *env,
         }
 #endif
 
-        mdd_txn_param_build(env, mdd, MDD_TXN_OBJECT_CREATE_OP);
+        mdd_txn_param_build(env, mdd, MDD_TXN_OBJECT_CREATE_OP, 0);
         handle = mdd_trans_start(env, mdd);
         if (IS_ERR(handle))
                 GOTO(out_pending, rc = PTR_ERR(handle));
@@ -1953,7 +1953,7 @@ static int mdd_ref_add(const struct lu_env *env, struct md_object *obj,
         int rc;
         ENTRY;
 
-        mdd_txn_param_build(env, mdd, MDD_TXN_XATTR_SET_OP);
+        mdd_txn_param_build(env, mdd, MDD_TXN_XATTR_SET_OP, 0);
         handle = mdd_trans_start(env, mdd);
         if (IS_ERR(handle))
                 RETURN(-ENOMEM);
@@ -2133,7 +2133,7 @@ static int mdd_close(const struct lu_env *env, struct md_object *obj,
         if (mdd_obj->mod_count == 1 &&
             (mdd_obj->mod_flags & (ORPHAN_OBJ | DEAD_OBJ)) != 0) {
  again:
-                rc = mdd_log_txn_param_build(env, obj, ma, MDD_TXN_UNLINK_OP);
+                rc = mdd_log_txn_param_build(env, obj, ma, MDD_TXN_UNLINK_OP, 0);
                 if (rc)
                         RETURN(rc);
                 handle = mdd_trans_start(env, mdo2mdd(obj));

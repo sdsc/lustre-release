@@ -321,7 +321,8 @@ static int orphan_object_destroy(const struct lu_env *env,
         int rc = 0;
         ENTRY;
 
-        mdd_txn_param_build(env, mdd, MDD_TXN_UNLINK_OP);
+        /* need changelog credit for orphan_object_kill() */
+        mdd_txn_param_build(env, mdd, MDD_TXN_UNLINK_OP, 1);
         th = mdd_trans_start(env, mdd);
         if (IS_ERR(th)) {
                 CERROR("Cannot get thandle\n");
