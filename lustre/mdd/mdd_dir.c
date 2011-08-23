@@ -714,6 +714,9 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
 #endif
 
         mdd_txn_param_build(env, mdd, MDD_TXN_LINK_OP);
+        /* changelog credit */
+        txn_param_credit_add(&mdd_env_info(env)->mti_param,
+                             dto_txn_credits[DTO_LOG_REC]);
         handle = mdd_trans_start(env, mdd);
         if (IS_ERR(handle))
                 GOTO(out_pending, rc = PTR_ERR(handle));
@@ -860,6 +863,9 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
         rc = mdd_log_txn_param_build(env, cobj, ma, MDD_TXN_UNLINK_OP);
         if (rc)
                 RETURN(rc);
+        /* changelog credit */
+        txn_param_credit_add(&mdd_env_info(env)->mti_param,
+                             dto_txn_credits[DTO_LOG_REC]);
 
         handle = mdd_trans_start(env, mdd);
         if (IS_ERR(handle))
@@ -1241,6 +1247,9 @@ static int mdd_rename_tgt(const struct lu_env *env,
         }
 #endif
         mdd_txn_param_build(env, mdd, MDD_TXN_RENAME_TGT_OP);
+        /* changelog credit */
+        txn_param_credit_add(&mdd_env_info(env)->mti_param,
+                             dto_txn_credits[DTO_LOG_REC]);
         handle = mdd_trans_start(env, mdd);
         if (IS_ERR(handle))
                 GOTO(out_pending, rc = PTR_ERR(handle));
@@ -1378,7 +1387,7 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
         if (rc)
                 RETURN(rc);
 
-        mdd_txn_param_build(env, mdd, MDD_TXN_CREATE_DATA_OP);
+        mdd_create_txn_param_build(env, mdd, lmm, MDD_TXN_CREATE_DATA_OP);
         handle = mdd_trans_start(env, mdd);
         if (IS_ERR(handle))
                 GOTO(out_free, rc = PTR_ERR(handle));
@@ -1735,7 +1744,10 @@ static int mdd_create(const struct lu_env *env,
                         got_def_acl = 1;
         }
 
-        mdd_txn_param_build(env, mdd, MDD_TXN_MKDIR_OP);
+        mdd_create_txn_param_build(env, mdd, lmm, MDD_TXN_MKDIR_OP);
+        /* changelog credit */
+        txn_param_credit_add(&mdd_env_info(env)->mti_param,
+                             dto_txn_credits[DTO_LOG_REC]);
         handle = mdd_trans_start(env, mdd);
         if (IS_ERR(handle))
                 GOTO(out_free, rc = PTR_ERR(handle));
@@ -2038,6 +2050,9 @@ static int mdd_rename(const struct lu_env *env,
         }
 #endif
         mdd_txn_param_build(env, mdd, MDD_TXN_RENAME_OP);
+        /* changelog credit */
+        txn_param_credit_add(&mdd_env_info(env)->mti_param,
+                             2 * dto_txn_credits[DTO_LOG_REC]);
         handle = mdd_trans_start(env, mdd);
         if (IS_ERR(handle))
                 GOTO(out_pending, rc = PTR_ERR(handle));
