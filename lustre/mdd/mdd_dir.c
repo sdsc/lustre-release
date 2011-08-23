@@ -1405,8 +1405,11 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
                rc = mdd_attr_get_internal_locked(env, son, ma);
 
         /* update lov_objid data, must be before transaction stop! */
-        if (rc == 0)
+        if (rc == 0) {
+		/* add orphan unlink rec credits */
+		mdd_txn_fix_credits(env, lmm);
                 mdd_lov_objid_update(mdd, lmm);
+        }
 
         mdd_trans_stop(env, mdd, rc, handle);
 out_free:
