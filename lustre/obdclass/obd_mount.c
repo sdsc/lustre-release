@@ -1254,11 +1254,11 @@ out_mgc:
                                       obd->obd_self_export, 0, NULL, NULL);
                 }
 
-                /* log has been fully processed */
-                obd_notify(obd, NULL, OBD_NOTIFY_CONFIG, (void *)CONFIG_LOG);
-
                 /* calculate recovery timeout, do it after lustre_process_log */
                 server_calc_timeout(lsi, obd);
+
+                /* log has been fully processed */
+                obd_notify(obd, NULL, OBD_NOTIFY_CONFIG, (void *)CONFIG_LOG);
         }
 
         RETURN(rc);
@@ -1878,7 +1878,7 @@ void server_calc_timeout(struct lustre_sb_info *lsi, struct obd_device *obd)
         }
 
         /* we're done */
-        obd->obd_recovery_timeout   = soft;
+        obd->obd_recovery_timeout   = max(obd->obd_recovery_timeout, soft);
         obd->obd_recovery_time_hard = hard;
         obd->obd_recovery_ir_factor = factor;
 }

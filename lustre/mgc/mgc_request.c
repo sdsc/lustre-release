@@ -486,7 +486,7 @@ static int mgc_requeue_thread(void *data)
         while (1) {
                 struct l_wait_info lwi;
                 struct config_llog_data *cld, *cld_prev;
-                int rand = (cfs_rand() & 0xff) * (CFS_HZ / 100); /*0 ~ 2550ms*/
+                int rand = (cfs_rand() & 0x3ff) * (CFS_HZ / 100); /*0 ~ 10s*/
                 int stopped = !!(rq_state & RQ_STOP);
 
                 /* Any new or requeued lostlocks will change the state */
@@ -496,7 +496,7 @@ static int mgc_requeue_thread(void *data)
                 /* Always wait a few seconds to allow the server who
                    caused the lock revocation to finish its setup, plus some
                    random so everyone doesn't try to reconnect at once. */
-                lwi = LWI_TIMEOUT(3 * CFS_HZ + rand, NULL, NULL);
+                lwi = LWI_TIMEOUT(10 * CFS_HZ + rand, NULL, NULL);
                 l_wait_event(rq_waitq, rq_state & RQ_STOP, &lwi);
 
                 /*
