@@ -1042,28 +1042,36 @@ dont_check_exports:
                              &export->exp_nid_hash);
         }
 
-        cfs_spin_lock(&target->obd_recovery_task_lock);
         if (target->obd_recovering && !export->exp_in_recovery) {
+                int has_transno;
+                __u64 transno = data->ocd_transno;
+
                 cfs_spin_lock(&export->exp_lock);
                 export->exp_in_recovery = 1;
                 export->exp_req_replay_needed = 1;
                 export->exp_lock_replay_needed = 1;
                 cfs_spin_unlock(&export->exp_lock);
-                if ((lustre_msg_get_op_flags(req->rq_reqmsg) & MSG_CONNECT_TRANSNO)
-                     && (data->ocd_transno == 0))
+
+                has_transno = !!(lustre_msg_get_op_flags(req->rq_reqmsg) &
+                                 MSG_CONNECT_TRANSNO);
+                if (has_transno && transno == 0)
                         CWARN("Connect with zero transno!\n");
 
-                if ((lustre_msg_get_op_flags(req->rq_reqmsg) & MSG_CONNECT_TRANSNO)
-                     && data->ocd_transno < target->obd_next_recovery_transno)
-                        target->obd_next_recovery_transno = data->ocd_transno;
-                target->obd_connected_clients++;
+                if (has_transno && transno > 0 &&
+                    transno < target->obd_next_recovery_transno) {
+                        /* another way is to use cmpxchg() so it will be
+                         * lock free */
+                        cfs_spin_lock(&target->obd_recovery_task_lock);
+                        if (transno < target->obd_next_recovery_transno)
+                                target->obd_next_recovery_transno = transno;
+                        cfs_spin_unlock(&target->obd_recovery_task_lock);
+                }
                 cfs_atomic_inc(&target->obd_req_replay_clients);
                 cfs_atomic_inc(&target->obd_lock_replay_clients);
-                if (target->obd_connected_clients ==
+                if (cfs_atomic_inc_return(&target->obd_connected_clients) ==
                     target->obd_max_recoverable_clients)
                         cfs_waitq_signal(&target->obd_next_transno_waitq);
         }
-        cfs_spin_unlock(&target->obd_recovery_task_lock);
 
         /* Tell the client we're in recovery, when client is involved in it. */
         if (target->obd_recovering)
@@ -1481,12 +1489,13 @@ static inline int exp_finished(struct obd_export *exp)
 /** Checking routines for recovery */
 static int check_for_clients(struct obd_device *obd)
 {
+        unsigned int clnts = cfs_atomic_read(&obd->obd_connected_clients);
+
         if (obd->obd_abort_recovery || obd->obd_recovery_expired)
                 return 1;
-        LASSERT(obd->obd_connected_clients <= obd->obd_max_recoverable_clients);
+        LASSERT(clnts <= obd->obd_max_recoverable_clients);
         if (obd->obd_no_conn == 0 &&
-            obd->obd_connected_clients + obd->obd_stale_clients ==
-            obd->obd_max_recoverable_clients)
+            clnts + obd->obd_stale_clients == obd->obd_max_recoverable_clients)
                 return 1;
         return 0;
 }
@@ -1507,7 +1516,7 @@ static int check_for_next_transno(struct obd_device *obd)
                 req_transno = 0;
         }
 
-        connected = obd->obd_connected_clients;
+        connected = cfs_atomic_read(&obd->obd_connected_clients);
         completed = connected - cfs_atomic_read(&obd->obd_req_replay_clients);
         queue_len = obd->obd_requests_queued_for_recovery;
         next_transno = obd->obd_next_recovery_transno;
@@ -1919,7 +1928,7 @@ static void target_recovery_expired(unsigned long castmeharder)
                " after %lds (%d clients connected)\n",
                obd->obd_name, cfs_atomic_read(&obd->obd_lock_replay_clients),
                cfs_time_current_sec()- obd->obd_recovery_start,
-               obd->obd_connected_clients);
+               cfs_atomic_read(&obd->obd_connected_clients));
 
         obd->obd_recovery_expired = 1;
         cfs_waitq_signal(&obd->obd_next_transno_waitq);
