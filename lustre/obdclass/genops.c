@@ -296,7 +296,7 @@ struct obd_device *class_newdev(const char *type_name, const char *name)
         }
         LASSERT(newdev->obd_magic == OBD_DEVICE_MAGIC);
 
-        cfs_spin_lock(&obd_dev_lock);
+        cfs_write_lock(&obd_dev_lock);
         for (i = 0; i < class_devno_max(); i++) {
                 struct obd_device *obd = class_num2obd(i);
                 if (obd && obd->obd_name &&
@@ -326,7 +326,7 @@ struct obd_device *class_newdev(const char *type_name, const char *name)
                         obd_devs[i] = result;
                 }
         }
-        cfs_spin_unlock(&obd_dev_lock);
+        cfs_write_unlock(&obd_dev_lock);
 
         if (result == NULL && i >= class_devno_max()) {
                 CERROR("all %u OBD devices used, increase MAX_OBD_DEVICES\n",
@@ -357,9 +357,9 @@ void class_release_dev(struct obd_device *obd)
         CDEBUG(D_INFO, "Release obd device %s obd_type name =%s\n",
                obd->obd_name,obd->obd_type->typ_name);
 
-        cfs_spin_lock(&obd_dev_lock);
+        cfs_write_lock(&obd_dev_lock);
         obd_devs[obd->obd_minor] = NULL;
-        cfs_spin_unlock(&obd_dev_lock);
+        cfs_write_unlock(&obd_dev_lock);
         obd_device_free(obd);
 
         class_put_type(obd_type);
@@ -372,7 +372,7 @@ int class_name2dev(const char *name)
         if (!name)
                 return -1;
 
-        cfs_spin_lock(&obd_dev_lock);
+        cfs_read_lock(&obd_dev_lock);
         for (i = 0; i < class_devno_max(); i++) {
                 struct obd_device *obd = class_num2obd(i);
                 if (obd && obd->obd_name && strcmp(name, obd->obd_name) == 0) {
@@ -380,13 +380,13 @@ int class_name2dev(const char *name)
                            out any references */
                         LASSERT(obd->obd_magic == OBD_DEVICE_MAGIC);
                         if (obd->obd_attached) {
-                                cfs_spin_unlock(&obd_dev_lock);
+                                cfs_read_unlock(&obd_dev_lock);
                                 return i;
                         }
                         break;
                 }
         }
-        cfs_spin_unlock(&obd_dev_lock);
+        cfs_read_unlock(&obd_dev_lock);
 
         return -1;
 }
@@ -404,16 +404,16 @@ int class_uuid2dev(struct obd_uuid *uuid)
 {
         int i;
 
-        cfs_spin_lock(&obd_dev_lock);
+        cfs_read_lock(&obd_dev_lock);
         for (i = 0; i < class_devno_max(); i++) {
                 struct obd_device *obd = class_num2obd(i);
                 if (obd && obd_uuid_equals(uuid, &obd->obd_uuid)) {
                         LASSERT(obd->obd_magic == OBD_DEVICE_MAGIC);
-                        cfs_spin_unlock(&obd_dev_lock);
+                        cfs_read_unlock(&obd_dev_lock);
                         return i;
                 }
         }
-        cfs_spin_unlock(&obd_dev_lock);
+        cfs_read_unlock(&obd_dev_lock);
 
         return -1;
 }
@@ -459,7 +459,7 @@ void class_obd_list(void)
         char *status;
         int i;
 
-        cfs_spin_lock(&obd_dev_lock);
+        cfs_read_lock(&obd_dev_lock);
         for (i = 0; i < class_devno_max(); i++) {
                 struct obd_device *obd = class_num2obd(i);
                 if (obd == NULL)
@@ -477,7 +477,7 @@ void class_obd_list(void)
                          obd->obd_name, obd->obd_uuid.uuid,
                          cfs_atomic_read(&obd->obd_refcount));
         }
-        cfs_spin_unlock(&obd_dev_lock);
+        cfs_read_unlock(&obd_dev_lock);
         return;
 }
 
@@ -490,7 +490,7 @@ struct obd_device * class_find_client_obd(struct obd_uuid *tgt_uuid,
 {
         int i;
 
-        cfs_spin_lock(&obd_dev_lock);
+        cfs_read_lock(&obd_dev_lock);
         for (i = 0; i < class_devno_max(); i++) {
                 struct obd_device *obd = class_num2obd(i);
                 if (obd == NULL)
@@ -501,12 +501,12 @@ struct obd_device * class_find_client_obd(struct obd_uuid *tgt_uuid,
                                             &obd->u.cli.cl_target_uuid) &&
                             ((grp_uuid)? obd_uuid_equals(grp_uuid,
                                                          &obd->obd_uuid) : 1)) {
-                                cfs_spin_unlock(&obd_dev_lock);
+                                cfs_read_unlock(&obd_dev_lock);
                                 return obd;
                         }
                 }
         }
-        cfs_spin_unlock(&obd_dev_lock);
+        cfs_read_unlock(&obd_dev_lock);
 
         return NULL;
 }
@@ -526,7 +526,7 @@ struct obd_device * class_devices_in_group(struct obd_uuid *grp_uuid, int *next)
         else
                 return NULL;
 
-        cfs_spin_lock(&obd_dev_lock);
+        cfs_read_lock(&obd_dev_lock);
         for (; i < class_devno_max(); i++) {
                 struct obd_device *obd = class_num2obd(i);
                 if (obd == NULL)
@@ -534,11 +534,11 @@ struct obd_device * class_devices_in_group(struct obd_uuid *grp_uuid, int *next)
                 if (obd_uuid_equals(grp_uuid, &obd->obd_uuid)) {
                         if (next != NULL)
                                 *next = i+1;
-                        cfs_spin_unlock(&obd_dev_lock);
+                        cfs_read_unlock(&obd_dev_lock);
                         return obd;
                 }
         }
-        cfs_spin_unlock(&obd_dev_lock);
+        cfs_read_unlock(&obd_dev_lock);
 
         return NULL;
 }
@@ -555,7 +555,7 @@ int class_notify_sptlrpc_conf(const char *fsname, int namelen)
 
         LASSERT(namelen > 0);
 
-        cfs_spin_lock(&obd_dev_lock);
+        cfs_read_lock(&obd_dev_lock);
         for (i = 0; i < class_devno_max(); i++) {
                 obd = class_num2obd(i);
 
@@ -574,15 +574,15 @@ int class_notify_sptlrpc_conf(const char *fsname, int namelen)
                         continue;
 
                 class_incref(obd, __FUNCTION__, obd);
-                cfs_spin_unlock(&obd_dev_lock);
+                cfs_read_unlock(&obd_dev_lock);
                 rc2 = obd_set_info_async(obd->obd_self_export,
                                          sizeof(KEY_SPTLRPC_CONF),
                                          KEY_SPTLRPC_CONF, 0, NULL, NULL);
                 rc = rc ? rc : rc2;
                 class_decref(obd, __FUNCTION__, obd);
-                cfs_spin_lock(&obd_dev_lock);
+                cfs_read_lock(&obd_dev_lock);
         }
-        cfs_spin_unlock(&obd_dev_lock);
+        cfs_read_unlock(&obd_dev_lock);
         return rc;
 }
 EXPORT_SYMBOL(class_notify_sptlrpc_conf);
