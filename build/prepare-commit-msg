@@ -1,0 +1,23 @@
+#!/bin/sh
+#
+# A Git hook script to prepare the commit log message.  Install into
+# lustre/.git/hooks/prepare-commit-msg to enable for Lustre commits.
+#
+# Called by git-commit with the name of the file that has the
+# commit message, followed by the description of the commit
+# message's source.  The hook's purpose is to edit the commit
+# message file.  If the hook fails with a non-zero status,
+# the commit is aborted.
+#
+# Commit hook to check the patch against the Lustre coding style.
+# It adds any checkpatch warnings/errors as commit comments, which
+# means that they can currently be ignored, but are at least visible.
+
+[ -e build/checkpatch.pl ] || return 0
+
+# if there are no comments in the commit, it is likely a rebase and
+# this shouldn't be adding new comments, or they appear in the commit
+grep -q "^#" $1 || return 0
+
+echo "#" >> $1
+git diff --cached | perl build/checkpatch.pl - | sed -e 's/^/# /' >> $1
