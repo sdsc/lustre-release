@@ -1,0 +1,10 @@
+Verified+1: Hudson
+Code-Review+1: Jinshan Xiong <jay@whamcloud.com>
+Code-Review+2: Oleg Drokin <green@whamcloud.com>
+Code-Review+1: Yu Jian <yujian@whamcloud.com>
+Verified+1: Yu Jian <yujian@whamcloud.com>
+Submitted-by: Oleg Drokin <green@whamcloud.com>
+Submitted-at: Wed, 24 Aug 2011 22:38:31 -0400
+Reviewed-on: http://review.whamcloud.com/1280
+Project: fs/lustre-release
+Branch: refs/heads/master
