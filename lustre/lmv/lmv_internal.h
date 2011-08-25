@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
@@ -134,8 +137,8 @@ void lmv_object_free(struct lmv_object *obj);
 
 struct lmv_object *lmv_object_get(struct lmv_object *obj);
 
-struct lmv_object *lmv_object_find(struct obd_device *obd,
-			           const struct lu_fid *fid);
+struct lmv_object *__lmv_object_find(struct obd_device *obd,
+                                     const struct lu_fid *fid);
 
 struct lmv_object *lmv_object_find_lock(struct obd_device *obd,
 			                const struct lu_fid *fid);
@@ -234,11 +237,32 @@ lmv_find_target(struct lmv_obd *lmv, const struct lu_fid *fid)
         mdsno_t mds;
         int rc;
 
+        if (lmv->desc.ld_tgt_count < 2)
+                return lmv_get_target(lmv, 0);
+
         rc = lmv_fld_lookup(lmv, fid, &mds);
         if (rc)
                 return ERR_PTR(rc);
 
         return lmv_get_target(lmv, mds);
+}
+
+extern cfs_spinlock_t obj_list_lock;
+
+static inline struct lmv_object *
+lmv_object_find(struct obd_device *obd, const struct lu_fid *fid)
+{
+        struct lmv_obd          *lmv = &obd->u.lmv;
+        struct lmv_object       *obj;
+
+        if (lmv->desc.ld_tgt_count < 2)
+                return NULL;
+
+        cfs_spin_lock(&obj_list_lock);
+        obj = __lmv_object_find(obd, fid);
+        cfs_spin_unlock(&obj_list_lock);
+
+        return obj;
 }
 
 /* lproc_lmv.c */
