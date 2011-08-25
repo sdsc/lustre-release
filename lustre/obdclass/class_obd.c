@@ -60,7 +60,7 @@ cfs_atomic_t libcfs_kmemory = {0};
 
 struct obd_device *obd_devs[MAX_OBD_DEVICES];
 cfs_list_t obd_types;
-cfs_spinlock_t obd_dev_lock = CFS_SPIN_LOCK_UNLOCKED;
+cfs_rwlock_t obd_dev_lock = CFS_RW_LOCK_UNLOCKED;
 
 #ifndef __KERNEL__
 __u64 obd_max_pages = 0;
@@ -541,7 +541,6 @@ int init_obdclass(void)
         if (err)
                 return err;
 
-        cfs_spin_lock_init(&obd_dev_lock);
         CFS_INIT_LIST_HEAD(&obd_types);
 
         err = cfs_psdev_register(&obd_psdev);
