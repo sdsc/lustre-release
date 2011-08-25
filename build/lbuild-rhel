@@ -21,7 +21,8 @@ get_rpmbuildopts() {
 # patching common to all releases
 patch_spec_common() {
 
-    sed -i -e 's/^\(%define signmodules \).*/\10/' \
+#    sed -i -e 's/^\(%define signmodules \).*/\10/' \
+    sed -i \
            -e '/find $RPM_BUILD_ROOT\/lib\/modules\/$KernelVer/a\
     cp -a fs/ext3/* $RPM_BUILD_ROOT/lib/modules/$KernelVer/build/fs/ext3 \
     cp -a fs/ext4/* $RPM_BUILD_ROOT/lib/modules/$KernelVer/build/fs/ext4' \
