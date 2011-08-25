@@ -615,6 +615,7 @@ struct lookup_intent *ll_convert_intent(struct open_intent *oit,
                                         int lookup_flags);
 int ll_lookup_it_finish(struct ptlrpc_request *request,
                         struct lookup_intent *it, void *data);
+struct dentry *ll_find_alias(struct inode *inode, struct dentry *de);
 
 /* llite/rw.c */
 int ll_prepare_write(struct file *, struct page *, unsigned from, unsigned to);
@@ -1105,25 +1106,29 @@ void et_fini(struct eacl_table *et);
 
 /* statahead.c */
 
-#define LL_SA_RPC_MIN   2
-#define LL_SA_RPC_DEF   32
-#define LL_SA_RPC_MAX   8192
+#define LL_SA_RPC_MIN           2
+#define LL_SA_RPC_DEF           32
+#define LL_SA_RPC_MAX           8192
+
+#define LL_SA_CACHE_BIT         5
+#define LL_SA_CACHE_SIZE        (1 << LL_SA_CACHE_BIT)
+#define LL_SA_CACHE_MASK        (LL_SA_CACHE_SIZE - 1)
 
 /* per inode struct, for dir only */
 struct ll_statahead_info {
         struct inode           *sai_inode;
-        unsigned int            sai_generation; /* generation for statahead */
         cfs_atomic_t            sai_refcount;   /* when access this struct, hold
                                                  * refcount */
-        unsigned int            sai_sent;       /* stat requests sent count */
-        unsigned int            sai_replied;    /* stat requests which received
-                                                 * reply */
+        unsigned int            sai_generation; /* generation for statahead */
         unsigned int            sai_max;        /* max ahead of lookup */
-        unsigned int            sai_index;      /* index of statahead entry */
-        unsigned int            sai_index_next; /* index for the next statahead
-                                                 * entry to be stated */
-        unsigned int            sai_hit;        /* hit count */
-        unsigned int            sai_miss;       /* miss count:
+        __u64                   sai_sent;       /* stat requests sent count */
+        __u64                   sai_replied;    /* stat requests which received
+                                                 * reply */
+        __u64                   sai_index;      /* index of statahead entry */
+        __u64                   sai_index_wait; /* index of entry which is the
+                                                 * caller is waiting for */
+        __u64                   sai_hit;        /* hit count */
+        __u64                   sai_miss;       /* miss count:
                                                  * for "ls -al" case, it includes
                                                  * hidden dentry miss;
                                                  * for "ls -l" case, it does not
@@ -1142,41 +1147,35 @@ struct ll_statahead_info {
         cfs_list_t              sai_entries_sent;     /* entries sent out */
         cfs_list_t              sai_entries_received; /* entries returned */
         cfs_list_t              sai_entries_stated;   /* entries stated */
+        cfs_list_t              sai_cache[LL_SA_CACHE_SIZE];
+        cfs_spinlock_t          sai_cache_lock[LL_SA_CACHE_SIZE];
+        cfs_atomic_t            sai_cache_count;      /* entry count in cache */
 };
 
-int do_statahead_enter(struct inode *dir, struct dentry **dentry, int lookup);
-void ll_statahead_exit(struct inode *dir, struct dentry *dentry, int result);
+int do_statahead_enter(struct inode *dir, struct dentry **dentry,
+                       int only_unplug);
 void ll_stop_statahead(struct inode *dir, void *key);
 
-static inline
-void ll_statahead_mark(struct inode *dir, struct dentry *dentry)
+static inline void
+ll_statahead_mark(struct inode *dir, struct dentry *dentry)
 {
-        struct ll_inode_info  *lli;
-        struct ll_dentry_data *ldd = ll_d2d(dentry);
+        struct ll_inode_info     *lli = ll_i2info(dir);
+        struct ll_statahead_info *sai = lli->lli_sai;
+        struct ll_dentry_data    *ldd = ll_d2d(dentry);
 
-        /* dentry has been move to other directory, no need mark */
-        if (unlikely(dir != dentry->d_parent->d_inode))
-                return;
-
-        lli = ll_i2info(dir);
         /* not the same process, don't mark */
         if (lli->lli_opendir_pid != cfs_curproc_pid())
                 return;
 
-        cfs_spin_lock(&lli->lli_sa_lock);
-        if (likely(lli->lli_sai != NULL && ldd != NULL))
-                ldd->lld_sa_generation = lli->lli_sai->sai_generation;
-        cfs_spin_unlock(&lli->lli_sa_lock);
+        if (sai != NULL && ldd != NULL)
+                ldd->lld_sa_generation = sai->sai_generation;
 }
 
-static inline
-int ll_statahead_enter(struct inode *dir, struct dentry **dentryp, int lookup)
+static inline int
+ll_statahead_enter(struct inode *dir, struct dentry **dentryp, int only_unplug)
 {
         struct ll_inode_info  *lli;
-        struct ll_dentry_data *ldd = ll_d2d(*dentryp);
-
-        if (unlikely(dir == NULL))
-                return -EAGAIN;
+        struct ll_dentry_data *ldd;
 
         if (ll_i2sbi(dir)->ll_sa_max == 0)
                 return -ENOTSUPP;
@@ -1186,11 +1185,12 @@ int ll_statahead_enter(struct inode *dir, struct dentry **dentryp, int lookup)
         if (lli->lli_opendir_pid != cfs_curproc_pid())
                 return -EAGAIN;
 
+        ldd = ll_d2d(*dentryp);
         /*
-         * When "ls" a dentry, the system trigger more than once "revalidate" or
-         * "lookup", for "getattr", for "getxattr", and maybe for others.
+         * When stats a dentry, the system trigger more than once "revalidate"
+         * or "lookup", for "getattr", for "getxattr", and maybe for others.
          * Under patchless client mode, the operation intent is not accurate,
-         * it maybe misguide the statahead thread. For example:
+         * which maybe misguide the statahead thread. For example:
          * The "revalidate" call for "getattr" and "getxattr" of a dentry maybe
          * have the same operation intent -- "IT_GETATTR".
          * In fact, one dentry should has only one chance to interact with the
@@ -1205,7 +1205,7 @@ int ll_statahead_enter(struct inode *dir, struct dentry **dentryp, int lookup)
             ldd->lld_sa_generation == lli->lli_sai->sai_generation)
                 return -EAGAIN;
 
-        return do_statahead_enter(dir, dentryp, lookup);
+        return do_statahead_enter(dir, dentryp, only_unplug);
 }
 
 /* llite ioctl register support rountine */
