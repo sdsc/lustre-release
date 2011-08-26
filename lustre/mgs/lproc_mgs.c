@@ -217,11 +217,28 @@ static int mgs_live_seq_show(struct seq_file *seq, void *v)
         }
         seq_show_srpc_rules(seq, fsdb->fsdb_name, &fsdb->fsdb_srpc_gen);
 
+        seq_printf(seq, "\nImperative Recovery Status:\n");
+
+        lprocfs_rd_ir_status(seq, fsdb);
+
         cfs_up(&fsdb->fsdb_sem);
         return 0;
 }
 
-LPROC_SEQ_FOPS_RO(mgs_live);
+static ssize_t mgs_live_seq_write(struct file *file, const char *buf,
+                                  size_t len, loff_t *off)
+{
+        struct seq_file *seq  = file->private_data;
+        struct fs_db    *fsdb = seq->private;
+        ssize_t rc;
+
+        rc = lprocfs_wr_ir_status(file, buf, len, fsdb);
+        if (rc >= 0)
+                rc = len;
+        return rc;
+}
+
+LPROC_SEQ_FOPS(mgs_live);
 
 int lproc_mgs_add_live(struct obd_device *obd, struct fs_db *fsdb)
 {
@@ -254,6 +271,7 @@ struct lprocfs_vars lprocfs_mgs_obd_vars[] = {
         { "num_exports",     lprocfs_rd_num_exports, 0, 0 },
         { "hash_stats",      lprocfs_obd_rd_hash,    0, 0 },
         { "evict_client",    0, lprocfs_wr_evict_client, 0 },
+        { "ir_timeout",      lprocfs_rd_ir_timeout, lprocfs_wr_ir_timeout, 0 },
         { 0 }
 };
 
