@@ -252,6 +252,9 @@ init_test_env() {
     shift $((OPTIND - 1))
     ONLY=${ONLY:-$*}
 
+    # TT-148: workaround for reporting negative timestamps
+    export TT148_SHIFT=0
+
     # print the durations of each test if "true"
     DDETAILS=${DDETAILS:-false}
     [ "$TESTSUITELOG" ] && rm -f $TESTSUITELOG || true
@@ -3130,7 +3133,7 @@ trace() {
 }
 
 complete () {
-    equals_msg $1 test complete, duration $2 sec
+    equals_msg $1 test complete, duration $(($2 + TT148_SHIFT)) sec
     [ -f "$TESTSUITELOG" ] && egrep .FAIL $TESTSUITELOG || true
     echo duration $2 >>$TESTSUITELOG
 }
@@ -3227,8 +3230,31 @@ run_one_logged() {
     [ $RC -ne 0 ] && [ ! -f $LOGDIR/err ] && \
         echo "test_$1 returned $RC" | tee $LOGDIR/err
 
-    duration=$((`date +%s` - $BEFORE))
-    pass "$1" "(${duration}s)"
+    local NOW=$(date +%s)
+    local duration=$((NOW - BEFORE))
+    local marker=""
+    # TT-148: Workaround for negative test timestamps, to avoid
+    # further polluting the test results database.
+    #
+    # It appears the negative timesteps are even multiples of 1h
+    # (normally -7 * 3600s = -25200s) so handle per-test shift here.
+    #
+    # This cannot correctly handle a negative timeshift in the
+    # middle of a subtest that runs for longer than 3600s, but I
+    # don't think we have any individual subtests that run so long.
+    if [ $duration -lt 0 ]; then
+        log "TT-148: negative test duration was $duration"
+        if [ $duration -gt -5 ]; then # just a few seconds?
+            duration=0
+        else
+            local HOURS_OFFSET=$(((3599 - duration) / 3600))
+            duration=$((duration + HOURS_OFFSET * 3600))
+            TT148_SHIFT=$((TT148_SHIFT + HOURS_OFFSET * 3600))
+            log "TT-148: increasting time shift to ${TT148_SHIFT}s"
+            marker="*"
+        fi
+    fi
+    pass "$1" "(${duration}s${marker})"
     [ -f $LOGDIR/err ] && TEST_ERROR=$(cat $LOGDIR/err)
     log_sub_test_end $TEST_STATUS $duration "$RC" "$TEST_ERROR"
 
