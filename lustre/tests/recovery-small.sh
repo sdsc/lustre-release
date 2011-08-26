@@ -1256,7 +1256,11 @@ test_102()
         fail ost1
 
         # sleep for a while so that clients can see the failure of ost
-        sleep 5
+        # it must be MGC_TIMEOUT_MIN_SECONDS + MGC_TIMEOUT_RAND_CENTISEC.
+        # int mgc_request.c:
+        # define MGC_TIMEOUT_MIN_SECONDS   10
+        # define MGC_TIMEOUT_RAND_CENTISEC 0x1ff /* ~500 *
+        sleep 15
 
         nidtbl_versions_match || error "nidtbl version mismatch"
 
