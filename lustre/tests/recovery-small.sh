@@ -1251,7 +1251,7 @@ test_102()
         fail ost1
 
         # sleep for a while so that clients can see the failure of ost
-        sleep 5
+        sleep 25
 
         nidtbl_versions_match || error "nidtbl version mismatch"
 
