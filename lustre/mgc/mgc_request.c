@@ -470,6 +470,13 @@ static void do_requeue(struct config_llog_data *cld)
         EXIT;
 }
 
+/* this timeout represents how many seconds MGC should wait before
+ * requeue config and recover lock to the MGS. We need to randomize this
+ * in order to not flood the MGS.
+ */
+#define MGC_TIMEOUT_MIN_SECONDS   10
+#define MGC_TIMEOUT_RAND_CENTISEC 0x1ff /* ~500 */
+
 static int mgc_requeue_thread(void *data)
 {
         char name[] = "ll_cfg_requeue";
@@ -486,8 +493,9 @@ static int mgc_requeue_thread(void *data)
         while (1) {
                 struct l_wait_info lwi;
                 struct config_llog_data *cld, *cld_prev;
-                int rand = (cfs_rand() & 0xff) * (CFS_HZ / 100); /*0 ~ 2550ms*/
+                int rand = cfs_rand() & MGC_TIMEOUT_RAND_CENTISEC;
                 int stopped = !!(rq_state & RQ_STOP);
+                int to;
 
                 /* Any new or requeued lostlocks will change the state */
                 rq_state &= ~(RQ_NOW | RQ_LATER);
@@ -496,7 +504,9 @@ static int mgc_requeue_thread(void *data)
                 /* Always wait a few seconds to allow the server who
                    caused the lock revocation to finish its setup, plus some
                    random so everyone doesn't try to reconnect at once. */
-                lwi = LWI_TIMEOUT(3 * CFS_HZ + rand, NULL, NULL);
+                to = MGC_TIMEOUT_MIN_SECONDS * CFS_HZ;
+                to += rand * CFS_HZ / 100; /* rand is centi-seconds */
+                lwi = LWI_TIMEOUT(to, NULL, NULL);
                 l_wait_event(rq_waitq, rq_state & RQ_STOP, &lwi);
 
                 /*
