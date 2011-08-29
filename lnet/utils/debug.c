@@ -917,8 +917,10 @@ static int jt_dbg_modules_2_5(int argc, char **argv)
 
         if (argc >= 2)
                 path = argv[1];
-        if (argc == 3)
+        if (argc == 3) {
                 kernel = argv[2];
+                printf("working for kernel [%s]\n", kernel);
+        }
         if (argc > 3) {
                 printf("%s [path] [kernel]\n", argv[0]);
                 return 0;
