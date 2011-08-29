@@ -1646,15 +1646,13 @@ LB_LINUX_TRY_COMPILE([
 AC_DEFUN([LC_FH_TO_DENTRY],
 [AC_MSG_CHECKING([if kernel has .fh_to_dentry member in export_operations struct])
 LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
 #ifdef HAVE_LINUX_EXPORTFS_H
         #include <linux/exportfs.h>
-#else
-        #include <linux/fs.h>
 #endif
 ],[
         struct export_operations exp;
-
-        exp.fh_to_dentry   = NULL;
+        memset(exp.fh_to_dentry, 0, sizeof(exp.fh_to_dentry));
 ], [
         AC_MSG_RESULT([yes])
         AC_DEFINE(HAVE_FH_TO_DENTRY, 1,
@@ -1672,7 +1670,7 @@ LB_LINUX_TRY_COMPILE([
 ],[
         struct proc_dir_entry pde;
 
-        pde.deleted   = NULL;
+        pde.deleted = sizeof(pde);
 ], [
         AC_MSG_RESULT([yes])
         AC_DEFINE(HAVE_PROCFS_DELETED, 1,
@@ -1726,6 +1724,7 @@ LB_LINUX_TRY_COMPILE([
         struct fs_struct fs;
 
         fs.pwd = path;
+        memset(&fs, 0, sizeof(fs));
 ], [
         AC_MSG_RESULT([yes])
         AC_DEFINE(HAVE_FS_STRUCT_USE_PATH, 1,
@@ -1888,7 +1887,7 @@ LB_LINUX_TRY_COMPILE([
         #include <linux/bio.h>
 ],[
         struct bio io;
-        io.bi_hw_segments = 0;
+        io.bi_hw_segments = sizeof(io);
 ],[
         AC_DEFINE(HAVE_BI_HW_SEGMENTS, 1,
                 [struct bio has a bi_hw_segments field])
