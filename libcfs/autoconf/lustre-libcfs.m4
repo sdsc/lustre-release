@@ -486,6 +486,7 @@ AC_DEFUN([LIBCFS_FUNC_DUMP_TRACE],
 		#include <asm/stacktrace.h>
 	],[
 		struct stacktrace_ops ops;
+		memset(&ops, 0x00, sizeof(ops));
 		ops.address = print_addr;
 	],[
 		AC_MSG_RESULT(yes)
@@ -720,7 +721,7 @@ LB_LINUX_TRY_COMPILE([
         #include <linux/mm.h>
 ],[
         struct shrinker tmp = {0};
-        tmp.shrink(NULL, 0, 0);
+        tmp.shrink(tmp, 0, 0);
 ],[
         AC_MSG_RESULT(yes)
         AC_DEFINE(HAVE_SHRINKER_WANT_SHRINK_PTR, 1,
