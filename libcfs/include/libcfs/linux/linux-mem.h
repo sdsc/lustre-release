@@ -161,14 +161,22 @@ extern int cfs_mem_is_in_cache(const void *addr, const cfs_mem_cache_t *kmem);
  */
 #define cfs_shrinker    shrinker
 
-#ifdef HAVE_SHRINKER_WANT_SHRINK_PTR
+#if defined(HAVE_SHRINKER_WANT_SHRINK_PTR) || defined(HAVE_SHRINK_CONTROL)
 #define SHRINKER_FIRST_ARG struct shrinker *shrinker, 
 #else
 #define SHRINKER_FIRST_ARG 
 #endif
 
+
 #ifdef HAVE_REGISTER_SHRINKER
-typedef int (*cfs_shrinker_t)(SHRINKER_FIRST_ARG int nr_to_scan, gfp_t gfp_mask);
+
+#ifdef HAVE_SHRINK_CONTROL
+typedef int (*cfs_shrinker_t)(SHRINKER_FIRST_ARG
+                              struct shrink_control *sc);
+#else
+typedef int (*cfs_shrinker_t)(SHRINKER_FIRST_ARG
+                              int nr_to_scan, gfp_t gfp_mask);
+#endif
 
 static inline
 struct cfs_shrinker *cfs_set_shrinker(int seek, cfs_shrinker_t func)
