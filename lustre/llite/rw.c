@@ -40,7 +40,6 @@
  * Lustre Lite I/O page cache routines shared by different kernel revs
  */
 
-#include <linux/autoconf.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/string.h>
