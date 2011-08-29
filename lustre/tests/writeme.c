@@ -47,7 +47,7 @@ void usage(char *prog)
 
 int main(int argc, char **argv)
 {
-        int fd, rc;
+        int fd;
 	int do_sync = 0;
         int i = 0;
 	int file_arg = 1;
@@ -73,7 +73,7 @@ int main(int argc, char **argv)
 
         while (1) {
                 sprintf(buf, "write %d\n", i);
-                rc = write(fd, buf, sizeof(buf));
+                write(fd, buf, sizeof(buf));
 		if (do_sync)
 			sync();
                 sleep(1);
