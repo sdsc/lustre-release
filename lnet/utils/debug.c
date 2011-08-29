@@ -943,6 +943,7 @@ static int jt_dbg_modules_2_5(int argc, char **argv)
                         }
                 }
         }
+        SET_BUT_UNUSED(kernel);
 
         fclose(file);
         return 0;
