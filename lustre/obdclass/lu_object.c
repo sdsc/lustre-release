@@ -1627,8 +1627,19 @@ static void lu_site_stats_get(cfs_hash_t *hs,
 }
 
 #ifdef __KERNEL__
+
+#ifdef HAVE_SHRINK_CONTROL
+static inline int lu_cache_shrink_inline(int, unsigned int);
+static int lu_cache_shrink(SHRINKER_FIRST_ARG struct shrink_control *sc)
+{
+        return lu_cache_shrink_inline(sc->nr_to_scan, sc->gfp_mask);
+}
+
+static inline int lu_cache_shrink_inline(int nr_to_scan, unsigned int gfp_mask)
+#else
 static int lu_cache_shrink(SHRINKER_FIRST_ARG int nr_to_scan,
                            unsigned int gfp_mask)
+#endif
 {
         lu_site_stats_t stats;
         struct lu_site *s;
