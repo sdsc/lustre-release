@@ -804,6 +804,7 @@ do {                                                                    \
                         }                                               \
                 }                                                       \
         }                                                               \
+        __timeout = sizeof(wq); /* avoid set-but-unuse warning */       \
 } while (0)
 
 #endif /* __KERNEL__ */

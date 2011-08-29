@@ -137,8 +137,7 @@ lnet_get_networks (void)
                 return (rc == 0) ? networks : NULL;
         }
 #else
-        ip2nets = NULL;
-        rc = 0;
+        rc = sizeof(ip2nets) - sizeof(rc); // avoid set-but-unuse warning
 #endif
         if (networks != NULL)
                 return networks;
