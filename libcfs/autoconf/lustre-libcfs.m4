@@ -720,12 +720,31 @@ AC_DEFUN([LC_SHRINKER_WANT_SHRINK_PTR],
 LB_LINUX_TRY_COMPILE([
         #include <linux/mm.h>
 ],[
-        struct shrinker tmp = {0};
-        tmp.shrink(tmp, 0, 0);
+        struct shrinker *tmp = NULL;
+        tmp->shrink(tmp, 0, 0);
 ],[
         AC_MSG_RESULT(yes)
         AC_DEFINE(HAVE_SHRINKER_WANT_SHRINK_PTR, 1,
                   [shrinker want self pointer in handler])
+],[
+        AC_MSG_RESULT(no)
+])
+])
+
+#
+# FC15 2.6.40-5 brought upstream changes from v3.0.
+# 
+AC_DEFUN([LC_SHRINK_CONTROL],
+[AC_MSG_CHECKING([shrink_control is present])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/mm.h>
+],[
+        struct shrink_control tmp = {0};
+        tmp.nr_to_scan = sizeof(tmp);
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(HAVE_SHRINK_CONTROL, 1,
+                  [shrink_control is present])
 ],[
         AC_MSG_RESULT(no)
 ])
@@ -781,6 +800,7 @@ LIBCFS_SOCK_MAP_FD_2ARG
 # 2.6.32
 LIBCFS_STACKTRACE_OPS_HAVE_WALK_STACK
 LC_SHRINKER_WANT_SHRINK_PTR
+LC_SHRINK_CONTROL
 LIBCFS_HAVE_OOM_H
 LIBCFS_OOMADJ_IN_SIG
 # 2.6.34
