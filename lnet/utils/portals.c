@@ -867,8 +867,10 @@ int jt_ptl_push_connection (int argc, char **argv)
                 return 0;
         }
 
-        if (!g_net_is_compatible (argv[0], SOCKLND, 0))
+        if (!g_net_is_compatible (argv[0], SOCKLND, 0)) {
+                fprintf(stderr, "This command is for socklnd only\n");
                 return -1;
+        }
 
         if (argc > 1 &&
             !libcfs_str2anynid(&nid, argv[1])) {
