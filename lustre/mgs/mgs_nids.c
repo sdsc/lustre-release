@@ -369,6 +369,8 @@ static int mgs_ir_notify(void *arg)
 
         cfs_complete(&fsdb->fsdb_notify_comp);
 
+        set_user_nice(current, -20);
+
         mgc_fsname2resid(fsdb->fsdb_name, &resid, CONFIG_T_RECOVER);
         while (1) {
                 struct l_wait_info   lwi = { 0 };
@@ -395,11 +397,11 @@ static int mgs_ir_notify(void *arg)
 
                         /* do statistic */
                         fsdb->fsdb_notify_count++;
-                        delta = (cfs_time_current() - curtime) / NSEC_PER_USEC;
+                        delta = cfs_time_current() - curtime;
                         fsdb->fsdb_notify_total += delta;
                         if (delta > fsdb->fsdb_notify_max)
                                 fsdb->fsdb_notify_max = delta;
-                        CDEBUG(D_MGS, "Revoke recover lock of %s spent %dus\n",
+                        CDEBUG(D_MGS, "Revoke recover lock of %s %dT\n",
                                fsdb->fsdb_name, delta);
                 } else {
                         CERROR("Fatal error %d for fs %s\n",
@@ -763,18 +765,30 @@ int lprocfs_rd_ir_state(struct seq_file *seq, void *data)
         struct fs_db      *fsdb = data;
         struct mgs_nidtbl *tbl  = &fsdb->fsdb_nidtbl;
         const char        *ir_strings[] = IR_STRINGS;
+        struct timeval     tv_max;
+        struct timeval     tv;
 
         /* mgs_live_seq_show() already holds fsdb_sem. */
         ir_state_graduate(fsdb);
 
+        seq_printf(seq, "\nimperative_recovery_state:\n");
         seq_printf(seq,
-                   "\tstate: %s, nonir clients: %d\n"
-                   "\tnidtbl version: %lld\n",
+                   "    state: %s\n"
+                   "    nonir_clients: %d\n"
+                   "    nidtbl_version: %lld\n",
                    ir_strings[fsdb->fsdb_ir_state], fsdb->fsdb_nonir_clients,
                    tbl->mn_version);
-        seq_printf(seq, "\tnotify total/max/count: %u/%u/%u\n",
-                   fsdb->fsdb_notify_total, fsdb->fsdb_notify_max,
+
+        cfs_duration_usec(fsdb->fsdb_notify_total, &tv);
+        cfs_duration_usec(fsdb->fsdb_notify_max, &tv_max);
+
+        seq_printf(seq, "    notify_duration_total: %lu.%06lu\n"
+                        "    notify_duation_max: %lu.%06lu\n"
+                        "    notify_count: %u\n",
+                   tv.tv_sec, tv.tv_usec,
+                   tv_max.tv_sec, tv_max.tv_usec,
                    fsdb->fsdb_notify_count);
+
         return 0;
 }
 
