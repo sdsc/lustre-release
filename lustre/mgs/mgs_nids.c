@@ -331,6 +331,8 @@ static int mgs_ir_notify(void *arg)
 
         cfs_complete(&fsdb->fsdb_notify_comp);
 
+        set_user_nice(current, -20);
+
         mgc_fsname2resid(fsdb->fsdb_name, &resid, CONFIG_T_RECOVER);
         while (1) {
                 struct l_wait_info   lwi = { 0 };
@@ -357,11 +359,11 @@ static int mgs_ir_notify(void *arg)
 
                         /* do statistic */
                         fsdb->fsdb_notify_count++;
-                        delta = (cfs_time_current() - curtime) / NSEC_PER_USEC;
+                        delta = cfs_time_current() - curtime;
                         fsdb->fsdb_notify_total += delta;
                         if (delta > fsdb->fsdb_notify_max)
                                 fsdb->fsdb_notify_max = delta;
-                        CDEBUG(D_MGS, "Revoke recover lock of %s spent %dus\n",
+                        CDEBUG(D_MGS, "Revoke recover lock of %s %dT\n",
                                fsdb->fsdb_name, delta);
                 } else {
                         CERROR("Fatal error %d for fs %s\n",
