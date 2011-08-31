@@ -751,6 +751,25 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 2.6.33 remove ctl_name & strategy field from struct ctl_table.
+# 
+AC_DEFUN([LIBCFS_SYSCTL_CTLNAME],
+[AC_MSG_CHECKING([if ctl_table has a ctl_name field])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/sysctl.h>
+],[
+        struct ctl_table ct;
+        ct.ctl_name = sizeof(ct);
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(HAVE_SYSCTL_CTLNAME, 1,
+                  [ctl_table has ctl_name field])
+],[
+        AC_MSG_RESULT(no)
+])
+])
+
+#
 # LIBCFS_PROG_LINUX
 #
 # LNet linux kernel checks
@@ -803,6 +822,8 @@ LC_SHRINKER_WANT_SHRINK_PTR
 LC_SHRINK_CONTROL
 LIBCFS_HAVE_OOM_H
 LIBCFS_OOMADJ_IN_SIG
+# 2.6.33
+LIBCFS_SYSCTL_CTLNAME
 # 2.6.34
 LIBCFS_ADD_WAIT_QUEUE_EXCLUSIVE
 ])
