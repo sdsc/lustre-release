@@ -107,6 +107,7 @@ struct ll_rpc_opcode {
         { MGS_TARGET_REG,   "mgs_target_reg" },
         { MGS_TARGET_DEL,   "mgs_target_del" },
         { MGS_SET_INFO,     "mgs_set_info" },
+        { MGS_GET_INFO,     "mgs_get_info" },
         { OBD_PING,         "obd_ping" },
         { OBD_LOG_CANCEL,   "llog_origin_handle_cancel" },
         { OBD_QC_CALLBACK,  "obd_quota_callback" },
@@ -798,5 +799,104 @@ int lprocfs_wr_ping(struct file *file, const char *buffer,
         RETURN(rc);
 }
 EXPORT_SYMBOL(lprocfs_wr_ping);
+
+/* Write the connection UUID to this file to attempt to connect to that node.
+ * The connection UUID is a node's primary NID. For example,
+ * "echo 192.168.0.1@tcp0::instance > .../import".
+ */
+int lprocfs_wr_import(struct file *file, const char *buffer,
+                      unsigned long count, void *data)
+{
+        struct obd_device *obd = data;
+        struct obd_import *imp = obd->u.cli.cl_import;
+        char *uuid;
+        char *ptr;
+        int do_reconn = 1;
+
+        if (count > CFS_PAGE_SIZE)
+                return -EINVAL;
+
+        OBD_ALLOC(uuid, count + 1);
+        if (uuid == NULL)
+                return -ENOMEM;
+
+        if (cfs_copy_from_user(uuid, buffer, count)) {
+                OBD_FREE(uuid, count + 1);
+                return -EFAULT;
+        }
+        uuid[count] = 0;
+
+        ptr = strstr(uuid, "::");
+        if (ptr) {
+                __u32 inst;
+                char *endptr;
+
+                *ptr = 0;
+                do_reconn = 0;
+                ptr += strlen("::");
+                inst = simple_strtol(ptr, &endptr, 10);
+                if (*endptr) {
+                        CERROR("wrong instance # %s\n", ptr);
+                } else if (inst != imp->imp_connect_data.ocd_instance) {
+                        CDEBUG(D_INFO, "IR: %s is connecting to an obsoleted "
+                               "target(%u/%u), reconnecting...\n",
+                               imp->imp_obd->obd_name,
+                               imp->imp_connect_data.ocd_instance, inst);
+                        do_reconn = 1;
+                } else {
+                        CDEBUG(D_INFO, "IR: %s has already been connecting to "
+                               "new target(%u)\n",
+                               imp->imp_obd->obd_name, inst);
+                }
+        }
+
+        if (do_reconn)
+                ptlrpc_recover_import(imp, uuid, 1);
+
+        OBD_FREE(uuid, count + 1);
+        return count;
+}
+EXPORT_SYMBOL(lprocfs_wr_import);
+
+int lprocfs_rd_pinger_recov(char *page, char **start, off_t off,
+                            int count, int *eof, void *data)
+{
+        struct obd_device *obd = data;
+        struct obd_import *imp = obd->u.cli.cl_import;
+        int rc;
+
+        LPROCFS_CLIMP_CHECK(obd);
+        rc = snprintf(page, count, "%d\n", !imp->imp_no_pinger_recover);
+        LPROCFS_CLIMP_EXIT(obd);
+
+        return rc;
+}
+EXPORT_SYMBOL(lprocfs_rd_pinger_recov);
+
+int lprocfs_wr_pinger_recov(struct file *file, const char *buffer,
+                      unsigned long count, void *data)
+{
+        struct obd_device *obd = data;
+        struct client_obd *cli = &obd->u.cli;
+        struct obd_import *imp = cli->cl_import;
+        int rc, val;
+
+        rc = lprocfs_write_helper(buffer, count, &val);
+        if (rc < 0)
+                return rc;
+
+        if (val != 0 && val != 1)
+                return -ERANGE;
+
+        LPROCFS_CLIMP_CHECK(obd);
+        cfs_spin_lock(&imp->imp_lock);
+        imp->imp_no_pinger_recover = !val;
+        cfs_spin_unlock(&imp->imp_lock);
+        LPROCFS_CLIMP_EXIT(obd);
+
+        return count;
+
+}
+EXPORT_SYMBOL(lprocfs_wr_pinger_recov);
 
 #endif /* LPROCFS */
