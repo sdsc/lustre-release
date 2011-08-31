@@ -2069,6 +2069,124 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 2.6.35 file_operations.fsync taken 2 arguments.
+#
+AC_DEFUN([LC_FILE_FSYNC],
+[AC_MSG_CHECKING([if file_operations.fsync taken 3 arguments])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        ((struct file_operations *)0)->fsync(NULL, NULL, 0);
+],[
+        AC_DEFINE(HAVE_FILE_FSYNC_3ARGS, 1,
+                [file_operations.fsync taken 3 arguments])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+#
+# 2.6.36 fs_struct.lock use spinlock instead of rwlock.
+#
+AC_DEFUN([LC_FS_STRUCT_RWLOCK],
+[AC_MSG_CHECKING([if fs_struct.lock use rwlock])
+LB_LINUX_TRY_COMPILE([
+        #include <asm/atomic.h>
+        #include <linux/spinlock.h>
+        #include <linux/fs_struct.h>
+],[
+        ((struct fs_struct *)0)->lock = (rwlock_t){ 0 };
+],[
+        AC_DEFINE(HAVE_FS_STRUCT_RWLOCK, 1,
+                [fs_struct.lock use rwlock])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+#
+# 2.6.36 super_operations add evict_inode method. it hybird of
+# delete_inode & clear_inode.
+#
+AC_DEFUN([LC_SBOPS_EVICT_INODE],
+[AC_MSG_CHECKING([if super_operations.evict_inode exist])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        ((struct super_operations *)0)->evict_inode(NULL);
+],[
+        AC_DEFINE(HAVE_SBOPS_EVICT_INODE, 1,
+                [super_operations.evict_inode() is exist in kernel])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+# 2.6.38
+
+#
+# 2.6.38 dentry_operations.d_compare() taken 7 arguments.
+#
+AC_DEFUN([LC_D_COMPARE_7ARGS],
+[AC_MSG_CHECKING([if d_compare taken 7 arguments])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/dcache.h>
+],[
+        ((struct dentry_operations*)0)->d_compare(NULL,NULL,NULL,NULL,0,NULL,NULL);
+],[
+        AC_DEFINE(HAVE_D_COMPARE_7ARGS, 1,
+                [d_compare need 7 arguments])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+#
+# 2.6.38 dentry_operations.d_delete() defined 'const' for 1st parameter.
+#
+AC_DEFUN([LC_D_DELETE_CONST],
+[AC_MSG_CHECKING([if d_delete has const declare on first parameter])
+tmp_flags="$EXTRA_KCFLAGS"
+EXTRA_KCFLAGS="-Werror"
+LB_LINUX_TRY_COMPILE([
+        #include <linux/dcache.h>
+],[
+        const struct dentry *d = NULL;
+        ((struct dentry_operations*)0)->d_delete(d);
+],[
+        AC_DEFINE(HAVE_D_DELETE_CONST, const,
+                [d_delete first parameter declared const])
+        AC_MSG_RESULT([yes])
+],[
+        AC_DEFINE(HAVE_D_DELETE_CONST, , [])
+        AC_MSG_RESULT([no])
+])
+EXTRA_KCFLAGS="$tmp_flags"
+])
+
+#
+# 2.6.38 dcache_lock removed. rcu-walk commited.
+#
+AC_DEFUN([LC_DCACHE_LOCK],
+[AC_MSG_CHECKING([if dcache_lock is exist])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/dcache.h>
+],[
+        spin_lock(&dcache_lock);
+],[
+        AC_DEFINE(HAVE_DCACHE_LOCK, 1,
+                [dcache_lock is exist])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+#
 # 2.6.38 export blkdev_get_by_dev
 #
 AC_DEFUN([LC_BLKDEV_GET_BY_DEV],
@@ -2272,6 +2390,10 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_BLK_QUEUE_MAX_SECTORS
          LC_BLK_QUEUE_MAX_SEGMENTS
          LC_SET_CPUS_ALLOWED
+
+         # 2.6.36
+         LC_SBOPS_EVICT_INODE
+         LC_FS_STRUCT_RWLOCK
 
          # 2.6.38
          LC_BLKDEV_GET_BY_DEV
