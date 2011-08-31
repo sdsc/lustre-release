@@ -2634,6 +2634,27 @@ static int lov_get_info(struct obd_export *exp, __u32 keylen,
                 *desc_ret = lov->desc;
 
                 GOTO(out, rc = 0);
+        } else if (KEY_IS(KEY_OST_COUNT)) {
+                int *ost_count = val;
+
+                /* Regardless of activeness, we need to count all OSTs
+                  * XXX: This assumes contiguous numeration of OSTs */
+                *ost_count = lov->desc.ld_tgt_count;
+                GOTO(out, rc = 0);
+        } else if (KEY_IS(KEY_NFS_IP)) {
+                __u32 *nfs_ip = val, size = sizeof(__u32);
+                __u32 limit = *vallen / sizeof(__u32);
+
+                for (i=0; (i < lov->desc.ld_tgt_count) && (i < limit); i++) {
+                        if (!lov->lov_tgts[i]->ltd_active)
+                                continue;
+
+                        rc = obd_get_info(lov->lov_tgts[i]->ltd_exp, keylen,
+                                          key, &size, nfs_ip+i, NULL);
+                        if (rc)
+                                RETURN(rc);
+                }
+                GOTO(out, rc = 0);
         } else if (KEY_IS(KEY_FIEMAP)) {
                 rc = lov_fiemap(lov, keylen, key, vallen, val, lsm);
                 GOTO(out, rc);

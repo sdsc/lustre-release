@@ -1129,6 +1129,7 @@ int ldlm_cli_cancel_req(struct obd_export *exp, cfs_list_t *cancels,
                 if (req == NULL)
                         GOTO(out, rc = -ENOMEM);
 
+                req_capsule_filled_sizes(&req->rq_pill, RCL_CLIENT);
                 req_capsule_set_size(&req->rq_pill, &RMF_DLM_REQ, RCL_CLIENT,
                                      ldlm_request_bufsize(count, LDLM_CANCEL));
 

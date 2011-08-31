@@ -370,3 +370,309 @@ struct export_operations lustre_export_operations = {
        .decode_fh  = ll_decode_fh,
 #endif
 };
+
+#ifdef CONFIG_PNFSD
+#include <linux/sunrpc/svc.h>
+//#include <linux/nfsd/nfsd.h>
+//#include <linux/nfsd/cache.h>
+#include <linux/nfs4.h>
+#include <linux/nfs_fs.h>
+//#include <linux/nfsd/state.h>
+//#include <linux/nfsd/xdr4.h>
+#include <linux/nfsd/nfs4layoutxdr.h>
+#include <linux/nfsd/nfsd4_pnfs.h>
+//#include <linux/nfs4_pnfs.h>
+#include <linux/nfsd/nfsfh.h>
+
+/* XXX: copied from fs/nfsd/nfsfh.h */
+enum nfsd_fsid {
+        FSID_DEV = 0,
+        FSID_NUM,
+        FSID_MAJOR_MINOR,
+        FSID_ENCODE_DEV,
+        FSID_UUID4_INUM,
+        FSID_UUID8,
+        FSID_UUID16,
+        FSID_UUID16_INUM,
+        FSID_MAX
+};
+
+#define IP_BUF_LEN 29
+#define PORT 2049
+#define NETTYPE "tcp"
+#define NETTYPE_LEN 3
+
+static char *hack_ip[] = { "192.168.163.177.8.1", "192.168.163.176.8.1" };
+
+static int pack_devaddr(struct pnfs_filelayout_devaddr *devaddr,
+                        __u32 nid, int i)
+{
+        int rc = 0;
+        // int port = PORT;
+        ENTRY;
+
+        CDEBUG(D_INFO, "pack devaddr %p nid %u\n", devaddr, nid);
+
+        OBD_ALLOC(devaddr->r_netid.data, NETTYPE_LEN);
+        if (devaddr->r_netid.data == NULL)
+                GOTO(out, rc = -ENOMEM);
+
+        devaddr->r_netid.len = NETTYPE_LEN;
+        memcpy(devaddr->r_netid.data, NETTYPE, NETTYPE_LEN);
+
+        OBD_ALLOC(devaddr->r_addr.data, IP_BUF_LEN);
+        if (devaddr->r_addr.data == NULL) {
+                OBD_FREE(devaddr->r_netid.data, NETTYPE_LEN);
+                GOTO(out, rc = -ENOMEM);
+        }
+#if 0
+       snprintf(devaddr->r_addr.data, IP_BUF_LEN, "%u.%u.%u.%u.%u.%u",
+                (nid >> 24) & 0xff, (nid >> 16) & 0xff, (nid >> 8) & 0xff,
+                nid & 0xff, (port >> 8) & 0xff, port & 0xff);
+#else
+               snprintf(devaddr->r_addr.data, strlen(hack_ip[i]) + 1, hack_ip[i]);
+#endif
+       devaddr->r_addr.len = strlen(devaddr->r_addr.data);
+
+       CDEBUG(D_INFO, "pack address %.*s type %.*s \n", devaddr->r_addr.len,
+              devaddr->r_addr.data, devaddr->r_netid.len,devaddr->r_netid.data);
+out:
+       if (rc) {
+               if (devaddr->r_netid.data)
+                       OBD_FREE(devaddr->r_netid.data, NETTYPE_LEN);
+               if (devaddr->r_addr.data)
+                       OBD_FREE(devaddr->r_addr.data, IP_BUF_LEN);
+       }
+       RETURN(rc);
+}
+
+static int ll_get_deviceinfo(struct super_block *sb, struct exp_xdr_stream *xdr,
+                             u32 layout_type,
+                             const struct nfsd4_pnfs_deviceid *devid)
+{
+        int ost_count = 0;
+        __u32 *ip_address = NULL, *pip, tmp_len;
+        int rc = 0, i;
+        struct pnfs_filelayout_device *pfd = NULL;
+        ENTRY;
+
+        OBD_ALLOC_PTR(pfd);
+        if (!pfd)
+                GOTO(out, rc = -ENOMEM);
+
+        /*get ip address */
+        tmp_len = sizeof(ost_count);
+        rc = obd_get_info(ll_s2dtexp(sb), strlen(KEY_OST_COUNT), KEY_OST_COUNT,
+                          &tmp_len, &ost_count, NULL);
+        if (rc) {
+                CERROR("Can not get OST/device count: %d\n", rc);
+                GOTO(out, rc);
+        }
+        CDEBUG(D_INFO, "get ost_count %d \n", ost_count);
+
+        LASSERT(ost_count > 0);
+
+        pfd->fl_stripeindices_length = ost_count;
+        pfd->fl_device_length = ost_count;
+
+        OBD_ALLOC(pfd->fl_stripeindices_list, ost_count * sizeof(u32));
+        if (!pfd->fl_stripeindices_list)
+                GOTO(out, rc = -ENOMEM);
+
+        OBD_ALLOC(pfd->fl_device_list,
+                  ost_count * sizeof(struct pnfs_filelayout_multipath));
+        if (!pfd->fl_device_list)
+                GOTO(out, rc = -ENOMEM);
+
+        OBD_ALLOC(ip_address, sizeof(*ip_address) * ost_count);
+        if (!ip_address)
+                GOTO(out, rc = -ENOMEM);
+
+        tmp_len = sizeof(*ip_address) * ost_count;
+        rc = obd_get_info(ll_s2dtexp(sb), strlen(KEY_NFS_IP), KEY_NFS_IP,
+                          &tmp_len, ip_address, NULL);
+        if (rc) {
+                CERROR("Can not get ip address of ost \n");
+                GOTO(out, rc);
+        }
+
+        pip = ip_address;
+
+        for (i = 0; i < ost_count ; i++, pip++) {
+                pfd->fl_stripeindices_list[i] = i;
+                /* XXX no multipath for now */
+                pfd->fl_device_list[i].fl_multipath_length = 1;
+                OBD_ALLOC_PTR(pfd->fl_device_list[i].fl_multipath_list);
+                if (!pfd->fl_device_list[i].fl_multipath_list)
+                        GOTO(out, rc = -ENOMEM);
+                pack_devaddr(pfd->fl_device_list[i].fl_multipath_list,
+                             *pip, i);
+        }
+
+        /* encode the device data */
+        rc = filelayout_encode_devinfo(xdr, pfd);
+out:
+        if (ip_address)
+                OBD_FREE(ip_address, sizeof(*ip_address) * ost_count);
+
+        for (i = 0; i < ost_count ; i++, pip++) {
+                /* XXX - free in some helper? */
+                OBD_FREE(pfd->fl_device_list[i].fl_multipath_list->r_addr.data, IP_BUF_LEN);
+                OBD_FREE(pfd->fl_device_list[i].fl_multipath_list->r_netid.data, NETTYPE_LEN);
+                OBD_FREE_PTR(pfd->fl_device_list[i].fl_multipath_list);
+        }
+        if (pfd->fl_device_list)
+                OBD_FREE(pfd->fl_device_list,
+                          ost_count * sizeof(struct pnfs_filelayout_multipath));
+        if (pfd->fl_stripeindices_list)
+                OBD_FREE(pfd->fl_stripeindices_list, ost_count * sizeof(u32));
+        OBD_FREE_PTR(pfd);
+
+       RETURN(rc);
+}
+
+int ll_get_device_iter(struct super_block *sb, u32 layout_type,
+                       struct nfsd4_pnfs_dev_iter_res *gd_res)
+{
+        int ost_count = 0;
+        u32 tmplen;
+        int rc = 0;
+
+        /* cookie is our ost idx */
+
+        tmplen = sizeof(ost_count);
+        rc = obd_get_info(ll_s2mdexp(sb), strlen(KEY_OST_COUNT), KEY_OST_COUNT,
+                          &tmplen, &ost_count, NULL);
+        if (rc) {
+                CERROR("Can not get OST/device count %d \n", ost_count);
+                GOTO(out, rc);
+        }
+
+        if (gd_res->gd_cookie > 0) {
+                gd_res->gd_eof = 1;
+        } else {
+                gd_res->gd_devid = gd_res->gd_cookie;
+                gd_res->gd_cookie++;
+                gd_res->gd_verf = 1;
+                gd_res->gd_eof = 0;
+        }
+out:
+        RETURN(rc);
+}
+
+
+static int ll_layout_type(struct super_block *sb)
+{
+        ENTRY;
+
+        return LAYOUT_NFSV4_1_FILES;
+}
+
+static enum nfsstat4 ll_get_layout(struct inode *inode,
+                                  struct exp_xdr_stream *xdr,
+                                  const struct nfsd4_pnfs_layoutget_arg *lg_arg,
+                                  struct nfsd4_pnfs_layoutget_res *lg_res)
+{
+        struct ll_inode_info *lli = ll_i2info(inode);
+        struct lov_stripe_md *lsm;
+        struct pnfs_filelayout_layout *flp;
+        int rc = 0;
+        ENTRY;
+
+        if (!lli || !lli->lli_smd) {
+                struct ptlrpc_request *req = NULL;
+                struct ll_sb_info *sbi = ll_s2sbi(inode->i_sb);
+                obd_valid valid = OBD_MD_FLGETATTR;
+                struct md_op_data *op_data;
+                int ealen = 0;
+
+                rc = ll_get_max_mdsize(sbi, &ealen);
+                if (rc)
+                        RETURN(rc);
+                valid |= OBD_MD_FLEASIZE | OBD_MD_FLMODEASIZE;
+
+                op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL,
+                                             0, ealen, LUSTRE_OPC_ANY,
+                                             NULL);
+                if (op_data == NULL)
+                        RETURN(-ENOMEM);
+
+                op_data->op_valid = valid;
+                /* Once OBD_CONNECT_ATTRFID is not supported, we can't find one
+                 * capa for this inode. Because we only keep capas of dirs
+                 * fresh. */
+                rc = md_getattr(sbi->ll_md_exp, op_data, &req);
+                ll_finish_md_op_data(op_data);
+                if (rc) {
+                        CERROR("can't get object attrs, fid "DFID", rc %d\n",
+                               PFID(&op_data->op_fid1), rc);
+                        RETURN(rc);
+                }
+
+                rc = ll_prep_inode(&inode, req, NULL);
+                ptlrpc_req_finished(req);
+                if (rc)
+                        RETURN(rc);
+        }
+        lli = ll_i2info(inode);
+
+        lsm = lli->lli_smd;
+
+        /* no striping info - no layout, return some error */
+        if (!lsm)
+                RETURN(-EINVAL);
+
+        OBD_ALLOC_PTR(flp);
+        if (!flp)
+               GOTO(out, rc = -ENOMEM);
+
+        /* We can use same nfs handle always */
+        flp->lg_fh_length = 1;
+        OBD_ALLOC_PTR(flp->lg_fh_list);
+        if (!flp->lg_fh_list)
+                GOTO(out, rc = -ENOMEM); // XXX
+        memcpy(flp->lg_fh_list, lg_arg->lg_fh, sizeof(struct knfsd_fh));
+
+        /* XXX - we should not poke inside of fh like this. */
+        flp->lg_fh_list->fh_base.fh_new.fb_fsid_type += FSID_MAX;
+        flp->lg_commit_through_mds = 0; // not needed as we zero our allocs
+        flp->lg_layout_type = 1; /* XXX */
+        flp->lg_pattern_offset = 0; /* XXX - not true for JOINFILE! */
+        flp->lg_first_stripe_index = 0;
+        flp->lg_stripe_type = STRIPE_SPARSE;
+        flp->lg_stripe_unit = lsm->lsm_stripe_size;
+        flp->device_id.sbid = lg_arg->lg_sbid;
+        flp->device_id.devid = 0; // Always work on device 0
+
+        CDEBUG(D_INFO, "Created file layout, encoding \n");
+
+        rc = filelayout_encode_layout(xdr, flp);
+out:
+        OBD_FREE_PTR(flp->lg_fh_list);
+        OBD_FREE_PTR(flp);
+        RETURN(rc);
+}
+
+static int ll_commit_layout(struct inode *inode,
+                            const struct nfsd4_pnfs_layoutcommit_arg *arg,
+                            struct nfsd4_pnfs_layoutcommit_res *res)
+{
+        return 0;
+}
+
+static int ll_pnfs_ds_get_state(struct inode *inode, struct knfsd_fh *fh,
+                                struct pnfs_get_state *state)
+{
+        return 0;
+}
+
+struct pnfs_export_operations lustre_pnfs_export_ops = {
+        .layout_type     = ll_layout_type,
+        .get_device_iter = ll_get_device_iter,
+        .get_device_info = ll_get_deviceinfo,
+        .layout_get      = ll_get_layout,
+        .layout_commit   = ll_commit_layout,
+        .get_state       = ll_pnfs_ds_get_state,
+};
+#endif
+

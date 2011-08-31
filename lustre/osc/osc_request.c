@@ -3951,6 +3951,35 @@ static int osc_get_info(struct obd_export *exp, obd_count keylen,
         out:
                 ptlrpc_req_finished(req);
                 RETURN(rc);
+        } else if (KEY_IS(KEY_NFS_IP)) {
+                struct obd_import *imp = class_exp2cliimp(exp);
+                __u32 *nfs_ip = val;
+                lnet_nid_t nid;
+
+                /* XXX Find out if we have externally specified ip first */
+                if (!imp->imp_connection)
+                        RETURN(-EINVAL);
+
+                nid = imp->imp_connection->c_peer.nid;
+                if (LNET_NETTYP(LNET_NIDNET(nid)) == SOCKLND) {
+                        *nfs_ip = LNET_NIDADDR(nid);
+                } else if (LNET_NETTYP(LNET_NIDNET(nid)) == LOLND) {
+                        /* Search for some local ip address */
+                        int i;
+                        lnet_process_id_t lnet_id;
+                        for (i = 0; ; i++) {
+                                if (LNetGetId(i, &lnet_id) == -ENOENT)
+                                        break;
+                                if (LNET_NETTYP(LNET_NIDNET(lnet_id.nid)) ==
+                                    SOCKLND) {
+                                        *nfs_ip = LNET_NIDADDR(lnet_id.nid);
+                                        break;
+                                }
+                        }
+                }
+                /* It's ok to leave ip address unfilled, llite will come up
+                   with something in this case */
+                RETURN(0);
         } else if (KEY_IS(KEY_FIEMAP)) {
                 struct ptlrpc_request *req;
                 struct ll_user_fiemap *reply;

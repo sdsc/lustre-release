@@ -774,6 +774,7 @@ void ll_finish_md_op_data(struct md_op_data *op_data);
 
 /* llite/llite_nfs.c */
 extern struct export_operations lustre_export_operations;
+extern struct pnfs_export_operations lustre_pnfs_export_ops;
 __u32 get_uuid2int(const char *name, int len);
 
 /* llite/special.c */

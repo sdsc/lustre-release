@@ -470,6 +470,11 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         sb->s_op = &lustre_super_operations;
 #if THREAD_SIZE >= 8192
         sb->s_export_op = &lustre_export_operations;
+
+#ifdef CONFIG_PNFSD
+        sb->s_pnfs_op = &lustre_pnfs_export_ops;
+
+#endif
 #endif
 
         /* make root inode
