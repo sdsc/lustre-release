@@ -93,9 +93,10 @@ truncate_complete_page(struct address_space *mapping, struct page *page)
 }
 #endif /* HAVE_TRUNCATE_COMPLETE_PAGE */
 
-#if !defined(HAVE_D_REHASH_COND) && !defined(HAVE___D_REHASH)
+#if defined(HAVE_DCACHE_LOCK) && !defined(HAVE_D_REHASH_COND) && \
+   !defined(HAVE___D_REHASH)
 /* megahack */
-static inline void d_rehash_cond(struct dentry * entry, int lock)
+static inline void ll_d_rehash_cond(struct dentry * entry, int lock)
 {
 	if (!lock)
 		spin_unlock(&dcache_lock);
@@ -105,8 +106,6 @@ static inline void d_rehash_cond(struct dentry * entry, int lock)
 	if (!lock)
 		spin_lock(&dcache_lock);
 }
-
-#define __d_rehash(dentry, lock) d_rehash_cond(dentry, lock)
 #endif /* !HAVE_D_REHASH_COND && !HAVE___D_REHASH*/
 
 #ifdef ATTR_OPEN

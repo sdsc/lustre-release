@@ -414,8 +414,6 @@ int
 cfs_wi_startup (void)
 {
         int i;
-        int n;
-        int rc;
 
         cfs_wi_data.wi_nthreads = 0;
         cfs_wi_data.wi_nsched   = CFS_WI_NSCHED;
@@ -429,6 +427,10 @@ cfs_wi_startup (void)
                 cfs_wi_sched_init(&cfs_wi_data.wi_scheds[i]);
 
 #ifdef __KERNEL__
+        {
+        int n;
+        int rc;
+
         n = cfs_num_online_cpus();
         for (i = 0; i <= n; i++) {
                 rc = cfs_wi_start_thread(cfs_wi_scheduler,
@@ -439,8 +441,7 @@ cfs_wi_startup (void)
                         return rc;
                 }
         }
-#else
-        n = rc = 0;
+        }
 #endif
 
         return 0;

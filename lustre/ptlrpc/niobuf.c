@@ -302,7 +302,9 @@ int ptlrpc_register_bulk(struct ptlrpc_request *req)
 int ptlrpc_unregister_bulk(struct ptlrpc_request *req, int async)
 {
         struct ptlrpc_bulk_desc *desc = req->rq_bulk;
+#ifdef __KERNEL__
         cfs_waitq_t             *wq;
+#endif
         struct l_wait_info       lwi;
         int                      rc;
         ENTRY;
@@ -336,17 +338,25 @@ int ptlrpc_unregister_bulk(struct ptlrpc_request *req, int async)
         if (async)
                 RETURN(0);
 
+#ifdef __KERNEL__
         if (req->rq_set != NULL)
                 wq = &req->rq_set->set_waitq;
         else
                 wq = &req->rq_reply_waitq;
+#endif
 
         for (;;) {
                 /* Network access will complete in finite time but the HUGE
                  * timeout lets us CWARN for visibility of sluggish NALs */
                 lwi = LWI_TIMEOUT_INTERVAL(cfs_time_seconds(LONG_UNLINK),
                                            cfs_time_seconds(1), NULL, NULL);
-                rc = l_wait_event(*wq, !ptlrpc_client_bulk_active(req), &lwi);
+                rc = l_wait_event(
+#ifdef __KERNEL__
+                                  *wq,
+#else
+                                  NULL,
+#endif
+                                  !ptlrpc_client_bulk_active(req), &lwi);
                 if (rc == 0) {
                         ptlrpc_rqphase_move(req, req->rq_next_phase);
                         RETURN(1);

@@ -131,9 +131,14 @@ libcfs_psdev_release(struct inode * inode, struct file * file)
 	return rc;
 }
 
+#ifdef HAVE_COMPAT_IOCTL
+static long
+libcfs_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+#else
 static int
-libcfs_ioctl(struct inode *inode, struct file *file,
-	     unsigned int cmd, unsigned long arg)
+libcfs_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
+             unsigned long arg)
+#endif
 {
 	struct cfs_psdev_file	 pfile;
 	int    rc = 0;
@@ -172,7 +177,12 @@ libcfs_ioctl(struct inode *inode, struct file *file,
 }
 
 static struct file_operations libcfs_fops = {
+#ifdef HAVE_COMPAT_IOCTL
+	compat_ioctl:   libcfs_ioctl,
+	unlocked_ioctl:   libcfs_ioctl,
+#else
 	ioctl:   libcfs_ioctl,
+#endif
 	open:    libcfs_psdev_open,
 	release: libcfs_psdev_release
 };

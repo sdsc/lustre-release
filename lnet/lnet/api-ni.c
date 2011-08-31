@@ -117,15 +117,17 @@ lnet_get_networks (void)
 {
         static char       default_networks[256];
         char             *networks = getenv ("LNET_NETWORKS");
-        char             *ip2nets  = getenv ("LNET_IP2NETS");
         char             *str;
         char             *sep;
         int               len;
         int               nob;
-        int               rc;
         cfs_list_t       *tmp;
 
 #ifdef NOT_YET
+        {
+        char             *ip2nets  = getenv ("LNET_IP2NETS");
+        int               rc;
+
         if (networks != NULL && ip2nets != NULL) {
                 LCONSOLE_ERROR_MSG(0x103, "Please set EITHER 'LNET_NETWORKS' or"
                                    " 'LNET_IP2NETS' but not both at once\n");
@@ -136,9 +138,7 @@ lnet_get_networks (void)
                 rc = lnet_parse_ip2nets(&networks, ip2nets);
                 return (rc == 0) ? networks : NULL;
         }
-#else
-        ip2nets = NULL;
-        rc = 0;
+        }
 #endif
         if (networks != NULL)
                 return networks;

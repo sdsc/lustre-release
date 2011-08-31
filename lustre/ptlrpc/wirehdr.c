@@ -44,7 +44,12 @@
 
 #ifdef __KERNEL__
 # ifndef AUTOCONF_INCLUDED
-#  include <linux/config.h>
+#  include <linux/version.h>
+#  if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 37)
+#    include <generated/autoconf.h>
+#  else
+#    include <linux/config.h>
+#  endif
 # endif
 # ifdef CONFIG_FS_POSIX_ACL
 #  include <linux/fs.h>

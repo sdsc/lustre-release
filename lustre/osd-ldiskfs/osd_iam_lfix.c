@@ -479,13 +479,18 @@ static void iam_lfix_split(struct iam_leaf *l, struct buffer_head **bh,
                  * insertion point moves into new leaf.
                  */
                 int shift;
+#if LDISKFS_CORRECTNESS_ON
                 int result;
+#endif
 
                 shift = iam_lfix_diff(l, l->il_at, start);
                 *bh = l->il_bh;
                 l->il_bh = new_leaf;
                 l->il_curidx = new_blknr;
-                result = iam_lfix_init(l);
+#if LDISKFS_CORRECTNESS_ON
+                result =
+#endif
+                iam_lfix_init(l);
                 /*
                  * init cannot fail, as node was just initialized.
                  */

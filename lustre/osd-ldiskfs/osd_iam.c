@@ -959,14 +959,10 @@ int iam_lookup_lock(struct iam_path *path,
  */
 static int iam_path_lookup(struct iam_path *path, int index)
 {
-        struct iam_container *c;
-        struct iam_descr *descr;
         struct iam_leaf  *leaf;
         int result;
 
-        c = path->ip_container;
         leaf = &path->ip_leaf;
-        descr = iam_path_descr(path);
         result = iam_lookup_lock(path, &leaf->il_lock, DLT_WRITE);
         assert_inv(iam_path_check(path));
         do_corr(schedule());

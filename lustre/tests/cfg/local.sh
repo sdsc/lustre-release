@@ -43,7 +43,8 @@ STRIPE_BYTES=${STRIPE_BYTES:-1048576}
 STRIPES_PER_OBJ=${STRIPES_PER_OBJ:-0}
 SINGLEMDS=${SINGLEMDS:-"mds1"}
 TIMEOUT=${TIMEOUT:-20}
-PTLDEBUG=${PTLDEBUG:-0x33f0404}
+#PTLDEBUG=${PTLDEBUG:-0x33f0404}
+PTLDEBUG=${PTLDEBUG:-0xfffffff}
 DEBUG_SIZE=${DEBUG_SIZE:-10}
 if [ `grep processor /proc/cpuinfo | wc -l` -gt 5 ]; then
     DEBUG_SIZE=$((`grep processor /proc/cpuinfo | wc -l` * 2))   # promise 2MB for every cpu
@@ -55,7 +56,7 @@ QUOTA_TYPE="ug3"
 QUOTA_USERS=${QUOTA_USERS:-"quota_usr quota_2usr sanityusr sanityusr1"}
 LQUOTAOPTS=${LQUOTAOPTS:-"hash_lqs_cur_bits=3"}
 
-MKFSOPT=""
+MKFSOPT="-O extents"
 [ "x$MDSJOURNALSIZE" != "x" ] &&
     MKFSOPT=$MKFSOPT" -J size=$MDSJOURNALSIZE"
 [ "x$MDSISIZE" != "x" ] &&

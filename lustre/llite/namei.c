@@ -157,8 +157,10 @@ static void ll_drop_negative_dentry(struct inode *dir)
 {
         struct dentry *dentry, *tmp_alias, *tmp_subdir;
 
-        cfs_spin_lock(&ll_lookup_lock);
-        spin_lock(&dcache_lock);
+        LL_LOCK_DCACHE;
+#ifndef HAVE_DCACHE_LOCK
+        cfs_spin_lock(&dir->i_lock);
+#endif
 restart:
         list_for_each_entry_safe(dentry, tmp_alias,
                                  &dir->i_dentry,d_alias) {
@@ -177,8 +179,10 @@ restart:
                         }
                 }
         }
-        spin_unlock(&dcache_lock);
-        cfs_spin_unlock(&ll_lookup_lock);
+#ifndef HAVE_DCACHE_LOCK
+        cfs_spin_unlock(&dir->i_lock);
+#endif
+        LL_UNLOCK_DCACHE;
 }
 
 
@@ -325,7 +329,7 @@ static void ll_d_add(struct dentry *de, struct inode *inode)
         CDEBUG(D_DENTRY, "adding inode %p to dentry %p\n", inode, de);
         /* d_instantiate */
         if (!list_empty(&de->d_alias)) {
-                spin_unlock(&dcache_lock);
+                LOCK_DCACHE;
                 CERROR("dentry %.*s %p alias next %p, prev %p\n",
                        de->d_name.len, de->d_name.name, de,
                        de->d_alias.next, de->d_alias.prev);
@@ -337,12 +341,12 @@ static void ll_d_add(struct dentry *de, struct inode *inode)
 
         /* d_rehash */
         if (!d_unhashed(de)) {
-                spin_unlock(&dcache_lock);
+                UNLOCK_DCACHE;
                 CERROR("dentry %.*s %p hash next %p\n",
                        de->d_name.len, de->d_name.name, de, de->d_hash.next);
                 LBUG();
         }
-        d_rehash_cond(de, 0);
+        ll_d_rehash_cond(de, 0);
 }
 
 /* Search "inode"'s alias list for a dentry that has the same name and parent
@@ -357,8 +361,7 @@ static struct dentry *ll_find_alias(struct inode *inode, struct dentry *de)
         struct dentry *dentry;
         struct dentry *last_discon = NULL;
 
-        cfs_spin_lock(&ll_lookup_lock);
-        spin_lock(&dcache_lock);
+        LL_LOCK_DCACHE;
         list_for_each(tmp, &inode->i_dentry) {
                 dentry = list_entry(tmp, struct dentry, d_alias);
 
@@ -387,31 +390,33 @@ static struct dentry *ll_find_alias(struct inode *inode, struct dentry *de)
                            de->d_name.len) != 0)
                         continue;
 
-                dget_locked(dentry);
+                dget_dlock(dentry);
+
                 lock_dentry(dentry);
                 __d_drop(dentry);
                 unlock_dentry(dentry);
+
                 ll_dops_init(dentry, 0, 1);
-                d_rehash_cond(dentry, 0); /* avoid taking dcache_lock inside */
-                spin_unlock(&dcache_lock);
-                cfs_spin_unlock(&ll_lookup_lock);
+                ll_d_rehash_cond(dentry, 0); /* avoid taking dcache_lock inside */
+                LL_UNLOCK_DCACHE;
                 iput(inode);
                 CDEBUG(D_DENTRY, "alias dentry %.*s (%p) parent %p inode %p "
                        "refc %d\n", de->d_name.len, de->d_name.name, de,
-                       de->d_parent, de->d_inode, atomic_read(&de->d_count));
+                       de->d_parent, de->d_inode, d_refcount(de));
                 return dentry;
         }
 
         if (last_discon) {
                 CDEBUG(D_DENTRY, "Reuse disconnected dentry %p inode %p "
                         "refc %d\n", last_discon, last_discon->d_inode,
-                        atomic_read(&last_discon->d_count));
-                dget_locked(last_discon);
+                        d_refcount(last_discon));
+                dget_dlock(last_discon);
+
                 lock_dentry(last_discon);
                 last_discon->d_flags |= DCACHE_LUSTRE_INVALID;
                 unlock_dentry(last_discon);
-                spin_unlock(&dcache_lock);
-                cfs_spin_unlock(&ll_lookup_lock);
+
+                LL_UNLOCK_DCACHE;
                 ll_dops_init(last_discon, 1, 1);
                 d_rehash(de);
                 d_move(last_discon, de);
@@ -423,8 +428,7 @@ static struct dentry *ll_find_alias(struct inode *inode, struct dentry *de)
         unlock_dentry(de);
         ll_d_add(de, inode);
 
-        spin_unlock(&dcache_lock);
-        cfs_spin_unlock(&ll_lookup_lock);
+        LL_UNLOCK_DCACHE;
 
         return de;
 }
@@ -484,9 +488,9 @@ int ll_lookup_it_finish(struct ptlrpc_request *request,
                    cannot afford to hash this dentry (done by ll_d_add) as it
                    might get picked up later when UPDATE lock will appear */
                 if (ll_have_md_lock(parent, MDS_INODELOCK_UPDATE, LCK_MINMODE)) {
-                        spin_lock(&dcache_lock);
+                        LOCK_DCACHE;
                         ll_d_add(*de, NULL);
-                        spin_unlock(&dcache_lock);
+                        UNLOCK_DCACHE;
                 } else {
                         /* negative lookup - and don't have update lock to
                          * parent */
@@ -796,10 +800,10 @@ static int ll_create_it(struct inode *dir, struct dentry *dentry, int mode,
         /* Negative dentry may be unhashed if parent does not have UPDATE lock,
          * but some callers, e.g. do_coredump, expect dentry to be hashed after
          * successful create. Hash it here. */
-        spin_lock(&dcache_lock);
+        LOCK_DCACHE;
         if (d_unhashed(dentry))
-                d_rehash_cond(dentry, 0);
-        spin_unlock(&dcache_lock);
+                ll_d_rehash_cond(dentry, 0);
+        UNLOCK_DCACHE;
         RETURN(0);
 }
 

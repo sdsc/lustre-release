@@ -84,8 +84,12 @@ libcfs_sock_ioctl(int cmd, unsigned long arg)
 #endif
              {
                 lock_kernel();
+#ifdef HAVE_COMPAT_IOCTL
+                rc =sock_filp->f_op->compat_ioctl(sock_filp, cmd, arg);
+#else
                 rc =sock_filp->f_op->ioctl(sock_filp->f_dentry->d_inode,
                                            sock_filp, cmd, arg);
+#endif
                 unlock_kernel();
              }
         set_fs(oldmm);
@@ -597,6 +601,13 @@ int sock_create_lite(int family, int type, int protocol, struct socket **res)
 }
 #endif
 
+#ifndef HAVE_SK_SLEEP_HELPER
+static inline wait_queue_head_t *sk_sleep(struct sock *sk)
+{
+        return sk->sk_sleep;
+}
+#endif
+
 int
 libcfs_sock_accept (struct socket **newsockp, struct socket *sock)
 {
@@ -617,7 +628,7 @@ libcfs_sock_accept (struct socket **newsockp, struct socket *sock)
         newsock->ops = sock->ops;
 
         set_current_state(TASK_INTERRUPTIBLE);
-        add_wait_queue(sock->sk->sk_sleep, &wait);
+        add_wait_queue(sk_sleep(sock->sk), &wait);
 
         rc = sock->ops->accept(sock, newsock, O_NONBLOCK);
         if (rc == -EAGAIN) {
@@ -626,7 +637,7 @@ libcfs_sock_accept (struct socket **newsockp, struct socket *sock)
                 rc = sock->ops->accept(sock, newsock, O_NONBLOCK);
         }
 
-        remove_wait_queue(sock->sk->sk_sleep, &wait);
+        remove_wait_queue(sk_sleep(sock->sk), &wait);
         set_current_state(TASK_RUNNING);
 
         if (rc != 0)
@@ -645,7 +656,7 @@ EXPORT_SYMBOL(libcfs_sock_accept);
 void
 libcfs_sock_abort_accept (struct socket *sock)
 {
-        wake_up_all(sock->sk->sk_sleep);
+        wake_up_all(sk_sleep(sock->sk));
 }
 
 EXPORT_SYMBOL(libcfs_sock_abort_accept);

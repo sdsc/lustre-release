@@ -156,7 +156,7 @@ struct fsfilt_cb_data {
 #define fsfilt_log_start_commit(journal, tid) log_start_commit(journal, tid)
 #define fsfilt_log_wait_commit(journal, tid) log_wait_commit(journal, tid)
 #define fsfilt_journal_callback_set(handle, func, jcb) journal_callback_set(handle, func, jcb)
-#define ext_pblock(ex) le32_to_cpu((ex)->ee_start)
+#define ext4_ext_pblock(ex) le32_to_cpu((ex)->ee_start)
 #define ext3_ext_store_pblock(ex, pblock)  ((ex)->ee_start = cpu_to_le32(pblock))
 #define ext3_inode_bitmap(sb,desc) le32_to_cpu((desc)->bg_inode_bitmap)
 #endif
@@ -181,11 +181,9 @@ static char *fsfilt_ext3_get_label(struct super_block *sb)
 static int fsfilt_ext3_set_label(struct super_block *sb, char *label)
 {
         /* see e.g. fsfilt_ext3_write_record() */
-        journal_t *journal;
         handle_t *handle;
         int err;
 
-        journal = EXT3_SB(sb)->s_journal;
         handle = ext3_journal_start_sb(sb, 1);
         if (IS_ERR(handle)) {
                 CERROR("can't start transaction\n");
@@ -630,13 +628,17 @@ static int fsfilt_ext3_setattr(struct dentry *dentry, void *handle,
          * so don't confuse inode_change_ok. */
         iattr->ia_valid &= ~(ATTR_MTIME_SET | ATTR_ATIME_SET);
 
+#if 0
         if (inode->i_op->setattr) {
+#endif
                 rc = inode->i_op->setattr(dentry, iattr);
+#if 0
         } else {
                 rc = inode_change_ok(inode, iattr);
                 if (!rc)
                         rc = inode_setattr(inode, iattr);
         }
+#endif
 
  out:
         RETURN(rc);
@@ -836,6 +838,8 @@ static int fsfilt_ext3_sync(struct super_block *sb)
 #define EXT3_EXTENTS_FL                 0x00080000 /* Inode uses extents */
 #endif
 
+#define WALK_SPACE_HAS_DATA_SEM 1
+
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,17))
 # define fsfilt_up_truncate_sem(inode)  up(&LDISKFS_I(inode)->truncate_sem);
 # define fsfilt_down_truncate_sem(inode)  down(&LDISKFS_I(inode)->truncate_sem);
@@ -909,8 +913,15 @@ static long ext3_ext_find_goal(struct inode *inode, struct ext3_ext_path *path,
                 depth = path->p_depth;
 
                 /* try to predict block placement */
-                if ((ex = path[depth].p_ext))
-                        return ext_pblock(ex) + (block - le32_to_cpu(ex->ee_block));
+                if ((ex = path[depth].p_ext)) {
+                        ext4_fsblk_t ext_pblk = ext4_ext_pblock(ex);
+                        ext4_lblk_t ext_block = le32_to_cpu(ex->ee_block);
+
+                        if (block > ext_block)
+                                return ext_pblk + (block - ext_block);
+                        else
+                                return ext_pblk - (ext_block - block);
+                }
 
                 /* it looks index is empty
                  * try to find starting from index itself */
@@ -1013,7 +1024,7 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
         EXT_ASSERT(i == path->p_depth);
         EXT_ASSERT(path[i].p_hdr);
 
-        if (cex->ec_type == EXT3_EXT_CACHE_EXTENT) {
+        if (cex->ec_start != 0) {
                 err = EXT_CONTINUE;
                 goto map;
         }
@@ -1095,7 +1106,7 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
 #ifdef EXT3_MB_HINT_GROUP_ALLOC
                 ext3_mb_discard_inode_preallocations(inode);
 #endif
-                ext3_free_blocks(handle, inode, ext_pblock(&nex),
+                ext3_free_blocks(handle, inode, 0, ext4_ext_pblock(&nex),
                                  cpu_to_le16(nex.ee_len), 0);
                 goto out;
         }
@@ -1106,7 +1117,7 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
          * scaning after that block
          */
         cex->ec_len = le16_to_cpu(nex.ee_len);
-        cex->ec_start = ext_pblock(&nex);
+        cex->ec_start = ext4_ext_pblock(&nex);
         BUG_ON(le16_to_cpu(nex.ee_len) == 0);
         BUG_ON(le32_to_cpu(nex.ee_block) != cex->ec_block);
 
@@ -1124,10 +1135,9 @@ map:
                         CERROR("hmm. why do we find this extent?\n");
                         CERROR("initial space: %lu:%u\n",
                                 bp->start, bp->init_num);
-                        CERROR("current extent: %u/%u/%llu %d\n",
+                        CERROR("current extent: %u/%u/%llu\n",
                                 cex->ec_block, cex->ec_len,
-                                (unsigned long long)cex->ec_start,
-                                cex->ec_type);
+                                (unsigned long long)cex->ec_start);
                 }
                 i = 0;
                 if (cex->ec_block < bp->start)
@@ -1137,7 +1147,7 @@ map:
                                         i, cex->ec_len);
                 for (; i < cex->ec_len && bp->num; i++) {
                         *(bp->blocks) = cex->ec_start + i;
-                        if (cex->ec_type == EXT3_EXT_CACHE_EXTENT) {
+                        if (cex->ec_start != 0) {
                                 *(bp->created) = 0;
                         } else {
                                 *(bp->created) = 1;
@@ -1240,6 +1250,7 @@ cleanup:
         return rc;
 }
 
+#if 0
 extern int ext3_map_inode_page(struct inode *inode, struct page *page,
                                unsigned long *blocks, int *created, int create);
 int fsfilt_ext3_map_bm_inode_pages(struct inode *inode, struct page **page,
@@ -1263,6 +1274,7 @@ int fsfilt_ext3_map_bm_inode_pages(struct inode *inode, struct page **page,
         }
         return rc;
 }
+#endif
 
 int fsfilt_ext3_map_inode_pages(struct inode *inode, struct page **page,
                                 int pages, unsigned long *blocks,
@@ -1278,8 +1290,12 @@ int fsfilt_ext3_map_inode_pages(struct inode *inode, struct page **page,
         }
         if (optional_sem != NULL)
                 cfs_down(optional_sem);
+#if 0
         rc = fsfilt_ext3_map_bm_inode_pages(inode, page, pages, blocks,
                                             created, create);
+#else
+        return -ENOTSUPP;
+#endif
         if (optional_sem != NULL)
                 cfs_up(optional_sem);
 
@@ -1523,6 +1539,33 @@ do {                                            \
         Q_COPY(out, in, dqb_itime);             \
         Q_COPY(out, in, dqb_valid);             \
 } while (0)
+
+static inline int
+ll_quota_on(struct super_block *sb, int off, int ver, char *name, int remount)
+{
+        if (sb->s_qcop->quota_on) {
+                return sb->s_qcop->quota_on(sb, off, ver, name
+#ifdef HAVE_QUOTA_ON_5ARGS
+                                            , remount
+#endif
+                                           );
+        }
+        else
+                return -ENOSYS;
+}
+
+static inline int ll_quota_off(struct super_block *sb, int off, int remount)
+{
+        if (sb->s_qcop->quota_off) {
+                return sb->s_qcop->quota_off(sb, off
+#ifdef HAVE_QUOTA_OFF_3ARGS
+                                             , remount
+#endif
+                                            );
+        }
+        else
+                return -ENOSYS;
+}
 
 static int fsfilt_ext3_quotactl(struct super_block *sb,
                                 struct obd_quotactl *oqc)

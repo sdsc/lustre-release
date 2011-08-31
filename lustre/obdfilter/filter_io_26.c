@@ -44,7 +44,12 @@
  */
 
 #ifndef AUTOCONF_INCLUDED
-#include <linux/config.h>
+#  include <linux/version.h>
+#  if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 37)
+#    include <generated/autoconf.h>
+#  else
+#    include <linux/config.h>
+#  endif
 #endif
 #include <linux/module.h>
 #include <linux/pagemap.h> // XXX kill me soon
@@ -175,7 +180,7 @@ static int dio_complete_routine(struct bio *bio, unsigned int done, int error)
         }
 
         /* the check is outside of the cycle for performance reason -bzzz */
-        if (!cfs_test_bit(BIO_RW, &bio->bi_rw)) {
+        if (!(bio->bi_rw & REQ_WRITE)) {
                 bio_for_each_segment(bvl, bio, i) {
                         if (likely(error == 0))
                                 SetPageUptodate(bvl->bv_page);

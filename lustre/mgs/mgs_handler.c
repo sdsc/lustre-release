@@ -550,7 +550,7 @@ out_nolock:
 static int mgs_set_info_rpc(struct ptlrpc_request *req)
 {
         struct obd_device *obd = req->rq_export->exp_obd;
-        struct mgs_send_param *msp, *rep_msp;
+        struct mgs_send_param *msp;
         int rc;
         struct lustre_cfg_bufs bufs;
         struct lustre_cfg *lcfg;
@@ -574,10 +574,8 @@ static int mgs_set_info_rpc(struct ptlrpc_request *req)
         lustre_cfg_free(lcfg);
 
         rc = req_capsule_server_pack(&req->rq_pill);
-        if (rc == 0) {
-                rep_msp = req_capsule_server_get(&req->rq_pill, &RMF_MGS_SEND_PARAM);
-                rep_msp = msp;
-        }
+        if (rc == 0)
+                req_capsule_server_get(&req->rq_pill, &RMF_MGS_SEND_PARAM);
         RETURN(rc);
 }
 
@@ -830,7 +828,6 @@ static int mgs_iocontrol_pool(struct obd_device *obd,
 {
         int rc;
         struct lustre_cfg *lcfg = NULL;
-        struct llog_rec_hdr rec;
         char *fsname = NULL;
         char *poolname = NULL;
         ENTRY;
@@ -844,11 +841,8 @@ static int mgs_iocontrol_pool(struct obd_device *obd,
                 rc = -ENOMEM;
                 GOTO(out_pool, rc);
         }
-        rec.lrh_len = llog_data_len(data->ioc_plen1);
 
-        if (data->ioc_type == LUSTRE_CFG_TYPE) {
-                rec.lrh_type = OBD_CFG_REC;
-        } else {
+        if (data->ioc_type != LUSTRE_CFG_TYPE) {
                 CERROR("unknown cfg record type:%d \n", data->ioc_type);
                 rc = -EINVAL;
                 GOTO(out_pool, rc);
@@ -944,14 +938,9 @@ int mgs_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 
         case OBD_IOC_PARAM: {
                 struct lustre_cfg *lcfg;
-                struct llog_rec_hdr rec;
                 char fsname[MTI_NAME_MAXLEN];
 
-                rec.lrh_len = llog_data_len(data->ioc_plen1);
-
-                if (data->ioc_type == LUSTRE_CFG_TYPE) {
-                        rec.lrh_type = OBD_CFG_REC;
-                } else {
+                if (data->ioc_type != LUSTRE_CFG_TYPE) {
                         CERROR("unknown cfg record type:%d \n", data->ioc_type);
                         RETURN(-EINVAL);
                 }

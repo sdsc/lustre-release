@@ -731,7 +731,9 @@ static void lvar_split(struct iam_leaf *leaf, struct buffer_head **bh,
                  * insertion point moves into new leaf.
                  */
                 ptrdiff_t shift;
+#if LDISKFS_CORRECTNESS_ON
                 int result;
+#endif
 
                 shift = PDIFF(leaf->il_at, first_to_move);
                 *bh = leaf->il_bh;
@@ -739,7 +741,10 @@ static void lvar_split(struct iam_leaf *leaf, struct buffer_head **bh,
                 leaf->il_curidx = new_blknr;
 
                 assert_corr(iam_leaf_is_locked(leaf));
-                result = lvar_init(leaf);
+#if LDISKFS_CORRECTNESS_ON
+                result =
+#endif
+                lvar_init(leaf);
                 /*
                  * init cannot fail, as node was just initialized.
                  */

@@ -759,7 +759,7 @@ static int ost_brw_read(struct ptlrpc_request *req, struct obd_trans_info *oti)
         struct lustre_capa *capa = NULL;
         struct l_wait_info lwi;
         struct lustre_handle lockh = { 0 };
-        int niocount, npages, nob = 0, rc, i;
+        int npages, nob = 0, rc, i;
         int no_reply = 0;
         struct ost_thread_local_cache *tls;
         ENTRY;
@@ -801,7 +801,6 @@ static int ost_brw_read(struct ptlrpc_request *req, struct obd_trans_info *oti)
         if (rc)
                 RETURN(rc);
 
-        niocount = ioo->ioo_bufcnt;
         remote_nb = req_capsule_client_get(&req->rq_pill, &RMF_NIOBUF_REMOTE);
         if (remote_nb == NULL)
                 GOTO(out, rc = -EFAULT);

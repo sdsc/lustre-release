@@ -45,7 +45,12 @@
 #endif
 
 #ifndef AUTOCONF_INCLUDED
-#include <linux/config.h>
+#  include <linux/version.h>
+#  if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 37)
+#    include <generated/autoconf.h>
+#  else
+#    include <linux/config.h>
+#  endif
 #endif
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -362,7 +367,9 @@ static cfs_sysctl_table_t lnet_table[] = {
          * to go via /proc for portability.
          */
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_DEBUG,
+#endif
                 .procname = "debug",
                 .data     = &libcfs_debug,
                 .maxlen   = sizeof(int),
@@ -370,7 +377,9 @@ static cfs_sysctl_table_t lnet_table[] = {
                 .proc_handler = &proc_dobitmasks,
         },
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_SUBSYSTEM_DEBUG,
+#endif
                 .procname = "subsystem_debug",
                 .data     = &libcfs_subsystem_debug,
                 .maxlen   = sizeof(int),
@@ -378,7 +387,9 @@ static cfs_sysctl_table_t lnet_table[] = {
                 .proc_handler = &proc_dobitmasks,
         },
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_PRINTK,
+#endif
                 .procname = "printk",
                 .data     = &libcfs_printk,
                 .maxlen   = sizeof(int),
@@ -386,7 +397,9 @@ static cfs_sysctl_table_t lnet_table[] = {
                 .proc_handler = &proc_dobitmasks,
         },
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_CONSOLE_RATELIMIT,
+#endif
                 .procname = "console_ratelimit",
                 .data     = &libcfs_console_ratelimit,
                 .maxlen   = sizeof(int),
@@ -394,21 +407,27 @@ static cfs_sysctl_table_t lnet_table[] = {
                 .proc_handler = &proc_dointvec
         },
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_CONSOLE_MAX_DELAY_CS,
+#endif
                 .procname = "console_max_delay_centisecs",
                 .maxlen   = sizeof(int),
                 .mode     = 0644,
                 .proc_handler = &proc_console_max_delay_cs
         },
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_CONSOLE_MIN_DELAY_CS,
+#endif
                 .procname = "console_min_delay_centisecs",
                 .maxlen   = sizeof(int),
                 .mode     = 0644,
                 .proc_handler = &proc_console_min_delay_cs
         },
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_CONSOLE_BACKOFF,
+#endif
                 .procname = "console_backoff",
                 .maxlen   = sizeof(int),
                 .mode     = 0644,
@@ -416,7 +435,9 @@ static cfs_sysctl_table_t lnet_table[] = {
         },
 
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_DEBUG_PATH,
+#endif
                 .procname = "debug_path",
                 .data     = libcfs_debug_file_path_arr,
                 .maxlen   = sizeof(libcfs_debug_file_path_arr),
@@ -425,7 +446,9 @@ static cfs_sysctl_table_t lnet_table[] = {
         },
 
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_LNET_UPCALL,
+#endif
                 .procname = "upcall",
                 .data     = lnet_upcall,
                 .maxlen   = sizeof(lnet_upcall),
@@ -433,7 +456,9 @@ static cfs_sysctl_table_t lnet_table[] = {
                 .proc_handler = &proc_dostring,
         },
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_LNET_DEBUG_LOG_UPCALL,
+#endif
                 .procname = "debug_log_upcall",
                 .data     = lnet_debug_log_upcall,
                 .maxlen   = sizeof(lnet_debug_log_upcall),
@@ -441,54 +466,68 @@ static cfs_sysctl_table_t lnet_table[] = {
                 .proc_handler = &proc_dostring,
         },
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_LNET_MEMUSED,
+                .strategy = &sysctl_intvec,
+#endif
                 .procname = "lnet_memused",
                 .data     = (int *)&libcfs_kmemory.counter,
                 .maxlen   = sizeof(int),
                 .mode     = 0444,
                 .proc_handler = &proc_dointvec,
-                .strategy = &sysctl_intvec,
         },
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_LNET_CATASTROPHE,
+                .strategy = &sysctl_intvec,
+#endif
                 .procname = "catastrophe",
                 .data     = &libcfs_catastrophe,
                 .maxlen   = sizeof(int),
                 .mode     = 0444,
                 .proc_handler = &proc_dointvec,
-                .strategy = &sysctl_intvec,
         },
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_LNET_PANIC_ON_LBUG,
+                .strategy = &sysctl_intvec,
+#endif
                 .procname = "panic_on_lbug",
                 .data     = &libcfs_panic_on_lbug,
                 .maxlen   = sizeof(int),
                 .mode     = 0644,
                 .proc_handler = &proc_dointvec,
-                .strategy = &sysctl_intvec,
         },
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_LNET_DUMP_KERNEL,
+#endif
                 .procname = "dump_kernel",
                 .maxlen   = 256,
                 .mode     = 0200,
                 .proc_handler = &proc_dump_kernel,
         },
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_LNET_DAEMON_FILE,
+#endif
                 .procname = "daemon_file",
                 .mode     = 0644,
                 .maxlen   = 256,
                 .proc_handler = &proc_daemon_file,
         },
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_LNET_DEBUG_MB,
+#endif
                 .procname = "debug_mb",
                 .mode     = 0644,
                 .proc_handler = &proc_debug_mb,
         },
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_LNET_WATCHDOG_RATELIMIT,
+#endif
                 .procname = "watchdog_ratelimit",
                 .data     = &libcfs_watchdog_ratelimit,
                 .maxlen   = sizeof(int),
@@ -497,7 +536,10 @@ static cfs_sysctl_table_t lnet_table[] = {
                 .extra1   = &min_watchdog_ratelimit,
                 .extra2   = &max_watchdog_ratelimit,
         },
-        {       .ctl_name = PSDEV_LNET_FORCE_LBUG,
+        {
+#ifdef HAVE_CTL_NAME
+                .ctl_name = PSDEV_LNET_FORCE_LBUG,
+#endif
                 .procname = "force_lbug",
                 .data     = NULL,
                 .maxlen   = 0,
@@ -505,7 +547,9 @@ static cfs_sysctl_table_t lnet_table[] = {
                 .proc_handler = &libcfs_force_lbug
         },
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_LNET_FAIL_LOC,
+#endif
                 .procname = "fail_loc",
                 .data     = &cfs_fail_loc,
                 .maxlen   = sizeof(cfs_fail_loc),
@@ -513,7 +557,9 @@ static cfs_sysctl_table_t lnet_table[] = {
                 .proc_handler = &proc_fail_loc
         },
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = PSDEV_LNET_FAIL_VAL,
+#endif
                 .procname = "fail_val",
                 .data     = &cfs_fail_val,
                 .maxlen   = sizeof(int),
@@ -526,7 +572,9 @@ static cfs_sysctl_table_t lnet_table[] = {
 #ifdef CONFIG_SYSCTL
 static cfs_sysctl_table_t top_table[] = {
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = CTL_LNET,
+#endif
                 .procname = "lnet",
                 .mode     = 0555,
                 .data     = NULL,
@@ -534,7 +582,9 @@ static cfs_sysctl_table_t top_table[] = {
                 .child    = lnet_table,
         },
         {
+#ifdef HAVE_CTL_NAME
                 .ctl_name = 0
+#endif
         }
 };
 

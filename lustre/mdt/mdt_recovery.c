@@ -494,11 +494,8 @@ out:
 static int mdt_server_data_update(const struct lu_env *env,
                                   struct mdt_device *mdt)
 {
-        struct mdt_thread_info *mti;
         struct thandle *th;
         int rc;
-
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
 
         mdt_trans_credit_init(env, mdt, MDT_TXN_LAST_RCVD_WRITE_OP);
         th = mdt_trans_start(env, mdt);

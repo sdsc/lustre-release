@@ -1,0 +1,29 @@
+Index: linux-pnfs/fs/dcache.c
+===================================================================
+--- linux-pnfs.orig/fs/dcache.c
++++ linux-pnfs/fs/dcache.c
+@@ -489,6 +489,11 @@ int d_invalidate(struct dentry * dentry)
+ 		spin_unlock(&dentry->d_lock);
+ 		return 0;
+ 	}
++
++	/* network invalidation by Lustre */
++	if (dentry->d_flags & DCACHE_LUSTRE_INVALID)
++		return 0;
++
+ 	/*
+ 	 * Check whether to do a partial shrink_dcache
+ 	 * to get rid of unused child entries.
+Index: linux-pnfs/include/linux/dcache.h
+===================================================================
+--- linux-pnfs.orig/include/linux/dcache.h
++++ linux-pnfs/include/linux/dcache.h
+@@ -220,6 +220,8 @@ struct dentry_operations {
+ #define DCACHE_MANAGED_DENTRY \
+ 	(DCACHE_MOUNTED|DCACHE_NEED_AUTOMOUNT|DCACHE_MANAGE_TRANSIT)
+ 
++#define DCACHE_LUSTRE_INVALID	0x80000 /* Lustre invalidated */
++
+ extern seqlock_t rename_lock;
+ 
+ static inline int dname_external(struct dentry *dentry)

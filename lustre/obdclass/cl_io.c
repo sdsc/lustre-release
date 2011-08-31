@@ -1547,8 +1547,10 @@ void cl_req_page_add(const struct lu_env *env,
         LASSERT(cfs_list_empty(&page->cp_flight));
         LASSERT(page->cp_req == NULL);
 
+#if 0
         CL_PAGE_DEBUG(D_PAGE, env, page, "req %p, %d, %u\n",
                       req, req->crq_type, req->crq_nrpages);
+#endif
 
         cfs_list_add_tail(&page->cp_flight, &req->crq_pages);
         ++req->crq_nrpages;

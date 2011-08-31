@@ -1484,6 +1484,7 @@ static struct dentry * osd_child_dentry_get(const struct lu_env *env,
         child_dentry->d_parent = obj_dentry;
         child_dentry->d_name.name = name;
         child_dentry->d_name.len = namelen;
+        child_dentry->d_sb = obj_dentry->d_sb;
         return child_dentry;
 }
 
@@ -1795,6 +1796,7 @@ static int __osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
                 fs_flags |= XATTR_CREATE;
 
         dentry->d_inode = inode;
+        dentry->d_sb = inode->i_sb;
         rc = inode->i_op->setxattr(dentry, name, buf->lb_buf,
                                    buf->lb_len, fs_flags);
         return rc;
@@ -1911,6 +1913,7 @@ static int osd_ea_fid_get(const struct lu_env *env, struct osd_object *obj,
                 GOTO(out,rc);
         }
         dentry->d_inode = inode;
+        dentry->d_sb = inode->i_sb;
 
         LASSERT(inode->i_op != NULL && inode->i_op->getxattr != NULL);
         rc = inode->i_op->getxattr(dentry, XATTR_NAME_LMA, (void *)mdt_attrs,
@@ -2046,6 +2049,7 @@ static int osd_xattr_get(const struct lu_env *env,
                 return -EACCES;
 
         dentry->d_inode = inode;
+        dentry->d_sb = inode->i_sb;
         return inode->i_op->getxattr(dentry, name, buf->lb_buf, buf->lb_len);
 }
 
@@ -2218,7 +2222,11 @@ static int osd_object_sync(const struct lu_env *env, struct dt_object *dt)
         file->f_mapping = inode->i_mapping;
         file->f_op = inode->i_fop;
         LOCK_INODE_MUTEX(inode);
+#if 0
         rc = file->f_op->fsync(file, dentry, 0);
+#else
+        rc = file->f_op->fsync(file, 0);
+#endif
         UNLOCK_INODE_MUTEX(inode);
         RETURN(rc);
 }
@@ -4023,9 +4031,6 @@ static int osd_prepare(const struct lu_env *env,
                        struct lu_device *dev)
 {
         struct osd_device *osd = osd_dev(dev);
-        struct lustre_sb_info *lsi;
-        struct lustre_disk_data *ldd;
-        struct lustre_mount_info  *lmi;
         struct osd_thread_info *oti = osd_oti_get(env);
         struct dt_object *d;
         int result;
@@ -4036,10 +4041,6 @@ static int osd_prepare(const struct lu_env *env,
                              &osd->od_dt_dev, lu2md_dev(pdev));
         if (result != 0)
                 RETURN(result);
-
-        lmi = osd->od_mount;
-        lsi = s2lsi(lmi->lmi_sb);
-        ldd = lsi->lsi_ldd;
 
         /* 2. setup local objects */
         result = llo_local_objects_setup(env, lu2md_dev(pdev), lu2dt_dev(dev));

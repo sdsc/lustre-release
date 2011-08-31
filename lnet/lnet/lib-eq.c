@@ -138,7 +138,9 @@ int
 LNetEQFree(lnet_handle_eq_t eqh)
 {
         lnet_eq_t     *eq;
+#ifdef __KERNEL__
         int            size;
+#endif
         lnet_event_t  *events;
 
         LASSERT (the_lnet.ln_init);
@@ -161,7 +163,9 @@ LNetEQFree(lnet_handle_eq_t eqh)
 
         /* stash for free after lock dropped */
         events  = eq->eq_events;
+#ifdef __KERNEL__
         size    = eq->eq_size;
+#endif
 
         lnet_invalidate_handle (&eq->eq_lh);
         cfs_list_del (&eq->eq_list);
@@ -169,7 +173,11 @@ LNetEQFree(lnet_handle_eq_t eqh)
 
         LNET_UNLOCK();
 
-        LIBCFS_FREE(events, size * sizeof (lnet_event_t));
+        LIBCFS_FREE(events,
+#ifdef __KERNEL__
+                    size *
+#endif
+                    sizeof (lnet_event_t));
 
         return 0;
 }

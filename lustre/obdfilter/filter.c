@@ -55,7 +55,12 @@
 #define DEBUG_SUBSYSTEM S_FILTER
 
 #ifndef AUTOCONF_INCLUDED
-#include <linux/config.h>
+#  include <linux/version.h>
+#  if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 37)
+#    include <generated/autoconf.h>
+#  else
+#    include <linux/config.h>
+#  endif
 #endif
 #include <linux/module.h>
 #include <linux/fs.h>
@@ -218,8 +223,17 @@ void f_dput(struct dentry *dentry)
 {
         /* Can't go inside filter_ddelete because it can block */
         CDEBUG(D_INODE, "putting %s: %p, count = %d\n",
+#if 0
                dentry->d_name.name, dentry, atomic_read(&dentry->d_count) - 1);
+#else
+               dentry->d_name.name, dentry, dentry->d_count - 1);
+#endif
+
+#if 0
         LASSERT(atomic_read(&dentry->d_count) > 0);
+#else
+        LASSERT(dentry->d_count > 0);
+#endif
 
         dput(dentry);
 }
@@ -1513,9 +1527,17 @@ struct dentry *filter_fid2dentry(struct obd_device *obd,
         }
 
         CDEBUG(D_INODE, "got child objid %s: %p, count = %d\n",
+#if 0
                name, dchild, atomic_read(&dchild->d_count));
+#else
+               name, dchild, dchild->d_count);
+#endif
 
+#if 0
         LASSERT(atomic_read(&dchild->d_count) > 0);
+#else
+        LASSERT(dchild->d_count > 0);
+#endif
 
         RETURN(dchild);
 }
@@ -3216,7 +3238,6 @@ int filter_setattr_internal(struct obd_export *exp, struct dentry *dentry,
 {
         unsigned int orig_ids[MAXQUOTAS] = {0, 0};
         struct llog_cookie *fcc = NULL;
-        struct filter_obd *filter;
         int rc, err, sync = 0;
         loff_t old_size = 0;
         unsigned int ia_valid;
@@ -3232,7 +3253,6 @@ int filter_setattr_internal(struct obd_export *exp, struct dentry *dentry,
         inode = dentry->d_inode;
         LASSERT(inode != NULL);
 
-        filter = &exp->exp_obd->u.filter;
         iattr_from_obdo(&iattr, oa, oa->o_valid);
         ia_valid = iattr.ia_valid;
 
@@ -3394,7 +3414,6 @@ int filter_setattr(struct obd_export *exp, struct obd_info *oinfo,
         struct ldlm_res_id res_id;
         struct filter_mod_data *fmd;
         struct lvfs_run_ctxt saved;
-        struct filter_obd *filter;
         struct ldlm_resource *res;
         struct dentry *dentry;
         __u64 opc = CAPA_OPC_META_WRITE;
@@ -3438,7 +3457,6 @@ int filter_setattr(struct obd_export *exp, struct obd_info *oinfo,
         if (IS_ERR(dentry))
                 RETURN(PTR_ERR(dentry));
 
-        filter = &exp->exp_obd->u.filter;
         push_ctxt(&saved, &exp->exp_obd->obd_lvfs_ctxt, NULL);
 
         /*
@@ -4111,7 +4129,6 @@ int filter_destroy(struct obd_export *exp, struct obdo *oa,
 {
         unsigned int qcids[MAXQUOTAS] = {0, 0};
         struct obd_device *obd;
-        struct filter_obd *filter;
         struct dentry *dchild = NULL, *dparent = NULL;
         struct lustre_handle lockh = { 0 };
         struct lvfs_run_ctxt saved;
@@ -4128,7 +4145,6 @@ int filter_destroy(struct obd_export *exp, struct obdo *oa,
                 RETURN(rc);
 
         obd = exp->exp_obd;
-        filter = &obd->u.filter;
 
         push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
         cleanup_phase = 1;
@@ -4363,7 +4379,11 @@ static int filter_sync(struct obd_export *exp, struct obd_info *oinfo,
                 struct file *file = obt->obt_rcvd_filp;
 
                 if (file->f_op && file->f_op->fsync)
+#if 0
                         rc = file->f_op->fsync(NULL, dentry, 1);
+#else
+                        rc = file->f_op->fsync(file, 1);
+#endif
 
                 rc2 = filemap_fdatawait(dentry->d_inode->i_mapping);
                 if (!rc)

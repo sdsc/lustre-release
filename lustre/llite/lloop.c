@@ -83,7 +83,12 @@
  */
 
 #ifndef AUTOCONF_INCLUDED
-#include <linux/config.h>
+#  include <linux/version.h>
+#  if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 37)
+#    include <generated/autoconf.h>
+#  else
+#    include <linux/config.h>
+#  endif
 #endif
 #include <linux/module.h>
 
@@ -743,7 +748,7 @@ static enum llioc_iter lloop_ioctl(struct inode *unused, struct file *file,
                 if (put_user((long)old_encode_dev(dev), (long*)arg))
                         GOTO(out, err = -EFAULT);
 
-                bdev = open_by_devnum(dev, file->f_mode);
+                bdev = blkdev_get_by_dev(dev, file->f_mode, NULL);
                 if (IS_ERR(bdev))
                         GOTO(out, err = PTR_ERR(bdev));
 

@@ -68,6 +68,14 @@ struct ll_iattr {
 #define ll_iattr iattr
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,14) */
 
+#ifdef HAVE_FS_STRUCT_SPINLOCK
+#  define LOCK_FS_STRUCT(fs)   cfs_spin_lock(&(fs)->lock)
+#  define UNLOCK_FS_STRUCT(fs) cfs_spin_unlock(&(fs)->lock)
+#else
+#  define LOCK_FS_STRUCT(fs)   cfs_write_lock(&(fs)->lock)
+#  define UNLOCK_FS_STRUCT(fs) cfs_write_unlock(&(fs)->lock)
+#endif
+
 #ifdef HAVE_FS_STRUCT_USE_PATH
 static inline void ll_set_fs_pwd(struct fs_struct *fs, struct vfsmount *mnt,
                                  struct dentry *dentry)
@@ -77,11 +85,11 @@ static inline void ll_set_fs_pwd(struct fs_struct *fs, struct vfsmount *mnt,
 
         path.mnt = mnt;
         path.dentry = dentry;
-        write_lock(&fs->lock);
+        LOCK_FS_STRUCT(fs);
         old_pwd = fs->pwd;
         path_get(&path);
         fs->pwd = path;
-        write_unlock(&fs->lock);
+        UNLOCK_FS_STRUCT(fs);
 
         if (old_pwd.dentry)
                 path_put(&old_pwd);
@@ -95,12 +103,12 @@ static inline void ll_set_fs_pwd(struct fs_struct *fs, struct vfsmount *mnt,
         struct dentry *old_pwd;
         struct vfsmount *old_pwdmnt;
 
-        cfs_write_lock(&fs->lock);
+        LOCK_FS_STRUCT(fs);
         old_pwd = fs->pwd;
         old_pwdmnt = fs->pwdmnt;
         fs->pwdmnt = mntget(mnt);
         fs->pwd = dget(dentry);
-        cfs_write_unlock(&fs->lock);
+        UNLOCK_FS_STRUCT(fs);
 
         if (old_pwd) {
                 dput(old_pwd);
@@ -258,9 +266,15 @@ static inline int cfs_cleanup_group_info(void)
 
 #include <linux/proc_fs.h>
 
-#if !defined(HAVE_D_REHASH_COND) && defined(HAVE___D_REHASH)
-#define d_rehash_cond(dentry, lock) __d_rehash(dentry, lock)
-extern void __d_rehash(struct dentry *dentry, int lock);
+#ifdef HAVE_D_REHASH_COND
+#  define ll_d_rehash_cond(dentry, lock) d_rehash_cond(dentry, lock)
+#elif defined(HAVE___D_REHASH)
+#  define ll_d_rehash_cond(dentry, lock) __d_rehash(dentry, lock)
+   extern void __d_rehash(struct dentry *dentry, int lock);
+#endif
+
+#ifndef HAVE_DCACHE_LOCK
+#  define ll_d_rehash_cond(dentry, lock) d_rehash(dentry)
 #endif
 
 #ifdef HAVE_CAN_SLEEP_ARG
@@ -649,6 +663,7 @@ static inline int ll_crypto_hmac(struct crypto_tfm *tfm,
 #define ll_crypto_tfm_alg_max_keysize	crypto_tfm_alg_max_keysize
 #endif /* HAVE_ASYNC_BLOCK_CIPHER */
 
+#define HAVE_SYNCHRONIZE_RCU 1
 #ifndef HAVE_SYNCHRONIZE_RCU
 /* Linux 2.6.32 provides define when !CONFIG_TREE_PREEMPT_RCU */
 #ifndef synchronize_rcu
@@ -752,53 +767,33 @@ static inline long labs(long x)
 #define ll_sb_has_quota_active(sb, type) sb_has_quota_enabled(sb, type)
 #endif
 
-#ifdef HAVE_SB_ANY_QUOTA_ACTIVE
+#ifdef DQUOT_USAGE_ENABLED
+#define ll_sb_any_quota_active(sb) sb_any_quota_loaded(sb)
+#elif defined(HAVE_SB_ANY_QUOTA_ACTIVE)
 #define ll_sb_any_quota_active(sb) sb_any_quota_active(sb)
 #else
 #define ll_sb_any_quota_active(sb) sb_any_quota_enabled(sb)
 #endif
 
-static inline int
-ll_quota_on(struct super_block *sb, int off, int ver, char *name, int remount)
-{
-        if (sb->s_qcop->quota_on) {
-                return sb->s_qcop->quota_on(sb, off, ver, name
-#ifdef HAVE_QUOTA_ON_5ARGS
-                                            , remount
-#endif
-                                           );
-        }
-        else
-                return -ENOSYS;
-}
-
-static inline int ll_quota_off(struct super_block *sb, int off, int remount)
-{
-        if (sb->s_qcop->quota_off) {
-                return sb->s_qcop->quota_off(sb, off
-#ifdef HAVE_QUOTA_OFF_3ARGS
-                                             , remount
-#endif
-                                            );
-        }
-        else
-                return -ENOSYS;
-}
-
 #ifndef HAVE_BLK_QUEUE_LOG_BLK_SIZE /* added in 2.6.31 */
 #define blk_queue_logical_block_size(q, sz) blk_queue_hardsect_size(q, sz)
 #endif
 
-#ifndef HAVE_VFS_DQ_OFF
-# define ll_vfs_dq_init             DQUOT_INIT
-# define ll_vfs_dq_drop             DQUOT_DROP
-# define ll_vfs_dq_transfer         DQUOT_TRANSFER
-# define ll_vfs_dq_off(sb, remount) DQUOT_OFF(sb)
+#ifndef HAVE_QUOTA_SUPPORT
+# define ll_vfs_dq_init(dir)                    do { } while (0)
+# define ll_vfs_dq_drop(inode)                  do { } while (0)
+# define ll_vfs_dq_transfer(inode, iattr)       do { } while (0)
+# define ll_vfs_dq_off(sb, remount)             do { } while (0)
+#elif defined(HAVE_VFS_DQ_OFF)
+# define ll_vfs_dq_init(dir)                    DQUOT_INIT(dir)
+# define ll_vfs_dq_drop(inode)                  DQUOT_DROP(inode)
+# define ll_vfs_dq_transfer(inode, iattr)       DQUOT_TRANSFER(inode, iattr)
+# define ll_vfs_dq_off(sb, remount)             DQUOT_OFF(sb)
 #else
-# define ll_vfs_dq_init             vfs_dq_init
-# define ll_vfs_dq_drop             vfs_dq_drop
-# define ll_vfs_dq_transfer         vfs_dq_transfer
-# define ll_vfs_dq_off(sb, remount) vfs_dq_off(sb, remount)
+# define ll_vfs_dq_init(dir)                    vfs_dq_init(dir)
+# define ll_vfs_dq_drop(inode)                  vfs_dq_drop(inode)
+# define ll_vfs_dq_transfer(inode, iattr)       vfs_dq_transfer(inode, iattr)
+# define ll_vfs_dq_off(sb, remount)             vfs_dq_off(sb, remount)
 #endif
 
 #ifdef HAVE_BDI_INIT
@@ -856,6 +851,40 @@ static inline int ll_quota_off(struct super_block *sb, int off, int remount)
 #define ll_pagevec_init(pv, cold)       pagevec_init(&lru_pvec, cold);
 #define ll_pagevec_add(pv, pg)          pagevec_add(pv, pg)
 #define ll_pagevec_lru_add_file(pv)     pagevec_lru_add_file(pv)
+#endif
+
+#ifdef HAVE_DCACHE_LOCK
+#define LOCK_DCACHE     cfs_spin_lock(&dcache_lock)
+#define UNLOCK_DCACHE   cfs_spin_unlock(&dcache_lock)
+#define LL_LOCK_DCACHE                                  \
+        do {                                            \
+                cfs_spin_lock(&ll_lookup_lock);         \
+                LOCK_DCACHE;                            \
+        } while (0)
+#define LL_UNLOCK_DCACHE                                \
+        do {                                            \
+                UNLOCK_DCACHE;                          \
+                cfs_spin_unlock(&ll_lookup_lock);       \
+        } while (0)
+#define dget_dlock(d)   dget_locked(d)
+#define d_refcount(d)   atomic_read(&(d)->d_count)
+#else
+#define LOCK_DCACHE      do {} while (0)
+#define UNLOCK_DCACHE    do {} while (0)
+#define LL_LOCK_DCACHE   do {} while (0)
+#define LL_UNLOCK_DCACHE do {} while (0)
+#define d_refcount(d)   ((d)->d_count)
+#endif
+
+#ifndef HAVE_BLKDEV_GET_BY_DEV
+#define blkdev_get_by_dev(dev, mode, holder) open_by_devnum(dev, mode)
+#endif
+
+#ifndef QUOTA_OK
+#define QUOTA_OK 0
+#endif
+#ifndef NO_QUOTA
+#define NO_QUOTA 1
 #endif
 
 #endif /* __KERNEL__ */

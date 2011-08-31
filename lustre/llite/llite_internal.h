@@ -664,8 +664,6 @@ void ll_done_writing_attr(struct inode *inode, struct md_op_data *op_data);
 int ll_som_update(struct inode *inode, struct md_op_data *op_data);
 int ll_inode_getattr(struct inode *inode, struct obdo *obdo,
                      __u64 ioepoch, int sync);
-int ll_md_setattr(struct inode *inode, struct md_op_data *op_data,
-                  struct md_open_data **mod);
 void ll_pack_inode2opdata(struct inode *inode, struct md_op_data *op_data,
                           struct lustre_handle *fh);
 extern void ll_rw_stats_tally(struct ll_sb_info *sbi, pid_t pid,
@@ -675,10 +673,12 @@ int ll_getattr_it(struct vfsmount *mnt, struct dentry *de,
                struct lookup_intent *it, struct kstat *stat);
 int ll_getattr(struct vfsmount *mnt, struct dentry *de, struct kstat *stat);
 struct ll_file_data *ll_file_data_get(void);
-#ifndef HAVE_INODE_PERMISION_2ARGS
-int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd);
-#else
+#ifdef HAVE_PERMISSION_FLAGS_ARG
+int ll_inode_permission(struct inode *inode, int mask, unsigned int);
+#elif defined(HAVE_INODE_PERMISSION_2ARGS)
 int ll_inode_permission(struct inode *inode, int mask);
+#else
+int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd);
 #endif
 int ll_lov_setstripe_ea_info(struct inode *inode, struct file *file,
                              int flags, struct lov_user_md *lum,
@@ -690,7 +690,11 @@ int ll_dir_setstripe(struct inode *inode, struct lov_user_md *lump,
                      int set_default);
 int ll_dir_getstripe(struct inode *inode, struct lov_mds_md **lmm,
                      int *lmm_size, struct ptlrpc_request **request);
-int ll_fsync(struct file *file, struct dentry *dentry, int data);
+int ll_fsync(struct file *file,
+#ifndef HAVE_FSYNC_TWO_ARGS
+             struct dentry *dentry,
+#endif
+             int data);
 int ll_do_fiemap(struct inode *inode, struct ll_user_fiemap *fiemap,
               int num_bytes);
 int ll_merge_lvb(struct inode *inode);
@@ -713,7 +717,13 @@ int ll_drop_dentry(struct dentry *dentry);
 void ll_unhash_aliases(struct inode *);
 void ll_frob_intent(struct lookup_intent **itp, struct lookup_intent *deft);
 void ll_lookup_finish_locks(struct lookup_intent *it, struct dentry *dentry);
+#if 1
+int ll_dcompare(const struct dentry *parent, const struct inode *pinode,
+                const struct dentry *dentry, const struct inode *inode,
+                unsigned int len, const char *str, const struct qstr *d_name);
+#else
 int ll_dcompare(struct dentry *parent, struct qstr *d_name, struct qstr *name);
+#endif
 int ll_revalidate_it_finish(struct ptlrpc_request *request,
                             struct lookup_intent *it, struct dentry *de);
 
@@ -727,8 +737,8 @@ void ll_put_super(struct super_block *sb);
 void ll_kill_super(struct super_block *sb);
 struct inode *ll_inode_from_lock(struct ldlm_lock *lock);
 void ll_clear_inode(struct inode *inode);
-int ll_setattr_raw(struct inode *inode, struct iattr *attr);
 int ll_setattr(struct dentry *de, struct iattr *attr);
+#define HAVE_STATFS_DENTRY_PARAM 1
 #ifndef HAVE_STATFS_DENTRY_PARAM
 int ll_statfs(struct super_block *sb, struct kstatfs *sfs);
 #else

@@ -2202,7 +2202,9 @@ EXPORT_SYMBOL(ptlrpc_req_xid);
 int ptlrpc_unregister_reply(struct ptlrpc_request *request, int async)
 {
         int                rc;
+#ifdef __KERNEL__
         cfs_waitq_t       *wq;
+#endif
         struct l_wait_info lwi;
 
         /*
@@ -2247,17 +2249,25 @@ int ptlrpc_unregister_reply(struct ptlrpc_request *request, int async)
          * a chance to run reply_in_callback(), and to make sure we've
          * unlinked before returning a req to the pool.
          */
+#ifdef __KERNEL__
         if (request->rq_set != NULL)
                 wq = &request->rq_set->set_waitq;
         else
                 wq = &request->rq_reply_waitq;
+#endif
 
         for (;;) {
                 /* Network access will complete in finite time but the HUGE
                  * timeout lets us CWARN for visibility of sluggish NALs */
                 lwi = LWI_TIMEOUT_INTERVAL(cfs_time_seconds(LONG_UNLINK),
                                            cfs_time_seconds(1), NULL, NULL);
-                rc = l_wait_event(*wq, !ptlrpc_client_recv_or_unlink(request),
+                rc = l_wait_event(
+#ifdef __KERNEL__
+                                  *wq,
+#else
+                                  NULL,
+#endif
+                                  !ptlrpc_client_recv_or_unlink(request),
                                   &lwi);
                 if (rc == 0) {
                         ptlrpc_rqphase_move(request, request->rq_next_phase);

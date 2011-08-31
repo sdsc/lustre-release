@@ -78,15 +78,17 @@ void libcfs_init_nidstrings (void)
 # define NIDSTR_LOCK(f)   cfs_spin_lock_irqsave(&libcfs_nidstring_lock, f)
 # define NIDSTR_UNLOCK(f) cfs_spin_unlock_irqrestore(&libcfs_nidstring_lock, f)
 #else
-# define NIDSTR_LOCK(f)   (f=0)                 /* avoid unused var warnings */
-# define NIDSTR_UNLOCK(f) (f=0)
+# define NIDSTR_LOCK(f)   do {} while (0)
+# define NIDSTR_UNLOCK(f) do {} while (0)
 #endif
 
 static char *
 libcfs_next_nidstring (void)
 {
         char          *str;
+#ifdef __KERNEL__
         unsigned long  flags;
+#endif
 
         NIDSTR_LOCK(flags);
 

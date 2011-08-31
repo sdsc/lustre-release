@@ -226,12 +226,11 @@ LPROC_SEQ_FOPS_RO(mgs_live);
 int lproc_mgs_add_live(struct obd_device *obd, struct fs_db *fsdb)
 {
         struct mgs_obd *mgs = &obd->u.mgs;
-        int rc;
 
         if (!mgs->mgs_proc_live)
                 return 0;
-        rc = lprocfs_seq_create(mgs->mgs_proc_live, fsdb->fsdb_name, 0444,
-                                &mgs_live_fops, fsdb);
+        lprocfs_seq_create(mgs->mgs_proc_live, fsdb->fsdb_name, 0444,
+                           &mgs_live_fops, fsdb);
 
         return 0;
 }

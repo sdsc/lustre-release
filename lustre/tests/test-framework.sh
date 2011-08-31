@@ -641,7 +641,7 @@ mount_facet() {
     local mntpt=$(facet_mntpt $facet)
 
     echo "Starting ${facet}: ${!opt} $@ ${!dev} $mntpt"
-    do_facet ${facet} "mkdir -p $mntpt; mount -t lustre ${!opt} $@ ${!dev} $mntpt"
+    do_facet ${facet} "mkdir -p $mntpt; mount -n -t lustre ${!opt} $@ ${!dev} $mntpt"
     RC=${PIPESTATUS[0]}
     if [ $RC -ne 0 ]; then
         echo "mount -t lustre $@ ${!dev} $mntpt"
@@ -798,7 +798,7 @@ zconf_mount() {
 
     echo "Starting client: $client: $OPTIONS $device $mnt"
     do_node $client mkdir -p $mnt
-    do_node $client mount -t lustre $OPTIONS $device $mnt || return 1
+    do_node $client mount -t lustre -n $OPTIONS $device $mnt || return 1
 
     set_default_debug_nodes $client
 
@@ -909,7 +909,7 @@ running=\\\$(mount | grep -c $mnt' ');
 rc=0;
 if [ \\\$running -eq 0 ] ; then
     mkdir -p $mnt;
-    mount -t lustre $OPTIONS $device $mnt;
+    mount -t lustre -n $OPTIONS $device $mnt;
     rc=\\\$?;
 fi;
 exit \\\$rc" || return ${PIPESTATUS[0]}

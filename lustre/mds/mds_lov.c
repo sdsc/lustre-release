@@ -926,11 +926,9 @@ int mds_lov_start_synchronize(struct obd_device *obd,
 {
         struct mds_lov_sync_info *mlsi;
         int rc;
-        struct obd_uuid *uuid;
         ENTRY;
 
         LASSERT(watched);
-        uuid = &watched->u.cli.cl_target_uuid;
 
         OBD_ALLOC(mlsi, sizeof(*mlsi));
         if (mlsi == NULL)

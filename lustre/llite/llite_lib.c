@@ -631,7 +631,7 @@ void lustre_dump_dentry(struct dentry *dentry, int recur)
                " flags=0x%x, fsdata=%p, %d subdirs\n", dentry,
                dentry->d_name.len, dentry->d_name.name,
                dentry->d_parent->d_name.len, dentry->d_parent->d_name.name,
-               dentry->d_parent, dentry->d_inode, atomic_read(&dentry->d_count),
+               dentry->d_parent, dentry->d_inode, d_refcount(dentry),
                dentry->d_flags, dentry->d_fsdata, subdirs);
         if (dentry->d_inode != NULL)
                 ll_dump_inode(dentry->d_inode);
@@ -1157,13 +1157,13 @@ void ll_clear_inode(struct inode *inode)
                 lli->lli_smd = NULL;
         }
 
-
         EXIT;
 }
 
-int ll_md_setattr(struct inode *inode, struct md_op_data *op_data,
-                  struct md_open_data **mod)
+static int ll_md_setattr(struct dentry *dentry, struct md_op_data *op_data,
+                         struct md_open_data **mod)
 {
+        struct inode *inode = dentry->d_inode;
         struct lustre_md md;
         struct ll_sb_info *sbi = ll_i2sbi(inode);
         struct ptlrpc_request *request = NULL;
@@ -1185,7 +1185,11 @@ int ll_md_setattr(struct inode *inode, struct md_op_data *op_data,
                          * Pretend we done everything. */
                         if (!S_ISREG(inode->i_mode) &&
                             !S_ISDIR(inode->i_mode))
+#ifdef HAVE_SIMPLE_SETATTR
+                                rc = simple_setattr(dentry, &op_data->op_attr);
+#else
                                 rc = inode_setattr(inode, &op_data->op_attr);
+#endif
                 } else if (rc != -EPERM && rc != -EACCES && rc != -ETXTBSY) {
                         CERROR("md_setattr fails: rc = %d\n", rc);
                 }
@@ -1204,7 +1208,11 @@ int ll_md_setattr(struct inode *inode, struct md_op_data *op_data,
          * above to avoid invoking vmtruncate, otherwise it is important
          * to call vmtruncate in inode_setattr to update inode->i_size
          * (bug 6196) */
+#ifdef HAVE_SIMPLE_SETATTR
+        rc = simple_setattr(dentry, &op_data->op_attr);
+#else
         rc = inode_setattr(inode, &op_data->op_attr);
+#endif
 
         /* Extract epoch data if obtained. */
         op_data->op_handle = md.body->handle;
@@ -1281,8 +1289,9 @@ static int ll_setattr_ost(struct inode *inode, struct iattr *attr)
  * I don't believe it is possible to get e.g. ATTR_MTIME_SET and ATTR_SIZE
  * at the same time.
  */
-int ll_setattr_raw(struct inode *inode, struct iattr *attr)
+static int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
 {
+        struct inode *inode = dentry->d_inode;
         struct ll_inode_info *lli = ll_i2info(inode);
         struct lov_stripe_md *lsm = lli->lli_smd;
         struct md_op_data *op_data = NULL;
@@ -1358,7 +1367,7 @@ int ll_setattr_raw(struct inode *inode, struct iattr *attr)
             (ia_valid & (ATTR_SIZE | ATTR_MTIME | ATTR_MTIME_SET)))
                 op_data->op_flags = MF_EPOCH_OPEN;
 
-        rc = ll_md_setattr(inode, op_data, &mod);
+        rc = ll_md_setattr(dentry, op_data, &mod);
         if (rc)
                 GOTO(out, rc);
 
@@ -1416,7 +1425,7 @@ int ll_setattr(struct dentry *de, struct iattr *attr)
             !(attr->ia_valid & ATTR_KILL_SGID))
                 attr->ia_valid |= ATTR_KILL_SGID;
 
-        return ll_setattr_raw(de->d_inode, attr);
+        return ll_setattr_raw(de, attr);
 }
 
 int ll_statfs_internal(struct super_block *sb, struct obd_statfs *osfs,
@@ -1796,7 +1805,12 @@ void ll_delete_inode(struct inode *inode)
         }
         /* Workaround end */
 
+#ifdef HAVE_EVICT_INODE
+        ll_clear_inode(inode);
+        end_writeback(inode);
+#else
         clear_inode(inode);
+#endif
 
         EXIT;
 }

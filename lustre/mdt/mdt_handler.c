@@ -3269,7 +3269,6 @@ static int mdt_intent_getattr(enum mdt_it_code opcode,
         struct ldlm_lock       *new_lock = NULL;
         __u64                   child_bits;
         struct ldlm_reply      *ldlm_rep;
-        struct ptlrpc_request  *req;
         struct mdt_body        *reqbody;
         struct mdt_body        *repbody;
         int                     rc;
@@ -3302,7 +3301,6 @@ static int mdt_intent_getattr(enum mdt_it_code opcode,
         if (rc)
                 GOTO(out_shrink, rc);
 
-        req = info->mti_pill->rc_req;
         ldlm_rep = req_capsule_server_get(info->mti_pill, &RMF_DLM_REP);
         mdt_set_disposition(info, ldlm_rep, DISP_IT_EXECD);
 
@@ -5207,11 +5205,9 @@ static int mdt_init_export(struct obd_export *exp)
 
 static int mdt_destroy_export(struct obd_export *exp)
 {
-        struct mdt_export_data *med;
         int rc = 0;
         ENTRY;
 
-        med = &exp->exp_mdt_data;
         if (exp_connect_rmtclient(exp))
                 mdt_cleanup_idmap(&exp->exp_mdt_data);
 

@@ -1008,11 +1008,14 @@ LB_LINUX_TRY_COMPILE([
 # super_block for first vfs_statfs argument
 #
 AC_DEFUN([LC_STATFS_DENTRY_PARAM],
-[AC_MSG_CHECKING([first vfs_statfs parameter is dentry])
+[AC_MSG_CHECKING([first statfs parameter is dentry])
 LB_LINUX_TRY_COMPILE([
         #include <linux/fs.h>
 ],[
-	int vfs_statfs(struct dentry *, struct kstatfs *);
+        struct super_operations sops;
+        struct dentry *dentry = NULL;
+
+        sops.statfs(dentry, NULL);
 ],[
         AC_DEFINE(HAVE_STATFS_DENTRY_PARAM, 1,
                 [first parameter of vfs_statfs is dentry])
@@ -1315,6 +1318,7 @@ LB_LINUX_TRY_COMPILE([
 	filldir_t filter;
 
 	filter = fillonedir;
+        filter(NULL, NULL, 0, 0, 0, 0);
 	return 1;
 ],[
         AC_MSG_RESULT(yes)
@@ -2184,6 +2188,152 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
+#
+# LC_SK_SLEEP_HELPER
+# 2.6.35 kernel has sk_sleep helper function
+#
+AC_DEFUN([LC_SK_SLEEP_HELPER],
+[AC_MSG_CHECKING([if kernel has sk_sleep helper])
+LB_LINUX_TRY_COMPILE([
+        #include <net/sock.h>
+],[
+        sk_sleep(NULL);
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(HAVE_SK_SLEEP_HELPER, 1,
+                  [kernel has sk_sleep helper])
+],[
+        AC_MSG_RESULT(no)
+])
+])
+
+#
+# LC_DCACHE_LOCK
+# 2.6.38 introduces dcache RCU-walk
+#
+AC_DEFUN([LC_DCACHE_LOCK],
+[AC_MSG_CHECKING([if kernel has dcache_lock])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/dcache.h>
+],[
+        spin_lock(&dcache_lock);
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(HAVE_DCACHE_LOCK, 1,
+                  [kernel has dcache_lock])
+],[
+        AC_MSG_RESULT(no)
+])
+])
+
+#
+# LC_FS_STRUCT_SPINLOCK
+# 2.6.38 fs_struct.lock is spinlock
+#
+AC_DEFUN([LC_FS_STRUCT_SPINLOCK],
+[AC_MSG_CHECKING([if fs_struct.lock is spinlock])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs_struct.h>
+],[
+        struct fs_struct fss;
+        spin_lock(&fss.lock);
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(HAVE_FS_STRUCT_SPINLOCK, 1,
+                  [fs_struct.lock is spinlock])
+],[
+        AC_MSG_RESULT(no)
+])
+])
+
+#
+# LC_BLKDEV_GET_BY_DEV
+# 2.6.38 export blkdev_get_by_dev
+#
+AC_DEFUN([LC_BLKDEV_GET_BY_DEV],
+[LB_CHECK_SYMBOL_EXPORT([blkdev_get_by_dev],
+[fs/block_dev.c],[
+AC_DEFINE(HAVE_BLKDEV_GET_BY_DEV, 1,
+            [blkdev_get_by_dev is exported by the kernel])
+],[
+])
+])
+
+#
+# LC_CHECK_ACL_THREE_ARGS
+# 2.6.38 check_acl has three args
+#
+AC_DEFUN([LC_CHECK_ACL_THREE_ARGS],
+[AC_MSG_CHECKING([if check_acl has three args])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        struct inode_operations iops;
+
+        iops.check_acl(NULL, 0, 0);
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(HAVE_CHECK_ACL_THREE_ARGS, 1,
+                  [check_acl has three args])
+],[
+        AC_MSG_RESULT(no)
+])
+])
+
+#
+# LC_PERMISSION_FLAGS_ARG
+# 2.6.38 permission has flags argument
+#
+AC_DEFUN([LC_PERMISSION_FLAGS_ARG],
+[AC_MSG_CHECKING([if permission has flags argument])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        struct inode_operations iops;
+
+        iops.permission(NULL, 1, 1);
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(HAVE_PERMISSION_FLAGS_ARG, 1,
+                  [permission has flags argument])
+],[
+        AC_MSG_RESULT(no)
+])
+])
+
+#
+# LC_EXPORT_SIMPLE_SETATTR
+# 2.6.38 export simple_setattr
+#
+AC_DEFUN([LC_EXPORT_SIMPLE_SETATTR],
+[LB_CHECK_SYMBOL_EXPORT([simple_setattr],
+[fs/libfs.c],[
+AC_DEFINE(HAVE_SIMPLE_SETATTR, 1,
+            [simple_setattr is exported by the kernel])
+],[
+])
+])
+
+#
+# LC_EVICT_INODE
+# 2.6.38 evict_inode replaces delete_inode
+#
+AC_DEFUN([LC_EVICT_INODE],
+[AC_MSG_CHECKING([if evict_inode replaces delete_inode])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        struct super_operations sops;
+
+        sops.evict_inode(NULL);
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(HAVE_EVICT_INODE, 1,
+                  [evict_inode replaces delete_inode])
+],[
+        AC_MSG_RESULT(no)
+])
+])
 
 #
 # LC_PROG_LINUX
@@ -2340,6 +2490,18 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_BLK_QUEUE_MAX_SEGMENTS
          LC_EXT4_SINGLEDATA_TRANS_BLOCKS_SB
          LC_WALK_SPACE_HAS_DATA_SEM
+
+         # 2.6.35
+         LC_SK_SLEEP_HELPER
+
+         # 2.6.38
+         LC_DCACHE_LOCK
+         LC_FS_STRUCT_SPINLOCK
+         LC_BLKDEV_GET_BY_DEV
+         LC_CHECK_ACL_THREE_ARGS
+         LC_PERMISSION_FLAGS_ARG
+         LC_EXPORT_SIMPLE_SETATTR
+         LC_EVICT_INODE
 
          #
          if test x$enable_server = xyes ; then

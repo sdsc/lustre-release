@@ -1040,7 +1040,8 @@ int write_local_files(struct mkfs_opts *mop)
         if ((ret != 0) && (errno != EEXIST)) {
                 fprintf(stderr, "%s: Can't make configs dir %s (%s)\n",
                         progname, filepnm, strerror(errno));
-                goto out_umnt;
+//                goto out_umnt;
+                return ret;
         } else if (errno == EEXIST) {
                 ret = 0;
         }

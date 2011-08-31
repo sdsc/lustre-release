@@ -61,6 +61,8 @@
 #include <lustre_fid.h>
 #include "llite_internal.h"
 
+#define HAVE_PAGE_CHECKED 1
+
 #ifndef HAVE_PAGE_CHECKED
 #ifdef HAVE_PG_FS_MISC
 #define PageChecked(page)        test_bit(PG_fs_misc, &(page)->flags)
@@ -542,7 +544,6 @@ int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
         struct page          *page;
         struct ll_dir_chain   chain;
         int                   done;
-        int                   shift;
         int                   rc;
         ENTRY;
 
@@ -558,7 +559,6 @@ int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
 
         rc    = 0;
         done  = 0;
-        shift = 0;
         ll_dir_chain_init(&chain);
 
         fd->fd_dir.lfd_next = pos;
@@ -1012,9 +1012,15 @@ static int quotactl_ioctl(struct ll_sb_info *sbi, struct if_quotactl *qctl)
         RETURN(rc);
 }
 
-static int ll_dir_ioctl(struct inode *inode, struct file *file,
+
+#ifdef HAVE_COMPAT_IOCTL
+static long ll_dir_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+#else
+static int ll_dir_ioctl(struct inode *unused, struct file *file,
                         unsigned int cmd, unsigned long arg)
+#endif
 {
+        struct inode *inode = file->f_dentry->d_inode;
         struct ll_sb_info *sbi = ll_i2sbi(inode);
         struct obd_ioctl_data *data;
         int rc = 0;
@@ -1598,5 +1604,10 @@ struct file_operations ll_dir_operations = {
         .release  = ll_dir_release,
         .read     = generic_read_dir,
         .readdir  = ll_readdir,
+#ifdef HAVE_COMPAT_IOCTL
+        .compat_ioctl    = ll_dir_ioctl,
+        .unlocked_ioctl  = ll_dir_ioctl
+#else
         .ioctl    = ll_dir_ioctl
+#endif
 };

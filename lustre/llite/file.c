@@ -1875,10 +1875,13 @@ loff_t ll_file_seek(struct file *file, loff_t offset, int origin)
         ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_LLSEEK, 1);
 
         if (origin == 2) { /* SEEK_END */
-                int nonblock = 0, rc;
+                int rc;
+#if 0
+                int nonblock = 0;
 
                 if (file->f_flags & O_NONBLOCK)
                         nonblock = LDLM_FL_BLOCK_NOWAIT;
+#endif
 
                 rc = cl_glimpse_size(inode);
                 if (rc != 0)
@@ -1928,9 +1931,13 @@ int ll_flush(struct file *file)
         return rc ? -EIO : 0;
 }
 
-int ll_fsync(struct file *file, struct dentry *dentry, int data)
+int ll_fsync(struct file *file,
+#ifndef HAVE_FSYNC_TWO_ARGS
+             struct dentry *dentry,
+#endif
+             int data)
 {
-        struct inode *inode = dentry->d_inode;
+        struct inode *inode = file->f_dentry->d_inode;
         struct ll_inode_info *lli = ll_i2info(inode);
         struct lov_stripe_md *lsm = lli->lli_smd;
         struct ptlrpc_request *req;
@@ -1993,7 +2000,7 @@ int ll_fsync(struct file *file, struct dentry *dentry, int data)
                         rc = err;
                 OBDO_FREE(oinfo->oi_oa);
                 OBD_FREE_PTR(oinfo);
-                lli->lli_write_rc = err < 0 ? : 0;
+                lli->lli_write_rc = err < 0 ? err : 0;
         }
 
         RETURN(rc);
@@ -2196,7 +2203,6 @@ int __ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
 {
         struct inode *inode = dentry->d_inode;
         struct ptlrpc_request *req = NULL;
-        struct ll_sb_info *sbi;
         struct obd_export *exp;
         int rc = 0;
         ENTRY;
@@ -2205,7 +2211,6 @@ int __ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
                 CERROR("REPORT THIS LINE TO PETER\n");
                 RETURN(0);
         }
-        sbi = ll_i2sbi(inode);
 
         CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p),name=%s\n",
                inode->i_ino, inode->i_generation, inode, dentry->d_name.name);
@@ -2253,11 +2258,9 @@ int __ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
                    here to preserve get_cwd functionality on 2.6.
                    Bug 10503 */
                 if (!dentry->d_inode->i_nlink) {
-                        cfs_spin_lock(&ll_lookup_lock);
-                        spin_lock(&dcache_lock);
+                        LL_LOCK_DCACHE;
                         ll_drop_dentry(dentry);
-                        spin_unlock(&dcache_lock);
-                        cfs_spin_unlock(&ll_lookup_lock);
+                        LL_UNLOCK_DCACHE;
                 }
 
                 ll_lookup_finish_locks(&oit, dentry);
@@ -2407,7 +2410,11 @@ int ll_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 
 
 static
-int lustre_check_acl(struct inode *inode, int mask)
+int lustre_check_acl(struct inode *inode, int mask
+#ifdef HAVE_CHECK_ACL_THREE_ARGS
+                     , unsigned int flags
+#endif
+)
 {
 #ifdef CONFIG_FS_POSIX_ACL
         struct ll_inode_info *lli = ll_i2info(inode);
@@ -2432,10 +2439,12 @@ int lustre_check_acl(struct inode *inode, int mask)
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,10))
-#ifndef HAVE_INODE_PERMISION_2ARGS
-int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd)
-#else
+#ifdef HAVE_PERMISSION_FLAGS_ARG
+int ll_inode_permission(struct inode *inode, int mask, unsigned int flags)
+#elif defined(HAVE_INODE_PERMISION_2ARGS)
 int ll_inode_permission(struct inode *inode, int mask)
+#else
+int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd)
 #endif
 {
         int rc = 0;
@@ -2460,7 +2469,7 @@ int ll_inode_permission(struct inode *inode, int mask)
                 return lustre_check_remote_perm(inode, mask);
 
         ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_INODE_PERM, 1);
-        rc = generic_permission(inode, mask, lustre_check_acl);
+        rc = generic_permission(inode, mask, flags, lustre_check_acl);
 
         RETURN(rc);
 }

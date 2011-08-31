@@ -125,8 +125,8 @@ void push_ctxt(struct lvfs_run_ctxt *save, struct lvfs_run_ctxt *new_ctx,
         OBD_SET_CTXT_MAGIC(save);
 
         save->fs = get_fs();
-        LASSERT(cfs_atomic_read(&cfs_fs_pwd(current->fs)->d_count));
-        LASSERT(cfs_atomic_read(&new_ctx->pwd->d_count));
+        LASSERT(d_refcount(cfs_fs_pwd(current->fs)));
+        LASSERT(d_refcount(new_ctx->pwd));
         save->pwd = dget(cfs_fs_pwd(current->fs));
         save->pwdmnt = mntget(cfs_fs_mnt(current->fs));
         save->luc.luc_umask = cfs_curproc_umask();
@@ -375,7 +375,12 @@ int lustre_fsync(struct file *file)
         if (!file || !file->f_op || !file->f_op->fsync)
                 RETURN(-ENOSYS);
 
-        RETURN(file->f_op->fsync(file, file->f_dentry, 0));
+        RETURN(file->f_op->fsync(file,
+#ifndef HAVE_FSYNC_TWO_ARGS
+                                 file->f_dentry,
+#endif
+                                 0));
+
 }
 EXPORT_SYMBOL(lustre_fsync);
 

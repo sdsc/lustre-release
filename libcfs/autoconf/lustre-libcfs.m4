@@ -128,6 +128,7 @@ LB_LINUX_TRY_COMPILE([
 	__u64 *data2 = NULL;
 
 	data1 = data2;
+	*data1 = 1;
 ],[
 	AC_MSG_RESULT([yes])
         AC_DEFINE(HAVE_KERN__U64_LONG_LONG, 1,
@@ -487,6 +488,7 @@ AC_DEFUN([LIBCFS_FUNC_DUMP_TRACE],
 	],[
 		struct stacktrace_ops ops;
 		ops.address = print_addr;
+		ops.address(NULL, 0, 0);
 	],[
 		AC_MSG_RESULT(yes)
 		AC_DEFINE(HAVE_TRACE_ADDRESS_RELIABLE, 1,
@@ -730,6 +732,72 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
+# 2.6.38 ctl_name field is removed from ctl_table
+AC_DEFUN([LC_CTL_NAME],
+[AC_MSG_CHECKING([struct ctl_table has ctl_name field])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/sysctl.h>
+],[
+        struct ctl_table tmp = { .ctl_name = 0 };
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(HAVE_CTL_NAME, 1,
+                  [struct ctl_table has ctl_name field])
+],[
+        AC_MSG_RESULT(no)
+])
+])
+
+# 2.6.38 ctl_name field is removed from ctl_table
+AC_DEFUN([LC_CTL_NAME],
+[AC_MSG_CHECKING([struct ctl_table has ctl_name field])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/sysctl.h>
+],[
+        struct ctl_table tmp = { .ctl_name = 0 };
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(HAVE_CTL_NAME, 1,
+                  [struct ctl_table has ctl_name field])
+],[
+        AC_MSG_RESULT(no)
+])
+])
+
+# 2.6.38 fsync removes dentry argument
+AC_DEFUN([LC_FSYNC_TWO_ARGS],
+[AC_MSG_CHECKING([fsync has two arguments])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        struct file_operations fops;
+	fops.fsync(NULL, 1);
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(HAVE_FSYNC_TWO_ARGS, 1,
+                  [fsync has two arguments])
+],[
+        AC_MSG_RESULT(no)
+])
+])
+
+# 2.6.38 tcp_sendpage first argument type is struct sock
+AC_DEFUN([LC_SOCK_TCP_SENDPAGE],
+[AC_MSG_CHECKING([tcp_sendpage first argument type is struct sock])
+LB_LINUX_TRY_COMPILE([
+        #include <net/tcp.h>
+],[
+	struct sock *sk;
+	tcp_sendpage(sk, NULL, 0, 0, 0);
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(HAVE_SOCK_TCP_SENDPAGE, 1,
+                  [tcp_sendpage first argument type is struct sock])
+],[
+        AC_MSG_RESULT(no)
+])
+])
+
 #
 # LIBCFS_PROG_LINUX
 #
@@ -784,6 +852,10 @@ LIBCFS_HAVE_OOM_H
 LIBCFS_OOMADJ_IN_SIG
 # 2.6.34
 LIBCFS_ADD_WAIT_QUEUE_EXCLUSIVE
+# 2.6.38
+LC_CTL_NAME
+LC_FSYNC_TWO_ARGS
+LC_SOCK_TCP_SENDPAGE
 ])
 
 #
@@ -873,7 +945,7 @@ AC_CHECK_TYPE([__s64],
 AC_MSG_CHECKING([userspace __u64 is long long type])
 tmp_flags="$CFLAGS"
 CFLAGS="$CFLAGS -Werror"
-AC_COMPILE_IFELSE([
+AC_COMPILE_IFELSE([AC_LANG_SOURCE([
 	#include <stdio.h>
 	#include <linux/types.h>
 	#include <linux/stddef.h>
@@ -882,9 +954,10 @@ AC_COMPILE_IFELSE([
 		__u64 *data2 = NULL;
 
 		data1 = data2;
+		*data1 = 1;
 		return 0;
 	}
-],[
+])],[
 	AC_MSG_RESULT([yes])
         AC_DEFINE(HAVE_USER__U64_LONG_LONG, 1,
                   [__u64 is long long type])

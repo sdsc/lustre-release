@@ -191,6 +191,8 @@ stt_timer_main (void *arg)
                                    stt_data.stt_shuttingdown,
                                    cfs_time_seconds(STTIMER_SLOTTIME),
                                    rc);
+                if (rc != -ETIMEDOUT)
+                        CDEBUG(D_INFO, "wait return %d\n", rc);
         }
 
         cfs_spin_lock(&stt_data.stt_lock);
