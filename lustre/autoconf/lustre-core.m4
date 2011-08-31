@@ -2087,6 +2087,24 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 2.6.36 super_operations.delete_inode & clear_inode be removed.
+#
+AC_DEFUN([LC_FILE_FSYNC],
+[AC_MSG_CHECKING([if file_operations.fsync taken 3 arguments])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        ((struct file_operations *)0)->fsync(NULL, NULL, 0);
+],[
+        AC_DEFINE(HAVE_FILE_FSYNC_3ARGS, 1,
+                [file_operations.fsync taken 3 arguments])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+#
 # 2.6.36 fs_struct.lock use spinlock instead of rwlock.
 #
 AC_DEFUN([LC_FS_STRUCT_RWLOCK],
@@ -2390,6 +2408,9 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_BLK_QUEUE_MAX_SECTORS
          LC_BLK_QUEUE_MAX_SEGMENTS
          LC_SET_CPUS_ALLOWED
+
+         # 2.6.35
+         LC_FILE_FSYNC
 
          # 2.6.36
          LC_SBOPS_EVICT_INODE

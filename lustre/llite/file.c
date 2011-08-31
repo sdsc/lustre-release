@@ -1933,9 +1933,13 @@ int ll_flush(struct file *file)
         return rc ? -EIO : 0;
 }
 
+#ifdef HAVE_FILE_FSYNC_3ARGS
 int ll_fsync(struct file *file, struct dentry *dentry, int data)
+#else
+int ll_fsync(struct file *file, int data)
+#endif
 {
-        struct inode *inode = dentry->d_inode;
+        struct inode *inode = file->f_dentry->d_inode;
         struct ll_inode_info *lli = ll_i2info(inode);
         struct lov_stripe_md *lsm = lli->lli_smd;
         struct ptlrpc_request *req;
