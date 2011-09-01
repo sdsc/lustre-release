@@ -417,7 +417,7 @@ static int llu_inode_revalidate(struct inode *inode)
                 }
 
                 llu_prep_md_op_data(&op_data, inode, NULL, NULL, 0, ealen,
-                                    LUSTRE_OPC_ANY);
+                                    LUSTRE_OPC_ANY, 0);
                 op_data.op_valid = valid;
 
                 rc = md_getattr(sbi->ll_md_exp, &op_data, &req);
@@ -599,7 +599,8 @@ int llu_md_setattr(struct inode *inode, struct md_op_data *op_data,
         int rc;
         ENTRY;
 
-        llu_prep_md_op_data(op_data, inode, NULL, NULL, 0, 0, LUSTRE_OPC_ANY);
+        llu_prep_md_op_data(op_data, inode, NULL, NULL, 0, 0, LUSTRE_OPC_ANY,
+                            MF_MDC_CANCEL_FID1);
         rc = md_setattr(sbi->ll_md_exp, op_data, NULL, 0, NULL,
                         0, &request, mod);
 
@@ -858,7 +859,7 @@ static int llu_iop_symlink_raw(struct pnode *pno, const char *tgt)
                 RETURN(err);
 
         llu_prep_md_op_data(&op_data, dir, NULL, name, len, 0,
-                            LUSTRE_OPC_SYMLINK);
+                            LUSTRE_OPC_SYMLINK, MF_MDC_CANCEL_FID1);
 
         err = md_create(sbi->ll_md_exp, &op_data, tgt, strlen(tgt) + 1,
                         S_IFLNK | S_IRWXUGO, current->fsuid, current->fsgid,
@@ -890,7 +891,7 @@ static int llu_readlink_internal(struct inode *inode,
         }
 
         llu_prep_md_op_data(&op_data, inode, NULL, NULL, 0, symlen,
-                            LUSTRE_OPC_ANY);
+                            LUSTRE_OPC_ANY, 0);
         op_data.op_valid = OBD_MD_LINKNAME;
 
         rc = md_getattr(sbi->ll_md_exp, &op_data, request);
@@ -988,7 +989,7 @@ static int llu_iop_mknod_raw(struct pnode *pno,
                 llu_prep_md_op_data(&op_data, dir, NULL,
                                     pno->p_base->pb_name.name,
                                     pno->p_base->pb_name.len, 0,
-                                    LUSTRE_OPC_MKNOD);
+                                    LUSTRE_OPC_MKNOD, MF_MDC_CANCEL_FID1);
 
                 err = md_create(sbi->ll_md_exp, &op_data, NULL, 0, mode,
                                 current->fsuid, current->fsgid,
@@ -1021,7 +1022,7 @@ static int llu_iop_link_raw(struct pnode *old, struct pnode *new)
 
         liblustre_wait_event(0);
         llu_prep_md_op_data(&op_data, src, dir, name, namelen, 0,
-                            LUSTRE_OPC_ANY);
+                            LUSTRE_OPC_ANY, MF_MDC_CANCEL_FID2);
         rc = md_link(llu_i2sbi(src)->ll_md_exp, &op_data, &request);
         ptlrpc_req_finished(request);
         liblustre_wait_event(0);
@@ -1047,8 +1048,8 @@ static int llu_iop_unlink_raw(struct pnode *pno)
         LASSERT(target);
 
         liblustre_wait_event(0);
-        llu_prep_md_op_data(&op_data, dir, NULL, name, len, 0,
-                            LUSTRE_OPC_ANY);
+        llu_prep_md_op_data(&op_data, dir, NULL, name, len, 0, LUSTRE_OPC_ANY,
+                            MF_MDC_CANCEL_FID1 | MF_MDC_CANCEL_FID3);
         rc = md_unlink(llu_i2sbi(dir)->ll_md_exp, &op_data, &request);
         if (!rc)
                 rc = llu_objects_destroy(request, dir);
@@ -1075,8 +1076,9 @@ static int llu_iop_rename_raw(struct pnode *old, struct pnode *new)
         LASSERT(tgt);
 
         liblustre_wait_event(0);
-        llu_prep_md_op_data(&op_data, src, tgt, NULL, 0, 0,
-                            LUSTRE_OPC_ANY);
+        llu_prep_md_op_data(&op_data, src, tgt, NULL, 0, 0, LUSTRE_OPC_ANY,
+                            MF_MDC_CANCEL_FID1 | MF_MDC_CANCEL_FID2 |
+                            MF_MDC_CANCEL_FID3 | MF_MDC_CANCEL_FID4);
         rc = md_rename(llu_i2sbi(src)->ll_md_exp, &op_data,
                        oldname, oldnamelen, newname, newnamelen,
                        &request);
@@ -1224,7 +1226,7 @@ static int llu_iop_mkdir_raw(struct pnode *pno, mode_t mode)
                 RETURN(err);
 
         llu_prep_md_op_data(&op_data, dir, NULL, name, len, 0,
-                            LUSTRE_OPC_MKDIR);
+                            LUSTRE_OPC_MKDIR, MF_MDC_CANCEL_FID1);
 
         err = md_create(llu_i2sbi(dir)->ll_md_exp, &op_data, NULL, 0,
                         mode | S_IFDIR, current->fsuid, current->fsgid,
@@ -1251,7 +1253,8 @@ static int llu_iop_rmdir_raw(struct pnode *pno)
                llu_i2info(dir)->lli_st_generation, dir);
 
         llu_prep_md_op_data(&op_data, dir, NULL, name, len, S_IFDIR,
-                            LUSTRE_OPC_ANY);
+                            LUSTRE_OPC_ANY,
+                            MF_MDC_CANCEL_FID1 | MF_MDC_CANCEL_FID3);
         rc = md_unlink(llu_i2sbi(dir)->ll_md_exp, &op_data, &request);
         ptlrpc_req_finished(request);
 
@@ -1602,7 +1605,7 @@ static int llu_lov_dir_setstripe(struct inode *ino, unsigned long arg)
         int rc = 0;
 
         llu_prep_md_op_data(&op_data, ino, NULL, NULL, 0, 0,
-                            LUSTRE_OPC_ANY);
+                            LUSTRE_OPC_ANY, MF_MDC_CANCEL_FID1);
 
         LASSERT(sizeof(lum) == sizeof(*lump));
         LASSERT(sizeof(lum.lmm_objects[0]) ==
@@ -1666,7 +1669,7 @@ static int llu_lov_setstripe_ea_info(struct inode *ino, int flags,
         }
 
         llu_prep_md_op_data(&data, NULL, ino, NULL, 0, O_RDWR,
-                            LUSTRE_OPC_ANY);
+                            LUSTRE_OPC_ANY, 0);
         rc = md_enqueue(sbi->ll_md_exp, &einfo, &oit, &data,
                         &lockh, lum, lum_size, NULL, LDLM_FL_INTENT_ONLY);
         if (rc)

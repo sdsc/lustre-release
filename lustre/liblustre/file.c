@@ -77,7 +77,7 @@ void ll_i2gids(__u32 *suppgids, struct inode *i1, struct inode *i2)
 
 void llu_prep_md_op_data(struct md_op_data *op_data, struct inode *i1,
                          struct inode *i2, const char *name, int namelen,
-                         int mode, __u32 opc)
+                         int mode, __u32 opc, __u32 flags)
 {
         LASSERT(i1 != NULL || i2 != NULL);
         LASSERT(op_data);
@@ -101,6 +101,7 @@ void llu_prep_md_op_data(struct md_op_data *op_data, struct inode *i1,
         op_data->op_namelen = namelen;
         op_data->op_mod_time = CFS_CURRENT_TIME;
         op_data->op_data = NULL;
+        op_data->op_flags = flags;
 }
 
 void llu_finish_md_op_data(struct md_op_data *op_data)
@@ -427,7 +428,7 @@ static void llu_prepare_close(struct inode *inode, struct md_op_data *op_data,
         }
         llu_pack_inode2opdata(inode, op_data, &och->och_fh);
         llu_prep_md_op_data(op_data, inode, NULL, NULL,
-                            0, 0, LUSTRE_OPC_ANY);
+                            0, 0, LUSTRE_OPC_ANY, 0);
 }
 
 int llu_md_close(struct obd_export *md_exp, struct inode *inode)

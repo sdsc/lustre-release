@@ -1171,7 +1171,7 @@ int ll_md_setattr(struct inode *inode, struct md_op_data *op_data,
         ENTRY;
 
         op_data = ll_prep_md_op_data(op_data, inode, NULL, NULL, 0, 0,
-                                     LUSTRE_OPC_ANY, NULL);
+                                     LUSTRE_OPC_ANY, NULL, MF_MDC_CANCEL_FID1);
         if (IS_ERR(op_data))
                 RETURN(PTR_ERR(op_data));
 
@@ -1816,7 +1816,7 @@ int ll_iocontrol(struct inode *inode, struct file *file,
 
                 op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL,
                                              0, 0, LUSTRE_OPC_ANY,
-                                             NULL);
+                                             NULL, 0);
                 if (op_data == NULL)
                         RETURN(-ENOMEM);
 
@@ -1850,7 +1850,8 @@ int ll_iocontrol(struct inode *inode, struct file *file,
                         RETURN(-ENOMEM);
 
                 op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL, 0, 0,
-                                             LUSTRE_OPC_ANY, NULL);
+                                             LUSTRE_OPC_ANY, NULL,
+                                             MF_MDC_CANCEL_FID1);
                 if (IS_ERR(op_data))
                         RETURN(PTR_ERR(op_data));
 
@@ -2145,7 +2146,8 @@ int ll_process_config(struct lustre_cfg *lcfg)
 struct md_op_data * ll_prep_md_op_data(struct md_op_data *op_data,
                                        struct inode *i1, struct inode *i2,
                                        const char *name, int namelen,
-                                       int mode, __u32 opc, void *data)
+                                       int mode, __u32 opc, void *data,
+                                       __u32 flags)
 {
         LASSERT(i1 != NULL);
 
@@ -2181,6 +2183,7 @@ struct md_op_data * ll_prep_md_op_data(struct md_op_data *op_data,
         op_data->op_opc = opc;
         op_data->op_mds = 0;
         op_data->op_data = data;
+        op_data->op_flags = flags;
 
         /* If the file is being opened after mknod() (normally due to NFS)
          * try to use the default stripe data from parent directory for

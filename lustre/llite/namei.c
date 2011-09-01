@@ -562,7 +562,7 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
 
         op_data = ll_prep_md_op_data(NULL, parent, NULL, dentry->d_name.name,
                                      dentry->d_name.len, lookup_flags, opc,
-                                     NULL);
+                                     NULL, 0);
         if (IS_ERR(op_data))
                 RETURN((void *)op_data);
 
@@ -837,7 +837,8 @@ static int ll_new_node(struct inode *dir, struct qstr *name,
                 tgt_len = strlen(tgt) + 1;
 
         op_data = ll_prep_md_op_data(NULL, dir, NULL, name->name,
-                                     name->len, 0, opc, NULL);
+                                     name->len, 0, opc, NULL,
+                                     MF_MDC_CANCEL_FID1);
         if (IS_ERR(op_data))
                 GOTO(err_exit, err = PTR_ERR(op_data));
 
@@ -961,7 +962,8 @@ static int ll_link_generic(struct inode *src,  struct inode *dir,
                dir->i_generation, dir, name->len, name->name);
 
         op_data = ll_prep_md_op_data(NULL, src, dir, name->name, name->len,
-                                     0, LUSTRE_OPC_ANY, NULL);
+                                     0, LUSTRE_OPC_ANY, NULL,
+                                     MF_MDC_CANCEL_FID1 | MF_MDC_CANCEL_FID2);
         if (IS_ERR(op_data))
                 RETURN(PTR_ERR(op_data));
 
@@ -1026,7 +1028,8 @@ static int ll_rmdir_generic(struct inode *dir, struct dentry *dparent,
                 RETURN(-EBUSY);
 
         op_data = ll_prep_md_op_data(NULL, dir, NULL, name->name, name->len,
-                                     S_IFDIR, LUSTRE_OPC_ANY, NULL);
+                                     S_IFDIR, LUSTRE_OPC_ANY, NULL,
+                                     MF_MDC_CANCEL_FID1 | MF_MDC_CANCEL_FID3);
         if (IS_ERR(op_data))
                 RETURN(PTR_ERR(op_data));
 
@@ -1137,7 +1140,8 @@ static int ll_unlink_generic(struct inode *dir, struct dentry *dparent,
                 RETURN(-EBUSY);
 
         op_data = ll_prep_md_op_data(NULL, dir, NULL, name->name,
-                                     name->len, 0, LUSTRE_OPC_ANY, NULL);
+                                     name->len, 0, LUSTRE_OPC_ANY, NULL,
+                                     MF_MDC_CANCEL_FID1 | MF_MDC_CANCEL_FID3);
         if (IS_ERR(op_data))
                 RETURN(PTR_ERR(op_data));
 
@@ -1175,7 +1179,9 @@ static int ll_rename_generic(struct inode *src, struct dentry *src_dparent,
                 RETURN(-EBUSY);
 
         op_data = ll_prep_md_op_data(NULL, src, tgt, NULL, 0, 0,
-                                     LUSTRE_OPC_ANY, NULL);
+                                     LUSTRE_OPC_ANY, NULL,
+                                     MF_MDC_CANCEL_FID1 | MF_MDC_CANCEL_FID2 |
+                                     MF_MDC_CANCEL_FID3 | MF_MDC_CANCEL_FID4);
         if (IS_ERR(op_data))
                 RETURN(PTR_ERR(op_data));
 
