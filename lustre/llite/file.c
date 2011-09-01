@@ -2002,7 +2002,7 @@ int ll_fsync(struct file *file, int data)
                         rc = err;
                 OBDO_FREE(oinfo->oi_oa);
                 OBD_FREE_PTR(oinfo);
-                lli->lli_write_rc = err < 0 ? : 0;
+                lli->lli_write_rc = err < 0 ? err : 0;
         }
 
         RETURN(rc);
