@@ -131,8 +131,7 @@ int mdc_setattr(struct obd_export *exp, struct md_op_data *op_data,
         bits = MDS_INODELOCK_UPDATE;
         if (op_data->op_attr.ia_valid & (ATTR_MODE|ATTR_UID|ATTR_GID))
                 bits |= MDS_INODELOCK_LOOKUP;
-        if ((op_data->op_flags & MF_MDC_CANCEL_FID1) &&
-            (fid_is_sane(&op_data->op_fid1)) &&
+        if (fid_is_sane(&op_data->op_fid1) &&
             !OBD_FAIL_CHECK(OBD_FAIL_LDLM_BL_CALLBACK))
                 count = mdc_resource_get_unused(exp, &op_data->op_fid1,
                                                 &cancels, LCK_EX, bits);
@@ -249,8 +248,7 @@ int mdc_create(struct obd_export *exp, struct md_op_data *op_data,
                 }
         }
 
-        if ((op_data->op_flags & MF_MDC_CANCEL_FID1) &&
-            (fid_is_sane(&op_data->op_fid1)))
+        if (fid_is_sane(&op_data->op_fid1))
                 count = mdc_resource_get_unused(exp, &op_data->op_fid1,
                                                 &cancels, LCK_EX,
                                                 MDS_INODELOCK_UPDATE);
@@ -319,14 +317,16 @@ int mdc_unlink(struct obd_export *exp, struct md_op_data *op_data,
 
         LASSERT(req == NULL);
 
-        if ((op_data->op_flags & MF_MDC_CANCEL_FID1) &&
-            (fid_is_sane(&op_data->op_fid1)) &&
+        if (fid_is_sane(&op_data->op_fid1) &&
             !OBD_FAIL_CHECK(OBD_FAIL_LDLM_BL_CALLBACK))
                 count = mdc_resource_get_unused(exp, &op_data->op_fid1,
                                                 &cancels, LCK_EX,
                                                 MDS_INODELOCK_UPDATE);
-        if ((op_data->op_flags & MF_MDC_CANCEL_FID3) &&
-            (fid_is_sane(&op_data->op_fid3)) &&
+        /*
+         * LOOKUP lock for child (fid3) should also be cancelled on
+         * parent tgt_tgt in mdc_unlink().
+         */
+        if (fid_is_sane(&op_data->op_fid3) &&
             !OBD_FAIL_CHECK(OBD_FAIL_LDLM_BL_CALLBACK))
                 count += mdc_resource_get_unused(exp, &op_data->op_fid3,
                                                  &cancels, LCK_EX,
@@ -372,13 +372,12 @@ int mdc_link(struct obd_export *exp, struct md_op_data *op_data,
         int count = 0, rc;
         ENTRY;
 
-        if ((op_data->op_flags & MF_MDC_CANCEL_FID2) &&
-            (fid_is_sane(&op_data->op_fid2)))
+        if (fid_is_sane(&op_data->op_fid2))
                 count = mdc_resource_get_unused(exp, &op_data->op_fid2,
                                                 &cancels, LCK_EX,
                                                 MDS_INODELOCK_UPDATE);
-        if ((op_data->op_flags & MF_MDC_CANCEL_FID1) &&
-            (fid_is_sane(&op_data->op_fid1)))
+        if (!(op_data->op_flags & MF_REMOTE_FID1) &&
+            fid_is_sane(&op_data->op_fid1))
                 count += mdc_resource_get_unused(exp, &op_data->op_fid1,
                                                  &cancels, LCK_EX,
                                                  MDS_INODELOCK_UPDATE);
@@ -420,23 +419,26 @@ int mdc_rename(struct obd_export *exp, struct md_op_data *op_data,
         int count = 0, rc;
         ENTRY;
 
-        if ((op_data->op_flags & MF_MDC_CANCEL_FID1) &&
-            (fid_is_sane(&op_data->op_fid1)))
+        if (fid_is_sane(&op_data->op_fid1))
                 count = mdc_resource_get_unused(exp, &op_data->op_fid1,
                                                 &cancels, LCK_EX,
                                                 MDS_INODELOCK_UPDATE);
-        if ((op_data->op_flags & MF_MDC_CANCEL_FID2) &&
-            (fid_is_sane(&op_data->op_fid2)))
+        if (!(op_data->op_flags & MF_REMOTE_FID2) &&
+            fid_is_sane(&op_data->op_fid2))
                 count += mdc_resource_get_unused(exp, &op_data->op_fid2,
                                                  &cancels, LCK_EX,
                                                  MDS_INODELOCK_UPDATE);
-        if ((op_data->op_flags & MF_MDC_CANCEL_FID3) &&
-            (fid_is_sane(&op_data->op_fid3)))
+        /*
+         * LOOKUP lock on src child (fid3) should also be cancelled for
+         * src_tgt in mdc_rename.
+         */
+        if (fid_is_sane(&op_data->op_fid3))
                 count += mdc_resource_get_unused(exp, &op_data->op_fid3,
                                                  &cancels, LCK_EX,
                                                  MDS_INODELOCK_LOOKUP);
-        if ((op_data->op_flags & MF_MDC_CANCEL_FID4) &&
-             (fid_is_sane(&op_data->op_fid4)))
+        if ((!(op_data->op_flags & MF_REMOTE_FID4) ||
+             !(op_data->op_flags & MF_REMOTE_FID2)) &&
+             fid_is_sane(&op_data->op_fid4))
                 count += mdc_resource_get_unused(exp, &op_data->op_fid4,
                                                  &cancels, LCK_EX,
                                                  MDS_INODELOCK_FULL);

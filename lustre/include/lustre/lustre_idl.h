@@ -1574,10 +1574,15 @@ enum md_op_flags {
         /* Flags indicates an epoch opens or closes. */
         MF_EPOCH_OPEN           = (1 << 1),
         MF_EPOCH_CLOSE          = (1 << 2),
-        MF_MDC_CANCEL_FID1      = (1 << 3),
-        MF_MDC_CANCEL_FID2      = (1 << 4),
-        MF_MDC_CANCEL_FID3      = (1 << 5),
-        MF_MDC_CANCEL_FID4      = (1 << 6),
+        /*
+         * fid? on different MDT from current request, this is used by ELC
+         * to decide whether lock should be canceled in current request
+         * synchronously.
+         */
+        MF_REMOTE_FID1          = (1 << 3),
+        MF_REMOTE_FID2          = (1 << 4),
+        MF_REMOTE_FID3          = (1 << 5),
+        MF_REMOTE_FID4          = (1 << 6),
         /* There is a pending attribute update. */
         MF_SOM_AU               = (1 << 7),
         /* Cancel OST locks while getattr OST attributes. */
