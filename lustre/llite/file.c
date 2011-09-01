@@ -109,7 +109,7 @@ static void ll_prepare_close(struct inode *inode, struct md_op_data *op_data,
 out:
         ll_pack_inode2opdata(inode, op_data, &och->och_fh);
         ll_prep_md_op_data(op_data, inode, NULL, NULL,
-                           0, 0, LUSTRE_OPC_ANY, NULL);
+                           0, 0, LUSTRE_OPC_ANY, NULL, 0);
         EXIT;
 }
 
@@ -371,9 +371,9 @@ static int ll_intent_file_open(struct file *file, void *lmm,
                         opc = LUSTRE_OPC_CREATE;
         }
 
-        op_data  = ll_prep_md_op_data(NULL, parent->d_inode,
-                                      file->f_dentry->d_inode, name, len,
-                                      O_RDWR, opc, NULL);
+        op_data = ll_prep_md_op_data(NULL, parent->d_inode,
+                                     file->f_dentry->d_inode, name, len,
+                                     O_RDWR, opc, NULL, 0);
         if (IS_ERR(op_data))
                 RETURN(PTR_ERR(op_data));
 
@@ -1349,7 +1349,7 @@ int ll_lov_getstripe_ea_info(struct inode *inode, const char *filename,
 
         op_data = ll_prep_md_op_data(NULL, inode, NULL, filename,
                                      strlen(filename), lmmsize,
-                                     LUSTRE_OPC_ANY, NULL);
+                                     LUSTRE_OPC_ANY, NULL, 0);
         if (op_data == NULL)
                 RETURN(-ENOMEM);
 
@@ -2094,7 +2094,7 @@ int ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
         }
 
         op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL, 0, 0,
-                                     LUSTRE_OPC_ANY, NULL);
+                                     LUSTRE_OPC_ANY, NULL, 0);
         if (IS_ERR(op_data))
                 RETURN(PTR_ERR(op_data));
 
@@ -2225,7 +2225,7 @@ int __ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
                 /* Call getattr by fid, so do not provide name at all. */
                 op_data = ll_prep_md_op_data(NULL, dentry->d_parent->d_inode,
                                              dentry->d_inode, NULL, 0, 0,
-                                             LUSTRE_OPC_ANY, NULL);
+                                             LUSTRE_OPC_ANY, NULL, 0);
                 if (IS_ERR(op_data))
                         RETURN(PTR_ERR(op_data));
 
@@ -2276,7 +2276,7 @@ int __ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
 
                 op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL,
                                              0, ealen, LUSTRE_OPC_ANY,
-                                             NULL);
+                                             NULL, 0);
                 if (op_data == NULL)
                         RETURN(-ENOMEM);
 

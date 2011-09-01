@@ -265,6 +265,7 @@ int ll_som_update(struct inode *inode, struct md_op_data *op_data)
                 md_from_obdo(op_data, oa, oa->o_valid);
         }
 
+        op_data->op_flags |= MF_MDC_CANCEL_FID1;
         rc = md_setattr(ll_i2sbi(inode)->ll_md_exp, op_data,
                         NULL, 0, NULL, 0, &request, NULL);
         ptlrpc_req_finished(request);
@@ -288,7 +289,7 @@ static void ll_prepare_done_writing(struct inode *inode,
 
         ll_pack_inode2opdata(inode, op_data, &(*och)->och_fh);
         ll_prep_md_op_data(op_data, inode, NULL, NULL,
-                           0, 0, LUSTRE_OPC_ANY, NULL);
+                           0, 0, LUSTRE_OPC_ANY, NULL, 0);
 }
 
 /** Send a DONE_WRITING rpc. */
