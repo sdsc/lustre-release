@@ -378,10 +378,10 @@ repeat:
                                        (char *)op_data->op_name,
                                        op_data->op_namelen);
                 rpid = obj->lo_stripes[sidx].ls_fid;
-                tgt = lmv_get_target(lmv, 
+                tgt = lmv_get_target(lmv,
                                      obj->lo_stripes[sidx].ls_mds);
                 CDEBUG(D_INODE,
-                       "Choose slave dir ("DFID") -> mds #%d\n", 
+                       "Choose slave dir ("DFID") -> mds #%d\n",
                        PFID(&rpid), tgt->ltd_idx);
                 sop_data->op_bias &= ~MDS_CHECK_SPLIT;
         } else {
@@ -390,24 +390,24 @@ repeat:
         }
         if (obj)
                 lmv_object_put(obj);
-        
+
         if (IS_ERR(tgt))
                 GOTO(out_free_sop_data, rc = PTR_ERR(tgt));
-        
+
         if (!fid_is_sane(&sop_data->op_fid2))
                 fid_zero(&sop_data->op_fid2);
-        
-        CDEBUG(D_INODE, 
+
+        CDEBUG(D_INODE,
                "LOOKUP_INTENT with fid1="DFID", fid2="DFID
                ", name='%s' -> mds #%d\n",
-               PFID(&sop_data->op_fid1), PFID(&sop_data->op_fid2), 
-               sop_data->op_name ? sop_data->op_name : "<NULL>", 
+               PFID(&sop_data->op_fid1), PFID(&sop_data->op_fid2),
+               sop_data->op_name ? sop_data->op_name : "<NULL>",
                tgt->ltd_idx);
 
         sop_data->op_bias &= ~MDS_CROSS_REF;
         sop_data->op_fid1 = rpid;
 
-        rc = md_intent_lock(tgt->ltd_exp, sop_data, lmm, lmmsize, it, 
+        rc = md_intent_lock(tgt->ltd_exp, sop_data, lmm, lmmsize, it,
                             flags, reqp, cb_blocking, extra_lock_flags);
 
         if (rc == -ERESTART) {
@@ -431,7 +431,7 @@ repeat:
                 lmv_object_put(obj);
                 goto repeat;
         }
-        
+
         if (rc < 0)
                 GOTO(out_free_sop_data, rc);
 

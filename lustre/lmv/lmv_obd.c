@@ -1559,7 +1559,6 @@ repeat:
                op_data->op_namelen, op_data->op_name, PFID(&op_data->op_fid1),
                op_data->op_mds);
 
-        op_data->op_flags |= MF_MDC_CANCEL_FID1;
         rc = md_create(tgt->ltd_exp, op_data, data, datalen, mode, uid, gid,
                        cap_effective, rdev, request);
         if (rc == 0) {
@@ -1922,6 +1921,7 @@ static int lmv_early_cancel_slaves(struct obd_export *exp,
                 if (op_tgt != tgt->ltd_idx) {
                         CDEBUG(D_INODE, "EARLY_CANCEL slave "DFID" -> mds #%d\n",
                                PFID(st_fid), tgt->ltd_idx);
+                        op_data->op_flags &= ~flag;
                         rc = md_cancel_unused(tgt->ltd_exp, st_fid, &policy,
                                               mode, LCF_ASYNC, NULL);
                         if (rc)
@@ -1936,7 +1936,6 @@ static int lmv_early_cancel_slaves(struct obd_export *exp,
                          * function we run on behalf of.
                          */
                         *op_fid = *st_fid;
-                        op_data->op_flags |= flag;
                 }
         }
         EXIT;
@@ -1973,13 +1972,13 @@ static int lmv_early_cancel(struct obd_export *exp, struct md_op_data *op_data,
                 if (tgt->ltd_idx != op_tgt) {
                         CDEBUG(D_INODE, "EARLY_CANCEL on "DFID"\n", PFID(fid));
                         policy.l_inodebits.bits = bits;
+                        op_data->op_flags &= ~flag;
                         rc = md_cancel_unused(tgt->ltd_exp, fid, &policy,
                                               mode, LCF_ASYNC, NULL);
                 } else {
                         CDEBUG(D_INODE,
                                "EARLY_CANCEL skip operation target %d on "DFID"\n",
                                op_tgt, PFID(fid));
-                        op_data->op_flags |= flag;
                         rc = 0;
                 }
 
@@ -2043,7 +2042,6 @@ repeat:
         /*
          * Cancel UPDATE lock on child (fid1).
          */
-        op_data->op_flags |= MF_MDC_CANCEL_FID2;
         rc = lmv_early_cancel(exp, op_data, tgt->ltd_idx, LCK_EX,
                               MDS_INODELOCK_UPDATE, MF_MDC_CANCEL_FID1);
         if (rc == 0)
@@ -2140,8 +2138,6 @@ repeat:
          * LOOKUP lock on src child (fid3) should also be cancelled for
          * src_tgt in mdc_rename.
          */
-        op_data->op_flags |= MF_MDC_CANCEL_FID1 | MF_MDC_CANCEL_FID3;
-
         /*
          * Cancel UPDATE locks on tgt parent (fid2), tgt_tgt is its
          * own target.
@@ -2213,7 +2209,6 @@ static int lmv_setattr(struct obd_export *exp, struct md_op_data *op_data,
                PFID(&op_data->op_fid1), op_data->op_attr.ia_valid,
                obj ? ", split" : "");
 
-        op_data->op_flags |= MF_MDC_CANCEL_FID1;
         if (obj) {
                 for (i = 0; i < obj->lo_objcount; i++) {
                         op_data->op_fid1 = obj->lo_stripes[i].ls_fid;
@@ -2600,8 +2595,6 @@ repeat:
          * LOOKUP lock for child (fid3) should also be cancelled on parent
          * tgt_tgt in mdc_unlink().
          */
-        op_data->op_flags |= MF_MDC_CANCEL_FID1 | MF_MDC_CANCEL_FID3;
-
         /*
          * Cancel FULL locks on child (fid3).
          */
