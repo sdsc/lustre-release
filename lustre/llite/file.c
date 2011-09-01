@@ -371,9 +371,9 @@ static int ll_intent_file_open(struct file *file, void *lmm,
                         opc = LUSTRE_OPC_CREATE;
         }
 
-        op_data  = ll_prep_md_op_data(NULL, parent->d_inode,
-                                      file->f_dentry->d_inode, name, len,
-                                      O_RDWR, opc, NULL);
+        op_data = ll_prep_md_op_data(NULL, parent->d_inode,
+                                     file->f_dentry->d_inode, name, len,
+                                     O_RDWR, opc, NULL);
         if (IS_ERR(op_data))
                 RETURN(PTR_ERR(op_data));
 
