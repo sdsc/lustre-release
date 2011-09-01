@@ -255,7 +255,7 @@ static int llu_pb_revalidate(struct pnode *pnode, int flags,
 
         llu_prep_md_op_data(&op_data, pnode->p_parent->p_base->pb_ino,
                             pb->pb_ino, pb->pb_name.name, pb->pb_name.len,
-                            0, LUSTRE_OPC_ANY);
+                            0, LUSTRE_OPC_ANY, 0);
 
         rc = md_intent_lock(exp, &op_data, NULL, 0, it, flags,
                             &req, llu_md_blocking_ast,
@@ -424,16 +424,16 @@ static int llu_lookup_it(struct inode *parent, struct pnode *pnode,
         icbd.icbd_child = pnode;
         icbd.icbd_parent = parent;
 
-        if (it->it_op & IT_CREAT || 
+        if (it->it_op & IT_CREAT ||
             (it->it_op & IT_OPEN && it->it_create_mode & O_CREAT)) {
                 opc = LUSTRE_OPC_CREATE;
         } else {
                 opc = LUSTRE_OPC_ANY;
         }
-        
+
         llu_prep_md_op_data(&op_data, parent, NULL,
                             pnode->p_base->pb_name.name,
-                            pnode->p_base->pb_name.len, flags, opc);
+                            pnode->p_base->pb_name.len, flags, opc, 0);
 
         rc = md_intent_lock(llu_i2mdexp(parent), &op_data, NULL, 0, it,
                             flags, &req, llu_md_blocking_ast,

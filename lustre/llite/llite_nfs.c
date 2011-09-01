@@ -336,7 +336,7 @@ static struct dentry *ll_get_parent(struct dentry *dchild)
 
         op_data = ll_prep_md_op_data(NULL, dir, NULL, dotdot,
                                      strlen(dotdot), 0,
-                                     LUSTRE_OPC_ANY, NULL);
+                                     LUSTRE_OPC_ANY, NULL, 0);
         if (op_data == NULL)
                 RETURN(ERR_PTR(-ENOMEM));
 

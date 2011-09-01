@@ -759,7 +759,8 @@ int ll_process_config(struct lustre_cfg *lcfg);
 struct md_op_data *ll_prep_md_op_data(struct md_op_data *op_data,
                                       struct inode *i1, struct inode *i2,
                                       const char *name, int namelen,
-                                      int mode, __u32 opc, void *data);
+                                      int mode, __u32 opc, void *data,
+                                      __u32 flags);
 void ll_finish_md_op_data(struct md_op_data *op_data);
 
 /* llite/llite_nfs.c */

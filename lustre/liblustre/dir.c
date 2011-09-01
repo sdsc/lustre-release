@@ -88,7 +88,7 @@ static int llu_dir_do_readpage(struct inode *inode, struct page *page)
                         inode};
 
                 llu_prep_md_op_data(&op_data, inode, NULL, NULL, 0, 0,
-                                    LUSTRE_OPC_ANY);
+                                    LUSTRE_OPC_ANY, 0);
 
                 rc = md_enqueue(sbi->ll_md_exp, &einfo, &it,
                                 &op_data, &lockh, NULL, 0, NULL,
