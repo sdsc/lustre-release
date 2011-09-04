@@ -2411,7 +2411,8 @@ struct cl_req_operations {
          * cl_device_operations::cdo_req_init().
          */
         void (*cro_completion)(const struct lu_env *env,
-                               const struct cl_req_slice *slice, int ioret);
+                               const struct cl_req_slice *slice, int ioret,
+                               int nr_bytes);
 };
 
 /**
@@ -3035,7 +3036,8 @@ void cl_req_page_done (const struct lu_env *env, struct cl_page *page);
 int  cl_req_prep      (const struct lu_env *env, struct cl_req *req);
 void cl_req_attr_set  (const struct lu_env *env, struct cl_req *req,
                        struct cl_req_attr *attr, obd_valid flags);
-void cl_req_completion(const struct lu_env *env, struct cl_req *req, int ioret);
+void cl_req_completion(const struct lu_env *env, struct cl_req *req, int ioret,
+                       int nr_bytes);
 
 /** \defgroup cl_sync_io cl_sync_io
  * @{ */

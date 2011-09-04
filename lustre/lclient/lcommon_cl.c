@@ -941,11 +941,22 @@ int ccc_prep_size(const struct lu_env *env, struct cl_object *obj,
  *
  */
 
-void ccc_req_completion(const struct lu_env *env,
-                        const struct cl_req_slice *slice, int ioret)
+static void ccc_req_completion(const struct lu_env *env,
+                               const struct cl_req_slice *slice, int ioret,
+                               int nr_bytes)
 {
         struct ccc_req *vrq;
 
+#ifdef __KERNEL__
+        if (nr_bytes > 0) {
+                struct ccc_device *dev = cl2ccc_dev(slice->crs_dev);
+                int opc = slice->crs_req->crq_type == CIT_READ
+                        ? LPROC_LL_BRW_READ
+                        : LPROC_LL_BRW_WRITE;
+
+                ll_stats_ops_tally(ll_s2sbi(dev->cdv_sb), opc, nr_bytes);
+        }
+#endif
         vrq = cl2ccc_req(slice);
         OBD_SLAB_FREE_PTR(vrq, ccc_req_kmem);
 }

@@ -1476,7 +1476,8 @@ static int cl_req_init(const struct lu_env *env, struct cl_req *req,
  * Invokes per-request transfer completion call-backs
  * (cl_req_operations::cro_completion()) bottom-to-top.
  */
-void cl_req_completion(const struct lu_env *env, struct cl_req *req, int rc)
+void cl_req_completion(const struct lu_env *env, struct cl_req *req, int rc,
+                       int nr_bytes)
 {
         struct cl_req_slice *slice;
 
@@ -1489,7 +1490,7 @@ void cl_req_completion(const struct lu_env *env, struct cl_req *req, int rc)
                                        struct cl_req_slice, crs_linkage);
                 cfs_list_del_init(&slice->crs_linkage);
                 if (slice->crs_ops->cro_completion != NULL)
-                        slice->crs_ops->cro_completion(env, slice, rc);
+                        slice->crs_ops->cro_completion(env, slice, rc, nr_bytes);
         }
         cl_req_free(env, req);
         EXIT;
@@ -1521,7 +1522,7 @@ struct cl_req *cl_req_alloc(const struct lu_env *env, struct cl_page *page,
                 } else
                         result = -ENOMEM;
                 if (result != 0) {
-                        cl_req_completion(env, req, result);
+                        cl_req_completion(env, req, result, 0);
                         req = ERR_PTR(result);
                 }
         } else

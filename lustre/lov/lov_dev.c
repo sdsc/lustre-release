@@ -130,7 +130,8 @@ struct lu_kmem_descr lov_caches[] = {
  */
 
 static void lov_req_completion(const struct lu_env *env,
-                               const struct cl_req_slice *slice, int ioret)
+                               const struct cl_req_slice *slice, int ioret,
+                               int nr_bytes)
 {
         struct lov_req *lr;
 

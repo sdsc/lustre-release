@@ -643,7 +643,8 @@ static int osc_req_prep(const struct lu_env *env,
 }
 
 static void osc_req_completion(const struct lu_env *env,
-                               const struct cl_req_slice *slice, int ioret)
+                               const struct cl_req_slice *slice, int ioret,
+                               int nr_bytes)
 {
         struct osc_req *or;
 

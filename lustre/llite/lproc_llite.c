@@ -657,9 +657,9 @@ struct llite_file_opcode {
                                    "read_bytes" },
         { LPROC_LL_WRITE_BYTES,    LPROCFS_CNTR_AVGMINMAX|LPROCFS_TYPE_BYTES,
                                    "write_bytes" },
-        { LPROC_LL_BRW_READ,       LPROCFS_CNTR_AVGMINMAX|LPROCFS_TYPE_PAGES,
+        { LPROC_LL_BRW_READ,       LPROCFS_CNTR_AVGMINMAX|LPROCFS_TYPE_BYTES,
                                    "brw_read" },
-        { LPROC_LL_BRW_WRITE,      LPROCFS_CNTR_AVGMINMAX|LPROCFS_TYPE_PAGES,
+        { LPROC_LL_BRW_WRITE,      LPROCFS_CNTR_AVGMINMAX|LPROCFS_TYPE_BYTES,
                                    "brw_write" },
 
         { LPROC_LL_IOCTL,          LPROCFS_TYPE_REGS, "ioctl" },

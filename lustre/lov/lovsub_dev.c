@@ -53,7 +53,8 @@
  */
 
 static void lovsub_req_completion(const struct lu_env *env,
-                                  const struct cl_req_slice *slice, int ioret)
+                                  const struct cl_req_slice *slice, int ioret,
+                                  int nr_bytes)
 {
         struct lovsub_req *lsr;
 

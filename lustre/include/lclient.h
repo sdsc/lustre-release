@@ -331,8 +331,6 @@ void ccc_io_update_iov(const struct lu_env *env, struct ccc_io *cio,
 int ccc_prep_size(const struct lu_env *env, struct cl_object *obj,
                   struct cl_io *io, loff_t start, size_t count, int vfslock,
                   int *exceed);
-void ccc_req_completion(const struct lu_env *env,
-                        const struct cl_req_slice *slice, int ioret);
 void ccc_req_attr_set(const struct lu_env *env,const struct cl_req_slice *slice,
                       const struct cl_object *obj,
                       struct cl_req_attr *oa, obd_valid flags);
