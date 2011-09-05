@@ -149,6 +149,7 @@ struct ll_inode_info {
         int                     lli_write_rc;
 
         struct posix_acl       *lli_posix_acl;
+        struct posix_acl       *lli_def_acl;
 
         /* remote permission hash */
         cfs_hlist_head_t       *lli_remote_perms;
