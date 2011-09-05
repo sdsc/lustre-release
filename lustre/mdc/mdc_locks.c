@@ -845,8 +845,46 @@ static int mdc_finish_intent_lock(struct obd_export *exp,
         RETURN(rc);
 }
 
+static ldlm_mode_t
+mdc_revalidate_lock_handle(struct lustre_handle *lockh, struct lookup_intent *it,
+                           struct lu_fid *fid, __u32 *bits)
+{
+        struct ldlm_lock *lock;
+        ldlm_mode_t mode = 0;
+        ENTRY;
+
+        lock = ldlm_handle2lock(lockh);
+        if (lock != NULL) {
+                lock_res_and_lock(lock);
+                if (unlikely(!fid_res_name_eq(fid, &lock->l_resource->lr_name)))
+                        GOTO(out, mode);
+
+                if (lock->l_destroyed || lock->l_flags & LDLM_FL_FAILED)
+                        GOTO(out, mode);
+
+                if (lock->l_flags & LDLM_FL_CBPENDING &&
+                    lock->l_readers == 0 && lock->l_writers == 0)
+                        GOTO(out, mode);
+
+                if (bits)
+                        *bits = lock->l_policy_data.l_inodebits.bits;
+                mode = lock->l_granted_mode;
+                ldlm_lock_addref_nolock(lock, mode);
+        }
+
+        EXIT;
+
+out:
+        if (lock != NULL) {
+                unlock_res_and_lock(lock);
+                LDLM_LOCK_PUT(lock);
+        }
+        return mode;
+
+}
+
 int mdc_revalidate_lock(struct obd_export *exp, struct lookup_intent *it,
-                        struct lu_fid *fid)
+                        struct lu_fid *fid, __u32 *bits)
 {
         /* We could just return 1 immediately, but since we should only
          * be called in revalidate_it if we already have a lock, let's
@@ -857,13 +895,19 @@ int mdc_revalidate_lock(struct obd_export *exp, struct lookup_intent *it,
         ldlm_mode_t mode;
         ENTRY;
 
-        fid_build_reg_res_name(fid, &res_id);
-        policy.l_inodebits.bits = (it->it_op == IT_GETATTR) ?
+        if (it->d.lustre.it_lock_handle) {
+                lockh.cookie = it->d.lustre.it_lock_handle;
+                mode = mdc_revalidate_lock_handle(&lockh, it, fid, bits);
+        } else {
+                fid_build_reg_res_name(fid, &res_id);
+                policy.l_inodebits.bits = (it->it_op == IT_GETATTR) ?
                                   MDS_INODELOCK_UPDATE : MDS_INODELOCK_LOOKUP;
+                mode = ldlm_lock_match(exp->exp_obd->obd_namespace,
+                                       LDLM_FL_BLOCK_GRANTED, &res_id,
+                                       LDLM_IBITS, &policy,
+                                       LCK_CR|LCK_CW|LCK_PR|LCK_PW, &lockh, 0);
+        }
 
-        mode = ldlm_lock_match(exp->exp_obd->obd_namespace,
-                               LDLM_FL_BLOCK_GRANTED, &res_id, LDLM_IBITS,
-                               &policy, LCK_CR|LCK_CW|LCK_PR|LCK_PW, &lockh, 0);
         if (mode) {
                 it->d.lustre.it_lock_handle = lockh.cookie;
                 it->d.lustre.it_lock_mode = mode;
@@ -922,7 +966,8 @@ int mdc_intent_lock(struct obd_export *exp, struct md_op_data *op_data,
                 /* We could just return 1 immediately, but since we should only
                  * be called in revalidate_it if we already have a lock, let's
                  * verify that. */
-                rc = mdc_revalidate_lock(exp, it, &op_data->op_fid2);
+                it->d.lustre.it_lock_handle = 0;
+                rc = mdc_revalidate_lock(exp, it, &op_data->op_fid2, NULL);
                 /* Only return failure if it was not GETATTR by cfid
                    (from inode_revalidate) */
                 if (rc || op_data->op_namelen != 0)
