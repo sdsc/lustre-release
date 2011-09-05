@@ -1207,9 +1207,9 @@ test_27u() { # bug 4900
 run_test 27u "skip object creation on OSC w/o objects =========="
 
 test_27v() { # bug 4900
-        [ "$OSTCOUNT" -lt "2" ] && skip_env "too few OSTs" && return
-        remote_mds_nodsh && skip "remote MDS with nodsh" && return
-        remote_ost_nodsh && skip "remote OST with nodsh" && return
+	[ "$OSTCOUNT" -lt "2" ] && skip_env "too few OSTs" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	remote_ost_nodsh && skip "remote OST with nodsh" && return
 
         exhaust_all_precreations 0x215
         reset_enospc
@@ -1228,10 +1228,9 @@ test_27v() { # bug 4900
 
         local FINISH=`date +%s`
         local TIMEOUT=`lctl get_param -n timeout`
-        local PROCESS=$((FINISH - START))
-        [ $PROCESS -ge $((TIMEOUT / 2)) ] && \
+        [ $((FINISH - START)) -ge $((TIMEOUT / 2)) ] && \
                error "$FINISH - $START >= $TIMEOUT / 2"
-        sleep $((TIMEOUT / 2 - PROCESS))
+
         reset_enospc
 }
 run_test 27v "skip object creation on slow OST ================="
@@ -8260,22 +8259,21 @@ test_220() { #LU-325
 	echo "OST still has $count objects"
 
 	free=$((count + last_id - next_id))
-	echo "create $((free - next_id)) files @next_id..."
+	echo "create $free files..."
 	createmany -o $DIR/$tdir/f $next_id $free || return 3
 
-	local last_id2=$(do_facet mds${MDSIDX} lctl get_param -n \
+	local last_id=$(do_facet mds${MDSIDX} lctl get_param -n \
 			osc.$mdtosc_proc1.prealloc_last_id)
-	local next_id2=$(do_facet mds${MDSIDX} lctl get_param -n \
+	local next_id=$(do_facet mds${MDSIDX} lctl get_param -n \
 			osc.$mdtosc_proc1.prealloc_next_id)
 
-	echo "after creation, last_id=$last_id2, next_id=$next_id2"
+	echo "after creation, last_id=$last_id, next_id=$next_id"
 	$LFS df -i
 
 	echo "cleanup..."
 
 	do_facet mgs $LCTL pool_remove $FSNAME.$TESTNAME $OST || return 4
 	do_facet mgs $LCTL pool_destroy $FSNAME.$TESTNAME || return 5
-	echo "unlink $((free - next_id)) files @ $next_id..."
 	unlinkmany $DIR/$tdir/f $next_id $free || return 3
 }
 run_test 220 "the preallocated objects in MDS still can be used if ENOSPC is returned by OST with enough disk space"
