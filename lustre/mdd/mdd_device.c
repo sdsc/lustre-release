@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
@@ -1495,6 +1498,21 @@ static int mdd_iocontrol(const struct lu_env *env, struct md_device *m,
         if (cmd == OBD_IOC_CHANGELOG_CLEAR) {
                 struct changelog_setinfo *cs = karg;
                 rc = mdd_changelog_user_purge(mdd, cs->cs_id, cs->cs_recno);
+                RETURN(rc);
+        } else if (cmd == OBD_IOC_CHK_MNTOPT) {
+                mntopt_t mntopt = *(mntopt_t *)karg;
+
+                switch (mntopt) {
+                case MNTOPT_USERXATTR:
+                        rc = !mdd->mdd_dt_conf.ddp_mntopt_userxattr;
+                        break;
+                case MNTOPT_ACL:
+                        rc = !mdd->mdd_dt_conf.ddp_mntopt_acl;
+                        break;
+                default:
+                        rc = -EINVAL;
+                        break;
+                }
                 RETURN(rc);
         }
 
