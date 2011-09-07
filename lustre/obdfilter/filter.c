@@ -179,8 +179,14 @@ int filter_finish_transno(struct obd_export *exp, struct inode *inode,
         lcd->lcd_last_xid = cpu_to_le64(oti->oti_xid);
         cfs_spin_unlock(&obt->obt_lut->lut_translock);
 
-        if (inode)
-                fsfilt_set_version(exp->exp_obd, inode, last_rcvd);
+        if (inode) {
+                __u64 inode_ver = fsfilt_get_version(exp->exp_obd, inode);
+                if (last_rcvd <= inode_ver)
+                        CERROR("New version "LPU64", inode version "LPU64"\n",
+                               last_rcvd, inode_ver);
+                else
+                        fsfilt_set_version(exp->exp_obd, inode, last_rcvd);
+        }
 
         off = ted->ted_lr_off;
         if (off <= 0) {
