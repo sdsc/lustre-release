@@ -1058,7 +1058,9 @@ int filter_brw(int cmd, struct obd_export *exp, struct obd_info *oinfo,
 
         ret = filter_commitrw(cmd, exp, oinfo->oi_oa, 1, &ioo, rnb,
                               npages, lnb, oti, ret);
-
+        if (ret == -EOVERFLOW)
+                CERROR("%s: commitrw returns OVERFLOW, may break recovery\n",
+                       exp->exp_obd->obd_name);
 out:
         if (lnb)
                 OBD_FREE(lnb, oa_bufs * sizeof(struct niobuf_local));

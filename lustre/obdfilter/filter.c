@@ -108,7 +108,7 @@ int filter_version_get_check(struct obd_export *exp,
         /* VBR: version is checked always because costs nothing */
         if (oti->oti_pre_version != 0 &&
             oti->oti_pre_version != curr_version) {
-                CDEBUG(D_INODE, "Version mismatch "LPX64" != "LPX64"\n",
+                CDEBUG(D_INODE|D_ERROR, "Version mismatch "LPX64" != "LPX64"\n",
                        oti->oti_pre_version, curr_version);
                 cfs_spin_lock(&exp->exp_lock);
                 exp->exp_vbr_failed = 1;
