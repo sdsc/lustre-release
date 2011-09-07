@@ -1984,6 +1984,15 @@ AC_DEFUN([LC_EXPORT_ADD_TO_PAGE_CACHE_LRU],
 
 # 2.6.31
 
+# 2.6.30 x86 node_to_cpumask has been removed. must use cpumask_of_node
+AC_DEFUN([LC_EXPORT_CPUMASK_OF_NODE],
+         [LB_CHECK_SYMBOL_EXPORT([node_to_cpumask_map],
+                                 [arch/$LINUX_ARCH/mm/numa.c],
+                                 [AC_DEFINE(HAVE_CPUMASK_OF_NODE, 1,
+                                            [node_to_cpumask_map is exported by
+                                             the kernel])]) # x86_64
+         ])
+
 # 2.6.31 replaces blk_queue_hardsect_size by blk_queue_logical_block_size function
 AC_DEFUN([LC_BLK_QUEUE_LOG_BLK_SIZE],
 [AC_MSG_CHECKING([if blk_queue_logical_block_size is defined])
@@ -2328,6 +2337,9 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_SB_ANY_QUOTA_ACTIVE
          LC_SB_HAS_QUOTA_ACTIVE
          LC_EXPORT_ADD_TO_PAGE_CACHE_LRU
+
+         # 2.6.30
+         LC_EXPORT_CPUMASK_OF_NODE
 
          # 2.6.31
          LC_BLK_QUEUE_LOG_BLK_SIZE
