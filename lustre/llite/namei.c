@@ -636,6 +636,8 @@ static struct dentry *ll_lookup_nd(struct inode *parent, struct dentry *dentry,
         struct dentry *de;
         ENTRY;
 
+        ll_stats_ops_tally(ll_i2sbi(parent), LPROC_LL_LOOKUP, 1);
+
         if (nd && !(nd->flags & (LOOKUP_CONTINUE|LOOKUP_PARENT))) {
                 struct lookup_intent *it;
 
@@ -903,6 +905,8 @@ static int ll_create_nd(struct inode *dir, struct dentry *dentry,
         struct lookup_intent *it = ll_d2d(dentry)->lld_it;
         int rc;
 
+        ll_stats_ops_tally(ll_i2sbi(dir), LPROC_LL_CREATE, 1);
+
         if (!it)
                 return ll_mknod_generic(dir, &dentry->d_name, mode, 0, dentry);
 
@@ -941,6 +945,8 @@ static int ll_symlink_generic(struct inode *dir, struct qstr *name,
                name->len, name->name, dir->i_ino, dir->i_generation,
                dir, 3000, tgt);
 
+        ll_stats_ops_tally(ll_i2sbi(dir), LPROC_LL_SYMLINK, 1);
+
         err = ll_new_node(dir, name, (char *)tgt, S_IFLNK | S_IRWXUGO,
                           0, dchild, LUSTRE_OPC_SYMLINK);
         RETURN(err);
@@ -959,6 +965,8 @@ static int ll_link_generic(struct inode *src,  struct inode *dir,
                "VFS Op: inode=%lu/%u(%p), dir=%lu/%u(%p), target=%.*s\n",
                src->i_ino, src->i_generation, src, dir->i_ino,
                dir->i_generation, dir, name->len, name->name);
+
+        ll_stats_ops_tally(sbi, LPROC_LL_LINK, 1);
 
         op_data = ll_prep_md_op_data(NULL, src, dir, name->name, name->len,
                                      0, LUSTRE_OPC_ANY, NULL);
@@ -988,6 +996,8 @@ static int ll_mkdir_generic(struct inode *dir, struct qstr *name,
 
         CDEBUG(D_VFSTRACE, "VFS Op:name=%.*s,dir=%lu/%u(%p)\n",
                name->len, name->name, dir->i_ino, dir->i_generation, dir);
+
+        ll_stats_ops_tally(ll_i2sbi(dir), LPROC_LL_MKDIR, 1);
 
         mode = (mode & (S_IRWXUGO|S_ISVTX) & ~cfs_curproc_umask()) | S_IFDIR;
         err = ll_new_node(dir, name, NULL, mode, 0, dchild, LUSTRE_OPC_MKDIR);
@@ -1021,6 +1031,8 @@ static int ll_rmdir_generic(struct inode *dir, struct dentry *dparent,
 
         CDEBUG(D_VFSTRACE, "VFS Op:name=%.*s,dir=%lu/%u(%p)\n",
                name->len, name->name, dir->i_ino, dir->i_generation, dir);
+
+        ll_stats_ops_tally(ll_i2sbi(dir), LPROC_LL_RMDIR, 1);
 
         if (unlikely(ll_d_mountpoint(dparent, dchild, name)))
                 RETURN(-EBUSY);
@@ -1129,6 +1141,8 @@ static int ll_unlink_generic(struct inode *dir, struct dentry *dparent,
         CDEBUG(D_VFSTRACE, "VFS Op:name=%.*s,dir=%lu/%u(%p)\n",
                name->len, name->name, dir->i_ino, dir->i_generation, dir);
 
+        ll_stats_ops_tally(ll_i2sbi(dir), LPROC_LL_UNLINK, 1);
+
         /*
          * XXX: unlink bind mountpoint maybe call to here,
          * just check it as vfs_unlink does.
@@ -1169,6 +1183,8 @@ static int ll_rename_generic(struct inode *src, struct dentry *src_dparent,
                "tgt_dir=%lu/%u(%p)\n", src_name->len, src_name->name,
                src->i_ino, src->i_generation, src, tgt_name->len,
                tgt_name->name, tgt->i_ino, tgt->i_generation, tgt);
+
+        ll_stats_ops_tally(sbi, LPROC_LL_RENAME, 1);
 
         if (unlikely(ll_d_mountpoint(src_dparent, src_dchild, src_name) ||
             ll_d_mountpoint(tgt_dparent, tgt_dchild, tgt_name)))
