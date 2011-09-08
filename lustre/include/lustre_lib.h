@@ -804,6 +804,7 @@ do {                                                                    \
                         }                                               \
                 }                                                       \
         }                                                               \
+        SET_BUT_UNUSED(wq); /* avoid set-but-unuse warning */           \
 } while (0)
 
 #endif /* __KERNEL__ */
