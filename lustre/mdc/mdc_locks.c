@@ -637,7 +637,6 @@ int mdc_enqueue(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
 {
         struct obd_device     *obddev = class_exp2obd(exp);
         struct ptlrpc_request *req = NULL;
-        struct req_capsule    *pill;
         int                    flags, saved_flags = extra_lock_flags;
         int                    rc;
         struct ldlm_res_id res_id;
@@ -692,7 +691,6 @@ resend:
 
         if (IS_ERR(req))
                 RETURN(PTR_ERR(req));
-        pill = &req->rq_pill;
 
 	if (req != NULL && it && it->it_op & IT_CREAT)
 		/* ask ptlrpc not to resend on EINPROGRESS since we have our own
