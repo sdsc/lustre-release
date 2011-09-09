@@ -48,6 +48,10 @@
 void lprocfs_mgc_init_vars(struct lprocfs_static_vars *lvars);
 int lprocfs_mgc_rd_ir_state(char *page, char **start, off_t off,
                             int count, int *eof, void *data);
+int lprocfs_mgc_rd_cnrp(char *page, char **start, off_t off,
+                        int count, int *eof, void *data);
+int lprocfs_mgc_wr_cnrp(struct file *file, const char *buffer,
+                        unsigned long count, void *data);
 #else
 static void lprocfs_mgc_init_vars(struct lprocfs_static_vars *lvars)
 {
@@ -55,6 +59,16 @@ static void lprocfs_mgc_init_vars(struct lprocfs_static_vars *lvars)
 }
 static inline int lprocfs_mgc_rd_ir_state(char *page, char **start,
         off_t off, int count, int *eof, void *data)
+{
+        return 0;
+}
+static inline int lprocfs_mgc_rd_cnrp(char *page, char **start,
+        off_t off, int count, int *eof, void *data)
+{
+        return 0;
+}
+static inline int lprocfs_mgc_wr_cnrp(struct file *file,
+        const char *buffer, unsigned long count, void *data)
 {
         return 0;
 }
