@@ -107,7 +107,7 @@ struct ll_rpc_opcode {
         { MGS_TARGET_REG,   "mgs_target_reg" },
         { MGS_TARGET_DEL,   "mgs_target_del" },
         { MGS_SET_INFO,     "mgs_set_info" },
-        { MGS_GET_INFO,     "mgs_get_info" },
+        { MGS_CONFIG_READ,  "mgs_config_read" },
         { OBD_PING,         "obd_ping" },
         { OBD_LOG_CANCEL,   "llog_origin_handle_cancel" },
         { OBD_QC_CALLBACK,  "obd_quota_callback" },

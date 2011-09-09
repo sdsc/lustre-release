@@ -1225,6 +1225,31 @@ static int mgc_llog_finish(struct obd_device *obd, int count)
         RETURN(rc);
 }
 
+static int config_read_nrpages = 4;
+
+int lprocfs_mgc_rd_cnrp(char *page, char **start, off_t off,
+                        int count, int *eof, void *data)
+{
+        return snprintf(page, count, "%d\n", config_read_nrpages);
+}
+
+int lprocfs_mgc_wr_cnrp(struct file *file, const char *buffer,
+                        unsigned long count, void *data)
+{
+        int val = 0;
+        int rc;
+
+        rc = lprocfs_write_helper(buffer, count, &val);
+        if (rc < 0)
+                return rc;
+
+        if (val <= 0 || val > PTLRPC_MAX_BRW_PAGES)
+                return -ERANGE;
+
+        config_read_nrpages = val;
+        return count;
+}
+
 static int mgc_apply_recover_logs(struct obd_device *obd,
                                   struct config_llog_data *cld,
                                   u64 max_version,
@@ -1279,12 +1304,19 @@ static int mgc_apply_recover_logs(struct obd_device *obd,
                         break;
 
                 entry_len += sizeof(entry->mne_nid_count) * sizeof(lnet_nid_t);
-                off     += entry_len;
-                datalen -= entry_len;
-                if (datalen < 0)
+                if (datalen < entry_len) /* must have entry_len at least */
                         break;
 
                 lustre_swab_mgs_nidtbl_entry(entry);
+                LASSERT(entry->mne_length <= CFS_PAGE_SIZE);
+                if (entry->mne_length < entry_len)
+                        break;
+
+                off     += entry->mne_length;
+                datalen -= entry->mne_length;
+                if (datalen < 0)
+                        break;
+
                 if (entry->mne_version > max_version) {
                         CERROR("entry index(%lld) is over max_index(%lld)\n",
                                entry->mne_version, max_version);
@@ -1382,30 +1414,52 @@ static int mgc_apply_recover_logs(struct obd_device *obd,
 static int mgc_process_recover_log(struct obd_device *obd,
                                    struct config_llog_data *cld)
 {
-        struct ptlrpc_request *req;
+        struct ptlrpc_request *req = NULL;
         struct config_llog_instance *cfg = &cld->cld_cfg;
         struct mgs_nidtbl_vers *vers;
-        void *ptr;
+        struct ptlrpc_bulk_desc *desc;
         bool more = false;
+        cfs_page_t **pages;
+        int nrpages = config_read_nrpages;
+        int i;
+        void *ptr;
         int ealen;
         int rc;
         ENTRY;
+
+        /* allocate buffer for bulk transfer, the # of pages should be
+         * configurable */
+        OBD_ALLOC(pages, sizeof(*pages) * nrpages);
+        if (pages == NULL)
+                GOTO(out, rc = -ENOMEM);
+
+        for (i = 0; i < nrpages; i++) {
+                pages[i] = cfs_alloc_page(CFS_ALLOC_STD);
+                if (pages[i] == NULL)
+                        GOTO(out, rc = -ENOMEM);
+        }
 
 again:
         LASSERT(cld_is_recover(cld));
         LASSERT(cfs_mutex_is_locked(&cld->cld_lock));
         req = ptlrpc_request_alloc(class_exp2cliimp(cld->cld_mgcexp),
-                                   &RQF_MGS_GET_INFO);
+                                   &RQF_MGS_CONFIG_READ);
         if (req == NULL)
-                RETURN(-ENOMEM);
+                GOTO(out, rc = -ENOMEM);
 
         req_capsule_set_size(&req->rq_pill, &RMF_GETINFO_KEY, RCL_CLIENT,
                              sizeof(KEY_IR_LOGS) + 1);
         req_capsule_set_size(&req->rq_pill, &RMF_NAME, RCL_CLIENT,
                              strlen(cld->cld_logname) + 1);
-        rc = ptlrpc_request_pack(req, LUSTRE_MGS_VERSION, MGS_GET_INFO);
+        rc = ptlrpc_request_pack(req, LUSTRE_MGS_VERSION, MGS_CONFIG_READ);
         if (rc)
                 GOTO(out, rc);
+
+        /* allocate bulk transfer descriptor */
+        desc = ptlrpc_prep_bulk_imp(req, nrpages, BULK_PUT_SINK,
+                                    MGS_BULK_PORTAL);
+        if (desc == NULL)
+                GOTO(out, rc = -ENOMEM);
 
         ptr = req_capsule_client_get(&req->rq_pill, &RMF_GETINFO_KEY);
         LASSERT(ptr);
@@ -1417,12 +1471,14 @@ again:
         LASSERT(vers);
         vers->mnv_cur = cfg->cfg_last_idx + 1;
         vers->mnv_latest = 0;
+        ptr = req_capsule_client_get(&req->rq_pill, &RMF_U32);
+        LASSERT(ptr);
+        *(u32 *)ptr = nrpages;
 
-        /* set the maximum log size to LLOG_CHUNK_SIZE */
-        req_capsule_set_size(&req->rq_pill, &RMF_GETINFO_VAL, RCL_SERVER,
-                             LLOG_CHUNK_SIZE);
+        for (i = 0; i < nrpages; i++)
+                ptlrpc_prep_bulk_page(desc, pages[i], 0, CFS_PAGE_SIZE);
+
         ptlrpc_request_set_replen(req);
-
         rc = ptlrpc_queue_wait(req);
         if (rc)
                 GOTO(out, rc);
@@ -1439,25 +1495,42 @@ again:
         CDEBUG(D_INFO, "Latest version "LPD64"/"LPD64", more %d.\n",
                vers->mnv_cur, vers->mnv_latest, more);
 
-        /* get size from message buffer. */
-        ealen = req_capsule_get_size(&req->rq_pill, &RMF_GETINFO_VAL,
-                                     RCL_SERVER);
-        if (ealen == 0) { /* no logs, always means a client gets log 1st time */
+        ealen = sptlrpc_cli_unwrap_bulk_read(req, req->rq_bulk, 0);
+        if (ealen < 0)
+                GOTO(out, rc = ealen);
+
+        if (ealen > nrpages << CFS_PAGE_SHIFT)
+                GOTO(out, rc = -EINVAL);
+        if (ealen == 0) { /* no logs transferred */
                 if (vers->mnv_cur != vers->mnv_latest)
                         rc = -EINVAL;
                 GOTO(out, rc);
         }
 
-        ptr = req_capsule_server_sized_get(&req->rq_pill,
-                                           &RMF_GETINFO_VAL, ealen);
-        LASSERT(ptr != NULL);
+        for (i = 0; i < nrpages && ealen > 0; i++) {
+                ptr = cfs_page_address(pages[i]);
+                rc = mgc_apply_recover_logs(obd, cld, vers->mnv_cur, ptr,
+                                            min_t(int, ealen, CFS_PAGE_SIZE));
+                if (rc)
+                        break;
 
-        rc = mgc_apply_recover_logs(obd, cld, vers->mnv_cur, ptr, ealen);
+                ealen -= CFS_PAGE_SIZE;
+        }
+
 out:
-        ptlrpc_req_finished(req);
+        if (req)
+                ptlrpc_req_finished(req);
         if (rc == 0 && more) {
                 more = false;
                 goto again;
+        }
+        if (pages) {
+                for (i = 0; i < nrpages; i++) {
+                        if (pages[i] == NULL)
+                                break;
+                        cfs_free_page(pages[i]);
+                }
+                OBD_FREE(pages, sizeof(*pages) * nrpages);
         }
         return rc;
 }

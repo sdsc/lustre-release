@@ -52,6 +52,8 @@ static struct lprocfs_vars lprocfs_mgc_obd_vars[] = {
         { "import",          lprocfs_rd_import,        0, 0 },
         { "state",           lprocfs_rd_state,         0, 0 },
         { "ir_state",        lprocfs_mgc_rd_ir_state,  0, 0 },
+        { "cfgrd_nrpages",   lprocfs_mgc_rd_cnrp,
+                             lprocfs_mgc_wr_cnrp,      0, 0 },
         { 0 }
 };
 
