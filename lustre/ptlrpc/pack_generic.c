@@ -1794,6 +1794,7 @@ void lustre_swab_mgs_nidtbl_entry(struct mgs_nidtbl_entry *entry)
         __swab64s(&entry->mne_version);
         __swab32s(&entry->mne_instance);
         __swab32s(&entry->mne_index);
+        __swab32s(&entry->mne_length);
         __swab16s(&entry->mne_nid_type);
         CLASSERT(sizeof(lnet_nid_t) == sizeof(__u64));
         /* mne_nid_count must be one byte size because we're gonna access it

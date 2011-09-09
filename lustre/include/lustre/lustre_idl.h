@@ -142,6 +142,7 @@
 #define SEQ_METADATA_PORTAL            30
 #define SEQ_DATA_PORTAL                31
 #define SEQ_CONTROLLER_PORTAL          32
+#define MGS_BULK_PORTAL                33
 
 /* Portal 63 is reserved for the Cray Inc DVS - nic@cray.com, roe@cray.com, n8851@cray.com */
 
@@ -2381,7 +2382,7 @@ typedef enum {
         MGS_TARGET_REG,        /* whenever target starts up */
         MGS_TARGET_DEL,
         MGS_SET_INFO,
-        MGS_GET_INFO,
+        MGS_CONFIG_READ,
         MGS_LAST_OPC
 } mgs_cmd_t;
 #define MGS_FIRST_OPC MGS_CONNECT
@@ -2416,7 +2417,7 @@ struct mgs_nidtbl_entry {
         __u64           mne_version;    /* table version of this entry */
         __u32           mne_instance;   /* target instance # */
         __u32           mne_index;      /* target index */
-        __u32           mne_pad;
+        __u32           mne_length;     /* length of this entry - by bytes */
         __u8            mne_type;       /* target type LDD_F_SV_TYPE_OST/MDT */
         __u8            mne_nid_count;  /* # of nids in entry */
         __u16           mne_nid_type;   /* type of nid(mbz). for ipv6. */

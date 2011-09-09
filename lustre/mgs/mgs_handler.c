@@ -646,7 +646,7 @@ static int mgs_set_info_rpc(struct ptlrpc_request *req)
         RETURN(rc);
 }
 
-static int mgs_get_info_rpc(struct ptlrpc_request *req)
+static int mgs_config_read(struct ptlrpc_request *req)
 {
         void *key;
         int keylen;
@@ -661,6 +661,8 @@ static int mgs_get_info_rpc(struct ptlrpc_request *req)
 
         if (KEY_IS(KEY_IR_LOGS))
                 rc = mgs_get_ir_logs(req);
+        else if (KEY_IS(KEY_CFG_LOGS))
+                rc = -ENOTSUPP;
         else
                 rc = -EINVAL;
         RETURN(rc);
@@ -837,10 +839,10 @@ int mgs_handle(struct ptlrpc_request *req)
                 req_capsule_set(&req->rq_pill, &RQF_MGS_SET_INFO);
                 rc = mgs_set_info_rpc(req);
                 break;
-        case MGS_GET_INFO:
-                DEBUG_REQ(D_MGS, req, "get info");
-                req_capsule_set(&req->rq_pill, &RQF_MGS_GET_INFO);
-                rc = mgs_get_info_rpc(req);
+        case MGS_CONFIG_READ:
+                DEBUG_REQ(D_MGS, req, "read config");
+                req_capsule_set(&req->rq_pill, &RQF_MGS_CONFIG_READ);
+                rc = mgs_config_read(req);
                 break;
         case LDLM_ENQUEUE:
                 DEBUG_REQ(D_MGS, req, "enqueue");
