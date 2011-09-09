@@ -1140,7 +1140,7 @@ get_ir_status()
 nidtbl_version_mgs()
 {
         local ver=$(do_facet mgs "lctl get_param -n mgs.MGS.live.$FSNAME |
-                                  awk '/nidtbl/{ print \\\$3 }'")
+                                  awk '/nidtbl_version:/{ print \\\$2 }'")
         echo -n $ver
 }
 
@@ -1162,7 +1162,7 @@ nidtbl_version_client()
         fi
 
         local vers=$(do_node $node "lctl get_param -n mgc.*.ir_state" |
-                     awk "/$cli/{print \$5}" |sort -u)
+                     awk "/$cli/{print \$4}" |sort -u)
 
         # in case there are multiple mounts on the client node
         local arr=($vers)
@@ -1260,9 +1260,13 @@ test_102()
         # int mgc_request.c:
         # define MGC_TIMEOUT_MIN_SECONDS   10
         # define MGC_TIMEOUT_RAND_CENTISEC 0x1ff /* ~500 *
-        sleep 15
+        local count=20  # 20 seconds at most
+        while [ $count -gt 0 ]; do
+                nidtbl_versions_match && break
+                count=$((count-1))
+        done
 
-        nidtbl_versions_match || error "nidtbl version mismatch"
+        [ $count -eq 0 ] || error "nidtbl version mismatch"
 
         # get the version #
         old_version=`nidtbl_version_client client`
@@ -1305,8 +1309,14 @@ test_103()
         umount_client $MOUNT || error "umount failed"
         mount_client $MOUNT || error "mount failed"
 
-        # sleep 10 seconds so the MDS has a chance to detect MGS restarting
-        sleep 10
+        # sleep 30 seconds so the MDS has a chance to detect MGS restarting
+        local count=30
+        while [ $count -gt 0 ]; do
+                [ `nidtbl_version_client mds1` -ne 0 ] && break
+                sleep 1
+                count=$((count-1))
+        done
+        [ $count -eq 0 ] && error "timed out"
 
         # after a while, mds should be able to reconnect to mgs and fetch
         # up-to-date nidtbl version

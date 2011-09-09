@@ -771,15 +771,16 @@ int lprocfs_rd_ir_state(struct seq_file *seq, void *data)
         ir_state_graduate(fsdb);
 
         seq_printf(seq,
-                   "\tstate: %s, nonir clients: %d\n"
-                   "\tnidtbl version: %lld\n",
+                   "\tstate: %s\n"
+                   "\tnonir_clients: %d\n"
+                   "\tnidtbl_version: %lld\n",
                    ir_strings[fsdb->fsdb_ir_state], fsdb->fsdb_nonir_clients,
                    tbl->mn_version);
 
         cfs_duration_usec(fsdb->fsdb_notify_total, &tv);
         cfs_duration_usec(fsdb->fsdb_notify_max, &tv_max);
 
-        seq_printf(seq, "\tnotify total/max/count: %lu.%06lu/%lu.%06lu/%u\n",
+        seq_printf(seq, "\tnotify_stats: %lu.%03lu/%lu.%03lu/%u\n",
                    tv.tv_sec, tv.tv_usec,
                    tv_max.tv_sec, tv_max.tv_usec,
                    fsdb->fsdb_notify_count);

@@ -424,14 +424,14 @@ int lprocfs_mgc_rd_ir_state(char *page, char **start, off_t off,
 
         rc = snprintf(page, count, "IR: %s\n",
                       OCD_HAS_FLAG(ocd, IMP_RECOV) ? "ON" : "OFF");
-        rc += snprintf(page + rc, count - rc, "Fs Cli State:\n");
+        rc += snprintf(page + rc, count - rc, "FS Client State:\n");
 
         cfs_spin_lock(&config_list_lock);
         cfs_list_for_each_entry(cld, &config_llog_list, cld_list_chain) {
                 if (cld->cld_recover == NULL)
                         continue;
                 rc += snprintf(page + rc, count - rc,
-                               "  fscli: %s, nidtbl version: %u\n",
+                               "\tclient: %s, nidtbl_version: %u\n",
                                cld->cld_logname,
                                cld->cld_recover->cld_cfg.cfg_last_idx);
         }
