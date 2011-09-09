@@ -79,16 +79,6 @@ rmultiop_stop() {
     wait ${!do_node_pid}
 }
 
-get_version() {
-    local var=${SINGLEMDS}_svc
-    local client=$1
-    local file=$2
-    local fid
-
-    fid=$(do_node $client $LFS path2fid $file)
-    do_facet $SINGLEMDS $LCTL --device ${!var} getobjversion $fid
-}
-
 #save COS setting
 cos_param_file=$TMP/rvbr-cos-params
 save_lustre_params $(comma_list $(mdts_nodes)) "mdt.*.commit_on_sharing" > $cos_param_file

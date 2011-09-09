@@ -4625,3 +4625,13 @@ is_sanity_benchmark() {
 min_ost_size () {
     $LCTL get_param -n osc.*.kbytesavail | sort -n | head -n1
 }
+
+get_version() {
+    local var=${SINGLEMDS}_svc
+    local client=$1
+    local file=$2
+    local fid
+
+    fid=$(do_node $client $LFS path2fid $file)
+    do_facet $SINGLEMDS $LCTL --device ${!var} getobjversion $fid
+}

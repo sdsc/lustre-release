@@ -8280,6 +8280,26 @@ test_220() { #LU-325
 }
 run_test 220 "the preallocated objects in MDS still can be used if ENOSPC is returned by OST with enough disk space"
 
+test_221a()
+{
+        get_version $SINGLECLIENT $DIR/$tdir/1a || true
+}
+run_test 221a "getversion for non existent file should be don't panic"
+
+test_221b()
+{
+        local var=${SINGLEMDS}_svc
+        local fid
+        local file=$DIR/$tdir/f
+
+        do_facet client mkdir -p $DIR/$tdir/
+        do_facet client touch $file
+        fid=$(do_facet client $LFS path2fid $file)
+        do_facet client rm -rf $file
+        do_facet $SINGLEMDS $LCTL --device ${!var} getobjversion $fid || true
+}
+run_test 221b "getversion for non existent fid should be don't panic"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
