@@ -1170,6 +1170,7 @@ enum obd_cleanup_stage {
 #define KEY_CONNECT_FLAG        "connect_flags"
 #define KEY_SYNC_LOCK_CANCEL    "sync_lock_cancel"
 #define KEY_IR_LOGS             "ir_logs"
+#define KEY_CFG_LOGS            "cfg_logs"
 
 
 struct lu_context;

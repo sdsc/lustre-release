@@ -89,13 +89,17 @@ static int nidtbl_is_sane(struct mgs_nidtbl *tbl)
  */
 static int mgs_nidtbl_read(struct obd_device *unused, struct mgs_nidtbl *tbl,
                            struct mgs_nidtbl_vers *vers, int is_client,
-                           void *buf, int buflen)
+                           cfs_page_t **pages, int nrpages)
 {
         struct mgs_nidtbl_target *tgt;
         struct mgs_nidtbl_entry  *entry;
+        struct mgs_nidtbl_entry  *last_in_page = NULL;
         struct mgs_target_info   *mti;
         u64 version = vers->mnv_cur;
         bool nobuf = false;
+        void *buf = NULL;
+        int buflen = 0;
+        int index = 0;
         int rc = 0;
         ENTRY;
 
@@ -127,19 +131,47 @@ static int mgs_nidtbl_read(struct obd_device *unused, struct mgs_nidtbl *tbl,
                 mti  = &tgt->mnt_mti;
                 LASSERT(mti->mti_nid_count < MTI_NIDS_MAX);
                 entry_len += mti->mti_nid_count * sizeof(lnet_nid_t);
+
+                LASSERTF(entry_len < CFS_PAGE_SIZE,
+                         "too large entry: nid count %d\n", mti->mti_nid_count);
+
                 if (buflen < entry_len) {
-                        nobuf = true;
-                        break;
+                        if (index >= nrpages) {
+                                nobuf = true;
+                                break;
+                        }
+
+                        if (last_in_page != NULL && buflen) {
+                                /* entry has been swapped. */
+                                __swab32s(&last_in_page->mne_length);
+                                last_in_page->mne_length += buflen;
+                                __swab32s(&last_in_page->mne_length);
+                                rc += buflen;
+                                last_in_page = NULL;
+                        }
+                        LASSERT((rc & ~CFS_PAGE_MASK) == 0);
+
+                        /* allocate a new page */
+                        pages[index] = cfs_alloc_page(CFS_ALLOC_STD);
+                        if (pages[index] == NULL) {
+                                rc = -ENOMEM;
+                                break;
+                        }
+
+                        /* reassign buffer */
+                        buflen = CFS_PAGE_SIZE;
+                        buf = cfs_page_address(pages[index]);
+                        ++index;
                 }
 
                 entry = (struct mgs_nidtbl_entry *)buf;
                 entry->mne_version   = tgt->mnt_version;
                 entry->mne_instance  = mti->mti_instance;
                 entry->mne_index     = mti->mti_stripe_index;
+                entry->mne_length    = entry_len;
                 entry->mne_type      = LDD_F_SV_TYPE_OST;
                 if (tgt->mnt_is_ost == 0)
                         entry->mne_type = LDD_F_SV_TYPE_MDT;
-                entry->mne_pad       = 0;
                 entry->mne_nid_type  = 0;
                 entry->mne_nid_count = mti->mti_nid_count;
                 memcpy(entry->mne_nids, mti->mti_nids,
@@ -150,6 +182,12 @@ static int mgs_nidtbl_read(struct obd_device *unused, struct mgs_nidtbl *tbl,
                 buflen -= entry_len;
                 rc     += entry_len;
                 buf    += entry_len;
+
+                last_in_page = entry;
+
+                CDEBUG(D_MGS, "fsname %s, entry %d, pages %d/%d/%d.\n",
+                       tbl->mn_fsdb->fsdb_name, entry_len,
+                       buflen, index, nrpages);
         }
 out:
         LASSERT(version <= vers->mnv_latest);
@@ -157,8 +195,8 @@ out:
         cfs_mutex_unlock(&tbl->mn_lock);
         LASSERT(ergo(version == 1, rc == 0)); /* get the log first time */
 
-        CDEBUG(D_INFO, "IR: read_logs return with %d, version %llu\n",
-               rc, version);
+        CDEBUG(D_MGS, "Read IR logs %s return with %d, version %llu\n",
+               tbl->mn_fsdb->fsdb_name, rc, version);
         RETURN(rc);
 }
 
@@ -312,7 +350,7 @@ static int mgs_nidtbl_init_fs(struct fs_db *fsdb)
         cfs_mutex_lock(&tbl->mn_lock);
         tbl->mn_version = nidtbl_read_version(fsdb->fsdb_obd, tbl);
         cfs_mutex_unlock(&tbl->mn_lock);
-        CDEBUG(D_INFO, "IR: current version is %llu\n", tbl->mn_version);
+        CDEBUG(D_MGS, "IR: current version is %llu\n", tbl->mn_version);
 
         return 0;
 }
@@ -521,11 +559,19 @@ int mgs_get_ir_logs(struct ptlrpc_request *req)
         struct obd_device *obd = req->rq_export->exp_obd;
         struct fs_db      *fsdb;
         struct mgs_nidtbl_vers *vers;
+        struct mgs_nidtbl_vers *tmp;
+        struct ptlrpc_bulk_desc *desc;
+        struct l_wait_info lwi;
+        void              *ptr;
         char              *logname;
-        void              *buf = NULL;
         char               fsname[16];
         int                type;
         int                rc = 0;
+        int                i;
+        int                bytes;
+        int                page_count;
+        int                nrpages;
+        cfs_page_t       **pages = NULL;
         ENTRY;
 
         logname = req_capsule_client_get(&req->rq_pill, &RMF_NAME);
@@ -539,44 +585,67 @@ int mgs_get_ir_logs(struct ptlrpc_request *req)
         if (rc)
                 RETURN(rc);
 
-        OBD_ALLOC(buf, LLOG_CHUNK_SIZE);
-        if (buf == NULL)
+        ptr = req_capsule_client_get(&req->rq_pill, &RMF_U32);
+        if (ptr == NULL)
+                RETURN(-EINVAL);
+        nrpages = *(u32 *)ptr;
+        if (nrpages <= 0 || nrpages > PTLRPC_MAX_BRW_PAGES)
+                RETURN(-EINVAL);
+
+        OBD_ALLOC(pages, sizeof(*pages) * nrpages);
+        if (pages == NULL)
                 RETURN(-ENOMEM);
 
         rc = mgs_find_or_make_fsdb(obd, fsname, &fsdb);
         if (rc)
                 GOTO(out, rc);
 
-        rc = mgs_nidtbl_read(obd, &fsdb->fsdb_nidtbl, vers,
-                             type == IR_CLIENT,
-                             buf, LLOG_CHUNK_SIZE);
+        CDEBUG(D_MGS, "Reading IR log %s nrpages %d.\n", logname, nrpages);
 
-        if (rc >= 0) {
-                struct mgs_nidtbl_vers *tmp;
-                int buflen = rc;
+        bytes = mgs_nidtbl_read(obd, &fsdb->fsdb_nidtbl, vers,
+                                type == IR_CLIENT,
+                                pages, nrpages);
+        if (bytes < 0)
+                GOTO(out, rc = bytes);
 
-                req_capsule_set_size(&req->rq_pill, &RMF_GETINFO_VAL,
-                                     RCL_SERVER, buflen);
-                rc = req_capsule_server_pack(&req->rq_pill);
-                if (rc)
-                        GOTO(out, rc);
+        rc = req_capsule_server_pack(&req->rq_pill);
+        if (rc)
+                GOTO(out, rc);
 
-                tmp = req_capsule_server_get(&req->rq_pill,
-                                             &RMF_MGS_NIDTBL_VERS);
-                *(struct mgs_nidtbl_vers *)tmp = *vers;
+        tmp = req_capsule_server_get(&req->rq_pill,
+                        &RMF_MGS_NIDTBL_VERS);
+        *(struct mgs_nidtbl_vers *)tmp = *vers;
 
-                if (buflen > 0) {
-                        void *eatbl;
-                        eatbl = req_capsule_server_get(&req->rq_pill,
-                                                        &RMF_GETINFO_VAL);
-                        memcpy(eatbl, buf, buflen);
-                }
-                req_capsule_shrink(&req->rq_pill, &RMF_GETINFO_VAL, buflen,
-                                   RCL_SERVER);
+        ptr = req_capsule_server_get(&req->rq_pill,
+                        &RMF_U32);
+        *(u32 *)ptr = 0; /* not used */
+
+        /* start bulk transfer */
+        page_count = (bytes + CFS_PAGE_SIZE - 1 ) >> CFS_PAGE_SHIFT;
+        LASSERT(page_count <= nrpages);
+        desc = ptlrpc_prep_bulk_exp(req, page_count,
+                        BULK_PUT_SOURCE, MGS_BULK_PORTAL);
+        if (desc == NULL)
+                GOTO(out, rc = -ENOMEM);
+
+        for (i = 0; i < page_count && bytes > 0; i++) {
+                ptlrpc_prep_bulk_page(desc, pages[i], 0,
+                                min_t(int, bytes, CFS_PAGE_SIZE));
+                bytes -= CFS_PAGE_SIZE;
         }
 
+        rc = target_bulk_io(req->rq_export, desc, &lwi);
+        ptlrpc_free_bulk(desc);
+
 out:
-        OBD_FREE(buf, LLOG_CHUNK_SIZE);
+        if (pages) {
+                for (i = 0; i < nrpages; i++) {
+                        if (pages[i] == NULL)
+                                break;
+                        cfs_free_page(pages[i]);
+                }
+                OBD_FREE(pages, sizeof(*pages) * nrpages);
+        }
         return rc;
 }
 
