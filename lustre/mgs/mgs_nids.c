@@ -770,16 +770,21 @@ int lprocfs_rd_ir_state(struct seq_file *seq, void *data)
         /* mgs_live_seq_show() already holds fsdb_sem. */
         ir_state_graduate(fsdb);
 
+        seq_printf(seq, "\nimperative_recovery_state:\n");
+
         seq_printf(seq,
-                   "\tstate: %s, nonir clients: %d\n"
-                   "\tnidtbl version: %lld\n",
+                   "    state: %s\n"
+                   "    nonir_clients: %d\n"
+                   "    nidtbl_version: %lld\n",
                    ir_strings[fsdb->fsdb_ir_state], fsdb->fsdb_nonir_clients,
                    tbl->mn_version);
 
         cfs_duration_usec(fsdb->fsdb_notify_total, &tv);
         cfs_duration_usec(fsdb->fsdb_notify_max, &tv_max);
 
-        seq_printf(seq, "\tnotify total/max/count: %lu.%06lu/%lu.%06lu/%u\n",
+        seq_printf(seq, "    notify_duration_total: %lu.%06lu\n"
+                        "    notify_duation_max   : %lu.%06lu\n"
+                        "    notify_count         : %u\n",
                    tv.tv_sec, tv.tv_usec,
                    tv_max.tv_sec, tv_max.tv_usec,
                    fsdb->fsdb_notify_count);
