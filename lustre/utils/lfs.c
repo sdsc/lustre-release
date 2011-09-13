@@ -86,6 +86,7 @@ static int lfs_find(int argc, char **argv);
 static int lfs_getstripe(int argc, char **argv);
 static int lfs_osts(int argc, char **argv);
 static int lfs_df(int argc, char **argv);
+static int lfs_mount(int argc, char **argv);
 static int lfs_check(int argc, char **argv);
 static int lfs_catinfo(int argc, char **argv);
 #ifdef HAVE_SYS_QUOTA_H
@@ -169,6 +170,8 @@ command_t cmdlist[] = {
          "report filesystem disk space usage or inodes usage"
          "of each MDS and all OSDs or a batch belonging to a specific pool .\n"
          "Usage: df [-i] [-h] [--pool|-p <fsname>[.<pool>] [path]"},
+        {"mount", lfs_mount, 0,
+         "report instance and corresponding mountpoint."},
 #ifdef HAVE_SYS_QUOTA_H
         {"quotachown",lfs_quotachown, 0,
          "Change files' owner or group on the specified filesystem.\n"
@@ -1114,6 +1117,25 @@ static int mntdf(char *mntdir, char *fsname, char *pool, int ishow, int cooked)
         return 0;
 }
 
+static int mntmount(char *mntdir, char *fsname)
+{
+        struct obd_uuid uuid_buf;
+        int rc;
+        char superblock[17] = ""; /* superblock is always 16 chars 
+                                     + one for null */
+
+        memset(&uuid_buf, 0, sizeof(struct obd_uuid));
+        rc = llapi_file_get_lov_uuid(mntdir, &uuid_buf);
+        if (rc == -ENODEV)
+                printf("ERROR!\n");
+
+        obd_lov2superblock(superblock, uuid_buf.uuid);
+
+        printf("%s-%s on %s\n", fsname, superblock, mntdir);
+
+        return 0;
+}
+
 static int lfs_df(int argc, char **argv)
 {
         char mntdir[PATH_MAX] = {'\0'}, path[PATH_MAX] = {'\0'};
@@ -1154,6 +1176,31 @@ static int lfs_df(int argc, char **argv)
                         continue;
 
                 rc = mntdf(mntdir, fsname, pool_name, ishow, cooked);
+                if (rc || path[0] != '\0')
+                        break;
+                fsname[0] = '\0'; /* avoid matching in next loop */
+                mntdir[0] = '\0'; /* avoid matching in next loop */
+        }
+
+        return rc;
+}
+
+static int lfs_mount(int argc, char **argv)
+{
+        char mntdir[PATH_MAX] = {'\0'}, path[PATH_MAX] = {'\0'};
+        int rc = 0, index = 0;
+        char fsname[PATH_MAX] = "";
+
+        optind = 0;
+        if (argc > 1)
+                return CMD_HELP;
+
+        while (!llapi_search_mounts(path, index++, mntdir, fsname)) {
+                /* Check if we have a mount point */
+                if (mntdir[0] == '\0')
+                        continue;
+
+                rc = mntmount(mntdir, fsname);
                 if (rc || path[0] != '\0')
                         break;
                 fsname[0] = '\0'; /* avoid matching in next loop */

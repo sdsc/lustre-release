@@ -297,6 +297,16 @@ static inline void obd_uuid2fsname(char *buf, char *uuid, int buflen)
            *p = '\0';
 }
 
+/* Extract superblock from lov of a target
+   e.g. (lustre-clilov-ffff88002738bc00 -> ffff88002738bc00)
+   NOTE: a superblock is always 16 characters.
+   */
+static inline void obd_lov2superblock(char *buf, char *uuid)
+{
+        strncpy(buf, uuid - 16 + strlen(uuid), 16);
+        buf[16] = '\0';
+}
+
 /**
  * File IDentifier.
  *
