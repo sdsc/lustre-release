@@ -287,6 +287,128 @@ static struct page * filter_get_page(struct obd_device *obd,
         return page;
 }
 
+/**
+ * Try to alloc contingous pages by alloc_pages, if not succeed, still goes
+ * to the original method to allocate the page one by one.
+ **/
+static int filter_alloc_lnb_pages(struct obd_device *obd, struct inode *inode,
+                                  struct niobuf_local *lnb, int localreq,
+                                  int page_count)
+{
+        gfp_t           gfp_mask;
+        int             order;
+        int             count = page_count;
+        struct page    *page;
+        int             rc = 0;
+        int             i;
+
+        for (order = 0; count > 1; count >>= 1, order++);
+
+        gfp_mask = localreq ? (GFP_NOFS | __GFP_HIGHMEM)
+                            : GFP_HIGHUSER;
+
+        page = alloc_pages(gfp_mask, order);
+        if (!page) {
+repeat:
+                /*Already tried order == 0, just return*/
+                if (order == 0)
+                        return -ENOMEM;
+
+                for (i = 0; i < page_count; i++, lnb++) {
+                        if (lnb->page != NULL)
+                                continue;
+                        page = filter_get_page(obd, inode,
+                                               lnb->offset >> CFS_PAGE_SHIFT,
+                                               localreq);
+                        if (page == NULL) {
+                                lprocfs_counter_add(obd->obd_stats,
+                                                    LPROC_FILTER_NO_PAGE, 1);
+                                return -ENOMEM;
+                        }
+                        lnb->page = page;
+                }
+        } else {
+                CDEBUG(D_CACHE,"%s:allocate pages order %d ino %lu \n",
+                       obd->obd_name, order, inode->i_ino);
+		for (i = 0; i < page_count; i++, lnb++, page++) {
+			if (i > 0) {
+                                /* Sigh, alloc_pages only init the first page,
+                                 * but all pages needs to be put to cache, so
+                                 * it needs to initialize pages after the first
+                                 * page. Copy these following lines of code from
+                                 * prep_new_page() (linux/mm/page_alloc.c)
+                                 */
+                                page->flags &= ~(1 << PG_uptodate |
+                                                 1 << PG_error |
+                                                 1 << PG_referenced |
+                                                 1 << PG_arch_1 |
+                                                 1 << PG_fs_misc |
+                                                 1 << PG_mappedtodisk);
+                                set_page_private(page, 0);
+                                atomic_set(&page->_count, 1);
+                        }
+
+                        rc = ll_add_to_page_cache_lru(page, inode->i_mapping,
+                                                 lnb->offset >> CFS_PAGE_SHIFT,
+                                                 gfp_mask);
+                        if (unlikely(rc)) {
+                                int j;
+                                for (j = i; j < page_count; j++, page++)
+                                        page_cache_release(page);
+
+                                if (rc == -EEXIST)
+                                        goto repeat;
+                                break;
+                        }
+                        lnb->page = page;
+                }
+        }
+        return rc;
+}
+
+/**
+ * Try to get physical continguous pages for these lnbs
+ **/
+static int filter_get_lnb_pages(struct obd_device *obd, struct inode *inode,
+                                struct niobuf_local  *lnb, int count,
+                                int localreq)
+{
+        struct page *page;
+        struct niobuf_local *nlnb = NULL;
+        int page_count = 0;
+        int i;
+        int rc = 0;
+
+	CDEBUG(D_CACHE, "Get pages offset "LPU64" count %d \n",
+	       lnb->offset, count);
+
+        for (i = 0; i < count; i++, lnb++) {
+                page = find_lock_page(inode->i_mapping,
+                                      lnb->offset >> CFS_PAGE_SHIFT);
+                if (!page) {
+                        if (nlnb == NULL)
+                                nlnb = lnb;
+                        page_count ++;
+                        continue;
+                } else {
+			lnb->page = page;
+                        if (page_count > 0) {
+                                rc = filter_alloc_lnb_pages(obd, inode, nlnb,
+                                                            localreq, page_count);
+                                if (rc)
+                                        break;
+				nlnb = NULL;
+				page_count = 0;
+                        }
+                }
+        }
+
+	if (page_count > 0)
+		rc = filter_alloc_lnb_pages(obd, inode, nlnb,
+					    localreq, page_count);
+        return rc;
+}
+
 /*
  * the routine initializes array of local_niobuf from remote_niobuf
  */
@@ -375,7 +497,7 @@ static int filter_preprw_read(int cmd, struct obd_export *exp, struct obdo *oa,
         struct obd_device *obd = exp->exp_obd;
         struct timeval start, end;
         struct lvfs_run_ctxt saved;
-        struct niobuf_local *lnb;
+        struct niobuf_local *nlnb;
         struct dentry *dentry = NULL;
         struct inode *inode = NULL;
         void *iobuf = NULL;
@@ -429,36 +551,50 @@ static int filter_preprw_read(int cmd, struct obd_export *exp, struct obdo *oa,
 
         /* find pages for all segments, fill array with them */
         do_gettimeofday(&start);
-        for (i = 0, lnb = res; i < *pages; i++, lnb++) {
+        for (i = 0, nlnb = res; i < *pages;) {
+                struct niobuf_local *lnb;
+                int contig_npages = obd->u.filter.fo_iobuf_alloc_count;
+                int j;
 
-                lnb->dentry = dentry;
+                if (isize <= nlnb->offset)
+                          /* If there's no more data, abort early.  lnb->rc == 0,
+                           * so it's easy to detect later. */
+                          break;
 
-                if (isize <= lnb->offset)
-                        /* If there's no more data, abort early.  lnb->rc == 0,
-                         * so it's easy to detect later. */
-                        break;
+                if (i + contig_npages >= *pages)
+                        contig_npages = 1;
 
-                lnb->page = filter_get_page(obd, inode, lnb->offset, 0);
-                if (lnb->page == NULL)
+                /* Since physical continguous pages can help get better IO
+                 * performance, it tries to get continguous pages for niobuf.
+                 * See http://jira.whamcloud.com/browse/LU-410 for details*/
+                rc = filter_get_lnb_pages(obd, inode, nlnb, contig_npages, 0);
+                if (rc)
                         GOTO(cleanup, rc = -ENOMEM);
 
-                lprocfs_counter_add(obd->obd_stats, LPROC_FILTER_CACHE_ACCESS, 1);
-
-                if (isize < lnb->offset + lnb->len - 1)
-                        lnb->rc = isize - lnb->offset;
-                else
-                        lnb->rc = lnb->len;
-
-                tot_bytes += lnb->rc;
-
-                if (PageUptodate(lnb->page)) {
+                for (j = 0, lnb = nlnb; j < contig_npages; j++, lnb++) {
+			LASSERT(lnb->page != NULL);
+                        lnb->dentry = dentry;
                         lprocfs_counter_add(obd->obd_stats,
-                                            LPROC_FILTER_CACHE_HIT, 1);
-                        continue;
-                }
+                                            LPROC_FILTER_CACHE_ACCESS, 1);
 
-                lprocfs_counter_add(obd->obd_stats, LPROC_FILTER_CACHE_MISS, 1);
-                filter_iobuf_add_page(obd, iobuf, inode, lnb->page);
+                        if (isize < lnb->offset + lnb->len - 1)
+                                lnb->rc = isize - lnb->offset;
+                        else
+                                lnb->rc = lnb->len;
+
+                        tot_bytes += lnb->rc;
+
+                        if (PageUptodate(lnb->page)) {
+                                lprocfs_counter_add(obd->obd_stats,
+                                                    LPROC_FILTER_CACHE_HIT, 1);
+                                continue;
+                       }
+
+                       lprocfs_counter_add(obd->obd_stats, LPROC_FILTER_CACHE_MISS, 1);
+                       filter_iobuf_add_page(obd, iobuf, inode, lnb->page);
+                }
+                nlnb += contig_npages;
+                i += contig_npages;
         }
         do_gettimeofday(&end);
         timediff = cfs_timeval_sub(&end, &start, NULL);
@@ -483,14 +619,14 @@ static int filter_preprw_read(int cmd, struct obd_export *exp, struct obdo *oa,
 
  cleanup:
         /* unlock pages to allow access from concurrent OST_READ */
-        for (i = 0, lnb = res; i < *pages; i++, lnb++) {
-                if (lnb->page) {
-                        LASSERT(PageLocked(lnb->page));
-                        unlock_page(lnb->page);
+        for (i = 0, nlnb = res; i < *pages; i++, nlnb++) {
+                if (nlnb->page) {
+                        LASSERT(PageLocked(nlnb->page));
+                        unlock_page(nlnb->page);
 
                         if (rc) {
-                                page_cache_release(lnb->page);
-                                lnb->page = NULL;
+                                page_cache_release(nlnb->page);
+                                nlnb->page = NULL;
                         }
                 }
         }
@@ -657,7 +793,7 @@ static int filter_preprw_write(int cmd, struct obd_export *exp, struct obdo *oa,
         struct obd_device *obd = exp->exp_obd;
         struct timeval start, end;
         struct lvfs_run_ctxt saved;
-        struct niobuf_local *lnb = res;
+        struct niobuf_local *nlnb = res;
         struct fsfilt_objinfo fso;
         struct filter_mod_data *fmd;
         struct dentry *dentry = NULL;
@@ -780,63 +916,75 @@ static int filter_preprw_write(int cmd, struct obd_export *exp, struct obdo *oa,
         cleanup_phase = 4;
 
         do_gettimeofday(&start);
-        for (i = 0, lnb = res; i < *pages; i++, lnb++) {
-
+        for (i = 0, nlnb = res; i < *pages;) {
+                struct niobuf_local *lnb;
+                int contig_npages = obd->u.filter.fo_iobuf_alloc_count;
+                int j;
                 /* We still set up for ungranted pages so that granted pages
                  * can be written to disk as they were promised, and portals
                  * needs to keep the pages all aligned properly. */
-                lnb->dentry = dentry;
 
-                lnb->page = filter_get_page(obd, dentry->d_inode, lnb->offset,
-                                            localreq);
-                if (lnb->page == NULL)
+		if (i + contig_npages >= *pages)
+			contig_npages = 1;
+
+                /* Since physical continguous pages can help get better IO
+                 * performance, it tries to get continguous pages for niobuf.
+                 * See http://jira.whamcloud.com/browse/LU-410 for details*/
+                rc = filter_get_lnb_pages(obd, dentry->d_inode, nlnb,
+                                          contig_npages, localreq);
+                if (rc)
                         GOTO(cleanup, rc = -ENOMEM);
+                for (j = 0, lnb = nlnb; j < contig_npages; j++, lnb++) {
+                        /* DLM locking protects us from write and truncate competing
+                         * for same region, but truncate can leave dirty page in the
+                         * cache. it's possible the writeout on a such a page is in
+                         * progress when we access it. it's also possible that during
+                         * this writeout we put new (partial) data, but then won't
+                         * be able to proceed in filter_commitrw_write(). thus let's
+                         * just wait for writeout completion, should be rare enough.
+                         * -bzzz */
+			LASSERT(lnb->page != NULL);
+                        lnb->dentry = dentry;
+                        wait_on_page_writeback(lnb->page);
+                        BUG_ON(PageWriteback(lnb->page));
 
-                /* DLM locking protects us from write and truncate competing
-                 * for same region, but truncate can leave dirty page in the
-                 * cache. it's possible the writeout on a such a page is in
-                 * progress when we access it. it's also possible that during
-                 * this writeout we put new (partial) data, but then won't
-                 * be able to proceed in filter_commitrw_write(). thus let's
-                 * just wait for writeout completion, should be rare enough.
-                 * -bzzz */
-                wait_on_page_writeback(lnb->page);
-                BUG_ON(PageWriteback(lnb->page));
+                        /* If the filter writes a partial page, then has the file
+                         * extended, the client will read in the whole page.  the
+                         * filter has to be careful to zero the rest of the partial
+                         * page on disk.  we do it by hand for partial extending
+                         * writes, send_bio() is responsible for zeroing pages when
+                         * asked to read unmapped blocks -- brw_kiovec() does this. */
+                        if (lnb->len != CFS_PAGE_SIZE) {
+                                __s64 maxidx;
 
-                /* If the filter writes a partial page, then has the file
-                 * extended, the client will read in the whole page.  the
-                 * filter has to be careful to zero the rest of the partial
-                 * page on disk.  we do it by hand for partial extending
-                 * writes, send_bio() is responsible for zeroing pages when
-                 * asked to read unmapped blocks -- brw_kiovec() does this. */
-                if (lnb->len != CFS_PAGE_SIZE) {
-                        __s64 maxidx;
+                                maxidx = ((i_size_read(dentry->d_inode) +
+                                           CFS_PAGE_SIZE - 1) >> CFS_PAGE_SHIFT) - 1;
+                                if (maxidx >= lnb->page->index) {
+                                        LL_CDEBUG_PAGE(D_PAGE, lnb->page, "write %u @ "
+                                                       LPU64" flg %x before EOF %llu\n",
+                                                       lnb->len, lnb->offset,lnb->flags,
+                                                       i_size_read(dentry->d_inode));
+                                        filter_iobuf_add_page(obd, iobuf,
+                                                              dentry->d_inode,
+                                                              lnb->page);
+                                } else {
+                                        long off;
+                                        char *p = kmap(lnb->page);
 
-                        maxidx = ((i_size_read(dentry->d_inode) +
-                                   CFS_PAGE_SIZE - 1) >> CFS_PAGE_SHIFT) - 1;
-                        if (maxidx >= lnb->page->index) {
-                                LL_CDEBUG_PAGE(D_PAGE, lnb->page, "write %u @ "
-                                               LPU64" flg %x before EOF %llu\n",
-                                               lnb->len, lnb->offset,lnb->flags,
-                                               i_size_read(dentry->d_inode));
-                                filter_iobuf_add_page(obd, iobuf,
-                                                      dentry->d_inode,
-                                                      lnb->page);
-                        } else {
-                                long off;
-                                char *p = kmap(lnb->page);
-
-                                off = lnb->offset & ~CFS_PAGE_MASK;
-                                if (off)
-                                        memset(p, 0, off);
-                                off = (lnb->offset + lnb->len) & ~CFS_PAGE_MASK;
-                                if (off)
-                                        memset(p + off, 0, CFS_PAGE_SIZE - off);
-                                kunmap(lnb->page);
-                        }
-                }
-                if (lnb->rc == 0)
-                        tot_bytes += lnb->len;
+                                        off = lnb->offset & ~CFS_PAGE_MASK;
+                                        if (off)
+                                                memset(p, 0, off);
+                                        off = (lnb->offset + lnb->len) & ~CFS_PAGE_MASK;
+                                        if (off)
+                                                memset(p + off, 0, CFS_PAGE_SIZE - off);
+                                        kunmap(lnb->page);
+                                }
+                         }
+                        if (lnb->rc == 0)
+                                tot_bytes += lnb->len;
+                 }
+                 nlnb += contig_npages;
+                 i += contig_npages;
         }
         do_gettimeofday(&end);
         timediff = cfs_timeval_sub(&end, &start, NULL);
@@ -861,11 +1009,11 @@ cleanup:
         switch(cleanup_phase) {
         case 4:
                 if (rc) {
-                        for (i = 0, lnb = res; i < *pages; i++, lnb++) {
-                                if (lnb->page != NULL) {
-                                        unlock_page(lnb->page);
-                                        page_cache_release(lnb->page);
-                                        lnb->page = NULL;
+                        for (i = 0, nlnb = res; i < *pages; i++, nlnb++) {
+                                if (nlnb->page != NULL) {
+                                        unlock_page(nlnb->page);
+                                        page_cache_release(nlnb->page);
+                                        nlnb->page = NULL;
                                 }
                         }
                         filter_grant_commit(exp, *pages, res);
