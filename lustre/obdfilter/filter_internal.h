@@ -190,6 +190,8 @@ int filter_direct_io(int rw, struct dentry *dchild, struct filter_iobuf *iobuf,
                      struct obd_export *exp, struct iattr *attr,
                      struct obd_trans_info *oti, void **wait_handle);
 int filter_clear_truncated_page(struct inode *inode);
+int filter_set_iobuf_alloc_count(struct filter_obd *filter,
+                                 struct super_block *sb);
 
 /* filter_log.c */
 struct ost_filterdata {
