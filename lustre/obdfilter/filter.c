@@ -1922,6 +1922,8 @@ int filter_common_setup(struct obd_device *obd, obd_count len, void *buf,
         if (rc != 0)
                 GOTO(err_ops, rc);
 
+        filter_set_iobuf_alloc_order(filter, mnt->mnt_sb);
+
         if (lvfs_check_rdonly(lvfs_sbdev(mnt->mnt_sb))) {
                 CERROR("%s: Underlying device is marked as read-only. "
                        "Setup failed\n", obd->obd_name);

@@ -379,6 +379,7 @@ struct filter_obd {
          */
         struct filter_iobuf    **fo_iobuf_pool;
         int                      fo_iobuf_count;
+        int                      fo_iobuf_alloc_count;
 
         struct brw_stats         fo_filter_stats;
         struct lustre_quota_ctxt fo_quota_ctxt;

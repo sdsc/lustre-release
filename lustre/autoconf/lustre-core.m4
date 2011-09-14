@@ -1751,6 +1751,16 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
+# 2.6.27 exported add_to_page_cache_lru.
+AC_DEFUN([LC_EXPORT_ADD_TO_PAGE_CACHE_LRU],
+[LB_CHECK_SYMBOL_EXPORT([add_to_page_cache_lru],
+[mm/filemap.c],[
+        AC_DEFINE(HAVE_ADD_TO_PAGE_CACHE_LRU, 1,
+                [add_to_page_cache_lru functions are present])
+],[
+])
+])
+
 # 2.6.31 replaces blk_queue_hardsect_size by blk_queue_logical_block_size function
 AC_DEFUN([LC_BLK_QUEUE_LOG_BLK_SIZE],
 [AC_MSG_CHECKING([if blk_queue_logical_block_size is defined])
@@ -2032,6 +2042,7 @@ AC_DEFUN([LC_PROG_LINUX],
           LC_D_OBTAIN_ALIAS
           LC_BLKDEV_PUT_2ARGS
           LC_DENTRY_OPEN_4ARGS
+          LC_EXPORT_ADD_TO_PAGE_CACHE_LRU
 
           # 2.6.31
           LC_BLK_QUEUE_LOG_BLK_SIZE

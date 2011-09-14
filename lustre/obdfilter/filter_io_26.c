@@ -296,6 +296,30 @@ int filter_iobuf_add_page(struct obd_device *obd, struct filter_iobuf *iobuf,
         return 0;
 }
 
+/**
+ * Set alloc order for the iobuf so it can try to alloc continguous
+ * pages for iobuf to avoid fragmented IO
+ */
+int filter_set_iobuf_alloc_order(struct filter_obd *filter,
+                                 struct super_block *sb)
+{
+        struct request_queue *q;
+        int count;
+
+        q = bdev_get_queue(sb->s_bdev);
+
+        count = q->max_phys_segments >= q->max_hw_segments ?
+                q->max_phys_segments : q->max_hw_segments;
+
+        LASSERT(count > 0);
+
+        count = PTLRPC_MAX_BRW_PAGES / count;
+
+        filter->fo_iobuf_alloc_count = PTLRPC_MAX_BRW_PAGES / count;
+
+        return 0;
+}
+
 int filter_do_bio(struct obd_export *exp, struct inode *inode,
                   struct filter_iobuf *iobuf, int rw)
 {
