@@ -86,6 +86,7 @@ static int lfs_find(int argc, char **argv);
 static int lfs_getstripe(int argc, char **argv);
 static int lfs_osts(int argc, char **argv);
 static int lfs_df(int argc, char **argv);
+static int lfs_getname(int argc, char **argv);
 static int lfs_check(int argc, char **argv);
 static int lfs_catinfo(int argc, char **argv);
 #ifdef HAVE_SYS_QUOTA_H
@@ -169,6 +170,9 @@ command_t cmdlist[] = {
          "report filesystem disk space usage or inodes usage"
          "of each MDS and all OSDs or a batch belonging to a specific pool .\n"
          "Usage: df [-i] [-h] [--pool|-p <fsname>[.<pool>] [path]"},
+        {"getname", lfs_getname, 0, "list instances and specified mount points "
+         "[for specified path only]\n"
+         "Usage: getname [-h]|[path ...] "},
 #ifdef HAVE_SYS_QUOTA_H
         {"quotachown",lfs_quotachown, 0,
          "Change files' owner or group on the specified filesystem.\n"
@@ -1160,6 +1164,84 @@ static int lfs_df(int argc, char **argv)
                 mntdir[0] = '\0'; /* avoid matching in next loop */
         }
 
+        return rc;
+}
+
+static int mntgetname(char *mntdir, char *fsname)
+{
+        struct obd_uuid uuid_buf;
+        int rc;
+        char superblock[17] = ""; /* superblock is always 16 chars */
+                                  /*  + one for null */
+
+        memset(&uuid_buf, 0, sizeof(struct obd_uuid));
+        rc = llapi_file_get_lov_uuid(mntdir, &uuid_buf);
+        if (rc)
+                fprintf(stderr, "getname error: %s\n", strerror(-rc));
+
+        /* Extract superblock from lov of a target */
+        /* e.g. (lustre-clilov-ffff88002738bc00 -> ffff88002738bc00) */
+        /* ASSUME: a superblock is always 16 chars. */
+        strncpy(superblock, uuid_buf.uuid - 16 + strlen(uuid_buf.uuid), 16);
+        superblock[16] = '\0';
+        printf("%s-%s on %s\n", fsname, superblock, mntdir);
+
+        return 0;
+}
+
+static int lfs_getname(int argc, char **argv)
+{
+        char mntdir[PATH_MAX] = {'\0'}, path[PATH_MAX] = {'\0'};
+        int rc = 0, index = 0, c;
+        char fsname[PATH_MAX] = {'\0'};
+
+        optind = 0;
+        while ((c = getopt(argc, argv, "h")) != -1) {
+                switch (c) {
+                case 'h':
+                        return CMD_HELP;
+                default:
+                        fprintf(stderr, "error: %s: option '-%c' "
+                                        "unrecognized\n", argv[0], c);
+                        return CMD_HELP;
+                }
+        }
+
+        if (optind == argc) {  /* no paths specified, get all paths. */
+                while (!llapi_search_mounts(path, index++, mntdir, fsname)) {
+                        /* Check if we have a mount point */
+                        if (mntdir[0] == '\0')
+                                continue;
+
+                        rc = mntgetname(mntdir, fsname);
+                        if (rc || path[0] != '\0') {
+                                fprintf(stderr, "getname on %s error: %s\n",
+                                        mntdir, strerror(-rc));
+                                break;
+                        }
+                        fsname[0] = '\0'; /* avoid matching in next loop */
+                        mntdir[0] = '\0'; /* avoid matching in next loop */
+                }
+        } else { /* paths specified, only attempt to search these. */
+                while (optind < argc) {
+                        rc = llapi_search_mounts(argv[optind], index++, mntdir, fsname);
+                        if (rc) {
+                                fprintf(stderr, "path %s error: %s\n",
+                                        argv[optind], strerror(-rc));
+                                optind++;
+                                continue;
+                        }
+                        rc = mntgetname(argv[optind], fsname);
+                        if (rc || path[0] != '\0') {
+                                fprintf(stderr, "getname on %s error: %s\n",
+                                        mntdir, strerror(-rc));
+                                break;
+                        }
+                        fsname[0] = '\0'; /* avoid matching in next loop */
+                        mntdir[0] = '\0'; /* avoid matching in next loop */
+                        optind++;
+                }
+        }
         return rc;
 }
 
