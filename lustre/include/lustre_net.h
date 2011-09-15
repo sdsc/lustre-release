@@ -1518,7 +1518,7 @@ struct ptlrpc_svc_data {
  * Import API
  * @{
  */
-int ptlrpc_connect_import(struct obd_import *imp, char * new_uuid);
+int ptlrpc_connect_import(struct obd_import *imp);
 int ptlrpc_init_import(struct obd_import *imp);
 int ptlrpc_disconnect_import(struct obd_import *imp, int noclose);
 int ptlrpc_import_recovery_state_machine(struct obd_import *imp);
@@ -1788,6 +1788,8 @@ int client_disconnect_export(struct obd_export *exp);
 int client_import_add_conn(struct obd_import *imp, struct obd_uuid *uuid,
                            int priority);
 int client_import_del_conn(struct obd_import *imp, struct obd_uuid *uuid);
+int client_import_find_conn(struct obd_import *imp, lnet_nid_t peer,
+                            struct obd_uuid *uuid);
 int import_set_conn_priority(struct obd_import *imp, struct obd_uuid *uuid);
 void client_destroy_import(struct obd_import *imp);
 /** @} */
