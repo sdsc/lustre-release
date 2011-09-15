@@ -232,6 +232,7 @@ struct ost_server_data;
 /* hold common fields for "target" device */
 struct obd_device_target {
         __u32                     obt_magic;
+        __u32                     obt_instance;
         struct super_block       *obt_sb;
         /** last_rcvd file */
         struct file              *obt_rcvd_filp;
@@ -504,6 +505,7 @@ struct mgs_obd {
         cfs_list_t                       mgs_fs_db_list;
         cfs_semaphore_t                  mgs_sem;
         cfs_proc_dir_entry_t            *mgs_proc_live;
+        cfs_time_t                       mgs_start_time;
 };
 
 struct mds_obd {
@@ -1013,6 +1015,7 @@ struct obd_device {
                       obd_no_conn:1,       /* deny new connections */
                       obd_inactive:1,      /* device active/inactive
                                            * (for /proc/status only!!) */
+                      obd_noir:1,          /* no imperative recovery. */
                       obd_process_conf:1;  /* device is processing mgs config */
         /* use separate field as it is set in interrupt to don't mess with
          * protection of other bits using _bh lock */
@@ -1052,7 +1055,7 @@ struct obd_device {
         time_t                  obd_eviction_timer; /* for ping evictor */
 
         int                              obd_max_recoverable_clients;
-        int                              obd_connected_clients;
+        cfs_atomic_t                     obd_connected_clients;
         int                              obd_stale_clients;
         int                              obd_delayed_clients;
         /* this lock protects all recovery list_heads, timer and
@@ -1066,8 +1069,9 @@ struct obd_device {
         cfs_timer_t                      obd_recovery_timer;
         time_t                           obd_recovery_start; /* seconds */
         time_t                           obd_recovery_end; /* seconds, for lprocfs_status */
-        time_t                           obd_recovery_time_hard;
+        int                              obd_recovery_time_hard;
         int                              obd_recovery_timeout;
+        int                              obd_recovery_ir_factor;
 
         /* new recovery stuff from CMD2 */
         struct target_recovery_data      obd_recovery_data;
@@ -1165,6 +1169,8 @@ enum obd_cleanup_stage {
 #define KEY_SPTLRPC_CONF        "sptlrpc_conf"
 #define KEY_CONNECT_FLAG        "connect_flags"
 #define KEY_SYNC_LOCK_CANCEL    "sync_lock_cancel"
+#define KEY_IR_LOGS             "ir_logs"
+#define KEY_CFG_LOGS            "cfg_logs"
 
 
 struct lu_context;

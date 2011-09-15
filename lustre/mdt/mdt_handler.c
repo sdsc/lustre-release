@@ -4504,14 +4504,8 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
                         CERROR("CMD Operation not allowed in IOP mode\n");
                         GOTO(err_lmi, rc = -EINVAL);
                 }
-                /* Read recovery timeouts */
-                if (lsi->lsi_lmd && lsi->lsi_lmd->lmd_recovery_time_soft)
-                        obd->obd_recovery_timeout =
-                                lsi->lsi_lmd->lmd_recovery_time_soft;
 
-                if (lsi->lsi_lmd && lsi->lsi_lmd->lmd_recovery_time_hard)
-                        obd->obd_recovery_time_hard =
-                                lsi->lsi_lmd->lmd_recovery_time_hard;
+                obd->u.obt.obt_magic = OBT_MAGIC;
         }
 
         cfs_rwlock_init(&m->mdt_sptlrpc_lock);
@@ -5294,11 +5288,11 @@ static int mdt_upcall(const struct lu_env *env, struct md_device *md,
         RETURN(rc);
 }
 
-static int mdt_obd_notify(struct obd_device *host,
+static int mdt_obd_notify(struct obd_device *obd,
                           struct obd_device *watched,
                           enum obd_notify_event ev, void *data)
 {
-        struct mdt_device *mdt = mdt_dev(host->obd_lu_dev);
+        struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
 #ifdef HAVE_QUOTA_SUPPORT
         struct md_device *next = mdt->mdt_child;
 #endif
@@ -5306,6 +5300,9 @@ static int mdt_obd_notify(struct obd_device *host,
 
         switch (ev) {
         case OBD_NOTIFY_CONFIG:
+                /* reset recovery timeout in case it has already started */
+                target_start_recovery_timer(obd);
+
                 mdt_allow_cli(mdt, (unsigned long)data);
 
 #ifdef HAVE_QUOTA_SUPPORT
