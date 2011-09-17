@@ -5644,6 +5644,22 @@ test_102l() {
 }
 run_test 102l "listxattr filter test =================================="
 
+test_102m() {
+	local testfile=$DIR/$tfile
+	# create a 4GB sparse file
+	dd if=/dev/zero of=$testfile bs=64K seek=64K count=0
+	sync; sleep 1; sync
+	# -S to tar means 'handle spare files effeciently
+	tar cvfS $DIR/sparse.tar $testfile &
+	local tarpid=$!
+	# tar'ing 4GB of spare data should take less than 0.01 sec
+	sleep 0.01
+	kill -9 $tarpid && error "tar still running after 0.01s" || true
+	rm -f $testfile
+	rm -f $DIR/sparse.tar
+}
+run_test 102m "tar handles sparse files correctly: LU-682"
+
 cleanup_test102
 
 run_acl_subtest()
