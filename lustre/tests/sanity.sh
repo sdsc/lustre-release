@@ -5589,6 +5589,19 @@ test_102l() {
 }
 run_test 102l "listxattr filter test =================================="
 
+test_102m() {
+	local testfile=/tmp/outfile
+	dd if=/dev/zero of=$testfile bs=64K seek=64K count=0
+	sync; sleep 1; sync
+	tar cvfS /tmp/sparse.tar $testfile &
+	local tarpid=$!
+	sleep 1
+	kill -9 $tarpid && error "tar still running after 1s" || true
+	rm -f $testfile
+	rm -f /tmp/sparse.tar
+}
+run_test 102m "check that sparse patch has been applied: LU-682"
+
 cleanup_test102
 
 run_acl_subtest()
