@@ -139,6 +139,7 @@ extern struct req_format RQF_SEC_CTX;
 /* MGS req_format */
 extern struct req_format RQF_MGS_TARGET_REG;
 extern struct req_format RQF_MGS_SET_INFO;
+extern struct req_format RQF_MGS_CONFIG_READ;
 /* fid/fld req_format */
 extern struct req_format RQF_SEQ_QUERY;
 extern struct req_format RQF_FLD_QUERY;
@@ -282,6 +283,12 @@ extern struct req_msg_field RMF_NIOBUF_REMOTE;
 extern struct req_msg_field RMF_RCS;
 extern struct req_msg_field RMF_FIEMAP_KEY;
 extern struct req_msg_field RMF_FIEMAP_VAL;
+
+/* nid table version field */
+extern struct req_msg_field RMF_MGS_NIDTBL_VERS;
+
+/* generic uint32 */
+extern struct req_msg_field RMF_U32;
 
 /** @} req_layout */
 

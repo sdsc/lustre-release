@@ -152,6 +152,10 @@ typedef enum {
  * list. */
 #define LDLM_FL_KMS_IGNORE     0x200000
 
+/* Don't put lock into the LRU list, so that it is not canceled due to aging.
+ * Used by MGC locks, they are cancelled only at unmount or by callback. */
+#define LDLM_FL_NO_LRU         0x400000
+
 /* Immediatelly cancel such locks when they block some other locks. Send
  * cancel notification to original lock holder, but expect no reply. This is
  * for clients (like liblustre) that cannot be expected to reliably response
@@ -508,6 +512,12 @@ struct ldlm_namespace {
          * Limit size of nolock requests, in bytes.
          */
         unsigned               ns_max_nolock_size;
+
+        /**
+         * Limit of parallel AST RPC count.
+         */
+        unsigned               ns_max_parallel_ast;
+
         /* callback to cancel locks before replaying it during recovery */
         ldlm_cancel_for_recovery ns_cancel_for_recovery;
         /**
@@ -978,6 +988,7 @@ void ldlm_lock2handle(const struct ldlm_lock *lock,
 struct ldlm_lock *__ldlm_handle2lock(const struct lustre_handle *, int flags);
 void ldlm_cancel_callback(struct ldlm_lock *);
 int ldlm_lock_remove_from_lru(struct ldlm_lock *);
+int ldlm_lock_set_data(struct lustre_handle *, void *);
 
 static inline struct ldlm_lock *ldlm_handle2lock(const struct lustre_handle *h)
 {
