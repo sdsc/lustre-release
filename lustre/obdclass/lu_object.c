@@ -754,8 +754,13 @@ void lu_site_print(const struct lu_env *env, struct lu_site *s, void *cookie,
 EXPORT_SYMBOL(lu_site_print);
 
 enum {
-        LU_CACHE_PERCENT   = 20,
+        LU_CACHE_PERCENT_MAX     = 50,
+        LU_CACHE_PERCENT_DEFAULT = 20
 };
+
+static unsigned int lu_cache_percent;
+CFS_MODULE_PARM(lu_cache_percent, "i", int, 0644,
+                "Percentage of memory to be used as lu_object cache");
 
 /**
  * Return desired hash table order.
@@ -780,7 +785,10 @@ static int lu_htable_order(void)
                 cache_size = 1 << (30 - CFS_PAGE_SHIFT) * 3 / 4;
 #endif
 
-        cache_size = cache_size / 100 * LU_CACHE_PERCENT *
+        /* clear off unreasonable cache setting. */
+        if (!lu_cache_percent || lu_cache_percent > LU_CACHE_PERCENT_MAX)
+                lu_cache_percent = LU_CACHE_PERCENT_DEFAULT;
+        cache_size = cache_size / 100 * lu_cache_percent *
                 (CFS_PAGE_SIZE / 1024);
 
         for (bits = 1; (1 << bits) < cache_size; ++bits) {
