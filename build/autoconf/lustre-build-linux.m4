@@ -4,45 +4,31 @@
 # Set things accordingly for a 2.5 kernel
 #
 AC_DEFUN([LB_LINUX_VERSION],
-[LB_CHECK_FILE([$LINUX/include/linux/namei.h],
+[MODULE_TARGET="SUBDIRS"
+akerule="$PWD/build"
+AC_MSG_CHECKING([for external module build support])
+rm -f build/conftest.i
+LB_LINUX_TRY_MAKE([],[],
+	[$makerule LUSTRE_KERNEL_TEST=conftest.i],
+	[test -s build/conftest.i],
 	[
-        	linux25="yes"
-		KMODEXT=".ko"
+		AC_MSG_RESULT([no])
 	],[
-		KMODEXT=".o"
-		linux25="no"
+		makerule="_module_$makerule"
+		MODULE_TARGET="M"
+		LB_LINUX_TRY_MAKE([],[],
+			[$makerule LUSTRE_KERNEL_TEST=conftest.i],
+			[test -s build/conftest.i],
+			[
+				AC_MSG_RESULT([yes])
+			],[
+				AC_MSG_ERROR([unknown; check config.log for details])
+			])
 	])
-AC_MSG_CHECKING([if you are using Linux 2.6])
-AC_MSG_RESULT([$linux25])
-
-MODULE_TARGET="SUBDIRS"
-if test $linux25 = "yes" ; then
-	makerule="$PWD/build"
-	AC_MSG_CHECKING([for external module build support])
-	rm -f build/conftest.i
-	LB_LINUX_TRY_MAKE([],[],
-		[$makerule LUSTRE_KERNEL_TEST=conftest.i],
-		[test -s build/conftest.i],
-		[
-			AC_MSG_RESULT([no])
-		],[
-			makerule="_module_$makerule"
-			MODULE_TARGET="M"
-			LB_LINUX_TRY_MAKE([],[],
-				[$makerule LUSTRE_KERNEL_TEST=conftest.i],
-				[test -s build/conftest.i],
-				[
-					AC_MSG_RESULT([yes])
-				],[
-					AC_MSG_ERROR([unknown; check config.log for details])
-				])
-		])
-else
-	makerule="_dir_$PWD/build"
-fi
 
 AC_SUBST(MODULE_TARGET)
-AC_SUBST(linux25)
+
+KMODEXT=".ko"
 AC_SUBST(KMODEXT)
 ])
 
@@ -469,27 +455,6 @@ AC_DEFUN([LB_LINUX_TRY_MAKE],
 [LB_LINUX_COMPILE_IFELSE([AC_LANG_SOURCE([LB_LANG_PROGRAM([[$1]], [[$2]])])], [$3], [$4], [$5], [$6])])
 
 #
-# LB_LINUX_CONFIG_BIG_STACK
-#
-# check for big stack patch
-#
-AC_DEFUN([LB_LINUX_CONFIG_BIG_STACK],
-[if test "x$ARCH_UM" = "x" -a "x$linux25" = "xno" ; then
-	case $target_cpu in
-		i?86 | x86_64)
-			LB_LINUX_CONFIG([STACK_SIZE_16KB],[],[
-				LB_LINUX_CONFIG([STACK_SIZE_32KB],[],[
-					LB_LINUX_CONFIG([STACK_SIZE_64KB],[],[
-						AC_MSG_ERROR([Lustre requires that Linux is configured with at least a 16KB stack.])
-					])
-				])
-			])
-			;;
-	esac
-fi
-])
-
-#
 # LB_CONFIG_OFED_BACKPORTS
 #
 # include any OFED backport headers in all compile commands
@@ -632,23 +597,11 @@ fi
 # 2.6.28
 LC_MODULE_LOADING
 
-#LB_LINUX_CONFIG_BIG_STACK
-
 # it's ugly to be doing anything with OFED outside of the lnet module, but
 # this has to be done here so that the backports path is set before all of
 # the LN_PROG_LINUX checks are done
 LB_CONFIG_OFED_BACKPORTS
 ])
-
-#
-# LB_LINUX_CONDITIONALS
-#
-# AM_CONDITIONALS for linux
-#
-AC_DEFUN([LB_LINUX_CONDITIONALS],
-[AM_CONDITIONAL(LINUX25, test x$linux25 = xyes)
-])
-
 
 #
 # LB_CHECK_SYMBOL_EXPORT

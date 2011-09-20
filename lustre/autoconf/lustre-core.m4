@@ -188,7 +188,7 @@ AC_DEFUN([LC_CONFIG_BACKINGFS],
 BACKINGFS="ldiskfs"
 
 if test x$with_ldiskfs = xno ; then
-	if test x$linux25$enable_server = xyesyes ; then
+	if test x$enable_server = xyes ; then
 		AC_MSG_ERROR([ldiskfs is required for 2.6-based servers.])
 	fi
 else
