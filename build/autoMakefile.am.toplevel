@@ -58,19 +58,6 @@ all-sources: $(SYMVERFILE_DEPENDECY)
 if LINUX
 all-am: modules
 
-if !LINUX25
-DEP = dep
-dep: .depend
-
-.depend: all-sources
-	$(MAKE) $(ARCH_UM) CC="$(CC)" -C $(LINUX_OBJ)		     \
-	-f $(PWD)/build/Makefile LUSTRE_LINUX_CONFIG=$(LINUX_CONFIG) \
-	-o scripts -o include/config/MARKER _sfdep_$(PWD)	     \
-	_FASTDEP_ALL_SUB_DIRS="$(PWD)"
-
-CLEANFILES = .depend
-endif # !LINUX25
-
 modules: $(DEP) all-sources
 	$(MAKE) $(ARCH_UM) CC="$(CC)" -C $(LINUX_OBJ)		     \
 	-f $(PWD)/build/Makefile LUSTRE_LINUX_CONFIG=$(LINUX_CONFIG) \
