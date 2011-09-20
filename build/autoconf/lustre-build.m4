@@ -278,7 +278,7 @@ AC_DEFUN([LB_PATH_LDISKFS],
 	AC_HELP_STRING([--with-ldiskfs=path],
 			[set path to ldiskfs source (default is included ldiskfs)]),
 	[],[
-		if test x$linux25$enable_server = xyesyes ; then
+		if test x$enable_server = xyes ; then
 			with_ldiskfs=yes
 		else
 			with_ldiskfs=no
@@ -567,7 +567,7 @@ case x$with_dmu in
 			dmu_osd='yes'
 		else
 			# Enable the DMU by default on the b_hd_kdmu branch
-			if test -d $PWD/zfs -a x$linux25$enable_server = xyesyes; then
+			if test -d $PWD/zfs -a x$enable_server = xyes; then
 				dmu_osd='yes'
 			else
 				dmu_osd='no'
@@ -907,7 +907,6 @@ fi
 AC_SUBST(LIBSYSIO_SUBDIR)
 AC_SUBST(SYSIO)
 
-LB_LINUX_CONDITIONALS
 LB_DARWIN_CONDITIONALS
 
 LIBCFS_CONDITIONALS
