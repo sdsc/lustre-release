@@ -88,8 +88,16 @@ truncate_complete_page(struct address_space *mapping, struct page *page)
         clear_page_dirty(page);
 #endif
         ClearPageMappedToDisk(page);
+#ifdef HAVE_DELETE_FROM_PAGE_CACHE
+        delete_from_page_cache(page);
+#else
+# ifdef HAVE_REMOVE_FROM_PAGE_CACHE
+        remove_from_page_cache(page);
+# else
         ll_remove_from_page_cache(page);
+# endif
         page_cache_release(page);       /* pagecache ref */
+#endif
 }
 #endif /* HAVE_TRUNCATE_COMPLETE_PAGE */
 
