@@ -4090,11 +4090,6 @@ gather_logs () {
     if [ ! -f $LOGDIR/shared ]; then
         do_nodes $list rsync -az "${prefix}.*.${suffix}" $HOSTNAME:$LOGDIR
       fi
-
-    local archive=$LOGDIR/${TESTSUITE}-$ts.tar.bz2
-    tar -jcf $archive $LOGDIR/*$ts* $LOGDIR/*${TESTSUITE}*
-
-    echo $archive
 }
 
 cleanup_logs () {
