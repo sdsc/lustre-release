@@ -122,6 +122,15 @@ struct obd_type *class_get_type(const char *name)
 #ifdef HAVE_MODULE_LOADING_SUPPORT
         if (!type) {
                 const char *modname = name;
+
+                /* mds type will be in mdt module. mdd_mds type is in original
+                 * mds module */
+                if (!strncmp(name, LUSTRE_MDS_NAME, strlen(LUSTRE_MDS_NAME)))
+                        modname = LUSTRE_MDT_NAME;
+                else if (!strncmp(name, LUSTRE_MDD_MDS_NAME,
+                                        strlen(LUSTRE_MDD_MDS_NAME)))
+                        modname = LUSTRE_MDS_NAME;
+
                 if (!cfs_request_module("%s", modname)) {
                         CDEBUG(D_INFO, "Loaded module '%s'\n", modname);
                         type = class_search_type(name);

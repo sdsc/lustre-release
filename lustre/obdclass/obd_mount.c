@@ -936,8 +936,9 @@ static int server_stop_servers(int lddflags, int lsiflags)
         if ((lddflags & LDD_F_SV_TYPE_MDT) &&
             (obd = class_name2obd(LUSTRE_MDS_OBDNAME))) {
                 /*FIXME pre-rename, should eventually be LUSTRE_MDT_NAME*/
-                type = class_search_type(LUSTRE_MDS_NAME);
+                type = class_search_type(LUSTRE_MDT_NAME);
         }
+
         /* if this was an OST, and there are no more OST's, clean up the OSS */
         if ((lddflags & LDD_F_SV_TYPE_OST) &&
             (obd = class_name2obd(LUSTRE_OSS_OBDNAME))) {
@@ -1107,9 +1108,7 @@ static int server_start_targets(struct super_block *sb, struct vfsmount *mnt)
         ENTRY;
 
         CDEBUG(D_MOUNT, "starting target %s\n", lsi->lsi_ldd->ldd_svname);
-
-#if 0
-        /* If we're an MDT, make sure the global MDS is running */
+       /* If we're an MDT, make sure the global MDS is running */
         if (lsi->lsi_ldd->ldd_flags & LDD_F_SV_TYPE_MDT) {
                 /* make sure the MDS is started */
                 cfs_mutex_down(&server_start_lock);
@@ -1117,7 +1116,7 @@ static int server_start_targets(struct super_block *sb, struct vfsmount *mnt)
                 if (!obd) {
                         rc = lustre_start_simple(LUSTRE_MDS_OBDNAME,
                     /* FIXME pre-rename, should eventually be LUSTRE_MDS_NAME */
-                                                 LUSTRE_MDT_NAME,
+                                                 LUSTRE_MDS_NAME,
                                                  LUSTRE_MDS_OBDNAME"_uuid",
                                                  0, 0);
                         if (rc) {
@@ -1128,7 +1127,6 @@ static int server_start_targets(struct super_block *sb, struct vfsmount *mnt)
                 }
                 cfs_mutex_up(&server_start_lock);
         }
-#endif
 
         /* If we're an OST, make sure the global OSS is running */
         if (lsi->lsi_ldd->ldd_flags & LDD_F_SV_TYPE_OST) {
