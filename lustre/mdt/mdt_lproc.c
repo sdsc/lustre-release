@@ -1027,6 +1027,22 @@ void lprocfs_mdt_init_vars(struct lprocfs_static_vars *lvars)
     lvars->obd_vars     = lprocfs_mdt_obd_vars;
 }
 
+struct lprocfs_vars lprocfs_mds_obd_vars[] = {
+	{ "uuid",         lprocfs_rd_uuid,        0, 0 },
+	{ 0 }
+};
+
+struct lprocfs_vars lprocfs_mds_module_vars[] = {
+	{ "num_refs",     lprocfs_rd_numrefs,     0, 0 },
+	{ 0 }
+};
+
+void lprocfs_mds_init_vars(struct lprocfs_static_vars *lvars)
+{
+	lvars->module_vars  = lprocfs_mds_module_vars;
+	lvars->obd_vars     = lprocfs_mds_obd_vars;
+}
+
 void mdt_counter_incr(struct obd_export *exp, int opcode)
 {
         if (exp->exp_obd && exp->exp_obd->md_stats)

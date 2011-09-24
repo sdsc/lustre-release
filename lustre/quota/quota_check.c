@@ -123,77 +123,78 @@ static int target_quotacheck_thread(void *data)
 int target_quota_check(struct obd_device *obd, struct obd_export *exp,
                        struct obd_quotactl *oqctl)
 {
-        struct obd_device_target *obt = &obd->u.obt;
-        struct quotacheck_thread_args *qta;
-        int rc = 0;
-        ENTRY;
+	struct obd_device_target *obt = &obd->u.obt;
+	struct quotacheck_thread_args *qta;
+	int rc = 0;
+	ENTRY;
 
-        OBD_ALLOC_PTR(qta);
-        if (!qta)
-                RETURN(ENOMEM);
+	OBD_ALLOC_PTR(qta);
+	if (!qta)
+		RETURN(ENOMEM);
 
-        cfs_down(&obt->obt_quotachecking);
+	cfs_down(&obt->obt_quotachecking);
 
-        qta->qta_exp = exp;
-        qta->qta_obd = obd;
-        qta->qta_oqctl = *oqctl;
-        qta->qta_oqctl.qc_id = obt->obt_qfmt; /* override qfmt version */
-        qta->qta_sb = obt->obt_sb;
-        qta->qta_sem = &obt->obt_quotachecking;
+	qta->qta_exp = exp;
+	qta->qta_obd = obd;
+	qta->qta_oqctl = *oqctl;
+	qta->qta_oqctl.qc_id = obt->obt_qfmt; /* override qfmt version */
+	qta->qta_sb = obt->obt_sb;
+	qta->qta_sem = &obt->obt_quotachecking;
 
-        /* quotaoff firstly */
-        oqctl->qc_cmd = Q_QUOTAOFF;
-        if (!strcmp(obd->obd_type->typ_name, LUSTRE_MDS_NAME)) {
-                rc = do_mds_quota_off(obd, oqctl);
-                if (rc && rc != -EALREADY) {
-                        CERROR("off quota on MDS failed: %d\n", rc);
-                        GOTO(out, rc);
-                }
+	/* quotaoff firstly */
+	oqctl->qc_cmd = Q_QUOTAOFF;
+	if (!strcmp(obd->obd_type->typ_name, LUSTRE_MDD_MDS_NAME)) {
+		rc = do_mds_quota_off(obd, oqctl);
+		if (rc && rc != -EALREADY) {
+			CERROR("off quota on MDS failed: %d\n", rc);
+			GOTO(out, rc);
+		}
 
-                /* quota master */
-                rc = init_admin_quotafiles(obd, &qta->qta_oqctl);
-                if (rc) {
-                        CERROR("init_admin_quotafiles failed: %d\n", rc);
-                        GOTO(out, rc);
-                }
-        } else {
-                struct lvfs_run_ctxt saved;
-                struct lustre_quota_ctxt *qctxt = &obt->obt_qctxt;
+		/* quota master */
+		rc = init_admin_quotafiles(obd, &qta->qta_oqctl);
+		if (rc) {
+			CERROR("init_admin_quotafiles failed: %d\n", rc);
+			GOTO(out, rc);
+		}
+	} else {
+		struct lvfs_run_ctxt saved;
+		struct lustre_quota_ctxt *qctxt = &obt->obt_qctxt;
 
-                push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
-                rc = fsfilt_quotactl(obd, obt->obt_sb, oqctl);
-                pop_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
-                if (!rc) {
-                        qctxt->lqc_flags &= ~UGQUOTA2LQC(oqctl->qc_type);
-                } else if (!quota_is_off(qctxt, oqctl)) {
-                        CERROR("off quota on OSS failed: %d\n", rc);
-                        GOTO(out, rc);
-                }
-        }
+		push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
+		rc = fsfilt_quotactl(obd, obt->obt_sb, oqctl);
+		pop_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
+		if (!rc) {
+			qctxt->lqc_flags &= ~UGQUOTA2LQC(oqctl->qc_type);
+		} else if (!quota_is_off(qctxt, oqctl)) {
+			CERROR("off quota on OSS failed: %d\n", rc);
+			GOTO(out, rc);
+		}
+	}
 
-        /* we get ref for exp because target_quotacheck_callback() will use this
-         * export later b=18126 */
-        class_export_get(exp);
-        rc = cfs_create_thread(target_quotacheck_thread, qta,
-                               CFS_DAEMON_FLAGS);
-        if (rc >= 0) {
-                /* target_quotacheck_thread will drop the ref on exp and release
-                 * obt_quotachecking */
-                CDEBUG(D_INFO, "%s: target_quotacheck_thread: %d\n",
-                       obd->obd_name, rc);
-                RETURN(0);
-        } else {
-                CERROR("%s: error starting quotacheck_thread: %d\n",
-                       obd->obd_name, rc);
-                class_export_put(exp);
-                EXIT;
-        }
+	/* we get ref for exp because target_quotacheck_callback() will use this
+	 * export later b=18126 */
+	class_export_get(exp);
+	rc = cfs_create_thread(target_quotacheck_thread, qta,
+			       CFS_DAEMON_FLAGS);
+	if (rc >= 0) {
+		/* target_quotacheck_thread will drop the ref on exp and release
+		 * obt_quotachecking */
+		CDEBUG(D_INFO, "%s: target_quotacheck_thread: %d\n",
+		       obd->obd_name, rc);
+		RETURN(0);
+	} else {
+		CERROR("%s: error starting quotacheck_thread: %d\n",
+		       obd->obd_name, rc);
+		class_export_put(exp);
+		EXIT;
+	}
 
 out:
-        cfs_up(&obt->obt_quotachecking);
-        OBD_FREE_PTR(qta);
-        return rc;
+	cfs_up(&obt->obt_quotachecking);
+	OBD_FREE_PTR(qta);
+	return rc;
 }
 
 #endif /* __KERNEL__ */
 #endif /* HAVE_QUOTA_SUPPORT */
+

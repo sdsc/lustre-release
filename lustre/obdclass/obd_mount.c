@@ -953,38 +953,39 @@ CFS_DEFINE_MUTEX(server_start_lock);
 /* Stop MDS/OSS if nobody is using them */
 static int server_stop_servers(int lddflags, int lsiflags)
 {
-        struct obd_device *obd = NULL;
-        struct obd_type *type = NULL;
-        int rc = 0;
-        ENTRY;
+	struct obd_device *obd = NULL;
+	struct obd_type *type = NULL;
+	int rc = 0;
+	ENTRY;
 
-        cfs_mutex_lock(&server_start_lock);
+	cfs_mutex_lock(&server_start_lock);
 
-        /* Either an MDT or an OST or neither  */
-        /* if this was an MDT, and there are no more MDT's, clean up the MDS */
-        if ((lddflags & LDD_F_SV_TYPE_MDT) &&
-            (obd = class_name2obd(LUSTRE_MDS_OBDNAME))) {
-                /*FIXME pre-rename, should eventually be LUSTRE_MDT_NAME*/
-                type = class_search_type(LUSTRE_MDS_NAME);
-        }
-        /* if this was an OST, and there are no more OST's, clean up the OSS */
-        if ((lddflags & LDD_F_SV_TYPE_OST) &&
-            (obd = class_name2obd(LUSTRE_OSS_OBDNAME))) {
-                type = class_search_type(LUSTRE_OST_NAME);
-        }
+	/* Either an MDT or an OST or neither  */
+	/* if this was an MDT, and there are no more MDT's, clean up the MDS */
+	if ((lddflags & LDD_F_SV_TYPE_MDT) &&
+	    (obd = class_name2obd(LUSTRE_MDS_OBDNAME))) {
+		/*FIXME pre-rename, should eventually be LUSTRE_MDT_NAME*/
+		type = class_search_type(LUSTRE_MDT_NAME);
+	}
 
-        if (obd && (!type || !type->typ_refcnt)) {
-                int err;
-                obd->obd_force = 1;
-                /* obd_fail doesn't mean much on a server obd */
-                err = class_manual_cleanup(obd);
-                if (!rc)
-                        rc = err;
-        }
+	/* if this was an OST, and there are no more OST's, clean up the OSS */
+	if ((lddflags & LDD_F_SV_TYPE_OST) &&
+	    (obd = class_name2obd(LUSTRE_OSS_OBDNAME))) {
+		type = class_search_type(LUSTRE_OST_NAME);
+	}
 
-        cfs_mutex_unlock(&server_start_lock);
+	if (obd && (!type || !type->typ_refcnt)) {
+		int err;
+		obd->obd_force = 1;
+		/* obd_fail doesn't mean much on a server obd */
+		err = class_manual_cleanup(obd);
+		if (!rc)
+			rc = err;
+	}
 
-        RETURN(rc);
+	cfs_mutex_unlock(&server_start_lock);
+
+	RETURN(rc);
 }
 
 int server_mti_print(char *title, struct mgs_target_info *mti)
@@ -1194,112 +1195,108 @@ out:
  */
 static int server_start_targets(struct super_block *sb, struct vfsmount *mnt)
 {
-        struct obd_device *obd;
-        struct lustre_sb_info *lsi = s2lsi(sb);
-        struct config_llog_instance cfg;
-        int rc;
-        ENTRY;
+	struct obd_device *obd;
+	struct lustre_sb_info *lsi = s2lsi(sb);
+	struct config_llog_instance cfg;
+	int rc;
+	ENTRY;
 
-        CDEBUG(D_MOUNT, "starting target %s\n", lsi->lsi_ldd->ldd_svname);
+	CDEBUG(D_MOUNT, "starting target %s\n", lsi->lsi_ldd->ldd_svname);
+	/* If we're an MDT, make sure the global MDS is running */
+	if (lsi->lsi_ldd->ldd_flags & LDD_F_SV_TYPE_MDT) {
+		/* make sure the MDS is started */
+		cfs_mutex_lock(&server_start_lock);
+		obd = class_name2obd(LUSTRE_MDS_OBDNAME);
+		if (!obd) {
+			rc = lustre_start_simple(LUSTRE_MDS_OBDNAME,
+						 LUSTRE_MDS_NAME,
+						 LUSTRE_MDS_OBDNAME"_uuid",
+						 0, 0);
+			if (rc) {
+				cfs_mutex_unlock(&server_start_lock);
+				CERROR("failed to start MDS: %d\n", rc);
+				RETURN(rc);
+			}
+		}
+		cfs_mutex_unlock(&server_start_lock);
+	}
 
-#if 0
-        /* If we're an MDT, make sure the global MDS is running */
-        if (lsi->lsi_ldd->ldd_flags & LDD_F_SV_TYPE_MDT) {
-                /* make sure the MDS is started */
-                cfs_mutex_lock(&server_start_lock);
-                obd = class_name2obd(LUSTRE_MDS_OBDNAME);
-                if (!obd) {
-                        rc = lustre_start_simple(LUSTRE_MDS_OBDNAME,
-                    /* FIXME pre-rename, should eventually be LUSTRE_MDS_NAME */
-                                                 LUSTRE_MDT_NAME,
-                                                 LUSTRE_MDS_OBDNAME"_uuid",
-                                                 0, 0);
-                        if (rc) {
-                                cfs_mutex_unlock(&server_start_lock);
-                                CERROR("failed to start MDS: %d\n", rc);
-                                RETURN(rc);
-                        }
-                }
-                cfs_mutex_unlock(&server_start_lock);
-        }
-#endif
+	/* If we're an OST, make sure the global OSS is running */
+	if (IS_OST(lsi->lsi_ldd)) {
+		/* make sure OSS is started */
+		cfs_mutex_lock(&server_start_lock);
+		obd = class_name2obd(LUSTRE_OSS_OBDNAME);
+		if (!obd) {
+			rc = lustre_start_simple(LUSTRE_OSS_OBDNAME,
+						 LUSTRE_OSS_NAME,
+						 LUSTRE_OSS_OBDNAME"_uuid",
+						 0, 0);
+			if (rc) {
+				cfs_mutex_unlock(&server_start_lock);
+				CERROR("failed to start OSS: %d\n", rc);
+				RETURN(rc);
+			}
+		}
+		cfs_mutex_unlock(&server_start_lock);
+	}
 
-        /* If we're an OST, make sure the global OSS is running */
-        if (IS_OST(lsi->lsi_ldd)) {
-                /* make sure OSS is started */
-                cfs_mutex_lock(&server_start_lock);
-                obd = class_name2obd(LUSTRE_OSS_OBDNAME);
-                if (!obd) {
-                        rc = lustre_start_simple(LUSTRE_OSS_OBDNAME,
-                                                 LUSTRE_OSS_NAME,
-                                                 LUSTRE_OSS_OBDNAME"_uuid",
-                                                 0, 0);
-                        if (rc) {
-                                cfs_mutex_unlock(&server_start_lock);
-                                CERROR("failed to start OSS: %d\n", rc);
-                                RETURN(rc);
-                        }
-                }
-                cfs_mutex_unlock(&server_start_lock);
-        }
+	/* Set the mgc fs to our server disk.  This allows the MGC to
+	 * read and write configs locally, in case it can't talk to the MGS. */
+	rc = server_mgc_set_fs(lsi->lsi_mgc, sb);
+	if (rc)
+		RETURN(rc);
 
-        /* Set the mgc fs to our server disk.  This allows the MGC to
-         * read and write configs locally, in case it can't talk to the MGS. */
-        rc = server_mgc_set_fs(lsi->lsi_mgc, sb);
-        if (rc)
-                RETURN(rc);
+	/* Register with MGS */
+	rc = server_register_target(sb);
+	if (rc)
+		GOTO(out_mgc, rc);
 
-        /* Register with MGS */
-        rc = server_register_target(sb);
-        if (rc)
-                GOTO(out_mgc, rc);
+	/* Let the target look up the mount using the target's name
+	   (we can't pass the sb or mnt through class_process_config.) */
+	rc = server_register_mount(lsi->lsi_ldd->ldd_svname, sb, mnt);
+	if (rc)
+		GOTO(out_mgc, rc);
 
-        /* Let the target look up the mount using the target's name
-           (we can't pass the sb or mnt through class_process_config.) */
-        rc = server_register_mount(lsi->lsi_ldd->ldd_svname, sb, mnt);
-        if (rc)
-                GOTO(out_mgc, rc);
+	/* Start targets using the llog named for the target */
+	memset(&cfg, 0, sizeof(cfg));
+	rc = lustre_process_log(sb, lsi->lsi_ldd->ldd_svname, &cfg);
+	if (rc) {
+		CERROR("failed to start server %s: %d\n",
+		       lsi->lsi_ldd->ldd_svname, rc);
+		/* Do NOT call server_deregister_mount() here. This makes it
+		 * impossible to find mount later in cleanup time and leaves
+		 * @lsi and othder stuff leaked. -umka */
+		GOTO(out_mgc, rc);
+	}
 
-        /* Start targets using the llog named for the target */
-        memset(&cfg, 0, sizeof(cfg));
-        rc = lustre_process_log(sb, lsi->lsi_ldd->ldd_svname, &cfg);
-        if (rc) {
-                CERROR("failed to start server %s: %d\n",
-                       lsi->lsi_ldd->ldd_svname, rc);
-                /* Do NOT call server_deregister_mount() here. This makes it
-                 * impossible to find mount later in cleanup time and leaves
-                 * @lsi and othder stuff leaked. -umka */
-                GOTO(out_mgc, rc);
-        }
+	out_mgc:
+	/* Release the mgc fs for others to use */
+	server_mgc_clear_fs(lsi->lsi_mgc);
 
-out_mgc:
-        /* Release the mgc fs for others to use */
-        server_mgc_clear_fs(lsi->lsi_mgc);
+	if (!rc) {
+		obd = class_name2obd(lsi->lsi_ldd->ldd_svname);
+		if (!obd) {
+			CERROR("no server named %s was started\n",
+			       lsi->lsi_ldd->ldd_svname);
+			RETURN(-ENXIO);
+		}
 
-        if (!rc) {
-                obd = class_name2obd(lsi->lsi_ldd->ldd_svname);
-                if (!obd) {
-                        CERROR("no server named %s was started\n",
-                               lsi->lsi_ldd->ldd_svname);
-                        RETURN(-ENXIO);
-                }
+		if ((lsi->lsi_lmd->lmd_flags & LMD_FLG_ABORT_RECOV) &&
+		    (OBP(obd, iocontrol))) {
+			obd_iocontrol(OBD_IOC_ABORT_RECOVERY,
+				      obd->obd_self_export, 0, NULL, NULL);
+		}
 
-                if ((lsi->lsi_lmd->lmd_flags & LMD_FLG_ABORT_RECOV) &&
-                    (OBP(obd, iocontrol))) {
-                        obd_iocontrol(OBD_IOC_ABORT_RECOVERY,
-                                      obd->obd_self_export, 0, NULL, NULL);
-                }
+		server_notify_target(sb, obd);
 
-                server_notify_target(sb, obd);
+		/* calculate recovery timeout, do it after lustre_process_log */
+		server_calc_timeout(lsi, obd);
 
-                /* calculate recovery timeout, do it after lustre_process_log */
-                server_calc_timeout(lsi, obd);
+		/* log has been fully processed */
+		obd_notify(obd, NULL, OBD_NOTIFY_CONFIG, (void *)CONFIG_LOG);
+	}
 
-                /* log has been fully processed */
-                obd_notify(obd, NULL, OBD_NOTIFY_CONFIG, (void *)CONFIG_LOG);
-        }
-
-        RETURN(rc);
+	RETURN(rc);
 }
 
 /***************** lustre superblock **************/

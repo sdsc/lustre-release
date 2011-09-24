@@ -207,61 +207,61 @@ EXPORT_SYMBOL(lprocfs_quota_rd_type);
  */
 int generic_quota_on(struct obd_device *obd, struct obd_quotactl *oqctl, int global)
 {
-        struct obd_device_target *obt = &obd->u.obt;
-        struct lvfs_run_ctxt saved;
-        int id, is_master, rc = 0, local; /* means we need a local quotaon */
+	struct obd_device_target *obt = &obd->u.obt;
+	struct lvfs_run_ctxt saved;
+	int id, is_master, rc = 0, local; /* means we need a local quotaon */
 
-        cfs_down(&obt->obt_quotachecking);
-        push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
-        id = UGQUOTA2LQC(oqctl->qc_type);
-        local = (obt->obt_qctxt.lqc_flags & id) != id;
+	cfs_down(&obt->obt_quotachecking);
+	push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
+	id = UGQUOTA2LQC(oqctl->qc_type);
+	local = (obt->obt_qctxt.lqc_flags & id) != id;
 
-        oqctl->qc_cmd = Q_QUOTAON;
-        oqctl->qc_id = obt->obt_qfmt;
+	oqctl->qc_cmd = Q_QUOTAON;
+	oqctl->qc_id = obt->obt_qfmt;
 
-        is_master = !strcmp(obd->obd_type->typ_name, LUSTRE_MDS_NAME);
-        if (is_master) {
-                cfs_down_write(&obd->u.mds.mds_qonoff_sem);
-                if (local) {
-                        /* turn on cluster wide quota */
-                        rc = mds_admin_quota_on(obd, oqctl);
-                        if (rc && rc != -ENOENT)
-                                CERROR("%s: %s admin quotaon failed. rc=%d\n",
-                                       obd->obd_name, global ? "global":"local",
-                                       rc);
-                }
-        }
+	is_master = !strcmp(obd->obd_type->typ_name, LUSTRE_MDD_MDS_NAME);
+	if (is_master) {
+		cfs_down_write(&obd->u.mds.mds_qonoff_sem);
+		if (local) {
+			/* turn on cluster wide quota */
+			rc = mds_admin_quota_on(obd, oqctl);
+			if (rc && rc != -ENOENT)
+				CERROR("%s: %s admin quotaon failed. rc=%d\n",
+				       obd->obd_name, global ? "global":"local",
+				       rc);
+		}
+	}
 
-        if (rc == 0) {
-                if (local) {
-                        rc = fsfilt_quotactl(obd, obt->obt_sb, oqctl);
-                        if (rc) {
-                                if (rc != -ENOENT)
-                                        CERROR("%s: %s quotaon failed with"
-                                               " rc=%d\n", obd->obd_name,
-                                               global ? "global" : "local", rc);
-                        } else {
-                                obt->obt_qctxt.lqc_flags |= UGQUOTA2LQC(oqctl->qc_type);
-                                build_lqs(obd);
-                        }
-                }
+	if (rc == 0) {
+		if (local) {
+			rc = fsfilt_quotactl(obd, obt->obt_sb, oqctl);
+			if (rc) {
+				if (rc != -ENOENT)
+					CERROR("%s: %s quotaon failed with"
+					       " rc=%d\n", obd->obd_name,
+					       global ? "global" : "local", rc);
+			} else {
+				obt->obt_qctxt.lqc_flags |= UGQUOTA2LQC(oqctl->qc_type);
+				build_lqs(obd);
+			}
+		}
 
-                if (rc == 0 && global && is_master)
-                        rc = obd_quotactl(obd->u.mds.mds_lov_exp, oqctl);
-        }
+		if (rc == 0 && global && is_master)
+			rc = obd_quotactl(obd->u.mds.mds_lov_exp, oqctl);
+	}
 
-        if (is_master)
-                cfs_up_write(&obd->u.mds.mds_qonoff_sem);
+	if (is_master)
+		cfs_up_write(&obd->u.mds.mds_qonoff_sem);
 
-        pop_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
-        cfs_up(&obt->obt_quotachecking);
+	pop_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
+	cfs_up(&obt->obt_quotachecking);
 
-        CDEBUG(D_QUOTA, "%s: quotaon type:master:global:local:flags:rc "
-               "%u:%d:%d:%d:%lu:%d\n",
-               obd->obd_name, oqctl->qc_type, is_master, global, local,
-               obt->obt_qctxt.lqc_flags, rc);
+	CDEBUG(D_QUOTA, "%s: quotaon type:master:global:local:flags:rc "
+	       "%u:%d:%d:%d:%lu:%d\n",
+	       obd->obd_name, oqctl->qc_type, is_master, global, local,
+	       obt->obt_qctxt.lqc_flags, rc);
 
-        return rc;
+	return rc;
 }
 
 static int auto_quota_on(struct obd_device *obd, int type)
