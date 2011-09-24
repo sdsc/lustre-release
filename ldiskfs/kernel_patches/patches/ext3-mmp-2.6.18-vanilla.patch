@@ -192,9 +192,10 @@ Index: linux-stage/fs/ext3/super.c
 +		 * Don't spew too many error messages. Print one every
 +		 * (s_mmp_update_interval * 60) seconds.
 +		 */
-+		if (retval && (failed_writes % 60) == 0) {
-+			ext3_error(sb, __func__,
-+				   "Error writing to MMP block");
++		if (retval) {
++			if ((failed_writes % 60) == 0)
++				ext3_error(sb, __func__,
++					   "Error writing to MMP block");
 +			failed_writes++;
 +		}
 +
