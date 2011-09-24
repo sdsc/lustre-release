@@ -143,7 +143,7 @@ int target_quota_check(struct obd_device *obd, struct obd_export *exp,
 
         /* quotaoff firstly */
         oqctl->qc_cmd = Q_QUOTAOFF;
-        if (!strcmp(obd->obd_type->typ_name, LUSTRE_MDS_NAME)) {
+        if (!strcmp(obd->obd_type->typ_name, LUSTRE_MDD_MDS_NAME)) {
                 rc = do_mds_quota_off(obd, oqctl);
                 if (rc && rc != -EALREADY) {
                         CERROR("off quota on MDS failed: %d\n", rc);
@@ -259,8 +259,8 @@ int client_quota_poll_check(struct obd_export *exp, struct if_quotacheck *qchk)
                        strlen(LUSTRE_OST_NAME));
         else if (strncmp(exp->exp_obd->obd_type->typ_name, LUSTRE_MDC_NAME,
                          strlen(LUSTRE_MDC_NAME)) == 0)
-                memcpy(qchk->obd_type, LUSTRE_MDS_NAME,
-                       strlen(LUSTRE_MDS_NAME));
+                memcpy(qchk->obd_type, LUSTRE_MDD_MDS_NAME,
+                       strlen(LUSTRE_MDD_MDS_NAME));
 
         RETURN(rc);
 }

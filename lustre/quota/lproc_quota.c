@@ -222,7 +222,7 @@ int generic_quota_on(struct obd_device *obd, struct obd_quotactl *oqctl, int glo
         oqctl->qc_cmd = Q_QUOTAON;
         oqctl->qc_id = obt->obt_qfmt;
 
-        is_master = !strcmp(obd->obd_type->typ_name, LUSTRE_MDS_NAME);
+        is_master = !strcmp(obd->obd_type->typ_name, LUSTRE_MDD_MDS_NAME);
         if (is_master) {
                 cfs_down_write(&obd->u.mds.mds_qonoff_sem);
                 if (local) {
@@ -300,7 +300,7 @@ int lprocfs_quota_wr_type(struct file *file, const char *buffer,
 
         obt = &obd->u.obt;
 
-        is_mds = !strcmp(obd->obd_type->typ_name, LUSTRE_MDS_NAME);
+        is_mds = !strcmp(obd->obd_type->typ_name, LUSTRE_MDD_MDS_NAME);
 
         if (count > MAX_STYPE_SIZE)
                 return -EINVAL;
