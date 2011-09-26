@@ -201,11 +201,11 @@ static int orph_index_insert(const struct lu_env *env,
 
         mdd_orphan_write_lock(env, mdd);
 
+        mdo_ref_add(env, obj, th);
         rc = mdd_orphan_insert_obj(env, mdd, obj, op, th);
         if (rc)
                 GOTO(out, rc);
 
-        mdo_ref_add(env, obj, th);
         if (!S_ISDIR(mdd_object_type(obj)))
                 goto out;
 

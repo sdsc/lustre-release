@@ -80,8 +80,8 @@
 #include <sys/shm.h>
 #include <pthread.h>
 
-#define MAX_THREADS 1024
-
+#define MAX_THREADS 4096 
+#define MAX_BASE_ID 0xffffffff
 struct shared_data {
         __u64 counters[MAX_THREADS];
         __u64 offsets[MAX_THREADS];
@@ -96,6 +96,7 @@ static struct shared_data *shared_data;
 static __u64 counter_snapshot[2][MAX_THREADS];
 static int prev_valid;
 static struct timeval prev_time;
+static struct timeval start_time;
 static int thread;
 static int nthreads;
 #else
@@ -484,7 +485,7 @@ static inline void shmem_reset(int total_threads)
         shared_data->barrier = total_threads;
 }
 
-static inline void shmem_bump(void)
+static inline void shmem_bump(__u32 counter)
 {
         static int bumped_running;
 
@@ -492,11 +493,45 @@ static inline void shmem_bump(void)
                 return;
 
         shmem_lock();
-        shared_data->counters[thread - 1]++;
+        shared_data->counters[thread - 1] += counter;
         if (!bumped_running)
                 shared_data->running++;
         shmem_unlock();
         bumped_running = 1;
+}
+
+static void shmem_stop(void)
+{
+        if (shared_data == NULL)
+                return;
+
+        shared_data->stop = 1;
+}
+
+static void shmem_total(int total_threads)
+{
+        struct timeval this_time;
+        __u64 total = 0;
+        double secs;
+        int i;
+
+        if (shared_data == NULL || total_threads > MAX_THREADS)
+                return;
+
+        shmem_lock();
+        for (i = 0; i < total_threads; i++)
+                total += shared_data->counters[i];
+        shmem_unlock();
+
+        gettimeofday(&this_time, NULL);
+
+        secs = (this_time.tv_sec + this_time.tv_usec / 1000000.0) -
+               (start_time.tv_sec + start_time.tv_usec / 1000000.0);
+
+        printf("Total: total %llu threads %d sec %f %f/second\n", total,
+                total_threads, secs, total / secs);
+
+        return;
 }
 
 static void shmem_snap(int total_threads, int live_threads)
@@ -532,9 +567,9 @@ static void shmem_snap(int total_threads, int live_threads)
         secs = (this_time.tv_sec + this_time.tv_usec / 1000000.0) -
                (prev_time.tv_sec + prev_time.tv_usec / 1000000.0);
 
-        if (prev_valid &&
-            secs > 1.0)                    /* someone screwed with the time? */
-                printf("%d/%d Total: %f/second\n", non_zero, total_threads, total / secs);
+        if (prev_valid && secs > 1.0)   /* someone screwed with the time? */
+                printf("%d/%d Total: %f/second\n", non_zero, total_threads,
+                        total / secs);
 
         memcpy(counter_snapshot[1], counter_snapshot[0],
                total_threads * sizeof(counter_snapshot[0][0]));
@@ -542,14 +577,6 @@ static void shmem_snap(int total_threads, int live_threads)
         if (!prev_valid &&
             running == total_threads)
                 prev_valid = 1;
-}
-
-static void shmem_stop(void)
-{
-        if (shared_data == NULL)
-                return;
-
-        shared_data->stop = 1;
 }
 
 static int shmem_running(void)
@@ -566,7 +593,7 @@ static inline void shmem_reset(int total_threads)
 {
 }
 
-static inline void shmem_bump(void)
+static inline void shmem_bump(__u32 counter)
 {
 }
 
@@ -579,6 +606,10 @@ static void shmem_unlock()
 }
 
 static void shmem_stop(void)
+{
+}
+
+static void shmem_total(int total_threads)
 {
 }
 
@@ -703,6 +734,7 @@ int jt_opt_threads(int argc, char **argv)
 
         nthreads = threads;
 
+        gettimeofday(&start_time, NULL);
         for (i = 1, next_thread = verbose; i <= threads; i++) {
                 rc = fork();
                 if (rc < 0) {
@@ -783,6 +815,7 @@ int jt_opt_threads(int argc, char **argv)
                 sigaction(SIGCHLD, &saveact2, NULL);
                 sigaction(SIGALRM, &saveact1, NULL);
         }
+        shmem_total(threads);
 
         sigprocmask(SIG_SETMASK, &saveset, NULL);
 
@@ -1038,12 +1071,328 @@ int jt_obd_list(int argc, char **argv)
         return 0;
 }
 
+#define MD_STEP_COUNT 1000
+int jt_obd_md_common(int argc, char **argv, int cmd)
+{
+        struct obd_ioctl_data  data;
+        struct timeval         start;
+        struct timeval         next_time;
+        struct timeval         end_time;
+        char                   rawbuf[MAX_IOC_BUFLEN];
+        char                  *buf = rawbuf;
+        int                    verbose = 1;
+        int                    mode = 0000644;
+        int                    create_mode;
+        int                    rc = 0;
+        char                  *parent_basedir = NULL;
+        char                   dirname[4096];
+        int                    parent_base_id = 0;
+        int                    parent_count = 1;
+        __u64                  child_base_id = -1;
+        int                    stripe_count = -1;
+        int                    stripe_index = -1;
+        int                    count = 0;
+        char                  *end;
+        __u64                  seconds = 0;
+        double                 diff;
+        int                    c;
+        int                    xattr_size = 0;
+        __u64                  total_count = 0;
+        char                  *name = NULL;
+        struct option          long_opts[] = {
+                {"child_base_id",     required_argument, 0, 'b'},
+                {"stripe_count",      required_argument, 0, 'c'},
+                {"parent_basedir",    required_argument, 0, 'd'},
+                {"parent_dircount",   required_argument, 0, 'D'},
+                {"stripe_index",      required_argument, 0, 'i'},
+                {"mode",              required_argument, 0, 'm'},
+                {"count",             required_argument, 0, 'n'},
+                {"time",              required_argument, 0, 't'},
+                {"xattr_size",        required_argument, 0, 'x'},
+                {0, 0, 0, 0}
+        };
+
+        optind = 0;
+        while ((c = getopt_long(argc, argv, "b:c:d:D:m:n:t:x:",
+                                long_opts, NULL)) >= 0) {
+                switch (c) {
+                case 'b':
+                        child_base_id = strtoull(optarg, &end, 0);
+                        if (*end) {
+                                fprintf(stderr, "error: %s: bad child_base_id '%s'\n",
+                                        jt_cmdname(argv[0]), optarg);
+                                return CMD_HELP;
+                        }
+                        break;
+                case 'c':
+                        stripe_count = strtoul(optarg, &end, 0);
+                        if (*end) {
+                                fprintf(stderr, "error: %s: bad stripe count '%s'\n",
+                                        jt_cmdname(argv[0]), optarg);
+                                return CMD_HELP;
+                        }
+                        break;
+                case 'd':
+                        parent_basedir = optarg;
+                        break;
+                case 'D':
+                        parent_count = strtoul(optarg, &end, 0);
+                        if (*end) {
+                                fprintf(stderr, "error: %s: bad parent count '%s'\n",
+                                        jt_cmdname(argv[0]), optarg);
+                                return CMD_HELP;
+                        }
+                        break;
+                case 'i':
+                        stripe_index = strtoul(optarg, &end, 0);
+                        if (*end) {
+                                fprintf(stderr, "error: %s: bad stripe index '%s'\n",
+                                        jt_cmdname(argv[0]), optarg);
+                                return CMD_HELP;
+                        }
+                        break;
+                case 'm':
+                        mode = strtoul(optarg, &end, 0);
+                        if (*end) {
+                                fprintf(stderr, "error: %s: bad mode '%s'\n",
+                                        jt_cmdname(argv[0]), optarg);
+                                return CMD_HELP;
+                        }
+                        break;
+                case 'n':
+                        total_count = strtoul(optarg, &end, 0);
+                        if (*end || total_count == 0) {
+                                fprintf(stderr, "%s: bad child count '%s'\n",
+                                        jt_cmdname(argv[0]), optarg);
+                                return CMD_HELP;
+                        }
+                        break;
+                case 't':
+                        seconds = strtoull(optarg, &end, 0);
+                        if (*end) {
+                                fprintf(stderr, "error: %s: senconds '%s'\n",
+                                        jt_cmdname(argv[0]), optarg);
+                                return CMD_HELP;
+                        }
+                        break;
+                case 'x':
+                        xattr_size = strtoul(optarg, &end, 0);
+                        if (*end) {
+                                fprintf(stderr, "error: %s: senconds '%s'\n",
+                                        jt_cmdname(argv[0]), optarg);
+                                return CMD_HELP;
+                        }
+                        break;
+                default:
+                        fprintf(stderr, "error: %s: option '%s' "
+                                "unrecognized\n", argv[0], argv[optind - 1]);
+                        return CMD_HELP;
+                }
+        }
+
+        memset(&data, 0x00, sizeof(data));
+        data.ioc_dev = cur_device;
+        if (child_base_id == -1) {
+                if (optind >= argc)
+                        return CMD_HELP;
+                name = argv[optind];
+                total_count = 1;
+        } else {
+                if (optind < argc) {
+                        fprintf(stderr, "child_base_id and name can not"
+                                        " specified at the same time \n");
+                        return CMD_HELP;
+                }
+        }
+
+        if (stripe_count == 0 && stripe_index != -1) {
+                fprintf(stderr, "If stripe_count is 0, stripe_index can not"
+                                "be specified\n");
+                return CMD_HELP;
+        }
+
+        if (total_count == 0 && seconds == 0) {
+                fprintf(stderr, "count or seconds needs to be indicated\n");
+                return CMD_HELP;
+        }
+
+        if (parent_count <= 0) {
+                fprintf(stderr, "parent count must < 0\n");
+                return CMD_HELP;
+        }
+
+#ifdef MAX_THREADS
+        if (thread) {
+                shmem_lock ();
+                /* threads interleave */
+                if (parent_base_id != -1)
+                        parent_base_id += (thread - 1) % parent_count;
+
+                if (child_base_id != -1)
+                        child_base_id +=  (thread - 1) * (MAX_BASE_ID / nthreads);
+
+                shared_data->barrier--;
+                if (shared_data->barrier == 0)
+                        l_cond_broadcast(&shared_data->cond);
+                else
+                        l_cond_wait(&shared_data->cond,
+                                    &shared_data->mutex);
+                shmem_unlock ();
+        }
+#endif
+        /*If parent directory is not specified, try to get the directory from name*/
+        if (parent_basedir == NULL) {
+                char *last_lash;
+                if (name == NULL) {
+                        fprintf(stderr, "parent_basedir or name must be"
+                                        "indicated!\n");
+                        return CMD_HELP;
+                }
+                /*Get directory and name from name*/
+                last_lash = strrchr(name, '/');
+                if (last_lash == NULL || name[0] != '/') {
+                        fprintf(stderr, "Can not locate %s\n", name);
+                        return CMD_HELP;
+                }
+
+                if (last_lash == name) {
+                        sprintf(dirname, "%s", "/");
+                        name ++;
+                } else {
+                        int namelen = (unsigned long)last_lash -
+                                      (unsigned long)name;
+                        snprintf(dirname, namelen, "%s", name);
+                }
+
+                data.ioc_pbuf1 = dirname;
+                data.ioc_plen1 = strlen(dirname);
+
+                data.ioc_pbuf2 = name;
+                data.ioc_plen2 = strlen(name);
+        } else {
+                if (name != NULL) {
+                        data.ioc_pbuf2 = name;
+                        data.ioc_plen2 = strlen(name);
+                } else {
+                        if (parent_base_id > 0)
+                                sprintf(dirname, "%s%d", parent_basedir,
+                                        parent_base_id);
+                        else
+                                sprintf(dirname, "%s", parent_basedir);
+                }
+                data.ioc_pbuf1 = dirname;
+                data.ioc_plen1 = strlen(dirname);
+        }
+
+        if (cmd == ECHO_MD_MKDIR || cmd == ECHO_MD_RMDIR)
+                create_mode = S_IFDIR;
+        else
+                create_mode = S_IFREG;
+
+        data.ioc_obdo1.o_mode = mode | S_IFDIR;
+        data.ioc_obdo1.o_valid = OBD_MD_FLID | OBD_MD_FLTYPE | OBD_MD_FLMODE |
+                                 OBD_MD_FLFLAGS | OBD_MD_FLGROUP;
+        data.ioc_command = cmd;
+
+        gettimeofday(&start, NULL);
+        next_time.tv_sec = start.tv_sec - verbose;
+        next_time.tv_usec = start.tv_usec;
+        while (shmem_running()) {
+                data.ioc_obdo2.o_id = child_base_id;
+                data.ioc_obdo2.o_mode = mode | create_mode;
+                data.ioc_obdo2.o_valid = OBD_MD_FLID | OBD_MD_FLTYPE |
+                                         OBD_MD_FLMODE | OBD_MD_FLFLAGS |
+                                         OBD_MD_FLGROUP;
+                data.ioc_obdo2.o_misc = stripe_count;
+                data.ioc_obdo2.o_stripe_idx = stripe_index;
+                if (total_count > 0) {
+                        if ((total_count - count) > MD_STEP_COUNT)
+                                data.ioc_count = MD_STEP_COUNT;
+                        else
+                                data.ioc_count = total_count - count;
+                } else {
+                        data.ioc_count = MD_STEP_COUNT;
+                }
+                child_base_id += data.ioc_count;
+                count += data.ioc_count;
+
+                memset(buf, 0x00, sizeof(rawbuf));
+                rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
+                if (rc) {
+                        fprintf(stderr, "error: %s: invalid ioctl %d\n",
+                                jt_cmdname(argv[0]), rc);
+                        return rc;
+                }
+
+                rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_ECHO_MD, buf);
+                if (rc) {
+                        fprintf(stderr, "error: %s: %s\n",
+                                jt_cmdname(argv[0]), strerror(rc = errno));
+                        return rc;
+                }
+                shmem_bump(data.ioc_count);
+
+                gettimeofday(&end_time, NULL);
+                diff = difftime(&end_time, &start);
+                if (seconds > 0 && (__u64)diff > seconds)
+                        break;
+
+                if (count >= total_count && total_count > 0)
+                        break;
+        }
+
+        if (count > 0) {
+                gettimeofday(&end_time, NULL);
+                diff = difftime(&end_time, &start);
+                printf("%s: %d in %.3fs (%.3f /s): %s",
+                        jt_cmdname(argv[0]), count, diff,
+                        (double)count/diff, ctime(&end_time.tv_sec));
+        }
+
+        return rc;
+}
+
+int jt_obd_test_create(int argc, char **argv)
+{
+        return jt_obd_md_common(argc, argv, ECHO_MD_CREATE);
+}
+
+int jt_obd_test_mkdir(int argc, char **argv)
+{
+        return jt_obd_md_common(argc, argv, ECHO_MD_MKDIR);
+}
+
+int jt_obd_test_destroy(int argc, char **argv)
+{
+        return jt_obd_md_common(argc, argv, ECHO_MD_DESTROY);
+}
+
+int jt_obd_test_rmdir(int argc, char **argv)
+{
+        return jt_obd_md_common(argc, argv, ECHO_MD_RMDIR);
+}
+
+int jt_obd_test_lookup(int argc, char **argv)
+{
+        return jt_obd_md_common(argc, argv, ECHO_MD_LOOKUP);
+}
+
+int jt_obd_test_setxattr(int argc, char **argv)
+{
+        return jt_obd_md_common(argc, argv, ECHO_MD_SETATTR);
+}
+
+int jt_obd_test_md_getattr(int argc, char **argv)
+{
+        return jt_obd_md_common(argc, argv, ECHO_MD_GETATTR);
+}
+
 /* Create one or more objects, arg[4] may describe stripe meta-data.  If
  * not, defaults assumed.  This echo-client instance stashes the stripe
  * object ids.  Use get_stripe on this node to print full lsm and
  * set_stripe on another node to cut/paste between nodes.
  */
-/* create <count> [<file_create_mode>] [q|v|# verbosity] [striping] */
+/* create <count> [<file_create_mode>] [q|v|# verbosity] [striping]*/
 int jt_obd_create(int argc, char **argv)
 {
         char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf;
@@ -1121,7 +1470,7 @@ int jt_obd_create(int argc, char **argv)
                 }
                 rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_CREATE, buf);
                 obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
-                shmem_bump();
+                shmem_bump(1);
                 if (rc < 0) {
                         fprintf(stderr, "error: %s: #%d - %s\n",
                                 jt_cmdname(argv[0]), i, strerror(rc = errno));
@@ -1244,7 +1593,7 @@ int jt_obd_test_setattr(int argc, char **argv)
                         return rc;
                 }
                 rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_SETATTR, &data);
-                shmem_bump();
+                shmem_bump(1);
                 if (rc < 0) {
                         fprintf(stderr, "error: %s: #"LPD64" - %d:%s\n",
                                 jt_cmdname(argv[0]), i, errno, strerror(rc = errno));
@@ -1330,7 +1679,7 @@ int jt_obd_destroy(int argc, char **argv)
                 }
                 rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_DESTROY, buf);
                 obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
-                shmem_bump();
+                shmem_bump(1);
                 if (rc < 0) {
                         fprintf(stderr, "error: %s: objid "LPX64": %s\n",
                                 jt_cmdname(argv[0]), id, strerror(rc = errno));
@@ -1449,7 +1798,7 @@ int jt_obd_test_getattr(int argc, char **argv)
                         return rc;
                 }
                 rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_GETATTR, &data);
-                shmem_bump();
+                shmem_bump(1);
                 if (rc < 0) {
                         fprintf(stderr, "error: %s: #"LPD64" - %d:%s\n",
                                 jt_cmdname(argv[0]), i, errno, strerror(rc = errno));
@@ -1674,7 +2023,7 @@ int jt_obd_test_brw(int argc, char **argv)
                         return rc;
                 }
                 rc = l2_ioctl(OBD_DEV_ID, cmd, buf);
-                shmem_bump();
+                shmem_bump(1);
                 if (rc) {
                         fprintf(stderr, "error: %s: #%d - %s on %s\n",
                                 jt_cmdname(argv[0]), i, strerror(rc = errno),
