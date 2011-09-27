@@ -721,9 +721,19 @@ static int vvp_io_fault_start(const struct lu_env *env,
         /* Though we have already held a cl_lock upon this page, but
          * it still can be truncated locally. */
         page = ERR_PTR(-EFAULT);
-        if (likely(cfio->ft_vmpage->mapping != NULL))
+
+#ifndef HAVE_VM_OP_FAULT
+        if (unlikely(cfio->ft_vmpage->mapping != NULL))
                 page = cl_page_find(env, obj, fio->ft_index, cfio->ft_vmpage,
                                     CPT_CACHEABLE);
+#else
+        if (unlikely(cfio->ft_vmpage->mapping == NULL))
+                cfio->fault.ft_flags |= VM_FAULT_RETRY;
+        else
+                page = cl_page_find(env, obj, fio->ft_index, cfio->ft_vmpage,
+                                    CPT_CACHEABLE);
+#endif
+
         unlock_page(cfio->ft_vmpage);
         if (IS_ERR(page)) {
                 page_cache_release(cfio->ft_vmpage);
