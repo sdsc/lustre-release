@@ -1225,8 +1225,8 @@ static inline int can_merge_pages(struct brw_page *p1, struct brw_page *p2)
                 /* warn if we try to combine flags that we don't know to be
                  * safe to combine */
                 if ((p1->flag & mask) != (p2->flag & mask))
-                        CERROR("is it ok to have flags 0x%x and 0x%x in the "
-                               "same brw?\n", p1->flag, p2->flag);
+                        CDEBUG(D_INFO, "is it ok to have flags 0x%x and 0x%x"
+                               " in the same brw?\n", p1->flag, p2->flag);
                 return 0;
         }
 
