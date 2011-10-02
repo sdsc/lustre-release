@@ -229,7 +229,12 @@ int lsm_unpackmd_v1(struct lov_obd *lov, struct lov_stripe_md *lsm,
                 }
                 /* calculate the minimum stripe max bytes */
                 imp = lov->lov_tgts[loi->loi_ost_idx]->ltd_obd->u.cli.cl_import;
-                if (imp != NULL) {
+                if (lov->lov_tgts[loi->loi_ost_idx]->ltd_active && imp != NULL){
+                        cfs_spin_lock(&imp->imp_lock);
+                        if (imp->imp_state != LUSTRE_IMP_FULL) {
+                                cfs_spin_unlock(&imp->imp_lock);
+                                continue;
+                        }
                         if (!(imp->imp_connect_data.ocd_connect_flags &
                               OBD_CONNECT_MAXBYTES)) {
                                 imp->imp_connect_data.ocd_maxbytes =
@@ -239,6 +244,7 @@ int lsm_unpackmd_v1(struct lov_obd *lov, struct lov_stripe_md *lsm,
                                 stripe_maxbytes =
                                              imp->imp_connect_data.ocd_maxbytes;
                         }
+                        cfs_spin_unlock(&imp->imp_lock);
                 }
         }
 
@@ -320,7 +326,12 @@ int lsm_unpackmd_v3(struct lov_obd *lov, struct lov_stripe_md *lsm,
                 }
                 /* calculate the minimum stripe max bytes */
                 imp = lov->lov_tgts[loi->loi_ost_idx]->ltd_obd->u.cli.cl_import;
-                if (imp != NULL) {
+                if (lov->lov_tgts[loi->loi_ost_idx]->ltd_active && imp != NULL){
+                        cfs_spin_lock(&imp->imp_lock);
+                        if (imp->imp_state != LUSTRE_IMP_FULL) {
+                                cfs_spin_unlock(&imp->imp_lock);
+                                continue;
+                        }
                         if (!(imp->imp_connect_data.ocd_connect_flags &
                               OBD_CONNECT_MAXBYTES)) {
                                 imp->imp_connect_data.ocd_maxbytes =
@@ -330,6 +341,7 @@ int lsm_unpackmd_v3(struct lov_obd *lov, struct lov_stripe_md *lsm,
                                 stripe_maxbytes =
                                              imp->imp_connect_data.ocd_maxbytes;
                         }
+                        cfs_spin_unlock(&imp->imp_lock);
                 }
         }
 
