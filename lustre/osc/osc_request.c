@@ -1218,15 +1218,21 @@ static int check_write_rcs(struct ptlrpc_request *req,
 
 static inline int can_merge_pages(struct brw_page *p1, struct brw_page *p2)
 {
+        static __u32 save_diff = 0;
+        __u32 diff;
+
         if (p1->flag != p2->flag) {
                 unsigned mask = ~(OBD_BRW_FROM_GRANT|
                                   OBD_BRW_NOCACHE|OBD_BRW_SYNC|OBD_BRW_ASYNC);
 
                 /* warn if we try to combine flags that we don't know to be
                  * safe to combine */
-                if ((p1->flag & mask) != (p2->flag & mask))
-                        CERROR("is it ok to have flags 0x%x and 0x%x in the "
-                               "same brw?\n", p1->flag, p2->flag);
+                diff = (p1->flag & mask) ^ (p2->flag & mask);
+                if (unlikely(diff && (diff & save_diff) == 0)) {
+                        CWARN("is it ok to have flags 0x%x and 0x%x in the same"
+                              " brw?\n", p1->flag, p2->flag);
+                        save_diff |= diff;
+                }
                 return 0;
         }
 
