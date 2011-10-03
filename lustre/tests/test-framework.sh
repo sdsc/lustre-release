@@ -1654,6 +1654,102 @@ h2o2ib() {
 }
 declare -fx h2o2ib
 
+# This enables variables in cfg/"setup".sh files to support the pdsh HOSTLIST
+# expressions format. As a bonus we can then just pass in those variables
+# to pdsh. What this function does is take a HOSTLIST type string and
+# expand it into a space deliminated list for us.
+hostlist_expand() {
+    local hostlist=$1
+    local offset=$2
+    local myList
+    local item
+    local list
+
+    [ -z "$hostlist" ] && return
+
+    # Translate the case of [..],..,[..] to [..] .. [..]
+    list="${hostlist/],/] }"
+    front=${list%%[*}
+    [[ "$front" == *,* ]] && {
+        new="${list%,*} "
+        old="${list%,*},"
+        list=${list/${old}/${new}}
+    }
+
+    for item in $list; do
+        # Test if we have any []'s at all
+        if [ "$item" != "${item/\[/}" ]; then {
+            # Expand the [*] into list
+            name=${item%%[*}
+            back=${item#*]}
+
+            if [ "$name" != "$item" ]; then
+                group=${item#$name[*}
+                group=${group%%]*}
+
+                for range in ${group//,/ }; do
+                    begin=${range%-*}
+                    end=${range#*-}
+
+                    # Number of leading zeros
+                    padlen=${#begin}
+                    padlen2=${#end}
+                    end=$(echo $end | sed 's/0*//')
+                    [[ -z "$end" ]] && end=0
+                    [[ $padlen2 -gt $padlen ]] && {
+                        [[ $padlen2 -eq ${#end} ]] && padlen2=0
+                        padlen=$padlen2
+                    }
+                    begin=$(echo $begin | sed 's/0*//')
+                    [ -z $begin ] && begin=0
+
+                    for num in $(seq -f "%0${padlen}g" $begin $end); do
+                        value="${name#*,}${num}${back}"
+                        [ "$value" != "${value/\[/}" ] && {
+                            value=$(hostlist_expand "$value")
+                        }
+                        myList="$myList $value"
+                    done
+                done
+            fi
+        } else {
+            myList="$myList $item"
+        } fi
+    done
+    myList=${myList//,/ }
+    myList=${myList:1} # Remove first character which is a space
+
+    # Filter any duplicates without sorting
+    list="$myList "
+    myList="${list%% *}"
+
+    while [[ "$list" != ${myList##* } ]]; do
+        list=${list//${list%% *} /}
+        myList="$myList ${list%% *}"
+    done
+    myList="${myList%* }";
+
+    # We can select an object at a offset in the list
+    [ $# -eq 2 ] && {
+        cnt=0
+        for item in $myList; do
+            let cnt=cnt+1
+            [ $cnt -eq $offset ] && {
+                myList=$item
+            }
+        done
+        [ $(get_node_count $myList) -ne 1 ] && myList=""
+    }
+    echo $myList
+}
+
+get_nodes() {
+    local kind=$(echo ${1}_HOST | sed "s/[0-9]//g")
+
+    [ "${1:0:3}" == "cli" ] && kind="CLIENTS"
+    echo $(hostlist_expand "${!kind}")
+}
+
 facet_host() {
     local facet=$1
 
@@ -3436,24 +3532,26 @@ remote_nodes_list () {
 
 init_clients_lists () {
     # Sanity check: exclude the local client from RCLIENTS
-    local rclients=$(echo " $RCLIENTS " | sed -re "s/\s+$HOSTNAME\s+/ /g")
+    local clients=$(hostlist_expand "$RCLIENTS")
+    local rclients=$(exclude_items_from_list "$clients" $(hostname))
 
     # Sanity check: exclude the dup entries
     rclients=$(for i in $rclients; do echo $i; done | sort -u)
 
-    local clients="$SINGLECLIENT $HOSTNAME $rclients"
+    clients=$(comma_list "$SINGLECLIENT $HOSTNAME $rclients")
 
     # Sanity check: exclude the dup entries from CLIENTS
     # for those configs which has SINGLCLIENT set to local client
     clients=$(for i in $clients; do echo $i; done | sort -u)
 
-    CLIENTS=`comma_list $clients`
-    local -a remoteclients=($rclients)
+    CLIENTS=$(comma_list $clients)
+    local -a remoteclients=(${rclients//,/ })
     for ((i=0; $i<${#remoteclients[@]}; i++)); do
             varname=CLIENT$((i + 2))
             eval $varname=${remoteclients[i]}
     done
 
+    RCLIENTS=${rclients//,/ }
     CLIENTCOUNT=$((${#remoteclients[@]} + 1))
 }
 
