@@ -902,6 +902,7 @@ int ldlm_pool_init(struct ldlm_pool *pl, struct ldlm_namespace *ns,
                 pl->pl_recalc_period = LDLM_POOL_CLI_DEF_RECALC_PERIOD;
         }
         pl->pl_client_lock_volume = 0;
+        cfs_init_mutex(&pl->pl_shrink_lock);
         rc = ldlm_pool_proc_init(pl);
         if (rc)
                 RETURN(rc);
@@ -1071,16 +1072,45 @@ static struct cfs_shrinker *ldlm_pools_srv_shrinker;
 static struct cfs_shrinker *ldlm_pools_cli_shrinker;
 static cfs_completion_t ldlm_pools_comp;
 
+#define POOL_SHRINK_BATCH_SIZE 64
+
+static int shrink_ns_batch(ldlm_side_t client, unsigned int gfp_mask,
+                           struct ldlm_namespace **arr, int nr,
+                           int total, int nr_to_shrink)
+{
+        int i;
+        int cached = 0;
+
+        cfs_mutex_up(ldlm_namespace_lock(client));
+        for (i = 0; i < nr; i ++) {
+                int cancel, nr_locks;
+                struct ldlm_pool *ns_pool;
+
+                ns_pool = &arr[i]->ns_pool;
+                nr_locks = ldlm_pool_granted(ns_pool);
+                cancel = 1 + nr_locks * nr_to_shrink / total;
+                ldlm_pool_shrink(ns_pool, cancel, gfp_mask);
+                cached += ldlm_pool_granted(ns_pool);
+        }
+
+        cfs_mutex_down(ldlm_namespace_lock(client));
+        for (i = 0; i < nr; i ++) {
+                cfs_mutex_up(&arr[i]->ns_pool.pl_shrink_lock);
+                ldlm_namespace_put(arr[i]);
+        }
+        return cached;
+}
+
 /*
  * Cancel \a nr locks from all namespaces (if possible). Returns number of
  * cached locks after shrink is finished. All namespaces are asked to
  * cancel approximately equal amount of locks to keep balancing.
  */
-static int ldlm_pools_shrink(ldlm_side_t client, int nr,
-                             unsigned int gfp_mask)
+static int ldlm_pools_shrink(ldlm_side_t client, int nr, unsigned int gfp_mask)
 {
-        int total = 0, cached = 0, nr_ns;
-        struct ldlm_namespace *ns;
+        int total = 0, cached = 0;
+        struct ldlm_namespace *arr[POOL_SHRINK_BATCH_SIZE], *ns;
+        int i;
         void *cookie;
 
         if (client == LDLM_NAMESPACE_CLIENT && nr != 0 &&
@@ -1092,27 +1122,17 @@ static int ldlm_pools_shrink(ldlm_side_t client, int nr,
 
         cookie = cl_env_reenter();
 
-        /*
-         * Find out how many resources we may release.
-         */
-        for (nr_ns = cfs_atomic_read(ldlm_namespace_nr(client));
-             nr_ns > 0; nr_ns--)
-        {
-                cfs_mutex_down(ldlm_namespace_lock(client));
-                if (cfs_list_empty(ldlm_namespace_list(client))) {
-                        cfs_mutex_up(ldlm_namespace_lock(client));
-                        cl_env_reexit(cookie);
-                        return 0;
-                }
-                ns = ldlm_namespace_first_locked(client);
-                ldlm_namespace_get(ns);
-                ldlm_namespace_move_locked(ns, client);
+        cfs_mutex_down(ldlm_namespace_lock(client));
+        if (cfs_list_empty(ldlm_namespace_list(client))) {
                 cfs_mutex_up(ldlm_namespace_lock(client));
-                total += ldlm_pool_shrink(&ns->ns_pool, 0, gfp_mask);
-                ldlm_namespace_put(ns);
+                cl_env_reexit(cookie);
+                return 0;
         }
+        list_for_each_entry(ns, ldlm_namespace_list(client), ns_list_chain)
+                total += ldlm_pool_shrink(&ns->ns_pool, 0, gfp_mask);
 
         if (nr == 0 || total == 0) {
+                cfs_mutex_up(ldlm_namespace_lock(client));
                 cl_env_reexit(cookie);
                 return total;
         }
@@ -1120,37 +1140,31 @@ static int ldlm_pools_shrink(ldlm_side_t client, int nr,
         /*
          * Shrink at least ldlm_namespace_nr(client) namespaces.
          */
-        for (nr_ns = cfs_atomic_read(ldlm_namespace_nr(client));
-             nr_ns > 0; nr_ns--)
-        {
-                int cancel, nr_locks;
+        i = 0;
+        list_for_each_entry(ns, ldlm_namespace_list(client), ns_list_chain) {
+                if (cfs_mutex_down_trylock(&ns->ns_pool.pl_shrink_lock))
+                        continue;
 
-                /*
-                 * Do not call shrink under ldlm_namespace_lock(client)
-                 */
-                cfs_mutex_down(ldlm_namespace_lock(client));
-                if (cfs_list_empty(ldlm_namespace_list(client))) {
-                        cfs_mutex_up(ldlm_namespace_lock(client));
-                        /*
-                         * If list is empty, we can't return any @cached > 0,
-                         * that probably would cause needless shrinker
-                         * call.
-                         */
-                        cached = 0;
-                        break;
-                }
-                ns = ldlm_namespace_first_locked(client);
                 ldlm_namespace_get(ns);
-                ldlm_namespace_move_locked(ns, client);
-                cfs_mutex_up(ldlm_namespace_lock(client));
-
-                nr_locks = ldlm_pool_granted(&ns->ns_pool);
-                cancel = 1 + nr_locks * nr / total;
-                ldlm_pool_shrink(&ns->ns_pool, cancel, gfp_mask);
-                cached += ldlm_pool_granted(&ns->ns_pool);
-                ldlm_namespace_put(ns);
+                arr[i++] = ns;
+                if (i == POOL_SHRINK_BATCH_SIZE) {
+                        cached += shrink_ns_batch(client, gfp_mask, arr, i,
+                                                  total, nr);
+                        if (list_empty(&arr[i - 1]->ns_list_chain)) {
+                                cfs_mutex_up(ldlm_namespace_lock(client));
+                                CWARN("ns %s removed, break pools shrinking\n",
+                                      ldlm_ns_name(arr[i - 1]));
+                                return cached;
+                        }
+                        i = 0;
+                }
         }
+        if (i)
+                cached += shrink_ns_batch(client, gfp_mask, arr, i, total, nr);
+
+        cfs_mutex_up(ldlm_namespace_lock(client));
         cl_env_reexit(cookie);
+
         return cached;
 }
 

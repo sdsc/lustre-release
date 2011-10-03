@@ -366,6 +366,10 @@ struct ldlm_pool {
          */
         int                    pl_grant_plan;
         /**
+         * Semaphore to protect against concurent pool shrinking.
+         */
+        cfs_semaphore_t       pl_shrink_lock;
+        /**
          * Pool statistics.
          */
         struct lprocfs_stats  *pl_stats;
