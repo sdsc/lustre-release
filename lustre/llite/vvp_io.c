@@ -326,13 +326,11 @@ static int vvp_do_vmtruncate(struct inode *inode, size_t size)
         int     result;
         /*
          * Only ll_inode_size_lock is taken at this level. lov_stripe_lock()
-         * is grabbed by ll_truncate() only over call to obd_adjust_kms().  If
-         * vmtruncate returns 0, then ll_truncate dropped ll_inode_size_lock()
+         * is grabbed by ll_truncate() only over call to obd_adjust_kms().
          */
         ll_inode_size_lock(inode, 0);
         result = vmtruncate(inode, size);
-        if (result != 0)
-                ll_inode_size_unlock(inode, 0);
+        ll_inode_size_unlock(inode, 0);
 
         return result;
 }
@@ -512,7 +510,7 @@ static int vvp_io_read_start(const struct lu_env *env,
 
         CDEBUG(D_VFSTRACE, "read: -> [%lli, %lli)\n", pos, pos + cnt);
 
-        result = ccc_prep_size(env, obj, io, pos, tot, 1, &exceed);
+        result = ccc_prep_size(env, obj, io, pos, tot, &exceed);
         if (result != 0)
                 return result;
         else if (exceed != 0)
@@ -707,7 +705,7 @@ static int vvp_io_fault_start(const struct lu_env *env,
         /* offset of the last byte on the page */
         offset = cl_offset(obj, fio->ft_index + 1) - 1;
         LASSERT(cl_index(obj, offset) == fio->ft_index);
-        result = ccc_prep_size(env, obj, io, 0, offset + 1, 0, NULL);
+        result = ccc_prep_size(env, obj, io, 0, offset + 1, NULL);
         if (result != 0)
                 return result;
 
@@ -716,14 +714,28 @@ static int vvp_io_fault_start(const struct lu_env *env,
         if (kernel_result != 0)
                 return kernel_result;
 
+        if (OBD_FAIL_CHECK(OBD_FAIL_LLITE_FAULT_TRUNC_RACE)) {
+                truncate_inode_pages_range(inode->i_mapping,
+                                         cl_offset(obj, fio->ft_index), offset);
+        }
+
         /* Temporarily lock vmpage to keep cl_page_find() happy. */
         lock_page(cfio->ft_vmpage);
+
         /* Though we have already held a cl_lock upon this page, but
          * it still can be truncated locally. */
-        page = ERR_PTR(-EFAULT);
-        if (likely(cfio->ft_vmpage->mapping != NULL))
-                page = cl_page_find(env, obj, fio->ft_index, cfio->ft_vmpage,
-                                    CPT_CACHEABLE);
+        if (unlikely(cfio->ft_vmpage->mapping == NULL)) {
+                unlock_page(cfio->ft_vmpage);
+
+                CDEBUG(D_PAGE, "llite: fault and truncate race happened!\n");
+
+                /* return +1 to stop cl_io_loop() and ll_fault() will catch
+                 * and retry. */
+                return +1;
+        }
+
+        page = cl_page_find(env, obj, fio->ft_index, cfio->ft_vmpage,
+                            CPT_CACHEABLE);
         unlock_page(cfio->ft_vmpage);
         if (IS_ERR(page)) {
                 page_cache_release(cfio->ft_vmpage);

@@ -43,6 +43,8 @@
 #ifndef LCLIENT_H
 #define LCLIENT_H
 
+blkcnt_t dirty_cnt(struct inode *inode);
+
 int cl_glimpse_size(struct inode *inode);
 int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
                     struct inode *inode, struct cl_object *clob);
@@ -329,8 +331,7 @@ void ccc_io_advance(const struct lu_env *env, const struct cl_io_slice *ios,
 void ccc_io_update_iov(const struct lu_env *env, struct ccc_io *cio,
                        struct cl_io *io);
 int ccc_prep_size(const struct lu_env *env, struct cl_object *obj,
-                  struct cl_io *io, loff_t start, size_t count, int vfslock,
-                  int *exceed);
+                  struct cl_io *io, loff_t start, size_t count, int *exceed);
 void ccc_req_completion(const struct lu_env *env,
                         const struct cl_req_slice *slice, int ioret);
 void ccc_req_attr_set(const struct lu_env *env,const struct cl_req_slice *slice,
