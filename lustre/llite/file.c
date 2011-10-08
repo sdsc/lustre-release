@@ -829,6 +829,7 @@ static ssize_t ll_file_io_generic(const struct lu_env *env,
                 enum cl_io_type iot, loff_t *ppos, size_t count)
 {
         struct ll_inode_info *lli = ll_i2info(file->f_dentry->d_inode);
+        struct ll_file_data  *fd  = LUSTRE_FPRIVATE(file);
         struct cl_io         *io;
         ssize_t               result;
         ENTRY;
@@ -899,9 +900,9 @@ out:
                 if (result >= 0) {
                         ll_stats_ops_tally(ll_i2sbi(file->f_dentry->d_inode),
                                            LPROC_LL_WRITE_BYTES, result);
-                        lli->lli_write_rc = 0;
+                        fd->fd_last_write = 0;
                 } else {
-                        lli->lli_write_rc = result;
+                        fd->fd_last_write = result;
                 }
         }
 
@@ -1909,11 +1910,8 @@ int ll_flush(struct file *file)
         struct inode *inode = file->f_dentry->d_inode;
         struct ll_inode_info *lli = ll_i2info(inode);
         struct lov_stripe_md *lsm = lli->lli_smd;
+        struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
         int rc, err;
-
-        /* the application should know write failure already. */
-        if (lli->lli_write_rc)
-                return 0;
 
         /* catch async errors that were recorded back when async writeback
          * failed for pages in this mapping. */
@@ -1924,6 +1922,11 @@ int ll_flush(struct file *file)
                 if (rc == 0)
                         rc = err;
         }
+
+        /* The application should know write failure already.
+         * Do not report failure again. */
+        if (fd->fd_last_write)
+                fd->fd_last_write = rc = 0;
 
         return rc ? -EIO : 0;
 }
@@ -1968,6 +1971,7 @@ int ll_fsync(struct file *file, struct dentry *dentry, int data)
 
         if (data && lsm) {
                 struct obd_info *oinfo;
+                struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
 
                 OBD_ALLOC_PTR(oinfo);
                 if (!oinfo)
@@ -1993,7 +1997,7 @@ int ll_fsync(struct file *file, struct dentry *dentry, int data)
                         rc = err;
                 OBDO_FREE(oinfo->oi_oa);
                 OBD_FREE_PTR(oinfo);
-                lli->lli_write_rc = err < 0 ? : 0;
+                fd->fd_last_write = err < 0 ? err : 0;
         }
 
         RETURN(rc);
