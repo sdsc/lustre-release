@@ -203,6 +203,19 @@ struct ll_inode_info {
         void                   *lli_opendir_key;
         struct ll_statahead_info *lli_sai;
         __u64                   lli_sa_pos;
+
+        /* Async glimpse lock */
+        /* protect AGL stuff: lli_agl_idx, lli_agl_parent, lli_agl_list,
+         * lli_agl_args, and so on. */
+        cfs_spinlock_t          lli_agl_lock;
+        unsigned int            lli_agl_idx;
+        /* to parent that the AGL is under */
+        struct inode           *lli_agl_parent;
+        /* for child items, to link into parent's sai_agl_{prep/sent} */
+        cfs_list_t              lli_agl_list;
+        /* for AGL process */
+        struct cl_agl_args      lli_agl_args;
+
         struct cl_object       *lli_clob;
         /* the most recent timestamps obtained from mds */
         struct ost_lvb          lli_lvb;
@@ -414,10 +427,12 @@ struct ll_sb_info {
 
         /* metadata stat-ahead */
         unsigned int              ll_sa_max;     /* max statahead RPCs */
+        unsigned int              ll_agl_enabled:1;/* enable/disable agl*/
         atomic_t                  ll_sa_total;   /* statahead thread started
                                                   * count */
         atomic_t                  ll_sa_wrong;   /* statahead thread stopped for
                                                   * low hit ratio */
+        atomic_t                  ll_agl_total;  /* AGL thread started count */
 
         dev_t                     ll_sdev_orig; /* save s_dev before assign for
                                                  * clustred nfs */
@@ -1126,6 +1141,7 @@ struct ll_statahead_info {
         __u64                   sai_index;      /* index of statahead entry */
         __u64                   sai_index_wait; /* index of entry which is the
                                                  * caller is waiting for */
+        __u64                   sai_agl_min;    /* min index in sai_agl_sent */
         __u64                   sai_hit;        /* hit count */
         __u64                   sai_miss;       /* miss count:
                                                  * for "ls -al" case, it includes
@@ -1139,21 +1155,35 @@ struct ll_statahead_info {
         unsigned int            sai_miss_hidden;/* "ls -al", but first dentry
                                                  * is not a hidden one */
         unsigned int            sai_skip_hidden;/* skipped hidden dentry count */
-        unsigned int            sai_ls_all:1;   /* "ls -al", do stat-ahead for
+        unsigned int            sai_ls_all:1,   /* "ls -al", do stat-ahead for
                                                  * hidden entries */
+                                sai_in_readpage:1,/* statahead is in readdir()*/
+                                sai_agl_valid:1;/* AGL is valid for the dir */
         cfs_waitq_t             sai_waitq;      /* stat-ahead wait queue */
         struct ptlrpc_thread    sai_thread;     /* stat-ahead thread */
+        struct ptlrpc_thread    sai_agl_thread; /* AGL thread */
         cfs_list_t              sai_entries_sent;     /* entries sent out */
         cfs_list_t              sai_entries_received; /* entries returned */
         cfs_list_t              sai_entries_stated;   /* entries stated */
+        cfs_list_t              sai_agl_prep;   /* AGL entries to be sent */
+        cfs_list_t              sai_agl_sent;   /* AGL entries have been sent */
         cfs_list_t              sai_cache[LL_SA_CACHE_SIZE];
         cfs_spinlock_t          sai_cache_lock[LL_SA_CACHE_SIZE];
         cfs_atomic_t            sai_cache_count;      /* entry count in cache */
 };
 
+int do_glimpse_size(struct inode *inode);
 int do_statahead_enter(struct inode *dir, struct dentry **dentry,
                        int only_unplug);
 void ll_stop_statahead(struct inode *dir, void *key);
+
+static inline int ll_glimpse_size(struct inode *inode)
+{
+        if (ll_i2info(inode)->lli_agl_parent == NULL)
+                return cl_glimpse_size(inode);
+
+        return do_glimpse_size(inode);
+}
 
 static inline void
 ll_statahead_mark(struct inode *dir, struct dentry *dentry)

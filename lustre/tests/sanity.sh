@@ -8279,6 +8279,21 @@ test_220() { #LU-325
 }
 run_test 220 "the preallocated objects in MDS still can be used if ENOSPC is returned by OST with enough disk space"
 
+test_221 () {
+	rm -rf $DIR/$tdir
+	mkdir -p $DIR/$tdir
+	$LFS setstripe -c 1 -i 0 $DIR/$tdir
+	for ((i=0;i<48;i++)) do touch $DIR/$tdir/$i; done
+	cancel_lru_locks mdc
+	cancel_lru_locks osc
+	#define OBD_FAIL_LDLM_AGL                0x31a
+	$LCTL set_param fail_loc=0x8000031a
+	ls -l $DIR/$tdir > /dev/null || error "reenqueue failed"
+	$LCTL set_param fail_loc=0
+	rm -rf $DIR/$tdir
+}
+run_test 221 "osc reenqueue if without AGL lock granted ============================"
+
 #
 # tests that do cleanup/setup should be run at the end
 #

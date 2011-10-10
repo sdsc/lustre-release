@@ -1720,6 +1720,9 @@ static int filter_intent_policy(struct ldlm_namespace *ns,
          * lock, and should not be granted if the lock will be blocked.
          */
 
+        if (flags & LDLM_FL_NO_CALLBACK && OBD_FAIL_CHECK(OBD_FAIL_LDLM_AGL))
+                RETURN(ELDLM_LOCK_ABORTED);
+
         LASSERT(ns == ldlm_res_to_ns(res));
         lock_res(res);
         rc = policy(lock, &tmpflags, 0, &err, &rpc_list);
@@ -1754,6 +1757,12 @@ static int filter_intent_policy(struct ldlm_namespace *ns,
                 }
                 unlock_res(res);
                 RETURN(err);
+        }
+
+        /* do not send GL callback for async glimpse size */
+        if (flags & LDLM_FL_NO_CALLBACK) {
+                unlock_res(res);
+                RETURN(ELDLM_LOCK_ABORTED);
         }
 
         /* Do not grant any lock, but instead send GL callbacks.  The extent
