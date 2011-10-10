@@ -655,7 +655,10 @@ void ldlm_lock_addref(struct lustre_handle *lockh, __u32 mode)
         LDLM_LOCK_PUT(lock);
 }
 
-void ldlm_lock_addref_internal_nolock(struct ldlm_lock *lock, __u32 mode)
+/**
+ * Be called with resource locked (e.g. after 'lock_res_and_lock()').
+ */
+void ldlm_lock_addref_nolock(struct ldlm_lock *lock, __u32 mode)
 {
         ldlm_lock_remove_from_lru(lock);
         if (mode & (LCK_NL | LCK_CR | LCK_PR)) {
@@ -670,6 +673,7 @@ void ldlm_lock_addref_internal_nolock(struct ldlm_lock *lock, __u32 mode)
         lu_ref_add_atomic(&lock->l_reference, "user", lock);
         LDLM_DEBUG(lock, "ldlm_lock_addref(%s)", ldlm_lockname[mode]);
 }
+EXPORT_SYMBOL(ldlm_lock_addref_nolock);
 
 /**
  * Attempts to addref a lock, and fails if lock is already LDLM_FL_CBPENDING
@@ -690,7 +694,7 @@ int ldlm_lock_addref_try(struct lustre_handle *lockh, __u32 mode)
                 lock_res_and_lock(lock);
                 if (lock->l_readers != 0 || lock->l_writers != 0 ||
                     !(lock->l_flags & LDLM_FL_CBPENDING)) {
-                        ldlm_lock_addref_internal_nolock(lock, mode);
+                        ldlm_lock_addref_nolock(lock, mode);
                         result = 0;
                 }
                 unlock_res_and_lock(lock);
@@ -703,7 +707,7 @@ int ldlm_lock_addref_try(struct lustre_handle *lockh, __u32 mode)
 void ldlm_lock_addref_internal(struct ldlm_lock *lock, __u32 mode)
 {
         lock_res_and_lock(lock);
-        ldlm_lock_addref_internal_nolock(lock, mode);
+        ldlm_lock_addref_nolock(lock, mode);
         unlock_res_and_lock(lock);
 }
 
@@ -1057,7 +1061,7 @@ static struct ldlm_lock *search_queue(cfs_list_t *queue,
                         LDLM_LOCK_GET(lock);
                         ldlm_lock_touch_in_lru(lock);
                 } else {
-                        ldlm_lock_addref_internal_nolock(lock, match);
+                        ldlm_lock_addref_nolock(lock, match);
                 }
                 *mode = match;
                 return lock;
