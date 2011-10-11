@@ -2145,14 +2145,14 @@ repeat:
         /*
          * Cancel LOOKUP locks on tgt child (fid4) for parent tgt_tgt.
          */
-        if (rc == 0) {
-                rc = lmv_early_cancel(exp, op_data, src_tgt->ltd_idx,
-                                      LCK_EX, MDS_INODELOCK_LOOKUP,
-                                      MF_REMOTE_FID4);
-                /*
-                 * This flag should be set below.
-                 */
-                op_data->op_flags &= ~MF_REMOTE_FID4;
+        if (rc == 0 && src_tgt != tgt_tgt) {
+                ldlm_policy_data_t policy = {{0}};
+
+                CDEBUG(D_INODE, "EARLY_CANCEL on "DFID"\n",
+                       PFID(&op_data->op_fid4));
+                policy.l_inodebits.bits = MDS_INODELOCK_LOOKUP;
+                rc = md_cancel_unused(tgt_tgt->ltd_exp, &op_data->op_fid4,
+                                      &policy, LCK_EX, LCF_ASYNC, NULL);
         }
 
         /*
