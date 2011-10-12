@@ -550,6 +550,8 @@ int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
                inode->i_ino, inode->i_generation, inode,
                (unsigned long)pos, i_size_read(inode), api32);
 
+        ll_stats_ops_tally(sbi, LPROC_LL_READDIR, 1);
+
         if (pos == MDS_DIR_END_OFF)
                 /*
                  * end-of-file.
