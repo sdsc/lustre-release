@@ -785,10 +785,14 @@ retry:
                         rc = err;
         }
 
-        if (obd->obd_replayable && !rc && wait_handle)
+        if (obd->obd_replayable && !rc && wait_handle) {
+                /* hot fix for lu-753 */
+                if (oti->oti_transno > obd->obd_last_committed)
+                        cfs_schedule_timeout(1);
                 LASSERTF(oti->oti_transno <= obd->obd_last_committed,
                          "oti_transno "LPU64" last_committed "LPU64"\n",
                          oti->oti_transno, obd->obd_last_committed);
+        }
 
         fsfilt_check_slow(obd, now, "commitrw commit");
 
