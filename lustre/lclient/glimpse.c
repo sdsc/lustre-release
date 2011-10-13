@@ -165,6 +165,92 @@ static int cl_io_get(struct inode *inode, struct lu_env **envout,
         return result;
 }
 
+/**
+ * ret vaule:
+ * = 0: to be enqueued.
+ * > 0: nothing to do, happens when stripe sub-object's are not yet created.
+ * < 0: error cases.
+ */
+int cl_agl_init(struct inode *inode, struct cl_agl_args *caa)
+{
+        struct cl_inode_info *lli = cl_i2info(inode);
+        struct lu_env        *env;
+        struct cl_io         *io;
+        int                   rc;
+        int                   refcheck;
+
+        ENTRY;
+
+        if (unlikely(lli->lli_flags & LLIF_MDS_SIZE_LOCK ||
+                     lli->lli_smd == NULL)) {
+                rc = +1;
+        } else {
+                rc = cl_io_get(inode, &env, &io, &refcheck);
+                if (rc > 0) {
+                        struct cl_object *clob = io->ci_obj;
+
+                        rc = cl_io_init(env, io, CIT_MISC, clob);
+                        if (rc == 0) {
+                                struct cl_lock_descr *descr =
+                                                &ccc_env_info(env)->cti_descr;
+                                struct ccc_io *cio = ccc_env_io(env);
+                                struct cl_lock *lock;
+
+                                *descr = whole_file;
+                                descr->cld_obj = clob;
+                                descr->cld_mode = CLM_PHANTOM;
+                                descr->cld_enq_flags = CEF_ASYNC | CEF_MUST |
+                                                       CEF_AGL;
+                                cio->cui_glimpse = 1;
+                                lock = cl_lock_request(env, io, descr,
+                                                       "glimpse",
+                                                       cfs_current());
+                                cio->cui_glimpse = 0;
+
+                                if (!IS_ERR(lock)) {
+                                        caa->caa_env = env;
+                                        caa->caa_lock = lock;
+                                        caa->caa_scope = "glimpse";
+                                        caa->caa_source = cfs_current();
+                                        caa->caa_io = io;
+                                        caa->caa_refcheck = refcheck;
+                                        lu_env_detach(env);
+                                } else {
+                                        rc = PTR_ERR(lock);
+                                }
+                        }
+
+                        if (rc != 0) {
+                                cl_io_fini(env, io);
+                                cl_env_put(env, &refcheck);
+                        }
+                }
+        }
+
+        RETURN(rc);
+}
+
+int cl_agl_fini(struct inode *inode, struct cl_agl_args *caa, int wait)
+{
+        struct lu_env  *env  = caa->caa_env;
+        struct cl_lock *lock = caa->caa_lock;
+        struct cl_io   *io   = caa->caa_io;
+        int rc;
+        ENTRY;
+
+        lu_env_attach(env);
+        rc = cl_wait_cancel(env, lock, !wait);
+        if (rc == 0) {
+                if (wait != 0)
+                        cl_merge_lvb(inode);
+                cl_unuse(env, lock);
+        }
+        cl_lock_release(env, lock, caa->caa_scope, caa->caa_source);
+        cl_io_fini(env, io);
+        cl_env_put(env, &caa->caa_refcheck);
+        RETURN(rc);
+}
+
 int cl_glimpse_size(struct inode *inode)
 {
         /*

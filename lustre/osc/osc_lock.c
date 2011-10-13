@@ -277,6 +277,8 @@ static int osc_enq2ldlm_flags(__u32 enqflags)
                 result |= LDLM_FL_HAS_INTENT;
         if (enqflags & CEF_DISCARD_DATA)
                 result |= LDLM_AST_DISCARD_DATA;
+        if (enqflags & CEF_AGL)
+                result |= LDLM_FL_NO_CALLBACK;
         return result;
 }
 
@@ -1052,7 +1054,6 @@ static int osc_lock_enqueue_wait(const struct lu_env *env,
         ENTRY;
 
         LASSERT(cl_lock_is_mutexed(lock));
-        LASSERT(lock->cll_state == CLS_QUEUING);
 
         /* make it enqueue anyway for glimpse lock, because we actually
          * don't need to cancel any conflicting locks. */
@@ -1156,7 +1157,6 @@ static int osc_lock_enqueue(const struct lu_env *env,
         ENTRY;
 
         LASSERT(cl_lock_is_mutexed(lock));
-        LASSERT(lock->cll_state == CLS_QUEUING);
         LASSERT(ols->ols_state == OLS_NEW);
 
         ols->ols_flags = osc_enq2ldlm_flags(enqflags);
@@ -1218,8 +1218,22 @@ static int osc_lock_wait(const struct lu_env *env,
         struct cl_lock  *lock = olck->ols_cl.cls_lock;
 
         LINVRNT(osc_lock_invariant(olck));
-        if (olck->ols_glimpse && olck->ols_state >= OLS_UPCALL_RECEIVED)
-                return 0;
+        if (olck->ols_glimpse && olck->ols_state >= OLS_UPCALL_RECEIVED) {
+                if ((olck->ols_flags & LDLM_FL_NO_CALLBACK) &&
+                   !(olck->ols_flags & LDLM_FL_LVB_READY)) {
+                        int rc;
+
+                        olck->ols_state = OLS_NEW;
+                        rc = osc_lock_enqueue(env, slice, NULL,
+                                              CEF_ASYNC | CEF_MUST);
+                        if (rc != 0)
+                                return rc;
+                        else
+                                return CLO_REENQUEUED;
+                } else {
+                        return 0;
+                }
+        }
 
         LASSERT(equi(olck->ols_state >= OLS_UPCALL_RECEIVED &&
                      lock->cll_error == 0, olck->ols_lock != NULL));
