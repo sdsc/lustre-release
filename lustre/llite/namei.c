@@ -352,7 +352,7 @@ static void ll_d_add(struct dentry *de, struct inode *inode)
  * in ll_revalidate_it.  After revaliadate inode will be have hashed aliases
  * and it triggers BUG_ON in d_instantiate_unique (bug #10954).
  */
-static struct dentry *ll_find_alias(struct inode *inode, struct dentry *de)
+struct dentry *ll_find_alias(struct inode *inode, struct dentry *de)
 {
         struct list_head *tmp;
         struct dentry *dentry;
@@ -515,7 +515,7 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
         struct md_op_data *op_data;
         struct it_cb_data icbd;
         __u32 opc;
-        int rc, first = 0;
+        int rc;
         ENTRY;
 
         if (dentry->d_name.len > ll_i2sbi(parent)->ll_namelen)
@@ -541,11 +541,11 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
         }
 
         if (it->it_op == IT_GETATTR) {
-                first = ll_statahead_enter(parent, &dentry, 1);
-                if (first >= 0) {
-                        ll_statahead_exit(parent, dentry, first);
-                        if (first == 1)
-                                RETURN(retval = dentry);
+                rc = ll_statahead_enter(parent, &dentry, 0);
+                if (rc == 1) {
+                        if (dentry == save)
+                                GOTO(out, retval = NULL);
+                        GOTO(out, retval = dentry);
                 }
         }
 
@@ -578,9 +578,6 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
                 GOTO(out, retval = ERR_PTR(rc));
         }
 
-        if (first == -EEXIST)
-                ll_statahead_mark(parent, dentry);
-
         if ((it->it_op & IT_OPEN) && dentry->d_inode &&
             !S_ISREG(dentry->d_inode->i_mode) &&
             !S_ISDIR(dentry->d_inode->i_mode)) {
@@ -595,6 +592,8 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
  out:
         if (req)
                 ptlrpc_req_finished(req);
+        if (it->it_op == IT_GETATTR && (retval == NULL || retval == dentry))
+                ll_statahead_mark(parent, dentry);
         return retval;
 }
 
