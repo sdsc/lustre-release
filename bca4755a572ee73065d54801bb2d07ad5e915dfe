@@ -1,0 +1,8 @@
+Verified+1: Hudson
+Code-Review+2: Johann Lombardi <johann@whamcloud.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Submitted-by: Johann Lombardi <johann@whamcloud.com>
+Submitted-at: Thu, 13 Oct 2011 16:23:40 -0400
+Reviewed-on: http://review.whamcloud.com/1509
+Project: fs/lustre-release
+Branch: refs/heads/b1_8
