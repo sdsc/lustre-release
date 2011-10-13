@@ -966,6 +966,8 @@ int lprocfs_rd_import(char *page, char **start, off_t off, int count,
         }
 
         LPROCFS_CLIMP_EXIT(obd);
+
+        LASSERTF(count >= i, "obdclass: buffer overflow %d/%d\n", count, i);
         return i;
 }
 
