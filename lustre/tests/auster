@@ -89,6 +89,7 @@ do
 done
 
 # If a test_group_file is specified, then ignore rest of command line
+test_group_file="test-groups/full"
 if [[ $test_group_file ]]; then
     export TEST_GROUP=$(basename $test_group_file)
     set $(sed 's/#.*$//' $test_group_file)
@@ -307,6 +308,8 @@ fi
 
 export NAME MOUNT START CLEAN
 . ${CONFIG:-$LUSTRE/tests/cfg/$NAME.sh}
+export SLOW=yes
+export ENABLE_QUOTA=yes
 
 assert_env mds_HOST MDS_MKFS_OPTS
 assert_env ost_HOST OST_MKFS_OPTS OSTCOUNT
