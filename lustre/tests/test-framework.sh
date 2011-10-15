@@ -621,6 +621,11 @@ set_default_debug_facet () {
     [ -z "$node" ] && echo "No host defined for facet $facet" && exit 1
 
     set_default_debug_nodes $node
+
+    if [ "$node" == "$mds_HOST" -a -n "$MDS_FULLDEBUG" ]; then
+        do_facet $SINGLEMDS "lctl set_param debug=-1"
+        do_facet $SINGLEMDS "lctl set_param debug_mb=150"
+    fi
 }
 
 # Facet functions

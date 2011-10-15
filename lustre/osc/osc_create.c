@@ -275,7 +275,7 @@ static int oscc_internal_create(struct osc_creator *oscc)
         ptlrpc_request_set_replen(request);
 
         request->rq_interpret_reply = osc_interpret_create;
-        ptlrpcd_add_req(request, PSCOPE_OTHER);
+        ptlrpcd_add_req(request, PDL_POLICY_ROUND, -1);
 
         RETURN(0);
 }
@@ -512,14 +512,10 @@ int osc_create_async(struct obd_export *exp, struct obd_info *oinfo,
         /* try fast path */
         rc = handle_async_create(fake_req, 0);
         if (rc == -EAGAIN) {
-                int is_add;
-                /* we not have objects - try wait */
-                is_add = ptlrpcd_add_req(fake_req, PSCOPE_OTHER);
-                if (!is_add)
-                        cfs_list_add(&fake_req->rq_list,
-                                     &oscc->oscc_wait_create_list);
-                else
-                        rc = is_add;
+                /* We don't have any objects, wait until we get a reply. */
+                ptlrpcd_add_req(fake_req, PDL_POLICY_ROUND, -1);
+                cfs_list_add(&fake_req->rq_list,
+                             &oscc->oscc_wait_create_list);
         }
         cfs_spin_unlock(&oscc->oscc_lock);
 

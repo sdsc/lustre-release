@@ -28,6 +28,11 @@ ALWAYS_EXCEPT="61d   33a 33b    $REPLAY_SINGLE_EXCEPT"
 
 build_test_filter
 
+mds_start_full_debug_logging () {
+    export MDS_FULLDEBUG="yes"
+}
+mds_start_full_debug_logging
+
 check_and_setup_lustre
 
 mkdir -p $DIR
@@ -2325,5 +2330,9 @@ test_90() { # bug 19494
 run_test 90 "lfs find identifies the missing striped file segments"
 
 complete $(basename $0) $SECONDS
+mds_stop_full_debug_logging () {
+    export MDS_FULLDEBUG=""
+}
+mds_stop_full_debug_logging
 check_and_cleanup_lustre
 exit_status
