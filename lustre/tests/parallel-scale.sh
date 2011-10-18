@@ -26,8 +26,8 @@ cbench_IDIRS=${cbench_IDIRS:-10}
 cbench_RUNS=${cbench_RUNS:-10} # FIXME: wiki page requirements is 30, do we really need 30 ?
 
 if [ "$SLOW" = "no" ]; then
-    cbench_IDIRS=2
-    cbench_RUNS=2
+cbench_IDIRS=2
+cbench_RUNS=2
 fi
 
 #
@@ -126,15 +126,15 @@ build_test_filter
 check_and_setup_lustre
 
 print_opts () {
-    local var
+local var
 
-    echo OPTIONS:
+echo OPTIONS:
 
-    for i in $@; do
-        var=$i
-        echo "${var}=${!var}"
-    done
-    [ -e $MACHINEFILE ] && cat $MACHINEFILE
+for i in $@; do
+var=$i
+echo "${var}=${!var}"
+done
+[ -e $MACHINEFILE ] && cat $MACHINEFILE
 }
 
 # Takes:
@@ -146,72 +146,72 @@ print_opts () {
 #        required space       680MB * cbench_IDIRS = ~7 Gb
 
 test_compilebench() {
-    print_opts cbench_DIR cbench_IDIRS cbench_RUNS
+print_opts cbench_DIR cbench_IDIRS cbench_RUNS
 
-    [ x$cbench_DIR = x ] &&
-        { skip_env "compilebench not found" && return; }
+[ x$cbench_DIR = x ] &&
+{ skip_env "compilebench not found" && return; }
 
-    [ -e $cbench_DIR/compilebench ] || \
-        { skip_env "No compilebench build" && return; }
+[ -e $cbench_DIR/compilebench ] || \
+{ skip_env "No compilebench build" && return; }
 
-    local space=$(df -P $DIR | tail -n 1 | awk '{ print $4 }')
-    if [ $space -le $((680 * 1024 * cbench_IDIRS)) ]; then
-        cbench_IDIRS=$(( space / 680 / 1024))
-        [ $cbench_IDIRS = 0 ] && \
-            skip_env "Need free space atleast 680 Mb, have $space" && return
+local space=$(df -P $DIR | tail -n 1 | awk '{ print $4 }')
+if [ $space -le $((680 * 1024 * cbench_IDIRS)) ]; then
+cbench_IDIRS=$(( space / 680 / 1024))
+[ $cbench_IDIRS = 0 ] && \
+    skip_env "Need free space atleast 680 Mb, have $space" && return
 
-        log free space=$space, reducing initial dirs to $cbench_IDIRS
-    fi
-    # FIXME:
-    # t-f _base needs to be modifyed to set properly tdir
-    # for new "test_foo" functions names
-    # local testdir=$DIR/$tdir
-    local testdir=$DIR/d0.compilebench
-    mkdir -p $testdir
+log free space=$space, reducing initial dirs to $cbench_IDIRS
+fi
+# FIXME:
+# t-f _base needs to be modifyed to set properly tdir
+# for new "test_foo" functions names
+# local testdir=$DIR/$tdir
+local testdir=$DIR/d0.compilebench
+mkdir -p $testdir
 
-    local savePWD=$PWD
-    cd $cbench_DIR
-    local cmd="./compilebench -D $testdir -i $cbench_IDIRS -r $cbench_RUNS --makej"
+local savePWD=$PWD
+cd $cbench_DIR
+local cmd="./compilebench -D $testdir -i $cbench_IDIRS -r $cbench_RUNS --makej"
 
-    log "$cmd"
+log "$cmd"
 
-    local rc=0
-    eval $cmd
-    rc=$?
+local rc=0
+eval $cmd
+rc=$?
 
-    cd $savePWD
-    [ $rc = 0 ] || error "compilebench failed: $rc"
-    rm -rf $testdir
+cd $savePWD
+[ $rc = 0 ] || error "compilebench failed: $rc"
+rm -rf $testdir
 }
 run_test compilebench "compilebench"
 
 test_metabench() {
-    [ x$METABENCH = x ] &&
-        { skip_env "metabench not found" && return; }
+[ x$METABENCH = x ] &&
+{ skip_env "metabench not found" && return; }
 
-    # FIXME
-    # Need space estimation here.
+# FIXME
+# Need space estimation here.
 
-    print_opts METABENCH clients mbench_NFILES mbench_THREADS
+print_opts METABENCH clients mbench_NFILES mbench_THREADS
 
-    local testdir=$DIR/d0.metabench
-    mkdir -p $testdir
-    # mpi_run uses mpiuser
-    chmod 0777 $testdir
+local testdir=$DIR/d0.metabench
+mkdir -p $testdir
+# mpi_run uses mpiuser
+chmod 0777 $testdir
 
-    # -C             Run the file creation tests.
-    # -S             Run the file stat tests.
-    # -c nfile       Number of files to be used in each test.
-    # -k             Cleanup.  Remove the test directories.
-    local cmd="$METABENCH -w $testdir -c $mbench_NFILES -C -S -k"
-    echo "+ $cmd"
+# -C             Run the file creation tests.
+# -S             Run the file stat tests.
+# -c nfile       Number of files to be used in each test.
+# -k             Cleanup.  Remove the test directories.
+local cmd="$METABENCH -w $testdir -c $mbench_NFILES -C -S -k"
+echo "+ $cmd"
 
     # find out if we need to use srun by checking $SRUN_PARTITION
     if [ "$SRUN_PARTITION" ]; then
         $SRUN $SRUN_OPTIONS -D $testdir -w $clients -N $num_clients \
             -n $((num_clients * mbench_THREADS)) -p $SRUN_PARTITION -- $cmd
     else
-        mpi_run -np $((num_clients * $mbench_THREADS)) -machinefile ${MACHINEFILE} $cmd
+        mpi_run -np $((num_clients * $mbench_THREADS)) ${MACHINEFILE_OPTION} ${MACHINEFILE} $cmd
     fi
 
     local rc=$?
@@ -253,7 +253,7 @@ test_simul() {
         $SRUN $SRUN_OPTIONS -D $testdir -w $clients -N $num_clients \
             -n $((num_clients * simul_THREADS)) -p $SRUN_PARTITION -- $cmd
     else
-        mpi_run -np $((num_clients * $simul_THREADS)) -machinefile ${MACHINEFILE} $cmd
+        mpi_run -np $((num_clients * $simul_THREADS)) ${MACHINEFILE_OPTION} ${MACHINEFILE} $cmd
     fi
 
     local rc=$?
@@ -299,7 +299,7 @@ test_mdtest() {
         $SRUN $SRUN_OPTIONS -D $testdir -w $clients -N $num_clients \
             -n $((num_clients * mdtest_THREADS)) -p $SRUN_PARTITION -- $cmd
     else
-        mpi_run -np $((num_clients * mdtest_THREADS)) -machinefile ${MACHINEFILE} $cmd
+        mpi_run -np $((num_clients * mdtest_THREADS)) ${MACHINEFILE_OPTION} ${MACHINEFILE} $cmd
     fi
 
     local rc=$?
@@ -423,7 +423,7 @@ test_ior() {
         $SRUN $SRUN_OPTIONS -D $testdir -w $clients -N $num_clients \
             -n $((num_clients * ior_THREADS)) -p $SRUN_PARTITION -- $cmd
     else
-        mpi_run -np $((num_clients * $ior_THREADS)) -machinefile ${MACHINEFILE} $cmd
+        mpi_run -np $((num_clients * $ior_THREADS)) ${MACHINEFILE_OPTION} ${MACHINEFILE} $cmd
     fi
 
     local rc=$?
@@ -475,7 +475,7 @@ test_mib() {
         $SRUN $SRUN_OPTIONS -D $testdir -w $clients -N $num_clients \
             -n $((num_clients * mib_THREADS)) -p $SRUN_PARTITION -- $cmd
     else
-        mpi_run -np $((num_clients * mib_THREADS)) -machinefile ${MACHINEFILE} $cmd
+        mpi_run -np $((num_clients * mib_THREADS)) ${MACHINEFILE_OPTION} ${MACHINEFILE} $cmd
     fi
 
     local rc=$?
@@ -511,7 +511,7 @@ test_cascading_rw() {
     local cmd="$CASC_RW -g -d $testdir -n $casc_REP"
 
     echo "+ $cmd"
-    mpi_run -np $((num_clients * $casc_THREADS)) -machinefile ${MACHINEFILE} $cmd
+    mpi_run -np $((num_clients * $casc_THREADS)) ${MACHINEFILE_OPTION} ${MACHINEFILE} $cmd
 
     local rc=$?
     if [ $rc != 0 ] ; then
@@ -548,7 +548,7 @@ test_write_append_truncate() {
     local cmd="write_append_truncate -n $write_REP $file"
 
     echo "+ $cmd"
-    mpi_run -np $((num_clients * $write_THREADS)) -machinefile ${MACHINEFILE} $cmd
+    mpi_run -np $((num_clients * $write_THREADS)) ${MACHINEFILE_OPTION} ${MACHINEFILE} $cmd
 
     local rc=$?
     if [ $rc != 0 ] ; then
@@ -580,7 +580,7 @@ test_write_disjoint() {
     local cmd="$WRITE_DISJOINT -f $testdir/file -n $wdisjoint_REP"
 
     echo "+ $cmd"
-    mpi_run -np $((num_clients * $wdisjoint_THREADS)) -machinefile ${MACHINEFILE} $cmd
+    mpi_run -np $((num_clients * $wdisjoint_THREADS)) ${MACHINEFILE_OPTION} ${MACHINEFILE} $cmd
 
     local rc=$?
     if [ $rc != 0 ] ; then
@@ -617,7 +617,7 @@ test_parallel_grouplock() {
         local cmd="$PARALLEL_GROUPLOCK -g -v -d $testdir $subtest"
         echo "+ $cmd"
 
-        mpi_run -np $parallel_grouplock_MINTASKS -machinefile ${MACHINEFILE} $cmd
+        mpi_run -np $parallel_grouplock_MINTASKS ${MACHINEFILE_OPTION} ${MACHINEFILE} $cmd
         local rc=$?
         if [ $rc != 0 ] ; then
             error_noexit "parallel_grouplock subtests $subtest failed! $rc"
@@ -688,8 +688,8 @@ test_statahead () {
 
     local cmd="${MDSRATE} ${MDSRATE_DEBUG} --mknod --dir $testdir --nfiles $num_files --filefmt 'f%%d'"
     echo "+ $cmd"
-
-    mpi_run -np $((num_clients * 32)) -machinefile ${MACHINEFILE} $cmd
+    
+    mpi_run -np $((num_clients * 32)) ${MACHINEFILE_OPTION} ${MACHINEFILE} $cmd
 
     local rc=$?
     if [ $rc != 0 ] ; then
