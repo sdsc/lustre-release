@@ -65,13 +65,6 @@
 #include "llite_internal.h"
 #include <linux/lustre_compat25.h>
 
-#define VMA_DEBUG(vma, fmt, arg...)                                     \
-        CDEBUG(D_MMAP, "vma(%p) start(%ld) end(%ld) pgoff(%ld) inode(%p) "   \
-               "ino(%lu) iname(%s): " fmt, vma, vma->vm_start, vma->vm_end,  \
-               vma->vm_pgoff, vma->vm_file->f_dentry->d_inode,               \
-               vma->vm_file->f_dentry->d_inode->i_ino,                       \
-               vma->vm_file->f_dentry->d_iname, ## arg);                     \
-
 struct page *ll_nopage(struct vm_area_struct *vma, unsigned long address,
                        int *type);
 
@@ -129,7 +122,6 @@ struct cl_io *ll_fault_io_init(struct vm_area_struct *vma,
 {
         struct file       *file  = vma->vm_file;
         struct inode      *inode = file->f_dentry->d_inode;
-        const unsigned long writable = VM_SHARED|VM_WRITE;
         struct cl_io      *io;
         struct cl_fault_io *fio;
         struct lu_env     *env;
@@ -158,7 +150,6 @@ struct cl_io *ll_fault_io_init(struct vm_area_struct *vma,
 
         fio = &io->u.ci_fault;
         fio->ft_index      = index;
-        fio->ft_writable   = (vma->vm_flags&writable) == writable;
         fio->ft_executable = vma->vm_flags&VM_EXEC;
 
         /*
@@ -170,8 +161,8 @@ struct cl_io *ll_fault_io_init(struct vm_area_struct *vma,
         vma->vm_flags &= ~VM_SEQ_READ;
         vma->vm_flags |= VM_RAND_READ;
 
-        CDEBUG(D_INFO, "vm_flags: %lx (%lu %d %d)\n", vma->vm_flags,
-               fio->ft_index, fio->ft_writable, fio->ft_executable);
+        CDEBUG(D_MMAP, "vm_flags: %lx (%lu %d)\n", vma->vm_flags,
+               fio->ft_index, fio->ft_executable);
 
         if (cl_io_init(env, io, CIT_FAULT, io->ci_obj) == 0) {
                 struct ccc_io *cio = ccc_env_io(env);
@@ -215,6 +206,7 @@ struct page *ll_nopage(struct vm_area_struct *vma, unsigned long address,
         unsigned long           ra_flags;
         pgoff_t                 pg_offset;
         int                     result;
+        const unsigned long     writable = VM_SHARED|VM_WRITE;
         ENTRY;
 
         pg_offset = ((address - vma->vm_start) >> PAGE_SHIFT) + vma->vm_pgoff;
@@ -226,17 +218,21 @@ struct page *ll_nopage(struct vm_area_struct *vma, unsigned long address,
         if (result < 0)
                 goto out_err;
 
+        io->u.ci_fault.ft_writable = (vma->vm_flags&writable) == writable;
+
         vio = vvp_env_io(env);
         vio->u.fault.ft_vma            = vma;
         vio->u.fault.nopage.ft_address = address;
         vio->u.fault.nopage.ft_type    = type;
+        vio->u.fault.ft_vmpage         = NULL;
 
         result = cl_io_loop(env, io);
+        page = vio->u.fault.ft_vmpage;
+        if (result != 0 && page != NULL)
+                page_cache_release(page);
 
 out_err:
-        if (result == 0)
-                page = vio->u.fault.ft_vmpage;
-        else if (result == -ENOMEM)
+        if (result == -ENOMEM)
                 page = NOPAGE_OOM;
 
         vma->vm_flags &= ~VM_RAND_READ;
@@ -259,11 +255,12 @@ out_err:
  * \retval VM_FAULT_ERROR on general error
  * \retval NOPAGE_OOM not have memory for allocate new page
  */
-int ll_fault0(struct vm_area_struct *vma, struct vm_fault *vmf)
+static int ll_fault0(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
         struct lu_env           *env;
         struct cl_io            *io;
         struct vvp_io           *vio = NULL;
+        struct page             *vmpage;
         unsigned long            ra_flags;
         struct cl_env_nest       nest;
         int                      result;
@@ -284,6 +281,13 @@ int ll_fault0(struct vm_area_struct *vma, struct vm_fault *vmf)
         vio->u.fault.fault.ft_vmf = vmf;
 
         result = cl_io_loop(env, io);
+
+        vmpage = vio->u.fault.ft_vmpage;
+        if (result != 0 && vmpage != NULL) {
+                page_cache_release(vmpage);
+                vmf->page = NULL;
+        }
+
         fault_ret = vio->u.fault.fault.ft_flags;
 
 out_err:
@@ -295,10 +299,12 @@ out_err:
         cl_io_fini(env, io);
         cl_env_nested_put(&nest, env);
 
+        CDEBUG(D_MMAP, "%s fault %d/%d\n",
+               cfs_current()->comm, fault_ret, result);
         RETURN(fault_ret);
 }
 
-int ll_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
+static int ll_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
         int count = 0;
         bool printed = false;
@@ -318,9 +324,9 @@ restart:
                         vmf->page = NULL;
 
                         if (!printed && ++count > 16) {
-                                CWARN("the page is under heavy contention,"
+                                CWARN("%s the page is under heavy contention,"
                                       "maybe your app(%s) needs revising :-)\n",
-                                      current->comm);
+                                      __FUNCTION__, current->comm);
                                 printed = true;
                         }
 
@@ -328,6 +334,131 @@ restart:
                 }
 
                 result |= VM_FAULT_LOCKED;
+        }
+        return result;
+}
+
+static int ll_page_mkwrite0(struct vm_area_struct *vma, struct vm_fault *vmf)
+{
+        struct lu_env           *env;
+        struct cl_io            *io;
+        struct vvp_io           *vio = NULL;
+        struct page             *vmpage;
+        unsigned long            ra_flags;
+        struct cl_env_nest       nest;
+        int                      result;
+        int                      fault_ret = 0;
+        ENTRY;
+
+        io = ll_fault_io_init(vma, &env,  &nest, vmf->pgoff, &ra_flags);
+        if (IS_ERR(io))
+                GOTO(out_err, result = PTR_ERR(io));
+
+        result = io->ci_result;
+        if (result < 0)
+                GOTO(out_err, result);
+
+        /* Don't enqueue new locks for page_mkwrite().
+         * If the lock has been cancelled then page must have been
+         * truncated, in that case, kernel will handle it.
+         */
+        io->ci_lockreq = CILR_PEEK;
+        io->u.ci_fault.ft_mkwrite = 1;
+        io->u.ci_fault.ft_writable = 1;
+
+        vio = vvp_env_io(env);
+        vio->u.fault.ft_vma       = vma;
+        vio->u.fault.ft_vmpage    = NULL;
+        vio->u.fault.fault.ft_vmf = vmf;
+
+        result = cl_io_loop(env, io);
+
+        if (result == -ENODATA) /* peek failed, no lock cached. */
+                CDEBUG(D_MMAP, "race on page_mkwrite: %lx (%lu %p %d)\n",
+                       vma->vm_flags, io->u.ci_fault.ft_index,
+                       vmf->page, vmf->flags);
+
+        vmpage = vio->u.fault.ft_vmpage;
+        if (vmpage) {
+                LASSERT(vmpage == vmf->page);
+                page_cache_release(vmpage);
+        }
+
+        if (result == 0 || result == -ENODATA) {
+                lock_page(vmpage);
+                if (vmpage->mapping == NULL) {
+                        if (result == 0)
+                                result = -EAGAIN;
+                        /* page was truncated and lock was cancelled, return
+                         * ENODATA so that VM_FAULT_NOPAGE will be returned
+                         * to handle_mm_fault(). */
+                        unlock_page(vmpage);
+                } else if (result == -ENODATA) {
+                        /* if lock is going to be revoked but page still isn't
+                         * truncated, push it to hell ;-). */
+                        ll_truncate_complete_page(vmpage);
+                        LASSERT(vmpage->mapping == NULL);
+                        unlock_page(vmpage);
+                } else if (!PageDirty(vmpage)) {
+                        /* race, the page has been cleaned by ptlrpcd
+                         * or page writeback, we have to restart the process
+                         * otherwise the write will be leaked.
+                         */
+                        unlock_page(vmpage);
+                        CDEBUG(D_MMAP, "Race on page_mkwrite %p/%lu, redo.\n",
+                               vmpage, vmpage->index);
+                        result = -EAGAIN;
+                }
+                LASSERT(ergo(result == 0, PageLocked(vmpage)));
+        }
+
+out_err:
+        switch(result) {
+        case 0:
+                fault_ret = VM_FAULT_LOCKED;
+                break;
+        case -ENODATA:
+        case -EFAULT:
+                fault_ret = VM_FAULT_NOPAGE;
+                break;
+        case -ENOMEM:
+                fault_ret = VM_FAULT_OOM;
+                break;
+        case -EAGAIN:
+                fault_ret = VM_FAULT_RETRY;
+                break;
+        default:
+                fault_ret = VM_FAULT_SIGBUS;
+                break;
+        }
+
+        vma->vm_flags |= ra_flags;
+
+        cl_io_fini(env, io);
+        cl_env_nested_put(&nest, env);
+
+        CDEBUG(D_MMAP, "%s mkwrite error %d\n", cfs_current()->comm, result);
+        RETURN(fault_ret);
+}
+
+static int ll_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf)
+{
+        int count = 0;
+        bool printed = false;
+        int result;
+
+restart:
+        result = ll_page_mkwrite0(vma, vmf);
+        if (result & VM_FAULT_RETRY) {
+                if (!printed && ++count > 16) {
+                        CWARN("%s the page is under heavy contention,"
+                              "maybe your app(%s) needs revising :-)\n",
+                              __FUNCTION__, current->comm);
+                        printed = true;
+                }
+
+                goto restart;
+
         }
         return result;
 }
@@ -412,6 +543,7 @@ static struct vm_operations_struct ll_file_vm_ops = {
 
 #else
         .fault          = ll_fault,
+        .page_mkwrite   = ll_page_mkwrite,
 #endif
         .open           = ll_vm_open,
         .close          = ll_vm_close,
