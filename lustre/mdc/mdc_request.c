@@ -2079,42 +2079,56 @@ static int mdc_setup(struct obd_device *obd, struct lustre_cfg *cfg)
         int rc;
         ENTRY;
 
-        OBD_ALLOC(cli->cl_rpc_lock, sizeof (*cli->cl_rpc_lock));
-        if (!cli->cl_rpc_lock)
-                RETURN(-ENOMEM);
-        mdc_init_rpc_lock(cli->cl_rpc_lock);
+	ptlrpcd_addref();
 
-        ptlrpcd_addref();
+	OBD_ALLOC_PTR(cli->cl_rpc_lock);
+	if (!cli->cl_rpc_lock)
+		GOTO(err_decref, rc = -ENOMEM);
+	mdc_init_rpc_lock(cli->cl_rpc_lock);
 
-        OBD_ALLOC(cli->cl_close_lock, sizeof (*cli->cl_close_lock));
-        if (!cli->cl_close_lock)
-                GOTO(err_rpc_lock, rc = -ENOMEM);
-        mdc_init_rpc_lock(cli->cl_close_lock);
+	OBD_ALLOC_PTR(cli->cl_close_lock);
+	if (!cli->cl_close_lock)
+		GOTO(err_rpc_lock, rc = -ENOMEM);
+	mdc_init_rpc_lock(cli->cl_close_lock);
 
         rc = client_obd_setup(obd, cfg);
         if (rc)
                 GOTO(err_close_lock, rc);
-        lprocfs_mdc_init_vars(&lvars);
-        lprocfs_obd_setup(obd, lvars.obd_vars);
-        sptlrpc_lprocfs_cliobd_attach(obd);
-        ptlrpc_lprocfs_register_obd(obd);
-
-        ns_register_cancel(obd->obd_namespace, mdc_cancel_for_recovery);
 
         rc = obd_llog_init(obd, &obd->obd_olg, obd, NULL);
         if (rc) {
-                mdc_cleanup(obd);
                 CERROR("failed to setup llogging subsystems\n");
-        }
+		GOTO(err_cleanup, rc);
+	}
 
-        RETURN(rc);
+	lprocfs_mdc_init_vars(&lvars);
+	rc = lprocfs_obd_setup(obd, lvars.obd_vars);
+	if (rc)
+		GOTO(err_llog, rc);
+	rc = lprocfs_import_attach_seqstat(obd);
+	if (rc)
+		GOTO(err_lproc, rc);
+	rc = sptlrpc_lprocfs_cliobd_attach(obd);
+	if (rc)
+		GOTO(err_lproc, rc);
+	ptlrpc_lprocfs_register_obd(obd);
 
+	ns_register_cancel(obd->obd_namespace, mdc_cancel_for_recovery);
+
+	RETURN(0);
+err_lproc:
+	lprocfs_obd_cleanup(obd);
+err_llog:
+	rc = obd_llog_finish(obd, 0);
+err_cleanup:
+	client_obd_cleanup(obd);
 err_close_lock:
-        OBD_FREE(cli->cl_close_lock, sizeof (*cli->cl_close_lock));
+	OBD_FREE_PTR(cli->cl_close_lock);
 err_rpc_lock:
-        OBD_FREE(cli->cl_rpc_lock, sizeof (*cli->cl_rpc_lock));
-        ptlrpcd_decref();
-        RETURN(rc);
+	OBD_FREE_PTR(cli->cl_rpc_lock);
+err_decref:
+	ptlrpcd_decref();
+	return rc;
 }
 
 /* Initialize the default and maximum LOV EA and cookie sizes.  This allows

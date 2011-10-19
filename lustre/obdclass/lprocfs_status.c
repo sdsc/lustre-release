@@ -861,27 +861,6 @@ void lprocfs_stats_collect(struct lprocfs_stats *stats, int idx,
 	lprocfs_stats_unlock(stats, LPROCFS_GET_NUM_CPU, &flags);
 }
 
-/**
- * Append a space separated list of current set flags to str.
- */
-#define flag2str(flag) \
-        if (imp->imp_##flag && max - len > 0) \
-             len += snprintf(str + len, max - len, "%s" #flag, len ? ", " : "");
-static int obd_import_flags2str(struct obd_import *imp, char *str, int max)
-{
-        int len = 0;
-
-        if (imp->imp_obd->obd_no_recov)
-                len += snprintf(str, max - len, "no_recov");
-
-        flag2str(invalid);
-        flag2str(deactive);
-        flag2str(replayable);
-        flag2str(pingable);
-        return len;
-}
-#undef flags2str
-
 static const char *obd_connect_names[] = {
         "read_only",
         "lov_index",
@@ -949,143 +928,25 @@ int obd_connect_flags2str(char *page, int count, __u64 flags, char *sep)
 }
 EXPORT_SYMBOL(obd_connect_flags2str);
 
-int lprocfs_rd_import(char *page, char **start, off_t off, int count,
-                      int *eof, void *data)
+int obd_connect_flags2seq(struct seq_file *seq, __u64 flags, char *sep)
 {
-        struct lprocfs_counter ret;
-        struct obd_device *obd = (struct obd_device *)data;
-        struct obd_import *imp;
-        struct obd_import_conn *conn;
-        int i, j, k, rw = 0;
+	__u64 mask = 1;
+	int i, ret = 1;
 
-        LASSERT(obd != NULL);
-        LPROCFS_CLIMP_CHECK(obd);
-        imp = obd->u.cli.cl_import;
-        *eof = 1;
-
-        i = snprintf(page, count,
-                     "import:\n"
-                     "    name: %s\n"
-                     "    target: %s\n"
-                     "    state: %s\n"
-                     "    instance: %u\n"
-                     "    connect_flags: [",
-                     obd->obd_name,
-                     obd2cli_tgt(obd),
-                     ptlrpc_import_state_name(imp->imp_state),
-                     imp->imp_connect_data.ocd_instance);
-        i += obd_connect_flags2str(page + i, count - i,
-                                   imp->imp_connect_data.ocd_connect_flags,
-                                   ", ");
-        i += snprintf(page + i, count - i,
-                      "]\n"
-                      "    import_flags: [");
-        i += obd_import_flags2str(imp, page + i, count - i);
-
-        i += snprintf(page + i, count - i,
-                      "]\n"
-                      "    connection:\n"
-                      "       failover_nids: [");
-        cfs_spin_lock(&imp->imp_lock);
-        j = 0;
-        cfs_list_for_each_entry(conn, &imp->imp_conn_list, oic_item) {
-                i += snprintf(page + i, count - i, "%s%s", j ? ", " : "",
-                              libcfs_nid2str(conn->oic_conn->c_peer.nid));
-                j++;
-        }
-	i += snprintf(page + i, count - i,
-		      "]\n"
-		      "       current_connection: %s\n"
-		      "       connection_attempts: %u\n"
-		      "       generation: %u\n"
-		      "       in-progress_invalidations: %u\n",
-		      imp->imp_connection == NULL ? "<none>" :
-			      libcfs_nid2str(imp->imp_connection->c_peer.nid),
-		      imp->imp_conn_cnt,
-		      imp->imp_generation,
-		      cfs_atomic_read(&imp->imp_inval_count));
-	cfs_spin_unlock(&imp->imp_lock);
-
-        lprocfs_stats_collect(obd->obd_svc_stats, PTLRPC_REQWAIT_CNTR, &ret);
-        if (ret.lc_count != 0) {
-                /* first argument to do_div MUST be __u64 */
-                __u64 sum = ret.lc_sum;
-                do_div(sum, ret.lc_count);
-                ret.lc_sum = sum;
-        } else
-                ret.lc_sum = 0;
-        i += snprintf(page + i, count - i,
-                      "    rpcs:\n"
-                      "       inflight: %u\n"
-                      "       unregistering: %u\n"
-                      "       timeouts: %u\n"
-                      "       avg_waittime: "LPU64" %s\n",
-                      cfs_atomic_read(&imp->imp_inflight),
-                      cfs_atomic_read(&imp->imp_unregistering),
-                      cfs_atomic_read(&imp->imp_timeouts),
-                      ret.lc_sum, ret.lc_units);
-
-        k = 0;
-        for(j = 0; j < IMP_AT_MAX_PORTALS; j++) {
-                if (imp->imp_at.iat_portal[j] == 0)
-                        break;
-                k = max_t(unsigned int, k,
-                          at_get(&imp->imp_at.iat_service_estimate[j]));
-        }
-        i += snprintf(page + i, count - i,
-                      "    service_estimates:\n"
-                      "       services: %u sec\n"
-                      "       network: %u sec\n",
-                      k,
-                      at_get(&imp->imp_at.iat_net_latency));
-
-        i += snprintf(page + i, count - i,
-                      "    transactions:\n"
-                      "       last_replay: "LPU64"\n"
-                      "       peer_committed: "LPU64"\n"
-                      "       last_checked: "LPU64"\n",
-                      imp->imp_last_replay_transno,
-                      imp->imp_peer_committed_transno,
-                      imp->imp_last_transno_checked);
-
-        /* avg data rates */
-        for (rw = 0; rw <= 1; rw++) {
-                lprocfs_stats_collect(obd->obd_svc_stats,
-                                      PTLRPC_LAST_CNTR + BRW_READ_BYTES + rw,
-                                      &ret);
-                if (ret.lc_sum > 0 && ret.lc_count > 0) {
-                        /* first argument to do_div MUST be __u64 */
-                        __u64 sum = ret.lc_sum;
-                        do_div(sum, ret.lc_count);
-                        ret.lc_sum = sum;
-                        i += snprintf(page + i, count - i,
-                                      "    %s_data_averages:\n"
-                                      "       bytes_per_rpc: "LPU64"\n",
-                                      rw ? "write" : "read",
-                                      ret.lc_sum);
-                }
-                k = (int)ret.lc_sum;
-                j = opcode_offset(OST_READ + rw) + EXTRA_MAX_OPCODES;
-                lprocfs_stats_collect(obd->obd_svc_stats, j, &ret);
-                if (ret.lc_sum > 0 && ret.lc_count != 0) {
-                        /* first argument to do_div MUST be __u64 */
-                        __u64 sum = ret.lc_sum;
-                        do_div(sum, ret.lc_count);
-                        ret.lc_sum = sum;
-                        i += snprintf(page + i, count - i,
-                                      "       %s_per_rpc: "LPU64"\n",
-                                      ret.lc_units, ret.lc_sum);
-                        j = (int)ret.lc_sum;
-                        if (j > 0)
-                                i += snprintf(page + i, count - i,
-                                              "       MB_per_sec: %u.%.02u\n",
-                                              k / j, (100 * k / j) % 100);
-                }
-        }
-
-        LPROCFS_CLIMP_EXIT(obd);
-        return i;
+	for (i = 0; obd_connect_names[i] != NULL; i++, mask <<= 1) {
+		if (flags & mask) {
+			ret = seq_printf(seq, "%s%s", ret ? "" : sep,
+					 obd_connect_names[i]);
+			if (ret < 0)
+				return ret;
+		}
+	}
+	if (flags & ~(mask - 1))
+		ret = seq_printf(seq, "%sunknown flags "LPX64,
+				 ret ? "" : sep, flags & ~(mask - 1));
+	return ret;
 }
+EXPORT_SYMBOL(obd_connect_flags2seq);
 
 int lprocfs_rd_state(char *page, char **start, off_t off, int count,
                       int *eof, void *data)
@@ -2257,13 +2118,12 @@ int lprocfs_seq_create(cfs_proc_dir_entry_t *parent, char *name, mode_t mode,
 }
 EXPORT_SYMBOL(lprocfs_seq_create);
 
-__inline__ int lprocfs_obd_seq_create(struct obd_device *dev, char *name,
-                                      mode_t mode,
-                                      struct file_operations *seq_fops,
-                                      void *data)
+int lprocfs_obd_seq_create(struct obd_device *dev, char *name,
+			   mode_t mode, const struct file_operations *seq_fops,
+			   void *data)
 {
-        return (lprocfs_seq_create(dev->obd_proc_entry, name,
-                                   mode, seq_fops, data));
+	return lprocfs_seq_create(dev->obd_proc_entry, name, mode, seq_fops,
+				  data);
 }
 EXPORT_SYMBOL(lprocfs_obd_seq_create);
 
@@ -2613,7 +2473,6 @@ EXPORT_SYMBOL(lprocfs_rd_conn_uuid);
 EXPORT_SYMBOL(lprocfs_rd_num_exports);
 EXPORT_SYMBOL(lprocfs_rd_numrefs);
 EXPORT_SYMBOL(lprocfs_at_hist_helper);
-EXPORT_SYMBOL(lprocfs_rd_import);
 EXPORT_SYMBOL(lprocfs_rd_state);
 EXPORT_SYMBOL(lprocfs_rd_timeouts);
 EXPORT_SYMBOL(lprocfs_rd_blksize);

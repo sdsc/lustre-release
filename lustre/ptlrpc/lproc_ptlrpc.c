@@ -916,10 +916,11 @@ EXPORT_SYMBOL(lprocfs_wr_ping);
  * The connection UUID is a node's primary NID. For example,
  * "echo connection=192.168.0.1@tcp0::instance > .../import".
  */
-int lprocfs_wr_import(struct file *file, const char *buffer,
-                      unsigned long count, void *data)
+static ssize_t import_stats_seq_write(struct file *file, const char *buffer,
+				      size_t count, loff_t *off)
 {
-        struct obd_device *obd = data;
+	struct seq_file		*seq = file->private_data;
+	struct obd_device	*obd = seq->private;
         struct obd_import *imp = obd->u.cli.cl_import;
         char *kbuf = NULL;
         char *uuid;
@@ -976,7 +977,178 @@ out:
         OBD_FREE(kbuf, count + 1);
         return count;
 }
-EXPORT_SYMBOL(lprocfs_wr_import);
+
+/**
+ * Append a space separated list of current set flags to str.
+ */
+#define flag2seq(imp, seq, flag, rc)	do {				\
+	if ((imp)->imp_##flag && (rc) >= 0)				\
+		rc = seq_printf(seq, "%s" #flag, rc != 0 ? "" : ", ");	\
+} while (0);
+
+static int obd_import_flags2seq(struct seq_file *seq, struct obd_import *imp)
+{
+	int rc = 1;
+
+	if (imp->imp_obd->obd_no_recov)
+		rc = seq_printf(seq, "no_recov");
+
+	flag2seq(imp, seq, invalid, rc);
+	flag2seq(imp, seq, deactive, rc);
+	flag2seq(imp, seq, replayable, rc);
+	flag2seq(imp, seq, pingable, rc);
+
+	return rc;
+}
+#undef flags2seq
+
+static int import_stats_seq_show(struct seq_file *seq, void *v)
+{
+	struct lprocfs_counter	 ret;
+	struct obd_device	*obd = seq->private;
+	struct obd_import	*imp;
+	struct obd_import_conn	*conn;
+	int			 j, k, rw = 0;
+	int			 rc;
+
+	LASSERT(obd != NULL);
+	LPROCFS_CLIMP_CHECK(obd);
+	imp = obd->u.cli.cl_import;
+
+	rc = seq_printf(seq,
+			"import:\n"
+			"    name: %s\n"
+			"    target: %s\n"
+			"    state: %s\n"
+			"    instance: %u\n"
+			"    connect_flags: [",
+			obd->obd_name, obd2cli_tgt(obd),
+			ptlrpc_import_state_name(imp->imp_state),
+			imp->imp_connect_data.ocd_instance);
+
+	rc = obd_connect_flags2seq(seq,
+				   imp->imp_connect_data.ocd_connect_flags,
+				   ", ");
+	rc = seq_printf(seq,
+			"]\n"
+			"    import_flags: [");
+	rc = obd_import_flags2seq(seq, imp);
+
+	rc = seq_printf(seq,
+			"]\n"
+			"    connection:\n"
+			"       failover_nids: [");
+	cfs_spin_lock(&imp->imp_lock);
+	j = 0;
+	cfs_list_for_each_entry(conn, &imp->imp_conn_list, oic_item) {
+		rc = seq_printf(seq, "%s%s", j ? ", " : "",
+				libcfs_nid2str(conn->oic_conn->c_peer.nid));
+		j++;
+	}
+	cfs_spin_unlock(&imp->imp_lock);
+	rc = seq_printf(seq,
+			"]\n"
+			"       current_connection: %s\n"
+			"       connection_attempts: %u\n"
+			"       generation: %u\n"
+			"       in-progress_invalidations: %u\n",
+			imp->imp_connection == NULL ? "<none>" :
+			libcfs_nid2str(imp->imp_connection->c_peer.nid),
+			imp->imp_conn_cnt, imp->imp_generation,
+			cfs_atomic_read(&imp->imp_inval_count));
+
+	lprocfs_stats_collect(obd->obd_svc_stats, PTLRPC_REQWAIT_CNTR, &ret);
+	if (ret.lc_count != 0) {
+		/* first argument to do_div MUST be __u64 */
+		__u64 sum = ret.lc_sum;
+
+		do_div(sum, ret.lc_count);
+		ret.lc_sum = sum;
+	} else {
+		ret.lc_sum = 0;
+	}
+
+	rc = seq_printf(seq,
+			"    rpcs:\n"
+			"       inflight: %u\n"
+			"       unregistering: %u\n"
+			"       timeouts: %u\n"
+			"       avg_waittime: "LPU64" %s\n",
+			cfs_atomic_read(&imp->imp_inflight),
+			cfs_atomic_read(&imp->imp_unregistering),
+			cfs_atomic_read(&imp->imp_timeouts),
+			ret.lc_sum, ret.lc_units);
+
+	k = 0;
+	for (j = 0; j < IMP_AT_MAX_PORTALS; j++) {
+		if (imp->imp_at.iat_portal[j] == 0)
+			break;
+		k = max_t(unsigned int, k,
+			  at_get(&imp->imp_at.iat_service_estimate[j]));
+	}
+	rc = seq_printf(seq,
+			"    service_estimates:\n"
+			"       services: %u sec\n"
+			"       network: %u sec\n",
+			k, at_get(&imp->imp_at.iat_net_latency));
+
+	rc = seq_printf(seq,
+			"    transactions:\n"
+			"       last_replay: "LPU64"\n"
+			"       peer_committed: "LPU64"\n"
+			"       last_checked: "LPU64"\n",
+			imp->imp_last_replay_transno,
+			imp->imp_peer_committed_transno,
+			imp->imp_last_transno_checked);
+
+	/* avg data rates */
+	for (rw = 0; rw <= 1; rw++) {
+		lprocfs_stats_collect(obd->obd_svc_stats,
+				      PTLRPC_LAST_CNTR + BRW_READ_BYTES + rw,
+				      &ret);
+		if (ret.lc_sum > 0 && ret.lc_count > 0) {
+			/* first argument to do_div MUST be __u64 */
+			__u64 sum = ret.lc_sum;
+
+			do_div(sum, ret.lc_count);
+			ret.lc_sum = sum;
+			rc = seq_printf(seq,
+					"    %s_data_averages:\n"
+					"       bytes_per_rpc: "LPU64"\n",
+					rw ? "write" : "read", ret.lc_sum);
+		}
+		k = (int)ret.lc_sum;
+		j = opcode_offset(OST_READ + rw) + EXTRA_MAX_OPCODES;
+		lprocfs_stats_collect(obd->obd_svc_stats, j, &ret);
+		if (ret.lc_sum > 0 && ret.lc_count != 0) {
+			/* first argument to do_div MUST be __u64 */
+			__u64 sum = ret.lc_sum;
+
+			do_div(sum, ret.lc_count);
+			ret.lc_sum = sum;
+			rc = seq_printf(seq,
+					"       %s_per_rpc: "LPU64"\n",
+					ret.lc_units, ret.lc_sum);
+			j = (int)ret.lc_sum;
+			if (j > 0)
+				rc = seq_printf(seq,
+						"       MB_per_sec: %u.%.02u\n",
+						k / j, (100 * k / j) % 100);
+		}
+	}
+
+	LPROCFS_CLIMP_EXIT(obd);
+	return rc;
+}
+
+LPROC_SEQ_FOPS(import_stats);
+
+int lprocfs_import_attach_seqstat(struct obd_device *dev)
+{
+	return lprocfs_obd_seq_create(dev, "import", 0444,
+				      &import_stats_fops, dev);
+}
+EXPORT_SYMBOL(lprocfs_import_attach_seqstat);
 
 int lprocfs_rd_pinger_recov(char *page, char **start, off_t off,
                             int count, int *eof, void *data)

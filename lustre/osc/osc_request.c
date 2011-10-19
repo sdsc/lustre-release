@@ -3551,56 +3551,69 @@ static int brw_queue_work(const struct lu_env *env, void *data)
 
 int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
-        struct client_obd *cli = &obd->u.cli;
-        int rc;
-        ENTRY;
+	struct lprocfs_static_vars	 lvars = { 0 };
+	struct client_obd		*cli = &obd->u.cli;
+	void				*handler;
+	int				 rc;
 
-        ENTRY;
-        rc = ptlrpcd_addref();
-        if (rc)
-                RETURN(rc);
+	ENTRY;
 
-        rc = client_obd_setup(obd, lcfg);
-        if (rc == 0) {
-                void *handler;
-                handler = ptlrpcd_alloc_work(cli->cl_import,
-                                             brw_queue_work, cli);
-                if (!IS_ERR(handler))
-                        cli->cl_writeback_work = handler;
-                else
-                        rc = PTR_ERR(handler);
-        }
+	rc = ptlrpcd_addref();
+	if (rc)
+		RETURN(rc);
 
-        if (rc == 0) {
-                struct lprocfs_static_vars lvars = { 0 };
+	rc = client_obd_setup(obd, lcfg);
+	if (rc < 0)
+		GOTO(err_decref, rc);
 
-                cli->cl_grant_shrink_interval = GRANT_SHRINK_INTERVAL;
-                lprocfs_osc_init_vars(&lvars);
-                if (lprocfs_obd_setup(obd, lvars.obd_vars) == 0) {
-                        lproc_osc_attach_seqstat(obd);
-                        sptlrpc_lprocfs_cliobd_attach(obd);
-                        ptlrpc_lprocfs_register_obd(obd);
-                }
+	handler = ptlrpcd_alloc_work(cli->cl_import, brw_queue_work, cli);
+	if (IS_ERR(handler))
+		GOTO(err_cleanup, rc = PTR_ERR(handler));
 
-                oscc_init(obd);
-                /* We need to allocate a few requests more, because
-                   brw_interpret tries to create new requests before freeing
-                   previous ones. Ideally we want to have 2x max_rpcs_in_flight
-                   reserved, but I afraid that might be too much wasted RAM
-                   in fact, so 2 is just my guess and still should work. */
-                cli->cl_import->imp_rq_pool =
-                        ptlrpc_init_rq_pool(cli->cl_max_rpcs_in_flight + 2,
-                                            OST_MAXREQSIZE,
-                                            ptlrpc_add_rqs_to_pool);
+	cli->cl_writeback_work = handler;
+	cli->cl_grant_shrink_interval = GRANT_SHRINK_INTERVAL;
+	lprocfs_osc_init_vars(&lvars);
 
-                CFS_INIT_LIST_HEAD(&cli->cl_grant_shrink_list);
+	rc = lprocfs_obd_setup(obd, lvars.obd_vars);
+	if (rc)
+		GOTO(err_work, rc);
+	rc = lproc_osc_attach_seqstat(obd);
+	if (rc)
+		GOTO(err_lproc, rc);
+	rc = lprocfs_import_attach_seqstat(obd);
+	if (rc)
+		GOTO(err_lproc, rc);
+	rc = sptlrpc_lprocfs_cliobd_attach(obd);
+	if (rc)
+		GOTO(err_lproc, rc);
+	ptlrpc_lprocfs_register_obd(obd);
 
-                ns_register_cancel(obd->obd_namespace, osc_cancel_for_recovery);
-        }
+	oscc_init(obd);
+	/* We need to allocate a few requests more, because
+	 * brw_interpret tries to create new requests before freeing
+	 * previous ones. Ideally we want to have 2x max_rpcs_in_flight
+	 * reserved, but I afraid that might be too much wasted RAM
+	 * in fact, so 2 is just my guess and still should work.
+	 */
+	cli->cl_import->imp_rq_pool =
+			ptlrpc_init_rq_pool(cli->cl_max_rpcs_in_flight + 2,
+					    OST_MAXREQSIZE,
+					    ptlrpc_add_rqs_to_pool);
+	CFS_INIT_LIST_HEAD(&cli->cl_grant_shrink_list);
 
-        if (rc)
-                ptlrpcd_decref();
-        RETURN(rc);
+	ns_register_cancel(obd->obd_namespace, osc_cancel_for_recovery);
+
+	RETURN(0);
+err_lproc:
+	lprocfs_obd_cleanup(obd);
+err_work:
+	ptlrpcd_destroy_work(cli->cl_writeback_work);
+	cli->cl_writeback_work = NULL;
+err_cleanup:
+	client_obd_cleanup(obd);
+err_decref:
+	ptlrpcd_decref();
+	return rc;
 }
 
 static int osc_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
