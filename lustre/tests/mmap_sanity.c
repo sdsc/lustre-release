@@ -631,9 +631,10 @@ static int mmap_tst7_func(char *mnt, int rw)
 {
         char  fname[256];
         char *buf = MAP_FAILED;
-        ssize_t bytes;
         int fd = -1;
         int rc = 0;
+        pid_t pid;
+        char xyz[page_size * 2];
 
         if (snprintf(fname, 256, "%s/mmap_tst7.%s",
                      mnt, (rw == 0) ? "read":"write") >= 256) {
@@ -647,28 +648,44 @@ static int mmap_tst7_func(char *mnt, int rw)
                 rc = errno;
                 goto out;
         }
-        if (ftruncate(fd, 2 * page_size) == -1) {
+        if (ftruncate(fd, page_size) == -1) {
                 perror("truncate");
                 rc = errno;
                 goto out;
         }
-        buf = mmap(NULL, page_size,
-                   PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        buf = mmap(NULL, page_size * 2,
+                   PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
         if (buf == MAP_FAILED) {
                 perror("mmap");
                 rc = errno;
                 goto out;
         }
-        /* ensure the second page isn't mapped */
-        munmap(buf + page_size, page_size);
-        bytes = (rw == 0) ? read(fd, buf, 2 * page_size) :
-                write(fd, buf, 2 * page_size);
-        /* Expected behavior */
-        if (bytes == page_size)
-                goto out;
-        fprintf(stderr, "%s returned %zd, errno = %d\n",
-                (rw == 0)?"read":"write", bytes, errno);
-        rc = EIO;
+
+        pid = fork();
+        if (pid == 0) { /* child */
+                if (rw == 0)
+                        memcpy(xyz, buf, page_size * 2);
+                else
+                        memcpy(buf, xyz, page_size * 2);
+                /* shouldn't reach here. */
+                exit(0);
+        } else if (pid > 0) { /* parent */
+                int status = 0;
+                pid = waitpid(pid, &status, 0);
+                if (pid < 0) {
+                        perror("wait");
+                        rc = errno;
+                        goto out;
+                }
+
+                rc = EFAULT;
+                if (WIFSIGNALED(status) && SIGBUS == WTERMSIG(status))
+                        rc = 0;
+        } else {
+                perror("fork");
+                rc = errno;
+        }
+
 out:
         if (buf != MAP_FAILED)
                 munmap(buf, page_size);
@@ -705,7 +722,7 @@ static int remote_tst(int tc, char *mnt)
         }
         return rc;
 }
-        
+
 struct test_case {
         int     tc;                     /* test case number */
         char    *desc;                  /* test description */
