@@ -1987,23 +1987,23 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
                 CDEBUG(D_RPCTRACE, "set %p going to sleep for %d seconds\n",
                        set, timeout);
 
-                if (timeout == 0 && !cfs_signal_pending())
+                if (timeout == 0 && cfs_signal_pending())
                         /*
                          * No requests are in-flight (ether timed out
                          * or delayed), so we can allow interrupts.
                          * We still want to block for a limited time,
                          * so we allow interrupts during the timeout.
                          */
-                        lwi = LWI_TIMEOUT_INTR_ALL(cfs_time_seconds(1), 
+                        lwi = LWI_TIMEOUT_INTR_ALL(cfs_time_seconds(1),
                                                    ptlrpc_expired_set,
                                                    ptlrpc_interrupted_set, set);
                 else
                         /*
                          * At least one request is in flight, so no
                          * interrupts are allowed. Wait until all
-                         * complete, or an in-flight req times out. 
+                         * complete, or an in-flight req times out.
                          */
-                        lwi = LWI_TIMEOUT(cfs_time_seconds(timeout? timeout : 1),
+                        lwi = LWI_TIMEOUT(cfs_time_seconds(timeout ? : 1),
                                           ptlrpc_expired_set, set);
 
                 rc = l_wait_event(set->set_waitq, ptlrpc_check_set(NULL, set), &lwi);
