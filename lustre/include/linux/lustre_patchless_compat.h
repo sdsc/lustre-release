@@ -106,6 +106,17 @@ truncate_complete_page(struct address_space *mapping, struct page *page)
 }
 #endif /* !HAVE_TRUNCATE_COMPLETE_PAGE */
 
+static inline void ll_truncate_inode_page(struct page *vmpage)
+{
+        struct address_space *mapping = vmpage->mapping;
+        loff_t offset = vmpage->index << PAGE_CACHE_SHIFT;
+
+        if (mapping == NULL)
+                return;
+
+        truncate_inode_pages_range(mapping, offset, offset + PAGE_CACHE_SIZE);
+}
+
 #if !defined(HAVE_D_REHASH_COND) && !defined(HAVE___D_REHASH)
 /* megahack */
 static inline void d_rehash_cond(struct dentry * entry, int lock)
