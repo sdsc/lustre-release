@@ -98,6 +98,7 @@
 #include <libcfs/libcfs.h> /* for LASSERT, LPUX64, etc */
 #endif
 
+#include <lustre_ver.h>
 /* Defn's shared with user-space. */
 #include <lustre/lustre_user.h>
 
@@ -1276,7 +1277,14 @@ enum obdo_flags {
         OBD_FL_CKSUM_RSVD2  = 0x00008000, /* for future cksum types */
         OBD_FL_CKSUM_RSVD3  = 0x00010000, /* for future cksum types */
         OBD_FL_SHRINK_GRANT = 0x00020000, /* object shrink the grant */
-        OBD_FL_MMAP         = 0x00040000, /* object is mmapped on the client */
+        OBD_FL_MMAP         = 0x00040000, /* obsoleted - reserved for old
+                                           * clients.
+                                           * object is mmapped on the client. */
+        /* make sure this flag will be removed */
+#if LUSTRE_VERSION_CODE > OBD_OCD_VERSION(3,2,50,0)
+#warning "OBD_FL_MMAP is only for clients compatibility < 2.2.0"
+#endif
+
         OBD_FL_RECOV_RESEND = 0x00080000, /* recoverable resent */
         OBD_FL_NOSPC_BLK    = 0x00100000, /* no more block space on OST */
 
