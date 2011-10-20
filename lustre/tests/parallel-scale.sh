@@ -65,7 +65,9 @@ IOR=${IOR:-$(which IOR 2> /dev/null || true)}
 # threads per client
 ior_THREADS=${ior_THREADS:-2}
 ior_blockSize=${ior_blockSize:-6}	# Gb
+ior_xferSize=${ior_xferSize:-2m}
 ior_DURATION=${ior_DURATION:-30}	# minutes
+ior_type=${ior_type:-POSIX}
 [ "$SLOW" = "no" ] && ior_DURATION=5
 
 #
@@ -335,9 +337,10 @@ test_ior() {
     # -r    readFile -- read existing file"
     # -T    maxTimeDuration -- max time in minutes to run tests"
     # -k    keepFile -- keep testFile(s) on program exit
-    local cmd="$IOR -a POSIX -b ${ior_blockSize}g -o $testdir/iorData -t 2m -v -w -r -T $ior_DURATION -k"
+    local cmd="$IOR -a $ior_type -b ${ior_blockSize}g -o $testdir/iorData \
+        -t $ior_xferSize -v -w -r -T $ior_DURATION -k"
 
-    echo "+ $cmd"
+            echo "+ $cmd"
     mpi_run -np $((num_clients * $ior_THREADS)) -machinefile ${MACHINEFILE} $cmd
 
     local rc=$?
