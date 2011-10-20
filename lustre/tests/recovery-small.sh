@@ -1102,10 +1102,10 @@ run_test 61 "Verify to not reuse orphan objects - bug 17025"
 
 check_cli_ir_state()
 {
-        local NODE=${1:-`hostname`}
+        local NODE=${1:-$HOSTNAME}
         local st
         st=$(do_node $NODE "lctl get_param mgc.*.ir_state |
-                            awk '/imperative_recovery:/ { print \\\$2}' ")
+                            awk '/imperative_recovery:/ { print \\\$2}'")
         [ $st != ON -o $st != OFF ] ||
                 error "Error state $st, must be ON or OFF"
         echo -n $st
@@ -1156,7 +1156,7 @@ nidtbl_version_client()
                 local obdtype=${cli/%[0-9]*/}
                 [ $obdtype != mds ] && error "wrong parameters $cli"
 
-                node=`facet_active_host $cli`
+                node=$(facet_active_host $cli)
                 local t=${cli}_svc
                 cli=${!t}
         fi
@@ -1338,7 +1338,6 @@ test_104()
 
         local ir_state=$(check_target_ir_state ost1)
         [ $ir_state = "OFF" ] || error "ir status on ost1 should be OFF"
-        ost1_opt=
 }
 run_test 104 "IR: ost can disable IR voluntarily"
 
@@ -1349,7 +1348,7 @@ test_105()
         set_ir_status full
 
         # get one of the clients from client list
-        rcli=`echo $RCLIENTS |cut -d' ' -f 1`
+        local rcli=`echo $RCLIENTS |cut -d' ' -f 1`
 
         local old_MOUNTOPT=$MOUNTOPT
         MOUNTOPT=${MOUNTOPT},noir
