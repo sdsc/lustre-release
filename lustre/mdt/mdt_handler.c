@@ -5198,7 +5198,8 @@ static int mdt_init_export(struct obd_export *exp)
         cfs_spin_unlock(&exp->exp_lock);
 
         /* self-export doesn't need client data and ldlm initialization */
-        if (unlikely(exp == exp->exp_obd->obd_self_export))
+        if (unlikely(obd_uuid_equals(&exp->exp_obd->obd_uuid,
+                                     &exp->exp_client_uuid)))
                 RETURN(0);
 
         rc = lut_client_alloc(exp);

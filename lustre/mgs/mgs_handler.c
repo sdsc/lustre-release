@@ -932,7 +932,8 @@ static inline int mgs_init_export(struct obd_export *exp)
         cfs_spin_unlock(&exp->exp_lock);
 
         /* self-export doesn't need client data and ldlm initialization */
-        if (unlikely(exp == exp->exp_obd->obd_self_export))
+        if (unlikely(obd_uuid_equals(&exp->exp_obd->obd_uuid,
+                                     &exp->exp_client_uuid)))
                 return 0;
         return ldlm_init_export(exp);
 }
