@@ -785,10 +785,19 @@ retry:
                         rc = err;
         }
 
-        if (obd->obd_replayable && !rc && wait_handle)
-                LASSERTF(oti->oti_transno <= obd->obd_last_committed,
-                         "oti_transno "LPU64" last_committed "LPU64"\n",
-                         oti->oti_transno, obd->obd_last_committed);
+        /* In rare cases fsfilt_commit_wait() will wake up and return after
+         * the transaction has finished its work and updated j_commit_sequence
+         * but the commit callbacks have not been run yet.  Wait here until
+         * that is finished so that clients requesting sync IO don't see the
+         * reply transno < last_committed.  LU-753 */
+        if (unlikely(obd->obd_replayable && !rc && wait_handle &&
+                     oti->oti_transno > obd->obd_last_committed)) {
+                struct l_wait_info lwi = { 0 };
+
+                l_wait_event(fo->fo_jcb_wq,
+                             oti->oti_transno <= obd->obd_last_committed,
+                             &lwi);
+        }
 
         fsfilt_check_slow(obd, now, "commitrw commit");
 

@@ -362,6 +362,9 @@ struct filter_obd {
         cfs_hlist_head_t        *fo_capa_hash;
         struct llog_commit_master *fo_lcm;
         int                      fo_sec_level;
+
+        /* wait for journal callback finished, LU-753 */
+        cfs_waitq_t              fo_jcb_wq;
 };
 
 struct timeout_item {

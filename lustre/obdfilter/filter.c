@@ -92,6 +92,7 @@ static void filter_commit_cb(struct obd_device *obd, __u64 transno,
         LASSERT(exp->exp_obd == obd);
         obd_transno_commit_cb(obd, transno, exp, error);
         class_export_cb_put(exp);
+        cfs_waitq_signal(&obd->u.filter.fo_jcb_wq);
 }
 
 int filter_version_get_check(struct obd_export *exp,
@@ -2064,6 +2065,7 @@ int filter_common_setup(struct obd_device *obd, struct lustre_cfg* lcfg,
         filter->fo_fmd_max_age = FILTER_FMD_MAX_AGE_DEFAULT;
         filter->fo_syncjournal = 0; /* Don't sync journals on i/o by default */
         filter_slc_set(filter); /* initialize sync on lock cancel */
+        cfs_waitq_init(&filter->fo_jcb_wq);
 
         rc = filter_prep(obd);
         if (rc)
