@@ -227,6 +227,7 @@ struct osd_thread_info {
 
         /** dentry for Iterator context. */
         struct dentry          oti_it_dentry;
+        htree_lock_t          *oti_hlock;
 
         struct lu_fid          oti_fid;
         struct osd_inode_id    oti_id;
