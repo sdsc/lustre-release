@@ -239,6 +239,7 @@ struct lustre_msg_v2 {
 
 /* without gss, ptlrpc_body is put at the first buffer. */
 #define PTLRPC_NUM_VERSIONS     4
+#define JOBSTATS_JOBID_SIZE     32  /* 32 bytes string */
 struct ptlrpc_body {
         struct lustre_handle pb_handle;
         __u32 pb_type;
@@ -260,6 +261,7 @@ struct ptlrpc_body {
         __u64 pb_pre_versions[PTLRPC_NUM_VERSIONS];
         /* padding for future needs */
         __u64 pb_padding[4];
+      /*char  pb_jobid[JOBSTATS_JOBID_SIZE]; LU-694 */
 };
 
 extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb, int msgsize);
