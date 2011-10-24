@@ -175,10 +175,10 @@ int lustre_msg_size(__u32 magic, int count, __u32 *lens)
 
         LASSERT(count > 0);
 #ifdef PTLRPC_INTEROP_1_6
-        LASSERT(lens[MSG_PTLRPC_BODY_OFF] == sizeof(struct ptlrpc_body) ||
+        LASSERT(lens[MSG_PTLRPC_BODY_OFF] >= sizeof(struct ptlrpc_body) ||
                 lens[MSG_PTLRPC_BODY_OFF] == PTLRPC_BODY_MIN_SIZE);
 #else
-        LASSERT(lens[MSG_PTLRPC_BODY_OFF] == sizeof(struct ptlrpc_body));
+        LASSERT(lens[MSG_PTLRPC_BODY_OFF] >= sizeof(struct ptlrpc_body));
 #endif
         switch (magic) {
         case LUSTRE_MSG_MAGIC_V1:
