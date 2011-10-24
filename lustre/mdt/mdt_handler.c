@@ -373,7 +373,7 @@ static int mdt_statfs(struct mdt_thread_info *info)
         }
 
         if (rc == 0)
-                mdt_counter_incr(req->rq_export, LPROC_MDT_STATFS);
+                mdt_counter_incr(req, LPROC_MDT_STATFS);
 
         RETURN(rc);
 }
@@ -738,7 +738,7 @@ static int mdt_getattr(struct mdt_thread_info *info)
         EXIT;
 out_shrink:
         if (rc == 0)
-                mdt_counter_incr(req->rq_export, LPROC_MDT_GETATTR);
+                mdt_counter_incr(req, LPROC_MDT_GETATTR);
 
         mdt_shrink_reply(info);
         return rc;
@@ -1699,7 +1699,7 @@ static int mdt_sync(struct mdt_thread_info *info)
                         rc = err_serious(rc);
         }
         if (rc == 0)
-                mdt_counter_incr(req->rq_export, LPROC_MDT_SYNC);
+                mdt_counter_incr(req, LPROC_MDT_SYNC);
 
         RETURN(rc);
 }
