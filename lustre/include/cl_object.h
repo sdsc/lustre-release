@@ -2384,6 +2384,8 @@ struct cl_req_attr {
         struct obdo     *cra_oa;
         /** Capability. */
         struct obd_capa *cra_capa;
+        /** Jobid */
+        char             cra_jobid[JOBSTATS_JOBID_SIZE];
 };
 
 /**
