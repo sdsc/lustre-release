@@ -215,7 +215,7 @@ int mdt_getxattr(struct mdt_thread_info *info)
         EXIT;
 out:
         if (rc >= 0) {
-                mdt_counter_incr(req->rq_export, LPROC_MDT_GETXATTR);
+                mdt_counter_incr(req, LPROC_MDT_GETXATTR);
                 repbody->eadatasize = rc;
                 rc = 0;
         }
@@ -434,7 +434,7 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
                 rc = -EINVAL;
         }
         if (rc == 0)
-                mdt_counter_incr(req->rq_export, LPROC_MDT_SETXATTR);
+                mdt_counter_incr(req, LPROC_MDT_SETXATTR);
 
         EXIT;
 out_unlock:

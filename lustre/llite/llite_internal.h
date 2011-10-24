@@ -209,6 +209,15 @@ struct ll_inode_info {
          * serialize normal readdir and statahead-readdir
          */
         cfs_semaphore_t         lli_readdir_sem;
+        /**
+         * whenever a process try to read/write the file, the jobid of
+         * this file will be updated to the jobid of the accessing process,
+         * and it'll be packed into the write PRC on later flush.
+         *
+         * so the read/write statistics for jobid isn't accurate if the
+         * file is shared by different jobs.
+         */
+        char                    lli_jobid[JOBSTATS_JOBID_SIZE];
 };
 
 /*

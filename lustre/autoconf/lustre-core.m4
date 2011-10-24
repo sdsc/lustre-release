@@ -2184,6 +2184,16 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
+# 2.6.32 if kernel export access_process_vm().
+AC_DEFUN([LC_EXPORT_ACCESS_PROCESS_VM],
+[LB_CHECK_SYMBOL_EXPORT([access_process_vm],
+[mm/memory.c],[
+        AC_DEFINE(HAVE_ACCESS_PROCESS_VM, 1,
+                [access_process_vm function is present])
+],[
+])
+])
+
 
 #
 # LC_PROG_LINUX
@@ -2340,6 +2350,7 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_BLK_QUEUE_MAX_SEGMENTS
          LC_EXT4_SINGLEDATA_TRANS_BLOCKS_SB
          LC_WALK_SPACE_HAS_DATA_SEM
+         LC_EXPORT_ACCESS_PROCESS_VM
 
          #
          if test x$enable_server = xyes ; then

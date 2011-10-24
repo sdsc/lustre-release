@@ -151,9 +151,15 @@ int ptlrpcd_add_req(struct ptlrpc_request *req, enum ptlrpcd_scope scope)
         struct ptlrpcd_ctl *pc;
         enum pscope_thread  pt;
         int rc;
+        char jobid[JOBSTATS_JOBID_SIZE];
 
         LASSERT(scope < PSCOPE_NR);
-        
+
+        if (req->rq_reqmsg) {
+                lustre_get_jobid(jobid);
+                lustre_msg_set_jobid(req->rq_reqmsg, jobid);
+        }
+
         cfs_spin_lock(&req->rq_lock);
         if (req->rq_invalid_rqset) {
                 cfs_duration_t timeout;

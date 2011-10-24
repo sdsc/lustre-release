@@ -8324,6 +8324,71 @@ test_221() {
 }
 run_test 221 "make sure fault and truncate race to not cause OOM"
 
+test_222() { # Job stats
+        # Figure out which job scheduler is being used, if any,
+        # or use a fake one
+        if [ -n "$SLURM_JOB_ID" ]; then # SLURM
+                JOBENV=SLURM_JOB_ID
+        elif [ -n "$LSB_JOBID" ]; then # Load Sharing Facility
+                JOBENV=LSB_JOBID
+        elif [ -n "$PBS_JOBID" ]; then # PBS/Maui/Moab
+                JOBENV=PBS_JOBID
+        elif [ -n "$LOADL_STEPID" ]; then # LoadLeveller
+                JOBENV=LOADL_STEP_ID
+        elif [ -n "$JOB_ID" ]; then # Sun Grid Engine
+                JOBENV=JOB_ID
+        else
+                JOBENV=FAKE_JOBID
+        fi
+        
+        OLD_JOBENV=`$LCTL get_param -n llite.*.jobid_var`
+        if [ $OLD_JOBENV != $JOBENV ]; then
+                do_facet mgs $LCTL conf_param $FSNAME.llite.jobid_var=$JOBENV
+                wait_update $HOSTNAME "$LCTL get_param \
+                -n llite.*.jobid_var" $JOBENV || return 1
+        fi
+
+        # use a new JobID for this test, or we might see an old one
+        [ "$JOBENV" = "FAKE_JOBID" ] && FAKE_JOBID=test_id.$testnum.$RANDOM
+        
+        JOBVAL=${!JOBENV}
+        log "Using JobID environment variable $JOBENV=$JOBVAL"
+
+        if [ $JOBENV = "FAKE_JOBID" ]; then
+                FAKE_JOBID=$JOBVAL dd if=/dev/zero of=$DIR/$tfile bs=1M \
+                count=1 oflag=sync
+        elif [ $JOBENV = "SLURM_JOB_ID" ]; then
+                SLURM_JOB_ID=$JOBVAL dd if=/dev/zero of=$DIR/$tfile bs=1M \
+                count=1 oflag=sync
+        elif [ $JOBENV = "LSB_JOBID" ]; then
+                LSB_JOBID=$JOBVAL dd if=/dev/zero of=$DIR/$tfile bs=1M \
+                count = 1 oflag=sync
+        elif [ $JOBENV = "PBS_JOBID" ]; then
+                PBS_JOBID=$JOBVAL dd if=/dev/zero of=$DIR/$tfile bs=1M \
+                count = 1 oflag=sync
+        elif [ $JOBENV = "LOADL_STEP_ID" ]; then
+                LOADL_STEP_ID=$JOBVAL dd if=/dev/zero of=$DIR/$tfile bs=1M \
+                count = 1 oflag=sync
+        elif [ $JOBENV = "JOB_ID" ]; then
+                JOB_ID=$JOBVAL  dd if=/dev/zero of=$DIR/$tfile bs=1M \
+                count = 1 oflag=sync
+        fi
+ 
+        if [ $OLD_JOBENV != $JOBENV ]; then
+                do_facet mgs $LCTL conf_param $FSNAME.llite.jobid_var=$OLD_JOBENV
+                wait_update $HOSTNAME "$LCTL get_param -n llite.*.jobid_var" \
+                $OLD_JOBENV || return 1
+        fi
+
+        FACET="$SINGLEMDS" # will need to get MDS number for DNE
+        do_facet $FACET lctl get_param mdt.*.job_stats | grep $JOBVAL \
+        || error "No job stats found on MDT $FACET"
+        FACET="ost$(lfs getstripe -i $DIR/$tfile)"
+        do_facet $FACET lctl get_param obdfilter.*.job_stats | grep $JOBVAL \
+        || error "No job stats found on OST $FACET"
+}
+run_test 222 "Verify job stats"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
