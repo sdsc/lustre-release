@@ -192,6 +192,8 @@ struct obd_info {
         /* oss capability, its type is obd_capa in client to avoid copy.
          * in contrary its type is lustre_capa in OSS. */
         void                   *oi_capa;
+        /* transfer jobid from ost_sync() to filter_sync()... */
+        char                   *oi_jobid;
 };
 
 /* compare all relevant fields. */
@@ -246,6 +248,7 @@ struct obd_device_target {
         cfs_rw_semaphore_t        obt_rwsem;
         struct vfsmount          *obt_vfsmnt;
         struct file              *obt_health_check_filp;
+        struct obd_job_stats      obt_jobstats;
 };
 
 /* llog contexts */
@@ -830,6 +833,8 @@ struct obd_trans_info {
         __u32                    oti_conn_cnt;
         /** VBR: versions */
         __u64                    oti_pre_version;
+        /** JobID */
+        char                    *oti_jobid;
 
         struct obd_uuid         *oti_ost_uuid;
 };
