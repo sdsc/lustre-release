@@ -803,7 +803,7 @@ enum {
         LPROC_MDT_SYNC,
         LPROC_MDT_LAST,
 };
-void mdt_counter_incr(struct obd_export *exp, int opcode);
+void mdt_counter_incr(struct ptlrpc_request *req, int opcode);
 void mdt_stats_counter_init(struct lprocfs_stats *stats);
 void lprocfs_mdt_init_vars(struct lprocfs_static_vars *lvars);
 int mdt_procfs_init(struct mdt_device *mdt, const char *name);
