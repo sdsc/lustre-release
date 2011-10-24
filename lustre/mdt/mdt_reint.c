@@ -602,7 +602,7 @@ out_put:
         mdt_object_put(info->mti_env, mo);
 out:
         if (rc == 0)
-                mdt_counter_incr(req->rq_export, LPROC_MDT_SETATTR);
+                mdt_counter_incr(req, LPROC_MDT_SETATTR);
 
         mdt_shrink_reply(info);
         return rc;
@@ -629,7 +629,7 @@ static int mdt_reint_create(struct mdt_thread_info *info,
                         rc = mdt_md_mkobj(info);
                 } else {
                         LASSERT(info->mti_rr.rr_namelen > 0);
-                        mdt_counter_incr(req->rq_export, LPROC_MDT_MKDIR);
+                        mdt_counter_incr(req, LPROC_MDT_MKDIR);
                         rc = mdt_md_create(info);
                 }
                 break;
@@ -642,7 +642,7 @@ static int mdt_reint_create(struct mdt_thread_info *info,
         case S_IFSOCK:{
                 /* Special file should stay on the same node as parent. */
                 LASSERT(info->mti_rr.rr_namelen > 0);
-                mdt_counter_incr(req->rq_export, LPROC_MDT_MKNOD);
+                mdt_counter_incr(req, LPROC_MDT_MKNOD);
                 rc = mdt_md_create(info);
                 break;
         }
@@ -770,7 +770,7 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
         if (ma->ma_valid & MA_INODE) {
                 switch (ma->ma_attr.la_mode & S_IFMT) {
                 case S_IFDIR:
-                        mdt_counter_incr(req->rq_export, LPROC_MDT_RMDIR);
+                        mdt_counter_incr(req, LPROC_MDT_RMDIR);
                         break;
                 case S_IFREG:
                 case S_IFLNK:
@@ -778,7 +778,7 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
                 case S_IFBLK:
                 case S_IFIFO:
                 case S_IFSOCK:
-                        mdt_counter_incr(req->rq_export, LPROC_MDT_UNLINK);
+                        mdt_counter_incr(req, LPROC_MDT_UNLINK);
                         break;
                 default:
                         LASSERTF(0, "bad file type %o unlinking\n",
@@ -894,7 +894,7 @@ static int mdt_reint_link(struct mdt_thread_info *info,
                       mdt_object_child(ms), lname, ma);
 
         if (rc == 0)
-                mdt_counter_incr(req->rq_export, LPROC_MDT_LINK);
+                mdt_counter_incr(req, LPROC_MDT_LINK);
 
         EXIT;
 out_unlock_child:
@@ -1281,7 +1281,7 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
 
         /* handle last link of tgt object */
         if (rc == 0) {
-                mdt_counter_incr(req->rq_export, LPROC_MDT_RENAME);
+                mdt_counter_incr(req, LPROC_MDT_RENAME);
                 if (mnew)
                         mdt_handle_last_unlink(info, mnew, ma);
         }
