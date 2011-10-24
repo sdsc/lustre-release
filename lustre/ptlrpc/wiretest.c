@@ -346,7 +346,7 @@ void lustre_assert_wire_constants(void)
                  (long long)(int)sizeof(((struct lustre_msg_v2 *)0)->lm_buflens[0]));
 
         /* Checks for struct ptlrpc_body */
-        LASSERTF((int)sizeof(struct ptlrpc_body) == 152, " found %lld\n",
+        LASSERTF((int)sizeof(struct ptlrpc_body) == 184, " found %lld\n",
                  (long long)(int)sizeof(struct ptlrpc_body));
         LASSERTF((int)offsetof(struct ptlrpc_body, pb_handle) == 0, " found %lld\n",
                  (long long)(int)offsetof(struct ptlrpc_body, pb_handle));
@@ -404,19 +404,28 @@ void lustre_assert_wire_constants(void)
                  (long long)(int)offsetof(struct ptlrpc_body, pb_service_time));
         LASSERTF((int)sizeof(((struct ptlrpc_body *)0)->pb_service_time) == 4, " found %lld\n",
                  (long long)(int)sizeof(((struct ptlrpc_body *)0)->pb_service_time));
-        LASSERTF((int)offsetof(struct ptlrpc_body, pb_slv) == 80, " found %lld\n",
-                 (long long)(int)offsetof(struct ptlrpc_body, pb_slv));
-        LASSERTF((int)sizeof(((struct ptlrpc_body *)0)->pb_slv) == 8, " found %lld\n",
-                 (long long)(int)sizeof(((struct ptlrpc_body *)0)->pb_slv));
         LASSERTF((int)offsetof(struct ptlrpc_body, pb_limit) == 76, " found %lld\n",
                  (long long)(int)offsetof(struct ptlrpc_body, pb_limit));
         LASSERTF((int)sizeof(((struct ptlrpc_body *)0)->pb_limit) == 4, " found %lld\n",
                  (long long)(int)sizeof(((struct ptlrpc_body *)0)->pb_limit));
+        LASSERTF((int)offsetof(struct ptlrpc_body, pb_slv) == 80, " found %lld\n",
+                 (long long)(int)offsetof(struct ptlrpc_body, pb_slv));
+        LASSERTF((int)sizeof(((struct ptlrpc_body *)0)->pb_slv) == 8, " found %lld\n",
+                 (long long)(int)sizeof(((struct ptlrpc_body *)0)->pb_slv));
         CLASSERT(PTLRPC_NUM_VERSIONS == 4);
         LASSERTF((int)offsetof(struct ptlrpc_body, pb_pre_versions[4]) == 120, " found %lld\n",
                  (long long)(int)offsetof(struct ptlrpc_body, pb_pre_versions[4]));
         LASSERTF((int)sizeof(((struct ptlrpc_body *)0)->pb_pre_versions[4]) == 8, " found %lld\n",
                  (long long)(int)sizeof(((struct ptlrpc_body *)0)->pb_pre_versions[4]));
+        LASSERTF((int)offsetof(struct ptlrpc_body, pb_padding[4]) == 152, " found %lld\n",
+                 (long long)(int)offsetof(struct ptlrpc_body, pb_padding[4]));
+        LASSERTF((int)sizeof(((struct ptlrpc_body *)0)->pb_padding[4]) == 8, " found %lld\n",
+                 (long long)(int)sizeof(((struct ptlrpc_body *)0)->pb_padding[4]));
+        CLASSERT(JOBSTATS_JOBID_SIZE == 32);
+        LASSERTF((int)offsetof(struct ptlrpc_body, pb_jobid) == 152, " found %lld\n",
+                 (long long)(int)offsetof(struct ptlrpc_body, pb_jobid));
+        LASSERTF((int)sizeof(((struct ptlrpc_body *)0)->pb_jobid) == 32, " found %lld\n",
+                 (long long)(int)sizeof(((struct ptlrpc_body *)0)->pb_jobid));
 
         /* Checks for struct obd_connect_data */
         LASSERTF((int)sizeof(struct obd_connect_data) == 192, " found %lld\n",
@@ -526,6 +535,7 @@ void lustre_assert_wire_constants(void)
         CLASSERT(OBD_CONNECT_64BITHASH == 0x4000000000ULL);
         CLASSERT(OBD_CONNECT_MAXBYTES == 0x8000000000ULL);
         CLASSERT(OBD_CONNECT_IMP_RECOV == 0x10000000000ULL);
+        CLASSERT(OBD_CONNECT_JOBSTATS == 0x20000000000ULL);
 
         /* Checks for struct obdo */
         LASSERTF((int)sizeof(struct obdo) == 208, " found %lld\n",

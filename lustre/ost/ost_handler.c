@@ -425,7 +425,8 @@ unlock:
         RETURN(rc);
 }
 
-static int ost_sync(struct obd_export *exp, struct ptlrpc_request *req)
+static int ost_sync(struct obd_export *exp, struct ptlrpc_request *req,
+                    struct obd_trans_info *oti)
 {
         struct ost_body *body, *repbody;
         struct obd_info *oinfo;
@@ -459,6 +460,7 @@ static int ost_sync(struct obd_export *exp, struct ptlrpc_request *req)
 
         oinfo->oi_oa = &body->oa;
         oinfo->oi_capa = capa;
+        oinfo->oi_jobid = oti->oti_jobid;
         req->rq_status = obd_sync(exp, oinfo, body->oa.o_size,
                                   body->oa.o_blocks, NULL);
         OBD_FREE_PTR(oinfo);
@@ -2125,6 +2127,10 @@ int ost_handle(struct ptlrpc_request *req)
         if (rc)
                 RETURN(rc);
 
+        if (req && req->rq_reqmsg && req->rq_export &&
+            (req->rq_export->exp_connect_flags & OBD_CONNECT_JOBSTATS))
+                oti->oti_jobid = lustre_msg_get_jobid(req->rq_reqmsg);
+
         switch (lustre_msg_get_opc(req->rq_reqmsg)) {
         case OST_CONNECT: {
                 CDEBUG(D_INODE, "connect\n");
@@ -2239,7 +2245,7 @@ int ost_handle(struct ptlrpc_request *req)
                 req_capsule_set(&req->rq_pill, &RQF_OST_SYNC);
                 if (OBD_FAIL_CHECK(OBD_FAIL_OST_SYNC_NET))
                         RETURN(0);
-                rc = ost_sync(req->rq_export, req);
+                rc = ost_sync(req->rq_export, req, oti);
                 break;
         case OST_SET_INFO:
                 DEBUG_REQ(D_INODE, req, "set_info");

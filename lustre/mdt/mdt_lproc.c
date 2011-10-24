@@ -115,8 +115,12 @@ int mdt_procfs_init(struct mdt_device *mdt, const char *name)
                                    "clear", lprocfs_nid_stats_clear_read,
                                    lprocfs_nid_stats_clear_write, obd, NULL);
         rc = lprocfs_alloc_md_stats(obd, LPROC_MDT_LAST);
-        if (rc == 0)
-                mdt_stats_counter_init(obd->md_stats);
+        if (rc)
+                return rc;
+        mdt_stats_counter_init(obd->md_stats);
+
+        rc = lprocfs_job_stats_init(obd, LPROC_MDT_LAST,
+                                    mdt_stats_counter_init);
 
         RETURN(rc);
 }
@@ -125,6 +129,8 @@ int mdt_procfs_fini(struct mdt_device *mdt)
 {
         struct lu_device *ld = &mdt->mdt_md_dev.md_lu_dev;
         struct obd_device *obd = ld->ld_obd;
+
+        lprocfs_job_stats_fini(obd);
 
         if (mdt->mdt_proc_entry) {
                 lu_time_fini(&ld->ld_site->ls_time_stats);
@@ -811,6 +817,8 @@ static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
         { "instance",                   lprocfs_target_rd_instance,         0 },
         { "ir_factor",                  lprocfs_obd_rd_ir_factor,
                                         lprocfs_obd_wr_ir_factor,           0 },
+        { "job_cleanup_interval",       lprocfs_rd_job_interval,
+                                        lprocfs_wr_job_interval, 0 },
         { 0 }
 };
 
@@ -825,12 +833,19 @@ void lprocfs_mdt_init_vars(struct lprocfs_static_vars *lvars)
     lvars->obd_vars     = lprocfs_mdt_obd_vars;
 }
 
-void mdt_counter_incr(struct obd_export *exp, int opcode)
+void mdt_counter_incr(struct ptlrpc_request *req, int opcode)
 {
+        struct obd_export *exp = req->rq_export;
+
         if (exp->exp_obd && exp->exp_obd->md_stats)
                 lprocfs_counter_incr(exp->exp_obd->md_stats, opcode);
         if (exp->exp_nid_stats && exp->exp_nid_stats->nid_stats != NULL)
                 lprocfs_counter_incr(exp->exp_nid_stats->nid_stats, opcode);
+        if (exp->exp_obd && exp->exp_obd->obd_jobstats.ojs_hash &&
+            (exp->exp_connect_flags & OBD_CONNECT_JOBSTATS))
+                lprocfs_job_stats_log(exp->exp_obd,
+                                      lustre_msg_get_jobid(req->rq_reqmsg),
+                                      opcode, 1);
 
 }
 

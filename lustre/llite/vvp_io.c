@@ -1106,6 +1106,13 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
                         cio->cui_tot_count = count;
                         cio->cui_tot_nrsegs = 0;
                 }
+                /* for read/write, we store the jobid in the inode, and
+                 * it'll be fetched by osc when building RPC.
+                 *
+                 * it's not accurate if the file is shared by different
+                 * jobs.
+                 */
+                lustre_get_jobid(cl_i2info(inode)->lli_jobid);
         } else if (io->ci_type == CIT_SETATTR) {
                 if (cl_io_is_trunc(io))
                         /* lockless truncate? */
