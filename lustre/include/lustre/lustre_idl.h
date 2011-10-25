@@ -1229,6 +1229,11 @@ typedef enum {
         OBD_CKSUM_CRC32C= 0x00000004,
 } cksum_type_t;
 
+typedef enum {
+        MNTOPT_USERXATTR        = 0x00000001,
+        MNTOPT_ACL              = 0x00000002,
+} mntopt_t;
+
 /*
  *   OST requests: OBDO & OBD request records
  */

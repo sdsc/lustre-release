@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
@@ -72,6 +75,7 @@ struct dt_device_param {
         unsigned           ddp_max_name_len;
         unsigned           ddp_max_nlink;
         unsigned           ddp_block_shift;
+        mntopt_t           ddp_mntopts;
 };
 
 /**
