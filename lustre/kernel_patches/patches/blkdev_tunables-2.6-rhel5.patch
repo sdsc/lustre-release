@@ -1,8 +1,8 @@
-Index: linux-2.6.18-164.11.1/include/linux/blkdev.h
+Index: linux-2.6.18-238.12.1.el5-b18/include/linux/blkdev.h
 ===================================================================
---- linux-2.6.18-164.11.1.orig/include/linux/blkdev.h
-+++ linux-2.6.18-164.11.1/include/linux/blkdev.h
-@@ -788,10 +788,10 @@ extern void blk_free_tags(struct blk_que
+--- linux-2.6.18-238.12.1.el5-b18.orig/include/linux/blkdev.h
++++ linux-2.6.18-238.12.1.el5-b18/include/linux/blkdev.h
+@@ -791,10 +791,10 @@ extern void blk_free_tags(struct blk_que
  extern void blk_rq_bio_prep(request_queue_t *, struct request *, struct bio *);
  extern int blkdev_issue_flush(struct block_device *, sector_t *);
  
@@ -16,10 +16,10 @@ Index: linux-2.6.18-164.11.1/include/linux/blkdev.h
  
  #define MAX_SEGMENT_SIZE	65536
  
-Index: linux-2.6.18-164.11.1/include/scsi/scsi_host.h
+Index: linux-2.6.18-238.12.1.el5-b18/include/scsi/scsi_host.h
 ===================================================================
---- linux-2.6.18-164.11.1.orig/include/scsi/scsi_host.h
-+++ linux-2.6.18-164.11.1/include/scsi/scsi_host.h
+--- linux-2.6.18-238.12.1.el5-b18.orig/include/scsi/scsi_host.h
++++ linux-2.6.18-238.12.1.el5-b18/include/scsi/scsi_host.h
 @@ -30,7 +30,7 @@ struct blk_queue_tags;
   *	 used in one scatter-gather request.
   */
@@ -29,11 +29,11 @@ Index: linux-2.6.18-164.11.1/include/scsi/scsi_host.h
  
  
  #define DISABLE_CLUSTERING 0
-Index: linux-2.6.18-164.11.1/drivers/scsi/lpfc/lpfc.h
+Index: linux-2.6.18-238.12.1.el5-b18/drivers/scsi/lpfc/lpfc.h
 ===================================================================
---- linux-2.6.18-164.11.1.orig/drivers/scsi/lpfc/lpfc.h
-+++ linux-2.6.18-164.11.1/drivers/scsi/lpfc/lpfc.h
-@@ -38,7 +38,7 @@
+--- linux-2.6.18-238.12.1.el5-b18.orig/drivers/scsi/lpfc/lpfc.h
++++ linux-2.6.18-238.12.1.el5-b18/drivers/scsi/lpfc/lpfc.h
+@@ -38,7 +38,7 @@ struct lpfc_sli2_slim;
  #define LPFC_MAX_NS_RETRY	3	/* Number of retry attempts to contact
  					   the NameServer  before giving up. */
  #define LPFC_CMD_PER_LUN	3	/* max outstanding cmds per lun */
@@ -42,3 +42,192 @@ Index: linux-2.6.18-164.11.1/drivers/scsi/lpfc/lpfc.h
  #define LPFC_MAX_SG_SEG_CNT	256	/* sg element count per scsi cmnd */
  #define LPFC_IOCB_LIST_CNT	2250	/* list of IOCBs for fast-path usage. */
  #define LPFC_Q_RAMP_UP_INTERVAL 120     /* lun q_depth ramp up interval */
+Index: linux-2.6.18-238.12.1.el5-b18/drivers/md/dm-io.c
+===================================================================
+--- linux-2.6.18-238.12.1.el5-b18.orig/drivers/md/dm-io.c
++++ linux-2.6.18-238.12.1.el5-b18/drivers/md/dm-io.c
+@@ -15,12 +15,19 @@
+ 
+ static struct bio_set *_bios;
+ 
++#define DM_MSG_PREFIX "io"
++
++#define DM_IO_MAX_REGIONS	BITS_PER_LONG
++
+ struct dm_io_client {
+ 	mempool_t *pool;
+ 	struct bio_set *bios;
+ };
+ 
+-/* FIXME: can we shrink this ? */
++/*
++ * Aligning 'struct io' reduces the number of bits required to store
++ * its address.  Refer to store_io_and_region_in_bio() below.
++ */
+ struct io {
+ 	unsigned long error;
+ 	atomic_t count;
+@@ -28,7 +35,7 @@ struct io {
+ 	struct dm_io_client *client;
+ 	io_notify_fn callback;
+ 	void *context;
+-};
++} __attribute__((aligned(DM_IO_MAX_REGIONS)));
+ 
+ /*
+  * io contexts are only dynamically allocated for asynchronous
+@@ -149,20 +156,34 @@ void dm_io_client_destroy(struct dm_io_c
+ }
+ EXPORT_SYMBOL(dm_io_client_destroy);
+ 
++#ifndef IS_ALIGNED
++#define IS_ALIGNED(x,a)		(((x) & ((typeof(x))(a) - 1)) == 0)
++#endif
+ /*-----------------------------------------------------------------
+  * We need to keep track of which region a bio is doing io for.
+- * In order to save a memory allocation we store this the last
+- * bvec which we know is unused (blech).
+- * XXX This is ugly and can OOPS with some configs... find another way.
++ * To avoid a memory allocation to store just 5 or 6 bits, we
++ * ensure the 'struct io' pointer is aligned so enough low bits are
++ * always zero and then combine it with the region number directly in
++ * bi_private.
+  *---------------------------------------------------------------*/
+-static inline void bio_set_region(struct bio *bio, unsigned region)
++static void store_io_and_region_in_bio(struct bio *bio, struct io *io,
++				       unsigned region)
+ {
+-	bio->bi_io_vec[bio->bi_max_vecs].bv_len = region;
++	if (unlikely(!IS_ALIGNED((unsigned long)io, DM_IO_MAX_REGIONS))) {
++		DMERR("Unaligned struct io pointer %p", io);
++		BUG();
++	}
++
++	bio->bi_private = (void *)((unsigned long)io | region);
+ }
+ 
+-static inline unsigned bio_get_region(struct bio *bio)
++static void retrieve_io_and_region_from_bio(struct bio *bio, struct io **io,
++				       unsigned *region)
+ {
+-	return bio->bi_io_vec[bio->bi_max_vecs].bv_len;
++	unsigned long val = (unsigned long)bio->bi_private;
++
++	*io = (void *)(val & -(unsigned long)DM_IO_MAX_REGIONS);
++	*region = val & (DM_IO_MAX_REGIONS - 1);
+ }
+ 
+ /*-----------------------------------------------------------------
+@@ -204,10 +225,8 @@ static int endio(struct bio *bio, unsign
+ 	/*
+ 	 * The bio destructor in bio_put() may use the io object.
+ 	 */
+-	io = bio->bi_private;
+-	region = bio_get_region(bio);
++	retrieve_io_and_region_from_bio(bio, &io, &region);
+ 
+-	bio->bi_max_vecs++;
+ 	bio_put(bio);
+ 
+ 	dec_count(io, region, error);
+@@ -309,7 +328,10 @@ static void vm_dp_init(struct dpages *dp
+ 
+ static void dm_bio_destructor(struct bio *bio)
+ {
+-	struct io *io = bio->bi_private;
++	unsigned region;
++	struct io *io;
++
++	retrieve_io_and_region_from_bio(bio, &io, &region);
+ 
+ 	bio_free(bio, bios(io->client));
+ }
+@@ -354,21 +376,16 @@ static void do_region(int rw, unsigned i
+ 
+ 	while (remaining) {
+ 		/*
+-		 * Allocate a suitably sized-bio: we add an extra
+-		 * bvec for bio_get/set_region() and decrement bi_max_vecs
+-		 * to hide it from bio_add_page().
++		 * Allocate a suitably sized-bio.
+ 		 */
+ 		num_bvecs = dm_div_up(remaining, (PAGE_SIZE >> SECTOR_SHIFT));
+-		num_bvecs = 1 + min_t(int, bio_get_nr_vecs(where->bdev),
+-				      num_bvecs);
++		num_bvecs = min_t(int, bio_get_nr_vecs(where->bdev), num_bvecs);
+ 		bio = bio_alloc_bioset(GFP_NOIO, num_bvecs, bios(io->client));
+ 		bio->bi_sector = where->sector + (where->count - remaining);
+ 		bio->bi_bdev = where->bdev;
+ 		bio->bi_end_io = endio;
+-		bio->bi_private = io;
+ 		bio->bi_destructor = dm_bio_destructor;
+-		bio->bi_max_vecs--;
+-		bio_set_region(bio, region);
++		store_io_and_region_in_bio(bio, io, region);
+ 
+ 		/*
+ 		 * Try and add as many pages as possible.
+@@ -396,6 +413,8 @@ static void dispatch_io(int rw, unsigned
+ 	int i;
+ 	struct dpages old_pages = *dp;
+ 
++	BUG_ON(num_regions > DM_IO_MAX_REGIONS);
++
+ 	if (sync)
+ 		rw |= (1 << BIO_RW_SYNC);
+ 
+@@ -420,37 +439,44 @@ static int sync_io(struct dm_io_client *
+ 		   struct io_region *where, int rw, struct dpages *dp,
+ 		   unsigned long *error_bits)
+ {
+-	struct io io;
++	/*
++	 * gcc <= 4.3 can't do the alignment for stack variables, so we must
++	 * align it on our own.
++	 * volatile prevents the optimizer from removing or reusing
++	 * "io_" field from the stack frame (allowed in ANSI C).
++	 */
++	volatile char io_[sizeof(struct io) + __alignof__(struct io) - 1];
++	struct io *io = (struct io *)PTR_ALIGN(&io_, __alignof__(struct io));
+ 
+ 	if (num_regions > 1 && (rw & RW_MASK) != WRITE) {
+ 		WARN_ON(1);
+ 		return -EIO;
+ 	}
+ 
+-	io.error = 0;
+-	atomic_set(&io.count, 1); /* see dispatch_io() */
+-	io.sleeper = current;
+-	io.client = client;
++	io->error = 0;
++	atomic_set(&io->count, 1); /* see dispatch_io() */
++	io->sleeper = current;
++	io->client = client;
+ 
+-	dispatch_io(rw, num_regions, where, dp, &io, 1);
++	dispatch_io(rw, num_regions, where, dp, io, 1);
+ 
+ 	while (1) {
+ 		set_current_state(TASK_UNINTERRUPTIBLE);
+ 
+-		if (!atomic_read(&io.count) || signal_pending(current))
++		if (!atomic_read(&io->count) || signal_pending(current))
+ 			break;
+ 
+ 		io_schedule();
+ 	}
+ 	set_current_state(TASK_RUNNING);
+ 
+-	if (atomic_read(&io.count))
++	if (atomic_read(&io->count))
+ 		return -EINTR;
+ 
+ 	if (error_bits)
+-		*error_bits = io.error;
++		*error_bits = io->error;
+ 
+-	return io.error ? -EIO : 0;
++	return io->error ? -EIO : 0;
+ }
+ 
+ static int async_io(struct dm_io_client *client, unsigned int num_regions,
