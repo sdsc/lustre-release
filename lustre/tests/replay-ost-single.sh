@@ -174,6 +174,9 @@ kbytesfree() {
 test_6() {
     remote_mds_nodsh && skip "remote MDS with nodsh" && return 0
 
+    # wait till space from previous tests is back
+    wait_destroy_complete || return 33
+
     f=$TDIR/$tfile
     rm -f $f
     sync && sleep 2 && sync	# wait for delete thread
@@ -205,6 +208,9 @@ test_6() {
 run_test 6 "Fail OST before obd_destroy"
 
 test_7() {
+    # wait till space from previous tests is back
+    wait_destroy_complete || return 33
+
     f=$TDIR/$tfile
     rm -f $f
     sync && sleep 5 && sync	# wait for delete thread
