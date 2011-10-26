@@ -52,13 +52,8 @@
 
 #ifdef HAVE_SERVER_SUPPORT
 
-#ifdef HAVE_EXT4_LDISKFS
 #include <ldiskfs/ldiskfs_jbd2.h>
 #include <ldiskfs/ldiskfs.h>
-#else
-#include <linux/jbd.h>
-#include <linux/ldiskfs_fs.h>
-#endif
 
 #endif
 #endif
