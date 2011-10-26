@@ -1935,6 +1935,8 @@ int lu_kmem_init(struct lu_kmem_descr *caches)
                         break;
                 }
         }
+        if (result)
+                lu_kmem_fini(caches);
         return result;
 }
 EXPORT_SYMBOL(lu_kmem_init);
