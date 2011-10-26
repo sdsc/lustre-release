@@ -107,10 +107,8 @@ if test x$enable_server$PATCH$QUILT = xyesnono ; then
 fi
 
 AM_CONDITIONAL(USE_QUILT, test x$QUILT != xno)
-AM_CONDITIONAL(USE_EXT4, test x$enable_ext4 = xyes)
 
 if test x$enable_server$enable_dist = xyesno ; then
-LB_LDISKFS_EXT_RELEASE
 LB_LDISKFS_EXT_DIR
 LB_LDISKFS_EXT_SOURCE
 LB_LDISKFS_DEFINE_OPTIONS
