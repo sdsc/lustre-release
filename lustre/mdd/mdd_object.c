@@ -1486,6 +1486,11 @@ static int mdd_attr_set(const struct lu_env *env, struct md_object *obj,
         handle = mdd_trans_start(env, mdd);
         if (IS_ERR(handle))
                 RETURN(PTR_ERR(handle));
+
+        /* permission changes may require sync operation */
+        if (ma->ma_attr.la_valid & (LA_MODE|LA_UID|LA_GID))
+                handle->th_sync |= mdd->mdd_sync_permission;
+
         /*TODO: add lock here*/
         /* start a log jounal handle if needed */
         if (S_ISREG(mdd_object_type(mdd_obj)) &&
@@ -1658,14 +1663,13 @@ static int mdd_xattr_set(const struct lu_env *env, struct md_object *obj,
                 RETURN(rc);
 
         mdd_txn_param_build(env, mdd, MDD_TXN_XATTR_SET_OP);
-        /* security-replated changes may require sync */
-        if (!strcmp(name, XATTR_NAME_ACL_ACCESS) &&
-            mdd->mdd_sync_permission == 1)
-                txn_param_sync(&mdd_env_info(env)->mti_param);
-
         handle = mdd_trans_start(env, mdd);
         if (IS_ERR(handle))
                 RETURN(PTR_ERR(handle));
+
+        /* security-replated changes may require sync */
+        if (!strcmp(name, XATTR_NAME_ACL_ACCESS))
+                handle->th_sync |= mdd->mdd_sync_permission;
 
         rc = mdd_xattr_set_txn(env, mdd_obj, buf, name, fl, handle);
 
