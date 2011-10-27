@@ -1400,23 +1400,38 @@ EXPORT_SYMBOL(target_start_recovery_timer);
 static void extend_recovery_timer(struct obd_device *obd, int drt)
 {
         cfs_time_t now = cfs_time_current_sec();
+        cfs_time_t end;
         cfs_duration_t left;
 
-        if (!cfs_timer_is_armed(&obd->obd_recovery_timer)) {
-                cfs_spin_lock(&obd->obd_dev_lock);
+        cfs_spin_lock(&obd->obd_dev_lock);
+        if (!obd->obd_recovering || obd->obd_abort_recovery) {
+                cfs_spin_unlock(&obd->obd_dev_lock);
+                return;
+        }
+
+        if (obd->obd_recovery_start == 0) { /* not even start */
                 if (obd->obd_recovery_timeout < drt)
                         obd->obd_recovery_timeout = drt;
                 cfs_spin_unlock(&obd->obd_dev_lock);
                 return;
         }
 
-        left = obd->obd_recovery_timeout;
-        left -= cfs_time_sub(now, obd->obd_recovery_start);
-        if (drt > left) {
-                cfs_timer_arm(&obd->obd_recovery_timer, cfs_time_shift(drt));
-                CDEBUG(D_HA, "%s: recovery timer will expire in %u seconds\n",
-                       obd->obd_name, (unsigned)drt);
+        end = obd->obd_recovery_start + obd->obd_recovery_timeout;
+        left = cfs_time_sub(end, now);
+        if (left < 0) {
+                obd->obd_recovery_timeout += drt - left;
+        } else if (left < drt) {
+                drt -= left;
+                obd->obd_recovery_timeout += drt;
+        } else {
+                drt = left;
         }
+
+        cfs_timer_arm(&obd->obd_recovery_timer, cfs_time_shift(drt));
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
+        CDEBUG(D_HA, "%s: recovery timer will expire in %u seconds\n",
+               obd->obd_name, (unsigned)drt);
 }
 
 /* Reset the timer with each new client connection */
