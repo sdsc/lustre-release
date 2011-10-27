@@ -743,6 +743,13 @@ static void ptlrpc_server_finish_request(struct ptlrpc_service *svc,
                 svc->srv_n_active_hpreq--;
         cfs_spin_unlock(&svc->srv_rq_lock);
 
+        /* Remove request from list of actively processing requests */
+        if (req->rq_export) {
+                cfs_spin_lock(&req->rq_export->exp_lock);
+                cfs_list_del_init(&req->rq_exp_list);
+                cfs_spin_unlock(&req->rq_export->exp_lock);
+        }
+
         ptlrpc_server_drop_request(req);
 }
 
@@ -1239,15 +1246,28 @@ static int ptlrpc_hpreq_init(struct ptlrpc_service *svc,
 static void ptlrpc_hpreq_fini(struct ptlrpc_request *req)
 {
         ENTRY;
-        if (req->rq_export && req->rq_ops) {
+
+        if (req->rq_export) {
                 /* refresh lock timeout again so that client has more
                  * room to send lock cancel RPC. */
-                if (req->rq_ops->hpreq_fini)
-                        req->rq_ops->hpreq_fini(req);
+                if (req->rq_ops) {
+                        if (req->rq_ops->hpreq_fini)
+                                req->rq_ops->hpreq_fini(req);
 
-                cfs_spin_lock_bh(&req->rq_export->exp_rpc_lock);
-                cfs_list_del_init(&req->rq_exp_list);
-                cfs_spin_unlock_bh(&req->rq_export->exp_rpc_lock);
+                        cfs_spin_lock_bh(&req->rq_export->exp_rpc_lock);
+                        cfs_list_del_init(&req->rq_exp_list);
+                        cfs_spin_unlock_bh(&req->rq_export->exp_rpc_lock);
+                }
+
+                /* Add in-process RPCs into a special list and remember max seen
+                 * xid for duplicate xid processing detection */
+                cfs_spin_lock(&req->rq_export->exp_lock);
+                cfs_list_add(&req->rq_exp_list,
+                             &req->rq_export->exp_rpcs_in_progress);
+                if (req->rq_export->exp_max_xid_seen < req->rq_xid)
+                        req->rq_export->exp_max_xid_seen = req->rq_xid;
+                cfs_spin_unlock(&req->rq_export->exp_lock);
+
         }
         EXIT;
 }
@@ -1532,6 +1552,45 @@ ptlrpc_server_handle_req_in(struct ptlrpc_service *svc)
         req->rq_export = class_conn2export(
                 lustre_msg_get_handle(req->rq_reqmsg));
         if (req->rq_export) {
+                /* Let's check if we are already handling earlier incarnation of
+                 * this request */
+                if ((lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT) &&
+                    (cfs_atomic_read(&req->rq_export->exp_rpc_count) > 1) &&
+                    (req->rq_xid <= req->rq_export->exp_max_xid_seen)) {
+                        struct ptlrpc_request *tmp;
+
+                        rc = 0;
+                        cfs_spin_lock(&req->rq_export->exp_lock);
+                        /* This list should not be longer than max_requests in
+                         * flights on the client, so it is not all that long.
+                         * Also we only hit this codepath in case of a resent
+                         * request which makes it even more rarely hit */
+                        cfs_list_for_each_entry(tmp,
+                                        &req->rq_export->exp_rpcs_in_progress,
+                                        rq_exp_list) {
+                                /* Found duplicate one */
+                                if (tmp->rq_xid == req->rq_xid) {
+                                        rc = -BUSY;
+                                        break;
+                                }
+                        }
+                        cfs_spin_unlock(&req->rq_export->exp_lock);
+                        if (rc) {
+                                DEBUG_REQ(D_HA, req,
+                                          "Found duplicate req in "
+                                          "processing\n");
+                                DEBUG_REQ(D_HA, tmp,
+                                          "Request being processed\n");
+                                /* XXX: Eventually we might want to do something
+                                 * more smart here. Possibly even switching
+                                 * the in-progress rpc to this one, because
+                                 * responding to the original one is now clearly
+                                 * pointless, the client is no longer waiting
+                                 * for the reply as evidenced by this resend. */
+                                goto err_req;
+                        }
+                }
+
                 rc = ptlrpc_check_req(req);
                 if (rc == 0) {
                         rc = sptlrpc_target_export_check(req->rq_export, req);
