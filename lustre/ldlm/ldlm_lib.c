@@ -869,24 +869,12 @@ no_export:
                 OBD_FAIL_TIMEOUT(OBD_FAIL_TGT_DELAY_CONNECT, 2 * obd_timeout);
         } else if (req->rq_export == NULL &&
                    cfs_atomic_read(&export->exp_rpc_count) > 0) {
+                /* I think this can never happen. Bugzilla does not have
+                 * any occurences */
                 CWARN("%s: refuse connection from %s/%s to 0x%p/%d\n",
                       target->obd_name, cluuid.uuid,
                       libcfs_nid2str(req->rq_peer.nid),
                       export, cfs_atomic_read(&export->exp_refcount));
-                GOTO(out, rc = -EBUSY);
-        } else if (req->rq_export != NULL &&
-                   (cfs_atomic_read(&export->exp_rpc_count) > 1)) {
-                /* the current connect rpc has increased exp_rpc_count */
-                CWARN("%s: refuse reconnection from %s@%s to 0x%p/%d\n",
-                      target->obd_name, cluuid.uuid,
-                      libcfs_nid2str(req->rq_peer.nid),
-                      export, cfs_atomic_read(&export->exp_rpc_count) - 1);
-                cfs_spin_lock(&export->exp_lock);
-                if (req->rq_export->exp_conn_cnt <
-                    lustre_msg_get_conn_cnt(req->rq_reqmsg))
-                        /* try to abort active requests */
-                        req->rq_export->exp_abort_active_req = 1;
-                cfs_spin_unlock(&export->exp_lock);
                 GOTO(out, rc = -EBUSY);
         } else if (lustre_msg_get_conn_cnt(req->rq_reqmsg) == 1) {
                 CERROR("%s: NID %s (%s) reconnected with 1 conn_cnt; "
