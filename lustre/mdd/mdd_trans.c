@@ -97,12 +97,6 @@ int mdd_txn_stop_cb(const struct lu_env *env, struct thandle *txn,
         return mds_lov_write_objids(obd);
 }
 
-int mdd_txn_commit_cb(const struct lu_env *env, struct thandle *txn,
-                      void *cookie)
-{
-        return 0;
-}
-
 void mdd_txn_param_build(const struct lu_env *env, struct mdd_device *mdd,
                          enum mdd_txn_op op)
 {

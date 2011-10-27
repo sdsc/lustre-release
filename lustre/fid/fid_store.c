@@ -74,8 +74,7 @@ static struct lu_buf *seq_store_buf(struct seq_thread_info *info)
 }
 
 struct thandle *seq_store_trans_start(struct lu_server_seq *seq,
-                                      const struct lu_env *env, int credit,
-                                      int sync)
+                                      const struct lu_env *env, int credit)
 {
         struct seq_thread_info *info;
         struct dt_device *dt_dev;
@@ -87,9 +86,6 @@ struct thandle *seq_store_trans_start(struct lu_server_seq *seq,
         LASSERT(info != NULL);
 
         txn_param_init(&info->sti_txn, credit);
-        if (sync)
-                txn_param_sync(&info->sti_txn);
-
         th = dt_dev->dd_ops->dt_trans_start(env, dt_dev, &info->sti_txn);
         return th;
 }
@@ -104,6 +100,39 @@ void seq_store_trans_stop(struct lu_server_seq *seq,
         dt_dev = lu2dt_dev(seq->lss_obj->do_lu.lo_dev);
 
         dt_dev->dd_ops->dt_trans_stop(env, th);
+}
+
+struct seq_update_callback {
+        struct dt_txn_commit_cb suc_cb;
+        struct lu_server_seq   *suc_seq;
+};
+
+void seq_update_cb(struct lu_env *env, struct thandle *th,
+                   struct dt_txn_commit_cb *cb, int err)
+{
+        struct seq_update_callback *ccb;
+        ccb = container_of0(cb, struct seq_update_callback, suc_cb);
+        ccb->suc_seq->lss_need_sync = 0;
+        cfs_list_del(&ccb->suc_cb.dcb_linkage);
+        OBD_FREE_PTR(ccb);
+}
+
+int seq_update_cb_add(struct thandle *th, struct lu_server_seq *seq)
+{
+        struct seq_update_callback *ccb;
+        int rc;
+        OBD_ALLOC_PTR(ccb);
+        if (ccb == NULL)
+                return -ENOMEM;
+
+        ccb->suc_cb.dcb_func = seq_update_cb;
+        CFS_INIT_LIST_HEAD(&ccb->suc_cb.dcb_linkage);
+        ccb->suc_seq = seq;
+        seq->lss_need_sync = 1;
+        rc = dt_trans_cb_add(th, &ccb->suc_cb);
+        if (rc)
+                OBD_FREE_PTR(ccb);
+        return rc;
 }
 
 /* This function implies that caller takes care about locking. */
@@ -150,7 +179,7 @@ int seq_store_update(const struct lu_env *env, struct lu_server_seq *seq,
         if (out != NULL)
                 credits += FLD_TXN_INDEX_INSERT_CREDITS;
 
-        th = seq_store_trans_start(seq, env, credits, sync);
+        th = seq_store_trans_start(seq, env, credits);
         if (IS_ERR(th))
                 RETURN(PTR_ERR(th));
 
@@ -158,15 +187,25 @@ int seq_store_update(const struct lu_env *env, struct lu_server_seq *seq,
         if (rc) {
                 CERROR("%s: Can't write space data, rc %d\n",
                        seq->lss_name, rc);
+                GOTO(out,rc);
         } else if (out != NULL) {
                 rc = fld_server_create(seq->lss_site->ms_server_fld,
                                        env, out, th);
                 if (rc) {
                         CERROR("%s: Can't Update fld database, rc %d\n",
                                seq->lss_name, rc);
+                        GOTO(out,rc);
                 }
         }
 
+        /* next sequence update will need sync until this update is committed
+         * in case of sync operation this is not needed obviously */
+        if (!sync)
+                /* if callback can't be added then sync always */
+                sync = !!seq_update_cb_add(th, seq);
+
+        th->th_sync |= sync;
+out:
         seq_store_trans_stop(seq, env, th);
         return rc;
 }

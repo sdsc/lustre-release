@@ -444,8 +444,6 @@ int mdd_txn_start_cb(const struct lu_env *env, struct txn_param *param,
 int mdd_txn_stop_cb(const struct lu_env *env, struct thandle *txn,
                     void *cookie);
 
-int mdd_txn_commit_cb(const struct lu_env *env, struct thandle *txn,
-                      void *cookie);
 /* mdd_device.c */
 struct lu_object *mdd_object_alloc(const struct lu_env *env,
                                    const struct lu_object_header *hdr,
