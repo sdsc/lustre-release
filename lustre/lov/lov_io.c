@@ -423,7 +423,7 @@ static int lov_io_rw_iter_init(const struct lu_env *env,
         /* fast path for common case. */
         if (lio->lis_nr_subios != 1 && !cl_io_is_append(io)) {
 
-                do_div(start, ssize);
+                lov_do_div64(start, ssize);
                 next = (start + 1) * ssize;
                 if (next <= start * ssize)
                         next = ~0ull;
@@ -433,8 +433,8 @@ static int lov_io_rw_iter_init(const struct lu_env *env,
                                               next) - io->u.ci_rw.crw_pos;
                 lio->lis_pos    = io->u.ci_rw.crw_pos;
                 lio->lis_endpos = io->u.ci_rw.crw_pos + io->u.ci_rw.crw_count;
-                CDEBUG(D_VFSTRACE, "stripe: "LPU64" chunk: ["LPU64", "LPU64") "LPU64"\n",
-                       (__u64)start, lio->lis_pos, lio->lis_endpos,
+                CDEBUG(D_VFSTRACE, "stripe: "LPU64" chunk: ["LPU64", "LPU64") "
+                       LPU64"\n", (__u64)start, lio->lis_pos, lio->lis_endpos,
                        (__u64)lio->lis_io_endpos);
         }
         /*
