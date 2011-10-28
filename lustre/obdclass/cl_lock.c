@@ -224,10 +224,7 @@ int cl_lock_mode_match(enum cl_lock_mode has, enum cl_lock_mode need)
         CLASSERT(CLM_READ < CLM_WRITE);
         CLASSERT(CLM_WRITE < CLM_GROUP);
 
-        if (has != CLM_GROUP)
-                return need <= has;
-        else
-                return need == has;
+        return need <= has;
 }
 EXPORT_SYMBOL(cl_lock_mode_match);
 
@@ -241,7 +238,9 @@ int cl_lock_ext_match(const struct cl_lock_descr *has,
                 has->cld_start <= need->cld_start &&
                 has->cld_end >= need->cld_end &&
                 cl_lock_mode_match(has->cld_mode, need->cld_mode) &&
-                (has->cld_mode != CLM_GROUP || has->cld_gid == need->cld_gid);
+                ((need->cld_mode == CLM_GROUP &&
+                  has->cld_gid == need->cld_gid) ||
+                 (need->cld_mode < CLM_GROUP));
 }
 EXPORT_SYMBOL(cl_lock_ext_match);
 
