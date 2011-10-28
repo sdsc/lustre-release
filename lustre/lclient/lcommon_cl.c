@@ -609,6 +609,12 @@ int ccc_lock_fits_into(const struct lu_env *env,
         int                         result;
 
         ENTRY;
+
+        /* this assumption:
+         * - must be true, because cl_lock_mode_match() is called and true before
+         * - simplifies the logic of the function
+         */
+        LASSERT(need->cld_mode <= descr->cld_mode);
         /*
          * Work around DLM peculiarity: it assumes that glimpse
          * (LDLM_FL_HAS_INTENT) lock is always LCK_PR, and returns reads lock
@@ -617,16 +623,18 @@ int ccc_lock_fits_into(const struct lu_env *env,
          * doesn't enqueue CLM_WRITE sub-locks.
          */
         if (cio->cui_glimpse)
-                result = descr->cld_mode != CLM_WRITE;
+                result = descr->cld_mode != CLM_WRITE &&
+                         descr->cld_mode != CLM_GROUP;
 
         /*
          * Also, don't match incomplete write locks for read, otherwise read
          * would enqueue missing sub-locks in the write mode.
          */
-        else if (need->cld_mode != descr->cld_mode)
+        else if (need->cld_mode == CLM_READ && descr->cld_mode > CLM_READ)
                 result = lock->cll_state >= CLS_ENQUEUED;
         else
                 result = 1;
+
         RETURN(result);
 }
 
