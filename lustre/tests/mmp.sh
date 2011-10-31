@@ -1,22 +1,6 @@
 #!/bin/bash
-# vim:expandtab:shiftwidth=4:softtabstop=4:tabstop=4:
 #
-# Tests for multiple mount protection (MMP) feature.
-#
-# Run select tests by setting ONLY, or as arguments to the script.
-# Skip specific tests by setting EXCEPT.
-#
-# e.g. ONLY="5 6" or ONLY="`seq 8 11`" or EXCEPT="7"
-set -e
-
-ONLY=${ONLY:-"$*"}
-
-# bug number for skipped test:
-ALWAYS_EXCEPT=${ALWAYS_EXCEPT:-"$MMP_EXCEPT"}
-# UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
-
-SRCDIR=$(cd $(dirname $0); echo $PWD)
-export PATH=$PWD/$SRCDIR:$SRCDIR:$SRCDIR/../utils:$PATH:/sbin
+#set -vx
 
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
 . $LUSTRE/tests/test-framework.sh
@@ -24,606 +8,799 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 
-remote_mds_nodsh && skip "remote MDS with nodsh" && exit 0
-remote_ost_nodsh && skip "remote OST with nodsh" && exit 0
+#              bug 20670
+ALWAYS_EXCEPT="parallel_grouplock $PARALLEL_SCALE_EXCEPT"
 
-# unmount and cleanup the Lustre filesystem
-MMP_RESTORE_MOUNT=false
-if is_mounted $MOUNT || is_mounted $MOUNT2; then
-    cleanupall
-    MMP_RESTORE_MOUNT=true
+# common setup
+#
+MACHINEFILE=${MACHINEFILE:-$TMP/$(basename $0 .sh).machines}
+clients=$CLIENTS
+[ -z $clients ] && clients=$(hostname)
+generate_machine_file $clients $MACHINEFILE || error "Failed to generate machine file"
+num_clients=$(get_node_count ${clients//,/ })
+
+
+# compilbench
+#
+cbench_DIR=${cbench_DIR:-""}
+cbench_IDIRS=${cbench_IDIRS:-4}
+cbench_RUNS=${cbench_RUNS:-4}	# FIXME: wiki page requirements is 30, do we really need 30 ?
+
+if [ "$SLOW" = "no" ]; then
+    cbench_IDIRS=2
+    cbench_RUNS=2
 fi
 
-SAVED_FAIL_ON_ERROR=$FAIL_ON_ERROR
-FAIL_ON_ERROR=false
+#
+# metabench
+#
+METABENCH=${METABENCH:-$(which metabench 2> /dev/null || true)}
+mbench_NFILES=${mbench_NFILES:-30400}
+[ "$SLOW" = "no" ] && mbench_NFILES=10000
+# threads per client
+mbench_THREADS=${mbench_THREADS:-4}
+
+#
+# simul
+#
+SIMUL=${SIMUL:=$(which simul 2> /dev/null || true)}
+# threads per client
+simul_THREADS=${simul_THREADS:-2}
+simul_REP=${simul_REP:-20}
+[ "$SLOW" = "no" ] && simul_REP=2
+
+#
+# mib
+#
+MIB=${MIB:=$(which mib 2> /dev/null || true)}
+# threads per client
+mib_THREADS=${mib_THREADS:-2}
+mib_xferSize=${mib_xferSize:-1m}
+mib_xferLimit=${mib_xferLimit:-5000}
+mib_timeLimit=${mib_timeLimit:-300}
+
+#
+# MDTEST
+#
+MDTEST=${MDTEST:=$(which mdtest 2> /dev/null || true)}
+# threads per client
+mdtest_THREADS=${mdtest_THREADS:-2}
+mdtest_nFiles=${mdtest_nFiles:-"100000"}
+# We devide the files by number of core
+mdtest_nFiles=$((mdtest_nFiles/mdtest_THREADS/num_clients))
+mdtest_iteration=${mdtest_iteration:-1}
+
+#
+# connectathon
+#
+cnt_DIR=${cnt_DIR:-""}
+cnt_NRUN=${cnt_NRUN:-10}
+[ "$SLOW" = "no" ] && cnt_NRUN=2
+
+#
+# cascading rw
+#
+CASC_RW=${CASC_RW:-$(which cascading_rw 2> /dev/null || true)}
+# threads per client
+casc_THREADS=${casc_THREADS:-2}
+casc_REP=${casc_REP:-300}
+[ "$SLOW" = "no" ] && casc_REP=10
+
+#
+# IOR
+#
+IOR=${IOR:-$(which IOR 2> /dev/null || true)}
+# threads per client
+ior_THREADS=${ior_THREADS:-2}
+ior_iteration=${ior_iteration:-1}
+ior_blockSize=${ior_blockSize:-6}	# Gb
+ior_xferSize=${ior_xferSize:-2m}
+ior_type=${ior_type:-POSIX}
+ior_DURATION=${ior_DURATION:-30}	# minutes
+[ "$SLOW" = "no" ] && ior_DURATION=5
+
+#
+# write_append_truncate
+#
+# threads per client
+write_THREADS=${write_THREADS:-8}
+write_REP=${write_REP:-10000}
+[ "$SLOW" = "no" ] && write_REP=100
+
+#
+# write_disjoint
+#
+WRITE_DISJOINT=${WRITE_DISJOINT:-$(which write_disjoint 2> /dev/null || true)}
+# threads per client
+wdisjoint_THREADS=${wdisjoint_THREADS:-4}
+wdisjoint_REP=${wdisjoint_REP:-10000}
+[ "$SLOW" = "no" ] && wdisjoint_REP=100
+
+#
+# parallel_grouplock
+#
+#
+PARALLEL_GROUPLOCK=${PARALLEL_GROUPLOCK:-$(which parallel_grouplock 2> /dev/null || true)}
+parallel_grouplock_MINTASKS=${parallel_grouplock_MINTASKS:-5}
 
 build_test_filter
+check_and_setup_lustre
 
-# Get the failover facet.
-get_failover_facet() {
-    local facet=$1
-    local failover_facet=${facet}failover
+get_mpiuser_id $MPI_USER
+MPI_RUNAS=${MPI_RUNAS:-"runas -u $MPI_USER_UID -g $MPI_USER_GID"}
+$GSS_KRB5 && refresh_krb5_tgt $MPI_USER_UID $MPI_USER_GID $MPI_RUNAS
 
-    local host=$(facet_host $facet)
-    local failover_host=$(facet_host $failover_facet)
 
-    [ -z "$failover_host" -o "$host" = "$failover_host" ] && \
-        failover_facet=$facet
+print_opts () {
+    local var
 
-    echo $failover_facet
+    echo OPTIONS:
+
+    for i in $@; do
+        var=$i
+        echo "${var}=${!var}"
+    done
+    [ -e $MACHINEFILE ] && cat $MACHINEFILE
 }
 
-# Initiate the variables for Lustre servers and targets.
-init_vars() {
-    MMP_MDS=${MMP_MDS:-$SINGLEMDS}
-    MMP_MDS_FAILOVER=$(get_failover_facet $MMP_MDS)
+# Takes:
+# 5 min * cbench_RUNS
+#        SLOW=no     10 mins
+#        SLOW=yes    50 mins
+# Space estimation:
+#        compile dir kernel-1 680MB
+#        required space       680MB * cbench_IDIRS = ~7 Gb
 
-    local mds_num=$(echo $MMP_MDS | tr -d "mds")
-    MMP_MDSDEV=$(mdsdevname $mds_num)
+test_compilebench() {
+    print_opts cbench_DIR cbench_IDIRS cbench_RUNS
 
-    MMP_OSS=${MMP_OSS:-ost1}
-    MMP_OSS_FAILOVER=$(get_failover_facet $MMP_OSS)
+    [ x$cbench_DIR = x ] &&
+        { skip_env "compilebench not found" && return; }
 
-    local oss_num=$(echo $MMP_OSS | tr -d "ost")
-    MMP_OSTDEV=$(ostdevname $oss_num)
+    [ -e $cbench_DIR/compilebench ] || \
+        { skip_env "No compilebench build" && return; }
+
+    local space=$(df -P $DIR | tail -n 1 | awk '{ print $4 }')
+    if [ $space -le $((680 * 1024 * cbench_IDIRS)) ]; then
+        cbench_IDIRS=$(( space / 680 / 1024))
+        [ $cbench_IDIRS = 0 ] && \
+            skip_env "Need free space atleast 680 Mb, have $space" && return
+
+        log free space=$space, reducing initial dirs to $cbench_IDIRS
+    fi
+    # FIXME:
+    # t-f _base needs to be modifyed to set properly tdir
+    # for new "test_foo" functions names
+    # local testdir=$DIR/$tdir
+    local testdir=$DIR/d0.compilebench
+    mkdir -p $testdir
+
+    local savePWD=$PWD
+    cd $cbench_DIR
+    local cmd="./compilebench -D $testdir -i $cbench_IDIRS -r $cbench_RUNS --makej"
+
+    log "$cmd"
+
+    local rc=0
+    eval $cmd
+    rc=$?
+
+    cd $savePWD
+    [ $rc = 0 ] || error "compilebench failed: $rc"
+    rm -rf $testdir
 }
+run_test compilebench "compilebench"
 
-# Stop the MDS and OSS services on the primary or failover servers.
-stop_services() {
-    local flavor=$1
-    shift
-    local opts="$@"
-    local mds_facet
-    local oss_facet
+test_metabench() {
+    [ x$METABENCH = x ] &&
+        { skip_env "metabench not found" && return; }
 
-    if [ "$flavor" = "failover" ]; then
-        mds_facet=$MMP_MDS_FAILOVER
-        oss_facet=$MMP_OSS_FAILOVER
+    # FIXME
+    # Need space estimation here.
+
+    print_opts METABENCH clients mbench_NFILES mbench_THREADS
+
+    local testdir=$DIR/d0.metabench
+    mkdir -p $testdir
+    # mpi_run uses mpiuser
+    chmod 0777 $testdir
+
+    # -C             Run the file creation tests.
+    # -S             Run the file stat tests.
+    # -c nfile       Number of files to be used in each test.
+    # -k             Cleanup.  Remove the test directories.
+    local cmd="$METABENCH -w $testdir -c $mbench_NFILES -C -S -k"
+    echo "+ $cmd"
+
+    # find out if we need to use srun by checking $SRUN_PARTITION
+    if [ "$SRUN_PARTITION" ]; then
+        $SRUN $SRUN_OPTIONS -D $testdir -w $clients -N $num_clients \
+            -n $((num_clients * mbench_THREADS)) -p $SRUN_PARTITION -- $cmd
     else
-        mds_facet=$MMP_MDS
-        oss_facet=$MMP_OSS
+        mpi_run -np $((num_clients * $mbench_THREADS)) -machinefile ${MACHINEFILE} $cmd
     fi
 
-    stop $mds_facet $opts || return ${PIPESTATUS[0]}
-    stop $oss_facet $opts || return ${PIPESTATUS[0]}
+    local rc=$?
+    if [ $rc != 0 ] ; then
+        error "metabench failed! $rc"
+    fi
+    rm -rf $testdir
 }
+run_test metabench "metabench"
 
-# Enable the MMP feature.
-enable_mmp() {
-    local facet=$1
-    local device=$2
-
-    do_facet $facet "$TUNE2FS -O mmp $device"
-    return ${PIPESTATUS[0]}
-}
-
-# Disable the MMP feature.
-disable_mmp() {
-    local facet=$1
-    local device=$2
-
-    do_facet $facet "$TUNE2FS -O ^mmp $device"
-    return ${PIPESTATUS[0]}
-}
-
-# Set the MMP block to 'fsck' state
-mark_mmp_block() {
-    local facet=$1
-    local device=$2
-
-    do_facet $facet "$LUSTRE/tests/mmp_mark.sh $device"
-    return ${PIPESTATUS[0]}
-}
-
-# Reset the MMP block (if any) back to the clean state.
-reset_mmp_block() {
-    local facet=$1
-    local device=$2
-
-    do_facet $facet "$TUNE2FS -f -E clear-mmp $device"
-    return ${PIPESTATUS[0]}
-}
-
-# Check whether the MMP feature is enabled or not.
-mmp_is_enabled() {
-    local facet=$1
-    local device=$2
-
-    do_facet $facet "$DUMPE2FS -h $device | grep mmp"
-    return ${PIPESTATUS[0]}
-}
-
-# Get MMP update interval (in seconds) from the Lustre server target.
-get_mmp_update_interval() {
-    local facet=$1
-    local device=$2
-    local interval
-
-    interval=$(do_facet $facet "$DEBUGFS -c -R dump_mmp $device 2>/dev/null \
-                | grep 'MMP Update Interval' | cut -d' ' -f4")
-    [ -z "$interval" ] && interval=1
-
-    echo $interval
-}
-
-# Get MMP check interval (in seconds) from the Lustre server target.
-get_mmp_check_interval() {
-    local facet=$1
-    local device=$2
-    local interval
-
-    interval=$(do_facet $facet "$DEBUGFS -c -R dump_mmp $device 2>/dev/null \
-                | grep 'MMP Check Interval' | cut -d' ' -f4")
-    [ -z "$interval" ] && interval=5
-
-    echo $interval
-}
-
-# Enable the MMP feature on the Lustre server targets.
-mmp_init() {
-    init_vars
-
-    # The MMP feature is automatically enabled by mkfs.lustre for
-    # new file system at format time if failover is being used.
-    # Otherwise, the Lustre administrator has to manually enable
-    # this feature when the file system is unmounted.
-
-    local var=${MMP_MDS}failover_HOST
-    if [ -z "${!var}" ]; then
-        log "Failover is not used on MDS, enabling MMP manually..."
-        enable_mmp $MMP_MDS $MMP_MDSDEV || \
-            error "failed to enable MMP on $MMP_MDSDEV on $MMP_MDS"
+test_simul() {
+    if [ "$NFSCLIENT" ]; then
+        skip "skipped for NFSCLIENT mode"
+        return
     fi
 
-    var=${MMP_OSS}failover_HOST
-    if [ -z "${!var}" ]; then
-        log "Failover is not used on OSS, enabling MMP manually..."
-        enable_mmp $MMP_OSS $MMP_OSTDEV || \
-            error "failed to enable MMP on $MMP_OSTDEV on $MMP_OSS"
-    fi
+    [ x$SIMUL = x ] &&
+        { skip_env "simul not found" && return; }
 
-    # check whether the MMP feature is enabled or not
-    mmp_is_enabled $MMP_MDS $MMP_MDSDEV || \
-        error "MMP was not enabled on $MMP_MDSDEV on $MMP_MDS"
+    # FIXME
+    # Need space estimation here.
 
-    mmp_is_enabled $MMP_OSS $MMP_OSTDEV || \
-        error "MMP was not enabled on $MMP_OSTDEV on $MMP_OSS"
-}
+    print_opts SIMUL clients simul_REP simul_THREADS
 
-# Disable the MMP feature on the Lustre server targets
-# which did not use failover.
-mmp_fini() {
+    local testdir=$DIR/d0.simul
+    mkdir -p $testdir
+    # mpi_run uses mpiuser
+    chmod 0777 $testdir
 
-    local var=${MMP_MDS}failover_HOST
-    if [ -z "${!var}" ]; then
-        log "Failover is not used on MDS, disabling MMP manually..."
-        disable_mmp $MMP_MDS $MMP_MDSDEV || \
-            error "failed to disable MMP on $MMP_MDSDEV on $MMP_MDS"
-        mmp_is_enabled $MMP_MDS $MMP_MDSDEV && \
-            error "MMP was not disabled on $MMP_MDSDEV on $MMP_MDS"
-    fi
+    # -n # : repeat each test # times
+    # -N # : repeat the entire set of tests # times
 
-    var=${MMP_OSS}failover_HOST
-    if [ -z "${!var}" ]; then
-        log "Failover is not used on OSS, disabling MMP manually..."
-        disable_mmp $MMP_OSS $MMP_OSTDEV || \
-            error "failed to disable MMP on $MMP_OSTDEV on $MMP_OSS"
-        mmp_is_enabled $MMP_OSS $MMP_OSTDEV && \
-            error "MMP was not disabled on $MMP_OSTDEV on $MMP_OSS"
-    fi
+    local cmd="$SIMUL -d $testdir -n $simul_REP -N $simul_REP"
 
-    return 0
-}
-
-# Mount the shared target on the failover server after some interval it's 
-# mounted on the primary server.
-mount_after_interval_sub() {
-    local interval=$1
-    shift
-    local device=$1
-    shift
-    local facet=$1
-    shift
-    local opts="$@"
-    local failover_facet=$(get_failover_facet $facet)
-
-    local mount_pid
-    local first_mount_rc=0
-    local second_mount_rc=0
-
-    log "Mounting $device on $facet..."
-    start $facet $device $opts &
-    mount_pid=$!
-
-    if [ $interval -ne 0 ]; then
-        log "sleep $interval..."
-        sleep $interval
-    fi
-
-    log "Mounting $device on $failover_facet..."
-    start $failover_facet $device $opts
-    second_mount_rc=${PIPESTATUS[0]}
-
-    wait $mount_pid
-    first_mount_rc=${PIPESTATUS[0]}
-
-    if [ $second_mount_rc -eq 0 -a $first_mount_rc -eq 0 ]; then
-        error_noexit "one mount delayed by mmp interval $interval should fail"
-        stop $facet || return ${PIPESTATUS[0]}
-        [ "$failover_facet" != "$facet" ] && stop $failover_facet || \
-            return ${PIPESTATUS[0]}
-        return 1
-    elif [ $second_mount_rc -ne 0 -a $first_mount_rc -ne 0 ]; then
-        error_noexit "failed to mount on the failover pair $facet,$failover_facet"
-        return $first_mount_rc
-    fi
-
-    return 0
-}
-
-mount_after_interval() {
-    local mdt_interval=$1
-    local ost_interval=$2
-    local rc=0
-
-    mount_after_interval_sub $mdt_interval $MMP_MDSDEV $MMP_MDS \
-        $MDS_MOUNT_OPTS || return ${PIPESTATUS[0]}
-
-    echo
-    mount_after_interval_sub $ost_interval $MMP_OSTDEV $MMP_OSS $OST_MOUNT_OPTS
-    rc=${PIPESTATUS[0]}
-    if [ $rc -ne 0 ]; then
-        stop $MMP_MDS
-        return $rc
-    fi
-
-    return 0
-}
-
-# Mount the shared target on the failover server 
-# during unmounting it on the primary server.
-mount_during_unmount() {
-    local device=$1
-    shift
-    local facet=$1
-    shift
-    local mnt_opts="$@"
-    local failover_facet=$(get_failover_facet $facet)
-
-    local unmount_pid
-    local unmount_rc=0
-    local mount_rc=0
-
-    log "Mounting $device on $facet..."
-    start $facet $device $mnt_opts || return ${PIPESTATUS[0]}
-
-    log "Unmounting $device on $facet..."
-    stop $facet &
-    unmount_pid=$!
-
-    log "Mounting $device on $failover_facet..."
-    start $failover_facet $device $mnt_opts
-    mount_rc=${PIPESTATUS[0]}
-
-    wait $unmount_pid
-    unmount_rc=${PIPESTATUS[0]}
-
-    if [ $mount_rc -eq 0 ]; then
-        error_noexit "mount during unmount of the first filesystem should fail"
-        stop $failover_facet || return ${PIPESTATUS[0]}
-        return 1
-    fi
-
-    if [ $unmount_rc -ne 0 ]; then
-        error_noexit "unmount the $device on $facet should succeed"
-        return $unmount_rc
-    fi
-
-    return 0
-}
-
-# Mount the shared target on the failover server 
-# after clean unmounting it on the primary server.
-mount_after_unmount() {
-    local device=$1
-    shift
-    local facet=$1
-    shift
-    local mnt_opts="$@"
-    local failover_facet=$(get_failover_facet $facet)
-
-    log "Mounting $device on $facet..."
-    start $facet $device $mnt_opts || return ${PIPESTATUS[0]}
-
-    log "Unmounting $device on $facet..."
-    stop $facet || return ${PIPESTATUS[0]} 
-
-    log "Mounting $device on $failover_facet..."
-    start $failover_facet $device $mnt_opts || return ${PIPESTATUS[0]}
-
-    return 0
-}
-
-# Mount the shared target on the failover server after rebooting
-# the primary server.
-mount_after_reboot() {
-    local device=$1
-    shift
-    local facet=$1
-    shift
-    local mnt_opts="$@"
-    local failover_facet=$(get_failover_facet $facet)
-    local rc=0
-
-    log "Mounting $device on $facet..."
-    start $facet $device $mnt_opts || return ${PIPESTATUS[0]}
-
-    if [ "$FAILURE_MODE" = "HARD" ]; then
-        shutdown_facet $facet
-        reboot_facet $facet
-        wait_for_facet $facet
+    echo "+ $cmd"
+    # find out if we need to use srun by checking $SRUN_PARTITION
+    if [ "$SRUN_PARTITION" ]; then
+        $SRUN $SRUN_OPTIONS -D $testdir -w $clients -N $num_clients \
+            -n $((num_clients * simul_THREADS)) -p $SRUN_PARTITION -- $cmd
     else
-        replay_barrier_nodf $facet
+        mpi_run -np $((num_clients * simul_THREADS)) -machinefile ${MACHINEFILE} $cmd
     fi
 
-    log "Mounting $device on $failover_facet..."
-    start $failover_facet $device $mnt_opts
-    rc=${PIPESTATUS[0]}
-    if [ $rc -ne 0 ]; then
-        error_noexit "mount $device on $failover_facet should succeed"
-        stop $facet || return ${PIPESTATUS[0]}
+    local rc=$?
+    if [ $rc != 0 ] ; then
+        error "simul failed! $rc"
+    fi
+    rm -rf $testdir
+}
+run_test simul "simul"
+
+test_mdtestssf() {
+    if [ "$NFSCLIENT" ]; then
+        skip "skipped for NFSCLIENT mode"
+        return
+    fi
+
+    [ x$MDTEST = x ] &&
+        { skip_env "mdtest not found" && return; }
+
+    # FIXME
+    # Need space estimation here.
+
+    print_opts MDTEST mdtest_iteration mdtest_THREADS mdtest_nFiles
+
+    local testdir=$DIR/d0.mdtest
+    mkdir -p $testdir
+    # mpi_run uses mpiuser
+    chmod 0777 $testdir
+
+    # -i # : repeat each test # times
+    # -d   : test dir
+    # -n # : number of file/dir to create/stat/remove
+    # -u   : each process create/stat/remove individually
+
+    local cmd="$MDTEST -d $testdir -i $mdtest_iteration -n $mdtest_nFiles"
+
+    echo "+ $cmd"
+    # find out if we need to use srun by checking $SRUN_PARTITION
+    if [ "$SRUN_PARTITION" ]; then
+        $SRUN $SRUN_OPTIONS -D $testdir -w $clients -N $num_clients \
+            -n $((num_clients * mdtest_THREADS)) -p $SRUN_PARTITION -- $cmd
+    else
+        mpi_run -np $((num_clients * mdtest_THREADS)) -machinefile ${MACHINEFILE} $cmd
+    fi
+
+    local rc=$?
+    if [ $rc != 0 ] ; then
+        error "mdtest failed! $rc"
+    fi
+    rm -rf $testdir
+}
+run_test mdtestssf "mdtestssf"
+
+test_mdtestfpp() {
+    if [ "$NFSCLIENT" ]; then
+        skip "skipped for NFSCLIENT mode"
+        return
+    fi
+
+    [ x$MDTEST = x ] &&
+        { skip_env "mdtest not found" && return; }
+
+    # FIXME
+    # Need space estimation here.
+
+    print_opts MDTEST mdtest_iteration mdtest_THREADS mdtest_nFiles
+
+    local testdir=$DIR/d0.mdtest
+    mkdir -p $testdir
+    # mpi_run uses mpiuser
+    chmod 0777 $testdir
+
+    # -i # : repeat each test # times
+    # -d   : test dir
+    # -n # : number of file/dir to create/stat/remove
+    # -u   : each process create/stat/remove individually
+
+    local cmd="$MDTEST -d $testdir -i $mdtest_iteration -n $mdtest_nFiles -u"
+
+    echo "+ $cmd"
+    # find out if we need to use srun by checking $SRUN_PARTITION
+    if [ "$SRUN_PARTITION" ]; then
+        $SRUN $SRUN_OPTIONS -D $testdir -w $clients -N $num_clients \
+            -n $((num_clients * mdtest_THREADS)) -p $SRUN_PARTITION -- $cmd
+    else
+        mpi_run -np $((num_clients * mdtest_THREADS)) -machinefile ${MACHINEFILE} $cmd
+    fi
+
+    local rc=$?
+    if [ $rc != 0 ] ; then
+        error "mdtest failed! $rc"
+    fi
+    rm -rf $testdir
+}
+run_test mdtestfpp "mdtestfpp"
+
+test_connectathon() {
+    print_opts cnt_DIR cnt_NRUN
+
+    [ x$cnt_DIR = x ] &&
+        { skip_env "connectathon dir not found" && return; }
+
+    [ -e $cnt_DIR/runtests ] || \
+        { skip_env "No connectathon runtests found" && return; }
+
+    local testdir=$DIR/d0.connectathon
+    mkdir -p $testdir
+
+    local savePWD=$PWD
+    cd $cnt_DIR
+
+    #
+    # cthon options (must be in this order)
+    #
+    # -N numpasses - will be passed to the runtests script.  This argument
+    #         is optional.  It specifies the number of times to run
+    #         through the tests.
+    #
+    # One of these test types
+    #    -b  basic
+    #    -g  general
+    #    -s  special
+    #    -l  lock
+    #    -a  all of the above
+    #
+    # -f      a quick functionality test
+    #
+
+    tests="-b -g -s"
+    # Include lock tests unless we're running on nfsv4
+    local fstype=$(df -TP $testdir | awk 'NR==2  {print $2}')
+    echo "$testdir: $fstype"
+    if [[ $fstype != "nfs4" ]]; then
+        tests="$tests -l"
+    fi
+    echo "tests: $tests"
+    for test in $tests; do
+        local cmd="./runtests -N $cnt_NRUN $test -f $testdir"
+        local rc=0
+
+        log "$cmd"
+        eval $cmd
+        rc=$?
+        [ $rc = 0 ] || error "connectathon failed: $rc"
+    done
+
+    cd $savePWD
+    rm -rf $testdir
+}
+run_test connectathon "connectathon"
+
+test_iorssf() {
+    [ x$IOR = x ] &&
+        { skip_env "IOR not found" && return; }
+
+    local space=$(df -P $DIR | tail -n 1 | awk '{ print $4 }')
+    echo "+ $ior_blockSize * 1024 * 1024 * $num_clients * $ior_THREADS "
+    if [ $((space / 2)) -le $(( ior_blockSize * 1024 * 1024 * num_clients * ior_THREADS)) ]; then
+        echo "+ $space * 9/10 / 1024 / 1024 / $num_clients / $ior_THREADS"
+        ior_blockSize=$(( space /2 /1024 /1024 / num_clients / ior_THREADS ))
+        [ $ior_blockSize = 0 ] && \
+            skip_env "Need free space more than ($num_clients * $ior_THREADS )Gb: $((num_clients*ior_THREADS *1024 *1024*2)), have $space" && return
+
+        echo "free space=$space, Need: $num_clients x $ior_THREADS x $ior_blockSize Gb (blockSize reduced to $ior_blockSize Gb)"
+    fi
+
+    print_opts IOR ior_THREADS ior_DURATION MACHINEFILE
+
+    local testdir=$DIR/d0.ior
+    mkdir -p $testdir
+    # mpi_run uses mpiuser
+    chmod 0777 $testdir
+    if [ "$NFSCLIENT" ]; then
+        setstripe_nfsserver $testdir -c -1 ||
+            { error "setstripe on nfsserver failed" && return 1; }
+    else
+        $LFS setstripe $testdir -c -1 ||
+            { error "setstripe failed" && return 2; }
+    fi
+    #
+    # -b N  blockSize -- contiguous bytes to write per task  (e.g.: 8, 4k, 2m, 1g)"
+    # -o S  testFileName
+    # -t N  transferSize -- size of transfer in bytes (e.g.: 8, 4k, 2m, 1g)"
+    # -w    writeFile -- write file"
+    # -r    readFile -- read existing file"
+    # -T    maxTimeDuration -- max time in minutes to run tests"
+    # -k    keepFile -- keep testFile(s) on program exit
+    local cmd="$IOR -a $ior_type -b ${ior_blockSize}g -o $testdir/iorData -t $ior_xferSize -v -w -r -i $ior_iteration -T $ior_DURATION -k"
+
+    echo "+ $cmd"
+    # find out if we need to use srun by checking $SRUN_PARTITION
+    if [ "$SRUN_PARTITION" ]; then
+        $SRUN $SRUN_OPTIONS -D $testdir -w $clients -N $num_clients \
+            -n $((num_clients * ior_THREADS)) -p $SRUN_PARTITION -- $cmd
+    else
+        mpi_run -np $((num_clients * $ior_THREADS)) -machinefile ${MACHINEFILE} $cmd
+    fi
+
+    local rc=$?
+    if [ $rc != 0 ] ; then
+        error "ior failed! $rc"
+    fi
+    rm -rf $testdir
+}
+run_test iorssf "iorssf"
+
+test_iorfpp() {
+    [ x$IOR = x ] &&
+        { skip_env "IOR not found" && return; }
+
+    local space=$(df -P $DIR | tail -n 1 | awk '{ print $4 }')
+    echo "+ $ior_blockSize * 1024 * 1024 * $num_clients * $ior_THREADS "
+    if [ $((space / 2)) -le $(( ior_blockSize * 1024 * 1024 * num_clients * ior_THREADS)) ]; then
+        echo "+ $space * 9/10 / 1024 / 1024 / $num_clients / $ior_THREADS"
+        ior_blockSize=$(( space /2 /1024 /1024 / num_clients / ior_THREADS ))
+        [ $ior_blockSize = 0 ] && \
+            skip_env "Need free space more than ($num_clients * $ior_THREADS )Gb: $((num_clients*ior_THREADS *1024 *1024*2)), have $space" && return
+
+        echo "free space=$space, Need: $num_clients x $ior_THREADS x $ior_blockSize Gb (blockSize reduced to $ior_blockSize Gb)"
+    fi
+
+    print_opts IOR ior_THREADS ior_DURATION MACHINEFILE
+
+    local testdir=$DIR/d0.ior
+    mkdir -p $testdir
+    # mpi_run uses mpiuser
+    chmod 0777 $testdir
+    if [ "$NFSCLIENT" ]; then
+        setstripe_nfsserver $testdir -c -1 ||
+            { error "setstripe on nfsserver failed" && return 1; }
+    else
+        $LFS setstripe $testdir -c -1 ||
+            { error "setstripe failed" && return 2; }
+    fi
+    #
+    # -b N  blockSize -- contiguous bytes to write per task  (e.g.: 8, 4k, 2m, 1g)"
+    # -o S  testFileName
+    # -t N  transferSize -- size of transfer in bytes (e.g.: 8, 4k, 2m, 1g)"
+    # -w    writeFile -- write file"
+    # -r    readFile -- read existing file"
+    # -T    maxTimeDuration -- max time in minutes to run tests"
+    # -k    keepFile -- keep testFile(s) on program exit
+    # -F    file-per-process
+    local cmd="$IOR -a $ior_type -b ${ior_blockSize}g -o $testdir/iorData -t $ior_xferSize -v -F -w -r -i $ior_iteration -T $ior_DURATION -k"
+
+    echo "+ $cmd"
+    # find out if we need to use srun by checking $SRUN_PARTITION
+    if [ "$SRUN_PARTITION" ]; then
+        $SRUN $SRUN_OPTIONS -D $testdir -w $clients -N $num_clients \
+            -n $((num_clients * ior_THREADS)) -p $SRUN_PARTITION -- $cmd
+    else
+        mpi_run -np $((num_clients * $ior_THREADS)) -machinefile ${MACHINEFILE} $cmd
+    fi
+
+    local rc=$?
+    if [ $rc != 0 ] ; then
+        error "ior failed! $rc"
+    fi
+    rm -rf $testdir
+}
+run_test iorfpp "iorfpp"
+
+test_mib() {
+    if [ "$NFSCLIENT" ]; then
+        skip "skipped for NFSCLIENT mode"
+        return
+    fi
+
+    [ x$MIB = x ] &&
+        { skip_env "MIB not found" && return; }
+
+    print_opts MIB mib_THREADS mib_xferSize mib_xferLimit mib_timeLimit MACHINEFILE
+
+    local testdir=$DIR/d0.mib
+    mkdir -p $testdir
+    # mpi_run uses mpiuser
+    chmod 0777 $testdir
+    $LFS setstripe $testdir -c -1 ||
+        { error "setstripe failed" && return 2; }
+    #
+    # -I    Show intermediate values in output
+    # -H    Show headers in output
+    # -L    Do not issue new system calls after this many seconds
+    # -s    Use system calls of this size
+    # -t    test dir
+    # -l    Issue no more than this many system calls
+    local cmd="$MIB -t $testdir -s $mib_xferSize -l $mib_xferLimit -L $mib_timeLimit -HI -p mib.$(date +%Y%m%d%H%M%S)"
+
+    echo "+ $cmd"
+    # find out if we need to use srun by checking $SRUN_PARTITION
+    if [ "$SRUN_PARTITION" ]; then
+        $SRUN $SRUN_OPTIONS -D $testdir -w $clients -N $num_clients \
+            -n $((num_clients * mib_THREADS)) -p $SRUN_PARTITION -- $cmd
+    else
+        mpi_run -np $((num_clients * mib_THREADS)) -machinefile ${MACHINEFILE} $cmd
+    fi
+
+    local rc=$?
+    if [ $rc != 0 ] ; then
+        error "mib failed! $rc"
+    fi
+    rm -rf $testdir
+}
+run_test mib "mib"
+
+test_cascading_rw() {
+    if [ "$NFSCLIENT" ]; then
+        skip "skipped for NFSCLIENT mode"
+        return
+    fi
+
+    [ x$CASC_RW = x ] &&
+        { skip_env "cascading_rw not found" && return; }
+
+    # FIXME
+    # Need space estimation here.
+
+    print_opts CASC_RW clients casc_THREADS casc_REP MACHINEFILE
+
+    local testdir=$DIR/d0.cascading_rw
+    mkdir -p $testdir
+    # mpi_run uses mpiuser
+    chmod 0777 $testdir
+
+    # -g: debug mode
+    # -n: repeat test # times
+
+    local cmd="$CASC_RW -g -d $testdir -n $casc_REP"
+
+    echo "+ $cmd"
+    mpi_run -np $((num_clients * $casc_THREADS)) -machinefile ${MACHINEFILE} $cmd
+
+    local rc=$?
+    if [ $rc != 0 ] ; then
+        error "cascading_rw failed! $rc"
+    fi
+    rm -rf $testdir
+}
+run_test cascading_rw "cascading_rw"
+
+test_write_append_truncate() {
+    if [ "$NFSCLIENT" ]; then
+        skip "skipped for NFSCLIENT mode"
+        return
+    fi
+
+    # location is lustre/tests dir
+    if ! which write_append_truncate > /dev/null 2>&1 ; then
+        skip_env "write_append_truncate not found"
+        return
+    fi
+
+    # FIXME
+    # Need space estimation here.
+
+    local testdir=$DIR/d0.write_append_truncate
+    local file=$testdir/f0.wat
+
+    print_opts clients write_REP write_THREADS MACHINEFILE
+
+    mkdir -p $testdir
+    # mpi_run uses mpiuser
+    chmod 0777 $testdir
+
+    local cmd="write_append_truncate -n $write_REP $file"
+
+    echo "+ $cmd"
+    mpi_run -np $((num_clients * $write_THREADS)) -machinefile ${MACHINEFILE} $cmd
+
+    local rc=$?
+    if [ $rc != 0 ] ; then
+        error "write_append_truncate failed! $rc"
+        return $rc
+    fi
+    rm -rf $testdir
+}
+run_test write_append_truncate "write_append_truncate"
+
+test_write_disjoint() {
+    if [ "$NFSCLIENT" ]; then
+        skip "skipped for NFSCLIENT mode"
+        return
+    fi
+
+    [ x$WRITE_DISJOINT = x ] &&
+        { skip_env "write_disjoint not found" && return; }
+
+    # FIXME
+    # Need space estimation here.
+
+    print_opts WRITE_DISJOINT clients wdisjoint_THREADS wdisjoint_REP MACHINEFILE
+    local testdir=$DIR/d0.write_disjoint
+    mkdir -p $testdir
+    # mpi_run uses mpiuser
+    chmod 0777 $testdir
+
+    local cmd="$WRITE_DISJOINT -f $testdir/file -n $wdisjoint_REP"
+
+    echo "+ $cmd"
+    mpi_run -np $((num_clients * $wdisjoint_THREADS)) -machinefile ${MACHINEFILE} $cmd
+
+    local rc=$?
+    if [ $rc != 0 ] ; then
+        error "write_disjoint failed! $rc"
+    fi
+    rm -rf $testdir
+}
+run_test write_disjoint "write_disjoint"
+
+test_parallel_grouplock() {
+    if [ "$NFSCLIENT" ]; then
+        skip "skipped for NFSCLIENT mode"
+        return
+    fi
+
+    [ x$PARALLEL_GROUPLOCK = x ] &&
+        { skip "PARALLEL_GROUPLOCK not found" && return; }
+
+    print_opts clients parallel_grouplock_MINTASKS MACHINEFILE
+
+    local testdir=$DIR/d0.parallel_grouplock
+    mkdir -p $testdir
+    # mpi_run uses mpiuser
+    chmod 0777 $testdir
+
+    do_nodes $clients "lctl set_param llite.*.max_rw_chunk=0" ||
+        error "set_param max_rw_chunk=0 failed "
+
+    local cmd
+    local status=0
+    local subtest
+    for i in $(seq 12); do
+        subtest="-t $i"
+        local cmd="$PARALLEL_GROUPLOCK -g -v -d $testdir $subtest"
+        echo "+ $cmd"
+
+        mpi_run -np $parallel_grouplock_MINTASKS -machinefile ${MACHINEFILE} $cmd
+        local rc=$?
+        if [ $rc != 0 ] ; then
+            error_noexit "parallel_grouplock subtests $subtest failed! $rc"
+        else
+            echo "parallel_grouplock subtests $subtest PASS"
+        fi
+        let status=$((status + rc))
+        # clear debug to collect one log per one test
+        do_nodes $(comma_list $(nodes_list)) lctl clear
+     done
+    [ $status -eq 0 ] || error "parallel_grouplock status: $status"
+    rm -rf $testdir
+}
+run_test parallel_grouplock "parallel_grouplock"
+
+statahead_NUMMNTPTS=${statahead_NUMMNTPTS:-5}
+statahead_NUMFILES=${statahead_NUMFILES:-500000}
+
+cleanup_statahead () {
+    trap 0
+
+    local clients=$1
+    local mntpt_root=$2
+    local num_mntpts=$3
+
+    for i in $(seq 0 $num_mntpts);do
+        zconf_umount_clients $clients ${mntpt_root}$i ||
+            error_exit "Failed to umount lustre on ${mntpt_root}$i"
+    done
+}
+
+test_statahead () {
+    if [[ -n $NFSCLIENT ]]; then
+        skip "Statahead testing is not supported on NFS clients."
+        return 0
+    fi
+
+    [ x$MDSRATE = x ] &&
+        { skip_env "mdsrate not found" && return; }
+
+    print_opts MDSRATE clients statahead_NUMMNTPTS statahead_NUMFILES
+
+    # create large dir
+
+    # do not use default "d[0-9]*" dir name
+    # to avoid of rm $statahead_NUMFILES (500k) files in t-f cleanup
+    local dir=dstatahead
+    local testdir=$DIR/$dir
+
+    # cleanup only if dir exists
+    # cleanup only $statahead_NUMFILES number of files
+    # ignore the other files created by someone else
+    [ -d $testdir ] &&
+        mdsrate_cleanup $((num_clients * 32)) $MACHINEFILE $statahead_NUMFILES $testdir 'f%%d' --ignore
+
+    mkdir -p $testdir
+    # mpi_run uses mpiuser
+    chmod 0777 $testdir
+
+    local num_files=$statahead_NUMFILES
+
+    local IFree=$(inodes_available)
+    if [ $IFree -lt $num_files ]; then
+      num_files=$IFree
+    fi
+
+    cancel_lru_locks mdc
+
+    local cmd="${MDSRATE} ${MDSRATE_DEBUG} --mknod --dir $testdir --nfiles $num_files --filefmt 'f%%d'"
+    echo "+ $cmd"
+
+    mpi_run -np $((num_clients * 32)) -machinefile ${MACHINEFILE} $cmd
+
+    local rc=$?
+    if [ $rc != 0 ] ; then
+        error "mdsrate failed to create $rc"
         return $rc
     fi
 
-    return 0
+    local num_mntpts=$statahead_NUMMNTPTS
+    local mntpt_root=$TMP/mntpt/lustre
+    local mntopts=${MNTOPTSTATAHEAD:-$MOUNTOPT}
+
+    echo "Mounting $num_mntpts lustre clients starts on $clients"
+    trap "cleanup_statahead $clients $mntpt_root $num_mntpts" EXIT ERR
+    for i in $(seq 0 $num_mntpts); do
+        zconf_mount_clients $clients ${mntpt_root}$i "$mntopts" ||
+            error_exit "Failed to mount lustre on ${mntpt_root}$i on $clients"
+    done
+
+    do_rpc_nodes $clients cancel_lru_locks mdc
+
+    do_rpc_nodes $clients do_ls $mntpt_root $num_mntpts $dir
+
+    mdsrate_cleanup $((num_clients * 32)) $MACHINEFILE $num_files $testdir 'f%%d' --ignore
+
+    # use rm instead of rmdir because of
+    # testdir could contain the files created by someone else,
+    # or by previous run where is num_files prev > num_files current
+    rm -rf $testdir
+    cleanup_statahead $clients $mntpt_root $num_mntpts
 }
 
-# Run e2fsck on the Lustre server target.
-run_e2fsck() {
-    local facet=$1
-    shift
-    local device=$1
-    shift
-    local opts="$@"
-
-    log "Running e2fsck on the device $device on $facet..."
-    do_facet $facet "$E2FSCK $opts $device"
-    return ${PIPESTATUS[0]}
-}
-
-# Check whether there are failover pairs for MDS and OSS servers.
-check_failover_pair() {
-    [ "$MMP_MDS" = "$MMP_MDS_FAILOVER" -o "$MMP_OSS" = "$MMP_OSS_FAILOVER" ] \
-        && { skip_env "failover pair is needed" && return 1; }
-    return 0
-}
-
-mmp_init
-
-# Test 1 - two mounts at the same time.
-test_1() {
-    check_failover_pair || return 0
-
-    mount_after_interval 0 0 || return ${PIPESTATUS[0]}
-    stop_services primary || return ${PIPESTATUS[0]}
-}
-run_test 1 "two mounts at the same time"
-
-# Test 2 - one mount delayed by mmp update interval.
-test_2() {
-    check_failover_pair || return 0
-
-    local mdt_interval=$(get_mmp_update_interval $MMP_MDS $MMP_MDSDEV)
-    local ost_interval=$(get_mmp_update_interval $MMP_OSS $MMP_OSTDEV)
-
-    mount_after_interval $mdt_interval $ost_interval || return ${PIPESTATUS[0]}
-    stop_services primary || return ${PIPESTATUS[0]}
-}
-run_test 2 "one mount delayed by mmp update interval"
-
-# Test 3 - one mount delayed by 2x mmp check interval.
-test_3() {
-    check_failover_pair || return 0
-
-    local mdt_interval=$(get_mmp_check_interval $MMP_MDS $MMP_MDSDEV)
-    local ost_interval=$(get_mmp_check_interval $MMP_OSS $MMP_OSTDEV)
-
-    mdt_interval=$((2 * $mdt_interval + 1))
-    ost_interval=$((2 * $ost_interval + 1))
-
-    mount_after_interval $mdt_interval $ost_interval || return ${PIPESTATUS[0]}
-    stop_services primary || return ${PIPESTATUS[0]}
-}
-run_test 3 "one mount delayed by 2x mmp check interval"
-
-# Test 4 - one mount delayed by > 2x mmp check interval.
-test_4() {
-    check_failover_pair || return 0
-
-    local mdt_interval=$(get_mmp_check_interval $MMP_MDS $MMP_MDSDEV)
-    local ost_interval=$(get_mmp_check_interval $MMP_OSS $MMP_OSTDEV)
-
-    mdt_interval=$((4 * $mdt_interval))
-    ost_interval=$((4 * $ost_interval))
-
-    mount_after_interval $mdt_interval $ost_interval || return ${PIPESTATUS[0]}
-    stop_services primary || return ${PIPESTATUS[0]}
-}
-run_test 4 "one mount delayed by > 2x mmp check interval"
-
-# Test 5 - mount during unmount of the first filesystem.
-test_5() {
-    local rc=0
-    check_failover_pair || return 0
-
-    mount_during_unmount $MMP_MDSDEV $MMP_MDS $MDS_MOUNT_OPTS || \
-        return ${PIPESTATUS[0]}
-
-    echo
-    start $MMP_MDS $MMP_MDSDEV $MDS_MOUNT_OPTS || return ${PIPESTATUS[0]}
-    mount_during_unmount $MMP_OSTDEV $MMP_OSS $OST_MOUNT_OPTS
-    rc=${PIPESTATUS[0]}
-    if [ $rc -ne 0 ]; then
-        stop $MMP_MDS || return ${PIPESTATUS[0]}
-        return $rc
-    fi
-
-    stop $MMP_MDS || return ${PIPESTATUS[0]}
-}
-run_test 5 "mount during unmount of the first filesystem"
-
-# Test 6 - mount after clean unmount.
-test_6() {
-    local rc=0
-    check_failover_pair || return 0
-
-    mount_after_unmount $MMP_MDSDEV $MMP_MDS $MDS_MOUNT_OPTS || \
-        return ${PIPESTATUS[0]}
-
-    echo
-    mount_after_unmount $MMP_OSTDEV $MMP_OSS $OST_MOUNT_OPTS
-    rc=${PIPESTATUS[0]}
-    if [ $rc -ne 0 ]; then
-        stop $MMP_MDS_FAILOVER || return ${PIPESTATUS[0]}
-        return $rc
-    fi
-
-    stop_services failover || return ${PIPESTATUS[0]}
-}
-run_test 6 "mount after clean unmount"
-
-# Test 7 - mount after reboot.
-test_7() {
-    local rc=0
-    check_failover_pair || return 0
-
-    mount_after_reboot $MMP_MDSDEV $MMP_MDS $MDS_MOUNT_OPTS || \
-        return ${PIPESTATUS[0]}
-
-    echo
-    mount_after_reboot $MMP_OSTDEV $MMP_OSS $OST_MOUNT_OPTS
-    rc=${PIPESTATUS[0]}
-    if [ $rc -ne 0 ]; then
-        stop $MMP_MDS || return ${PIPESTATUS[0]}
-        stop $MMP_MDS_FAILOVER || return ${PIPESTATUS[0]}
-        return $rc
-    fi
-
-    stop_services failover || return ${PIPESTATUS[0]}
-    stop_services primary || return ${PIPESTATUS[0]}
-}
-run_test 7 "mount after reboot"
-
-# Test 8 - mount during e2fsck (should never succeed).
-test_8() {
-    local e2fsck_pid
-
-    run_e2fsck $MMP_MDS $MMP_MDSDEV "-fy" &
-    e2fsck_pid=$!
-    sleep 1
-
-    log "Mounting $MMP_MDSDEV on $MMP_MDS_FAILOVER..."
-    if start $MMP_MDS_FAILOVER $MMP_MDSDEV $MDS_MOUNT_OPTS; then
-        error_noexit "mount $MMP_MDSDEV on $MMP_MDS_FAILOVER should fail"
-        stop $MMP_MDS_FAILOVER || return ${PIPESTATUS[0]}
-        return 1
-    fi
-
-    wait $e2fsck_pid
-
-    echo
-    run_e2fsck $MMP_OSS $MMP_OSTDEV "-fy" &
-    e2fsck_pid=$!
-    sleep 1
-
-    log "Mounting $MMP_OSTDEV on $MMP_OSS_FAILOVER..."
-    if start $MMP_OSS_FAILOVER $MMP_OSTDEV $OST_MOUNT_OPTS; then
-        error_noexit "mount $MMP_OSTDEV on $MMP_OSS_FAILOVER should fail"
-        stop $MMP_OSS_FAILOVER || return ${PIPESTATUS[0]}
-        return 2
-    fi
-
-    wait $e2fsck_pid
-    return 0
-}
-run_test 8 "mount during e2fsck"
-
-# Test 9 - mount after aborted e2fsck (should never succeed).
-test_9() {
-    start $MMP_MDS $MMP_MDSDEV $MDS_MOUNT_OPTS || return ${PIPESTATUS[0]}
-    if ! start $MMP_OSS $MMP_OSTDEV $OST_MOUNT_OPTS; then
-        local rc=${PIPESTATUS[0]}
-        stop $MMP_MDS || return ${PIPESTATUS[0]}
-        return $rc
-    fi
-    stop_services primary || return ${PIPESTATUS[0]}
-
-    mark_mmp_block $MMP_MDS $MMP_MDSDEV || return ${PIPESTATUS[0]}
-    
-    log "Mounting $MMP_MDSDEV on $MMP_MDS..."
-    if start $MMP_MDS $MMP_MDSDEV $MDS_MOUNT_OPTS; then
-        error_noexit "mount $MMP_MDSDEV on $MMP_MDS should fail"
-        stop $MMP_MDS || return ${PIPESTATUS[0]}
-        return 1
-    fi
-
-    reset_mmp_block $MMP_MDS $MMP_MDSDEV || return ${PIPESTATUS[0]}
-
-    mark_mmp_block $MMP_OSS $MMP_OSTDEV || return ${PIPESTATUS[0]}
-
-    log "Mounting $MMP_OSTDEV on $MMP_OSS..."
-    if start $MMP_OSS $MMP_OSTDEV $OST_MOUNT_OPTS; then
-        error_noexit "mount $MMP_OSTDEV on $MMP_OSS should fail"
-        stop $MMP_OSS || return ${PIPESTATUS[0]}
-        return 2
-    fi
-
-    reset_mmp_block $MMP_OSS $MMP_OSTDEV || return ${PIPESTATUS[0]}
-    return 0
-}
-run_test 9 "mount after aborted e2fsck"
-
-# Test 10 - e2fsck with mounted filesystem.
-test_10() {
-    local rc=0
-
-    log "Mounting $MMP_MDSDEV on $MMP_MDS..."
-    start $MMP_MDS $MMP_MDSDEV $MDS_MOUNT_OPTS || return ${PIPESTATUS[0]}
-
-    run_e2fsck $MMP_MDS_FAILOVER $MMP_MDSDEV "-fn"
-    rc=${PIPESTATUS[0]}
-
-    # e2fsck is called with -n option (Open the filesystem read-only), so
-    # 0 (No errors) and 4 (File system errors left uncorrected) are the only
-    # acceptable exit codes in this case
-    if [ $rc -ne 0 ] && [ $rc -ne 4 ]; then
-        error_noexit "e2fsck $MMP_MDSDEV on $MMP_MDS_FAILOVER returned $rc"
-        stop $MMP_MDS || return ${PIPESTATUS[0]}
-        return $rc
-    fi
-
-    log "Mounting $MMP_OSTDEV on $MMP_OSS..."
-    start $MMP_OSS $MMP_OSTDEV $OST_MOUNT_OPTS
-    rc=${PIPESTATUS[0]}
-    if [ $rc -ne 0 ]; then
-        stop $MMP_MDS || return ${PIPESTATUS[0]}
-        return $rc
-    fi
-
-    run_e2fsck $MMP_OSS_FAILOVER $MMP_OSTDEV "-fn"
-    rc=${PIPESTATUS[0]}
-    if [ $rc -ne 0 ] && [ $rc -ne 4 ]; then
-        error_noexit "e2fsck $MMP_OSTDEV on $MMP_OSS_FAILOVER returned $rc"
-    fi
-
-    stop_services primary || return ${PIPESTATUS[0]}
-    return 0
-}
-run_test 10 "e2fsck with mounted filesystem"
-
-mmp_fini
-FAIL_ON_ERROR=$SAVED_FAIL_ON_ERROR
+run_test statahead "statahead test, multiple clients"
 
 complete $(basename $0) $SECONDS
-$MMP_RESTORE_MOUNT && setupall
+check_and_cleanup_lustre
 exit_status
