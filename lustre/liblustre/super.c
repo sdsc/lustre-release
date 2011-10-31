@@ -460,7 +460,7 @@ static int llu_inode_revalidate(struct inode *inode)
 
         /* ll_glimpse_size will prefer locally cached writes if they extend
          * the file */
-        RETURN(cl_glimpse_size(inode));
+        RETURN(cl_glimpse_size(inode, 0));
 }
 
 static void copy_stat_buf(struct inode *ino, struct intnl_stat *b)

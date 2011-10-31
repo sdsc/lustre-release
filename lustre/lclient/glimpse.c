@@ -81,7 +81,7 @@ static const struct cl_lock_descr whole_file = {
 };
 
 int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
-                    struct inode *inode, struct cl_object *clob)
+                    struct inode *inode, struct cl_object *clob, int agl)
 {
         struct cl_lock_descr *descr = &ccc_env_info(env)->cti_descr;
         struct cl_inode_info *lli   = cl_i2info(inode);
@@ -112,6 +112,8 @@ int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
                         descr->cld_obj   = clob;
                         descr->cld_mode  = CLM_PHANTOM;
                         descr->cld_enq_flags = CEF_ASYNC | CEF_MUST;
+                        if (agl)
+                                descr->cld_enq_flags |= CEF_AGL;
                         cio->cui_glimpse = 1;
                         /*
                          * CEF_ASYNC is used because glimpse sub-locks cannot
@@ -124,7 +126,9 @@ int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
                         lock = cl_lock_request(env, io, descr, "glimpse",
                                                cfs_current());
                         cio->cui_glimpse = 0;
-                        if (!IS_ERR(lock)) {
+                        if (IS_ERR(lock))
+                                result = PTR_ERR(lock);
+                        else if (!agl) {
                                 result = cl_wait(env, lock);
                                 if (result == 0) {
                                         cl_merge_lvb(inode);
@@ -132,8 +136,7 @@ int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
                                 }
                                 cl_lock_release(env, lock,
                                                 "glimpse", cfs_current());
-                        } else
-                                result = PTR_ERR(lock);
+                        }
                 } else
                         CDEBUG(D_DLMTRACE, "No objects for inode\n");
         }
@@ -165,7 +168,7 @@ static int cl_io_get(struct inode *inode, struct lu_env **envout,
         return result;
 }
 
-int cl_glimpse_size(struct inode *inode)
+int cl_glimpse_size(struct inode *inode, int agl)
 {
         /*
          * We don't need ast_flags argument to cl_glimpse_size(), because
@@ -194,7 +197,8 @@ int cl_glimpse_size(struct inode *inode)
                          */
                         result = io->ci_result;
                 else if (result == 0)
-                        result = cl_glimpse_lock(env, io, inode, io->ci_obj);
+                        result = cl_glimpse_lock(env, io, inode, io->ci_obj,
+                                                 agl);
                 cl_io_fini(env, io);
                 cl_env_put(env, &refcheck);
         }
