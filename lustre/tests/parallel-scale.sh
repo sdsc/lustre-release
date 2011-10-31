@@ -14,8 +14,7 @@ ALWAYS_EXCEPT="parallel_grouplock $PARALLEL_SCALE_EXCEPT"
 # common setup
 #
 MACHINEFILE=${MACHINEFILE:-$TMP/$(basename $0 .sh).machines}
-clients=$CLIENTS
-[ -z $clients ] && clients=$(hostname)
+clients=${CLIENTS:-$HOSTNAME}
 generate_machine_file $clients $MACHINEFILE || error "Failed to generate machine file"
 num_clients=$(get_node_count ${clients//,/ })
 
@@ -269,7 +268,9 @@ test_simul() {
 }
 run_test simul "simul"
 
-test_mdtestssf() {
+test_mdtest() {
+    local type=${1:-"ssf"}
+
     if [ "$NFSCLIENT" ]; then
         skip "skipped for NFSCLIENT mode"
         return
@@ -293,7 +294,11 @@ test_mdtestssf() {
     # -n # : number of file/dir to create/stat/remove
     # -u   : each process create/stat/remove individually
 
-    local cmd="$MDTEST -d $testdir -i $mdtest_iteration -n $mdtest_nFiles"
+    if [ $type = "ssf" ]; then
+        local cmd="$MDTEST -d $testdir -i $mdtest_iteration -n $mdtest_nFiles"
+    else
+        local cmd="$MDTEST -d $testdir -i $mdtest_iteration -n $mdtest_nFiles -u"
+    fi
 
     echo "+ $cmd"
     # find out if we need to use srun by checking $SRUN_PARTITION
@@ -310,48 +315,14 @@ test_mdtestssf() {
     fi
     rm -rf $testdir
 }
+
+test_mdtestssf() {
+    test_mdtest "ssf"
+}
 run_test mdtestssf "mdtestssf"
 
 test_mdtestfpp() {
-    if [ "$NFSCLIENT" ]; then
-        skip "skipped for NFSCLIENT mode"
-        return
-    fi
-
-    [ x$MDTEST = x ] &&
-        { skip_env "mdtest not found" && return; }
-
-    # FIXME
-    # Need space estimation here.
-
-    print_opts MDTEST mdtest_iteration mdtest_THREADS mdtest_nFiles
-
-    local testdir=$DIR/d0.mdtest
-    mkdir -p $testdir
-    # mpi_run uses mpiuser
-    chmod 0777 $testdir
-
-    # -i # : repeat each test # times
-    # -d   : test dir
-    # -n # : number of file/dir to create/stat/remove
-    # -u   : each process create/stat/remove individually
-
-    local cmd="$MDTEST -d $testdir -i $mdtest_iteration -n $mdtest_nFiles -u"
-
-    echo "+ $cmd"
-    # find out if we need to use srun by checking $SRUN_PARTITION
-    if [ "$SRUN_PARTITION" ]; then
-        $SRUN $SRUN_OPTIONS -D $testdir -w $clients -N $num_clients \
-            -n $((num_clients * mdtest_THREADS)) -p $SRUN_PARTITION -- $cmd
-    else
-        mpi_run -np $((num_clients * mdtest_THREADS)) -machinefile ${MACHINEFILE} $cmd
-    fi
-
-    local rc=$?
-    if [ $rc != 0 ] ; then
-        error "mdtest failed! $rc"
-    fi
-    rm -rf $testdir
+    test_mdtest "fpp"
 }
 run_test mdtestfpp "mdtestfpp"
 
@@ -410,7 +381,9 @@ test_connectathon() {
 }
 run_test connectathon "connectathon"
 
-test_iorssf() {
+test_ior() {
+    local type=${1:="ssf"}
+
     [ x$IOR = x ] &&
         { skip_env "IOR not found" && return; }
 
@@ -446,7 +419,12 @@ test_iorssf() {
     # -r    readFile -- read existing file"
     # -T    maxTimeDuration -- max time in minutes to run tests"
     # -k    keepFile -- keep testFile(s) on program exit
-    local cmd="$IOR -a $ior_type -b ${ior_blockSize}g -o $testdir/iorData -t $ior_xferSize -v -w -r -i $ior_iteration -T $ior_DURATION -k"
+
+    if [ $type = "ssf" ]; then
+        local cmd="$IOR -a $ior_type -b ${ior_blockSize}g -o $testdir/iorData -t $ior_xferSize -v -w -r -i $ior_iteration -T $ior_DURATION -k"
+    else
+        local cmd="$IOR -a $ior_type -b ${ior_blockSize}g -o $testdir/iorData -t $ior_xferSize -v -F -w -r -i $ior_iteration -T $ior_DURATION -k"
+    fi
 
     echo "+ $cmd"
     # find out if we need to use srun by checking $SRUN_PARTITION
@@ -463,61 +441,14 @@ test_iorssf() {
     fi
     rm -rf $testdir
 }
+
+test_iorssf() {
+    test_ior "ssf"
+}
 run_test iorssf "iorssf"
 
 test_iorfpp() {
-    [ x$IOR = x ] &&
-        { skip_env "IOR not found" && return; }
-
-    local space=$(df -P $DIR | tail -n 1 | awk '{ print $4 }')
-    echo "+ $ior_blockSize * 1024 * 1024 * $num_clients * $ior_THREADS "
-    if [ $((space / 2)) -le $(( ior_blockSize * 1024 * 1024 * num_clients * ior_THREADS)) ]; then
-        echo "+ $space * 9/10 / 1024 / 1024 / $num_clients / $ior_THREADS"
-        ior_blockSize=$(( space /2 /1024 /1024 / num_clients / ior_THREADS ))
-        [ $ior_blockSize = 0 ] && \
-            skip_env "Need free space more than ($num_clients * $ior_THREADS )Gb: $((num_clients*ior_THREADS *1024 *1024*2)), have $space" && return
-
-        echo "free space=$space, Need: $num_clients x $ior_THREADS x $ior_blockSize Gb (blockSize reduced to $ior_blockSize Gb)"
-    fi
-
-    print_opts IOR ior_THREADS ior_DURATION MACHINEFILE
-
-    local testdir=$DIR/d0.ior
-    mkdir -p $testdir
-    # mpi_run uses mpiuser
-    chmod 0777 $testdir
-    if [ "$NFSCLIENT" ]; then
-        setstripe_nfsserver $testdir -c -1 ||
-            { error "setstripe on nfsserver failed" && return 1; }
-    else
-        $LFS setstripe $testdir -c -1 ||
-            { error "setstripe failed" && return 2; }
-    fi
-    #
-    # -b N  blockSize -- contiguous bytes to write per task  (e.g.: 8, 4k, 2m, 1g)"
-    # -o S  testFileName
-    # -t N  transferSize -- size of transfer in bytes (e.g.: 8, 4k, 2m, 1g)"
-    # -w    writeFile -- write file"
-    # -r    readFile -- read existing file"
-    # -T    maxTimeDuration -- max time in minutes to run tests"
-    # -k    keepFile -- keep testFile(s) on program exit
-    # -F    file-per-process
-    local cmd="$IOR -a $ior_type -b ${ior_blockSize}g -o $testdir/iorData -t $ior_xferSize -v -F -w -r -i $ior_iteration -T $ior_DURATION -k"
-
-    echo "+ $cmd"
-    # find out if we need to use srun by checking $SRUN_PARTITION
-    if [ "$SRUN_PARTITION" ]; then
-        $SRUN $SRUN_OPTIONS -D $testdir -w $clients -N $num_clients \
-            -n $((num_clients * ior_THREADS)) -p $SRUN_PARTITION -- $cmd
-    else
-        mpi_run -np $((num_clients * $ior_THREADS)) -machinefile ${MACHINEFILE} $cmd
-    fi
-
-    local rc=$?
-    if [ $rc != 0 ] ; then
-        error "ior failed! $rc"
-    fi
-    rm -rf $testdir
+    test_ior "fpp"
 }
 run_test iorfpp "iorfpp"
 
