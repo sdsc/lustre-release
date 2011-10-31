@@ -1301,6 +1301,16 @@ int ll_setattr_raw(struct inode *inode, struct iattr *attr)
                         RETURN(-EFBIG);
                 }
 
+                if (inode->i_size < offset) {
+                        unsigned long limit;
+
+                        limit = rlimit(RLIMIT_FSIZE);
+                        if (limit != RLIM_INFINITY && attr->ia_size > limit) {
+                                send_sig(SIGXFSZ, current, 0);
+                                RETURN(-EFBIG);
+                        }
+                }
+
                 attr->ia_valid |= ATTR_MTIME | ATTR_CTIME;
         }
 
@@ -1372,12 +1382,12 @@ int ll_setattr_raw(struct inode *inode, struct iattr *attr)
         if (ia_valid & (ATTR_SIZE |
                         ATTR_ATIME | ATTR_ATIME_SET |
                         ATTR_MTIME | ATTR_MTIME_SET))
-                /* on truncate and utimes send attributes to osts, setting
-                 * mtime/atime to past will be performed under PW 0:EOF extent
-                 * lock (new_size:EOF for truncate)
-                 * it may seem excessive to send mtime/atime updates to osts
-                 * when not setting times to past, but it is necessary due to
-                 * possible time de-synchronization */
+                /* For truncate and utimes sending attributes to OSTs, setting
+                 * mtime/atime to the past will be performed under PW [0:EOF]
+                 * extent lock (new_size:EOF for truncate).  It may seem
+                 * excessive to send mtime/atime updates to OSTs when not
+                 * setting times to past, but it is necessary due to possible
+                 * time de-synchronization between MDT inode and OST objects */
                 rc = ll_setattr_ost(inode, attr);
         EXIT;
 out:
