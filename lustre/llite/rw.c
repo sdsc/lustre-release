@@ -1216,11 +1216,17 @@ int ll_readpage(struct file *file, struct page *vmpage)
                 struct lu_env  *env  = lcc->lcc_env;
                 struct cl_io   *io   = lcc->lcc_io;
                 struct cl_page *page = lcc->lcc_page;
+                struct cl_2queue *queue = NULL;
 
                 LASSERT(page->cp_type == CPT_CACHEABLE);
                 if (likely(!PageUptodate(vmpage))) {
                         cl_page_assume(env, io, page);
                         result = cl_io_read_page(env, io, page);
+                        if (result == 0) {
+                                queue = &vvp_env_info(env)->vti_queue;
+                                task_io_account_read(CFS_PAGE_SIZE *
+                                                     queue->c2_qin.pl_nr);
+                        }
                 } else {
                         /* Page from a non-object file. */
                         LASSERT(!ll_i2info(vmpage->mapping->host)->lli_smd);

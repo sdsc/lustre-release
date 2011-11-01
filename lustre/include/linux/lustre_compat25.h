@@ -154,6 +154,12 @@ do {cfs_mutex_lock_nested(&(inode)->i_mutex, I_MUTEX_PARENT); } while(0)
 #define current_ngroups current_cred()->group_info->ngroups
 #define current_groups current_cred()->group_info->small_block
 
+#ifndef CONFIG_TASK_IO_ACCOUNTING
+#define task_io_account_read(bytes) do {} while (0)
+#else
+#include <linux/task_io_accounting_ops.h>
+#endif
+
 #ifndef page_private
 #define page_private(page) ((page)->private)
 #define set_page_private(page, v) ((page)->private = (v))
