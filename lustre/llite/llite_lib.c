@@ -496,7 +496,6 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                 CERROR("md_getattr failed for root: rc = %d\n", err);
                 GOTO(out_lock_cn_cb, err);
         }
-        memset(&lmd, 0, sizeof(lmd));
         err = md_get_lustre_md(sbi->ll_md_exp, request, sbi->ll_dt_exp,
                                sbi->ll_md_exp, &lmd);
         if (err) {
@@ -2019,24 +2018,26 @@ int ll_remount_fs(struct super_block *sb, int *flags, char *data)
 
 int ll_prep_inode(struct inode **inode,
                   struct ptlrpc_request *req,
-                  struct super_block *sb)
+                  struct super_block *sb,
+                  struct lustre_md *md)
 {
         struct ll_sb_info *sbi = NULL;
-        struct lustre_md md;
+        struct lustre_md lmd;
         int rc;
         ENTRY;
 
         LASSERT(*inode || sb);
         sbi = sb ? ll_s2sbi(sb) : ll_i2sbi(*inode);
-        memset(&md, 0, sizeof(struct lustre_md));
-
-        rc = md_get_lustre_md(sbi->ll_md_exp, req, sbi->ll_dt_exp,
-                              sbi->ll_md_exp, &md);
-        if (rc)
-                RETURN(rc);
+        if (md == NULL) {
+                md = &lmd;
+                rc = md_get_lustre_md(sbi->ll_md_exp, req, sbi->ll_dt_exp,
+                                      sbi->ll_md_exp, md);
+                if (rc)
+                        RETURN(rc);
+        }
 
         if (*inode) {
-                ll_update_inode(*inode, &md);
+                ll_update_inode(*inode, md);
         } else {
                 LASSERT(sb != NULL);
 
@@ -2044,16 +2045,16 @@ int ll_prep_inode(struct inode **inode,
                  * At this point server returns to client's same fid as client
                  * generated for creating. So using ->fid1 is okay here.
                  */
-                LASSERT(fid_is_sane(&md.body->fid1));
+                LASSERT(fid_is_sane(&md->body->fid1));
 
-                *inode = ll_iget(sb, cl_fid_build_ino(&md.body->fid1, 0), &md);
+                *inode = ll_iget(sb, cl_fid_build_ino(&md->body->fid1, 0), md);
                 if (*inode == NULL || IS_ERR(*inode)) {
-                        if (md.lsm)
-                                obd_free_memmd(sbi->ll_dt_exp, &md.lsm);
+                        if (md->lsm)
+                                obd_free_memmd(sbi->ll_dt_exp, &md->lsm);
 #ifdef CONFIG_FS_POSIX_ACL
-                        if (md.posix_acl) {
-                                posix_acl_release(md.posix_acl);
-                                md.posix_acl = NULL;
+                        if (md->posix_acl) {
+                                posix_acl_release(md->posix_acl);
+                                md->posix_acl = NULL;
                         }
 #endif
                         rc = IS_ERR(*inode) ? PTR_ERR(*inode) : -ENOMEM;
@@ -2064,7 +2065,8 @@ int ll_prep_inode(struct inode **inode,
         }
 
 out:
-        md_free_lustre_md(sbi->ll_md_exp, &md);
+        if (md == &lmd)
+                md_free_lustre_md(sbi->ll_md_exp, md);
         RETURN(rc);
 }
 
