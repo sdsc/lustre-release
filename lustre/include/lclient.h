@@ -28,6 +28,8 @@
 /*
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2011 Whamcloud, Inc.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -43,9 +45,9 @@
 #ifndef LCLIENT_H
 #define LCLIENT_H
 
-int cl_glimpse_size(struct inode *inode);
+int cl_glimpse_size(struct inode *inode, int agl);
 int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
-                    struct inode *inode, struct cl_object *clob);
+                    struct inode *inode, struct cl_object *clob, int agl);
 
 /**
  * Locking policy for setattr.

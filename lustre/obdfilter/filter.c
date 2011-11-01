@@ -1682,7 +1682,6 @@ static int filter_intent_policy(struct ldlm_namespace *ns,
                                 struct ldlm_lock **lockp, void *req_cookie,
                                 ldlm_mode_t mode, int flags, void *data)
 {
-        CFS_LIST_HEAD(rpc_list);
         struct ptlrpc_request *req = req_cookie;
         struct ldlm_lock *lock = *lockp, *l = NULL;
         struct ldlm_resource *res = lock->l_resource;
@@ -1721,23 +1720,17 @@ static int filter_intent_policy(struct ldlm_namespace *ns,
          * lock, and should not be granted if the lock will be blocked.
          */
 
+        if (flags & LDLM_FL_NO_CALLBACK) {
+                OBD_FAIL_TIMEOUT(OBD_FAIL_LDLM_AGL_DELAY, 5);
+
+                if (OBD_FAIL_CHECK(OBD_FAIL_LDLM_AGL_NOLOCK))
+                        RETURN(ELDLM_LOCK_ABORTED);
+        }
+
         LASSERT(ns == ldlm_res_to_ns(res));
         lock_res(res);
-        rc = policy(lock, &tmpflags, 0, &err, &rpc_list);
+        rc = policy(lock, &tmpflags, 0, &err, NULL);
         check_res_locked(res);
-
-        /* FIXME: we should change the policy function slightly, to not make
-         * this list at all, since we just turn around and free it */
-        while (!cfs_list_empty(&rpc_list)) {
-                struct ldlm_lock *wlock =
-                        cfs_list_entry(rpc_list.next, struct ldlm_lock,
-                                       l_cp_ast);
-                LASSERT((lock->l_flags & LDLM_FL_AST_SENT) == 0);
-                LASSERT(lock->l_flags & LDLM_FL_CP_REQD);
-                lock->l_flags &= ~LDLM_FL_CP_REQD;
-                cfs_list_del_init(&wlock->l_cp_ast);
-                LDLM_LOCK_RELEASE(wlock);
-        }
 
         /* The lock met with no resistance; we're finished. */
         if (rc == LDLM_ITER_CONTINUE) {
@@ -1755,6 +1748,10 @@ static int filter_intent_policy(struct ldlm_namespace *ns,
                 }
                 unlock_res(res);
                 RETURN(err);
+        } else if (flags & LDLM_FL_NO_CALLBACK) {
+                /* do not send GL callback for async glimpse size */
+                unlock_res(res);
+                RETURN(ELDLM_LOCK_ABORTED);
         }
 
         /* Do not grant any lock, but instead send GL callbacks.  The extent

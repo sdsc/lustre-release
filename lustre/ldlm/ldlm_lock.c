@@ -1160,8 +1160,10 @@ ldlm_mode_t ldlm_lock_match(struct ldlm_namespace *ns, int flags,
 
         if (lock) {
                 ldlm_lock2handle(lock, lockh);
+                /* For agl (with LDLM_FL_NO_CALLBACK), do nothing. */
                 if ((flags & LDLM_FL_LVB_READY) &&
-                    (!(lock->l_flags & LDLM_FL_LVB_READY))) {
+                    !(flags & LDLM_FL_NO_CALLBACK) &&
+                    !(lock->l_flags & LDLM_FL_LVB_READY)) {
                         struct l_wait_info lwi;
                         if (lock->l_completion_ast) {
                                 int err = lock->l_completion_ast(lock,
