@@ -203,6 +203,13 @@ struct ll_inode_info {
         void                   *lli_opendir_key;
         struct ll_statahead_info *lli_sai;
         __u64                   lli_sa_pos;
+
+        cfs_rw_semaphore_t      lli_glimpse_sem;
+        cfs_time_t              lli_glimpse_time;
+        cfs_spinlock_t          lli_agl_lock;
+        cfs_list_t              lli_agl_list;
+        __u64                   lli_agl_index;
+
         struct cl_object       *lli_clob;
         /* the most recent timestamps obtained from mds */
         struct ost_lvb          lli_lvb;
@@ -414,10 +421,12 @@ struct ll_sb_info {
 
         /* metadata stat-ahead */
         unsigned int              ll_sa_max;     /* max statahead RPCs */
+        unsigned int              ll_agl_enabled:1;/* enable/disable agl*/
         atomic_t                  ll_sa_total;   /* statahead thread started
                                                   * count */
         atomic_t                  ll_sa_wrong;   /* statahead thread stopped for
                                                   * low hit ratio */
+        atomic_t                  ll_agl_total;  /* AGL thread started count */
 
         dev_t                     ll_sdev_orig; /* save s_dev before assign for
                                                  * clustred nfs */
@@ -1144,20 +1153,36 @@ struct ll_statahead_info {
         unsigned int            sai_skip_hidden;/* skipped hidden dentry count */
         unsigned int            sai_ls_all:1,   /* "ls -al", do stat-ahead for
                                                  * hidden entries */
-                                sai_in_readpage:1;/* statahead is in readdir()*/
+                                sai_in_readpage:1,/* statahead is in readdir()*/
+                                sai_agl_valid:1;/* AGL is valid for the dir */
         cfs_waitq_t             sai_waitq;      /* stat-ahead wait queue */
         struct ptlrpc_thread    sai_thread;     /* stat-ahead thread */
+        struct ptlrpc_thread    sai_agl_thread; /* AGL thread */
         cfs_list_t              sai_entries_sent;     /* entries sent out */
         cfs_list_t              sai_entries_received; /* entries returned */
         cfs_list_t              sai_entries_stated;   /* entries stated */
+        cfs_list_t              sai_agl_prep;   /* AGL entries to be sent */
         cfs_list_t              sai_cache[LL_SA_CACHE_SIZE];
         cfs_spinlock_t          sai_cache_lock[LL_SA_CACHE_SIZE];
         cfs_atomic_t            sai_cache_count;      /* entry count in cache */
 };
 
+int do_glimpse_size(struct inode *inode);
 int do_statahead_enter(struct inode *dir, struct dentry **dentry,
                        int only_unplug);
 void ll_stop_statahead(struct inode *dir, void *key);
+
+static inline int ll_glimpse_size(struct inode *inode)
+{
+        struct ll_inode_info *lli = ll_i2info(inode);
+        int rc;
+
+        cfs_down_read(&lli->lli_glimpse_sem);
+        rc = cl_glimpse_size(inode, 0);
+        lli->lli_glimpse_time = cfs_time_current();
+        cfs_up_read(&lli->lli_glimpse_sem);
+        return rc;
+}
 
 static inline void
 ll_statahead_mark(struct inode *dir, struct dentry *dentry)
