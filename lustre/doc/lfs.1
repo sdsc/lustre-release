@@ -1,6 +1,7 @@
-.TH lfs 1 "2009 Jan 29" Lustre "user utilities"
+.TH LFS 1 "2011 Nov 30" Lustre "user utilities"
 .SH NAME
-lfs \- Lustre utility to create a file with specific striping pattern, find the striping pattern of existing files
+lfs \- Lustre utility to create a file with specific striping pattern, find the
+striping pattern of existing files
 .SH SYNOPSIS
 .br
 .B lfs
@@ -21,23 +22,21 @@ lfs \- Lustre utility to create a file with specific striping pattern, find the 
         \fB[[!] --uid|-u|--user|-U <uname>|<uid>]
         \fB<directory|filename>\fR
 .br
-.B lfs osts
-.RB [ path ]
+.B lfs getname [-h]|[path ...]
 .br
 .B lfs getstripe [--obd|-O <uuid>] [--quiet|-q] [--verbose|-v] 
         \fB[--count | -c ] [--index | -i | --offset | -o ]
         \fB[--size | -s ] [--pool | -p ] [--directory | -d ]
-        \fB[--recursive | -r] [--raw|-R] <dirname|filename> ...\fR
+        \fB[--recursive | -r] [--raw|-R] 
+	\fB<dirname|filename> ...\fR
 .br
-.B lfs setstripe [--size|-s stripe-size] [--count|-c stripe-cnt]
-        \fB[--index|-i|--offset|-o start_ost_index ] [--pool|-p <pool>]
-        \fB<directory|filename>\fR
-.br
-.B lfs setstripe -d <dir>
+.B lfs osts [ path ]
 .br
 .B lfs poollist <filesystem>[.<pool>] | <pathname>
 .br
-.B lfs quota [-q] [-v] [-o obd_uuid|-I ost_idx|-i mdt_idx] [-u <uname>| -u <uid>|-g <gname>| -g <gid>] <filesystem>
+.B lfs quota [-q] [-v] [-o obd_uuid|-I ost_idx|-i mdt_idx] 
+      	\fB[-u <uname>| -u <uid>|-g <gname>| -g <gid>] 
+	\fB<filesystem>\fR
 .br
 .B lfs quota -t <-u|-g> <filesystem>
 .br
@@ -50,6 +49,13 @@ lfs \- Lustre utility to create a file with specific striping pattern, find the 
 .B lfs quotaoff [-ug] <filesystem>
 .br
 .B lfs quotainv [-ug] [-f] <filesystem>
+.br
+.B lfs setstripe [--size|-s stripe-size] [--count|-c stripe-cnt]
+        \fB[--index|-i|--offset|-o start_ost_index ] 
+	\fB[--pool|-p <pool>]
+        \fB<directory|filename>\fR
+.br
+.B lfs setstripe -d <dir>
 .br
 .B lfs setquota <-u|--user|-g|--group> <uname|uid|gname|gid>
              \fB[--block-softlimit <block-softlimit>]
@@ -74,13 +80,19 @@ lfs \- Lustre utility to create a file with specific striping pattern, find the 
 .br
 .B lfs help
 .SH DESCRIPTION
-.B lfs
-can be used to create a new file with a specific striping pattern, determine the default striping pattern, gather the extended attributes (object numbers and location) for a specific file. It can be invoked interactively without any arguments or in a non-interactive mode with one of the arguements supported. 
+.B lfs 
+can be used to create a new file with a specific striping pattern,
+determine the default striping pattern, gather the extended attributes (object
+numbers and location) for a specific file. It can be invoked interactively
+without any arguments or in a non-interactive mode with one of the arguements
+supported. 
 .SH OPTIONS
 The various options supported by lctl are listed and explained below:
 .TP
 .B changelog
-Show the metadata changes on an MDT.  Start and end points are optional.  The --follow option will block on new changes; this option is only valid when run direclty on the MDT node.
+Show the metadata changes on an MDT.  Start and end points are optional.  The
+--follow option will block on new changes; this option is only valid when run
+direclty on the MDT node.
 .TP
 .B changelog_clear
 Indicate that changelog records previous to <endrec> are no longer of
@@ -89,7 +101,8 @@ free up disk space. An <endrec> of 0 indicates the current last record.
 Changelog consumers must be registered on the MDT node using \fBlctl\fR.
 .TP
 .B check 
-Display the status of MDS or OSTs (as specified in the command) or all the servers (MDS and OSTs)
+Display the status of MDS or OSTs (as specified in the command) or all the
+servers (MDS and OSTs)
 .TP
 .B df [-i] [-h] [--pool|-p <fsname>[.<pool>] [path]
 Report filesystem disk space usage or inodes usage (with \fB-i\fR) of each
@@ -100,7 +113,33 @@ output is printed in \fIh\fRuman readable format, using SI base-2 suffixes
 for \fBM\fRega-, \fBG\fRiga-, \fBT\fRera-, \fBP\fReta-, or \fBE\fRxabytes.
 .TP
 .B find 
-To search the directory tree rooted at the given dir/file name for the files that match the given parameters: \fB--atime\fR (file was last accessed N*24 hours ago), \fB--ctime\fR (file's status was last changed N*24 hours ago), \fB--mtime\fR (file's data was last modified N*24 hours ago), \fB--obd\fR (file has an object on a specific OST or OSTs), \fB--size\fR (file has size in bytes, or \fBk\fRilo-, \fBM\fRega-, \fBG\fRiga-, \fBT\fRera-, \fBP\fReta-, or \fBE\fRxabytes if a suffix is given), \fB--type\fR (file has the type: \fBb\fRlock, \fBc\fRharacter, \fBd\fRirectory, \fBp\fRipe, \fBf\fRile, sym\fBl\fRink, \fBs\fRocket, or \fBD\fRoor (Solaris)), \fB--uid\fR (file has specific numeric user ID), \fB--user\fR (file owned by specific user, numeric user ID allowed), \fB--gid\fR (file has specific group ID), \fB--group\fR (file belongs to specific group, numeric group ID allowed). The option \fB--maxdepth\fR limits find to decend at most N levels of directory tree. The options \fB--print\fR and \fB--print0\fR print full file name, followed by a newline or NUL character correspondingly.  Using \fB!\fR before an option negates its meaning (\fIfiles NOT matching the parameter\fR).  Using \fB+\fR before a numeric value means \fIfiles with the parameter OR MORE\fR, while \fB-\fR before a numeric value means \fIfiles with the parameter OR LESS\fR.
+Search the directory tree rooted at the given dir/file name for the
+files that match the given parameters: \fB--atime\fR (file was last
+accessed N*24 hours ago), \fB--ctime\fR (file's status was last changed
+N*24 hours ago), \fB--mtime\fR (file's data was last modified N*24 hours
+ago), \fB--obd\fR (file has an object on a specific OST or OSTs),
+\fB--size\fR (file has size in bytes, or \fBk\fRilo-, \fBM\fRega-,
+\fBG\fRiga-, \fBT\fRera-, \fBP\fReta-, or \fBE\fRxabytes if a suffix is
+given), \fB--type\fR (file has the type: \fBb\fRlock, \fBc\fRharacter,
+\fBd\fRirectory, \fBp\fRipe, \fBf\fRile, sym\fBl\fRink, \fBs\fRocket, or
+\fBD\fRoor (Solaris)), \fB--uid\fR (file has specific numeric user ID),
+\fB--user\fR (file owned by specific user, numeric user ID allowed),
+\fB--gid\fR (file has specific group ID), \fB--group\fR (file belongs to
+specific group, numeric group ID allowed). The option \fB--maxdepth\fR
+limits find to decend at most N levels of directory tree. The options
+\fB--print\fR and \fB--print0\fR print full file name, followed by a
+newline or NUL character correspondingly.  Using \fB!\fR before an option
+negates its meaning (\fIfiles NOT matching the parameter\fR).  Using
+\fB+\fR before a numeric value means \fIfiles with the parameter OR
+MORE\fR, while \fB-\fR before a numeric value means \fIfiles with the
+parameter OR LESS\fR.
+.TP
+.B getname [-h]|[path ...]
+Report all the Lustre mount points and the corresponding Lustre filesystem
+instance. If one or more \fBpath\fR entrys are provided, then only the
+the Lustre instance for these mount points is returned - provided the path
+provided is on a Lustre filesystem. If the path provided is not on a Lustre
+instance 'No such device' is reported.
 .TP
 .B osts 
 .RB [ path ]
@@ -111,7 +150,8 @@ to that filesystem are displayed.
 .B getstripe [--obd|-O <uuid>] [--quiet|-q] [--verbose|-v] 
         \fB[--count | -c ] [--index | -i | --offset | -o  ]
         \fB[--pool | -p ] [--size | -s ] [--directory | -d ]
-        \fB[--recursive | -r ] [--raw | -R ] <dirname|filename>\fR
+        \fB[--recursive | -r ] [--raw | -R ] 
+	\fB<dirname|filename>\fR
 .br
 List the striping information for a given filename or directory tree.
 By default the stripe count, size, and offset will be returned. If you
@@ -150,10 +190,12 @@ You can limit the returned files to those with objects on a specific OST with
 .BR --obd .
 .TP
 .B setstripe [--count|-c stripe_cnt] [--size|-s stripe_size]
-        \fB[--index|-i|--offset|-o start_ost_index] [--pool <pool>]
+        \fB[--index|-i|--offset|-o start_ost_index] 
+	\fB[--pool <pool>]
         \fB<dirname|filename>\fR
 .br
-To create a new file, or set the directory default, with the specified striping parameters.  The
+Create a new file, or set the directory default, with the specified striping
+parameters.  The
 .I stripe_count
 is the number of OSTs to stripe a file over. A
 .I stripe_count
@@ -167,7 +209,9 @@ of 0 means to use the filesystem-wide default stripe size (default 1MB).  The
 .I start_ost_index
 is the OST index (starting at 0) on which to start striping for this file.  A
 .I start_ost_index
-of -1 allows the MDS to choose the starting index and it is strongly recommended, as this allows space and load balancing to be done by the MDS as needed.  The
+of -1 allows the MDS to choose the starting index and it is strongly
+recommended, as this allows space and load balancing to be done by the MDS as
+needed.  The
 .I poolname
 is the name of a predefined pool of OSTs (see 
 .B lctl
@@ -192,8 +236,15 @@ or
 or the OSTs in
 .IR filesystem.pool .
 .TP
-.B quota [-q] [-v] [-o obd_uuid|-i mdt_idx|-I ost_idx] [-u|-g <uname>|<uid>|<gname>|<gid>] <filesystem>
-To display disk usage and limits, either for the full filesystem, or for objects on a specific obd. A user or group name or an ID can be specified. If both user and group are omitted quotas for current uid/gid are shown. -v provides more verbose (with per-obd statistics) output. -q disables printing of additional descriptions (including column titles).
+.B quota [-q] [-v] [-o obd_uuid|-i mdt_idx|-I ost_idx] 
+	\fB[-u|-g <uname>|<uid>|<gname>|<gid>] 
+	\fB<filesystem>\fR
+.br
+To display disk usage and limits, either for the full filesystem, or for
+objects on a specific obd. A user or group name or an ID can be specified. If
+both user and group are omitted quotas for current uid/gid are shown. -v
+provides more verbose (with per-obd statistics) output. -q disables printing of
+additional descriptions (including column titles).
 .TP
 .B quota -t <-u|-g> <filesystem>
 To display block and inode grace times for user (-u) or group (-g) quotas
@@ -202,22 +253,44 @@ To display block and inode grace times for user (-u) or group (-g) quotas
 To change files' owner and group on OSTs of the specified filesystem
 .TP
 .B quotacheck [-ugf] <filesystem>
-To scan the specified filesystem for disk usage, and create or update quota files. Options specify quota for users (-u) groups (-g) and force (-f)
+To scan the specified filesystem for disk usage, and create or update quota
+files. Options specify quota for users (-u) groups (-g) and force (-f)
 .TP
 .B quotaon [-ugf] <filesystem>
-To turn filesystem quotas on. Options specify quota for users (-u) groups (-g) and force (-f)
+To turn filesystem quotas on. Options specify quota for users (-u) groups (-g)
+and force (-f)
 .TP
 .B quotaoff [-ugf] <filesystem>
-To turn filesystem quotas off.  Options specify quota for users (-u) groups (-g) and force (-f)
+To turn filesystem quotas off.  Options specify quota for users (-u) groups
+(-g) and force (-f)
 .TP
 .B quotainv [-ug] [-f] <filesystem>
-Clear quota files (administrative quota files if used without -f, operational quota files otherwise), all of their quota entries, for (-u) users or (-g) groups; after quotainv one must use quotacheck before using quotas. DO NOT USE THIS COMMAND UNLESS YOU REALLY KNOW WHAT IT DOES. IT IS MAINLY FOR INTERNAL PURPOSES.
+Clear quota files (administrative quota files if used without -f, operational
+quota files otherwise), all of their quota entries, for (-u) users or (-g)
+groups; after quotainv one must use quotacheck before using quotas. DO NOT USE
+THIS COMMAND UNLESS YOU REALLY KNOW WHAT IT DOES. IT IS MAINLY FOR INTERNAL
+PURPOSES.
 .TP
-.B setquota  <-u|-g> <uname>|<uid>|<gname>|<gid> [--block-softlimit <block-softlimit>] [--block-hardlimit <block-hardlimit>] [--inode-softlimit <inode-softlimit>] [--inode-hardlimit <inode-hardlimit>] <filesystem>
-To set filesystem quotas for users or groups. Limits can be specified with -b, -k, -m, -g, -t, -p suffixes which specify units of 1, 2^10, 2^20, 2^30, 2^40 and 2^50 accordingly. Block limits unit is kilobyte (1024) by default and block limits are always kilobyte-grained (even if specified in bytes), see EXAMPLES
+.B setquota  <-u|-g> <uname>|<uid>|<gname>|<gid> 
+	\fB[--block-softlimit <block-softlimit>] 
+	\fB[--block-hardlimit <block-hardlimit>] 
+	\fB[--inode-softlimit <inode-softlimit>] 
+	\fB[--inode-hardlimit <inode-hardlimit>] 
+	\fB<filesystem>\fR
+.br
+To set filesystem quotas for users or groups. Limits can be specified with -b,
+-k, -m, -g, -t, -p suffixes which specify units of 1, 2^10, 2^20, 2^30, 2^40
+and 2^50 accordingly. Block limits unit is kilobyte (1024) by default and block
+limits are always kilobyte-grained (even if specified in bytes), see EXAMPLES
 .TP
-.B setquota -t [-u|-g] [--block-grace <block-grace>] [--inode-grace <inode-grace>] <filesystem>
-To set filesystem quota grace times for users or groups. Grace time is specified in "XXwXXdXXhXXmXXs" format or as an integer seconds value, see EXAMPLES
+
+.B setquota -t [-u|-g] [--block-grace <block-grace>] 
+	\fB[--inode-grace <inode-grace>] 
+	\fB<filesystem>\fR
+.br
+To set filesystem quota grace times for users or groups. Grace time is
+specified in "XXwXXdXXhXXmXXs" format or as an integer seconds value, see
+EXAMPLES
 .TP
 .B help 
 Provides brief help on the various arguments
@@ -230,7 +303,8 @@ Quit the interactive lfs session
 This creates a file striped on two OSTs with 128kB on each stripe.
 .TP
 .B $ lfs setstripe -d /mnt/lustre/dir
-This deletes a default stripe pattern on dir. New files will use the default striping pattern created therein.
+This deletes a default stripe pattern on dir. New files will use the default
+striping pattern created therein.
 .TP
 .B $ lfs getstripe -v /mnt/lustre/file1
 Lists the detailed object allocation of a given file
@@ -244,6 +318,9 @@ Recursively list all regular files in given directory more than 30 days old
 .B $ lfs find --obd OST2-UUID /mnt/lustre/
 Recursively list all files in a given directory that have objects on OST2-UUID.
 .tP
+.B $ lfs getname /mnt/lustre/
+Return the Lustre filesystem instance for the filesystem mounted at /mnt/lustre
+.TP
 .B $ lfs check servers 
 Check the status of all servers (MDT, OST)
 .TP
@@ -281,7 +358,8 @@ Turn quotas of user and group off
 Set quotas of user `bob': 1GB block quota hardlimit and 2 GB block quota softlimit
 .TP
 .B $ lfs setquota -t -u --block-grace 1000 --inode-grace 1w4d /mnt/lustre
-Set grace times for user quotas: 1000 seconds for block quotas, 1 week and 4 days for inode quotas
+Set grace times for user quotas: 1000 seconds for block quotas, 1 week and 4
+days for inode quotas
 .SH BUGS
 The \fBlfs find\fR command isn't as comprehensive as \fBfind\fR(1).
 Report bugs using http://bugzilla.lustre.org.
