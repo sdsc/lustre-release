@@ -13,25 +13,14 @@ init_logging
 cleanup_mount $MOUNT
 # mount lustre on mds
 lustre_client=$(facet_host $(get_facets MDS) | tail -1)
-zconf_mount_clients $lustre_client $MOUNT
+zconf_mount_clients $lustre_client $MOUNT "-o user_xattr,acl,flock,32bitapi"
 
 # setup the nfs
-setup_nfs "3" "$MOUNT" "$lustre_client" "$CLIENTS"
+setup_nfs "4" "$MOUNT" "$lustre_client" "$CLIENTS"
 
 export NFSCLIENT=yes
 export FAIL_ON_ERROR=false
 
-sh $LUSTRE/tests/parallel-scale.sh
-
-# cleanup nfs
-cleanup_nfs "$MOUNT" "$lustre_client" "$CLIENTS"
-
-zconf_umount_clients $lustre_client $MOUNT
-zconf_mount_clients $CLIENTS $MOUNT
-
-complete $(basename $0) $SECONDS
-check_and_cleanup_lustre
-exit_status
 # common setup
 #
 MACHINEFILE=${MACHINEFILE:-$TMP/$(basename $0 .sh).machines}
