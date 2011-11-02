@@ -66,8 +66,8 @@ ior_iteration=${ior_iteration:-1}
 ior_blockSize=${ior_blockSize:-6}	# Gb
 ior_xferSize=${ior_xferSize:-2m}
 ior_type=${ior_type:-POSIX}
-ior_DURATION=${ior_DURATION:-60}	# minutes
-[ "$SLOW" = "no" ] && ior_DURATION=10
+ior_DURATION=${ior_DURATION:-30}	# minutes
+[ "$SLOW" = "no" ] && ior_DURATION=5
 
 build_test_filter
 check_and_setup_lustre
@@ -291,9 +291,6 @@ test_iorssf() {
     test_ior "ssf"
 }
 run_test iorssf "iorssf"
-
-# pause a bit
-sleep 5
 
 test_iorfpp() {
     test_ior "fpp"
