@@ -13,7 +13,7 @@ init_logging
 cleanup_mount $MOUNT
 # mount lustre on mds
 lustre_client=$(facet_host $(get_facets MDS) | tail -1)
-zconf_mount_clients $lustre_client $MOUNT "-o user_xattr,acl,flock,32bitapi"
+zconf_mount_clients $lustre_client $MOUNT
 
 # setup the nfs
 setup_nfs "4" "$MOUNT" "$lustre_client" "$CLIENTS"
