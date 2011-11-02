@@ -67,7 +67,7 @@ ior_blockSize=${ior_blockSize:-6}	# Gb
 ior_xferSize=${ior_xferSize:-2m}
 ior_type=${ior_type:-POSIX}
 ior_DURATION=${ior_DURATION:-30}	# minutes
-[ "$SLOW" = "no" ] && ior_DURATION=60
+[ "$SLOW" = "no" ] && ior_DURATION=5
 
 build_test_filter
 check_and_setup_lustre
@@ -135,7 +135,7 @@ test_compilebench() {
     [ $rc = 0 ] || error "compilebench failed: $rc"
     rm -rf $testdir
 }
-#run_test compilebench "compilebench"
+run_test compilebench "compilebench"
 
 test_metabench() {
     [ x$METABENCH = x ] &&
@@ -227,7 +227,7 @@ test_connectathon() {
     cd $savePWD
     rm -rf $testdir
 }
-#run_test connectathon "connectathon"
+run_test connectathon "connectathon"
 
 test_ior() {
     local type=${1:="ssf"}
@@ -287,15 +287,15 @@ test_ior() {
     rm -rf $testdir
 }
 
-test_iorfpp() {
-    test_ior "fpp"
-}
-run_test iorfpp "iorfpp"
 test_iorssf() {
     test_ior "ssf"
 }
 run_test iorssf "iorssf"
 
+test_iorfpp() {
+    test_ior "fpp"
+}
+run_test iorfpp "iorfpp"
 
 # cleanup nfs
 cleanup_nfs "$MOUNT" "$lustre_client" "$CLIENTS"
