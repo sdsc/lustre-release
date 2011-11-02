@@ -66,8 +66,8 @@ ior_iteration=${ior_iteration:-1}
 ior_blockSize=${ior_blockSize:-6}	# Gb
 ior_xferSize=${ior_xferSize:-2m}
 ior_type=${ior_type:-POSIX}
-ior_DURATION=${ior_DURATION:-60}	# minutes
-[ "$SLOW" = "no" ] && ior_DURATION=10
+ior_DURATION=${ior_DURATION:-30}	# minutes
+[ "$SLOW" = "no" ] && ior_DURATION=5
 
 build_test_filter
 check_and_setup_lustre
@@ -248,7 +248,7 @@ test_ior() {
 
     print_opts IOR ior_THREADS ior_DURATION MACHINEFILE
 
-    local testdir=$DIR/d0.ior${type}
+    local testdir=$DIR/d0.ior
     mkdir -p $testdir
     # mpi_run uses mpiuser
     chmod 0777 $testdir
@@ -268,7 +268,6 @@ test_ior() {
     # -T    maxTimeDuration -- max time in minutes to run tests"
     # -k    keepFile -- keep testFile(s) on program exit
 
-    ior_blockSize=1
     local cmd="$IOR -a $ior_type -b ${ior_blockSize}g -o $testdir/iorData -t $ior_xferSize -v -w -r -i $ior_iteration -T $ior_DURATION -k"
     [ $type = "fpp" ] && cmd="$cmd -F"
 
