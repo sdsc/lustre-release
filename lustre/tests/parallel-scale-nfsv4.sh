@@ -67,7 +67,7 @@ ior_blockSize=${ior_blockSize:-6}	# Gb
 ior_xferSize=${ior_xferSize:-2m}
 ior_type=${ior_type:-POSIX}
 ior_DURATION=${ior_DURATION:-30}	# minutes
-[ "$SLOW" = "no" ] && ior_DURATION=60
+[ "$SLOW" = "no" ] && ior_DURATION=5
 
 build_test_filter
 check_and_setup_lustre
