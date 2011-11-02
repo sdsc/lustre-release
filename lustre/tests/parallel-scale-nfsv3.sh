@@ -13,10 +13,10 @@ init_logging
 cleanup_mount $MOUNT
 # mount lustre on mds
 lustre_client=$(facet_host $(get_facets MDS) | tail -1)
-zconf_mount_clients $lustre_client $MOUNT "-o user_xattr,acl,flock,32bitapi"
+zconf_mount_clients $lustre_client $MOUNT
 
 # setup the nfs
-setup_nfs "4" "$MOUNT" "$lustre_client" "$CLIENTS"
+setup_nfs "3" "$MOUNT" "$lustre_client" "$CLIENTS"
 
 export NFSCLIENT=yes
 export FAIL_ON_ERROR=false
@@ -63,11 +63,11 @@ IOR=${IOR:-$(which IOR 2> /dev/null || true)}
 # threads per client
 ior_THREADS=${ior_THREADS:-2}
 ior_iteration=${ior_iteration:-1}
-ior_blockSize=${ior_blockSize:-1}	# Gb
+ior_blockSize=${ior_blockSize:-6}	# Gb
 ior_xferSize=${ior_xferSize:-2m}
 ior_type=${ior_type:-POSIX}
-ior_DURATION=${ior_DURATION:-60}	# minutes
-[ "$SLOW" = "no" ] && ior_DURATION=10
+ior_DURATION=${ior_DURATION:-30}	# minutes
+[ "$SLOW" = "no" ] && ior_DURATION=5
 
 build_test_filter
 check_and_setup_lustre
@@ -248,7 +248,7 @@ test_ior() {
 
     print_opts IOR ior_THREADS ior_DURATION MACHINEFILE
 
-    local testdir=$DIR/d0.ior.${type}
+    local testdir=$DIR/d0.ior
     mkdir -p $testdir
     # mpi_run uses mpiuser
     chmod 0777 $testdir
@@ -296,7 +296,6 @@ test_iorfpp() {
     test_ior "fpp"
 }
 run_test iorfpp "iorfpp"
-
 
 # cleanup nfs
 cleanup_nfs "$MOUNT" "$lustre_client" "$CLIENTS"
