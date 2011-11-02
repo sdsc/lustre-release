@@ -8,29 +8,6 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 
-. $LUSTRE/tests/setup-nfs.sh
-# first unmount all the lustre client
-cleanup_mount $MOUNT
-# mount lustre on mds
-lustre_client=$(facet_host $(get_facets MDS) | tail -1)
-zconf_mount_clients $lustre_client $MOUNT "-o user_xattr,acl,flock,32bitapi"
-
-# setup the nfs
-setup_nfs "4" "$MOUNT" "$lustre_client" "$CLIENTS"
-
-sh $LUSTRE/tests/parallel-scale-nfs.sh
-
-# cleanup nfs
-cleanup_nfs "$MOUNT" "$lustre_client" "$CLIENTS"
-
-zconf_umount_clients $lustre_client $MOUNT
-zconf_mount_clients $CLIENTS $MOUNT
-
-complete $(basename $0) $SECONDS
-check_and_cleanup_lustre
-exit_status
-
-
 export NFSCLIENT=yes
 export FAIL_ON_ERROR=false
 
@@ -261,7 +238,7 @@ test_ior() {
 
     print_opts IOR ior_THREADS ior_DURATION MACHINEFILE
 
-    local testdir=$DIR/d0.ior.${type}
+    local testdir=$DIR/d0.ior${type}
     mkdir -p $testdir
     # mpi_run uses mpiuser
     chmod 0777 $testdir
@@ -309,14 +286,3 @@ test_iorfpp() {
     test_ior "fpp"
 }
 run_test iorfpp "iorfpp"
-
-
-# cleanup nfs
-cleanup_nfs "$MOUNT" "$lustre_client" "$CLIENTS"
-
-zconf_umount_clients $lustre_client $MOUNT
-zconf_mount_clients $CLIENTS $MOUNT
-
-complete $(basename $0) $SECONDS
-check_and_cleanup_lustre
-exit_status
