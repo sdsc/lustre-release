@@ -331,6 +331,8 @@ typedef struct srpc_service {
         const char        *sv_name;          /* human readable name */
         int                sv_nprune;        /* # posted RPC to be pruned */
         int                sv_concur;        /* max # concurrent RPCs */
+        /* in progress of growing/shrinking concurrent RPCs */
+        int                sv_concur_diff;
 
         spinlock_t         sv_lock;
         int                sv_shuttingdown;
@@ -350,7 +352,11 @@ typedef struct srpc_service {
 } srpc_service_t;
 
 #define SFW_POST_BUFFERS         256
-#define SFW_SERVICE_CONCURRENCY  (SFW_POST_BUFFERS/2)
+
+#define SRPC_SVC_CONCUR_MIN      (1 << 1)
+#define SRPC_SVC_CONCUR_TEST     (1 << 10)
+#define SRPC_SVC_CONCUR_SFW      (SFW_POST_BUFFERS/2)
+#define SRPC_SVC_CONCUR_MAX      (1 << 16)
 
 typedef struct {
         struct list_head  sn_list;    /* chain on fw_zombie_sessions */
@@ -470,6 +476,9 @@ int srpc_service_add_buffers(srpc_service_t *sv, int nbuffer);
 void srpc_service_remove_buffers(srpc_service_t *sv, int nbuffer);
 void srpc_get_counters(srpc_counters_t *cnt);
 void srpc_set_counters(const srpc_counters_t *cnt);
+
+int srpc_service_concur_get(int id);
+int srpc_service_concur_set(int id, int concur);
 
 void swi_kill_workitem(swi_workitem_t *wi);
 void swi_schedule_workitem(swi_workitem_t *wi);
