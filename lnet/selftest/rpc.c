@@ -278,6 +278,124 @@ srpc_remove_service (srpc_service_t *sv)
 }
 
 int
+srpc_service_concur_get(int id)
+{
+        srpc_service_t    *sv;
+        int                rc;
+
+        LASSERT(0 <= id && id <= SRPC_SERVICE_MAX_ID);
+
+        spin_lock(&srpc_data.rpc_glock);
+
+        sv = srpc_data.rpc_services[id];
+
+        if (sv != NULL) {
+                spin_lock(&sv->sv_lock);
+                rc = sv->sv_concur;
+                spin_unlock(&sv->sv_lock);
+        } else {
+                /* invalid service ID */
+                rc = -EINVAL;
+        }
+
+        spin_unlock(&srpc_data.rpc_glock);
+
+        return rc;
+}
+
+int
+srpc_service_concur_set(int id, int concur)
+{
+        CFS_LIST_HEAD     (head);
+        srpc_service_t    *sv;
+        srpc_server_rpc_t *rpc;
+        int                rc = 0;
+        int                count;
+        int                i;
+
+        LASSERT(0 <= id && id <= SRPC_SERVICE_MAX_ID);
+
+        if (concur < SRPC_SVC_CONCUR_MIN)
+                concur = SRPC_SVC_CONCUR_MIN;
+        if (concur > SRPC_SVC_CONCUR_MAX)
+                concur = SRPC_SVC_CONCUR_MAX;
+
+        spin_lock(&srpc_data.rpc_glock);
+
+        sv = srpc_data.rpc_services[id];
+        if (sv == NULL) {
+                spin_unlock(&srpc_data.rpc_glock);
+                return -EINVAL;
+        }
+
+        spin_lock(&sv->sv_lock);
+        if (sv->sv_concur_diff != 0) {
+                /* serialize changing operations and simply logic */
+                spin_unlock(&srpc_data.rpc_glock);
+                spin_unlock(&sv->sv_lock);
+                return -EAGAIN;
+        }
+
+        count = concur - sv->sv_concur;
+
+        if (count < 0) { /* decrease RPCs concurrency */
+                sv->sv_concur = concur;
+
+                /* prune preallocated RPCs */
+                while (count < 0 && !list_empty(&sv->sv_free_rpcq)) {
+                        rpc = list_entry(sv->sv_free_rpcq.next,
+                                         srpc_server_rpc_t, srpc_list);
+                        list_move(&rpc->srpc_list, &head);
+                        count++;
+                }
+        }
+
+        if (count != 0)
+                sv->sv_concur_diff = count;
+
+        spin_unlock(&sv->sv_lock);
+        spin_unlock(&srpc_data.rpc_glock);
+
+        if (count <= 0) {
+                while (!list_empty(&head)) {
+                        rpc = list_entry(head.next,
+                                         srpc_server_rpc_t, srpc_list);
+                        list_del(&rpc->srpc_list);
+                        LIBCFS_FREE(rpc, sizeof(*rpc));
+                }
+
+                return 0;
+        }
+
+        /* increase RPCs concurrency */
+        for (i = 0; i < count; i++) {
+                LIBCFS_ALLOC(rpc, sizeof(*rpc));
+                if (rpc != NULL) {
+                        list_add(&rpc->srpc_list, &head);
+                        continue;
+                }
+
+                CERROR("LST expect to allocate %d free RPCs, but can only "
+                       "allocate %d\n", count, i);
+                if (i == 0) /* did nothing */
+                        rc = -ENOMEM;
+                break;
+        }
+
+        spin_lock(&sv->sv_lock);
+
+        LASSERT(sv->sv_concur_diff == count);
+
+        sv->sv_concur_diff = 0;
+        sv->sv_concur += i;
+        list_splice_init(&head, &sv->sv_free_rpcq);
+
+        spin_unlock(&sv->sv_lock);
+
+        return rc;
+}
+
+int
 srpc_post_passive_rdma(int portal, __u64 matchbits, void *buf,
                        int len, int options, lnet_process_id_t peer,
                        lnet_handle_md_t *mdh, srpc_event_t *ev)
@@ -798,6 +916,12 @@ srpc_server_rpc_done (srpc_server_rpc_t *rpc, int status)
         LASSERT (rpc->srpc_ev.ev_fired);
         swi_kill_workitem(&rpc->srpc_wi);
 
+        if (sv->sv_concur_diff < 0) {
+                /* want to release some RPCs and decrease concurrency */
+                sv->sv_concur_diff++;
+                goto out;
+        }
+
         if (!sv->sv_shuttingdown && !list_empty(&sv->sv_blocked_msgq)) {
                 buffer = list_entry(sv->sv_blocked_msgq.next,
                                     srpc_buffer_t, buf_list);
@@ -810,7 +934,12 @@ srpc_server_rpc_done (srpc_server_rpc_t *rpc, int status)
                 list_add(&rpc->srpc_list, &sv->sv_free_rpcq);
         }
 
+        rpc = NULL;
+ out:
         spin_unlock(&sv->sv_lock);
+
+        if (rpc != NULL)
+                LIBCFS_FREE(rpc, sizeof(*rpc));
         return;
 }
 

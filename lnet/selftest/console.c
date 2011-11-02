@@ -1902,7 +1902,7 @@ srpc_service_t lstcon_acceptor_service =
         .sv_handler     = lstcon_acceptor_handle,
         .sv_bulk_ready  = NULL,
         .sv_id          = SRPC_SERVICE_JOIN,
-        .sv_concur      = SFW_SERVICE_CONCURRENCY,
+        .sv_concur      = SRPC_SVC_CONCUR_SFW,
 };
 
 extern int lstcon_ioctl_entry(unsigned int cmd, struct libcfs_ioctl_data *data);

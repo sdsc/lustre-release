@@ -55,7 +55,10 @@ static int rpc_timeout = 64;
 CFS_MODULE_PARM(rpc_timeout, "i", int, 0644,
                 "rpc timeout in seconds (64 by default, 0 == never)");
 
-#define SFW_TEST_CONCURRENCY     1792
+static int test_rpc_concur = SRPC_SVC_CONCUR_TEST;
+CFS_MODULE_PARM(test_rpc_concur, "i", int, 0644,
+                "server side test RPC concurrency");
+
 #define SFW_EXTRA_TEST_BUFFERS   8 /* tolerate buggy peers with extra buffers */
 
 #define sfw_test_buffers(tsi)    ((tsi)->tsi_loop + SFW_EXTRA_TEST_BUFFERS)
@@ -1558,6 +1561,144 @@ extern srpc_service_t        ping_test_service;
 extern sfw_test_client_ops_t brw_test_client;
 extern srpc_service_t        brw_test_service;
 
+#ifdef CONFIG_SYSCTL
+
+#define SFW_PROC_PING       "ping"
+#define SFW_PROC_BRW        "brw"
+
+#ifndef HAVE_SYSCTL_UNNUMBERED
+#define CTL_LNET         (0x100)
+enum {
+        PSDEV_LST               = 200,
+        PSDEV_LST_PING,
+        PSDEV_LST_BRW,
+};
+
+#else
+
+#define CTL_LNET                CTL_UNNUMBERED
+#define PSDEV_LST               CTL_UNNUMBERED
+#define PSDEV_LST_PING          CTL_UNNUMBERED
+#define PSDEV_LST_BRW           CTL_UNNUMBERED
+
+#endif
+
+int LL_PROC_PROTO(sfw_proc_test_concur)
+{
+        cfs_sysctl_table_t  dummy = *table;
+        int                 concur = 0;
+        int                 rc;
+        int                 id;
+
+        if (strcmp(dummy.procname, SFW_PROC_PING) == 0)
+                id = SRPC_SERVICE_PING;
+        else if (strcmp(dummy.procname, SFW_PROC_BRW) == 0)
+                id = SRPC_SERVICE_BRW;
+        else
+                return -EINVAL;
+
+        dummy.data = &concur;
+        dummy.proc_handler = &proc_dointvec;
+
+        if (!write) { /* read */
+                concur = srpc_service_concur_get(id);
+                rc = ll_proc_dointvec(&dummy, write, filp, buffer, lenp, ppos);
+                return rc;
+        }
+
+        rc = ll_proc_dointvec(&dummy, write, filp, buffer, lenp, ppos);
+        if (rc < 0)
+                return rc;
+
+        if (concur <= 0)
+                return -EINVAL;
+
+        rc = srpc_service_concur_set(id, concur);
+
+        return rc;
+}
+
+static cfs_sysctl_table_t lst_tests_table[] = {
+        {
+                .ctl_name = PSDEV_LST_PING,
+                .procname = SFW_PROC_PING,
+                .maxlen   = sizeof(int),
+                .mode     = 0644,
+                .proc_handler = &sfw_proc_test_concur,
+        },
+        {
+                .ctl_name = PSDEV_LST_BRW,
+                .procname = SFW_PROC_BRW,
+                .maxlen   = sizeof(int),
+                .mode     = 0644,
+                .proc_handler = &sfw_proc_test_concur,
+        },
+        {
+                .ctl_name = 0
+        }
+};
+
+static cfs_sysctl_table_t lst_table[] = {
+        {
+                .ctl_name = CTL_LNET,
+                .procname = "lst",
+                .mode     = 0555,
+                .data     = NULL,
+                .maxlen   = 0,
+                .child    = lst_tests_table,
+        },
+        {
+                .ctl_name = 0
+        }
+};
+
+static cfs_sysctl_table_t top_table[] = {
+        {
+                .ctl_name = CTL_LNET,
+                .procname = "lnet",
+                .mode     = 0555,
+                .data     = NULL,
+                .maxlen   = 0,
+                .child    = lst_table,
+        },
+        {
+                .ctl_name = 0
+        }
+};
+
+static cfs_sysctl_table_header_t *lst_ctl_table_header = NULL;
+
+int
+sfw_proc_init(void)
+{
+        if (lst_ctl_table_header == NULL)
+                lst_ctl_table_header = cfs_register_sysctl_table(top_table, 0);
+        return 0;
+}
+
+void
+sfw_proc_fini(void)
+{
+        if (lst_ctl_table_header != NULL)
+                cfs_unregister_sysctl_table(lst_ctl_table_header);
+
+        lst_ctl_table_header = NULL;
+}
+
+#else /* CONFIG_SYSCTL */
+int
+sfw_proc_init(void)
+{
+        return 0;
+}
+
+void
+sfw_proc_fini(void)
+{
+}
+
+#endif /* CONFIG_SYSCTL */
+
 int
 sfw_startup (void)
 {
@@ -1618,7 +1759,7 @@ sfw_startup (void)
         error = 0;
         list_for_each_entry (tsc, &sfw_data.fw_tests, tsc_list) {
                 sv = tsc->tsc_srv_service;
-                sv->sv_concur = SFW_TEST_CONCURRENCY;
+                sv->sv_concur = test_rpc_concur;
 
                 rc = srpc_add_service(sv);
                 LASSERT (rc != -EBUSY);
@@ -1635,7 +1776,7 @@ sfw_startup (void)
 
                 sv->sv_bulk_ready = NULL;
                 sv->sv_handler    = sfw_handle_server_rpc;
-                sv->sv_concur     = SFW_SERVICE_CONCURRENCY;
+                sv->sv_concur     = SRPC_SVC_CONCUR_SFW;
                 if (sv->sv_id == SRPC_SERVICE_TEST)
                         sv->sv_bulk_ready = sfw_bulk_ready;
 
@@ -1658,6 +1799,9 @@ sfw_startup (void)
                         error = -ENOMEM;
                 }
         }
+
+        if (error == 0)
+                error = sfw_proc_init();
 
         if (error != 0)
                 sfw_shutdown();
@@ -1692,6 +1836,8 @@ sfw_shutdown (void)
                        atomic_read(&sfw_data.fw_nzombies));
 
         spin_unlock(&sfw_data.fw_lock);
+
+        sfw_proc_fini();
 
         for (i = 0; ; i++) {
                 sv = &sfw_services[i];
