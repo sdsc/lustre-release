@@ -48,10 +48,10 @@
 #include <lustre/lustre_user.h>
 
 /* Initially allocate for these many OSTs, realloc if needed */
-#define INIT_ALLOC_NUM_OSTS     1024
+#define INIT_ALLOC_NUM_TGTS     1024
 
 /* Maximum number of osts that can be specified to lfs find */
-#define FIND_MAX_OSTS   1024
+#define FIND_MAX_TGTS   1024
 
 typedef void (*llapi_cb_t)(char *obd_type_name, char *obd_name, char *obd_uuid, void *args);
 
@@ -132,6 +132,7 @@ struct find_param {
                         exclude_pattern:1,
                         exclude_type:1,
                         exclude_obd:1,
+                        exclude_mdt:1,
                         have_fileinfo:1,
                         exclude_gid:1,
                         exclude_uid:1,
@@ -145,6 +146,7 @@ struct find_param {
                         exclude_mtime:1,
                         exclude_ctime:1,
                         get_mdt_index:1,
+                        get_lmv:1,
                         raw:1;
 
         int     verbose;
@@ -155,11 +157,18 @@ struct find_param {
 
         char   *print_fmt;
 
-        struct  obd_uuid        *obduuid;
+        struct  obd_uuid       *obduuid;
         int                     num_obds;
         int                     num_alloc_obds;
         int                     obdindex;
-        int                     *obdindexes;
+        int                    *obdindexes;
+
+        struct  obd_uuid       *mdtuuid;
+        int                     num_mdts;
+        int                     num_alloc_mdts;
+        int                     mdtindex;
+        int                    *mdtindexes;
+        int                     file_mdtindex;
 
         int     lumlen;
         struct  lov_user_mds_data *lmd;
@@ -186,6 +195,7 @@ extern int llapi_catinfo(char *dir, char *keyword, char *node_name);
 extern int llapi_file_get_lov_uuid(const char *path, struct obd_uuid *lov_uuid);
 extern int llapi_file_fget_lov_uuid(int fd, struct obd_uuid *lov_uuid);
 extern int llapi_lov_get_uuids(int fd, struct obd_uuid *uuidp, int *ost_count);
+extern int llapi_lmv_get_uuids(int fd, struct obd_uuid *uuidp, int *mdt_count);
 extern int llapi_is_lustre_mnttype(const char *type);
 extern int llapi_search_ost(char *fsname, char *poolname, char *ostname);
 extern int llapi_get_obd_count(char *mnt, int *count, int is_mdt);
