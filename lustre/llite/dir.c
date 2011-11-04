@@ -1434,8 +1434,14 @@ out_free:
                 OBD_FREE_PTR(qctl);
                 RETURN(rc);
         }
-        case OBD_IOC_GETNAME: {
-                struct obd_device *obd = class_exp2obd(sbi->ll_dt_exp);
+        case OBD_IOC_GETNAME:
+        case OBD_IOC_GETMDNAME: {
+                struct obd_device *obd;
+
+                if (cmd == OBD_IOC_GETNAME)
+                        obd = class_exp2obd(sbi->ll_dt_exp);
+                else
+                        obd = class_exp2obd(sbi->ll_md_exp);
                 if (!obd)
                         RETURN(-EFAULT);
                 if (cfs_copy_to_user((void *)arg, obd->obd_name,
