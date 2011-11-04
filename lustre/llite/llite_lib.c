@@ -2095,7 +2095,7 @@ int ll_obd_statfs(struct inode *inode, void *arg)
                 GOTO(out_statfs, rc = -EINVAL);
 
         memcpy(&type, data->ioc_inlbuf1, sizeof(__u32));
-        if (type == LL_STATFS_MDC)
+        if (type == LL_STATFS_LMV)
                 exp = sbi->ll_md_exp;
         else if (type == LL_STATFS_LOV)
                 exp = sbi->ll_dt_exp;
@@ -2227,6 +2227,31 @@ int ll_show_options(struct seq_file *seq, struct vfsmount *vfs)
 
         if (sbi->ll_flags & LL_SBI_LAZYSTATFS)
                 seq_puts(seq, ",lazystatfs");
+
+        RETURN(0);
+}
+
+/**
+ * Get obd name by cmd, and copy out to user space
+ */
+int ll_get_obd_name(struct inode *inode, unsigned int cmd, unsigned long arg)
+{
+        struct ll_sb_info *sbi = ll_i2sbi(inode);
+        struct obd_device *obd;
+
+        if (cmd != OBD_IOC_GETDTNAME && cmd != OBD_IOC_GETMDNAME)
+                RETURN(-EFAULT);
+
+        if (cmd == OBD_IOC_GETDTNAME)
+                obd = class_exp2obd(sbi->ll_dt_exp);
+        else
+                obd = class_exp2obd(sbi->ll_md_exp);
+        if (!obd)
+                RETURN(-EFAULT);
+
+        if (cfs_copy_to_user((void *)arg, obd->obd_name,
+                             strlen(obd->obd_name) + 1))
+                RETURN (-EFAULT);
 
         RETURN(0);
 }
