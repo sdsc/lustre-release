@@ -3311,6 +3311,11 @@ ostuuid_from_index()
     $LFS osts $2 | awk '/^'$1'/ { print $2 }'
 }
 
+mdtuuid_from_index()
+{
+    $LFS mdts $2 | awk '/^'$1'/ { print $2 }'
+}
+
 remote_node () {
     local node=$1
     [ "$node" != "$(hostname)" ]

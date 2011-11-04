@@ -85,6 +85,7 @@ static int lfs_setstripe(int argc, char **argv);
 static int lfs_find(int argc, char **argv);
 static int lfs_getstripe(int argc, char **argv);
 static int lfs_osts(int argc, char **argv);
+static int lfs_mdts(int argc, char **argv);
 static int lfs_df(int argc, char **argv);
 static int lfs_check(int argc, char **argv);
 static int lfs_catinfo(int argc, char **argv);
@@ -144,8 +145,9 @@ command_t cmdlist[] = {
          "usage: find <directory|filename> ...\n"
          "     [[!] --atime|-A [+-]N] [[!] --mtime|-M [+-]N] [[!] --ctime|-C [+-]N]\n"
          "     [--maxdepth|-D N] [[!] --name|-n <pattern>] [--print0|-P]\n"
-         "     [--print|-p] [[!] --obd|-O <uuid[s]>] [[!] --size|-s [+-]N[bkMGTP]]\n"
-         "     [[!] --type|-t <filetype>] [[!] --gid|-g|--group|-G <gid>|<gname>]\n"
+         "     [--print|-p] [[!] --obd|-O <uuid[s]>] [[!] --mdt|-m <uuid[s]]\n"
+         "     [[!] --size|-s [+-]N[bkMGTP]] [[!] --type|-t <filetype>]\n"
+         "     [[!] --gid|-g|--group|-G <gid>|<gname>]\n"
          "     [[!] --uid|-u|--user|-U <uid>|<uname>]\n"
          "     [[!] --pool <pool>]\n"
          "\t !: used before an option indicates 'NOT' the requested attribute\n"
@@ -165,6 +167,8 @@ command_t cmdlist[] = {
          "obsolete, HEAD does not support it anymore.\n"},
         {"osts", lfs_osts, 0, "list OSTs connected to client "
          "[for specified path only]\n" "usage: osts [path]"},
+        {"mdts", lfs_mdts, 0, "list MDTs connected to client "
+         "[for specified path only]\n" "usage: mdts [path]"},
         {"df", lfs_df, 0,
          "report filesystem disk space usage or inodes usage"
          "of each MDS and all OSDs or a batch belonging to a specific pool .\n"
@@ -502,6 +506,7 @@ static int lfs_find(int argc, char **argv)
                 {"gid",       required_argument, 0, 'g'},
                 {"group",     required_argument, 0, 'G'},
                 {"mtime",     required_argument, 0, 'M'},
+                {"mdt",       required_argument, 0, 'm'},
                 {"name",      required_argument, 0, 'n'},
                 /* --obd is considered as a new option. */
                 {"obd",       required_argument, 0, 'O'},
@@ -531,7 +536,7 @@ static int lfs_find(int argc, char **argv)
 
         optind = 0;
         /* when getopt_long_only() hits '!' it returns 1, puts "!" in optarg */
-        while ((c = getopt_long_only(argc,argv,"-A:C:D:g:G:M:n:O:Ppqrs:t:u:U:v",
+        while ((c = getopt_long_only(argc,argv,"-A:C:D:g:G:M:m:n:O:Ppqrs:t:u:U:v",
                                      long_opts, NULL)) >= 0) {
                 xtime = NULL;
                 xsign = NULL;
@@ -649,6 +654,7 @@ static int lfs_find(int argc, char **argv)
                         param.pattern = (char *)optarg;
                         param.exclude_pattern = !!neg_opt;
                         break;
+                case 'm':
                 case 'O': {
                         char *buf, *token, *next, *p;
                         int len;
@@ -659,25 +665,42 @@ static int lfs_find(int argc, char **argv)
                                 return -ENOMEM;
                         strcpy(buf, (char *)optarg);
 
-                        param.exclude_obd = !!neg_opt;
-
-                        if (param.num_alloc_obds == 0) {
-                                param.obduuid = malloc(FIND_MAX_OSTS *
+                        if (c == 'O') {
+                                param.exclude_obd = !!neg_opt;
+                                if (param.num_alloc_obds == 0) {
+                                        param.obduuid = malloc(FIND_MAX_OSTS * \
                                                        sizeof(struct obd_uuid));
-                                if (param.obduuid == NULL)
-                                        return -ENOMEM;
-                                param.num_alloc_obds = INIT_ALLOC_NUM_OSTS;
+                                        if (param.obduuid == NULL)
+                                                return -ENOMEM;
+                                        param.num_alloc_obds =                \
+                                                INIT_ALLOC_NUM_OSTS;
+                                }
+                        } else {
+                                param.exclude_mdt = !!neg_opt;
+                                if (param.num_alloc_mdts == 0) {
+                                        param.mdtuuid = malloc(FIND_MAX_MDTS * \
+                                                       sizeof(struct obd_uuid));
+                                        if (param.mdtuuid == NULL)
+                                                return -ENOMEM;
+                                        param.num_alloc_mdts =                 \
+                                                 INIT_ALLOC_NUM_MDTS;
+                                }
                         }
-
                         for (token = buf; token && *token; token = next) {
+                                char *uuid;
+                                if (c == 'O')
+                                       uuid =
+                                         param.obduuid[param.num_obds++].uuid;
+                                else
+                                       uuid =
+                                         param.mdtuuid[param.num_mdts++].uuid;
                                 p = strchr(token, ',');
                                 next = 0;
                                 if (p) {
                                         *p = 0;
                                         next = p+1;
                                 }
-                                strcpy((char *)&param.obduuid[param.num_obds++].uuid,
-                                       token);
+                                strcpy((char *)uuid, token);
                         }
 
                         if (buf)
@@ -785,6 +808,9 @@ static int lfs_find(int argc, char **argv)
         if (param.obduuid && param.num_alloc_obds)
                 free(param.obduuid);
 
+        if (param.mdtuuid && param.num_alloc_mdts)
+                free(param.mdtuuid);
+
         return ret;
 }
 
@@ -860,6 +886,8 @@ static int lfs_getstripe(int argc, char **argv)
                         }
                         break;
                 case 'M':
+                        if (!(param.verbose & VERBOSE_DETAIL))
+                                param.maxdepth = 0;
                         param.get_mdt_index = 1;
                         break;
                 case 'R':
@@ -895,7 +923,7 @@ static int lfs_getstripe(int argc, char **argv)
         return rc;
 }
 
-static int lfs_osts(int argc, char **argv)
+static int lfs_tgts(int argc, char **argv)
 {
         char mntdir[PATH_MAX] = {'\0'}, path[PATH_MAX] = {'\0'};
         struct find_param param;
@@ -917,6 +945,9 @@ static int lfs_osts(int argc, char **argv)
                         continue;
 
                 memset(&param, 0, sizeof(param));
+                if (!strncmp(argv[0], "mdts", strlen("mdts")))
+                        param.get_lmv = 1;
+
                 rc = llapi_ostlist(mntdir, &param);
                 if (rc) {
                         fprintf(stderr, "error: %s: failed on %s\n",
@@ -928,6 +959,16 @@ static int lfs_osts(int argc, char **argv)
         }
 
         return rc;
+}
+
+static int lfs_osts(int argc, char **argv)
+{
+        return lfs_tgts(argc, argv);
+}
+
+static int lfs_mdts(int argc, char **argv)
+{
+        return lfs_tgts(argc, argv);
 }
 
 #define COOK(value)                                                     \
