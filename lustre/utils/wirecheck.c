@@ -430,6 +430,7 @@ check_obd_connect_data(void)
         CHECK_DEFINE_64X(OBD_CONNECT_64BITHASH);
         CHECK_DEFINE_64X(OBD_CONNECT_MAXBYTES);
         CHECK_DEFINE_64X(OBD_CONNECT_IMP_RECOV);
+        CHECK_DEFINE_64X(OBD_CONNECT_PACKAGED_XATTR);
 
         CHECK_VALUE_X(OBD_CKSUM_CRC32);
         CHECK_VALUE_X(OBD_CKSUM_ADLER);
@@ -518,6 +519,7 @@ check_obdo(void)
         CHECK_DEFINE_64X(OBD_MD_FLRMTLGETFACL);
         CHECK_DEFINE_64X(OBD_MD_FLRMTRSETFACL);
         CHECK_DEFINE_64X(OBD_MD_FLRMTRGETFACL);
+        CHECK_DEFINE_64X(OBD_MD_PACKAGED_XATTR);
 
         CHECK_CVALUE_X(OBD_FL_INLINEDATA);
         CHECK_CVALUE_X(OBD_FL_OBDMDEXISTS);
@@ -734,7 +736,7 @@ check_mdt_body(void)
         CHECK_MEMBER(mdt_body, generation);
         CHECK_MEMBER(mdt_body, suppgid);
         CHECK_MEMBER(mdt_body, eadatasize);
-        CHECK_MEMBER(mdt_body, aclsize);
+        CHECK_MEMBER(mdt_body, packaged_xattr);
         CHECK_MEMBER(mdt_body, max_mdsize);
         CHECK_MEMBER(mdt_body, max_cookiesize);
         CHECK_MEMBER(mdt_body, uid_h);
@@ -1971,6 +1973,9 @@ main(int argc, char **argv)
         CHECK_VALUE(SEC_CTX_INIT_CONT);
         CHECK_VALUE(SEC_CTX_FINI);
         CHECK_VALUE(SEC_LAST_OPC);
+
+        CHECK_VALUE_X(PXT_ACL);
+        CHECK_VALUE_X(PXT_DEFACL);
 
         COMMENT("Sizes and Offsets");
         BLANK_LINE();

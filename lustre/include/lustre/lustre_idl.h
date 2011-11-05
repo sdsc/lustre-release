@@ -1104,6 +1104,13 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                                   * directory hash */
 #define OBD_CONNECT_MAXBYTES     0x8000000000ULL /* max stripe size */
 #define OBD_CONNECT_IMP_RECOV   0x10000000000ULL /* imp recovery support */
+#define OBD_CONNECT_PACKAGED_XATTR 0x20000000000ULL /* packaged xattr support */
+
+/* packaged xattr type */
+typedef enum {
+        PXT_ACL         = 0x00000001UL,
+        PXT_DEFACL      = 0x00000002UL,
+} pxt_t;
 
 #define OCD_HAS_FLAG(ocd, flg)  \
         (!!((ocd)->ocd_connect_flags & OBD_CONNECT_##flg))
@@ -1129,7 +1136,8 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                 OBD_CONNECT_FID | LRU_RESIZE_CONNECT_FLAG | \
                                 OBD_CONNECT_VBR | OBD_CONNECT_LOV_V3 | \
                                 OBD_CONNECT_SOM | OBD_CONNECT_FULL20 | \
-                                OBD_CONNECT_64BITHASH)
+                                OBD_CONNECT_64BITHASH | \
+                                OBD_CONNECT_PACKAGED_XATTR)
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
                                 OBD_CONNECT_TRUNCLOCK | OBD_CONNECT_INDEX | \
@@ -1403,6 +1411,8 @@ struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
 #define OBD_MD_FLRMTRSETFACL (0x0004000000000000ULL) /* lfs rsetfacl case */
 #define OBD_MD_FLRMTRGETFACL (0x0008000000000000ULL) /* lfs rgetfacl case */
 
+#define OBD_MD_PACKAGED_XATTR   (0x0010000000000000ULL) /* packaged xattr */
+
 #define OBD_MD_FLGETATTR (OBD_MD_FLID    | OBD_MD_FLATIME | OBD_MD_FLMTIME | \
                           OBD_MD_FLCTIME | OBD_MD_FLSIZE  | OBD_MD_FLBLKSZ | \
                           OBD_MD_FLMODE  | OBD_MD_FLTYPE  | OBD_MD_FLUID   | \
@@ -1638,7 +1648,8 @@ struct mdt_body {
         __u32          generation;
         __u32          suppgid;
         __u32          eadatasize;
-        __u32          aclsize;
+        __u32          packaged_xattr; /* valid bits for packaged xattr request,
+                                        * size for packaged xattr reply. */
         __u32          max_mdsize;
         __u32          max_cookiesize;
         __u32          uid_h; /* high 32-bits of uid, for FUID */
