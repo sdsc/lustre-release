@@ -54,7 +54,7 @@ test_0a() {
     rm $MOUNT2/$tfile || return 3
     rm $MOUNT2/$tfile-A || return 4
 }
-run_test 0a "expired recovery with lost client"
+#run_test 0a "expired recovery with lost client"
 
 test_0b() {
     replay_barrier $SINGLEMDS
@@ -69,7 +69,11 @@ test_0b() {
     checkstat $MOUNT2/$tfile && return 2
     return 0
 }
-run_test 0b "lost client during waiting for next transno"
+
+for i in $(seq 10); do
+    run_test 0a "expired recovery with lost client"
+    run_test 0b "lost client during waiting for next transno"
+done
 
 test_1() {
     touch $MOUNT1/a
