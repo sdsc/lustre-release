@@ -3729,10 +3729,20 @@ static int filter_statfs(struct obd_device *obd, struct obd_statfs *osfs,
 
         if (OBD_FAIL_CHECK(OBD_FAIL_OST_ENOSPC)) {
                 struct lr_server_data *lsd = class_server_data(obd);
-                int index = le32_to_cpu(lsd->lsd_ost_index);
 
-                if (cfs_fail_val == -1 || index == cfs_fail_val)
+                if (cfs_fail_val == -1 ||
+                    le32_to_cpu(lsd->lsd_ost_index) == cfs_fail_val)
                         osfs->os_bfree = osfs->os_bavail = 2;
+                else if (cfs_fail_loc & OBD_FAIL_ONCE)
+                        cfs_fail_loc &= ~OBD_FAILED; /* reset flag */
+        }
+
+        if (OBD_FAIL_CHECK(OBD_FAIL_OST_ENOINO)) {
+                struct lr_server_data *lsd = class_server_data(obd);
+
+                if (cfs_fail_val == -1 ||
+                    le32_to_cpu(lsd->lsd_ost_index) == cfs_fail_val)
+                        osfs->os_ffree = 0;
                 else if (cfs_fail_loc & OBD_FAIL_ONCE)
                         cfs_fail_loc &= ~OBD_FAILED; /* reset flag */
         }
