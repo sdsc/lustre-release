@@ -2024,6 +2024,13 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
 
                 rc = l_wait_event(set->set_waitq, ptlrpc_check_set(NULL, set), &lwi);
 
+                /* LU-769 - if we ignored the signal because it was already
+                 * pending when we started, we need to handle it now or we risk
+                 * it being ignored forever */
+                if (rc == -ETIMEDOUT && lwi.lwi_allow_intr &&
+                    cfs_signal_pending())
+                        ptlrpc_interrupted_set(set);
+
                 LASSERT(rc == 0 || rc == -EINTR || rc == -ETIMEDOUT);
 
                 /* -EINTR => all requests have been flagged rq_intr so next
