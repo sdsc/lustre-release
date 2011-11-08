@@ -3168,6 +3168,12 @@ static int filter_getattr(struct obd_export *exp, struct obd_info *oinfo)
         oinfo->oi_oa->o_valid = OBD_MD_FLID;
         obdo_from_inode(oinfo->oi_oa, dentry->d_inode, NULL, FILTER_VALID_FLAGS);
 
+        /* Store inode version in reply */
+        oinfo->oi_oa->o_valid |= OBD_MD_FLDATAVERSION;
+        oinfo->oi_oa->o_data_version = fsfilt_get_version(exp->exp_obd,
+                                                          dentry->d_inode);
+
+
         f_dput(dentry);
         RETURN(rc);
 }

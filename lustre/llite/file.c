@@ -684,7 +684,7 @@ out_openerr:
 }
 
 /* Fills the obdo with the attributes for the lsm */
-static int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
+int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
                           struct obd_capa *capa, struct obdo *obdo,
                           __u64 ioepoch, int sync)
 {
@@ -706,7 +706,8 @@ static int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
                                OBD_MD_FLSIZE | OBD_MD_FLBLOCKS |
                                OBD_MD_FLBLKSZ | OBD_MD_FLATIME |
                                OBD_MD_FLMTIME | OBD_MD_FLCTIME |
-                               OBD_MD_FLGROUP | OBD_MD_FLEPOCH;
+                               OBD_MD_FLGROUP | OBD_MD_FLEPOCH |
+                               OBD_MD_FLDATAVERSION;
         oinfo.oi_capa = capa;
         if (sync) {
                 oinfo.oi_oa->o_valid |= OBD_MD_FLFLAGS;
