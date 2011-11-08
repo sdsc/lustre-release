@@ -510,6 +510,8 @@ static inline void mdt_export_evict(struct obd_export *exp)
         class_export_put(exp);
 }
 
+int mdt_get_packaged_xattr(const struct lu_env *env, struct mdt_object *o,
+                           const char *name, struct lu_buf *buffer, pxt_t pxt);
 int mdt_get_disposition(struct ldlm_reply *rep, int flag);
 void mdt_set_disposition(struct mdt_thread_info *info,
                         struct ldlm_reply *rep, int flag);

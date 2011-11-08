@@ -383,6 +383,10 @@ void lustre_assert_wire_constants(void)
                  (long long)SEC_CTX_FINI);
         LASSERTF(SEC_LAST_OPC == 804, "found %lld\n",
                  (long long)SEC_LAST_OPC);
+        LASSERTF(PXT_ACL == 0x00000001UL, "found 0x%.8xUL\n",
+                 (unsigned)PXT_ACL);
+        LASSERTF(PXT_DEFACL == 0x00000002UL, "found 0x%.8xUL\n",
+                 (unsigned)PXT_DEFACL);
         /* Sizes and Offsets */
 
         /* Checks for struct obd_uuid */
@@ -929,6 +933,8 @@ void lustre_assert_wire_constants(void)
                  OBD_CONNECT_MAXBYTES);
         LASSERTF(OBD_CONNECT_IMP_RECOV == 0x10000000000ULL, "found 0x%.16llxULL\n",
                  OBD_CONNECT_IMP_RECOV);
+        LASSERTF(OBD_CONNECT_PACKAGED_XATTR == 0x20000000000ULL, "found 0x%.16llxULL\n",
+                 OBD_CONNECT_PACKAGED_XATTR);
         LASSERTF(OBD_CKSUM_CRC32 == 0x00000001UL, "found 0x%.8xUL\n",
                  (unsigned)OBD_CKSUM_CRC32);
         LASSERTF(OBD_CKSUM_ADLER == 0x00000002UL, "found 0x%.8xUL\n",
@@ -1149,6 +1155,8 @@ void lustre_assert_wire_constants(void)
                  OBD_MD_FLRMTRSETFACL);
         LASSERTF(OBD_MD_FLRMTRGETFACL == (0x0008000000000000ULL), "found 0x%.16llxULL\n",
                  OBD_MD_FLRMTRGETFACL);
+        LASSERTF(OBD_MD_PACKAGED_XATTR == (0x0010000000000000ULL), "found 0x%.16llxULL\n",
+                 OBD_MD_PACKAGED_XATTR);
         CLASSERT(OBD_FL_INLINEDATA == 0x00000001);
         CLASSERT(OBD_FL_OBDMDEXISTS == 0x00000002);
         CLASSERT(OBD_FL_DELORPHAN == 0x00000004);
@@ -1621,10 +1629,10 @@ void lustre_assert_wire_constants(void)
                  (long long)(int)offsetof(struct mdt_body, eadatasize));
         LASSERTF((int)sizeof(((struct mdt_body *)0)->eadatasize) == 4, "found %lld\n",
                  (long long)(int)sizeof(((struct mdt_body *)0)->eadatasize));
-        LASSERTF((int)offsetof(struct mdt_body, aclsize) == 152, "found %lld\n",
-                 (long long)(int)offsetof(struct mdt_body, aclsize));
-        LASSERTF((int)sizeof(((struct mdt_body *)0)->aclsize) == 4, "found %lld\n",
-                 (long long)(int)sizeof(((struct mdt_body *)0)->aclsize));
+        LASSERTF((int)offsetof(struct mdt_body, packaged_xattr) == 152, "found %lld\n",
+                 (long long)(int)offsetof(struct mdt_body, packaged_xattr));
+        LASSERTF((int)sizeof(((struct mdt_body *)0)->packaged_xattr) == 4, "found %lld\n",
+                 (long long)(int)sizeof(((struct mdt_body *)0)->packaged_xattr));
         LASSERTF((int)offsetof(struct mdt_body, max_mdsize) == 156, "found %lld\n",
                  (long long)(int)offsetof(struct mdt_body, max_mdsize));
         LASSERTF((int)sizeof(((struct mdt_body *)0)->max_mdsize) == 4, "found %lld\n",
