@@ -176,7 +176,7 @@ int lov_adjust_kms(struct obd_export *exp, struct lov_stripe_md *lsm,
         RETURN(0);
 }
 
-void lov_merge_attrs(struct obdo *tgt, struct obdo *src, obd_flag valid,
+void lov_merge_attrs(struct obdo *tgt, struct obdo *src, obd_valid valid,
                      struct lov_stripe_md *lsm, int stripeno, int *set)
 {
         valid &= src->o_valid;
@@ -198,6 +198,8 @@ void lov_merge_attrs(struct obdo *tgt, struct obdo *src, obd_flag valid,
                         tgt->o_ctime = src->o_ctime;
                 if (valid & OBD_MD_FLMTIME && tgt->o_mtime < src->o_mtime)
                         tgt->o_mtime = src->o_mtime;
+                if (valid & OBD_MD_FLDATAVERSION)
+                        tgt->o_data_version += src->o_data_version;
         } else {
                 memcpy(tgt, src, sizeof(*tgt));
                 tgt->o_id = lsm->lsm_object_id;
