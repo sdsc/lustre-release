@@ -684,7 +684,7 @@ out_openerr:
 }
 
 /* Fills the obdo with the attributes for the lsm */
-static int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
+int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
                           struct obd_capa *capa, struct obdo *obdo,
                           __u64 ioepoch, int sync)
 {
@@ -706,7 +706,8 @@ static int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
                                OBD_MD_FLSIZE | OBD_MD_FLBLOCKS |
                                OBD_MD_FLBLKSZ | OBD_MD_FLATIME |
                                OBD_MD_FLMTIME | OBD_MD_FLCTIME |
-                               OBD_MD_FLGROUP | OBD_MD_FLEPOCH;
+                               OBD_MD_FLGROUP | OBD_MD_FLEPOCH |
+                               OBD_MD_FLDATAVERSION;
         oinfo.oi_capa = capa;
         if (sync) {
                 oinfo.oi_oa->o_valid |= OBD_MD_FLFLAGS;
@@ -1834,6 +1835,23 @@ int ll_file_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
         }
         case OBD_IOC_FID2PATH:
                 RETURN(ll_fid2path(ll_i2mdexp(inode), (void *)arg));
+        case LL_IOC_DATA_VERSION: {
+                struct ioc_data_version idv;
+                int rc;
+
+                if (cfs_copy_from_user(&idv, (char *)arg, sizeof(idv)))
+                        RETURN(-EFAULT);
+
+                rc = ll_data_version(inode, &idv.idv_version,
+                                     !(idv.idv_flags & LL_DV_NOLOCK));
+
+                if (rc == 0 &&
+                    cfs_copy_to_user((char *) arg, &idv, sizeof(idv)))
+                        RETURN(-EFAULT);
+
+                RETURN(rc);
+        }
+
         case LL_IOC_GET_MDTIDX: {
                 int mdtidx;
 
@@ -2756,4 +2774,101 @@ enum llioc_iter ll_iocontrol_call(struct inode *inode, struct file *file,
         if (rcp)
                 *rcp = rc;
         return ret;
+}
+
+/*
+ * Read the data_version for inode.
+ *
+ * This value is computed using stripe object version on OST.
+ * Version is computed under full read extent lock.
+ *
+ * @param extent_lock  Take extent lock. This is useful when coordinator is
+ *                     already holding grouplock.
+ */
+int ll_data_version(struct inode *inode, __u64 *data_version, int extent_lock)
+{
+        struct lu_env          *env;
+        struct cl_env_nest      nest;
+        struct lov_stripe_md   *lsm = ll_i2info(inode)->lli_smd;
+        struct cl_io           *io;
+        struct ll_sb_info      *sbi = ll_i2sbi(inode);
+        struct cl_lock_descr   *descr;
+        struct obdo            *obdo = NULL;
+        struct cl_lock         *lock;
+        int                     rc;
+        ENTRY;
+
+        /* Get a reference on env */
+        env = cl_env_nested_get(&nest);
+        if (IS_ERR(env))
+                RETURN(PTR_ERR(env));
+
+        /* Prepare I/O */
+        io = ccc_env_thread_io(env);
+        io->ci_obj = cl_i2info(inode)->lli_clob;
+
+        rc = cl_io_init(env, io, CIT_MISC, io->ci_obj);
+        if (rc != 0) {
+                /*
+                 * nothing to do for this io. This currently happens
+                 * when stripe sub-object's are not yet created.
+                 */
+                GOTO(cleanup, rc = io->ci_result);
+        }
+
+        /* If no stripe, we consider version is 0. */
+        if (!lsm) {
+                *data_version = 0;
+                CDEBUG(D_DLMTRACE, "No object for inode\n");
+                GOTO(cleanup, rc = 0);
+        }
+
+        OBD_ALLOC_PTR(obdo);
+        if (obdo == NULL)
+                GOTO(cleanup, rc = -ENOMEM);
+
+        if (extent_lock) {
+
+                /* Read-lock the file, read data_version, unlock it. */
+                descr = &ccc_env_info(env)->cti_descr;
+                descr->cld_start = 0;
+                descr->cld_end   = CL_PAGE_EOF;
+                descr->cld_mode  = CLM_READ;
+                descr->cld_obj   = io->ci_obj;
+                descr->cld_enq_flags = CEF_MUST;
+                lock = cl_lock_request(env, io, descr, "data_version",
+                                       cfs_current());
+                if (IS_ERR(lock))
+                        GOTO(free, rc = PTR_ERR(lock));
+
+                rc = cl_wait(env, lock);
+                if (rc == 0) {
+                        /* Update LVB info, it is for free */
+                        cl_merge_lvb(inode);
+
+                        rc = ll_lsm_getattr(lsm, sbi->ll_dt_exp, NULL, obdo,
+                                            0, 0);
+                        if (!rc)
+                                *data_version = obdo->o_data_version;
+
+                        cl_unuse(env, lock);
+                }
+
+                cl_lock_release(env, lock, "data_version", cfs_current());
+        }
+        else {
+                rc = ll_lsm_getattr(lsm, sbi->ll_dt_exp, NULL, obdo, 0, 0);
+                if (!rc)
+                        *data_version = obdo->o_data_version;
+        }
+
+        EXIT;
+
+free:
+        OBD_FREE_PTR(obdo);
+cleanup:
+        cl_io_fini(env, io);
+        cl_env_nested_put(&nest, env);
+
+        return rc;
 }
