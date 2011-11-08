@@ -445,8 +445,16 @@ int dqacq_handler(struct obd_device *obd, struct qunit_data *qdata, int opc)
                     QUSG(*usage + qdata->qd_count, QDATA_IS_BLK(qdata)) > slimit) {
                         if (*time && cfs_time_current_sec() >= *time)
                                 GOTO(out, rc = -EDQUOT);
-                        else if (!*time)
-                                *time = cfs_time_current_sec() + grace;
+                        else if (!*time) {
+                                if (QDATA_IS_CHANGE_QS(qdata) &&
+                                    QUSG(*usage, QDATA_IS_BLK(qdata)) < slimit)
+                                        qdata->qd_count = (slimit -
+                                            QUSG(*usage, QDATA_IS_BLK(qdata)))
+                                            * (QDATA_IS_BLK(qdata) ?
+                                               QUOTABLOCK_SIZE : 1);
+                                else
+                                        *time = cfs_time_current_sec() + grace;
+                        }
                 }
 
                 *usage += qdata->qd_count;
