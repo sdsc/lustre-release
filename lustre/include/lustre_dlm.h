@@ -121,7 +121,8 @@ typedef enum {
 #define LDLM_FL_HAS_INTENT     0x001000 /* lock request has intent */
 #define LDLM_FL_CANCELING      0x002000 /* lock cancel has already been sent */
 #define LDLM_FL_LOCAL          0x004000 /* local lock (ie, no srv/cli split) */
-/* was LDLM_FL_WARN  until 2.0.0  0x008000 */
+#define LDLM_FL_NO_CALLBACK    0x008000 /* no need to send ldlm callback,
+                                         * mainly for aync glimpse size */
 #define LDLM_FL_DISCARD_DATA   0x010000 /* discard (no writeback) on cancel */
 
 #define LDLM_FL_NO_TIMEOUT     0x020000 /* Blocked by group lock - wait
@@ -174,8 +175,6 @@ typedef enum {
 /* optimization hint: LDLM can run blocking callback from current context
  * w/o involving separate thread. in order to decrease cs rate */
 #define LDLM_FL_ATOMIC_CB      0x4000000
-
-/* was LDLM_FL_ASYNC until 2.0.0 0x8000000 */
 
 /* It may happen that a client initiate 2 operations, e.g. unlink and mkdir,
  * such that server send blocking ast for conflict locks to this client for
@@ -880,7 +879,6 @@ struct ldlm_enqueue_info {
         void *ei_cb_gl;  /* lock glimpse callback */
         void *ei_cb_wg;  /* lock weigh callback */
         void *ei_cbdata; /* Data to be passed into callbacks. */
-        short ei_async:1; /* async request */
 };
 
 extern struct obd_ops ldlm_obd_ops;

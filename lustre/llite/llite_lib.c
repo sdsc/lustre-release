@@ -142,6 +142,8 @@ static struct ll_sb_info *ll_init_sbi(void)
         sbi->ll_sa_max = LL_SA_RPC_DEF;
         cfs_atomic_set(&sbi->ll_sa_total, 0);
         cfs_atomic_set(&sbi->ll_sa_wrong, 0);
+        cfs_atomic_set(&sbi->ll_agl_total, 0);
+        sbi->ll_agl_enabled = 1;
 
         RETURN(sbi);
 }
@@ -873,6 +875,11 @@ void ll_lli_init(struct ll_inode_info *lli)
         cfs_sema_init(&lli->lli_rmtperm_sem, 1);
         CFS_INIT_LIST_HEAD(&lli->lli_oss_capas);
         cfs_spin_lock_init(&lli->lli_sa_lock);
+        cfs_init_rwsem(&lli->lli_glimpse_sem);
+        lli->lli_glimpse_time = 0;
+        cfs_spin_lock_init(&lli->lli_agl_lock);
+        CFS_INIT_LIST_HEAD(&lli->lli_agl_list);
+        lli->lli_agl_index = 0;
         lli->lli_clob = NULL;
         cfs_sema_init(&lli->lli_readdir_sem, 1);
         fid_zero(&lli->lli_pfid);
@@ -1145,6 +1152,9 @@ void ll_clear_inode(struct inode *inode)
         lli->lli_inode_magic = LLI_INODE_DEAD;
 
         ll_clear_inode_capas(inode);
+
+        LASSERT(cfs_list_empty(&lli->lli_agl_list));
+
         /*
          * XXX This has to be done before lsm is freed below, because
          * cl_object still uses inode lsm.
