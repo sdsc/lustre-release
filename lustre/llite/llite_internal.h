@@ -696,6 +696,10 @@ int ll_merge_lvb(struct inode *inode);
 int ll_get_grouplock(struct inode *inode, struct file *file, unsigned long arg);
 int ll_put_grouplock(struct inode *inode, struct file *file, unsigned long arg);
 int ll_fid2path(struct obd_export *exp, void *arg);
+int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
+                   struct obd_capa *capa, struct obdo *obdo,
+                   __u64 ioepoch, int sync);
+int ll_data_version(struct inode *inode, __u64 *data_version, int extent_lock);
 
 /* llite/dcache.c */
 int ll_dops_init(struct dentry *de, int block, int init_sa);

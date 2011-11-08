@@ -72,6 +72,8 @@ lfs \- Lustre utility to create a file with specific striping pattern, find the 
              \fB[-b <block-grace>] [-i <inode-grace>]
              \fB<filesystem>\fR
 .br
+.B lfs data_version \fB<filename>\fR
+.br
 .B lfs help
 .SH DESCRIPTION
 .B lfs
@@ -219,6 +221,8 @@ To set filesystem quotas for users or groups. Limits can be specified with -b, -
 .B setquota -t [-u|-g] [--block-grace <block-grace>] [--inode-grace <inode-grace>] <filesystem>
 To set filesystem quota grace times for users or groups. Grace time is specified in "XXwXXdXXhXXmXXs" format or as an integer seconds value, see EXAMPLES
 .TP
+.B data_version <filename>
+Display current version of file data.
 .B help 
 Provides brief help on the various arguments
 .TP

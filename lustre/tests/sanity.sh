@@ -8327,6 +8327,54 @@ test_221() {
 }
 run_test 221 "make sure fault and truncate race to not cause OOM"
 
+test_230() {
+	[ $CLIENTCOUNT -ge 2 ] || \
+			{ skip "Need two or more clients, have $CLIENTCOUNT" && return 0; }
+
+	# Create a file
+	mkdir -p $DIR/$tdir
+	file=$DIR/$tdir/file
+	do_node $CLIENT2 "echo orig > $file"
+	version=$($LFS data_version $file)
+
+	# Append data
+	do_node $CLIENT2 "echo append >> $file"
+	version2=$($LFS data_version $file)
+	[ $version != $version2 ] || \
+	    error "append did not change data version: $version"
+
+	# Overwrite data
+	do_node $CLIENT2 "echo overwrite > $file"
+	version3=$($LFS data_version $file)
+	[ $version2 != $version3 ] || \
+	    error "overwrite did not change data version: $version2"
+
+	# Truncate before EOF
+	do_node $CLIENT2 "$TRUNCATE $file 3" || error "Could not truncate $file"
+	version4=$($LFS data_version $file)
+	[ $version3 != $version4 ] || \
+	    error "truncate did not change data version: $version3"
+
+	# Truncate after EOF
+	do_node $CLIENT2 "$TRUNCATE $file 123456" || error "Could not truncate $file"
+	version5=$($LFS data_version $file)
+	[ $version4 != $version5 ] || \
+	    error "truncate did not change data version: $version4"
+
+	# Chmod do not change version
+	do_node $CLIENT2 "chmod 400 $file" || error "Could not chmod 400 $file"
+	version6=$($LFS data_version $file)
+	[ $version5 == $version6 ] || \
+	    error "chmod should not change data version: $version5 != $version6"
+
+	# Chown do not change version
+	do_node $CLIENT2 "chown $TSTUSER $file" || error "Could not chown $TSTUSER $file"
+	version7=$($LFS data_version $file)
+	[ $version5 == $version7 ] || \
+	    error "chown should not change data version: $version5 != $version7"
+}
+run_test 230 "Verify data_version behaviour"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
