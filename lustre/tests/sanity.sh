@@ -8269,7 +8269,19 @@ test_219() {
 run_test 219 "LU-394: Write partial won't cause uncontiguous pages vec at LND"
 
 test_220() { #LU-325
-	local OSTIDX=0
+	local OSTIDX=$(lfs osts | grep "OST" | wc -l)
+        loopfile=$TMP/loop_220
+
+        find_loop_dev
+	dd if=/dev/zero of=$loopfile bs=1M count=32 > /dev/null
+	losetup $LOOPDEV $loopfile || error "can't set up $LOOPDEV"
+        $MKFS $OST_MKFS_OPTS --fsname=$FSNAME --reformat $LOOPDEV || return 6
+        start client $LOOPDEV $OST_MOUNT_OPTS || return 7
+
+        # waiting the new OST to be online
+        while [ $(lfs osts | grep "OST" | wc -l) -eq $OSTIDX ]; do
+            sleep 1
+        done
 
 	mkdir -p $DIR/$tdir
 	local OST=$(lfs osts | grep ${OSTIDX}": " | \
@@ -8313,6 +8325,15 @@ test_220() { #LU-325
 	do_facet mgs $LCTL pool_destroy $FSNAME.$TESTNAME || return 5
 	echo "unlink $((free - next_id)) files @ $next_id..."
 	unlinkmany $DIR/$tdir/f $next_id $free || return 3
+
+        stop client -f || return 8
+        losetup -d $LOOPDEV
+        rm -f $loopfile
+
+        # remount to cleanup the stuff related to the new OST
+        stopall
+        formatall
+        setupall
 }
 run_test 220 "the preallocated objects in MDS still can be used if ENOSPC is returned by OST with enough disk space"
 
