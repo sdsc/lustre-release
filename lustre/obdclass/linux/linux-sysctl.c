@@ -80,6 +80,7 @@ enum {
         OBD_AT_EXTRA,
         OBD_AT_EARLY_MARGIN,
         OBD_AT_HISTORY,
+        OBD_JOBID_VAR,
 };
 
 #else
@@ -105,6 +106,7 @@ enum {
 #define OBD_AT_EXTRA            CTL_UNNUMBERED
 #define OBD_AT_EARLY_MARGIN     CTL_UNNUMBERED
 #define OBD_AT_HISTORY          CTL_UNNUMBERED
+#define OBD_JOBID_VAR           CTL_UNNUMBERED
 
 #endif
 
@@ -310,6 +312,10 @@ int LL_PROC_PROTO(proc_at_history)
         return ll_proc_dointvec(table, write, filp, buffer, lenp, ppos);
 }
 
+int LL_PROC_PROTO(proc_obd_jobid_var)
+{
+        return ll_proc_dostring(table, write, filp, buffer, lenp, ppos);
+}
 #ifdef CONFIG_SYSCTL
 static cfs_sysctl_table_t obd_table[] = {
         {
@@ -441,6 +447,15 @@ static cfs_sysctl_table_t obd_table[] = {
                 .maxlen   = sizeof(int),
                 .mode     = 0644,
                 .proc_handler = &proc_at_history
+        },
+        {
+                .ctl_name = OBD_JOBID_VAR,
+                .procname = "jobid_var",
+                .data     = &obd_jobid_var,
+                .maxlen   = JOBSTATS_JOBID_VAR_MAX_LEN + 1,
+                .mode     = 0644,
+                .proc_handler = &proc_obd_jobid_var,
+                .strategy     = &sysctl_string
         },
         { 0 }
 };

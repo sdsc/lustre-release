@@ -8378,11 +8378,11 @@ verify_jobstats() {
 
 test_222() { # Job stats
         local cmd
-        OLD_JOBENV=`$LCTL get_param -n llite.*.jobid_var`
+        OLD_JOBENV=`$LCTL get_param -n jobid_var`
         if [ $OLD_JOBENV != $JOBENV ]; then
-                do_facet mgs $LCTL conf_param $FSNAME.llite.jobid_var=$JOBENV
-                wait_update $HOSTNAME "$LCTL get_param -n \
-                llite.*.jobid_var" $JOBENV || return 1
+                do_facet mgs $LCTL conf_param $FSNAME.sys.jobid_var=$JOBENV
+                wait_update $HOSTNAME "$LCTL get_param -n jobid_var" $JOBENV ||
+                return 1
         fi
 
         # mkdir
@@ -8420,8 +8420,8 @@ test_222() { # Job stats
         rm -f $DIR/jobstats_test_rename
 
         if [ $OLD_JOBENV != $JOBENV ]; then
-                do_facet mgs $LCTL conf_param $FSNAME.llite.jobid_var=$OLD_JOBENV
-                wait_update $HOSTNAME "$LCTL get_param -n llite.*.jobid_var" \
+                do_facet mgs $LCTL conf_param $FSNAME.sys.jobid_var=$OLD_JOBENV
+                wait_update $HOSTNAME "$LCTL get_param -n jobid_var" \
                 $OLD_JOBENV || return 1
         fi
 }

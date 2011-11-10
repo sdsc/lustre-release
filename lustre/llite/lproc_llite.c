@@ -604,24 +604,6 @@ static int ll_wr_lazystatfs(struct file *file, const char *buffer,
         return count;
 }
 
-static int ll_rd_jobidvar(char *page, char **start, off_t off,
-                          int count, int *eof, void *data)
-{
-        return snprintf(page, count, "%s\n", obd_jobid_var);
-}
-
-static int ll_wr_jobidvar(struct file *file, const char *buffer,
-                          unsigned long count, void *data)
-{
-        if (!count || count > JOBSTATS_JOBID_VAR_MAX_LEN)
-                return -EINVAL;
-
-        memset(obd_jobid_var, 0, JOBSTATS_JOBID_VAR_MAX_LEN + 1);
-        /* Trim the trailing '\n' if any */
-        memcpy(obd_jobid_var, buffer, count - (buffer[count - 1] == '\n'));
-        return count;
-}
-
 static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
         { "uuid",         ll_rd_sb_uuid,          0, 0 },
         //{ "mntpt_path",   ll_rd_path,             0, 0 },
@@ -650,7 +632,6 @@ static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
         { "statahead_max",    ll_rd_statahead_max, ll_wr_statahead_max, 0 },
         { "statahead_stats",  ll_rd_statahead_stats, 0, 0 },
         { "lazystatfs",         ll_rd_lazystatfs, ll_wr_lazystatfs, 0 },
-        { "jobid_var",        ll_rd_jobidvar, ll_wr_jobidvar, 0 },
         { 0 }
 };
 
