@@ -113,6 +113,20 @@ static int ll_set_inode(struct inode *inode, void *opaque)
         }
 
         lli->lli_fid = body->fid1;
+        if (unlikely(!(body->valid & OBD_MD_FLTYPE))) {
+                CERROR("Can not initialize inode "DFID" without object type: "
+                       "valid = "LPX64"\n", PFID(&lli->lli_fid), body->valid);
+                return -EINVAL;
+        }
+
+        inode->i_mode = (inode->i_mode & ~S_IFMT) | (body->mode & S_IFMT);
+        if (unlikely(inode->i_mode == 0)) {
+                CERROR("Invalid inode "DFID" type\n", PFID(&lli->lli_fid));
+                return -EINVAL;
+        }
+
+        ll_lli_init(lli);
+
         return 0;
 }
 
@@ -147,7 +161,7 @@ struct inode *ll_iget(struct super_block *sb, ino_t hash,
                         } else
                                 unlock_new_inode(inode);
                 } else if (!(inode->i_state & (I_FREEING | I_CLEAR)))
-                                ll_update_inode(inode, md);
+                        ll_update_inode(inode, md);
                 CDEBUG(D_VFSTRACE, "got inode: %p for "DFID"\n",
                        inode, PFID(&md->body->fid1));
         }

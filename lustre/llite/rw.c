@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
@@ -1134,6 +1137,7 @@ out_unlock:
 int ll_writepage(struct page *vmpage, struct writeback_control *unused)
 {
         struct inode           *inode = vmpage->mapping->host;
+        struct ll_inode_info   *lli   = ll_i2info(inode);
         struct lu_env          *env;
         struct cl_io           *io;
         struct cl_page         *page;
@@ -1147,11 +1151,11 @@ int ll_writepage(struct page *vmpage, struct writeback_control *unused)
         LASSERT(!PageWriteback(vmpage));
 
         if (ll_i2dtexp(inode) == NULL)
-                RETURN(-EINVAL);
+                GOTO(out, result = -EINVAL);
 
         env = cl_env_nested_get(&nest);
         if (IS_ERR(env))
-                RETURN(PTR_ERR(env));
+                GOTO(out, result = PTR_ERR(env));
 
         queue = &vvp_env_info(env)->vti_queue;
         clob  = ll_i2info(inode)->lli_clob;
@@ -1202,7 +1206,12 @@ int ll_writepage(struct page *vmpage, struct writeback_control *unused)
         }
         cl_io_fini(env, io);
         cl_env_nested_put(&nest, env);
-        RETURN(result);
+        EXIT;
+
+out:
+        if (result < 0 && !lli->lli_async_rc)
+                lli->lli_async_rc = result;
+        return result;
 }
 
 int ll_readpage(struct file *file, struct page *vmpage)

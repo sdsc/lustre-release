@@ -1185,9 +1185,7 @@ int cl_inode_init(struct inode *inode, struct lustre_md *md)
         int refcheck;
 
         LASSERT(md->body->valid & OBD_MD_FLID);
-
-        if (!S_ISREG(cl_inode_mode(inode)))
-                return 0;
+        LASSERT(S_ISREG(cl_inode_mode(inode)));
 
         env = cl_env_get(&refcheck);
         if (IS_ERR(env))
