@@ -1851,17 +1851,27 @@ add() {
 
 ostdevname() {
     num=$1
-    DEVNAME=OSTDEV$num
-    #if $OSTDEVn isn't defined, default is $OSTDEVBASE + num
-    eval DEVPTR=${!DEVNAME:=${OSTDEVBASE}${num}}
+    if [ "$LARGE_LUN" == "yes" ]; then
+        DEVNAME=OST${num}_LUN_DEV
+        eval DEVPTR=${!DEVNAME}
+    else
+        DEVNAME=OSTDEV$num
+        #if $OSTDEVn isn't defined, default is $OSTDEVBASE + num
+        eval DEVPTR=${!DEVNAME:=${OSTDEVBASE}${num}}
+    fi
     echo -n $DEVPTR
 }
 
 mdsdevname() {
     num=$1
-    DEVNAME=MDSDEV$num
-    #if $MDSDEVn isn't defined, default is $MDSDEVBASE + num
-    eval DEVPTR=${!DEVNAME:=${MDSDEVBASE}${num}}
+    if [ "$LARGE_LUN" == "yes" ]; then
+        DEVNAME=MDT${num}_LUN_DEV
+        eval DEVPTR=${!DEVNAME}
+    else
+        DEVNAME=MDSDEV$num
+        #if $MDSDEVn isn't defined, default is $MDSDEVBASE + num
+        eval DEVPTR=${!DEVNAME:=${MDSDEVBASE}${num}}
+    fi
     echo -n $DEVPTR
 }
 
