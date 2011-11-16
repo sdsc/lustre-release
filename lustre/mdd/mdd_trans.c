@@ -135,16 +135,14 @@ int mdd_create_txn_param_build(const struct lu_env *env, struct mdd_device *mdd,
                 GOTO(out, 0);
 
         /* add possible orphan unlink rec credits used in lov_objid update */
-        if (le32_to_cpu(lmm->lmm_magic) == LOV_MAGIC_V1) {
-                stripes = le32_to_cpu(((struct lov_mds_md_v1*)lmm)
-                                      ->lmm_stripe_count);
-        } else if (le32_to_cpu(lmm->lmm_magic) == LOV_MAGIC_V3){
-                stripes = le32_to_cpu(((struct lov_mds_md_v3*)lmm)
-                                      ->lmm_stripe_count);
-        } else {
-                CERROR("Unknown lmm type %X\n", le32_to_cpu(lmm->lmm_magic));
-                LBUG();
-        }
+        LASSERTF(le32_to_cpu(lmm->lmm_magic) == LOV_MAGIC_V1 ||
+                 le32_to_cpu(lmm->lmm_magic) == LOV_MAGIC_V3,
+                 "%08x", le32_to_cpu(lmm->lmm_magic));
+
+        if ((int)le32_to_cpu(lmm->lmm_stripe_count) < 0)
+                stripes = mdd2obd_dev(mdd)->u.mds.mds_lov_desc.ld_tgt_count;
+        else
+                stripes = le32_to_cpu(lmm->lmm_stripe_count);
 out:
         mdd_txn_param_build(env, mdd, op, stripes + changelog_cnt);
         RETURN(0);
