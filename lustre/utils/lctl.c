@@ -286,9 +286,40 @@ command_t cmdlist[] = {
         {"setattr", jt_obd_setattr, 0,
          "set mode attribute for OST object <objid>\n"
          "usage: setattr <objid> <mode>"},
-         {"create", jt_obd_create, 0,
+        {"create", jt_obd_create, 0,
          "create <num> OST objects (with <mode>)\n"
          "usage: create [num [mode [verbose [lsm data]]]]"},
+
+        /*Test command for echo client*/
+        {"test_create", jt_obd_test_create, 0,
+         "create files on MDT by echo client\n"
+         "usage: test_create [-d parent_basedir] <-D parent_count>"
+         "[-b child_base_id] <-c stripe_count> <-n count> <-t time>\n"},
+        {"test_mkdir", jt_obd_test_mkdir, 0,
+         "mkdir on MDT by echo client\n"
+         "usage: test_mkdir [-d parent_basedir] <-D parent_count>"
+         "[-b child_base_id] [-n count] <-t time>\n"},
+        {"test_destroy", jt_obd_test_destroy, 0,
+         "Destroy files on MDT by echo client\n"
+         "usage: test_destroy [-d parent_basedir] <-D parent_count>"
+         "[-b child_base_id] [-n count] <-t time>\n"},
+        {"test_rmdir", jt_obd_test_rmdir, 0,
+         "rmdir on MDT by echo client\n"
+         "usage: test_rmdir [-d parent_basedir] <-D parent_count>"
+         "[-b child_base_id] [-n count] <-t time>\n"},
+        {"test_lookup", jt_obd_test_lookup, 0,
+         "lookup files on MDT by echo client\n"
+         "usage: test_lookup [-d parent_basedir] <-D parent_count>"
+         "[-b child_base_id] [-n count] <-t time>\n"},
+        {"test_setxattr", jt_obd_test_setxattr, 0,
+         "Set EA for files/directory on MDT by echo client\n"
+         "usage: test_setxattr [-d parent_baseid] <-D parent_count>"
+         "[-b child_base_id] [-x size] [-n count] <-t time>\n"},
+        {"test_md_getattr", jt_obd_test_md_getattr, 0,
+         "getattr files on MDT by echo client\n"
+         "usage: test_md_getattr [-d parent_basedir] <-D parent_count>"
+         "[-b child_base_id] [-n count] <-t time>\n"},
+
         {"destroy", jt_obd_destroy, 0,
          "destroy OST object <objid> [num [verbose]]\n"
          "usage: destroy <num> objects, starting at objid <objid>"},
@@ -298,6 +329,7 @@ command_t cmdlist[] = {
         {"test_setattr", jt_obd_test_setattr, 0,
          "do <num> setattrs (on OST object <objid> (objid+1 on each thread))\n"
          "usage: test_setattr <num> [verbose [[t]objid]]"},
+
         {"test_brw", jt_obd_test_brw, 0,
          "do <num> bulk read/writes (<npages> per I/O, on OST object <objid>)\n"
          "usage: test_brw [t]<num> [write [verbose [npages [[t]objid]]]]"},
