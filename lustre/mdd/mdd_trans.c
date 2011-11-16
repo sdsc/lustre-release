@@ -123,23 +123,24 @@ int mdd_create_txn_param_build(const struct lu_env *env, struct mdd_device *mdd,
         LASSERT(op == MDD_TXN_CREATE_DATA_OP || op == MDD_TXN_MKDIR_OP);
 
         if (lmm == NULL)
-                GOTO(out, 0);
+                RETURN(0);
         /* only replay create request will cause lov_objid update */
         if (!mdd->mdd_obd_dev->obd_recovering)
-                GOTO(out, 0);
+                RETURN(0);
 
         /* add possible orphan unlink rec credits used in lov_objid update */
-        if (le32_to_cpu(lmm->lmm_magic) == LOV_MAGIC_V1) {
-                stripes = le32_to_cpu(((struct lov_mds_md_v1*)lmm)
-                                      ->lmm_stripe_count);
-        } else if (le32_to_cpu(lmm->lmm_magic) == LOV_MAGIC_V3){
-                stripes = le32_to_cpu(((struct lov_mds_md_v3*)lmm)
-                                      ->lmm_stripe_count);
-        } else {
-                CERROR("Unknown lmm type %X\n", le32_to_cpu(lmm->lmm_magic));
-                LBUG();
+        if (unlikely(le32_to_cpu(lmm->lmm_magic) != LOV_MAGIC_V1 &&
+                     le32_to_cpu(lmm->lmm_magic) != LOV_MAGIC_V3)) {
+                CERROR("Unknown lmm type %08x", le32_to_cpu(lmm->lmm_magic));
+                RETURN(-EINVAL);
         }
-out:
+
+
+        if ((int)le32_to_cpu(lmm->lmm_stripe_count) < 0)
+                stripes = mdd2obd_dev(mdd)->u.mds.mds_lov_desc.ld_tgt_count;
+        else
+                stripes = le32_to_cpu(lmm->lmm_stripe_count);
+
         mdd_txn_param_build(env, mdd, op, stripes + changelog_cnt);
         RETURN(0);
 }
@@ -161,9 +162,12 @@ int mdd_log_txn_param_build(const struct lu_env *env, struct md_object *obj,
         if (rc || !(ma->ma_valid & MA_LOV))
                 GOTO(out, rc);
 
-        LASSERTF(le32_to_cpu(ma->ma_lmm->lmm_magic) == LOV_MAGIC_V1 ||
-                 le32_to_cpu(ma->ma_lmm->lmm_magic) == LOV_MAGIC_V3,
-                 "%08x", le32_to_cpu(ma->ma_lmm->lmm_magic));
+        if (unlikely(le32_to_cpu(ma->ma_lmm->lmm_magic) != LOV_MAGIC_V1 &&
+                     le32_to_cpu(ma->ma_lmm->lmm_magic) != LOV_MAGIC_V3)) {
+                CERROR("Unknown lmm type %08x",
+                       le32_to_cpu(ma->ma_lmm->lmm_magic));
+                GOTO(out, rc = -EINVAL);
+        }
 
         if ((int)le32_to_cpu(ma->ma_lmm->lmm_stripe_count) < 0)
                 stripe = mdd2obd_dev(mdd)->u.mds.mds_lov_desc.ld_tgt_count;

@@ -1499,8 +1499,10 @@ static int mdd_attr_set(const struct lu_env *env, struct md_object *obj,
 
         chlog_cnt = 1;
         if (la_copy->la_valid && !(la_copy->la_valid & LA_FLAGS) && lmm_size) {
-                chlog_cnt += (lmm->lmm_stripe_count >= 0) ?
-                         lmm->lmm_stripe_count : mds->mds_lov_desc.ld_tgt_count;
+                if ((int)le32_to_cpu(lmm->lmm_stripe_count) < 0)
+                        chlog_cnt += mds->mds_lov_desc.ld_tgt_count;
+                else
+                        chlog_cnt += le32_to_cpu(lmm->lmm_stripe_count);
         }
 
         mdd_setattr_txn_param_build(env, obj, (struct md_attr *)ma,
