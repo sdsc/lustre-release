@@ -34,11 +34,11 @@ endif # UTILS
 lib_LIBRARIES = liblustreapi.a libiam.a
 
 lctl_SOURCES = obd.c lustre_cfg.c lctl.c obdctl.h
-lctl_LDADD := $(LIBREADLINE) liblustreapi.a $(LIBPTLCTL)
+lctl_LDADD := $(LIBREADLINE) liblustreapi.a $(LIBPTLCTL) $(PTHREAD_LIBS)
 lctl_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.a
 
 lfs_SOURCES = lfs.c obd.c lustre_cfg.c
-lfs_LDADD := $(LIBREADLINE) liblustreapi.a $(LIBPTLCTL)
+lfs_LDADD := $(LIBREADLINE) liblustreapi.a $(LIBPTLCTL) $(PTHREAD_LIBS)
 lfs_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.a 
 
 loadgen_SOURCES = loadgen.c lustre_cfg.c obd.c
@@ -46,7 +46,7 @@ loadgen_LDADD := $(LIBREADLINE) liblustreapi.a $(LIBPTLCTL) $(PTHREAD_LIBS)
 loadgen_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.a
 
 lustre_rsync_SOURCES = lustre_rsync.c obd.c lustre_cfg.c lustre_rsync.h
-lustre_rsync_LDADD :=  $(LIBREADLINE) liblustreapi.a $(LIBPTLCTL)
+lustre_rsync_LDADD :=  $(LIBREADLINE) liblustreapi.a $(LIBPTLCTL) ${PTHREAD_LIBS}
 lustre_rsync_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.a
 
 ll_recover_lost_found_objs_SOURCES = ll_recover_lost_found_objs.c
