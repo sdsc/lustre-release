@@ -1352,8 +1352,8 @@ check_seq_oid()
                 local objid=${lmm[$((j+1))]}
                 local group=${lmm[$((j+3))]}
                 local dev=$(ostdevname $devnum)
-                local dir=${MOUNT%/*}/ost$devnum
                 local mntpt=$(facet_mntpt ost$devnum)
+                local dir=$mntpt
 
                 stop ost$devnum
                 do_facet ost$devnum mount -t $FSTYPE $dev $dir $OST_MOUNT_OPTS ||
@@ -8225,9 +8225,10 @@ run_test 216 "check lockless direct write works and updates file size and kms co
 test_217() { # bug 22430
 	local node
 	for node in $(nodes_list); do
-		if [[ $node = *-* ]] ; then
-			echo "lctl ping $node@$NETTYPE"
-			lctl ping $node@$NETTYPE
+        nid=$(host_nids $node $NETTYPE)
+        if [[ $nid = *-* ]] ; then
+			echo "lctl ping $nid@$NETTYPE"
+			lctl ping $nid@$NETTYPE
 		else
 			echo "skipping $node (no hiphen detected)"
 		fi

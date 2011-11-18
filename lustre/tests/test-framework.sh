@@ -1615,6 +1615,18 @@ do_lmc() {
     exit 1
 }
 
+host_nids() {
+    nodes=$1
+    kind=$2
+
+    if [ -n "$kind" ]; then
+        nids=$(do_nodes $nodes "$LCTL list_nids | grep $kind")
+    else
+        nids=$(do_nodes $nodes "$LCTL list_nids all") 
+    fi
+    echo ${nids//"@$NETTYPE"}
+}
+
 h2name_or_ip() {
     if [ "$1" = "client" -o "$1" = "'*'" ]; then echo \'*\'; else
         echo $1"@$2"
@@ -4590,7 +4602,7 @@ remove_mdt_files() {
     local mdtdev=$2
     shift 2
     local files="$@"
-    local mntpt=${MOUNT%/*}/$facet
+    local mntpt=$(facet_mntpt $facet)
 
     echo "removing files from $mdtdev on $facet: $files"
     mount -t $FSTYPE $MDS_MOUNT_OPTS $mdtdev $mntpt || return $?
@@ -4607,7 +4619,7 @@ duplicate_mdt_files() {
     local mdtdev=$2
     shift 2
     local files="$@"
-    local mntpt=${MOUNT%/*}/$facet
+    local mntpt=$(facet_mntpt $facet)
 
     echo "duplicating files on $mdtdev on $facet: $files"
     mkdir -p $mntpt || return $?
