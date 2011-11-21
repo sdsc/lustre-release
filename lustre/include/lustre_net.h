@@ -1642,6 +1642,9 @@ void lustre_msg_set_timeout(struct lustre_msg *msg, __u32 timeout);
 void lustre_msg_set_service_time(struct lustre_msg *msg, __u32 service_time);
 void lustre_msg_set_cksum(struct lustre_msg *msg, __u32 cksum);
 
+#define lustre_msg_set_net_latency lustre_msg_set_service_time
+#define lustre_msg_get_net_latency lustre_msg_get_service_time
+
 static inline void
 lustre_shrink_reply(struct ptlrpc_request *req, int segment,
                     unsigned int newlen, int move_data)
