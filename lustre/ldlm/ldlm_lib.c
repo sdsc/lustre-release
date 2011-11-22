@@ -1414,6 +1414,7 @@ static void extend_recovery_timer(struct obd_device *obd, int drt)
         cfs_time_t now;
         cfs_time_t end;
         cfs_duration_t left;
+        int to;
 
         cfs_spin_lock(&obd->obd_dev_lock);
         if (!obd->obd_recovering || obd->obd_abort_recovery) {
@@ -1424,18 +1425,21 @@ static void extend_recovery_timer(struct obd_device *obd, int drt)
         LASSERT(obd->obd_recovery_start != 0);
 
         now = cfs_time_current_sec();
-        end = obd->obd_recovery_start + obd->obd_recovery_timeout;
+        to = obd->obd_recovery_timeout;
+        end = obd->obd_recovery_start + to;
         left = cfs_time_sub(end, now);
-        if (left < 0) {
-                obd->obd_recovery_timeout += drt - left;
-        } else if (left < drt) {
-                drt -= left;
-                obd->obd_recovery_timeout += drt;
+        if (left < drt) {
+                to += drt - left;
+                if (to > obd->obd_recovery_time_hard)
+                        to = obd->obd_recovery_time_hard;
+                if (obd->obd_recovery_timeout < to) {
+                        obd->obd_recovery_timeout = to;
+                        cfs_timer_arm(&obd->obd_recovery_timer,
+                                      cfs_time_shift(drt));
+                }
         } else {
                 drt = left;
         }
-
-        cfs_timer_arm(&obd->obd_recovery_timer, cfs_time_shift(drt));
         cfs_spin_unlock(&obd->obd_dev_lock);
 
         CDEBUG(D_HA, "%s: recovery timer will expire in %u seconds\n",
