@@ -314,7 +314,10 @@ int osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
         const struct   dt_key *key;
         int            rc = 0;
 
-        if (osd_fid_is_igif(fid)) {
+        if (fid_is_idif(fid)) {
+                /* old OSD obj id */
+                rc = osd_compat_objid_lookup(info, osd, fid, id);
+        } else if (osd_fid_is_igif(fid)) {
                 lu_igif_to_id(fid, id);
                 rc = 0;
         } else {
@@ -340,6 +343,8 @@ int osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
                 } else if (rc == 0)
                         rc = -ENOENT;
         }
+
+out:
         return rc;
 }
 
