@@ -98,6 +98,45 @@ struct osd_ctxt {
 };
 #endif
 
+struct osd_directory {
+        struct iam_container od_container;
+        struct iam_descr     od_descr;
+};
+
+extern const int osd_dto_credits_noquota[];
+
+struct osd_object {
+        struct dt_object       oo_dt;
+        /**
+         * Inode for file system object represented by this osd_object. This
+         * inode is pinned for the whole duration of lu_object life.
+         *
+         * Not modified concurrently (either setup early during object
+         * creation, or assigned by osd_object_create() under write lock).
+         */
+        struct inode          *oo_inode;
+        /**
+         * to protect index ops.
+         */
+        cfs_rw_semaphore_t     oo_ext_idx_sem;
+        cfs_rw_semaphore_t     oo_sem;
+        struct osd_directory  *oo_dir;
+        /** protects inode attributes. */
+        cfs_spinlock_t         oo_guard;
+        /**
+         * Following two members are used to indicate the presence of dot and
+         * dotdot in the given directory. This is required for interop mode
+         * (b11826).
+         */
+        int                    oo_compat_dot_created;
+        int                    oo_compat_dotdot_created;
+
+        const struct lu_env   *oo_owner;
+#ifdef CONFIG_LOCKDEP
+        struct lockdep_map     oo_dep_map;
+#endif
+};
+
 /*
  * osd device.
  */
@@ -137,6 +176,71 @@ struct osd_device {
          * It will be initialized, using mount param.
          */
         __u32                     od_iop_mode;
+};
+
+#define OSD_TRACK_DECLARES
+#ifdef OSD_TRACK_DECLARES
+#define OSD_DECLARE_OP(oh, op)   {                               \
+        LASSERT(oh->ot_handle == NULL);                          \
+        ((oh)->ot_declare_ ##op)++; }
+#define OSD_EXEC_OP(handle, op)     {                            \
+        struct osd_thandle *oh;                                  \
+        oh = container_of0(handle, struct osd_thandle, ot_super);\
+        LASSERT((oh)->ot_declare_ ##op > 0);                     \
+        ((oh)->ot_declare_ ##op)--; }
+#else
+#define OSD_DECLARE_OP(oh, op)
+#define OSD_EXEC_OP(oh, op)
+#endif
+
+struct osd_thandle {
+        struct thandle          ot_super;
+        handle_t               *ot_handle;
+        struct journal_callback ot_jcb;
+        cfs_list_t              ot_dcb_list;
+        /* Link to the device, for debugging. */
+        struct lu_ref_link     *ot_dev_link;
+        int                     ot_credits;
+
+#ifdef OSD_TRACK_DECLARES
+        unsigned char           ot_declare_attr_set;
+        unsigned char           ot_declare_punch;
+        unsigned char           ot_declare_xattr_set;
+        unsigned char           ot_declare_create;
+        unsigned char           ot_declare_destroy;
+        unsigned char           ot_declare_ref_add;
+        unsigned char           ot_declare_ref_del;
+        unsigned char           ot_declare_write;
+        unsigned char           ot_declare_insert;
+        unsigned char           ot_declare_delete;
+#endif
+
+#if OSD_THANDLE_STATS
+        /** time when this handle was allocated */
+        cfs_time_t oth_alloced;
+
+        /** time when this thanle was started */
+        cfs_time_t oth_started;
+#endif
+};
+
+/**
+ * Basic transaction credit op
+ */
+enum dt_txn_op {
+        DTO_INDEX_INSERT,
+        DTO_INDEX_DELETE,
+        DTO_INDEX_UPDATE,
+        DTO_OBJECT_CREATE,
+        DTO_OBJECT_DELETE,
+        DTO_ATTR_SET_BASE,
+        DTO_XATTR_SET,
+        DTO_LOG_REC, /**< XXX temporary: dt layer knows nothing about llog. */
+        DTO_WRITE_BASE,
+        DTO_WRITE_BLOCK,
+        DTO_ATTR_SET_CHOWN,
+
+        DTO_NR
 };
 
 /*
@@ -299,6 +403,8 @@ void osd_lprocfs_time_end(const struct lu_env *env,
 #endif
 int osd_statfs(const struct lu_env *env, struct dt_device *dev,
                cfs_kstatfs_t *sfs);
+int osd_object_auth(const struct lu_env *env, struct dt_object *dt,
+                    struct lustre_capa *capa, __u64 opc);
 
 /*
  * Invariants, assertions.
@@ -340,6 +446,72 @@ static inline int osd_fid_is_root(const struct lu_fid *fid)
 static inline int osd_fid_is_igif(const struct lu_fid *fid)
 {
         return fid_is_igif(fid) || osd_fid_is_root(fid);
+}
+
+/*
+ * Helpers.
+ */
+extern const struct lu_device_operations  osd_lu_ops;
+
+static int lu_device_is_osd(const struct lu_device *d)
+{
+        return ergo(d != NULL && d->ld_ops != NULL, d->ld_ops == &osd_lu_ops);
+}
+
+static struct osd_device *osd_dt_dev(const struct dt_device *d)
+{
+        LASSERT(lu_device_is_osd(&d->dd_lu_dev));
+        return container_of0(d, struct osd_device, od_dt_dev);
+}
+
+static struct osd_device *osd_dev(const struct lu_device *d)
+{
+        LASSERT(lu_device_is_osd(d));
+        return osd_dt_dev(container_of0(d, struct dt_device, dd_lu_dev));
+}
+
+static struct osd_device *osd_obj2dev(const struct osd_object *o)
+{
+        return osd_dev(o->oo_dt.do_lu.lo_dev);
+}
+
+static struct super_block *osd_sb(const struct osd_device *dev)
+{
+        return dev->od_mount->lmi_mnt->mnt_sb;
+}
+
+static int osd_object_is_root(const struct osd_object *obj)
+{
+        return osd_sb(osd_obj2dev(obj))->s_root->d_inode == obj->oo_inode;
+}
+
+static struct osd_object *osd_obj(const struct lu_object *o)
+{
+        LASSERT(lu_device_is_osd(o->lo_dev));
+        return container_of0(o, struct osd_object, oo_dt.do_lu);
+}
+
+static struct osd_object *osd_dt_obj(const struct dt_object *d)
+{
+        return osd_obj(&d->do_lu);
+}
+
+static struct lu_device *osd2lu_dev(struct osd_device *osd)
+{
+        return &osd->od_dt_dev.dd_lu_dev;
+}
+
+static journal_t *osd_journal(const struct osd_device *dev)
+{
+        return LDISKFS_SB(osd_sb(dev))->s_journal;
+}
+
+extern const struct dt_body_operations osd_body_ops;
+extern struct lu_context_key osd_key;
+
+static inline struct osd_thread_info *osd_oti_get(const struct lu_env *env)
+{
+        return lu_context_key_get(&env->le_ctx, &osd_key);
 }
 
 #endif /* __KERNEL__ */
