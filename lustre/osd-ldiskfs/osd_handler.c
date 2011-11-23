@@ -90,193 +90,12 @@ static const char dot[] = ".";
 static const char dotdot[] = "..";
 static const char remote_obj_dir[] = "REM_OBJ_DIR";
 
-struct osd_directory {
-        struct iam_container od_container;
-        struct iam_descr     od_descr;
-};
-
-struct osd_object {
-        struct dt_object       oo_dt;
-        /**
-         * Inode for file system object represented by this osd_object. This
-         * inode is pinned for the whole duration of lu_object life.
-         *
-         * Not modified concurrently (either setup early during object
-         * creation, or assigned by osd_object_create() under write lock).
-         */
-        struct inode          *oo_inode;
-        /**
-         * to protect index ops.
-         */
-        struct htree_lock_head *oo_hl_head;
-        cfs_rw_semaphore_t     oo_ext_idx_sem;
-        cfs_rw_semaphore_t     oo_sem;
-        struct osd_directory  *oo_dir;
-        /** protects inode attributes. */
-        cfs_spinlock_t         oo_guard;
-        /**
-         * Following two members are used to indicate the presence of dot and
-         * dotdot in the given directory. This is required for interop mode
-         * (b11826).
-         */
-        int                    oo_compat_dot_created;
-        int                    oo_compat_dotdot_created;
-
-        const struct lu_env   *oo_owner;
-#ifdef CONFIG_LOCKDEP
-        struct lockdep_map     oo_dep_map;
-#endif
-};
-
 static const struct lu_object_operations      osd_lu_obj_ops;
-static const struct lu_device_operations      osd_lu_ops;
-static       struct lu_context_key            osd_key;
 static const struct dt_object_operations      osd_obj_ops;
 static const struct dt_object_operations      osd_obj_ea_ops;
-static const struct dt_body_operations        osd_body_ops;
 static const struct dt_body_operations        osd_body_ops_new;
 static const struct dt_index_operations       osd_index_iam_ops;
 static const struct dt_index_operations       osd_index_ea_ops;
-
-#define OSD_TRACK_DECLARES
-#ifdef OSD_TRACK_DECLARES
-#define OSD_DECLARE_OP(oh, op)   {                               \
-        LASSERT(oh->ot_handle == NULL);                          \
-        ((oh)->ot_declare_ ##op)++; }
-#define OSD_EXEC_OP(handle, op)     {                            \
-        struct osd_thandle *oh;                                  \
-        oh = container_of0(handle, struct osd_thandle, ot_super);\
-        if (((oh)->ot_declare_ ##op) > 0) {                      \
-                ((oh)->ot_declare_ ##op)--;                      \
-        }                                                        \
-        }
-#else
-#define OSD_DECLARE_OP(oh, op)
-#define OSD_EXEC_OP(oh, op)
-#endif
-
-/* There are at most 10 uid/gids are affected in a transaction, and
- * that's rename case:
- * - 2 for source parent uid & gid;
- * - 2 for source child uid & gid ('..' entry update when the child
- *   is directory);
- * - 2 for target parent uid & gid;
- * - 2 for target child uid & gid (if the target child exists);
- * - 2 for root uid & gid (last_rcvd, llog, etc);
- *
- * The 0 to (OSD_MAX_UGID_CNT - 1) bits of ot_id_type is for indicating
- * the id type of each id in the ot_id_array.
- */
-#define OSD_MAX_UGID_CNT        10
-
-struct osd_thandle {
-        struct thandle          ot_super;
-        handle_t               *ot_handle;
-        struct journal_callback ot_jcb;
-        cfs_list_t              ot_dcb_list;
-        /* Link to the device, for debugging. */
-        struct lu_ref_link     *ot_dev_link;
-        unsigned short          ot_credits;
-        unsigned short          ot_id_cnt;
-        unsigned short          ot_id_type;
-        uid_t                   ot_id_array[OSD_MAX_UGID_CNT];
-
-#ifdef OSD_TRACK_DECLARES
-        unsigned char           ot_declare_attr_set;
-        unsigned char           ot_declare_punch;
-        unsigned char           ot_declare_xattr_set;
-        unsigned char           ot_declare_create;
-        unsigned char           ot_declare_destroy;
-        unsigned char           ot_declare_ref_add;
-        unsigned char           ot_declare_ref_del;
-        unsigned char           ot_declare_write;
-        unsigned char           ot_declare_insert;
-        unsigned char           ot_declare_delete;
-#endif
-
-#if OSD_THANDLE_STATS
-        /** time when this handle was allocated */
-        cfs_time_t oth_alloced;
-
-        /** time when this thanle was started */
-        cfs_time_t oth_started;
-#endif
-};
-
-/**
- * Basic transaction credit op
- */
-enum dt_txn_op {
-        DTO_INDEX_INSERT,
-        DTO_INDEX_DELETE,
-        DTO_INDEX_UPDATE,
-        DTO_OBJECT_CREATE,
-        DTO_OBJECT_DELETE,
-        DTO_ATTR_SET_BASE,
-        DTO_XATTR_SET,
-        DTO_LOG_REC, /**< XXX temporary: dt layer knows nothing about llog. */
-        DTO_WRITE_BASE,
-        DTO_WRITE_BLOCK,
-        DTO_ATTR_SET_CHOWN,
-
-        DTO_NR
-};
-
-/*
- * Helpers.
- */
-static int lu_device_is_osd(const struct lu_device *d)
-{
-        return ergo(d != NULL && d->ld_ops != NULL, d->ld_ops == &osd_lu_ops);
-}
-
-static struct osd_device *osd_dt_dev(const struct dt_device *d)
-{
-        LASSERT(lu_device_is_osd(&d->dd_lu_dev));
-        return container_of0(d, struct osd_device, od_dt_dev);
-}
-
-static struct osd_device *osd_dev(const struct lu_device *d)
-{
-        LASSERT(lu_device_is_osd(d));
-        return osd_dt_dev(container_of0(d, struct dt_device, dd_lu_dev));
-}
-
-static struct osd_device *osd_obj2dev(const struct osd_object *o)
-{
-        return osd_dev(o->oo_dt.do_lu.lo_dev);
-}
-
-static struct super_block *osd_sb(const struct osd_device *dev)
-{
-        return dev->od_mount->lmi_mnt->mnt_sb;
-}
-
-static int osd_object_is_root(const struct osd_object *obj)
-{
-        return osd_sb(osd_obj2dev(obj))->s_root->d_inode == obj->oo_inode;
-}
-
-static struct osd_object *osd_obj(const struct lu_object *o)
-{
-        LASSERT(lu_device_is_osd(o->lo_dev));
-        return container_of0(o, struct osd_object, oo_dt.do_lu);
-}
-
-static struct osd_object *osd_dt_obj(const struct dt_object *d)
-{
-        return osd_obj(&d->do_lu);
-}
-
-static struct lu_device *osd2lu_dev(struct osd_device *osd)
-{
-        return &osd->od_dt_dev.dd_lu_dev;
-}
-
-static journal_t *osd_journal(const struct osd_device *dev)
-{
-        return LDISKFS_SB(osd_sb(dev))->s_journal;
-}
 
 static int osd_has_index(const struct osd_object *obj)
 {
@@ -322,11 +141,6 @@ osd_pop_ctxt(struct osd_ctxt *save)
         }
 }
 #endif
-
-static inline struct osd_thread_info *osd_oti_get(const struct lu_env *env)
-{
-        return lu_context_key_get(&env->le_ctx, &osd_key);
-}
 
 /*
  * Concurrency: doesn't matter
@@ -447,17 +261,9 @@ static struct inode *osd_iget(struct osd_thread_info *info,
 {
         struct inode *inode = NULL;
 
-#ifdef HAVE_EXT4_LDISKFS
         inode = ldiskfs_iget(osd_sb(dev), id->oii_ino);
-        if (IS_ERR(inode))
-        /* Newer kernels return an error instead of a NULL pointer */
-                inode = NULL;
-#else
-        inode = iget(osd_sb(dev), id->oii_ino);
-#endif
-        if (inode == NULL) {
-                CERROR("no inode\n");
-                inode = ERR_PTR(-EACCES);
+        if (IS_ERR(inode)) {
+                CERROR("Cannot get inode, rc = %d\n", PTR_ERR(inode));
         } else if (id->oii_gen != OSD_OII_NOGEN &&
                    inode->i_generation != id->oii_gen) {
                 iput(inode);
@@ -1176,7 +982,7 @@ static void osd_init_quota_ctxt(const struct lu_env *env, struct dt_device *d,
  * Note: we do not count into QUOTA here.
  * If we mount with --data_journal we may need more.
  */
-static const int osd_dto_credits_noquota[DTO_NR] = {
+const int osd_dto_credits_noquota[DTO_NR] = {
         /**
          * Insert/Delete.
          * INDEX_EXTRA_TRANS_BLOCKS(8) +
@@ -1367,8 +1173,8 @@ static int capa_is_sane(const struct lu_env *env,
         RETURN(0);
 }
 
-static int osd_object_auth(const struct lu_env *env, struct dt_object *dt,
-                           struct lustre_capa *capa, __u64 opc)
+int osd_object_auth(const struct lu_env *env, struct dt_object *dt,
+                    struct lustre_capa *capa, __u64 opc)
 {
         const struct lu_fid *fid = lu_object_fid(&dt->do_lu);
         struct osd_device *dev = osd_dev(dt->do_lu.lo_dev);
@@ -3132,7 +2938,7 @@ static const struct dt_body_operations osd_body_ops_new = {
         .dbo_declare_write = osd_declare_write,
 };
 
-static const struct dt_body_operations osd_body_ops = {
+const struct dt_body_operations osd_body_ops = {
         .dbo_read          = osd_read,
         .dbo_declare_write = osd_declare_write,
         .dbo_write         = osd_write
@@ -4490,7 +4296,7 @@ static void osd_key_exit(const struct lu_context *ctx,
 /* type constructor/destructor: osd_type_init, osd_type_fini */
 LU_TYPE_INIT_FINI(osd, &osd_key);
 
-static struct lu_context_key osd_key = {
+struct lu_context_key osd_key = {
         .lct_tags = LCT_DT_THREAD | LCT_MD_THREAD,
         .lct_init = osd_key_init,
         .lct_fini = osd_key_fini,
@@ -4706,7 +4512,7 @@ static const struct lu_object_operations osd_lu_obj_ops = {
         .loo_object_invariant = osd_object_invariant
 };
 
-static const struct lu_device_operations osd_lu_ops = {
+const struct lu_device_operations osd_lu_ops = {
         .ldo_object_alloc      = osd_object_alloc,
         .ldo_process_config    = osd_process_config,
         .ldo_recovery_complete = osd_recovery_complete,
@@ -4769,4 +4575,4 @@ MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Object Storage Device ("LUSTRE_OSD_NAME")");
 MODULE_LICENSE("GPL");
 
-cfs_module(osd, "0.0.2", osd_mod_init, osd_mod_exit);
+cfs_module(osd, "0.1.0", osd_mod_init, osd_mod_exit);
