@@ -716,7 +716,13 @@ int ll_drop_dentry(struct dentry *dentry);
 void ll_unhash_aliases(struct inode *);
 void ll_frob_intent(struct lookup_intent **itp, struct lookup_intent *deft);
 void ll_lookup_finish_locks(struct lookup_intent *it, struct dentry *dentry);
+#ifdef HAVE_D_COMPARE_7ARGS
+int ll_dcompare(const struct dentry *parent, const struct inode *pinode,
+                const struct dentry *dentry, const struct inode *inode,
+                unsigned int len, const char *str, const struct qstr *d_name);
+#else
 int ll_dcompare(struct dentry *parent, struct qstr *d_name, struct qstr *name);
+#endif
 int ll_revalidate_it_finish(struct ptlrpc_request *request,
                             struct lookup_intent *it, struct dentry *de);
 
@@ -1366,14 +1372,12 @@ static inline void ll_set_lock_data(struct obd_export *exp, struct inode *inode,
 static inline void ll_dentry_rehash(struct dentry *dentry, int locked)
 {
         if (!locked) {
-                cfs_spin_lock(&ll_lookup_lock);
-                spin_lock(&dcache_lock);
+                LL_LOCK_DCACHE;
         }
         if (d_unhashed(dentry))
                 d_rehash_cond(dentry, 0);
         if (!locked) {
-                spin_unlock(&dcache_lock);
-                cfs_spin_unlock(&ll_lookup_lock);
+                LL_UNLOCK_DCACHE;
         }
 }
 
