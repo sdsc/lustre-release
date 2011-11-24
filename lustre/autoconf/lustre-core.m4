@@ -2295,6 +2295,25 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 2.6.39 remove unplug_fn from request_queue.
+#
+AC_DEFUN([LC_REQUEST_QUEUE_UNPLUG_FN],
+[AC_MSG_CHECKING([if request_queue has unplug_fn field])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/blkdev.h>
+],[
+        struct request_queue rq;
+        memset(rq.unplug_fn, 0, sizeof(rq.unplug_fn));
+],[
+        AC_DEFINE(HAVE_REQUEST_QUEUE_UNPLUG_FN, 1,
+                [request_queue has unplug_fn field]),
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+#
 # LC_PROG_LINUX
 #
 # Lustre linux kernel checks
@@ -2456,6 +2475,7 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_SELINUX_IS_ENABLED
 
 	 # 2.6.39
+	 LC_REQUEST_QUEUE_UNPLUG_FN
 	 LC_HAVE_FSTYPE_MOUNT
 
 	 # 3.1.1
