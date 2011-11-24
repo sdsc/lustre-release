@@ -41,6 +41,8 @@ LCTL=${LCTL:-lctl}
 SETSTRIPE=${SETSTRIPE:-"$LFS setstripe"}
 GETSTRIPE=${GETSTRIPE:-"$LFS getstripe"}
 
+ORIGFREE=$($LCTL get_param -n lov.$LOVNAME.kbytesavail)
+MAXFREE=${MAXFREE:-$((200000 * $OSTCOUNT))}
 
 TSTUSR=${TSTUSR:-"quota_usr"}
 TSTID=${TSTID:-60000}
@@ -142,7 +144,6 @@ check_file_in_osts() {
         local ost_count=$($GETSTRIPE $file | grep 0x | wc -l)
         [[ -n "$count" ]] && [[ $ost_count -ne $count ]] && \
             { error "Stripe count $count expected; got $ost_count" && return 1; }
-                
         return 0
 }
 
@@ -786,6 +787,10 @@ run_test 13 "Striping characteristics in a pool"
 test_14() {
     set_cleanup_trap
     [[ $OSTCOUNT -le 2 ]] && skip_env "Need atleast 3 OSTs" && return
+    if [ $ORIGFREE -gt $MAXFREE ]; then
+        skip "$ORIGFREE > $MAXFREE skipping QoS test with pools"
+        return
+    fi
 
     local POOL_ROOT=${POOL_ROOT:-$DIR/$tdir}
     local numfiles=100
@@ -939,19 +944,16 @@ create_perf() {
     local time
 
     mkdir -p $cdir
-    sync; sleep 5 # give pending IO a chance to go to disk
-    stat=$(createmany -o $cdir/${tfile} $numfiles)
+    createmany -o $cdir/${tfile} $numfiles | awk '/total/{print $(NF-3)}'
     rm -rf $cdir
-    sync
-    time=$(echo $stat | cut -f 5 -d ' ')
-    echo $stat >> /dev/stderr
-    echo $time
+    wait_delete_completed
 }
 
 test_18() {
     set_cleanup_trap
     local POOL_ROOT=${POOL_ROOT:-$DIR/$tdir}
     local numfiles=30000
+    local iter=3
     local plaindir=$POOL_ROOT/plaindir
     local pooldir=$POOL_ROOT/pooldir
 	local t1=0
@@ -959,7 +961,10 @@ test_18() {
 	local t3=0
 	local diff
 
-    for i in $(seq 1 3);
+    [ "$SLOW" = "no" ] && numfiles=1000
+    [ "$SLOW" = "no" ] && iter=1
+
+    for i in $(seq $iter);
     do
         echo "Create performance, iteration $i, $numfiles files x 3"
 
@@ -978,8 +983,6 @@ test_18() {
 		time3=$(create_perf $pooldir $numfiles)
 		echo "iter $i: $numfiles creates with missing pool: $time3"
 		t3=$(echo "scale=2; $t3 + $time3" | bc)
-
-		echo
 	done
 
 	time1=$(echo "scale=2; $t1 / $i" | bc)
@@ -988,6 +991,9 @@ test_18() {
 	echo Avg time taken for $numfiles creates with pool: $time2
 	time3=$(echo "scale=2; $t3 / $i" | bc)
 	echo Avg time taken for $numfiles creates with missing pool: $time3
+
+	# don't compare performance with low number of files
+	[ "$SLOW" = "no" ] && return 0
 
 	# Set this high until we establish a baseline for what the degradation
 	# is / should be
@@ -1334,7 +1340,7 @@ test_25() {
         wait_osc_import_state mds ost FULL
         clients_up
 
-        wait_mds_ost_sync 
+        wait_mds_ost_sync
         # Veriy that the pool got created and is usable
         df $POOL_ROOT > /dev/null
         sleep 5
