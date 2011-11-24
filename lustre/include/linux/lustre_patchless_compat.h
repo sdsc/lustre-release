@@ -82,6 +82,29 @@ static inline void ll_remove_from_page_cache(struct page *page)
 #define ll_remove_from_page_cache(page) remove_from_page_cache(page)
 #endif /* !HAVE_REMOVE_FROM_PAGE_CACHE */
 
+#ifdef HAVE_DCACHE_LOCK
+#define LOCK_DCACHE     cfs_spin_lock(&dcache_lock)
+#define UNLOCK_DCACHE   cfs_spin_unlock(&dcache_lock)
+#define LL_LOCK_DCACHE                                  \
+        do {                                            \
+                cfs_spin_lock(&ll_lookup_lock);         \
+                LOCK_DCACHE;                            \
+        } while (0)
+#define LL_UNLOCK_DCACHE                                \
+        do {                                            \
+                UNLOCK_DCACHE;                          \
+                cfs_spin_unlock(&ll_lookup_lock);       \
+        } while (0)
+#define dget_dlock(d)   dget_locked(d)
+#define d_refcount(d)   atomic_read(&(d)->d_count)
+#else
+#define LOCK_DCACHE      do {} while (0)
+#define UNLOCK_DCACHE    do {} while (0)
+#define LL_LOCK_DCACHE   do {} while (0)
+#define LL_UNLOCK_DCACHE do {} while (0)
+#define d_refcount(d)    ((d)->d_count)
+#endif /* HAVE_DCACHE_LOCK */
+
 static inline void ll_delete_from_page_cache(struct page *page)
 {
         ll_remove_from_page_cache(page);
@@ -111,12 +134,12 @@ truncate_complete_page(struct address_space *mapping, struct page *page)
 static inline void d_rehash_cond(struct dentry * entry, int lock)
 {
 	if (!lock)
-		spin_unlock(&dcache_lock);
+		UNLOCK_DCACHE;
 
 	d_rehash(entry);
 
 	if (!lock)
-		spin_lock(&dcache_lock);
+		LOCK_DCACHE;
 }
 
 #define __d_rehash(dentry, lock) d_rehash_cond(dentry, lock)

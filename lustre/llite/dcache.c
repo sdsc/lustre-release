@@ -83,24 +83,35 @@ static void ll_release(struct dentry *de)
  * an AST before calling d_revalidate_it().  The dentry still exists (marked
  * INVALID) so d_lookup() matches it, but we have no lock on it (so
  * lock_match() fails) and we spin around real_lookup(). */
+#ifdef HAVE_D_COMPARE_7ARGS
+int ll_dcompare(const struct dentry *parent, const struct inode *pinode,
+                const struct dentry *dentry, const struct inode *inode,
+                unsigned int len, const char *str, const struct qstr *d_name)
+#else
 int ll_dcompare(struct dentry *parent, struct qstr *d_name, struct qstr *name)
+#endif
 {
         struct dentry *dchild;
         ENTRY;
 
+#ifndef HAVE_D_COMPARE_7ARGS
         if (d_name->len != name->len)
                 RETURN(1);
 
         if (memcmp(d_name->name, name->name, name->len))
                 RETURN(1);
+#else
+        if (memcmp(d_name->name, str, d_name->len))
+                RETURN(1);
+#endif
 
         /* XXX: d_name must be in-dentry structure */
         dchild = container_of(d_name, struct dentry, d_name); /* ugh */
 
         CDEBUG(D_DENTRY,"found name %.*s(%p) - flags %d/%x - refc %d\n",
-               name->len, name->name, dchild,
+               d_name->len, d_name->name, dchild,
                d_mountpoint(dchild), dchild->d_flags & DCACHE_LUSTRE_INVALID,
-               atomic_read(&dchild->d_count));
+               d_refcount(dchild));
 
          /* mountpoint is always valid */
         if (d_mountpoint(dchild))
@@ -152,7 +163,7 @@ static int find_cbdata(struct inode *inode)
  * - return 0 to cache the dentry
  * Should NOT be called with the dcache lock, see fs/dcache.c
  */
-static int ll_ddelete(struct dentry *de)
+static int ll_ddelete(HAVE_D_DELETE_CONST struct dentry *de)
 {
         ENTRY;
         LASSERT(de);
@@ -160,12 +171,12 @@ static int ll_ddelete(struct dentry *de)
         CDEBUG(D_DENTRY, "%s dentry %.*s (%p, parent %p, inode %p) %s%s\n",
                (de->d_flags & DCACHE_LUSTRE_INVALID ? "deleting" : "keeping"),
                de->d_name.len, de->d_name.name, de, de->d_parent, de->d_inode,
-               d_unhashed(de) ? "" : "hashed,",
+               d_unhashed((struct dentry*)de) ? "" : "hashed,",
                list_empty(&de->d_subdirs) ? "" : "subdirs");
 
         /* if not ldlm lock for this inode, set i_nlink to 0 so that
          * this inode can be recycled later b=20433 */
-        LASSERT(atomic_read(&de->d_count) == 0);
+        LASSERT(d_refcount(de) == 0);
         if (de->d_inode && !find_cbdata(de->d_inode))
                 de->d_inode->i_nlink = 0;
 
@@ -182,7 +193,7 @@ static int ll_set_dd(struct dentry *de)
 
         CDEBUG(D_DENTRY, "ldd on dentry %.*s (%p) parent %p inode %p refc %d\n",
                de->d_name.len, de->d_name.name, de, de->d_parent, de->d_inode,
-               atomic_read(&de->d_count));
+               d_refcount(de));
 
         if (de->d_fsdata == NULL) {
                 struct ll_dentry_data *lld;
@@ -265,19 +276,17 @@ void ll_intent_release(struct lookup_intent *it)
 int ll_drop_dentry(struct dentry *dentry)
 {
         lock_dentry(dentry);
-        if (atomic_read(&dentry->d_count) == 0) {
+        if (d_refcount(dentry) == 0) {
                 CDEBUG(D_DENTRY, "deleting dentry %.*s (%p) parent %p "
                        "inode %p\n", dentry->d_name.len,
                        dentry->d_name.name, dentry, dentry->d_parent,
                        dentry->d_inode);
-                dget_locked(dentry);
+                dget_dlock(dentry);
                 __d_drop(dentry);
                 unlock_dentry(dentry);
-                spin_unlock(&dcache_lock);
-                cfs_spin_unlock(&ll_lookup_lock);
+                LL_LOCK_DCACHE;
                 dput(dentry);
-                cfs_spin_lock(&ll_lookup_lock);
-                spin_lock(&dcache_lock);
+                LL_UNLOCK_DCACHE;
                 return 1;
         }
         /* disconected dentry can not be find without lookup, because we
@@ -291,7 +300,7 @@ int ll_drop_dentry(struct dentry *dentry)
                 CDEBUG(D_DENTRY, "unhashing dentry %.*s (%p) parent %p "
                        "inode %p refc %d\n", dentry->d_name.len,
                        dentry->d_name.name, dentry, dentry->d_parent,
-                       dentry->d_inode, atomic_read(&dentry->d_count));
+                       dentry->d_inode, d_refcount(dentry));
                 /* actually we don't unhash the dentry, rather just
                  * mark it inaccessible for to __d_lookup(). otherwise
                  * sys_getcwd() could return -ENOENT -bzzz */
@@ -317,8 +326,7 @@ void ll_unhash_aliases(struct inode *inode)
                inode->i_ino, inode->i_generation, inode);
 
         head = &inode->i_dentry;
-        cfs_spin_lock(&ll_lookup_lock);
-        spin_lock(&dcache_lock);
+        LL_LOCK_DCACHE;
 restart:
         tmp = head;
         while ((tmp = tmp->next) != head) {
@@ -339,8 +347,7 @@ restart:
                 if (ll_drop_dentry(dentry))
                           goto restart;
         }
-        spin_unlock(&dcache_lock);
-        cfs_spin_unlock(&ll_lookup_lock);
+        LL_UNLOCK_DCACHE;
 
         EXIT;
 }
@@ -574,7 +581,7 @@ out:
                 CDEBUG(D_DENTRY, "revalidated dentry %.*s (%p) parent %p "
                        "inode %p refc %d\n", de->d_name.len,
                        de->d_name.name, de, de->d_parent, de->d_inode,
-                       atomic_read(&de->d_count));
+                       d_refcount(de));
                 ll_set_lock_data(exp, de->d_inode, it, &bits);
                 ll_dentry_reset_flags(de, bits);
                 ll_lookup_finish_locks(it, de);

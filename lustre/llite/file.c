@@ -2286,11 +2286,9 @@ int __ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
                    here to preserve get_cwd functionality on 2.6.
                    Bug 10503 */
                 if (!dentry->d_inode->i_nlink) {
-                        cfs_spin_lock(&ll_lookup_lock);
-                        spin_lock(&dcache_lock);
+                        LL_LOCK_DCACHE;
                         ll_drop_dentry(dentry);
-                        spin_unlock(&dcache_lock);
-                        cfs_spin_unlock(&ll_lookup_lock);
+                        LL_UNLOCK_DCACHE;
                 }
 
                 ll_lookup_finish_locks(&oit, dentry);
