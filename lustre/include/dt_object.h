@@ -117,7 +117,7 @@ struct dt_device_operations {
          * Return device-wide statistics.
          */
         int   (*dt_statfs)(const struct lu_env *env,
-                           struct dt_device *dev, cfs_kstatfs_t *osfs);
+                           struct dt_device *dev, struct obd_statfs *osfs);
         /**
          * Create transaction, described by \a param.
          */
@@ -733,9 +733,24 @@ struct dt_object *dt_store_open(const struct lu_env *env,
                                 const char *filename,
                                 struct lu_fid *fid);
 
+struct dt_object *dt_find_or_create(const struct lu_env *env,
+                                    struct dt_device *dt,
+                                    const struct lu_fid *fid,
+                                    struct dt_object_format *dof,
+                                    struct lu_attr *attr);
+
 struct dt_object *dt_locate(const struct lu_env *env,
                             struct dt_device *dev,
                             const struct lu_fid *fid);
+
+static inline int dt_object_sync(const struct lu_env *env,
+                                 struct dt_object *o)
+{
+        LASSERT(o);
+        LASSERT(o->do_ops);
+        LASSERT(o->do_ops->do_object_sync);
+        return o->do_ops->do_object_sync(env, o);
+}
 
 int dt_declare_version_set(const struct lu_env *env, struct dt_object *o,
                            struct thandle *th);
@@ -1062,7 +1077,7 @@ static inline int dt_fiemap_get(const struct lu_env *env, struct dt_object *d,
 }
 
 static inline int dt_statfs(const struct lu_env *env, struct dt_device *dev,
-                            cfs_kstatfs_t *osfs)
+                            struct obd_statfs *osfs)
 {
         LASSERT(dev);
         LASSERT(dev->dd_ops);
