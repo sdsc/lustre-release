@@ -528,7 +528,7 @@ int osc_create_async(struct obd_export *exp, struct obd_info *oinfo,
         RETURN(rc);
 }
 
-int osc_create(struct obd_export *exp, struct obdo *oa,
+int osc_create(const struct lu_env *env, struct obd_export *exp, struct obdo *oa,
                struct lov_stripe_md **ea, struct obd_trans_info *oti)
 {
         struct osc_creator *oscc = &exp->exp_obd->u.cli.cl_oscc;
