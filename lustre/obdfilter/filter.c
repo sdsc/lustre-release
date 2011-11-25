@@ -3112,7 +3112,7 @@ static void filter_revimp_update(struct obd_export *exp)
         EXIT;
 }
 
-static int filter_ping(struct obd_export *exp)
+static int filter_ping(const struct lu_env *env, struct obd_export *exp)
 {
         filter_fmd_expire(exp);
         return 0;
@@ -3142,7 +3142,8 @@ struct dentry *__filter_oa2dentry(struct obd_device *obd, struct ost_id *ostid,
         return dchild;
 }
 
-static int filter_getattr(struct obd_export *exp, struct obd_info *oinfo)
+static int filter_getattr(const struct lu_env *env, struct obd_export *exp,
+                          struct obd_info *oinfo)
 {
         struct dentry *dentry = NULL;
         struct obd_device *obd;
@@ -3387,8 +3388,8 @@ out_unlock:
 }
 
 /* this is called from filter_truncate() until we have filter_punch() */
-int filter_setattr(struct obd_export *exp, struct obd_info *oinfo,
-                   struct obd_trans_info *oti)
+int filter_setattr(const struct lu_env *env, struct obd_export *exp,
+                   struct obd_info *oinfo, struct obd_trans_info *oti)
 {
         struct obdo *oa = oinfo->oi_oa;
         struct lustre_capa *capa = oinfo_capa(oinfo);
@@ -3579,7 +3580,7 @@ static int filter_destroy_precreated(struct obd_export *exp, struct obdo *oa,
 
         for (id = last; id > oa->o_id; id--) {
                 doa.o_id = id;
-                rc = filter_destroy(exp, &doa, NULL, NULL, NULL, NULL);
+                rc = filter_destroy(NULL, exp, &doa, NULL, NULL, NULL, NULL);
                 if (rc && rc != -ENOENT) /* this is pretty fatal... */
                         CEMERG("error destroying precreate objid "LPU64": %d\n",
                                id, rc);
@@ -3699,9 +3700,10 @@ out:
         return rc;
 }
 
-static int filter_statfs(struct obd_device *obd, struct obd_statfs *osfs,
-                         __u64 max_age, __u32 flags)
+static int filter_statfs(const struct lu_env *env, struct obd_export *exp,
+                         struct obd_statfs *osfs, __u64 max_age, __u32 flags)
 {
+        struct obd_device *obd = class_exp2obd(exp);
         struct filter_obd *filter = &obd->u.filter;
         int blockbits = obd->u.obt.obt_sb->s_blocksize_bits;
         int rc;
@@ -3826,7 +3828,7 @@ static int filter_precreate(struct obd_device *obd, struct obdo *oa,
                 OBD_ALLOC(osfs, sizeof(*osfs));
                 if (osfs == NULL)
                         RETURN(-ENOMEM);
-                rc = filter_statfs(obd, osfs,
+                rc = filter_statfs(NULL, obd->obd_self_export, osfs,
                                    cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
                                    0);
                 if (rc == 0 && osfs->os_bavail < (osfs->os_blocks >> 10)) {
@@ -4026,8 +4028,9 @@ set_last_id:
         RETURN(rc);
 }
 
-int filter_create(struct obd_export *exp, struct obdo *oa,
-                  struct lov_stripe_md **ea, struct obd_trans_info *oti)
+int filter_create(const struct lu_env *env, struct obd_export *exp,
+                  struct obdo *oa, struct lov_stripe_md **ea,
+                  struct obd_trans_info *oti)
 {
         struct obd_device *obd = exp->exp_obd;
         struct filter_export_data *fed;
@@ -4106,9 +4109,10 @@ int filter_create(struct obd_export *exp, struct obdo *oa,
         RETURN(rc);
 }
 
-int filter_destroy(struct obd_export *exp, struct obdo *oa,
-                   struct lov_stripe_md *md, struct obd_trans_info *oti,
-                   struct obd_export *md_exp, void *capa)
+int filter_destroy(const struct lu_env *env, struct obd_export *exp,
+                   struct obdo *oa, struct lov_stripe_md *md,
+                   struct obd_trans_info *oti, struct obd_export *md_exp,
+                   void *capa)
 {
         unsigned int qcids[MAXQUOTAS] = {0, 0};
         struct obd_device *obd;
@@ -4300,8 +4304,8 @@ cleanup:
 }
 
 /* NB start and end are used for punch, but not truncate */
-static int filter_truncate(struct obd_export *exp, struct obd_info *oinfo,
-                           struct obd_trans_info *oti,
+static int filter_truncate(const struct lu_env *env, struct obd_export *exp,
+                           struct obd_info *oinfo, struct obd_trans_info *oti,
                            struct ptlrpc_request_set *rqset)
 {
         int rc;
@@ -4318,12 +4322,12 @@ static int filter_truncate(struct obd_export *exp, struct obd_info *oinfo,
                 oinfo->oi_policy.l_extent.start);
 
         oinfo->oi_oa->o_size = oinfo->oi_policy.l_extent.start;
-        rc = filter_setattr(exp, oinfo, oti);
+        rc = filter_setattr(NULL, exp, oinfo, oti);
         RETURN(rc);
 }
 
-static int filter_sync(struct obd_export *exp, struct obd_info *oinfo,
-                       obd_off start, obd_off end,
+static int filter_sync(const struct lu_env *env, struct obd_export *exp,
+                       struct obd_info *oinfo, obd_off start, obd_off end,
                        struct ptlrpc_request_set *set)
 {
         struct lvfs_run_ctxt saved;
@@ -4380,8 +4384,8 @@ static int filter_sync(struct obd_export *exp, struct obd_info *oinfo,
         RETURN(rc);
 }
 
-static int filter_get_info(struct obd_export *exp, __u32 keylen,
-                           void *key, __u32 *vallen, void *val,
+static int filter_get_info(const struct lu_env *env, struct obd_export *exp,
+                           __u32 keylen, void *key, __u32 *vallen, void *val,
                            struct lov_stripe_md *lsm)
 {
         struct obd_device *obd;
@@ -4537,8 +4541,8 @@ out:
         RETURN(rc);
 }
 
-static int filter_set_info_async(struct obd_export *exp, __u32 keylen,
-                                 void *key, __u32 vallen, void *val,
+static int filter_set_info_async(const struct lu_env *env, struct obd_export *exp,
+                                 __u32 keylen, void *key, __u32 vallen, void *val,
                                  struct ptlrpc_request_set *set)
 {
         struct obd_device *obd;
@@ -4578,8 +4582,8 @@ static int filter_set_info_async(struct obd_export *exp, __u32 keylen,
         RETURN(-EINVAL);
 }
 
-int filter_iocontrol(unsigned int cmd, struct obd_export *exp,
-                     int len, void *karg, void *uarg)
+int filter_iocontrol(const struct lu_env *env, unsigned int cmd,
+                     struct obd_export *exp, int len, void *karg, void *uarg)
 {
         struct obd_device *obd = exp->exp_obd;
         struct obd_ioctl_data *data = karg;
@@ -4646,7 +4650,7 @@ int filter_iocontrol(unsigned int cmd, struct obd_export *exp,
         RETURN(0);
 }
 
-static int filter_health_check(struct obd_device *obd)
+static int filter_health_check(const struct lu_env *env, struct obd_device *obd)
 {
 #ifdef USE_HEALTH_CHECK_WRITE
         struct filter_obd *filter = &obd->u.filter;

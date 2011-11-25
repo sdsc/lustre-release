@@ -1104,9 +1104,11 @@ restart_bulk:
         RETURN(0);
 }
 
-static int mdc_statfs(struct obd_device *obd, struct obd_statfs *osfs,
+static int mdc_statfs(const struct lu_env *env,
+                      struct obd_export *exp, struct obd_statfs *osfs,
                       __u64 max_age, __u32 flags)
 {
+        struct obd_device     *obd = class_exp2obd(exp);
         struct ptlrpc_request *req;
         struct obd_statfs     *msfs;
         struct obd_import     *imp = NULL;
@@ -1186,7 +1188,7 @@ static int mdc_ioc_fid2path(struct obd_export *exp, struct getinfo_fid2path *gf)
         /* Val is struct getinfo_fid2path result plus path */
         vallen = sizeof(*gf) + gf->gf_pathlen;
 
-        rc = obd_get_info(exp, keylen, key, &vallen, gf, NULL);
+        rc = obd_get_info(NULL, exp, keylen, key, &vallen, gf, NULL);
         if (rc)
                 GOTO(out, rc);
 
@@ -1362,7 +1364,8 @@ static int mdc_ioc_changelog_send(struct obd_device *obd,
 static int mdc_ioc_hsm_ct_start(struct obd_export *exp,
                                 struct lustre_kernelcomm *lk);
 
-static int mdc_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
+static int mdc_iocontrol(const struct lu_env *env, unsigned int cmd,
+                         struct obd_export *exp, int len,
                          void *karg, void *uarg)
 {
         struct obd_device *obd = exp->exp_obd;
@@ -1387,7 +1390,7 @@ static int mdc_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                 struct ioc_changelog *icc = karg;
                 struct changelog_setinfo cs =
                         {.cs_recno = icc->icc_recno, .cs_id = icc->icc_id};
-                rc = obd_set_info_async(exp, strlen(KEY_CHANGELOG_CLEAR),
+                rc = obd_set_info_async(NULL, exp, strlen(KEY_CHANGELOG_CLEAR),
                                         KEY_CHANGELOG_CLEAR, sizeof(cs), &cs,
                                         NULL);
                 GOTO(out, rc);
@@ -1445,7 +1448,7 @@ static int mdc_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                                          (int) sizeof(struct obd_uuid))))
                         GOTO(out, rc = -EFAULT);
 
-                rc = mdc_statfs(obd, &stat_buf,
+                rc = mdc_statfs(NULL, obd->obd_self_export, &stat_buf,
                                 cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
                                 0);
                 if (rc != 0)
@@ -1641,7 +1644,8 @@ static int mdc_hsm_copytool_send(int len, void *val)
         RETURN(rc);
 }
 
-int mdc_set_info_async(struct obd_export *exp,
+int mdc_set_info_async(const struct lu_env *env,
+                       struct obd_export *exp,
                        obd_count keylen, void *key,
                        obd_count vallen, void *val,
                        struct ptlrpc_request_set *set)
@@ -1698,8 +1702,9 @@ int mdc_set_info_async(struct obd_export *exp,
         RETURN(rc);
 }
 
-int mdc_get_info(struct obd_export *exp, __u32 keylen, void *key,
-                 __u32 *vallen, void *val, struct lov_stripe_md *lsm)
+int mdc_get_info(const struct lu_env *env, struct obd_export *exp,
+                 __u32 keylen, void *key, __u32 *vallen, void *val,
+                 struct lov_stripe_md *lsm)
 {
         int rc = -EINVAL;
 
