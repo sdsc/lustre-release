@@ -75,4 +75,15 @@ int lut_init(const struct lu_env *, struct lu_target *,
 void lut_fini(const struct lu_env *, struct lu_target *);
 int lut_client_alloc(struct obd_export *);
 void lut_client_free(struct obd_export *);
+int lut_client_del(const struct lu_env *, struct obd_export *);
+int lut_client_add(const struct lu_env *, struct obd_export *, int);
+int lut_client_new(const struct lu_env *, struct obd_export *);
+int lut_client_data_read(const struct lu_env *, struct lu_target *,
+                         struct lsd_client_data *, loff_t *, int);
+int lut_client_data_write(const struct lu_env *, struct lu_target *,
+                          struct lsd_client_data *, loff_t *, struct thandle *);
+int lut_server_data_read(const struct lu_env *, struct lu_target *);
+int lut_server_data_write(const struct lu_env *, struct lu_target *,
+                          struct thandle *);
+int lut_server_data_update(const struct lu_env *, struct lu_target *, int);
 #endif /* __LUSTRE_LU_TARGET_H */
