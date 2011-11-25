@@ -1283,9 +1283,9 @@ echo_copyin_lsm (struct echo_device *ed, struct lov_stripe_md *lsm,
         return (0);
 }
 
-static int echo_create_object(struct echo_device *ed, int on_target,
-                              struct obdo *oa, void *ulsm, int ulsm_nob,
-                              struct obd_trans_info *oti)
+static int echo_create_object(const struct lu_env *env, struct echo_device *ed,
+                              int on_target, struct obdo *oa, void *ulsm,
+                              int ulsm_nob, struct obd_trans_info *oti)
 {
         struct echo_object     *eco;
         struct echo_client_obd *ec = ed->ed_ec;
@@ -1344,7 +1344,7 @@ static int echo_create_object(struct echo_device *ed, int on_target,
                 /* Only echo objects are allowed to be created */
                 LASSERT((oa->o_valid & OBD_MD_FLGROUP) &&
                         (oa->o_seq == FID_SEQ_ECHO));
-                rc = obd_create(ec->ec_exp, oa, &lsm, oti);
+                rc = obd_create(env, ec->ec_exp, oa, &lsm, oti);
                 if (rc != 0) {
                         CERROR("Cannot create objects, rc = %d\n", rc);
                         GOTO(failed, rc);
@@ -1366,7 +1366,7 @@ static int echo_create_object(struct echo_device *ed, int on_target,
 
  failed:
         if (created && rc)
-                obd_destroy(ec->ec_exp, oa, lsm, oti, NULL, NULL);
+                obd_destroy(env, ec->ec_exp, oa, lsm, oti, NULL, NULL);
         if (lsm)
                 obd_free_memmd(ec->ec_exp, &lsm);
         if (rc)
@@ -1657,8 +1657,8 @@ static int echo_client_prep_commit(struct obd_export *exp, int rw,
                 oti->oti_transno = 0;
 
                 lpages = npages;
-                ret = obd_preprw(rw, exp, oa, 1, &ioo, rnb, &lpages, lnb, oti,
-                                 NULL);
+                ret = obd_preprw(NULL, rw, exp, oa, 1, &ioo, rnb, &lpages,
+                                 lnb, oti, NULL);
                 if (ret != 0)
                         GOTO(out, ret);
                 LASSERT(lpages == npages);
@@ -1687,7 +1687,8 @@ static int echo_client_prep_commit(struct obd_export *exp, int rw,
                                                              rnb[i].len);
                 }
 
-                ret = obd_commitrw(rw, exp, oa, 1,&ioo,rnb,npages,lnb,oti,ret);
+                ret = obd_commitrw(NULL, rw, exp, oa, 1, &ioo,
+                                   rnb, npages, lnb, oti, ret);
                 if (ret != 0)
                         GOTO(out, ret);
 
@@ -1795,8 +1796,8 @@ echo_client_cancel(struct obd_export *exp, struct obdo *oa)
 }
 
 static int
-echo_client_iocontrol(unsigned int cmd, struct obd_export *exp,
-                      int len, void *karg, void *uarg)
+echo_client_iocontrol(const struct lu_env *env, unsigned int cmd,
+                      struct obd_export *exp, int len, void *karg, void *uarg)
 {
         struct obd_device      *obd = exp->exp_obd;
         struct echo_device     *ed = obd2echo_dev(obd);
@@ -1834,7 +1835,7 @@ echo_client_iocontrol(unsigned int cmd, struct obd_export *exp,
                 if (!cfs_capable(CFS_CAP_SYS_ADMIN))
                         GOTO (out, rc = -EPERM);
 
-                rc = echo_create_object (ed, 1, oa,
+                rc = echo_create_object (env, ed, 1, oa,
                                          data->ioc_pbuf1, data->ioc_plen1,
                                          &dummy_oti);
                 GOTO(out, rc);
@@ -1845,7 +1846,7 @@ echo_client_iocontrol(unsigned int cmd, struct obd_export *exp,
 
                 rc = echo_get_object (&eco, ed, oa);
                 if (rc == 0) {
-                        rc = obd_destroy(ec->ec_exp, oa, eco->eo_lsm,
+                        rc = obd_destroy(env, ec->ec_exp, oa, eco->eo_lsm,
                                          &dummy_oti, NULL, NULL);
                         if (rc == 0)
                                 eco->eo_deleted = 1;
@@ -1859,7 +1860,7 @@ echo_client_iocontrol(unsigned int cmd, struct obd_export *exp,
                         struct obd_info oinfo = { { { 0 } } };
                         oinfo.oi_md = eco->eo_lsm;
                         oinfo.oi_oa = oa;
-                        rc = obd_getattr(ec->ec_exp, &oinfo);
+                        rc = obd_getattr(env, ec->ec_exp, &oinfo);
                         echo_put_object(eco);
                 }
                 GOTO(out, rc);
@@ -1874,7 +1875,7 @@ echo_client_iocontrol(unsigned int cmd, struct obd_export *exp,
                         oinfo.oi_oa = oa;
                         oinfo.oi_md = eco->eo_lsm;
 
-                        rc = obd_setattr(ec->ec_exp, &oinfo, NULL);
+                        rc = obd_setattr(env, ec->ec_exp, &oinfo, NULL);
                         echo_put_object(eco);
                 }
                 GOTO(out, rc);
@@ -1909,7 +1910,7 @@ echo_client_iocontrol(unsigned int cmd, struct obd_export *exp,
                                 echo_put_object(eco);
                         }
                 } else {
-                        rc = echo_create_object(ed, 0, oa,
+                        rc = echo_create_object(env, ed, 0, oa,
                                                 data->ioc_pbuf1,
                                                 data->ioc_plen1, &dummy_oti);
                 }
