@@ -264,6 +264,8 @@ static inline cksum_type_t cksum_type_select(cksum_type_t cksum_types)
         return cksum_type_unpack(cksum_type_pack(cksum_types));
 }
 
+#define OBD_CKSUM_ALL (OBD_CKSUM_CRC32 | CHECKSUM_ADLER)
+
 /* Checksum algorithm names. Must be defined in the same order as the
  * OBD_CKSUM_* flags. */
 #define DECLARE_CKSUM_NAME char *cksum_name[] = {"crc32", "adler", "crc32c"}
