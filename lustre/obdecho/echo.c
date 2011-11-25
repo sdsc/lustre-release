@@ -121,8 +121,9 @@ static int echo_destroy_export(struct obd_export *exp)
         return id;
 }
 
-int echo_create(struct obd_export *exp, struct obdo *oa,
-                struct lov_stripe_md **ea, struct obd_trans_info *oti)
+int echo_create(const struct lu_env *env, struct obd_export *exp,
+                struct obdo *oa, struct lov_stripe_md **ea,
+                struct obd_trans_info *oti)
 {
         struct obd_device *obd = class_exp2obd(exp);
 
@@ -148,9 +149,10 @@ int echo_create(struct obd_export *exp, struct obdo *oa,
         return 0;
 }
 
-int echo_destroy(struct obd_export *exp, struct obdo *oa,
-                 struct lov_stripe_md *ea, struct obd_trans_info *oti,
-                 struct obd_export *md_exp, void *capa)
+int echo_destroy(const struct lu_env *env, struct obd_export *exp,
+                 struct obdo *oa, struct lov_stripe_md *ea,
+                 struct obd_trans_info *oti, struct obd_export *md_exp,
+                 void *capa)
 {
         struct obd_device *obd = class_exp2obd(exp);
 
@@ -174,7 +176,8 @@ int echo_destroy(struct obd_export *exp, struct obdo *oa,
         RETURN(0);
 }
 
-static int echo_getattr(struct obd_export *exp, struct obd_info *oinfo)
+static int echo_getattr(const struct lu_env *env, struct obd_export *exp,
+                        struct obd_info *oinfo)
 {
         struct obd_device *obd = class_exp2obd(exp);
         obd_id id = oinfo->oi_oa->o_id;
@@ -198,8 +201,8 @@ static int echo_getattr(struct obd_export *exp, struct obd_info *oinfo)
         RETURN(0);
 }
 
-static int echo_setattr(struct obd_export *exp, struct obd_info *oinfo,
-                        struct obd_trans_info *oti)
+static int echo_setattr(const struct lu_env *env, struct obd_export *exp,
+                        struct obd_info *oinfo, struct obd_trans_info *oti)
 {
         struct obd_device *obd = class_exp2obd(exp);
 
@@ -392,9 +395,9 @@ static int echo_finalize_lb(struct obdo *oa, struct obd_ioobj *obj,
         return rc;
 }
 
-int echo_preprw(int cmd, struct obd_export *export, struct obdo *oa,
-                int objcount, struct obd_ioobj *obj, struct niobuf_remote *nb,
-                int *pages, struct niobuf_local *res,
+int echo_preprw(const struct lu_env *env, int cmd, struct obd_export *export,
+                struct obdo *oa, int objcount, struct obd_ioobj *obj,
+                struct niobuf_remote *nb, int *pages, struct niobuf_local *res,
                 struct obd_trans_info *oti, struct lustre_capa *unused)
 {
         struct obd_device *obd;
@@ -468,8 +471,8 @@ preprw_cleanup:
         return rc;
 }
 
-int echo_commitrw(int cmd, struct obd_export *export, struct obdo *oa,
-                  int objcount, struct obd_ioobj *obj,
+int echo_commitrw(const struct lu_env *env, int cmd, struct obd_export *export,
+                  struct obdo *oa, int objcount, struct obd_ioobj *obj,
                   struct niobuf_remote *rb, int niocount,
                   struct niobuf_local *res, struct obd_trans_info *oti, int rc)
 {
