@@ -658,7 +658,7 @@ int ll_send_mgc_param(struct obd_export *mgc, char *string)
                 return -ENOMEM;
 
         strncpy(msp->mgs_param, string, MGS_PARAM_MAXLEN);
-        rc = obd_set_info_async(mgc, sizeof(KEY_SET_INFO), KEY_SET_INFO,
+        rc = obd_set_info_async(NULL, mgc, sizeof(KEY_SET_INFO), KEY_SET_INFO,
                                 sizeof(struct mgs_send_param), msp, NULL);
         if (rc)
                 CERROR("Failed to set parameter: %d\n", rc);
@@ -889,7 +889,7 @@ static int copy_and_ioctl(int cmd, struct obd_export *exp, void *data, int len)
                 OBD_FREE(ptr, len);
                 return -EFAULT;
         }
-        rc = obd_iocontrol(cmd, exp, len, data, NULL);
+        rc = obd_iocontrol(NULL, cmd, exp, len, data, NULL);
         OBD_FREE(ptr, len);
         return rc;
 }
@@ -941,18 +941,18 @@ static int quotactl_ioctl(struct ll_sb_info *sbi, struct if_quotactl *qctl)
 
                 switch (valid) {
                 case QC_MDTIDX:
-                        rc = obd_iocontrol(OBD_IOC_QUOTACTL, sbi->ll_md_exp,
+                        rc = obd_iocontrol(NULL, OBD_IOC_QUOTACTL, sbi->ll_md_exp,
                                            sizeof(*qctl), qctl, NULL);
                         break;
                 case QC_OSTIDX:
-                        rc = obd_iocontrol(OBD_IOC_QUOTACTL, sbi->ll_dt_exp,
+                        rc = obd_iocontrol(NULL, OBD_IOC_QUOTACTL, sbi->ll_dt_exp,
                                            sizeof(*qctl), qctl, NULL);
                         break;
                 case QC_UUID:
-                        rc = obd_iocontrol(OBD_IOC_QUOTACTL, sbi->ll_md_exp,
+                        rc = obd_iocontrol(NULL, OBD_IOC_QUOTACTL, sbi->ll_md_exp,
                                            sizeof(*qctl), qctl, NULL);
                         if (rc == -EAGAIN)
-                                rc = obd_iocontrol(OBD_IOC_QUOTACTL,
+                                rc = obd_iocontrol(NULL, OBD_IOC_QUOTACTL,
                                                    sbi->ll_dt_exp,
                                                    sizeof(*qctl), qctl, NULL);
                         break;
@@ -1338,7 +1338,7 @@ out_free:
                 if (!check)
                         RETURN(-ENOMEM);
 
-                rc = obd_iocontrol(cmd, sbi->ll_md_exp, 0, (void *)check,
+                rc = obd_iocontrol(NULL, cmd, sbi->ll_md_exp, 0, (void *)check,
                                    NULL);
                 if (rc) {
                         CDEBUG(D_QUOTA, "mdc ioctl %d failed: %d\n", cmd, rc);
@@ -1348,7 +1348,7 @@ out_free:
                         GOTO(out_poll, rc);
                 }
 
-                rc = obd_iocontrol(cmd, sbi->ll_dt_exp, 0, (void *)check,
+                rc = obd_iocontrol(NULL, cmd, sbi->ll_dt_exp, 0, (void *)check,
                                    NULL);
                 if (rc) {
                         CDEBUG(D_QUOTA, "osc ioctl %d failed: %d\n", cmd, rc);
@@ -1470,7 +1470,7 @@ out_free:
                 /* get ost count when count is zero, get mdt count otherwise */
                 exp = count ? sbi->ll_md_exp : sbi->ll_dt_exp;
                 vallen = sizeof(count);
-                rc = obd_get_info(exp, sizeof(KEY_TGT_COUNT), KEY_TGT_COUNT,
+                rc = obd_get_info(NULL, exp, sizeof(KEY_TGT_COUNT), KEY_TGT_COUNT,
                                   &vallen, &count, NULL);
                 if (rc) {
                         CERROR("get target count failed: %d\n", rc);
@@ -1488,7 +1488,7 @@ out_free:
                         RETURN(-EFAULT);
                 RETURN(0);
         case LL_IOC_GET_CONNECT_FLAGS: {
-                RETURN(obd_iocontrol(cmd, sbi->ll_md_exp, 0, NULL, (void*)arg));
+                RETURN(obd_iocontrol(NULL, cmd, sbi->ll_md_exp, 0, NULL, (void*)arg));
         }
         case OBD_IOC_CHANGELOG_SEND:
         case OBD_IOC_CHANGELOG_CLEAR:
@@ -1503,7 +1503,7 @@ out_free:
                 RETURN(rc);
 
         default:
-                RETURN(obd_iocontrol(cmd, sbi->ll_dt_exp,0,NULL,(void *)arg));
+                RETURN(obd_iocontrol(NULL, cmd, sbi->ll_dt_exp,0,NULL,(void *)arg));
         }
 }
 

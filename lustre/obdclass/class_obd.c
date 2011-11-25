@@ -325,7 +325,7 @@ int class_handle_ioctl(unsigned int cmd, unsigned long arg)
         }
 
         default: {
-                err = obd_iocontrol(cmd, obd->obd_self_export, len, data, NULL);
+                err = obd_iocontrol(NULL, cmd, obd->obd_self_export,len,data,NULL);
                 if (err)
                         GOTO(out, err);
 
