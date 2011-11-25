@@ -1141,7 +1141,7 @@ static int mdd_root_get(const struct lu_env *env,
  * No permission check is needed.
  */
 static int mdd_statfs(const struct lu_env *env, struct md_device *m,
-                      cfs_kstatfs_t *sfs)
+                      struct obd_statfs *sfs)
 {
         struct mdd_device *mdd = lu2mdd_dev(&m->md_lu_dev);
         int rc;
@@ -1197,7 +1197,7 @@ static int mdd_update_capa_key(const struct lu_env *env,
         int rc;
         ENTRY;
 
-        rc = obd_set_info_async(lov_exp, sizeof(KEY_CAPA_KEY), KEY_CAPA_KEY,
+        rc = obd_set_info_async(env, lov_exp, sizeof(KEY_CAPA_KEY), KEY_CAPA_KEY,
                                 sizeof(info), &info, NULL);
         RETURN(rc);
 }

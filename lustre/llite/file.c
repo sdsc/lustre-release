@@ -1250,7 +1250,7 @@ static int ll_lov_recreate(struct inode *inode, obd_id id, obd_seq seq,
         obdo_from_inode(oa, inode, &ll_i2info(inode)->lli_fid, OBD_MD_FLTYPE |
                         OBD_MD_FLATIME | OBD_MD_FLMTIME | OBD_MD_FLCTIME);
         memcpy(lsm2, lsm, lsm_size);
-        rc = obd_create(exp, oa, &lsm2, &oti);
+        rc = obd_create(NULL, exp, oa, &lsm2, &oti);
 
         OBD_FREE_LARGE(lsm2, lsm_size);
         GOTO(out, rc);
@@ -1462,7 +1462,7 @@ static int ll_lov_setstripe(struct inode *inode, struct file *file,
         rc = ll_lov_setstripe_ea_info(inode, file, flags, lumv1, lum_size);
         if (rc == 0) {
                  put_user(0, &lumv1p->lmm_stripe_count);
-                 rc = obd_iocontrol(LL_IOC_LOV_GETSTRIPE, ll_i2dtexp(inode),
+                 rc = obd_iocontrol(NULL, LL_IOC_LOV_GETSTRIPE, ll_i2dtexp(inode),
                                     0, ll_i2info(inode)->lli_smd,
                                     (void *)arg);
         }
@@ -1476,8 +1476,8 @@ static int ll_lov_getstripe(struct inode *inode, unsigned long arg)
         ENTRY;
 
         if (lsm != NULL)
-                rc = obd_iocontrol(LL_IOC_LOV_GETSTRIPE, ll_i2dtexp(inode), 0,
-                                   lsm, (void *)arg);
+                rc = obd_iocontrol(NULL, LL_IOC_LOV_GETSTRIPE, ll_i2dtexp(inode),
+                                   0, lsm, (void *)arg);
         RETURN(rc);
 }
 
@@ -1649,7 +1649,7 @@ int ll_do_fiemap(struct inode *inode, struct ll_user_fiemap *fiemap,
 
         memcpy(&fm_key.fiemap, fiemap, sizeof(*fiemap));
 
-        rc = obd_get_info(exp, sizeof(fm_key), &fm_key, &vallen, fiemap, lsm);
+        rc = obd_get_info(NULL, exp, sizeof(fm_key),&fm_key,&vallen,fiemap,lsm);
         if (rc)
                 CERROR("obd_get_info failed: rc = %d\n", rc);
 
@@ -1681,7 +1681,7 @@ int ll_fid2path(struct obd_export *exp, void *arg)
         OBD_FREE_PTR(gfin);
 
         /* Call mdc_iocontrol */
-        rc = obd_iocontrol(OBD_IOC_FID2PATH, exp, outsize, gfout, NULL);
+        rc = obd_iocontrol(NULL, OBD_IOC_FID2PATH, exp, outsize, gfout, NULL);
         if (rc)
                 GOTO(gf_free, rc);
         if (cfs_copy_to_user(arg, gfout, outsize))
@@ -1854,7 +1854,7 @@ int ll_file_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
                     ll_iocontrol_call(inode, file, cmd, arg, &err))
                         RETURN(err);
 
-                RETURN(obd_iocontrol(cmd, ll_i2dtexp(inode), 0, NULL,
+                RETURN(obd_iocontrol(NULL, cmd, ll_i2dtexp(inode), 0, NULL,
                                      (void *)arg));
         }
         }

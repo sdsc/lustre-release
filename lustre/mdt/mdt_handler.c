@@ -1117,8 +1117,8 @@ static int lu_device_is_mdt(struct lu_device *d)
         return ergo(d != NULL && d->ld_ops != NULL, d->ld_ops == &mdt_lu_ops);
 }
 
-static int mdt_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
-                         void *karg, void *uarg);
+static int mdt_iocontrol(const struct lu_env *env, unsigned int cmd,
+                         struct obd_export *exp, int len, void *karg, void *uarg);
 
 static int mdt_set_info(struct mdt_thread_info *info)
 {
@@ -1174,8 +1174,8 @@ static int mdt_set_info(struct mdt_thread_info *info)
                         __swab32s(&cs->cs_id);
                 }
 
-                rc = mdt_iocontrol(OBD_IOC_CHANGELOG_CLEAR, info->mti_exp,
-                                   vallen, val, NULL);
+                rc = mdt_iocontrol(info->mti_env, OBD_IOC_CHANGELOG_CLEAR,
+                                   info->mti_exp, vallen, val, NULL);
                 lustre_msg_set_status(req->rq_repmsg, rc);
 
         } else {
@@ -4817,7 +4817,8 @@ static const struct lu_object_operations mdt_obj_ops = {
         .loo_object_print   = mdt_object_print
 };
 
-static int mdt_obd_set_info_async(struct obd_export *exp,
+static int mdt_obd_set_info_async(const struct lu_env *env,
+                                  struct obd_export *exp,
                                   __u32 keylen, void *key,
                                   __u32 vallen, void *val,
                                   struct ptlrpc_request_set *set)
@@ -5413,7 +5414,8 @@ static int mdt_ioc_child(struct lu_env *env, struct mdt_device *mdt,
         env->le_ses = &ioctl_session;
 
         LASSERT(next->md_ops->mdo_iocontrol);
-        rc = next->md_ops->mdo_iocontrol(env, next, cmd, len, data);
+        rc = next->md_ops->mdo_iocontrol((const struct lu_env *) env,
+                                         next, cmd, len, data);
 
         lu_context_exit(&ioctl_session);
         lu_context_fini(&ioctl_session);
@@ -5462,10 +5464,9 @@ static int mdt_ioc_version_get(struct mdt_thread_info *mti, void *karg)
 }
 
 /* ioctls on obd dev */
-static int mdt_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
-                         void *karg, void *uarg)
+static int mdt_iocontrol(const struct lu_env *env, unsigned int cmd,
+                         struct obd_export *exp, int len, void *karg, void *uarg)
 {
-        struct lu_env      env;
         struct obd_device *obd = exp->exp_obd;
         struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
         struct dt_device  *dt = mdt->mdt_bottom;
@@ -5473,16 +5474,13 @@ static int mdt_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 
         ENTRY;
         CDEBUG(D_IOCTL, "handling ioctl cmd %#x\n", cmd);
-        rc = lu_env_init(&env, LCT_MD_THREAD);
-        if (rc)
-                RETURN(rc);
 
         switch (cmd) {
         case OBD_IOC_SYNC:
-                rc = mdt_device_sync(&env, mdt);
+                rc = mdt_device_sync(env, mdt);
                 break;
         case OBD_IOC_SET_READONLY:
-                dt->dd_ops->dt_ro(&env, dt);
+                dt->dd_ops->dt_ro(env, dt);
                 break;
         case OBD_IOC_ABORT_RECOVERY:
                 CERROR("Aborting recovery for device %s\n", obd->obd_name);
@@ -5492,13 +5490,13 @@ static int mdt_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
         case OBD_IOC_CHANGELOG_REG:
         case OBD_IOC_CHANGELOG_DEREG:
         case OBD_IOC_CHANGELOG_CLEAR:
-                rc = mdt_ioc_child(&env, mdt, cmd, len, karg);
+                rc = mdt_ioc_child((struct lu_env *) env, mdt, cmd, len, karg);
                 break;
         case OBD_IOC_GET_OBJ_VERSION: {
                 struct mdt_thread_info *mti;
-                mti = lu_context_key_get(&env.le_ctx, &mdt_thread_key);
+                mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
                 memset(mti, 0, sizeof *mti);
-                mti->mti_env = &env;
+                mti->mti_env = env;
                 mti->mti_mdt = mdt;
                 mti->mti_exp = exp;
 
@@ -5511,7 +5509,6 @@ static int mdt_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                 rc = -EOPNOTSUPP;
         }
 
-        lu_env_fini(&env);
         RETURN(rc);
 }
 

@@ -591,7 +591,7 @@ int class_cleanup(struct obd_device *obd, struct lustre_cfg *lcfg)
                                 obd->obd_no_transno = 1;
                                 obd->obd_no_recov = 1;
                                 if (OBP(obd, iocontrol)) {
-                                        obd_iocontrol(OBD_IOC_SYNC,
+                                        obd_iocontrol(NULL, OBD_IOC_SYNC,
                                                       obd->obd_self_export,
                                                       0, NULL, NULL);
                                 }

@@ -1091,8 +1091,8 @@ out_pool:
 }
 
 /* from mdt_iocontrol */
-int mgs_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
-                  void *karg, void *uarg)
+int mgs_iocontrol(const struct lu_env *env, unsigned int cmd,
+                  struct obd_export *exp, int len, void *karg, void *uarg)
 {
         struct obd_device *obd = exp->exp_obd;
         struct obd_ioctl_data *data = karg;
