@@ -318,10 +318,13 @@ enum {
         LPROC_MDS_SETXATTR,
         LPROC_MDS_STATFS,
         LPROC_MDS_SYNC,
+        LPROC_MDS_SAMEDIR_RENAME,
+        LPROC_MDS_CROSSDIR_RENAME,
         LPROC_MDS_LAST,
 };
 void mds_counter_incr(struct obd_export *exp, int opcode);
 void mds_stats_counter_init(struct lprocfs_stats *stats);
 void lprocfs_mds_init_vars(struct lprocfs_static_vars *lvars);
 void lprocfs_mdt_init_vars(struct lprocfs_static_vars *lvars);
+int lproc_mds_attach_rename_seqstat(struct obd_device *dev);
 #endif /* _MDS_INTERNAL_H */

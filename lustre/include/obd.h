@@ -629,6 +629,7 @@ struct mds_obd {
         lnet_nid_t                       mds_nosquash_nid;
         /* do we need permission sync */
         unsigned int                     mds_sync_permission;
+        struct rename_stats              mds_rename_stats;
 };
 
 #define mds_transno_lock         mds_obt.obt_translock
