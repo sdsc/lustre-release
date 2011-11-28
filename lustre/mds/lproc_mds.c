@@ -526,6 +526,102 @@ void mds_stats_counter_init(struct lprocfs_stats *stats)
         lprocfs_counter_init(stats, LPROC_MDS_SETXATTR, 0, "setxattr", "reqs");
         lprocfs_counter_init(stats, LPROC_MDS_STATFS, 0, "statfs", "reqs");
         lprocfs_counter_init(stats, LPROC_MDS_SYNC, 0, "sync", "reqs");
+        lprocfs_counter_init(stats, LPROC_MDS_SAMEDIR_RENAME, 0,
+                             "samedir_rename", "reqs");
+        lprocfs_counter_init(stats, LPROC_MDS_CROSSDIR_RENAME, 0,
+                             "crossdir_rename", "reqs");
+}
+
+#define pct(a, b) (b ? a * 100 / b : 0)
+
+static void display_rename_stats(struct seq_file *seq, char *name, char *units,
+                                 struct obd_histogram *hist)
+{
+        unsigned long tot, t, cum = 0;
+        int i;
+
+
+        tot = lprocfs_oh_sum(hist);
+        if (tot > 0)
+                seq_printf(seq, "- %-15s\n", "rename:");
+        for (i = 0; i < OBD_HIST_MAX; i++) {
+                t = hist->oh_buckets[i];
+                cum += t;
+                if (cum == 0)
+                        continue;
+
+                if (i < 10)
+                        continue;
+                else if (i < 20)
+                        seq_printf(seq, "%4s%d%s", " ", 1<<(i-10), "KB:");
+                else
+                        seq_printf(seq, "%4s%d%s", " ", 1<<(i-20), "MB:");
+
+                seq_printf(seq, " { sample: %3lu, pct: %3lu, cum_pct: %3lu }\n",
+                           t, pct(t, tot), pct(cum, tot));
+
+                if (cum == tot)
+                        break;
+        }
+}
+
+static void rename_stats_show(struct seq_file *seq,
+                              struct rename_stats *rename_stats)
+{
+        struct timeval now;
+
+        /* this sampling races with updates */
+        do_gettimeofday(&now);
+        seq_printf(seq, "- rename_stats:\n");
+        seq_printf(seq, "- %-15s %lu.%lu(secs.usecs)\n", "snapshot_time:",
+                   now.tv_sec, now.tv_usec);
+
+        display_rename_stats(seq, "same_dir", "sizes",
+                             &rename_stats->hist[RENAME_SAMEDIR_SIZE]);
+        display_rename_stats(seq, "crossdir_src", "size",
+                             &rename_stats->hist[RENAME_CROSSDIR_SRC_SIZE]);
+        display_rename_stats(seq, "crossdir_tgt", "size",
+                             &rename_stats->hist[RENAME_CROSSDIR_TGT_SIZE]);
+}
+
+#undef pct
+
+static int mds_rename_stats_seq_show(struct seq_file *seq, void *v)
+{
+        struct obd_device *dev = seq->private;
+        struct mds_obd *mds = &dev->u.mds;
+
+        rename_stats_show(seq, &mds->mds_rename_stats);
+
+        return 0;
+}
+
+static ssize_t mds_rename_stats_seq_write(struct file *file, const char *buf,
+                                          size_t len, loff_t *off)
+{
+        struct seq_file *seq = file->private_data;
+        struct obd_device *dev = seq->private;
+        struct mds_obd *mds = &dev->u.mds;
+        int i;
+
+        for (i = 0; i < BRW_LAST; i++)
+                lprocfs_oh_clear(&mds->mds_rename_stats.hist[i]);
+
+        return len;
+}
+
+LPROC_SEQ_FOPS(mds_rename_stats);
+
+int lproc_mds_attach_rename_seqstat(struct obd_device *dev)
+{
+        struct mds_obd *mds = &dev->u.mds;
+        int i;
+
+        for (i = 0; i < BRW_LAST; i++)
+                spin_lock_init(&mds->mds_rename_stats.hist[i].oh_lock);
+
+        return lprocfs_obd_seq_create(dev, "rename_stats", 0444,
+                                      &mds_rename_stats_fops, dev);
 }
 
 void lprocfs_mds_init_vars(struct lprocfs_static_vars *lvars)
