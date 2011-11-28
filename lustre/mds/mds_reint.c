@@ -2635,6 +2635,22 @@ static int mds_reint_rename(struct mds_update_record *rec, int offset,
         if (new_inode != NULL)
                 lock_count = 4;
 
+        if (de_srcdir->d_inode != de_tgtdir->d_inode) {
+                struct rename_stats  *rstats = &mds->mds_rename_stats;
+
+                lprocfs_oh_tally_log2(&rstats->hist[RENAME_BETWEENDIR_SRC_SIZE],
+                                      de_srcdir->d_inode->i_size);
+                lprocfs_oh_tally_log2(&rstats->hist[RENAME_BETWEENDIR_TGT_SIZE],
+                                      de_tgtdir->d_inode->i_size);
+                mds_counter_incr(req->rq_export, LPROC_MDS_BETWEENDIR_RENAME);
+        } else {
+                struct rename_stats  *rstats = &mds->mds_rename_stats;
+
+                lprocfs_oh_tally_log2(&rstats->hist[RENAME_SAMEDIR_SIZE],
+                                      de_srcdir->d_inode->i_size);
+                mds_counter_incr(req->rq_export, LPROC_MDS_SAMEDIR_RENAME);
+        }
+
         /* version recovery check */
         rc = mds_version_get_check(req, de_srcdir->d_inode, 0);
         if (rc)

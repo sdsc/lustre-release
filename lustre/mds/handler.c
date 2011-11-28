@@ -2000,6 +2000,12 @@ static int mds_setup(struct obd_device *obd, obd_count len, void *buf)
 #endif
                 obd->obd_proc_exports_entry = proc_mkdir("exports",
                                                          obd->obd_proc_entry);
+                rc = lproc_mds_attach_rename_seqstat(obd);
+                if (rc) {
+                        CERROR("%s: MDS can not create rename stats rc = %d\n",
+                                obd->obd_name, rc);
+                        GOTO(err_ns, rc);
+                }
         }
 
         rc = mds_fs_setup(obd, mnt);
