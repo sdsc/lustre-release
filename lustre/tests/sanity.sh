@@ -4458,11 +4458,11 @@ test_81b() { # LU-456
 
         # write should retry several times and return -ENOSPC finally
         $SETSTRIPE -i 0 -c 1 $DIR/$tfile
-        multiop $DIR/$tfile oO_CREAT:O_RDWR:O_SYNC:w4096c
+        multiop $DIR/$tfile oO_CREAT:O_RDWR:O_DIRECT:w4096c
         RC=$?
         ENOSPC=28
         if [ $RC -ne $ENOSPC ] ; then
-                error "dd should fail for -ENOSPC, but succeed."
+                error "write should fail for -ENOSPC, but succeed."
         fi
 }
 run_test 81b "OST should return -ENOSPC when retry still fails ======="
