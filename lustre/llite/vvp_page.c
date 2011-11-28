@@ -250,6 +250,10 @@ static int vvp_page_prep_write(const struct lu_env *env,
  */
 static void vvp_vmpage_error(struct inode *inode, cfs_page_t *vmpage, int ioret)
 {
+        CDEBUG(D_PAGE|D_TRACE, "vmpage[%p], inode[%p:%p], i_mapping[%p:%p] "
+               "ioret[%d]\n", vmpage, inode, vmpage->mapping->host,
+               inode->i_mapping, vmpage->mapping, ioret);
+
         if (ioret == 0)
                 ClearPageError(vmpage);
         else if (ioret != -EINTR) {
