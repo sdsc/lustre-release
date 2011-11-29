@@ -74,6 +74,7 @@
 void ll_truncate(struct inode *inode)
 {
         struct ll_inode_info *lli = ll_i2info(inode);
+        struct lov_stripe_md *lsm = NULL;
         ENTRY;
 
         CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p) to %Lu\n",inode->i_ino,
@@ -82,7 +83,7 @@ void ll_truncate(struct inode *inode)
         ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_TRUNC, 1);
         if (lli->lli_size_sem_owner == cfs_current()) {
                 LASSERT_SEM_LOCKED(&lli->lli_size_sem);
-                ll_inode_size_unlock(inode, 0);
+                ll_inode_size_unlock(inode, &lsm, 0);
         }
 
         EXIT;
@@ -128,6 +129,8 @@ static struct ll_cl_context *ll_cl_init(struct file *file,
         struct cl_io     *io;
         struct cl_object *clob;
         struct ccc_io    *cio;
+        struct inode *inode;
+        struct lov_stripe_md *lsm;
 
         int refcheck;
         int result = 0;
@@ -144,6 +147,8 @@ static struct ll_cl_context *ll_cl_init(struct file *file,
         lcc->lcc_env = env;
         lcc->lcc_refcheck = refcheck;
         lcc->lcc_cookie = current;
+
+        inode = vmpage->mapping->host;
 
         cio = ccc_env_io(env);
         io = cio->cui_cl.cis_io;
@@ -172,8 +177,10 @@ static struct ll_cl_context *ll_cl_init(struct file *file,
 
                 pos = (vmpage->index << CFS_PAGE_SHIFT);
 
+                lsm = cl_lsm_get_io(inode);
                 /* Create a temp IO to serve write. */
-                result = cl_io_rw_init(env, io, CIT_WRITE, pos, CFS_PAGE_SIZE);
+                result = cl_io_rw_init(env, io, CIT_WRITE, pos, CFS_PAGE_SIZE,
+                                     lsm, &ll_i2info(inode)->lli_ll);
                 if (result == 0) {
                         cio->cui_fd = LUSTRE_FPRIVATE(file);
                         cio->cui_iov = NULL;
@@ -181,8 +188,11 @@ static struct ll_cl_context *ll_cl_init(struct file *file,
                         result = cl_io_iter_init(env, io);
                         if (result == 0) {
                                 result = cl_io_lock(env, io);
-                                if (result == 0)
-                                        result = cl_io_start(env, io);
+                                if (result == 0) {
+                                        cl_io_post_lock(env, io);
+                                        if (result == 0)
+                                                result = cl_io_start(env, io);
+                                }
                         }
                 } else
                         result = io->ci_result;
@@ -210,6 +220,12 @@ static struct ll_cl_context *ll_cl_init(struct file *file,
         if (result) {
                 ll_cl_fini(lcc);
                 lcc = ERR_PTR(result);
+        }
+
+        if (lcc->lcc_created && io) {
+                if (!io->ci_ll_dropped)
+                        cl_layout_lock_put(inode);
+                cl_lsm_put(inode, &io->ci_lsm);
         }
 
         CDEBUG(D_VFSTRACE, "%lu@"DFID" -> %d %p %p\n",
@@ -1139,6 +1155,7 @@ int ll_writepage(struct page *vmpage, struct writeback_control *unused)
         struct cl_object       *clob;
         struct cl_2queue       *queue;
         struct cl_env_nest      nest;
+        struct lov_stripe_md   *lsm;
         int result;
         ENTRY;
 
@@ -1158,7 +1175,9 @@ int ll_writepage(struct page *vmpage, struct writeback_control *unused)
 
         io = ccc_env_thread_io(env);
         io->ci_obj = clob;
-        result = cl_io_init(env, io, CIT_MISC, clob);
+        lsm = cl_lsm_get_io(inode);
+        result = cl_io_init(env, io, CIT_MISC, clob, lsm,
+                            &ll_i2info(inode)->lli_ll);
         if (result == 0) {
                 page = cl_page_find(env, clob, vmpage->index,
                                     vmpage, CPT_CACHEABLE);
@@ -1199,7 +1218,11 @@ int ll_writepage(struct page *vmpage, struct writeback_control *unused)
                         cl_2queue_fini(env, queue);
                 }
         }
+
+        if (!io->ci_ll_dropped)
+                cl_layout_lock_put(inode);
         cl_io_fini(env, io);
+        cl_lsm_put(inode, &lsm);
         cl_env_nested_put(&nest, env);
         RETURN(result);
 }
@@ -1208,8 +1231,10 @@ int ll_readpage(struct file *file, struct page *vmpage)
 {
         struct ll_cl_context *lcc;
         int result;
+        struct lov_stripe_md   *lsm;
         ENTRY;
 
+        lsm = cl_lsm_get(vmpage->mapping->host);
         lcc = ll_cl_init(file, vmpage, 0);
         if (!IS_ERR(lcc)) {
                 struct lu_env  *env  = lcc->lcc_env;
@@ -1231,6 +1256,7 @@ int ll_readpage(struct file *file, struct page *vmpage)
                 unlock_page(vmpage);
                 result = PTR_ERR(lcc);
         }
+        cl_lsm_put(vmpage->mapping->host, &lsm);
         RETURN(result);
 }
 

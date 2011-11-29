@@ -1129,7 +1129,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                 OBD_CONNECT_FID | LRU_RESIZE_CONNECT_FLAG | \
                                 OBD_CONNECT_VBR | OBD_CONNECT_LOV_V3 | \
                                 OBD_CONNECT_SOM | OBD_CONNECT_FULL20 | \
-                                OBD_CONNECT_64BITHASH)
+                                OBD_CONNECT_64BITHASH | OBD_CONNECT_LAYOUTLOCK)
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
                                 OBD_CONNECT_TRUNCLOCK | OBD_CONNECT_INDEX | \
@@ -1137,11 +1137,14 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                 OBD_CONNECT_CANCELSET | OBD_CONNECT_AT | \
                                 LRU_RESIZE_CONNECT_FLAG | OBD_CONNECT_CKSUM | \
                                 OBD_CONNECT_CHANGE_QS | \
-                                OBD_CONNECT_OSS_CAPA  | OBD_CONNECT_RMT_CLIENT | \
-                                OBD_CONNECT_RMT_CLIENT_FORCE | OBD_CONNECT_VBR | \
+                                OBD_CONNECT_OSS_CAPA  | \
+                                OBD_CONNECT_RMT_CLIENT | \
+                                OBD_CONNECT_RMT_CLIENT_FORCE | \
+                                OBD_CONNECT_VBR | \
                                 OBD_CONNECT_MDS | OBD_CONNECT_SKIP_ORPHAN | \
-                                OBD_CONNECT_GRANT_SHRINK | OBD_CONNECT_FULL20 | \
-                                OBD_CONNECT_64BITHASH | OBD_CONNECT_MAXBYTES)
+                                OBD_CONNECT_GRANT_SHRINK | \
+                                OBD_CONNECT_FULL20 | OBD_CONNECT_64BITHASH | \
+                                OBD_CONNECT_MAXBYTES)
 #define ECHO_CONNECT_SUPPORTED (0)
 #define MGS_CONNECT_SUPPORTED  (OBD_CONNECT_VERSION | OBD_CONNECT_AT | \
                                 OBD_CONNECT_FULL20 | OBD_CONNECT_IMP_RECOV)
@@ -1314,7 +1317,8 @@ struct lov_mds_md_v1 {            /* LOV EA mds/wire data (little-endian) */
         __u64 lmm_object_id;      /* LOV object ID */
         __u64 lmm_object_seq;     /* LOV object seq number */
         __u32 lmm_stripe_size;    /* size of stripe in bytes */
-        __u32 lmm_stripe_count;   /* num stripes in use for this object */
+        __u16 lmm_stripe_count;   /* num stripes in use for this object */
+        __u16 lmm_layout_gen;     /* layout generation number */
         struct lov_ost_data_v1 lmm_objects[0]; /* per-stripe data */
 };
 
@@ -1342,7 +1346,8 @@ struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
         __u64 lmm_object_id;      /* LOV object ID */
         __u64 lmm_object_seq;     /* LOV object seq number */
         __u32 lmm_stripe_size;    /* size of stripe in bytes */
-        __u32 lmm_stripe_count;   /* num stripes in use for this object */
+        __u16 lmm_stripe_count;   /* num stripes in use for this object */
+        __u16 lmm_layout_gen;     /* layout generation number */
         char  lmm_pool_name[LOV_MAXPOOLNAME]; /* must be 32bit aligned */
         struct lov_ost_data_v1 lmm_objects[0]; /* per-stripe data */
 };
@@ -1402,6 +1407,7 @@ struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
 #define OBD_MD_FLRMTLGETFACL (0x0002000000000000ULL) /* lfs lgetfacl case */
 #define OBD_MD_FLRMTRSETFACL (0x0004000000000000ULL) /* lfs rsetfacl case */
 #define OBD_MD_FLRMTRGETFACL (0x0008000000000000ULL) /* lfs rgetfacl case */
+#define OBD_MD_FLLAYOUTGEN   (0x0010000000000000ULL) /* layout generation */
 
 #define OBD_MD_FLGETATTR (OBD_MD_FLID    | OBD_MD_FLATIME | OBD_MD_FLMTIME | \
                           OBD_MD_FLCTIME | OBD_MD_FLSIZE  | OBD_MD_FLBLKSZ | \
@@ -1544,9 +1550,10 @@ extern void lustre_swab_generic_32s (__u32 *val);
 #define MDS_INODELOCK_LOOKUP 0x000001       /* dentry, mode, owner, group */
 #define MDS_INODELOCK_UPDATE 0x000002       /* size, links, timestamps */
 #define MDS_INODELOCK_OPEN   0x000004       /* For opened files */
+#define MDS_INODELOCK_LAYOUT 0x000008       /* for layout */
 
 /* Do not forget to increase MDS_INODELOCK_MAXSHIFT when adding new bits */
-#define MDS_INODELOCK_MAXSHIFT 2
+#define MDS_INODELOCK_MAXSHIFT 3
 /* This FULL lock is useful to take on unlink sort of operations */
 #define MDS_INODELOCK_FULL ((1<<(MDS_INODELOCK_MAXSHIFT+1))-1)
 
@@ -2681,7 +2688,10 @@ struct obdo {
 
         __u32                   o_uid_h;
         __u32                   o_gid_h;
-        __u64                   o_padding_3;
+        __u16                   o_layout_gen;   /* holds layout generation
+                                                 * number */
+        __u16                   o_padding_1;
+        __u32                   o_padding_3;
         __u64                   o_padding_4;
         __u64                   o_padding_5;
         __u64                   o_padding_6;

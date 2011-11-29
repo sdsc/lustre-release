@@ -1499,7 +1499,7 @@ int cl_pages_prune(const struct lu_env *env, struct cl_object *clobj)
          * function, we just make cl_page_list functions happy. -jay
          */
         io->ci_obj = obj;
-        result = cl_io_init(env, io, CIT_MISC, obj);
+        result = cl_io_init(env, io, CIT_MISC, obj, NULL, NULL);
         if (result != 0) {
                 cl_io_fini(env, io);
                 RETURN(io->ci_result);

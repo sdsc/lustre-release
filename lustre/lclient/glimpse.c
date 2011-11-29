@@ -88,13 +88,13 @@ int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
         const struct lu_fid  *fid   = lu_object_fid(&clob->co_lu);
         struct ccc_io        *cio   = ccc_env_io(env);
         struct cl_lock       *lock;
-        int result;
+        int                   result;
 
         ENTRY;
         result = 0;
         if (!(lli->lli_flags & LLIF_MDS_SIZE_LOCK)) {
                 CDEBUG(D_DLMTRACE, "Glimpsing inode "DFID"\n", PFID(fid));
-                if (lli->lli_smd) {
+                if (io->ci_lsm) {
                         /* NOTE: this looks like DLM lock request, but it may
                          *       not be one. Due to CEF_ASYNC flag (translated
                          *       to LDLM_FL_HAS_INTENT by osc), this is
@@ -181,12 +181,14 @@ int cl_glimpse_size(struct inode *inode)
         struct cl_io           *io  = NULL;
         int                     result;
         int                     refcheck;
-
+        struct lov_stripe_md   *lsm;
         ENTRY;
 
+        lsm = cl_lsm_get_io(inode);
         result = cl_io_get(inode, &env, &io, &refcheck);
         if (result > 0) {
-                result = cl_io_init(env, io, CIT_MISC, io->ci_obj);
+                result = cl_io_init(env, io, CIT_MISC, io->ci_obj,
+                                    lsm, &cl_i2info(inode)->lli_ll);
                 if (result > 0)
                         /*
                          * nothing to do for this io. This currently happens
@@ -196,8 +198,13 @@ int cl_glimpse_size(struct inode *inode)
                 else if (result == 0)
                         result = cl_glimpse_lock(env, io, inode, io->ci_obj);
                 cl_io_fini(env, io);
+                if (!io->ci_ll_dropped)
+                        cl_layout_lock_put(inode);
                 cl_env_put(env, &refcheck);
+        } else {
+                cl_layout_lock_put(inode);
         }
+        cl_lsm_put(inode, &lsm);
         RETURN(result);
 }
 
@@ -211,18 +218,22 @@ int cl_local_size(struct inode *inode)
         struct cl_lock          *lock;
         int                      result;
         int                      refcheck;
-
+        struct lov_stripe_md    *lsm;
         ENTRY;
 
-        if (!cl_i2info(inode)->lli_smd)
+        lsm = cl_lsm_get(inode);
+        if (!lsm) {
+                cl_lsm_put(inode, &lsm);
                 RETURN(0);
+        }
 
         result = cl_io_get(inode, &env, &io, &refcheck);
         if (result <= 0)
                 RETURN(result);
 
         clob = io->ci_obj;
-        result = cl_io_init(env, io, CIT_MISC, clob);
+        result = cl_io_init(env, io, CIT_MISC, clob,
+                            lsm, &cl_i2info(inode)->lli_ll);
         if (result > 0)
                 result = io->ci_result;
         else if (result == 0) {
@@ -240,8 +251,10 @@ int cl_local_size(struct inode *inode)
                 } else
                         result = -ENODATA;
         }
+        if (!io->ci_ll_dropped)
+                cl_layout_lock_put(inode);
         cl_io_fini(env, io);
+        cl_lsm_put(inode, &lsm);
         cl_env_put(env, &refcheck);
         RETURN(result);
 }
-

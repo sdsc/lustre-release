@@ -97,6 +97,10 @@ static int lsm_lmm_verify_common(struct lov_mds_md *lmm, int lmm_bytes,
         return 0;
 }
 
+/*
+ * allocate memory lsm fields
+ * field init is made by caller
+ */
 struct lov_stripe_md *lsm_alloc_plain(int stripe_count, int *size)
 {
         struct lov_stripe_md *lsm;
@@ -119,7 +123,6 @@ struct lov_stripe_md *lsm_alloc_plain(int stripe_count, int *size)
                 lsm->lsm_oinfo[i] = loi;
         }
         lsm->lsm_stripe_count = stripe_count;
-        lsm->lsm_pool_name[0] = '\0';
         return lsm;
 
 err:
@@ -152,6 +155,7 @@ static void lsm_unpackmd_common(struct lov_stripe_md *lsm,
         lsm->lsm_object_seq = le64_to_cpu(lmm->lmm_object_seq);
         lsm->lsm_stripe_size = le32_to_cpu(lmm->lmm_stripe_size);
         lsm->lsm_pattern = le32_to_cpu(lmm->lmm_pattern);
+        lsm->lsm_layout_gen = le16_to_cpu(lmm->lmm_layout_gen);
         lsm->lsm_pool_name[0] = '\0';
 }
 
@@ -209,7 +213,7 @@ static int lsm_lmm_verify_v1(struct lov_mds_md_v1 *lmm, int lmm_bytes,
                 return -EINVAL;
         }
 
-        *stripe_count = le32_to_cpu(lmm->lmm_stripe_count);
+        *stripe_count = le16_to_cpu(lmm->lmm_stripe_count);
 
         if (lmm_bytes < lov_mds_md_size(*stripe_count, LOV_MAGIC_V1)) {
                 CERROR("LOV EA V1 too small: %d, need %d\n",
@@ -280,7 +284,7 @@ static int lsm_lmm_verify_v3(struct lov_mds_md *lmmv1, int lmm_bytes,
                 return -EINVAL;
         }
 
-        *stripe_count = le32_to_cpu(lmm->lmm_stripe_count);
+        *stripe_count = le16_to_cpu(lmm->lmm_stripe_count);
 
         if (lmm_bytes < lov_mds_md_size(*stripe_count, LOV_MAGIC_V3)) {
                 CERROR("LOV EA V3 too small: %d, need %d\n",

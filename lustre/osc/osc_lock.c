@@ -1375,7 +1375,7 @@ static int osc_lock_has_pages(struct osc_lock *olck)
                 cfs_mutex_lock(&oob->oo_debug_mutex);
 
                 io->ci_obj = cl_object_top(obj);
-                cl_io_init(env, io, CIT_MISC, io->ci_obj);
+                cl_io_init(env, io, CIT_MISC, io->ci_obj, NULL, NULL);
                 cl_page_gang_lookup(env, obj, io,
                                     descr->cld_start, descr->cld_end, plist);
                 cl_lock_page_list_fixup(env, io, lock, plist);
