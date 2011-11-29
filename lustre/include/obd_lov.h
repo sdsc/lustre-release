@@ -42,7 +42,7 @@ static inline int lov_stripe_md_size(int stripes)
         return sizeof(struct lov_stripe_md) + stripes*sizeof(struct lov_oinfo*);
 }
 
-static inline int lov_mds_md_size(int stripes, int lmm_magic)
+static inline __u32 lov_mds_md_size(int stripes, int lmm_magic)
 {
         if (lmm_magic == LOV_MAGIC_V3)
                 return sizeof(struct lov_mds_md_v3) +
@@ -50,6 +50,25 @@ static inline int lov_mds_md_size(int stripes, int lmm_magic)
         else
                 return sizeof(struct lov_mds_md_v1) +
                         stripes * sizeof(struct lov_ost_data_v1);
+}
+
+static inline __u32 lov_mds_md_stripecnt(int ea_size, int lmm_magic)
+{
+        __u32 ost_data_size = sizeof(struct lov_ost_data_v1);
+        __u32 md_data_size = ea_size;
+
+        switch (lmm_magic) {
+        case LOV_MAGIC_V3:
+                md_data_size = sizeof(struct lov_mds_md_v3);
+                break;
+        case LOV_MAGIC_V1:
+                md_data_size = sizeof(struct lov_mds_md_v1);
+                break;
+        default:
+                /* Invalid LOV magic, so no stripes could fit */
+                break;
+        }
+        return (ea_size - md_data_size) / ost_data_size;
 }
 
 #define IOC_LOV_TYPE                   'g'

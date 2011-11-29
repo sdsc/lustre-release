@@ -65,6 +65,7 @@
 #include <lustre_export.h>
 /* struct obd_device */
 #include <obd.h>
+#include <obd_lov.h>
 /* lu2dt_dev() */
 #include <dt_object.h>
 #include <lustre_mds.h>
@@ -701,12 +702,12 @@ static int mdt_getattr(struct mdt_thread_info *info)
 
         mode = lu_object_attr(&obj->mot_obj.mo_lu);
         if (S_ISLNK(mode) && (reqbody->valid & OBD_MD_LINKNAME) &&
-            (reqbody->eadatasize > info->mti_mdt->mdt_max_mdsize))
+            (reqbody->eadatasize > info->mti_mdt->mdt_max_mdsize)) {
                 md_size = reqbody->eadatasize;
-        else
-                md_size = info->mti_mdt->mdt_max_mdsize;
-
-        req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER, md_size);
+                req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER, md_size);
+        } else {
+                mdt_update_pill_mdsize(info->mti_mdt, pill);
+        }
 
         rc = req_capsule_server_pack(pill);
         if (unlikely(rc != 0))
@@ -1504,11 +1505,9 @@ static int mdt_reint_internal(struct mdt_thread_info *info,
 
         /* pack reply */
         if (req_capsule_has_field(pill, &RMF_MDT_MD, RCL_SERVER))
-                req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER,
-                                     mdt->mdt_max_mdsize);
+                mdt_update_pill_mdsize(mdt, pill);
         if (req_capsule_has_field(pill, &RMF_LOGCOOKIES, RCL_SERVER))
-                req_capsule_set_size(pill, &RMF_LOGCOOKIES, RCL_SERVER,
-                                     mdt->mdt_max_cookiesize);
+                mdt_update_pill_cookiesize(mdt, pill);
 
         rc = req_capsule_server_pack(pill);
         if (rc != 0) {
@@ -2471,11 +2470,9 @@ static int mdt_unpack_req_pack_rep(struct mdt_thread_info *info, __u32 flags)
                 /* Pack reply. */
 
                 if (req_capsule_has_field(pill, &RMF_MDT_MD, RCL_SERVER))
-                        req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER,
-                                             mdt->mdt_max_mdsize);
+                        mdt_update_pill_mdsize(mdt, pill);
                 if (req_capsule_has_field(pill, &RMF_LOGCOOKIES, RCL_SERVER))
-                        req_capsule_set_size(pill, &RMF_LOGCOOKIES, RCL_SERVER,
-                                             mdt->mdt_max_cookiesize);
+                        mdt_update_pill_cookiesize(mdt, pill);
 
                 rc = req_capsule_server_pack(pill);
         }

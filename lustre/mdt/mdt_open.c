@@ -1569,10 +1569,8 @@ int mdt_close(struct mdt_thread_info *info)
 
         LASSERT(info->mti_ioepoch);
 
-        req_capsule_set_size(info->mti_pill, &RMF_MDT_MD, RCL_SERVER,
-                             info->mti_mdt->mdt_max_mdsize);
-        req_capsule_set_size(info->mti_pill, &RMF_LOGCOOKIES, RCL_SERVER,
-                             info->mti_mdt->mdt_max_cookiesize);
+        mdt_update_pill_mdsize(info->mti_mdt, info->mti_pill);
+        mdt_update_pill_cookiesize(info->mti_mdt, info->mti_pill);
         rc = req_capsule_server_pack(info->mti_pill);
         if (mdt_check_resent(info, mdt_reconstruct_generic, NULL)) {
                 if (rc == 0)
