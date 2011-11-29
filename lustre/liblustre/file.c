@@ -222,9 +222,10 @@ int llu_iop_open(struct pnode *pnode, int flags, mode_t mode)
 
         fd = lli->lli_file_data;
 
-        lsm = lli->lli_smd;
+        lsm = lsm_get(inode);
         if (lsm)
                 flags &= ~O_LOV_DELAY_CREATE;
+        lsm_put(inode, &lsm);
         /*XXX: open_flags are overwritten and the previous ones are lost */
         lli->lli_open_flags = flags & ~(O_CREAT | O_EXCL | O_TRUNC);
 

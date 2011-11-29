@@ -136,7 +136,8 @@ void cl_io_fini(const struct lu_env *env, struct cl_io *io)
 EXPORT_SYMBOL(cl_io_fini);
 
 static int cl_io_init0(const struct lu_env *env, struct cl_io *io,
-                       enum cl_io_type iot, struct cl_object *obj)
+                       enum cl_io_type iot, struct cl_object *obj,
+                       int lsm_needed)
 {
         struct cl_object *scan;
         int result;
@@ -147,6 +148,13 @@ static int cl_io_init0(const struct lu_env *env, struct cl_io *io,
         ENTRY;
 
         io->ci_type = iot;
+        io->ci_ll = NULL;
+        io->ci_lsm = NULL;
+        if (lsm_needed)
+                io->ci_lsm_needed = 1;
+        else
+                io->ci_lsm_needed = 0;
+
         CFS_INIT_LIST_HEAD(&io->ci_lockset.cls_todo);
         CFS_INIT_LIST_HEAD(&io->ci_lockset.cls_curr);
         CFS_INIT_LIST_HEAD(&io->ci_lockset.cls_done);
@@ -178,7 +186,7 @@ int cl_io_sub_init(const struct lu_env *env, struct cl_io *io,
         LASSERT(obj != cl_object_top(obj));
         if (info->clt_current_io == NULL)
                 info->clt_current_io = io;
-        return cl_io_init0(env, io, iot, obj);
+        return cl_io_init0(env, io, iot, obj, 0);
 }
 EXPORT_SYMBOL(cl_io_sub_init);
 
@@ -192,8 +200,8 @@ EXPORT_SYMBOL(cl_io_sub_init);
  * \pre cl_io_type_is_valid(iot)
  * \post cl_io_type_is_valid(io->ci_type) && io->ci_type == iot
  */
-int cl_io_init(const struct lu_env *env, struct cl_io *io,
-               enum cl_io_type iot, struct cl_object *obj)
+int cl_io_init(const struct lu_env *env, struct cl_io *io, enum cl_io_type iot,
+               struct cl_object *obj, int lsm_needed)
 {
         struct cl_thread_info *info = cl_env_info(env);
 
@@ -201,7 +209,7 @@ int cl_io_init(const struct lu_env *env, struct cl_io *io,
         LASSERT(info->clt_current_io == NULL);
 
         info->clt_current_io = io;
-        return cl_io_init0(env, io, iot, obj);
+        return cl_io_init0(env, io, iot, obj, lsm_needed);
 }
 EXPORT_SYMBOL(cl_io_init);
 
@@ -223,7 +231,7 @@ int cl_io_rw_init(const struct lu_env *env, struct cl_io *io,
                          io->u.ci_rw.crw_nonblock, io->u.ci_wr.wr_append);
         io->u.ci_rw.crw_pos    = pos;
         io->u.ci_rw.crw_count  = count;
-        RETURN(cl_io_init(env, io, iot, io->ci_obj));
+        RETURN(cl_io_init(env, io, iot, io->ci_obj, 1));
 }
 EXPORT_SYMBOL(cl_io_rw_init);
 
@@ -479,6 +487,24 @@ int cl_io_lock(const struct lu_env *env, struct cl_io *io)
         RETURN(result);
 }
 EXPORT_SYMBOL(cl_io_lock);
+
+void cl_io_post_lock(const struct lu_env *env, struct cl_io *io)
+{
+        const struct cl_io_slice *scan;
+
+        LASSERT(cl_io_is_loopable(io));
+        LASSERT(CIS_IT_STARTED <= io->ci_state && io->ci_state < CIS_UNLOCKED);
+        LINVRNT(cl_io_invariant(io));
+
+        ENTRY;
+        cl_io_for_each(scan, io) {
+                if (scan->cis_iop->op[io->ci_type].cio_post_lock == NULL)
+                        continue;
+                scan->cis_iop->op[io->ci_type].cio_post_lock(env, scan);
+        }
+        EXIT;
+}
+EXPORT_SYMBOL(cl_io_post_lock);
 
 /**
  * Release locks takes by io.
@@ -983,6 +1009,8 @@ EXPORT_SYMBOL(cl_io_cancel);
  *
  *    - cl_io_lock()
  *
+ *    - cl_io_post_lock()
+ *
  *    - cl_io_start()
  *
  *    - cl_io_end()
@@ -1009,6 +1037,7 @@ int cl_io_loop(const struct lu_env *env, struct cl_io *io)
                         nob    = io->ci_nob;
                         result = cl_io_lock(env, io);
                         if (result == 0) {
+                                cl_io_post_lock(env, io);
                                 /*
                                  * Notify layers that locks has been taken,
                                  * and do actual i/o.

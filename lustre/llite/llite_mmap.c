@@ -172,7 +172,7 @@ struct cl_io *ll_fault_io_init(struct vm_area_struct *vma,
         CDEBUG(D_INFO, "vm_flags: %lx (%lu %d %d)\n", vma->vm_flags,
                fio->ft_index, fio->ft_writable, fio->ft_executable);
 
-        if (cl_io_init(env, io, CIT_FAULT, io->ci_obj) == 0) {
+        if (cl_io_init(env, io, CIT_FAULT, io->ci_obj, 1) == 0) {
                 struct ccc_io *cio = ccc_env_io(env);
                 struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
 
@@ -206,14 +206,14 @@ struct cl_io *ll_fault_io_init(struct vm_area_struct *vma,
 struct page *ll_nopage(struct vm_area_struct *vma, unsigned long address,
                        int *type)
 {
-        struct lu_env           *env;
-        struct cl_env_nest      nest;
-        struct cl_io            *io;
-        struct page             *page  = NOPAGE_SIGBUS;
-        struct vvp_io           *vio = NULL;
-        unsigned long           ra_flags;
-        pgoff_t                 pg_offset;
-        int                     result;
+        struct lu_env     *env;
+        struct cl_env_nest nest;
+        struct cl_io      *io;
+        struct page       *page = NOPAGE_SIGBUS;
+        struct vvp_io     *vio = NULL;
+        unsigned long      ra_flags;
+        pgoff_t            pg_offset;
+        int                result;
         ENTRY;
 
         pg_offset = ((address - vma->vm_start) >> PAGE_SHIFT) + vma->vm_pgoff;
@@ -260,13 +260,13 @@ out_err:
  */
 int ll_fault0(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
-        struct lu_env           *env;
-        struct cl_io            *io;
-        struct vvp_io           *vio = NULL;
-        unsigned long            ra_flags;
-        struct cl_env_nest       nest;
-        int                      result;
-        int                      fault_ret = 0;
+        struct lu_env      *env;
+        struct cl_io       *io;
+        struct vvp_io      *vio = NULL;
+        unsigned long       ra_flags;
+        struct cl_env_nest  nest;
+        int                 result;
+        int                 fault_ret = 0;
         ENTRY;
 
         io = ll_fault_io_init(vma, &env,  &nest, vmf->pgoff, &ra_flags);
@@ -365,7 +365,10 @@ static void ll_vm_close(struct vm_area_struct *vma)
 
 #ifndef HAVE_VM_OP_FAULT
 #ifndef HAVE_FILEMAP_POPULATE
-static int (*filemap_populate)(struct vm_area_struct * area, unsigned long address, unsigned long len, pgprot_t prot, unsigned long pgoff, int nonblock);
+static int (*filemap_populate)(struct vm_area_struct * area,
+                               unsigned long address, unsigned long len,
+                               pgprot_t prot, unsigned long pgoff,
+                               int nonblock);
 #endif
 static int ll_populate(struct vm_area_struct *area, unsigned long address,
                        unsigned long len, pgprot_t prot, unsigned long pgoff,

@@ -82,7 +82,7 @@ static int vvp_io_fault_iter_init(const struct lu_env *env,
         LASSERT(inode ==
                 cl2ccc_io(env, ios)->cui_fd->fd_file->f_dentry->d_inode);
         vio->u.fault.ft_mtime = LTIME_S(inode->i_mtime);
-        return 0;
+        return ccc_io_iter_init(env, ios);
 }
 
 static void vvp_io_fini(const struct lu_env *env, const struct cl_io_slice *ios)
@@ -99,6 +99,7 @@ static void vvp_io_fini(const struct lu_env *env, const struct cl_io_slice *ios)
                         ll_ra_read_ex(cio->cui_fd->fd_file, &vio->cui_bead);
         }
 
+        ccc_io_fini(env, ios);
 }
 
 static void vvp_io_fault_fini(const struct lu_env *env,
@@ -225,12 +226,12 @@ static int vvp_io_read_lock(const struct lu_env *env,
                             const struct cl_io_slice *ios)
 {
         struct cl_io         *io  = ios->cis_io;
-        struct ll_inode_info *lli = ll_i2info(ccc_object_inode(io->ci_obj));
         int result;
 
         ENTRY;
         /* XXX: Layer violation, we shouldn't see lsm at llite level. */
-        if (lli->lli_smd != NULL) /* lsm-less file, don't need to lock */
+        /* lsm-less file, don't need to lock */
+        if (io->ci_lsm != NULL)
                 result = vvp_io_rw_lock(env, io, CLM_READ,
                                         io->u.ci_rd.rd.crw_pos,
                                         io->u.ci_rd.rd.crw_pos +
@@ -285,9 +286,14 @@ static int vvp_io_setattr_iter_init(const struct lu_env *env,
          * nodes.
          */
         UNLOCK_INODE_MUTEX(inode);
-        if (cl_io_is_trunc(ios->cis_io))
-                UP_WRITE_I_ALLOC_SEM(inode);
         cio->u.setattr.cui_locks_released = 1;
+        if (cl_io_is_trunc(ios->cis_io)) {
+                int rc;
+                rc = ccc_io_iter_init(env, ios);
+                if (rc)
+                        return rc;
+                UP_WRITE_I_ALLOC_SEM(inode);
+        }
         return 0;
 }
 
@@ -324,15 +330,19 @@ static int vvp_io_setattr_lock(const struct lu_env *env,
 static int vvp_do_vmtruncate(struct inode *inode, size_t size)
 {
         int     result;
+        struct lov_stripe_md *lsm;
         /*
          * Only ll_inode_size_lock is taken at this level. lov_stripe_lock()
          * is grabbed by ll_truncate() only over call to obd_adjust_kms().  If
          * vmtruncate returns 0, then ll_truncate dropped ll_inode_size_lock()
+         * but not the reference on the lsm
          */
-        ll_inode_size_lock(inode, 0);
+        lsm = ll_inode_size_lock(inode, 0);
         result = vmtruncate(inode, size);
         if (result != 0)
-                ll_inode_size_unlock(inode, 0);
+                ll_inode_size_unlock(inode, &lsm, 0);
+        else
+                lsm_put(inode, &lsm);
 
         return result;
 }
@@ -942,7 +952,7 @@ static int vvp_io_commit_write(const struct lu_env *env,
         struct inode      *inode  = ccc_object_inode(obj);
         struct ll_sb_info *sbi    = ll_i2sbi(inode);
         cfs_page_t        *vmpage = cp->cpg_page;
-
+        struct lov_stripe_md *lsm;
         int    result;
         int    tallyop;
         loff_t size;
@@ -1024,7 +1034,7 @@ static int vvp_io_commit_write(const struct lu_env *env,
 
         size = cl_offset(obj, pg->cp_index) + to;
 
-        ll_inode_size_lock(inode, 0);
+        lsm  = ll_inode_size_lock(inode, 0);
         if (result == 0) {
                 if (size > i_size_read(inode)) {
                         cl_isize_write_nolock(inode, size);
@@ -1037,7 +1047,8 @@ static int vvp_io_commit_write(const struct lu_env *env,
                 if (size > i_size_read(inode))
                         cl_page_discard(env, io, pg);
         }
-        ll_inode_size_unlock(inode, 0);
+        ll_inode_size_unlock(inode, &lsm, 0);
+
         RETURN(result);
 }
 
@@ -1045,13 +1056,17 @@ static const struct cl_io_operations vvp_io_ops = {
         .op = {
                 [CIT_READ] = {
                         .cio_fini      = vvp_io_fini,
+                        .cio_iter_init = ccc_io_iter_init,
                         .cio_lock      = vvp_io_read_lock,
+                        .cio_post_lock = ccc_io_post_lock,
                         .cio_start     = vvp_io_read_start,
                         .cio_advance   = ccc_io_advance
                 },
                 [CIT_WRITE] = {
                         .cio_fini      = vvp_io_fini,
+                        .cio_iter_init = ccc_io_iter_init,
                         .cio_lock      = vvp_io_write_lock,
+                        .cio_post_lock = ccc_io_post_lock,
                         .cio_start     = vvp_io_write_start,
                         .cio_advance   = ccc_io_advance
                 },
@@ -1059,6 +1074,7 @@ static const struct cl_io_operations vvp_io_ops = {
                         .cio_fini       = vvp_io_setattr_fini,
                         .cio_iter_init  = vvp_io_setattr_iter_init,
                         .cio_lock       = vvp_io_setattr_lock,
+                        .cio_post_lock  = ccc_io_post_lock,
                         .cio_start      = vvp_io_setattr_start,
                         .cio_end        = vvp_io_setattr_end
                 },
@@ -1066,11 +1082,12 @@ static const struct cl_io_operations vvp_io_ops = {
                         .cio_fini      = vvp_io_fault_fini,
                         .cio_iter_init = vvp_io_fault_iter_init,
                         .cio_lock      = vvp_io_fault_lock,
+                        .cio_post_lock = ccc_io_post_lock,
                         .cio_start     = vvp_io_fault_start,
                         .cio_end       = ccc_io_end
                 },
                 [CIT_MISC] = {
-                        .cio_fini   = vvp_io_fini
+                        .cio_fini      = vvp_io_fini,
                 }
         },
         .cio_read_page     = vvp_io_read_page,
@@ -1113,6 +1130,9 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
                 else
                         io->ci_lockreq = CILR_MANDATORY;
         }
+
+        if (result == 0)
+                RETURN(ccc_io_init(env, obj, io));
         RETURN(result);
 }
 

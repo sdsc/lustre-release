@@ -89,10 +89,13 @@ struct llu_sb_info {
 };
 
 #define LL_SBI_NOLCK            0x1
+#define LL_SBI_LAYOUT_LOCK      0x4000 /* layout lock use */
 
 enum lli_flags {
         /* MDS has an authority for the Size-on-MDS attributes. */
         LLIF_MDS_SIZE_LOCK      = (1 << 0),
+        /* layout is invalid */
+        LLIF_LAYOUT_CANCELED    = (1 << 6),
 };
 
 struct llu_inode_info {
@@ -100,6 +103,7 @@ struct llu_inode_info {
         struct lu_fid           lli_fid;
 
         struct lov_stripe_md   *lli_smd;
+        struct layout_lock      lli_ll;
         char                   *lli_symlink_name;
         cfs_semaphore_t         lli_open_sem;
         __u64                   lli_maxbytes;
@@ -301,6 +305,7 @@ struct inode *llu_inode_from_lock(struct ldlm_lock *lock);
 int llu_md_blocking_ast(struct ldlm_lock *lock,
                         struct ldlm_lock_desc *desc,
                         void *data, int flag);
+int cl_layout_lock_get(struct inode *inode);
 
 /* dir.c */
 ssize_t llu_iop_filldirentries(struct inode *ino, _SYSIO_OFF_T *basep,
@@ -398,6 +403,8 @@ static inline struct slp_io *slp_env_io(const struct lu_env *env)
 
 /* lclient compat stuff */
 #define cl_inode_info llu_inode_info
+#define cl_inode_info_down(lli) do { }while(0)
+#define cl_inode_info_up(lli)   do { }while(0)
 #define cl_i2info(info) llu_i2info(info)
 #define cl_inode_mode(inode) (llu_i2stat(inode)->st_mode)
 #define cl_i2sbi llu_i2sbi
@@ -405,11 +412,14 @@ static inline struct slp_io *slp_env_io(const struct lu_env *env)
 #define cl_isize_write(inode,kms)        do{llu_i2stat(inode)->st_size = kms;}while(0)
 #define cl_isize_write_nolock(inode,kms) cl_isize_write(inode,kms)
 
-static inline void cl_isize_lock(struct inode *inode, int lsmlock)
+static inline struct lov_stripe_md *cl_isize_lock(struct inode *inode,
+                                                  int lsmlock)
 {
+        return llu_i2info(inode)->lli_smd;
 }
 
-static inline void cl_isize_unlock(struct inode *inode, int lsmlock)
+static inline void cl_isize_unlock(struct inode *inode,
+                                   struct lov_stripe_md **lsmp, int lsmlock)
 {
 }
 
@@ -433,4 +443,13 @@ static inline void cl_stats_tally(struct cl_device *dev, enum cl_req_type crt,
 {
 }
 
+static inline loff_t i_size_read(struct inode *inode)
+{
+        return inode->i_stbuf.st_size;
+}
+
+static inline void i_size_write(struct inode *inode, loff_t i_sz)
+{
+        inode->i_stbuf.st_size = i_sz;
+}
 #endif
