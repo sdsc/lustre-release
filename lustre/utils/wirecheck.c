@@ -466,6 +466,8 @@ check_obdo(void)
         CHECK_MEMBER(obdo, o_lcookie);
         CHECK_MEMBER(obdo, o_uid_h);
         CHECK_MEMBER(obdo, o_gid_h);
+        CHECK_MEMBER(obdo, o_layout_gen);
+        CHECK_MEMBER(obdo, o_padding_1);
         CHECK_MEMBER(obdo, o_padding_3);
         CHECK_MEMBER(obdo, o_padding_4);
         CHECK_MEMBER(obdo, o_padding_5);

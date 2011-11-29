@@ -633,14 +633,20 @@ int mdc_enqueue(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
 {
         struct obd_device     *obddev = class_exp2obd(exp);
         struct ptlrpc_request *req = NULL;
-        struct req_capsule    *pill;
         int                    flags = extra_lock_flags;
         int                    rc;
         struct ldlm_res_id res_id;
+        /* in ldlm_cli_enqueue_fini(), new bits returned by server are not
+         * always taken into account so layout lock bit have to be added
+         * explicitly in client request */
         static const ldlm_policy_data_t lookup_policy =
-                            { .l_inodebits = { MDS_INODELOCK_LOOKUP } };
+                            { .l_inodebits = { MDS_INODELOCK_LOOKUP |
+                                               MDS_INODELOCK_LAYOUT } };
         static const ldlm_policy_data_t update_policy =
-                            { .l_inodebits = { MDS_INODELOCK_UPDATE } };
+                            { .l_inodebits = { MDS_INODELOCK_UPDATE |
+                                               MDS_INODELOCK_LAYOUT } };
+        static const ldlm_policy_data_t layout_policy =
+                            { .l_inodebits = { MDS_INODELOCK_LAYOUT } };
         ldlm_policy_data_t const *policy = &lookup_policy;
         ENTRY;
 
@@ -653,6 +659,8 @@ int mdc_enqueue(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
                 flags |= LDLM_FL_HAS_INTENT;
         if (it && it->it_op & (IT_UNLINK | IT_GETATTR | IT_READDIR))
                 policy = &update_policy;
+        else if (it && it->it_op & IT_LAYOUT)
+                policy = &layout_policy;
 
         if (reqp)
                 req = *reqp;
@@ -673,7 +681,7 @@ int mdc_enqueue(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
                 lmm = NULL;
         } else if (it->it_op & IT_UNLINK)
                 req = mdc_intent_unlink_pack(exp, it, op_data);
-        else if (it->it_op & (IT_GETATTR | IT_LOOKUP))
+        else if (it->it_op & (IT_GETATTR | IT_LOOKUP | IT_LAYOUT))
                 req = mdc_intent_getattr_pack(exp, it, op_data);
         else if (it->it_op == IT_READDIR)
                 req = ldlm_enqueue_pack(exp);
@@ -684,7 +692,6 @@ int mdc_enqueue(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
 
         if (IS_ERR(req))
                 RETURN(PTR_ERR(req));
-        pill = &req->rq_pill;
 
         /* It is important to obtain rpc_lock first (if applicable), so that
          * threads that are serialised with rpc_lock are not polluting our
@@ -805,7 +812,7 @@ static int mdc_finish_intent_lock(struct obd_export *exp,
         } else if (it->it_op == IT_OPEN) {
                 LASSERT(!it_disposition(it, DISP_OPEN_CREATE));
         } else {
-                LASSERT(it->it_op & (IT_GETATTR | IT_LOOKUP));
+                LASSERT(it->it_op & (IT_GETATTR | IT_LOOKUP | IT_LAYOUT));
         }
 
         /* If we already have a matching lock, then cancel the new
@@ -861,8 +868,17 @@ int mdc_revalidate_lock(struct obd_export *exp, struct lookup_intent *it,
                 mode = ldlm_revalidate_lock_handle(&lockh, bits);
         } else {
                 fid_build_reg_res_name(fid, &res_id);
-                policy.l_inodebits.bits = (it->it_op == IT_GETATTR) ?
-                                  MDS_INODELOCK_UPDATE : MDS_INODELOCK_LOOKUP;
+                switch (it->it_op) {
+                case IT_GETATTR:
+                        policy.l_inodebits.bits = MDS_INODELOCK_UPDATE;
+                        break;
+                case IT_LAYOUT:
+                        policy.l_inodebits.bits = MDS_INODELOCK_LAYOUT;
+                        break;
+                default:
+                        policy.l_inodebits.bits = MDS_INODELOCK_LOOKUP;
+                        break;
+                }
                 mode = ldlm_lock_match(exp->exp_obd->obd_namespace,
                                        LDLM_FL_BLOCK_GRANTED, &res_id,
                                        LDLM_IBITS, &policy,
@@ -926,7 +942,7 @@ int mdc_intent_lock(struct obd_export *exp, struct md_op_data *op_data,
 
         lockh.cookie = 0;
         if (fid_is_sane(&op_data->op_fid2) &&
-            (it->it_op & (IT_LOOKUP | IT_GETATTR))) {
+            (it->it_op & (IT_LOOKUP | IT_GETATTR | IT_LAYOUT))) {
                 /* We could just return 1 immediately, but since we should only
                  * be called in revalidate_it if we already have a lock, let's
                  * verify that. */

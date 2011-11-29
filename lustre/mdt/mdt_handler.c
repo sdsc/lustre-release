@@ -213,7 +213,7 @@ void mdt_lock_pdo_init(struct mdt_lock_handle *lh, ldlm_mode_t lm,
         lh->mlh_reg_mode = lm;
         lh->mlh_type = MDT_PDO_LOCK;
 
-        if (name != NULL) {
+        if ((name != NULL) && (name[0] != '\0')){
                 LASSERT(namelen > 0);
                 lh->mlh_pdo_hash = full_name_hash(name, namelen);
         } else {
@@ -467,6 +467,31 @@ static inline int mdt_body_has_lov(const struct lu_attr *la,
 {
         return ((S_ISREG(la->la_mode) && (body->valid & OBD_MD_FLEASIZE)) ||
                 (S_ISDIR(la->la_mode) && (body->valid & OBD_MD_FLDIREA )) );
+}
+
+void mdt_client_compatibility(struct mdt_thread_info *info)
+{
+        struct req_capsule      *pill = info->mti_pill;
+        struct mdt_body         *body;
+        struct ptlrpc_request   *req = mdt_info_req(info);
+        struct obd_export       *exp = req->rq_export;
+        struct md_attr          *ma = &info->mti_attr;
+        struct lu_attr          *la = &ma->ma_attr;
+        ENTRY;
+
+        if (exp->exp_connect_flags & OBD_CONNECT_LAYOUTLOCK)
+                RETURN_EXIT;
+
+        body = req_capsule_server_get(pill, &RMF_MDT_BODY);
+
+        if (!mdt_body_has_lov(la, body))
+                RETURN_EXIT;
+
+        /* now we have a reply with a lov for a client not compatible with the
+         * layout lock so we have to clean the layout generation number
+         */
+        ma->ma_lmm->lmm_layout_gen = 0;
+        RETURN_EXIT;
 }
 
 static int mdt_getattr_internal(struct mdt_thread_info *info,
@@ -740,6 +765,7 @@ out_shrink:
         if (rc == 0)
                 mdt_counter_incr(req->rq_export, LPROC_MDT_GETATTR);
 
+        mdt_client_compatibility(info);
         mdt_shrink_reply(info);
         return rc;
 }
@@ -869,8 +895,8 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
                         name = NULL;
                         CDEBUG(D_INODE, "getattr with lock for "DFID"/"DFID", "
                                "ldlm_rep = %p\n",
-                               PFID(mdt_object_fid(parent)), PFID(&reqbody->fid2),
-                               ldlm_rep);
+                               PFID(mdt_object_fid(parent)),
+                               PFID(&reqbody->fid2), ldlm_rep);
                 } else {
                         lname = mdt_name(info->mti_env, (char *)name, namelen);
                         CDEBUG(D_INODE, "getattr with lock for "DFID"/%s, "
@@ -878,6 +904,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
                                name, ldlm_rep);
                 }
         }
+
         mdt_set_disposition(info, ldlm_rep, DISP_LOOKUP_EXECD);
 
         rc = mdt_object_exists(parent);
@@ -941,21 +968,26 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
         }
 
         if (lname) {
-                /* step 1: lock parent */
-                lhp = &info->mti_lh[MDT_LH_PARENT];
-                mdt_lock_pdo_init(lhp, LCK_PR, name, namelen);
-                rc = mdt_object_lock(info, parent, lhp, MDS_INODELOCK_UPDATE,
-                                     MDT_LOCAL_LOCK);
-                if (unlikely(rc != 0))
-                        RETURN(rc);
-
+                /* step 1: lock parent only if parent is a directory */
+                if (!S_ISDIR(lu_object_attr(&parent->mot_obj.mo_lu))) {
+                        lhp = NULL;
+                } else {
+                        lhp = &info->mti_lh[MDT_LH_PARENT];
+                        mdt_lock_pdo_init(lhp, LCK_PR, name, namelen);
+                        rc = mdt_object_lock(info, parent, lhp,
+                                             MDS_INODELOCK_UPDATE,
+                                             MDT_LOCAL_LOCK);
+                        if (unlikely(rc != 0))
+                                RETURN(rc);
+                }
                 /* step 2: lookup child's fid by name */
                 rc = mdo_lookup(info->mti_env, next, lname, child_fid,
                                 &info->mti_spec);
 
                 if (rc != 0) {
                         if (rc == -ENOENT)
-                                mdt_set_disposition(info, ldlm_rep, DISP_LOOKUP_NEG);
+                                mdt_set_disposition(info, ldlm_rep,
+                                                    DISP_LOOKUP_NEG);
                         GOTO(out_parent, rc);
                 } else
                         mdt_set_disposition(info, ldlm_rep, DISP_LOOKUP_POS);
@@ -1002,7 +1034,10 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 relock:
                 OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_RESEND, obd_timeout*2);
                 mdt_lock_handle_init(lhc);
-                mdt_lock_reg_init(lhc, LCK_PR);
+                if (child_bits == MDS_INODELOCK_LAYOUT)
+                        mdt_lock_reg_init(lhc, LCK_CR);
+                else
+                        mdt_lock_reg_init(lhc, LCK_PR);
 
                 if (mdt_object_exists(child) == 0) {
                         LU_OBJECT_DEBUG(D_WARNING, info->mti_env,
@@ -1020,6 +1055,12 @@ relock:
                                          mdt_object_child(child), ma);
                         if (unlikely(rc != 0))
                                 GOTO(out_child, rc);
+
+                        /* layout lock is used only on regular files */
+                        if ((ma->ma_valid & MA_INODE) &&
+                            (ma->ma_attr.la_valid & LA_MODE) &&
+                            !S_ISREG(ma->ma_attr.la_mode))
+                                child_bits &= ~MDS_INODELOCK_LAYOUT;
 
                         /* If the file has not been changed for some time, we
                          * return not only a LOOKUP lock, but also an UPDATE
@@ -1108,6 +1149,7 @@ static int mdt_getattr_name(struct mdt_thread_info *info)
         mdt_exit_ucred(info);
         EXIT;
 out_shrink:
+        mdt_client_compatibility(info);
         mdt_shrink_reply(info);
         return rc;
 }
@@ -1562,6 +1604,7 @@ static int mdt_reint_internal(struct mdt_thread_info *info,
 out_ucred:
         mdt_exit_ucred(info);
 out_shrink:
+        mdt_client_compatibility(info);
         mdt_shrink_reply(info);
         return rc;
 }
@@ -3048,6 +3091,7 @@ enum mdt_it_code {
         MDT_IT_UNLINK,
         MDT_IT_TRUNC,
         MDT_IT_GETXATTR,
+        MDT_IT_LAYOUT,
         MDT_IT_NR
 };
 
@@ -3118,6 +3162,11 @@ static struct mdt_it_flavor {
                 .it_fmt   = NULL,
                 .it_flags = 0,
                 .it_act   = NULL
+        },
+        [MDT_IT_LAYOUT] = {
+                .it_fmt   = &RQF_LDLM_INTENT_GETATTR,
+                .it_flags = HABEO_REFERO,
+                .it_act   = mdt_intent_getattr
         }
 };
 
@@ -3286,12 +3335,17 @@ static int mdt_intent_getattr(enum mdt_it_code opcode,
         repbody->eadatasize = 0;
         repbody->aclsize = 0;
 
+        /* layout lock is requested implicitly */
         switch (opcode) {
         case MDT_IT_LOOKUP:
-                child_bits = MDS_INODELOCK_LOOKUP;
+                child_bits = MDS_INODELOCK_LOOKUP | MDS_INODELOCK_LAYOUT;
                 break;
         case MDT_IT_GETATTR:
-                child_bits = MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE;
+                child_bits = MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE |\
+                             MDS_INODELOCK_LAYOUT;
+                break;
+        case MDT_IT_LAYOUT:
+                child_bits = MDS_INODELOCK_LAYOUT;
                 break;
         default:
                 CERROR("Unhandled till now");
@@ -3325,6 +3379,7 @@ static int mdt_intent_getattr(enum mdt_it_code opcode,
 out_ucred:
         mdt_exit_ucred(info);
 out_shrink:
+        mdt_client_compatibility(info);
         mdt_shrink_reply(info);
         return rc;
 }
@@ -3447,6 +3502,9 @@ static int mdt_intent_code(long itcode)
                 break;
         case IT_GETXATTR:
                 rc = MDT_IT_GETXATTR;
+                break;
+        case IT_LAYOUT:
+                rc = MDT_IT_LAYOUT;
                 break;
         default:
                 CERROR("Unknown intent opcode: %ld\n", itcode);
@@ -4438,6 +4496,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         m->mdt_max_mdsize = MAX_MD_SIZE;
         m->mdt_max_cookiesize = sizeof(struct llog_cookie);
         m->mdt_som_conf = 0;
+        m->mdt_layout_lock_conf = 1;
 
         m->mdt_opts.mo_cos = MDT_COS_DEFAULT;
         lmi = server_get_mount_2(dev);
@@ -4880,6 +4939,9 @@ static int mdt_connect_internal(struct obd_export *exp,
                                 return -EPROTO;
                         }
                 }
+
+                if (!mdt->mdt_layout_lock_conf)
+                        data->ocd_connect_flags &= ~OBD_CONNECT_LAYOUTLOCK;
 
                 cfs_spin_lock(&exp->exp_lock);
                 exp->exp_connect_flags = data->ocd_connect_flags;

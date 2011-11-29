@@ -132,6 +132,7 @@ struct cl_io *ll_fault_io_init(struct vm_area_struct *vma,
         struct cl_io      *io;
         struct cl_fault_io *fio;
         struct lu_env     *env;
+        struct lov_stripe_md *lsm;
         ENTRY;
 
         *env_ret = NULL;
@@ -172,7 +173,9 @@ struct cl_io *ll_fault_io_init(struct vm_area_struct *vma,
         CDEBUG(D_INFO, "vm_flags: %lx (%lu %d %d)\n", vma->vm_flags,
                fio->ft_index, fio->ft_writable, fio->ft_executable);
 
-        if (cl_io_init(env, io, CIT_FAULT, io->ci_obj) == 0) {
+        lsm = cl_lsm_get_io(inode);
+        if (cl_io_init(env, io, CIT_FAULT, io->ci_obj,
+                       lsm, &ll_i2info(inode)->lli_ll) == 0) {
                 struct ccc_io *cio = ccc_env_io(env);
                 struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
 
@@ -184,6 +187,9 @@ struct cl_io *ll_fault_io_init(struct vm_area_struct *vma,
 
                 cio->cui_fd  = fd;
         }
+        if (!io->ci_ll_dropped)
+                cl_layout_lock_put(inode);
+        cl_lsm_put(inode, &lsm);
 
         return io;
 }
@@ -214,12 +220,20 @@ struct page *ll_nopage(struct vm_area_struct *vma, unsigned long address,
         unsigned long           ra_flags;
         pgoff_t                 pg_offset;
         int                     result;
+        struct inode           *inode = vma->vm_file->f_dentry->d_inode;
+        struct lov_stripe_md   *lsm;
+        int                     unlock_ll;
         ENTRY;
+
+        lsm = cl_lsm_get_io(inode);
 
         pg_offset = ((address - vma->vm_start) >> PAGE_SHIFT) + vma->vm_pgoff;
         io = ll_fault_io_init(vma, &env,  &nest, pg_offset, &ra_flags);
-        if (IS_ERR(io))
+        if (IS_ERR(io)) {
+                ll_layout_lock_put(inode);
+                ll_lsm_put(inode, &lsm);
                 return NOPAGE_SIGBUS;
+        }
 
         result = io->ci_result;
         if (result < 0)
@@ -241,8 +255,15 @@ out_err:
         vma->vm_flags &= ~VM_RAND_READ;
         vma->vm_flags |= ra_flags;
 
+        unlock_ll = !io->ci_ll_dropped;
+
         cl_io_fini(env, io);
+
+        if (unlock_ll)
+                ll_layout_lock_put(inode);
+
         cl_env_nested_put(&nest, env);
+        cl_lsm_put(inode, &lsm);
 
         RETURN(page);
 }
@@ -267,11 +288,17 @@ int ll_fault0(struct vm_area_struct *vma, struct vm_fault *vmf)
         struct cl_env_nest       nest;
         int                      result;
         int                      fault_ret = 0;
+        struct inode            *inode = vma->vm_file->f_dentry->d_inode;
+        struct lov_stripe_md    *lsm;
+        int                      unlock_ll;
         ENTRY;
 
+        lsm = ll_lsm_get(inode);
         io = ll_fault_io_init(vma, &env,  &nest, vmf->pgoff, &ra_flags);
-        if (IS_ERR(io))
+        if (IS_ERR(io)) {
+                ll_lsm_put(inode, &ll_i2info(inode)->lli_smd);
                 RETURN(VM_FAULT_ERROR);
+        }
 
         result = io->ci_result;
         if (result < 0)
@@ -291,8 +318,14 @@ out_err:
 
         vma->vm_flags |= ra_flags;
 
+        unlock_ll = !io->ci_ll_dropped;
+
         cl_io_fini(env, io);
+        if (unlock_ll)
+                ll_layout_lock_put(inode);
+
         cl_env_nested_put(&nest, env);
+        ll_lsm_put(inode, &lsm);
 
         RETURN(fault_ret);
 }
@@ -365,7 +398,10 @@ static void ll_vm_close(struct vm_area_struct *vma)
 
 #ifndef HAVE_VM_OP_FAULT
 #ifndef HAVE_FILEMAP_POPULATE
-static int (*filemap_populate)(struct vm_area_struct * area, unsigned long address, unsigned long len, pgprot_t prot, unsigned long pgoff, int nonblock);
+static int (*filemap_populate)(struct vm_area_struct * area,
+                               unsigned long address, unsigned long len,
+                               pgprot_t prot, unsigned long pgoff,
+                               int nonblock);
 #endif
 static int ll_populate(struct vm_area_struct *area, unsigned long address,
                        unsigned long len, pgprot_t prot, unsigned long pgoff,

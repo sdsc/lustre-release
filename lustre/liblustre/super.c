@@ -153,6 +153,7 @@ void llu_update_inode(struct inode *inode, struct lustre_md *md)
                 if (lli->lli_smd == NULL) {
                         cl_inode_init(inode, md);
                         lli->lli_smd = lsm;
+                        llu_lsm_get(inode);
                         lli->lli_maxbytes = lsm->lsm_maxbytes;
                         if (lli->lli_maxbytes > PAGE_CACHE_MAXBYTES)
                                 lli->lli_maxbytes = PAGE_CACHE_MAXBYTES;
@@ -272,11 +273,12 @@ int llu_inode_getattr(struct inode *inode, struct obdo *obdo,
 {
         struct llu_inode_info *lli = llu_i2info(inode);
         struct ptlrpc_request_set *set;
-        struct lov_stripe_md *lsm = lli->lli_smd;
+        struct lov_stripe_md *lsm;
         struct obd_info oinfo = { { { 0 } } };
         int rc;
         ENTRY;
 
+        lsm = llu_lsm_get(inode);
         LASSERT(lsm);
 
         oinfo.oi_md = lsm;
@@ -306,8 +308,10 @@ int llu_inode_getattr(struct inode *inode, struct obdo *obdo,
                         rc = ptlrpc_set_wait(set);
                 ptlrpc_set_destroy(set);
         }
-        if (rc)
+        if (rc) {
+                llu_lsm_put(inode, &lsm);
                 RETURN(rc);
+        }
 
         oinfo.oi_oa->o_valid = OBD_MD_FLBLOCKS | OBD_MD_FLBLKSZ |
                                OBD_MD_FLMTIME | OBD_MD_FLCTIME |
@@ -319,6 +323,7 @@ int llu_inode_getattr(struct inode *inode, struct obdo *obdo,
                (long long unsigned)llu_i2stat(inode)->st_size,
                (long long unsigned)llu_i2stat(inode)->st_blocks,
                (long long unsigned)llu_i2stat(inode)->st_blksize);
+        llu_lsm_put(inode, &lsm);
         RETURN(0);
 }
 
@@ -779,7 +784,9 @@ int llu_setattr_raw(struct inode *inode, struct iattr *attr)
                  * it may seem excessive to send mtime/atime updates to osts
                  * when not setting times to past, but it is necessary due to
                  * possible time de-synchronization */
+                lsm = llu_lsm_get(inode);
                 rc = cl_setattr_ost(inode, attr, NULL);
+                llu_lsm_put(inode, &lsm);
         EXIT;
 out:
         if (op_data.op_ioepoch)
@@ -1618,7 +1625,8 @@ static int llu_lov_dir_setstripe(struct inode *ino, unsigned long arg)
                 }
         case LOV_USER_MAGIC_V3: {
                 if (lum.lmm_magic != cpu_to_le32(LOV_USER_MAGIC_V3))
-                        lustre_swab_lov_user_md_v3((struct lov_user_md_v3 *)&lum);
+                        lustre_swab_lov_user_md_v3(
+                                                 (struct lov_user_md_v3 *)&lum);
                 break;
                 }
         default: {
@@ -1735,13 +1743,19 @@ static int llu_lov_setstripe(struct inode *ino, unsigned long arg)
 
 static int llu_lov_getstripe(struct inode *ino, unsigned long arg)
 {
-        struct lov_stripe_md *lsm = llu_i2info(ino)->lli_smd;
+        struct lov_stripe_md *lsm;
+        int rc;
 
-        if (!lsm)
+        lsm = llu_lsm_get(ino);
+        if (!lsm) {
+                llu_lsm_put(ino, &lsm);
                 RETURN(-ENODATA);
+        }
 
-        return obd_iocontrol(LL_IOC_LOV_GETSTRIPE, llu_i2obdexp(ino), 0, lsm,
-                            (void *)arg);
+        rc = obd_iocontrol(LL_IOC_LOV_GETSTRIPE, llu_i2obdexp(ino), 0, lsm,
+                           (void *)arg);
+        llu_lsm_put(ino, &lsm);
+        return rc;
 }
 
 static int llu_iop_ioctl(struct inode *ino, unsigned long int request,
