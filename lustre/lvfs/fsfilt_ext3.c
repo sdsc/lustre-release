@@ -685,8 +685,8 @@ static int fsfilt_ext3_set_md(struct inode *inode, void *handle,
 
 
         if (rc && rc != -EROFS)
-                CERROR("error adding MD data to inode %lu: rc = %d\n",
-                       inode->i_ino, rc);
+                CERROR("error adding MD %d bytes of data to inode %lu: "
+                       "rc = %d\n", lmm_size, inode->i_ino, rc);
         return rc;
 }
 

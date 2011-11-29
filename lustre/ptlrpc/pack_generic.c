@@ -314,6 +314,27 @@ void lustre_put_emerg_rs(struct ptlrpc_reply_state *rs)
         cfs_waitq_signal(&svc->srv_free_rs_waitq);
 }
 
+/* Make sure that whatever we want to reply with would fit into the client's
+ * pre-allocated receive buffers. Truncate the excess data if necessary. */
+static void lustre_msg_fixup_buf_sizes(struct ptlrpc_request *req, int count,
+                                       __u32 *lens)
+{
+        int i, maxreplysize = req->rq_reqmsg->lm_repsize;
+
+        if (unlikely(maxreplysize == 0)) {
+                DEBUG_REQ(D_ERROR, req, "reply buffer size is 0?");
+                return;
+        }
+
+        for (i = 0; i < count; i++) {
+                maxreplysize -= lens[i];
+                if (maxreplysize < 0) {
+                        lens[i] += maxreplysize;
+                        maxreplysize = 0;
+                }
+        }
+}
+
 int lustre_pack_reply_v2(struct ptlrpc_request *req, int count,
                          __u32 *lens, char **bufs, int flags)
 {
@@ -330,6 +351,10 @@ int lustre_pack_reply_v2(struct ptlrpc_request *req, int count,
         }
 
         msg_len = lustre_msg_size_v2(count, lens);
+        if (unlikely(msg_len > req->rq_reqmsg->lm_repsize)) {
+                lustre_msg_fixup_buf_sizes(req, count, lens);
+                msg_len = req->rq_reqmsg->lm_repsize;
+        }
         rc = sptlrpc_svc_alloc_rs(req, msg_len);
         if (rc)
                 RETURN(rc);
