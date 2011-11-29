@@ -131,6 +131,7 @@ static inline void loi_init(struct lov_oinfo *loi)
 struct lov_stripe_md {
         cfs_spinlock_t   lsm_lock;
         pid_t            lsm_lock_owner; /* debugging */
+        cfs_atomic_t     lsm_refcount;
 
         /* maximum possible file size, might change as OSTs status changes,
          * e.g. disconnected, deactivated */
@@ -142,6 +143,7 @@ struct lov_stripe_md {
 
                 /* LOV-private members start here -- only for use in lov/. */
                 __u32 lw_magic;
+                __u16 lw_layout_gen;       /* generation of the layout */
                 __u32 lw_stripe_size;      /* size of the stripe */
                 __u32 lw_pattern;          /* striping pattern (RAID0, RAID1) */
                 unsigned lw_stripe_count;  /* number of objects being striped over */
@@ -154,10 +156,80 @@ struct lov_stripe_md {
 #define lsm_object_id    lsm_wire.lw_object_id
 #define lsm_object_seq   lsm_wire.lw_object_seq
 #define lsm_magic        lsm_wire.lw_magic
+#define lsm_layout_gen   lsm_wire.lw_layout_gen
 #define lsm_stripe_size  lsm_wire.lw_stripe_size
 #define lsm_pattern      lsm_wire.lw_pattern
 #define lsm_stripe_count lsm_wire.lw_stripe_count
 #define lsm_pool_name    lsm_wire.lw_pool_name
+
+static inline void lsm_addref(struct lov_stripe_md *lsm)
+{
+        cfs_atomic_inc(&lsm->lsm_refcount);
+}
+
+static inline int lsm_decref(struct lov_stripe_md *lsm)
+{
+        return cfs_atomic_dec_and_test(&lsm->lsm_refcount);
+}
+
+/**
+ * Represent a layout lock
+ * Callers should use layout_lock_{init,set,put}() instead of calling this.
+ */
+struct layout_lock {
+        cfs_semaphore_t      ll_lh_sem;      /* protect lock handle */
+        struct lustre_handle ll_lh;          /* lock handle */
+        ldlm_mode_t          ll_lmode;       /* lock mode */
+        cfs_atomic_t         ll_lrefcount;   /* ref counter on lock handle */
+};
+
+/**
+ * Helper to initialize layout lock with the lock handle and mode.
+ * must be called with ll_lh_sem held
+ *
+ * \param struct layout_lock *ll layout lock [OUT]
+ * \param __u64 cookie lock cookie [IN]
+ * \param ldlm_mode_t mode lock mode [IN]
+ * \param int count lock ref count [IN]
+ * \retval no return value
+ */
+static inline void layout_lock_set_locked(struct layout_lock *ll,
+                                          const __u64 cookie,
+                                          const ldlm_mode_t mode,
+                                          const int count)
+{
+        ll->ll_lh.cookie = cookie;
+        ll->ll_lmode = mode;
+        cfs_atomic_set(&ll->ll_lrefcount, count);
+}
+
+/**
+ * Helper to initialize an empty layout lock
+ *
+ * \param struct layout_lock *ll layout lock to initialize
+ * \retval no return value
+ */
+static inline void layout_lock_init(struct layout_lock *ll)
+{
+        cfs_sema_init(&ll->ll_lh_sem, 1);
+        layout_lock_set_locked(ll, 0ull, 0, 0);
+}
+
+/**
+ * Helper to initialize layout lock with the lock handle and mode.
+ *
+ * \param struct layout_lock *ll layout lock [IN/OUT]
+ * \param __u64 cookie lock cookie [IN]
+ * \param ldlm_mode_t mode lock mode [IN]
+ * \retval no return value
+ */
+static inline void layout_lock_set(struct layout_lock *ll, const __u64 cookie,
+                                   const ldlm_mode_t mode)
+{
+        cfs_mutex_down(&ll->ll_lh_sem);
+        layout_lock_set_locked(ll, cookie, mode, 1);
+        cfs_mutex_up(&ll->ll_lh_sem);
+}
 
 struct obd_info;
 
@@ -203,6 +275,57 @@ static inline int lov_stripe_md_cmp(struct lov_stripe_md *m1,
          * allocation.
          */
         return memcmp(&m1->lsm_wire, &m2->lsm_wire, sizeof m1->lsm_wire);
+}
+
+static inline int lov_lum_lsm_cmp(struct lov_user_md *lum,
+                                  struct lov_stripe_md  *lsm)
+{
+        if (lsm->lsm_magic != lum->lmm_magic)
+                return 1;
+        if ((lsm->lsm_stripe_count != 0) && (lum->lmm_stripe_count != 0) &&
+            (lsm->lsm_stripe_count != lum->lmm_stripe_count))
+                return 2;
+        if ((lsm->lsm_stripe_size != 0) && (lum->lmm_stripe_size != 0) &&
+            (lsm->lsm_stripe_size != lum->lmm_stripe_size))
+                return 3;
+        if ((lsm->lsm_pattern != 0) && (lum->lmm_pattern != 0) &&
+            (lsm->lsm_pattern != lum->lmm_pattern))
+                return 4;
+        if ((lsm->lsm_magic == LOV_MAGIC_V3) &&
+            (strncmp(lsm->lsm_pool_name,
+                     ((struct lov_user_md_v3 *)lum)->lmm_pool_name,
+                     LOV_MAXPOOLNAME) != 0))
+                return 5;
+        return 0;
+}
+
+static inline int lov_lum_swab_if_needed(struct lov_user_md_v3 *lumv3,
+                                         int *lmm_magic,
+                                         struct lov_user_md *lum)
+{
+        if (lum && cfs_copy_from_user(lumv3, lum,sizeof(struct lov_user_md_v1)))
+                return -EFAULT;
+
+        *lmm_magic = lumv3->lmm_magic;
+
+        if (*lmm_magic == __swab32(LOV_USER_MAGIC_V1)) {
+                lustre_swab_lov_user_md_v1((struct lov_user_md_v1 *)lumv3);
+                *lmm_magic = LOV_USER_MAGIC_V1;
+        } else if (*lmm_magic == LOV_USER_MAGIC_V3) {
+                if (lum && cfs_copy_from_user(lumv3, lum, sizeof(*lumv3)))
+                        return -EFAULT;
+        } else if (*lmm_magic == __swab32(LOV_USER_MAGIC_V3)) {
+                if (lum && cfs_copy_from_user(lumv3, lum, sizeof(*lumv3)))
+                        return -EFAULT;
+                lustre_swab_lov_user_md_v3(lumv3);
+                *lmm_magic = LOV_USER_MAGIC_V3;
+        } else if (*lmm_magic != LOV_USER_MAGIC_V1) {
+                CDEBUG(D_IOCTL,
+                       "bad userland LOV MAGIC: %#08x != %#08x nor %#08x\n",
+                       *lmm_magic, LOV_USER_MAGIC_V1, LOV_USER_MAGIC_V3);
+                       return -EINVAL;
+        }
+        return 0;
 }
 
 void lov_stripe_lock(struct lov_stripe_md *md);
@@ -1185,13 +1308,15 @@ struct lu_context;
 #define IT_GETXATTR (1 << 7)
 #define IT_EXEC     (1 << 8)
 #define IT_PIN      (1 << 9)
+#define IT_LAYOUT   (1 << 10)
 
 static inline int it_to_lock_mode(struct lookup_intent *it)
 {
         /* CREAT needs to be tested before open (both could be set) */
         if (it->it_op & IT_CREAT)
                 return LCK_CW;
-        else if (it->it_op & (IT_READDIR | IT_GETATTR | IT_OPEN | IT_LOOKUP))
+        else if (it->it_op & (IT_READDIR | IT_GETATTR | IT_OPEN | IT_LOOKUP |
+                              IT_LAYOUT))
                 return LCK_CR;
 
         LASSERTF(0, "Invalid it_op: %d\n", it->it_op);

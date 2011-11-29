@@ -316,7 +316,11 @@ void ccc_lock_state(const struct lu_env *env,
                     const struct cl_lock_slice *slice,
                     enum cl_lock_state state);
 
+int ccc_io_init(const struct lu_env *env, struct cl_object *obj,
+                struct cl_io *io);
 void ccc_io_fini(const struct lu_env *env, const struct cl_io_slice *ios);
+int ccc_io_iter_init(const struct lu_env *env, const struct cl_io_slice *ios);
+void ccc_io_post_lock(const struct lu_env *env, const struct cl_io_slice *ios);
 int ccc_io_one_lock_index(const struct lu_env *env, struct cl_io *io,
                           __u32 enqflags, enum cl_lock_mode mode,
                           pgoff_t start, pgoff_t end);
@@ -393,4 +397,15 @@ int  cl_get_grouplock(struct cl_object *obj, unsigned long gid, int nonblock,
                       struct ccc_grouplock *cg);
 void cl_put_grouplock(struct ccc_grouplock *cg);
 
+void cl_layout_lock_put(struct inode *inode);
+struct lov_stripe_md *__lsm_get(struct inode *inode, int io);
+void lsm_put(struct inode *inode, struct lov_stripe_md **lsmp);
+static inline struct lov_stripe_md *lsm_get_io(struct inode *inode)
+{
+        return __lsm_get(inode, 1);
+}
+static inline struct lov_stripe_md *lsm_get(struct inode *inode)
+{
+        return __lsm_get(inode, 0);
+}
 #endif /*LCLIENT_H */

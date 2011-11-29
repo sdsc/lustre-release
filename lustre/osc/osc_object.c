@@ -42,8 +42,8 @@
 
 #include "osc_cl_internal.h"
 
-/** \addtogroup osc 
- *  @{ 
+/** \addtogroup osc
+ *  @{
  */
 
 /*****************************************************************************
@@ -114,11 +114,11 @@ static int osc_object_print(const struct lu_env *env, void *cookie,
         struct lov_oinfo    *oinfo = osc->oo_oinfo;
         struct osc_async_rc *ar    = &oinfo->loi_ar;
 
-        (*p)(env, cookie, "id: "LPU64" gr: "LPU64" "
-             "idx: %d gen: %d kms_valid: %u kms "LPU64" "
+        (*p)(env, cookie, "id: "LPU64" seq: "LPU64" "
+             "idx: %d kms_valid: %u kms "LPU64" "
              "rc: %d force_sync: %d min_xid: "LPU64" ",
              oinfo->loi_id, oinfo->loi_seq, oinfo->loi_ost_idx,
-             oinfo->loi_ost_gen, oinfo->loi_kms_valid, oinfo->loi_kms,
+             oinfo->loi_kms_valid, oinfo->loi_kms,
              ar->ar_rc, ar->ar_force_sync, ar->ar_min_xid);
         osc_lvb_print(env, cookie, p, &oinfo->loi_lvb);
         return 0;

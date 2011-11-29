@@ -142,7 +142,7 @@ int cl_get_grouplock(struct cl_object *obj, unsigned long gid, int nonblock,
         io = ccc_env_thread_io(env);
         io->ci_obj = obj;
 
-        rc = cl_io_init(env, io, CIT_MISC, io->ci_obj);
+        rc = cl_io_init(env, io, CIT_MISC, io->ci_obj, 1);
         if (rc) {
                 LASSERT(rc < 0);
                 cl_env_put(env, &refcheck);

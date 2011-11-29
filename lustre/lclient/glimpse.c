@@ -88,13 +88,13 @@ int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
         const struct lu_fid  *fid   = lu_object_fid(&clob->co_lu);
         struct ccc_io        *cio   = ccc_env_io(env);
         struct cl_lock       *lock;
-        int result;
+        int                   result;
 
         ENTRY;
         result = 0;
         if (!(lli->lli_flags & LLIF_MDS_SIZE_LOCK)) {
                 CDEBUG(D_DLMTRACE, "Glimpsing inode "DFID"\n", PFID(fid));
-                if (lli->lli_smd) {
+                if (io->ci_lsm) {
                         /* NOTE: this looks like DLM lock request, but it may
                          *       not be one. Due to CEF_ASYNC flag (translated
                          *       to LDLM_FL_HAS_INTENT by osc), this is
@@ -177,16 +177,15 @@ int cl_glimpse_size(struct inode *inode)
          * cl_glimpse_size(), which doesn't make sense: glimpse locks are not
          * blocking anyway.
          */
-        struct lu_env          *env = NULL;
-        struct cl_io           *io  = NULL;
-        int                     result;
-        int                     refcheck;
-
+        struct lu_env *env = NULL;
+        struct cl_io  *io  = NULL;
+        int            result;
+        int            refcheck;
         ENTRY;
 
         result = cl_io_get(inode, &env, &io, &refcheck);
         if (result > 0) {
-                result = cl_io_init(env, io, CIT_MISC, io->ci_obj);
+                result = cl_io_init(env, io, CIT_MISC, io->ci_obj, 1);
                 if (result > 0)
                         /*
                          * nothing to do for this io. This currently happens
@@ -211,18 +210,14 @@ int cl_local_size(struct inode *inode)
         struct cl_lock          *lock;
         int                      result;
         int                      refcheck;
-
         ENTRY;
-
-        if (!cl_i2info(inode)->lli_smd)
-                RETURN(0);
 
         result = cl_io_get(inode, &env, &io, &refcheck);
         if (result <= 0)
                 RETURN(result);
 
         clob = io->ci_obj;
-        result = cl_io_init(env, io, CIT_MISC, clob);
+        result = cl_io_init(env, io, CIT_MISC, clob, 1);
         if (result > 0)
                 result = io->ci_result;
         else if (result == 0) {
@@ -244,4 +239,3 @@ int cl_local_size(struct inode *inode)
         cl_env_put(env, &refcheck);
         RETURN(result);
 }
-
