@@ -48,10 +48,10 @@
 #include <lustre/lustre_user.h>
 
 /* Initially allocate for these many OSTs, realloc if needed */
-#define INIT_ALLOC_NUM_OSTS     1024
+#define INIT_ALLOC_NUM_OSTS     2048
 
 /* Maximum number of osts that can be specified to lfs find */
-#define FIND_MAX_OSTS   1024
+#define FIND_MAX_OSTS   2048
 
 typedef void (*llapi_cb_t)(char *obd_type_name, char *obd_name, char *obd_uuid, void *args);
 

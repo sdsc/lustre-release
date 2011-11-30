@@ -256,7 +256,7 @@ int llapi_stripe_limit_check(unsigned long long stripe_size, int stripe_offset,
                             stripe_offset);
                 return rc;
         }
-        if (stripe_count < -1 || stripe_count > LOV_MAX_STRIPE_COUNT) {
+        if (stripe_count < -1 || stripe_count > LOV_V1_INSANE_STRIPE_COUNT) {
                 rc = -EINVAL;
                 llapi_error(LLAPI_MSG_ERROR, rc, "error: bad stripe count %d",
                             stripe_count);
@@ -270,6 +270,66 @@ int llapi_stripe_limit_check(unsigned long long stripe_size, int stripe_offset,
                 return rc;
         }
         return 0;
+}
+#define MAX_STRING_SIZE 128
+int llapi_search_llite_proc(char **buffer, int count, char *path, char *name)
+{
+        char buf[MAX_STRING_SIZE], *fsname = NULL, *tmp;
+        struct obd_uuid lov_name;
+        FILE *fp = NULL;
+        int rc;
+
+        /* Now get the llite uuids from /proc */
+        rc = llapi_file_get_lov_uuid(path, &lov_name);
+        if (rc) {
+                if (errno != ENOTTY)
+                        llapi_error(LLAPI_MSG_ERROR, -errno,
+                                  "error: can't get lov name: %s", path);
+                rc = -errno;
+                goto out;
+        }
+
+        fsname = strdup(lov_name.uuid);
+        tmp = strstr(fsname, "-clilov");
+        if (tmp == NULL) {
+                rc = -EINVAL;
+                llapi_error(LLAPI_MSG_ERROR, rc, "unexpected lov name format: %s", lov_name.uuid);
+                goto out;
+        }
+        fsname[tmp - fsname]='\0';
+        snprintf(buf, MAX_STRING_SIZE, "/proc/fs/lustre/llite/%s%s/%s", fsname, tmp + 7, name);
+
+        fp = fopen(buf, "r");
+        if (fp == NULL) {
+                rc = -errno;
+                llapi_error(LLAPI_MSG_ERROR, rc, "error: opening '%s'", buf);
+                goto out;
+        }
+
+        while (fgets(buf, MAX_STRING_SIZE, fp) != NULL && rc < count)
+                buffer[rc++] = strdup(buf);
+        fclose(fp);
+        if (errno)
+	        rc = -errno;
+out:
+	if (fsname)
+		free(fsname);
+        return rc;
+}
+
+#define MAX_LOV_UUID_COUNT      max(LOV_MAX_STRIPE_COUNT, 2000)
+static int get_mds_md_size(char *path)
+{
+        int lumlen = lov_mds_md_size(MAX_LOV_UUID_COUNT, LOV_MAGIC_V3), rc;
+        char *buf[1];
+
+        /* Now get the maxea from llite proc */
+        rc = llapi_search_llite_proc(buf, 1, path, "max_easize");
+        if (rc == 1) {
+                lumlen = atoi(buf[0]);
+                free(buf[0]);
+        }
+        return lumlen;
 }
 
 static int find_target_obdpath(char *fsname, char *path)
@@ -929,12 +989,11 @@ int llapi_poollist(const char *name)
 typedef int (semantic_func_t)(char *path, DIR *parent, DIR *d,
                               void *data, cfs_dirent_t *de);
 
-#define MAX_LOV_UUID_COUNT      max(LOV_MAX_STRIPE_COUNT, 1000)
 #define OBD_NOT_FOUND           (-1)
 
-static int common_param_init(struct find_param *param)
+static int common_param_init(struct find_param *param, char *path)
 {
-        param->lumlen = lov_mds_md_size(MAX_LOV_UUID_COUNT, LOV_MAGIC_V3);
+        param->lumlen = get_mds_md_size(path); 
         param->lmd = malloc(sizeof(lstat_t) + param->lumlen);
         if (param->lmd == NULL) {
                 llapi_error(LLAPI_MSG_ERROR, -ENOMEM,
@@ -996,8 +1055,8 @@ int llapi_mds_getfileinfo(char *path, DIR *parent,
 
         fname = (fname == NULL ? path : fname + 1);
         /* retrieve needed file info */
-        strncpy((char *)lmd, fname,
-                lov_mds_md_size(MAX_LOV_UUID_COUNT, LOV_MAGIC));
+        strncpy((char *)lmd, fname, get_mds_md_size(path));
+
         ret = ioctl(dirfd(parent), IOC_MDC_GETFILEINFO, (void *)lmd);
 
         if (ret) {
@@ -1150,12 +1209,12 @@ static int param_callback(char *path, semantic_func_t sem_init,
         if (!buf)
                 return -ENOMEM;
 
-        ret = common_param_init(param);
+        strncpy(buf, path, PATH_MAX + 1);
+        ret = common_param_init(param, path);
         if (ret)
                 goto out;
         param->depth = 0;
 
-        strncpy(buf, path, PATH_MAX + 1);
         ret = llapi_semantic_traverse(buf, PATH_MAX + 1, NULL, sem_init,
                                       sem_fini, param, NULL);
 out:
@@ -2451,7 +2510,6 @@ int llapi_obd_statfs(char *path, __u32 type, __u32 index,
         return rc;
 }
 
-#define MAX_STRING_SIZE 128
 #define DEVICES_LIST "/proc/fs/lustre/devices"
 
 int llapi_ping(char *obd_type, char *obd_name)
