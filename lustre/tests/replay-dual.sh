@@ -38,7 +38,10 @@ rm -rf $DIR/[df][0-9]*
 
 [ "$DAEMONFILE" ] && $LCTL debug_daemon start $DAEMONFILE $DAEMONSIZE
 
-sleep 10 # Avert LVM and VM inability to flush caches in pre .33 kernels
+# LU-481 Avert LVM and VM inability to flush caches in pre .33 kernels
+if [ $LINUX_VERSION_CODE -lt $(kernel_version 2 6 33) ]; then
+    sleep 10
+fi
 
 test_0a() {
     touch $MOUNT2/$tfile-A # force sync FLD/SEQ update before barrier
