@@ -4263,7 +4263,7 @@ static int mdt_obd_llog_setup(struct obd_device *obd,
 
         LASSERT(obd->obd_fsops == NULL);
 
-        obd->obd_fsops = fsfilt_get_ops(MT_STR(lsi->lsi_ldd));
+        obd->obd_fsops = fsfilt_get_ops(mt_str(LDD_MT_LDISKFS));
         if (IS_ERR(obd->obd_fsops))
                 return PTR_ERR(obd->obd_fsops);
 
