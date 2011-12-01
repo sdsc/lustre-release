@@ -268,6 +268,132 @@ AC_SUBST(LUSTREIOKIT_SUBDIR)
 AC_CONFIG_SUBDIRS(lustre-iokit)
 ])
 
+#
+# LB_PATH_LDISKFS
+#
+# Handle internal/external ldiskfs
+#
+AC_DEFUN([LB_PATH_LDISKFS],
+[AC_ARG_WITH([ldiskfs],
+	AC_HELP_STRING([--with-ldiskfs=path],
+			[set path to ldiskfs source (default is included ldiskfs)]),
+	[],[
+		if test x$linux25$enable_server = xyesyes ; then
+			with_ldiskfs=yes
+		else
+			with_ldiskfs=no
+		fi
+	])
+AC_ARG_WITH([ldiskfs-inkernel],
+	AC_HELP_STRING([--with-ldiskfs-inkernel],
+			[use ldiskfs built in to the kernel]),
+	[with_ldiskfs=inkernel], [])
+AC_MSG_CHECKING([location of ldiskfs])
+case x$with_ldiskfs in
+	xyes)
+		AC_MSG_RESULT([internel])
+		LB_CHECK_FILE([$srcdir/ldiskfs/lustre-ldiskfs.spec.in],[],[
+			AC_MSG_ERROR([A complete internal ldiskfs was not found.])
+		])
+		LDISKFS_SUBDIR="ldiskfs"
+		LDISKFS_DIR="$PWD/ldiskfs"
+		;;
+	xno)
+		AC_MSG_RESULT([disabled])
+		;;
+	xinkernel)
+		AC_MSG_RESULT([inkernel])
+		LB_CHECK_FILE([$LINUX/include/linux/ldiskfs_fs.h],[],[
+			AC_MSG_ERROR([ldiskfs was not found in $LINUX])
+		])
+		;;
+	*)
+		AC_MSG_RESULT([$with_ldiskfs])
+		LB_CHECK_FILE([$with_ldiskfs/ldiskfs/inode.c],[],[
+			AC_MSG_ERROR([A complete (built) external ldiskfs was not found.])
+		])
+		LDISKFS_DIR=$with_ldiskfs
+		;;
+esac
+AC_SUBST(LDISKFS_DIR)
+AC_SUBST(LDISKFS_SUBDIR)
+AM_CONDITIONAL(LDISKFS_ENABLED, test x$with_ldiskfs != xno)
+AM_CONDITIONAL(LDISKFS_IN_KERNEL, test x$with_ldiskfs = xinkernel)
+
+if test x$with_ldiskfs != xno ; then
+	LB_LDISKFS_ENABLED
+	LB_LDISKFS_DEFINE_OPTIONS
+fi
+
+# We have to configure even if we don't build here for make dist to work
+AC_CONFIG_SUBDIRS(ldiskfs)
+])
+
+AC_DEFUN([LB_KERNEL_WITH_EXT4],
+[if test -f $LINUX/fs/ext4/ext4.h ; then
+$1
+else
+$2
+fi
+])
+
+#
+# LB_LDISKFS_ENABLED
+#
+AC_DEFUN([LB_LDISKFS_ENABLED],
+[
+if test x$RHEL_KERNEL = xyes; then
+	AC_ARG_ENABLE([ext4],
+		AC_HELP_STRING([--enable-ext4],
+			       [enable building of ldiskfs based on ext4]),
+		[],
+		[
+			if test x$ldiskfs_is_ext4 = xyes; then
+				enable_ext4=yes
+			else
+				enable_ext4=no
+			fi
+		])
+else
+	case $LINUXRELEASE in
+	# ext4 was in 2.6.22-2.6.26 but not stable enough to use
+	2.6.2[[0-9]]*) enable_ext4='no' ;;
+	*) LB_KERNEL_WITH_EXT4([enable_ext4='yes'],
+			       [enable_ext4='no']) ;;
+	esac
+fi
+if test x$enable_ext4 = xyes; then
+	ac_configure_args="$ac_configure_args --enable-ext4"
+	AC_DEFINE(HAVE_EXT4_LDISKFS, 1, [build ext4 based ldiskfs])
+fi
+AC_MSG_CHECKING([whether to build ldiskfs based on ext4])
+AC_MSG_RESULT([$enable_ext4])
+])
+
+#
+# LB_LDISKFS_DEFINE_OPTIONS
+#
+# Enable config options related to ldiskfs.  These are used both by ldiskfs
+# and lvfs (which includes ldiskfs headers.)
+#
+AC_DEFUN([LB_LDISKFS_DEFINE_OPTIONS],
+[
+	AC_DEFINE(HAVE_LDISKFS_OSD, 1, Enable ldiskfs osd)
+
+	AC_DEFINE(CONFIG_LDISKFS_FS_XATTR, 1,
+		[enable extended attributes for ldiskfs])
+	AC_DEFINE(CONFIG_LDISKFS_FS_POSIX_ACL, 1,
+		[enable posix acls for ldiskfs])
+	AC_DEFINE(CONFIG_LDISKFS_FS_SECURITY, 1,
+		[enable fs security for ldiskfs])
+	AC_DEFINE(CONFIG_LDISKFSDEV_FS_POSIX_ACL, 1,
+		[enable posix acls for ldiskfs])
+	AC_DEFINE(CONFIG_LDISKFSDEV_FS_XATTR, 1,
+		[enable extended attributes for ldiskfs])
+	AC_DEFINE(CONFIG_LDISKFSDEV_FS_SECURITY, 1,
+		[enable fs security for ldiskfs])
+])
+
 # Define no libcfs by default.
 AC_DEFUN([LB_LIBCFS_DIR],
 [
