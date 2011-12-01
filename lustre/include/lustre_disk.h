@@ -101,11 +101,19 @@
 /** the MGS refused to register the target. */
 #define LDD_F_ERROR         0x4000
 
+#define LDD_F_MASK          0xFFFF
+
+#define LSI_SERVER              0x00010000
+#define LSI_UMOUNT_FORCE        0x00100000
+#define LSI_UMOUNT_FAILOVER     0x00200000
+#define LSI_BDI_INITIALIZED     0x00400000
+#define LSI_IR_CAPABLE          0x00800000
+
 /* opc for target register */
-#define LDD_F_OPC_REG   0x10000000
-#define LDD_F_OPC_UNREG 0x20000000
-#define LDD_F_OPC_READY 0x40000000
-#define LDD_F_OPC_MASK  0xf0000000
+#define LDD_F_OPC_REG           0x10000000
+#define LDD_F_OPC_UNREG         0x20000000
+#define LDD_F_OPC_READY         0x40000000
+#define LDD_F_OPC_MASK          0xf0000000
 
 #define LDD_F_ONDISK_MASK  (LDD_F_SV_TYPE_MASK | LDD_F_IAM_DIR)
 
@@ -126,6 +134,18 @@ static inline char *mt_str(enum ldd_mount_type mt)
                 "smfs",
                 "reiserfs",
                 "ldiskfs2"
+        };
+        return mount_type_string[mt];
+}
+
+static inline char *mt_type(enum ldd_mount_type mt)
+{
+        static char *mount_type_string[] = {
+                "osd-ldiskfs",
+                "osd-ldiskfs",
+                "osd-smfs",
+                "osd-reiserfs",
+                "osd-ldiskfs",
         };
         return mount_type_string[mt];
 }
@@ -158,9 +178,12 @@ struct lustre_disk_data {
 /*8192*/char       ldd_params[4096];     /* key=value pairs */
 };
 
-#define IS_MDT(data)   ((data)->ldd_flags & LDD_F_SV_TYPE_MDT)
-#define IS_OST(data)   ((data)->ldd_flags & LDD_F_SV_TYPE_OST)
-#define IS_MGS(data)  ((data)->ldd_flags & LDD_F_SV_TYPE_MGS)
+#define IS_MDT(data)     ((data)->ldd_flags & LDD_F_SV_TYPE_MDT)
+#define IS_OST(data)     ((data)->ldd_flags & LDD_F_SV_TYPE_OST)
+#define IS_MGS(data)     ((data)->ldd_flags & LDD_F_SV_TYPE_MGS)
+#define IS_SERVER(data)  ((data)->ldd_flags & (LDD_F_SV_TYPE_MGS | \
+                                               LDD_F_SV_TYPE_MDT | \
+                                               LDD_F_SV_TYPE_OST))
 #define MT_STR(data)   mt_str((data)->ldd_mount_type)
 
 /* Make the mdt/ost server obd name based on the filesystem name */
@@ -219,7 +242,7 @@ struct lustre_mount_data {
 #define LMD_FLG_NOIR         0x0080  /* NO imperative recovery */
 
 #define lmd_is_client(x) ((x)->lmd_flags & LMD_FLG_CLIENT)
-
+#define devname_is_client(devname) strstr(devname, ":/")
 
 /****************** last_rcvd file *********************/
 
@@ -461,12 +484,6 @@ struct lustre_sb_info {
         struct backing_dev_info   lsi_bdi;     /* each client mountpoint needs
                                                   own backing_dev_info */
 };
-
-#define LSI_SERVER                       0x00000001
-#define LSI_UMOUNT_FORCE                 0x00000010
-#define LSI_UMOUNT_FAILOVER              0x00000020
-#define LSI_BDI_INITIALIZED              0x00000040
-#define LSI_IR_CAPABLE                   0x00000080
 
 #define     s2lsi(sb)        ((struct lustre_sb_info *)((sb)->s_fs_info))
 #define     s2lsi_nocast(sb) ((sb)->s_fs_info)
