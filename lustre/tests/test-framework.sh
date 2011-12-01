@@ -4675,3 +4675,12 @@ is_sanity_benchmark() {
 min_ost_size () {
     $LCTL get_param -n osc.*.kbytesavail | sort -n | head -n1
 }
+
+kernel_version () {
+    echo -n $(( ($1 << 16) | ($2 << 8) | $3 ))
+}
+
+n1=$(uname -r | cut -d. -f1)
+n2=$(uname -r | cut -d. -f2)
+n3=$(uname -r | cut -d- -f1 | cut -d. -f3)
+export LINUX_VERSION_CODE=$(kernel_version $n1 $n2 $n3)
