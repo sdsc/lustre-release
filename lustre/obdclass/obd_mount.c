@@ -2057,6 +2057,36 @@ static int lmd_make_exclusion(struct lustre_mount_data *lmd, char *ptr)
         RETURN(rc);
 }
 
+/* Alloc space to store a value, replacing old if necessary */
+static int lmd_parse_string(char **handle, char *ptr)
+{
+        char   *tail;
+        int     length;
+
+        if ((handle == NULL) || (ptr == NULL))
+                return -EINVAL;
+
+        if (*handle != NULL) {
+                OBD_FREE(*handle, strlen(*handle) + 1);
+                *handle = NULL;
+        }
+
+        tail = strchr(ptr, ',');
+        if (tail == NULL)
+                length = strlen(ptr);
+        else
+                length = tail - ptr;
+
+        OBD_ALLOC(*handle, length + 1);
+        if (*handle == NULL)
+                return -ENOMEM;
+
+        memcpy(*handle, ptr, length);
+        (*handle)[length] = '\0';
+
+        return 0;
+}
+
 static int lmd_parse_mgssec(struct lustre_mount_data *lmd, char *ptr)
 {
         char   *tail;
@@ -2168,6 +2198,18 @@ static int lmd_parse(char *options, struct lustre_mount_data *lmd)
                            must be the last one. */
                         *s1 = '\0';
                         break;
+                } else if (strncmp(s1, "svname=", 7) == 0) {
+                        rc = lmd_parse_string(&lmd->lmd_profile, s1 + 7);
+                        if (rc)
+                                goto invalid;
+                        clear++;
+                }
+                /* ignore some osd mount options for now */
+                else if ((strncmp(s1, "iam", 3) == 0) ||
+                         (strncmp(s1, "noprimnode", 10) == 0) ||
+                         (strncmp(s1, "mgs", 3) == 0) ||
+                         (strncmp(s1, "osd=", 4) == 0)) {
+                        clear++;
                 }
 
                 /* Find next opt */
