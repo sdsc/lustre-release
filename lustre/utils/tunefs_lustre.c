@@ -28,15 +28,12 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
- *
- * Copyright (c) 2011 Whamcloud, Inc.
- *
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
- * lustre/utils/mkfs_lustre.c
+ * lustre/utils/tunefs_lustre.c
  *
  * Author: Nathan Rutman <nathan@clusterfs.com>
  */
@@ -57,60 +54,18 @@
 char *progname;
 int verbose = 1;
 
-#ifdef HAVE_LDISKFS_OSD
- #define FSLIST_LDISKFS "ldiskfs"
- #define HAVE_FSLIST
-#else
- #define FSLIST_LDISKFS ""
-#endif /* HAVE_LDISKFS_OSD */
-#ifdef HAVE_ZFS_OSD
- #ifdef HAVE_FSLIST
-   #define FSLIST_ZFS "|zfs"
- #else
-  #define FSLIST_ZFS "zfs"
-  #define HAVE_FSLIST
- #endif
-#else
- #define FSLIST_ZFS ""
-#endif /* HAVE_ZFS_OSD */
-#ifdef HAVE_BTRFS_OSD
- #ifdef HAVE_FSLIST
-   #define FSLIST_BTRFS "|btrfs"
- #else
-  #define FSLIST_BTRFS "btrfs"
-  #define HAVE_FSLIST
- #endif
-#else
- #define FSLIST_BTRFS ""
-#endif /* HAVE_BTRFS_OSD */
-
-#ifndef HAVE_FSLIST
- #error "no backing OSD types (ldiskfs or ZFS) are configured"
-#endif
-
-#define FSLIST FSLIST_LDISKFS FSLIST_ZFS FSLIST_BTRFS
-
 static void usage(FILE *out)
 {
         fprintf(out, "%s v"LUSTRE_VERSION_STRING"\n", progname);
-#ifdef HAVE_ZFS_OSD
-        fprintf(out, "usage: %s <target types> [--backfstype=zfs] [options] "
-                "<pool_name>/<dataset_name> [[<vdev_type>] <device> "
-                "[<device> ...] [[vdev_type>] ...]]\n", progname);
-#endif
-
-        fprintf(out, "usage: %s <target types> --backfstype="FSLIST" "
-                "[options] <device>\n", progname);
+        fprintf(out, "usage: %s <target types> [options] "
+                "<pool name>/<dataset name>\n", progname);
+        fprintf(out, "usage: %s <target types> [options] <device>\n", progname);
         fprintf(out,
                 "\t<device>:block device or file (e.g /dev/sda or /tmp/ost1)\n"
-#ifdef HAVE_ZFS_OSD
-                "\t<pool_name>: name of the ZFS pool where to create the "
+                "\t<pool name>: name of the ZFS pool where to create the "
                 "target (e.g. tank)\n"
-                "\t<dataset_name>: name of the new dataset (e.g. ost1). The "
+                "\t<dataset name>: name of the new dataset (e.g. ost1). The "
                 "dataset name must be unique within the ZFS pool\n"
-                "\t<vdev_type>: type of vdev (mirror, raidz, raidz2, spare, "
-                "cache, log)\n"
-#endif
                 "\n"
                 "\ttarget types:\n"
                 "\t\t--ost: object storage, mutually exclusive with mdt,mgs\n"
@@ -123,8 +78,9 @@ static void usage(FILE *out)
                 "\t\t--fsname=<filesystem_name> : default is 'lustre'\n"
                 "\t\t--failnode=<nid>[,<...>] : NID(s) of a failover partner\n"
                 "\t\t\tcannot be used with --servicenode\n"
-                "\t\t--servicenode=<nid>[,<...>] : NID(s) of service peers,\n"
-                "\t\t\tclients treat peers equally,can't use with --failnode\n"
+                "\t\t--servicenode=<nid>[,<...>] : NID(s) of all service\n"
+                "\t\tpartners treat all nodes as equal service node, cannot\n"
+                "\t\tbe used with --failnode\n"
                 "\t\t--param <key>=<value> : set a permanent parameter\n"
                 "\t\t\te.g. --param sys.timeout=40\n"
                 "\t\t\t     --param lov.stripesize=2M\n"
@@ -132,15 +88,10 @@ static void usage(FILE *out)
                 "\t\t--comment=<user comment>: arbitrary string (%d bytes)\n"
                 "\t\t--mountfsoptions=<opts> : permanent mount options\n"
                 "\t\t--network=<net>[,<...>] : restrict OST/MDT to network(s)\n"
-                "\t\t--backfstype=<fstype> : backing fs type ("FSLIST")\n"
-                "\t\t--device-size=#N(KB) : loop device or pool/dataset size\n"
-#ifdef HAVE_ZFS_OSD
-                "\t\t--vdev-size=#N(KB) : size for file based vdevs\n"
-#endif
-                "\t\t--mkfsoptions=<opts> : format options\n"
-                "\t\t--reformat: overwrite an existing disk\n"
-                "\t\t--stripe-count-hint=#N : for optimizing MDT inode size\n"
-                "\t\t--iam-dir: use IAM directory format, not ext3 compatible\n"
+                "\t\t--erase-params : erase all old parameter settings\n"
+                "\t\t--nomgs: turn off MGS service on this MDT\n"
+                "\t\t--writeconf: erase all config logs for this fs.\n"
+                "\t\t--quota: enable space accounting on old 2.x device.\n"
                 "\t\t--dryrun: just report, don't write to disk\n"
                 "\t\t--verbose : e.g. show mkfs progress\n"
                 "\t\t--quiet\n",
@@ -156,21 +107,17 @@ static void set_defaults(struct mkfs_opts *mop)
         mop->mo_ldd.ldd_flags = LDD_F_NEED_INDEX | LDD_F_UPDATE | LDD_F_VIRGIN;
         mop->mo_mgs_failnodes = 0;
         strcpy(mop->mo_ldd.ldd_fsname, "lustre");
-#ifdef HAVE_LDISKFS_OSD
         mop->mo_ldd.ldd_mount_type = LDD_MT_LDISKFS;
-#else
-        mop->mo_ldd.ldd_mount_type = LDD_MT_ZFS;
-#endif
-        /* 2.1 Lustre allows unassigned index */
-        mop->mo_ldd.ldd_svindex = 0xFFFF;
+
+        mop->mo_ldd.ldd_svindex = 0;
         mop->mo_stripe_count = 1;
         mop->mo_pool_vdevs = NULL;
-        mop->mo_vdev_sz = 0;
 }
 
 static void badopt(const char *opt, char *type)
 {
-        fprintf(stderr, "%s: '--%s' only valid for %s\n", progname, opt, type);
+        fprintf(stderr, "%s: '--%s' only valid for %s\n",
+                progname, opt, type);
         usage(stderr);
 }
 
@@ -178,17 +125,12 @@ static int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                char **mountopts)
 {
         static struct option long_opt[] = {
-                {"iam-dir", 0, 0, 'a'},
-                {"backfstype", 1, 0, 'b'},
-                {"stripe-count-hint", 1, 0, 'c'},
-                {"device-size", 1, 0, 'd'},
-                {"vdev-size", 1, 0, 'e'},
+                {"erase-params", 0, 0, 'e'},
                 {"failnode", 1, 0, 'f'},
                 {"failover", 1, 0, 'f'},
                 {"mgs", 0, 0, 'G'},
                 {"help", 0, 0, 'h'},
                 {"index", 1, 0, 'i'},
-                {"mkfsoptions", 1, 0, 'k'},
                 {"fsname",1, 0, 'L'},
                 {"mgsnode", 1, 0, 'm'},
                 {"mgsnid", 1, 0, 'm'},
@@ -196,18 +138,20 @@ static int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                 {"print", 0, 0, 'n'},
                 {"dryrun", 0, 0, 'n'},
                 {"noformat", 0, 0, 'n'},
+                {"nomgs", 0, 0, 'N'},
                 {"mountfsoptions", 1, 0, 'o'},
                 {"ost", 0, 0, 'O'},
                 {"param", 1, 0, 'p'},
                 {"quiet", 0, 0, 'q'},
-                {"reformat", 0, 0, 'r'},
+                {"quota", 0, 0, 'Q'},
                 {"servicenode", 1, 0, 's'},
                 {"network", 1, 0, 't'},
                 {"comment", 1, 0, 'u'},
                 {"verbose", 0, 0, 'v'},
+                {"writeconf", 0, 0, 'w'},
                 {0, 0, 0, 0}
         };
-        char *optstring = "ab:c:d:e:f:Ghi:k:L:m:Mno:Op:qrs:t:u:v";
+        char *optstring = "ef:Ghi:L:m:MnNo:Op:PqQs:t:u:vw";
         int opt;
         int rc, longidx;
         int failnode_set = 0, servicenode_set = 0;
@@ -215,46 +159,10 @@ static int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
         while ((opt = getopt_long(argc, argv, optstring, long_opt, &longidx)) !=
                EOF) {
                 switch (opt) {
-                case 'a': {
-                        if (IS_MDT(&mop->mo_ldd))
-                                mop->mo_ldd.ldd_flags |= LDD_F_IAM_DIR;
-                        break;
-                }
-                case 'b': {
-                        int i = 0;
-                        while (i < LDD_MT_LAST) {
-                                if (strcmp(optarg, mt_str(i)) == 0) {
-                                        mop->mo_ldd.ldd_mount_type = i;
-                                        break;
-                                }
-                                i++;
-                        }
-                        if (i == LDD_MT_LAST) {
-                                fprintf(stderr, "%s: invalid backend filesystem"
-                                        " type %s\n", progname, optarg);
-                                return 1;
-                        }
-                        break;
-                }
-                case 'c':
-                        if (IS_MDT(&mop->mo_ldd)) {
-                                int stripe_count = atol(optarg);
-                                if (stripe_count <= 0) {
-                                        fprintf(stderr, "%s: bad stripe count "
-                                                "%d\n", progname, stripe_count);
-                                        return 1;
-                                }
-                                mop->mo_stripe_count = stripe_count;
-                        } else {
-                                badopt(long_opt[longidx].name, "MDT");
-                                return 1;
-                        }
-                        break;
-                case 'd':
-                        mop->mo_device_sz = atol(optarg);
-                        break;
                 case 'e':
-                        mop->mo_vdev_sz = atol(optarg);
+                        mop->mo_ldd.ldd_params[0] = '\0';
+                        /* Must update the mgs logs */
+                        mop->mo_ldd.ldd_flags |= LDD_F_UPDATE;
                         break;
                 case 'f':
                 case 's': {
@@ -309,10 +217,6 @@ static int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                                 return 1;
                         }
                         break;
-                case 'k':
-                        strscpy(mop->mo_mkfsopts, optarg,
-                                sizeof(mop->mo_mkfsopts));
-                        break;
                 case 'L': {
                         char *tmp;
                         if (!(mop->mo_flags & MO_FORCEFORMAT) &&
@@ -355,6 +259,9 @@ static int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                 case 'n':
                         mop->mo_flags |= MO_DRYRUN;
                         break;
+                case 'N':
+                        mop->mo_ldd.ldd_flags &= ~LDD_F_SV_TYPE_MGS;
+                        break;
                 case 'o':
                         *mountopts = optarg;
                         break;
@@ -371,8 +278,8 @@ static int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                 case 'q':
                         verbose--;
                         break;
-                case 'r':
-                        mop->mo_flags |= MO_FORCEFORMAT;
+                case 'Q':
+                        mop->mo_flags |= MO_QUOTA;
                         break;
                 case 't':
                         if (!IS_MDT(&mop->mo_ldd) && !IS_OST(&mop->mo_ldd)) {
@@ -397,6 +304,9 @@ static int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                 case 'v':
                         verbose++;
                         break;
+                case 'w':
+                        mop->mo_ldd.ldd_flags |= LDD_F_WRITECONF;
+                        break;
                 default:
                         if (opt != '?') {
                                 fatal();
@@ -412,15 +322,7 @@ static int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                 fprintf(stderr, "Not enough arguments - device name or "
                         "pool/dataset name not specified.\n");
                 return EINVAL;
-        } else {
-                /*  The device or pool/filesystem name */
-                strscpy(mop->mo_device, argv[optind], sizeof(mop->mo_device));
-
-                /* Followed by optional vdevs */
-                if (optind + 1 < argc)
-                        mop->mo_pool_vdevs = (char **) &argv[optind + 1];
         }
-
         return 0;
 }
 
@@ -450,6 +352,33 @@ int main(int argc, char *const argv[])
         if (ret)
                 return ret;
 
+        /* device is last arg */
+        strscpy(mop.mo_device, argv[argc - 1], sizeof(mop.mo_device));
+
+        /* Check whether the disk has already been formatted by mkfs.lustre */
+        ret = osd_is_lustre(mop.mo_device, &mount_type);
+        if (ret == 0) {
+                fatal();
+                fprintf(stderr, "Device %s has not been formatted with "
+                        "mkfs.lustre\n", mop.mo_device);
+                ret = ENODEV;
+                goto out;
+        }
+
+        ldd->ldd_mount_type = mount_type;
+        ret = osd_read_ldd(mop.mo_device, ldd);
+        if (ret) {
+                fatal();
+                fprintf(stderr, "Failed to read previous Lustre data from %s "
+                        "(%d)\n", mop.mo_device, ret);
+                goto out;
+        }
+        if (strstr(ldd->ldd_params, PARAM_MGSNODE))
+            mop.mo_mgs_failnodes++;
+
+        if (verbose > 0)
+                osd_print_ldd("Read previous values", ldd);
+
         ret = parse_opts(argc, argv, &mop, &mountopts);
         if (ret)
                 goto out;
@@ -468,8 +397,7 @@ int main(int argc, char *const argv[])
                 goto out;
         }
 
-        if (IS_MGS(ldd) || IS_MDT(ldd)) {
-                /* Old MDT's are always index 0 (pre CMD) */
+        if (IS_MGS(ldd) && !IS_MDT(ldd)) {
                 mop.mo_ldd.ldd_flags &= ~LDD_F_NEED_INDEX;
                 mop.mo_ldd.ldd_svindex = 0;
         }
@@ -488,8 +416,7 @@ int main(int argc, char *const argv[])
                                  always_mountopts, sizeof(always_mountopts));
         if (ret) {
                 fatal();
-                fprintf(stderr, "unable to prepare backend %s: %s\n",
-                        mop.mo_device, strerror(ret));
+                fprintf(stderr, "unable to prepare backend (%d)\n", ret);
                 goto out;
         }
 
@@ -502,9 +429,12 @@ int main(int argc, char *const argv[])
                 }
                 sprintf(ldd->ldd_mount_opts, "%s", mountopts);
         } else {
-                sprintf(ldd->ldd_mount_opts, "%s%s",
-                        always_mountopts, default_mountopts);
-                trim_mountfsoptions(ldd->ldd_mount_opts);
+                /* use the defaults unless old opts exist */
+                if (ldd->ldd_mount_opts[0] == 0) {
+                        sprintf(ldd->ldd_mount_opts, "%s%s",
+                                always_mountopts, default_mountopts);
+                        trim_mountfsoptions(ldd->ldd_mount_opts);
+                }
         }
 
         server_make_name(ldd->ldd_flags, ldd->ldd_svindex,
@@ -520,28 +450,29 @@ int main(int argc, char *const argv[])
 
         if (check_mtab_entry(mop.mo_device, mop.mo_device, NULL, NULL)) {
                 fprintf(stderr, "filesystem %s is mounted.\n", mop.mo_device);
-                ret = EBUSY;
+                ret = EEXIST;
                 goto out;
         }
 
-        /* Check whether the disk has already been formatted by mkfs.lustre */
-        if (!(mop.mo_flags & MO_FORCEFORMAT)) {
-                ret = osd_is_lustre(mop.mo_device, &mount_type);
+        /* Create the loopback file */
+        if (mop.mo_flags & MO_IS_LOOP) {
+                ret = access(mop.mo_device, F_OK);
+                if (ret)
+                        ret = errno;
+
+                if (ret == 0)
+                        ret = loop_setup(&mop);
                 if (ret) {
                         fatal();
-                        fprintf(stderr, "Device %s was previously formatted "
-                                "for lustre.\nUse --reformat to reformat it, "
-                                "or tunefs.lustre to modify.\n",
-                                mop.mo_device);
+                        fprintf(stderr, "Loop device setup for %s failed: %s\n",
+                                mop.mo_device, strerror(ret));
                         goto out;
                 }
         }
 
-        /* Format the backing filesystem */
-        ret = osd_make_lustre(&mop);
-        if (ret != 0) {
-                fatal();
-                fprintf(stderr, "mkfs failed %d\n", ret);
+        /* Enable quota accounting */
+        if (mop.mo_flags & MO_QUOTA) {
+                ret = osd_enable_quota(&mop);
                 goto out;
         }
 
