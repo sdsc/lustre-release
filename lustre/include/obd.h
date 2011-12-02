@@ -1124,6 +1124,7 @@ enum obd_cleanup_stage {
 #define KEY_FIEMAP              "fiemap"
 #define KEY_CONNECT_FLAG        "connect_flags"
 #define KEY_SYNC_LOCK_CANCEL    "sync_lock_cancel"
+#define KEY_INITIAL_CONNECT     "initial_connect"
 /* XXX unused */
 #define KEY_ASYNC               "async"
 #define KEY_CAPA_KEY            "capa_key"

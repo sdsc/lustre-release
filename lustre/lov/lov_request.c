@@ -288,6 +288,35 @@ int lov_fini_enqueue_set(struct lov_request_set *set, __u32 mode, int rc,
         RETURN(rc ? rc : ret);
 }
 
+static int lov_check_set(struct lov_obd *lov, struct obd_info *oinfo)
+{
+        int i, count;
+        struct lov_oinfo *loi;
+
+        count = 0;
+        for (i = 0; i < oinfo->oi_md->lsm_stripe_count; i++) {
+                obd_off start, end;
+
+                loi = oinfo->oi_md->lsm_oinfo[i];
+                if (!lov_stripe_intersects(oinfo->oi_md, i,
+                                           oinfo->oi_policy.l_extent.start,
+                                           oinfo->oi_policy.l_extent.end,
+                                           &start, &end))
+                        continue;
+
+                if (!lov->lov_tgts[loi->loi_ost_idx] ||
+                    !lov->lov_tgts[loi->loi_ost_idx]->ltd_active)
+                        continue;
+
+                count++;
+        }
+
+        if (count == 0)
+                return 0;
+
+        return 1;
+}
+
 int lov_prep_enqueue_set(struct obd_export *exp, struct obd_info *oinfo,
                          struct ldlm_enqueue_info *einfo,
                          struct lov_request_set **reqset)
@@ -296,6 +325,7 @@ int lov_prep_enqueue_set(struct obd_export *exp, struct obd_info *oinfo,
         struct lov_request_set *set;
         int i, rc = 0;
         struct lov_oinfo *loi;
+        int initializing = 0;
         ENTRY;
 
         OBD_ALLOC(set, sizeof(*set));
@@ -311,6 +341,8 @@ int lov_prep_enqueue_set(struct obd_export *exp, struct obd_info *oinfo,
                 GOTO(out_set, rc = -ENOMEM);
         oinfo->oi_lockh->cookie = set->set_lockh->llh_handle.h_cookie;
 
+retry:
+        initializing = 0;
         for (i = 0; i < oinfo->oi_md->lsm_stripe_count; i++) {
                 struct lov_request *req;
                 obd_off start, end;
@@ -324,6 +356,16 @@ int lov_prep_enqueue_set(struct obd_export *exp, struct obd_info *oinfo,
 
                 if (!lov->lov_tgts[loi->loi_ost_idx] ||
                     !lov->lov_tgts[loi->loi_ost_idx]->ltd_active) {
+                        __u32 initial = 0;
+                        __u32 size = sizeof(initial);
+                        obd_get_info(lov->lov_tgts[loi->loi_ost_idx]->ltd_exp,
+                                     sizeof(KEY_INITIAL_CONNECT),
+                                     KEY_INITIAL_CONNECT, &size, &initial,
+                                     NULL);
+
+                        if (initial)
+                                initializing = 1;
+
                         CDEBUG(D_HA, "lov idx %d inactive\n", loi->loi_ost_idx);
                         continue;
                 }
@@ -370,8 +412,23 @@ int lov_prep_enqueue_set(struct obd_export *exp, struct obd_info *oinfo,
 
                 lov_set_add_req(req, set);
         }
+
+        if (!set->set_count && initializing) {
+                cfs_waitq_t        waitq;
+                struct l_wait_info lwi;
+
+                init_waitqueue_head(&waitq);
+
+                lwi  = LWI_TIMEOUT_INTERVAL(cfs_time_seconds(obd_timeout),
+                                            cfs_time_seconds(1), NULL, NULL);
+                rc = l_wait_event(waitq, lov_check_set(lov, oinfo), &lwi);
+                if (rc == 0)
+                        GOTO(retry, rc);
+        }
+
         if (!set->set_count)
-                GOTO(out_set, rc = -EIO);
+                GOTO(out_set, rc = -EAGAIN);
+
         *reqset = set;
         RETURN(0);
 out_set:

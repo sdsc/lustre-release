@@ -4086,6 +4086,17 @@ static int osc_get_info(struct obd_export *exp, obd_count keylen,
                 ptlrpc_req_finished(req);
 
                 RETURN(rc);
+        } else if (KEY_IS(KEY_INITIAL_CONNECT)) {
+                struct obd_import *imp = class_exp2cliimp(exp);
+                struct obd_device *obd = class_exp2obd(exp);
+
+                if (obd->obd_set_up &&
+                    !lustre_handle_is_used(&imp->imp_remote_handle))
+                        *((__u32*)val) = 1;
+                else
+                        *((__u32*)val) = 0;
+
+                RETURN(0);
         }
 
         RETURN(-EINVAL);
