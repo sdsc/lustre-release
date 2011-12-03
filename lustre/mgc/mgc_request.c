@@ -337,7 +337,8 @@ static int config_log_add(struct obd_device *obd, char *logname,
         cld->cld_sptlrpc = sptlrpc_cld;
 
         LASSERT(lsi->lsi_lmd);
-        if (!(lsi->lsi_lmd->lmd_flags & LMD_FLG_NOIR)) {
+        if (!(lsi->lsi_lmd->lmd_flags & LMD_FLG_NOIR) &&
+            OCD_HAS_FLAG(&obd->u.cli.cl_import->imp_connect_data, IMP_RECOV)) {
                 struct config_llog_data *recover_cld;
                 *strrchr(seclogname, '-') = 0;
                 recover_cld = config_recover_log_add(obd, seclogname, cfg, sb);
@@ -1905,7 +1906,7 @@ static int mgc_process_config(struct obd_device *obd, obd_count len, void *buf)
                 cld->cld_cfg.cfg_flags |= CFG_F_COMPAT146;
 
                 rc = mgc_process_log(obd, cld);
-                if (rc == 0 && cld->cld_recover) {
+                if (rc == 0 && cld->cld_recover != NULL) {
                         rc = mgc_process_log(obd, cld->cld_recover);
                         if (rc)
                                 CERROR("Cannot process recover llog %d\n", rc);
