@@ -92,16 +92,13 @@ Show all the local Lustre OBDs. AKA
 .PP
 .SS Device Operations
 .TP 
-.BI list_param " [-F|-R] <param_path ...>"
+.BI list_param " [-R] <param_search ...>"
 List the Lustre or LNet parameter name
 .br
-.B -F
-Add '/', '@' or '=' for dirs, symlinks and writeable files, respectively.
-.br
 .B -R
-Recursively list all parameters under the specified path. If
-.I param_path 
-is unspecified, all the parameters will be shown.
+Recursively list all parameters under the specified parameter search string. If
+.I param_search 
+is unspecified, all the matching parameters will be shown.
 .br
 .B Examples:
 .br
@@ -113,7 +110,7 @@ is unspecified, all the parameters will be shown.
   ost.num_refs
 .br
 .B
-# lctl list_param -F ost.* debug
+# lctl list_param ost.* debug
 .br
   ost.OSS/
 .br
@@ -142,17 +139,14 @@ is unspecified, all the parameters will be shown.
 .br
   ...
 .TP
-.BI get_param " [-n|-N|-F] <param_path ...>"
-Get the value of Lustre or LNET parameter from the specified path.
+.BI get_param " [-n|-N] <parameter ...>"
+Get the value of Lustre or LNET parameter.
 .br
 .B -n
 Print only the value and not parameter name.
 .br
 .B -N
 Print only matched parameter names and not the values. (Especially useful when using patterns.)
-.br
-.B -F
-When -N specified, add '/', '@' or '=' for directories, symlinks and writeable files, respectively.
 .br
 .B Examples:
 .br
@@ -179,10 +173,10 @@ When -N specified, add '/', '@' or '=' for directories, symlinks and writeable f
 .br
   debug
 .br
-lctl "get_param -NF" is equivalent to "list_param -F".
+lctl "get_param -N" is equivalent to "list_param".
 .TP
-.BI set_param " [-n] <param_path=value ...>"
-Set the value of Lustre or LNET parameter from the specified path.
+.BI set_param " [-n] <parameter=value ...>"
+Set the value of Lustre or LNET parameter.
 .br
 .B -n
 Disable printing of the key name when printing values.
