@@ -735,7 +735,6 @@ static int listparam_display(struct param_opts *popt, char *pattern)
 
 int jt_lcfg_listparam(int argc, char **argv)
 {
-        int fp;
         int rc = 0, i;
         struct param_opts popt;
         char pattern[PATH_MAX];
@@ -750,12 +749,22 @@ int jt_lcfg_listparam(int argc, char **argv)
         }
 
         for (i = rc; i < argc; i++) {
+                int fp = -1;
                 path = argv[i];
 
                 clean_path(path);
 
-                /* If the entire path is specified as input */
-                fp = open(path, O_RDONLY);
+                /* Supporting file paths creates perilous behavoir: LU-888.
+                 * Path support is deprecated.
+                 * Paths must begin with /proc. */
+                if (strncmp(path, "/proc", strlen("/proc")) == 0) {
+                        fprintf(stderr, "%s: specifying parameters via "
+                                "full paths is deprecated.\n", argv[0]);
+                        fp = open(path, O_RDONLY);
+#if LUSTRE_VERSION_CODE >= OBD_OCD_VERSION(2,6,50,0)
+#warning "remove deprecated full path tunable access"
+#endif
+                }
                 if (fp < 0) {
                         snprintf(pattern, PATH_MAX, "/proc/{fs,sys}/{lnet,lustre}/%s",
                                  path);
@@ -767,6 +776,7 @@ int jt_lcfg_listparam(int argc, char **argv)
                 rc = listparam_display(&popt, pattern);
                 if (rc < 0)
                         return rc;
+                fp = -1;
         }
 
         return 0;
@@ -876,7 +886,6 @@ static int getparam_display(struct param_opts *popt, char *pattern)
 
 int jt_lcfg_getparam(int argc, char **argv)
 {
-        int fp;
         int rc = 0, i;
         struct param_opts popt;
         char pattern[PATH_MAX];
@@ -887,12 +896,22 @@ int jt_lcfg_getparam(int argc, char **argv)
                 return CMD_HELP;
 
         for (i = rc; i < argc; i++) {
+                int fp = -1;
                 path = argv[i];
 
                 clean_path(path);
 
-                /* If the entire path is specified as input */
-                fp = open(path, O_RDONLY);
+                /* Supporting file paths creates perilous behavoir: LU-888.
+                 * Path support is deprecated.
+                 * Paths must begin with /proc. */
+                if (strncmp(path, "/proc", strlen("/proc")) == 0) {
+                        fprintf(stderr, "%s: specifying parameters via "
+                                "full paths is deprecated.\n", argv[0]);
+                        fp = open(path, O_RDONLY);
+#if LUSTRE_VERSION_CODE >= OBD_OCD_VERSION(2,6,50,0)
+#warning "remove deprecated full path tunable access"
+#endif
+                }
                 if (fp < 0) {
                         snprintf(pattern, PATH_MAX, "/proc/{fs,sys}/{lnet,lustre}/%s",
                                  path);
@@ -907,6 +926,7 @@ int jt_lcfg_getparam(int argc, char **argv)
                         rc = getparam_display(&popt, pattern);
                 if (rc < 0)
                         return rc;
+                fp = -1;
         }
 
         return 0;
@@ -979,7 +999,6 @@ static int setparam_display(struct param_opts *popt, char *pattern, char *value)
 
 int jt_lcfg_setparam(int argc, char **argv)
 {
-        int fp;
         int rc = 0, i;
         struct param_opts popt;
         char pattern[PATH_MAX];
@@ -990,6 +1009,7 @@ int jt_lcfg_setparam(int argc, char **argv)
                 return CMD_HELP;
 
         for (i = rc; i < argc; i++) {
+                int fp = -1;
                 if ((value = strchr(argv[i], '=')) != NULL) {
                         /* format: set_param a=b */
                         *value = '\0';
@@ -1007,8 +1027,17 @@ int jt_lcfg_setparam(int argc, char **argv)
 
                 clean_path(path);
 
-                /* If the entire path is specified as input */
-                fp = open(path, O_RDONLY);
+                /* Supporting file paths creates perilous behavoir: LU-888.
+                 * Path support is deprecated.
+                 * Paths must begin with /proc. */
+                if (strncmp(path, "/proc", strlen("/proc")) == 0) {
+                        fprintf(stderr, "%s: specifying parameters via "
+                                "full paths is deprecated.\n", argv[0]);
+                        fp = open(path, O_RDONLY);
+#if LUSTRE_VERSION_CODE >= OBD_OCD_VERSION(2,6,50,0)
+#warning "remove deprecated full path tunable access"
+#endif
+                }
                 if (fp < 0) {
                         snprintf(pattern, PATH_MAX, "/proc/{fs,sys}/{lnet,lustre}/%s",
                                  path);
@@ -1022,6 +1051,7 @@ int jt_lcfg_setparam(int argc, char **argv)
                 value = NULL;
                 if (rc < 0)
                         return rc;
+                fp = -1;
         }
 
         return 0;
