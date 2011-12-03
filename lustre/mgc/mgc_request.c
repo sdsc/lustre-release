@@ -1905,7 +1905,9 @@ static int mgc_process_config(struct obd_device *obd, obd_count len, void *buf)
                 cld->cld_cfg.cfg_flags |= CFG_F_COMPAT146;
 
                 rc = mgc_process_log(obd, cld);
-                if (rc == 0 && cld->cld_recover) {
+                if (rc == 0 && cld->cld_recover &&
+                    OCD_HAS_FLAG(&obd->u.cli.cl_import->imp_connect_data,
+                                 IMP_RECOV)) {
                         rc = mgc_process_log(obd, cld->cld_recover);
                         if (rc)
                                 CERROR("Cannot process recover llog %d\n", rc);
