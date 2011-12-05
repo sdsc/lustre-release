@@ -383,7 +383,11 @@ load_modules_local() {
         load_module cmm/cmm
         load_module osd-ldiskfs/osd_ldiskfs
         load_module ost/ost
-        load_module obdfilter/obdfilter
+        if [ -z $USEOFD ]; then
+            load_module obdfilter/obdfilter
+        else
+            load_module ofd/ofd
+        fi
     fi
 
 
