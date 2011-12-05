@@ -62,20 +62,12 @@ struct lu_site;
 struct thandle;
 
 struct dt_device;
+struct osd_device;
+struct osd_oi;
 
 enum {
         OSD_OI_FID_16,
         OSD_OI_FID_NR
-};
-
-/*
- * Object Index (oi) instance.
- */
-struct osd_oi {
-        /*
-         * underlying index object, where fid->id mapping in stored.
-         */
-        struct dt_object *oi_dir;
 };
 
 /*
@@ -93,17 +85,16 @@ struct osd_inode_id {
 int osd_oi_mod_init(void);
 int osd_oi_init(struct osd_thread_info *info,
                 struct osd_oi *oi,
-                struct dt_device *dev,
-                struct md_device *mdev);
+                struct osd_device *osd);
 void osd_oi_fini(struct osd_thread_info *info, struct osd_oi *oi);
 
-int  osd_oi_lookup(struct osd_thread_info *info, struct osd_oi *oi,
+int  osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
                    const struct lu_fid *fid, struct osd_inode_id *id);
-int  osd_oi_insert(struct osd_thread_info *info, struct osd_oi *oi,
+int  osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
                    const struct lu_fid *fid, const struct osd_inode_id *id,
                    struct thandle *th, int ingore_quota);
 int  osd_oi_delete(struct osd_thread_info *info,
-                   struct osd_oi *oi, const struct lu_fid *fid,
+                   struct osd_device *osd, const struct lu_fid *fid,
                    struct thandle *th);
 
 #endif /* __KERNEL__ */

@@ -255,7 +255,6 @@ static int osd_fid_lookup(const struct lu_env *env,
         struct lu_device       *ldev = obj->oo_dt.do_lu.lo_dev;
         struct osd_device      *dev;
         struct osd_inode_id    *id;
-        struct osd_oi          *oi;
         struct inode           *inode;
         int                     result;
 
@@ -274,12 +273,11 @@ static int osd_fid_lookup(const struct lu_env *env,
         info = osd_oti_get(env);
         dev  = osd_dev(ldev);
         id   = &info->oti_id;
-        oi   = &dev->od_oi;
 
         if (OBD_FAIL_CHECK(OBD_FAIL_OST_ENOENT))
                 RETURN(-ENOENT);
 
-        result = osd_oi_lookup(info, oi, fid, id);
+        result = osd_oi_lookup(info, dev, fid, id);
         if (result == 0) {
                 inode = osd_iget(info, dev, id);
                 if (!IS_ERR(inode)) {
@@ -351,30 +349,6 @@ static void osd_object_free(const struct lu_env *env, struct lu_object *l)
 
         dt_object_fini(&obj->oo_dt);
         OBD_FREE_PTR(obj);
-}
-
-/**
- * IAM Iterator
- */
-static struct iam_path_descr *osd_it_ipd_get(const struct lu_env *env,
-                                             const struct iam_container *bag)
-{
-        return bag->ic_descr->id_ops->id_ipd_alloc(bag,
-                                           osd_oti_get(env)->oti_it_ipd);
-}
-
-static struct iam_path_descr *osd_idx_ipd_get(const struct lu_env *env,
-                                              const struct iam_container *bag)
-{
-        return bag->ic_descr->id_ops->id_ipd_alloc(bag,
-                                           osd_oti_get(env)->oti_idx_ipd);
-}
-
-static void osd_ipd_put(const struct lu_env *env,
-                        const struct iam_container *bag,
-                        struct iam_path_descr *ipd)
-{
-        bag->ic_descr->id_ops->id_ipd_free(ipd);
 }
 
 /*
@@ -1423,19 +1397,7 @@ static struct dentry * osd_child_dentry_get(const struct lu_env *env,
                                             const char *name,
                                             const int namelen)
 {
-        struct osd_thread_info *info   = osd_oti_get(env);
-        struct dentry *child_dentry = &info->oti_child_dentry;
-        struct dentry *obj_dentry = &info->oti_obj_dentry;
-
-        obj_dentry->d_inode = obj->oo_inode;
-        obj_dentry->d_sb = osd_sb(osd_obj2dev(obj));
-        obj_dentry->d_name.hash = 0;
-
-        child_dentry->d_name.hash = 0;
-        child_dentry->d_parent = obj_dentry;
-        child_dentry->d_name.name = name;
-        child_dentry->d_name.len = namelen;
-        return child_dentry;
+        return osd_child_dentry_by_inode(env, obj->oo_inode, name, namelen);
 }
 
 
@@ -1693,7 +1655,7 @@ static int __osd_oi_insert(const struct lu_env *env, struct osd_object *obj,
         id->oii_ino = obj->oo_inode->i_ino;
         id->oii_gen = obj->oo_inode->i_generation;
 
-        return osd_oi_insert(info, &osd->od_oi, fid, id, th,
+        return osd_oi_insert(info, osd, fid, id, th,
                              uc->mu_cap & CFS_CAP_SYS_RESOURCE_MASK);
 }
 
@@ -1799,7 +1761,7 @@ static int osd_object_destroy(const struct lu_env *env,
 
         OSD_EXEC_OP(th, destroy);
 
-        result = osd_oi_delete(osd_oti_get(env), &osd->od_oi, fid, th);
+        result = osd_oi_delete(osd_oti_get(env), osd, fid, th);
 
         /* XXX: add to ext3 orphan list */
         /* rc = ext3_orphan_add(handle_t *handle, struct inode *inode) */
@@ -4057,10 +4019,12 @@ static int osd_prepare(const struct lu_env *env,
 
         ENTRY;
         /* 1. initialize oi before any file create or file open */
-        result = osd_oi_init(oti, &osd->od_oi,
-                             &osd->od_dt_dev, lu2md_dev(pdev));
+        result = osd_oi_init(oti, &osd->od_oi, osd);
         if (result != 0)
                 RETURN(result);
+
+        if (!lu_device_is_md(pdev))
+                RETURN(0);
 
         lmi = osd->od_mount;
         lsi = s2lsi(lmi->lmi_sb);
