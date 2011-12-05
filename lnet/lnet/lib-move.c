@@ -915,8 +915,8 @@ lnet_eager_recv_locked(lnet_msg_t *msg)
 }
 
 /* NB: caller shall hold a ref on 'lp' as I'd drop LNET_LOCK */
-void
-lnet_ni_peer_alive(lnet_peer_t *lp)
+static void
+lnet_ni_peer_alive(lnet_peer_t *lp, cfs_time_t now)
 {
         cfs_time_t  last_alive = 0;
         lnet_ni_t  *ni = lp->lp_ni;
@@ -928,10 +928,23 @@ lnet_ni_peer_alive(lnet_peer_t *lp)
         (ni->ni_lnd->lnd_query)(ni, lp->lp_nid, &last_alive);
         LNET_LOCK();
 
-        lp->lp_last_query = cfs_time_current();
-
-        if (last_alive != 0) /* NI has updated timestamp */
+        if (last_alive != 0) {
+                /* NI has updated timestamp */
                 lp->lp_last_alive = last_alive;
+        } else {
+                /* LU-630 resurrect peer from death
+                 * If a peer is dead, and not tried to reconnect for
+                 * 'ni_peertimeout' time, it's a good chance to
+                 * resurrect it because user stills wants to use it.
+                 */
+                cfs_time_t postmortem = cfs_time_add(lp->lp_last_query,
+                                cfs_time_seconds(lp->lp_ni->ni_peertimeout));
+                                
+                if (cfs_time_before(postmortem, now))
+                        lp->lp_last_alive = now;
+        }
+
+        lp->lp_last_query = cfs_time_current();
         return;
 }
 
@@ -1002,7 +1015,7 @@ lnet_peer_alive_locked (lnet_peer_t *lp)
         }
 
         /* query NI for latest aliveness news */
-        lnet_ni_peer_alive(lp);
+        lnet_ni_peer_alive(lp, now);
 
         if (lnet_peer_is_alive(lp, now))
                 return 1;
