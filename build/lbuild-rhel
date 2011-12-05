@@ -79,6 +79,8 @@ prepare_and_build_srpm() {
         for f in SOURCES/kernel-${lnxmaj}-*.config; do
             grep -q "^CONFIG_SD_IOSTATS=y" $f || \
                 echo "CONFIG_SD_IOSTATS=y" >> $f
+            grep -q "^CONFIG_BH_LRU_SIZE=" $f || \
+                echo "CONFIG_BH_LRU_SIZE=16" >> $f
         done
     done
 
