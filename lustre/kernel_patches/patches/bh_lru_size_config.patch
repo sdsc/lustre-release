@@ -1,0 +1,28 @@
+--- linux-2.6.32-131.6.1/fs/buffer.c	2011-06-21 01:27:00.000000000 +0800
++++ linux-2.6.32-131.6.1-pdo/fs/buffer.c	2011-12-02 16:08:26.000000000 +0800
+@@ -1250,8 +1250,7 @@ static struct buffer_head *__bread_slow(
+  * The LRUs themselves only need locking against invalidate_bh_lrus.  We use
+  * a local interrupt disable for that.
+  */
+-
+-#define BH_LRU_SIZE	8
++#define BH_LRU_SIZE	CONFIG_BH_LRU_SIZE
+ 
+ struct bh_lru {
+ 	struct buffer_head *bhs[BH_LRU_SIZE];
+--- linux-2.6.32-131.6.1/fs/Kconfig	2011-06-21 01:25:13.000000000 +0800
++++ linux-2.6.32-131.6.1-pdo/fs/Kconfig	2011-12-05 14:55:13.000000000 +0800
+@@ -253,4 +253,13 @@ endif
+ source "fs/nls/Kconfig"
+ source "fs/dlm/Kconfig"
+ 
++config BH_LRU_SIZE
++	int "buffer head per-CPU LRU size"
++	range 8 64
++	default "8"
++	help
++	  This sets the per-CPU LRU size for buffer heads in memory.
++	  More complex filesystems may be modiyfing multiple blocks
++	  within a single transaction, so keeping the buffer heads in
++	  CPU-local cache speeds up modifations significantly.
+ endmenu
