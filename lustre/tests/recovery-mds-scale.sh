@@ -7,25 +7,10 @@
 # Test runs one of CLIENT_LOAD progs on remote clients.
 
 LUSTRE=${LUSTRE:-`dirname $0`/..}
-SETUP=${SETUP:-""}
-CLEANUP=${CLEANUP:-""}
 . $LUSTRE/tests/test-framework.sh
-
 init_test_env $@
-
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
-
-TESTSUITELOG=${TESTSUITELOG:-$TMP/$(basename $0 .sh)}
-DEBUGLOG=$TESTSUITELOG.debug
-
-cleanup_logs
-
-exec 2>$DEBUGLOG
-echo "--- env ---" >&2
-env >&2
-echo "--- env ---" >&2
-set -x
 
 [ "$SHARED_DIRECTORY" ] || \
     { FAIL_ON_ERROR=true skip_env "$0 Empty SHARED_DIRECTORY" && exit 0; }
@@ -168,14 +153,13 @@ Status: $result: rc=$rc"
     fi
 
     [ $rc -eq 0 ] && zconf_mount $(hostname) $MOUNT
-
-    exit $rc
+    error "Failed"
 }
 
+test_1() {
 #
 # MAIN
 #
-log "-----============= $0 starting =============-----"
 
 trap summary_and_cleanup EXIT INT
 
@@ -191,7 +175,7 @@ start_client_loads $NODES_TO_USE
 
 echo clients load pids:
 if ! do_nodesv $NODES_TO_USE "cat $LOAD_PID_FILE"; then
-        exit 3
+        error "cat \$LOAD_PID_FILE failed"
 fi
 
 MINSLEEP=${MINSLEEP:-120}
@@ -218,18 +202,17 @@ while [ $ELAPSED -lt $DURATION -a ! -e $END_RUN_FILE ]; do
     # Check that our client loads are still running. If any have died,
     # that means they have died outside of recovery, which is unacceptable.
 
-    log "==== Checking the clients loads BEFORE failover -- failure NOT OK \
+    log "Checking the clients loads BEFORE failover -- failure NOT OK \
     ELAPSED=$ELAPSED DURATION=$DURATION PERIOD=$SERVER_FAILOVER_PERIOD"
 
     if ! check_client_loads $NODES_TO_USE; then
-        exit 4
+        error "Client loads not running before failure"
     fi
 
     log "Wait $SERVERFACET recovery complete before doing next failover ...."
 
     if ! wait_recovery_complete $SERVERFACET ; then
-        echo "$SERVERFACET recovery is not completed!"
-        exit 7
+        error "$SERVERFACET recovery is not completed!"
     fi
 
     log "Checking clients are in FULL state before doing next failover"
@@ -239,15 +222,14 @@ while [ $ELAPSED -lt $DURATION -a ! -e $END_RUN_FILE ]; do
     fi
     log "Starting failover on $SERVERFACET"
 
-    facet_failover "$SERVERFACET" || exit 1
+    facet_failover "$SERVERFACET" || error "Failover failed on $SERVERFACET"
 
     # Check that our client loads are still running during failover.
     # No application failures should occur.
 
-    log "==== Checking the clients loads AFTER  failover -- failure NOT OK"
+    log "Checking the clients loads AFTER failover -- failure NOT OK"
     if ! check_client_loads $NODES_TO_USE; then
-        log "Client load failed during failover. Exiting"
-        exit 5
+        error "Client load failed during failover. Exiting"
     fi
 
     # Increment the number of failovers
@@ -270,7 +252,7 @@ This iteration, the load was only applied for sleep=$sleep seconds.
 Estimated max recovery time : $max_recov_time
 Probably the hardware is taking excessively long to boot.
 Try to increase SERVER_FAILOVER_PERIOD (current is $SERVER_FAILOVER_PERIOD), bug 20918"
-        [ $reqfail -gt $REQFAIL ] && exit 6
+        [ $reqfail -gt $REQFAIL ] && error "check_client_loads time exceeded SERVER_FAILOVER_PERIOD"
     fi
 
     log "$SERVERFACET has failed over ${!var} times, and counting..."
@@ -284,5 +266,11 @@ Try to increase SERVER_FAILOVER_PERIOD (current is $SERVER_FAILOVER_PERIOD), bug
         sleep $sleep
     fi
 done
+}
 
-exit 0
+run_test 1 "recovery mds test"
+
+complete $(basename $0) $SECONDS
+check_and_cleanup_lustre
+
+exit_status
