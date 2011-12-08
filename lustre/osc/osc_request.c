@@ -1969,7 +1969,6 @@ static void osc_exit_cache(struct client_obd *cli, struct osc_async_page *oap,
 static int lop_makes_rpc(struct client_obd *cli, struct loi_oap_pages *lop,
                          int cmd)
 {
-        int optimal;
         ENTRY;
 
         if (lop->lop_num_pending == 0)
@@ -1990,8 +1989,7 @@ static int lop_makes_rpc(struct client_obd *cli, struct loi_oap_pages *lop,
                 CDEBUG(D_CACHE, "urgent request forcing RPC\n");
                 RETURN(1);
         }
-        /* fire off rpcs when we have 'optimal' rpcs as tuned for the wire. */
-        optimal = cli->cl_max_pages_per_rpc;
+
         if (cmd & OBD_BRW_WRITE) {
                 /* trigger a write rpc stream as long as there are dirtiers
                  * waiting for space.  as they're waiting, they're not going to
@@ -2000,13 +1998,8 @@ static int lop_makes_rpc(struct client_obd *cli, struct loi_oap_pages *lop,
                         CDEBUG(D_CACHE, "cache waiters forcing RPC\n");
                         RETURN(1);
                 }
-                /* +16 to avoid triggering rpcs that would want to include pages
-                 * that are being queued but which can't be made ready until
-                 * the queuer finishes with the page. this is a wart for
-                 * llite::commit_write() */
-                optimal += 16;
         }
-        if (lop->lop_num_pending >= optimal)
+        if (lop->lop_num_pending >= cli->cl_max_pages_per_rpc)
                 RETURN(1);
 
         RETURN(0);
@@ -2216,6 +2209,13 @@ static int brw_interpret(const struct lu_env *env,
         int async;
         ENTRY;
 
+        cli = aa->aa_cli;
+        if (req->rq_fake == 1) {
+                client_obd_list_lock(&cli->cl_loi_list_lock);
+                osc_check_rpcs(env, cli);
+                RETURN(0);
+        }
+
         rc = osc_brw_fini_request(req, rc);
         CDEBUG(D_INODE, "request %p aa %p rc %d\n", req, aa, rc);
         if (osc_recoverable_error(rc)) {
@@ -2228,8 +2228,6 @@ static int brw_interpret(const struct lu_env *env,
                 capa_put(aa->aa_ocapa);
                 aa->aa_ocapa = NULL;
         }
-
-        cli = aa->aa_cli;
 
         client_obd_list_lock(&cli->cl_loi_list_lock);
 
@@ -2259,7 +2257,6 @@ static int brw_interpret(const struct lu_env *env,
         }
         osc_wake_cache_waiters(cli);
         osc_check_rpcs(env, cli);
-        client_obd_list_unlock(&cli->cl_loi_list_lock);
         if (!async)
                 cl_req_completion(env, aa->aa_clerq, rc < 0 ? rc :
                                   req->rq_bulk->bd_nob_transferred);
@@ -2742,10 +2739,12 @@ static int osc_max_rpc_in_flight(struct client_obd *cli, struct lov_oinfo *loi)
 }
 
 /* called with the loi list lock held */
-void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli)
+static void osc_check_rpcs0(const struct lu_env *env, struct client_obd *cli,
+                            int async)
 {
         struct lov_oinfo *loi;
         int rc = 0, race_counter = 0;
+        int has_rpcs = 0;
         ENTRY;
 
         while ((loi = osc_next_loi(cli)) != NULL) {
@@ -2761,6 +2760,10 @@ void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli)
                  * partial read pending queue when we're given this object to
                  * do io on writes while there are cache waiters */
                 if (lop_makes_rpc(cli, &loi->loi_write_lop, OBD_BRW_WRITE)) {
+                        has_rpcs = 1;
+                        if (async)
+                                break;
+
                         rc = osc_send_oap_rpc(env, cli, loi, OBD_BRW_WRITE,
                                               &loi->loi_write_lop);
                         if (rc < 0) {
@@ -2791,6 +2794,10 @@ void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli)
                                 race_counter++;
                 }
                 if (lop_makes_rpc(cli, &loi->loi_read_lop, OBD_BRW_READ)) {
+                        has_rpcs = 1;
+                        if (async)
+                                break;
+
                         rc = osc_send_oap_rpc(env, cli, loi, OBD_BRW_READ,
                                               &loi->loi_read_lop);
                         if (rc < 0)
@@ -2823,7 +2830,32 @@ void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli)
                 if (race_counter == 10)
                         break;
         }
+        client_obd_list_unlock(&cli->cl_loi_list_lock);
+
+        if (async && has_rpcs) {
+                struct ptlrpc_request *req;
+
+                req = ptlrpc_prep_fakereq(cli->cl_import, obd_timeout,
+                                          brw_interpret);
+                if (req) {
+                        struct osc_brw_async_args *aa;
+
+                        aa = ptlrpc_req_async_args(req);
+                        aa->aa_cli = cli;
+                        ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
+                }
+        }
         EXIT;
+}
+
+void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli)
+{
+        osc_check_rpcs0(env, cli, 0);
+}
+
+void osc_check_rpcs_async(const struct lu_env *env, struct client_obd *cli)
+{
+        osc_check_rpcs0(env, cli, 1);
 }
 
 /* we're trying to queue a page in the osc so we're subject to the
@@ -2910,7 +2942,6 @@ static int osc_enter_cache(const struct lu_env *env,
 
                 loi_list_maint(cli, loi);
                 osc_check_rpcs(env, cli);
-                client_obd_list_unlock(&cli->cl_loi_list_lock);
 
                 CDEBUG(D_CACHE, "sleeping for cache space\n");
                 l_wait_event(ocw.ocw_waitq, ocw_granted(cli, &ocw), &lwi);
@@ -3038,8 +3069,7 @@ int osc_queue_async_io(const struct lu_env *env, struct obd_export *exp,
         LOI_DEBUG(loi, "oap %p page %p added for cmd %d\n", oap, oap->oap_page,
                   cmd);
 
-        osc_check_rpcs(env, cli);
-        client_obd_list_unlock(&cli->cl_loi_list_lock);
+        osc_check_rpcs_async(env, cli);
 
         RETURN(0);
 }
@@ -4367,7 +4397,6 @@ static int osc_import_event(struct obd_device *obd,
                         /* all pages go to failing rpcs due to the invalid
                          * import */
                         osc_check_rpcs(env, cli);
-                        client_obd_list_unlock(&cli->cl_loi_list_lock);
 
                         ldlm_namespace_cleanup(ns, LDLM_FL_LOCAL_ONLY);
                         cl_env_put(env, &refcheck);
