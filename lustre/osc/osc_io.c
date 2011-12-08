@@ -99,8 +99,7 @@ static void osc_io_unplug(const struct lu_env *env, struct osc_object *osc,
                           struct client_obd *cli)
 {
         loi_list_maint(cli, osc->oo_oinfo);
-        osc_check_rpcs(env, cli);
-        client_obd_list_unlock(&cli->cl_loi_list_lock);
+        osc_check_rpcs(env, cli, 0);
 }
 
 /**

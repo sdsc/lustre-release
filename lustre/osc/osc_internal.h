@@ -156,7 +156,8 @@ int osc_prep_async_page(struct obd_export *exp, struct lov_stripe_md *lsm,
 void osc_oap_to_pending(struct osc_async_page *oap);
 int  osc_oap_interrupted(const struct lu_env *env, struct osc_async_page *oap);
 void loi_list_maint(struct client_obd *cli, struct lov_oinfo *loi);
-void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli);
+void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli,
+                    int async);
 
 int osc_queue_async_io(const struct lu_env *env, struct obd_export *exp,
                        struct lov_stripe_md *lsm, struct lov_oinfo *loi,
