@@ -53,6 +53,7 @@
 
 /* struct rw_semaphore */
 #include <linux/rwsem.h>
+#include <lustre_fid.h>
 #include <lu_object.h>
 #include <md_object.h>
 
@@ -63,10 +64,15 @@ struct thandle;
 
 struct dt_device;
 
-enum {
-        OSD_OI_FID_16,
-        OSD_OI_FID_NR
-};
+static inline int fid_is_oi_fid(const struct lu_fid *fid)
+{
+        /* We need to filter-out oi obj's fid. As we can not store it, while
+         * oi-index create operation. */
+        return unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE &&
+                        (fid_oid(fid) == OSD_OI_FID_OID_COMPAT ||
+                         (fid_oid(fid) >= OSD_OI_FID_OID_FIRST &&
+                          fid_oid(fid) < OSD_OI_FID_OID_MAX)));
+}
 
 /*
  * Object Index (oi) instance.
@@ -92,10 +98,10 @@ struct osd_inode_id {
 
 int osd_oi_mod_init(void);
 int osd_oi_init(struct osd_thread_info *info,
-                struct osd_oi *oi,
+                struct osd_oi **oi_table,
                 struct dt_device *dev,
                 struct md_device *mdev);
-void osd_oi_fini(struct osd_thread_info *info, struct osd_oi *oi);
+void osd_oi_fini(struct osd_thread_info *info, struct osd_oi **oi_table);
 
 int  osd_oi_lookup(struct osd_thread_info *info, struct osd_oi *oi,
                    const struct lu_fid *fid, struct osd_inode_id *id);

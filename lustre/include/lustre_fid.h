@@ -88,10 +88,17 @@ enum {
         LUSTRE_SEQ_SUPER_WIDTH = ((1ULL << 30ULL) * LUSTRE_SEQ_META_WIDTH)
 };
 
+enum {
+        /** 2^6 FIDs for OI containers */
+        OSD_OI_FID_OID_BITS     = 6,
+        /*** reserve enough FIDs in case we want more in the future */
+        OSD_OI_FID_OID_BITS_MAX = 10,
+};
+
 /** special OID for local objects */
 enum local_oid {
-        /** \see osd_oi_index_create */
-        OSD_OI_FID_16_OID       = 2UL,
+        /** \see osd_oi_init */
+        OSD_OI_FID_OID_COMPAT   = 2UL,
         /** \see fld_mod_init */
         FLD_INDEX_OID           = 3UL,
         /** \see fid_mod_init */
@@ -107,6 +114,11 @@ enum local_oid {
         MDT_LAST_RECV_OID       = 11UL,
         /** \see osd_mod_init */
         OSD_REM_OBJ_DIR_OID     = 12UL,
+        /** first OID for first OI fid */
+        OSD_OI_FID_OID_FIRST    = 64UL,
+        /** reserve enough in case we want to have more in the future */
+        OSD_OI_FID_OID_MAX      = OSD_OI_FID_OID_FIRST +
+                                  (1UL << OSD_OI_FID_OID_BITS_MAX),
 };
 
 static inline void lu_local_obj_fid(struct lu_fid *fid, __u32 oid)
