@@ -124,6 +124,9 @@ static int mdt_create_data(struct mdt_thread_info *info,
                 rc = mdo_create_data(info->mti_env,
                                      p ? mdt_object_child(p) : NULL,
                                      mdt_object_child(o), spec, ma);
+                if (rc == -ERANGE && ma->ma_need & MA_LOV)
+                        rc = mdt_big_lmm_get(info->mti_env,
+                                             mdt_object_child(o), ma);
                 if (rc == 0 && ma->ma_valid & MA_LOV)
                         o->mot_flags |= MOF_LOV_CREATED;
         }
@@ -341,7 +344,7 @@ static inline int mdt_ioepoch_close_reg(struct mdt_thread_info *info,
         tmp_ma->ma_som = &info->mti_u.som.data;
         tmp_ma->ma_need = MA_INODE | MA_LOV | MA_SOM;
         tmp_ma->ma_valid = 0;
-        rc = mo_attr_get(info->mti_env, mdt_object_child(o), tmp_ma);
+        rc = mdt_attr_get(info->mti_env, mdt_object_child(o), tmp_ma);
         if (rc)
                 GOTO(error_up, rc);
 
@@ -961,7 +964,7 @@ void mdt_reconstruct_open(struct mdt_thread_info *info,
 
                         mdt_set_capainfo(info, 1, rr->rr_fid2, BYPASS_CAPA);
                         next = mdt_object_child(child);
-                        rc = mo_attr_get(env, next, ma);
+                        rc = mdt_attr_get(env, next, ma);
                         if (rc == 0)
                               rc = mdt_finish_open(info, parent, child,
                                                    flags, 1, ldlm_rep);
@@ -1013,7 +1016,7 @@ static int mdt_open_by_fid(struct mdt_thread_info* info,
                                                 DISP_LOOKUP_EXECD |
                                                 DISP_LOOKUP_POS));
 
-                rc = mo_attr_get(env, mdt_object_child(o), ma);
+                rc = mdt_attr_get(env, mdt_object_child(o), ma);
                 if (rc == 0)
                         rc = mdt_finish_open(info, NULL, o, flags, 0, rep);
         } else if (rc == 0) {
@@ -1093,7 +1096,7 @@ static int mdt_open_anon_by_fid(struct mdt_thread_info *info,
         if (rc)
                 GOTO(out, rc);
 
-        rc = mo_attr_get(env, mdt_object_child(o), ma);
+        rc = mdt_attr_get(env, mdt_object_child(o), ma);
         if (rc)
                 GOTO(out, rc);
 
@@ -1152,7 +1155,7 @@ static int mdt_cross_open(struct mdt_thread_info* info,
                         goto out;
 
                 mdt_set_capainfo(info, 0, fid, BYPASS_CAPA);
-                rc = mo_attr_get(info->mti_env, mdt_object_child(o), ma);
+                rc = mdt_attr_get(info->mti_env, mdt_object_child(o), ma);
                 if (rc == 0)
                         rc = mdt_finish_open(info, NULL, o, flags, 0, rep);
         } else if (rc == 0) {
@@ -1231,13 +1234,14 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                ma->ma_attr.la_mode, msg_flags);
 
         if (req_is_replay(req) ||
-            (req->rq_export->exp_libclient && create_flags&MDS_OPEN_HAS_EA)) {
+            (req->rq_export->exp_libclient &&
+             create_flags & MDS_OPEN_HAS_EA)) {
                 /* This is a replay request or from liblustre with ea. */
                 result = mdt_open_by_fid(info, ldlm_rep);
 
                 if (result != -ENOENT) {
                         if (req->rq_export->exp_libclient &&
-                            create_flags&MDS_OPEN_HAS_EA)
+                            create_flags & MDS_OPEN_HAS_EA)
                                 GOTO(out, result = 0);
                         GOTO(out, result);
                 }
@@ -1363,14 +1367,17 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                         mdt_clear_disposition(info, ldlm_rep, DISP_OPEN_CREATE);
                         GOTO(out_child, result);
                 } else {
+                        if (result == -ERANGE && ma->ma_need & MA_LOV)
+                                result = mdt_big_lmm_get(info->mti_env,
+                                                 mdt_object_child(child), ma);
                         if (result != 0)
                                 GOTO(out_child, result);
                 }
                 created = 1;
         } else {
                 /* We have to get attr & lov ea for this object */
-                result = mo_attr_get(info->mti_env, mdt_object_child(child),
-                                     ma);
+                result = mdt_attr_get(info->mti_env, mdt_object_child(child),
+                                      ma);
                 /*
                  * The object is on remote node, return its FID for remote open.
                  */
@@ -1576,7 +1583,7 @@ int mdt_close(struct mdt_thread_info *info)
         rc = req_capsule_server_pack(info->mti_pill);
         if (mdt_check_resent(info, mdt_reconstruct_generic, NULL)) {
                 if (rc == 0)
-                        mdt_shrink_reply(info);
+                        mdt_fix_reply(info);
                 RETURN(lustre_msg_get_status(req->rq_repmsg));
         }
 
@@ -1626,7 +1633,7 @@ int mdt_close(struct mdt_thread_info *info)
                 mdt_object_put(info->mti_env, o);
         }
         if (repbody != NULL)
-                mdt_shrink_reply(info);
+                rc = mdt_fix_reply(info);
 
         if (OBD_FAIL_CHECK(OBD_FAIL_MDS_CLOSE_PACK))
                 RETURN(err_serious(-ENOMEM));

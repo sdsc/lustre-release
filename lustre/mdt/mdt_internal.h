@@ -397,7 +397,11 @@ struct mdt_thread_info {
 
         /* Ops object filename */
         struct lu_name             mti_name;
-        struct md_attr             mti_tmp_attr;
+        /* per-thread values, can be re-used */
+        void                      *mti_big_lmm;
+        int                        mti_big_lmmsize;
+        /* big_lmm buffer was used and must be used in reply */
+        int                        mti_big_lmm_used;
 };
 
 typedef void (*mdt_cb_t)(const struct mdt_device *mdt, __u64 transno,
@@ -598,7 +602,7 @@ int mdt_close(struct mdt_thread_info *info);
 int mdt_attr_set(struct mdt_thread_info *info, struct mdt_object *mo,
                  struct md_attr *ma, int flags);
 int mdt_done_writing(struct mdt_thread_info *info);
-void mdt_shrink_reply(struct mdt_thread_info *info);
+int mdt_fix_reply(struct mdt_thread_info *info);
 int mdt_handle_last_unlink(struct mdt_thread_info *, struct mdt_object *,
                            const struct md_attr *);
 void mdt_reconstruct_open(struct mdt_thread_info *, struct mdt_lock_handle *);
@@ -863,5 +867,10 @@ static inline struct obd_device *mdt2obd_dev(const struct mdt_device *mdt)
 {
         return mdt->mdt_md_dev.md_lu_dev.ld_obd;
 }
+
+int mdt_attr_get(const struct lu_env *env, struct md_object *next,
+                 struct md_attr *ma);
+int mdt_big_lmm_get(const struct lu_env *env, struct md_object *next,
+                    struct md_attr *ma);
 #endif /* __KERNEL__ */
 #endif /* _MDT_H */
