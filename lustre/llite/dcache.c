@@ -561,8 +561,11 @@ out:
          * (see comment in mdc/mdc_locks.c::mdc_intent_lock()), request will
          * be freed in ll_lookup_it or in ll_intent_release. But if
          * request was not completed, we need to free it. (bug 5154, 9903) */
-        if (req != NULL && !it_disposition(it, DISP_ENQ_COMPLETE))
-                ptlrpc_req_finished(req);
+        if (req) {
+                if (!it_disposition(it, DISP_ENQ_COMPLETE))
+                        ptlrpc_req_finished(req);
+                ll_stats_ops_tally(ll_i2sbi(parent), LPROC_LL_REVALIDATE, 1);
+        }
         if (rc == 0) {
                 ll_unhash_aliases(de->d_inode);
                 /* done in ll_unhash_aliases()

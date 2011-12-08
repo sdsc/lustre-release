@@ -1083,8 +1083,6 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
 {
         struct vvp_io      *vio   = vvp_env_io(env);
         struct ccc_io      *cio   = ccc_env_io(env);
-        struct inode       *inode = ccc_object_inode(obj);
-        struct ll_sb_info  *sbi   = ll_i2sbi(inode);
         int                 result;
 
         CLOBINVRNT(env, obj, ccc_object_invariant(obj));
@@ -1109,7 +1107,7 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
         } else if (io->ci_type == CIT_SETATTR) {
                 if (cl_io_is_trunc(io))
                         /* lockless truncate? */
-                        ll_stats_ops_tally(sbi, LPROC_LL_TRUNC, 1);
+                        ;
                 else
                         io->ci_lockreq = CILR_MANDATORY;
         }
