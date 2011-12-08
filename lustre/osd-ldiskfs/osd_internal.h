@@ -98,8 +98,6 @@ struct osd_device {
         struct dt_device          od_dt_dev;
         /* information about underlying file system */
         struct lustre_mount_info *od_mount;
-        /* object index */
-        struct osd_oi             od_oi;
         /*
          * XXX temporary stuff for object index: directory where every object
          * is named by its fid.
@@ -113,6 +111,11 @@ struct osd_device {
          * This means that it's enough to have _one_ lu_context.
          */
         struct lu_env             od_env_for_commit;
+
+        /* object index */
+        struct osd_oi            *od_oi_table;
+        /* total number of OI containers */
+        int                       od_oi_count;
 
         /*
          * Fid Capability
@@ -360,6 +363,18 @@ static inline loff_t ldiskfs_get_htree_eof(struct file *filp)
 		return LDISKFS_HTREE_EOF_32BIT;
 	else
 		return LDISKFS_HTREE_EOF_64BIT;
+}
+
+static inline struct osd_oi *
+osd_fid2oi(struct osd_device *osd, const struct lu_fid *fid)
+{
+        if (!fid_is_norm(fid))
+                return NULL;
+
+        LASSERT(osd->od_oi_table != NULL && osd->od_oi_count >= 1);
+        /* It can work even od_oi_count equals to 1 although it's unexpected,
+         * the only reason we set it to 1 is for performance measurement */
+        return &osd->od_oi_table[fid->f_seq & (osd->od_oi_count - 1)];
 }
 
 #endif /* __KERNEL__ */
