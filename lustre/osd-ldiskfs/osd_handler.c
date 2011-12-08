@@ -369,7 +369,6 @@ static int osd_fid_lookup(const struct lu_env *env,
         struct lu_device       *ldev = obj->oo_dt.do_lu.lo_dev;
         struct osd_device      *dev;
         struct osd_inode_id    *id;
-        struct osd_oi          *oi;
         struct inode           *inode;
         int                     result;
 
@@ -388,12 +387,11 @@ static int osd_fid_lookup(const struct lu_env *env,
         info = osd_oti_get(env);
         dev  = osd_dev(ldev);
         id   = &info->oti_id;
-        oi   = &dev->od_oi;
 
         if (OBD_FAIL_CHECK(OBD_FAIL_OST_ENOENT))
                 RETURN(-ENOENT);
 
-        result = osd_oi_lookup(info, oi, fid, id);
+        result = osd_oi_lookup(info, osd_fid2oi(dev, fid), fid, id);
         if (result == 0) {
                 inode = osd_iget(info, dev, id);
                 if (!IS_ERR(inode)) {
@@ -403,7 +401,6 @@ static int osd_fid_lookup(const struct lu_env *env,
                                 obj->oo_compat_dot_created = 1;
                                 obj->oo_compat_dotdot_created = 1;
                         }
-                        result = 0;
                 } else
                         /*
                          * If fid wasn't found in oi, inode-less object is
@@ -765,7 +762,7 @@ static int osd_inode_remove(const struct lu_env *env, struct osd_object *obj)
         th = osd_trans_start(env_del_obj, &osd->od_dt_dev, prm);
         if (!IS_ERR(th)) {
                 result = osd_oi_delete(osd_oti_get(env_del_obj),
-                                       &osd->od_oi, fid, th);
+                                       osd_fid2oi(osd, fid), fid, th);
                 osd_trans_stop(env_del_obj, th);
         } else
                 result = PTR_ERR(th);
@@ -1740,7 +1737,7 @@ static int __osd_oi_insert(const struct lu_env *env, struct osd_object *obj,
         id->oii_ino = obj->oo_inode->i_ino;
         id->oii_gen = obj->oo_inode->i_generation;
 
-        return osd_oi_insert(info, &osd->od_oi, fid, id, th,
+        return osd_oi_insert(info, osd_fid2oi(osd, fid), fid, id, th,
                              uc->mu_cap & CFS_CAP_SYS_RESOURCE_MASK);
 }
 
@@ -3894,7 +3891,8 @@ static int osd_shutdown(const struct lu_env *env, struct osd_device *o)
                 lu_object_put(env, &o->od_obj_area->do_lu);
                 o->od_obj_area = NULL;
         }
-        osd_oi_fini(info, &o->od_oi);
+        if (o->od_oi_table != NULL)
+                osd_oi_fini(info, &o->od_oi_table, o->od_oi_count);
 
         RETURN(0);
 }
@@ -4047,10 +4045,13 @@ static int osd_prepare(const struct lu_env *env,
 
         ENTRY;
         /* 1. initialize oi before any file create or file open */
-        result = osd_oi_init(oti, &osd->od_oi,
+        result = osd_oi_init(oti, &osd->od_oi_table,
                              &osd->od_dt_dev, lu2md_dev(pdev));
-        if (result != 0)
+        if (result < 0)
                 RETURN(result);
+
+        LASSERT(result > 0);
+        osd->od_oi_count = result;
 
         lmi = osd->od_mount;
         lsi = s2lsi(lmi->lmi_sb);
