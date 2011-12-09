@@ -431,6 +431,8 @@ lstcon_rpc_trans_stat(lstcon_rpc_trans_t *trans, lstcon_trans_stat_t *stat)
         srpc_msg_t        *rep;
         int                error;
 
+        SET_BUT_UNUSED(rpc);
+
         LASSERT (stat != NULL);
 
         memset(stat, 0, sizeof(*stat));
@@ -485,6 +487,8 @@ lstcon_rpc_trans_interpreter(lstcon_rpc_trans_t *trans,
         cfs_duration_t        dur;
         struct timeval        tv;
         int                   error;
+
+        SET_BUT_UNUSED(rpc);
 
         LASSERT (head_up != NULL);
 

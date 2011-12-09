@@ -679,6 +679,7 @@ int ptlrpcd_start(int index, int max, const char *name, struct ptlrpcd_ctl *pc)
         rc = 0;
         cfs_wait_for_completion(&pc->pc_starting);
 #else
+        SET_BUT_UNUSED(env);
         pc->pc_wait_callback =
                 liblustre_register_wait_callback("ptlrpcd_check_async_rpcs",
                                                  &ptlrpcd_check_async_rpcs, pc);
