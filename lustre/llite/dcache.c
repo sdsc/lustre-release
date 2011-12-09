@@ -457,6 +457,7 @@ int ll_revalidate_it(struct dentry *de, int lookup_flags,
                 __u64 *och_usecount;
                 __u64 ibits;
 
+                SET_BUT_UNUSED(och_usecount);
                 /*
                  * We used to check for MDS_INODELOCK_OPEN here, but in fact
                  * just having LOOKUP lock is enough to justify inode is the

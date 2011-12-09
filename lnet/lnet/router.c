@@ -1129,6 +1129,8 @@ lnet_router_checker(void *arg)
         cfs_list_t        *entry;
         lnet_process_id_t  rtr_id;
 
+        SET_BUT_UNUSED(rtr_id);
+
         cfs_daemonize("router_checker");
         cfs_block_allsigs();
 
