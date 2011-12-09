@@ -60,7 +60,10 @@ typedef struct {
 } cfs_rcu_head_t;
 #endif
 
-typedef void (*portals_handle_addref_cb)(void *object);
+struct portals_handle_ops {
+        void (*hop_addref)(void *object);
+        void (*hop_free)(void *object, int size);
+};
 
 /* These handles are most easily used by having them appear at the very top of
  * whatever object that you want to make handles for.  ie:
@@ -77,23 +80,21 @@ typedef void (*portals_handle_addref_cb)(void *object);
 struct portals_handle {
         cfs_list_t h_link;
         __u64 h_cookie;
-        portals_handle_addref_cb h_addref;
+        struct portals_handle_ops *h_ops;
 
         /* newly added fields to handle the RCU issue. -jxiong */
         cfs_spinlock_t h_lock;
-        void *h_ptr;
-        void (*h_free_cb)(void *, size_t);
+        unsigned int h_size:31;
+        unsigned int h_in:1;
         cfs_rcu_head_t h_rcu;
-        unsigned int h_size;
-        __u8 h_in:1;
-        __u8 h_unused[3];
 };
 #define RCU2HANDLE(rcu)    container_of(rcu, struct portals_handle, h_rcu)
 
 /* handles.c */
 
 /* Add a handle to the hash table */
-void class_handle_hash(struct portals_handle *, portals_handle_addref_cb);
+void class_handle_hash(struct portals_handle *,
+                       struct portals_handle_ops *ops);
 void class_handle_unhash(struct portals_handle *);
 void class_handle_hash_back(struct portals_handle *);
 void *class_handle2object(__u64 cookie);
