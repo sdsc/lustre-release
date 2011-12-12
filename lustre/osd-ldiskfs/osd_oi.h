@@ -97,5 +97,21 @@ int  osd_oi_delete(struct osd_thread_info *info,
                    struct osd_device *osd, const struct lu_fid *fid,
                    struct thandle *th);
 
+int osd_compat_objid_lookup(struct osd_thread_info *info,struct osd_device *osd,
+                            const struct lu_fid *fid, struct osd_inode_id *id);
+int osd_compat_objid_insert(struct osd_thread_info *info,struct osd_device *osd,
+                            const struct lu_fid *fid,
+                            const struct osd_inode_id *id,
+                            struct thandle *th);
+int osd_compat_objid_delete(struct osd_thread_info *info,struct osd_device *osd,
+                            const struct lu_fid *fid, struct thandle *th);
+int osd_compat_spec_lookup(struct osd_thread_info *info, struct osd_device *osd,
+                           const struct lu_fid *fid, struct osd_inode_id *id);
+int osd_compat_spec_insert(struct osd_thread_info *info,
+                           struct osd_device *osd,
+                           const struct lu_fid *fid,
+                           const struct osd_inode_id *id,
+                           struct thandle *th);
+
 #endif /* __KERNEL__ */
 #endif /* _OSD_OI_H */

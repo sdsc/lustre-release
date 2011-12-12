@@ -158,6 +158,7 @@ struct osd_device {
         struct dt_device          od_dt_dev;
         /* information about underlying file system */
         struct lustre_mount_info *od_mount;
+        struct vfsmount          *od_mnt;
         /* object index */
         struct osd_oi             od_oi;
         /*
@@ -191,6 +192,11 @@ struct osd_device {
         __u32                     od_iop_mode;
 
         struct fsfilt_operations *od_fsops;
+
+        /*
+         * mapping for legacy OST objids
+         */
+        struct osd_compat_objid  *od_ost_map;
 
         unsigned long long        od_readcache_max_filesize;
         int                       od_read_cache;
@@ -376,6 +382,8 @@ struct osd_thread_info {
 
         struct lu_fid          oti_fid;
         struct osd_inode_id    oti_id;
+        struct ost_id          oti_ostid;
+
         /*
          * XXX temporary: for ->i_op calls.
          */
@@ -464,6 +472,8 @@ int osd_object_auth(const struct lu_env *env, struct dt_object *dt,
 struct inode *osd_iget(struct osd_thread_info *info,
                        struct osd_device *dev,
                        const struct osd_inode_id *id);
+int osd_compat_init(struct osd_device *dev);
+void osd_compat_fini(struct osd_device *dev);
 
 /*
  * Invariants, assertions.
@@ -617,7 +627,6 @@ osd_child_dentry_by_inode(const struct lu_env *env, struct inode *inode,
         child_dentry->d_name.len = namelen;
         return child_dentry;
 }
-
 
 #endif /* __KERNEL__ */
 #endif /* _OSD_INTERNAL_H */
