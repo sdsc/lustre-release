@@ -105,6 +105,17 @@ struct osd_directory {
         struct iam_descr     od_descr;
 };
 
+/*
+ * Object Index (oi) instance.
+ */
+struct osd_oi {
+        /*
+         * underlying index object, where fid->id mapping in stored.
+         */
+        struct inode         *oi_inode;
+        struct osd_directory   oi_dir;
+};
+
 extern const int osd_dto_credits_noquota[];
 
 struct osd_object {
@@ -147,6 +158,7 @@ struct osd_device {
         struct dt_device          od_dt_dev;
         /* information about underlying file system */
         struct lustre_mount_info *od_mount;
+        struct vfsmount          *od_mnt;
         /* object index */
         struct osd_oi             od_oi;
         /*
@@ -180,6 +192,11 @@ struct osd_device {
         __u32                     od_iop_mode;
 
         struct fsfilt_operations *od_fsops;
+
+        /*
+         * mapping for legacy OST objids
+         */
+        struct osd_compat_objid  *od_ost_map;
 
         unsigned long long        od_readcache_max_filesize;
         int                       od_read_cache;
@@ -365,6 +382,8 @@ struct osd_thread_info {
 
         struct lu_fid          oti_fid;
         struct osd_inode_id    oti_id;
+        struct ost_id          oti_ostid;
+
         /*
          * XXX temporary: for ->i_op calls.
          */
@@ -450,6 +469,11 @@ int osd_statfs(const struct lu_env *env, struct dt_device *dev,
                cfs_kstatfs_t *sfs);
 int osd_object_auth(const struct lu_env *env, struct dt_object *dt,
                     struct lustre_capa *capa, __u64 opc);
+struct inode *osd_iget(struct osd_thread_info *info,
+                       struct osd_device *dev,
+                       const struct osd_inode_id *id);
+int osd_compat_init(struct osd_device *dev);
+void osd_compat_fini(struct osd_device *dev);
 
 /*
  * Invariants, assertions.
@@ -560,6 +584,50 @@ static inline struct osd_thread_info *osd_oti_get(const struct lu_env *env)
 }
 
 extern const struct dt_body_operations osd_body_ops_new;
+
+/**
+ * IAM Iterator
+ */
+static inline struct iam_path_descr *
+osd_it_ipd_get(const struct lu_env *env, const struct iam_container *bag)
+{
+        return bag->ic_descr->id_ops->id_ipd_alloc(bag,
+                                           osd_oti_get(env)->oti_it_ipd);
+}
+
+static inline struct iam_path_descr *
+osd_idx_ipd_get(const struct lu_env *env, const struct iam_container *bag)
+{
+        return bag->ic_descr->id_ops->id_ipd_alloc(bag,
+                                           osd_oti_get(env)->oti_idx_ipd);
+}
+
+static inline void osd_ipd_put(const struct lu_env *env,
+                        const struct iam_container *bag,
+                        struct iam_path_descr *ipd)
+{
+        bag->ic_descr->id_ops->id_ipd_free(ipd);
+}
+
+static inline struct dentry *
+osd_child_dentry_by_inode(const struct lu_env *env, struct inode *inode,
+                          const char *name, const int namelen)
+{
+        struct osd_thread_info *info   = osd_oti_get(env);
+        struct dentry *child_dentry = &info->oti_child_dentry;
+        struct dentry *obj_dentry = &info->oti_obj_dentry;
+
+        obj_dentry->d_inode = inode;
+        obj_dentry->d_sb = inode->i_sb;
+        obj_dentry->d_name.hash = 0;
+
+        child_dentry->d_name.hash = 0;
+        child_dentry->d_parent = obj_dentry;
+        child_dentry->d_name.name = name;
+        child_dentry->d_name.len = namelen;
+        return child_dentry;
+}
+
 
 #endif /* __KERNEL__ */
 #endif /* _OSD_INTERNAL_H */
