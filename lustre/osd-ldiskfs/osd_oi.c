@@ -322,6 +322,12 @@ int osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
                 if (fid_is_oi_fid(fid))
                         return -ENOENT;
 
+                if (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE)) {
+                        rc = osd_compat_spec_lookup(info, osd, fid, id);
+                        if (rc == 0 || rc != -ERESTART)
+                                goto out;
+                }
+
                 fid_cpu_to_be(oi_fid, fid);
                 key = (struct dt_key *) oi_fid;
 
@@ -334,6 +340,8 @@ int osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
                 } else if (rc == 0)
                         rc = -ENOENT;
         }
+
+out:
         return rc;
 }
 
@@ -390,8 +398,18 @@ int osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
         struct osd_inode_id *id;
         const struct dt_key *key;
 
+        if (fid_is_igif(fid))
+                return 0;
+
         if (fid_is_oi_fid(fid))
                 return 0;
+
+        if (fid_is_idif(fid) || fid_seq(fid) == FID_SEQ_LLOG)
+                return osd_compat_objid_insert(info, osd, fid, id0, th);
+
+        /* notice we don't return immediately, but continue to get into OI */
+        if (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE))
+                osd_compat_spec_insert(info, osd, fid, id0, th);
 
         fid_cpu_to_be(oi_fid, fid);
         key = (struct dt_key *) oi_fid;
@@ -438,6 +456,11 @@ int osd_oi_delete(struct osd_thread_info *info,
 
         if (fid_is_igif(fid))
                 return 0;
+
+        LASSERT(fid_seq(fid) != FID_SEQ_LOCAL_FILE);
+
+        if (fid_is_idif(fid) || fid_seq(fid) == FID_SEQ_LLOG)
+                return osd_compat_objid_delete(info, osd, fid, th);
 
         fid_cpu_to_be(oi_fid, fid);
         key = (struct dt_key *) oi_fid;
