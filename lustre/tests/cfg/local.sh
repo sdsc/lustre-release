@@ -56,12 +56,12 @@ QUOTA_USERS=${QUOTA_USERS:-"quota_usr quota_2usr sanityusr sanityusr1"}
 LQUOTAOPTS=${LQUOTAOPTS:-"hash_lqs_cur_bits=3"}
 
 MKFSOPT=""
+[ "x$MKFSOPT" != "x" ] &&
+    MKFSOPT="--mkfsoptions=\\\"$MKFSOPT\\\""
 [ "x$MDSJOURNALSIZE" != "x" ] &&
     MKFSOPT=$MKFSOPT" -J size=$MDSJOURNALSIZE"
 [ "x$MDSISIZE" != "x" ] &&
     MKFSOPT=$MKFSOPT" -i $MDSISIZE"
-[ "x$MKFSOPT" != "x" ] &&
-    MKFSOPT="--mkfsoptions=\\\"$MKFSOPT\\\""
 [ "x$SECLEVEL" != "x" ] &&
     MKFSOPT=$MKFSOPT" --param mdt.sec_level=$SECLEVEL"
 [ "x$MDSCAPA" != "x" ] &&
@@ -75,26 +75,26 @@ MKFSOPT=""
 [ "x$L_GETIDENTITY" != "x" ] &&
     MDSOPT=$MDSOPT" --param mdt.identity_upcall=$L_GETIDENTITY"
 
-MDS_MKFS_OPTS="--mdt --fsname=$FSNAME --device-size=$MDSSIZE --param sys.timeout=$TIMEOUT $MKFSOPT $MDSOPT $MDS_MKFS_OPTS"
+MDS_MKFS_OPTS="--mdt --fsname=$FSNAME ${MDSSIZE:+--device-size=$MDSSIZE} --param sys.timeout=$TIMEOUT $MKFSOPT $MDSOPT $MDS_MKFS_OPTS"
 if [[ $mds1_HOST == $mgs_HOST ]] && [[ $MDSDEV1 == $MGSDEV ]]; then
     MDS_MKFS_OPTS="--mgs $MDS_MKFS_OPTS"
 else
     MDS_MKFS_OPTS="--mgsnode=$MGSNID $MDS_MKFS_OPTS"
-    MGS_MKFS_OPTS="--mgs --device-size=$MGSSIZE"
+    MGS_MKFS_OPTS="--mgs ${MGSSIZE:+--device-size=$MGSSIZE}"
 fi
 
 MKFSOPT=""
-[ "x$OSTJOURNALSIZE" != "x" ] &&
-    MKFSOPT=$MKFSOPT" -J size=$OSTJOURNALSIZE"
 [ "x$MKFSOPT" != "x" ] &&
     MKFSOPT="--mkfsoptions=\\\"$MKFSOPT\\\""
+[ "x$OSTJOURNALSIZE" != "x" ] &&
+    MKFSOPT=$MKFSOPT" -J size=$OSTJOURNALSIZE"
 [ "x$SECLEVEL" != "x" ] &&
     MKFSOPT=$MKFSOPT" --param ost.sec_level=$SECLEVEL"
 [ "x$OSSCAPA" != "x" ] &&
     MKFSOPT=$MKFSOPT" --param ost.capa=$OSSCAPA"
 [ "x$ostfailover_HOST" != "x" ] &&
     OSTOPT=$OSTOPT" --failnode=`h2$NETTYPE $ostfailover_HOST`"
-OST_MKFS_OPTS="--ost --fsname=$FSNAME --device-size=$OSTSIZE --mgsnode=$MGSNID --param sys.timeout=$TIMEOUT $MKFSOPT $OSTOPT $OST_MKFS_OPTS"
+OST_MKFS_OPTS="--ost --fsname=$FSNAME ${OSTSIZE:+--device-size=$OSTSIZE} --mgsnode=$MGSNID --param sys.timeout=$TIMEOUT $MKFSOPT $OSTOPT $OST_MKFS_OPTS"
 
 MDS_MOUNT_OPTS=${MDS_MOUNT_OPTS:-"-o loop,user_xattr,acl"}
 OST_MOUNT_OPTS=${OST_MOUNT_OPTS:-"-o loop"}
