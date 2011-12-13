@@ -2097,6 +2097,24 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 2.6.36 super_operations.delete_inode & clear_inode be removed.
+#
+AC_DEFUN([LC_SB_DELETE_INODE],
+[AC_MSG_CHECKING([if super_operations.delete_inode exist])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        ((struct super_operations *)0)->delete_inode(NULL);
+],[
+        AC_DEFINE(HAVE_SB_DELETE_INODE, 1,
+                [super_operations.delete_inode() is exist in kernel])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+#
 # 2.6.38 export blkdev_get_by_dev
 #
 AC_DEFUN([LC_BLKDEV_GET_BY_DEV],
@@ -2282,6 +2300,9 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_BLK_QUEUE_MAX_SECTORS
          LC_BLK_QUEUE_MAX_SEGMENTS
          LC_SET_CPUS_ALLOWED
+
+         # 2.6.36
+         LC_SB_DELETE_INODE
 
          # 2.6.38
          LC_BLKDEV_GET_BY_DEV

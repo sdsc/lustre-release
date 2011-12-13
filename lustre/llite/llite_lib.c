@@ -1797,7 +1797,12 @@ void ll_delete_inode(struct inode *inode)
         }
         /* Workaround end */
 
+#ifdef HAVE_SB_DELETE_INODE
         clear_inode(inode);
+#else
+        ll_clear_inode(inode);
+        end_writeback(inode);
+#endif
 
         EXIT;
 }
