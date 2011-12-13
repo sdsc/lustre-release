@@ -851,6 +851,40 @@ struct ptlrpc_request *ptlrpc_prep_fakereq(struct obd_import *imp,
         RETURN(request);
 }
 
+void ptlrpc_reinit_fakereq(struct ptlrpc_request *request,
+                           struct obd_import *imp)
+{
+        ENTRY;
+
+        LASSERT(request != NULL);
+        LASSERT(request->rq_send_state == LUSTRE_IMP_FULL);
+        LASSERT(request->rq_type == PTL_RPC_MSG_REQUEST);
+        LASSERT(request->rq_import == imp);
+        LASSERT(request->rq_export == NULL);
+        LASSERT(request->rq_interpret_reply != NULL);
+
+        request->rq_import_generation = imp->imp_generation;
+        request->rq_sent = cfs_time_current_sec();
+        request->rq_deadline = request->rq_sent + request->rq_timeout;
+        request->rq_reply_deadline = request->rq_deadline;
+        request->rq_phase = RQ_PHASE_INTERPRET;
+        request->rq_next_phase = RQ_PHASE_COMPLETE;
+        /* don't want reply */
+        request->rq_receiving_reply = 0;
+        request->rq_must_unlink = 0;
+        request->rq_no_delay = request->rq_no_resend = 1;
+        request->rq_fake = 1;
+        request->rq_xid = ptlrpc_next_xid();
+
+        LASSERT(cfs_list_empty(&request->rq_list));
+        LASSERT(cfs_list_empty(&request->rq_replay_list));
+        LASSERT(cfs_list_empty(&request->rq_set_chain));
+        LASSERT(cfs_list_empty(&request->rq_history_list));
+        LASSERT(cfs_list_empty(&request->rq_exp_list));
+        LASSERT(cfs_atomic_read(&request->rq_refcount) > 0);
+}
+EXPORT_SYMBOL(ptlrpc_reinit_fakereq);
+
 /**
  * Indicate that processing of "fake" request is finished.
  */
