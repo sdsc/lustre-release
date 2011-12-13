@@ -493,6 +493,9 @@ struct client_obd {
         struct lu_client_seq    *cl_seq;
 
         cfs_atomic_t             cl_resends; /* resend count */
+
+        /* request used to wake up ptlrpcd */
+        struct ptlrpc_request   *cl_alarm;
 };
 #define obd2cli_tgt(obd) ((char *)(obd)->u.cli.cl_target_uuid.uuid)
 
