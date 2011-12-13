@@ -3238,7 +3238,7 @@ run_one_logged() {
     local RC=${PIPESTATUS[0]}
 
     [ $RC -ne 0 ] && [ ! -f $LOGDIR/err ] && \
-        echo "test_$1 returned $RC" | tee $LOGDIR/err
+        echo "test_$1 returned $RC" | tee -i $LOGDIR/err
 
     duration=$((`date +%s` - $BEFORE))
     pass "$1" "(${duration}s)"
