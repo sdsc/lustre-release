@@ -1445,6 +1445,8 @@ int ptlrpc_request_bufs_pack(struct ptlrpc_request *request,
 struct ptlrpc_request *ptlrpc_prep_fakereq(struct obd_import *imp,
                                            unsigned int timeout,
                                            ptlrpc_interpterer_t interpreter);
+void ptlrpc_reinit_fakereq(struct ptlrpc_request *req,
+                           struct obd_import *imp);
 void ptlrpc_fakereq_finished(struct ptlrpc_request *req);
 
 struct ptlrpc_request *ptlrpc_prep_req(struct obd_import *imp, __u32 version,

@@ -72,6 +72,7 @@ extern quota_interface_t osc_quota_interface;
 static void osc_release_ppga(struct brw_page **ppga, obd_count count);
 static int brw_interpret(const struct lu_env *env,
                          struct ptlrpc_request *req, void *data, int rc);
+static int osc_check_rpcs0(const struct lu_env *env, struct client_obd *cli, int ptlrpc);
 int osc_cleanup(struct obd_device *obd);
 
 /* Pack OSC object metadata for disk storage (LE byte order). */
@@ -1971,7 +1972,6 @@ static void osc_exit_cache(struct client_obd *cli, struct osc_async_page *oap,
 static int lop_makes_rpc(struct client_obd *cli, struct loi_oap_pages *lop,
                          int cmd)
 {
-        int optimal;
         ENTRY;
 
         if (lop->lop_num_pending == 0)
@@ -1992,8 +1992,7 @@ static int lop_makes_rpc(struct client_obd *cli, struct loi_oap_pages *lop,
                 CDEBUG(D_CACHE, "urgent request forcing RPC\n");
                 RETURN(1);
         }
-        /* fire off rpcs when we have 'optimal' rpcs as tuned for the wire. */
-        optimal = cli->cl_max_pages_per_rpc;
+
         if (cmd & OBD_BRW_WRITE) {
                 /* trigger a write rpc stream as long as there are dirtiers
                  * waiting for space.  as they're waiting, they're not going to
@@ -2002,13 +2001,8 @@ static int lop_makes_rpc(struct client_obd *cli, struct loi_oap_pages *lop,
                         CDEBUG(D_CACHE, "cache waiters forcing RPC\n");
                         RETURN(1);
                 }
-                /* +16 to avoid triggering rpcs that would want to include pages
-                 * that are being queued but which can't be made ready until
-                 * the queuer finishes with the page. this is a wart for
-                 * llite::commit_write() */
-                optimal += 16;
         }
-        if (lop->lop_num_pending >= optimal)
+        if (lop->lop_num_pending >= cli->cl_max_pages_per_rpc)
                 RETURN(1);
 
         RETURN(0);
@@ -2218,6 +2212,17 @@ static int brw_interpret(const struct lu_env *env,
         int async;
         ENTRY;
 
+        cli = aa->aa_cli;
+        if (req->rq_fake == 1) {
+                CDEBUG(D_OTHER, "Handling alarm for client obd %p.\n", cli);
+                (void)lu_env_refill((struct lu_env *)env);
+                client_obd_list_lock(&cli->cl_loi_list_lock);
+                if (cli->cl_alarm)
+                        osc_check_rpcs0(env, cli, 1);
+                client_obd_list_unlock(&cli->cl_loi_list_lock);
+                RETURN(0);
+        }
+
         rc = osc_brw_fini_request(req, rc);
         CDEBUG(D_INODE, "request %p aa %p rc %d\n", req, aa, rc);
         if (osc_recoverable_error(rc)) {
@@ -2230,8 +2235,6 @@ static int brw_interpret(const struct lu_env *env,
                 capa_put(aa->aa_ocapa);
                 aa->aa_ocapa = NULL;
         }
-
-        cli = aa->aa_cli;
 
         client_obd_list_lock(&cli->cl_loi_list_lock);
 
@@ -2260,8 +2263,9 @@ static int brw_interpret(const struct lu_env *env,
                         osc_release_write_grant(aa->aa_cli, aa->aa_ppga[i], 1);
         }
         osc_wake_cache_waiters(cli);
-        osc_check_rpcs(env, cli);
+        osc_check_rpcs0(env, cli, 1);
         client_obd_list_unlock(&cli->cl_loi_list_lock);
+
         if (!async)
                 cl_req_completion(env, aa->aa_clerq, rc < 0 ? rc :
                                   req->rq_bulk->bd_nob_transferred);
@@ -2414,8 +2418,8 @@ out:
  */
 static int
 osc_send_oap_rpc(const struct lu_env *env, struct client_obd *cli,
-                 struct lov_oinfo *loi,
-                 int cmd, struct loi_oap_pages *lop)
+                 struct lov_oinfo *loi, int cmd,
+		 struct loi_oap_pages *lop, pdl_policy_t pol)
 {
         struct ptlrpc_request *req;
         obd_count page_count = 0;
@@ -2670,7 +2674,7 @@ osc_send_oap_rpc(const struct lu_env *env, struct client_obd *cli,
          *      single ptlrpcd thread cannot process in time. So more ptlrpcd
          *      threads sharing BRW load (with PDL_POLICY_ROUND) seems better.
          */
-        ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
+        ptlrpcd_add_req(req, pol, -1);
         RETURN(1);
 }
 
@@ -2744,11 +2748,15 @@ static int osc_max_rpc_in_flight(struct client_obd *cli, struct lov_oinfo *loi)
 }
 
 /* called with the loi list lock held */
-void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli)
+static int osc_check_rpcs0(const struct lu_env *env, struct client_obd *cli, int ptlrpc)
 {
         struct lov_oinfo *loi;
         int rc = 0, race_counter = 0;
+        pdl_policy_t pol;
+        int has_rpcs = 0;
         ENTRY;
+
+        pol = ptlrpc ? PDL_POLICY_SAME : PDL_POLICY_ROUND;
 
         while ((loi = osc_next_loi(cli)) != NULL) {
                 LOI_DEBUG(loi, "%lu in flight\n", rpcs_in_flight(cli));
@@ -2764,7 +2772,7 @@ void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli)
                  * do io on writes while there are cache waiters */
                 if (lop_makes_rpc(cli, &loi->loi_write_lop, OBD_BRW_WRITE)) {
                         rc = osc_send_oap_rpc(env, cli, loi, OBD_BRW_WRITE,
-                                              &loi->loi_write_lop);
+                                              &loi->loi_write_lop, pol);
                         if (rc < 0) {
                                 CERROR("Write request failed with %d\n", rc);
 
@@ -2794,7 +2802,7 @@ void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli)
                 }
                 if (lop_makes_rpc(cli, &loi->loi_read_lop, OBD_BRW_READ)) {
                         rc = osc_send_oap_rpc(env, cli, loi, OBD_BRW_READ,
-                                              &loi->loi_read_lop);
+                                              &loi->loi_read_lop, pol);
                         if (rc < 0)
                                 CERROR("Read request failed with %d\n", rc);
 
@@ -2825,7 +2833,13 @@ void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli)
                 if (race_counter == 10)
                         break;
         }
-        EXIT;
+
+        RETURN(has_rpcs);
+}
+
+void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli)
+{
+        osc_check_rpcs0(env, cli, 0);
 }
 
 /* we're trying to queue a page in the osc so we're subject to the
@@ -3034,13 +3048,27 @@ int osc_queue_async_io(const struct lu_env *env, struct obd_export *exp,
                 }
         }
 
-        osc_oap_to_pending(oap);
-        loi_list_maint(cli, loi);
-
         LOI_DEBUG(loi, "oap %p page %p added for cmd %d\n", oap, oap->oap_page,
                   cmd);
 
-        osc_check_rpcs(env, cli);
+        osc_oap_to_pending(oap);
+        loi_list_maint(cli, loi);
+        if (cfs_atomic_read(&cli->cl_alarm->rq_refcount) == 1 &&
+            !osc_max_rpc_in_flight(cli, loi) &&
+            lop_makes_rpc(cli, &loi->loi_write_lop, OBD_BRW_WRITE)) {
+                struct ptlrpc_request *req = cli->cl_alarm;
+                struct osc_brw_async_args *aa;
+
+                CDEBUG(D_OTHER, "Firing alarm for client obd %p.\n", cli);
+
+                ptlrpc_reinit_fakereq(req, cli->cl_import);
+                ptlrpc_request_addref(req);
+                req->rq_phase = RQ_PHASE_INTERPRET;
+
+                aa = ptlrpc_req_async_args(req);
+                aa->aa_cli = cli;
+                ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
+        }
         client_obd_list_unlock(&cli->cl_loi_list_lock);
 
         RETURN(0);
@@ -4446,6 +4474,7 @@ static int osc_cancel_for_recovery(struct ldlm_lock *lock)
 
 int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
+        struct client_obd *cli = &obd->u.cli;
         int rc;
         ENTRY;
 
@@ -4455,11 +4484,16 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
                 RETURN(rc);
 
         rc = client_obd_setup(obd, lcfg);
-        if (rc) {
-                ptlrpcd_decref();
-        } else {
+        if (rc == 0) {
+                cli->cl_alarm = ptlrpc_prep_fakereq(cli->cl_import,
+                                                    obd_timeout,
+                                                    brw_interpret);
+                if (cli->cl_alarm == NULL)
+                        rc = -ENOMEM;
+        }
+
+        if (rc == 0) {
                 struct lprocfs_static_vars lvars = { 0 };
-                struct client_obd *cli = &obd->u.cli;
 
                 cli->cl_grant_shrink_interval = GRANT_SHRINK_INTERVAL;
                 lprocfs_osc_init_vars(&lvars);
@@ -4486,6 +4520,8 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
                 ns_register_cancel(obd->obd_namespace, osc_cancel_for_recovery);
         }
 
+        if (rc)
+                ptlrpcd_decref();
         RETURN(rc);
 }
 
@@ -4496,8 +4532,13 @@ static int osc_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
 
         switch (stage) {
         case OBD_CLEANUP_EARLY: {
-                struct obd_import *imp;
-                imp = obd->u.cli.cl_import;
+                struct client_obd *cli = &obd->u.cli;
+                struct obd_import *imp = cli->cl_import;
+
+                if (cli->cl_alarm) {
+                        ptlrpc_req_finished(cli->cl_alarm);
+                        cli->cl_alarm = NULL;
+                }
                 CDEBUG(D_HA, "Deactivating import %s\n", obd->obd_name);
                 /* ptlrpc_abort_inflight to stop an mds_lov_synchronize */
                 ptlrpc_deactivate_import(imp);

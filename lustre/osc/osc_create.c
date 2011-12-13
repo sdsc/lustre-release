@@ -500,6 +500,7 @@ int osc_create_async(struct obd_export *exp, struct obd_info *oinfo,
                 RETURN(-ENOMEM);
         }
 
+        fake_req->rq_phase = RQ_PHASE_RPC;
         args = ptlrpc_req_async_args(fake_req);
         CLASSERT(sizeof(*args) <= sizeof(fake_req->rq_async_args));
 
