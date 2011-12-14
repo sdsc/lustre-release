@@ -1611,6 +1611,23 @@ AC_DEFUN([LC_EXPORT_BDI_INIT],
 ])
 ])
 
+# 2.6.24 add sg_assign_page
+# in kernel 642f149031d70415d9318b919d50b71e4724adbd
+AC_DEFUN([LC_SCATTERLIST_ASSIGNPAGE],
+[AC_MSG_CHECKING([if kernel has sg_assign_page])
+        LB_LINUX_TRY_COMPILE([
+                #include <linux/scatterlist.h>
+        ],[
+                sg_assign_page(NULL,NULL);
+        ],[
+                AC_MSG_RESULT(yes)
+                AC_DEFINE(HAVE_SCATTERLIST_ASSIGNPAGE, 1,
+                          [kernel has sg_assign_page])
+        ],[
+                AC_MSG_RESULT(NO)
+        ])
+])
+
 # 2.6.25
 
 # 2.6.25 change define to inline
@@ -1899,6 +1916,24 @@ AC_DEFUN([LC_EXPORT_ADD_TO_PAGE_CACHE_LRU],
 ])
 ])
 
+# 2.6.29
+
+AC_DEFUN([LC_CRED_KEYRING],
+[AC_MSG_CHECKING([if struct cred has .jit_keyring field])
+        LB_LINUX_TRY_COMPILE([
+                #include <linux/cred.h>
+                #define CONFIG_KEYS
+        ],[
+                struct cred cd;
+                cd.jit_keyring = NULL;
+        ],[
+                AC_MSG_RESULT(yes)
+                AC_DEFINE(HAVE_CRED_KEYRING, 1, [struct cred has .jit_keyring])
+        ],[
+                AC_MSG_RESULT(no)
+        ])
+])
+
 # 2.6.31
 
 # 2.6.30 x86 node_to_cpumask has been removed. must use cpumask_of_node
@@ -1927,6 +1962,24 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 # 2.6.32
+
+# 2.6.32 changes cache_detail's member cache_request to cache_upcall
+# in kernel commit bc74b4f5e63a09fb78e245794a0de1e5a2716bbe
+AC_DEFUN([LC_CACHE_UPCALL],
+[AC_MSG_CHECKING([if cache_detail has cache_upcall field])
+        LB_LINUX_TRY_COMPILE([
+                #include <linux/sunrpc/cache.h>
+        ],[
+                struct cache_detail cd;
+                cd.cache_upcall = NULL;
+        ],[
+                AC_MSG_RESULT(yes)
+                AC_DEFINE(HAVE_CACHE_UPCALL, 1,
+                          [cache_detail has cache_upcall field])
+        ],[
+                AC_MSG_RESULT(no)
+        ])
+])
 
 # 2.6.32 add a limits member in struct request_queue.
 AC_DEFUN([LC_REQUEST_QUEUE_LIMITS],
@@ -2242,6 +2295,7 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_FH_TO_DENTRY
          LC_PROCFS_DELETED
          LC_EXPORT_BDI_INIT
+         LC_SCATTERLIST_ASSIGNPAGE
 
          #2.6.25
          LC_MAPPING_CAP_WRITEBACK_DIRTY
@@ -2269,6 +2323,9 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_SB_HAS_QUOTA_ACTIVE
          LC_EXPORT_ADD_TO_PAGE_CACHE_LRU
 
+         # 2.6.29
+         LC_CRED_KEYRING
+
          # 2.6.30
          LC_EXPORT_CPUMASK_OF_NODE
 
@@ -2282,6 +2339,7 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_BLK_QUEUE_MAX_SECTORS
          LC_BLK_QUEUE_MAX_SEGMENTS
          LC_SET_CPUS_ALLOWED
+         LC_CACHE_UPCALL
 
          # 2.6.38
          LC_BLKDEV_GET_BY_DEV
