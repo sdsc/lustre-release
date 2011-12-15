@@ -597,6 +597,11 @@ int mdd_get_default_md(struct mdd_object *mdd_obj, struct lov_mds_md *lmm)
         lum->lmm_stripe_size = ldesc->ld_default_stripe_size;
         lum->lmm_stripe_count = ldesc->ld_default_stripe_count;
         lum->lmm_stripe_offset = ldesc->ld_default_stripe_offset;
+        if (S_ISDIR(mdd_object_type(mdd_obj)) &&
+            lmm->lmm_stripe_count == LOV_ALL_STRIPES)
+                lmm->lmm_layout_gen = LOV_ALL_STRIPES;
+        else
+                lmm->lmm_layout_gen = 0;
 
         RETURN(sizeof(*lum));
 }
@@ -625,7 +630,8 @@ static int __mdd_lmm_get(const struct lu_env *env,
                 rc = mdd_get_default_md(mdd_obj, ma->ma_lmm);
         if (rc > 0) {
                 ma->ma_lmm_size = rc;
-                ma->ma_valid |= MA_LOV;
+                ma->ma_layout_gen = ma->ma_lmm->lmm_layout_gen;
+                ma->ma_valid |= MA_LOV | MA_LAY_GEN;
                 rc = 0;
         }
         RETURN(rc);
@@ -1502,10 +1508,11 @@ static int mdd_attr_set(const struct lu_env *env, struct md_object *obj,
 
         chlog_cnt = 1;
         if (la_copy->la_valid && !(la_copy->la_valid & LA_FLAGS) && lmm_size) {
-                if ((int)le32_to_cpu(lmm->lmm_stripe_count) < 0)
+                __u16 stripe_count = le16_to_cpu(lmm->lmm_stripe_count);
+                if (stripe_count == LOV_ALL_STRIPES)
                         chlog_cnt += mds->mds_lov_desc.ld_tgt_count;
                 else
-                        chlog_cnt += le32_to_cpu(lmm->lmm_stripe_count);
+                        chlog_cnt += stripe_count;
         }
 
         mdd_setattr_txn_param_build(env, obj, (struct md_attr *)ma,
