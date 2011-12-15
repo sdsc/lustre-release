@@ -604,6 +604,7 @@ out:
         if (rc == 0)
                 mdt_counter_incr(req->rq_export, LPROC_MDT_SETATTR);
 
+        mdt_client_compatibility(info);
         mdt_shrink_reply(info);
         return rc;
 }

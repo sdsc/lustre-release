@@ -59,7 +59,7 @@ int cl_init_ea_size(struct obd_export *md_exp, struct obd_export *dt_exp)
         __u32 valsize = sizeof(struct lov_desc);
         int rc, easize, def_easize, cookiesize;
         struct lov_desc desc;
-        __u32 stripes;
+        __u16 stripes;
         ENTRY;
 
         rc = obd_get_info(dt_exp, sizeof(KEY_LOVDESC), KEY_LOVDESC,
@@ -67,7 +67,7 @@ int cl_init_ea_size(struct obd_export *md_exp, struct obd_export *dt_exp)
         if (rc)
                 RETURN(rc);
 
-        stripes = min(desc.ld_tgt_count, (__u32)LOV_MAX_STRIPE_COUNT);
+        stripes = min_t(__u16, desc.ld_tgt_count, LOV_MAX_STRIPE_COUNT);
         lsm.lsm_stripe_count = stripes;
         easize = obd_size_diskmd(dt_exp, &lsm);
 
