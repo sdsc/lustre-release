@@ -1314,7 +1314,9 @@ struct lov_mds_md_v1 {            /* LOV EA mds/wire data (little-endian) */
         __u64 lmm_object_id;      /* LOV object ID */
         __u64 lmm_object_seq;     /* LOV object seq number */
         __u32 lmm_stripe_size;    /* size of stripe in bytes */
-        __u32 lmm_stripe_count;   /* num stripes in use for this object */
+        /* lmm_stripe_count used to be __u32 */
+        __u16 lmm_stripe_count;   /* num stripes in use for this object */
+        __u16 lmm_layout_gen;     /* layout generation number */
         struct lov_ost_data_v1 lmm_objects[0]; /* per-stripe data */
 };
 
@@ -1342,7 +1344,9 @@ struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
         __u64 lmm_object_id;      /* LOV object ID */
         __u64 lmm_object_seq;     /* LOV object seq number */
         __u32 lmm_stripe_size;    /* size of stripe in bytes */
-        __u32 lmm_stripe_count;   /* num stripes in use for this object */
+        /* lmm_stripe_count used to be __u32 */
+        __u16 lmm_stripe_count;   /* num stripes in use for this object */
+        __u16 lmm_layout_gen;     /* layout generation number */
         char  lmm_pool_name[LOV_MAXPOOLNAME]; /* must be 32bit aligned */
         struct lov_ost_data_v1 lmm_objects[0]; /* per-stripe data */
 };
@@ -1402,6 +1406,7 @@ struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
 #define OBD_MD_FLRMTLGETFACL (0x0002000000000000ULL) /* lfs lgetfacl case */
 #define OBD_MD_FLRMTRSETFACL (0x0004000000000000ULL) /* lfs rsetfacl case */
 #define OBD_MD_FLRMTRGETFACL (0x0008000000000000ULL) /* lfs rgetfacl case */
+#define OBD_MD_FLLAYOUTGEN   (0x0010000000000000ULL) /* layout generation */
 
 #define OBD_MD_FLGETATTR (OBD_MD_FLID    | OBD_MD_FLATIME | OBD_MD_FLMTIME | \
                           OBD_MD_FLCTIME | OBD_MD_FLSIZE  | OBD_MD_FLBLKSZ | \
@@ -2129,6 +2134,7 @@ enum seq_op {
 #define LOV_MIN_STRIPE_BITS 16   /* maximum PAGE_SIZE (ia64), power of 2 */
 #define LOV_MIN_STRIPE_SIZE (1<<LOV_MIN_STRIPE_BITS)
 #define LOV_MAX_STRIPE_COUNT  160   /* until bug 4424 is fixed */
+#define LOV_ALL_STRIPES       0xffff /* only valid for directories */
 #define LOV_V1_INSANE_STRIPE_COUNT 65532 /* maximum stripe count bz13933 */
 
 #define LOV_MAX_UUID_BUFFER_SIZE  8192
@@ -2655,37 +2661,39 @@ struct llogd_conn_body {
 
 /* Note: 64-bit types are 64-bit aligned in structure */
 struct obdo {
-        obd_valid               o_valid;        /* hot fields in this obdo */
-        struct ost_id           o_oi;
-        obd_id                  o_parent_seq;
-        obd_size                o_size;         /* o_size-o_blocks == ost_lvb */
-        obd_time                o_mtime;
-        obd_time                o_atime;
-        obd_time                o_ctime;
-        obd_blocks              o_blocks;       /* brw: cli sent cached bytes */
-        obd_size                o_grant;
+        obd_valid             o_valid;      /* hot fields in this obdo */
+        struct ost_id         o_oi;
+        obd_id                o_parent_seq;
+        obd_size              o_size;       /* o_size-o_blocks == ost_lvb */
+        obd_time              o_mtime;
+        obd_time              o_atime;
+        obd_time              o_ctime;
+        obd_blocks            o_blocks;     /* brw: cli sent cached bytes */
+        obd_size              o_grant;
 
         /* 32-bit fields start here: keep an even number of them via padding */
-        obd_blksize             o_blksize;      /* optimal IO blocksize */
-        obd_mode                o_mode;         /* brw: cli sent cache remain */
-        obd_uid                 o_uid;
-        obd_gid                 o_gid;
-        obd_flag                o_flags;
-        obd_count               o_nlink;        /* brw: checksum */
-        obd_count               o_parent_oid;
-        obd_count               o_misc;         /* brw: o_dropped */
-        __u64                   o_ioepoch;      /* epoch in ost writes */
-        __u32                   o_stripe_idx;   /* holds stripe idx */
-        __u32                   o_parent_ver;
-        struct lustre_handle    o_handle;       /* brw: lock handle to prolong locks */
-        struct llog_cookie      o_lcookie;      /* destroy: unlink cookie from MDS */
+        obd_blksize           o_blksize;    /* optimal IO blocksize */
+        obd_mode              o_mode;       /* brw: cli sent cache remain */
+        obd_uid               o_uid;
+        obd_gid               o_gid;
+        obd_flag              o_flags;
+        obd_count             o_nlink;      /* brw: checksum */
+        obd_count             o_parent_oid;
+        obd_count             o_misc;       /* brw: o_dropped */
+        __u64                 o_ioepoch;    /* epoch in ost writes */
+        __u32                 o_stripe_idx; /* holds stripe idx */
+        __u32                 o_parent_ver;
+        struct lustre_handle  o_handle;  /* brw: lock handle to prolong locks */
+        struct llog_cookie    o_lcookie;   /* destroy: unlink cookie from MDS */
 
-        __u32                   o_uid_h;
-        __u32                   o_gid_h;
-        __u64                   o_padding_3;
-        __u64                   o_padding_4;
-        __u64                   o_padding_5;
-        __u64                   o_padding_6;
+        __u32                 o_uid_h;
+        __u32                 o_gid_h;
+        __u16                 o_layout_gen; /* holds layout generation number */
+        __u16                 o_padding_1;
+        __u32                 o_padding_3;
+        __u64                 o_padding_4;
+        __u64                 o_padding_5;
+        __u64                 o_padding_6;
 };
 
 #define o_id     o_oi.oi_id
