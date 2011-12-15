@@ -117,7 +117,7 @@ int mdd_create_txn_param_build(const struct lu_env *env, struct mdd_device *mdd,
                                struct lov_mds_md *lmm, enum mdd_txn_op op,
                                int changelog_cnt)
 {
-        int stripes = 0;
+        __u16 stripes = 0;
         ENTRY;
 
         LASSERT(op == MDD_TXN_CREATE_DATA_OP || op == MDD_TXN_MKDIR_OP);
@@ -139,10 +139,9 @@ int mdd_create_txn_param_build(const struct lu_env *env, struct mdd_device *mdd,
         }
 
 
-        if ((int)le32_to_cpu(lmm->lmm_stripe_count) < 0)
+        stripes = le16_to_cpu(lmm->lmm_stripe_count);
+        if (stripes == LOV_ALL_STRIPES)
                 stripes = mdd2obd_dev(mdd)->u.mds.mds_lov_desc.ld_tgt_count;
-        else
-                stripes = le32_to_cpu(lmm->lmm_stripe_count);
 out:
         mdd_txn_param_build(env, mdd, op, stripes + changelog_cnt);
         RETURN(0);
@@ -153,7 +152,8 @@ int mdd_log_txn_param_build(const struct lu_env *env, struct md_object *obj,
                             int changelog_cnt)
 {
         struct mdd_device *mdd = mdo2mdd(&md2mdd_obj(obj)->mod_obj);
-        int rc, stripe = 0;
+        int                rc;
+        __u16              stripe = 0;
         ENTRY;
 
         if (S_ISDIR(lu_object_attr(&obj->mo_lu)))
@@ -175,11 +175,9 @@ int mdd_log_txn_param_build(const struct lu_env *env, struct md_object *obj,
                 RETURN(-EINVAL);
         }
 
-        if ((int)le32_to_cpu(ma->ma_lmm->lmm_stripe_count) < 0)
+        stripe = le16_to_cpu(ma->ma_lmm->lmm_stripe_count);
+        if (stripe == LOV_ALL_STRIPES)
                 stripe = mdd2obd_dev(mdd)->u.mds.mds_lov_desc.ld_tgt_count;
-        else
-                stripe = le32_to_cpu(ma->ma_lmm->lmm_stripe_count);
-
 out:
         mdd_txn_param_build(env, mdd, op, stripe + changelog_cnt);
 

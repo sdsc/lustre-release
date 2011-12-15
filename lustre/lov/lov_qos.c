@@ -1049,6 +1049,10 @@ int qos_prep_create(struct obd_export *exp, struct lov_request_set *set)
         lsm = set->set_oi->oi_md;
         lsm->lsm_object_id = src_oa->o_id;
         lsm->lsm_object_seq = src_oa->o_seq;
+        if (src_oa->o_valid & OBD_MD_FLLAYOUTGEN)
+                lsm->lsm_layout_gen = src_oa->o_layout_gen;
+        else
+                lsm->lsm_layout_gen = 0;
 
         if (!lsm->lsm_stripe_size)
                 lsm->lsm_stripe_size = lov->desc.ld_default_stripe_size;

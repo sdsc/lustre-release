@@ -523,6 +523,8 @@ void mdt_object_unlock_put(struct mdt_thread_info *,
                            struct mdt_lock_handle *,
                            int decref);
 
+void mdt_client_compatibility(struct mdt_thread_info *info);
+
 int mdt_close_unpack(struct mdt_thread_info *info);
 int mdt_reint_unpack(struct mdt_thread_info *info, __u32 op);
 int mdt_reint_rec(struct mdt_thread_info *, struct mdt_lock_handle *);
