@@ -162,6 +162,8 @@ void obdo_cpy_md(struct obdo *dst, struct obdo *src, obd_flag valid)
                 dst->o_handle = src->o_handle;
         if (valid & OBD_MD_FLCOOKIE)
                 dst->o_lcookie = src->o_lcookie;
+        if (valid & OBD_MD_FLLAYOUTGEN)
+                dst->o_layout_gen = src->o_layout_gen;
 
         dst->o_valid |= valid;
 }

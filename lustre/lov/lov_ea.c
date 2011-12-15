@@ -119,7 +119,6 @@ struct lov_stripe_md *lsm_alloc_plain(int stripe_count, int *size)
                 lsm->lsm_oinfo[i] = loi;
         }
         lsm->lsm_stripe_count = stripe_count;
-        lsm->lsm_pool_name[0] = '\0';
         return lsm;
 
 err:
@@ -152,6 +151,7 @@ static void lsm_unpackmd_common(struct lov_stripe_md *lsm,
         lsm->lsm_object_seq = le64_to_cpu(lmm->lmm_object_seq);
         lsm->lsm_stripe_size = le32_to_cpu(lmm->lmm_stripe_size);
         lsm->lsm_pattern = le32_to_cpu(lmm->lmm_pattern);
+        lsm->lsm_layout_gen = le16_to_cpu(lmm->lmm_layout_gen);
         lsm->lsm_pool_name[0] = '\0';
 }
 
@@ -203,13 +203,19 @@ static void lov_tgt_maxbytes(struct lov_tgt_desc *tgt, __u64 *stripe_maxbytes)
 static int lsm_lmm_verify_v1(struct lov_mds_md_v1 *lmm, int lmm_bytes,
                              int *stripe_count)
 {
+        __u16 count;
+
         if (lmm_bytes < sizeof(*lmm)) {
                 CERROR("lov_mds_md_v1 too small: %d, need at least %d\n",
                        lmm_bytes, (int)sizeof(*lmm));
                 return -EINVAL;
         }
 
-        *stripe_count = le32_to_cpu(lmm->lmm_stripe_count);
+        count = le16_to_cpu(lmm->lmm_stripe_count);
+        if (count == LOV_ALL_STRIPES)
+                *stripe_count = -1;
+        else
+                *stripe_count = count;
 
         if (lmm_bytes < lov_mds_md_size(*stripe_count, LOV_MAGIC_V1)) {
                 CERROR("LOV EA V1 too small: %d, need %d\n",
@@ -271,6 +277,7 @@ static int lsm_lmm_verify_v3(struct lov_mds_md *lmmv1, int lmm_bytes,
                              int *stripe_count)
 {
         struct lov_mds_md_v3 *lmm;
+        __u16                 count;
 
         lmm = (struct lov_mds_md_v3 *)lmmv1;
 
@@ -280,7 +287,11 @@ static int lsm_lmm_verify_v3(struct lov_mds_md *lmmv1, int lmm_bytes,
                 return -EINVAL;
         }
 
-        *stripe_count = le32_to_cpu(lmm->lmm_stripe_count);
+        count = le16_to_cpu(lmm->lmm_stripe_count);
+        if (count == LOV_ALL_STRIPES)
+                *stripe_count = -1;
+        else
+                *stripe_count = count;
 
         if (lmm_bytes < lov_mds_md_size(*stripe_count, LOV_MAGIC_V3)) {
                 CERROR("LOV EA V3 too small: %d, need %d\n",
