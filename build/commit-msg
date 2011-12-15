@@ -33,7 +33,7 @@ init() {
 
         # Identify a name followed by an email address.
         #
-        readonly EMAILPAT=$'[ \t]*[a-zA-Z][^<>]*[ \t]<[^@ \t>]+@[^@ \t>]+>'
+        readonly EMAILPAT=$'[ \t]*[^<> ]* [^<>]* <[^@ \t>]+@[a-z.]+\.[a-z]+>'
 
         HAS_ERROR=false
         HAS_SUMMARY=false
@@ -214,9 +214,8 @@ while IFS= read -u3 LINE; do
         $CHANGEID* )  do_changeid  ;;
 
         "")
-                $IS_WRAPPING_UP && \
-                        error "blank lines not allowed in signoff section"
                 HAS_LAST_BLANK=true
+                $IS_WRAPPING_UP && continue
                 ;;
 
         \#*)
