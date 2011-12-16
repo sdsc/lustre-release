@@ -1,0 +1,15 @@
+Index: linux-stage/fs/ext4/super.c
+===================================================================
+--- linux-stage.orig/fs/ext4/super.c
++++ linux-stage/fs/ext4/super.c
+@@ -2457,8 +2457,8 @@ static int ext4_fill_super(struct super_
+	sbi->s_min_batch_time = EXT4_DEF_MIN_BATCH_TIME;
+	sbi->s_max_batch_time = EXT4_DEF_MAX_BATCH_TIME;
+
+-	if ((def_mount_opts & EXT4_DEFM_NOBARRIER) == 0)
+-		set_opt(sbi->s_mount_opt, BARRIER);
++	/*if ((def_mount_opts & EXT4_DEFM_NOBARRIER) == 0)
++		set_opt(sbi->s_mount_opt, BARRIER); */
+
+	/*
+	 * turn on extents feature by default in ext4 filesystem
