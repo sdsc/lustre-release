@@ -21,9 +21,9 @@ Index: linux-2.6.32-71.18.1.el6/include/linux/dcache.h
 --- linux-2.6.32-71.18.1.el6.orig/include/linux/dcache.h
 +++ linux-2.6.32-71.18.1.el6/include/linux/dcache.h
 @@ -185,6 +185,7 @@ d_iput:		no		no		no       yes
- #define DCACHE_COOKIE		0x0040	/* For use by dcookie subsystem */
  
  #define DCACHE_FSNOTIFY_PARENT_WATCHED	0x0080 /* Parent inode is watched by some fsnotify listener */
+      /* Parent inode is watched by some fsnotify listener */
 +#define DCACHE_LUSTRE_INVALID	0x0100  /* Lustre invalidated */
  
  extern spinlock_t dcache_lock;
