@@ -4687,3 +4687,18 @@ is_sanity_benchmark() {
 min_ost_size () {
     $LCTL get_param -n osc.*.kbytesavail | sort -n | head -n1
 }
+
+# Check whether the "large_xattr" feature is enabled or not.
+large_xattr_enabled() {
+    local mds_dev=$(mdsdevname ${SINGLEMDS//mds/})
+
+    do_facet $SINGLEMDS "$DUMPE2FS -h $mds_dev 2>&1 | grep -q large_xattr"
+    return ${PIPESTATUS[0]}
+}
+
+# Generate a string with size of $size bytes.
+generate_string() {
+    local size=${1:-1024} # in bytes
+
+    echo "$(head -c $size < /dev/zero | tr '\0' y)"
+}
