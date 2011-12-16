@@ -300,6 +300,20 @@ int filter_iobuf_add_page(struct obd_device *obd, struct filter_iobuf *iobuf,
         return 0;
 }
 
+int filter_set_iobuf_segment_limit(struct filter_obd *filter,
+                                   struct super_block *sb)
+{
+        struct request_queue *rq;
+
+        rq = bdev_get_queue(sb->s_bdev);
+
+        filter->fo_iobuf_segment_limit = queue_max_phys_segments(rq) >=
+                                         queue_max_hw_segments(rq) ?
+                                         queue_max_phys_segments(rq) :
+                                         queue_max_hw_segments(rq);
+        return 0;
+}
+
 int filter_do_bio(struct obd_export *exp, struct inode *inode,
                   struct filter_iobuf *iobuf, int rw)
 {

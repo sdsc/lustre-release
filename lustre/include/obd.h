@@ -338,6 +338,7 @@ struct filter_obd {
          */
         struct filter_iobuf    **fo_iobuf_pool;
         int                      fo_iobuf_count;
+        int                      fo_iobuf_segment_limit;
 
         cfs_list_t               fo_llog_list;
         cfs_spinlock_t           fo_llog_list_lock;
