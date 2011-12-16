@@ -37,8 +37,12 @@ if [ -f "$EXCEPT_LIST_FILE" ]; then
     . $EXCEPT_LIST_FILE
 fi
 
-[ -z "$MODPROBECONF" -a -f /etc/modprobe.conf ] && MODPROBECONF=/etc/modprobe.conf
-[ -z "$MODPROBECONF" -a -f /etc/modprobe.d/Lustre ] && MODPROBECONF=/etc/modprobe.d/Lustre
+[ -z "$MODPROBECONF" -a -f /etc/modprobe.conf ] &&
+    MODPROBECONF=/etc/modprobe.conf
+[ -z "$MODPROBECONF" -a -f /etc/modprobe.d/Lustre ] &&
+    MODPROBECONF=/etc/modprobe.d/Lustre
+[ -z "$MODPROBECONF" -a -f /etc/modprobe.d/lustre.conf ] &&
+    MODPROBECONF=/etc/modprobe.d/lustre.conf
 
 assert_DIR () {
     local failed=""
