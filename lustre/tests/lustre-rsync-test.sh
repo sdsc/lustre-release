@@ -85,8 +85,12 @@ fini_changelog() {
 check_xattr() {
     local tgt=$1
     local xattr="yes"
+    local value
+
     touch $tgt
-    setfattr -n user.foo -v 'bar' $tgt 2> /dev/null
+    large_xattr_enabled && value="$(generate_string $(max_xattr_size))" || \
+        value="bar"
+    setfattr -n user.foo -v $value $tgt 2> /dev/null
     if [ $? -ne 0 ]; then
 	xattr="no"
     fi
@@ -149,18 +153,19 @@ test_1() {
 
     # Set xattrs
     if [ "$xattr" == "yes" ]; then
+	local value
 	touch $DIR/$tdir/file5
-	setfattr -n user.foo -v 'bar' $DIR/$tdir/file5
+	large_xattr_enabled && value="$(generate_string $(max_xattr_size))" || \
+	    value="bar"
+	setfattr -n user.foo -v $value $DIR/$tdir/file5
     fi
 
     echo "Replication #2"
     $LRSYNC -l $LREPL_LOG
 
     if [ "$xattr" == "yes" ]; then
-	local xval1=$(getfattr -n user.foo --absolute-names --only-values \
-	    $TGT/$tdir/file5)
-	local xval2=$(getfattr -n user.foo --absolute-names --only-values \
-	    $TGT2/$tdir/file5)
+	local xval1=$(get_xattr_value user.foo $TGT/$tdir/file5)
+	local xval2=$(get_xattr_value user.foo $TGT2/$tdir/file5)
     fi
 
     RC=0
@@ -172,8 +177,8 @@ test_1() {
     #   RC=1
 
     if [[ "$xattr" == "yes" ]] &&
-       [[ "$xval1" != "bar" || "$xval2" != "bar" ]]; then
-        error "Error in replicating xattrs. $xval1, $xval2"
+       [[ "$xval1" != "$value" || "$xval2" != "$value" ]]; then
+        error "Error in replicating xattrs."
         RC=1
     fi
 
@@ -503,7 +508,7 @@ test_7() {
     init_changelog
 
     local NUMFILES=100
-    lfs setstripe -c 2 ${DIR}/$tdir
+    lfs setstripe -c $OSTCOUNT $DIR/$tdir
     createmany -o $DIR/$tdir/$tfile $NUMFILES
 
     # To simulate replication to another lustre filesystem, replicate
@@ -518,7 +523,7 @@ test_7() {
     while [ $i -lt $NUMFILES ];
     do
       local count=$(lfs getstripe $DIR/tgt/$tdir/${tfile}$i | awk '/stripe_count/ {print $2}')
-      if [ $count -ne 2 ]; then
+      if [ $count -ne $OSTCOUNT ]; then
 	  error "Stripe size not replicated" 
       fi
       i=$(expr $i + 1)
