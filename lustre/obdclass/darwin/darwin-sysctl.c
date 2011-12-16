@@ -50,9 +50,6 @@
 #ifndef BUILD_VERSION	
 #define BUILD_VERSION		"Unknown"
 #endif
-#ifndef LUSTRE_KERNEL_VERSION
-#define LUSTRE_KERNEL_VERSION	"Unknown Darwin version"
-#endif
 
 cfs_sysctl_table_header_t *obd_table_header = NULL;
 
@@ -139,7 +136,7 @@ int read_lustre_kernel_version SYSCTL_HANDLER_ARGS
 	if ( req->newptr != NULL) {
 		printf("sysctl lustre_kernel_version is read-only!\n");
 	} else {
-		error = SYSCTL_OUT(req, LUSTRE_KERNEL_VERSION, strlen(LUSTRE_KERNEL_VERSION));
+		error = SYSCTL_OUT(req, "unknown", 7);
 	}
 	return error;
 }
