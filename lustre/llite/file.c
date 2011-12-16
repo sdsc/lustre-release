@@ -1891,7 +1891,7 @@ loff_t ll_file_seek(struct file *file, loff_t offset, int origin)
                 if (file->f_flags & O_NONBLOCK)
                         nonblock = LDLM_FL_BLOCK_NOWAIT;
 
-                rc = cl_glimpse_size(inode);
+                rc = ll_glimpse_size(inode);
                 if (rc != 0)
                         RETURN(rc);
 
@@ -2356,11 +2356,11 @@ int ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
                 RETURN(0);
         }
 
-        /* cl_glimpse_size will prefer locally cached writes if they extend
+        /* ll_glimpse_size will prefer locally cached writes if they extend
          * the file */
 
         if (rc == 0)
-                rc = cl_glimpse_size(inode);
+                rc = ll_glimpse_size(inode);
 
         RETURN(rc);
 }
