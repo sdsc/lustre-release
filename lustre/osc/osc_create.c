@@ -705,8 +705,10 @@ int osc_create(struct obd_export *exp, struct obdo *oa,
                 CDEBUG(D_INFO, "%s: returning objid "LPU64"\n",
                        obd2cli_tgt(oscc->oscc_obd), lsm->lsm_object_id);
         } else {
-                if (*ea == NULL)
+                if (*ea == NULL) {
+                        lsm_decref(lsm);
                         obd_free_memmd(exp, &lsm);
+                }
                 if (del_orphan != 0 && rc != -EIO)
                         /* Ignore non-IO precreate error for clear orphan */
                         rc = 0;

@@ -74,6 +74,7 @@
 void ll_truncate(struct inode *inode)
 {
         struct ll_inode_info *lli = ll_i2info(inode);
+        struct lov_stripe_md *lsm = NULL;
         ENTRY;
 
         CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p) to %llu\n", inode->i_ino,
@@ -82,7 +83,7 @@ void ll_truncate(struct inode *inode)
         ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_TRUNC, 1);
         if (lli->lli_size_sem_owner == cfs_current()) {
                 LASSERT_SEM_LOCKED(&lli->lli_size_sem);
-                ll_inode_size_unlock(inode, 0);
+                ll_inode_size_unlock(inode, &lsm, 0);
         }
 
         EXIT;
