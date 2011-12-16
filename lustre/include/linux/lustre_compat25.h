@@ -861,5 +861,13 @@ static inline int ll_quota_off(struct super_block *sb, int off, int remount)
 #define HAVE_NODE_TO_CPUMASK
 #endif
 
+#ifdef HAVE_ADD_TO_PAGE_CACHE_LRU
+#define ll_add_to_page_cache_lru(pg, mapping, off, gfp) \
+        add_to_page_cache_lru(pg, mapping, off, gfp)
+#else
+#define ll_add_to_page_cache_lru(pg, mapping, off, gfp) \
+        add_to_page_cache(pg, mapping, off, gfp)
+#endif
+
 #endif /* __KERNEL__ */
 #endif /* _COMPAT25_H */
