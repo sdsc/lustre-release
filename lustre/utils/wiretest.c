@@ -893,8 +893,9 @@ void lustre_assert_wire_constants(void)
         LASSERTF((int)sizeof(((struct obd_connect_data *)0)->paddingE) == 8, "found %lld\n",
                  (long long)(int)sizeof(((struct obd_connect_data *)0)->paddingE));
         LASSERTF((int)offsetof(struct obd_connect_data, paddingF) == 184, "found %lld\n",
+                 (long long)(int)offsetof(struct obd_connect_data, paddingF));
+        LASSERTF((int)sizeof(((struct obd_connect_data *)0)->paddingF) == 8, "found %lld\n",
                  (long long)(int)sizeof(((struct obd_connect_data *)0)->paddingF));
-
         LASSERTF(OBD_CONNECT_RDONLY == 0x1ULL, "found 0x%.16llxULL\n",
                  OBD_CONNECT_RDONLY);
         LASSERTF(OBD_CONNECT_INDEX == 0x2ULL, "found 0x%.16llxULL\n",
@@ -1921,10 +1922,10 @@ void lustre_assert_wire_constants(void)
                  (long long)(int)offsetof(struct mdt_rec_setattr, sa_mode));
         LASSERTF((int)sizeof(((struct mdt_rec_setattr *)0)->sa_mode) == 4, "found %lld\n",
                  (long long)(int)sizeof(((struct mdt_rec_setattr *)0)->sa_mode));
-        LASSERTF((int)offsetof(struct mdt_rec_setattr, sa_padding_2) == 120, "found %lld\n",
-                 (long long)(int)offsetof(struct mdt_rec_setattr, sa_padding_2));
-        LASSERTF((int)sizeof(((struct mdt_rec_setattr *)0)->sa_padding_2) == 4, "found %lld\n",
-                 (long long)(int)sizeof(((struct mdt_rec_setattr *)0)->sa_padding_2));
+        LASSERTF((int)offsetof(struct mdt_rec_setattr, sa_bias) == 120, "found %lld\n",
+                 (long long)(int)offsetof(struct mdt_rec_setattr, sa_bias));
+        LASSERTF((int)sizeof(((struct mdt_rec_setattr *)0)->sa_bias) == 4, "found %lld\n",
+                 (long long)(int)sizeof(((struct mdt_rec_setattr *)0)->sa_bias));
         LASSERTF((int)offsetof(struct mdt_rec_setattr, sa_padding_3) == 124, "found %lld\n",
                  (long long)(int)offsetof(struct mdt_rec_setattr, sa_padding_3));
         LASSERTF((int)sizeof(((struct mdt_rec_setattr *)0)->sa_padding_3) == 4, "found %lld\n",

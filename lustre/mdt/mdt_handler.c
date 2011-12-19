@@ -5102,8 +5102,33 @@ static int mdt_export_cleanup(struct obd_export *exp)
 
                 /* Close any open files (which may also cause orphan unlinking). */
                 cfs_list_for_each_entry_safe(mfd, n, &closing_list, mfd_list) {
+                        struct md_object *obj =
+                                              mdt_object_child(mfd->mfd_object);
                         cfs_list_del_init(&mfd->mfd_list);
                         memset(&ma->ma_attr, 0, sizeof(ma->ma_attr));
+
+                        /* File could have been modified and now dirty
+                         * regarding to HSM archive, check this!
+                         *
+                         * The logic here is to mark a file dirty if there's a
+                         * chance it was dirtied before the client was evicted,
+                         * so that we don't have to wait for a release attempt
+                         * before finding out the file was actually dirty and
+                         * fail the release. Aggressively marking it dirty here
+                         * will cause the policy engine to attempt to
+                         * re-archive it; when rearchiving, we can compare the
+                         * current version to the LMA data_version and make the
+                         * archive request into a noop if it's not actually
+                         * dirty.
+                         */
+                        if ((mfd->mfd_mode & FMODE_WRITE) ||
+                            (mfd->mfd_mode & MDS_FMODE_TRUNC)) {
+                                CDEBUG(D_HSM, "Client evicted, put file"
+                                       "dirty!\n");
+                                if (mdt_add_dirty_flag(info, obj, ma))
+                                        CWARN("Could not add dirty flag!\n");
+                        }
+
                         ma->ma_lmm_size = lmm_size;
                         ma->ma_cookie_size = cookie_size;
                         ma->ma_need = 0;

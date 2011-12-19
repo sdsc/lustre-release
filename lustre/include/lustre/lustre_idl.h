@@ -1780,7 +1780,7 @@ struct mdt_rec_setattr {
         obd_time        sa_ctime;
         __u32           sa_attr_flags;
         __u32           sa_mode;
-        __u32           sa_padding_2;
+        __u32           sa_bias;      /* some operation flags */
         __u32           sa_padding_3;
         __u32           sa_padding_4;
         __u32           sa_padding_5;
@@ -1879,7 +1879,8 @@ enum {
         MDS_SOM           = 1 << 4,
         MDS_QUOTA_IGNORE  = 1 << 5,
         MDS_CLOSE_CLEANUP = 1 << 6,
-        MDS_KEEP_ORPHAN   = 1 << 7
+        MDS_KEEP_ORPHAN   = 1 << 7,
+        MDS_DATA_MODIFIED = 1 << 8,
 };
 
 /* instance of mdt_reint_rec */

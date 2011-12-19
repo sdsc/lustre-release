@@ -83,6 +83,9 @@ void ll_pack_inode2opdata(struct inode *inode, struct md_op_data *op_data,
         if (fh)
                 op_data->op_handle = *fh;
         op_data->op_capa1 = ll_mdscapa_get(inode);
+
+        if (LLIF_DATA_MODIFIED & ll_i2info(inode)->lli_flags)
+                op_data->op_bias |= MDS_DATA_MODIFIED;
 }
 
 /**
@@ -159,6 +162,13 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
         ll_finish_md_op_data(op_data);
 
         if (rc == 0) {
+                struct ll_inode_info *lli = ll_i2info(inode);
+
+                /* Close was done, cancel data modification flag */
+                cfs_spin_lock(&lli->lli_lock);
+                lli->lli_flags &= ~LLIF_DATA_MODIFIED;
+                cfs_spin_unlock(&lli->lli_lock);
+
                 rc = ll_objects_destroy(req, inode);
                 if (rc)
                         CERROR("inode %lu ll_objects destroy: rc = %d\n",
@@ -886,6 +896,14 @@ static ssize_t ll_file_io_generic(const struct lu_env *env,
                 result = io->ci_nob;
                 *ppos = io->u.ci_wr.wr.crw_pos;
         }
+
+        /* An I/O modified the file, flag it */
+        if (iot == CIT_WRITE) {
+                cfs_spin_lock(&lli->lli_lock);
+                lli->lli_flags |= LLIF_DATA_MODIFIED;
+                cfs_spin_unlock(&lli->lli_lock);
+        }
+
         GOTO(out, result);
 out:
         cl_io_fini(env, io);

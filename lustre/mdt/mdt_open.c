@@ -1513,6 +1513,11 @@ int mdt_mfd_close(struct mdt_thread_info *info, struct mdt_file_data *mfd)
                 rc = mo_attr_set(info->mti_env, next, ma);
         }
 
+        /* If file data is modified, add the dirty flag */
+        if (ma->ma_attr_flags & MDS_DATA_MODIFIED)
+                rc = mdt_add_dirty_flag(info, next, ma);
+
+
         ma->ma_need |= MA_INODE;
         ma->ma_valid &= ~MA_INODE;
 
