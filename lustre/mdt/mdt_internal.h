@@ -604,6 +604,8 @@ void mdt_mfd_free(struct mdt_file_data *mfd);
 int mdt_close(struct mdt_thread_info *info);
 int mdt_attr_set(struct mdt_thread_info *info, struct mdt_object *mo,
                  struct md_attr *ma, int flags);
+int mdt_add_dirty_flag(struct mdt_thread_info *info, struct mdt_object *mo,
+			struct md_attr *ma);
 int mdt_done_writing(struct mdt_thread_info *info);
 int mdt_fix_reply(struct mdt_thread_info *info);
 int mdt_handle_last_unlink(struct mdt_thread_info *, struct mdt_object *,
@@ -624,6 +626,9 @@ int mdt_version_get_check(struct mdt_thread_info *, struct mdt_object *, int);
 void mdt_version_get_save(struct mdt_thread_info *, struct mdt_object *, int);
 int mdt_version_get_check_save(struct mdt_thread_info *, struct mdt_object *,
                                int);
+
+int mdt_hsm_attr_set(struct mdt_thread_info *info, struct mdt_object *obj,
+		     struct md_hsm *mh);
 
 /* mdt_idmap.c */
 int mdt_init_sec_level(struct mdt_thread_info *);
