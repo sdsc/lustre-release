@@ -217,6 +217,13 @@ static int ll_page_mkwrite0(struct vm_area_struct *vma, struct page *vmpage,
                        vma->vm_flags, io->u.ci_fault.ft_index, vmpage);
 
         if (result == 0 || result == -ENODATA) {
+		struct inode *inode = vma->vm_file->f_dentry->d_inode;
+		struct ll_inode_info *lli = ll_i2info(inode);
+
+		cfs_spin_lock(&lli->lli_lock);
+		lli->lli_flags |= LLIF_DATA_MODIFIED;
+		cfs_spin_unlock(&lli->lli_lock);
+
                 lock_page(vmpage);
                 if (vmpage->mapping == NULL) {
                         unlock_page(vmpage);
@@ -605,6 +612,7 @@ int ll_file_mmap(struct file *file, struct vm_area_struct * vma)
 #endif
                 vma->vm_ops = &ll_file_vm_ops;
                 vma->vm_ops->open(vma);
+
                 /* update the inode's size and mtime */
                 rc = ll_glimpse_size(inode);
         }

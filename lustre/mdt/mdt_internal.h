@@ -578,6 +578,8 @@ void mdt_mfd_free(struct mdt_file_data *mfd);
 int mdt_close(struct mdt_thread_info *info);
 int mdt_attr_set(struct mdt_thread_info *info, struct mdt_object *mo,
                  struct md_attr *ma, int flags);
+int mdt_add_dirty_flag(struct mdt_thread_info *info, struct md_object *next,
+			struct md_attr *ma);
 int mdt_done_writing(struct mdt_thread_info *info);
 int mdt_fix_reply(struct mdt_thread_info *info);
 int mdt_handle_last_unlink(struct mdt_thread_info *, struct mdt_object *,
