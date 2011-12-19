@@ -1194,13 +1194,81 @@ static int mdd_declare_xattr_set(const struct lu_env *env,
         if (rc)
                 return rc;
 
-        /* Only record user xattr changes */
-        if ((strncmp("user.", name, 5) == 0))
-                rc = mdd_declare_changelog_store(env, mdd, NULL, handle);
+	/* Only record user xattr changes */
+	if ((strncmp("user.", name, 5) == 0)) {
+		rc = mdd_declare_changelog_store(env, mdd, NULL, handle);
+		if (rc)
+			return rc;
+	}
+
+	/* If HSM data is modified, this could add a changelog */
+	if (strncmp(XATTR_NAME_HSM, name, sizeof(XATTR_NAME_HSM) - 1) == 0)
+		rc = mdd_declare_changelog_store(env, mdd, NULL, handle);
 
 	rc = mdd_declare_changelog_store(env, mdd, NULL, handle);
         return rc;
 }
+
+/*
+ * Compare current and future data of HSM EA and add a changelog if needed.
+ *
+ * Caller should have write-locked \param mdd_obj.
+ *
+ * \param buf - Future HSM EA content.
+ * \param rc  - 0 on success, error code if something failed
+ */
+static int __mdd_hsm_update(const struct lu_env *env, struct md_object *obj,
+                            const struct lu_buf *buf, struct thandle *handle)
+{
+	struct mdd_thread_info *info = mdd_env_info(env);
+        struct mdd_device      *mdd = mdo2mdd(obj);
+        struct mdd_object      *mdd_obj = md2mdd_obj(obj);
+	struct lu_buf          *current_buf = &info->mti_buf;
+	struct md_hsm          *current_mh;
+	struct md_hsm          *new_mh;
+	int                     rc;
+	ENTRY;
+
+	OBD_ALLOC_PTR(current_mh);
+	if (current_mh == NULL)
+		RETURN(-ENOMEM);
+
+	/* Read HSM attrs from disk */
+	current_buf->lb_buf = info->mti_xattr_buf;
+	current_buf->lb_len = sizeof(info->mti_xattr_buf);
+	CLASSERT(sizeof(struct hsm_attrs) <= sizeof(info->mti_xattr_buf));
+	rc = mdo_xattr_get(env, mdd_obj, current_buf, XATTR_NAME_HSM,
+			   mdd_object_capa(env, mdd_obj));
+	rc = lustre_buf2hsm(info->mti_xattr_buf, rc, current_mh);
+	if (rc < 0 && rc != -ENODATA)
+		GOTO(free, rc);
+	else if (rc == -ENODATA)
+		current_mh->mh_flags = 0;
+
+	/* Map future lma */
+	OBD_ALLOC_PTR(new_mh);
+	if (new_mh == NULL)
+		GOTO(free, rc = -ENOMEM);
+	lustre_buf2hsm(buf->lb_buf, buf->lb_len, new_mh);
+
+	/* If HSM flags are different, add a changelog */
+	rc = 0;
+	if (current_mh->mh_flags != new_mh->mh_flags) {
+		int flags = 0;
+		hsm_set_cl_event(&flags, HE_STATE);
+		if (new_mh->mh_flags & HS_DIRTY)
+			hsm_set_cl_flags(&flags, CLF_HSM_DIRTY);
+
+		rc = mdd_changelog_data_store(env, mdd, CL_HSM, flags, mdd_obj,
+					      handle);
+	}
+
+	OBD_FREE_PTR(new_mh);
+free:
+	OBD_FREE_PTR(current_mh);
+	return(rc);
+}
+
 
 /**
  * The caller should guarantee to update the object ctime
@@ -1242,6 +1310,15 @@ static int mdd_xattr_set(const struct lu_env *env, struct md_object *obj,
                 handle->th_sync |= !!mdd->mdd_sync_permission;
 
 	mdd_write_lock(env, mdd_obj, MOR_TGT_CHILD);
+
+	if (strncmp(XATTR_NAME_HSM, name, sizeof(XATTR_NAME_HSM) - 1) == 0) {
+		rc = __mdd_hsm_update(env, obj, buf, handle);
+		if (rc) {
+			mdd_write_unlock(env, mdd_obj);
+			GOTO(stop, rc);
+		}
+	}
+
 	rc = mdo_xattr_set(env, mdd_obj, buf, name, fl, handle,
 			   mdd_object_capa(env, mdd_obj));
 	mdd_write_unlock(env, mdd_obj);
