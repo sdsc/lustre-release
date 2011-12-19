@@ -53,6 +53,10 @@
 #include <linux/keyctl.h>
 #include <linux/mutex.h>
 #include <asm/atomic.h>
+#include <linux/version.h>
+# if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
+#  include <linux/key-type.h>
+# endif
 #else
 #include <liblustre.h>
 #endif
@@ -90,29 +94,6 @@ static int sec_install_rctx_kr(struct ptlrpc_sec *sec,
 /****************************************
  * internal helpers                     *
  ****************************************/
-
-#define DUMP_PROCESS_KEYRINGS(tsk)                                      \
-{                                                                       \
-        CWARN("DUMP PK: %s[%u,%u/%u](<-%s[%u,%u/%u]): "                 \
-              "a %d, t %d, p %d, s %d, u %d, us %d, df %d\n",           \
-              tsk->comm, tsk->pid, tsk->uid, tsk->fsuid,                \
-              tsk->parent->comm, tsk->parent->pid,                      \
-              tsk->parent->uid, tsk->parent->fsuid,                     \
-              tsk->request_key_auth ?                                   \
-              tsk->request_key_auth->serial : 0,                        \
-              tsk->thread_keyring ?                                     \
-              tsk->thread_keyring->serial : 0,                          \
-              tsk->signal->process_keyring ?                            \
-              tsk->signal->process_keyring->serial : 0,                 \
-              tsk->signal->session_keyring ?                            \
-              tsk->signal->session_keyring->serial : 0,                 \
-              tsk->user->uid_keyring ?                                  \
-              tsk->user->uid_keyring->serial : 0,                       \
-              tsk->user->session_keyring ?                              \
-              tsk->user->session_keyring->serial : 0,                   \
-              tsk->jit_keyring                                          \
-             );                                                         \
-}
 
 #define DUMP_KEY(key)                                                   \
 {                                                                       \
@@ -638,6 +619,71 @@ static inline int user_is_root(struct ptlrpc_sec *sec, struct vfs_cred *vcred)
  *
  * FIXME this code is fragile, depend on how request_key_link() is implemented.
  */
+#ifdef HAVE_CRED_KEYRING
+struct request_key_auth {       /* copy from kernel keys/security/internal.h */
+        struct key              *target_key;
+        struct key              *dest_keyring;
+        const struct cred       *cred;
+        void                    *callout_info;
+        size_t                  callout_len;
+        pid_t                   pid;
+};
+static void request_key_unlink(struct key *key)
+{
+        struct request_key_auth *rka;
+        const struct cred *cred = current_cred();
+        struct key *dest_keyring, *authkey;
+
+        switch (cred->jit_keyring) {
+        case KEY_REQKEY_DEFL_DEFAULT:
+        case KEY_REQKEY_DEFL_REQUESTOR_KEYRING:
+                if (cred->request_key_auth) {
+                        authkey = cred->request_key_auth;
+                        down_read(&authkey->sem);
+                        rka = authkey->payload.data;
+                        if (!test_bit(KEY_FLAG_REVOKED,
+                                      &authkey->flags))
+                                dest_keyring = key_get(rka->dest_keyring);
+                        up_read(&authkey->sem);
+                        if (dest_keyring)
+                                break;
+                }
+        case KEY_REQKEY_DEFL_THREAD_KEYRING:
+                dest_keyring = key_get(cred->thread_keyring);
+                if (dest_keyring)
+                        break;
+        case KEY_REQKEY_DEFL_PROCESS_KEYRING:
+                dest_keyring = key_get(cred->tgcred->process_keyring);
+                if (dest_keyring)
+                        break;
+        case KEY_REQKEY_DEFL_SESSION_KEYRING:
+                rcu_read_lock();
+                dest_keyring = key_get(
+                                rcu_dereference(cred->tgcred->session_keyring));
+                rcu_read_unlock();
+
+                if (dest_keyring)
+                        break;
+
+        case KEY_REQKEY_DEFL_USER_SESSION_KEYRING:
+                dest_keyring =
+                        key_get(cred->user->session_keyring);
+                break;
+
+        case KEY_REQKEY_DEFL_USER_KEYRING:
+                dest_keyring = key_get(cred->user->uid_keyring);
+                break;
+
+        case KEY_REQKEY_DEFL_GROUP_KEYRING:
+        default:
+                LBUG();
+        }
+
+        LASSERT(dest_keyring);
+        key_unlink(dest_keyring, key);
+        key_put(dest_keyring);
+}
+#else /* !HAVE_CRED_KEYRING */
 static void request_key_unlink(struct key *key)
 {
         struct task_struct *tsk = current;
@@ -674,6 +720,7 @@ static void request_key_unlink(struct key *key)
         key_unlink(ring, key);
         key_put(ring);
 }
+#endif /* HAVE_CCRED_KEYRING */
 
 static
 struct ptlrpc_cli_ctx * gss_sec_lookup_ctx_kr(struct ptlrpc_sec *sec,
@@ -1223,6 +1270,7 @@ static
 int gss_kt_instantiate(struct key *key, const void *data, size_t datalen)
 {
         int             rc;
+        struct key     *keyring;
         ENTRY;
 
         if (data != NULL || datalen != 0) {
@@ -1245,15 +1293,19 @@ int gss_kt_instantiate(struct key *key, const void *data, size_t datalen)
          * the session keyring is created upon upcall, and don't change all
          * the way until upcall finished, so rcu lock is not needed here.
          */
-        LASSERT(cfs_current()->signal->session_keyring);
+#ifdef HAVE_CRED_KEYRING
+        keyring = current_cred()->tgcred->session_keyring;
+#else
+        keyring = cfs_current()->signal->session_keyring;
+#endif
+        LASSERT(keyring);
 
         cfs_lockdep_off();
-        rc = key_link(cfs_current()->signal->session_keyring, key);
+        rc = key_link(keyring, key);
         cfs_lockdep_on();
         if (unlikely(rc)) {
                 CERROR("failed to link key %08x to keyring %08x: %d\n",
-                       key->serial,
-                       cfs_current()->signal->session_keyring->serial, rc);
+                       key->serial, keyring->serial, rc);
                 RETURN(rc);
         }
 

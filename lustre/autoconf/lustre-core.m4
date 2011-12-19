@@ -1899,6 +1899,24 @@ AC_DEFUN([LC_EXPORT_ADD_TO_PAGE_CACHE_LRU],
 ])
 ])
 
+# 2.6.29
+
+AC_DEFUN([LC_CRED_KEYRING],
+[AC_MSG_CHECKING([if struct cred has .jit_keyring field])
+        LB_LINUX_TRY_COMPILE([
+                #include <linux/cred.h>
+                #define CONFIG_KEYS
+        ],[
+                struct cred cd;
+                cd.jit_keyring = NULL;
+        ],[
+                AC_MSG_RESULT(yes)
+                AC_DEFINE(HAVE_CRED_KEYRING, 1, [struct cred has .jit_keyring])
+        ],[
+                AC_MSG_RESULT(no)
+        ])
+])
+
 # 2.6.31
 
 # 2.6.30 x86 node_to_cpumask has been removed. must use cpumask_of_node
@@ -2268,6 +2286,9 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_SB_ANY_QUOTA_ACTIVE
          LC_SB_HAS_QUOTA_ACTIVE
          LC_EXPORT_ADD_TO_PAGE_CACHE_LRU
+
+         # 2.6.29
+         LC_CRED_KEYRING
 
          # 2.6.30
          LC_EXPORT_CPUMASK_OF_NODE
