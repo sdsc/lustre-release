@@ -1071,6 +1071,23 @@ static struct ldlm_lock *search_queue(cfs_list_t *queue,
         return NULL;
 }
 
+void ldlm_lock_fail_match_locked(struct ldlm_lock *lock, int rc)
+{
+        LASSERT(rc != 0);
+
+        lock->l_fail_value = rc;
+        cfs_waitq_signal(&lock->l_waitq);
+}
+EXPORT_SYMBOL(ldlm_lock_fail_match_locked);
+
+void ldlm_lock_fail_match(struct ldlm_lock *lock, int rc)
+{
+        lock_res_and_lock(lock);
+        ldlm_lock_fail_match_locked(lock, rc);
+        unlock_res_and_lock(lock);
+}
+EXPORT_SYMBOL(ldlm_lock_fail_match);
+
 void ldlm_lock_allow_match_locked(struct ldlm_lock *lock)
 {
         lock->l_flags |= LDLM_FL_LVB_READY;
@@ -1160,8 +1177,10 @@ ldlm_mode_t ldlm_lock_match(struct ldlm_namespace *ns, int flags,
 
         if (lock) {
                 ldlm_lock2handle(lock, lockh);
+                /* For AGL, do nothing. */
                 if ((flags & LDLM_FL_LVB_READY) &&
-                    (!(lock->l_flags & LDLM_FL_LVB_READY))) {
+                    !(flags & LDLM_FL_AGL) &&
+                    !(lock->l_flags & LDLM_FL_LVB_READY)) {
                         struct l_wait_info lwi;
                         if (lock->l_completion_ast) {
                                 int err = lock->l_completion_ast(lock,
@@ -1183,7 +1202,16 @@ ldlm_mode_t ldlm_lock_match(struct ldlm_namespace *ns, int flags,
 
                         /* XXX FIXME see comment on CAN_MATCH in lustre_dlm.h */
                         l_wait_event(lock->l_waitq,
-                                     (lock->l_flags & LDLM_FL_LVB_READY), &lwi);
+                                     lock->l_flags & LDLM_FL_LVB_READY ||
+                                     lock->l_fail_value != 0,
+                                     &lwi);
+                        if (!(lock->l_flags & LDLM_FL_LVB_READY)) {
+                                if (flags & LDLM_FL_TEST_LOCK)
+                                        LDLM_LOCK_RELEASE(lock);
+                                else
+                                        ldlm_lock_decref_internal(lock, mode);
+                                rc = 0;
+                        }
                 }
         }
  out2:

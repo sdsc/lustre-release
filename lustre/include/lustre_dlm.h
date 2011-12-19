@@ -121,7 +121,7 @@ typedef enum {
 #define LDLM_FL_HAS_INTENT     0x001000 /* lock request has intent */
 #define LDLM_FL_CANCELING      0x002000 /* lock cancel has already been sent */
 #define LDLM_FL_LOCAL          0x004000 /* local lock (ie, no srv/cli split) */
-/* was LDLM_FL_WARN  until 2.0.0  0x008000 */
+#define LDLM_FL_AGL            0x008000 /* it is for Async Glimpse Lock */
 #define LDLM_FL_DISCARD_DATA   0x010000 /* discard (no writeback) on cancel */
 
 #define LDLM_FL_NO_TIMEOUT     0x020000 /* Blocked by group lock - wait
@@ -174,8 +174,6 @@ typedef enum {
 /* optimization hint: LDLM can run blocking callback from current context
  * w/o involving separate thread. in order to decrease cs rate */
 #define LDLM_FL_ATOMIC_CB      0x4000000
-
-/* was LDLM_FL_ASYNC until 2.0.0 0x8000000 */
 
 /* It may happen that a client initiate 2 operations, e.g. unlink and mkdir,
  * such that server send blocking ast for conflict locks to this client for
@@ -784,6 +782,7 @@ struct ldlm_lock {
         cfs_list_t            l_sl_mode;
         cfs_list_t            l_sl_policy;
         struct lu_ref         l_reference;
+        int                   l_fail_value;
 #if LUSTRE_TRACKS_LOCK_EXP_REFS
         /* Debugging stuff for bug 20498, for tracking export
            references. */
@@ -1077,6 +1076,8 @@ void ldlm_lock_addref(struct lustre_handle *lockh, __u32 mode);
 int  ldlm_lock_addref_try(struct lustre_handle *lockh, __u32 mode);
 void ldlm_lock_decref(struct lustre_handle *lockh, __u32 mode);
 void ldlm_lock_decref_and_cancel(struct lustre_handle *lockh, __u32 mode);
+void ldlm_lock_fail_match_locked(struct ldlm_lock *lock, int rc);
+void ldlm_lock_fail_match(struct ldlm_lock *lock, int rc);
 void ldlm_lock_allow_match(struct ldlm_lock *lock);
 void ldlm_lock_allow_match_locked(struct ldlm_lock *lock);
 ldlm_mode_t ldlm_lock_match(struct ldlm_namespace *ns, int flags,
