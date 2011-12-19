@@ -1437,9 +1437,11 @@ stop:
  *
  * \see mdd_lma_set_locked().
  */
-static int __mdd_lma_set(const struct lu_env *env, struct mdd_object *mdd_obj,
+static int __mdd_lma_set(const struct lu_env *env, struct md_object *obj,
                        const struct md_attr *ma, struct thandle *handle)
 {
+struct mdd_object *mdd_obj = md2mdd_obj(obj);
+struct mdd_device *mdd = mdo2mdd(obj);
         struct mdd_thread_info *info = mdd_env_info(env);
         struct lu_buf *buf;
         struct lustre_mdt_attrs *lma =
@@ -1487,6 +1489,16 @@ static int __mdd_lma_set(const struct lu_env *env, struct mdd_object *mdd_obj,
         buf = mdd_buf_get(env, lma, lmasize);
         rc = __mdd_xattr_set(env, mdd_obj, buf, XATTR_NAME_LMA, 0, handle);
 
+	/* If we set some HSM values, add a changelog */
+	if (rc == 0 && ma->ma_valid & MA_HSM) {
+		int flags = 0;
+		hsm_set_cl_event(&flags, HE_STATE);
+		if (ma->ma_hsm.mh_flags & HS_DIRTY)
+			hsm_set_cl_flags(&flags, CLF_HSM_DIRTY);
+
+			rc = mdd_changelog_data_store(env, mdd, CL_HSM, flags,
+						      mdd_obj, handle);
+	}
         RETURN(rc);
 }
 
@@ -1498,13 +1510,14 @@ static int __mdd_lma_set(const struct lu_env *env, struct mdd_object *mdd_obj,
  *
  */
 static int mdd_lma_set_locked(const struct lu_env *env,
-                              struct mdd_object *mdd_obj,
-                              const struct md_attr *ma, struct thandle *handle)
+			      struct md_object *obj,
+			      const struct md_attr *ma, struct thandle *handle)
 {
+	struct mdd_object *mdd_obj = md2mdd_obj(obj);
         int rc;
 
         mdd_write_lock(env, mdd_obj, MOR_TGT_CHILD);
-        rc = __mdd_lma_set(env, mdd_obj, ma, handle);
+	rc = __mdd_lma_set(env, obj, ma, handle);
         mdd_write_unlock(env, mdd_obj);
         return rc;
 }
@@ -1571,6 +1584,10 @@ static int mdd_declare_attr_set(const struct lu_env *env,
                 buf->lb_len = sizeof(struct lustre_mdt_attrs);
                 rc = mdo_declare_xattr_set(env, obj, buf, XATTR_NAME_LMA,
                                            0, handle);
+		/* MA_HSM changes adds a changelog record */
+		if (rc == 0 && (ma->ma_valid & MA_HSM))
+			rc = mdd_declare_changelog_store(env, mdd, NULL,
+							 handle);
                 if (rc)
                         return rc;
         }
@@ -1767,7 +1784,7 @@ static int mdd_attr_set(const struct lu_env *env, struct md_object *obj,
 
                 mode = mdd_object_type(mdd_obj);
                 if (S_ISREG(mode))
-                        rc = mdd_lma_set_locked(env, mdd_obj, ma, handle);
+			rc = mdd_lma_set_locked(env, obj, ma, handle);
 
         }
 cleanup:
