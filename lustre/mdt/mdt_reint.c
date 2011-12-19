@@ -467,6 +467,40 @@ out_unlock:
         return rc;
 }
 
+/**
+ * Check HSM flags and add HS_DIRTY flag if relevant.
+ */
+int mdt_add_dirty_flag(struct mdt_thread_info *info, struct md_object *next,
+                       struct md_attr *ma)
+{
+        int rc;
+        ENTRY;
+
+        /* If the file was modified, add the dirty flag */
+        ma->ma_need = MA_HSM;
+        rc = mo_attr_get(info->mti_env, next, ma);
+        if (rc) {
+                CERROR("Could not read hsm file attributes.\n");
+                RETURN(rc);
+        }
+
+        /* If an up2date copy exists in the backend, add dirty flag */
+        if ((ma->ma_valid & MA_HSM) && (ma->ma_hsm.mh_flags & HS_EXISTS)
+            && !(ma->ma_hsm.mh_flags & (HS_DIRTY|HS_RELEASED))) {
+
+                ma->ma_valid = MA_HSM;
+                ma->ma_attr.la_valid = 0;
+                ma->ma_hsm.mh_flags |= HS_DIRTY;
+                rc = mo_attr_set(info->mti_env, next, ma);
+                if (rc) {
+                        CERROR("Could not change hsm file attributes.\n");
+                        RETURN(rc);
+                }
+        }
+
+        RETURN(rc);
+}
+
 static int mdt_reint_setattr(struct mdt_thread_info *info,
                              struct mdt_lock_handle *lhc)
 {
@@ -566,9 +600,13 @@ static int mdt_reint_setattr(struct mdt_thread_info *info,
                         GOTO(out_put, rc);
         }
 
+        /* If file data is modified, add the dirty flag */
+        next = mdt_object_child(mo);
+        if (ma->ma_attr_flags & MDS_DATA_MODIFIED)
+                rc = mdt_add_dirty_flag(info, next, ma);
+
         ma->ma_need = MA_INODE;
         ma->ma_valid = 0;
-        next = mdt_object_child(mo);
         rc = mo_attr_get(info->mti_env, next, ma);
         if (rc != 0)
                 GOTO(out_put, rc);
