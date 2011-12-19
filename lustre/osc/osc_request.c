@@ -3221,7 +3221,8 @@ static int osc_enqueue_fini(struct ptlrpc_request *req, struct ost_lvb *lvb,
                 }
         }
 
-        if ((intent && rc == ELDLM_LOCK_ABORTED) || !rc) {
+        if ((intent && rc == ELDLM_LOCK_ABORTED && !(*flags & LDLM_FL_AGL)) ||
+            !rc) {
                 *flags |= LDLM_FL_LVB_READY;
                 CDEBUG(D_INODE,"got kms "LPU64" blocks "LPU64" mtime "LPU64"\n",
                        lvb->lvb_size, lvb->lvb_blocks, lvb->lvb_mtime);
@@ -3239,6 +3240,9 @@ static int osc_enqueue_interpret(const struct lu_env *env,
         struct ldlm_lock *lock;
         struct lustre_handle handle;
         __u32 mode;
+        struct ost_lvb *lvb;
+        __u32 lvb_len;
+        int *flags = aa->oa_flags;
 
         /* Make a local copy of a lock handle and a mode, because aa->oa_*
          * might be freed anytime after lock upcall has been called. */
@@ -3258,13 +3262,20 @@ static int osc_enqueue_interpret(const struct lu_env *env,
         /* Let CP AST to grant the lock first. */
         OBD_FAIL_TIMEOUT(OBD_FAIL_OSC_CP_ENQ_RACE, 1);
 
+        if ((*flags & LDLM_FL_AGL) && (rc == ELDLM_LOCK_ABORTED)) {
+                lvb = NULL;
+                lvb_len = 0;
+        } else {
+                lvb = aa->oa_lvb;
+                lvb_len = sizeof(*aa->oa_lvb);
+        }
+
         /* Complete obtaining the lock procedure. */
         rc = ldlm_cli_enqueue_fini(aa->oa_exp, req, aa->oa_ei->ei_type, 1,
-                                   mode, aa->oa_flags, aa->oa_lvb,
-                                   sizeof(*aa->oa_lvb), &handle, rc);
+                                   mode, flags, lvb, lvb_len, &handle, rc);
         /* Complete osc stuff. */
         rc = osc_enqueue_fini(req, aa->oa_lvb,
-                              aa->oa_upcall, aa->oa_cookie, aa->oa_flags, rc);
+                              aa->oa_upcall, aa->oa_cookie, flags, rc);
 
         OBD_FAIL_TIMEOUT(OBD_FAIL_OSC_CP_CANCEL_RACE, 10);
 
@@ -3288,8 +3299,9 @@ void osc_update_enqueue(struct lustre_handle *lov_lockhp,
                         struct lov_oinfo *loi, int flags,
                         struct ost_lvb *lvb, __u32 mode, int rc)
 {
+        struct ldlm_lock *lock = ldlm_handle2lock(lov_lockhp);
+
         if (rc == ELDLM_OK) {
-                struct ldlm_lock *lock = ldlm_handle2lock(lov_lockhp);
                 __u64 tmp;
 
                 LASSERT(lock != NULL);
@@ -3310,12 +3322,20 @@ void osc_update_enqueue(struct lustre_handle *lov_lockhp,
                                    lock->l_policy_data.l_extent.end);
                 }
                 ldlm_lock_allow_match(lock);
-                LDLM_LOCK_PUT(lock);
         } else if (rc == ELDLM_LOCK_ABORTED && (flags & LDLM_FL_HAS_INTENT)) {
+                LASSERT(lock != NULL);
                 loi->loi_lvb = *lvb;
+                ldlm_lock_allow_match(lock);
                 CDEBUG(D_INODE, "glimpsed, setting rss="LPU64"; leaving"
                        " kms="LPU64"\n", loi->loi_lvb.lvb_size, loi->loi_kms);
                 rc = ELDLM_OK;
+        }
+
+        if (lock != NULL) {
+                if (rc != ELDLM_OK)
+                        ldlm_lock_fail_match(lock, rc);
+
+                LDLM_LOCK_PUT(lock);
         }
 }
 EXPORT_SYMBOL(osc_update_enqueue);
@@ -3379,7 +3399,16 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
         if (mode) {
                 struct ldlm_lock *matched = ldlm_handle2lock(lockh);
 
-                if (osc_set_lock_data_with_check(matched, einfo)) {
+                if ((*flags & LDLM_FL_AGL) &&
+                    !(matched->l_flags & LDLM_FL_LVB_READY)) {
+                        /* For AGL, if enqueue RPC is sent but the lock is not
+                         * granted, then skip to process this strpe.
+                         * Return -ECANCELED to tell the caller. */
+                        ldlm_lock_decref(lockh, mode);
+                        LDLM_LOCK_PUT(matched);
+                        RETURN(-ECANCELED);
+                } else if (osc_set_lock_data_with_check(matched, einfo)) {
+                        *flags |= LDLM_FL_LVB_READY;
                         /* addref the lock only if not async requests and PW
                          * lock is matched whereas we asked for PR. */
                         if (!rqset && einfo->ei_mode != mode)
@@ -3393,16 +3422,17 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
                         /* We already have a lock, and it's referenced */
                         (*upcall)(cookie, ELDLM_OK);
 
-                        /* For async requests, decref the lock. */
                         if (einfo->ei_mode != mode)
                                 ldlm_lock_decref(lockh, LCK_PW);
                         else if (rqset)
+                                /* For async requests, decref the lock. */
                                 ldlm_lock_decref(lockh, einfo->ei_mode);
                         LDLM_LOCK_PUT(matched);
                         RETURN(ELDLM_OK);
-                } else
+                } else {
                         ldlm_lock_decref(lockh, mode);
-                LDLM_LOCK_PUT(matched);
+                        LDLM_LOCK_PUT(matched);
+                }
         }
 
  no_match:
