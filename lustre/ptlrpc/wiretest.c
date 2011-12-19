@@ -1940,10 +1940,10 @@ void lustre_assert_wire_constants(void)
                  (long long)(int)offsetof(struct mdt_rec_setattr, sa_mode));
         LASSERTF((int)sizeof(((struct mdt_rec_setattr *)0)->sa_mode) == 4, "found %lld\n",
                  (long long)(int)sizeof(((struct mdt_rec_setattr *)0)->sa_mode));
-        LASSERTF((int)offsetof(struct mdt_rec_setattr, sa_padding_2) == 120, "found %lld\n",
-                 (long long)(int)offsetof(struct mdt_rec_setattr, sa_padding_2));
-        LASSERTF((int)sizeof(((struct mdt_rec_setattr *)0)->sa_padding_2) == 4, "found %lld\n",
-                 (long long)(int)sizeof(((struct mdt_rec_setattr *)0)->sa_padding_2));
+        LASSERTF((int)offsetof(struct mdt_rec_setattr, sa_bias) == 120, "found %lld\n",
+                 (long long)(int)offsetof(struct mdt_rec_setattr, sa_bias));
+        LASSERTF((int)sizeof(((struct mdt_rec_setattr *)0)->sa_bias) == 4, "found %lld\n",
+                 (long long)(int)sizeof(((struct mdt_rec_setattr *)0)->sa_bias));
         LASSERTF((int)offsetof(struct mdt_rec_setattr, sa_padding_3) == 124, "found %lld\n",
                  (long long)(int)offsetof(struct mdt_rec_setattr, sa_padding_3));
         LASSERTF((int)sizeof(((struct mdt_rec_setattr *)0)->sa_padding_3) == 4, "found %lld\n",

@@ -587,6 +587,7 @@ static struct vm_operations_struct ll_file_vm_ops = {
 int ll_file_mmap(struct file *file, struct vm_area_struct * vma)
 {
         struct inode *inode = file->f_dentry->d_inode;
+        struct ll_inode_info *lli = ll_i2info(inode);
         int rc;
         ENTRY;
 
@@ -602,6 +603,16 @@ int ll_file_mmap(struct file *file, struct vm_area_struct * vma)
 #endif
                 vma->vm_ops = &ll_file_vm_ops;
                 vma->vm_ops->open(vma);
+
+                /* We cannot easily track actual modification to memory pages
+                 * so we consider the file as modified if write access is
+                 * specified. */
+                if (vma->vm_flags & VM_WRITE) {
+                        cfs_spin_lock(&lli->lli_lock);
+                        lli->lli_flags |= LLIF_DATA_MODIFIED;
+                        cfs_spin_unlock(&lli->lli_lock);
+                }
+
                 /* update the inode's size and mtime */
                 rc = ll_glimpse_size(inode);
         }
