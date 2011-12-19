@@ -1611,6 +1611,23 @@ AC_DEFUN([LC_EXPORT_BDI_INIT],
 ])
 ])
 
+# 2.6.24 add sg_assign_page
+# in kernel 642f149031d70415d9318b919d50b71e4724adbd
+AC_DEFUN([LC_SCATTERLIST_ASSIGNPAGE],
+[AC_MSG_CHECKING([if kernel has sg_assign_page])
+        LB_LINUX_TRY_COMPILE([
+                #include <linux/scatterlist.h>
+        ],[
+                sg_assign_page(NULL,NULL);
+        ],[
+                AC_MSG_RESULT(yes)
+                AC_DEFINE(HAVE_SCATTERLIST_ASSIGNPAGE, 1,
+                          [kernel has sg_assign_page])
+        ],[
+                AC_MSG_RESULT(NO)
+        ])
+])
+
 # 2.6.25
 
 # 2.6.25 change define to inline
@@ -2242,6 +2259,7 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_FH_TO_DENTRY
          LC_PROCFS_DELETED
          LC_EXPORT_BDI_INIT
+         LC_SCATTERLIST_ASSIGNPAGE
 
          #2.6.25
          LC_MAPPING_CAP_WRITEBACK_DIRTY

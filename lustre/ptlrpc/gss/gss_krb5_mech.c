@@ -58,6 +58,7 @@
 #include <linux/slab.h>
 #include <linux/crypto.h>
 #include <linux/mutex.h>
+#include <linux/scatterlist.h>
 #else
 #include <liblustre.h>
 #endif
@@ -75,6 +76,13 @@
 #include "gss_api.h"
 #include "gss_asn1.h"
 #include "gss_krb5.h"
+
+#ifndef HAVE_SCATTERLIST_ASSIGNPAGE
+static inline void sg_assign_page(struct scatterlist *sg, struct page *page)
+{
+        sg->page = page;
+}
+#endif
 
 static cfs_spinlock_t krb5_seq_lock;
 
@@ -532,9 +540,7 @@ void gss_delete_sec_context_kerberos(void *internal_ctx)
 static
 void buf_to_sg(struct scatterlist *sg, void *ptr, int len)
 {
-        sg->page = virt_to_page(ptr);
-        sg->offset = offset_in_page(ptr);
-        sg->length = len;
+        sg_set_page(sg, virt_to_page(ptr), len, offset_in_page(ptr));
 }
 
 static
@@ -611,9 +617,8 @@ int krb5_digest_hmac(struct ll_crypto_hash *tfm,
         for (i = 0; i < iovcnt; i++) {
                 if (iovs[i].kiov_len == 0)
                         continue;
-                sg[0].page = iovs[i].kiov_page;
-                sg[0].offset = iovs[i].kiov_offset;
-                sg[0].length = iovs[i].kiov_len;
+                sg_set_page(&sg[0], iovs[i].kiov_page, iovs[i].kiov_len,
+                            iovs[i].kiov_offset);
                 ll_crypto_hash_update(&desc, sg, iovs[i].kiov_len);
         }
 
@@ -650,9 +655,8 @@ int krb5_digest_hmac(struct ll_crypto_hash *tfm,
         for (i = 0; i < iovcnt; i++) {
                 if (iovs[i].kiov_len == 0)
                         continue;
-                sg[0].page = iovs[i].kiov_page;
-                sg[0].offset = iovs[i].kiov_offset;
-                sg[0].length = iovs[i].kiov_len;
+                sg_set_page(&sg[0], iovs[i].kiov_page, iovs[i].kiov_len,
+                            iovs[i].kiov_offset);
                 crypto_hmac_update(tfm, sg, 1);
         }
 
@@ -695,9 +699,8 @@ int krb5_digest_norm(struct ll_crypto_hash *tfm,
         for (i = 0; i < iovcnt; i++) {
                 if (iovs[i].kiov_len == 0)
                         continue;
-                sg[0].page = iovs[i].kiov_page;
-                sg[0].offset = iovs[i].kiov_offset;
-                sg[0].length = iovs[i].kiov_len;
+                sg_set_page(&sg[0], iovs[i].kiov_page, iovs[i].kiov_len,
+                            iovs[i].kiov_offset);
                 ll_crypto_hash_update(&desc, sg, iovs[i].kiov_len);
         }
 
@@ -1022,17 +1025,16 @@ int krb5_encrypt_bulk(struct ll_crypto_cipher *tfm,
 
         /* encrypt clear pages */
         for (i = 0; i < desc->bd_iov_count; i++) {
-                src.page = desc->bd_iov[i].kiov_page;
-                src.offset = desc->bd_iov[i].kiov_offset;
-                src.length = (desc->bd_iov[i].kiov_len + blocksize - 1) &
-                             (~(blocksize - 1));
+                sg_set_page(&src, desc->bd_iov[i].kiov_page,
+                            (desc->bd_iov[i].kiov_len + blocksize - 1) &
+                            (~(blocksize - 1)),
+                            desc->bd_iov[i].kiov_offset);
 
                 if (adj_nob)
                         nob += src.length;
 
-                dst.page = desc->bd_enc_iov[i].kiov_page;
-                dst.offset = src.offset;
-                dst.length = src.length;
+                sg_set_page(&dst, desc->bd_enc_iov[i].kiov_page, src.length,
+                            src.offset);
 
                 desc->bd_enc_iov[i].kiov_offset = dst.offset;
                 desc->bd_enc_iov[i].kiov_len = dst.length;
@@ -1149,13 +1151,13 @@ int krb5_decrypt_bulk(struct ll_crypto_cipher *tfm,
                 if (desc->bd_enc_iov[i].kiov_len == 0)
                         continue;
 
-                src.page = desc->bd_enc_iov[i].kiov_page;
-                src.offset = desc->bd_enc_iov[i].kiov_offset;
-                src.length = desc->bd_enc_iov[i].kiov_len;
+                sg_set_page(&src, desc->bd_enc_iov[i].kiov_page,
+                            desc->bd_enc_iov[i].kiov_len,
+                            desc->bd_enc_iov[i].kiov_offset);
 
                 dst = src;
                 if (desc->bd_iov[i].kiov_len % blocksize == 0)
-                        dst.page = desc->bd_iov[i].kiov_page;
+                        sg_assign_page(&dst, desc->bd_iov[i].kiov_page);
 
                 rc = ll_crypto_blkcipher_decrypt_iv(&ciph_desc, &dst, &src,
                                                     src.length);
