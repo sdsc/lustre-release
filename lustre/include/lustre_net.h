@@ -445,7 +445,11 @@ struct ptlrpc_hpreq_ops {
         /**
          * Check if the request is a high priority one.
          */
-        int  (*hpreq_check)(struct ptlrpc_request *);
+        int  (*hpreq_init)(struct ptlrpc_request *);
+        /**
+         * Called after the request has been handled.
+         */
+        void (*hpreq_fini)(struct ptlrpc_request *);
 };
 
 /**
