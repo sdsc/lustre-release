@@ -624,8 +624,8 @@ static int ost_prolong_locks_iter(struct ldlm_lock *lock, void *data)
                 return LDLM_ITER_CONTINUE;
         }
 
-        if (lock->l_policy_data.l_extent.end < opd->opd_policy.l_extent.start ||
-            lock->l_policy_data.l_extent.start > opd->opd_policy.l_extent.end) {
+        if (!ldlm_extent_overlap(&lock->l_policy_data.l_extent,
+                                 &opd->opd_policy.l_extent)) {
                 /* the request doesn't cross the lock, skip it */
                 return LDLM_ITER_CONTINUE;
         }
@@ -685,22 +685,17 @@ static int ost_rw_prolong_locks(struct ptlrpc_request *req, struct obd_ioobj *ob
         if (oa->o_valid & OBD_MD_FLHANDLE) {
                 struct ldlm_lock *lock;
 
+                /* mostly a request should be covered by only one lock, try
+                 * fast path. */
                 lock = ldlm_handle2lock(&oa->o_handle);
                 if (lock != NULL) {
-                        ost_prolong_locks_iter(lock, &opd);
-                        if (opd.opd_lock_match) {
-                                LDLM_LOCK_PUT(lock);
-                                RETURN(1);
-                        }
-
                         /* Check if the lock covers the whole IO region,
                          * otherwise iterate through the resource. */
-                        if (lock->l_policy_data.l_extent.end >=
-                            opd.opd_policy.l_extent.end &&
-                            lock->l_policy_data.l_extent.start <=
-                            opd.opd_policy.l_extent.start) {
+                        if (ldlm_extent_contain(&lock->l_policy_data.l_extent,
+                                                &opd.opd_policy.l_extent)) {
+                                ost_prolong_locks_iter(lock, &opd);
                                 LDLM_LOCK_PUT(lock);
-                                RETURN(0);
+                                RETURN(opd.opd_lock_match);
                         }
                         LDLM_LOCK_PUT(lock);
                 }
@@ -1816,6 +1811,7 @@ static int ost_rw_hpreq_lock_match(struct ptlrpc_request *req,
         if (opc == OST_READ)
                 mode |= LCK_PR;
 
+        LASSERT(objcount == 1);
         start = nb[0].offset & CFS_PAGE_MASK;
         end = (nb[ioo->ioo_bufcnt - 1].offset +
                nb[ioo->ioo_bufcnt - 1].len - 1) | ~CFS_PAGE_MASK;
