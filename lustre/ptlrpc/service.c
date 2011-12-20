@@ -67,6 +67,7 @@ CFS_MODULE_PARM(at_extra, "i", int, 0644,
 
 /* forward ref */
 static int ptlrpc_server_post_idle_rqbds (struct ptlrpc_service *svc);
+static void ptlrpc_hpreq_fini(struct ptlrpc_request *req);
 
 static CFS_LIST_HEAD(ptlrpc_all_services);
 cfs_spinlock_t ptlrpc_all_services_lock;
@@ -735,6 +736,8 @@ void ptlrpc_server_drop_request(struct ptlrpc_request *req)
 static void ptlrpc_server_finish_request(struct ptlrpc_service *svc,
                                          struct ptlrpc_request *req)
 {
+        ptlrpc_hpreq_fini(req);
+
         cfs_spin_lock(&svc->srv_rq_lock);
         svc->srv_n_active_reqs--;
         if (req->rq_hp)
@@ -1220,7 +1223,7 @@ static int ptlrpc_hpreq_init(struct ptlrpc_service *svc,
         if (req->rq_export && req->rq_ops) {
                 cfs_spin_lock_bh(&req->rq_export->exp_rpc_lock);
                 cfs_list_add(&req->rq_exp_list,
-                             &req->rq_export->exp_queued_rpc);
+                             &req->rq_export->exp_hp_rpcs);
                 cfs_spin_unlock_bh(&req->rq_export->exp_rpc_lock);
         }
 
@@ -1262,7 +1265,7 @@ static void ptlrpc_hpreq_reorder_nolock(struct ptlrpc_service *svc,
                 cfs_list_move_tail(&req->rq_list, &svc->srv_request_hpq);
                 req->rq_hp = 1;
                 if (opc != OBD_PING)
-                        DEBUG_REQ(D_NET, req, "high priority req");
+                        DEBUG_REQ(D_RPCTRACE, req, "high priority req");
         }
         cfs_spin_unlock(&req->rq_lock);
         EXIT;
@@ -1643,8 +1646,6 @@ ptlrpc_server_handle_request(struct ptlrpc_service *svc,
          * the request is under processing (see ptlrpc_hpreq_reorder()). */
         ptlrpc_rqphase_move(request, RQ_PHASE_INTERPRET);
         cfs_spin_unlock(&svc->srv_rq_lock);
-
-        ptlrpc_hpreq_fini(request);
 
         if(OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_DUMP_LOG))
                 libcfs_debug_dumplog();
@@ -2700,7 +2701,6 @@ int ptlrpc_unregister_service(struct ptlrpc_service *service)
                 req = ptlrpc_server_request_get(service, 1);
                 cfs_list_del(&req->rq_list);
                 service->srv_n_active_reqs++;
-                ptlrpc_hpreq_fini(req);
                 ptlrpc_server_finish_request(service, req);
         }
         LASSERT(service->srv_n_queued_reqs == 0);
