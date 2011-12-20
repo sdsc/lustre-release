@@ -1968,7 +1968,8 @@ ptlrpc_retry_rqbds(void *arg)
 static inline int
 ptlrpc_threads_enough(struct ptlrpc_service *svc)
 {
-	return svc->srv_n_active_reqs <
+	return svc->srv_threads_running >= svc->srv_threads_min &&
+	       svc->srv_n_active_reqs <
 	       svc->srv_threads_running - 1 -
 	       (svc->srv_ops.so_hpreq_handler != NULL);
 }
