@@ -2370,9 +2370,10 @@ ptlrpc_retry_rqbds(void *arg)
 static inline int
 ptlrpc_threads_enough(struct ptlrpc_service_part *svcpt)
 {
-	return svcpt->scp_nreqs_active <
-	       svcpt->scp_nthrs_running - 1 -
-	       (svcpt->scp_service->srv_ops.so_hpreq_handler != NULL);
+	return svcpt->srv_threads_running >= svcpt->srv_threads_min &&
+	       svcpt->srv_n_active_reqs <
+		svcpt->srv_threads_running - 1 -
+		(svcpt->scp_service->srv_ops.so_hpreq_handler != NULL);
 }
 
 /**
