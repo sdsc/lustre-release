@@ -28,6 +28,8 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2011 Whamcloud, Inc.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -251,7 +253,7 @@ extern struct req_msg_field RMF_LDLM_INTENT;
 extern struct req_msg_field RMF_MDT_MD;
 extern struct req_msg_field RMF_REC_REINT;
 extern struct req_msg_field RMF_EADATA;
-extern struct req_msg_field RMF_ACL;
+extern struct req_msg_field RMF_PACKAGED_XATTR;
 extern struct req_msg_field RMF_LOGCOOKIES;
 extern struct req_msg_field RMF_CAPA1;
 extern struct req_msg_field RMF_CAPA2;
