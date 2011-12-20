@@ -137,7 +137,7 @@ struct ll_inode_info {
         __u64                   lli_ioepoch;
         unsigned long           lli_flags;
 
-        /* this lock protects posix_acl, pending_write_llaps, mmap_cnt */
+        /* this lock protects {posix,def}_acl, pending_write_llaps, mmap_cnt */
         cfs_spinlock_t          lli_lock;
         cfs_list_t              lli_close_list;
         /* handle is to be sent to MDS later on done_writing and setattr.
@@ -150,6 +150,8 @@ struct ll_inode_info {
         int                     lli_write_rc;
 
         struct posix_acl       *lli_posix_acl;
+        struct posix_acl       *lli_def_acl;
+        enum packaged_xattr_type lli_pxt_valid;
 
         /* remote permission hash */
         cfs_hlist_head_t       *lli_remote_perms;
@@ -330,6 +332,7 @@ enum stats_track_type {
 #define LL_SBI_SOM_PREVIEW     0x1000 /* SOM preview mount option */
 #define LL_SBI_32BIT_API       0x2000 /* generate 32 bit inodes. */
 #define LL_SBI_64BIT_HASH      0x4000 /* support 64-bits dir hash/offset */
+#define LL_SBI_PACKAGED_XATTR  0x8000 /* support packaged xattr */
 
 /* default value for ll_sb_info->contention_time */
 #define SBI_DEFAULT_CONTENTION_SECONDS     60

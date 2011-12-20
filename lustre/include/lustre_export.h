@@ -28,6 +28,8 @@
 /*
  * Copyright (c) 2002, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2011 Whamcloud, Inc.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -299,6 +301,14 @@ static inline int client_is_remote(struct obd_export *exp)
 
         return !!(imp->imp_connect_data.ocd_connect_flags &
                   OBD_CONNECT_RMT_CLIENT);
+}
+
+static inline int packaged_xattr_enabled(struct obd_export *exp)
+{
+        struct obd_import *imp = class_exp2cliimp(exp);
+
+        return !!(imp->imp_connect_data.ocd_connect_flags &
+                  OBD_CONNECT_PACKAGED_XATTR);
 }
 
 static inline int exp_connect_vbr(struct obd_export *exp)
