@@ -264,7 +264,7 @@ static int ldlm_lock_busy(struct ldlm_lock *lock)
                 return 0;
 
         cfs_spin_lock_bh(&lock->l_export->exp_rpc_lock);
-        cfs_list_for_each_entry(req, &lock->l_export->exp_queued_rpc,
+        cfs_list_for_each_entry(req, &lock->l_export->exp_hp_rpcs,
                                 rq_exp_list) {
                 if (req->rq_ops->hpreq_lock_match) {
                         match = req->rq_ops->hpreq_lock_match(req, lock);
@@ -704,7 +704,7 @@ static void ldlm_lock_reorder_req(struct ldlm_lock *lock)
         }
 
         cfs_spin_lock_bh(&lock->l_export->exp_rpc_lock);
-        cfs_list_for_each_entry(req, &lock->l_export->exp_queued_rpc,
+        cfs_list_for_each_entry(req, &lock->l_export->exp_hp_rpcs,
                                 rq_exp_list) {
                 if (!req->rq_hp && req->rq_ops->hpreq_lock_match &&
                     req->rq_ops->hpreq_lock_match(req, lock))
@@ -2208,6 +2208,7 @@ static int ldlm_bl_thread_start(struct ldlm_bl_pool *blp)
 static int ldlm_bl_thread_main(void *arg)
 {
         struct ldlm_bl_pool *blp;
+        bool busy = false;
         ENTRY;
 
         {
@@ -2232,31 +2233,31 @@ static int ldlm_bl_thread_main(void *arg)
                 struct ldlm_bl_work_item *blwi = NULL;
 
                 blwi = ldlm_bl_get_work(blp);
-
                 if (blwi == NULL) {
-                        int busy;
-
+                        busy = false;
                         cfs_atomic_dec(&blp->blp_busy_threads);
                         l_wait_event_exclusive(blp->blp_waitq,
                                          (blwi = ldlm_bl_get_work(blp)) != NULL,
                                          &lwi);
-                        busy = cfs_atomic_inc_return(&blp->blp_busy_threads);
+                }
+                if (blwi->blwi_ns == NULL) /* added by ldlm_cleanup(), exit. */
+                        break;
 
-                        if (blwi->blwi_ns == NULL)
-                                /* added by ldlm_cleanup() */
-                                break;
+                /* We better start new thread before handling this work to avoid
+                 * being stuck somewhere during the process. -Jinshan */
+                if (!busy) {
+                        int threads;
 
+                        busy = true;
+                        threads = cfs_atomic_inc_return(&blp->blp_busy_threads);
                         /* Not fatal if racy and have a few too many threads */
-                        if (unlikely(busy < blp->blp_max_threads &&
-                            busy >= cfs_atomic_read(&blp->blp_num_threads) &&
-                            !blwi->blwi_mem_pressure))
+                        if (threads < blp->blp_max_threads &&
+                            threads >= cfs_atomic_read(&blp->blp_num_threads) &&
+                            !blwi->blwi_mem_pressure)
                                 /* discard the return value, we tried */
                                 ldlm_bl_thread_start(blp);
-                } else {
-                        if (blwi->blwi_ns == NULL)
-                                /* added by ldlm_cleanup() */
-                                break;
                 }
+
                 if (blwi->blwi_mem_pressure)
                         cfs_memory_pressure_set();
 
