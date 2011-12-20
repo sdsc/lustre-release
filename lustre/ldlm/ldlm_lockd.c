@@ -709,8 +709,12 @@ static void ldlm_lock_reorder_req(struct ldlm_lock *lock)
         cfs_list_for_each_entry(req, &lock->l_export->exp_queued_rpc,
                                 rq_exp_list) {
                 if (!req->rq_hp && req->rq_ops->hpreq_lock_match &&
-                    req->rq_ops->hpreq_lock_match(req, lock))
+                    req->rq_ops->hpreq_lock_match(req, lock)) {
+                        DEBUG_REQ(D_RPCTRACE, req,
+                                  "raise req prio for lock: %p/"LPX64,
+                                  lock, lock->l_handle.h_cookie);
                         ptlrpc_hpreq_reorder(req);
+                }
         }
         cfs_spin_unlock_bh(&lock->l_export->exp_rpc_lock);
         EXIT;
