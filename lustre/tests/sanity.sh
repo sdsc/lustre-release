@@ -2694,11 +2694,19 @@ test_42e() { # bug22074
 	sync
 	$LCTL get_param $proc_osc0/rpc_stats
 
+	local percent=0
 	$LCTL get_param $proc_osc0/rpc_stats |
 		while read PPR RRPC RPCT RCUM BAR WRPC WPCT WCUM; do
-			[ "$PPR" != "16:" ] && continue
-			[ $WPCT -lt 85 ] && error "$pages-page write RPCs only $WPCT% < 85%"
-			break # we only want the "pages per rpc" stat
+			# we only want the percent stat for < 16 pages 
+			if [ "$PPR" == "16:" ]; then
+				[ $percent -gt 15 ] &&
+				    error "less than $pages-page write RPCs" \
+				          "$percent% > 15%"
+				break
+			fi
+			[ "$PPR" != "1:" -a "$PPR" != "2:" -a \
+			  "$PPR" != "4:" -a "$PPR" != "8:" ] && continue
+			percent=$(($percent+ $WPCT))
 		done
 	rm -rf $TDIR
 }
