@@ -2644,7 +2644,7 @@ run_test 42d "test complete truncate of file with cached dirty data"
 test_42e() { # bug22074
 	local TDIR=$DIR/${tdir}e
 	local pagesz=$(page_size)
-	local pages=16
+	local pages=16 # hardcoded 16 pages, don't change it.
 	local files=$((OSTCOUNT * 500))	# hopefully 500 files on each OST
 	local proc_osc0="osc.${FSNAME}-OST0000-osc-[^MDT]*"
 	local max_dirty_mb
@@ -2694,13 +2694,23 @@ test_42e() { # bug22074
 	sync
 	$LCTL get_param $proc_osc0/rpc_stats
 
-	$LCTL get_param $proc_osc0/rpc_stats |
-		while read PPR RRPC RPCT RCUM BAR WRPC WPCT WCUM; do
-			[ "$PPR" != "16:" ] && continue
-			[ $WPCT -lt 85 ] && error "$pages-page write RPCs only $WPCT% < 85%"
-			break # we only want the "pages per rpc" stat
-		done
-	rm -rf $TDIR
+        local percent=0
+        $LCTL get_param $proc_osc0/rpc_stats |
+                while read PPR RRPC RPCT RCUM BAR WRPC WPCT WCUM; do
+                        # we only want the percent stat for < 16 pages
+                        [ "$PPR" == "16:" ] && break
+
+                        [ "$PPR" != "1:" -a "$PPR" != "2:" -a \
+                          "$PPR" != "4:" -a "$PPR" != "8:" ] && continue
+
+                        percent=$((percent + WPCT))
+                        if [ $percent -gt 15 ]; then
+                                error "less than 16-pages write RPCs" \
+                                      "$percent% > 15%"
+                                break
+                        fi
+                done
+        rm -rf $TDIR
 }
 run_test 42e "verify sub-RPC writes are not done synchronously"
 
