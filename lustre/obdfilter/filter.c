@@ -2061,7 +2061,7 @@ int filter_common_setup(struct obd_device *obd, struct lustre_cfg* lcfg,
         cfs_sema_init(&filter->fo_alloc_lock, 1);
         init_brw_stats(&filter->fo_filter_stats);
         cfs_spin_lock_init(&filter->fo_flags_lock);
-        filter->fo_read_cache = 1; /* enable read-only cache by default */
+        filter->fo_read_cache = 0; /* enable read-only cache by default */
         filter->fo_writethrough_cache = 1; /* enable writethrough cache */
         filter->fo_readcache_max_filesize = FILTER_MAX_CACHE_SIZE;
         filter->fo_fmd_max_num = FILTER_FMD_MAX_NUM_DEFAULT;
@@ -3369,8 +3369,10 @@ out_unlock:
 
         if (ia_valid & (ATTR_SIZE | ATTR_UID | ATTR_GID))
                 UNLOCK_INODE_MUTEX(inode);
-        if (ia_valid & ATTR_SIZE)
+        if (ia_valid & ATTR_SIZE) {
+                filter_clear_truncated_page(inode);
                 up_write(&inode->i_alloc_sem);
+        }
         if (fcc)
                 OBD_FREE(fcc, sizeof(*fcc));
 

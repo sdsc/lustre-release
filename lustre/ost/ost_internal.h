@@ -59,6 +59,7 @@ struct ost_thread_local_cache {
          * pool of nio buffers used by write-path
          */
         struct niobuf_local   local[OST_THREAD_POOL_SIZE];
+        struct page           *page[OST_THREAD_POOL_SIZE];
         unsigned int          temporary:1;
 };
 

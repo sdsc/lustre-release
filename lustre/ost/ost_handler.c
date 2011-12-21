@@ -736,6 +736,54 @@ static struct ost_thread_local_cache *ost_tls_get(struct ptlrpc_request *r)
         return  tls;
 }
 
+/*
+ * populate @nio by @nrpages pages from per-thread page pool
+ */
+static void ost_nio_pages_get(struct ptlrpc_request *req,
+                              struct niobuf_local *nio, int nrpages)
+{
+        int i;
+        struct ost_thread_local_cache *tls;
+
+        ENTRY;
+
+        LASSERT(nrpages <= OST_THREAD_POOL_SIZE);
+        LASSERT(req != NULL);
+        LASSERT(req->rq_svc_thread != NULL);
+
+        tls = ost_tls(req);
+        LASSERT(tls != NULL);
+
+        memset(nio, 0, nrpages * sizeof *nio);
+        for (i = 0; i < nrpages; ++ i) {
+                struct page *page;
+
+                page = tls->page[i];
+                LASSERT(page != NULL);
+                POISON_PAGE(page, 0xf1);
+                nio[i].page = page;
+                LL_CDEBUG_PAGE(D_INFO, page, "%d\n", i);
+        }
+        EXIT;
+}
+
+/*
+ * Dual for ost_nio_pages_get(). Poison pages in pool for debugging
+ */
+static void ost_nio_pages_put(struct ptlrpc_request *req,
+                              struct niobuf_local *nio, int nrpages)
+{
+        int i;
+
+        ENTRY;
+
+        LASSERT(nrpages <= OST_THREAD_POOL_SIZE);
+
+        for (i = 0; i < nrpages; ++ i)
+                POISON_PAGE(nio[i].page, 0xf2);
+        EXIT;
+}
+
 /* Free thread local buffers if they were allocated only for servicing
  * this one request */
 static void ost_tls_put(struct ptlrpc_request *r)
@@ -824,6 +872,7 @@ static int ost_brw_read(struct ptlrpc_request *req, struct obd_trans_info *oti)
                 GOTO(out_bulk, rc = -ENOMEM);
         local_nb = tls->local;
 
+        ost_nio_pages_get(req, local_nb, OST_THREAD_POOL_SIZE);
         rc = ost_brw_lock_get(LCK_PR, exp, ioo, remote_nb, &lockh);
         if (rc != 0)
                 GOTO(out_tls, rc);
@@ -915,6 +964,8 @@ out_commitrw:
                 memcpy(&repbody->oa, &body->oa, sizeof(repbody->oa));
                 ost_drop_id(exp, &repbody->oa);
         }
+
+        ost_nio_pages_put(req, local_nb, npages);
 
 out_lock:
         ost_brw_lock_put(LCK_PR, ioo, remote_nb, &lockh);
@@ -1034,6 +1085,7 @@ static int ost_brw_write(struct ptlrpc_request *req, struct obd_trans_info *oti)
                 GOTO(out_bulk, rc = -ENOMEM);
         local_nb = tls->local;
 
+        ost_nio_pages_get(req, local_nb, OST_THREAD_POOL_SIZE);
         rc = ost_brw_lock_get(LCK_PW, exp, ioo, remote_nb, &lockh);
         if (rc != 0)
                 GOTO(out_tls, rc);
@@ -1141,6 +1193,8 @@ skip_transfer:
                 repbody->oa.o_uid = o_uid;
                 repbody->oa.o_gid = o_gid;
         }
+
+        ost_nio_pages_put(req, local_nb, npages);
 
         /*
          * Disable sending mtime back to the client. If the client locked the
@@ -2371,6 +2425,11 @@ static void ost_thread_done(struct ptlrpc_thread *thread)
          */
         tls = thread->t_data;
         if (tls != NULL) {
+                int i;
+                for (i = 0; i < OST_THREAD_POOL_SIZE; ++ i) {
+                        if (tls->page[i] != NULL)
+                                OBD_PAGE_FREE(tls->page[i]);
+                }
                 OBD_FREE_PTR(tls);
                 thread->t_data = NULL;
         }
@@ -2383,6 +2442,8 @@ static void ost_thread_done(struct ptlrpc_thread *thread)
 static int ost_thread_init(struct ptlrpc_thread *thread)
 {
         struct ost_thread_local_cache *tls;
+        int result;
+        int i;
 
         ENTRY;
 
@@ -2391,10 +2452,24 @@ static int ost_thread_init(struct ptlrpc_thread *thread)
         LASSERTF(thread->t_id <= OSS_THREADS_MAX, "%u\n", thread->t_id);
 
         OBD_ALLOC_PTR(tls);
-        if (tls == NULL)
-                RETURN(-ENOMEM);
-        thread->t_data = tls;
-        RETURN(0);
+        if (tls != NULL) {
+                result = 0;
+                thread->t_data = tls;
+                /*
+                 * populate pool
+                 */
+                for (i = 0; i < OST_THREAD_POOL_SIZE; ++ i) {
+                        OBD_PAGE_ALLOC(tls->page[i], OST_THREAD_POOL_GFP);
+                        if (tls->page[i] == NULL) {
+                                ost_thread_done(thread);
+                                result = -ENOMEM;
+                                break;
+                        }
+                }
+        } else
+                result = -ENOMEM;
+
+        RETURN(result);
 }
 
 #define OST_WATCHDOG_TIMEOUT (obd_timeout * 1000)

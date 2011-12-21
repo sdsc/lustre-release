@@ -283,6 +283,11 @@ static int lprocfs_filter_wr_cache(struct file *file, const char *buffer,
         int val, rc;
         LASSERT(obd != NULL);
 
+        CERROR("read cache is %d can not change for this test patch\n",
+                obd->u.filter.fo_read_cache);
+
+        return -EINVAL;
+
         rc = lprocfs_write_helper(buffer, count, &val);
 
         if (rc)
@@ -309,6 +314,11 @@ static int lprocfs_filter_wr_wcache(struct file *file, const char *buffer,
         struct obd_device *obd = (struct obd_device *)data;
         int val, rc;
         LASSERT(obd != NULL);
+
+        CERROR("writethrough cache is %d can not change for this test patch\n",
+                obd->u.filter.fo_writethrough_cache);
+
+        return -EINVAL;
 
         rc = lprocfs_write_helper(buffer, count, &val);
 

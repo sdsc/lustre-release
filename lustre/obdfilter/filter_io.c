@@ -273,6 +273,7 @@ long filter_grant(struct obd_export *exp, obd_size current_grant,
  *
  * See Bug 19529 and Bug 19917 for details.
  */
+#if 0
 static struct page *filter_get_page(struct obd_device *obd,
                                     struct inode *inode,
                                     obd_off offset,
@@ -288,7 +289,7 @@ static struct page *filter_get_page(struct obd_device *obd,
 
         return page;
 }
-
+#endif
 /*
  * the routine initializes array of local_niobuf from remote_niobuf
  */
@@ -325,7 +326,8 @@ static int filter_map_remote_to_local(int objcount, struct obd_ioobj *obj,
                         lnb->offset = offset;
                         lnb->len = plen;
                         lnb->flags = rnb->flags;
-                        lnb->page = NULL;
+                        /*lnb->page = NULL;*/
+                        LASSERTF(lnb->page != NULL, "i is %d\n", i);
                         lnb->rc = 0;
                         lnb->lnb_grant_used = 0;
 
@@ -441,9 +443,15 @@ static int filter_preprw_read(int cmd, struct obd_export *exp, struct obdo *oa,
                          * so it's easy to detect later. */
                         break;
 
+#if 0
                 lnb->page = filter_get_page(obd, inode, lnb->offset, 0);
                 if (lnb->page == NULL)
                         GOTO(cleanup, rc = -ENOMEM);
+
+#else
+                LASSERT(lnb->page != NULL);
+                lnb->page->index = lnb->offset >> CFS_PAGE_SHIFT;
+#endif
 
                 lprocfs_counter_add(obd->obd_stats, LPROC_FILTER_CACHE_ACCESS, 1);
 
@@ -489,6 +497,7 @@ static int filter_preprw_read(int cmd, struct obd_export *exp, struct obdo *oa,
         /* unlock pages to allow access from concurrent OST_READ */
         for (i = 0, lnb = res; i < *npages; i++, lnb++) {
                 if (lnb->page) {
+#if 0
                         LASSERT(PageLocked(lnb->page));
                         unlock_page(lnb->page);
 
@@ -496,6 +505,10 @@ static int filter_preprw_read(int cmd, struct obd_export *exp, struct obdo *oa,
                                 page_cache_release(lnb->page);
                                 lnb->page = NULL;
                         }
+#else
+                        if (rc)
+                                lnb->page = NULL;
+#endif
                 }
         }
 
@@ -803,7 +816,7 @@ static int filter_preprw_write(int cmd, struct obd_export *exp, struct obdo *oa,
                  * can be written to disk as they were promised, and portals
                  * needs to keep the pages all aligned properly. */
                 lnb->dentry = dentry;
-
+#if 0
                 lnb->page = filter_get_page(obd, dentry->d_inode, lnb->offset,
                                             localreq);
                 if (lnb->page == NULL)
@@ -819,6 +832,15 @@ static int filter_preprw_write(int cmd, struct obd_export *exp, struct obdo *oa,
                  * -bzzz */
                 wait_on_page_writeback(lnb->page);
                 BUG_ON(PageWriteback(lnb->page));
+#else
+                LASSERT(lnb->page != NULL);
+                if (lnb->len != CFS_PAGE_SIZE) {
+                        memset(kmap(lnb->page) + lnb->len,
+                               0, CFS_PAGE_SIZE - lnb->len);
+                        kunmap(lnb->page);
+                }
+                lnb->page->index = lnb->offset >> CFS_PAGE_SHIFT;
+#endif
 
                 /* If the filter writes a partial page, then has the file
                  * extended, the client will read in the whole page.  the
@@ -881,8 +903,10 @@ cleanup:
                 if (rc) {
                         for (i = 0, lnb = res; i < *npages; i++, lnb++) {
                                 if (lnb->page != NULL) {
+#if 0
                                         unlock_page(lnb->page);
                                         page_cache_release(lnb->page);
+#endif
                                         lnb->page = NULL;
                                 }
                         }
@@ -962,7 +986,9 @@ static int filter_commitrw_read(struct obd_export *exp, struct obdo *oa,
 
         for (i = 0, lnb = res; i < npages; i++, lnb++) {
                 if (lnb->page != NULL) {
+#if 0
                         page_cache_release(lnb->page);
+#endif
                         lnb->page = NULL;
                 }
         }
