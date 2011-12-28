@@ -268,6 +268,25 @@ int llapi_stripe_limit_check(unsigned long long stripe_size, int stripe_offset,
         return 0;
 }
 
+/* return the first file matching this pattern */
+static int first_match(char *pattern, char *buffer)
+{
+        glob_t glob_info;
+
+        if (glob(pattern, GLOB_BRACE, NULL, &glob_info))
+                return -ENOENT;
+
+        if (glob_info.gl_pathc < 1) {
+                globfree(&glob_info);
+                return -ENOENT;
+        }
+
+        strcpy(buffer, glob_info.gl_pathv[0]);
+
+        globfree(&glob_info);
+        return 0;
+}
+
 static int find_target_obdpath(char *fsname, char *path)
 {
         glob_t glob_info;
@@ -308,6 +327,93 @@ static int find_poolpath(char *fsname, char *poolname, char *poolpath)
         strcpy(poolpath, glob_info.gl_pathv[0]);
         globfree(&glob_info);
         return 0;
+}
+
+static int get_param(char *result, unsigned int result_size, char *param_path)
+{
+        char file[PATH_MAX + 1], pattern[PATH_MAX + 1], buf[result_size];
+        FILE *fp = NULL;
+        int rc = 0;
+
+        snprintf(pattern, PATH_MAX, "/proc/{fs,sys}/{lnet,lustre}/%s",
+                 param_path);
+        rc = first_match(pattern, file);
+        if (rc)
+                return rc;
+
+        fp = fopen(file, "r");
+        if (fp != NULL) {
+                while (fgets(buf, result_size, fp) != NULL)
+                        strcpy(result, buf);
+                fclose(fp);
+        } else {
+                rc = -errno;
+        }
+        return rc;
+}
+
+#define DEVICES_LIST "/proc/fs/lustre/devices"
+
+static int get_param_obdvar(char *buffer, unsigned int buf_size, char *fsname,
+                            char *path, char *obd_type, char *name)
+{
+        char devices[PATH_MAX + 1], dev[PATH_MAX + 1] ="*", fs[PATH_MAX +1];
+        FILE *fp = fopen(DEVICES_LIST, "r");
+        int rc = 0;
+
+        if (!fsname && path) {
+                rc = llapi_search_fsname(path, fs);
+                if (rc) {
+                        llapi_error(LLAPI_MSG_ERROR, rc,
+                                    "'%s' is not on a Lustre filesystem",
+                                    path);
+                        return rc;
+                }
+        } else if (fsname) {
+                strcpy(fs, fsname);
+        }
+
+        if (fp == NULL) {
+                rc = -errno;
+                llapi_error(LLAPI_MSG_ERROR, rc, "error: opening "DEVICES_LIST);
+                return rc;
+        }
+
+        while (fgets(devices, sizeof(devices), fp) != NULL) {
+                char *bufp = devices, *tmp;
+
+                while(bufp[0] == ' ')
+                        ++bufp;
+
+                tmp = strstr(bufp, obd_type);
+                if (tmp) {
+                        tmp += strlen(obd_type)+1;
+                        if (strncmp(tmp, fs, strlen(fs)))
+                               continue;
+                        strcpy(dev, tmp);
+                        tmp = strchr(dev, ' ');
+                        *tmp = '\0';
+                        break;
+                }
+        }
+
+        if (dev[0] == '*' && strlen(fs))
+                snprintf(dev, PATH_MAX, "%s-*", fs);
+        snprintf(devices, PATH_MAX, "%s/%s/%s", obd_type, dev, name);
+        fclose(fp);
+        return get_param(buffer, buf_size, devices);
+}
+
+static int get_mds_md_size(char *path)
+{
+        int lumlen = lov_mds_md_size(LOV_MAX_STRIPE_COUNT, LOV_MAGIC_V3);
+        char buf[16];
+
+        /* Now get the maxea from llite proc */
+        if (!get_param_obdvar(buf, sizeof(buf), NULL, path, "llite",
+                              "max_easize"))
+                lumlen = atoi(buf);
+        return lumlen;
 }
 
 /*
@@ -682,25 +788,6 @@ int llapi_getname(const char *path, char *buf, size_t size)
 }
 
 
-/* return the first file matching this pattern */
-static int first_match(char *pattern, char *buffer)
-{
-        glob_t glob_info;
-
-        if (glob(pattern, GLOB_BRACE, NULL, &glob_info))
-                return -ENOENT;
-
-        if (glob_info.gl_pathc < 1) {
-                globfree(&glob_info);
-                return -ENOENT;
-        }
-
-        strcpy(buffer, glob_info.gl_pathv[0]);
-
-        globfree(&glob_info);
-        return 0;
-}
-
 /*
  * find the pool directory path under /proc
  * (can be also used to test if a fsname is known)
@@ -920,42 +1007,64 @@ int llapi_poollist(const char *name)
 {
         /* list of pool names (assume that pool count is smaller
            than OST count) */
-        char *list[FIND_MAX_OSTS];
-        char *buffer;
-        /* fsname-OST0000_UUID < 32 char, 1 per OST */
-        int bufsize = FIND_MAX_OSTS * 32;
-        int i, nb;
+        char **list, *buffer = NULL, *path = NULL, *fsname = NULL;
+        int obdcount, bufsize, rc, nb, i;
+        char *poolname = NULL, data[16];
 
-        buffer = malloc(bufsize);
-        if (buffer == NULL)
-                return -ENOMEM;
+        if (name[0] != '/') {
+                fsname = strdup(name);
+                poolname = strchr(fsname, '.');
+                if (poolname)
+                        *poolname = '\0';
+        } else {
+                path = (char *) name;
+        }
 
-        if ((name[0] == '/') || (strchr(name, '.') == NULL))
+        rc = get_param_obdvar(data, sizeof(data), fsname, path, "lov",
+                              "numobd");
+        if (rc < 0)
+                goto err;
+        obdcount = atoi(data);
+
+        /* Allocate space for each fsname-OST0000_UUID, 1 per OST,
+         * and also an array to store the pointers for all that
+         * allocated space. */
+        bufsize = sizeof(struct obd_uuid) * obdcount;
+        buffer = malloc(bufsize + sizeof(*list) * obdcount);
+        if (buffer == NULL) {
+                rc = -ENOMEM;
+                goto err;
+        }
+        list = (char **) (buffer + bufsize);
+
+        if (!poolname) {
                 /* name is a path or fsname */
-                nb = llapi_get_poollist(name, list, FIND_MAX_OSTS, buffer,
-                                        bufsize);
-        else
+                nb = llapi_get_poollist(name, list, obdcount,
+                                        buffer, bufsize);
+        } else {
                 /* name is a pool name (<fsname>.<poolname>) */
-                nb = llapi_get_poolmembers(name, list, FIND_MAX_OSTS, buffer,
-                                           bufsize);
-
+                nb = llapi_get_poolmembers(name, list, obdcount,
+                                           buffer, bufsize);
+        }
         for (i = 0; i < nb; i++)
                 llapi_printf(LLAPI_MSG_NORMAL, "%s\n", list[i]);
-
-        free(buffer);
-        return (nb < 0 ? nb : 0);
+        rc = (nb < 0 ? nb : 0);
+err:
+        if (buffer)
+                free(buffer);
+        if (fsname)
+                free(fsname);
+        return rc;
 }
-
 
 typedef int (semantic_func_t)(char *path, DIR *parent, DIR *d,
                               void *data, cfs_dirent_t *de);
 
-#define MAX_LOV_UUID_COUNT      max(LOV_MAX_STRIPE_COUNT, 1000)
 #define OBD_NOT_FOUND           (-1)
 
-static int common_param_init(struct find_param *param)
+static int common_param_init(struct find_param *param, char *path)
 {
-        param->lumlen = lov_mds_md_size(MAX_LOV_UUID_COUNT, LOV_MAGIC_V3);
+        param->lumlen = get_mds_md_size(path);
         param->lmd = malloc(sizeof(lstat_t) + param->lumlen);
         if (param->lmd == NULL) {
                 llapi_error(LLAPI_MSG_ERROR, -ENOMEM,
@@ -1005,21 +1114,27 @@ static DIR *opendir_parent(char *path)
         return parent;
 }
 
-int llapi_mds_getfileinfo(char *path, DIR *parent,
-                          struct lov_user_mds_data *lmd)
+int get_lmd_info(char *path, DIR *parent, DIR *dir,
+                 struct lov_user_mds_data *lmd, int lumlen)
 {
         lstat_t *st = &lmd->lmd_st;
-        char *fname = strrchr(path, '/');
         int ret = 0;
 
-        if (parent == NULL)
+        if (parent == NULL && dir == NULL)
                 return -EINVAL;
 
-        fname = (fname == NULL ? path : fname + 1);
-        /* retrieve needed file info */
-        strncpy((char *)lmd, fname,
-                lov_mds_md_size(MAX_LOV_UUID_COUNT, LOV_MAGIC));
-        ret = ioctl(dirfd(parent), IOC_MDC_GETFILEINFO, (void *)lmd);
+        if (dir) {
+                ret = ioctl(dirfd(dir), LL_IOC_MDC_GETINFO, (void *)lmd);
+        } else if (parent) {
+                char *fname = strrchr(path, '/');
+
+                fname = (fname == NULL ? path : fname + 1);
+                /* retrieve needed file info */
+                strncpy((char *)lmd, fname, lumlen);
+                ret = ioctl(dirfd(parent), IOC_MDC_GETFILEINFO, (void *)lmd);
+        } else {
+                return ret;
+        }
 
         if (ret) {
                 if (errno == ENOTTY) {
@@ -1031,24 +1146,34 @@ int llapi_mds_getfileinfo(char *path, DIR *parent,
                                 llapi_error(LLAPI_MSG_ERROR, ret,
                                             "error: %s: lstat failed for %s",
                                             __func__, path);
-                                return ret;
                         }
                 } else if (errno == ENOENT) {
                         ret = -errno;
                         llapi_error(LLAPI_MSG_WARN, ret,
                                     "warning: %s: %s does not exist",
                                     __func__, path);
-                        return ret;
+                } else if (errno != EISDIR) {
+                        ret = -errno;
+                        llapi_error(LLAPI_MSG_ERROR, ret,
+                                    "%s ioctl failed for %s.",
+                                    dir ? "LL_IOC_MDC_GETINFO" :
+                                    "IOC_MDC_GETFILEINFO", path);
                 } else {
                         ret = -errno;
                         llapi_error(LLAPI_MSG_ERROR, ret,
                                    "error: %s: IOC_MDC_GETFILEINFO failed for %s",
                                    __func__, path);
-                        return ret;
                 }
         }
+        return ret;
+}
 
-        return 0;
+int llapi_mds_getfileinfo(char *path, DIR *parent,
+                          struct lov_user_mds_data *lmd)
+{
+        int lumlen = get_mds_md_size(path);
+
+        return get_lmd_info(path, parent, NULL, lmd, lumlen);
 }
 
 static int llapi_semantic_traverse(char *path, int size, DIR *parent,
@@ -1171,12 +1296,12 @@ static int param_callback(char *path, semantic_func_t sem_init,
         if (!buf)
                 return -ENOMEM;
 
-        ret = common_param_init(param);
+        strncpy(buf, path, PATH_MAX + 1);
+        ret = common_param_init(param, buf);
         if (ret)
                 goto out;
         param->depth = 0;
 
-        strncpy(buf, path, PATH_MAX + 1);
         ret = llapi_semantic_traverse(buf, PATH_MAX + 1, NULL, sem_init,
                                       sem_fini, param, NULL);
 out:
@@ -1197,18 +1322,23 @@ int llapi_file_fget_lov_uuid(int fd, struct obd_uuid *lov_name)
 
 int llapi_file_get_lov_uuid(const char *path, struct obd_uuid *lov_uuid)
 {
-        int fd, rc;
+        DIR *dir = NULL;
+        int rc;
 
-        fd = open(path, O_RDONLY);
-        if (fd < 0) {
-                rc = -errno;
-                llapi_error(LLAPI_MSG_ERROR, rc, "error opening %s", path);
-                return rc;
+        dir = opendir(path);
+        if (!dir && errno == ENOTDIR) {
+                /* ENOTDIR. Open the parent dir. */
+                dir = opendir_parent((char *)path);
+                if (!dir) {
+                        rc = -errno;
+                        llapi_error(LLAPI_MSG_ERROR, rc, "error opening %s",
+                                    path);
+                        return rc;
+                }
         }
 
-        rc = llapi_file_fget_lov_uuid(fd, lov_uuid);
-
-        close(fd);
+        rc = llapi_file_fget_lov_uuid(dirfd(dir), lov_uuid);
+        closedir(dir);
         return rc;
 }
 
@@ -1251,7 +1381,7 @@ int llapi_lov_get_uuids(int fd, struct obd_uuid *uuidp, int *ost_count)
         fclose(fp);
 
         if (uuidp && (index >= *ost_count))
-                return -EOVERFLOW;
+                rc = -EOVERFLOW;
 
         *ost_count = index;
         return 0;
@@ -1372,13 +1502,18 @@ static int setup_obd_uuid(DIR *dir, char *dname, struct find_param *param)
 /* In this case, param->obduuid will be an array of obduuids and
  * obd index for all these obduuids will be returned in
  * param->obdindexes */
-static int setup_obd_indexes(DIR *dir, struct find_param *param)
+static int setup_obd_indexes(DIR *dir, char *path, struct find_param *param)
 {
+        int ret, obdcount, obd_valid = 0, obdnum, i;
         struct obd_uuid *uuids = NULL;
-        int obdcount = INIT_ALLOC_NUM_OSTS;
-        int ret, obd_valid = 0, obdnum, i;
+        char buf[16];
 
-        uuids = (struct obd_uuid *)malloc(INIT_ALLOC_NUM_OSTS *
+        ret = get_param_obdvar(buf, sizeof(buf), NULL, path, "lov", "numobd");
+        if (ret)
+                return ret;
+
+        obdcount = atoi(buf);
+        uuids = (struct obd_uuid *)malloc(obdcount *
                                           sizeof(struct obd_uuid));
         if (uuids == NULL)
                 return -ENOMEM;
@@ -1392,10 +1527,12 @@ retry_get_uuids:
                 if (ret == -EOVERFLOW) {
                         uuids_temp = realloc(uuids, obdcount *
                                              sizeof(struct obd_uuid));
-                        if (uuids_temp != NULL)
+                        if (uuids_temp != NULL) {
+                                uuids = uuids_temp;
                                 goto retry_get_uuids;
-                        else
+                        } else {
                                 ret = -ENOMEM;
+                        }
                 }
 
                 llapi_error(LLAPI_MSG_ERROR, ret, "get ost uuid failed");
@@ -2013,45 +2150,13 @@ static int cb_find_init(char *path, DIR *parent, DIR *dir,
                 decision = 0;
 
         if (param->have_fileinfo == 0 && decision == 0) {
-                if (dir) {
-                        /* retrieve needed file info */
-                        ret = ioctl(dirfd(dir), LL_IOC_MDC_GETINFO,
-                                    (void *)param->lmd);
-                } else {
-                        char *fname = strrchr(path, '/');
-                        fname = (fname == NULL ? path : fname + 1);
-
-                        /* retrieve needed file info */
-                        strncpy((char *)param->lmd, fname, param->lumlen);
-                        ret = ioctl(dirfd(parent), IOC_MDC_GETFILEINFO,
-                                   (void *)param->lmd);
-                }
-        }
-
-        if (ret) {
-                if (errno == ENOTTY) {
-                        /* ioctl is not supported, it is not a lustre fs.
-                         * Do the regular lstat(2) instead. */
-                        lustre_fs = 0;
-                        ret = lstat_f(path, st);
-                        if (ret) {
-                                ret = -errno;
-                                llapi_error(LLAPI_MSG_ERROR, ret,
-                                            "error: %s: lstat failed for %s",
-                                            __func__, path);
-                                return ret;
-                        }
-                } else if (errno == ENOENT) {
-                        llapi_error(LLAPI_MSG_WARN, -ENOENT,
-                                  "warning: %s: %s does not exist",
-                                  __func__, path);
-                        goto decided;
-                } else {
-                        ret = -errno;
-                        llapi_error(LLAPI_MSG_ERROR, ret,
-                                    "error: %s: %s failed for %s",
-                                    __func__, dir ? "LL_IOC_MDC_GETINFO" :
-                                  "IOC_MDC_GETFILEINFO", path);
+                ret = get_lmd_info(path, parent, dir, param->lmd,
+                                        param->lumlen);
+                if (ret) {
+                        if (ret == -ENOTTY)
+                                lustre_fs = 0;
+                        if (ret == -ENOENT)
+                                goto decided;
                         return ret;
                 }
         }
@@ -2077,7 +2182,8 @@ static int cb_find_init(char *path, DIR *parent, DIR *dir,
                 }
 
                 if (lustre_fs && !param->got_uuids) {
-                        ret = setup_obd_indexes(dir ? dir : parent, param);
+                        ret = setup_obd_indexes(dir ? dir : parent, path,
+                                                param);
                         if (ret)
                                 return ret;
 
@@ -2492,7 +2598,6 @@ int llapi_obd_statfs(char *path, __u32 type, __u32 index,
 }
 
 #define MAX_STRING_SIZE 128
-#define DEVICES_LIST "/proc/fs/lustre/devices"
 
 int llapi_ping(char *obd_type, char *obd_name)
 {
@@ -2721,36 +2826,15 @@ static int cb_quotachown(char *path, DIR *parent, DIR *d, void *data,
 
         LASSERT(parent != NULL || d != NULL);
 
-        if (d) {
-                rc = ioctl(dirfd(d), LL_IOC_MDC_GETINFO,
-                           (void *)param->lmd);
-        } else if (parent) {
-                char *fname = strrchr(path, '/');
-                fname = (fname == NULL ? path : fname + 1);
-
-                strncpy((char *)param->lmd, fname, param->lumlen);
-                rc = ioctl(dirfd(parent), IOC_MDC_GETFILEINFO,
-                           (void *)param->lmd);
-        } else {
-                return 0;
-        }
-
+        rc = get_lmd_info(path, parent, d, param->lmd, param->lumlen);
         if (rc) {
-                if (errno == ENODATA) {
+                if (rc == -ENODATA) {
                         if (!param->obduuid && !param->quiet)
                                 llapi_error(LLAPI_MSG_ERROR, -ENODATA,
                                           "%s has no stripe info", path);
                         rc = 0;
-                } else if (errno == ENOENT) {
-                        llapi_error(LLAPI_MSG_ERROR, -ENOENT,
-                                  "warning: %s: %s does not exist",
-                                  __func__, path);
+                } else if (rc == -ENOENT) {
                         rc = 0;
-                } else if (errno != EISDIR) {
-                        rc = -errno;
-                        llapi_error(LLAPI_MSG_ERROR, rc, "%s ioctl failed for %s.",
-                                    d ? "LL_IOC_MDC_GETINFO" :
-                                    "IOC_MDC_GETFILEINFO", path);
                 }
                 return rc;
         }
