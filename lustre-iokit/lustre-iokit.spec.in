@@ -10,7 +10,7 @@ Release: %{release}
 License: GPL
 Group: Applications/System
 Source: %{name}-%{version}.tar.gz
-URL: http://www.sun.com/software/products/lustre/index.xml
+URL: http://wiki.whamcloud.com/
 BuildRoot: /var/tmp/%{name}-%{version}-root
 Provides: %{name} = %{version}
 BuildArch: noarch
@@ -76,3 +76,5 @@ make install DESTDIR=$RPM_BUILD_ROOT
 - Merged with existing, changed to .in format.
 * Thu Oct 4 2006  Kalpak Shah
 - Created the spec file.
+* Fri Dec 30 2010 Minh Diep
+- WhamCloud release for bug fixes
