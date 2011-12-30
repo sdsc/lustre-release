@@ -845,6 +845,40 @@ build_lustre() {
         confoptions="$confoptions --with-ldiskfs=$(ls -d $TOPDIR/BUILD/lustre-ldiskfs-*)"
     }
 
+        pushd lustre-iokit > /dev/null || return 255
+
+        if !  ./configure; then
+            echo "failed to configure in lustre-iokit"
+            popd >/dev/null # pushd lustre-iokit
+            popd >/dev/null # pushd lustre
+            return 255
+        fi
+
+        if ! make dist 2>&1; then
+            popd >/dev/null # pushd lustre-iokit
+            popd >/dev/null # pushd lustre
+            return 255
+        fi
+
+        if ! $RPMBUILD $rpmbuildopt lustre-iokit*.tar.gz \
+            --define "_tmppath /var/tmp" \
+            --define "_topdir $TOPDIR" 2>&1; then
+            popd >/dev/null # pushd lustre-iokit
+            popd >/dev/null # pushd lustre
+            return 255
+        fi
+
+        if $DO_SRC; then
+            if ! $RPMBUILD -ts lustre-iokit*.tar.gz \
+                --define "_tmppath /var/tmp" \
+                --define "_topdir $TOPDIR" 2>&1; then
+                popd >/dev/null # pushd lustre-iokit
+                popd >/dev/null # pushd lustre
+                return 255
+            fi
+        fi
+        popd >/dev/null # pushd lustre-iokit
+
     # convert the $PATCHLESS boolean to an empty/not-empty boolean
     # as silly as this seems, it makes the syntax of the rpmbuild command
     # simpler and not need an eval to deal with the quotes in the quotes
