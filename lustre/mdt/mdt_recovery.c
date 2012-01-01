@@ -59,7 +59,7 @@ struct lu_buf *mdt_buf(const struct lu_env *env, void *area, ssize_t len)
         struct lu_buf *buf;
         struct mdt_thread_info *mti;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        mti = mdt_env_info(env);
         buf = &mti->mti_buf;
         buf->lb_buf = area;
         buf->lb_len = len;
@@ -72,7 +72,7 @@ const struct lu_buf *mdt_buf_const(const struct lu_env *env,
         struct lu_buf *buf;
         struct mdt_thread_info *mti;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        mti = mdt_env_info(env);
         buf = &mti->mti_buf;
 
         buf->lb_buf = (void *)area;
@@ -107,7 +107,7 @@ void mdt_trans_credit_init(const struct lu_env *env,
         struct txn_param *p;
         int cr;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        mti = mdt_env_info(env);
         p = &mti->mti_txn_param;
 
         cr = mdt_trans_credit_get(env, mdt, op);
@@ -120,7 +120,7 @@ struct thandle* mdt_trans_start(const struct lu_env *env,
         struct mdt_thread_info *mti;
         struct txn_param *p;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        mti = mdt_env_info(env);
         p = &mti->mti_txn_param;
 
         return dt_trans_start(env, mdt->mdt_bottom, p);
@@ -131,7 +131,7 @@ void mdt_trans_stop(const struct lu_env *env,
 {
         struct mdt_thread_info *mti;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        mti = mdt_env_info(env);
         /* export can require sync operations */
         if (mti->mti_exp != NULL)
                 th->th_sync |= mti->mti_exp->exp_need_sync;
@@ -144,7 +144,7 @@ static inline int mdt_last_rcvd_header_read(const struct lu_env *env,
         struct mdt_thread_info *mti;
         int rc;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        mti = mdt_env_info(env);
 
         mti->mti_off = 0;
         rc = dt_record_read(env, mdt->mdt_lut.lut_last_rcvd,
@@ -167,8 +167,7 @@ static int mdt_last_rcvd_header_write(const struct lu_env *env,
         int rc;
         ENTRY;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-
+        mti = mdt_env_info(env);
         mti->mti_off = 0;
         lsd_cpu_to_le(&mdt->mdt_lut.lut_lsd, &mti->mti_lsd);
 
@@ -192,7 +191,7 @@ static int mdt_last_rcvd_read(const struct lu_env *env, struct mdt_device *mdt,
         struct lsd_client_data *tmp;
         int rc;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        mti = mdt_env_info(env);
         tmp = &mti->mti_lcd;
         rc = dt_record_read(env, mdt->mdt_lut.lut_last_rcvd,
                             mdt_buf(env, tmp, sizeof(*tmp)), off);
@@ -222,7 +221,7 @@ static int mdt_last_rcvd_write(const struct lu_env *env,
         int rc;
 
         LASSERT(th != NULL);
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        mti = mdt_env_info(env);
         tmp = &mti->mti_lcd;
 
         lcd_cpu_to_le(lcd, tmp);
@@ -305,8 +304,7 @@ static int mdt_clients_data_init(const struct lu_env *env,
                         GOTO(err_client, rc = PTR_ERR(exp));
                 }
 
-                mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-                LASSERT(mti != NULL);
+                mti = mdt_env_info(env);
                 mti->mti_exp = exp;
                 /* copy on-disk lcd to the export */
                 *exp->exp_target_data.ted_lcd = *lcd;
@@ -358,8 +356,7 @@ static int mdt_server_data_init(const struct lu_env *env,
         CLASSERT(offsetof(struct lsd_client_data, lcd_padding) +
                 sizeof(lcd->lcd_padding) == LR_CLIENT_SIZE);
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        LASSERT(mti != NULL);
+        mti = mdt_env_info(env);
         la = &mti->mti_attr.ma_attr;
 
         obj = mdt->mdt_lut.lut_last_rcvd;
@@ -501,8 +498,7 @@ static int mdt_server_data_update(const struct lu_env *env,
         struct thandle *th;
         int rc;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-
+        mti = mdt_env_info(env);
         mdt_trans_credit_init(env, mdt, MDT_TXN_LAST_RCVD_WRITE_OP);
         th = mdt_trans_start(env, mdt);
         if (IS_ERR(th))
@@ -535,9 +531,7 @@ int mdt_client_new(const struct lu_env *env, struct mdt_device *mdt)
         int cl_idx;
         ENTRY;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        LASSERT(mti != NULL);
-
+        mti = mdt_env_info(env);
         ted = &mti->mti_exp->exp_target_data;
 
         LASSERT(bitmap != NULL);
@@ -624,9 +618,7 @@ int mdt_client_add(const struct lu_env *env,
         int rc = 0;
         ENTRY;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        LASSERT(mti != NULL);
-
+        mti = mdt_env_info(env);
         ted = &mti->mti_exp->exp_target_data;
 
         LASSERT(bitmap != NULL);
@@ -667,9 +659,7 @@ int mdt_client_del(const struct lu_env *env, struct mdt_device *mdt)
         int                     rc = 0;
         ENTRY;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        LASSERT(mti != NULL);
-
+        mti = mdt_env_info(env);
         exp = mti->mti_exp;
         ted = &exp->exp_target_data;
         if (!ted->ted_lcd)
@@ -858,7 +848,7 @@ static int mdt_txn_stop_cb(const struct lu_env *env,
         struct mdt_thread_info *mti;
         struct ptlrpc_request *req;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        mti = mdt_env_info(env);
         req = mdt_info_req(mti);
 
         if (mti->mti_mdt == NULL || req == NULL || mti->mti_no_need_trans) {
@@ -935,7 +925,7 @@ int mdt_fs_setup(const struct lu_env *env, struct mdt_device *mdt,
         if (rc)
                 RETURN(rc);
 
-        o = dt_store_open(env, mdt->mdt_bottom, "", CAPA_KEYS, &fid);
+        o = dt_store_open(env, mdt->mdt_bottom, "", CAPA_KEYS, &fid, NULL);
         if (!IS_ERR(o)) {
                 mdt->mdt_ck_obj = o;
                 rc = mdt_capa_keys_init(env, mdt);
@@ -1083,7 +1073,7 @@ static void mdt_reconstruct_create(struct mdt_thread_info *mti,
                 return;
 
         /* if no error, so child was created with requested fid */
-        child = mdt_object_find(mti->mti_env, mdt, mti->mti_rr.rr_fid2);
+        child = mdt_object_find(mti->mti_env, mdt, mti->mti_rr.rr_fid2, NULL);
         if (IS_ERR(child)) {
                 rc = PTR_ERR(child);
                 LCONSOLE_WARN("Child "DFID" lookup error %d."
@@ -1125,7 +1115,7 @@ static void mdt_reconstruct_setattr(struct mdt_thread_info *mti,
                 return;
 
         body = req_capsule_server_get(mti->mti_pill, &RMF_MDT_BODY);
-        obj = mdt_object_find(mti->mti_env, mdt, mti->mti_rr.rr_fid1);
+        obj = mdt_object_find(mti->mti_env, mdt, mti->mti_rr.rr_fid1, NULL);
         if (IS_ERR(obj)) {
                 int rc = PTR_ERR(obj);
                 LCONSOLE_WARN(""DFID" lookup error %d."
