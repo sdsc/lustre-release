@@ -167,17 +167,33 @@ struct lu_device_operations {
 
         int (*ldo_prepare)(const struct lu_env *,
                            struct lu_device *parent,
-                           struct lu_device *dev);
+                           struct lu_device *dev,
+                           int flags);
+};
 
+/**
+ * Local identifier for the object, depends on backend filesystem. For the
+ * layers above OSD, they don't know which type identifier will be used by
+ * backend filesystem, so it reserves 128 bits for that. */
+union lu_local_id {
+        __u64   lli_u64[2];
+        __u32   lli_u32[4];
+        __u8    lli_u8[16];
 };
 
 /**
  * For lu_object_conf flags
  */
-typedef enum {
-        /* Currently, only used for client-side object initialization. */
-        LOC_F_NEW = 0x1,
-} loc_flags_t;
+enum {
+        /* This is new object to be allocated in memory. */
+        LOC_F_NEW       = 1 << 0,
+
+        /* Contains valid local id for the object. */
+        LOC_F_LID       = 1 << 1,
+
+        /* Fid in name entry. */
+        LOC_F_FIDEA     = 1 << 2,
+};
 
 /**
  * Object configuration, describing particulars of object being created. On
@@ -185,10 +201,11 @@ typedef enum {
  * client configuration contains struct lustre_md.
  */
 struct lu_object_conf {
-        /**
-         * Some hints for obj find and alloc.
-         */
-        loc_flags_t     loc_flags;
+        /* Local id for the object. */
+        union lu_local_id       loc_lid;
+
+         /* Flags for obj find and alloc. */
+        __u32                   loc_flags;
 };
 
 /**

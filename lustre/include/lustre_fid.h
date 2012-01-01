@@ -107,6 +107,8 @@ enum local_oid {
         MDT_LAST_RECV_OID       = 11UL,
         /** \see osd_mod_init */
         OSD_REM_OBJ_DIR_OID     = 12UL,
+        /** \see mdd_mod_init */
+        OI_SCRUB_OID            = 13UL,
 };
 
 static inline void lu_local_obj_fid(struct lu_fid *fid, __u32 oid)

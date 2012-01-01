@@ -98,7 +98,7 @@ static struct lu_context_key llod_key = {
 
 static inline struct llo_thread_info * llo_env_info(const struct lu_env *env)
 {
-        return lu_context_key_get(&env->le_ctx,  &llod_key);
+        return lu_context_key_get(&env->le_ctx, &llod_key);
 }
 
 /**
@@ -142,7 +142,7 @@ static int llo_lookup(const struct lu_env  *env,
         lname->ln_name = name;
         lname->ln_namelen = strlen(name);
 
-        return mdo_lookup(env, pobj, lname, fid, spec);
+        return mdo_lookup(env, pobj, lname, fid, NULL, spec);
 }
 
 /**
