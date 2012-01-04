@@ -1525,6 +1525,12 @@ __u64 ptlrpc_next_xid(void);
 __u64 ptlrpc_sample_next_xid(void);
 __u64 ptlrpc_req_xid(struct ptlrpc_request *request);
 
+/* Set of routines to run a function in ptlrpcd context */
+void *ptlrpc_alloc_work(struct obd_import *imp,
+                        int (*cb)(const struct lu_env *, void *), void *data);
+void ptlrpc_destroy_work(void *handler);
+int ptlrpc_run_work(void *handler);
+
 /** @} */
 
 struct ptlrpc_service_conf {
