@@ -73,6 +73,11 @@ static struct lu_context_key dt_key = {
         .lct_fini = dt_global_key_fini
 };
 
+static inline struct dt_thread_info *dt_env_info(const struct lu_env *env)
+{
+        return lu_context_key_get(&env->le_ctx, &dt_key);
+}
+
 /* no lock is necessary to protect the list, because call-backs
  * are added during system startup. Please refer to "struct dt_device".
  */
@@ -207,7 +212,8 @@ EXPORT_SYMBOL(dt_mode_to_dft);
  */
 
 static int dt_lookup(const struct lu_env *env, struct dt_object *dir,
-                     const char *name, struct lu_fid *fid)
+                     const char *name, struct lu_fid *fid,
+                     struct lu_object_conf *conf)
 {
         struct dt_rec       *rec = (struct dt_rec *)fid;
         const struct dt_key *key = (const struct dt_key *)name;
@@ -215,7 +221,7 @@ static int dt_lookup(const struct lu_env *env, struct dt_object *dir,
 
         if (dt_try_as_dir(env, dir)) {
                 result = dir->do_index_ops->dio_lookup(env, dir, rec, key,
-                                                       BYPASS_CAPA);
+                                                       conf, BYPASS_CAPA);
                 if (result > 0)
                         result = 0;
                 else if (result == 0)
@@ -228,9 +234,9 @@ static int dt_lookup(const struct lu_env *env, struct dt_object *dir,
 /**
  * get object for given \a fid.
  */
-struct dt_object *dt_locate(const struct lu_env *env,
-                            struct dt_device *dev,
-                            const struct lu_fid *fid)
+static struct dt_object *dt_locate(const struct lu_env *env,
+                                   struct dt_device *dev,
+                                   const struct lu_fid *fid)
 {
         struct lu_object *obj;
         struct dt_object *dt;
@@ -244,7 +250,6 @@ struct dt_object *dt_locate(const struct lu_env *env,
                 dt = (struct dt_object *)obj;
         return dt;
 }
-EXPORT_SYMBOL(dt_locate);
 
 /**
  * find a object named \a entry in given \a dfh->dfh_o directory.
@@ -257,7 +262,7 @@ static int dt_find_entry(const struct lu_env *env, const char *entry, void *data
         struct dt_object     *obj = dfh->dfh_o;
         int                   result;
 
-        result = dt_lookup(env, obj, entry, fid);
+        result = dt_lookup(env, obj, entry, fid, NULL);
         lu_object_put(env, &obj->do_lu);
         if (result == 0) {
                 obj = dt_locate(env, dt, fid);
@@ -297,13 +302,12 @@ int dt_path_parser(const struct lu_env *env,
         return rc;
 }
 
-static struct dt_object *dt_store_resolve(const struct lu_env *env,
-                                          struct dt_device *dt,
-                                          const char *path,
-                                          struct lu_fid *fid)
+struct dt_object *dt_store_resolve(const struct lu_env *env,
+                                   struct dt_device *dt,
+                                   const char *path,
+                                   struct lu_fid *fid)
 {
-        struct dt_thread_info *info = lu_context_key_get(&env->le_ctx,
-                                                         &dt_key);
+        struct dt_thread_info *info = dt_env_info(env);
         struct dt_find_hint *dfh = &info->dti_dfh;
         struct dt_object     *obj;
         char *local = info->dti_buf;
@@ -331,20 +335,21 @@ static struct dt_object *dt_store_resolve(const struct lu_env *env,
         }
         return obj;
 }
+EXPORT_SYMBOL(dt_store_resolve);
 
 static struct dt_object *dt_reg_open(const struct lu_env *env,
                                      struct dt_device *dt,
                                      struct dt_object *p,
                                      const char *name,
-                                     struct lu_fid *fid)
+                                     struct lu_fid *fid,
+                                     struct lu_object_conf *conf)
 {
         struct dt_object *o;
         int result;
 
-        result = dt_lookup(env, p, name, fid);
-        if (result == 0){
+        result = dt_lookup(env, p, name, fid, conf);
+        if (result == 0)
                 o = dt_locate(env, dt, fid);
-        }
         else
                 o = ERR_PTR(result);
 
@@ -360,7 +365,8 @@ struct dt_object *dt_store_open(const struct lu_env *env,
                                 struct dt_device *dt,
                                 const char *dirname,
                                 const char *filename,
-                                struct lu_fid *fid)
+                                struct lu_fid *fid,
+                                struct lu_object_conf *conf)
 {
         struct dt_object *file;
         struct dt_object *dir;
@@ -368,7 +374,7 @@ struct dt_object *dt_store_open(const struct lu_env *env,
         dir = dt_store_resolve(env, dt, dirname, fid);
         if (!IS_ERR(dir)) {
                 file = dt_reg_open(env, dt, dir,
-                                   filename, fid);
+                                   filename, fid, conf);
                 lu_object_put(env, &dir->do_lu);
         } else {
                 file = dir;
@@ -427,3 +433,6 @@ EXPORT_SYMBOL(dt_record_write);
 
 const struct dt_index_features dt_directory_features;
 EXPORT_SYMBOL(dt_directory_features);
+
+const struct dt_index_features dt_scrub_features;
+EXPORT_SYMBOL(dt_scrub_features);

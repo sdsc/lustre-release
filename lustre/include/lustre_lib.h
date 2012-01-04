@@ -539,6 +539,10 @@ static inline void obd_ioctl_freedata(char *buf, int len)
 
 #define OBD_IOC_GET_MNTOPT             _IOW('f', 220, mntopt_t)
 
+#define OBD_IOC_START_SCRUB            _IOWR('f', 230, OBD_IOC_DATA_TYPE)
+#define OBD_IOC_STOP_SCRUB             _IOWR('f', 231, OBD_IOC_DATA_TYPE)
+#define OBD_IOC_SHOW_SCRUB             _IOR('f', 232, OBD_IOC_DATA_TYPE)
+
 /* XXX _IOWR('f', 250, long) has been defined in
  * libcfs/include/libcfs/libcfs_private.h for debug, don't use it
  */

@@ -149,7 +149,7 @@ EXPORT_SYMBOL(lu_object_put);
 static struct lu_object *lu_object_alloc(const struct lu_env *env,
                                          struct lu_device *dev,
                                          const struct lu_fid *f,
-                                         const struct lu_object_conf *conf)
+                                         struct lu_object_conf *conf)
 {
         struct lu_object *scan;
         struct lu_object *top;
@@ -528,7 +528,7 @@ static struct lu_object *htable_lookup(struct lu_site *s,
  */
 struct lu_object *lu_object_find(const struct lu_env *env,
                                  struct lu_device *dev, const struct lu_fid *f,
-                                 const struct lu_object_conf *conf)
+                                 struct lu_object_conf *conf)
 {
         return lu_object_find_at(env, dev->ld_site->ls_top_dev, f, conf);
 }
@@ -537,7 +537,7 @@ EXPORT_SYMBOL(lu_object_find);
 static struct lu_object *lu_object_new(const struct lu_env *env,
                                        struct lu_device *dev,
                                        const struct lu_fid *f,
-                                       const struct lu_object_conf *conf)
+                                       struct lu_object_conf *conf)
 {
         struct lu_object        *o;
         cfs_hash_t              *hs;
@@ -563,7 +563,7 @@ static struct lu_object *lu_object_new(const struct lu_env *env,
 static struct lu_object *lu_object_find_try(const struct lu_env *env,
                                             struct lu_device *dev,
                                             const struct lu_fid *f,
-                                            const struct lu_object_conf *conf,
+                                            struct lu_object_conf *conf,
                                             cfs_waitlink_t *waiter)
 {
         struct lu_object      *o;
@@ -619,7 +619,7 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
         cfs_hash_bd_lock(hs, &bd, 1);
 
         shadow = htable_lookup(s, &bd, f, waiter, &version);
-        if (likely(shadow == NULL)) {
+        if (shadow == NULL) {
                 struct lu_site_bkt_data *bkt;
 
                 bkt = cfs_hash_bd_extra_get(hs, &bd);
@@ -627,12 +627,14 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
                 bkt->lsb_busy++;
                 cfs_hash_bd_unlock(hs, &bd, 1);
                 return o;
+        } else {
+                if (!cfs_list_empty(&shadow->lo_header->loh_lru))
+                        cfs_list_del_init(&shadow->lo_header->loh_lru);
+                lprocfs_counter_incr(s->ls_stats, LU_SS_CACHE_RACE);
+                cfs_hash_bd_unlock(hs, &bd, 1);
+                lu_object_free(env, o);
+                return shadow;
         }
-
-        lprocfs_counter_incr(s->ls_stats, LU_SS_CACHE_RACE);
-        cfs_hash_bd_unlock(hs, &bd, 1);
-        lu_object_free(env, o);
-        return shadow;
 }
 
 /**
@@ -643,7 +645,7 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
 struct lu_object *lu_object_find_at(const struct lu_env *env,
                                     struct lu_device *dev,
                                     const struct lu_fid *f,
-                                    const struct lu_object_conf *conf)
+                                    struct lu_object_conf *conf)
 {
         struct lu_site_bkt_data *bkt;
         struct lu_object        *obj;
@@ -670,7 +672,7 @@ EXPORT_SYMBOL(lu_object_find_at);
 struct lu_object *lu_object_find_slice(const struct lu_env *env,
                                        struct lu_device *dev,
                                        const struct lu_fid *f,
-                                       const struct lu_object_conf *conf)
+                                       struct lu_object_conf *conf)
 {
         struct lu_object *top;
         struct lu_object *obj;
@@ -1140,6 +1142,7 @@ int lu_object_header_init(struct lu_object_header *h)
         CFS_INIT_LIST_HEAD(&h->loh_lru);
         CFS_INIT_LIST_HEAD(&h->loh_layers);
         lu_ref_init(&h->loh_reference);
+        cfs_waitq_init(&h->loh_waitq);
         return 0;
 }
 EXPORT_SYMBOL(lu_object_header_init);

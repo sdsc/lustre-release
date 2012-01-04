@@ -177,7 +177,7 @@ static void cml_object_free(const struct lu_env *env,
  * Initialize cml_object.
  */
 static int cml_object_init(const struct lu_env *env, struct lu_object *lo,
-                           const struct lu_object_conf *unused)
+                           struct lu_object_conf *unused)
 {
         struct cmm_device *cd = lu2cmm_dev(lo->lo_dev);
         struct lu_device  *c_dev;
@@ -459,7 +459,7 @@ static const struct md_object_operations cml_mo_ops = {
  */
 static int cml_lookup(const struct lu_env *env, struct md_object *mo_p,
                       const struct lu_name *lname, struct lu_fid *lf,
-                      struct md_op_spec *spec)
+                      struct lu_object_conf *conf, struct md_op_spec *spec)
 {
         int rc;
         ENTRY;
@@ -471,7 +471,7 @@ static int cml_lookup(const struct lu_env *env, struct md_object *mo_p,
                         RETURN(rc);
         }
 #endif
-        rc = mdo_lookup(env, md_object_next(mo_p), lname, lf, spec);
+        rc = mdo_lookup(env, md_object_next(mo_p), lname, lf, conf, spec);
         RETURN(rc);
 
 }
@@ -617,7 +617,7 @@ static int cmm_mode_get(const struct lu_env *env, struct md_device *md,
                         const struct lu_fid *lf, struct md_attr *ma,
                         int *remote)
 {
-        struct md_object *mo_s = md_object_find_slice(env, md, lf);
+        struct md_object *mo_s = md_object_find_slice(env, md, lf, NULL);
         struct cmm_thread_info *cmi;
         struct md_attr *tmp_ma;
         int rc;
@@ -654,7 +654,7 @@ static int cmm_mode_get(const struct lu_env *env, struct md_device *md,
 static int cmm_rename_ctime(const struct lu_env *env, struct md_device *md,
                             const struct lu_fid *lf, struct md_attr *ma)
 {
-        struct md_object *mo_s = md_object_find_slice(env, md, lf);
+        struct md_object *mo_s = md_object_find_slice(env, md, lf, NULL);
         int rc;
         ENTRY;
 
@@ -733,7 +733,8 @@ static int cml_rename(const struct lu_env *env, struct md_object *mo_po,
                  */
                 if (!remote) {
                         struct md_object *mo_s = md_object_find_slice(env,
-                                                        md_obj2dev(mo_po), lf);
+                                                        md_obj2dev(mo_po), lf,
+                                                                      NULL);
                         if (IS_ERR(mo_s))
                                 RETURN(PTR_ERR(mo_s));
 
@@ -961,7 +962,7 @@ static void cmr_object_free(const struct lu_env *env,
  * Initialize cmr object.
  */
 static int cmr_object_init(const struct lu_env *env, struct lu_object *lo,
-                           const struct lu_object_conf *unused)
+                           struct lu_object_conf *unused)
 {
         struct cmm_device *cd = lu2cmm_dev(lo->lo_dev);
         struct lu_device  *c_dev;
@@ -1203,7 +1204,7 @@ static const struct md_object_operations cmr_mo_ops = {
  */
 static int cmr_lookup(const struct lu_env *env, struct md_object *mo_p,
                       const struct lu_name *lname, struct lu_fid *lf,
-                      struct md_op_spec *spec)
+                      struct lu_object_conf *conf, struct md_op_spec *spec)
 {
         /*
          * This can happens while rename() If new parent is remote dir, lookup
@@ -1242,7 +1243,7 @@ static int cmr_create(const struct lu_env *env, struct md_object *mo_p,
 
         /* Make sure that name isn't exist before doing remote call. */
         rc = mdo_lookup(env, md_object_next(mo_p), lchild_name,
-                        &cmm_env_info(env)->cmi_fid, NULL);
+                        &cmm_env_info(env)->cmi_fid, NULL, NULL);
         if (rc == 0)
                 RETURN(-EEXIST);
         else if (rc != -ENOENT)
@@ -1334,7 +1335,7 @@ static int cmr_link(const struct lu_env *env, struct md_object *mo_p,
 
         /* Make sure that name isn't exist before doing remote call. */
         rc = mdo_lookup(env, md_object_next(mo_p), lname,
-                        &cmm_env_info(env)->cmi_fid, NULL);
+                        &cmm_env_info(env)->cmi_fid, NULL, NULL);
         if (rc == 0) {
                 rc = -EEXIST;
         } else if (rc == -ENOENT) {

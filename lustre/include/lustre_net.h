@@ -984,6 +984,21 @@ struct ptlrpc_thread {
         struct lu_env *t_env;
 };
 
+static inline int thread_is_stopped(struct ptlrpc_thread *thread)
+{
+        return !!(thread->t_flags & SVC_STOPPED);
+}
+
+static inline int thread_is_running(struct ptlrpc_thread *thread)
+{
+        return !!(thread->t_flags & SVC_RUNNING);
+}
+
+static inline void thread_set_flags(struct ptlrpc_thread *thread, __u32 flags)
+{
+        thread->t_flags = flags;
+}
+
 /**
  * Request buffer descriptor structure.
  * This is a structure that contains one posted request buffer for service.

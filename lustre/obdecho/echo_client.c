@@ -469,7 +469,7 @@ static const struct cl_object_operations echo_cl_obj_ops = {
  * @{
  */
 static int echo_object_init(const struct lu_env *env, struct lu_object *obj,
-                            const struct lu_object_conf *conf)
+                            struct lu_object_conf *conf)
 {
         const struct cl_object_conf *cconf = lu2cl_conf(conf);
         struct echo_object_conf *econf = cl2echo_conf(cconf);

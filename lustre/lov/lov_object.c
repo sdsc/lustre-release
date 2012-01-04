@@ -111,7 +111,7 @@ static void lov_install_raid0(const struct lu_env *env,
 static struct cl_object *lov_sub_find(const struct lu_env *env,
                                       struct cl_device *dev,
                                       const struct lu_fid *fid,
-                                      const struct cl_object_conf *conf)
+                                      struct cl_object_conf *conf)
 {
         struct lu_object *o;
 
@@ -518,7 +518,7 @@ static int lov_layout_change(const struct lu_env *env,
  */
 
 int lov_object_init(const struct lu_env *env, struct lu_object *obj,
-                    const struct lu_object_conf *conf)
+                    struct lu_object_conf *conf)
 {
         struct lov_device            *dev   = lu2lov_dev(obj->lo_dev);
         struct lov_object            *lov   = lu2lov(obj);

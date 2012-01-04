@@ -72,14 +72,63 @@
 
 static int dto_txn_credits[DTO_NR];
 
+struct mdd_txn_scrub {
+        struct dt_txn_commit_cb   mts_cb;
+        struct lu_object         *mts_obj;
+};
+
+static void mdd_txn_scrub_callback(struct lu_env *env, struct thandle *th,
+                                   struct dt_txn_commit_cb *cb, int err)
+{
+        struct mdd_txn_scrub *mts;
+
+        mts = container_of0(cb, struct mdd_txn_scrub, mts_cb);
+
+        /*
+         * XXX: 'err != 0' means Scrub fail to update the OI mapping. We can do
+         *      nothing for that, just make other waiting threads to go forward.
+         */
+        lu_object_signal_scrub(mts->mts_obj->lo_header);
+        lu_object_put(env, mts->mts_obj);
+
+        cfs_list_del(&mts->mts_cb.dcb_linkage);
+        OBD_FREE_PTR(mts);
+}
+
+static int mdd_txn_scrub_add(struct thandle *th, struct lu_object *obj)
+{
+        struct mdd_txn_scrub *mts;
+        int rc;
+
+        OBD_ALLOC_PTR(mts);
+        if (mts == NULL)
+                return -ENOMEM;
+
+        mts->mts_cb.dcb_func = mdd_txn_scrub_callback;
+        CFS_INIT_LIST_HEAD(&mts->mts_cb.dcb_linkage);
+        mts->mts_obj = obj;
+
+        rc = dt_trans_cb_add(th, &mts->mts_cb);
+        if (rc)
+                OBD_FREE_PTR(mts);
+
+        return rc;
+}
+
 int mdd_txn_start_cb(const struct lu_env *env, struct txn_param *param,
                      void *cookie)
 {
         struct mdd_device *mdd = cookie;
         struct obd_device *obd = mdd2obd_dev(mdd);
+        int blk, shift;
+
+        if (param->tp_flags & TPF_SCRUB)
+                return 0;
+
         /* Each transaction updates lov objids, the credits should be added for
          * this */
-        int blk, shift = mdd->mdd_dt_conf.ddp_block_shift;
+
+        shift = mdd->mdd_dt_conf.ddp_block_shift;
         blk = ((obd->u.mds.mds_lov_desc.ld_tgt_count * sizeof(obd_id) +
                (1 << shift) - 1) >> shift) + 1;
 
@@ -94,9 +143,32 @@ int mdd_txn_stop_cb(const struct lu_env *env, struct thandle *txn,
                     void *cookie)
 {
         struct mdd_device *mdd = cookie;
-        struct obd_device *obd = mdd2obd_dev(mdd);
+        struct obd_device *obd;
 
+        if (txn->th_flags & TPF_SCRUB) {
+                struct mdd_scrub_it *msi = mdd->mdd_scrub_it;
+                int rc;
+
+                if (txn->th_result != 0)
+                        return 0;
+
+                if (!(txn->th_flags & TPF_SCRUB_ASYNC))
+                        txn->th_sync = 1;
+
+                if (txn->th_sync == 0 && msi != NULL && msi->msi_obj != NULL) {
+                        rc = mdd_txn_scrub_add(txn, msi->msi_obj);
+                        if (rc != 0)
+                                txn->th_sync = 1;
+                        else
+                                msi->msi_obj = NULL;
+                }
+
+                return 0;
+        }
+
+        obd = mdd2obd_dev(mdd);
         LASSERT(obd);
+
         return mds_lov_write_objids(obd);
 }
 
@@ -111,6 +183,30 @@ void mdd_txn_param_build(const struct lu_env *env, struct mdd_device *mdd,
                 txn_param_credit_add(&mdd_env_info(env)->mti_param,
                                   changelog_cnt * dto_txn_credits[DTO_LOG_REC]);
         }
+}
+
+void mdd_scrub_txn_param_build(const struct lu_env *env, struct mdd_device *mdd,
+                               enum mdd_txn_op op)
+{
+        struct txn_param *param = &mdd_env_info(env)->mti_param;
+
+        LASSERT(0 <= op && op < MDD_TXN_LAST_OP);
+
+        txn_param_init(param, mdd->mdd_tod[op].mod_credits);
+        param->tp_flags = TPF_SCRUB;
+}
+
+void mdd_scrub_write_txn_param_build(const struct lu_env *env,
+                                     struct mdd_device *mdd, int size)
+{
+        struct txn_param *param = &mdd_env_info(env)->mti_param;
+        int blk, shift = mdd->mdd_dt_conf.ddp_block_shift;
+
+        blk = (size + (1 << shift) - 1) >> shift;
+        memset(param, 0, sizeof(*param));
+        param->tp_credits = dto_txn_credits[DTO_WRITE_BASE] +
+                            dto_txn_credits[DTO_WRITE_BLOCK] * blk;
+        param->tp_flags = TPF_SCRUB;
 }
 
 int mdd_create_txn_param_build(const struct lu_env *env, struct mdd_device *mdd,
@@ -280,6 +376,16 @@ int mdd_txn_init_credits(const struct lu_env *env, struct mdd_device *mdd)
                         case MDD_TXN_CLOSE_OP:
                                 *c = 0;
                                 break;
+                        case MDD_TXN_SCRUB_STORE_FID_OP:
+                                /* Delete the old name entry,
+                                 * and insert the new one. */
+                                *c = dt[DTO_INDEX_DELETE] +
+                                     dt[DTO_INDEX_INSERT];
+                                break;
+                        case MDD_TXN_SCRUB_UPDATE_REC_OP:
+                                /* Update the record or insert a new one. */
+                                *c = dt[DTO_INDEX_INSERT];
+                                break;
                         default:
                                 CERROR("Invalid op %d init its credit\n", op);
                                 LBUG();
@@ -298,9 +404,9 @@ struct thandle* mdd_trans_start(const struct lu_env *env,
         return th;
 }
 
-void mdd_trans_stop(const struct lu_env *env, struct mdd_device *mdd,
+int mdd_trans_stop(const struct lu_env *env, struct mdd_device *mdd,
                     int result, struct thandle *handle)
 {
         handle->th_result = result;
-        mdd_child_ops(mdd)->dt_trans_stop(env, handle);
+        return mdd_child_ops(mdd)->dt_trans_stop(env, handle);
 }

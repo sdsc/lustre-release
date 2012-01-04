@@ -325,7 +325,8 @@ static int mdt_getstatus(struct mdt_thread_info *info)
                 struct mdt_object  *root;
                 struct lustre_capa *capa;
 
-                root = mdt_object_find(info->mti_env, mdt, &repbody->fid1);
+                root = mdt_object_find(info->mti_env, mdt, &repbody->fid1,
+                                       NULL);
                 if (IS_ERR(root))
                         RETURN(PTR_ERR(root));
 
@@ -774,7 +775,8 @@ static int mdt_is_subdir(struct mdt_thread_info *info)
 static int mdt_raw_lookup(struct mdt_thread_info *info,
                           struct mdt_object *parent,
                           const struct lu_name *lname,
-                          struct ldlm_reply *ldlm_rep)
+                          struct ldlm_reply *ldlm_rep,
+                          struct lu_object_conf *conf)
 {
         struct md_object *next = mdt_object_child(info->mti_object);
         const struct mdt_body *reqbody = info->mti_body;
@@ -789,7 +791,7 @@ static int mdt_raw_lookup(struct mdt_thread_info *info,
         LASSERT(!info->mti_cross_ref);
 
         /* Only got the fid of this obj by name */
-        rc = mdo_lookup(info->mti_env, next, lname, child_fid,
+        rc = mdo_lookup(info->mti_env, next, lname, child_fid, conf,
                         &info->mti_spec);
 #if 0
         /* XXX is raw_lookup possible as intent operation? */
@@ -821,20 +823,21 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
                                  __u64 child_bits,
                                  struct ldlm_reply *ldlm_rep)
 {
-        struct ptlrpc_request  *req       = mdt_info_req(info);
-        struct mdt_body        *reqbody   = NULL;
-        struct mdt_object      *parent    = info->mti_object;
+        struct ptlrpc_request  *req        = mdt_info_req(info);
+        struct mdt_body        *reqbody    = NULL;
+        struct mdt_object      *parent     = info->mti_object;
         struct mdt_object      *child;
-        struct md_object       *next      = mdt_object_child(parent);
-        struct lu_fid          *child_fid = &info->mti_tmp_fid1;
-        struct lu_name         *lname     = NULL;
-        const char             *name      = NULL;
-        int                     namelen   = 0;
-        struct mdt_lock_handle *lhp       = NULL;
+        struct md_object       *next       = mdt_object_child(parent);
+        struct lu_fid          *child_fid  = &info->mti_tmp_fid1;
+        struct lu_object_conf  *child_conf = &info->mti_tmp_conf1;
+        struct lu_name         *lname      = NULL;
+        const char             *name       = NULL;
+        int                     namelen    = 0;
+        struct mdt_lock_handle *lhp        = NULL;
         struct ldlm_lock       *lock;
         struct ldlm_res_id     *res_id;
         int                     is_resent;
-        int                     ma_need = 0;
+        int                     ma_need    = 0;
         int                     rc;
 
         ENTRY;
@@ -891,7 +894,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
                          PFID(mdt_object_fid(parent)));
         }
         if (lname) {
-                rc = mdt_raw_lookup(info, parent, lname, ldlm_rep);
+                rc = mdt_raw_lookup(info, parent, lname, ldlm_rep, child_conf);
                 if (rc != 0) {
                         if (rc > 0)
                                 rc = 0;
@@ -940,6 +943,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
                 RETURN(rc);
         }
 
+        child_conf->loc_flags = 0;
         if (lname) {
                 /* step 1: lock parent */
                 lhp = &info->mti_lh[MDT_LH_PARENT];
@@ -951,7 +955,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 
                 /* step 2: lookup child's fid by name */
                 rc = mdo_lookup(info->mti_env, next, lname, child_fid,
-                                &info->mti_spec);
+                                child_conf, &info->mti_spec);
 
                 if (rc != 0) {
                         if (rc == -ENOENT)
@@ -968,7 +972,8 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
          *step 3: find the child object by fid & lock it.
          *        regardless if it is local or remote.
          */
-        child = mdt_object_find(info->mti_env, info->mti_mdt, child_fid);
+        child = mdt_object_find(info->mti_env, info->mti_mdt, child_fid,
+                                child_conf);
 
         if (unlikely(IS_ERR(child)))
                 GOTO(out_parent, rc = PTR_ERR(child));
@@ -1224,7 +1229,7 @@ static int mdt_sendpage(struct mdt_thread_info *info,
         struct ptlrpc_request   *req = mdt_info_req(info);
         struct obd_export       *exp = req->rq_export;
         struct ptlrpc_bulk_desc *desc;
-        struct l_wait_info      *lwi = &info->mti_u.rdpg.mti_wait_info;
+        struct l_wait_info      *lwi = &info->mti_wait_info;
         int                      tmpcount;
         int                      tmpsize;
         int                      i;
@@ -1340,9 +1345,9 @@ static int mdt_bulk_timeout(void *data)
 
 static int mdt_writepage(struct mdt_thread_info *info)
 {
+        struct l_wait_info      *lwi = &info->mti_wait_info;
         struct ptlrpc_request   *req = mdt_info_req(info);
         struct mdt_body         *reqbody;
-        struct l_wait_info      *lwi;
         struct ptlrpc_bulk_desc *desc;
         struct page             *page;
         int                rc;
@@ -1375,10 +1380,6 @@ static int mdt_writepage(struct mdt_thread_info *info)
          * Check if client was evicted while we were doing i/o before touching
          * network.
          */
-        OBD_ALLOC_PTR(lwi);
-        if (!lwi)
-                GOTO(cleanup_page, rc = -ENOMEM);
-
         if (desc->bd_export->exp_failed)
                 rc = -ENOTCONN;
         else
@@ -1408,12 +1409,9 @@ static int mdt_writepage(struct mdt_thread_info *info)
         } else {
                 DEBUG_REQ(D_ERROR, req, "ptlrpc_bulk_get failed: rc %d", rc);
         }
-        if (rc)
-                GOTO(cleanup_lwi, rc);
-        rc = mdt_write_dir_page(info, page, reqbody->nlink);
+        if (rc == 0)
+                rc = mdt_write_dir_page(info, page, reqbody->nlink);
 
-cleanup_lwi:
-        OBD_FREE_PTR(lwi);
 cleanup_page:
         cfs_free_page(page);
 desc_cleanup:
@@ -1425,7 +1423,7 @@ desc_cleanup:
 static int mdt_readpage(struct mdt_thread_info *info)
 {
         struct mdt_object *object = info->mti_object;
-        struct lu_rdpg    *rdpg = &info->mti_u.rdpg.mti_rdpg;
+        struct lu_rdpg    *rdpg = &info->mti_u.mti_rdpg;
         struct mdt_body   *reqbody;
         struct mdt_body   *repbody;
         int                rc;
@@ -2037,19 +2035,39 @@ static struct mdt_object *mdt_obj(struct lu_object *o)
 
 struct mdt_object *mdt_object_find(const struct lu_env *env,
                                    struct mdt_device *d,
-                                   const struct lu_fid *f)
+                                   const struct lu_fid *f,
+                                   struct lu_object_conf *conf)
 {
+        struct mdt_thread_info *info = mdt_env_info(env);
         struct lu_object *o;
         struct mdt_object *m;
-        ENTRY;
+        int once = 0, rc;
 
         CDEBUG(D_INFO, "Find object for "DFID"\n", PFID(f));
-        o = lu_object_find(env, &d->mdt_md_dev.md_lu_dev, f, NULL);
-        if (unlikely(IS_ERR(o)))
+
+again:
+        o = lu_object_find(env, &d->mdt_md_dev.md_lu_dev, f, conf);
+        if (IS_ERR(o)) {
+                rc = PTR_ERR(o);
+                if (rc == -EREMCHG && !d->mdt_opts.mo_noscrub && ++once == 1) {
+                        rc = mdt_iocontrol(OBD_IOC_START_SCRUB, info->mti_exp,
+                                           0, NULL, NULL);
+                        if (rc == 0 || rc == -EALREADY)
+                                goto again;
+                }
                 m = (struct mdt_object *)o;
-        else
+        } else {
+                if (lu_object_is_scrub(o->lo_header)) {
+                        struct l_wait_info *lwi = &info->mti_wait_info;
+
+                        *lwi = (struct l_wait_info){ 0 };
+                        l_wait_event(o->lo_header->loh_waitq,
+                                     !lu_object_is_scrub(o->lo_header), lwi);
+                }
                 m = mdt_obj(o);
-        RETURN(m);
+        }
+
+        return m;
 }
 
 /**
@@ -2324,12 +2342,13 @@ void mdt_object_unlock(struct mdt_thread_info *info, struct mdt_object *o,
 
 struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *info,
                                         const struct lu_fid *f,
+                                        struct lu_object_conf *conf,
                                         struct mdt_lock_handle *lh,
                                         __u64 ibits)
 {
         struct mdt_object *o;
 
-        o = mdt_object_find(info->mti_env, info->mti_mdt, f);
+        o = mdt_object_find(info->mti_env, info->mti_mdt, f, conf);
         if (!IS_ERR(o)) {
                 int rc;
 
@@ -2433,7 +2452,7 @@ static int mdt_body_unpack(struct mdt_thread_info *info, __u32 flags)
                 mdt_set_capainfo(info, 0, &body->fid1,
                                  req_capsule_client_get(pill, &RMF_CAPA1));
 
-        obj = mdt_object_find(env, info->mti_mdt, &body->fid1);
+        obj = mdt_object_find(env, info->mti_mdt, &body->fid1, NULL);
         if (!IS_ERR(obj)) {
                 if ((flags & HABEO_CORPUS) &&
                     !mdt_object_exists(obj)) {
@@ -2698,6 +2717,8 @@ static void mdt_thread_info_init(struct ptlrpc_request *req,
         /* To not check for split by default. */
         info->mti_spec.sp_ck_split = 0;
         info->mti_spec.no_create = 0;
+        memset(&info->mti_tmp_conf1, 0, sizeof(info->mti_tmp_conf1));
+        memset(&info->mti_tmp_conf2, 0, sizeof(info->mti_tmp_conf2));
 }
 
 static void mdt_thread_info_fini(struct mdt_thread_info *info)
@@ -2968,8 +2989,7 @@ static int mdt_handle_common(struct ptlrpc_request *req,
         LASSERT(env != NULL);
         LASSERT(env->le_ses != NULL);
         LASSERT(env->le_ctx.lc_thread == req->rq_svc_thread);
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        LASSERT(info != NULL);
+        info = mdt_env_info(env);
 
         mdt_thread_info_init(req, info);
 
@@ -3505,9 +3525,7 @@ static int mdt_intent_policy(struct ldlm_namespace *ns,
 
         LASSERT(req != NULL);
 
-        info = lu_context_key_get(&req->rq_svc_thread->t_env->le_ctx,
-                                  &mdt_thread_key);
-        LASSERT(info != NULL);
+        info = mdt_env_info(req->rq_svc_thread->t_env);
         pill = info->mti_pill;
         LASSERT(pill->rc_req == req);
 
@@ -3671,11 +3689,10 @@ static int mdt_seq_init_cli(const struct lu_env *env,
         char              *uuid_str, *mdc_uuid_str;
         int                rc;
         int                index;
-        struct mdt_thread_info *info;
+        struct mdt_thread_info *info = mdt_env_info(env);
         char *p, *index_string = lustre_cfg_string(cfg, 2);
         ENTRY;
 
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
         uuidp = &info->mti_u.uuid[0];
         mdcuuidp = &info->mti_u.uuid[1];
 
@@ -4101,12 +4118,9 @@ static void mdt_stack_fini(const struct lu_env *env,
         struct obd_device       *obd = mdt2obd_dev(m);
         struct lustre_cfg_bufs  *bufs;
         struct lustre_cfg       *lcfg;
-        struct mdt_thread_info  *info;
+        struct mdt_thread_info  *info = mdt_env_info(env);
         char flags[3]="";
         ENTRY;
-
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        LASSERT(info != NULL);
 
         bufs = &info->mti_u.bufs;
         /* process cleanup, pass mdt obd name to get obd umount flags */
@@ -4195,7 +4209,7 @@ out:
 static int mdt_stack_init(struct lu_env *env,
                           struct mdt_device *m,
                           struct lustre_cfg *cfg,
-                          struct lustre_mount_info  *lmi)
+                          struct lustre_mount_info *lmi)
 {
         struct lu_device  *d = &m->mdt_md_dev.md_lu_dev;
         struct lu_device  *tmp;
@@ -4243,7 +4257,8 @@ static int mdt_stack_init(struct lu_env *env,
 
         rc = child_lu_dev->ld_ops->ldo_prepare(env,
                                                &m->mdt_md_dev.md_lu_dev,
-                                               child_lu_dev);
+                                               child_lu_dev,
+                                               get_mount_flags(lmi->lmi_sb));
 out:
         /* fini from last known good lu_device */
         if (rc)
@@ -4428,9 +4443,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         if (rc != 0)
                 RETURN(rc);
 
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        LASSERT(info != NULL);
-
+        info = mdt_env_info(env);
         obd = class_name2obd(dev);
         LASSERT(obd != NULL);
 
@@ -4586,6 +4599,11 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
                 m->mdt_opts.mo_acl = 1;
         else
                 m->mdt_opts.mo_acl = 0;
+
+        if (mntopts & MNTOPT_NOSCRUB)
+                m->mdt_opts.mo_noscrub = 1;
+        else
+                m->mdt_opts.mo_noscrub = 0;
 
         /* XXX: to support suppgid for ACL, we enable identity_upcall
          * by default, otherwise, maybe got unexpected -EACCESS. */
@@ -4761,7 +4779,7 @@ static struct lu_object *mdt_object_alloc(const struct lu_env *env,
 }
 
 static int mdt_object_init(const struct lu_env *env, struct lu_object *o,
-                           const struct lu_object_conf *unused)
+                           struct lu_object_conf *unused)
 {
         struct mdt_device *d = mdt_dev(o->lo_dev);
         struct lu_device  *under;
@@ -4976,10 +4994,9 @@ static int mdt_obd_connect(const struct lu_env *env,
         if (!exp || !obd || !cluuid)
                 RETURN(-EINVAL);
 
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        info = mdt_env_info(env);
         req = info->mti_pill->rc_req;
         mdt = mdt_dev(obd->obd_lu_dev);
-
         rc = class_connect(&conn, obd, cluuid);
         if (rc)
                 RETURN(rc);
@@ -4996,12 +5013,10 @@ static int mdt_obd_connect(const struct lu_env *env,
 
         rc = mdt_connect_internal(lexp, mdt, data);
         if (rc == 0) {
-                struct mdt_thread_info *mti;
                 struct lsd_client_data *lcd = lexp->exp_target_data.ted_lcd;
+
                 LASSERT(lcd);
-                mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-                LASSERT(mti != NULL);
-                mti->mti_exp = lexp;
+                info->mti_exp = lexp;
                 memcpy(lcd->lcd_uuid, cluuid, sizeof lcd->lcd_uuid);
                 rc = mdt_client_new(env, mdt);
                 if (rc == 0)
@@ -5034,7 +5049,7 @@ static int mdt_obd_reconnect(const struct lu_env *env,
         if (exp == NULL || obd == NULL || cluuid == NULL)
                 RETURN(-EINVAL);
 
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        info = mdt_env_info(env);
         req = info->mti_pill->rc_req;
         mdt = mdt_dev(obd->obd_lu_dev);
 
@@ -5078,8 +5093,7 @@ static int mdt_export_cleanup(struct obd_export *exp)
         if (rc)
                 RETURN(rc);
 
-        info = lu_context_key_get(&env.le_ctx, &mdt_thread_key);
-        LASSERT(info != NULL);
+        info = mdt_env_info(&env);
         memset(info, 0, sizeof *info);
         info->mti_env = &env;
         info->mti_mdt = mdt;
@@ -5246,7 +5260,7 @@ static int mdt_upcall(const struct lu_env *env, struct md_device *md,
                                       m->mdt_lut.lut_obd->u.obt.obt_mount_count;
                         break;
                 case MD_NO_TRANS:
-                        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+                        mti = mdt_env_info(env);
                         mti->mti_no_need_trans = 1;
                         CDEBUG(D_INFO, "disable mdt trans for this thread\n");
                         break;
@@ -5261,6 +5275,9 @@ static int mdt_upcall(const struct lu_env *env, struct md_device *md,
                                 next->md_ops->mdo_quota.mqo_recovery(env, next);
                         break;
 #endif
+                case MD_NOSCRUB:
+                        m->mdt_opts.mo_noscrub = !!(*(int *)data);
+                        break;
                 default:
                         CERROR("invalid event\n");
                         rc = -EINVAL;
@@ -5329,7 +5346,7 @@ static int mdt_fid2path(const struct lu_env *env, struct mdt_device *mdt,
         if (!fid_is_sane(&fp->gf_fid))
                 RETURN(-EINVAL);
 
-        obj = mdt_object_find(env, mdt, &fp->gf_fid);
+        obj = mdt_object_find(env, mdt, &fp->gf_fid, NULL);
         if (obj == NULL || IS_ERR(obj)) {
                 CDEBUG(D_IOCTL, "no object "DFID": %ld\n",PFID(&fp->gf_fid),
                        PTR_ERR(obj));
@@ -5439,7 +5456,7 @@ static int mdt_ioc_version_get(struct mdt_thread_info *mti, void *karg)
         lh = &mti->mti_lh[MDT_LH_PARENT];
         mdt_lock_reg_init(lh, LCK_CR);
 
-        obj = mdt_object_find_lock(mti, fid, lh, MDS_INODELOCK_UPDATE);
+        obj = mdt_object_find_lock(mti, fid, NULL, lh, MDS_INODELOCK_UPDATE);
         if (IS_ERR(obj))
                 RETURN(PTR_ERR(obj));
 
@@ -5496,9 +5513,22 @@ static int mdt_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
         case OBD_IOC_CHANGELOG_CLEAR:
                 rc = mdt_ioc_child(&env, mdt, cmd, len, karg);
                 break;
+        case OBD_IOC_START_SCRUB:
+        case OBD_IOC_STOP_SCRUB:
+        case OBD_IOC_SHOW_SCRUB: {
+                struct md_device *next = mdt->mdt_child;
+                void *data;
+
+                if (karg != NULL)
+                        data = ((struct obd_ioctl_data *)karg)->ioc_inlbuf1;
+                else
+                        data = NULL;
+                rc = next->md_ops->mdo_iocontrol(&env, next, cmd, 0, data);
+                break;
+        }
         case OBD_IOC_GET_OBJ_VERSION: {
-                struct mdt_thread_info *mti;
-                mti = lu_context_key_get(&env.le_ctx, &mdt_thread_key);
+                struct mdt_thread_info *mti = mdt_env_info(&env);
+
                 memset(mti, 0, sizeof *mti);
                 mti->mti_env = &env;
                 mti->mti_mdt = mdt;
