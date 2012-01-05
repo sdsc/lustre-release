@@ -1082,6 +1082,16 @@ static int mdt_open_anon_by_fid(struct mdt_thread_info *info,
                                         DISP_LOOKUP_EXECD |
                                         DISP_LOOKUP_POS));
 
+        /*
+         * Once client requests open lock, only OPEN lock will be piggyback.
+         * This open lock will be canceled in below situations:
+         *   1. other client requests for conflict open lock (WRITE vs. EXEC).
+         *   2. file unlinked or renamed to (file is rename target).
+         *   3. client doesn't have LOOKUP lock (others chmod/chown/setfacl),
+         *      even the client holds OPEN lock, the dentry won't be used by
+         *      subsequent open, so it needs open this file again. (previous
+         *      OPEN lock will be canceled in mdc_intent_open_pack()).
+         */
         if (flags & FMODE_WRITE)
                 lm = LCK_CW;
         else if (flags & MDS_FMODE_EXEC)
@@ -1091,9 +1101,7 @@ static int mdt_open_anon_by_fid(struct mdt_thread_info *info,
 
         mdt_lock_handle_init(lhc);
         mdt_lock_reg_init(lhc, lm);
-        rc = mdt_object_lock(info, o, lhc,
-                             MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN,
-                             MDT_CROSS_LOCK);
+        rc = mdt_object_lock(info, o, lhc, MDS_INODELOCK_OPEN, MDT_CROSS_LOCK);
         if (rc)
                 GOTO(out, rc);
 
@@ -1420,7 +1428,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         LASSERT(!lustre_handle_is_used(&lhc->mlh_reg_lh));
 
         /* get openlock if this is not replay and if a client requested it */
-        if (!req_is_replay(req) && create_flags & MDS_OPEN_LOCK) {
+        if (!req_is_replay(req) && (create_flags & MDS_OPEN_LOCK)) {
                 ldlm_mode_t lm;
 
                 if (create_flags & FMODE_WRITE)
@@ -1431,8 +1439,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                         lm = LCK_CR;
                 mdt_lock_handle_init(lhc);
                 mdt_lock_reg_init(lhc, lm);
-                rc = mdt_object_lock(info, child, lhc,
-                                     MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN,
+                rc = mdt_object_lock(info, child, lhc, MDS_INODELOCK_OPEN,
                                      MDT_CROSS_LOCK);
                 if (rc) {
                         result = rc;
