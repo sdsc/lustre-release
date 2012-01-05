@@ -96,8 +96,14 @@ MKFSOPT=""
     OSTOPT=$OSTOPT" --failnode=`h2$NETTYPE $ostfailover_HOST`"
 OST_MKFS_OPTS="--ost --fsname=$FSNAME --device-size=$OSTSIZE --mgsnode=$MGSNID --param sys.timeout=$TIMEOUT $MKFSOPT $OSTOPT $OST_MKFS_OPTS"
 
-MDS_MOUNT_OPTS=${MDS_MOUNT_OPTS:-"-o loop,user_xattr,acl"}
-OST_MOUNT_OPTS=${OST_MOUNT_OPTS:-"-o loop"}
+NB_OPT=""
+if [ -r /etc/redhat-release ]; then
+    rhel_ver=$(awk '/release/ { printf("%s", $4)}' /etc/redhat-release | cut -f1 -d'.')
+    [ $rhel_ver -eq 6 ] && NB_OPT=",nobarrier"
+fi
+
+MDS_MOUNT_OPTS=${MDS_MOUNT_OPTS:-"-o loop,user_xattr,acl"$NB_OPT}
+OST_MOUNT_OPTS=${OST_MOUNT_OPTS:-"-o loop"$NB_OPT}
 MGS_MOUNT_OPTS=${MGS_MOUNT_OPTS:-$MDS_MOUNT_OPTS}
 
 #client
