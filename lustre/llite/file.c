@@ -368,7 +368,9 @@ static int ll_intent_file_open(struct file *file, void *lmm,
         /* If lmmsize & lmm are not 0, we are just setting stripe info
          * parameters. No need for the open lock */
         if (lmm == NULL && lmmsize == 0) {
-                itp->it_flags |= MDS_OPEN_LOCK;
+                /* Don't get open lock for non-regular file */
+                if (S_ISREG(file->f_dentry->d_inode->i_mode))
+                        itp->it_flags |= MDS_OPEN_LOCK;
                 if (itp->it_flags & FMODE_WRITE)
                         opc = LUSTRE_OPC_CREATE;
         }

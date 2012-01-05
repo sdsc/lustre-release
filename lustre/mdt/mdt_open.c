@@ -1091,9 +1091,7 @@ static int mdt_open_anon_by_fid(struct mdt_thread_info *info,
 
         mdt_lock_handle_init(lhc);
         mdt_lock_reg_init(lhc, lm);
-        rc = mdt_object_lock(info, o, lhc,
-                             MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN,
-                             MDT_CROSS_LOCK);
+        rc = mdt_object_lock(info, o, lhc, MDS_INODELOCK_OPEN, MDT_CROSS_LOCK);
         if (rc)
                 GOTO(out, rc);
 
@@ -1420,7 +1418,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         LASSERT(!lustre_handle_is_used(&lhc->mlh_reg_lh));
 
         /* get openlock if this is not replay and if a client requested it */
-        if (!req_is_replay(req) && create_flags & MDS_OPEN_LOCK) {
+        if (!req_is_replay(req) && (create_flags & MDS_OPEN_LOCK)) {
                 ldlm_mode_t lm;
 
                 if (create_flags & FMODE_WRITE)
@@ -1431,8 +1429,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                         lm = LCK_CR;
                 mdt_lock_handle_init(lhc);
                 mdt_lock_reg_init(lhc, lm);
-                rc = mdt_object_lock(info, child, lhc,
-                                     MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN,
+                rc = mdt_object_lock(info, child, lhc, MDS_INODELOCK_OPEN,
                                      MDT_CROSS_LOCK);
                 if (rc) {
                         result = rc;
