@@ -15,10 +15,11 @@ cleanup_mount $MOUNT
 # mount lustre on mds
 lustre_client=$(facet_active_host $SINGLEMDS)
 zconf_mount_clients $lustre_client $MOUNT || \
+    "-o user_xattr,acl,flock,32bitapi"    || \
     error "mount lustre on $lustre_client failed"
 
 # setup the nfs
-if ! setup_nfs "3" "$MOUNT" "$lustre_client" "$CLIENTS"; then
+if ! setup_nfs "4" "$MOUNT" "$lustre_client" "$CLIENTS"; then
     error_noexit false "setup nfs failed!"
     cleanup_nfs "$MOUNT" "$lustre_client" "$CLIENTS" || \
         error_noexit false "failed to cleanup nfs"
@@ -77,7 +78,7 @@ IOR=${IOR:-$(which IOR 2> /dev/null || true)}
 # threads per client
 ior_THREADS=${ior_THREADS:-2}
 ior_iteration=${ior_iteration:-1}
-ior_blockSize=${ior_blockSize:-1} # Gb
+ior_blockSize=${ior_blockSize:-6} # Gb
 ior_xferSize=${ior_xferSize:-2m}
 ior_type=${ior_type:-POSIX}
 ior_DURATION=${ior_DURATION:-60} # minutes

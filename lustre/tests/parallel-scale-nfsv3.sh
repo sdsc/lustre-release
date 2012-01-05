@@ -77,7 +77,7 @@ IOR=${IOR:-$(which IOR 2> /dev/null || true)}
 # threads per client
 ior_THREADS=${ior_THREADS:-2}
 ior_iteration=${ior_iteration:-1}
-ior_blockSize=${ior_blockSize:-1} # Gb
+ior_blockSize=${ior_blockSize:-6} # Gb
 ior_xferSize=${ior_xferSize:-2m}
 ior_type=${ior_type:-POSIX}
 ior_DURATION=${ior_DURATION:-60} # minutes
