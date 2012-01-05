@@ -1048,6 +1048,7 @@ static int mdt_open_anon_by_fid(struct mdt_thread_info *info,
         struct mdt_object       *o;
         int                      rc;
         ldlm_mode_t              lm;
+        __u64                    cbits;
         ENTRY;
 
         if (md_should_create(flags)) {
@@ -1082,18 +1083,23 @@ static int mdt_open_anon_by_fid(struct mdt_thread_info *info,
                                         DISP_LOOKUP_EXECD |
                                         DISP_LOOKUP_POS));
 
+        /*
+         * UPDATE|LOOKUP lock is fetched along with OPEN, it doesn't make sense
+         * to fetch a LCK_CR lock back, because setattr takes LCK_PW lock, and
+         * getattr LCK_PR. So if file is not open(FMODE_WRITE), set LCK_PR mode.
+         */
         if (flags & FMODE_WRITE)
                 lm = LCK_CW;
-        else if (flags & MDS_FMODE_EXEC)
-                lm = LCK_PR;
         else
-                lm = LCK_CR;
+                lm = LCK_PR;
 
         mdt_lock_handle_init(lhc);
         mdt_lock_reg_init(lhc, lm);
-        rc = mdt_object_lock(info, o, lhc,
-                             MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN,
-                             MDT_CROSS_LOCK);
+        cbits = MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN;
+        if (flags & MDS_OPEN_LOCK)
+                /* take UPDATE lock too in case open and getattr conflict. */
+                cbits |= MDS_INODELOCK_UPDATE;
+        rc = mdt_object_lock(info, o, lhc, cbits, MDT_CROSS_LOCK);
         if (rc)
                 GOTO(out, rc);
 
@@ -1420,19 +1426,27 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         LASSERT(!lustre_handle_is_used(&lhc->mlh_reg_lh));
 
         /* get openlock if this is not replay and if a client requested it */
-        if (!req_is_replay(req) && create_flags & MDS_OPEN_LOCK) {
+        if (!req_is_replay(req) && (create_flags & MDS_OPEN_LOCK)) {
                 ldlm_mode_t lm;
 
+                /*
+                 * UPDATE|LOOKUP lock is fetched along with OPEN, it doesn't
+                 * make sense to fetch an LCK_CR lock back, because setattr
+                 * takes LCK_PW lock, and getattr LCK_PR. So if file is not
+                 * open(FMODE_WRITE), set LCK_PR mode.
+                 */
                 if (create_flags & FMODE_WRITE)
                         lm = LCK_CW;
-                else if (create_flags & MDS_FMODE_EXEC)
-                        lm = LCK_PR;
                 else
-                        lm = LCK_CR;
+                        lm = LCK_PR;
+
                 mdt_lock_handle_init(lhc);
                 mdt_lock_reg_init(lhc, lm);
+                /* take UPDATE lock too in case open and getattr conflict. */
                 rc = mdt_object_lock(info, child, lhc,
-                                     MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN,
+                                     MDS_INODELOCK_LOOKUP |
+                                     MDS_INODELOCK_UPDATE |
+                                     MDS_INODELOCK_OPEN,
                                      MDT_CROSS_LOCK);
                 if (rc) {
                         result = rc;
