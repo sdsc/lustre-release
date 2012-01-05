@@ -14,12 +14,11 @@ init_logging
 cleanup_mount $MOUNT
 # mount lustre on mds
 lustre_client=$(facet_active_host $SINGLEMDS)
-zconf_mount_clients $lustre_client $MOUNT \
-    "-o user_xattr,acl,flock,32bitapi" || \
+zconf_mount_clients $lustre_client $MOUNT || \
     error "mount lustre on $lustre_client failed"
 
 # setup the nfs
-if ! setup_nfs "4" "$MOUNT" "$lustre_client" "$CLIENTS"; then
+if ! setup_nfs "3" "$MOUNT" "$lustre_client" "$CLIENTS"; then
     error_noexit false "setup nfs failed!"
     cleanup_nfs "$MOUNT" "$lustre_client" "$CLIENTS" || \
         error_noexit false "failed to cleanup nfs"
