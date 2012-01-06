@@ -253,7 +253,7 @@ struct osc_lock {
          * granted.
          * Glimpse lock should be destroyed immediately after use.
          */
-                                 ols_glimpse:1;
+                                 ols_glimpse:1,
         /**
          * IO that owns this lock. This field is used for a dead-lock
          * avoidance by osc_lock_enqueue_wait().
@@ -261,6 +261,10 @@ struct osc_lock {
          * XXX: unfortunately, the owner of a osc_lock is not unique, 
          * the lock may have multiple users, if the lock is granted and
          * then matched.
+         */
+                                 ols_agl:1;
+        /**
+         * For async glimpse lock.
          */
         struct osc_io           *ols_owner;
 };
