@@ -179,16 +179,16 @@ out:
 /* Test record writing, single and in bulk */
 static int llog_test_3(struct obd_device *obd, struct llog_handle *llh)
 {
-        struct llog_create_rec lcr;
-        int rc, i;
-        int num_recs = 1;       /* 1 for the header */
-        ENTRY;
+	struct llog_gen_rec lgr;
+	int rc, i;
+	int num_recs = 1;       /* 1 for the header */
+	ENTRY;
 
-        lcr.lcr_hdr.lrh_len = lcr.lcr_tail.lrt_len = sizeof(lcr);
-        lcr.lcr_hdr.lrh_type = OST_SZ_REC;
+	lgr.lgr_hdr.lrh_len = lgr.lgr_tail.lrt_len = sizeof(lgr);
+	lgr.lgr_hdr.lrh_type = LLOG_GEN_REC;
 
-        CWARN("3a: write one create_rec\n");
-        rc = llog_write_rec(llh,  &lcr.lcr_hdr, NULL, 0, NULL, -1);
+	CWARN("3a: write one create_rec\n");
+	rc = llog_write_rec(llh,  &lgr.lgr_hdr, NULL, 0, NULL, -1);
         num_recs++;
         if (rc) {
                 CERROR("3a: write one log record failed: %d\n", rc);
@@ -221,7 +221,7 @@ static int llog_test_3(struct obd_device *obd, struct llog_handle *llh)
 
         CWARN("3c: write 1000 more log records\n");
         for (i = 0; i < 1000; i++) {
-                rc = llog_write_rec(llh, &lcr.lcr_hdr, NULL, 0, NULL, -1);
+		rc = llog_write_rec(llh, &lgr.lgr_hdr, NULL, 0, NULL, -1);
                 if (rc) {
                         CERROR("3c: write 1000 records failed at #%d: %d\n",
                                i + 1, rc);
@@ -558,40 +558,40 @@ ctxt_release:
 
 static int llog_test_7(struct obd_device *obd)
 {
-        struct llog_ctxt *ctxt = llog_get_context(obd, LLOG_TEST_ORIG_CTXT);
-        struct llog_handle *llh;
-        struct llog_create_rec lcr;
-        char name[10];
-        int rc;
-        ENTRY;
+	struct llog_ctxt *ctxt = llog_get_context(obd, LLOG_TEST_ORIG_CTXT);
+	struct llog_handle *llh;
+	struct llog_gen_rec lgr;
+	char name[10];
+	int rc;
+	ENTRY;
 
-        sprintf(name, "%x", llog_test_rand+2);
-        CWARN("7: create a log with name: %s\n", name);
-        LASSERT(ctxt);
+	sprintf(name, "%x", llog_test_rand+2);
+	CWARN("7: create a log with name: %s\n", name);
+	LASSERT(ctxt);
 
-        rc = llog_create(ctxt, &llh, NULL, name);
-        if (rc) {
-                CERROR("7: llog_create with name %s failed: %d\n", name, rc);
-                GOTO(ctxt_release, rc);
-        }
-        llog_init_handle(llh, LLOG_F_IS_PLAIN, &uuid);
+	rc = llog_create(ctxt, &llh, NULL, name);
+	if (rc) {
+		CERROR("7: llog_create with name %s failed: %d\n", name, rc);
+		GOTO(ctxt_release, rc);
+	}
+	llog_init_handle(llh, LLOG_F_IS_PLAIN, &uuid);
 
-        lcr.lcr_hdr.lrh_len = lcr.lcr_tail.lrt_len = sizeof(lcr);
-        lcr.lcr_hdr.lrh_type = OST_SZ_REC;
-        rc = llog_write_rec(llh,  &lcr.lcr_hdr, NULL, 0, NULL, -1);
-        if (rc) {
-                CERROR("7: write one log record failed: %d\n", rc);
-                GOTO(ctxt_release, rc);
-        }
+	lgr.lgr_hdr.lrh_len = lgr.lgr_tail.lrt_len = sizeof(lgr);
+	lgr.lgr_hdr.lrh_type = LLOG_GEN_REC;
+	rc = llog_write_rec(llh,  &lgr.lgr_hdr, NULL, 0, NULL, -1);
+	if (rc) {
+		CERROR("7: write one log record failed: %d\n", rc);
+		GOTO(ctxt_release, rc);
+	}
 
-        rc = llog_destroy(llh);
-        if (rc)
-                CERROR("7: llog_destroy failed: %d\n", rc);
-        else
-                llog_free_handle(llh);
+	rc = llog_destroy(llh);
+	if (rc)
+		CERROR("7: llog_destroy failed: %d\n", rc);
+	else
+		llog_free_handle(llh);
 ctxt_release:
-        llog_ctxt_put(ctxt);
-        RETURN(rc);
+	llog_ctxt_put(ctxt);
+	RETURN(rc);
 }
 
 /* -------------------------------------------------------------------------

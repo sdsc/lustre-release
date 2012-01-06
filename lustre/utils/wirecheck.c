@@ -1301,19 +1301,6 @@ check_llog_logid_rec(void)
 }
 
 static void
-check_llog_create_rec(void)
-{
-        BLANK_LINE();
-        CHECK_STRUCT(llog_create_rec);
-        CHECK_MEMBER(llog_create_rec, lcr_hdr);
-        CHECK_MEMBER(llog_create_rec, lcr_fid);
-        CHECK_MEMBER(llog_create_rec, lcr_oid);
-        CHECK_MEMBER(llog_create_rec, lcr_oseq);
-        CHECK_MEMBER(llog_create_rec, lcr_padding);
-        CHECK_MEMBER(llog_create_rec, lcr_tail);
-}
-
-static void
 check_llog_orphan_rec(void)
 {
         BLANK_LINE();
@@ -2055,7 +2042,6 @@ main(int argc, char **argv)
         check_llog_rec_hdr();
         check_llog_rec_tail();
         check_llog_logid_rec();
-        check_llog_create_rec();
         check_llog_orphan_rec();
         check_llog_unlink_rec();
         check_llog_setattr_rec();

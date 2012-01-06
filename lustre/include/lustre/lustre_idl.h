@@ -2583,15 +2583,6 @@ struct llog_logid_rec {
         struct llog_rec_tail    lid_tail;
 } __attribute__((packed));
 
-struct llog_create_rec {
-        struct llog_rec_hdr     lcr_hdr;
-        struct ll_fid           lcr_fid;
-        obd_id                  lcr_oid;
-        obd_count               lcr_oseq;
-        __u32                   lcr_padding;
-        struct llog_rec_tail    lcr_tail;
-} __attribute__((packed));
-
 struct llog_orphan_rec {
         struct llog_rec_hdr     lor_hdr;
         obd_id                  lor_oid;

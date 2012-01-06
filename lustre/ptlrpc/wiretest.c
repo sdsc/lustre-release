@@ -3024,34 +3024,6 @@ void lustre_assert_wire_constants(void)
         LASSERTF((int)sizeof(((struct llog_logid_rec *)0)->lid_tail) == 8, "found %lld\n",
                  (long long)(int)sizeof(((struct llog_logid_rec *)0)->lid_tail));
 
-        /* Checks for struct llog_create_rec */
-        LASSERTF((int)sizeof(struct llog_create_rec) == 56, "found %lld\n",
-                 (long long)(int)sizeof(struct llog_create_rec));
-        LASSERTF((int)offsetof(struct llog_create_rec, lcr_hdr) == 0, "found %lld\n",
-                 (long long)(int)offsetof(struct llog_create_rec, lcr_hdr));
-        LASSERTF((int)sizeof(((struct llog_create_rec *)0)->lcr_hdr) == 16, "found %lld\n",
-                 (long long)(int)sizeof(((struct llog_create_rec *)0)->lcr_hdr));
-        LASSERTF((int)offsetof(struct llog_create_rec, lcr_fid) == 16, "found %lld\n",
-                 (long long)(int)offsetof(struct llog_create_rec, lcr_fid));
-        LASSERTF((int)sizeof(((struct llog_create_rec *)0)->lcr_fid) == 16, "found %lld\n",
-                 (long long)(int)sizeof(((struct llog_create_rec *)0)->lcr_fid));
-        LASSERTF((int)offsetof(struct llog_create_rec, lcr_oid) == 32, "found %lld\n",
-                 (long long)(int)offsetof(struct llog_create_rec, lcr_oid));
-        LASSERTF((int)sizeof(((struct llog_create_rec *)0)->lcr_oid) == 8, "found %lld\n",
-                 (long long)(int)sizeof(((struct llog_create_rec *)0)->lcr_oid));
-        LASSERTF((int)offsetof(struct llog_create_rec, lcr_oseq) == 40, "found %lld\n",
-                 (long long)(int)offsetof(struct llog_create_rec, lcr_oseq));
-        LASSERTF((int)sizeof(((struct llog_create_rec *)0)->lcr_oseq) == 4, "found %lld\n",
-                 (long long)(int)sizeof(((struct llog_create_rec *)0)->lcr_oseq));
-        LASSERTF((int)offsetof(struct llog_create_rec, lcr_padding) == 44, "found %lld\n",
-                 (long long)(int)offsetof(struct llog_create_rec, lcr_padding));
-        LASSERTF((int)sizeof(((struct llog_create_rec *)0)->lcr_padding) == 4, "found %lld\n",
-                 (long long)(int)sizeof(((struct llog_create_rec *)0)->lcr_padding));
-        LASSERTF((int)offsetof(struct llog_create_rec, lcr_tail) == 48, "found %lld\n",
-                 (long long)(int)offsetof(struct llog_create_rec, lcr_tail));
-        LASSERTF((int)sizeof(((struct llog_create_rec *)0)->lcr_tail) == 8, "found %lld\n",
-                 (long long)(int)sizeof(((struct llog_create_rec *)0)->lcr_tail));
-
         /* Checks for struct llog_orphan_rec */
         LASSERTF((int)sizeof(struct llog_orphan_rec) == 40, "found %lld\n",
                  (long long)(int)sizeof(struct llog_orphan_rec));
