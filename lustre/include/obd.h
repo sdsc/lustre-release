@@ -1204,47 +1204,47 @@ static inline int it_to_lock_mode(struct lookup_intent *it)
 }
 
 struct md_op_data {
-        struct lu_fid           op_fid1; /* operation fid1 (usualy parent) */
-        struct lu_fid           op_fid2; /* operation fid2 (usualy child) */
-        struct lu_fid           op_fid3; /* 2 extra fids to find conflicting */
-        struct lu_fid           op_fid4; /* to the operation locks. */
-        mdsno_t                 op_mds;  /* what mds server open will go to */
-        struct lustre_handle    op_handle;
-        obd_time                op_mod_time;
-        const char             *op_name;
-        int                     op_namelen;
-        __u32                   op_mode;
-        struct lmv_stripe_md   *op_mea1;
-        struct lmv_stripe_md   *op_mea2;
-        __u32                   op_suppgids[2];
-        __u32                   op_fsuid;
-        __u32                   op_fsgid;
-        cfs_cap_t               op_cap;
-        void                   *op_data;
+        struct lu_fid            op_fid1; /* operation fid1 (usualy parent) */
+        struct lu_fid            op_fid2; /* operation fid2 (usualy child) */
+        struct lu_fid            op_fid3; /* 2 extra fids to find conflicting */
+        struct lu_fid            op_fid4; /* to the operation locks. */
+        mdsno_t                  op_mds;  /* what mds server open will go to */
+        struct lustre_handle     op_handle;
+        obd_time                 op_mod_time;
+        const char              *op_name;
+        int                      op_namelen;
+        __u32                    op_mode;
+        struct lmv_stripe_md    *op_mea1;
+        struct lmv_stripe_md    *op_mea2;
+        __u32                    op_suppgids[2];
+        __u32                    op_fsuid;
+        __u32                    op_fsgid;
+        cfs_cap_t                op_cap;
+        void                    *op_data;
 
         /* iattr fields and blocks. */
-        struct iattr            op_attr;
+        struct iattr             op_attr;
 #ifdef __KERNEL__
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,14)
-        unsigned int            op_attr_flags;
+        unsigned int             op_attr_flags;
 #endif
-#endif
-        __u64                   op_valid;
-        loff_t                  op_attr_blocks;
+        __u64                    op_valid;
+        loff_t                   op_attr_blocks;
 
         /* Size-on-MDS epoch and flags. */
-        __u64                   op_ioepoch;
-        __u32                   op_flags;
+        __u64                    op_ioepoch;
+        __u32                    op_flags;
 
         /* Capa fields */
-        struct obd_capa        *op_capa1;
-        struct obd_capa        *op_capa2;
+        struct obd_capa         *op_capa1;
+        struct obd_capa         *op_capa2;
 
         /* Various operation flags. */
-        __u32                   op_bias;
+        __u32                    op_bias;
 
         /* Operation type */
-        __u32                   op_opc;
+        __u32                    op_opc;
+        /* valid bits for packaged xattr. */
+        enum packaged_xattr_type op_pxt_valid;
 };
 
 struct md_enqueue_info;
@@ -1455,16 +1455,20 @@ enum {
 #define MAX_HASH_SIZE            0x7fffffffffffffffULL
 #define MAX_HASH_HIGHEST_BIT     0x1000000000000000ULL
 
+#define DUMMY_ACL ((struct posix_acl *)(-1))
+
 struct lustre_md {
         struct mdt_body         *body;
         struct lov_stripe_md    *lsm;
         struct lmv_stripe_md    *mea;
 #ifdef CONFIG_FS_POSIX_ACL
         struct posix_acl        *posix_acl;
+        struct posix_acl        *def_acl;
 #endif
         struct mdt_remote_perm  *remote_perm;
         struct obd_capa         *mds_capa;
         struct obd_capa         *oss_capa;
+        enum packaged_xattr_type pxt_valid;
 };
 
 struct md_open_data {

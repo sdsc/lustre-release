@@ -28,6 +28,8 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2011 Whamcloud, Inc.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -289,7 +291,8 @@ int lustre_check_remote_perm(struct inode *inode, int mask)
                         break;
                 }
 
-                perm = req_capsule_server_swab_get(&req->rq_pill, &RMF_ACL,
+                perm = req_capsule_server_swab_get(&req->rq_pill,
+                                                   &RMF_PACKAGED_XATTR,
                                                    lustre_swab_mdt_remote_perm);
                 if (unlikely(perm == NULL)) {
                         cfs_up(&lli->lli_rmtperm_sem);
