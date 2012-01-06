@@ -179,16 +179,16 @@ out:
 /* Test record writing, single and in bulk */
 static int llog_test_3(struct obd_device *obd, struct llog_handle *llh)
 {
-        struct llog_create_rec lcr;
+        struct llog_gen_rec lgr;
         int rc, i;
         int num_recs = 1;       /* 1 for the header */
         ENTRY;
 
-        lcr.lcr_hdr.lrh_len = lcr.lcr_tail.lrt_len = sizeof(lcr);
-        lcr.lcr_hdr.lrh_type = OST_SZ_REC;
+        lgr.lgr_hdr.lrh_len = lgr.lgr_tail.lrt_len = sizeof(lgr);
+        lgr.lgr_hdr.lrh_type = OST_GEN_REC;
 
         CWARN("3a: write one create_rec\n");
-        rc = llog_write_rec(llh,  &lcr.lcr_hdr, NULL, 0, NULL, -1);
+        rc = llog_write_rec(llh,  &lgr.lgr_hdr, NULL, 0, NULL, -1);
         num_recs++;
         if (rc) {
                 CERROR("3a: write one log record failed: %d\n", rc);
@@ -221,7 +221,7 @@ static int llog_test_3(struct obd_device *obd, struct llog_handle *llh)
 
         CWARN("3c: write 1000 more log records\n");
         for (i = 0; i < 1000; i++) {
-                rc = llog_write_rec(llh, &lcr.lcr_hdr, NULL, 0, NULL, -1);
+                rc = llog_write_rec(llh, &lgr.lgr_hdr, NULL, 0, NULL, -1);
                 if (rc) {
                         CERROR("3c: write 1000 records failed at #%d: %d\n",
                                i + 1, rc);
@@ -560,7 +560,7 @@ static int llog_test_7(struct obd_device *obd)
 {
         struct llog_ctxt *ctxt = llog_get_context(obd, LLOG_TEST_ORIG_CTXT);
         struct llog_handle *llh;
-        struct llog_create_rec lcr;
+        struct llog_gen_rec lgr;
         char name[10];
         int rc;
         ENTRY;
@@ -576,9 +576,9 @@ static int llog_test_7(struct obd_device *obd)
         }
         llog_init_handle(llh, LLOG_F_IS_PLAIN, &uuid);
 
-        lcr.lcr_hdr.lrh_len = lcr.lcr_tail.lrt_len = sizeof(lcr);
-        lcr.lcr_hdr.lrh_type = OST_SZ_REC;
-        rc = llog_write_rec(llh,  &lcr.lcr_hdr, NULL, 0, NULL, -1);
+        lgr.lgr_hdr.lrh_len = lgr.lgr_tail.lrt_len = sizeof(lgr);
+        lgr.lgr_hdr.lrh_type = OST_GEN_REC;
+        rc = llog_write_rec(llh,  &lgr.lgr_hdr, NULL, 0, NULL, -1);
         if (rc) {
                 CERROR("7: write one log record failed: %d\n", rc);
                 GOTO(ctxt_release, rc);
