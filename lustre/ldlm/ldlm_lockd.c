@@ -1198,6 +1198,7 @@ existing_lock:
            request both in reply to client and in our own lock flags. */
         dlm_rep->lock_flags |= dlm_req->lock_flags & LDLM_INHERIT_FLAGS;
         lock->l_flags |= dlm_req->lock_flags & LDLM_INHERIT_FLAGS;
+        lock->l_flags &= ~LDLM_FL_TEST_LOCK;
 
         /* Don't move a pending lock onto the export if it has already been
          * disconnected due to eviction (bug 5683) or server umount (bug 24324).

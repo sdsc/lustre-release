@@ -862,6 +862,7 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
         lock->l_export = NULL;
         lock->l_blocking_ast = einfo->ei_cb_bl;
         lock->l_flags |= (*flags & LDLM_FL_NO_LRU);
+        lock->l_flags &= ~LDLM_FL_TEST_LOCK;
 
         /* Dump lock data into the request buffer */
         body = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
