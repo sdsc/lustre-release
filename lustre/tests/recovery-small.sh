@@ -866,12 +866,25 @@ test_52() {
 run_test 52 "failover OST under load"
 
 # test of open reconstruct
-test_53() {
+test_53a() {
 	touch $DIR/$tfile
 	drop_ldlm_reply "openfile -f O_RDWR:O_CREAT -m 0755 $DIR/$tfile" ||\
 		return 2
 }
-run_test 53 "touch: drop rep"
+run_test 53a "touch: drop rep"
+
+test_53b() {
+    cp /etc/fstab $DIR/$tfile
+    zconf_umount $HOSTNAME $MOUNT
+    zconf_mount $HOSTNAME $MOUNT
+    stat $DIR/$tfile
+
+    drop_ldlm_reply "cat $DIR/$tfile >/dev/null"
+    rm $DIR/$tfile
+
+    $LCTL dk $TMP/tmp.dk
+}
+run_test 53b "open count leakages caused by re-sent opens"
 
 test_54() {
 	zconf_mount `hostname` $MOUNT2
