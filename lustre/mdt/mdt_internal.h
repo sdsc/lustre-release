@@ -485,6 +485,11 @@ static inline void mdt_export_evict(struct obd_export *exp)
         class_export_put(exp);
 }
 
+static inline const char *mdt_obj_dev_name(const struct mdt_object *obj)
+{
+        return lu_dev_name(obj->mot_obj.mo_lu.lo_dev);
+}
+
 int mdt_get_disposition(struct ldlm_reply *rep, int flag);
 void mdt_set_disposition(struct mdt_thread_info *info,
                         struct ldlm_reply *rep, int flag);
@@ -514,11 +519,13 @@ void mdt_object_unlock(struct mdt_thread_info *,
 
 struct mdt_object *mdt_object_find(const struct lu_env *,
                                    struct mdt_device *,
-                                   const struct lu_fid *);
+                                   const struct lu_fid *,
+                                   int check_exist);
 struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *,
                                         const struct lu_fid *,
                                         struct mdt_lock_handle *,
-                                        __u64);
+                                        __u64 ibits,
+                                        int check_exist);
 void mdt_object_unlock_put(struct mdt_thread_info *,
                            struct mdt_object *,
                            struct mdt_lock_handle *,

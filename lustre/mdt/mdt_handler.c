@@ -325,7 +325,7 @@ static int mdt_getstatus(struct mdt_thread_info *info)
                 struct mdt_object  *root;
                 struct lustre_capa *capa;
 
-                root = mdt_object_find(info->mti_env, mdt, &repbody->fid1);
+                root = mdt_object_find(info->mti_env, mdt, &repbody->fid1, 1);
                 if (IS_ERR(root))
                         RETURN(PTR_ERR(root));
 
@@ -995,7 +995,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
          *step 3: find the child object by fid & lock it.
          *        regardless if it is local or remote.
          */
-        child = mdt_object_find(info->mti_env, info->mti_mdt, child_fid);
+        child = mdt_object_find(info->mti_env, info->mti_mdt, child_fid, 1);
 
         if (unlikely(IS_ERR(child)))
                 GOTO(out_parent, rc = PTR_ERR(child));
@@ -1030,13 +1030,6 @@ relock:
                 OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_RESEND, obd_timeout*2);
                 mdt_lock_handle_init(lhc);
                 mdt_lock_reg_init(lhc, LCK_PR);
-
-                if (mdt_object_exists(child) == 0) {
-                        LU_OBJECT_DEBUG(D_WARNING, info->mti_env,
-                                        &child->mot_obj.mo_lu,
-                                        "Object doesn't exist!\n");
-                        GOTO(out_child, rc = -ENOENT);
-                }
 
                 if (!(child_bits & MDS_INODELOCK_UPDATE)) {
                         struct md_attr *ma = &info->mti_attr;
@@ -2066,7 +2059,7 @@ static struct mdt_object *mdt_obj(struct lu_object *o)
 
 struct mdt_object *mdt_object_find(const struct lu_env *env,
                                    struct mdt_device *d,
-                                   const struct lu_fid *f)
+                                   const struct lu_fid *f, int check_exist)
 {
         struct lu_object *o;
         struct mdt_object *m;
@@ -2075,9 +2068,17 @@ struct mdt_object *mdt_object_find(const struct lu_env *env,
         CDEBUG(D_INFO, "Find object for "DFID"\n", PFID(f));
         o = lu_object_find(env, &d->mdt_md_dev.md_lu_dev, f, NULL);
         if (unlikely(IS_ERR(o)))
-                m = (struct mdt_object *)o;
+                GOTO(out, m = (struct mdt_object *)o);
         else
                 m = mdt_obj(o);
+
+        if (check_exist && mdt_object_exists(m) == 0) {
+                mdt_object_put(env, m);
+                CERROR("%s: object "DFID" not found: rc = -2\n",
+                       mdt_obj_dev_name(m), PFID(f));
+                GOTO(out, m = (struct mdt_object *)(-ENOENT));
+        }
+out:
         RETURN(m);
 }
 
@@ -2354,11 +2355,11 @@ void mdt_object_unlock(struct mdt_thread_info *info, struct mdt_object *o,
 struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *info,
                                         const struct lu_fid *f,
                                         struct mdt_lock_handle *lh,
-                                        __u64 ibits)
+                                        __u64 ibits, int check_exist)
 {
         struct mdt_object *o;
 
-        o = mdt_object_find(info->mti_env, info->mti_mdt, f);
+        o = mdt_object_find(info->mti_env, info->mti_mdt, f, check_exist);
         if (!IS_ERR(o)) {
                 int rc;
 
@@ -2462,10 +2463,10 @@ static int mdt_body_unpack(struct mdt_thread_info *info, __u32 flags)
                 mdt_set_capainfo(info, 0, &body->fid1,
                                  req_capsule_client_get(pill, &RMF_CAPA1));
 
-        obj = mdt_object_find(env, info->mti_mdt, &body->fid1);
+        obj = mdt_object_find(env, info->mti_mdt, &body->fid1, 0);
         if (!IS_ERR(obj)) {
                 if ((flags & HABEO_CORPUS) &&
-                    !mdt_object_exists(obj)) {
+                    mdt_object_exists(obj) == 0) {
                         mdt_object_put(env, obj);
                         /* for capability renew ENOENT will be handled in
                          * mdt_renew_capa */
@@ -5366,19 +5367,17 @@ static int mdt_fid2path(const struct lu_env *env, struct mdt_device *mdt,
         if (!fid_is_sane(&fp->gf_fid))
                 RETURN(-EINVAL);
 
-        obj = mdt_object_find(env, mdt, &fp->gf_fid);
+        obj = mdt_object_find(env, mdt, &fp->gf_fid, 1);
         if (obj == NULL || IS_ERR(obj)) {
-                CDEBUG(D_IOCTL, "no object "DFID": %ld\n",PFID(&fp->gf_fid),
+                CDEBUG(D_IOCTL, "%s: no object "DFID": %ld\n",
+                       mdt2obd_dev(mdt)->obd_name, PFID(&fp->gf_fid),
                        PTR_ERR(obj));
-                RETURN(-EINVAL);
+                RETURN(obj == NULL ? -EINVAL : PTR_ERR(obj));
         }
 
         rc = lu_object_exists(&obj->mot_obj.mo_lu);
-        if (rc <= 0) {
-                if (rc == -1)
-                        rc = -EREMOTE;
-                else
-                        rc = -ENOENT;
+        if (rc < 0) {
+                rc = -EREMOTE;
                 mdt_object_put(env, obj);
                 CDEBUG(D_IOCTL, "nonlocal object "DFID": %d\n",
                        PFID(&fp->gf_fid), rc);
@@ -5476,9 +5475,12 @@ static int mdt_ioc_version_get(struct mdt_thread_info *mti, void *karg)
         lh = &mti->mti_lh[MDT_LH_PARENT];
         mdt_lock_reg_init(lh, LCK_CR);
 
-        obj = mdt_object_find_lock(mti, fid, lh, MDS_INODELOCK_UPDATE);
-        if (IS_ERR(obj))
-                RETURN(PTR_ERR(obj));
+        obj = mdt_object_find_lock(mti, fid, lh, MDS_INODELOCK_UPDATE, 1);
+        if (IS_ERR(obj)) {
+                if (PTR_ERR(obj) == -ENOENT)
+                        *(__u64 *)data->ioc_inlbuf2 = ENOENT_VERSION;
+                GOTO(out, rc = PTR_ERR(obj));
+        }
 
         rc = mdt_object_exists(obj);
         if (rc < 0) {
@@ -5488,15 +5490,13 @@ static int mdt_ioc_version_get(struct mdt_thread_info *mti, void *karg)
                  * fid, this is error to find remote object here
                  */
                 CERROR("nonlocal object "DFID"\n", PFID(fid));
-        } else if (rc == 0) {
-                 *(__u64 *)data->ioc_inlbuf2 = ENOENT_VERSION;
-                rc = -ENOENT;
-        } else {
+        } else if (rc < 0) {
                 version = dt_version_get(mti->mti_env, mdt_obj2dt(obj));
                *(__u64 *)data->ioc_inlbuf2 = version;
                 rc = 0;
         }
         mdt_object_unlock_put(mti, obj, lh, 1);
+out:
         RETURN(rc);
 }
 
