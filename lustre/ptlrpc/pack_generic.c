@@ -1626,7 +1626,7 @@ void lustre_swab_obdo (struct obdo  *o)
         /* o_lcookie is swabbed elsewhere */
         __swab32s (&o->o_uid_h);
         __swab32s (&o->o_gid_h);
-        CLASSERT(offsetof(typeof(*o), o_padding_3) != 0);
+        __swab64s (&o->o_data_version);
         CLASSERT(offsetof(typeof(*o), o_padding_4) != 0);
         CLASSERT(offsetof(typeof(*o), o_padding_5) != 0);
         CLASSERT(offsetof(typeof(*o), o_padding_6) != 0);
