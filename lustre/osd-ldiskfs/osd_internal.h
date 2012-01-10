@@ -402,7 +402,7 @@ osd_fid2oi(struct osd_device *osd, const struct lu_fid *fid)
                 return NULL;
 
         LASSERT(osd->od_oi_table != NULL && osd->od_oi_count >= 1);
-        return &osd->od_oi_table[fid->f_seq % osd->od_oi_count];
+        return &osd->od_oi_table[fid->f_seq & (osd->od_oi_count - 1)];
 }
 
 #endif /* __KERNEL__ */
