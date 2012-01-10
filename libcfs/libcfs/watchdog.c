@@ -93,7 +93,7 @@ static CFS_DECLARE_MUTEX(lcw_refcount_sem);
  * dispatcher.
  */
 /* BH lock! */
-static cfs_spinlock_t lcw_pending_timers_lock = CFS_SPIN_LOCK_UNLOCKED;
+static cfs_spinlock_t lcw_pending_timers_lock = CFS_SPIN_LOCK_UNLOCKED(lcw_pending_timers_lock);
 static cfs_list_t lcw_pending_timers = \
         CFS_LIST_HEAD_INIT(lcw_pending_timers);
 
