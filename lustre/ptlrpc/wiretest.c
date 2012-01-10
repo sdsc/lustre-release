@@ -71,7 +71,6 @@ void lustre_assert_wire_constants(void)
          * running on Linux centos5 2.6.18-238.9.1.el5-head #2 SMP Wed Jun 29 18:35:58 CEST 2011 x86_
          * with gcc version 4.1.2 20080704 (Red Hat 4.1.2-46) */
 
-
         /* Constants... */
         LASSERTF(PTL_RPC_MSG_REQUEST == 4711, "found %lld\n",
                  (long long)PTL_RPC_MSG_REQUEST);
@@ -902,8 +901,9 @@ void lustre_assert_wire_constants(void)
         LASSERTF((int)sizeof(((struct obd_connect_data *)0)->paddingE) == 8, "found %lld\n",
                  (long long)(int)sizeof(((struct obd_connect_data *)0)->paddingE));
         LASSERTF((int)offsetof(struct obd_connect_data, paddingF) == 184, "found %lld\n",
+                 (long long)(int)offsetof(struct obd_connect_data, paddingF));
+        LASSERTF((int)sizeof(((struct obd_connect_data *)0)->paddingF) == 8, "found %lld\n",
                  (long long)(int)sizeof(((struct obd_connect_data *)0)->paddingF));
-
         LASSERTF(OBD_CONNECT_RDONLY == 0x1ULL, "found 0x%.16llxULL\n",
                  OBD_CONNECT_RDONLY);
         LASSERTF(OBD_CONNECT_INDEX == 0x2ULL, "found 0x%.16llxULL\n",
@@ -1096,10 +1096,10 @@ void lustre_assert_wire_constants(void)
                  (long long)(int)offsetof(struct obdo, o_gid_h));
         LASSERTF((int)sizeof(((struct obdo *)0)->o_gid_h) == 4, "found %lld\n",
                  (long long)(int)sizeof(((struct obdo *)0)->o_gid_h));
-        LASSERTF((int)offsetof(struct obdo, o_padding_3) == 176, " found %lld\n",
-                 (long long)(int)offsetof(struct obdo, o_padding_3));
-        LASSERTF((int)sizeof(((struct obdo *)0)->o_padding_3) == 8, " found %lld\n",
-                 (long long)(int)sizeof(((struct obdo *)0)->o_padding_3));
+        LASSERTF((int)offsetof(struct obdo, o_data_version) == 176, "found %lld\n",
+                 (long long)(int)offsetof(struct obdo, o_data_version));
+        LASSERTF((int)sizeof(((struct obdo *)0)->o_data_version) == 8, "found %lld\n",
+                 (long long)(int)sizeof(((struct obdo *)0)->o_data_version));
         LASSERTF((int)offsetof(struct obdo, o_padding_4) == 184, "found %lld\n",
                  (long long)(int)offsetof(struct obdo, o_padding_4));
         LASSERTF((int)sizeof(((struct obdo *)0)->o_padding_4) == 8, "found %lld\n",
@@ -1206,6 +1206,8 @@ void lustre_assert_wire_constants(void)
                  OBD_MD_FLRMTRSETFACL);
         LASSERTF(OBD_MD_FLRMTRGETFACL == (0x0008000000000000ULL), "found 0x%.16llxULL\n",
                  OBD_MD_FLRMTRGETFACL);
+        LASSERTF(OBD_MD_FLDATAVERSION == (0x0020000000000000ULL), "found 0x%.16llxULL\n",
+                 OBD_MD_FLDATAVERSION);
         CLASSERT(OBD_FL_INLINEDATA == 0x00000001);
         CLASSERT(OBD_FL_OBDMDEXISTS == 0x00000002);
         CLASSERT(OBD_FL_DELORPHAN == 0x00000004);
