@@ -208,11 +208,21 @@ typedef struct completion cfs_completion_t;
 typedef struct mutex cfs_mutex_t;
 
 #define CFS_DEFINE_MUTEX(name)             DEFINE_MUTEX(name)
+#ifdef HAVE_DECLARE_MUTEX
 #define CFS_DECLARE_MUTEX(name)            DECLARE_MUTEX(name)
+#else
+#define CFS_DECLARE_MUTEX(name)            DEFINE_SEMAPHORE(name)
+#endif
+
 
 #define cfs_mutex_init(x)                   mutex_init(x)
+#ifdef HAVE_DECLARE_MUTEX
 #define cfs_init_mutex(x)                   init_MUTEX(x)
 #define cfs_init_mutex_locked(x)            init_MUTEX_LOCKED(x)
+#else
+#define cfs_init_mutex(x)                   sema_init(x, 1)
+#define cfs_init_mutex_locked(x)            sema_init(x, 0)
+#endif
 #define cfs_mutex_up(x)                     up(x)
 #define cfs_mutex_down(x)                   down(x)
 #define cfs_up(x)                           up(x)

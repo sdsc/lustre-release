@@ -766,6 +766,23 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 2.6.37 No longer has DECLARE_MUTEX, init_MUTEX/_LOCKED
+#
+AC_DEFUN([LIBCFS_HAVE_DECLARE_MUTEX],
+[AC_MSG_CHECKING([if kernel defines DECLARE_MUTEX])
+LB_LINUX_TRY_COMPILE([
+       #include <linux/semaphore.h>
+],[
+       DECLARE_MUTEX(lock);
+],[
+       AC_MSG_RESULT([yes])
+       AC_DEFINE(HAVE_DECLARE_MUTEX, 1, [DECLARE_MUTEX found])
+],[
+       AC_MSG_RESULT([no])
+])
+])
+
+#
 # FC15 2.6.40-5 backported the "shrink_control" parameter to the memory
 # pressure shrinker from Linux 3.0
 #
@@ -843,6 +860,8 @@ LIBCFS_SYSCTL_CTLNAME
 LIBCFS_ADD_WAIT_QUEUE_EXCLUSIVE
 # 2.6.35
 LC_SK_SLEEP
+# 2.6.37
+LIBCFS_HAVE_DECLARE_MUTEX
 # 2.6.40 fc15
 LC_SHRINK_CONTROL
 ])
