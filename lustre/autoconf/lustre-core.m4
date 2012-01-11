@@ -861,6 +861,21 @@ AC_DEFUN([LC_EXPORT_SYNCHRONIZE_RCU],
 ])
 ])
 
+AC_DEFUN([LC_SYNCHRONIZE_KERNEL],
+[AC_MSG_CHECKING([if kernel has synchronize_kernel function])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/rcupdate.h>
+],[
+        synchronize_kernel(void);
+],[
+        AC_MSG_RESULT([yes])
+        AC_DEFINE(HAVE_SYNCHRONIZE_KERNEL, 1,
+                [Kernel has synchronize_kernel function])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
 # 2.6.15
 
 # LC_INODE_I_MUTEX
@@ -2277,6 +2292,7 @@ AC_DEFUN([LC_PROG_LINUX],
          # 2.6.12
          LC_RW_TREE_LOCK
          LC_EXPORT_SYNCHRONIZE_RCU
+         LC_SYNCHRONIZE_KERNEL
 
          # 2.6.15
          LC_INODE_I_MUTEX
