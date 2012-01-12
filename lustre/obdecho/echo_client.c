@@ -481,7 +481,7 @@ static const struct cl_object_operations echo_cl_obj_ops = {
  * @{
  */
 static int echo_object_init(const struct lu_env *env, struct lu_object *obj,
-                            const struct lu_object_conf *conf)
+                            struct lu_object_conf *conf)
 {
         struct echo_device *ed         = cl2echo_dev(lu2cl_dev(obj->lo_dev));
         struct echo_client_obd *ec     = ed->ed_ec;
@@ -1589,7 +1589,7 @@ static struct lu_object *echo_md_lookup(const struct lu_env *env,
 
         CDEBUG(D_INFO, "lookup %s in parent "DFID" %p\n", lname->ln_name,
                PFID(fid), parent);
-        rc = mdo_lookup(env, parent, lname, fid, NULL);
+        rc = mdo_lookup(env, parent, lname, fid, NULL, NULL);
         if (rc) {
                 CERROR("lookup %s: rc = %d\n", lname->ln_name, rc);
                 RETURN(ERR_PTR(rc));
@@ -1765,7 +1765,7 @@ static int echo_lookup_object(const struct lu_env *env,
 
                 CDEBUG(D_RPCTRACE, "Start lookup object "DFID" %s %p\n",
                        PFID(lu_object_fid(parent)), lname->ln_name, parent);
-                rc = mdo_lookup(env, lu2md(parent), lname, fid, NULL);
+                rc = mdo_lookup(env, lu2md(parent), lname, fid, NULL, NULL);
                 if (rc) {
                         CERROR("Can not lookup child %s: rc = %d\n", name, rc);
                         break;

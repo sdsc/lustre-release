@@ -36,7 +36,8 @@
 
 if UTILS
 pkginclude_HEADERS = lustre_idl.h lustre_user.h liblustreapi.h libiam.h \
-	 ll_fiemap.h
+	 ll_fiemap.h lustre_scrub_user.h
 endif
 
-EXTRA_DIST = lustre_idl.h lustre_user.h liblustreapi.h libiam.h ll_fiemap.h
+EXTRA_DIST = lustre_idl.h lustre_user.h liblustreapi.h libiam.h ll_fiemap.h \
+	lustre_scrub_user.h

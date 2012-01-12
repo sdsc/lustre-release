@@ -257,7 +257,7 @@ int fld_index_lookup(struct lu_server_fld *fld,
 
         rc = dt_obj->do_index_ops->dio_lookup(env, dt_obj,
                                               (struct dt_rec*) fld_rec,
-                                              key, BYPASS_CAPA);
+                                              key, NULL, BYPASS_CAPA);
 
         if (rc >= 0) {
                 range_be_to_cpu(fld_rec, fld_rec);
@@ -312,7 +312,7 @@ int fld_index_init(struct lu_server_fld *fld,
         int rc;
         ENTRY;
 
-        dt_obj = dt_store_open(env, dt, "", fld_index_name, &fid);
+        dt_obj = dt_store_open(env, dt, "", fld_index_name, &fid, NULL);
         if (!IS_ERR(dt_obj)) {
                 fld->lsf_obj = dt_obj;
                 rc = dt_obj->do_ops->do_index_try(env, dt_obj,

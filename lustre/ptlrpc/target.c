@@ -481,7 +481,7 @@ int lut_init(const struct lu_env *env, struct lu_target *lut,
         /** obdfilter has no lu_device stack yet */
         if (dt == NULL)
                 RETURN(rc);
-        o = dt_store_open(env, lut->lut_bottom, "", LAST_RCVD, &fid);
+        o = dt_store_open(env, lut->lut_bottom, "", LAST_RCVD, &fid, NULL);
         if (!IS_ERR(o)) {
                 lut->lut_last_rcvd = o;
         } else {

@@ -73,8 +73,9 @@ struct niobuf_local;
 struct niobuf_remote;
 
 typedef enum {
-        MNTOPT_USERXATTR        = 0x00000001,
-        MNTOPT_ACL              = 0x00000002,
+        MNTOPT_USERXATTR        = 1 << 0,
+        MNTOPT_ACL              = 1 << 1,
+        MNTOPT_NOSCRUB          = 1 << 2,
 } mntopt_t;
 
 struct dt_device_param {
@@ -211,6 +212,8 @@ enum dt_index_flags {
  * names to fids).
  */
 extern const struct dt_index_features dt_directory_features;
+
+extern const struct dt_index_features dt_scrub_features;
 
 /**
  * This is a general purpose dt allocation hint.
@@ -536,7 +539,7 @@ struct dt_index_operations {
          */
         int (*dio_lookup)(const struct lu_env *env, struct dt_object *dt,
                           struct dt_rec *rec, const struct dt_key *key,
-                          struct lustre_capa *capa);
+                          struct lu_object_conf *conf,struct lustre_capa *capa);
         /**
          * precondition: dt_object_exists(dt);
          */
@@ -570,7 +573,7 @@ struct dt_index_operations {
                  */
                 struct dt_it *(*init)(const struct lu_env *env,
                                       struct dt_object *dt,
-                                      __u32 attr,
+                                      void *args,
                                       struct lustre_capa *capa);
                 void          (*fini)(const struct lu_env *env,
                                       struct dt_it *di);
@@ -589,13 +592,68 @@ struct dt_index_operations {
                                       const struct dt_it *di,
                                       struct dt_rec *rec,
                                       __u32 attr);
+                int       (*rec_size)(const struct lu_env *env,
+                                      const struct dt_it *di,
+                                      int len, int *size);
                 __u64        (*store)(const struct lu_env *env,
                                       const struct dt_it *di);
                 int           (*load)(const struct lu_env *env,
                                       const struct dt_it *di, __u64 hash);
                 int        (*key_rec)(const struct lu_env *env,
                                       const struct dt_it *di, void* key_rec);
+                int            (*set)(const struct lu_env *env,
+                                      struct dt_it *di,
+                                      void *attr);
         } dio_it;
+};
+
+enum dt_scrub_set_flags {
+        /* Adjust osd layer iterator window. */
+        DSSF_ADJUST_WINDOW      = 1,
+
+        /* To wake up the first unmatched item to be updated:
+         * osi::osi_next_oui */
+        DSSF_WAKEUP_PRIOR       = 2,
+};
+
+struct dt_scrub_set_param {
+        enum dt_scrub_set_flags dssp_flags;
+        __u32                   dssp_window;
+};
+
+enum dt_scrub_flags {
+        /* Rebuild OI file. */
+        DSF_OI_REBUILD          = 1 << 0,
+
+        /* Return igif fid for 1.8 inode. */
+        DSF_IGIF                = 1 << 1,
+
+        /* Return linkea. */
+        DSF_LINKEA              = 1 << 2,
+};
+
+struct dt_scrub_param {
+        __u32                   dsp_window;
+        enum dt_scrub_flags     dsp_flags;
+        union lu_local_id       dsp_lid;
+        void                  (*dsp_notify)(void *);
+        void                   *dsp_data;
+};
+
+enum dt_scrub_valid {
+        DSV_LOCAL_ID    = 1 << 0,
+        DSV_FID_NOR     = 1 << 1,
+        DSV_FID_IGIF    = 1 << 2,
+        DSV_LINKEA      = 1 << 3,
+        DSV_PRIOR       = 1 << 4,
+        DSV_PRIOR_MORE  = 1 << 5,
+};
+
+struct dt_scrub_rec {
+        enum dt_scrub_valid     dsr_valid;
+        struct lu_fid           dsr_fid;
+        union lu_local_id       dsr_lid;
+        struct lu_buf           dsr_linkea;
 };
 
 struct dt_device {
@@ -665,21 +723,21 @@ struct thandle {
         /** the dt device on which the transactions are executed */
         struct dt_device *th_dev;
 
-        /** additional tags (layers can add in declare) */
-        __u32             th_tags;
-
         /** context for this transaction, tag is LCT_TX_HANDLE */
         struct lu_context th_ctx;
+
+        /** additional tags (layers can add in declare) */
+        __u32             th_tags;
 
         /** the last operation result in this transaction.
          * this value is used in recovery */
         __s32             th_result;
 
         /** whether we need sync commit */
-        int               th_sync:1;
-
-        /* local transation, no need to inform other layers */
-        int               th_local:1;
+        unsigned int      th_sync:1,  /** whether we need sync commit */
+                          th_local:1, /* local transation, no need to inform
+                                       * other layers */
+                          th_scrub:1; /* for OI Scrub */
 };
 
 /**
@@ -728,15 +786,17 @@ int dt_path_parser(const struct lu_env *env,
                    char *local, dt_entry_func_t entry_func,
                    void *data);
 
+struct dt_object *dt_store_resolve(const struct lu_env *env,
+                                   struct dt_device *dt,
+                                   const char *path,
+                                   struct lu_fid *fid);
+
 struct dt_object *dt_store_open(const struct lu_env *env,
                                 struct dt_device *dt,
                                 const char *dirname,
                                 const char *filename,
-                                struct lu_fid *fid);
-
-struct dt_object *dt_locate(const struct lu_env *env,
-                            struct dt_device *dev,
-                            const struct lu_fid *fid);
+                                struct lu_fid *fid,
+                                struct lu_object_conf *conf);
 
 int dt_declare_version_set(const struct lu_env *env, struct dt_object *o,
                            struct thandle *th);
@@ -1234,6 +1294,7 @@ static inline int dt_lookup(const struct lu_env *env,
                             struct dt_object *dt,
                             struct dt_rec *rec,
                             const struct dt_key *key,
+                            struct lu_object_conf *conf,
                             struct lustre_capa *capa)
 {
         int ret;
@@ -1242,7 +1303,7 @@ static inline int dt_lookup(const struct lu_env *env,
         LASSERT(dt->do_index_ops);
         LASSERT(dt->do_index_ops->dio_lookup);
 
-        ret = dt->do_index_ops->dio_lookup(env, dt, rec, key, capa);
+        ret = dt->do_index_ops->dio_lookup(env, dt, rec, key, conf, capa);
         if (ret > 0)
                 ret = 0;
         else if (ret == 0)

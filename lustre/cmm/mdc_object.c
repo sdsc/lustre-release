@@ -97,7 +97,7 @@ static void mdc_object_free(const struct lu_env *env, struct lu_object *lo)
  * Initialize mdc object. All of them have loh_attr::LOHA_REMOTE set.
  */
 static int mdc_object_init(const struct lu_env *env, struct lu_object *lo,
-                           const struct lu_object_conf *unused)
+                           struct lu_object_conf *unused)
 {
         ENTRY;
         lo->lo_header->loh_attr |= LOHA_REMOTE;

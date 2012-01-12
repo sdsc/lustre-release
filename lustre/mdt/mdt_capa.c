@@ -92,7 +92,7 @@ static int write_capa_keys(const struct lu_env *env,
         loff_t off = 0;
         int i, rc;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        mti = mdt_env_info(env);
         th = mdt_trans_create(env, mdt);
         if (IS_ERR(th))
                 RETURN(PTR_ERR(th));
@@ -134,7 +134,7 @@ static int read_capa_keys(const struct lu_env *env,
         loff_t off = 0;
         int i, rc;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        mti = mdt_env_info(env);
         tmp = &mti->mti_capa_key;
 
         for (i = 0; i < 2; i++) {
@@ -163,8 +163,7 @@ int mdt_capa_keys_init(const struct lu_env *env, struct mdt_device *mdt)
 
         mdsnum = mdt_md_site(mdt)->ms_node_id;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        LASSERT(mti != NULL);
+        mti = mdt_env_info(env);
         la = &mti->mti_attr.ma_attr;
 
         obj = mdt->mdt_ck_obj;
@@ -239,9 +238,7 @@ static int mdt_ck_thread_main(void *args)
         env.le_ctx.lc_thread = thread;
         env.le_ctx.lc_cookie = 0x1;
 
-        info = lu_context_key_get(&env.le_ctx, &mdt_thread_key);
-        LASSERT(info != NULL);
-
+        info = mdt_env_info(&env);
         tmp = &info->mti_capa_key;
         mdsnum = mdt_md_site(mdt)->ms_node_id;
         while (1) {

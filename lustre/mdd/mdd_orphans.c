@@ -437,7 +437,7 @@ static int orph_key_test_and_del(const struct lu_env *env,
         struct mdd_object *mdo;
         int rc;
 
-        mdo = mdd_object_find(env, mdd, lf);
+        mdo = mdd_object_find(env, mdd, lf, NULL);
 
         if (IS_ERR(mdo))
                 return PTR_ERR(mdo);
@@ -472,13 +472,14 @@ static int orph_index_iterate(const struct lu_env *env,
         int               result = 0;
         int               key_sz = 0;
         int               rc;
+        __u32             flags = LUDA_64BITHASH;
         __u64             cookie;
         ENTRY;
 
         /* In recovery phase, do not need for any lock here */
 
         iops = &dor->do_index_ops->dio_it;
-        it = iops->init(env, dor, LUDA_64BITHASH, BYPASS_CAPA);
+        it = iops->init(env, dor, &flags, BYPASS_CAPA);
         if (!IS_ERR(it)) {
                 result = iops->load(env, it, 0);
                 if (result > 0) {
@@ -545,7 +546,7 @@ int orph_index_init(const struct lu_env *env, struct mdd_device *mdd)
         int rc = 0;
         ENTRY;
 
-        d = dt_store_open(env, mdd->mdd_child, "", orph_index_name, &fid);
+        d = dt_store_open(env, mdd->mdd_child, "", orph_index_name, &fid, NULL);
         if (!IS_ERR(d)) {
                 mdd->mdd_orphans = d;
                 if (!dt_try_as_dir(env, d)) {

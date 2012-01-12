@@ -46,6 +46,8 @@
 #include <lustre_dlm.h>
 #include <lustre_cfg.h>
 
+#define MAX_IOC_BUFLEN 8192
+
 /* obd.c */
 int do_disconnect(char *func, int verbose);
 int obd_initialize(int argc, char **argv);
@@ -132,5 +134,10 @@ int jt_blockdev_info(int argc, char **argv);
 int jt_pool_cmd(int argc, char **argv);
 int jt_changelog_register(int argc, char **argv);
 int jt_changelog_deregister(int argc, char **argv);
+
+/* lustre_scrub.c */
+int jt_scrub_start(int argc, char **argv);
+int jt_scrub_stop(int argc, char **argv);
+int jt_scrub_show(int argc, char **argv);
 
 #endif

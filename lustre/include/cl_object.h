@@ -2639,7 +2639,7 @@ void cl_req_slice_add(struct cl_req *req, struct cl_req_slice *slice,
 struct cl_object *cl_object_top (struct cl_object *o);
 struct cl_object *cl_object_find(const struct lu_env *env, struct cl_device *cd,
                                  const struct lu_fid *fid,
-                                 const struct cl_object_conf *c);
+                                 struct cl_object_conf *c);
 
 int  cl_object_header_init(struct cl_object_header *h);
 void cl_object_header_fini(struct cl_object_header *h);

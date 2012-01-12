@@ -28,6 +28,9 @@
 /*
  * Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2011 Whamcloud, Inc.
+ *
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -373,6 +376,9 @@ struct iam_leaf_operations {
 
         int (*key_cmp)(const struct iam_leaf *l, const struct iam_key *k);
         int (*key_eq)(const struct iam_leaf *l, const struct iam_key *k);
+
+        int (*rec_cmp)(const struct iam_leaf *l, const struct iam_rec *r);
+        int (*rec_eq)(const struct iam_leaf *l, const struct iam_rec *r);
 
         int (*key_size)(const struct iam_leaf *l);
         /*
