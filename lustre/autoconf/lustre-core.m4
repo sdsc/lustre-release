@@ -2226,6 +2226,25 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 2.6.39 replace get_sb with mount in struct file_system_type
+#
+AC_DEFUN([LC_HAVE_FSTYPE_MOUNT],
+[AC_MSG_CHECKING([if file_system_type has mount field])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        struct file_system_type fst;
+        &fst.mount;
+],[
+        AC_DEFINE(HAVE_FSTYPE_MOUNT, 1,
+                  [struct file_system_type has mount field]),
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+#
 # LC_PROG_LINUX
 #
 # Lustre linux kernel checks
@@ -2395,6 +2414,7 @@ AC_DEFUN([LC_PROG_LINUX],
 
          # 2.6.39
          LC_REQUEST_QUEUE_UNPLUG_FN
+         LC_HAVE_FSTYPE_MOUNT
 
          #
          if test x$enable_server = xyes ; then
