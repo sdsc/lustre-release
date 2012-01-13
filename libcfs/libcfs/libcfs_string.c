@@ -182,3 +182,38 @@ int cfs_snprintf(char *buf, size_t size, const char *fmt, ...)
         return  i;
 }
 EXPORT_SYMBOL(cfs_snprintf);
+
+/* trim leading and trailing space characters */
+char *cfs_strtrim(char *str, size_t size)
+{
+        size_t i = 0;
+        char  *end;
+
+        /* trim leading spaces */
+        while (i < size && *str && isspace(*str)) {
+                ++i;
+                ++str;
+        }
+
+        /* string with all spaces */
+        if (*str == '\0')
+                goto out;
+
+        /* find the ending \0 */
+        end = str;
+        while (i < size && *end != '\0') {
+                ++i;
+                ++end;
+        }
+
+        /* trim trailing spaces */
+        i = end - str;
+        while (i > 1 && isspace(*(end - 1))) {
+                --i;
+                --end;
+        }
+        *end= '\0';
+out:
+        return str;
+}
+EXPORT_SYMBOL(cfs_strtrim);
