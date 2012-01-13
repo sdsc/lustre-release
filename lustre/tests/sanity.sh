@@ -5801,6 +5801,13 @@ test_103 () {
     run_acl_subtest inheritance || error "inheritance test failed"
     rm -f make-tree
 
+    echo "LU-974 ignore umask when acl is enabled..."
+    mkdir $DIR/974
+#    chown $RUNAS_ID $DIR/974
+    cd $DIR/974
+    $LUSTRE/tests/acl/run $LUSTRE/tests/acl/974.test || error
+    rm -rf $DIR/974
+
     cd $SAVE_PWD
     umask $SAVE_UMASK
 
