@@ -1105,6 +1105,8 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                                   * directory hash */
 #define OBD_CONNECT_MAXBYTES     0x8000000000ULL /* max stripe size */
 #define OBD_CONNECT_IMP_RECOV   0x10000000000ULL /* imp recovery support */
+#define OBD_CONNECT_EINPROGRESS 0x20000000000ULL /* client can handle the -EINPROGRESS
+                                                  * error for write RPC properly */
 
 #define OCD_HAS_FLAG(ocd, flg)  \
         (!!((ocd)->ocd_connect_flags & OBD_CONNECT_##flg))
@@ -1144,7 +1146,8 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                 OBD_CONNECT_MDS | OBD_CONNECT_SKIP_ORPHAN | \
                                 OBD_CONNECT_GRANT_SHRINK | OBD_CONNECT_FULL20 | \
                                 OBD_CONNECT_64BITHASH | OBD_CONNECT_MAXBYTES | \
-                                OBD_CONNECT_MAX_EASIZE)
+                                OBD_CONNECT_MAX_EASIZE | \
+                                OBD_CONNECT_EINPROGRESS)
 #define ECHO_CONNECT_SUPPORTED (0)
 #define MGS_CONNECT_SUPPORTED  (OBD_CONNECT_VERSION | OBD_CONNECT_AT | \
                                 OBD_CONNECT_FULL20 | OBD_CONNECT_IMP_RECOV)

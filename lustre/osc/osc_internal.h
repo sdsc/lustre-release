@@ -190,9 +190,12 @@ static inline void lprocfs_osc_init_vars(struct lprocfs_static_vars *lvars)
 
 extern struct lu_device_type osc_device_type;
 
-static inline int osc_recoverable_error(int rc)
+static inline int osc_recoverable_error(struct ptlrpc_request *req, int rc)
 {
-        return (rc == -EIO || rc == -EROFS || rc == -ENOMEM || rc == -EAGAIN);
+        if ( req->rq_import_generation != req->rq_import->imp_generation)
+                return 0;
+        return (rc == -EIO || rc == -EROFS || rc == -ENOMEM ||
+                rc == -EAGAIN || rc == -EINPROGRESS);
 }
 
 #ifndef min_t
