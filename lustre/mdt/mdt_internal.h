@@ -257,6 +257,12 @@ struct mdt_reint_record {
         int                     rr_logcookielen;
         const struct llog_cookie  *rr_logcookies;
         __u32                   rr_flags;
+        /*
+         * If acl is enabled, umask will be ignored on client side, and if
+         * default acl doesn't exist on parent, ldiskfs will enforce this umask
+         * in inode creation.
+         */
+        int                     rr_umask;
 };
 
 enum mdt_reint_flag {

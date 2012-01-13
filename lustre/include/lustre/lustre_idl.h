@@ -1916,7 +1916,7 @@ struct mdt_rec_create {
          * extend cr_flags size without breaking 1.8 compat */
         __u32           cr_flags_l;     /* for use with open, low  32 bits  */
         __u32           cr_flags_h;     /* for use with open, high 32 bits */
-        __u32           cr_padding_3;   /* rr_padding_3 */
+        __u32           cr_umask;       /* umask for create */
         __u32           cr_padding_4;   /* rr_padding_4 */
 };
 

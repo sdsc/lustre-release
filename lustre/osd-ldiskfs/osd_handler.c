@@ -1595,6 +1595,11 @@ static int osd_create_pre(struct osd_thread_info *info, struct osd_object *obj,
 static int osd_create_post(struct osd_thread_info *info, struct osd_object *obj,
                            struct lu_attr *attr, struct thandle *th)
 {
+        /*
+         * LU-974 i_mode may be changed in creation time, update la_mode
+         * accordingly.
+         */
+        attr->la_mode = obj->oo_inode->i_mode;
         osd_object_init0(obj);
         if (obj->oo_inode && (obj->oo_inode->i_state & I_NEW))
                 unlock_new_inode(obj->oo_inode);

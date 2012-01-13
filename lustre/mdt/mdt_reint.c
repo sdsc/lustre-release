@@ -318,6 +318,7 @@ static int mdt_md_create(struct mdt_thread_info *info)
                                 MDT_OBJ_MAY_NOT_EXIST);
         if (likely(!IS_ERR(child))) {
                 struct md_object *next = mdt_object_child(parent);
+                int mask = rr->rr_umask;
 
                 ma->ma_need = MA_INODE;
                 ma->ma_valid = 0;
@@ -346,9 +347,11 @@ static int mdt_md_create(struct mdt_thread_info *info)
                 info->mti_spec.sp_cr_lookup = 1;
                 info->mti_spec.sp_feat = &dt_directory_features;
 
+                mask = xchg(&current->fs->umask, mask & S_IRWXUGO);
                 rc = mdo_create(info->mti_env, next, lname,
                                 mdt_object_child(child),
                                 &info->mti_spec, ma);
+                current->fs->umask = mask;
                 if (rc == 0) {
                         /* Return fid & attr to client. */
                         if (ma->ma_valid & MA_INODE)

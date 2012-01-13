@@ -1342,6 +1342,8 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 
         mdt_set_capainfo(info, 1, child_fid, BYPASS_CAPA);
         if (result == -ENOENT) {
+                int mask = info->mti_rr.rr_umask;
+
                 /* save versions in reply */
                 mdt_version_get_save(info, parent, 0);
                 mdt_version_get_save(info, child, 1);
@@ -1363,12 +1365,14 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                 info->mti_spec.sp_cr_lookup = 0;
                 info->mti_spec.sp_feat = &dt_directory_features;
 
+                mask = xchg(&current->fs->umask, mask & S_IRWXUGO);
                 result = mdo_create(info->mti_env,
                                     mdt_object_child(parent),
                                     lname,
                                     mdt_object_child(child),
                                     &info->mti_spec,
                                     &info->mti_attr);
+                current->fs->umask = mask;
                 if (result == -ERESTART) {
                         mdt_clear_disposition(info, ldlm_rep, DISP_OPEN_CREATE);
                         GOTO(out_child, result);
