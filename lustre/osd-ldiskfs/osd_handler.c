@@ -273,40 +273,57 @@ static int osd_object_invariant(const struct lu_object *l)
         return osd_invariant(osd_obj(l));
 }
 
-#ifdef HAVE_QUOTA_SUPPORT
 static inline void
 osd_push_ctxt(const struct lu_env *env, struct osd_ctxt *save)
 {
-        struct md_ucred    *uc = md_ucred(env);
-        struct cred        *tc;
+        struct md_ucred *uc = md_ucred(env);
 
         LASSERT(uc != NULL);
 
-        save->oc_uid = current_fsuid();
-        save->oc_gid = current_fsgid();
-        save->oc_cap = current_cap();
-        if ((tc = prepare_creds())) {
-                tc->fsuid         = uc->mu_fsuid;
-                tc->fsgid         = uc->mu_fsgid;
-                commit_creds(tc);
+        if (!save->oc_valid)
+                return;
+
+#ifdef HAVE_QUOTA_SUPPORT
+        if (save->oc_valid & OSD_CTXT_CRED) {
+                struct cred *tc;
+
+                save->oc_uid = current_fsuid();
+                save->oc_gid = current_fsgid();
+                save->oc_cap = current_cap();
+                if ((tc = prepare_creds())) {
+                        tc->fsuid = uc->mu_fsuid;
+                        tc->fsgid = uc->mu_fsgid;
+                        commit_creds(tc);
+                }
+                /* XXX not suboptimal */
+                cfs_curproc_cap_unpack(uc->mu_cap);
         }
-        /* XXX not suboptimal */
-        cfs_curproc_cap_unpack(uc->mu_cap);
+#endif
+        if (save->oc_valid & OSD_CTXT_UMASK)
+                save->oc_umask = xchg(&current->fs->umask, uc->mu_umask & S_IRWXUGO);
 }
 
 static inline void
 osd_pop_ctxt(struct osd_ctxt *save)
 {
-        struct cred *tc;
+        if (!save->oc_valid)
+                return;
 
-        if ((tc = prepare_creds())) {
-                tc->fsuid         = save->oc_uid;
-                tc->fsgid         = save->oc_gid;
-                tc->cap_effective = save->oc_cap;
-                commit_creds(tc);
+#ifdef HAVE_QUOTA_SUPPORT
+        if (save->oc_valid & OSD_CTXT_CRED) {
+                struct cred *tc;
+
+                if ((tc = prepare_creds())) {
+                        tc->fsuid         = save->oc_uid;
+                        tc->fsgid         = save->oc_gid;
+                        tc->cap_effective = save->oc_cap;
+                        commit_creds(tc);
+                }
         }
-}
 #endif
+        if (save->oc_valid & OSD_CTXT_UMASK)
+                current->fs->umask = save->oc_umask;
+}
 
 static inline struct osd_thread_info *osd_oti_get(const struct lu_env *env)
 {
@@ -1509,6 +1526,7 @@ static int osd_inode_setattr(const struct lu_env *env,
                         iattr.ia_valid |= ATTR_GID;
                 iattr.ia_uid = attr->la_uid;
                 iattr.ia_gid = attr->la_gid;
+                save->oc_valid = OSD_CTXT_CRED;
                 osd_push_ctxt(env, save);
                 rc = ll_vfs_dq_transfer(inode, &iattr) ? -EDQUOT : 0;
                 osd_pop_ctxt(save);
@@ -1595,6 +1613,11 @@ static int osd_create_pre(struct osd_thread_info *info, struct osd_object *obj,
 static int osd_create_post(struct osd_thread_info *info, struct osd_object *obj,
                            struct lu_attr *attr, struct thandle *th)
 {
+        /*
+         * LU-974 i_mode may be changed in creation time, update la_mode
+         * accordingly.
+         */
+        attr->la_mode = obj->oo_inode->i_mode;
         osd_object_init0(obj);
         if (obj->oo_inode && (obj->oo_inode->i_state & I_NEW))
                 unlock_new_inode(obj->oo_inode);
@@ -1632,9 +1655,7 @@ static int osd_mkfile(struct osd_thread_info *info, struct osd_object *obj,
         struct osd_thandle *oth;
         struct dt_object   *parent;
         struct inode       *inode;
-#ifdef HAVE_QUOTA_SUPPORT
         struct osd_ctxt    *save = &info->oti_ctxt;
-#endif
 
         LINVRNT(osd_invariant(obj));
         LASSERT(obj->oo_inode == NULL);
@@ -1658,13 +1679,14 @@ static int osd_mkfile(struct osd_thread_info *info, struct osd_object *obj,
         LASSERT(osd_dt_obj(parent)->oo_inode->i_op != NULL);
 
 #ifdef HAVE_QUOTA_SUPPORT
-        osd_push_ctxt(info->oti_env, save);
+        save->oc_valid = OSD_CTXT_CRED;
 #endif
+        save->oc_valid |= OSD_CTXT_UMASK;
+
+        osd_push_ctxt(info->oti_env, save);
         inode = ldiskfs_create_inode(oth->ot_handle,
                                      osd_dt_obj(parent)->oo_inode, mode);
-#ifdef HAVE_QUOTA_SUPPORT
         osd_pop_ctxt(save);
-#endif
         if (!IS_ERR(inode)) {
                 /* Do not update file c/mtime in ldiskfs.
                  * NB: don't need any lock because no contention at this

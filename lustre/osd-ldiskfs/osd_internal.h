@@ -90,13 +90,20 @@ struct inode;
 /** Enable thandle usage statistics */
 #define OSD_THANDLE_STATS (0)
 
-#ifdef HAVE_QUOTA_SUPPORT
+enum {
+        OSD_CTXT_CRED   = 1,
+        OSD_CTXT_UMASK  = 2
+};
+
 struct osd_ctxt {
+        unsigned long oc_valid;
+#ifdef HAVE_QUOTA_SUPPORT
         __u32 oc_uid;
         __u32 oc_gid;
         cfs_kernel_cap_t oc_cap;
-};
 #endif
+        __u32 oc_umask;
+};
 
 #ifdef HAVE_LDISKFS_PDO
 
