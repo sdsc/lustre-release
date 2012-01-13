@@ -258,6 +258,7 @@ struct ll_inode_info {
          *      some of the following members can be moved into u.f.
          */
         struct lov_stripe_md           *lli_smd;
+        struct lmv_stripe_md           *lli_mea;
         struct cl_object               *lli_clob;
 };
 

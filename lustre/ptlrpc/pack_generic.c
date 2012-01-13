@@ -1926,14 +1926,16 @@ void lustre_swab_lmv_desc (struct lmv_desc *ld)
         /* uuid endian insensitive */
 }
 
-void lustre_swab_lmv_stripe_md (struct lmv_stripe_md *mea)
+void lustre_swab_lmv_mds_md(struct lmv_mds_md *lmv)
 {
-        __swab32s(&mea->mea_magic);
-        __swab32s(&mea->mea_count);
-        __swab32s(&mea->mea_master);
-        CLASSERT(offsetof(typeof(*mea), mea_padding) != 0);
+        __swab32s(&lmv->lmv_magic);
+        __swab32s(&lmv->lmv_count);
+        __swab32s(&lmv->lmv_master);
+        __swab32s(&lmv->lmv_hash_type);
+        __swab32s(&lmv->lmv_layout_version);
+        CLASSERT(offsetof(typeof(*lmv), lmv_padding) != 0);
 }
-
+EXPORT_SYMBOL(lustre_swab_lmv_mds_md);
 
 static void print_lum (struct lov_user_md *lum)
 {

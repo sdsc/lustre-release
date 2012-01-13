@@ -184,6 +184,9 @@ struct obd_statfs {
 #define LOV_USER_MAGIC_JOIN_V1 0x0BD20BD0
 #define LOV_USER_MAGIC_V3 0x0BD30BD0
 
+#define LMV_MAGIC_V1      0x0CD10CD0    /*normal stripe lmv magic */
+#define LMV_USER_MAGIC    0x0CD20CD0    /*default lmv magic*/
+
 #define LOV_PATTERN_RAID0 0x001
 #define LOV_PATTERN_RAID1 0x002
 #define LOV_PATTERN_FIRST 0x100

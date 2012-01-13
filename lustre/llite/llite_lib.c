@@ -279,7 +279,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         err = obd_statfs(obd, osfs,
                          cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS), 0);
         if (err)
-                GOTO(out_md_fid, err);
+                GOTO(out_md, err);
 
         /* This needs to be after statfs to ensure connect has finished.
          * Note that "data" does NOT contain the valid connect reply.
@@ -388,7 +388,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         obd = class_name2obd(dt);
         if (!obd) {
                 CERROR("DT %s: not setup or attached\n", dt);
-                GOTO(out_md_fid, err = -ENODEV);
+                GOTO(out_md, err = -ENODEV);
         }
 
         data->ocd_connect_flags = OBD_CONNECT_GRANT     | OBD_CONNECT_VERSION  |
@@ -437,10 +437,10 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                                    "recovery, of which this client is not a "
                                    "part.  Please wait for recovery to "
                                    "complete, abort, or time out.\n", dt);
-                GOTO(out_md_fid, err);
+                GOTO(out_md, err);
         } else if (err) {
                 CERROR("Cannot connect to %s: rc = %d\n", dt, err);
-                GOTO(out_md_fid, err);
+                GOTO(out_md, err);
         }
 
         err = obd_fid_init(sbi->ll_dt_exp);
@@ -460,11 +460,11 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         err = md_getstatus(sbi->ll_md_exp, &sbi->ll_root_fid, &oc);
         if (err) {
                 CERROR("cannot mds_connect: rc = %d\n", err);
-                GOTO(out_lock_cn_cb, err);
+                GOTO(out_dt, err);
         }
         if (!fid_is_sane(&sbi->ll_root_fid)) {
                 CERROR("Invalid root fid during mount\n");
-                GOTO(out_lock_cn_cb, err = -EINVAL);
+                GOTO(out_dt, err = -EINVAL);
         }
         CDEBUG(D_SUPER, "rootfid "DFID"\n", PFID(&sbi->ll_root_fid));
 
@@ -483,7 +483,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 
         OBD_ALLOC_PTR(op_data);
         if (op_data == NULL)
-                GOTO(out_lock_cn_cb, err = -ENOMEM);
+                GOTO(out_dt, err = -ENOMEM);
 
         op_data->op_fid1 = sbi->ll_root_fid;
         op_data->op_mode = 0;
@@ -496,14 +496,14 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         OBD_FREE_PTR(op_data);
         if (err) {
                 CERROR("md_getattr failed for root: rc = %d\n", err);
-                GOTO(out_lock_cn_cb, err);
+                GOTO(out_dt, err);
         }
         err = md_get_lustre_md(sbi->ll_md_exp, request, sbi->ll_dt_exp,
                                sbi->ll_md_exp, &lmd);
         if (err) {
                 CERROR("failed to understand root inode md: rc = %d\n", err);
                 ptlrpc_req_finished (request);
-                GOTO(out_lock_cn_cb, err);
+                GOTO(out_dt, err);
         }
 
         LASSERT(fid_is_sane(&sbi->ll_root_fid));
@@ -569,13 +569,9 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 out_root:
         if (root)
                 iput(root);
-out_lock_cn_cb:
-        obd_fid_fini(sbi->ll_dt_exp);
 out_dt:
         obd_disconnect(sbi->ll_dt_exp);
         sbi->ll_dt_exp = NULL;
-out_md_fid:
-        obd_fid_fini(sbi->ll_md_exp);
 out_md:
         obd_disconnect(sbi->ll_md_exp);
         sbi->ll_md_exp = NULL;
@@ -665,13 +661,11 @@ void client_common_put_super(struct super_block *sb)
 
         cfs_list_del(&sbi->ll_conn_chain);
 
-        obd_fid_fini(sbi->ll_dt_exp);
         obd_disconnect(sbi->ll_dt_exp);
         sbi->ll_dt_exp = NULL;
 
         lprocfs_unregister_mountpoint(sbi);
 
-        obd_fid_fini(sbi->ll_md_exp);
         obd_disconnect(sbi->ll_md_exp);
         sbi->ll_md_exp = NULL;
 
@@ -879,6 +873,7 @@ void ll_lli_init(struct ll_inode_info *lli)
         cfs_sema_init(&lli->lli_och_sem, 1);
         cfs_spin_lock_init(&lli->lli_agl_lock);
         lli->lli_smd = NULL;
+        lli->lli_mea = NULL;
         lli->lli_clob = NULL;
 
         LASSERT(lli->lli_vfs_inode.i_mode != 0);
@@ -1112,7 +1107,6 @@ static int null_if_equal(struct ldlm_lock *lock, void *data)
 {
         if (data == lock->l_ast_data) {
                 lock->l_ast_data = NULL;
-
                 if (lock->l_req_mode != lock->l_granted_mode)
                         LDLM_ERROR(lock,"clearing inode with ungranted lock");
         }
@@ -1189,6 +1183,10 @@ void ll_clear_inode(struct inode *inode)
                 lli->lli_smd = NULL;
         }
 
+        if (lli->lli_mea) {
+                lmv_free_memmd(lli->lli_mea);
+                lli->lli_mea = NULL;
+        }
 
         EXIT;
 }
@@ -2202,10 +2200,12 @@ struct md_op_data * ll_prep_md_op_data(struct md_op_data *op_data,
         ll_i2gids(op_data->op_suppgids, i1, i2);
         op_data->op_fid1 = *ll_inode2fid(i1);
         op_data->op_capa1 = ll_mdscapa_get(i1);
+        op_data->op_mea1  = ll_i2info(i1)->lli_mea;
 
         if (i2) {
                 op_data->op_fid2 = *ll_inode2fid(i2);
                 op_data->op_capa2 = ll_mdscapa_get(i2);
+                op_data->op_mea2  = ll_i2info(i2)->lli_mea;
         } else {
                 fid_zero(&op_data->op_fid2);
                 op_data->op_capa2 = NULL;
@@ -2218,7 +2218,6 @@ struct md_op_data * ll_prep_md_op_data(struct md_op_data *op_data,
         op_data->op_fsuid = cfs_curproc_fsuid();
         op_data->op_fsgid = cfs_curproc_fsgid();
         op_data->op_cap = cfs_curproc_cap_pack();
-        op_data->op_bias = MDS_CHECK_SPLIT;
         op_data->op_opc = opc;
         op_data->op_mds = 0;
         op_data->op_data = data;

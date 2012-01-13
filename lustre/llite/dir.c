@@ -157,9 +157,9 @@ static int ll_dir_readpage(struct file *file, struct page *page0)
         struct inode *inode = page0->mapping->host;
         int hash64 = ll_i2sbi(inode)->ll_flags & LL_SBI_64BIT_HASH;
         struct obd_export *exp = ll_i2sbi(inode)->ll_md_exp;
+        struct md_op_data *op_data;
         struct ptlrpc_request *request;
         struct mdt_body *body;
-        struct obd_capa *oc;
         __u64 hash;
         struct page **page_pool;
         struct page *page;
@@ -200,10 +200,13 @@ static int ll_dir_readpage(struct file *file, struct page *page0)
                 page_pool[npages] = page;
         }
 
-        oc = ll_mdscapa_get(inode);
-        rc = md_readpage(exp, ll_inode2fid(inode), oc, hash, page_pool, npages,
-                         &request);
-        capa_put(oc);
+        op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL, 0, 0,
+                                     LUSTRE_OPC_ANY, NULL);
+        op_data->op_npages = npages;
+        op_data->op_offset = hash;
+
+        rc = md_readpage(exp, op_data, page_pool, &request);
+        ll_finish_md_op_data(op_data);
         if (rc == 0) {
                 body = req_capsule_server_get(&request->rq_pill, &RMF_MDT_BODY);
                 /* Checked by mdc_readpage() */

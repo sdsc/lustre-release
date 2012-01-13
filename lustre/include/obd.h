@@ -1303,6 +1303,9 @@ struct md_op_data {
         __u32                   op_opc;
 };
 
+#define op_npages               op_flags
+#define op_offset               op_valid
+
 struct md_enqueue_info;
 /* metadata stat-ahead */
 typedef int (* md_enqueue_cb_t)(struct ptlrpc_request *req,
@@ -1571,9 +1574,8 @@ struct md_ops {
                          struct md_open_data **mod);
         int (*m_sync)(struct obd_export *, const struct lu_fid *,
                       struct obd_capa *, struct ptlrpc_request **);
-        int (*m_readpage)(struct obd_export *, const struct lu_fid *,
-                          struct obd_capa *, __u64, struct page **,
-                          unsigned, struct ptlrpc_request **);
+        int (*m_readpage)(struct obd_export *, struct md_op_data *,
+                          struct page **, struct ptlrpc_request **);
 
         int (*m_unlink)(struct obd_export *, struct md_op_data *,
                         struct ptlrpc_request **);

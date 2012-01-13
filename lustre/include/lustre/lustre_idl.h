@@ -2093,15 +2093,45 @@ struct lmv_desc {
 
 extern void lustre_swab_lmv_desc (struct lmv_desc *ld);
 
+struct lmv_oinfo {
+        struct lu_fid           lmo_fid;
+        unsigned long           lmo_size;
+        mdsno_t                 lmo_mds;
+};
+
 /* TODO: lmv_stripe_md should contain mds capabilities for all slave fids */
 struct lmv_stripe_md {
-        __u32         mea_magic;
-        __u32         mea_count;
-        __u32         mea_master;
-        __u32         mea_padding;
-        char          mea_pool_name[LOV_MAXPOOLNAME];
-        struct lu_fid mea_ids[0];
+        __u32             mea_magic;
+        __u32             mea_count;
+        __u32             mea_master;
+        __u32             mea_hash_type; /*dir stripe policy */
+        __u32             mea_layout_version;
+        char              mea_pool_name[LOV_MAXPOOLNAME];
+        struct lmv_oinfo  mea_oinfo[0];
 };
+
+struct lmv_data_objects {
+       struct lu_fid    lmv_fid;
+       int              lmv_mds;
+};
+
+struct lmv_mds_md {
+        __u32         lmv_magic;
+        __u32         lmv_count;
+        __u32         lmv_master;
+        __u32         lmv_hash_type; /*dir stripe policy */
+        __u32         lmv_layout_version;
+        __u32         lmv_padding;
+        char          lmv_pool_name[LOV_MAXPOOLNAME];
+        struct lmv_data_objects lmv_data[0];
+};
+
+extern int lmv_pack_md(struct lmv_mds_md **lmmp, struct lmv_stripe_md *lsm,
+                       int stripes);
+extern int lmv_alloc_md(struct lmv_mds_md **lmmp, int stripes);
+extern void lmv_free_md(struct lmv_mds_md *lsm);
+extern int lmv_alloc_memmd(struct lmv_stripe_md **lsmp, int stripes);
+extern void lmv_free_memmd(struct lmv_stripe_md *lsm);
 
 extern void lustre_swab_lmv_stripe_md(struct lmv_stripe_md *mea);
 
@@ -2113,6 +2143,19 @@ extern void lustre_swab_lmv_stripe_md(struct lmv_stripe_md *mea);
 #define MAX_HASH_SIZE_32         0x7fffffffUL
 #define MAX_HASH_SIZE            0x7fffffffffffffffULL
 #define MAX_HASH_HIGHEST_BIT     0x1000000000000000ULL
+
+static inline int lmv_stripe_md_size(int stripes)
+{
+        return sizeof(struct lmv_stripe_md) +
+               stripes * sizeof(struct lmv_oinfo);
+}
+
+static inline int lmv_mds_md_size(int stripes, int lmm_magic)
+{
+        LASSERT(lmm_magic == LMV_MAGIC_V1);
+        return sizeof(struct lmv_mds_md) +
+                      stripes * sizeof(struct lmv_data_objects);
+}
 
 enum fld_rpc_opc {
         FLD_QUERY                       = 900,
