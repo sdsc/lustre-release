@@ -984,6 +984,8 @@ void lustre_assert_wire_constants(void)
                  OBD_CONNECT_MAXBYTES);
         LASSERTF(OBD_CONNECT_IMP_RECOV == 0x10000000000ULL, "found 0x%.16llxULL\n",
                  OBD_CONNECT_IMP_RECOV);
+        LASSERTF(OBD_CONNECT_EINPROGRESS == 0x80000000000ULL, "found 0x%.16llxULL\n",
+                 OBD_CONNECT_EINPROGRESS);
         LASSERTF(OBD_CKSUM_CRC32 == 0x00000001UL, "found 0x%.8xUL\n",
                  (unsigned)OBD_CKSUM_CRC32);
         LASSERTF(OBD_CKSUM_ADLER == 0x00000002UL, "found 0x%.8xUL\n",
