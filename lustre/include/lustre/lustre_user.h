@@ -263,6 +263,7 @@ struct ll_fid {
 };
 
 #define UUID_MAX        40
+#define UUID_STR_FMT    "%39s"
 struct obd_uuid {
         char uuid[UUID_MAX];
 };

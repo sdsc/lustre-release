@@ -622,15 +622,23 @@ static int lprocfs_wr_ck_timeout(struct file *file, const char *buffer,
 static int lprocfs_mdt_wr_evict_client(struct file *file, const char *buffer,
                                        unsigned long count, void *data)
 {
-        char tmpbuf[sizeof(struct obd_uuid)];
+        char *tmpbuf;
 
-        sscanf(buffer, "%40s", tmpbuf);
+        OBD_ALLOC(tmpbuf, UUID_MAX);
+        if (tmpbuf == NULL)
+                return -ENOMEM;
 
-        if (strncmp(tmpbuf, "nid:", 4) != 0)
-                return lprocfs_wr_evict_client(file, buffer, count, data);
+        sscanf(buffer, UUID_STR_FMT, tmpbuf);
+
+        if (strncmp(tmpbuf, "nid:", 4) != 0) {
+                lprocfs_wr_evict_client(file, buffer, count, data);
+                goto out;
+        }
 
         CERROR("NOT implement evict client by nid %s\n", tmpbuf);
 
+out:
+        OBD_FREE(tmpbuf, UUID_MAX);
         return count;
 }
 
@@ -916,21 +924,32 @@ static int lprocfs_mdt_wr_mdc(struct file *file, const char *buffer,
 {
         struct obd_device *obd = data;
         struct obd_export *exp = NULL;
-        struct obd_uuid uuid;
-        char tmpbuf[sizeof(struct obd_uuid)];
+        struct obd_uuid   *uuid;
+        char              *tmpbuf;
 
-        sscanf(buffer, "%40s", tmpbuf);
+        OBD_ALLOC(uuid, UUID_MAX);
+        if (uuid == NULL)
+                return -ENOMEM;
 
-        obd_str2uuid(&uuid, tmpbuf);
-        exp = cfs_hash_lookup(obd->obd_uuid_hash, &uuid);
+        OBD_ALLOC(tmpbuf, UUID_MAX);
+        if (tmpbuf == NULL)
+                goto out;
+
+        sscanf(buffer, UUID_STR_FMT, tmpbuf);
+
+        obd_str2uuid(uuid, tmpbuf);
+        exp = cfs_hash_lookup(obd->obd_uuid_hash, uuid);
         if (exp == NULL) {
                 CERROR("%s: no export %s found\n",
-                       obd->obd_name, obd_uuid2str(&uuid));
+                       obd->obd_name, obd_uuid2str(uuid));
         } else {
                 mdt_hsm_copytool_send(exp);
                 class_export_put(exp);
         }
 
+        OBD_FREE(tmpbuf, UUID_MAX);
+out:
+        OBD_FREE(uuid, UUID_MAX);
         return count;
 }
 

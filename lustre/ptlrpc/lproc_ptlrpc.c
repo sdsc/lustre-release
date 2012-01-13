@@ -748,8 +748,11 @@ int lprocfs_wr_evict_client(struct file *file, const char *buffer,
                             unsigned long count, void *data)
 {
         struct obd_device *obd = data;
-        char tmpbuf[sizeof(struct obd_uuid)];
+        char              *tmpbuf;
 
+        OBD_ALLOC(tmpbuf, UUID_MAX);
+        if (tmpbuf == NULL)
+                return -ENOMEM;
         /* Kludge code(deadlock situation): the lprocfs lock has been held
          * since the client is evicted by writting client's
          * uuid/nid to procfs "evict_client" entry. However,
@@ -760,7 +763,7 @@ int lprocfs_wr_evict_client(struct file *file, const char *buffer,
         class_incref(obd, __FUNCTION__, cfs_current());
         LPROCFS_EXIT();
 
-        sscanf(buffer, "%40s", tmpbuf);
+        sscanf(buffer, UUID_STR_FMT, tmpbuf);
         if (strncmp(tmpbuf, "nid:", 4) == 0)
                 obd_export_evict_by_nid(obd, tmpbuf + 4);
         else if (strncmp(tmpbuf, "uuid:", 5) == 0)
@@ -771,6 +774,7 @@ int lprocfs_wr_evict_client(struct file *file, const char *buffer,
         LPROCFS_ENTRY();
         class_decref(obd, __FUNCTION__, cfs_current());
 
+        OBD_FREE(tmpbuf, UUID_MAX);
         return count;
 }
 EXPORT_SYMBOL(lprocfs_wr_evict_client);

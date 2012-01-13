@@ -71,20 +71,27 @@ static int lprocfs_mds_wr_evictostnids(struct file *file, const char *buffer,
 static int lprocfs_mds_wr_evict_client(struct file *file, const char *buffer,
                                        unsigned long count, void *data)
 {
-        struct obd_device *obd = data;
-        struct mds_obd *mds = &obd->u.mds;
-        char tmpbuf[sizeof(struct obd_uuid)];
         struct ptlrpc_request_set *set;
-        int rc;
+        struct obd_device         *obd = data;
+        struct mds_obd            *mds = &obd->u.mds;
+        char                      *tmpbuf;
+        int                        rc;
 
-        sscanf(buffer, "%40s", tmpbuf);
+        OBD_ALLOC(tmpbuf, UUID_MAX);
+        if (tmpbuf == NULL)
+                return -ENOMEM;
+        sscanf(buffer, UUID_STR_FMT, tmpbuf);
 
-        if (strncmp(tmpbuf, "nid:", 4) != 0)
-                return lprocfs_wr_evict_client(file, buffer, count, data);
+        if (strncmp(tmpbuf, "nid:", 4) != 0) {
+                lprocfs_wr_evict_client(file, buffer, count, data);
+                goto out;
+        }
 
         set = ptlrpc_prep_set();
-        if (!set)
-                return -ENOMEM;
+        if (set == NULL) {
+                count = -ENOMEM;
+                goto out;
+        }
 
         if (obd->u.mds.mds_evict_ost_nids) {
                 rc = obd_set_info_async(mds->mds_lov_exp,
@@ -103,7 +110,7 @@ static int lprocfs_mds_wr_evict_client(struct file *file, const char *buffer,
         class_incref(obd, __FUNCTION__, cfs_current());
         LPROCFS_EXIT();
 
-        obd_export_evict_by_nid(obd, tmpbuf+4);
+        obd_export_evict_by_nid(obd, tmpbuf + 4);
 
 
         rc = ptlrpc_set_wait(set);
@@ -115,6 +122,8 @@ static int lprocfs_mds_wr_evict_client(struct file *file, const char *buffer,
         class_decref(obd,  __FUNCTION__, cfs_current());
 
         ptlrpc_set_destroy(set);
+out:
+        OBD_FREE(tmpbuf, UUID_MAX);
         return count;
 }
 
