@@ -1718,6 +1718,9 @@ static int mdd_create(const struct lu_env *env,
         }
 #endif
 
+        if (OBD_FAIL_CHECK(OBD_FAIL_MDS_DQACQ_NET))
+                GOTO(out_pending, rc = -EINPROGRESS);
+
         /*
          * No RPC inside the transaction, so OST objects should be created at
          * first.
