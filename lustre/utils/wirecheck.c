@@ -443,6 +443,7 @@ check_obd_connect_data(void)
         CHECK_DEFINE_64X(OBD_CONNECT_64BITHASH);
         CHECK_DEFINE_64X(OBD_CONNECT_MAXBYTES);
         CHECK_DEFINE_64X(OBD_CONNECT_IMP_RECOV);
+        CHECK_DEFINE_64X(OBD_CONNECT_UMASK);
 
         CHECK_VALUE_X(OBD_CKSUM_CRC32);
         CHECK_VALUE_X(OBD_CKSUM_ADLER);
@@ -886,7 +887,7 @@ check_mdt_rec_create(void)
         CHECK_MEMBER(mdt_rec_create, cr_bias);
         CHECK_MEMBER(mdt_rec_create, cr_flags_l);
         CHECK_MEMBER(mdt_rec_create, cr_flags_h);
-        CHECK_MEMBER(mdt_rec_create, cr_padding_3);
+        CHECK_MEMBER(mdt_rec_create, cr_umask);
         CHECK_MEMBER(mdt_rec_create, cr_padding_4);
 }
 

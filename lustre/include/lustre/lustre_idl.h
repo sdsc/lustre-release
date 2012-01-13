@@ -1105,6 +1105,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                                   * directory hash */
 #define OBD_CONNECT_MAXBYTES     0x8000000000ULL /* max stripe size */
 #define OBD_CONNECT_IMP_RECOV   0x10000000000ULL /* imp recovery support */
+#define OBD_CONNECT_UMASK       0x40000000000ULL /* MDS use umask from client in creation */
 
 #define OCD_HAS_FLAG(ocd, flg)  \
         (!!((ocd)->ocd_connect_flags & OBD_CONNECT_##flg))
@@ -1130,7 +1131,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                 OBD_CONNECT_FID | LRU_RESIZE_CONNECT_FLAG | \
                                 OBD_CONNECT_VBR | OBD_CONNECT_LOV_V3 | \
                                 OBD_CONNECT_SOM | OBD_CONNECT_FULL20 | \
-                                OBD_CONNECT_64BITHASH)
+                                OBD_CONNECT_64BITHASH | OBD_CONNECT_UMASK)
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
                                 OBD_CONNECT_TRUNCLOCK | OBD_CONNECT_INDEX | \
@@ -1920,7 +1921,7 @@ struct mdt_rec_create {
          * extend cr_flags size without breaking 1.8 compat */
         __u32           cr_flags_l;     /* for use with open, low  32 bits  */
         __u32           cr_flags_h;     /* for use with open, high 32 bits */
-        __u32           cr_padding_3;   /* rr_padding_3 */
+        __u32           cr_umask;       /* umask for create */
         __u32           cr_padding_4;   /* rr_padding_4 */
 };
 
