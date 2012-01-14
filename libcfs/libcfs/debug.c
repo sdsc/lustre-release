@@ -96,7 +96,7 @@ EXPORT_SYMBOL(libcfs_console_backoff);
 unsigned int libcfs_debug_binary = 1;
 EXPORT_SYMBOL(libcfs_debug_binary);
 
-unsigned int libcfs_stack;
+unsigned int libcfs_stack = 3 * THREAD_SIZE / 4;
 EXPORT_SYMBOL(libcfs_stack);
 
 unsigned int portal_enter_debugger;
