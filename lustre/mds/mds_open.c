@@ -1174,6 +1174,7 @@ int mds_open(struct mds_update_record *rec, int offset,
                 unsigned long ino = rec->ur_fid2->id;
                 struct iattr *iattr;
                 struct inode *inode;
+                mode_t mask = rec->ur_umask;
 
                 if (!(rec->ur_flags & MDS_OPEN_CREAT)) {
                         /* It's negative and we weren't supposed to create it */
@@ -1221,7 +1222,9 @@ int mds_open(struct mds_update_record *rec, int offset,
                 dp.ldp_inum = ino;
 
                 LOCK_INODE_MUTEX(dparent->d_inode);
+                mask = xchg(&current->fs->umask, mask & S_IRWXUGO);
                 rc = ll_vfs_create(dparent->d_inode, dchild, rec->ur_mode,NULL);
+                current->fs->umask = mask;
                 UNLOCK_INODE_MUTEX(dparent->d_inode);
                 if (dchild->d_fsdata == (void *)(unsigned long)ino)
                         dchild->d_fsdata = NULL;

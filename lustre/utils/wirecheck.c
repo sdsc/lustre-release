@@ -254,6 +254,7 @@ static void check_obd_connect_data(void)
         CHECK_CDEFINE(OBD_CONNECT_FULL20);
         CHECK_CDEFINE(OBD_CONNECT_LAYOUTLOCK);
         CHECK_CDEFINE(OBD_CONNECT_64BITHASH);
+        CHECK_CDEFINE(OBD_CONNECT_UMASK);
 }
 
 static void
@@ -646,6 +647,7 @@ check_mds_rec_create(void)
         CHECK_MEMBER(mds_rec_create, cr_time);
         CHECK_MEMBER(mds_rec_create, cr_rdev);
         CHECK_MEMBER(mds_rec_create, cr_suppgid);
+        CHECK_MEMBER(mds_rec_create, cr_umask);
 }
 
 static void

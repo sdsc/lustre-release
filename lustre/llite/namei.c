@@ -616,7 +616,10 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
         if (rc)
                 RETURN(ERR_PTR(rc));
 
-        it->it_create_mode &= ~current->fs->umask;
+        /* enforce umask if acl disabled or MDS doesn't support umask */
+        if (!IS_POSIXACL(parent) ||
+            !(ll_i2mdcexp(parent)->exp_connect_flags & OBD_CONNECT_UMASK))
+                it->it_create_mode &= ~current->fs->umask;
 
         rc = mdc_intent_lock(ll_i2mdcexp(parent), &op_data, NULL, 0, it,
                              lookup_flags, &req, ll_mdc_blocking_ast, 0);
@@ -947,7 +950,9 @@ static int ll_mknod_generic(struct inode *dir, struct qstr *name, int mode,
                name->len, name->name, dir->i_ino, dir->i_generation, dir,
                mode, rdev);
 
-        mode &= ~current->fs->umask;
+        if (!IS_POSIXACL(dir) ||
+            !(ll_i2mdcexp(dir)->exp_connect_flags & OBD_CONNECT_UMASK))
+                mode &= ~current->fs->umask;
 
         switch (mode & S_IFMT) {
         case 0:
@@ -1071,7 +1076,10 @@ static int ll_mkdir_generic(struct inode *dir, struct qstr *name, int mode,
         CDEBUG(D_VFSTRACE, "VFS Op:name=%.*s,dir=%lu/%u(%p)\n",
                name->len, name->name, dir->i_ino, dir->i_generation, dir);
 
-        mode = (mode & (S_IRWXUGO|S_ISVTX) & ~current->fs->umask) | S_IFDIR;
+        if (!IS_POSIXACL(dir) ||
+            !(ll_i2mdcexp(dir)->exp_connect_flags & OBD_CONNECT_UMASK))
+                mode &= ~current->fs->umask;
+        mode = (mode & (S_IRWXUGO|S_ISVTX)) | S_IFDIR;
         err = ll_new_node(dir, name, NULL, mode, 0, dchild);
 
         RETURN(err);

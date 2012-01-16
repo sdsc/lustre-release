@@ -484,7 +484,9 @@ int ll_revalidate_it(struct dentry *de, int lookup_flags,
                 first = ll_statahead_enter(parent, &de, 0);
 
 do_lock:
-        it->it_create_mode &= ~current->fs->umask;
+        if (!IS_POSIXACL(parent) ||
+            !(exp->exp_connect_flags & OBD_CONNECT_UMASK))
+                it->it_create_mode &= ~current->fs->umask;
         it->it_create_mode |= M_CHECK_STALE;
         rc = mdc_intent_lock(exp, &op_data, NULL, 0, it, lookup_flags,
                              &req, ll_mdc_blocking_ast, 0);

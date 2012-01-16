@@ -210,6 +210,7 @@ static int mds_create_unpack(struct ptlrpc_request *req, int offset,
         r->ur_rdev = rec->cr_rdev;
         r->ur_time = rec->cr_time;
         r->ur_flags = rec->cr_flags;
+        r->ur_umask = rec->cr_umask;
 
         lustre_set_req_swabbed(req, offset + 1);
         r->ur_name = lustre_msg_string(req->rq_reqmsg, offset + 1, 0);
@@ -375,6 +376,7 @@ static int mds_open_unpack(struct ptlrpc_request *req, int offset,
         r->ur_rdev = rec->cr_rdev;
         r->ur_time = rec->cr_time;
         r->ur_flags = rec->cr_flags;
+        r->ur_umask = rec->cr_umask;
 
         lustre_set_req_swabbed(req, offset + 1);
         r->ur_name = lustre_msg_string(req->rq_reqmsg, offset + 1, 0);
