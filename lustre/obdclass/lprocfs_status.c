@@ -753,6 +753,10 @@ static const char *obd_connect_names[] = {
         "full20",
         "layout_lock",
         "64bithash",
+        "max_bytes",
+        "imp_recov",
+        "job_stats",
+        "umask",
         NULL
 };
 

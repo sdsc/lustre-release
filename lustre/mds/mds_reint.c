@@ -982,6 +982,7 @@ static int mds_reint_create(struct mds_update_record *rec, int offset,
         struct lvfs_dentry_params dp = LVFS_DENTRY_PARAMS_INIT;
         int quota_pending[2] = {0, 0};
         unsigned int gid = current_fsgid();
+        mode_t mask = rec->ur_umask;
         ENTRY;
 
         LASSERT(offset == REQ_REC_OFF);
@@ -1066,6 +1067,7 @@ static int mds_reint_create(struct mds_update_record *rec, int offset,
         lquota_chkquota(mds_quota_interface_ref, req->rq_export, ids[0], ids[1],
                         1, quota_pending, NULL, NULL, 0);
 
+        mask = xchg(&current->fs->umask, mask & S_IRWXUGO);
         switch (type) {
         case S_IFREG:{
                 handle = fsfilt_start(obd, dir, FSFILT_OP_CREATE, NULL);
@@ -1123,8 +1125,10 @@ static int mds_reint_create(struct mds_update_record *rec, int offset,
         default:
                 CERROR("bad file type %o creating %s\n", type, rec->ur_name);
                 dchild->d_fsdata = NULL;
+                current->fs->umask = mask;
                 GOTO(cleanup, rc = -EINVAL);
         }
+        current->fs->umask = mask;
 
         /* In case we stored the desired inum in here, we want to clean up. */
         if (dchild->d_fsdata == (void *)(unsigned long)rec->ur_fid2->id)

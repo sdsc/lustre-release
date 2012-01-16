@@ -366,6 +366,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb, int msgsize);
 #define OBD_CONNECT_MAXBYTES     0x8000000000ULL /* max stripe size */
 #define OBD_CONNECT_IMP_RECOV   0x10000000000ULL /* imp recovery support */
 #define OBD_CONNECT_JOBSTATS    0x20000000000ULL /* jobid in ptlrpc_body */
+#define OBD_CONNECT_UMASK       0x40000000000ULL /* MDS use umask from client in creation */
 /* also update obd_connect_names[] for lprocfs_rd_connect_flags()
  * and lustre/utils/wirecheck.c */
 
@@ -381,7 +382,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb, int msgsize);
                                 OBD_CONNECT_NODEVOH | OBD_CONNECT_ATTRFID | \
                                 OBD_CONNECT_CANCELSET | OBD_CONNECT_AT | \
                                 LRU_RESIZE_CONNECT_FLAG | OBD_CONNECT_VBR |\
-                                OBD_CONNECT_LOV_V3)
+                                OBD_CONNECT_LOV_V3 | OBD_CONNECT_UMASK)
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
                                 OBD_CONNECT_TRUNCLOCK | OBD_CONNECT_INDEX | \
@@ -1270,7 +1271,7 @@ struct mds_rec_create {
         __u64           cr_time;
         __u64           cr_rdev;
         __u32           cr_suppgid;
-        __u32           cr_padding_1; /* also fix lustre_swab_mds_rec_create */
+        __u32           cr_umask;     /* umask for create */
         __u32           cr_padding_2; /* also fix lustre_swab_mds_rec_create */
         __u32           cr_padding_3; /* also fix lustre_swab_mds_rec_create */
         __u32           cr_padding_4; /* also fix lustre_swab_mds_rec_create */
@@ -1301,7 +1302,7 @@ struct mdt_rec_create {
         __u32           cr_bias;
         __u32           cr_flags;     /* for use with open */
         __u32           cr_padding_2; /* pad for 64 bits*/
-        __u32           cr_padding_3; /* pad for 64 bits*/
+        __u32           cr_umask;     /* umask for create */
         __u32           cr_padding_4; /* pad for 64 bits*/
 };
 

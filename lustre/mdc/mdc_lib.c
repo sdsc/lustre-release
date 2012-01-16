@@ -177,6 +177,7 @@ static void mdc_create_pack_18(struct ptlrpc_request *req, int offset,
         rec->cr_rdev    = rdev;
         rec->cr_time    = op_data->mod_time;
         rec->cr_suppgid = op_data->suppgids[0];
+        rec->cr_umask   = cfs_curproc_umask();
 
         tmp = lustre_msg_buf(req->rq_reqmsg, offset + 1, op_data->namelen + 1);
         LOGL0(op_data->name, op_data->namelen, tmp);
@@ -209,6 +210,7 @@ static void mdc_create_pack_20(struct ptlrpc_request *req, int offset,
         rec->cr_rdev     = rdev;
         rec->cr_time     = op_data->mod_time;
         rec->cr_suppgid1 = op_data->suppgids[0];
+        rec->cr_umask    = cfs_curproc_umask();
 
         /* offset + 1  == capa */
         tmp = lustre_msg_buf(req->rq_reqmsg, offset + 2, op_data->namelen + 1);
@@ -318,6 +320,7 @@ static void mdc_open_pack_18(struct ptlrpc_request *req, int offset,
         rec->cr_rdev    = rdev;
         rec->cr_time    = op_data->mod_time;
         rec->cr_suppgid = op_data->suppgids[0];
+        rec->cr_umask   = cfs_curproc_umask();
 
         if (op_data->name) {
                 tmp = lustre_msg_buf(req->rq_reqmsg, offset + 1,
@@ -360,6 +363,7 @@ static void mdc_open_pack_20(struct ptlrpc_request *req, int offset,
         rec->cr_time   = op_data->mod_time;
         rec->cr_suppgid1 = op_data->suppgids[0];
         rec->cr_suppgid2 = op_data->suppgids[1];
+        rec->cr_umask    = cfs_curproc_umask();
 
         if (op_data->name) {
                 tmp = lustre_msg_buf(req->rq_reqmsg, offset + 3,
