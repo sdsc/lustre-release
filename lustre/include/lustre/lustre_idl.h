@@ -1270,7 +1270,7 @@ struct mds_rec_create {
         __u64           cr_time;
         __u64           cr_rdev;
         __u32           cr_suppgid;
-        __u32           cr_padding_1; /* also fix lustre_swab_mds_rec_create */
+        __u32           cr_umask;     /* umask for create */
         __u32           cr_padding_2; /* also fix lustre_swab_mds_rec_create */
         __u32           cr_padding_3; /* also fix lustre_swab_mds_rec_create */
         __u32           cr_padding_4; /* also fix lustre_swab_mds_rec_create */
@@ -1301,7 +1301,7 @@ struct mdt_rec_create {
         __u32           cr_bias;
         __u32           cr_flags;     /* for use with open */
         __u32           cr_padding_2; /* pad for 64 bits*/
-        __u32           cr_padding_3; /* pad for 64 bits*/
+        __u32           cr_umask;     /* umask for create */
         __u32           cr_padding_4; /* pad for 64 bits*/
 };
 

@@ -182,7 +182,7 @@ void push_ctxt(struct lvfs_run_ctxt *save, struct lvfs_run_ctxt *new_ctx,
 
                 push_group_info(save, uc->luc_uce);
         }
-        current->fs->umask = 0; /* umask already applied on client */
+
         set_fs(new_ctx->fs);
         ll_set_fs_pwd(current->fs, new_ctx->pwdmnt, new_ctx->pwd);
 

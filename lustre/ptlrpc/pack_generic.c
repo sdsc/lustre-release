@@ -2190,7 +2190,7 @@ void lustre_swab_mds_rec_create (struct mds_rec_create *cr)
         __swab64s (&cr->cr_time);
         __swab64s (&cr->cr_rdev);
         __swab32s (&cr->cr_suppgid);
-        CLASSERT(offsetof(typeof(*cr), cr_padding_1) != 0);
+        __swab32s (&cr->cr_umask);
         CLASSERT(offsetof(typeof(*cr), cr_padding_2) != 0);
         CLASSERT(offsetof(typeof(*cr), cr_padding_3) != 0);
         CLASSERT(offsetof(typeof(*cr), cr_padding_4) != 0);
