@@ -1843,6 +1843,8 @@ static int mdd_declare_create(const struct lu_env *env,
                                            0, handle);
                 if (rc == 0)
                         rc = mdo_declare_ref_add(env, p, handle);
+                if (rc == 0)
+                        rc = mdo_declare_attr_set(env, p, &ma->ma_attr, handle);
         }
         if (rc)
                 GOTO(out, rc);
