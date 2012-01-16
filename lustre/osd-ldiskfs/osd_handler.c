@@ -150,8 +150,10 @@ static const struct dt_index_operations       osd_index_ea_ops;
 #define OSD_EXEC_OP(handle, op)     {                            \
         struct osd_thandle *oh;                                  \
         oh = container_of0(handle, struct osd_thandle, ot_super);\
-        LASSERT((oh)->ot_declare_ ##op > 0);                     \
-        ((oh)->ot_declare_ ##op)--; }
+        if (((oh)->ot_declare_ ##op) > 0) {                      \
+                ((oh)->ot_declare_ ##op)--;                      \
+        }                                                        \
+        }
 #else
 #define OSD_DECLARE_OP(oh, op)
 #define OSD_EXEC_OP(oh, op)
@@ -1988,9 +1990,20 @@ static int osd_object_destroy(const struct lu_env *env,
         oh = container_of0(th, struct osd_thandle, ot_super);
         LASSERT(oh->ot_handle);
         LASSERT(inode);
-        LASSERT(osd_inode_unlinked(inode));
+
+        if (S_ISDIR(inode->i_mode)) {
+                LASSERT(osd_inode_unlinked(inode) ||
+                        inode->i_nlink == 1);
+                cfs_spin_lock(&obj->oo_guard);
+                inode->i_nlink = 0;
+                cfs_spin_unlock(&obj->oo_guard);
+                inode->i_sb->s_op->dirty_inode(inode);
+        } else {
+                LASSERT(osd_inode_unlinked(inode));
+        }
 
         OSD_EXEC_OP(th, destroy);
+
 
         result = osd_oi_delete(osd_oti_get(env),
                                osd_fid2oi(osd, fid), fid, th);
@@ -2249,8 +2262,16 @@ static int osd_object_ref_add(const struct lu_env *env,
         OSD_EXEC_OP(th, ref_add);
 
         cfs_spin_lock(&obj->oo_guard);
-        LASSERT(inode->i_nlink < LDISKFS_LINK_MAX);
         inode->i_nlink++;
+        if (S_ISDIR(inode->i_mode) && inode->i_nlink > 1) {
+                if (inode->i_nlink >= LDISKFS_LINK_MAX ||
+                    inode->i_nlink == 2) {
+                        inode->i_nlink = 1;
+                        LDISKFS_SET_RO_COMPAT_FEATURE(inode->i_sb,
+                                        LDISKFS_FEATURE_RO_COMPAT_DIR_NLINK);
+                }
+        }
+        LASSERT(inode->i_nlink < LDISKFS_LINK_MAX);
         cfs_spin_unlock(&obj->oo_guard);
         inode->i_sb->s_op->dirty_inode(inode);
         LINVRNT(osd_invariant(obj));
@@ -2296,6 +2317,8 @@ static int osd_object_ref_del(const struct lu_env *env,
         cfs_spin_lock(&obj->oo_guard);
         LASSERT(inode->i_nlink > 0);
         inode->i_nlink--;
+        if (S_ISDIR(inode->i_mode) && inode->i_nlink == 0)
+                inode->i_nlink++;
         cfs_spin_unlock(&obj->oo_guard);
         inode->i_sb->s_op->dirty_inode(inode);
         LINVRNT(osd_invariant(obj));
