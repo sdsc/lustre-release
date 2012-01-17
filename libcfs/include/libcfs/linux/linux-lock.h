@@ -119,7 +119,7 @@ typedef spinlock_t cfs_spinlock_t;
  */
 typedef struct rw_semaphore cfs_rw_semaphore_t;
 
-#define cfs_sema_init(s, val)     sema_init(s, val)
+#define cfs_sema_init(s, val)     mutex_init(s)
 #define cfs_init_rwsem(s)         init_rwsem(s)
 #define cfs_down_read(s)          down_read(s)
 #define cfs_down_read_trylock(s)  down_read_trylock(s)
@@ -135,7 +135,7 @@ typedef struct rw_semaphore cfs_rw_semaphore_t;
 /*
  * semaphore "implementation" (use Linux kernel's primitives)
  */
-typedef struct semaphore      cfs_semaphore_t;
+typedef struct mutex      cfs_semaphore_t;
 
 /*
  * rwlock_t "implementation" (use Linux kernel's primitives)
@@ -208,51 +208,25 @@ typedef struct completion cfs_completion_t;
 typedef struct mutex cfs_mutex_t;
 
 #define CFS_DEFINE_MUTEX(name)             DEFINE_MUTEX(name)
-#define CFS_DECLARE_MUTEX(name)            DECLARE_MUTEX(name)
+#define CFS_DECLARE_MUTEX(name)            DEFINE_MUTEX(name)
 
 #define cfs_mutex_init(x)                   mutex_init(x)
-#define cfs_init_mutex(x)                   init_MUTEX(x)
-#define cfs_init_mutex_locked(x)            init_MUTEX_LOCKED(x)
-#define cfs_mutex_up(x)                     up(x)
-#define cfs_mutex_down(x)                   down(x)
-#define cfs_up(x)                           up(x)
-#define cfs_down(x)                         down(x)
-#define cfs_down_interruptible(x)           down_interruptible(x)
-#define cfs_mutex_down_trylock(x)           down_trylock(x)
+#define cfs_init_mutex(x)                   cfs_mutex_init(x)
 #define cfs_mutex_lock(x)                   mutex_lock(x)
+#define cfs_init_mutex_locked(x)                               \
+                                            mutex_init(x);     \
+                                            mutex_lock(x)
 #define cfs_mutex_unlock(x)                 mutex_unlock(x)
 #define cfs_mutex_trylock(x)                mutex_trylock(x)
+#define cfs_mutex_up(x)                     cfs_mutex_unlock(x)
+#define cfs_mutex_down(x)                   cfs_mutex_lock(x)
+#define cfs_up(x)                           cfs_mutex_up(x)
+#define cfs_down(x)                         cfs_mutex_down(x)
+#define cfs_down_interruptible(x)           mutex_lock_interruptible(x)
+#define cfs_mutex_down_trylock(x)           cfs_mutex_trylock(x)
+#define cfs_mutex_destroy(x)                mutex_destroy(x)
+#define cfs_mutex_is_locked(x)              mutex_is_locked(x)
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,16)
-
-/**************************************************************************
- *
- * Mutex interface from newer Linux kernels.
- *
- * this augments compatibility interface from include/linux/mutex.h
- *
- **************************************************************************/
-
-static inline void cfs_mutex_destroy(cfs_mutex_t *lock)
-{
-}
-
-/*
- * This is for use in assertions _only_, i.e., this function should always
- * return 1.
- *
- * \retval 1 mutex is locked.
- *
- * \retval 0 mutex is not locked. This should never happen.
- */
-static inline int cfs_mutex_is_locked(cfs_mutex_t *lock)
-{
-        return 1;
-}
-#else /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,16) */
-#define cfs_mutex_destroy(x)    mutex_destroy(x)
-#define cfs_mutex_is_locked(x)  mutex_is_locked(x)
-#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(2,6,16) */
 
 /*
  * Kernel locking primitives

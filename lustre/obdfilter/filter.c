@@ -3554,7 +3554,7 @@ static int filter_destroy_precreated(struct obd_export *exp, struct obdo *oa,
         int skip_orphan;
         ENTRY;
 
-        LASSERT(down_trylock(&filter->fo_create_locks[oa->o_seq]) != 0);
+        LASSERT_SEM_LOCKED(&filter->fo_create_locks[oa->o_seq]);
 
         memset(&doa, 0, sizeof(doa));
 
@@ -3813,7 +3813,7 @@ static int filter_precreate(struct obd_device *obd, struct obdo *oa,
 
         filter = &obd->u.filter;
 
-        LASSERT(down_trylock(&filter->fo_create_locks[group]) != 0);
+        LASSERT_SEM_LOCKED(&filter->fo_create_locks[group]);
 
         OBD_FAIL_TIMEOUT(OBD_FAIL_TGT_DELAY_PRECREATE, obd_timeout / 2);
 
