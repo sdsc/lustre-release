@@ -2254,6 +2254,24 @@ AC_DEFINE(HAVE_SIMPLE_SETATTR, 1,
 ])
 
 #
+# 2.6.39 removed sync_page function from struct address_space_operations
+#
+AC_DEFUN([LC_AOPS_HAVE_SYNC_PAGE],
+[AC_MSG_CHECKING([if struct address_space_operations has sync_page function])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        struct address_space_operations aso;
+        &aso.sync_page;
+],[
+        AC_MSG_RESULT([yes])
+        AC_DEFINE(AOPS_HAVE_SYNC_PAGE, 1, [struct address_space_operations has sync_page function])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+#
 # LC_PROG_LINUX
 #
 # Lustre linux kernel checks
@@ -2427,6 +2445,7 @@ AC_DEFUN([LC_PROG_LINUX],
 
          # 2.6.39
          LC_REQUEST_QUEUE_UNPLUG_FN
+         LC_AOPS_HAVE_SYNC_PAGE
 
          #
          if test x$enable_server = xyes ; then
