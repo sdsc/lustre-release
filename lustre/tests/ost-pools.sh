@@ -1277,6 +1277,7 @@ test_24() {
       createmany -o $dir/${tfile} $numfiles || \
           error "createmany $dir/${tfile} failed!"
       res=$($GETSTRIPE -v $dir | grep "^stripe_count:")
+      echo $res
       if [ $? -ne 0 ]; then
           res=$($GETSTRIPE -v $dir | grep "^(Default) ")
           pool=$(cut -f 9 -d ' ' <<< $res)
