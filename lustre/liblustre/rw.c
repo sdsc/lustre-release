@@ -61,10 +61,10 @@ typedef ssize_t llu_file_piov_t(const struct iovec *iovec, int iovlen,
 
 size_t llap_cookie_size;
 
-static int llu_lock_to_stripe_offset(struct inode *inode, struct ldlm_lock *lock)
+static int llu_lock_to_stripe_offset(struct inode *inode,
+                                     struct ldlm_lock *lock)
 {
-        struct llu_inode_info *lli = llu_i2info(inode);
-        struct lov_stripe_md *lsm = lli->lli_smd;
+        struct lov_stripe_md *lsm;
         struct obd_export *exp = llu_i2obdexp(inode);
         struct {
                 char name[16];
@@ -74,8 +74,11 @@ static int llu_lock_to_stripe_offset(struct inode *inode, struct ldlm_lock *lock
         int rc;
         ENTRY;
 
-        if (lsm->lsm_stripe_count == 1)
+        lsm = cl_lsm_get(inode);
+        if (lsm->lsm_stripe_count == 1) {
+                cl_lsm_put(inode, &lsm);
                 RETURN(0);
+        }
 
         /* get our offset in the lov */
         rc = obd_get_info(exp, sizeof(key), &key, &vallen, &stripe, lsm);
@@ -84,6 +87,7 @@ static int llu_lock_to_stripe_offset(struct inode *inode, struct ldlm_lock *lock
                 LBUG();
         }
         LASSERT(stripe < lsm->lsm_stripe_count);
+        cl_lsm_put(inode, &lsm);
         RETURN(stripe);
 }
 

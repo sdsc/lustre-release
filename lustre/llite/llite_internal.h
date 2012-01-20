@@ -123,7 +123,8 @@ enum lli_flags {
         LLIF_CONTENDED          = (1 << 4),
         /* Truncate uses server lock for this file */
         LLIF_SRVLOCK            = (1 << 5),
-
+        /* Layout has been invalidated */
+        LLIF_LAYOUT_CANCELED    = (1 << 6),
 };
 
 struct ll_inode_info {
@@ -269,8 +270,9 @@ struct ll_inode_info {
  * Implemented by ->lli_size_sem and ->lsm_sem, nested in that order.
  */
 
-void ll_inode_size_lock(struct inode *inode, int lock_lsm);
-void ll_inode_size_unlock(struct inode *inode, int unlock_lsm);
+struct lov_stripe_md *ll_inode_size_lock(struct inode *inode, int lock_lsm);
+void ll_inode_size_unlock(struct inode *inode, struct lov_stripe_md **lsmp,
+                          int unlock_lsm);
 
 // FIXME: replace the name of this with LL_I to conform to kernel stuff
 // static inline struct ll_inode_info *LL_I(struct inode *inode)
@@ -699,8 +701,8 @@ int __ll_inode_revalidate_it(struct dentry *, struct lookup_intent *,
 int ll_revalidate_nd(struct dentry *dentry, struct nameidata *nd);
 int ll_file_open(struct inode *inode, struct file *file);
 int ll_file_release(struct inode *inode, struct file *file);
-int ll_glimpse_ioctl(struct ll_sb_info *sbi,
-                     struct lov_stripe_md *lsm, lstat_t *st);
+int ll_glimpse_ioctl(struct ll_sb_info *sbi, struct lov_stripe_md *lsm,
+                     lstat_t *st);
 void ll_ioepoch_open(struct ll_inode_info *lli, __u64 ioepoch);
 int ll_local_open(struct file *file,
                   struct lookup_intent *it, struct ll_file_data *fd,
@@ -714,7 +716,7 @@ void ll_ioepoch_close(struct inode *inode, struct md_op_data *op_data,
 void ll_done_writing_attr(struct inode *inode, struct md_op_data *op_data);
 int ll_som_update(struct inode *inode, struct md_op_data *op_data);
 int ll_inode_getattr(struct inode *inode, struct obdo *obdo,
-                     __u64 ioepoch, int sync);
+                     __u64 ioepoch, int sync, struct lov_stripe_md *lsm);
 int ll_md_setattr(struct dentry *dentry, struct md_op_data *op_data,
                   struct md_open_data **mod);
 void ll_pack_inode2opdata(struct inode *inode, struct md_op_data *op_data,
@@ -1343,31 +1345,40 @@ void ll_iocontrol_unregister(void *magic);
 
 /* lclient compat stuff */
 #define cl_inode_info ll_inode_info
+#define cl_inode_info_down(lli) cfs_down(&lli->lli_och_sem);
+#define cl_inode_info_up(lli)   cfs_up(&lli->lli_och_sem);
 #define cl_i2info(info) ll_i2info(info)
 #define cl_inode_mode(inode) ((inode)->i_mode)
 #define cl_i2sbi ll_i2sbi
 
-static inline void cl_isize_lock(struct inode *inode, int lsmlock)
+static inline struct lov_stripe_md *cl_isize_lock(struct inode *inode,
+                                                  int lsmlock)
 {
-        ll_inode_size_lock(inode, lsmlock);
+        return ll_inode_size_lock(inode, lsmlock);
 }
 
-static inline void cl_isize_unlock(struct inode *inode, int lsmlock)
+static inline void cl_isize_unlock(struct inode *inode,
+                                   struct lov_stripe_md **lsmp, int lsmlock)
 {
-        ll_inode_size_unlock(inode, lsmlock);
+        ll_inode_size_unlock(inode, lsmp, lsmlock);
 }
 
 static inline void cl_isize_write_nolock(struct inode *inode, loff_t kms)
 {
         LASSERT_SEM_LOCKED(&ll_i2info(inode)->lli_size_sem);
+        CDEBUG(D_INODE, "inode ino=%lu(%p) updating i_size from "
+               LPU64" to "LPU64"\n",
+               inode->i_ino, inode, (__u64)i_size_read(inode), (__u64)kms);
         i_size_write(inode, kms);
 }
 
 static inline void cl_isize_write(struct inode *inode, loff_t kms)
 {
-        ll_inode_size_lock(inode, 0);
-        i_size_write(inode, kms);
-        ll_inode_size_unlock(inode, 0);
+        struct lov_stripe_md *lsm;
+
+        lsm = ll_inode_size_lock(inode, 0);
+        cl_isize_write_nolock(inode, kms);
+        ll_inode_size_unlock(inode, &lsm, 0);
 }
 
 #define cl_isize_read(inode)             i_size_read(inode)

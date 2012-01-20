@@ -612,8 +612,10 @@ out:
 #ifdef CONFIG_FS_POSIX_ACL
                 posix_acl_release(md->posix_acl);
 #endif
-                if (md->lsm)
+                if (md->lsm) {
+                        lsm_decref(md->lsm);
                         obd_free_memmd(dt_exp, &md->lsm);
+                }
         }
         return rc;
 }
