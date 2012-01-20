@@ -671,8 +671,10 @@ cleanup:
                                src_oa->o_id, req->rq_oi.oi_oa->o_id,
                                req->rq_idx, rc);
         }
-        if (*lsmp == NULL)
+        if (*lsmp == NULL) {
+                lsm_decref(set->set_oi->oi_md);
                 obd_free_memmd(exp, &set->set_oi->oi_md);
+        }
 done:
         if (oti && set->set_cookies) {
                 oti->oti_logcookies = set->set_cookies;

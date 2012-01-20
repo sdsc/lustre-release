@@ -152,9 +152,12 @@ static int lov_init_sub(const struct lu_env *env, struct lov_object *lov,
                 r0->lo_sub[idx] = cl2lovsub(stripe);
                 r0->lo_sub[idx]->lso_super = lov;
                 r0->lo_sub[idx]->lso_index = idx;
-                result = 0;
-        } else {
-                CERROR("Stripe is already owned by other file (%d).\n", idx);
+        } else if (!lu_fid_eq(lu_object_fid(&stripe->co_lu),
+                              lu_object_fid(lu_object_top(&parent->coh_lu)))) {
+                CERROR("Stripe (%d) is already owned by another file "
+                        DFID" != "DFID"\n", idx,
+                        PFID(lu_object_fid(&stripe->co_lu)),
+                        PFID(lu_object_fid(lu_object_top(&parent->coh_lu))));
                 LU_OBJECT_DEBUG(D_ERROR, env, &stripe->co_lu, "\n");
                 LU_OBJECT_DEBUG(D_ERROR, env, lu_object_top(&parent->coh_lu),
                                 "old\n");
@@ -181,8 +184,8 @@ static int lov_init_raid0(const struct lu_env *env,
         struct lov_layout_raid0 *r0      = &state->raid0;
 
         ENTRY;
-        r0->lo_nr  = conf->u.coc_md->lsm->lsm_stripe_count;
-        r0->lo_lsm = conf->u.coc_md->lsm;
+        r0->lo_nr  = lsm->lsm_stripe_count;
+        r0->lo_lsm = lsm; /* upper layer hold a reference on the lsm */
         LASSERT(r0->lo_nr <= lov_targets_nr(dev));
 
         OBD_ALLOC_LARGE(r0->lo_sub, r0->lo_nr * sizeof r0->lo_sub[0]);
@@ -302,8 +305,10 @@ static void lov_fini_raid0(const struct lu_env *env, struct lov_object *lov,
 
         ENTRY;
         if (r0->lo_sub != NULL) {
+                lov_delete_raid0(env, lov, state);
                 OBD_FREE_LARGE(r0->lo_sub, r0->lo_nr * sizeof r0->lo_sub[0]);
                 r0->lo_sub = NULL;
+                r0->lo_lsm = NULL;
         }
         EXIT;
 }

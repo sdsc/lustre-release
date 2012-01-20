@@ -95,6 +95,8 @@ struct llu_sb_info {
 enum lli_flags {
         /* MDS has an authority for the Size-on-MDS attributes. */
         LLIF_MDS_SIZE_LOCK      = (1 << 0),
+        /* Layout has been invalidated */
+        LLIF_LAYOUT_CANCELED    = (1 << 1),
 };
 
 struct llu_inode_info {
@@ -397,6 +399,8 @@ static inline struct slp_io *slp_env_io(const struct lu_env *env)
 
 /* lclient compat stuff */
 #define cl_inode_info llu_inode_info
+#define cl_inode_info_down(lli) do { }while(0)
+#define cl_inode_info_up(lli)   do { }while(0)
 #define cl_i2info(info) llu_i2info(info)
 #define cl_inode_mode(inode) (llu_i2stat(inode)->st_mode)
 #define cl_i2sbi llu_i2sbi
@@ -404,11 +408,14 @@ static inline struct slp_io *slp_env_io(const struct lu_env *env)
 #define cl_isize_write(inode,kms)        do{llu_i2stat(inode)->st_size = kms;}while(0)
 #define cl_isize_write_nolock(inode,kms) cl_isize_write(inode,kms)
 
-static inline void cl_isize_lock(struct inode *inode, int lsmlock)
+static inline struct lov_stripe_md *cl_isize_lock(struct inode *inode,
+                                                  int lsmlock)
 {
+        return llu_i2info(inode)->lli_smd;
 }
 
-static inline void cl_isize_unlock(struct inode *inode, int lsmlock)
+static inline void cl_isize_unlock(struct inode *inode,
+                                   struct lov_stripe_md **lsmp, int lsmlock)
 {
 }
 

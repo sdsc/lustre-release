@@ -365,19 +365,19 @@ static ssize_t ll_direct_IO_26(int rw, struct kiocb *iocb,
         struct ccc_object *obj = cl_inode2ccc(inode);
         long count = iov_length(iov, nr_segs);
         long tot_bytes = 0, result = 0;
-        struct ll_inode_info *lli = ll_i2info(inode);
-        struct lov_stripe_md *lsm = lli->lli_smd;
+        struct lov_stripe_md *lsm;
         unsigned long seg = 0;
         long size = MAX_DIO_SIZE;
         int refcheck;
         ENTRY;
 
-        if (!lli->lli_smd || !lli->lli_smd->lsm_object_id)
-                RETURN(-EBADF);
+        lsm = cl_lsm_get(inode);
+        if (lsm == NULL || lsm->lsm_object_id == 0)
+                GOTO(out_lock, result = -EBADF);
 
         /* FIXME: io smaller than PAGE_SIZE is broken on ia64 ??? */
         if ((file_offset & ~CFS_PAGE_MASK) || (count & ~CFS_PAGE_MASK))
-                RETURN(-EINVAL);
+                GOTO(out_lock, result = -EINVAL);
 
         CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p), size=%lu (max %lu), "
                "offset=%lld=%llx, pages %lu (max %lu)\n",
@@ -389,7 +389,7 @@ static ssize_t ll_direct_IO_26(int rw, struct kiocb *iocb,
         for (seg = 0; seg < nr_segs; seg++) {
                 if (((unsigned long)iov[seg].iov_base & ~CFS_PAGE_MASK) ||
                     (iov[seg].iov_len & ~CFS_PAGE_MASK))
-                        RETURN(-EINVAL);
+                        GOTO(out_lock, result = -EINVAL);
         }
 
         env = cl_env_get(&refcheck);
@@ -476,6 +476,9 @@ out:
         }
 
         cl_env_put(env, &refcheck);
+
+out_lock:
+        cl_lsm_put(inode, &lsm);
         RETURN(tot_bytes ? : result);
 }
 

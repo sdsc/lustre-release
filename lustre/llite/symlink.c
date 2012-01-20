@@ -119,11 +119,12 @@ static int ll_readlink(struct dentry *dentry, char *buffer, int buflen)
         struct ptlrpc_request *request;
         char *symname;
         int rc;
+        struct lov_stripe_md *lsm;
         ENTRY;
 
         CDEBUG(D_VFSTRACE, "VFS Op\n");
         /* on symlinks lli_open_sem protects lli_symlink_name allocation/data */
-        ll_inode_size_lock(inode, 0);
+        lsm = ll_inode_size_lock(inode, 0);
         rc = ll_readlink_internal(inode, &request, &symname);
         if (rc)
                 GOTO(out, rc);
@@ -131,7 +132,7 @@ static int ll_readlink(struct dentry *dentry, char *buffer, int buflen)
         rc = vfs_readlink(dentry, buffer, buflen, symname);
  out:
         ptlrpc_req_finished(request);
-        ll_inode_size_unlock(inode, 0);
+        ll_inode_size_unlock(inode, &lsm, 0);
         RETURN(rc);
 }
 
@@ -159,9 +160,11 @@ static LL_FOLLOW_LINK_RETURN_TYPE ll_follow_link(struct dentry *dentry,
         } else if (THREAD_SIZE == 8192 && current->link_count >= 8) {
                 rc = -ELOOP;
         } else {
-                ll_inode_size_lock(inode, 0);
+                struct lov_stripe_md *lsm;
+
+                lsm = ll_inode_size_lock(inode, 0);
                 rc = ll_readlink_internal(inode, &request, &symname);
-                ll_inode_size_unlock(inode, 0);
+                ll_inode_size_unlock(inode, &lsm, 0);
         }
         if (rc) {
                 cfs_path_put(nd); /* Kernel assumes that ->follow_link()

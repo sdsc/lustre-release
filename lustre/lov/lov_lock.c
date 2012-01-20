@@ -318,7 +318,7 @@ static int lov_lock_sub_init(const struct lu_env *env,
                  * XXX for wide striping smarter algorithm is desirable,
                  * breaking out of the loop, early.
                  */
-                if (lov_stripe_intersects(r0->lo_lsm, i,
+                if (lov_stripe_intersects(io->ci_lsm, i,
                                           file_start, file_end, &start, &end))
                         nr++;
         }
@@ -336,7 +336,7 @@ static int lov_lock_sub_init(const struct lu_env *env,
          * top-lock.
          */
         for (i = 0, nr = 0; i < r0->lo_nr; ++i) {
-                if (lov_stripe_intersects(r0->lo_lsm, i,
+                if (lov_stripe_intersects(io->ci_lsm, i,
                                           file_start, file_end, &start, &end)) {
                         struct cl_lock_descr *descr;
 
@@ -951,12 +951,13 @@ static int lock_lock_multi_match()
 static int lov_lock_stripe_is_matching(const struct lu_env *env,
                                        struct lov_object *lov, int stripe,
                                        const struct cl_lock_descr *child,
-                                       const struct cl_lock_descr *descr)
+                                       const struct cl_lock_descr *descr,
+                                       const struct cl_io *io)
 {
-        struct lov_stripe_md *lsm = lov_r0(lov)->lo_lsm;
-        obd_off start;
-        obd_off end;
-        int result;
+        struct lov_stripe_md *lsm = io->ci_lsm;
+        obd_off               start;
+        obd_off               end;
+        int                   result;
 
         if (lov_r0(lov)->lo_nr == 1)
                 return cl_lock_ext_match(child, descr);
@@ -1022,7 +1023,7 @@ static int lov_lock_fits_into(const struct lu_env *env,
                 result = lov_lock_stripe_is_matching(env,
                                                      cl2lov(slice->cls_obj),
                                                      lov->lls_sub[0].sub_stripe,
-                                                     got, need);
+                                                     got, need, io);
         } else if (io->ci_type != CIT_SETATTR && io->ci_type != CIT_MISC &&
                    !cl_io_is_append(io) && need->cld_mode != CLM_PHANTOM)
                 /*

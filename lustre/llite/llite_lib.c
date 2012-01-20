@@ -511,8 +511,10 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         ptlrpc_req_finished(request);
 
         if (root == NULL || IS_ERR(root)) {
-                if (lmd.lsm)
+                if (lmd.lsm) {
+                        lsm_decref(lmd.lsm);
                         obd_free_memmd(sbi->ll_dt_exp, &lmd.lsm);
+                }
 #ifdef CONFIG_FS_POSIX_ACL
                 if (lmd.posix_acl) {
                         posix_acl_release(lmd.posix_acl);
@@ -1135,7 +1137,10 @@ void ll_clear_inode(struct inode *inode)
                 LASSERT(lli->lli_opendir_pid == 0);
         }
 
+        cfs_spin_lock(&lli->lli_lock);
         ll_i2info(inode)->lli_flags &= ~LLIF_MDS_SIZE_LOCK;
+        cfs_spin_unlock(&lli->lli_lock);
+
         md_change_cbdata(sbi->ll_md_exp, ll_inode2fid(inode),
                          null_if_equal, inode);
 
@@ -1178,16 +1183,14 @@ void ll_clear_inode(struct inode *inode)
                 LASSERT(cfs_list_empty(&lli->lli_agl_list));
 
         /*
-         * XXX This has to be done before lsm is freed below, because
-         * cl_object still uses inode lsm.
+         * XXX cl_inode_fini() has to be done before lsm is freed below,
+         * because cl_object still uses inode lsm.
          */
         cl_inode_fini(inode);
-
-        if (lli->lli_smd) {
-                obd_free_memmd(sbi->ll_dt_exp, &lli->lli_smd);
-                lli->lli_smd = NULL;
-        }
-
+        /* remove ref from inode */
+        cl_lsm_put(inode, &lli->lli_smd);
+        /* remove inode association */
+        lli->lli_smd = NULL;
 
         EXIT;
 }
@@ -1325,7 +1328,7 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
 {
         struct inode *inode = dentry->d_inode;
         struct ll_inode_info *lli = ll_i2info(inode);
-        struct lov_stripe_md *lsm = lli->lli_smd;
+        struct lov_stripe_md *lsm;
         struct md_op_data *op_data = NULL;
         struct md_open_data *mod = NULL;
         int ia_valid = attr->ia_valid;
@@ -1372,17 +1375,18 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
                        LTIME_S(attr->ia_mtime), LTIME_S(attr->ia_ctime),
                        cfs_time_current_sec());
 
+        OBD_ALLOC_PTR(op_data);
+        if (op_data == NULL)
+                RETURN(-ENOMEM);
+
         /* NB: ATTR_SIZE will only be set after this point if the size
          * resides on the MDS, ie, this file has no objects. */
+        lsm = cl_lsm_get(inode);
         if (lsm)
                 attr->ia_valid &= ~ATTR_SIZE;
 
         /* We always do an MDS RPC, even if we're only changing the size;
          * only the MDS knows whether truncate() should fail with -ETXTBUSY */
-
-        OBD_ALLOC_PTR(op_data);
-        if (op_data == NULL)
-                RETURN(-ENOMEM);
 
         if (!S_ISDIR(inode->i_mode)) {
                 if (ia_valid & ATTR_SIZE)
@@ -1402,14 +1406,18 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
                 op_data->op_flags = MF_EPOCH_OPEN;
 
         rc = ll_md_setattr(dentry, op_data, &mod);
-        if (rc)
+        if (rc) {
+                cl_lsm_put(inode, &lsm);
                 GOTO(out, rc);
+        }
 
         ll_ioepoch_open(lli, op_data->op_ioepoch);
         if (!lsm || !S_ISREG(inode->i_mode)) {
                 CDEBUG(D_INODE, "no lsm: not setting attrs on OST\n");
+                cl_lsm_put(inode, &lsm);
                 GOTO(out, rc = 0);
         }
+        cl_lsm_put(inode, &lsm);
 
         if (ia_valid & ATTR_SIZE)
                 attr->ia_valid |= ATTR_SIZE;
@@ -1557,7 +1565,7 @@ int ll_statfs(struct dentry *de, struct kstatfs *sfs)
         return 0;
 }
 
-void ll_inode_size_lock(struct inode *inode, int lock_lsm)
+struct lov_stripe_md *ll_inode_size_lock(struct inode *inode, int lock_lsm)
 {
         struct ll_inode_info *lli;
         struct lov_stripe_md *lsm;
@@ -1569,78 +1577,152 @@ void ll_inode_size_lock(struct inode *inode, int lock_lsm)
         cfs_down(&lli->lli_size_sem);
         LASSERT(lli->lli_size_sem_owner == NULL);
         lli->lli_size_sem_owner = current;
-        lsm = lli->lli_smd;
-        LASSERTF(lsm != NULL || lock_lsm == 0, "lsm %p, lock_lsm %d\n",
+        lsm = cl_lsm_get(inode);
+        LASSERTF(ergo(!lsm, !lock_lsm), "lsm %p, lock_lsm %d\n",
                  lsm, lock_lsm);
         if (lock_lsm)
                 lov_stripe_lock(lsm);
+        return lsm;
 }
 
-void ll_inode_size_unlock(struct inode *inode, int unlock_lsm)
+void ll_inode_size_unlock(struct inode *inode, struct lov_stripe_md **lsmp,
+                          int unlock_lsm)
 {
         struct ll_inode_info *lli;
-        struct lov_stripe_md *lsm;
 
         lli = ll_i2info(inode);
-        lsm = lli->lli_smd;
-        LASSERTF(lsm != NULL || unlock_lsm == 0, "lsm %p, lock_lsm %d\n",
-                 lsm, unlock_lsm);
+        LASSERTF(*lsmp != NULL || unlock_lsm == 0, "lsm %p, lock_lsm %d\n",
+                 *lsmp, unlock_lsm);
         if (unlock_lsm)
-                lov_stripe_unlock(lsm);
+                lov_stripe_unlock(*lsmp);
+
+        cl_lsm_put(inode, lsmp);
         LASSERT(lli->lli_size_sem_owner == current);
         lli->lli_size_sem_owner = NULL;
         cfs_up(&lli->lli_size_sem);
+}
+
+/*
+ * caller must hold lli->lli_och_sem
+ */
+static void ll_replace_lsm(struct inode *inode, struct lov_stripe_md *lsm)
+{
+        struct ll_inode_info *lli = ll_i2info(inode);
+        struct lov_stripe_md *old_lsm;
+
+        CDEBUG(D_INODE, "replace lli_smd %p by lsm %p for inode "DFID"(%p)\n",
+               lli->lli_smd, lsm, PFID(&lli->lli_fid), inode);
+        if (lsm)
+                dump_lsm(D_INODE, lsm);
+        if (lli->lli_smd)
+                dump_lsm(D_INODE, lli->lli_smd);
+
+        /* swap new and old lsm */
+        old_lsm = lli->lli_smd;
+        lli->lli_smd = lsm_addref(lsm);
+        cl_lsm_put(inode, &old_lsm);
+
+        if (lsm) {
+                lli->lli_maxbytes = lsm->lsm_maxbytes;
+                if (lli->lli_maxbytes > PAGE_CACHE_MAXBYTES)
+                        lli->lli_maxbytes = PAGE_CACHE_MAXBYTES;
+        } else {
+                lli->lli_maxbytes = (__u64)(~0UL);
+        }
+}
+
+static void ll_update_lsm(struct inode *inode, struct lustre_md *md)
+{
+        struct ll_inode_info *lli = ll_i2info(inode);
+        struct lov_stripe_md *lsm = md->lsm;
+        struct lov_stripe_md *lli_smd;
+        ENTRY;
+
+        LASSERT(ergo(lsm, S_ISREG(inode->i_mode)));
+
+        if ((lsm) && (lsm->lsm_magic != LOV_MAGIC_V1) &&
+            (lsm->lsm_magic != LOV_MAGIC_V3)) {
+                dump_lsm(D_ERROR, lsm);
+                LBUG();
+        }
+
+        cfs_down(&lli->lli_och_sem);
+        lli_smd = lli->lli_smd;
+
+        /* if lsm != NULL,
+         *  if the layout generation has changed, then it is a restripe
+         *  if not, it is just a layout lock re-aquisition
+         * if lsm == NULL,
+         *  if the layout is canceled, it is a HSM release
+         *  if not, we do not want to update lli_smd */
+        if (lli_smd != NULL) {
+                if (lsm != NULL) {
+                        /* if both lsm have the same layout generation, they
+                         * must be identical */
+                        if (lli_smd->lsm_layout_gen == lsm->lsm_layout_gen) {
+                                CDEBUG(D_INFO, "new lsm with same layout "
+                                       "generation for inode %lu/%u(%p)\n",
+                                       inode->i_ino, inode->i_generation,
+                                       inode);
+
+                                /* let's still sanity check that nothing has
+                                 * changed */
+                                if (lov_stripe_md_cmp(lli_smd, lsm)) {
+                                        CERROR("lsm mismatch for inode %ld\n",
+                                               inode->i_ino);
+                                        CERROR("lli_smd:\n");
+                                        dump_lsm(D_ERROR, lli_smd);
+                                        CERROR("lsm:\n");
+                                        dump_lsm(D_ERROR, lsm);
+                                        LBUG();
+                                }
+                                /* layouts are identical nothing to do */
+                                GOTO(out, 0);
+                        }
+
+                        /* XXX restripe with new non empty layout not supported
+                         * yet */
+                        CERROR("restripe of inode %lu/%u(%p) not supported yet"
+                               "\n", inode->i_ino, inode->i_generation, inode);
+                        LBUG();
+                } else {
+                        /* XXX: HSM release case not supported too */
+                        CERROR("release of inode %lu/%u(%p) not supported yet"
+                               "\n", inode->i_ino, inode->i_generation, inode);
+                        LBUG();
+                }
+        } else { /* lli_smd == NULL */
+                if (lsm == NULL)
+                        /* no layout replaced by no layout nothing to do */
+                        GOTO(out, 0);
+
+                CDEBUG(D_INODE, "adding lsm %p to inode %lu/%u(%p)\n", lsm,
+                       inode->i_ino, inode->i_generation, inode);
+                /* no layout replaced by new layout. */
+        }
+
+        /* cl_file_inode_init must go before lli_smd or a race is possible where
+         * client thinks the file has stripes, but lov raid0 is not setup yet
+         * and parallel e.g. glimpse would try to use uninitialized lov */
+        cl_file_inode_init(inode, md);
+        ll_replace_lsm(inode, lsm);
+out:
+        cfs_up(&lli->lli_och_sem);
+        EXIT;
 }
 
 void ll_update_inode(struct inode *inode, struct lustre_md *md)
 {
         struct ll_inode_info *lli = ll_i2info(inode);
         struct mdt_body *body = md->body;
-        struct lov_stripe_md *lsm = md->lsm;
         struct ll_sb_info *sbi = ll_i2sbi(inode);
 
-        LASSERT ((lsm != NULL) == ((body->valid & OBD_MD_FLEASIZE) != 0));
-        if (lsm != NULL) {
-                LASSERT(S_ISREG(inode->i_mode));
+        LASSERT ((md->lsm != NULL) == ((body->valid & OBD_MD_FLEASIZE) != 0));
 
-                cfs_down(&lli->lli_och_sem);
-                if (lli->lli_smd == NULL) {
-                        if (lsm->lsm_magic != LOV_MAGIC_V1 &&
-                            lsm->lsm_magic != LOV_MAGIC_V3) {
-                                dump_lsm(D_ERROR, lsm);
-                                LBUG();
-                        }
-                        CDEBUG(D_INODE, "adding lsm %p to inode %lu/%u(%p)\n",
-                               lsm, inode->i_ino, inode->i_generation, inode);
-                        /* cl_file_inode_init must go before lli_smd or a race
-                         * is possible where client thinks the file has stripes,
-                         * but lov raid0 is not setup yet and parallel e.g.
-                         * glimpse would try to use uninitialized lov */
-                        cl_file_inode_init(inode, md);
-                        cfs_spin_lock(&lli->lli_lock);
-                        lli->lli_smd = lsm;
-                        cfs_spin_unlock(&lli->lli_lock);
-                        cfs_up(&lli->lli_och_sem);
-                        lli->lli_maxbytes = lsm->lsm_maxbytes;
-                        if (lli->lli_maxbytes > PAGE_CACHE_MAXBYTES)
-                                lli->lli_maxbytes = PAGE_CACHE_MAXBYTES;
-                } else {
-                        cfs_up(&lli->lli_och_sem);
-                        LASSERT(lli->lli_smd->lsm_magic == lsm->lsm_magic &&
-                                lli->lli_smd->lsm_stripe_count ==
-                                lsm->lsm_stripe_count);
-                        if (lov_stripe_md_cmp(lli->lli_smd, lsm)) {
-                                CERROR("lsm mismatch for inode %ld\n",
-                                       inode->i_ino);
-                                CERROR("lli_smd:\n");
-                                dump_lsm(D_ERROR, lli->lli_smd);
-                                CERROR("lsm:\n");
-                                dump_lsm(D_ERROR, lsm);
-                                LBUG();
-                        }
-                }
-                if (lli->lli_smd != lsm)
-                        obd_free_memmd(ll_i2dtexp(inode), &lsm);
+        if (md->lsm != NULL) {
+                ll_update_lsm(inode, md);
+                /* we are done with the lsm, drop it */
+                cl_lsm_put(inode, &md->lsm);
         }
 
         if (sbi->ll_flags & LL_SBI_RMT_CLIENT) {
@@ -1684,7 +1766,8 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
                 inode->i_mode = (inode->i_mode & ~S_IFMT)|(body->mode & S_IFMT);
         LASSERT(inode->i_mode != 0);
         if (S_ISREG(inode->i_mode)) {
-                inode->i_blkbits = min(PTLRPC_MAX_BRW_BITS + 1, LL_MAX_BLKSIZE_BITS);
+                inode->i_blkbits = min(PTLRPC_MAX_BRW_BITS + 1,
+                                       LL_MAX_BLKSIZE_BITS);
         } else {
                 inode->i_blkbits = inode->i_sb->s_blocksize_bits;
         }
@@ -1888,22 +1971,23 @@ int ll_iocontrol(struct inode *inode, struct file *file,
                 RETURN(put_user(flags, (int *)arg));
         }
         case FSFILT_IOC_SETFLAGS: {
-                struct lov_stripe_md *lsm = ll_i2info(inode)->lli_smd;
+                struct lov_stripe_md *lsm;
                 struct obd_info oinfo = { { { 0 } } };
                 struct md_op_data *op_data;
 
                 if (get_user(flags, (int *)arg))
                         RETURN(-EFAULT);
 
+                lsm = cl_lsm_get(inode);
                 oinfo.oi_md = lsm;
                 OBDO_ALLOC(oinfo.oi_oa);
                 if (!oinfo.oi_oa)
-                        RETURN(-ENOMEM);
+                        GOTO(out, rc = -ENOMEM);
 
                 op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL, 0, 0,
                                              LUSTRE_OPC_ANY, NULL);
                 if (IS_ERR(op_data))
-                        RETURN(PTR_ERR(op_data));
+                        GOTO(out, rc = PTR_ERR(op_data));
 
                 ((struct ll_iattr *)&op_data->op_attr)->ia_attr_flags = flags;
                 op_data->op_attr.ia_valid |= ATTR_ATTR_FLAG;
@@ -1913,7 +1997,7 @@ int ll_iocontrol(struct inode *inode, struct file *file,
                 ptlrpc_req_finished(req);
                 if (rc) {
                         OBDO_FREE(oinfo.oi_oa);
-                        RETURN(rc);
+                        GOTO(out, rc);
                 }
 
                 if (lsm == NULL) {
@@ -1935,13 +2019,15 @@ int ll_iocontrol(struct inode *inode, struct file *file,
                 if (rc) {
                         if (rc != -EPERM && rc != -EACCES)
                                 CERROR("osc_setattr_async fails: rc = %d\n",rc);
-                        RETURN(rc);
+                        GOTO(out, rc);
                 }
 
                 EXIT;
 update_cache:
                 inode->i_flags = ll_ext_to_inode_flags(flags);
-                return 0;
+out:
+                cl_lsm_put(inode, &lsm);
+                return rc;
         }
         default:
                 RETURN(-ENOSYS);
@@ -2097,8 +2183,10 @@ int ll_prep_inode(struct inode **inode,
 
                 *inode = ll_iget(sb, cl_fid_build_ino(&md.body->fid1, 0), &md);
                 if (*inode == NULL || IS_ERR(*inode)) {
-                        if (md.lsm)
+                        if (md.lsm) {
+                                lsm_decref(md.lsm);
                                 obd_free_memmd(sbi->ll_dt_exp, &md.lsm);
+                        }
 #ifdef CONFIG_FS_POSIX_ACL
                         if (md.posix_acl) {
                                 posix_acl_release(md.posix_acl);
@@ -2179,7 +2267,8 @@ int ll_process_config(struct lustre_cfg *lcfg)
                 return -EINVAL;
         sb = (void *)x;
         /* This better be a real Lustre superblock! */
-        LASSERT(s2lsi((struct super_block *)sb)->lsi_lmd->lmd_magic == LMD_MAGIC);
+        LASSERT(s2lsi((struct super_block *)sb)->lsi_lmd->lmd_magic ==
+                LMD_MAGIC);
 
         /* Note we have not called client_common_fill_super yet, so
            proc fns must be able to handle that! */

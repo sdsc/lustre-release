@@ -509,8 +509,10 @@ int osc_real_create(struct obd_export *exp, struct obdo *oa,
 out_req:
         ptlrpc_req_finished(req);
 out:
-        if (rc && !*ea)
+        if (rc && !*ea) {
+                lsm_decref(lsm);
                 obd_free_memmd(exp, &lsm);
+        }
         RETURN(rc);
 }
 

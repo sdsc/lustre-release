@@ -4118,6 +4118,7 @@ int filter_create(struct obd_export *exp, struct obdo *oa,
 
         pop_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
         if (rc && ea != NULL && *ea != lsm) {
+                lsm_decref(lsm);
                 obd_free_memmd(exp, &lsm);
         } else if (rc == 0 && ea != NULL) {
                 /* XXX LOV STACKING: the lsm that is passed to us from

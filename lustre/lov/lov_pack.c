@@ -318,6 +318,7 @@ int lov_alloc_memmd(struct lov_stripe_md **lsmp, __u16 stripe_count,
         }
 
         cfs_spin_lock_init(&(*lsmp)->lsm_lock);
+        cfs_atomic_set(&(*lsmp)->lsm_refcount, 1);
         (*lsmp)->lsm_magic = magic;
         (*lsmp)->lsm_stripe_count = stripe_count;
         (*lsmp)->lsm_maxbytes = LUSTRE_STRIPE_MAXBYTES * stripe_count;
@@ -337,6 +338,7 @@ void lov_free_memmd(struct lov_stripe_md **lsmp)
         struct lov_stripe_md *lsm = *lsmp;
 
         LASSERT(lsm_op_find(lsm->lsm_magic) != NULL);
+        LASSERT(cfs_atomic_read(&lsm->lsm_refcount) == 0);
         lsm_op_find(lsm->lsm_magic)->lsm_free(lsm);
 
         *lsmp = NULL;
@@ -350,10 +352,10 @@ int lov_unpackmd(struct obd_export *exp,  struct lov_stripe_md **lsmp,
                  struct lov_mds_md *lmm, int lmm_bytes)
 {
         struct obd_device *obd = class_exp2obd(exp);
-        struct lov_obd *lov = &obd->u.lov;
-        int rc = 0, lsm_size;
-        __u16 stripe_count;
-        __u32 magic;
+        struct lov_obd    *lov = &obd->u.lov;
+        int                rc = 0, lsm_size;
+        __u16              stripe_count;
+        __u32              magic;
         ENTRY;
 
         /* If passed an MDS struct use values from there, otherwise defaults */
@@ -391,6 +393,7 @@ int lov_unpackmd(struct obd_export *exp,  struct lov_stripe_md **lsmp,
         LASSERT(lsm_op_find(magic) != NULL);
         rc = lsm_op_find(magic)->lsm_unpackmd(lov, *lsmp, lmm);
         if (rc) {
+                lsm_decref(*lsmp);
                 lov_free_memmd(lsmp);
                 RETURN(rc);
         }
