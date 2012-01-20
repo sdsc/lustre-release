@@ -2096,7 +2096,8 @@ extern void lustre_swab_lmv_desc (struct lmv_desc *ld);
 /* TODO: lmv_stripe_md should contain mds capabilities for all slave fids */
 struct lmv_stripe_md {
         __u32         mea_magic;
-        __u32         mea_count;
+        __u16         mea_count;
+        __u16         mea_gen;
         __u32         mea_master;
         __u32         mea_padding;
         char          mea_pool_name[LOV_MAXPOOLNAME];

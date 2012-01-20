@@ -1066,6 +1066,7 @@ check_lmv_stripe_md(void)
         CHECK_STRUCT(lmv_stripe_md);
         CHECK_MEMBER(lmv_stripe_md, mea_magic);
         CHECK_MEMBER(lmv_stripe_md, mea_count);
+        CHECK_MEMBER(lmv_stripe_md, mea_gen);
         CHECK_MEMBER(lmv_stripe_md, mea_master);
         CHECK_MEMBER(lmv_stripe_md, mea_padding);
         CHECK_CVALUE(LOV_MAXPOOLNAME);

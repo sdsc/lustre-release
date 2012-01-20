@@ -2596,8 +2596,12 @@ void lustre_assert_wire_constants(void)
                  (long long)(int)sizeof(((struct lmv_stripe_md *)0)->mea_magic));
         LASSERTF((int)offsetof(struct lmv_stripe_md, mea_count) == 4, "found %lld\n",
                  (long long)(int)offsetof(struct lmv_stripe_md, mea_count));
-        LASSERTF((int)sizeof(((struct lmv_stripe_md *)0)->mea_count) == 4, "found %lld\n",
+        LASSERTF((int)sizeof(((struct lmv_stripe_md *)0)->mea_count) == 2, "found %lld\n",
                  (long long)(int)sizeof(((struct lmv_stripe_md *)0)->mea_count));
+        LASSERTF((int)offsetof(struct lmv_stripe_md, mea_gen) == 6, "found %lld\n",
+                 (long long)(int)offsetof(struct lmv_stripe_md, mea_gen));
+        LASSERTF((int)sizeof(((struct lmv_stripe_md *)0)->mea_gen) == 2, "found %lld\n",
+                 (long long)(int)sizeof(((struct lmv_stripe_md *)0)->mea_gen));
         LASSERTF((int)offsetof(struct lmv_stripe_md, mea_master) == 8, "found %lld\n",
                  (long long)(int)offsetof(struct lmv_stripe_md, mea_master));
         LASSERTF((int)sizeof(((struct lmv_stripe_md *)0)->mea_master) == 4, "found %lld\n",

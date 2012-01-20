@@ -1929,7 +1929,8 @@ void lustre_swab_lmv_desc (struct lmv_desc *ld)
 void lustre_swab_lmv_stripe_md (struct lmv_stripe_md *mea)
 {
         __swab32s(&mea->mea_magic);
-        __swab32s(&mea->mea_count);
+        __swab16s(&mea->mea_count);
+        __swab16s(&mea->mea_gen);
         __swab32s(&mea->mea_master);
         CLASSERT(offsetof(typeof(*mea), mea_padding) != 0);
 }

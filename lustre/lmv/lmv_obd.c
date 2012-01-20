@@ -2795,7 +2795,8 @@ int lmv_packmd(struct obd_export *exp, struct lov_mds_md **lmmp,
                 RETURN(-EINVAL);
 
         meap->mea_magic = cpu_to_le32(lsmp->mea_magic);
-        meap->mea_count = cpu_to_le32(lsmp->mea_count);
+        meap->mea_count = cpu_to_le16(lsmp->mea_count);
+        meap->mea_gen   = cpu_to_le16(lsmp->mea_gen);
         meap->mea_master = cpu_to_le32(lsmp->mea_master);
 
         for (i = 0; i < lmv->desc.ld_tgt_count; i++) {
@@ -2851,7 +2852,8 @@ int lmv_unpackmd(struct obd_export *exp, struct lov_stripe_md **lsmp,
         }
 
         (*tmea)->mea_magic = magic;
-        (*tmea)->mea_count = le32_to_cpu(mea->mea_count);
+        (*tmea)->mea_count = le16_to_cpu(mea->mea_count);
+        (*tmea)->mea_gen   = le16_to_cpu(mea->mea_gen);
         (*tmea)->mea_master = le32_to_cpu(mea->mea_master);
 
         for (i = 0; i < (*tmea)->mea_count; i++) {
