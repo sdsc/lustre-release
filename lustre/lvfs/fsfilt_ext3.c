@@ -852,7 +852,7 @@ static int fsfilt_ext3_statfs(struct super_block *sb, struct obd_statfs *osfs)
         int rc;
 
         memset(&sfs, 0, sizeof(sfs));
-        rc = ll_do_statfs(sb, &sfs);
+        rc = sb->s_op->statfs(sb->s_root, &sfs);
         statfs_pack(osfs, &sfs);
         return rc;
 }
