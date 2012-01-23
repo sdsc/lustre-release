@@ -558,47 +558,6 @@ LB_LINUX_TRY_COMPILE([
 
 # 2.6.18
 
-# LC_NR_PAGECACHE
-# 2.6.18 don't export nr_pagecahe
-AC_DEFUN([LC_NR_PAGECACHE],
-[AC_MSG_CHECKING([kernel export nr_pagecache])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/pagemap.h>
-],[
-        return atomic_read(&nr_pagecache);
-],[
-        AC_MSG_RESULT(yes)
-        AC_DEFINE(HAVE_NR_PAGECACHE, 1,
-                [is kernel export nr_pagecache])
-],[
-        AC_MSG_RESULT(no)
-])
-])
-
-#
-# LC_STATFS_DENTRY_PARAM
-# starting from 2.6.18 linux kernel uses dentry instead of super_block
-# for the first parameter of the super_operations->statfs() callback.
-#
-#
-AC_DEFUN([LC_STATFS_DENTRY_PARAM],
-[AC_MSG_CHECKING([if super_ops.statfs() first parameter is dentry])
-tmp_flags="$EXTRA_KCFLAGS"
-EXTRA_KCFLAGS="-Werror"
-LB_LINUX_TRY_COMPILE([
-        #include <linux/fs.h>
-],[
-        ((struct super_operations *)0)->statfs((struct dentry *)0, (struct kstatfs*)0);
-],[
-        AC_DEFINE(HAVE_STATFS_DENTRY_PARAM, 1,
-                  [super_ops.statfs() first parameter is dentry])
-        AC_MSG_RESULT([yes])
-],[
-        AC_MSG_RESULT([no])
-])
-EXTRA_KCFLAGS="$tmp_flags"
-])
-
 #
 # LC_VFS_KERN_MOUNT
 # starting from 2.6.18 kernel don't export do_kern_mount
@@ -1920,8 +1879,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_SECURITY_PLUG  # for SLES10 SP2
 
          # 2.6.18
-         LC_NR_PAGECACHE
-         LC_STATFS_DENTRY_PARAM
          LC_VFS_KERN_MOUNT
          LC_INVALIDATEPAGE_RETURN_INT
          LC_UMOUNTBEGIN_HAS_VFSMOUNT
