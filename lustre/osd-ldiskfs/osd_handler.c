@@ -1237,25 +1237,25 @@ static struct timespec *osd_inode_time(const struct lu_env *env,
 
 
 static void osd_inode_getattr(const struct lu_env *env,
-                              struct inode *inode, struct lu_attr *attr)
+			      struct inode *inode, struct lu_attr *attr)
 {
-        attr->la_valid      |= LA_ATIME | LA_MTIME | LA_CTIME | LA_MODE |
-                               LA_SIZE | LA_BLOCKS | LA_UID | LA_GID |
-                               LA_FLAGS | LA_NLINK | LA_RDEV | LA_BLKSIZE;
+	attr->la_valid      |= LA_ATIME | LA_MTIME | LA_CTIME | LA_MODE |
+			       LA_SIZE | LA_BLOCKS | LA_UID | LA_GID |
+			       LA_FLAGS | LA_NLINK | LA_RDEV | LA_BLKSIZE;
 
-        attr->la_atime      = LTIME_S(inode->i_atime);
-        attr->la_mtime      = LTIME_S(inode->i_mtime);
-        attr->la_ctime      = LTIME_S(inode->i_ctime);
-        attr->la_mode       = inode->i_mode;
-        attr->la_size       = i_size_read(inode);
-        attr->la_blocks     = inode->i_blocks;
-        attr->la_uid        = inode->i_uid;
-        attr->la_gid        = inode->i_gid;
-        attr->la_flags      = LDISKFS_I(inode)->i_flags;
-        attr->la_nlink      = inode->i_nlink;
-        attr->la_rdev       = inode->i_rdev;
-        attr->la_blksize    = ll_inode_blksize(inode);
-        attr->la_blkbits    = inode->i_blkbits;
+	attr->la_atime      = LTIME_S(inode->i_atime);
+	attr->la_mtime      = LTIME_S(inode->i_mtime);
+	attr->la_ctime      = LTIME_S(inode->i_ctime);
+	attr->la_mode       = inode->i_mode;
+	attr->la_size       = i_size_read(inode);
+	attr->la_blocks     = inode->i_blocks;
+	attr->la_uid        = inode->i_uid;
+	attr->la_gid        = inode->i_gid;
+	attr->la_flags      = LDISKFS_I(inode)->i_flags;
+	attr->la_nlink      = inode->i_nlink;
+	attr->la_rdev       = inode->i_rdev;
+	attr->la_blksize    = 1 << inode->i_blkbits;
+	attr->la_blkbits    = inode->i_blkbits;
 }
 
 static int osd_attr_get(const struct lu_env *env,

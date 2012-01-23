@@ -729,30 +729,30 @@ static int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
         RETURN(rc);
 }
 
-/**
-  * Performs the getattr on the inode and updates its fields.
-  * If @sync != 0, perform the getattr under the server-side lock.
-  */
+/*
+ * Performs the getattr on the inode and updates its fields.
+ * If @sync != 0, perform the getattr under the server-side lock.
+ */
 int ll_inode_getattr(struct inode *inode, struct obdo *obdo,
-                     __u64 ioepoch, int sync)
+		     __u64 ioepoch, int sync)
 {
-        struct ll_inode_info *lli  = ll_i2info(inode);
-        struct obd_capa      *capa = ll_mdscapa_get(inode);
-        int rc;
-        ENTRY;
+	struct ll_inode_info *lli  = ll_i2info(inode);
+	struct obd_capa      *capa = ll_mdscapa_get(inode);
+	int rc;
+	ENTRY;
 
-        rc = ll_lsm_getattr(lli->lli_smd, ll_i2dtexp(inode),
-                            capa, obdo, ioepoch, sync);
-        capa_put(capa);
-        if (rc == 0) {
-                obdo_refresh_inode(inode, obdo, obdo->o_valid);
-                CDEBUG(D_INODE,
-                       "objid "LPX64" size %llu, blocks %llu, blksize %lu\n",
-                       lli->lli_smd->lsm_object_id, i_size_read(inode),
-                       (unsigned long long)inode->i_blocks,
-                       (unsigned long)ll_inode_blksize(inode));
-        }
-        RETURN(rc);
+	rc = ll_lsm_getattr(lli->lli_smd, ll_i2dtexp(inode),
+			    capa, obdo, ioepoch, sync);
+	capa_put(capa);
+	if (rc == 0) {
+		obdo_refresh_inode(inode, obdo, obdo->o_valid);
+		CDEBUG(D_INODE,
+		       "objid "LPX64" size %llu, blocks %llu, blksize %lu\n",
+		       lli->lli_smd->lsm_object_id, i_size_read(inode),
+		       (unsigned long long)inode->i_blocks,
+		       (unsigned long)(1 << inode->i_blkbits));
+	}
+	RETURN(rc);
 }
 
 int ll_merge_lvb(struct inode *inode)
@@ -2412,43 +2412,39 @@ int ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
 }
 
 int ll_getattr_it(struct vfsmount *mnt, struct dentry *de,
-                  struct lookup_intent *it, struct kstat *stat)
+		  struct lookup_intent *it, struct kstat *stat)
 {
-        struct inode *inode = de->d_inode;
-        struct ll_sb_info *sbi = ll_i2sbi(inode);
-        struct ll_inode_info *lli = ll_i2info(inode);
-        int res = 0;
+	struct inode *inode = de->d_inode;
+	struct ll_sb_info *sbi = ll_i2sbi(inode);
+	struct ll_inode_info *lli = ll_i2info(inode);
+	int res = 0;
 
-        res = ll_inode_revalidate_it(de, it, MDS_INODELOCK_UPDATE |
-                                             MDS_INODELOCK_LOOKUP);
-        ll_stats_ops_tally(sbi, LPROC_LL_GETATTR, 1);
+	res = ll_inode_revalidate_it(de, it, MDS_INODELOCK_UPDATE |
+					     MDS_INODELOCK_LOOKUP);
+	ll_stats_ops_tally(sbi, LPROC_LL_GETATTR, 1);
 
-        if (res)
-                return res;
+	if (res)
+		return res;
 
-        stat->dev = inode->i_sb->s_dev;
-        if (ll_need_32bit_api(sbi))
-                stat->ino = cl_fid_build_ino(&lli->lli_fid, 1);
-        else
-                stat->ino = inode->i_ino;
-        stat->mode = inode->i_mode;
-        stat->nlink = inode->i_nlink;
-        stat->uid = inode->i_uid;
-        stat->gid = inode->i_gid;
-        stat->rdev = kdev_t_to_nr(inode->i_rdev);
-        stat->atime = inode->i_atime;
-        stat->mtime = inode->i_mtime;
-        stat->ctime = inode->i_ctime;
-#ifdef HAVE_INODE_BLKSIZE
-        stat->blksize = inode->i_blksize;
-#else
-        stat->blksize = 1 << inode->i_blkbits;
-#endif
+	stat->dev = inode->i_sb->s_dev;
+	if (ll_need_32bit_api(sbi))
+		stat->ino = cl_fid_build_ino(&lli->lli_fid, 1);
+	else
+		stat->ino = inode->i_ino;
+	stat->mode = inode->i_mode;
+	stat->nlink = inode->i_nlink;
+	stat->uid = inode->i_uid;
+	stat->gid = inode->i_gid;
+	stat->rdev = kdev_t_to_nr(inode->i_rdev);
+	stat->atime = inode->i_atime;
+	stat->mtime = inode->i_mtime;
+	stat->ctime = inode->i_ctime;
+	stat->blksize = 1 << inode->i_blkbits;
 
-        stat->size = i_size_read(inode);
-        stat->blocks = inode->i_blocks;
+	stat->size = i_size_read(inode);
+	stat->blocks = inode->i_blocks;
 
-        return 0;
+	return 0;
 }
 int ll_getattr(struct vfsmount *mnt, struct dentry *de, struct kstat *stat)
 {
