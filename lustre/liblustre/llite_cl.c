@@ -444,12 +444,6 @@ static int slp_io_rw_lock(const struct lu_env *env,
 
 }
 
-static int slp_io_setattr_iter_init(const struct lu_env *env,
-                                    const struct cl_io_slice *ios)
-{
-        return 0;
-}
-
 static int slp_io_setattr_start(const struct lu_env *env,
                                 const struct cl_io_slice *ios)
 {
@@ -717,21 +711,26 @@ static const struct cl_io_operations ccc_io_ops = {
         .op = {
                 [CIT_READ] = {
                         .cio_fini      = ccc_io_fini,
+                        .cio_iter_init = ccc_io_iter_init,
                         .cio_lock      = slp_io_rw_lock,
+                        .cio_post_lock = ccc_io_post_lock,
                         .cio_start     = slp_io_start,
                         .cio_end       = ccc_io_end,
                         .cio_advance   = ccc_io_advance
                 },
                 [CIT_WRITE] = {
                         .cio_fini      = ccc_io_fini,
+                        .cio_iter_init = ccc_io_iter_init,
                         .cio_lock      = slp_io_rw_lock,
+                        .cio_post_lock = ccc_io_post_lock,
                         .cio_start     = slp_io_start,
                         .cio_end       = ccc_io_end,
                         .cio_advance   = ccc_io_advance
                 },
                 [CIT_SETATTR] = {
                         .cio_fini       = ccc_io_fini,
-                        .cio_iter_init  = slp_io_setattr_iter_init,
+                        .cio_iter_init  = ccc_io_iter_init,
+                        .cio_post_lock  = ccc_io_post_lock,
                         .cio_start      = slp_io_setattr_start
                 },
                 [CIT_MISC] = {

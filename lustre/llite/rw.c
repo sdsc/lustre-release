@@ -173,8 +173,11 @@ static struct ll_cl_context *ll_cl_init(struct file *file,
                         result = cl_io_iter_init(env, io);
                         if (result == 0) {
                                 result = cl_io_lock(env, io);
-                                if (result == 0)
-                                        result = cl_io_start(env, io);
+                                if (result == 0) {
+                                        cl_io_post_lock(env, io);
+                                        if (result == 0)
+                                                result = cl_io_start(env, io);
+                                }
                         }
                 } else
                         result = io->ci_result;
@@ -1150,7 +1153,7 @@ int ll_writepage(struct page *vmpage, struct writeback_control *wbc)
 
         io = ccc_env_thread_io(env);
         io->ci_obj = clob;
-        result = cl_io_init(env, io, CIT_MISC, clob);
+        result = cl_io_init(env, io, CIT_MISC, clob, 0);
         if (result == 0) {
                 page = cl_page_find(env, clob, vmpage->index,
                                     vmpage, CPT_CACHEABLE);

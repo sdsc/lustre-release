@@ -226,7 +226,7 @@ int cl_glimpse_size0(struct inode *inode, int agl)
 
         result = cl_io_get(inode, &env, &io, &refcheck);
         if (result > 0) {
-                result = cl_io_init(env, io, CIT_MISC, io->ci_obj);
+                result = cl_io_init(env, io, CIT_MISC, io->ci_obj, 1);
                 if (result > 0)
                         /*
                          * nothing to do for this io. This currently happens
@@ -259,7 +259,7 @@ int cl_local_size(struct inode *inode)
                 RETURN(result);
 
         clob = io->ci_obj;
-        result = cl_io_init(env, io, CIT_MISC, clob);
+        result = cl_io_init(env, io, CIT_MISC, clob, 1);
         if (result > 0)
                 result = io->ci_result;
         else if (result == 0) {

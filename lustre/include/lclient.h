@@ -333,6 +333,8 @@ void ccc_lock_state(const struct lu_env *env,
 int ccc_io_init(const struct lu_env *env, struct cl_object *obj,
                 struct cl_io *io);
 void ccc_io_fini(const struct lu_env *env, const struct cl_io_slice *ios);
+int ccc_io_iter_init(const struct lu_env *env, const struct cl_io_slice *ios);
+void ccc_io_post_lock(const struct lu_env *env, const struct cl_io_slice *ios);
 int ccc_io_one_lock_index(const struct lu_env *env, struct cl_io *io,
                           __u32 enqflags, enum cl_lock_mode mode,
                           pgoff_t start, pgoff_t end);
@@ -413,4 +415,5 @@ void cl_layout_lock_put(struct inode *inode);
 
 struct lov_stripe_md *lsm_get(struct inode *inode);
 void lsm_put(struct inode *inode, struct lov_stripe_md **lsmp);
+
 #endif /*LCLIENT_H */

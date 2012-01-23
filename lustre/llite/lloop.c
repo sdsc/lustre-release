@@ -208,7 +208,6 @@ static int do_bio_lustrebacked(struct lloop_device *lo, struct bio *head)
         struct bio_vec       *bvec;
         struct bio           *bio;
         ssize_t               bytes;
-
         struct ll_dio_pages  *pvec = &lo->lo_pvec;
         struct page         **pages = pvec->ldp_pages;
         loff_t               *offsets = pvec->ldp_offsets;
@@ -218,9 +217,10 @@ static int do_bio_lustrebacked(struct lloop_device *lo, struct bio *head)
         /* initialize the IO */
         memset(io, 0, sizeof(*io));
         io->ci_obj = obj;
-        ret = cl_io_init(env, io, CIT_MISC, obj);
+        ret = cl_io_init(env, io, CIT_MISC, obj, 1);
         if (ret)
                 return io->ci_result;
+
         io->ci_lockreq = CILR_NEVER;
 
         LASSERT(head != NULL);

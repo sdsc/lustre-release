@@ -82,7 +82,7 @@ static int vvp_io_fault_iter_init(const struct lu_env *env,
         LASSERT(inode ==
                 cl2ccc_io(env, ios)->cui_fd->fd_file->f_dentry->d_inode);
         vio->u.fault.ft_mtime = LTIME_S(inode->i_mtime);
-        return 0;
+        return ccc_io_iter_init(env, ios);
 }
 
 static void vvp_io_fini(const struct lu_env *env, const struct cl_io_slice *ios)
@@ -286,9 +286,14 @@ static int vvp_io_setattr_iter_init(const struct lu_env *env,
          * nodes.
          */
         UNLOCK_INODE_MUTEX(inode);
-        if (cl_io_is_trunc(ios->cis_io))
-                UP_WRITE_I_ALLOC_SEM(inode);
         cio->u.setattr.cui_locks_released = 1;
+        if (cl_io_is_trunc(ios->cis_io)) {
+                int rc;
+                rc = ccc_io_iter_init(env, ios);
+                if (rc)
+                        return rc;
+                UP_WRITE_I_ALLOC_SEM(inode);
+        }
         return 0;
 }
 
@@ -1072,13 +1077,17 @@ static const struct cl_io_operations vvp_io_ops = {
         .op = {
                 [CIT_READ] = {
                         .cio_fini      = vvp_io_fini,
+                        .cio_iter_init = ccc_io_iter_init,
                         .cio_lock      = vvp_io_read_lock,
+                        .cio_post_lock = ccc_io_post_lock,
                         .cio_start     = vvp_io_read_start,
                         .cio_advance   = ccc_io_advance
                 },
                 [CIT_WRITE] = {
                         .cio_fini      = vvp_io_fini,
+                        .cio_iter_init = ccc_io_iter_init,
                         .cio_lock      = vvp_io_write_lock,
+                        .cio_post_lock = ccc_io_post_lock,
                         .cio_start     = vvp_io_write_start,
                         .cio_advance   = ccc_io_advance
                 },
@@ -1086,6 +1095,7 @@ static const struct cl_io_operations vvp_io_ops = {
                         .cio_fini       = vvp_io_setattr_fini,
                         .cio_iter_init  = vvp_io_setattr_iter_init,
                         .cio_lock       = vvp_io_setattr_lock,
+                        .cio_post_lock  = ccc_io_post_lock,
                         .cio_start      = vvp_io_setattr_start,
                         .cio_end        = vvp_io_setattr_end
                 },
@@ -1093,11 +1103,12 @@ static const struct cl_io_operations vvp_io_ops = {
                         .cio_fini      = vvp_io_fault_fini,
                         .cio_iter_init = vvp_io_fault_iter_init,
                         .cio_lock      = vvp_io_fault_lock,
+                        .cio_post_lock = ccc_io_post_lock,
                         .cio_start     = vvp_io_fault_start,
                         .cio_end       = ccc_io_end
                 },
                 [CIT_MISC] = {
-                        .cio_fini   = vvp_io_fini
+                        .cio_fini      = vvp_io_fini,
                 }
         },
         .cio_read_page     = vvp_io_read_page,

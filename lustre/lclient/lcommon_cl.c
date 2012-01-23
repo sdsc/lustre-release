@@ -809,8 +809,13 @@ int ccc_io_init(const struct lu_env *env, struct cl_object *obj,
         struct inode *inode = ccc_object_inode(io->ci_obj);
         ENTRY;
 
-        LASSERT(io->ci_lsm == NULL);
+        LASSERT(io->ci_lsm == NULL && !io->ci_layout_lock_hold);
 
+        if (io->ci_type == CIT_READ || io->ci_type == CIT_WRITE ||
+            io->ci_type == CIT_FAULT || cl_io_is_trunc(io)) {
+                cl_layout_lock_get(inode);
+                io->ci_layout_lock_hold = 1;
+        }
         /* get lsm reference which is released in ccc_io_fini() */
         io->ci_lsm = lsm_get(inode);
 
@@ -824,7 +829,63 @@ void ccc_io_fini(const struct lu_env *env, const struct cl_io_slice *ios)
 
         CLOBINVRNT(env, io->ci_obj, ccc_object_invariant(io->ci_obj));
 
+        /* drop layout lock and lsm reference */
+        if (io->ci_layout_lock_hold) {
+                cl_layout_lock_put(inode);
+                io->ci_layout_lock_hold = 0;
+        }
+        if (io->ci_lsm) {
+                lsm_put(inode, &io->ci_lsm);
+                io->ci_lsm = NULL;
+        }
+}
+
+int ccc_io_iter_init(const struct lu_env *env, const struct cl_io_slice *ios)
+{
+        struct cl_io *io    = ios->cis_io;
+        struct inode *inode = ccc_object_inode(io->ci_obj);
+        int           layout_gen = -1;
+
+        if (io->ci_type != CIT_READ && io->ci_type != CIT_WRITE &&
+            io->ci_type != CIT_FAULT && !cl_io_is_trunc(io))
+                return 0;
+
+        if (io->ci_layout_lock_hold)
+                /* we already have the layout lock. This happens for the first
+                 * iteration after cl_io_init() */
+                return 0;
+
+        /* at this point, we must have a lsm reference */
+        LASSERT(ergo(io->ci_type != CIT_READ, io->ci_lsm));
+
+        /* save the generation to check if the layout has changed */
+        if (io->ci_lsm)
+                layout_gen = io->ci_lsm->lsm_layout_gen;
         lsm_put(inode, &io->ci_lsm);
+
+        /* refetch the layout */
+        cl_layout_lock_get(inode);
+        io->ci_layout_lock_hold = 1;
+        io->ci_lsm = lsm_get(inode);
+
+        if (io->ci_lsm && layout_gen != io->ci_lsm->lsm_layout_gen)
+                /* ouf, the layout has changed in the middle of the io */
+                return -EINTR;
+        return 0;
+}
+
+void ccc_io_post_lock(const struct lu_env *env, const struct cl_io_slice *ios)
+{
+        struct cl_io *io = ios->cis_io;
+
+        /* drop layout lock now that we acquire extent lock since any change to
+         * the lsm requires to revoke all extent locks, so we are safe */
+        if (io->ci_layout_lock_hold) {
+                struct inode *inode = ccc_object_inode(io->ci_obj);
+
+                cl_layout_lock_put(inode);
+                io->ci_layout_lock_hold = 0;
+        }
 }
 
 int ccc_io_one_lock_index(const struct lu_env *env, struct cl_io *io,
@@ -1141,7 +1202,7 @@ int cl_setattr_ost(struct inode *inode, const struct iattr *attr,
         io->u.ci_setattr.sa_valid = attr->ia_valid;
         io->u.ci_setattr.sa_capa = capa;
 
-        if (cl_io_init(env, io, CIT_SETATTR, io->ci_obj) == 0)
+        if (cl_io_init(env, io, CIT_SETATTR, io->ci_obj, 1) == 0)
                 result = cl_io_loop(env, io);
         else
                 result = io->ci_result;

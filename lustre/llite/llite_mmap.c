@@ -164,7 +164,7 @@ struct cl_io *ll_fault_io_init(struct vm_area_struct *vma,
         CDEBUG(D_MMAP, "vm_flags: %lx (%lu %d)\n", vma->vm_flags,
                fio->ft_index, fio->ft_executable);
 
-        if (cl_io_init(env, io, CIT_FAULT, io->ci_obj) == 0) {
+        if (cl_io_init(env, io, CIT_FAULT, io->ci_obj, 1) == 0) {
                 struct ccc_io *cio = ccc_env_io(env);
                 struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
 
@@ -532,7 +532,10 @@ static void ll_vm_close(struct vm_area_struct *vma)
 
 #ifndef HAVE_VM_OP_FAULT
 #ifndef HAVE_FILEMAP_POPULATE
-static int (*filemap_populate)(struct vm_area_struct * area, unsigned long address, unsigned long len, pgprot_t prot, unsigned long pgoff, int nonblock);
+static int (*filemap_populate)(struct vm_area_struct * area,
+                               unsigned long address, unsigned long len,
+                               pgprot_t prot, unsigned long pgoff,
+                               int nonblock);
 #endif
 static int ll_populate(struct vm_area_struct *area, unsigned long address,
                        unsigned long len, pgprot_t prot, unsigned long pgoff,

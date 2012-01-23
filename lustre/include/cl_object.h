@@ -2020,6 +2020,15 @@ struct cl_io_operations {
                 int  (*cio_lock) (const struct lu_env *env,
                                   const struct cl_io_slice *slice);
                 /**
+                 *  Lock post-processings
+                 *
+                 * Called top-to-bottom for post lock acquisition event, called
+                 * after all lock are acquired by cl_io_operations::cio_lock().
+                 * One use is to release layout lock.
+                 */
+                void (*cio_post_lock)(const struct lu_env *env,
+                                      const struct cl_io_slice *slice);
+                /**
                  * Finalize unlocking.
                  *
                  * Called bottom-to-top to finish layer specific unlocking
@@ -2277,7 +2286,11 @@ struct cl_io {
          * This io has held grouplock, to inform sublayers that
          * don't do lockless i/o.
          */
-        int                            ci_no_srvlock;
+        __u8                           ci_no_srvlock:1,
+        /** reference on the lsm is required */
+                                       ci_lsm_needed:1,
+        /** reference on the layout lock is hold */
+                                       ci_layout_lock_hold:1;
         union {
                 struct cl_rd_io {
                         struct cl_io_rw_common rd;
@@ -2918,7 +2931,8 @@ unsigned long cl_lock_weigh(const struct lu_env *env, struct cl_lock *lock);
  * @{ */
 
 int   cl_io_init         (const struct lu_env *env, struct cl_io *io,
-                          enum cl_io_type iot, struct cl_object *obj);
+                          enum cl_io_type iot, struct cl_object *obj,
+                          int lsm_needed);
 int   cl_io_sub_init     (const struct lu_env *env, struct cl_io *io,
                           enum cl_io_type iot, struct cl_object *obj);
 int   cl_io_rw_init      (const struct lu_env *env, struct cl_io *io,
@@ -2929,6 +2943,7 @@ void  cl_io_fini         (const struct lu_env *env, struct cl_io *io);
 int   cl_io_iter_init    (const struct lu_env *env, struct cl_io *io);
 void  cl_io_iter_fini    (const struct lu_env *env, struct cl_io *io);
 int   cl_io_lock         (const struct lu_env *env, struct cl_io *io);
+void  cl_io_post_lock    (const struct lu_env *env, struct cl_io *io);
 void  cl_io_unlock       (const struct lu_env *env, struct cl_io *io);
 int   cl_io_start        (const struct lu_env *env, struct cl_io *io);
 void  cl_io_end          (const struct lu_env *env, struct cl_io *io);
