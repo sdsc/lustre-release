@@ -753,7 +753,7 @@ int ll_inode_getattr(struct inode *inode, struct obdo *obdo,
                        "objid "LPX64" size %llu, blocks %llu, blksize %lu\n",
                        lli->lli_smd->lsm_object_id, i_size_read(inode),
                        (unsigned long long)inode->i_blocks,
-                       (unsigned long)ll_inode_blksize(inode));
+                       (unsigned long)(1 << inode->i_blkbits));
         }
         RETURN(rc);
 }
@@ -2378,11 +2378,7 @@ int ll_getattr_it(struct vfsmount *mnt, struct dentry *de,
         stat->atime = inode->i_atime;
         stat->mtime = inode->i_mtime;
         stat->ctime = inode->i_ctime;
-#ifdef HAVE_INODE_BLKSIZE
-        stat->blksize = inode->i_blksize;
-#else
         stat->blksize = 1 << inode->i_blkbits;
-#endif
 
         stat->size = i_size_read(inode);
         stat->blocks = inode->i_blocks;
