@@ -1233,7 +1233,7 @@ static struct timespec *osd_inode_time(const struct lu_env *env,
 
         t->tv_sec  = seconds;
         t->tv_nsec = 0;
-        *t = timespec_trunc(*t, get_sb_time_gran(inode->i_sb));
+        *t = timespec_trunc(*t, inode->i_sb->s_time_gran);
         return t;
 }
 
