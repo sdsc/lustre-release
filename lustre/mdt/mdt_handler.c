@@ -3339,21 +3339,17 @@ static int mdt_intent_getattr(enum mdt_it_code opcode,
         repbody->eadatasize = 0;
         repbody->aclsize = 0;
 
+        /* layout lock is requested implicitly */
         switch (opcode) {
         case MDT_IT_LOOKUP:
-                child_bits = MDS_INODELOCK_LOOKUP;
+                child_bits = MDS_INODELOCK_LOOKUP | MDS_INODELOCK_LAYOUT;
                 break;
         case MDT_IT_GETATTR:
-                child_bits = MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE;
+                child_bits = MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE | \
+                             MDS_INODELOCK_LAYOUT;
                 break;
         case MDT_IT_LAYOUT: {
-                static int printed = 0;
-
-                if (!printed) {
-                        CERROR("layout lock not supported by this version\n");
-                        printed = 1;
-                }
-                GOTO(out_shrink, rc = -EINVAL);
+                child_bits = MDS_INODELOCK_LAYOUT;
                 break;
         }
         default:
@@ -4511,6 +4507,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         m->mdt_max_mdsize = MAX_MD_SIZE;
         m->mdt_max_cookiesize = sizeof(struct llog_cookie);
         m->mdt_som_conf = 0;
+        m->mdt_layout_lock_conf = 1;
 
         m->mdt_opts.mo_cos = MDT_COS_DEFAULT;
         lmi = server_get_mount_2(dev);
@@ -4937,6 +4934,9 @@ static int mdt_connect_internal(struct obd_export *exp,
                 if (!mdt->mdt_som_conf)
                         data->ocd_connect_flags &= ~OBD_CONNECT_SOM;
 
+                if (!mdt->mdt_layout_lock_conf)
+                        data->ocd_connect_flags &= ~OBD_CONNECT_LAYOUTLOCK;
+
                 if (data->ocd_connect_flags & OBD_CONNECT_BRW_SIZE) {
                         data->ocd_brw_size = min(data->ocd_brw_size,
                                (__u32)(PTLRPC_MAX_BRW_PAGES << CFS_PAGE_SHIFT));
@@ -4949,7 +4949,8 @@ static int mdt_connect_internal(struct obd_export *exp,
                                        " client\n",
                                        exp->exp_obd->obd_name,
                                        exp->exp_client_uuid.uuid,
-                                       exp, data->ocd_connect_flags, data->ocd_version,
+                                       exp, data->ocd_connect_flags,
+                                       data->ocd_version,
                                        data->ocd_grant, data->ocd_index);
                                 return -EPROTO;
                         }

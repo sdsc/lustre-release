@@ -131,6 +131,7 @@ static inline void loi_init(struct lov_oinfo *loi)
 struct lov_stripe_md {
         cfs_spinlock_t   lsm_lock;
         pid_t            lsm_lock_owner; /* debugging */
+        cfs_atomic_t     lsm_refcount;
 
         /* maximum possible file size, might change as OSTs status changes,
          * e.g. disconnected, deactivated */
@@ -160,6 +161,81 @@ struct lov_stripe_md {
 #define lsm_pattern      lsm_wire.lw_pattern
 #define lsm_stripe_count lsm_wire.lw_stripe_count
 #define lsm_pool_name    lsm_wire.lw_pool_name
+
+static inline struct lov_stripe_md *lsm_addref(struct lov_stripe_md *lsm)
+{
+        if (lsm)
+                cfs_atomic_inc(&lsm->lsm_refcount);
+        return lsm;
+}
+
+static inline int lsm_decref(struct lov_stripe_md *lsm)
+{
+        if (!lsm)
+                return 0;
+        LASSERT(cfs_atomic_read(&lsm->lsm_refcount) > 0);
+        return cfs_atomic_dec_and_test(&lsm->lsm_refcount);
+}
+
+/**
+ * Represent a layout lock
+ * Callers should use layout_lock_{init,set,put}() instead of calling this.
+ */
+struct layout_lock {
+        cfs_semaphore_t      ll_lh_sem;      /* protect lock handle */
+        struct lustre_handle ll_lh;          /* lock handle */
+        ldlm_mode_t          ll_lmode;       /* lock mode */
+        cfs_atomic_t         ll_lrefcount;   /* ref counter on lock handle */
+};
+
+/**
+ * Helper to initialize layout lock with the lock handle and mode.
+ * must be called with ll_lh_sem held
+ *
+ * \param struct layout_lock *ll layout lock [OUT]
+ * \param __u64 cookie lock cookie [IN]
+ * \param ldlm_mode_t mode lock mode [IN]
+ * \param int count lock ref count [IN]
+ * \retval no return value
+ */
+static inline void layout_lock_set_locked(struct layout_lock *ll,
+                                          const __u64 cookie,
+                                          const ldlm_mode_t mode,
+                                          const int count)
+{
+        ll->ll_lh.cookie = cookie;
+        ll->ll_lmode = mode;
+        cfs_atomic_set(&ll->ll_lrefcount, count);
+}
+
+/**
+ * Helper to initialize an empty layout lock
+ *
+ * \param struct layout_lock *ll layout lock to initialize
+ * \retval no return value
+ */
+static inline void layout_lock_init(struct layout_lock *ll)
+{
+        cfs_sema_init(&ll->ll_lh_sem, 1);
+        layout_lock_set_locked(ll, 0ull, 0, 0);
+}
+
+/**
+ * Helper to initialize layout lock with the lock handle and mode.
+ *
+ * \param struct layout_lock *ll layout lock [IN/OUT]
+ * \param __u64 cookie lock cookie [IN]
+ * \param ldlm_mode_t mode lock mode [IN]
+ * \retval no return value
+ */
+static inline void layout_lock_set(struct layout_lock *ll, const __u64 cookie,
+                                   const ldlm_mode_t mode)
+{
+        cfs_mutex_down(&ll->ll_lh_sem);
+        layout_lock_set_locked(ll, cookie, mode, 1);
+        cfs_mutex_up(&ll->ll_lh_sem);
+}
+
 
 struct obd_info;
 

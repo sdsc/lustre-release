@@ -52,6 +52,45 @@
 #include <lustre_mds.h>
 #include "mdt_internal.h"
 
+/**
+ * take a layout lock on a mdt_object
+ * \param info
+ * \param obj mdt_object
+ * \param ll mdt_lock_handle
+ * \retval 0 success
+ * \retval -ve failure
+ */
+int mdt_layout_lock(struct mdt_thread_info *info, struct mdt_object *obj,
+                    struct mdt_lock_handle *ll)
+{
+        int rc;
+        ENTRY;
+
+        mdt_lock_handle_init(ll);
+        mdt_lock_reg_init(ll, LCK_EX);
+        rc = mdt_object_lock(info, obj, ll, MDS_INODELOCK_LAYOUT,
+                             MDT_CROSS_LOCK);
+        RETURN(rc);
+}
+
+
+/**
+ * give back a layout lock on a mdt_object
+ * \param info
+ * \param obj mdt_object
+ * \param ll mdt_lock_handle
+ */
+void mdt_layout_unlock(struct mdt_thread_info *info, struct mdt_object *obj,
+                       struct mdt_lock_handle *ll)
+{
+        ENTRY;
+
+        mdt_object_unlock(info, obj, ll, 1);
+
+        EXIT;
+        return;
+}
+
 /* we do nothing because we do not have refcount now */
 static void mdt_mfd_get(void *mfdp)
 {
@@ -1203,6 +1242,8 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         int                      result, rc;
         int                      created = 0;
         __u32                    msg_flags;
+        struct mdt_lock_handle   ll;
+        int                      layout_lock_taken = 0;
         ENTRY;
 
         OBD_FAIL_TIMEOUT_ORSET(OBD_FAIL_MDS_PAUSE_OPEN, OBD_FAIL_ONCE,
@@ -1404,7 +1445,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                                         LBUG();
                                 }
                                 LASSERT(fid_res_name_eq(mdt_object_fid(child),
-                                                        &lock->l_resource->lr_name));
+                                                   &lock->l_resource->lr_name));
                                 LDLM_LOCK_PUT(lock);
                                 rc = 0;
                         } else {
@@ -1412,7 +1453,8 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                                 mdt_lock_reg_init(lhc, LCK_PR);
 
                                 rc = mdt_object_lock(info, child, lhc,
-                                                     MDS_INODELOCK_LOOKUP,
+                                                     MDS_INODELOCK_LOOKUP |
+                                                     MDS_INODELOCK_LAYOUT,
                                                      MDT_CROSS_LOCK);
                         }
                         repbody->fid1 = *mdt_object_fid(child);
@@ -1438,7 +1480,8 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                 mdt_lock_handle_init(lhc);
                 mdt_lock_reg_init(lhc, lm);
                 rc = mdt_object_lock(info, child, lhc,
-                                     MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN,
+                                     MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN |
+                                     MDS_INODELOCK_LAYOUT,
                                      MDT_CROSS_LOCK);
                 if (rc) {
                         result = rc;
@@ -1446,6 +1489,61 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                 } else {
                         result = -EREMOTE;
                         mdt_set_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
+                }
+        }
+
+        if ((create_flags & MDS_OPEN_HAS_EA) &&
+            (ma->ma_valid & MA_LOV) &&
+            (info->mti_spec.u.sp_ea.eadatalen != 0)) {
+                /* restripe request */
+
+                /* restripe allowed only if layout lock is on */
+                if (mdt->mdt_layout_lock_conf == 0)
+                        GOTO(out_child, result = -EEXIST);
+
+                if ((ma->ma_valid & MA_HSM) &&
+                    (ma->ma_hsm.mh_flags & HS_RELEASED)) {
+                        /* restripe of released file is forbidden */
+                        result = -EBUSY;
+                        GOTO(out_child,  result);
+                }
+
+                rc = mdo_lum_lmm_cmp(info->mti_env, mdt_object_child(child),
+                                      &info->mti_spec, &info->mti_attr);
+                if (rc < 0)
+                        GOTO(out_child, result = rc);
+
+                switch (rc) {
+                case 0:
+                        /* new stripe request is same as actual */
+                        /* if resent, it is a false forbidden restripe */
+                        if (msg_flags & MSG_RESENT)
+                                break;
+                        result = -EEXIST;
+                        GOTO(out_child, result);
+                default:
+                        /* restripe request is different from actual,
+                         * so we accept it */
+                        rc = mdt_layout_lock(info, child, &ll);
+                        if (rc)
+                                GOTO(out_child, result = rc);
+                        layout_lock_taken = 1;
+                        /*
+                         * object destruction is implemented in hsm release
+                         * patch
+                        rc = mo_release(info->mti_env,
+                                        mdt_object_child(child),
+                                        &info->mti_attr, 1);
+                        */
+                        rc = 0;
+                        if (rc)
+                                GOTO(out_child, result = rc);
+
+                        ma->ma_valid &= ~MA_LOV;
+                        child->mot_flags &= ~MOF_LOV_CREATED;
+                        create_flags |= MDS_OPEN_NEWSTRIPE;
+                        info->mti_spec.sp_cr_flags = create_flags;
+                        break;
                 }
         }
 
@@ -1474,6 +1572,9 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         }
         EXIT;
 out_child:
+        if (layout_lock_taken == 1)
+                mdt_layout_unlock(info, child, &ll);
+
         mdt_object_put(info->mti_env, child);
 out_parent:
         mdt_object_unlock_put(info, parent, lh, result || !created);
