@@ -131,6 +131,7 @@ static inline void loi_init(struct lov_oinfo *loi)
 struct lov_stripe_md {
         cfs_spinlock_t   lsm_lock;
         pid_t            lsm_lock_owner; /* debugging */
+        cfs_atomic_t     lsm_refcount;
 
         /* maximum possible file size, might change as OSTs status changes,
          * e.g. disconnected, deactivated */
@@ -160,21 +161,6 @@ struct lov_stripe_md {
 #define lsm_pattern      lsm_wire.lw_pattern
 #define lsm_stripe_count lsm_wire.lw_stripe_count
 #define lsm_pool_name    lsm_wire.lw_pool_name
-
-static inline struct lov_stripe_md *lsm_addref(struct lov_stripe_md *lsm)
-{
-        if (lsm)
-                cfs_atomic_inc(&lsm->lsm_refcount);
-        return lsm;
-}
-
-static inline int lsm_decref(struct lov_stripe_md *lsm)
-{
-        if (!lsm)
-                return 0;
-        LASSERT(cfs_atomic_read(&lsm->lsm_refcount) > 0);
-        return cfs_atomic_dec_and_test(&lsm->lsm_refcount);
-}
 
 /**
  * Represent a layout lock
@@ -235,8 +221,6 @@ static inline void layout_lock_set(struct layout_lock *ll, const __u64 cookie,
         cfs_mutex_up(&ll->ll_lh_sem);
 }
 
-
->>>>>>> f74f71a... lsm ref counting: add lsm_{add/dec}ref
 struct obd_info;
 
 typedef int (*obd_enqueue_update_f)(void *cookie, int rc);
