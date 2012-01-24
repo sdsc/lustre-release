@@ -408,6 +408,9 @@ int  cl_get_grouplock(struct cl_object *obj, unsigned long gid, int nonblock,
                       struct ccc_grouplock *cg);
 void cl_put_grouplock(struct ccc_grouplock *cg);
 
+int cl_layout_lock_get(struct inode *inode);
+void cl_layout_lock_put(struct inode *inode);
+
 struct lov_stripe_md *lsm_get(struct inode *inode);
 void lsm_put(struct inode *inode, struct lov_stripe_md **lsmp);
 #endif /*LCLIENT_H */

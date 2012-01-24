@@ -823,7 +823,8 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
                             !(exp->exp_connect_flags & OBD_CONNECT_IBITS))
                                 lock->l_policy_data.l_inodebits.bits =
                                         MDS_INODELOCK_LOOKUP |
-                                        MDS_INODELOCK_UPDATE;
+                                        MDS_INODELOCK_UPDATE |
+                                        MDS_INODELOCK_LAYOUT;
                         else
                                 lock->l_policy_data = *policy;
                 }

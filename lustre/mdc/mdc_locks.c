@@ -636,10 +636,17 @@ int mdc_enqueue(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
         int                    flags = extra_lock_flags;
         int                    rc;
         struct ldlm_res_id res_id;
+        /* in ldlm_cli_enqueue_fini(), new bits returned by server are not
+         * always taken into account so layout lock bit have to be added
+         * explicitly in client request */
         static const ldlm_policy_data_t lookup_policy =
-                            { .l_inodebits = { MDS_INODELOCK_LOOKUP } };
+                            { .l_inodebits = { MDS_INODELOCK_LOOKUP |
+                                               MDS_INODELOCK_LAYOUT } };
         static const ldlm_policy_data_t update_policy =
-                            { .l_inodebits = { MDS_INODELOCK_UPDATE } };
+                            { .l_inodebits = { MDS_INODELOCK_UPDATE |
+                                               MDS_INODELOCK_LAYOUT } };
+        static const ldlm_policy_data_t layout_policy =
+                            { .l_inodebits = { MDS_INODELOCK_LAYOUT } };
         ldlm_policy_data_t const *policy = &lookup_policy;
         ENTRY;
 
@@ -652,6 +659,8 @@ int mdc_enqueue(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
                 flags |= LDLM_FL_HAS_INTENT;
         if (it && it->it_op & (IT_UNLINK | IT_GETATTR | IT_READDIR))
                 policy = &update_policy;
+        else if (it && it->it_op & IT_LAYOUT)
+                policy = &layout_policy;
 
         if (reqp)
                 req = *reqp;

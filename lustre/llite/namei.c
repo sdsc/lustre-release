@@ -206,7 +206,7 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
         ENTRY;
 
         switch (flag) {
-        case LDLM_CB_BLOCKING:
+        case LDLM_CB_BLOCKING: {
                 ldlm_lock2handle(lock, &lockh);
                 rc = ldlm_cli_cancel(&lockh);
                 if (rc < 0) {
@@ -214,6 +214,7 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
                         RETURN(rc);
                 }
                 break;
+        }
         case LDLM_CB_CANCELING: {
                 struct inode *inode = ll_inode_from_lock(lock);
                 struct ll_inode_info *lli;
@@ -226,8 +227,12 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
                         break;
 
                 LASSERT(lock->l_flags & LDLM_FL_CANCELING);
-                /* For OPEN locks we differentiate between lock modes - CR, CW. PR - bug 22891 */
-                if (bits & (MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE))
+                /* For OPEN locks we differentiate between lock modes -
+                 * CR, CW. PR - bug 22891.
+                 * If the requested bits are also in another lock,
+                 * we ignore the request */
+                if (bits & (MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE |
+                            MDS_INODELOCK_LAYOUT))
                         ll_have_md_lock(inode, &bits, LCK_MINMODE);
 
                 if (bits & MDS_INODELOCK_OPEN)
@@ -262,8 +267,24 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
                 }
 
                 lli = ll_i2info(inode);
-                if (bits & MDS_INODELOCK_UPDATE)
+                if (bits & MDS_INODELOCK_UPDATE) {
+                        cfs_spin_lock(&lli->lli_lock);
                         lli->lli_flags &= ~LLIF_MDS_SIZE_LOCK;
+                        cfs_spin_unlock(&lli->lli_lock);
+                }
+
+                if ((bits & MDS_INODELOCK_LAYOUT) && S_ISREG(inode->i_mode)) {
+                        CDEBUG(D_INODE,
+                               "canceling layout %p for inode %lu/%u(%p)\n",
+                               lli->lli_smd, inode->i_ino, inode->i_generation,
+                               inode);
+                        /* lli_smd cannot be set to NULL because clio
+                         * and find_cbdata() need it */
+                        cfs_spin_lock(&lli->lli_lock);
+                        lli->lli_flags |= LLIF_LAYOUT_CANCELED;
+                        cfs_spin_unlock(&lli->lli_lock);
+                }
+
 
                 if (S_ISDIR(inode->i_mode) &&
                      (bits & MDS_INODELOCK_UPDATE)) {

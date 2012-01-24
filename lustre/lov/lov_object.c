@@ -553,7 +553,9 @@ static int lov_conf_set(const struct lu_env *env, struct cl_object *obj,
 
         ENTRY;
         /*
-         * Currently only LLT_EMPTY -> LLT_RAID0 transition is supported.
+         * LLT_EMPTY -> LLT_RAID0 : layout creation
+         * LLT_RAID0 -> LLT_RAID0 : restripe layout
+         * LLT_RAID0 -> LLT_EMPTY : release layout
          */
         LASSERT(lov->lo_owner != cfs_current());
         cfs_down_write(&lov->lo_type_guard);
@@ -561,6 +563,10 @@ static int lov_conf_set(const struct lu_env *env, struct cl_object *obj,
         lov->lo_owner = cfs_current();
         if (lov->lo_type == LLT_EMPTY && conf->u.coc_md->lsm != NULL)
                 result = lov_layout_change(env, lov, LLT_RAID0, conf);
+        else if (lov->lo_type == LLT_RAID0 && conf->u.coc_md->lsm != NULL)
+                result = lov_layout_change(env, lov, LLT_RAID0, conf);
+        else if (lov->lo_type == LLT_RAID0 && conf->u.coc_md->lsm == NULL)
+                result = lov_layout_change(env, lov, LLT_EMPTY, conf);
         else
                 result = -EOPNOTSUPP;
         lov->lo_owner = NULL;

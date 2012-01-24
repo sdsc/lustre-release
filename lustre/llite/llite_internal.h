@@ -262,6 +262,7 @@ struct ll_inode_info {
          *      some of the following members can be moved into u.f.
          */
         struct lov_stripe_md           *lli_smd;
+        struct layout_lock              lli_ll;
         struct cl_object               *lli_clob;
 };
 
@@ -385,6 +386,7 @@ enum stats_track_type {
 #define LL_SBI_32BIT_API       0x2000 /* generate 32 bit inodes. */
 #define LL_SBI_64BIT_HASH      0x4000 /* support 64-bits dir hash/offset */
 #define LL_SBI_AGL_ENABLED     0x8000 /* enable agl */
+#define LL_SBI_LAYOUT_LOCK    0x10000 /* enable layout lock */
 
 /* default value for ll_sb_info->contention_time */
 #define SBI_DEFAULT_CONTENTION_SECONDS     60

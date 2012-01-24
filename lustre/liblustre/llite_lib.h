@@ -88,11 +88,15 @@ struct llu_sb_info {
         struct cl_device         *ll_cl;
 };
 
+/* define  be identical to one defined in lustre/llite/llite_internal.h */
 #define LL_SBI_NOLCK            0x1
+#define LL_SBI_LAYOUT_LOCK      0x10000 /* layout lock use */
 
 enum lli_flags {
         /* MDS has an authority for the Size-on-MDS attributes. */
         LLIF_MDS_SIZE_LOCK      = (1 << 0),
+        /* layout is invalid */
+        LLIF_LAYOUT_CANCELED    = (1 << 6),
 };
 
 struct llu_inode_info {
@@ -100,6 +104,7 @@ struct llu_inode_info {
         struct lu_fid           lli_fid;
 
         struct lov_stripe_md   *lli_smd;
+        struct layout_lock      lli_ll;
         char                   *lli_symlink_name;
         cfs_semaphore_t         lli_open_sem;
         __u64                   lli_maxbytes;

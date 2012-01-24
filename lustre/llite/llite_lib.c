@@ -131,6 +131,8 @@ static struct ll_sb_info *ll_init_sbi(void)
         sbi->ll_flags |= LL_SBI_LRU_RESIZE;
 #endif
 
+        sbi->ll_flags |= LL_SBI_LAYOUT_LOCK;
+
         for (i = 0; i <= LL_PROCESS_HIST_MAX; i++) {
                 cfs_spin_lock_init(&sbi->ll_rw_extents_info.pp_extents[i]. \
                                    pp_r_hist.oh_lock);
@@ -215,7 +217,8 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                                   OBD_CONNECT_CANCELSET | OBD_CONNECT_FID     |
                                   OBD_CONNECT_AT       | OBD_CONNECT_LOV_V3   |
                                   OBD_CONNECT_RMT_CLIENT | OBD_CONNECT_VBR    |
-                                  OBD_CONNECT_FULL20   | OBD_CONNECT_64BITHASH;
+                                  OBD_CONNECT_FULL20   | OBD_CONNECT_64BITHASH |
+                                  OBD_CONNECT_LAYOUTLOCK;
 
         if (sbi->ll_flags & LL_SBI_SOM_PREVIEW)
                 data->ocd_connect_flags |= OBD_CONNECT_SOM;
@@ -257,7 +260,8 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 
         data->ocd_brw_size = PTLRPC_MAX_BRW_SIZE;
 
-        err = obd_connect(NULL, &sbi->ll_md_exp, obd, &sbi->ll_sb_uuid, data, NULL);
+        err = obd_connect(NULL, &sbi->ll_md_exp, obd, &sbi->ll_sb_uuid, data,
+                          NULL);
         if (err == -EBUSY) {
                 LCONSOLE_ERROR_MSG(0x14f, "An MDT (md %s) is performing "
                                    "recovery, of which this client is not a "
@@ -385,6 +389,13 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         else
                 sbi->ll_md_brw_size = CFS_PAGE_SIZE;
 
+        if ((sbi->ll_flags & LL_SBI_LAYOUT_LOCK) &&
+            !(data->ocd_connect_flags & OBD_CONNECT_LAYOUTLOCK)) {
+                LCONSOLE_INFO("Disabling layout lock feature because "
+                              "it is not supported on the server\n");
+                sbi->ll_flags &= ~LL_SBI_LAYOUT_LOCK;
+        }
+
         obd = class_name2obd(dt);
         if (!obd) {
                 CERROR("DT %s: not setup or attached\n", dt);
@@ -431,7 +442,8 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 
         data->ocd_brw_size = PTLRPC_MAX_BRW_SIZE;
 
-        err = obd_connect(NULL, &sbi->ll_dt_exp, obd, &sbi->ll_sb_uuid, data, NULL);
+        err = obd_connect(NULL, &sbi->ll_dt_exp, obd, &sbi->ll_sb_uuid, data,
+                          NULL);
         if (err == -EBUSY) {
                 LCONSOLE_ERROR_MSG(0x150, "An OST (dt %s) is performing "
                                    "recovery, of which this client is not a "
@@ -882,6 +894,7 @@ void ll_lli_init(struct ll_inode_info *lli)
         cfs_spin_lock_init(&lli->lli_agl_lock);
         lli->lli_smd = NULL;
         lli->lli_clob = NULL;
+        layout_lock_init(&lli->lli_ll);
 
         LASSERT(lli->lli_vfs_inode.i_mode != 0);
         if (S_ISDIR(lli->lli_vfs_inode.i_mode)) {
@@ -1784,7 +1797,8 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
 
         if (body->valid & OBD_MD_FLSIZE) {
                 if (exp_connect_som(ll_i2mdexp(inode)) &&
-                    S_ISREG(inode->i_mode) && lli->lli_smd) {
+                    S_ISREG(inode->i_mode) && lli->lli_smd &&
+                    !(lli->lli_flags & LLIF_LAYOUT_CANCELED)) {
                         struct lustre_handle lockh;
                         ldlm_mode_t mode;
 

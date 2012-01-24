@@ -715,6 +715,7 @@ void ccc_lock_state(const struct lu_env *env,
 /*****************************************************************************
  *
  * layout operations.
+ * lsm & layout lock
  *
  */
 
@@ -729,9 +730,16 @@ struct lov_stripe_md *lsm_get(struct inode *inode)
         struct lov_stripe_md *lsm;
         ENTRY;
 
-        /* This function should enqueue the layout lock for regular files
-         * in the future */
+        /* enqueue the layout lock for regular files */
+        if (S_ISREG(inode->i_mode))
+                cl_layout_lock_get(inode);
+
         lsm = lsm_addref(lli->lli_smd);
+
+        /* now we hold a reference, we can release the lock */
+        if (S_ISREG(inode->i_mode))
+                cl_layout_lock_put(inode);
+
         RETURN(lsm);
 }
 
@@ -761,6 +769,33 @@ void lsm_put(struct inode *inode, struct lov_stripe_md **lsmp)
         *lsmp = NULL;
         EXIT;
 }
+
+/**
+ * Give back reference on a layout lock
+ *
+ * \param struct inode *inode inode
+ */
+void cl_layout_lock_put(struct inode *inode)
+{
+        struct layout_lock *ll;
+
+        LASSERT(inode != NULL);
+        LASSERT(S_ISREG(cl_inode_mode(inode)));
+
+        ll = &cl_i2info(inode)->lli_ll;
+
+        cfs_mutex_down(&ll->ll_lh_sem);
+        if (lustre_handle_is_used(&ll->ll_lh)) {
+                ldlm_lock_decref(&ll->ll_lh, ll->ll_lmode);
+                if (cfs_atomic_dec_and_test(&ll->ll_lrefcount))
+                        layout_lock_set_locked(ll, 0ull, 0, 0);
+        } else {
+                /* we were evicted */
+                layout_lock_set_locked(ll, 0ull, 0, 0);
+        }
+        cfs_mutex_up(&ll->ll_lh_sem);
+}
+
 
 /*****************************************************************************
  *

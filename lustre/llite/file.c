@@ -2358,14 +2358,19 @@ out:
 int ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
                            __u64 ibits)
 {
-        struct inode *inode = dentry->d_inode;
-        int           rc;
+        struct inode            *inode = dentry->d_inode;
+        struct ll_inode_info    *lli = ll_i2info(inode);
+        int                      rc;
         ENTRY;
+
+        if (S_ISREG(inode->i_mode))
+                ibits |= MDS_INODELOCK_LAYOUT;
 
         rc = __ll_inode_revalidate_it(dentry, it, ibits);
 
         /* if object not yet allocated, don't validate size */
-        if (rc == 0 && ll_i2info(dentry->d_inode)->lli_smd == NULL) {
+        if (rc == 0 &&
+            (lli->lli_smd == NULL || (lli->lli_flags & LLIF_LAYOUT_CANCELED))) {
                 LTIME_S(inode->i_atime) = ll_i2info(inode)->lli_lvb.lvb_atime;
                 LTIME_S(inode->i_mtime) = ll_i2info(inode)->lli_lvb.lvb_mtime;
                 LTIME_S(inode->i_ctime) = ll_i2info(inode)->lli_lvb.lvb_ctime;
@@ -2740,3 +2745,89 @@ enum llioc_iter ll_iocontrol_call(struct inode *inode, struct file *file,
                 *rcp = rc;
         return ret;
 }
+
+/**
+ * Take a layout lock on inode
+ *
+ * \param struct inode *inode
+ * \retval 0 success
+ * \retval -ve failure
+ */
+int cl_layout_lock_get(struct inode *inode)
+{
+        struct obd_export     *md_exp = ll_i2mdexp(inode);
+        struct md_op_data     *op_data;
+        struct ptlrpc_request *req = NULL;
+        struct lookup_intent   it = { .it_op = IT_LAYOUT };
+        struct layout_lock    *layout = &ll_i2info(inode)->lli_ll;
+        int                    rc;
+        ENTRY;
+
+        if (!(ll_i2sbi(inode)->ll_flags & LL_SBI_LAYOUT_LOCK))
+                RETURN(0);
+
+        /* sanity checks */
+        LASSERT(fid_is_sane(ll_inode2fid(inode)));
+        LASSERT(S_ISREG(inode->i_mode));
+
+        /* take layout lock semaphore */
+        cfs_mutex_down(&layout->ll_lh_sem);
+        if (lustre_handle_is_used(&layout->ll_lh)) {
+                /* we already own the layout lock, just grab a reference on
+                 * the lock */
+                ldlm_lock_addref(&layout->ll_lh, layout->ll_lmode);
+                cfs_atomic_inc(&layout->ll_lrefcount);
+                cfs_mutex_up(&layout->ll_lh_sem);
+                RETURN(0);
+        }
+        /* we need to get the layout lock from the MDS */
+
+        op_data = ll_prep_md_op_data(NULL, inode, inode, NULL,
+                                     0, 0, LUSTRE_OPC_ANY, NULL);
+        if (IS_ERR(op_data)) {
+                cfs_mutex_up(&layout->ll_lh_sem);
+                RETURN(PTR_ERR(op_data));
+        }
+
+        /* enqueue layout lock */
+        rc = md_intent_lock(md_exp, op_data, NULL, 0, &it, 0, &req,
+                            ll_md_blocking_ast, 0);
+        if (rc < 0)
+                GOTO(out, rc);
+
+        if (rc == 0)
+                /* we get a new lock, so update the lock data */
+                md_set_lock_data(md_exp, &it.d.lustre.it_lock_handle,
+                                 inode, NULL);
+
+        /* Save layout lock to allow put. To save a lock reference, we store
+         * the cookie */
+        layout_lock_set_locked(layout, it.d.lustre.it_lock_handle,
+                               it.d.lustre.it_lock_mode, 1);
+
+        /* req == NULL is when lock was found in client cache, without
+         * any request to server (but lsm can be canceled just after a
+         * release) */
+        if (req != NULL) {
+                /* lock was requested to server and granted so we update the
+                 * inode */
+                struct lustre_md md;
+
+                rc = md_get_lustre_md(md_exp, req, ll_i2sbi(inode)->ll_dt_exp,
+                                      md_exp, &md);
+                if (rc)
+                        GOTO(out, rc);
+
+                ll_update_inode(inode, &md);
+                md_free_lustre_md(md_exp, &md);
+        }
+        rc = 0;
+        EXIT;
+out:
+        cfs_mutex_up(&layout->ll_lh_sem);
+        ll_finish_md_op_data(op_data);
+        ptlrpc_req_finished(req);
+        return rc;
+}
+
+
