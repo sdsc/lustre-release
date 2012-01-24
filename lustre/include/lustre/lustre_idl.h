@@ -546,8 +546,8 @@ static inline int fid_ostid_unpack(struct lu_fid *fid, struct ost_id *ostid,
                                    __u32 ost_idx)
 {
         if (ost_idx > 0xffff) {
-                CERROR("bad ost_idx, seq:"LPU64" id:"LPU64" ost_idx:%u\n",
-                       ostid->oi_seq, ostid->oi_id, ost_idx);
+                CERROR("bad ost_idx, objid:"DOID" ost_idx:%u\n", POID(ostid),
+                       ost_idx);
                 return -EBADF;
         }
 
@@ -558,8 +558,8 @@ static inline int fid_ostid_unpack(struct lu_fid *fid, struct ost_id *ostid,
                  * been in production for years.  This can handle create rates
                  * of 1M objects/s/OST for 9 years, or combinations thereof. */
                 if (ostid->oi_id >= IDIF_MAX_OID) {
-                         CERROR("bad MDT0 id, seq:"LPU64" id:"LPU64" ost_idx:%u\n",
-                                ostid->oi_seq, ostid->oi_id, ost_idx);
+                         CERROR("bad MDT0 id, objid:"DOID" ost_idx:%u\n",
+                                POID(ostid), ost_idx);
                          return -EBADF;
                 }
                 ostid_idif_unpack(ostid, fid, ost_idx);
@@ -571,8 +571,8 @@ static inline int fid_ostid_unpack(struct lu_fid *fid, struct ost_id *ostid,
                  * duplicated on all OSTs), but this is not strictly required
                  * for the old object protocol, which has a separate ost_idx. */
                 if (ostid->oi_id >= 0xffffffffULL) {
-                         CERROR("bad RSVD id, seq:"LPU64" id:"LPU64" ost_idx:%u\n",
-                                ostid->oi_seq, ostid->oi_id, ost_idx);
+                         CERROR("bad RSVD id, objid:"DOID" ost_idx:%u\n",
+                                POID(ostid), ost_idx);
                          return -EBADF;
                 }
                 ostid_fid_unpack(ostid, fid);
@@ -580,8 +580,8 @@ static inline int fid_ostid_unpack(struct lu_fid *fid, struct ost_id *ostid,
         } else if (unlikely(fid_seq_is_igif(ostid->oi_seq))) {
                 /* This is an MDT inode number, which should never collide with
                  * proper OST object IDs, and is probably a broken filesystem */
-                CERROR("bad IGIF, seq:"LPU64" id:"LPU64" ost_idx:%u\n",
-                       ostid->oi_seq, ostid->oi_id, ost_idx);
+                CERROR("bad IGIF, objid:"DOID" ost_idx:%u\n", POID(ostid),
+                       ost_idx);
                 return -EBADF;
 
         } else /* if (fid_seq_is_idif(seq) || fid_seq_is_norm(seq)) */ {
@@ -629,8 +629,7 @@ static inline int fid_ostid_pack(struct lu_fid *fid, struct ost_id *ostid)
 static inline obd_seq ostid_seq(struct ost_id *ostid)
 {
         if (unlikely(fid_seq_is_igif(ostid->oi_seq)))
-                CWARN("bad IGIF, oi_seq: "LPU64" oi_id: "LPX64"\n",
-                      ostid->oi_seq, ostid->oi_id);
+                CWARN("bad IGIF, objid: "DOID"\n", POID(ostid));
 
         if (unlikely(fid_seq_is_idif(ostid->oi_seq)))
                 return FID_SEQ_OST_MDT0;

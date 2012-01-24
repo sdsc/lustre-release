@@ -1112,8 +1112,8 @@ int ll_objects_destroy(struct ptlrpc_request *request, struct inode *dir)
         capa_put(oc);
         OBDO_FREE(oa);
         if (rc)
-                CERROR("obd destroy objid "LPX64" error %d\n",
-                       lsm->lsm_object_id, rc);
+                CERROR("obd destroy objid "DOID" error %d\n",
+                       POID(&lsm->lsm_oi), rc);
  out_free_memmd:
         obd_free_memmd(ll_i2dtexp(dir), &lsm);
  out:

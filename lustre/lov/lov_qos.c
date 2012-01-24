@@ -468,8 +468,8 @@ void qos_shrink_lsm(struct lov_request_set *set)
                 }
         }
 
-        CWARN("using fewer stripes for object "LPU64": old %u new %u\n",
-              lsm->lsm_object_id, lsm->lsm_stripe_count, set->set_count);
+        CWARN("using fewer stripes for object "DOID": old %u new %u\n",
+              POID(&lsm->lsm_oi), lsm->lsm_stripe_count, set->set_count);
         LASSERT(lsm->lsm_stripe_count >= set->set_count);
 
         newsize = lov_stripe_md_size(set->set_count);
@@ -763,8 +763,8 @@ repeat_find:
          *
          * We can only get here if lsm_stripe_count was originally > 1.
          */
-        CERROR("can't lstripe objid "LPX64": have %d want %u\n",
-               lsm->lsm_object_id, (int)(idx_pos - idx_arr),
+        CERROR("can't lstripe objid "DOID": have %d want %u\n",
+               POID(&lsm->lsm_oi), (int)(idx_pos - idx_arr),
                lsm->lsm_stripe_count);
         rc = -EFBIG;
 out:

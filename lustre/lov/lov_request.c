@@ -242,9 +242,8 @@ static int enqueue_done(struct lov_request_set *set, __u32 mode)
                                 req->rq_oi.oi_md, mode, lov_lockhp);
                 if (rc && lov->lov_tgts[req->rq_idx] &&
                     lov->lov_tgts[req->rq_idx]->ltd_active)
-                        CERROR("cancelling obdjid "LPX64" on OST "
-                               "idx %d error: rc = %d\n",
-                               req->rq_oi.oi_md->lsm_object_id,
+                        CERROR("cancelling obdjid "DOID" on OST idx %d error: "
+                               "rc = %d\n", POID(&req->rq_oi.oi_md->lsm_oi),
                                req->rq_idx, rc);
         }
         if (set->set_lockh)
@@ -586,8 +585,8 @@ static int lov_update_create_set(struct lov_request_set *set,
         lov_update_set(set, req, rc);
         cfs_spin_unlock(&set->set_lock);
 
-        CDEBUG(D_INODE, "objid "LPX64" has subobj "LPX64"/"LPU64" at idx %d\n",
-               lsm->lsm_object_id, loi->loi_id, loi->loi_id, req->rq_idx);
+        CDEBUG(D_INODE, "objid "DOID" has subobj "DOID" at idx %d\n",
+               POID(&lsm->lsm_oi), POID(&loi->loi_oi), req->rq_idx);
         RETURN(rc);
 }
 

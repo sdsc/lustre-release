@@ -356,6 +356,11 @@ typedef struct lu_fid lustre_fid;
         (fid)->f_oid, \
         (fid)->f_ver
 
+#define DOID     "[0x"LPX64":0x"LPX64":0x0]"
+#define POID(oi)      \
+        (oi)->oi_seq, \
+        (oi)->oi_id
+
 /* scanf input parse format -- strip '[' first.
    e.g. sscanf(fidstr, SFID, RFID(&fid)); */
 /* #define SFID "0x"LPX64i":0x"LPSZX":0x"LPSZX""

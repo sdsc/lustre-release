@@ -137,23 +137,23 @@ struct lov_stripe_md {
         __u64            lsm_maxbytes;
         struct {
                 /* Public members. */
-                __u64 lw_object_id;        /* lov object id */
-                __u64 lw_object_seq;       /* lov object seq */
+                struct ost_id lw_oi;  /* lov object id and seq */
 
                 /* LOV-private members start here -- only for use in lov/. */
                 __u32 lw_magic;
-                __u32 lw_stripe_size;      /* size of the stripe */
-                __u32 lw_pattern;          /* striping pattern (RAID0, RAID1) */
-                __u16 lw_stripe_count;  /* number of objects being striped over */
-                __u16 lw_layout_gen;       /* generation of the layout */
+                __u32 lw_stripe_size; /* size of the stripe */
+                __u32 lw_pattern;     /* striping pattern (RAID0, RAID1) */
+                __u16 lw_stripe_count;/* number of objects being striped over */
+                __u16 lw_layout_gen;  /* generation of the layout */
                 char  lw_pool_name[LOV_MAXPOOLNAME]; /* pool name */
         } lsm_wire;
 
         struct lov_oinfo *lsm_oinfo[0];
 };
 
-#define lsm_object_id    lsm_wire.lw_object_id
-#define lsm_object_seq   lsm_wire.lw_object_seq
+#define lsm_oi           lsm_wire.lw_oi
+#define lsm_object_id    lsm_wire.lw_oi.oi_id
+#define lsm_object_seq   lsm_wire.lw_oi.oi_seq
 #define lsm_magic        lsm_wire.lw_magic
 #define lsm_layout_gen   lsm_wire.lw_layout_gen
 #define lsm_stripe_size  lsm_wire.lw_stripe_size

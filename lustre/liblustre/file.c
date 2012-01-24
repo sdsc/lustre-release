@@ -311,8 +311,8 @@ int llu_objects_destroy(struct ptlrpc_request *req, struct inode *dir)
         rc = obd_destroy(llu_i2obdexp(dir), oa, lsm, &oti, NULL, NULL);
         OBDO_FREE(oa);
         if (rc)
-                CERROR("obd destroy objid 0x"LPX64" error %d\n",
-                       lsm->lsm_object_id, rc);
+                CERROR("obd destroy objid "DOID" error %d\n",
+                       POID(&lsm->lsm_oi), rc);
  out_free_memmd:
         obd_free_memmd(llu_i2obdexp(dir), &lsm);
  out:
@@ -342,8 +342,8 @@ int llu_som_update(struct inode *inode, struct md_op_data *op_data)
                 if (rc) {
                         oa.o_valid = 0;
                         if (rc == -ENOENT)
-                                CDEBUG(D_INODE, "objid "LPX64" is destroyed\n",
-                                       lli->lli_smd->lsm_object_id);
+                                CDEBUG(D_INODE, "objid "DOID" is destroyed\n",
+                                       POID(&lli->lli_smd->lsm_oi));
                         else
                                 CERROR("inode_getattr failed (%d): unable to "
                                        "send a Size-on-MDS attribute update "

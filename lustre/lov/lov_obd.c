@@ -1332,8 +1332,8 @@ static int lov_getattr_async(struct obd_export *exp, struct obd_info *oinfo,
         if (rc)
                 RETURN(rc);
 
-        CDEBUG(D_INFO, "objid "LPX64": %ux%u byte stripes\n",
-               oinfo->oi_md->lsm_object_id, oinfo->oi_md->lsm_stripe_count,
+        CDEBUG(D_INFO, "objid "DOID": %ux%u byte stripes\n",
+               POID(&oinfo->oi_md->lsm_oi), oinfo->oi_md->lsm_stripe_count,
                oinfo->oi_md->lsm_stripe_size);
 
         cfs_list_for_each (pos, &lovset->set_list) {
@@ -1458,8 +1458,8 @@ static int lov_setattr_async(struct obd_export *exp, struct obd_info *oinfo,
         if (rc)
                 RETURN(rc);
 
-        CDEBUG(D_INFO, "objid "LPX64": %ux%u byte stripes\n",
-               oinfo->oi_md->lsm_object_id, oinfo->oi_md->lsm_stripe_count,
+        CDEBUG(D_INFO, "objid "DOID": %ux%u byte stripes\n",
+               POID(&oinfo->oi_md->lsm_oi), oinfo->oi_md->lsm_stripe_count,
                oinfo->oi_md->lsm_stripe_size);
 
         cfs_list_for_each (pos, &set->set_list) {
@@ -1868,11 +1868,10 @@ static int lov_cancel(struct obd_export *exp, struct lov_stripe_md *lsm,
                                 req->rq_oi.oi_md, mode, lov_lockhp);
                 rc = lov_update_common_set(set, req, rc);
                 if (rc) {
-                        CERROR("error: cancel objid "LPX64" subobj "
-                               LPX64" on OST idx %d: rc = %d\n",
-                               lsm->lsm_object_id,
-                               req->rq_oi.oi_md->lsm_object_id,
-                               req->rq_idx, rc);
+                        CERROR("error: cancel objid "DOID" subobj "DOID" on OST"
+                               " idx %d: rc = %d\n", POID(&lsm->lsm_oi),
+                               POID(&req->rq_oi.oi_md->lsm_oi), req->rq_idx,
+                               rc);
                         err = rc;
                 }
 
@@ -1929,8 +1928,8 @@ static int lov_cancel_unused(struct obd_export *exp,
                 err = obd_cancel_unused(lov->lov_tgts[loi->loi_ost_idx]->ltd_exp,
                                         &submd, flags, opaque);
                 if (err && lov->lov_tgts[loi->loi_ost_idx]->ltd_active) {
-                        CERROR("error: cancel unused objid "LPX64" subobj "LPX64
-                               " on OST idx %d: rc = %d\n", lsm->lsm_object_id,
+                        CERROR("error: cancel unused objid "DOID" subobj "LPX64
+                               " on OST idx %d: rc = %d\n", POID(&lsm->lsm_oi),
                                loi->loi_id, loi->loi_ost_idx, err);
                         if (!rc)
                                 rc = err;

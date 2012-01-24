@@ -751,8 +751,8 @@ int ll_inode_getattr(struct inode *inode, struct obdo *obdo,
         if (rc == 0) {
                 obdo_refresh_inode(inode, obdo, obdo->o_valid);
                 CDEBUG(D_INODE,
-                       "objid "LPX64" size %llu, blocks %llu, blksize %lu\n",
-                       lli->lli_smd->lsm_object_id, i_size_read(inode),
+                       "objid "DOID" size %llu, blocks %llu, blksize %lu\n",
+                       POID(&lli->lli_smd->lsm_oi), i_size_read(inode),
                        (unsigned long long)inode->i_blocks,
                        (unsigned long)ll_inode_blksize(inode));
         }

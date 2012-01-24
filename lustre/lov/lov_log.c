@@ -192,9 +192,9 @@ static int lov_llog_repl_cancel(struct llog_ctxt *ctxt, struct lov_stripe_md *ls
                 err = llog_cancel(cctxt, NULL, 1, cookies, flags);
                 llog_ctxt_put(cctxt);
                 if (err && lov->lov_tgts[loi->loi_ost_idx]->ltd_active) {
-                        CERROR("error: objid "LPX64" subobj "LPX64
-                               " on OST idx %d: rc = %d\n", lsm->lsm_object_id,
-                               loi->loi_id, loi->loi_ost_idx, err);
+                        CERROR("error: objid "DOID" subobj "DOID
+                               " on OST idx %d: rc = %d\n", POID(&lsm->lsm_oi),
+                               POID(&loi->loi_oi), loi->loi_ost_idx, err);
                         if (!rc)
                                 rc = err;
                 }

@@ -865,8 +865,8 @@ static int mdd_osc_setattr_async(struct obd_device *obd, __u32 uid, __u32 gid,
         /* do async setattr from mds to ost not waiting for responses. */
         rc = obd_setattr_async(mds->mds_lov_exp, &oinfo, &oti, NULL);
         if (rc)
-                CDEBUG(D_INODE, "mds to ost setattr objid 0x"LPX64
-                       " on ost error %d\n", oinfo.oi_md->lsm_object_id, rc);
+                CDEBUG(D_INODE, "mds to ost setattr objid "DOID" on ost error "
+                       "%d\n", POID(&oinfo.oi_md->lsm_oi), rc);
 out:
         if (oinfo.oi_md)
                 obd_free_memmd(mds->mds_lov_exp, &oinfo.oi_md);
