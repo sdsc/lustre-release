@@ -127,13 +127,13 @@ int cl_ocd_update(struct obd_device *host,
 int cl_get_grouplock(struct cl_object *obj, unsigned long gid, int nonblock,
                      struct ccc_grouplock *cg)
 {
-        struct lu_env          *env;
-        struct cl_io           *io;
-        struct cl_lock         *lock;
-        struct cl_lock_descr   *descr;
-        __u32                   enqflags;
-        int                     refcheck;
-        int                     rc;
+        struct lu_env        *env;
+        struct cl_io         *io;
+        struct cl_lock       *lock;
+        struct cl_lock_descr *descr;
+        __u32                 enqflags;
+        int                   refcheck;
+        int                   rc;
 
         env = cl_env_get(&refcheck);
         if (IS_ERR(env))

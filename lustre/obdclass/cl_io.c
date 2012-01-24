@@ -147,6 +147,7 @@ static int cl_io_init0(const struct lu_env *env, struct cl_io *io,
         ENTRY;
 
         io->ci_type = iot;
+        io->ci_lsm  = NULL;
         CFS_INIT_LIST_HEAD(&io->ci_lockset.cls_todo);
         CFS_INIT_LIST_HEAD(&io->ci_lockset.cls_curr);
         CFS_INIT_LIST_HEAD(&io->ci_lockset.cls_done);

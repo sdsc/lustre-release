@@ -360,6 +360,7 @@ void mds_lov_update_objids(struct obd_device *obd, struct lov_mds_md *lmm)
         if (lsm) {
                 /* restore stripes number */
                 lsm->lsm_stripe_count = stripes;
+                lsm_decref(lsm);
                 obd_free_memmd(mds->mds_lov_exp, &lsm);
         }
         EXIT;

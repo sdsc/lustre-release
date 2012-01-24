@@ -138,6 +138,11 @@ static int find_cbdata(struct inode *inode)
         if (rc != 0)
                  RETURN(rc);
 
+        /* even if lsm have been invalidated we have to find locks.
+         * if not, the inode can be invalidated while we still
+         * have an extent lock, so the glimpse will not work
+         * (see sanity test test 65r)
+         */
         if (lli->lli_smd)
                 rc = obd_find_cbdata(sbi->ll_dt_exp, lli->lli_smd,
                                      return_if_equal, NULL);
