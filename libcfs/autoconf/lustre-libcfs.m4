@@ -843,6 +843,8 @@ LIBCFS_SYSCTL_CTLNAME
 LIBCFS_ADD_WAIT_QUEUE_EXCLUSIVE
 # 2.6.35
 LC_SK_SLEEP
+# 2.6.39
+LIBCFS_HAVE_LINUX_KERNEL_LOCK
 # 2.6.40 fc15
 LC_SHRINK_CONTROL
 ])
@@ -956,6 +958,17 @@ CFLAGS="$tmp_flags"
 
 # --------  Check for required packages  --------------
 
+#
+# 2.6.39 No longer has BKL
+#
+AC_DEFUN([LIBCFS_HAVE_LINUX_KERNEL_LOCK],
+[LB_CHECK_FILE([$LINUX/include/linux/smp_lock.h], [
+        AC_DEFINE(HAVE_LINUX_KERNEL_LOCK, 1,
+                [kernel has BKL smp_lock.h])
+],[
+        AC_MSG_RESULT([no])
+])
+])
 
 AC_MSG_CHECKING([if efence debugging support is requested])
 AC_ARG_ENABLE(efence,
