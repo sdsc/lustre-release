@@ -89,8 +89,15 @@ int mds_log_op_unlink(struct obd_device *, struct lov_mds_md *, int,
 
 static inline int md_should_create(__u64 flags)
 {
-       return !(flags & MDS_OPEN_DELAY_CREATE ||
-               !(flags & FMODE_WRITE));
+        if (flags & MDS_OPEN_NEWSTRIPE)
+                /* restripping the file */
+                return 1;
+        if (flags & MDS_OPEN_DELAY_CREATE)
+                /* delaying initial object create */
+                return 0;
+        if ((flags & FMODE_WRITE) == 0)
+                return 0;
+        return 1;
 }
 
 /* these are local flags, used only on the client, private */

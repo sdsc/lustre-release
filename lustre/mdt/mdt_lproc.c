@@ -850,63 +850,122 @@ static int lprocfs_wr_nosquash_nids(struct file *file, const char *buffer,
         RETURN(rc);
 }
 
-static int lprocfs_rd_mdt_som(char *page, char **start, off_t off,
-                              int count, int *eof, void *data)
+static int lprocfs_rd_mdt_conf_option(char *page, int count, int option)
 {
-        struct obd_device *obd = data;
-        struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-
-        return snprintf(page, count, "%sabled\n",
-                        mdt->mdt_som_conf ? "en" : "dis");
+        return snprintf(page, count, "%s\n",
+                        option ? "enabled" : "disabled");
 }
 
-static int lprocfs_wr_mdt_som(struct file *file, const char *buffer,
-                              unsigned long count, void *data)
+static int lprocfs_wr_mdt_conf_option(struct obd_device *obd,
+                                      char *option_name, unsigned long old_opt,
+                                      unsigned long *new_opt, char *buffer)
 {
         struct obd_export *exp;
-        struct obd_device *obd = data;
-        struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-        char kernbuf[16];
-        unsigned long val = 0;
+        char *ptr;
+        int lg;
 
-        if (count > (sizeof(kernbuf) - 1))
+        lg = strlen(buffer);
+        if (lg == 0)
                 return -EINVAL;
 
-        if (cfs_copy_from_user(kernbuf, buffer, count))
-                return -EFAULT;
+        /* remove tailing \n */
+        for (ptr = buffer ; (*ptr != '\0') && (*ptr != '\n') ; ptr++);
+        /* empty line */
+        if (ptr == buffer)
+                return -EINVAL;
+        *ptr = '\0';
 
-        kernbuf[count] = '\0';
-
-        if (!strcmp(kernbuf, "enabled"))
-                val = 1;
-        else if (strcmp(kernbuf, "disabled"))
+        if (strcmp(buffer, "enabled") == 0)
+                *new_opt = 1;
+        else if (strcmp(buffer, "disabled") == 0)
+                *new_opt = 0;
+        else
                 return -EINVAL;
 
-        if (mdt->mdt_som_conf == val)
-                return count;
+        if (old_opt == *new_opt)
+                return 0;
 
-        if (!obd->obd_process_conf) {
-                CERROR("Temporary SOM change is not supported, use lctl "
-                       "conf_param for permanent setting\n");
-                return count;
-        }
-
-        /* 1 stands for self export. */
         cfs_list_for_each_entry(exp, &obd->obd_exports, exp_obd_chain) {
                 if (exp == obd->obd_self_export)
                         continue;
                 if (exp->exp_connect_flags & OBD_CONNECT_MDS_MDS)
                         continue;
                 /* Some clients are already connected, skip the change */
-                LCONSOLE_INFO("%s is already connected, SOM will be %s on "
+                LCONSOLE_INFO("%s is already connected, %s will be %s on "
                               "the next mount\n", exp->exp_client_uuid.uuid,
-                              val ? "enabled" : "disabled");
-                return count;
+                              option_name, new_opt ? "enabled" : "disabled");
+                return 0;
         }
 
-        mdt->mdt_som_conf = val;
-        LCONSOLE_INFO("Enabling SOM\n");
+        if (*new_opt == 1)
+                LCONSOLE_INFO("Enabling %s\n", option_name);
+        else
+                LCONSOLE_INFO("Disabling %s\n", option_name);
 
+        return 0;
+}
+
+static int lprocfs_rd_mdt_som(char *page, char **start, off_t off,
+                              int count, int *eof, void *data)
+{
+        struct obd_device *obd = data;
+        struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+
+        return lprocfs_rd_mdt_conf_option(page, count, mdt->mdt_som_conf);
+}
+
+static int lprocfs_wr_mdt_som(struct file *file, const char *buffer,
+                              unsigned long count, void *data)
+{
+        struct obd_device *obd = data;
+        struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+        char kernbuf[16];
+        unsigned long val = 0;
+        int rc;
+
+        if (count > (sizeof(kernbuf) - 1))
+                return -EINVAL;
+        if (cfs_copy_from_user(kernbuf, buffer, count))
+                return -EFAULT;
+        kernbuf[count] = '\0';
+        rc = lprocfs_wr_mdt_conf_option(obd, "SOM", mdt->mdt_som_conf, &val,
+                                        kernbuf);
+        if (rc)
+                return rc;
+        mdt->mdt_som_conf = val;
+        return count;
+}
+
+static int lprocfs_rd_mdt_layout_lock(char *page, char **start, off_t off,
+                                      int count, int *eof, void *data)
+{
+        struct obd_device *obd = data;
+        struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+
+        return lprocfs_rd_mdt_conf_option(page, count,
+                                          mdt->mdt_layout_lock_conf);
+}
+
+static int lprocfs_wr_mdt_layout_lock(struct file *file, const char *buffer,
+                                      unsigned long count, void *data)
+{
+        struct obd_device *obd = data;
+        struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+        char kernbuf[16];
+        unsigned long val = 0;
+        int rc;
+
+        if (count > (sizeof(kernbuf) - 1))
+                return -EINVAL;
+        if (cfs_copy_from_user(kernbuf, buffer, count))
+                return -EFAULT;
+        kernbuf[count] = '\0';
+        rc = lprocfs_wr_mdt_conf_option(obd, "layout lock",
+                                        mdt->mdt_layout_lock_conf, &val,
+                                        kernbuf);
+        if (rc)
+                return rc;
+        mdt->mdt_layout_lock_conf = val;
         return count;
 }
 
@@ -969,6 +1028,8 @@ static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
         { "instance",                   lprocfs_target_rd_instance,         0 },
         { "ir_factor",                  lprocfs_obd_rd_ir_factor,
                                         lprocfs_obd_wr_ir_factor,           0 },
+        { "layout_lock",                lprocfs_rd_mdt_layout_lock,
+                                        lprocfs_wr_mdt_layout_lock, 0 },
         { 0 }
 };
 
