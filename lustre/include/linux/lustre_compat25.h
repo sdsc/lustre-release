@@ -384,12 +384,6 @@ int ll_unregister_blkdev(unsigned int dev, const char *name)
 
 #define ll_inode_blksize(a)     (1<<(a)->i_blkbits)
 
-#ifdef HAVE_FS_RENAME_DOES_D_MOVE
-#define LL_RENAME_DOES_D_MOVE   FS_RENAME_DOES_D_MOVE
-#else
-#define LL_RENAME_DOES_D_MOVE   FS_ODD_RENAME
-#endif
-
 #ifndef HAVE_D_OBTAIN_ALIAS
 /* The old d_alloc_anon() didn't free the inode reference on error
  * like d_obtain_alias().  Hide that difference/inconvenience here. */

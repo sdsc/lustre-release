@@ -2399,7 +2399,7 @@ struct file_system_type lustre_fs_type = {
 #ifdef FS_HAS_FIEMAP
                         FS_HAS_FIEMAP |
 #endif
-                        LL_RENAME_DOES_D_MOVE,
+                        FS_RENAME_DOES_D_MOVE,
 };
 
 int lustre_register_fs(void)

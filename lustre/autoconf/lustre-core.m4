@@ -723,6 +723,7 @@ LB_LINUX_TRY_COMPILE([
 
 #
 # check for crypto API
+# RHEL5 (2.6.18) doesn't have them
 #
 AC_DEFUN([LC_ASYNC_BLOCK_CIPHER],
 [AC_MSG_CHECKING([if kernel has block cipher support])
@@ -742,6 +743,7 @@ LB_LINUX_TRY_COMPILE([
 
 #
 # check for struct hash_desc
+# RHEL5 (2.6.18) doesn't have them
 #
 AC_DEFUN([LC_STRUCT_HASH_DESC],
 [AC_MSG_CHECKING([if kernel has struct hash_desc])
@@ -760,6 +762,7 @@ LB_LINUX_TRY_COMPILE([
 
 #
 # check for struct blkcipher_desc
+# RHEL5 (2.6.18) doesn't have them
 #
 AC_DEFUN([LC_STRUCT_BLKCIPHER_DESC],
 [AC_MSG_CHECKING([if kernel has struct blkcipher_desc])
@@ -771,23 +774,6 @@ LB_LINUX_TRY_COMPILE([
 ],[
         AC_MSG_RESULT([yes])
         AC_DEFINE(HAVE_STRUCT_BLKCIPHER_DESC, 1, [kernel has struct blkcipher_desc])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
-#
-# 2.6.19 check for FS_RENAME_DOES_D_MOVE flag
-#
-AC_DEFUN([LC_FS_RENAME_DOES_D_MOVE],
-[AC_MSG_CHECKING([if kernel has FS_RENAME_DOES_D_MOVE flag])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/fs.h>
-],[
-        int v = FS_RENAME_DOES_D_MOVE;
-],[
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(HAVE_FS_RENAME_DOES_D_MOVE, 1, [kernel has FS_RENAME_DOES_D_MOVE flag])
 ],[
         AC_MSG_RESULT([no])
 ])
@@ -812,25 +798,7 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 # 2.6.23 change .sendfile to .splice_read
-AC_DEFUN([LC_KERNEL_SPLICE_READ],
-[AC_MSG_CHECKING([if kernel has .splice_read])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/fs.h>
-],[
-        struct file_operations file;
-
-        file.splice_read = NULL;
-], [
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(HAVE_KERNEL_SPLICE_READ, 1,
-                [kernel has .slice_read])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
-# 2.6.23 change .sendfile to .splice_read
-# RHEL4 (-92 kernel) have both sendfile and .splice_read API
+# RHEL5 (2.6.18) have both sendfile and .splice_read API
 AC_DEFUN([LC_KERNEL_SENDFILE],
 [AC_MSG_CHECKING([if kernel has .sendfile])
 LB_LINUX_TRY_COMPILE([
@@ -1722,11 +1690,9 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_ASYNC_BLOCK_CIPHER
          LC_STRUCT_HASH_DESC
          LC_STRUCT_BLKCIPHER_DESC
-         LC_FS_RENAME_DOES_D_MOVE
 
          # 2.6.23
          LC_UNREGISTER_BLKDEV_RETURN_INT
-         LC_KERNEL_SPLICE_READ
          LC_KERNEL_SENDFILE
          LC_HAVE_EXPORTFS_H
          LC_VM_OP_FAULT

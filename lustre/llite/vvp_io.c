@@ -546,7 +546,6 @@ static int vvp_io_read_start(const struct lu_env *env,
                                 vio->u.sendfile.cui_target);
                 break;
 #endif
-#ifdef HAVE_KERNEL_SPLICE_READ
         case IO_SPLICE:
                 result = generic_file_splice_read(file, &pos,
                                 vio->u.splice.cui_pipe, cnt,
@@ -556,7 +555,6 @@ static int vvp_io_read_start(const struct lu_env *env,
                  * buffers. */
                 io->ci_continue = 0;
                 break;
-#endif
         default:
                 CERROR("Wrong IO type %u\n", vio->cui_io_subtype);
                 LBUG();

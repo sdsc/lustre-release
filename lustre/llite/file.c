@@ -1190,7 +1190,6 @@ static ssize_t ll_file_sendfile(struct file *in_file, loff_t *ppos,size_t count,
 }
 #endif
 
-#ifdef HAVE_KERNEL_SPLICE_READ
 /*
  * Send file content (through pagecache) somewhere with helper
  */
@@ -1216,7 +1215,6 @@ static ssize_t ll_file_splice_read(struct file *in_file, loff_t *ppos,
         cl_env_put(env, &refcheck);
         RETURN(result);
 }
-#endif
 
 static int ll_lov_recreate(struct inode *inode, obd_id id, obd_seq seq,
                            obd_count ost_idx)
@@ -2528,9 +2526,7 @@ struct file_operations ll_file_operations = {
 #ifdef HAVE_KERNEL_SENDFILE
         .sendfile       = ll_file_sendfile,
 #endif
-#ifdef HAVE_KERNEL_SPLICE_READ
         .splice_read    = ll_file_splice_read,
-#endif
         .fsync          = ll_fsync,
         .flush          = ll_flush
 };
@@ -2552,9 +2548,7 @@ struct file_operations ll_file_operations_flock = {
 #ifdef HAVE_KERNEL_SENDFILE
         .sendfile       = ll_file_sendfile,
 #endif
-#ifdef HAVE_KERNEL_SPLICE_READ
         .splice_read    = ll_file_splice_read,
-#endif
         .fsync          = ll_fsync,
         .flush          = ll_flush,
         .flock          = ll_file_flock,
@@ -2579,9 +2573,7 @@ struct file_operations ll_file_operations_noflock = {
 #ifdef HAVE_KERNEL_SENDFILE
         .sendfile       = ll_file_sendfile,
 #endif
-#ifdef HAVE_KERNEL_SPLICE_READ
         .splice_read    = ll_file_splice_read,
-#endif
         .fsync          = ll_fsync,
         .flush          = ll_flush,
         .flock          = ll_file_noflock,

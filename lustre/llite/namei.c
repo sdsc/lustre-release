@@ -1221,10 +1221,7 @@ static int ll_rename(struct inode *old_dir, struct dentry *old_dentry,
                                  new_dir, NULL, new_dentry,
                                  &new_dentry->d_name);
         if (!err) {
-#ifndef HAVE_FS_RENAME_DOES_D_MOVE
-                if (!S_ISDIR(old_dentry->d_inode->i_mode))
-#endif
-                        d_move(old_dentry, new_dentry);
+                d_move(old_dentry, new_dentry);
         }
         return err;
 }
