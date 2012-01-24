@@ -1938,10 +1938,12 @@ int ll_flush(struct file *file)
         return rc ? -EIO : 0;
 }
 
-#ifndef HAVE_FILE_FSYNC_2ARGS
-int ll_fsync(struct file *file, struct dentry *dentry, int data)
-#else
+#ifdef HAVE_FILE_FSYNC_4ARGS
+int ll_fsync(struct file *file, loff_t start, loff_t end, int data)
+#elif defined(HAVE_FILE_FSYNC_2ARGS)
 int ll_fsync(struct file *file, int data)
+#else
+int ll_fsync(struct file *file, struct dentry *dentry, int data)
 #endif
 {
         struct inode *inode = file->f_dentry->d_inode;
@@ -1957,7 +1959,7 @@ int ll_fsync(struct file *file, int data)
 
         /* fsync's caller has already called _fdata{sync,write}, we want
          * that IO to finish before calling the osc and mdc sync methods */
-        rc = filemap_fdatawait(inode->i_mapping);
+        rc = cfs_filemap_fdatawait_range(inode->i_mapping, start, end);
 
         /* catch async errors that were recorded back when async writeback
          * failed for pages in this mapping. */

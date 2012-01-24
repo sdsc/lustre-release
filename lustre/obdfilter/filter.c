@@ -4366,7 +4366,8 @@ static int filter_sync(struct obd_export *exp, struct obd_info *oinfo,
                 if (file->f_op && file->f_op->fsync)
                         rc = file->f_op->fsync(NULL, dentry, 1);
 
-                rc2 = filemap_fdatawait(dentry->d_inode->i_mapping);
+                rc2 = cfs_filemap_fdatawait_range(dentry->d_inode->i_mapping,
+                                                  start, end);
                 if (!rc)
                         rc = rc2;
         }

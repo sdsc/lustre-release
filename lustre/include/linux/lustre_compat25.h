@@ -394,6 +394,14 @@ int filemap_fdatawrite_range(struct address_space *mapping,
                              loff_t start, loff_t end);
 #endif /* HAVE_FILEMAP_FDATAWRITE_RANGE */
 
+#ifdef HAVE_FILE_FSYNC_4ARGS
+#define cfs_filemap_fdatawait_range(mapping, start_byte, end_byte) \
+        filemap_fdatawait_range(mapping, start_byte, end_byte)
+#else
+#define cfs_filemap_fdatawait_range(mapping, start_byte, end_byte) \
+        filemap_fdatawait(mapping)
+#endif
+
 #ifdef HAVE_VFS_KERN_MOUNT
 static inline struct vfsmount *
 ll_kern_mount(const char *fstype, int flags, const char *name, void *data)
