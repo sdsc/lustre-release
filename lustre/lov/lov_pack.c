@@ -319,6 +319,7 @@ int lov_alloc_memmd(struct lov_stripe_md **lsmp, __u16 stripe_count,
         }
 
         cfs_spin_lock_init(&(*lsmp)->lsm_lock);
+        cfs_atomic_set(&(*lsmp)->lsm_refcount, 1);
         (*lsmp)->lsm_magic = magic;
         (*lsmp)->lsm_stripe_count = stripe_count;
         (*lsmp)->lsm_maxbytes = LUSTRE_STRIPE_MAXBYTES * stripe_count;
@@ -396,6 +397,7 @@ int lov_unpackmd(struct obd_export *exp,  struct lov_stripe_md **lsmp,
                 RETURN(rc);
         }
 
+        cfs_atomic_set(&(*lsmp)->lsm_refcount, 1);
         RETURN(lsm_size);
 }
 

@@ -275,6 +275,9 @@ static int slp_io_init(const struct lu_env *env, struct cl_object *obj,
                 }
 
         }
+
+        if (result == 0)
+                return ccc_io_init(env, obj, io);
         return result;
 }
 

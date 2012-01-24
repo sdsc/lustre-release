@@ -671,7 +671,8 @@ void ccc_lock_state(const struct lu_env *env,
          * of finding lock in the cache.
          */
         if (state == CLS_HELD && lock->cll_state < CLS_HELD) {
-                int rc;
+                struct lov_stripe_md *lsm;
+                int                   rc;
 
                 obj   = slice->cls_obj;
                 inode = ccc_object_inode(obj);
@@ -687,7 +688,7 @@ void ccc_lock_state(const struct lu_env *env,
                  * cancel the result of the truncate.  Getting the
                  * ll_inode_size_lock() after the enqueue maintains the DLM
                  * -> ll_inode_size_lock() acquiring order. */
-                cl_isize_lock(inode, 0);
+                lsm = cl_isize_lock(inode, 0);
                 cl_object_attr_lock(obj);
                 rc = cl_object_attr_get(env, obj, attr);
                 if (rc == 0) {
@@ -706,8 +707,58 @@ void ccc_lock_state(const struct lu_env *env,
                         CL_LOCK_DEBUG(D_INFO, env, lock, "attr_get: %d\n", rc);
                 }
                 cl_object_attr_unlock(obj);
-                cl_isize_unlock(inode, 0);
+                cl_isize_unlock(inode, &lsm, 0);
         }
+        EXIT;
+}
+
+/*****************************************************************************
+ *
+ * layout operations.
+ *
+ */
+
+/**
+ * Return the layout (i.e. lsm) associated with an inode.
+ * \param inode is the inode for which we would like to get the layout
+ * \retval lsm is the layout
+ */
+struct lov_stripe_md *lsm_get(struct inode *inode)
+{
+        struct cl_inode_info *lli = cl_i2info(inode);
+        struct lov_stripe_md *lsm;
+        ENTRY;
+
+        /* This function should enqueue the layout lock for regular files
+         * in the future */
+        lsm = lsm_addref(lli->lli_smd);
+        RETURN(lsm);
+}
+
+/*
+ * Companion of ll_lsm_get. Release a reference on a lsm, last ref frees it.
+ * lsmp may be different from ll_i2info(inode)->lli_smd.
+ * \param struct inode *inode entry inode
+ * \param struct lov_stripe_md **lsmp lsm, set to NULL if freed
+ */
+void lsm_put(struct inode *inode, struct lov_stripe_md **lsmp)
+{
+        struct cl_inode_info *lli = cl_i2info(inode);
+        ENTRY;
+
+        if (lsm_decref(*lsmp)) {
+                /* inode lsm must be set to NULL after free only if
+                 * it did not change since the get */
+                if (*lsmp == lli->lli_smd) {
+                        cl_inode_info_down(lli);
+                        obd_free_memmd(cl_i2sbi(inode)->ll_dt_exp,
+                                       &lli->lli_smd);
+                        cl_inode_info_up(lli);
+                } else {
+                        obd_free_memmd(cl_i2sbi(inode)->ll_dt_exp, lsmp);
+                }
+        }
+        *lsmp = NULL;
         EXIT;
 }
 
@@ -717,11 +768,28 @@ void ccc_lock_state(const struct lu_env *env,
  *
  */
 
+int ccc_io_init(const struct lu_env *env, struct cl_object *obj,
+                struct cl_io *io)
+{
+        struct inode *inode = ccc_object_inode(io->ci_obj);
+        ENTRY;
+
+        LASSERT(io->ci_lsm == NULL);
+
+        /* get lsm reference which is released in ccc_io_fini() */
+        io->ci_lsm = lsm_get(inode);
+
+        RETURN(0);
+}
+
 void ccc_io_fini(const struct lu_env *env, const struct cl_io_slice *ios)
 {
-        struct cl_io *io = ios->cis_io;
+        struct cl_io *io    = ios->cis_io;
+        struct inode *inode = ccc_object_inode(io->ci_obj);
 
         CLOBINVRNT(env, io->ci_obj, ccc_object_invariant(io->ci_obj));
+
+        lsm_put(inode, &io->ci_lsm);
 }
 
 int ccc_io_one_lock_index(const struct lu_env *env, struct cl_io *io,
@@ -828,20 +896,23 @@ void ccc_io_advance(const struct lu_env *env,
         }
 }
 
-static void ccc_object_size_lock(struct cl_object *obj)
+static struct lov_stripe_md *ccc_object_size_lock(struct cl_object *obj)
 {
-        struct inode *inode = ccc_object_inode(obj);
+        struct inode         *inode = ccc_object_inode(obj);
+        struct lov_stripe_md *lsm = NULL;
 
-        cl_isize_lock(inode, 0);
+        lsm = cl_isize_lock(inode, 0);
         cl_object_attr_lock(obj);
+        return lsm;
 }
 
-static void ccc_object_size_unlock(struct cl_object *obj)
+static void ccc_object_size_unlock(struct cl_object *obj,
+                                   struct lov_stripe_md **lsmp)
 {
         struct inode *inode = ccc_object_inode(obj);
 
         cl_object_attr_unlock(obj);
-        cl_isize_unlock(inode, 0);
+        cl_isize_unlock(inode, lsmp, 0);
 }
 
 /**
@@ -858,11 +929,12 @@ static void ccc_object_size_unlock(struct cl_object *obj)
 int ccc_prep_size(const struct lu_env *env, struct cl_object *obj,
                   struct cl_io *io, loff_t start, size_t count, int *exceed)
 {
-        struct cl_attr *attr  = ccc_env_thread_attr(env);
-        struct inode   *inode = ccc_object_inode(obj);
-        loff_t          pos   = start + count - 1;
-        loff_t kms;
-        int result;
+        struct lov_stripe_md *lsm;
+        struct cl_attr       *attr  = ccc_env_thread_attr(env);
+        struct inode         *inode = ccc_object_inode(obj);
+        loff_t                pos   = start + count - 1;
+        loff_t                kms;
+        int                   result;
 
         /*
          * Consistency guarantees: following possibilities exist for the
@@ -883,7 +955,7 @@ int ccc_prep_size(const struct lu_env *env, struct cl_object *obj,
          * ll_inode_size_lock(). This guarantees that short reads are handled
          * correctly in the face of concurrent writes and truncates.
          */
-        ccc_object_size_lock(obj);
+        lsm = ccc_object_size_lock(obj);
         result = cl_object_attr_get(env, obj, attr);
         if (result == 0) {
                 kms = attr->cat_kms;
@@ -893,7 +965,7 @@ int ccc_prep_size(const struct lu_env *env, struct cl_object *obj,
                          * return a short read (B) or some zeroes at the end
                          * of the buffer (C)
                          */
-                        ccc_object_size_unlock(obj);
+                        ccc_object_size_unlock(obj, &lsm);
                         result = cl_glimpse_lock(env, io, inode, obj, 0);
                         if (result == 0 && exceed != NULL) {
                                 /* If objective page index exceed end-of-file
@@ -930,7 +1002,7 @@ int ccc_prep_size(const struct lu_env *env, struct cl_object *obj,
                         }
                 }
         }
-        ccc_object_size_unlock(obj);
+        ccc_object_size_unlock(obj, &lsm);
         return result;
 }
 

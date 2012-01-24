@@ -152,7 +152,7 @@ void llu_update_inode(struct inode *inode, struct lustre_md *md)
         if (lsm != NULL) {
                 if (lli->lli_smd == NULL) {
                         cl_file_inode_init(inode, md);
-                        lli->lli_smd = lsm;
+                        lli->lli_smd = lsm_addref(lsm);
                         lli->lli_maxbytes = lsm->lsm_maxbytes;
                         if (lli->lli_maxbytes > PAGE_CACHE_MAXBYTES)
                                 lli->lli_maxbytes = PAGE_CACHE_MAXBYTES;
@@ -272,11 +272,12 @@ int llu_inode_getattr(struct inode *inode, struct obdo *obdo,
 {
         struct llu_inode_info *lli = llu_i2info(inode);
         struct ptlrpc_request_set *set;
-        struct lov_stripe_md *lsm = lli->lli_smd;
+        struct lov_stripe_md *lsm;
         struct obd_info oinfo = { { { 0 } } };
         int rc;
         ENTRY;
 
+        lsm = lsm_get(inode);
         LASSERT(lsm);
 
         oinfo.oi_md = lsm;
@@ -306,8 +307,10 @@ int llu_inode_getattr(struct inode *inode, struct obdo *obdo,
                         rc = ptlrpc_set_wait(set);
                 ptlrpc_set_destroy(set);
         }
-        if (rc)
+        if (rc) {
+                lsm_put(inode, &lsm);
                 RETURN(rc);
+        }
 
         oinfo.oi_oa->o_valid = OBD_MD_FLBLOCKS | OBD_MD_FLBLKSZ |
                                OBD_MD_FLMTIME | OBD_MD_FLCTIME |
@@ -319,6 +322,7 @@ int llu_inode_getattr(struct inode *inode, struct obdo *obdo,
                (long long unsigned)llu_i2stat(inode)->st_size,
                (long long unsigned)llu_i2stat(inode)->st_blocks,
                (long long unsigned)llu_i2stat(inode)->st_blksize);
+        lsm_put(inode, &lsm);
         RETURN(0);
 }
 
@@ -445,8 +449,7 @@ static int llu_inode_revalidate(struct inode *inode)
 
 
                 llu_update_inode(inode, &md);
-                if (md.lsm != NULL && lli->lli_smd != md.lsm)
-                        obd_free_memmd(sbi->ll_dt_exp, &md.lsm);
+                lsm_put(inode, &md.lsm);
                 ptlrpc_req_finished(req);
         }
 
@@ -530,10 +533,7 @@ void llu_clear_inode(struct inode *inode)
 
         cl_inode_fini(inode);
 
-        if (lli->lli_smd) {
-                obd_free_memmd(sbi->ll_dt_exp, &lli->lli_smd);
-                lli->lli_smd = NULL;
-        }
+        lsm_put(inode, &lli->lli_smd);
 
         if (lli->lli_symlink_name) {
                 OBD_FREE(lli->lli_symlink_name,
@@ -678,7 +678,7 @@ static int llu_setattr_done_writing(struct inode *inode,
  */
 int llu_setattr_raw(struct inode *inode, struct iattr *attr)
 {
-        struct lov_stripe_md *lsm = llu_i2info(inode)->lli_smd;
+        struct lov_stripe_md *lsm;
         struct intnl_stat *st = llu_i2stat(inode);
         int ia_valid = attr->ia_valid;
         struct md_op_data op_data = { { 0 } };
@@ -721,6 +721,7 @@ int llu_setattr_raw(struct inode *inode, struct iattr *attr)
 
         /* NB: ATTR_SIZE will only be set after this point if the size
          * resides on the MDS, ie, this file has no objects. */
+        lsm = lsm_get(inode);
         if (lsm)
                 attr->ia_valid &= ~ATTR_SIZE;
 
@@ -735,15 +736,19 @@ int llu_setattr_raw(struct inode *inode, struct iattr *attr)
                     (ia_valid & ATTR_SIZE))
                         op_data.op_flags = MF_EPOCH_OPEN;
                 rc = llu_md_setattr(inode, &op_data, &mod);
-                if (rc)
+                if (rc) {
+                        lsm_put(inode, &lsm);
                         RETURN(rc);
+                }
 
                 llu_ioepoch_open(llu_i2info(inode), op_data.op_ioepoch);
                 if (!lsm || !S_ISREG(st->st_mode)) {
+                        lsm_put(inode, &lsm);
                         CDEBUG(D_INODE, "no lsm: not setting attrs on OST\n");
                         GOTO(out, rc);
                 }
         } else {
+                lsm_put(inode, &lsm);
                 /* The OST doesn't check permissions, but the alternative is
                  * a gratuitous RPC to the MDS.  We already rely on the client
                  * to do read/write/truncate permission checks, so is mtime OK?
@@ -1618,7 +1623,8 @@ static int llu_lov_dir_setstripe(struct inode *ino, unsigned long arg)
                 }
         case LOV_USER_MAGIC_V3: {
                 if (lum.lmm_magic != cpu_to_le32(LOV_USER_MAGIC_V3))
-                        lustre_swab_lov_user_md_v3((struct lov_user_md_v3 *)&lum);
+                        lustre_swab_lov_user_md_v3(
+                                                 (struct lov_user_md_v3 *)&lum);
                 break;
                 }
         default: {
@@ -1735,13 +1741,19 @@ static int llu_lov_setstripe(struct inode *ino, unsigned long arg)
 
 static int llu_lov_getstripe(struct inode *ino, unsigned long arg)
 {
-        struct lov_stripe_md *lsm = llu_i2info(ino)->lli_smd;
+        struct lov_stripe_md *lsm;
+        int rc;
 
-        if (!lsm)
+        lsm = lsm_get(ino);
+        if (!lsm) {
+                lsm_put(ino, &lsm);
                 RETURN(-ENODATA);
+        }
 
-        return obd_iocontrol(LL_IOC_LOV_GETSTRIPE, llu_i2obdexp(ino), 0, lsm,
-                            (void *)arg);
+        rc = obd_iocontrol(LL_IOC_LOV_GETSTRIPE, llu_i2obdexp(ino), 0, lsm,
+                           (void *)arg);
+        lsm_put(ino, &lsm);
+        return rc;
 }
 
 static int llu_iop_ioctl(struct inode *ino, unsigned long int request,

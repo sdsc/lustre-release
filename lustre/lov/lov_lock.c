@@ -318,7 +318,7 @@ static int lov_lock_sub_init(const struct lu_env *env,
                  * XXX for wide striping smarter algorithm is desirable,
                  * breaking out of the loop, early.
                  */
-                if (lov_stripe_intersects(r0->lo_lsm, i,
+                if (lov_stripe_intersects(io->ci_lsm, i,
                                           file_start, file_end, &start, &end))
                         nr++;
         }
@@ -336,7 +336,7 @@ static int lov_lock_sub_init(const struct lu_env *env,
          * top-lock.
          */
         for (i = 0, nr = 0; i < r0->lo_nr; ++i) {
-                if (lov_stripe_intersects(r0->lo_lsm, i,
+                if (lov_stripe_intersects(io->ci_lsm, i,
                                           file_start, file_end, &start, &end)) {
                         struct cl_lock_descr *descr;
 
