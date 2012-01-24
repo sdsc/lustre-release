@@ -160,6 +160,11 @@ static inline struct cl_lock *echo_lock2cl(const struct echo_lock *ecl)
         return ecl->el_cl.cls_lock;
 }
 
+static inline struct echo_io *cl2echo_io(const struct cl_io_slice *s)
+{
+        return container_of(s, struct echo_io, ei_cl);
+}
+
 static struct lu_context_key echo_thread_key;
 static inline struct echo_thread_info *echo_env_info(const struct lu_env *env)
 {
@@ -222,6 +227,7 @@ static cfs_mem_cache_t *echo_page_kmem;
 static cfs_mem_cache_t *echo_lock_kmem;
 static cfs_mem_cache_t *echo_object_kmem;
 static cfs_mem_cache_t *echo_thread_kmem;
+static cfs_mem_cache_t *echo_io_kmem;
 static cfs_mem_cache_t *echo_session_kmem;
 //static cfs_mem_cache_t *echo_req_kmem;
 
@@ -251,13 +257,11 @@ static struct lu_kmem_descr echo_caches[] = {
                 .ckd_name  = "echo_session_kmem",
                 .ckd_size  = sizeof (struct echo_session_info)
         },
-#if 0
         {
-                .ckd_cache = &echo_req_kmem,
-                .ckd_name  = "echo_req_kmem",
-                .ckd_size  = sizeof (struct echo_req)
+                .ckd_cache = &echo_io_kmem,
+                .ckd_name  = "echo_io_kmem",
+                .ckd_size  = sizeof (struct echo_io)
         },
-#endif
         {
                 .ckd_cache = NULL
         }
@@ -412,6 +416,40 @@ static struct cl_lock_operations echo_lock_ops = {
 
 /** @} echo_lock */
 
+/** \defgroup echo_io_ops cl_io operations
+ *
+ * i/o operations for cl_object
+ *
+ * @{
+ */
+
+static void echo_io_fini(const struct lu_env *env,
+                         const struct cl_io_slice *slice)
+{
+        struct cl_io   *io = slice->cis_io;
+        struct echo_io *ei = cl2echo_io(slice);
+
+        lsm_decref(io->ci_lsm);
+
+        OBD_SLAB_FREE_PTR(ei, echo_io_kmem);
+}
+
+static const struct cl_io_operations echo_io_ops = {
+        .op = {
+                [CIT_READ] = {
+                        .cio_fini = echo_io_fini,
+                },
+                [CIT_WRITE] = {
+                        .cio_fini = echo_io_fini,
+                },
+                [CIT_MISC] = {
+                        .cio_fini = echo_io_fini,
+                },
+        },
+};
+
+/** @} echo_io_ops */
+
 /** \defgroup echo_cl_ops cl_object operations
  *
  * operations for cl_object
@@ -440,7 +478,22 @@ static struct cl_page *echo_page_init(const struct lu_env *env,
 static int echo_io_init(const struct lu_env *env, struct cl_object *obj,
                         struct cl_io *io)
 {
-        return 0;
+        struct echo_object *eco = cl2echo_obj(obj);
+        struct echo_io     *ei;
+        ENTRY;
+
+        LASSERT(io->ci_lsm == NULL);
+        /* grab reference on the lsm of the echo object */
+        io->ci_lsm = lsm_addref(eco->eo_lsm);
+
+        /* initialize echo i/o operations to register a echo_io_fini() handler
+         * which can release the lsm reference grabbed in this function */
+        OBD_SLAB_ALLOC_PTR_GFP(ei, echo_io_kmem, CFS_ALLOC_IO);
+        if (!ei)
+                RETURN(-ENOMEM);
+        CL_IO_SLICE_CLEAN(ei, ei_cl);
+        cl_io_slice_add(io, &ei->ei_cl, obj, &echo_io_ops);
+        RETURN(0);
 }
 
 static int echo_lock_init(const struct lu_env *env,
@@ -505,7 +558,7 @@ static int echo_object_init(const struct lu_env *env, struct lu_object *obj,
                 struct echo_object_conf *econf = cl2echo_conf(cconf);
 
                 LASSERT(econf->eoc_md);
-                eco->eo_lsm = *econf->eoc_md;
+                eco->eo_lsm = lsm_addref(*econf->eoc_md);
                 /* clear the lsm pointer so that it won't get freed. */
                 *econf->eoc_md = NULL;
         } else {
@@ -538,8 +591,11 @@ static void echo_object_free(const struct lu_env *env, struct lu_object *obj)
         lu_object_fini(obj);
         lu_object_header_fini(obj->lo_header);
 
-        if (lsm)
+        if (lsm) {
+                int rc = lsm_decref(lsm);
+                LASSERT(rc);
                 obd_free_memmd(ec->ec_exp, &lsm);
+        }
         OBD_SLAB_FREE_PTR(eco, echo_object_kmem);
         EXIT;
 }
@@ -2134,7 +2190,7 @@ static int echo_create_object(struct echo_device *ed, int on_target,
  failed:
         if (created && rc)
                 obd_destroy(ec->ec_exp, oa, lsm, oti, NULL, NULL);
-        if (lsm)
+        if (lsm && lsm_decref(lsm))
                 obd_free_memmd(ec->ec_exp, &lsm);
         if (rc)
                 CERROR("create object failed with: rc = %d\n", rc);
@@ -2173,7 +2229,7 @@ static int echo_get_object(struct echo_object **ecop, struct echo_device *ed,
                 *ecop = eco;
         else
                 rc = PTR_ERR(eco);
-        if (lsm)
+        if (lsm && lsm_decref(lsm))
                 obd_free_memmd(ec->ec_exp, &lsm);
         RETURN(rc);
 }

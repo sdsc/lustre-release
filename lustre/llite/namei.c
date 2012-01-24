@@ -1082,7 +1082,7 @@ int ll_objects_destroy(struct ptlrpc_request *request, struct inode *dir)
 
         OBDO_ALLOC(oa);
         if (oa == NULL)
-                GOTO(out_free_memmd, rc = -ENOMEM);
+                GOTO(out, rc = -ENOMEM);
 
         oa->o_id = lsm->lsm_object_id;
         oa->o_seq = lsm->lsm_object_seq;
@@ -1105,7 +1105,7 @@ int ll_objects_destroy(struct ptlrpc_request *request, struct inode *dir)
         if (body->valid & OBD_MD_FLOSSCAPA) {
                 rc = md_unpack_capa(ll_i2mdexp(dir), request, &RMF_CAPA2, &oc);
                 if (rc)
-                        GOTO(out_free_memmd, rc);
+                        GOTO(out, rc);
         }
 
         rc = obd_destroy(ll_i2dtexp(dir), oa, lsm, &oti, ll_i2mdexp(dir), oc);
@@ -1114,9 +1114,9 @@ int ll_objects_destroy(struct ptlrpc_request *request, struct inode *dir)
         if (rc)
                 CERROR("obd destroy objid "LPX64" error %d\n",
                        lsm->lsm_object_id, rc);
- out_free_memmd:
-        obd_free_memmd(ll_i2dtexp(dir), &lsm);
- out:
+out:
+        if (lsm)
+                lsm_put(dir, &lsm);
         return rc;
 }
 
@@ -1128,9 +1128,11 @@ static int ll_unlink_generic(struct inode *dir, struct dentry *dparent,
                              struct dentry *dchild, struct qstr *name)
 {
         struct ptlrpc_request *request = NULL;
-        struct md_op_data *op_data;
-        int rc;
+        struct md_op_data     *op_data;
+        struct lov_stripe_md  *lsm;
+        int                    rc;
         ENTRY;
+
         CDEBUG(D_VFSTRACE, "VFS Op:name=%.*s,dir=%lu/%u(%p)\n",
                name->len, name->name, dir->i_ino, dir->i_generation, dir);
 
@@ -1141,10 +1143,13 @@ static int ll_unlink_generic(struct inode *dir, struct dentry *dparent,
         if (unlikely(ll_d_mountpoint(dparent, dchild, name)))
                 RETURN(-EBUSY);
 
+        lsm = lsm_get(dchild->d_inode);
         op_data = ll_prep_md_op_data(NULL, dir, NULL, name->name,
                                      name->len, 0, LUSTRE_OPC_ANY, NULL);
-        if (IS_ERR(op_data))
+        if (IS_ERR(op_data)) {
+                lsm_put(dchild->d_inode, &lsm);
                 RETURN(PTR_ERR(op_data));
+        }
 
         ll_get_child_fid(dir, name, &op_data->op_fid3);
         rc = md_unlink(ll_i2sbi(dir)->ll_md_exp, op_data, &request);
@@ -1157,6 +1162,8 @@ static int ll_unlink_generic(struct inode *dir, struct dentry *dparent,
         rc = ll_objects_destroy(request, dir);
  out:
         ptlrpc_req_finished(request);
+        lsm_put(dchild->d_inode, &lsm);
+
         RETURN(rc);
 }
 

@@ -219,9 +219,10 @@ int llu_iop_open(struct pnode *pnode, int flags, mode_t mode)
         if (!S_ISREG(st->st_mode))
                 GOTO(out_release, rc = 0);
 
-        lsm = lli->lli_smd;
+        lsm = lsm_get(inode);
         if (lsm)
                 flags &= ~O_LOV_DELAY_CREATE;
+        lsm_put(inode, &lsm);
         /*XXX: open_flags are overwritten and the previous ones are lost */
         lli->lli_open_flags = flags & ~(O_CREAT | O_EXCL | O_TRUNC);
 
@@ -287,7 +288,7 @@ int llu_objects_destroy(struct ptlrpc_request *req, struct inode *dir)
 
         OBDO_ALLOC(oa);
         if (oa == NULL)
-                GOTO(out_free_memmd, rc = -ENOMEM);
+                GOTO(out, rc = -ENOMEM);
 
         oa->o_id = lsm->lsm_object_id;
         oa->o_seq = lsm->lsm_object_seq;
@@ -313,9 +314,9 @@ int llu_objects_destroy(struct ptlrpc_request *req, struct inode *dir)
         if (rc)
                 CERROR("obd destroy objid 0x"LPX64" error %d\n",
                        lsm->lsm_object_id, rc);
- out_free_memmd:
-        obd_free_memmd(llu_i2obdexp(dir), &lsm);
- out:
+out:
+        if (lsm)
+                lsm_put(dir, &lsm);
         return rc;
 }
 

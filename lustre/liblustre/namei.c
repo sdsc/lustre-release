@@ -149,7 +149,7 @@ int llu_md_blocking_ast(struct ldlm_lock *lock,
                     lock->l_resource->lr_name.name[1] != fid_oid(fid) ||
                     lock->l_resource->lr_name.name[2] != fid_ver(fid)) {
                         LDLM_ERROR(lock,"data mismatch with ino %llu/%llu/%llu",
-                                  (long long)fid_seq(fid), 
+                                  (long long)fid_seq(fid),
                                   (long long)fid_oid(fid),
                                   (long long)fid_ver(fid));
                 }
@@ -343,11 +343,14 @@ static int lookup_it_finish(struct ptlrpc_request *request, int offset,
                 inode = llu_iget(parent->i_fs, &md);
                 if (!inode || IS_ERR(inode)) {
                         /* free the lsm if we allocated one above */
-                        if (md.lsm != NULL)
+                        if (md.lsm != NULL) {
+                                lsm_decref(md.lsm);
                                 obd_free_memmd(sbi->ll_dt_exp, &md.lsm);
+                        }
                         RETURN(inode ? PTR_ERR(inode) : -ENOMEM);
                 } else if (md.lsm != NULL &&
                            llu_i2info(inode)->lli_smd != md.lsm) {
+                        lsm_decref(md.lsm);
                         obd_free_memmd(sbi->ll_dt_exp, &md.lsm);
                 }
 
@@ -357,15 +360,17 @@ static int lookup_it_finish(struct ptlrpc_request *request, int offset,
                 /* If this is a stat, get the authoritative file size */
                 if (it->it_op == IT_GETATTR && S_ISREG(st->st_mode) &&
                     lli->lli_smd != NULL) {
-                        struct lov_stripe_md *lsm = lli->lli_smd;
+                        struct lov_stripe_md *lsm;
                         ldlm_error_t rc;
 
+                        lsm = lsm_get(inode);
                         LASSERT(lsm->lsm_object_id != 0);
 
                         /* bug 2334: drop MDS lock before acquiring OST lock */
                         ll_intent_drop_lock(it);
 
                         rc = cl_glimpse_size(inode);
+                        lsm_put(inode, &lsm);
                         if (rc) {
                                 I_RELE(inode);
                                 RETURN(rc);
