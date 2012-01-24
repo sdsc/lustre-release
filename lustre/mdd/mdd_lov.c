@@ -258,6 +258,7 @@ static int mdd_lov_set_stripe_md(const struct lu_env *env,
                            &lsm, buf->lb_buf);
         if (rc)
                 RETURN(rc);
+        lsm_decref(lsm);
         obd_free_memmd(lov_exp, &lsm);
 
         rc = mdd_xattr_set_txn(env, obj, buf, XATTR_NAME_LOV, 0, handle);
@@ -586,8 +587,10 @@ int mdd_lov_create(const struct lu_env *env, struct mdd_device *mdd,
 out_oti:
         oti_free_cookies(oti);
 out_ids:
-        if (lsm)
+        if (lsm) {
+                lsm_decref(lsm);
                 obd_free_memmd(lov_exp, &lsm);
+        }
 
         return rc;
 }
@@ -640,6 +643,7 @@ int mdd_lovobj_unlink(const struct lu_env *env, struct mdd_device *mdd,
 
         rc = obd_destroy(lov_exp, oa, lsm, oti, NULL, NULL);
 
+        lsm_decref(lsm);
         obd_free_memmd(lov_exp, &lsm);
         RETURN(rc);
 }
@@ -795,6 +799,7 @@ int mdd_log_op_setattr(struct obd_device *obd, __u32 uid, __u32 gid,
 
         OBD_FREE(lsr, sizeof(*lsr));
  out:
+        lsm_decref(lsm);
         obd_free_memmd(mds->mds_lov_exp, &lsm);
         RETURN(rc);
 }
@@ -868,8 +873,10 @@ static int mdd_osc_setattr_async(struct obd_device *obd, __u32 uid, __u32 gid,
                 CDEBUG(D_INODE, "mds to ost setattr objid 0x"LPX64
                        " on ost error %d\n", oinfo.oi_md->lsm_object_id, rc);
 out:
-        if (oinfo.oi_md)
+        if (oinfo.oi_md) {
+                lsm_decref(oinfo.oi_md);
                 obd_free_memmd(mds->mds_lov_exp, &oinfo.oi_md);
+        }
         OBDO_FREE(oinfo.oi_oa);
         RETURN(rc);
 }
@@ -1024,6 +1031,7 @@ int mdd_file_lock(const struct lu_env *env, struct md_object *obj,
         if (rc)
                 einfo.ei_cbdata = NULL;
 
+        lsm_decref(lsm);
         obd_unpackmd(lov_exp, &lsm, NULL, 0);
 
 out:
@@ -1055,6 +1063,7 @@ int mdd_file_unlock(const struct lu_env *env, struct md_object *obj,
 
         rc = obd_cancel(lov_exp, lsm, LCK_GROUP, lockh);
 
+        lsm_decref(lsm);
         obd_unpackmd(lov_exp, &lsm, NULL, 0);
 
         RETURN(rc);
