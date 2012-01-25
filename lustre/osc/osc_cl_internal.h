@@ -100,6 +100,22 @@ struct osc_thread_info {
         struct cl_page_list     oti_plist;
 };
 
+/**
+ * Manage osc_async_page
+ */
+struct osc_oap_pages {
+        cfs_list_t      oop_pending;
+        cfs_list_t      oop_urgent;
+        int             oop_num_pending;
+};
+
+static inline void osc_oap_pages_init(struct osc_oap_pages *list)
+{
+        CFS_INIT_LIST_HEAD(&list->oop_pending);
+        CFS_INIT_LIST_HEAD(&list->oop_urgent);
+        list->oop_num_pending = 0;
+}
+
 struct osc_object {
         struct cl_object   oo_cl;
         struct lov_oinfo  *oo_oinfo;
@@ -125,6 +141,16 @@ struct osc_object {
          * locked during take-off and landing.
          */
         cfs_spinlock_t     oo_seatbelt;
+
+        /**
+         * used by the osc to keep track of what objects to build into rpcs
+         */
+        struct osc_oap_pages oo_read_pages;
+        struct osc_oap_pages oo_write_pages;
+        cfs_list_t           oo_ready_item;
+        cfs_list_t           oo_hp_ready_item;
+        cfs_list_t           oo_write_item;
+        cfs_list_t           oo_read_item;
 };
 
 /*
