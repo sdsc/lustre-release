@@ -264,7 +264,7 @@ static int ldlm_lock_busy(struct ldlm_lock *lock)
                 return 0;
 
         cfs_spin_lock_bh(&lock->l_export->exp_rpc_lock);
-        cfs_list_for_each_entry(req, &lock->l_export->exp_queued_rpc,
+        cfs_list_for_each_entry(req, &lock->l_export->exp_hp_rpcs,
                                 rq_exp_list) {
                 if (req->rq_ops->hpreq_lock_match) {
                         match = req->rq_ops->hpreq_lock_match(req, lock);
@@ -704,7 +704,7 @@ static void ldlm_lock_reorder_req(struct ldlm_lock *lock)
         }
 
         cfs_spin_lock_bh(&lock->l_export->exp_rpc_lock);
-        cfs_list_for_each_entry(req, &lock->l_export->exp_queued_rpc,
+        cfs_list_for_each_entry(req, &lock->l_export->exp_hp_rpcs,
                                 rq_exp_list) {
                 /* Do not process requests that were not yet added to there
                  * incoming queue or were already removed from there for
