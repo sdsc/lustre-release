@@ -83,7 +83,7 @@ static void ldlm_extent_internal_policy_fixup(struct ldlm_lock *req,
         /* we need to ensure that the lock extent is properly aligned to what
          * the client requested.  We align it to the lowest-common denominator
          * of the clients requested lock start and end alignment. */
-        mask = 0x1000ULL;
+        mask = CFS_PAGE_SIZE;
         req_align = (req_end + 1) | req_start;
         if (req_align != 0) {
                 while ((req_align & mask) == 0)
