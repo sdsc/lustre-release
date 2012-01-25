@@ -22,7 +22,7 @@ for num in $(seq $MDSCOUNT); do
 done
 MDSDEVBASE=${MDSDEVBASE:-$TMP/${FSNAME}-mdt}
 MDSSIZE=${MDSSIZE:-200000}
-MDSOPT=${MDSOPT:-"--mountfsoptions=errors=remount-ro,user_xattr,acl"}
+MDSOPT=${MDSOPT:-"--mountfsoptions=user_xattr"}
 
 MGSDEV=${MGSDEV:-$MDSDEV1}
 MGSSIZE=${MGSSIZE:-$MDSSIZE}
@@ -43,12 +43,12 @@ STRIPE_BYTES=${STRIPE_BYTES:-1048576}
 STRIPES_PER_OBJ=${STRIPES_PER_OBJ:-0}
 SINGLEMDS=${SINGLEMDS:-"mds1"}
 TIMEOUT=${TIMEOUT:-20}
-PTLDEBUG=${PTLDEBUG:-0x33f0404}
+PTLDEBUG=${PTLDEBUG:-"vfstrace rpctrace dlmtrace neterror ha config ioctl super"}
 DEBUG_SIZE=${DEBUG_SIZE:-10}
 if [ `grep processor /proc/cpuinfo | wc -l` -gt 5 ]; then
     DEBUG_SIZE=$((`grep processor /proc/cpuinfo | wc -l` * 2))   # promise 2MB for every cpu
 fi
-SUBSYSTEM=${SUBSYSTEM:- 0xffb7e3ff}
+SUBSYSTEM=${SUBSYSTEM:-"all -lnet -lnd -pinger"}
 
 ENABLE_QUOTA=${ENABLE_QUOTA:-""}
 QUOTA_TYPE="ug3"
