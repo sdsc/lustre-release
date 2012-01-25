@@ -42,6 +42,20 @@ Description: source for Lustre filesystem client kernel modules
  can be built for kernels from 2.6.18 - 2.6.26 from it using
  module-assistant or make-kpkg.
 
+Package: lustre-client-modules-dkms
+Section: admin
+Architecture: all
+Priority: optional
+Depends: dkms, debhelper (>= 5.0.0), automake (>=1.7), libsnmp-dev, dpatch
+Description: dkms package for the client kernel modules
+ Lustre is a scalable, secure, robust, highly-available cluster file system.
+ This release is maintained by Whamcloud, Inc. and available from
+ http://wiki.whamcloud.com/
+ .
+ This package contains the kernel client module source. The client kernel
+ modules can be built for kernels from 2.6.18 - 2.6.32 using dkms.
+
+
 Package: lustre-utils
 Section: utils
 Architecture: i386 powerpc amd64 ia64
