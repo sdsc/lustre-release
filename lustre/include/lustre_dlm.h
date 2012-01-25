@@ -795,6 +795,8 @@ struct ldlm_lock {
         /** referenced export object */
         struct obd_export    *l_exp_refs_target;
 #endif
+        /** export blocking list */
+        cfs_list_t            l_exp_list;
 };
 
 struct ldlm_resource {
