@@ -81,13 +81,15 @@ static void ldlm_extent_internal_policy_fixup(struct ldlm_lock *req,
         }
 
         /* we need to ensure that the lock extent is properly aligned to what
-         * the client requested.  We align it to the lowest-common denominator
-         * of the clients requested lock start and end alignment. */
-        mask = 0x1000ULL;
+         * the client requested. Also we need to make sure it's also server
+         * page size aligned otherwise a server page can be covered by two
+         * write locks. */
+        mask = CFS_PAGE_SIZE;
         req_align = (req_end + 1) | req_start;
         if (req_align != 0) {
-                while ((req_align & mask) == 0)
-                        mask <<= 1;
+                int bits = cfs_find_first_bit((unsigned long *)&req_align,
+                                              sizeof(req_align));
+                mask = max_t(__u64, 1 << (bits - 1), mask);
         }
         mask -= 1;
         /* We can only shrink the lock, not grow it.
