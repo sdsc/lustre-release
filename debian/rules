@@ -44,7 +44,7 @@ TOP_DIR:=$(shell pwd)
 VERSION=$(shell sed -n -e '1s/.*(\(.*\)) .*/\1/p' debian/changelog)
 #SUPPORTED_KERNELS=2.6.27
 SUPPORTED_KERNELS=2.6.18 2.6.20 2.6.22
-UPVERSION=$(shell echo $VERSION | sed -e 's/-[^-]*$$//')
+UPVERSION=$(shell echo $(VERSION) | cut -d- -f1)
 #KERNEL_VERSION=2.6.27
 # the kernel version to build all of this with
 #KVER=2.6.27-11-generic
@@ -66,7 +66,7 @@ DEV_PKG=lustre-dev
 LIB_PKG=liblustre
 SOURCE_PKG=lustre-source
 MODS_PKG=lustre-client-modules
-
+DKMS_PKG=lustre-client-modules-dkms
 #Build dir
 #BUILDDIR=debian/build
 #SRCDIR=../..
@@ -153,7 +153,7 @@ build-stamp: patch-stamp configure-stamp
 # binary-arch: binary-$(UTILS_PKG) binary-$(TESTS_PKG) binary-$(DEV_PKG) binary-$(LIB_PKG) binary-$(MODS_PKG) binary-kern-mods
 binary-arch: binary-$(UTILS_PKG) binary-$(TESTS_PKG) binary-$(DEV_PKG) binary-$(LIB_PKG)
 
-binary-indep: binary-$(PATCH_PKG) binary-$(SOURCE_PKG)
+binary-indep: binary-$(PATCH_PKG) binary-$(SOURCE_PKG) binary-$(DKMS_PKG)
 
 binary: binary-indep binary-arch
 
@@ -293,6 +293,36 @@ binary-$(SOURCE_PKG): build-stamp
 	dh_md5sums -p $(SOURCE_PKG)
 	dh_builddeb -p $(SOURCE_PKG)
 
+binary-$(DKMS_PKG): build-stamp
+	dh_testdir
+	dh_testroot
+	# create the /usr/src/lustre-client-modules-version
+	dh_installdirs -p $(DKMS_PKG) usr/src/lustre-client-modules-$(UPVERSION)
+	# copy the src
+	rsync -av --exclude='debian/$(DKMS_PKG)/*' --exclude='.git/' \
+	      --link-dest=$(PWD) \
+		. debian/$(DKMS_PKG)/usr/src/lustre-client-modules-$(UPVERSION)
+	#clean it up
+	$(MAKE) -C debian/$(DKMS_PKG)/usr/src/lustre-client-modules-$(UPVERSION) -f debian/rules clean
+
+	# put the dkms conf file in place...
+	sed -e 's/[@]UPVERSION[@]/$(UPVERSION)/' debian/dkms.conf.in > debian/$(DKMS_PKG)/usr/src/lustre-client-modules-$(UPVERSION)/dkms.conf
+	# Stop the build system complaining about the lack of meta files
+	touch debian/$(DKMS_PKG)/usr/src/lustre-client-modules-$(UPVERSION)/META
+	dh_installdocs -p $(DKMS_PKG)
+	dh_install -p $(DKMS_PKG)
+	dh_installdebconf -p $(DKMS_PKG)
+	dh_installchangelogs -p $(DKMS_PKG) lustre/ChangeLog
+	dh_compress -p $(DKMS_PKG)
+	dh_installdeb -p $(DKMS_PKG)
+	dh_strip -p $(DKMS_PKG)
+	dh_fixperms -p $(DKMS_PKG)
+	dh_gencontrol -p $(DKMS_PKG)
+	dh_md5sums -p $(DKMS_PKG)
+	dh_builddeb -p $(DKMS_PKG)
+
+
+
 # if only we could use m-a for this, but this stupid "compliant.list"
 # thing fouls that up
 binary-kern-mods:
@@ -401,7 +431,7 @@ clean:
 	dpatch deapply-all -v
 	-$(MAKE) distclean
 	rm -rf  debian/substvars debian/*.bak debian/*~ *~  *-stamp debian/$(PATCH_PKG)
-	ls -d debian/lustre-client-modules-* | grep -v _KVERS_ | xargs rm -f || true
+	ls -d debian/lustre-client-modules-* | grep -v _KVERS_ | grep -v dkms | xargs rm -f || true
 	# only remove this if the clean was not called from kdist_clean
 	if [ "$$MA_SOURCE_PKG" = "" ]; then \
 		rm -rf  debian/m-a_root; \
