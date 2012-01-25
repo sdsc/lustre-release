@@ -1,0 +1,75 @@
+# lustre kernel module dkms files
+# Created by Guy Coates
+# Copyright 2012 Genome Research Ltd.
+
+MAKE="sh autogen.sh ; ./configure --disable-server --disable-utils --with-linux=$kernel_source_dir ; make"
+CLEAN="make distclean || true"
+
+AUTOINSTALL=yes
+PACKAGE_NAME=lustre-client-modules
+PACKAGE_VERSION=@UPVERSION@
+
+#Restrict builds to the patchess client support matrix.
+BUILD_EXCLUSIVE_KERNEL="^2.6.(1[8-9]|2[0-9]|3[0-2])"
+STRIP="no"
+
+# Module names
+BUILT_MODULE_NAME[0]="lquota"
+BUILT_MODULE_NAME[1]="lvfs"
+BUILT_MODULE_NAME[2]="quotafmt_test"
+BUILT_MODULE_NAME[3]="lustre"
+BUILT_MODULE_NAME[4]="llite_lloop"
+BUILT_MODULE_NAME[5]="mdc"
+BUILT_MODULE_NAME[6]="ptlrpc"
+BUILT_MODULE_NAME[7]="mgc"
+BUILT_MODULE_NAME[8]="obdecho"
+BUILT_MODULE_NAME[9]="osc"
+BUILT_MODULE_NAME[10]="lov"
+BUILT_MODULE_NAME[11]="llog_test"
+BUILT_MODULE_NAME[12]="obdclass"
+BUILT_MODULE_NAME[13]="libcfs"
+BUILT_MODULE_NAME[14]="ksocklnd"
+BUILT_MODULE_NAME[15]="ko2iblnd"
+BUILT_MODULE_NAME[16]="lnet"
+BUILT_MODULE_NAME[17]="lnet_selftest"
+
+# Location of the modules in the source tree after build
+BUILT_MODULE_LOCATION[0]="lustre/quota"
+BUILT_MODULE_LOCATION[1]="lustre/lvfs"
+BUILT_MODULE_LOCATION[2]="lustre/lvfs"
+BUILT_MODULE_LOCATION[3]="lustre/llite"
+BUILT_MODULE_LOCATION[4]="lustre/llite"
+BUILT_MODULE_LOCATION[5]="lustre/mdc"
+BUILT_MODULE_LOCATION[6]="lustre/ptlrpc"
+BUILT_MODULE_LOCATION[7]="lustre/mgc"
+BUILT_MODULE_LOCATION[8]="lustre/obdecho"
+BUILT_MODULE_LOCATION[9]="lustre/osc"
+BUILT_MODULE_LOCATION[10]="lustre/lov"
+BUILT_MODULE_LOCATION[11]="lustre/obdclass"
+BUILT_MODULE_LOCATION[12]="lustre/obdclass"
+BUILT_MODULE_LOCATION[13]="lnet/libcfs"
+BUILT_MODULE_LOCATION[14]="lnet/klnds/socklnd"
+BUILT_MODULE_LOCATION[15]="lnet/klnds/o2iblnd"
+BUILT_MODULE_LOCATION[16]="lnet/lnet"
+BUILT_MODULE_LOCATION[17]="lnet/selftest"
+
+# Final destination of the  modules under  /lib/modules/<kernel>/
+DEST_MODULE_LOCATION[0]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[1]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[2]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[3]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[4]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[5]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[6]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[7]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[8]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[9]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[10]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[11]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[12]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[13]="/updates/kernel/net/lustre"
+DEST_MODULE_LOCATION[14]="/updates/kernel/net/lustre"
+DEST_MODULE_LOCATION[15]="/updates/kernel/net/lustre"
+DEST_MODULE_LOCATION[16]="/updates/kernel/net/lustre"
+DEST_MODULE_LOCATION[17]="/updates/kernel/net/lustre"
+

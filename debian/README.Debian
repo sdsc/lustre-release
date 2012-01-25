@@ -69,6 +69,24 @@ Be aware that this doesn't replace the Documentation and Installation Howtos fro
 
 
 
+5. (Optional). Building client modules with dkms 
+    
+    Lustre client-only kernel modules can built against non-patched, vanilla kernels. This may be
+    more convenient than installing the patched kernel and server modules.
+
+    Installing the lustre-client-modules-dkms package will automatically build modules for all 
+    currently installed kernels using dkms (http://linux.dell.com/dkms/). (You will need to have 
+    the relevent linux-headers packages installed.) When a new kernel is installed on the machine,
+    dkms will automatically build a new set of lustre client modules.
+ 
+    You can also use dkms to create a new deb containing the pre-build kernel modules, suitable for 
+    installing on other machines which may not have a full build environment.
+
+      - dkms build -m lustre-client-modules -v <version> -k <kernel-version>
+      (repeat the above step for all required kernel versions)
+      - dkms mkdeb -m lustre-client-modules -v <version> --all
+      - dkms mkdsc -m lustre-client-modules -v <version> --all
+
 ###########
 Please have also a look into the official documentation for lustre available at:
 
