@@ -3441,7 +3441,7 @@ index_from_ostuuid()
 
 mdtuuid_from_index()
 {
-    $LFS mdts $2 | awk '/^'$1'/ { print $2 }'
+    $LFS mdts $2 | sed -ne "/^$1: /s/.* \(.*\) .*$/\1/p"
 }
 
 remote_node () {
