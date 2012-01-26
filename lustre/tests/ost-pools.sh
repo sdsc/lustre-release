@@ -74,7 +74,7 @@ create_dir() {
 
     mkdir -p $dir
     if [[ -n $4 ]]; then
-        $SETSTRIPE -c $count -p $pool $dir -o $idx
+        $SETSTRIPE -c $count -p $pool $dir -i $idx
     else
         $SETSTRIPE -c $count -p $pool $dir
     fi
@@ -88,7 +88,7 @@ create_file() {
     local count=${3:-"-1"}
     local index=${4:-"-1"}
     rm -f $file
-    $SETSTRIPE -o $index -c $count -p $pool $file
+    $SETSTRIPE -i $index -c $count -p $pool $file
     [[ $? -eq 0 ]] || \
         error "$SETSTRIPE -p $pool $file failed."
 }
@@ -618,7 +618,7 @@ test_6() {
     # pool is specified.
     create_pool_nofail $POOL2
     add_pool $POOL2 "OST0000" "$FSNAME-OST0000_UUID "
-    $SETSTRIPE -o 1 -p $POOL2 $ROOT_POOL/$tfile 2>/dev/null
+    $SETSTRIPE -i 1 -p $POOL2 $ROOT_POOL/$tfile 2>/dev/null
     [[ $? -ne 0 ]] || \
         error "$SETSTRIPE with start index outside the pool did not fail."
 
@@ -1188,7 +1188,7 @@ test_23() {
     sleep 3
     $LFS quota -v -u $TSTUSR $dir
 
-    $LFS setstripe $file -c 1 -p $POOL
+    $SETSTRIPE $file -c 1 -p $POOL
     chown $TSTUSR.$TSTUSR $file
     ls -l $file
     type runas
@@ -1339,7 +1339,7 @@ test_25() {
         df $POOL_ROOT > /dev/null
         sleep 5
         # Make sure OST0 can be striped on
-        $SETSTRIPE -o 0 -c 1 $POOL_ROOT/$tfile
+        $SETSTRIPE -i 0 -c 1 $POOL_ROOT/$tfile
         STR=$($GETSTRIPE $POOL_ROOT/$tfile | grep 0x | cut -f2 | tr -d " ")
         rm $POOL_ROOT/$tfile
         if [[ "$STR" == "0" ]]; then

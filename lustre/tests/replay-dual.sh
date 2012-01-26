@@ -289,11 +289,11 @@ test_14b() {
     wait_destroy_complete
     BEFOREUSED=`df -P $DIR | tail -1 | awk '{ print $3 }'`
     mkdir -p $MOUNT1/$tdir
-    $SETSTRIPE -o 0 $MOUNT1/$tdir
+    $SETSTRIPE -i 0 $MOUNT1/$tdir
     replay_barrier $SINGLEMDS
     createmany -o $MOUNT1/$tdir/$tfile- 5
 
-    $SETSTRIPE -o 0 $MOUNT2/f14b-3
+    $SETSTRIPE -i 0 $MOUNT2/f14b-3
     echo "data" > $MOUNT2/f14b-3
     createmany -o $MOUNT1/$tdir/$tfile-3- 5
     umount $MOUNT2
