@@ -118,24 +118,25 @@ command_t cmdlist[] = {
          "Create a new file with a specific striping pattern or\n"
          "set the default striping pattern on an existing directory or\n"
          "delete the default striping pattern from an existing directory\n"
-         "usage: setstripe [--size|-s stripe_size] [--count|-c stripe_count]\n"
-         "                 [--index|-i|--offset|-o start_ost_index]\n"
-         "                 [--pool|-p <pool>] <directory|filename>\n"
-         "       or \n"
+         "usage: setstripe [--stripe_count|-c <stripe_count>]\n"
+         "                 [--stripe_index|--ost_index|-i <start_ost_idx>]\n"
+         "                 [--stripe_size|-S <stripe_size>]\n"
+         "                 [--pool|-p <pool_name>] <directory|filename>\n"
+         " or\n"
          "       setstripe -d <directory>   (to delete default striping)\n"
          "\tstripe_size:  Number of bytes on each OST (0 filesystem default)\n"
          "\t              Can be specified with k, m or g (in KB, MB and GB\n"
          "\t              respectively)\n"
-         "\tstart_ost_index: OST index of first stripe (-1 default)\n"
+         "\tstart_ost_idx: OST index of first stripe (-1 default)\n"
          "\tstripe_count: Number of OSTs to stripe over (0 default, -1 all)\n"
-         "\tpool:         Name of OST pool to use (default none)"},
+         "\tpool_name:    Name of OST pool to use (default none)"},
         {"getstripe", lfs_getstripe, 0,
          "To list the striping info for a given file or files in a\n"
          "directory or recursively for all files in a directory tree.\n"
          "usage: getstripe [--obd|-O <uuid>] [--quiet | -q] [--verbose | -v]\n"
-         "                 [--count | -c ] [--index | -i | --offset | -o]\n"
-         "                 [--size | -s ] [--pool | -p ] [--directory | -d]\n"
-         "                 [--mdt | -M] [--recursive | -r] [--raw | -R]\n"
+         "                 [--stripe_count|-c] [--stripe_index|--ost_index|-i]\n"
+         "                 [--pool|-p] [--stripe_size|-S] [--directory|-d]\n"
+         "                 [--mdt_index|-M] [--recursive|-r] [--raw|-R]\n"
          "                 <directory|filename> ..."},
         {"pool_list", lfs_poollist, 0,
          "List pools or pool OSTs\n"
@@ -144,11 +145,12 @@ command_t cmdlist[] = {
          "To find files that match given parameters recursively in a directory tree.\n"
          "usage: find <directory|filename> ...\n"
          "     [[!] --atime|-A [+-]N] [[!] --mtime|-M [+-]N] [[!] --ctime|-C [+-]N]\n"
-         "     [--maxdepth|-D N] [[!] --name|-n <pattern>] [--print0|-P]\n"
-         "     [--print|-p] [[!] --obd|-O <uuid[s]>] [[!] --size|-s [+-]N[bkMGTP]]\n"
-         "     [[!] --type|-t <filetype>] [[!] --gid|-g|--group|-G <gid>|<gname>]\n"
-         "     [[!] --uid|-u|--user|-U <uid>|<uname>]\n"
-         "     [[!] --pool <pool>]\n"
+         "     [--maxdepth|-D N] [[!] --name|-n <pattern>] [[!] --ost|-O <uuid,...>]\n"
+         "     [--print|-p] [--print0|-P] [[!] --size|-s [+-]N[bkMGTPE]]\n"
+         "     [[!] --stripe_count|-c [+-]<stripes>] [[!] --stripe_index|-i <index,...>]\n"
+         "     [[!] --stripe_size|-S [+-]N[kMGT]] [[!] --type|-t <filetype>]\n"
+         "     [[!] --gid|-g|--group|-G <gid>|<gname>]\n"
+         "     [[!] --uid|-u|--user|-U <uid>|<uname>] [[!] --pool <pool>]\n"
          "\t !: used before an option indicates 'NOT' the requested attribute\n"
          "\t -: used before an value indicates 'AT MOST' the requested value\n"
          "\t +: used before an option indicates 'AT LEAST' the requested value\n"},
@@ -284,12 +286,20 @@ static int lfs_setstripe(int argc, char **argv)
         unsigned long long size_units = 1;
 
         struct option long_opts[] = {
-                {"count",       required_argument, 0, 'c'},
-                {"delete",      no_argument,       0, 'd'},
-                {"index",       required_argument, 0, 'i'},
-                {"offset",      required_argument, 0, 'o'},
-                {"pool",        required_argument, 0, 'p'},
-                {"size",        required_argument, 0, 's'},
+                {"count",        required_argument, 0, 'c'}, /* deprecate 2.6 */
+                {"stripe_count", required_argument, 0, 'c'},
+                {"stripe-count", required_argument, 0, 'c'},
+                {"delete",       no_argument,       0, 'd'},
+                {"index",        required_argument, 0, 'i'}, /* deprecate 2.6 */
+                {"stripe_index", required_argument, 0, 'i'},
+                {"stripe-index", required_argument, 0, 'i'},
+                {"offset",       required_argument, 0, 'o'}, /* deprecated */
+                {"ost_index",    required_argument, 0, 'i'},
+                {"ost-index",    required_argument, 0, 'i'},
+                {"pool",         required_argument, 0, 'p'},
+                {"size",         required_argument, 0, 's'}, /* deprecate 2.6 */
+                {"stripe_size",  required_argument, 0, 'S'},
+                {"stripe-size",  required_argument, 0, 'S'},
                 {0, 0, 0, 0}
         };
 
@@ -301,15 +311,15 @@ static int lfs_setstripe(int argc, char **argv)
         if (argc == 5 && argv[1][0] != '-' &&
             isnumber(argv[2]) && isnumber(argv[3]) && isnumber(argv[4])) {
                 fprintf(stderr, "error: obsolete usage of setstripe "
-                        "positional parameters.  Use -c, -i, -s instead.\n");
+                        "positional parameters.  Use -c, -i, -S instead.\n");
                 return CMD_HELP;
         } else
 #else
-#warning "remove obsolete positional parameter code"
+#warning "remove obsolete positional parameter error"
 #endif
         {
                 optind = 0;
-                while ((c = getopt_long(argc, argv, "c:di:o:p:s:",
+                while ((c = getopt_long(argc, argv, "c:di:o:p:s:S:",
                                         long_opts, NULL)) >= 0) {
                         switch (c) {
                         case 0:
@@ -327,6 +337,7 @@ static int lfs_setstripe(int argc, char **argv)
                                 stripe_off_arg = optarg;
                                 break;
                         case 's':
+                        case 'S':
                                 stripe_size_arg = optarg;
                                 break;
                         case 'p':
@@ -348,7 +359,7 @@ static int lfs_setstripe(int argc, char **argv)
                     (stripe_size_arg != NULL || stripe_off_arg != NULL ||
                      stripe_count_arg != NULL || pool_name_arg != NULL)) {
                         fprintf(stderr, "error: %s: cannot specify -d with "
-                                        "-s, -c -o or -p options\n",
+                                        "-s, -c, -o, or -p options\n",
                                         argv[0]);
                         return CMD_HELP;
                 }
@@ -364,7 +375,7 @@ static int lfs_setstripe(int argc, char **argv)
         if (stripe_size_arg != NULL) {
                 result = parse_size(stripe_size_arg, &st_size, &size_units, 0);
                 if (result) {
-                        fprintf(stderr, "error: %s: bad size '%s'\n",
+                        fprintf(stderr, "error: %s: bad stripe size '%s'\n",
                                 argv[0], stripe_size_arg);
                         return result;
                 }
@@ -495,32 +506,35 @@ static int id2name(char **name, unsigned int id, int type)
 #define FIND_POOL_OPT 3
 static int lfs_find(int argc, char **argv)
 {
-        int new_fashion = 1;
         int c, ret;
         time_t t;
-        struct find_param param = { .maxdepth = -1, .size_units = 0 };
+        struct find_param param = { .maxdepth = -1, .quiet = 1 };
         struct option long_opts[] = {
-                {"atime",     required_argument, 0, 'A'},
-                {"ctime",     required_argument, 0, 'C'},
-                {"maxdepth",  required_argument, 0, 'D'},
-                {"gid",       required_argument, 0, 'g'},
-                {"group",     required_argument, 0, 'G'},
-                {"mtime",     required_argument, 0, 'M'},
-                {"name",      required_argument, 0, 'n'},
-                /* --obd is considered as a new option. */
-                {"obd",       required_argument, 0, 'O'},
-                {"ost",       required_argument, 0, 'O'},
+                {"atime",        required_argument, 0, 'A'},
+                {"stripe_count", required_argument, 0, 'c'},
+                {"stripe-count", required_argument, 0, 'c'},
+                {"ctime",        required_argument, 0, 'C'},
+                {"maxdepth",     required_argument, 0, 'D'},
+                {"gid",          required_argument, 0, 'g'},
+                {"group",        required_argument, 0, 'G'},
+                {"ost_index",    required_argument, 0, 'i'},
+                {"ost-index",    required_argument, 0, 'i'},
+                {"stripe_index", required_argument, 0, 'i'},
+                {"stripe-index", required_argument, 0, 'i'},
+                {"mtime",        required_argument, 0, 'M'},
+                {"name",         required_argument, 0, 'n'},
+                {"obd",          required_argument, 0, 'O'},
+                {"ost",          required_argument, 0, 'O'},
                 /* no short option for pool, p/P already used */
-                {"pool",      required_argument, 0, FIND_POOL_OPT},
-                {"print0",    no_argument,       0, 'p'},
-                {"print",     no_argument,       0, 'P'},
-                {"quiet",     no_argument,       0, 'q'},
-                {"recursive", no_argument,       0, 'r'},
-                {"size",      required_argument, 0, 's'},
-                {"type",      required_argument, 0, 't'},
-                {"uid",       required_argument, 0, 'u'},
-                {"user",      required_argument, 0, 'U'},
-                {"verbose",   no_argument,       0, 'v'},
+                {"pool",         required_argument, 0, FIND_POOL_OPT},
+                {"print0",       no_argument,       0, 'p'},
+                {"print",        no_argument,       0, 'P'},
+                {"size",         required_argument, 0, 's'},
+                {"stripe_size",  required_argument, 0, 'S'},
+                {"stripe-size",  required_argument, 0, 'S'},
+                {"type",         required_argument, 0, 't'},
+                {"uid",          required_argument, 0, 'u'},
+                {"user",         required_argument, 0, 'U'},
                 {0, 0, 0, 0}
         };
         int pathstart = -1;
@@ -535,7 +549,8 @@ static int lfs_find(int argc, char **argv)
 
         optind = 0;
         /* when getopt_long_only() hits '!' it returns 1, puts "!" in optarg */
-        while ((c = getopt_long_only(argc,argv,"-A:C:D:g:G:M:n:O:Ppqrs:t:u:U:v",
+        while ((c = getopt_long_only(argc, argv,
+                                     "-A:c:C:D:g:G:i:M:n:O:Ppqrs:S:t:u:U:v",
                                      long_opts, NULL)) >= 0) {
                 xtime = NULL;
                 xsign = NULL;
@@ -558,13 +573,8 @@ static int lfs_find(int argc, char **argv)
                 }
                 if (!isoption && pathstart == -1)
                         pathstart = optind - 1;
-                if (isoption && pathstart != -1 && pathend == -1) {
+                if (isoption && pathstart != -1 && pathend == -1)
                         pathend = optind - 2;
-                        if ((c == 1 && strcmp(optarg, "!") == 0) ||
-                            c == 'P' || c == 'p' || c == 'O' ||
-                            c == 'q' || c == 'r' || c == 'v')
-                                pathend = optind - 1;
-                }
                 switch (c) {
                 case 0:
                         /* Long options. */
@@ -580,19 +590,20 @@ static int lfs_find(int argc, char **argv)
                         xtime = &param.atime;
                         xsign = &param.asign;
                         param.exclude_atime = !!neg_opt;
+                        /* no break, this falls through to 'C' for ctime */
                 case 'C':
                         if (c == 'C') {
                                 xtime = &param.ctime;
                                 xsign = &param.csign;
                                 param.exclude_ctime = !!neg_opt;
                         }
+                        /* no break, this falls through to 'M' for mtime */
                 case 'M':
                         if (c == 'M') {
                                 xtime = &param.mtime;
                                 xsign = &param.msign;
                                 param.exclude_mtime = !!neg_opt;
                         }
-                        new_fashion = 1;
                         ret = set_time(&t, xtime, optarg);
                         if (ret == INT_MAX) {
                                 ret = -1;
@@ -601,13 +612,30 @@ static int lfs_find(int argc, char **argv)
                         if (ret)
                                 *xsign = ret;
                         break;
+                case 'c':
+                        if (optarg[0] == '+') {
+                                param.stripecount_sign = -1;
+                                optarg++;
+                        } else if (optarg[0] == '-') {
+                                param.stripecount_sign =  1;
+                                optarg++;
+                        }
+
+                       param.stripecount = strtoul(optarg, &endptr, 0);
+                        if (*endptr != '\0') {
+                                fprintf(stderr,"error: bad stripe_count '%s'\n",
+                                        optarg);
+                                ret = -1;
+                                goto err;
+                        }
+                        param.check_stripecount = 1;
+                        param.exclude_stripecount = !!neg_opt;
+                        break;
                 case 'D':
-                        new_fashion = 1;
                         param.maxdepth = strtol(optarg, 0, 0);
                         break;
                 case 'g':
                 case 'G':
-                        new_fashion = 1;
                         ret = name2id(&param.gid, optarg, GROUP);
                         if (ret) {
                                 param.gid = strtoul(optarg, &endptr, 10);
@@ -623,7 +651,6 @@ static int lfs_find(int argc, char **argv)
                         break;
                 case 'u':
                 case 'U':
-                        new_fashion = 1;
                         ret = name2id(&param.uid, optarg, USER);
                         if (ret) {
                                 param.uid = strtoul(optarg, &endptr, 10);
@@ -638,7 +665,6 @@ static int lfs_find(int argc, char **argv)
                         param.check_uid = 1;
                         break;
                 case FIND_POOL_OPT:
-                        new_fashion = 1;
                         if (strlen(optarg) > LOV_MAXPOOLNAME) {
                                 fprintf(stderr,
                                         "Pool name %s is too long"
@@ -655,10 +681,10 @@ static int lfs_find(int argc, char **argv)
                         param.check_pool = 1;
                         break;
                 case 'n':
-                        new_fashion = 1;
                         param.pattern = (char *)optarg;
                         param.exclude_pattern = !!neg_opt;
                         break;
+                case 'i':
                 case 'O': {
                         char *buf, *token, *next, *p;
                         int len = 1;
@@ -708,19 +734,47 @@ static int lfs_find(int argc, char **argv)
                         break;
                 }
                 case 'p':
-                        new_fashion = 1;
                         param.zeroend = 1;
                         break;
                 case 'P':
                         break;
-                case 'q':
-                        new_fashion = 0;
-                        param.quiet++;
-                        param.verbose = 0;
+                case 's':
+                        if (optarg[0] == '+') {
+                                param.size_sign = -1;
+                                optarg++;
+                        } else if (optarg[0] == '-') {
+                                param.size_sign =  1;
+                                optarg++;
+                        }
+
+                        ret = parse_size(optarg, &param.size,
+                                         &param.size_units, 0);
+                        if (ret) {
+                                fprintf(stderr, "error: bad file size '%s'\n",
+                                        optarg);
+                                goto err;
+                        }
+                        param.check_size = 1;
+                        param.exclude_size = !!neg_opt;
                         break;
-                case 'r':
-                        new_fashion = 0;
-                        param.recursive = 1;
+                case 'S':
+                        if (optarg[0] == '+') {
+                                param.stripesize_sign = -1;
+                                optarg++;
+                        } else if (optarg[0] == '-') {
+                                param.stripesize_sign =  1;
+                                optarg++;
+                        }
+
+                        ret = parse_size(optarg, &param.stripesize,
+                                         &param.stripesize_units, 0);
+                        if (ret) {
+                                fprintf(stderr, "error: bad stripe_size '%s'\n",
+                                        optarg);
+                                goto err;
+                        }
+                        param.check_stripesize = 1;
+                        param.exclude_stripesize = !!neg_opt;
                         break;
                 case 't':
                         param.exclude_type = !!neg_opt;
@@ -741,35 +795,7 @@ static int lfs_find(int argc, char **argv)
                                  goto err;
                         };
                         break;
-                case 's':
-                        if (optarg[0] == '+')
-                                param.size_sign = -1;
-                        else if (optarg[0] == '-')
-                                param.size_sign = +1;
-
-                        if (param.size_sign)
-                                optarg++;
-                        ret = parse_size(optarg, &param.size,
-                                         &param.size_units, 0);
-                        if (ret) {
-                                fprintf(stderr,"error: bad size '%s'\n",
-                                        optarg);
-                                goto err;
-                        }
-                        param.check_size = 1;
-                        param.exclude_size = !!neg_opt;
-                        break;
-                case 'v':
-                        new_fashion = 0;
-                        param.verbose++;
-                        param.quiet = 0;
-                        break;
-                case '?':
-                        ret = CMD_HELP;
-                        goto err;
                 default:
-                        fprintf(stderr, "error: %s: option '%s' unrecognized\n",
-                                argv[0], argv[optind - 1]);
                         ret = CMD_HELP;
                         goto err;
                 };
@@ -785,24 +811,8 @@ static int lfs_find(int argc, char **argv)
                 pathend = argc;
         }
 
-        if (new_fashion) {
-                param.quiet = 1;
-        } else {
-                static int deprecated_warning;
-                if (!deprecated_warning) {
-                        fprintf(stderr, "lfs find: -q, -r, -v options "
-                                "deprecated.  Use 'lfs getstripe' instead.\n");
-                        deprecated_warning = 1;
-                }
-                if (!param.recursive && param.maxdepth == -1)
-                        param.maxdepth = 1;
-        }
-
         do {
-                if (new_fashion)
-                        ret = llapi_find(argv[pathstart], &param);
-                else
-                        ret = llapi_getstripe(argv[pathstart], &param);
+                ret = llapi_find(argv[pathstart], &param);
         } while (++pathstart < pathend && !ret);
 
         if (ret)
@@ -818,19 +828,30 @@ err:
 static int lfs_getstripe(int argc, char **argv)
 {
         struct option long_opts[] = {
-                {"count", 0, 0, 'c'},
-                {"directory", 0, 0, 'd'},
-                {"generation", 0, 0, 'g'},
-                {"index", 0, 0, 'i'},
-                {"mdt", 0, 0, 'M'},
-                {"offset", 0, 0, 'o'},
-                {"obd", 1, 0, 'O'},
-                {"pool", 0, 0, 'p'},
-                {"quiet", 0, 0, 'q'},
-                {"recursive", 0, 0, 'r'},
-                {"raw", 0, 0, 'R'},
-                {"size", 0, 0, 's'},
-                {"verbose", 0, 0, 'v'},
+                {"count",        no_argument,       0, 'c'}, /* deprecate 2.6 */
+                {"stripe_count", no_argument,       0, 'c'},
+                {"stripe-count", no_argument,       0, 'c'},
+                {"directory",    no_argument,       0, 'd'},
+                {"generation",   no_argument,       0, 'g'},
+                {"index",        no_argument,       0, 'i'}, /* deprecate 2.6 */
+                {"stripe_index", no_argument,       0, 'i'},
+                {"stripe-index", no_argument,       0, 'i'},
+                {"mdt",          no_argument,       0, 'M'},
+                {"mdt_index",    no_argument,       0, 'M'},
+                {"mdt-index",    no_argument,       0, 'M'},
+                {"offset",       no_argument,       0, 'o'}, /* deprecated */
+                {"ost_index",    no_argument,       0, 'i'},
+                {"ost-index",    no_argument,       0, 'i'},
+                {"obd",          required_argument, 0, 'O'},
+                {"ost",          required_argument, 0, 'O'},
+                {"pool",         no_argument,       0, 'p'},
+                {"quiet",        no_argument,       0, 'q'},
+                {"recursive",    no_argument,       0, 'r'},
+                {"raw",          no_argument,       0, 'R'},
+                {"size",         no_argument,       0, 's'}, /* deprecate 2.6 */
+                {"stripe_size",  no_argument,       0, 'S'},
+                {"stripe-size",  no_argument,       0, 'S'},
+                {"verbose",      no_argument,       0, 'v'},
                 {0, 0, 0, 0}
         };
         int c, rc;
@@ -838,7 +859,7 @@ static int lfs_getstripe(int argc, char **argv)
 
         param.maxdepth = 1;
         optind = 0;
-        while ((c = getopt_long(argc, argv, "cdghiMoO:pqrRsv",
+        while ((c = getopt_long(argc, argv, "cdghiMoO:pqrRsSv",
                                 long_opts, NULL)) != -1) {
                 switch (c) {
                 case 'O':
@@ -869,6 +890,7 @@ static int lfs_getstripe(int argc, char **argv)
                         }
                         break;
                 case 's':
+                case 'S':
                         if (!(param.verbose & VERBOSE_DETAIL)) {
                                 param.verbose |= VERBOSE_SIZE;
                                 param.maxdepth = 0;
