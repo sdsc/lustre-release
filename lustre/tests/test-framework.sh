@@ -166,10 +166,14 @@ init_test_env() {
         export PATH=$LUSTRE/tests/mpi:$PATH
     fi
     export RSYNC_RSH=${RSYNC_RSH:-rsh}
+
     export LCTL=${LCTL:-"$LUSTRE/utils/lctl"}
     [ ! -f "$LCTL" ] && export LCTL=$(which lctl)
     export LFS=${LFS:-"$LUSTRE/utils/lfs"}
     [ ! -f "$LFS" ] && export LFS=$(which lfs)
+    SETSTRIPE=${SETSTRIPE:-"$LFS setstripe"}
+    GETSTRIPE=${GETSTRIPE:-"$LFS getstripe"}
+
     export L_GETIDENTITY=${L_GETIDENTITY:-"$LUSTRE/utils/l_getidentity"}
     if [ ! -f "$L_GETIDENTITY" ]; then
         if `which l_getidentity > /dev/null 2>&1`; then
