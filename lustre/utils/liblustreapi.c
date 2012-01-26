@@ -1591,12 +1591,21 @@ retry_get_uuids:
                 return -ENOMEM;
 
         for (obdnum = 0; obdnum < param->num_obds; obdnum++) {
-                for (i = 0; i < obdcount; i++) {
-                        if (llapi_uuid_match(uuids[i].uuid,
-                                             param->obduuid[obdnum].uuid)) {
-                                param->obdindexes[obdnum] = i;
-                                obd_valid++;
-                                break;
+                char *end = NULL;
+
+                /* The user may have specified a simple index */
+                i = strtol(param->obduuid[obdnum].uuid, &end, 0);
+                if (end && *end == '\0' && i < obdcount) {
+                        param->obdindexes[obdnum] = i;
+                        obd_valid++;
+                } else {
+                        for (i = 0; i < obdcount; i++) {
+                                if (llapi_uuid_match(uuids[i].uuid,
+                                                param->obduuid[obdnum].uuid)) {
+                                        param->obdindexes[obdnum] = i;
+                                        obd_valid++;
+                                        break;
+                                }
                         }
                 }
                 if (i >= obdcount) {
@@ -2192,14 +2201,14 @@ static int cb_find_init(char *path, DIR *parent, DIR *dir,
                 }
         }
 
-
         ret = 0;
 
         /* Request MDS for the stat info if some of these parameters need
          * to be compared. */
         if (param->obduuid    || param->check_uid || param->check_gid ||
             param->check_pool || param->atime     || param->ctime     ||
-            param->mtime      || param->check_size)
+            param->mtime      || param->check_size ||
+            param->check_stripecount || param->check_stripesize)
                 decision = 0;
         if (param->type && checked_type == 0)
                 decision = 0;
@@ -2248,6 +2257,25 @@ static int cb_find_init(char *path, DIR *parent, DIR *dir,
                         param->got_uuids = 0;
                         param->obdindex = OBD_NOT_FOUND;
                 }
+        }
+
+        if (param->check_stripesize) {
+                decision = find_value_cmp(param->lmd->lmd_lmm.lmm_stripe_size,
+                                          param->stripesize,
+                                          param->stripesize_sign,
+                                          param->exclude_stripesize,
+                                          param->stripesize_units, 0);
+                if (decision == -1)
+                        goto decided;
+        }
+
+        if (param->check_stripecount) {
+                decision = find_value_cmp(param->lmd->lmd_lmm.lmm_stripe_count,
+                                          param->stripecount,
+                                          param->stripecount_sign,
+                                          param->exclude_stripecount, 1, 0);
+                if (decision == -1)
+                        goto decided;
         }
 
         /* If an OBD UUID is specified but no one matches, skip this file. */

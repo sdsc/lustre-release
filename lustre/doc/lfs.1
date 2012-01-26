@@ -13,23 +13,24 @@ lfs \- Lustre utility to create a file with specific striping pattern, find the 
 .br
 .B lfs df [-i] [-h] [--pool|-p <fsname>[.<pool>] [path]
 .br
-.B lfs find [[!] --atime|-A [-+]N] [[!] --mtime|-M [-+]N]
-        \fB[[!] --ctime|-C [-+]N] [--maxdepth|-D N] [--name|-n pattern]
-        \fB[--print|-p] \fB[--print0|-P] [[!] --obd|-O <uuid[s]>]
-        \fB[[!] --size|-S [-+]N[kMGTPE]] [--type |-t {bcdflpsD}]
-        \fB[[!] --gid|-g|--group|-G <gname>|<gid>]
-        \fB[[!] --uid|-u|--user|-U <uname>|<uid>]
-        \fB<directory|filename>\fR
+.B lfs find <directory|filename>
+        \fB[[!] --atime|-A [-+]N] [[!] --mtime|-M [-+]N] [[!] --ctime|-C [+-]N]
+        \fB[--maxdepth|-D N] [--name|-n pattern] [[!] --ost|-O <uuid|index,...>]
+        \fB[--print|-p] [--print0|-P] [[!] --size|-S [-+]N[kMGTPE]]
+        \fB[[!] --stripe_count|-c [+-]<stripes>]
+        \fB[[!] --stripe_index|-i <index,...>] [[!] --stripe_size|-S [+-]N[kMG]]
+        \fB[--type |-t {bcdflpsD}] [[!] --gid|-g|--group|-G <gname>|<gid>]
+        \fB[[!] --uid|-u|--user|-U <uname>|<uid>] [[!] --pool <pool>]\fR
 .br
 .B lfs getname [-h]|[path ...]
 .br
 .B lfs getstripe [--obd|-O <uuid>] [--quiet|-q] [--verbose|-v] 
-        \fB[--count | -c ] [--index | -i | --offset | -o ]
-        \fB[--size | -s ] [--pool | -p ] [--directory | -d ]
-        \fB[--recursive | -r] [--raw|-R] <dirname|filename> ...\fR
+        \fB[--stripe_count|-c ] [--stripe_index|-i] [--mdt_index|-M]
+        \fB[--ost_index|-o] [--stripe_size|-s] [--directory|-d]
+        \fB[--pool|-p] [--recursive|-r] [--raw|-R] <dirname|filename> ...\fR
 .br
-.B lfs setstripe [--size|-s stripe-size] [--count|-c stripe-cnt]
-        \fB[--index|-i|--offset|-o start_ost_index ] [--pool|-p <pool>]
+.B lfs setstripe [--stripe_size|-S stripe_size] [--stripe_count|-c stripe_count]
+        \fB[--stripe_index|-i start_ost_index ] [--pool|-p <pool>]
         \fB<directory|filename>\fR
 .br
 .B lfs setstripe -d <dir>

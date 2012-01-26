@@ -109,12 +109,14 @@ struct find_param {
         time_t  atime;
         time_t  mtime;
         time_t  ctime;
-        int     asign;
-        int     csign;
+        int     asign;  /* cannot be bitfields due to using pointers to */
+        int     csign;  /* access them during argument parsing. */
         int     msign;
         int     type;
+        int     size_sign:2,        /* these need to be signed values */
+                stripesize_sign:2,
+                stripecount_sign:2;
         unsigned long long size;
-        int     size_sign;
         unsigned long long size_units;
         uid_t uid;
         gid_t gid;
@@ -139,7 +141,11 @@ struct find_param {
                         exclude_mtime:1,
                         exclude_ctime:1,
                         get_mdt_index:1,
-                        raw:1;
+                        raw:1,
+                        check_stripesize:1,
+                        exclude_stripesize:1,
+                        check_stripecount:1,
+                        exclude_stripecount:1;
 
         int     verbose;
         int     quiet;
@@ -158,11 +164,15 @@ struct find_param {
         int     lumlen;
         struct  lov_user_mds_data *lmd;
 
-        /* In-precess parameters. */
+        char poolname[LOV_MAXPOOLNAME + 1];
+
+        unsigned long long stripesize;
+        unsigned long long stripesize_units;
+        unsigned long long stripecount;
+
+        /* In-process parameters. */
         unsigned int depth;
         dev_t   st_dev;
-
-        char poolname[LOV_MAXPOOLNAME + 1];
 };
 
 extern int llapi_ostlist(char *path, struct find_param *param);
