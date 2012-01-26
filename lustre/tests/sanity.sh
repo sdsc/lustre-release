@@ -8536,6 +8536,26 @@ test_223 () {
 }
 run_test 223 "osc reenqueue if without AGL lock granted ======================="
 
+test_224a() {
+        #define OBD_FAIL_PTLRPC_CLIENT_BULK_CB   0x508
+        $LCTL set_param fail_loc=0x508
+        dd if=/dev/zero of=$DIR/$tfile bs=4096 count=1 conv=fsync
+        $LCTL set_param fail_loc=0
+        df $DIR
+}
+run_test 224a "MRP-303: don't panic on bulk IO fail"
+
+test_224b() {
+        dd if=/dev/zero of=$DIR/$tfile bs=4096 count=1
+        cancel_lru_locks osc
+        #define OBD_FAIL_PTLRPC_CLIENT_BULK_CB2   0x515
+        $LCTL set_param fail_loc=0x515
+        dd of=/dev/null if=$DIR/$tfile bs=4096 count=1
+        $LCTL set_param fail_loc=0
+        df $DIR
+}
+run_test 224b "MRP-303: don't panic on bulk IO fail"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
