@@ -1285,7 +1285,18 @@ static void key_fini(struct lu_context *ctx, int index)
                 key = lu_keys[index];
                 LASSERT(key != NULL);
                 LASSERT(key->lct_fini != NULL);
-                LASSERT(cfs_atomic_read(&key->lct_used) > 1);
+                if (cfs_atomic_read(&key->lct_used) <= 1) {
+                        lu_ref_print(&key->lct_reference);
+
+                        CERROR("lu_keys[%d]: %p %x (%p,%p,%p) %d %d \"%s\"@%p "
+                               "value %p\n", index, key, key->lct_tags,
+                               key->lct_init, key->lct_fini, key->lct_exit,
+                               key->lct_index, cfs_atomic_read(&key->lct_used),
+                               key->lct_owner ? key->lct_owner->name : "",
+                               key->lct_owner, ctx->lc_value[index]);
+
+                        LBUG();
+                }
 
                 key->lct_fini(ctx, key, ctx->lc_value[index]);
                 lu_ref_del(&key->lct_reference, "ctx", ctx);
@@ -1502,6 +1513,7 @@ static int keys_fill(struct lu_context *ctx)
                         if (!(ctx->lc_tags & LCT_NOREF))
                                 cfs_try_module_get(key->lct_owner);
                         lu_ref_add_atomic(&key->lct_reference, "ctx", ctx);
+                        lu_ref_add_atomic(&key->lct_reference, "value", value);
                         cfs_atomic_inc(&key->lct_used);
                         /*
                          * This is the only place in the code, where an
