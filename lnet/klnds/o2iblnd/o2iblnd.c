@@ -791,15 +791,9 @@ kiblnd_create_conn(kib_peer_t *peer, struct rdma_cm_id *cmid,
 
         kiblnd_map_rx_descs(conn);
 
-#ifdef HAVE_OFED_IB_COMP_VECTOR
         cq = ib_create_cq(cmid->device,
                           kiblnd_cq_completion, kiblnd_cq_event, conn,
                           IBLND_CQ_ENTRIES(version), 0);
-#else
-        cq = ib_create_cq(cmid->device,
-                          kiblnd_cq_completion, kiblnd_cq_event, conn,
-                          IBLND_CQ_ENTRIES(version));
-#endif
         if (IS_ERR(cq)) {
                 CERROR("Can't create CQ: %ld, cqe: %d\n",
                        PTR_ERR(cq), IBLND_CQ_ENTRIES(version));
@@ -2209,14 +2203,12 @@ kiblnd_hdev_get_attr(kib_hca_dev_t *hdev)
                 return rc;
         }
 
-#ifdef HAVE_OFED_TRANSPORT_IWARP
         /* XXX We can't trust this value returned by Chelsio driver, it's wrong
          * and we have reported the bug, remove these in the future when Chelsio
          * bug got fixed. */
         if (rdma_node_get_transport(hdev->ibh_ibdev->node_type) ==
             RDMA_TRANSPORT_IWARP)
                 hdev->ibh_mr_size = (1ULL << 32) - 1;
-#endif
 
         if (hdev->ibh_mr_size == ~0ULL) {
                 hdev->ibh_mr_shift = 64;
