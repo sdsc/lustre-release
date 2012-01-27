@@ -1526,6 +1526,16 @@ struct dentry *filter_fid2dentry(struct obd_device *obd,
                 RETURN(ERR_PTR(-ENOENT));
         }
 
+        /* Try to correct for a bug in the LU-221 fix that caused negative
+         * timestamps to appear to be in the far future, due old timestamp
+         * being stored on disk as an unsigned value.  LU-1042 */
+        if (unlikely(inode->i_atime == LU221_BAD_TIME))
+                inode->i_atime = 0;
+        if (unlikely(inode->i_mtime == LU221_BAD_TIME))
+                inode->i_mtime = 0;
+        if (unlikely(inode->i_ctime == LU221_BAD_TIME))
+                inode->i_ctime = 0;
+
         CDEBUG(D_INODE, "got child objid %s: %p, count = %d\n",
                name, dchild, atomic_read(&dchild->d_count));
 
@@ -3945,7 +3955,7 @@ static int filter_precreate(struct obd_device *obd, struct obdo *oa,
                         CERROR("create failed rc = %d\n", rc);
                         if (rc == -ENOSPC) {
                                 os_ffree = filter_calc_free_inodes(obd);
-                                if (os_ffree == -1) 
+                                if (os_ffree == -1)
                                         GOTO(cleanup, rc);
 
                                 if (obd->obd_osfs.os_bavail <
@@ -3969,18 +3979,19 @@ static int filter_precreate(struct obd_device *obd, struct obdo *oa,
                                        dchild->d_inode->i_ino);
 
 set_last_id:
-                /* Set a/c/m time to a insane large negative value at creation
-                 * time so that any timestamp arriving from the client will
-                 * always be newer and update the inode.
-                 * See LU-221 for details */
+                /* Initialize a/c/m time so any client timestamp will always
+                 * be newer and update the inode. ctime = 0 is also handled
+                 * specially in fsfilt_ext3_setattr(). See LU-221, LU-1042 */
                 iattr.ia_valid = ATTR_ATIME | ATTR_MTIME | ATTR_CTIME;
-                LTIME_S(iattr.ia_atime) = INT_MIN + 24 * 3600;
-                LTIME_S(iattr.ia_mtime) = INT_MIN + 24 * 3600;
-                LTIME_S(iattr.ia_ctime) = INT_MIN + 24 * 3600;
+                LTIME_S(iattr.ia_atime) = 0;
+                LTIME_S(iattr.ia_mtime) = 0;
+                LTIME_S(iattr.ia_ctime) = 0;
                 err = fsfilt_setattr(obd, dchild, handle, &iattr, 0);
-                if (err)
-                        CERROR("unable to initialize a/c/m time of newly"
-                               "created inode\n");
+                 if (err)
+                        CWARN("%s: unable to initialize a/c/m time of newly "
+                              "created object %.s: rc = %d\n",
+                              obd->obd_name, dchild->d_name.len,
+                              dchild->d_name.name, err);
 
                 if (!recreate_obj) {
                         filter_set_last_id(filter, next_id, group);
