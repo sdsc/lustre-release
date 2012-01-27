@@ -581,6 +581,34 @@ static int fsfilt_ext3_setattr(struct dentry *dentry, void *handle,
         struct inode *inode = dentry->d_inode;
         int rc = 0;
 
+        /* Try to correct for a bug in the LU-221 fix that caused negative
+         * timestamps to appear to be in the far future, due old timestamp
+         * being stored on disk as an unsigned value.  LU-1042 */
+        if (unlikely(inode->i_atime == LU221_BAD_TIME &&
+                     !(iattr->ia_valid & ATTR_ATIME))) {
+                iattr->ia_valid |= ATTR_ATIME;
+                iattr->ia_atime = 0;
+        }
+        if (unlikely(inode->i_mtime == LU221_BAD_TIME &&
+                     !(iattr->ia_valid & ATTR_MTIME))) {
+                iattr->ia_valid |= ATTR_MTIME;
+                iattr->ia_mtime = 0;
+        }
+        if (unlikely((inode->i_ctime == LU221_BAD_TIME ||
+                      inode->i_ctime == 0) &&
+                     !(iattr->ia_valid & ATTR_CTIME))) {
+                iattr->ia_valid |= ATTR_CTIME;
+                iattr->ia_ctime = 0;
+        }
+
+        /* When initializating timestamps for new inodes, use the filesystem
+         * mkfs time for ctime to avoid the e2fsck ibadness check thinking
+         * that this is potentially an invalid inode.  Files that migrate to
+         * an OST that was formatted after the files were created will not
+         * hit this check, since it is only for a ctime of 0.  LU-1042 */
+        if ((iattr->ia_valid & ATTR_CTIME) && iattr->ia_ctime == 0)
+                iattr->ia_ctime = EXT4_SB(inode->i_sb)->s_mkfs_time;
+
         /* Avoid marking the inode dirty on the superblock list unnecessarily.
          * We are already writing the inode to disk as part of this
          * transaction and want to avoid a lot of extra inode writeout
