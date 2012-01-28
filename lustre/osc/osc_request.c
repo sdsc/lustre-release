@@ -925,6 +925,9 @@ void osc_wake_cache_waiters(struct client_obd *cli)
                                                 &ocw->ocw_oap->oap_brw_page);
                 }
 
+                CDEBUG(D_CACHE, "wake up %p for oap %p, avail grant %ld\n",
+                       ocw, ocw->ocw_oap, cli->cl_avail_grant);
+
                 cfs_waitq_signal(&ocw->ocw_waitq);
         }
 
@@ -2569,8 +2572,6 @@ osc_send_oap_rpc(const struct lu_env *env, struct client_obd *cli,
                         break;
         }
 
-        osc_wake_cache_waiters(cli);
-
         loi_list_maint(cli, loi);
 
         client_obd_list_unlock(&cli->cl_loi_list_lock);
@@ -2859,7 +2860,7 @@ static int osc_enter_cache(const struct lu_env *env,
 {
         struct osc_cache_waiter ocw;
         struct l_wait_info lwi = LWI_INTR(LWI_ON_SIGNAL_NOOP, NULL);
-
+        int rc = -EDQUOT;
         ENTRY;
 
         CDEBUG(D_CACHE, "dirty: %ld/%d dirty_max: %ld/%d dropped: %lu "
@@ -2887,28 +2888,34 @@ static int osc_enter_cache(const struct lu_env *env,
          * because write pages can then be merged in to large requests.
          * The addition of this cache waiter will causing pending write
          * pages to be sent immediately. */
-        if (cli->cl_w_in_flight || cli->cl_avail_grant >= CFS_PAGE_SIZE) {
+        cfs_waitq_init(&ocw.ocw_waitq);
+        ocw.ocw_oap = oap;
+        while (cli->cl_w_in_flight || cli->cl_avail_grant >= CFS_PAGE_SIZE ||
+               cli->cl_dirty > 0) {
                 cfs_list_add_tail(&ocw.ocw_entry, &cli->cl_cache_waiters);
-                cfs_waitq_init(&ocw.ocw_waitq);
-                ocw.ocw_oap = oap;
                 ocw.ocw_rc = 0;
 
                 loi_list_maint(cli, loi);
                 osc_check_rpcs(env, cli);
                 client_obd_list_unlock(&cli->cl_loi_list_lock);
 
-                CDEBUG(D_CACHE, "sleeping for cache space\n");
+                CDEBUG(D_CACHE, "%s: sleeping for cache space @ %p for %p\n",
+                       cli->cl_import->imp_obd->obd_name, &ocw, oap);
                 l_wait_event(ocw.ocw_waitq, ocw_granted(cli, &ocw), &lwi);
 
                 client_obd_list_lock(&cli->cl_loi_list_lock);
                 if (!cfs_list_empty(&ocw.ocw_entry)) {
                         cfs_list_del(&ocw.ocw_entry);
-                        RETURN(-EINTR);
+                        rc = -EINTR;
+                        break;
                 }
-                RETURN(ocw.ocw_rc);
+
+                rc = ocw.ocw_rc;
+                if (rc != -EDQUOT)
+                        break;
         }
 
-        RETURN(-EDQUOT);
+        RETURN(rc);
 }
 
 
