@@ -861,7 +861,7 @@ static void osc_release_write_grant(struct client_obd *cli,
                 cli->cl_dirty_transit -= CFS_PAGE_SIZE;
         }
         if (!sent) {
-                cli->cl_lost_grant += CFS_PAGE_SIZE;
+                cli->cl_avail_grant += CFS_PAGE_SIZE;
                 CDEBUG(D_CACHE, "lost grant: %lu avail grant: %lu dirty: %lu\n",
                        cli->cl_lost_grant, cli->cl_avail_grant, cli->cl_dirty);
         } else if (CFS_PAGE_SIZE != blocksize && pga->count != CFS_PAGE_SIZE) {
@@ -924,6 +924,9 @@ void osc_wake_cache_waiters(struct client_obd *cli)
                         osc_consume_write_grant(cli,
                                                 &ocw->ocw_oap->oap_brw_page);
                 }
+
+                CDEBUG(D_CACHE, "wake up %p for oap %p, avail grant %ld\n",
+                       ocw, ocw->ocw_oap, cli->cl_avail_grant);
 
                 cfs_waitq_signal(&ocw->ocw_waitq);
         }
@@ -2572,8 +2575,6 @@ osc_send_oap_rpc(const struct lu_env *env, struct client_obd *cli,
                 if (oap->oap_page_off + oap->oap_count < CFS_PAGE_SIZE)
                         break;
         }
-
-        osc_wake_cache_waiters(cli);
 
         loi_list_maint(cli, loi);
 
