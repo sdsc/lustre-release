@@ -541,7 +541,10 @@ enum lu_object_header_flags {
          * as last reference to it is released. This flag cannot be cleared
          * once set.
          */
-        LU_OBJECT_HEARD_BANSHEE = 0
+        LU_OBJECT_HEARD_BANSHEE = 0,
+
+        /* This is object is in processing by OI Scrub. */
+        LU_OBJECT_SCRUB         = 1,
 };
 
 enum lu_object_header_attr {
@@ -601,6 +604,10 @@ struct lu_object_header {
          * A list of references to this object, for debugging.
          */
         struct lu_ref          loh_reference;
+        /**
+         * Waiting list for object to be ready.
+         */
+        cfs_waitq_t            loh_waitq;
 };
 
 struct fld;
@@ -744,6 +751,29 @@ static inline void lu_object_get(struct lu_object *o)
 static inline int lu_object_is_dying(const struct lu_object_header *h)
 {
         return cfs_test_bit(LU_OBJECT_HEARD_BANSHEE, &h->loh_flags);
+}
+
+static inline int lu_object_is_scrub(const struct lu_object_header *h)
+{
+        return cfs_test_bit(LU_OBJECT_SCRUB, &h->loh_flags);
+}
+
+static inline void lu_object_set_scrub(struct lu_object_header *h)
+{
+        cfs_set_bit(LU_OBJECT_SCRUB, &h->loh_flags);
+}
+
+static inline void lu_object_clear_scrub(struct lu_object_header *h)
+{
+        cfs_clear_bit(LU_OBJECT_SCRUB, &h->loh_flags);
+}
+
+static inline void lu_object_signal_scrub(struct lu_object_header *h)
+{
+        LASSERT(lu_object_is_scrub(h));
+
+        lu_object_clear_scrub(h);
+        cfs_waitq_broadcast(&h->loh_waitq);
 }
 
 void lu_object_put(const struct lu_env *env, struct lu_object *o);

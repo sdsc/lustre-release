@@ -376,6 +376,13 @@ static int osd_fid_lookup(const struct lu_env *env,
                                  &info->oti_child_dentry, &info->oti_mdt_attrs,
                                  (struct lu_fid *)fid, flags, NULL);
                 if (!IS_ERR(inode)) {
+                        if ((id2 != NULL) && !osd_id_eq(id, id2)) {
+                                if (hint->loh_flags & LOH_F_SCRUB) {
+                                        lu_object_set_scrub(
+                                                obj->oo_dt.do_lu.lo_header);
+                                        hint->loh_flags |= LOH_F_UNMATCHED;
+                                }
+                        }
                         result = 0;
                         obj->oo_inode = inode;
                         LASSERT(obj->oo_inode->i_sb == osd_sb(dev));
@@ -3248,6 +3255,14 @@ static int osd_index_iam_insert(const struct lu_env *env, struct dt_object *dt,
         RETURN(rc);
 }
 
+static inline int fid_is_scrub_fid(const struct lu_fid *fid)
+{
+        /* We need to filter-out scrub obj's fid. As we will store fid ea in
+         * name entry for detecting MDT file-level backup/restore. */
+        return (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE &&
+                         fid_oid(fid) == OI_SCRUB_OID));
+}
+
 /**
  * Calls ldiskfs_add_entry() to add directory entry
  * into the directory. This is required for
@@ -3260,13 +3275,14 @@ static int __osd_ea_add_rec(struct osd_thread_info *info,
                             struct osd_object *pobj,
                             struct inode *cinode,
                             const char *name,
-                            const struct dt_rec *fid,
+                            const struct dt_rec *rec,
                             struct htree_lock *hlock,
                             struct thandle *th)
 {
         struct ldiskfs_dentry_param *ldp;
-        struct dentry      *child;
-        struct osd_thandle *oth;
+        struct dentry               *child;
+        struct osd_thandle          *oth;
+        struct lu_fid               *fid = (struct lu_fid *)rec;
         int rc;
 
         oth = container_of(th, struct osd_thandle, ot_super);
@@ -3275,13 +3291,17 @@ static int __osd_ea_add_rec(struct osd_thread_info *info,
 
         child = osd_child_dentry_get(info->oti_env, pobj, name, strlen(name));
 
-        if (fid_is_igif((struct lu_fid *)fid) ||
-            fid_is_norm((struct lu_fid *)fid)) {
+        if (fid_is_igif(fid) || fid_is_norm(fid) || fid_is_scrub_fid(fid)) {
+                if (fid_is_scrub_fid(fid)) {
+                        fid = &info->oti_fid;
+                        LU_IGIF_BUILD(fid, cinode->i_ino, cinode->i_generation);
+                }
                 ldp = (struct ldiskfs_dentry_param *)info->oti_ldp;
-                osd_get_ldiskfs_dirent_param(ldp, fid);
-                child->d_fsdata = (void*) ldp;
-        } else
+                osd_get_ldiskfs_dirent_param(ldp, (const struct dt_rec *)fid);
+                child->d_fsdata = (void *)ldp;
+        } else {
                 child->d_fsdata = NULL;
+        }
         rc = osd_ldiskfs_add_entry(oth->ot_handle, child, cinode, hlock);
 
         RETURN(rc);
@@ -3441,6 +3461,8 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
                 if (hint != NULL) {
                         hint->loh_lid.lli_u32[0] = ino;
                         hint->loh_flags |= LOH_F_LID;
+                        if (rc == 0)
+                                hint->loh_flags |= LOH_F_FIDEA;
                 }
 
                 /* done with de, release bh */
