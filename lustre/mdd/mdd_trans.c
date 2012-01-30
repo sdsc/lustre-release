@@ -70,13 +70,77 @@
 
 #include "mdd_internal.h"
 
+struct mdd_txn_scrub {
+        struct dt_txn_commit_cb   mts_cb;
+        struct lu_object         *mts_obj;
+};
+
+static void mdd_txn_scrub_callback(struct lu_env *env, struct thandle *th,
+                                   struct dt_txn_commit_cb *cb, int err)
+{
+        struct mdd_txn_scrub *mts;
+
+        mts = container_of0(cb, struct mdd_txn_scrub, mts_cb);
+
+        /*
+         * XXX: 'err != 0' means Scrub fail to update the OI mapping. We can do
+         *      nothing for that, just make other waiting threads to go forward.
+         */
+        lu_object_signal_scrub(mts->mts_obj->lo_header);
+        lu_object_put(env, mts->mts_obj);
+
+        cfs_list_del(&mts->mts_cb.dcb_linkage);
+        OBD_FREE_PTR(mts);
+}
+
+static int mdd_txn_scrub_add(struct thandle *th, struct lu_object *obj)
+{
+        struct mdd_txn_scrub *mts;
+        int rc;
+
+        OBD_ALLOC_PTR(mts);
+        if (mts == NULL)
+                return -ENOMEM;
+
+        mts->mts_cb.dcb_func = mdd_txn_scrub_callback;
+        CFS_INIT_LIST_HEAD(&mts->mts_cb.dcb_linkage);
+        mts->mts_obj = obj;
+
+        rc = dt_trans_cb_add(th, &mts->mts_cb);
+        if (rc)
+                OBD_FREE_PTR(mts);
+        else
+                lu_object_get(mts->mts_obj);
+        return rc;
+}
+
 int mdd_txn_stop_cb(const struct lu_env *env, struct thandle *txn,
                     void *cookie)
 {
         struct mdd_device *mdd = cookie;
-        struct obd_device *obd = mdd2obd_dev(mdd);
+        struct obd_device *obd;
 
+        if (txn->th_scrub) {
+                struct mdd_scrub_it *msi = mdd->mdd_scrub_it;
+                int rc;
+
+                if (txn->th_result != 0)
+                        return 0;
+
+                if (txn->th_sync == 0 && msi != NULL && msi->msi_obj != NULL) {
+                        rc = mdd_txn_scrub_add(txn, msi->msi_obj);
+                        if (rc != 0)
+                                txn->th_sync = 1;
+                        else
+                                msi->msi_obj = NULL;
+                }
+
+                return 0;
+        }
+
+        obd = mdd2obd_dev(mdd);
         LASSERT(obd);
+
         return mds_lov_write_objids(obd);
 }
 
@@ -92,9 +156,9 @@ int mdd_trans_start(const struct lu_env *env, struct mdd_device *mdd,
         return mdd_child_ops(mdd)->dt_trans_start(env, mdd->mdd_child, th);
 }
 
-void mdd_trans_stop(const struct lu_env *env, struct mdd_device *mdd,
+int mdd_trans_stop(const struct lu_env *env, struct mdd_device *mdd,
                     int result, struct thandle *handle)
 {
         handle->th_result = result;
-        mdd_child_ops(mdd)->dt_trans_stop(env, handle);
+        return mdd_child_ops(mdd)->dt_trans_stop(env, handle);
 }

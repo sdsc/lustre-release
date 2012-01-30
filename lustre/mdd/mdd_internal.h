@@ -55,6 +55,7 @@
 # include <lustre_quota.h>
 #endif
 #include <lustre_fsfilt.h>
+#include <lustre/lustre_scrub_user.h>
 
 #ifdef HAVE_QUOTA_SUPPORT
 /* quota stuff */
@@ -99,6 +100,26 @@ struct mdd_dot_lustre_objs {
         struct mdd_object *mdd_obf;
 };
 
+struct mdd_scrub_it {
+        struct ptlrpc_thread    msi_thread;
+        struct dt_it           *msi_it;
+        /* Current object to be updated. */
+        struct lu_object       *msi_obj;
+        union scrub_key         msi_position;
+        /* The time for last checkpoint, jiffies */
+        cfs_time_t              msi_checkpoint_last;
+        /* The time for next checkpoint, jiffies */
+        cfs_time_t              msi_checkpoint_next;
+        cfs_atomic_t            msi_refcount;
+        /* Schedule for every N objects. */
+        __u32                   msi_sleep_rate;
+        /* Sleep N jiffies for each schedule. */
+        __u32                   msi_sleep_jif;
+        /* How many objects have been scanned since last checkpoint. */
+        __u32                   msi_new_scanned;
+        unsigned int            msi_has_prior:1;
+};
+
 struct mdd_device {
         struct md_device                 mdd_md_dev;
         struct dt_device                *mdd_child;
@@ -114,7 +135,22 @@ struct mdd_device {
         unsigned long                    mdd_atime_diff;
         struct mdd_object               *mdd_dot_lustre;
         struct mdd_dot_lustre_objs       mdd_dot_lustre_objs;
-        unsigned int                     mdd_sync_permission;
+        /* Used for mdd_{start,stop,show}_scrub(). */
+        cfs_semaphore_t                  mdd_scrub_ctl_sem;
+        /* Concurrent control for scrub header read/write. */
+        cfs_semaphore_t                  mdd_scrub_header_sem;
+        /* For other scrub non-blocked concurrency control. */
+        cfs_spinlock_t                   mdd_scrub_lock;
+        struct dt_object                *mdd_scrub_obj;
+        struct mdd_scrub_it             *mdd_scrub_it;
+        /* Scrub header structure in memory. */
+        struct scrub_header              mdd_scrub_header_mem;
+        /* Scrub header structure on disk. */
+        struct scrub_header              mdd_scrub_header_disk;
+        /* Used for mdd_{start,stop,show}_scrub, adjust scrub param, ect. */
+        struct lu_env                   *mdd_scrub_env;
+        unsigned int                     mdd_sync_permission:1,
+                                         mdd_noscrub:1;
 };
 
 enum mod_flags {
@@ -171,6 +207,9 @@ struct mdd_thread_info {
         int                       mti_max_cookie_size;
         struct dt_object_format   mti_dof;
         struct obd_quotactl       mti_oqctl;
+        struct lu_object_hint     mti_loh;
+        struct dt_scrub_param     mti_scrub_param;
+        struct l_wait_info        mti_wait_info;
 };
 
 extern const char orph_index_name[];
@@ -301,7 +340,8 @@ int mdd_link_sanity_check(const struct lu_env *env, struct mdd_object *tgt_obj,
 int mdd_is_root(struct mdd_device *mdd, const struct lu_fid *fid);
 int mdd_lookup(const struct lu_env *env,
                struct md_object *pobj, const struct lu_name *lname,
-               struct lu_fid* fid, struct md_op_spec *spec);
+               struct lu_fid *fid, struct lu_object_hint *hint,
+               struct md_op_spec *spec);
 struct lu_buf *mdd_links_get(const struct lu_env *env,
                              struct mdd_object *mdd_obj);
 void mdd_lee_unpack(const struct link_ea_entry *lee, int *reclen,
@@ -351,7 +391,25 @@ void mdd_lprocfs_time_start(const struct lu_env *env);
 void mdd_lprocfs_time_end(const struct lu_env *env,
                           struct mdd_device *mdd, int op);
 
+/* mdd_scrub.c*/
+void mdd_scrub_param_to_be(struct scrub_param *des,
+                           struct scrub_param *src);
+void mdd_scrub_header_to_be(struct scrub_header *des,
+                            struct scrub_header *src);
+int do_scrub_store_header(const struct lu_env *env, struct mdd_device *mdd,
+                          struct scrub_header *header_disk);
+int mdd_scrub_init(const struct lu_env *env, struct mdd_device *mdd,
+                   int restored);
+int mdd_scrub_start(const struct lu_env *env, struct mdd_device *mdd,
+                    struct start_scrub_param *param, int reset);
+int mdd_scrub_stop(const struct lu_env *env, struct mdd_device *mdd);
+int mdd_scrub_show(const struct lu_env *env, struct mdd_device *mdd,
+                   struct scrub_show *show);
+
 /* mdd_object.c */
+struct mdd_object *
+mdd_object_find(const struct lu_env *env, struct mdd_device *d,
+                const struct lu_fid *f, struct lu_object_hint *h);
 int mdd_get_flags(const struct lu_env *env, struct mdd_object *obj);
 struct lu_buf *mdd_buf_alloc(const struct lu_env *env, ssize_t len);
 int mdd_buf_grow(const struct lu_env *env, ssize_t len);
@@ -364,9 +422,6 @@ int accmode(const struct lu_env *env, struct lu_attr *la, int flags);
 extern struct lu_context_key mdd_thread_key;
 extern const struct lu_device_operations mdd_lu_ops;
 
-struct mdd_object *mdd_object_find(const struct lu_env *env,
-                                   struct mdd_device *d,
-                                   const struct lu_fid *f);
 int mdd_get_default_md(struct mdd_object *mdd_obj, struct lov_mds_md *lmm);
 int mdd_readpage(const struct lu_env *env, struct md_object *obj,
                  const struct lu_rdpg *rdpg);
@@ -429,8 +484,8 @@ struct thandle *mdd_trans_create(const struct lu_env *env,
                                  struct mdd_device *mdd);
 int mdd_trans_start(const struct lu_env *env, struct mdd_device *mdd,
                     struct thandle *th);
-void mdd_trans_stop(const struct lu_env *env, struct mdd_device *mdd,
-                    int rc, struct thandle *handle);
+int mdd_trans_stop(const struct lu_env *env, struct mdd_device *mdd,
+                   int rc, struct thandle *handle);
 int mdd_txn_stop_cb(const struct lu_env *env, struct thandle *txn,
                     void *cookie);
 int mdd_txn_start_cb(const struct lu_env *env, struct thandle *,
@@ -862,5 +917,42 @@ static inline struct obd_capa *mdo_capa_get(const struct lu_env *env,
         LASSERT(mdd_object_exists(obj));
         return next->do_ops->do_capa_get(env, next, old, opc);
 }
+
+static inline void mdd_scrub_msi_set_speed(struct scrub_param *param,
+                                           struct mdd_scrub_it *msi)
+{
+        if (param->sp_speed_limit != 0) {
+                if (param->sp_speed_limit > CFS_HZ) {
+                        msi->msi_sleep_rate = param->sp_speed_limit / CFS_HZ;
+                        msi->msi_sleep_jif = 1;
+                } else {
+                        msi->msi_sleep_rate = 1;
+                        msi->msi_sleep_jif = CFS_HZ / param->sp_speed_limit;
+                }
+        } else {
+                msi->msi_sleep_jif = 0;
+                msi->msi_sleep_rate = 0;
+        }
+}
+
+static inline int mdd_scrub_store_header(const struct lu_env *env,
+                                         struct mdd_device *mdd,
+                                         struct scrub_header *header_mem,
+                                         struct scrub_header *header_disk)
+{
+        mdd_scrub_header_to_be(header_disk, header_mem);
+        return do_scrub_store_header(env, mdd, header_disk);
+}
+
+static inline int mdd_scrub_store_param(const struct lu_env *env,
+                                        struct mdd_device *mdd,
+                                        struct scrub_header *header_mem,
+                                        struct scrub_header *header_disk)
+{
+        mdd_scrub_param_to_be(&header_disk->sh_param, &header_mem->sh_param);
+        return do_scrub_store_header(env, mdd, header_disk);
+}
+
+extern const char mdd_scrub_name[];
 
 #endif

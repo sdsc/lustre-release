@@ -280,7 +280,8 @@ void ccc_global_fini(struct lu_device_type *device_type);
 int ccc_object_init0(const struct lu_env *env,struct ccc_object *vob,
                      const struct cl_object_conf *conf);
 int ccc_object_init(const struct lu_env *env, struct lu_object *obj,
-                    const struct lu_object_conf *conf);
+                    const struct lu_object_conf *conf,
+                    struct lu_object_hint *unused);
 void ccc_object_free(const struct lu_env *env, struct lu_object *obj);
 int ccc_lock_init(const struct lu_env *env, struct cl_object *obj,
                   struct cl_lock *lock, const struct cl_io *io,

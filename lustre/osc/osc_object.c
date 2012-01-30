@@ -70,7 +70,8 @@ static struct osc_object *lu2osc(const struct lu_object *obj)
  */
 
 static int osc_object_init(const struct lu_env *env, struct lu_object *obj,
-                           const struct lu_object_conf *conf)
+                           const struct lu_object_conf *conf,
+                           struct lu_object_hint *unused)
 {
         struct osc_object           *osc   = lu2osc(obj);
         const struct cl_object_conf *cconf = lu2cl_conf(conf);

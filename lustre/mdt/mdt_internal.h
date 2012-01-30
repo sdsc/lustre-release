@@ -122,12 +122,13 @@ struct mdt_device {
          * Options bit-fields.
          */
         struct {
-                signed int         mo_user_xattr :1,
-                                   mo_acl        :1,
+                unsigned int       mo_user_xattr:1,
+                                   mo_acl:1,
                                    mo_compat_resname:1,
-                                   mo_mds_capa   :1,
-                                   mo_oss_capa   :1,
-                                   mo_cos        :1;
+                                   mo_mds_capa:1,
+                                   mo_oss_capa:1,
+                                   mo_cos:1,
+                                   mo_noscrub:1;
         } mdt_opts;
         /* mdt state flags */
         unsigned long              mdt_state;
@@ -364,6 +365,8 @@ struct mdt_thread_info {
 
         struct lu_fid              mti_tmp_fid1;
         struct lu_fid              mti_tmp_fid2;
+        struct lu_object_hint      mti_tmp_hint1;
+        struct lu_object_hint      mti_tmp_hint2;
         ldlm_policy_data_t         mti_policy;    /* for mdt_object_lock() and
                                                    * mdt_rename_lock() */
         struct ldlm_res_id         mti_res_id;    /* for mdt_object_lock() and
@@ -373,12 +376,7 @@ struct mdt_thread_info {
                 char               ns_name[48];   /* for mdt_init0()         */
                 struct lustre_cfg_bufs bufs;      /* for mdt_stack_fini()    */
                 cfs_kstatfs_t      ksfs;          /* for mdt_statfs()        */
-                struct {
-                        /* for mdt_readpage()      */
-                        struct lu_rdpg     mti_rdpg;
-                        /* for mdt_sendpage()      */
-                        struct l_wait_info mti_wait_info;
-                } rdpg;
+                struct lu_rdpg     mti_rdpg;      /* for mdt_readpage()      */
                 struct {
                         struct md_attr attr;
                         struct md_som_data data;
@@ -399,6 +397,7 @@ struct mdt_thread_info {
         /* Ops object filename */
         struct lu_name             mti_name;
         struct md_attr             mti_tmp_attr;
+        struct l_wait_info         mti_wait_info;
 };
 
 typedef void (*mdt_cb_t)(const struct mdt_device *mdt, __u64 transno,
@@ -525,9 +524,11 @@ void mdt_object_unlock(struct mdt_thread_info *,
 struct mdt_object *mdt_object_find(const struct lu_env *,
                                    struct mdt_device *,
                                    const struct lu_fid *,
+                                   struct lu_object_hint *,
                                    enum mdt_obj_exist check_exist);
 struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *,
                                         const struct lu_fid *,
+                                        struct lu_object_hint *,
                                         struct mdt_lock_handle *,
                                         __u64 ibits,
                                         enum mdt_obj_exist check_exist);
@@ -777,17 +778,25 @@ static inline ldlm_mode_t mdt_mdl_mode2dlm_mode(mdl_mode_t mode)
         return mdt_dlm_lock_modes[mode];
 }
 
+static inline struct mdt_thread_info *mdt_env_info(const struct lu_env *env)
+{
+        struct mdt_thread_info *info;
+
+        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        LASSERT(info != NULL);
+        return info;
+}
+
 static inline struct lu_name *mdt_name(const struct lu_env *env,
                                        char *name, int namelen)
 {
         struct lu_name *lname;
-        struct mdt_thread_info *mti;
+        struct mdt_thread_info *mti = mdt_env_info(env);
 
         LASSERT(namelen > 0);
         /* trailing '\0' in buffer */
         LASSERT(name[namelen] == '\0');
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
         lname = &mti->mti_name;
         lname->ln_name = name;
         lname->ln_namelen = namelen;
@@ -890,5 +899,6 @@ static inline struct obd_device *mdt2obd_dev(const struct mdt_device *mdt)
 {
         return mdt->mdt_md_dev.md_lu_dev.ld_obd;
 }
+
 #endif /* __KERNEL__ */
 #endif /* _MDT_H */

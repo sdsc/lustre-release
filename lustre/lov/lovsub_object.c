@@ -53,7 +53,8 @@
  */
 
 int lovsub_object_init(const struct lu_env *env, struct lu_object *obj,
-                       const struct lu_object_conf *conf)
+                       const struct lu_object_conf *conf,
+                       struct lu_object_hint *unused)
 {
         struct lovsub_device  *dev   = lu2lovsub_dev(obj->lo_dev);
         struct lu_object      *below;

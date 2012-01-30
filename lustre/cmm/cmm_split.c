@@ -253,7 +253,7 @@ struct cmm_object *cmm_object_find(const struct lu_env *env,
                                    struct cmm_device *d,
                                    const struct lu_fid *f)
 {
-        return md2cmm_obj(md_object_find_slice(env, &d->cmm_md_dev, fid));
+        return md2cmm_obj(md_object_find_slice(env, &d->cmm_md_dev, fid, NULL));
 }
 
 static inline void cmm_object_put(const struct lu_env *env,

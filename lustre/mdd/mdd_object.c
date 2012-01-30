@@ -247,7 +247,8 @@ struct lu_object *mdd_object_alloc(const struct lu_env *env,
 }
 
 static int mdd_object_init(const struct lu_env *env, struct lu_object *o,
-                           const struct lu_object_conf *unused)
+                           const struct lu_object_conf *unused,
+                           struct lu_object_hint *hint)
 {
         struct mdd_device *d = lu2mdd_dev(o->lo_dev);
         struct mdd_object *mdd_obj = lu2mdd_obj(o);
@@ -300,20 +301,72 @@ static const struct lu_object_operations mdd_lu_obj_ops = {
         .loo_object_print   = mdd_object_print,
 };
 
-struct mdd_object *mdd_object_find(const struct lu_env *env,
-                                   struct mdd_device *d,
-                                   const struct lu_fid *f)
+struct mdd_object *
+mdd_object_find(const struct lu_env *env, struct mdd_device *d,
+                const struct lu_fid *f, struct lu_object_hint *h)
 {
-        return md2mdd_obj(md_object_find_slice(env, &d->mdd_md_dev, f));
+        struct mdd_object *m;
+        struct lu_object *o;
+        int scrub_once = 0, inconsistent_once = 0, rc;
+
+again:
+        o = lu_object_find_slice(env, mdd2lu_dev(d), f, NULL, h);
+        if (IS_ERR(o)) {
+                rc = PTR_ERR(o);
+                if (rc == -EREMCHG && !d->mdd_noscrub &&
+                    ++scrub_once == 1) {
+                        rc = mdd_scrub_start(env, d, NULL, 1);
+                        if (rc == 0 && rc == -EALREADY)
+                                goto again;
+                }
+                m = (struct mdd_object *)o;
+        } else {
+                m = md2mdd_obj(lu2md(o));
+                if (lu_object_is_scrub(o->lo_header)) {
+                        struct dt_object *next  = mdd_object_child(m);
+                        struct l_wait_info *lwi =
+                                        &mdd_env_info(env)->mti_wait_info;
+
+                        rc = next->do_ops->do_object_sync(env, next);
+                        if (rc != 0) {
+                                mdd_object_put(env, m);
+                                return ERR_PTR(rc);
+                        }
+
+                        *lwi = (struct l_wait_info){ 0 };
+                        l_wait_event(o->lo_header->loh_waitq,
+                                     !lu_object_is_scrub(o->lo_header), lwi);
+
+                        if (unlikely(lu_object_is_inconsistent(o->lo_header))) {
+                                if (++inconsistent_once == 1) {
+                                        /* XXX: OI Scrub under dryrun mode
+                                         *      maybe not update the OI mapping.
+                                         *      Re-search to trigger updating.*/
+                                        mdd_object_put(env, m);
+                                        goto again;
+                                } else {
+                                        /* XXX: OI mapping for the object is
+                                         *      invalid, it maybe cause replay
+                                         *      failure in future. */
+                                        CWARN("Invalid OI mapping for "DFID"\n",
+                                              PFID(f));
+                                }
+                        }
+                }
+        }
+
+        return m;
 }
 
 static int mdd_path2fid(const struct lu_env *env, struct mdd_device *mdd,
                         const char *path, struct lu_fid *fid)
 {
         struct lu_buf *buf;
-        struct lu_fid *f = &mdd_env_info(env)->mti_fid;
+        struct mdd_thread_info *info = mdd_env_info(env);
+        struct lu_fid *f = &info->mti_fid;
+        struct lu_object_hint *h = &info->mti_loh;
         struct mdd_object *obj;
-        struct lu_name *lname = &mdd_env_info(env)->mti_name;
+        struct lu_name *lname = &info->mti_name;
         char *name;
         int rc = 0;
         ENTRY;
@@ -326,6 +379,7 @@ static int mdd_path2fid(const struct lu_env *env, struct mdd_device *mdd,
         lname->ln_name = name = buf->lb_buf;
         lname->ln_namelen = 0;
         *f = mdd->mdd_root_fid;
+        h->loh_flags = 0;
 
         while(1) {
                 while (*path == '/')
@@ -341,13 +395,14 @@ static int mdd_path2fid(const struct lu_env *env, struct mdd_device *mdd,
 
                 *name = '\0';
                 /* find obj corresponding to fid */
-                obj = mdd_object_find(env, mdd, f);
+                obj = mdd_object_find(env, mdd, f, h);
                 if (obj == NULL)
                         GOTO(out, rc = -EREMOTE);
                 if (IS_ERR(obj))
                         GOTO(out, rc = PTR_ERR(obj));
                 /* get child fid from parent and name */
-                rc = mdd_lookup(env, &obj->mod_obj, lname, f, NULL);
+                h->loh_flags = 0;
+                rc = mdd_lookup(env, &obj->mod_obj, lname, f, h, NULL);
                 mdd_object_put(env, obj);
                 if (rc)
                         break;
@@ -404,7 +459,8 @@ static int mdd_path_current(const struct lu_env *env,
 
         while (!mdd_is_root(mdd, &pli->pli_fids[pli->pli_fidcount])) {
                 mdd_obj = mdd_object_find(env, mdd,
-                                          &pli->pli_fids[pli->pli_fidcount]);
+                                          &pli->pli_fids[pli->pli_fidcount],
+                                          NULL);
                 if (mdd_obj == NULL)
                         GOTO(out, rc = -EREMOTE);
                 if (IS_ERR(mdd_obj))
@@ -2607,7 +2663,8 @@ static int __mdd_readpage(const struct lu_env *env, struct mdd_object *obj,
          * iterate through directory and fill pages from @rdpg
          */
         iops = &next->do_index_ops->dio_it;
-        it = iops->init(env, next, rdpg->rp_attrs, mdd_object_capa(env, obj));
+        it = iops->init(env, next, (void *)&rdpg->rp_attrs,
+                        mdd_object_capa(env, obj));
         if (IS_ERR(it))
                 return PTR_ERR(it);
 

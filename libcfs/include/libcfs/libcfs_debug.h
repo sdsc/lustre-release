@@ -86,7 +86,7 @@ struct ptldebug_header {
 #define PH_FLAG_FIRST_RECORD 1
 
 /* Debugging subsystems (32 bits, non-overlapping) */
-/* keep these in sync with lnet/utils/debug.c and lnet/libcfs/debug.c */
+/* keep these in sync with libcfs/libcfs/debug.c */
 #define S_UNDEFINED   0x00000001
 #define S_MDC         0x00000002
 #define S_MDS         0x00000004
@@ -119,10 +119,10 @@ struct ptldebug_header {
 #define S_MGS         0x20000000
 #define S_FID         0x40000000 /* b_new_cmd */
 #define S_FLD         0x80000000 /* b_new_cmd */
-/* keep these in sync with lnet/utils/debug.c and lnet/libcfs/debug.c */
+/* keep these in sync with libcfs/libcfs/debug.c */
 
 /* Debugging masks (32 bits, non-overlapping) */
-/* keep these in sync with lnet/utils/debug.c and lnet/libcfs/debug.c */
+/* keep these in sync with libcfs/libcfs/debug.c */
 #define D_TRACE       0x00000001 /* ENTRY/EXIT markers */
 #define D_INODE       0x00000002
 #define D_SUPER       0x00000004
@@ -151,7 +151,8 @@ struct ptldebug_header {
 #define D_CONSOLE     0x02000000
 #define D_QUOTA       0x04000000
 #define D_SEC         0x08000000
-/* keep these in sync with lnet/{utils,libcfs}/debug.c */
+#define D_SCRUB       0x10000000 /* OI Scrub */
+/* keep these in sync with libcfs/libcfs/debug.c */
 
 #define D_HSM         D_TRACE
 

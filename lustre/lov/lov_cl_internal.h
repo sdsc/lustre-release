@@ -553,9 +553,11 @@ extern cfs_mem_cache_t *lovsub_req_kmem;
 extern cfs_mem_cache_t *lov_lock_link_kmem;
 
 int   lov_object_init     (const struct lu_env *env, struct lu_object *obj,
-                           const struct lu_object_conf *conf);
+                           const struct lu_object_conf *conf,
+                           struct lu_object_hint *unused);
 int   lovsub_object_init  (const struct lu_env *env, struct lu_object *obj,
-                           const struct lu_object_conf *conf);
+                           const struct lu_object_conf *conf,
+                           struct lu_object_hint *unused);
 int   lov_lock_init       (const struct lu_env *env, struct cl_object *obj,
                            struct cl_lock *lock, const struct cl_io *io);
 int   lov_io_init         (const struct lu_env *env, struct cl_object *obj,

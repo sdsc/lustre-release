@@ -56,11 +56,9 @@ static int mdt_server_data_update(const struct lu_env *env,
 
 struct lu_buf *mdt_buf(const struct lu_env *env, void *area, ssize_t len)
 {
-        struct lu_buf *buf;
-        struct mdt_thread_info *mti;
+        struct mdt_thread_info *mti = mdt_env_info(env);
+        struct lu_buf *buf = &mti->mti_buf;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        buf = &mti->mti_buf;
         buf->lb_buf = area;
         buf->lb_len = len;
         return buf;
@@ -69,11 +67,8 @@ struct lu_buf *mdt_buf(const struct lu_env *env, void *area, ssize_t len)
 const struct lu_buf *mdt_buf_const(const struct lu_env *env,
                                    const void *area, ssize_t len)
 {
-        struct lu_buf *buf;
-        struct mdt_thread_info *mti;
-
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        buf = &mti->mti_buf;
+        struct mdt_thread_info *mti = mdt_env_info(env);
+        struct lu_buf *buf = &mti->mti_buf;
 
         buf->lb_buf = (void *)area;
         buf->lb_len = len;
@@ -95,9 +90,8 @@ int mdt_trans_start(const struct lu_env *env, struct mdt_device *mdt,
 void mdt_trans_stop(const struct lu_env *env,
                     struct mdt_device *mdt, struct thandle *th)
 {
-        struct mdt_thread_info *mti;
+        struct mdt_thread_info *mti = mdt_env_info(env);
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
         /* export can require sync operations */
         if (mti->mti_exp != NULL)
                 th->th_sync |= mti->mti_exp->exp_need_sync;
@@ -107,10 +101,8 @@ void mdt_trans_stop(const struct lu_env *env,
 static inline int mdt_last_rcvd_header_read(const struct lu_env *env,
                                             struct mdt_device *mdt)
 {
-        struct mdt_thread_info *mti;
+        struct mdt_thread_info *mti = mdt_env_info(env);
         int rc;
-
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
 
         mti->mti_off = 0;
         rc = dt_record_read(env, mdt->mdt_lut.lut_last_rcvd,
@@ -129,9 +121,7 @@ static int mdt_declare_last_rcvd_header_write(const struct lu_env *env,
                                               struct mdt_device *mdt,
                                               struct thandle *th)
 {
-        struct mdt_thread_info *mti;
-
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        struct mdt_thread_info *mti = mdt_env_info(env);
 
         return dt_declare_record_write(env, mdt->mdt_lut.lut_last_rcvd,
                                        sizeof(mti->mti_lsd), 0, th);
@@ -141,11 +131,9 @@ static int mdt_last_rcvd_header_write(const struct lu_env *env,
                                       struct mdt_device *mdt,
                                       struct thandle *th)
 {
-        struct mdt_thread_info *mti;
+        struct mdt_thread_info *mti = mdt_env_info(env);
         int rc;
         ENTRY;
-
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
 
         mti->mti_off = 0;
         lsd_cpu_to_le(&mdt->mdt_lut.lut_lsd, &mti->mti_lsd);
@@ -166,12 +154,10 @@ static int mdt_last_rcvd_read(const struct lu_env *env, struct mdt_device *mdt,
                               struct lsd_client_data *lcd, loff_t *off,
                               int index)
 {
-        struct mdt_thread_info *mti;
-        struct lsd_client_data *tmp;
+        struct mdt_thread_info *mti = mdt_env_info(env);
+        struct lsd_client_data *tmp = &mti->mti_lcd;
         int rc;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        tmp = &mti->mti_lcd;
         rc = dt_record_read(env, mdt->mdt_lut.lut_last_rcvd,
                             mdt_buf(env, tmp, sizeof(*tmp)), off);
         if (rc == 0) {
@@ -203,13 +189,11 @@ static int mdt_last_rcvd_write(const struct lu_env *env,
                                struct lsd_client_data *lcd,
                                loff_t *off, struct thandle *th)
 {
-        struct mdt_thread_info *mti;
-        struct lsd_client_data *tmp;
+        struct mdt_thread_info *mti = mdt_env_info(env);
+        struct lsd_client_data *tmp = &mti->mti_lcd;
         int rc;
 
         LASSERT(th != NULL);
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        tmp = &mti->mti_lcd;
 
         lcd_cpu_to_le(lcd, tmp);
 
@@ -291,8 +275,7 @@ static int mdt_clients_data_init(const struct lu_env *env,
                         GOTO(err_client, rc = PTR_ERR(exp));
                 }
 
-                mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-                LASSERT(mti != NULL);
+                mti = mdt_env_info(env);
                 mti->mti_exp = exp;
                 /* copy on-disk lcd to the export */
                 *exp->exp_target_data.ted_lcd = *lcd;
@@ -329,9 +312,9 @@ static int mdt_server_data_init(const struct lu_env *env,
         struct lr_server_data  *lsd = &mdt->mdt_lut.lut_lsd;
         struct lsd_client_data *lcd = NULL;
         struct obd_device      *obd = mdt2obd_dev(mdt);
-        struct mdt_thread_info *mti;
-        struct dt_object       *obj;
-        struct lu_attr         *la;
+        struct mdt_thread_info *mti = mdt_env_info(env);
+        struct lu_attr         *la  = &mti->mti_attr.ma_attr;
+        struct dt_object       *obj = mdt->mdt_lut.lut_last_rcvd;
         struct lustre_disk_data  *ldd;
         unsigned long last_rcvd_size;
         __u64 mount_count;
@@ -344,11 +327,6 @@ static int mdt_server_data_init(const struct lu_env *env,
         CLASSERT(offsetof(struct lsd_client_data, lcd_padding) +
                 sizeof(lcd->lcd_padding) == LR_CLIENT_SIZE);
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        LASSERT(mti != NULL);
-        la = &mti->mti_attr.ma_attr;
-
-        obj = mdt->mdt_lut.lut_last_rcvd;
         rc = obj->do_ops->do_attr_get(env, obj, la, BYPASS_CAPA);
         if (rc)
                 RETURN(rc);
@@ -484,11 +462,8 @@ out:
 static int mdt_server_data_update(const struct lu_env *env,
                                   struct mdt_device *mdt)
 {
-        struct mdt_thread_info *mti;
         struct thandle *th;
         int rc;
-
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
 
         th = mdt_trans_create(env, mdt);
         if (IS_ERR(th))
@@ -521,8 +496,8 @@ out:
 int mdt_client_new(const struct lu_env *env, struct mdt_device *mdt)
 {
         unsigned long *bitmap = mdt->mdt_lut.lut_client_bitmap;
-        struct mdt_thread_info *mti;
-        struct tg_export_data *ted;
+        struct mdt_thread_info *mti = mdt_env_info(env);
+        struct tg_export_data *ted = &mti->mti_exp->exp_target_data;
         struct lr_server_data  *lsd = &mdt->mdt_lut.lut_lsd;
         struct obd_device *obd = mdt2obd_dev(mdt);
         struct thandle *th;
@@ -530,11 +505,6 @@ int mdt_client_new(const struct lu_env *env, struct mdt_device *mdt)
         int rc;
         int cl_idx;
         ENTRY;
-
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        LASSERT(mti != NULL);
-
-        ted = &mti->mti_exp->exp_target_data;
 
         LASSERT(bitmap != NULL);
         if (!strcmp(ted->ted_lcd->lcd_uuid, obd->obd_uuid.uuid))
@@ -620,18 +590,13 @@ stop:
 int mdt_client_add(const struct lu_env *env,
                    struct mdt_device *mdt, int cl_idx)
 {
-        struct mdt_thread_info *mti;
-        struct tg_export_data  *ted;
+        struct mdt_thread_info *mti = mdt_env_info(env);
+        struct tg_export_data  *ted = &mti->mti_exp->exp_target_data;
         unsigned long *bitmap = mdt->mdt_lut.lut_client_bitmap;
         struct obd_device *obd = mdt2obd_dev(mdt);
         struct lr_server_data *lsd = &mdt->mdt_lut.lut_lsd;
         int rc = 0;
         ENTRY;
-
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        LASSERT(mti != NULL);
-
-        ted = &mti->mti_exp->exp_target_data;
 
         LASSERT(bitmap != NULL);
         LASSERTF(cl_idx >= 0, "%d\n", cl_idx);
@@ -662,20 +627,15 @@ int mdt_client_add(const struct lu_env *env,
 
 int mdt_client_del(const struct lu_env *env, struct mdt_device *mdt)
 {
-        struct mdt_thread_info *mti;
-        struct tg_export_data  *ted;
+        struct mdt_thread_info *mti = mdt_env_info(env);
+        struct obd_export      *exp = mti->mti_exp;
+        struct tg_export_data  *ted = &exp->exp_target_data;
         struct obd_device      *obd = mdt2obd_dev(mdt);
-        struct obd_export      *exp;
         struct thandle         *th;
         loff_t                  off;
         int                     rc = 0;
         ENTRY;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        LASSERT(mti != NULL);
-
-        exp = mti->mti_exp;
-        ted = &exp->exp_target_data;
         if (!ted->ted_lcd)
                 RETURN(0);
 
@@ -858,11 +818,8 @@ static int mdt_txn_stop_cb(const struct lu_env *env,
                            struct thandle *txn, void *cookie)
 {
         struct mdt_device *mdt = cookie;
-        struct mdt_thread_info *mti;
-        struct ptlrpc_request *req;
-
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        req = mdt_info_req(mti);
+        struct mdt_thread_info *mti = mdt_env_info(env);
+        struct ptlrpc_request *req = mdt_info_req(mti);
 
         if (mti->mti_mdt == NULL || req == NULL || mti->mti_no_need_trans) {
                 mti->mti_no_need_trans = 0;
@@ -941,7 +898,7 @@ int mdt_fs_setup(const struct lu_env *env, struct mdt_device *mdt,
         if (rc)
                 RETURN(rc);
 
-        o = dt_store_open(env, mdt->mdt_bottom, "", CAPA_KEYS, &fid);
+        o = dt_store_open(env, mdt->mdt_bottom, "", CAPA_KEYS, &fid, NULL);
         if (!IS_ERR(o)) {
                 mdt->mdt_ck_obj = o;
                 rc = mdt_capa_keys_init(env, mdt);
@@ -1089,7 +1046,7 @@ static void mdt_reconstruct_create(struct mdt_thread_info *mti,
                 return;
 
         /* if no error, so child was created with requested fid */
-        child = mdt_object_find(mti->mti_env, mdt, mti->mti_rr.rr_fid2,
+        child = mdt_object_find(mti->mti_env, mdt, mti->mti_rr.rr_fid2, NULL,
                                 MDT_OBJ_MUST_EXIST);
         if (IS_ERR(child)) {
                 rc = PTR_ERR(child);
@@ -1132,7 +1089,7 @@ static void mdt_reconstruct_setattr(struct mdt_thread_info *mti,
                 return;
 
         body = req_capsule_server_get(mti->mti_pill, &RMF_MDT_BODY);
-        obj = mdt_object_find(mti->mti_env, mdt, mti->mti_rr.rr_fid1,
+        obj = mdt_object_find(mti->mti_env, mdt, mti->mti_rr.rr_fid1, NULL,
                               MDT_OBJ_MUST_EXIST);
         if (IS_ERR(obj)) {
                 int rc = PTR_ERR(obj);

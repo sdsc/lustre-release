@@ -80,7 +80,7 @@ static struct lu_name lname_dotdot = {
 
 static int __mdd_lookup(const struct lu_env *env, struct md_object *pobj,
                         const struct lu_name *lname, struct lu_fid* fid,
-                        int mask);
+                        struct lu_object_hint *hint, int mask);
 static int mdd_declare_links_add(const struct lu_env *env,
                                  struct mdd_object *mdd_obj,
                                  struct thandle *handle);
@@ -99,7 +99,8 @@ static int mdd_links_rename(const struct lu_env *env,
 
 static int
 __mdd_lookup_locked(const struct lu_env *env, struct md_object *pobj,
-                    const struct lu_name *lname, struct lu_fid* fid, int mask)
+                    const struct lu_name *lname, struct lu_fid *fid,
+                    struct lu_object_hint *hint, int mask)
 {
         const char *name = lname->ln_name;
         struct mdd_object *mdd_obj = md2mdd_obj(pobj);
@@ -109,7 +110,7 @@ __mdd_lookup_locked(const struct lu_env *env, struct md_object *pobj,
         dlh = mdd_pdo_read_lock(env, mdd_obj, name, MOR_TGT_PARENT);
         if (unlikely(dlh == NULL))
                 return -ENOMEM;
-        rc = __mdd_lookup(env, pobj, lname, fid, mask);
+        rc = __mdd_lookup(env, pobj, lname, fid, hint, mask);
         mdd_pdo_read_unlock(env, mdd_obj, dlh);
 
         return rc;
@@ -117,18 +118,20 @@ __mdd_lookup_locked(const struct lu_env *env, struct md_object *pobj,
 
 int mdd_lookup(const struct lu_env *env,
                struct md_object *pobj, const struct lu_name *lname,
-               struct lu_fid* fid, struct md_op_spec *spec)
+               struct lu_fid *fid, struct lu_object_hint *hint,
+               struct md_op_spec *spec)
 {
         int rc;
         ENTRY;
-        rc = __mdd_lookup_locked(env, pobj, lname, fid, MAY_EXEC);
+        rc = __mdd_lookup_locked(env, pobj, lname, fid, hint, MAY_EXEC);
         RETURN(rc);
 }
 
 static int mdd_parent_fid(const struct lu_env *env, struct mdd_object *obj,
-                          struct lu_fid *fid)
+                          struct lu_fid *fid, struct lu_object_hint *hint)
 {
-        return __mdd_lookup_locked(env, &obj->mod_obj, &lname_dotdot, fid, 0);
+        return __mdd_lookup_locked(env, &obj->mod_obj, &lname_dotdot, fid,
+                                   hint, 0);
 }
 
 /*
@@ -156,6 +159,8 @@ static int mdd_is_parent(const struct lu_env *env,
                          const struct lu_fid *lf,
                          struct lu_fid *pf)
 {
+        struct mdd_thread_info *info = mdd_env_info(env);
+        struct lu_object_hint *hint = &info->mti_loh;
         struct mdd_object *parent = NULL;
         struct lu_fid *pfid;
         int rc;
@@ -171,7 +176,8 @@ static int mdd_is_parent(const struct lu_env *env,
         for(;;) {
                 /* this is done recursively, bypass capa for each obj */
                 mdd_set_capainfo(env, 4, p1, BYPASS_CAPA);
-                rc = mdd_parent_fid(env, p1, pfid);
+                hint->loh_flags = 0;
+                rc = mdd_parent_fid(env, p1, pfid, hint);
                 if (rc)
                         GOTO(out, rc);
                 if (mdd_is_root(mdd, pfid))
@@ -180,7 +186,7 @@ static int mdd_is_parent(const struct lu_env *env,
                         GOTO(out, rc = 1);
                 if (parent)
                         mdd_object_put(env, parent);
-                parent = mdd_object_find(env, mdd, pfid);
+                parent = mdd_object_find(env, mdd, pfid, hint);
 
                 /* cross-ref parent */
                 if (parent == NULL) {
@@ -249,6 +255,7 @@ static int mdd_dir_is_empty(const struct lu_env *env,
         struct dt_object *obj;
         const struct dt_it_ops *iops;
         int result;
+        __u32 flags = LUDA_64BITHASH;
         ENTRY;
 
         obj = mdd_object_child(dir);
@@ -256,7 +263,7 @@ static int mdd_dir_is_empty(const struct lu_env *env,
                 RETURN(-ENOTDIR);
 
         iops = &obj->do_index_ops->dio_it;
-        it = iops->init(env, obj, LUDA_64BITHASH, BYPASS_CAPA);
+        it = iops->init(env, obj, &flags, BYPASS_CAPA);
         if (!IS_ERR(it)) {
                 result = iops->get(env, it, (const void *)"");
                 if (result > 0) {
@@ -1629,7 +1636,8 @@ out_free:
 /* Get fid from name and parent */
 static int
 __mdd_lookup(const struct lu_env *env, struct md_object *pobj,
-             const struct lu_name *lname, struct lu_fid* fid, int mask)
+             const struct lu_name *lname, struct lu_fid* fid,
+             struct lu_object_hint *hint, int mask)
 {
         const char          *name = lname->ln_name;
         const struct dt_key *key = (const struct dt_key *)name;
@@ -1664,7 +1672,7 @@ __mdd_lookup(const struct lu_env *env, struct md_object *pobj,
                    dt_try_as_dir(env, dir))) {
 
                 rc = dir->do_index_ops->dio_lookup(env, dir,
-                                                 (struct dt_rec *)fid, key,
+                                                (struct dt_rec *)fid, key, hint,
                                                  mdd_object_capa(env, mdd_obj));
                 if (rc > 0)
                         rc = 0;
@@ -1765,7 +1773,7 @@ static int mdd_create_sanity_check(const struct lu_env *env,
                  * _index_insert also, for avoiding rolling back if exists
                  * _index_insert.
                  */
-                rc = __mdd_lookup_locked(env, pobj, lname, fid,
+                rc = __mdd_lookup_locked(env, pobj, lname, fid, NULL,
                                          MAY_WRITE | MAY_EXEC);
                 if (rc != -ENOENT)
                         RETURN(rc ? : -EEXIST);
@@ -2465,7 +2473,14 @@ static int mdd_rename(const struct lu_env *env,
                 }
         }
 #endif
-        mdd_sobj = mdd_object_find(env, mdd, lf);
+        mdd_sobj = mdd_object_find(env, mdd, lf, NULL);
+
+        /* FIXME: Should consider tobj and sobj too in rename_lock. */
+        /* XXX: mdd_object_find() maybe trigger object_sync(), which requires
+         *      no transaction opened by this task. */
+        rc2 = mdd_rename_order(env, mdd, mdd_spobj, mdd_tpobj);
+        if (rc2 < 0)
+                GOTO(out_pending, rc = rc2);
 
         handle = mdd_trans_create(env, mdd);
         if (IS_ERR(handle))
@@ -2480,13 +2495,8 @@ static int mdd_rename(const struct lu_env *env,
         if (rc)
                 GOTO(stop, rc);
 
-        /* FIXME: Should consider tobj and sobj too in rename_lock. */
-        rc = mdd_rename_order(env, mdd, mdd_spobj, mdd_tpobj);
-        if (rc < 0)
-                GOTO(cleanup_unlocked, rc);
-
         /* Get locks in determined order */
-        if (rc == MDD_RN_SAME) {
+        if (rc2 == MDD_RN_SAME) {
                 sdlh = mdd_pdo_write_lock(env, mdd_spobj,
                                           sname, MOR_SRC_PARENT);
                 /* check hashes to determine do we need one lock or two */
@@ -2495,7 +2505,7 @@ static int mdd_rename(const struct lu_env *env,
                                 MOR_TGT_PARENT);
                 else
                         tdlh = sdlh;
-        } else if (rc == MDD_RN_SRCTGT) {
+        } else if (rc2 == MDD_RN_SRCTGT) {
                 sdlh = mdd_pdo_write_lock(env, mdd_spobj, sname,MOR_SRC_PARENT);
                 tdlh = mdd_pdo_write_lock(env, mdd_tpobj, tname,MOR_TGT_PARENT);
         } else {
@@ -2674,7 +2684,6 @@ cleanup:
                 mdd_pdo_write_unlock(env, mdd_tpobj, tdlh);
         if (likely(sdlh))
                 mdd_pdo_write_unlock(env, mdd_spobj, sdlh);
-cleanup_unlocked:
         if (rc == 0)
                 rc = mdd_changelog_ns_store(env, mdd, CL_RENAME, 0, mdd_tobj,
                                             mdd_spobj, lf, lsname, handle);

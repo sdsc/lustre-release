@@ -298,7 +298,7 @@ struct md_dir_operations {
 
         int (*mdo_lookup)(const struct lu_env *env, struct md_object *obj,
                           const struct lu_name *lname, struct lu_fid *fid,
-                          struct md_op_spec *spec);
+                          struct lu_object_hint *hint, struct md_op_spec *spec);
 
         mdl_mode_t (*mdo_lock_mode)(const struct lu_env *env,
                                     struct md_object *obj,
@@ -458,7 +458,9 @@ enum md_upcall_event {
         MD_NO_TRANS = (1 << 1),
         MD_LOV_CONFIG = (1 << 2),
         /** Trigger quota recovery */
-        MD_LOV_QUOTA = (1 << 3)
+        MD_LOV_QUOTA = (1 << 3),
+        /** Configure 'noscrub' */
+        MD_NOSCRUB = (1 << 4),
 };
 
 struct md_upcall {
@@ -603,9 +605,10 @@ static inline void md_device_fini(struct md_device *md)
 
 static inline struct md_object *md_object_find_slice(const struct lu_env *env,
                                                      struct md_device *md,
-                                                     const struct lu_fid *f)
+                                                     const struct lu_fid *f,
+                                                     struct lu_object_hint *h)
 {
-        return lu2md(lu_object_find_slice(env, md2lu_dev(md), f, NULL));
+        return lu2md(lu_object_find_slice(env, md2lu_dev(md), f, NULL, h));
 }
 
 
@@ -781,10 +784,11 @@ static inline int mdo_lookup(const struct lu_env *env,
                              struct md_object *p,
                              const struct lu_name *lname,
                              struct lu_fid *f,
+                             struct lu_object_hint *hint,
                              struct md_op_spec *spec)
 {
         LASSERT(p->mo_dir_ops->mdo_lookup);
-        return p->mo_dir_ops->mdo_lookup(env, p, lname, f, spec);
+        return p->mo_dir_ops->mdo_lookup(env, p, lname, f, hint, spec);
 }
 
 static inline mdl_mode_t mdo_lock_mode(const struct lu_env *env,

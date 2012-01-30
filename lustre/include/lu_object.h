@@ -167,7 +167,8 @@ struct lu_device_operations {
 
         int (*ldo_prepare)(const struct lu_env *,
                            struct lu_device *parent,
-                           struct lu_device *dev);
+                           struct lu_device *dev,
+                           int flags);
 
 };
 
@@ -189,6 +190,38 @@ struct lu_object_conf {
          * Some hints for obj find and alloc.
          */
         loc_flags_t     loc_flags;
+};
+
+/**
+ * Local identifier for the object, depends on backend filesystem. For the
+ * layers above OSD, they don't know which type identifier will be used by
+ * backend filesystem, so it reserves 128 bits for that. */
+union lu_local_id {
+        __u64   lli_u64[2];
+        __u32   lli_u32[4];
+        __u8    lli_u8[16];
+};
+
+enum {
+        /* Contains valid local id for the object. */
+        LOH_F_LID               = 1 << 0,
+
+        /* Fid in name entry. */
+        LOH_F_FIDEA             = 1 << 1,
+
+        /* The object is allocated by OI Scrub. */
+        LOH_F_SCRUB             = 1 << 2,
+
+        /* OI mapping for the object is invalid. */
+        LOH_F_UNMATCHED         = 1 << 3,
+};
+
+/**
+ * Object hint information for further processing after allocated.
+ */
+struct lu_object_hint {
+        union lu_local_id       loh_lid; /* Local id for the object. */
+        __u32                   loh_flags;
 };
 
 /**
@@ -218,7 +251,8 @@ struct lu_object_operations {
          */
         int (*loo_object_init)(const struct lu_env *env,
                                struct lu_object *o,
-                               const struct lu_object_conf *conf);
+                               const struct lu_object_conf *conf,
+                               struct lu_object_hint *hint);
         /**
          * Called (in top-to-bottom order) during object allocation after all
          * layers were allocated and initialized. Can be used to perform
@@ -508,7 +542,13 @@ enum lu_object_header_flags {
          * as last reference to it is released. This flag cannot be cleared
          * once set.
          */
-        LU_OBJECT_HEARD_BANSHEE = 0
+        LU_OBJECT_HEARD_BANSHEE = 0,
+
+        /* This is object is in processing by OI Scrub. */
+        LU_OBJECT_SCRUB         = 1,
+
+        /* OI mapping for the object is invalid. */
+        LU_OBJECT_INCONSISTENT  = 2,
 };
 
 enum lu_object_header_attr {
@@ -568,6 +608,10 @@ struct lu_object_header {
          * A list of references to this object, for debugging.
          */
         struct lu_ref          loh_reference;
+        /**
+         * Waiting list for object to be ready.
+         */
+        cfs_waitq_t            loh_waitq;
 };
 
 struct fld;
@@ -713,6 +757,49 @@ static inline int lu_object_is_dying(const struct lu_object_header *h)
         return cfs_test_bit(LU_OBJECT_HEARD_BANSHEE, &h->loh_flags);
 }
 
+static inline int lu_object_is_inconsistent(const struct lu_object_header *h)
+{
+        return cfs_test_bit(LU_OBJECT_INCONSISTENT, &h->loh_flags);
+}
+
+/*
+ * Unlink the inconsistent object to prevent to be found by others.
+ */
+static inline void lu_object_set_inconsistent(struct lu_object *o)
+{
+        struct lu_object_header *h  = o->lo_header;
+        cfs_hash_t              *hs = o->lo_dev->ld_site->ls_obj_hash;
+        cfs_hash_bd_t            bd;
+
+        cfs_hash_bd_get_and_lock(hs, (void *)&h->loh_fid, &bd, 1);
+        cfs_hash_bd_del_locked(hs, &bd, &h->loh_hash);
+        cfs_set_bit(LU_OBJECT_INCONSISTENT, &h->loh_flags);
+        cfs_hash_bd_unlock(hs, &bd, 1);
+}
+
+static inline int lu_object_is_scrub(const struct lu_object_header *h)
+{
+        return cfs_test_bit(LU_OBJECT_SCRUB, &h->loh_flags);
+}
+
+static inline void lu_object_set_scrub(struct lu_object_header *h)
+{
+        cfs_set_bit(LU_OBJECT_SCRUB, &h->loh_flags);
+}
+
+static inline void lu_object_clear_scrub(struct lu_object_header *h)
+{
+        cfs_clear_bit(LU_OBJECT_SCRUB, &h->loh_flags);
+}
+
+static inline void lu_object_signal_scrub(struct lu_object_header *h)
+{
+        LASSERT(lu_object_is_scrub(h));
+
+        lu_object_clear_scrub(h);
+        cfs_waitq_broadcast(&h->loh_waitq);
+}
+
 void lu_object_put(const struct lu_env *env, struct lu_object *o);
 
 int lu_site_purge(const struct lu_env *env, struct lu_site *s, int nr);
@@ -721,15 +808,18 @@ void lu_site_print(const struct lu_env *env, struct lu_site *s, void *cookie,
                    lu_printer_t printer);
 struct lu_object *lu_object_find(const struct lu_env *env,
                                  struct lu_device *dev, const struct lu_fid *f,
-                                 const struct lu_object_conf *conf);
+                                 const struct lu_object_conf *conf,
+                                 struct lu_object_hint *hint);
 struct lu_object *lu_object_find_at(const struct lu_env *env,
                                     struct lu_device *dev,
                                     const struct lu_fid *f,
-                                    const struct lu_object_conf *conf);
+                                    const struct lu_object_conf *conf,
+                                    struct lu_object_hint *hint);
 struct lu_object *lu_object_find_slice(const struct lu_env *env,
                                        struct lu_device *dev,
                                        const struct lu_fid *f,
-                                       const struct lu_object_conf *conf);
+                                       const struct lu_object_conf *conf,
+                                       struct lu_object_hint *hint);
 /** @} caching */
 
 /** \name helpers
