@@ -1157,6 +1157,7 @@ int lu_object_header_init(struct lu_object_header *h)
         CFS_INIT_LIST_HEAD(&h->loh_lru);
         CFS_INIT_LIST_HEAD(&h->loh_layers);
         lu_ref_init(&h->loh_reference);
+        cfs_waitq_init(&h->loh_waitq);
         return 0;
 }
 EXPORT_SYMBOL(lu_object_header_init);

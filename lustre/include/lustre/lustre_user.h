@@ -63,6 +63,8 @@
 #error Unsupported operating system.
 #endif
 
+#include <lustre/lustre_scrub_user.h>
+
 /* for statfs() */
 #define LL_SUPER_MAGIC 0x0BD00BD0
 

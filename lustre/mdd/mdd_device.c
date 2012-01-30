@@ -54,13 +54,12 @@
 #else
 #include <linux/jbd.h>
 #endif
-#include <obd.h>
 #include <obd_class.h>
 #include <lustre_ver.h>
 #include <obd_support.h>
 #include <lprocfs_status.h>
 
-#include <lustre_disk.h>
+#include <lustre_disk.h>      /* for changelogs */
 #include <lustre_fid.h>
 #ifdef HAVE_EXT4_LDISKFS
 #include <ldiskfs/ldiskfs.h>
@@ -69,7 +68,6 @@
 #endif
 #include <lustre_mds.h>
 #include <lustre/lustre_idl.h>
-#include <lustre_disk.h>      /* for changelogs */
 #include <lustre_param.h>
 #include <lustre_fid.h>
 
@@ -80,6 +78,8 @@ static struct lu_device_type mdd_device_type;
 
 static const char mdd_root_dir_name[] = "ROOT";
 static const char mdd_obf_dir_name[] = "fid";
+
+const char mdd_scrub_name[] = "scrub";
 
 static int mdd_device_init(const struct lu_env *env, struct lu_device *d,
                            const char *name, struct lu_device *next)
@@ -123,10 +123,27 @@ static struct lu_device *mdd_device_fini(const struct lu_env *env,
 static void mdd_changelog_fini(const struct lu_env *env,
                                struct mdd_device *mdd);
 
+static void mdd_scrub_shutdown(struct mdd_device *m)
+{
+        struct lu_env *env = m->mdd_scrub_env;
+
+        if (env != NULL) {
+                m->mdd_scrub_env = NULL;
+                mdd_scrub_stop(env, m);
+                if (m->mdd_scrub_obj) {
+                        lu_object_put(env, &m->mdd_scrub_obj->do_lu);
+                        m->mdd_scrub_obj = NULL;
+                }
+                lu_env_fini(env);
+                OBD_FREE_PTR(env);
+        }
+}
+
 static void mdd_device_shutdown(const struct lu_env *env,
                                 struct mdd_device *m, struct lustre_cfg *cfg)
 {
         ENTRY;
+        mdd_scrub_shutdown(m);
         mdd_changelog_fini(env, m);
         dt_txn_callback_del(m->mdd_child, &m->mdd_txn_cb);
         if (m->mdd_dot_lustre_objs.mdd_obf)
@@ -1072,6 +1089,47 @@ static int mdd_recovery_complete(const struct lu_env *env,
         RETURN(rc);
 }
 
+static int mdd_scrub_setup(struct mdd_device *m)
+{
+        struct lu_env *env;
+        struct mdd_thread_info *info;
+        struct lu_fid *fid;
+        struct lu_object_hint *hint;
+        struct dt_object *dto;
+        int rc;
+        ENTRY;
+
+        cfs_sema_init(&m->mdd_scrub_ctl_sem, 1);
+        cfs_sema_init(&m->mdd_scrub_header_sem, 1);
+        cfs_spin_lock_init(&m->mdd_scrub_lock);
+        OBD_ALLOC_PTR(env);
+        if (unlikely(env == NULL))
+                RETURN(-ENOMEM);
+
+        rc = lu_env_init(env, LCT_MD_THREAD);
+        if (rc != 0) {
+                OBD_FREE_PTR(env);
+                RETURN(rc);
+        }
+
+        m->mdd_scrub_env = env;
+        info = mdd_env_info(env);
+        fid = &info->mti_fid;
+        hint = &info->mti_loh;
+        hint->loh_flags = 0;
+        dto = dt_store_open(env, m->mdd_child, "", mdd_scrub_name, fid, hint);
+        if (IS_ERR(dto)) {
+                rc = PTR_ERR(dto);
+                CERROR("open obj [%s] fid = "DFID" rc = %d\n",
+                       mdd_scrub_name, PFID(fid), rc);
+                RETURN(rc);
+        }
+
+        m->mdd_scrub_obj = dto;
+        rc = mdd_scrub_init(env, m, !(hint->loh_flags & LOH_F_FIDEA));
+        RETURN(rc);
+}
+
 static int mdd_prepare(const struct lu_env *env,
                        struct lu_device *pdev,
                        struct lu_device *cdev)
@@ -1084,6 +1142,10 @@ static int mdd_prepare(const struct lu_env *env,
 
         ENTRY;
         rc = next->ld_ops->ldo_prepare(env, cdev, next);
+        if (rc)
+                GOTO(out, rc);
+
+        rc = mdd_scrub_setup(mdd);
         if (rc)
                 GOTO(out, rc);
 
@@ -1686,6 +1748,12 @@ static struct lu_local_obj_desc llod_mdd_root = {
         .llod_feat      = &dt_directory_features,
 };
 
+static struct lu_local_obj_desc llod_scrub_key = {
+        .llod_name      = mdd_scrub_name,
+        .llod_oid       = OI_SCRUB_OID,
+        .llod_is_index  = 0,
+};
+
 static int __init mdd_mod_init(void)
 {
         struct lprocfs_static_vars lvars;
@@ -1694,6 +1762,7 @@ static int __init mdd_mod_init(void)
         llo_local_obj_register(&llod_capa_key);
         llo_local_obj_register(&llod_mdd_orphan);
         llo_local_obj_register(&llod_mdd_root);
+        llo_local_obj_register(&llod_scrub_key);
 
         return class_register_type(&mdd_obd_device_ops, NULL, lvars.module_vars,
                                    LUSTRE_MDD_NAME, &mdd_device_type);
@@ -1704,6 +1773,7 @@ static void __exit mdd_mod_exit(void)
         llo_local_obj_unregister(&llod_capa_key);
         llo_local_obj_unregister(&llod_mdd_orphan);
         llo_local_obj_unregister(&llod_mdd_root);
+        llo_local_obj_unregister(&llod_scrub_key);
 
         class_unregister_type(LUSTRE_MDD_NAME);
 }
