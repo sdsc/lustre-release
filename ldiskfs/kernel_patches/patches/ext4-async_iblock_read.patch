@@ -1,0 +1,62 @@
+Index: linux-stage/fs/ext4/ext4.h
+===================================================================
+--- linux-stage.orig/fs/ext4/ext4.h	2011-11-24 01:09:46.000000000 +0800
++++ linux-stage/fs/ext4/ext4.h	2011-11-24 16:04:52.000000000 +0800
+@@ -1615,6 +1615,7 @@
+ int ext4_get_block(struct inode *inode, sector_t iblock,
+ 				struct buffer_head *bh_result, int create);
+ 
++extern struct buffer_head *ext4_iget_bh(struct super_block *, unsigned long);
+ extern struct inode *ext4_iget(struct super_block *, unsigned long);
+ extern int  ext4_write_inode(struct inode *, int);
+ extern int  ext4_setattr(struct dentry *, struct iattr *);
+Index: linux-stage/fs/ext4/inode.c
+===================================================================
+--- linux-stage.orig/fs/ext4/inode.c	2011-11-24 01:09:45.000000000 +0800
++++ linux-stage/fs/ext4/inode.c	2011-11-24 16:04:47.000000000 +0800
+@@ -4881,6 +4881,45 @@
+ 	}
+ }
+ 
++/* Return the buffer head containing the block on which the inode resides.
++ * If it is not uptodate, then trigger read request without waiting. */
++struct buffer_head *ext4_iget_bh(struct super_block *sb, unsigned long ino)
++{
++        ext4_group_t bg;
++        struct ext4_group_desc *gdp;
++        int offset, inodes_per_block;
++        ext4_fsblk_t block;
++        struct buffer_head *bh;
++
++        if (!ext4_valid_inum(sb, ino))
++                return ERR_PTR(-EINVAL);
++
++        bg = (ino - 1) / LDISKFS_INODES_PER_GROUP(sb);
++        gdp = ext4_get_group_desc(sb, bg, NULL);
++        if (!gdp)
++                return ERR_PTR(-EIO);
++
++        /*
++         * Figure out the offset within the block group inode table
++         */
++        offset = (ino - 1) % LDISKFS_INODES_PER_GROUP(sb);
++        inodes_per_block = LDISKFS_BLOCK_SIZE(sb) / LDISKFS_INODE_SIZE(sb);
++        block = ext4_inode_table(sb, gdp) + offset / inodes_per_block;
++
++        bh = sb_getblk(sb, block);
++        if (!bh) {
++                ext4_error(sb, "unable to read inode block - "
++                           "inode=%lu, block=%llu", ino, block);
++                return ERR_PTR(-EIO);
++        }
++
++        if (buffer_uptodate(bh))
++                return bh;
++        ll_rw_block(READ, 1, &bh);
++        return bh;
++}
++EXPORT_SYMBOL(ext4_iget_bh);
++
+ struct inode *ext4_iget(struct super_block *sb, unsigned long ino)
+ {
+ 	struct ext4_iloc iloc;
