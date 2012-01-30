@@ -376,12 +376,7 @@ struct mdt_thread_info {
                 char               ns_name[48];   /* for mdt_init0()         */
                 struct lustre_cfg_bufs bufs;      /* for mdt_stack_fini()    */
                 cfs_kstatfs_t      ksfs;          /* for mdt_statfs()        */
-                struct {
-                        /* for mdt_readpage()      */
-                        struct lu_rdpg     mti_rdpg;
-                        /* for mdt_sendpage()      */
-                        struct l_wait_info mti_wait_info;
-                } rdpg;
+                struct lu_rdpg     mti_rdpg;      /* for mdt_readpage()      */
                 struct {
                         struct md_attr attr;
                         struct md_som_data data;
@@ -402,6 +397,7 @@ struct mdt_thread_info {
         /* Ops object filename */
         struct lu_name             mti_name;
         struct md_attr             mti_tmp_attr;
+        struct l_wait_info         mti_wait_info;
 };
 
 typedef void (*mdt_cb_t)(const struct mdt_device *mdt, __u64 transno,

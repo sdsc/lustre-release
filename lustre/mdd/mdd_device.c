@@ -1634,6 +1634,25 @@ static int mdd_iocontrol(const struct lu_env *env, struct md_device *m,
                 *mntopts = mdd->mdd_dt_conf.ddp_mntopts;
                 RETURN(0);
         }
+        case OBD_IOC_START_SCRUB: {
+                struct start_scrub_param *param = karg;
+
+                rc = mdd_scrub_start(mdd->mdd_scrub_env, mdd, param,
+                                     param == NULL ? 1 : 0);
+                RETURN(rc);
+        }
+        case OBD_IOC_STOP_SCRUB: {
+                rc = mdd_scrub_stop(mdd->mdd_scrub_env, mdd);
+                if (rc != 0)
+                        RETURN(rc);
+                /* Fall through. */
+        }
+        case OBD_IOC_SHOW_SCRUB: {
+                struct scrub_show *show = karg;
+
+                rc = mdd_scrub_show(mdd->mdd_scrub_env, mdd, show);
+                RETURN(rc);
+        }
         }
 
         /* Below ioctls use obd_ioctl_data */
