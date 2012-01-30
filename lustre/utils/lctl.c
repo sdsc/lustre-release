@@ -393,6 +393,22 @@ command_t cmdlist[] = {
          "enable/disable routes via gateway in the portals routing table\n"
          "usage: set_route <gateway> <up/down> [<time>]"},
 
+        /* OI Scrub commands */
+        {"==== OI Scrub ====", jt_noop, 0, "OI Scrub"},
+        {"scrub_start", jt_scrub_start, 0, "start scrub\n"
+         "usage: scrub_start <-M | --device MDT_device> [-h | --help]\n"
+         "                   [-e | --error error_handle]\n"
+         "                   [-i | --interval checkpoint_interval]\n"
+         "                   [-m | --method iteration_method]\n"
+         "                   [-n | --dryrun switch] [-r | --reset]\n"
+         "                   [-s | --speed speed_limit]\n"
+         "                   [-w | --window pipeline_window]"},
+        {"scrub_stop", jt_scrub_stop, 0, "stop scrub\n"
+         "usage: scrub_stop <-M | --device MDT_device> [-h | --help]"},
+        {"scrub_show", jt_scrub_show, 0, "show scrub\n"
+         "usage: scrub_show <-M | --device MDT_device> [-h | --help]\n"
+         "                 [-i | --info] [-p | --param]"},
+
         { 0, 0, 0, NULL }
 };
 
