@@ -763,6 +763,11 @@ static int mdd_scrub_main(void *arg)
         cfs_waitq_signal(&thread->t_ctl_waitq);
 
         while (1) {
+                if (OBD_FAIL_CHECK(OBD_FAIL_MDS_SCRUB_FAILURE)) {
+                        rc = -EINVAL;
+                        break;
+                }
+
                 rc = iops->next(&env, it);
                 if (rc != 0)
                         /* rc > 0: Completed.
