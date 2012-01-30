@@ -777,17 +777,25 @@ static inline ldlm_mode_t mdt_mdl_mode2dlm_mode(mdl_mode_t mode)
         return mdt_dlm_lock_modes[mode];
 }
 
+static inline struct mdt_thread_info *mdt_env_info(const struct lu_env *env)
+{
+        struct mdt_thread_info *info;
+
+        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        LASSERT(info != NULL);
+        return info;
+}
+
 static inline struct lu_name *mdt_name(const struct lu_env *env,
                                        char *name, int namelen)
 {
         struct lu_name *lname;
-        struct mdt_thread_info *mti;
+        struct mdt_thread_info *mti = mdt_env_info(env);
 
         LASSERT(namelen > 0);
         /* trailing '\0' in buffer */
         LASSERT(name[namelen] == '\0');
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
         lname = &mti->mti_name;
         lname->ln_name = name;
         lname->ln_namelen = namelen;
@@ -890,5 +898,6 @@ static inline struct obd_device *mdt2obd_dev(const struct mdt_device *mdt)
 {
         return mdt->mdt_md_dev.md_lu_dev.ld_obd;
 }
+
 #endif /* __KERNEL__ */
 #endif /* _MDT_H */

@@ -3015,8 +3015,7 @@ static int mdt_handle_common(struct ptlrpc_request *req,
         LASSERT(env != NULL);
         LASSERT(env->le_ses != NULL);
         LASSERT(env->le_ctx.lc_thread == req->rq_svc_thread);
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        LASSERT(info != NULL);
+        info = mdt_env_info(env);
 
         mdt_thread_info_init(req, info);
 
@@ -3572,9 +3571,7 @@ static int mdt_intent_policy(struct ldlm_namespace *ns,
 
         LASSERT(req != NULL);
 
-        info = lu_context_key_get(&req->rq_svc_thread->t_env->le_ctx,
-                                  &mdt_thread_key);
-        LASSERT(info != NULL);
+        info = mdt_env_info(req->rq_svc_thread->t_env);
         pill = info->mti_pill;
         LASSERT(pill->rc_req == req);
 
@@ -3738,11 +3735,10 @@ static int mdt_seq_init_cli(const struct lu_env *env,
         char              *uuid_str, *mdc_uuid_str;
         int                rc;
         int                index;
-        struct mdt_thread_info *info;
+        struct mdt_thread_info *info = mdt_env_info(env);
         char *p, *index_string = lustre_cfg_string(cfg, 2);
         ENTRY;
 
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
         uuidp = &info->mti_u.uuid[0];
         mdcuuidp = &info->mti_u.uuid[1];
 
@@ -4172,12 +4168,9 @@ static void mdt_stack_fini(const struct lu_env *env,
         struct obd_device       *obd = mdt2obd_dev(m);
         struct lustre_cfg_bufs  *bufs;
         struct lustre_cfg       *lcfg;
-        struct mdt_thread_info  *info;
+        struct mdt_thread_info  *info = mdt_env_info(env);
         char flags[3]="";
         ENTRY;
-
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        LASSERT(info != NULL);
 
         bufs = &info->mti_u.bufs;
         /* process cleanup, pass mdt obd name to get obd umount flags */
@@ -4269,7 +4262,7 @@ out:
 static int mdt_stack_init(struct lu_env *env,
                           struct mdt_device *m,
                           struct lustre_cfg *cfg,
-                          struct lustre_mount_info  *lmi)
+                          struct lustre_mount_info *lmi)
 {
         struct lu_device  *d = &m->mdt_md_dev.md_lu_dev;
         struct lu_device  *tmp;
@@ -4502,9 +4495,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         if (rc != 0)
                 RETURN(rc);
 
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        LASSERT(info != NULL);
-
+        info = mdt_env_info(env);
         obd = class_name2obd(dev);
         LASSERT(obd != NULL);
 
@@ -5050,10 +5041,9 @@ static int mdt_obd_connect(const struct lu_env *env,
         if (!exp || !obd || !cluuid)
                 RETURN(-EINVAL);
 
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        info = mdt_env_info(env);
         req = info->mti_pill->rc_req;
         mdt = mdt_dev(obd->obd_lu_dev);
-
         rc = class_connect(&conn, obd, cluuid);
         if (rc)
                 RETURN(rc);
@@ -5070,12 +5060,10 @@ static int mdt_obd_connect(const struct lu_env *env,
 
         rc = mdt_connect_internal(lexp, mdt, data);
         if (rc == 0) {
-                struct mdt_thread_info *mti;
                 struct lsd_client_data *lcd = lexp->exp_target_data.ted_lcd;
+
                 LASSERT(lcd);
-                mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-                LASSERT(mti != NULL);
-                mti->mti_exp = lexp;
+                info->mti_exp = lexp;
                 memcpy(lcd->lcd_uuid, cluuid, sizeof lcd->lcd_uuid);
                 rc = mdt_client_new(env, mdt);
                 if (rc == 0)
@@ -5108,7 +5096,7 @@ static int mdt_obd_reconnect(const struct lu_env *env,
         if (exp == NULL || obd == NULL || cluuid == NULL)
                 RETURN(-EINVAL);
 
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        info = mdt_env_info(env);
         req = info->mti_pill->rc_req;
         mdt = mdt_dev(obd->obd_lu_dev);
 
@@ -5152,8 +5140,7 @@ static int mdt_export_cleanup(struct obd_export *exp)
         if (rc)
                 RETURN(rc);
 
-        info = lu_context_key_get(&env.le_ctx, &mdt_thread_key);
-        LASSERT(info != NULL);
+        info = mdt_env_info(&env);
         memset(info, 0, sizeof *info);
         info->mti_env = &env;
         info->mti_mdt = mdt;
@@ -5320,7 +5307,7 @@ static int mdt_upcall(const struct lu_env *env, struct md_device *md,
                                       m->mdt_lut.lut_obd->u.obt.obt_mount_count;
                         break;
                 case MD_NO_TRANS:
-                        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+                        mti = mdt_env_info(env);
                         mti->mti_no_need_trans = 1;
                         CDEBUG(D_INFO, "disable mdt trans for this thread\n");
                         break;
@@ -5570,8 +5557,8 @@ static int mdt_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                 rc = mdt_ioc_child(&env, mdt, cmd, len, karg);
                 break;
         case OBD_IOC_GET_OBJ_VERSION: {
-                struct mdt_thread_info *mti;
-                mti = lu_context_key_get(&env.le_ctx, &mdt_thread_key);
+                struct mdt_thread_info *mti = mdt_env_info(&env);
+
                 memset(mti, 0, sizeof *mti);
                 mti->mti_env = &env;
                 mti->mti_mdt = mdt;
