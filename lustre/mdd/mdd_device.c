@@ -1089,7 +1089,7 @@ static int mdd_recovery_complete(const struct lu_env *env,
         RETURN(rc);
 }
 
-static int mdd_scrub_setup(struct mdd_device *m)
+static int mdd_scrub_setup(struct mdd_device *m, int flags)
 {
         struct lu_env *env;
         struct mdd_thread_info *info;
@@ -1099,6 +1099,12 @@ static int mdd_scrub_setup(struct mdd_device *m)
         int rc;
         ENTRY;
 
+        if (flags & LMD_FLG_NOSCRUB) {
+                m->mdd_noscrub = 1;
+                m->mdd_dt_conf.ddp_mntopts |= MNTOPT_NOSCRUB;
+        } else {
+                m->mdd_noscrub = 0;
+        }
         cfs_sema_init(&m->mdd_scrub_ctl_sem, 1);
         cfs_sema_init(&m->mdd_scrub_header_sem, 1);
         cfs_spin_lock_init(&m->mdd_scrub_lock);
@@ -1132,7 +1138,8 @@ static int mdd_scrub_setup(struct mdd_device *m)
 
 static int mdd_prepare(const struct lu_env *env,
                        struct lu_device *pdev,
-                       struct lu_device *cdev)
+                       struct lu_device *cdev,
+                       int flags)
 {
         struct mdd_device *mdd = lu2mdd_dev(cdev);
         struct lu_device *next = &mdd->mdd_child->dd_lu_dev;
@@ -1141,11 +1148,11 @@ static int mdd_prepare(const struct lu_env *env,
         int rc;
 
         ENTRY;
-        rc = next->ld_ops->ldo_prepare(env, cdev, next);
+        rc = next->ld_ops->ldo_prepare(env, cdev, next, flags);
         if (rc)
                 GOTO(out, rc);
 
-        rc = mdd_scrub_setup(mdd);
+        rc = mdd_scrub_setup(mdd, flags);
         if (rc)
                 GOTO(out, rc);
 

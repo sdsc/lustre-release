@@ -122,12 +122,13 @@ struct mdt_device {
          * Options bit-fields.
          */
         struct {
-                signed int         mo_user_xattr :1,
-                                   mo_acl        :1,
+                unsigned int       mo_user_xattr:1,
+                                   mo_acl:1,
                                    mo_compat_resname:1,
-                                   mo_mds_capa   :1,
-                                   mo_oss_capa   :1,
-                                   mo_cos        :1;
+                                   mo_mds_capa:1,
+                                   mo_oss_capa:1,
+                                   mo_cos:1,
+                                   mo_noscrub:1;
         } mdt_opts;
         /* mdt state flags */
         unsigned long              mdt_state;

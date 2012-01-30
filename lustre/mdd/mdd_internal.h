@@ -147,7 +147,8 @@ struct mdd_device {
         struct scrub_header              mdd_scrub_header_disk;
         /* Used for mdd_{start,stop,show}_scrub, adjust scrub param, ect. */
         struct lu_env                   *mdd_scrub_env;
-        unsigned int                     mdd_sync_permission;
+        unsigned int                     mdd_sync_permission:1,
+                                         mdd_noscrub:1;
 };
 
 enum mod_flags {

@@ -73,8 +73,9 @@ struct niobuf_local;
 struct niobuf_remote;
 
 typedef enum {
-        MNTOPT_USERXATTR        = 0x00000001,
-        MNTOPT_ACL              = 0x00000002,
+        MNTOPT_USERXATTR        = 1 << 0,
+        MNTOPT_ACL              = 1 << 1,
+        MNTOPT_NOSCRUB          = 1 << 2,
 } mntopt_t;
 
 struct dt_device_param {

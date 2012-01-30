@@ -4317,7 +4317,8 @@ static int mdt_stack_init(struct lu_env *env,
 
         rc = child_lu_dev->ld_ops->ldo_prepare(env,
                                                &m->mdt_md_dev.md_lu_dev,
-                                               child_lu_dev);
+                                               child_lu_dev,
+                                               get_mount_flags(lmi->lmi_sb));
 out:
         /* fini from last known good lu_device */
         if (rc)
@@ -4658,6 +4659,11 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
                 m->mdt_opts.mo_acl = 1;
         else
                 m->mdt_opts.mo_acl = 0;
+
+        if (mntopts & MNTOPT_NOSCRUB)
+                m->mdt_opts.mo_noscrub = 1;
+        else
+                m->mdt_opts.mo_noscrub = 0;
 
         /* XXX: to support suppgid for ACL, we enable identity_upcall
          * by default, otherwise, maybe got unexpected -EACCESS. */
@@ -5330,6 +5336,9 @@ static int mdt_upcall(const struct lu_env *env, struct md_device *md,
                                 next->md_ops->mdo_quota.mqo_recovery(env, next);
                         break;
 #endif
+                case MD_NOSCRUB:
+                        m->mdt_opts.mo_noscrub = !!(*(int *)data);
+                        break;
                 default:
                         CERROR("invalid event\n");
                         rc = -EINVAL;

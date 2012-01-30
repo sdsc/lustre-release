@@ -1116,7 +1116,7 @@ int mdd_scrub_init(const struct lu_env *env, struct mdd_device *m,
                         RETURN(rc);
         }
 
-        if (trigger_scrub != 0) {
+        if (trigger_scrub != 0 && m->mdd_noscrub == 0) {
                 rc = mdd_scrub_start(env, m, NULL, 0);
                 if (rc != 0)
                         /* Allow MDT to mount up even if OI Scrub auto trigger

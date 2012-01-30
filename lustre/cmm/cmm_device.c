@@ -652,14 +652,15 @@ static int cmm_recovery_complete(const struct lu_env *env,
 
 static int cmm_prepare(const struct lu_env *env,
                        struct lu_device *pdev,
-                       struct lu_device *dev)
+                       struct lu_device *dev,
+                       int flags)
 {
         struct cmm_device *cmm = lu2cmm_dev(dev);
         struct lu_device *next = md2lu_dev(cmm->cmm_child);
         int rc;
 
         ENTRY;
-        rc = next->ld_ops->ldo_prepare(env, dev, next);
+        rc = next->ld_ops->ldo_prepare(env, dev, next, flags);
         RETURN(rc);
 }
 

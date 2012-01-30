@@ -458,7 +458,9 @@ enum md_upcall_event {
         MD_NO_TRANS = (1 << 1),
         MD_LOV_CONFIG = (1 << 2),
         /** Trigger quota recovery */
-        MD_LOV_QUOTA = (1 << 3)
+        MD_LOV_QUOTA = (1 << 3),
+        /** Configure 'noscrub' */
+        MD_NOSCRUB = (1 << 4),
 };
 
 struct md_upcall {
