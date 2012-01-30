@@ -597,7 +597,8 @@ static int mdd_declare_scrub_update_rec(const struct lu_env *env,
 static int mdd_scrub_oi_rebuild(const struct lu_env *env,
                                 struct mdd_device *mdd,
                                 struct dt_scrub_rec *dsr,
-                                int *ecode, __u64 *updated)
+                                int *ecode, __u64 *updated,
+                                struct lu_object *obj)
 {
         struct scrub_header      *header      = &mdd->mdd_scrub_header_mem;
         struct scrub_param       *param       = &header->sh_param;
@@ -615,7 +616,8 @@ static int mdd_scrub_oi_rebuild(const struct lu_env *env,
                         mdd_scrub_lid_to_position(
                                         &dinfo->sid_position_first_unmatched,
                                         &dsr->dsr_lid);
-                GOTO(out, rc);
+                lu_object_set_inconsistent(obj);
+                GOTO(out, rc = 0);
         }
 
         handle = mdd_trans_create(env, mdd);
@@ -624,6 +626,7 @@ static int mdd_scrub_oi_rebuild(const struct lu_env *env,
                 GOTO(out, rc = PTR_ERR(handle));
         }
 
+        handle->th_scrub = 1;
         rc = mdd_declare_scrub_update_rec(env, mdd,
                                           (const struct dt_rec *)&dsr->dsr_lid,
                                           (const struct dt_key *)&dsr->dsr_fid,
@@ -658,6 +661,8 @@ static int mdd_scrub_oi_rebuild(const struct lu_env *env,
         EXIT;
 
 out:
+        if (rc < 0)
+                lu_object_set_inconsistent(obj);
         return rc;
 }
 
@@ -795,6 +800,7 @@ static int mdd_scrub_main(void *arg)
                         goto check;
                 }
 
+                msi->msi_obj = obj;
                 /* XXX: process SPF_OI_REBUILD. */
                 /* Do not update the mapping if:
                  * 1) new created entry.
@@ -802,7 +808,14 @@ static int mdd_scrub_main(void *arg)
                 if (hint.loh_flags & LOH_F_UNMATCHED &&
                     param->sp_flags & SPF_OI_REBUILD)
                         rc = mdd_scrub_oi_rebuild(&env, mdd, &dsr, &ecode,
-                                                  updated);
+                                                  updated, obj);
+
+                /* 'mdd_txn_stop_cb()' maybe reset 'msi->msi_obj'. */
+                if (unlikely(hint.loh_flags & LOH_F_UNMATCHED &&
+                             msi->msi_obj != NULL)) {
+                        lu_object_signal_scrub(msi->msi_obj->lo_header);
+                        msi->msi_obj = NULL;
+                }
 
                 /* XXX: LINKEA, QUOTA and others can be processed later. */
 

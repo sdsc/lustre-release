@@ -305,7 +305,57 @@ struct mdd_object *
 mdd_object_find(const struct lu_env *env, struct mdd_device *d,
                 const struct lu_fid *f, struct lu_object_hint *h)
 {
-        return md2mdd_obj(md_object_find_slice(env, &d->mdd_md_dev, f, h));
+        struct mdd_object *m;
+        struct lu_object *o;
+        int scrub_once = 0, inconsistent_once = 0, rc;
+
+again:
+        o = lu_object_find_slice(env, mdd2lu_dev(d), f, NULL, h);
+        if (IS_ERR(o)) {
+                rc = PTR_ERR(o);
+                if (rc == -EREMCHG && !d->mdd_noscrub &&
+                    ++scrub_once == 1) {
+                        rc = mdd_scrub_start(env, d, NULL, 1);
+                        if (rc == 0 && rc == -EALREADY)
+                                goto again;
+                }
+                m = (struct mdd_object *)o;
+        } else {
+                m = md2mdd_obj(lu2md(o));
+                if (lu_object_is_scrub(o->lo_header)) {
+                        struct dt_object *next  = mdd_object_child(m);
+                        struct l_wait_info *lwi =
+                                        &mdd_env_info(env)->mti_wait_info;
+
+                        rc = next->do_ops->do_object_sync(env, next);
+                        if (rc != 0) {
+                                mdd_object_put(env, m);
+                                return ERR_PTR(rc);
+                        }
+
+                        *lwi = (struct l_wait_info){ 0 };
+                        l_wait_event(o->lo_header->loh_waitq,
+                                     !lu_object_is_scrub(o->lo_header), lwi);
+
+                        if (unlikely(lu_object_is_inconsistent(o->lo_header))) {
+                                if (++inconsistent_once == 1) {
+                                        /* XXX: OI Scrub under dryrun mode
+                                         *      maybe not update the OI mapping.
+                                         *      Re-search to trigger updating.*/
+                                        mdd_object_put(env, m);
+                                        goto again;
+                                } else {
+                                        /* XXX: OI mapping for the object is
+                                         *      invalid, it maybe cause replay
+                                         *      failure in future. */
+                                        CWARN("Invalid OI mapping for "DFID"\n",
+                                              PFID(f));
+                                }
+                        }
+                }
+        }
+
+        return m;
 }
 
 static int mdd_path2fid(const struct lu_env *env, struct mdd_device *mdd,

@@ -112,7 +112,7 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
                         o->lo_ops->loo_object_release(env, o);
         }
 
-        if (!lu_object_is_dying(top)) {
+        if (!lu_object_is_dying(top) && !lu_object_is_inconsistent(top)) {
                 LASSERT(cfs_list_empty(&top->loh_lru));
                 cfs_list_add_tail(&top->loh_lru, &bkt->lsb_lru);
                 cfs_hash_bd_unlock(site->ls_obj_hash, &bd, 1);
@@ -130,7 +130,8 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
          * and LRU lock, no race with concurrent object lookup is possible
          * and we can safely destroy object below.
          */
-        cfs_hash_bd_del_locked(site->ls_obj_hash, &bd, &top->loh_hash);
+        if (likely(!lu_object_is_inconsistent(top)))
+                cfs_hash_bd_del_locked(site->ls_obj_hash, &bd, &top->loh_hash);
         cfs_hash_bd_unlock(site->ls_obj_hash, &bd, 1);
         /*
          * Object was already removed from hash and lru above, can

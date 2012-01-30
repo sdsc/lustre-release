@@ -103,6 +103,8 @@ struct mdd_dot_lustre_objs {
 struct mdd_scrub_it {
         struct ptlrpc_thread    msi_thread;
         struct dt_it           *msi_it;
+        /* Current object to be updated. */
+        struct lu_object       *msi_obj;
         union scrub_key         msi_position;
         /* The time for last checkpoint, jiffies */
         cfs_time_t              msi_checkpoint_last;
@@ -207,6 +209,7 @@ struct mdd_thread_info {
         struct obd_quotactl       mti_oqctl;
         struct lu_object_hint     mti_loh;
         struct dt_scrub_param     mti_scrub_param;
+        struct l_wait_info        mti_wait_info;
 };
 
 extern const char orph_index_name[];

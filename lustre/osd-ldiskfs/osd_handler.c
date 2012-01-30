@@ -328,6 +328,11 @@ out:
         return inode;
 }
 
+static inline int osd_oui_updated(struct osd_unmatched_item *oui)
+{
+        return (oui->oui_status == OUF_UPDATED);
+}
+
 static int osd_fid_lookup(const struct lu_env *env,
                           struct osd_object *obj, const struct lu_fid *fid,
                           struct lu_object_hint *hint)
@@ -339,6 +344,7 @@ static int osd_fid_lookup(const struct lu_env *env,
         struct osd_inode_id    *id2  = NULL;
         struct inode           *inode;
         int                     result;
+        int                     try  = 0;
         enum osd_iget_flags     flags;
 
         LINVRNT(osd_invariant(obj));
@@ -370,6 +376,7 @@ static int osd_fid_lookup(const struct lu_env *env,
                 flags = 0;
         }
 
+again:
         result = osd_oi_lookup(info, osd_fid2oi(dev, fid), fid, id);
         if (result == 0) {
                 inode = osd_iget(dev, id2 != NULL ? id2 : id,
@@ -381,8 +388,50 @@ static int osd_fid_lookup(const struct lu_env *env,
                                         lu_object_set_scrub(
                                                 obj->oo_dt.do_lu.lo_header);
                                         hint->loh_flags |= LOH_F_UNMATCHED;
+                                        goto found;
+                                }
+
+                                iput(inode);
+                                /* XXX: There is race condition between osd_iget
+                                 *      and OI Scrub. The OI Scrub finished just
+                                 *      after osd_iget() failure, and ev->od_osi
+                                 *      is NULL also. Under such case, it is not
+                                 *      necessary to trigger OI Scrub again, but
+                                 *      try to call osd_iget() again. */
+                                if (++try > 2)
+                                        RETURN(-EREMCHG);
+
+                                if (dev->od_osi == NULL) {
+                                        if (try == 1)
+                                                goto again;
+                                        else
+                                                RETURN(-EREMCHG);
+                                } else {
+                                        struct l_wait_info lwi = { 0 };
+                                        struct osd_unmatched_item *oui;
+
+                                        oui = &info->oti_oui;
+                                        CFS_INIT_LIST_HEAD(&oui->oui_list);
+                                        oui->oui_fid = *fid;
+                                        cfs_waitq_init(&oui->oui_waitq);
+                                        oui->oui_status = OUF_NEW;
+                                        result = osd_oui_insert(dev, oui);
+
+                                        if (unlikely(result < 0)) {
+                                                if (try == 1)
+                                                        goto again;
+                                                else
+                                                        RETURN(-EREMCHG);
+                                        }
+
+                                        l_wait_event(oui->oui_waitq,
+                                                     osd_oui_updated(oui),
+                                                     &lwi);
+                                        goto again;
                                 }
                         }
+
+found:
                         result = 0;
                         obj->oo_inode = inode;
                         LASSERT(obj->oo_inode->i_sb == osd_sb(dev));

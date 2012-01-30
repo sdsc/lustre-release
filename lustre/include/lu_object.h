@@ -546,6 +546,9 @@ enum lu_object_header_flags {
 
         /* This is object is in processing by OI Scrub. */
         LU_OBJECT_SCRUB         = 1,
+
+        /* OI mapping for the object is invalid. */
+        LU_OBJECT_INCONSISTENT  = 2,
 };
 
 enum lu_object_header_attr {
@@ -752,6 +755,26 @@ static inline void lu_object_get(struct lu_object *o)
 static inline int lu_object_is_dying(const struct lu_object_header *h)
 {
         return cfs_test_bit(LU_OBJECT_HEARD_BANSHEE, &h->loh_flags);
+}
+
+static inline int lu_object_is_inconsistent(const struct lu_object_header *h)
+{
+        return cfs_test_bit(LU_OBJECT_INCONSISTENT, &h->loh_flags);
+}
+
+/*
+ * Unlink the inconsistent object to prevent to be found by others.
+ */
+static inline void lu_object_set_inconsistent(struct lu_object *o)
+{
+        struct lu_object_header *h  = o->lo_header;
+        cfs_hash_t              *hs = o->lo_dev->ld_site->ls_obj_hash;
+        cfs_hash_bd_t            bd;
+
+        cfs_hash_bd_get_and_lock(hs, (void *)&h->loh_fid, &bd, 1);
+        cfs_hash_bd_del_locked(hs, &bd, &h->loh_hash);
+        cfs_set_bit(LU_OBJECT_INCONSISTENT, &h->loh_flags);
+        cfs_hash_bd_unlock(hs, &bd, 1);
 }
 
 static inline int lu_object_is_scrub(const struct lu_object_header *h)

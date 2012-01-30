@@ -715,21 +715,21 @@ struct thandle {
         /** the dt device on which the transactions are executed */
         struct dt_device *th_dev;
 
-        /** additional tags (layers can add in declare) */
-        __u32             th_tags;
-
         /** context for this transaction, tag is LCT_TX_HANDLE */
         struct lu_context th_ctx;
+
+        /** additional tags (layers can add in declare) */
+        __u32             th_tags;
 
         /** the last operation result in this transaction.
          * this value is used in recovery */
         __s32             th_result;
 
         /** whether we need sync commit */
-        int               th_sync:1;
-
-        /* local transation, no need to inform other layers */
-        int               th_local:1;
+        unsigned int      th_sync:1,  /** whether we need sync commit */
+                          th_local:1, /* local transation, no need to inform
+                                       * other layers */
+                          th_scrub:1; /* for OI Scrub */
 };
 
 /**
