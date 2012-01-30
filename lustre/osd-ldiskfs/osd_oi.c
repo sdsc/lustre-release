@@ -30,6 +30,9 @@
  * Use is subject to license terms.
  */
 /*
+ * Copyright (c) 2011 Whamcloud, Inc.
+ */
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
@@ -68,11 +71,11 @@
 /* fid_cpu_to_be() */
 #include <lustre_fid.h>
 
-#include "osd_oi.h"
+#include <dt_object.h>
+
 /* osd_lookup(), struct osd_thread_info */
 #include "osd_internal.h"
-#include "osd_igif.h"
-#include "dt_object.h"
+#include "osd_oi.h"
 
 #define OSD_OI_FID_NR         (1UL << OSD_OI_FID_OID_BITS)
 #define OSD_OI_FID_NR_MAX     (1UL << OSD_OI_FID_OID_BITS_MAX)
@@ -308,79 +311,74 @@ void osd_oi_fini(struct osd_thread_info *info,
 int osd_oi_lookup(struct osd_thread_info *info, struct osd_oi *oi,
                   const struct lu_fid *fid, struct osd_inode_id *id)
 {
-        struct lu_fid *oi_fid = &info->oti_fid;
+        struct lu_fid *oi_fid = &info->oti_fid2;
+        struct dt_object *idx;
         int rc;
 
         if (osd_fid_is_igif(fid)) {
-                lu_igif_to_id(fid, id);
+                lu_igif_to_id(id, fid);
+                return 0;
+        }
+
+        if (!fid_is_norm(fid))
+                return -ENOENT;
+
+        idx = oi->oi_dir;
+        fid_cpu_to_be(oi_fid, fid);
+        rc = idx->do_index_ops->dio_lookup(info->oti_env, idx,
+                                           (struct dt_rec *)id,
+                                           (struct dt_key *)oi_fid,
+                                           NULL, BYPASS_CAPA);
+        if (rc > 0) {
+                osd_id_unpack(id, id);
                 rc = 0;
-        } else {
-                struct dt_object    *idx;
-                const struct dt_key *key;
-
-                if (!fid_is_norm(fid))
-                        return -ENOENT;
-
-                idx = oi->oi_dir;
-                fid_cpu_to_be(oi_fid, fid);
-                key = (struct dt_key *) oi_fid;
-                rc = idx->do_index_ops->dio_lookup(info->oti_env, idx,
-                                                   (struct dt_rec *)id, key,
-                                                   NULL, BYPASS_CAPA);
-                if (rc > 0) {
-                        id->oii_ino = be32_to_cpu(id->oii_ino);
-                        id->oii_gen = be32_to_cpu(id->oii_gen);
-                        rc = 0;
-                } else if (rc == 0)
-                        rc = -ENOENT;
+        } else if (rc == 0) {
+                rc = -ENOENT;
         }
         return rc;
 }
 
 int osd_oi_insert(struct osd_thread_info *info, struct osd_oi *oi,
-                  const struct lu_fid *fid, const struct osd_inode_id *id0,
+                  const struct lu_fid *fid, const struct osd_inode_id *id,
                   struct thandle *th, int ignore_quota)
 {
-        struct lu_fid *oi_fid = &info->oti_fid;
+        struct lu_fid       *oi_fid = &info->oti_fid2;
+        struct osd_inode_id *oi_id  = &info->oti_id2;
         struct dt_object    *idx;
-        struct osd_inode_id *id;
-        const struct dt_key *key;
 
+        /* For any non-normal fid, do not insert fid<=>ino/gen mapping.
+         * Because it will be processed as igif when osd_ea_lookup_rec(). */
         if (!fid_is_norm(fid))
                 return 0;
 
         idx = oi->oi_dir;
         fid_cpu_to_be(oi_fid, fid);
-        key = (struct dt_key *) oi_fid;
-
-        id  = &info->oti_id;
-        id->oii_ino = cpu_to_be32(id0->oii_ino);
-        id->oii_gen = cpu_to_be32(id0->oii_gen);
+        osd_id_pack(oi_id, id);
         return idx->do_index_ops->dio_insert(info->oti_env, idx,
-                                             (struct dt_rec *)id,
-                                             key, th, BYPASS_CAPA,
-                                             ignore_quota);
+                                             (struct dt_rec *)oi_id,
+                                             (const struct dt_key *)oi_fid,
+                                             th, BYPASS_CAPA, ignore_quota);
 }
 
 int osd_oi_delete(struct osd_thread_info *info,
                   struct osd_oi *oi, const struct lu_fid *fid,
                   struct thandle *th)
 {
-        struct lu_fid *oi_fid = &info->oti_fid;
+        struct lu_fid       *oi_fid = &info->oti_fid2;
         struct dt_object    *idx;
-        const struct dt_key *key;
 
+        /* For any non-normal fid, do nothing. */
         if (!fid_is_norm(fid))
                 return 0;
 
         idx = oi->oi_dir;
         fid_cpu_to_be(oi_fid, fid);
-        key = (struct dt_key *) oi_fid;
         return idx->do_index_ops->dio_delete(info->oti_env, idx,
-                                             key, th, BYPASS_CAPA);
+                                             (const struct dt_key *)oi_fid, th,
+                                             BYPASS_CAPA);
 }
 
-int osd_oi_mod_init()
+int osd_oi_mod_init(void)
 {
         if (osd_oi_count == 0 || osd_oi_count > OSD_OI_FID_NR_MAX)
                 osd_oi_count = OSD_OI_FID_NR;

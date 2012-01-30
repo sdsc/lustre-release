@@ -147,6 +147,134 @@ static inline void ldiskfs_htree_lock_free(struct htree_lock *lk)
 
 #endif /* HAVE_LDISKFS_PDO */
 
+enum osd_unmatched_flags {
+        /* New item, to be updated. */
+        OUF_NEW         = 0,
+
+        /* The unmatched mapping is in updating. */
+        OUF_UPDATING    = 1,
+
+        /* The unmatched mapping has been updated (maybe failed). */
+        OUF_UPDATED     = 2,
+};
+
+struct osd_unmatched_item {
+        /* List into osd_device::osi_unmatched_xxx_list. */
+        cfs_list_t                      oui_list;
+
+        /* Fid for the OI mapping. */
+        struct lu_fid                   oui_fid;
+
+        /* Local id for the OI mapping. */
+        struct osd_inode_id             oui_id;
+
+        /* Waiting for the OI mapping to be updated. */
+        cfs_waitq_t                     oui_waitq;
+
+        /* Status for the unit. */
+        enum osd_unmatched_flags        oui_status;
+};
+
+struct osd_scrub_unit {
+        /* List into osd_scrub_group::osg_units. */
+        cfs_list_t          osu_list;
+
+        /* Point to the buffer_head that contains the raw inodes. */
+        struct buffer_head *osu_bh;
+
+        /* The first inode offset in the group. */
+        __u32               osu_base;
+};
+
+struct osd_scrub_group {
+        /* List into osd_scrub_it::osi_groups. */
+        cfs_list_t             osg_list;
+
+        /* For osd_scrub_unit::osu_list. */
+        cfs_list_t             osg_units;
+
+        /* Protect osg_units. */
+        cfs_spinlock_t         osg_lock;
+
+        /* Point to the inode bitmap for this group. */
+        struct buffer_head    *osg_bitmap;
+
+        /* Current osd_scrub_unit, used by upper layer iteration. */
+        struct osd_scrub_unit *osg_current_unit;
+
+        /* Ino# for the first inode in this group. */
+        __u32                  osg_base;
+
+        /* Current offset in the bitmap, used by upper layer iteration. */
+        __u32                  osg_offset;
+
+                               /* Initial osd layer iteration on this group is
+                                * completed. */
+        unsigned int           osg_completed:1,
+                               /* Skip this group. */
+                               osg_skip:1,
+                               /* Start from osg_offset when find next bit. */
+                               osg_keep_offset:1;
+};
+
+struct osd_scrub_it {
+        /* For osd_scrub_group::osg_list. */
+        cfs_list_t              osi_groups;
+
+        /* Protect osi_groups, osi_thread, and so on. */
+        cfs_spinlock_t          osi_lock;
+
+        /* Point to the super_block to be iterated. */
+        struct super_block     *osi_sb;
+
+        /* Osd layer interation thread. */
+        struct ptlrpc_thread    osi_thread;
+
+        /* Current osd_scrub_group, used by upper layer iteration. */
+        struct osd_scrub_group *osi_current_group;
+
+        /* Arguments from upper layer. */
+        struct dt_scrub_param   osi_args;
+
+        /* Point to osd_device. */
+        struct osd_device      *osi_dev;
+
+        /* Dummy dentry for getxattr. */
+        struct dentry           osi_dentry;
+
+        /* Used for getxattr for LMA. */
+        struct lustre_mdt_attrs osi_lma;
+
+        /* Temporary lu_fid buffer. */
+        struct lu_fid           osi_fid;
+
+        /* Temporary osd_inode_id buffer. */
+        struct osd_inode_id     osi_id;
+
+        /* How many osd_scrub_unit in the container. */
+        cfs_atomic_t            osi_unit_count;
+
+        /* Reference count. */
+        cfs_atomic_t            osi_refcount;
+
+        /* Current position for osd layer iteration. */
+        __u32                   osi_current_position;
+
+        /* Current key for upper layer iteration. */
+        __u32                   osi_current_key;
+
+        /* How many inodes per block. */
+        __u32                   osi_inodes_per_block;
+
+        /* For osd layer iterator exit status. */
+        int                     osi_exit_value;
+
+        /* Point to next unmatched item. */
+        struct osd_unmatched_item *osi_next_oui;
+};
+
+extern const struct dt_index_operations osd_scrub_ops;
+
 /*
  * osd device.
  */
@@ -182,11 +310,100 @@ struct osd_device {
         cfs_kstatfs_t             od_kstatfs;
         cfs_spinlock_t            od_osfs_lock;
 
+        /* Protect od_osi, od_unmatched_xxx. */
+        cfs_spinlock_t            od_osi_lock;
+        /* For OI Scrub. */
+        struct osd_scrub_it      *od_osi;
+        /* For unmatched items which are waiting to be fixed. */
+        cfs_list_t                od_unmatched_list;
+
         /**
          * The following flag indicates, if it is interop mode or not.
          * It will be initialized, using mount param.
          */
         __u32                     od_iop_mode;
+};
+
+/*
+ * osd object
+ */
+struct osd_object {
+        struct dt_object       oo_dt;
+        /**
+         * Inode for file system object represented by this osd_object. This
+         * inode is pinned for the whole duration of lu_object life.
+         *
+         * Not modified concurrently (either setup early during object
+         * creation, or assigned by osd_object_create() under write lock).
+         */
+        struct inode          *oo_inode;
+        /**
+         * to protect index ops.
+         */
+        struct htree_lock_head *oo_hl_head;
+        cfs_rw_semaphore_t     oo_ext_idx_sem;
+        cfs_rw_semaphore_t     oo_sem;
+        struct osd_directory  *oo_dir;
+        /** protects inode attributes. */
+        cfs_spinlock_t         oo_guard;
+        /**
+         * Following two members are used to indicate the presence of dot and
+         * dotdot in the given directory. This is required for interop mode
+         * (b11826).
+         */
+        int                    oo_compat_dot_created;
+        int                    oo_compat_dotdot_created;
+
+        const struct lu_env   *oo_owner;
+#ifdef CONFIG_LOCKDEP
+        struct lockdep_map     oo_dep_map;
+#endif
+};
+
+#define OSD_TRACK_DECLARES
+#ifdef OSD_TRACK_DECLARES
+#define OSD_DECLARE_OP(oh, op)   {                               \
+        LASSERT(oh->ot_handle == NULL);                          \
+        ((oh)->ot_declare_ ##op)++; }
+#define OSD_EXEC_OP(handle, op)     {                            \
+        struct osd_thandle *oh;                                  \
+        oh = container_of0(handle, struct osd_thandle, ot_super);\
+        LASSERT((oh)->ot_declare_ ##op > 0);                     \
+        ((oh)->ot_declare_ ##op)--; }
+#else
+#define OSD_DECLARE_OP(oh, op)
+#define OSD_EXEC_OP(oh, op)
+#endif
+
+struct osd_thandle {
+        struct thandle          ot_super;
+        handle_t               *ot_handle;
+        struct journal_callback ot_jcb;
+        cfs_list_t              ot_dcb_list;
+        /* Link to the device, for debugging. */
+        struct lu_ref_link     *ot_dev_link;
+        int                     ot_credits;
+
+#ifdef OSD_TRACK_DECLARES
+        unsigned char           ot_declare_attr_set;
+        unsigned char           ot_declare_punch;
+        unsigned char           ot_declare_xattr_set;
+        unsigned char           ot_declare_create;
+        unsigned char           ot_declare_destroy;
+        unsigned char           ot_declare_ref_add;
+        unsigned char           ot_declare_ref_del;
+        unsigned char           ot_declare_write;
+        unsigned char           ot_declare_insert;
+        unsigned char           ot_declare_delete;
+#endif
+
+#if OSD_THANDLE_STATS
+        /** time when this handle was allocated */
+        cfs_time_t oth_alloced;
+
+        /** time when this thanle was started */
+        cfs_time_t oth_started;
+#endif
 };
 
 /*
@@ -272,7 +489,10 @@ struct osd_thread_info {
         struct htree_lock     *oti_hlock;
 
         struct lu_fid          oti_fid;
+        struct lu_fid          oti_fid2;
         struct osd_inode_id    oti_id;
+        struct osd_inode_id    oti_id2;
+        struct osd_unmatched_item oti_oui;
         /*
          * XXX temporary: for ->i_op calls.
          */
@@ -341,6 +561,33 @@ struct osd_thread_info {
 
 extern int ldiskfs_pdo;
 
+enum osd_iget_flags {
+        /* verify with the fid in LMA */
+        OSD_IF_VERIFY   = 1 << 0,
+
+        /* re-generate osd_inode_id */
+        OSD_IF_GEN_OID  = 1 << 1,
+
+        /* return fid */
+        OSD_IF_RET_FID  = 1 << 2,
+};
+
+enum osd_iget_valid {
+        /* osd_inode_id */
+        OSD_IV_OID      = 1 << 0,
+
+        /* normal fid */
+        OSD_IV_FID_NOR  = 1 << 1,
+
+        /* igif fid */
+        OSD_IV_FID_IGIF = 1 << 2,
+};
+
+struct osd_directory {
+        struct iam_container od_container;
+        struct iam_descr     od_descr;
+};
+
 #ifdef LPROCFS
 /* osd_lproc.c */
 void lprocfs_osd_init_vars(struct lprocfs_static_vars *lvars);
@@ -350,8 +597,32 @@ void osd_lprocfs_time_start(const struct lu_env *env);
 void osd_lprocfs_time_end(const struct lu_env *env,
                           struct osd_device *osd, int op);
 #endif
+int osd_index_declare_ea_insert(const struct lu_env *env,
+                                struct dt_object *dt,
+                                const struct dt_rec *rec,
+                                const struct dt_key *key,
+                                struct thandle *handle);
+int osd_index_declare_ea_delete(const struct lu_env *env,
+                                struct dt_object *dt,
+                                const struct dt_key *key,
+                                struct thandle *handle);
 int osd_statfs(const struct lu_env *env, struct dt_device *dev,
                cfs_kstatfs_t *sfs);
+struct inode *osd_iget(struct osd_device *dev, struct osd_inode_id *id,
+                       struct dentry *dentry, struct lustre_mdt_attrs *lma,
+                       struct lu_fid *fid, enum osd_iget_flags flags,
+                       enum osd_iget_valid *valid);
+int osd_object_auth(const struct lu_env *env, struct dt_object *dt,
+                    struct lustre_capa *capa, __u64 opc);
+
+struct iam_path_descr *osd_idx_ipd_get(const struct lu_env *env,
+                                       const struct iam_container *bag);
+void osd_ipd_put(const struct lu_env *env,
+                        const struct iam_container *bag,
+                        struct iam_path_descr *ipd);
+
+int osd_oui_insert(struct osd_device *dev,
+                   struct osd_unmatched_item *oui);
 
 /*
  * Invariants, assertions.
@@ -379,32 +650,90 @@ static inline int osd_invariant(const struct osd_object *obj)
 #define osd_invariant(obj) (1)
 #endif
 
-/* The on-disk extN format reserves inodes 0-11 for internal filesystem
- * use, and these inodes will be invisible on client side, so the valid
- * sequence for IGIF fid is 12-0xffffffff. But root inode (2#) will be seen
- * on server side (osd), and it should be valid too here.
+/*
+ * Helpers.
  */
-#define OSD_ROOT_SEQ            2
-static inline int osd_fid_is_root(const struct lu_fid *fid)
+extern const struct lu_device_operations osd_lu_ops;
+
+static inline int lu_device_is_osd(const struct lu_device *d)
 {
-        return fid_seq(fid) == OSD_ROOT_SEQ;
+        return ergo(d != NULL && d->ld_ops != NULL, d->ld_ops == &osd_lu_ops);
 }
 
-static inline int osd_fid_is_igif(const struct lu_fid *fid)
+static inline struct osd_device *osd_dt_dev(const struct dt_device *d)
 {
-        return fid_is_igif(fid) || osd_fid_is_root(fid);
+        LASSERT(lu_device_is_osd(&d->dd_lu_dev));
+        return container_of0(d, struct osd_device, od_dt_dev);
+}
+
+static inline struct osd_device *osd_dev(const struct lu_device *d)
+{
+        LASSERT(lu_device_is_osd(d));
+        return osd_dt_dev(container_of0(d, struct dt_device, dd_lu_dev));
+}
+
+static inline struct osd_device *osd_obj2dev(const struct osd_object *o)
+{
+        return osd_dev(o->oo_dt.do_lu.lo_dev);
+}
+
+static inline struct super_block *osd_sb(const struct osd_device *dev)
+{
+        return dev->od_mount->lmi_mnt->mnt_sb;
+}
+
+static inline int osd_object_is_root(const struct osd_object *obj)
+{
+        return osd_sb(osd_obj2dev(obj))->s_root->d_inode == obj->oo_inode;
+}
+
+static inline struct osd_object *osd_obj(const struct lu_object *o)
+{
+        LASSERT(lu_device_is_osd(o->lo_dev));
+        return container_of0(o, struct osd_object, oo_dt.do_lu);
+}
+
+static inline struct osd_object *osd_dt_obj(const struct dt_object *d)
+{
+        return osd_obj(&d->do_lu);
+}
+
+static inline struct lu_device *osd2lu_dev(struct osd_device *osd)
+{
+        return &osd->od_dt_dev.dd_lu_dev;
+}
+
+static inline journal_t *osd_journal(const struct osd_device *dev)
+{
+        return LDISKFS_SB(osd_sb(dev))->s_journal;
+}
+
+static inline int osd_has_index(const struct osd_object *obj)
+{
+        return obj->oo_dt.do_index_ops != NULL;
+}
+
+static inline int osd_object_invariant(const struct lu_object *l)
+{
+        return osd_invariant(osd_obj(l));
+}
+
+extern struct lu_context_key osd_key;
+static inline struct osd_thread_info *osd_oti_get(const struct lu_env *env)
+{
+        return lu_context_key_get(&env->le_ctx, &osd_key);
 }
 
 static inline struct osd_oi *
 osd_fid2oi(struct osd_device *osd, const struct lu_fid *fid)
 {
+        __u64 seq = fid->f_seq;
+
         if (!fid_is_norm(fid))
                 return NULL;
 
         LASSERT(osd->od_oi_table != NULL && osd->od_oi_count >= 1);
-        /* It can work even od_oi_count equals to 1 although it's unexpected,
-         * the only reason we set it to 1 is for performance measurement */
-        return &osd->od_oi_table[fid->f_seq & (osd->od_oi_count - 1)];
+        return &osd->od_oi_table[do_div(seq, osd->od_oi_count)];
 }
 
 #endif /* __KERNEL__ */

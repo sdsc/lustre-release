@@ -484,3 +484,6 @@ EXPORT_SYMBOL(dt_version_get);
 
 const struct dt_index_features dt_directory_features;
 EXPORT_SYMBOL(dt_directory_features);
+
+const struct dt_index_features dt_scrub_features;
+EXPORT_SYMBOL(dt_scrub_features);

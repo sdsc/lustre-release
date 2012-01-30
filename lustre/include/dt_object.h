@@ -212,6 +212,8 @@ enum dt_index_flags {
  */
 extern const struct dt_index_features dt_directory_features;
 
+extern const struct dt_index_features dt_scrub_features;
+
 /**
  * This is a general purpose dt allocation hint.
  * It now contains the parent object.
@@ -599,6 +601,50 @@ struct dt_index_operations {
                                       struct dt_it *di,
                                       void *attr);
         } dio_it;
+};
+
+enum dt_scrub_set_flags {
+        /* Adjust osd layer iterator window. */
+        DSSF_ADJUST_WINDOW      = 1,
+
+        /* To wake up the first unmatched item to be updated:
+         * osi::osi_next_oui */
+        DSSF_WAKEUP_PRIOR       = 2,
+};
+
+struct dt_scrub_set_param {
+        enum dt_scrub_set_flags dssp_flags;
+        __u32                   dssp_window;
+};
+
+enum dt_scrub_flags {
+        /* Rebuild OI file. */
+        DSF_OI_REBUILD          = 1 << 0,
+
+        /* Return igif fid for 1.8 inode. */
+        DSF_IGIF                = 1 << 1,
+};
+
+struct dt_scrub_param {
+        __u32                   dsp_window;
+        enum dt_scrub_flags     dsp_flags;
+        union lu_local_id       dsp_lid;
+        void                  (*dsp_notify)(void *);
+        void                   *dsp_data;
+};
+
+enum dt_scrub_valid {
+        DSV_LOCAL_ID    = 1 << 0,
+        DSV_FID_NOR     = 1 << 1,
+        DSV_FID_IGIF    = 1 << 2,
+        DSV_PRIOR       = 1 << 3,
+        DSV_PRIOR_MORE  = 1 << 4,
+};
+
+struct dt_scrub_rec {
+        struct lu_fid           dsr_fid;
+        union lu_local_id       dsr_lid;
+        enum dt_scrub_valid     dsr_valid;
 };
 
 struct dt_device {
