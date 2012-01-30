@@ -111,7 +111,7 @@ osd_oi_open(struct osd_thread_info *info,
         struct dt_object    *obj;
         int                  rc;
 
-        obj = dt_store_open(env, dev, "", name, &info->oti_fid);
+        obj = dt_store_open(env, dev, "", name, &info->oti_fid, NULL);
         if (IS_ERR(obj))
                 return PTR_ERR(obj);
 
@@ -326,7 +326,7 @@ int osd_oi_lookup(struct osd_thread_info *info, struct osd_oi *oi,
                 key = (struct dt_key *) oi_fid;
                 rc = idx->do_index_ops->dio_lookup(info->oti_env, idx,
                                                    (struct dt_rec *)id, key,
-                                                   BYPASS_CAPA);
+                                                   NULL, BYPASS_CAPA);
                 if (rc > 0) {
                         id->oii_ino = be32_to_cpu(id->oii_ino);
                         id->oii_gen = be32_to_cpu(id->oii_gen);

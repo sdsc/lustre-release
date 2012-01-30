@@ -444,7 +444,7 @@ static int create_dot_lustre_dir(const struct lu_env *env, struct mdd_device *m)
                 rc = PTR_ERR(mdo);
                 CERROR("creating obj [%s] fid = "DFID" rc = %d\n",
                         dot_lustre_name, PFID(fid), rc);
-                RETURN(rc);
+                return rc;
         }
 
         if (!IS_ERR(mdo))
@@ -610,6 +610,7 @@ static struct md_object_operations mdd_dot_lustre_obj_ops = {
 
 static int dot_lustre_mdd_lookup(const struct lu_env *env, struct md_object *p,
                                  const struct lu_name *lname, struct lu_fid *f,
+                                 struct lu_object_hint *hint,
                                  struct md_op_spec *spec)
 {
         if (strcmp(lname->ln_name, mdd_obf_dir_name) == 0)
@@ -826,7 +827,7 @@ static struct md_object_operations mdd_obf_obj_ops = {
  */
 static int obf_lookup(const struct lu_env *env, struct md_object *p,
                       const struct lu_name *lname, struct lu_fid *f,
-                      struct md_op_spec *spec)
+                      struct lu_object_hint *hint, struct md_op_spec *spec)
 {
         char *name = (char *)lname->ln_name;
         struct mdd_device *mdd = mdo2mdd(p);
@@ -844,7 +845,7 @@ static int obf_lookup(const struct lu_env *env, struct md_object *p,
         }
 
         /* Check if object with this fid exists */
-        child = mdd_object_find(env, mdd, f);
+        child = mdd_object_find(env, mdd, f, NULL);
         if (child == NULL)
                 GOTO(out, rc = 0);
         if (IS_ERR(child))
@@ -907,7 +908,7 @@ static int mdd_obf_setup(const struct lu_env *env, struct mdd_device *m)
         int rc = 0;
 
         m->mdd_dot_lustre_objs.mdd_obf = mdd_object_find(env, m,
-                                                         &LU_OBF_FID);
+                                                         &LU_OBF_FID, NULL);
         if (m->mdd_dot_lustre_objs.mdd_obf == NULL ||
             IS_ERR(m->mdd_dot_lustre_objs.mdd_obf))
                 GOTO(out, rc = -ENOENT);
@@ -937,7 +938,7 @@ static int mdd_dot_lustre_setup(const struct lu_env *env, struct mdd_device *m)
                 return rc;
 
         dt_dot_lustre = dt_store_open(env, m->mdd_child, mdd_root_dir_name,
-                                      dot_lustre_name, fid);
+                                      dot_lustre_name, fid, NULL);
         if (IS_ERR(dt_dot_lustre)) {
                 rc = PTR_ERR(dt_dot_lustre);
                 GOTO(out, rc);
@@ -1088,7 +1089,7 @@ static int mdd_prepare(const struct lu_env *env,
 
         dt_txn_callback_add(mdd->mdd_child, &mdd->mdd_txn_cb);
         root = dt_store_open(env, mdd->mdd_child, "", mdd_root_dir_name,
-                             &mdd->mdd_root_fid);
+                             &mdd->mdd_root_fid, NULL);
         if (!IS_ERR(root)) {
                 LASSERT(root != NULL);
                 lu_object_put(env, &root->do_lu);
@@ -1107,14 +1108,16 @@ static int mdd_prepare(const struct lu_env *env,
 
         /* we use capa file to declare llog changes,
          * will be fixed with new llog in 2.3 */
-        root = dt_store_open(env, mdd->mdd_child, "", CAPA_KEYS, &fid);
+        root = dt_store_open(env, mdd->mdd_child, "", CAPA_KEYS, &fid, NULL);
         if (!IS_ERR(root))
                 mdd->mdd_capa = root;
         else
                 rc = PTR_ERR(root);
 
+        EXIT;
+
 out:
-        RETURN(rc);
+        return rc;
 }
 
 const struct lu_device_operations mdd_lu_ops = {

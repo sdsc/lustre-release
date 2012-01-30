@@ -364,6 +364,8 @@ struct mdt_thread_info {
 
         struct lu_fid              mti_tmp_fid1;
         struct lu_fid              mti_tmp_fid2;
+        struct lu_object_hint      mti_tmp_hint1;
+        struct lu_object_hint      mti_tmp_hint2;
         ldlm_policy_data_t         mti_policy;    /* for mdt_object_lock() and
                                                    * mdt_rename_lock() */
         struct ldlm_res_id         mti_res_id;    /* for mdt_object_lock() and
@@ -525,9 +527,11 @@ void mdt_object_unlock(struct mdt_thread_info *,
 struct mdt_object *mdt_object_find(const struct lu_env *,
                                    struct mdt_device *,
                                    const struct lu_fid *,
+                                   struct lu_object_hint *,
                                    enum mdt_obj_exist check_exist);
 struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *,
                                         const struct lu_fid *,
+                                        struct lu_object_hint *,
                                         struct mdt_lock_handle *,
                                         __u64 ibits,
                                         enum mdt_obj_exist check_exist);

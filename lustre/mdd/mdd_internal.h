@@ -171,6 +171,7 @@ struct mdd_thread_info {
         int                       mti_max_cookie_size;
         struct dt_object_format   mti_dof;
         struct obd_quotactl       mti_oqctl;
+        struct lu_object_hint     mti_loh;
 };
 
 extern const char orph_index_name[];
@@ -301,7 +302,8 @@ int mdd_link_sanity_check(const struct lu_env *env, struct mdd_object *tgt_obj,
 int mdd_is_root(struct mdd_device *mdd, const struct lu_fid *fid);
 int mdd_lookup(const struct lu_env *env,
                struct md_object *pobj, const struct lu_name *lname,
-               struct lu_fid* fid, struct md_op_spec *spec);
+               struct lu_fid *fid, struct lu_object_hint *hint,
+               struct md_op_spec *spec);
 struct lu_buf *mdd_links_get(const struct lu_env *env,
                              struct mdd_object *mdd_obj);
 void mdd_lee_unpack(const struct link_ea_entry *lee, int *reclen,
@@ -352,6 +354,9 @@ void mdd_lprocfs_time_end(const struct lu_env *env,
                           struct mdd_device *mdd, int op);
 
 /* mdd_object.c */
+struct mdd_object *
+mdd_object_find(const struct lu_env *env, struct mdd_device *d,
+                const struct lu_fid *f, struct lu_object_hint *h);
 int mdd_get_flags(const struct lu_env *env, struct mdd_object *obj);
 struct lu_buf *mdd_buf_alloc(const struct lu_env *env, ssize_t len);
 int mdd_buf_grow(const struct lu_env *env, ssize_t len);
@@ -364,9 +369,6 @@ int accmode(const struct lu_env *env, struct lu_attr *la, int flags);
 extern struct lu_context_key mdd_thread_key;
 extern const struct lu_device_operations mdd_lu_ops;
 
-struct mdd_object *mdd_object_find(const struct lu_env *env,
-                                   struct mdd_device *d,
-                                   const struct lu_fid *f);
 int mdd_get_default_md(struct mdd_object *mdd_obj, struct lov_mds_md *lmm);
 int mdd_readpage(const struct lu_env *env, struct md_object *obj,
                  const struct lu_rdpg *rdpg);

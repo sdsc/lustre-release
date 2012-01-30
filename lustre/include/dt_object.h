@@ -536,7 +536,7 @@ struct dt_index_operations {
          */
         int (*dio_lookup)(const struct lu_env *env, struct dt_object *dt,
                           struct dt_rec *rec, const struct dt_key *key,
-                          struct lustre_capa *capa);
+                          struct lu_object_hint *hint,struct lustre_capa *capa);
         /**
          * precondition: dt_object_exists(dt);
          */
@@ -570,7 +570,7 @@ struct dt_index_operations {
                  */
                 struct dt_it *(*init)(const struct lu_env *env,
                                       struct dt_object *dt,
-                                      __u32 attr,
+                                      void *args,
                                       struct lustre_capa *capa);
                 void          (*fini)(const struct lu_env *env,
                                       struct dt_it *di);
@@ -595,6 +595,9 @@ struct dt_index_operations {
                                       const struct dt_it *di, __u64 hash);
                 int        (*key_rec)(const struct lu_env *env,
                                       const struct dt_it *di, void* key_rec);
+                int            (*set)(const struct lu_env *env,
+                                      struct dt_it *di,
+                                      void *attr);
         } dio_it;
 };
 
@@ -728,15 +731,17 @@ int dt_path_parser(const struct lu_env *env,
                    char *local, dt_entry_func_t entry_func,
                    void *data);
 
+struct dt_object *dt_store_resolve(const struct lu_env *env,
+                                   struct dt_device *dt,
+                                   const char *path,
+                                   struct lu_fid *fid);
+
 struct dt_object *dt_store_open(const struct lu_env *env,
                                 struct dt_device *dt,
                                 const char *dirname,
                                 const char *filename,
-                                struct lu_fid *fid);
-
-struct dt_object *dt_locate(const struct lu_env *env,
-                            struct dt_device *dev,
-                            const struct lu_fid *fid);
+                                struct lu_fid *fid,
+                                struct lu_object_hint *hint);
 
 int dt_declare_version_set(const struct lu_env *env, struct dt_object *o,
                            struct thandle *th);
@@ -1234,6 +1239,7 @@ static inline int dt_lookup(const struct lu_env *env,
                             struct dt_object *dt,
                             struct dt_rec *rec,
                             const struct dt_key *key,
+                            struct lu_object_hint *hint,
                             struct lustre_capa *capa)
 {
         int ret;
@@ -1242,7 +1248,7 @@ static inline int dt_lookup(const struct lu_env *env,
         LASSERT(dt->do_index_ops);
         LASSERT(dt->do_index_ops->dio_lookup);
 
-        ret = dt->do_index_ops->dio_lookup(env, dt, rec, key, capa);
+        ret = dt->do_index_ops->dio_lookup(env, dt, rec, key, hint, capa);
         if (ret > 0)
                 ret = 0;
         else if (ret == 0)

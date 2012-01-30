@@ -116,7 +116,7 @@ static struct cl_object *lov_sub_find(const struct lu_env *env,
         struct lu_object *o;
 
         ENTRY;
-        o = lu_object_find_at(env, cl2lu_dev(dev), fid, &conf->coc_lu);
+        o = lu_object_find_at(env, cl2lu_dev(dev), fid, &conf->coc_lu, NULL);
         LASSERT(ergo(!IS_ERR(o), o->lo_dev->ld_type == &lovsub_device_type));
         RETURN(lu2cl(o));
 }
@@ -518,7 +518,8 @@ static int lov_layout_change(const struct lu_env *env,
  */
 
 int lov_object_init(const struct lu_env *env, struct lu_object *obj,
-                    const struct lu_object_conf *conf)
+                    const struct lu_object_conf *conf,
+                    struct lu_object_hint *unused)
 {
         struct lov_device            *dev   = lu2lov_dev(obj->lo_dev);
         struct lov_object            *lov   = lu2lov(obj);

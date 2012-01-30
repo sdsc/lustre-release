@@ -513,7 +513,8 @@ static void osd_object_init0(struct osd_object *obj)
  * life-cycle.
  */
 static int osd_object_init(const struct lu_env *env, struct lu_object *l,
-                           const struct lu_object_conf *unused)
+                           const struct lu_object_conf *unused,
+                           struct lu_object_hint *hint)
 {
         struct osd_object *obj = osd_obj(l);
         int result;
@@ -3232,6 +3233,7 @@ static int osd_index_ea_delete(const struct lu_env *env, struct dt_object *dt,
  */
 static int osd_index_iam_lookup(const struct lu_env *env, struct dt_object *dt,
                                 struct dt_rec *rec, const struct dt_key *key,
+                                struct lu_object_hint *unused,
                                 struct lustre_capa *capa)
 {
         struct osd_object     *obj = osd_dt_obj(dt);
@@ -3525,7 +3527,8 @@ static int osd_ea_add_rec(const struct lu_env *env,
  * \retval -ve, on error
  */
 static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
-                             struct dt_rec *rec, const struct dt_key *key)
+                             struct dt_rec *rec, const struct dt_key *key,
+                             struct lu_object_hint *hint)
 {
         struct inode               *dir    = obj->oo_inode;
         struct dentry              *dentry;
@@ -3586,7 +3589,7 @@ struct osd_object *osd_object_find(const struct lu_env *env,
         struct lu_object         *luch;
         struct lu_object         *lo;
 
-        luch = lu_object_find(env, ludev, fid, NULL);
+        luch = lu_object_find(env, ludev, fid, NULL, NULL);
         if (!IS_ERR(luch)) {
                 if (lu_object_exists(luch)) {
                         lo = lu_object_locate(luch->lo_header, ludev->ld_type);
@@ -3708,7 +3711,7 @@ static int osd_index_ea_insert(const struct lu_env *env, struct dt_object *dt,
 
 static struct dt_it *osd_it_iam_init(const struct lu_env *env,
                                      struct dt_object *dt,
-                                     __u32 unused,
+                                     void *unused,
                                      struct lustre_capa *capa)
 {
         struct osd_it_iam         *it;
@@ -3964,7 +3967,7 @@ static const struct dt_index_operations osd_index_iam_ops = {
  */
 static struct dt_it *osd_it_ea_init(const struct lu_env *env,
                                     struct dt_object *dt,
-                                    __u32 attr,
+                                    void *attr,
                                     struct lustre_capa *capa)
 {
         struct osd_object       *obj  = osd_dt_obj(dt);
@@ -3986,7 +3989,7 @@ static struct dt_it *osd_it_ea_init(const struct lu_env *env,
         it->oie_obj             = obj;
         it->oie_file.f_pos      = 0;
         it->oie_file.f_dentry   = obj_dentry;
-        if (attr & LUDA_64BITHASH)
+        if (*(__u32 *)attr & LUDA_64BITHASH)
                 it->oie_file.f_flags = O_64BITHASH;
         else
                 it->oie_file.f_flags = O_32BITHASH;
@@ -4300,6 +4303,7 @@ static int osd_it_ea_load(const struct lu_env *env,
  */
 static int osd_index_ea_lookup(const struct lu_env *env, struct dt_object *dt,
                                struct dt_rec *rec, const struct dt_key *key,
+                               struct lu_object_hint *hint,
                                struct lustre_capa *capa)
 {
         struct osd_object *obj = osd_dt_obj(dt);
@@ -4313,7 +4317,7 @@ static int osd_index_ea_lookup(const struct lu_env *env, struct dt_object *dt,
         if (osd_object_auth(env, dt, capa, CAPA_OPC_INDEX_LOOKUP))
                 return -EACCES;
 
-        rc = osd_ea_lookup_rec(env, obj, rec, key);
+        rc = osd_ea_lookup_rec(env, obj, rec, key, hint);
 
         if (rc == 0)
                 rc = +1;
@@ -4590,7 +4594,7 @@ static int osd_prepare(const struct lu_env *env,
 
         /* 3. open remote object dir */
         d = dt_store_open(env, lu2dt_dev(dev), "",
-                          remote_obj_dir, &oti->oti_fid);
+                          remote_obj_dir, &oti->oti_fid, NULL);
         if (!IS_ERR(d)) {
                 osd->od_obj_area = d;
                 result = 0;

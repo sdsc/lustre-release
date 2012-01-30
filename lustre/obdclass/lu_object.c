@@ -149,7 +149,8 @@ EXPORT_SYMBOL(lu_object_put);
 static struct lu_object *lu_object_alloc(const struct lu_env *env,
                                          struct lu_device *dev,
                                          const struct lu_fid *f,
-                                         const struct lu_object_conf *conf)
+                                         const struct lu_object_conf *conf,
+                                         struct lu_object_hint *hint)
 {
         struct lu_object *scan;
         struct lu_object *top;
@@ -183,7 +184,8 @@ static struct lu_object *lu_object_alloc(const struct lu_env *env,
                                 continue;
                         clean = 0;
                         scan->lo_header = top->lo_header;
-                        result = scan->lo_ops->loo_object_init(env, scan, conf);
+                        result = scan->lo_ops->loo_object_init(env, scan, conf,
+                                                               hint);
                         if (result != 0) {
                                 lu_object_free(env, top);
                                 RETURN(ERR_PTR(result));
@@ -528,23 +530,25 @@ static struct lu_object *htable_lookup(struct lu_site *s,
  */
 struct lu_object *lu_object_find(const struct lu_env *env,
                                  struct lu_device *dev, const struct lu_fid *f,
-                                 const struct lu_object_conf *conf)
+                                 const struct lu_object_conf *conf,
+                                 struct lu_object_hint *hint)
 {
-        return lu_object_find_at(env, dev->ld_site->ls_top_dev, f, conf);
+        return lu_object_find_at(env, dev->ld_site->ls_top_dev, f, conf, hint);
 }
 EXPORT_SYMBOL(lu_object_find);
 
 static struct lu_object *lu_object_new(const struct lu_env *env,
                                        struct lu_device *dev,
                                        const struct lu_fid *f,
-                                       const struct lu_object_conf *conf)
+                                       const struct lu_object_conf *conf,
+                                       struct lu_object_hint *hint)
 {
         struct lu_object        *o;
         cfs_hash_t              *hs;
         cfs_hash_bd_t            bd;
         struct lu_site_bkt_data *bkt;
 
-        o = lu_object_alloc(env, dev, f, conf);
+        o = lu_object_alloc(env, dev, f, conf, hint);
         if (unlikely(IS_ERR(o)))
                 return o;
 
@@ -564,6 +568,7 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
                                             struct lu_device *dev,
                                             const struct lu_fid *f,
                                             const struct lu_object_conf *conf,
+                                            struct lu_object_hint *hint,
                                             cfs_waitlink_t *waiter)
 {
         struct lu_object      *o;
@@ -594,7 +599,7 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
          * site wait-queue and return ERR_PTR(-EAGAIN).
          */
         if (conf != NULL && conf->loc_flags & LOC_F_NEW)
-                return lu_object_new(env, dev, f, conf);
+                return lu_object_new(env, dev, f, conf, hint);
 
         s  = dev->ld_site;
         hs = s->ls_obj_hash;
@@ -610,7 +615,7 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
          * Allocate new object. This may result in rather complicated
          * operations, including fld queries, inode loading, etc.
          */
-        o = lu_object_alloc(env, dev, f, conf);
+        o = lu_object_alloc(env, dev, f, conf, hint);
         if (unlikely(IS_ERR(o)))
                 return o;
 
@@ -619,7 +624,7 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
         cfs_hash_bd_lock(hs, &bd, 1);
 
         shadow = htable_lookup(s, &bd, f, waiter, &version);
-        if (likely(shadow == NULL)) {
+        if (shadow == NULL) {
                 struct lu_site_bkt_data *bkt;
 
                 bkt = cfs_hash_bd_extra_get(hs, &bd);
@@ -627,12 +632,14 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
                 bkt->lsb_busy++;
                 cfs_hash_bd_unlock(hs, &bd, 1);
                 return o;
+        } else {
+                if (!cfs_list_empty(&shadow->lo_header->loh_lru))
+                        cfs_list_del_init(&shadow->lo_header->loh_lru);
+                lprocfs_counter_incr(s->ls_stats, LU_SS_CACHE_RACE);
+                cfs_hash_bd_unlock(hs, &bd, 1);
+                lu_object_free(env, o);
+                return shadow;
         }
-
-        lprocfs_counter_incr(s->ls_stats, LU_SS_CACHE_RACE);
-        cfs_hash_bd_unlock(hs, &bd, 1);
-        lu_object_free(env, o);
-        return shadow;
 }
 
 /**
@@ -643,14 +650,15 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
 struct lu_object *lu_object_find_at(const struct lu_env *env,
                                     struct lu_device *dev,
                                     const struct lu_fid *f,
-                                    const struct lu_object_conf *conf)
+                                    const struct lu_object_conf *conf,
+                                    struct lu_object_hint *hint)
 {
         struct lu_site_bkt_data *bkt;
         struct lu_object        *obj;
         cfs_waitlink_t           wait;
 
         while (1) {
-                obj = lu_object_find_try(env, dev, f, conf, &wait);
+                obj = lu_object_find_try(env, dev, f, conf, hint, &wait);
                 if (obj != ERR_PTR(-EAGAIN))
                         return obj;
                 /*
@@ -670,12 +678,13 @@ EXPORT_SYMBOL(lu_object_find_at);
 struct lu_object *lu_object_find_slice(const struct lu_env *env,
                                        struct lu_device *dev,
                                        const struct lu_fid *f,
-                                       const struct lu_object_conf *conf)
+                                       const struct lu_object_conf *conf,
+                                       struct lu_object_hint *hint)
 {
         struct lu_object *top;
         struct lu_object *obj;
 
-        top = lu_object_find(env, dev, f, conf);
+        top = lu_object_find(env, dev, f, conf, hint);
         if (!IS_ERR(top)) {
                 obj = lu_object_locate(top->lo_header, dev->ld_type);
                 if (obj == NULL)

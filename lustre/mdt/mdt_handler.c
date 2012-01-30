@@ -326,7 +326,7 @@ static int mdt_getstatus(struct mdt_thread_info *info)
                 struct lustre_capa *capa;
 
                 root = mdt_object_find(info->mti_env, mdt, &repbody->fid1,
-                                       MDT_OBJ_MUST_EXIST);
+                                       NULL, MDT_OBJ_MUST_EXIST);
                 if (IS_ERR(root))
                         RETURN(PTR_ERR(root));
 
@@ -802,7 +802,8 @@ static int mdt_is_subdir(struct mdt_thread_info *info)
 static int mdt_raw_lookup(struct mdt_thread_info *info,
                           struct mdt_object *parent,
                           const struct lu_name *lname,
-                          struct ldlm_reply *ldlm_rep)
+                          struct ldlm_reply *ldlm_rep,
+                          struct lu_object_hint *hint)
 {
         struct md_object *next = mdt_object_child(info->mti_object);
         const struct mdt_body *reqbody = info->mti_body;
@@ -817,7 +818,7 @@ static int mdt_raw_lookup(struct mdt_thread_info *info,
         LASSERT(!info->mti_cross_ref);
 
         /* Only got the fid of this obj by name */
-        rc = mdo_lookup(info->mti_env, next, lname, child_fid,
+        rc = mdo_lookup(info->mti_env, next, lname, child_fid, hint,
                         &info->mti_spec);
 #if 0
         /* XXX is raw_lookup possible as intent operation? */
@@ -849,20 +850,21 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
                                  __u64 child_bits,
                                  struct ldlm_reply *ldlm_rep)
 {
-        struct ptlrpc_request  *req       = mdt_info_req(info);
-        struct mdt_body        *reqbody   = NULL;
-        struct mdt_object      *parent    = info->mti_object;
+        struct ptlrpc_request  *req        = mdt_info_req(info);
+        struct mdt_body        *reqbody    = NULL;
+        struct mdt_object      *parent     = info->mti_object;
         struct mdt_object      *child;
-        struct md_object       *next      = mdt_object_child(parent);
-        struct lu_fid          *child_fid = &info->mti_tmp_fid1;
-        struct lu_name         *lname     = NULL;
-        const char             *name      = NULL;
-        int                     namelen   = 0;
-        struct mdt_lock_handle *lhp       = NULL;
+        struct md_object       *next       = mdt_object_child(parent);
+        struct lu_fid          *child_fid  = &info->mti_tmp_fid1;
+        struct lu_object_hint  *child_hint = &info->mti_tmp_hint1;
+        struct lu_name         *lname      = NULL;
+        const char             *name       = NULL;
+        int                     namelen    = 0;
+        struct mdt_lock_handle *lhp        = NULL;
         struct ldlm_lock       *lock;
         struct ldlm_res_id     *res_id;
         int                     is_resent;
-        int                     ma_need = 0;
+        int                     ma_need    = 0;
         int                     rc;
 
         ENTRY;
@@ -919,7 +921,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
                          PFID(mdt_object_fid(parent)));
         }
         if (lname) {
-                rc = mdt_raw_lookup(info, parent, lname, ldlm_rep);
+                rc = mdt_raw_lookup(info, parent, lname, ldlm_rep, child_hint);
                 if (rc != 0) {
                         if (rc > 0)
                                 rc = 0;
@@ -968,6 +970,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
                 RETURN(rc);
         }
 
+        child_hint->loh_flags = 0;
         if (lname) {
                 /* step 1: lock parent only if parent is a directory */
                 if (S_ISDIR(lu_object_attr(&parent->mot_obj.mo_lu))) {
@@ -982,7 +985,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 
                 /* step 2: lookup child's fid by name */
                 rc = mdo_lookup(info->mti_env, next, lname, child_fid,
-                                &info->mti_spec);
+                                child_hint, &info->mti_spec);
 
                 if (rc != 0) {
                         if (rc == -ENOENT)
@@ -1001,7 +1004,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
          *        regardless if it is local or remote.
          */
         child = mdt_object_find(info->mti_env, info->mti_mdt, child_fid,
-                                MDT_OBJ_MUST_EXIST);
+                                child_hint, MDT_OBJ_MUST_EXIST);
 
         if (unlikely(IS_ERR(child)))
                 GOTO(out_parent, rc = PTR_ERR(child));
@@ -2075,6 +2078,7 @@ static struct mdt_object *mdt_obj(struct lu_object *o)
 struct mdt_object *mdt_object_find(const struct lu_env *env,
                                    struct mdt_device *d,
                                    const struct lu_fid *f,
+                                   struct lu_object_hint *h,
                                    enum mdt_obj_exist check_exist)
 {
         struct lu_object *o;
@@ -2082,7 +2086,7 @@ struct mdt_object *mdt_object_find(const struct lu_env *env,
         ENTRY;
 
         CDEBUG(D_INFO, "Find object for "DFID"\n", PFID(f));
-        o = lu_object_find(env, &d->mdt_md_dev.md_lu_dev, f, NULL);
+        o = lu_object_find(env, &d->mdt_md_dev.md_lu_dev, f, NULL, h);
         if (unlikely(IS_ERR(o)))
                 RETURN((struct mdt_object *)o);
         else
@@ -2369,13 +2373,14 @@ void mdt_object_unlock(struct mdt_thread_info *info, struct mdt_object *o,
 
 struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *info,
                                         const struct lu_fid *f,
+                                        struct lu_object_hint *h,
                                         struct mdt_lock_handle *lh,
                                         __u64 ibits,
                                         enum mdt_obj_exist check_exist)
 {
         struct mdt_object *o;
 
-        o = mdt_object_find(info->mti_env, info->mti_mdt, f, check_exist);
+        o = mdt_object_find(info->mti_env, info->mti_mdt, f, h, check_exist);
         if (!IS_ERR(o)) {
                 int rc;
 
@@ -2479,7 +2484,7 @@ static int mdt_body_unpack(struct mdt_thread_info *info, __u32 flags)
                 mdt_set_capainfo(info, 0, &body->fid1,
                                  req_capsule_client_get(pill, &RMF_CAPA1));
 
-        obj = mdt_object_find(env, info->mti_mdt, &body->fid1,
+        obj = mdt_object_find(env, info->mti_mdt, &body->fid1, NULL,
                               MDT_OBJ_MAY_NOT_EXIST);
         if (!IS_ERR(obj)) {
                 if ((flags & HABEO_CORPUS) &&
@@ -2745,6 +2750,8 @@ static void mdt_thread_info_init(struct ptlrpc_request *req,
         /* To not check for split by default. */
         info->mti_spec.sp_ck_split = 0;
         info->mti_spec.no_create = 0;
+        memset(&info->mti_tmp_hint1, 0, sizeof(info->mti_tmp_hint1));
+        memset(&info->mti_tmp_hint2, 0, sizeof(info->mti_tmp_hint2));
 }
 
 static void mdt_thread_info_fini(struct mdt_thread_info *info)
@@ -4826,7 +4833,8 @@ static struct lu_object *mdt_object_alloc(const struct lu_env *env,
 }
 
 static int mdt_object_init(const struct lu_env *env, struct lu_object *o,
-                           const struct lu_object_conf *unused)
+                           const struct lu_object_conf *unused,
+                           struct lu_object_hint *hint)
 {
         struct mdt_device *d = mdt_dev(o->lo_dev);
         struct lu_device  *under;
@@ -5390,7 +5398,7 @@ static int mdt_fid2path(const struct lu_env *env, struct mdt_device *mdt,
         if (!fid_is_sane(&fp->gf_fid))
                 RETURN(-EINVAL);
 
-        obj = mdt_object_find(env, mdt, &fp->gf_fid, MDT_OBJ_MUST_EXIST);
+        obj = mdt_object_find(env, mdt, &fp->gf_fid, NULL, MDT_OBJ_MUST_EXIST);
         if (obj == NULL || IS_ERR(obj)) {
                 CDEBUG(D_IOCTL, "%s: no object "DFID": %ld\n",
                        mdt2obd_dev(mdt)->obd_name, PFID(&fp->gf_fid),
@@ -5497,7 +5505,7 @@ static int mdt_ioc_version_get(struct mdt_thread_info *mti, void *karg)
         lh = &mti->mti_lh[MDT_LH_PARENT];
         mdt_lock_reg_init(lh, LCK_CR);
 
-        obj = mdt_object_find_lock(mti, fid, lh, MDS_INODELOCK_UPDATE,
+        obj = mdt_object_find_lock(mti, fid, NULL, lh, MDS_INODELOCK_UPDATE,
                                    MDT_OBJ_MUST_EXIST);
         if (IS_ERR(obj)) {
                 if (PTR_ERR(obj) == -ENOENT)

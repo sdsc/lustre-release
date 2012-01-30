@@ -481,7 +481,8 @@ static const struct cl_object_operations echo_cl_obj_ops = {
  * @{
  */
 static int echo_object_init(const struct lu_env *env, struct lu_object *obj,
-                            const struct lu_object_conf *conf)
+                            const struct lu_object_conf *conf,
+                            struct lu_object_hint *unused)
 {
         struct echo_device *ed         = cl2echo_dev(lu2cl_dev(obj->lo_dev));
         struct echo_client_obd *ec     = ed->ed_ec;
@@ -1432,7 +1433,7 @@ static int echo_md_create_internal(const struct lu_env *env,
         int                      rc;
 
         ec_child = lu_object_find_at(env, &ed->ed_cl.cd_lu_dev,
-                                     fid, NULL);
+                                     fid, NULL, NULL);
         if (IS_ERR(ec_child)) {
                 CERROR("Can not find the child "DFID": rc = %ld\n", PFID(fid),
                         PTR_ERR(ec_child));
@@ -1589,13 +1590,13 @@ static struct lu_object *echo_md_lookup(const struct lu_env *env,
 
         CDEBUG(D_INFO, "lookup %s in parent "DFID" %p\n", lname->ln_name,
                PFID(fid), parent);
-        rc = mdo_lookup(env, parent, lname, fid, NULL);
+        rc = mdo_lookup(env, parent, lname, fid, NULL, NULL);
         if (rc) {
                 CERROR("lookup %s: rc = %d\n", lname->ln_name, rc);
                 RETURN(ERR_PTR(rc));
         }
 
-        child = lu_object_find_at(env, &ed->ed_cl.cd_lu_dev, fid, NULL);
+        child = lu_object_find_at(env, &ed->ed_cl.cd_lu_dev, fid, NULL, NULL);
 
         RETURN(child);
 }
@@ -1765,7 +1766,7 @@ static int echo_lookup_object(const struct lu_env *env,
 
                 CDEBUG(D_RPCTRACE, "Start lookup object "DFID" %s %p\n",
                        PFID(lu_object_fid(parent)), lname->ln_name, parent);
-                rc = mdo_lookup(env, lu2md(parent), lname, fid, NULL);
+                rc = mdo_lookup(env, lu2md(parent), lname, fid, NULL, NULL);
                 if (rc) {
                         CERROR("Can not lookup child %s: rc = %d\n", name, rc);
                         break;
@@ -1910,7 +1911,7 @@ struct lu_object *echo_resolve_path(const struct lu_env *env,
                 RETURN(ERR_PTR(rc));
         }
 
-        parent = lu_object_find_at(env, &ed->ed_cl.cd_lu_dev, fid, NULL);
+        parent = lu_object_find_at(env, &ed->ed_cl.cd_lu_dev, fid, NULL, NULL);
         if (IS_ERR(parent)) {
                 CERROR("Can not find the parent "DFID": rc = %ld\n",
                         PFID(fid), PTR_ERR(parent));

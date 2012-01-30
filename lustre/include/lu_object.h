@@ -192,6 +192,38 @@ struct lu_object_conf {
 };
 
 /**
+ * Local identifier for the object, depends on backend filesystem. For the
+ * layers above OSD, they don't know which type identifier will be used by
+ * backend filesystem, so it reserves 128 bits for that. */
+union lu_local_id {
+        __u64   lli_u64[2];
+        __u32   lli_u32[4];
+        __u8    lli_u8[16];
+};
+
+enum {
+        /* Contains valid local id for the object. */
+        LOH_F_LID               = 1 << 0,
+
+        /* Fid in name entry. */
+        LOH_F_FIDEA             = 1 << 1,
+
+        /* The object is allocated by OI Scrub. */
+        LOH_F_SCRUB             = 1 << 2,
+
+        /* OI mapping for the object is invalid. */
+        LOH_F_UNMATCHED         = 1 << 3,
+};
+
+/**
+ * Object hint information for further processing after allocated.
+ */
+struct lu_object_hint {
+        union lu_local_id       loh_lid; /* Local id for the object. */
+        __u32                   loh_flags;
+};
+
+/**
  * Type of "printer" function used by lu_object_operations::loo_object_print()
  * method.
  *
@@ -218,7 +250,8 @@ struct lu_object_operations {
          */
         int (*loo_object_init)(const struct lu_env *env,
                                struct lu_object *o,
-                               const struct lu_object_conf *conf);
+                               const struct lu_object_conf *conf,
+                               struct lu_object_hint *hint);
         /**
          * Called (in top-to-bottom order) during object allocation after all
          * layers were allocated and initialized. Can be used to perform
@@ -721,15 +754,18 @@ void lu_site_print(const struct lu_env *env, struct lu_site *s, void *cookie,
                    lu_printer_t printer);
 struct lu_object *lu_object_find(const struct lu_env *env,
                                  struct lu_device *dev, const struct lu_fid *f,
-                                 const struct lu_object_conf *conf);
+                                 const struct lu_object_conf *conf,
+                                 struct lu_object_hint *hint);
 struct lu_object *lu_object_find_at(const struct lu_env *env,
                                     struct lu_device *dev,
                                     const struct lu_fid *f,
-                                    const struct lu_object_conf *conf);
+                                    const struct lu_object_conf *conf,
+                                    struct lu_object_hint *hint);
 struct lu_object *lu_object_find_slice(const struct lu_env *env,
                                        struct lu_device *dev,
                                        const struct lu_fid *f,
-                                       const struct lu_object_conf *conf);
+                                       const struct lu_object_conf *conf,
+                                       struct lu_object_hint *hint);
 /** @} caching */
 
 /** \name helpers

@@ -126,7 +126,8 @@ struct cl_object *cl_object_find(const struct lu_env *env,
                                  const struct cl_object_conf *c)
 {
         cfs_might_sleep();
-        return lu2cl(lu_object_find_slice(env, cl2lu_dev(cd), fid, &c->coc_lu));
+        return lu2cl(lu_object_find_slice(env, cl2lu_dev(cd), fid, &c->coc_lu,
+                                          NULL));
 }
 EXPORT_SYMBOL(cl_object_find);
 

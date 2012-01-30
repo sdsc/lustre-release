@@ -96,9 +96,10 @@ static struct lu_context_key llod_key = {
         .lct_fini = llod_global_key_fini
 };
 
-static inline struct llo_thread_info * llo_env_info(const struct lu_env *env)
+static inline struct llo_thread_info *
+llo_env_info(const struct lu_env *env)
 {
-        return lu_context_key_get(&env->le_ctx,  &llod_key);
+        return lu_context_key_get(&env->le_ctx, &llod_key);
 }
 
 /**
@@ -111,7 +112,7 @@ static struct md_object *llo_locate(const struct lu_env *env,
         struct lu_object *obj;
         struct md_object *mdo;
 
-        obj = lu_object_find(env, &md->md_lu_dev, fid, NULL);
+        obj = lu_object_find(env, &md->md_lu_dev, fid, NULL, NULL);
         if (!IS_ERR(obj)) {
                 obj = lu_object_locate(obj->lo_header, md->md_lu_dev.ld_type);
                 LASSERT(obj != NULL);
@@ -142,7 +143,7 @@ static int llo_lookup(const struct lu_env  *env,
         lname->ln_name = name;
         lname->ln_namelen = strlen(name);
 
-        return mdo_lookup(env, pobj, lname, fid, spec);
+        return mdo_lookup(env, pobj, lname, fid, NULL, spec);
 }
 
 /**

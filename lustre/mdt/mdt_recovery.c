@@ -898,7 +898,7 @@ int mdt_fs_setup(const struct lu_env *env, struct mdt_device *mdt,
         if (rc)
                 RETURN(rc);
 
-        o = dt_store_open(env, mdt->mdt_bottom, "", CAPA_KEYS, &fid);
+        o = dt_store_open(env, mdt->mdt_bottom, "", CAPA_KEYS, &fid, NULL);
         if (!IS_ERR(o)) {
                 mdt->mdt_ck_obj = o;
                 rc = mdt_capa_keys_init(env, mdt);
@@ -1046,7 +1046,7 @@ static void mdt_reconstruct_create(struct mdt_thread_info *mti,
                 return;
 
         /* if no error, so child was created with requested fid */
-        child = mdt_object_find(mti->mti_env, mdt, mti->mti_rr.rr_fid2,
+        child = mdt_object_find(mti->mti_env, mdt, mti->mti_rr.rr_fid2, NULL,
                                 MDT_OBJ_MUST_EXIST);
         if (IS_ERR(child)) {
                 rc = PTR_ERR(child);
@@ -1089,7 +1089,7 @@ static void mdt_reconstruct_setattr(struct mdt_thread_info *mti,
                 return;
 
         body = req_capsule_server_get(mti->mti_pill, &RMF_MDT_BODY);
-        obj = mdt_object_find(mti->mti_env, mdt, mti->mti_rr.rr_fid1,
+        obj = mdt_object_find(mti->mti_env, mdt, mti->mti_rr.rr_fid1, NULL,
                               MDT_OBJ_MUST_EXIST);
         if (IS_ERR(obj)) {
                 int rc = PTR_ERR(obj);

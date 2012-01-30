@@ -936,7 +936,7 @@ void mdt_reconstruct_open(struct mdt_thread_info *info,
                  * We failed after creation, but we do not know in which step
                  * we failed. So try to check the child object.
                  */
-                parent = mdt_object_find(env, mdt, rr->rr_fid1,
+                parent = mdt_object_find(env, mdt, rr->rr_fid1, NULL,
                                          MDT_OBJ_MUST_EXIST);
                 if (IS_ERR(parent)) {
                         rc = PTR_ERR(parent);
@@ -948,7 +948,7 @@ void mdt_reconstruct_open(struct mdt_thread_info *info,
                         mdt_export_evict(exp);
                         RETURN_EXIT;
                 }
-                child = mdt_object_find(env, mdt, rr->rr_fid2,
+                child = mdt_object_find(env, mdt, rr->rr_fid2, NULL,
                                         MDT_OBJ_MAY_NOT_EXIST);
                 if (IS_ERR(child)) {
                         rc = PTR_ERR(child);
@@ -1009,7 +1009,7 @@ static int mdt_open_by_fid(struct mdt_thread_info* info,
         int                      rc;
         ENTRY;
 
-        o = mdt_object_find(info->mti_env, info->mti_mdt, rr->rr_fid2,
+        o = mdt_object_find(info->mti_env, info->mti_mdt, rr->rr_fid2, NULL,
                             MDT_OBJ_MUST_EXIST);
         if (IS_ERR(o))
                 RETURN(PTR_ERR(o));
@@ -1053,7 +1053,7 @@ static int mdt_open_anon_by_fid(struct mdt_thread_info *info,
 
         if (md_should_create(flags)) {
                 if (!lu_fid_eq(rr->rr_fid1, rr->rr_fid2)) {
-                        parent = mdt_object_find(env, mdt, rr->rr_fid1,
+                        parent = mdt_object_find(env, mdt, rr->rr_fid1, NULL,
                                                  MDT_OBJ_MUST_EXIST);
                         if (IS_ERR(parent)) {
                                 CDEBUG(D_INODE, "Fail to find parent "DFID
@@ -1067,7 +1067,7 @@ static int mdt_open_anon_by_fid(struct mdt_thread_info *info,
                         ma->ma_need |= MA_PFID;
         }
 
-        o = mdt_object_find(env, mdt, rr->rr_fid2, MDT_OBJ_MUST_EXIST);
+        o = mdt_object_find(env, mdt, rr->rr_fid2, NULL, MDT_OBJ_MUST_EXIST);
         if (IS_ERR(o)) {
                 if (PTR_ERR(o) == -ENOENT)
                         mdt_set_disposition(info, rep, (DISP_LOOKUP_EXECD |
@@ -1104,7 +1104,7 @@ static int mdt_open_anon_by_fid(struct mdt_thread_info *info,
                 GOTO(out_child, rc);
 
         if (ma->ma_valid & MA_PFID) {
-                parent = mdt_object_find(env, mdt, &ma->ma_pfid,
+                parent = mdt_object_find(env, mdt, &ma->ma_pfid, NULL,
                                          MDT_OBJ_MUST_EXIST);
                 if (IS_ERR(parent)) {
                         CDEBUG(D_INODE, "Fail to find parent "DFID
@@ -1147,7 +1147,7 @@ static int mdt_cross_open(struct mdt_thread_info* info,
         int                rc;
         ENTRY;
 
-        o = mdt_object_find(info->mti_env, info->mti_mdt, fid,
+        o = mdt_object_find(info->mti_env, info->mti_mdt, fid, NULL,
                             MDT_OBJ_MAY_NOT_EXIST);
         if (IS_ERR(o))
                 RETURN(rc = PTR_ERR(o));
@@ -1196,6 +1196,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         struct ldlm_reply       *ldlm_rep;
         struct mdt_body         *repbody;
         struct lu_fid           *child_fid = &info->mti_tmp_fid1;
+        struct lu_object_hint   *child_hint = &info->mti_tmp_hint1;
         struct md_attr          *ma = &info->mti_attr;
         __u64                    create_flags = info->mti_spec.sp_cr_flags;
         struct mdt_reint_record *rr = &info->mti_rr;
@@ -1285,7 +1286,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         mdt_lock_pdo_init(lh, (create_flags & MDS_OPEN_CREAT) ?
                           LCK_PW : LCK_PR, rr->rr_name, rr->rr_namelen);
 
-        parent = mdt_object_find_lock(info, rr->rr_fid1, lh,
+        parent = mdt_object_find_lock(info, rr->rr_fid1, NULL, lh,
                                       MDS_INODELOCK_UPDATE, MDT_OBJ_MUST_EXIST);
         if (IS_ERR(parent))
                 GOTO(out, result = PTR_ERR(parent));
@@ -1299,7 +1300,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 
         lname = mdt_name(info->mti_env, (char *)rr->rr_name, rr->rr_namelen);
         result = mdo_lookup(info->mti_env, mdt_object_child(parent),
-                            lname, child_fid, &info->mti_spec);
+                            lname, child_fid, child_hint, &info->mti_spec);
         LASSERTF(ergo(result == 0, fid_is_sane(child_fid)),
                  "looking for "DFID"/%s, result fid="DFID"\n",
                  PFID(mdt_object_fid(parent)), rr->rr_name, PFID(child_fid));
@@ -1330,7 +1331,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                 mdt_set_disposition(info, ldlm_rep, DISP_LOOKUP_POS);
         }
 
-        child = mdt_object_find(info->mti_env, mdt, child_fid,
+        child = mdt_object_find(info->mti_env, mdt, child_fid, child_hint,
                                 MDT_OBJ_MAY_NOT_EXIST);
         if (IS_ERR(child))
                 GOTO(out_parent, result = PTR_ERR(child));

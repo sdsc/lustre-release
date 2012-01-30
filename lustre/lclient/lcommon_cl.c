@@ -376,7 +376,8 @@ int ccc_object_init0(const struct lu_env *env,
 }
 
 int ccc_object_init(const struct lu_env *env, struct lu_object *obj,
-                           const struct lu_object_conf *conf)
+                    const struct lu_object_conf *conf,
+                    struct lu_object_hint *unused)
 {
         struct ccc_device *dev = lu2ccc_dev(obj->lo_dev);
         struct ccc_object *vob = lu2ccc(obj);
