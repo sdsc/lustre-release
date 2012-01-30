@@ -4473,12 +4473,13 @@ static int osd_recovery_complete(const struct lu_env *env,
 
 static int osd_prepare(const struct lu_env *env,
                        struct lu_device *pdev,
-                       struct lu_device *dev)
+                       struct lu_device *dev,
+                       int flags)
 {
         struct osd_device *osd = osd_dev(dev);
         struct lustre_sb_info *lsi;
         struct lustre_disk_data *ldd;
-        struct lustre_mount_info  *lmi;
+        struct lustre_mount_info *lmi;
         struct osd_thread_info *oti = osd_oti_get(env);
         struct dt_object *d;
         int result;

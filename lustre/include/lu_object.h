@@ -167,7 +167,8 @@ struct lu_device_operations {
 
         int (*ldo_prepare)(const struct lu_env *,
                            struct lu_device *parent,
-                           struct lu_device *dev);
+                           struct lu_device *dev,
+                           int flags);
 
 };
 
