@@ -48,12 +48,6 @@
 #include <linux/version.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
-
-# ifdef HAVE_RCU
-#  include <linux/rcupdate.h> /* for rcu_head{} */
-typedef struct rcu_head cfs_rcu_head_t;
-# endif
-
 #endif /* ifdef __KERNEL__ */
 
 #endif

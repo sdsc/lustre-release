@@ -145,7 +145,6 @@ void __up(cfs_semaphore_t *s)
         (void)s;
 }
 
-
 /*
  * Completion:
  *
