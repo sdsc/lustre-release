@@ -236,6 +236,20 @@ typedef struct { volatile int counter; } cfs_atomic_t;
         ((v)->counter != u ? (v)->counter += a : 0)
 #define cfs_atomic_inc_not_zero(v) cfs_atomic_add_unless((v), 1, 0)
 
+/*
+ * RCU primitives
+ */
+typedef struct {
+        int foo;
+} cfs_rcu_head_t;
+
+#define cfs_call_rcu(rcu, cb)       cb(rcu);
+#define cfs_list_add_rcu            cfs_list_add
+#define cfs_list_del_rcu            cfs_list_del
+#define cfs_list_for_each_rcu       cfs_list_for_each
+#define cfs_list_for_each_safe_rcu  cfs_list_for_each_safe
+#define cfs_list_for_each_entry_rcu cfs_list_for_each_entry
+
 #ifdef HAVE_LIBPTHREAD
 #include <pthread.h>
 

@@ -162,6 +162,11 @@ int cfs_mem_is_in_cache(const void *addr, const cfs_mem_cache_t *kmem)
 }
 EXPORT_SYMBOL(cfs_mem_is_in_cache);
 
+int cfs_radix_tree_preload(int flags)
+{
+        return radix_tree_preload(cfs_alloc_flags_to_gfp(flags));
+}
+EXPORT_SYMBOL(cfs_radix_tree_preload);
 
 EXPORT_SYMBOL(cfs_alloc);
 EXPORT_SYMBOL(cfs_free);
