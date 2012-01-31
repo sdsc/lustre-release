@@ -214,4 +214,6 @@ typedef shrinker_t              cfs_shrinker_t;
 #endif
 
 #define CFS_DEFAULT_SEEKS                 DEFAULT_SEEKS
+
+int cfs_radix_tree_preload(int flags);
 #endif /* __LINUX_CFS_MEM_H__ */
