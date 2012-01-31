@@ -143,12 +143,28 @@ AC_DEFUN([LIBCFS_TASK_RCU],
 LB_LINUX_TRY_COMPILE([
 	#include <linux/sched.h>
 ],[
-        memset(((struct task_struct *)0)->rcu.next, 0, 0);
+	memset(((struct task_struct *)0)->rcu.next, 0, 0);
 ],[
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(HAVE_TASK_RCU, 1, [task_struct has rcu field])
+	AC_MSG_RESULT([yes])
+	AC_DEFINE(HAVE_TASK_RCU, 1, [task_struct has rcu field])
 ],[
-        AC_MSG_RESULT([no])
+	AC_MSG_RESULT([no])
+])
+])
+
+# check if call_rcu takes 3 parameters
+AC_DEFUN([LIBCFS_CALL_RCU_PARAM],
+[AC_MSG_CHECKING([if call_rcu takes three parameters])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/rcupdate.h>
+],[
+	struct rcu_head rh;
+	call_rcu(&rh, (void (*)(struct rcu_head *))1, NULL);
+],[
+	AC_DEFINE(HAVE_CALL_RCU_PARAM, 1, [call_rcu takes three parameters])
+	AC_MSG_RESULT([yes])
+],[
+	AC_MSG_RESULT([no])
 ])
 ])
 
@@ -799,6 +815,7 @@ LIBCFS_CONFIG_PANIC_DUMPLOG
 LIBCFS_FUNC_SHOW_TASK
 LIBCFS_U64_LONG_LONG_LINUX
 LIBCFS_TASK_RCU
+LIBCFS_CALL_RCU_PARAM
 # 2.6.18
 LIBCFS_TASKLIST_LOCK
 LIBCFS_HAVE_IS_COMPAT_TASK
