@@ -36,224 +36,197 @@
 #include <obd_ost.h>
 #include "osc_internal.h"
 
-struct osc_quota_info {
-        cfs_list_t         oqi_hash; /* hash list */
-        struct client_obd *oqi_cli;  /* osc obd */
-        unsigned int       oqi_id;   /* uid/gid of a file */
-        short              oqi_type; /* quota type */
-};
+#if !defined(__KERNEL__)
+# define rcu_read_lock()   cfs_spin_lock(&cli->cl_quota_lock[type])
+# define rcu_read_unlock() cfs_spin_unlock(&cli->cl_quota_lock[type])
+#endif
 
-cfs_spinlock_t qinfo_list_lock = CFS_SPIN_LOCK_UNLOCKED;
-
-static cfs_list_t qinfo_hash[NR_DQHASH];
-/* SLAB cache for client quota context */
-cfs_mem_cache_t *qinfo_cachep = NULL;
-
-static inline int hashfn(struct client_obd *cli, unsigned long id, int type)
-                         __attribute__((__const__));
-
-static inline int hashfn(struct client_obd *cli, unsigned long id, int type)
-{
-        unsigned long tmp = ((unsigned long)cli>>6) ^ id;
-        tmp = (tmp * (MAXQUOTAS - type)) % NR_DQHASH;
-        return tmp;
-}
-
-/* caller must hold qinfo_list_lock */
-static inline void insert_qinfo_hash(struct osc_quota_info *oqi)
-{
-        cfs_list_t *head = qinfo_hash +
-                hashfn(oqi->oqi_cli, oqi->oqi_id, oqi->oqi_type);
-
-        LASSERT_SPIN_LOCKED(&qinfo_list_lock);
-        cfs_list_add(&oqi->oqi_hash, head);
-}
-
-/* caller must hold qinfo_list_lock */
-static inline void remove_qinfo_hash(struct osc_quota_info *oqi)
-{
-        LASSERT_SPIN_LOCKED(&qinfo_list_lock);
-        cfs_list_del_init(&oqi->oqi_hash);
-}
-
-/* caller must hold qinfo_list_lock */
-static inline struct osc_quota_info *find_qinfo(struct client_obd *cli,
-                                                unsigned int id, int type)
+static inline struct osc_quota_info *osc_oqi_alloc(obd_uid id)
 {
         struct osc_quota_info *oqi;
-        unsigned int           hashent = hashfn(cli, id, type);
-        ENTRY;
 
-        LASSERT_SPIN_LOCKED(&qinfo_list_lock);
-        cfs_list_for_each_entry(oqi, &qinfo_hash[hashent], oqi_hash) {
-                if (oqi->oqi_cli == cli &&
-                    oqi->oqi_id == id && oqi->oqi_type == type)
-                        RETURN(oqi);
-        }
-        RETURN(NULL);
+        OBD_SLAB_ALLOC_PTR(oqi, osc_quota_kmem);
+        if (oqi != NULL)
+                oqi->oqi_id = id;
+        return oqi;
 }
 
-static struct osc_quota_info *alloc_qinfo(struct client_obd *cli,
-                                          unsigned int id, int type)
+static void osc_oqi_free_cb(cfs_rcu_head_t *rcu)
 {
         struct osc_quota_info *oqi;
-        ENTRY;
 
-        OBD_SLAB_ALLOC(oqi, qinfo_cachep, CFS_ALLOC_IO, sizeof(*oqi));
-        if(!oqi)
-                RETURN(NULL);
-
-        CFS_INIT_LIST_HEAD(&oqi->oqi_hash);
-        oqi->oqi_cli = cli;
-        oqi->oqi_id = id;
-        oqi->oqi_type = type;
-
-        RETURN(oqi);
+        oqi = container_of(rcu, struct osc_quota_info, oqi_rcu);
+        OBD_SLAB_FREE_PTR(oqi, osc_quota_kmem);
 }
 
-static void free_qinfo(struct osc_quota_info *oqi)
+static inline void osc_oqi_free(struct osc_quota_info *oqi)
 {
-        OBD_SLAB_FREE(oqi, qinfo_cachep, sizeof(*oqi));
+        cfs_call_rcu(&oqi->oqi_rcu, osc_oqi_free_cb);
 }
 
 int osc_quota_chkdq(struct client_obd *cli, const unsigned int qid[])
 {
-        unsigned int id;
-        int          cnt, rc = QUOTA_OK;
+        int type;
         ENTRY;
 
-        cfs_spin_lock(&qinfo_list_lock);
-        for (cnt = 0; cnt < MAXQUOTAS; cnt++) {
-                struct osc_quota_info *oqi = NULL;
+        for (type = 0; type < MAXQUOTAS; type++) {
+                struct osc_quota_info *oqi;
 
-                id = (cnt == USRQUOTA) ? qid[USRQUOTA] : qid[GRPQUOTA];
-                oqi = find_qinfo(cli, id, cnt);
+                /* look-up the id in the per-type radix tree */
+                rcu_read_lock();
+                oqi = radix_tree_lookup(&cli->cl_quota_ids[type], qid[type]);
                 if (oqi) {
-                        rc = NO_QUOTA;
-                        break;
-                }
-        }
-        cfs_spin_unlock(&qinfo_list_lock);
+                        obd_uid id = oqi->oqi_id;
 
-        if (rc == NO_QUOTA)
-                CDEBUG(D_QUOTA, "chkdq found noquota for %s %d\n",
-                       cnt == USRQUOTA ? "user" : "group", id);
-        RETURN(rc);
+                        rcu_read_unlock();
+                        LASSERTF(id == qid[type],
+                                 "The ids don't match %u != %u\n", id,
+                                 qid[type]);
+                        /* the slot is busy, the user is about to run out of
+                         * quota space on this OST */
+                        CDEBUG(D_QUOTA, "chkdq found noquota for %s %d\n",
+                               type == USRQUOTA ? "user" : "group", qid[type]);
+                        RETURN(NO_QUOTA);
+                }
+                rcu_read_unlock();
+        }
+        RETURN(QUOTA_OK);
 }
+
+#define MD_QUOTA_FLAG(type) (type == USRQUOTA) ? OBD_MD_FLUSRQUOTA \
+                                               : OBD_MD_FLGRPQUOTA
+#define FL_QUOTA_FLAG(type) (type == USRQUOTA) ? OBD_FL_NO_USRQUOTA \
+                                               : OBD_FL_NO_GRPQUOTA
 
 int osc_quota_setdq(struct client_obd *cli, const unsigned int qid[],
                     obd_flag valid, obd_flag flags)
 {
-        unsigned int id;
-        obd_flag     noquota;
-        int          cnt, rc = 0;
+        int type;
+        int rc = 0;
         ENTRY;
 
-        for (cnt = 0; cnt < MAXQUOTAS; cnt++) {
-                struct osc_quota_info *oqi = NULL, *old;
+        if ((valid & (OBD_MD_FLUSRQUOTA | OBD_MD_FLGRPQUOTA)) == 0)
+                RETURN(0);
 
-                if (!(valid & ((cnt == USRQUOTA) ?
-                    OBD_MD_FLUSRQUOTA : OBD_MD_FLGRPQUOTA)))
+        for (type = 0; type < MAXQUOTAS; type++) {
+                struct osc_quota_info *oqi;
+
+                if ((valid & MD_QUOTA_FLAG(type)) == 0)
                         continue;
 
-                id = (cnt == USRQUOTA) ? qid[USRQUOTA] : qid[GRPQUOTA];
-                noquota = (cnt == USRQUOTA) ?
-                    (flags & OBD_FL_NO_USRQUOTA) : (flags & OBD_FL_NO_GRPQUOTA);
+                /* look-up the ID in the per-type radix tree */
+                rcu_read_lock();
+                oqi = radix_tree_lookup(&cli->cl_quota_ids[type], qid[type]);
+                rcu_read_unlock();
 
-                if (noquota) {
-                        oqi = alloc_qinfo(cli, id, cnt);
-                        if (!oqi) {
+                if ((flags & FL_QUOTA_FLAG(type)) != 0) {
+                        /* This id is getting close to its quota limit, let's
+                         * switch to sync i/o */
+
+                        if (oqi != NULL)
+                                /* ID already in the radix tree */
+                                continue;
+
+                        oqi = osc_oqi_alloc(qid[type]);
+                        if (oqi == NULL) {
                                 rc = -ENOMEM;
-                                CDEBUG(D_QUOTA, "setdq for %s %d failed, "
-                                       "(rc = %d)\n",
-                                       cnt == USRQUOTA ? "user" : "group",
-                                       id, rc);
                                 break;
                         }
-                }
+                        rc = cfs_radix_tree_preload(CFS_ALLOC_IO);
+                        if (rc) {
+                                osc_oqi_free(oqi);
+                                CWARN("%s: failed to preload memory for radix "
+                                      "tree insertion for %s %d (%d)\n",
+                                       cli->cl_import->imp_obd->obd_name,
+                                      type == USRQUOTA ? "user" : "group",
+                                      qid[type], rc);
+                                break;
+                        }
 
-                cfs_spin_lock(&qinfo_list_lock);
-                old = find_qinfo(cli, id, cnt);
-                if (old && !noquota)
-                        remove_qinfo_hash(old);
-                else if (!old && noquota)
-                        insert_qinfo_hash(oqi);
-                cfs_spin_unlock(&qinfo_list_lock);
+                        cfs_spin_lock(&cli->cl_quota_lock[type]);
+                        /* might fail with -EEXIST, doesn't matter */
+                        rc = radix_tree_insert(&cli->cl_quota_ids[type],
+                                               qid[type], oqi);
+                        cfs_spin_unlock(&cli->cl_quota_lock[type]);
 
-                if (old && !noquota)
-                        CDEBUG(D_QUOTA, "setdq to remove for %s %d\n",
-                               cnt == USRQUOTA ? "user" : "group", id);
-                else if (!old && noquota)
-                        CDEBUG(D_QUOTA, "setdq to insert for %s %d\n",
-                               cnt == USRQUOTA ? "user" : "group", id);
+                        radix_tree_preload_end();
+                        if (rc)
+                                osc_oqi_free(oqi);
+                        if (rc && rc != -EEXIST)
+                                CWARN("%s: failed to insert %s %d to the radix "
+                                      "tree (%d)\n",
+                                      cli->cl_import->imp_obd->obd_name,
+                                      type == USRQUOTA ? "user" : "group",
+                                      qid[type], rc);
 
-                if (old) {
-                        if (noquota)
-                                free_qinfo(oqi);
-                        else
-                                free_qinfo(old);
+                        CDEBUG(D_QUOTA, "%s: setdq to insert for %s %d (%d)\n",
+                               cli->cl_import->imp_obd->obd_name,
+                               type == USRQUOTA ? "user" : "group", qid[type],
+                               rc);
+                } else {
+                        /* This id is now off the hook, let's remove it from
+                         * the radix tree */
+
+                        if (oqi == NULL)
+                                /* ID isn't in the radix tree */
+                                continue;
+
+                        cfs_spin_lock(&cli->cl_quota_lock[type]);
+                        oqi = radix_tree_delete(&cli->cl_quota_ids[type],
+                                                qid[type]);
+                        cfs_spin_unlock(&cli->cl_quota_lock[type]);
+
+                        if (oqi)
+                                osc_oqi_free(oqi);
+
+                        CDEBUG(D_QUOTA, "%s: setdq to remove for %s %d (%p)\n",
+                               cli->cl_import->imp_obd->obd_name,
+                               type == USRQUOTA ? "user" : "group", qid[type],
+                               oqi);
                 }
         }
         RETURN(rc);
 }
 
+int osc_quota_setup(struct obd_device *obd)
+{
+        struct client_obd *cli = &obd->u.cli;
+        int                type;
+        ENTRY;
+
+        for (type = 0; type < MAXQUOTAS; type++) {
+                cfs_spin_lock_init(&cli->cl_quota_lock[type]);
+                INIT_RADIX_TREE(&cli->cl_quota_ids[type], GFP_ATOMIC);
+        }
+
+        RETURN(0);
+}
+
 int osc_quota_cleanup(struct obd_device *obd)
 {
-        struct client_obd     *cli = &obd->u.cli;
-        struct osc_quota_info *oqi, *n;
-        int i;
+        struct client_obd *cli = &obd->u.cli;
+        int                type;
         ENTRY;
 
-        cfs_spin_lock(&qinfo_list_lock);
-        for (i = 0; i < NR_DQHASH; i++) {
-                cfs_list_for_each_entry_safe(oqi, n, &qinfo_hash[i], oqi_hash) {
-                        if (oqi->oqi_cli != cli)
-                                continue;
-                        remove_qinfo_hash(oqi);
-                        free_qinfo(oqi);
+        for (type = 0; type < MAXQUOTAS; type++) {
+                struct osc_quota_info *oqi;
+                void                  *item; /* to make gcc happy */
+
+                cfs_spin_lock(&cli->cl_quota_lock[type]);
+                while (radix_tree_gang_lookup(&cli->cl_quota_ids[type],
+                                              &item, 0, 1) > 0) {
+                        oqi = (struct osc_quota_info *)item;
+                        oqi = radix_tree_delete(&cli->cl_quota_ids[type],
+                                                oqi->oqi_id);
+                        if (oqi)
+                                osc_oqi_free(oqi);
                 }
+                cfs_spin_unlock(&cli->cl_quota_lock[type]);
+#ifdef __KERNEL__
+                synchronize_rcu();
+#endif
+                LASSERT(cli->cl_quota_ids[type].rnode == NULL);
         }
-        cfs_spin_unlock(&qinfo_list_lock);
-
-        RETURN(0);
-}
-
-int osc_quota_init()
-{
-        int i;
-        ENTRY;
-
-        LASSERT(qinfo_cachep == NULL);
-        qinfo_cachep = cfs_mem_cache_create("osc_quota_info",
-                                            sizeof(struct osc_quota_info),
-                                            0, 0);
-        if (!qinfo_cachep)
-                RETURN(-ENOMEM);
-
-        for (i = 0; i < NR_DQHASH; i++)
-                CFS_INIT_LIST_HEAD(qinfo_hash + i);
-
-        RETURN(0);
-}
-
-int osc_quota_exit()
-{
-        struct osc_quota_info *oqi, *n;
-        int                    i, rc;
-        ENTRY;
-
-        cfs_spin_lock(&qinfo_list_lock);
-        for (i = 0; i < NR_DQHASH; i++) {
-                cfs_list_for_each_entry_safe(oqi, n, &qinfo_hash[i], oqi_hash) {
-                        remove_qinfo_hash(oqi);
-                        free_qinfo(oqi);
-                }
-        }
-        cfs_spin_unlock(&qinfo_list_lock);
-
-        rc = cfs_mem_cache_destroy(qinfo_cachep);
-        LASSERTF(rc == 0, "couldn't destory qinfo_cachep slab\n");
-        qinfo_cachep = NULL;
 
         RETURN(0);
 }

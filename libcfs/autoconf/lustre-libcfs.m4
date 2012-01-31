@@ -82,6 +82,22 @@ LB_LINUX_TRY_COMPILE([
 EXTRA_KCFLAGS="$tmp_flags"
 ])
 
+# check if call_rcu takes 3 parameters
+AC_DEFUN([LIBCFS_CALL_RCU_PARAM],
+[AC_MSG_CHECKING([if call_rcu takes three parameters])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/rcupdate.h>
+],[
+	struct rcu_head rh;
+	call_rcu(&rh, (void (*)(struct rcu_head *))1, NULL);
+],[
+	AC_DEFINE(HAVE_CALL_RCU_PARAM, 1, [call_rcu takes three parameters])
+	AC_MSG_RESULT([yes])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
 # LIBCFS_TASKLIST_LOCK
 # 2.6.18 remove tasklist_lock export
 AC_DEFUN([LIBCFS_TASKLIST_LOCK],
@@ -575,7 +591,7 @@ AC_DEFUN([LIBCFS_PROG_LINUX],
 LIBCFS_CONFIG_PANIC_DUMPLOG
 
 LIBCFS_U64_LONG_LONG_LINUX
-
+LIBCFS_CALL_RCU_PARAM
 # 2.6.18
 LIBCFS_TASKLIST_LOCK
 LIBCFS_HAVE_IS_COMPAT_TASK

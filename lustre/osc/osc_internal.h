@@ -39,6 +39,8 @@
 #ifndef OSC_INTERNAL_H
 #define OSC_INTERNAL_H
 
+#include <libcfs/libcfs.h>
+
 #define OAP_MAGIC 8675309
 
 struct lu_env;
@@ -222,8 +224,12 @@ static inline struct osc_device *obd2osc_dev(const struct obd_device *d)
 
 int osc_dlm_lock_pageref(struct ldlm_lock *dlm);
 
-int osc_quota_init(void);
-int osc_quota_exit(void);
+extern cfs_mem_cache_t *osc_quota_kmem;
+struct osc_quota_info {
+        obd_uid        oqi_id;
+        cfs_rcu_head_t oqi_rcu;
+};
+int osc_quota_setup(struct obd_device *obd);
 int osc_quota_cleanup(struct obd_device *obd);
 int osc_quota_setdq(struct client_obd *cli, const unsigned int qid[],
                     obd_flag valid, obd_flag flags);

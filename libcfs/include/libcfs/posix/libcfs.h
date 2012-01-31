@@ -404,7 +404,7 @@ radix_tree_gang_lookup(struct radix_tree_root *root, void **results,
         return j;
 }
 
-static inline int radix_tree_preload(int gfp_mask)
+static inline int cfs_radix_tree_preload(int flags)
 {
         return 0;
 }

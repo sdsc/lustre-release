@@ -551,6 +551,11 @@ struct client_obd {
 
         /* ptlrpc work for writeback in ptlrpcd context */
         void                    *cl_writeback_work;
+
+        /* radix tree containing UID/GIDs which are close to quota limit and for
+         * which async i/o isn't allowed */
+        struct radix_tree_root   cl_quota_ids[MAXQUOTAS];
+        cfs_spinlock_t           cl_quota_lock[MAXQUOTAS];
 };
 #define obd2cli_tgt(obd) ((char *)(obd)->u.cli.cl_target_uuid.uuid)
 
