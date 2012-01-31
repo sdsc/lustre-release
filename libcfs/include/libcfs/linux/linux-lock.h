@@ -51,6 +51,7 @@
 
 #include <linux/smp_lock.h>
 #include <linux/mutex.h>
+#include <linux/rcupdate.h> /* for rcu_head{} */
 
 /*
  * IMPORTANT !!!!!!!!
@@ -263,8 +264,25 @@ static inline int cfs_mutex_is_locked(cfs_mutex_t *lock)
 #define cfs_lock_kernel()      lock_kernel()
 #define cfs_unlock_kernel()    unlock_kernel()
 
-#ifndef lockdep_set_class
+/*
+ * RCU primitives
+ */
 
+typedef struct rcu_head cfs_rcu_head_t;
+
+#define cfs_list_add_rcu            list_add_rcu
+#define cfs_list_del_rcu            list_del_rcu
+#define cfs_list_for_each_rcu       list_for_each_rcu
+#define cfs_list_for_each_safe_rcu  list_for_each_safe_rcu
+#define cfs_list_for_each_entry_rcu list_for_each_entry_rcu
+
+#ifdef HAVE_CALL_RCU_PARAM
+# define cfs_call_rcu(rcu, cb) call_rcu(rcu, cb, rcu)
+#else
+# define cfs_call_rcu(rcu, cb) call_rcu(rcu, cb)
+#endif
+
+#ifndef lockdep_set_class
 /**************************************************************************
  *
  * Lockdep "implementation". Also see liblustre.h
@@ -328,6 +346,5 @@ typedef struct lock_class_key cfs_lock_class_key_t;
 #define cfs_down_read_nested(lock, subclass) down_read_nested(lock, subclass)
 #define cfs_down_write_nested(lock, subclass) down_write_nested(lock, subclass)
 #endif /* CONFIG_DEBUG_LOCK_ALLOC */
-
 
 #endif /* __LIBCFS_LINUX_CFS_LOCK_H__ */
