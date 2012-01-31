@@ -20,7 +20,6 @@ Index: linux-stage/fs/ext4/super.c
  	Opt_discard, Opt_nodiscard,
 	Opt_init_inode_table, Opt_noinit_inode_table,
  };
- 
 @@ -1559,6 +1561,7 @@
  	{Opt_auto_da_alloc, "auto_da_alloc=%u"},
  	{Opt_auto_da_alloc, "auto_da_alloc"},
