@@ -320,7 +320,7 @@ load_modules_local() {
     [ "$SUBSYSTEM" ] && lctl set_param subsystem_debug="${SUBSYSTEM# }"
     local MODPROBECONF=
     [ -f /etc/modprobe.conf ] && MODPROBECONF=/etc/modprobe.conf
-    [ ! "$MODPROBECONF" -a -d /etc/modprobe.d ] && MODPROBECONF=/etc/modprobe.d/Lustre
+    [ ! "$MODPROBECONF" -a -f /etc/modprobe.d/Lustre ] && MODPROBECONF=/etc/modprobe.d/Lustre
     [ -z "$LNETOPTS" -a "$MODPROBECONF" ] && \
         LNETOPTS=$(awk '/^options lnet/ { print $0}' $MODPROBECONF | sed 's/^options lnet //g')
     echo $LNETOPTS | grep -q "accept=all"  || LNETOPTS="$LNETOPTS accept=all";
