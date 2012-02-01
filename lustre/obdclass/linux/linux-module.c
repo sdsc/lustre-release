@@ -72,7 +72,9 @@
 #include <asm/poll.h>
 #include <asm/uaccess.h>
 #include <linux/miscdevice.h>
+#ifdef HAVE_LINUX_KERNEL_LOCK
 #include <linux/smp_lock.h>
+#endif
 #include <linux/seq_file.h>
 #else
 # include <liblustre.h>
