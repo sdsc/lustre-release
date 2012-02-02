@@ -157,6 +157,22 @@ static const struct dt_index_operations       osd_index_ea_ops;
 #define OSD_EXEC_OP(oh, op)
 #endif
 
+/* There are at most 9 uid/gids are affected in a transaction, and
+ * that's rename case:
+ * - 2 for source parent uid & gid;
+ * - 2 for source child uid & gid ('..' entry update when the child
+ *   is directory);
+ * - 2 for target parent uid & gid;
+ * - 2 for target child uid & gid (if the target child exists);
+ * - 1 for root uid & gid (last_rcvd, llog, etc);
+ *
+ * The 0 to (OSD_MAX_UGID_CNT - 1) bits of ot_id_flags is for indicating
+ * the id type of each id in the ot_id_array, and the OSD_MAX_UGID_CNT
+ * to (2 * OSD_MAX_UGID_CNT) bits is for indicating if the id entries
+ * are allocated in the quota file.
+ */
+#define OSD_MAX_UGID_CNT         9
+
 struct osd_thandle {
         struct thandle          ot_super;
         handle_t               *ot_handle;
@@ -164,7 +180,10 @@ struct osd_thandle {
         cfs_list_t              ot_dcb_list;
         /* Link to the device, for debugging. */
         struct lu_ref_link     *ot_dev_link;
-        int                     ot_credits;
+        unsigned short          ot_credits;
+        unsigned short          ot_id_cnt;
+        unsigned int            ot_id_flags;
+        uid_t                   ot_id_array[OSD_MAX_UGID_CNT];
 
 #ifdef OSD_TRACK_DECLARES
         unsigned char           ot_declare_attr_set;
@@ -187,6 +206,57 @@ struct osd_thandle {
         cfs_time_t oth_started;
 #endif
 };
+
+static inline int osd_qid_type(struct osd_thandle *oh, int i)
+{
+        return (oh->ot_id_flags & (1 << i)) ? GRPQUOTA : USRQUOTA;
+}
+
+static inline void osd_qid_set_type(struct osd_thandle *oh, int i, int type)
+{
+        oh->ot_id_flags |= ((type == GRPQUOTA) ? (1 << i) : 0);
+}
+
+static inline int osd_qid_allocated(struct osd_thandle *oh, int i)
+{
+        return !!(oh->ot_id_flags & (1 << (i + OSD_MAX_UGID_CNT)));
+}
+
+static inline void osd_qid_set_allocated(struct osd_thandle *oh, int i)
+{
+        oh->ot_id_flags |= (1 << (i + OSD_MAX_UGID_CNT));
+}
+
+static void osd_declare_qid(struct osd_thandle *oh, int type, uid_t id,
+                            struct inode *inode)
+{
+#ifdef CONFIG_QUOTA
+        int i, allocated = 0;
+
+        if (inode && inode->i_dquot[type] && inode->i_dquot[type]->dq_off)
+                allocated = 1;
+
+        LASSERT(oh != NULL);
+        LASSERTF(oh->ot_id_cnt <= OSD_MAX_UGID_CNT, "count=%u",
+                 oh->ot_id_cnt);
+        for (i = 0; i < oh->ot_id_cnt; i++) {
+                if (oh->ot_id_array[i] == id && osd_qid_type(oh, i) == type)
+                        goto out;
+        }
+
+        if (unlikely(i >= OSD_MAX_UGID_CNT)) {
+                CERROR("more than %d uid/gids for a transaction?\n", i);
+                return;
+        }
+
+        oh->ot_id_array[i] = id;
+        osd_qid_set_type(oh, i, type);
+        oh->ot_id_cnt++;
+out:
+        if (allocated)
+                osd_qid_set_allocated(oh, i);
+#endif
+}
 
 /**
  * Basic transaction credit op
@@ -764,7 +834,7 @@ int osd_trans_start(const struct lu_env *env, struct dt_device *d,
         struct osd_device  *dev = osd_dt_dev(d);
         handle_t           *jh;
         struct osd_thandle *oh;
-        int rc;
+        int rc, i;
 
         ENTRY;
 
@@ -778,12 +848,20 @@ int osd_trans_start(const struct lu_env *env, struct dt_device *d,
         if (rc != 0)
                 GOTO(out, rc);
 
-        oh->ot_credits += LDISKFS_QUOTA_INIT_BLOCKS(osd_sb(dev));
+        for (i = 0; i < oh->ot_id_cnt; i++) {
+                if (oh->ot_id_array[i] == 0 || osd_qid_allocated(oh, i))
+                        oh->ot_credits += 1;
+                else
+                        oh->ot_credits +=
+                                LDISKFS_QUOTA_INIT_BLOCKS(osd_sb(dev));
+        }
 
         if (!osd_param_is_sane(dev, th)) {
                 CWARN("%s: too many transaction credits (%d > %d)\n",
                       d->dd_lu_dev.ld_obd->obd_name, oh->ot_credits,
                       osd_journal(dev)->j_max_transaction_buffers);
+                /* XXX */
+                oh->ot_credits = osd_journal(dev)->j_max_transaction_buffers;
 #ifdef OSD_TRACK_DECLARES
                 CERROR("  attr_set: %d, punch: %d, xattr_set: %d,\n",
                        oh->ot_declare_attr_set, oh->ot_declare_punch,
@@ -791,8 +869,9 @@ int osd_trans_start(const struct lu_env *env, struct dt_device *d,
                 CERROR("  create: %d, ref_add: %d, ref_del: %d, write: %d\n",
                        oh->ot_declare_create, oh->ot_declare_ref_add,
                        oh->ot_declare_ref_del, oh->ot_declare_write);
-                CERROR("  insert: %d, delete: %d\n",
-                       oh->ot_declare_insert, oh->ot_declare_delete);
+                CERROR("  insert: %d, delete: %d, destroy: %d\n",
+                       oh->ot_declare_insert, oh->ot_declare_delete,
+                       oh->ot_declare_destroy);
 #endif
         }
 
@@ -1162,73 +1241,6 @@ static const int osd_dto_credits_noquota[DTO_NR] = {
         [DTO_ATTR_SET_CHOWN]= 0
 };
 
-/**
- * Note: we count into QUOTA here.
- * If we mount with --data_journal we may need more.
- */
-static const int osd_dto_credits_quota[DTO_NR] = {
-        /**
-         * INDEX_EXTRA_TRANS_BLOCKS(8) +
-         * SINGLEDATA_TRANS_BLOCKS(8) +
-         * 2 * QUOTA_TRANS_BLOCKS(2)
-         */
-        [DTO_INDEX_INSERT]  = 20,
-        /**
-         * INDEX_EXTRA_TRANS_BLOCKS(8) +
-         * SINGLEDATA_TRANS_BLOCKS(8) +
-         * 2 * QUOTA_TRANS_BLOCKS(2)
-         */
-        [DTO_INDEX_DELETE]  = 20,
-        /**
-         * Unused now.
-         */
-        [DTO_INDEX_UPDATE]  = 16,
-        /*
-         * Create a object. Same as create object in EXT3 filesystem.
-         * DATA_TRANS_BLOCKS(16) +
-         * INDEX_EXTRA_BLOCKS(8) +
-         * 3(inode bits, groups, GDT) +
-         * 2 * QUOTA_INIT_BLOCKS(25)
-         */
-        [DTO_OBJECT_CREATE] = 77,
-        /*
-         * Unused now.
-         * DATA_TRANS_BLOCKS(16) +
-         * INDEX_EXTRA_BLOCKS(8) +
-         * 3(inode bits, groups, GDT) +
-         * QUOTA(?)
-         */
-        [DTO_OBJECT_DELETE] = 27,
-        /**
-         * Attr set credits.
-         * 3 (inode bit, group, GDT) +
-         */
-        [DTO_ATTR_SET_BASE] = 3,
-        /**
-         * Xattr set. The same as xattr of EXT3.
-         * DATA_TRANS_BLOCKS(16)
-         * XXX Note: in original MDS implmentation INDEX_EXTRA_TRANS_BLOCKS are
-         *           also counted in. Do not know why?
-         */
-        [DTO_XATTR_SET]     = 16,
-        [DTO_LOG_REC]       = 16,
-        /**
-         * creadits for inode change during write.
-         */
-        [DTO_WRITE_BASE]    = 3,
-        /**
-         * credits for single block write.
-         */
-        [DTO_WRITE_BLOCK]   = 16,
-        /**
-         * Attr set credits for chown.
-         * It is added to already set setattr credits
-         * 2 * QUOTA_INIT_BLOCKS(25) +
-         * 2 * QUOTA_DEL_BLOCKS(9)
-         */
-        [DTO_ATTR_SET_CHOWN]= 68,
-};
-
 static const struct dt_device_operations osd_dt_ops = {
         .dt_root_get       = osd_root_get,
         .dt_statfs         = osd_statfs,
@@ -1473,8 +1485,12 @@ static int osd_declare_attr_set(const struct lu_env *env,
                                 struct thandle *handle)
 {
         struct osd_thandle *oh;
+        struct osd_object *obj;
 
+        LASSERT(dt != NULL);
         LASSERT(handle != NULL);
+
+        obj = osd_dt_obj(dt);
         LASSERT(osd_invariant(obj));
 
         oh = container_of0(handle, struct osd_thandle, ot_super);
@@ -1482,6 +1498,19 @@ static int osd_declare_attr_set(const struct lu_env *env,
 
         OSD_DECLARE_OP(oh, attr_set);
         oh->ot_credits += osd_dto_credits_noquota[DTO_ATTR_SET_BASE];
+
+        if (attr && attr->la_valid & LA_UID) {
+                if (obj->oo_inode)
+                        osd_declare_qid(oh, USRQUOTA, obj->oo_inode->i_uid,
+                                        obj->oo_inode);
+                osd_declare_qid(oh, USRQUOTA, attr->la_uid, NULL);
+        }
+        if (attr && attr->la_valid & LA_GID) {
+                if (obj->oo_inode)
+                        osd_declare_qid(oh, GRPQUOTA, obj->oo_inode->i_gid,
+                                        obj->oo_inode);
+                osd_declare_qid(oh, GRPQUOTA, attr->la_gid, NULL);
+        }
 
         return 0;
 }
@@ -1904,16 +1933,29 @@ static int osd_declare_object_create(const struct lu_env *env,
         oh = container_of0(handle, struct osd_thandle, ot_super);
         LASSERT(oh->ot_handle == NULL);
 
-        OSD_DECLARE_OP(oh, insert);
         OSD_DECLARE_OP(oh, create);
         oh->ot_credits += osd_dto_credits_noquota[DTO_OBJECT_CREATE];
-        oh->ot_credits += osd_dto_credits_noquota[DTO_INDEX_INSERT];
+        /* XXX: So far, only normal fid needs be inserted into the oi,
+         *      things could be changed later. Revise following code then. */
+        if (dt && fid_is_norm(lu_object_fid(&dt->do_lu))) {
+                OSD_DECLARE_OP(oh, insert);
+                oh->ot_credits += osd_dto_credits_noquota[DTO_INDEX_INSERT];
+        }
+        /* If this is directory, then we expect . and .. to be inserted as
+         * well. The one directory block always needs to be created for the
+         * directory, so we could use DTO_WRITE_BASE here (GDT, block bitmap,
+         * block), there is no danger of needing a tree for the first block.
+         */
+        if (attr && S_ISDIR(attr->la_mode)) {
+                OSD_DECLARE_OP(oh, insert);
+                OSD_DECLARE_OP(oh, insert);
+                oh->ot_credits += osd_dto_credits_noquota[DTO_WRITE_BASE];
+        }
 
-        /* if this is directory, then we expect . and ..
-         * to be inserted as well */
-        OSD_DECLARE_OP(oh, insert);
-        OSD_DECLARE_OP(oh, insert);
-        oh->ot_credits += osd_dto_credits_noquota[DTO_INDEX_INSERT];
+        if (attr) {
+                osd_declare_qid(oh, USRQUOTA, attr->la_uid, NULL);
+                osd_declare_qid(oh, GRPQUOTA, attr->la_gid, NULL);
+        }
         return 0;
 }
 
@@ -1969,6 +2011,9 @@ static int osd_declare_object_destroy(const struct lu_env *env,
         OSD_DECLARE_OP(oh, delete);
         oh->ot_credits += osd_dto_credits_noquota[DTO_OBJECT_DELETE];
         oh->ot_credits += osd_dto_credits_noquota[DTO_INDEX_DELETE];
+
+        osd_declare_qid(oh, USRQUOTA, inode->i_uid, inode);
+        osd_declare_qid(oh, GRPQUOTA, inode->i_gid, inode);
 
         RETURN(0);
 }
@@ -2995,6 +3040,13 @@ static ssize_t osd_declare_write(const struct lu_env *env, struct dt_object *dt,
         OSD_DECLARE_OP(oh, write);
         oh->ot_credits += osd_dto_credits_noquota[DTO_WRITE_BLOCK];
 
+        if (osd_dt_obj(dt)->oo_inode == NULL)
+                return 0;
+
+        osd_declare_qid(oh, USRQUOTA, osd_dt_obj(dt)->oo_inode->i_uid,
+                        osd_dt_obj(dt)->oo_inode);
+        osd_declare_qid(oh, GRPQUOTA, osd_dt_obj(dt)->oo_inode->i_gid,
+                        osd_dt_obj(dt)->oo_inode);
         return 0;
 }
 
@@ -3135,6 +3187,12 @@ static int osd_index_declare_ea_delete(const struct lu_env *env,
 
         OSD_DECLARE_OP(oh, delete);
         oh->ot_credits += osd_dto_credits_noquota[DTO_INDEX_DELETE];
+
+        LASSERT(osd_dt_obj(dt)->oo_inode);
+        osd_declare_qid(oh, USRQUOTA, osd_dt_obj(dt)->oo_inode->i_uid,
+                        osd_dt_obj(dt)->oo_inode);
+        osd_declare_qid(oh, GRPQUOTA, osd_dt_obj(dt)->oo_inode->i_gid,
+                        osd_dt_obj(dt)->oo_inode);
 
         return 0;
 }
@@ -3641,6 +3699,12 @@ static int osd_index_declare_ea_insert(const struct lu_env *env,
 
         OSD_DECLARE_OP(oh, insert);
         oh->ot_credits += osd_dto_credits_noquota[DTO_INDEX_INSERT];
+
+        LASSERT(osd_dt_obj(dt)->oo_inode);
+        osd_declare_qid(oh, USRQUOTA, osd_dt_obj(dt)->oo_inode->i_uid,
+                        osd_dt_obj(dt)->oo_inode);
+        osd_declare_qid(oh, GRPQUOTA, osd_dt_obj(dt)->oo_inode->i_gid,
+                        osd_dt_obj(dt)->oo_inode);
 
         return 0;
 }
