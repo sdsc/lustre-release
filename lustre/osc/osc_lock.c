@@ -535,13 +535,15 @@ static int osc_lock_upcall(void *cookie, int errcode)
                                 dlmlock->l_ast_data = NULL;
                                 olck->ols_handle.cookie = 0ULL;
                                 cfs_spin_unlock(&osc_ast_guard);
-                                ldlm_lock_fail_match_locked(dlmlock, rc);
+                                ldlm_lock_fail_match_locked(dlmlock);
                                 unlock_res_and_lock(dlmlock);
                                 LDLM_LOCK_PUT(dlmlock);
                         }
                 } else {
-                        if (olck->ols_glimpse)
+                        if (olck->ols_glimpse) {
                                 olck->ols_glimpse = 0;
+                                olck->ols_agl = 0 ;
+                        }
                         osc_lock_upcall0(env, olck);
                 }
 
@@ -574,6 +576,7 @@ static int osc_lock_upcall(void *cookie, int errcode)
                         cl_lock_error(env, lock, rc);
                 }
 
+                olck->ols_upcall = 0;
                 cl_lock_mutex_put(env, lock);
 
                 /* release cookie reference, acquired by osc_lock_enqueue() */
@@ -1569,6 +1572,53 @@ static int osc_lock_fits_into(const struct lu_env *env,
         return 1;
 }
 
+/**
+ * Implements cl_lock_operations::clo_abort() method for osc layer. This is
+ * called (as part of cl_lock_abort()) when cl_locks_prune() found someone
+ * is still using the lock.
+ *
+ *     - release cookie reference, acquired by osc_lock_enqueue()
+ */
+static void osc_lock_abort(const struct lu_env *env,
+                           const struct cl_lock_slice *slice)
+{
+        struct cl_lock   *lock    = slice->cls_lock;
+        struct osc_lock  *olck    = cl2osc_lock(slice);
+        struct ldlm_lock *dlmlock = olck->ols_lock;
+        ENTRY;
+
+        LASSERT(cl_lock_is_mutexed(lock));
+        LINVRNT(osc_lock_invariant(olck));
+        LASSERT(dlmlock != NULL);
+
+        /* XXX: Currently, only AGL case allows the enqueue RPC sponsor to exit,
+         *      but with related lock reference held, which causes conflict with
+         *      cl_locks_prune(). */
+        LASSERT(olck->ols_agl);
+
+        lock_res_and_lock(dlmlock);
+        if (olck->ols_upcall) {
+                struct l_wait_info lwi = { 0 };
+
+                /* If enqueue upcall is in processing, wait until finished.
+                 * Put mutex on the lock before waiting to avoid deadlock. */
+                unlock_res_and_lock(dlmlock);
+                cl_lock_mutex_put(env, lock);
+                l_wait_event(dlmlock->l_waitq, !olck->ols_upcall, &lwi);
+                cl_lock_mutex_get(env, lock);
+        } else {
+                dlmlock->l_aborted = 1;
+                unlock_res_and_lock(dlmlock);
+
+                /* Abort the coming enqueue upcall, and release related
+                 * reference, acquired by osc_lock_enqueue(). */
+                cl_lock_user_del(env, lock);
+                lu_ref_del(&lock->cll_reference, "upcall", lock);
+                cl_lock_put(env, lock);
+        }
+        EXIT;
+}
+
 static const struct cl_lock_operations osc_lock_ops = {
         .clo_fini    = osc_lock_fini,
         .clo_enqueue = osc_lock_enqueue,
@@ -1581,6 +1631,7 @@ static const struct cl_lock_operations osc_lock_ops = {
         .clo_weigh   = osc_lock_weigh,
         .clo_print   = osc_lock_print,
         .clo_fits_into = osc_lock_fits_into,
+        .clo_abort   = osc_lock_abort,
 };
 
 static int osc_lock_lockless_unuse(const struct lu_env *env,

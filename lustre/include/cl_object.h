@@ -1787,6 +1787,11 @@ struct cl_lock_operations {
         int (*clo_print)(const struct lu_env *env,
                          void *cookie, lu_printer_t p,
                          const struct cl_lock_slice *slice);
+        /**
+         * Abort unfinished cl_lock operations, like enqueue upcall.
+         */
+        void (*clo_abort)(const struct lu_env *env,
+                          const struct cl_lock_slice *slice);
 };
 
 #define CL_LOCK_DEBUG(mask, env, lock, format, ...)                     \
@@ -2906,6 +2911,7 @@ int  cl_lock_enclosure    (const struct lu_env *env, struct cl_lock *lock,
 void cl_lock_cancel(const struct lu_env *env, struct cl_lock *lock);
 void cl_lock_delete(const struct lu_env *env, struct cl_lock *lock);
 void cl_lock_error (const struct lu_env *env, struct cl_lock *lock, int error);
+void cl_lock_abort(const struct lu_env *env, struct cl_lock *lock);
 void cl_locks_prune(const struct lu_env *env, struct cl_object *obj, int wait);
 
 unsigned long cl_lock_weigh(const struct lu_env *env, struct cl_lock *lock);

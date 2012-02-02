@@ -65,6 +65,7 @@
 #include <lustre_debug.h>
 #include <lustre_param.h>
 #include "osc_internal.h"
+#include "osc_cl_internal.h"
 
 static void osc_release_ppga(struct brw_page **ppga, obd_count count);
 static int brw_interpret(const struct lu_env *env,
@@ -3196,11 +3197,12 @@ static int osc_find_cbdata(struct obd_export *exp, struct lov_stripe_md *lsm,
         return(rc);
 }
 
-static int osc_enqueue_fini(struct ptlrpc_request *req, struct ost_lvb *lvb,
-                            obd_enqueue_update_f upcall, void *cookie,
-                            int *flags, int agl, int rc)
+static int osc_enqueue_fini(struct ptlrpc_request *req, struct ldlm_lock *lock,
+                            struct ost_lvb *lvb, obd_enqueue_update_f upcall,
+                            void *cookie, int *flags, int agl, int rc)
 {
         int intent = *flags & LDLM_FL_HAS_INTENT;
+        int aborted = 0;
         ENTRY;
 
         if (intent) {
@@ -3223,8 +3225,22 @@ static int osc_enqueue_fini(struct ptlrpc_request *req, struct ost_lvb *lvb,
                        lvb->lvb_size, lvb->lvb_blocks, lvb->lvb_mtime);
         }
 
-        /* Call the update callback. */
-        rc = (*upcall)(cookie, rc);
+        if (agl != 0) {
+                LASSERT(lock != NULL);
+
+                lock_res_and_lock(lock);
+                if (unlikely(lock->l_aborted))
+                        aborted = 1;
+                else
+                        ((struct osc_lock *)cookie)->ols_upcall = 1;
+                unlock_res_and_lock(lock);
+        }
+
+        if (likely(aborted == 0)) {
+                /* Call the update callback. */
+                rc = (*upcall)(cookie, rc);
+                cfs_waitq_broadcast(&lock->l_waitq);
+        }
         RETURN(rc);
 }
 
@@ -3269,8 +3285,8 @@ static int osc_enqueue_interpret(const struct lu_env *env,
         rc = ldlm_cli_enqueue_fini(aa->oa_exp, req, aa->oa_ei->ei_type, 1,
                                    mode, flags, lvb, lvb_len, &handle, rc);
         /* Complete osc stuff. */
-        rc = osc_enqueue_fini(req, aa->oa_lvb, aa->oa_upcall, aa->oa_cookie,
-                              flags, aa->oa_agl, rc);
+        rc = osc_enqueue_fini(req, lock, aa->oa_lvb, aa->oa_upcall,
+                              aa->oa_cookie, flags, aa->oa_agl, rc);
 
         OBD_FAIL_TIMEOUT(OBD_FAIL_OSC_CP_CANCEL_RACE, 10);
 
@@ -3328,7 +3344,7 @@ void osc_update_enqueue(struct lustre_handle *lov_lockhp,
 
         if (lock != NULL) {
                 if (rc != ELDLM_OK)
-                        ldlm_lock_fail_match(lock, rc);
+                        ldlm_lock_fail_match(lock);
 
                 LDLM_LOCK_PUT(lock);
         }
@@ -3479,7 +3495,7 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
                 RETURN(rc);
         }
 
-        rc = osc_enqueue_fini(req, lvb, upcall, cookie, flags, agl, rc);
+        rc = osc_enqueue_fini(req, NULL, lvb, upcall, cookie, flags, agl, rc);
         if (intent)
                 ptlrpc_req_finished(req);
 

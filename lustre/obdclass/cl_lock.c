@@ -2048,6 +2048,30 @@ out:
 EXPORT_SYMBOL(cl_lock_page_out);
 
 /**
+ * Abort this lock.
+ * All unfinished cl_lock operations, like enqueue upcall, should be aborted.
+ *
+ * \see cl_lock_operations::clo_abort()
+ */
+void cl_lock_abort(const struct lu_env *env, struct cl_lock *lock)
+{
+        const struct cl_lock_slice *slice;
+        ENTRY;
+
+        LINVRNT(cl_lock_is_mutexed(lock));
+        LINVRNT(cl_lock_invariant(env, lock));
+
+        cl_lock_trace(D_DLMTRACE, env, "abort lock", lock);
+
+        cfs_list_for_each_entry(slice, &lock->cll_layers, cls_linkage) {
+                if (slice->cls_ops->clo_abort != NULL)
+                        slice->cls_ops->clo_abort(env, slice);
+        }
+        EXIT;
+}
+EXPORT_SYMBOL(cl_lock_abort);
+
+/**
  * Eliminate all locks for a given object.
  *
  * Caller has to guarantee that no lock is in active use.
@@ -2079,6 +2103,8 @@ void cl_locks_prune(const struct lu_env *env, struct cl_object *obj, int cancel)
                 cl_lock_mutex_get(env, lock);
                 if (lock->cll_state < CLS_FREEING) {
                         LASSERT(lock->cll_holds == 0);
+                        if (unlikely(lock->cll_users == 1))
+                                cl_lock_abort(env, lock);
                         LASSERT(lock->cll_users == 0);
                         if (cancel)
                                 cl_lock_cancel(env, lock);
