@@ -157,6 +157,12 @@ static const struct dt_index_operations       osd_index_ea_ops;
 #define OSD_EXEC_OP(oh, op)
 #endif
 
+struct osd_ug_id {
+        uid_t                   ug_id;
+        int                     ug_type;
+};
+
+#define OSD_MAX_UGID_CNT        10
 struct osd_thandle {
         struct thandle          ot_super;
         handle_t               *ot_handle;
@@ -165,6 +171,8 @@ struct osd_thandle {
         /* Link to the device, for debugging. */
         struct lu_ref_link     *ot_dev_link;
         int                     ot_credits;
+        int                     ot_id_cnt;
+        struct osd_ug_id        ot_id_array[OSD_MAX_UGID_CNT];
 
 #ifdef OSD_TRACK_DECLARES
         unsigned char           ot_declare_attr_set;
@@ -187,6 +195,26 @@ struct osd_thandle {
         cfs_time_t oth_started;
 #endif
 };
+
+static void osd_declare_qid(struct osd_thandle *oh, int type, uid_t id)
+{
+        int i;
+
+        if (oh->ot_id_cnt > OSD_MAX_UGID_CNT) {
+                CERROR("more than %d uid/gids for a transaction?\n",
+                       oh->ot_id_cnt);
+                return;
+        }
+
+        for (i = 0; i < oh->ot_id_cnt; i++)
+                if (oh->ot_id_array[i].ug_type == type &&
+                    oh->ot_id_array[i].ug_id == id)
+                        return;
+
+        oh->ot_id_array[oh->ot_id_cnt].ug_type = type;
+        oh->ot_id_array[oh->ot_id_cnt].ug_id = id;
+        oh->ot_id_cnt++;
+}
 
 /**
  * Basic transaction credit op
@@ -764,7 +792,7 @@ int osd_trans_start(const struct lu_env *env, struct dt_device *d,
         struct osd_device  *dev = osd_dt_dev(d);
         handle_t           *jh;
         struct osd_thandle *oh;
-        int rc;
+        int rc, i;
 
         ENTRY;
 
@@ -778,12 +806,18 @@ int osd_trans_start(const struct lu_env *env, struct dt_device *d,
         if (rc != 0)
                 GOTO(out, rc);
 
-        oh->ot_credits += LDISKFS_QUOTA_INIT_BLOCKS(osd_sb(dev));
+        for (i = 0; i < oh->ot_id_cnt; i++) {
+                oh->ot_credits += (oh->ot_id_array[i].ug_id == 0) ?
+                        LDISKFS_QUOTA_TRANS_BLOCKS(osd_sb(dev)) :
+                        LDISKFS_QUOTA_INIT_BLOCKS(osd_sb(dev));
+        }
 
         if (!osd_param_is_sane(dev, th)) {
                 CWARN("%s: too many transaction credits (%d > %d)\n",
                       d->dd_lu_dev.ld_obd->obd_name, oh->ot_credits,
                       osd_journal(dev)->j_max_transaction_buffers);
+                /* XXX */
+                oh->ot_credits = osd_journal(dev)->j_max_transaction_buffers;
 #ifdef OSD_TRACK_DECLARES
                 CERROR("  attr_set: %d, punch: %d, xattr_set: %d,\n",
                        oh->ot_declare_attr_set, oh->ot_declare_punch,
@@ -791,8 +825,9 @@ int osd_trans_start(const struct lu_env *env, struct dt_device *d,
                 CERROR("  create: %d, ref_add: %d, ref_del: %d, write: %d\n",
                        oh->ot_declare_create, oh->ot_declare_ref_add,
                        oh->ot_declare_ref_del, oh->ot_declare_write);
-                CERROR("  insert: %d, delete: %d\n",
-                       oh->ot_declare_insert, oh->ot_declare_delete);
+                CERROR("  insert: %d, delete: %d, destroy: %d\n",
+                       oh->ot_declare_insert, oh->ot_declare_delete,
+                       oh->ot_declare_destroy);
 #endif
         }
 
@@ -1473,8 +1508,12 @@ static int osd_declare_attr_set(const struct lu_env *env,
                                 struct thandle *handle)
 {
         struct osd_thandle *oh;
+        struct osd_object *obj;
 
+        LASSERT(dt != NULL);
         LASSERT(handle != NULL);
+
+        obj = osd_dt_obj(dt);
         LASSERT(osd_invariant(obj));
 
         oh = container_of0(handle, struct osd_thandle, ot_super);
@@ -1482,6 +1521,17 @@ static int osd_declare_attr_set(const struct lu_env *env,
 
         OSD_DECLARE_OP(oh, attr_set);
         oh->ot_credits += osd_dto_credits_noquota[DTO_ATTR_SET_BASE];
+
+        if (attr && attr->la_valid & LA_UID) {
+                if (obj->oo_inode)
+                        osd_declare_qid(oh, USRQUOTA, obj->oo_inode->i_uid);
+                osd_declare_qid(oh, USRQUOTA, attr->la_uid);
+        }
+        if (attr && attr->la_valid & LA_GID) {
+                if (obj->oo_inode)
+                        osd_declare_qid(oh, GRPQUOTA, obj->oo_inode->i_gid);
+                osd_declare_qid(oh, GRPQUOTA, attr->la_gid);
+        }
 
         return 0;
 }
@@ -1904,16 +1954,27 @@ static int osd_declare_object_create(const struct lu_env *env,
         oh = container_of0(handle, struct osd_thandle, ot_super);
         LASSERT(oh->ot_handle == NULL);
 
-        OSD_DECLARE_OP(oh, insert);
         OSD_DECLARE_OP(oh, create);
         oh->ot_credits += osd_dto_credits_noquota[DTO_OBJECT_CREATE];
-        oh->ot_credits += osd_dto_credits_noquota[DTO_INDEX_INSERT];
+        /* XXX attr == NULL for plain llog creation, see
+         * mdd_declare_llog_record(). */
+        if (attr != NULL) {
+                OSD_DECLARE_OP(oh, insert);
+                oh->ot_credits += osd_dto_credits_noquota[DTO_INDEX_INSERT];
+        }
 
         /* if this is directory, then we expect . and ..
          * to be inserted as well */
-        OSD_DECLARE_OP(oh, insert);
-        OSD_DECLARE_OP(oh, insert);
-        oh->ot_credits += osd_dto_credits_noquota[DTO_INDEX_INSERT];
+        if (attr && S_ISDIR(attr->la_mode)) {
+                OSD_DECLARE_OP(oh, insert);
+                OSD_DECLARE_OP(oh, insert);
+                oh->ot_credits += osd_dto_credits_noquota[DTO_INDEX_INSERT];
+        }
+
+        if (attr) {
+                osd_declare_qid(oh, USRQUOTA, attr->la_uid);
+                osd_declare_qid(oh, GRPQUOTA, attr->la_gid);
+        }
         return 0;
 }
 
@@ -1969,6 +2030,9 @@ static int osd_declare_object_destroy(const struct lu_env *env,
         OSD_DECLARE_OP(oh, delete);
         oh->ot_credits += osd_dto_credits_noquota[DTO_OBJECT_DELETE];
         oh->ot_credits += osd_dto_credits_noquota[DTO_INDEX_DELETE];
+
+        osd_declare_qid(oh, USRQUOTA, inode->i_uid);
+        osd_declare_qid(oh, GRPQUOTA, inode->i_gid);
 
         RETURN(0);
 }
@@ -2993,8 +3057,17 @@ static ssize_t osd_declare_write(const struct lu_env *env, struct dt_object *dt,
         LASSERT(oh->ot_handle == NULL);
 
         OSD_DECLARE_OP(oh, write);
-        oh->ot_credits += osd_dto_credits_noquota[DTO_WRITE_BLOCK];
 
+        /* XXX size == 0 for catlog header update, see
+         * mdd_declare_llog_record(). */
+        oh->ot_credits += (size == 0) ? 2 :
+                osd_dto_credits_noquota[DTO_WRITE_BLOCK];
+
+        if (osd_dt_obj(dt)->oo_inode == NULL)
+                return 0;
+
+        osd_declare_qid(oh, USRQUOTA, osd_dt_obj(dt)->oo_inode->i_uid);
+        osd_declare_qid(oh, GRPQUOTA, osd_dt_obj(dt)->oo_inode->i_gid);
         return 0;
 }
 
@@ -3135,6 +3208,10 @@ static int osd_index_declare_ea_delete(const struct lu_env *env,
 
         OSD_DECLARE_OP(oh, delete);
         oh->ot_credits += osd_dto_credits_noquota[DTO_INDEX_DELETE];
+
+        LASSERT(osd_dt_obj(dt)->oo_inode);
+        osd_declare_qid(oh, USRQUOTA, osd_dt_obj(dt)->oo_inode->i_uid);
+        osd_declare_qid(oh, GRPQUOTA, osd_dt_obj(dt)->oo_inode->i_gid);
 
         return 0;
 }
@@ -3641,6 +3718,10 @@ static int osd_index_declare_ea_insert(const struct lu_env *env,
 
         OSD_DECLARE_OP(oh, insert);
         oh->ot_credits += osd_dto_credits_noquota[DTO_INDEX_INSERT];
+
+        LASSERT(osd_dt_obj(dt)->oo_inode);
+        osd_declare_qid(oh, USRQUOTA, osd_dt_obj(dt)->oo_inode->i_uid);
+        osd_declare_qid(oh, GRPQUOTA, osd_dt_obj(dt)->oo_inode->i_gid);
 
         return 0;
 }

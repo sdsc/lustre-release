@@ -645,8 +645,8 @@ int mdd_declare_llog_record(const struct lu_env *env, struct mdd_device *mdd,
                 return rc;
 
         /* catalog's header will be updated as well */
-        rc = dt_declare_record_write(env, mdd->mdd_capa, LLOG_CHUNK_SIZE,
-                                     0, handle);
+        /* XXX size == 0 indicating catalog's header is already allocated */
+        rc = dt_declare_record_write(env, mdd->mdd_capa, 0, 0, handle);
 
         return rc;
 }
