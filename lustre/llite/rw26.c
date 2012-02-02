@@ -234,7 +234,7 @@ ssize_t ll_direct_IO(int rw, struct file *file,
         struct obd_info oinfo;
         struct obdo oa = { 0 };
         unsigned long seg;
-        size_t size = MAX_DIO_SIZE;
+        size_t size = MAX_DIO_SIZE, i_size;
         ENTRY;
 
         if (!lli->lli_smd || !lli->lli_smd->lsm_object_id)
@@ -260,15 +260,17 @@ ssize_t ll_direct_IO(int rw, struct file *file,
         oinfo.oi_oa = &oa;
         oinfo.oi_md = lsm;
 
+        i_size = i_size_read(inode);
+
         for (seg = 0; seg < nr_segs; seg++) {
                 size_t iov_left = iov[seg].iov_len;
                 unsigned long user_addr = (unsigned long)iov[seg].iov_base;
 
                 if (rw == READ) {
-                        if (file_offset >= inode->i_size)
+                        if (file_offset >= i_size)
                                 break;
-                        if (file_offset + iov_left > inode->i_size)
-                                iov_left = inode->i_size - file_offset;
+                        if (file_offset + iov_left > i_size)
+                                iov_left = i_size - file_offset;
                 }
 
                 while (iov_left > 0) {
