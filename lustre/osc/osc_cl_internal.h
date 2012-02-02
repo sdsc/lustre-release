@@ -257,12 +257,16 @@ struct osc_lock {
         /**
          * For async glimpse lock.
          */
-                                 ols_agl:1;
+                                 ols_agl:1,
+        /**
+         * osc enqueue upcall is in processing.
+         */
+                                 ols_upcall:1;
         /**
          * IO that owns this lock. This field is used for a dead-lock
          * avoidance by osc_lock_enqueue_wait().
          *
-         * XXX: unfortunately, the owner of a osc_lock is not unique, 
+         * XXX: unfortunately, the owner of a osc_lock is not unique,
          * the lock may have multiple users, if the lock is granted and
          * then matched.
          */
