@@ -1246,6 +1246,7 @@ test_23b() {
     [ $AVAIL -gt $MAXFREE ] &&
         skip_env "Filesystem space $AVAIL is larger than $MAXFREE limit" &&
 			return 0
+	log "OSTCOUNT=$OSTCOUNT, MAXFREE=$MAXFREE, AVAIL=$AVAIL, SLOW=$SLOW"
 
     $LFS quotaoff -ug $MOUNT
     chown $RUNAS_ID.$RUNAS_ID $dir
