@@ -1963,7 +1963,6 @@ static int osd_declare_object_destroy(const struct lu_env *env,
         oh = container_of0(th, struct osd_thandle, ot_super);
         LASSERT(oh->ot_handle == NULL);
         LASSERT(inode);
-        LASSERT(!lu_object_is_dying(dt->do_lu.lo_header));
 
         OSD_DECLARE_OP(oh, destroy);
         OSD_DECLARE_OP(oh, delete);
@@ -1989,6 +1988,7 @@ static int osd_object_destroy(const struct lu_env *env,
         LASSERT(oh->ot_handle);
         LASSERT(inode);
         LASSERT(osd_inode_unlinked(inode));
+        LASSERT(!lu_object_is_dying(dt->do_lu.lo_header));
 
         OSD_EXEC_OP(th, destroy);
 
