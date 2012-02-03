@@ -8558,6 +8558,32 @@ test_223 () {
 }
 run_test 223 "osc reenqueue if without AGL lock granted ======================="
 
+test_224() {
+        # disable MDC RPC lock wouldn't crash client
+        local fcount=1000
+        local tcount=4
+
+        mkdir -p $DIR/$tdir || error "creating dir $DIR/$tdir"
+#define OBD_FAIL_MDC_RPCS_SEM            0x804
+        $LCTL set_param fail_loc=0x804
+
+        for (( i=0; i < $tcount; i++ )) ; do
+                mkdir $DIR/$tdir/$i
+                createmany -o $DIR/$tdir/$i/f- $fcount &
+        done
+        wait
+
+        for (( i=0; i < $tcount; i++ )) ; do
+                unlinkmany $DIR/$tdir/$i/f- $fcount &
+        done
+        wait
+
+        rm -rf $DIR/$tdir
+
+        $LCTL set_param fail_loc=0
+}
+run_test 224 "Disable MDC RPCs semaphore wouldn't crash client ================"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
