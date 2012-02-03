@@ -96,6 +96,8 @@ typedef long cfs_task_state_t;
 #define CFS_TASK_UNINT          (1)
 #define CFS_TASK_RUNNING        (2)
 
+#define cfs_schedule()          do {} while (0)
+#define cfs_schedule_timeout(t) do {} while (0)
 
 /* 
  * Lproc
