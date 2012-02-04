@@ -1612,6 +1612,52 @@ int lu_context_refill(struct lu_context *ctx)
 }
 EXPORT_SYMBOL(lu_context_refill);
 
+/**
+ * lu_ctx_tags/lu_ses_tags will be updated if there are new types of
+ * obd being added. Currently, this is only used on client side, specifically
+ * for echo device client, for other stack (like ptlrpc threads), context are
+ * predefined when the lu_device type are registered, during the module probe
+ * phase.
+ */
+__u32 lu_ses_tags = 0;
+__u32 lu_ctx_tags = 0;
+
+void lu_update_ctx_tags(__u32 tags)
+{
+        cfs_spin_lock(&lu_keys_guard);
+        lu_ctx_tags |= tags;
+        key_set_version ++;
+        cfs_spin_unlock(&lu_keys_guard);
+}
+EXPORT_SYMBOL(lu_update_ctx_tags);
+
+void lu_update_ses_tags(__u32 tags)
+{
+        cfs_spin_lock(&lu_keys_guard);
+        lu_ses_tags |= tags;
+        key_set_version ++;
+        cfs_spin_unlock(&lu_keys_guard);
+}
+EXPORT_SYMBOL(lu_update_ses_tags);
+
+void lu_clear_ctx_tags(__u32 tags)
+{
+        cfs_spin_lock(&lu_keys_guard);
+        lu_ctx_tags &= ~tags;
+        key_set_version ++;
+        cfs_spin_unlock(&lu_keys_guard);
+}
+EXPORT_SYMBOL(lu_clear_ctx_tags);
+
+void lu_clear_ses_tags(__u32 tags)
+{
+        cfs_spin_lock(&lu_keys_guard);
+        lu_ses_tags &= ~tags;
+        key_set_version ++;
+        cfs_spin_unlock(&lu_keys_guard);
+}
+EXPORT_SYMBOL(lu_clear_ses_tags);
+
 int lu_env_init(struct lu_env *env, __u32 tags)
 {
         int result;

@@ -76,8 +76,8 @@ static cfs_lock_class_key_t cl_lock_guard_class;
 /** Lock class of cl_object_header::coh_attr_guard */
 static cfs_lock_class_key_t cl_attr_guard_class;
 
-static __u32 cl_ctx_tags;
-static __u32 cl_ses_tags;
+extern __u32 lu_ctx_tags;
+extern __u32 lu_ses_tags;
 /**
  * Initialize cl_object_header.
  */
@@ -795,18 +795,6 @@ static void cl_env_fini(struct cl_env *cle)
         OBD_SLAB_FREE_PTR(cle, cl_env_kmem);
 }
 
-void cl_set_ctx_tags(__u32 tags)
-{
-        cl_ctx_tags = tags;
-}
-EXPORT_SYMBOL(cl_set_ctx_tags);
-
-void cl_set_ses_tags(__u32 tags)
-{
-        cl_ses_tags = tags;
-}
-EXPORT_SYMBOL(cl_set_ses_tags);
-
 static struct lu_env *cl_env_obtain(void *debug)
 {
         struct cl_env *cle;
@@ -835,10 +823,39 @@ static struct lu_env *cl_env_obtain(void *debug)
                 }
         } else {
                 cfs_spin_unlock(&cl_envs_guard);
-                env = cl_env_new(cl_ctx_tags, cl_ses_tags, debug);
+                env = cl_env_new(lu_ctx_tags, lu_ses_tags, debug);
         }
         RETURN(env);
 }
+
+/**
+ * Currently, this API will only be used by echo client.
+ * Because echo client and normal lustre client will share
+ * same cl_env cache. So echo client needs to refresh
+ * the env context after it get one from the cache, especially
+ * when normal client and echo client co-exist in the same client.
+ */
+struct lu_env *cl_env_refill(struct lu_env *env, __u32 ctags, __u32 stags)
+{
+        int    rc;
+
+        if (env->le_ctx.lc_tags & ~ctags) {
+                env->le_ctx.lc_version = 0;
+                env->le_ctx.lc_tags |= ctags;
+        }
+
+        if (env->le_ses && env->le_ses->lc_tags & ~stags) {
+                env->le_ses->lc_version = 0;
+                env->le_ses->lc_tags |= stags;
+        }
+
+        rc = lu_env_refill(env);
+        if (rc)
+                RETURN(ERR_PTR(rc));
+
+        return env;
+}
+EXPORT_SYMBOL(cl_env_refill);
 
 static inline struct cl_env *cl_env_container(struct lu_env *env)
 {

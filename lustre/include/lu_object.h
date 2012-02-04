@@ -1247,6 +1247,14 @@ void lu_context_key_degister_many(struct lu_context_key *k, ...);
 void lu_context_key_revive_many  (struct lu_context_key *k, ...);
 void lu_context_key_quiesce_many (struct lu_context_key *k, ...);
 
+/*
+ * update/clear ctx/ses tags.
+ */
+void lu_update_ctx_tags(__u32 tags);
+void lu_update_ses_tags(__u32 tags);
+void lu_clear_ctx_tags(__u32 tags);
+void lu_clear_ses_tags(__u32 tags);
+
 /**
  * Environment.
  */
