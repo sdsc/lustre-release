@@ -992,7 +992,10 @@ static struct lu_device *echo_device_free(const struct lu_env *env,
 
         echo_client_cleanup(d->ld_obd);
         echo_fid_fini(d->ld_obd);
-
+        if (ed->ed_next_ismd) {
+                cl_set_ctx_tags(0);
+                cl_set_ses_tags(0);
+        }
         while (next && !ed->ed_next_ismd)
                 next = next->ld_type->ldt_ops->ldto_device_free(env, next);
 
@@ -1958,6 +1961,35 @@ struct lu_object *echo_resolve_path(const struct lu_env *env,
         RETURN(parent);
 }
 
+static struct lu_env *echo_md_env_get(int *refcheck)
+{
+        struct lu_env *env;
+        int    rc;
+
+        env = cl_env_get(refcheck);
+        if (IS_ERR(env))
+                RETURN(env);
+
+        /* If the real client are mounted currently, the env
+         * gotten from the cache might not contain the right
+         * contex, so it needs reset the lc_tags/lc_version
+         * then refill the env */
+        if (!(env->le_ctx.lc_tags & LCT_MD_THREAD)) {
+                env->le_ctx.lc_version = 0;
+                if (env->le_ses)
+                        env->le_ses->lc_version = 0;
+                env->le_ctx.lc_tags |= LCT_REMEMBER | LCT_NOREF | LCT_MD_THREAD;
+                if (env->le_ses)
+                        env->le_ses->lc_tags |= LCT_SESSION | LCT_REMEMBER |
+                                                LCT_NOREF;
+        }
+        rc = lu_env_refill(env);
+        if (rc)
+                RETURN(ERR_PTR(rc));
+
+        return env;
+}
+
 static int echo_md_handler(struct echo_device *ed, int command,
                            char *path, int path_len, int id, int count,
                            struct obd_ioctl_data *data)
@@ -1981,10 +2013,9 @@ static int echo_md_handler(struct echo_device *ed, int command,
                 RETURN(-EINVAL);
         }
 
-        env = cl_env_get(&refcheck);
+        env = echo_md_env_get(&refcheck);
         if (IS_ERR(env))
                 RETURN(PTR_ERR(env));
-        lu_env_refill(env);
 
         parent = echo_resolve_path(env, ed, path, path_len);
         if (IS_ERR(parent)) {

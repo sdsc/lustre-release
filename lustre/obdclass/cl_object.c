@@ -76,8 +76,8 @@ static cfs_lock_class_key_t cl_lock_guard_class;
 /** Lock class of cl_object_header::coh_attr_guard */
 static cfs_lock_class_key_t cl_attr_guard_class;
 
-static __u32 cl_ctx_tags;
-static __u32 cl_ses_tags;
+static __u32 cl_ctx_tags = 0;
+static __u32 cl_ses_tags = 0;
 /**
  * Initialize cl_object_header.
  */
