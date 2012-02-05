@@ -25,6 +25,7 @@ CHECKSTAT=${CHECKSTAT:-"checkstat -v"}
 MCREATE=${MCREATE:-mcreate}
 OPENFILE=${OPENFILE:-openfile}
 OPENUNLINK=${OPENUNLINK:-openunlink}
+export MULTIOP=${MULTIOP:-multiop}
 export TMP=${TMP:-/tmp}
 MOUNT_2=${MOUNT_2:-"yes"}
 CHECK_GRANT=${CHECK_GRANT:-"yes"}
@@ -271,7 +272,7 @@ test_14a() {
 	cp -p `which multiop` $DIR1/d14/multiop || error "cp failed"
         MULTIOP_PROG=$DIR1/d14/multiop multiop_bg_pause $TMP/test14.junk O_c || return 1
         MULTIOP_PID=$!
-        multiop $DIR2/d14/multiop Oc && error "expected error, got success"
+        $MULTIOP $DIR2/d14/multiop Oc && error "expected error, got success"
         kill -USR1 $MULTIOP_PID || return 2
         wait $MULTIOP_PID || return 3
         rm $TMP/test14.junk $DIR1/d14/multiop || error "removing multiop"
@@ -383,9 +384,9 @@ test_20() {
 	mkdir $DIR1/d20
 	cancel_lru_locks osc
 	CNT=$((`lctl get_param -n llite.*.dump_page_cache | wc -l`))
-	multiop $DIR1/f20 Ow8190c
-	multiop $DIR2/f20 Oz8194w8190c
-	multiop $DIR1/f20 Oz0r8190c
+	$MULTIOP $DIR1/f20 Ow8190c
+	$MULTIOP $DIR2/f20 Oz8194w8190c
+	$MULTIOP $DIR1/f20 Oz0r8190c
 	cancel_lru_locks osc
 	CNTD=$((`lctl get_param -n llite.*.dump_page_cache | wc -l` - $CNT))
 	[ $CNTD -gt 0 ] && \
@@ -1191,7 +1192,7 @@ run_test 40e "pdirops: rename and others =============="
 test_41a() {
 #define OBD_FAIL_ONCE|OBD_FAIL_MDS_PDO_LOCK    0x145
 	do_facet $SINGLEMDS lctl set_param fail_loc=0x80000145
-	multiop $DIR1/$tfile oO_CREAT:O_RDWR:c &
+	$MULTIOP $DIR1/$tfile oO_CREAT:O_RDWR:c &
 	PID1=$!
 	sleep 1
 	mkdir $DIR2/$tfile && error "mkdir must fail"
@@ -1204,10 +1205,10 @@ run_test 41a "pdirops: create vs mkdir =============="
 test_41b() {
 #define OBD_FAIL_ONCE|OBD_FAIL_MDS_PDO_LOCK    0x145
 	do_facet $SINGLEMDS lctl set_param fail_loc=0x80000145
-	multiop $DIR1/$tfile oO_CREAT:O_RDWR:c &
+	$MULTIOP $DIR1/$tfile oO_CREAT:O_RDWR:c &
 	PID1=$!
 	sleep 1
-	multiop $DIR2/$tfile oO_CREAT:O_EXCL:c && error "create must fail"
+	$MULTIOP $DIR2/$tfile oO_CREAT:O_EXCL:c && error "create must fail"
 	check_pdo_conflict $PID1 && { wait $PID1; error "create isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1218,7 +1219,7 @@ test_41c() {
 	touch $DIR1/$tfile-2
 #define OBD_FAIL_ONCE|OBD_FAIL_MDS_PDO_LOCK    0x145
 	do_facet $SINGLEMDS lctl set_param fail_loc=0x80000145
-	multiop $DIR1/$tfile oO_CREAT:O_RDWR:c &
+	$MULTIOP $DIR1/$tfile oO_CREAT:O_RDWR:c &
 	PID1=$!
 	sleep 1
 	link $DIR2/$tfile-2 $DIR2/$tfile && error "link must fail"
@@ -1231,7 +1232,7 @@ run_test 41c "pdirops: create vs link =============="
 test_41d() {
 #define OBD_FAIL_ONCE|OBD_FAIL_MDS_PDO_LOCK    0x145
 	do_facet $SINGLEMDS lctl set_param fail_loc=0x80000145
-	multiop $DIR1/$tfile oO_CREAT:O_RDWR:c &
+	$MULTIOP $DIR1/$tfile oO_CREAT:O_RDWR:c &
 	PID1=$!
 	sleep 1
 	rm $DIR2/$tfile || error "unlink must succeed"
@@ -1245,7 +1246,7 @@ test_41e() {
 	touch $DIR1/$tfile-2
 #define OBD_FAIL_ONCE|OBD_FAIL_MDS_PDO_LOCK    0x145
 	do_facet $SINGLEMDS lctl set_param fail_loc=0x80000145
-	multiop $DIR1/$tfile oO_CREAT:O_RDWR:c &
+	$MULTIOP $DIR1/$tfile oO_CREAT:O_RDWR:c &
 	PID1=$!
 	sleep 1
 	mv $DIR2/$tfile-2 $DIR2/$tfile || error "rename must succeed"
@@ -1258,7 +1259,7 @@ run_test 41e "pdirops: create and rename (tgt) =============="
 test_41f() {
 #define OBD_FAIL_ONCE|OBD_FAIL_MDS_PDO_LOCK    0x145
 	do_facet $SINGLEMDS lctl set_param fail_loc=0x80000145
-	multiop $DIR1/$tfile oO_CREAT:O_RDWR:c &
+	$MULTIOP $DIR1/$tfile oO_CREAT:O_RDWR:c &
 	PID1=$!
 	sleep 1
 	mv $DIR2/$tfile $DIR2/$tfile-2 || error "rename must succeed"
@@ -1271,7 +1272,7 @@ run_test 41f "pdirops: create and rename (src) =============="
 test_41g() {
 #define OBD_FAIL_ONCE|OBD_FAIL_MDS_PDO_LOCK    0x145
 	do_facet $SINGLEMDS lctl set_param fail_loc=0x80000145
-	multiop $DIR1/$tfile oO_CREAT:O_RDWR:c &
+	$MULTIOP $DIR1/$tfile oO_CREAT:O_RDWR:c &
 	PID1=$!
 	sleep 1
 	stat $DIR2/$tfile > /dev/null || error "stat must succeed"
@@ -1284,7 +1285,7 @@ run_test 41g "pdirops: create vs getattr =============="
 test_41h() {
 #define OBD_FAIL_ONCE|OBD_FAIL_MDS_PDO_LOCK    0x145
 	do_facet $SINGLEMDS lctl set_param fail_loc=0x80000145
-	multiop $DIR1/$tfile oO_CREAT:O_RDWR:c &
+	$MULTIOP $DIR1/$tfile oO_CREAT:O_RDWR:c &
 	PID1=$!
 	sleep 1
 	ls -lia $DIR2/ > /dev/null
@@ -1314,7 +1315,7 @@ test_42b() {
 	mkdir $DIR1/$tfile &
 	PID1=$!
 	sleep 1
-	multiop $DIR2/$tfile oO_CREAT:O_EXCL:c && error "create must fail"
+	$MULTIOP $DIR2/$tfile oO_CREAT:O_EXCL:c && error "create must fail"
 	check_pdo_conflict $PID1 && { wait $PID1; error "create isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1423,7 +1424,7 @@ test_43b() {
 	rm $DIR1/$tfile &
 	PID1=$!
 	sleep 1
-	multiop $DIR2/$tfile oO_CREAT:O_EXCL:c || error "create must succeed"
+	$MULTIOP $DIR2/$tfile oO_CREAT:O_EXCL:c || error "create must succeed"
 	check_pdo_conflict $PID1 && { wait $PID1; error "create isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1538,7 +1539,7 @@ test_44b() {
 	mv $DIR1/$tfile-2 $DIR1/$tfile &
 	PID1=$!
 	sleep 1
-	multiop $DIR2/$tfile oO_CREAT:O_EXCL:c && error "create must fail"
+	$MULTIOP $DIR2/$tfile oO_CREAT:O_EXCL:c && error "create must fail"
 	check_pdo_conflict $PID1 && { wait $PID1; error "create isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1655,7 +1656,7 @@ test_45b() {
 	mv $DIR1/$tfile $DIR1/$tfile-2 &
 	PID1=$!
 	sleep 1
-	multiop $DIR2/$tfile oO_CREAT:O_EXCL:c || error "create must succeed"
+	$MULTIOP $DIR2/$tfile oO_CREAT:O_EXCL:c || error "create must succeed"
 	check_pdo_conflict $PID1 && { wait $PID1; error "create isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
@@ -1770,7 +1771,7 @@ test_46b() {
 	link $DIR1/$tfile-2 $DIR1/$tfile &
 	PID1=$!
 	sleep 1
-	multiop $DIR2/$tfile oO_CREAT:O_EXCL:c && error "create must fail"
+	$MULTIOP $DIR2/$tfile oO_CREAT:O_EXCL:c && error "create must fail"
 	check_pdo_conflict $PID1 && { wait $PID1; error "create isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
