@@ -1364,6 +1364,12 @@ int cl_unuse_try(const struct lu_env *env, struct cl_lock *lock)
                 RETURN(0);
         }
 
+        lock->cll_flags |= CLF_LAST_UNUSE;
+        if (cl_lock_nesting(lock) == CNL_SUB && lock->cll_state == CLS_ENQUEUED)
+                /* The sublock state maybe not match the lower layer state,
+                 * like AGL case, so sync them before the last unuse(). */
+                cl_wait_try(env, lock);
+
         /*
          * New lock users (->cll_users) are not protecting unlocking
          * from proceeding. From this point, lock eventually reaches
@@ -1410,6 +1416,7 @@ int cl_unuse_try(const struct lu_env *env, struct cl_lock *lock)
         result = result ?: lock->cll_error;
         if (result < 0)
                 cl_lock_error(env, lock, result);
+        lock->cll_flags &= ~CLF_LAST_UNUSE;
         RETURN(result);
 }
 EXPORT_SYMBOL(cl_unuse_try);

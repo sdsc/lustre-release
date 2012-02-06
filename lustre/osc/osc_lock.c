@@ -1246,7 +1246,12 @@ static int osc_lock_wait(const struct lu_env *env,
                 if (olck->ols_flags & LDLM_FL_LVB_READY) {
                         return 0;
                 } else if (olck->ols_agl) {
-                        olck->ols_state = OLS_NEW;
+                        if (lock->cll_flags & CLF_LAST_UNUSE)
+                                /* It is the last unuse() for updating state.
+                                 * Do not trigger re-enqueue. */
+                                return -ENAVAIL;
+                        else
+                                olck->ols_state = OLS_NEW;
                 } else {
                         LASSERT(lock->cll_error);
                         return lock->cll_error;
@@ -1254,20 +1259,15 @@ static int osc_lock_wait(const struct lu_env *env,
         }
 
         if (olck->ols_state == OLS_NEW) {
-                if (lock->cll_descr.cld_enq_flags & CEF_NO_REENQUEUE) {
-                        return -ENAVAIL;
-                } else {
-                        int rc;
+                int rc;
 
-                        LASSERT(olck->ols_agl);
+                LASSERT(olck->ols_agl);
 
-                        rc = osc_lock_enqueue(env, slice, NULL, CEF_ASYNC |
-                                                                CEF_MUST);
-                        if (rc != 0)
-                                return rc;
-                        else
-                                return CLO_REENQUEUED;
-                }
+                rc = osc_lock_enqueue(env, slice, NULL, CEF_ASYNC | CEF_MUST);
+                if (rc != 0)
+                        return rc;
+                else
+                        return CLO_REENQUEUED;
         }
 
         LASSERT(equi(olck->ols_state >= OLS_UPCALL_RECEIVED &&
