@@ -2986,14 +2986,27 @@ static ssize_t osd_declare_write(const struct lu_env *env, struct dt_object *dt,
                                  struct thandle *handle)
 {
         struct osd_thandle *oh;
+        int credits;
 
         LASSERT(handle != NULL);
 
         oh = container_of0(handle, struct osd_thandle, ot_super);
         LASSERT(oh->ot_handle == NULL);
 
+        /* XXX: size == 0 or INT_MAX indicating a catalog header update or
+         *      llog write, see comment in mdd_declare_llog_record().
+         *
+         *      This hack should be removed in 2.3
+         */
+        if (size == 0)
+                credits = 2;
+        else if (size == INT_MAX)
+                credits = 6;
+        else
+                credits = osd_dto_credits_noquota[DTO_WRITE_BLOCK];
+
         OSD_DECLARE_OP(oh, write);
-        oh->ot_credits += osd_dto_credits_noquota[DTO_WRITE_BLOCK];
+        oh->ot_credits += credits;
 
         return 0;
 }
