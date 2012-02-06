@@ -3047,19 +3047,34 @@ static int osd_ldiskfs_write_record(struct inode *inode, void *buf, int bufsize,
         return err;
 }
 
+#define OSD_DECLARE_LLOG_UPDATE 0
+#define OSD_DECLARE_LLOG_WRITE  INT_MAX
 static ssize_t osd_declare_write(const struct lu_env *env, struct dt_object *dt,
                                  const loff_t size, loff_t pos,
                                  struct thandle *handle)
 {
         struct osd_thandle *oh;
+        int credits;
 
         LASSERT(handle != NULL);
 
         oh = container_of0(handle, struct osd_thandle, ot_super);
         LASSERT(oh->ot_handle == NULL);
 
+        /* XXX: size == 0 or INT_MAX indicating a catalog header update or
+         *      llog write, see comment in mdd_declare_llog_record().
+         *
+         *      This hack should be removed in 2.3
+         */
+        if (size == OSD_DECLARE_LLOG_UPDATE)
+                credits = 2;
+        else if (size == OSD_DECLARE_LLOG_WRITE)
+                credits = 6;
+        else
+                credits = osd_dto_credits_noquota[DTO_WRITE_BLOCK];
+
         OSD_DECLARE_OP(oh, write);
-        oh->ot_credits += osd_dto_credits_noquota[DTO_WRITE_BLOCK];
+        oh->ot_credits += credits;
 
         if (osd_dt_obj(dt)->oo_inode == NULL)
                 return 0;
