@@ -282,11 +282,10 @@ struct md_object_operations {
         int (*moo_path)(const struct lu_env *env, struct md_object *obj,
                         char *path, int pathlen, __u64 *recno, int *linkno);
         int (*moo_file_lock)(const struct lu_env *env, struct md_object *obj,
-                             struct lov_mds_md *lmm, struct ldlm_extent *extent,
+                             struct md_attr *ma, struct ldlm_extent *extent,
                              struct lustre_handle *lockh);
         int (*moo_file_unlock)(const struct lu_env *env, struct md_object *obj,
-                               struct lov_mds_md *lmm,
-                               struct lustre_handle *lockh);
+                               struct md_attr *ma, struct lustre_handle *lockh);
 };
 
 /**
@@ -761,20 +760,19 @@ static inline int mo_object_sync(const struct lu_env *env, struct md_object *m)
 }
 
 static inline int mo_file_lock(const struct lu_env *env, struct md_object *m,
-                               struct lov_mds_md *lmm,
-                               struct ldlm_extent *extent,
+                               struct md_attr *ma, struct ldlm_extent *extent,
                                struct lustre_handle *lockh)
 {
         LASSERT(m->mo_ops->moo_file_lock);
-        return m->mo_ops->moo_file_lock(env, m, lmm, extent, lockh);
+        return m->mo_ops->moo_file_lock(env, m, ma, extent, lockh);
 }
 
 static inline int mo_file_unlock(const struct lu_env *env, struct md_object *m,
-                                 struct lov_mds_md *lmm,
+                                 struct md_attr *ma,
                                  struct lustre_handle *lockh)
 {
         LASSERT(m->mo_ops->moo_file_unlock);
-        return m->mo_ops->moo_file_unlock(env, m, lmm, lockh);
+        return m->mo_ops->moo_file_unlock(env, m, ma, lockh);
 }
 
 static inline int mdo_lookup(const struct lu_env *env,

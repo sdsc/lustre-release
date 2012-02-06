@@ -209,10 +209,10 @@ void mdd_lov_create_finish(const struct lu_env *env, struct mdd_device *mdd,
                            struct lov_mds_md *lmm, int lmm_size,
                            const struct md_op_spec *spec);
 int mdd_file_lock(const struct lu_env *env, struct md_object *obj,
-                  struct lov_mds_md *lmm, struct ldlm_extent *extent,
+                  struct md_attr *ma, struct ldlm_extent *extent,
                   struct lustre_handle *lockh);
 int mdd_file_unlock(const struct lu_env *env, struct md_object *obj,
-                    struct lov_mds_md *lmm, struct lustre_handle *lockh);
+                    struct md_attr *ma, struct lustre_handle *lockh);
 int mdd_lum_lmm_cmp(const struct lu_env *env, struct md_object *cobj,
                     const struct md_op_spec *spec, struct md_attr *ma);
 int mdd_get_md(const struct lu_env *env, struct mdd_object *obj,

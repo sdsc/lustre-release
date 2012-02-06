@@ -385,21 +385,21 @@ static int cml_path(const struct lu_env *env, struct md_object *mo,
 }
 
 static int cml_file_lock(const struct lu_env *env, struct md_object *mo,
-                         struct lov_mds_md *lmm, struct ldlm_extent *extent,
+                         struct md_attr *ma, struct ldlm_extent *extent,
                          struct lustre_handle *lockh)
 {
         int rc;
         ENTRY;
-        rc = mo_file_lock(env, md_object_next(mo), lmm, extent, lockh);
+        rc = mo_file_lock(env, md_object_next(mo), ma, extent, lockh);
         RETURN(rc);
 }
 
 static int cml_file_unlock(const struct lu_env *env, struct md_object *mo,
-                           struct lov_mds_md *lmm, struct lustre_handle *lockh)
+                           struct md_attr *ma, struct lustre_handle *lockh)
 {
         int rc;
         ENTRY;
-        rc = mo_file_unlock(env, md_object_next(mo), lmm, lockh);
+        rc = mo_file_unlock(env, md_object_next(mo), ma, lockh);
         RETURN(rc);
 }
 
@@ -1126,14 +1126,14 @@ static int cmr_object_sync(const struct lu_env *env, struct md_object *mo)
 }
 
 static int cmr_file_lock(const struct lu_env *env, struct md_object *mo,
-                         struct lov_mds_md *lmm, struct ldlm_extent *extent,
+                         struct md_attr *ma, struct ldlm_extent *extent,
                          struct lustre_handle *lockh)
 {
         return -EREMOTE;
 }
 
 static int cmr_file_unlock(const struct lu_env *env, struct md_object *mo,
-                           struct lov_mds_md *lmm, struct lustre_handle *lockh)
+                           struct md_attr *ma, struct lustre_handle *lockh)
 {
         return -EREMOTE;
 }
