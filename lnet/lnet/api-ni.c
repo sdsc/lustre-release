@@ -59,17 +59,77 @@ static char *routes = "";
 CFS_MODULE_PARM(routes, "s", charp, 0444,
                 "routes to non-local networks");
 
-char *
-lnet_get_routes(void)
+static int lnet_read_file(const char *name, char *config, size_t size)
 {
-        return routes;
+        cfs_file_t      *filp;
+        int             rc;
+        loff_t          pos = 0;
+
+        filp = cfs_filp_open(name, O_RDONLY, 0600, &rc);
+        if (!filp) {
+                CERROR("Can't open file %s: rc %d\n", name, rc);
+                return rc;
+        }
+
+        rc = cfs_user_read(filp, config, size, &pos);
+        cfs_filp_close(filp);
+        if (rc < 0)
+                CERROR("Can't read file %s: rc %d\n", name, rc);
+
+        return rc;
+}
+
+static char *lnet_read_file_mem(const char *name, size_t max_size)
+{
+        char            *file;
+        int             rc;
+
+        file = cfs_alloc_large(max_size);
+        if (file == NULL) {
+                CERROR("Failed to allocate memory for "
+                       "file, size = %lu\n", (long unsigned)max_size);
+                return ERR_PTR(-ENOMEM);
+        }
+
+        memset(file, 0, max_size);
+
+        rc = lnet_read_file(name, file, max_size);
+        if (rc < 0) {
+                cfs_free_large(file);
+                return ERR_PTR(rc);
+        }
+
+        return file;
+}
+
+#define CFS_CONF_FILE_SIZE      (1024 * 1024)
+/* Caller should free memory */
+char *
+lnet_get_routes(int *should_free)
+{
+        char            *config = ERR_PTR(-ENOENT);
+
+        *should_free = 0;
+        if (*routes == '/') {
+                /* Read routes config file to memory */
+                config = lnet_read_file_mem(routes, CFS_CONF_FILE_SIZE);
+                if (!IS_ERR(config))
+                        *should_free = 1;
+                return config;
+        } else {
+                return routes;
+        }
 }
 
 char *
 lnet_get_networks(void)
 {
-        char   *nets;
+        char   *nets, *config;
         int     rc;
+
+        if (*networks == 0 && *ip2nets == 0)
+                /* default to "tcp" when nothing specified */
+                return "tcp";
 
         if (*networks != 0 && *ip2nets != 0) {
                 LCONSOLE_ERROR_MSG(0x101, "Please specify EITHER 'networks' or "
@@ -77,15 +137,25 @@ lnet_get_networks(void)
                 return NULL;
         }
 
-        if (*ip2nets != 0) {
-                rc = lnet_parse_ip2nets(&nets, ip2nets);
-                return (rc == 0) ? nets : NULL;
-        }
-
         if (*networks != 0)
                 return networks;
 
-        return "tcp";
+        LASSERT (*ip2nets != 0);
+
+        if (*ip2nets == '/') {
+                /* read config from file in ip2nets */
+                config = lnet_read_file_mem(ip2nets, CFS_CONF_FILE_SIZE);
+                if (IS_ERR(config))
+                        return NULL;
+        } else if (*ip2nets != 0) {
+                config = ip2nets;
+        }
+
+        rc = lnet_parse_ip2nets(&nets, config);
+        if (config != ip2nets)
+                cfs_free_large(config);
+
+        return (rc == 0) ? nets : NULL;
 }
 
 void
@@ -105,10 +175,11 @@ lnet_fini_locks(void)
 #else
 
 char *
-lnet_get_routes(void)
+lnet_get_routes(int *should_free)
 {
         char *str = getenv("LNET_ROUTES");
 
+        *should_free = 0;
         return (str == NULL) ? "" : str;
 }
 
@@ -1249,7 +1320,8 @@ int
 LNetNIInit(lnet_pid_t requested_pid)
 {
         int         im_a_router = 0;
-        int         rc;
+        int         rc, should_free;
+        char        *routes_cfg;
 
         LNET_MUTEX_DOWN(&the_lnet.ln_api_mutex);
 
@@ -1277,7 +1349,16 @@ LNetNIInit(lnet_pid_t requested_pid)
         if (rc != 0)
                 goto failed1;
 
-        rc = lnet_parse_routes(lnet_get_routes(), &im_a_router);
+        routes_cfg = lnet_get_routes(&should_free);
+        if (IS_ERR(routes_cfg)) {
+                rc = PTR_ERR(routes_cfg);
+                goto failed1_5;
+        }
+
+        rc = lnet_parse_routes(routes_cfg, &im_a_router);
+        if (should_free == 1)
+                cfs_free_large(routes_cfg);
+
         if (rc != 0)
                 goto failed2;
 
@@ -1316,6 +1397,7 @@ LNetNIInit(lnet_pid_t requested_pid)
         lnet_acceptor_stop();
  failed2:
         lnet_destroy_routes();
+ failed1_5:
         lnet_shutdown_lndnis();
  failed1:
         lnet_unprepare();
