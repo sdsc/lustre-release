@@ -106,21 +106,37 @@ truncate_complete_page(struct address_space *mapping, struct page *page)
 }
 #endif /* !HAVE_TRUNCATE_COMPLETE_PAGE */
 
-#if !defined(HAVE_D_REHASH_COND) && !defined(HAVE___D_REHASH)
-/* megahack */
-static inline void d_rehash_cond(struct dentry * entry, int lock)
+#ifdef HAVE_DCACHE_LOCK
+#  define LOCK_DCACHE                   spin_lock(&dcache_lock)
+#  define UNLOCK_DCACHE                 spin_unlock(&dcache_lock)
+#  define dget_dlock(d)                 dget_locked(d)
+#  define d_refcount(d)                 atomic_read(&(d)->d_count)
+#else
+#  define LOCK_DCACHE                   do {} while (0)
+#  define UNLOCK_DCACHE                 do {} while (0)
+#  define d_refcount(d)                 ((d)->d_count)
+#endif /* HAVE_DCACHE_LOCK */
+
+#ifndef HAVE_D_REHASH_COND
+/*
+ * Mega hack! Later kernels doesn't export this function, and this hack will
+ * unlock dcache before calling d_rehash, it will race with other places where
+ * hash/unhash operation is done, so guarantee inode->i_lock is taken upon
+ * entry. Even for kernels >= 2.6.38 which has removed dcache_lock, we can't
+ * take dentry->d_lock before calling this function, so inode->i_lock should be
+ * taken always.
+ */
+static inline void d_rehash_cond(struct dentry *entry, int lock)
 {
-	if (!lock)
-		spin_unlock(&dcache_lock);
+        LASSERT(!lock);
+        LASSERT(entry->d_inode == NULL ||
+                spin_is_locked(&entry->d_inode->i_lock));
 
-	d_rehash(entry);
-
-	if (!lock)
-		spin_lock(&dcache_lock);
+        UNLOCK_DCACHE;
+        d_rehash(entry);
+        LOCK_DCACHE;
 }
-
-#define __d_rehash(dentry, lock) d_rehash_cond(dentry, lock)
-#endif /* !HAVE_D_REHASH_COND && !HAVE___D_REHASH*/
+#endif
 
 #ifdef ATTR_OPEN
 # define ATTR_FROM_OPEN ATTR_OPEN

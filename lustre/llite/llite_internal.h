@@ -759,15 +759,20 @@ int ll_fid2path(struct obd_export *exp, void *arg);
 
 /* llite/dcache.c */
 int ll_dops_init(struct dentry *de, int block, int init_sa);
-extern cfs_spinlock_t ll_lookup_lock;
 extern struct dentry_operations ll_d_ops;
 void ll_intent_drop_lock(struct lookup_intent *);
 void ll_intent_release(struct lookup_intent *);
-int ll_drop_dentry(struct dentry *dentry);
+void ll_drop_dentry(struct dentry *dentry);
 void ll_unhash_aliases(struct inode *);
 void ll_frob_intent(struct lookup_intent **itp, struct lookup_intent *deft);
 void ll_lookup_finish_locks(struct lookup_intent *it, struct dentry *dentry);
+#ifdef HAVE_D_COMPARE_7ARGS
+int ll_dcompare(const struct dentry *parent, const struct inode *pinode,
+                const struct dentry *dentry, const struct inode *inode,
+                unsigned int len, const char *str, const struct qstr *d_name);
+#else
 int ll_dcompare(struct dentry *parent, struct qstr *d_name, struct qstr *name);
+#endif
 int ll_revalidate_it_finish(struct ptlrpc_request *request,
                             struct lookup_intent *it, struct dentry *de);
 
@@ -1438,28 +1443,13 @@ static inline void ll_set_lock_data(struct obd_export *exp, struct inode *inode,
                 *bits = it->d.lustre.it_lock_bits;
 }
 
-static inline void ll_dentry_rehash(struct dentry *dentry, int locked)
-{
-        if (!locked) {
-                cfs_spin_lock(&ll_lookup_lock);
-                spin_lock(&dcache_lock);
-        }
-        if (d_unhashed(dentry))
-                d_rehash_cond(dentry, 0);
-        if (!locked) {
-                spin_unlock(&dcache_lock);
-                cfs_spin_unlock(&ll_lookup_lock);
-        }
-}
-
 static inline void ll_dentry_reset_flags(struct dentry *dentry, __u64 bits)
 {
-        if (bits & MDS_INODELOCK_LOOKUP &&
-            dentry->d_flags & DCACHE_LUSTRE_INVALID) {
-                lock_dentry(dentry);
+        spin_lock(&dentry->d_lock);
+        if ((bits & MDS_INODELOCK_LOOKUP) &&
+            (dentry->d_flags & DCACHE_LUSTRE_INVALID))
                 dentry->d_flags &= ~DCACHE_LUSTRE_INVALID;
-                unlock_dentry(dentry);
-        }
+        spin_unlock(&dentry->d_lock);
 }
 
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2,7,50,0)
@@ -1479,5 +1469,35 @@ struct if_quotactl_18 {
 #else
 #warning "remove old LL_IOC_QUOTACTL_18 compatibility code"
 #endif /* LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2,7,50,0) */
+
+/*
+ * Locking rule:
+ * inode->i_lock ->
+ *   dcache_lock (for kernels < 2.6.38)
+ *
+ * Because lustre client doesn't remove a dentry from hash (but set INVALID
+ * flag) upon dentry drop (lost inodebit LOOKUP lock), and upon rehash
+ * dcache_lock (for old kernels) and dentry->d_lock cannot be taken to avoid
+ * race, inode->i_lock is always taken in dentry hash/unhash.
+ *
+ * Negative dentry can't take inode->i_lock, but I can't think of a case which
+ * is unsafe here.
+ *
+ * One difference from kernel: because we always take inode->i_lock in dentry
+ * hash/unhash, it's not necessary to take dentry->d_lock in many places.
+ */
+static inline void ll_lock_dcache(struct inode *inode)
+{
+        if (inode)
+                spin_lock(&inode->i_lock);
+        LOCK_DCACHE;
+}
+
+static inline void ll_unlock_dcache(struct inode *inode)
+{
+        UNLOCK_DCACHE;
+        if (inode)
+                spin_unlock(&inode->i_lock);
+}
 
 #endif /* LLITE_INTERNAL_H */

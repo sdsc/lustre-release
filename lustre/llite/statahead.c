@@ -1662,7 +1662,11 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
                                 } else {
                                         LASSERT((*dentryp)->d_inode == inode);
 
-                                        ll_dentry_rehash(*dentryp, 0);
+                                        ll_lock_dcache(inode);
+                                        if (d_unhashed(*dentryp))
+                                                d_rehash_cond(*dentryp, 0);
+                                        ll_unlock_dcache(inode);
+
                                         iput(inode);
                                 }
                                 entry->se_inode = NULL;

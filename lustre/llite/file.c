@@ -2293,11 +2293,9 @@ int __ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
                    here to preserve get_cwd functionality on 2.6.
                    Bug 10503 */
                 if (!dentry->d_inode->i_nlink) {
-                        cfs_spin_lock(&ll_lookup_lock);
-                        spin_lock(&dcache_lock);
+                        ll_lock_dcache(inode);
                         ll_drop_dentry(dentry);
-                        spin_unlock(&dcache_lock);
-                        cfs_spin_unlock(&ll_lookup_lock);
+                        ll_unlock_dcache(inode);
                 }
 
                 ll_lookup_finish_locks(&oit, dentry);
@@ -2459,7 +2457,7 @@ lustre_check_acl(struct inode *inode, int mask)
         int rc;
         ENTRY;
 
-#ifdef HAVE_GENERIC_PERMISSION_4ARGS
+#ifdef IPERM_FLAG_RCU
         if (flags & IPERM_FLAG_RCU)
                 return -ECHILD;
 #endif
@@ -2491,6 +2489,11 @@ int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd)
 {
         int rc = 0;
         ENTRY;
+
+#ifdef IPERM_FLAG_RCU
+        if (flags & IPERM_FLAG_RCU)
+                return -ECHILD;
+#endif
 
        /* as root inode are NOT getting validated in lookup operation,
         * need to do it before permission check. */
