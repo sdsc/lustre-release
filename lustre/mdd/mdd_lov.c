@@ -900,7 +900,6 @@ static int grouplock_blocking_ast(struct ldlm_lock *lock,
                                   struct ldlm_lock_desc *desc,
                                   void *data, int flag)
 {
-        struct md_attr *ma = data;
         struct lustre_handle lockh;
         int rc = 0;
         ENTRY;
@@ -919,11 +918,6 @@ static int grouplock_blocking_ast(struct ldlm_lock *lock,
                         CDEBUG(D_DLMTRACE,
                                "Lock %p has been canceled, do cleaning\n",
                                lock);
-
-                        if (ma && ma->ma_som)
-                                OBD_FREE_PTR(ma->ma_som);
-                        if (ma)
-                                OBD_FREE_PTR(ma);
                         break;
                 default:
                         LBUG();
@@ -973,7 +967,7 @@ out:
 }
 
 int mdd_file_lock(const struct lu_env *env, struct md_object *obj,
-                  struct lov_mds_md *lmm, struct ldlm_extent *extent,
+                  struct md_attr *ma, struct ldlm_extent *extent,
                   struct lustre_handle *lockh)
 {
         struct ldlm_enqueue_info einfo = { 0 };
@@ -981,26 +975,18 @@ int mdd_file_lock(const struct lu_env *env, struct md_object *obj,
         struct obd_device *obd;
         struct obd_export *lov_exp;
         struct lov_stripe_md *lsm = NULL;
-        struct md_attr *ma = NULL;
         int rc;
         ENTRY;
+
+        LASSERT(ma->ma_valid & MA_LOV);
 
         obd = mdo2mdd(obj)->mdd_obd_dev;
         lov_exp = obd->u.mds.mds_lov_exp;
 
-        obd_unpackmd(lov_exp, &lsm, lmm,
-                     lov_mds_md_size(lmm->lmm_stripe_count, lmm->lmm_magic));
-
-        OBD_ALLOC_PTR(ma);
-        if (ma == NULL)
-                GOTO(out, rc = -ENOMEM);
-
-        OBD_ALLOC_PTR(ma->ma_som);
-        if (ma->ma_som == NULL)
-                GOTO(out, rc = -ENOMEM);
-
         ma->ma_need = MA_SOM | MA_INODE;
-        mo_attr_get(env, obj, ma);
+        rc = mo_attr_get(env, obj, ma);
+        if (rc)
+                GOTO(out, rc);
 
         einfo.ei_type = LDLM_EXTENT;
         einfo.ei_mode = LCK_GROUP;
@@ -1013,6 +999,12 @@ int mdd_file_lock(const struct lu_env *env, struct md_object *obj,
         else
                 einfo.ei_cbdata = NULL;
 
+        rc = obd_unpackmd(lov_exp, &lsm, ma->ma_lmm,
+                          lov_mds_md_size(ma->ma_lmm->lmm_stripe_count,
+                          ma->ma_lmm->lmm_magic));
+        if (rc < 0)
+                GOTO(out, rc);
+
         memset(&oinfo.oi_policy, 0, sizeof(oinfo.oi_policy));
         oinfo.oi_policy.l_extent = *extent;
         oinfo.oi_lockh = lockh;
@@ -1020,24 +1012,18 @@ int mdd_file_lock(const struct lu_env *env, struct md_object *obj,
         oinfo.oi_flags = 0;
 
         rc = obd_enqueue(lov_exp, &oinfo, &einfo, NULL);
-        /* ei_cbdata is used as a free flag at exit */
+        /* lock failed, so we clear reference to ma to force
+         * ma free when leaving */
         if (rc)
                 einfo.ei_cbdata = NULL;
 
-        obd_unpackmd(lov_exp, &lsm, NULL, 0);
-
+        obd_free_memmd(lov_exp, &lsm);
 out:
-        /* ma is freed if not used as callback data */
-        if ((einfo.ei_cbdata == NULL) && ma && ma->ma_som)
-                OBD_FREE_PTR(ma->ma_som);
-        if ((einfo.ei_cbdata == NULL) && ma)
-                OBD_FREE_PTR(ma);
-
         RETURN(rc);
 }
 
 int mdd_file_unlock(const struct lu_env *env, struct md_object *obj,
-                    struct lov_mds_md *lmm, struct lustre_handle *lockh)
+                    struct md_attr *ma, struct lustre_handle *lockh)
 {
         struct obd_device *obd;
         struct obd_export *lov_exp;
@@ -1046,16 +1032,21 @@ int mdd_file_unlock(const struct lu_env *env, struct md_object *obj,
         ENTRY;
 
         LASSERT(lustre_handle_is_used(lockh));
+        LASSERT(ma->ma_valid & MA_LOV);
 
         obd = mdo2mdd(obj)->mdd_obd_dev;
         lov_exp = obd->u.mds.mds_lov_exp;
 
-        obd_unpackmd(lov_exp, &lsm, lmm,
-                     lov_mds_md_size(lmm->lmm_stripe_count, lmm->lmm_magic));
+        rc = obd_unpackmd(lov_exp, &lsm, ma->ma_lmm,
+                          lov_mds_md_size(ma->ma_lmm->lmm_stripe_count,
+                          ma->ma_lmm->lmm_magic));
+        if (rc < 0)
+                GOTO(out, rc);
 
         rc = obd_cancel(lov_exp, lsm, LCK_GROUP, lockh);
 
-        obd_unpackmd(lov_exp, &lsm, NULL, 0);
+out:
+        obd_free_memmd(lov_exp, &lsm);
 
         RETURN(rc);
 }
