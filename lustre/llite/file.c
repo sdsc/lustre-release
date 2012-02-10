@@ -2078,7 +2078,8 @@ int ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
                 einfo.ei_mode = LCK_PW;
                 break;
         default:
-                CERROR("unknown fcntl lock type: %d\n", file_lock->fl_type);
+                CDEBUG(D_INFO, "Unknown fcntl lock type: %d\n",
+                        file_lock->fl_type);
                 RETURN (-EINVAL);
         }
 
