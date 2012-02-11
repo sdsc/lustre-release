@@ -357,19 +357,6 @@ AC_SUBST(MXLND)
 #
 AC_DEFUN([LN_CONFIG_O2IB],[
 
-# In RHEL 6.2, rdma_create_id() takes the queue-pair type as a fourth argument
-AC_MSG_CHECKING([if rdma_create_id wants four args])
-LB_LINUX_TRY_COMPILE([
-	#include <rdma/rdma_cm.h>
-],[
-	rdma_create_id(NULL, NULL, 0, 0);
-],[
-	AC_MSG_RESULT([yes])
-	AC_DEFINE(HAVE_RDMA_CREATE_ID_4ARG, 1, [rdma_create_id wants 4 args])
-],[
-	AC_MSG_RESULT([no])
-])
-
 AC_MSG_CHECKING([whether to enable OpenIB gen2 support])
 # set default
 AC_ARG_WITH([o2ib],
@@ -395,10 +382,7 @@ if test $ENABLEO2IB -eq 0; then
 else
 	o2ib_found=false
 	for O2IBPATH in $O2IBPATHS; do
-		if test \( -f ${O2IBPATH}/include/rdma/rdma_cm.h -a \
-			   -f ${O2IBPATH}/include/rdma/ib_cm.h -a \
-			   -f ${O2IBPATH}/include/rdma/ib_verbs.h -a \
-			   -f ${O2IBPATH}/include/rdma/ib_fmr_pool.h \); then
+		if test \( -f ${O2IBPATH}/include/rdma/rdma_cm.h \); then
 			if test \( -d ${O2IBPATH}/kernel_patches -a \
 				   -f ${O2IBPATH}/Makefile \); then
 				AC_MSG_RESULT([no])
@@ -423,29 +407,9 @@ else
 		EXTRA_LNET_INCLUDE="$EXTRA_LNET_INCLUDE $O2IBCPPFLAGS"
 
 		LB_LINUX_TRY_COMPILE([
-		        #include <linux/version.h>
-		        #include <linux/pci.h>
-		        #if !HAVE_GFP_T
-		        typedef int gfp_t;
-		        #endif
 		        #include <rdma/rdma_cm.h>
-		        #include <rdma/ib_cm.h>
-		        #include <rdma/ib_verbs.h>
-		        #include <rdma/ib_fmr_pool.h>
 		],[
-		        struct rdma_cm_id          *cm_id;
-		        struct rdma_conn_param      conn_param;
-		        struct ib_device_attr       device_attr;
-		        struct ib_qp_attr           qp_attr;
-		        struct ib_pool_fmr          pool_fmr;
-		        enum   ib_cm_rej_reason     rej_reason;
-
-		        #ifdef HAVE_RDMA_CREATE_ID_4ARG
-		        cm_id = rdma_create_id(NULL, NULL, RDMA_PS_TCP, 0);
-		        #else
-		        cm_id = rdma_create_id(NULL, NULL, RDMA_PS_TCP);
-		        #endif
-		        return PTR_ERR(cm_id);
+		        rdma_destroy_id(NULL);
 		],[
 		        AC_MSG_RESULT([yes])
 		        O2IBLND="o2iblnd"
@@ -493,6 +457,22 @@ fi
 AC_SUBST(EXTRA_LNET_INCLUDE)
 AC_SUBST(O2IBCPPFLAGS)
 AC_SUBST(O2IBLND)
+
+# In RHEL 6.2, rdma_create_id() takes the queue-pair type as a fourth argument
+if test $ENABLEO2IB -ne 0 ; then
+	AC_MSG_CHECKING([if rdma_create_id wants four args])
+	LB_LINUX_TRY_COMPILE([
+		#include <rdma/rdma_cm.h>
+	],[
+		rdma_create_id(NULL, NULL, 0, 0);
+	],[
+		AC_MSG_RESULT([yes])
+		AC_DEFINE(HAVE_RDMA_CREATE_ID_4ARG, 1,
+			[rdma_create_id wants 4 args])
+	],[
+		AC_MSG_RESULT([no])
+	])
+fi
 ])
 
 #
