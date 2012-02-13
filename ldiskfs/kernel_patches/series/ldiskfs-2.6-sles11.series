@@ -1,6 +1,6 @@
 ext4-wantedi-2.6-rhel6.patch
 ext4-map_inode_page-2.6.18-rhel5.patch
-export-ext4-2.6-rhel5.patch
+export-ext4-2.6-rhel6.patch
 ext4-remove-cond_resched-calls-rhel5.patch
 ext4-nlink-2.6-rhel5.patch
 ext4-ext_generation-sles11.patch
@@ -20,7 +20,7 @@ ext4-force_over_128tb-rhel6.patch
 ext4-pdir-fix-rhel6.patch
 ext4-osd-iop-common-rhel6.patch
 ext4-osd-iam-exports-rhel6.patch
-ext4-dynlocks-common-rhel6.patch
+ext4-dynlocks-common-sles11.patch
 ext4-hash-indexed-dir-dotdot-update-rhel5.patch
 ext4-kill-dx_root-rhel6.patch
 ext4-extents-mount-option-rhel6.patch
