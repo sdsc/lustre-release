@@ -160,6 +160,7 @@ typedef __u64 kdev_t;
 #endif
 
 #define simple_strtol strtol
+#define simple_strtoul strtoul
 
 /* registering symbols */
 #ifndef ERESTARTSYS

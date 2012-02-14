@@ -892,6 +892,47 @@ static int class_set_global(char *ptr, int val) {
         RETURN(0);
 }
 
+/* convert sys parameter to lustre_cfg, @ptr stores value pointer upon return */
+struct lustre_cfg *class_sys_param2lcfg(struct lustre_cfg_bufs *bufs, char *sys,
+                                        char **ptr)
+{
+        struct lustre_cfg *lcfg;
+        char *tmp;
+        int cmd, val;
+
+        if (class_match_param(*ptr, PARAM_TIMEOUT, &tmp) == 0)
+                cmd = LCFG_SET_TIMEOUT;
+        else if (class_match_param(*ptr, PARAM_LDLM_TIMEOUT, &tmp) == 0)
+                cmd = LCFG_SET_LDLM_TIMEOUT;
+        /* Check for known ptr here so we can return error to lctl */
+        else if ((class_match_param(*ptr, PARAM_AT_MIN, &tmp) == 0)
+                 || (class_match_param(*ptr, PARAM_AT_MAX, &tmp) == 0)
+                 || (class_match_param(*ptr, PARAM_AT_EXTRA, &tmp) == 0)
+                 || (class_match_param(*ptr, PARAM_AT_EARLY_MARGIN, &tmp) == 0)
+                 || (class_match_param(*ptr, PARAM_AT_HISTORY, &tmp) == 0))
+                cmd = LCFG_PARAM;
+        else
+                return ERR_PTR(-EINVAL);
+
+        /* separate the value */
+        val = simple_strtoul(tmp, NULL, 0);
+        if (*tmp == '\0')
+                CDEBUG(D_CONFIG, "global '%s' removed\n", sys);
+        else
+                CDEBUG(D_CONFIG, "global '%s' val=%d\n", sys, val);
+
+        lustre_cfg_bufs_reset(bufs, NULL);
+        lustre_cfg_bufs_set_string(bufs, 1, sys);
+        lcfg = lustre_cfg_new(cmd, bufs);
+        if (!IS_ERR(lcfg))
+                lcfg->lcfg_num = val;
+
+        /* return value string pointer back */
+        *ptr = tmp;
+
+        return lcfg;
+}
+EXPORT_SYMBOL(class_sys_param2lcfg);
 
 /* We can't call ll_process_config directly because it lives in a module that
    must be loaded after this one. */

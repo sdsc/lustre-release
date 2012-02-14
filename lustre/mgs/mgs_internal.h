@@ -177,6 +177,7 @@ struct fs_db *mgs_find_fsdb(struct obd_device *obd, char *fsname);
 int mgs_get_fsdb_srpc_from_llog(struct obd_device *obd, struct fs_db *fsdb);
 int mgs_check_index(struct obd_device *obd, struct mgs_target_info *mti);
 int mgs_check_failnid(struct obd_device *obd, struct mgs_target_info *mti);
+int mgs_process_params(char *params);
 int mgs_write_log_target(struct obd_device *obd, struct mgs_target_info *mti,
                          struct fs_db *fsdb);
 int mgs_upgrade_sv_14(struct obd_device *obd, struct mgs_target_info *mti,

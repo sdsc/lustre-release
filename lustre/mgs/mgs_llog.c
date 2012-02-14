@@ -2007,45 +2007,22 @@ static int mgs_write_log_sys(struct obd_device *obd, struct fs_db *fsdb,
 {
         struct lustre_cfg_bufs bufs;
         struct lustre_cfg *lcfg;
-        char *tmp;
         char sep;
-        int cmd, val;
         int rc;
 
-        if (class_match_param(ptr, PARAM_TIMEOUT, &tmp) == 0)
-                cmd = LCFG_SET_TIMEOUT;
-        else if (class_match_param(ptr, PARAM_LDLM_TIMEOUT, &tmp) == 0)
-                cmd = LCFG_SET_LDLM_TIMEOUT;
-        /* Check for known params here so we can return error to lctl */
-        else if ((class_match_param(ptr, PARAM_AT_MIN, &tmp) == 0)
-                 || (class_match_param(ptr, PARAM_AT_MAX, &tmp) == 0)
-                 || (class_match_param(ptr, PARAM_AT_EXTRA, &tmp) == 0)
-                 || (class_match_param(ptr, PARAM_AT_EARLY_MARGIN, &tmp) == 0)
-                 || (class_match_param(ptr, PARAM_AT_HISTORY, &tmp) == 0))
-                cmd = LCFG_PARAM;
-        else
-                return -EINVAL;
+        lcfg = class_sys_param2lcfg(&bufs, sys, &ptr);
+        if (IS_ERR(lcfg))
+                return PTR_ERR(lcfg);
 
-        /* separate the value */
-        val = simple_strtoul(tmp, NULL, 0);
-        if (*tmp == '\0')
-                CDEBUG(D_MGS, "global '%s' removed\n", sys);
-        else
-                CDEBUG(D_MGS, "global '%s' val=%d\n", sys, val);
-
-        lustre_cfg_bufs_reset(&bufs, NULL);
-        lustre_cfg_bufs_set_string(&bufs, 1, sys);
-        lcfg = lustre_cfg_new(cmd, &bufs);
-        lcfg->lcfg_num = val;
         /* truncate the comment to the parameter name */
-        ptr = tmp - 1;
-        sep = *ptr;
-        *ptr = '\0';
+        sep = *(ptr - 1);
+        *(ptr - 1) = '\0';
+
         /* modify all servers and clients */
         rc = mgs_write_log_direct_all(obd, fsdb, mti,
-                                      *tmp == '\0' ? NULL : lcfg,
+                                      *ptr == '\0' ? NULL : lcfg,
                                       mti->mti_fsname, sys);
-        *ptr = sep;
+        *(ptr - 1) = sep;
         lustre_cfg_free(lcfg);
         return rc;
 }
