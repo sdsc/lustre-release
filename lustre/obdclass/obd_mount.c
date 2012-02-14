@@ -520,6 +520,68 @@ static int lustre_start_simple(char *obdname, char *type, char *uuid,
         return rc;
 }
 
+static int lustre_process_sys_param(char *sys, char *ptr)
+{
+        struct lustre_cfg_bufs bufs;
+        struct lustre_cfg *lcfg;
+        char sep;
+        int rc;
+
+        lcfg = class_sys_param2lcfg(&bufs, sys, &ptr);
+        if (IS_ERR(lcfg))
+                return PTR_ERR(lcfg);
+
+        /* truncate the comment to the parameter name */
+        sep = *(ptr - 1);
+        *(ptr - 1) = '\0';
+
+        rc = class_process_config(lcfg);
+
+        *(ptr - 1) = sep;
+        lustre_cfg_free(lcfg);
+        return rc;
+}
+
+/*
+ * LU-1014 MGS doesn't follow normal target setup procedure, and it needs to
+ * process sys parameters from mountdata directly. NB, only runtime sys
+ * parameters are updated according to on-disk data, and the on-disk data can't
+ * be changed by normal `lctl conf_param ...` command, because it applies to
+ * MDT/OST only, that means, the only way to change MGS sys parameters is
+ * through tunefs.lustre.
+ */
+static int lustre_process_params(char *ptr)
+{
+        char *buf, *tmp;
+        int rc = 0;
+
+        /* allocate temporary buffer, where class_get_next_param will
+           make copy of a current parameter */
+        OBD_ALLOC(buf, strlen(ptr) + 1);
+        if (buf == NULL)
+                return -ENOMEM;
+        while (ptr != NULL) {
+                rc = class_get_next_param(&ptr, buf);
+                if (rc) {
+                        if (rc == 1)
+                                /* there is no next parameter, that is not an
+                                   error */
+                                rc = 0;
+                        break;
+                }
+                CDEBUG(D_CONFIG, "remaining string: '%s', param: '%s'\n",
+                       ptr, buf);
+
+                if (class_match_param(buf, PARAM_SYS, &tmp) == 0) {
+                        rc = lustre_process_sys_param(buf, tmp);
+                        if (rc)
+                                break;
+                }
+        }
+
+        return rc;
+}
+
 /* Set up a MGS to serve startup logs */
 static int server_start_mgs(struct super_block *sb)
 {
@@ -551,6 +613,9 @@ static int server_start_mgs(struct super_block *sb)
                 /* Do NOT call server_deregister_mount() here. This leads to
                  * inability cleanup cleanly and free lsi and other stuff when
                  * mgs calls server_put_mount() in error handling case. -umka */
+
+                if (!rc)
+                        rc = lustre_process_params(lsi->lsi_ldd->ldd_params);
         }
 
         if (rc)
