@@ -1326,10 +1326,20 @@ static mdt_reinter reinters[REINT_MAX] = {
 int mdt_reint_rec(struct mdt_thread_info *info,
                   struct mdt_lock_handle *lhc)
 {
+        struct obd_export *exp = info->mti_exp;
         int rc;
         ENTRY;
 
         rc = reinters[info->mti_rr.rr_opcode](info, lhc);
+        /* If some operation target missed during recovery,
+         * then it is regarded as version unmatched. */
+        if (req_is_replay(mdt_info_req(info)) && rc == -ENOENT &&
+            exp_connect_vbr(exp)) {
+                cfs_spin_lock(&exp->exp_lock);
+                exp->exp_vbr_failed = 1;
+                cfs_spin_unlock(&exp->exp_lock);
+                rc = -EOVERFLOW;
+        }
 
         RETURN(rc);
 }
