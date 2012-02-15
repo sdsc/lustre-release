@@ -1200,9 +1200,11 @@ int ll_md_setattr(struct dentry *dentry, struct md_op_data *op_data,
         struct inode *inode = dentry->d_inode;
         struct ll_sb_info *sbi = ll_i2sbi(inode);
         struct ptlrpc_request *request = NULL;
-        int rc;
+        int rc, ia_valid;
         ENTRY;
 
+        /* We always do an MDS RPC, even if we're only changing the size;
+         * only the MDS knows whether truncate() should fail with -ETXTBUSY */
         op_data = ll_prep_md_op_data(op_data, inode, NULL, NULL, 0, 0,
                                      LUSTRE_OPC_ANY, NULL);
         if (IS_ERR(op_data))
@@ -1232,12 +1234,14 @@ int ll_md_setattr(struct dentry *dentry, struct md_op_data *op_data,
                 RETURN(rc);
         }
 
-        /* We call inode_setattr to adjust timestamps.
+        /* We want to adjust timestamps.
          * If there is at least some data in file, we cleared ATTR_SIZE
-         * above to avoid invoking vmtruncate, otherwise it is important
-         * to call vmtruncate in inode_setattr to update inode->i_size
+         * to avoid update size, otherwise it is important to do.(SOM case)
          * (bug 6196) */
+        ia_valid = op_data->op_attr.ia_valid;
+        op_data->op_attr.ia_valid |= ATTR_FORCE; /* bypass permission check */
         rc = simple_setattr(dentry, &op_data->op_attr);
+        op_data->op_attr.ia_valid = ia_valid;
 
         /* Extract epoch data if obtained. */
         op_data->op_handle = md.body->handle;
@@ -1370,21 +1374,19 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
         if (lsm)
                 attr->ia_valid &= ~ATTR_SIZE;
 
-        /* We always do an MDS RPC, even if we're only changing the size;
-         * only the MDS knows whether truncate() should fail with -ETXTBUSY */
-
         OBD_ALLOC_PTR(op_data);
         if (op_data == NULL)
                 RETURN(-ENOMEM);
 
-        UNLOCK_INODE_MUTEX(inode);
-        if (ia_valid & ATTR_SIZE)
-                UP_WRITE_I_ALLOC_SEM(inode);
-        if (!S_ISDIR(inode->i_mode))
+        if (!S_ISDIR(inode->i_mode)) {
+                if (ia_valid & ATTR_SIZE)
+                        UP_WRITE_I_ALLOC_SEM(inode);
+                UNLOCK_INODE_MUTEX(inode);
                 cfs_down_write(&lli->lli_trunc_sem);
-        LOCK_INODE_MUTEX(inode);
-        if (ia_valid & ATTR_SIZE)
-                DOWN_WRITE_I_ALLOC_SEM(inode);
+                LOCK_INODE_MUTEX(inode);
+                if (ia_valid & ATTR_SIZE)
+                        DOWN_WRITE_I_ALLOC_SEM(inode);
+        }
 
         memcpy(&op_data->op_attr, attr, sizeof(*attr));
 
