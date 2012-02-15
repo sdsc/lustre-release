@@ -1264,7 +1264,7 @@ static int mdt_sendpage(struct mdt_thread_info *info,
         struct ptlrpc_request   *req = mdt_info_req(info);
         struct obd_export       *exp = req->rq_export;
         struct ptlrpc_bulk_desc *desc;
-        struct l_wait_info      *lwi = &info->mti_u.rdpg.mti_wait_info;
+        struct l_wait_info      *lwi = &info->mti_wait_info;
         int                      tmpcount;
         int                      tmpsize;
         int                      i;
@@ -1380,9 +1380,9 @@ static int mdt_bulk_timeout(void *data)
 
 static int mdt_writepage(struct mdt_thread_info *info)
 {
+        struct l_wait_info      *lwi = &info->mti_wait_info;
         struct ptlrpc_request   *req = mdt_info_req(info);
         struct mdt_body         *reqbody;
-        struct l_wait_info      *lwi;
         struct ptlrpc_bulk_desc *desc;
         struct page             *page;
         int                rc;
@@ -1415,10 +1415,6 @@ static int mdt_writepage(struct mdt_thread_info *info)
          * Check if client was evicted while we were doing i/o before touching
          * network.
          */
-        OBD_ALLOC_PTR(lwi);
-        if (!lwi)
-                GOTO(cleanup_page, rc = -ENOMEM);
-
         if (desc->bd_export->exp_failed)
                 rc = -ENOTCONN;
         else
@@ -1448,12 +1444,9 @@ static int mdt_writepage(struct mdt_thread_info *info)
         } else {
                 DEBUG_REQ(D_ERROR, req, "ptlrpc_bulk_get failed: rc %d", rc);
         }
-        if (rc)
-                GOTO(cleanup_lwi, rc);
-        rc = mdt_write_dir_page(info, page, reqbody->nlink);
+        if (rc == 0)
+                rc = mdt_write_dir_page(info, page, reqbody->nlink);
 
-cleanup_lwi:
-        OBD_FREE_PTR(lwi);
 cleanup_page:
         cfs_free_page(page);
 desc_cleanup:
@@ -1465,7 +1458,7 @@ desc_cleanup:
 static int mdt_readpage(struct mdt_thread_info *info)
 {
         struct mdt_object *object = info->mti_object;
-        struct lu_rdpg    *rdpg = &info->mti_u.rdpg.mti_rdpg;
+        struct lu_rdpg    *rdpg = &info->mti_u.mti_rdpg;
         struct mdt_body   *reqbody;
         struct mdt_body   *repbody;
         int                rc;
@@ -2076,20 +2069,91 @@ static struct mdt_object *mdt_obj(struct lu_object *o)
         return container_of0(o, struct mdt_object, mot_obj.mo_lu);
 }
 
+#include <lustre/lustre_scrub_user.h>
+
 struct mdt_object *mdt_object_find(const struct lu_env *env,
                                    struct mdt_device *d,
                                    const struct lu_fid *f)
 {
+        struct mdt_thread_info *info = mdt_env_info(env);
         struct lu_object *o;
         struct mdt_object *m;
+        int scrub_once = 0;
+        int inconsistent_once = 0;
+        int rc;
         ENTRY;
 
         CDEBUG(D_INFO, "Find object for "DFID"\n", PFID(f));
+again:
         o = lu_object_find(env, &d->mdt_md_dev.md_lu_dev, f, NULL);
-        if (unlikely(IS_ERR(o)))
-                m = (struct mdt_object *)o;
-        else
-                m = mdt_obj(o);
+        if (IS_ERR(o)) {
+                rc = PTR_ERR(o);
+                if (rc == -EREMCHG && ++scrub_once == 1) {
+                        struct scrub_start *start;
+
+                        OBD_ALLOC_PTR(start);
+                        if (unlikely(start == NULL)) {
+                                CERROR("Not enough memory to start OI Scrub\n");
+                                RETURN((struct mdt_object *)o);
+                        }
+
+                        start->ss_version = SCRUB_VERSION_V1;
+                        start->ss_active = ST_OI_SCRUB;
+                        start->ss_flags = 0;
+                        start->ss_sponsor = SCRUB_TRIGGERED_BY_RPC;
+                        start->ss_valid = SSV_ERROR_HANDLE | SSV_DRYRUN;
+                        CDEBUG(D_SCRUB, "Trigger OI scrub by RPC for "DFID"\n",
+                               PFID(f));
+                        rc = mdt_iocontrol(OBD_IOC_START_SCRUB, info->mti_exp,
+                                           0, NULL, start);
+                        CDEBUG(D_SCRUB,
+                               "Trigger OI scrub by RPC for "DFID", rc = %d\n",
+                               PFID(f), rc);
+                        OBD_FREE_PTR(start);
+                        if (rc == 0 || rc == -EALREADY)
+                                goto again;
+                }
+                RETURN((struct mdt_object *)o);
+        }
+
+        m = mdt_obj(o);
+        if (lu_object_is_scrub(o->lo_header)) {
+                struct l_wait_info *lwi = &info->mti_wait_info;
+
+                /* For new client, return -EINPROGRESS. */
+                if (info->mti_exp->exp_connect_flags &
+                    OBD_CONNECT_EINPROGRESS) {
+                        mdt_object_put(env, m);
+                        RETURN(ERR_PTR(-EINPROGRESS));
+                }
+
+                /* For old client, sync and wait. */
+                rc = mo_object_sync(env, mdt_object_child(m));
+                if (rc != 0) {
+                        mdt_object_put(env, m);
+                        RETURN(ERR_PTR(rc));
+                }
+
+                *lwi = (struct l_wait_info){ 0 };
+                l_wait_event(o->lo_header->loh_waitq,
+                             !lu_object_is_scrub(o->lo_header), lwi);
+
+                if (unlikely(lu_object_is_inconsistent(o->lo_header))) {
+                        if (++inconsistent_once == 1) {
+                                /* OI Scrub under dryrun mode maybe not
+                                 * update the OI mapping.
+                                 * Re-search to trigger updating.*/
+                                mdt_object_put(env, m);
+                                goto again;
+                        } else {
+                                /* OI mapping for the object is invalid,
+                                 * it maybe cause replay failure in future. */
+                                CWARN("Invalid OI mapping for "DFID"\n",
+                                      PFID(f));
+                        }
+                }
+        }
+
         RETURN(m);
 }
 
@@ -5564,6 +5628,18 @@ static int mdt_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
         case OBD_IOC_CHANGELOG_CLEAR:
                 rc = mdt_ioc_child(&env, mdt, cmd, len, karg);
                 break;
+        case OBD_IOC_START_SCRUB:
+        case OBD_IOC_STOP_SCRUB: {
+                struct md_device *next = mdt->mdt_child;
+                void *data;
+
+                if (karg != NULL)
+                        data = ((struct obd_ioctl_data *)karg)->ioc_inlbuf1;
+                else
+                        data = uarg;
+                rc = next->md_ops->mdo_iocontrol(&env, next, cmd, 0, data);
+                break;
+        }
         case OBD_IOC_GET_OBJ_VERSION: {
                 struct mdt_thread_info *mti;
                 mti = lu_context_key_get(&env.le_ctx, &mdt_thread_key);

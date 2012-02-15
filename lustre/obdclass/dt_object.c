@@ -296,10 +296,10 @@ int dt_path_parser(const struct lu_env *env,
         return rc;
 }
 
-static struct dt_object *dt_store_resolve(const struct lu_env *env,
-                                          struct dt_device *dt,
-                                          const char *path,
-                                          struct lu_fid *fid)
+struct dt_object *dt_store_resolve(const struct lu_env *env,
+                                   struct dt_device *dt,
+                                   const char *path,
+                                   struct lu_fid *fid)
 {
         struct dt_thread_info *info = lu_context_key_get(&env->le_ctx,
                                                          &dt_key);
@@ -330,6 +330,7 @@ static struct dt_object *dt_store_resolve(const struct lu_env *env,
         }
         return obj;
 }
+EXPORT_SYMBOL(dt_store_resolve);
 
 static struct dt_object *dt_reg_open(const struct lu_env *env,
                                      struct dt_device *dt,
@@ -479,3 +480,6 @@ EXPORT_SYMBOL(dt_version_get);
 
 const struct dt_index_features dt_directory_features;
 EXPORT_SYMBOL(dt_directory_features);
+
+const struct dt_index_features dt_scrub_features;
+EXPORT_SYMBOL(dt_scrub_features);

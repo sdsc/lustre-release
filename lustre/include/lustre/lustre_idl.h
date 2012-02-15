@@ -1150,7 +1150,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                 OBD_CONNECT_FID | LRU_RESIZE_CONNECT_FLAG | \
                                 OBD_CONNECT_VBR | OBD_CONNECT_LOV_V3 | \
                                 OBD_CONNECT_SOM | OBD_CONNECT_FULL20 | \
-                                OBD_CONNECT_64BITHASH)
+                                OBD_CONNECT_64BITHASH | OBD_CONNECT_EINPROGRESS)
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
                                 OBD_CONNECT_TRUNCLOCK | OBD_CONNECT_INDEX | \
@@ -1160,11 +1160,13 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                 OBD_CONNECT_CHANGE_QS | \
                                 OBD_CONNECT_OSS_CAPA  | \
                                 OBD_CONNECT_RMT_CLIENT | \
-                                OBD_CONNECT_RMT_CLIENT_FORCE | OBD_CONNECT_VBR | \
-                                OBD_CONNECT_MDS | OBD_CONNECT_SKIP_ORPHAN | \
-                                OBD_CONNECT_GRANT_SHRINK | OBD_CONNECT_FULL20 | \
-                                OBD_CONNECT_64BITHASH | OBD_CONNECT_MAXBYTES | \
-                                OBD_CONNECT_MAX_EASIZE)
+                                OBD_CONNECT_RMT_CLIENT_FORCE | \
+                                OBD_CONNECT_VBR | OBD_CONNECT_MDS | \
+                                OBD_CONNECT_SKIP_ORPHAN | \
+                                OBD_CONNECT_GRANT_SHRINK | \
+                                OBD_CONNECT_FULL20 | OBD_CONNECT_64BITHASH | \
+                                OBD_CONNECT_MAXBYTES | OBD_CONNECT_MAX_EASIZE |\
+                                OBD_CONNECT_EINPROGRESS)
 #define ECHO_CONNECT_SUPPORTED (0)
 #define MGS_CONNECT_SUPPORTED  (OBD_CONNECT_VERSION | OBD_CONNECT_AT | \
                                 OBD_CONNECT_FULL20 | OBD_CONNECT_IMP_RECOV)

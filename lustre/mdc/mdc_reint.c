@@ -224,6 +224,9 @@ int mdc_create(struct obd_export *exp, struct md_op_data *op_data,
         int level, rc;
         int count = 0;
         CFS_LIST_HEAD(cancels);
+        struct obd_import     *imp = exp->exp_obd->u.cli.cl_import;
+        int                    generation = imp->imp_generation;
+        int                    resends = 0;
         ENTRY;
 
         /* For case if upper layer did not alloc fid, do it now. */
@@ -244,7 +247,7 @@ int mdc_create(struct obd_export *exp, struct md_op_data *op_data,
                 count = mdc_resource_get_unused(exp, &op_data->op_fid1,
                                                 &cancels, LCK_EX,
                                                 MDS_INODELOCK_UPDATE);
-
+again:
         req = ptlrpc_request_alloc(class_exp2cliimp(exp),
                                    &RQF_MDS_REINT_CREATE_RMT_ACL);
         if (req == NULL) {
@@ -292,10 +295,28 @@ int mdc_create(struct obd_export *exp, struct md_op_data *op_data,
                         if (capa == NULL)
                                 rc = -EPROTO;
                 }
+        } else if (unlikely(rc == -EINPROGRESS)) {
+                cfs_waitq_t waitq;
+                struct l_wait_info lwi;
+
+                ptlrpc_req_finished(req);
+                cfs_waitq_init(&waitq);
+                lwi = LWI_TIMEOUT_INTR(cfs_time_seconds(++resends), NULL, NULL,
+                                       NULL);
+                l_wait_event(waitq, 0, &lwi);
+                if (generation != imp->imp_generation)
+                        GOTO(out, rc = -EIO);
+
+                count = 0;
+                goto again;
         }
 
         *request = req;
-        RETURN(rc);
+
+        GOTO(out, rc);
+
+out:
+        return rc;
 }
 
 int mdc_unlink(struct obd_export *exp, struct md_op_data *op_data,
@@ -305,6 +326,9 @@ int mdc_unlink(struct obd_export *exp, struct md_op_data *op_data,
         struct obd_device *obd = class_exp2obd(exp);
         struct ptlrpc_request *req = *request;
         int count = 0, rc;
+        struct obd_import     *imp = exp->exp_obd->u.cli.cl_import;
+        int                    generation = imp->imp_generation;
+        int                    resends = 0;
         ENTRY;
 
         LASSERT(req == NULL);
@@ -321,6 +345,7 @@ int mdc_unlink(struct obd_export *exp, struct md_op_data *op_data,
                 count += mdc_resource_get_unused(exp, &op_data->op_fid3,
                                                  &cancels, LCK_EX,
                                                  MDS_INODELOCK_FULL);
+again:
         req = ptlrpc_request_alloc(class_exp2cliimp(exp),
                                    &RQF_MDS_REINT_UNLINK);
         if (req == NULL) {
@@ -345,12 +370,31 @@ int mdc_unlink(struct obd_export *exp, struct md_op_data *op_data,
                              obd->u.cli.cl_max_mds_cookiesize);
         ptlrpc_request_set_replen(req);
 
-        *request = req;
-
         rc = mdc_reint(req, obd->u.cli.cl_rpc_lock, LUSTRE_IMP_FULL);
+        if (unlikely(rc == -EINPROGRESS)) {
+                cfs_waitq_t waitq;
+                struct l_wait_info lwi;
+
+                ptlrpc_req_finished(req);
+                cfs_waitq_init(&waitq);
+                lwi = LWI_TIMEOUT_INTR(cfs_time_seconds(++resends), NULL, NULL,
+                                       NULL);
+                l_wait_event(waitq, 0, &lwi);
+                if (generation != imp->imp_generation)
+                        GOTO(out, rc = -EIO);
+
+                count = 0;
+                goto again;
+        }
+
+        *request = req;
         if (rc == -ERESTARTSYS)
                 rc = 0;
-        RETURN(rc);
+
+        GOTO(out, rc);
+
+out:
+        return rc;
 }
 
 int mdc_link(struct obd_export *exp, struct md_op_data *op_data,
@@ -360,6 +404,9 @@ int mdc_link(struct obd_export *exp, struct md_op_data *op_data,
         struct obd_device *obd = exp->exp_obd;
         struct ptlrpc_request *req;
         int count = 0, rc;
+        struct obd_import     *imp = exp->exp_obd->u.cli.cl_import;
+        int                    generation = imp->imp_generation;
+        int                    resends = 0;
         ENTRY;
 
         if ((op_data->op_flags & MF_MDC_CANCEL_FID2) &&
@@ -372,7 +419,7 @@ int mdc_link(struct obd_export *exp, struct md_op_data *op_data,
                 count += mdc_resource_get_unused(exp, &op_data->op_fid1,
                                                  &cancels, LCK_EX,
                                                  MDS_INODELOCK_UPDATE);
-
+again:
         req = ptlrpc_request_alloc(class_exp2cliimp(exp), &RQF_MDS_REINT_LINK);
         if (req == NULL) {
                 ldlm_lock_list_put(&cancels, l_bl_ast, count);
@@ -393,11 +440,30 @@ int mdc_link(struct obd_export *exp, struct md_op_data *op_data,
         ptlrpc_request_set_replen(req);
 
         rc = mdc_reint(req, obd->u.cli.cl_rpc_lock, LUSTRE_IMP_FULL);
+        if (unlikely(rc == -EINPROGRESS)) {
+                cfs_waitq_t waitq;
+                struct l_wait_info lwi;
+
+                ptlrpc_req_finished(req);
+                cfs_waitq_init(&waitq);
+                lwi = LWI_TIMEOUT_INTR(cfs_time_seconds(++resends), NULL, NULL,
+                                       NULL);
+                l_wait_event(waitq, 0, &lwi);
+                if (generation != imp->imp_generation)
+                        GOTO(out, rc = -EIO);
+
+                count = 0;
+                goto again;
+        }
+
         *request = req;
         if (rc == -ERESTARTSYS)
                 rc = 0;
 
-        RETURN(rc);
+        GOTO(out, rc);
+
+out:
+        return rc;
 }
 
 int mdc_rename(struct obd_export *exp, struct md_op_data *op_data,
@@ -408,6 +474,9 @@ int mdc_rename(struct obd_export *exp, struct md_op_data *op_data,
         struct obd_device *obd = exp->exp_obd;
         struct ptlrpc_request *req;
         int count = 0, rc;
+        struct obd_import     *imp = exp->exp_obd->u.cli.cl_import;
+        int                    generation = imp->imp_generation;
+        int                    resends = 0;
         ENTRY;
 
         if ((op_data->op_flags & MF_MDC_CANCEL_FID1) &&
@@ -430,7 +499,7 @@ int mdc_rename(struct obd_export *exp, struct md_op_data *op_data,
                 count += mdc_resource_get_unused(exp, &op_data->op_fid4,
                                                  &cancels, LCK_EX,
                                                  MDS_INODELOCK_FULL);
-
+again:
         req = ptlrpc_request_alloc(class_exp2cliimp(exp),
                                    &RQF_MDS_REINT_RENAME);
         if (req == NULL) {
@@ -461,9 +530,28 @@ int mdc_rename(struct obd_export *exp, struct md_op_data *op_data,
         ptlrpc_request_set_replen(req);
 
         rc = mdc_reint(req, obd->u.cli.cl_rpc_lock, LUSTRE_IMP_FULL);
+        if (unlikely(rc == -EINPROGRESS)) {
+                cfs_waitq_t waitq;
+                struct l_wait_info lwi;
+
+                ptlrpc_req_finished(req);
+                cfs_waitq_init(&waitq);
+                lwi = LWI_TIMEOUT_INTR(cfs_time_seconds(++resends), NULL, NULL,
+                                       NULL);
+                l_wait_event(waitq, 0, &lwi);
+                if (generation != imp->imp_generation)
+                        GOTO(out, rc = -EIO);
+
+                count = 0;
+                goto again;
+        }
+
         *request = req;
         if (rc == -ERESTARTSYS)
                 rc = 0;
 
-        RETURN(rc);
+        GOTO(out, rc);
+
+out:
+        return rc;
 }

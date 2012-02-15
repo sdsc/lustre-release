@@ -482,10 +482,16 @@ static int mdc_finish_enqueue(struct obd_export *exp,
                 lockreq->lock_flags |= LDLM_FL_INTENT_ONLY;
         }
 
+        lockrep = req_capsule_server_get(pill, &RMF_DLM_REP);
+        LASSERT(lockrep != NULL); /* checked by ldlm_cli_enqueue() */
+
+        it->d.lustre.it_status = (int)lockrep->lock_policy_res2;
         if (rc == ELDLM_LOCK_ABORTED) {
-                einfo->ei_mode = 0;
-                memset(lockh, 0, sizeof(*lockh));
-                rc = 0;
+                if (likely(it->d.lustre.it_status != -EINPROGRESS)) {
+                        einfo->ei_mode = 0;
+                        memset(lockh, 0, sizeof(*lockh));
+                        rc = 0;
+                }
         } else { /* rc = 0 */
                 struct ldlm_lock *lock = ldlm_handle2lock(lockh);
                 LASSERT(lock);
@@ -500,14 +506,12 @@ static int mdc_finish_enqueue(struct obd_export *exp,
                 LDLM_LOCK_PUT(lock);
         }
 
-        lockrep = req_capsule_server_get(pill, &RMF_DLM_REP);
-        LASSERT(lockrep != NULL);                 /* checked by ldlm_cli_enqueue() */
-
-        it->d.lustre.it_disposition = (int)lockrep->lock_policy_res1;
-        it->d.lustre.it_status = (int)lockrep->lock_policy_res2;
-        it->d.lustre.it_lock_mode = einfo->ei_mode;
-        it->d.lustre.it_lock_handle = lockh->cookie;
-        it->d.lustre.it_data = req;
+        if (likely(it->d.lustre.it_status != -EINPROGRESS)) {
+                it->d.lustre.it_disposition = (int)lockrep->lock_policy_res1;
+                it->d.lustre.it_lock_mode = einfo->ei_mode;
+                it->d.lustre.it_lock_handle = lockh->cookie;
+                it->d.lustre.it_data = req;
+        }
 
         if (it->d.lustre.it_status < 0 && req->rq_replay)
                 mdc_clear_replay_flag(req, it->d.lustre.it_status);
@@ -643,6 +647,9 @@ int mdc_enqueue(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
         static const ldlm_policy_data_t update_policy =
                             { .l_inodebits = { MDS_INODELOCK_UPDATE } };
         ldlm_policy_data_t const *policy = &lookup_policy;
+        struct obd_import     *imp = exp->exp_obd->u.cli.cl_import;
+        int                    generation = imp->imp_generation;
+        int                    resends = 0;
         ENTRY;
 
         LASSERTF(!it || einfo->ei_type == LDLM_IBITS, "lock type %d\n",
@@ -658,6 +665,7 @@ int mdc_enqueue(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
         if (reqp)
                 req = *reqp;
 
+again:
         if (!it) {
                 /* The only way right now is FLOCK, in this case we hide flock
                    policy as lmm, but lmmsize is 0 */
@@ -708,8 +716,7 @@ int mdc_enqueue(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
         if (it) {
                 mdc_exit_request(&obddev->u.cli);
                 mdc_put_rpc_lock(obddev->u.cli.cl_rpc_lock, it);
-        }
-        if (!it) {
+        } else {
                 /* For flock requests we immediatelly return without further
                    delay and let caller deal with the rest, since rest of
                    this function metadata processing makes no sense for flock
@@ -724,8 +731,25 @@ int mdc_enqueue(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
                 RETURN(rc);
         }
         rc = mdc_finish_enqueue(exp, req, einfo, it, lockh, rc);
+        if (unlikely(it->d.lustre.it_status == -EINPROGRESS)) {
+                cfs_waitq_t waitq;
+                struct l_wait_info lwi;
 
-        RETURN(rc);
+                ptlrpc_req_finished(req);
+                cfs_waitq_init(&waitq);
+                lwi = LWI_TIMEOUT_INTR(cfs_time_seconds(++resends), NULL, NULL,
+                                       NULL);
+                l_wait_event(waitq, 0, &lwi);
+                if (generation != imp->imp_generation)
+                        GOTO(out, rc = -EIO);
+
+                goto again;
+        }
+
+        GOTO(out, rc);
+
+out:
+        return rc;
 }
 
 static int mdc_finish_intent_lock(struct obd_export *exp,
@@ -1043,7 +1067,7 @@ int mdc_intent_getattr_async(struct obd_export *exp,
          *     for statahead currently. Consider CMD in future, such two bits
          *     maybe managed by different MDS, should be adjusted then. */
         ldlm_policy_data_t       policy = {
-                                        .l_inodebits = { MDS_INODELOCK_LOOKUP | 
+                                        .l_inodebits = { MDS_INODELOCK_LOOKUP |
                                                          MDS_INODELOCK_UPDATE }
                                  };
         int                      rc = 0;

@@ -74,6 +74,7 @@ struct niobuf_remote;
 typedef enum {
         MNTOPT_USERXATTR        = 0x00000001,
         MNTOPT_ACL              = 0x00000002,
+        MNTOPT_NOAUTO_SCRUB     = 0x00000004,
 } mntopt_t;
 
 struct dt_device_param {
@@ -210,6 +211,7 @@ enum dt_index_flags {
  * names to fids).
  */
 extern const struct dt_index_features dt_directory_features;
+extern const struct dt_index_features dt_scrub_features;
 
 /**
  * This is a general purpose dt allocation hint.
@@ -569,7 +571,7 @@ struct dt_index_operations {
                  */
                 struct dt_it *(*init)(const struct lu_env *env,
                                       struct dt_object *dt,
-                                      __u32 attr,
+                                      void *args,
                                       struct lustre_capa *capa);
                 void          (*fini)(const struct lu_env *env,
                                       struct dt_it *di);
@@ -674,11 +676,10 @@ struct thandle {
          * this value is used in recovery */
         __s32             th_result;
 
-        /** whether we need sync commit */
-        int               th_sync:1;
-
-        /* local transation, no need to inform other layers */
-        int               th_local:1;
+        unsigned int      th_sync:1,  /** whether we need sync commit */
+                          th_local:1, /* local transation, no need to inform
+                                       * other layers */
+                          th_oi_scrub:1; /* for OI Scrub */
 };
 
 /**
@@ -726,6 +727,11 @@ typedef int (*dt_entry_func_t)(const struct lu_env *env,
 int dt_path_parser(const struct lu_env *env,
                    char *local, dt_entry_func_t entry_func,
                    void *data);
+
+struct dt_object *dt_store_resolve(const struct lu_env *env,
+                                   struct dt_device *dt,
+                                   const char *path,
+                                   struct lu_fid *fid);
 
 struct dt_object *dt_store_open(const struct lu_env *env,
                                 struct dt_device *dt,
