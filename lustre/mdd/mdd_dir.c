@@ -248,6 +248,7 @@ static int mdd_dir_is_empty(const struct lu_env *env,
         struct dt_object *obj;
         const struct dt_it_ops *iops;
         int result;
+        __u32 flags = LUDA_64BITHASH;
         ENTRY;
 
         obj = mdd_object_child(dir);
@@ -255,7 +256,7 @@ static int mdd_dir_is_empty(const struct lu_env *env,
                 RETURN(-ENOTDIR);
 
         iops = &obj->do_index_ops->dio_it;
-        it = iops->init(env, obj, LUDA_64BITHASH, BYPASS_CAPA);
+        it = iops->init(env, obj, &flags, BYPASS_CAPA);
         if (!IS_ERR(it)) {
                 result = iops->get(env, it, (const void *)"");
                 if (result > 0) {
