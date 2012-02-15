@@ -291,8 +291,12 @@ static int mdt_md_create(struct mdt_thread_info *info)
         lh = &info->mti_lh[MDT_LH_PARENT];
         mdt_lock_pdo_init(lh, LCK_PW, rr->rr_name, rr->rr_namelen);
 
+        /* mdt_version_get_check() will check replay non-exist object case */
         parent = mdt_object_find_lock(info, rr->rr_fid1, lh,
-                                      MDS_INODELOCK_UPDATE, MDT_OBJ_MUST_EXIST);
+                                      MDS_INODELOCK_UPDATE,
+                                      req_is_replay(mdt_info_req(info)) ?
+                                      MDT_OBJ_MAY_NOT_EXIST :
+                                      MDT_OBJ_MUST_EXIST);
         if (IS_ERR(parent))
                 RETURN(PTR_ERR(parent));
 
@@ -693,8 +697,12 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
                 mdt_lock_pdo_init(parent_lh, LCK_PW, rr->rr_name,
                                   rr->rr_namelen);
         }
+        /* mdt_version_get_check() will check replay non-exist object case */
         mp = mdt_object_find_lock(info, rr->rr_fid1, parent_lh,
-                                  MDS_INODELOCK_UPDATE, MDT_OBJ_MUST_EXIST);
+                                  MDS_INODELOCK_UPDATE,
+                                  req_is_replay(mdt_info_req(info)) ?
+                                  MDT_OBJ_MAY_NOT_EXIST :
+                                  MDT_OBJ_MUST_EXIST);
         if (IS_ERR(mp)) {
                 rc = PTR_ERR(mp);
                 /* errors are possible here in cross-ref cases, see below */
@@ -846,8 +854,12 @@ static int mdt_reint_link(struct mdt_thread_info *info,
         lhp = &info->mti_lh[MDT_LH_PARENT];
         mdt_lock_pdo_init(lhp, LCK_PW, rr->rr_name,
                           rr->rr_namelen);
+        /* mdt_version_get_check() will check replay non-exist object case */
         mp = mdt_object_find_lock(info, rr->rr_fid2, lhp,
-                                  MDS_INODELOCK_UPDATE, MDT_OBJ_MUST_EXIST);
+                                  MDS_INODELOCK_UPDATE,
+                                  req_is_replay(mdt_info_req(info)) ?
+                                  MDT_OBJ_MAY_NOT_EXIST :
+                                  MDT_OBJ_MUST_EXIST);
         if (IS_ERR(mp))
                 RETURN(PTR_ERR(mp));
 
@@ -859,7 +871,10 @@ static int mdt_reint_link(struct mdt_thread_info *info,
         lhs = &info->mti_lh[MDT_LH_CHILD];
         mdt_lock_reg_init(lhs, LCK_EX);
 
+        /* mdt_version_get_check() will check replay non-exist object case */
         ms = mdt_object_find(info->mti_env, info->mti_mdt, rr->rr_fid1,
+                             req_is_replay(mdt_info_req(info)) ?
+                             MDT_OBJ_MAY_NOT_EXIST :
                              MDT_OBJ_MUST_EXIST);
         if (IS_ERR(ms))
                 GOTO(out_unlock_parent, rc = PTR_ERR(ms));
@@ -1153,8 +1168,11 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
         lh_srcdirp = &info->mti_lh[MDT_LH_PARENT];
         mdt_lock_pdo_init(lh_srcdirp, LCK_PW, rr->rr_name,
                           rr->rr_namelen);
+        /* mdt_version_get_check() will check replay non-exist object case */
         msrcdir = mdt_object_find_lock(info, rr->rr_fid1, lh_srcdirp,
                                        MDS_INODELOCK_UPDATE,
+                                       req_is_replay(mdt_info_req(info)) ?
+                                       MDT_OBJ_MAY_NOT_EXIST :
                                        MDT_OBJ_MUST_EXIST);
         if (IS_ERR(msrcdir))
                 GOTO(out_rename_lock, rc = PTR_ERR(msrcdir));
@@ -1178,8 +1196,15 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
                          OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_PDO_LOCK2, 10);
                 }
         } else {
+                /*
+                 * mdt_version_get_check() will check replay non-exist object
+                 * case.
+                 */
                 mtgtdir = mdt_object_find(info->mti_env, info->mti_mdt,
-                                          rr->rr_fid2, MDT_OBJ_MUST_EXIST);
+                                          rr->rr_fid2,
+                                          req_is_replay(mdt_info_req(info)) ?
+                                          MDT_OBJ_MAY_NOT_EXIST :
+                                          MDT_OBJ_MUST_EXIST);
                 if (IS_ERR(mtgtdir))
                         GOTO(out_unlock_source, rc = PTR_ERR(mtgtdir));
 

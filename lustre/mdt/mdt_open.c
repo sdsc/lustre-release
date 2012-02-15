@@ -1285,8 +1285,15 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         mdt_lock_pdo_init(lh, (create_flags & MDS_OPEN_CREAT) ?
                           LCK_PW : LCK_PR, rr->rr_name, rr->rr_namelen);
 
+        /*
+         * for replay request, parent object may not exist, while following
+         * mdt_version_get_check() will find out this situation.
+         */
         parent = mdt_object_find_lock(info, rr->rr_fid1, lh,
-                                      MDS_INODELOCK_UPDATE, MDT_OBJ_MUST_EXIST);
+                                      MDS_INODELOCK_UPDATE,
+                                      req_is_replay(mdt_info_req(info)) ?
+                                      MDT_OBJ_MAY_NOT_EXIST :
+                                      MDT_OBJ_MUST_EXIST);
         if (IS_ERR(parent))
                 GOTO(out, result = PTR_ERR(parent));
 

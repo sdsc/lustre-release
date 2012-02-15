@@ -2090,7 +2090,7 @@ struct mdt_object *mdt_object_find(const struct lu_env *env,
 
         if (check_exist == MDT_OBJ_MUST_EXIST && mdt_object_exists(m) == 0) {
                 mdt_object_put(env, m);
-                CERROR("%s: object "DFID" not found: rc = -2\n",
+                CDEBUG(D_INFO, "%s: object "DFID" not found: rc = -2\n",
                        mdt_obj_dev_name(m), PFID(f));
                 RETURN(ERR_PTR(-ENOENT));
         }
