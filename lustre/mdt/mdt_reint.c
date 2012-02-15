@@ -1330,6 +1330,16 @@ int mdt_reint_rec(struct mdt_thread_info *info,
         ENTRY;
 
         rc = reinters[info->mti_rr.rr_opcode](info, lhc);
+        /* If some operation target missed during recovery, then it is
+         * regarded as version mis-matched. */
+        if (rc == -ENOENT && req_is_replay(mdt_info_req(info))) {
+                struct obd_export *exp = info->mti_exp;
+
+                cfs_spin_lock(&exp->exp_lock);
+                exp->exp_vbr_failed = 1;
+                cfs_spin_unlock(&exp->exp_lock);
+                rc = -EOVERFLOW;
+        }
 
         RETURN(rc);
 }
