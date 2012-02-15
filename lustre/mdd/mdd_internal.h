@@ -54,6 +54,7 @@
 # include <lustre_quota.h>
 #endif
 #include <lustre_fsfilt.h>
+#include <lustre_scrub.h>
 
 #ifdef HAVE_QUOTA_SUPPORT
 /* quota stuff */
@@ -98,6 +99,16 @@ struct mdd_dot_lustre_objs {
         struct mdd_object *mdd_obf;
 };
 
+struct mdd_scrub_it {
+        struct lu_env           msi_env;
+        struct mdd_device      *msi_dev;
+        struct ptlrpc_thread    msi_thread;
+        cfs_atomic_t            msi_refcount;
+        struct dt_scrub_args    msi_args;
+        struct dt_it           *msi_di;
+        struct mdd_object      *msi_obj;
+};
+
 struct mdd_device {
         struct md_device                 mdd_md_dev;
         struct dt_device                *mdd_child;
@@ -113,7 +124,9 @@ struct mdd_device {
         unsigned long                    mdd_atime_diff;
         struct mdd_object               *mdd_dot_lustre;
         struct mdd_dot_lustre_objs       mdd_dot_lustre_objs;
-        unsigned int                     mdd_sync_permission;
+        struct scrub_exec_head          *mdd_scrub_seh;
+        unsigned int                     mdd_sync_permission:1,
+                                         mdd_noauto_scrub:1;
 };
 
 enum mod_flags {
@@ -429,6 +442,13 @@ int mdd_txn_stop_cb(const struct lu_env *env, struct thandle *txn,
                     void *cookie);
 int mdd_txn_start_cb(const struct lu_env *env, struct thandle *,
                      void *cookie);
+
+/* mdd_scrub.c */
+int mdd_scrub_start(const struct lu_env *env, struct mdd_device *mdd,
+                    struct scrub_start *start);
+int mdd_scrub_stop(const struct lu_env *env, struct mdd_device *mdd);
+int mdd_scrub_setup(const struct lu_env *env, struct mdd_device *mdd);
+void mdd_scrub_cleanup(const struct lu_env *env, struct mdd_device *mdd);
 
 /* mdd_device.c */
 struct lu_object *mdd_object_alloc(const struct lu_env *env,
@@ -884,5 +904,7 @@ static inline struct obd_capa *mdo_capa_get(const struct lu_env *env,
         }
         return next->do_ops->do_capa_get(env, next, old, opc);
 }
+
+extern const char mdd_scrub[];
 
 #endif

@@ -290,6 +290,32 @@ static int lprocfs_osd_wr_pdo(struct file *file, const char *buffer,
 }
 #endif
 
+static int lprocfs_osd_rd_oi_scrub(char *page, char **start, off_t off,
+                                   int count, int *eof, void *data)
+{
+        struct osd_device *osd = data;
+        struct scrub_exec_head *seh;
+        struct osd_scrub_it *osi;
+        int rc;
+
+        LASSERT(osd != NULL);
+        if (unlikely(osd->od_mount == NULL))
+                return -EINPROGRESS;
+
+        seh = osd->od_scrub_seh;
+        cfs_down_write(&seh->seh_rwsem);
+        osi = seh->seh_private;
+        if (osi != NULL)
+                osd_scrub_pos2str(seh->seh_pos_dump, osi->osi_pos_current);
+        else
+                strcpy(seh->seh_pos_dump, "N/A");
+        rc = scrub_unit_dump(seh, page, count, ST_OI_SCRUB,
+                             oi_scrub_flags_names);
+        cfs_up_write(&seh->seh_rwsem);
+        *eof = 1;
+        return rc;
+}
+
 struct lprocfs_vars lprocfs_osd_obd_vars[] = {
         { "blocksize",       lprocfs_osd_rd_blksize,     0, 0 },
         { "kbytestotal",     lprocfs_osd_rd_kbytestotal, 0, 0 },
@@ -302,6 +328,7 @@ struct lprocfs_vars lprocfs_osd_obd_vars[] = {
 #ifdef HAVE_LDISKFS_PDO
         { "pdo",             lprocfs_osd_rd_pdo, lprocfs_osd_wr_pdo, 0 },
 #endif
+        { "oi_scrub",        lprocfs_osd_rd_oi_scrub,    0, 0 },
         { 0 }
 };
 

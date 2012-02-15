@@ -251,9 +251,13 @@ int mdc_getattr_name(struct obd_export *exp, struct md_op_data *op_data,
 {
         struct ptlrpc_request *req;
         int                    rc;
+        struct obd_import     *imp = exp->exp_obd->u.cli.cl_import;
+        int                    generation = imp->imp_generation;
+        int                    resends = 0;
         ENTRY;
 
         *request = NULL;
+again:
         req = ptlrpc_request_alloc(class_exp2cliimp(exp),
                                    &RQF_MDS_GETATTR_NAME);
         if (req == NULL)
@@ -285,11 +289,29 @@ int mdc_getattr_name(struct obd_export *exp, struct md_op_data *op_data,
         ptlrpc_request_set_replen(req);
 
         rc = mdc_getattr_common(exp, req);
-        if (rc)
+        if (rc) {
                 ptlrpc_req_finished(req);
-        else
+                if (unlikely(rc == -EINPROGRESS)) {
+                        cfs_waitq_t waitq;
+                        struct l_wait_info lwi;
+
+                        cfs_waitq_init(&waitq);
+                        lwi = LWI_TIMEOUT_INTR(cfs_time_seconds(++resends),
+                                               NULL, NULL, NULL);
+                        l_wait_event(waitq, 0, &lwi);
+                        if (generation != imp->imp_generation)
+                                GOTO(out, rc = -EIO);
+
+                        goto again;
+                }
+        } else {
                 *request = req;
-        RETURN(rc);
+        }
+
+        GOTO(out, rc);
+
+out:
+        return rc;
 }
 
 static int mdc_is_subdir(struct obd_export *exp,
