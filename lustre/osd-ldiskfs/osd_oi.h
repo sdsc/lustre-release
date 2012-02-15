@@ -58,6 +58,9 @@
 #include <lustre_fid.h>
 #include <lu_object.h>
 #include <md_object.h>
+#include <lustre_fid.h>
+
+#include "osd_internal.h"
 
 struct lu_fid;
 struct osd_thread_info;
@@ -87,6 +90,58 @@ struct osd_inode_id {
         __u32 oii_ino; /* inode number */
         __u32 oii_gen; /* inode generation */
 };
+
+static inline void osd_id_pack(struct osd_inode_id *des,
+                               const struct osd_inode_id *src)
+{
+        des->oii_ino = cpu_to_be32(src->oii_ino);
+        des->oii_gen = cpu_to_be32(src->oii_gen);
+}
+
+static inline void osd_id_unpack(struct osd_inode_id *des,
+                                 struct osd_inode_id *src)
+{
+        des->oii_ino = be32_to_cpu(src->oii_ino);
+        des->oii_gen = be32_to_cpu(src->oii_gen);
+}
+
+static inline void osd_id_gen(struct osd_inode_id *id, __u32 ino, __u32 gen)
+{
+        id->oii_ino = ino;
+        id->oii_gen = gen;
+}
+
+static inline int osd_id_eq(const struct osd_inode_id *id0,
+                            const struct osd_inode_id *id1)
+{
+        return id0->oii_ino == id1->oii_ino &&
+               id0->oii_gen == id1->oii_gen;
+}
+
+/* The on-disk extN format reserves inodes 0-11 for internal filesystem
+ * use, and these inodes will be invisible on client side, so the valid
+ * sequence for IGIF fid is 12-0xffffffff. But root inode (2#) will be seen
+ * on server side (osd), and it should be valid too here.
+ */
+#define OSD_ROOT_SEQ            2
+static inline int osd_fid_is_root(const struct lu_fid *fid)
+{
+        return fid_seq(fid) == OSD_ROOT_SEQ;
+}
+
+static inline int osd_fid_is_igif(const struct lu_fid *fid)
+{
+        return fid_is_igif(fid) || osd_fid_is_root(fid);
+}
+
+static inline void lu_igif_to_id(struct osd_inode_id *id,
+                                 const struct lu_fid *fid)
+{
+        LASSERT(osd_fid_is_igif(fid));
+
+        id->oii_ino = lu_igif_ino(fid);
+        id->oii_gen = lu_igif_gen(fid);
+}
 
 int osd_oi_mod_init(void);
 int osd_oi_init(struct osd_thread_info *info,

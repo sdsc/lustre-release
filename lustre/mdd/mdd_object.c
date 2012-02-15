@@ -309,7 +309,46 @@ struct mdd_object *mdd_object_find(const struct lu_env *env,
                                    struct mdd_device *d,
                                    const struct lu_fid *f)
 {
-        return md2mdd_obj(md_object_find_slice(env, &d->mdd_md_dev, f));
+        struct mdd_object *m;
+        struct lu_object *o;
+        int scrub_once = 0;
+        int rc;
+        ENTRY;
+
+again:
+        o = lu_object_find_slice(env, mdd2lu_dev(d), f, NULL);
+        if (IS_ERR(o)) {
+                rc = PTR_ERR(o);
+                if (rc == -EREMCHG && ++scrub_once == 1) {
+                        struct scrub_start *start;
+
+                        OBD_ALLOC_PTR(start);
+                        if (unlikely(start == NULL)) {
+                                CERROR("Not enough memory to start OI Scrub\n");
+                                RETURN((struct mdd_object *)o);
+                        }
+
+                        start->ss_version = SCRUB_VERSION_V1;
+                        start->ss_active = ST_OI_SCRUB;
+                        start->ss_flags = 0;
+                        start->ss_sponsor = SCRUB_TRIGGERED_BY_RPC;
+                        start->ss_valid = SSV_ERROR_HANDLE | SSV_DRYRUN;
+                        CDEBUG(D_SCRUB, "Trigger OI scrub by RPC for "DFID"\n",
+                               PFID(f));
+                        rc = mdd_scrub_start(env, d, start);
+                        CDEBUG(D_SCRUB,
+                               "Trigger OI scrub by RPC for "DFID", rc = %d\n",
+                               PFID(f), rc);
+                        OBD_FREE_PTR(start);
+                        if (rc == 0 || rc == -EALREADY)
+                                goto again;
+                }
+                m = (struct mdd_object *)o;
+        } else {
+                m = md2mdd_obj(lu2md(o));
+        }
+
+        RETURN(m);
 }
 
 static int mdd_path2fid(const struct lu_env *env, struct mdd_device *mdd,
@@ -2645,7 +2684,8 @@ static int __mdd_readpage(const struct lu_env *env, struct mdd_object *obj,
          * iterate through directory and fill pages from @rdpg
          */
         iops = &next->do_index_ops->dio_it;
-        it = iops->init(env, next, rdpg->rp_attrs, mdd_object_capa(env, obj));
+        it = iops->init(env, next, (void *)&rdpg->rp_attrs,
+                        mdd_object_capa(env, obj));
         if (IS_ERR(it))
                 return PTR_ERR(it);
 
