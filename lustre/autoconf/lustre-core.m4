@@ -22,7 +22,11 @@ LUSTRE="$PWD/lustre"
 AC_SUBST(LUSTRE)
 
 # mount.lustre
-rootsbindir='/sbin'
+AC_ARG_WITH([sbin-path],
+        AC_HELP_STRING([--with-sbin-path=path],
+                        [Default mount.lustre directory (default=/sbin)]),
+        [rootsbindir="$with_sbin_path"],
+        [rootsbindir="/sbin"])
 AC_SUBST(rootsbindir)
 
 demodir='$(docdir)/demo'

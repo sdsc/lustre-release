@@ -84,7 +84,11 @@ fi
 AC_MSG_RESULT([$LINUXRELEASE])
 AC_SUBST(LINUXRELEASE)
 
-moduledir='/lib/modules/'$LINUXRELEASE/updates/kernel
+AC_ARG_WITH([module-dir],
+	AC_HELP_STRING([--with-module-dir=path],
+                       [Default module directory (default=/lib/modules/$LINUXRELEASE)]),
+	[moduledir="$with_module_dir/updates/kernel"],
+	[moduledir="/lib/modules/$LINUXRELEASE/updates/kernel"])
 AC_SUBST(moduledir)
 
 modulefsdir='$(moduledir)/fs/$(PACKAGE)'

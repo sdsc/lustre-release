@@ -203,9 +203,9 @@ rm -rf $RPM_BUILD_ROOT/lib/modules/%{kversion}/updates/kernel/fs/lustre-ldiskfs
 # hack to include the llog_test module in lustre-tests
 llog_base=$RPM_BUILD_DIR/lustre-%{version}/lustre/obdclass/llog_test
 if [ -e ${llog_base}.ko ]; then
-  cp ${llog_base}.ko $RPM_BUILD_ROOT/lib/modules/%{kversion}/updates/kernel/fs/lustre
+  cp ${llog_base}.ko $RPM_BUILD_ROOT/%{moduledir}/fs/lustre
 elif [ -e ${llog_base}.o ]; then
-  cp ${llog_base}.o $RPM_BUILD_ROOT/lib/modules/%{kversion}/updates/kernel/fs/lustre
+  cp ${llog_base}.o $RPM_BUILD_ROOT/%{moduledir}/fs/lustre
 fi
 
 # Create the pristine source directory.
@@ -217,16 +217,16 @@ make distdir distdir=lustre-source/lustre-%{version}
 chmod -R go-w lustre-source/lustre-%{version}
 
 cat >lustre.files <<EOF
-%attr(-, root, root) /sbin/mount.lustre
-%attr(-, root, root) /usr/sbin/*
-%attr(-, root, root) /usr/bin/*
+%attr(-, root, root) %{rootsbindir}/mount.lustre
+%attr(-, root, root) %{_sbindir}/*
+%attr(-, root, root) %{_bindir}/*
 
-%attr(-, root, root) /usr/share/lustre
+%attr(-, root, root) %{_datadir}/lustre
 
 %attr(-, root, root) %{_libdir}/libptlctl.a
 %attr(-, root, root) %{_libdir}/liblustreapi.a
-%attr(-, root, root) /usr/include/lustre
-%attr(-, root, root) /usr/include/libcfs
+%attr(-, root, root) %{_includedir}/lustre
+%attr(-, root, root) %{_includedir}/libcfs
 
 %attr(-, root, root) %{_mandir}/man?/*
 
@@ -255,28 +255,26 @@ fi
 
 # Have universal lustre headers 
 if [ -f $RPM_BUILD_DIR/lustre-%{version}/lustre/include/lustre/lustre_idl.h ] ; then
-  echo '%attr(-, root, root) /usr/include/linux/lustre_user.h' >>lustre.files
+  echo '%attr(-, root, root) %{_includedir}/linux/lustre_user.h' >>lustre.files
 else
-  echo '%attr(-, root, root) /usr/include/linux/lustre_idl.h' >>lustre.files
+  echo '%attr(-, root, root) %{_includedir}/linux/lustre_idl.h' >>lustre.files
 fi
 
 if [ -f $RPM_BUILD_DIR/lustre-%{version}/lustre/include/linux/lustre_types.h ] ; then
-  echo '%attr(-, root, root) /usr/include/linux/lustre_types.h' >>lustre.files
+  echo '%attr(-, root, root) %{_includedir}/linux/lustre_types.h' >>lustre.files
 fi
 
 %if %{build_lustre_tests}
 echo '%attr(-, root, root) %{_libdir}/lustre/tests/*' >lustre-tests.files
-echo '%attr(-, root, root) /lib/modules/%{kversion}/updates/kernel/fs/lustre/llog_test.*' >>lustre-tests.files
+echo '%attr(-, root, root) %{moduledir}/fs/lustre/llog_test.*' >>lustre-tests.files
 modules_excludes="|llog_test"
 if [ -d $RPM_BUILD_ROOT%{_libdir}/lustre/liblustre/tests ] ; then
   echo '%attr(-, root, root) %{_libdir}/lustre/liblustre/tests/*' >>lustre-tests.files
 fi
 %endif
 
-pushd $RPM_BUILD_ROOT >/dev/null
 > $RPM_BUILD_DIR/lustre-%{version}/lustre-modules.files
-find lib/modules/%{kversion}/updates -type f | awk "!/(ZZZZZZZZZZ$modules_excludes)/ {print \"%attr(-, root, root) /\"\$0}" >>$RPM_BUILD_DIR/lustre-%{version}/lustre-modules.files
-popd >/dev/null
+find $RPM_BUILD_ROOT%{moduledir} -type f | sed "s!${RPM_BUILD_ROOT}/!!" | awk "!/(ZZZZZZZZZZ$modules_excludes)/ {print \"%attr(-, root, root) /\"\$0}" >>$RPM_BUILD_DIR/lustre-%{version}/lustre-modules.files
 
 %files -f lustre.files
 
