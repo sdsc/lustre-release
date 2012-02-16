@@ -219,6 +219,10 @@ void ll_intent_release(struct lookup_intent *it)
         it->it_magic = 0;
         it->it_op_release = 0;
 #endif
+
+        if (it->d.lustre.it_data)
+               ((struct ptlrpc_request*)it->d.lustre.it_data)->rq_it = NULL;
+
         /* We are still holding extra reference on a request, need to free it */
         if (it_disposition(it, DISP_ENQ_OPEN_REF)) /* open req for llfile_open*/
                 ptlrpc_req_finished(it->d.lustre.it_data);

@@ -760,6 +760,7 @@ static int mdc_finish_intent_lock(struct obd_export *exp,
             !it_open_error(DISP_OPEN_OPEN, it)) {
                 it_set_disposition(it, DISP_ENQ_OPEN_REF);
                 ptlrpc_request_addref(req); /* balanced in ll_file_open */
+                req->rq_it = it;
                 /* BUG 11546 - eviction in the middle of open rpc processing */
                 OBD_FAIL_TIMEOUT(OBD_FAIL_MDC_ENQUEUE_PAUSE, obd_timeout);
         }

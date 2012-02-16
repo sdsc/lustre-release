@@ -576,8 +576,9 @@ restart:
 
 out_och_free:
         if (it && it_disposition(it, DISP_ENQ_OPEN_REF)) {
-                ptlrpc_req_finished(it->d.lustre.it_data);
                 it_clear_disposition(it, DISP_ENQ_OPEN_REF);
+                ((struct ptlrpc_request*)it->d.lustre.it_data)->rq_it = NULL;
+                ptlrpc_req_finished(it->d.lustre.it_data);
         }
 
         if (rc == 0) {
@@ -2798,8 +2799,9 @@ int ll_release_openhandle(struct dentry *dentry, struct lookup_intent *it)
  out:
         /* this one is in place of ll_file_open */
         if (it_disposition(it, DISP_ENQ_OPEN_REF)) {
-                ptlrpc_req_finished(it->d.lustre.it_data);
                 it_clear_disposition(it, DISP_ENQ_OPEN_REF);
+                ((struct ptlrpc_request*)it->d.lustre.it_data)->rq_it = NULL;
+                ptlrpc_req_finished(it->d.lustre.it_data);
         }
         RETURN(rc);
 }

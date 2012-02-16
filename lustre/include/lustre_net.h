@@ -408,6 +408,7 @@ struct ptlrpc_request {
         union ptlrpc_async_args rq_async_args;  /* Async completion context */
         struct ptlrpc_request_pool *rq_pool;    /* Pool if request from
                                                    preallocated list */
+        struct lookup_intent *rq_it;
 };
 
 static inline int ptlrpc_req_interpret(struct ptlrpc_request *req, int rc)

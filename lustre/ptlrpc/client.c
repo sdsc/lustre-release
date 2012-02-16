@@ -47,6 +47,10 @@
 #include <lustre_ha.h>
 #include <lustre_import.h>
 
+#ifdef __KERNEL__
+#include <linux/lustre_intent.h>
+#endif
+
 #include "ptlrpc_internal.h"
 
 void ptlrpc_init_client(int req_portal, int rep_portal, char *name,
@@ -1818,6 +1822,12 @@ static int __ptlrpc_req_finished(struct ptlrpc_request *request, int locked)
                   atomic_read(&request->rq_refcount) - 1);
 
         if (atomic_dec_and_test(&request->rq_refcount)) {
+                LASSERTF((request->rq_it == NULL) || 
+                         !(request->rq_it->d.lustre.it_disposition &
+                         DISP_ENQ_OPEN_REF), "it %p disp 0x%x \n",
+                         request->rq_it,
+                         request->rq_it->d.lustre.it_disposition);
+
                 __ptlrpc_free_req(request, locked);
                 RETURN(1);
         }
