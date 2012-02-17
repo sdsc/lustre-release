@@ -208,6 +208,7 @@ EOF"
 # do cleanup and exit.
 cleanup () {
     local exit_status=$1
+    local host
     shift
     for ((i = 0; i < $ndevs; i++)); do
     	host=${host_names[$i]}
@@ -216,15 +217,16 @@ cleanup () {
 	    fi
     done
     pidcount=0
-    for host in ${unique_hosts[@]}; do
+    for ((i = 0; i < ${#unique_hosts[@]}; i++)); do
+        host=${unique_hosts[$i]}
         remote_shell $host "killall -q vmstat >/dev/null 2>&1" &
         pid=$!
         kill -term ${vmstatpids[$pidcount]} 2>/dev/null
         kill -kill ${vmstatpids[$pidcount]} 2>/dev/null
         wait $pid
         pidcount=$((pidcount+1))
-        if ((${do_unload_obdecho[$host]})); then
-            unload_obdecho $host
+        if ((${do_unload_echo[$i]})); then
+            unload_obdecho $i
         fi
     done
     if [ $case == "network" ]; then
