@@ -8574,6 +8574,55 @@ test_223 () {
 }
 run_test 223 "osc reenqueue if without AGL lock granted ======================="
 
+MDSSURVEY=${MDSSURVEY:-$(which mds-survey 2>/dev/null || true)}
+test_224a () {
+       if [ -z ${MDSSURVEY} ]; then
+              skip_env "mds-survey not found" && return
+       fi
+
+       local mds=$(facet_host $SINGLEMDS)
+       local target=$(do_nodes $mds 'lctl dl' | \
+                      awk "{if (\$2 == \"UP\" && \$3 == \"mdt\") {print \$4}}")
+
+       local cmd1="file_count=1000 thrhi=4"
+       local cmd2="dir_count=2 layer=mdd stripe_count=0"
+       local cmd3="rslt_loc=${TMP} targets=\"$mds:$target\" $MDSSURVEY"
+       local cmd="$cmd1 $cmd2 $cmd3"
+
+       rm -f ${TMP}/mds_survey*
+       echo + $cmd
+       eval $cmd || return 1
+       cat ${TMP}/mds_survey*
+       return 0
+}
+run_test 224a "Metadata survey sanity with zero-stripe ========================="
+
+test_224b () {
+       if [ -z ${MDSSURVEY} ]; then
+              skip_env "mds-survey not found" && return
+       fi
+
+       if [ $($LCTL dl | grep osc | wc -l) -eq 0 ]; then
+              skip_env "Need to mount OST to test" && return
+       fi
+
+       local mds=$(facet_host $SINGLEMDS)
+       local target=$(do_nodes $mds 'lctl dl' | \
+                      awk "{if (\$2 == \"UP\" && \$3 == \"mdt\") {print \$4}}")
+
+       local cmd1="file_count=1000 thrhi=4"
+       local cmd2="dir_count=2 layer=mdd stripe_count=1"
+       local cmd3="rslt_loc=${TMP} targets=\"$mds:$target\" $MDSSURVEY"
+       local cmd="$cmd1 $cmd2 $cmd3"
+
+       rm -f ${TMP}/mds_survey*
+       echo + $cmd
+       eval $cmd || return 1
+       cat ${TMP}/mds_survey*
+       return 0
+}
+run_test 224b "Metadata survey sanity with stripe_count = 1 =========================="
+
 #
 # tests that do cleanup/setup should be run at the end
 #
