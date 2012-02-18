@@ -1227,6 +1227,7 @@ enum obd_cleanup_stage {
 #define KEY_SPTLRPC_CONF        "sptlrpc_conf"
 #define KEY_CONNECT_FLAG        "connect_flags"
 #define KEY_SYNC_LOCK_CANCEL    "sync_lock_cancel"
+#define KEY_INITIAL_CONNECT     "initial_connect"
 
 struct lu_context;
 
