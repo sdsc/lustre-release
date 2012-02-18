@@ -1019,8 +1019,7 @@ int qos_prep_create(struct obd_export *exp, struct lov_request_set *set)
                            (up to # of active osts). */
                         stripes = 1;
                         for (i = 0; i < lov->desc.ld_tgt_count; i++) {
-                                if (!lov->lov_tgts[i] ||
-                                    !lov->lov_tgts[i]->ltd_active)
+                                if (!lov_check_and_wait_active(lov, i))
                                         continue;
                                 min_bavail = min(min_bavail, TGT_BAVAIL(i));
                                 if (min_bavail * stripes > src_oa->o_size)
