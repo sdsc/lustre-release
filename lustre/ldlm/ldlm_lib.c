@@ -1815,8 +1815,8 @@ static int target_recovery_thread(void *arg)
         struct target_recovery_data *trd = &obd->obd_recovery_data;
         unsigned long delta;
         unsigned long flags;
-        struct lu_env env;
-        struct ptlrpc_thread fake_svc_thread, *thread = &fake_svc_thread;
+        struct lu_env *env;
+        struct ptlrpc_thread *thread = NULL;
         int rc = 0;
         ENTRY;
 
@@ -1827,13 +1827,23 @@ static int target_recovery_thread(void *arg)
         RECALC_SIGPENDING;
         SIGNAL_MASK_UNLOCK(current, flags);
 
-        rc = lu_context_init(&env.le_ctx, LCT_MD_THREAD);
+        OBD_ALLOC_PTR(thread);
+        if (thread == NULL)
+                RETURN(-ENOMEM);
+
+        OBD_ALLOC_PTR(env);
+        if (env == NULL) {
+                OBD_FREE_PTR(thread);
+                RETURN(-ENOMEM);
+        }
+
+        rc = lu_context_init(&env->le_ctx, LCT_MD_THREAD);
         if (rc)
                 RETURN(rc);
 
-        thread->t_env = &env;
+        thread->t_env = env;
         thread->t_id = -1; /* force filter_iobuf_get/put to use local buffers */
-        env.le_ctx.lc_thread = thread;
+        env->le_ctx.lc_thread = thread;
         thread->t_data = NULL;
 
         CDEBUG(D_HA, "%s: started recovery thread pid %d\n", obd->obd_name,
@@ -1925,9 +1935,12 @@ static int target_recovery_thread(void *arg)
 
         target_finish_recovery(obd);
 
-        lu_context_fini(&env.le_ctx);
+        lu_context_fini(&env->le_ctx);
         trd->trd_processing_task = 0;
         cfs_complete(&trd->trd_finishing);
+
+        OBD_FREE_PTR(thread);
+        OBD_FREE_PTR(env);
         RETURN(rc);
 }
 

@@ -80,13 +80,12 @@
 
 #define __CHECK_STACK(file, func, line)                                 \
 do {                                                                    \
-        unsigned long _stack = CDEBUG_STACK();                          \
-                                                                        \
-        if (_stack > 3*THREAD_SIZE/4 && _stack > libcfs_stack) {        \
-                libcfs_stack = _stack;                                  \
+        if (unlikely(CDEBUG_STACK() > libcfs_stack)) {                  \
+                libcfs_stack = CDEBUG_STACK();                          \
                 libcfs_debug_msg(NULL, DEBUG_SUBSYSTEM, D_WARNING,      \
                                  file, func, line,                      \
-                                 "maximum lustre stack %lu\n", _stack); \
+                                 "maximum lustre stack %lu\n",          \
+                                 CDEBUG_STACK());                       \
                 dump_stack();                                           \
               /*panic("LBUG");*/                                        \
         }                                                               \
