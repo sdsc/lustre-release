@@ -567,7 +567,14 @@ static int osc_lock_upcall(void *cookie, int errcode)
                 }
 
                 if (rc == 0) {
-                        cl_lock_signal(env, lock);
+                        /* For AGL case, the RPC sponsor may exits the cl_lock
+                        *  processing without wait() called before related OSC
+                        *  lock upcall(). So the last user needs to update the
+                        *  lock status according to the enqueue result. */
+                        if (lock->cll_users == 1)
+                                cl_wait_try(env, lock);
+                        else
+                                cl_lock_signal(env, lock);
                         /* del user for lock upcall cookie */
                         cl_unuse_try(env, lock);
                 } else {
@@ -1256,20 +1263,15 @@ static int osc_lock_wait(const struct lu_env *env,
         }
 
         if (olck->ols_state == OLS_NEW) {
-                if (lock->cll_descr.cld_enq_flags & CEF_NO_REENQUEUE) {
-                        return -ENAVAIL;
-                } else {
-                        int rc;
+                int rc;
 
-                        LASSERT(olck->ols_agl);
+                LASSERT(olck->ols_agl);
 
-                        rc = osc_lock_enqueue(env, slice, NULL, CEF_ASYNC |
-                                                                CEF_MUST);
-                        if (rc != 0)
-                                return rc;
-                        else
-                                return CLO_REENQUEUED;
-                }
+                rc = osc_lock_enqueue(env, slice, NULL, CEF_ASYNC | CEF_MUST);
+                if (rc != 0)
+                        return rc;
+                else
+                        return CLO_REENQUEUED;
         }
 
         LASSERT(equi(olck->ols_state >= OLS_UPCALL_RECEIVED &&
