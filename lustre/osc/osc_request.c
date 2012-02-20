@@ -769,6 +769,17 @@ static int osc_destroy(struct obd_export *exp, struct obdo *oa,
         RETURN(0);
 }
 
+#define OSC_DUMP_GRANT(cli, fmt, args...) do {                                \
+        struct client_obd *__tmp = (cli);                                     \
+        CDEBUG(D_CACHE, "%s: { dirty: %ld/%ld dirty_pages: %d/%d "            \
+               "dropped: %ld avail: %ld, reserved: %ld, flight: %d } " fmt,   \
+               __tmp->cl_import->imp_obd->obd_name,                           \
+               __tmp->cl_dirty, __tmp->cl_dirty_max,                          \
+               cfs_atomic_read(&obd_dirty_pages), obd_max_dirty_pages,        \
+               __tmp->cl_lost_grant, __tmp->cl_avail_grant,                   \
+               __tmp->cl_reserved_grant, __tmp->cl_w_in_flight, ##args);      \
+} while (0)
+
 static void osc_announce_cached(struct client_obd *cli, struct obdo *oa,
                                 long writing_bytes)
 {
@@ -803,7 +814,7 @@ static void osc_announce_cached(struct client_obd *cli, struct obdo *oa,
                                 (cli->cl_max_rpcs_in_flight + 1);
                 oa->o_undirty = max(cli->cl_dirty_max, max_in_flight);
         }
-        oa->o_grant = cli->cl_avail_grant;
+        oa->o_grant = cli->cl_avail_grant + cli->cl_reserved_grant;
         oa->o_dropped = cli->cl_lost_grant;
         cli->cl_lost_grant = 0;
         client_obd_list_unlock(&cli->cl_loi_list_lock);
@@ -828,20 +839,17 @@ static void osc_consume_write_grant(struct client_obd *cli,
         LASSERT(!(pga->flag & OBD_BRW_FROM_GRANT));
         cfs_atomic_inc(&obd_dirty_pages);
         cli->cl_dirty += CFS_PAGE_SIZE;
-        cli->cl_avail_grant -= CFS_PAGE_SIZE;
         pga->flag |= OBD_BRW_FROM_GRANT;
         CDEBUG(D_CACHE, "using %lu grant credits for brw %p page %p\n",
                CFS_PAGE_SIZE, pga, pga->pg);
-        LASSERT(cli->cl_avail_grant >= 0);
         osc_update_next_shrink(cli);
 }
 
 /* the companion to osc_consume_write_grant, called when a brw has completed.
  * must be called with the loi lock held. */
 static void osc_release_write_grant(struct client_obd *cli,
-                                    struct brw_page *pga, int sent)
+                                    struct brw_page *pga)
 {
-        int blocksize = cli->cl_import->imp_obd->obd_osfs.os_bsize ? : 4096;
         ENTRY;
 
         LASSERT_SPIN_LOCKED(&cli->cl_loi_list_lock.lock);
@@ -858,35 +866,6 @@ static void osc_release_write_grant(struct client_obd *cli,
                 cfs_atomic_dec(&obd_dirty_transit_pages);
                 cli->cl_dirty_transit -= CFS_PAGE_SIZE;
         }
-        if (!sent) {
-                /* Reclaim grant from truncated pages. This is used to solve
-                 * write-truncate and grant all gone(to lost_grant) problem.
-                 * For a vfs write this problem can be easily solved by a sync
-                 * write, however, this is not an option for page_mkwrite()
-                 * because grant has to be allocated before a page becomes
-                 * dirty. */
-                if (cli->cl_avail_grant < PTLRPC_MAX_BRW_SIZE)
-                        cli->cl_avail_grant += CFS_PAGE_SIZE;
-                else
-                        cli->cl_lost_grant += CFS_PAGE_SIZE;
-                CDEBUG(D_CACHE, "lost grant: %lu avail grant: %lu dirty: %lu\n",
-                       cli->cl_lost_grant, cli->cl_avail_grant, cli->cl_dirty);
-        } else if (CFS_PAGE_SIZE != blocksize && pga->count != CFS_PAGE_SIZE) {
-                /* For short writes we shouldn't count parts of pages that
-                 * span a whole block on the OST side, or our accounting goes
-                 * wrong.  Should match the code in filter_grant_check. */
-                int offset = pga->off & ~CFS_PAGE_MASK;
-                int count = pga->count + (offset & (blocksize - 1));
-                int end = (offset + pga->count) & (blocksize - 1);
-                if (end)
-                        count += blocksize - end;
-
-                cli->cl_lost_grant += CFS_PAGE_SIZE - count;
-                CDEBUG(D_CACHE, "lost %lu grant: %lu avail: %lu dirty: %lu\n",
-                       CFS_PAGE_SIZE - count, cli->cl_lost_grant,
-                       cli->cl_avail_grant, cli->cl_dirty);
-        }
-
         EXIT;
 }
 
@@ -900,14 +879,15 @@ void osc_wake_cache_waiters(struct client_obd *cli)
         cfs_list_for_each_safe(l, tmp, &cli->cl_cache_waiters) {
                 /* if we can't dirty more, we must wait until some is written */
                 if ((cli->cl_dirty + CFS_PAGE_SIZE > cli->cl_dirty_max) ||
-                   (cfs_atomic_read(&obd_dirty_pages) + 1 >
-                    obd_max_dirty_pages)) {
+                    (cfs_atomic_read(&obd_dirty_pages) + 1 >
+                     obd_max_dirty_pages)) {
                         CDEBUG(D_CACHE, "no dirty room: dirty: %ld "
                                "osc max %ld, sys max %d\n", cli->cl_dirty,
                                cli->cl_dirty_max, obd_max_dirty_pages);
                         return;
                 }
 
+#if 0
                 /* if still dirty cache but no grant wait for pending RPCs that
                  * may yet return us some grant before doing sync writes */
                 if (cli->cl_w_in_flight && cli->cl_avail_grant < CFS_PAGE_SIZE) {
@@ -915,20 +895,17 @@ void osc_wake_cache_waiters(struct client_obd *cli)
                                cli->cl_w_in_flight);
                         return;
                 }
+#endif
 
                 ocw = cfs_list_entry(l, struct osc_cache_waiter, ocw_entry);
                 cfs_list_del_init(&ocw->ocw_entry);
-                if (cli->cl_avail_grant < CFS_PAGE_SIZE) {
-                        /* no more RPCs in flight to return grant, do sync IO */
-                        ocw->ocw_rc = -EDQUOT;
-                        CDEBUG(D_INODE, "wake oap %p for sync\n", ocw->ocw_oap);
-                } else {
-                        osc_consume_write_grant(cli,
-                                                &ocw->ocw_oap->oap_brw_page);
-                }
 
-                CDEBUG(D_CACHE, "wake up %p for oap %p, avail grant %ld\n",
-                       ocw, ocw->ocw_oap, cli->cl_avail_grant);
+                ocw->ocw_rc = 0;
+                if (!osc_enter_cache_try(cli, ocw->ocw_oap, ocw->ocw_grant, 0))
+                        ocw->ocw_rc = -EDQUOT;
+
+                CDEBUG(D_CACHE, "wake up %p for oap %p, avail grant %ld, %d\n",
+                       ocw, ocw->ocw_oap, cli->cl_avail_grant, ocw->ocw_rc);
 
                 cfs_waitq_signal(&ocw->ocw_waitq);
         }
@@ -1111,6 +1088,8 @@ static int osc_del_shrink_grant(struct client_obd *client)
 
 static void osc_init_grant(struct client_obd *cli, struct obd_connect_data *ocd)
 {
+        int blocksize = cli->cl_import->imp_obd->obd_osfs.os_bsize ? : 4096;
+
         /*
          * ocd_grant is the total grant amount we're expect to hold: if we've
          * been evicted, it's the new avail_grant amount, cl_dirty will drop
@@ -1134,11 +1113,23 @@ static void osc_init_grant(struct client_obd *cli, struct obd_connect_data *ocd)
                 cli->cl_avail_grant = ocd->ocd_grant;
         }
 
+        LASSERT((blocksize & (blocksize - 1)) == 0);
+        cli->cl_bsize = blocksize;
+        cli->cl_blockbits = CFS_PAGE_SHIFT;
+        if (blocksize > CFS_PAGE_SIZE) {
+                blocksize >>= CFS_PAGE_SHIFT + 1;
+                while (blocksize > 0) {
+                        ++cli->cl_blockbits;
+                        blocksize >>= 1;
+                }
+        }
         client_obd_list_unlock(&cli->cl_loi_list_lock);
 
-        CDEBUG(D_CACHE, "%s, setting cl_avail_grant: %ld cl_lost_grant: %ld \n",
+        CDEBUG(D_CACHE, "%s, setting cl_avail_grant: %ld cl_lost_grant: %ld."
+                        "blocksize: %d, blockbits: %d.\n",
                cli->cl_import->imp_obd->obd_name,
-               cli->cl_avail_grant, cli->cl_lost_grant);
+               cli->cl_avail_grant, cli->cl_lost_grant,
+               cli->cl_bsize, cli->cl_blockbits);
 
         if (ocd->ocd_connect_flags & OBD_CONNECT_GRANT_SHRINK &&
             cfs_list_empty(&cli->cl_grant_shrink_list))
@@ -1734,7 +1725,6 @@ int osc_brw_redo_request(struct ptlrpc_request *request,
                          struct osc_brw_async_args *aa)
 {
         struct ptlrpc_request *new_req;
-        struct ptlrpc_request_set *set = request->rq_set;
         struct osc_brw_async_args *new_aa;
         struct osc_async_page *oap;
         int rc = 0;
@@ -1756,15 +1746,12 @@ int osc_brw_redo_request(struct ptlrpc_request *request,
         if (rc)
                 RETURN(rc);
 
-        client_obd_list_lock(&aa->aa_cli->cl_loi_list_lock);
-
         cfs_list_for_each_entry(oap, &aa->aa_oaps, oap_rpc_item) {
                 if (oap->oap_request != NULL) {
                         LASSERTF(request == oap->oap_request,
                                  "request %p != oap_request %p\n",
                                  request, oap->oap_request);
                         if (oap->oap_interrupted) {
-                                client_obd_list_unlock(&aa->aa_cli->cl_loi_list_lock);
                                 ptlrpc_req_finished(new_req);
                                 RETURN(-EINTR);
                         }
@@ -1780,8 +1767,9 @@ int osc_brw_redo_request(struct ptlrpc_request *request,
         new_aa = ptlrpc_req_async_args(new_req);
 
         CFS_INIT_LIST_HEAD(&new_aa->aa_oaps);
-        cfs_list_splice(&aa->aa_oaps, &new_aa->aa_oaps);
-        CFS_INIT_LIST_HEAD(&aa->aa_oaps);
+        cfs_list_splice_init(&aa->aa_oaps, &new_aa->aa_oaps);
+        CFS_INIT_LIST_HEAD(&new_aa->aa_exts);
+        cfs_list_splice_init(&aa->aa_exts, &new_aa->aa_exts);
 
         cfs_list_for_each_entry(oap, &new_aa->aa_oaps, oap_rpc_item) {
                 if (oap->oap_request) {
@@ -1793,13 +1781,11 @@ int osc_brw_redo_request(struct ptlrpc_request *request,
         new_aa->aa_ocapa = aa->aa_ocapa;
         aa->aa_ocapa = NULL;
 
-        /* use ptlrpc_set_add_req is safe because interpret functions work
-         * in check_set context. only one way exist with access to request
-         * from different thread got -EINTR - this way protected with
-         * cl_loi_list_lock */
-        ptlrpc_set_add_req(set, new_req);
-
-        client_obd_list_unlock(&aa->aa_cli->cl_loi_list_lock);
+        /* XXX: This code will run into problem if we're going to support
+         * to add a series of BRW RPCs into a self-defined ptlrpc_request_set
+         * and wait for all of them to be finished. We should inherit request
+         * set from old request. */
+        ptlrpcd_add_req(new_req, PDL_POLICY_SAME, -1);
 
         DEBUG_REQ(D_INFO, new_req, "new request");
         RETURN(0);
@@ -1956,21 +1942,14 @@ out:
         RETURN(rc);
 }
 
-/* The companion to osc_enter_cache(), called when @oap is no longer part of
- * the dirty accounting.  Writeback completes or truncate happens before
- * writing starts.  Must be called with the loi lock held. */
-void osc_exit_cache(struct client_obd *cli, struct osc_async_page *oap,
-                    int sent)
-{
-        osc_release_write_grant(cli, &oap->oap_brw_page, sent);
-}
-
 static int brw_interpret(const struct lu_env *env,
                          struct ptlrpc_request *req, void *data, int rc)
 {
         struct osc_brw_async_args *aa = data;
-        struct client_obd *cli;
-        int async;
+        struct osc_extent *ext;
+        struct osc_extent *tmp;
+        struct cl_object  *obj = NULL;
+        struct client_obd *cli = aa->aa_cli;
         ENTRY;
 
         rc = osc_brw_fini_request(req, rc);
@@ -1986,9 +1965,55 @@ static int brw_interpret(const struct lu_env *env,
                 aa->aa_ocapa = NULL;
         }
 
-        cli = aa->aa_cli;
-        client_obd_list_lock(&cli->cl_loi_list_lock);
+        cfs_list_for_each_entry_safe(ext, tmp, &aa->aa_exts, oe_link) {
+                if (obj == NULL && rc == 0) {
+                        obj = osc2cl(ext->oe_obj);
+                        cl_object_get(obj);
+                }
 
+                cfs_list_del_init(&ext->oe_link);
+                osc_extent_finish(env, ext, 1, rc);
+        }
+        LASSERT(cfs_list_empty(&aa->aa_exts));
+        LASSERT(cfs_list_empty(&aa->aa_oaps));
+
+        if (obj != NULL) {
+                struct obdo *oa = aa->aa_oa;
+                struct cl_attr *attr  = &osc_env_info(env)->oti_attr;
+                unsigned long valid = 0;
+
+                LASSERT(rc == 0);
+                if (oa->o_valid & OBD_MD_FLBLOCKS) {
+                        attr->cat_blocks = oa->o_blocks;
+                        valid |= CAT_BLOCKS;
+                }
+                if (oa->o_valid & OBD_MD_FLMTIME) {
+                        attr->cat_mtime = oa->o_mtime;
+                        valid |= CAT_MTIME;
+                }
+                if (oa->o_valid & OBD_MD_FLATIME) {
+                        attr->cat_atime = oa->o_atime;
+                        valid |= CAT_ATIME;
+                }
+                if (oa->o_valid & OBD_MD_FLCTIME) {
+                        attr->cat_ctime = oa->o_ctime;
+                        valid |= CAT_CTIME;
+                }
+                if (valid != 0) {
+                        cl_object_attr_lock(obj);
+                        cl_object_attr_set(env, obj, attr, valid);
+                        cl_object_attr_unlock(obj);
+                }
+                cl_object_put(env, obj);
+        }
+        OBDO_FREE(aa->aa_oa);
+
+        cl_req_completion(env, aa->aa_clerq, rc < 0 ? rc :
+                          req->rq_bulk->bd_nob_transferred);
+        osc_release_ppga(aa->aa_ppga, aa->aa_page_count);
+        ptlrpc_lprocfs_brw(req, req->rq_bulk->bd_nob_transferred);
+
+        client_obd_list_lock(&cli->cl_loi_list_lock);
         /* We need to decrement before osc_ap_completion->osc_wake_cache_waiters
          * is called so we know whether to go to sync BRWs or wait for more
          * RPCs to complete */
@@ -1996,44 +2021,24 @@ static int brw_interpret(const struct lu_env *env,
                 cli->cl_w_in_flight--;
         else
                 cli->cl_r_in_flight--;
-
-        async = cfs_list_empty(&aa->aa_oaps);
-        if (!async) { /* from osc_send_oap_rpc() */
-                struct osc_async_page *oap, *tmp;
-                /* the caller may re-use the oap after the completion call so
-                 * we need to clean it up a little */
-                cfs_list_for_each_entry_safe(oap, tmp, &aa->aa_oaps,
-                                             oap_rpc_item) {
-                        cfs_list_del_init(&oap->oap_rpc_item);
-                        osc_ap_completion(env, cli, aa->aa_oa, oap, 1, rc);
-                }
-                OBDO_FREE(aa->aa_oa);
-        } else { /* from async_internal() */
-                obd_count i;
-                for (i = 0; i < aa->aa_page_count; i++)
-                        osc_release_write_grant(aa->aa_cli, aa->aa_ppga[i], 1);
-        }
         osc_wake_cache_waiters(cli);
-        osc_io_unplug(env, cli, NULL, PDL_POLICY_SAME);
         client_obd_list_unlock(&cli->cl_loi_list_lock);
 
-        if (!async)
-                cl_req_completion(env, aa->aa_clerq, rc < 0 ? rc :
-                                  req->rq_bulk->bd_nob_transferred);
-        osc_release_ppga(aa->aa_ppga, aa->aa_page_count);
-        ptlrpc_lprocfs_brw(req, req->rq_bulk->bd_nob_transferred);
-
+        osc_io_unplug(env, cli, NULL, PDL_POLICY_SAME);
         RETURN(rc);
 }
 
-/* The most tricky part of this function is that it will return with
- * cli->cli_loi_list_lock held.
+/**
+ * Build an RPC by the list of extent @ext_list. The caller must ensure
+ * that the total pages in this list are NOT over max pages per RPC.
+ * Extents in the list must be in OES_RPC state.
  */
-int osc_brw_base(const struct lu_env *env, struct client_obd *cli,
-                 cfs_list_t *rpc_list, int page_count, int cmd,
-                 pdl_policy_t pol)
+int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
+                  cfs_list_t *ext_list, int cmd, pdl_policy_t pol)
 {
         struct ptlrpc_request *req = NULL;
+        struct osc_extent *ext;
+        CFS_LIST_HEAD(rpc_list);
         struct brw_page **pga = NULL;
         struct osc_brw_async_args *aa = NULL;
         struct obdo *oa = NULL;
@@ -2043,12 +2048,34 @@ int osc_brw_base(const struct lu_env *env, struct client_obd *cli,
         enum cl_req_type crt = (cmd & OBD_BRW_WRITE) ? CRT_WRITE : CRT_READ;
         struct ldlm_lock *lock = NULL;
         struct cl_req_attr crattr;
-        int i, rc, mpflag = 0;
+        obd_off starting_offset = OBD_OBJECT_EOF;
+        obd_off ending_offset = 0;
+        int i, rc, mpflag = 0, mem_tight = 0, page_count = 0;
 
         ENTRY;
-        LASSERT(!cfs_list_empty(rpc_list));
+        LASSERT(!cfs_list_empty(ext_list));
 
-        if (cmd & OBD_BRW_MEMALLOC)
+        /* add pages into rpc_list to build BRW rpc */
+        cfs_list_for_each_entry(ext, ext_list, oe_link) {
+                LASSERT(ext->oe_state == OES_RPC);
+                mem_tight |= ext->oe_memalloc;
+                cfs_list_for_each_entry(oap, &ext->oe_pages, oap_pending_item) {
+                        ++page_count;
+                        cfs_list_add_tail(&oap->oap_rpc_item, &rpc_list);
+                        if (starting_offset > oap->oap_obj_off)
+                                starting_offset = oap->oap_obj_off;
+                        else
+                                LASSERT(oap->oap_page_off == 0);
+                        if (ending_offset < oap->oap_obj_off + oap->oap_count)
+                                ending_offset = oap->oap_obj_off +
+                                                oap->oap_count;
+                        else
+                                LASSERT(oap->oap_page_off + oap->oap_count ==
+                                        CFS_PAGE_SIZE);
+                }
+        }
+
+        if (mem_tight)
                 mpflag = cfs_memory_pressure_get_and_set();
 
         memset(&crattr, 0, sizeof crattr);
@@ -2061,8 +2088,8 @@ int osc_brw_base(const struct lu_env *env, struct client_obd *cli,
                 GOTO(out, rc = -ENOMEM);
 
         i = 0;
-        cfs_list_for_each_entry(oap, rpc_list, oap_rpc_item) {
-                struct cl_page *page = osc_oap2cl_page(oap);
+        cfs_list_for_each_entry(oap, &rpc_list, oap_rpc_item) {
+                struct cl_page *page = oap2cl_page(oap);
                 if (clerq == NULL) {
                         clerq = cl_req_alloc(env, page, crt,
                                              1 /* only 1-object rpcs for
@@ -2071,6 +2098,8 @@ int osc_brw_base(const struct lu_env *env, struct client_obd *cli,
                                 GOTO(out, rc = PTR_ERR(clerq));
                         lock = oap->oap_ldlm_lock;
                 }
+                if (mem_tight)
+                        oap->oap_brw_flags |= OBD_BRW_MEMALLOC;
                 pga[i] = &oap->oap_brw_page;
                 pga[i]->off = oap->oap_obj_off + oap->oap_page_off;
                 CDEBUG(0, "put page %p index %lu oap %p flg %x to pga\n",
@@ -2078,6 +2107,7 @@ int osc_brw_base(const struct lu_env *env, struct client_obd *cli,
                 i++;
                 cl_req_page_add(env, clerq, page);
         }
+        LASSERT(i <= cli->cl_max_pages_per_rpc);
 
         /* always get the data for the obdo for the rpc */
         LASSERT(clerq != NULL);
@@ -2104,7 +2134,7 @@ int osc_brw_base(const struct lu_env *env, struct client_obd *cli,
         }
 
         req->rq_interpret_reply = brw_interpret;
-        if (cmd & OBD_BRW_MEMALLOC)
+        if (mem_tight != 0)
                 req->rq_memalloc = 1;
 
         /* Need to update the timestamps after the request is built in case
@@ -2118,11 +2148,66 @@ int osc_brw_base(const struct lu_env *env, struct client_obd *cli,
         CLASSERT(sizeof(*aa) <= sizeof(req->rq_async_args));
         aa = ptlrpc_req_async_args(req);
         CFS_INIT_LIST_HEAD(&aa->aa_oaps);
-        cfs_list_splice(rpc_list, &aa->aa_oaps);
-        CFS_INIT_LIST_HEAD(rpc_list);
+        cfs_list_splice_init(&rpc_list, &aa->aa_oaps);
+        CFS_INIT_LIST_HEAD(&aa->aa_exts);
+        cfs_list_splice_init(ext_list, &aa->aa_exts);
         aa->aa_clerq = clerq;
+
+        /* queued sync pages can be torn down while the pages
+         * were between the pending list and the rpc */
+        tmp = NULL;
+        cfs_list_for_each_entry(oap, &aa->aa_oaps, oap_rpc_item) {
+                /* only one oap gets a request reference */
+                if (tmp == NULL)
+                        tmp = oap;
+                if (oap->oap_interrupted && !req->rq_intr) {
+                        CDEBUG(D_INODE, "oap %p in req %p interrupted\n",
+                                        oap, req);
+                        ptlrpc_mark_interrupted(req);
+                }
+        }
+        if (tmp != NULL)
+                tmp->oap_request = ptlrpc_request_addref(req);
+
+        client_obd_list_lock(&cli->cl_loi_list_lock);
+        starting_offset >>= CFS_PAGE_SHIFT;
+        if (cmd == OBD_BRW_READ) {
+                cli->cl_r_in_flight++;
+                lprocfs_oh_tally_log2(&cli->cl_read_page_hist, page_count);
+                lprocfs_oh_tally(&cli->cl_read_rpc_hist, cli->cl_r_in_flight);
+                lprocfs_oh_tally_log2(&cli->cl_read_offset_hist,
+                                      starting_offset + 1);
+        } else {
+                cli->cl_w_in_flight++;
+                lprocfs_oh_tally_log2(&cli->cl_write_page_hist, page_count);
+                lprocfs_oh_tally(&cli->cl_write_rpc_hist, cli->cl_w_in_flight);
+                lprocfs_oh_tally_log2(&cli->cl_write_offset_hist,
+                                      starting_offset + 1);
+        }
+        client_obd_list_unlock(&cli->cl_loi_list_lock);
+
+        DEBUG_REQ(D_INODE, req, "%d pages, aa %p. now %dr/%dw in flight",
+                  page_count, aa, cli->cl_r_in_flight,
+                  cli->cl_w_in_flight);
+
+        /* XXX: Maybe the caller can check the RPC bulk descriptor to
+         * see which CPU/NUMA node the majority of pages were allocated
+         * on, and try to assign the async RPC to the CPU core
+         * (PDL_POLICY_PREFERRED) to reduce cross-CPU memory traffic.
+         *
+         * But on the other hand, we expect that multiple ptlrpcd
+         * threads and the initial write sponsor can run in parallel,
+         * especially when data checksum is enabled, which is CPU-bound
+         * operation and single ptlrpcd thread cannot process in time.
+         * So more ptlrpcd threads sharing BRW load
+         * (with PDL_POLICY_ROUND) seems better.
+         */
+        ptlrpcd_add_req(req, pol, -1);
+        rc = 0;
+        EXIT;
+
 out:
-        if (cmd & OBD_BRW_MEMALLOC)
+        if (mem_tight != 0)
                 cfs_memory_pressure_restore(mpflag);
 
         capa_put(crattr.cra_capa);
@@ -2135,88 +2220,137 @@ out:
                         OBD_FREE(pga, sizeof(*pga) * page_count);
                 /* this should happen rarely and is pretty bad, it makes the
                  * pending list not follow the dirty order */
-                client_obd_list_lock(&cli->cl_loi_list_lock);
-                cfs_list_for_each_entry_safe(oap, tmp, rpc_list, oap_rpc_item) {
-                        cfs_list_del_init(&oap->oap_rpc_item);
-
-                        /* queued sync pages can be torn down while the pages
-                         * were between the pending list and the rpc */
-                        if (oap->oap_interrupted) {
-                                CDEBUG(D_INODE, "oap %p interrupted\n", oap);
-                                osc_ap_completion(env, cli, NULL, oap, 0,
-                                                  oap->oap_count);
-                                continue;
-                        }
-                        osc_ap_completion(env, cli, NULL, oap, 0, rc);
+                while (!cfs_list_empty(ext_list)) {
+                        ext = cfs_list_entry(ext_list->next, struct osc_extent,
+                                             oe_link);
+                        cfs_list_del_init(&ext->oe_link);
+                        osc_extent_finish(env, ext, 0, rc);
                 }
                 if (clerq && !IS_ERR(clerq))
                         cl_req_completion(env, clerq, rc);
-        } else {
-                struct osc_async_page *tmp = NULL;
-
-                /* queued sync pages can be torn down while the pages
-                 * were between the pending list and the rpc */
-                LASSERT(aa != NULL);
-                client_obd_list_lock(&cli->cl_loi_list_lock);
-                cfs_list_for_each_entry(oap, &aa->aa_oaps, oap_rpc_item) {
-                        /* only one oap gets a request reference */
-                        if (tmp == NULL)
-                                tmp = oap;
-                        if (oap->oap_interrupted && !req->rq_intr) {
-                                CDEBUG(D_INODE, "oap %p in req %p interrupted\n",
-                                                oap, req);
-                                ptlrpc_mark_interrupted(req);
-                        }
-                }
-                if (tmp != NULL)
-                        tmp->oap_request = ptlrpc_request_addref(req);
-
-                DEBUG_REQ(D_INODE,req, "%d pages, aa %p. now %dr/%dw in flight",
-                          page_count, aa, cli->cl_r_in_flight,
-                          cli->cl_w_in_flight);
-
-                /* XXX: Maybe the caller can check the RPC bulk descriptor to
-                 * see which CPU/NUMA node the majority of pages were allocated
-                 * on, and try to assign the async RPC to the CPU core
-                 * (PDL_POLICY_PREFERRED) to reduce cross-CPU memory traffic.
-                 *
-                 * But on the other hand, we expect that multiple ptlrpcd
-                 * threads and the initial write sponsor can run in parallel,
-                 * especially when data checksum is enabled, which is CPU-bound
-                 * operation and single ptlrpcd thread cannot process in time.
-                 * So more ptlrpcd threads sharing BRW load
-                 * (with PDL_POLICY_ROUND) seems better.
-                 */
-                ptlrpcd_add_req(req, pol, -1);
         }
         RETURN(rc);
+}
+
+/* client_obd_list_lock held by caller */
+static int osc_reserve_grant(struct client_obd *cli, unsigned int bytes)
+{
+        int rc = -EDQUOT;
+
+        if (cli->cl_avail_grant >= bytes) {
+                cli->cl_avail_grant    -= bytes;
+                cli->cl_reserved_grant += bytes;
+                rc = 0;
+        }
+        return rc;
+}
+
+static void __osc_unreserve_grant(struct client_obd *cli,
+                                  unsigned int reserved, unsigned int unused)
+{
+        /* it's quite normal for us to get more grant then reserved.
+         * Thinking about a case that two extents merged by adding a new
+         * block, we can save one extent tax. If extent tax is greater than
+         * block, we can save more grant than what we reserved. */
+        cli->cl_reserved_grant -= reserved;
+        if (unused > reserved) {
+                cli->cl_avail_grant += reserved;
+                cli->cl_lost_grant  += unused - reserved;
+        } else {
+                cli->cl_avail_grant += unused;
+        }
+        if (unused > 0)
+                osc_wake_cache_waiters(cli);
+}
+
+void osc_unreserve_grant(struct client_obd *cli,
+                         unsigned int reserved, unsigned int unused)
+{
+        client_obd_list_lock(&cli->cl_loi_list_lock);
+        __osc_unreserve_grant(cli, reserved, unused);
+        client_obd_list_unlock(&cli->cl_loi_list_lock);
+}
+
+/**
+ * Free grant after IO is finished or canceled.
+ *
+ * @lost_grant is used to remember how many grants we have allocated but not
+ * used, we should return these grants to OST. There're two cases where grants
+ * can be lost:
+ * 1. truncate;
+ * 2. blocksize at OST is less than CFS_PAGE_SIZE and a partial page was
+ *    written. In this case OST may use less blocks to serve this partial
+ *    write. OSTs don't actually know the page size on the client side. so
+ *    clients have to calculate lost grant by the blocksize on the OST.
+ *    See filter_grant_check() for details.
+ */
+void osc_free_grant(struct client_obd *cli, unsigned int nr_pages,
+                    unsigned int lost_grant)
+{
+        int grant = (1 << cli->cl_blockbits) + cli->cl_extent_tax;
+
+        client_obd_list_lock(&cli->cl_loi_list_lock);
+        cfs_atomic_sub(nr_pages, &obd_dirty_pages);
+        cli->cl_dirty -= nr_pages << CFS_PAGE_SHIFT;
+        cli->cl_lost_grant += lost_grant;
+        if (cli->cl_avail_grant < grant && cli->cl_lost_grant >= grant) {
+                /* borrow some grant from truncate to avoid the case that
+                 * truncate uses up all avail grant */
+                cli->cl_lost_grant -= grant;
+                cli->cl_avail_grant += grant;
+        }
+        osc_wake_cache_waiters(cli);
+        client_obd_list_unlock(&cli->cl_loi_list_lock);
+        CDEBUG(D_CACHE, "lost %u grant: %lu avail: %lu dirty: %lu\n",
+               lost_grant, cli->cl_lost_grant,
+               cli->cl_avail_grant, cli->cl_dirty);
+}
+
+
+
+/* The companion to osc_enter_cache(), called when @oap is no longer part of
+ * the dirty accounting.  Writeback completes or truncate happens before
+ * writing starts.  Must be called with the loi lock held. */
+void osc_exit_cache(struct client_obd *cli, struct osc_async_page *oap)
+{
+        osc_release_write_grant(cli, &oap->oap_brw_page);
 }
 
 /**
  * Non-blocking version of osc_enter_cache() that consumes grant only when it
  * is available.
  */
-int osc_enter_cache_try(const struct lu_env *env, struct client_obd *cli,
-                        struct osc_async_page *oap, int transient)
+int osc_enter_cache_try(struct client_obd *cli, struct osc_async_page *oap,
+                        int bytes, int transient)
 {
-        int has_grant;
+        int rc;
 
-        has_grant = cli->cl_avail_grant >= CFS_PAGE_SIZE;
-        if (has_grant) {
+        OSC_DUMP_GRANT(cli, "need:%d.\n", bytes);
+
+        rc = osc_reserve_grant(cli, bytes);
+        if (rc < 0)
+                return 0;
+
+        if (cli->cl_dirty + CFS_PAGE_SIZE <= cli->cl_dirty_max &&
+            cfs_atomic_read(&obd_dirty_pages) + 1 <= obd_max_dirty_pages) {
                 osc_consume_write_grant(cli, &oap->oap_brw_page);
                 if (transient) {
                         cli->cl_dirty_transit += CFS_PAGE_SIZE;
                         cfs_atomic_inc(&obd_dirty_transit_pages);
                         oap->oap_brw_flags |= OBD_BRW_NOCACHE;
                 }
+                rc = 1;
+        } else {
+                __osc_unreserve_grant(cli, bytes, bytes);
+                rc = 0;
         }
-        return has_grant;
+        return rc;
 }
 
 /* Caller must hold loi_list_lock - we drop/regain it if we need to wait for
  * grant or cache space. */
 int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
-                    struct osc_async_page *oap)
+                    struct osc_async_page *oap, int bytes)
 {
         struct osc_object *osc = oap->oap_obj;
         struct lov_oinfo  *loi = osc->oo_oinfo;
@@ -2225,23 +2359,20 @@ int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
         int rc = -EDQUOT;
         ENTRY;
 
-        CDEBUG(D_CACHE, "dirty: %ld/%d dirty_max: %ld/%d dropped: %lu "
-               "grant: %lu\n", cli->cl_dirty, cfs_atomic_read(&obd_dirty_pages),
-               cli->cl_dirty_max, obd_max_dirty_pages,
-               cli->cl_lost_grant, cli->cl_avail_grant);
+        OSC_DUMP_GRANT(cli, "need:%d.\n", bytes);
+
+        client_obd_list_lock(&cli->cl_loi_list_lock);
 
         /* force the caller to try sync io.  this can jump the list
          * of queued writes and create a discontiguous rpc stream */
         if (OBD_FAIL_CHECK(OBD_FAIL_OSC_NO_GRANT) ||
             cli->cl_dirty_max < CFS_PAGE_SIZE     ||
             cli->cl_ar.ar_force_sync || loi->loi_ar.ar_force_sync)
-                RETURN(-EDQUOT);
+                GOTO(out, rc = -EDQUOT);
 
         /* Hopefully normal case - cache space and write credits available */
-        if (cli->cl_dirty + CFS_PAGE_SIZE <= cli->cl_dirty_max &&
-            cfs_atomic_read(&obd_dirty_pages) + 1 <= obd_max_dirty_pages &&
-            osc_enter_cache_try(env, cli, oap, 0))
-                RETURN(0);
+        if (osc_enter_cache_try(cli, oap, bytes, 0))
+                GOTO(out, rc = 0);
 
         /* We can get here for two reasons: too many dirty pages in cache, or
          * run out of grants. In both cases we should write dirty pages out.
@@ -2250,18 +2381,20 @@ int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
          * The exiting condition is no avail grants and no dirty pages caching,
          * that really means there is no space on the OST. */
         cfs_waitq_init(&ocw.ocw_waitq);
-        ocw.ocw_oap = oap;
-        while (cli->cl_dirty > 0) {
+        ocw.ocw_oap   = oap;
+        ocw.ocw_grant = bytes;
+        while (cli->cl_dirty > 0 || cli->cl_w_in_flight > 0) {
                 cfs_list_add_tail(&ocw.ocw_entry, &cli->cl_cache_waiters);
                 ocw.ocw_rc = 0;
+                client_obd_list_unlock(&cli->cl_loi_list_lock);
 
                 osc_io_unplug(env, cli, osc, PDL_POLICY_ROUND);
-                client_obd_list_unlock(&cli->cl_loi_list_lock);
 
                 CDEBUG(D_CACHE, "%s: sleeping for cache space @ %p for %p\n",
                        cli->cl_import->imp_obd->obd_name, &ocw, oap);
 
-                rc = l_wait_event(ocw.ocw_waitq, cfs_list_empty(&ocw.ocw_entry), &lwi);
+                rc = l_wait_event(ocw.ocw_waitq,
+                                  cfs_list_empty(&ocw.ocw_entry), &lwi);
 
                 client_obd_list_lock(&cli->cl_loi_list_lock);
                 cfs_list_del_init(&ocw.ocw_entry);
@@ -2271,8 +2404,16 @@ int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
                 rc = ocw.ocw_rc;
                 if (rc != -EDQUOT)
                         break;
+                if (osc_enter_cache_try(cli, oap, bytes, 0)) {
+                        rc = 0;
+                        break;
+                }
         }
+        EXIT;
 
+out:
+        client_obd_list_unlock(&cli->cl_loi_list_lock);
+        OSC_DUMP_GRANT(cli, "returned %d.\n", rc);
         RETURN(rc);
 }
 
@@ -3442,9 +3583,9 @@ static int osc_reconnect(const struct lu_env *env,
                 cli->cl_lost_grant = 0;
                 client_obd_list_unlock(&cli->cl_loi_list_lock);
 
-                CDEBUG(D_CACHE, "request ocd_grant: %d cl_avail_grant: %ld "
-                       "cl_dirty: %ld cl_lost_grant: %ld\n", data->ocd_grant,
-                       cli->cl_avail_grant, cli->cl_dirty, lost_grant);
+                OSC_DUMP_GRANT(cli, "request: %d, lost: %ld.\n",
+                               data->ocd_grant, lost_grant);
+
                 CDEBUG(D_RPCTRACE, "ocd_connect_flags: "LPX64" ocd_version: %d"
                        " ocd_grant: %d\n", data->ocd_connect_flags,
                        data->ocd_version, data->ocd_grant);
@@ -3535,11 +3676,9 @@ static int osc_import_event(struct obd_device *obd,
                 if (!IS_ERR(env)) {
                         /* Reset grants */
                         cli = &obd->u.cli;
-                        client_obd_list_lock(&cli->cl_loi_list_lock);
                         /* all pages go to failing rpcs due to the invalid
                          * import */
                         osc_io_unplug(env, cli, NULL, PDL_POLICY_ROUND);
-                        client_obd_list_unlock(&cli->cl_loi_list_lock);
 
                         ldlm_namespace_cleanup(ns, LDLM_FL_LOCAL_ONLY);
                         cl_env_put(env, &refcheck);
@@ -3620,9 +3759,7 @@ static int brw_queue_work(const struct lu_env *env, void *data)
 
         CDEBUG(D_CACHE, "Run writeback work for client obd %p.\n", cli);
 
-        client_obd_list_lock(&cli->cl_loi_list_lock);
         osc_io_unplug(env, cli, NULL, PDL_POLICY_SAME);
-        client_obd_list_unlock(&cli->cl_loi_list_lock);
         RETURN(0);
 }
 

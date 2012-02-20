@@ -448,11 +448,17 @@ struct client_obd {
         long                     cl_dirty_transit; /* dirty synchronous */
         long                     cl_avail_grant;   /* bytes of credit for ost */
         long                     cl_lost_grant;    /* lost credits (trunc) */
+        long                     cl_reserved_grant;
         cfs_list_t               cl_cache_waiters; /* waiting for cache/grant */
         cfs_time_t               cl_next_shrink_grant;   /* jiffies */
         cfs_list_t               cl_grant_shrink_list;  /* Timeout event list */
         cfs_semaphore_t          cl_grant_sem;   /*grant shrink list cfs_semaphore*/
         int                      cl_grant_shrink_interval; /* seconds */
+
+        int                      cl_blockbits;  /* fixed blockbits, greater or
+                                                 * equal to CFS_PAGE_SHIFT. */
+        int                      cl_bsize;      /* real blocksize */
+        int                      cl_extent_tax; /* extent overhead, by bytes */
 
         /* keep track of objects that have lois that contain pages which
          * have been queued for async brw.  this lock also protects the
@@ -483,9 +489,10 @@ struct client_obd {
         int                      cl_r_in_flight;
         int                      cl_w_in_flight;
         /* just a sum of the loi/lop pending numbers to be exported by /proc */
-        int                      cl_pending_w_pages;
-        int                      cl_pending_r_pages;
+        cfs_atomic_t             cl_pending_w_pages;
+        cfs_atomic_t             cl_pending_r_pages;
         int                      cl_max_pages_per_rpc;
+        int                      cl_rpc_bits; /* max pages per RPC bits */
         int                      cl_max_rpcs_in_flight;
         struct obd_histogram     cl_read_rpc_hist;
         struct obd_histogram     cl_write_rpc_hist;
