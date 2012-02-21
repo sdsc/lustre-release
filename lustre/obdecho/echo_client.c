@@ -2593,10 +2593,6 @@ echo_client_iocontrol(unsigned int cmd, struct obd_export *exp,
         int                     i;
         ENTRY;
 
-#ifndef HAVE_UNLOCKED_IOCTL
-        cfs_unlock_kernel();
-#endif
-
         memset(&dummy_oti, 0, sizeof(dummy_oti));
 
         oa = &data->ioc_obdo1;
@@ -2791,10 +2787,6 @@ echo_client_iocontrol(unsigned int cmd, struct obd_export *exp,
                         break;
                 ldlm_lock_decref(&ack_lock->lock, ack_lock->mode);
         }
-
-#ifndef HAVE_UNLOCKED_IOCTL
-        cfs_lock_kernel();
-#endif
 
         return rc;
 }
