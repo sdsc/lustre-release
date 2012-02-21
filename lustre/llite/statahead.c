@@ -1648,27 +1648,35 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
                         struct lookup_intent it = { .it_op = IT_GETATTR,
                                                     .d.lustre.it_lock_handle =
                                                      entry->se_handle };
-                        struct ll_dentry_data *lld;
                         __u64 bits;
 
                         rc = md_revalidate_lock(ll_i2mdexp(dir), &it,
                                                 ll_inode2fid(inode), &bits);
                         if (rc == 1) {
                                 if ((*dentryp)->d_inode == NULL) {
-                                        *dentryp = ll_find_alias(inode,
-                                                                 *dentryp);
-                                        lld = ll_d2d(*dentryp);
-                                        if (unlikely(lld == NULL))
-                                                ll_dops_init(*dentryp, 1, 1);
+                                        *dentryp = ll_splice_alias(inode,
+                                                                   *dentryp);
+                                } else if ((*dentryp)->d_inode != inode) {
+                                        /* revalidate, but inode is recreated */
+                                        CDEBUG(D_READA,
+                                              "stale dentry %.*s inode %lu/%u, "
+                                              "statahead inode %lu/%u\n",
+                                              (*dentryp)->d_name.len,
+                                              (*dentryp)->d_name.name,
+                                              (*dentryp)->d_inode->i_ino,
+                                              (*dentryp)->d_inode->i_generation,
+                                              inode->i_ino,
+                                              inode->i_generation);
+                                        ll_sai_unplug(sai, entry);
+                                        RETURN(-ESTALE);
                                 } else {
-                                        LASSERT((*dentryp)->d_inode == inode);
-
-                                        ll_dentry_rehash(*dentryp, 0);
                                         iput(inode);
                                 }
                                 entry->se_inode = NULL;
 
-                                ll_dentry_reset_flags(*dentryp, bits);
+                                if ((bits & MDS_INODELOCK_LOOKUP) &&
+                                    d_lustre_invalid(*dentryp))
+                                        d_lustre_revalidate(*dentryp);
                                 ll_intent_release(&it);
                         }
                 }
@@ -1732,9 +1740,9 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
 
         /*
          * We don't stat-ahead for the first dirent since we are already in
-         * lookup, and -EEXIST also indicates that this is the first dirent.
+         * lookup.
          */
-        RETURN(-EEXIST);
+        RETURN(-EAGAIN);
 
 out:
         if (sai != NULL)
