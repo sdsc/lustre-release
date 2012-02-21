@@ -199,6 +199,10 @@ struct lustre_mount_info *server_get_mount_2(const char *name)
         RETURN(lmi);
 }
 
+#ifndef kernel_locked
+#define kernel_locked() (current->lock_depth >= 0)
+#endif
+
 static void unlock_mntput(struct vfsmount *mnt)
 {
         if (kernel_locked()) {
