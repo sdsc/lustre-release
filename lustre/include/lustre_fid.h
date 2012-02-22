@@ -89,8 +89,8 @@ enum {
 };
 
 enum {
-        /** 2^6 FIDs for OI containers */
-        OSD_OI_FID_OID_BITS     = 6,
+        /** 2^5 FIDs for OI containers */
+        OSD_OI_FID_OID_BITS     = 5,
         /** reserve enough FIDs in case we want more in the future */
         OSD_OI_FID_OID_BITS_MAX = 10,
 };
