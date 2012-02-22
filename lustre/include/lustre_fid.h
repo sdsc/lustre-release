@@ -130,6 +130,12 @@ enum local_oid {
                                   (1UL << OSD_OI_FID_OID_BITS_MAX),
 };
 
+/** OID for FID_SEQ_DOT_LUSTRE */
+enum dot_lustre_oid {
+        FID_OID_DOT_LUSTRE  = 1UL,
+        FID_OID_DOT_LUSTRE_OBF = 2UL,
+};
+
 static inline void lu_local_obj_fid(struct lu_fid *fid, __u32 oid)
 {
         fid->f_seq = FID_SEQ_LOCAL_FILE;

@@ -422,6 +422,7 @@ enum fid_seq {
         FID_SEQ_START      = 0x200000000ULL,
         FID_SEQ_LOCAL_FILE = 0x200000001ULL,
         FID_SEQ_DOT_LUSTRE = 0x200000002ULL,
+        FID_SEQ_SPECIAL    = 0x200000003ULL,
         FID_SEQ_NORMAL     = 0x200000400ULL,
         FID_SEQ_LOV_DEFAULT= 0xffffffffffffffffULL
 };
@@ -433,6 +434,10 @@ enum fid_seq {
 #define IDIF_MAX_OID                (1ULL << IDIF_OID_MAX_BITS)
 #define IDIF_OID_MASK               ((1ULL << IDIF_OID_MAX_BITS) - 1)
 
+/** OID for FID_SEQ_SPECIAL */
+enum special_oid {
+        FID_OID_SPECIAL_BFL     = 1UL,
+};
 
 static inline int fid_seq_is_mdt0(obd_seq seq)
 {

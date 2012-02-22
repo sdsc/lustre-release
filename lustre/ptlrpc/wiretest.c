@@ -492,10 +492,15 @@ void lustre_assert_wire_constants(void)
                  (long long)FID_SEQ_LOCAL_FILE);
         LASSERTF(FID_SEQ_DOT_LUSTRE == 0x0000000200000002ULL, "found 0x%.16llxULL\n",
                  (long long)FID_SEQ_DOT_LUSTRE);
+        LASSERTF(FID_SEQ_SPECIAL == 0x0000000200000003ULL, "found 0x%.16llxULL\n",
+                 (long long)FID_SEQ_SPECIAL);
         LASSERTF(FID_SEQ_NORMAL == 0x0000000200000400ULL, "found 0x%.16llxULL\n",
                  (long long)FID_SEQ_NORMAL);
         LASSERTF(FID_SEQ_LOV_DEFAULT == 0xffffffffffffffffULL, "found 0x%.16llxULL\n",
                  (long long)FID_SEQ_LOV_DEFAULT);
+
+        LASSERTF(FID_OID_SPECIAL_BFL == 1, "found %lld\n",
+                 (long long)FID_OID_SPECIAL_BFL);
 
         /* Checks for struct lu_dirent */
         LASSERTF((int)sizeof(struct lu_dirent) == 32, "found %lld\n",
