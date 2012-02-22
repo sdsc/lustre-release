@@ -422,6 +422,7 @@ enum fid_seq {
         FID_SEQ_START      = 0x200000000ULL,
         FID_SEQ_LOCAL_FILE = 0x200000001ULL,
         FID_SEQ_DOT_LUSTRE = 0x200000002ULL,
+        FID_SEQ_SPECIAL    = 0x200000003ULL,
         FID_SEQ_NORMAL     = 0x200000400ULL,
         FID_SEQ_LOV_DEFAULT= 0xffffffffffffffffULL
 };
