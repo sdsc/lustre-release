@@ -594,14 +594,20 @@ granted:
         spin_unlock(&ldlm_flock_waitq_lock);
 
         lock_res_and_lock(lock);
+        if (lock->l_destroyed) {
+                unlock_res_and_lock(lock);
+                LDLM_DEBUG(lock, "client-side enqueue waking up: destroyed");
+                RETURN(0);
+        }
+
         /* ldlm_lock_enqueue() has already placed lock on the granted list. */
         list_del_init(&lock->l_res_link);
 
         if (flags & LDLM_FL_TEST_LOCK) {
                 /* fcntl(F_GETLK) request */
-                /* The old mode was saved in getlk->fl_type so that if the mode
-                 * in the lock changes we can decref the appropriate refcount.*/
-                ldlm_flock_destroy(lock, cfs_flock_type(getlk),
+                /* If the mode in the lock changes but we can still decref at
+                 * will as it is taken care of in ldlm_cli_enqueue_fini().*/
+                ldlm_flock_destroy(lock, lock->l_req_mode,
                                    LDLM_FL_WAIT_NOREPROC);
                 switch (lock->l_granted_mode) {
                 case LCK_PR:

@@ -464,11 +464,20 @@ int ldlm_cli_enqueue_fini(struct obd_export *exp, struct ptlrpc_request *req,
         if ((*flags) & LDLM_FL_LOCK_CHANGED) {
                 int newmode = reply->lock_desc.l_req_mode;
                 LASSERT(!is_replay);
+                lock_res_and_lock(lock);
                 if (newmode && newmode != lock->l_req_mode) {
                         LDLM_DEBUG(lock, "server returned different mode %s",
                                    ldlm_lockname[newmode]);
+                        /* Ensure flock correct deref if lock mode changes.*/
+                        if (lock->l_resource->lr_type == LDLM_FLOCK) {
+                                mode = newmode;
+                                ldlm_lock_addref_internal_nolock(lock, newmode);
+                                ldlm_lock_decref_internal_nolock(lock,
+                                                              lock->l_req_mode);
+                        }
                         lock->l_req_mode = newmode;
                 }
+                unlock_res_and_lock(lock);
 
                 if (memcmp(reply->lock_desc.l_resource.lr_name.name,
                           lock->l_resource->lr_name.name,
