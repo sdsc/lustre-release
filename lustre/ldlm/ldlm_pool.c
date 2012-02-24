@@ -391,8 +391,7 @@ static int ldlm_srv_pool_recalc(struct ldlm_pool *pl)
 static int ldlm_srv_pool_shrink(struct ldlm_pool *pl,
                                 int nr, unsigned int gfp_mask)
 {
-        __u32 limit;
-
+        __u64 granted;
         /*
          * VM is asking how many entries may be potentially freed.
          */
@@ -406,26 +405,30 @@ static int ldlm_srv_pool_shrink(struct ldlm_pool *pl,
         if (cfs_atomic_read(&pl->pl_granted) == 0)
                 RETURN(0);
 
+        granted = cfs_atomic_read(&pl->pl_granted);
+
         cfs_spin_lock(&pl->pl_lock);
 
         /*
-         * We want shrinker to possibly cause cancellation of @nr locks from
-         * clients or grant approximately @nr locks smaller next intervals.
+         * We want shrinker to possibly cause cancellation of some locks
+         * from clients or grant less locks in next intervals.
          *
-         * This is why we decreased SLV by @nr. This effect will only be as
+         * This is why we decreased SLV to (granted * 100, allow granted
+         * locks on 1 client for 100 seconds). This effect will only be as
          * long as one re-calc interval (1s these days) and this should be
          * enough to pass this decreased SLV to all clients. On next recalc
          * interval pool will either increase SLV if locks load is not high
          * or will keep on same level or even decrease again, thus, shrinker
-         * decreased SLV will affect next recalc intervals and this way will
+         * decreased SLV will affect next recal cintervals and this way will
          * make locking load lower.
          */
-        if (nr < pl->pl_server_lock_volume) {
-                pl->pl_server_lock_volume = pl->pl_server_lock_volume - nr;
-        } else {
-                limit = ldlm_pool_get_limit(pl);
-                pl->pl_server_lock_volume = ldlm_pool_slv_min(limit);
-        }
+        CDEBUG(D_DLMTRACE, "before SLV:"LPU64", granted:"LPU64"\n",
+               pl->pl_server_lock_volume, granted);
+
+        if (pl->pl_server_lock_volume > (granted * 100))
+                pl->pl_server_lock_volume = (granted * 100);
+
+        CDEBUG(D_DLMTRACE, "after SLV:"LPU64"\n", pl->pl_server_lock_volume);
 
         /*
          * Make sure that pool informed obd of last SLV changes.
@@ -433,10 +436,13 @@ static int ldlm_srv_pool_shrink(struct ldlm_pool *pl,
         ldlm_srv_pool_push_slv(pl);
         cfs_spin_unlock(&pl->pl_lock);
 
-        /*
-         * We did not really free any memory here so far, it only will be
-         * freed later may be, so that we return 0 to not confuse VM.
-         */
+        lprocfs_counter_add(pl->pl_stats, LDLM_POOL_SHRINK_REQTD_STAT, nr);
+        lprocfs_counter_add(pl->pl_stats, LDLM_POOL_SHRINK_FREED_STAT, 0);
+        CDEBUG(D_DLMTRACE, "%s: request to shrink %d locks, cancled %d\n",
+               pl->pl_name, nr, 0);
+
+        /* Server ldlm pool shrinker always return -1 to kernel, this return
+         * value will be ignored */
         return 0;
 }
 
@@ -544,27 +550,26 @@ static int ldlm_cli_pool_shrink(struct ldlm_pool *pl,
         if (!ns_connect_lru_resize(ns))
                 RETURN(0);
 
-        /*
-         * Make sure that pool knows last SLV and Limit from obd.
-         */
-        ldlm_cli_pool_pop_slv(pl);
-
         cfs_spin_lock(&ns->ns_lock);
         unused = ns->ns_nr_unused;
         cfs_spin_unlock(&ns->ns_lock);
-        
+
         if (nr) {
+                ldlm_cli_pool_pop_slv(pl);
                 canceled = ldlm_cancel_lru(ns, nr, LDLM_ASYNC,
                                            LDLM_CANCEL_SHRINK);
+                lprocfs_counter_add(pl->pl_stats,
+                                    LDLM_POOL_SHRINK_REQTD_STAT,
+                                    nr);
+                lprocfs_counter_add(pl->pl_stats,
+                                    LDLM_POOL_SHRINK_FREED_STAT,
+                                    canceled);
+                CDEBUG(D_DLMTRACE, "%s: request to shrink %d locks, "
+                       "canceled %d\n", pl->pl_name, nr, canceled);
         }
-#ifdef __KERNEL__
-        /*
-         * Return the number of potentially reclaimable locks.
-         */
-        return ((unused - canceled) / 100) * sysctl_vfs_cache_pressure;
-#else
-        return unused - canceled;
-#endif
+
+        /* Return remaining unused locks */
+        return (unused > canceled) ? (unused - canceled) : 0;
 }
 
 struct ldlm_pool_ops ldlm_srv_pool_ops = {
@@ -626,22 +631,13 @@ EXPORT_SYMBOL(ldlm_pool_recalc);
 int ldlm_pool_shrink(struct ldlm_pool *pl, int nr,
                      unsigned int gfp_mask)
 {
-        int cancel = 0;
+        int remain = 0;
 
         if (pl->pl_ops->po_shrink != NULL) {
-                cancel = pl->pl_ops->po_shrink(pl, nr, gfp_mask);
-                if (nr > 0) {
-                        lprocfs_counter_add(pl->pl_stats,
-                                            LDLM_POOL_SHRINK_REQTD_STAT,
-                                            nr);
-                        lprocfs_counter_add(pl->pl_stats,
-                                            LDLM_POOL_SHRINK_FREED_STAT,
-                                            cancel);
-                        CDEBUG(D_DLMTRACE, "%s: request to shrink %d locks, "
-                               "shrunk %d\n", pl->pl_name, nr, cancel);
-                }
+                remain = pl->pl_ops->po_shrink(pl, nr, gfp_mask);
+                LASSERT(remain >= 0);
         }
-        return cancel;
+        return remain;
 }
 EXPORT_SYMBOL(ldlm_pool_shrink);
 
@@ -1132,11 +1128,11 @@ static int ldlm_pools_shrink(ldlm_side_t client, int nr,
                 if (cfs_list_empty(ldlm_namespace_list(client))) {
                         cfs_mutex_up(ldlm_namespace_lock(client));
                         /*
-                         * If list is empty, we can't return any @cached > 0,
-                         * that probably would cause needless shrinker
-                         * call.
+                         * If list is empty, we can't return any
+                         * @cached >= 0, that probably would cause
+                         * needless shrinker call.
                          */
-                        cached = 0;
+                        cached = -1;
                         break;
                 }
                 ns = ldlm_namespace_first_locked(client);
@@ -1146,12 +1142,11 @@ static int ldlm_pools_shrink(ldlm_side_t client, int nr,
 
                 nr_locks = ldlm_pool_granted(&ns->ns_pool);
                 cancel = 1 + nr_locks * nr / total;
-                ldlm_pool_shrink(&ns->ns_pool, cancel, gfp_mask);
-                cached += ldlm_pool_granted(&ns->ns_pool);
+                cached += ldlm_pool_shrink(&ns->ns_pool, cancel, gfp_mask);
                 ldlm_namespace_put(ns);
         }
         cl_env_reexit(cookie);
-        return cached;
+        return (client == LDLM_NAMESPACE_SERVER) ? -1 : cached;
 }
 
 static int ldlm_pools_srv_shrink(SHRINKER_ARGS(sc, nr_to_scan, gfp_mask))
