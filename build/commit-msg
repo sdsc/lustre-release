@@ -159,7 +159,7 @@ new_changeid() {
 #
 error() {
         (( ${#LINE} > 0 )) && echo "line $NUM: $LINE"
-        echo "error: commit message $*" | fmt --split-only
+        echo "error: commit message $*" | fmt
         HAS_ERROR=true
 } 1>&2
 
