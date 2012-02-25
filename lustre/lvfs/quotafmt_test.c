@@ -82,14 +82,14 @@ static int quotfmt_initialize(struct lustre_quota_info *lqi,
                 int namelen = strlen(name);
 
                 /* remove the stale test quotafile */
-                LOCK_INODE_MUTEX_PARENT(parent_inode);
+                mutex_lock_nested(&parent_inode->i_mutex, I_MUTEX_PARENT);
                 de = lookup_one_len(name, tgt->obd_lvfs_ctxt.pwd, namelen);
                 if (!IS_ERR(de) && de->d_inode)
                         ll_vfs_unlink(parent_inode, de,
                                       tgt->obd_lvfs_ctxt.pwdmnt);
                 if (!IS_ERR(de))
                         dput(de);
-                UNLOCK_INODE_MUTEX(parent_inode);
+                mutex_unlock(&parent_inode->i_mutex);
 
                 /* create quota file */
                 fp = filp_open(name, O_CREAT | O_EXCL, 0644);
@@ -137,7 +137,7 @@ static int quotfmt_finalize(struct lustre_quota_info *lqi,
                 filp_close(lqi->qi_files[i], 0);
 
                 /* unlink quota file */
-                LOCK_INODE_MUTEX_PARENT(parent_inode);
+                mutex_lock_nested(&parent_inode->i_mutex, I_MUTEX_PARENT);
 
                 de = lookup_one_len(name, tgt->obd_lvfs_ctxt.pwd, namelen);
                 if (IS_ERR(de) || de->d_inode == NULL) {
@@ -154,7 +154,7 @@ static int quotfmt_finalize(struct lustre_quota_info *lqi,
               dput:
                 if (!IS_ERR(de))
                         dput(de);
-                UNLOCK_INODE_MUTEX(parent_inode);
+                mutex_unlock(&parent_inode->i_mutex);
         }
 
         pop_ctxt(saved, &tgt->obd_lvfs_ctxt, NULL);

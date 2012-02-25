@@ -128,9 +128,9 @@ static inline struct dentry *ll_lookup_one_len(const char *fid_name,
 {
         struct dentry *dchild;
 
-        LOCK_INODE_MUTEX(dparent->d_inode);
+        mutex_lock(&dparent->d_inode->i_mutex);
         dchild = lookup_one_len(fid_name, dparent, fid_namelen);
-        UNLOCK_INODE_MUTEX(dparent->d_inode);
+        mutex_unlock(&dparent->d_inode->i_mutex);
 
         if (IS_ERR(dchild) || dchild->d_inode == NULL)
                 return dchild;

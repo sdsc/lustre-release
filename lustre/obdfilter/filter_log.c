@@ -67,14 +67,14 @@ int filter_log_sz_change(struct llog_handle *cathandle,
         struct ost_filterdata *ofd;
         ENTRY;
 
-        LOCK_INODE_MUTEX(inode);
-        ofd = INODE_PRIVATE_DATA(inode);
+        mutex_lock(&inode->i_mutex);
+        ofd = inode->i_private;
 
         if (ofd && ofd->ofd_epoch >= ioepoch) {
                 if (ofd->ofd_epoch > ioepoch)
                         CERROR("client sent old epoch %d for obj ino %ld\n",
                                ioepoch, inode->i_ino);
-                UNLOCK_INODE_MUTEX(inode);
+                mutex_unlock(&inode->i_mutex);
                 RETURN(0);
         }
 
@@ -85,11 +85,11 @@ int filter_log_sz_change(struct llog_handle *cathandle,
                 if (!ofd)
                         GOTO(out, rc = -ENOMEM);
                 igrab(inode);
-                INODE_PRIVATE_DATA(inode) = ofd;
+                inode->i_private = ofd;
                 ofd->ofd_epoch = ioepoch;
         }
         /* the decision to write a record is now made, unlock */
-        UNLOCK_INODE_MUTEX(inode);
+        mutex_unlock(&inode->i_mutex);
 
         OBD_ALLOC(lsc, sizeof(*lsc));
         if (lsc == NULL)

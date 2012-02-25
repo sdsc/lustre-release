@@ -1423,7 +1423,7 @@ obd_id filter_last_id(struct filter_obd *filter, obd_seq group)
 
 static int filter_lock_dentry(struct obd_device *obd, struct dentry *dparent)
 {
-        LOCK_INODE_MUTEX_PARENT(dparent->d_inode);
+        mutex_lock_nested(&dparent->d_inode->i_mutex, I_MUTEX_PARENT);
         return 0;
 }
 
@@ -1464,7 +1464,7 @@ struct dentry *filter_parent_lock(struct obd_device *obd, obd_seq group,
 /* We never dget the object parent, so DON'T dput it either */
 static void filter_parent_unlock(struct dentry *dparent)
 {
-        UNLOCK_INODE_MUTEX(dparent->d_inode);
+        mutex_unlock(&dparent->d_inode->i_mutex);
 }
 
 /* How to get files, dentries, inodes from object id's.
@@ -1574,8 +1574,8 @@ int filter_vfs_unlink(struct inode *dir, struct dentry *dentry,
         /* don't need dir->i_zombie for 2.4, it is for rename/unlink of dir
          * itself we already hold dir->i_mutex for child create/unlink ops */
         LASSERT(dentry->d_inode != NULL);
-        LASSERT(TRYLOCK_INODE_MUTEX(dir) == 0);
-        LASSERT(TRYLOCK_INODE_MUTEX(dentry->d_inode) == 0);
+        LASSERT(mutex_trylock(&dir->i_mutex) == 0);
+        LASSERT(mutex_trylock(&dentry->d_inode->i_mutex) == 0);
 
 
         /* may_delete() */
@@ -1605,7 +1605,7 @@ int filter_vfs_unlink(struct inode *dir, struct dentry *dentry,
         rc = dir->i_op->unlink(dir, dentry);
 out:
         /* need to drop i_mutex before we lose inode reference */
-        UNLOCK_INODE_MUTEX(dentry->d_inode);
+        mutex_unlock(&dentry->d_inode->i_mutex);
         if (rc == 0)
                 d_delete(dentry);
 
@@ -3269,7 +3269,7 @@ int filter_setattr_internal(struct obd_export *exp, struct dentry *dentry,
                  * filter_preprw_write.*/
                 if (ia_valid & ATTR_SIZE)
                         down_write(&inode->i_alloc_sem);
-                LOCK_INODE_MUTEX(inode);
+                mutex_lock(&inode->i_mutex);
                 fsfilt_check_slow(exp->exp_obd, now, "i_alloc_sem and i_mutex");
                 old_size = i_size_read(inode);
         }
@@ -3392,7 +3392,7 @@ out_unlock:
                 page_cache_release(page);
 
         if (ia_valid & (ATTR_SIZE | ATTR_UID | ATTR_GID))
-                UNLOCK_INODE_MUTEX(inode);
+                mutex_unlock(&inode->i_mutex);
         if (ia_valid & ATTR_SIZE)
                 up_write(&inode->i_alloc_sem);
         if (fcc)
@@ -4215,13 +4215,13 @@ int filter_destroy(struct obd_export *exp, struct obdo *oa,
          */
         now = jiffies;
         down_write(&dchild->d_inode->i_alloc_sem);
-        LOCK_INODE_MUTEX(dchild->d_inode);
+        mutex_lock(&dchild->d_inode->i_mutex);
         fsfilt_check_slow(exp->exp_obd, now, "i_alloc_sem and i_mutex");
 
         /* VBR: version recovery check */
         rc = filter_version_get_check(exp, oti, dchild->d_inode);
         if (rc) {
-                UNLOCK_INODE_MUTEX(dchild->d_inode);
+                mutex_unlock(&dchild->d_inode->i_mutex);
                 up_write(&dchild->d_inode->i_alloc_sem);
                 GOTO(cleanup, rc);
         }
@@ -4229,7 +4229,7 @@ int filter_destroy(struct obd_export *exp, struct obdo *oa,
         handle = fsfilt_start_log(obd, dchild->d_inode, FSFILT_OP_SETATTR,
                                   NULL, 1);
         if (IS_ERR(handle)) {
-                UNLOCK_INODE_MUTEX(dchild->d_inode);
+                mutex_unlock(&dchild->d_inode->i_mutex);
                 up_write(&dchild->d_inode->i_alloc_sem);
                 GOTO(cleanup, rc = PTR_ERR(handle));
         }
@@ -4241,7 +4241,7 @@ int filter_destroy(struct obd_export *exp, struct obdo *oa,
         iattr.ia_size = 0;
         rc = fsfilt_setattr(obd, dchild, handle, &iattr, 1);
         rc2 = fsfilt_commit(obd, dchild->d_inode, handle, 0);
-        UNLOCK_INODE_MUTEX(dchild->d_inode);
+        mutex_unlock(&dchild->d_inode->i_mutex);
         up_write(&dchild->d_inode->i_alloc_sem);
         if (rc)
                 GOTO(cleanup, rc);
@@ -4257,10 +4257,10 @@ int filter_destroy(struct obd_export *exp, struct obdo *oa,
                 GOTO(cleanup, rc = PTR_ERR(dparent));
         cleanup_phase = 3; /* filter_parent_unlock */
 
-        LOCK_INODE_MUTEX(dchild->d_inode);
+        mutex_lock(&dchild->d_inode->i_mutex);
         handle = fsfilt_start_log(obd, dparent->d_inode,FSFILT_OP_UNLINK,oti,1);
         if (IS_ERR(handle)) {
-                UNLOCK_INODE_MUTEX(dchild->d_inode);
+                mutex_unlock(&dchild->d_inode->i_mutex);
                 GOTO(cleanup, rc = PTR_ERR(handle));
         }
         cleanup_phase = 4; /* fsfilt_commit */
@@ -4381,7 +4381,7 @@ static int filter_sync(struct obd_export *exp, struct obd_info *oinfo,
 
         push_ctxt(&saved, &exp->exp_obd->obd_lvfs_ctxt, NULL);
 
-        LOCK_INODE_MUTEX(dentry->d_inode);
+        mutex_lock(&dentry->d_inode->i_mutex);
 
         rc = filemap_fdatawrite(dentry->d_inode->i_mapping);
         if (rc == 0) {
@@ -4395,7 +4395,7 @@ static int filter_sync(struct obd_export *exp, struct obd_info *oinfo,
                 if (!rc)
                         rc = rc2;
         }
-        UNLOCK_INODE_MUTEX(dentry->d_inode);
+        mutex_unlock(&dentry->d_inode->i_mutex);
 
         oinfo->oi_oa->o_valid = OBD_MD_FLID;
         obdo_from_inode(oinfo->oi_oa, dentry->d_inode, NULL,

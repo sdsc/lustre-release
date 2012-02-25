@@ -711,7 +711,7 @@ static int fsfilt_ext3_set_md(struct inode *inode, void *handle,
 {
         int rc;
 
-        LASSERT(TRYLOCK_INODE_MUTEX(inode) == 0);
+        LASSERT(mutex_trylock(&inode->i_mutex) == 0);
 
         rc = ext3_xattr_set_handle(handle, inode, EXT3_XATTR_INDEX_TRUSTED,
                                    name, lmm, lmm_size, XATTR_NO_CTIME);
@@ -729,7 +729,7 @@ static int fsfilt_ext3_get_md(struct inode *inode, void *lmm, int lmm_size,
 {
         int rc;
 
-        LASSERT(TRYLOCK_INODE_MUTEX(inode) == 0);
+        LASSERT(mutex_trylock(&inode->i_mutex) == 0);
 
         rc = ext3_xattr_get(inode, EXT3_XATTR_INDEX_TRUSTED,
                             name, lmm, lmm_size);
