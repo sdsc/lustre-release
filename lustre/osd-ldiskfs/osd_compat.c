@@ -314,14 +314,14 @@ int osd_compat_del_entry(struct osd_thread_info *info, struct osd_device *osd,
         child->d_parent = dird;
         child->d_inode = NULL;
 
-        LOCK_INODE_MUTEX(dir);
+        mutex_lock(&dir->i_mutex);
         rc = -ENOENT;
         bh = osd_ldiskfs_find_entry(dir, child, &de, NULL);
         if (bh) {
                 rc = ldiskfs_delete_entry(oh->ot_handle, dir, de, bh);
                 brelse(bh);
         }
-        UNLOCK_INODE_MUTEX(dir);
+        mutex_unlock(&dir->i_mutex);
 
         RETURN(rc);
 }
@@ -353,9 +353,9 @@ int osd_compat_add_entry(struct osd_thread_info *info, struct osd_device *osd,
         child->d_parent = dir;
         child->d_inode = inode;
 
-        LOCK_INODE_MUTEX(dir->d_inode);
+        mutex_lock(&dir->d_inode->i_mutex);
         rc = osd_ldiskfs_add_entry(oh->ot_handle, child, inode, NULL);
-        UNLOCK_INODE_MUTEX(dir->d_inode);
+        mutex_unlock(&dir->d_inode->i_mutex);
 
         RETURN(rc);
 }
@@ -400,9 +400,9 @@ int osd_compat_objid_lookup(struct osd_thread_info *info,
         d_seq->d_name.len = strlen(name);
 
         dir = d->d_inode;
-        LOCK_INODE_MUTEX(dir);
+        mutex_lock(&dir->i_mutex);
         bh = osd_ldiskfs_find_entry(dir, d_seq, &de, NULL);
-        UNLOCK_INODE_MUTEX(dir);
+        mutex_unlock(&dir->i_mutex);
 
         rc = -ENOENT;
         if (bh) {

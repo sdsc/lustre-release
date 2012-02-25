@@ -108,7 +108,7 @@ int mds_obd_create(struct obd_export *exp, struct obdo *oa,
         oa->o_generation = filp->f_dentry->d_inode->i_generation;
         namelen = ll_fid2str(fidname, oa->o_id, oa->o_generation);
 
-        LOCK_INODE_MUTEX_PARENT(parent_inode);
+        mutex_lock_nested(&parent_inode->i_mutex, I_MUTEX_PARENT);
         new_child = lookup_one_len(fidname, mds->mds_objects_dir, namelen);
 
         if (IS_ERR(new_child)) {
@@ -144,7 +144,7 @@ int mds_obd_create(struct obd_export *exp, struct obdo *oa,
 out_dput:
         dput(new_child);
 out_close:
-        UNLOCK_INODE_MUTEX(parent_inode);
+        mutex_unlock(&parent_inode->i_mutex);
         err = filp_close(filp, 0);
         if (err) {
                 CERROR("closing tmpfile %u: rc %d\n", tmpname, rc);
@@ -177,7 +177,7 @@ int mds_obd_destroy(struct obd_export *exp, struct obdo *oa,
 
         namelen = ll_fid2str(fidname, oa->o_id, oa->o_generation);
 
-        LOCK_INODE_MUTEX_PARENT(parent_inode);
+        mutex_lock_nested(&parent_inode->i_mutex, I_MUTEX_PARENT);
         de = lookup_one_len(fidname, mds->mds_objects_dir, namelen);
         if (IS_ERR(de)) {
                 rc = IS_ERR(de);
@@ -217,7 +217,7 @@ int mds_obd_destroy(struct obd_export *exp, struct obdo *oa,
 out_dput:
         if (de != NULL)
                 l_dput(de);
-        UNLOCK_INODE_MUTEX(parent_inode);
+        mutex_unlock(&parent_inode->i_mutex);
 
         if (inode)
                 iput(inode);

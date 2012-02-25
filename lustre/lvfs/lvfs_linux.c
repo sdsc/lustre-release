@@ -441,13 +441,13 @@ int l_notify_change(struct vfsmount *mnt, struct dentry *dchild,
 {
         int rc;
 
-        LOCK_INODE_MUTEX(dchild->d_inode);
+        mutex_lock(&dchild->d_inode->i_mutex);
 #ifdef HAVE_SECURITY_PLUG
         rc = notify_change(dchild, mnt, newattrs);
 #else
         rc = notify_change(dchild, newattrs);
 #endif
-        UNLOCK_INODE_MUTEX(dchild->d_inode);
+        mutex_unlock(&dchild->d_inode->i_mutex);
         return rc;
 }
 EXPORT_SYMBOL(l_notify_change);
