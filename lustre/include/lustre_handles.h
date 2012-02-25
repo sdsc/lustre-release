@@ -54,7 +54,7 @@
 
 #include <libcfs/libcfs.h>
 
-#if !defined(HAVE_RCU) || !defined(__KERNEL__)
+#ifndef __KERNEL__
 typedef struct {
         int foo;
 } cfs_rcu_head_t;
