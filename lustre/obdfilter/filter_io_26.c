@@ -525,7 +525,7 @@ int filter_direct_io(int rw, struct dentry *dchild, struct filter_iobuf *iobuf,
                                             oti->oti_handle, attr, 0);
                 }
 
-                UNLOCK_INODE_MUTEX(inode);
+                mutex_unlock(&inode->i_mutex);
 
                 /* Force commit to make the just-deleted blocks
                  * reusable. LU-456 */
@@ -704,7 +704,7 @@ retry:
         oti->oti_handle = fsfilt_brw_start(obd, objcount, &fso, niocount, res,
                                            oti);
         if (IS_ERR(oti->oti_handle)) {
-                UNLOCK_INODE_MUTEX(inode);
+                mutex_unlock(&inode->i_mutex);
                 rc = PTR_ERR(oti->oti_handle);
                 CDEBUG(rc == -ENOSPC ? D_INODE : D_ERROR,
                        "error starting transaction: rc = %d\n", rc);
