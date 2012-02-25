@@ -286,7 +286,7 @@ static int vvp_io_setattr_iter_init(const struct lu_env *env,
          * This last one is especially bad for racing o_append users on other
          * nodes.
          */
-        UNLOCK_INODE_MUTEX(inode);
+        mutex_unlock(&inode->i_mutex);
         if (cl_io_is_trunc(ios->cis_io))
                 UP_WRITE_I_ALLOC_SEM(inode);
         cio->u.setattr.cui_locks_released = 1;
@@ -415,7 +415,7 @@ static int vvp_io_setattr_start(const struct lu_env *env,
 
         LASSERT(cio->u.setattr.cui_locks_released);
 
-        LOCK_INODE_MUTEX(inode);
+        mutex_lock(&inode->i_mutex);
         cio->u.setattr.cui_locks_released = 0;
 
         if (cl_io_is_trunc(io))
@@ -455,7 +455,7 @@ static void vvp_io_setattr_fini(const struct lu_env *env,
         struct inode  *inode = ccc_object_inode(ios->cis_io->ci_obj);
 
         if (cio->u.setattr.cui_locks_released) {
-                LOCK_INODE_MUTEX(inode);
+                mutex_lock(&inode->i_mutex);
                 if (cl_io_is_trunc(io))
                         DOWN_WRITE_I_ALLOC_SEM(inode);
                 cio->u.setattr.cui_locks_released = 0;
