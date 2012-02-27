@@ -803,3 +803,13 @@ run_nfsread_orphan_file() {
     rmultiop_stop --uniq open $nfsserver
     zconf_umount $nfsserver $MOUNT2
 }
+
+###
+# short_hostname
+#
+# Passed a single argument, strips everything off following and includes the first period.
+# client-20.lab.whamcloud.com becomes client-20
+short_hostname() {
+  echo $(sed 's/\..*//' <<< $1)
+}
+
