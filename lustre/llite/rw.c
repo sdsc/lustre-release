@@ -1778,7 +1778,6 @@ static int ll_readahead(struct ll_readahead_state *ras,
         struct inode *inode;
         struct lov_stripe_md *lsm;
         struct ll_ra_read *bead;
-        struct ost_lvb lvb;
         struct ra_io_arg ria = { 0 };
         int ret = 0;
         __u64 kms;
@@ -1787,11 +1786,7 @@ static int ll_readahead(struct ll_readahead_state *ras,
         inode = mapping->host;
         lsm = ll_i2info(inode)->lli_smd;
 
-        lov_stripe_lock(lsm);
-        inode_init_lvb(inode, &lvb);
-        obd_merge_lvb(ll_i2obdexp(inode), lsm, &lvb, 1);
-        kms = lvb.lvb_size;
-        lov_stripe_unlock(lsm);
+        kms = i_size_read(inode);
         if (kms == 0) {
                 ll_ra_stats_inc(mapping, RA_STAT_ZERO_LEN);
                 RETURN(0);
