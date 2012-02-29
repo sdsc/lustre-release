@@ -384,8 +384,8 @@ struct lu_context_key lu_global_key = {
 int lu_cdebug_printer(const struct lu_env *env,
                       void *cookie, const char *format, ...)
 {
-        struct lu_cdebug_print_info *info = cookie;
-        struct lu_cdebug_data       *key;
+        struct libcfs_debug_msg_data *info = cookie;
+        struct lu_cdebug_data        *key;
         int used;
         int complete;
         va_list args;
@@ -403,10 +403,8 @@ int lu_cdebug_printer(const struct lu_env *env,
         vsnprintf(key->lck_area + used,
                   ARRAY_SIZE(key->lck_area) - used, format, args);
         if (complete) {
-                if (cfs_cdebug_show(info->lpi_mask, info->lpi_subsys))
-                        libcfs_debug_msg(NULL, info->lpi_subsys, info->lpi_mask,
-                                         (char *)info->lpi_file, info->lpi_fn,
-                                         info->lpi_line, "%s", key->lck_area);
+                if (cfs_cdebug_show(info->msg_mask, info->msg_subsys))
+                        libcfs_debug_msg(info, "%s", key->lck_area);
                 key->lck_area[0] = 0;
         }
         va_end(args);
@@ -1209,7 +1207,8 @@ void lu_stack_fini(const struct lu_env *env, struct lu_device *top)
                 /*
                  * Uh-oh, objects still exist.
                  */
-                static DECLARE_LU_CDEBUG_PRINT_INFO(cookie, D_ERROR);
+                LIBCFS_DEBUG_MSG_DATA_DECL(cookie, NULL);
+                cookie.msg_mask = D_ERROR; 
 
                 lu_site_print(env, site, &cookie, lu_cdebug_printer);
         }

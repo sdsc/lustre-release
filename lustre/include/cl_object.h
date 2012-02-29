@@ -1065,8 +1065,9 @@ struct cl_page_operations {
  */
 #define CL_PAGE_DEBUG(mask, env, page, format, ...)                     \
 do {                                                                    \
-        static DECLARE_LU_CDEBUG_PRINT_INFO(__info, mask);              \
+        LIBCFS_DEBUG_MSG_DATA_DECL(__info, NULL);                       \
                                                                         \
+        __info.msg_mask = mask;                                         \
         if (cfs_cdebug_show(mask, DEBUG_SUBSYSTEM)) {                   \
                 cl_page_print(env, &__info, lu_cdebug_printer, page);   \
                 CDEBUG(mask, format , ## __VA_ARGS__);                  \
@@ -1078,8 +1079,9 @@ do {                                                                    \
  */
 #define CL_PAGE_HEADER(mask, env, page, format, ...)                    \
 do {                                                                    \
-        static DECLARE_LU_CDEBUG_PRINT_INFO(__info, mask);              \
+        LIBCFS_DEBUG_MSG_DATA_DECL(__info, NULL);                       \
                                                                         \
+        __info.msg_mask = mask;                                         \
         if (cfs_cdebug_show(mask, DEBUG_SUBSYSTEM)) {                   \
                 cl_page_header_print(env, &__info, lu_cdebug_printer, page); \
                 CDEBUG(mask, format , ## __VA_ARGS__);                  \
@@ -1791,8 +1793,9 @@ struct cl_lock_operations {
 
 #define CL_LOCK_DEBUG(mask, env, lock, format, ...)                     \
 do {                                                                    \
-        static DECLARE_LU_CDEBUG_PRINT_INFO(__info, mask);              \
+        LIBCFS_DEBUG_MSG_DATA_DECL(__info, NULL);                       \
                                                                         \
+        __info.msg_mask = mask;                                         \
         if (cfs_cdebug_show(mask, DEBUG_SUBSYSTEM)) {                   \
                 cl_lock_print(env, &__info, lu_cdebug_printer, lock);   \
                 CDEBUG(mask, format , ## __VA_ARGS__);                  \
