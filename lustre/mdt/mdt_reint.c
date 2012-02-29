@@ -109,7 +109,7 @@ static void mdt_obj_version_get(struct mdt_thread_info *info,
 {
         LASSERT(o);
         LASSERT(mdt_object_exists(o) >= 0);
-        if (mdt_object_exists(o) > 0)
+        if (mdt_object_exists(o) == 1)
                 *version = dt_version_get(info->mti_env, mdt_obj2dt(o));
         else
                 *version = ENOENT_VERSION;
@@ -294,6 +294,9 @@ static int mdt_md_create(struct mdt_thread_info *info)
                                       MDS_INODELOCK_UPDATE);
         if (IS_ERR(parent))
                 RETURN(PTR_ERR(parent));
+
+        if (mdt_object_fake(parent))
+                GOTO(out_put_parent, rc = -EOPNOTSUPP);
 
         rc = mdt_version_get_check_save(info, parent, 0);
         if (rc)
@@ -699,6 +702,9 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
                 GOTO(out, rc);
         }
 
+        if (mdt_object_fake(mp))
+                GOTO(out_unlock_parent, rc = -EOPNOTSUPP);
+
         rc = mdt_version_get_check_save(info, mp, 0);
         if (rc)
                 GOTO(out_unlock_parent, rc);
@@ -844,6 +850,9 @@ static int mdt_reint_link(struct mdt_thread_info *info,
                                   MDS_INODELOCK_UPDATE);
         if (IS_ERR(mp))
                 RETURN(PTR_ERR(mp));
+
+        if (mdt_object_fake(mp))
+                GOTO(out_unlock_parent, rc = -EOPNOTSUPP);
 
         rc = mdt_version_get_check_save(info, mp, 0);
         if (rc)
@@ -1148,6 +1157,9 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
         if (IS_ERR(msrcdir))
                 GOTO(out_rename_lock, rc = PTR_ERR(msrcdir));
 
+        if (mdt_object_fake(msrcdir))
+                GOTO(out_unlock_source, rc = -EOPNOTSUPP);
+
         rc = mdt_version_get_check_save(info, msrcdir, 0);
         if (rc)
                 GOTO(out_unlock_source, rc);
@@ -1171,6 +1183,9 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
                                           rr->rr_fid2);
                 if (IS_ERR(mtgtdir))
                         GOTO(out_unlock_source, rc = PTR_ERR(mtgtdir));
+
+                if (mdt_object_fake(mtgtdir))
+                        GOTO(out_put_target, rc = -EOPNOTSUPP);
 
                 /* check early, the real version will be saved after locking */
                 rc = mdt_version_get_check(info, mtgtdir, 1);

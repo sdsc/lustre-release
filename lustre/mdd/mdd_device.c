@@ -919,7 +919,7 @@ static int mdd_obf_setup(const struct lu_env *env, struct mdd_device *m)
         mdd_obf->mod_flags |= IMMUTE_OBJ;
 
         obf_lu_obj = mdd2lu_obj(mdd_obf);
-        obf_lu_obj->lo_header->loh_attr |= (LOHA_EXISTS | S_IFDIR);
+        obf_lu_obj->lo_header->loh_attr |= (LOHA_FAKE | S_IFDIR);
 
 out:
         return rc;

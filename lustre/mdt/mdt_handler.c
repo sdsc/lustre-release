@@ -980,6 +980,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
                 }
 
                 /* step 2: lookup child's fid by name */
+                memset(child_fid, 0, sizeof(*child_fid));
                 rc = mdo_lookup(info->mti_env, next, lname, child_fid,
                                 &info->mti_spec);
 

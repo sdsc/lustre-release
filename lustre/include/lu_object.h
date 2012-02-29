@@ -514,6 +514,7 @@ enum lu_object_header_flags {
 enum lu_object_header_attr {
         LOHA_EXISTS   = 1 << 0,
         LOHA_REMOTE   = 1 << 1,
+        LOHA_FAKE     = 1 << 2,
         /**
          * UNIX file type is stored in S_IFMT bits.
          */
@@ -842,6 +843,7 @@ int lu_object_invariant(const struct lu_object *o);
 
 
 /**
+ * \retval  2 iff object \a o is a fake one.
  * \retval  1 iff object \a o exists on stable storage,
  * \retval  0 iff object \a o not exists on stable storage.
  * \retval -1 iff object \a o is on remote server.
@@ -855,6 +857,8 @@ static inline int lu_object_exists(const struct lu_object *o)
                 return -1;
         else if (attr & LOHA_EXISTS)
                 return +1;
+        else if (attr & LOHA_FAKE)
+                return +2;
         else
                 return 0;
 }
@@ -867,6 +871,11 @@ static inline int lu_object_assert_exists(const struct lu_object *o)
 static inline int lu_object_assert_not_exists(const struct lu_object *o)
 {
         return lu_object_exists(o) <= 0;
+}
+
+static inline int lu_object_fake(const struct lu_object *o)
+{
+        return !!(o->lo_header->loh_attr & LOHA_FAKE);
 }
 
 /**

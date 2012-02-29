@@ -464,6 +464,11 @@ static inline int mdt_object_exists(const struct mdt_object *o)
         return lu_object_exists(&o->mot_obj.mo_lu);
 }
 
+static inline int mdt_object_fake(const struct mdt_object *o)
+{
+        return lu_object_fake(&o->mot_obj.mo_lu);
+}
+
 static inline const struct lu_fid *mdt_object_fid(struct mdt_object *o)
 {
         return lu_object_fid(&o->mot_obj.mo_lu);
