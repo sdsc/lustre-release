@@ -363,7 +363,9 @@ static int ptlrpcd_check(struct lu_env *env, struct ptlrpcd_ctl *pc)
                                 partner = pc->pc_partners[pc->pc_cursor++];
                                 if (pc->pc_cursor >= pc->pc_npartners)
                                         pc->pc_cursor = 0;
-                                if (partner == NULL)
+                                if (partner == NULL ||
+                                    !cfs_test_bit(LIOD_READY,
+                                                  &partner->pc_flags))
                                         continue;
 
                                 cfs_spin_lock(&partner->pc_lock);
@@ -435,6 +437,8 @@ static int ptlrpcd(void *arg)
         if (rc != 0)
                 RETURN(rc);
 
+        cfs_set_bit(LIOD_READY, &pc->pc_flags);
+
         /*
          * This mainloop strongly resembles ptlrpc_set_wait() except that our
          * set never completes.  ptlrpcd_check() calls ptlrpc_check_set() when
@@ -475,6 +479,7 @@ static int ptlrpcd(void *arg)
         if (!cfs_list_empty(&set->set_requests))
                 ptlrpc_set_wait(set);
         lu_context_fini(&env.le_ctx);
+        cfs_clear_bit(LIOD_READY, &pc->pc_flags);
         cfs_complete(&pc->pc_finishing);
 
         cfs_clear_bit(LIOD_START, &pc->pc_flags);

@@ -1365,6 +1365,10 @@ enum ptlrpcd_ctl_flags {
          * The ptlrpcd is bound to some CPU core.
          */
         LIOD_BIND        = 1 << 4,
+        /**
+         * Ptlrpc trheads is ready to handle requests
+         */
+        LIOD_READY       = 1 << 5,
 };
 
 /* ptlrpc/events.c */
