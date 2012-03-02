@@ -20,7 +20,10 @@ LFS=${LFS:-lfs}
 
 usage() {
     cat -- <<USAGE 1>&2
-usage: lfs_migrate [-h] [-l] [-n] [-R] [-s] [-y] [file|dir ...]
+usage: lfs_migrate [-c <stripe_count>] [-h] [-l] [-n] [-q] [-R] [-s] [-y]
+                   [file|dir ...]
+    -c <stripe_count>
+       restripe file using the specified stripe count
     -h show this usage message
     -l migrate files with hard links (skip by default)
     -n only print the names of files to be migrated
@@ -28,6 +31,9 @@ usage: lfs_migrate [-h] [-l] [-n] [-R] [-s] [-y] [file|dir ...]
     -R restripe file using default directory striping
     -s skip file data comparison after migrate
     -y answer 'y' to usage question
+
+The -c <stripe_count> option may not be specified at the same time as
+the -R option.
 
 If a directory is an argument, all files in the directory are migrated.
 If no file/directory is given, the file list is read from standard input.
@@ -39,10 +45,11 @@ USAGE
 }
 
 OPT_CHECK=y
+OPT_STRIPE_COUNT=""
 
-while getopts "chlnRqsSy" opt $*; do
+while getopts "c:hlnRqsy" opt $*; do
     case $opt in
-	c) echo "'-c' option deprecated, checking enabled by default" 1>&2;;
+	c) OPT_STRIPE_COUNT=$OPTARG;;
 	l) OPT_NLINK=y;;
 	n) OPT_DRYRUN=n; OPT_YES=y;;
 	q) ECHO=:;;
@@ -53,6 +60,13 @@ while getopts "chlnRqsSy" opt $*; do
     esac
 done
 shift $((OPTIND - 1))
+
+if [ "$OPT_STRIPE_COUNT" -a "$OPT_RESTRIPE" ]; then
+	echo ""
+	echo "The -c <stripe_count> option may not be specified" 1>&2
+	echo "at the same time as the -R option." 1>&2
+	exit 1
+fi
 
 if [ -z "$OPT_YES" ]; then
 	echo ""
@@ -114,6 +128,8 @@ lfs_migrate() {
 			UNLINK="-u"
 			COUNT=$($LFS getstripe -c "$OLDNAME" 2> /dev/null)
 			SIZE=$($LFS getstripe -s "$OLDNAME" 2> /dev/null)
+
+			[ "$OPT_STRIPE_COUNT" ] && COUNT=$OPT_STRIPE_COUNT
 			[ -z "$COUNT" -o -z "$SIZE" ] && UNLINK=""
 		fi
 		NEWNAME=$(mktemp $UNLINK "$OLDNAME.tmp.XXXXXX")
