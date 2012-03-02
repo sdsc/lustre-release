@@ -1930,6 +1930,10 @@ typedef enum {
         /* <free1 bound1> <bound1 free2> ... <freeN boundN> <boundN free1>,
          * means each ptlrpcd[X] has two partners: thread[X-1] and thread[X+1]*/
         PDB_POLICY_NEIGHBOR      = 4,
+#if defined(CONFIG_NUMA) && defined(HAVE_NODE_TO_CPUMASK)
+        /* ptlrpcd threads are binded and grouped by NUMA node */
+        PDB_POLICY_NODE          = 5,
+#endif
 } pdb_policy_t;
 
 /* ptlrpc daemon load policy
