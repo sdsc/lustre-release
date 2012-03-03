@@ -329,5 +329,9 @@ typedef struct lock_class_key cfs_lock_class_key_t;
 #define cfs_down_write_nested(lock, subclass) down_write_nested(lock, subclass)
 #endif /* CONFIG_DEBUG_LOCK_ALLOC */
 
+typedef struct rcu_head cfs_rcu_head_t;
+#define cfs_rcu_read_lock()             rcu_read_lock()
+#define cfs_rcu_read_unlock()           rcu_read_unlock()
+#define cfs_call_rcu(rcu, func)         call_rcu(rcu, func)
 
 #endif /* __LIBCFS_LINUX_CFS_LOCK_H__ */

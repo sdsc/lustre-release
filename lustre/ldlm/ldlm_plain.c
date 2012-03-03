@@ -147,7 +147,7 @@ int ldlm_process_plain_lock(struct ldlm_lock *lock, int *flags, int first_enq,
                  * bug 2322: we used to unlink and re-add here, which was a
                  * terrible folly -- if we goto restart, we could get
                  * re-ordered!  Causes deadlock, because ASTs aren't sent! */
-                if (cfs_list_empty(&lock->l_res_link))
+                if (!lock->l_res_linked)
                         ldlm_resource_add_lock(res, &res->lr_waiting, lock);
                 unlock_res(res);
                 rc = ldlm_run_ast_work(ldlm_res_to_ns(res), &rpc_list,

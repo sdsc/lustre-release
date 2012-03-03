@@ -731,7 +731,11 @@ struct ldlm_lock {
         /**
          * flag whether this is a server namespace lock.
          */
-                              l_ns_srv:1;
+                              l_ns_srv:1,
+        /**
+         * flag whether lock is linked to resouce lock list.
+         */
+                              l_res_linked:1;
 
         /*
          * Client-side-only members.
@@ -932,7 +936,7 @@ void _ldlm_lock_debug(struct ldlm_lock *lock, __u32 mask,
 #else /* !LIBCFS_DEBUG */
 # define LDLM_DEBUG(lock, fmt, a...) ((void)0)
 # define LDLM_ERROR(lock, fmt, a...) ((void)0)
-# define ldlm_lock_debuf(cdls, level, lock, file, func, line, fmt, a...) \
+# define ldlm_lock_debug(cdls, level, lock, file, func, line, fmt, a...) \
          ((void)0)
 #endif
 
@@ -1100,7 +1104,6 @@ void ldlm_lock_downgrade(struct ldlm_lock *lock, int new_mode);
 void ldlm_lock_cancel(struct ldlm_lock *lock);
 void ldlm_reprocess_all(struct ldlm_resource *res);
 void ldlm_reprocess_all_ns(struct ldlm_namespace *ns);
-void ldlm_lock_dump(int level, struct ldlm_lock *lock, int pos);
 void ldlm_lock_dump_handle(int level, struct lustre_handle *);
 void ldlm_unlink_lock_skiplist(struct ldlm_lock *req);
 
@@ -1135,6 +1138,7 @@ int ldlm_resource_putref(struct ldlm_resource *res);
 void ldlm_resource_add_lock(struct ldlm_resource *res,
                             cfs_list_t *head,
                             struct ldlm_lock *lock);
+void ldlm_resource_drop_lock(struct ldlm_lock *lock);
 void ldlm_resource_unlink_lock(struct ldlm_lock *lock);
 void ldlm_res2desc(struct ldlm_resource *res, struct ldlm_resource_desc *desc);
 void ldlm_dump_all_namespaces(ldlm_side_t client, int level);
@@ -1259,7 +1263,6 @@ static inline void lock_res_nested(struct ldlm_resource *res,
 {
         cfs_spin_lock_nested(&res->lr_lock, mode);
 }
-
 
 static inline void unlock_res(struct ldlm_resource *res)
 {

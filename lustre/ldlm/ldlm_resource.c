@@ -1196,17 +1196,24 @@ void ldlm_resource_add_lock(struct ldlm_resource *res, cfs_list_t *head,
 {
         check_res_locked(res);
 
-        CDEBUG(D_OTHER, "About to add this lock:\n");
-        ldlm_lock_dump(D_OTHER, lock, 0);
+        LDLM_DEBUG(lock, "About to add this lock:\n");
 
         if (lock->l_destroyed) {
                 CDEBUG(D_OTHER, "Lock destroyed, not adding to resource\n");
                 return;
         }
 
-        LASSERT(cfs_list_empty(&lock->l_res_link));
+        LASSERT(!lock->l_res_linked);
+        cfs_list_add_tail_rcu(&lock->l_res_link, head);
+        lock->l_res_linked = 1;
+}
 
-        cfs_list_add_tail(&lock->l_res_link, head);
+void ldlm_resource_drop_lock(struct ldlm_lock *lock)
+{
+        if (lock->l_res_linked) {
+                cfs_list_del_rcu(&lock->l_res_link);
+                lock->l_res_linked = 0;
+        }
 }
 
 void ldlm_resource_insert_lock_after(struct ldlm_lock *original,
@@ -1216,18 +1223,16 @@ void ldlm_resource_insert_lock_after(struct ldlm_lock *original,
 
         check_res_locked(res);
 
-        ldlm_resource_dump(D_INFO, res);
-        CDEBUG(D_OTHER, "About to insert this lock after %p:\n", original);
-        ldlm_lock_dump(D_OTHER, new, 0);
+        LDLM_DEBUG(new, "About to insert this lock after %p:\n", original);
 
         if (new->l_destroyed) {
                 CDEBUG(D_OTHER, "Lock destroyed, not adding to resource\n");
                 goto out;
         }
 
-        LASSERT(cfs_list_empty(&new->l_res_link));
-
-        cfs_list_add(&new->l_res_link, &original->l_res_link);
+        LASSERT(!new->l_res_linked);
+        cfs_list_add_rcu(&new->l_res_link, &original->l_res_link);
+        new->l_res_linked = 1;
  out:;
 }
 
@@ -1240,7 +1245,7 @@ void ldlm_resource_unlink_lock(struct ldlm_lock *lock)
                 ldlm_unlink_lock_skiplist(lock);
         else if (type == LDLM_EXTENT)
                 ldlm_extent_unlink_lock(lock);
-        cfs_list_del_init(&lock->l_res_link);
+        ldlm_resource_drop_lock(lock);
 }
 
 void ldlm_res2desc(struct ldlm_resource *res, struct ldlm_resource_desc *desc)
@@ -1273,9 +1278,7 @@ static int ldlm_res_hash_dump(cfs_hash_t *hs, cfs_hash_bd_t *bd,
         struct ldlm_resource *res = cfs_hash_object(hs, hnode);
         int    level = (int)(unsigned long)arg;
 
-        lock_res(res);
         ldlm_resource_dump(level, res);
-        unlock_res(res);
 
         return 0;
 }
@@ -1302,8 +1305,7 @@ void ldlm_namespace_dump(int level, struct ldlm_namespace *ns)
 
 void ldlm_resource_dump(int level, struct ldlm_resource *res)
 {
-        cfs_list_t *tmp;
-        int pos;
+        struct ldlm_lock *lock;
 
         CLASSERT(RES_NAME_SIZE == 4);
 
@@ -1315,34 +1317,24 @@ void ldlm_resource_dump(int level, struct ldlm_resource *res)
                res->lr_name.name[2], res->lr_name.name[3],
                cfs_atomic_read(&res->lr_refcount));
 
+        cfs_rcu_read_lock();
         if (!cfs_list_empty(&res->lr_granted)) {
-                pos = 0;
                 CDEBUG(level, "Granted locks:\n");
-                cfs_list_for_each(tmp, &res->lr_granted) {
-                        struct ldlm_lock *lock;
-                        lock = cfs_list_entry(tmp, struct ldlm_lock,
-                                              l_res_link);
-                        ldlm_lock_dump(level, lock, ++pos);
-                }
+                cfs_list_for_each_entry(lock, &res->lr_granted, l_res_link)
+                        ldlm_lock_debug(NULL, level, lock, __FILE__,
+                                        __FUNCTION__, __LINE__, "###");
         }
         if (!cfs_list_empty(&res->lr_converting)) {
-                pos = 0;
                 CDEBUG(level, "Converting locks:\n");
-                cfs_list_for_each(tmp, &res->lr_converting) {
-                        struct ldlm_lock *lock;
-                        lock = cfs_list_entry(tmp, struct ldlm_lock,
-                                              l_res_link);
-                        ldlm_lock_dump(level, lock, ++pos);
-                }
+                cfs_list_for_each_entry(lock, &res->lr_converting, l_res_link)
+                        ldlm_lock_debug(NULL, level, lock, __FILE__,
+                                        __FUNCTION__, __LINE__, "###");
         }
         if (!cfs_list_empty(&res->lr_waiting)) {
-                pos = 0;
                 CDEBUG(level, "Waiting locks:\n");
-                cfs_list_for_each(tmp, &res->lr_waiting) {
-                        struct ldlm_lock *lock;
-                        lock = cfs_list_entry(tmp, struct ldlm_lock,
-                                              l_res_link);
-                        ldlm_lock_dump(level, lock, ++pos);
-                }
+                cfs_list_for_each_entry(lock, &res->lr_waiting, l_res_link)
+                        ldlm_lock_debug(NULL, level, lock, __FILE__,
+                                        __FUNCTION__, __LINE__, "###");
         }
+        cfs_rcu_read_unlock();
 }

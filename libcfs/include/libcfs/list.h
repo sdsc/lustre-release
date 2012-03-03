@@ -81,6 +81,12 @@ typedef struct hlist_node cfs_hlist_node_t;
 #define CFS_INIT_HLIST_HEAD(p)		   INIT_HLIST_HEAD(p)
 #define CFS_INIT_HLIST_NODE(p)		   INIT_HLIST_NODE(p)
 
+#define cfs_list_add_rcu(new, head)        list_add_rcu(new, head)
+#define cfs_list_add_tail_rcu(new, head)   list_add_tail_rcu(new, head)
+#define cfs_list_del_rcu(entry)            list_del_rcu(entry)
+#define cfs_list_for_each_entry_rcu(pos, head, member) \
+		list_for_each_entry_rcu(pos, head, member)
+
 #else /* !defined (__linux__) || !defined(__KERNEL__) */
 
 /*
@@ -323,6 +329,67 @@ static inline void cfs_list_splice_init(cfs_list_t *list,
 		pos = n, n = pos->next)
 
 /**
+ * Iterate over a list in reverse order
+ * \param pos	the &struct list_head to use as a loop counter.
+ * \param head	the head for your list.
+ */
+#define cfs_list_for_each_prev(pos, head) \
+	for (pos = (head)->prev, prefetch(pos->prev); pos != (head);     \
+		pos = pos->prev, prefetch(pos->prev))
+
+/**
+ * Iterate over a list of given type
+ * \param pos        the type * to use as a loop counter.
+ * \param head       the head for your list.
+ * \param member     the name of the list_struct within the struct.
+ */
+#define cfs_list_for_each_entry(pos, head, member)                          \
+        for (pos = cfs_list_entry((head)->next, typeof(*pos), member),      \
+		     prefetch(pos->member.next);                            \
+	     &pos->member != (head);                                        \
+	     pos = cfs_list_entry(pos->member.next, typeof(*pos), member),  \
+	     prefetch(pos->member.next))
+
+/**
+ * Iterate backwards over a list of given type.
+ * \param pos        the type * to use as a loop counter.
+ * \param head       the head for your list.
+ * \param member     the name of the list_struct within the struct.
+ */
+#define cfs_list_for_each_entry_reverse(pos, head, member)                  \
+	for (pos = cfs_list_entry((head)->prev, typeof(*pos), member);      \
+	     prefetch(pos->member.prev), &pos->member != (head);            \
+	     pos = cfs_list_entry(pos->member.prev, typeof(*pos), member))
+
+/**
+ * Iterate over a list of given type safe against removal of list entry
+ * \param pos        the type * to use as a loop counter.
+ * \param n          another type * to use as temporary storage
+ * \param head       the head for your list.
+ * \param member     the name of the list_struct within the struct.
+ */
+#define cfs_list_for_each_entry_safe(pos, n, head, member)                   \
+        for (pos = cfs_list_entry((head)->next, typeof(*pos), member),       \
+		n = cfs_list_entry(pos->member.next, typeof(*pos), member);  \
+	     &pos->member != (head);                                         \
+	     pos = n, n = cfs_list_entry(n->member.next, typeof(*n), member))
+
+/**
+ * Iterate over a list continuing from an existing point
+ * \param pos        the type * to use as a loop cursor.
+ * \param n          another type * to use as temporary storage
+ * \param head       the head for your list.
+ * \param member     the name of the list_struct within the struct.
+ *
+ * Iterate over list of given type from current point, safe against
+ * removal of list entry.
+ */
+#define cfs_list_for_each_entry_safe_from(pos, n, head, member)             \
+        for (n = cfs_list_entry(pos->member.next, typeof(*pos), member);    \
+             &pos->member != (head);                                        \
+             pos = n, n = cfs_list_entry(n->member.next, typeof(*n), member))
+
+/**
  * Iterate over a list continuing after existing point
  * \param pos    the type * to use as a loop counter
  * \param head   the list head
@@ -496,90 +563,13 @@ static inline void cfs_hlist_add_after(cfs_hlist_node_t *n,
 
 /* @} */
 
+#define cfs_list_add_rcu(new, head)             cfs_list_add(new, head)
+#define cfs_list_add_tail_rcu(new, head)        cfs_list_add_tail(new, head)
+#define cfs_list_del_rcu(entry)                 cfs_list_del(entry)
+#define cfs_list_for_each_entry_rcu(pos, head, member) \
+		cfs_list_for_each_entry(pos, head, member)
+
 #endif /* __linux__ && __KERNEL__ */
-
-#ifndef cfs_list_for_each_prev
-/**
- * Iterate over a list in reverse order
- * \param pos	the &struct list_head to use as a loop counter.
- * \param head	the head for your list.
- */
-#define cfs_list_for_each_prev(pos, head) \
-	for (pos = (head)->prev, prefetch(pos->prev); pos != (head);     \
-		pos = pos->prev, prefetch(pos->prev))
-
-#endif /* cfs_list_for_each_prev */
-
-#ifndef cfs_list_for_each_entry
-/**
- * Iterate over a list of given type
- * \param pos        the type * to use as a loop counter.
- * \param head       the head for your list.
- * \param member     the name of the list_struct within the struct.
- */
-#define cfs_list_for_each_entry(pos, head, member)                          \
-        for (pos = cfs_list_entry((head)->next, typeof(*pos), member),      \
-		     prefetch(pos->member.next);                            \
-	     &pos->member != (head);                                        \
-	     pos = cfs_list_entry(pos->member.next, typeof(*pos), member),  \
-	     prefetch(pos->member.next))
-#endif /* cfs_list_for_each_entry */
-
-#ifndef cfs_list_for_each_entry_rcu
-#define cfs_list_for_each_entry_rcu(pos, head, member) \
-       list_for_each_entry(pos, head, member)
-#endif
-
-#ifndef cfs_list_for_each_entry_rcu
-#define cfs_list_for_each_entry_rcu(pos, head, member) \
-       list_for_each_entry(pos, head, member)
-#endif
-
-#ifndef cfs_list_for_each_entry_reverse
-/**
- * Iterate backwards over a list of given type.
- * \param pos        the type * to use as a loop counter.
- * \param head       the head for your list.
- * \param member     the name of the list_struct within the struct.
- */
-#define cfs_list_for_each_entry_reverse(pos, head, member)                  \
-	for (pos = cfs_list_entry((head)->prev, typeof(*pos), member);      \
-	     prefetch(pos->member.prev), &pos->member != (head);            \
-	     pos = cfs_list_entry(pos->member.prev, typeof(*pos), member))
-#endif /* cfs_list_for_each_entry_reverse */
-
-#ifndef cfs_list_for_each_entry_safe
-/**
- * Iterate over a list of given type safe against removal of list entry
- * \param pos        the type * to use as a loop counter.
- * \param n          another type * to use as temporary storage
- * \param head       the head for your list.
- * \param member     the name of the list_struct within the struct.
- */
-#define cfs_list_for_each_entry_safe(pos, n, head, member)                   \
-        for (pos = cfs_list_entry((head)->next, typeof(*pos), member),       \
-		n = cfs_list_entry(pos->member.next, typeof(*pos), member);  \
-	     &pos->member != (head);                                         \
-	     pos = n, n = cfs_list_entry(n->member.next, typeof(*n), member))
-
-#endif /* cfs_list_for_each_entry_safe */
-
-#ifndef cfs_list_for_each_entry_safe_from
-/**
- * Iterate over a list continuing from an existing point
- * \param pos        the type * to use as a loop cursor.
- * \param n          another type * to use as temporary storage
- * \param head       the head for your list.
- * \param member     the name of the list_struct within the struct.
- *
- * Iterate over list of given type from current point, safe against
- * removal of list entry.
- */
-#define cfs_list_for_each_entry_safe_from(pos, n, head, member)             \
-        for (n = cfs_list_entry(pos->member.next, typeof(*pos), member);    \
-             &pos->member != (head);                                        \
-             pos = n, n = cfs_list_entry(n->member.next, typeof(*n), member))
-#endif /* cfs_list_for_each_entry_safe_from */
 
 #define cfs_list_for_each_entry_typed(pos, head, type, member)		\
         for (pos = cfs_list_entry((head)->next, type, member),		\

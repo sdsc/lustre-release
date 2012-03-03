@@ -455,7 +455,7 @@ ldlm_extent_compat_queue(cfs_list_t *queue, struct ldlm_lock *req,
                                          * front of first non-GROUP lock */
 
                                         ldlm_resource_insert_lock_after(lock, req);
-                                        cfs_list_del_init(&lock->l_res_link);
+                                        ldlm_resource_drop_lock(lock);
                                         ldlm_resource_insert_lock_after(req, lock);
                                         compat = 0;
                                         break;
@@ -549,7 +549,7 @@ ldlm_extent_compat_queue(cfs_list_t *queue, struct ldlm_lock *req,
                                            first non-GROUP lock */
 
                                         ldlm_resource_insert_lock_after(lock, req);
-                                        cfs_list_del_init(&lock->l_res_link);
+                                        ldlm_resource_drop_lock(lock);
                                         ldlm_resource_insert_lock_after(req, lock);
                                         break;
                                 }
@@ -609,7 +609,7 @@ ldlm_extent_compat_queue(cfs_list_t *queue, struct ldlm_lock *req,
 
         RETURN(compat);
 destroylock:
-        cfs_list_del_init(&req->l_res_link);
+        ldlm_resource_drop_lock(req);
         ldlm_lock_destroy_nolock(req);
         *err = compat;
         RETURN(compat);
@@ -709,7 +709,7 @@ int ldlm_process_extent_lock(struct ldlm_lock *lock, int *flags, int first_enq,
                  * bug 2322: we used to unlink and re-add here, which was a
                  * terrible folly -- if we goto restart, we could get
                  * re-ordered!  Causes deadlock, because ASTs aren't sent! */
-                if (cfs_list_empty(&lock->l_res_link))
+                if (!lock->l_res_linked)
                         ldlm_resource_add_lock(res, &res->lr_waiting, lock);
                 unlock_res(res);
                 rc = ldlm_run_ast_work(ldlm_res_to_ns(res), &rpc_list,

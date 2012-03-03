@@ -175,7 +175,6 @@ int ldlm_completion_ast_async(struct ldlm_lock *lock, int flags, void *data)
 
         LDLM_DEBUG(lock, "client-side enqueue returned a blocked lock, "
                    "going forward");
-        ldlm_lock_dump(D_OTHER, lock, 0);
         ldlm_reprocess_all(lock->l_resource);
         RETURN(0);
 }
@@ -225,7 +224,6 @@ int ldlm_completion_ast(struct ldlm_lock *lock, int flags, void *data)
 
         LDLM_DEBUG(lock, "client-side enqueue returned a blocked lock, "
                    "sleeping");
-        ldlm_lock_dump(D_OTHER, lock, 0);
 
 noreproc:
 
@@ -2103,7 +2101,7 @@ static int replay_one_lock(struct obd_import *imp, struct ldlm_lock *lock)
                 flags = LDLM_FL_REPLAY | LDLM_FL_BLOCK_GRANTED;
         else if (lock->l_granted_mode)
                 flags = LDLM_FL_REPLAY | LDLM_FL_BLOCK_CONV;
-        else if (!cfs_list_empty(&lock->l_res_link))
+        else if (lock->l_res_linked)
                 flags = LDLM_FL_REPLAY | LDLM_FL_BLOCK_WAIT;
         else
                 flags = LDLM_FL_REPLAY;

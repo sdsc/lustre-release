@@ -381,6 +381,15 @@ static inline void cfs_lockdep_on(void)
 #define cfs_down_read_nested(lock, subclass) cfs_down_read(lock)
 #define cfs_down_write_nested(lock, subclass) cfs_down_write(lock)
 
+/**************************************************************************
+ *
+ * RCU "implementation".
+ *
+ **************************************************************************/
+typedef struct { int foo; } cfs_rcu_head_t;
+#define cfs_rcu_read_lock()             do {} while (0)
+#define cfs_rcu_read_unlock()           do {} while (0)
+#define cfs_call_rcu(rcu, func)         func(rcu);
 
 /* !__KERNEL__ */
 #endif

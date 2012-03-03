@@ -110,7 +110,7 @@ ldlm_flock_destroy(struct ldlm_lock *lock, ldlm_mode_t mode, int flags)
         /* Safe to not lock here, since it should be empty anyway */
         LASSERT(cfs_list_empty(&lock->l_flock_waitq));
 
-        cfs_list_del_init(&lock->l_res_link);
+        ldlm_resource_drop_lock(lock);
         if (flags == LDLM_FL_WAIT_NOREPROC &&
             !(lock->l_flags & LDLM_FL_FAILED)) {
                 /* client side - set a flag to prevent sending a CANCEL */
@@ -436,7 +436,7 @@ reprocess:
 
         /* Add req to the granted queue before calling ldlm_reprocess_all(). */
         if (!added) {
-                cfs_list_del_init(&req->l_res_link);
+                ldlm_resource_drop_lock(req);
                 /* insert new lock before ownlocks in list. */
                 ldlm_resource_add_lock(res, ownlocks, req);
         }
@@ -478,8 +478,6 @@ restart:
          * before the completion AST can be sent.  */
         if (added)
                 ldlm_flock_destroy(req, mode, *flags);
-
-        ldlm_resource_dump(D_INFO, res);
         RETURN(LDLM_ITER_CONTINUE);
 }
 
@@ -614,7 +612,7 @@ granted:
 
         lock_res_and_lock(lock);
         /* ldlm_lock_enqueue() has already placed lock on the granted list. */
-        cfs_list_del_init(&lock->l_res_link);
+        ldlm_resource_drop_lock(lock);
 
         if (flags & LDLM_FL_TEST_LOCK) {
                 /* fcntl(F_GETLK) request */
