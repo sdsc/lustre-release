@@ -78,6 +78,7 @@ struct ll_dentry_data {
         struct obd_client_handle lld_mnt_och;
         struct lookup_intent    *lld_it;
         unsigned int             lld_sa_generation;
+        int                      lld_flags;
 };
 
 #define ll_d2d(de) ((struct ll_dentry_data*)((de)->d_fsdata))
@@ -1463,12 +1464,14 @@ static inline void ll_unlock_dcache(struct inode *inode)
 
 static inline int d_lustre_invalid(struct dentry* dentry)
 {
-        return dentry->d_flags & DCACHE_LUSTRE_INVALID;
+        return d_unhashed(dentry) || !ll_d2d(dentry) ||
+               (ll_d2d(dentry)->lld_flags & DCACHE_LUSTRE_INVALID);
 }
 
 static inline void __d_lustre_invalidate(struct dentry *dentry)
 {
-        dentry->d_flags |= DCACHE_LUSTRE_INVALID;
+        if (ll_d2d(dentry))
+                ll_d2d(dentry)->lld_flags |= DCACHE_LUSTRE_INVALID;
 }
 
 /*
@@ -1492,7 +1495,8 @@ static inline void d_lustre_invalidate(struct dentry *dentry)
 static inline void d_lustre_revalidate(struct dentry *dentry)
 {
         spin_lock(&dentry->d_lock);
-        dentry->d_flags &= ~DCACHE_LUSTRE_INVALID;
+        if (ll_d2d(dentry))
+                ll_d2d(dentry)->lld_flags &= ~DCACHE_LUSTRE_INVALID;
         spin_unlock(&dentry->d_lock);
 }
 

@@ -405,7 +405,7 @@ int ll_revalidate_it(struct dentry *de, int lookup_flags,
         if (it->it_op == IT_LOOKUP && !d_lustre_invalid(de))
                 RETURN(1);
 
-        if ((it->it_op == IT_OPEN) && de->d_inode) {
+        if (it->it_op == IT_OPEN) {
                 struct inode *inode = de->d_inode;
                 struct ll_inode_info *lli = ll_i2info(inode);
                 struct obd_client_handle **och_p;
