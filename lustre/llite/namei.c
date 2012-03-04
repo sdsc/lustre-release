@@ -380,7 +380,6 @@ struct dentry *ll_splice_alias(struct inode *inode, struct dentry *de)
                 new = ll_find_alias(inode, de);
                 if (new) {
                         ll_dops_init(new, 1, 1);
-                        d_rehash(de);
                         d_move(new, de);
                         iput(inode);
                         CDEBUG(D_DENTRY,
@@ -389,8 +388,8 @@ struct dentry *ll_splice_alias(struct inode *inode, struct dentry *de)
                         return new;
                 }
         }
-        __d_lustre_invalidate(de);
         ll_dops_init(de, 1, 1);
+        __d_lustre_invalidate(de);
         d_add(de, inode);
         CDEBUG(D_DENTRY, "Add dentry %p inode %p refc %d flags %#x\n",
                de, de->d_inode, d_refcount(de), de->d_flags);
