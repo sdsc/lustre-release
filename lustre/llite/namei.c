@@ -370,32 +370,31 @@ static struct dentry *ll_find_alias(struct inode *inode, struct dentry *dentry)
 }
 
 /* 
- * Similar to d_splice_alias(), but lustre treats DCACHE_LUSTRE_INVALID alias
+ * Similar to d_splice_alias(), but lustre treats invalid alias
  * similar to DCACHE_DISCONNECTED, and tries to use it anyway.
  */
 struct dentry *ll_splice_alias(struct inode *inode, struct dentry *de)
 {
-        struct dentry *new;
+	struct dentry *new;
 
-        if (inode) {
-                new = ll_find_alias(inode, de);
-                if (new) {
-                        ll_dops_init(new, 1, 1);
-                        d_rehash(de);
-                        d_move(new, de);
-                        iput(inode);
-                        CDEBUG(D_DENTRY,
-                               "Reuse dentry %p inode %p refc %d flags %#x\n",
-                              new, new->d_inode, d_refcount(new), new->d_flags);
-                        return new;
-                }
-        }
-        __d_lustre_invalidate(de);
-        ll_dops_init(de, 1, 1);
-        d_add(de, inode);
-        CDEBUG(D_DENTRY, "Add dentry %p inode %p refc %d flags %#x\n",
-               de, de->d_inode, d_refcount(de), de->d_flags);
-        return de;
+	if (inode) {
+		new = ll_find_alias(inode, de);
+		if (new) {
+			ll_dops_init(new, 1, 1);
+			d_move(new, de);
+			iput(inode);
+			CDEBUG(D_DENTRY,
+			       "Reuse dentry %p inode %p refc %d flags %#x\n",
+			      new, new->d_inode, d_refcount(new), new->d_flags);
+			return new;
+		}
+	}
+	ll_dops_init(de, 1, 1);
+	__d_lustre_invalidate(de);
+	d_add(de, inode);
+	CDEBUG(D_DENTRY, "Add dentry %p inode %p refc %d flags %#x\n",
+	       de, de->d_inode, d_refcount(de), de->d_flags);
+	return de;
 }
 
 int ll_lookup_it_finish(struct ptlrpc_request *request,

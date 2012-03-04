@@ -62,20 +62,18 @@
 #define LL_DIR_END_OFF          0x7fffffffffffffffULL
 #define LL_DIR_END_OFF_32BIT    0x7fffffffUL
 
-#ifndef DCACHE_LUSTRE_INVALID
-#define DCACHE_LUSTRE_INVALID 0x4000000
-#endif
-
 #define LL_IT2STR(it) ((it) ? ldlm_it2str((it)->it_op) : "0")
 #define LUSTRE_FPRIVATE(file) ((file)->private_data)
 
 struct ll_dentry_data {
-        int                      lld_cwd_count;
-        int                      lld_mnt_count;
-        struct obd_client_handle lld_cwd_och;
-        struct obd_client_handle lld_mnt_och;
-        struct lookup_intent    *lld_it;
-        unsigned int             lld_sa_generation;
+	int				lld_cwd_count;
+	int				lld_mnt_count;
+	struct obd_client_handle	lld_cwd_och;
+	struct obd_client_handle	lld_mnt_och;
+	struct lookup_intent		*lld_it;
+	unsigned int			lld_sa_generation;
+	unsigned int			lld_invalid:1;
+	struct rcu_head			lld_rcu_head;
 };
 
 #define ll_d2d(de) ((struct ll_dentry_data*)((de)->d_fsdata))
@@ -1471,12 +1469,17 @@ static inline void ll_unlock_dcache(struct inode *inode)
 
 static inline int d_lustre_invalid(struct dentry* dentry)
 {
-        return dentry->d_flags & DCACHE_LUSTRE_INVALID;
+	struct ll_dentry_data *lld = ll_d2d(dentry);
+
+	return (lld == NULL) || lld->lld_invalid;
 }
 
 static inline void __d_lustre_invalidate(struct dentry *dentry)
 {
-        dentry->d_flags |= DCACHE_LUSTRE_INVALID;
+	struct ll_dentry_data *lld = ll_d2d(dentry);
+
+	if (lld != NULL)
+		lld->lld_invalid = 1;
 }
 
 /*
@@ -1486,22 +1489,23 @@ static inline void __d_lustre_invalidate(struct dentry *dentry)
  */
 static inline void d_lustre_invalidate(struct dentry *dentry)
 {
-        CDEBUG(D_DENTRY, "invalidate dentry %.*s (%p) parent %p inode %p "
-               "refc %d\n", dentry->d_name.len, dentry->d_name.name, dentry,
-               dentry->d_parent, dentry->d_inode, d_refcount(dentry));
+	CDEBUG(D_DENTRY, "invalidate dentry %.*s (%p) parent %p inode %p "
+	       "refc %d\n", dentry->d_name.len, dentry->d_name.name, dentry,
+	       dentry->d_parent, dentry->d_inode, d_refcount(dentry));
 
-        spin_lock(&dentry->d_lock);
-        __d_lustre_invalidate(dentry);
-        if (d_refcount(dentry) == 0)
-                __d_drop(dentry);
-        spin_unlock(&dentry->d_lock);
+	spin_lock(&dentry->d_lock);
+	__d_lustre_invalidate(dentry);
+	if (d_refcount(dentry) == 0)
+		__d_drop(dentry);
+	spin_unlock(&dentry->d_lock);
 }
 
 static inline void d_lustre_revalidate(struct dentry *dentry)
 {
-        spin_lock(&dentry->d_lock);
-        dentry->d_flags &= ~DCACHE_LUSTRE_INVALID;
-        spin_unlock(&dentry->d_lock);
+	spin_lock(&dentry->d_lock);
+	LASSERT(ll_d2d(dentry) != NULL);
+	ll_d2d(dentry)->lld_invalid = 0;
+	spin_unlock(&dentry->d_lock);
 }
 
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2,7,50,0)
