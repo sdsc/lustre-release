@@ -1777,15 +1777,28 @@ int ptlrpc_expire_one_request(struct ptlrpc_request *req, int async_unlink)
         req->rq_timedout = 1;
         cfs_spin_unlock(&req->rq_lock);
 
-        DEBUG_REQ(req->rq_fake ? D_INFO : D_WARNING, req, "Request "
-                  " sent has %s: [sent "CFS_DURATION_T"/"
-                  "real "CFS_DURATION_T"]",
-                  req->rq_net_err ? "failed due to network error" :
-                     ((req->rq_real_sent == 0 ||
-                       cfs_time_before(req->rq_real_sent, req->rq_sent) ||
-                       cfs_time_aftereq(req->rq_real_sent, req->rq_deadline)) ?
-                      "timed out for sent delay" : "timed out for slow reply"),
-                  req->rq_sent, req->rq_real_sent);
+        if (req->rq_fake)
+                DEBUG_REQ(D_INFO, req, "Request sent has %s: [sent "
+                          CFS_DURATION_T"/real "CFS_DURATION_T"]",
+                          req->rq_net_err ? "failed due to network error" :
+                          ((req->rq_real_sent == 0 ||
+                            cfs_time_before(req->rq_real_sent, req->rq_sent) ||
+                            cfs_time_aftereq(req->rq_real_sent,
+                                             req->rq_deadline)) ?
+                          "timed out for sent delay" :
+                          "timed out for slow reply"),
+                          req->rq_sent, req->rq_real_sent);
+        else
+                DEBUG_REQ(D_WARNING, req, "Request sent has %s: [sent "
+                          CFS_DURATION_T"/real "CFS_DURATION_T"]",
+                          req->rq_net_err ? "failed due to network error" :
+                          ((req->rq_real_sent == 0 ||
+                            cfs_time_before(req->rq_real_sent, req->rq_sent) ||
+                            cfs_time_aftereq(req->rq_real_sent,
+                                             req->rq_deadline)) ?
+                          "timed out for sent delay" :
+                          "timed out for slow reply"),
+                          req->rq_sent, req->rq_real_sent);
 
         if (imp != NULL && obd_debug_peer_on_timeout)
                 LNetCtl(IOC_LIBCFS_DEBUG_PEER, &imp->imp_connection->c_peer);

@@ -1789,9 +1789,13 @@ cfs_hash_rehash_cancel_locked(cfs_hash_t *hs)
         for (i = 2; cfs_hash_is_rehashing(hs); i++) {
                 cfs_hash_unlock(hs, 1);
                 /* raise console warning while waiting too long */
-                CDEBUG(IS_PO2(i >> 3) ? D_WARNING : D_INFO,
-                       "hash %s is still rehashing, rescheded %d\n",
-                       hs->hs_name, i - 1);
+                if (IS_PO2(i >> 3))
+                        CWARN("hash %s is still rehashing, rescheded %d\n",
+                              hs->hs_name, i - 1);
+                else
+                        CDEBUG(D_INFO, "hash %s is still rehashing, "
+                               "rescheded %d\n", hs->hs_name, i - 1);
+
                 cfs_cond_resched();
                 cfs_hash_lock(hs, 1);
         }

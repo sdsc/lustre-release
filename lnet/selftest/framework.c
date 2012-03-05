@@ -1147,11 +1147,18 @@ sfw_add_test (srpc_server_rpc_t *rpc)
         }
 
         rc = sfw_add_test_instance(bat, rpc);
-        CDEBUG (rc == 0 ? D_NET : D_WARNING,
-                "%s test: sv %d %s, loop %d, concur %d, ndest %d\n",
-                rc == 0 ? "Added" : "Failed to add", request->tsr_service,
-                request->tsr_is_client ? "client" : "server",
-                request->tsr_loop, request->tsr_concur, request->tsr_ndest);
+        if (rc == 0)
+                CDEBUG(D_NET, "Added test: sv %d %s, loop %d, concur %d, "
+                       "ndest %d\n", request->tsr_service,
+                       request->tsr_is_client ? "client" : "server",
+                       request->tsr_loop, request->tsr_concur,
+                       request->tsr_ndest);
+        else
+                CWARN("Failed to add test: sv %d %s, loop %d, concur %d, "
+                      "ndest %d\n", request->tsr_service,
+                      request->tsr_is_client ? "client" : "server",
+                      request->tsr_loop, request->tsr_concur,
+                      request->tsr_ndest);
 
         reply->tsr_status = (rc < 0) ? -rc : rc;
         return 0;

@@ -2318,9 +2318,14 @@ ksocknal_base_shutdown (void)
                 cfs_read_lock (&ksocknal_data.ksnd_global_lock);
                 while (ksocknal_data.ksnd_nthreads != 0) {
                         i++;
-                        CDEBUG(((i & (-i)) == i) ? D_WARNING : D_NET, /* power of 2? */
-                               "waiting for %d threads to terminate\n",
-                                ksocknal_data.ksnd_nthreads);
+                        if ((i & (-i)) == i) /* power of 2? */
+                                CWARN("waiting for %d threads to terminate\n",
+                                      ksocknal_data.ksnd_nthreads);
+                        else
+                                CDEBUG(D_NET, "waiting for %d threads to "
+                                       "terminate\n",
+                                       ksocknal_data.ksnd_nthreads);
+
                         cfs_read_unlock (&ksocknal_data.ksnd_global_lock);
                         cfs_pause(cfs_time_seconds(1));
                         cfs_read_lock (&ksocknal_data.ksnd_global_lock);
@@ -2551,9 +2556,13 @@ ksocknal_shutdown (lnet_ni_t *ni)
                 cfs_spin_unlock_bh (&net->ksnn_lock);
 
                 i++;
-                CDEBUG(((i & (-i)) == i) ? D_WARNING : D_NET, /* power of 2? */
-                       "waiting for %d peers to disconnect\n",
-                       net->ksnn_npeers);
+                if ((i & (-i)) == i) /* power of 2? */
+                        CWARN("waiting for %d peers to disconnect\n",
+                              net->ksnn_npeers);
+                else
+                        CDEBUG(D_NET, "waiting for %d peers to disconnect\n",
+                               net->ksnn_npeers);
+
                 cfs_pause(cfs_time_seconds(1));
 
                 ksocknal_debug_peerhash(ni);

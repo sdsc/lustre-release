@@ -556,8 +556,10 @@ int selftest_wait_events(void);
 do {                                                                    \
         int __I = 2;                                                    \
         while (!(cond)) {                                               \
-                CDEBUG(IS_PO2(++__I) ? D_WARNING : D_NET,               \
-                       fmt, ## __VA_ARGS__);                            \
+                if (IS_PO2(++__I))                                      \
+                        CWARN(fmt, ## __VA_ARGS__);                     \
+                else                                                    \
+                        CDEBUG(D_NET, fmt, ## __VA_ARGS__);             \
                 cfs_spin_unlock(&(lock));                               \
                                                                         \
                 selftest_wait_events();                                 \
@@ -577,9 +579,12 @@ srpc_wait_service_shutdown (srpc_service_t *sv)
 
         while (srpc_finish_service(sv) == 0) {
                 i++;
-                CDEBUG (((i & -i) == i) ? D_WARNING : D_NET,
-                        "Waiting for %s service to shutdown...\n",
-                        sv->sv_name);
+                if ((i & -i) == i)
+                        CWARN("Waiting for %s service to shutdown...\n",
+                              sv->sv_name);
+                else
+                        CDEBUG(D_NET, "Waiting for %s service to shutdown...\n",
+                               sv->sv_name);
                 selftest_wait_events();
         }
 }

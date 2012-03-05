@@ -463,9 +463,13 @@ cfs_wi_shutdown (void)
         cfs_spin_lock(&cfs_wi_data.wi_glock);
         i = 2;
         while (cfs_wi_data.wi_nthreads != 0) {
-                CDEBUG(IS_PO2(++i) ? D_WARNING : D_NET,
-                       "waiting for %d threads to terminate\n",
-                       cfs_wi_data.wi_nthreads);
+                if (IS_PO2(++i))
+                        CWARN("waiting for %d threads to terminate\n",
+                              cfs_wi_data.wi_nthreads);
+                else
+                        CDEBUG(D_NET, "waiting for %d threads to terminate\n",
+                               cfs_wi_data.wi_nthreads);
+
                 cfs_spin_unlock(&cfs_wi_data.wi_glock);
 
                 cfs_pause(cfs_time_seconds(1));

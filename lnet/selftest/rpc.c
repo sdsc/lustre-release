@@ -761,10 +761,16 @@ srpc_server_rpc_done (srpc_server_rpc_t *rpc, int status)
 
         rpc->srpc_status = status;
 
-        CDEBUG_LIMIT (status == 0 ? D_NET : D_NETERROR,
-                "Server RPC %p done: service %s, peer %s, status %s:%d\n",
-                rpc, sv->sv_name, libcfs_id2str(rpc->srpc_peer),
-                swi_state2str(rpc->srpc_wi.swi_state), status);
+        if (status == 0)
+                 CDEBUG_LIMIT(D_NET, "Server RPC %p done: service %s, peer %s, "
+                              "status %s:%d\n", rpc, sv->sv_name,
+                              libcfs_id2str(rpc->srpc_peer),
+                              swi_state2str(rpc->srpc_wi.swi_state), status);
+        else
+                 CNETERR("Server RPC %p done: service %s, peer %s, "
+                         "status %s:%d\n", rpc, sv->sv_name,
+                         libcfs_id2str(rpc->srpc_peer),
+                         swi_state2str(rpc->srpc_wi.swi_state), status);
 
         if (status != 0) {
                 cfs_spin_lock(&srpc_data.rpc_glock);
@@ -1003,10 +1009,18 @@ srpc_client_rpc_done (srpc_client_rpc_t *rpc, int status)
 
         srpc_del_client_rpc_timer(rpc);
 
-        CDEBUG_LIMIT ((status == 0) ? D_NET : D_NETERROR,
-                "Client RPC done: service %d, peer %s, status %s:%d:%d\n",
-                rpc->crpc_service, libcfs_id2str(rpc->crpc_dest),
-                swi_state2str(wi->swi_state), rpc->crpc_aborted, status);
+        if (status == 0)
+                CDEBUG_LIMIT(D_NET, "Client RPC done: service %d, peer %s, "
+                             "status %s:%d:%d\n", rpc->crpc_service,
+                             libcfs_id2str(rpc->crpc_dest),
+                             swi_state2str(wi->swi_state), rpc->crpc_aborted,
+                             status);
+        else
+                CNETERR("Client RPC done: service %d, peer %s, status "
+                        "%s:%d:%d\n", rpc->crpc_service,
+                        libcfs_id2str(rpc->crpc_dest),
+                        swi_state2str(wi->swi_state), rpc->crpc_aborted,
+                        status);
 
         /*
          * No one can schedule me now since:

@@ -179,13 +179,15 @@ static int expired_lock_main(void *arg)
 
                 cfs_spin_lock_bh(&waiting_locks_spinlock);
                 if (expired_lock_thread.elt_dump) {
+                        struct libcfs_debug_msg_data msgdata = {
+                                .msg_file = __FILE__,
+                                .msg_fn = "waiting_locks_callback",
+                                .msg_line = expired_lock_thread.elt_dump };
                         cfs_spin_unlock_bh(&waiting_locks_spinlock);
 
                         /* from waiting_locks_callback, but not in timer */
                         libcfs_debug_dumplog();
-                        libcfs_run_lbug_upcall(__FILE__,
-                                                "waiting_locks_callback",
-                                                expired_lock_thread.elt_dump);
+                        libcfs_run_lbug_upcall(&msgdata);
 
                         cfs_spin_lock_bh(&waiting_locks_spinlock);
                         expired_lock_thread.elt_dump = 0;
@@ -1834,10 +1836,14 @@ static inline void ldlm_callback_errmsg(struct ptlrpc_request *req,
                                         const char *msg, int rc,
                                         struct lustre_handle *handle)
 {
-        DEBUG_REQ((req->rq_no_reply || rc) ? D_WARNING : D_DLMTRACE, req,
-                  "%s: [nid %s] [rc %d] [lock "LPX64"]",
-                  msg, libcfs_id2str(req->rq_peer), rc,
-                  handle ? handle->cookie : 0);
+        if (req->rq_no_reply || rc)
+                DEBUG_REQ(D_WARNING, req, "%s: [nid %s] [rc %d] [lock "LPX64"]",
+                          msg, libcfs_id2str(req->rq_peer), rc,
+                          handle ? handle->cookie : 0);
+        else
+                DEBUG_REQ(D_DLMTRACE, req, "%s: [nid %s] [rc %d] "
+                          "[lock "LPX64"]", msg, libcfs_id2str(req->rq_peer),
+                          rc, handle ? handle->cookie : 0);
         if (req->rq_no_reply)
                 CWARN("No reply was sent, maybe cause bug 21636.\n");
         else if (rc)

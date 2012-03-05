@@ -2652,9 +2652,16 @@ kiblnd_base_shutdown (void)
                 i = 2;
                 while (cfs_atomic_read(&kiblnd_data.kib_nthreads) != 0) {
                         i++;
-                        CDEBUG(((i & (-i)) == i) ? D_WARNING : D_NET, /* power of 2? */
-                               "Waiting for %d threads to terminate\n",
-                               cfs_atomic_read(&kiblnd_data.kib_nthreads));
+                        if ((i & (-i)) == i) /* power of 2? */
+                                CWARN("Waiting for %d threads to terminate\n",
+                                      cfs_atomic_read(&kiblnd_data.
+                                                      kib_nthreads));
+                        else
+                                CDEBUG(D_NET, "Waiting for %d threads to "
+                                       "terminate\n",
+                                       cfs_atomic_read(&kiblnd_data.
+                                                       kib_nthreads));
+
                         cfs_pause(cfs_time_seconds(1));
                 }
 
@@ -2708,10 +2715,17 @@ kiblnd_shutdown (lnet_ni_t *ni)
                 i = 2;
                 while (cfs_atomic_read(&net->ibn_npeers) != 0) {
                         i++;
-                        CDEBUG(((i & (-i)) == i) ? D_WARNING : D_NET, /* 2**n? */
-                               "%s: waiting for %d peers to disconnect\n",
-                               libcfs_nid2str(ni->ni_nid),
-                               cfs_atomic_read(&net->ibn_npeers));
+                        if ((i & (-i)) == i) /* 2**n? */
+                                CWARN("%s: waiting for %d peers to "
+                                      "disconnect\n",
+                                      libcfs_nid2str(ni->ni_nid),
+                                      cfs_atomic_read(&net->ibn_npeers));
+                        else
+                                CDEBUG(D_NET, "%s: waiting for %d peers to "
+                                       "disconnect\n",
+                                       libcfs_nid2str(ni->ni_nid),
+                                       cfs_atomic_read(&net->ibn_npeers));
+
                         cfs_pause(cfs_time_seconds(1));
                 }
 

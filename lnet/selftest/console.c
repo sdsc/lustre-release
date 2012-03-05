@@ -1530,9 +1530,12 @@ lstcon_nodes_stat(int count, lnet_process_id_t *ids_up,
                 /* add to tmp group */
                 rc = lstcon_group_ndlink_find(tmp, id, &ndl, 2);
                 if (rc != 0) {
-                        CDEBUG((rc == -ENOMEM) ? D_ERROR : D_NET,
-                               "Failed to find or create %s: %d\n",
-                               libcfs_id2str(id), rc);
+                        if (rc == -ENOMEM)
+                                CERROR("Failed to find or create %s: %d\n",
+                                       libcfs_id2str(id), rc);
+                        else
+                                CDEBUG(D_NET, "Failed to find or create "
+                                       "%s: %d\n", libcfs_id2str(id), rc);
                         break;
                 }
         }

@@ -1134,8 +1134,11 @@ rescan:
                 LNetMDUnlink(rcd->rcd_mdh);
 
                 i++;
-                CDEBUG(((i & (-i)) == i) ? D_WARNING : D_NET,
-                       "Waiting for rc buffers to unlink\n");
+                if ((i & (-i)) == i)
+                        CWARN("Waiting for rc buffers to unlink\n");
+                else
+                        CDEBUG(D_NET, "Waiting for rc buffers to unlink\n");
+
                 cfs_pause(cfs_time_seconds(1));
 
                 LNET_LOCK();
