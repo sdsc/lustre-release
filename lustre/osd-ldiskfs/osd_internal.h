@@ -147,6 +147,17 @@ static inline void ldiskfs_htree_lock_free(struct htree_lock *lk)
 #endif /* HAVE_LDISKFS_PDO */
 
 /*
+ * Object Index (oi) instance.
+ */
+struct osd_oi {
+        /*
+         * underlying index object, where fid->id mapping in stored.
+         */
+        struct inode         *oi_inode;
+        struct osd_directory   oi_dir;
+};
+
+/*
  * osd device.
  */
 struct osd_device {
@@ -352,6 +363,9 @@ void osd_lprocfs_time_end(const struct lu_env *env,
 int osd_statfs(const struct lu_env *env, struct dt_device *dev,
                cfs_kstatfs_t *sfs);
 
+struct inode *osd_iget(struct osd_thread_info *info,
+                       struct osd_device *dev,
+                       const struct osd_inode_id *id);
 /*
  * Invariants, assertions.
  */
@@ -394,8 +408,8 @@ static inline int osd_fid_is_igif(const struct lu_fid *fid)
         return fid_is_igif(fid) || osd_fid_is_root(fid);
 }
 
-static inline struct osd_oi *
-osd_fid2oi(struct osd_device *osd, const struct lu_fid *fid)
+static inline struct osd_oi *osd_fid2oi(struct osd_device *osd,
+                                        const struct lu_fid *fid)
 {
         if (!fid_is_norm(fid))
                 return NULL;
@@ -404,6 +418,82 @@ osd_fid2oi(struct osd_device *osd, const struct lu_fid *fid)
         /* It can work even od_oi_count equals to 1 although it's unexpected,
          * the only reason we set it to 1 is for performance measurement */
         return &osd->od_oi_table[fid->f_seq & (osd->od_oi_count - 1)];
+}
+
+/**
+ * IAM Iterator
+ */
+static inline
+struct iam_path_descr *osd_it_ipd_get(const struct lu_env *env,
+                                      const struct iam_container *bag)
+{
+        return bag->ic_descr->id_ops->id_ipd_alloc(bag,
+                                           osd_oti_get(env)->oti_it_ipd);
+}
+
+static inline
+struct iam_path_descr *osd_idx_ipd_get(const struct lu_env *env,
+                                       const struct iam_container *bag)
+{
+        return bag->ic_descr->id_ops->id_ipd_alloc(bag,
+                                           osd_oti_get(env)->oti_idx_ipd);
+}
+
+static inline void osd_ipd_put(const struct lu_env *env,
+                               const struct iam_container *bag,
+                               struct iam_path_descr *ipd)
+{
+        bag->ic_descr->id_ops->id_ipd_free(ipd);
+}
+
+static inline
+struct dentry *osd_child_dentry_by_inode(const struct lu_env *env,
+                                         struct inode *inode,
+                                         const char *name, const int namelen)
+{
+        struct osd_thread_info *info   = osd_oti_get(env);
+        struct dentry *child_dentry = &info->oti_child_dentry;
+        struct dentry *obj_dentry = &info->oti_obj_dentry;
+
+        obj_dentry->d_inode = inode;
+        obj_dentry->d_sb = inode->i_sb;
+        obj_dentry->d_name.hash = 0;
+
+        child_dentry->d_name.hash = 0;
+        child_dentry->d_parent = obj_dentry;
+        child_dentry->d_name.name = name;
+        child_dentry->d_name.len = namelen;
+        return child_dentry;
+}
+
+/**
+ * Helper function to pack the fid, ldiskfs stores fid in packed format.
+ */
+static inline
+void osd_fid_pack(struct osd_fid_pack *pack, const struct dt_rec *fid,
+                  struct lu_fid *befider)
+{
+        fid_cpu_to_be(befider, (struct lu_fid *)fid);
+        memcpy(pack->fp_area, befider, sizeof(*befider));
+        pack->fp_len =  sizeof(*befider) + 1;
+}
+
+static inline
+int osd_fid_unpack(struct lu_fid *fid, const struct osd_fid_pack *pack)
+{
+        int result;
+
+        result = 0;
+        switch (pack->fp_len) {
+        case sizeof *fid + 1:
+                memcpy(fid, pack->fp_area, sizeof *fid);
+                fid_be_to_cpu(fid, fid);
+                break;
+        default:
+                CERROR("Unexpected packed fid size: %d\n", pack->fp_len);
+                result = -EIO;
+        }
+        return result;
 }
 
 #endif /* __KERNEL__ */
