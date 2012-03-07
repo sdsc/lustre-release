@@ -1,9 +1,11 @@
 #!/bin/bash
-set -x
 
 TMP=${TMP:-/tmp}
 
 TESTLOG_PREFIX=${TESTLOG_PREFIX:-$TMP/recovery-mds-scale}
+TESTNAME=${TESTNAME:-""}
+[ -n "$TESTNAME" ] && TESTLOG_PREFIX=$TESTLOG_PREFIX.$TESTNAME
+
 LOG=$TESTLOG_PREFIX.$(basename $0 .sh)_stdout.$(hostname -s).log
 DEBUGLOG=$(echo $LOG | sed 's/\(.*\)stdout/\1debug/')
 
@@ -11,6 +13,7 @@ mkdir -p ${LOG%/*}
 
 rm -f $LOG $DEBUGLOG
 exec 2>$DEBUGLOG
+set -x
 
 . $(dirname $0)/functions.sh
 
