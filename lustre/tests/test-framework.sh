@@ -1111,6 +1111,7 @@ start_client_load() {
                               END_RUN_FILE=$END_RUN_FILE \
                               LOAD_PID_FILE=$LOAD_PID_FILE \
                               TESTLOG_PREFIX=$TESTLOG_PREFIX \
+                              TESTNAME=$TESTNAME \
                               run_${load}.sh" &
     local ppid=$!
     log "Started client load: ${load} on $client"
@@ -1226,6 +1227,70 @@ restart_client_loads () {
             return $rc
         fi
     done
+}
+
+# Start vmstat and save its process ID in a file.
+start_vmstat() {
+    local nodes=$1
+    local pid_file=$2
+
+    [ -z "$nodes" -o -z "$pid_file" ] && return 0
+
+    do_nodes $nodes \
+        "vmstat 1 > $TESTLOG_PREFIX.$TESTNAME.vmstat.\\\$(hostname -s).log \
+        2>/dev/null </dev/null & echo \\\$! > $pid_file"
+}
+
+# Display the nodes on which client loads failed.
+print_end_run_file() {
+    local file=$1
+    local node
+
+    [ -s $file ] || return 0
+
+    echo "Found the END_RUN_FILE file: $file"
+    cat $file
+
+    # A client load will stop if it finds the END_RUN_FILE file.
+    # That does not mean the client load actually failed though.
+    # The first node in END_RUN_FILE is the one we are interested in.
+    read node < $file
+
+    if [ -n "$node" ]; then
+        local var=$(node_var_name $node)_load
+
+        local prefix=$TESTLOG_PREFIX
+        [ -n "$TESTNAME" ] && prefix=$prefix.$TESTNAME
+        local stdout_log=$prefix.run_${!var}_stdout.$node.log
+        local debug_log=$(echo $stdout_log | sed 's/\(.*\)stdout/\1debug/')
+
+        echo "Client load ${!var} failed on node $node:"
+        echo "$stdout_log"
+        echo "$debug_log"
+    fi
+}
+
+# Stop the process which had its PID saved in a file.
+stop_process() {
+    local nodes=$1
+    local pid_file=$2
+
+    [ -z "$nodes" -o -z "$pid_file" ] && return 0
+
+    do_nodes $nodes "test -f $pid_file &&
+        { kill -s TERM \\\$(cat $pid_file); rm -f $pid_file; }" || true
+}
+
+# Stop all client loads.
+stop_client_loads() {
+    local nodes=${1:-$CLIENTS}
+    local pid_file=$2
+
+    # stop the client loads
+    stop_process $nodes $pid_file
+
+    # clean up the processes that started them
+    [ -n "$CLIENT_LOAD_PIDS" ] && kill -9 $CLIENT_LOAD_PIDS || true
 }
 # End recovery-scale functions
 
@@ -2705,7 +2770,8 @@ check_and_cleanup_lustre() {
     fi
 
     if is_mounted $MOUNT; then
-        [ -n "$DIR" ] && rm -rf $DIR/[Rdfs][0-9]*
+        [ -n "$DIR" ] && rm -rf $DIR/[Rdfs][0-9]* ||
+            error "remove sub-test dirs failed"
         [ "$ENABLE_QUOTA" ] && restore_quota_type || true
     fi
 
@@ -3069,7 +3135,7 @@ error_noexit() {
 
     # We need to dump the logs on all nodes
     if $dump; then
-        gather_logs $(comma_list $(nodes_list)) 0
+        gather_logs $(comma_list $(nodes_list))
     fi
 
     debugrestore
@@ -4248,7 +4314,6 @@ cleanup_pools () {
 
 gather_logs () {
     local list=$1
-    local tar_logs=$2
 
     local ts=$(date +%s)
     local docp=true
@@ -4272,13 +4337,6 @@ gather_logs () {
          dmesg > ${prefix}.dmesg.\\\$(hostname -s).${suffix}"
     if [ ! -f $LOGDIR/shared ]; then
         do_nodes $list rsync -az "${prefix}.*.${suffix}" $HOSTNAME:$LOGDIR
-      fi
-
-    if [ $tar_logs == 1 ]; then
-        local archive=$LOGDIR/${TESTSUITE}-$ts.tar.bz2
-        tar -jcf $archive $LOGDIR/*$ts* $LOGDIR/*${TESTSUITE}*
-
-        echo $archive
     fi
 }
 
