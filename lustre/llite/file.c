@@ -769,12 +769,14 @@ int ll_merge_lvb(struct inode *inode)
 
         ll_inode_size_lock(inode, 1);
         inode_init_lvb(inode, &lvb);
-
         /* merge timestamps the most resently obtained from mds with
-           timestamps obtained from osts */
-        lvb.lvb_atime = lli->lli_lvb.lvb_atime;
-        lvb.lvb_mtime = lli->lli_lvb.lvb_mtime;
-        lvb.lvb_ctime = lli->lli_lvb.lvb_ctime;
+         * timestamps obtained from osts */
+        if (lvb.lvb_mtime < lli->lli_lvb.lvb_mtime)
+                lvb.lvb_mtime = lli->lli_lvb.lvb_mtime;
+        if (lvb.lvb_atime < lli->lli_lvb.lvb_atime)
+                lvb.lvb_atime = lli->lli_lvb.lvb_atime;
+        if (lvb.lvb_ctime < lli->lli_lvb.lvb_ctime)
+                lvb.lvb_ctime = lli->lli_lvb.lvb_ctime;
         rc = obd_merge_lvb(sbi->ll_dt_exp, lli->lli_smd, &lvb, 0);
         cl_isize_write_nolock(inode, lvb.lvb_size);
 
