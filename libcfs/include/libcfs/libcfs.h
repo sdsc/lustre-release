@@ -324,6 +324,12 @@ static inline void *__container_of(void *ptr, unsigned long shift)
                 return (char *)ptr - shift;
 }
 
+#ifdef __KERNEL__
+#define STACK_LOW() (CDEBUG_STACK() > (CFS_THREAD_SIZE * 3 / 4))
+#else
+#define STACK_LOW() (0)
+#endif
+
 #define container_of0(ptr, type, member) \
         ((type *)__container_of((void *)(ptr), offsetof(type, member)))
 
