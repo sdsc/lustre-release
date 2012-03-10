@@ -2219,6 +2219,12 @@ static int brw_queue_work(const struct lu_env *env, void *data)
         client_obd_list_lock(&cli->cl_loi_list_lock);
         osc_check_rpcs0(env, cli, 1);
         client_obd_list_unlock(&cli->cl_loi_list_lock);
+
+        if (cfs_atomic_read(&cli->cl_works) > 0) {
+                cfs_atomic_dec(&cli->cl_works);
+                ptlrpcd_queue_work(cli->cl_writeback_work);
+        }
+
         RETURN(0);
 }
 
@@ -2784,7 +2790,13 @@ static void osc_check_rpcs0(const struct lu_env *env, struct client_obd *cli, in
                         else if (rc == 0)
                                 race_counter++;
                 }
-                if (lop_makes_rpc(cli, &loi->loi_read_lop, OBD_BRW_READ)) {
+
+                /* the ptlrpc_request for OBD_BRW_READ is not from the pool
+                 * of the OSC's obd_import, then it's better to skip READ
+                 * RPCs for memory reclaiming context.
+                 * */
+                if (!cfs_memory_pressure_get() &&
+                    lop_makes_rpc(cli, &loi->loi_read_lop, OBD_BRW_READ)) {
                         rc = osc_send_oap_rpc(env, cli, loi, OBD_BRW_READ,
                                               &loi->loi_read_lop, pol);
                         if (rc < 0)
@@ -2821,7 +2833,8 @@ static void osc_check_rpcs0(const struct lu_env *env, struct client_obd *cli, in
 
 void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli)
 {
-        osc_check_rpcs0(env, cli, 0);
+        cfs_atomic_inc(&cli->cl_works);
+        ptlrpcd_queue_work(cli->cl_writeback_work);
 }
 
 /**
@@ -4476,6 +4489,7 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
                 void *handler;
                 handler = ptlrpcd_alloc_work(cli->cl_import,
                                              brw_queue_work, cli);
+                cfs_atomic_set(&cli->cl_works, 0);
                 if (!IS_ERR(handler))
                         cli->cl_writeback_work = handler;
                 else

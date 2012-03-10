@@ -551,6 +551,7 @@ struct client_obd {
 
         /* ptlrpc work for writeback in ptlrpcd context */
         void                    *cl_writeback_work;
+        cfs_atomic_t             cl_works;   /* count of works to do */
 };
 #define obd2cli_tgt(obd) ((char *)(obd)->u.cli.cl_target_uuid.uuid)
 
