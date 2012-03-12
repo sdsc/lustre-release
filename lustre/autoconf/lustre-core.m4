@@ -2218,6 +2218,26 @@ AC_DEFINE(HAVE_SIMPLE_SETATTR, 1,
 ])
 
 #
+# 3.3 address_space_operations.migratepage has 4 args
+#
+AC_DEFUN([LC_MIGRATEPAGE_4ARGS],
+[AC_MSG_CHECKING([if address_space_operations.migratepage has 4 args])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+        #include <linux/migrate.h>
+],[
+        struct address_space_operations *aso;
+        aso->migratepage(NULL, NULL, NULL, MIGRATE_ASYNC);
+],[
+        AC_DEFINE(HAVE_MIGRATEPAGE_4ARGS, 1,
+                [address_space_operations.migratepage has 4 args])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+#
 # LC_PROG_LINUX
 #
 # Lustre linux kernel checks
@@ -2390,6 +2410,9 @@ AC_DEFUN([LC_PROG_LINUX],
 
          # 2.6.39
          LC_REQUEST_QUEUE_UNPLUG_FN
+
+         # 3.3
+         LC_MIGRATEPAGE_4ARGS
 
          #
          if test x$enable_server = xyes ; then
