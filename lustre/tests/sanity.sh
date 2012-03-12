@@ -3008,7 +3008,7 @@ test_51b() {
 }
 run_test 51b "mkdir .../t-0 --- .../t-$NUMTEST ===================="
 
-test_51ba() { # LU-993
+test_51c() { # LU-993
         local BASE=$DIR/d51b
         # unlink all but 100 subdirectories, then check it still works
         local LEFT=100
@@ -3032,7 +3032,7 @@ test_51ba() { # LU-993
                 error "unlink of second $LEFT subdirs failed"
         log "nlink after: $(stat -c %h $BASE)"
 }
-run_test 51ba "rmdir .../t-0 --- .../t-$NUMTEST"
+run_test 51c "rmdir .../t-0 --- .../t-$NUMTEST"
 
 test_51bb() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
@@ -3083,15 +3083,6 @@ test_51bb() {
 		error "Objects/inodes are not distributed over all mds servers"
 }
 run_test 51bb "mkdir createmany CMD $MDSCOUNT  ===================="
-
-
-test_51c() {
-	[ ! -d $DIR/d51b ] && skip "$DIR/51b missing" && \
-		return
-
-	unlinkmany -d $DIR/d51b/t- $NUMTEST
-}
-run_test 51c "rmdir .../t-0 --- .../t-$NUMTEST ===================="
 
 test_51d() {
         [  "$OSTCOUNT" -lt "3" ] && skip_env "skipping test with few OSTs" && return
