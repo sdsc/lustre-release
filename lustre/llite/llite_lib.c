@@ -1334,7 +1334,6 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
 
         CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu valid %x\n", inode->i_ino,
                attr->ia_valid);
-        ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_SETATTR, 1);
 
         if (ia_valid & ATTR_SIZE) {
                 if (attr->ia_size > ll_file_maxbytes(inode)) {
@@ -1426,13 +1425,20 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
         EXIT;
 out:
         if (op_data) {
-                if (op_data->op_ioepoch)
+                if (op_data->op_ioepoch) {
                         rc1 = ll_setattr_done_writing(inode, op_data, mod);
+                        if (!rc)
+                                rc = rc1;
+                }
                 ll_finish_md_op_data(op_data);
         }
         if (!S_ISDIR(inode->i_mode))
                 cfs_up_write(&lli->lli_trunc_sem);
-        return rc ? rc : rc1;
+
+        ll_stats_ops_tally(ll_i2sbi(inode), (ia_valid & ATTR_SIZE) ?
+                           LPROC_LL_TRUNC : LPROC_LL_SETATTR, 1);
+
+        return rc;
 }
 
 int ll_setattr(struct dentry *de, struct iattr *attr)
