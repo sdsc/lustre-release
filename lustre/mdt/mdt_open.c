@@ -679,8 +679,11 @@ static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
 
         rc = mo_open(info->mti_env, mdt_object_child(o),
                      created ? flags | MDS_OPEN_CREATED : flags);
-        if (rc)
+        if (rc) {
+                if (flags & FMODE_WRITE)
+                        mdt_write_put(o);
                 RETURN(rc);
+        }
 
         mfd = mdt_mfd_new();
         if (mfd != NULL) {
