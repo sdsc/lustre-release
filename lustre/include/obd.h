@@ -130,6 +130,7 @@ static inline void loi_init(struct lov_oinfo *loi)
 struct lov_stripe_md {
         cfs_spinlock_t   lsm_lock;
         pid_t            lsm_lock_owner; /* debugging */
+        unsigned long ino;
 
         /* maximum possible file size, might change as OSTs status changes,
          * e.g. disconnected, deactivated */
