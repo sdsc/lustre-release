@@ -1,5 +1,5 @@
 /* -*- mode: c; c-basic-offset: 8; indent-tabs-mode: nil; -*-
- * vim:expandtab:shiftwidth=8:tabstop=8:
+ * vim:shiftwidth=8:tabstop=8:
  *
  * GPL HEADER START
  *
@@ -130,6 +130,7 @@ static inline void loi_init(struct lov_oinfo *loi)
 struct lov_stripe_md {
         cfs_spinlock_t   lsm_lock;
         pid_t            lsm_lock_owner; /* debugging */
+	unsigned long    lsm_ino; /* debugging for LU-988 */
 
         /* maximum possible file size, might change as OSTs status changes,
          * e.g. disconnected, deactivated */

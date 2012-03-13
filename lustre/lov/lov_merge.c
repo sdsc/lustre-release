@@ -1,5 +1,5 @@
 /* -*- mode: c; c-basic-offset: 8; indent-tabs-mode: nil; -*-
- * vim:expandtab:shiftwidth=8:tabstop=8:
+ * vim:shiftwidth=8:tabstop=8:
  *
  * GPL HEADER START
  *
@@ -100,6 +100,11 @@ int lov_merge_lvb_kms(struct lov_stripe_md *lsm,
                         current_atime = loi->loi_lvb.lvb_atime;
                 if (loi->loi_lvb.lvb_ctime > current_ctime)
                         current_ctime = loi->loi_lvb.lvb_ctime;
+                CDEBUG(D_INODE, "ino %lu on OST[%d]: "LPU64" "LPU64" "LPU64" "
+		       LPU64" "LPU64"\n",
+		       lsm->lsm_ino, loi->loi_ost_idx, lvb->lvb_size,
+		       lvb->lvb_mtime, lvb->lvb_atime, lvb->lvb_ctime,
+		       lvb->lvb_blocks);
         }
 
         *kms_place = kms;
@@ -130,9 +135,9 @@ int lov_merge_lvb(struct obd_export *exp,
         rc = lov_merge_lvb_kms(lsm, lvb, &kms);
         if (kms_only)
                 lvb->lvb_size = kms;
-        CDEBUG(D_INODE, "merged: "LPU64" "LPU64" "LPU64" "LPU64" "LPU64"\n",
-               lvb->lvb_size, lvb->lvb_mtime, lvb->lvb_atime,
-               lvb->lvb_ctime, lvb->lvb_blocks);
+        CDEBUG(D_INODE, "merged for ino %lu: "LPU64" "LPU64" "LPU64" "LPU64" "
+	       LPU64"\n", lsm->lsm_ino, lvb->lvb_size, lvb->lvb_mtime,
+	       lvb->lvb_atime, lvb->lvb_ctime, lvb->lvb_blocks);
         RETURN(rc);
 }
 

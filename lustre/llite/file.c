@@ -1,5 +1,5 @@
 /* -*- mode: c; c-basic-offset: 8; indent-tabs-mode: nil; -*-
- * vim:expandtab:shiftwidth=8:tabstop=8:
+ * vim:shiftwidth=8:tabstop=8:
  *
  * GPL HEADER START
  *
@@ -774,6 +774,7 @@ int ll_merge_lvb(struct inode *inode)
         lvb.lvb_atime = lli->lli_lvb.lvb_atime;
         lvb.lvb_mtime = lli->lli_lvb.lvb_mtime;
         lvb.lvb_ctime = lli->lli_lvb.lvb_ctime;
+	lli->lli_smd->lsm_ino = inode->i_ino;
         rc = obd_merge_lvb(sbi->ll_dt_exp, lli->lli_smd, &lvb, 0);
         cl_isize_write_nolock(inode, lvb.lvb_size);
 
