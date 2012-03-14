@@ -67,8 +67,6 @@ MDTEST=${MDTEST:=$(which mdtest 2> /dev/null || true)}
 # threads per client
 mdtest_THREADS=${mdtest_THREADS:-2}
 mdtest_nFiles=${mdtest_nFiles:-"100000"}
-# We devide the files by number of core
-mdtest_nFiles=$((mdtest_nFiles/mdtest_THREADS/num_clients))
 mdtest_iteration=${mdtest_iteration:-1}
 
 #
