@@ -466,6 +466,26 @@ static inline int fid_seq_is_mdt(const __u64 seq)
                (seq >= FID_SEQ_OST_MDT1 && seq <= FID_SEQ_OST_MAX);
 };
 
+static inline int fid_seq_is_echo(obd_seq seq)
+{
+	return (seq == FID_SEQ_ECHO);
+}
+
+static inline int fid_is_echo(const struct lu_fid *fid)
+{
+	return fid_seq_is_echo(fid_seq(fid));
+}
+
+static inline int fid_seq_is_llog(obd_seq seq)
+{
+	return (seq == FID_SEQ_LLOG);
+}
+
+static inline int fid_is_llog(const struct lu_fid *fid)
+{
+	return fid_seq_is_llog(fid_seq(fid));
+}
+
 static inline int fid_seq_is_rsvd(const __u64 seq)
 {
         return (seq > FID_SEQ_OST_MDT0 && seq <= FID_SEQ_RSVD);
@@ -677,6 +697,13 @@ static inline obd_id ostid_id(struct ost_id *ostid)
                 return fid_idif_id(ostid->oi_seq, ostid->oi_id, 0);
 
         return ostid->oi_id;
+}
+
+/* Check whether the fid is for LAST_ID */
+static inline int fid_is_last_obj(const struct lu_fid *fid)
+{
+	return (fid_is_idif(fid) || fid_is_norm(fid) || fid_is_echo(fid)) &&
+		fid_oid(fid) == 0;
 }
 
 /**
