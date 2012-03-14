@@ -46,6 +46,11 @@
 # define CFS_EXPORT_SYMBOL(s)
 #endif
 
+/* portable layer could be removed in the future */
+#ifndef EXPORT_SYMBOL
+# define EXPORT_SYMBOL(s)
+#endif
+
 /*
  * Schedule
  */
