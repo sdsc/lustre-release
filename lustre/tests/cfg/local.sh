@@ -47,7 +47,7 @@ PTLDEBUG=${PTLDEBUG:-"vfstrace rpctrace dlmtrace neterror ha config ioctl super"
 SUBSYSTEM=${SUBSYSTEM:-"all -lnet -lnd -pinger"}
 
 # promise 2MB for every cpu
-_debug_mb=$((($(cut -d "-" -f 2 /sys/devices/system/cpu/possible)+1)*2))
+_debug_mb=2 #$((($(cut -d "-" -f 2 /sys/devices/system/cpu/possible)+1)*2))
 
 # but not less then 10Mb, and limited by 512Mb in libcfs
 if (( _debug_mb < 10 )); then
