@@ -7164,25 +7164,30 @@ test_133d() {
     testdir1_size=$(size_in_KMGT $testdir1_size)
     testdir2_size=$(size_in_KMGT $testdir2_size)
 
+    echo "source rename dir size: ${testdir1_size}"
+    echo "target rename dir size: ${testdir2_size}"
+
     # check samedir rename size
     mv ${testdir1}/test0 ${testdir1}/test_0
+    do_facet $SINGLEMDS $LCTL get_param mdt.*.rename_stats
     local samedir=$(do_facet $SINGLEMDS $LCTL get_param mdt.*.rename_stats | \
                     grep 'same_dir')
     local same_sample=$(get_rename_size $testdir1_size)
     [ -z "$samedir" ] && error "samedir_rename_size count error"
-    [ $same_sample -eq 1 ] || error "samedir_rename_size count error"
+    [ "$same_sample" -eq 1 ] || error "samedir_rename_size error $same_sample"
     echo "Check same dir rename stats success"
 
     # check crossdir rename size
     do_facet $SINGLEMDS $LCTL set_param mdt.*.rename_stats=clear
     mv ${testdir1}/test_0 ${testdir2}/test_0
+    do_facet $SINGLEMDS $LCTL get_param mdt.*.rename_stats
     local crossdir=$(do_facet $SINGLEMDS $LCTL get_param mdt.*.rename_stats | \
                      grep 'crossdir')
     local src_sample=$(get_rename_size $testdir1_size)
     local tgt_sample=$(get_rename_size $testdir2_size)
     [ -z "$crossdir" ] && error "crossdir_rename_size count error"
-    [ $src_sample -eq 1 ] || error "crossdir_rename_size count error"
-    [ $tgt_sample -eq 1 ] || error "crossdir_rename_size count error"
+    [ "$src_sample" -eq 1 ] || error "crossdir_rename_size error $src_sample"
+    [ "$tgt_sample" -eq 1 ] || error "crossdir_rename_size error $tgt_sample"
     echo "Check cross dir rename stats success"
 
     rm -rf $DIR/${tdir}
