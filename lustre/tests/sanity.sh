@@ -7141,6 +7141,7 @@ get_rename_size() {
 }
 
 test_133d() {
+    check_lustre_version $SINGLEMDS 2.1.56 || return 0
     remote_ost_nodsh && skip "remote OST with nodsh" && return
     remote_mds_nodsh && skip "remote MDS with nodsh" && return
     local testdir1=$DIR/${tdir}/stats_testdir1
