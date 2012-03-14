@@ -63,4 +63,63 @@ int cfs_snprintf(char *buf, size_t size, const char *fmt, ...);
 
 /* trim leading and trailing space characters */
 char *cfs_firststr(char *str, size_t size);
+
+/**
+ * Structure to represent NULL-less strings.
+ */
+struct cfs_lstr {
+        char           *ls_str;
+        int             ls_len;
+};
+
+/**
+ * Structure to represent \<range_expr\> token of the syntax.
+ */
+struct cfs_range_expr {
+        /**
+         * Link to cfs_num_exprs::el_exprs.
+         */
+        cfs_list_t      re_link;
+        __u32           re_lo;
+        __u32           re_hi;
+        __u32           re_stride;
+};
+
+struct cfs_num_exprs {
+        cfs_list_t      el_link;
+        cfs_list_t      el_exprs;
+};
+
+static inline int
+cfs_iswhite(char c)
+{
+        switch (c) {
+        case ' ':
+        case '\t':
+        case '\n':
+        case '\r':
+                return 1;
+        default:
+                break;
+        }
+        return 0;
+}
+
+char *cfs_trimwhite(char *str);
+int cfs_gettok(struct cfs_lstr *next, char delim, struct cfs_lstr *res);
+int cfs_str2num_check(const char *str, int nob,
+                      unsigned *num, unsigned min, unsigned max);
+int cfs_range_expr_parse(struct cfs_lstr *src, unsigned min, unsigned max,
+                         int single_tok, struct cfs_range_expr **expr);
+int cfs_range_expr_list_match(__u32 value, cfs_list_t *expr_list);
+void cfs_range_expr_list_free(cfs_list_t *expr_list);
+void cfs_range_expr_list_print(cfs_list_t *expr_list);
+int cfs_num_exprs_parse(char *str, int len, unsigned min, unsigned max,
+                        struct cfs_num_exprs **epp);
+int cfs_num_exprs_match(__u32 value, struct cfs_num_exprs *exprs);
+void cfs_num_exprs_list_free(cfs_list_t *list);
+int cfs_ip_addr_parse(char *str, int len, cfs_list_t *list);
+int cfs_ip_addr_match(__u32 addr, cfs_list_t *list);
+void cfs_ip_addr_free(cfs_list_t *list);
+
 #endif
