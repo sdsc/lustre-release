@@ -137,7 +137,9 @@ extern int echo_client_init(void);
 
 /* general stuff */
 
+#ifndef EXPORT_SYMBOL
 #define EXPORT_SYMBOL(S)
+#endif
 
 typedef __u64 kdev_t;
 
