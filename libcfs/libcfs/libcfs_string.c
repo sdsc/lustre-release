@@ -135,7 +135,7 @@ int cfs_str2mask(const char *str, const char *(*bit2str)(int bit),
         *oldmask = newmask;
         return 0;
 }
-EXPORT_SYMBOL(cfs_str2mask);
+CFS_EXPORT_SYMBOL(cfs_str2mask);
 
 /* Duplicate a string in a platform-independent way */
 char *cfs_strdup(const char *str, u_int32_t flags)
@@ -153,7 +153,7 @@ char *cfs_strdup(const char *str, u_int32_t flags)
 
         return dup_str;
 }
-EXPORT_SYMBOL(cfs_strdup);
+CFS_EXPORT_SYMBOL(cfs_strdup);
 
 /**
  * cfs_{v}snprintf() return the actual size that is printed rather than
@@ -169,7 +169,7 @@ int cfs_vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 
         return  (i >= size ? size - 1 : i);
 }
-EXPORT_SYMBOL(cfs_vsnprintf);
+CFS_EXPORT_SYMBOL(cfs_vsnprintf);
 
 /* safe snprintf */
 int cfs_snprintf(char *buf, size_t size, const char *fmt, ...)
@@ -183,7 +183,7 @@ int cfs_snprintf(char *buf, size_t size, const char *fmt, ...)
 
         return  i;
 }
-EXPORT_SYMBOL(cfs_snprintf);
+CFS_EXPORT_SYMBOL(cfs_snprintf);
 
 /* get the first string out of @str */
 char *cfs_firststr(char *str, size_t size)
@@ -211,4 +211,397 @@ char *cfs_firststr(char *str, size_t size)
 out:
         return str;
 }
-EXPORT_SYMBOL(cfs_firststr);
+CFS_EXPORT_SYMBOL(cfs_firststr);
+
+char *
+cfs_trimwhite(char *str)
+{
+        char *end;
+
+        while (cfs_iswhite(*str))
+                str++;
+
+        end = str + strlen(str);
+        while (end > str) {
+                if (!cfs_iswhite(end[-1]))
+                        break;
+                end--;
+        }
+
+        *end = 0;
+        return str;
+}
+CFS_EXPORT_SYMBOL(cfs_trimwhite);
+
+/*
+ * Extracts tokens from strings.
+ *
+ * Looks for \a delim in string \a next, sets \a res to point to
+ * substring before the delimiter, sets \a next right after the found
+ * delimiter.
+ *
+ * \retval 1 if \a res points to a string of non-whitespace characters
+ * \retval 0 otherwise
+ */
+int
+cfs_gettok(struct cfs_lstr *next, char delim, struct cfs_lstr *res)
+{
+        char *end;
+
+        if (next->ls_str == NULL)
+                return 0;
+
+        /* skip leading white spaces */
+        while (next->ls_len) {
+                if (!cfs_iswhite(*next->ls_str))
+                        break;
+                next->ls_str++;
+                next->ls_len--;
+        }
+
+        if (next->ls_len == 0) /* whitespaces only */
+                return 0;
+
+        if (*next->ls_str == delim) {
+                /* first non-writespace is the delimiter */
+                return 0;
+        }
+
+        res->ls_str = next->ls_str;
+        end = memchr(next->ls_str, delim, next->ls_len);
+        if (end == NULL) {
+                /* there is no the delimeter in the string */
+                end = next->ls_str + next->ls_len;
+                next->ls_str = NULL;
+        } else {
+                next->ls_str = end + 1;
+                next->ls_len -= (end - res->ls_str + 1);
+        }
+
+        /* skip ending whitespaces */
+        while (--end != res->ls_str) {
+                if (!cfs_iswhite(*end))
+                        break;
+        }
+
+        res->ls_len = end - res->ls_str + 1;
+        return 1;
+}
+CFS_EXPORT_SYMBOL(cfs_gettok);
+
+/**
+ * Converts string to integer.
+ *
+ * Accepts decimal and hexadecimal number recordings.
+ *
+ * \retval 1 if first \a nob chars of \a str convert to decimal or
+ * hexadecimal integer in the range [\a min, \a max]
+ * \retval 0 otherwise
+ */
+int
+cfs_str2num_check(const char *str, int nob,
+                  unsigned *num, unsigned min, unsigned max)
+{
+        char    nstr[12];
+        int     n;
+
+        n = nob;
+        if (sscanf(str, "%u%n", num, &n) != 1 || n != nob) {
+                if (sscanf(str, "0x%x%n", num, &n) != 1 || n != nob) {
+                        if (sscanf(str, "0X%x%n", num, &n) != 1 || n != nob)
+                                return 0;
+                }
+        }
+
+        sprintf(nstr, "%u", *num);
+        if (n != strlen(nstr) || memcmp(nstr, str, n)) {
+                sprintf(nstr, "0x%x", *num);
+                if (n != strlen(nstr) || memcmp(nstr, str, n)) {
+                        sprintf(nstr, "0X%x", *num);
+                        if (n != strlen(nstr) || memcmp(nstr, str, n))
+                                return 0;
+                }
+        }
+
+        return (*num >= min && *num <= max);
+}
+CFS_EXPORT_SYMBOL(cfs_str2num_check);
+
+/**
+ * Parses \<range_expr\> token of the syntax. If \a bracketed is false,
+ * \a src should only have a single token which can be \<number\> or  \*
+ *
+ * \retval pointer to allocated range_expr and initialized
+ * range_expr::re_lo, range_expr::re_hi and range_expr:re_stride if \a
+ `* src parses to
+ * \<number\> |
+ * \<number\> '-' \<number\> |
+ * \<number\> '-' \<number\> '/' \<number\>
+ * \retval 0 will be returned if it can be parsed, otherwise -EINVAL or
+ * -ENOMEM will be returned.
+ */
+int
+cfs_range_expr_parse(struct cfs_lstr *src, unsigned min, unsigned max,
+                     int bracketed, struct cfs_range_expr **expr)
+{
+        struct cfs_range_expr  *re;
+        struct cfs_lstr         tok;
+
+        LIBCFS_ALLOC(re, sizeof(*re));
+        if (re == NULL)
+                return -ENOMEM;
+
+        if (src->ls_len == 1 && src->ls_str[0] == '*') {
+                re->re_lo = min;
+                re->re_hi = max;
+                re->re_stride = 1;
+                goto out;
+        }
+
+        if (cfs_str2num_check(src->ls_str, src->ls_len,
+                              &re->re_lo, min, max)) {
+                /* <number> is parsed */
+                re->re_hi = re->re_lo;
+                re->re_stride = 1;
+                goto out;
+        }
+
+        if (bracketed || !cfs_gettok(src, '-', &tok))
+                goto failed;
+
+        if (!cfs_str2num_check(tok.ls_str, tok.ls_len,
+                               &re->re_lo, min, max))
+                goto failed;
+
+        /* <number> - */
+        if (cfs_str2num_check(src->ls_str, src->ls_len,
+                              &re->re_hi, min, max)) {
+                /* <number> - <number> is parsed */
+                re->re_stride = 1;
+                goto out;
+        }
+
+        /* go to check <number> '-' <number> '/' <number> */
+        if (cfs_gettok(src, '/', &tok)) {
+                if (!cfs_str2num_check(tok.ls_str, tok.ls_len,
+                                       &re->re_hi, min, max))
+                        goto failed;
+
+                /* <number> - <number> / ... */
+                if (cfs_str2num_check(src->ls_str, src->ls_len,
+                                      &re->re_stride, min, max)) {
+                        /* <number> - <number> / <number> is parsed */
+                        goto out;
+                }
+        }
+
+ out:
+        *expr = re;
+        return 0;
+
+ failed:
+        LIBCFS_FREE(re, sizeof(*re));
+        return -EINVAL;
+}
+CFS_EXPORT_SYMBOL(cfs_range_expr_parse);
+
+/**
+ * Frees cfs_range_expr structures of \a expr_list.
+ *
+ * \retval none
+ */
+void
+cfs_range_expr_list_free(cfs_list_t *expr_list)
+{
+        while (!cfs_list_empty(expr_list)) {
+                struct cfs_range_expr *expr;
+
+                expr = cfs_list_entry(expr_list->next,
+                                      struct cfs_range_expr, re_link),
+                cfs_list_del(&expr->re_link);
+                LIBCFS_FREE(expr, sizeof(*expr));
+        }
+}
+CFS_EXPORT_SYMBOL(cfs_range_expr_list_free);
+
+void
+cfs_range_expr_list_print(cfs_list_t *expr_list)
+{
+        struct cfs_range_expr *expr;
+
+        cfs_list_for_each_entry(expr, expr_list, re_link) {
+                CDEBUG(D_WARNING, "%d-%d/%d\n",
+                       expr->re_lo, expr->re_hi, expr->re_stride);
+        }
+}
+CFS_EXPORT_SYMBOL(cfs_range_expr_list_print);
+
+/**
+ * Parses \<numaddr_range\> token of the syntax.
+ *
+ * \retval 1 if \a str parses to \<number\> | \<expr_list\>
+ * \retval 0 otherwise
+ */
+int
+cfs_num_expr_parse(char *str, int len, unsigned min, unsigned max,
+                   struct cfs_num_expr_list **elpp)
+{
+        struct cfs_num_expr_list *expr_list;
+        struct cfs_range_expr    *expr;
+        struct cfs_lstr           src;
+        int                       rc;
+
+        LIBCFS_ALLOC(expr_list, sizeof(*expr_list));
+        if (expr_list == NULL)
+                return -ENOMEM;
+
+        src.ls_str = str;
+        src.ls_len = len;
+
+        CFS_INIT_LIST_HEAD(&expr_list->el_exprs);
+
+        if (src.ls_str[0] == '[' &&
+            src.ls_str[src.ls_len - 1] == ']') {
+                src.ls_str++;
+                src.ls_len -= 2;
+
+                rc = -EINVAL;
+                while (src.ls_str != NULL) {
+                        struct cfs_lstr tok;
+
+                        if (!cfs_gettok(&src, ',', &tok)) {
+                                rc = -EINVAL;
+                                break;
+                        }
+
+                        rc = cfs_range_expr_parse(&tok, min, max, 1, &expr);
+                        if (rc != 0)
+                                break;
+
+                        cfs_list_add_tail(&expr->re_link,
+                                          &expr_list->el_exprs);
+                }
+        } else {
+                rc = cfs_range_expr_parse(&src, min, max, 0, &expr);
+                if (rc == 0) {
+                        cfs_list_add_tail(&expr->re_link,
+                                          &expr_list->el_exprs);
+                }
+        }
+
+        if (rc != 0) {
+                cfs_range_expr_list_free(&expr_list->el_exprs);
+                LIBCFS_FREE(expr_list, sizeof(*expr_list));
+        } else {
+                *elpp = expr_list;
+        }
+
+        return rc;
+}
+CFS_EXPORT_SYMBOL(cfs_num_expr_parse);
+
+/**
+ * Frees numaddr_range structures of \a list.
+ *
+ * For each struct numaddr_range structure found on \a list it frees
+ * range_expr list attached to it and frees the numddr_range itself.
+ *
+ * \retval none
+ */
+void
+cfs_num_expr_list_free(cfs_list_t *list)
+{
+        struct cfs_num_expr_list *expr_list;
+
+        while (!cfs_list_empty(list)) {
+                expr_list = cfs_list_entry(list->next,
+                                           struct cfs_num_expr_list, el_link);
+
+                cfs_range_expr_list_free(&expr_list->el_exprs);
+                cfs_list_del(&expr_list->el_link);
+
+                LIBCFS_FREE(expr_list, sizeof(*expr_list));
+        }
+}
+CFS_EXPORT_SYMBOL(cfs_num_expr_list_free);
+
+int
+cfs_ip_addr_parse(char *str, int len, cfs_list_t *list)
+{
+        struct cfs_lstr src;
+        int             rc;
+        int             i;
+
+        src.ls_str = str;
+        src.ls_len = len;
+        i = 0;
+
+        while (src.ls_str != NULL) {
+                struct cfs_num_expr_list *el;
+                struct cfs_lstr res;
+
+                if (!cfs_gettok(&src, '.', &res))
+                        return -EINVAL;
+
+                rc = cfs_num_expr_parse(res.ls_str, res.ls_len, 0, 255, &el);
+                if (rc != 0)
+                        goto out;
+
+                cfs_list_add_tail(&el->el_link, list);
+                i++;
+        }
+
+        rc = (i == 4) ? 0 : -EINVAL;
+ out:
+        if (rc != 0)
+                cfs_num_expr_list_free(list);
+
+        return rc;
+}
+CFS_EXPORT_SYMBOL(cfs_ip_addr_parse);
+
+/**
+ * Matches address (\a addr) against address set encoded in \a list.
+ *
+ * \retval 1 if \a addr matches
+ * \retval 0 otherwise
+ */
+int
+cfs_num_addr_match(__u32 addr, cfs_list_t *list, int shift)
+{
+        struct cfs_num_expr_list *expr_list;
+        struct cfs_range_expr    *expr;
+        __u64 mask;
+        int tmp = 32;
+        int ip;
+
+        if (shift > tmp || shift <= 0) {
+                CERROR("Invalid shift value %d\n", shift);
+                return 0;
+        }
+
+        mask = ((1ULL << shift) - 1);
+
+        cfs_list_for_each_entry(expr_list, list, el_link) {
+                int ok = 0;
+
+                tmp -= shift;
+                if (tmp < 0)
+                        return 0;
+
+                ip = (addr >> tmp) & mask;
+                cfs_list_for_each_entry(expr, &expr_list->el_exprs, re_link) {
+                        if (ip >= expr->re_lo && ip <= expr->re_hi &&
+                            ((ip - expr->re_lo) % expr->re_stride) == 0) {
+                                ok = 1;
+                                break;
+                        }
+                }
+
+                if (!ok)
+                        return 0;
+        }
+
+        return 1;
+}
+CFS_EXPORT_SYMBOL(cfs_num_addr_match);

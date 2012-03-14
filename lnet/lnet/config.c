@@ -47,15 +47,6 @@ static int lnet_tbnob = 0;			/* track text buf allocation */
 #define LNET_MAX_TEXTBUF_NOB     (64<<10)	/* bound allocation */
 #define LNET_SINGLE_TEXTBUF_NOB  (4<<10)
 
-typedef struct {
-        cfs_list_t         lre_list;            /* stash in a list */
-        int                lre_min;             /* min value */
-        int                lre_max;             /* max value */
-        int                lre_stride;          /* stride */
-} lnet_range_expr_t;
-
-static int lnet_re_alloc = 0;                   /* track expr allocation */
-
 void
 lnet_syntax(char *name, char *str, int offset, int width)
 {
@@ -84,25 +75,6 @@ lnet_issep (char c)
 	default:
 		return 0;
 	}
-}
-
-char *
-lnet_trimwhite(char *str)
-{
-	char *end;
-
-        while (cfs_iswhite(*str))
-		str++;
-
-	end = str + strlen(str);
-	while (end > str) {
-                if (!cfs_iswhite(end[-1]))
-			break;
-		end--;
-	}
-
-	*end = 0;
-	return str;
 }
 
 int
@@ -200,7 +172,7 @@ lnet_parse_networks(cfs_list_t *nilist, char *networks)
 
 			if (comma != NULL)
 				*comma++ = 0;
-			net = libcfs_str2net(lnet_trimwhite(str));
+			net = libcfs_str2net(cfs_trimwhite(str));
 			
 			if (net == LNET_NIDNET(LNET_NID_ANY)) {
                                 lnet_syntax("networks", networks, 
@@ -219,7 +191,7 @@ lnet_parse_networks(cfs_list_t *nilist, char *networks)
 		}
 
 		*bracket = 0;
-		net = libcfs_str2net(lnet_trimwhite(str));
+		net = libcfs_str2net(cfs_trimwhite(str));
 		if (net == LNET_NIDNET(LNET_NID_ANY)) {
                         lnet_syntax("networks", networks,
                                     (int)(str - tokens), strlen(str));
@@ -247,7 +219,7 @@ lnet_parse_networks(cfs_list_t *nilist, char *networks)
 			if (comma != NULL)
 				*comma++ = 0;
 			
-			iface = lnet_trimwhite(iface);
+			iface = cfs_trimwhite(iface);
 			if (*iface == 0) {
                                 lnet_syntax("networks", networks, 
                                             (int)(iface - tokens), strlen(iface));
@@ -269,7 +241,7 @@ lnet_parse_networks(cfs_list_t *nilist, char *networks)
 		comma = strchr(bracket + 1, ',');
 		if (comma != NULL) {
 			*comma = 0;
-			str = lnet_trimwhite(str);
+			str = cfs_trimwhite(str);
 			if (*str != 0) {
                                 lnet_syntax("networks", networks,
                                             (int)(str - tokens), strlen(str));
@@ -279,7 +251,7 @@ lnet_parse_networks(cfs_list_t *nilist, char *networks)
 			continue;
 		}
 		
-		str = lnet_trimwhite(str);
+		str = cfs_trimwhite(str);
 		if (*str != 0) {
                         lnet_syntax("networks", networks,
                                     (int)(str - tokens), strlen(str));
@@ -721,196 +693,22 @@ lnet_parse_routes (char *routes, int *im_a_router)
 	return rc;
 }
 
-void
-lnet_print_range_exprs(cfs_list_t *exprs)
-{
-        cfs_list_t        *e;
-        lnet_range_expr_t *lre;
-
-        cfs_list_for_each(e, exprs) {
-                lre = cfs_list_entry(exprs->next, lnet_range_expr_t, lre_list);
-                
-                CDEBUG(D_WARNING, "%d-%d/%d\n", 
-                       lre->lre_min, lre->lre_max, lre->lre_stride);
-        }
-        
-        CDEBUG(D_WARNING, "%d allocated\n", lnet_re_alloc);
-}
-
 int
-lnet_new_range_expr(cfs_list_t *exprs, int min, int max, int stride)
+lnet_match_network_token(char *token, int len, __u32 *ipaddrs, int nip)
 {
-        lnet_range_expr_t *lre;
+        CFS_LIST_HEAD  (list);
+        int             i;
+        int             rc;
 
-        CDEBUG(D_NET, "%d-%d/%d\n", min, max, stride);
+        rc = cfs_ip_addr_parse(token, len, &list);
+        if (rc != 0)
+                goto out;
 
-        if (min < 0 || min > 255 || min > max || stride < 0)
-                return -EINVAL;
-
-        LIBCFS_ALLOC(lre, sizeof(*lre));
-        if (lre == NULL)
-                return -ENOMEM;
-
-        lnet_re_alloc++;
-
-        lre->lre_min = min;
-        lre->lre_max = max;
-        lre->lre_stride = stride;
-        
-        cfs_list_add(&lre->lre_list, exprs);
-        return 0;
-}
-
-void
-lnet_destroy_range_exprs(cfs_list_t *exprs)
-{
-        lnet_range_expr_t *lre;
-        
-        while (!cfs_list_empty(exprs)) {
-                lre = cfs_list_entry(exprs->next, lnet_range_expr_t, lre_list);
-                
-                cfs_list_del(&lre->lre_list);
-                LIBCFS_FREE(lre, sizeof(*lre));
-                lnet_re_alloc--;
-        }
-}
-
-int
-lnet_parse_range_expr(cfs_list_t *exprs, char *str)
-{
-        int                nob = strlen(str);
-        char              *sep;
-        int                n;
-        int                x;
-        int                y;
-        int                z;
-        int                rc;
-
-        if (nob == 0)
-                return -EINVAL;
-
-        if (!strcmp(str, "*"))                  /* match all */
-                return lnet_new_range_expr(exprs, 0, 255, 1);
-                
-        n = nob;
-        if (sscanf(str, "%u%n", &x, &n) >= 1 && n == nob) {
-                /* simple number */
-                return lnet_new_range_expr(exprs, x, x, 1);
-        }
-
-        /* Has to be an expansion */
-        if (!(str[0] == '[' && nob > 2 && str[nob-1] == ']'))
-                return -EINVAL;
-
-        nob -= 2;
-        str++;
-        str[nob] = 0;
-
-        do {
-                /* Comma separated list of expressions... */
-                sep = strchr(str, ',');
-                if (sep != NULL)
-                        *sep++ = 0;
-                
-                nob = strlen(str);
-                n = nob;
-                if (sscanf(str, "%u%n", &x, &n) >= 1 && n == nob) {
-                        /* simple number */
-                        rc = lnet_new_range_expr(exprs, x, x, 1);
-                        if (rc != 0)
-                                return rc;
-
-                        continue;
-                }
-
-                n = nob;
-                if (sscanf(str, "%u-%u%n", &x, &y, &n) >= 2 && n == nob) {
-                        /* simple range */
-                        rc = lnet_new_range_expr(exprs, x, y, 1);
-                        if (rc != 0)
-                                return rc;
-                        continue;
-                }
-                        
-                n = nob;
-                if (sscanf(str, "%u-%u/%u%n", &x, &y, &z, &n) >= 3 && n == nob) {
-                        /* strided range */
-                        rc = lnet_new_range_expr(exprs, x, y, z);
-                        if (rc != 0)
-                                return rc;
-                        continue;
-                }
-                
-                return -EINVAL;
-
-        } while ((str = sep) != NULL);
-
-        return 0;
-}
-
-int
-lnet_match_network_token(char *token, __u32 *ipaddrs, int nip)
-{
-        cfs_list_t         exprs[4];
-        cfs_list_t        *e;
-        lnet_range_expr_t *re;
-        char              *str;
-        int                i;
-        int                j;
-        __u32              ip;
-        int                n;
-        int                match;
-        int                rc;
-
-        for (i = 0; i < 4; i++)
-                CFS_INIT_LIST_HEAD(&exprs[i]);
-
-        for (i = 0; i < 4; i++) {
-                str = token;
-                if (i != 3) {
-                        token = strchr(token, '.');
-                        if (token == NULL) {
-                                rc = -EINVAL;
-                                goto out;
-                        }
-                        *token++ = 0;
-                }
-
-                rc = lnet_parse_range_expr(&exprs[i], str);
-                if (rc != 0) {
-                        LASSERT (rc < 0);
-                        goto out;
-                }
-        }
-
-        for (match = i = 0; !match && i < nip; i++) {
-                ip = ipaddrs[i];
-
-                for (match = 1, j = 0; match && j < 4; j++) {
-                        n = (ip >> (8 * (3 - j))) & 0xff;
-                        match = 0;
-
-                        cfs_list_for_each(e, &exprs[j]) {
-                                re = cfs_list_entry(e, lnet_range_expr_t,
-                                                    lre_list);
-
-                                if (re->lre_min <= n &&
-                                    re->lre_max >= n &&
-                                    (n - re->lre_min) % re->lre_stride == 0) {
-                                        match = 1;
-                                        break;
-                                }
-                        }
-                }
-        }
-        
-        rc = match ? 1 : 0;
+        for (rc = i = 0; !rc && i < nip; i++)
+                rc = cfs_num_addr_match(ipaddrs[i], &list, 8);
 
  out:
-        for (i = 0; i < 4; i++)
-                lnet_destroy_range_exprs(&exprs[i]);
-        LASSERT (lnet_re_alloc == 0);
-        
+        cfs_num_expr_list_free(&list);
         return rc;
 }
 
@@ -954,7 +752,7 @@ lnet_match_network_tokens(char *net_entry, __u32 *ipaddrs, int nip)
 
                 len = strlen(token);
                 
-                rc = lnet_match_network_token(token, ipaddrs, nip);
+                rc = lnet_match_network_token(token, len, ipaddrs, nip);
                 if (rc < 0) {
                         lnet_syntax("ip2nets", net_entry,
                                     (int)(token - tokens), len);
