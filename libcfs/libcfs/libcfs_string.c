@@ -135,7 +135,7 @@ int cfs_str2mask(const char *str, const char *(*bit2str)(int bit),
         *oldmask = newmask;
         return 0;
 }
-EXPORT_SYMBOL(cfs_str2mask);
+CFS_EXPORT_SYMBOL(cfs_str2mask);
 
 /* Duplicate a string in a platform-independent way */
 char *cfs_strdup(const char *str, u_int32_t flags)
@@ -153,7 +153,7 @@ char *cfs_strdup(const char *str, u_int32_t flags)
 
         return dup_str;
 }
-EXPORT_SYMBOL(cfs_strdup);
+CFS_EXPORT_SYMBOL(cfs_strdup);
 
 /**
  * cfs_{v}snprintf() return the actual size that is printed rather than
@@ -169,7 +169,7 @@ int cfs_vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 
         return  (i >= size ? size - 1 : i);
 }
-EXPORT_SYMBOL(cfs_vsnprintf);
+CFS_EXPORT_SYMBOL(cfs_vsnprintf);
 
 /* safe snprintf */
 int cfs_snprintf(char *buf, size_t size, const char *fmt, ...)
@@ -183,7 +183,7 @@ int cfs_snprintf(char *buf, size_t size, const char *fmt, ...)
 
         return  i;
 }
-EXPORT_SYMBOL(cfs_snprintf);
+CFS_EXPORT_SYMBOL(cfs_snprintf);
 
 /* get the first string out of @str */
 char *cfs_firststr(char *str, size_t size)
