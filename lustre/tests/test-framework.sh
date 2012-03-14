@@ -4859,3 +4859,29 @@ generate_string() {
 
     echo "$(head -c $size < /dev/zero | tr '\0' y)"
 }
+
+# Check lustre version
+# Assume lustre version is major.minor.patch_version
+check_lustre_version() {
+    local check_node=$1
+    local WANT_VER=$2
+    local GOT_VER
+    local ver_want
+    local ver_got
+    local val
+
+    for val in $(echo $WANT_VER | sed -e "s/\./ /g"); do
+        ver_want=$((ver_want*256+val))
+    done
+
+    GOT_VER=$(do_facet $check_node $LCTL get_param -n version |
+                                    awk '/lustre:/ {print $2}')
+    for val in $(echo $GOT_VER | sed -e "s/\./ /g"); do
+        ver_got=$((ver_got*256+val))
+    done
+
+    [ $ver_got -ge $ver_want ] && return 0
+    log "$check_node needs at least lustre version $WANT_VER, running $GOT_VER"
+    return 1
+}
+
