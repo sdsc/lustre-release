@@ -665,22 +665,17 @@ static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
                         repbody->valid |= OBD_MD_FLEASIZE;
         }
 
-        if (flags & FMODE_WRITE) {
+        if (flags & FMODE_WRITE)
                 rc = mdt_write_get(o);
-                if (rc == 0) {
-                        mdt_ioepoch_open(info, o, created);
-                        repbody->ioepoch = o->mot_ioepoch;
-                }
-        } else if (flags & MDS_FMODE_EXEC) {
+        else if (flags & MDS_FMODE_EXEC)
                 rc = mdt_write_deny(o);
-        }
         if (rc)
                 RETURN(rc);
 
         rc = mo_open(info->mti_env, mdt_object_child(o),
                      created ? flags | MDS_OPEN_CREATED : flags);
         if (rc)
-                RETURN(rc);
+                GOTO(err_out, rc);
 
         mfd = mdt_mfd_new();
         if (mfd != NULL) {
@@ -750,11 +745,22 @@ static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
 
                 mdt_empty_transno(info, rc);
         } else
-                rc = -ENOMEM;
+                GOTO(err_out, rc = -ENOMEM);
+
+        if (flags & FMODE_WRITE) {
+                mdt_ioepoch_open(info, o, created);
+                repbody->ioepoch = o->mot_ioepoch;
+        }
 
         RETURN(rc);
-}
 
+err_out:
+        if (flags & FMODE_WRITE)
+                mdt_write_put(o);
+        else if (flags & FMODE_EXEC)
+                mdt_write_allow(o);
+        return rc;
+}
 
 int mdt_finish_open(struct mdt_thread_info *info,
                     struct mdt_object *p, struct mdt_object *o,
