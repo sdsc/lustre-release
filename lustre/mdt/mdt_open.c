@@ -682,6 +682,9 @@ static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
         if (rc) {
                 if (flags & FMODE_WRITE)
                         mdt_write_put(o);
+                else if (flags & MDS_FMODE_EXEC)
+                        rc = mdt_write_allow(o);
+
                 RETURN(rc);
         }
 
