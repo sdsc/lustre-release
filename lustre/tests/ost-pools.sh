@@ -945,10 +945,25 @@ test_18() {
     local numfiles=9877
     local plaindir=$POOL_ROOT/plaindir
     local pooldir=$POOL_ROOT/pooldir
+    local mispooldir=$POOL_ROOT/mispooldir
+    local MISPOOL=mis$POOL
     local t1=0
     local t2=0
     local t3=0
     local diff
+
+    create_pool_nofail $POOL > /dev/null
+    add_pool $POOL $TGT_ALL "$TGT_UUID" > /dev/null
+    create_dir $pooldir $POOL
+
+    create_pool_nofail $MISPOOL > /dev/null
+    add_pool $MISPOOL $TGT_ALL "$TGT_UUID" > /dev/null
+    create_dir $mispooldir $MISPOOL
+
+    destroy_pool $MISPOOL
+
+    # give the config reprocessing a chance to complete
+    sleep 5
 
     for i in $(seq 1 3);
     do
@@ -958,15 +973,11 @@ test_18() {
         echo "iter $i: $numfiles creates without pool: $time1"
         t1=$(echo "scale=2; $t1 + $time1" | bc)
 
-        create_pool_nofail $POOL > /dev/null
-        add_pool $POOL $TGT_ALL "$TGT_UUID" > /dev/null
-        create_dir $pooldir $POOL
         time2=$(create_perf $pooldir $numfiles)
         echo "iter $i: $numfiles creates with pool: $time2"
         t2=$(echo "scale=2; $t2 + $time2" | bc)
 
-        destroy_pool $POOL > /dev/null
-        time3=$(create_perf $pooldir $numfiles)
+        time3=$(create_perf $mispooldir $numfiles)
         echo "iter $i: $numfiles creates with missing pool: $time3"
         t3=$(echo "scale=2; $t3 + $time3" | bc)
 
