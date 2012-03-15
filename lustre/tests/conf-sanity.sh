@@ -39,6 +39,11 @@ MDSSIZE=200000
 OSTSIZE=200000
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 
+echo "$MDSOPT" | grep -q "large_xattr" ||
+    export MDSOPT="$MDSOPT --mkfsoptions='-O large_xattr'"
+echo "$MDS_MKFS_OPTS" | grep -q "large_xattr" ||
+    export MDS_MKFS_OPTS="$MDS_MKFS_OPTS --mkfsoptions='-O large_xattr'"
+
 if ! combined_mgs_mds; then
     # bug number for skipped test:    23954
     ALWAYS_EXCEPT="$ALWAYS_EXCEPT       24b"
