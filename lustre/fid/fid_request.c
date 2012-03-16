@@ -69,11 +69,19 @@ static int seq_client_rpc(struct lu_client_seq *seq,
 	struct lu_seq_range   *out, *in;
 	__u32                 *op;
 	unsigned int           debug_mask;
+	__u32			version;
 	int                    rc;
 	ENTRY;
 
+	if (seq->lcs_type == LUSTRE_SEQ_DATA && opc == SEQ_ALLOC_META)
+		version = LUSTRE_OST_VERSION;
+	else
+		version = LUSTRE_MDS_VERSION;
+retry:
+	/* Data normal FID requests go to OST */
+
 	req = ptlrpc_request_alloc_pack(class_exp2cliimp(exp), &RQF_SEQ_QUERY,
-					LUSTRE_MDS_VERSION, SEQ_QUERY);
+					version, SEQ_QUERY);
 	if (req == NULL)
 		RETURN(-ENOMEM);
 
@@ -87,36 +95,49 @@ static int seq_client_rpc(struct lu_client_seq *seq,
 
 	ptlrpc_request_set_replen(req);
 
-	if (seq->lcs_type == LUSTRE_SEQ_METADATA) {
-		req->rq_request_portal = SEQ_METADATA_PORTAL;
+	in->lsr_index = seq->lcs_space.lsr_index;
+	if (seq->lcs_type == LUSTRE_SEQ_METADATA)
 		in->lsr_flags = LU_SEQ_RANGE_MDT;
-	} else {
-		LASSERTF(seq->lcs_type == LUSTRE_SEQ_DATA,
-			 "unknown lcs_type %u\n", seq->lcs_type);
-		req->rq_request_portal = SEQ_DATA_PORTAL;
+	else
 		in->lsr_flags = LU_SEQ_RANGE_OST;
-	}
 
 	if (opc == SEQ_ALLOC_SUPER) {
-		/* Update index field of *in, it is required for
-		 * FLD update on super sequence allocator node. */
-		in->lsr_index = seq->lcs_space.lsr_index;
 		req->rq_request_portal = SEQ_CONTROLLER_PORTAL;
+		req->rq_reply_portal = MDC_REPLY_PORTAL;
+		/* During allocating super sequence for data object,
+		 * the current thread might hold the export of MDT0(MDT0
+		 * precreating objects on this OST), and it will send the
+		 * request to MDT0 here, so we can not keep resending the
+		 * request here, otherwise if MDT0 is failed(umounted),
+		 * it can not release the export of MDT0 */
+		if (seq->lcs_type == LUSTRE_SEQ_DATA)
+			req->rq_no_delay = req->rq_no_resend = 1;
 		debug_mask = D_CONSOLE;
 	} else {
+		if (seq->lcs_type == LUSTRE_SEQ_METADATA)
+			req->rq_request_portal = SEQ_METADATA_PORTAL;
+		else
+			req->rq_request_portal = SEQ_DATA_PORTAL;
 		debug_mask = D_INFO;
-		LASSERTF(opc == SEQ_ALLOC_META,
-			 "unknown opcode %u\n, opc", opc);
 	}
 
 	ptlrpc_at_set_req_timeout(req);
 
-	mdc_get_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
+	if (seq->lcs_type == LUSTRE_SEQ_METADATA)
+		mdc_get_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
 	rc = ptlrpc_queue_wait(req);
-	mdc_put_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
-
-	if (rc)
+	if (seq->lcs_type == LUSTRE_SEQ_METADATA)
+		mdc_put_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
+	if (rc) {
+		if (rc == -EINPROGRESS) {
+			/* FIXME: wait some time ? */
+			CDEBUG(D_INFO, "%s: return EAGAIN, retry\n",
+			       imp->imp_obd->obd_name);
+			ptlrpc_req_finished(req);
+			GOTO(retry, rc = 0);
+		}
 		GOTO(out_req, rc);
+	}
 
 	out = req_capsule_server_get(&req->rq_pill, &RMF_SEQ_RANGE);
 	*output = *out;
@@ -136,10 +157,9 @@ static int seq_client_rpc(struct lu_client_seq *seq,
 	CDEBUG_LIMIT(debug_mask, "%s: Allocated %s-sequence "DRANGE"]\n",
 		     seq->lcs_name, opcname, PRANGE(output));
 
-	EXIT;
 out_req:
 	ptlrpc_req_finished(req);
-	return rc;
+	RETURN(rc);
 }
 
 /* Request sequence-controller node to allocate new super-sequence. */
@@ -180,8 +200,10 @@ static int seq_client_alloc_meta(const struct lu_env *env,
                 rc = seq_server_alloc_meta(seq->lcs_srv, &seq->lcs_space, env);
         } else {
 #endif
-                rc = seq_client_rpc(seq, &seq->lcs_space,
-                                    SEQ_ALLOC_META, "meta");
+		do {
+			rc = seq_client_rpc(seq, &seq->lcs_space,
+					    SEQ_ALLOC_META, "meta");
+		} while (rc == -EAGAIN);
 #ifdef __KERNEL__
         }
 #endif
@@ -249,7 +271,10 @@ static void seq_fid_alloc_fini(struct lu_client_seq *seq)
         cfs_waitq_signal(&seq->lcs_waitq);
 }
 
-/* Allocate the whole seq to the caller*/
+/**
+ * Allocate the whole seq to the caller, currently it would be
+ * only used by echo client to access MDT
+ **/
 int seq_client_get_seq(const struct lu_env *env,
                        struct lu_client_seq *seq, seqno_t *seqnr)
 {
@@ -278,8 +303,9 @@ int seq_client_get_seq(const struct lu_env *env,
         CDEBUG(D_INFO, "%s: allocate sequence "
                "[0x%16.16"LPF64"x]\n", seq->lcs_name, *seqnr);
 
-        /*Since the caller require the whole seq,
-         *so marked this seq to be used*/
+	/* Since the caller require the whole seq,
+	 * so marked this seq to be used */
+	LASSERT(seq->lcs_type == LUSTRE_SEQ_METADATA);
 	seq->lcs_fid.f_oid = LUSTRE_METADATA_SEQ_MAX_WIDTH;
         seq->lcs_fid.f_seq = *seqnr;
         seq->lcs_fid.f_ver = 0;

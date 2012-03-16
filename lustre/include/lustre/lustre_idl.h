@@ -263,6 +263,14 @@ static inline int range_compare_loc(const struct lu_seq_range *r1,
 /** \defgroup lu_fid lu_fid
  * @{ */
 
+struct lu_fid_range {
+	struct lu_fid lfr_fid;
+	__u32	 lfr_count;
+	__u32	 lfr_padding;
+};
+
+extern void lustre_swab_fid_range(struct lu_fid_range *range);
+
 /**
  * Flags for lustre_mdt_attrs::lma_compat and lustre_mdt_attrs::lma_incompat.
  */
@@ -462,8 +470,7 @@ static inline int fid_seq_is_cmd(const __u64 seq)
 
 static inline int fid_seq_is_mdt(const __u64 seq)
 {
-        return seq == FID_SEQ_OST_MDT0 ||
-               (seq >= FID_SEQ_OST_MDT1 && seq <= FID_SEQ_OST_MAX);
+	return seq == FID_SEQ_OST_MDT0 || seq >= FID_SEQ_OST_MDT1;
 };
 
 static inline int fid_seq_is_echo(obd_seq seq)

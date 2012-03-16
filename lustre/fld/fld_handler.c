@@ -407,7 +407,7 @@ static void fld_thread_info_fini(struct fld_thread_info *info)
         req_capsule_fini(info->fti_pill);
 }
 
-static int fld_handle(struct ptlrpc_request *req)
+int fld_handle(struct ptlrpc_request *req)
 {
         struct fld_thread_info *info;
         const struct lu_env *env;
@@ -425,6 +425,7 @@ static int fld_handle(struct ptlrpc_request *req)
 
         return rc;
 }
+EXPORT_SYMBOL(fld_handle);
 
 /*
  * Entry point for handling FLD RPCs called from MDT.
