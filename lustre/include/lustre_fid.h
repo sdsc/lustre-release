@@ -180,10 +180,6 @@ enum lu_mgr_type {
         LUSTRE_SEQ_CONTROLLER
 };
 
-enum lu_cli_type {
-        LUSTRE_SEQ_METADATA,
-        LUSTRE_SEQ_DATA
-};
 
 struct lu_server_seq;
 
@@ -286,6 +282,7 @@ struct lu_server_seq {
 };
 
 int seq_query(struct com_thread_info *info);
+int seq_handle(struct ptlrpc_request *req);
 
 /* Server methods */
 int seq_server_init(struct lu_server_seq *seq,
@@ -330,6 +327,9 @@ int ms_seq_fini(const struct lu_env *env, struct md_site *ms);
 /* Fids common stuff */
 int fid_is_local(const struct lu_env *env,
                  struct lu_site *site, const struct lu_fid *fid);
+
+int client_fid_init(struct obd_export *exp, enum lu_cli_type type);
+int client_fid_fini(struct obd_export *exp);
 
 /* fid locking */
 

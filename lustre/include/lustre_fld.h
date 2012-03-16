@@ -149,6 +149,7 @@ enum {
 };
 
 int fld_query(struct com_thread_info *info);
+int fld_handle(struct ptlrpc_request *req);
 
 /* Server methods */
 int fld_server_init(struct lu_server_fld *fld,

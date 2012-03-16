@@ -1424,7 +1424,7 @@ struct obd_ops {
         int (*o_disconnect)(struct obd_export *exp);
 
         /* Initialize/finalize fids infrastructure. */
-        int (*o_fid_init)(struct obd_export *exp);
+	int (*o_fid_init)(struct obd_export *exp, enum lu_cli_type type);
         int (*o_fid_fini)(struct obd_export *exp);
 
         /* Allocate new fid according to passed @hint. */
