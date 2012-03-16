@@ -22,7 +22,7 @@ LUSTRE_LIBS = libllite.a \
               $(top_builddir)/lustre/obdclass/liblustreclass.a \
               $(top_builddir)/lustre/lvfs/liblvfs.a
 
-if LIBLUSTRE
+if QUOTA
 QUOTA_LIBS = $(top_builddir)/lustre/quota/libquota.a
 endif
 

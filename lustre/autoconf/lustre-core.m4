@@ -258,7 +258,7 @@ fi
 
 # whether to enable quota support(kernel modules)
 AC_DEFUN([LC_QUOTA_MODULE],
-[if test x$enable_quota != xno; then
+[if test x$enable_quota != xno && test x$enable_server = xyes; then
     LB_LINUX_CONFIG([QUOTA],[
 	enable_quota_module='yes'
 	AC_DEFINE(HAVE_QUOTA_SUPPORT, 1, [Enable quota support])
