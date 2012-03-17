@@ -374,9 +374,9 @@ load_module() {
         eval set -- \$$optvar
         if [ $# -eq 0 -a -n "$MODPROBECONF" ]; then
             # Nothing in $MODOPTS_<MODULE>; try modprobe.conf
-            set -- $(grep -P "^options\\s+${BASE}" $MODPROBECONF)
-            # Get rid of "options $module"
-            (($# > 0)) && shift 2
+            local opt
+            opt=$(awk '/^\option.*BASE/{print substr($3, index($3,$N))}' $MODPROBECONF)
+            set -- $(echo $opt | sed -e "s/options\(\\s\)\+${BASE}/ /g")
 
             # Ensure we have accept=all for lnet
             if [ $(basename $module) = lnet ]; then
