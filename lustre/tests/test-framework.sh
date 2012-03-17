@@ -358,6 +358,8 @@ module_loaded () {
 #
 load_module() {
     local optvar
+    local opt
+
     EXT=".ko"
     module=$1
     shift
@@ -374,18 +376,16 @@ load_module() {
         eval set -- \$$optvar
         if [ $# -eq 0 -a -n "$MODPROBECONF" ]; then
             # Nothing in $MODOPTS_<MODULE>; try modprobe.conf
-            set -- $(grep -P "^options\\s+${BASE}" $MODPROBECONF)
-            # Get rid of "options $module"
-            (($# > 0)) && shift 2
+            opt=$(grep -P "^options\\s+${BASE}" $MODPROBECONF | sed -e "s/options\(\\s\)\+${BASE}/ /g")
 
             # Ensure we have accept=all for lnet
             if [ $(basename $module) = lnet ]; then
                 # OK, this is a bit wordy...
                 local arg accept_all_present=false
-                for arg in "$@"; do
+                for arg in "$opt"; do
                     [ "$arg" = accept=all ] && accept_all_present=true
                 done
-                $accept_all_present || set -- "$@" accept=all
+                $accept_all_present || set -- "$opt" accept=all
             fi
         fi
     fi
@@ -398,14 +398,14 @@ load_module() {
             [ -f ${LUSTRE}/../lnet/selftest/${module}${EXT} ]; then
         insmod ${LUSTRE}/../lnet/selftest/${module}${EXT}
     elif [ -f ${LUSTRE}/${module}${EXT} ]; then
-        insmod ${LUSTRE}/${module}${EXT} "$@"
+        insmod ${LUSTRE}/${module}${EXT} "$opt"
     else
         # must be testing a "make install" or "rpm" installation
         # note failed to load ptlrpc_gss is considered not fatal
         if [ "$BASE" == "ptlrpc_gss" ]; then
-            modprobe $BASE "$@" 2>/dev/null || echo "gss/krb5 is not supported"
+            modprobe $BASE "$opt" 2>/dev/null || echo "gss/krb5 is not supported"
         else
-            modprobe $BASE "$@"
+            modprobe $BASE "$opt"
         fi
     fi
 }
