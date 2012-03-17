@@ -681,6 +681,8 @@ static int ldlm_cb_interpret(const struct lu_env *env,
         LDLM_LOCK_RELEASE(lock);
 
         count = cfs_atomic_dec_return(&arg->rpcs);
+if (count >= 0x5a5a5a)
+printk("Using freed ard %p\n", arg);
         if (count < arg->threshold)
                 cfs_waitq_signal(&arg->waitq);
         if (count == 0)
