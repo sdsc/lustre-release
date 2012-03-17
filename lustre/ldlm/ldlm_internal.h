@@ -107,10 +107,12 @@ struct ldlm_cb_set_arg {
 
 static inline void ldlm_csa_put(struct ldlm_cb_set_arg *arg)
 {
+struct ldlm_cb_set_arg *tmp = arg;
         if (cfs_atomic_dec_and_test(&arg->refcount)) {
                 LASSERT(cfs_atomic_read(&arg->rpcs) == 0);
 
                 OBD_FREE_PTR(arg);
+printk("just freed arg %p\n", tmp);
         }
 }
 
