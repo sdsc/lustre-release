@@ -100,6 +100,7 @@ static int ptl_send_buf (lnet_handle_md_t *mdh, void *base, int len,
         RETURN (0);
 }
 
+#ifdef HAVE_SERVER_SUPPORT
 /**
  * Starts bulk transfer for descriptor \a desc
  * Returns 0 on success or error code.
@@ -211,6 +212,7 @@ void ptlrpc_abort_bulk(struct ptlrpc_bulk_desc *desc)
                 CWARN("Unexpectedly long timeout: desc %p\n", desc);
         }
 }
+#endif /* HAVE_SERVER_SUPPORT */
 
 /**
  * Register bulk for later transfer

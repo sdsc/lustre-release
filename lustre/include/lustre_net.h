@@ -1378,7 +1378,9 @@ extern void reply_in_callback(lnet_event_t *ev);
 extern void client_bulk_callback (lnet_event_t *ev);
 extern void request_in_callback(lnet_event_t *ev);
 extern void reply_out_callback(lnet_event_t *ev);
+#ifdef HAVE_SERVER_SUPPORT
 extern void server_bulk_callback (lnet_event_t *ev);
+#endif
 /** @} */
 
 /* ptlrpc/connection.c */
@@ -1396,10 +1398,9 @@ extern lnet_pid_t ptl_get_pid(void);
  * Actual interfacing with LNet to put/get/register/unregister stuff
  * @{
  */
+#ifdef HAVE_SERVER_SUPPORT
 int ptlrpc_start_bulk_transfer(struct ptlrpc_bulk_desc *desc);
 void ptlrpc_abort_bulk(struct ptlrpc_bulk_desc *desc);
-int ptlrpc_register_bulk(struct ptlrpc_request *req);
-int ptlrpc_unregister_bulk(struct ptlrpc_request *req, int async);
 
 static inline int ptlrpc_server_bulk_active(struct ptlrpc_bulk_desc *desc)
 {
@@ -1412,6 +1413,10 @@ static inline int ptlrpc_server_bulk_active(struct ptlrpc_bulk_desc *desc)
         cfs_spin_unlock(&desc->bd_lock);
         return rc;
 }
+#endif
+
+int ptlrpc_register_bulk(struct ptlrpc_request *req);
+int ptlrpc_unregister_bulk(struct ptlrpc_request *req, int async);
 
 static inline int ptlrpc_client_bulk_active(struct ptlrpc_request *req)
 {
@@ -1517,8 +1522,10 @@ void ptlrpc_req_finished_with_imp_lock(struct ptlrpc_request *request);
 struct ptlrpc_request *ptlrpc_request_addref(struct ptlrpc_request *req);
 struct ptlrpc_bulk_desc *ptlrpc_prep_bulk_imp (struct ptlrpc_request *req,
                                                int npages, int type, int portal);
+#ifdef HAVE_SERVER_SUPPORT
 struct ptlrpc_bulk_desc *ptlrpc_prep_bulk_exp(struct ptlrpc_request *req,
                                               int npages, int type, int portal);
+#endif
 void ptlrpc_free_bulk(struct ptlrpc_bulk_desc *bulk);
 void ptlrpc_prep_bulk_page(struct ptlrpc_bulk_desc *desc,
                            cfs_page_t *page, int pageoffset, int len);
@@ -1884,7 +1891,9 @@ int import_set_conn_priority(struct obd_import *imp, struct obd_uuid *uuid);
 void client_destroy_import(struct obd_import *imp);
 /** @} */
 
+#ifdef HAVE_SERVER_SUPPORT
 int server_disconnect_export(struct obd_export *exp);
+#endif
 
 /* ptlrpc/pinger.c */
 /**

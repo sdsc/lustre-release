@@ -55,6 +55,7 @@
 
 #include "echo_internal.h"
 
+#ifdef HAVE_SERVER_SUPPORT
 /* The echo objid needs to be below 2^32, because regular FID numbers are
  * limited to 2^32 objects in f_oid for the FID_SEQ_ECHO range. b=23335 */
 #define ECHO_INIT_OID        0x10000000ULL
@@ -121,8 +122,8 @@ static int echo_destroy_export(struct obd_export *exp)
         return id;
 }
 
-int echo_create(struct obd_export *exp, struct obdo *oa,
-                struct lov_stripe_md **ea, struct obd_trans_info *oti)
+static int echo_create(struct obd_export *exp, struct obdo *oa,
+                       struct lov_stripe_md **ea, struct obd_trans_info *oti)
 {
         struct obd_device *obd = class_exp2obd(exp);
 
@@ -148,9 +149,9 @@ int echo_create(struct obd_export *exp, struct obdo *oa,
         return 0;
 }
 
-int echo_destroy(struct obd_export *exp, struct obdo *oa,
-                 struct lov_stripe_md *ea, struct obd_trans_info *oti,
-                 struct obd_export *md_exp, void *capa)
+static int echo_destroy(struct obd_export *exp, struct obdo *oa,
+                        struct lov_stripe_md *ea, struct obd_trans_info *oti,
+                        struct obd_export *md_exp, void *capa)
 {
         struct obd_device *obd = class_exp2obd(exp);
 
@@ -392,10 +393,11 @@ static int echo_finalize_lb(struct obdo *oa, struct obd_ioobj *obj,
         return rc;
 }
 
-int echo_preprw(int cmd, struct obd_export *export, struct obdo *oa,
-                int objcount, struct obd_ioobj *obj, struct niobuf_remote *nb,
-                int *pages, struct niobuf_local *res,
-                struct obd_trans_info *oti, struct lustre_capa *unused)
+static int echo_preprw(int cmd, struct obd_export *export, struct obdo *oa,
+                       int objcount, struct obd_ioobj *obj,
+                       struct niobuf_remote *nb, int *pages,
+                       struct niobuf_local *res, struct obd_trans_info *oti,
+                       struct lustre_capa *unused)
 {
         struct obd_device *obd;
         int tot_bytes = 0;
@@ -468,10 +470,11 @@ preprw_cleanup:
         return rc;
 }
 
-int echo_commitrw(int cmd, struct obd_export *export, struct obdo *oa,
-                  int objcount, struct obd_ioobj *obj,
-                  struct niobuf_remote *rb, int niocount,
-                  struct niobuf_local *res, struct obd_trans_info *oti, int rc)
+static int echo_commitrw(int cmd, struct obd_export *export, struct obdo *oa,
+                         int objcount, struct obd_ioobj *obj,
+                         struct niobuf_remote *rb, int niocount,
+                         struct niobuf_local *res, struct obd_trans_info *oti,
+                         int rc)
 {
         struct obd_device *obd;
         int pgs = 0;
@@ -632,9 +635,6 @@ static struct obd_ops echo_obd_ops = {
         .o_cleanup         = echo_cleanup
 };
 
-extern int echo_client_init(void);
-extern void echo_client_exit(void);
-
 static void
 echo_persistent_pages_fini (void)
 {
@@ -671,6 +671,10 @@ echo_persistent_pages_init (void)
 
         return (0);
 }
+#endif /* HAVE_SERVER_SUPPORT */
+
+extern int echo_client_init(void);
+extern void echo_client_exit(void);
 
 static int __init obdecho_init(void)
 {
@@ -684,6 +688,7 @@ static int __init obdecho_init(void)
 
         lprocfs_echo_init_vars(&lvars);
 
+#ifdef HAVE_SERVER_SUPPORT
         rc = echo_persistent_pages_init ();
         if (rc != 0)
                 goto failed_0;
@@ -692,8 +697,11 @@ static int __init obdecho_init(void)
                                  LUSTRE_ECHO_NAME, NULL);
         if (rc != 0)
                 goto failed_1;
+#endif
 
         rc = echo_client_init();
+
+#ifdef HAVE_SERVER_SUPPORT
         if (rc == 0)
                 RETURN (0);
 
@@ -701,14 +709,18 @@ static int __init obdecho_init(void)
  failed_1:
         echo_persistent_pages_fini ();
  failed_0:
+ #endif
         RETURN(rc);
 }
 
 static void /*__exit*/ obdecho_exit(void)
 {
         echo_client_exit();
+
+#ifdef HAVE_SERVER_SUPPORT
         class_unregister_type(LUSTRE_ECHO_NAME);
         echo_persistent_pages_fini ();
+#endif
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");

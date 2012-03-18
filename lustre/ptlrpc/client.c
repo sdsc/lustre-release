@@ -147,6 +147,7 @@ struct ptlrpc_bulk_desc *ptlrpc_prep_bulk_imp(struct ptlrpc_request *req,
         return desc;
 }
 
+#ifdef HAVE_SERVER_SUPPORT
 /**
  * Prepare bulk descriptor for specified incoming request \a req that
  * can fit \a npages * pages. \a type is bulk type. \a portal is where
@@ -179,6 +180,7 @@ struct ptlrpc_bulk_desc *ptlrpc_prep_bulk_exp(struct ptlrpc_request *req,
 
         return desc;
 }
+#endif
 
 /**
  * Add a page \a page to the bulk descriptor \a desc.

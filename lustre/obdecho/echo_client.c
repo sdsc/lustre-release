@@ -268,8 +268,8 @@ static struct lu_kmem_descr echo_caches[] = {
  *
  * @{
  */
-cfs_page_t *echo_page_vmpage(const struct lu_env *env,
-                             const struct cl_page_slice *slice)
+static cfs_page_t *echo_page_vmpage(const struct lu_env *env,
+                                    const struct cl_page_slice *slice)
 {
         return cl2echo_page(slice)->ep_vmpage;
 }
@@ -1885,9 +1885,9 @@ out_free:
         RETURN(rc);
 }
 
-struct lu_object *echo_resolve_path(const struct lu_env *env,
-                                    struct echo_device *ed, char *path,
-                                    int path_len)
+static struct lu_object *echo_resolve_path(const struct lu_env *env,
+                                           struct echo_device *ed, char *path,
+                                           int path_len)
 {
         struct lu_device        *ld = ed->ed_next;
         struct md_device        *md = lu2md_dev(ld);
