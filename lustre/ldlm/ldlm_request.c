@@ -707,7 +707,7 @@ int ldlm_prep_elc_req(struct obd_export *exp, struct ptlrpc_request *req,
         int rc;
         ENTRY;
 
-        if (cancels == NULL)
+        if (cancels == NULL || count == 0)
                 cancels = &head;
         if (exp_connect_cancelset(exp)) {
                 /* Estimate the amount of available space in the request. */
