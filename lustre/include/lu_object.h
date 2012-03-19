@@ -175,7 +175,10 @@ struct lu_device_operations {
  */
 typedef enum {
         /* Currently, only used for client-side object initialization. */
-        LOC_F_NEW = 0x1,
+        LOC_F_NEW       = 0x00000001,
+
+        /* Build object for scrub thread. */
+        LOC_F_SCRUB     = 0x00000002,
 } loc_flags_t;
 
 /**
@@ -507,7 +510,13 @@ enum lu_object_header_flags {
          * as last reference to it is released. This flag cannot be cleared
          * once set.
          */
-        LU_OBJECT_HEARD_BANSHEE = 0
+        LU_OBJECT_HEARD_BANSHEE = 0,
+
+        /* The object is in processing by OI Scrub. */
+        LU_OBJECT_SCRUB         = 1,
+
+        /* OI mapping for the object is invalid. */
+        LU_OBJECT_INCONSISTENT  = 2,
 };
 
 enum lu_object_header_attr {
@@ -567,6 +576,10 @@ struct lu_object_header {
          * A list of references to this object, for debugging.
          */
         struct lu_ref          loh_reference;
+        /**
+         * Waiting list for object to be ready.
+         */
+        cfs_waitq_t            loh_waitq;
 };
 
 struct fld;
@@ -710,6 +723,49 @@ static inline void lu_object_get(struct lu_object *o)
 static inline int lu_object_is_dying(const struct lu_object_header *h)
 {
         return cfs_test_bit(LU_OBJECT_HEARD_BANSHEE, &h->loh_flags);
+}
+
+static inline int lu_object_is_inconsistent(const struct lu_object_header *h)
+{
+        return cfs_test_bit(LU_OBJECT_INCONSISTENT, &h->loh_flags);
+}
+
+/*
+ * Unlink the inconsistent object to prevent to be found by others.
+ */
+static inline void lu_object_set_inconsistent(struct lu_object *o)
+{
+        struct lu_object_header *h  = o->lo_header;
+        cfs_hash_t              *hs = o->lo_dev->ld_site->ls_obj_hash;
+        cfs_hash_bd_t            bd;
+
+        cfs_hash_bd_get_and_lock(hs, (void *)&h->loh_fid, &bd, 1);
+        cfs_hash_bd_del_locked(hs, &bd, &h->loh_hash);
+        cfs_set_bit(LU_OBJECT_INCONSISTENT, &h->loh_flags);
+        cfs_hash_bd_unlock(hs, &bd, 1);
+}
+
+static inline int lu_object_is_scrub(const struct lu_object_header *h)
+{
+        return cfs_test_bit(LU_OBJECT_SCRUB, &h->loh_flags);
+}
+
+static inline void lu_object_set_scrub(struct lu_object_header *h)
+{
+        cfs_set_bit(LU_OBJECT_SCRUB, &h->loh_flags);
+}
+
+static inline void lu_object_clear_scrub(struct lu_object_header *h)
+{
+        cfs_clear_bit(LU_OBJECT_SCRUB, &h->loh_flags);
+}
+
+static inline void lu_object_signal_scrub(struct lu_object_header *h)
+{
+        if (lu_object_is_scrub(h)) {
+                lu_object_clear_scrub(h);
+                cfs_waitq_broadcast(&h->loh_waitq);
+        }
 }
 
 void lu_object_put(const struct lu_env *env, struct lu_object *o);

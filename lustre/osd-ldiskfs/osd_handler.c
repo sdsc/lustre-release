@@ -3802,7 +3802,7 @@ static int osd_index_ea_insert(const struct lu_env *env, struct dt_object *dt,
 
 static struct dt_it *osd_it_iam_init(const struct lu_env *env,
                                      struct dt_object *dt,
-                                     __u32 unused,
+                                     void *unused,
                                      struct lustre_capa *capa)
 {
         struct osd_it_iam         *it;
@@ -4058,7 +4058,7 @@ static const struct dt_index_operations osd_index_iam_ops = {
  */
 static struct dt_it *osd_it_ea_init(const struct lu_env *env,
                                     struct dt_object *dt,
-                                    __u32 attr,
+                                    void *args,
                                     struct lustre_capa *capa)
 {
         struct osd_object       *obj  = osd_dt_obj(dt);
@@ -4080,7 +4080,7 @@ static struct dt_it *osd_it_ea_init(const struct lu_env *env,
         it->oie_obj             = obj;
         it->oie_file.f_pos      = 0;
         it->oie_file.f_dentry   = obj_dentry;
-        if (attr & LUDA_64BITHASH)
+        if (*(__u32 *)args & LUDA_64BITHASH)
                 it->oie_file.f_flags = O_64BITHASH;
         else
                 it->oie_file.f_flags = O_32BITHASH;

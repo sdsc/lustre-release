@@ -496,13 +496,14 @@ static int orph_index_iterate(const struct lu_env *env,
         struct lu_fid     fid;
         int               result = 0;
         int               key_sz = 0;
+        __u32             flags = LUDA_64BITHASH;
         int               rc;
         __u64             cookie;
         ENTRY;
 
         /* In recovery phase, do not need for any lock here */
         iops = &dor->do_index_ops->dio_it;
-        it = iops->init(env, dor, LUDA_64BITHASH, BYPASS_CAPA);
+        it = iops->init(env, dor, &flags, BYPASS_CAPA);
         if (IS_ERR(it)) {
                 rc = PTR_ERR(it);
                 CERROR("%s: cannot clean PENDING: rc = %d\n",

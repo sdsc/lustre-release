@@ -74,6 +74,7 @@ struct niobuf_remote;
 typedef enum {
         MNTOPT_USERXATTR        = 0x00000001,
         MNTOPT_ACL              = 0x00000002,
+        MNTOPT_NOAUTO_SCRUB     = 0x00000004,
 } mntopt_t;
 
 struct dt_device_param {
@@ -210,6 +211,7 @@ enum dt_index_flags {
  * names to fids).
  */
 extern const struct dt_index_features dt_directory_features;
+extern const struct dt_index_features dt_scrub_features;
 
 /**
  * This is a general purpose dt allocation hint.
@@ -569,7 +571,7 @@ struct dt_index_operations {
                  */
                 struct dt_it *(*init)(const struct lu_env *env,
                                       struct dt_object *dt,
-                                      __u32 attr,
+                                      void *args,
                                       struct lustre_capa *capa);
                 void          (*fini)(const struct lu_env *env,
                                       struct dt_it *di);

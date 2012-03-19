@@ -111,7 +111,7 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
                         o->lo_ops->loo_object_release(env, o);
         }
 
-        if (!lu_object_is_dying(top)) {
+        if (!lu_object_is_dying(top) && !lu_object_is_inconsistent(top)) {
                 LASSERT(cfs_list_empty(&top->loh_lru));
                 cfs_list_add_tail(&top->loh_lru, &bkt->lsb_lru);
                 cfs_hash_bd_unlock(site->ls_obj_hash, &bd, 1);
@@ -128,8 +128,11 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
          * or LRU scanning (lu_site_purge()), that are done under hash-table
          * and LRU lock, no race with concurrent object lookup is possible
          * and we can safely destroy object below.
+         *
+         * For inconsistent object, it is unlinked already.
          */
-        cfs_hash_bd_del_locked(site->ls_obj_hash, &bd, &top->loh_hash);
+        if (likely(!lu_object_is_inconsistent(top)))
+                cfs_hash_bd_del_locked(site->ls_obj_hash, &bd, &top->loh_hash);
         cfs_hash_bd_unlock(site->ls_obj_hash, &bd, 1);
         /*
          * Object was already removed from hash and lru above, can
@@ -1144,6 +1147,7 @@ int lu_object_header_init(struct lu_object_header *h)
         CFS_INIT_LIST_HEAD(&h->loh_lru);
         CFS_INIT_LIST_HEAD(&h->loh_layers);
         lu_ref_init(&h->loh_reference);
+        cfs_waitq_init(&h->loh_waitq);
         return 0;
 }
 EXPORT_SYMBOL(lu_object_header_init);
