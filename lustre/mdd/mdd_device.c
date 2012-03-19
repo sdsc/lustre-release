@@ -53,13 +53,12 @@
 #else
 #include <linux/jbd.h>
 #endif
-#include <obd.h>
 #include <obd_class.h>
 #include <lustre_ver.h>
 #include <obd_support.h>
 #include <lprocfs_status.h>
 
-#include <lustre_disk.h>
+#include <lustre_disk.h>      /* for changelogs */
 #include <lustre_fid.h>
 #ifdef HAVE_EXT4_LDISKFS
 #include <ldiskfs/ldiskfs.h>
@@ -68,7 +67,6 @@
 #endif
 #include <lustre_mds.h>
 #include <lustre/lustre_idl.h>
-#include <lustre_disk.h>      /* for changelogs */
 #include <lustre_param.h>
 #include <lustre_fid.h>
 
@@ -79,6 +77,7 @@ static struct lu_device_type mdd_device_type;
 
 static const char mdd_root_dir_name[] = "ROOT";
 static const char mdd_obf_dir_name[] = "fid";
+const char mdd_scrub[] = "scrub.1";
 
 static int mdd_device_init(const struct lu_env *env, struct lu_device *d,
                            const char *name, struct lu_device *next)
@@ -126,6 +125,7 @@ static void mdd_device_shutdown(const struct lu_env *env,
                                 struct mdd_device *m, struct lustre_cfg *cfg)
 {
         ENTRY;
+        mdd_scrub_cleanup(env, m);
         mdd_changelog_fini(env, m);
         dt_txn_callback_del(m->mdd_child, &m->mdd_txn_cb);
         if (m->mdd_dot_lustre_objs.mdd_obf)
@@ -443,7 +443,7 @@ static int create_dot_lustre_dir(const struct lu_env *env, struct mdd_device *m)
                 rc = PTR_ERR(mdo);
                 CERROR("creating obj [%s] fid = "DFID" rc = %d\n",
                         dot_lustre_name, PFID(fid), rc);
-                RETURN(rc);
+                return rc;
         }
 
         if (!IS_ERR(mdo))
@@ -1107,13 +1107,16 @@ static int mdd_prepare(const struct lu_env *env,
         /* we use capa file to declare llog changes,
          * will be fixed with new llog in 2.3 */
         root = dt_store_open(env, mdd->mdd_child, "", CAPA_KEYS, &fid);
-        if (!IS_ERR(root))
-                mdd->mdd_capa = root;
-        else
-                rc = PTR_ERR(root);
+        if (IS_ERR(root))
+                GOTO(out, rc = PTR_ERR(root));
+
+        mdd->mdd_capa = root;
+        rc = mdd_scrub_setup(env, mdd);
+
+        GOTO(out, rc);
 
 out:
-        RETURN(rc);
+        return rc;
 }
 
 const struct lu_device_operations mdd_lu_ops = {
@@ -1682,6 +1685,12 @@ static struct lu_local_obj_desc llod_mdd_root = {
         .llod_feat      = &dt_directory_features,
 };
 
+static struct lu_local_obj_desc llod_scrub_key = {
+        .llod_name      = mdd_scrub,
+        .llod_oid       = MDD_SCRUB_OID,
+        .llod_is_index  = 0,
+};
+
 static int __init mdd_mod_init(void)
 {
         struct lprocfs_static_vars lvars;
@@ -1690,6 +1699,7 @@ static int __init mdd_mod_init(void)
         llo_local_obj_register(&llod_capa_key);
         llo_local_obj_register(&llod_mdd_orphan);
         llo_local_obj_register(&llod_mdd_root);
+        llo_local_obj_register(&llod_scrub_key);
 
         return class_register_type(&mdd_obd_device_ops, NULL, lvars.module_vars,
                                    LUSTRE_MDD_NAME, &mdd_device_type);
@@ -1700,6 +1710,7 @@ static void __exit mdd_mod_exit(void)
         llo_local_obj_unregister(&llod_capa_key);
         llo_local_obj_unregister(&llod_mdd_orphan);
         llo_local_obj_unregister(&llod_mdd_root);
+        llo_local_obj_unregister(&llod_scrub_key);
 
         class_unregister_type(LUSTRE_MDD_NAME);
 }
