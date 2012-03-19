@@ -665,10 +665,7 @@ cleanup_statahead () {
     local mntpt_root=$2
     local num_mntpts=$3
 
-    for i in $(seq 0 $num_mntpts);do
-        zconf_umount_clients $clients ${mntpt_root}$i ||
-            error_exit "Failed to umount lustre on ${mntpt_root}$i"
-    done
+    cleanup_nmntpts $clients $mntpt_root $((num_mntpts + 1))
 }
 
 test_statahead () {
