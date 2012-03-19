@@ -676,11 +676,10 @@ struct thandle {
          * this value is used in recovery */
         __s32             th_result;
 
-        /** whether we need sync commit */
-        int               th_sync:1;
-
-        /* local transation, no need to inform other layers */
-        int               th_local:1;
+        unsigned int      th_sync:1,  /** whether we need sync commit */
+                          th_local:1, /* local transation, no need to inform
+                                       * other layers */
+                          th_oi_scrub:1; /* for OI Scrub */
 };
 
 /**
@@ -728,6 +727,11 @@ typedef int (*dt_entry_func_t)(const struct lu_env *env,
 int dt_path_parser(const struct lu_env *env,
                    char *local, dt_entry_func_t entry_func,
                    void *data);
+
+struct dt_object *dt_store_resolve(const struct lu_env *env,
+                                   struct dt_device *dt,
+                                   const char *path,
+                                   struct lu_fid *fid);
 
 struct dt_object *dt_store_open(const struct lu_env *env,
                                 struct dt_device *dt,
