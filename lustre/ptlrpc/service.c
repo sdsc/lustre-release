@@ -452,10 +452,10 @@ struct ptlrpc_service *ptlrpc_init_svc_conf(struct ptlrpc_service_conf *c,
         return ptlrpc_init_svc(c->psc_nbufs, c->psc_bufsize,
                                c->psc_max_req_size, c->psc_max_reply_size,
                                c->psc_req_portal, c->psc_rep_portal,
-                               c->psc_watchdog_factor,
-                               h, name, proc_entry,
+                               c->psc_watchdog_factor, h, name, proc_entry,
                                prntfn, c->psc_min_threads, c->psc_max_threads,
-                               threadname, c->psc_ctx_tags, NULL);
+                               threadname, c->psc_ctx_tags,
+                               c->psc_hpreq_handler);
 }
 EXPORT_SYMBOL(ptlrpc_init_svc_conf);
 
@@ -466,6 +466,32 @@ static void ptlrpc_at_timer(unsigned long castmeharder)
         svc->srv_at_checktime = cfs_time_current();
         cfs_waitq_signal(&svc->srv_waitq);
 }
+
+static int ptlrpc_hpreq_check(struct ptlrpc_request *req)
+{
+        return 1;
+}
+
+static struct ptlrpc_hpreq_ops ptlrpc_hpreq_common = {
+        .hpreq_lock_match  = NULL,
+        .hpreq_check       = ptlrpc_hpreq_check,
+        .hpreq_fini        = NULL,
+};
+
+/* Hi-Priority RPC check by RPC operation code. */
+int ptlrpc_hpreq_handler(struct ptlrpc_request *req)
+{
+        int opc = lustre_msg_get_opc(req->rq_reqmsg);
+
+        /* Check for export to let only reconnects for not yet evicted
+         * export to become a HP rpc. */
+        if ((req->rq_export != NULL) &&
+            (opc == OBD_PING || opc == MDS_CONNECT || opc == OST_CONNECT))
+                req->rq_ops = &ptlrpc_hpreq_common;
+
+        return 0;
+}
+EXPORT_SYMBOL(ptlrpc_hpreq_handler);
 
 /**
  * Initialize service on a given portal.
@@ -1315,13 +1341,7 @@ void ptlrpc_hpreq_reorder(struct ptlrpc_request *req)
 static int ptlrpc_server_hpreq_check(struct ptlrpc_service *svc,
                                      struct ptlrpc_request *req)
 {
-        ENTRY;
-
-        /* Check by request opc. */
-        if (OBD_PING == lustre_msg_get_opc(req->rq_reqmsg))
-                RETURN(1);
-
-        RETURN(ptlrpc_hpreq_init(svc, req));
+        return ptlrpc_hpreq_init(svc, req);
 }
 
 /** Check if a request is a high priority one. */
