@@ -2340,8 +2340,8 @@ int mdd_object_kill(const struct lu_env *env, struct mdd_object *obj,
 
                 rc = __mdd_lmm_get(env, obj, ma);
                 if ((ma->ma_valid & MA_LOV))
-                        rc = mdd_unlink_log(env, mdo2mdd(&obj->mod_obj),
-                                            obj, ma);
+                       rc = mdd_unlink_log(env, mdo2mdd(&obj->mod_obj),
+                                    obj, ma);
         }
 
         if (rc == 0)
