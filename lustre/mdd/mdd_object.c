@@ -2342,6 +2342,10 @@ int mdd_object_kill(const struct lu_env *env, struct mdd_object *obj,
                 if ((ma->ma_valid & MA_LOV))
                         rc = mdd_unlink_log(env, mdo2mdd(&obj->mod_obj),
                                             obj, ma);
+                if (rc == 0 && ma->ma_attr_flags & MDS_UNLINK_DESTROY) {
+                        struct mdd_device *mdd = mdd_obj2mdd_dev(obj);
+                        rc = mdd_lov_destroy(env, mdd, obj, &ma->ma_attr);
+                }
         }
 
         if (rc == 0)
