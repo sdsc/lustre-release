@@ -2339,9 +2339,25 @@ int mdd_object_kill(const struct lu_env *env, struct mdd_object *obj,
                  * Caller must be ready for that. */
 
                 rc = __mdd_lmm_get(env, obj, ma);
-                if ((ma->ma_valid & MA_LOV))
-                        rc = mdd_unlink_log(env, mdo2mdd(&obj->mod_obj),
+                if ((ma->ma_valid & MA_LOV)) {
+                        if (ma->ma_valid & MA_FLAGS &&
+                            ma->ma_attr_flags & MDS_UNLINK_DESTROY) {
+                                /* XXX This is only for echo client to unlink
+                                 * ost object, since echo client is not able
+                                 * to unlink ost objects (no LOV). But it
+                                 * sending RPC by holding transaction, which
+                                 * is not good. :(, so it is a temporary
+                                 * solution until LOD/OSP is landed */
+                                struct mdd_device *mdd = mdd_obj2mdd_dev(obj);
+                                rc = mdd_lov_destroy(env, mdd, obj,
+                                                     &ma->ma_attr);
+                                if (rc == -ENOENT)
+                                        rc = 0;
+                        } else {
+                                rc = mdd_unlink_log(env, mdo2mdd(&obj->mod_obj),
                                             obj, ma);
+                        }
+                }
         }
 
         if (rc == 0)

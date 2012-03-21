@@ -209,6 +209,7 @@ struct echo_thread_info {
         struct md_attr          eti_ma;
         struct lu_name          eti_lname;
         char                    eti_name[20];
+        struct lu_buf           eti_buf;
         char                    eti_xattr_buf[LUSTRE_POSIX_ACL_MAX_SIZE];
 };
 
@@ -1607,9 +1608,8 @@ static int echo_setattr_object(const struct lu_env *env,
         struct echo_thread_info *info = echo_env_info(env);
         struct lu_name          *lname = &info->eti_lname;
         char                    *name = info->eti_name;
-        struct md_attr          *ma = &info->eti_ma;
         struct lu_device        *ld = ed->ed_next;
-        struct lov_user_md_v3   *lum = &info->eti_lum;
+        struct lu_buf           *buf = &info->eti_buf;
         int                      rc = 0;
         int                      i;
 
@@ -1619,15 +1619,8 @@ static int echo_setattr_object(const struct lu_env *env,
                 return PTR_ERR(parent);
         }
 
-        memset(ma, 0, sizeof(*ma));
-        lum->lmm_magic = LOV_USER_MAGIC_V3;
-        lum->lmm_stripe_count = 1;
-        lum->lmm_stripe_offset = -1;
-        lum->lmm_pattern = 0;
-
-        ma->ma_lmm = (struct lov_mds_md *)lum;
-        ma->ma_lmm_size = sizeof(*lum);
-        ma->ma_valid = MA_LOV | MA_HSM;
+        buf->lb_buf = info->eti_xattr_buf;
+        buf->lb_len = sizeof(info->eti_xattr_buf);
         for (i = 0; i < count; i++) {
                 struct lu_object *ec_child, *child;
 
@@ -1648,16 +1641,19 @@ static int echo_setattr_object(const struct lu_env *env,
                         break;
                 }
 
-                CDEBUG(D_RPCTRACE, "Start getattr object "DFID"\n",
+                CDEBUG(D_RPCTRACE, "Start setattr object "DFID"\n",
                        PFID(lu_object_fid(child)));
-                rc = mo_attr_set(env, lu2md(child), ma);
+
+                sprintf(name, "%s.test1", XATTR_USER_PREFIX);
+                rc = mo_xattr_set(env, lu2md(child), buf, name,
+                                  LU_XATTR_CREATE);
                 if (rc) {
-                        CERROR("Can not getattr child "DFID": rc = %d\n",
+                        CERROR("Can not setattr child "DFID": rc = %d\n",
                                 PFID(lu_object_fid(child)), rc);
                         lu_object_put(env, ec_child);
                         break;
                 }
-                CDEBUG(D_RPCTRACE, "End getattr object "DFID"\n",
+                CDEBUG(D_RPCTRACE, "End setattr object "DFID"\n",
                        PFID(lu_object_fid(child)));
                 id++;
                 lu_object_put(env, ec_child);
@@ -1803,6 +1799,8 @@ static int echo_md_destroy_internal(const struct lu_env *env,
         CDEBUG(D_RPCTRACE, "Start destroy object "DFID" %s %p\n",
                PFID(lu_object_fid(&parent->mo_lu)), lname->ln_name, parent);
 
+        ma->ma_valid |= MA_FLAGS;
+        ma->ma_attr_flags |= MDS_UNLINK_DESTROY;
         rc = mdo_unlink(env, parent, lu2md(child), lname, ma);
         if (rc) {
                 CERROR("Can not unlink child %s: rc = %d\n",
