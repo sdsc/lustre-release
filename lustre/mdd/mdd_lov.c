@@ -677,10 +677,14 @@ int mdd_lov_destroy(const struct lu_env *env, struct mdd_device *mdd,
                         XATTR_NAME_LOV);
 
         if (rc <= 0) {
-                CWARN("Get lov ea failed for "DFID" rc = %d\n",
-                         PFID(mdo2fid(obj)), rc);
-                if (rc == 0)
+                if (rc == 0) {
+                        CDEBUG(D_INFO, "No lov ea for "DFID"\n",
+                               PFID(mdo2fid(obj)));
                         rc = -ENOENT;
+                } else {
+                        CWARN("Get lov ea failed for "DFID" rc = %d\n",
+                                 PFID(mdo2fid(obj)), rc);
+                }
                 RETURN(rc);
         }
 
