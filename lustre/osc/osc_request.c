@@ -2820,7 +2820,13 @@ static void osc_check_rpcs0(const struct lu_env *env, struct client_obd *cli, in
                         else if (rc == 0)
                                 race_counter++;
                 }
-                if (lop_makes_rpc(cli, &loi->loi_read_lop, OBD_BRW_READ)) {
+
+                /* the ptlrpc_request for OBD_BRW_READ is not from the pool
+                 * of the OSC's obd_import, then it's better to skip READ
+                 * RPCs for memory reclaiming context.
+                 * */
+                if (!cfs_memory_pressure_get() &&
+                    lop_makes_rpc(cli, &loi->loi_read_lop, OBD_BRW_READ)) {
                         rc = osc_send_oap_rpc(env, cli, loi, OBD_BRW_READ,
                                               &loi->loi_read_lop, pol);
                         if (rc < 0)
@@ -2857,7 +2863,7 @@ static void osc_check_rpcs0(const struct lu_env *env, struct client_obd *cli, in
 
 void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli)
 {
-        osc_check_rpcs0(env, cli, 0);
+        ptlrpcd_queue_work(cli->cl_writeback_work);
 }
 
 /**
