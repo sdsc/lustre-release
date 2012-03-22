@@ -8,3 +8,4 @@ export-2.6.32-vanilla.patch
 jbd2-jcberr-2.6-rhel6.patch
 bh_lru_size_config.patch
 nfsd4_remove_32bit_cookie_check-rhel6.patch
+nfs_readdir_cookie_loop-rhel6.patch
