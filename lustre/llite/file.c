@@ -814,8 +814,10 @@ void ll_io_init(struct cl_io *io, const struct file *file, int write)
         struct inode *inode = file->f_dentry->d_inode;
 
         io->u.ci_rw.crw_nonblock = file->f_flags & O_NONBLOCK;
-        if (write)
+        if (write) {
                 io->u.ci_wr.wr_append = !!(file->f_flags & O_APPEND);
+                io->u.ci_wr.wr_sync = file->f_flags & O_SYNC || IS_SYNC(inode);
+        }
         io->ci_obj     = ll_i2info(inode)->lli_clob;
         io->ci_lockreq = CILR_MAYBE;
         if (ll_file_nolock(file)) {
