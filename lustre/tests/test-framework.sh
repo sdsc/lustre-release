@@ -1107,12 +1107,14 @@ start_client_load() {
     eval export ${var}=$load
 
     do_node $client "PATH=$PATH MOUNT=$MOUNT ERRORS_OK=$ERRORS_OK \
-                              BREAK_ON_ERROR=$BREAK_ON_ERROR \
-                              END_RUN_FILE=$END_RUN_FILE \
-                              LOAD_PID_FILE=$LOAD_PID_FILE \
-                              TESTLOG_PREFIX=$TESTLOG_PREFIX \
-                              TESTNAME=$TESTNAME \
-                              run_${load}.sh" &
+BREAK_ON_ERROR=$BREAK_ON_ERROR \
+END_RUN_FILE=$END_RUN_FILE \
+LOAD_PID_FILE=$LOAD_PID_FILE \
+TESTLOG_PREFIX=$TESTLOG_PREFIX \
+TESTNAME=$TESTNAME \
+DBENCH_LIB=$DBENCH_LIB \
+DBENCH_SRC=$DBENCH_SRC \
+run_${load}.sh" &
     local ppid=$!
     log "Started client load: ${load} on $client"
 
@@ -4319,6 +4321,7 @@ gather_logs () {
 
     local ts=$(date +%s)
     local docp=true
+    check_shared_dir $LOGDIR && touch $LOGDIR/shared
     [ -f $LOGDIR/shared ] && docp=false
 
     # dump lustre logs, dmesg
