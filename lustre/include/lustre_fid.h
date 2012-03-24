@@ -322,6 +322,8 @@ int seq_client_alloc_fid(const struct lu_env *env, struct lu_client_seq *seq,
                          struct lu_fid *fid);
 int seq_client_get_seq(const struct lu_env *env, struct lu_client_seq *seq,
                        seqno_t *seqnr);
+struct lu_fid *seq_client_get_current_fid(struct lu_client_seq *seq);
+void seq_client_set_fid(struct lu_client_seq *seq, struct lu_fid *fid);
 
 int ms_seq_fini(const struct lu_env *env, struct md_site *ms);
 /* Fids common stuff */

@@ -132,7 +132,7 @@ retry:
 		if (rc == -EINPROGRESS) {
 			/* FIXME: wait some time ? */
 			CDEBUG(D_INFO, "%s: return EAGAIN, retry\n",
-			       imp->imp_obd->obd_name);
+			       exp->exp_obd->obd_name);
 			ptlrpc_req_finished(req);
 			GOTO(retry, rc = 0);
 		}
@@ -320,6 +320,18 @@ int seq_client_get_seq(const struct lu_env *env,
         return rc;
 }
 EXPORT_SYMBOL(seq_client_get_seq);
+
+struct lu_fid *seq_client_get_current_fid(struct lu_client_seq *seq)
+{
+	RETURN(&seq->lcs_fid);
+}
+EXPORT_SYMBOL(seq_client_get_current_fid);
+
+void seq_client_set_fid(struct lu_client_seq *seq, struct lu_fid *fid)
+{
+	memcpy(&seq->lcs_fid, fid, sizeof(*fid));
+}
+EXPORT_SYMBOL(seq_client_set_fid);
 
 /* Allocate new fid on passed client @seq and save it to @fid. */
 int seq_client_alloc_fid(const struct lu_env *env,

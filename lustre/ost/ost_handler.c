@@ -48,6 +48,8 @@
 #include <lustre_dlm.h>
 #include <lustre_export.h>
 #include <lustre_debug.h>
+#include <lustre_fid.h>
+#include <lustre_fld.h>
 #include <linux/init.h>
 #include <lprocfs_status.h>
 #include <libcfs/list.h>
@@ -110,8 +112,9 @@ static int ost_validate_obdo(struct obd_export *exp, struct obdo *oa,
                 if (ioobj)
                         ioobj->ioo_seq = FID_SEQ_OST_MDT0;
         /* remove fid_seq_is_rsvd() after FID-on-OST allows SEQ > 9 */
-        } else if (oa == NULL || !(fid_seq_is_rsvd(oa->o_seq) ||
-                                   fid_seq_is_mdt0(oa->o_seq))) {
+	} else if (oa == NULL ||
+		   !(fid_seq_is_norm(oa->o_seq) || fid_seq_is_mdt(oa->o_seq) ||
+		     fid_seq_is_echo(oa->o_seq))) {
                 CERROR("%s: client %s sent invalid object "POSTID"\n",
                        exp->exp_obd->obd_name, obd_export_nid2str(exp),
                        oa ? oa->o_id : -1, oa ? oa->o_seq : -1);
@@ -1318,10 +1321,27 @@ static int ost_get_info(struct obd_export *exp, struct ptlrpc_request *req)
         if (reply == NULL)
                 RETURN(-ENOMEM);
 
+	if (KEY_IS(KEY_LAST_FID)) {
+		void *val;
+		int vallen;
+
+		req_capsule_extend(pill, &RQF_OST_GET_INFO_LAST_FID);
+		val = req_capsule_client_get(pill, &RMF_SETINFO_VAL);
+		vallen = req_capsule_get_size(pill, &RMF_SETINFO_VAL,
+					      RCL_CLIENT);
+		if (val != NULL && vallen > 0 && replylen >= vallen) {
+			memcpy(reply, val, vallen);
+		} else {
+			CERROR("%s: invalid req val %p vallen %d replylen %d\n",
+			       exp->exp_obd->obd_name, val, vallen, replylen);
+			GOTO(out, rc = -EINVAL);
+		}
+	}
+
         /* call again to fill in the reply buffer */
         rc = obd_get_info(req->rq_svc_thread->t_env, exp, keylen, key,
                           &replylen, reply, NULL);
-
+out:
         lustre_msg_set_status(req->rq_repmsg, 0);
         RETURN(rc);
 }
@@ -1589,8 +1609,9 @@ int ost_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 			OBD_FREE_PTR(oinfo);
 			GOTO(out_env, rc = -ENOMEM);
 		}
-		oa->o_id = lock->l_resource->lr_name.name[0];
-		oa->o_seq = lock->l_resource->lr_name.name[1];
+
+		osc_res_name_to_id(&oa->o_id, &oa->o_seq,
+				   &lock->l_resource->lr_name);
 		oa->o_valid = OBD_MD_FLID|OBD_MD_FLGROUP;
 		oinfo->oi_oa = oa;
 		oinfo->oi_capa = BYPASS_CAPA;

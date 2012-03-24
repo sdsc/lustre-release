@@ -129,10 +129,11 @@ static int ofd_parse_connect_data(const struct lu_env *env,
 		RETURN(0);
 
 	CDEBUG(D_RPCTRACE, "%s: cli %s/%p ocd_connect_flags: "LPX64
-	       " ocd_version: %x ocd_grant: %d ocd_index: %u\n",
+	       " ocd_version: %x ocd_grant: %d ocd_index: %u"
+	       " ocd_group %u\n",
 	       exp->exp_obd->obd_name, exp->exp_client_uuid.uuid, exp,
 	       data->ocd_connect_flags, data->ocd_version,
-	       data->ocd_grant, data->ocd_index);
+	       data->ocd_grant, data->ocd_index, data->ocd_group);
 
 	if (fed->fed_group != 0 && fed->fed_group != data->ocd_group) {
 		CWARN("!!! This export (nid %s) used object group %d "
@@ -621,6 +622,38 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 	} else if (KEY_IS(KEY_SYNC_LOCK_CANCEL)) {
 		*((__u32 *) val) = ofd->ofd_sync_lock_cancel;
 		*vallen = sizeof(__u32);
+	} else if (KEY_IS(KEY_LAST_FID)) {
+		struct lu_env      env;
+		struct ofd_device *ofd = ofd_exp(exp);
+		struct ofd_seq    *oseq;
+		struct lu_fid     *last_fid = val;
+		int		rc;
+
+		if (last_fid == NULL) {
+			*vallen = sizeof(struct lu_fid);
+			RETURN(0);
+		}
+
+		if (*vallen < sizeof(*last_fid))
+			RETURN(-EOVERFLOW);
+
+		rc = lu_env_init(&env, LCT_DT_THREAD);
+		if (rc != 0)
+			RETURN(rc);
+		ofd_info_init(&env, exp);
+		fid_le_to_cpu(last_fid, last_fid);
+		oseq = ofd_seq_load(&env, ofd, fid_seq(last_fid));
+		if (IS_ERR(oseq))
+			GOTO(out_fid, rc = PTR_ERR(oseq));
+
+		last_fid->f_seq = oseq->os_seq;
+		last_fid->f_oid = oseq->os_last_oid;
+		fid_cpu_to_le(last_fid, last_fid);
+
+		*vallen = sizeof(*last_fid);
+		ofd_seq_put(&env, oseq);
+out_fid:
+		lu_env_fini(&env);
 	} else {
 		CERROR("Not supported key %s\n", (char*)key);
 		rc = -EOPNOTSUPP;
@@ -1195,10 +1228,28 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 			GOTO(out, rc = 0);
 		}
 		/* only precreate if seq == 0 and o_id is specfied */
-		if (!fid_seq_is_mdt(oa->o_seq) || oa->o_id == 0) {
+		if (oa->o_id == 0) {
 			diff = 1; /* shouldn't we create this right now? */
 		} else {
 			diff = oa->o_id - ofd_seq_last_oid(oseq);
+			if (fid_seq_is_idif(oa->o_seq) ||
+				fid_seq_is_mdt0(oa->o_seq)) {
+				/* Do sync create if the seq is about to
+				 * used up */
+				if (oa->o_id >= IDIF_MAX_OID - 1)
+					info->fti_sync_trans = 1;
+			} else {
+				if (!fid_seq_is_norm(oa->o_seq)) {
+					CERROR("%s : invalid o_seq "LPX64"\n",
+						ofd_name(ofd), oa->o_seq);
+					GOTO(out, rc = EINVAL);
+				}
+				/* Do sync create if the seq is about to
+				 * used up */
+				if (oa->o_id >= LUSTRE_DATA_SEQ_MAX_WIDTH - 1)
+					info->fti_sync_trans = 1;
+			}
+
 		}
 	}
 	if (diff > 0) {
