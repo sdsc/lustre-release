@@ -47,6 +47,43 @@
 #include <lustre_param.h>
 
 #include "lod_internal.h"
+/**
+ * Lookup MDS number \a mds by FID \a fid.
+ *
+ * \param fid FID of object to find MDS
+ * \param mds mds number to return.
+ **/
+int lod_fld_lookup(struct lod_device *lod, const struct lu_fid *fid,
+		   mdsno_t *tgt, const struct lu_env *env, int flags)
+{
+	struct lu_seq_range   range;
+	struct lu_server_fld *server_fld;
+	int rc = 0;
+	ENTRY;
+
+	LASSERT(fid_is_sane(fid));
+	if (!lod->lod_initialized || !fid_is_norm(fid)) {
+		LASSERT(lu_site2md(lod2lu_dev(lod)->ld_site) != NULL);
+		*tgt = lu_site2md(lod2lu_dev(lod)->ld_site)->ms_node_id;
+		RETURN(rc);
+	}
+
+	server_fld = lu_site2md(lod2lu_dev(lod)->ld_site)->ms_server_fld;
+	range.lsr_flags = flags;
+	rc = fld_server_lookup(server_fld, env, fid_seq(fid), &range);
+	if (rc) {
+		CERROR("Can't find tgt by seq "LPX64", rc %d\n",
+		       fid_seq(fid), rc);
+		RETURN(rc);
+	}
+
+	*tgt = range.lsr_index;
+
+	CDEBUG(D_INFO, "LOD: got tgt %x for sequence: "
+	       LPX64"\n", *tgt, fid_seq(fid));
+
+	RETURN(rc);
+}
 
 extern struct lu_object_operations lod_lu_obj_ops;
 extern struct dt_object_operations lod_obj_ops;

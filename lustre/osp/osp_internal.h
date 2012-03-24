@@ -71,14 +71,14 @@ struct osp_device {
 	/* device used to store persistent state (llogs, last ids) */
 	struct obd_export		*opd_storage_exp;
 	struct dt_device		*opd_storage;
-	struct dt_object		*opd_last_used_file;
+	struct dt_object		*opd_last_used_oid_file;
+	struct dt_object		*opd_last_used_seq_file;
 
 	/* stored persistently in LE format, updated directly to/from disk
 	 * and required le64_to_cpu() conversion before use.
 	 * Protected by opd_pre_lock */
-	volatile obd_id			 opd_last_used_id;
-
-	obd_id				 opd_gap_start;
+	struct lu_fid			opd_last_used_fid;
+	struct lu_fid			opd_gap_start_fid;
 	int				 opd_gap_count;
 	/* connection to OST */
 	struct obd_device		*opd_obd;
@@ -104,9 +104,9 @@ struct osp_device {
 	 */
 	cfs_spinlock_t			 opd_pre_lock;
 	/* next id to assign in creation */
-	__u64				 opd_pre_next;
+	struct lu_fid			 opd_pre_next_fid;
 	/* last created id OST reported, next-created - available id's */
-	__u64				 opd_pre_last_created;
+	struct lu_fid			 opd_pre_last_created_fid;
 	/* how many ids are reserved in declare, we shouldn't block in create */
 	__u64				 opd_pre_reserved;
 	/* dedicate precreate thread */
@@ -187,9 +187,11 @@ extern const struct dt_device_operations osp_dt_ops;
 
 struct osp_thread_info {
 	struct lu_buf		 osi_lb;
+	struct lu_buf		 osi_lb2;
 	struct lu_fid		 osi_fid;
 	struct lu_attr		 osi_attr;
 	struct ost_id		 osi_oi;
+	struct ost_id		 osi_oi2;
 	obd_id			 osi_id;
 	loff_t			 osi_off;
 	union {
@@ -202,12 +204,17 @@ struct osp_thread_info {
 	struct llog_catid	 osi_cid;
 };
 
-static inline void osp_objid_buf_prep(struct osp_thread_info *osi,
-				      struct osp_device *d, int index)
+static inline void osp_objid_buf_prep(struct osp_thread_info *osi, int index)
 {
-	osi->osi_lb.lb_buf = (void *)&d->opd_last_used_id;
-	osi->osi_lb.lb_len = sizeof(d->opd_last_used_id);
-	osi->osi_off = sizeof(d->opd_last_used_id) * index;
+	osi->osi_lb.lb_buf = (void *)&osi->osi_id;
+	osi->osi_lb.lb_len = sizeof(osi->osi_id);
+	osi->osi_off = sizeof(osi->osi_id) * index;
+}
+
+static inline void osp_buf_prep(struct lu_buf *lb, void *buf, int buf_len)
+{
+	lb->lb_buf = buf;
+	lb->lb_len = buf_len;
 }
 
 extern struct lu_context_key osp_thread_key;
@@ -291,6 +298,62 @@ static inline struct dt_object *osp_object_child(struct osp_object *o)
                              struct dt_object, do_lu);
 }
 
+static inline void osp_update_last_fid(struct osp_device *d, struct lu_fid *fid)
+{
+	int diff = lu_fid_diff(fid, &d->opd_last_used_fid);
+	/*
+	* we might have lost precreated objects due to VBR and precreate
+	* orphans, the gap in objid can be calculated properly only here
+	*/
+	if (diff > 0) {
+		if (diff > 1) {
+			d->opd_gap_start_fid = d->opd_last_used_fid;
+			d->opd_gap_start_fid.f_oid++;
+			d->opd_gap_count = diff - 1;
+			CDEBUG(D_HA, "Gap in objids: start="DFID", count =%d\n",
+			       PFID(&d->opd_gap_start_fid), d->opd_gap_count);
+		}
+		d->opd_last_used_fid = *fid;
+	}
+}
+
+static int osp_fid_end_seq(const struct lu_env *env, struct lu_fid *fid)
+{
+	if (fid_is_idif(fid)) {
+		struct osp_thread_info *info = osp_env_info(env);
+		struct ost_id *oi = &info->osi_oi;
+		fid_ostid_pack(fid, oi);
+		return oi->oi_id == IDIF_MAX_OID;
+	} else {
+		return fid_oid(fid) == LUSTRE_DATA_SEQ_MAX_WIDTH;
+	}
+}
+
+static inline int osp_precreate_end_seq_nolock(const struct lu_env *env,
+					       struct osp_device *osp)
+{
+	struct lu_fid *fid = &osp->opd_pre_last_created_fid;
+
+	return osp_fid_end_seq(env, fid);
+}
+
+static inline int osp_precreate_end_seq(const struct lu_env *env,
+					struct osp_device *osp)
+{
+	int rc;
+	cfs_spin_lock(&osp->opd_pre_lock);
+	rc = osp_precreate_end_seq_nolock(env, osp);
+	cfs_spin_unlock(&osp->opd_pre_lock);
+	return rc;
+}
+
+static inline int osp_is_fid_client(struct osp_device *osp)
+{
+	struct obd_import *imp = osp->opd_obd->u.cli.cl_import;
+
+	return imp->imp_connect_data.ocd_connect_flags & OBD_CONNECT_FID;
+}
+
 /* osp_dev.c */
 void osp_update_last_id(struct osp_device *d, obd_id objid);
 
@@ -298,10 +361,13 @@ void osp_update_last_id(struct osp_device *d, obd_id objid);
 int osp_init_precreate(struct osp_device *d);
 int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d);
 __u64 osp_precreate_get_id(struct osp_device *d);
+int osp_precreate_get_fid(const struct lu_env *env, struct osp_device *d,
+			  struct lu_fid *fid);
 void osp_precreate_fini(struct osp_device *d);
 int osp_object_truncate(const struct lu_env *env, struct dt_object *dt, __u64);
 void osp_pre_update_status(struct osp_device *d, int rc);
 void osp_statfs_need_now(struct osp_device *d);
+int osp_reset_last_used(const struct lu_env *env, struct osp_device *osp);
 
 /* lproc_osp.c */
 void lprocfs_osp_init_vars(struct lprocfs_static_vars *lvars);

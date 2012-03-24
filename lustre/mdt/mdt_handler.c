@@ -3690,26 +3690,8 @@ static int mdt_seq_fini(const struct lu_env *env,
         struct md_site *ms = mdt_md_site(m);
         ENTRY;
 
-        if (ms != NULL) {
-                if (ms->ms_server_seq) {
-                        seq_server_fini(ms->ms_server_seq, env);
-                        OBD_FREE_PTR(ms->ms_server_seq);
-                        ms->ms_server_seq = NULL;
-        }
-
-                if (ms->ms_control_seq) {
-                        seq_server_fini(ms->ms_control_seq, env);
-                        OBD_FREE_PTR(ms->ms_control_seq);
-                        ms->ms_control_seq = NULL;
-        }
-
-                if (ms->ms_client_seq) {
-                        seq_client_fini(ms->ms_client_seq);
-                        OBD_FREE_PTR(ms->ms_client_seq);
-                        ms->ms_client_seq = NULL;
-                }
-        }
-
+	if (ms != NULL)
+		ms_seq_fini(env, ms);
         RETURN(0);
 }
 

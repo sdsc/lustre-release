@@ -77,8 +77,7 @@ int client_fid_init(struct obd_export *exp, enum lu_cli_type type)
 		 exp->exp_obd->obd_name);
 
 	/* Init client side sequence-manager */
-	rc = seq_client_init(cli->cl_seq, class_exp2cliimp(exp), type,
-			     prefix, NULL);
+	rc = seq_client_init(cli->cl_seq, exp, type, prefix, NULL);
 	OBD_FREE(prefix, MAX_OBD_NAME + 5);
 	if (rc)
 		GOTO(out_free_seq, rc);
@@ -399,16 +398,17 @@ static int seq_req_handle(struct ptlrpc_request *req,
 	if (mite->ms_client_seq != NULL) {
 		/* lcs_exp of Sequence controller is always NULL, so we do not
 		 * need check sequence controller here */
-		if (mite->ms_client_seq->lcs_imp == NULL &&
+		if (mite->ms_client_seq->lcs_exp == NULL &&
 		    mite->ms_control_seq == NULL) {
-			CWARN("%s: seq server is still not being setup yet\n",
-			       req->rq_export->exp_obd->obd_name);
+			CWARN("%s: seq server is not setup %p control %p\n",
+			       req->rq_export->exp_obd->obd_name,
+			       mite->ms_client_seq, mite->ms_control_seq);
 			RETURN(-EINPROGRESS);
 		}
 		if (mite->ms_server_seq != NULL &&
 		    mite->ms_server_seq->lss_cli == NULL) {
 			CWARN("%s: seq server is still not being setup yet\n",
-			       req->rq_export->exp_obd->obd_name);
+			      req->rq_export->exp_obd->obd_name);
 			RETURN(-EINPROGRESS);
 		}
 	}

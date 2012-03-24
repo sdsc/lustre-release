@@ -2495,4 +2495,10 @@ void lustre_swab_hsm_progress(struct hsm_progress *hp)
 }
 EXPORT_SYMBOL(lustre_swab_hsm_progress);
 
+void lustre_swab_fid_range(struct lu_fid_range *range)
+{
+	lustre_swab_lu_fid(&range->lfr_fid);
+	__swab32s(&range->lfr_count);
+}
+EXPORT_SYMBOL(lustre_swab_fid_range);
 
