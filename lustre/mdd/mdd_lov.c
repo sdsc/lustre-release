@@ -899,7 +899,6 @@ static int grouplock_blocking_ast(struct ldlm_lock *lock,
                                   struct ldlm_lock_desc *desc,
                                   void *data, int flag)
 {
-        struct md_attr *ma = data;
         struct lustre_handle lockh;
         int rc = 0;
         ENTRY;
@@ -918,11 +917,6 @@ static int grouplock_blocking_ast(struct ldlm_lock *lock,
                         CDEBUG(D_DLMTRACE,
                                "Lock %p has been canceled, do cleaning\n",
                                lock);
-
-                        if (ma && ma->ma_som)
-                                OBD_FREE_PTR(ma->ma_som);
-                        if (ma)
-                                OBD_FREE_PTR(ma);
                         break;
                 default:
                         LBUG();
@@ -930,15 +924,39 @@ static int grouplock_blocking_ast(struct ldlm_lock *lock,
         RETURN(rc);
 }
 
+struct gl_glimpse_data {
+        struct obd_export *lov_exp;
+        struct lov_stripe_md *lsm;
+        struct md_attr *ma;
+};
+
 static int grouplock_glimpse_ast(struct ldlm_lock *lock, void *data)
 {
         struct ptlrpc_request *req = data;
         struct ost_lvb *lvb;
         int rc;
         struct md_attr *ma;
+        struct lov_stripe_md *lsm = NULL;
+        struct obd_export *lov_exp;
+        __u64 sz, blcks;
+        struct {
+                char name[16];
+                struct ldlm_lock *lock;
+        } key = { .name = KEY_LOCK_TO_STRIPE, .lock = lock };
+        __u32 stripe, vallen = sizeof(stripe);
         ENTRY;
 
-        ma = lock->l_ast_data;
+        if (lock->l_flags & LDLM_FL_CBPENDING)
+                GOTO(out, rc = -ELDLM_NO_LOCK_DATA);
+
+        ma = ((struct gl_glimpse_data *)lock->l_ast_data)->ma;
+        lsm = ((struct gl_glimpse_data *)lock->l_ast_data)->lsm;
+        lov_exp = ((struct gl_glimpse_data *)lock->l_ast_data)->lov_exp;
+        rc = obd_get_info(lov_exp, sizeof(key), &key, &vallen, &stripe, lsm);
+        if (rc) {
+                CERROR("obd_get_info() failed\n");
+                GOTO(out, rc = -ELDLM_NO_LOCK_DATA);
+        }
 
         req_capsule_extend(&req->rq_pill, &RQF_LDLM_GL_CALLBACK);
         req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER,
@@ -952,14 +970,30 @@ static int grouplock_glimpse_ast(struct ldlm_lock *lock, void *data)
         lvb = req_capsule_server_get(&req->rq_pill, &RMF_DLM_LVB);
 
         if ((ma) && (ma->ma_valid & MA_SOM)) {
-                lvb->lvb_size = ma->ma_som->msd_size;
-                lvb->lvb_blocks = ma->ma_som->msd_blocks;
+                rc = 0;
+                sz = ma->ma_som->msd_size;
+                blcks = ma->ma_som->msd_blocks;
         } else if ((ma) && (ma->ma_valid & MA_INODE)) {
-                lvb->lvb_size = ma->ma_attr.la_size;
-                lvb->lvb_blocks = ma->ma_attr.la_blocks;
+                rc = 0;
+                sz = ma->ma_attr.la_size;
+                blcks = ma->ma_attr.la_blocks;
         } else {
-                lvb->lvb_size = 0;
                 rc = -ELDLM_NO_LOCK_DATA;
+                sz = 0;
+                blcks = 0;
+        }
+
+        lvb->lvb_size = sz / (lsm->lsm_stripe_count * lsm->lsm_stripe_size);
+        lvb->lvb_size = lvb->lvb_size * lsm->lsm_stripe_size;
+        if (stripe == 0)
+                lvb->lvb_size += sz % lsm->lsm_stripe_size;
+
+        if (blcks == 0) {
+                lvb->lvb_blocks = 0;
+        } else {
+                lvb->lvb_blocks = blcks / lsm->lsm_stripe_count;
+                if (stripe == 0)
+                        lvb->lvb_blocks += blcks % lsm->lsm_stripe_count;
         }
 
         EXIT;
@@ -972,34 +1006,28 @@ out:
 }
 
 int mdd_file_lock(const struct lu_env *env, struct md_object *obj,
-                  struct lov_mds_md *lmm, struct ldlm_extent *extent,
-                  struct lustre_handle *lockh)
+                  struct md_attr *ma, struct ldlm_extent *extent,
+                  struct lustre_handle *lockh, void **cb_data)
 {
         struct ldlm_enqueue_info einfo = { 0 };
         struct obd_info oinfo = { { { 0 } } };
-        struct obd_device *obd;
-        struct obd_export *lov_exp;
-        struct lov_stripe_md *lsm = NULL;
-        struct md_attr *ma = NULL;
+        struct gl_glimpse_data *ggd = NULL;
         int rc;
+
         ENTRY;
 
-        obd = mdo2mdd(obj)->mdd_obd_dev;
-        lov_exp = obd->u.mds.mds_lov_exp;
+        LASSERT(ma->ma_valid & MA_LOV);
 
-        obd_unpackmd(lov_exp, &lsm, lmm,
-                     lov_mds_md_size(lmm->lmm_stripe_count, lmm->lmm_magic));
-
-        OBD_ALLOC_PTR(ma);
-        if (ma == NULL)
+        OBD_ALLOC_PTR(ggd);
+        if (!ggd)
                 GOTO(out, rc = -ENOMEM);
 
-        OBD_ALLOC_PTR(ma->ma_som);
-        if (ma->ma_som == NULL)
-                GOTO(out, rc = -ENOMEM);
+        ggd->lov_exp = mdo2mdd(obj)->mdd_obd_dev->u.mds.mds_lov_exp;
 
         ma->ma_need = MA_SOM | MA_INODE;
-        mo_attr_get(env, obj, ma);
+        rc = mo_attr_get(env, obj, ma);
+        if (rc)
+                GOTO(out, rc);
 
         einfo.ei_type = LDLM_EXTENT;
         einfo.ei_mode = LCK_GROUP;
@@ -1007,55 +1035,59 @@ int mdd_file_lock(const struct lu_env *env, struct md_object *obj,
         einfo.ei_cb_cp = ldlm_completion_ast;
         einfo.ei_cb_gl = grouplock_glimpse_ast;
 
-        if (ma->ma_valid & (MA_SOM | MA_INODE))
-                einfo.ei_cbdata = ma;
-        else
-                einfo.ei_cbdata = NULL;
+        rc = obd_unpackmd(ggd->lov_exp, &ggd->lsm, ma->ma_lmm,
+                          lov_mds_md_size(ma->ma_lmm->lmm_stripe_count,
+                          ma->ma_lmm->lmm_magic));
+        if (rc < 0)
+                GOTO(out, rc);
+
+        ggd->ma = ma;
+        einfo.ei_cbdata = ggd;
 
         memset(&oinfo.oi_policy, 0, sizeof(oinfo.oi_policy));
         oinfo.oi_policy.l_extent = *extent;
         oinfo.oi_lockh = lockh;
-        oinfo.oi_md = lsm;
+        oinfo.oi_md = ggd->lsm;
         oinfo.oi_flags = 0;
 
-        rc = obd_enqueue(lov_exp, &oinfo, &einfo, NULL);
-        /* ei_cbdata is used as a free flag at exit */
-        if (rc)
-                einfo.ei_cbdata = NULL;
-
-        obd_unpackmd(lov_exp, &lsm, NULL, 0);
+        rc = obd_enqueue(ggd->lov_exp, &oinfo, &einfo, NULL);
 
 out:
-        /* ma is freed if not used as callback data */
-        if ((einfo.ei_cbdata == NULL) && ma && ma->ma_som)
-                OBD_FREE_PTR(ma->ma_som);
-        if ((einfo.ei_cbdata == NULL) && ma)
-                OBD_FREE_PTR(ma);
-
+        if (rc != ELDLM_OK) {
+                CERROR("Cannot enqueue group lock\n");
+                if ((ggd) && (ggd->lsm))
+                        obd_free_memmd(ggd->lov_exp, &ggd->lsm);
+                if (ggd)
+                        OBD_FREE_PTR(ggd);
+                ggd = NULL;
+        } else {
+                rc = 0;
+        }
+        *cb_data = ggd;
         RETURN(rc);
 }
 
 int mdd_file_unlock(const struct lu_env *env, struct md_object *obj,
-                    struct lov_mds_md *lmm, struct lustre_handle *lockh)
+                    struct md_attr *ma, struct lustre_handle *lockh,
+                    void *cb_data)
 {
-        struct obd_device *obd;
-        struct obd_export *lov_exp;
-        struct lov_stripe_md *lsm = NULL;
+        struct gl_glimpse_data *ggd;
         int rc;
         ENTRY;
 
         LASSERT(lustre_handle_is_used(lockh));
+        LASSERT(ma->ma_valid & MA_LOV);
 
-        obd = mdo2mdd(obj)->mdd_obd_dev;
-        lov_exp = obd->u.mds.mds_lov_exp;
+        ggd = cb_data;
+        if (!ggd)
+                RETURN(-EINVAL);
 
-        obd_unpackmd(lov_exp, &lsm, lmm,
-                     lov_mds_md_size(lmm->lmm_stripe_count, lmm->lmm_magic));
+        rc = obd_cancel(ggd->lov_exp, ggd->lsm, LCK_GROUP, lockh);
 
-        rc = obd_cancel(lov_exp, lsm, LCK_GROUP, lockh);
+        if (ggd->lsm)
+                obd_free_memmd(ggd->lov_exp, &ggd->lsm);
 
-        obd_unpackmd(lov_exp, &lsm, NULL, 0);
-
+        OBD_FREE_PTR(ggd);
         RETURN(rc);
 }
 
