@@ -467,44 +467,9 @@ int ofd_fid_set_index(const struct lu_env *env, struct ofd_device *ofd,
 	RETURN(rc);
 }
 
-int ofd_register_seq_exp(struct ofd_device *ofd)
-{
-	struct md_site	*ms = &ofd->ofd_site;
-	char		*osp_name = NULL;
-
-	OBD_ALLOC(osp_name, MAX_OBD_NAME);
-	if (osp_name == NULL)
-		GOTO(out_free, rc = -ENOMEM);
-
-	rc = tgt_name2ospname(ofd_name(ofd), osp_name);
-	if (rc != 0)
-		GOTO(out_free, rc);
-
-	rc = lustre_register_osp_item(osp_name, &ms->ms_client_seq->lcs_exp,
-				      NULL, NULL);
-out_free:
-	if (osp_name != NULL)	
-		OBD_FREE(osp_name, MAX_OBD_NAME);
-
-	return rc;
-}
-
-static void ofd_deregister_seq_exp(struct ofd_device *ofd)
-{
-	struct md_site       *ms = &ofd->ofd_site;
-
-	if (ms->ms_client_seq != NULL) {
-		lustre_deregister_osp_item(&ms->ms_client_seq->lcs_exp);
-		ms->ms_client_seq->lcs_exp = NULL;
-	}
-}
-
-
 int ofd_fid_fini(const struct lu_env *env, struct ofd_device *ofd)
 {
 	struct md_site       *ms = &ofd->ofd_site;
-
-	ofd_deregister_seq_exp(ofd);
 
 	return ms_seq_fini(env, ms);
 }
@@ -555,7 +520,6 @@ int ofd_fid_init(const struct lu_env *env, struct ofd_device *ofd)
 	OBD_FREE(name, strlen(obd_name) + 10);
 	name = NULL;
 
-	rc = ofd_register_seq_exp(ofd);
 out_free:
 	if (rc) {
 		if (server_inited)
@@ -718,7 +682,7 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 	rc = ofd_fs_setup(env, m, obd);
 	if (rc)
 		GOTO(err_fini_lut, rc);
-	
+
 	RETURN(0);
 err_fini_lut:
 	tgt_fini(env, &m->ofd_lut);
