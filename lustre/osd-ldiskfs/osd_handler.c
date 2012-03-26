@@ -1900,6 +1900,44 @@ static int __osd_oi_insert(const struct lu_env *env, struct osd_object *obj,
 	return osd_oi_insert(info, osd, fid, id, th);
 }
 
+int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
+		   const struct lu_fid *fid, struct lu_seq_range *range)
+{
+	struct md_site     *ms = osd_md_site(osd);
+	int		 rc;
+
+	if (fid_is_igif(fid)) {
+		range->lsr_flags = LU_SEQ_RANGE_MDT;
+		range->lsr_index = 0;
+		return 0;
+	}
+
+	if (fid_is_idif(fid)) {
+		range->lsr_flags = LU_SEQ_RANGE_OST;
+		range->lsr_index = fid_idif_ost_idx(fid);
+		return 0;
+	}
+
+	if (!fid_is_norm(fid)) {
+		range->lsr_flags = LU_SEQ_RANGE_MDT;
+		if (ms != NULL)
+			/* FIXME: If ms is NULL, it suppose not get lsr_index
+			 * at all */
+			range->lsr_index = ms->ms_node_id;
+		return 0;
+	}
+
+	LASSERT(ms != NULL);
+	range->lsr_flags = -1;
+	rc = fld_server_lookup(ms->ms_server_fld, env, fid_seq(fid), range);
+	if (rc != 0) {
+		CERROR("%s can not find "DFID": rc = %d\n",
+		       osd2lu_dev(osd)->ld_obd->obd_name, PFID(fid), rc);
+	}
+	return rc;
+}
+
+
 static int osd_declare_object_create(const struct lu_env *env,
                                      struct dt_object *dt,
                                      struct lu_attr *attr,
@@ -1907,6 +1945,7 @@ static int osd_declare_object_create(const struct lu_env *env,
                                      struct dt_object_format *dof,
                                      struct thandle *handle)
 {
+	struct lu_seq_range	*range = &osd_oti_get(env)->oti_seq_range;
 	struct osd_thandle	*oh;
 	int			 rc;
 	ENTRY;
@@ -1943,6 +1982,19 @@ static int osd_declare_object_create(const struct lu_env *env,
 
 	rc = osd_declare_inode_qid(env, attr->la_uid, attr->la_gid, 1, oh,
 				   false, false, NULL, false);
+	if (rc != 0)
+		RETURN(rc);
+
+	/* It does fld look up inside declare, and the result will be
+	 * added to fld cache, so the following fld lookup inside insert
+	 * does not need send RPC anymore, so avoid send rpc with holding
+	 * transaction */
+	if (fid_is_norm(lu_object_fid(&dt->do_lu)) &&
+		!fid_is_last_obj(lu_object_fid(&dt->do_lu)))
+		osd_fld_lookup(env, osd_dt_dev(handle->th_dev),
+			       lu_object_fid(&dt->do_lu), range);
+
+
 	RETURN(rc);
 }
 
@@ -2216,7 +2268,7 @@ static int osd_declare_object_ref_add(const struct lu_env *env,
                                       struct dt_object *dt,
                                       struct thandle *handle)
 {
-        struct osd_thandle *oh;
+	struct osd_thandle       *oh;
 
         /* it's possible that object doesn't exist yet */
         LASSERT(handle != NULL);
@@ -3512,9 +3564,10 @@ static int osd_index_declare_ea_insert(const struct lu_env *env,
                                        const struct dt_key *key,
                                        struct thandle *handle)
 {
-        struct osd_thandle *oh;
-	struct inode	   *inode;
-	int		    rc;
+        struct osd_thandle	*oh;
+	struct inode		*inode;
+	struct lu_fid		*fid = (struct lu_fid *)rec;
+	int			rc;
 	ENTRY;
 
         LASSERT(dt_object_exists(dt));
@@ -3534,6 +3587,16 @@ static int osd_index_declare_ea_insert(const struct lu_env *env,
 	 * insert */
 	rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid, 0, oh,
 				   true, true, NULL, false);
+	if (fid == NULL)
+		RETURN(0);
+
+	/* It does fld look up inside declare, and the result will be
+	* added to fld cache, so the following fld lookup inside insert
+	* does not need send RPC anymore, so avoid send rpc with holding
+	* transaction */
+	osd_fld_lookup(env, osd_dt_dev(handle->th_dev), fid,
+			&osd_oti_get(env)->oti_seq_range);
+
 	RETURN(rc);
 }
 
