@@ -40,18 +40,18 @@
 #include "lod_internal.h"
 
 /*
- * Keep a refcount of lod->lod_osts usage to prevent racing with
+ * Keep a refcount of lod->ltd_tgts usage to prevent racing with
  * addition/deletion. Any function that expects lov_tgts to remain stationary
  * must take a ref.
  *
  * \param lod - is the lod device from which we want to grab a reference
  */
-void lod_getref(struct lod_device *lod)
+void lod_getref(struct lod_tgt_descs *ltd)
 {
-	cfs_down_read(&lod->lod_rw_sem);
-	cfs_mutex_lock(&lod->lod_mutex);
-	lod->lod_refcount++;
-	cfs_mutex_unlock(&lod->lod_mutex);
+	cfs_down_read(&ltd->ltd_rw_sem);
+	cfs_mutex_lock(&ltd->ltd_mutex);
+	ltd->ltd_refcount++;
+	cfs_mutex_unlock(&ltd->ltd_mutex);
 }
 
 /*
@@ -61,67 +61,72 @@ void lod_getref(struct lod_device *lod)
  *
  * \param lod - is the lod device from which we release a reference
  */
-void lod_putref(struct lod_device *lod)
+void lod_putref(struct lod_device *lod, struct lod_tgt_descs *ltd)
 {
-	cfs_mutex_lock(&lod->lod_mutex);
-	lod->lod_refcount--;
-	if (lod->lod_refcount == 0 && lod->lod_death_row) {
-		struct lod_ost_desc *ost_desc, *tmp;
+	cfs_mutex_lock(&ltd->ltd_mutex);
+	ltd->ltd_refcount--;
+	if (ltd->ltd_refcount == 0 && ltd->ltd_death_row) {
+		struct lod_tgt_desc *tgt_desc, *tmp;
 		int                  idx;
 		CFS_LIST_HEAD(kill);
 
-		CDEBUG(D_CONFIG, "destroying %d lod desc\n",
-		       lod->lod_death_row);
+		CDEBUG(D_CONFIG, "destroying %d ltd desc\n",
+		       ltd->ltd_death_row);
 
-		cfs_foreach_bit(lod->lod_ost_bitmap, idx) {
-			ost_desc = OST_TGT(lod, idx);
-			LASSERT(ost_desc);
+		cfs_foreach_bit(ltd->ltd_tgt_bitmap, idx) {
+			tgt_desc = LTD_TGT(ltd, idx);
+			LASSERT(tgt_desc);
 
-			if (!ost_desc->ltd_reap)
+			if (!tgt_desc->ltd_reap)
 				continue;
 
-			cfs_list_add(&ost_desc->ltd_kill, &kill);
-
-			lod_ost_pool_remove(&lod->lod_pool_info, idx);
-			OST_TGT(lod, idx) = NULL;
-			lod->lod_ostnr--;
-			cfs_bitmap_clear(lod->lod_ost_bitmap, idx);
-			if (ost_desc->ltd_active)
-				lod->lod_desc.ld_active_tgt_count--;
-			lod->lod_death_row--;
+			cfs_list_add(&tgt_desc->ltd_kill, &kill);
+			LTD_TGT(ltd, idx) = NULL;
+			/*FIXME: only support ost pool for now */
+			if (ltd == &lod->lod_ost_descs) {
+				lod_ost_pool_remove(&lod->lod_pool_info, idx);
+				if (tgt_desc->ltd_active)
+					lod->lod_desc.ld_active_tgt_count--;
+			}
+			ltd->ltd_tgtnr--;
+			cfs_bitmap_clear(ltd->ltd_tgt_bitmap, idx);
+			ltd->ltd_death_row--;
 		}
-		cfs_mutex_unlock(&lod->lod_mutex);
-		cfs_up_read(&lod->lod_rw_sem);
+		cfs_mutex_unlock(&ltd->ltd_mutex);
+		cfs_up_read(&ltd->ltd_rw_sem);
 
-		cfs_list_for_each_entry_safe(ost_desc, tmp, &kill, ltd_kill) {
+		cfs_list_for_each_entry_safe(tgt_desc, tmp, &kill, ltd_kill) {
 			int rc;
-			cfs_list_del(&ost_desc->ltd_kill);
-			/* remove from QoS structures */
-			rc = qos_del_tgt(lod, ost_desc);
-			if (rc)
-				CERROR("%s: qos_del_tgt(%s) failed: rc = %d\n",
-				       lod2obd(lod)->obd_name,
-				       obd_uuid2str(&ost_desc->ltd_uuid), rc);
 
-			rc = obd_fid_fini(ost_desc->ltd_exp);
-			if (rc)
-				CERROR("%s:fid fini error %d\n",
-				       lod2obd(lod)->obd_name, rc);
+			cfs_list_del(&tgt_desc->ltd_kill);
 
-			rc = obd_disconnect(ost_desc->ltd_exp);
+			if (ltd == &lod->lod_ost_descs) {
+				rc = qos_del_tgt(lod, tgt_desc);
+				if (rc)
+					CERROR("%s: qos_del_tgt() failed with "
+					       "%d for %s\n",
+					       lod2obd(lod)->obd_name, rc,
+					     obd_uuid2str(&tgt_desc->ltd_uuid));
+				rc = obd_fid_fini(tgt_desc->ltd_exp);
+				if (rc)
+					CERROR("%s: fid fini error %d\n",
+					       lod2obd(lod)->obd_name, rc);
+			}
+
+			rc = obd_disconnect(tgt_desc->ltd_exp);
 			if (rc)
 				CERROR("%s: failed to disconnect %s: rc = %d\n",
 				       lod2obd(lod)->obd_name,
-				       obd_uuid2str(&ost_desc->ltd_uuid), rc);
-			OBD_FREE_PTR(ost_desc);
+				       obd_uuid2str(&tgt_desc->ltd_uuid), rc);
+			OBD_FREE_PTR(tgt_desc);
 		}
 	} else {
-		cfs_mutex_unlock(&lod->lod_mutex);
-		cfs_up_read(&lod->lod_rw_sem);
+		cfs_mutex_unlock(&ltd->ltd_mutex);
+		cfs_up_read(&ltd->ltd_rw_sem);
 	}
 }
 
-static int lod_bitmap_resize(struct lod_device *lod, __u32 newsize)
+static int ltd_bitmap_resize(struct lod_tgt_descs *ltd, __u32 newsize)
 {
 	cfs_bitmap_t *new_bitmap, *old_bitmap = NULL;
 	int	      rc = 0;
@@ -129,9 +134,9 @@ static int lod_bitmap_resize(struct lod_device *lod, __u32 newsize)
 
 	/* grab write reference on the lod. Relocating the array requires
 	 * exclusive access */
-	cfs_down_write(&lod->lod_rw_sem);
 
-	if (newsize <= lod->lod_osts_size)
+	cfs_down_write(&ltd->ltd_rw_sem);
+	if (newsize <= ltd->ltd_tgts_size)
 		/* someone else has already resize the array */
 		GOTO(out, rc = 0);
 
@@ -140,24 +145,24 @@ static int lod_bitmap_resize(struct lod_device *lod, __u32 newsize)
 	if (!new_bitmap)
 		GOTO(out, rc = -ENOMEM);
 
-	if (lod->lod_osts_size > 0) {
+	if (ltd->ltd_tgts_size > 0) {
 		/* the bitmap already exists, we need
 		 * to copy data from old one */
-		cfs_bitmap_copy(new_bitmap, lod->lod_ost_bitmap);
-		old_bitmap = lod->lod_ost_bitmap;
+		cfs_bitmap_copy(new_bitmap, ltd->ltd_tgt_bitmap);
+		old_bitmap = ltd->ltd_tgt_bitmap;
 	}
 
-	lod->lod_osts_size  = newsize;
-	lod->lod_ost_bitmap = new_bitmap;
+	ltd->ltd_tgts_size  = newsize;
+	ltd->ltd_tgt_bitmap = new_bitmap;
 
 	if (old_bitmap)
 		CFS_FREE_BITMAP(old_bitmap);
 
-	CDEBUG(D_CONFIG, "ost size: %d\n", lod->lod_osts_size);
+	CDEBUG(D_CONFIG, "tgt size: %d\n", ltd->ltd_tgts_size);
 
 	EXIT;
 out:
-	cfs_up_write(&lod->lod_rw_sem);
+	cfs_up_write(&ltd->ltd_rw_sem);
 	return rc;
 }
 
@@ -169,9 +174,12 @@ out:
  * \param osp - is the name of OSP device name about to be added
  * \param index - is the OSP index
  * \param gen - is the generation number
+ * \param mdt_index - is the group of the OSP.
+ * \param type - is the type of device (mdc or osc)
  */
 int lod_add_device(const struct lu_env *env, struct lod_device *lod,
-		   char *osp, unsigned index, unsigned gen, int active)
+		   char *osp, unsigned index, unsigned gen, int mdt_index,
+		   char *type, int active)
 {
 	struct obd_connect_data *data = NULL;
 	struct obd_export	*exp = NULL;
@@ -179,12 +187,13 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 	struct lu_device	*ldev;
 	struct dt_device	*d;
 	int			 rc;
-	struct lod_ost_desc	*ost_desc;
-	struct obd_uuid		 obd_uuid;
-
+	struct lod_tgt_desc     *tgt_desc;
+	struct lod_tgt_descs    *ltd;
+	struct obd_uuid		obd_uuid;
 	ENTRY;
 
-	CDEBUG(D_CONFIG, "osp:%s idx:%d gen:%d\n", osp, index, gen);
+	CDEBUG(D_CONFIG, "osp:%s idx:%d gen:%d mdt_idx %d\n", osp, index, gen,
+	       mdt_index);
 
 	if (gen <= 0) {
 		CERROR("request to add OBD %s with invalid generation: %d\n",
@@ -209,6 +218,49 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 	data->ocd_version = LUSTRE_VERSION_CODE;
 	data->ocd_index = index;
 
+	if (strcmp(LUSTRE_OSC_NAME, type) == 0) {
+		data->ocd_connect_flags |= OBD_CONNECT_AT |
+					   OBD_CONNECT_FULL20 |
+#ifdef HAVE_LRU_RESIZE_SUPPORT
+					   OBD_CONNECT_LRU_RESIZE |
+#endif
+					   OBD_CONNECT_MDS |
+					   OBD_CONNECT_OSS_CAPA |
+					   OBD_CONNECT_REQPORTAL |
+					   OBD_CONNECT_SKIP_ORPHAN |
+					   OBD_CONNECT_FID |
+					   OBD_CONNECT_VERSION;
+
+		data->ocd_group = mdt_index;
+		ltd = &lod->lod_ost_descs;
+	} else {
+		struct obd_import *imp = obd->u.cli.cl_import;
+		/*
+		 * XXX These flags needs to be revisited in later phase.
+		 */
+
+		data->ocd_ibits_known = MDS_INODELOCK_UPDATE;
+		data->ocd_connect_flags |= OBD_CONNECT_ACL |
+					   OBD_CONNECT_RMT_CLIENT |
+					   OBD_CONNECT_MDS_CAPA |
+					   OBD_CONNECT_OSS_CAPA |
+					   OBD_CONNECT_IBITS |
+					   OBD_CONNECT_MDS_MDS |
+					   OBD_CONNECT_FID |
+					   OBD_CONNECT_AT |
+					   OBD_CONNECT_FULL20;
+		/* XXX set MDS-MDS flags, remove this when running this
+		 * on client*/
+		data->ocd_connect_flags |= OBD_CONNECT_MDS_MDS;
+		cfs_spin_lock(&imp->imp_lock);
+		imp->imp_server_timeout = 1;
+		cfs_spin_unlock(&imp->imp_lock);
+		imp->imp_client->cli_request_portal = MDS_MDS_PORTAL;
+		CDEBUG(D_OTHER, "%s: Set 'mds' portal and timeout\n",
+		      obd->obd_name);
+		ltd = &lod->lod_mdt_descs;
+	}
+
 	rc = obd_connect(env, &exp, obd, &obd->obd_uuid, data, NULL);
 	OBD_FREE_PTR(data);
 	if (rc) {
@@ -224,78 +276,94 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 	d = lu2dt_dev(ldev);
 
 	/* Allocate ost descriptor and fill it */
-	OBD_ALLOC_PTR(ost_desc);
-	if (!ost_desc)
+	OBD_ALLOC_PTR(tgt_desc);
+	if (!tgt_desc)
 		GOTO(out_conn, rc = -ENOMEM);
 
-	ost_desc->ltd_ost    = d;
-	ost_desc->ltd_exp    = exp;
-	ost_desc->ltd_uuid   = obd->u.cli.cl_target_uuid;
-	ost_desc->ltd_gen    = gen;
-	ost_desc->ltd_index  = index;
-	ost_desc->ltd_active = active;
+	tgt_desc->ltd_tgt    = d;
+	tgt_desc->ltd_exp    = exp;
+	tgt_desc->ltd_uuid   = obd->u.cli.cl_target_uuid;
+	tgt_desc->ltd_gen    = gen;
+	tgt_desc->ltd_index  = index;
+	tgt_desc->ltd_active = active;
 
-	lod_getref(lod);
-	if (index >= lod->lod_osts_size) {
+	lod_getref(ltd);
+	if (index >= ltd->ltd_tgts_size) {
 		/* we have to increase the size of the lod_osts array */
 		__u32  newsize;
 
-		newsize = max(lod->lod_osts_size, (__u32)2);
+		newsize = max(ltd->ltd_tgts_size, (__u32)2);
 		while (newsize < index + 1)
 			newsize = newsize << 1;
 
 		/* lod_bitmap_resize() needs lod_rw_sem
 		 * which we hold with th reference */
-		lod_putref(lod);
+		lod_putref(lod, ltd);
 
-		rc = lod_bitmap_resize(lod, newsize);
+		rc = ltd_bitmap_resize(ltd, newsize);
 		if (rc)
 			GOTO(out_desc, rc);
 
-		lod_getref(lod);
+		lod_getref(ltd);
 	}
 
-	cfs_mutex_lock(&lod->lod_mutex);
-	if (cfs_bitmap_check(lod->lod_ost_bitmap, index)) {
+	cfs_mutex_lock(&ltd->ltd_mutex);
+	if (cfs_bitmap_check(ltd->ltd_tgt_bitmap, index)) {
 		CERROR("%s: device %d is registered already\n", obd->obd_name,
 		       index);
 		GOTO(out_mutex, rc = -EEXIST);
 	}
 
-	if (lod->lod_ost_idx[index / OST_PTRS_PER_BLOCK] == NULL) {
-		OBD_ALLOC_PTR(lod->lod_ost_idx[index / OST_PTRS_PER_BLOCK]);
-		if (lod->lod_ost_idx[index / OST_PTRS_PER_BLOCK] == NULL) {
+	if (ltd->ltd_tgt_idx[index / TGT_PTRS_PER_BLOCK] == NULL) {
+		OBD_ALLOC_PTR(ltd->ltd_tgt_idx[index / TGT_PTRS_PER_BLOCK]);
+		if (ltd->ltd_tgt_idx[index / TGT_PTRS_PER_BLOCK] == NULL) {
 			CERROR("can't allocate index to add %s\n",
 			       obd->obd_name);
 			GOTO(out_mutex, rc = -ENOMEM);
 		}
 	}
 
-	rc = lod_ost_pool_add(&lod->lod_pool_info, index, lod->lod_osts_size);
-	if (rc) {
-		CERROR("%s: can't set up pool, failed with %d\n",
-		       obd->obd_name, rc);
-		GOTO(out_mutex, rc);
+	if (!strcmp(LUSTRE_OSC_NAME, type)) {
+		/* pool and qos are not supported for MDS stack yet */
+		rc = lod_ost_pool_add(&lod->lod_pool_info, index,
+				      lod->lod_osts_size);
+		if (rc) {
+			CERROR("%s: can't set up pool, failed with %d\n",
+			       obd->obd_name, rc);
+			GOTO(out_mutex, rc);
+		}
+
+		rc = qos_add_tgt(lod, tgt_desc);
+		if (rc) {
+			CERROR("%s: qos_add_tgt failed with %d\n",
+				obd->obd_name, rc);
+			GOTO(out_pool, rc);
+		}
+
+		rc = obd_fid_init(exp, LUSTRE_SEQ_DATA);
+		if (rc) {
+			CERROR("%s: fid init error %d\n", obd->obd_name, rc);
+			GOTO(out_pool, rc);
+		}
+		/* The new OST is now a full citizen */
+		if (index >= lod->lod_desc.ld_tgt_count)
+			lod->lod_desc.ld_tgt_count = index + 1;
+		if (active)
+			lod->lod_desc.ld_active_tgt_count++;
+	} else {
+		/* set seq controller export for MDC0 if exists */
+		if (index == 0) {
+			struct md_site *ms =
+				lu_site2md(lod2lu_dev(lod)->ld_site);
+			ms->ms_control_exp = class_export_get(exp);
+			ms->ms_server_fld->lsf_control_exp = exp;
+		}
 	}
-
-	rc = qos_add_tgt(lod, ost_desc);
-	if (rc) {
-		CERROR("%s: qos_add_tgt(%s) failed: rc = %d\n", obd->obd_name,
-		       obd_uuid2str(&ost_desc->ltd_uuid), rc);
-		GOTO(out_pool, rc);
-	}
-
-	/* The new OST is now a full citizen */
-	if (index >= lod->lod_desc.ld_tgt_count)
-		lod->lod_desc.ld_tgt_count = index + 1;
-	if (active)
-		lod->lod_desc.ld_active_tgt_count++;
-	OST_TGT(lod, index) = ost_desc;
-	cfs_bitmap_set(lod->lod_ost_bitmap, index);
-	lod->lod_ostnr++;
-	cfs_mutex_unlock(&lod->lod_mutex);
-	lod_putref(lod);
-
+	LTD_TGT(ltd, index) = tgt_desc;
+	cfs_bitmap_set(ltd->ltd_tgt_bitmap, index);
+	ltd->ltd_tgtnr++;
+	cfs_mutex_unlock(&ltd->ltd_mutex);
+	lod_putref(lod, ltd);
 	if (lod->lod_recovery_completed)
 		ldev->ld_ops->ldo_recovery_complete(env, ldev);
 
@@ -305,10 +373,10 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 out_pool:
 	lod_ost_pool_remove(&lod->lod_pool_info, index);
 out_mutex:
-	cfs_mutex_unlock(&lod->lod_mutex);
-	lod_putref(lod);
+	cfs_mutex_unlock(&ltd->ltd_mutex);
+	lod_putref(lod, ltd);
 out_desc:
-	OBD_FREE_PTR(ost_desc);
+	OBD_FREE_PTR(tgt_desc);
 out_conn:
 	obd_disconnect(exp);
 out_free:
@@ -318,13 +386,34 @@ out_free:
 /*
  * helper function to schedule OST removal from the device table
  */
-static void __lod_del_device(struct lod_device *lod, unsigned idx)
+static void __lod_del_device(struct lod_tgt_descs *ltd,
+			     unsigned idx)
 {
-	LASSERT(OST_TGT(lod,idx));
-	if (OST_TGT(lod,idx)->ltd_reap == 0) {
-		OST_TGT(lod,idx)->ltd_reap = 1;
-		lod->lod_death_row++;
+	LASSERT(LTD_TGT(ltd, idx));
+	if (LTD_TGT(ltd, idx)->ltd_reap == 0) {
+		LTD_TGT(ltd, idx)->ltd_reap = 1;
+		ltd->ltd_death_row++;
 	}
+}
+
+int lod_fini_tgt(struct lod_device *lod, struct lod_tgt_descs *ltd)
+{
+	int idx;
+	if (ltd->ltd_tgts_size <= 0)
+		return 0;
+	lod_getref(ltd);
+	cfs_mutex_lock(&ltd->ltd_mutex);
+	cfs_foreach_bit(ltd->ltd_tgt_bitmap, idx)
+		__lod_del_device(ltd, idx);
+	cfs_mutex_unlock(&ltd->ltd_mutex);
+	lod_putref(lod, ltd);
+	CFS_FREE_BITMAP(ltd->ltd_tgt_bitmap);
+	for (idx = 0; idx < TGT_PTRS; idx++) {
+		if (ltd->ltd_tgt_idx[idx])
+			OBD_FREE_PTR(ltd->ltd_tgt_idx[idx]);
+	}
+	ltd->ltd_tgts_size = 0;
+	return 0;
 }
 
 /*
@@ -341,7 +430,8 @@ static void __lod_del_device(struct lod_device *lod, unsigned idx)
  * \param gen - is the generation number, not used currently
  */
 int lod_del_device(const struct lu_env *env, struct lod_device *lod,
-		   char *osp, unsigned idx, unsigned gen)
+		   struct lod_tgt_descs *ltd, char *osp, unsigned idx,
+		   unsigned gen)
 {
 	struct obd_device *obd;
 	int                rc = 0;
@@ -364,27 +454,28 @@ int lod_del_device(const struct lu_env *env, struct lod_device *lod,
 
 	obd_str2uuid(&uuid,  osp);
 
-	lod_getref(lod);
-	cfs_mutex_lock(&lod->lod_mutex);
+	lod_getref(ltd);
+	cfs_mutex_lock(&ltd->ltd_mutex);
 	/* check that the index is allocated in the bitmap */
-	if (!cfs_bitmap_check(lod->lod_ost_bitmap, idx) || !OST_TGT(lod,idx)) {
+	if (!cfs_bitmap_check(ltd->ltd_tgt_bitmap, idx) ||
+	    !LTD_TGT(ltd, idx)) {
 		CERROR("%s: device %d is not set up\n", obd->obd_name, idx);
 		GOTO(out, rc = -EINVAL);
 	}
 
 	/* check that the UUID matches */
-	if (!obd_uuid_equals(&uuid, &OST_TGT(lod,idx)->ltd_uuid)) {
-		CERROR("%s: LOD target UUID %s at index %d does not match %s\n",
-		       obd->obd_name, obd_uuid2str(&OST_TGT(lod,idx)->ltd_uuid),
-		       idx, osp);
+	if (!obd_uuid_equals(&uuid, &LTD_TGT(ltd, idx)->ltd_uuid)) {
+		CERROR("%s: LOD target UUID %s at index %d does not match %s"
+			"\n", obd->obd_name,
+			obd_uuid2str(&LTD_TGT(ltd, idx)->ltd_uuid), idx, osp);
 		GOTO(out, rc = -EINVAL);
 	}
 
-	__lod_del_device(lod, idx);
+	__lod_del_device(ltd, idx);
 	EXIT;
 out:
-	cfs_mutex_unlock(&lod->lod_mutex);
-	lod_putref(lod);
+	cfs_mutex_unlock(&ltd->ltd_mutex);
+	lod_putref(lod, ltd);
 	return(rc);
 }
 
@@ -620,12 +711,12 @@ int lod_initialize_objects(const struct lu_env *env, struct lod_object *lo,
 		 * is completed. to be changed to -EINVAL
 		 */
 
-		lod_getref(md);
+		lod_getref(&md->lod_ost_descs);
 		LASSERT(cfs_bitmap_check(md->lod_ost_bitmap, idx));
 		LASSERT(OST_TGT(md,idx));
 		LASSERTF(OST_TGT(md,idx)->ltd_ost, "idx %d\n", idx);
 		nd = &OST_TGT(md,idx)->ltd_ost->dd_lu_dev;
-		lod_putref(md);
+		lod_putref(md, &md->lod_ost_descs);
 
 		o = lu_object_find_at(env, nd, &info->lti_fid, NULL);
 		if (IS_ERR(o))
@@ -944,12 +1035,6 @@ int lod_pools_init(struct lod_device *lod, struct lustre_cfg *lcfg)
 
 	/* the OST array and bitmap are allocated/grown dynamically as OSTs are
 	 * added to the LOD, see lod_add_device() */
-	lod->lod_ost_bitmap = NULL;
-	lod->lod_osts_size  = 0;
-	lod->lod_ostnr      = 0;
-
-	lod->lod_death_row = 0;
-	lod->lod_refcount  = 0;
 
 	lprocfs_lod_init_vars(&lvars);
 	lprocfs_obd_setup(obd, lvars.obd_vars);
@@ -965,6 +1050,7 @@ int lod_pools_init(struct lod_device *lod, struct lustre_cfg *lcfg)
 	lod->lod_pool_proc_entry = lprocfs_register("pools",
 						    obd->obd_proc_entry,
 						    NULL, NULL);
+
 	if (IS_ERR(lod->lod_pool_proc_entry)) {
 		int ret = PTR_ERR(lod->lod_pool_proc_entry);
 		lod->lod_pool_proc_entry = NULL;
@@ -1001,22 +1087,6 @@ int lod_pools_fini(struct lod_device *lod)
 		/* free pool structs */
 		CDEBUG(D_INFO, "delete pool %p\n", pool);
 		lod_pool_del(obd, pool->pool_name);
-	}
-
-	if (lod->lod_osts_size > 0) {
-		int idx;
-		lod_getref(lod);
-		cfs_mutex_lock(&lod->lod_mutex);
-		cfs_foreach_bit(lod->lod_ost_bitmap, idx)
-			__lod_del_device(lod, idx);
-		cfs_mutex_unlock(&lod->lod_mutex);
-		lod_putref(lod);
-		CFS_FREE_BITMAP(lod->lod_ost_bitmap);
-		for (idx = 0; idx < OST_PTRS; idx++) {
-			if (lod->lod_ost_idx[idx])
-				OBD_FREE_PTR(lod->lod_ost_idx[idx]);
-		}
-		lod->lod_osts_size = 0;
 	}
 
 	cfs_hash_putref(lod->lod_pools_hash_body);

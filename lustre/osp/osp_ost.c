@@ -106,6 +106,7 @@ static int osp_setup_for_ost(const struct lu_env *env, struct osp_device *osp,
 	if (lcfg == NULL)
 		GOTO(out, rc = -ENOMEM);
 
+	osp->opd_connect_mdt = 1;
 	rc = client_obd_setup(osp->opd_obd, lcfg);
 	if (rc != 0) {
 		CERROR("%s: client obd setup error: rc = %d\n",

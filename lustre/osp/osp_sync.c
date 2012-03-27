@@ -895,7 +895,7 @@ out:
 
 static struct llog_operations osp_mds_ost_orig_logops;
 
-static int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d)
+int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d)
 {
 	struct osp_thread_info *osi = osp_env_info(env);
 	struct llog_handle     *lgh;
@@ -991,7 +991,7 @@ out_cleanup:
 	RETURN(rc);
 }
 
-static void osp_sync_llog_fini(const struct lu_env *env, struct osp_device *d)
+void osp_sync_llog_fini(const struct lu_env *env, struct osp_device *d)
 {
 	struct llog_ctxt *ctxt;
 
