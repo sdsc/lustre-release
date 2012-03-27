@@ -1394,10 +1394,11 @@ __mdd_lookup(const struct lu_env *env, struct md_object *pobj,
         RETURN(rc);
 }
 
-int mdd_declare_object_initialize(const struct lu_env *env,
-				  struct mdd_object *child,
-				  struct lu_attr *attr,
-				  struct thandle *handle)
+static int mdd_declare_object_initialize(const struct lu_env *env,
+					 struct mdd_object *parent,
+					 struct mdd_object *child,
+					 struct lu_attr *attr,
+					 struct thandle *handle)
 {
         int rc;
 
@@ -1407,6 +1408,9 @@ int mdd_declare_object_initialize(const struct lu_env *env,
 					      dot, handle);
                 if (rc == 0)
                         rc = mdo_declare_ref_add(env, child, handle);
+
+		rc = mdo_declare_index_insert(env, child, mdo2fid(parent),
+					      dotdot, handle);
         }
 
         if (rc == 0)
@@ -1579,7 +1583,7 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
 			GOTO(out, rc);
         }
 
-	rc = mdd_declare_object_initialize(env, c, attr, handle);
+	rc = mdd_declare_object_initialize(env, p, c, attr, handle);
         if (rc)
                 GOTO(out, rc);
 
