@@ -755,12 +755,12 @@ static int osd_trans_stop(const struct lu_env *env, struct thandle *th)
 
 static int osd_trans_cb_add(struct thandle *th, struct dt_txn_commit_cb *dcb)
 {
-        struct osd_thandle *oh = container_of0(th, struct osd_thandle,
-                                               ot_super);
+	struct osd_thandle *oh = container_of0(th, struct osd_thandle,ot_super);
 
-        cfs_list_add(&dcb->dcb_linkage, &oh->ot_dcb_list);
+	LASSERT(&dcb->dcb_func != NULL);
+	cfs_list_add(&dcb->dcb_linkage, &oh->ot_dcb_list);
 
-        return 0;
+	return 0;
 }
 
 /*

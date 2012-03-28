@@ -527,7 +527,8 @@ void lut_cb_last_committed(struct lu_env *env, struct thandle *th,
 
         ccb = container_of0(cb, struct lut_last_committed_callback, llcc_cb);
 
-        LASSERT(ccb->llcc_exp->exp_obd == ccb->llcc_lut->lut_obd);
+	LASSERT(ccb->llcc_exp->exp_obd == ccb->llcc_lut->lut_obd);
+	LASSERT(ccb->llcc_lut != NULL);
 
         cfs_spin_lock(&ccb->llcc_lut->lut_translock);
         if (ccb->llcc_transno > ccb->llcc_lut->lut_obd->obd_last_committed)
