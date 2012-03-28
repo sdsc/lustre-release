@@ -86,6 +86,7 @@ static int lfs_find(int argc, char **argv);
 static int lfs_getstripe(int argc, char **argv);
 static int lfs_osts(int argc, char **argv);
 static int lfs_df(int argc, char **argv);
+static int lfs_getname(int argc, char **argv);
 static int lfs_check(int argc, char **argv);
 static int lfs_catinfo(int argc, char **argv);
 #ifdef HAVE_SYS_QUOTA_H
@@ -169,6 +170,9 @@ command_t cmdlist[] = {
          "report filesystem disk space usage or inodes usage"
          "of each MDS and all OSDs or a batch belonging to a specific pool .\n"
          "Usage: df [-i] [-h] [--pool|-p <fsname>[.<pool>] [path]"},
+        {"getname", lfs_getname, 0, "list instances and specified mount points "
+         "[for specified path only]\n"
+         "Usage: getname [-h]|[path ...] "},
 #ifdef HAVE_SYS_QUOTA_H
         {"quotachown",lfs_quotachown, 0,
          "Change files' owner or group on the specified filesystem.\n"
@@ -1163,6 +1167,46 @@ static int lfs_df(int argc, char **argv)
         return rc;
 }
 
+static int lfs_getname(int argc, char **argv)
+{
+        char mntdir[PATH_MAX] = "", path[PATH_MAX] = "", fsname[PATH_MAX] = "";
+        int rc = 0, index = 0, c;
+        char buf[sizeof(struct obd_uuid)];
+
+        optind = 0;
+        while ((c = getopt(argc, argv, "h")) != -1)
+                return CMD_HELP;
+
+        if (optind == argc) { /* no paths specified, get all paths. */
+                while (!llapi_search_mounts(path, index++, mntdir, fsname)) {
+                        rc = llapi_getname(mntdir, buf, sizeof(buf));
+                        if (rc < 0) {
+                                fprintf(stderr,
+                                        "cannot get name for `%s': %s\n",
+                                        mntdir, strerror(-rc));
+                                break;
+                        }
+
+                        printf("%s %s\n", buf, mntdir);
+
+                        path[0] = fsname[0] = mntdir[0] = 0;
+                }
+        } else { /* paths specified, only attempt to search these. */
+                for (; optind < argc; optind++) {
+                        rc = llapi_getname(argv[optind], buf, sizeof(buf));
+                        if (rc < 0) {
+                                fprintf(stderr,
+                                        "cannot get name for `%s': %s\n",
+                                        argv[optind], strerror(-rc));
+                                break;
+                        }
+
+                        printf("%s %s\n", buf, argv[optind]);
+                }
+        }
+        return rc;
+}
+
 static int lfs_check(int argc, char **argv)
 {
         int rc;
@@ -1901,8 +1945,7 @@ static void print_quota(char *mnt, struct if_quotactl *qctl, int type, int rc)
                 if (dqb->dqb_bhardlimit &&
                     toqb(dqb->dqb_curspace) >= dqb->dqb_bhardlimit) {
                         bover = 1;
-                } else if (dqb->dqb_bsoftlimit &&
-                           toqb(dqb->dqb_curspace) >= dqb->dqb_bsoftlimit) {
+                } else if (dqb->dqb_bsoftlimit && dqb->dqb_btime) {
                         if (dqb->dqb_btime > now) {
                                 bover = 2;
                         } else {
@@ -1913,8 +1956,7 @@ static void print_quota(char *mnt, struct if_quotactl *qctl, int type, int rc)
                 if (dqb->dqb_ihardlimit &&
                     dqb->dqb_curinodes >= dqb->dqb_ihardlimit) {
                         iover = 1;
-                } else if (dqb->dqb_isoftlimit &&
-                           dqb->dqb_curinodes >= dqb->dqb_isoftlimit) {
+                } else if (dqb->dqb_isoftlimit && dqb->dqb_itime) {
                         if (dqb->dqb_btime > now) {
                                 iover = 2;
                         } else {
