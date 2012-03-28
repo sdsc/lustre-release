@@ -229,7 +229,7 @@ static const struct req_msg_field *mds_reint_open_server[] = {
         &RMF_PTLRPC_BODY,
         &RMF_MDT_BODY,
         &RMF_MDT_MD,
-        &RMF_ACL,
+        &RMF_PACKAGED_XATTR,
         &RMF_CAPA1,
         &RMF_CAPA2
 };
@@ -363,7 +363,7 @@ static const struct req_msg_field *ldlm_intent_server[] = {
         &RMF_DLM_REP,
         &RMF_MDT_BODY,
         &RMF_MDT_MD,
-        &RMF_ACL
+        &RMF_PACKAGED_XATTR
 };
 
 static const struct req_msg_field *ldlm_intent_open_server[] = {
@@ -371,7 +371,7 @@ static const struct req_msg_field *ldlm_intent_open_server[] = {
         &RMF_DLM_REP,
         &RMF_MDT_BODY,
         &RMF_MDT_MD,
-        &RMF_ACL,
+        &RMF_PACKAGED_XATTR,
         &RMF_CAPA1,
         &RMF_CAPA2
 };
@@ -390,7 +390,7 @@ static const struct req_msg_field *ldlm_intent_getattr_server[] = {
         &RMF_DLM_REP,
         &RMF_MDT_BODY,
         &RMF_MDT_MD,
-        &RMF_ACL,
+        &RMF_PACKAGED_XATTR,
         &RMF_CAPA1
 };
 
@@ -442,7 +442,7 @@ static const struct req_msg_field *mds_getattr_server[] = {
         &RMF_PTLRPC_BODY,
         &RMF_MDT_BODY,
         &RMF_MDT_MD,
-        &RMF_ACL,
+        &RMF_PACKAGED_XATTR,
         &RMF_CAPA1,
         &RMF_CAPA2
 };
@@ -451,7 +451,7 @@ static const struct req_msg_field *mds_setattr_server[] = {
         &RMF_PTLRPC_BODY,
         &RMF_MDT_BODY,
         &RMF_MDT_MD,
-        &RMF_ACL,
+        &RMF_PACKAGED_XATTR,
         &RMF_CAPA1,
         &RMF_CAPA2
 };
@@ -894,14 +894,24 @@ struct req_msg_field RMF_REC_REINT =
 EXPORT_SYMBOL(RMF_REC_REINT);
 
 /* FIXME: this length should be defined as a macro */
-struct req_msg_field RMF_EADATA = DEFINE_MSGF("eadata", 0, -1,
-                                                    NULL, NULL);
+struct req_msg_field RMF_EADATA = DEFINE_MSGF("eadata", 0, -1, NULL, NULL);
 EXPORT_SYMBOL(RMF_EADATA);
 
-struct req_msg_field RMF_ACL =
-        DEFINE_MSGF("acl", RMF_F_NO_SIZE_CHECK,
-                    LUSTRE_POSIX_ACL_MAX_SIZE, NULL, NULL);
-EXPORT_SYMBOL(RMF_ACL);
+/* Currently, the packaged xattr only contains posix_acl and default acl,
+ * or remote permission. For posix_acl, the max size is:
+ * 'packaged xattr header + acl body (LUSTRE_POSIX_ACL_MAX_SIZE)'.
+ * The same for default acl. For remote permission, the size is:
+ * 'sizeof(struct packaged_xattr) + sizeof(struct mdt_remote_perm)'.
+ *
+ * Increase the size when more xattrs are packaged in the future.
+ *
+ * The layout of packaged xattrs is like:
+ * type0|size0|body0(name + data, align 4 bytes)|type1|size1|body1|...
+ */
+struct req_msg_field RMF_PACKAGED_XATTR =
+        DEFINE_MSGF("packaged_xattr", RMF_F_NO_SIZE_CHECK,
+                    (4 + 4 + LUSTRE_POSIX_ACL_MAX_SIZE) * 2, NULL, NULL);
+EXPORT_SYMBOL(RMF_PACKAGED_XATTR);
 
 /* FIXME: this should be made to use RMF_F_STRUCT_ARRAY */
 struct req_msg_field RMF_LOGCOOKIES =

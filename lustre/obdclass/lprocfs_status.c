@@ -812,6 +812,8 @@ static const char *obd_connect_names[] = {
         "imp_recov",
         "jobstats",
         "grant_param",
+        "inprogress",
+        "packaged_xattr",
         NULL
 };
 

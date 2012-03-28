@@ -214,7 +214,8 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                                   OBD_CONNECT_CANCELSET | OBD_CONNECT_FID     |
                                   OBD_CONNECT_AT       | OBD_CONNECT_LOV_V3   |
                                   OBD_CONNECT_RMT_CLIENT | OBD_CONNECT_VBR    |
-                                  OBD_CONNECT_FULL20   | OBD_CONNECT_64BITHASH;
+                                  OBD_CONNECT_FULL20   | OBD_CONNECT_64BITHASH|
+                                  OBD_CONNECT_PACKAGED_XATTR;
 
         if (sbi->ll_flags & LL_SBI_SOM_PREVIEW)
                 data->ocd_connect_flags |= OBD_CONNECT_SOM;
@@ -379,6 +380,9 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         if (data->ocd_connect_flags & OBD_CONNECT_64BITHASH)
                 sbi->ll_flags |= LL_SBI_64BIT_HASH;
 
+        if (data->ocd_connect_flags & OBD_CONNECT_PACKAGED_XATTR)
+                sbi->ll_flags |= LL_SBI_PACKAGED_XATTR;
+
         if (data->ocd_connect_flags & OBD_CONNECT_BRW_SIZE)
                 sbi->ll_md_brw_size = data->ocd_brw_size;
         else
@@ -472,14 +476,6 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         sb->s_export_op = &lustre_export_operations;
 #endif
 
-        /* make root inode
-         * XXX: move this to after cbd setup? */
-        valid = OBD_MD_FLGETATTR | OBD_MD_FLBLOCKS | OBD_MD_FLMDSCAPA;
-        if (sbi->ll_flags & LL_SBI_RMT_CLIENT)
-                valid |= OBD_MD_FLRMTPERM;
-        else if (sbi->ll_flags & LL_SBI_ACL)
-                valid |= OBD_MD_FLACL;
-
         OBD_ALLOC_PTR(op_data);
         if (op_data == NULL)
                 GOTO(out_lock_cn_cb, err = -ENOMEM);
@@ -487,7 +483,23 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         op_data->op_fid1 = sbi->ll_root_fid;
         op_data->op_mode = 0;
         op_data->op_capa1 = oc;
-        op_data->op_valid = valid;
+
+        /* make root inode
+         * XXX: move this to after cbd setup? */
+        op_data->op_valid = OBD_MD_FLGETATTR | OBD_MD_FLBLOCKS |
+                            OBD_MD_FLMDSCAPA;
+        if (sbi->ll_flags & LL_SBI_PACKAGED_XATTR) {
+                op_data->op_valid |= OBD_MD_FLXATTR;
+                if (sbi->ll_flags & LL_SBI_RMT_CLIENT)
+                        op_data->op_pxt_valid = PXT_RPERM;
+                else
+                        op_data->op_pxt_valid = PXT_ACL | PXT_DEFACL;
+        } else {
+                if (sbi->ll_flags & LL_SBI_RMT_CLIENT)
+                        op_data->op_valid |= OBD_MD_FLRMTPERM;
+                else if (sbi->ll_flags & LL_SBI_ACL)
+                        op_data->op_valid |= OBD_MD_FLACL;
+        }
 
         err = md_getattr(sbi->ll_md_exp, op_data, &request);
         if (oc)
@@ -515,8 +527,14 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                         obd_free_memmd(sbi->ll_dt_exp, &lmd.lsm);
 #ifdef CONFIG_FS_POSIX_ACL
                 if (lmd.posix_acl) {
-                        posix_acl_release(lmd.posix_acl);
+                        if (lmd.posix_acl != DUMMY_ACL)
+                                posix_acl_release(lmd.posix_acl);
                         lmd.posix_acl = NULL;
+                }
+                if (lmd.def_acl) {
+                        if (lmd.def_acl != DUMMY_ACL)
+                                posix_acl_release(lmd.def_acl);
+                        lmd.def_acl = NULL;
                 }
 #endif
                 err = IS_ERR(root) ? PTR_ERR(root) : -EBADF;
@@ -1164,11 +1182,25 @@ void ll_clear_inode(struct inode *inode)
                 }
         }
 #ifdef CONFIG_FS_POSIX_ACL
-        else if (lli->lli_posix_acl) {
-                LASSERT(cfs_atomic_read(&lli->lli_posix_acl->a_refcount) == 1);
-                LASSERT(lli->lli_remote_perms == NULL);
-                posix_acl_release(lli->lli_posix_acl);
-                lli->lli_posix_acl = NULL;
+        else {
+                if (lli->lli_posix_acl != NULL) {
+                        if (lli->lli_posix_acl != DUMMY_ACL) {
+                                LASSERT(cfs_atomic_read(&lli->lli_posix_acl->
+                                                         a_refcount) == 1);
+                                LASSERT(lli->lli_remote_perms == NULL);
+                                posix_acl_release(lli->lli_posix_acl);
+                        }
+                        lli->lli_posix_acl = NULL;
+                }
+
+                if (S_ISDIR(inode->i_mode) && lli->lli_def_acl != NULL) {
+                        if (lli->lli_def_acl != DUMMY_ACL) {
+                                LASSERT(cfs_atomic_read(&lli->lli_def_acl->
+                                                         a_refcount) == 1);
+                                posix_acl_release(lli->lli_def_acl);
+                        }
+                        lli->lli_def_acl = NULL;
+                }
         }
 #endif
         lli->lli_inode_magic = LLI_INODE_DEAD;
@@ -1643,19 +1675,6 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
                         obd_free_memmd(ll_i2dtexp(inode), &lsm);
         }
 
-        if (sbi->ll_flags & LL_SBI_RMT_CLIENT) {
-                if (body->valid & OBD_MD_FLRMTPERM)
-                        ll_update_remote_perm(inode, md->remote_perm);
-        }
-#ifdef CONFIG_FS_POSIX_ACL
-        else if (body->valid & OBD_MD_FLACL) {
-                cfs_spin_lock(&lli->lli_lock);
-                if (lli->lli_posix_acl)
-                        posix_acl_release(lli->lli_posix_acl);
-                lli->lli_posix_acl = md->posix_acl;
-                cfs_spin_unlock(&lli->lli_lock);
-        }
-#endif
         inode->i_ino = cl_fid_build_ino(&body->fid1, 0);
         inode->i_generation = cl_fid_build_gen(&body->fid1);
 
@@ -1701,6 +1720,49 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
                 inode->i_nlink = body->nlink;
         if (body->valid & OBD_MD_FLRDEV)
                 inode->i_rdev = old_decode_dev(body->rdev);
+
+        lli->lli_pxt_valid = md->pxt_valid;
+        if (body->valid & OBD_MD_FLXATTR) {
+                if (sbi->ll_flags & LL_SBI_RMT_CLIENT) {
+                        if (lli->lli_pxt_valid & PXT_RPERM)
+                                ll_update_remote_perm(inode, md->remote_perm);
+                }
+#ifdef CONFIG_FS_POSIX_ACL
+                else {
+                        cfs_spin_lock(&lli->lli_lock);
+                        if (lli->lli_pxt_valid & PXT_ACL) {
+                                if (lli->lli_posix_acl != NULL &&
+                                    lli->lli_posix_acl != DUMMY_ACL)
+                                        posix_acl_release(lli->lli_posix_acl);
+                                lli->lli_posix_acl = md->posix_acl;
+                        }
+
+                        if (S_ISDIR(inode->i_mode) &&
+                            lli->lli_pxt_valid & PXT_DEFACL) {
+                                if (lli->lli_def_acl != NULL &&
+                                    lli->lli_def_acl != DUMMY_ACL)
+                                        posix_acl_release(lli->lli_def_acl);
+                                lli->lli_def_acl = md->def_acl;
+                        }
+                        cfs_spin_unlock(&lli->lli_lock);
+                }
+#endif
+        } else {
+                if (sbi->ll_flags & LL_SBI_RMT_CLIENT) {
+                        if (body->valid & OBD_MD_FLRMTPERM)
+                                ll_update_remote_perm(inode, md->remote_perm);
+#ifdef CONFIG_FS_POSIX_ACL
+                } else if (body->valid & OBD_MD_FLACL &&
+                           lli->lli_pxt_valid & PXT_ACL) {
+                        cfs_spin_lock(&lli->lli_lock);
+                        if (lli->lli_posix_acl != NULL &&
+                            lli->lli_posix_acl != DUMMY_ACL)
+                                posix_acl_release(lli->lli_posix_acl);
+                        lli->lli_posix_acl = md->posix_acl;
+                        cfs_spin_unlock(&lli->lli_lock);
+                }
+#endif
+        }
 
         if (body->valid & OBD_MD_FLID) {
                 /* FID shouldn't be changed! */
@@ -2101,8 +2163,14 @@ int ll_prep_inode(struct inode **inode,
                                 obd_free_memmd(sbi->ll_dt_exp, &md.lsm);
 #ifdef CONFIG_FS_POSIX_ACL
                         if (md.posix_acl) {
-                                posix_acl_release(md.posix_acl);
+                                if (md.posix_acl != DUMMY_ACL)
+                                        posix_acl_release(md.posix_acl);
                                 md.posix_acl = NULL;
+                        }
+                        if (md.def_acl) {
+                                if (md.def_acl != DUMMY_ACL)
+                                        posix_acl_release(md.def_acl);
+                                md.def_acl = NULL;
                         }
 #endif
                         rc = IS_ERR(*inode) ? PTR_ERR(*inode) : -ENOMEM;
