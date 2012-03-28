@@ -79,7 +79,11 @@ void seq_update_cb(struct lu_env *env, struct thandle *th,
                    struct dt_txn_commit_cb *cb, int err)
 {
         struct seq_update_callback *ccb;
+
         ccb = container_of0(cb, struct seq_update_callback, suc_cb);
+
+        LASSERT(ccb->suc_seq != NULL);
+
         ccb->suc_seq->lss_need_sync = 0;
         OBD_FREE_PTR(ccb);
 }
