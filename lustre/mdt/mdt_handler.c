@@ -91,7 +91,6 @@ ldlm_mode_t mdt_dlm_lock_modes[] = {
         [MDL_GROUP]   = LCK_GROUP
 };
 
-
 static struct mdt_device *mdt_dev(struct lu_device *d);
 static int mdt_unpack_req_pack_rep(struct mdt_thread_info *info, __u32 flags);
 static int mdt_fid2path(const struct lu_env *env, struct mdt_device *mdt,
@@ -142,6 +141,7 @@ void mdt_lock_reg_init(struct mdt_lock_handle *lh, ldlm_mode_t lm)
 {
         lh->mlh_pdo_hash = 0;
         lh->mlh_reg_mode = lm;
+	lh->mlh_rreg_mode = lm;
         lh->mlh_type = MDT_REG_LOCK;
 }
 
@@ -149,6 +149,7 @@ void mdt_lock_pdo_init(struct mdt_lock_handle *lh, ldlm_mode_t lm,
                        const char *name, int namelen)
 {
         lh->mlh_reg_mode = lm;
+	lh->mlh_rreg_mode = lm;
         lh->mlh_type = MDT_PDO_LOCK;
 
         if (name != NULL && (name[0] != '\0')) {
@@ -1224,7 +1225,8 @@ relock:
                         GOTO(out_child, rc = -ENOENT);
                 }
 
-                if (!(child_bits & MDS_INODELOCK_UPDATE)) {
+		if (!(child_bits & MDS_INODELOCK_UPDATE) &&
+		      mdt_object_exists(child) > 0) {
                         struct md_attr *ma = &info->mti_attr;
 
                         ma->ma_valid = 0;
@@ -1281,7 +1283,8 @@ relock:
                          (unsigned long)res_id->name[1],
                          (unsigned long)res_id->name[2],
                          PFID(mdt_object_fid(child)));
-                mdt_pack_size2body(info, child);
+		if (mdt_object_exists(child) > 0)
+			mdt_pack_size2body(info, child);
         }
         if (lock)
                 LDLM_LOCK_PUT(lock);
@@ -2307,6 +2310,57 @@ int mdt_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
         RETURN(rc);
 }
 
+int mdt_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
+			void *data, int flag)
+{
+	struct lustre_handle lockh;
+	int		  rc;
+
+	switch (flag) {
+	case LDLM_CB_BLOCKING:
+		ldlm_lock2handle(lock, &lockh);
+		rc = ldlm_cli_cancel(&lockh);
+		if (rc < 0) {
+			CDEBUG(D_INODE, "ldlm_cli_cancel: %d\n", rc);
+			RETURN(rc);
+		}
+		break;
+	case LDLM_CB_CANCELING:
+		LDLM_DEBUG(lock, "Revoke remote lock\n");
+		break;
+	default:
+		LBUG();
+	}
+	RETURN(0);
+}
+
+int mdt_remote_object_lock(struct mdt_thread_info *mti,
+			   struct mdt_object *o, struct lustre_handle *lh,
+			   ldlm_mode_t mode, __u64 ibits)
+{
+	struct ldlm_enqueue_info *einfo = &mti->mti_einfo;
+	ldlm_policy_data_t *policy = &mti->mti_policy;
+	int rc = 0;
+	ENTRY;
+
+	LASSERT(mdt_object_exists(o) < 0);
+
+	LASSERT((ibits & MDS_INODELOCK_UPDATE));
+
+	memset(einfo, 0, sizeof(*einfo));
+	einfo->ei_type = LDLM_IBITS;
+	einfo->ei_mode = mode;
+	einfo->ei_cb_bl = mdt_md_blocking_ast;
+	einfo->ei_cb_cp = ldlm_completion_ast;
+
+	memset(policy, 0, sizeof(*policy));
+	policy->l_inodebits.bits = ibits;
+
+	rc = mo_object_lock(mti->mti_env, mdt_object_child(o), lh, einfo,
+			    policy);
+	RETURN(rc);
+}
+
 int mdt_object_lock(struct mdt_thread_info *info, struct mdt_object *o,
                     struct mdt_lock_handle *lh, __u64 ibits, int locality)
 {
@@ -2323,7 +2377,6 @@ int mdt_object_lock(struct mdt_thread_info *info, struct mdt_object *o,
 
         if (mdt_object_exists(o) < 0) {
                 if (locality == MDT_CROSS_LOCK) {
-                        /* cross-ref object fix */
                         ibits &= ~MDS_INODELOCK_UPDATE;
                         ibits |= MDS_INODELOCK_LOOKUP;
                 } else {
@@ -2472,6 +2525,9 @@ void mdt_object_unlock(struct mdt_thread_info *info, struct mdt_object *o,
         mdt_save_lock(info, &lh->mlh_pdo_lh, lh->mlh_pdo_mode, decref);
         mdt_save_lock(info, &lh->mlh_reg_lh, lh->mlh_reg_mode, decref);
 
+	if (lustre_handle_is_used(&lh->mlh_rreg_lh))
+		ldlm_lock_decref(&lh->mlh_rreg_lh, lh->mlh_rreg_mode);
+
         EXIT;
 }
 
@@ -2505,8 +2561,7 @@ void mdt_object_unlock_put(struct mdt_thread_info * info,
         mdt_object_put(info->mti_env, o);
 }
 
-static struct mdt_handler *mdt_handler_find(__u32 opc,
-                                            struct mdt_opc_slice *supported)
+struct mdt_handler *mdt_handler_find(__u32 opc, struct mdt_opc_slice *supported)
 {
         struct mdt_opc_slice *s;
         struct mdt_handler   *h;
@@ -2787,6 +2842,8 @@ void mdt_lock_handle_init(struct mdt_lock_handle *lh)
         lh->mlh_reg_mode = LCK_MINMODE;
         lh->mlh_pdo_lh.cookie = 0ull;
         lh->mlh_pdo_mode = LCK_MINMODE;
+	lh->mlh_rreg_lh.cookie = 0ull;
+	lh->mlh_rreg_mode = LCK_MINMODE;
 }
 
 void mdt_lock_handle_fini(struct mdt_lock_handle *lh)
@@ -3001,6 +3058,7 @@ static int mdt_msg_check_version(struct lustre_msg *msg)
         case MDS_GET_INFO:
         case MDS_QUOTACHECK:
         case MDS_QUOTACTL:
+	case MDS_OBJ_UPDATE:
         case QUOTA_DQACQ:
         case QUOTA_DQREL:
         case SEQ_QUERY:
@@ -3792,12 +3850,16 @@ static int mdt_seq_init_cli(const struct lu_env *env,
                             struct mdt_device *m,
                             struct lustre_cfg *cfg)
 {
-        struct md_site    *ms = mdt_md_site(m);
-        struct obd_device *mdc;
-        int                rc;
-        int                index;
+	struct md_site	  *ms = mdt_md_site(m);
+	struct obd_device       *osp;
+	struct obd_device       *lov;
+	int		     rc;
+	int		     index;
         struct mdt_thread_info *info;
-        char *p, *index_string = lustre_cfg_string(cfg, 2);
+	char		   *p;
+	char		   *prefix;
+	char		   *index_string = lustre_cfg_string(cfg, 2);
+	struct obd_uuid	 obd_uuid;
         ENTRY;
 
         info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
@@ -3814,43 +3876,54 @@ static int mdt_seq_init_cli(const struct lu_env *env,
         if (index != 0 || ms->ms_client_seq)
                 RETURN(0);
 
-	mdc = class_name2obd(lustre_cfg_string(cfg, 1));
-        if (!mdc) {
-		CERROR("can't find %s device\n", lustre_cfg_string(cfg, 1));
-                rc = -ENOENT;
-        } else if (!mdc->obd_set_up) {
-                CERROR("target %s not set up\n", mdc->obd_name);
-                rc = -EINVAL;
-        } else {
-                LASSERT(ms->ms_control_exp);
-                OBD_ALLOC_PTR(ms->ms_client_seq);
-                if (ms->ms_client_seq != NULL) {
-                        char *prefix;
+	lov = class_name2obd(lustre_cfg_string(cfg, 0));
+	if (lov == NULL) {
+		CERROR("%s: Can not find %s\n",
+			m->mdt_md_dev.md_lu_dev.ld_obd->obd_name,
+			lustre_cfg_string(cfg, 0));
+		RETURN(-EINVAL);
+	}
+	obd_str2uuid(&obd_uuid, lustre_cfg_string(cfg, 1));
+	osp = class_find_client_obd(&obd_uuid, LUSTRE_OSP_NAME, &lov->obd_uuid);
+	if (osp == NULL) {
+		CERROR("%s: can't find %s device\n",
+			m->mdt_md_dev.md_lu_dev.ld_obd->obd_name,
+			lustre_cfg_string(cfg, 1));
+		RETURN(-EINVAL);
+	}
 
-                        OBD_ALLOC(prefix, MAX_OBD_NAME + 5);
-                        if (!prefix)
-                                RETURN(-ENOMEM);
+	if (!osp->obd_set_up) {
+		CERROR("target %s not set up\n", osp->obd_name);
+		rc = -EINVAL;
+	}
 
-                        snprintf(prefix, MAX_OBD_NAME + 5, "ctl-%s",
-                                 mdc->obd_name);
+	LASSERT(ms->ms_control_exp);
+	OBD_ALLOC_PTR(ms->ms_client_seq);
+	if (ms->ms_client_seq == NULL)
+		RETURN(-ENOMEM);
 
-                        rc = seq_client_init(ms->ms_client_seq,
-                                             ms->ms_control_exp,
-                                             LUSTRE_SEQ_METADATA,
-                                             prefix, NULL);
-                        OBD_FREE(prefix, MAX_OBD_NAME + 5);
-                } else
-                        rc = -ENOMEM;
+	OBD_ALLOC(prefix, MAX_OBD_NAME + 5);
+	if (!prefix) {
+		OBD_FREE_PTR(ms->ms_client_seq);
+		ms->ms_client_seq = NULL;
+		RETURN(-ENOMEM);
+	}
 
-                if (rc)
-                        RETURN(rc);
+	snprintf(prefix, MAX_OBD_NAME + 5, "ctl-%s", osp->obd_name);
+	rc = seq_client_init(ms->ms_client_seq, ms->ms_control_exp,
+			     LUSTRE_SEQ_METADATA, prefix, NULL);
+	OBD_FREE(prefix, MAX_OBD_NAME + 5);
+	if (rc) {
+		OBD_FREE_PTR(ms->ms_client_seq);
+		ms->ms_client_seq = NULL;
+		RETURN(rc);
+	}
 
-                LASSERT(ms->ms_server_seq != NULL);
-                rc = seq_server_set_cli(ms->ms_server_seq, ms->ms_client_seq,
-                                        env);
-        }
+	LASSERT(ms->ms_server_seq != NULL);
+	rc = seq_server_set_cli(ms->ms_server_seq, ms->ms_client_seq,
+				env);
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 static void mdt_seq_fini_cli(struct mdt_device *m)
@@ -3915,6 +3988,43 @@ static int mdt_fld_init(const struct lu_env *env,
         }
 
         RETURN(0);
+}
+
+static void mdt_stack_pre_fini(const struct lu_env *env,
+			   struct mdt_device *m, struct lu_device *top)
+{
+	struct obd_device       *obd = mdt2obd_dev(m);
+	struct lustre_cfg_bufs  *bufs;
+	struct lustre_cfg       *lcfg;
+	struct mdt_thread_info  *info;
+	ENTRY;
+
+	LASSERT(top);
+
+	info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+	LASSERT(info != NULL);
+
+	bufs = &info->mti_u.bufs;
+
+	LASSERT(m->mdt_child_exp);
+	LASSERT(m->mdt_child_exp->exp_obd);
+	obd = m->mdt_child_exp->exp_obd;
+
+	/* process cleanup, pass mdt obd name to get obd umount flags */
+	/* XXX: this is needed because all layers are referenced by
+	 * objects (some of them are pinned by osd, for example *
+	 * the proper solution should be a model where object used
+	 * by osd only doesn't have mdt/mdd slices -bzzz */
+	lustre_cfg_bufs_reset(bufs, obd->obd_name);
+	lustre_cfg_bufs_set_string(bufs, 1, NULL);
+	lcfg = lustre_cfg_new(LCFG_PRE_CLEANUP, bufs);
+	if (!lcfg) {
+		CERROR("%s:Cannot alloc lcfg!\n", mdt_obd_name(m));
+		return;
+	}
+	top->ld_ops->ldo_process_config(env, top, lcfg);
+	lustre_cfg_free(lcfg);
+	EXIT;
 }
 
 static void mdt_stack_fini(const struct lu_env *env,
@@ -4301,6 +4411,8 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 
         ping_evictor_stop();
 
+
+	mdt_stack_pre_fini(env, m, md2lu_dev(m->mdt_child));
         mdt_llog_ctxt_unclone(env, m, LLOG_CHANGELOG_ORIG_CTXT);
         obd_exports_barrier(obd);
         obd_zombie_barrier();
@@ -4486,6 +4598,14 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         if (rc)
                 GOTO(err_fini_stack, rc);
 
+	rc = mdt_fld_init(env, obd->obd_name, m);
+	if (rc)
+		GOTO(err_lut, rc);
+
+	rc = mdt_seq_init(env, obd->obd_name, m);
+	if (rc)
+		GOTO(err_fini_fld, rc);
+
         snprintf(info->mti_u.ns_name, sizeof info->mti_u.ns_name,
                  LUSTRE_MDT_NAME"-%p", m);
         m->mdt_namespace = ldlm_namespace_new(obd, info->mti_u.ns_name,
@@ -4590,7 +4710,9 @@ err_free_ns:
         obd->obd_namespace = m->mdt_namespace = NULL;
 err_fini_seq:
         mdt_seq_fini(env, m);
+err_fini_fld:
         mdt_fld_fini(env, m);
+err_lut:
         tgt_fini(env, &m->mdt_lut);
 err_fini_stack:
         mdt_stack_fini(env, m, md2lu_dev(m->mdt_child));
@@ -4779,14 +4901,6 @@ static int mdt_prepare(const struct lu_env *env,
 		RETURN(rc);
 
 	rc = mdt_llog_ctxt_clone(env, mdt, LLOG_CHANGELOG_ORIG_CTXT);
-	if (rc)
-		RETURN(rc);
-
-	rc = mdt_fld_init(env, obd->obd_name, mdt);
-	if (rc)
-		RETURN(rc);
-
-	rc = mdt_seq_init(env, obd->obd_name, mdt);
 	if (rc)
 		RETURN(rc);
 

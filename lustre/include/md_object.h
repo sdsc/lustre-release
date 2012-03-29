@@ -286,6 +286,10 @@ struct md_object_operations {
         int (*moo_file_unlock)(const struct lu_env *env, struct md_object *obj,
                                struct lov_mds_md *lmm,
                                struct lustre_handle *lockh);
+	int (*moo_object_lock)(const struct lu_env *env, struct md_object *obj,
+			       struct lustre_handle *lh,
+			       struct ldlm_enqueue_info *einfo,
+			       void *policy);
 };
 
 /**
@@ -701,6 +705,16 @@ static inline int mo_file_unlock(const struct lu_env *env, struct md_object *m,
 {
         LASSERT(m->mo_ops->moo_file_unlock);
         return m->mo_ops->moo_file_unlock(env, m, lmm, lockh);
+}
+
+static inline int mo_object_lock(const struct lu_env *env,
+				 struct md_object *m,
+				 struct lustre_handle *lh,
+				 struct ldlm_enqueue_info *einfo,
+				 void *policy)
+{
+	LASSERT(m->mo_ops->moo_object_lock);
+	return m->mo_ops->moo_object_lock(env, m, lh, einfo, policy);
 }
 
 static inline int mdo_lookup(const struct lu_env *env,

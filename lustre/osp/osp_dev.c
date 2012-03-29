@@ -372,6 +372,9 @@ static int osp_process_config(const struct lu_env *env,
 	ENTRY;
 
 	switch (lcfg->lcfg_command) {
+	case LCFG_PRE_CLEANUP:
+		rc = osp_disconnect(d);
+		break;
 	case LCFG_CLEANUP:
 		if (!is_osp_for_connection(d->opd_obd->obd_name))
 			lu_dev_del_linkage(dev->ld_site, dev);
@@ -414,7 +417,8 @@ static int osp_recovery_complete(const struct lu_env *env,
 
 	ENTRY;
 	osp->opd_recovery_completed = 1;
-	cfs_waitq_signal(&osp->opd_pre_waitq);
+	if (!osp->opd_connect_mdt)
+		cfs_waitq_signal(&osp->opd_pre_waitq);
 	RETURN(rc);
 }
 
@@ -477,6 +481,7 @@ static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 const struct dt_device_operations osp_dt_ops = {
 	.dt_statfs	= osp_statfs,
 	.dt_sync	= osp_sync,
+	.dt_trans_start	= osp_trans_start,
 };
 
 static int osp_connect_to_osd(const struct lu_env *env, struct osp_device *m,

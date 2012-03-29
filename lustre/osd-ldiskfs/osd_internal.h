@@ -157,6 +157,21 @@ struct osd_obj_map {
 	int		    oom_subdir_count;
 };
 
+struct osd_mdobj {
+	struct dentry	 *om_root;      /* AGENT/<index> */
+	obd_seq		om_index;     /* mdt index */
+	cfs_list_t	     om_list;      /* list to omm_list */
+};
+
+struct osd_mdobj_map {
+	struct dentry	    *omm_obj_dentry;
+	cfs_rw_semaphore_t	omm_obj_sem;
+	cfs_list_t		omm_obj_list;
+	struct dentry	    *omm_agent_dentry;
+	cfs_rw_semaphore_t	omm_agent_sem;
+	cfs_list_t		omm_agent_list;
+};
+
 #ifdef HAVE_LDISKFS_PDO
 
 #define osd_ldiskfs_find_entry(dir, dentry, de, lock)   \
@@ -295,6 +310,7 @@ struct osd_device {
 	struct lu_site		  od_site;
 
 	struct osd_obj_map	*od_ost_map;
+	struct osd_mdobj_map	*od_mdt_map;
 
         unsigned long long        od_readcache_max_filesize;
         int                       od_read_cache;
@@ -619,6 +635,7 @@ struct osd_thread_info {
 	union lquota_rec	oti_quota_rec;
 	__u64			oti_quota_id;
 	struct lu_seq_range	oti_seq_range;
+	char			oti_name[48];
 };
 
 extern int ldiskfs_pdo;
@@ -671,6 +688,9 @@ int osd_scrub_dump(struct osd_device *dev, char *buf, int len);
 
 int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
 		   const struct lu_fid *fid, struct lu_seq_range *range);
+struct dentry *osd_agent_lookup(struct osd_mdobj_map *omm, int index);
+struct dentry *osd_agent_load(const struct osd_device *osd, int mdt_index,
+			      int create);
 /* osd_quota_fmt.c */
 int walk_tree_dqentry(const struct lu_env *env, struct osd_object *obj,
                       int type, uint blk, int depth, uint index,

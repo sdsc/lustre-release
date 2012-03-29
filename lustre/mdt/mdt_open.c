@@ -1457,12 +1457,10 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                 }
                 created = 1;
         } else {
-                /* We have to get attr & lov ea for this object */
-		result = mdt_attr_get_complex(info, child, ma);
                 /*
                  * The object is on remote node, return its FID for remote open.
                  */
-                if (result == -EREMOTE) {
+		if (mdt_object_exists(child) < 0) {
                         /*
                          * Check if this lock already was sent to client and
                          * this is resent case. For resent case do not take lock
@@ -1498,6 +1496,12 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                         if (rc != 0)
                                 result = rc;
                         GOTO(out_child, result);
+		} else if (mdt_object_exists(child) > 0) {
+			/* We have to get attr & lov ea for this object */
+			result = mdt_attr_get_complex(info, child, ma);
+		} else {
+			/*object non-exist!!!*/
+			LBUG();
                 }
         }
 

@@ -428,7 +428,7 @@ static int lod_declare_xattr_set(const struct lu_env *env,
 		/*
 		 * this is a request to manipulate object's striping
 		 */
-		if (dt_object_exists(dt)) {
+		if (dt_object_exists(dt) > 0) {
 			rc = dt_attr_get(env, next, attr, BYPASS_CAPA);
 			if (rc)
 				RETURN(rc);
@@ -684,7 +684,7 @@ static void lod_ah_init(const struct lu_env *env,
 	 * in case of late striping creation, ->ah_init()
 	 * can be called with local object existing
 	 */
-	if (!dt_object_exists(nextc))
+	if (dt_object_exists(nextc) <= 0)
 		nextc->do_ops->do_ah_init(env, ah, nextp, nextc, child_mode);
 
 	if (S_ISDIR(child_mode)) {
@@ -846,7 +846,7 @@ int lod_declare_striped_object(const struct lu_env *env, struct dt_object *dt,
 	 * we have to propagate this size to specific object
 	 * the case is possible only when local object was created previously
 	 */
-	if (dt_object_exists(next))
+	if (dt_object_exists(next) > 0)
 		rc = lod_declare_init_size(env, dt, th);
 
 out:
@@ -868,7 +868,6 @@ static int lod_declare_object_create(const struct lu_env *env,
 	LASSERT(dof);
 	LASSERT(attr);
 	LASSERT(th);
-	LASSERT(!dt_object_exists(next));
 
 	/*
 	 * first of all, we declare creation of local object
@@ -1106,6 +1105,26 @@ struct dt_object_operations lod_obj_ops = {
 	.do_object_sync		= lod_object_sync,
 };
 
+static int lod_object_lock(const struct lu_env *env,
+			   struct dt_object *dt, struct lustre_handle *lh,
+			   struct ldlm_enqueue_info *einfo,
+			   void *policy)
+{
+	struct dt_object   *next = dt_object_child(dt);
+	int		 rc;
+	ENTRY;
+
+	/*
+	 * declare setattr on the local object
+	 */
+	rc = dt_object_lock(env, next, lh, einfo, policy);
+
+	RETURN(rc);
+}
+
+struct dt_lock_operations lod_lock_ops = {
+	.do_object_lock       = lod_object_lock,
+};
 static ssize_t lod_read(const struct lu_env *env, struct dt_object *dt,
 			struct lu_buf *buf, loff_t *pos,
 			struct lustre_capa *capa)

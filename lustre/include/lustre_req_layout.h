@@ -154,6 +154,7 @@ extern struct req_format RQF_MDS_GETSTATUS;
 extern struct req_format RQF_MDS_SYNC;
 extern struct req_format RQF_MDS_GETXATTR;
 extern struct req_format RQF_MDS_GETATTR;
+extern struct req_format RQF_MDS_OBJ_UPDATE;
 /*
  * This is format of direct (non-intent) MDS_GETATTR_NAME request.
  */

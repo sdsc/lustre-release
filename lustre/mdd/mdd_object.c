@@ -228,7 +228,7 @@ static int mdd_object_init(const struct lu_env *env, struct lu_object *o,
 
 static int mdd_object_start(const struct lu_env *env, struct lu_object *o)
 {
-        if (lu_object_exists(o))
+	if (lu_object_exists(o) > 0)
                 return mdd_get_flags(env, lu2mdd_obj(o));
         else
                 return 0;
@@ -612,6 +612,7 @@ int mdd_declare_object_create_internal(const struct lu_env *env,
 				       const struct md_op_spec *spec)
 {
         struct dt_object_format *dof = &mdd_env_info(env)->mti_dof;
+	struct dt_allocation_hint *hint = &mdd_env_info(env)->mti_hint;
         const struct dt_index_features *feat = spec->sp_feat;
         int rc;
         ENTRY;
@@ -633,7 +634,7 @@ int mdd_declare_object_create_internal(const struct lu_env *env,
 		}
 	}
 
-	rc = mdo_declare_create_obj(env, c, attr, NULL, dof, handle);
+	rc = mdo_declare_create_obj(env, c, attr, hint, dof, handle);
 
         RETURN(rc);
 }
@@ -1800,6 +1801,18 @@ static int mdd_object_sync(const struct lu_env *env, struct md_object *obj)
         return dt_object_sync(env, mdd_object_child(mdd_obj));
 }
 
+static int mdd_object_lock(const struct lu_env *env,
+			   struct md_object *obj,
+			   struct lustre_handle *lh,
+			   struct ldlm_enqueue_info *einfo,
+			   void *policy)
+{
+	struct mdd_object *mdd_obj = md2mdd_obj(obj);
+	LASSERT(mdd_object_exists(mdd_obj));
+	return dt_object_lock(env, mdd_object_child(mdd_obj), lh,
+			      einfo, policy);
+}
+
 const struct md_object_operations mdd_obj_ops = {
         .moo_permission    = mdd_permission,
         .moo_attr_get      = mdd_attr_get,
@@ -1816,4 +1829,5 @@ const struct md_object_operations mdd_obj_ops = {
         .moo_capa_get      = mdd_capa_get,
         .moo_object_sync   = mdd_object_sync,
         .moo_path          = mdd_path,
+	.moo_object_lock   = mdd_object_lock,
 };

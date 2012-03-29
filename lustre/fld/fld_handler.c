@@ -281,6 +281,7 @@ int fld_server_lookup(struct lu_server_fld *fld,
         info = lu_context_key_get(&env->le_ctx, &fld_thread_key);
         erange = &info->fti_lrange;
 
+	memset(erange, 0, sizeof(erange));
         /* Lookup it in the cache. */
         rc = fld_cache_lookup(fld->lsf_cache, seq, erange);
         if (rc == 0) {

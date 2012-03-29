@@ -1930,10 +1930,9 @@ int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
 	LASSERT(ms != NULL);
 	range->lsr_flags = -1;
 	rc = fld_server_lookup(ms->ms_server_fld, env, fid_seq(fid), range);
-	if (rc != 0) {
+	if (rc != 0)
 		CERROR("%s can not find "DFID": rc = %d\n",
-		       osd2lu_dev(osd)->ld_obd->obd_name, PFID(fid), rc);
-	}
+		       osd_name(osd), PFID(fid), rc);
 	return rc;
 }
 
@@ -2226,6 +2225,214 @@ static int osd_ea_fid_get(const struct lu_env *env, struct osd_object *obj,
 
 	iput(inode);
 	RETURN(0);
+}
+/**
+ * look up the agent directory by fid
+ **/
+static struct dentry *osd_agent_dir_lookup(const struct lu_env *env,
+					   struct osd_device *osd,
+					   const struct lu_fid *fid)
+{
+	struct osd_thread_info      *oti = osd_oti_get(env);
+	struct osd_mdobj_map	*omm = osd->od_mdt_map;
+	struct dentry	       *dir;
+	struct lu_seq_range	 *range = &oti->oti_seq_range;
+	int			  rc;
+
+	rc = osd_fld_lookup(env, osd, fid, range);
+	if (rc != 0)
+		return ERR_PTR(rc);
+
+	dir = osd_agent_lookup(omm, range->lsr_index);
+	if (dir == NULL) {
+		CERROR("%s: Can not find agent %d dir\n", osd_name(osd),
+		       range->lsr_index);
+		return ERR_PTR(-ENOENT);
+	}
+
+	return dir;
+}
+
+/**
+ * look up an inode in the agent directory by fid
+ **/
+static struct inode *osd_agent_inode_lookup(const struct lu_env *env,
+					    struct osd_device *osd,
+					    struct dentry *parent,
+					    const struct lu_fid *pfid,
+					    const struct lu_fid *fid)
+{
+	struct osd_thread_info      *oti = osd_oti_get(env);
+	struct osd_inode_id	 *id = &oti->oti_id;
+	char			*name = oti->oti_name;
+	struct dentry	       *dentry;
+	struct ldiskfs_dir_entry_2  *de;
+	struct buffer_head	  *bh;
+	struct inode		*inode;
+
+	sprintf(name, DFID"-"DFID, PFID(pfid), PFID(fid));
+	dentry = osd_child_dentry_by_inode(env, parent->d_inode, name,
+					   strlen(name));
+	bh = osd_ldiskfs_find_entry(parent->d_inode, dentry, &de, NULL);
+	if (bh == NULL)
+		return ERR_PTR(-ENOENT);
+
+	brelse(bh);
+	id->oii_ino = le32_to_cpu(de->inode);
+	id->oii_gen = OSD_OII_NOGEN;
+
+	inode = osd_iget(oti, osd, id);
+	if (IS_ERR(inode)) {
+		CERROR("%s: iget error "DFID" id %u:%u\n", osd_name(osd),
+		       PFID(fid), id->oii_ino, id->oii_gen);
+		return inode;
+	}
+
+	return inode;
+}
+
+/**
+ * Create an agent inode for remote entry
+ **/
+static struct inode *osd_create_agent_inode(const struct lu_env *env,
+					    struct osd_device *osd,
+					    const struct lu_fid *pfid,
+					    const struct lu_fid *fid,
+					    __u32  mode, struct thandle *th)
+{
+	struct osd_thread_info      *info = osd_oti_get(env);
+	struct inode		*agent;
+	struct osd_thandle	  *oh;
+	char			*name = info->oti_name;
+	struct dentry	       *dentry;
+	struct dentry	       *parent;
+	int			  rc;
+	ENTRY;
+
+	parent = osd_agent_dir_lookup(env, osd, fid);
+	if (IS_ERR(parent) && PTR_ERR(parent) != -ENOENT)
+		RETURN((void *)parent);
+
+	agent = osd_agent_inode_lookup(env, osd, parent, pfid, fid);
+	if (IS_ERR(agent) && agent != ERR_PTR(-ENOENT))
+		RETURN(agent);
+
+	if (!IS_ERR(agent)) {
+		agent->i_nlink++;
+		mark_inode_dirty(agent);
+		RETURN(agent);
+	}
+
+	LASSERT(th);
+	oh = container_of(th, struct osd_thandle, ot_super);
+	LASSERT(oh->ot_handle->h_transaction != NULL);
+
+#ifdef HAVE_QUOTA_SUPPORT
+	osd_push_ctxt(info->oti_env, save);
+#endif
+	/*FIXME: Insert index api needs to know the mode of
+	 *the remote object. Just use S_IFDIR for now*/
+	agent = ldiskfs_create_inode(oh->ot_handle, parent->d_inode,
+				     mode & S_IFMT);
+#ifdef HAVE_QUOTA_SUPPORT
+	osd_pop_ctxt(info->oti_env, save);
+#endif
+	if (IS_ERR(agent)) {
+		CERROR("create agent error %d\n", (int)PTR_ERR(agent));
+		RETURN(agent);
+	}
+
+	sprintf(name, DFID"-"DFID, PFID(pfid), PFID(fid));
+	dentry = osd_child_dentry_by_inode(env, parent->d_inode, name,
+					   strlen(name));
+	cfs_mutex_lock(&parent->d_inode->i_mutex);
+	rc = osd_ldiskfs_add_entry(oh->ot_handle, dentry, agent, NULL);
+	cfs_mutex_unlock(&parent->d_inode->i_mutex);
+	if (rc) {
+		CERROR("%s: create agent dir "DFID"\n", osd_name(osd),
+		       PFID(fid));
+		agent->i_nlink--;
+		mark_inode_dirty(agent);
+		iput(agent);
+		agent = ERR_PTR(rc);
+	}
+
+	RETURN(agent);
+}
+
+static int osd_delete_agent_inode(const struct lu_env *env,
+				  struct osd_device *osd,
+				  const struct lu_fid *pfid,
+				  const struct lu_fid *fid,
+				  struct osd_thandle *oh)
+{
+	struct osd_thread_info      *oti = osd_oti_get(env);
+	struct lu_seq_range	 *range = &oti->oti_seq_range;
+	struct osd_inode_id	 *id = &oti->oti_id;
+	struct md_site	      *ms = osd_md_site(osd);
+	struct ldiskfs_dir_entry_2  *de;
+	struct buffer_head	  *bh;
+	struct inode		*inode;
+	struct dentry	       *dentry;
+	struct dentry	       *parent;
+	int			  rc = 0;
+	char			*name = oti->oti_name;
+	ENTRY;
+
+	range->lsr_flags = LU_SEQ_RANGE_MDT;
+	rc = osd_fld_lookup(env, osd, fid, range);
+	if (rc != 0) {
+		CERROR("%s: fld lookup error: rc = %d\n", osd_name(osd), rc);
+		RETURN(rc);
+	}
+	if (likely(ms->ms_node_id == range->lsr_index))
+		RETURN(0);
+
+	parent = osd_agent_load(osd, range->lsr_index, 0);
+	if (IS_ERR(parent))
+		RETURN(PTR_ERR(parent));
+
+	sprintf(name, DFID"-"DFID, PFID(pfid), PFID(fid));
+	dentry = osd_child_dentry_by_inode(env, parent->d_inode, name,
+					   strlen(name));
+	cfs_mutex_lock(&parent->d_inode->i_mutex);
+	bh = osd_ldiskfs_find_entry(parent->d_inode, dentry, &de, NULL);
+	if (bh == NULL) {
+		cfs_mutex_unlock(&parent->d_inode->i_mutex);
+		RETURN(-ENOENT);
+	}
+
+	rc = ldiskfs_delete_entry(oh->ot_handle, parent->d_inode, de,
+				  bh);
+	cfs_mutex_unlock(&parent->d_inode->i_mutex);
+	if (rc != 0) {
+		brelse(bh);
+		RETURN(rc);
+	}
+
+	id->oii_ino = le32_to_cpu(de->inode);
+	id->oii_gen = OSD_OII_NOGEN;
+
+	inode = osd_iget(oti, osd, id);
+	if (IS_ERR(inode)) {
+		brelse(bh);
+		CERROR("%s: iget error "DFID" id %u:%u\n", osd_name(osd),
+		       PFID(fid), id->oii_ino, id->oii_gen);
+		RETURN(PTR_ERR(inode));
+	}
+
+	mark_inode_dirty(parent->d_inode);
+	brelse(bh);
+	inode->i_nlink--;
+	mark_inode_dirty(inode);
+	iput(inode);
+	if (inode->i_nlink > 0)
+		RETURN(rc);
+
+	CDEBUG(D_INODE, "Delete agent inode "DFID" %lu\n", PFID(fid),
+	       inode->i_ino);
+
+	RETURN(rc);
 }
 
 /**
@@ -3019,11 +3226,11 @@ static int osd_index_ea_delete(const struct lu_env *env, struct dt_object *dt,
         struct inode               *dir    = obj->oo_inode;
         struct dentry              *dentry;
         struct osd_thandle         *oh;
-        struct ldiskfs_dir_entry_2 *de;
+	struct ldiskfs_dir_entry_2 *de = NULL;
         struct buffer_head         *bh;
         struct htree_lock          *hlock = NULL;
-        int                         rc;
-
+	struct lu_fid		   *fid = &osd_oti_get(env)->oti_fid;
+	int			   rc;
         ENTRY;
 
         LINVRNT(osd_invariant(obj));
@@ -3063,6 +3270,29 @@ static int osd_index_ea_delete(const struct lu_env *env, struct dt_object *dt,
                 ldiskfs_htree_unlock(hlock);
         else
                 cfs_up_write(&obj->oo_ext_idx_sem);
+
+	if (rc != 0)
+		GOTO(out, rc);
+
+	LASSERT(de != NULL);
+	rc = osd_get_fid_from_dentry(de, (struct dt_rec *)fid);
+	if (rc != 0 && rc != -ENODATA)
+		GOTO(out, rc);
+	if (rc == 0 && fid_is_norm(fid)) {
+		struct osd_device *osd = osd_dev(dt->do_lu.lo_dev);
+
+		rc = osd_delete_agent_inode(env, osd,
+					    lu_object_fid(&dt->do_lu),
+					    fid, oh);
+		if (rc != 0)
+			CERROR("%s: del agent inode "DFID": rc = %d\n",
+				osd_name(osd), PFID(fid), rc);
+		if (rc == 1)
+			rc = 0;
+	} else {
+		rc = 0;
+	}
+out:
 
         LASSERT(osd_invariant(obj));
         RETURN(rc);
@@ -3600,9 +3830,11 @@ static int osd_index_declare_ea_insert(const struct lu_env *env,
                                        const struct dt_key *key,
                                        struct thandle *handle)
 {
-        struct osd_thandle	*oh;
-	struct inode		*inode;
+	struct osd_thandle	*oh;
+	struct osd_device	*osd   = osd_dev(dt->do_lu.lo_dev);
 	struct lu_fid		*fid = (struct lu_fid *)rec;
+	struct lu_seq_range	*range = &osd_oti_get(env)->oti_seq_range;
+	struct md_site		*ms = osd_md_site(osd);
 	int			rc;
 	ENTRY;
 
@@ -3624,22 +3856,43 @@ static int osd_index_declare_ea_insert(const struct lu_env *env,
 		 */
 		LASSERT(strcmp(name, dotdot) == 0 || strcmp(name, dot) == 0);
 	} else {
-		inode = osd_dt_obj(dt)->oo_inode;
+		struct inode *inode = osd_dt_obj(dt)->oo_inode;
 
-	/* We ignore block quota on meta pool (MDTs), so needn't
-	 * calculate how many blocks will be consumed by this index
-	 * insert */
-	rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid, 0, oh,
-				   true, true, NULL, false);
+		/* We ignore block quota on meta pool (MDTs), so needn't
+		 * calculate how many blocks will be consumed by this index
+		 * insert */
+		rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid, 0, oh,
+					   true, true, NULL, false);
+	}
+	
 	if (fid == NULL)
 		RETURN(0);
 
 	/* It does fld look up inside declare, and the result will be
-	* added to fld cache, so the following fld lookup inside insert
-	* does not need send RPC anymore, so avoid send rpc with holding
-	* transaction */
-	osd_fld_lookup(env, osd_dt_dev(handle->th_dev), fid,
-			&osd_oti_get(env)->oti_seq_range);
+	 * added to fld cache, so the following fld lookup inside insert
+	 * does not need send RPC anymore, so avoid send rpc with holding
+	 * transaction */
+	rc = osd_fld_lookup(env, osd_dt_dev(handle->th_dev), fid, range);
+	if (rc != 0) {
+		CERROR("%s: fld lookup error: rc = %d\n",
+		       handle->th_dev->dd_lu_dev.ld_obd->obd_name, rc);
+		return rc;
+	}
+
+	if (fid_is_norm(fid) && unlikely(ms->ms_node_id != range->lsr_index)) {
+		struct dentry *agent;
+		/* Check whether agent dir for the MDT has been created */
+		agent = osd_agent_load(osd_dt_dev(handle->th_dev),
+				       range->lsr_index, 1);
+		if (IS_ERR(agent)) {
+			CERROR("%s: agent %d find or create error: rc = %d\n",
+			       handle->th_dev->dd_lu_dev.ld_obd->obd_name,
+			       range->lsr_index, rc);
+			return PTR_ERR(agent);
+		}
+		oh->ot_credits += osd_dto_credits_noquota[DTO_INDEX_INSERT];
+		oh->ot_credits += osd_dto_credits_noquota[DTO_OBJECT_CREATE];
+	}
 
 	RETURN(rc);
 }
@@ -3660,13 +3913,16 @@ static int osd_index_ea_insert(const struct lu_env *env, struct dt_object *dt,
                                const struct dt_key *key, struct thandle *th,
                                struct lustre_capa *capa, int ignore_quota)
 {
-        struct osd_object *obj   = osd_dt_obj(dt);
-        struct lu_fid     *fid   = (struct lu_fid *) rec;
-        const char        *name  = (const char *)key;
-        struct osd_object *child;
-        int                rc;
-
-        ENTRY;
+	struct osd_object	*obj = osd_dt_obj(dt);
+	struct osd_device	*osd = osd_dev(dt->do_lu.lo_dev);
+	struct lu_fid		*fid = (struct lu_fid *) rec;
+	const char		*name = (const char *)key;
+	struct osd_thread_info	*oti   = osd_oti_get(env);
+	struct osd_inode_id	*id    = &oti->oti_id;
+	struct inode		*child_inode = NULL;
+	struct osd_object	*child = NULL;
+	int			rc;
+	ENTRY;
 
         LASSERT(osd_invariant(obj));
         LASSERT(dt_object_exists(dt));
@@ -3675,16 +3931,51 @@ static int osd_index_ea_insert(const struct lu_env *env, struct dt_object *dt,
         if (osd_object_auth(env, dt, capa, CAPA_OPC_INDEX_INSERT))
                 RETURN(-EACCES);
 
-        child = osd_object_find(env, dt, fid);
-        if (!IS_ERR(child)) {
-                rc = osd_ea_add_rec(env, obj, child->oo_inode, name, rec, th);
-                osd_object_put(env, child);
-        } else {
-                rc = PTR_ERR(child);
-        }
+	LASSERTF(fid_is_sane(fid), "fid"DFID" is insane!", PFID(fid));
 
-        LASSERT(osd_invariant(obj));
-        RETURN(rc);
+	rc = osd_remote_fid(env, osd, fid);
+	if (rc < 0) {
+		CERROR("Can not find object "DFID" rc %d\n",
+			PFID(fid), rc);
+		RETURN(rc);
+	}
+
+	if (rc == 1) {
+		/* Insert remote entry */
+		if (strcmp(name, dotdot) != 0) {
+			/* FIXME: assume it is remote directory now */
+			child_inode = osd_create_agent_inode(env, osd,
+						lu_object_fid(&dt->do_lu),
+						fid, S_IFDIR, th);
+			if (IS_ERR(child_inode))
+				RETURN(PTR_ERR(child_inode));
+		} else {
+			struct dentry *parent;
+			parent = osd_agent_dir_lookup(env, osd, fid);
+			if (IS_ERR(parent) && PTR_ERR(parent) != -ENOENT)
+				RETURN(PTR_ERR(parent));
+
+			child_inode = igrab(parent->d_inode);
+		}
+	} else {
+		/* Insert local entry */
+		child = osd_object_find(env, dt, fid);
+		if (IS_ERR(child)) {
+			CERROR("Can not find object "DFID" rc %d %u:%u\n",
+				PFID(fid), (int)PTR_ERR(child_inode),
+				id->oii_ino, id->oii_gen);
+			RETURN(PTR_ERR(child_inode));
+		}
+		child_inode = igrab(child->oo_inode);
+	}
+
+	rc = osd_ea_add_rec(env, obj, child_inode, name, rec, th);
+
+	iput(child_inode);
+	if (child != NULL)
+		osd_object_put(env, child);
+	LASSERT(osd_invariant(obj));
+	RETURN(rc);
 }
 
 /**
@@ -3769,7 +4060,6 @@ static int osd_it_iam_get(const struct lu_env *env,
  *
  *  \param  di      osd iterator
  */
-
 static void osd_it_iam_put(const struct lu_env *env, struct dt_object *dt,
 			   struct dt_it *di)
 {
@@ -3787,7 +4077,6 @@ static void osd_it_iam_put(const struct lu_env *env, struct dt_object *dt,
  *  \retval  0   success
  *  \retval -ve  failure
  */
-
 static int osd_it_iam_next(const struct lu_env *env, struct dt_object *dt,
 			   struct dt_it *di)
 {
@@ -3823,7 +4112,6 @@ static struct dt_key *osd_it_iam_key(const struct lu_env *env,
 /**
  * Return size of key under iterator (in bytes)
  */
-
 static int osd_it_iam_key_size(const struct lu_env *env,
 			       struct dt_object *dt, const struct dt_it *di)
 {
