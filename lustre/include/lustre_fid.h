@@ -67,9 +67,14 @@ extern const struct lu_fid LU_DOT_LUSTRE_FID;
 
 enum {
         /*
-         * This is how may FIDs may be allocated in one sequence(128k)
+	 * This is how may metadata FIDs may be allocated in one sequence(128k)
          */
-        LUSTRE_SEQ_MAX_WIDTH = 0x0000000000020000ULL,
+	LUSTRE_METADATA_SEQ_MAX_WIDTH = 0x0000000000020000ULL,
+
+	/*
+	 * This is how many data FIDs could be allocated in one sequence(4B - 1)
+	 */
+	LUSTRE_DATA_SEQ_MAX_WIDTH = 0x00000000FFFFFFFFULL,
 
         /*
          * How many sequences to allocate to a client at once.
@@ -321,6 +326,7 @@ int seq_client_alloc_fid(const struct lu_env *env, struct lu_client_seq *seq,
 int seq_client_get_seq(const struct lu_env *env, struct lu_client_seq *seq,
                        seqno_t *seqnr);
 
+int ms_seq_fini(const struct lu_env *env, struct md_site *ms);
 /* Fids common stuff */
 int fid_is_local(const struct lu_env *env,
                  struct lu_site *site, const struct lu_fid *fid);

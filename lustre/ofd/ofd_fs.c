@@ -196,6 +196,11 @@ void ofd_seqs_fini(const struct lu_env *env, struct ofd_device *ofd)
 	struct ofd_seq  *oseq;
 	struct ofd_seq  *tmp;
 	cfs_list_t       dispose;
+	int		rc;
+
+	rc = ofd_fid_fini(env, ofd);
+	if (rc != 0)
+		CERROR("%s: fid fini error: rc = %d\n", ofd_name(ofd), rc);
 
 	CFS_INIT_LIST_HEAD(&dispose);
 	cfs_write_lock(&ofd->ofd_seq_list_lock);
@@ -299,10 +304,21 @@ cleanup:
 /* object sequence management */
 int ofd_seqs_init(const struct lu_env *env, struct ofd_device *ofd)
 {
+	int rc;
+
+	ofd->ofd_precreate_batch = OFD_PRECREATE_BATCH_DEFAULT;
+
+	rc = ofd_fid_init(env, ofd);
+	if (rc != 0) {
+		CERROR("%s: fid init error: rc = %d\n", ofd_name(ofd), rc);
+		return rc;
+	}
+
 	cfs_rwlock_init(&ofd->ofd_seq_list_lock);
 	CFS_INIT_LIST_HEAD(&ofd->ofd_seq_list);
 	ofd->ofd_seq_count = 0;
-	return 0;
+
+	return rc;
 }
 
 int ofd_clients_data_init(const struct lu_env *env, struct ofd_device *ofd,
