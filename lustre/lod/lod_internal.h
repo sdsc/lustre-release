@@ -164,6 +164,13 @@ struct lod_object {
 };
 
 
+struct lod_sync_set {
+	struct thandle	  *lss_update;
+	int		      lss_completes;
+	int		      lss_async_count;
+	cfs_waitq_t	      lss_waitq;
+};
+
 struct lod_thread_info {
 	/* per-thread buffer for LOV EA */
 	void             *lti_ea_store;
@@ -173,6 +180,7 @@ struct lod_thread_info {
 	struct lu_fid     lti_fid;
 	struct obd_statfs lti_osfs;
 	struct lu_attr    lti_attr;
+	struct lod_sync_set lti_sync_set;
 };
 
 extern const struct lu_device_operations lod_lu_ops;
@@ -230,12 +238,6 @@ static inline struct dt_object* lod_object_child(struct lod_object *o)
 {
 	return container_of0(lu_object_next(lod2lu_obj(o)),
 			struct dt_object, do_lu);
-}
-
-static inline struct dt_object *lu2dt_obj(struct lu_object *o)
-{
-	LASSERT(ergo(o != NULL, lu_device_is_dt(o->lo_dev)));
-	return container_of0(o, struct dt_object, do_lu);
 }
 
 static inline struct dt_object *dt_object_child(struct dt_object *o)

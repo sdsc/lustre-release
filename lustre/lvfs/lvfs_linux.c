@@ -250,8 +250,53 @@ out_up:
 }
 EXPORT_SYMBOL(simple_mknod);
 
+/* utility to lookup a directory */
+struct dentry *simple_dir_lookup(struct dentry *dir, struct vfsmount *mnt,
+				 const char *name, int mode, int fix)
+{
+	struct dentry *dchild;
+	int old_mode;
+	int err = 0;
+	ENTRY;
+
+	CDEBUG(D_INODE, "lookup directory %.*s\n", (int)strlen(name), name);
+	dchild = ll_lookup_one_len(name, dir, strlen(name));
+	if (IS_ERR(dchild))
+		RETURN(dchild);
+
+	if (dchild->d_inode == NULL)
+		RETURN(dchild);
+
+	old_mode = dchild->d_inode->i_mode;
+
+	if (!S_ISDIR(old_mode)) {
+		CERROR("found %s (%lu/%u) is mode %o\n", name,
+		       dchild->d_inode->i_ino,
+		       dchild->d_inode->i_generation, old_mode);
+		GOTO(out_err, err = -ENOTDIR);
+	}
+
+	/* Fixup directory permissions if necessary */
+	if (fix && (old_mode & S_IALLUGO) != (mode & S_IALLUGO)) {
+		CDEBUG(D_CONFIG,
+		       "fixing permissions on %s from %o to %o\n",
+		       name, old_mode, mode);
+		dchild->d_inode->i_mode = (mode & S_IALLUGO) |
+					  (old_mode & ~S_IALLUGO);
+		mark_inode_dirty(dchild->d_inode);
+	}
+
+	RETURN(dchild);
+
+out_err:
+	dput(dchild);
+	dchild = ERR_PTR(err);
+	RETURN(dchild);
+}
+EXPORT_SYMBOL(simple_dir_lookup);
+
 /* utility to make a directory */
-struct dentry *simple_mkdir(struct dentry *dir, struct vfsmount *mnt, 
+struct dentry *simple_mkdir(struct dentry *dir, struct vfsmount *mnt,
                             const char *name, int mode, int fix)
 {
         struct dentry *dchild;
@@ -260,34 +305,16 @@ struct dentry *simple_mkdir(struct dentry *dir, struct vfsmount *mnt,
 
         // ASSERT_KERNEL_CTXT("kernel doing mkdir outside kernel context\n");
         CDEBUG(D_INODE, "creating directory %.*s\n", (int)strlen(name), name);
-        dchild = ll_lookup_one_len(name, dir, strlen(name));
+
+	dchild = simple_dir_lookup(dir, mnt, name, mode, fix);
         if (IS_ERR(dchild))
                 GOTO(out_up, dchild);
 
-        if (dchild->d_inode) {
-                int old_mode = dchild->d_inode->i_mode;
-                if (!S_ISDIR(old_mode)) {
-                        CERROR("found %s (%lu/%u) is mode %o\n", name,
-                               dchild->d_inode->i_ino,
-                               dchild->d_inode->i_generation, old_mode);
-                        GOTO(out_err, err = -ENOTDIR);
-                }
-
-                /* Fixup directory permissions if necessary */
-                if (fix && (old_mode & S_IALLUGO) != (mode & S_IALLUGO)) {
-                        CDEBUG(D_CONFIG,
-                               "fixing permissions on %s from %o to %o\n",
-                               name, old_mode, mode);
-                        dchild->d_inode->i_mode = (mode & S_IALLUGO) |
-                                                  (old_mode & ~S_IALLUGO);
-                        mark_inode_dirty(dchild->d_inode);
-                }
-                GOTO(out_up, dchild);
+	if (dchild->d_inode == NULL) {
+		err = ll_vfs_mkdir(dir->d_inode, dchild, mnt, mode);
+		if (err)
+			GOTO(out_err, err);
         }
-
-        err = ll_vfs_mkdir(dir->d_inode, dchild, mnt, mode);
-        if (err)
-                GOTO(out_err, err);
 
         RETURN(dchild);
 

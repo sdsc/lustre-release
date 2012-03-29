@@ -473,6 +473,16 @@ static const struct req_msg_field *mds_setattr_server[] = {
         &RMF_CAPA2
 };
 
+static const struct req_msg_field *mds_update_client[] = {
+	&RMF_PTLRPC_BODY,
+	&RMF_EADATA,
+};
+
+static const struct req_msg_field *mds_update_server[] = {
+	&RMF_PTLRPC_BODY,
+	&RMF_EADATA,
+};
+
 static const struct req_msg_field *llog_origin_handle_create_client[] = {
         &RMF_PTLRPC_BODY,
         &RMF_LLOGD_BODY,
@@ -618,6 +628,7 @@ static struct req_format *req_formats[] = {
         &RQF_MDS_REINT_SETXATTR,
         &RQF_MDS_QUOTACHECK,
         &RQF_MDS_QUOTACTL,
+	&RQF_MDS_OBJ_UPDATE,
         &RQF_QC_CALLBACK,
         &RQF_OST_CONNECT,
         &RQF_OST_DISCONNECT,
@@ -1189,6 +1200,11 @@ struct req_format RQF_MDS_GET_INFO =
         DEFINE_REQ_FMT0("MDS_GET_INFO", mds_getinfo_client,
                         mds_getinfo_server);
 EXPORT_SYMBOL(RQF_MDS_GET_INFO);
+
+struct req_format RQF_MDS_OBJ_UPDATE =
+	DEFINE_REQ_FMT0("MDS_OBJECT_OBJ_UPDATE", mds_update_client,
+			mds_update_server);
+EXPORT_SYMBOL(RQF_MDS_OBJ_UPDATE);
 
 struct req_format RQF_LDLM_ENQUEUE =
         DEFINE_REQ_FMT0("LDLM_ENQUEUE",

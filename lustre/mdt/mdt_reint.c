@@ -92,7 +92,6 @@ static void mdt_obj_version_get(struct mdt_thread_info *info,
                                 struct mdt_object *o, __u64 *version)
 {
         LASSERT(o);
-        LASSERT(mdt_object_exists(o) >= 0);
 	if (mdt_object_exists(o) > 0 && !mdt_object_obf(o))
                 *version = dt_version_get(info->mti_env, mdt_obj2dt(o));
         else
@@ -652,6 +651,25 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
                 GOTO(out_unlock_parent, rc = PTR_ERR(mc));
         child_lh = &info->mti_lh[MDT_LH_CHILD];
         mdt_lock_reg_init(child_lh, LCK_EX);
+	if (mdt_object_exists(mc) < 0) {
+		/* Get Update lock from remote object,
+		 * and release this lock in mdt_object_unlock_put */
+
+		/* FIXME: Current we only put UPDATE lock on remote node.
+		 * But for a file/directory with remote entry. There are
+		 * actually both LOOKUP|UPDATE lock on remote node. There
+		 * are two separate LOOKUP locks to cover a remote entry
+		 * - one on the remote namespace and one on the master
+		 * namespace. The remote LOOKUP lock only covers the existence
+		 * of the name, while the master LOOKUP lock covers
+		 * the permission bits and any local names.
+		 */
+		rc = mdt_remote_object_lock(info, mc, &child_lh->mlh_rreg_lh,
+					    child_lh->mlh_rreg_mode,
+					    MDS_INODELOCK_UPDATE);
+		if (rc != ELDLM_OK)
+			RETURN(rc);
+	}
         rc = mdt_object_lock(info, mc, child_lh, MDS_INODELOCK_FULL,
                              MDT_CROSS_LOCK);
         if (rc != 0) {

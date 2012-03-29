@@ -369,8 +369,6 @@ struct dt_object_operations osp_obj_ops = {
 	.do_destroy		= osp_object_destroy,
 };
 
-struct dt_object_operations osp_md_obj_ops;
-
 static int is_ost_obj(struct lu_object *lo)
 {
 	struct osp_device  *osp  = lu2osp_dev(lo->lo_dev);
@@ -381,14 +379,36 @@ static int is_ost_obj(struct lu_object *lo)
 static int osp_object_init(const struct lu_env *env, struct lu_object *o,
 			   const struct lu_object_conf *unused)
 {
-	struct osp_object *po = lu2osp_obj(o);
+	struct osp_object	*po = lu2osp_obj(o);
+	int			rc = 0;
+	ENTRY;
 
-	if (is_ost_obj(o))
+	/* FIXME: For cross-ref regular file, it needs both
+	 * osp_obj_ops and ops_md_obj_ops
+	 */
+	if (is_ost_obj(o)) {
 		po->opo_obj.do_ops = &osp_obj_ops;
-	else
-		po->opo_obj.do_ops = &osp_md_obj_ops;
+	} else {
+		struct lu_attr *la = &osp_env_info(env)->osi_attr;
 
-	return 0;
+		po->opo_obj.do_ops = &osp_md_obj_ops;
+		po->opo_obj.do_lock_ops = &osp_md_lock_ops;
+		o->lo_header->loh_attr |=  LOHA_REMOTE;
+		rc = po->opo_obj.do_ops->do_attr_get(env, lu2dt_obj(o), la,
+						     NULL);
+		if (rc) {
+			/* FIXME: Needs to tell whether attr is valid */
+			if (rc != -ENOENT)
+				CERROR("Get attr for "DFID" rc = %d\n",
+					PFID(&o->lo_header->loh_fid), rc);
+			else
+				rc = 0;
+		} else {
+			o->lo_header->loh_attr |= (la->la_mode & S_IFMT);
+		}
+	}
+
+	RETURN(rc);
 }
 
 static void osp_object_free(const struct lu_env *env, struct lu_object *o)

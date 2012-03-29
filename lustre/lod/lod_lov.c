@@ -440,7 +440,10 @@ int lod_del_device(const struct lu_env *env, struct lod_device *lod,
 
 	CDEBUG(D_CONFIG, "osp:%s idx:%d gen:%d\n", osp, idx, gen);
 
-	obd = class_name2obd(osp);
+	obd_str2uuid(&uuid, osp);
+
+	obd = class_find_client_obd(&uuid, LUSTRE_OSP_NAME,
+				   &lod->lod_dt_dev.dd_lu_dev.ld_obd->obd_uuid);
 	if (obd == NULL) {
 		CERROR("can't find %s device\n", osp);
 		RETURN(-EINVAL);
@@ -801,7 +804,7 @@ int lod_load_striping(const struct lu_env *env, struct lod_object *lo)
 		GOTO(out, rc = 0);
 	}
 
-	if (!dt_object_exists(next))
+	if (dt_object_exists(next) <= 0)
 		GOTO(out, rc = 0);
 
 	/* only regular files can be striped */

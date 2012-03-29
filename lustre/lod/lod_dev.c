@@ -88,6 +88,7 @@ int lod_fld_lookup(struct lod_device *lod, const struct lu_fid *fid,
 extern struct lu_object_operations lod_lu_obj_ops;
 extern struct lu_object_operations lod_lu_robj_ops;
 extern struct dt_object_operations lod_obj_ops;
+extern struct dt_lock_operations   lod_lock_ops;
 
 /* Slab for OSD object allocation */
 cfs_mem_cache_t *lod_object_kmem;
@@ -132,6 +133,7 @@ struct lu_object *lod_object_alloc(const struct lu_env *env,
 	lu_obj = lod2lu_obj(lod_obj);
 	dt_object_init(&lod_obj->ldo_obj, NULL, dev);
 	lod_obj->ldo_obj.do_ops = &lod_obj_ops;
+	lod_obj->ldo_obj.do_lock_ops = &lod_lock_ops;
 	if (mds == lu_site2md(dev->ld_site)->ms_node_id)
 		lu_obj->lo_ops = &lod_lu_obj_ops;
 	else
@@ -205,6 +207,28 @@ static int lodname2mdt_index(char *lodname, int *index)
 	return 0;
 }
 
+/**
+ * Procss config log on LOD
+ * \param env environment info
+ * \param dev lod device
+ * \param lcfg config log
+ *
+ * Add osc config log,
+ * marker  20 (flags=0x01, v2.2.49.56) lustre-OST0001  'add osc'
+ * add_uuid  nid=192.168.122.162@tcp(0x20000c0a87aa2)  0:  1:nidxxx
+ * attach    0:lustre-OST0001-osc-MDT0001  1:osc  2:lustre-MDT0001-mdtlov_UUID
+ * setup     0:lustre-OST0001-osc-MDT0001  1:lustre-OST0001_UUID  2:nid
+ * lov_modify_tgts add 0:lustre-MDT0001-mdtlov  1:lustre-OST0001_UUID  2:1  3:1
+ * marker  20 (flags=0x02, v2.2.49.56) lustre-OST0001  'add osc'
+ *
+ * Add mdc config log
+ * marker  10 (flags=0x01, v2.2.49.56) lustre-MDT0000  'add osp'
+ * add_uuid  nid=192.168.122.162@tcp(0x20000c0a87aa2)  0:  1:nid
+ * attach 0:lustre-MDT0000-osp-MDT0001  1:osp  2:lustre-MDT0001-mdtlov_UUID
+ * setup     0:lustre-MDT0000-osp-MDT0001  1:lustre-MDT0000_UUID  2:nid
+ * modify_mdc_tgts add 0:lustre-MDT0001  1:lustre-MDT0000_UUID  2:0  3:1
+ * marker  10 (flags=0x02, v2.2.49.56) lustre-MDT0000_UUID  'add osp'
+ **/
 static int lod_process_config(const struct lu_env *env,
 			      struct lu_device *dev,
 			      struct lustre_cfg *lcfg)
@@ -267,6 +291,7 @@ static int lod_process_config(const struct lu_env *env,
 		GOTO(out, rc);
 	}
 	case LCFG_CLEANUP:
+	case LCFG_PRE_CLEANUP: {
 		lu_dev_del_linkage(dev->ld_site, dev);
 		rc = lod_cleanup_desc_tgts(env, lod, &lod->lod_mdt_descs, lcfg);
 		if (rc)
@@ -275,6 +300,9 @@ static int lod_process_config(const struct lu_env *env,
 		rc = lod_cleanup_desc_tgts(env, lod, &lod->lod_ost_descs, lcfg);
 		if (rc)
 			CERROR("cleanup ost desc error %d\n", rc);
+
+		if (lcfg->lcfg_command == LCFG_PRE_CLEANUP)
+			break;
 		/*
 		 * do cleanup on underlying storage only when
 		 * all OSPs are cleaned up, as they use that OSD as well
@@ -289,7 +317,7 @@ static int lod_process_config(const struct lu_env *env,
 		if (rc)
 			CERROR("error in disconnect from storage: %d\n", rc);
 		break;
-
+	}
 	default:
 	       CERROR("%s: unknown command %u\n", lod2obd(lod)->obd_name,
 		      lcfg->lcfg_command);
@@ -366,13 +394,102 @@ static int lod_statfs(const struct lu_env *env,
 static struct thandle *lod_trans_create(const struct lu_env *env,
 					struct dt_device *dev)
 {
-	return dt_trans_create(env, dt2lod_dev(dev)->lod_child);
+	struct thandle *th;
+
+	th = dt_trans_create(env, dt2lod_dev(dev)->lod_child);
+	if (IS_ERR(th))
+		return th;
+
+	CFS_INIT_LIST_HEAD(&th->th_remote_update_list);
+	return th;
+}
+
+static void lod_sync_set_init(struct lod_sync_set *lss)
+{
+	lss->lss_completes = 0;
+	lss->lss_async_count = 0;
+	cfs_waitq_init(&lss->lss_waitq);
+}
+
+static int lod_sync_callback(void *data)
+{
+	struct lod_sync_set *lss = (struct lod_sync_set *)data;
+
+	lss->lss_completes++;
+	CDEBUG(D_INFO, "check set %d/%d\n", lss->lss_completes,
+	       lss->lss_async_count);
+	cfs_waitq_signal(&lss->lss_waitq);
+	return 0;
+}
+
+static int lod_sync_complete(struct lod_sync_set *lss)
+{
+	CDEBUG(D_INFO, "check set %d/%d\n", lss->lss_completes,
+	       lss->lss_async_count);
+	return lss->lss_completes == lss->lss_async_count;
+}
+
+static int lod_remote_sync(const struct lu_env *env, struct dt_device *dev,
+			   struct thandle *th)
+{
+	struct update_request *update;
+	struct update_request *tmp;
+	struct l_wait_info  lwi = { 0 };
+	struct lod_sync_set *lss = &lod_env_info(env)->lti_sync_set;
+	int    rc = 0;
+	ENTRY;
+
+	if (cfs_list_empty(&th->th_remote_update_list))
+		RETURN(0);
+
+	/*FIXME: Two phase commit later */
+	lod_sync_set_init(lss);
+	lss->lss_update = th;
+	th->th_sync_cb = lod_sync_callback;
+	th->th_sync_data = (void *)lss;
+	cfs_list_for_each_entry(update, &th->th_remote_update_list,
+				ur_list) {
+		rc = dt_trans_start(env, update->ur_dt, th);
+		if (rc == 0) {
+			lss->lss_async_count++;
+		} else {
+			/* FIXME how to revert the partial results
+			 * once error happened ? Resolved by 2 Phase commit*/
+			update->ur_rc = rc;
+			break;
+		}
+	}
+
+	l_wait_event(lss->lss_waitq, lod_sync_complete(lss), &lwi);
+
+	cfs_list_for_each_entry_safe(update, tmp,
+				     &th->th_remote_update_list,
+				     ur_list) {
+		if (update->ur_rc) {
+			CERROR("%s: update on dt %p is wrong %d\n",
+			       dev->dd_lu_dev.ld_obd->obd_name,
+			       update->ur_dt, update->ur_rc);
+			rc = update->ur_rc != 0 ? rc : update->ur_rc;
+		}
+		cfs_list_del(&update->ur_list);
+		OBD_FREE_PTR(update);
+	}
+	RETURN(rc);
 }
 
 static int lod_trans_start(const struct lu_env *env, struct dt_device *dev,
 			   struct thandle *th)
 {
-	return dt_trans_start(env, dt2lod_dev(dev)->lod_child, th);
+	struct lod_device *lod = dt2lod_dev((struct dt_device *) dev);
+	int rc;
+
+	rc = lod_remote_sync(env, dev, th);
+	if (rc) {
+		CERROR("%s: remote sync error %d\n",
+			lod2obd(lod)->obd_name, rc);
+		return rc;
+	}
+	return dt_trans_start(env, lod->lod_child, th);
 }
 
 static int lod_trans_stop(const struct lu_env *env, struct thandle *th)

@@ -290,7 +290,7 @@ int mdd_may_create(const struct lu_env *env, struct mdd_object *pobj,
         int rc = 0;
         ENTRY;
 
-        if (cobj && mdd_object_exists(cobj))
+	if (cobj && mdd_object_exists(cobj) > 0)
                 RETURN(-EEXIST);
 
         if (mdd_is_dead_obj(pobj))
@@ -1076,6 +1076,7 @@ static int mdd_declare_unlink(const struct lu_env *env, struct mdd_device *mdd,
                               const struct lu_name *name, struct md_attr *ma,
                               struct thandle *handle)
 {
+	struct lu_attr     *la = &mdd_env_info(env)->mti_la_for_fix;
         int rc;
 
         rc = mdo_declare_index_delete(env, p, name->ln_name, handle);
@@ -1094,7 +1095,10 @@ static int mdd_declare_unlink(const struct lu_env *env, struct mdd_device *mdd,
         if (rc)
                 return rc;
 
-        rc = mdo_declare_attr_set(env, p, NULL, handle);
+	LASSERT(ma->ma_attr.la_valid & LA_CTIME);
+	la->la_ctime = la->la_mtime = ma->ma_attr.la_ctime;
+	la->la_valid = LA_CTIME | LA_MTIME;
+        rc = mdo_declare_attr_set(env, p, la, handle);
         if (rc)
                 return rc;
 
@@ -1130,7 +1134,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 	int rc, is_dir;
         ENTRY;
 
-        if (mdd_object_exists(mdd_cobj) <= 0)
+	if (mdd_object_exists(mdd_cobj) == 0)
                 RETURN(-ENOENT);
 
         handle = mdd_trans_create(env, mdd);
@@ -1623,7 +1627,6 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
 out:
         return rc;
 }
-
 
 /*
  * Create object and insert it into namespace.

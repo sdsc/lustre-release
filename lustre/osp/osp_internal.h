@@ -185,11 +185,20 @@ struct osp_object {
 	 * to protect index ops.
 	 */
 	cfs_rw_semaphore_t      opo_sem;
+
 	const struct lu_env    *opo_owner;
+	/**
+	 * Some attributes retrieve from remote MDT, cached in
+	 * OSP object. Not protected by lock now.
+	 **/
+	 int	      opo_empty;
 };
 
 extern struct lu_object_operations osp_lu_obj_ops;
 extern const struct dt_device_operations osp_dt_ops;
+extern struct dt_object_operations osp_md_obj_ops;
+extern struct dt_lock_operations osp_md_lock_ops;
+
 
 struct osp_thread_info {
 	struct lu_buf		 osi_lb;
@@ -209,6 +218,7 @@ struct osp_thread_info {
 	struct llog_cookie	 osi_cookie;
 	struct llog_catid	 osi_cid;
 	struct lu_seq_range	 osi_seq;
+	struct ldlm_res_id	 osi_resid;
 };
 
 static inline void osp_objid_buf_prep(struct osp_thread_info *osi, int index)
@@ -369,6 +379,10 @@ void osp_sync_llog_fini(const struct lu_env *env, struct osp_device *d);
 int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d);
 /* osp_dev.c */
 void osp_update_last_id(struct osp_device *d, obd_id objid);
+
+/* osp_md_object.c */
+int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
+		    struct thandle *th);
 
 /* osp_precreate.c */
 int osp_init_precreate(struct osp_device *d);

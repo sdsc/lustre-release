@@ -108,6 +108,185 @@ out:
 	return count;
 }
 
+struct dentry *osd_agent_lookup(struct osd_mdobj_map *omm, int index)
+{
+	struct osd_mdobj *om;
+
+	cfs_down_read(&omm->omm_agent_sem);
+	cfs_list_for_each_entry(om, &omm->omm_agent_list, om_list)
+		if (om->om_index == index) {
+			cfs_up_read(&omm->omm_agent_sem);
+			return om->om_root;
+		}
+	cfs_up_read(&omm->omm_agent_sem);
+	return NULL;
+}
+
+struct dentry *osd_agent_load(const struct osd_device *osd, int mdt_index,
+			      int create)
+{
+	struct lvfs_run_ctxt  new;
+	struct lvfs_run_ctxt  save;
+	struct osd_mdobj_map *omm = osd->od_mdt_map;
+	struct osd_mdobj     *om;
+	struct osd_mdobj     *tmp;
+	struct dentry	*d;
+	char		  name[9];
+	int		   rc = 0;
+	ENTRY;
+
+	LASSERT(omm != NULL && omm->omm_agent_dentry != NULL);
+	d = osd_agent_lookup(omm, mdt_index);
+	if (d != NULL)
+		RETURN(d);
+
+	OBD_ALLOC_PTR(om);
+	if (om == NULL)
+		RETURN(ERR_PTR(-ENOMEM));
+
+	osd_push_ctxt(osd, &new, &save);
+	sprintf(name, "%x", mdt_index);
+	om->om_index = mdt_index;
+	CFS_INIT_LIST_HEAD(&om->om_list);
+	cfs_down_write(&omm->omm_agent_sem);
+	if (create == 0)
+		d = simple_dir_lookup(omm->omm_agent_dentry, osd->od_mnt, name,
+				      0755, 1);
+	else
+		d = simple_mkdir(omm->omm_agent_dentry, osd->od_mnt, name,
+				 0755, 1);
+	if (IS_ERR(d)) {
+		cfs_up_write(&omm->omm_agent_sem);
+		CERROR("%s: create agent dir failure %d\n",
+			osd_name((struct osd_device *)osd), (int)PTR_ERR(d));
+		GOTO(cleanup, rc = PTR_ERR(d));
+	}
+
+	om->om_root = d;
+	cfs_list_for_each_entry(tmp, &omm->omm_agent_list, om_list)
+		if (tmp->om_index == mdt_index) {
+			cfs_up_write(&omm->omm_agent_sem);
+			dput(d);
+			pop_ctxt(&save, &new, NULL);
+			OBD_FREE_PTR(om);
+			RETURN(tmp->om_root);
+		}
+
+	cfs_list_add_tail(&om->om_list, &omm->omm_agent_list);
+	cfs_up_write(&omm->omm_agent_sem);
+cleanup:
+	pop_ctxt(&save, &new, NULL);
+	if (rc != 0) {
+		OBD_FREE_PTR(om);
+		RETURN(ERR_PTR(rc));
+	}
+	RETURN(om->om_root);
+}
+
+/*
+ * directory structure on legacy MDT:
+ *
+ * REM_OBJ_DIR/ per mdt
+ * AGENT_OBJ_DIR/ per mdt
+ *
+ */
+static const char remote_obj_dir[] = "REM_OBJ_DIR";
+static const char agent_obj_dir[] = "AGENT_OBJ_DIR";
+int osd_mdt_init(struct osd_device *dev)
+{
+	struct lvfs_run_ctxt  new;
+	struct lvfs_run_ctxt  save;
+	struct dentry	*parent;
+	struct osd_mdobj_map *omm;
+	struct dentry	*d;
+	int		   rc = 0;
+	ENTRY;
+
+	OBD_ALLOC_PTR(dev->od_mdt_map);
+	if (dev->od_mdt_map == NULL)
+		RETURN(-ENOMEM);
+
+	omm = dev->od_mdt_map;
+
+	LASSERT(dev->od_fsops);
+
+	parent = osd_sb(dev)->s_root;
+	osd_push_ctxt(dev, &new, &save);
+
+	d = simple_mkdir(parent, dev->od_mnt, remote_obj_dir,
+			 0755, 1);
+	if (IS_ERR(d))
+		GOTO(cleanup, rc = PTR_ERR(d));
+	omm->omm_obj_dentry = d;
+	cfs_init_rwsem(&omm->omm_obj_sem);
+	CFS_INIT_LIST_HEAD(&omm->omm_obj_list);
+
+	d = simple_mkdir(parent, dev->od_mnt, agent_obj_dir,
+			 0755, 1);
+	if (IS_ERR(d))
+		GOTO(cleanup, rc = PTR_ERR(d));
+
+	omm->omm_agent_dentry = d;
+	cfs_init_rwsem(&omm->omm_agent_sem);
+	CFS_INIT_LIST_HEAD(&omm->omm_agent_list);
+
+	/* Because MDT0 might be agent on every other MDT(.. for remote dir)
+	 * we will load agent directory for MDT0 now to save some time for
+	 * following operation */
+	parent = osd_agent_load(dev, 0, 1);
+	if (IS_ERR(parent))
+		GOTO(cleanup, rc = PTR_ERR(parent));
+
+cleanup:
+	pop_ctxt(&save, &new, NULL);
+	if (rc) {
+		if (omm->omm_obj_dentry != NULL)
+			dput(omm->omm_obj_dentry);
+		if (omm->omm_agent_dentry != NULL)
+			dput(omm->omm_agent_dentry);
+		OBD_FREE_PTR(omm);
+		dev->od_mdt_map = NULL;
+	}
+	RETURN(rc);
+}
+
+static void osd_mdt_fini(struct osd_device *osd)
+{
+	struct osd_mdobj_map *omm = osd->od_mdt_map;
+	struct osd_mdobj     *om;
+	struct osd_mdobj     *tmp;
+	cfs_list_t	    dispose_list;
+
+	if (omm == NULL)
+		return;
+
+	CFS_INIT_LIST_HEAD(&dispose_list);
+	cfs_down_write(&omm->omm_agent_sem);
+	cfs_list_for_each_entry_safe(om, tmp, &omm->omm_agent_list, om_list) {
+		cfs_list_move(&om->om_list, &dispose_list);
+	}
+	cfs_up_write(&omm->omm_agent_sem);
+
+	cfs_list_for_each_entry_safe(om, tmp, &dispose_list, om_list) {
+		dput(om->om_root);
+		cfs_list_del_init(&om->om_list);
+		OBD_FREE_PTR(om);
+	}
+
+	if (omm->omm_agent_dentry) {
+		dput(omm->omm_agent_dentry);
+		omm->omm_agent_dentry = NULL;
+	}
+
+	if (omm->omm_obj_dentry) {
+		dput(omm->omm_obj_dentry);
+		omm->omm_obj_dentry = NULL;
+	}
+
+	OBD_FREE_PTR(omm);
+	osd->od_ost_map = NULL;
+}
+
 /*
  * directory structure on legacy OST:
  *
@@ -189,6 +368,30 @@ static void osd_seq_free(struct osd_obj_map *map,
 	return;
 }
 
+static void osd_ost_fini(struct osd_device *osd)
+{
+	struct osd_obj_map *map = osd->od_ost_map;
+	struct osd_obj_seq *osd_seq;
+	struct osd_obj_seq *tmp;
+	ENTRY;
+
+	if (map == NULL)
+		RETURN_EXIT;
+
+	cfs_write_lock(&map->oom_seq_list_lock);
+	cfs_list_for_each_entry_safe(osd_seq, tmp,
+				     &map->oom_seq_list,
+				     oos_seq_list) {
+		osd_seq_free(map, osd_seq);
+	}
+	cfs_write_unlock(&map->oom_seq_list_lock);
+	if (map->oom_root)
+		dput(map->oom_root);
+	OBD_FREE_PTR(map);
+	osd->od_ost_map = NULL;
+	EXIT;
+}
+
 int osd_obj_map_init(struct osd_device *dev)
 {
 	int rc;
@@ -196,8 +399,11 @@ int osd_obj_map_init(struct osd_device *dev)
 
 	/* prepare structures for OST */
 	rc = osd_ost_init(dev);
+	if (rc)
+		RETURN(rc);
 
 	/* prepare structures for MDS */
+	rc = osd_mdt_init(dev);
 
         RETURN(rc);
 }
@@ -259,27 +465,8 @@ struct osd_obj_seq *osd_find_or_add_seq(struct osd_obj_map *map, obd_seq seq)
 
 void osd_obj_map_fini(struct osd_device *dev)
 {
-	struct osd_obj_seq    *osd_seq;
-	struct osd_obj_seq    *tmp;
-	struct osd_obj_map    *map = dev->od_ost_map;
-	ENTRY;
-
-	map = dev->od_ost_map;
-	if (map == NULL)
-		return;
-
-	cfs_write_lock(&dev->od_ost_map->oom_seq_list_lock);
-	cfs_list_for_each_entry_safe(osd_seq, tmp,
-				     &dev->od_ost_map->oom_seq_list,
-				     oos_seq_list) {
-		osd_seq_free(map, osd_seq);
-	}
-	cfs_write_unlock(&dev->od_ost_map->oom_seq_list_lock);
-	if (map->oom_root)
-		dput(map->oom_root);
-	OBD_FREE_PTR(dev->od_ost_map);
-	dev->od_ost_map = NULL;
-	EXIT;
+	osd_ost_fini(dev);
+	osd_mdt_fini(dev);
 }
 
 static int osd_obj_del_entry(struct osd_thread_info *info,
@@ -287,26 +474,25 @@ static int osd_obj_del_entry(struct osd_thread_info *info,
 			       struct dentry *dird, char *name,
 			       struct thandle *th)
 {
-        struct ldiskfs_dir_entry_2 *de;
-        struct buffer_head         *bh;
-        struct osd_thandle         *oh;
-        struct dentry              *child;
-        struct inode               *dir = dird->d_inode;
-        int                         rc;
+	struct ldiskfs_dir_entry_2 *de;
+	struct buffer_head         *bh;
+	struct osd_thandle         *oh;
+	struct dentry              *child;
+	struct inode               *dir = dird->d_inode;
+	int                         rc;
+	ENTRY;
 
-        ENTRY;
-
-        oh = container_of(th, struct osd_thandle, ot_super);
-        LASSERT(oh->ot_handle != NULL);
-        LASSERT(oh->ot_handle->h_transaction != NULL);
+	oh = container_of(th, struct osd_thandle, ot_super);
+	LASSERT(oh->ot_handle != NULL);
+	LASSERT(oh->ot_handle->h_transaction != NULL);
 
 
-        child = &info->oti_child_dentry;
-        child->d_name.hash = 0;
-        child->d_name.name = name;
-        child->d_name.len = strlen(name);
-        child->d_parent = dird;
-        child->d_inode = NULL;
+	child = &info->oti_child_dentry;
+	child->d_name.hash = 0;
+	child->d_name.name = name;
+	child->d_name.len = strlen(name);
+	child->d_parent = dird;
+	child->d_inode = NULL;
 
 	ll_vfs_dq_init(dir);
 	mutex_lock(&dir->i_mutex);
