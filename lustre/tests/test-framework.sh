@@ -3023,9 +3023,22 @@ pause_bulk() {
 drop_ldlm_cancel() {
 #define OBD_FAIL_LDLM_CANCEL             0x304
     RC=0
-    do_facet client lctl set_param fail_loc=0x304
+    for num in `seq $MDSCOUNT`; do
+        do_facet mds$num lctl set_param fail_loc=0x304
+    done
+    for num in `seq $OSTCOUNT`; do
+        do_facet ost$num lctl set_param fail_loc=0x304
+    done
+
     do_facet client "$@" || RC=$?
-    do_facet client lctl set_param fail_loc=0
+
+    for num in `seq $MDSCOUNT`; do
+        do_facet mds$num lctl set_param fail_loc=0
+    done
+    for num in `seq $OSTCOUNT`; do
+        do_facet ost$num lctl set_param fail_loc=0
+    done
+
     return $RC
 }
 
