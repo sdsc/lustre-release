@@ -1152,6 +1152,16 @@ static inline void obd_putref(struct obd_device *obd)
         EXIT;
 }
 
+static inline void obd_flush(const struct lu_env *env, struct obd_device *obd)
+{
+        ENTRY;
+        if (OBT(obd) && OBP(obd, flush)) {
+                OBD_COUNTER_INCREMENT(obd, flush);
+                OBP(obd, flush)(env, obd);
+        }
+        EXIT;
+}
+
 static inline int obd_init_export(struct obd_export *exp)
 {
         int rc = 0;

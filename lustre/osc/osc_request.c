@@ -2821,7 +2821,24 @@ static void osc_check_rpcs0(const struct lu_env *env, struct client_obd *cli, in
 
 void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli)
 {
+#ifdef __KERNEL__
+        struct obd_device *obd = cli->cl_import->imp_obd;
+        int rc = 0;
+
+        if (CDEBUG_STACK() < (3 * THREAD_SIZE / 4)) {
+                osc_check_rpcs0(env, cli, 0);
+                return;
+        }
+
+        client_obd_list_unlock(&cli->cl_loi_list_lock);
+        rc = obd_notify_observer(obd, obd, OBD_NOTIFY_FLUSH, (void*)env);
+        client_obd_list_lock(&cli->cl_loi_list_lock);
+
+        if (rc <= 0)
+                osc_check_rpcs0(env, cli, 0);
+#else
         osc_check_rpcs0(env, cli, 0);
+#endif
 }
 
 /**
@@ -4598,6 +4615,15 @@ static int osc_process_config(struct obd_device *obd, obd_count len, void *buf)
         return osc_process_config_base(obd, buf);
 }
 
+static void osc_flush(const struct lu_env *env, struct obd_device *obd)
+{
+        struct client_obd *cli = &obd->u.cli;
+
+        client_obd_list_lock(&cli->cl_loi_list_lock);
+        osc_check_rpcs0(env, cli, 0);
+        client_obd_list_unlock(&cli->cl_loi_list_lock);
+}
+
 struct obd_ops osc_obd_ops = {
         .o_owner                = THIS_MODULE,
         .o_setup                = osc_setup,
@@ -4638,6 +4664,7 @@ struct obd_ops osc_obd_ops = {
         .o_quotactl             = osc_quotactl,
         .o_quotacheck           = osc_quotacheck,
         .o_quota_adjust_qunit   = osc_quota_adjust_qunit,
+        .o_flush                = osc_flush,
 };
 
 extern struct lu_kmem_descr osc_caches[];

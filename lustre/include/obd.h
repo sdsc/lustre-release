@@ -779,6 +779,13 @@ struct lov_obd {
         cfs_list_t              lov_pool_list; /* used for sequential access */
         cfs_proc_dir_entry_t   *lov_pool_proc_entry;
         enum lustre_sec_part    lov_sp_me;
+
+        cfs_spinlock_t          lov_flush_lock;
+        cfs_list_t              lov_flush_list;
+        cfs_waitq_t             lov_flush_waitq;
+        cfs_completion_t        lov_flush_comp;
+        int                     lov_flush_thread_state;
+        pid_t                   lov_flush_thread_pid;
 };
 
 struct lmv_tgt_desc {
@@ -971,7 +978,9 @@ enum obd_notify_event {
         OBD_NOTIFY_QUOTA,
         /* Administratively deactivate/activate event */
         OBD_NOTIFY_DEACTIVATE,
-        OBD_NOTIFY_ACTIVATE
+        OBD_NOTIFY_ACTIVATE,
+        /* Device need to be flushed */
+        OBD_NOTIFY_FLUSH,
 };
 
 /* bit-mask flags for config events */
@@ -1489,6 +1498,8 @@ struct obd_ops {
                           char *ostname);
         void (*o_getref)(struct obd_device *obd);
         void (*o_putref)(struct obd_device *obd);
+
+        void (*o_flush)(const struct lu_env *env, struct obd_device *obd);
         /*
          * NOTE: If adding ops, add another LPROCFS_OBD_OP_INIT() line
          * to lprocfs_alloc_obd_stats() in obdclass/lprocfs_status.c.

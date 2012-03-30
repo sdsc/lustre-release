@@ -455,6 +455,79 @@ static int lov_set_osc_active(struct obd_device *obd, struct obd_uuid *uuid,
         RETURN(index);
 }
 
+/* lov_flush thread state */
+#define LF_READY 0
+#define LF_TERMINATE 1
+
+struct lf_work {
+        struct obd_device *lfw_tgt;
+        struct lu_env     *lfw_env;
+        cfs_list_t         lfw_list;
+        cfs_completion_t   lfw_comp;
+};
+
+static int lov_flush_thread(void *arg)
+{
+        struct lf_work    *work;
+        struct lov_obd    *lov = (struct lov_obd*)arg;
+        struct l_wait_info lwi = { 0 };
+        ENTRY;
+
+        {
+                char name[CFS_CURPROC_COMM_MAX];
+                snprintf(name, sizeof(name) - 1, "lov_flush");
+                cfs_daemonize(name);
+        }
+
+        cfs_complete(&lov->lov_flush_comp);
+
+        while (1) {
+                l_wait_event(lov->lov_flush_waitq,
+                             (!cfs_list_empty(&lov->lov_flush_list)) ||
+                             (lov->lov_flush_thread_state == LF_TERMINATE),
+                             &lwi);
+
+                if (lov->lov_flush_thread_state == LF_TERMINATE)
+                        break;
+
+                cfs_spin_lock(&lov->lov_flush_lock);
+                work = cfs_list_entry(lov->lov_flush_list.next,
+                                      struct lf_work, lfw_list);
+                cfs_list_del(&work->lfw_list);
+                cfs_spin_unlock(&lov->lov_flush_lock);
+
+                obd_flush(work->lfw_env, work->lfw_tgt);
+                cfs_complete(&work->lfw_comp);
+        }
+
+        cfs_complete(&lov->lov_flush_comp);
+        RETURN(0);
+}
+
+static int lov_flush_osc(struct obd_device *obd, struct obd_device *watched,
+                         void *data)
+{
+        struct lov_obd *lov = &obd->u.lov;
+        struct lf_work work;
+
+        if (lov->lov_flush_thread_pid < 0)
+                return -EINVAL;
+
+        work.lfw_tgt = watched;
+        work.lfw_env = (struct lu_env*)data;
+        CFS_INIT_LIST_HEAD(&work.lfw_list);
+        cfs_init_completion(&work.lfw_comp);
+       
+        cfs_spin_lock(&lov->lov_flush_lock);
+        cfs_list_add_tail(&work.lfw_list, &lov->lov_flush_list);
+        cfs_spin_unlock(&lov->lov_flush_lock);
+
+        cfs_waitq_signal(&lov->lov_flush_waitq);
+
+        cfs_wait_for_completion(&work.lfw_comp);
+        return 1; 
+}
+
 static int lov_notify(struct obd_device *obd, struct obd_device *watched,
                       enum obd_notify_event ev, void *data)
 {
@@ -486,6 +559,19 @@ static int lov_notify(struct obd_device *obd, struct obd_device *watched,
                 }
                 /* active event should be pass lov target index as data */
                 data = &rc;
+        }
+
+        if (ev == OBD_NOTIFY_FLUSH) {
+                LASSERT(watched);
+
+                if (strcmp(watched->obd_type->typ_name, LUSTRE_OSC_NAME)) {
+                        CERROR("unexpected notification of %s %s!\n",
+                               watched->obd_type->typ_name,
+                               watched->obd_name);
+                        RETURN(-EINVAL);
+                }
+
+                RETURN(lov_flush_osc(obd, watched, data));
         }
 
         /* Pass the notification up the chain. */
@@ -766,6 +852,19 @@ void lov_fix_desc(struct lov_desc *desc)
         lov_fix_desc_qos_maxage(&desc->ld_qos_maxage);
 }
 
+static int lov_start_flush_thread(struct lov_obd *lov)
+{
+        pid_t pid;
+
+        pid = cfs_create_thread(lov_flush_thread, lov, 0);
+        lov->lov_flush_thread_pid = pid;
+        if (pid < 0)
+                return pid;
+
+        cfs_wait_for_completion(&lov->lov_flush_comp);
+        return 0;
+}
+
 int lov_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
         struct lprocfs_static_vars lvars = { 0 };
@@ -798,6 +897,13 @@ int lov_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
                         RETURN(-EINVAL);
                 }
         }
+
+        cfs_spin_lock_init(&lov->lov_flush_lock);
+        CFS_INIT_LIST_HEAD(&lov->lov_flush_list);
+        cfs_waitq_init(&lov->lov_flush_waitq);
+        cfs_init_completion(&lov->lov_flush_comp);
+        lov->lov_flush_thread_state = LF_READY;
+        lov_start_flush_thread(lov);
 
         lov_fix_desc(desc);
 
@@ -898,6 +1004,10 @@ static int lov_cleanup(struct obd_device *obd)
         cfs_list_t *pos, *tmp;
         struct pool_desc *pool;
         ENTRY;
+
+        lov->lov_flush_thread_state = LF_TERMINATE;
+        cfs_waitq_signal(&lov->lov_flush_waitq);
+        cfs_wait_for_completion(&lov->lov_flush_comp);
 
         cfs_list_for_each_safe(pos, tmp, &lov->lov_pool_list) {
                 pool = cfs_list_entry(pos, struct pool_desc, pool_list);
