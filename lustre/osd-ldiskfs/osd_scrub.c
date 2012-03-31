@@ -397,6 +397,822 @@ static inline void osi_put(struct osd_scrub_it *osi)
         }
 }
 
+static struct osd_scrub_it *osi_init(struct osd_device *dev)
+{
+        struct super_block  *sb   = osd_sb(dev);
+        struct osd_scrub_it *osi;
+        int                  rc;
+
+        OBD_ALLOC_PTR(osi);
+        if (unlikely(osi == NULL))
+                return ERR_PTR(-ENOMEM);
+
+        rc = lu_env_init(&osi->osi_env, LCT_MD_THREAD | LCT_DT_THREAD);
+        if (rc != 0) {
+                OBD_FREE_PTR(osi);
+                return ERR_PTR(rc);
+        }
+
+        cfs_spin_lock_init(&osi->osi_cache_lock);
+        osi->osi_inodes_per_block = LDISKFS_BLOCK_SIZE(sb) /
+                                    LDISKFS_INODE_SIZE(sb);
+        osi->osi_sb = sb;
+        osi->osi_dev = dev;
+        cfs_waitq_init(&osi->osi_thread.t_ctl_waitq);
+        cfs_atomic_set(&osi->osi_refcount, 1);
+        osi->osi_pos_current = ~0U;
+        osi->osi_pos_urgent = ~0U;
+        return osi;
+}
+
+static int osd_scrub_main(void *args)
+{
+        struct osd_scrub_it          *osi    =
+                        osi_get((struct osd_scrub_it *)args);
+        struct lu_env                *env    = &osi->osi_env;
+        struct osd_device            *dev    = osi->osi_dev;
+        struct ptlrpc_thread         *thread = &osi->osi_thread;
+        struct scrub_exec_head       *seh    = dev->od_scrub_seh;
+        struct l_wait_info            lwi    = { 0 };
+        struct super_block           *sb     = osi->osi_sb;
+        struct osd_thread_info       *info   = osd_oti_get(env);
+        struct osd_inconsistent_item *oii    = NULL;
+        __u32                         max    =
+                        le32_to_cpu(LDISKFS_SB(sb)->s_es->s_inodes_count);
+        int                           rc     = 0;
+        ENTRY;
+
+        cfs_daemonize("osd_scrub");
+
+        CDEBUG(D_SCRUB, "OSD scrub: flags = 0x%x, pid = %d\n",
+               (__u32)seh->seh_head.sh_param_flags, cfs_curproc_pid());
+
+        /* XXX: Prepare before wakeup the sponsor. */
+        cfs_down_write(&seh->seh_rwsem);
+        rc = scrub_prep(env, seh);
+
+        cfs_spin_lock(&seh->seh_lock);
+        thread_set_flags(thread, SVC_RUNNING);
+        cfs_spin_unlock(&seh->seh_lock);
+        cfs_waitq_broadcast(&thread->t_ctl_waitq);
+
+        if (rc != 0)
+                GOTO(out, rc);
+
+        cfs_up_write(&seh->seh_rwsem);
+        if (!osi->osi_urgent_mode) {
+                l_wait_event(thread->t_ctl_waitq,
+                             osi->osi_it_start || !thread_is_running(thread),
+                             &lwi);
+                if (unlikely(!thread_is_running(thread)))
+                        GOTO(post, rc = 0);
+        } else {
+                /* Wakeup the possible up layer iteration. */
+                cfs_waitq_broadcast(&thread->t_ctl_waitq);
+        }
+
+        CDEBUG(D_SCRUB, "OSD scrub iteration start: pos = %u\n",
+               osi->osi_pos_current);
+
+again:
+        while (osi->osi_pos_current <= max ||
+               !cfs_list_empty(&dev->od_inconsistent_items)) {
+                struct buffer_head *bitmap;
+                struct inode *inode;
+                ldiskfs_group_t bg = (osi->osi_pos_current - 1) /
+                                     LDISKFS_INODES_PER_GROUP(sb);
+                __u32 offset = (osi->osi_pos_current - 1) %
+                               LDISKFS_INODES_PER_GROUP(sb);
+                __u32 gbase = 1 + bg * LDISKFS_INODES_PER_GROUP(sb);
+                int noslot = 0;
+
+                bitmap = ldiskfs_read_inode_bitmap(sb, bg);
+                if (bitmap == NULL) {
+                        CERROR("Fail to read bitmap for pos = %u, bg = %u, "
+                               "scrub will stop.\n",
+                               osi->osi_pos_current, (__u32)bg);
+                        GOTO(post, rc = -EIO);
+                }
+
+                while (offset < LDISKFS_INODES_PER_GROUP(sb) ||
+                       !cfs_list_empty(&dev->od_inconsistent_items)) {
+                        if (OBD_FAIL_CHECK(OBD_FAIL_OSD_SCRUB_FAILURE)) {
+                                brelse(bitmap);
+                                GOTO(post, rc = -EINVAL);
+                        }
+
+                        if (OBD_FAIL_CHECK(OBD_FAIL_OSD_SCRUB_DELAY)) {
+                                struct l_wait_info tlwi;
+
+                                tlwi = LWI_TIMEOUT_INTR(cfs_time_seconds(3),
+                                                        NULL, NULL, NULL);
+                                l_wait_event(thread->t_ctl_waitq,
+                                             !cfs_list_empty(
+                                                &dev->od_inconsistent_items) ||
+                                             !thread_is_running(thread),
+                                             &tlwi);
+                        }
+
+                        if (unlikely(!thread_is_running(thread))) {
+                                brelse(bitmap);
+                                GOTO(post, rc = 0);
+                        }
+
+                        if (!cfs_list_empty(&dev->od_inconsistent_items)) {
+                                oii = cfs_list_entry(
+                                                dev->od_inconsistent_items.next,
+                                                struct osd_inconsistent_item,
+                                                oii_list);
+                                osi->osi_oicp = &oii->oii_cache;
+                                osi->osi_in_prior = 1;
+                                goto exec;
+                        }
+
+                        if (offset >= LDISKFS_INODES_PER_GROUP(sb) ||
+                            unlikely(osi->osi_pos_current > max))
+                                break;
+
+                        if (!osi->osi_urgent_mode && noslot != 0)
+                                goto wait;
+
+                        offset = ldiskfs_find_next_bit((unsigned long *)
+                                                bitmap->b_data,
+                                                LDISKFS_INODES_PER_GROUP(sb),
+                                                offset);
+                        if (offset >= LDISKFS_INODES_PER_GROUP(sb)) {
+                                brelse(bitmap);
+                                osi->osi_pos_current = 1 + (bg + 1) *
+                                                LDISKFS_INODES_PER_GROUP(sb);
+                                break;
+                        }
+
+                        if (osi->osi_urgent_mode)
+                                osi->osi_oicp = &osi->osi_oic_urgent;
+                        else
+                                osi->osi_oicp = &osi->osi_producer_slot;
+                        osi->osi_pos_current = gbase + offset;
+                        osd_id_gen(&osi->osi_oicp->oic_lid,
+                                   osi->osi_pos_current, OSD_OII_NOGEN);
+                        inode = osd_iget(info, osi->osi_dev,
+                                         &osi->osi_oicp->oic_lid,
+                                         &osi->osi_oicp->oic_fid,
+                                         OSD_IF_GEN_LID | OSD_IF_RET_FID);
+                        if (IS_ERR(inode)) {
+                                rc = PTR_ERR(inode);
+                                /* The inode may be removed after bitmap
+                                 * searching, or the file is new created
+                                 * without inode initialized yet. */
+                                if (rc == -ENOENT || rc == -ESTALE) {
+                                        osi->osi_skip_obj = 1;
+                                        goto checkpoint;
+                                }
+
+                                CERROR("Fail to read inode: group = %u, "
+                                       "ino# = %u, rc = %d\n",
+                                       bg, osi->osi_pos_current, rc);
+                        } else {
+                                iput(inode);
+                        }
+
+exec:
+                        cfs_down_read(&seh->seh_rwsem);
+                        rc = scrub_exec(env, seh, rc);
+                        cfs_up_read(&seh->seh_rwsem);
+
+                        if (oii != NULL) {
+                                cfs_spin_lock(&seh->seh_lock);
+                                cfs_list_del_init(&oii->oii_list);
+                                cfs_spin_unlock(&seh->seh_lock);
+                                OBD_FREE_PTR(oii);
+                                oii = NULL;
+                        }
+
+                        if (rc != 0) {
+                                brelse(bitmap);
+                                GOTO(post, rc);
+                        }
+
+checkpoint:
+                        if (cfs_time_beforeq(seh->seh_time_next_checkpoint,
+                                             cfs_time_current())) {
+                                osd_scrub_pos2str(seh->seh_pos_checkpoint,
+                                                  osi->osi_pos_current);
+                                cfs_down_write(&seh->seh_rwsem);
+                                rc = scrub_checkpoint(env, seh);
+                                cfs_up_write(&seh->seh_rwsem);
+                                if (rc != 0) {
+                                        CERROR("Fail to checkpoint: pos = %u, "
+                                               "rc = %d\n",
+                                               osi->osi_pos_current, rc);
+                                        brelse(bitmap);
+                                        GOTO(post, rc);
+                                }
+                        }
+
+                        if (osi->osi_in_prior) {
+                                osi->osi_in_prior = 0;
+                                continue;
+                        }
+
+                        offset++;
+                        osi->osi_pos_current = gbase + offset;
+                        if (osi->osi_skip_obj) {
+                                osi->osi_skip_obj = 0;
+                                continue;
+                        }
+
+                        if (!osi->osi_urgent_mode) {
+
+wait:
+                                l_wait_event(thread->t_ctl_waitq,
+                                             osi->osi_cached_items <
+                                                OSD_SCRUB_IT_CACHE_SIZE ||
+                                             dev->od_fl_restored ||
+                                             !cfs_list_empty(
+                                                &dev->od_inconsistent_items) ||
+                                             !thread_is_running(thread),
+                                             &lwi);
+
+                                if (osi->osi_cached_items <
+                                        OSD_SCRUB_IT_CACHE_SIZE) {
+                                        int wakeup = 0;
+
+                                        noslot = 0;
+                                        cfs_spin_lock(&osi->osi_cache_lock);
+                                        if (osi->osi_cached_items == 0)
+                                                wakeup = 1;
+                                        osi->osi_cache[osi->osi_producer_idx] =
+                                                osi->osi_producer_slot;
+                                        osi->osi_cached_items++;
+                                        cfs_spin_unlock(&osi->osi_cache_lock);
+                                        if (wakeup != 0)
+                                                cfs_waitq_broadcast(
+                                                        &thread->t_ctl_waitq);
+                                        osi->osi_producer_idx =
+                                                (osi->osi_producer_idx + 1) &
+                                                ~OSD_SCRUB_IT_CACHE_MASK;
+                                        continue;
+                                }
+
+                                noslot = 1;
+                                if (dev->od_fl_restored) {
+                                        cfs_spin_lock(&seh->seh_lock);
+                                        osi->osi_pos_urgent =
+                                                        osi->osi_pos_current;
+                                        osi->osi_urgent_mode = 1;
+                                        cfs_spin_unlock(&seh->seh_lock);
+                                        cfs_waitq_broadcast(&thread->t_ctl_waitq);
+                                        continue;
+                                }
+                        }
+                }
+        }
+
+        if (osi->osi_pos_current > max) {
+                if (!osi->osi_urgent_mode) {
+                        osi->osi_all_cached = 1;
+                        cfs_waitq_broadcast(&thread->t_ctl_waitq);
+                }
+                rc = 1;
+        }
+
+        GOTO(post, rc);
+
+post:
+        dev->od_fl_restored = 0;
+        if (osi->osi_urgent_mode) {
+                cfs_spin_lock(&seh->seh_lock);
+                osi->osi_urgent_mode = 0;
+                cfs_spin_unlock(&seh->seh_lock);
+        }
+        osd_scrub_pos2str(seh->seh_pos_checkpoint, osi->osi_pos_current);
+        cfs_down_write(&seh->seh_rwsem);
+        scrub_post(env, seh, rc);
+        if (rc == 1 && !osi->osi_all_cached) {
+                cfs_up_write(&seh->seh_rwsem);
+                /* The up layer iteration preload may be unfinised yet. */
+                l_wait_event(thread->t_ctl_waitq,
+                             osi->osi_all_cached ||
+                             !osi->osi_self_preload ||
+                             !cfs_list_empty(&dev->od_inconsistent_items) ||
+                             !thread_is_running(thread),
+                             &lwi);
+                if (osi->osi_all_cached ||
+                    unlikely(!thread_is_running(thread))) {
+                        cfs_down_write(&seh->seh_rwsem);
+                        goto out;
+                }
+
+                cfs_spin_lock(&seh->seh_lock);
+                if (!osi->osi_self_preload)
+                        osi->osi_pos_current = osi->osi_pos_urgent;
+                else
+                        osi->osi_urgent_mode = 1;
+                cfs_spin_unlock(&seh->seh_lock);
+                goto again;
+        }
+
+        CDEBUG(D_SCRUB, "OSD scrub iteration stop: pos = %u, rc = %d\n",
+               osi->osi_pos_current, rc);
+out:
+        scrub_head_reset(env, seh);
+        osi->osi_exit_value = rc;
+
+        while (!cfs_list_empty(&dev->od_inconsistent_items)) {
+                oii = cfs_list_entry(dev->od_inconsistent_items.next,
+                                     struct osd_inconsistent_item,
+                                     oii_list);
+                cfs_list_del_init(&oii->oii_list);
+                OBD_FREE_PTR(oii);
+        }
+
+        cfs_spin_lock(&seh->seh_lock);
+        thread_set_flags(thread, SVC_STOPPED);
+        cfs_spin_unlock(&seh->seh_lock);
+        cfs_waitq_broadcast(&thread->t_ctl_waitq);
+
+        cfs_up_write(&seh->seh_rwsem);
+        osi_put(osi);
+        return rc;
+}
+
+static int osd_scrub_lookup(const struct lu_env *env, struct dt_object *dt,
+                            struct dt_rec *rec, const struct dt_key *key,
+                            struct lustre_capa *unused)
+{
+        return -ENOSYS;
+}
+
+static int osd_scrub_declare_insert(const struct lu_env *env,
+                                    struct dt_object *dt,
+                                    const struct dt_rec *rec,
+                                    const struct dt_key *key,
+                                    struct thandle *handle)
+{
+        return -ENOSYS;
+}
+
+static int osd_scrub_insert(const struct lu_env *env, struct dt_object *dt,
+                            const struct dt_rec *rec, const struct dt_key *key,
+                            struct thandle *handle, struct lustre_capa *unused,
+                            int ignore_quota)
+{
+        return -ENOSYS;
+}
+
+static int osd_scrub_declare_delete(const struct lu_env *env,
+                                    struct dt_object *dt,
+                                    const struct dt_key *key,
+                                    struct thandle *handle)
+{
+        return -ENOSYS;
+}
+
+static int osd_scrub_delete(const struct lu_env *env, struct dt_object *dt,
+                            const struct dt_key *key, struct thandle *handle,
+                            struct lustre_capa *unused)
+{
+        return -ENOSYS;
+}
+
+static struct dt_it *osd_scrub_it_init(const struct lu_env *env,
+                                       struct dt_object *dt, __u32 attr,
+                                       struct lustre_capa *unused)
+{
+        enum dt_scrub_flags     flags   = attr >> DT_SCRUB_FLAGS_SHIFT;
+        enum dt_scrub_valid     valid   = attr &  ~DT_SCRUB_FLAGS_MASK;
+        struct osd_device      *dev     = osd_dev(dt->do_lu.lo_dev);
+        struct scrub_exec_head *seh     = dev->od_scrub_seh;
+        struct scrub_head      *sh      = &seh->seh_head;
+        struct scrub_unit_desc *sud     = &sh->sh_desc[0];
+        struct scrub_exec_unit *seu     = NULL;
+        struct osd_scrub_it    *osi;
+        struct l_wait_info      lwi     = { 0 };
+        int                     rc      = 0;
+        int                     dirty   = 1;
+        int                     append  = 0;
+        int                     rwsem   = 1;
+        ENTRY;
+
+        cfs_down(&seh->seh_sem);
+        cfs_down_write(&seh->seh_rwsem);
+        osi = seh->seh_private;
+        if (osi != NULL) {
+                dirty = 0;
+                /* XXX: Currently, only OI scrub can be triggering by RPC during
+                 *      other LFSCK process. */
+                if (!(flags & DSF_TBR) ||
+                    !(valid & DSV_OI_SCRUB && flags & DSF_OI_SCRUB) ||
+                    seh->seh_active & ST_OI_SCRUB)
+                        GOTO(out, rc = -EALREADY);
+
+                append = 1;
+                seu = osd_scrub_register(env, dev, osi, seh, SS_SCANNING,
+                                         0, 0, 1);
+                if (IS_ERR(seu))
+                        GOTO(out, rc = PTR_ERR(seu));
+
+                if (likely(thread_is_running(&osi->osi_thread))) {
+                        GOTO(out, rc = 0);
+                } else {
+                        dirty = 1;
+                        goto start;
+                }
+        }
+
+        if (valid & DSV_ERROR_HANDLE) {
+                if ((flags & DSF_FAILOUT) &&
+                   !(sh->sh_param_flags & SPF_FAILOUT)) {
+                        sh->sh_param_flags |= SPF_FAILOUT;
+                        seh->seh_dirty = 1;
+                } else if ((sh->sh_param_flags & SPF_FAILOUT) &&
+                          !(flags & DSF_FAILOUT)) {
+                        sh->sh_param_flags &= ~SPF_FAILOUT;
+                        seh->seh_dirty = 1;
+                }
+        }
+
+        if (valid & DSV_DRYRUN) {
+                if ((flags & DSF_DRYRUN) &&
+                   !(sh->sh_param_flags & SPF_DRYRUN)) {
+                        sh->sh_param_flags |= SPF_DRYRUN;
+                        seh->seh_dirty = 1;
+                } else if ((sh->sh_param_flags & SPF_DRYRUN) &&
+                          !(flags & DSF_DRYRUN)) {
+                        sh->sh_param_flags &= ~SPF_DRYRUN;
+                        seh->seh_dirty = 1;
+                }
+        }
+
+        if ((valid & DSV_OI_SCRUB && flags & DSF_OI_SCRUB) ||
+            (!(valid & DSV_OI_SCRUB) && (sud->sud_status == SS_CRASHED ||
+                                         sud->sud_flags & SUF_INCONSISTENT))) {
+                seu = osd_scrub_register(env, dev, NULL, seh, SS_SCANNING,
+                                         sh->sh_param_flags & SPF_DRYRUN ?
+                                                SUF_DRYRUN : 0,
+                                         flags & DSF_RESET, flags & DSF_TBR);
+                if (IS_ERR(seu))
+                        GOTO(out, rc = PTR_ERR(seu));
+        }
+
+        osi = osi_init(dev);
+        if (unlikely(IS_ERR(osi)))
+                GOTO(out, rc = PTR_ERR(osi));
+
+        seh->seh_private = osi;
+
+start:
+        rc = cfs_create_thread(osd_scrub_main, osi, 0);
+        if (rc < 0) {
+                CERROR("Cannot start osd scrub thread: rc %d\n", rc);
+                if (append == 0) {
+                        seh->seh_private = NULL;
+                        osi_put(osi);
+                }
+                GOTO(out, rc);
+        }
+
+        cfs_up_write(&seh->seh_rwsem);
+        rwsem = 0;
+        l_wait_event(osi->osi_thread.t_ctl_waitq,
+                     thread_is_running(&osi->osi_thread) ||
+                     thread_is_stopped(&osi->osi_thread),
+                     &lwi);
+
+        GOTO(out, rc = 0);
+
+out:
+        if (rc != 0) {
+                if (dirty != 0)
+                        scrub_head_reset(env, seh);
+                osi = ERR_PTR(rc);
+        }
+        if (rwsem != 0)
+                cfs_up_write(&seh->seh_rwsem);
+        cfs_up(&seh->seh_sem);
+        return (struct dt_it *)osi;
+}
+
+static void osd_scrub_it_fini(const struct lu_env *env, struct dt_it *di)
+{
+        struct osd_scrub_it    *osi    = (struct osd_scrub_it *)di;
+        struct scrub_exec_head *seh    = osi->osi_dev->od_scrub_seh;
+        struct ptlrpc_thread   *thread = &osi->osi_thread;
+        struct l_wait_info      lwi    = { 0 };
+        ENTRY;
+
+        cfs_down(&seh->seh_sem);
+        LASSERT(seh->seh_private != NULL);
+
+        cfs_spin_lock(&seh->seh_lock);
+        if (!thread_is_stopped(thread)) {
+                thread_set_flags(thread, SVC_STOPPING);
+                cfs_spin_unlock(&seh->seh_lock);
+                cfs_waitq_broadcast(&thread->t_ctl_waitq);
+                l_wait_event(thread->t_ctl_waitq,
+                             thread_is_stopped(thread),
+                             &lwi);
+        } else {
+                cfs_spin_unlock(&seh->seh_lock);
+        }
+        seh->seh_private = NULL;
+        cfs_up(&seh->seh_sem);
+        osi_put(osi);
+
+        EXIT;
+}
+
+/* Set the OSD layer scrub iteration start position as the specified key.
+ *
+ * The LFSCK out of OSD layer does not know the detail of the key,
+ * so if there are several keys, they cannot be compared out of OSD,
+ * so the caller call ".get()" for each key, and OSD will select the
+ * smallest one by itself. */
+static int osd_scrub_it_get(const struct lu_env *env,
+                            struct dt_it *di, const struct dt_key *key)
+{
+        struct osd_scrub_it *osi = (struct osd_scrub_it *)di;
+        __u32                ino;
+        int                  rc;
+        ENTRY;
+
+        /* Forbid to set scrub position after iteration started. */
+        if (osi->osi_it_start)
+                RETURN(-EPERM);
+
+        rc = osd_scrub_str2pos(&ino, (__u8 *)key);
+        if (rc == 0) {
+                if (osi->osi_pos_urgent > ino)
+                        osi->osi_pos_urgent = ino;
+        }
+
+        RETURN(rc);
+}
+
+static void osd_scrub_it_put(const struct lu_env *env, struct dt_it *di)
+{
+        /* Do nothing. */
+}
+
+static int osd_scrub_self_preload(const struct lu_env *env,
+                                  struct osd_scrub_it *osi)
+{
+        struct super_block     *sb     = osi->osi_sb;
+        struct osd_thread_info *info   = osd_oti_get(env);
+        struct buffer_head     *bitmap = NULL;
+        __u32                   max    =
+                        le32_to_cpu(LDISKFS_SB(sb)->s_es->s_inodes_count);
+        int                     rc;
+        ENTRY;
+
+        while (osi->osi_pos_urgent <= max &&
+               osi->osi_cached_items < OSD_SCRUB_IT_CACHE_SIZE) {
+                struct osd_idmap_cache *oic;
+                struct inode *inode;
+                ldiskfs_group_t bg = (osi->osi_pos_urgent - 1) /
+                                     LDISKFS_INODES_PER_GROUP(sb);
+                __u32 offset = (osi->osi_pos_urgent - 1) %
+                               LDISKFS_INODES_PER_GROUP(sb);
+                __u32 gbase = 1 + bg * LDISKFS_INODES_PER_GROUP(sb);
+
+                bitmap = ldiskfs_read_inode_bitmap(sb, bg);
+                if (bitmap == NULL) {
+                        CERROR("Fail to read bitmap for %u, "
+                               "scrub will stop, urgent mode.\n", (__u32)bg);
+                        RETURN(-EIO);
+                }
+
+                while (osi->osi_cached_items < OSD_SCRUB_IT_CACHE_SIZE) {
+                        offset = ldiskfs_find_next_bit((unsigned long *)
+                                                bitmap->b_data,
+                                                LDISKFS_INODES_PER_GROUP(sb),
+                                                offset);
+                        if (offset >= LDISKFS_INODES_PER_GROUP(sb)) {
+                                brelse(bitmap);
+                                osi->osi_pos_urgent = 1 + (bg + 1) *
+                                                LDISKFS_INODES_PER_GROUP(sb);
+                                break;
+                        }
+
+                        oic = &osi->osi_cache[osi->osi_producer_idx];
+                        osi->osi_pos_urgent = gbase + offset;
+                        osd_id_gen(&oic->oic_lid, osi->osi_pos_urgent,
+                                   OSD_OII_NOGEN);
+                        inode = osd_iget(info, osi->osi_dev, &oic->oic_lid,
+                                         &oic->oic_fid,
+                                         OSD_IF_GEN_LID | OSD_IF_RET_FID);
+                        if (IS_ERR(inode)) {
+                                rc = PTR_ERR(inode);
+                                /* The inode may be removed after bitmap
+                                 * searching, or the file is new created
+                                 * without inode initialized yet. */
+                                if (rc == -ENOENT || rc == -ESTALE) {
+                                        offset++;
+                                        osi->osi_pos_urgent = gbase + offset;
+                                        continue;
+                                }
+
+                                CERROR("Fail to read inode: group = %u, "
+                                       "ino# = %u, rc = %d, urgent mode.\n",
+                                       bg, osi->osi_pos_urgent, rc);
+                                brelse(bitmap);
+                                /* If up layer LFSCK ignore the failure,
+                                 * we can skip the inode next time. */
+                                osi->osi_pos_urgent = gbase + offset + 1;
+                                RETURN(rc);
+                        }
+
+                        iput(inode);
+                        offset++;
+                        osi->osi_pos_urgent = gbase + offset;
+                        osi->osi_cached_items++;
+                        osi->osi_producer_idx = (osi->osi_producer_idx + 1) &
+                                                ~OSD_SCRUB_IT_CACHE_MASK;
+                }
+        }
+
+        if (osi->osi_cached_items < OSD_SCRUB_IT_CACHE_SIZE) {
+                CDEBUG(D_SCRUB, "OSD self pre-loaded all: pid = %d\n",
+                       cfs_curproc_pid());
+
+                osi->osi_all_cached = 1;
+                cfs_waitq_broadcast(&osi->osi_thread.t_ctl_waitq);
+        } else {
+                brelse(bitmap);
+        }
+
+        RETURN(0);
+}
+
+/**
+ * \retval  +1: OSD layer iteration completed.
+ * \retval   0: navigated to next position.
+ * \retval -ve: some failure occurred, caused OSD layer iterator exit.
+ */
+static int osd_scrub_it_next(const struct lu_env *env, struct dt_it *di)
+{
+        struct osd_scrub_it    *osi    = (struct osd_scrub_it *)di;
+        struct scrub_exec_head *seh    = osi->osi_dev->od_scrub_seh;
+        struct ptlrpc_thread   *thread = &osi->osi_thread;
+        struct l_wait_info      lwi    = { 0 };
+        int                     rc;
+        ENTRY;
+
+        LASSERT(osi->osi_it_start);
+
+again:
+        l_wait_event(thread->t_ctl_waitq,
+                     osi->osi_cached_items > 0 ||
+                     osi->osi_all_cached ||
+                     !thread_is_running(thread) ||
+                     osi->osi_urgent_mode,
+                     &lwi);
+
+        if (osi->osi_cached_items > 0) {
+                int wakeup = 0;
+
+                cfs_spin_lock(&osi->osi_cache_lock);
+                if (osi->osi_cached_items == OSD_SCRUB_IT_CACHE_SIZE)
+                        wakeup = 1;
+                osi->osi_consumer_slot = osi->osi_cache[osi->osi_consumer_idx];
+                osi->osi_cached_items--;
+                cfs_spin_unlock(&osi->osi_cache_lock);
+                if (wakeup != 0)
+                        cfs_waitq_broadcast(&thread->t_ctl_waitq);
+                osi->osi_consumer_idx = (osi->osi_consumer_idx + 1) &
+                                        ~OSD_SCRUB_IT_CACHE_MASK;
+                RETURN(DSRV_CONTINUE);
+        }
+
+        if (osi->osi_all_cached) {
+                if (!thread_is_running(thread))
+                        RETURN(DSRV_COMPLETED);
+                else
+                        RETURN(DSRV_WAIT);
+        }
+
+        if (!thread_is_running(thread)) {
+                if (osi->osi_exit_value > 0)
+                        RETURN(DSRV_COMPLETED);
+                else if (osi->osi_exit_value == 0)
+                        RETURN(DSRV_PAUSED);
+                else
+                        RETURN(DSRV_FAILURE);
+        }
+
+        cfs_spin_lock(&seh->seh_lock);
+        if (unlikely(!osi->osi_urgent_mode)) {
+                cfs_spin_unlock(&seh->seh_lock);
+                goto again;
+        }
+
+        /* Under urgent mode, iterates by itself. */
+        osi->osi_self_preload = 1;
+        cfs_spin_unlock(&seh->seh_lock);
+
+        rc = osd_scrub_self_preload(env, osi);
+        cfs_spin_lock(&seh->seh_lock);
+        osi->osi_self_preload = 0;
+        cfs_spin_unlock(&seh->seh_lock);
+        cfs_waitq_broadcast(&thread->t_ctl_waitq);
+
+        if (rc >= 0)
+                goto again;
+
+        RETURN(rc);
+}
+
+/* To unify the interfaces and hide backend filesystem detail, the scrub
+ * key will represented as printable string. */
+static struct dt_key *osd_scrub_it_key(const struct lu_env *env,
+                                       const struct dt_it *di)
+{
+        struct osd_scrub_it *osi = (struct osd_scrub_it *)di;
+
+        osd_scrub_pos2str(osi->osi_key, osi->osi_consumer_slot.oic_lid.oii_ino);
+        return (struct dt_key *)osi->osi_key;
+}
+
+static int osd_scrub_it_key_size(const struct lu_env *env,
+                                 const struct dt_it *di)
+{
+        struct osd_scrub_it *osi = (struct osd_scrub_it *)di;
+        return sizeof(osi->osi_key);
+}
+
+static int osd_scrub_it_rec(const struct lu_env *env,
+                            const struct dt_it *di,
+                            struct dt_rec *rec, __u32 attr)
+{
+        struct osd_scrub_it   *osi = (struct osd_scrub_it *)di;
+        struct lu_fid         *fid = (struct lu_fid *)rec;
+
+        *fid = osi->osi_consumer_slot.oic_fid;
+        return 0;
+}
+
+static __u64 osd_scrub_it_store(const struct lu_env *env,
+                                const struct dt_it *di)
+{
+        return -ENOSYS;
+}
+
+/* Trigger OSD layer iteration. */
+static int osd_scrub_it_load(const struct lu_env *env,
+                             const struct dt_it *di, __u64 hash)
+{
+        struct osd_scrub_it *osi = (struct osd_scrub_it *)di;
+        int                  rc  = 0;
+
+        if (!osi->osi_it_start) {
+                if (osi->osi_pos_urgent == ~0U)
+                        osi->osi_pos_urgent = osi->osi_pos_current;
+                else if (osi->osi_pos_urgent == 0)
+                        osi->osi_pos_urgent = LDISKFS_FIRST_INO(osi->osi_sb);
+                else
+                        /* Skip the one that has been processed last time. */
+                        osi->osi_pos_urgent++;
+
+                cfs_spin_lock(&osi->osi_dev->od_scrub_seh->seh_lock);
+                if (!osi->osi_urgent_mode)
+                        osi->osi_pos_current = osi->osi_pos_urgent;
+                osi->osi_it_start = 1;
+                cfs_spin_unlock(&osi->osi_dev->od_scrub_seh->seh_lock);
+                cfs_waitq_broadcast(&osi->osi_thread.t_ctl_waitq);
+
+                /* Unplug OSD layer iteration by the first next() call. */
+                rc = osd_scrub_it_next(env, (struct dt_it *)di);
+        }
+        return rc;
+}
+
+static int osd_scrub_it_key_rec(const struct lu_env *env,
+                                const struct dt_it *di, void* key_rec)
+{
+        return -ENOSYS;
+}
+
+const struct dt_index_operations osd_scrub_ops = {
+        .dio_lookup         = osd_scrub_lookup,
+        .dio_declare_insert = osd_scrub_declare_insert,
+        .dio_insert         = osd_scrub_insert,
+        .dio_declare_delete = osd_scrub_declare_delete,
+        .dio_delete         = osd_scrub_delete,
+        .dio_it             = {
+                .init     = osd_scrub_it_init,
+                .fini     = osd_scrub_it_fini,
+                .get      = osd_scrub_it_get,
+                .put      = osd_scrub_it_put,
+                .next     = osd_scrub_it_next,
+                .key      = osd_scrub_it_key,
+                .key_size = osd_scrub_it_key_size,
+                .rec      = osd_scrub_it_rec,
+                .store    = osd_scrub_it_store,
+                .load     = osd_scrub_it_load,
+                .key_rec  = osd_scrub_it_key_rec,
+        }
+};
+
 static int osd_scrub_store_fid(const struct lu_env *env, struct dt_object *obj)
 {
         struct osd_thread_info      *info   = osd_oti_get(env);
