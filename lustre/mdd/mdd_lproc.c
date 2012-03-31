@@ -299,6 +299,88 @@ static int lprocfs_wr_sync_perm(struct file *file, const char *buffer,
         return count;
 }
 
+static int lprocfs_rd_auto_scrub(char *page, char **start, off_t off,
+                                 int count, int *eof, void *data)
+{
+        struct mdd_device *mdd = data;
+
+        LASSERT(mdd != NULL);
+        *eof = 1;
+        return snprintf(page, count, "%d\n", !mdd->mdd_noauto_scrub);
+}
+
+static int lprocfs_wr_auto_scrub(struct file *file, const char *buffer,
+                                 unsigned long count, void *data)
+{
+        struct mdd_device *mdd = data;
+        int val, rc;
+
+        LASSERT(mdd != NULL);
+        rc = lprocfs_write_helper(buffer, count, &val);
+        if (rc)
+                return rc;
+
+        mdd->mdd_noauto_scrub = !val;
+        return count;
+}
+
+static int lprocfs_rd_scrub_speed_limit(char *page, char **start, off_t off,
+                                        int count, int *eof, void *data)
+{
+        struct mdd_device *mdd = data;
+
+        LASSERT(mdd != NULL);
+        *eof = 1;
+        return snprintf(page, count, "%u\n",
+                        mdd->mdd_scrub_seh->seh_head.sh_param_speed_limit);
+}
+
+static int lprocfs_wr_scrub_speed_limit(struct file *file, const char *buffer,
+                                        unsigned long count, void *data)
+{
+        struct lu_env *env;
+        struct mdd_device *mdd = data;
+        struct scrub_exec_head *seh = mdd->mdd_scrub_seh;
+        struct scrub_head *sh = &seh->seh_head;
+        __u32 val, old;
+        int rc;
+
+        LASSERT(mdd != NULL);
+        rc = lprocfs_write_helper(buffer, count, &val);
+        if (rc)
+                return rc;
+
+        if (val == sh->sh_param_speed_limit)
+                return count;
+
+        OBD_ALLOC_PTR(env);
+        if (unlikely(env == NULL))
+                return -ENOMEM;
+
+        rc = lu_env_init(env, LCT_MD_THREAD | LCT_DT_THREAD);
+        if (rc != 0) {
+                OBD_FREE_PTR(env);
+                return rc;
+        }
+
+        cfs_down_write(&seh->seh_rwsem);
+        if (likely(val != sh->sh_param_speed_limit)) {
+                old = sh->sh_param_speed_limit;
+                sh->sh_param_speed_limit = val;
+                seh->seh_dirty = 1;
+                rc = scrub_head_store(env, seh);
+                if (rc != 0)
+                        sh->sh_param_speed_limit = old;
+                else
+                        scrub_set_speed(seh);
+        }
+        cfs_up_write(&seh->seh_rwsem);
+
+        lu_env_fini(env);
+        OBD_FREE_PTR(env);
+        return rc != 0 ? rc : count;
+}
+
 static struct lprocfs_vars lprocfs_mdd_obd_vars[] = {
         { "atime_diff",      lprocfs_rd_atime_diff, lprocfs_wr_atime_diff, 0 },
         { "changelog_mask",  lprocfs_rd_changelog_mask,
@@ -309,6 +391,9 @@ static struct lprocfs_vars lprocfs_mdd_obd_vars[] = {
                              mdd_lprocfs_quota_wr_type, 0 },
 #endif
         { "sync_permission", lprocfs_rd_sync_perm, lprocfs_wr_sync_perm, 0 },
+        { "auto_scrub",      lprocfs_rd_auto_scrub, lprocfs_wr_auto_scrub, 0 },
+        { "scrub_speed_limit", lprocfs_rd_scrub_speed_limit,
+                               lprocfs_wr_scrub_speed_limit, 0 },
         { 0 }
 };
 
