@@ -80,6 +80,40 @@ struct osd_inode_id {
         __u32 oii_gen; /* inode generation */
 };
 
+static inline void osd_id_pack(struct osd_inode_id *des,
+                               const struct osd_inode_id *src)
+{
+        des->oii_ino = cpu_to_be32(src->oii_ino);
+        des->oii_gen = cpu_to_be32(src->oii_gen);
+}
+
+static inline void osd_id_unpack(struct osd_inode_id *des,
+                                 struct osd_inode_id *src)
+{
+        des->oii_ino = be32_to_cpu(src->oii_ino);
+        des->oii_gen = be32_to_cpu(src->oii_gen);
+}
+
+static inline void osd_id_gen(struct osd_inode_id *id, __u32 ino, __u32 gen)
+{
+        id->oii_ino = ino;
+        id->oii_gen = gen;
+}
+
+static inline void osd_id_to_inode(struct inode *inode,
+                                   const struct osd_inode_id *id)
+{
+        inode->i_ino        = id->oii_ino;
+        inode->i_generation = id->oii_gen;
+}
+
+static inline int osd_id_eq(const struct osd_inode_id *id0,
+                            const struct osd_inode_id *id1)
+{
+        return id0->oii_ino == id1->oii_ino &&
+               id0->oii_gen == id1->oii_gen;
+}
+
 int osd_oi_mod_init(void);
 int osd_oi_init(struct osd_thread_info *info, struct osd_device *osd);
 void osd_oi_fini(struct osd_thread_info *info, struct osd_device *osd);
@@ -87,7 +121,7 @@ int  osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
                    const struct lu_fid *fid, struct osd_inode_id *id);
 int  osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
                    const struct lu_fid *fid, const struct osd_inode_id *id,
-                   struct thandle *th, int ingore_quota);
+                   struct thandle *th);
 int  osd_oi_delete(struct osd_thread_info *info,
                    struct osd_device *osd, const struct lu_fid *fid,
                    struct thandle *th);
