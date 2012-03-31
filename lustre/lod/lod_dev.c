@@ -44,6 +44,7 @@
 #define DEBUG_SUBSYSTEM S_MDS
 
 #include <obd_class.h>
+#include <lustre_fid.h>
 #include <lustre_param.h>
 
 #include "lod_internal.h"
@@ -207,6 +208,99 @@ static int lodname2mdt_index(char *lodname, int *index)
 	return 0;
 }
 
+/*
+ * Init client sequence manager which is used by local MDS to talk to sequence
+ * controller on remote node.
+ */
+static int lod_seq_init_cli(const struct lu_env *env,
+			    struct lod_device *lod,
+			    char *tgtuuid, int index)
+{
+	struct md_site	  *ms;
+	struct obd_device       *osp;
+	int		      rc;
+	char		    *prefix;
+	struct obd_uuid	  obd_uuid;
+	ENTRY;
+
+	ms = lod->lod_dt_dev.dd_lu_dev.ld_site->ld_md_site;
+	LASSERT(ms != NULL);
+
+	/* check if this is adding the first MDC and controller is not yet
+	 * initialized. */
+	if (index != 0 || ms->ms_client_seq)
+		RETURN(0);
+
+	obd_str2uuid(&obd_uuid, tgtuuid);
+	osp = class_find_client_obd(&obd_uuid, LUSTRE_OSP_NAME,
+				   &lod->lod_dt_dev.dd_lu_dev.ld_obd->obd_uuid);
+	if (osp == NULL) {
+		CERROR("%s: can't find %s device\n",
+			lod->lod_dt_dev.dd_lu_dev.ld_obd->obd_name,
+			tgtuuid);
+		RETURN(-EINVAL);
+	}
+
+	if (!osp->obd_set_up) {
+		CERROR("target %s not set up\n", osp->obd_name);
+		rc = -EINVAL;
+	}
+
+	LASSERT(ms->ms_control_exp);
+	OBD_ALLOC_PTR(ms->ms_client_seq);
+	if (ms->ms_client_seq == NULL)
+		RETURN(-ENOMEM);
+
+	OBD_ALLOC(prefix, MAX_OBD_NAME + 5);
+	if (!prefix) {
+		OBD_FREE_PTR(ms->ms_client_seq);
+		ms->ms_client_seq = NULL;
+		RETURN(-ENOMEM);
+	}
+
+	snprintf(prefix, MAX_OBD_NAME + 5, "ctl-%s", osp->obd_name);
+	rc = seq_client_init(ms->ms_client_seq, ms->ms_control_exp,
+			     LUSTRE_SEQ_METADATA, prefix, NULL);
+	OBD_FREE(prefix, MAX_OBD_NAME + 5);
+	if (rc) {
+		OBD_FREE_PTR(ms->ms_client_seq);
+		ms->ms_client_seq = NULL;
+		RETURN(rc);
+	}
+
+	LASSERT(ms->ms_server_seq != NULL);
+	rc = seq_server_set_cli(ms->ms_server_seq, ms->ms_client_seq,
+				env);
+
+	RETURN(rc);
+}
+
+static void lod_seq_fini_cli(struct lod_device *lod)
+{
+	struct md_site *ms;
+
+	ENTRY;
+
+	ms = lod->lod_dt_dev.dd_lu_dev.ld_site->ld_md_site;
+
+	if (ms == NULL) {
+		EXIT;
+		return;
+	}
+
+	if (ms->ms_server_seq)
+		seq_server_set_cli(ms->ms_server_seq,
+			   NULL, NULL);
+
+	if (ms->ms_control_exp) {
+		class_export_put(ms->ms_control_exp);
+		ms->ms_control_exp = NULL;
+	}
+
+	EXIT;
+	return;
+}
+
 /**
  * Procss config log on LOD
  * \param env environment info
@@ -267,6 +361,9 @@ static int lod_process_config(const struct lu_env *env,
 			mdt_index = index;
 			rc = lod_add_device(env, lod, arg1, index, gen,
 					    mdt_index, LUSTRE_MDC_NAME, 1);
+			if (rc == 0)
+				rc = lod_seq_init_cli(env, lod, arg1,
+						      mdt_index);
 		} else if (lcfg->lcfg_command == LCFG_LOV_ADD_INA) {
 			/*FIXME: Add mdt_index for LCFG_LOV_ADD_INA*/
 			mdt_index = 0;
@@ -295,14 +392,18 @@ static int lod_process_config(const struct lu_env *env,
 		lu_dev_del_linkage(dev->ld_site, dev);
 		rc = lod_cleanup_desc_tgts(env, lod, &lod->lod_mdt_descs, lcfg);
 		if (rc)
-			CERROR("cleanup mdt desc error %d\n", rc);
+			CERROR("%s: cleanup mdt desc error %d\n",
+				lod->lod_dt_dev.dd_lu_dev.ld_obd->obd_name, rc);
 
 		rc = lod_cleanup_desc_tgts(env, lod, &lod->lod_ost_descs, lcfg);
 		if (rc)
-			CERROR("cleanup ost desc error %d\n", rc);
+			CERROR("%s: cleanup ost desc error %d\n",
+			       lod->lod_dt_dev.dd_lu_dev.ld_obd->obd_name, rc);
 
 		if (lcfg->lcfg_command == LCFG_PRE_CLEANUP)
 			break;
+
+		lod_seq_fini_cli(lod);
 		/*
 		 * do cleanup on underlying storage only when
 		 * all OSPs are cleaned up, as they use that OSD as well

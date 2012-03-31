@@ -3843,111 +3843,6 @@ out_seq_fini:
 }
 
 /*
- * Init client sequence manager which is used by local MDS to talk to sequence
- * controller on remote node.
- */
-static int mdt_seq_init_cli(const struct lu_env *env,
-                            struct mdt_device *m,
-                            struct lustre_cfg *cfg)
-{
-	struct md_site	  *ms = mdt_md_site(m);
-	struct obd_device       *osp;
-	struct obd_device       *lov;
-	int		     rc;
-	int		     index;
-        struct mdt_thread_info *info;
-	char		   *p;
-	char		   *prefix;
-	char		   *index_string = lustre_cfg_string(cfg, 2);
-	struct obd_uuid	 obd_uuid;
-        ENTRY;
-
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-
-        LASSERT(index_string);
-        index = simple_strtol(index_string, &p, 10);
-        if (*p) {
-                CERROR("Invalid index in lustre_cgf, offset 2\n");
-                RETURN(-EINVAL);
-        }
-
-        /* check if this is adding the first MDC and controller is not yet
-         * initialized. */
-        if (index != 0 || ms->ms_client_seq)
-                RETURN(0);
-
-	lov = class_name2obd(lustre_cfg_string(cfg, 0));
-	if (lov == NULL) {
-		CERROR("%s: Can not find %s\n",
-			m->mdt_md_dev.md_lu_dev.ld_obd->obd_name,
-			lustre_cfg_string(cfg, 0));
-		RETURN(-EINVAL);
-	}
-	obd_str2uuid(&obd_uuid, lustre_cfg_string(cfg, 1));
-	osp = class_find_client_obd(&obd_uuid, LUSTRE_OSP_NAME, &lov->obd_uuid);
-	if (osp == NULL) {
-		CERROR("%s: can't find %s device\n",
-			m->mdt_md_dev.md_lu_dev.ld_obd->obd_name,
-			lustre_cfg_string(cfg, 1));
-		RETURN(-EINVAL);
-	}
-
-	if (!osp->obd_set_up) {
-		CERROR("target %s not set up\n", osp->obd_name);
-		rc = -EINVAL;
-	}
-
-	LASSERT(ms->ms_control_exp);
-	OBD_ALLOC_PTR(ms->ms_client_seq);
-	if (ms->ms_client_seq == NULL)
-		RETURN(-ENOMEM);
-
-	OBD_ALLOC(prefix, MAX_OBD_NAME + 5);
-	if (!prefix) {
-		OBD_FREE_PTR(ms->ms_client_seq);
-		ms->ms_client_seq = NULL;
-		RETURN(-ENOMEM);
-	}
-
-	snprintf(prefix, MAX_OBD_NAME + 5, "ctl-%s", osp->obd_name);
-	rc = seq_client_init(ms->ms_client_seq, ms->ms_control_exp,
-			     LUSTRE_SEQ_METADATA, prefix, NULL);
-	OBD_FREE(prefix, MAX_OBD_NAME + 5);
-	if (rc) {
-		OBD_FREE_PTR(ms->ms_client_seq);
-		ms->ms_client_seq = NULL;
-		RETURN(rc);
-	}
-
-	LASSERT(ms->ms_server_seq != NULL);
-	rc = seq_server_set_cli(ms->ms_server_seq, ms->ms_client_seq,
-				env);
-
-	RETURN(rc);
-}
-
-static void mdt_seq_fini_cli(struct mdt_device *m)
-{
-        struct md_site *ms;
-
-        ENTRY;
-
-        ms = mdt_md_site(m);
-
-        if (ms != NULL) {
-                if (ms->ms_server_seq)
-                        seq_server_set_cli(ms->ms_server_seq,
-                                   NULL, NULL);
-
-                if (ms->ms_control_exp) {
-                        class_export_put(ms->ms_control_exp);
-                        ms->ms_control_exp = NULL;
-                }
-        }
-        EXIT;
-}
-
-/*
  * FLD wrappers
  */
 static int mdt_fld_fini(const struct lu_env *env,
@@ -4440,7 +4335,6 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
         }
 
         mdt_seq_fini(env, m);
-        mdt_seq_fini_cli(m);
         mdt_fld_fini(env, m);
         sptlrpc_rule_set_free(&m->mdt_sptlrpc_rset);
 
@@ -4789,17 +4683,6 @@ static int mdt_process_config(const struct lu_env *env,
 
 		break;
 	}
-        case LCFG_ADD_MDC:
-                /*
-                 * Add mdc hook to get first MDT uuid and connect it to
-                 * ls->controller to use for seq manager.
-                 */
-                rc = next->ld_ops->ldo_process_config(env, next, cfg);
-                if (rc)
-                        CERROR("Can't add mdc, rc %d\n", rc);
-                else
-                        rc = mdt_seq_init_cli(env, mdt_dev(d), cfg);
-                break;
         default:
                 /* others are passed further */
                 rc = next->ld_ops->ldo_process_config(env, next, cfg);
