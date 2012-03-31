@@ -74,6 +74,7 @@ struct niobuf_remote;
 typedef enum {
         MNTOPT_USERXATTR        = 0x00000001,
         MNTOPT_ACL              = 0x00000002,
+        MNTOPT_NOAUTO_SCRUB     = 0x00000004,
 } mntopt_t;
 
 struct dt_device_param {
@@ -210,6 +211,7 @@ enum dt_index_flags {
  * names to fids).
  */
 extern const struct dt_index_features dt_directory_features;
+extern const struct dt_index_features dt_scrub_features;
 
 /**
  * This is a general purpose dt allocation hint.
@@ -596,6 +598,54 @@ struct dt_index_operations {
                                       const struct dt_it *di, void* key_rec);
         } dio_it;
 };
+
+/* Return value of dt_it_ops::next() for scrub iteration.
+ * Negative value for non-fatal error. */
+enum dt_scrub_ret_val {
+        /* lower layer iteration runs normally.*/
+        DSRV_CONTINUE   = 0,
+
+        /* Low layer iteration thread exited successfully. */
+        DSRV_COMPLETED  = 1,
+
+        /* Low layer iteration thread has been paused. */
+        DSRV_PAUSED     = 2,
+
+        /* Low layer iteration thread exited for failure. */
+        DSRV_FAILURE    = 3,
+
+        /* Low layer pre-fetching work has been done by myself,
+         * but the iteration thread is still running. */
+        DSRV_WAIT       = 4,
+};
+
+enum dt_scrub_valid {
+        DSV_ERROR_HANDLE        = 1 << 0,
+        DSV_DRYRUN              = 1 << 1,
+        DSV_OI_SCRUB            = 1 << 2,
+};
+
+enum dt_scrub_flags {
+        /* Triggered by RPC. */
+        DSF_TBR         = 1 << 0,
+
+        /* Reset scrub iterator position to the device beginning. */
+        DSF_RESET       = 1 << 1,
+
+        /* Exit when fail. */
+        DSF_FAILOUT     = 1 << 2,
+
+        /* Dryrun mode, only check without modification */
+        DSF_DRYRUN      = 1 << 3,
+
+        /* Trigger OI scrub. */
+        DSF_OI_SCRUB    = 1 << 4,
+};
+
+/* The 32-bits 'attr' for dt_it_ops::init() is composed of two parts:
+ * low 16-bits is for valid bits, high 16-bits is for flags bits. */
+#define DT_SCRUB_FLAGS_SHIFT    16
+#define DT_SCRUB_FLAGS_MASK     0xffff0000
 
 struct dt_device {
         struct lu_device                   dd_lu_dev;
