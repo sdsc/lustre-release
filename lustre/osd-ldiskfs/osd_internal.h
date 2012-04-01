@@ -209,6 +209,9 @@ struct osd_inconsistent_item {
 
         /* The correct "FID <=> LID" mapping. */
         struct osd_idmap_cache  oii_cache;
+
+        /* Object for the OI mapping to be updated. */
+        struct lu_object       *oii_obj;
 };
 
 struct osd_scrub_it {
@@ -592,6 +595,7 @@ struct osd_thread_info {
                 long long      oti_alignment_lieutenant_colonel;
         };
 
+        struct osd_idmap_cache oti_cache;
 
         int                    oti_r_locks;
         int                    oti_w_locks;
@@ -682,7 +686,8 @@ int osd_compat_spec_insert(struct osd_thread_info *info,
 /* osd_scrub.c */
 int osd_scrub_setup(const struct lu_env *env, struct dt_device *dt);
 void osd_scrub_cleanup(const struct lu_env *env, struct osd_device *dev);
-int osd_oii_insert(struct osd_device *dev, struct osd_idmap_cache *oic);
+int osd_oii_insert(struct osd_device *dev, struct lu_object *obj,
+                   struct osd_idmap_cache *oic);
 
 /*
  * Invariants, assertions.

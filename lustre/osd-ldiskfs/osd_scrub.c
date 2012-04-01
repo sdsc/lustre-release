@@ -583,6 +583,7 @@ exec:
                                 cfs_spin_lock(&seh->seh_lock);
                                 cfs_list_del_init(&oii->oii_list);
                                 cfs_spin_unlock(&seh->seh_lock);
+                                lu_object_put(env, oii->oii_obj);
                                 OBD_FREE_PTR(oii);
                                 oii = NULL;
                         }
@@ -723,6 +724,7 @@ out:
                                      struct osd_inconsistent_item,
                                      oii_list);
                 cfs_list_del_init(&oii->oii_list);
+                lu_object_put(env, oii->oii_obj);
                 OBD_FREE_PTR(oii);
         }
 
@@ -1444,7 +1446,8 @@ void osd_scrub_cleanup(const struct lu_env *env, struct osd_device *dev)
         }
 }
 
-int osd_oii_insert(struct osd_device *dev, struct osd_idmap_cache *oic)
+int osd_oii_insert(struct osd_device *dev, struct lu_object *obj,
+                   struct osd_idmap_cache *oic)
 {
         struct scrub_exec_head       *seh = dev->od_scrub_seh;
         struct osd_scrub_it          *osi = NULL;
@@ -1465,6 +1468,8 @@ int osd_oii_insert(struct osd_device *dev, struct osd_idmap_cache *oic)
 
         CFS_INIT_LIST_HEAD(&oii->oii_list);
         oii->oii_cache = *oic;
+        oii->oii_obj = obj;
+        lu_object_get(oii->oii_obj);
 
         cfs_spin_lock(&seh->seh_lock);
         if (cfs_list_empty(&dev->od_inconsistent_items))

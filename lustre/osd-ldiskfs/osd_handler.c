@@ -375,8 +375,12 @@ static int osd_fid_lookup(const struct lu_env *env,
         struct lu_device       *ldev = obj->oo_dt.do_lu.lo_dev;
         struct osd_device      *dev;
         struct osd_inode_id    *id;
+        struct osd_inode_id    *id2 = NULL;
+        struct osd_idmap_cache *oic;
         struct inode           *inode;
         int                     result;
+        int                     try = 0;
+        enum osd_iget_flags     flags;
 
         LINVRNT(osd_invariant(obj));
         LASSERT(obj->oo_inode == NULL);
@@ -394,19 +398,33 @@ static int osd_fid_lookup(const struct lu_env *env,
         LASSERT(info);
         dev  = osd_dev(ldev);
         id   = &info->oti_id;
+        oic  = &info->oti_cache;
 
         if (OBD_FAIL_CHECK(OBD_FAIL_OST_ENOENT))
                 RETURN(-ENOENT);
 
-        result = osd_oi_lookup(info, dev, fid, id);
-        if (result != 0) {
-                if (result == -ENOENT)
-                        result = 0;
-                GOTO(out, result);
+        if (fid_is_norm(fid)) {
+                if (lu_fid_eq(fid, &oic->oic_fid)) {
+                        id2 = &oic->oic_lid;
+                        flags = OSD_IF_GEN_LID;
+                } else {
+                        flags = OSD_IF_VERIFY;
+                }
+        } else {
+                flags = 0;
         }
 
-        inode = osd_iget(info, dev, id, (struct lu_fid *)fid, 0);
-        if (IS_ERR(inode)) {
+        if (!(flags & OSD_IF_GEN_LID || fid_is_zero(&oic->oic_fid)))
+                fid_zero(&oic->oic_fid);
+
+again:
+        result = osd_oi_lookup(info, dev, fid, id);
+        if (result != 0)
+                GOTO(out, result = (result == -ENOENT ? 0 : result));
+
+        inode = osd_iget(info, dev, id2 != NULL ? id2 : id,
+                         (struct lu_fid *)fid, flags);
+        if (IS_ERR(inode))
                 /*
                  * If fid wasn't found in oi, inode-less object is
                  * created, for which lu_object_exists() returns
@@ -414,8 +432,27 @@ static int osd_fid_lookup(const struct lu_env *env,
                  * objects are created as locking anchors or
                  * place holders for objects yet to be created.
                  */
-                result = PTR_ERR(inode);
-                GOTO(out, result);
+                GOTO(out, result = PTR_ERR(inode));
+
+        if ((id2 != NULL) && !osd_id_eq(id, id2)) {
+                /* XXX: There is race condition between osd_iget and OI Scrub.
+                 *      The OI Scrub finished just after osd_iget() failure,
+                 *      and ev->od_osi is NULL also. Under such case, it is not
+                                 *      necessary to trigger OI Scrub again, but
+                                 *      try to call osd_iget() again. */
+                if (++try > 2) {
+                        iput(inode);
+                        GOTO(out, result = -EREMCHG);
+                }
+
+                result = osd_oii_insert(dev, &obj->oo_dt.do_lu, oic);
+                if (unlikely(result < 0)) {
+                        iput(inode);
+                        if (result == -EAGAIN)
+                                goto again;
+                        else
+                                GOTO(out, result = -EREMCHG);
+                }
         }
 
         obj->oo_inode = inode;
@@ -426,18 +463,20 @@ static int osd_fid_lookup(const struct lu_env *env,
         }
 
         if (!S_ISDIR(inode->i_mode) || !ldiskfs_pdo) /* done */
-                goto out;
+                GOTO(out, result = 0);
 
         LASSERT(obj->oo_hl_head == NULL);
         obj->oo_hl_head = ldiskfs_htree_lock_head_alloc(HTREE_HBITS_DEF);
         if (obj->oo_hl_head == NULL) {
                 obj->oo_inode = NULL;
                 iput(inode);
-                result = -ENOMEM;
+                GOTO(out, result = -ENOMEM);
         }
+        GOTO(out, result = 0);
+
 out:
         LINVRNT(osd_invariant(obj));
-        RETURN(result);
+        return result;
 }
 
 /*
@@ -3150,6 +3189,13 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
                 brelse(bh);
                 if (rc != 0)
                         rc = osd_ea_fid_get(env, osd_obj2dt(obj), ino, fid);
+                if (rc == 0 && fid_is_norm(fid)) {
+                        struct osd_thread_info *oti = osd_oti_get(env);
+                        struct osd_idmap_cache *oic = &oti->oti_cache;
+
+                        oic->oic_fid = *fid;
+                        osd_id_gen(&oic->oic_lid, ino, OSD_OII_NOGEN);
+                }
         } else {
                 rc = -ENOENT;
         }
