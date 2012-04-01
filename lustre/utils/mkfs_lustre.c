@@ -145,6 +145,7 @@ void usage(FILE *out)
                 "\t\t--erase-params : erase all old parameter settings\n"
                 "\t\t--nomgs: turn off MGS service on this MDT\n"
                 "\t\t--writeconf: erase all config logs for this fs.\n"
+                "\t\t--clear-virgin: clear the first-time registration flag.\n"
 #endif
                 "\t\t--dryrun: just report what we would do; "
                 "don't write to disk\n"
@@ -1457,6 +1458,7 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                 {"servicenode", 1, 0, 's'},
                 {"verbose", 0, 0, 'v'},
                 {"writeconf", 0, 0, 'w'},
+                {"clear-virgin", 0, 0, 'g'},
                 {"upgrade_to_18", 0, 0, 'U'},
                 {"network", 1, 0, 't'},
                 {0, 0, 0, 0}
@@ -1657,6 +1659,24 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                         break;
                 case 'w':
                         mop->mo_ldd.ldd_flags |= LDD_F_WRITECONF;
+                        break;
+                case 'g':
+                        if (!(mop->mo_ldd.ldd_flags & LDD_F_VIRGIN)) {
+                                fprintf(stderr, "%s: virgin flag has already "
+                                        "been cleared.\n", progname);
+                                return 1;
+                        }
+                        if (mop->mo_ldd.ldd_svindex == INDEX_UNASSIGNED) {
+                                fprintf(stderr, "%s: can't clear virgin flag "
+                                        "for the target without index "
+                                        "assigned.\n", progname);
+                                return 1;
+                        }
+                        if (!IS_MDT(&mop->mo_ldd) && !IS_OST(&mop->mo_ldd)) {
+                                badopt(long_opt[longidx].name, "MDT,OST");
+                                return 1;
+                        }
+                        mop->mo_ldd.ldd_flags &= LDD_F_ONDISK_MASK;
                         break;
                 case 'U':
                         upgrade_to_18 = 1;

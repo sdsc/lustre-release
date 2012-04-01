@@ -591,7 +591,11 @@ static int mgs_set_index(struct obd_device *obd, struct mgs_target_info *mti)
                     !(mti->mti_flags & LDD_F_WRITECONF)) {
                         LCONSOLE_ERROR_MSG(0x140, "Server %s requested index "
                                            "%d, but that index is already in "
-                                           "use. Use --writeconf to force\n",
+                                           "use. You may use tunefs.lustre "
+                                           "--clear-virgin for the server to "
+                                           "fix it, if the server mount data "
+                                           "was not updated properly on the "
+                                           "first time registration.\n",
                                            mti->mti_svname,
                                            mti->mti_stripe_index);
                         RETURN(-EADDRINUSE);
