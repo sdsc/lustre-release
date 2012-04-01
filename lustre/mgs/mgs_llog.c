@@ -1734,7 +1734,12 @@ static int mgs_write_log_osc_to_lov(struct obd_device *obd, struct fs_db *fsdb,
 
         name_create(&nodeuuid, libcfs_nid2str(mti->mti_nids[0]), "");
         name_create(&svname, mti->mti_svname, "-osc");
-        name_create(&oscname, svname, suffix);
+        /* for the system upgraded from old 1.8, keep using the old osc naming
+         * style for mdt, see name_create_mdt_osc(). LU-1257 */
+        if (cfs_test_bit(FSDB_OSCNAME18, &fsdb->fsdb_flags))
+                name_create(&oscname, svname, "");
+        else
+                name_create(&oscname, svname, suffix);
         name_create(&oscuuid, oscname, "_UUID");
         name_create(&lovuuid, lovname, "_UUID");
 
