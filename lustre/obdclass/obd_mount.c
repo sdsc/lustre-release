@@ -1105,6 +1105,18 @@ int server_register_target(struct super_block *sb)
                         LCONSOLE_ERROR_MSG(0x15f,
                                 "Communication to the MGS return error %d. "
                                 "Is the MGS running?\n", rc);
+                } else if (rc == -EADDRINUSE) {
+                        /* Server could have been registered on MGS
+                         * successfully, but that register RPC could be failed
+                         * for MGS revoking config locks timeout or networking
+                         * problems. Then when server try to register again,
+                         * MGS could return -EADDRINUSE to inform the server
+                         * that it has been registered or the index is occupied
+                         * by other server.  LU-1257 */
+                        LCONSOLE_ERROR_MSG(0x16b, "The server (%s) might have "
+                                        "been registered or the index is used "
+                                        "by other server. Please see messages "
+                                        "on the MGS node.\n", ldd->ldd_svname);
                 } else {
                         CERROR("Cannot talk to the MGS: %d, not fatal\n", rc);
                         /* reset the error code for non-fatal error. */

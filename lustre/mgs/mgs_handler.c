@@ -580,7 +580,7 @@ static int mgs_handle_target_reg(struct ptlrpc_request *req)
                 /* create or update the target log
                    and update the client/mdt logs */
                 rc = mgs_write_log_target(obd, mti, fsdb);
-                if (rc) {
+                if (rc && rc != -EADDRINUSE) {
                         CERROR("Failed to write %s log (%d)\n",
                                mti->mti_svname, rc);
                         GOTO(out, rc);
@@ -599,7 +599,8 @@ out_nolock:
         CDEBUG(D_MGS, "replying with %s, index=%d, rc=%d\n", mti->mti_svname,
                mti->mti_stripe_index, rc);
         req->rq_status = rc;
-        if (rc)
+        /* -EADDRINUSE isn't a fatal error. LU-1257 */
+        if (rc && rc != -EADDRINUSE)
                 /* we need an error flag to tell the target what's going on,
                  * instead of just doing it by error code only. */
                 mti->mti_flags |= LDD_F_ERROR;

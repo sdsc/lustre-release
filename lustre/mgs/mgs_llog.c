@@ -591,7 +591,11 @@ static int mgs_set_index(struct obd_device *obd, struct mgs_target_info *mti)
                     !(mti->mti_flags & LDD_F_WRITECONF)) {
                         LCONSOLE_ERROR_MSG(0x140, "Server %s requested index "
                                            "%d, but that index is already in "
-                                           "use. Use --writeconf to force\n",
+                                           "use. Which means this server has "
+                                           "been registered (ignore this error)"
+                                           " or the index is conflicting with "
+                                           "some other server (use writeconf "
+                                           "to re-register all servers).\n",
                                            mti->mti_svname,
                                            mti->mti_stripe_index);
                         RETURN(-EADDRINUSE);
