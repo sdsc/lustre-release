@@ -195,8 +195,8 @@ struct md_op_spec {
         __u64      sp_cr_flags;
 
         /** Should mdd do lookup sanity check or not. */
-        int        sp_cr_lookup;
-
+	int	sp_cr_lookup:1,
+		sp_rm_entry:1;    /* only remove name entry */
         /** Current lock mode for parent dir where create is performing. */
         mdl_mode_t sp_cr_mode;
 
@@ -798,8 +798,8 @@ static inline int mdo_unlink(const struct lu_env *env,
                              const struct lu_name *lname,
                              struct md_attr *ma)
 {
-        LASSERT(c->mo_dir_ops->mdo_unlink);
-        return c->mo_dir_ops->mdo_unlink(env, p, c, lname, ma);
+	LASSERT(p->mo_dir_ops->mdo_unlink);
+	return p->mo_dir_ops->mdo_unlink(env, p, c, lname, ma);
 }
 
 static inline int mdo_lum_lmm_cmp(const struct lu_env *env,

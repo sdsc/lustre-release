@@ -685,6 +685,15 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 		       mdt2obd_dev(info->mti_mdt)->obd_name,
 		       (char *)rr->rr_name, PFID(mdt_object_fid(mc)));
 
+		if (info->mti_spec.sp_rm_entry) {
+			ma->ma_need = MA_INODE;
+			ma->ma_valid = 0;
+			mdt_set_capainfo(info, 1, child_fid, BYPASS_CAPA);
+			rc = mdo_unlink(info->mti_env, mdt_object_child(mp),
+					NULL, lname, ma);
+			mdt_object_put(info->mti_env, mc);
+			GOTO(unlock_parent, rc);
+		}
 		/* Revoke the LOOKUP lock of the remote object granted by
 		 * this MDT. Since the unlink will happen on another MDT,
 		 * it will release the LOOKUP lock right away. Then What
@@ -698,6 +707,11 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 		repbody->valid |= (OBD_MD_FLID | OBD_MD_MDS);
 		mdt_object_unlock_put(info, mc, child_lh, rc);
 		GOTO(unlock_parent, rc = -EREMOTE);
+	} else if (info->mti_spec.sp_rm_entry) {
+		CERROR("%s: lfs rmdir should not be used on local dir %s\n",
+		       mdt2obd_dev(info->mti_mdt)->obd_name,
+		       (char *)rr->rr_name);
+		GOTO(unlock_parent, rc = -EPERM);
 	}
 
         rc = mdt_object_lock(info, mc, child_lh, MDS_INODELOCK_FULL,
