@@ -281,17 +281,11 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                 GOTO(out, err);
         }
 
-        err = obd_fid_init(sbi->ll_md_exp);
-        if (err) {
-                CERROR("Can't init metadata layer FID infrastructure, "
-                       "rc %d\n", err);
-                GOTO(out_md, err);
-        }
-
-        err = obd_statfs(NULL, sbi->ll_md_exp, osfs,
-                         cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS), 0);
-        if (err)
-                GOTO(out_md_fid, err);
+	err = obd_statfs(NULL, sbi->ll_md_exp, osfs,
+			cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
+			OBD_STATFS_FROM_MOUNT);
+	if (err)
+		GOTO(out_md, err);
 
         /* This needs to be after statfs to ensure connect has finished.
          * Note that "data" does NOT contain the valid connect reply.

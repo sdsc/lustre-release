@@ -68,6 +68,7 @@
                                          * interpret routine to be called.
                                          * lov_statfs_fini() must thus be called
                                          * by the request interpret routine */
+#define OBD_STATFS_FROM_MOUNT   0x0008  /* the statfs from mount */
 
 #define OBD_FL_PUNCH    0x00000001      /* To indicate it is punch operation */
 
