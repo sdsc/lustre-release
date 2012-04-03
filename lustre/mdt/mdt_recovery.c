@@ -497,7 +497,7 @@ static int mdt_txn_start_cb(const struct lu_env *env,
 	if (rc)
 		return rc;
 
-	if (mti->mti_mos != NULL)
+	if (mti->mti_mos != NULL && mdt_object_exists(mti->mti_mos) > 0)
 		rc = dt_declare_version_set(env, mdt_obj2dt(mti->mti_mos), th);
 
 	return rc;
@@ -545,7 +545,9 @@ static int mdt_txn_stop_cb(const struct lu_env *env,
         LASSERT(req != NULL && req->rq_repmsg != NULL);
 
         /** VBR: set new versions */
-        if (txn->th_result == 0 && mti->mti_mos != NULL) {
+	if (txn->th_result == 0 && mti->mti_mos != NULL &&
+	    mdt_object_exists(mti->mti_mos) > 0) {
+
                 dt_version_set(env, mdt_obj2dt(mti->mti_mos),
                                mti->mti_transno, txn);
                 mti->mti_mos = NULL;
