@@ -2159,6 +2159,8 @@ enum {
         MDS_KEEP_ORPHAN   = 1 << 7,
         MDS_RECOV_OPEN    = 1 << 8,
 	MDS_DATA_MODIFIED = 1 << 9,
+	MDS_SET_MEA       = 1 << 10,
+	MDS_RM_ENTRY	  = 1 << 11,
 };
 
 /* instance of mdt_reint_rec */

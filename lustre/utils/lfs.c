@@ -78,6 +78,9 @@
 static int lfs_setstripe(int argc, char **argv);
 static int lfs_find(int argc, char **argv);
 static int lfs_getstripe(int argc, char **argv);
+static int lfs_getdirstripe(int argc, char **argv);
+static int lfs_setdirstripe(int argc, char **argv);
+static int lfs_rmdir(int argc, char **argv);
 static int lfs_osts(int argc, char **argv);
 static int lfs_mdts(int argc, char **argv);
 static int lfs_df(int argc, char **argv);
@@ -131,6 +134,28 @@ command_t cmdlist[] = {
          "                 [--pool|-p] [--stripe-size|-S] [--directory|-d]\n"
          "                 [--mdt-index|-M] [--recursive|-r] [--raw|-R]\n"
          "                 <directory|filename> ..."},
+	{"setdirstripe", lfs_setdirstripe, 0,
+	 "To create a new directory with a specific striping pattern, only\n"
+	 "support --index now.\n"
+	 "usage: setdirstripe <--index|-i mdt_index> <dir>\n"
+	 "\tmdt_index:    MDT index of first stripe\n"},
+	{"getdirstripe", lfs_getdirstripe, 0,
+	 "To list the striping info for a given directory\n"
+	 "or recursively for all directories in a directory tree.\n"
+	 "usage: getdirstripe [--obd|-O <uuid>] [--quiet | -q] [--verbose | -v]\n"
+	 "		 [--count | -c ] [--index | -i ] [--Default | -D]\n"
+	 "		 [--recursive | -r] <dir> ..."},
+	{"mkdir", lfs_setdirstripe, 0,
+	 "To create a remote directory on a specified MDT. And this can only\n"
+	 "be done on MDT0 by administrator.\n"
+	 "usage: mkdir <--index|-i mdt_index> <dir>\n"
+	 "\tmdt_index:    MDT index of the remote directory.\n"},
+	{"rmdir", lfs_rmdir, 0,
+	 "To remove the name entry of the remote directory. Note:This command\n"
+	 "will only delete the name entry, i.e. the remote directory will\n"
+	 "become an orphan after this command. This can only be done on MDT0\n"
+	 "by administor\n"
+	 "usage: rmdir <dir>\n"},
         {"pool_list", lfs_poollist, 0,
          "List pools or pool OSTs\n"
          "usage: pool_list <fsname>[.<pool>] | <pathname>\n"},
@@ -575,6 +600,7 @@ static int lfs_find(int argc, char **argv)
                 {"type",         required_argument, 0, 't'},
                 {"uid",          required_argument, 0, 'u'},
                 {"user",         required_argument, 0, 'U'},
+		{"mdt",	  required_argument, 0, 'm'},
                 {0, 0, 0, 0}
         };
         int pathstart = -1;
@@ -882,7 +908,8 @@ err:
         return ret;
 }
 
-static int lfs_getstripe(int argc, char **argv)
+static int lfs_getstripe_internal(int argc, char **argv,
+				  struct find_param *param)
 {
         struct option long_opts[] = {
 #if LUSTRE_VERSION >= OBD_OCD_VERSION(2,9,50,0)
@@ -937,33 +964,32 @@ static int lfs_getstripe(int argc, char **argv)
                 {0, 0, 0, 0}
         };
         int c, rc;
-        struct find_param param = { 0 };
 
-        param.maxdepth = 1;
+	param->maxdepth = 1;
         optind = 0;
         while ((c = getopt_long(argc, argv, "cdghiMoO:pqrRsSv",
                                 long_opts, NULL)) != -1) {
                 switch (c) {
                 case 'O':
-                        if (param.obduuid) {
+			if (param->obduuid) {
                                 fprintf(stderr,
                                         "error: %s: only one obduuid allowed",
                                         argv[0]);
                                 return CMD_HELP;
                         }
-                        param.obduuid = (struct obd_uuid *)optarg;
+			param->obduuid = (struct obd_uuid *)optarg;
                         break;
                 case 'q':
-                        param.quiet++;
+			param->quiet++;
                         break;
                 case 'd':
-                        param.maxdepth = 0;
+			param->maxdepth = 0;
                         break;
                 case 'r':
-                        param.recursive = 1;
+			param->recursive = 1;
                         break;
                 case 'v':
-                        param.verbose = VERBOSE_ALL | VERBOSE_DETAIL;
+			param->verbose = VERBOSE_ALL | VERBOSE_DETAIL;
                         break;
                 case 'c':
 #if LUSTRE_VERSION >= OBD_OCD_VERSION(2,9,50,0)
@@ -973,9 +999,9 @@ static int lfs_getstripe(int argc, char **argv)
                                 fprintf(stderr, "warning: '--count' deprecated,"
                                         " use '--stripe-count' instead\n");
 #endif
-                        if (!(param.verbose & VERBOSE_DETAIL)) {
-                                param.verbose |= VERBOSE_COUNT;
-                                param.maxdepth = 0;
+			if (!(param->verbose & VERBOSE_DETAIL)) {
+				param->verbose |= VERBOSE_COUNT;
+				param->maxdepth = 0;
                         }
                         break;
                 case 's':
@@ -986,9 +1012,9 @@ static int lfs_getstripe(int argc, char **argv)
                                 "use '--stripe-size|-S' instead\n");
 #endif
                 case 'S':
-                        if (!(param.verbose & VERBOSE_DETAIL)) {
-                                param.verbose |= VERBOSE_SIZE;
-                                param.maxdepth = 0;
+			if (!(param->verbose & VERBOSE_DETAIL)) {
+				param->verbose |= VERBOSE_SIZE;
+				param->maxdepth = 0;
                         }
                         break;
                 case 'o':
@@ -1009,30 +1035,30 @@ static int lfs_getstripe(int argc, char **argv)
                                 fprintf(stderr, "warning: '--index' deprecated"
                                         ", use '--stripe-index' instead\n");
 #endif
-                        if (!(param.verbose & VERBOSE_DETAIL)) {
-                                param.verbose |= VERBOSE_OFFSET;
-                                param.maxdepth = 0;
+			if (!(param->verbose & VERBOSE_DETAIL)) {
+				param->verbose |= VERBOSE_OFFSET;
+				param->maxdepth = 0;
                         }
                         break;
                 case 'p':
-                        if (!(param.verbose & VERBOSE_DETAIL)) {
-                                param.verbose |= VERBOSE_POOL;
-                                param.maxdepth = 0;
+			if (!(param->verbose & VERBOSE_DETAIL)) {
+				param->verbose |= VERBOSE_POOL;
+				param->maxdepth = 0;
                         }
                         break;
                 case 'g':
-                        if (!(param.verbose & VERBOSE_DETAIL)) {
-                                param.verbose |= VERBOSE_GENERATION;
-                                param.maxdepth = 0;
+			if (!(param->verbose & VERBOSE_DETAIL)) {
+				param->verbose |= VERBOSE_GENERATION;
+				param->maxdepth = 0;
                         }
                         break;
                 case 'M':
-                        if (!(param.verbose & VERBOSE_DETAIL))
-                                param.maxdepth = 0;
-                        param.verbose |= VERBOSE_MDTINDEX;
+			if (!(param->verbose & VERBOSE_DETAIL))
+				param->maxdepth = 0;
+			param->verbose |= VERBOSE_MDTINDEX;
                         break;
                 case 'R':
-                        param.raw = 1;
+			param->raw = 1;
                         break;
                 default:
                         return CMD_HELP;
@@ -1042,16 +1068,16 @@ static int lfs_getstripe(int argc, char **argv)
         if (optind >= argc)
                 return CMD_HELP;
 
-        if (param.recursive)
-                param.maxdepth = -1;
+	if (param->recursive)
+		param->maxdepth = -1;
 
-        if (!param.verbose)
-                param.verbose = VERBOSE_ALL;
-        if (param.quiet)
-                param.verbose = VERBOSE_OBJID;
+	if (!param->verbose)
+		param->verbose = VERBOSE_ALL;
+	if (param->quiet)
+		param->verbose = VERBOSE_OBJID;
 
         do {
-                rc = llapi_getstripe(argv[optind], &param);
+		rc = llapi_getstripe(argv[optind], param);
         } while (++optind < argc && !rc);
 
         if (rc)
@@ -1096,6 +1122,116 @@ static int lfs_tgts(int argc, char **argv)
         }
 
         return rc;
+}
+
+static int lfs_getstripe(int argc, char **argv)
+{
+	struct find_param param = { 0 };
+	return lfs_getstripe_internal(argc, argv, &param);
+}
+
+/* functions */
+static int lfs_getdirstripe(int argc, char **argv)
+{
+	struct find_param param = { 0 };
+	param.get_lmv = 1;
+	return lfs_getstripe_internal(argc, argv, &param);
+}
+
+/* functions */
+static int lfs_setdirstripe(int argc, char **argv)
+{
+	char *dname;
+	int result;
+	int  st_offset, st_count;
+	char *end;
+	int c;
+	char *stripe_off_arg = NULL;
+	int  flags = 0;
+
+	struct option long_opts[] = {
+		{"index",    required_argument, 0, 'i'},
+		{0, 0, 0, 0}
+	};
+
+	st_offset = -1;
+	st_count = 1;
+	optind = 0;
+	while ((c = getopt_long(argc, argv, "i:o",
+				long_opts, NULL)) >= 0) {
+		switch (c) {
+		case 0:
+			/* Long options. */
+			break;
+		case 'i':
+			stripe_off_arg = optarg;
+			break;
+		default:
+			fprintf(stderr, "error: %s: option '%s' "
+					"unrecognized\n",
+					argv[0], argv[optind - 1]);
+			return CMD_HELP;
+		}
+	}
+
+	if (optind == argc) {
+		fprintf(stderr, "error: %s: missing dirname\n",
+			argv[0]);
+		return CMD_HELP;
+	}
+
+	dname = argv[optind];
+	if (stripe_off_arg == NULL) {
+		fprintf(stderr, "error: %s: missing stripe_off.\n",
+			argv[0]);
+		return CMD_HELP;
+	}
+	/* get the stripe offset */
+	st_offset = strtoul(stripe_off_arg, &end, 0);
+	if (*end != '\0') {
+		fprintf(stderr, "error: %s: bad stripe offset '%s'\n",
+			argv[0], stripe_off_arg);
+		return CMD_HELP;
+	}
+	do {
+		result = llapi_dir_create_pool(dname, flags, st_offset,
+					       st_count, 0, NULL);
+		if (result) {
+			fprintf(stderr, "error: %s: create stripe dir '%s' "
+				"failed\n", argv[0], dname);
+			break;
+		}
+		dname = argv[++optind];
+	} while (dname != NULL);
+
+	return result;
+}
+
+/* functions */
+static int lfs_rmdir(int argc, char **argv)
+{
+	char *dname;
+	int   index;
+	int   result = 0;
+
+	if (argc <= 1) {
+		fprintf(stderr, "error: %s: missing dirname\n",
+			argv[0]);
+		return CMD_HELP;
+	}
+
+	index = 1;
+	dname = argv[index];
+	while (dname != NULL) {
+		result = llapi_direntry_remove(dname);
+		if (result) {
+			fprintf(stderr, "error: %s: remove dir entry '%s' "
+				"failed\n", argv[0], dname);
+			break;
+		}
+		dname = argv[++index];
+	}
+	return result;
 }
 
 static int lfs_osts(int argc, char **argv)
