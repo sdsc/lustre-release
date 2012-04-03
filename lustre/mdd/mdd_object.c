@@ -649,7 +649,7 @@ int mdd_object_create_internal(const struct lu_env *env, struct mdd_object *p,
         int rc;
         ENTRY;
 
-	LASSERT(!mdd_object_exists(c));
+	LASSERT(mdd_object_exists(c) <= 0);
 
 	rc = mdo_create_obj(env, c, attr, hint, dof, handle);
 
