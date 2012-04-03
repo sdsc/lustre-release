@@ -296,7 +296,7 @@ int mdd_may_create(const struct lu_env *env, struct mdd_object *pobj,
         int rc = 0;
         ENTRY;
 
-        if (cobj && mdd_object_exists(cobj))
+	if (cobj && mdd_object_exists(cobj) > 0)
                 RETURN(-EEXIST);
 
         if (mdd_is_dead_obj(pobj))
@@ -1137,7 +1137,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 	int rc, is_dir;
         ENTRY;
 
-        if (mdd_object_exists(mdd_cobj) <= 0)
+	if (mdd_object_exists(mdd_cobj) == 0)
                 RETURN(-ENOENT);
 
         handle = mdd_trans_create(env, mdd);
@@ -2545,6 +2545,13 @@ static int mdd_declare_links_add(const struct lu_env *env,
                                  struct thandle *handle)
 {
         int rc;
+
+	/* FIXME: the linkea buf is not ready yet, so
+	 * we skip linkea for remote directory, besides
+	 * for remote directory, it can always find parent
+	 * by lookup dotdot. */
+	if (mdd_object_exists(mdd_obj) < 0)
+		return 0;
 
         /* XXX: max size? */
         rc = mdo_declare_xattr_set(env, mdd_obj,
