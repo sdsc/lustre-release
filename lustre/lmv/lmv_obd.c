@@ -865,49 +865,6 @@ static int lmv_iocontrol(unsigned int cmd, struct obd_export *exp,
         RETURN(rc);
 }
 
-static int lmv_all_chars_policy(int count, const char *name,
-                                int len)
-{
-        unsigned int c = 0;
-
-        while (len > 0)
-                c += name[--len];
-        c = c % count;
-        return c;
-}
-
-static int lmv_nid_policy(struct lmv_obd *lmv)
-{
-        struct obd_import *imp;
-        __u32              id;
-
-        /*
-         * XXX: To get nid we assume that underlying obd device is mdc.
-         */
-        imp = class_exp2cliimp(lmv->tgts[0].ltd_exp);
-        id = imp->imp_connection->c_self ^ (imp->imp_connection->c_self >> 32);
-        return id % lmv->desc.ld_tgt_count;
-}
-
-static int lmv_choose_mds(struct lmv_obd *lmv, struct md_op_data *op_data,
-                          placement_policy_t placement)
-{
-        switch (placement) {
-        case PLACEMENT_CHAR_POLICY:
-                return lmv_all_chars_policy(lmv->desc.ld_tgt_count,
-                                            op_data->op_name,
-                                            op_data->op_namelen);
-        case PLACEMENT_NID_POLICY:
-                return lmv_nid_policy(lmv);
-
-        default:
-                break;
-        }
-
-        CERROR("Unsupported placement policy %x\n", placement);
-        return -EINVAL;
-}
-
 /**
  * This is _inode_ placement policy function (not name).
  */
@@ -916,8 +873,6 @@ static int lmv_placement_policy(struct obd_device *obd,
                                 mdsno_t *mds)
 {
         struct lmv_obd          *lmv = &obd->u.lmv;
-        struct lmv_object       *obj;
-        int                      rc;
         ENTRY;
 
         LASSERT(mds != NULL);
@@ -927,55 +882,31 @@ static int lmv_placement_policy(struct obd_device *obd,
                 RETURN(0);
         }
 
+	/**
+	 * If stripe_offset is provided during setdirstripe
+	 * (setdirstripe -i xx), xx MDS will be choosen.
+	 */
+	if (op_data->op_bias & MDS_SET_MEA) {
+		struct lmv_user_md *lum;
+
+		lum = (struct lmv_user_md *)op_data->op_data;
+		if (lum->lum_type == LMV_STRIPE_TYPE &&
+		    lum->lum_stripe_offset != -1) {
+			if (lum->lum_stripe_offset >= lmv->tgts_size) {
+				CERROR("Stripe_offset %d > MDT count %d\n",
+				       lum->lum_stripe_offset, lmv->tgts_size);
+				RETURN(-ERANGE);
+			}
+			*mds = lum->lum_stripe_offset;
+			RETURN(0);
+		}
+	}
         /*
          * Allocate new fid on target according to operation type and parent
          * home mds.
          */
-        obj = lmv_object_find(obd, &op_data->op_fid1);
-        if (obj != NULL || op_data->op_name == NULL ||
-            op_data->op_opc != LUSTRE_OPC_MKDIR) {
-                /*
-                 * Allocate fid for non-dir or for null name or for case parent
-                 * dir is split.
-                 */
-                if (obj) {
-                        lmv_object_put(obj);
-
-                        /*
-                         * If we have this flag turned on, and we see that
-                         * parent dir is split, this means, that caller did not
-                         * notice split yet. This is race and we would like to
-                         * let caller know that.
-                         */
-                        if (op_data->op_bias & MDS_CHECK_SPLIT)
-                                RETURN(-ERESTART);
-                }
-
-                /*
-                 * Allocate new fid on same mds where parent fid is located and
-                 * where operation will be sent. In case of split dir, ->op_fid1
-                 * and ->op_mds here will contain fid and mds of slave directory
-                 * object (assigned by caller).
-                 */
-                *mds = op_data->op_mds;
-                rc = 0;
-        } else {
-                /*
-                 * Parent directory is not split and we want to create a
-                 * directory in it. Let's calculate where to place it according
-                 * to operation data @op_data.
-                 */
-                *mds = lmv_choose_mds(lmv, op_data, lmv->lmv_placement);
-                rc = 0;
-        }
-
-        if (rc) {
-                CERROR("Can't choose MDS, err = %d\n", rc);
-        } else {
-                LASSERT(*mds < lmv->desc.ld_tgt_count);
-        }
-
-        RETURN(rc);
+	*mds = op_data->op_mds;
+	RETURN(0);
 }
 
 int __lmv_fid_alloc(struct lmv_obd *lmv, struct lu_fid *fid,
