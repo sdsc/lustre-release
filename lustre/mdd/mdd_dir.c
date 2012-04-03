@@ -372,6 +372,33 @@ static inline int mdd_is_sticky(const struct lu_env *env,
 	return !mdd_capable(uc, CFS_CAP_FOWNER);
 }
 
+static int mdd_may_delete_entry(const struct lu_env *env,
+				struct mdd_object *pobj, int check_perm)
+{
+	ENTRY;
+
+	LASSERT(pobj != NULL);
+	if (!mdd_object_exists(pobj))
+		RETURN(-ENOENT);
+
+	if (mdd_is_dead_obj(pobj))
+		RETURN(-ENOENT);
+
+	if (check_perm) {
+		int rc;
+		rc = mdd_permission_internal_locked(env, pobj, NULL,
+					    MAY_WRITE | MAY_EXEC,
+					    MOR_TGT_PARENT);
+		if (rc)
+			RETURN(rc);
+	}
+
+	if (mdd_is_append(pobj))
+		RETURN(-EPERM);
+
+	RETURN(0);
+}
+
 /*
  * Check whether it may delete the cobj from the pobj.
  * pobj maybe NULL
@@ -390,24 +417,11 @@ int mdd_may_delete(const struct lu_env *env, struct mdd_object *pobj,
         if (mdd_is_dead_obj(cobj))
                 RETURN(-ESTALE);
 
-        if (pobj) {
-                if (!mdd_object_exists(pobj))
-                        RETURN(-ENOENT);
-
-                if (mdd_is_dead_obj(pobj))
-                        RETURN(-ENOENT);
-
-                if (check_perm) {
-                        rc = mdd_permission_internal_locked(env, pobj, NULL,
-                                                    MAY_WRITE | MAY_EXEC,
-                                                    MOR_TGT_PARENT);
-                        if (rc)
-                                RETURN(rc);
-                }
-
-                if (mdd_is_append(pobj))
-                        RETURN(-EPERM);
-        }
+	if (pobj) {
+		rc = mdd_may_delete_entry(env, pobj, check_perm);
+		if (rc != 0)
+			RETURN(rc);
+	}
 
 	if (mdd_is_sticky(env, pobj, cobj))
                 RETURN(-EPERM);
@@ -1013,6 +1027,121 @@ out_pending:
         return rc;
 }
 
+static int mdd_declare_delete_entry(const struct lu_env *env,
+				    struct mdd_device *mdd,
+				    struct mdd_object *pobj,
+				    const struct lu_name *lname,
+				    struct md_attr *ma,
+				    struct thandle *handle)
+{
+	struct lu_attr	*la = &mdd_env_info(env)->mti_la_for_fix;
+	int rc;
+
+	rc = mdo_declare_index_delete(env, pobj, lname->ln_name, handle);
+	if (rc)
+		return rc;
+
+	rc = mdo_declare_ref_del(env, pobj, handle);
+	if (rc)
+		return rc;
+
+	LASSERT(ma->ma_attr.la_valid & LA_CTIME);
+	la->la_ctime = la->la_mtime = ma->ma_attr.la_ctime;
+	la->la_valid = LA_CTIME | LA_MTIME;
+	rc = mdo_declare_attr_set(env, pobj, la, handle);
+
+	return rc;
+}
+
+static int mdd_delete_entry(const struct lu_env *env, struct md_object *pobj,
+			    const struct lu_name *lname, struct md_attr *ma)
+{
+	const char	 *name = lname->ln_name;
+	struct lu_attr     *la = &mdd_env_info(env)->mti_la_for_fix;
+	struct mdd_object  *mdd_pobj = md2mdd_obj(pobj);
+	struct mdd_device  *mdd = mdo2mdd(pobj);
+	struct dynlock_handle *dlh;
+	struct thandle    *handle;
+#ifdef HAVE_QUOTA_SUPPORT
+	struct obd_device *obd = mdd->mdd_obd_dev;
+	struct mds_obd *mds = &obd->u.mds;
+	unsigned int qcids[MAXQUOTAS] = { 0, 0 };
+	unsigned int qpids[MAXQUOTAS] = { 0, 0 };
+	int quota_opc = 0;
+#endif
+	int rc;
+	ENTRY;
+
+	handle = mdd_trans_create(env, mdd);
+	if (IS_ERR(handle))
+		RETURN(PTR_ERR(handle));
+
+	rc = mdd_declare_delete_entry(env, mdd, mdd_pobj, lname, ma,
+				      handle);
+	if (rc)
+		GOTO(stop, rc);
+
+	rc = mdd_trans_start(env, mdd, handle);
+	if (rc)
+		GOTO(stop, rc);
+
+	dlh = mdd_pdo_write_lock(env, mdd_pobj, name, MOR_TGT_PARENT);
+	if (dlh == NULL)
+		GOTO(stop, rc = -ENOMEM);
+
+	rc = mdd_may_delete_entry(env, mdd_pobj, 1);
+	if (rc)
+		GOTO(unlock, rc);
+
+	/* FIXME: we assume it must be directory, since on MDT layer,
+	 * we already checked it must be remote object, on phase I, it
+	 * must be directory. */
+	rc = __mdd_index_delete(env, mdd_pobj, name, 1, handle,
+				mdd_object_capa(env, mdd_pobj));
+	if (rc)
+		GOTO(unlock, rc);
+
+	LASSERT(ma->ma_attr.la_valid & LA_CTIME);
+	la->la_ctime = la->la_mtime = ma->ma_attr.la_ctime;
+
+	la->la_valid = LA_CTIME | LA_MTIME;
+	rc = mdd_attr_check_set_internal(env, mdd_pobj, la, handle, 0);
+	if (rc)
+		GOTO(unlock, rc);
+
+#ifdef HAVE_QUOTA_SUPPORT
+	if (mds->mds_quota && ma->ma_valid & MA_INODE &&
+	    ma->ma_attr.la_nlink == 0) {
+		struct lu_attr *la_tmp = &mdd_env_info(env)->mti_la;
+
+		rc = mdd_la_get(env, mdd_pobj, la_tmp, BYPASS_CAPA);
+		if (!rc) {
+			mdd_quota_wrapper(la_tmp, qpids);
+			if (mdd_cobj->mod_count == 0) {
+				quota_opc = FSFILT_OP_UNLINK;
+				mdd_quota_wrapper(&ma->ma_attr, qcids);
+			} else {
+				quota_opc = FSFILT_OP_UNLINK_PARTIAL_PARENT;
+			}
+		}
+	}
+#endif
+	EXIT;
+unlock:
+	mdd_pdo_write_unlock(env, mdd_pobj, dlh);
+	/* FIXME: no changelog for remove entry */
+stop:
+	mdd_trans_stop(env, mdd, rc, handle);
+#ifdef HAVE_QUOTA_SUPPORT
+	if (quota_opc)
+		/* Trigger dqrel on the owner of child and parent. If failed,
+		 * the next call for lquota_chkquota will process it. */
+		lquota_adjust(mds_quota_interface_ref, obd, qcids, qpids, rc,
+			      quota_opc);
+#endif
+	return rc;
+}
+
 int mdd_declare_finish_unlink(const struct lu_env *env,
                               struct mdd_object *obj,
                               struct md_attr *ma,
@@ -1134,15 +1263,19 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 	struct lu_attr     *cattr = &mdd_env_info(env)->mti_cattr;
         struct lu_attr    *la = &mdd_env_info(env)->mti_la_for_fix;
         struct mdd_object *mdd_pobj = md2mdd_obj(pobj);
-        struct mdd_object *mdd_cobj = md2mdd_obj(cobj);
+	struct mdd_object *mdd_cobj;
         struct mdd_device *mdd = mdo2mdd(pobj);
         struct dynlock_handle *dlh;
         struct thandle    *handle;
 	int rc, is_dir;
         ENTRY;
 
+	if (cobj == NULL)
+		RETURN(mdd_delete_entry(env, pobj, lname, ma));
+
+	mdd_cobj = md2mdd_obj(cobj);
 	if (mdd_object_exists(mdd_cobj) == 0)
-                RETURN(-ENOENT);
+		RETURN(-ENOENT);
 
         handle = mdd_trans_create(env, mdd);
         if (IS_ERR(handle))
