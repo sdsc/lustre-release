@@ -2463,6 +2463,16 @@ static int mdd_declare_links_add(const struct lu_env *env,
 {
         int rc;
 
+	if (!mdd_linkea_enable)
+		return 0;
+
+	/* FIXME: the linkea buf is not ready yet, so
+	 * we skip linkea for remote directory, besides
+	 * for remote directory, it can always find parent
+	 * by lookup dotdot. */
+	if (mdd_object_exists(mdd_obj) < 0)
+		return 0;
+
         /* XXX: max size? */
         rc = mdo_declare_xattr_set(env, mdd_obj,
                              mdd_buf_get_const(env, NULL, 4096),
