@@ -227,7 +227,7 @@ static int mdd_object_init(const struct lu_env *env, struct lu_object *o,
 
 static int mdd_object_start(const struct lu_env *env, struct lu_object *o)
 {
-        if (lu_object_exists(o))
+	if (lu_object_exists(o) > 0)
                 return mdd_get_flags(env, lu2mdd_obj(o));
         else
                 return 0;
@@ -648,7 +648,7 @@ int mdd_object_create_internal(const struct lu_env *env, struct mdd_object *p,
         int rc;
         ENTRY;
 
-	LASSERT(!mdd_object_exists(c));
+	LASSERT(mdd_object_exists(c) <= 0);
 
 	rc = mdo_create_obj(env, c, attr, hint, dof, handle);
 

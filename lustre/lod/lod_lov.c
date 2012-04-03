@@ -806,7 +806,7 @@ int lod_load_striping(const struct lu_env *env, struct lod_object *lo)
 		GOTO(out, rc = 0);
 	}
 
-	if (!dt_object_exists(next))
+	if (dt_object_exists(next) <= 0)
 		GOTO(out, rc = 0);
 
 	/* only regular files can be striped */
