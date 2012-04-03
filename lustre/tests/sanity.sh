@@ -7221,6 +7221,9 @@ check_stats() {
 test_133a() {
 	remote_ost_nodsh && skip "remote OST with nodsh" && return
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+
+    do_facet $SINGLEMDS $LCTL list_param mdt.*.rename_stats ||
+        skip "MDS doesn't support rename stats" && return
 	local testdir=$DIR/${tdir}/stats_testdir
 	mkdir -p $DIR/${tdir}
 
@@ -7364,6 +7367,9 @@ get_rename_size() {
 test_133d() {
     remote_ost_nodsh && skip "remote OST with nodsh" && return
     remote_mds_nodsh && skip "remote MDS with nodsh" && return
+    do_facet $SINGLEMDS $LCTL list_param mdt.*.rename_stats ||
+        skip "MDS doesn't support rename stats" && return
+
     local testdir1=$DIR/${tdir}/stats_testdir1
     local testdir2=$DIR/${tdir}/stats_testdir2
 
@@ -7910,6 +7916,7 @@ changelog_chmask()
 
 test_160() {
     remote_mds_nodsh && skip "remote MDS with nodsh" && return
+    is_mdsnewer 2.2 || skip "Need MDS version at least 2.2" && return
     USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_register -n)
     echo "Registered as changelog user $USER"
     do_facet $SINGLEMDS $LCTL get_param -n mdd.$MDT0.changelog_users | \
@@ -8984,6 +8991,7 @@ test_225a () {
        if [ -z ${MDSSURVEY} ]; then
               skip_env "mds-survey not found" && return
        fi
+       is_mdsnewer 2.2 || skip "Need MDS version at least 2.2" && return
 
        local mds=$(facet_host $SINGLEMDS)
        local target=$(do_nodes $mds 'lctl dl' | \
@@ -9006,6 +9014,7 @@ test_225b () {
        if [ -z ${MDSSURVEY} ]; then
               skip_env "mds-survey not found" && return
        fi
+       is_mdsnewer 2.2 || skip "Need MDS version at least 2.2" && return
 
        if [ $($LCTL dl | grep -c osc) -eq 0 ]; then
               skip_env "Need to mount OST to test" && return

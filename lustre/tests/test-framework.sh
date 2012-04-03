@@ -4909,3 +4909,16 @@ generate_string() {
 
     echo "$(head -c $size < /dev/zero | tr '\0' y)"
 }
+
+is_mdsnewer() {
+    local mdsv=$(do_facet $SINGLEMDS "lctl get_param version" \
+                 | grep 'lustre' | cut -d: -f2)
+    local cnt=1
+    local imv
+
+    for imv in `echo $1 | sed -e 's/\./ /g'` ; do
+        [ $imv -gt $(echo $mdsv | cut -d. -f$cnt) ] && return 1
+        cnt=$(($cnt + 1))
+    done
+    return 0
+}
