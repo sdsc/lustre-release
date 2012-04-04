@@ -640,9 +640,9 @@ static int osc_rpc_stats_seq_show(struct seq_file *seq, void *v)
         seq_printf(seq, "write RPCs in flight: %d\n",
                    cli->cl_w_in_flight);
         seq_printf(seq, "pending write pages:  %d\n",
-                   cli->cl_pending_w_pages);
+                   cfs_atomic_read(&cli->cl_pending_w_pages));
         seq_printf(seq, "pending read pages:   %d\n",
-                   cli->cl_pending_r_pages);
+                   cfs_atomic_read(&cli->cl_pending_r_pages));
 
         seq_printf(seq, "\n\t\t\tread\t\t\twrite\n");
         seq_printf(seq, "pages per rpc         rpcs   %% cum %% |");

@@ -119,6 +119,7 @@ static void lov_io_sub_inherit(struct cl_io *io, struct lov_io *lio,
         }
         case CIT_READ:
         case CIT_WRITE: {
+                io->u.ci_wr.wr_sync = cl_io_is_sync_write(parent);
                 if (cl_io_is_append(parent)) {
                         io->u.ci_wr.wr_append = 1;
                 } else {
@@ -574,8 +575,7 @@ static struct cl_page_list *lov_io_submit_qin(struct lov_device *ld,
  */
 static int lov_io_submit(const struct lu_env *env,
                          const struct cl_io_slice *ios,
-                         enum cl_req_type crt, struct cl_2queue *queue,
-                         enum cl_req_priority priority)
+                         enum cl_req_type crt, struct cl_2queue *queue)
 {
         struct lov_io          *lio = cl2lov_io(env, ios);
         struct lov_object      *obj = lio->lis_object;
@@ -606,7 +606,7 @@ static int lov_io_submit(const struct lu_env *env,
                 LASSERT(!IS_ERR(sub));
                 LASSERT(sub->sub_io == &lio->lis_single_subio);
                 rc = cl_io_submit_rw(sub->sub_env, sub->sub_io,
-                                     crt, queue, priority);
+                                     crt, queue);
                 lov_sub_put(sub);
                 RETURN(rc);
         }
@@ -647,7 +647,7 @@ static int lov_io_submit(const struct lu_env *env,
                 sub = lov_sub_get(env, lio, stripe);
                 if (!IS_ERR(sub)) {
                         rc = cl_io_submit_rw(sub->sub_env, sub->sub_io,
-                                             crt, cl2q, priority);
+                                             crt, cl2q);
                         lov_sub_put(sub);
                 } else
                         rc = PTR_ERR(sub);

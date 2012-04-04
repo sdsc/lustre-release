@@ -1830,6 +1830,8 @@ void ll_delete_inode(struct inode *inode)
         if (rc)
                 CERROR("fid_delete() failed, rc %d\n", rc);
 
+        /* workaround to eliminate osc extents. */
+        write_inode_now(inode, 1);
         truncate_inode_pages(&inode->i_data, 0);
 
         /* Workaround for LU-118 */
