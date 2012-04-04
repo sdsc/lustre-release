@@ -64,7 +64,6 @@
 #include <lustre_quota.h>
 #include "quota_internal.h"
 
-#ifdef HAVE_QUOTA_SUPPORT
 #ifdef __KERNEL__
 
 int mds_quota_ctl(struct obd_device *obd, struct obd_export *unused,
@@ -291,4 +290,3 @@ adjust:
         RETURN(rc);
 }
 #endif /* __KERNEL__ */
-#endif
