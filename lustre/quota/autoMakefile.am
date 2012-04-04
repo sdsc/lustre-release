@@ -41,8 +41,6 @@ libquota_a_CPPFLAGS = $(LLCPPFLAGS)
 libquota_a_CFLAGS = $(LLCFLAGS)
 endif
 
-if QUOTA
 modulefs_DATA = lquota$(KMODEXT)
-endif
 
 MOSTLYCLEANFILES := @MOSTLYCLEANFILES@ 
