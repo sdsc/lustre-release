@@ -149,15 +149,26 @@ extern cfs_spinlock_t osc_ast_guard;
 
 int osc_cleanup(struct obd_device *obd);
 int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg);
+int osc_ppr_set(struct client_obd *cli, int mppr);
+int osc_ppr_get(struct client_obd *cli);
+int osc_ppr_hold(struct client_obd *cli, void **handler);
+void osc_ppr_release(struct client_obd *cli, void *handler);
 
 #ifdef LPROCFS
 int lproc_osc_attach_seqstat(struct obd_device *dev);
 void lprocfs_osc_init_vars(struct lprocfs_static_vars *lvars);
+int lprocfs_osc_wr_max_pages_per_rpc(struct file *file, const char *buffer,
+                                     unsigned long count, void *data);
 #else
 static inline int lproc_osc_attach_seqstat(struct obd_device *dev) {return 0;}
 static inline void lprocfs_osc_init_vars(struct lprocfs_static_vars *lvars)
 {
         memset(lvars, 0, sizeof(*lvars));
+}
+static inline int lprocfs_osc_wr_max_pages_per_rpc(struct file *file,
+        const char *buffer, unsigned long count, void *data)
+{
+        return count;
 }
 #endif
 
