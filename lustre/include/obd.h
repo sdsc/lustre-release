@@ -495,8 +495,6 @@ struct client_obd {
         /* just a sum of the loi/lop pending numbers to be exported by /proc */
         cfs_atomic_t             cl_pending_w_pages;
         cfs_atomic_t             cl_pending_r_pages;
-        int                      cl_max_pages_per_rpc;
-        int                      cl_rpc_bits; /* max pages per RPC bits */
         int                      cl_max_rpcs_in_flight;
         struct obd_histogram     cl_read_rpc_hist;
         struct obd_histogram     cl_write_rpc_hist;
@@ -504,6 +502,22 @@ struct client_obd {
         struct obd_histogram     cl_write_page_hist;
         struct obd_histogram     cl_read_offset_hist;
         struct obd_histogram     cl_write_offset_hist;
+
+        /* it's not easy to change max_pages_per_rpc after osc_extent is
+         * implemented because it may violate the attribute that an extent can't
+         * span over different RPC slots, if administrator wants to change it to
+         * a less value.
+         * Our policy is to allow the old extents to use old max_pages_per_rpc
+         * value. Administrators can't change it any more unless the user count
+         * of previous cl_pages_per_rpc drops to zero. */
+        struct cl_pages_per_rpc {
+                int              pages; /* max pages per RPC */
+                cfs_atomic_t     refc;  /* how many people are using this. */
+        } cl_ppr_slots[2];
+        struct cl_pages_per_rpc *cl_ppr_active;
+        cfs_rwlock_t             cl_ppr_lock;
+        cfs_waitq_t              cl_ppr_waitq;
+        int                    (*cl_ppr_set)(struct client_obd *, int);
 
         /* number of in flight destroy rpcs is limited to max_rpcs_in_flight */
         cfs_atomic_t             cl_destroy_in_flight;
@@ -542,6 +556,12 @@ struct client_obd {
         void                    *cl_writeback_work;
 };
 #define obd2cli_tgt(obd) ((char *)(obd)->u.cli.cl_target_uuid.uuid)
+
+/* get max_pages_per_rpc of a specific client */
+static inline int cl_ppr_get(struct client_obd *cli)
+{
+        return cli->cl_ppr_active->pages;
+}
 
 #define CL_NOT_QUOTACHECKED 1   /* client->cl_qchk_stat init value */
 
