@@ -108,6 +108,7 @@ static int osc_io_submit(const struct lu_env *env,
         struct osc_page   *opg;
         struct cl_io      *io;
         CFS_LIST_HEAD     (list);
+        void              *handler = NULL;
 
         struct cl_page_list *qin      = &queue->c2_qin;
         struct cl_page_list *qout     = &queue->c2_qout;
@@ -115,6 +116,7 @@ static int osc_io_submit(const struct lu_env *env,
         int result = 0;
         int cmd;
         int brw_flags;
+        int max_pages_per_rpc;
 
         LASSERT(qin->pl_nr > 0);
 
@@ -123,6 +125,8 @@ static int osc_io_submit(const struct lu_env *env,
         osc = cl2osc(ios->cis_obj);
         exp = osc_export(osc);
         cli = osc_cli(osc);
+
+        max_pages_per_rpc = osc_ppr_hold(cli, &handler);
 
         cmd = crt == CRT_WRITE ? OBD_BRW_WRITE : OBD_BRW_READ;
         brw_flags = osc_io_srvlock(cl2osc_io(env, ios)) ? OBD_BRW_SRVLOCK : 0;
@@ -170,17 +174,24 @@ static int osc_io_submit(const struct lu_env *env,
 
                 osc_page_submit(env, opg, crt, brw_flags);
                 cfs_list_add_tail(&oap->oap_pending_item, &list);
-                if (++queued == cli->cl_max_pages_per_rpc) {
+                if (++queued == max_pages_per_rpc) {
                         queued = 0;
                         result = osc_queue_sync_pages(env, osc, &list, cmd,
-                                                      brw_flags);
+                                                      brw_flags, handler);
                         if (result < 0)
                                 break;
+
+                        max_pages_per_rpc = osc_ppr_hold(cli, &handler);
                 }
         }
 
-        if (queued > 0)
-                result = osc_queue_sync_pages(env, osc, &list, cmd, brw_flags);
+        if (queued > 0) {
+                result = osc_queue_sync_pages(env, osc, &list, cmd, brw_flags,
+                                              handler);
+                if (result == 0)
+                        handler = NULL;
+        }
+        osc_ppr_release(cli, handler);
 
         CDEBUG(D_INFO, "%d/%d %d\n", qin->pl_nr, qout->pl_nr, result);
         return qout->pl_nr > 0 ? 0 : result;
