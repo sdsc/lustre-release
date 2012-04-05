@@ -944,6 +944,7 @@ finish:
         } else {
                 struct obd_connect_data *ocd;
                 struct obd_export *exp;
+                int max_pages_per_rpc = 0;
                 int ret;
                 ret = req_capsule_get_size(&request->rq_pill, &RMF_CONNECT_DATA,
                                            RCL_SERVER);
@@ -1051,11 +1052,15 @@ finish:
                 cli->cl_cksum_type =cksum_type_select(cli->cl_supp_cksum_types);
 
                 if (ocd->ocd_connect_flags & OBD_CONNECT_BRW_SIZE)
-                        cli->cl_max_pages_per_rpc =
-                                ocd->ocd_brw_size >> CFS_PAGE_SHIFT;
+                        max_pages_per_rpc = ocd->ocd_brw_size >> CFS_PAGE_SHIFT;
                 else if (imp->imp_connect_op == MDS_CONNECT ||
                          imp->imp_connect_op == MGS_CONNECT)
-                        cli->cl_max_pages_per_rpc = 1;
+                        max_pages_per_rpc = 1;
+                if (max_pages_per_rpc > 0) {
+                        LASSERT(max_pages_per_rpc <= PTLRPC_MAX_BRW_PAGES &&
+                                max_pages_per_rpc > 0);
+                        (void)cli->cl_ppr_set(cli, max_pages_per_rpc);
+                }
 
                 /* Reset ns_connect_flags only for initial connect. It might be
                  * changed in while using FS and if we reset it in reconnect
@@ -1091,9 +1096,6 @@ finish:
                         imp->imp_msghdr_flags |= MSGHDR_CKSUM_INCOMPAT18;
                 else
                         imp->imp_msghdr_flags &= ~MSGHDR_CKSUM_INCOMPAT18;
-
-                LASSERT((cli->cl_max_pages_per_rpc <= PTLRPC_MAX_BRW_PAGES) &&
-                        (cli->cl_max_pages_per_rpc > 0));
         }
 
 out:

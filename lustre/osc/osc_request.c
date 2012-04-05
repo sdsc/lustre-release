@@ -815,8 +815,8 @@ static void osc_announce_cached(struct client_obd *cli, struct obdo *oa,
                        cli->cl_dirty, cli->cl_dirty_max);
                 oa->o_undirty = 0;
         } else {
-                long max_in_flight = (cli->cl_max_pages_per_rpc << CFS_PAGE_SHIFT)*
-                                (cli->cl_max_rpcs_in_flight + 1);
+                long max_in_flight = (cl_ppr_get(cli) << CFS_PAGE_SHIFT) *
+                                     (cli->cl_max_rpcs_in_flight + 1);
                 oa->o_undirty = max(cli->cl_dirty_max, max_in_flight);
         }
         oa->o_grant = cli->cl_avail_grant + cli->cl_reserved_grant;
@@ -896,12 +896,11 @@ static void osc_shrink_grant_local(struct client_obd *cli, struct obdo *oa)
  * needed, and avoids shrinking the grant piecemeal. */
 static int osc_shrink_grant(struct client_obd *cli)
 {
-        long target = (cli->cl_max_rpcs_in_flight + 1) *
-                      cli->cl_max_pages_per_rpc;
+        long target = (cli->cl_max_rpcs_in_flight + 1) * cl_ppr_get(cli);
 
         client_obd_list_lock(&cli->cl_loi_list_lock);
         if (cli->cl_avail_grant <= target)
-                target = cli->cl_max_pages_per_rpc;
+                target = cl_ppr_get(cli);
         client_obd_list_unlock(&cli->cl_loi_list_lock);
 
         return osc_shrink_grant_to_target(cli, target);
@@ -917,8 +916,8 @@ int osc_shrink_grant_to_target(struct client_obd *cli, long target)
         /* Don't shrink if we are already above or below the desired limit
          * We don't want to shrink below a single RPC, as that will negatively
          * impact block allocation and long-term performance. */
-        if (target < cli->cl_max_pages_per_rpc)
-                target = cli->cl_max_pages_per_rpc;
+        if (target < cl_ppr_get(cli))
+                target = cl_ppr_get(cli);
 
         if (target >= cli->cl_avail_grant) {
                 client_obd_list_unlock(&cli->cl_loi_list_lock);
@@ -1801,6 +1800,8 @@ static int osc_brw(int cmd, struct obd_export *exp, struct obd_info *oinfo,
         struct obd_import *imp = class_exp2cliimp(exp);
         struct client_obd *cli;
         int rc, page_count_orig;
+        int max_pages;
+        void *handler;
         ENTRY;
 
         LASSERT((imp != NULL) && (imp->imp_obd != NULL));
@@ -1815,25 +1816,23 @@ static int osc_brw(int cmd, struct obd_export *exp, struct obd_info *oinfo,
                 RETURN(0);
         }
 
-        /* test_brw with a failed create can trip this, maybe others. */
-        LASSERT(cli->cl_max_pages_per_rpc);
-
         rc = 0;
 
         orig = ppga = osc_build_ppga(pga, page_count);
         if (ppga == NULL)
                 RETURN(-ENOMEM);
-        page_count_orig = page_count;
 
         sort_brw_pages(ppga, page_count);
+        page_count_orig = page_count;
+
+        /* test_brw with a failed create can trip this, maybe others. */
+        max_pages = osc_ppr_hold(cli, &handler);
+        LASSERT(max_pages > 0);
+
         while (page_count) {
                 obd_count pages_per_brw;
 
-                if (page_count > cli->cl_max_pages_per_rpc)
-                        pages_per_brw = cli->cl_max_pages_per_rpc;
-                else
-                        pages_per_brw = page_count;
-
+                pages_per_brw = min_t(int, max_pages, page_count);
                 pages_per_brw = max_unfragmented_pages(ppga, pages_per_brw);
 
                 if (saved_oa != NULL) {
@@ -1858,6 +1857,7 @@ static int osc_brw(int cmd, struct obd_export *exp, struct obd_info *oinfo,
         }
 
 out:
+        osc_ppr_release(cli, handler);
         osc_release_ppga(orig, page_count_orig);
 
         if (saved_oa != NULL)
@@ -2031,7 +2031,6 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
                 i++;
                 cl_req_page_add(env, clerq, page);
         }
-        LASSERT(i <= cli->cl_max_pages_per_rpc);
 
         /* always get the data for the obdo for the rpc */
         LASSERT(clerq != NULL);
@@ -3317,7 +3316,7 @@ static int osc_reconnect(const struct lu_env *env,
 
                 client_obd_list_lock(&cli->cl_loi_list_lock);
                 data->ocd_grant = (cli->cl_avail_grant + cli->cl_dirty) ?:
-                                2 * cli->cl_max_pages_per_rpc << CFS_PAGE_SHIFT;
+                                2 * cl_ppr_get(cli) << CFS_PAGE_SHIFT;
                 lost_grant = cli->cl_lost_grant;
                 cli->cl_lost_grant = 0;
                 client_obd_list_unlock(&cli->cl_loi_list_lock);
@@ -3520,6 +3519,9 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
                 else
                         rc = PTR_ERR(handler);
         }
+
+        /* change max_pages_per_rpc for osc is difficult. */
+        cli->cl_ppr_set = osc_ppr_set;
 
         if (rc == 0) {
                 struct lprocfs_static_vars lvars = { 0 };
