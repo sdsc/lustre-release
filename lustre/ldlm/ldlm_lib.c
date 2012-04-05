@@ -228,6 +228,14 @@ void client_destroy_import(struct obd_import *imp)
 }
 EXPORT_SYMBOL(client_destroy_import);
 
+static int cl_ppr_set_simple(struct client_obd *cli, int mppr)
+{
+        cfs_write_lock(&cli->cl_ppr_lock);
+        cli->cl_ppr_active->pages = mppr;
+        cfs_write_unlock(&cli->cl_ppr_lock);
+        return 0;
+}
+
 /* configure an RPC client OBD device
  *
  * lcfg parameters:
@@ -345,8 +353,17 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
 
         /* This value may be changed at connect time in
            ptlrpc_connect_interpret. */
-        cli->cl_max_pages_per_rpc = min((int)PTLRPC_MAX_BRW_PAGES,
-                                        (int)(1024 * 1024 >> CFS_PAGE_SHIFT));
+        for (rc = 0; rc < ARRAY_SIZE(cli->cl_ppr_slots); rc++) {
+                struct cl_pages_per_rpc *ppr = &cli->cl_ppr_slots[rc];
+                cfs_atomic_set(&ppr->refc, 0);
+                ppr->pages = 0;
+        }
+        cli->cl_ppr_active = &cli->cl_ppr_slots[0];
+        cli->cl_ppr_active->pages = min_t(int, PTLRPC_MAX_BRW_PAGES,
+                                          (1024 * 1024 >> CFS_PAGE_SHIFT));
+        cfs_rwlock_init(&cli->cl_ppr_lock);
+        cfs_waitq_init(&cli->cl_ppr_waitq);
+        cli->cl_ppr_set = cl_ppr_set_simple;
 
         if (!strcmp(name, LUSTRE_MDC_NAME)) {
                 cli->cl_max_rpcs_in_flight = MDC_MAX_RIF_DEFAULT;

@@ -104,7 +104,7 @@ static inline char list_empty_marker(cfs_list_t *list)
                                                                               \
         CDEBUG(lvl,                                                           \
                 "extent %p@{" EXTSTR ", "                                     \
-                "[%d|%d|%c|%s|%s|%p], [%d|%d|%c|%c|%p|%p]} " fmt,             \
+                "[%d|%d|%c|%s|%s|%p], [%d|%d|%c|%c|%p|%p|%p]} " fmt,          \
                 /* ----- extent part 0 ----- */                               \
                 __ext, EXTPARA(__ext),                                        \
                 /* ----- part 1 ----- */                                      \
@@ -117,7 +117,7 @@ static inline char list_empty_marker(cfs_list_t *list)
                 __ext->oe_grants, __ext->oe_nr_pages,                         \
                 list_empty_marker(&__ext->oe_pages),                          \
                 cfs_waitq_active(&__ext->oe_waitq) ? '+' : '-',               \
-                __ext->oe_osclock, __ext->oe_owner,                           \
+                __ext->oe_osclock, __ext->oe_ppr, __ext->oe_owner,            \
                 /* ----- part 4 ----- */                                      \
                 ## __VA_ARGS__);                                              \
 } while (0)
@@ -171,6 +171,7 @@ static int osc_extent_sanity_check0(struct osc_extent *ext, int locked,
         struct osc_object *obj = ext->oe_obj;
         struct osc_async_page *oap;
         int page_count;
+        int max_pages = osc_ppr_get(osc_cli(obj));
         int rc = 0;
 
         if (!locked)
@@ -220,6 +221,9 @@ static int osc_extent_sanity_check0(struct osc_extent *ext, int locked,
                       descr->cld_end >= ext->oe_max_end))
                         GOTO(out, rc = 100);
         }
+
+        if (ext->oe_nr_pages > max_pages)
+                GOTO(out, rc = 105);
 
         /* Do not verify page list if extent is in RPC. This is because an
          * in-RPC extent is supposed to be exclusively accessible w/o lock. */
@@ -281,6 +285,7 @@ static struct osc_extent *osc_extent_alloc(struct osc_object *obj)
         CFS_INIT_LIST_HEAD(&ext->oe_pages);
         cfs_waitq_init(&ext->oe_waitq);
         ext->oe_osclock = NULL;
+        ext->oe_ppr     = NULL;
 
         return ext;
 }
@@ -311,6 +316,7 @@ static void osc_extent_put(const struct lu_env *env, struct osc_extent *ext)
                         cl_lock_put(env, ext->oe_osclock);
                         ext->oe_osclock = NULL;
                 }
+                osc_ppr_release(osc_cli(ext->oe_obj), ext->oe_ppr);
                 osc_extent_free(ext);
         }
 }
@@ -569,12 +575,13 @@ struct osc_extent *osc_extent_find(const struct lu_env *env,
         struct osc_extent *ext;
         struct osc_extent *conflict = NULL;
         struct osc_extent *found = NULL;
+        void              *handler = NULL;
         pgoff_t            block;
         pgoff_t            max_end;
+        int                max_pages; /* max_pages_per_rpc */
         int                blocksize;
         int                ppb_bits; /* pages per block bits */
         int                block_mask;
-        int                rpc_mask;
         int                rc;
         ENTRY;
 
@@ -593,8 +600,8 @@ struct osc_extent *osc_extent_find(const struct lu_env *env,
         block      = index >> ppb_bits;
 
         /* align end to rpc edge */
-        rpc_mask = ~(cli->cl_max_pages_per_rpc - 1);
-        max_end = ((index + ~rpc_mask + 1) & rpc_mask) - 1;
+        max_pages = osc_ppr_hold(cli, &handler);
+        max_end = ((index + max_pages) & ~(max_pages - 1)) - 1;
         max_end = min_t(pgoff_t, max_end, lock->cll_descr.cld_end);
 
         /* initialize new extent by parameters so far */
@@ -607,11 +614,12 @@ struct osc_extent *osc_extent_find(const struct lu_env *env,
                 cur->oe_end = max_end;
         cur->oe_osclock = lock;
         cur->oe_grants  = 0;
+        cur->oe_ppr     = handler;
 
         /* grants has been allocated by caller */
         LASSERTF(*grants >= blocksize + cli->cl_extent_tax,
                  "%u/%u/%u.\n", *grants, blocksize, cli->cl_extent_tax);
-        LASSERTF((max_end - cur->oe_start) <= ~rpc_mask, EXTSTR, EXTPARA(cur));
+        LASSERTF((max_end - cur->oe_start) < max_pages, EXTSTR, EXTPARA(cur));
 
 restart:
         osc_object_lock(obj);
@@ -619,27 +627,31 @@ restart:
         if (ext == NULL)
                 ext = first_extent(obj);
         while (ext != NULL) {
+                loff_t ext_blk_start = ext->oe_start >> ppb_bits;
+                loff_t ext_blk_end   = ext->oe_end   >> ppb_bits;
+
                 LASSERT(sanity_check_nolock(ext) == 0);
-                /* We always extend extent's max_end to rpc and dlm lock
-                 * boundary, so if max_end doesn't match, it means they
-                 * can't be merged due to belonging to different RPC slots
-                 * or being covered by different locks. */
-                if (ext->oe_max_end < max_end) {
+                if (block > ext_blk_end + 1)
+                        break;
+
+                /* if covering by different locks, no chance to match */
+                if (lock != ext->oe_osclock) {
+                        EASSERTF(!overlapped(ext, cur), ext,
+                                 EXTSTR, EXTPARA(cur));
+
                         ext = next_extent(ext);
                         continue;
-                } else if (ext->oe_max_end > max_end) {
-                        EASSERTF(ext->oe_start > max_end, ext,
-                                 EXTSTR, EXTPARA(cur));
-                        break;
                 }
 
-                LASSERT(ext->oe_osclock == lock);
-                LASSERT(ext->oe_grants > 0);
+                /* discontiguous blocks? */
+                if (block + 1 < ext_blk_start) {
+                        ext = next_extent(ext);
+                        continue;
+                }
 
                 /* ok, from now on, ext and cur have these attrs:
                  * 1. covered by the same lock
-                 * 2. belong to the same RPC slot
-                 * Try to merge them if they are contiguous at block level */
+                 * 2. contiguous at block level or overlapping. */
 
                 if (overlapped(ext, cur)) {
                         /* cur is the minimum unit, so overlapping means
@@ -663,6 +675,16 @@ restart:
                         continue;
                 }
 
+                /* check if they belong to the same rpc slot before trying to
+                 * merge. the extents are not overlapped and contiguous at
+                 * block level to get here. */
+                if (ext->oe_max_end != max_end) {
+                        /* if they don't belong to the same RPC slot or
+                         * max_pages_per_rpc has ever changed, do not merge. */
+                        ext = next_extent(ext);
+                        continue;
+                }
+
                 /* it's required that an extent must be contiguous at block
                  * level so that we know the whole extent is covered by grant
                  * (the pages in the extent are NOT required to be contiguous).
@@ -670,7 +692,7 @@ restart:
                  * blocks have grants allocated. */
 
                 /* try to do front merge - extend ext's start */
-                if (block + 1 == ext->oe_start >> ppb_bits) {
+                if (block + 1 == ext_blk_start) {
                         /* ext must be block size aligned */
                         EASSERT((ext->oe_start & ~block_mask) == 0, ext);
 
@@ -680,7 +702,7 @@ restart:
                         *grants        -= blocksize;
 
                         found = osc_extent_hold(ext);
-                } else if (block == (ext->oe_end >> ppb_bits) + 1) {
+                } else if (block == ext_blk_end + 1) {
                         /* rear merge */
                         ext->oe_end     = cur->oe_end;
                         ext->oe_grants += blocksize;
@@ -1082,7 +1104,8 @@ static void osc_extent_tree_dump0(int level, struct osc_object *obj,
         struct osc_extent *ext;
         int                cnt;
 
-        CDEBUG(level, "Dump object %p extents at %s:%d.\n", obj, func, line);
+        CDEBUG(level, "Dump object %p extents at %s:%d, max_pages: %d.\n",
+               obj, func, line, osc_ppr_get(osc_cli(obj)));
 
         /* osc_object_lock(obj); */
         cnt = 1;
@@ -1564,8 +1587,7 @@ static int osc_makes_rpc(struct client_obd *cli, struct osc_object *osc,
                         CDEBUG(D_CACHE, "cache waiters forcing RPC\n");
                         RETURN(1);
                 }
-                if (cfs_atomic_read(&osc->oo_nr_writes) >=
-                    cli->cl_max_pages_per_rpc)
+                if (cfs_atomic_read(&osc->oo_nr_writes) >= cl_ppr_get(cli))
                         RETURN(1);
         } else {
                 if (cfs_atomic_read(&osc->oo_nr_reads) == 0)
@@ -1711,17 +1733,17 @@ static void osc_ap_completion(const struct lu_env *env, struct client_obd *cli,
  */
 static int try_to_add_extent_for_io(struct client_obd *cli,
                                     struct osc_extent *ext,
-                                    cfs_list_t *rpclist, int *pc)
+                                    cfs_list_t *rpclist, int *nrpages)
 {
         struct osc_extent *tmp;
         ENTRY;
 
         EASSERT((ext->oe_state == OES_CACHE || ext->oe_state == OES_LOCK_DONE),
                 ext);
-        EASSERT(ext->oe_nr_pages <= cli->cl_max_pages_per_rpc, ext);
+        LASSERT(*nrpages >= 0);
 
-        if (*pc + ext->oe_nr_pages > cli->cl_max_pages_per_rpc)
-                RETURN(0);
+        if (ext->oe_nr_pages > *nrpages)
+                return 0;
 
         cfs_list_for_each_entry(tmp, rpclist, oe_link) {
                 EASSERT(tmp->oe_owner == cfs_current(), tmp);
@@ -1740,7 +1762,7 @@ static int try_to_add_extent_for_io(struct client_obd *cli,
                 break;
         }
 
-        *pc += ext->oe_nr_pages;
+        *nrpages -= ext->oe_nr_pages;
         cfs_list_move_tail(&ext->oe_link, rpclist);
         ext->oe_owner = cfs_current();
         RETURN(1);
@@ -1757,30 +1779,32 @@ static int try_to_add_extent_for_io(struct client_obd *cli,
  * 3. Add subsequent extents of this urgent extent;
  * 4. If urgent list is not empty, goto 2;
  * 5. Traverse the extent tree from the 1st extent;
- * 6. Above steps exit if there is no space in this RPC.
+ * 6. Above steps exit any time if page_count drops to zero - no space in RPC.
  */
-static int get_write_extents(struct osc_object *obj, cfs_list_t *rpclist)
+static int get_write_extents(struct osc_object *obj, cfs_list_t *rpclist,
+                             int max_pages)
 {
         struct client_obd *cli = osc_cli(obj);
         struct osc_extent *ext;
-        int page_count = 0;
+        int page_count = max_pages;
 
         LASSERT(osc_object_is_locked(obj));
         while (!cfs_list_empty(&obj->oo_hp_exts)) {
                 ext = cfs_list_entry(obj->oo_hp_exts.next, struct osc_extent,
                                      oe_link);
                 LASSERT(ext->oe_state == OES_CACHE);
+                EASSERT(ext->oe_nr_pages <= max_pages, ext);
                 if (!try_to_add_extent_for_io(cli, ext, rpclist, &page_count))
-                        return page_count;
+                        return max_pages - page_count;
         }
-        if (page_count == cli->cl_max_pages_per_rpc)
-                return page_count;
+        if (page_count == 0)
+                return max_pages;
 
         while(!cfs_list_empty(&obj->oo_urgent_exts)) {
                 ext = cfs_list_entry(obj->oo_urgent_exts.next,
                                      struct osc_extent, oe_link);
                 if (!try_to_add_extent_for_io(cli, ext, rpclist, &page_count))
-                        return page_count;
+                        return max_pages - page_count;
 
                 if (!ext->oe_intree)
                         continue;
@@ -1793,11 +1817,11 @@ static int get_write_extents(struct osc_object *obj, cfs_list_t *rpclist)
 
                         if (!try_to_add_extent_for_io(cli, ext, rpclist,
                                                       &page_count))
-                                return page_count;
+                                return max_pages - page_count;
                 }
         }
-        if (page_count == cli->cl_max_pages_per_rpc)
-                return page_count;
+        if (page_count == 0)
+                return max_pages;
 
         ext = first_extent(obj);
         while (ext != NULL) {
@@ -1808,12 +1832,13 @@ static int get_write_extents(struct osc_object *obj, cfs_list_t *rpclist)
                         continue;
                 }
 
+                EASSERT(ext->oe_nr_pages <= max_pages, ext);
                 if (!try_to_add_extent_for_io(cli, ext, rpclist, &page_count))
-                        return page_count;
+                        return max_pages - page_count;
 
                 ext = next_extent(ext);
         }
-        return page_count;
+        return max_pages - page_count;
 }
 
 static int
@@ -1826,13 +1851,16 @@ osc_send_write_rpc(const struct lu_env *env, struct client_obd *cli,
         struct osc_extent *first = NULL;
         obd_count page_count = 0;
         int srvlock = 0;
+        int max_pages;
         int rc = 0;
         ENTRY;
 
         LASSERT(osc_object_is_locked(osc));
 
-        page_count = get_write_extents(osc, &rpclist);
+        max_pages = osc_ppr_get(cli);
+        page_count = get_write_extents(osc, &rpclist, max_pages);
         LASSERT(equi(page_count == 0, cfs_list_empty(&rpclist)));
+        LASSERT(page_count <= max_pages);
 
         if (cfs_list_empty(&rpclist))
                 RETURN(0);
@@ -1896,18 +1924,23 @@ osc_send_read_rpc(const struct lu_env *env, struct client_obd *cli,
         struct osc_extent *ext;
         struct osc_extent *next;
         CFS_LIST_HEAD(rpclist);
-        int page_count = 0;
+        int max_pages;
+        int page_count;
         int rc = 0;
         ENTRY;
 
         LASSERT(osc_object_is_locked(osc));
+        page_count = max_pages = osc_ppr_get(cli);
         cfs_list_for_each_entry_safe(ext, next, &osc->oo_reading_exts, oe_link){
                 EASSERT(ext->oe_state == OES_LOCK_DONE, ext);
+                EASSERT(ext->oe_nr_pages <= max_pages, ext);
                 if (!try_to_add_extent_for_io(cli, ext, &rpclist, &page_count))
                         break;
+
                 osc_extent_state_set(ext, OES_RPC);
         }
-        LASSERT(page_count <= cli->cl_max_pages_per_rpc);
+        page_count = max_pages - page_count;
+        LASSERT(page_count <= max_pages);
 
         osc_update_pending(osc, OBD_BRW_READ, -page_count);
 
@@ -2434,7 +2467,8 @@ int osc_cancel_async_page(const struct lu_env *env, struct osc_page *ops)
 }
 
 int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
-                         cfs_list_t *list, int cmd, int brw_flags)
+                         cfs_list_t *list, int cmd, int brw_flags,
+                         void *handler)
 {
         struct client_obd     *cli = osc_cli(obj);
         struct osc_extent     *ext;
@@ -2452,7 +2486,7 @@ int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
                         start = cp->cp_index;
                 ++page_count;
         }
-        LASSERT(page_count <= cli->cl_max_pages_per_rpc);
+        LASSERT(page_count <= osc_ppr_get(cli));
 
         ext = osc_extent_alloc(obj);
         if (ext == NULL) {
@@ -2468,6 +2502,7 @@ int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
         ext->oe_start = start;
         ext->oe_end = ext->oe_max_end = end;
         ext->oe_obj = obj;
+        ext->oe_ppr = handler;
         ext->oe_srvlock = !!(brw_flags & OBD_BRW_SRVLOCK);
         ext->oe_nr_pages = page_count;
         cfs_list_splice_init(list, &ext->oe_pages);
@@ -2796,6 +2831,92 @@ int osc_cache_writeback_range(const struct lu_env *env, struct osc_object *obj,
 
         OSC_IO_DEBUG(obj, "cache page out.\n");
         RETURN(result);
+}
+
+/* ----- code to manipulate max_pages_per_rpc ----- */
+int osc_ppr_hold(struct client_obd *cli, void **handler)
+{
+        struct cl_pages_per_rpc *ppr;
+
+        cfs_read_lock(&cli->cl_ppr_lock);
+        ppr = cli->cl_ppr_active;
+        cfs_atomic_inc(&ppr->refc);
+        cfs_read_unlock(&cli->cl_ppr_lock);
+
+        *handler = ppr;
+        return ppr->pages;
+}
+
+void osc_ppr_release(struct client_obd *cli, void *handler)
+{
+        struct cl_pages_per_rpc *ppr = handler;
+
+        if (ppr != NULL) {
+                LASSERT(cfs_atomic_read(&ppr->refc) > 0);
+                if (cfs_atomic_dec_and_test(&ppr->refc))
+                        cfs_waitq_broadcast(&cli->cl_ppr_waitq);
+        }
+}
+
+int osc_ppr_get(struct client_obd *cli)
+{
+        struct cl_pages_per_rpc *ppr;
+        int max_pages;
+
+        cfs_read_lock(&cli->cl_ppr_lock);
+        max_pages = cli->cl_ppr_active->pages;
+        ppr = &cli->cl_ppr_slots[cli->cl_ppr_active == &cli->cl_ppr_slots[0]];
+        if (cfs_atomic_read(&ppr->refc) > 0 && ppr->pages > max_pages)
+                max_pages = ppr->pages;
+        cfs_read_unlock(&cli->cl_ppr_lock);
+
+        return max_pages;
+}
+
+int osc_ppr_set(struct client_obd *cli, int mppr)
+{
+        struct cl_pages_per_rpc *ppr;
+
+        if (mppr == 0 || (mppr & (mppr - 1)))
+                return -EINVAL;
+
+        if (mppr << CFS_PAGE_SHIFT < cli->cl_bsize)
+                return -EINVAL;
+
+again:
+        cfs_write_lock(&cli->cl_ppr_lock);
+        if (cli->cl_ppr_active->pages == mppr) {
+                cfs_write_unlock(&cli->cl_ppr_lock);
+                return 0;
+        }
+
+        ppr = &cli->cl_ppr_slots[cli->cl_ppr_active == &cli->cl_ppr_slots[0]];
+        if (cfs_atomic_read(&ppr->refc) > 0) {
+                struct l_wait_info lwi = LWI_INTR(NULL, NULL);
+                int rc;
+
+                cfs_write_unlock(&cli->cl_ppr_lock);
+
+                CDEBUG(D_CACHE, "%d of users pending, waiting for them.\n",
+                       cfs_atomic_read(&ppr->refc));
+
+                rc = l_wait_event(cli->cl_ppr_waitq,
+                                  cfs_atomic_read(&ppr->refc) == 0, &lwi);
+                if (rc < 0)
+                        return rc;
+
+                goto again;
+        }
+
+        CDEBUG(D_CACHE, "Changing max_pages_per_rpc from %d to %d.\n",
+               cli->cl_ppr_active->pages, mppr);
+
+        /* the other slot is free */
+        ppr->pages = mppr;
+        cli->cl_ppr_active = ppr;
+        cfs_write_unlock(&cli->cl_ppr_lock);
+
+        return 0;
 }
 
 /** @} osc */
