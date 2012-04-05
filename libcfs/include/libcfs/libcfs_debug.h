@@ -204,12 +204,11 @@ static inline int cfs_cdebug_show(unsigned int mask, unsigned int subsystem)
 
 #define __CDEBUG(cdls, mask, format, ...)                               \
 do {                                                                    \
-        LIBCFS_DEBUG_MSG_DATA_DECL(msgdata, mask, cdls);                \
-                                                                        \
-        CFS_CHECK_STACK(&msgdata, mask, cdls);                          \
-                                                                        \
-        if (cfs_cdebug_show(mask, DEBUG_SUBSYSTEM))                     \
+        if (cfs_cdebug_show(mask, DEBUG_SUBSYSTEM)) {                   \
+                LIBCFS_DEBUG_MSG_DATA_DECL(msgdata, mask, cdls);        \
+                CFS_CHECK_STACK(&msgdata, mask, cdls);                  \
                 libcfs_debug_msg(&msgdata, format, ## __VA_ARGS__);     \
+        }                                                               \
 } while (0)
 
 #define CDEBUG(mask, format, ...) __CDEBUG(NULL, mask, format, ## __VA_ARGS__)
