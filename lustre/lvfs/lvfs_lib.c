@@ -83,6 +83,8 @@ void lprocfs_counter_add(struct lprocfs_stats *stats, int idx,
         /* With per-client stats, statistics are allocated only for
          * single CPU area, so the smp_id should be 0 always. */
         smp_id = lprocfs_stats_lock(stats, LPROCFS_GET_SMP_ID);
+        if (smp_id < 0)
+                return;
 
         percpu_cntr = &(stats->ls_percpu[smp_id]->lp_cntr[idx]);
         if (!(stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU))
@@ -119,6 +121,8 @@ void lprocfs_counter_sub(struct lprocfs_stats *stats, int idx,
         /* With per-client stats, statistics are allocated only for
          * single CPU area, so the smp_id should be 0 always. */
         smp_id = lprocfs_stats_lock(stats, LPROCFS_GET_SMP_ID);
+        if (smp_id < 0)
+                return;
 
         percpu_cntr = &(stats->ls_percpu[smp_id]->lp_cntr[idx]);
         if (!(stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU))
@@ -142,6 +146,35 @@ void lprocfs_counter_sub(struct lprocfs_stats *stats, int idx,
         lprocfs_stats_unlock(stats, LPROCFS_GET_SMP_ID);
 }
 EXPORT_SYMBOL(lprocfs_counter_sub);
+
+int lprocfs_stats_alloc_one(struct lprocfs_stats *stats, unsigned int idx)
+{
+        unsigned int percpusize;
+        int          rc = -ENOMEM;
+
+        /* the 1st percpu entry was statically allocated in
+         * lprocfs_alloc_stats() */
+        LASSERT(idx != 0 && stats->ls_percpu[0] != NULL);
+        LASSERT(stats->ls_percpu[idx] == NULL);
+        LASSERT((stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU) == 0);
+
+        percpusize = CFS_L1_CACHE_ALIGN(offsetof(struct lprocfs_percpu,
+                                                 lp_cntr[stats->ls_num]));
+        OBD_ALLOC(stats->ls_percpu[idx], percpusize);
+        if (stats->ls_percpu[idx] != NULL) {
+                rc = 0;
+                if (unlikely(stats->ls_biggest_alloc_num <= idx))
+                        stats->ls_biggest_alloc_num = idx + 1;
+
+                /* initialize the ls_percpu[idx] by copying the 0th template
+                 * entry */
+                memcpy(stats->ls_percpu[idx], stats->ls_percpu[0],
+                       percpusize);
+        }
+
+        return rc;
+}
+EXPORT_SYMBOL(lprocfs_stats_alloc_one);
 #endif  /* LPROCFS */
 
 EXPORT_SYMBOL(obd_alloc_fail_rate);
