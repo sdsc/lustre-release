@@ -524,7 +524,7 @@ int lov_pool_del(struct obd_device *obd, char *poolname)
         if (pool == NULL)
                 RETURN(-ENOENT);
 
-        if (pool->pool_proc_entry != NULL) {
+        if (obd->obd_proc_entry != NULL && pool->pool_proc_entry != NULL) {
                 CDEBUG(D_INFO, "proc entry %p\n", pool->pool_proc_entry);
                 lprocfs_remove(&pool->pool_proc_entry);
                 lov_pool_putref(pool);
