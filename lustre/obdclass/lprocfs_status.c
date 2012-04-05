@@ -720,6 +720,8 @@ void lprocfs_stats_collect(struct lprocfs_stats *stats, int idx,
         num_cpu = lprocfs_stats_lock(stats, LPROCFS_GET_NUM_CPU);
 
         for (i = 0; i < num_cpu; i++) {
+                if (stats->ls_percpu[i] == NULL)
+                        continue;
                 percpu_cntr = &(stats->ls_percpu[i])->lp_cntr[idx];
 
                 do {
@@ -1189,7 +1191,7 @@ struct lprocfs_stats *lprocfs_alloc_stats(unsigned int num,
 {
         struct lprocfs_stats *stats;
         unsigned int percpusize;
-        unsigned int i, j;
+        unsigned int i;
         unsigned int num_cpu;
 
         if (num == 0)
@@ -1200,15 +1202,18 @@ struct lprocfs_stats *lprocfs_alloc_stats(unsigned int num,
         else
                 num_cpu = cfs_num_possible_cpus();
 
+        /* alloc percpu pointers for all possible cpu slots */
         OBD_ALLOC(stats, offsetof(typeof(*stats), ls_percpu[num_cpu]));
         if (stats == NULL)
                 return NULL;
 
         if (flags & LPROCFS_STATS_FLAG_NOPERCPU) {
+                stats->ls_biggest_alloc_num = 0;
                 stats->ls_flags = flags;
                 cfs_spin_lock_init(&stats->ls_lock);
                 /* Use this lock only if there are no percpu areas */
         } else {
+                stats->ls_biggest_alloc_num = cfs_num_present_cpus();
                 stats->ls_flags = 0;
         }
 
@@ -1216,12 +1221,13 @@ struct lprocfs_stats *lprocfs_alloc_stats(unsigned int num,
         if (num_cpu > 1)
                 percpusize = CFS_L1_CACHE_ALIGN(percpusize);
 
-        for (i = 0; i < num_cpu; i++) {
+        /* only alloc percpu data for currently present cpus */
+        for (i = 0; i < stats->ls_biggest_alloc_num; i++) {
                 OBD_ALLOC(stats->ls_percpu[i], percpusize);
                 if (stats->ls_percpu[i] == NULL) {
-                        for (j = 0; j < i; j++) {
-                                OBD_FREE(stats->ls_percpu[j], percpusize);
-                                stats->ls_percpu[j] = NULL;
+                        for (--i; i >= 0; --i) {
+                                OBD_FREE(stats->ls_percpu[i], percpusize);
+                                stats->ls_percpu[i] = NULL;
                         }
                         break;
                 }
@@ -1256,7 +1262,8 @@ void lprocfs_free_stats(struct lprocfs_stats **statsh)
         if (num_cpu > 1)
                 percpusize = CFS_L1_CACHE_ALIGN(percpusize);
         for (i = 0; i < num_cpu; i++)
-                OBD_FREE(stats->ls_percpu[i], percpusize);
+                if (stats->ls_percpu[i] != NULL)
+                        OBD_FREE(stats->ls_percpu[i], percpusize);
         OBD_FREE(stats, offsetof(typeof(*stats), ls_percpu[num_cpu]));
 }
 
@@ -1269,6 +1276,8 @@ void lprocfs_clear_stats(struct lprocfs_stats *stats)
         num_cpu = lprocfs_stats_lock(stats, LPROCFS_GET_NUM_CPU);
 
         for (i = 0; i < num_cpu; i++) {
+                if (stats->ls_percpu[i] == NULL)
+                        continue;
                 for (j = 0; j < stats->ls_num; j++) {
                         percpu_cntr = &(stats->ls_percpu[i])->lp_cntr[j];
                         cfs_atomic_inc(&percpu_cntr->lc_cntl.la_entry);
@@ -1427,6 +1436,8 @@ void lprocfs_counter_init(struct lprocfs_stats *stats, int index,
         num_cpu = lprocfs_stats_lock(stats, LPROCFS_GET_NUM_CPU);
 
         for (i = 0; i < num_cpu; i++) {
+                if (stats->ls_percpu[i] == NULL)
+                        continue;
                 c = &(stats->ls_percpu[i]->lp_cntr[index]);
                 c->lc_config = conf;
                 c->lc_count = 0;
