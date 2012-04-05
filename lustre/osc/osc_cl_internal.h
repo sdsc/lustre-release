@@ -438,7 +438,8 @@ int osc_teardown_async_page(const struct lu_env *env, struct osc_object *obj,
 int osc_flush_async_page(const struct lu_env *env, struct cl_io *io,
                          struct osc_page *ops);
 int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
-                         cfs_list_t *list, int cmd, int brw_flags);
+                         cfs_list_t *list, int cmd, int brw_flags,
+                         void *handler);
 int osc_cache_truncate_start(const struct lu_env *env, struct osc_io *oio,
                              struct osc_object *obj, __u64 size);
 void osc_cache_truncate_end(const struct lu_env *env, struct osc_io *oio,
@@ -655,6 +656,8 @@ struct osc_extent {
         cfs_waitq_t        oe_waitq;
         /** lock covering this extent */
         struct cl_lock    *oe_osclock;
+        /** point to what max_pages_per_rpc this extent is using */
+        void              *oe_ppr;
         /** terminator of this extent. Must be true if this extent is in IO. */
         cfs_task_t        *oe_owner;
         /** return value of writeback. If somebody is waiting for this extent,

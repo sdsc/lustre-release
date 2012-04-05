@@ -2441,7 +2441,7 @@ int lprocfs_obd_rd_max_pages_per_rpc(char *page, char **start, off_t off,
         int rc;
 
         client_obd_list_lock(&cli->cl_loi_list_lock);
-        rc = snprintf(page, count, "%d\n", cli->cl_max_pages_per_rpc);
+        rc = snprintf(page, count, "%d\n", cl_ppr_get(cli));
         client_obd_list_unlock(&cli->cl_loi_list_lock);
         return rc;
 }
@@ -2464,12 +2464,10 @@ int lprocfs_obd_wr_max_pages_per_rpc(struct file *file, const char *buffer,
                 LPROCFS_CLIMP_EXIT(dev);
                 return -ERANGE;
         }
-        client_obd_list_lock(&cli->cl_loi_list_lock);
-        cli->cl_max_pages_per_rpc = val;
-        client_obd_list_unlock(&cli->cl_loi_list_lock);
 
+        rc = cli->cl_ppr_set(cli, val);
         LPROCFS_CLIMP_EXIT(dev);
-        return count;
+        return rc < 0 ? rc : count;
 }
 EXPORT_SYMBOL(lprocfs_obd_wr_max_pages_per_rpc);
 
