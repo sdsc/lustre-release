@@ -2242,6 +2242,16 @@ enum cl_io_lock_dmd {
         CILR_PEEK
 };
 
+enum cl_fsync_mode {
+        /** start writeback, do not wait for them to finish */
+        CL_FSYNC_NONE  = 0,
+        /** start writeback and wait for them to finish */
+        CL_FSYNC_LOCAL = 1,
+        /** start writeback and make sure they have reached storage before
+         * return. OST_SYNC RPC must be issued and finished */
+        CL_FSYNC_ALL   = 2
+};
+
 struct cl_io_rw_common {
         loff_t      crw_pos;
         size_t      crw_count;
@@ -2314,6 +2324,8 @@ struct cl_io {
                         loff_t             fi_start;
                         loff_t             fi_end;
                         struct obd_capa   *fi_capa;
+                        enum cl_fsync_mode fi_sync_mode;
+                        unsigned int       fi_nr_written;
                 } ci_fsync;
         } u;
         struct cl_2queue     ci_queue;

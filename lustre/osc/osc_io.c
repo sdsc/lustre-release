@@ -565,17 +565,15 @@ static int osc_io_write_start(const struct lu_env *env,
         RETURN(result);
 }
 
-static int osc_io_fsync_start(const struct lu_env *env,
-                              const struct cl_io_slice *slice)
+static int osc_fsync_ost(const struct lu_env *env, struct osc_object *obj,
+                         struct cl_fsync_io *fio)
 {
-        struct cl_io     *io    = slice->cis_io;
-        struct osc_io    *oio   = cl2osc_io(env, slice);
+        struct osc_io    *oio   = osc_env_io(env);
         struct obdo      *oa    = &oio->oi_oa;
         struct obd_info  *oinfo = &oio->oi_info;
+        struct lov_oinfo *loi   = obj->oo_oinfo;
         struct osc_async_cbargs *cbargs = &oio->oi_cbarg;
-        struct cl_object *obj   = slice->cis_obj;
-        struct lov_oinfo *loi   = cl2osc(obj)->oo_oinfo;
-        int              result = 0;
+        int rc = 0;
         ENTRY;
 
         memset(oa, 0, sizeof(*oa));
@@ -584,29 +582,79 @@ static int osc_io_fsync_start(const struct lu_env *env,
         oa->o_valid = OBD_MD_FLID | OBD_MD_FLGROUP;
 
         /* reload size abd blocks for start and end of sync range */
-        oa->o_size = io->u.ci_fsync.fi_start;
-        oa->o_blocks = io->u.ci_fsync.fi_end;
+        oa->o_size = fio->fi_start;
+        oa->o_blocks = fio->fi_end;
         oa->o_valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
 
         memset(oinfo, 0, sizeof(*oinfo));
         oinfo->oi_oa = oa;
-        oinfo->oi_capa = io->u.ci_fsync.fi_capa;
+        oinfo->oi_capa = fio->fi_capa;
         cfs_init_completion(&cbargs->opc_sync);
 
-        result = osc_sync_base(osc_export(cl2osc(obj)), oinfo,
-                               osc_async_upcall, cbargs, PTLRPCD_SET);
+        rc = osc_sync_base(osc_export(obj), oinfo, osc_async_upcall, cbargs,
+                           PTLRPCD_SET);
+        RETURN(rc);
+}
+
+static int osc_io_fsync_start(const struct lu_env *env,
+                              const struct cl_io_slice *slice)
+{
+        struct cl_io       *io  = slice->cis_io;
+        struct cl_fsync_io *fio = &io->u.ci_fsync;
+        struct cl_object   *obj = slice->cis_obj;
+        struct osc_object  *osc = cl2osc(obj);
+        pgoff_t start  = cl_index(obj, fio->fi_start);
+        pgoff_t end    = cl_index(obj, fio->fi_end);
+        int     result = 0;
+        ENTRY;
+
+        if (fio->fi_end == OBD_OBJECT_EOF)
+                end = CL_PAGE_EOF;
+
+        result = osc_cache_writeback_range(env, osc, start, end, 0, 0);
+        if (result > 0) {
+                fio->fi_nr_written += result;
+                result = 0;
+        }
+        if (fio->fi_sync_mode == CL_FSYNC_ALL) {
+                int rc;
+
+                /* we have to wait for writeback to finish before we can
+                 * send OST_SYNC RPC. This is bad because it causes extents
+                 * to be written osc by osc. However, we usually start
+                 * writeback before CL_FSYNC_ALL so this won't have any real
+                 * problem. */
+                rc = osc_cache_wait_range(env, osc, start, end);
+                if (result == 0)
+                        result = rc;
+                rc = osc_fsync_ost(env, osc, fio);
+                if (result == 0)
+                        result = rc;
+        }
+
         RETURN(result);
 }
 
 static void osc_io_fsync_end(const struct lu_env *env,
                              const struct cl_io_slice *slice)
 {
-        struct cl_io            *io     = slice->cis_io;
-        struct osc_io           *oio    = cl2osc_io(env, slice);
-        struct osc_async_cbargs *cbargs = &oio->oi_cbarg;
+        struct cl_fsync_io *fio = &slice->cis_io->u.ci_fsync;
+        struct cl_object   *obj = slice->cis_obj;
+        pgoff_t start = cl_index(obj, fio->fi_start);
+        pgoff_t end   = cl_index(obj, fio->fi_end);
+        int result = 0;
 
-        cfs_wait_for_completion(&cbargs->opc_sync);
-        io->ci_result = cbargs->opc_rc;
+        if (fio->fi_sync_mode == CL_FSYNC_LOCAL) {
+                result = osc_cache_wait_range(env, cl2osc(obj), start, end);
+        } else if (fio->fi_sync_mode == CL_FSYNC_ALL) {
+                struct osc_io           *oio    = cl2osc_io(env, slice);
+                struct osc_async_cbargs *cbargs = &oio->oi_cbarg;
+
+                cfs_wait_for_completion(&cbargs->opc_sync);
+                if (result == 0)
+                        result = cbargs->opc_rc;
+        }
+        slice->cis_io->ci_result = result;
 }
 
 static void osc_io_end(const struct lu_env *env,

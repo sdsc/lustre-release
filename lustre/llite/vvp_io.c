@@ -769,11 +769,26 @@ out:
         return result;
 }
 
+static int vvp_io_fsync_start(const struct lu_env *env,
+                              const struct cl_io_slice *ios)
+{
+        struct inode *inode = ccc_object_inode(ios->cis_obj);
+
+        /* inode mutex is used to protect against concurrent writers from
+         * vfs write. */
+        LASSERT(TRYLOCK_INODE_MUTEX(inode) == 0);
+
+        /* borrow i_alloc_sem to protect against page_mkwrite(). */
+        down_read(&inode->i_alloc_sem);
+
+        return 0;
+}
+
 static void vvp_io_fsync_end(const struct lu_env *env,
                              const struct cl_io_slice *ios)
 {
-        /* never try to verify there is no dirty pages in sync range
-         * because page_mkwrite() can generate new dirty pages any time. */
+        struct inode *inode = ccc_object_inode(ios->cis_obj);
+        up_read(&inode->i_alloc_sem);
 }
 
 static int vvp_io_read_page(const struct lu_env *env,
@@ -1076,6 +1091,7 @@ static const struct cl_io_operations vvp_io_ops = {
                         .cio_end       = ccc_io_end
                 },
                 [CIT_FSYNC] = {
+                        .cio_start  = vvp_io_fsync_start,
                         .cio_end    = vvp_io_fsync_end,
                         .cio_fini   = vvp_io_fini
                 },
