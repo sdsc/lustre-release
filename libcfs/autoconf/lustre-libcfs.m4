@@ -111,6 +111,139 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
+# check cpumask_size
+AC_DEFUN([LIBCFS_CPUMASK_SIZE],
+[AC_MSG_CHECKING([whether have cpumask_size()])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/cpumask.h>
+],[
+	int size = cpumask_size();
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(HAVE_CPUMASK_SIZE, 1, [have cpumask_size()])
+],[
+        AC_MSG_RESULT(NO)
+])
+])
+
+# check cpu topology functions
+AC_DEFUN([LIBCFS_CPU_TOPOLOGY],
+[AC_MSG_CHECKING([whether have topology.h])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/topology.h>
+],[],[
+        AC_DEFINE(HAVE_CPU_TOPOLOGY, 1, [have CPU topology])
+        AC_MSG_RESULT(yes)
+
+	AC_MSG_CHECKING([whether have topology_core_cpumask])
+	LB_LINUX_TRY_COMPILE([
+                #include <linux/topology.h>
+        ],[
+                cpumask_t *mask = topology_core_cpumask(0);
+        ],[
+                AC_DEFINE(HAVE_TOPOLOGY_CORE_CPUMASK, 1,
+                          [have topology_core_cpumask])
+                AC_MSG_RESULT(yes)
+        ],[
+                AC_MSG_RESULT(no)
+        ])
+
+	AC_MSG_CHECKING([whether have topology_core_siblings])
+	LB_LINUX_TRY_COMPILE([
+                #include <linux/topology.h>
+        ],[
+                cpumask_t mask = topology_core_siblings(0);
+        ],[
+                AC_DEFINE(HAVE_TOPOLOGY_CORE_SIBLINGS, 1,
+                          [have topology_core_siblings])
+                AC_MSG_RESULT(yes)
+        ],[
+                AC_MSG_RESULT(no)
+        ])
+
+	AC_MSG_CHECKING([whether have topology_thread_cpumask])
+	LB_LINUX_TRY_COMPILE([
+                #include <linux/topology.h>
+        ],[
+                cpumask_t *mask = topology_thread_cpumask(0);
+        ],[
+                AC_DEFINE(HAVE_TOPOLOGY_THREAD_CPUMASK, 1,
+                          [have topology_thread_cpumask])
+                AC_MSG_RESULT(yes)
+        ],[
+                AC_MSG_RESULT(no)
+        ])
+
+	AC_MSG_CHECKING([whether have topology_thread_siblings])
+	LB_LINUX_TRY_COMPILE([
+                #include <linux/topology.h>
+        ],[
+                cpumask_t mask = topology_thread_siblings(0);
+        ],[
+                AC_DEFINE(HAVE_TOPOLOGY_THREAD_SIBLINGS, 1,
+                          [have topology_thread_siblings])
+                AC_MSG_RESULT(yes)
+        ],[
+                AC_MSG_RESULT(no)
+        ])
+
+	AC_MSG_CHECKING([whether have cpumask_of_node])
+	LB_LINUX_TRY_COMPILE([
+                #include <linux/topology.h>
+        ],[
+                cpumask_t *mask = cpumask_of_node(0);
+        ],[
+                AC_DEFINE(HAVE_CPUMASK_OF_NODE, 1, [have cpumask_of_node])
+                AC_MSG_RESULT(yes)
+        ],[
+                AC_MSG_RESULT(no)
+        ])
+
+	AC_MSG_CHECKING([whether have node_to_cpumask])
+	LB_LINUX_TRY_COMPILE([
+                #include <linux/topology.h>
+        ],[
+                cpumask_t mask = node_to_cpumask(0);
+        ],[
+                AC_DEFINE(HAVE_NODE_TO_CPUMASK, 1, [have node_to_cpumask])
+                AC_MSG_RESULT(yes)
+        ],[
+                AC_MSG_RESULT(no)
+        ])
+],[
+        AC_MSG_RESULT(NO)
+])
+])
+
+#
+# LIBCFS_NETLINK
+#
+# If we have netlink.h, and nlmsg_new takes 2 args (2.6.19)
+#
+AC_DEFUN([LIBCFS_NETLINK],
+[AC_MSG_CHECKING([if netlink.h can be compiled])
+LB_LINUX_TRY_COMPILE([
+        #include <net/netlink.h>
+],[],[
+        AC_MSG_RESULT([yes])
+        AC_DEFINE(HAVE_NETLINK, 1, [net/netlink.h found])
+
+        AC_MSG_CHECKING([if nlmsg_new takes a 2nd argument])
+        LB_LINUX_TRY_COMPILE([
+                #include <net/netlink.h>
+        ],[
+                nlmsg_new(100, GFP_KERNEL);
+        ],[
+                AC_MSG_RESULT([yes])
+                AC_DEFINE(HAVE_NETLINK_NL2, 1, [nlmsg_new takes 2 args])
+        ],[
+                AC_MSG_RESULT([no])
+        ])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
 # 2.6.20 API change INIT_WORK use 2 args and not
 # store data inside
 AC_DEFUN([LIBCFS_3ARGS_INIT_WORK],
@@ -575,7 +708,8 @@ AC_DEFUN([LIBCFS_PROG_LINUX],
 LIBCFS_CONFIG_PANIC_DUMPLOG
 
 LIBCFS_U64_LONG_LONG_LINUX
-
+LIBCFS_CPU_TOPOLOGY
+LIBCFS_CPUMASK_SIZE
 # 2.6.18
 LIBCFS_TASKLIST_LOCK
 LIBCFS_HAVE_IS_COMPAT_TASK
