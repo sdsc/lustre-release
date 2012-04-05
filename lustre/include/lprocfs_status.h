@@ -194,6 +194,7 @@ enum lprocfs_fields_flags {
 
 struct lprocfs_stats {
         unsigned int           ls_num;     /* # of counters */
+        unsigned int           ls_num_cpu; /* # of present cpus */
         int                    ls_flags; /* See LPROCFS_STATS_FLAG_* */
         cfs_spinlock_t         ls_lock;  /* Lock used only when there are
                                           * no percpu stats areas */
@@ -355,8 +356,15 @@ static inline void s2dhms(struct dhms *ts, time_t secs)
 
 #ifdef LPROCFS
 
+extern int lprocfs_stats_alloc_gap(struct lprocfs_stats *stats);
+/*
+ * \return value
+ *      < 0     : on error (only possible for opc as LPROCFS_GET_SMP_ID)
+ */
 static inline int lprocfs_stats_lock(struct lprocfs_stats *stats, int opc)
 {
+        int rc;
+
         switch (opc) {
         default:
                 LBUG();
@@ -366,7 +374,9 @@ static inline int lprocfs_stats_lock(struct lprocfs_stats *stats, int opc)
                         cfs_spin_lock(&stats->ls_lock);
                         return 0;
                 } else {
-                        return cfs_get_cpu();
+                        if (unlikely(cfs_get_cpu() >= stats->ls_num_cpu))
+                                rc = lprocfs_stats_alloc_gap(stats);
+                        return rc < 0 ? rc : cfs_get_cpu();
                 }
 
         case LPROCFS_GET_NUM_CPU:
@@ -374,7 +384,7 @@ static inline int lprocfs_stats_lock(struct lprocfs_stats *stats, int opc)
                         cfs_spin_lock(&stats->ls_lock);
                         return 1;
                 } else {
-                        return cfs_num_possible_cpus();
+                        return stats->ls_num_cpu;
                 }
         }
 }
