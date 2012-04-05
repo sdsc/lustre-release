@@ -46,6 +46,10 @@
 # define CFS_EXPORT_SYMBOL(s)
 #endif
 
+#ifndef EXPORT_SYMBOL
+# define EXPORT_SYMBOL(s)
+#endif
+
 /*
  * Schedule
  */
