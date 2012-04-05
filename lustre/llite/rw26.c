@@ -534,7 +534,7 @@ struct address_space_operations ll_aops = {
 //        .readpages      = ll_readpages,
         .direct_IO      = ll_direct_IO_26,
         .writepage      = ll_writepage,
-        .writepages     = generic_writepages,
+        .writepages     = ll_writepages,
         .set_page_dirty = ll_set_page_dirty,
         .sync_page      = NULL,
 #ifdef HAVE_KERNEL_WRITE_BEGIN_END
@@ -557,7 +557,7 @@ struct address_space_operations_ext ll_aops = {
 //        .orig_aops.readpages      = ll_readpages,
         .orig_aops.direct_IO      = ll_direct_IO_26,
         .orig_aops.writepage      = ll_writepage,
-        .orig_aops.writepages     = generic_writepages,
+        .orig_aops.writepages     = ll_writepages,
         .orig_aops.set_page_dirty = ll_set_page_dirty,
         .orig_aops.sync_page      = NULL,
         .orig_aops.prepare_write  = ll_prepare_write,
