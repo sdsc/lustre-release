@@ -180,7 +180,7 @@ static void *fldb_seq_start(struct seq_file *p, loff_t *pos)
 	lu_env_init(&param->fsp_env, LCT_MD_THREAD);
 	param->fsp_it = iops->init(&param->fsp_env, obj, 0, NULL);
 
-	iops->load(&param->fsp_env, param->fsp_it, *pos);
+	iops->load(&param->fsp_env, obj, param->fsp_it, *pos);
 
 	return param;
 }
@@ -200,8 +200,8 @@ static void fldb_seq_stop(struct seq_file *p, void *v)
 	if (IS_ERR(param) || param == NULL)
 		return;
 
-	iops->put(&param->fsp_env, param->fsp_it);
-	iops->fini(&param->fsp_env, param->fsp_it);
+	iops->put(&param->fsp_env, obj, param->fsp_it);
+	iops->fini(&param->fsp_env, obj, param->fsp_it);
 	lu_env_fini(&param->fsp_env);
 	OBD_FREE_PTR(param);
 
@@ -222,19 +222,19 @@ static void *fldb_seq_next(struct seq_file *p, void *v, loff_t *pos)
 	obj = fld->lsf_obj;
 	iops = &obj->do_index_ops->dio_it;
 
-	iops->get(&param->fsp_env, param->fsp_it,
+	iops->get(&param->fsp_env, obj, param->fsp_it,
 		  (const struct dt_key *)pos);
 
-	rc = iops->next(&param->fsp_env, param->fsp_it);
+	rc = iops->next(&param->fsp_env, obj, param->fsp_it);
 	if (rc > 0) {
-		iops->put(&param->fsp_env, param->fsp_it);
-		iops->fini(&param->fsp_env, param->fsp_it);
+		iops->put(&param->fsp_env, obj, param->fsp_it);
+		iops->fini(&param->fsp_env, obj, param->fsp_it);
 		lu_env_fini(&param->fsp_env);
 		OBD_FREE_PTR(param);
 		return NULL;
 	}
 
-	*pos = *(loff_t *)iops->key(&param->fsp_env, param->fsp_it);
+	*pos = *(loff_t *)iops->key(&param->fsp_env, obj, param->fsp_it);
 
 	return param;
 }
@@ -258,7 +258,7 @@ static int fldb_seq_show(struct seq_file *p, void *v)
 	info = lu_context_key_get(&param->fsp_env.le_ctx,
 				  &fld_thread_key);
 	fld_rec = &info->fti_rec;
-	rc = iops->rec(&param->fsp_env, param->fsp_it,
+	rc = iops->rec(&param->fsp_env, obj, param->fsp_it,
 		       (struct dt_rec *)fld_rec, 0);
 	if (rc != 0) {
 		CERROR("%s:read record error: rc %d\n",
@@ -268,7 +268,7 @@ static int fldb_seq_show(struct seq_file *p, void *v)
 		rc = seq_printf(p, DRANGE"\n", PRANGE(fld_rec));
 	}
 
-	iops->put(&param->fsp_env, param->fsp_it);
+	iops->put(&param->fsp_env, obj, param->fsp_it);
 
 	return rc;
 }

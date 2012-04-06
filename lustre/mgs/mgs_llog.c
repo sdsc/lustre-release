@@ -54,7 +54,6 @@
 #include "mgs_internal.h"
 
 /********************** Class functions ********************/
-
 int class_dentry_readdir(const struct lu_env *env,
 			 struct mgs_device *mgs, cfs_list_t *list)
 {
@@ -78,20 +77,20 @@ int class_dentry_readdir(const struct lu_env *env,
 	if (IS_ERR(it))
 		RETURN(PTR_ERR(it));
 
-	rc = iops->load(env, it, 0);
+	rc = iops->load(env, dir, it, 0);
 	if (rc <= 0)
 		GOTO(fini, rc = 0);
 
 	/* main cycle */
 	do {
-		key = (void *)iops->key(env, it);
+		key = (void *)iops->key(env, dir, it);
 		if (IS_ERR(key)) {
 			CERROR("%s: key failed when listing %s: rc = %d\n",
 			       mgs->mgs_obd->obd_name, MOUNT_CONFIGS_DIR,
 			       (int) PTR_ERR(key));
 			goto next;
 		}
-		key_sz = iops->key_size(env, it);
+		key_sz = iops->key_size(env, dir, it);
 		LASSERT(key_sz > 0);
 
 		/* filter out "." and ".." entries */
@@ -114,14 +113,14 @@ int class_dentry_readdir(const struct lu_env *env,
 		cfs_list_add(&de->list, list);
 
 next:
-		rc = iops->next(env, it);
+		rc = iops->next(env, dir, it);
 	} while (rc == 0);
 	rc = 0;
 
-	iops->put(env, it);
+	iops->put(env, dir, it);
 
 fini:
-	iops->fini(env, it);
+	iops->fini(env, dir, it);
 out:
 	if (rc)
 		CERROR("%s: key failed when listing %s: rc = %d\n",

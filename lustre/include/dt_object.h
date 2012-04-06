@@ -574,38 +574,47 @@ struct dt_index_operations {
         /**
          * Iterator interface
          */
-        struct dt_it_ops {
-                /**
-                 * Allocate and initialize new iterator.
-                 *
-                 * precondition: dt_object_exists(dt);
-                 */
+	struct dt_it_ops {
+		  /**
+		   * Allocate and initialize new iterator.
+		   * precondition: dt_object_exists(dt);
+		   */
                 struct dt_it *(*init)(const struct lu_env *env,
                                       struct dt_object *dt,
                                       __u32 attr,
                                       struct lustre_capa *capa);
                 void          (*fini)(const struct lu_env *env,
+				      struct dt_object *dt,
                                       struct dt_it *di);
                 int            (*get)(const struct lu_env *env,
+				      struct dt_object *dt,
                                       struct dt_it *di,
                                       const struct dt_key *key);
                 void           (*put)(const struct lu_env *env,
+				      struct dt_object *dt,
                                       struct dt_it *di);
                 int           (*next)(const struct lu_env *env,
+				      struct dt_object *dt,
                                       struct dt_it *di);
                 struct dt_key *(*key)(const struct lu_env *env,
+				      struct dt_object *dt,
                                       const struct dt_it *di);
                 int       (*key_size)(const struct lu_env *env,
+				      struct dt_object *dt,
                                       const struct dt_it *di);
                 int            (*rec)(const struct lu_env *env,
+				      struct dt_object *dt,
                                       const struct dt_it *di,
                                       struct dt_rec *rec,
                                       __u32 attr);
                 __u64        (*store)(const struct lu_env *env,
+				      struct dt_object *dt,
                                       const struct dt_it *di);
                 int           (*load)(const struct lu_env *env,
+				      struct dt_object *dt,
                                       const struct dt_it *di, __u64 hash);
                 int        (*key_rec)(const struct lu_env *env,
+				      struct dt_object *dt,
                                       const struct dt_it *di, void* key_rec);
         } dio_it;
 };
@@ -877,6 +886,7 @@ int dt_record_read(const struct lu_env *env, struct dt_object *dt,
 int dt_record_write(const struct lu_env *env, struct dt_object *dt,
                     const struct lu_buf *buf, loff_t *pos, struct thandle *th);
 typedef int (*dt_index_page_build_t)(const struct lu_env *env,
+				     struct dt_object *dt,
 				     union lu_page *lp, int nob,
 				     const struct dt_it_ops *iops,
 				     struct dt_it *it, __u32 attr, void *arg);

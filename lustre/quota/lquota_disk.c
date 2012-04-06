@@ -497,7 +497,7 @@ int lquota_disk_for_each_slv(const struct lu_env *env, struct dt_object *parent,
 		RETURN(PTR_ERR(it));
 	}
 
-	rc = iops->load(env, it, 0);
+	rc = iops->load(env, parent, it, 0);
 	if (rc == 0) {
 		/*
 		 * Iterator didn't find record with exactly the key requested.
@@ -510,7 +510,7 @@ int lquota_disk_for_each_slv(const struct lu_env *env, struct dt_object *parent,
 		 *     - or not positioned at all (is in IAM_IT_SKEWED
 		 *     state)---position it on the next item.
 		 */
-		rc = iops->next(env, it);
+		rc = iops->next(env, parent, it);
 	} else if (rc > 0)
 		rc = 0;
 
@@ -518,12 +518,12 @@ int lquota_disk_for_each_slv(const struct lu_env *env, struct dt_object *parent,
 		struct dt_key	*key;
 		int		 len;
 
-		len = iops->key_size(env, it);
+		len = iops->key_size(env, parent, it);
 		/* IAM iterator can return record with zero len. */
 		if (len == 0 || len <= strlen(name) || len >= LQUOTA_NAME_MAX)
 			goto next;
 
-		key = iops->key(env, it);
+		key = iops->key(env, parent, it);
 		if (IS_ERR(key)) {
 			rc = PTR_ERR(key);
 			break;
@@ -550,12 +550,12 @@ int lquota_disk_for_each_slv(const struct lu_env *env, struct dt_object *parent,
 			break;
 next:
 		do {
-			rc = iops->next(env, it);
+			rc = iops->next(env, parent, it);
 		} while (rc == -ESTALE);
 	}
 
-	iops->put(env, it);
-	iops->fini(env, it);
+	iops->put(env, parent, it);
+	iops->fini(env, parent, it);
 	OBD_FREE(name, sizeof("0x00000000-"));
 	if (rc > 0)
 		rc = 0;

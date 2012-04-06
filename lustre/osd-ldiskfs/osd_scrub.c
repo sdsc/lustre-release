@@ -1191,7 +1191,8 @@ out:
 	return (struct dt_it *)it;
 }
 
-static void osd_otable_it_fini(const struct lu_env *env, struct dt_it *di)
+static void osd_otable_it_fini(const struct lu_env *env, struct dt_object *dt,
+				struct dt_it *di)
 {
 	struct osd_otable_it *it  = (struct osd_otable_it *)di;
 	struct osd_device    *dev = it->ooi_dev;
@@ -1209,7 +1210,9 @@ static void osd_otable_it_fini(const struct lu_env *env, struct dt_it *di)
 /**
  * XXX: Temporary used to notify otable iteration to be paused.
  */
-static void osd_otable_it_put(const struct lu_env *env, struct dt_it *di)
+static void osd_otable_it_put(const struct lu_env *env,
+			      struct dt_object *dt,
+			      struct dt_it *di)
 {
 	struct osd_device *dev = ((struct osd_otable_it *)di)->ooi_dev;
 
@@ -1226,7 +1229,7 @@ static void osd_otable_it_put(const struct lu_env *env, struct dt_it *di)
  * are several keys, they cannot be compared out of OSD, so call "::get()" for
  * each key, and OSD will select the smallest one by itself.
  */
-static int osd_otable_it_get(const struct lu_env *env,
+static int osd_otable_it_get(const struct lu_env *env, struct dt_object *dt,
 			     struct dt_it *di, const struct dt_key *key)
 {
 	struct osd_otable_it    *it  = (struct osd_otable_it *)di;
@@ -1278,7 +1281,8 @@ static int osd_otable_it_preload(const struct lu_env *env,
 	RETURN(rc < 0 ? rc : ooc->ooc_cached_items);
 }
 
-static int osd_otable_it_next(const struct lu_env *env, struct dt_it *di)
+static int osd_otable_it_next(const struct lu_env *env,
+			      struct dt_object *dt, struct dt_it *di)
 {
 	struct osd_otable_it    *it     = (struct osd_otable_it *)di;
 	struct osd_device       *dev    = it->ooi_dev;
@@ -1327,6 +1331,7 @@ again:
 }
 
 static struct dt_key *osd_otable_it_key(const struct lu_env *env,
+					struct dt_object *dt,
 					const struct dt_it *di)
 {
 	struct osd_otable_it    *it  = (struct osd_otable_it *)di;
@@ -1338,12 +1343,15 @@ static struct dt_key *osd_otable_it_key(const struct lu_env *env,
 }
 
 static int osd_otable_it_key_size(const struct lu_env *env,
+				  struct dt_object *dt,
 				  const struct dt_it *di)
 {
 	return sizeof(((struct osd_otable_it *)di)->ooi_key);
 }
 
-static int osd_otable_it_rec(const struct lu_env *env, const struct dt_it *di,
+static int osd_otable_it_rec(const struct lu_env *env,
+			     struct dt_object *dt,
+			     const struct dt_it *di,
 			     struct dt_rec *rec, __u32 attr)
 {
 	struct osd_otable_it    *it  = (struct osd_otable_it *)di;
@@ -1354,6 +1362,7 @@ static int osd_otable_it_rec(const struct lu_env *env, const struct dt_it *di,
 }
 
 static int osd_otable_it_load(const struct lu_env *env,
+			      struct dt_object *dt,
 			      const struct dt_it *di, __u64 hash)
 {
 	struct osd_otable_it    *it    = (struct osd_otable_it *)di;
@@ -1371,7 +1380,7 @@ static int osd_otable_it_load(const struct lu_env *env,
 		cfs_waitq_broadcast(&scrub->os_thread.t_ctl_waitq);
 
 	/* Unplug OSD layer iteration by the first next() call. */
-	return osd_otable_it_next(env, (struct dt_it *)it);
+	return osd_otable_it_next(env, dt, (struct dt_it *)it);
 }
 
 const struct dt_index_operations osd_otable_ops = {

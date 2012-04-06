@@ -221,8 +221,7 @@ int mdd_is_subdir(const struct lu_env *env, struct md_object *mo,
  *           -ve        other error
  *
  */
-static int mdd_dir_is_empty(const struct lu_env *env,
-                            struct mdd_object *dir)
+static int mdd_dir_is_empty(const struct lu_env *env, struct mdd_object *dir)
 {
         struct dt_it     *it;
         struct dt_object *obj;
@@ -233,15 +232,15 @@ static int mdd_dir_is_empty(const struct lu_env *env,
         obj = mdd_object_child(dir);
         if (!dt_try_as_dir(env, obj))
                 RETURN(-ENOTDIR);
-
+	/*FIXME later */
         iops = &obj->do_index_ops->dio_it;
         it = iops->init(env, obj, LUDA_64BITHASH, BYPASS_CAPA);
         if (!IS_ERR(it)) {
-                result = iops->get(env, it, (const void *)"");
+		result = iops->get(env, obj, it, (const void *)"");
                 if (result > 0) {
                         int i;
                         for (result = 0, i = 0; result == 0 && i < 3; ++i)
-                                result = iops->next(env, it);
+				result = iops->next(env, obj, it);
                         if (result == 0)
                                 result = -ENOTEMPTY;
                         else if (result == +1)
@@ -252,10 +251,11 @@ static int mdd_dir_is_empty(const struct lu_env *env,
                          */
                         result = -EIO;
 
-                iops->put(env, it);
-                iops->fini(env, it);
+		iops->put(env, obj, it);
+		iops->fini(env, obj, it);
         } else
                 result = PTR_ERR(it);
+
         RETURN(result);
 }
 

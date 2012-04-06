@@ -1641,8 +1641,9 @@ static int mdd_readpage_sanity_check(const struct lu_env *env,
         RETURN(rc);
 }
 
-static int mdd_dir_page_build(const struct lu_env *env, union lu_page *lp,
-			      int nob, const struct dt_it_ops *iops,
+static int mdd_dir_page_build(const struct lu_env *env, struct dt_object *dt,
+			      union lu_page *lp, int nob,
+			      const struct dt_it_ops *iops,
 			      struct dt_it *it, __u32 attr, void *arg)
 {
 	struct lu_dirpage	*dp = &lp->lp_dir;
@@ -1662,13 +1663,13 @@ static int mdd_dir_page_build(const struct lu_env *env, union lu_page *lp,
                 int    len;
                 int    recsize;
 
-                len = iops->key_size(env, it);
+		len  = iops->key_size(env, dt, it);
 
                 /* IAM iterator can return record with zero len. */
                 if (len == 0)
                         goto next;
 
-                hash = iops->store(env, it);
+		hash = iops->store(env, dt, it);
                 if (unlikely(first)) {
                         first = 0;
                         dp->ldp_hash_start = cpu_to_le64(hash);
@@ -1678,7 +1679,8 @@ static int mdd_dir_page_build(const struct lu_env *env, union lu_page *lp,
                 recsize = lu_dirent_calc_size(len, attr);
 
                 if (nob >= recsize) {
-                        result = iops->rec(env, it, (struct dt_rec *)ent, attr);
+			result = iops->rec(env, dt, it, (struct dt_rec *)ent,
+					   attr);
                         if (result == -ESTALE)
                                 goto next;
                         if (result != 0)
@@ -1696,7 +1698,7 @@ static int mdd_dir_page_build(const struct lu_env *env, union lu_page *lp,
                 nob -= recsize;
 
 next:
-                result = iops->next(env, it);
+		result = iops->next(env, dt, it);
                 if (result == -ESTALE)
                         goto next;
         } while (result == 0);

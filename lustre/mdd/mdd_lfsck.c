@@ -136,17 +136,17 @@ static int mdd_lfsck_main(void *args)
 	cfs_waitq_broadcast(&thread->t_ctl_waitq);
 
 	/* Call iops->load() to finish the choosing start point. */
-	rc = iops->load(&env, di, 0);
+	rc = iops->load(&env, obj, di, 0);
 	if (rc != 0)
 		GOTO(out, rc);
 
 	CDEBUG(D_LFSCK, "LFSCK: iteration start: pos = %s\n",
-	       (char *)iops->key(&env, di));
+	       (char *)iops->key(&env, obj, di));
 
 	lfsck->ml_new_scanned = 0;
 	fid = &mdd_env_info(&env)->mti_fid;
 	while (rc == 0) {
-		iops->rec(&env, di, (struct dt_rec *)fid, 0);
+		iops->rec(&env, obj, di, (struct dt_rec *)fid, 0);
 
 		/* XXX: here, perform LFSCK when some LFSCK component(s)
 		 *      introduced in the future. */
@@ -160,7 +160,7 @@ static int mdd_lfsck_main(void *args)
 		if (unlikely(!thread_is_running(thread)))
 			GOTO(out, rc = 0);
 
-		rc = iops->next(&env, di);
+		rc = iops->next(&env, obj, di);
 	}
 
 	GOTO(out, rc);
@@ -182,14 +182,14 @@ out:
 		 *
 		 * 	It is just temporary solution, and will be replaced when
 		 * 	some lfsck component is introduced in the future. */
-		iops->put(&env, di);
+		iops->put(&env, obj, di);
 		CDEBUG(D_LFSCK, "LFSCK: iteration pasued: pos = %s, rc = %d\n",
-		       (char *)iops->key(&env, di), rc);
+		       (char *)iops->key(&env, obj, di), rc);
 	} else {
 		CDEBUG(D_LFSCK, "LFSCK: iteration stop: pos = %s, rc = %d\n",
-		       (char *)iops->key(&env, di), rc);
+		       (char *)iops->key(&env, obj, di), rc);
 	}
-	iops->fini(&env, di);
+	iops->fini(&env, obj, di);
 
 fini_env:
 	lu_env_fini(&env);

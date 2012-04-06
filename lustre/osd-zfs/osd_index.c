@@ -104,7 +104,8 @@ static struct dt_it *osd_zap_it_init(const struct lu_env *env,
 	RETURN((struct dt_it *)it);
 }
 
-static void osd_zap_it_fini(const struct lu_env *env, struct dt_it *di)
+static void osd_zap_it_fini(const struct lu_env *env, struct dt_object *dt,
+			    struct dt_it *di)
 {
 	struct osd_zap_it *it = (struct osd_zap_it *)di;
 	struct osd_object *obj;
@@ -132,7 +133,7 @@ static void osd_zap_it_fini(const struct lu_env *env, struct dt_it *di)
  *  \retval -ve  failure
  */
 
-static int osd_zap_it_get(const struct lu_env *env,
+static int osd_zap_it_get(const struct lu_env *env, struct dt_object *dt,
 			  struct dt_it *di, const struct dt_key *key)
 {
 	struct osd_zap_it *it = (struct osd_zap_it *)di;
@@ -156,7 +157,8 @@ static int osd_zap_it_get(const struct lu_env *env,
 	RETURN(+1);
 }
 
-static void osd_zap_it_put(const struct lu_env *env, struct dt_it *di)
+static void osd_zap_it_put(const struct lu_env *env, struct dt_object *dt,
+			   struct dt_it *di)
 {
 	/* PBS: do nothing : ref are incremented at retrive and decreamented
 	 *      next/finish. */
@@ -190,7 +192,8 @@ int udmu_zap_cursor_retrieve_key(const struct lu_env *env,
  * \retval   0, iterator not reached to end
  * \retval -ve, on error
  */
-static int osd_zap_it_next(const struct lu_env *env, struct dt_it *di)
+static int osd_zap_it_next(const struct lu_env *env, struct dt_object *dt,
+			   struct dt_it *di)
 {
 	struct osd_zap_it *it = (struct osd_zap_it *)di;
 	int                rc;
@@ -214,7 +217,8 @@ static int osd_zap_it_next(const struct lu_env *env, struct dt_it *di)
 }
 
 static struct dt_key *osd_zap_it_key(const struct lu_env *env,
-					const struct dt_it *di)
+				     struct dt_object *dt,
+				     const struct dt_it *di)
 {
 	struct osd_zap_it *it = (struct osd_zap_it *)di;
 	int                rc = 0;
@@ -229,7 +233,8 @@ static struct dt_key *osd_zap_it_key(const struct lu_env *env,
 		RETURN(ERR_PTR(rc));
 }
 
-static int osd_zap_it_key_size(const struct lu_env *env, const struct dt_it *di)
+static int osd_zap_it_key_size(const struct lu_env *env,
+			       struct dt_object *dt, const struct dt_it *di)
 {
 	struct osd_zap_it *it = (struct osd_zap_it *)di;
 	int                rc;
@@ -299,8 +304,9 @@ static inline void osd_it_append_attrs(struct lu_dirent *ent, __u32 attr,
 	ent->lde_attrs = cpu_to_le32(ent->lde_attrs);
 }
 
-static int osd_zap_it_rec(const struct lu_env *env, const struct dt_it *di,
-			  struct dt_rec *dtrec, __u32 attr)
+static int osd_zap_it_rec(const struct lu_env *env, struct dt_object *dt,
+			  const struct dt_it *di, struct dt_rec *dtrec,
+			  __u32 attr)
 {
 	struct luz_direntry *zde = &osd_oti_get(env)->oti_zde;
 	zap_attribute_t     *za = &osd_oti_get(env)->oti_za;
@@ -348,7 +354,8 @@ out:
 	RETURN(rc);
 }
 
-static __u64 osd_zap_it_store(const struct lu_env *env, const struct dt_it *di)
+static __u64 osd_zap_it_store(const struct lu_env *env, struct dt_object *dt,
+			      const struct dt_it *di)
 {
 	struct osd_zap_it *it = (struct osd_zap_it *)di;
 
@@ -363,7 +370,8 @@ static __u64 osd_zap_it_store(const struct lu_env *env, const struct dt_it *di)
  *  rc <  0 -> error.  ( EOVERFLOW  can be masked.)
  */
 static int osd_zap_it_load(const struct lu_env *env,
-			const struct dt_it *di, __u64 hash)
+			   struct dt_object *dt,
+			   const struct dt_it *di, __u64 hash)
 {
 	struct osd_zap_it *it = (struct osd_zap_it *)di;
 	struct osd_object *obj = it->ozi_obj;
@@ -746,8 +754,8 @@ static int osd_index_delete(const struct lu_env *env, struct dt_object *dt,
 	RETURN(rc);
 }
 
-static int osd_index_it_get(const struct lu_env *env, struct dt_it *di,
-			    const struct dt_key *key)
+static int osd_index_it_get(const struct lu_env *env, struct dt_object *dt,
+			    struct dt_it *di, const struct dt_key *key)
 {
 	struct osd_zap_it *it = (struct osd_zap_it *)di;
 	struct osd_object *obj = it->ozi_obj;
@@ -768,7 +776,8 @@ static int osd_index_it_get(const struct lu_env *env, struct dt_it *di,
 	RETURN(+1);
 }
 
-static int osd_index_it_next(const struct lu_env *env, struct dt_it *di)
+static int osd_index_it_next(const struct lu_env *env, struct dt_object *dt,
+			     struct dt_it *di)
 {
 	struct osd_zap_it *it = (struct osd_zap_it *)di;
 	zap_attribute_t   *za = &osd_oti_get(env)->oti_za;
@@ -793,6 +802,7 @@ static int osd_index_it_next(const struct lu_env *env, struct dt_it *di)
 }
 
 static struct dt_key *osd_index_it_key(const struct lu_env *env,
+				       struct dt_object *dt,
 				       const struct dt_it *di)
 {
 	struct osd_zap_it *it = (struct osd_zap_it *)di;
@@ -812,14 +822,16 @@ static struct dt_key *osd_index_it_key(const struct lu_env *env,
 }
 
 static int osd_index_it_key_size(const struct lu_env *env,
+				 struct dt_object *dt,
 				const struct dt_it *di)
 {
 	/* we only support 64-bit binary keys for the time being */
 	RETURN(sizeof(__u64));
 }
 
-static int osd_index_it_rec(const struct lu_env *env, const struct dt_it *di,
-			    struct dt_rec *rec, __u32 attr)
+static int osd_index_it_rec(const struct lu_env *env, struct dt_object *dt,
+			    const struct dt_it *di, struct dt_rec *rec,
+			    __u32 attr)
 {
 	zap_attribute_t   *za = &osd_oti_get(env)->oti_za;
 	struct osd_zap_it *it = (struct osd_zap_it *)di;
@@ -840,6 +852,7 @@ static int osd_index_it_rec(const struct lu_env *env, const struct dt_it *di,
 }
 
 static __u64 osd_index_it_store(const struct lu_env *env,
+				struct dt_object *dt,
 				const struct dt_it *di)
 {
 	struct osd_zap_it *it = (struct osd_zap_it *)di;
@@ -848,8 +861,8 @@ static __u64 osd_index_it_store(const struct lu_env *env,
 	RETURN((__u64)zap_cursor_serialize(it->ozi_zc));
 }
 
-static int osd_index_it_load(const struct lu_env *env, const struct dt_it *di,
-			     __u64 hash)
+static int osd_index_it_load(const struct lu_env *env, struct dt_object *dt,
+			     const struct dt_it *di, __u64 hash)
 {
 	struct osd_zap_it *it = (struct osd_zap_it *)di;
 	struct osd_object *obj = it->ozi_obj;

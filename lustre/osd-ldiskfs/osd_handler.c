@@ -3635,7 +3635,8 @@ static struct dt_it *osd_it_iam_init(const struct lu_env *env,
  * free given Iterator.
  */
 
-static void osd_it_iam_fini(const struct lu_env *env, struct dt_it *di)
+static void osd_it_iam_fini(const struct lu_env *env, struct dt_object *dt,
+			    struct dt_it *di)
 {
         struct osd_it_iam *it = (struct osd_it_iam *)di;
         struct osd_object *obj = it->oi_obj;
@@ -3657,6 +3658,7 @@ static void osd_it_iam_fini(const struct lu_env *env, struct dt_it *di)
  */
 
 static int osd_it_iam_get(const struct lu_env *env,
+			  struct dt_object *dt,
                           struct dt_it *di, const struct dt_key *key)
 {
 	struct osd_thread_info	*oti = osd_oti_get(env);
@@ -3677,7 +3679,8 @@ static int osd_it_iam_get(const struct lu_env *env,
  *  \param  di      osd iterator
  */
 
-static void osd_it_iam_put(const struct lu_env *env, struct dt_it *di)
+static void osd_it_iam_put(const struct lu_env *env, struct dt_object *dt,
+			   struct dt_it *di)
 {
         struct osd_it_iam *it = (struct osd_it_iam *)di;
 
@@ -3694,7 +3697,8 @@ static void osd_it_iam_put(const struct lu_env *env, struct dt_it *di)
  *  \retval -ve  failure
  */
 
-static int osd_it_iam_next(const struct lu_env *env, struct dt_it *di)
+static int osd_it_iam_next(const struct lu_env *env, struct dt_object *dt,
+			   struct dt_it *di)
 {
         struct osd_it_iam *it = (struct osd_it_iam *)di;
 
@@ -3706,6 +3710,7 @@ static int osd_it_iam_next(const struct lu_env *env, struct dt_it *di)
  */
 
 static struct dt_key *osd_it_iam_key(const struct lu_env *env,
+				 struct dt_object *dt,
                                  const struct dt_it *di)
 {
 	struct osd_thread_info *oti = osd_oti_get(env);
@@ -3728,14 +3733,16 @@ static struct dt_key *osd_it_iam_key(const struct lu_env *env,
  * Return size of key under iterator (in bytes)
  */
 
-static int osd_it_iam_key_size(const struct lu_env *env, const struct dt_it *di)
+static int osd_it_iam_key_size(const struct lu_env *env,
+			       struct dt_object *dt, const struct dt_it *di)
 {
         struct osd_it_iam *it = (struct osd_it_iam *)di;
 
         return iam_it_key_size(&it->oi_it);
 }
 
-static inline void osd_it_append_attrs(struct lu_dirent *ent, __u32 attr,
+static inline void osd_it_append_attrs(struct lu_dirent *ent,
+				       struct dt_object *dt, __u32 attr,
                                        int len, __u16 type)
 {
         struct luda_type *lt;
@@ -3758,9 +3765,13 @@ static inline void osd_it_append_attrs(struct lu_dirent *ent, __u32 attr,
  */
 
 static inline void osd_it_pack_dirent(struct lu_dirent *ent,
-                                      struct lu_fid *fid, __u64 offset,
-                                      char *name, __u16 namelen,
-                                      __u16 type, __u32 attr)
+				      struct dt_object *dt,
+				      struct lu_fid *fid,
+				      __u64 offset,
+				      char *name,
+				      __u16 namelen,
+				      __u16 type,
+				      __u32 attr)
 {
         fid_cpu_to_le(&ent->lde_fid, fid);
         ent->lde_attrs = LUDA_FID;
@@ -3772,13 +3783,14 @@ static inline void osd_it_pack_dirent(struct lu_dirent *ent,
         ent->lde_namelen = cpu_to_le16(namelen);
 
         /* append lustre attributes */
-        osd_it_append_attrs(ent, attr, namelen, type);
+	osd_it_append_attrs(ent, dt, attr, namelen, type);
 }
 
 /**
  * Return pointer to the record under iterator.
  */
 static int osd_it_iam_rec(const struct lu_env *env,
+			  struct dt_object *dt,
                           const struct dt_it *di,
                           struct dt_rec *dtrec, __u32 attr)
 {
@@ -3812,7 +3824,7 @@ static int osd_it_iam_rec(const struct lu_env *env,
 		hash = iam_it_store(&it->oi_it);
 
 		/* IAM does not store object type in IAM index (dir) */
-		osd_it_pack_dirent(lde, fid, hash, name, namelen,
+		osd_it_pack_dirent(lde, dt, fid, hash, name, namelen,
 				   0, LUDA_FID);
 	} else if (fid_is_quota(lu_object_fid(&it->oi_obj->oo_dt.do_lu))) {
 		iam_reccpy(&it->oi_it.ii_path.ip_leaf,
@@ -3829,7 +3841,8 @@ static int osd_it_iam_rec(const struct lu_env *env,
 /**
  * Returns cookie for current Iterator position.
  */
-static __u64 osd_it_iam_store(const struct lu_env *env, const struct dt_it *di)
+static __u64 osd_it_iam_store(const struct lu_env *env, struct dt_object *dt,
+			      const struct dt_it *di)
 {
         struct osd_it_iam *it = (struct osd_it_iam *)di;
 
@@ -3848,6 +3861,7 @@ static __u64 osd_it_iam_store(const struct lu_env *env, const struct dt_it *di)
  */
 
 static int osd_it_iam_load(const struct lu_env *env,
+			   struct dt_object *dt,
                            const struct dt_it *di, __u64 hash)
 {
         struct osd_it_iam *it = (struct osd_it_iam *)di;
@@ -3921,7 +3935,8 @@ static struct dt_it *osd_it_ea_init(const struct lu_env *env,
  *
  * \param di iterator structure to be destroyed
  */
-static void osd_it_ea_fini(const struct lu_env *env, struct dt_it *di)
+static void osd_it_ea_fini(const struct lu_env *env, struct dt_object *dt,
+			   struct dt_it *di)
 {
         struct osd_it_ea     *it   = (struct osd_it_ea *)di;
         struct osd_object    *obj  = it->oie_obj;
@@ -3943,7 +3958,7 @@ static void osd_it_ea_fini(const struct lu_env *env, struct dt_it *di)
  *
  * TODO: Presently return +1 considering it is only used by mdd_dir_is_empty().
  */
-static int osd_it_ea_get(const struct lu_env *env,
+static int osd_it_ea_get(const struct lu_env *env, struct dt_object *dt,
                          struct dt_it *di, const struct dt_key *key)
 {
         struct osd_it_ea     *it   = (struct osd_it_ea *)di;
@@ -3961,7 +3976,8 @@ static int osd_it_ea_get(const struct lu_env *env,
 /**
  * Does nothing
  */
-static void osd_it_ea_put(const struct lu_env *env, struct dt_it *di)
+static void osd_it_ea_put(const struct lu_env *env, struct dt_object *dt,
+			  struct dt_it *di)
 {
 }
 
@@ -4078,7 +4094,8 @@ static int osd_ldiskfs_it_fill(const struct lu_env *env,
  * \retval   0 iterator not reached to end
  * \retval -ve on error
  */
-static int osd_it_ea_next(const struct lu_env *env, struct dt_it *di)
+static int osd_it_ea_next(const struct lu_env *env, struct dt_object *dt,
+			  struct dt_it *di)
 {
         struct osd_it_ea *it = (struct osd_it_ea *)di;
         int rc;
@@ -4110,6 +4127,7 @@ static int osd_it_ea_next(const struct lu_env *env, struct dt_it *di)
  * \retval key i.e. struct dt_key on success
  */
 static struct dt_key *osd_it_ea_key(const struct lu_env *env,
+				    struct dt_object *dt,
                                     const struct dt_it *di)
 {
         struct osd_it_ea *it = (struct osd_it_ea *)di;
@@ -4124,7 +4142,9 @@ static struct dt_key *osd_it_ea_key(const struct lu_env *env,
  *
  * \retval key_size i.e. struct dt_key on success
  */
-static int osd_it_ea_key_size(const struct lu_env *env, const struct dt_it *di)
+static int osd_it_ea_key_size(const struct lu_env *env,
+			      struct dt_object *dt,
+			      const struct dt_it *di)
 {
         struct osd_it_ea *it = (struct osd_it_ea *)di;
 
@@ -4144,6 +4164,7 @@ static int osd_it_ea_key_size(const struct lu_env *env, const struct dt_it *di)
  * \retval -ve on error
  */
 static inline int osd_it_ea_rec(const struct lu_env *env,
+				struct dt_object *dt,
 				const struct dt_it *di,
 				struct dt_rec *dtrec, __u32 attr)
 {
@@ -4170,7 +4191,7 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 		osd_id_gen(&oic->oic_lid, ino, OSD_OII_NOGEN);
 	}
 
-	osd_it_pack_dirent(lde, fid, it->oie_dirent->oied_off,
+	osd_it_pack_dirent(lde, dt, fid, it->oie_dirent->oied_off,
 			   it->oie_dirent->oied_name,
 			   it->oie_dirent->oied_namelen,
 			   it->oie_dirent->oied_type, attr);
@@ -4191,7 +4212,8 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
  *
  * \retval cookie for current position, on success
  */
-static __u64 osd_it_ea_store(const struct lu_env *env, const struct dt_it *di)
+static __u64 osd_it_ea_store(const struct lu_env *env, struct dt_object *dt,
+			     const struct dt_it *di)
 {
         struct osd_it_ea *it = (struct osd_it_ea *)di;
 
@@ -4208,7 +4230,7 @@ static __u64 osd_it_ea_store(const struct lu_env *env, const struct dt_it *di)
  * \retval +ve on success
  * \retval -ve on error
  */
-static int osd_it_ea_load(const struct lu_env *env,
+static int osd_it_ea_load(const struct lu_env *env, struct dt_object *dt,
                           const struct dt_it *di, __u64 hash)
 {
         struct osd_it_ea *it = (struct osd_it_ea *)di;
