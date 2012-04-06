@@ -2628,6 +2628,7 @@ mdsvdevname() {
 
 mgsdevname() {
 	DEVNAME=MGSDEV
+	local MDSDEV1=$(mdsdevname 1)
 
 	local fstype=$(facet_fstype mds$num)
 
@@ -2746,6 +2747,7 @@ upper() {
 
 mkfs_opts() {
 	local facet=$1
+	local dev=$2
 	local type=$(facet_type $facet)
 	local index=$(($(facet_number $facet) - 1))
 	local fstype=$(facet_fstype $facet)
@@ -2757,7 +2759,8 @@ mkfs_opts() {
 		return 1
 	fi
 
-	if [ $type == MGS ] || ( [ $type == MDS ] && combined_mgs_mds ); then
+	if [ $type == MGS ] || ( [ $type == MDS ] &&
+                                 [ "$dev" == $(mgsdevname) ] ); then
 		opts="--mgs"
 	else
 		opts="--mgsnode=$MGSNID"
@@ -2834,23 +2837,25 @@ formatall() {
 	echo Formatting mgs, mds, osts
 	if ! combined_mgs_mds ; then
 		echo "Format mgs: $(mgsdevname)"
-		add mgs $(mkfs_opts mgs) --reformat $(mgsdevname) \
-			$(mgsvdevname) ${quiet:+>/dev/null} || exit 10
-		fi
+		add mgs $(mkfs_opts mgs $(mgsdevname)) --reformat \
+		   $(mgsdevname) $(mgsvdevname) ${quiet:+>/dev/null} || exit 10
+	fi
 
-		for num in `seq $MDSCOUNT`; do
-			echo "Format mds$num: $(mdsdevname $num)"
-			add mds$num $(mkfs_opts mds$num) --reformat \
-			$(mdsdevname $num) $(mdsvdevname $num) \
-			${quiet:+>/dev/null} || exit 10
-		done
+	for num in `seq $MDSCOUNT`; do
+		echo "Format mds$num: $(mdsdevname $num)"
+		index=$((num-1))
+		add mds$num $(mkfs_opts mds$num $(mdsdevname ${num})) \
+		--index $index --reformat $(mdsdevname $num) \
+		$(mdsvdevname $num) ${quiet:+>/dev/null} || exit 10
+	done
 
-		for num in `seq $OSTCOUNT`; do
-			echo "Format ost$num: $(ostdevname $num)"
-			add ost$num $(mkfs_opts ost$num) --reformat \
-			$(ostdevname $num) $(ostvdevname ${num}) \
-			${quiet:+>/dev/null} || exit 10
-		done
+	for num in `seq $OSTCOUNT`; do
+		echo "Format ost$num: $(ostdevname $num)"
+		index=$((num-1))
+		add ost$num $(mkfs_opts ost$num $(ostdevname ${num})) \
+		--index $index --reformat $(ostdevname $num) \
+		$(ostvdevname ${num}) ${quiet:+>/dev/null} || exit 10
+	done
 }
 
 mount_client() {

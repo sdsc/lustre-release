@@ -101,7 +101,9 @@ assert_DIR
 MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid | \
     awk '{gsub(/_UUID/,""); print $1}' | head -1)
 LOVNAME=$($LCTL get_param -n llite.*.lov.common_name | tail -n 1)
+LMVNAME=$($LCTL get_param -n llite.*.lmv.common_name | tail -n 1)
 OSTCOUNT=$($LCTL get_param -n lov.$LOVNAME.numobd)
+MDTCOUNT=$($LCTL get_param -n lmv.$LMVNAME.numobd)
 STRIPECOUNT=$($LCTL get_param -n lov.$LOVNAME.stripecount)
 STRIPESIZE=$($LCTL get_param -n lov.$LOVNAME.stripesize)
 ORIGFREE=$($LCTL get_param -n lov.$LOVNAME.kbytesavail)
@@ -794,18 +796,25 @@ test_24p() {
 }
 run_test 24p "mkdir .../R12{a,b}; rename .../R12a .../R12b"
 
+cleanup_24q() {
+	kill -USR1 $MULTIPID
+	trap 0
+}
+
 test_24q() {
 	mkdir $DIR/R13{a,b}
 	DIRINO=`ls -lid $DIR/R13a | awk '{ print $1 }'`
 	multiop_bg_pause $DIR/R13b D_c || return 1
 	MULTIPID=$!
 
+	trap cleanup_24q  EXIT
 	mrename $DIR/R13a $DIR/R13b
 	$CHECKSTAT -a $DIR/R13a || error
 	$CHECKSTAT -t dir $DIR/R13b || error
 	DIRINO2=`ls -lid $DIR/R13b | awk '{ print $1 }'`
 	[ "$DIRINO" = "$DIRINO2" ] || error "R13a $DIRINO != R13b $DIRINO2"
 	kill -USR1 $MULTIPID
+	trap 0
 	wait $MULTIPID || error "multiop close failed"
 }
 run_test 24q "mkdir .../R13{a,b}; open R13b rename R13a R13b ==="
@@ -1364,35 +1373,52 @@ test_27y() {
 
         MDS_OSCS=`do_facet $SINGLEMDS lctl dl | awk '/[oO][sS][cC].*md[ts]/ { print $4 }'`
         OFFSET=$(($OSTCOUNT-1))
-        OST=-1
+        OST_DEACTIVE_IDX=-1
         for OSC in $MDS_OSCS; do
-                if [ $OST == -1 ]; then {
-                        OST=`osc_to_ost $OSC`
-                } else {
+                OST=$(osc_to_ost $OSC)
+                OSTIDX=$(index_from_ostuuid $OST)
+                if [ $OST_DEACTIVE_IDX == -1 ]; then
+                        OST_DEACTIVE_IDX=$OSTIDX
+                fi
+                if [ $OSTIDX != $OST_DEACTIVE_IDX ]; then
                         echo $OSC "is Deactivate:"
                         do_facet $SINGLEMDS lctl --device  %$OSC deactivate
-                } fi
+                fi
         done
-
+ 
         OSTIDX=$(index_from_ostuuid $OST)
         mkdir -p $DIR/$tdir
         $SETSTRIPE -c 1 $DIR/$tdir      # 1 stripe / file
 
-        do_facet ost$((OSTIDX+1)) lctl set_param -n obdfilter.$OST.degraded 1
-        sleep_maxage
-        createmany -o $DIR/$tdir/$tfile $fcount
-        do_facet ost$((OSTIDX+1)) lctl set_param -n obdfilter.$OST.degraded 0
-
-        for i in `seq 0 $OFFSET`; do
-                [ `$GETSTRIPE $DIR/$tdir/$tfile$i | grep -A 10 obdidx | awk '{print $1}'| grep -w "$OSTIDX"` ] || \
-                      error "files created on deactivated OSTs instead of degraded OST"
-        done
         for OSC in $MDS_OSCS; do
-                [ `osc_to_ost $OSC` != $OST  ] && {
-                        echo $OSC "is activate"
-                        do_facet $SINGLEMDS lctl --device %$OSC activate
-                }
-        done
+		OST=$(osc_to_ost $OSC)
+        	OSTIDX=$(index_from_ostuuid $OST)
+		if [ $OSTIDX == $OST_DEACTIVE_IDX ]; then
+            		echo $OST "is degraded:"
+        		do_facet ost$((OSTIDX+1)) lctl set_param -n obdfilter.$OST.degraded 1
+		fi
+	done
+
+	sleep_maxage
+       	createmany -o $DIR/$tdir/$tfile $fcount
+
+	for OSC in $MDS_OSCS; do
+		OST=$(osc_to_ost $OSC)
+		OSTIDX=$(index_from_ostuuid $OST)
+		if [ $OSTIDX == $OST_DEACTIVE_IDX ]; then
+			echo $OST "is recovered from degraded:"
+			do_facet ost$((OSTIDX+1)) lctl set_param -n obdfilter.$OST.degraded 0
+		fi
+	done
+
+	for OSC in $MDS_OSCS; do
+		OST=$(osc_to_ost $OSC)
+		OSTIDX=$(index_from_ostuuid $OST)
+		if [ $OSTIDX != $OST_DEACTIVE_IDX ]; then
+			echo $OSC "is activate"
+			do_facet $SINGLEMDS lctl --device %$OSC activate
+		fi
+	done
 }
 run_test 27y "create files while OST0 is degraded and the rest inactive"
 
@@ -1443,8 +1469,9 @@ check_seq_oid()
                 #       { error "mounting $dev as $FSTYPE failed"; return 3; }
                 #local obj_file=$(do_facet ost$ost find $dir/O/$seq -name $oid)
                 #local ff=$(do_facet ost$ost $LL_DECODE_FILTER_FID $obj_file)
-
-                local obj_file="O/$seq/d$((oid %32))/$oid"
+				seq=$(echo $seq | sed -e "s/^0x//g")
+				oid_hex=$(echo $hex | sed -e "s/^0x//g")
+                local obj_file="O/$seq/d$((oid %32))/$oid_hex"
                 local ff=$(do_facet ost$ost "$DEBUGFS -c -R 'stat $obj_file' \
                            $dev 2>/dev/null" | grep "parent=")
 
@@ -2564,7 +2591,7 @@ is_sles11()						# LU-1783
 test_39l() {
 	is_sles11 && skip "SLES 11 SP1" && return	# LU-1783
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return
-	local atime_diff=$(do_facet $SINGLEMDS lctl get_param -n mdd.*.atime_diff)
+	local atime_diff=$(do_facet $SINGLEMDS lctl get_param -n mdd.*MDT0000*.atime_diff)
 
 	mkdir -p $DIR/$tdir
 
@@ -2584,7 +2611,7 @@ test_39l() {
 	[ "$atime" -ge "$d1" -a "$atime" -le "$d2" ] || \
 		error "atime is not updated from future: $atime, should be $d1<atime<$d2"
 
-	do_facet $SINGLEMDS lctl set_param -n mdd.*.atime_diff=2
+	do_facet $SINGLEMDS lctl set_param -n mdd.*MDT0000*.atime_diff=2
 	sleep 3
 
 	# test setting directory atime when now > dir atime + atime_diff
@@ -2596,7 +2623,7 @@ test_39l() {
 	[ "$atime" -ge "$d1" -a "$atime" -le "$d2" ] || \
 		error "atime is not updated  : $atime, should be $d2"
 
-	do_facet $SINGLEMDS lctl set_param -n mdd.*.atime_diff=60
+	do_facet $SINGLEMDS lctl set_param -n mdd.*MDT0000*.atime_diff=60
 	sleep 3
 
 	# test not setting directory atime when now < dir atime + atime_diff
@@ -2606,7 +2633,7 @@ test_39l() {
 	[ "$atime" -ge "$d1" -a "$atime" -le "$d2" ] || \
 		error "atime is updated to $atime, should remain $d1<atime<$d2"
 
-	do_facet $SINGLEMDS lctl set_param -n mdd.*.atime_diff=$atime_diff
+	do_facet $SINGLEMDS lctl set_param -n mdd.*MDT0000*.atime_diff=$atime_diff
 }
 run_test 39l "directory atime update ==========================="
 
@@ -3234,7 +3261,7 @@ test_51ba() { # LU-993
 run_test 51ba "verify nlink for many subdirectory cleanup"
 
 test_51bb() {
-	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	[ $MDTCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 
 	local ndirs=${TEST51BB_NDIRS:-10}
 	local nfiles=${TEST51BB_NFILES:-100}
@@ -3278,10 +3305,10 @@ test_51bb() {
 
 	lctl set_param -n lmv.*.placement=$savePOLICY
 
-	[ $rc -ne $MDSCOUNT ] || \
+	[ $rc -ne $MDTCOUNT ] || \
 		error "Objects/inodes are not distributed over all mds servers"
 }
-run_test 51bb "mkdir createmany CMD $MDSCOUNT  ===================="
+run_test 51bb "mkdir createmany CMD $MDTCOUNT  ===================="
 
 test_51d() {
         [  "$OSTCOUNT" -lt "3" ] && skip_env "skipping test with few OSTs" && return
@@ -4342,6 +4369,11 @@ test_65j() { # bug6367
 }
 run_test 65j "set default striping on root directory (bug 6367)="
 
+cleanup_65k() {
+        do_facet client rm -f $DIR/$tdir/*
+        do_facet $SINGLEMDS lctl --device  %$INACTIVE_OSC activate
+}
+
 test_65k() { # bug11679
     [ "$OSTCOUNT" -lt 2 ] && skip_env "too few OSTs" && return
     remote_mds_nodsh && skip "remote MDS with nodsh" && return
@@ -4358,6 +4390,7 @@ test_65k() { # bug11679
     do_facet client mkdir -p $DIR/$tdir
     for INACTIVE_OSC in $MDS_OSCS; do
         echo "Deactivate: " $INACTIVE_OSC
+        trap cleanup_65k EXIT
         do_facet $SINGLEMDS lctl --device %$INACTIVE_OSC deactivate
         for STRIPE_OSC in $MDS_OSCS; do
             OST=`osc_to_ost $STRIPE_OSC`
@@ -4369,6 +4402,7 @@ test_65k() { # bug11679
             do_facet client $SETSTRIPE -i $IDX -c 1 $DIR/$tdir/$IDX
             RC=$?
             [ $RC -ne 0 ] && error "setstripe should have succeeded"
+            trap 0
         done
         do_facet client rm -f $DIR/$tdir/*
         echo $INACTIVE_OSC "is Activate."
@@ -5740,7 +5774,7 @@ test_103 () {
 
     declare -a identity_old
 
-    for num in `seq $MDSCOUNT`; do
+    for num in `seq $MDTCOUNT`; do
         switch_identity $num true || identity_old[$num]=$?
     done
 
@@ -5769,7 +5803,7 @@ test_103 () {
     cd $SAVE_PWD
     umask $SAVE_UMASK
 
-    for num in `seq $MDSCOUNT`; do
+    for num in `seq $MDTCOUNT`; do
 	if [ "${identity_old[$num]}" = 1 ]; then
             switch_identity $num false || identity_old[$num]=$?
 	fi
@@ -7085,8 +7119,9 @@ set_dir_limits () {
 	local node
 
 	local LDPROC=/proc/fs/ldiskfs
+	local facets=$(get_facets MDS)
 
-	for facet in $(get_facets MDS); do
+    	for facet in ${facets//,/ }; do
 		canondev=$(ldiskfs_canon *.$(convert_facet2label $facet).mntdev $facet)
 		do_facet $facet "test -e $LDPROC/$canondev/max_dir_size" || LDPROC=/sys/fs/ldiskfs
 		do_facet $facet "echo $1 >$LDPROC/$canondev/max_dir_size"
@@ -7102,13 +7137,13 @@ test_129() {
 	EFBIG=27
 	MAX=16384
 
-	set_dir_limits $MAX
-
 	mkdir -p $DIR/$tdir
+	
+	set_dir_limits $MAX
 
 	I=0
 	J=0
-	while [ ! $I -gt $((MAX * MDSCOUNT)) ]; do
+	while [ ! $I -gt $((MAX * MDTCOUNT)) ]; do
 		$MULTIOP $DIR/$tdir/$J Oc
 		rc=$?
 		if [ $rc -eq $EFBIG ]; then
@@ -7124,7 +7159,7 @@ test_129() {
 	done
 
 	set_dir_limits 0
-	error "exceeded dir size limit $MAX x $MDSCOUNT $((MAX * MDSCOUNT)) : $I bytes"
+	error "exceeded dir size limit $MAX x $MDTCOUNT $((MAX * MDTCOUNT)) : $I bytes"
 }
 run_test 129 "test directory size limit ========================"
 
@@ -8291,7 +8326,7 @@ run_test 156 "Verification of tunables ============================"
 
 #Changelogs
 err17935 () {
-    if [ $MDSCOUNT -gt 1 ]; then
+    if [ $MDTCOUNT -gt 1 ]; then
 	error_ignore 17935 $*
     else
 	error $*
@@ -9517,6 +9552,8 @@ test_220() { #LU-325
 			osc.$mdtosc_proc1.prealloc_last_id)
 	local next_id=$(do_facet $SINGLEMDS lctl get_param -n \
 			osc.$mdtosc_proc1.prealloc_next_id)
+	local reserved=$(do_facet $SINGLEMDS lctl get_param -n \
+			osc.$mdtosc_proc1.prealloc_reserved)
 
 	$LFS df -i
 
@@ -9528,8 +9565,9 @@ test_220() { #LU-325
 
 	$SETSTRIPE $DIR/$tdir -i $OSTIDX -c 1 -p $FSNAME.$TESTNAME
 
-	MDSOBJS=$((last_id - next_id))
-	echo "preallocated objects on MDS is $MDSOBJS" "($last_id - $next_id)"
+	MDSOBJS=$((last_id - next_id - reserved))
+	echo -n "preallocated objects on MDS is $MDSOBJS"
+	echo "($last_id - $next_id - $reserved)"
 
 	blocks=$($LFS df $MOUNT | awk '($1 == '$OSTIDX') { print $4 }')
 	echo "OST still has $count kbytes free"
@@ -9881,8 +9919,8 @@ test_900() {
         for ls in /proc/fs/lustre/ldlm/namespaces/MGC*/lru_size; do
                 echo "clear" > $ls
         done
-        FAIL_ON_ERROR=true cleanup
-        FAIL_ON_ERROR=true setup
+        MDSCOUNT=$MDTCOUNT FAIL_ON_ERROR=true cleanup
+        MDSCOUNT=$MDTCOUNT FAIL_ON_ERROR=true setup
 }
 run_test 900 "umount should not race with any mgc requeue thread"
 
