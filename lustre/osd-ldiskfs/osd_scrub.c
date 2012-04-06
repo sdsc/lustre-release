@@ -1434,3 +1434,44 @@ void osd_scrub_cleanup(const struct lu_env *env, struct osd_device *dev)
                 dev->od_scrub_seh = NULL;
         }
 }
+
+int osd_oii_insert(struct osd_device *dev, struct lu_object *obj,
+                   struct osd_idmap_cache *oic)
+{
+        struct scrub_exec_head       *seh = dev->od_scrub_seh;
+        struct osd_scrub_it          *osi = NULL;
+        struct osd_inconsistent_item *oii;
+        ENTRY;
+
+        cfs_down_read(&seh->seh_rwsem);
+        if (!(seh->seh_active & ST_OI_SCRUB)) {
+                cfs_up_read(&seh->seh_rwsem);
+                RETURN(-EAGAIN);
+        }
+
+        OBD_ALLOC_PTR(oii);
+        if (unlikely(oii == NULL)) {
+                cfs_up_read(&seh->seh_rwsem);
+                RETURN(-ENOMEM);
+        }
+
+        CFS_INIT_LIST_HEAD(&oii->oii_list);
+        oii->oii_cache = *oic;
+        oii->oii_obj = obj;
+        lu_object_get(oii->oii_obj);
+
+        cfs_spin_lock(&seh->seh_lock);
+        if (cfs_list_empty(&dev->od_inconsistent_items))
+                osi = osi_get(seh->seh_private);
+
+        cfs_list_add_tail(&oii->oii_list, &dev->od_inconsistent_items);
+        cfs_spin_unlock(&seh->seh_lock);
+        cfs_up_read(&seh->seh_rwsem);
+
+        if (osi != NULL) {
+                cfs_waitq_broadcast(&osi->osi_thread.t_ctl_waitq);
+                osi_put(osi);
+        }
+
+        RETURN(0);
+}
