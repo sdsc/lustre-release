@@ -447,7 +447,7 @@ static int orph_index_iterate(const struct lu_env *env,
                 GOTO(out, rc);
         }
 
-        rc = iops->load(env, it, 0);
+	rc = iops->load(env, dor, it, 0);
         if (rc < 0)
                 GOTO(out_put, rc);
         if (rc == 0) {
@@ -458,12 +458,13 @@ static int orph_index_iterate(const struct lu_env *env,
         }
 
 	do {
-		key_sz = iops->key_size(env, it);
+		key_sz = iops->key_size(env, dor, it);
 		/* filter out "." and ".." entries from PENDING dir. */
 		if (key_sz < 8)
 			goto next;
 
-		rc = iops->rec(env, it, (struct dt_rec *)ent, LUDA_64BITHASH);
+		rc = iops->rec(env, dor, it, (struct dt_rec *)ent,
+			       LUDA_64BITHASH);
 		if (rc != 0) {
 			CERROR("%s: fail to get FID for orphan it: rc = %d\n",
 			       mdd2obd_dev(mdd)->obd_name, rc);
@@ -478,24 +479,24 @@ static int orph_index_iterate(const struct lu_env *env,
 		}
 
 		/* kill orphan object */
-		cookie = iops->store(env, it);
-		iops->put(env, it);
+		cookie = iops->store(env, dor, it);
+		iops->put(env, dor, it);
 		rc = orph_key_test_and_del(env, mdd, &fid,
 					   (struct dt_key *)ent->lde_name);
 
 		/* after index delete reset iterator */
 		if (rc == 0)
-			rc = iops->get(env, it, (const void *)"");
+			rc = iops->get(env, dor, it, (const void *)"");
 		else
-			rc = iops->load(env, it, cookie);
+			rc = iops->load(env, dor, it, cookie);
 next:
-		rc = iops->next(env, it);
+		rc = iops->next(env, dor, it);
 	} while (rc == 0);
 
 	GOTO(out_put, rc = 0);
 out_put:
-	iops->put(env, it);
-	iops->fini(env, it);
+	iops->put(env, dor, it);
+	iops->fini(env, dor, it);
 
 out:
 	return rc;

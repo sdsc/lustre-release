@@ -165,7 +165,8 @@ static struct dt_it *osd_it_acct_init(const struct lu_env *env,
  *
  * \param  di   - osd iterator
  */
-static void osd_it_acct_fini(const struct lu_env *env, struct dt_it *di)
+static void osd_it_acct_fini(const struct lu_env *env, struct dt_object *dt,
+			     struct dt_it *di)
 {
 	struct osd_it_quota *it = (struct osd_it_quota *)di;
 	struct osd_quota_leaf *leaf, *tmp;
@@ -191,8 +192,8 @@ static void osd_it_acct_fini(const struct lu_env *env, struct dt_it *di)
  * \retval  +1  - di points to exact matched key
  * \retval -ve  - failure
  */
-static int osd_it_acct_get(const struct lu_env *env, struct dt_it *di,
-			   const struct dt_key *key)
+static int osd_it_acct_get(const struct lu_env *env, struct dt_object *dt,
+			   struct dt_it *di, const struct dt_key *key)
 {
 	struct osd_it_quota	*it = (struct osd_it_quota *)di;
 	const struct lu_fid	*fid =
@@ -229,7 +230,8 @@ static int osd_it_acct_get(const struct lu_env *env, struct dt_it *di,
  *
  * \param  di   - osd iterator
  */
-static void osd_it_acct_put(const struct lu_env *env, struct dt_it *di)
+static void osd_it_acct_put(const struct lu_env *env, struct dt_object *dt,
+			    struct dt_it *di)
 {
 	return;
 }
@@ -256,7 +258,8 @@ static int osd_it_add_processed(struct osd_it_quota *it, int depth)
  * \retval   0  - iterator has not reached the end yet
  * \retval -ve  - unexpected failure
  */
-static int osd_it_acct_next(const struct lu_env *env, struct dt_it *di)
+static int osd_it_acct_next(const struct lu_env *env, struct dt_object *dt,
+			    struct dt_it *di)
 {
 	struct osd_it_quota	*it = (struct osd_it_quota *)di;
 	const struct lu_fid	*fid =
@@ -320,6 +323,7 @@ static int osd_it_acct_next(const struct lu_env *env, struct dt_it *di)
  * \param  di   - osd iterator
  */
 static struct dt_key *osd_it_acct_key(const struct lu_env *env,
+				      struct dt_object *dt,
 				      const struct dt_it *di)
 {
 	struct osd_it_quota *it = (struct osd_it_quota *)di;
@@ -334,6 +338,7 @@ static struct dt_key *osd_it_acct_key(const struct lu_env *env,
  * \param  di   - osd iterator
  */
 static int osd_it_acct_key_size(const struct lu_env *env,
+				struct dt_object *dt,
 				const struct dt_it *di)
 {
 	struct osd_it_quota *it = (struct osd_it_quota *)di;
@@ -349,11 +354,12 @@ static int osd_it_acct_key_size(const struct lu_env *env,
  * \param  attr  - not used
  */
 static int osd_it_acct_rec(const struct lu_env *env,
+			   struct dt_object *dt,
 			   const struct dt_it *di,
 			   struct dt_rec *dtrec, __u32 attr)
 {
 	struct osd_it_quota	*it = (struct osd_it_quota *)di;
-	const struct dt_key	*key = osd_it_acct_key(env, di);
+	const struct dt_key     *key = osd_it_acct_key(env, dt, di);
 	int			 rc;
 
 	ENTRY;
@@ -369,6 +375,7 @@ static int osd_it_acct_rec(const struct lu_env *env,
  * \param  di    - osd iterator
  */
 static __u64 osd_it_acct_store(const struct lu_env *env,
+			       struct dt_object *dt,
 			       const struct dt_it *di)
 {
 	struct osd_it_quota *it = (struct osd_it_quota *)di;
@@ -389,10 +396,11 @@ static __u64 osd_it_acct_store(const struct lu_env *env,
  * \retval -ve   - failure
  */
 static int osd_it_acct_load(const struct lu_env *env,
+			    struct dt_object *dt,
 			    const struct dt_it *di, __u64 hash)
 {
 	ENTRY;
-	RETURN(osd_it_acct_get(env, (struct dt_it *)di,
+	RETURN(osd_it_acct_get(env, dt, (struct dt_it *)di,
 			       (const struct dt_key *)&hash));
 }
 
@@ -591,7 +599,9 @@ int osd_declare_inode_qid(const struct lu_env *env, qid_t uid, qid_t gid,
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2,7,50,0)
 
 /* copied from osd_it_acct_get(), only changed the 'type' to -1 */
-static int osd_it_admin_get(const struct lu_env *env, struct dt_it *di,
+static int osd_it_admin_get(const struct lu_env *env,
+			    struct dt_object *dt,
+			    struct dt_it *di,
 			    const struct dt_key *key)
 {
 	struct osd_it_quota	*it = (struct osd_it_quota *)di;
@@ -620,17 +630,19 @@ static int osd_it_admin_get(const struct lu_env *env, struct dt_it *di,
 }
 
 static int osd_it_admin_load(const struct lu_env *env,
+			     struct dt_object *dt,
 			     const struct dt_it *di, __u64 hash)
 {
 	int rc;
 	ENTRY;
 
-	rc = osd_it_admin_get(env, (struct dt_it *)di,
+	rc = osd_it_admin_get(env, dt, (struct dt_it *)di,
 			      (const struct dt_key *)&hash);
 	RETURN(rc);
 }
 
 static int osd_it_admin_rec(const struct lu_env *env,
+			    struct dt_object *dt,
 			    const struct dt_it *di,
 			    struct dt_rec *dtrec, __u32 attr)
 {
@@ -651,7 +663,8 @@ static int osd_it_admin_rec(const struct lu_env *env,
 }
 
 /* copied from osd_it_acct_next(), only changed the 'type' to -1 */
-static int osd_it_admin_next(const struct lu_env *env, struct dt_it *di)
+static int osd_it_admin_next(const struct lu_env *env, struct dt_object *dt,
+			     struct dt_it *di)
 {
 	struct osd_it_quota	*it = (struct osd_it_quota *)di;
 	int			 type = -1;
@@ -840,14 +853,14 @@ static int convert_quota_file(const struct lu_env *env,
 	if (IS_ERR(it))
 		GOTO(out, rc = PTR_ERR(it));
 
-	rc = iops->load(env, it, 0);
+	rc = iops->load(env, old, it, 0);
 	if (rc == -ENOENT)
 		GOTO(out_it, rc = 0);
 	else if (rc < 0)
 		GOTO(out_it, rc);
 
 	do {
-		key = iops->key(env, it);
+		key = iops->key(env, old, it);
 		if (IS_ERR(key))
 			GOTO(out_it, rc = PTR_ERR(key));
 
@@ -855,7 +868,7 @@ static int convert_quota_file(const struct lu_env *env,
 		if (*((__u64 *)key) == 0)
 			goto next;
 
-		rc = iops->rec(env, it, (struct dt_rec *)dqblk, 0);
+		rc = iops->rec(env, old, it, (struct dt_rec *)dqblk, 0);
 		if (rc)
 			GOTO(out_it, rc);
 
@@ -869,7 +882,7 @@ static int convert_quota_file(const struct lu_env *env,
 		if (rc)
 			GOTO(out_it, rc);
 next:
-		rc = iops->next(env, it);
+		rc = iops->next(env, old, it);
 	} while (rc == 0);
 
 	/* reach the end */
@@ -877,8 +890,8 @@ next:
 		rc = 0;
 
 out_it:
-	iops->put(env, it);
-	iops->fini(env, it);
+	iops->put(env, old, it);
+	iops->fini(env, old, it);
 out:
 	if (dqblk != NULL)
 		OBD_FREE_PTR(dqblk);

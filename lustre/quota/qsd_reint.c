@@ -316,19 +316,19 @@ static int qsd_reconciliation(const struct lu_env *env,
 		RETURN(PTR_ERR(it));
 	}
 
-	rc = iops->load(env, it, 0);
+	rc = iops->load(env, qqi->qqi_glb_obj, it, 0);
 	if (rc < 0) {
 		CWARN("%s: Load first entry for "DFID" failed. %d\n",
 		      qsd->qsd_svname, PFID(&qqi->qqi_fid), rc);
 		GOTO(out, rc);
 	} else if (rc == 0) {
-		rc = iops->next(env, it);
+		rc = iops->next(env, qqi->qqi_glb_obj, it);
 		if (rc != 0)
 			GOTO(out, rc = (rc < 0) ? rc : 0);
 	}
 
 	do {
-		key = iops->key(env, it);
+		key = iops->key(env, qqi->qqi_glb_obj, it);
 		if (IS_ERR(key)) {
 			CWARN("%s: Error key for "DFID". %ld\n",
 			      qsd->qsd_svname, PFID(&qqi->qqi_fid),
@@ -372,7 +372,7 @@ static int qsd_reconciliation(const struct lu_env *env,
 			GOTO(out, rc);
 		}
 next:
-		rc = iops->next(env, it);
+		rc = iops->next(env, qqi->qqi_glb_obj, it);
 		if (rc < 0)
 			CWARN("%s: Error next "DFID". %d\n", qsd->qsd_svname,
 			      PFID(&qqi->qqi_fid), rc);
@@ -382,8 +382,8 @@ next:
 	if (rc > 0)
 		rc = 0;
 out:
-	iops->put(env, it);
-	iops->fini(env, it);
+	iops->put(env, qqi->qqi_glb_obj, it);
+	iops->fini(env, qqi->qqi_glb_obj, it);
 	RETURN(rc);
 }
 

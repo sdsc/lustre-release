@@ -640,8 +640,9 @@ static inline const struct dt_index_features *dt_index_feat_select(__u64 seq,
  * \param attr - is the index attribute to pass to iops->rec()
  * \param arg  - is a pointer to the idx_info structure
  */
-static int dt_index_page_build(const struct lu_env *env, union lu_page *lp,
-			       int nob, const struct dt_it_ops *iops,
+static int dt_index_page_build(const struct lu_env *env, struct dt_object *obj,
+			       union lu_page *lp, int nob,
+			       const struct dt_it_ops *iops,
 			       struct dt_it *it, __u32 attr, void *arg)
 {
 	struct idx_info		*ii = (struct idx_info *)arg;
@@ -672,7 +673,7 @@ static int dt_index_page_build(const struct lu_env *env, union lu_page *lp,
 		__u64		 hash;
 
 		/* fetch 64-bit hash value */
-		hash = iops->store(env, it);
+		hash = iops->store(env, obj, it);
 		ii->ii_hash_end = hash;
 
 		if (nob < size) {
@@ -689,13 +690,13 @@ static int dt_index_page_build(const struct lu_env *env, union lu_page *lp,
 		}
 
 		/* then the key value */
-		LASSERT(iops->key_size(env, it) == ii->ii_keysize);
-		key = iops->key(env, it);
+		LASSERT(iops->key_size(env, obj, it) == ii->ii_keysize);
+		key = iops->key(env, obj, it);
 		memcpy(tmp_entry, key, ii->ii_keysize);
 		tmp_entry += ii->ii_keysize;
 
 		/* and finally the record */
-		rc = iops->rec(env, it, (struct dt_rec *)tmp_entry, attr);
+		rc = iops->rec(env, obj, it, (struct dt_rec *)tmp_entry, attr);
 		if (rc != -ESTALE) {
 			if (rc != 0)
 				GOTO(out, rc);
@@ -710,7 +711,7 @@ static int dt_index_page_build(const struct lu_env *env, union lu_page *lp,
 
 		/* move on to the next record */
 		do {
-			rc = iops->next(env, it);
+			rc = iops->next(env, obj, it);
 		} while (rc == -ESTALE);
 
 	} while (rc == 0);
@@ -763,7 +764,7 @@ int dt_index_walk(const struct lu_env *env, struct dt_object *obj,
 	if (IS_ERR(it))
 		RETURN(PTR_ERR(it));
 
-	rc = iops->load(env, it, rdpg->rp_hash);
+	rc = iops->load(env, obj, it, rdpg->rp_hash);
 	if (rc == 0) {
 		/*
 		 * Iterator didn't find record with exactly the key requested.
@@ -775,7 +776,7 @@ int dt_index_walk(const struct lu_env *env, struct dt_object *obj,
 		 *     - or not positioned at all (is in IAM_IT_SKEWED
 		 *     state)---position it on the next item.
 		 */
-		rc = iops->next(env, it);
+		rc = iops->next(env, obj, it);
 	} else if (rc > 0) {
 		rc = 0;
 	}
@@ -796,7 +797,7 @@ int dt_index_walk(const struct lu_env *env, struct dt_object *obj,
 
 		/* fill lu pages */
 		for (i = 0; i < LU_PAGE_COUNT; i++, lp++, nob -= LU_PAGE_SIZE) {
-			rc = filler(env, lp, min_t(int, nob, LU_PAGE_SIZE),
+			rc = filler(env, obj, lp, min_t(int, nob, LU_PAGE_SIZE),
 				    iops, it, rdpg->rp_attrs, arg);
 			if (rc < 0)
 				break;
@@ -809,8 +810,8 @@ int dt_index_walk(const struct lu_env *env, struct dt_object *obj,
 		cfs_kunmap(rdpg->rp_pages[i]);
 	}
 
-	iops->put(env, it);
-	iops->fini(env, it);
+	iops->put(env, obj, it);
+	iops->fini(env, obj, it);
 
 	if (rc >= 0)
 		rc = min_t(unsigned int, nlupgs * LU_PAGE_SIZE, rdpg->rp_count);

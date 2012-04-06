@@ -168,7 +168,8 @@ static struct dt_it *osd_it_acct_init(const struct lu_env *env,
  *
  * \param  di   - osd iterator
  */
-static void osd_it_acct_fini(const struct lu_env *env, struct dt_it *di)
+static void osd_it_acct_fini(const struct lu_env *env, struct dt_object *dt,
+			     struct dt_it *di)
 {
 	struct osd_it_quota *it = (struct osd_it_quota *)di;
 	ENTRY;
@@ -186,7 +187,8 @@ static void osd_it_acct_fini(const struct lu_env *env, struct dt_it *di)
  * \retval   0  - iterator has not reached the end yet
  * \retval -ve  - unexpected failure
  */
-static int osd_it_acct_next(const struct lu_env *env, struct dt_it *di)
+static int osd_it_acct_next(const struct lu_env *env, struct dt_object *dt,
+			    struct dt_it *di)
 {
 	struct osd_it_quota	*it = (struct osd_it_quota *)di;
 	int			 rc;
@@ -207,6 +209,7 @@ static int osd_it_acct_next(const struct lu_env *env, struct dt_it *di)
  * \param  di   - osd iterator
  */
 static struct dt_key *osd_it_acct_key(const struct lu_env *env,
+				      struct dt_object *dt,
 				      const struct dt_it *di)
 {
 	struct osd_it_quota	*it = (struct osd_it_quota *)di;
@@ -230,6 +233,7 @@ static struct dt_key *osd_it_acct_key(const struct lu_env *env,
  * \param  di   - osd iterator
  */
 static int osd_it_acct_key_size(const struct lu_env *env,
+				struct dt_object *dt,
 				const struct dt_it *di)
 {
 	ENTRY;
@@ -243,6 +247,7 @@ static int osd_it_acct_key_size(const struct lu_env *env,
  * \param  attr  - not used
  */
 static int osd_it_acct_rec(const struct lu_env *env,
+			   struct dt_object *dt,
 			   const struct dt_it *di,
 			   struct dt_rec *dtrec, __u32 attr)
 {
@@ -299,6 +304,7 @@ static int osd_it_acct_rec(const struct lu_env *env,
  * \param  di    - osd iterator
  */
 static __u64 osd_it_acct_store(const struct lu_env *env,
+			       struct dt_object *dt,
 			       const struct dt_it *di)
 {
 	struct osd_it_quota *it = (struct osd_it_quota *)di;
@@ -319,7 +325,8 @@ static __u64 osd_it_acct_store(const struct lu_env *env,
  * \retval -ve  - failure
  */
 static int osd_it_acct_load(const struct lu_env *env,
-			    const struct dt_it *di, __u64 hash)
+			    struct dt_object *dt, const struct dt_it *di,
+			    __u64 hash)
 {
 	struct osd_it_quota	*it  = (struct osd_it_quota *)di;
 	struct osd_device	*osd = osd_obj2dev(it->oiq_obj);
@@ -354,15 +361,15 @@ static int osd_it_acct_load(const struct lu_env *env,
  * \retval 0    - di points to the first valid record
  * \retval -ve  - failure
  */
-static int osd_it_acct_get(const struct lu_env *env, struct dt_it *di,
-		const struct dt_key *key)
+static int osd_it_acct_get(const struct lu_env *env, struct dt_object *dt,
+			   struct dt_it *di, const struct dt_key *key)
 {
 	ENTRY;
 
 	/* XXX: like osd_zap_it_get(), API is currently broken */
 	LASSERT(*((__u64 *)key) == 0);
 
-	RETURN(osd_it_acct_load(env, di, 0));
+	RETURN(osd_it_acct_load(env, dt, di, 0));
 }
 
 /**
@@ -370,7 +377,8 @@ static int osd_it_acct_get(const struct lu_env *env, struct dt_it *di,
  *
  * \param  di   - osd iterator
  */
-static void osd_it_acct_put(const struct lu_env *env, struct dt_it *di)
+static void osd_it_acct_put(const struct lu_env *env, struct dt_object *dt,
+			    struct dt_it *di)
 {
 }
 

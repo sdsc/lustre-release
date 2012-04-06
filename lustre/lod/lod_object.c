@@ -106,6 +106,117 @@ static struct dt_it *lod_it_init(const struct lu_env *env,
 	return next->do_index_ops->dio_it.init(env, next, attr, capa);
 }
 
+static void lod_it_fini(const struct lu_env *env, struct dt_object *dt,
+			struct dt_it *di)
+{
+	struct dt_object   *next = dt_object_child(dt);
+
+	next->do_index_ops->dio_it.fini(env, next, di);
+
+	return;
+}
+
+static int lod_it_get(const struct lu_env *env,
+		      struct dt_object *dt,
+		      struct dt_it *di, const struct dt_key *key)
+{
+	struct dt_object   *next = dt_object_child(dt);
+	int rc;
+
+	rc = next->do_index_ops->dio_it.get(env, next, di, key);
+
+	return rc;
+}
+
+static void lod_it_put(const struct lu_env *env,
+		       struct dt_object *dt,
+		       struct dt_it *di)
+{
+	struct dt_object   *next = dt_object_child(dt);
+
+	next->do_index_ops->dio_it.put(env, next, di);
+
+	return;
+}
+
+static int lod_it_next(const struct lu_env *env,
+		       struct dt_object *dt, struct dt_it *di)
+{
+	struct dt_object   *next = dt_object_child(dt);
+	int rc;
+
+	rc = next->do_index_ops->dio_it.next(env, next, di);
+
+	return rc;
+}
+
+static struct dt_key *lod_it_key(const struct lu_env *env, struct dt_object *dt,
+				 const struct dt_it *di)
+{
+	struct dt_object   *next = dt_object_child(dt);
+	struct dt_key      *key;
+
+	key = next->do_index_ops->dio_it.key(env, next, di);
+
+	return key;
+}
+
+static int lod_it_key_size(const struct lu_env *env, struct dt_object *dt,
+			   const struct dt_it *di)
+{
+	struct dt_object   *next = dt_object_child(dt);
+	int rc;
+
+	rc = next->do_index_ops->dio_it.key_size(env, next, di);
+
+	return rc;
+}
+
+static int lod_it_rec(const struct lu_env *env, struct dt_object *dt,
+		      const struct dt_it *di, struct dt_rec *rec,
+		      __u32 attr)
+{
+	struct dt_object   *next = dt_object_child(dt);
+	int rc;
+
+	rc = next->do_index_ops->dio_it.rec(env, next, di, rec, attr);
+
+	return rc;
+}
+
+static __u64 lod_it_store(const struct lu_env *env, struct dt_object *dt,
+			  const struct dt_it *di)
+{
+	struct dt_object   *next = dt_object_child(dt);
+	__u64 rc;
+
+	rc = next->do_index_ops->dio_it.store(env, next, di);
+
+	return rc;
+}
+
+static int lod_it_load(const struct lu_env *env, struct dt_object *dt,
+		       const struct dt_it *di, __u64 hash)
+{
+	struct dt_object   *next = dt_object_child(dt);
+	int rc;
+
+	rc = next->do_index_ops->dio_it.load(env, next, di, hash);
+
+	return rc;
+}
+
+static int lod_it_key_rec(const struct lu_env *env, struct dt_object *dt,
+			  const struct dt_it *di, void *key_rec)
+{
+	struct dt_object   *next = dt_object_child(dt);
+	int rc;
+
+	rc = next->do_index_ops->dio_it.key_rec(env, next, di, key_rec);
+
+	return rc;
+}
+
 static struct dt_index_operations lod_index_ops = {
 	.dio_lookup	    = lod_index_lookup,
 	.dio_declare_insert = lod_declare_index_insert,
@@ -113,7 +224,17 @@ static struct dt_index_operations lod_index_ops = {
 	.dio_declare_delete = lod_declare_index_delete,
 	.dio_delete	    = lod_index_delete,
 	.dio_it     = {
-		.init	    = lod_it_init,
+		.init     = lod_it_init,
+		.fini     = lod_it_fini,
+		.get      = lod_it_get,
+		.put      = lod_it_put,
+		.next     = lod_it_next,
+		.key      = lod_it_key,
+		.key_size = lod_it_key_size,
+		.rec      = lod_it_rec,
+		.store    = lod_it_store,
+		.load     = lod_it_load,
+		.key_rec  = lod_it_key_rec,
 	}
 };
 

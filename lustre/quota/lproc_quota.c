@@ -77,7 +77,7 @@ static void *lprocfs_quota_seq_start(struct seq_file *p, loff_t *pos)
 	}
 
 	/* move on to the first valid record */
-	rc = iops->load(&lqp->lqp_env, it, 0);
+	rc = iops->load(&lqp->lqp_env, lqp->lqp_obj, it, 0);
 	if (rc < 0) { /* Error */
 		goto not_found;
 	} else if (rc == 0) {
@@ -91,20 +91,20 @@ static void *lprocfs_quota_seq_start(struct seq_file *p, loff_t *pos)
 		 *     - or not positioned at all (is in IAM_IT_SKEWED
 		 *       state) - position it on the next item.
 		 */
-		rc = iops->next(&lqp->lqp_env, it);
+		rc = iops->next(&lqp->lqp_env, lqp->lqp_obj, it);
 		if (rc != 0)
 			goto not_found;
 	}
 	while (offset--) {
-		rc = iops->next(&lqp->lqp_env, it);
+		rc = iops->next(&lqp->lqp_env, lqp->lqp_obj, it);
 		if (rc != 0) /* Error or reach the end */
 			goto not_found;
 	}
 	return it;
 
 not_found:
-	iops->put(&lqp->lqp_env, it);
-	iops->fini(&lqp->lqp_env, it);
+	iops->put(&lqp->lqp_env, lqp->lqp_obj, it);
+	iops->fini(&lqp->lqp_env, lqp->lqp_obj, it);
 	return NULL;
 }
 
@@ -121,8 +121,8 @@ static void lprocfs_quota_seq_stop(struct seq_file *p, void *v)
 	it = (struct dt_it *)v;
 	/* if something wrong happened during ->seq_show, we need to release
 	 * the iterator here */
-	iops->put(&lqp->lqp_env, it);
-	iops->fini(&lqp->lqp_env, it);
+	iops->put(&lqp->lqp_env, lqp->lqp_obj, it);
+	iops->fini(&lqp->lqp_env, lqp->lqp_obj, it);
 }
 
 static void *lprocfs_quota_seq_next(struct seq_file *p, void *v, loff_t *pos)
@@ -144,7 +144,7 @@ static void *lprocfs_quota_seq_next(struct seq_file *p, void *v, loff_t *pos)
 	iops = &lqp->lqp_obj->do_index_ops->dio_it;
 	it = (struct dt_it *)v;
 
-	rc = iops->next(&lqp->lqp_env, it);
+	rc = iops->next(&lqp->lqp_env, lqp->lqp_obj, it);
 	if (rc == 0)
 		return it;
 
@@ -153,8 +153,8 @@ static void *lprocfs_quota_seq_next(struct seq_file *p, void *v, loff_t *pos)
 		       lqp->lqp_obj->do_lu.lo_dev->ld_obd->obd_name, rc);
 
 	/* Reach the end or error */
-	iops->put(&lqp->lqp_env, it);
-	iops->fini(&lqp->lqp_env, it);
+	iops->put(&lqp->lqp_env, lqp->lqp_obj, it);
+	iops->fini(&lqp->lqp_env, lqp->lqp_obj, it);
 	return NULL;
 }
 
@@ -210,7 +210,7 @@ static int lprocfs_quota_seq_show(struct seq_file *p, void *v)
 	iops = &lqp->lqp_obj->do_index_ops->dio_it;
 	it = (struct dt_it *)v;
 
-	key = iops->key(&lqp->lqp_env, it);
+	key = iops->key(&lqp->lqp_env, lqp->lqp_obj, it);
 	if (IS_ERR(key)) {
 		CERROR("%s: failed to get key: rc = %ld\n",
 		       lqp->lqp_obj->do_lu.lo_dev->ld_obd->obd_name,
@@ -218,7 +218,8 @@ static int lprocfs_quota_seq_show(struct seq_file *p, void *v)
 		return PTR_ERR(key);
 	}
 
-	rc = iops->rec(&lqp->lqp_env, it, rec, 0);
+	rc = iops->rec(&lqp->lqp_env, lqp->lqp_obj, it,
+		       (struct dt_rec *)&rec, 0);
 	if (rc) {
 		CERROR("%s: failed to get rec: rc = %d\n",
 		       lqp->lqp_obj->do_lu.lo_dev->ld_obd->obd_name, rc);
