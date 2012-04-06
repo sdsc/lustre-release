@@ -275,21 +275,32 @@ static struct md_object *llo_create_obj(const struct lu_env *env,
         struct md_attr          *ma = &info->lti_ma;
         struct md_op_spec       *spec = &info->lti_spc;
         struct lu_name          *lname = &info->lti_lname;
+        struct lu_fid           *cfid = &info->lti_cfid;
         struct lu_attr          *la = &ma->ma_attr;
+        int                      exist = 1;
         int rc;
-
-        mdo = llo_locate(env, md, fid);
-        if (IS_ERR(mdo))
-                return mdo;
 
         lname->ln_name = objname;
         lname->ln_namelen = strlen(objname);
 
         spec->sp_feat = feat;
         spec->sp_cr_flags = 0;
-        spec->sp_cr_lookup = 1;
+        spec->sp_cr_lookup = 0;
         spec->sp_cr_mode = 0;
         spec->sp_ck_split = 0;
+
+        rc = mdo_lookup(env, dir, lname, cfid, spec);
+        if (rc != 0) {
+                if (rc != -ENOENT)
+                        return ERR_PTR(rc);
+
+                *cfid = *fid;
+                exist = 0;
+        }
+
+        mdo = llo_locate(env, md, cfid);
+        if (IS_ERR(mdo) || exist != 0)
+                return mdo;
 
         if (feat == &dt_directory_features)
                 la->la_mode = S_IFDIR | S_IXUGO;
@@ -304,8 +315,7 @@ static struct md_object *llo_create_obj(const struct lu_env *env,
         ma->ma_need = 0;
 
         rc = mdo_create(env, dir, lname, mdo, spec, ma);
-
-        if (rc) {
+        if (rc != 0) {
                 lu_object_put(env, &mdo->mo_lu);
                 mdo = ERR_PTR(rc);
         }

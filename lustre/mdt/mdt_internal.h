@@ -372,12 +372,7 @@ struct mdt_thread_info {
                 char               ns_name[48];   /* for mdt_init0()         */
                 struct lustre_cfg_bufs bufs;      /* for mdt_stack_fini()    */
                 cfs_kstatfs_t      ksfs;          /* for mdt_statfs()        */
-                struct {
-                        /* for mdt_readpage()      */
-                        struct lu_rdpg     mti_rdpg;
-                        /* for mdt_sendpage()      */
-                        struct l_wait_info mti_wait_info;
-                } rdpg;
+                struct lu_rdpg     mti_rdpg;      /* for mdt_readpage()      */
                 struct {
                         struct md_attr attr;
                         struct md_som_data data;
@@ -398,6 +393,7 @@ struct mdt_thread_info {
         /* Ops object filename */
         struct lu_name             mti_name;
         struct md_attr             mti_tmp_attr;
+        struct l_wait_info         mti_wait_info;
 };
 
 typedef void (*mdt_cb_t)(const struct mdt_device *mdt, __u64 transno,
@@ -769,6 +765,15 @@ static inline ldlm_mode_t mdt_mdl_mode2dlm_mode(mdl_mode_t mode)
 {
         LASSERT(IS_PO2(mode));
         return mdt_dlm_lock_modes[mode];
+}
+
+static inline struct mdt_thread_info *mdt_env_info(const struct lu_env *env)
+{
+        struct mdt_thread_info *info;
+
+        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+        LASSERT(info != NULL);
+        return info;
 }
 
 static inline struct lu_name *mdt_name(const struct lu_env *env,
