@@ -32,6 +32,9 @@
  * Copyright (c) 2011, Whamcloud, Inc.
  */
 /*
+ * Copyright (c) 2012 Whamcloud, Inc.
+*/
+/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
@@ -251,6 +254,8 @@ libcfs_debug_dbg2str(int debug)
                 return "quota";
         case D_SEC:
                 return "sec";
+        case D_SCRUB:
+                return "scrub";
         }
 }
 
