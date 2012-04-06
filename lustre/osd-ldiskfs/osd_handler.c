@@ -2542,6 +2542,9 @@ static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
                 else
                         result = -ENOTDIR;
                 ea_dir = 1;
+        } else if (unlikely(feat == &dt_scrub_features)) {
+                dt->do_index_ops = &osd_scrub_ops;
+                return 0;
         } else if (!osd_has_index(obj)) {
                 struct osd_directory *dir;
 
