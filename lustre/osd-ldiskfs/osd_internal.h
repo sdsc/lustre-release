@@ -441,7 +441,9 @@ struct osd_thread_info {
         struct htree_lock     *oti_hlock;
 
         struct lu_fid          oti_fid;
+        struct lu_fid          oti_fid2;
         struct osd_inode_id    oti_id;
+        struct osd_inode_id    oti_id2;
         struct ost_id          oti_ostid;
 
         /*
@@ -516,6 +518,17 @@ struct osd_thread_info {
 
 extern int ldiskfs_pdo;
 
+enum osd_iget_flags {
+        /* verify with the fid in LMA */
+        OSD_IF_VERIFY   = 1 << 0,
+
+        /* re-generate osd_inode_id */
+        OSD_IF_GEN_LID  = 1 << 1,
+
+        /* return fid */
+        OSD_IF_RET_FID  = 1 << 2,
+};
+
 #ifdef LPROCFS
 /* osd_lproc.c */
 void lprocfs_osd_init_vars(struct lprocfs_static_vars *lvars);
@@ -527,16 +540,28 @@ void osd_lprocfs_time_end(const struct lu_env *env,
 void osd_brw_stats_update(struct osd_device *osd, struct osd_iobuf *iobuf);
 
 #endif
+
+/* osd_handler.c */
+struct thandle *osd_trans_create(const struct lu_env *env,
+                                 struct dt_device *d);
+int osd_trans_start(const struct lu_env *env, struct dt_device *d,
+                    struct thandle *th);
+int osd_trans_stop(const struct lu_env *env, struct thandle *th);
 int osd_statfs(const struct lu_env *env, struct dt_device *dev,
                cfs_kstatfs_t *sfs);
 int osd_object_auth(const struct lu_env *env, struct dt_object *dt,
                     struct lustre_capa *capa, __u64 opc);
 void osd_declare_qid(struct dt_object *dt, struct osd_thandle *oh,
                      int type, uid_t id, struct inode *inode);
-struct inode *osd_iget(struct osd_thread_info *info,
-                       struct osd_device *dev,
-                       const struct osd_inode_id *id);
+struct inode *osd_iget(struct osd_thread_info *info, struct osd_device *dev,
+                       struct osd_inode_id *id, struct lu_fid *fid,
+                       enum osd_iget_flags flags);
+int osd_ea_fid_get(const struct lu_env *env, struct dt_device *dt,
+                   __u32 ino, struct lu_fid *fid);
+void osd_get_ldiskfs_dirent_param(struct ldiskfs_dentry_param *param,
+                                  const struct dt_rec *fid);
 
+/* osd_compat.c */
 int osd_compat_init(struct osd_device *dev);
 void osd_compat_fini(struct osd_device *dev);
 int osd_compat_objid_lookup(struct osd_thread_info *info,
@@ -599,6 +624,12 @@ extern const struct lu_device_operations  osd_lu_ops;
 static inline int lu_device_is_osd(const struct lu_device *d)
 {
         return ergo(d != NULL && d->ld_ops != NULL, d->ld_ops == &osd_lu_ops);
+}
+
+static inline struct dt_device *osd_obj2dt(const struct osd_object *obj)
+{
+        return container_of0(obj->oo_dt.do_lu.lo_dev,
+                             struct dt_device, dd_lu_dev);
 }
 
 static inline struct osd_device *osd_dt_dev(const struct dt_device *d)
