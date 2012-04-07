@@ -74,6 +74,7 @@
 #include <obd_class.h>
 #include <lustre_disk.h>
 #include <dt_object.h>
+#include <lustre_scrub.h>
 
 #include "osd_oi.h"
 #include "osd_iam.h"
@@ -194,6 +195,108 @@ static inline void ldiskfs_htree_lock_free(struct htree_lock *lk)
 
 #endif /* HAVE_LDISKFS_PDO */
 
+#define OSD_SCRUB_IT_CACHE_SIZE 128
+#define OSD_SCRUB_IT_CACHE_MASK (~(OSD_SCRUB_IT_CACHE_SIZE - 1))
+
+struct osd_idmap_cache {
+        struct lu_fid           oic_fid;
+        struct osd_inode_id     oic_lid;
+};
+
+struct osd_inconsistent_item {
+        /* Link into osd_device::od_inconsistent_items. */
+        cfs_list_t              oii_list;
+
+        /* The correct "FID <=> LID" mapping. */
+        struct osd_idmap_cache  oii_cache;
+
+        /* Object for the OI mapping to be updated. */
+        struct lu_object       *oii_obj;
+};
+
+struct osd_scrub_it {
+        /* Special used for the OSD layer scrub. */
+        struct lu_env           osi_env;
+
+        /* Used by osd_scrub_it_key. */
+        __u8                    osi_key[SCRUB_BOOKMARK_MAXLEN];
+
+        /* Used by lprocfs_osd_rd_oi_scrub. */
+        __u8                    osi_pos_dump[SCRUB_BOOKMARK_MAXLEN];
+
+        /* Protect osi_cache. */
+        cfs_spinlock_t          osi_cache_lock;
+
+        /* Ring cache for the scrub iteration. */
+        struct osd_idmap_cache  osi_cache[OSD_SCRUB_IT_CACHE_SIZE];
+
+        /* Temp cache to hold current record before the producer get a free
+         * slot in the osi_cache. */
+        struct osd_idmap_cache  osi_producer_slot;
+
+        /* Temp cache to hold the record to be returned for next ::rec(). */
+        struct osd_idmap_cache  osi_consumer_slot;
+
+        /* Index for next cache slot to be filled. */
+        int                     osi_producer_idx;
+
+        /* Index for next cache slot has been filled. */
+        int                     osi_consumer_idx;
+
+        /* How many items in osi_cache. */
+        __u32                   osi_cached_items;
+
+        /* How many inodes per block. */
+        __u32                   osi_inodes_per_block;
+
+        /* Temp oic buffer under urgent mode. */
+        struct osd_idmap_cache  osi_oic_urgent;
+
+        /* Point to osi_oic_urgent or osi_cache[x], or some inconsistent item.*/
+        struct osd_idmap_cache *osi_oicp;
+
+        /* Point to the super_block to be iterated. */
+        struct super_block     *osi_sb;
+
+        /* Point to osd_device. */
+        struct osd_device      *osi_dev;
+
+        /* Osd layer interation thread. */
+        struct ptlrpc_thread    osi_thread;
+
+        /* Reference count. */
+        cfs_atomic_t            osi_refcount;
+
+        /* The position for OSD layer scrub scanning. Under normal mode,
+         * The iteration for up layer LFSCK and OSD layer scrub scanning
+         * share the same osi_pos_current. Under urgent mode, it will be
+         * used for OSD layer scrub scanning only, as for the iteration,
+         * another osi_pos_urgent will be used. */
+        __u32                   osi_pos_current;
+
+        /* Used under urgent mode for the iteration for up layer LFSCK. */
+        __u32                   osi_pos_urgent;
+
+        /* For osd layer iterator exit status. */
+        int                     osi_exit_value;
+
+        unsigned int            osi_full_scan:1,   /* Scan the device in spite
+                                                    * of pre-fetching stopped
+                                                    * or not. */
+                                osi_wait_next:1,   /* ::next() may be waiting.*/
+                                osi_urgent_mode:1, /* Under urgent mode, it does
+                                                    * not fill osi_cache. */
+                                osi_it_start:1,    /* Switch for triggering
+                                                    * OSD layer iteration. */
+                                osi_all_cached:1,  /* No more entries can be
+                                                    * filled into cache. */
+                                osi_in_prior:1,    /* Process inconsistent item
+                                                    * found by RPC prior. */
+                                osi_skip_obj:1,    /* Skip to process the obj.*/
+                                osi_self_preload:1;/* Up layer iteration preload
+                                                    * items by itself. */
+};
+
 extern const int osd_dto_credits_noquota[];
 
 /*
@@ -209,14 +312,11 @@ struct osd_device {
         struct osd_oi           **od_oi_table;
         /* total number of OI containers */
         int                       od_oi_count;
-        /*
-         * Fid Capability
+        /**
+         * The following flag indicates, if it is interop mode or not.
+         * It will be initialized, using mount param.
          */
-        unsigned int              od_fl_capa:1;
-        unsigned long             od_capa_timeout;
-        __u32                     od_capa_alg;
-        struct lustre_capa_key   *od_capa_keys;
-        cfs_hlist_head_t         *od_capa_hash;
+        __u32                     od_iop_mode;
 
         cfs_proc_dir_entry_t     *od_proc_entry;
         struct lprocfs_stats     *od_stats;
@@ -226,12 +326,6 @@ struct osd_device {
         cfs_time_t                od_osfs_age;
         cfs_kstatfs_t             od_kstatfs;
         cfs_spinlock_t            od_osfs_lock;
-
-        /**
-         * The following flag indicates, if it is interop mode or not.
-         * It will be initialized, using mount param.
-         */
-        __u32                     od_iop_mode;
 
         struct fsfilt_operations *od_fsops;
 
@@ -247,6 +341,16 @@ struct osd_device {
         struct brw_stats          od_brw_stats;
         cfs_atomic_t              od_r_in_flight;
         cfs_atomic_t              od_w_in_flight;
+
+        cfs_list_t                od_inconsistent_items;
+        struct scrub_exec_head   *od_scrub_seh;
+
+        unsigned int              od_fl_capa:1, /* Fid Capability */
+                                  od_fl_restored:1;
+        __u32                     od_capa_alg;
+        struct lustre_capa_key   *od_capa_keys;
+        cfs_hlist_head_t         *od_capa_hash;
+        unsigned long             od_capa_timeout;
 };
 
 #define OSD_TRACK_DECLARES
@@ -582,6 +686,10 @@ int osd_compat_spec_insert(struct osd_thread_info *info,
                            const struct lu_fid *fid,
                            const struct osd_inode_id *id, struct thandle *th);
 
+/* osd_scrub.c */
+int osd_scrub_setup(const struct lu_env *env, struct dt_device *dt);
+void osd_scrub_cleanup(const struct lu_env *env, struct osd_device *dev);
+
 /*
  * Invariants, assertions.
  */
@@ -766,6 +874,36 @@ int osd_fid_unpack(struct lu_fid *fid, const struct osd_fid_pack *pack)
                 result = -EIO;
         }
         return result;
+}
+
+static inline int osd_get_fid_from_dentry(struct ldiskfs_dir_entry_2 *de,
+                                          struct dt_rec *fid)
+{
+        struct osd_fid_pack *rec;
+        int                  rc = -ENODATA;
+
+        if (de->file_type & LDISKFS_DIRENT_LUFID) {
+                rec = (struct osd_fid_pack *) (de->name + de->name_len + 1);
+                rc = osd_fid_unpack((struct lu_fid *)fid, rec);
+        }
+        return rc;
+}
+
+static inline void osd_scrub_pos2str(__u8 *key, __u32 lid)
+{
+        sprintf(key, "%u", lid);
+}
+
+static inline int osd_scrub_str2pos(__u32 *lid, __u8 *key)
+{
+        int rc = 1;
+
+        if (scrub_key_is_empty(key))
+                *lid = 0;
+        else
+                rc = sscanf((const char *)key, "%u", lid);
+
+        return rc > 0 ? 0 : -EINVAL;
 }
 
 #endif /* __KERNEL__ */
