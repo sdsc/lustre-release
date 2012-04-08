@@ -274,7 +274,6 @@ static int ofd_obd_connect(const struct lu_env *env, struct obd_export **_exp,
 	struct ofd_device	*ofd;
 	struct lustre_handle	 conn = { 0 };
 	int			 rc;
-	obd_seq			seq;
 	ENTRY;
 
 	if (_exp == NULL || obd == NULL || cluuid == NULL)
@@ -301,7 +300,6 @@ static int ofd_obd_connect(const struct lu_env *env, struct obd_export **_exp,
 	if (rc)
 		GOTO(out, rc);
 
-	seq = data->ocd_group;
 	if (obd->obd_replayable) {
 		struct tg_export_data *ted = &exp->exp_target_data;
 
@@ -312,23 +310,9 @@ static int ofd_obd_connect(const struct lu_env *env, struct obd_export **_exp,
 			GOTO(out, rc);
 		ofd_export_stats_init(ofd, exp, localdata);
 	}
-	if (seq == 0)
-		GOTO(out, rc = 0);
 
-	/* init new seq */
-	if (seq > ofd->ofd_seq_count) {
-		struct ofd_seq *oseq;
-
-		ofd->ofd_seq_count = seq;
-		oseq = ofd_seq_load(env, ofd, seq);
-		if (IS_ERR(oseq)) {
-			CERROR("%s: load oseq "LPX64" error: rc = %ld\n",
-			       ofd_name(ofd), oseq->os_seq, PTR_ERR(oseq));
-			GOTO(out, rc = PTR_ERR(oseq));
-		} else {
-			ofd_seq_put(env, oseq);
-		}
-	}
+	CDEBUG(D_HA, "%s: get connection from MDS %d\n", obd->obd_name,
+	       data->ocd_group);
 
 out:
 	if (rc != 0) {
@@ -574,7 +558,9 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 		if (rc)
 			RETURN(rc);
 
-		oseq = ofd_seq_get(ofd, exp->exp_filter_data.fed_group);
+		ofd_info_init(&env, exp);
+		oseq = ofd_seq_load(&env, ofd,
+				    (obd_seq)exp->exp_filter_data.fed_group);
 		LASSERT(oseq != NULL);
 		if (last_id) {
 			if (*vallen < sizeof(*last_id)) {
@@ -1148,7 +1134,7 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 	CDEBUG(D_INFO, "ofd_create(oa->o_seq="LPU64",oa->o_id="LPU64")\n",
 	       seq, oa->o_id);
 
-	oseq = ofd_seq_get(ofd, seq);
+	oseq = ofd_seq_load(env, ofd, seq);
 	if (oseq == NULL) {
 		CERROR("%s: Can't find oseq "LPX64"\n", ofd_name(ofd), seq);
 		RETURN(-EINVAL);
