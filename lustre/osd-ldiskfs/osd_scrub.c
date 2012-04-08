@@ -491,6 +491,23 @@ again:
 
                 while (offset < LDISKFS_INODES_PER_GROUP(sb) ||
                        !cfs_list_empty(&dev->od_inconsistent_items)) {
+                        if (OBD_FAIL_CHECK(OBD_FAIL_OSD_SCRUB_DELAY)) {
+                                struct l_wait_info tlwi;
+
+                                tlwi = LWI_TIMEOUT_INTR(cfs_time_seconds(3),
+                                                        NULL, NULL, NULL);
+                                l_wait_event(thread->t_ctl_waitq,
+                                             !cfs_list_empty(
+                                                &dev->od_inconsistent_items) ||
+                                             !thread_is_running(thread),
+                                             &tlwi);
+                        }
+
+                        if (OBD_FAIL_CHECK(OBD_FAIL_OSD_SCRUB_FATAL)) {
+                                brelse(bitmap);
+                                GOTO(post, rc = -EINVAL);
+                        }
+
                         if (unlikely(!thread_is_running(thread))) {
                                 brelse(bitmap);
                                 GOTO(post, rc = 0);
@@ -557,6 +574,9 @@ again:
                         }
 
 exec:
+                        if (OBD_FAIL_CHECK(OBD_FAIL_OSD_SCRUB_ERROR))
+                                rc = -EINVAL;
+
                         cfs_down_read(&seh->seh_rwsem);
                         rc = scrub_exec(env, seh, rc);
                         cfs_up_read(&seh->seh_rwsem);
