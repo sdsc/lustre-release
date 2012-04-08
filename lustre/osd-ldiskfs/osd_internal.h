@@ -719,6 +719,7 @@ static inline int osd_invariant(const struct osd_object *obj)
 #define osd_invariant(obj) (1)
 #endif
 
+extern const char *oi_scrub_flags_names[];
 extern const struct dt_index_operations osd_scrub_ops;
 
 static inline struct osd_oi *osd_fid2oi(struct osd_device *osd,

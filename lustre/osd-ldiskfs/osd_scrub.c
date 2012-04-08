@@ -54,6 +54,11 @@ enum oi_scrub_flags {
         OSF_URGENT      = 1 << 0,
 };
 
+const char *oi_scrub_flags_names[] = {
+        "urgent",
+        NULL
+};
+
 struct osd_oi_scrub_data {
         /* The formated position for the latest OI scrub started from. */
         __u32   oosd_pos_latest_start;
