@@ -1266,7 +1266,7 @@ ll_statahead_enter(struct inode *dir, struct dentry **dentryp, int only_unplug)
         struct ll_dentry_data *ldd;
 
         if (ll_i2sbi(dir)->ll_sa_max == 0)
-                return -ENOTSUPP;
+                return -EAGAIN;
 
         lli = ll_i2info(dir);
         /* not the same process, don't statahead */
