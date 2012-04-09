@@ -509,6 +509,33 @@ ssize_t ll_listxattr(struct dentry *dentry, char *buffer, size_t size)
         if (rc < 0)
                 GOTO(out, rc);
 
+        if (buffer != NULL && !cfs_capable(CFS_CAP_SYS_ADMIN)) {
+                char *p1 = buffer, *p2, *p3;
+
+                while ((p1 = strstr(p1, XATTR_TRUSTED_PREFIX)) != NULL) {
+                        p2 = strchr(p1 + sizeof(XATTR_TRUSTED_PREFIX) - 1, 0);
+                        p3 = buffer + rc - 1;
+
+again:
+                        while (p2 < p3 && *(++p2) == 0)
+                                ;
+                        if (p2 < p3) {
+                                if (strncmp(p2, XATTR_TRUSTED_PREFIX,
+                                    sizeof(XATTR_TRUSTED_PREFIX) - 1) == 0) {
+                                        p2 = strchr(p2 +
+                                           sizeof(XATTR_TRUSTED_PREFIX) - 1, 0);
+                                        goto again;
+                                }
+                                memmove(p1, p2, p3 - p2 + 1);
+                                rc -= p2 - p1;
+                        } else {
+                                rc = p1 - buffer;
+                                buffer[rc] = 0;
+                                break;
+                        }
+                }
+        }
+
         if (S_ISREG(inode->i_mode)) {
                 if (ll_i2info(inode)->lli_smd == NULL)
                         rc2 = -1;
