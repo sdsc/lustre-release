@@ -1945,6 +1945,7 @@ enum {
         MDS_KEEP_ORPHAN   = 1 << 7,
         MDS_RECOV_OPEN    = 1 << 8,
         MDS_UNLINK_DESTROY = 1 << 9,  /* Destory ost object in mdd_unlink */
+        MDS_OPEN_BY_FID   = 1 << 10,
 };
 
 /* instance of mdt_reint_rec */

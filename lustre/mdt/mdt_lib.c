@@ -1221,6 +1221,9 @@ static int mdt_open_unpack(struct mdt_thread_info *info)
                 sp->no_create = !!req_is_replay(req);
         }
 
+        if (rec->cr_bias & MDS_OPEN_BY_FID)
+                rr->rr_flags |= MRF_OPEN_BY_FID;
+
         RETURN(0);
 }
 

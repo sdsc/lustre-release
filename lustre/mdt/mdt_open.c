@@ -1273,7 +1273,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                PFID(rr->rr_fid2), create_flags,
                ma->ma_attr.la_mode, msg_flags);
 
-        if (req_is_replay(req) ||
+        if (rr->rr_flags & MRF_OPEN_BY_FID || req_is_replay(req) ||
             (req->rq_export->exp_libclient && create_flags&MDS_OPEN_HAS_EA)) {
                 /* This is a replay request or from liblustre with ea. */
                 result = mdt_open_by_fid(info, ldlm_rep);
@@ -1288,13 +1288,13 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                  * We didn't find the correct object, so we need to re-create it
                  * via a regular replay.
                  */
-                if (!(create_flags & MDS_OPEN_CREAT)) {
+                if (!(rr->rr_flags & MRF_OPEN_BY_FID) &&
+                    !(create_flags & MDS_OPEN_CREAT)) {
                         DEBUG_REQ(D_ERROR, req,
-                                  "OPEN & CREAT not in open replay.");
+                                  "OPEN & CREAT not in open replay/by_fid.");
                         GOTO(out, result = -EFAULT);
                 }
-                CDEBUG(D_INFO, "Open replay did find object, continue as "
-                       "regular open\n");
+                CDEBUG(D_INFO, "No object, continue as regular open.\n");
         } else if (rr->rr_namelen == 0 && !info->mti_cross_ref &&
                    create_flags & MDS_OPEN_LOCK) {
                 result = mdt_open_anon_by_fid(info, ldlm_rep, lhc);
