@@ -170,7 +170,8 @@ static __u64 mds_pack_open_flags(__u32 flags, __u32 mode)
 {
         __u64 cr_flags = (flags & (FMODE_READ | FMODE_WRITE |
                                    MDS_OPEN_HAS_EA | MDS_OPEN_HAS_OBJS | 
-                                   MDS_OPEN_OWNEROVERRIDE | MDS_OPEN_LOCK));
+                                   MDS_OPEN_OWNEROVERRIDE | MDS_OPEN_LOCK |
+                                   MDS_OPEN_BY_FID));
         if (flags & O_CREAT)
                 cr_flags |= MDS_OPEN_CREAT;
         if (flags & O_EXCL)
