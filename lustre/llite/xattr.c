@@ -40,6 +40,7 @@
 #include <linux/sched.h>
 #include <linux/mm.h>
 #include <linux/smp_lock.h>
+#include <linux/selinux.h>
 
 #define DEBUG_SUBSYSTEM S_LLITE
 
@@ -95,6 +96,8 @@ int xattr_type_filter(struct ll_sb_info *sbi, int xattr_type)
            !(sbi->ll_flags & LL_SBI_ACL))
                 return -EOPNOTSUPP;
 
+        if (xattr_type == XATTR_SECURITY_T && !selinux_is_enabled())
+                return -EOPNOTSUPP;
         if (xattr_type == XATTR_USER_T && !(sbi->ll_flags & LL_SBI_USER_XATTR))
                 return -EOPNOTSUPP;
         if (xattr_type == XATTR_TRUSTED_T && !cfs_capable(CFS_CAP_SYS_ADMIN))
