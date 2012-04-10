@@ -245,6 +245,8 @@ static inline void MODULE_AUTHOR(char *name)
 #define __init
 #define __exit
 
+#define EXPORT_SYMBOL(sym)
+
 static inline int cfs_request_module(const char *name, ...)
 {
         return (-EINVAL);
