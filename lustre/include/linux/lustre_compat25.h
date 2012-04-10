@@ -866,5 +866,33 @@ static inline int ll_quota_off(struct super_block *sb, int off, int remount)
 #define HAVE_NODE_TO_CPUMASK
 #endif
 
+#ifndef QUOTA_OK
+# define QUOTA_OK 0
+#endif
+#ifndef NO_QUOTA
+# define NO_QUOTA (-EDQUOT)
+#endif
+
+#if !defined(_ASM_GENERIC_BITOPS_EXT2_NON_ATOMIC_H_) && !defined(ext2_set_bit)
+# define ext2_set_bit             __test_and_set_bit_le
+# define ext2_clear_bit           __test_and_clear_bit_le
+# define ext2_test_bit            test_bit_le
+# define ext2_find_first_zero_bit find_first_zero_bit_le
+# define ext2_find_next_zero_bit  find_next_zero_bit_le
+#endif
+
+#ifdef ATTR_TIMES_SET
+# define TIMES_SET_FLAGS (ATTR_MTIME_SET | ATTR_ATIME_SET | ATTR_TIMES_SET)
+#else
+# define TIMES_SET_FLAGS (ATTR_MTIME_SET | ATTR_ATIME_SET)
+#endif
+
+#ifndef HAVE_SELINUX_IS_ENABLED
+static inline bool selinux_is_enabled(void)
+{
+        return 0;
+}
+#endif
+
 #endif /* __KERNEL__ */
 #endif /* _COMPAT25_H */
