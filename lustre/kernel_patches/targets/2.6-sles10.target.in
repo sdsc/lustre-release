@@ -16,6 +16,7 @@ VERSION=$lnxmaj
 EXTRA_VERSION="${lnxmin#.}-${lnxrel}_lustre.@VERSION@"
 LUSTRE_VERSION=@VERSION@
 
+INIFIBAND=inkernel
 OFED_VERSION=inkernel
 # if using "inkernel" on sles10, we need to know which version of ofed-devel
 # to use

@@ -179,6 +179,13 @@ Usage: ${0##*/} [OPTION]... [-- <lustre configure options>]
     Path to an existing lustre source tarball to use instead of
     pulling from CVS.
 
+  --ofed-version=VERSION
+    Specifies ofed version to be built
+
+  --with-ib={none,inkernel,ofed}
+    Specifies if IB should be built with inkernel, ofed with version referenced
+    by target files (default), or none at all.
+
   --nodownload
     Do not try to download a kernel from downloads.lustre.org
 
@@ -274,6 +281,12 @@ canon_path() {
 }
 
 check_options() {
+
+    if [ -n "$BUILD_IB" ]; then
+        if [ "$BUILD_IB" != "none" -a "$BUILD_IB" != "inkernel" -a "$BUILD_IB" != "ofed" ]; then
+            usage 1 "--with-ib must be specified with none, inkernel, or ofed."
+        fi
+    fi
 
     if [ "$LUSTRE" ]; then
         [ -r "$LUSTRE" ] || \
@@ -561,6 +574,7 @@ download_ofed() {
 }
 
 load_target() {
+    local ofed_version="$1"
 
     EXTRA_VERSION_save="$EXTRA_VERSION"
     for patchesdir in "$EXTERNAL_PATCHES" \
@@ -572,14 +586,22 @@ load_target() {
 
     echo "Loading target config file $TARGET.target..."
 
-    # if the caller specified an OFED_VERSION it should override whatever
-    # the target file specifies
-    local env_OFED_VERSION="$OFED_VERSION"
-
     . "$TARGET_FILE"
 
-    if [ -n "$env_OFED_VERSION" ]; then
-        OFED_VERSION="$env_OFED_VERSION"
+    # if the caller did not specify --with-ib option,  we will
+    # use target file
+    if [ -z "$BUILD_IB" ]; then
+        [ "$INFINIBAND" = "inkernel" ] && OFED_VERSION="inkernel"
+        [ "$INFINIBAND" = "none" ] && BUILD_IB="none"
+    else
+        # if the caller specified --with-ib with inkernel or ofed
+        # overwrite the target file
+        [ "$BUILD_IB" = "inkernel" ] && OFED_VERSION="inkernel"
+    fi
+
+    # if caller specifed a version --ofed-version, overwrite
+    if [ "$BUILD_IB" != "none" ] && [ -n "$ofed_version" ]; then
+        OFED_VERSION="$ofed_version"
     fi
 
     # doesn't make any sense to build OFED for xen domX's
@@ -1669,7 +1691,7 @@ set -E
 
 [ -r ~/.lbuildrc ] && . ~/.lbuildrc
 
-options=$(getopt -o d:D:h -l kerneltree:,distro:,kernelrpm:,reusebuild:,patchless,ldiskfs,ccache,reuse:,norpm,disable-datestamp,external-patches:,timestamp:,extraversion:,kerneldir:,linux:,lustre:,nodownload,nosrc,ofed-version:,publish,release,set-value:,src,stage:,tag:,target:,target-archs:,with-linux:,xen -- "$@")
+options=$(getopt -o d:D:h -l kerneltree:,distro:,kernelrpm:,reusebuild:,patchless,ldiskfs,ccache,reuse:,norpm,disable-datestamp,external-patches:,timestamp:,extraversion:,kerneldir:,linux:,lustre:,nodownload,nosrc,ofed-version:,with-ib:,publish,release,set-value:,src,stage:,tag:,target:,target-archs:,with-linux:,xen -- "$@")
 
 if [ $? != 0 ]; then
     usage 1
@@ -1779,6 +1801,10 @@ while [ "$1" ]; do
             OFED_VERSION="$2"
             shift 2
             ;;
+        --with-ib)
+            BUILD_IB="$2"
+            shift 2
+            ;;
         --publish)
             shift
             ;;
@@ -1843,9 +1869,9 @@ unpack_lustre
 # other (i.e. non-lustre-tarball use cases of lbuild)?
 BUILDID=$(sed -ne '/^BUILDID =/s/.*= *//p' lustre/META)
 
-load_target
+load_target "$OFED_VERSION"
 
-if [ -n "$OFED_VERSION" -a "$OFED_VERSION" != "inkernel" ]; then
+if [ -n "$OFED_VERSION" -a "$OFED_VERSION" != "inkernel" -a "$BUILD_IB" != "none" ]; then
     download_ofed
     unpack_ofed || fatal 1 "Error unpacking OFED tarball"
 fi

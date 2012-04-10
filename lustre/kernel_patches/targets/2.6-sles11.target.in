@@ -16,6 +16,7 @@ VERSION=$lnxmaj
 EXTRA_VERSION="${lnxmin#.}-${lnxrel}_lustre.@VERSION@"
 LUSTRE_VERSION=@VERSION@
 
+INFINIBAND=inkernel
 OFED_VERSION=inkernel
 
 BASE_ARCHS="i686 ppc x86_64 ia64 ppc64"
