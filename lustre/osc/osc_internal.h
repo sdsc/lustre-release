@@ -169,6 +169,7 @@ int osc_set_async_flags_base(struct client_obd *cli,
 int osc_enter_cache_try(const struct lu_env *env,
                         struct client_obd *cli, struct lov_oinfo *loi,
                         struct osc_async_page *oap, int transient);
+int osc_lru_shrink(struct client_obd *cli, int target);
 
 struct cl_page *osc_oap2cl_page(struct osc_async_page *oap);
 extern cfs_spinlock_t osc_ast_guard;
