@@ -2120,6 +2120,22 @@ AC_DEFINE(HAVE_SIMPLE_SETATTR, 1,
 ])
 ])
 
+# Check for selinux_is_enabled presence
+AC_DEFUN([LC_SELINUX_IS_ENABLED],
+[AC_MSG_CHECKING([if selinux_is_enabled is available])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/selinux.h>
+],[
+        selinux_is_enabled();
+],[
+        AC_MSG_RESULT([yes])
+        AC_DEFINE(HAVE_SELINUX_IS_ENABLED, 1,
+                [selinux_is_enabled is defined])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
 #
 # LC_PROG_LINUX
 #
@@ -2193,6 +2209,7 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_PG_FS_MISC
          LC_PAGE_CHECKED
          LC_LINUX_FIEMAP_H
+         LC_SELINUX_IS_ENABLED
 
          # 2.6.19
          LC_INODE_BLKSIZE
