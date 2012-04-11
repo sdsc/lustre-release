@@ -84,13 +84,17 @@ fi
 AC_MSG_RESULT([$LINUXRELEASE])
 AC_SUBST(LINUXRELEASE)
 
-moduledir='/lib/modules/'$LINUXRELEASE/updates/kernel
-AC_SUBST(moduledir)
+AC_ARG_WITH([module-dir],
+	AC_HELP_STRING([--with-module-dir=path],
+                       [Default module directory (default=/lib/modules/$LINUXRELEASE)]),
+	[_with_module_dir="$with_module_dir"],
+	[_with_module_dir="/lib/modules/$LINUXRELEASE"])
+AC_SUBST(_with_module_dir)
 
-modulefsdir='$(moduledir)/fs/$(PACKAGE)'
+modulefsdir='$(_with_module_dir)/updates/kernel/fs/$(PACKAGE)'
 AC_SUBST(modulefsdir)
 
-modulenetdir='$(moduledir)/net/$(PACKAGE)'
+modulenetdir='$(_with_module_dir)/updates/kernel/net/$(PACKAGE)'
 AC_SUBST(modulenetdir)
 
 # ------------ RELEASE --------------------------------

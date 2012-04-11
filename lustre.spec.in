@@ -1,12 +1,14 @@
 # lustre.spec
 %{!?version: %define version @VERSION@}
 %{!?kver: %define kver ""}
-%{!?kdir: %define kdir %(dir=$(echo "%configure_args" | sed -ne 's/.*--with-linux=\\([^ ][^ ]*\\).*$/\\1/p'); if [ -n "$dir" ]; then echo "$dir"; else if [ -n "%kver" ]; then kversion="%kver"; else kversion="$(uname -r)"; fi; echo "/lib/modules/$kversion/source"; fi)}
+%{!?_with_linux: %define _with_linux /lib/modules/$(uname -r)/source}
+%{!?_with_linux_obj: %define _with_linux_obj /lib/modules/$(uname -r)/build}
 
-%{!?kobjdir: %define kobjdir %(dir=$(echo "%configure_args" | sed -ne 's/.*--with-linux-obj=\\([^ ][^ ]*\\).*$/\\1/p'); if [ -n "$dir" ]; then echo "$dir"; else if [ -n "%kver" ]; then kversion="%kver"; else kversion="$(uname -r)"; fi; if [ "%kdir" = "/lib/modules/$kversion/source" ]; then echo "/lib/modules/$kversion/build"; else echo "%kdir"; fi; fi)}
-
-# as an alternative to this implementation we could simply "make -C $kdir kernelversion"
-%{!?kversion: %define kversion %(if test -s %kobjdir/include/linux/utsrelease.h ; then LINUXRELEASEHEADER=utsrelease.h; else LINUXRELEASEHEADER=version.h; fi; sed -ne '/^#define UTS_RELEASE/s/.*"\\(.*\\)"$/\\1/p' %kobjdir/include/linux/$LINUXRELEASEHEADER)}
+# as an alternative to this implementation we could simply "make -C $_with_linux kernelversion"
+# as an alternative to this implementation we could simply "make -C $_with_linux kernelversion"
+%{!?kversion: %define kversion %(if test -s %{_with_linux_obj}/include/linux/utsrelease.h ; then LINUXRELEASEHEADER=utsrelease.h; else LINUXRELEASEHEADER=version.h; fi; sed -ne '/^#define UTS_RELEASE/s/.*"\\(.*\\)"$/\\1/p' %{_with_linux_obj}/include/linux/$LINUXRELEASEHEADER)}
+%{!?_with_module_dir: %define _with_module_dir /lib/modules/%{kversion}}
+%{!?_with_root_sbin: %define _with_root_sbin /sbin}
 
 %{!?downstream_release: %define downstream_release "@DOWNSTREAM_RELEASE@"}
 
@@ -17,8 +19,23 @@
 # always append the buildid, even when the caller defines %release
 %define fullrelease %{myrelease}%{buildid}
 
-%{!?lustre_name: %define lustre_name lustre}
-%{!?build_lustre_tests: %define build_lustre_tests 1}
+%{!?_enable_tests: %define _enable_tests %{!?_disable_tests:--enable-tests}%{?_disable_tests:--disable-tests}}
+
+%if %{!?build_lustre_tests:0}%{?build_lustre_tests:1}
+%if %{build_lustre_tests}
+%define _enable_tests --enable-tests
+%else
+%define _enable_tests --disable-tests
+%endif
+%endif
+
+%{!?_enable_server: %define _enable_server %(test -e %{_with_linux}/include/linux/lustre_version.h && echo --enable-server || echo --disable-server)}
+
+%if "%{_enable_server}" == "--enable-server"
+%define lustre_name lustre
+%else
+%define lustre_name lustre-client
+%endif
 
 # in order to get kernel symset and/or kernel module dependencies into
 # the RPM, in order to support weak-modules, the internal dependency gen-
@@ -29,7 +46,6 @@
 #
 # on SLES10, /usr/lib/rpm/macros already sets this, so no harm in also
 # defining it here (until Suse changes their mind)
-#
 # on RHEL5, however, we do need to explicitly disable the internal dep-
 # endency generator and allow the external one be used
 # but since RedHat's kABI is only a subset of the total kernel ABI, it
@@ -40,7 +56,6 @@
 # response from them
 #%%global _use_internal_dependency_generator 0
 
-%define is_client %(bash -c "if [[ %{lustre_name} = *-client ]]; then echo -n '1'; else echo -n '0'; fi")
 # for those uses that don't want the -smp/-bigsmp (or the .arch) on the end
 # of %kversion
 %define krequires %(bash -c "echo %{kversion} | sed -e 's/\.x86_64$//' -e 's/\.i[3456]86$//' -e 's/-smp$//' -e 's/-bigsmp$//' -e 's/-ppc64$//' -e 's/-default$//'")
@@ -81,7 +96,7 @@ Requires: kernel-%{flavor}
 Requires: kernel = %{krequires}
 %endif
 %endif
-%if ! %{is_client}
+%if "%{_enable_server}" == "--enable-server"
 Requires: lustre-backend-fs
 %endif
 Group: Development/Kernel
@@ -168,19 +183,15 @@ cd $RPM_BUILD_DIR/lustre-%{version}
 # override %optflags so that the vendor's overzealous flags don't create
 # build failures
 %define optflags -g -O2 -Werror
-CONFIGURE_ARGS="%{?configure_args} --with-release=%release"
-%if %{build_lustre_tests}
-CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-tests --enable-liblustre-tests"
-%else
-CONFIGURE_ARGS="$CONFIGURE_ARGS --disable-tests --disable-liblustre-tests"
-%endif
+CONFIGURE_ARGS="%{?configure_args}"
 
-# if %%kdir was given, make sure it's not in the configure arguments
-if [ -n "%kdir" ]; then
+CONFIGURE_ARGS=$(echo $CONFIGURE_ARGS | sed -re 's/--(en|dis)able-tests//')
+# if %%_with_linux was given, make sure it's not in the configure arguments
+if [ -n "%_with_linux" ]; then
 	CONFIGURE_ARGS=$(echo $CONFIGURE_ARGS | sed -e 's/"\?--with-linux=[^ ][^ ]* \?//')
 fi
-# ditto for %%kobjdir
-if [ -n "%kobjdir" ]; then
+# ditto for %%_with_linux_obj
+if [ -n "%_with_linux_obj" ]; then
 	CONFIGURE_ARGS=$(echo $CONFIGURE_ARGS | sed -e 's/"\?--with-linux-obj=[^ ][^ ]* \?//')
 fi
 
@@ -189,23 +200,26 @@ fi
 %define eval_configure %(echo '%configure' | sed -e 's#\./configure#eval ./configure#')
 
 %eval_configure \
-	%{?kdir: --with-linux=%kdir} %{?kobjdir: --with-linux-obj=%kobjdir} \
-	$CONFIGURE_ARGS
+	%{?_with_linux: --with-linux=%_with_linux} %{?_with_linux_obj: --with-linux-obj=%_with_linux_obj} \
+	%{_enable_server} %{_enable_tests} \
+	--with-release=%release $CONFIGURE_ARGS
 make -j $RPM_BUILD_NCPUS -s
 
 %install
 make install DESTDIR=$RPM_BUILD_ROOT
 # hack to avoid changing the libsysio code for "make install"
 rm -f $RPM_BUILD_ROOT%{_libdir}/libsysio.a
-# Remove ldiskfs module(s) - they are packaged by the ldiskfs .spec.
-rm -rf $RPM_BUILD_ROOT/lib/modules/%{kversion}/updates/kernel/fs/lustre-ldiskfs
+%if "%{_enable_server}" == "--enable-server"
+	# Remove ldiskfs module(s) - they are packaged by the ldiskfs .spec.
+	rm -rf $RPM_BUILD_ROOT/%{_with_module_dir}/updates/kernel/fs/lustre-ldiskfs
+%endif
 
 # hack to include the llog_test module in lustre-tests
 llog_base=$RPM_BUILD_DIR/lustre-%{version}/lustre/obdclass/llog_test
 if [ -e ${llog_base}.ko ]; then
-  cp ${llog_base}.ko $RPM_BUILD_ROOT/lib/modules/%{kversion}/updates/kernel/fs/lustre
+  cp ${llog_base}.ko $RPM_BUILD_ROOT/%{_with_module_dir}/updates/kernel/fs/lustre
 elif [ -e ${llog_base}.o ]; then
-  cp ${llog_base}.o $RPM_BUILD_ROOT/lib/modules/%{kversion}/updates/kernel/fs/lustre
+  cp ${llog_base}.o $RPM_BUILD_ROOT/%{_with_module_dir}/updates/kernel/fs/lustre
 fi
 
 # Create the pristine source directory.
@@ -217,16 +231,16 @@ make distdir distdir=lustre-source/lustre-%{version}
 chmod -R go-w lustre-source/lustre-%{version}
 
 cat >lustre.files <<EOF
-%attr(-, root, root) /sbin/mount.lustre
-%attr(-, root, root) /usr/sbin/*
-%attr(-, root, root) /usr/bin/*
+%attr(-, root, root) %{_with_root_sbin}/mount.lustre
+%attr(-, root, root) %{_sbindir}/*
+%attr(-, root, root) %{_bindir}/*
 
-%attr(-, root, root) /usr/share/lustre
+%attr(-, root, root) %{_datadir}/lustre
 
 %attr(-, root, root) %{_libdir}/libptlctl.a
 %attr(-, root, root) %{_libdir}/liblustreapi.a
-%attr(-, root, root) /usr/include/lustre
-%attr(-, root, root) /usr/include/libcfs
+%attr(-, root, root) %{_includedir}/lustre
+%attr(-, root, root) %{_includedir}/libcfs
 
 %attr(-, root, root) %{_mandir}/man?/*
 
@@ -255,28 +269,26 @@ fi
 
 # Have universal lustre headers 
 if [ -f $RPM_BUILD_DIR/lustre-%{version}/lustre/include/lustre/lustre_idl.h ] ; then
-  echo '%attr(-, root, root) /usr/include/linux/lustre_user.h' >>lustre.files
+  echo '%attr(-, root, root) %{_includedir}/linux/lustre_user.h' >>lustre.files
 else
-  echo '%attr(-, root, root) /usr/include/linux/lustre_idl.h' >>lustre.files
+  echo '%attr(-, root, root) %{_includedir}/linux/lustre_idl.h' >>lustre.files
 fi
 
 if [ -f $RPM_BUILD_DIR/lustre-%{version}/lustre/include/linux/lustre_types.h ] ; then
-  echo '%attr(-, root, root) /usr/include/linux/lustre_types.h' >>lustre.files
+  echo '%attr(-, root, root) %{_includedir}/linux/lustre_types.h' >>lustre.files
 fi
 
-%if %{build_lustre_tests}
+%if "%{_enable_tests}" == "--enable-tests"
 echo '%attr(-, root, root) %{_libdir}/lustre/tests/*' >lustre-tests.files
-echo '%attr(-, root, root) /lib/modules/%{kversion}/updates/kernel/fs/lustre/llog_test.*' >>lustre-tests.files
+echo '%attr(-, root, root) %{_with_module_dir}/updates/kernel/fs/lustre/llog_test.*' >>lustre-tests.files
 modules_excludes="|llog_test"
 if [ -d $RPM_BUILD_ROOT%{_libdir}/lustre/liblustre/tests ] ; then
   echo '%attr(-, root, root) %{_libdir}/lustre/liblustre/tests/*' >>lustre-tests.files
 fi
 %endif
 
-pushd $RPM_BUILD_ROOT >/dev/null
 > $RPM_BUILD_DIR/lustre-%{version}/lustre-modules.files
-find lib/modules/%{kversion}/updates -type f | awk "!/(ZZZZZZZZZZ$modules_excludes)/ {print \"%attr(-, root, root) /\"\$0}" >>$RPM_BUILD_DIR/lustre-%{version}/lustre-modules.files
-popd >/dev/null
+find $RPM_BUILD_ROOT%{_with_module_dir}/updates/kernel -type f | sed "s!${RPM_BUILD_ROOT}/!!" | awk "!/(ZZZZZZZZZZ$modules_excludes)/ {print \"%attr(-, root, root) /\"\$0}" >>$RPM_BUILD_DIR/lustre-%{version}/lustre-modules.files
 
 %files -f lustre.files
 
@@ -292,7 +304,7 @@ popd >/dev/null
 # %files deps-sles
 # %files deps-rhel
 
-%if %{build_lustre_tests}
+%if "%{_enable_tests}" == "--enable-tests"
 %files tests -f lustre-tests.files
 %endif
 
@@ -355,7 +367,7 @@ if [ -x /sbin/weak-modules ]; then
 fi
 rm /var/run/%{name}-modules
 
-%if %{build_lustre_tests}
+%if "%{_enable_tests}" == "--enable-tests"
 %post tests
 if [ -f /boot/System.map-%{kversion} ]; then
 	depmod -ae -F /boot/System.map-%{kversion} %{kversion} || exit 0
