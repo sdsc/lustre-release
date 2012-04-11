@@ -458,7 +458,7 @@ test_21() {
 }
 run_test 21 "|X| open(O_CREAT), unlink touch new, replay, close (test mds_cleanup_orphans)"
 
-test_22() {
+test_22a() {
     multiop_bg_pause $DIR/$tfile O_tSc || return 3
     pid=$!
 
@@ -471,7 +471,42 @@ test_22() {
     [ -e $DIR/$tfile ] && return 2
     return 0
 }
-run_test 22 "open(O_CREAT), |X| unlink, replay, close (test mds_cleanup_orphans)"
+run_test 22a "open(O_CREAT), |X| unlink, replay, close (test mds_cleanup_orphans)"
+
+test_22b() {
+    mount_client $MOUNT2 || return 11
+    umount_client $MOUNT2 || return 12
+    fail $SINGLEMDS
+}
+run_test 22b "ORI-486 reproducer"
+
+test_22c() {
+    mount_client $MOUNT2 || return 11
+    umount_client $MOUNT2 || return 12
+    fail $SINGLEMDS
+}
+run_test 22c "ORI-486 reproducer"
+
+test_22d() {
+    mount_client $MOUNT2 || return 11
+    umount_client $MOUNT2 || return 12
+    fail $SINGLEMDS
+}
+run_test 22d "ORI-486 reproducer"
+
+test_22e() {
+    mount_client $MOUNT2 || return 11
+    umount_client $MOUNT2 || return 12
+    fail $SINGLEMDS
+}
+run_test 22e "ORI-486 reproducer"
+
+test_22f() {
+    mount_client $MOUNT2 || return 11
+    umount_client $MOUNT2 || return 12
+    fail $SINGLEMDS
+}
+run_test 22f "ORI-486 reproducer"
 
 test_23() {
     multiop_bg_pause $DIR/$tfile O_tSc || return 5
