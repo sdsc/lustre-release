@@ -2640,28 +2640,87 @@ void osc_cache_truncate_end(const struct lu_env *env, struct osc_io *oio,
 }
 
 /**
- * Called when a write osc_lock is being canceled.
+ * Wait for extents in a specific range to be written out.
+ * The caller must have called osc_cache_writeback_range() to issue IO
+ * otherwise it will take a long time for this function to finish.
+ *
+ * Caller must hold inode_mutex and i_alloc_sem, or cancel exclusive
+ * dlm lock so that nobody else can dirty this range of file while we're
+ * waiting for extents to be written.
  */
-int osc_cache_pageout(const struct lu_env *env, struct osc_lock *ols,
-                      int discard)
+int osc_cache_wait_range(const struct lu_env *env, struct osc_object *obj,
+                         pgoff_t start, pgoff_t end)
 {
-        struct osc_object    *obj;
-        struct osc_extent    *ext;
-        struct osc_extent    *waiting = NULL;
-        struct cl_lock_descr *descr = &ols->ols_cl.cls_lock->cll_descr;
-        pgoff_t               start = descr->cld_start;
-        pgoff_t               end   = descr->cld_end;
-        int                   do_wait = 0;
-        int                   unplug  = 0;
-        int                   result  = 0;
-        CFS_LIST_HEAD        (list);
+        struct osc_extent *ext;
+        pgoff_t index = start;
+        int     result = 0;
         ENTRY;
 
-        if (descr->cld_mode < CLM_WRITE)
-                RETURN(0);
-
-        obj = cl2osc(ols->ols_cl.cls_obj);
 again:
+        osc_object_lock(obj);
+        ext = osc_extent_search(obj, index);
+        if (ext == NULL)
+                ext = first_extent(obj);
+        else if (ext->oe_end < index)
+                ext = next_extent(ext);
+        while (ext != NULL) {
+                int rc;
+
+                if (ext->oe_start > end)
+                        break;
+
+                switch (ext->oe_state) {
+                case OES_CACHE:
+                case OES_LOCKING:
+                case OES_LOCK_DONE:
+                case OES_RPC:
+                        osc_extent_get(ext);
+                        index = ext->oe_end + 1;
+                        osc_object_unlock(obj);
+
+                        rc = osc_extent_wait(env, ext, OES_INV);
+                        if (result == 0)
+                                result = rc;
+                        osc_extent_put(env, ext);
+                        goto again;
+
+                        break;
+                case OES_INV:
+                case OES_TRUNC:
+                case OES_ACTIVE:
+                default:
+                        EASSERTF(0, ext, "impossible state.\n");
+                        break;
+                }
+                ext = next_extent(ext);
+        }
+        osc_object_unlock(obj);
+
+        OSC_IO_DEBUG(obj, "sync file range.\n");
+        RETURN(result);
+}
+
+/**
+ * Called to write out a range of osc object.
+ *
+ * @hp     : should be set this is caused by lock cancel;
+ * @discard: is set if dirty pages should be dropped - file will be deleted or
+ *           truncated, this implies there is no partially discarding extents.
+ *
+ * Return how many pages will be issued, or error code if error occurred.
+ */
+int osc_cache_writeback_range(const struct lu_env *env, struct osc_object *obj,
+                              pgoff_t start, pgoff_t end, int hp, int discard)
+{
+        struct osc_extent *ext;
+        CFS_LIST_HEAD(discard_list);
+        int unplug = 0;
+        int result = 0;
+        ENTRY;
+
+        /* it's impossible for both hp and discard to be true. */
+        LASSERT((hp && discard) == 0);
+
         osc_object_lock(obj);
         ext = osc_extent_search(obj, start);
         if (ext == NULL)
@@ -2672,25 +2731,31 @@ again:
                 if (ext->oe_start > end)
                         break;
 
-                /* lock must contain region of extent */
-                EASSERT(ext->oe_start >= start && ext->oe_max_end <= end, ext);
-                if (do_wait) {
-                        waiting = osc_extent_get(ext);
-                        break;
-                }
-
                 switch (ext->oe_state) {
                 case OES_CACHE:
-                        EASSERT(!ext->oe_hp, ext);
+                        result += ext->oe_nr_pages;
                         if (!discard) {
-                                ext->oe_hp = 1;
-                                cfs_list_move_tail(&ext->oe_link,
-                                                   &obj->oo_hp_exts);
-                                unplug = 1;
+                                cfs_list_t *list = NULL;
+                                if (hp) {
+                                        EASSERT(!ext->oe_hp, ext);
+                                        ext->oe_hp = 1;
+                                        list = &obj->oo_hp_exts;
+                                } else if (!ext->oe_urgent) {
+                                        ext->oe_urgent = 1;
+                                        list = &obj->oo_urgent_exts;
+                                }
+                                if (list != NULL) {
+                                        cfs_list_move_tail(&ext->oe_link, list);
+                                        unplug = 1;
+                                }
                         } else {
+                                /* the only discarder is lock cancelling, so
+                                 * [start, end] must contain this extent */
+                                EASSERT(ext->oe_start >= start &&
+                                        ext->oe_max_end <= end, ext);
                                 osc_extent_state_set(ext, OES_LOCKING);
                                 ext->oe_owner = cfs_current();
-                                cfs_list_move_tail(&ext->oe_link, &list);
+                                cfs_list_move_tail(&ext->oe_link,&discard_list);
                                 osc_update_pending(obj, OBD_BRW_WRITE,
                                                    -ext->oe_nr_pages);
                         }
@@ -2698,7 +2763,7 @@ again:
                 case OES_INV:
                 case OES_TRUNC:
                 case OES_ACTIVE:
-                        EASSERTF(0, ext, "impossible state.\n");
+                        EASSERTF(!hp, ext, "impossible state.\n");
                 default:
                         /* the extent is already in IO(OES_RPC) */
                         break;
@@ -2707,13 +2772,13 @@ again:
         }
         osc_object_unlock(obj);
 
-        LASSERT(ergo(!discard, cfs_list_empty(&list)));
-        if (!cfs_list_empty(&list)) {
+        LASSERT(ergo(!discard, cfs_list_empty(&discard_list)));
+        if (!cfs_list_empty(&discard_list)) {
                 struct osc_extent *tmp;
                 int rc;
 
                 osc_list_maint(osc_cli(obj), obj);
-                cfs_list_for_each_entry_safe(ext, tmp, &list, oe_link) {
+                cfs_list_for_each_entry_safe(ext, tmp, &discard_list, oe_link) {
                         cfs_list_del_init(&ext->oe_link);
                         EASSERT(ext->oe_state == OES_LOCKING, ext);
 
@@ -2723,7 +2788,7 @@ again:
                         if (unlikely(rc < 0)) {
                                 OSC_EXTENT_DUMP(D_ERROR, ext,
                                                 "make_ready returned %d\n", rc);
-                                if (result == 0)
+                                if (result >= 0)
                                         result = rc;
                         }
 
@@ -2735,16 +2800,13 @@ again:
         if (unplug)
                 osc_io_unplug(env, osc_cli(obj), obj, PDL_POLICY_ROUND);
 
-        if (!do_wait) {
-                LASSERT(waiting == NULL);
-                do_wait = 1;
-                goto again;
-        } else if (waiting != NULL) {
-                osc_extent_wait(env, waiting, OES_INV);
-                osc_extent_put(env, waiting);
-                waiting = NULL;
-                goto again;
+        if (hp || discard) {
+                int rc;
+                rc = osc_cache_wait_range(env, obj, start, end);
+                if (result >= 0 && rc < 0)
+                        result = rc;
         }
+
         OSC_IO_DEBUG(obj, "cache page out.\n");
         RETURN(result);
 }

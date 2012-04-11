@@ -1995,9 +1995,12 @@ int ll_flush(struct file *file)
  * Called to make sure a portion of file has been written out.
  * if @local_only is not true, it will send OST_SYNC RPCs to ost.
  *
+ * Return how many pages have been written.
+ *
  * Called with i_mutex held.
  */
-int cl_sync_file_range(struct inode *inode, loff_t start, loff_t end)
+int cl_sync_file_range(struct inode *inode, loff_t start, loff_t end,
+                       enum cl_fsync_mode mode)
 {
         struct lu_env *env;
         struct cl_io *io;
@@ -2006,6 +2009,10 @@ int cl_sync_file_range(struct inode *inode, loff_t start, loff_t end)
         struct obd_capa *capa = NULL;
         struct cl_fsync_io *fio;
         ENTRY;
+
+        if (mode != CL_FSYNC_NONE && mode != CL_FSYNC_LOCAL &&
+            mode != CL_FSYNC_DISCARD && mode != CL_FSYNC_ALL)
+                RETURN(-EINVAL);
 
         env = cl_env_get(&refcheck);
         if (IS_ERR(env))
@@ -2022,11 +2029,15 @@ int cl_sync_file_range(struct inode *inode, loff_t start, loff_t end)
         fio->fi_start = start;
         fio->fi_end = end;
         fio->fi_fid = ll_inode2fid(inode);
+        fio->fi_mode = mode;
+        fio->fi_nr_written = 0;
 
         if (cl_io_init(env, io, CIT_FSYNC, io->ci_obj) == 0)
                 result = cl_io_loop(env, io);
         else
                 result = io->ci_result;
+        if (result == 0)
+                result = fio->fi_nr_written;
         cl_io_fini(env, io);
 
         capa_put(capa);
@@ -2082,8 +2093,9 @@ int ll_fsync(struct file *file, struct dentry *dentry, int data)
                 ptlrpc_req_finished(req);
 
         if (data && lsm) {
-                err = cl_sync_file_range(inode, 0, OBD_OBJECT_EOF);
-                if (!rc)
+                err = cl_sync_file_range(inode, 0, OBD_OBJECT_EOF,
+                                         CL_FSYNC_ALL);
+                if (rc == 0 && err < 0)
                         rc = err;
                 lli->lli_write_rc = rc < 0 ? rc : 0;
         }

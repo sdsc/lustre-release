@@ -2242,6 +2242,18 @@ enum cl_io_lock_dmd {
         CILR_PEEK
 };
 
+enum cl_fsync_mode {
+        /** start writeback, do not wait for them to finish */
+        CL_FSYNC_NONE  = 0,
+        /** start writeback and wait for them to finish */
+        CL_FSYNC_LOCAL = 1,
+        /** discard all of dirty pages in a specific file range */
+        CL_FSYNC_DISCARD = 2,
+        /** start writeback and make sure they have reached storage before
+         * return. OST_SYNC RPC must be issued and finished */
+        CL_FSYNC_ALL   = 3
+};
+
 struct cl_io_rw_common {
         loff_t      crw_pos;
         size_t      crw_count;
@@ -2316,6 +2328,9 @@ struct cl_io {
                         struct obd_capa   *fi_capa;
                         /** file system level fid */
                         struct lu_fid     *fi_fid;
+                        enum cl_fsync_mode fi_mode;
+                        /* how many pages were written/discarded */
+                        unsigned int       fi_nr_written;
                 } ci_fsync;
         } u;
         struct cl_2queue     ci_queue;
