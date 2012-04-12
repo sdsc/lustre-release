@@ -825,11 +825,11 @@ static int __init lloop_init(void)
         if (ll_iocontrol_magic == NULL)
                 goto out_mem1;
 
-        OBD_ALLOC_WAIT(loop_dev, max_loop * sizeof(*loop_dev));
+        OBD_ALLOC_GFP(loop_dev, max_loop * sizeof(*loop_dev), CFS_ALLOC_USER);
         if (!loop_dev)
                 goto out_mem1;
 
-        OBD_ALLOC_WAIT(disks, max_loop * sizeof(*disks));
+        OBD_ALLOC_GFP(disks, max_loop * sizeof(*disks), CFS_ALLOC_USER);
         if (!disks)
                 goto out_mem2;
 

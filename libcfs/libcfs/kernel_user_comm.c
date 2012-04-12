@@ -215,7 +215,7 @@ int libcfs_kkuc_group_add(cfs_file_t *filp, int uid, int group, __u32 data)
                 return -EBADF;
 
         /* freed in group_rem */
-        reg = cfs_alloc(sizeof(*reg), 0);
+        reg = cfs_malloc(sizeof(*reg), 0);
         if (reg == NULL)
                 return -ENOMEM;
 
