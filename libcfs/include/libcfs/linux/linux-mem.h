@@ -107,14 +107,20 @@ static inline int cfs_page_count(cfs_page_t *page)
  * Memory allocator
  * XXX Liang: move these declare to public file
  */
-extern void *cfs_alloc(size_t nr_bytes, u_int32_t flags);
+extern void *cfs_malloc(size_t nr_bytes, unsigned int flags);
+extern void *cfs_cpt_malloc(struct cfs_cpt_table *cptab, int cpt,
+                            size_t nr_bytes, unsigned int flags);
 extern void  cfs_free(void *addr);
 
-extern void *cfs_alloc_large(size_t nr_bytes);
-extern void  cfs_free_large(void *addr);
+extern void *cfs_vmalloc(size_t nr_bytes, unsigned int flags);
+extern void *cfs_cpt_vmalloc(struct cfs_cpt_table *cptab, int cpt,
+                             size_t nr_bytes, unsigned int flags);
+extern void  cfs_vfree(void *addr);
 
-extern cfs_page_t *cfs_alloc_page(unsigned int flags);
-extern void cfs_free_page(cfs_page_t *page);
+extern cfs_page_t *cfs_page_alloc(unsigned int flags);
+extern cfs_page_t *cfs_page_cpt_alloc(struct cfs_cpt_table *cptab,
+                                      int cpt, unsigned int flags);
+extern void cfs_page_free(cfs_page_t *page);
 
 #define cfs_memory_pressure_get() (current->flags & PF_MEMALLOC)
 #define cfs_memory_pressure_set() do { current->flags |= PF_MEMALLOC; } while (0)
@@ -139,10 +145,16 @@ extern void cfs_free_page(cfs_page_t *page);
  * XXX Liang: move these declare to public file
  */
 typedef struct kmem_cache cfs_mem_cache_t;
-extern cfs_mem_cache_t * cfs_mem_cache_create (const char *, size_t, size_t, unsigned long);
-extern int cfs_mem_cache_destroy ( cfs_mem_cache_t * );
-extern void *cfs_mem_cache_alloc ( cfs_mem_cache_t *, int);
-extern void cfs_mem_cache_free ( cfs_mem_cache_t *, void *);
+extern cfs_mem_cache_t *cfs_mem_cache_create(const char *name, size_t size,
+                                             size_t offset,
+                                             unsigned long flags);
+extern int cfs_mem_cache_destroy(cfs_mem_cache_t *cachep);
+extern void *cfs_mem_cache_alloc(cfs_mem_cache_t *cachep,
+                                 size_t nr_bytes, unsigned int flags);
+extern void *cfs_mem_cache_cpt_alloc(cfs_mem_cache_t *cachep,
+                                     struct cfs_cpt_table *cptab, int cpt,
+                                     size_t nr_bytes, unsigned int flags);
+extern void cfs_mem_cache_free(cfs_mem_cache_t *cachep, void *ptr);
 extern int cfs_mem_is_in_cache(const void *addr, const cfs_mem_cache_t *kmem);
 
 #define CFS_DECL_MMSPACE                mm_segment_t __oldfs

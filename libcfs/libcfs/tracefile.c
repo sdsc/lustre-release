@@ -80,13 +80,13 @@ static struct cfs_trace_page *cfs_tage_alloc(int gfp)
          * by upper layer anyway.
          */
         gfp |= CFS_ALLOC_NOWARN;
-        page = cfs_alloc_page(gfp);
+        page = cfs_page_alloc(gfp);
         if (page == NULL)
                 return NULL;
 
-        tage = cfs_alloc(sizeof(*tage), gfp);
+        tage = cfs_malloc(sizeof(*tage), gfp);
         if (tage == NULL) {
-                cfs_free_page(page);
+                cfs_page_free(page);
                 return NULL;
         }
 
@@ -100,7 +100,7 @@ static void cfs_tage_free(struct cfs_trace_page *tage)
         __LASSERT(tage != NULL);
         __LASSERT(tage->page != NULL);
 
-        cfs_free_page(tage->page);
+        cfs_page_free(tage->page);
         cfs_free(tage);
         cfs_atomic_dec(&cfs_tage_allocated);
 }
@@ -826,7 +826,7 @@ int cfs_trace_allocate_string_buffer(char **str, int nob)
         if (nob > 2 * CFS_PAGE_SIZE)            /* string must be "sensible" */
                 return -EINVAL;
 
-        *str = cfs_alloc(nob, CFS_ALLOC_STD | CFS_ALLOC_ZERO);
+        *str = cfs_malloc(nob, CFS_ALLOC_STD | CFS_ALLOC_ZERO);
         if (*str == NULL)
                 return -ENOMEM;
 

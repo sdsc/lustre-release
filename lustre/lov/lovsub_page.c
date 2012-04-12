@@ -73,7 +73,7 @@ struct cl_page *lovsub_page_init(const struct lu_env *env,
         int result;
 
         ENTRY;
-        OBD_SLAB_ALLOC_PTR_GFP(lsb, lovsub_page_kmem, CFS_ALLOC_IO);
+        OBD_SLAB_ALLOC_PTR(lsb, lovsub_page_kmem);
         if (lsb != NULL) {
                 cl_page_slice_add(page, &lsb->lsb_cl, obj, &lovsub_page_ops);
                 result = 0;

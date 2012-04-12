@@ -49,7 +49,7 @@
  * Allocator
  */
 
-cfs_page_t *cfs_alloc_page(unsigned int flags)
+cfs_page_t *cfs_page_alloc(unsigned int flags)
 {
         cfs_page_t *pg = malloc(sizeof(*pg));
         int rc = 0;
@@ -69,10 +69,13 @@ cfs_page_t *cfs_alloc_page(unsigned int flags)
                 free(pg);
                 return NULL;
         }
+
+        if ((flags & CFS_ALLOC_ZERO) != 0)
+                memset(pg->addr, 0, CFS_PAGE_SIZE);
         return pg;
 }
 
-void cfs_free_page(cfs_page_t *pg)
+void cfs_page_free(cfs_page_t *pg)
 {
 #if defined (__WINNT__)
         pgfree(pg->addr);
@@ -122,9 +125,9 @@ int cfs_mem_cache_destroy(cfs_mem_cache_t *c)
         return 0;
 }
 
-void *cfs_mem_cache_alloc(cfs_mem_cache_t *c, int gfp)
+void *cfs_mem_cache_alloc(cfs_mem_cache_t *c, size_t bytes, unsigned int gfp)
 {
-        return cfs_alloc(c->size, gfp);
+        return cfs_malloc(c->size, gfp);
 }
 
 void cfs_mem_cache_free(cfs_mem_cache_t *c, void *addr)
