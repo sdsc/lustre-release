@@ -292,7 +292,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
             valid != CLIENT_CONNECT_MDT_REQD) {
                 char *buf;
 
-                OBD_ALLOC_WAIT(buf, CFS_PAGE_SIZE);
+                OBD_ALLOC_GFP(buf, CFS_PAGE_SIZE, CFS_ALLOC_USER);
                 obd_connect_flags2str(buf, CFS_PAGE_SIZE,
                                       valid ^ CLIENT_CONNECT_MDT_REQD, ",");
                 LCONSOLE_ERROR_MSG(0x170, "Server %s does not support "
