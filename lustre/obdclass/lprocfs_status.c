@@ -169,7 +169,8 @@ struct proc_dir_entry *lprocfs_add_symlink(const char *name,
         if (parent == NULL || format == NULL)
                 return NULL;
 
-        OBD_ALLOC_WAIT(dest, MAX_STRING_SIZE + 1);
+	OBD_ALLOC_GFP(dest, MAX_STRING_SIZE + 1,
+		      CFS_ALLOC_STD | CFS_ALLOC_ZERO);
         if (dest == NULL)
                 return NULL;
 
