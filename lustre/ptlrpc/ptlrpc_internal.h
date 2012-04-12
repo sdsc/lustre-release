@@ -153,6 +153,10 @@ static inline int ll_rpc_recoverable_error(int rc)
         return (rc == -ENOTCONN || rc == -ENODEV);
 }
 
+/* target.c */
+int lut_mod_init(void);
+void lut_mod_exit(void);
+
 static inline void ptlrpc_reqset_put(struct ptlrpc_request_set *set)
 {
         if (cfs_atomic_dec_and_test(&set->set_refcount))
