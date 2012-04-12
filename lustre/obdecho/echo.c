@@ -291,7 +291,8 @@ static int echo_map_nb_to_lb(struct obdo *oa, struct obd_ioobj *obj,
                              struct niobuf_remote *nb, int *pages,
                              struct niobuf_local *lb, int cmd, int *left)
 {
-        int gfp_mask = (obj->ioo_id & 1) ? CFS_ALLOC_HIGHUSER : CFS_ALLOC_STD;
+	int gfp_mask = ((obj->ioo_id & 1) != 0) ?
+			CFS_ALLOC_HIGHSTD : CFS_ALLOC_STD;
         int ispersistent = obj->ioo_id == ECHO_PERSISTENT_OBJID;
         int debug_setup = (!ispersistent &&
                            (oa->o_valid & OBD_MD_FLFLAGS) != 0 &&
@@ -651,8 +652,8 @@ int echo_persistent_pages_init(void)
         int          i;
 
         for (i = 0; i < ECHO_PERSISTENT_PAGES; i++) {
-                int gfp_mask = (i < ECHO_PERSISTENT_PAGES/2) ?
-                        CFS_ALLOC_STD : CFS_ALLOC_HIGHUSER;
+		int gfp_mask = (i < ECHO_PERSISTENT_PAGES / 2) ?
+			       CFS_ALLOC_STD : CFS_ALLOC_HIGHSTD;
 
                 OBD_PAGE_ALLOC(pg, gfp_mask);
                 if (pg == NULL) {

@@ -115,7 +115,7 @@ srpc_free_bulk (srpc_bulk_t *bk)
 #endif
                 if (pg == NULL) break;
 
-                cfs_free_page(pg);
+		cfs_page_free(pg);
         }
 
 #ifndef __KERNEL__
@@ -159,7 +159,7 @@ srpc_alloc_bulk (int npages, int sink)
 #endif
 
         for (i = 0; i < npages; i++) {
-                cfs_page_t *pg = cfs_alloc_page(CFS_ALLOC_STD);
+		cfs_page_t *pg = cfs_page_alloc(CFS_ALLOC_STD);
 
                 if (pg == NULL) {
                         CERROR ("Can't allocate page %d of %d\n", i, npages);

@@ -1402,7 +1402,7 @@ static int mdt_writepage(struct mdt_thread_info *info)
                 RETURN(err_serious(-ENOMEM));
 
         /* allocate the page for the desc */
-        page = cfs_alloc_page(CFS_ALLOC_STD);
+	page = cfs_page_alloc(CFS_ALLOC_STD);
         if (page == NULL)
                 GOTO(desc_cleanup, rc = -ENOMEM);
 
@@ -1459,7 +1459,7 @@ static int mdt_writepage(struct mdt_thread_info *info)
 cleanup_lwi:
         OBD_FREE_PTR(lwi);
 cleanup_page:
-        cfs_free_page(page);
+	cfs_page_free(page);
 desc_cleanup:
         ptlrpc_free_bulk(desc);
         RETURN(rc);
@@ -1508,7 +1508,7 @@ static int mdt_readpage(struct mdt_thread_info *info)
                 RETURN(-ENOMEM);
 
         for (i = 0; i < rdpg->rp_npages; ++i) {
-                rdpg->rp_pages[i] = cfs_alloc_page(CFS_ALLOC_STD);
+		rdpg->rp_pages[i] = cfs_page_alloc(CFS_ALLOC_STD);
                 if (rdpg->rp_pages[i] == NULL)
                         GOTO(free_rdpg, rc = -ENOMEM);
         }
@@ -1526,7 +1526,7 @@ free_rdpg:
 
         for (i = 0; i < rdpg->rp_npages; i++)
                 if (rdpg->rp_pages[i] != NULL)
-                        cfs_free_page(rdpg->rp_pages[i]);
+			cfs_page_free(rdpg->rp_pages[i]);
         OBD_FREE(rdpg->rp_pages, rdpg->rp_npages * sizeof rdpg->rp_pages[0]);
 
         if (OBD_FAIL_CHECK(OBD_FAIL_MDS_SENDPAGE))

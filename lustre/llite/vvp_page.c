@@ -541,7 +541,7 @@ struct cl_page *vvp_page_init(const struct lu_env *env, struct cl_object *obj,
 
         CLOBINVRNT(env, obj, ccc_object_invariant(obj));
 
-        OBD_SLAB_ALLOC_PTR_GFP(cpg, vvp_page_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR(cpg, vvp_page_kmem);
         if (cpg != NULL) {
                 cpg->cpg_page = vmpage;
                 page_cache_get(vmpage);

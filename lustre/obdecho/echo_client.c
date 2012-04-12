@@ -426,7 +426,7 @@ static struct cl_page *echo_page_init(const struct lu_env *env,
         struct echo_page *ep;
         ENTRY;
 
-        OBD_SLAB_ALLOC_PTR_GFP(ep, echo_page_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR(ep, echo_page_kmem);
         if (ep != NULL) {
                 struct echo_object *eco = cl2echo_obj(obj);
                 ep->ep_vmpage = vmpage;
@@ -451,7 +451,7 @@ static int echo_lock_init(const struct lu_env *env,
         struct echo_lock *el;
         ENTRY;
 
-        OBD_SLAB_ALLOC_PTR_GFP(el, echo_lock_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR(el, echo_lock_kmem);
         if (el != NULL) {
                 cl_lock_slice_add(lock, &el->el_cl, obj, &echo_lock_ops);
                 el->el_object = cl2echo_obj(obj);
@@ -579,7 +579,7 @@ static struct lu_object *echo_object_alloc(const struct lu_env *env,
 
         /* we're the top dev. */
         LASSERT(hdr == NULL);
-        OBD_SLAB_ALLOC_PTR_GFP(eco, echo_object_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR(eco, echo_object_kmem);
         if (eco != NULL) {
                 struct cl_object_header *hdr = &eco->eo_hdr;
 
@@ -643,7 +643,7 @@ static void *echo_thread_key_init(const struct lu_context *ctx,
 {
         struct echo_thread_info *info;
 
-        OBD_SLAB_ALLOC_PTR_GFP(info, echo_thread_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR(info, echo_thread_kmem);
         if (info == NULL)
                 info = ERR_PTR(-ENOMEM);
         return info;
@@ -673,7 +673,7 @@ static void *echo_session_key_init(const struct lu_context *ctx,
 {
         struct echo_session_info *session;
 
-        OBD_SLAB_ALLOC_PTR_GFP(session, echo_session_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR(session, echo_session_kmem);
         if (session == NULL)
                 session = ERR_PTR(-ENOMEM);
         return session;
@@ -2303,7 +2303,7 @@ static int echo_client_kbrw(struct echo_device *ed, int rw, struct obdo *oa,
                   (oa->o_valid & OBD_MD_FLFLAGS) != 0 &&
                   (oa->o_flags & OBD_FL_DEBUG_CHECK) != 0);
 
-        gfp_mask = ((oa->o_id & 2) == 0) ? CFS_ALLOC_STD : CFS_ALLOC_HIGHUSER;
+	gfp_mask = ((oa->o_id & 2) == 0) ?  CFS_ALLOC_STD : CFS_ALLOC_HIGHSTD;
 
         LASSERT(rw == OBD_BRW_WRITE || rw == OBD_BRW_READ);
         LASSERT(lsm != NULL);

@@ -831,7 +831,7 @@ static int fsfilt_ext3_add_journal_cb(struct obd_device *obd, __u64 last_rcvd,
 {
         struct fsfilt_cb_data *fcb;
 
-        OBD_SLAB_ALLOC_PTR_GFP(fcb, fcb_cache, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR(fcb, fcb_cache);
         if (fcb == NULL)
                 RETURN(-ENOMEM);
 

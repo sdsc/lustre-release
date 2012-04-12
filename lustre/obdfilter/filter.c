@@ -581,7 +581,7 @@ struct filter_mod_data *filter_fmd_get(struct obd_export *exp,
         struct filter_export_data *fed = &exp->exp_filter_data;
         struct filter_mod_data *found = NULL, *fmd_new = NULL;
 
-        OBD_SLAB_ALLOC_PTR_GFP(fmd_new, ll_fmd_cachep, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR(fmd_new, ll_fmd_cachep);
 
         cfs_spin_lock(&fed->fed_lock);
         found = filter_fmd_find_nolock(&exp->exp_obd->u.filter,fed,objid,group);
@@ -1921,9 +1921,8 @@ static int filter_iobuf_pool_init(struct filter_obd *filter)
 
         ENTRY;
 
-
         OBD_ALLOC_GFP(filter->fo_iobuf_pool, OSS_THREADS_MAX * sizeof(*pool),
-                      GFP_KERNEL);
+		      CFS_ALLOC_STD | CFS_ALLOC_ZERO);
         if (filter->fo_iobuf_pool == NULL)
                 RETURN(-ENOMEM);
 
@@ -2227,11 +2226,10 @@ static int filter_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
         }
 
         /* 2.6.9 selinux wants a full option page for do_kern_mount (bug6471) */
-        OBD_PAGE_ALLOC(page, CFS_ALLOC_STD);
+	OBD_PAGE_ALLOC(page, CFS_ALLOC_STD | CFS_ALLOC_ZERO);
         if (!page)
                 GOTO(remove_entry_clear, rc = -ENOMEM);
         addr = (unsigned long)cfs_page_address(page);
-        clear_page((void *)addr);
         memcpy((void *)addr, lustre_cfg_buf(lcfg, 4),
                LUSTRE_CFG_BUFLEN(lcfg, 4));
         rc = filter_common_setup(obd, lcfg, (void *)addr);
