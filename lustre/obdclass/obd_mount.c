@@ -1422,12 +1422,11 @@ static struct vfsmount *server_kernel_mount(struct super_block *sb)
         s_flags = sb->s_flags;
 
         /* allocate memory for options */
-        OBD_PAGE_ALLOC(__page, CFS_ALLOC_STD);
+	OBD_PAGE_ALLOC(__page, CFS_ALLOC_STD | CFS_ALLOC_ZERO);
         if (!__page)
                 GOTO(out_free, rc = -ENOMEM);
         page = (unsigned long)cfs_page_address(__page);
         options = (char *)page;
-        memset(options, 0, CFS_PAGE_SIZE);
 
         /* mount-line options must be added for pre-mount because it may
          * contain mount options such as journal_dev which are required

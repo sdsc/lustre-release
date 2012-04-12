@@ -163,7 +163,7 @@ static int mgs_nidtbl_read(struct obd_device *unused, struct mgs_nidtbl *tbl,
 
                         if (units_in_page == 0) {
                                 /* allocate a new page */
-                                pages[index] = cfs_alloc_page(CFS_ALLOC_STD);
+				pages[index] = cfs_page_alloc(CFS_ALLOC_STD);
                                 if (pages[index] == NULL) {
                                         rc = -ENOMEM;
                                         break;
@@ -670,7 +670,7 @@ out:
                 for (i = 0; i < nrpages; i++) {
                         if (pages[i] == NULL)
                                 break;
-                        cfs_free_page(pages[i]);
+			cfs_page_free(pages[i]);
                 }
                 OBD_FREE(pages, sizeof(*pages) * nrpages);
         }

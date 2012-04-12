@@ -626,7 +626,7 @@ struct cl_page *osc_page_init(const struct lu_env *env,
         struct osc_page   *opg;
         int result;
 
-        OBD_SLAB_ALLOC_PTR_GFP(opg, osc_page_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR(opg, osc_page_kmem);
         if (opg != NULL) {
                 void *oap = &opg->ops_oap;
 

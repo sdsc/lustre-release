@@ -67,19 +67,19 @@ kportal_memhog_free (struct libcfs_device_userstate *ldu)
                         while (count2 < CFS_PAGE_SIZE/sizeof(cfs_page_t *) &&
                                *level2p != NULL) {
 
-                                cfs_free_page(*level2p);
+				cfs_page_free(*level2p);
                                 ldu->ldu_memhog_pages--;
                                 level2p++;
                                 count2++;
                         }
 
-                        cfs_free_page(*level1p);
+			cfs_page_free(*level1p);
                         ldu->ldu_memhog_pages--;
                         level1p++;
                         count1++;
                 }
 
-                cfs_free_page(*level0p);
+		cfs_page_free(*level0p);
                 ldu->ldu_memhog_pages--;
 
                 *level0p = NULL;
@@ -107,7 +107,7 @@ kportal_memhog_alloc (struct libcfs_device_userstate *ldu, int npages, int flags
                 return 0;
 
         level0p = &ldu->ldu_memhog_root_page;
-        *level0p = cfs_alloc_page(flags);
+	*level0p = cfs_page_alloc(flags);
         if (*level0p == NULL)
                 return -ENOMEM;
         ldu->ldu_memhog_pages++;
@@ -122,7 +122,7 @@ kportal_memhog_alloc (struct libcfs_device_userstate *ldu, int npages, int flags
                 if (cfs_signal_pending())
                         return (-EINTR);
 
-                *level1p = cfs_alloc_page(flags);
+		*level1p = cfs_page_alloc(flags);
                 if (*level1p == NULL)
                         return -ENOMEM;
                 ldu->ldu_memhog_pages++;
@@ -137,7 +137,7 @@ kportal_memhog_alloc (struct libcfs_device_userstate *ldu, int npages, int flags
                         if (cfs_signal_pending())
                                 return (-EINTR);
 
-                        *level2p = cfs_alloc_page(flags);
+			*level2p = cfs_page_alloc(flags);
                         if (*level2p == NULL)
                                 return (-ENOMEM);
                         ldu->ldu_memhog_pages++;
@@ -335,7 +335,7 @@ static int libcfs_ioctl(struct cfs_psdev_file *pfile, unsigned long cmd, void *a
         int err = 0;
         ENTRY;
 
-        LIBCFS_ALLOC_GFP(buf, 1024, CFS_ALLOC_STD);
+	LIBCFS_ALLOC_GFP(buf, 1024, CFS_ALLOC_STD | CFS_ALLOC_ZERO);
         if (buf == NULL)
                 RETURN(-ENOMEM);
 

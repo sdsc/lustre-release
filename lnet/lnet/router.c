@@ -1228,7 +1228,7 @@ lnet_destroy_rtrbuf(lnet_rtrbuf_t *rb, int npages)
         int sz = offsetof(lnet_rtrbuf_t, rb_kiov[npages]);
 
         while (--npages >= 0)
-                cfs_free_page(rb->rb_kiov[npages].kiov_page);
+		cfs_page_free(rb->rb_kiov[npages].kiov_page);
 
         LIBCFS_FREE(rb, sz);
 }
@@ -1249,10 +1249,10 @@ lnet_new_rtrbuf(lnet_rtrbufpool_t *rbp)
         rb->rb_pool = rbp;
 
         for (i = 0; i < npages; i++) {
-                page = cfs_alloc_page(CFS_ALLOC_ZERO | CFS_ALLOC_STD);
+		page = cfs_page_alloc(CFS_ALLOC_STD);
                 if (page == NULL) {
                         while (--i >= 0)
-                                cfs_free_page(rb->rb_kiov[i].kiov_page);
+				cfs_page_free(rb->rb_kiov[i].kiov_page);
 
                         LIBCFS_FREE(rb, sz);
                         return NULL;

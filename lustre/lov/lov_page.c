@@ -163,7 +163,7 @@ struct cl_page *lov_page_init_raid0(const struct lu_env *env,
                                    &suboff);
         LASSERT(rc == 0);
 
-        OBD_SLAB_ALLOC_PTR_GFP(lpg, lov_page_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR(lpg, lov_page_kmem);
         if (lpg == NULL)
                 GOTO(out, result = ERR_PTR(-ENOMEM));
 
@@ -210,7 +210,7 @@ struct cl_page *lov_page_init_empty(const struct lu_env *env,
         int result = -ENOMEM;
         ENTRY;
 
-        OBD_SLAB_ALLOC_PTR_GFP(lpg, lov_page_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR(lpg, lov_page_kmem);
         if (lpg != NULL) {
                 void *addr;
                 cl_page_slice_add(page, &lpg->lps_cl,

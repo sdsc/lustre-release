@@ -1441,7 +1441,7 @@ static int mgc_process_recover_log(struct obd_device *obd,
                 GOTO(out, rc = -ENOMEM);
 
         for (i = 0; i < nrpages; i++) {
-                pages[i] = cfs_alloc_page(CFS_ALLOC_STD);
+		pages[i] = cfs_page_alloc(CFS_ALLOC_STD);
                 if (pages[i] == NULL)
                         GOTO(out, rc = -ENOMEM);
         }
@@ -1535,7 +1535,7 @@ out:
                 for (i = 0; i < nrpages; i++) {
                         if (pages[i] == NULL)
                                 break;
-                        cfs_free_page(pages[i]);
+			cfs_page_free(pages[i]);
                 }
                 OBD_FREE(pages, sizeof(*pages) * nrpages);
         }
