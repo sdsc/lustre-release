@@ -54,7 +54,7 @@ struct ll_file_data *ll_file_data_get(void)
 {
         struct ll_file_data *fd;
 
-        OBD_SLAB_ALLOC_PTR_GFP(fd, ll_file_data_slab, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR(fd, ll_file_data_slab);
         return fd;
 }
 

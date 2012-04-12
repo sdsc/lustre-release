@@ -217,7 +217,7 @@ static void enc_pools_release_free_pages(long npages)
                 LASSERT(page_pools.epp_pools[p_idx]);
                 LASSERT(page_pools.epp_pools[p_idx][g_idx] != NULL);
 
-                cfs_free_page(page_pools.epp_pools[p_idx][g_idx]);
+		cfs_page_free(page_pools.epp_pools[p_idx][g_idx]);
                 page_pools.epp_pools[p_idx][g_idx] = NULL;
 
                 if (++g_idx == PAGES_PER_POOL) {
@@ -294,7 +294,7 @@ static unsigned long enc_pools_cleanup(cfs_page_t ***pools, int npools)
                 if (pools[i]) {
                         for (j = 0; j < PAGES_PER_POOL; j++) {
                                 if (pools[i][j]) {
-                                        cfs_free_page(pools[i][j]);
+					cfs_page_free(pools[i][j]);
                                         cleaned++;
                                 }
                         }
@@ -423,7 +423,7 @@ static int enc_pools_add_pages(int npages)
                         goto out_pools;
 
                 for (j = 0; j < PAGES_PER_POOL && alloced < npages; j++) {
-                        pools[i][j] = cfs_alloc_page(CFS_ALLOC_IO |
+			pools[i][j] = cfs_page_alloc(CFS_ALLOC_IO |
                                                      CFS_ALLOC_HIGH);
                         if (pools[i][j] == NULL)
                                 goto out_pools;

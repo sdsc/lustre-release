@@ -430,7 +430,7 @@ static struct lustre_qunit *alloc_qunit(struct lustre_quota_ctxt *qctxt,
         struct lustre_qunit *qunit = NULL;
         ENTRY;
 
-        OBD_SLAB_ALLOC_PTR_GFP(qunit, qunit_cachep, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR(qunit, qunit_cachep);
         if (qunit == NULL)
                 RETURN(NULL);
 
@@ -527,7 +527,7 @@ void* quota_barrier(struct lustre_quota_ctxt *qctxt,
         struct lustre_qunit *qunit, *find_qunit;
         int cycle = 1;
 
-        OBD_SLAB_ALLOC(qunit, qunit_cachep, CFS_ALLOC_IO, sizeof(*qunit));
+	OBD_SLAB_ALLOC_PTR(qunit, qunit_cachep);
         if (qunit == NULL) {
                 CERROR("locating %sunit failed for %sid %u\n",
                        isblk ? "b" : "i", oqctl->qc_type ? "g" : "u",

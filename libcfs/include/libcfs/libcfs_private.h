@@ -134,66 +134,110 @@ extern cfs_atomic_t libcfs_kmemory;
  */
 #ifdef LIBCFS_DEBUG
 
-# define libcfs_kmem_inc(ptr, size)             \
-do {                                            \
-        cfs_atomic_add(size, &libcfs_kmemory);  \
+# define libcfs_kmem_inc(ptr, size)		\
+do {						\
+	cfs_atomic_add(size, &libcfs_kmemory);	\
 } while (0)
 
-# define libcfs_kmem_dec(ptr, size) do {        \
-        cfs_atomic_sub(size, &libcfs_kmemory);  \
+# define libcfs_kmem_dec(ptr, size)		\
+do {						\
+	cfs_atomic_sub(size, &libcfs_kmemory);	\
 } while (0)
+
+# define libcfs_kmem_read()			\
+	cfs_atomic_read(&libcfs_kmemory)
 
 #else
-# define libcfs_kmem_inc(ptr, size) do {} while (0)
-# define libcfs_kmem_dec(ptr, size) do {} while (0)
+# define libcfs_kmem_inc(ptr, size)	do {} while (0)
+# define libcfs_kmem_dec(ptr, size)	do {} while (0)
+# define libcfs_kmem_read()		(0)
 #endif /* LIBCFS_DEBUG */
 
 #ifndef LIBCFS_VMALLOC_SIZE
 #define LIBCFS_VMALLOC_SIZE        (2 << CFS_PAGE_SHIFT) /* 2 pages */
 #endif
 
-#define LIBCFS_ALLOC_GFP(ptr, size, mask)                                 \
-do {                                                                      \
-        LASSERT(!cfs_in_interrupt() ||                                    \
-               (size <= LIBCFS_VMALLOC_SIZE && mask == CFS_ALLOC_ATOMIC));\
-        if (unlikely((size) > LIBCFS_VMALLOC_SIZE))                       \
-                (ptr) = cfs_alloc_large(size);                            \
-        else                                                              \
-                (ptr) = cfs_alloc((size), (mask));                        \
-        if (unlikely((ptr) == NULL)) {                                    \
-                CERROR("LNET: out of memory at %s:%d (tried to alloc '"   \
-                       #ptr "' = %d)\n", __FILE__, __LINE__, (int)(size));\
-                CERROR("LNET: %d total bytes allocated by lnet\n",        \
-                       cfs_atomic_read(&libcfs_kmemory));                 \
-                break;                                                    \
-        }                                                                 \
-        libcfs_kmem_inc((ptr), (size));                                   \
-        memset((ptr), 0, (size));                                         \
-        CDEBUG(D_MALLOC, "kmalloced '" #ptr "': %d at %p (tot %d).\n",    \
-               (int)(size), (ptr), cfs_atomic_read (&libcfs_kmemory));    \
+#define LIBCFS_ALLOC_PRE(size, mask)					    \
+do {									    \
+	LASSERT(!cfs_in_interrupt() ||					    \
+		((size) <= LIBCFS_VMALLOC_SIZE &&			    \
+		 ((mask) & CFS_ALLOC_ATOMIC)) != 0);			    \
 } while (0)
 
-#define LIBCFS_ALLOC(ptr, size) \
-        LIBCFS_ALLOC_GFP(ptr, size, CFS_ALLOC_IO)
+#define LIBCFS_ALLOC_POST(ptr, size)					    \
+do {									    \
+	if (unlikely((ptr) == NULL)) {					    \
+		CERROR("LNET: out of memory at %s:%d (tried to alloc '"	    \
+		       #ptr "' = %d)\n", __FILE__, __LINE__, (int)(size));  \
+		CERROR("LNET: %d total bytes allocated by lnet\n",	    \
+		       libcfs_kmem_read());				    \
+	} else {							    \
+		libcfs_kmem_inc((ptr), (size));				    \
+		CDEBUG(D_MALLOC, "alloc '" #ptr "': %d at %p (tot %d).\n",  \
+		       (int)(size), (ptr), libcfs_kmem_read());		    \
+	}                                                                   \
+} while (0)
 
-#define LIBCFS_ALLOC_ATOMIC(ptr, size) \
-        LIBCFS_ALLOC_GFP(ptr, size, CFS_ALLOC_ATOMIC)
+/**
+ * allocate memory with GFP flags @mask
+ */
+#define LIBCFS_ALLOC_GFP(ptr, size, mask)                                   \
+do {									    \
+	LIBCFS_ALLOC_PRE((size), (mask));				    \
+	(ptr) = (size) <= LIBCFS_VMALLOC_SIZE ?				    \
+		cfs_malloc((size), (mask)) : cfs_vmalloc(size, mask);	    \
+	LIBCFS_ALLOC_POST((ptr), (size));				    \
+} while (0)
 
-#define LIBCFS_FREE(ptr, size)                                          \
-do {                                                                    \
-        int s = (size);                                                 \
-        if (unlikely((ptr) == NULL)) {                                  \
-                CERROR("LIBCFS: free NULL '" #ptr "' (%d bytes) at "    \
-                       "%s:%d\n", s, __FILE__, __LINE__);               \
-                break;                                                  \
-        }                                                               \
-        libcfs_kmem_dec((ptr), s);                                      \
-        CDEBUG(D_MALLOC, "kfreed '" #ptr "': %d at %p (tot %d).\n",     \
-               s, (ptr), cfs_atomic_read(&libcfs_kmemory));             \
-        if (unlikely(s > LIBCFS_VMALLOC_SIZE))                          \
-                cfs_free_large(ptr);                                    \
-        else                                                            \
-                cfs_free(ptr);                                          \
+/**
+ * default allocator
+ */
+#define LIBCFS_ALLOC(ptr, size)						    \
+	LIBCFS_ALLOC_GFP(ptr, size, CFS_ALLOC_IO | CFS_ALLOC_ZERO)
+
+/**
+ * non-sleeping allocator
+ */
+#define LIBCFS_ALLOC_ATOMIC(ptr, size)					    \
+	LIBCFS_ALLOC_GFP(ptr, size, CFS_ALLOC_ATOMIC | CFS_ALLOC_ZERO)
+
+/**
+ * allocate memory for specified CPU partition
+ *   \a cptab != NULL, \a cpt is CPU partition id of \a cptab
+ *   \a cptab == NULL, \a cpt is HW NUMA node id
+ */
+#define LIBCFS_CPT_ALLOC_GFP(ptr, cptab, cpt, size, mask)		    \
+do {									    \
+	LIBCFS_ALLOC_PRE((size), (mask));				    \
+	(ptr) = (size) <= LIBCFS_VMALLOC_SIZE ?				    \
+		cfs_cpt_malloc((cptab), (cpt), (size), (mask)) :	    \
+		cfs_cpt_vmalloc((cptab), (cpt), (size), (mask));	    \
+	LIBCFS_ALLOC_POST((ptr), (size));				    \
+} while (0)
+
+/** default numa allocator */
+#define LIBCFS_CPT_ALLOC(ptr, cptab, cpt, size)				    \
+	LIBCFS_CPT_ALLOC_GFP(ptr, cptab, cpt, size,			    \
+			     CFS_ALLOC_IO | CFS_ALLOC_ZERO)
+
+/**
+ * free buffer \a ptr
+ */
+#define LIBCFS_FREE(ptr, size)						    \
+do {									    \
+	int s = (size);							    \
+	if (unlikely((ptr) == NULL)) {					    \
+		CERROR("LIBCFS: free NULL '" #ptr "' (%d bytes) at "	    \
+		       "%s:%d\n", s, __FILE__, __LINE__);		    \
+		break;							    \
+	}								    \
+	libcfs_kmem_dec((ptr), s);					    \
+	CDEBUG(D_MALLOC, "freed '" #ptr "': %d at %p (tot %d).\n",	    \
+	       s, (ptr), libcfs_kmem_read());				    \
+	if (unlikely(s > LIBCFS_VMALLOC_SIZE))				    \
+		cfs_vfree(ptr);						    \
+	else								    \
+		cfs_free(ptr);						    \
 } while (0)
 
 /******************************************************************************/
@@ -247,15 +291,24 @@ do {                                                                           \
 # define KLASSERT(e) ((void)0)
 # define printk printf
 # ifdef CRAY_XT3                                /* buggy calloc! */
-#  define LIBCFS_ALLOC(ptr, size)               \
-   do {                                         \
-        (ptr) = malloc(size);                   \
-        memset(ptr, 0, size);                   \
+#  define LIBCFS_ALLOC_GFP(ptr, size, mask)	\
+   do {						\
+	(ptr) = malloc(size);			\
+	memset(ptr, 0, size);			\
    } while (0)
 # else
-#  define LIBCFS_ALLOC(ptr, size) do { (ptr) = calloc(1,size); } while (0)
+#  define LIBCFS_ALLOC_GFP(ptr, size, mask)	\
+   do {						\
+	(ptr) = calloc(1, size);		\
+   } while (0)
 # endif
 # define LIBCFS_FREE(ptr, size) do { free(ptr); } while((size) - (size))
+# define LIBCFS_ALLOC(ptr, size)				\
+	 LIBCFS_ALLOC_GFP(ptr, size, 0)
+# define LIBCFS_CPT_ALLOC_GFP(ptr, cptab, cpt, size, mask)	\
+	 LIBCFS_ALLOC(ptr, size)
+# define LIBCFS_CPT_ALLOC(ptr, cptab, cpt, size)		\
+	 LIBCFS_ALLOC(ptr, size)
 
 void libcfs_debug_dumplog(void);
 int libcfs_debug_init(unsigned long bufsize);
