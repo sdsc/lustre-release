@@ -5066,14 +5066,12 @@ static int mdt_obd_connect(const struct lu_env *env,
 
         rc = mdt_connect_internal(lexp, mdt, data);
         if (rc == 0) {
-                struct mdt_thread_info *mti;
                 struct lsd_client_data *lcd = lexp->exp_target_data.ted_lcd;
+
                 LASSERT(lcd);
-                mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-                LASSERT(mti != NULL);
-                mti->mti_exp = lexp;
+                info->mti_exp = lexp;
                 memcpy(lcd->lcd_uuid, cluuid, sizeof lcd->lcd_uuid);
-                rc = mdt_client_new(env, mdt);
+                rc = lut_client_new(env, lexp);
                 if (rc == 0)
                         mdt_export_stats_init(obd, lexp, localdata);
         }
@@ -5118,6 +5116,7 @@ static int mdt_obd_reconnect(const struct lu_env *env,
 
         RETURN(rc);
 }
+
 static int mdt_export_cleanup(struct obd_export *exp)
 {
         struct mdt_export_data *med = &exp->exp_mdt_data;
@@ -5197,7 +5196,7 @@ out_lmm:
         /* cleanup client slot early */
         /* Do not erase record for recoverable client. */
         if (!(exp->exp_flags & OBD_OPT_FAILOVER) || exp->exp_failed)
-                mdt_client_del(&env, mdt);
+                lut_client_del(&env, exp);
         lu_env_fini(&env);
 
         RETURN(rc);
