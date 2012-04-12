@@ -1427,7 +1427,6 @@ static struct vfsmount *server_kernel_mount(struct super_block *sb)
                 GOTO(out_free, rc = -ENOMEM);
         page = (unsigned long)cfs_page_address(__page);
         options = (char *)page;
-        memset(options, 0, CFS_PAGE_SIZE);
 
         /* mount-line options must be added for pre-mount because it may
          * contain mount options such as journal_dev which are required

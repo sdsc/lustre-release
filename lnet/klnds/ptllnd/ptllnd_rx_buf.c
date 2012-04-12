@@ -342,13 +342,13 @@ kptllnd_rx_alloc(void)
                 return NULL;
         }
 
-        rx = cfs_mem_cache_alloc(kptllnd_data.kptl_rx_cache, CFS_ALLOC_ATOMIC);
+        rx = cfs_mem_cache_alloc(kptllnd_data.kptl_rx_cache, sizeof(*rx),
+                                 CFS_ALLOC_ATOMIC | CFS_ALLOC_ZERO);
         if (rx == NULL) {
                 CERROR("Failed to allocate rx\n");
                 return NULL;
         }
 
-        memset(rx, 0, sizeof(*rx));
         return rx;
 }
 

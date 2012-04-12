@@ -36,11 +36,14 @@ typedef struct page {
 #define CFS_PAGE_SIZE (1UL << CFS_PAGE_SHIFT)
 #define CFS_PAGE_MASK (~((__u64)CFS_PAGE_SIZE-1))
 
-cfs_page_t *cfs_alloc_page(unsigned int flags);
-void cfs_free_page(cfs_page_t *pg);
+cfs_page_t *cfs_page_alloc(unsigned int flags);
+void cfs_page_free(cfs_page_t *pg);
 void *cfs_page_address(cfs_page_t *pg);
 void *cfs_kmap(cfs_page_t *pg);
 void cfs_kunmap(cfs_page_t *pg);
+
+#define cfs_page_cpt_alloc(cptab, cpt, mask)            \
+        cfs_page_alloc(mask)
 
 #define cfs_get_page(p)			__I_should_not_be_called__(at_all)
 #define cfs_page_count(p)		__I_should_not_be_called__(at_all)
@@ -53,7 +56,7 @@ void cfs_kunmap(cfs_page_t *pg);
  * Inline function, so utils can use them without linking of libcfs
  */
 #define __ALLOC_ZERO    (1 << 2)
-static inline void *cfs_alloc(size_t nr_bytes, u_int32_t flags)
+static inline void *cfs_malloc(size_t nr_bytes, u_int32_t flags)
 {
         void *result;
 
@@ -63,9 +66,16 @@ static inline void *cfs_alloc(size_t nr_bytes, u_int32_t flags)
         return result;
 }
 
-#define cfs_free(addr)  free(addr)
-#define cfs_alloc_large(nr_bytes) cfs_alloc(nr_bytes, 0)
-#define cfs_free_large(addr) cfs_free(addr)
+#define cfs_cpt_malloc(cptab, cpt, bytes, flags)        \
+        cfs_malloc(bytes, flags)
+#define cfs_free(addr)                                  \
+        free(addr)
+#define cfs_vmalloc(bytes, flags)                       \
+        cfs_malloc(bytes, flags)
+#define cfs_cpt_vmalloc(cptab, cpt, bytes, flags)       \
+        cfs_malloc(bytes, flags)
+
+#define cfs_vfree(addr) cfs_free(addr)
 
 #define CFS_ALLOC_ATOMIC_TRY   (0)
 /*
@@ -83,9 +93,12 @@ typedef struct {
 cfs_mem_cache_t *
 cfs_mem_cache_create(const char *, size_t, size_t, unsigned long);
 int cfs_mem_cache_destroy(cfs_mem_cache_t *c);
-void *cfs_mem_cache_alloc(cfs_mem_cache_t *c, int gfp);
+void *cfs_mem_cache_alloc(cfs_mem_cache_t *c, size_t bytes, unsigned int gfp);
 void cfs_mem_cache_free(cfs_mem_cache_t *c, void *addr);
 int cfs_mem_is_in_cache(const void *addr, const cfs_mem_cache_t *kmem);
+
+#define cfs_mem_cache_cpt_alloc(cache, cptab, cpt, size, gfp)   \
+        cfs_mem_cache_alloc(cache, size, gfp)
 
 /*
  * Copy to/from user

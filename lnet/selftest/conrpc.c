@@ -163,7 +163,7 @@ lstcon_rpc_put(lstcon_rpc_t *crpc)
                 if (bulk->bk_iovs[i].kiov_page == NULL)
                         continue;
 
-                cfs_free_page(bulk->bk_iovs[i].kiov_page);
+                cfs_page_free(bulk->bk_iovs[i].kiov_page);
         }
 
         srpc_client_rpc_decref(crpc->crp_rpc);
@@ -832,7 +832,8 @@ lstcon_testrpc_prep(lstcon_node_t *nd, int transop,
                 for (i = 0; i < n; i++) {
                         bulk->bk_iovs[i].kiov_offset = 0;
                         bulk->bk_iovs[i].kiov_len    = CFS_PAGE_SIZE;
-                        bulk->bk_iovs[i].kiov_page   = cfs_alloc_page(CFS_ALLOC_STD);
+                        bulk->bk_iovs[i].kiov_page   = \
+                                         cfs_page_alloc(CFS_ALLOC_IO);
 
                         if (bulk->bk_iovs[i].kiov_page != NULL) 
                                 continue;
