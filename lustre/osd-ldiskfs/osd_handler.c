@@ -582,7 +582,7 @@ static struct thandle *osd_trans_create(const struct lu_env *env,
         LASSERT(cfs_atomic_read(&iobuf->dr_numreqs) == 0);
 
         th = ERR_PTR(-ENOMEM);
-        OBD_ALLOC_GFP(oh, sizeof *oh, CFS_ALLOC_IO);
+        OBD_ALLOC_PTR(oh);
         if (oh != NULL) {
                 th = &oh->ot_super;
                 th->th_dev = d;

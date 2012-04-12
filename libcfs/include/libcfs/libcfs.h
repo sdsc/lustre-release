@@ -200,8 +200,9 @@ enum cfs_alloc_flags {
         /* don't report allocation failure to the console */
         CFS_ALLOC_NOWARN = 0x20,
         /* standard allocator flag combination */
-        CFS_ALLOC_STD    = CFS_ALLOC_FS | CFS_ALLOC_IO,
-        CFS_ALLOC_USER   = CFS_ALLOC_WAIT | CFS_ALLOC_FS | CFS_ALLOC_IO,
+        CFS_ALLOC_STD    = CFS_ALLOC_WAIT | CFS_ALLOC_ZERO | CFS_ALLOC_IO,
+        CFS_ALLOC_USER   = CFS_ALLOC_WAIT | CFS_ALLOC_ZERO | \
+                           CFS_ALLOC_FS | CFS_ALLOC_IO,
 };
 
 /* flags for cfs_page_alloc() in addition to enum cfs_alloc_flags */
@@ -209,7 +210,8 @@ enum cfs_alloc_page_flags {
         /* allow to return page beyond KVM. It has to be mapped into KVM by
          * cfs_page_map(); */
         CFS_ALLOC_HIGH   = 0x40,
-        CFS_ALLOC_HIGHUSER = CFS_ALLOC_WAIT | CFS_ALLOC_FS | CFS_ALLOC_IO | CFS_ALLOC_HIGH,
+        CFS_ALLOC_HIGHUSER = CFS_ALLOC_WAIT | CFS_ALLOC_FS | \
+                             CFS_ALLOC_IO | CFS_ALLOC_HIGH,
 };
 
 /*

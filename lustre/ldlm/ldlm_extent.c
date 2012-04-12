@@ -806,7 +806,7 @@ struct ldlm_interval *ldlm_interval_alloc(struct ldlm_lock *lock)
         ENTRY;
 
         LASSERT(lock->l_resource->lr_type == LDLM_EXTENT);
-        OBD_SLAB_ALLOC_PTR_GFP(node, ldlm_interval_slab, CFS_ALLOC_IO);
+        OBD_SLAB_ALLOC_PTR(node, ldlm_interval_slab);
         if (node == NULL)
                 RETURN(NULL);
 

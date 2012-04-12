@@ -136,7 +136,7 @@ void *ccc_key_init(const struct lu_context *ctx,
 {
         struct ccc_thread_info *info;
 
-        OBD_SLAB_ALLOC_PTR_GFP(info, ccc_thread_kmem, CFS_ALLOC_IO);
+        OBD_SLAB_ALLOC_PTR(info, ccc_thread_kmem);
         if (info == NULL)
                 info = ERR_PTR(-ENOMEM);
         return info;
@@ -154,7 +154,7 @@ void *ccc_session_key_init(const struct lu_context *ctx,
 {
         struct ccc_session *session;
 
-        OBD_SLAB_ALLOC_PTR_GFP(session, ccc_session_kmem, CFS_ALLOC_IO);
+        OBD_SLAB_ALLOC_PTR(session, ccc_session_kmem);
         if (session == NULL)
                 session = ERR_PTR(-ENOMEM);
         return session;
@@ -272,7 +272,7 @@ int ccc_req_init(const struct lu_env *env, struct cl_device *dev,
         struct ccc_req *vrq;
         int result;
 
-        OBD_SLAB_ALLOC_PTR_GFP(vrq, ccc_req_kmem, CFS_ALLOC_IO);
+        OBD_SLAB_ALLOC_PTR(vrq, ccc_req_kmem);
         if (vrq != NULL) {
                 cl_req_slice_add(req, &vrq->crq_cl, dev, &ccc_req_ops);
                 result = 0;
@@ -348,7 +348,7 @@ struct lu_object *ccc_object_alloc(const struct lu_env *env,
         struct ccc_object *vob;
         struct lu_object  *obj;
 
-        OBD_SLAB_ALLOC_PTR_GFP(vob, ccc_object_kmem, CFS_ALLOC_IO);
+        OBD_SLAB_ALLOC_PTR(vob, ccc_object_kmem);
         if (vob != NULL) {
                 struct cl_object_header *hdr;
 
@@ -416,7 +416,7 @@ int ccc_lock_init(const struct lu_env *env,
 
         CLOBINVRNT(env, obj, ccc_object_invariant(obj));
 
-        OBD_SLAB_ALLOC_PTR_GFP(clk, ccc_lock_kmem, CFS_ALLOC_IO);
+        OBD_SLAB_ALLOC_PTR(clk, ccc_lock_kmem);
         if (clk != NULL) {
                 cl_lock_slice_add(lock, &clk->clk_cl, obj, lkops);
                 result = 0;

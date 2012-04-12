@@ -122,7 +122,7 @@ int cfs_mem_cache_destroy(cfs_mem_cache_t *c)
         return 0;
 }
 
-void *cfs_mem_cache_alloc(cfs_mem_cache_t *c, int gfp)
+void *cfs_mem_cache_alloc(cfs_mem_cache_t *c, size_t bytes, unsigned int gfp)
 {
         return cfs_alloc(c->size, gfp);
 }
