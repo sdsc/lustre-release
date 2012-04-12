@@ -42,6 +42,9 @@ void *cfs_page_address(cfs_page_t *pg);
 void *cfs_kmap(cfs_page_t *pg);
 void cfs_kunmap(cfs_page_t *pg);
 
+#define cfs_numa_alloc_page(cptab, cpt, mask)           \
+        cfs_alloc_page(mask)
+
 #define cfs_get_page(p)			__I_should_not_be_called__(at_all)
 #define cfs_page_count(p)		__I_should_not_be_called__(at_all)
 #define cfs_page_index(p)               ((p)->index)
@@ -63,8 +66,15 @@ static inline void *cfs_alloc(size_t nr_bytes, u_int32_t flags)
         return result;
 }
 
-#define cfs_free(addr)  free(addr)
-#define cfs_alloc_large(nr_bytes) cfs_alloc(nr_bytes, 0)
+#define cfs_numa_alloc(cptab, cpt, bytes, flags)        \
+        cfs_alloc(bytes, flags)
+#define cfs_free(addr)                                  \
+        free(addr)
+#define cfs_alloc_large(bytes, flags)                   \
+        cfs_alloc(bytes, flags)
+#define cfs_numa_alloc_large(cptab, cpt, bytes, flags)  \
+        cfs_alloc(bytes, flags)
+
 #define cfs_free_large(addr) cfs_free(addr)
 
 #define CFS_ALLOC_ATOMIC_TRY   (0)
@@ -83,9 +93,12 @@ typedef struct {
 cfs_mem_cache_t *
 cfs_mem_cache_create(const char *, size_t, size_t, unsigned long);
 int cfs_mem_cache_destroy(cfs_mem_cache_t *c);
-void *cfs_mem_cache_alloc(cfs_mem_cache_t *c, int gfp);
+void *cfs_mem_cache_alloc(cfs_mem_cache_t *c, size_t bytes, unsigned int gfp);
 void cfs_mem_cache_free(cfs_mem_cache_t *c, void *addr);
 int cfs_mem_is_in_cache(const void *addr, const cfs_mem_cache_t *kmem);
+
+#define cfs_mem_cache_numa_alloc(cptab, cpt, cache, size, gfp)  \
+        cfs_mem_cache_alloc(cache, size, gfp)
 
 /*
  * Copy to/from user
