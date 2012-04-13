@@ -825,10 +825,12 @@ int main(int argc, char **argv)
         }
 
         for (test = tests; test->tc; test++) {
-                double duration;
+                double duration = 0.0;
                 char *rs;
 
-                if (test->node_cnt == 1 || dir2 != NULL) {
+                if (test->tc == 3) {
+                        rs = "SKIP due to LU-1205";
+                } else if (test->node_cnt == 1 || dir2 != NULL) {
                         struct timeval start, end;
 
                         gettimeofday(&start, NULL);
@@ -839,7 +841,6 @@ int main(int argc, char **argv)
                                 (double)(end.tv_usec - start.tv_usec) / 1000000;
                         rs = rc ? "FAIL" : "PASS";
                 } else {
-                        duration = 0.0;
                         rs = "SKIP";
                 }
                 fprintf(stderr, "%s (%s, %.5gs)\n", test->desc, rs, duration);
