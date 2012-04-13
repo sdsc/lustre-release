@@ -444,6 +444,15 @@ static void cleanup_resource(struct ldlm_resource *res, struct list_head *q,
                 lock->l_flags |= LDLM_FL_FAILED;
                 lock->l_flags |= flags;
 
+                /* XXX - HACK for flock type, the readers/writes of the lock
+                 * will be dropped to zero only by the unlock request sent
+                 * from the application explicitly, and LBUG will be triggered
+                 * for nonzero readers/writers of the lock in ldlm_lock_cancel
+                 * if the application forgot to unlock it. see LU-736
+                 * */
+                if (res->lr_type == LDLM_FLOCK)
+                        local_only = 1;
+
                 /* ... without sending a CANCEL message for local_only. */
                 if (local_only)
                         lock->l_flags |= LDLM_FL_LOCAL_ONLY;
