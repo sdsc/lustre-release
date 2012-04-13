@@ -1637,17 +1637,13 @@ static int mdd_attr_set(const struct lu_env *env, struct md_object *obj,
         if (rc)
                 GOTO(stop, rc);
 
-        /* permission changes may require sync operation */
-        if (ma->ma_attr.la_valid & (LA_MODE|LA_UID|LA_GID))
-                handle->th_sync = !!mdd->mdd_sync_permission;
-
         rc = mdd_trans_start(env, mdd, handle);
         if (rc)
                 GOTO(stop, rc);
 
         /* permission changes may require sync operation */
         if (ma->ma_attr.la_valid & (LA_MODE|LA_UID|LA_GID))
-                handle->th_sync |= mdd->mdd_sync_permission;
+                handle->th_sync |= !!mdd->mdd_sync_permission;
 
         if (ma->ma_attr.la_valid & (LA_MTIME | LA_CTIME))
                 CDEBUG(D_INODE, "setting mtime "LPU64", ctime "LPU64"\n",
@@ -1830,11 +1826,6 @@ static int mdd_xattr_set(const struct lu_env *env, struct md_object *obj,
         if (IS_ERR(handle))
                 RETURN(PTR_ERR(handle));
 
-        /* security-replated changes may require sync */
-        if (!strcmp(name, XATTR_NAME_ACL_ACCESS) &&
-            mdd->mdd_sync_permission == 1)
-                handle->th_sync = 1;
-
         rc = mdd_declare_xattr_set(env, mdd, mdd_obj, buf, name, handle);
         if (rc)
                 GOTO(stop, rc);
@@ -1845,7 +1836,7 @@ static int mdd_xattr_set(const struct lu_env *env, struct md_object *obj,
 
         /* security-replated changes may require sync */
         if (!strcmp(name, XATTR_NAME_ACL_ACCESS))
-                handle->th_sync |= mdd->mdd_sync_permission;
+                handle->th_sync |= !!mdd->mdd_sync_permission;
 
         rc = mdd_xattr_set_txn(env, mdd_obj, buf, name, fl, handle);
 
