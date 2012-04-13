@@ -350,7 +350,8 @@ test_17() { # bug 3513, 3667
 run_test 17 "resource creation/LVB creation race ==============="
 
 test_18() {
-	$LUSTRE/tests/mmap_sanity -d $MOUNT1 -m $MOUNT2
+        # exclude test case 3 for LU-1205
+	$LUSTRE/tests/mmap_sanity -d $MOUNT1 -m $MOUNT2 -e 3
 	sync; sleep 1; sync
 }
 run_test 18 "mmap sanity check ================================="
