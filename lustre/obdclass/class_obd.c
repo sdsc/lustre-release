@@ -368,16 +368,6 @@ EXPORT_SYMBOL(ptlrpc_put_connection_superhack);
 
 EXPORT_SYMBOL(proc_lustre_root);
 
-/* uuid.c */
-EXPORT_SYMBOL(class_uuid_unparse);
-EXPORT_SYMBOL(lustre_uuid_to_peer);
-
-EXPORT_SYMBOL(class_handle_hash);
-EXPORT_SYMBOL(class_handle_unhash);
-EXPORT_SYMBOL(class_handle_hash_back);
-EXPORT_SYMBOL(class_handle2object);
-EXPORT_SYMBOL(class_handle_free_cb);
-
 /* obd_config.c */
 EXPORT_SYMBOL(class_incref);
 EXPORT_SYMBOL(class_decref);

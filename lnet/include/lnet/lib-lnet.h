@@ -54,6 +54,10 @@
 #include <lnet/lnet.h>
 #include <lnet/lib-types.h>
 
+#ifndef __KERNEL__
+#include <liblustre.h> /* EXPORT_SYMBOL */
+#endif
+
 extern lnet_t  the_lnet;                        /* THE network */
 
 static inline int lnet_is_wire_handle_none (lnet_handle_wire_t *wh)
