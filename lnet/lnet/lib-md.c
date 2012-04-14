@@ -309,6 +309,7 @@ LNetMDAttach(lnet_handle_me_t meh, lnet_md_t umd,
         LNET_UNLOCK();
         return (rc);
 }
+EXPORT_SYMBOL(LNetMDAttach);
 
 /**
  * Create a "free floating" memory descriptor - a MD that is not associated
@@ -363,6 +364,7 @@ LNetMDBind(lnet_md_t umd, lnet_unlink_t unlink, lnet_handle_md_t *handle)
         LNET_UNLOCK();
         return (rc);
 }
+EXPORT_SYMBOL(LNetMDBind);
 
 /**
  * Unlink the memory descriptor from any ME it may be linked to and release
@@ -425,3 +427,4 @@ LNetMDUnlink (lnet_handle_md_t mdh)
         LNET_UNLOCK();
         return 0;
 }
+EXPORT_SYMBOL(LNetMDUnlink);

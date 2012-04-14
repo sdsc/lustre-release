@@ -76,6 +76,7 @@ int class_find_param(char *buf, char *key, char **valp)
 
         return 0;
 }
+EXPORT_SYMBOL(class_find_param);
 
 /**
  * Finds a parameter in \a params and copies it to \a copy.
@@ -142,6 +143,7 @@ int class_get_next_param(char **params, char *copy)
         }
         return 1;
 }
+EXPORT_SYMBOL(class_get_next_param);
 
 /* returns 0 if this is the first key in the buffer, else 1.
    valp points to first char after key. */
@@ -158,6 +160,7 @@ int class_match_param(char *buf, char *key, char **valp)
 
         return 0;
 }
+EXPORT_SYMBOL(class_match_param);
 
 static int parse_nid(char *buf, void *value)
 {
@@ -231,11 +234,13 @@ int class_parse_nid(char *buf, lnet_nid_t *nid, char **endh)
 {
         return class_parse_value(buf, CLASS_PARSE_NID, (void *)nid, endh);
 }
+EXPORT_SYMBOL(class_parse_nid);
 
 int class_parse_net(char *buf, __u32 *net, char **endh)
 {
         return class_parse_value(buf, CLASS_PARSE_NET, (void *)net, endh);
 }
+EXPORT_SYMBOL(class_parse_net);
 
 /* 1 param contains key and match
  * 0 param contains key and not match
@@ -257,6 +262,7 @@ int class_match_nid(char *buf, char *key, lnet_nid_t nid)
         }
         return rc;
 }
+EXPORT_SYMBOL(class_match_nid);
 
 int class_match_net(char *buf, char *key, __u32 net)
 {
@@ -274,13 +280,6 @@ int class_match_net(char *buf, char *key, __u32 net)
         }
         return rc;
 }
-
-EXPORT_SYMBOL(class_find_param);
-EXPORT_SYMBOL(class_get_next_param);
-EXPORT_SYMBOL(class_match_param);
-EXPORT_SYMBOL(class_parse_nid);
-EXPORT_SYMBOL(class_parse_net);
-EXPORT_SYMBOL(class_match_nid);
 EXPORT_SYMBOL(class_match_net);
 
 /********************** class fns **********************/

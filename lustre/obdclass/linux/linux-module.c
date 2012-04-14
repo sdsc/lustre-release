@@ -169,6 +169,7 @@ int obd_ioctl_getdata(char **buf, int *len, void *arg)
         EXIT;
         return 0;
 }
+EXPORT_SYMBOL(obd_ioctl_getdata);
 
 int obd_ioctl_popdata(void *arg, void *data, int len)
 {
@@ -179,8 +180,6 @@ int obd_ioctl_popdata(void *arg, void *data, int len)
                 err = -EFAULT;
         return err;
 }
-
-EXPORT_SYMBOL(obd_ioctl_getdata);
 EXPORT_SYMBOL(obd_ioctl_popdata);
 
 /*  opening /dev/obd */

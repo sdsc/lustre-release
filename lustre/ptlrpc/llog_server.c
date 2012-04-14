@@ -118,6 +118,7 @@ out_pop:
         llog_ctxt_put(ctxt);
         return rc;
 }
+EXPORT_SYMBOL(llog_origin_handle_create);
 
 int llog_origin_handle_destroy(struct ptlrpc_request *req)
 {
@@ -172,6 +173,7 @@ out_pop:
         llog_ctxt_put(ctxt);
         return rc;
 }
+EXPORT_SYMBOL(llog_origin_handle_destroy);
 
 int llog_origin_handle_next_block(struct ptlrpc_request *req)
 {
@@ -242,6 +244,7 @@ out_free:
         OBD_FREE(buf, LLOG_CHUNK_SIZE);
         return rc;
 }
+EXPORT_SYMBOL(llog_origin_handle_next_block);
 
 int llog_origin_handle_prev_block(struct ptlrpc_request *req)
 {
@@ -313,6 +316,7 @@ out_free:
         OBD_FREE(buf, LLOG_CHUNK_SIZE);
         return rc;
 }
+EXPORT_SYMBOL(llog_origin_handle_prev_block);
 
 int llog_origin_handle_read_header(struct ptlrpc_request *req)
 {
@@ -367,6 +371,7 @@ out_pop:
         llog_ctxt_put(ctxt);
         return rc;
 }
+EXPORT_SYMBOL(llog_origin_handle_read_header);
 
 int llog_origin_handle_close(struct ptlrpc_request *req)
 {
@@ -374,6 +379,7 @@ int llog_origin_handle_close(struct ptlrpc_request *req)
         /* Nothing to do */
         RETURN(0);
 }
+EXPORT_SYMBOL(llog_origin_handle_close);
 
 int llog_origin_handle_cancel(struct ptlrpc_request *req)
 {
@@ -703,6 +709,7 @@ out_free:
         OBD_FREE(buf, LLOG_CHUNK_SIZE);
         return rc;
 }
+EXPORT_SYMBOL(llog_catinfo);
 
 #else /* !__KERNEL__ */
 int llog_origin_handle_create(struct ptlrpc_request *req)

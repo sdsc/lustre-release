@@ -46,6 +46,7 @@
 #endif
 
 lnet_t      the_lnet;                           /* THE state of the network */
+EXPORT_SYMBOL(the_lnet);
 
 #ifdef __KERNEL__
 
@@ -334,6 +335,7 @@ lnet_register_lnd (lnd_t *lnd)
 
         LNET_MUTEX_UNLOCK(&the_lnet.ln_lnd_mutex);
 }
+EXPORT_SYMBOL(lnet_register_lnd);
 
 void
 lnet_unregister_lnd (lnd_t *lnd)
@@ -349,6 +351,7 @@ lnet_unregister_lnd (lnd_t *lnd)
 
         LNET_MUTEX_UNLOCK(&the_lnet.ln_lnd_mutex);
 }
+EXPORT_SYMBOL(lnet_unregister_lnd);
 
 #ifndef LNET_USE_LIB_FREELIST
 
@@ -802,7 +805,7 @@ lnet_unprepare (void)
                 lnet_msg_free (msg);
         }
 
-        LIBCFS_FREE(the_lnet.ln_portals,  
+        LIBCFS_FREE(the_lnet.ln_portals,
                     the_lnet.ln_nportals * sizeof(*the_lnet.ln_portals));
 
         lnet_free_rtrpools();
@@ -831,6 +834,7 @@ lnet_net2ni_locked (__u32 net)
 
         return NULL;
 }
+EXPORT_SYMBOL(lnet_net2ni_locked);
 
 int
 lnet_islocalnet (__u32 net)
@@ -1207,6 +1211,7 @@ LNetInit(void)
         lnet_register_lnd(&the_lolnd);
         return 0;
 }
+EXPORT_SYMBOL(LNetInit);
 
 /**
  * Finalize LNet library.
@@ -1230,6 +1235,7 @@ LNetFini(void)
 
         the_lnet.ln_init = 0;
 }
+EXPORT_SYMBOL(LNetFini);
 
 /**
  * Set LNet PID and start LNet interfaces, routing, and forwarding.
@@ -1327,6 +1333,7 @@ LNetNIInit(lnet_pid_t requested_pid)
         LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
         return rc;
 }
+EXPORT_SYMBOL(LNetNIInit);
 
 /**
  * Stop LNet interfaces, routing, and forwarding.
@@ -1366,6 +1373,7 @@ LNetNIFini()
         LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
         return 0;
 }
+EXPORT_SYMBOL(LNetNIFini);
 
 /**
  * This is an ugly hack to export IOC_LIBCFS_DEBUG_PEER and
@@ -1485,6 +1493,7 @@ LNetCtl(unsigned int cmd, void *arg)
         }
         /* not reached */
 }
+EXPORT_SYMBOL(LNetCtl);
 
 /**
  * Retrieve the lnet_process_id_t ID of LNet interface at \a index. Note that
@@ -1525,6 +1534,7 @@ LNetGetId(unsigned int index, lnet_process_id_t *id)
 
         return rc;
 }
+EXPORT_SYMBOL(LNetGetId);
 
 /**
  * Print a string representation of handle \a h into buffer \a str of
@@ -1535,6 +1545,7 @@ LNetSnprintHandle(char *str, int len, lnet_handle_any_t h)
 {
         snprintf(str, len, LPX64, h.cookie);
 }
+EXPORT_SYMBOL(LNetSnprintHandle);
 
 static int
 lnet_create_ping_info(void)

@@ -110,7 +110,7 @@ void class_handle_hash(struct portals_handle *h, portals_handle_addref_cb cb)
                 handle_base += HANDLE_INCR;
         }
         cfs_spin_unlock(&handle_base_lock);
- 
+
         h->h_addref = cb;
         cfs_spin_lock_init(&h->h_lock);
 
@@ -124,6 +124,7 @@ void class_handle_hash(struct portals_handle *h, portals_handle_addref_cb cb)
                h, h->h_cookie);
         EXIT;
 }
+EXPORT_SYMBOL(class_handle_hash);
 
 static void class_handle_unhash_nolock(struct portals_handle *h)
 {
@@ -155,6 +156,7 @@ void class_handle_unhash(struct portals_handle *h)
         class_handle_unhash_nolock(h);
         cfs_spin_unlock(&bucket->lock);
 }
+EXPORT_SYMBOL(class_handle_unhash);
 
 void class_handle_hash_back(struct portals_handle *h)
 {
@@ -170,6 +172,7 @@ void class_handle_hash_back(struct portals_handle *h)
 
         EXIT;
 }
+EXPORT_SYMBOL(class_handle_hash_back);
 
 void *class_handle2object(__u64 cookie)
 {
@@ -180,7 +183,7 @@ void *class_handle2object(__u64 cookie)
 
         LASSERT(handle_hash != NULL);
 
-        /* Be careful when you want to change this code. See the 
+        /* Be careful when you want to change this code. See the
          * rcu_read_lock() definition on top this file. - jxiong */
         bucket = handle_hash + (cookie & HANDLE_HASH_MASK);
 
@@ -201,6 +204,7 @@ void *class_handle2object(__u64 cookie)
 
         RETURN(retval);
 }
+EXPORT_SYMBOL(class_handle2object);
 
 void class_handle_free_cb(cfs_rcu_head_t *rcu)
 {
@@ -213,6 +217,7 @@ void class_handle_free_cb(cfs_rcu_head_t *rcu)
                 OBD_FREE(ptr, size);
         }
 }
+EXPORT_SYMBOL(class_handle_free_cb);
 
 int class_handle_init(void)
 {
