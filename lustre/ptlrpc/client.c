@@ -62,6 +62,7 @@ void ptlrpc_init_client(int req_portal, int rep_portal, char *name,
         cl->cli_reply_portal   = rep_portal;
         cl->cli_name           = name;
 }
+EXPORT_SYMBOL(ptlrpc_init_client);
 
 /**
  * Return PortalRPC connection for remore uud \a uuid
@@ -89,6 +90,7 @@ struct ptlrpc_connection *ptlrpc_uuid_to_connection(struct obd_uuid *uuid)
 
         return c;
 }
+EXPORT_SYMBOL(ptlrpc_uuid_to_connection);
 
 /**
  * Allocate and initialize new bulk descriptor
@@ -144,6 +146,7 @@ struct ptlrpc_bulk_desc *ptlrpc_prep_bulk_imp(struct ptlrpc_request *req,
 
         return desc;
 }
+EXPORT_SYMBOL(ptlrpc_prep_bulk_imp);
 
 /**
  * Add a page \a page to the bulk descriptor \a desc.
@@ -164,6 +167,7 @@ void ptlrpc_prep_bulk_page(struct ptlrpc_bulk_desc *desc,
         cfs_page_pin(page);
         ptlrpc_add_bulk_page(desc, page, pageoffset, len);
 }
+EXPORT_SYMBOL(ptlrpc_prep_bulk_page);
 
 /**
  * Uninitialize and free bulk descriptor \a desc.
@@ -193,6 +197,7 @@ void ptlrpc_free_bulk(struct ptlrpc_bulk_desc *desc)
                                 bd_iov[desc->bd_max_iov]));
         EXIT;
 }
+EXPORT_SYMBOL(ptlrpc_free_bulk);
 
 /**
  * Set server timelimit for this req, i.e. how long are we willing to wait
@@ -231,6 +236,7 @@ void ptlrpc_at_set_req_timeout(struct ptlrpc_request *req)
            reqmsg*/
         lustre_msg_set_timeout(req->rq_reqmsg, req->rq_timeout);
 }
+EXPORT_SYMBOL(ptlrpc_at_set_req_timeout);
 
 /* Adjust max service estimate based on server value */
 static void ptlrpc_at_adj_service(struct ptlrpc_request *req,
@@ -385,6 +391,7 @@ void ptlrpc_free_rq_pool(struct ptlrpc_request_pool *pool)
         cfs_spin_unlock(&pool->prp_lock);
         OBD_FREE(pool, sizeof(*pool));
 }
+EXPORT_SYMBOL(ptlrpc_free_rq_pool);
 
 /**
  * Allocates, initializes and adds \a num_rq requests to the pool \a pool
@@ -426,6 +433,7 @@ void ptlrpc_add_rqs_to_pool(struct ptlrpc_request_pool *pool, int num_rq)
         cfs_spin_unlock(&pool->prp_lock);
         return;
 }
+EXPORT_SYMBOL(ptlrpc_add_rqs_to_pool);
 
 /**
  * Create and initialize new request pool with given attributes:
@@ -462,6 +470,7 @@ ptlrpc_init_rq_pool(int num_rq, int msgsize,
         }
         return pool;
 }
+EXPORT_SYMBOL(ptlrpc_init_rq_pool);
 
 /**
  * Fetches one request from pool \a pool
@@ -608,6 +617,7 @@ int ptlrpc_request_pack(struct ptlrpc_request *request,
 {
         return ptlrpc_request_bufs_pack(request, version, opcode, NULL, NULL);
 }
+EXPORT_SYMBOL(ptlrpc_request_pack);
 
 /**
  * Helper function to allocate new request on import \a imp
@@ -673,6 +683,7 @@ struct ptlrpc_request *ptlrpc_request_alloc(struct obd_import *imp,
 {
         return ptlrpc_request_alloc_internal(imp, NULL, format);
 }
+EXPORT_SYMBOL(ptlrpc_request_alloc);
 
 /**
  * Allocate new request structure for import \a imp from pool \a pool and
@@ -684,6 +695,7 @@ struct ptlrpc_request *ptlrpc_request_alloc_pool(struct obd_import *imp,
 {
         return ptlrpc_request_alloc_internal(imp, pool, format);
 }
+EXPORT_SYMBOL(ptlrpc_request_alloc_pool);
 
 /**
  * For requests not from pool, free memory of the request structure.
@@ -696,6 +708,7 @@ void ptlrpc_request_free(struct ptlrpc_request *request)
         else
                 OBD_FREE_PTR(request);
 }
+EXPORT_SYMBOL(ptlrpc_request_free);
 
 /**
  * Allocate new request for operatione \a opcode and immediatelly pack it for
@@ -720,6 +733,7 @@ struct ptlrpc_request *ptlrpc_request_alloc_pack(struct obd_import *imp,
         }
         return req;
 }
+EXPORT_SYMBOL(ptlrpc_request_alloc_pack);
 
 /**
  * Prepare request (fetched from pool \a poolif not NULL) on import \a imp
@@ -749,6 +763,7 @@ ptlrpc_prep_req_pool(struct obd_import *imp,
         }
         return request;
 }
+EXPORT_SYMBOL(ptlrpc_prep_req_pool);
 
 /**
  * Same as ptlrpc_prep_req_pool, but without pool
@@ -760,6 +775,7 @@ ptlrpc_prep_req(struct obd_import *imp, __u32 version, int opcode, int count,
         return ptlrpc_prep_req_pool(imp, version, opcode, count, lengths, bufs,
                                     NULL);
 }
+EXPORT_SYMBOL(ptlrpc_prep_req);
 
 /**
  * Allocate "fake" request that would not be sent anywhere in the end.
@@ -814,6 +830,7 @@ struct ptlrpc_request *ptlrpc_prep_fakereq(struct obd_import *imp,
 
         RETURN(request);
 }
+EXPORT_SYMBOL(ptlrpc_prep_fakereq);
 
 /**
  * Indicate that processing of "fake" request is finished.
@@ -839,6 +856,7 @@ void ptlrpc_fakereq_finished(struct ptlrpc_request *req)
                 cfs_waitq_signal(&set->set_waitq);
         ptlrpc_req_finished(req);
 }
+EXPORT_SYMBOL(ptlrpc_fakereq_finished);
 
 /**
  * Allocate and initialize new request set structure.
@@ -863,6 +881,7 @@ struct ptlrpc_request_set *ptlrpc_prep_set(void)
 
         RETURN(set);
 }
+EXPORT_SYMBOL(ptlrpc_prep_set);
 
 /**
  * Wind down and free request set structure previously allocated with
@@ -922,6 +941,7 @@ void ptlrpc_set_destroy(struct ptlrpc_request_set *set)
         ptlrpc_reqset_put(set);
         EXIT;
 }
+EXPORT_SYMBOL(ptlrpc_set_destroy);
 
 /**
  * Add a callback function \a fn to the set.
@@ -943,6 +963,7 @@ int ptlrpc_set_add_cb(struct ptlrpc_request_set *set,
 
         RETURN(0);
 }
+EXPORT_SYMBOL(ptlrpc_set_add_cb);
 
 /**
  * Add a new request to the general purpose request set.
@@ -958,7 +979,9 @@ void ptlrpc_set_add_req(struct ptlrpc_request_set *set,
         req->rq_set = set;
         cfs_atomic_inc(&set->set_remaining);
         req->rq_queued_time = cfs_time_current();
+
 }
+EXPORT_SYMBOL(ptlrpc_set_add_req);
 
 /**
  * Add a request to a request with dedicated server thread
@@ -995,6 +1018,7 @@ void ptlrpc_set_add_new_req(struct ptlrpcd_ctl *pc,
                         cfs_waitq_signal(&pc->pc_partners[i]->pc_set->set_waitq);
         }
 }
+EXPORT_SYMBOL(ptlrpc_set_add_new_req);
 
 /**
  * Based on the current state of the import, determine if the request
@@ -1735,6 +1759,7 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
         /* If we hit an error, we want to recover promptly. */
         RETURN(cfs_atomic_read(&set->set_remaining) == 0 || force_timer_recalc);
 }
+EXPORT_SYMBOL(ptlrpc_check_set);
 
 /**
  * Time out request \a req. is \a async_unlink is set, that means do not wait
@@ -1859,6 +1884,7 @@ int ptlrpc_expired_set(void *data)
          */
         RETURN(1);
 }
+EXPORT_SYMBOL(ptlrpc_expired_set);
 
 /**
  * Sets rq_intr flag in \a req under spinlock.
@@ -1869,6 +1895,7 @@ void ptlrpc_mark_interrupted(struct ptlrpc_request *req)
         req->rq_intr = 1;
         cfs_spin_unlock(&req->rq_lock);
 }
+EXPORT_SYMBOL(ptlrpc_mark_interrupted);
 
 /**
  * Interrupts (sets interrupted flag) all uncompleted requests in
@@ -1894,6 +1921,7 @@ void ptlrpc_interrupted_set(void *data)
                 ptlrpc_mark_interrupted(req);
         }
 }
+EXPORT_SYMBOL(ptlrpc_interrupted_set);
 
 /**
  * Get the smallest timeout in the set; this does NOT set a timeout.
@@ -1944,6 +1972,7 @@ int ptlrpc_set_next_timeout(struct ptlrpc_request_set *set)
         }
         RETURN(timeout);
 }
+EXPORT_SYMBOL(ptlrpc_set_next_timeout);
 
 /**
  * Send all unset request from the set and then wait untill all
@@ -2065,6 +2094,7 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
 
         RETURN(rc);
 }
+EXPORT_SYMBOL(ptlrpc_set_wait);
 
 /**
  * Helper fuction for request freeing.
@@ -2144,6 +2174,7 @@ void ptlrpc_req_finished_with_imp_lock(struct ptlrpc_request *request)
         LASSERT_SPIN_LOCKED(&request->rq_import->imp_lock);
         (void)__ptlrpc_req_finished(request, 1);
 }
+EXPORT_SYMBOL(ptlrpc_req_finished_with_imp_lock);
 
 /**
  * Helper function
@@ -2182,6 +2213,7 @@ void ptlrpc_req_finished(struct ptlrpc_request *request)
 {
         __ptlrpc_req_finished(request, 0);
 }
+EXPORT_SYMBOL(ptlrpc_req_finished);
 
 /**
  * Returns xid of a \a request
@@ -2271,6 +2303,7 @@ int ptlrpc_unregister_reply(struct ptlrpc_request *request, int async)
         }
         RETURN(0);
 }
+EXPORT_SYMBOL(ptlrpc_unregister_reply);
 
 /**
  * Iterates through replay_list on import and prunes
@@ -2355,6 +2388,7 @@ void ptlrpc_cleanup_client(struct obd_import *imp)
         EXIT;
         return;
 }
+EXPORT_SYMBOL(ptlrpc_cleanup_client);
 
 /**
  * Schedule previously sent request for resend.
@@ -2383,6 +2417,7 @@ void ptlrpc_resend_req(struct ptlrpc_request *req)
         ptlrpc_client_wake_req(req);
         cfs_spin_unlock(&req->rq_lock);
 }
+EXPORT_SYMBOL(ptlrpc_resend_req);
 
 /* XXX: this function and rq_status are currently unused */
 void ptlrpc_restart_req(struct ptlrpc_request *req)
@@ -2396,6 +2431,7 @@ void ptlrpc_restart_req(struct ptlrpc_request *req)
         ptlrpc_client_wake_req(req);
         cfs_spin_unlock(&req->rq_lock);
 }
+EXPORT_SYMBOL(ptlrpc_restart_req);
 
 /**
  * Grab additional reference on a request \a req
@@ -2406,6 +2442,7 @@ struct ptlrpc_request *ptlrpc_request_addref(struct ptlrpc_request *req)
         cfs_atomic_inc(&req->rq_refcount);
         RETURN(req);
 }
+EXPORT_SYMBOL(ptlrpc_request_addref);
 
 /**
  * Add a request to import replay_list.
@@ -2462,6 +2499,7 @@ void ptlrpc_retain_replayable_request(struct ptlrpc_request *req,
 
         cfs_list_add(&req->rq_replay_list, &imp->imp_replay_list);
 }
+EXPORT_SYMBOL(ptlrpc_retain_replayable_request);
 
 /**
  * Send request and wait until it completes.
@@ -2493,6 +2531,7 @@ int ptlrpc_queue_wait(struct ptlrpc_request *req)
 
         RETURN(rc);
 }
+EXPORT_SYMBOL(ptlrpc_queue_wait);
 
 struct ptlrpc_replay_async_args {
         int praa_old_state;
@@ -2635,6 +2674,7 @@ int ptlrpc_replay_req(struct ptlrpc_request *req)
         ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
         RETURN(0);
 }
+EXPORT_SYMBOL(ptlrpc_replay_req);
 
 /**
  * Aborts all in-flight request on import \a imp sending and delayed lists
@@ -2693,6 +2733,7 @@ void ptlrpc_abort_inflight(struct obd_import *imp)
 
         EXIT;
 }
+EXPORT_SYMBOL(ptlrpc_abort_inflight);
 
 /**
  * Abort all uncompleted requests in request set \a set
@@ -2765,6 +2806,7 @@ __u64 ptlrpc_next_xid(void)
         cfs_spin_unlock(&ptlrpc_last_xid_lock);
         return tmp;
 }
+EXPORT_SYMBOL(ptlrpc_next_xid);
 
 /**
  * Get a glimpse at what next xid value might have been.
