@@ -706,6 +706,7 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev);
 void osd_scrub_cleanup(const struct lu_env *env, struct osd_device *dev);
 int osd_oii_insert(struct osd_device *dev, struct lu_object *obj,
                    struct osd_idmap_cache *oic);
+int osd_scrub_dump(struct osd_device *dev, char *buf, int len);
 
 /*
  * Invariants, assertions.
