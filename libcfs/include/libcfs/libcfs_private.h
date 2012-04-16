@@ -332,6 +332,37 @@ int libcfs_debug_cleanup(void);
 /* !__KERNEL__ */
 #endif
 
+/*
+ * allocate per-cpu-partition data, returned value is an array of pointers,
+ * variable can be indexed by CPU ID.
+ *      cptable != NULL: size of array is number of CPU partitions
+ *      cptable == NULL: size of array is number of HW cores
+ */
+void *cfs_percpt_alloc(struct cfs_cpt_table *cptab, unsigned int size);
+/*
+ * destory per-cpu-partition variable
+ */
+void  cfs_percpt_free(void *vars);
+int   cfs_percpt_number(void *vars);
+void *cfs_percpt_current(void *vars);
+void *cfs_percpt_index(void *vars, int idx);
+
+#define cfs_percpt_for_each(var, i, vars)               \
+        for (i = 0; i < cfs_percpt_number(vars) &&      \
+                    ((var) = (vars)[i]) != NULL; i++)
+
+/*
+ * allocate a variable array, returned value is an array of pointers.
+ * Caller can specify length of array by count.
+ */
+void *cfs_array_alloc(int count, unsigned int size);
+void  cfs_array_free(void *vars);
+
+/* allocate a list array with \a count entries */
+cfs_list_t *cfs_list_table_alloc(unsigned int count);
+void cfs_list_table_free(cfs_list_t *table,
+                         unsigned int count, int assert_empty);
+
 #define LASSERT_ATOMIC_ENABLED          (1)
 
 #if LASSERT_ATOMIC_ENABLED
@@ -426,6 +457,136 @@ do {                                                            \
 
 #define CFS_ALLOC_PTR(ptr)      LIBCFS_ALLOC(ptr, sizeof (*(ptr)));
 #define CFS_FREE_PTR(ptr)       LIBCFS_FREE(ptr, sizeof (*(ptr)));
+
+/*
+ * percpu partition lock
+ *
+ * There are some use-cases like this in Lustre:
+ * . each CPU partition has it's own private data which is frequently changed,
+ *   and mostly by the local CPU partition.
+ * . all CPU partitions share some global data, these data are rarely changed.
+ *
+ * LNet is typical example.
+ * CPU partition lock is designed for this kind of use-cases:
+ * . each CPU partition has it's own private lock
+ * . change on private data just needs to take the private lock
+ * . read on shared data just needs to take _any_ of private locks
+ * . change on shared data needs to take _all_ private locks,
+ *   which is slow and should be really rare.
+ */
+
+enum {
+        /** negative */
+        CFS_PERCPT_LOCK_EXCL    = -1,
+};
+
+#ifdef __KERNEL__
+
+struct cfs_percpt_lock {
+        /** cpu-partition-table for this lock */
+        struct cfs_cpt_table   *pcl_cptab;
+        /** exclusively locked */
+        unsigned int            pcl_locked;
+        /** private lock table */
+        cfs_spinlock_t        **pcl_locks;
+};
+
+/**
+ * create a cpu-partition lock based on CPU partition table \a cptab,
+ * each private lock has extra \a psize bytes padding data
+ */
+struct cfs_percpt_lock *cfs_percpt_lock_alloc(struct cfs_cpt_table *cptab);
+/** destroy a cpu-partition lock */
+void cfs_percpt_lock_free(struct cfs_percpt_lock *pcl);
+
+/** lock private lock \a index of \a pcl */
+void cfs_percpt_lock(struct cfs_percpt_lock *pcl, int index);
+/** unlock private lock \a index of \a pcl */
+void cfs_percpt_unlock(struct cfs_percpt_lock *pcl, int index);
+
+/** return number of private locks */
+static inline int
+cfs_percpt_lock_num(struct cfs_percpt_lock *pcl)
+{
+        return cfs_cpt_number(pcl->pcl_cptab);
+}
+
+#else   /* !__KERNEL__ */
+
+# ifdef HAVE_LIBPTHREAD
+
+struct cfs_percpt_lock {
+        pthread_mutex_t                 pcl_mutex;
+};
+
+static inline struct cfs_percpt_lock *
+cfs_percpt_lock_alloc(struct cfs_cpt_table *cptab)
+{
+        struct cfs_percpt_lock *pcl;
+
+        CFS_ALLOC_PTR(pcl);
+        if (pcl != NULL)
+                pthread_mutex_init(&pcl->pcl_mutex, NULL);
+
+        return pcl;
+}
+
+static inline void
+cfs_percpt_lock_free(struct cfs_percpt_lock *pcl)
+{
+        pthread_mutex_destroy(&pcl->pcl_mutex);
+        CFS_FREE_PTR(pcl);
+}
+
+static inline void
+cfs_percpt_lock(struct cfs_percpt_lock *pcl, int lock)
+{
+        pthread_mutex_lock(&(pcl)->pcl_mutex);
+}
+
+static inline void
+cfs_percpt_unlock(struct cfs_percpt_lock *pcl, int lock)
+{
+        pthread_mutex_unlock(&(pcl)->pcl_mutex);
+}
+
+# else /* !HAVE_LIBPTHREAD */
+
+#define CFS_PERCPT_LOCK_MAGIC          0xbabecafe;
+
+struct cfs_percpt_lock {
+        int             foo;
+};
+
+static inline struct cfs_percpt_lock *
+cfs_percpt_lock_alloc(struct cfs_cpt_table *cptab)
+{
+        return (struct cfs_percpt_lock *)CFS_PERCPT_LOCK_MAGIC;
+}
+
+static inline void
+cfs_percpt_lock_free(struct cfs_percpt_lock *pcl)
+{
+        LASSERT(pcl == (struct cfs_percpt_lock *)CFS_PERCPT_LOCK_MAGIC);
+}
+
+static inline void
+cfs_percpt_lock(struct cfs_percpt_lock *pcl, int index)
+{
+        LASSERT(pcl == (struct cfs_percpt_lock *)CFS_PERCPT_LOCK_MAGIC);
+}
+
+static inline void
+cfs_percpt_unlock(struct cfs_percpt_lock *pcl, int index)
+{
+        LASSERT(pcl == (struct cfs_percpt_lock *)CFS_PERCPT_LOCK_MAGIC);
+}
+
+# endif /* !HAVE_LIBPTHREAD */
+
+#define cfs_percpt_lock_num(pcl)        1
+
+#endif  /* !__KERNEL__ */
 
 /** Compile-time assertion.
 
@@ -540,6 +701,19 @@ static inline int cfs_size_round0(int val)
 static inline size_t cfs_round_strlen(char *fset)
 {
         return (size_t)cfs_size_round((int)strlen(fset) + 1);
+}
+
+/* roundup \a val to power2 */
+static inline unsigned int cfs_power2_roundup(unsigned int val)
+{
+        if (val != LOWEST_BIT_SET(val)) {  /* not a power of 2 already */
+                do {
+                        val &= ~LOWEST_BIT_SET(val);
+                } while (val != LOWEST_BIT_SET(val));
+                /* ...and round up */
+                val <<= 1;
+        }
+        return val;
 }
 
 #define LOGL(var,len,ptr)                                       \
