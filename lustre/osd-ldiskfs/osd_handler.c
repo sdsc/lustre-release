@@ -2737,19 +2737,6 @@ static int osd_index_declare_ea_delete(const struct lu_env *env,
         return 0;
 }
 
-static inline int osd_get_fid_from_dentry(struct ldiskfs_dir_entry_2 *de,
-                                          struct dt_rec *fid)
-{
-        struct osd_fid_pack *rec;
-        int                  rc = -ENODATA;
-
-        if (de->file_type & LDISKFS_DIRENT_LUFID) {
-                rec = (struct osd_fid_pack *) (de->name + de->name_len + 1);
-                rc = osd_fid_unpack((struct lu_fid *)fid, rec);
-        }
-        RETURN(rc);
-}
-
 /**
  * Index delete function for interoperability mode (b11826).
  * It will remove the directory entry added by osd_index_ea_insert().
@@ -4016,6 +4003,7 @@ static int osd_shutdown(const struct lu_env *env, struct osd_device *o)
 
         ENTRY;
 
+        osd_scrub_cleanup(env, o);
         if (o->od_oi_table != NULL)
                 osd_oi_fini(info, o);
 
@@ -4063,6 +4051,9 @@ static int osd_mount(const struct lu_env *env,
 
         lsi = s2lsi(lmi->lmi_sb);
         ldd = lsi->lsi_ldd;
+
+        if (get_mount_flags(lmi->lmi_sb) & LMD_FLG_NOAUTO_SCRUB)
+                o->od_fl_noauto_scrub = 1;
 
         if (ldd->ldd_flags & LDD_F_IAM_DIR) {
                 o->od_iop_mode = 0;
@@ -4121,6 +4112,9 @@ static struct lu_device *osd_device_alloc(const struct lu_env *env,
                         l->ld_ops = &osd_lu_ops;
                         o->od_dt_dev.dd_ops = &osd_dt_ops;
                         cfs_spin_lock_init(&o->od_osfs_lock);
+                        cfs_spin_lock_init(&o->od_otable_it_lock);
+                        cfs_mutex_init(&o->od_otable_it_mutex);
+                        CFS_INIT_LIST_HEAD(&o->od_inconsistent_items);
                         o->od_osfs_age = cfs_time_shift_64(-1000);
                         o->od_capa_hash = init_capa_hash();
                         if (o->od_capa_hash == NULL) {
@@ -4190,10 +4184,15 @@ static int osd_prepare(const struct lu_env *env, struct lu_device *pdev,
         if (result < 0)
                 RETURN(result);
 
+        /* 2. initialize scrub */
+        result = osd_scrub_setup(env, osd);
+        if (result < 0)
+                RETURN(result);
+
         if (!lu_device_is_md(pdev))
                 RETURN(0);
 
-        /* 2. setup local objects */
+        /* 3. setup local objects */
         result = llo_local_objects_setup(env, lu2md_dev(pdev), lu2dt_dev(dev));
         RETURN(result);
 }

@@ -900,9 +900,8 @@ int osd_ldiskfs_read(struct inode *inode, void *buf, int size, loff_t *offs)
         return osize;
 }
 
-static ssize_t osd_read(const struct lu_env *env, struct dt_object *dt,
-                        struct lu_buf *buf, loff_t *pos,
-                        struct lustre_capa *capa)
+ssize_t osd_read(const struct lu_env *env, struct dt_object *dt,
+                 struct lu_buf *buf, loff_t *pos, struct lustre_capa *capa)
 {
         struct inode *inode = osd_dt_obj(dt)->oo_inode;
         int           rc;
@@ -1040,10 +1039,9 @@ static int osd_ldiskfs_write_record(struct inode *inode, void *buf, int bufsize,
         return err;
 }
 
-static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
-                         const struct lu_buf *buf, loff_t *pos,
-                         struct thandle *handle, struct lustre_capa *capa,
-                         int ignore_quota)
+ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
+                  const struct lu_buf *buf, loff_t *pos, struct thandle *handle,
+                  struct lustre_capa *capa, int ignore_quota)
 {
         struct inode       *inode = osd_dt_obj(dt)->oo_inode;
         struct osd_thandle *oh;
