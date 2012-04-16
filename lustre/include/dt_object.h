@@ -210,6 +210,7 @@ enum dt_index_flags {
  * names to fids).
  */
 extern const struct dt_index_features dt_directory_features;
+extern const struct dt_index_features dt_otable_features;
 
 /**
  * This is a general purpose dt allocation hint.
@@ -596,6 +597,30 @@ struct dt_index_operations {
                                       const struct dt_it *di, void* key_rec);
         } dio_it;
 };
+
+enum dt_scrub_valid {
+        DSV_ERROR_HANDLE        = 1 << 0,
+        DSV_OI_SCRUB            = 1 << 1,
+};
+
+enum dt_scrub_flags {
+        /* Reset iteration position to the device beginning. */
+        DSF_RESET       = 1 << 0,
+
+        /* Scan the device in spite of pre-fetching stopped or not. */
+        DSF_FULL_SCAN   = 1 << 1,
+
+        /* Exit when fail. */
+        DSF_FAILOUT     = 1 << 2,
+
+        /* Trigger OI scrub. */
+        DSF_OI_SCRUB    = 1 << 3,
+};
+
+/* The 32-bits 'attr' for dt_it_ops::init() is composed of two parts:
+ * low 16-bits is for valid bits, high 16-bits is for flags bits. */
+#define DT_SCRUB_FLAGS_SHIFT    16
+#define DT_SCRUB_FLAGS_MASK     0xffff0000
 
 /* To unify the interfaces and hide backend filesystem detail, the bookmark
  * for object local identifier will be represented as printable string. */

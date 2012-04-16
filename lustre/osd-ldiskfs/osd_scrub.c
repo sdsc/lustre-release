@@ -1121,3 +1121,387 @@ void osd_scrub_cleanup(const struct lu_env *env, struct osd_device *dev)
                 OBD_FREE_PTR(scrub);
         }
 }
+
+static struct dt_it *osd_otable_it_init(const struct lu_env *env,
+                                       struct dt_object *dt, __u32 attr,
+                                       struct lustre_capa *capa)
+{
+        enum dt_scrub_flags     flags   = attr >> DT_SCRUB_FLAGS_SHIFT;
+        enum dt_scrub_valid     valid   = attr & ~DT_SCRUB_FLAGS_MASK;
+        struct osd_device      *dev     = osd_dev(dt->do_lu.lo_dev);
+        struct osd_scrub       *scrub   = dev->od_scrub;
+        struct scrub_file      *sf      = &scrub->os_file;
+        struct osd_otable_it   *it;
+        struct l_wait_info      lwi     = { 0 };
+        int                     rc      = 0;
+        ENTRY;
+
+        cfs_mutex_lock(&dev->od_otable_it_mutex);
+        cfs_spin_lock(&dev->od_otable_it_lock);
+        it = dev->od_otable_it;
+        if (it != NULL) {
+                if (it->ooi_used_outside) {
+                        it = ERR_PTR(-EALREADY);
+                } else {
+                        LASSERT(it->ooi_oi_scrub);
+
+                        it->ooi_used_outside = 1;
+                        if (flags & DSF_FULL_SCAN)
+                                it->ooi_full_scan = 1;
+                        ooi_get(it);
+                }
+                cfs_spin_unlock(&dev->od_otable_it_lock);
+                cfs_mutex_unlock(&dev->od_otable_it_mutex);
+                RETURN((struct dt_it *)it);
+        }
+
+        cfs_spin_unlock(&dev->od_otable_it_lock);
+        it = ooi_init(dev);
+        if (unlikely(IS_ERR(it)))
+                GOTO(out, rc = PTR_ERR(it));
+
+        if (sf->sf_flags & SF_BYRPC) {
+                sf->sf_flags &= ~SF_BYRPC;
+                scrub->os_dirty = 1;
+        }
+
+        if (valid & DSV_ERROR_HANDLE) {
+                if ((flags & DSF_FAILOUT) &&
+                   !(sf->sf_param & SP_FAILOUT)) {
+                        sf->sf_param |= SP_FAILOUT;
+                        scrub->os_dirty = 1;
+                } else if ((sf->sf_param & SP_FAILOUT) &&
+                          !(flags & DSF_FAILOUT)) {
+                        sf->sf_param &= ~SP_FAILOUT;
+                        scrub->os_dirty = 1;
+                }
+        }
+
+        it->ooi_used_outside = 1;
+        if ((valid & DSV_OI_SCRUB && flags & DSF_OI_SCRUB) ||
+            (!(valid & DSV_OI_SCRUB) && (sf->sf_status == SS_CRASHED ||
+                                         sf->sf_flags & SF_RESTORED)))
+                it->ooi_oi_scrub = 1;
+        if (flags & DSF_FULL_SCAN)
+                it->ooi_full_scan = 1;
+
+        rc = cfs_create_thread(osd_scrub_main, it, 0);
+        if (rc < 0) {
+                CERROR("Cannot start iteration thread: rc %d\n", rc);
+                ooi_put(it);
+                GOTO(out, rc);
+        }
+
+        l_wait_event(it->ooi_thread.t_ctl_waitq,
+                     thread_is_running(&it->ooi_thread) ||
+                     thread_is_stopped(&it->ooi_thread),
+                     &lwi);
+
+        GOTO(out, rc = 0);
+
+out:
+        if (rc != 0) {
+                if (scrub->os_dirty != 0) {
+                        osd_scrub_file_to_cpu(sf, &scrub->os_file_disk);
+                        scrub->os_dirty = 0;
+                }
+                it = ERR_PTR(rc);
+        }
+        cfs_mutex_unlock(&dev->od_otable_it_mutex);
+        return (struct dt_it *)it;
+}
+
+static void osd_otable_it_fini(const struct lu_env *env, struct dt_it *di)
+{
+        struct osd_otable_it *it     = (struct osd_otable_it *)di;
+        struct ptlrpc_thread *thread = &it->ooi_thread;
+        struct osd_device    *dev    = it->ooi_dev;
+        struct l_wait_info    lwi    = { 0 };
+        ENTRY;
+
+        cfs_mutex_lock(&dev->od_otable_it_mutex);
+        cfs_spin_lock(&dev->od_otable_it_lock);
+        LASSERT(dev->od_otable_it != NULL);
+
+        if (!thread_is_stopped(thread)) {
+                thread_set_flags(thread, SVC_STOPPING);
+                cfs_spin_unlock(&dev->od_otable_it_lock);
+                cfs_waitq_broadcast(&thread->t_ctl_waitq);
+                l_wait_event(thread->t_ctl_waitq,
+                             thread_is_stopped(thread),
+                             &lwi);
+                cfs_spin_lock(&dev->od_otable_it_lock);
+        }
+        dev->od_otable_it = NULL;
+        cfs_spin_unlock(&dev->od_otable_it_lock);
+        cfs_mutex_unlock(&dev->od_otable_it_mutex);
+        ooi_put(it);
+
+        EXIT;
+}
+
+/**
+ * Set the OSD layer iteration start pooition as the specified key.
+ *
+ * The LFSCK out of OSD layer does not know the detail of the key, so if there
+ * are several keys, they cannot be compared out of OSD, so call "::get()" for
+ * each key, and OSD will select the smallest one by itself.
+ */
+static int osd_otable_it_get(const struct lu_env *env,
+                            struct dt_it *di, const struct dt_key *key)
+{
+        struct osd_otable_it *it  = (struct osd_otable_it *)di;
+        const char           *str = (const char *)key;
+        __u32                 ino = 0;
+        int                   rc  = 0;
+        ENTRY;
+
+        /* Forbid to set iteration position after iteration started. */
+        if (it->ooi_user_ready)
+                RETURN(-EPERM);
+
+        if (str[0] != '\0')
+                rc = sscanf(str, "%u", &ino);
+        if (rc == 0 && it->ooi_pos_self_preload > ino)
+                it->ooi_pos_self_preload = ino;
+
+        RETURN(rc);
+}
+
+static int osd_scrub_self_preload(const struct lu_env *env,
+                                  struct osd_otable_it *it)
+{
+        struct osd_otable_cache *ooc    = &it->ooi_cache;
+        struct ptlrpc_thread    *thread = &it->ooi_thread;
+        struct super_block      *sb     = it->ooi_sb;
+        struct osd_thread_info  *info   = osd_oti_get(env);
+        struct buffer_head      *bitmap = NULL;
+        __u32                    max    =
+                        le32_to_cpu(LDISKFS_SB(sb)->s_es->s_inodes_count);
+        int                      rc;
+        ENTRY;
+
+        while (it->ooi_pos_self_preload <= max &&
+               ooc->ooc_cached_items < OSD_OTABLE_IT_CACHE_SIZE &&
+               (!thread_is_running(thread) ||
+                it->ooi_pos_self_preload < it->ooi_pos_current)) {
+                struct osd_idmap_cache *oic;
+                struct inode *inode;
+                ldiskfs_group_t bg = (it->ooi_pos_self_preload - 1) /
+                                     LDISKFS_INODES_PER_GROUP(sb);
+                __u32 offset = (it->ooi_pos_self_preload - 1) %
+                               LDISKFS_INODES_PER_GROUP(sb);
+                __u32 gbase = 1 + bg * LDISKFS_INODES_PER_GROUP(sb);
+
+                bitmap = ldiskfs_read_inode_bitmap(sb, bg);
+                if (bitmap == NULL) {
+                        CERROR("Fail to read bitmap for %u, "
+                               "scrub will stop, urgent mode.\n", (__u32)bg);
+                        RETURN(-EIO);
+                }
+
+                while (offset < LDISKFS_INODES_PER_GROUP(sb) &&
+                       ooc->ooc_cached_items < OSD_OTABLE_IT_CACHE_SIZE &&
+                       (!thread_is_running(thread) ||
+                        it->ooi_pos_self_preload < it->ooi_pos_current)) {
+                        offset = ldiskfs_find_next_bit((unsigned long *)
+                                                bitmap->b_data,
+                                                LDISKFS_INODES_PER_GROUP(sb),
+                                                offset);
+                        if (offset >= LDISKFS_INODES_PER_GROUP(sb)) {
+                                brelse(bitmap);
+                                it->ooi_pos_self_preload = 1 + (bg + 1) *
+                                                LDISKFS_INODES_PER_GROUP(sb);
+                                break;
+                        }
+
+                        oic = &ooc->ooc_cache[ooc->ooc_producer_idx];
+                        it->ooi_pos_self_preload = gbase + offset;
+                        osd_id_gen(&oic->oic_lid, it->ooi_pos_self_preload,
+                                   OSD_OII_NOGEN);
+                        inode = osd_iget(info, it->ooi_dev, &oic->oic_lid,
+                                         &oic->oic_fid,
+                                         OSD_IF_GEN_LID | OSD_IF_RET_FID);
+                        if (IS_ERR(inode)) {
+                                rc = PTR_ERR(inode);
+                                /* The inode may be removed after bitmap
+                                 * searching, or the file is new created
+                                 * without inode initialized yet. */
+                                if (rc == -ENOENT || rc == -ESTALE) {
+                                        it->ooi_pos_self_preload = gbase +
+                                                                   ++offset;
+                                        continue;
+                                }
+
+                                CERROR("Fail to read inode: group = %u, "
+                                       "ino# = %u, rc = %d, urgent mode.\n",
+                                       bg, it->ooi_pos_self_preload, rc);
+                                brelse(bitmap);
+                                /* If up layer LFSCK ignore the failure,
+                                 * we can skip the inode next time. */
+                                it->ooi_pos_self_preload = gbase + offset + 1;
+                                RETURN(rc);
+                        }
+
+                        iput(inode);
+                        it->ooi_pos_self_preload = gbase + ++offset;
+                        ooc->ooc_cached_items++;
+                        ooc->ooc_producer_idx = (ooc->ooc_producer_idx + 1) &
+                                                ~OSD_OTABLE_IT_CACHE_MASK;
+                }
+        }
+
+        if (it->ooi_pos_self_preload > max) {
+                CDEBUG(D_SCRUB, "OSD self pre-loaded all: pid = %d\n",
+                       cfs_curproc_pid());
+
+                it->ooi_all_cached = 1;
+                cfs_waitq_broadcast(&it->ooi_thread.t_ctl_waitq);
+        } else {
+                brelse(bitmap);
+        }
+
+        RETURN(ooc->ooc_cached_items);
+}
+
+static int osd_otable_it_next(const struct lu_env *env, struct dt_it *di)
+{
+        struct osd_otable_it    *it     = (struct osd_otable_it *)di;
+        struct osd_device       *dev    = it->ooi_dev;
+        struct osd_otable_cache *ooc    = &it->ooi_cache;
+        struct ptlrpc_thread    *thread = &it->ooi_thread;
+        struct l_wait_info       lwi    = { 0 };
+        int                      rc;
+        ENTRY;
+
+        LASSERT(it->ooi_user_ready);
+
+again:
+        it->ooi_wait_next = 1;
+        l_wait_event(thread->t_ctl_waitq,
+                     ooc->ooc_cached_items > 0 || it->ooi_all_cached ||
+                     (it->ooi_no_cache &&
+                      it->ooi_pos_self_preload < it->ooi_pos_current) ||
+                     !thread_is_running(thread),
+                     &lwi);
+        it->ooi_wait_next = 0;
+
+        if (!thread_is_running(thread) && !it->ooi_full_scan)
+                RETURN(+1);
+
+        if (ooc->ooc_cached_items > 0) {
+                int wakeup = 0;
+
+                if (!it->ooi_no_cache) {
+                        cfs_spin_lock(&dev->od_otable_it_lock);
+                        if (ooc->ooc_cached_items == OSD_OTABLE_IT_CACHE_SIZE)
+                                wakeup = 1;
+                }
+                ooc->ooc_consumer_slot = ooc->ooc_cache[ooc->ooc_consumer_idx];
+                ooc->ooc_cached_items--;
+                if (!it->ooi_no_cache) {
+                        cfs_spin_unlock(&dev->od_otable_it_lock);
+                        if (wakeup != 0)
+                                cfs_waitq_broadcast(&thread->t_ctl_waitq);
+                }
+                ooc->ooc_consumer_idx = (ooc->ooc_consumer_idx + 1) &
+                                        ~OSD_OTABLE_IT_CACHE_MASK;
+                RETURN(0);
+        }
+
+        if (it->ooi_all_cached) {
+                if (unlikely(ooc->ooc_cached_items > 0))
+                        goto again;
+                RETURN(+1);
+        }
+
+        cfs_spin_lock(&dev->od_otable_it_lock);
+        if (thread_is_running(thread)) {
+                if (unlikely(!it->ooi_no_cache)) {
+                        cfs_spin_unlock(&dev->od_otable_it_lock);
+                        goto again;
+                }
+        } else {
+                if (unlikely(!it->ooi_full_scan)) {
+                        cfs_spin_unlock(&dev->od_otable_it_lock);
+                        RETURN(+1);
+                }
+        }
+
+        it->ooi_self_preload = 1;
+        cfs_spin_unlock(&dev->od_otable_it_lock);
+
+        rc = osd_scrub_self_preload(env, it);
+        cfs_spin_lock(&dev->od_otable_it_lock);
+        it->ooi_self_preload = 0;
+        cfs_spin_unlock(&dev->od_otable_it_lock);
+        cfs_waitq_broadcast(&thread->t_ctl_waitq);
+
+        if (rc >= 0)
+                goto again;
+        RETURN(rc);
+}
+
+static struct dt_key *osd_otable_it_key(const struct lu_env *env,
+                                        const struct dt_it *di)
+{
+        struct osd_otable_it *it = (struct osd_otable_it *)di;
+
+        sprintf(it->ooi_key, "%u",
+                it->ooi_cache.ooc_consumer_slot.oic_lid.oii_ino);
+        return (struct dt_key *)it->ooi_key;
+}
+
+static int osd_otable_it_key_size(const struct lu_env *env,
+                                  const struct dt_it *di)
+{
+        return sizeof(((struct osd_otable_it *)di)->ooi_key);
+}
+
+static int osd_otable_it_rec(const struct lu_env *env, const struct dt_it *di,
+                             struct dt_rec *rec, __u32 attr)
+{
+        *(struct lu_fid *)rec =
+                ((struct osd_otable_it *)di)->ooi_cache.ooc_consumer_slot.oic_fid;
+        return 0;
+}
+
+static int osd_otable_it_load(const struct lu_env *env,
+                              const struct dt_it *di, __u64 hash)
+{
+        struct osd_otable_it *it = (struct osd_otable_it *)di;
+
+        if (it->ooi_user_ready)
+                return 0;
+
+        cfs_spin_lock(&it->ooi_dev->od_otable_it_lock);
+        if (it->ooi_pos_self_preload == ~0U)
+                it->ooi_pos_self_preload = it->ooi_pos_current;
+        else if (it->ooi_pos_self_preload < LDISKFS_FIRST_INO(it->ooi_sb))
+                it->ooi_pos_self_preload = LDISKFS_FIRST_INO(it->ooi_sb);
+        else
+                /* Skip the one that has been processed last time. */
+                it->ooi_pos_self_preload++;
+
+        if (!it->ooi_no_cache)
+                it->ooi_pos_current = it->ooi_pos_self_preload;
+        it->ooi_user_ready = 1;
+        cfs_spin_unlock(&it->ooi_dev->od_otable_it_lock);
+        cfs_waitq_broadcast(&it->ooi_thread.t_ctl_waitq);
+
+        /* Unplug OSD layer iteration by the first next() call. */
+        return osd_otable_it_next(env, (struct dt_it *)it);
+}
+
+const struct dt_index_operations osd_otable_ops = {
+        .dio_it             = {
+                .init     = osd_otable_it_init,
+                .fini     = osd_otable_it_fini,
+                .get      = osd_otable_it_get,
+                .next     = osd_otable_it_next,
+                .key      = osd_otable_it_key,
+                .key_size = osd_otable_it_key_size,
+                .rec      = osd_otable_it_rec,
+                .load     = osd_otable_it_load,
+        }
+};
