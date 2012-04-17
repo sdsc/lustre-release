@@ -82,7 +82,7 @@ Index: linux-2.6.18-128.1.6/fs/jbd/commit.c
  	/* is it possible for another commit to fail at roughly
  	 * the same time as this one?  If so, we don't want to
  	 * trust the barrier flag in the super, but instead want
-@@ -154,12 +172,70 @@
+@@ -154,12 +172,72 @@
  		clear_buffer_ordered(bh);
  		set_buffer_uptodate(bh);
  		set_buffer_dirty(bh);
@@ -133,16 +133,18 @@ Index: linux-2.6.18-128.1.6/fs/jbd/commit.c
 +		if (buffer_locked(bh)) {
 +			spin_unlock(&journal->j_list_lock);
 +			wait_on_buffer(bh);
-+			if (unlikely(!buffer_uptodate(bh)))
-+				ret = -EIO;
 +			spin_lock(&journal->j_list_lock);
 +		}
++		if (unlikely(!buffer_uptodate(bh)))
++			ret = -EIO;
 +		if (!inverted_lock(journal, bh)) {
 +			put_bh(bh);
 +			spin_lock(&journal->j_list_lock);
 +			continue;
 +		}
-+		if (buffer_jbd(bh) && jh->b_jlist == BJ_Locked) {
++		if (buffer_jbd(bh) && bh2jh(bh) == jh &&
++		    jh->b_transaction == commit_transaction &&
++		    jh->b_jlist == BJ_Locked) {
 +			__journal_unfile_buffer(jh);
 +			jbd_unlock_bh_state(bh);
 +			journal_remove_journal_head(bh);
@@ -150,7 +152,7 @@ Index: linux-2.6.18-128.1.6/fs/jbd/commit.c
 +		} else {
 +			jbd_unlock_bh_state(bh);
 +		}
-+		put_bh(bh);
++		release_data_buffer(bh);
 +		cond_resched_lock(&journal->j_list_lock);
 +	}
 +	return ret;
@@ -187,7 +189,7 @@ Index: linux-2.6.18-128.1.6/fs/jbd/commit.c
  
  	/*
  	 * First job: lock down the current transaction and wait for
-@@ -431,39 +523,14 @@
+@@ -431,41 +523,14 @@
  	err = journal_submit_data_buffers(journal, commit_transaction);
  
  	/*
@@ -215,7 +217,9 @@ Index: linux-2.6.18-128.1.6/fs/jbd/commit.c
 -			spin_lock(&journal->j_list_lock);
 -			continue;
 -		}
--		if (buffer_jbd(bh) && jh->b_jlist == BJ_Locked) {
+-		if (buffer_jbd(bh) && bh2jh(bh) == jh &&
+-		    jh->b_transaction == commit_transaction &&
+-		    jh->b_jlist == BJ_Locked) {
 -			__journal_unfile_buffer(jh);
 -			jbd_unlock_bh_state(bh);
 -			journal_remove_journal_head(bh);
