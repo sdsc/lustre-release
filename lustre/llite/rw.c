@@ -1254,6 +1254,14 @@ int ll_readpage(struct file *file, struct page *vmpage)
                 unlock_page(vmpage);
                 result = PTR_ERR(lcc);
         }
+
+        /* debug code - make sure the page has UPTODATE set */
+        result = lock_page_killable(vmpage);
+        if (result || !PageUptodate(vmpage))
+                CERROR("vmpage %p index %lu error %d.\n", vmpage, vmpage->index, result);
+        if (!result)
+                unlock_page(vmpage);
+
         RETURN(result);
 }
 

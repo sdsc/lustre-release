@@ -793,6 +793,8 @@ int cl_io_read_page(const struct lu_env *env, struct cl_io *io,
          */
         cl_page_list_disown(env, io, &queue->c2_qin);
         cl_2queue_fini(env, queue);
+        if (result < 0)
+                CERROR("@@@@@@@@ error %d.\n", result);
         RETURN(result);
 }
 EXPORT_SYMBOL(cl_io_read_page);
@@ -904,6 +906,8 @@ int cl_io_submit_rw(const struct lu_env *env, struct cl_io *io,
          * If ->cio_submit() failed, no pages were sent.
          */
         LASSERT(ergo(result != 0, cfs_list_empty(&queue->c2_qout.pl_pages)));
+        if (result < 0)
+                CERROR("@@@@@@@@ error %d.\n", result);
         RETURN(result);
 }
 EXPORT_SYMBOL(cl_io_submit_rw);
