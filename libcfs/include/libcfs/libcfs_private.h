@@ -308,7 +308,7 @@ do {                                                                           \
          LIBCFS_ALLOC_GFP(ptr, size, 0)
 # define LIBCFS_CPT_ALLOC_GFP(ptr, cptab, cpt, size, mask)      \
          LIBCFS_ALLOC(ptr, size)
-# define LIBCFS_CPT_ALLOC(ptr, cptab, cpt, size, mask)          \
+# define LIBCFS_CPT_ALLOC(ptr, cptab, cpt, size)                \
          LIBCFS_ALLOC(ptr, size)
 
 void libcfs_debug_dumplog(void);
