@@ -707,6 +707,7 @@ void lprocfs_stats_collect(struct lprocfs_stats *stats, int idx,
         struct lprocfs_counter t;
         struct lprocfs_counter *percpu_cntr;
         int centry, i;
+        unsigned long flags = 0;
 
         memset(cnt, 0, sizeof(*cnt));
 
@@ -718,7 +719,7 @@ void lprocfs_stats_collect(struct lprocfs_stats *stats, int idx,
 
         cnt->lc_min = LC_MIN_INIT;
 
-        num_cpu = lprocfs_stats_lock(stats, LPROCFS_GET_NUM_CPU);
+        num_cpu = lprocfs_stats_lock(stats, LPROCFS_GET_NUM_CPU, &flags);
 
         for (i = 0; i < num_cpu; i++) {
                 percpu_cntr = &(stats->ls_percpu[i])->lp_cntr[idx];
@@ -745,7 +746,7 @@ void lprocfs_stats_collect(struct lprocfs_stats *stats, int idx,
         }
 
         cnt->lc_units = stats->ls_percpu[0]->lp_cntr[idx].lc_units;
-        lprocfs_stats_unlock(stats, LPROCFS_GET_NUM_CPU);
+        lprocfs_stats_unlock(stats, LPROCFS_GET_NUM_CPU, &flags);
 }
 
 /**
@@ -1264,8 +1265,9 @@ void lprocfs_clear_stats(struct lprocfs_stats *stats)
         struct lprocfs_counter *percpu_cntr;
         int i,j;
         unsigned int num_cpu;
+        unsigned long flags = 0;
 
-        num_cpu = lprocfs_stats_lock(stats, LPROCFS_GET_NUM_CPU);
+        num_cpu = lprocfs_stats_lock(stats, LPROCFS_GET_NUM_CPU, &flags);
 
         for (i = 0; i < num_cpu; i++) {
                 for (j = 0; j < stats->ls_num; j++) {
@@ -1280,7 +1282,7 @@ void lprocfs_clear_stats(struct lprocfs_stats *stats)
                 }
         }
 
-        lprocfs_stats_unlock(stats, LPROCFS_GET_NUM_CPU);
+        lprocfs_stats_unlock(stats, LPROCFS_GET_NUM_CPU, &flags);
 }
 
 static ssize_t lprocfs_stats_seq_write(struct file *file, const char *buf,
@@ -1420,10 +1422,11 @@ void lprocfs_counter_init(struct lprocfs_stats *stats, int index,
         struct lprocfs_counter *c;
         int i;
         unsigned int num_cpu;
+        unsigned long flags = 0;
 
         LASSERT(stats != NULL);
 
-        num_cpu = lprocfs_stats_lock(stats, LPROCFS_GET_NUM_CPU);
+        num_cpu = lprocfs_stats_lock(stats, LPROCFS_GET_NUM_CPU, &flags);
 
         for (i = 0; i < num_cpu; i++) {
                 c = &(stats->ls_percpu[i]->lp_cntr[index]);
@@ -1436,7 +1439,7 @@ void lprocfs_counter_init(struct lprocfs_stats *stats, int index,
                 c->lc_units = units;
         }
 
-        lprocfs_stats_unlock(stats, LPROCFS_GET_NUM_CPU);
+        lprocfs_stats_unlock(stats, LPROCFS_GET_NUM_CPU, &flags);
 }
 EXPORT_SYMBOL(lprocfs_counter_init);
 
