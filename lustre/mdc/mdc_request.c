@@ -1260,6 +1260,54 @@ static int mdc_ioc_hsm_ct_register(struct obd_import *imp, __u32 archives)
 			rc = imp->imp_connect_error;
 		GOTO(out, rc);
 	}
+	EXIT;
+out:
+	ptlrpc_req_finished(req);
+	return rc;
+}
+
+static int mdc_ioc_hsm_current_action(struct obd_export *exp,
+				      struct md_op_data *op_data)
+{
+	struct hsm_current_action	*hca = op_data->op_data;
+	struct obd_import		*imp = class_exp2cliimp(exp);
+	struct hsm_current_action	*req_hca;
+	struct ptlrpc_request		*req;
+	int				 rc;
+	ENTRY;
+
+	req = ptlrpc_request_alloc(class_exp2cliimp(exp),
+				   &RQF_MDS_HSM_ACTION);
+	if (req == NULL)
+		RETURN(-ENOMEM);
+
+	mdc_set_capa_size(req, &RMF_CAPA1, op_data->op_capa1);
+
+	rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_HSM_ACTION);
+	if (rc) {
+		ptlrpc_request_free(req);
+		RETURN(rc);
+	}
+
+	mdc_pack_body(req, &op_data->op_fid1, op_data->op_capa1,
+		      OBD_MD_FLRMTPERM, 0, op_data->op_suppgids[0], 0);
+
+	ptlrpc_request_set_replen(req);
+
+	rc = ptlrpc_queue_wait(req);
+	if (rc) {
+		/* check connection error first */
+		if (imp->imp_connect_error)
+			rc = imp->imp_connect_error;
+		GOTO(out, rc);
+	}
+
+	req_hca = req_capsule_server_get(&req->rq_pill,
+					 &RMF_MDS_HSM_CURRENT_ACTION);
+	if (req_hca == NULL)
+		GOTO(out, rc = -EPROTO);
+
+	*hca = *req_hca;
 
 	EXIT;
 out:
@@ -1677,6 +1725,8 @@ static int mdc_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 		GOTO(out, rc);
 	case LL_IOC_HSM_STATE_SET:
 		rc = mdc_ioc_hsm_state_set(exp, karg);
+	case LL_IOC_HSM_ACTION:
+		rc = mdc_ioc_hsm_current_action(exp, karg);
 		GOTO(out, rc);
         case OBD_IOC_CLIENT_RECOVER:
                 rc = ptlrpc_recover_import(imp, data->ioc_inlbuf1, 0);

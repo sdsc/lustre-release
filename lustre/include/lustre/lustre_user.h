@@ -163,6 +163,10 @@ struct obd_statfs {
 #define LL_IOC_HSM_PROGRESS		_IOW('f', 216, struct hsm_user_request)
 #define LL_IOC_HSM_REQUEST		_IOW('f', 217, struct hsm_user_request)
 #define LL_IOC_DATA_VERSION		_IOR('f', 218, struct ioc_data_version)
+/*	219 is reserved for swap layouts */
+#define LL_IOC_HSM_ACTION		_IOR('f', 220, \
+						struct hsm_current_action)
+/* see <lustre_lib.h> for ioctl numbers 221-232 */
 
 #define LL_STATFS_LMV           1
 #define LL_STATFS_LOV           2
@@ -804,6 +808,17 @@ struct hsm_state_set_ioc {
 	struct lu_fid	hssi_fid;
 	__u64		hssi_setmask;
 	__u64		hssi_clearmask;
+};
+
+/*
+ * This structure purpose is to be sent to user-space mainly.
+ * It describes the current in-progress action for a file.
+ */
+struct hsm_current_action {
+	/**  The current undergoing action, if there is one */
+	__u32			hca_state;
+	__u32			hca_action;
+	struct hsm_extent	hca_location;
 };
 
 /***** HSM user requests ******/
