@@ -481,10 +481,12 @@ static int file_in_dev(char *file_name, char *dev_name)
         char debugfs_cmd[256];
         unsigned int inode_num;
         int i;
+        int rc = 0;
 
         /* Construct debugfs command line. */
         snprintf(debugfs_cmd, sizeof(debugfs_cmd),
-                "%s -c -R 'stat %s' '%s' 2>&1 | egrep '(Inode|unsupported)'",
+                "%s -c -R 'stat %s' '%s' 2>&1 | \
+                egrep '(Inode|unsupported|command not found)'",
                 DEBUGFS, file_name, dev_name);
 
         fp = popen(debugfs_cmd, "r");
@@ -494,31 +496,40 @@ static int file_in_dev(char *file_name, char *dev_name)
         }
 
         if (fscanf(fp, "Inode: %u", &inode_num) == 1) { /* exist */
-                pclose(fp);
-                return 1;
+                rc = 1;
+                goto out;
         }
         i = fread(debugfs_cmd, 1, sizeof(debugfs_cmd), fp);
         if (i) {
                 debugfs_cmd[i] = 0;
                 fprintf(stderr, "%s", debugfs_cmd);
-                if (strstr(debugfs_cmd, "unsupported feature")) {
-                          disp_old_e2fsprogs_msg("an unknown", 0);
+                if (strstr(debugfs_cmd, "command not found")) {
+                        rc = 127;
+                        goto out;
                 }
-                pclose(fp);
-                return -1;
+                if (strstr(debugfs_cmd, "unsupported feature")) {
+                        disp_old_e2fsprogs_msg("an unknown", 0);
+                }
+                rc = -1;
+                goto out;
         }
+
+out:
         pclose(fp);
-        return 0;
+        return rc;
 }
 
 /* Check whether the device has already been used with lustre */
 static int is_lustre_target(struct mkfs_opts *mop)
 {
-        int rc;
+        int rc = 0; /* The device is not a lustre target. */
 
         vprint("checking for existing Lustre data: ");
 
         if ((rc = file_in_dev(MOUNT_DATA_FILE, mop->mo_device))) {
+                if (rc == 127) /* debugfs: command not found */
+                        goto out;
+
                 vprint("found %s\n",
                        (rc == 1) ? MOUNT_DATA_FILE : "extents");
                  /* in the -1 case, 'extents' means this really IS a lustre
@@ -527,12 +538,16 @@ static int is_lustre_target(struct mkfs_opts *mop)
         }
 
         if ((rc = file_in_dev(LAST_RCVD, mop->mo_device))) {
+                if (rc == 127)
+                        goto out;
+
                 vprint("found %s\n", LAST_RCVD);
                 return rc;
         }
 
+out:
         vprint("not found\n");
-        return 0; /* The device is not a lustre target. */
+        return rc;
 }
 
 /* Check if a certain feature is supported by e2fsprogs.
@@ -1794,7 +1809,9 @@ int main(int argc, char *const argv[])
 
         /* Check whether the disk has already been formatted by mkfs.lustre */
         ret = is_lustre_target(&mop);
-        if (ret == 0) {
+        if (ret == 127) { /* debugfs: command not found */
+                goto out;
+        } else if (ret == 0) {
                 fatal();
                 fprintf(stderr, "Device %s has not been formatted with "
                         "mkfs.lustre\n", mop.mo_device);
@@ -1954,7 +1971,9 @@ int main(int argc, char *const argv[])
         /* Check whether the disk has already been formatted by mkfs.lustre */
         if (!(mop.mo_flags & MO_FORCEFORMAT)) {
                 ret = is_lustre_target(&mop);
-                if (ret) {
+                if (ret == 127) {
+                        goto out;
+                } else if (ret != 0) {
                         fatal();
                         fprintf(stderr, "Device %s was previously formatted "
                                 "for lustre. Use --reformat to reformat it, "
@@ -1962,7 +1981,6 @@ int main(int argc, char *const argv[])
                                 mop.mo_device);
                         goto out;
                 }
-        }
 
         /* Format the backing filesystem */
         ret = make_lustre_backfs(&mop);
