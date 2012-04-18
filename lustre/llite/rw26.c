@@ -141,14 +141,47 @@ static void ll_invalidatepage(struct page *page, unsigned long offset)
 #else
 #define RELEASEPAGE_ARG_TYPE gfp_t
 #endif
-static int ll_releasepage(struct page *page, RELEASEPAGE_ARG_TYPE gfp_mask)
+static int ll_releasepage(struct page *vmpage, RELEASEPAGE_ARG_TYPE gfp_mask)
 {
-        void *cookie;
+        struct cl_env_nest nest;
+        struct lu_env     *env;
+        struct inode      *inode;
+        struct cl_object  *obj;
+        struct cl_page    *page;
+        int result;
 
-        cookie = cl_env_reenter();
-        ll_invalidatepage(page, 0);
-        cl_env_reexit(cookie);
-        return 1;
+        LASSERT(PageLocked(vmpage));
+        if (PageWriteback(vmpage) || PageDirty(vmpage))
+                return 0;
+
+        if (vmpage->mapping == NULL)
+                return 1;
+
+        inode = vmpage->mapping->host;
+        obj = ll_i2info(inode)->lli_clob;
+        if (obj == NULL)
+                return 1;
+
+        /* 1 for the caller, 1 for cl_page and 1 for page cache */
+        if (page_count(vmpage) > 3)
+                return 0;
+
+        /* TODO: determine what gfp should be used by @gfp_mask. */
+        env = cl_env_nested_get(&nest);
+        if (IS_ERR(env))
+                return 0;
+
+        page = cl_vmpage_page(vmpage, obj);
+        result = page == NULL;
+        if (page != NULL) {
+                if (cfs_atomic_read(&page->cp_ref) == 1) {
+                        result = 1;
+                        cl_page_delete(env, page);
+                }
+                cl_page_put(env, page);
+        }
+        cl_env_nested_put(&nest, env);
+        return result;
 }
 
 static int ll_set_page_dirty(struct page *vmpage)
