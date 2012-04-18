@@ -40,8 +40,8 @@
  * Author: Yury Umanets <umka@clusterfs.com>
  */
 
-#ifndef __LINUX_FID_H
-#define __LINUX_FID_H
+#ifndef __LUSTRE_FID_H
+#define __LUSTRE_FID_H
 
 /** \defgroup fid fid
  *
@@ -54,8 +54,9 @@
 #include <libcfs/libcfs.h>
 #include <lustre/lustre_idl.h>
 #include <lustre_req_layout.h>
-#include <lustre_mdt.h>
-
+#ifdef HAVE_SERVER_SUPPORT
+# include <lustre_mdt.h>
+#endif
 
 struct lu_site;
 struct lu_context;
@@ -130,11 +131,6 @@ static inline void lu_local_obj_fid(struct lu_fid *fid, __u32 oid)
         fid->f_ver = 0;
 }
 
-enum lu_mgr_type {
-        LUSTRE_SEQ_SERVER,
-        LUSTRE_SEQ_CONTROLLER
-};
-
 enum lu_cli_type {
         LUSTRE_SEQ_METADATA,
         LUSTRE_SEQ_DATA
@@ -182,6 +178,12 @@ struct lu_client_seq {
         /* wait queue for fid allocation and update indicator */
         cfs_waitq_t             lcs_waitq;
         int                     lcs_update;
+};
+
+#ifdef HAVE_SERVER_SUPPORT
+enum lu_mgr_type {
+        LUSTRE_SEQ_SERVER,
+        LUSTRE_SEQ_CONTROLLER
 };
 
 /* server sequence manager interface */
@@ -265,6 +267,15 @@ int seq_server_set_cli(struct lu_server_seq *seq,
                        struct lu_client_seq *cli,
                        const struct lu_env *env);
 
+/* Fids common stuff */
+int fid_is_local(const struct lu_env *env,
+                 struct lu_site *site, const struct lu_fid *fid);
+
+#define LUSTRE_SEQ_SRV_NAME "seq_srv"
+#define LUSTRE_SEQ_CTL_NAME "seq_ctl"
+
+#endif /* HAVE_SERVER_SUPPORT */
+
 /* Client methods */
 int seq_client_init(struct lu_client_seq *seq,
                     struct obd_export *exp,
@@ -280,10 +291,6 @@ int seq_client_alloc_fid(const struct lu_env *env, struct lu_client_seq *seq,
                          struct lu_fid *fid);
 int seq_client_get_seq(const struct lu_env *env, struct lu_client_seq *seq,
                        seqno_t *seqnr);
-
-/* Fids common stuff */
-int fid_is_local(const struct lu_env *env,
-                 struct lu_site *site, const struct lu_fid *fid);
 
 /* fid locking */
 
@@ -389,9 +396,6 @@ static inline __u32 fid_flatten32(const struct lu_fid *fid)
         RETURN(ino ? ino : fid_oid(fid));
 }
 
-#define LUSTRE_SEQ_SRV_NAME "seq_srv"
-#define LUSTRE_SEQ_CTL_NAME "seq_ctl"
-
 /* Range common stuff */
 static inline void range_cpu_to_le(struct lu_seq_range *dst, const struct lu_seq_range *src)
 {
@@ -427,4 +431,4 @@ static inline void range_be_to_cpu(struct lu_seq_range *dst, const struct lu_seq
 
 /** @} fid */
 
-#endif /* __LINUX_FID_H */
+#endif /* __LUSTRE_FID_H */
