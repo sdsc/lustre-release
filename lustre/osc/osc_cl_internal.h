@@ -437,14 +437,16 @@ int osc_teardown_async_page(const struct lu_env *env, struct osc_object *obj,
                             struct osc_page *ops);
 int osc_flush_async_page(const struct lu_env *env, struct cl_io *io,
                          struct osc_page *ops);
-int osc_cache_pageout(const struct lu_env *env, struct osc_lock *ols,
-                      int discard);
 int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
                          cfs_list_t *list, int cmd, int brw_flags);
 int osc_cache_truncate_start(const struct lu_env *env, struct osc_io *oio,
                              struct osc_object *obj, __u64 size);
 void osc_cache_truncate_end(const struct lu_env *env, struct osc_io *oio,
                             struct osc_object *obj);
+int osc_cache_writeback_range(const struct lu_env *env, struct osc_object *obj,
+                              pgoff_t start, pgoff_t end, int hp, int discard);
+int osc_cache_wait_range(const struct lu_env *env, struct osc_object *obj,
+                         pgoff_t start, pgoff_t end);
 void osc_io_unplug(const struct lu_env *env, struct client_obd *cli,
                    struct osc_object *osc, pdl_policy_t pol);
 
@@ -621,6 +623,7 @@ struct osc_extent {
                            oe_srvlock:1,
                            oe_memalloc:1,
                            oe_trunc_pending:1,
+                           oe_fsync_wait:1,
                            oe_hp:1,     /* covering lock is being canceled */
                            oe_urgent:1; /* this extent should be written back
                                          * asap. set if one of pages is called

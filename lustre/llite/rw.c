@@ -1218,6 +1218,46 @@ int ll_writepage(struct page *vmpage, struct writeback_control *wbc)
         RETURN(result);
 }
 
+int ll_writepages(struct address_space *mapping, struct writeback_control *wbc)
+{
+        struct inode *inode = mapping->host;
+        loff_t start;
+        loff_t end;
+        enum cl_fsync_mode mode;
+        int range_whole = 0;
+        int result;
+        ENTRY;
+
+        if (wbc->range_cyclic) {
+                start = mapping->writeback_index << CFS_PAGE_SHIFT;
+                end = OBD_OBJECT_EOF;
+        } else {
+                start = wbc->range_start;
+                end = wbc->range_end;
+                if (end == LLONG_MAX) {
+                        end = OBD_OBJECT_EOF;
+                        range_whole = start == 0;
+                }
+        }
+
+        mode = CL_FSYNC_NONE;
+        if (wbc->sync_mode == WB_SYNC_ALL)
+                mode = CL_FSYNC_LOCAL;
+
+        result = cl_sync_file_range(inode, start, end, mode);
+        if (result > 0) {
+                wbc->nr_to_write -= result;
+                result = 0;
+         }
+
+        if (wbc->range_cyclic || (range_whole && wbc->nr_to_write > 0)) {
+                if (end == OBD_OBJECT_EOF)
+                        end = i_size_read(inode);
+                mapping->writeback_index = (end >> CFS_PAGE_SHIFT) + 1;
+        }
+        RETURN(result);
+}
+
 int ll_readpage(struct file *file, struct page *vmpage)
 {
         struct ll_cl_context *lcc;

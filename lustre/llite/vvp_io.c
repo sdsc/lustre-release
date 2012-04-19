@@ -767,11 +767,20 @@ out:
         return result;
 }
 
+static int vvp_io_fsync_start(const struct lu_env *env,
+                              const struct cl_io_slice *ios)
+{
+        struct inode *inode = ccc_object_inode(ios->cis_obj);
+
+        DOWN_READ_I_ALLOC_SEM(inode);
+        return 0;
+}
+
 static void vvp_io_fsync_end(const struct lu_env *env,
                              const struct cl_io_slice *ios)
 {
-        /* never try to verify there is no dirty pages in sync range
-         * because page_mkwrite() can generate new dirty pages any time. */
+        struct inode *inode = ccc_object_inode(ios->cis_obj);
+        UP_READ_I_ALLOC_SEM(inode);
 }
 
 static int vvp_io_read_page(const struct lu_env *env,
@@ -1074,6 +1083,7 @@ static const struct cl_io_operations vvp_io_ops = {
                         .cio_end       = ccc_io_end
                 },
                 [CIT_FSYNC] = {
+                        .cio_start  = vvp_io_fsync_start,
                         .cio_end    = vvp_io_fsync_end,
                         .cio_fini   = vvp_io_fini
                 },
