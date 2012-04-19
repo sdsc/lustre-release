@@ -57,7 +57,8 @@
 #include <lustre_log.h>
 #include "mds_internal.h"
 
-static int mds_llog_origin_add(struct llog_ctxt *ctxt, struct llog_rec_hdr *rec,
+static int mds_llog_origin_add(struct llog_ctxt *ctxt,
+                               struct llog_rec_hdr **recs, int nr_recs,
                                struct lov_stripe_md *lsm,
                                struct llog_cookie *logcookies, int numcookies)
 {
@@ -67,8 +68,10 @@ static int mds_llog_origin_add(struct llog_ctxt *ctxt, struct llog_rec_hdr *rec,
         int rc;
         ENTRY;
 
+        LASSERT(nr_recs == 1);
+
         lctxt = llog_get_context(lov_obd, ctxt->loc_idx);
-        rc = llog_add(lctxt, rec, lsm, logcookies, numcookies);
+        rc = llog_add_multi(lctxt, recs, nr_recs, lsm, logcookies, numcookies);
         llog_ctxt_put(lctxt);
 
         RETURN(rc);

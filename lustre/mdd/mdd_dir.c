@@ -643,49 +643,44 @@ int mdd_declare_changelog_store(const struct lu_env *env,
         return mdd_declare_llog_record(env, mdd, reclen, handle);
 }
 
-/** Store a namespace change changelog record
- * If this fails, we must fail the whole transaction; we don't
- * want the change to commit without the log entry.
+/** Prepare namespace change changelog record
  * \param target - mdd_object of change
  * \param parent - parent dir/object
  * \param tf - target lu_fid, overrides fid of \a target if this is non-null
  * \param tname - target name string
- * \param handle - transacion handle
  */
-static int mdd_changelog_ns_store(const struct lu_env  *env,
-                                  struct mdd_device    *mdd,
-                                  enum changelog_rec_type type,
-                                  int flags,
-                                  struct mdd_object    *target,
-                                  struct mdd_object    *parent,
-                                  const struct lu_fid  *tf,
-                                  const struct lu_name *tname,
-                                  struct thandle *handle)
+static struct llog_changelog_rec *
+mdd_changelog_ns_prep(const struct lu_env *env,
+                      struct mdd_device *mdd,
+                      enum changelog_rec_type type,
+                      int flags,
+                      struct mdd_object *target,
+                      struct mdd_object *parent,
+                      const struct lu_fid *tf,
+                      const struct lu_name *tname,
+                      struct llog_changelog_rec *rec)
 {
         const struct lu_fid *tfid;
         const struct lu_fid *tpfid = mdo2fid(parent);
-        struct llog_changelog_rec *rec;
         struct lu_buf *buf;
         int reclen;
-        int rc;
-        ENTRY;
 
         /* Not recording */
         if (!(mdd->mdd_cl.mc_flags & CLM_ON))
-                RETURN(0);
+                return NULL;
         if ((mdd->mdd_cl.mc_mask & (1 << type)) == 0)
-                RETURN(0);
+                return NULL;
 
         LASSERT(parent != NULL);
         LASSERT(tname != NULL);
-        LASSERT(handle != NULL);
 
-        /* target */
-        reclen = llog_data_len(sizeof(*rec) + tname->ln_namelen);
-        buf = mdd_buf_alloc(env, reclen);
-        if (buf->lb_buf == NULL)
-                RETURN(-ENOMEM);
-        rec = (struct llog_changelog_rec *)buf->lb_buf;
+        if (rec == NULL) {
+                reclen = llog_data_len(sizeof(*rec) + tname->ln_namelen);
+                buf = mdd_buf_alloc(env, reclen);
+                if (buf->lb_buf == NULL)
+                        return ERR_PTR(-ENOMEM);
+                rec = (struct llog_changelog_rec *)buf->lb_buf;
+        }
 
         rec->cr.cr_flags = CLF_VERSION | (CLF_FLAGMASK & flags);
         rec->cr.cr_type = (__u32)type;
@@ -697,14 +692,41 @@ static int mdd_changelog_ns_store(const struct lu_env  *env,
         if (likely(target))
                 target->mod_cltime = cfs_time_current_64();
 
-        rc = mdd_changelog_llog_write(mdd, rec, handle);
-        if (rc < 0) {
-                CERROR("changelog failed: rc=%d, op%d %s c"DFID" p"DFID"\n",
-                       rc, type, tname->ln_name, PFID(tfid), PFID(tpfid));
-                return -EFAULT;
-        }
+        return rec;
+}
 
-        return 0;
+/** Store a namespace change changelog record
+ * If this fails, we must fail the whole transaction; we don't
+ * want the change to commit without the log entry.
+ */
+static inline int mdd_changelog_ns_store_multi(struct mdd_device *mdd,
+                                         struct llog_changelog_rec **recs,
+                                         int nr_recs,
+                                         struct thandle *handle)
+{
+        return mdd_changelog_llog_write_multi(mdd, recs, nr_recs, handle);
+}
+
+static int mdd_changelog_ns_store(const struct lu_env *env,
+                                  struct mdd_device *mdd,
+                                  enum changelog_rec_type type,
+                                  int flags,
+                                  struct mdd_object *target,
+                                  struct mdd_object *parent,
+                                  const struct lu_fid *tf,
+                                  const struct lu_name *tname,
+                                  struct thandle *handle)
+{
+        struct llog_changelog_rec *rec;
+
+        rec = mdd_changelog_ns_prep(env, mdd, type, flags, target, parent, tf,
+                                    tname, NULL);
+        if (IS_ERR(rec))
+                return PTR_ERR(rec);
+        else if (rec == NULL)
+                return 0;
+
+        return mdd_changelog_ns_store_multi(mdd, &rec, 1, handle);
 }
 
 static int mdd_declare_link(const struct lu_env *env,
@@ -2408,6 +2430,8 @@ static int mdd_rename(const struct lu_env *env,
         const struct lu_fid *tpobj_fid = mdo2fid(mdd_tpobj);
         const struct lu_fid *spobj_fid = mdo2fid(mdd_spobj);
         int is_dir;
+        struct lu_buf *buf;
+        struct llog_changelog_rec *recs[MDD_CHANGELOG_WRITE_MAX] = { NULL };
         int rc, rc2;
 
 #ifdef HAVE_QUOTA_SUPPORT
@@ -2664,18 +2688,39 @@ cleanup:
         if (likely(sdlh))
                 mdd_pdo_write_unlock(env, mdd_spobj, sdlh);
 cleanup_unlocked:
-        if (rc == 0)
-                rc = mdd_changelog_ns_store(env, mdd, CL_RENAME, 0, mdd_tobj,
-                                            mdd_spobj, lf, lsname, handle);
+        if (rc == 0) {
+                int buflen;
+
+                buflen = llog_data_len(sizeof(**recs) + lsname->ln_namelen) +
+                         llog_data_len(sizeof(**recs) + ltname->ln_namelen);
+                buf = mdd_buf_alloc(env, buflen);
+                if (buf->lb_buf == NULL)
+                        GOTO(stop, rc =-ENOMEM);
+
+                recs[0] = (struct llog_changelog_rec *)buf->lb_buf;
+                recs[1] = (struct llog_changelog_rec *)(buf->lb_buf +
+                        llog_data_len(sizeof(**recs) + lsname->ln_namelen));
+
+                recs[0] = mdd_changelog_ns_prep(env, mdd, CL_RENAME, 0,
+                                                mdd_tobj, mdd_spobj, lf,
+                                                lsname, recs[0]);
+                if (IS_ERR(recs[0]))
+                        rc = PTR_ERR(recs[0]);
+        }
         if (rc == 0) {
                 struct lu_fid zero_fid;
+
                 fid_zero(&zero_fid);
                 /* If the rename target exist, The CL_EXT record should save
                  * the target fid as tfid, otherwise, use zero fid. LU-543 */
-                rc = mdd_changelog_ns_store(env, mdd, CL_EXT, 0, mdd_tobj,
-                                            mdd_tpobj,
-                                            mdd_tobj ? NULL : &zero_fid,
-                                            ltname, handle);
+                recs[1] = mdd_changelog_ns_prep(env, mdd, CL_EXT, 0, mdd_tobj,
+                                                mdd_tpobj,
+                                                mdd_tobj ? NULL : &zero_fid,
+                                                ltname, recs[1]);
+                if (IS_ERR(recs[1]))
+                        rc = PTR_ERR(recs[1]);
+                else
+                        rc = mdd_changelog_ns_store_multi(mdd, recs, 2, handle);
         }
 
 stop:

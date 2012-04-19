@@ -63,8 +63,8 @@ int filter_log_sz_change(struct llog_handle *cathandle,
                          struct inode *inode)
 {
         struct llog_size_change_rec *lsc;
-        int rc;
         struct ost_filterdata *ofd;
+        int rc;
         ENTRY;
 
         LOCK_INODE_MUTEX(inode);

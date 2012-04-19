@@ -68,18 +68,20 @@
  * we need to keep cookies in stripe order, even if some are NULL, so that
  * the right cookies are passed back to the right OSTs at the client side.
  * Unset cookies should be all-zero (which will never occur naturally). */
-static int lov_llog_origin_add(struct llog_ctxt *ctxt, struct llog_rec_hdr *rec,
-                               struct lov_stripe_md *lsm,
+static int lov_llog_origin_add(struct llog_ctxt *ctxt, struct llog_rec_hdr **recs,
+                               int nr_recs, struct lov_stripe_md *lsm,
                                struct llog_cookie *logcookies, int numcookies)
 {
         struct obd_device *obd = ctxt->loc_obd;
         struct lov_obd *lov = &obd->u.lov;
+        struct llog_rec_hdr *rec = recs[0];
         int i, rc = 0, cookies = 0;
         ENTRY;
 
         LASSERTF(logcookies && numcookies >= lsm->lsm_stripe_count,
                  "logcookies %p, numcookies %d lsm->lsm_stripe_count %d \n",
                  logcookies, numcookies, lsm->lsm_stripe_count);
+        LASSERT(nr_recs == 1);
 
         for (i = 0; i < lsm->lsm_stripe_count; i++) {
                 struct lov_oinfo *loi = lsm->lsm_oinfo[i];
@@ -115,8 +117,8 @@ static int lov_llog_origin_add(struct llog_ctxt *ctxt, struct llog_rec_hdr *rec,
                         llog_ctxt_put(cctxt);
                         cctxt = NULL;
                 }
-                rc = llog_add(cctxt, rec, NULL, logcookies + cookies,
-                               numcookies - cookies);
+                rc = llog_add_multi(cctxt, recs, nr_recs, NULL, logcookies + cookies,
+                                    numcookies - cookies);
                 llog_ctxt_put(cctxt);
                 if (rc < 0) {
                         CERROR("Can't add llog (rc = %d) for stripe %d\n",

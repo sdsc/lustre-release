@@ -218,21 +218,37 @@ static int llog_lvfs_read_header(struct llog_handle *handle)
 /* returns negative in on error; 0 if success && reccookie == 0; 1 otherwise */
 /* appends if idx == -1, otherwise overwrites record idx. */
 static int llog_lvfs_write_rec(struct llog_handle *loghandle,
-                               struct llog_rec_hdr *rec,
-                               struct llog_cookie *reccookie, int cookiecount,
+                               struct llog_rec_hdr **recs, int nr_recs,
+                               struct llog_cookie *reccookie,
                                void *buf, int idx)
 {
         struct llog_log_hdr *llh;
-        int reclen = rec->lrh_len, index, rc;
+        struct llog_rec_hdr *rec;
+        int reclen, index, rc;
         struct llog_rec_tail *lrt;
         struct obd_device *obd;
         struct file *file;
         size_t left;
+        int i = 0;
         ENTRY;
 
         llh = loghandle->lgh_hdr;
         file = loghandle->lgh_file;
         obd = loghandle->lgh_ctxt->loc_exp->exp_obd;
+
+        if (nr_recs > 1) {
+                /*
+                 * FIXME: write several records with buf/idx/reccookie set is
+                 * not supported yet, if you need this, remove LASSERT below.
+                 */
+                LASSERT(buf == NULL);
+                LASSERT(idx == -1);
+                LASSERT(reccookie == NULL);
+        }
+
+repeat:
+        rec = recs[i++];
+        reclen = rec->lrh_len;
 
         /* record length should not bigger than LLOG_CHUNK_SIZE */
         if (buf)
@@ -380,6 +396,18 @@ static int llog_lvfs_write_rec(struct llog_handle *loghandle,
         }
         if (rc == 0 && rec->lrh_type == LLOG_GEN_REC)
                 rc = 1;
+
+        if (rc < 0) {
+                struct changelog_rec *cr =
+                        &((struct llog_changelog_rec *)rec)->cr;
+
+                CERROR("changelog failed: rc=%d, op%d %s c"DFID" p"DFID"\n",
+                       rc, cr->cr_type, cr->cr_name,
+                       PFID(&cr->cr_tfid), PFID(&cr->cr_pfid));
+        } else if (i < nr_recs) {
+                LASSERT(rc == 0);
+                goto repeat;
+        }
 
         RETURN(rc);
 }
@@ -890,8 +918,8 @@ static int llog_lvfs_read_header(struct llog_handle *handle)
 }
 
 static int llog_lvfs_write_rec(struct llog_handle *loghandle,
-                               struct llog_rec_hdr *rec,
-                               struct llog_cookie *reccookie, int cookiecount,
+                               struct llog_rec_hdr **recs, int nr_recs,
+                               struct llog_cookie *reccookie,
                                void *buf, int idx)
 {
         LBUG();

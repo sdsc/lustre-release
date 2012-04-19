@@ -302,37 +302,48 @@ static __u64 cl_time(void) {
         return (((__u64)time.tv_sec) << 30) + time.tv_nsec;
 }
 
-/** Add a changelog entry \a rec to the changelog llog
+/** Add changelog records \a rec to the changelog llog
  * \param mdd
- * \param rec
+ * \param recs
+ * \param nr_recs
  * \param handle - currently ignored since llogs start their own transaction;
  *                 this will hopefully be fixed in llog rewrite
  * \retval 0 ok
  */
-int mdd_changelog_llog_write(struct mdd_device         *mdd,
-                             struct llog_changelog_rec *rec,
-                             struct thandle            *handle)
+int mdd_changelog_llog_write_multi(struct mdd_device *mdd,
+                                   struct llog_changelog_rec **recs,
+                                   int nr_recs,
+                                   struct thandle *handle)
 {
         struct obd_device *obd = mdd2obd_dev(mdd);
         struct llog_ctxt *ctxt;
-        int rc;
+        struct llog_changelog_rec *rec;
+        int i, rc;
 
-        rec->cr_hdr.lrh_len = llog_data_len(sizeof(*rec) + rec->cr.cr_namelen);
-        /* llog_lvfs_write_rec sets the llog tail len */
-        rec->cr_hdr.lrh_type = CHANGELOG_REC;
-        rec->cr.cr_time = cl_time();
-        cfs_spin_lock(&mdd->mdd_cl.mc_lock);
-        /* NB: I suppose it's possible llog_add adds out of order wrt cr_index,
-           but as long as the MDD transactions are ordered correctly for e.g.
-           rename conflicts, I don't think this should matter. */
-        rec->cr.cr_index = ++mdd->mdd_cl.mc_index;
-        cfs_spin_unlock(&mdd->mdd_cl.mc_lock);
+        for (i = 0; i < nr_recs; i++) {
+                rec = recs[i];
+                LASSERT(rec != NULL);
+                rec->cr_hdr.lrh_len = llog_data_len(sizeof(*rec) +
+                                                    rec->cr.cr_namelen);
+                /* llog_lvfs_write_rec sets the llog tail len */
+                rec->cr_hdr.lrh_type = CHANGELOG_REC;
+                rec->cr.cr_time = cl_time();
+
+                cfs_spin_lock(&mdd->mdd_cl.mc_lock);
+                /* NB: I suppose it's possible llog_add adds out of order wrt cr_index,
+                   but as long as the MDD transactions are ordered correctly for e.g.
+                   rename conflicts, I don't think this should matter. */
+                rec->cr.cr_index = ++mdd->mdd_cl.mc_index;
+                cfs_spin_unlock(&mdd->mdd_cl.mc_lock);
+        }
+
         ctxt = llog_get_context(obd, LLOG_CHANGELOG_ORIG_CTXT);
         if (ctxt == NULL)
                 return -ENXIO;
 
         /* nested journal transaction */
-        rc = llog_add(ctxt, &rec->cr_hdr, NULL, NULL, 0);
+        rc = llog_add_multi(ctxt, (struct llog_rec_hdr **)recs, nr_recs, NULL,
+                            NULL, 0);
         llog_ctxt_put(ctxt);
 
         return rc;
@@ -1465,8 +1476,7 @@ stop:
 
         /* hdr+1 is loc of data */
         hdr->lrh_len -= sizeof(*hdr) + sizeof(struct llog_rec_tail);
-        rc = llog_write_rec(llh, hdr, NULL, 0, (void *)(hdr + 1),
-                            hdr->lrh_index);
+        rc = llog_write_rec(llh, hdr, NULL, (void *)(hdr + 1), hdr->lrh_index);
 
         RETURN(rc);
 }

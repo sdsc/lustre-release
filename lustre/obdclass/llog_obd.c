@@ -252,9 +252,9 @@ int llog_sync(struct llog_ctxt *ctxt, struct obd_export *exp)
 }
 EXPORT_SYMBOL(llog_sync);
 
-int llog_add(struct llog_ctxt *ctxt, struct llog_rec_hdr *rec,
-             struct lov_stripe_md *lsm, struct llog_cookie *logcookies,
-             int numcookies)
+int llog_add_multi(struct llog_ctxt *ctxt, struct llog_rec_hdr **recs, int nr_recs,
+                   struct lov_stripe_md *lsm, struct llog_cookie *logcookies,
+                   int numcookies)
 {
         int raised, rc;
         ENTRY;
@@ -272,12 +272,12 @@ int llog_add(struct llog_ctxt *ctxt, struct llog_rec_hdr *rec,
         raised = cfs_cap_raised(CFS_CAP_SYS_RESOURCE);
         if (!raised)
                 cfs_cap_raise(CFS_CAP_SYS_RESOURCE);
-        rc = CTXTP(ctxt, add)(ctxt, rec, lsm, logcookies, numcookies);
+        rc = CTXTP(ctxt, add)(ctxt, recs, nr_recs, lsm, logcookies, numcookies);
         if (!raised)
                 cfs_cap_lower(CFS_CAP_SYS_RESOURCE);
         RETURN(rc);
 }
-EXPORT_SYMBOL(llog_add);
+EXPORT_SYMBOL(llog_add_multi);
 
 int llog_cancel(struct llog_ctxt *ctxt, struct lov_stripe_md *lsm,
                 int count, struct llog_cookie *cookies, int flags)
@@ -442,7 +442,8 @@ EXPORT_SYMBOL(llog_obd_origin_cleanup);
 
 /* add for obdfilter/sz and mds/unlink */
 int llog_obd_origin_add(struct llog_ctxt *ctxt,
-                        struct llog_rec_hdr *rec, struct lov_stripe_md *lsm,
+                        struct llog_rec_hdr **recs, int nr_recs,
+                        struct lov_stripe_md *lsm,
                         struct llog_cookie *logcookies, int numcookies)
 {
         struct llog_handle *cathandle;
@@ -451,9 +452,9 @@ int llog_obd_origin_add(struct llog_ctxt *ctxt,
 
         cathandle = ctxt->loc_handle;
         LASSERT(cathandle != NULL);
-        rc = llog_cat_add_rec(cathandle, rec, logcookies, NULL);
+        rc = llog_cat_add_recs(cathandle, recs, nr_recs, logcookies, NULL);
         if (rc != 0 && rc != 1)
-                CERROR("write one catalog record failed: %d\n", rc);
+                CERROR("write catalog record failed: %d\n", rc);
         RETURN(rc);
 }
 EXPORT_SYMBOL(llog_obd_origin_add);

@@ -119,7 +119,7 @@ static struct llog_handle *llog_cat_new_log(struct llog_handle *cathandle)
 
         /* update the catalog: header and record */
         rc = llog_write_rec(cathandle, &rec.lid_hdr,
-                            &loghandle->u.phd.phd_cookie, 1, NULL, index);
+                            &loghandle->u.phd.phd_cookie, NULL, index);
         if (rc < 0) {
                 GOTO(out_destroy, rc);
         }
@@ -281,19 +281,20 @@ static struct llog_handle *llog_cat_current_log(struct llog_handle *cathandle,
  *
  * Assumes caller has already pushed us into the kernel context.
  */
-int llog_cat_add_rec(struct llog_handle *cathandle, struct llog_rec_hdr *rec,
-                     struct llog_cookie *reccookie, void *buf)
+int llog_cat_add_recs(struct llog_handle *cathandle, struct llog_rec_hdr **recs,
+                      int nr_recs, struct llog_cookie *reccookie, void *buf)
 {
         struct llog_handle *loghandle;
-        int rc;
+        int i, rc;
         ENTRY;
 
-        LASSERT(rec->lrh_len <= LLOG_CHUNK_SIZE);
+        for (i = 0; i < nr_recs; i++)
+                LASSERT(recs[i]->lrh_len <= LLOG_CHUNK_SIZE);
         loghandle = llog_cat_current_log(cathandle, 1);
         if (IS_ERR(loghandle))
                 RETURN(PTR_ERR(loghandle));
         /* loghandle is already locked by llog_cat_current_log() for us */
-        rc = llog_write_rec(loghandle, rec, reccookie, 1, buf, -1);
+        rc = llog_write_recs(loghandle, recs, nr_recs, reccookie, buf, -1);
         if (rc < 0)
                 CERROR("llog_write_rec %d: lh=%p\n", rc, loghandle);
         cfs_up_write(&loghandle->lgh_lock);
@@ -302,13 +303,14 @@ int llog_cat_add_rec(struct llog_handle *cathandle, struct llog_rec_hdr *rec,
                 loghandle = llog_cat_current_log(cathandle, 1);
                 if (IS_ERR(loghandle))
                         RETURN(PTR_ERR(loghandle));
-                rc = llog_write_rec(loghandle, rec, reccookie, 1, buf, -1);
+                rc = llog_write_recs(loghandle, recs, nr_recs, reccookie, buf,
+                                     -1);
                 cfs_up_write(&loghandle->lgh_lock);
         }
 
         RETURN(rc);
 }
-EXPORT_SYMBOL(llog_cat_add_rec);
+EXPORT_SYMBOL(llog_cat_add_recs);
 
 /* For each cookie in the cookie array, we clear the log in-use bit and either:
  * - the log is empty, so mark it free in the catalog header and delete it

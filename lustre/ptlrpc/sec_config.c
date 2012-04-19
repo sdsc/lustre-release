@@ -988,7 +988,7 @@ static int sptlrpc_record_rule_set(struct llog_handle *llh,
                                         lcfg->lcfg_buflens);
                 rec.lrh_len = llog_data_len(buflen);
                 rec.lrh_type = OBD_CFG_REC;
-                rc = llog_write_rec(llh, &rec, NULL, 0, (void *)lcfg, -1);
+                rc = llog_write_rec(llh, &rec, NULL, (void *)lcfg, -1);
                 if (rc)
                         CERROR("failed to write a rec: rc = %d\n", rc);
                 lustre_cfg_free(lcfg);

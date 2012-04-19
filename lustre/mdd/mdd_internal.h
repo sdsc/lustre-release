@@ -93,6 +93,10 @@ struct mdd_changelog {
         int                              mc_lastuser;
 };
 
+/* maximum changelog records can be written once, currently only rename needs
+ * to write 2 records at one time, so the max is set to 2. */
+#define MDD_CHANGELOG_WRITE_MAX 2
+
 /** Objects in .lustre dir */
 struct mdd_dot_lustre_objs {
         struct mdd_object *mdd_obf;
@@ -437,15 +441,22 @@ int mdd_txn_start_cb(const struct lu_env *env, struct thandle *,
 
 /* mdd_device.c */
 struct lu_object *mdd_object_alloc(const struct lu_env *env,
-                                   const struct lu_object_header *hdr,
+                                   const struct lu_object_header *hdrs,
                                    struct lu_device *d);
 struct llog_changelog_rec;
-int mdd_changelog_llog_write(struct mdd_device         *mdd,
-                             struct llog_changelog_rec *rec,
-                             struct thandle            *handle);
+int mdd_changelog_llog_write_multi(struct mdd_device          *mdd,
+                                   struct llog_changelog_rec **recs, int nr_recs,
+                                   struct thandle             *handle);
 int mdd_changelog_llog_cancel(struct mdd_device *mdd, long long endrec);
 int mdd_changelog_write_header(struct mdd_device *mdd, int markerflags);
 int mdd_changelog_on(struct mdd_device *mdd, int on);
+
+static inline int mdd_changelog_llog_write(struct mdd_device         *mdd,
+                                           struct llog_changelog_rec *rec,
+                                           struct thandle            *handle)
+{
+        return mdd_changelog_llog_write_multi(mdd, &rec, 1, handle);
+}
 
 /* mdd_permission.c */
 #define mdd_cap_t(x) (x)

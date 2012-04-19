@@ -1574,8 +1574,7 @@ static int mgc_copy_handler(struct llog_handle *llh, struct llog_rec_hdr *rec,
 
         /* Append all records */
         local_rec.lrh_len -= sizeof(*rec) + sizeof(struct llog_rec_tail);
-        rc = llog_write_rec(local_llh, &local_rec, NULL, 0,
-                            (void *)cfg_buf, -1);
+        rc = llog_write_rec(local_llh, &local_rec, NULL, (void *)cfg_buf, -1);
 
         lcfg = (struct lustre_cfg *)cfg_buf;
         CDEBUG(D_INFO, "idx=%d, rc=%d, len=%d, cmd %x %s %s\n",

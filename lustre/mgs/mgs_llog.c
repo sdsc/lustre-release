@@ -660,7 +660,7 @@ static int mgs_modify_handler(struct llog_handle *llh, struct llog_rec_hdr *rec,
                 /* Header and tail are added back to lrh_len in
                    llog_lvfs_write_rec */
                 rec->lrh_len = cfg_len;
-                rc = llog_write_rec(llh, rec, NULL, 0, (void *)lcfg,
+                rc = llog_write_rec(llh, rec, NULL, (void *)lcfg,
                                     rec->lrh_index);
                 if (!rc)
                          mml->mml_modified++;
@@ -731,8 +731,8 @@ out_pop:
 static int record_lcfg(struct obd_device *obd, struct llog_handle *llh,
                          struct lustre_cfg *lcfg)
 {
-        struct lvfs_run_ctxt   saved;
-        struct llog_rec_hdr    rec;
+        struct lvfs_run_ctxt saved;
+        struct llog_rec_hdr rec;
         int buflen, rc;
 
         if (!lcfg || !llh)
@@ -747,7 +747,7 @@ static int record_lcfg(struct obd_device *obd, struct llog_handle *llh,
 
         push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
         /* idx = -1 means append */
-        rc = llog_write_rec(llh, &rec, NULL, 0, (void *)lcfg, -1);
+        rc = llog_write_rec(llh, &rec, NULL, (void *)lcfg, -1);
         pop_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
         if (rc)
                 CERROR("failed %d\n", rc);

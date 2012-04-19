@@ -190,7 +190,7 @@ static int llog_test_3(struct obd_device *obd, struct llog_handle *llh)
         lcr.lcr_hdr.lrh_type = OST_SZ_REC;
 
         CWARN("3a: write one create_rec\n");
-        rc = llog_write_rec(llh,  &lcr.lcr_hdr, NULL, 0, NULL, -1);
+        rc = llog_write_rec(llh, &lcr.lcr_hdr, NULL, NULL, -1);
         num_recs++;
         if (rc) {
                 CERROR("3a: write one log record failed: %d\n", rc);
@@ -207,7 +207,7 @@ static int llog_test_3(struct obd_device *obd, struct llog_handle *llh)
                 hdr.lrh_len = 8;
                 hdr.lrh_type = OBD_CFG_REC;
                 memset(buf, 0, sizeof buf);
-                rc = llog_write_rec(llh, &hdr, NULL, 0, buf, -1);
+                rc = llog_write_rec(llh, &hdr, NULL, buf, -1);
                 if (rc) {
                         CERROR("3b: write 10 records failed at #%d: %d\n",
                                i + 1, rc);
@@ -223,7 +223,7 @@ static int llog_test_3(struct obd_device *obd, struct llog_handle *llh)
 
         CWARN("3c: write 1000 more log records\n");
         for (i = 0; i < 1000; i++) {
-                rc = llog_write_rec(llh, &lcr.lcr_hdr, NULL, 0, NULL, -1);
+                rc = llog_write_rec(llh, &lcr.lcr_hdr, NULL, NULL, -1);
                 if (rc) {
                         CERROR("3c: write 1000 records failed at #%d: %d\n",
                                i + 1, rc);
@@ -248,11 +248,11 @@ static int llog_test_3(struct obd_device *obd, struct llog_handle *llh)
                 if ((i % 2) == 0) {
                         hdr.lrh_len = 24;
                         hdr.lrh_type = OBD_CFG_REC;
-                        rc = llog_write_rec(llh, &hdr, NULL, 0, buf_even, -1);
+                        rc = llog_write_rec(llh, &hdr, NULL, buf_even, -1);
                 } else {
                         hdr.lrh_len = 32;
                         hdr.lrh_type = OBD_CFG_REC;
-                        rc = llog_write_rec(llh, &hdr, NULL, 0, buf_odd, -1);
+                        rc = llog_write_rec(llh, &hdr, NULL, buf_odd, -1);
                 }
                 if (rc) {
                         if (rc == -ENOSPC) {
@@ -330,7 +330,7 @@ static int llog_test_4(struct obd_device *obd)
 
         CWARN("4d: write 40,000 more log records\n");
         for (i = 0; i < 40000; i++) {
-                rc = llog_cat_add_rec(cath, &lmr.lmr_hdr, NULL, NULL);
+                rc = llog_cat_add_rec(cath, &rec, NULL, NULL);
                 if (rc) {
                         CERROR("4d: write 40000 records failed at #%d: %d\n",
                                i + 1, rc);
@@ -580,7 +580,7 @@ static int llog_test_7(struct obd_device *obd)
 
         lcr.lcr_hdr.lrh_len = lcr.lcr_tail.lrt_len = sizeof(lcr);
         lcr.lcr_hdr.lrh_type = OST_SZ_REC;
-        rc = llog_write_rec(llh,  &lcr.lcr_hdr, NULL, 0, NULL, -1);
+        rc = llog_write_rec(llh,  &lcr.lcr_hdr, NULL, NULL, -1);
         if (rc) {
                 CERROR("7: write one log record failed: %d\n", rc);
                 GOTO(ctxt_release, rc);

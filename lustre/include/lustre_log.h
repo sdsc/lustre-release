@@ -171,8 +171,8 @@ struct llog_process_cat_args {
 };
 
 int llog_cat_put(struct llog_handle *cathandle);
-int llog_cat_add_rec(struct llog_handle *cathandle, struct llog_rec_hdr *rec,
-                     struct llog_cookie *reccookie, void *buf);
+int llog_cat_add_recs(struct llog_handle *cathandle, struct llog_rec_hdr **recs,
+                      int nr_recs, struct llog_cookie *reccookie, void *buf);
 int llog_cat_cancel_records(struct llog_handle *cathandle, int count,
                             struct llog_cookie *cookies);
 int llog_cat_process(struct llog_handle *cat_llh, llog_cb_t cb, void *data,
@@ -182,6 +182,13 @@ int llog_cat_process_flags(struct llog_handle *cat_llh, llog_cb_t cb, void *data
 int llog_cat_process_thread(void *data);
 int llog_cat_reverse_process(struct llog_handle *cat_llh, llog_cb_t cb, void *data);
 int llog_cat_set_first_idx(struct llog_handle *cathandle, int index);
+
+static inline int llog_cat_add_rec(struct llog_handle *cathandle,
+                                    struct llog_rec_hdr *rec,
+                                    struct llog_cookie *reccookie, void *buf)
+{
+        return llog_cat_add_recs(cathandle, &rec, 1, reccookie, buf);
+}
 
 /* llog_obd.c */
 int llog_setup_named(struct obd_device *obd, struct obd_llog_group *olg,
@@ -194,9 +201,9 @@ int llog_setup(struct obd_device *obd, struct obd_llog_group *olg, int index,
 int __llog_ctxt_put(struct llog_ctxt *ctxt);
 int llog_cleanup(struct llog_ctxt *);
 int llog_sync(struct llog_ctxt *ctxt, struct obd_export *exp);
-int llog_add(struct llog_ctxt *ctxt, struct llog_rec_hdr *rec,
-             struct lov_stripe_md *lsm, struct llog_cookie *logcookies,
-             int numcookies);
+int llog_add_multi(struct llog_ctxt *ctxt, struct llog_rec_hdr **recs,
+                   int nr_recs, struct lov_stripe_md *lsm,
+                   struct llog_cookie *logcookies, int numcookies);
 int llog_cancel(struct llog_ctxt *, struct lov_stripe_md *lsm,
                 int count, struct llog_cookie *cookies, int flags);
 
@@ -204,14 +211,21 @@ int llog_obd_origin_setup(struct obd_device *obd, struct obd_llog_group *olg,
                           int index, struct obd_device *disk_obd, int count,
                           struct llog_logid *logid, const char *name);
 int llog_obd_origin_cleanup(struct llog_ctxt *ctxt);
-int llog_obd_origin_add(struct llog_ctxt *ctxt,
-                        struct llog_rec_hdr *rec, struct lov_stripe_md *lsm,
+int llog_obd_origin_add(struct llog_ctxt *ctxt, struct llog_rec_hdr **recs,
+                        int nr_recs, struct lov_stripe_md *lsm,
                         struct llog_cookie *logcookies, int numcookies);
 
 int obd_llog_init(struct obd_device *obd, struct obd_llog_group *olg,
                   struct obd_device *disk_obd, int *idx);
 
 int obd_llog_finish(struct obd_device *obd, int count);
+
+static inline int llog_add(struct llog_ctxt *ctxt, struct llog_rec_hdr *rec,
+                           struct lov_stripe_md *lsm,
+                           struct llog_cookie *logcookies, int numcookies)
+{
+        return llog_add_multi(ctxt, &rec, 1, lsm, logcookies, numcookies);
+}
 
 /* llog_ioctl.c */
 int llog_ioctl(struct llog_ctxt *ctxt, int cmd, struct obd_ioctl_data *data);
@@ -237,8 +251,8 @@ int llog_obd_repl_connect(struct llog_ctxt *ctxt,
 
 struct llog_operations {
         int (*lop_write_rec)(struct llog_handle *loghandle,
-                             struct llog_rec_hdr *rec,
-                             struct llog_cookie *logcookies, int numcookies,
+                             struct llog_rec_hdr **recs, int nr_recs,
+                             struct llog_cookie *logcookies,
                              void *, int idx);
         int (*lop_destroy)(struct llog_handle *handle);
         int (*lop_next_block)(struct llog_handle *h, int *curr_idx,
@@ -255,8 +269,8 @@ struct llog_operations {
                          struct llog_logid *logid, const char *name);
         int (*lop_sync)(struct llog_ctxt *ctxt, struct obd_export *exp);
         int (*lop_cleanup)(struct llog_ctxt *ctxt);
-        int (*lop_add)(struct llog_ctxt *ctxt, struct llog_rec_hdr *rec,
-                       struct lov_stripe_md *lsm,
+        int (*lop_add)(struct llog_ctxt *ctxt, struct llog_rec_hdr **recs,
+                       int nr_recs, struct lov_stripe_md *lsm,
                        struct llog_cookie *logcookies, int numcookies);
         int (*lop_cancel)(struct llog_ctxt *ctxt, struct lov_stripe_md *lsm,
                           int count, struct llog_cookie *cookies, int flags);
@@ -523,13 +537,13 @@ static inline int llog_ctxt_null(struct obd_device *obd, int index)
         return (llog_group_ctxt_null(&obd->obd_olg, index));
 }
 
-static inline int llog_write_rec(struct llog_handle *handle,
-                                 struct llog_rec_hdr *rec,
-                                 struct llog_cookie *logcookies,
-                                 int numcookies, void *buf, int idx)
+static inline int llog_write_recs(struct llog_handle *handle,
+                                  struct llog_rec_hdr **recs, int nr_recs,
+                                  struct llog_cookie *logcookies,
+                                  void *buf, int idx)
 {
         struct llog_operations *lop;
-        int raised, rc, buflen;
+        int raised, rc, buflen, i;
         ENTRY;
 
         rc = llog_handle2ops(handle, &lop);
@@ -540,20 +554,30 @@ static inline int llog_write_rec(struct llog_handle *handle,
                 RETURN(-EOPNOTSUPP);
 
         /* FIXME:  Why doesn't caller just set the right lrh_len itself? */
-        if (buf)
-                buflen = rec->lrh_len + sizeof(struct llog_rec_hdr)
-                                + sizeof(struct llog_rec_tail);
-        else
-                buflen = rec->lrh_len;
-        LASSERT(cfs_size_round(buflen) == buflen);
+        for (i = 0; i < nr_recs; i++) {
+                if (buf)
+                        buflen = recs[i]->lrh_len + sizeof(struct llog_rec_hdr)
+                                 + sizeof(struct llog_rec_tail);
+                else
+                        buflen = recs[i]->lrh_len;
+                LASSERT(cfs_size_round(buflen) == buflen);
+        }
 
         raised = cfs_cap_raised(CFS_CAP_SYS_RESOURCE);
         if (!raised)
                 cfs_cap_raise(CFS_CAP_SYS_RESOURCE);
-        rc = lop->lop_write_rec(handle, rec, logcookies, numcookies, buf, idx);
+        rc = lop->lop_write_rec(handle, recs, nr_recs, logcookies, buf, idx);
         if (!raised)
                 cfs_cap_lower(CFS_CAP_SYS_RESOURCE);
         RETURN(rc);
+}
+
+static inline int llog_write_rec(struct llog_handle *handle,
+                                  struct llog_rec_hdr *rec,
+                                  struct llog_cookie *logcookies,
+                                  void *buf, int idx)
+{
+        return llog_write_recs(handle, &rec, 1, logcookies, buf, idx);
 }
 
 static inline int llog_read_header(struct llog_handle *handle)
