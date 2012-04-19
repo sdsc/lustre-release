@@ -437,14 +437,16 @@ int osc_teardown_async_page(const struct lu_env *env, struct osc_object *obj,
                             struct osc_page *ops);
 int osc_flush_async_page(const struct lu_env *env, struct cl_io *io,
                          struct osc_page *ops);
-int osc_cache_pageout(const struct lu_env *env, struct osc_lock *ols,
-                      int discard);
 int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
                          cfs_list_t *list, int cmd, int brw_flags);
 int osc_cache_truncate_start(const struct lu_env *env, struct osc_io *oio,
                              struct osc_object *obj, __u64 size);
 void osc_cache_truncate_end(const struct lu_env *env, struct osc_io *oio,
                             struct osc_object *obj);
+int osc_cache_writeback_range(const struct lu_env *env, struct osc_object *obj,
+                              pgoff_t start, pgoff_t end, int hp, int discard);
+int osc_cache_wait_range(const struct lu_env *env, struct osc_object *obj,
+                         pgoff_t start, pgoff_t end);
 void osc_io_unplug(const struct lu_env *env, struct client_obd *cli,
                    struct osc_object *osc, pdl_policy_t pol);
 
@@ -617,15 +619,24 @@ struct osc_extent {
         unsigned int       oe_state;
         /** flags for this extent. */
         unsigned int       oe_intree:1,
-                           oe_rw:1,     /* 0 is write, 1 is read */
+        /** 0 is write, 1 is read */
+                           oe_rw:1,
                            oe_srvlock:1,
                            oe_memalloc:1,
+        /** an ACTIVE extent is going to be truncated, so when this extent
+         * is released, it will turn into TRUNC state instead of CACHE. */
                            oe_trunc_pending:1,
-                           oe_hp:1,     /* covering lock is being canceled */
-                           oe_urgent:1; /* this extent should be written back
-                                         * asap. set if one of pages is called
-                                         * by page WB daemon, or sync write or
-                                         * reading requests. */
+        /** this extent should be written asap and someone may wait for the
+         * write to finish. This bit is usually set along with urgent if
+         * the extent was CACHE state.
+         * fsync_wait extent can't be merged because new extent region may
+         * exceed fsync range. */
+                           oe_fsync_wait:1,
+        /** covering lock is being canceled */
+                           oe_hp:1,
+        /** this extent should be written back asap. set if one of pages is
+         * called by page WB daemon, or sync write or reading requests. */
+                           oe_urgent:1;
         /** how many grants allocated for this extent.
          *  Grant allocated for this extent. There is no grant allocated
          *  for reading extents and sync write extents. */

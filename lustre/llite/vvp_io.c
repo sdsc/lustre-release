@@ -767,11 +767,13 @@ out:
         return result;
 }
 
-static void vvp_io_fsync_end(const struct lu_env *env,
-                             const struct cl_io_slice *ios)
+static int vvp_io_fsync_start(const struct lu_env *env,
+                              const struct cl_io_slice *ios)
 {
-        /* never try to verify there is no dirty pages in sync range
-         * because page_mkwrite() can generate new dirty pages any time. */
+        /* we should mark TOWRITE bit to each dirty page in radix tree to
+         * verify pages have been written, but this is difficult because of
+         * race. */
+        return 0;
 }
 
 static int vvp_io_read_page(const struct lu_env *env,
@@ -1074,7 +1076,7 @@ static const struct cl_io_operations vvp_io_ops = {
                         .cio_end       = ccc_io_end
                 },
                 [CIT_FSYNC] = {
-                        .cio_end    = vvp_io_fsync_end,
+                        .cio_start  = vvp_io_fsync_start,
                         .cio_fini   = vvp_io_fini
                 },
                 [CIT_MISC] = {

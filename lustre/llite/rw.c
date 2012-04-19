@@ -1169,6 +1169,7 @@ int ll_writepage(struct page *vmpage, struct writeback_control *wbc)
         struct cl_page         *page;
         struct cl_object       *clob;
         struct cl_env_nest      nest;
+        int force_wait = 0;
         int result;
         ENTRY;
 
@@ -1205,6 +1206,7 @@ int ll_writepage(struct page *vmpage, struct writeback_control *wbc)
                                 if (!PageError(vmpage)) {
                                         redirty_page_for_writepage(wbc, vmpage);
                                         result = 0;
+                                        force_wait = 1;
                                 }
                         }
                         cl_page_disown(env, io, page);
@@ -1214,7 +1216,67 @@ int ll_writepage(struct page *vmpage, struct writeback_control *wbc)
                 }
         }
         cl_io_fini(env, io);
+
+        if (force_wait) {
+                loff_t offset = cl_offset(clob, vmpage->index);
+
+                /* Flush page failed because the extent is being written out.
+                 * Wait for the write of extent to be finished to avoid
+                 * breaking kernel which assumes ->writepage should mark
+                 * PageWriteback or clean the page. */
+                result = cl_sync_file_range(inode, offset,
+                                            offset + CFS_PAGE_SIZE - 1,
+                                            CL_FSYNC_LOCAL);
+                if (result > 0) {
+                        /* actually we may have written more than one page.
+                         * decreasing this page because the caller will count
+                         * it. */
+                        wbc->nr_to_write -= result - 1;
+                        result = 0;
+                }
+        }
+
         cl_env_nested_put(&nest, env);
+        RETURN(result);
+}
+
+int ll_writepages(struct address_space *mapping, struct writeback_control *wbc)
+{
+        struct inode *inode = mapping->host;
+        loff_t start;
+        loff_t end;
+        enum cl_fsync_mode mode;
+        int range_whole = 0;
+        int result;
+        ENTRY;
+
+        if (wbc->range_cyclic) {
+                start = mapping->writeback_index << CFS_PAGE_SHIFT;
+                end = OBD_OBJECT_EOF;
+        } else {
+                start = wbc->range_start;
+                end = wbc->range_end;
+                if (end == LLONG_MAX) {
+                        end = OBD_OBJECT_EOF;
+                        range_whole = start == 0;
+                }
+        }
+
+        mode = CL_FSYNC_NONE;
+        if (wbc->sync_mode == WB_SYNC_ALL)
+                mode = CL_FSYNC_LOCAL;
+
+        result = cl_sync_file_range(inode, start, end, mode);
+        if (result > 0) {
+                wbc->nr_to_write -= result;
+                result = 0;
+         }
+
+        if (wbc->range_cyclic || (range_whole && wbc->nr_to_write > 0)) {
+                if (end == OBD_OBJECT_EOF)
+                        end = i_size_read(inode);
+                mapping->writeback_index = (end >> CFS_PAGE_SHIFT) + 1;
+        }
         RETURN(result);
 }
 

@@ -114,7 +114,9 @@ static void lov_io_sub_inherit(struct cl_io *io, struct lov_io *lio,
         case CIT_FSYNC: {
                 io->u.ci_fsync.fi_start = start;
                 io->u.ci_fsync.fi_end = end;
+                io->u.ci_fsync.fi_fid = parent->u.ci_fsync.fi_fid;
                 io->u.ci_fsync.fi_capa = parent->u.ci_fsync.fi_capa;
+                io->u.ci_fsync.fi_mode = parent->u.ci_fsync.fi_mode;
                 break;
         }
         case CIT_READ:
@@ -744,6 +746,28 @@ static int lov_io_fault_start(const struct lu_env *env,
         RETURN(lov_io_start(env, ios));
 }
 
+static void lov_io_fsync_end(const struct lu_env *env,
+                             const struct cl_io_slice *ios)
+{
+        struct lov_io *lio = cl2lov_io(env, ios);
+        struct lov_io_sub *sub;
+        unsigned int *written = &ios->cis_io->u.ci_fsync.fi_nr_written;
+        ENTRY;
+
+        *written = 0;
+        cfs_list_for_each_entry(sub, &lio->lis_active, sub_linkage) {
+                struct cl_io *subio = sub->sub_io;
+
+                lov_sub_enter(sub);
+                lov_io_end_wrapper(sub->sub_env, subio);
+                lov_sub_exit(sub);
+
+                if (subio->ci_result == 0)
+                        *written += subio->u.ci_fsync.fi_nr_written;
+        }
+        RETURN_EXIT;
+}
+
 static const struct cl_io_operations lov_io_ops = {
         .op = {
                 [CIT_READ] = {
@@ -789,7 +813,7 @@ static const struct cl_io_operations lov_io_ops = {
                         .cio_lock      = lov_io_lock,
                         .cio_unlock    = lov_io_unlock,
                         .cio_start     = lov_io_start,
-                        .cio_end       = lov_io_end
+                        .cio_end       = lov_io_fsync_end
                 },
                 [CIT_MISC] = {
                         .cio_fini   = lov_io_fini

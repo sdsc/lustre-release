@@ -1336,9 +1336,20 @@ static int osc_lock_flush(struct osc_lock *ols, int discard)
 
         env = cl_env_nested_get(&nest);
         if (!IS_ERR(env)) {
+                struct osc_object    *obj   = cl2osc(ols->ols_cl.cls_obj);
+                struct cl_lock_descr *descr = &lock->cll_descr;
                 int rc = 0;
-                if (lock->cll_descr.cld_mode > CLM_READ)
-                        result = osc_cache_pageout(env, ols, discard);
+
+                if (descr->cld_mode >= CLM_WRITE) {
+                        result = osc_cache_writeback_range(env, obj,
+                                        descr->cld_start, descr->cld_end,
+                                        !discard, discard);
+                        CDEBUG(D_DLMTRACE, "write out %d pages for lock %p.\n",
+                               result, lock);
+                        if (result > 0)
+                                result = 0;
+                }
+
                 rc = cl_lock_discard_pages(env, lock);
                 if (result == 0 && rc < 0)
                         result = rc;
