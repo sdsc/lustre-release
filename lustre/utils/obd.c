@@ -1135,6 +1135,7 @@ int jt_obd_list(int argc, char **argv)
         return 0;
 }
 
+#ifdef HAVE_SERVER_SUPPORT
 struct jt_fid_space {
         obd_seq jt_seq;
         obd_id  jt_id;
@@ -1527,6 +1528,7 @@ int jt_obd_test_md_getattr(int argc, char **argv)
 {
         return jt_obd_md_common(argc, argv, ECHO_MD_GETATTR);
 }
+#endif /* HAVE_SERVER_SUPPORT */
 
 /* Create one or more objects, arg[4] may describe stripe meta-data.  If
  * not, defaults assumed.  This echo-client instance stashes the stripe

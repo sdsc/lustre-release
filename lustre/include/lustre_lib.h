@@ -139,6 +139,7 @@ void l_lock(struct lustre_lock *);
 void l_unlock(struct lustre_lock *);
 int l_has_lock(struct lustre_lock *);
 
+#ifdef HAVE_SERVER_SUPPORT
 /*
  * For md echo client
  */
@@ -152,6 +153,7 @@ enum md_echo_cmd {
         ECHO_MD_SETATTR      = 7, /* Setattr on MDT */
         ECHO_MD_ALLOC_FID    = 8, /* Get FIDs from MDT */
 };
+#endif
 
 /*
  *   OBD IOCTLS
@@ -564,8 +566,11 @@ static inline void obd_ioctl_freedata(char *buf, int len)
 /* <lustre/lustre_user.h> defines ioctl number 218 */
 #define OBD_IOC_GET_MNTOPT             _IOW('f', 220, mntopt_t)
 
-#define OBD_IOC_ECHO_MD                _IOR('f', 221, struct obd_ioctl_data)
-#define OBD_IOC_ECHO_ALLOC_SEQ         _IOWR('f', 222, struct obd_ioctl_data)
+#ifdef HAVE_SERVER_SUPPORT
+# define OBD_IOC_ECHO_MD                _IOR('f', 221, struct obd_ioctl_data)
+# define OBD_IOC_ECHO_ALLOC_SEQ         _IOWR('f', 222, struct obd_ioctl_data)
+#endif
+
 /* XXX _IOWR('f', 250, long) has been defined in
  * libcfs/include/libcfs/libcfs_private.h for debug, don't use it
  */

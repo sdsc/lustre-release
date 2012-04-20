@@ -204,6 +204,7 @@ struct echo_thread_info {
         struct cl_io            eti_io;
         struct cl_lock_descr    eti_descr;
         struct lu_fid           eti_fid;
+#ifdef HAVE_SERVER_SUPPORT
         struct md_op_spec       eti_spec;
         struct lov_mds_md_v3    eti_lmm;
         struct lov_user_md_v3   eti_lum;
@@ -212,6 +213,7 @@ struct echo_thread_info {
         char                    eti_name[20];
         struct lu_buf           eti_buf;
         char                    eti_xattr_buf[LUSTRE_POSIX_ACL_MAX_SIZE];
+#endif
 };
 
 /* No session used right now */
@@ -700,7 +702,8 @@ static struct lu_context_key echo_session_key = {
 
 LU_TYPE_INIT_FINI(echo, &echo_thread_key, &echo_session_key);
 
-#define ECHO_SEQ_WIDTH 0xffffffff
+#ifdef HAVE_SERVER_SUPPORT
+# define ECHO_SEQ_WIDTH 0xffffffff
 static int echo_fid_init(struct echo_device *ed, char *obd_name,
                          struct md_site *ms)
 {
@@ -748,6 +751,7 @@ static int echo_fid_fini(struct obd_device *obddev)
 
         RETURN(0);
 }
+#endif /* HAVE_SERVER_SUPPORT */
 
 static struct lu_device *echo_device_alloc(const struct lu_env *env,
                                            struct lu_device_type *t,
@@ -807,6 +811,7 @@ static struct lu_device *echo_device_alloc(const struct lu_env *env,
         cleanup = 4;
 
         if (ed->ed_next_ismd) {
+#ifdef HAVE_SERVER_SUPPORT
                 /* Suppose to connect to some Metadata layer */
                 struct lu_site *ls;
                 struct lu_device *ld;
@@ -853,6 +858,11 @@ static struct lu_device *echo_device_alloc(const struct lu_env *env,
                         CERROR("echo fid init error %d\n", rc);
                         GOTO(out, rc);
                 }
+#else /* !HAVE_SERVER_SUPPORT */
+                CERROR("This is client-side only module, does not support "
+                       "metadata echo client.\n");
+                GOTO(out, rc = -EINVAL);
+#endif
         } else {
                  /* if echo client is to be stacked upon ost device, the next is
                   * NULL since ost is not a clio device so far */
@@ -992,7 +1002,9 @@ static struct lu_device *echo_device_free(const struct lu_env *env,
         CDEBUG(D_INFO, "No object exists, exiting...\n");
 
         echo_client_cleanup(d->ld_obd);
+#ifdef HAVE_SERVER_SUPPORT
         echo_fid_fini(d->ld_obd);
+#endif
         while (next && !ed->ed_next_ismd)
                 next = next->ld_type->ldt_ops->ldto_device_free(env, next);
 
@@ -1411,6 +1423,7 @@ echo_copyin_lsm (struct echo_device *ed, struct lov_stripe_md *lsm,
         return (0);
 }
 
+#ifdef HAVE_SERVER_SUPPORT
 static inline void echo_md_build_name(struct lu_name *lname, char *name,
                                       __u64 id)
 {
@@ -2052,6 +2065,7 @@ static int echo_md_handler(struct echo_device *ed, int command,
         cl_env_put(env, &refcheck);
         return rc;
 }
+#endif /* HAVE_SERVER_SUPPORT */
 
 static int echo_create_object(struct echo_device *ed, int on_target,
                               struct obdo *oa, void *ulsm, int ulsm_nob,
@@ -2621,7 +2635,7 @@ echo_client_iocontrol(unsigned int cmd, struct obd_export *exp,
                                          data->ioc_pbuf1, data->ioc_plen1,
                                          &dummy_oti);
                 GOTO(out, rc);
-
+#ifdef HAVE_SERVER_SUPPORT
         case OBD_IOC_ECHO_MD: {
                 int count;
                 int cmd;
@@ -2688,6 +2702,7 @@ echo_client_iocontrol(unsigned int cmd, struct obd_export *exp,
                         return -EFAULT;
                 GOTO(out, rc);
         }
+#endif /* HAVE_SERVER_SUPPORT */
         case OBD_IOC_DESTROY:
                 if (!cfs_capable(CFS_CAP_SYS_ADMIN))
                         GOTO (out, rc = -EPERM);
@@ -2830,8 +2845,13 @@ static int echo_client_setup(const struct lu_env *env,
         ec->ec_nstripes = 0;
 
         if (!strcmp(tgt->obd_type->typ_name, LUSTRE_MDT_NAME)) {
+#ifdef HAVE_SERVER_SUPPORT
                 lu_context_tags_update(ECHO_MD_CTX_TAG);
                 lu_session_tags_update(ECHO_MD_SES_TAG);
+#else
+                CERROR("This is client-side only module, does not support "
+                       "metadata echo client.\n");
+#endif
                 RETURN(0);
         }
 
@@ -2879,8 +2899,13 @@ static int echo_client_cleanup(struct obd_device *obddev)
                 RETURN(0);
 
         if (ed->ed_next_ismd) {
+#ifdef HAVE_SERVER_SUPPORT
                 lu_context_tags_clear(ECHO_MD_CTX_TAG);
                 lu_session_tags_clear(ECHO_MD_SES_TAG);
+#else
+                CERROR("This is client-side only module, does not support "
+                       "metadata echo client.\n");
+#endif
                 RETURN(0);
         }
 
