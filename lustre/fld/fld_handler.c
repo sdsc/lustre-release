@@ -76,8 +76,6 @@ LU_KEY_INIT_FINI(fld, struct fld_thread_info);
 /* context key: fld_thread_key */
 LU_CONTEXT_KEY_DEFINE(fld, LCT_MD_THREAD|LCT_DT_THREAD);
 
-cfs_proc_dir_entry_t *fld_type_proc_dir = NULL;
-
 static struct lu_local_obj_desc llod_fld_index = {
         .llod_name      = fld_index_name,
         .llod_oid       = FLD_INDEX_OID,
@@ -85,29 +83,18 @@ static struct lu_local_obj_desc llod_fld_index = {
         .llod_feat      = &fld_index_features,
 };
 
-static int __init fld_mod_init(void)
+void fld_mod_init_server(void)
 {
-        fld_type_proc_dir = lprocfs_register(LUSTRE_FLD_NAME,
-                                             proc_lustre_root,
-                                             NULL, NULL);
-        if (IS_ERR(fld_type_proc_dir))
-                return PTR_ERR(fld_type_proc_dir);
-
         llo_local_obj_register(&llod_fld_index);
 
         LU_CONTEXT_KEY_INIT(&fld_thread_key);
         lu_context_key_register(&fld_thread_key);
-        return 0;
 }
 
-static void __exit fld_mod_exit(void)
+void fld_mod_exit_server(void)
 {
         llo_local_obj_unregister(&llod_fld_index);
         lu_context_key_degister(&fld_thread_key);
-        if (fld_type_proc_dir != NULL && !IS_ERR(fld_type_proc_dir)) {
-                lprocfs_remove(&fld_type_proc_dir);
-                fld_type_proc_dir = NULL;
-        }
 }
 
 int fld_declare_server_create(struct lu_server_fld *fld,
@@ -591,10 +578,4 @@ void fld_server_fini(struct lu_server_fld *fld,
         EXIT;
 }
 EXPORT_SYMBOL(fld_server_fini);
-
-MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
-MODULE_DESCRIPTION("Lustre FLD");
-MODULE_LICENSE("GPL");
-
-cfs_module(mdd, "0.1.0", fld_mod_init, fld_mod_exit);
 #endif
