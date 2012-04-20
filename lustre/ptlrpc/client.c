@@ -1848,6 +1848,13 @@ int ptlrpc_expired_set(void *data)
                 struct ptlrpc_request *req =
                         cfs_list_entry(tmp, struct ptlrpc_request,
                                        rq_set_chain);
+                DEBUG_REQ(D_INFO, req, "Checking request x"LPU64
+                  " sent from %s to NID %s: [rq_wait_ctx %u] "
+                  "[rq_phase %d] [rq_waiting %u] "
+                  "[rq_resend %u] [rq_timedout %u] [rq_deadline "CFS_DURATION_T"] [now "CFS_DURATION_T"]",
+                  req->rq_xid, imp ? imp->imp_obd->obd_name : "<?>",
+                  imp ? libcfs_nid2str(imp->imp_connection->c_peer.nid) : "<?>",
+                  req->rq_wait_ctx, req->rq_phase, req->rq_waiting, req->rq_resend, req->rq_timedout, req->rq_deadline, now);
 
                 /* don't expire request waiting for context */
                 if (req->rq_wait_ctx)
