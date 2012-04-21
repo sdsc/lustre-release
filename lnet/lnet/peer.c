@@ -41,167 +41,230 @@
 #include <lnet/lib-lnet.h>
 
 int
-lnet_create_peer_table(void)
+lnet_peer_tables_create(void)
 {
-	cfs_list_t  *hash;
-	int          i;
+	struct lnet_peer_table	*ptable;
+	cfs_list_t		*hash;
+	int			i;
+	int			j;
 
-	LASSERT (the_lnet.ln_peer_hash == NULL);
-	LIBCFS_ALLOC(hash, LNET_PEER_HASHSIZE * sizeof(cfs_list_t));
-	
-	if (hash == NULL) {
-		CERROR("Can't allocate peer hash table\n");
-		return -ENOMEM;
-	}
+        the_lnet.ln_peer_tables = cfs_percpt_alloc(lnet_cpt_table(),
+                                                   sizeof(*ptable));
+        if (the_lnet.ln_peer_tables == NULL) {
+                CERROR("Failed to allocate cpu-partition peer tables\n");
+                return -ENOMEM;
+        }
 
-	for (i = 0; i < LNET_PEER_HASHSIZE; i++)
-		CFS_INIT_LIST_HEAD(&hash[i]);
+        cfs_percpt_for_each(ptable, i, the_lnet.ln_peer_tables) {
+                CFS_INIT_LIST_HEAD(&ptable->pt_deathrow);
 
-	the_lnet.ln_peer_hash = hash;
-	return 0;
+                LIBCFS_CPT_ALLOC(hash, lnet_cpt_table(), i,
+                                 LNET_PEER_HASH_SIZE * sizeof(*hash));
+                if (hash == NULL) {
+                        CERROR("Failed to create peer hash for CPT %d\n", i);
+                        lnet_peer_tables_destroy();
+                        return -ENOMEM;
+                }
+
+                for (j = 0; j < LNET_PEER_HASH_SIZE; j++)
+                        CFS_INIT_LIST_HEAD(&hash[j]);
+                ptable->pt_hash = hash;
+        }
+        return 0;
 }
 
 void
-lnet_destroy_peer_table(void)
+lnet_peer_tables_destroy(void)
 {
-	int         i;
+	struct lnet_peer_table	*ptable;
+	cfs_list_t		*hash;
+	int	i;
+	int	j;
 
-        if (the_lnet.ln_peer_hash == NULL)
+        if (the_lnet.ln_peer_tables == NULL)
                 return;
 
-	for (i = 0; i < LNET_PEER_HASHSIZE; i++)
-		LASSERT (cfs_list_empty(&the_lnet.ln_peer_hash[i]));
+        cfs_percpt_for_each(ptable, i, the_lnet.ln_peer_tables) {
+		hash = ptable->pt_hash;
+                if (hash == NULL) /* not intialized */
+                        continue;
 
-	LIBCFS_FREE(the_lnet.ln_peer_hash,
-		    LNET_PEER_HASHSIZE * sizeof (cfs_list_t));
-        the_lnet.ln_peer_hash = NULL;
+                LASSERT(cfs_list_empty(&ptable->pt_deathrow));
+
+                ptable->pt_hash = NULL;
+                for (j = 0; j < LNET_PEER_HASH_SIZE; j++)
+                        LASSERT(cfs_list_empty(&hash[j]));
+
+                LIBCFS_FREE(hash, LNET_PEER_HASH_SIZE * sizeof(*hash));
+        }
+
+        cfs_percpt_free(the_lnet.ln_peer_tables);
+        the_lnet.ln_peer_tables = NULL;
 }
 
 void
-lnet_clear_peer_table(void)
+lnet_peer_tables_cleanup(void)
 {
-	int         i;
+	struct lnet_peer_table *ptable;
+	int	i;
+	int	j;
 
         LASSERT (the_lnet.ln_shutdown);         /* i.e. no new peers */
 
-	for (i = 0; i < LNET_PEER_HASHSIZE; i++) {
-		cfs_list_t *peers = &the_lnet.ln_peer_hash[i];
+        cfs_percpt_for_each(ptable, i, the_lnet.ln_peer_tables) {
+                lnet_net_lock(i);
 
-		LNET_LOCK();
-		while (!cfs_list_empty(peers)) {
-			lnet_peer_t *lp = cfs_list_entry(peers->next,
-                                                         lnet_peer_t,
-                                                         lp_hashlist);
+                for (j = 0; j < LNET_PEER_HASH_SIZE; j++) {
+                        cfs_list_t *peers = &ptable->pt_hash[j];
 
-			cfs_list_del(&lp->lp_hashlist);
-                        lnet_peer_decref_locked(lp);   /* lose hash table's ref */
-		}
-		LNET_UNLOCK();
-	}
-
-        LNET_LOCK();
-        for (i = 3; the_lnet.ln_npeers != 0;i++) {
-                LNET_UNLOCK();
-
-                if ((i & (i-1)) == 0)
-                        CDEBUG(D_WARNING,"Waiting for %d peers\n", 
-                               the_lnet.ln_npeers);
-                cfs_pause(cfs_time_seconds(1));
-
-                LNET_LOCK();
+                        while (!cfs_list_empty(peers)) {
+                                lnet_peer_t *lp = cfs_list_entry(peers->next,
+                                                                 lnet_peer_t,
+                                                                 lp_hashlist);
+                                cfs_list_del_init(&lp->lp_hashlist);
+                                /* lose hash table's ref */
+                                lnet_peer_decref_locked(lp);
+                        }
+                }
+                lnet_net_unlock(i);
         }
-        LNET_UNLOCK();
+
+        cfs_percpt_for_each(ptable, i, the_lnet.ln_peer_tables) {
+                CFS_LIST_HEAD	(deathrow);
+                lnet_peer_t	*lp;
+
+                lnet_net_lock(i);
+
+                for (j = 3; ptable->pt_number != 0; j++) {
+                        lnet_net_unlock(i);
+
+                        if ((j & (j - 1)) == 0) {
+                                CDEBUG(D_WARNING,
+                                       "Waiting for %d peers on CPT %d\n",
+                                       ptable->pt_number, i);
+                        }
+                        cfs_pause(cfs_time_seconds(1));
+                        lnet_net_lock(i);
+                }
+                cfs_list_splice_init(&ptable->pt_deathrow, &deathrow);
+
+                lnet_net_unlock(i);
+
+                while (!cfs_list_empty(&deathrow)) {
+                        lp = cfs_list_entry(deathrow.next,
+                                            lnet_peer_t, lp_hashlist);
+                        cfs_list_del(&lp->lp_hashlist);
+                        LIBCFS_FREE(lp, sizeof(*lp));
+                }
+        }
 }
 
 void
-lnet_destroy_peer_locked (lnet_peer_t *lp) 
+lnet_destroy_peer_locked(lnet_peer_t *lp)
 {
-        lnet_ni_decref_locked(lp->lp_ni);
-        LNET_UNLOCK();
+	struct lnet_peer_table *ptable = the_lnet.ln_peer_tables[lp->lp_cpt];
 
         LASSERT (lp->lp_refcount == 0);
         LASSERT (lp->lp_rtr_refcount == 0);
 	LASSERT (cfs_list_empty(&lp->lp_txq));
+        LASSERT (cfs_list_empty(&lp->lp_hashlist));
         LASSERT (lp->lp_txqnob == 0);
-        LASSERT (lp->lp_rcd == NULL);
 
-	LIBCFS_FREE(lp, sizeof(*lp));
+        LASSERT(ptable->pt_number > 0);
+        ptable->pt_number--;
 
-        LNET_LOCK();
+        lnet_ni_lock(lp->lp_ni, 1);
+        lp->lp_ni->ni_npeers++;
+        lnet_ni_unlock(lp->lp_ni, 1);
 
-        LASSERT(the_lnet.ln_npeers > 0);
-        the_lnet.ln_npeers--;
+        lnet_ni_decref_locked(lp->lp_ni, lp->lp_cpt);
+        lp->lp_ni = NULL;
+
+        cfs_list_add(&lp->lp_hashlist, &ptable->pt_deathrow);
 }
 
 lnet_peer_t *
-lnet_find_peer_locked (lnet_nid_t nid)
+lnet_find_peer_locked(struct lnet_peer_table *ptable, lnet_nid_t nid)
 {
-	unsigned int      idx = LNET_NIDADDR(nid) % LNET_PEER_HASHSIZE;
-	cfs_list_t       *peers = &the_lnet.ln_peer_hash[idx];
-	cfs_list_t       *tmp;
+        cfs_list_t       *peers;
         lnet_peer_t      *lp;
 
-	if (the_lnet.ln_shutdown)
+        if (the_lnet.ln_shutdown)
                 return NULL;
 
-	cfs_list_for_each (tmp, peers) {
-		lp = cfs_list_entry(tmp, lnet_peer_t, lp_hashlist);
-
-		if (lp->lp_nid == nid) {
+        peers = &ptable->pt_hash[lnet_nid2peerhash(nid)];
+        cfs_list_for_each_entry(lp, peers, lp_hashlist) {
+                if (lp->lp_nid == nid) {
                         lnet_peer_addref_locked(lp);
-			return lp;
+                        return lp;
                 }
-	}
+        }
 
-	return NULL;
+        return NULL;
 }
 
 int
-lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid)
+lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid, int cpt)
 {
-	lnet_peer_t    *lp;
-	lnet_peer_t    *lp2;
+	struct lnet_peer_table	*ptable;
+	lnet_peer_t		*lp;
+	lnet_peer_t		*lp2;
+	int			cpt2;
 
-        lp = lnet_find_peer_locked(nid);
+        /* cpt can be LNET_LOCK_EX if it's called from router functions */
+        cpt2 = cpt != LNET_LOCK_EX ? cpt : lnet_cpt_of_nid_locked(nid);
+
+        ptable = the_lnet.ln_peer_tables[cpt2];
+
+        lp = lnet_find_peer_locked(ptable, nid);
         if (lp != NULL) {
                 *lpp = lp;
                 return 0;
         }
-        
-        LNET_UNLOCK();
-	
-	LIBCFS_ALLOC(lp, sizeof(*lp));
+
+        if (!cfs_list_empty(&ptable->pt_deathrow)) {
+                lp = cfs_list_entry(ptable->pt_deathrow.next,
+                                    lnet_peer_t, lp_hashlist);
+                cfs_list_del(&lp->lp_hashlist);
+        }
+
+        lnet_net_unlock(cpt);
+
+        if (lp != NULL)
+                memset(lp, 0, sizeof(*lp));
+        else
+	        LIBCFS_ALLOC(lp, sizeof(*lp));
+
 	if (lp == NULL) {
                 *lpp = NULL;
-                LNET_LOCK();
+                lnet_net_lock(cpt);
                 return -ENOMEM;
         }
 
-        memset(lp, 0, sizeof(*lp));             /* zero counters etc */
-        
 	CFS_INIT_LIST_HEAD(&lp->lp_txq);
         CFS_INIT_LIST_HEAD(&lp->lp_rtrq);
-	
+        CFS_INIT_LIST_HEAD(&lp->lp_routes);
+
         lp->lp_notify = 0;
         lp->lp_notifylnd = 0;
         lp->lp_notifying = 0;
         lp->lp_alive_count = 0;
+        lp->lp_cpt = cpt2;
         lp->lp_timestamp = 0;
         lp->lp_alive = !lnet_peers_start_down(); /* 1 bit!! */
         lp->lp_last_alive = cfs_time_current(); /* assumes alive */
         lp->lp_last_query = 0; /* haven't asked NI yet */
         lp->lp_ping_timestamp = 0;
+        lp->lp_ping_version = LNET_PROTO_PING_UNKNOWN;
         lp->lp_nid = nid;
         lp->lp_refcount = 2;                    /* 1 for caller; 1 for hash */
         lp->lp_rtr_refcount = 0;
 
-        LNET_LOCK();
+        lnet_net_lock(cpt);
 
-        lp2 = lnet_find_peer_locked(nid);
+        lp2 = lnet_find_peer_locked(ptable, nid);
         if (lp2 != NULL) {
-                LNET_UNLOCK();
-                LIBCFS_FREE(lp, sizeof(*lp));
-                LNET_LOCK();
+                cfs_list_add(&lp->lp_hashlist, &ptable->pt_deathrow);
 
                 if (the_lnet.ln_shutdown) {
                         lnet_peer_decref_locked(lp2);
@@ -212,16 +275,17 @@ lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid)
                 *lpp = lp2;
                 return 0;
         }
-                
-        lp->lp_ni = lnet_net2ni_locked(LNET_NIDNET(nid));
-        if (lp->lp_ni == NULL) {
-                LNET_UNLOCK();
-                LIBCFS_FREE(lp, sizeof(*lp));
-                LNET_LOCK();
 
+        lp->lp_ni = lnet_net2ni_locked(LNET_NIDNET(nid), cpt2);
+        if (lp->lp_ni == NULL) {
+                cfs_list_add(&lp->lp_hashlist, &ptable->pt_deathrow);
                 *lpp = NULL;
                 return the_lnet.ln_shutdown ? -ESHUTDOWN : -EHOSTUNREACH;
         }
+
+        lnet_ni_lock(lp->lp_ni, 1);
+        lp->lp_ni->ni_npeers++;
+        lnet_ni_unlock(lp->lp_ni, 1);
 
         lp->lp_txcredits    =
         lp->lp_mintxcredits = lp->lp_ni->ni_peertxcredits;
@@ -231,9 +295,10 @@ lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid)
         /* can't add peers after shutdown starts */
         LASSERT (!the_lnet.ln_shutdown);
 
-        cfs_list_add_tail(&lp->lp_hashlist, lnet_nid2peerhash(nid));
-        the_lnet.ln_npeers++;
-        the_lnet.ln_peertable_version++;
+        cfs_list_add_tail(&lp->lp_hashlist,
+                          &ptable->pt_hash[lnet_nid2peerhash(nid)]);
+        ptable->pt_version++;
+        ptable->pt_number++;
         *lpp = lp;
         return 0;
 }
@@ -241,15 +306,17 @@ lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid)
 void
 lnet_debug_peer(lnet_nid_t nid)
 {
-        char        *aliveness = "NA";
-        int          rc;
-        lnet_peer_t *lp;
+        char            *aliveness = "NA";
+        lnet_peer_t     *lp;
+        int              cpt;
+        int              rc;
 
-        LNET_LOCK();
+        cpt = lnet_cpt_of_nid(nid);
+        lnet_net_lock(cpt);
 
-        rc = lnet_nid2peer_locked(&lp, nid);
+        rc = lnet_nid2peer_locked(&lp, nid, cpt);
         if (rc != 0) {
-                LNET_UNLOCK();
+                lnet_net_unlock(cpt);
                 CDEBUG(D_WARNING, "No peer %s\n", libcfs_nid2str(nid));
                 return;
         }
@@ -265,5 +332,5 @@ lnet_debug_peer(lnet_nid_t nid)
 
         lnet_peer_decref_locked(lp);
 
-        LNET_UNLOCK();
+        lnet_net_unlock(cpt);
 }
