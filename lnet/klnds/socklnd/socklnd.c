@@ -2653,7 +2653,7 @@ ksocknal_startup (lnet_ni_t *ni)
         net->ksnn_incarnation = ksocknal_new_incarnation();
         ni->ni_data = net;
         ni->ni_peertimeout    = *ksocknal_tunables.ksnd_peertimeout;
-        ni->ni_maxtxcredits   = *ksocknal_tunables.ksnd_credits;
+        ni->ni_credits        = *ksocknal_tunables.ksnd_credits;
         ni->ni_peertxcredits  = *ksocknal_tunables.ksnd_peertxcredits;
         ni->ni_peerrtrcredits = *ksocknal_tunables.ksnd_peerrtrcredits;
 

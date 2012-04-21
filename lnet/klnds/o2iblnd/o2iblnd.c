@@ -2855,7 +2855,7 @@ kiblnd_startup (lnet_ni_t *ni)
         net->ibn_incarnation = (((__u64)tv.tv_sec) * 1000000) + tv.tv_usec;
 
         ni->ni_peertimeout    = *kiblnd_tunables.kib_peertimeout;
-        ni->ni_maxtxcredits   = *kiblnd_tunables.kib_credits;
+        ni->ni_credits        = *kiblnd_tunables.kib_credits;
         ni->ni_peertxcredits  = *kiblnd_tunables.kib_peertxcredits;
         ni->ni_peerrtrcredits = *kiblnd_tunables.kib_peerrtrcredits;
 

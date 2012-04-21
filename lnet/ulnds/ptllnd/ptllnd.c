@@ -659,7 +659,7 @@ ptllnd_startup (lnet_ni_t *ni)
         int          rc;
 
         /* could get limits from portals I guess... */
-        ni->ni_maxtxcredits =
+        ni->ni_credits =
         ni->ni_peertxcredits = 1000;
 
         if (ptllnd_ni_count != 0) {
