@@ -469,7 +469,7 @@ usocklnd_startup(lnet_ni_t *ni)
 
         LASSERT (ni->ni_lnd == &the_tcplnd);
 
-        ni->ni_maxtxcredits = usock_tuns.ut_txcredits;
+	ni->ni_credits = usock_tuns.ut_txcredits;
         ni->ni_peertxcredits = usock_tuns.ut_peertxcredits;
 
         usock_data.ud_nets_count++;

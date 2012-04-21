@@ -91,10 +91,29 @@ lnet_net_unique(__u32 net, cfs_list_t *nilist)
         return 1;
 }
 
-lnet_ni_t *
-lnet_new_ni(__u32 net, cfs_list_t *nilist)
+void
+lnet_ni_free(lnet_ni_t *ni)
 {
-        lnet_ni_t *ni;
+	if (ni->ni_refs != NULL)
+		cfs_percpt_free(ni->ni_refs);
+
+	if (ni->ni_tx_queues != NULL)
+		cfs_percpt_free(ni->ni_tx_queues);
+
+	if (ni->ni_cpts != NULL) {
+		LIBCFS_FREE(ni->ni_cpts,
+			    sizeof(ni->ni_cpts[0] * ni->ni_ncpts));
+	}
+
+	LIBCFS_FREE(ni, sizeof(*ni));
+}
+
+lnet_ni_t *
+lnet_ni_alloc(__u32 net, struct cfs_expr_list **el, cfs_list_t *nilist)
+{
+	struct lnet_tx_queue	*tq;
+	lnet_ni_t		*ni;
+	int			i;
 
         if (!lnet_net_unique(net, nilist)) {
                 LCONSOLE_ERROR_MSG(0x111, "Duplicate network specified: %s\n",
@@ -109,27 +128,68 @@ lnet_new_ni(__u32 net, cfs_list_t *nilist)
                 return NULL;
         }
 
-        /* zero counters/flags, NULL pointers... */
-        memset(ni, 0, sizeof(*ni));
+	cfs_spin_lock_init(&ni->ni_lock);
+	CFS_INIT_LIST_HEAD(&ni->ni_cptlist);
+	ni->ni_refs = cfs_percpt_alloc(lnet_cpt_table(),
+				       sizeof(*ni->ni_refs[0]));
+	if (ni->ni_refs == NULL)
+		goto failed;
+
+	ni->ni_tx_queues = cfs_percpt_alloc(lnet_cpt_table(),
+					    sizeof(*ni->ni_tx_queues[0]));
+	if (ni->ni_tx_queues == NULL)
+		goto failed;
+
+	cfs_percpt_for_each(tq, i, ni->ni_tx_queues)
+		CFS_INIT_LIST_HEAD(&tq->tq_delayed);
 
         /* LND will fill in the address part of the NID */
+	if (el == NULL || *el == NULL) {
+		ni->ni_cpts  = NULL;
+		ni->ni_ncpts = LNET_CPT_NUMBER;
+
+	} else {
+		int rc;
+
+		rc = cfs_expr_list_values(*el, LNET_CPT_NUMBER, &ni->ni_cpts);
+		cfs_expr_list_free(*el); /* consume it */
+		*el = NULL;
+		if (rc <= 0) {
+			CERROR("Failed to set CPTs for NI %s: %d\n",
+			       libcfs_net2str(net), rc);
+			goto failed;
+		}
+
+		LASSERT(rc <= LNET_CPT_NUMBER);
+
+		if (rc == LNET_CPT_NUMBER) {
+			LIBCFS_FREE(ni->ni_cpts, rc * sizeof(ni->ni_cpts[0]));
+			ni->ni_cpts = NULL;
+		}
+		ni->ni_ncpts = rc;
+	}
+
         ni->ni_nid = LNET_MKNID(net, 0);
-        CFS_INIT_LIST_HEAD(&ni->ni_txq);
-        ni->ni_last_alive = cfs_time_current();
+	ni->ni_last_alive = cfs_time_current_sec();
 
         cfs_list_add_tail(&ni->ni_list, nilist);
         return ni;
+
+failed:
+	lnet_ni_free(ni);
+	return NULL;
 }
 
 int
 lnet_parse_networks(cfs_list_t *nilist, char *networks)
 {
+	struct cfs_expr_list *el = NULL;
 	int        tokensize = strlen(networks) + 1;
         char      *tokens;
         char      *str;
         lnet_ni_t *ni;
         __u32      net;
-        int        nnets = 0;
+	int        nnets = 0;
 
 	if (strlen(networks) > LNET_SINGLE_TEXTBUF_NOB) {
 		/* _WAY_ conservative */
@@ -148,20 +208,37 @@ lnet_parse_networks(cfs_list_t *nilist, char *networks)
         the_lnet.ln_network_tokens_nob = tokensize;
         memcpy (tokens, networks, tokensize);
         str = tokens;
-        
+
         /* Add in the loopback network */
-        ni = lnet_new_ni(LNET_MKNET(LOLND, 0), nilist);
+	ni = lnet_ni_alloc(LNET_MKNET(LOLND, 0), NULL, nilist);
         if (ni == NULL)
                 goto failed;
-        
+
         while (str != NULL && *str != 0) {
                 char      *comma = strchr(str, ',');
                 char      *bracket = strchr(str, '(');
+		char      *sbracket = strchr(str, '[');
                 int        niface;
 		char      *iface;
 
                 /* NB we don't check interface conflicts here; it's the LNDs
                  * responsibility (if it cares at all) */
+
+		if (sbracket != NULL && (comma == NULL || sbracket < comma)) {
+			char	*tmp = strchr(str, ']');
+			int	rc;
+
+			if (tmp == NULL)
+				goto failed;
+
+			rc = cfs_expr_list_parse(sbracket, tmp - sbracket + 1,
+						 0, LNET_CPT_NUMBER - 1, &el);
+			if (rc != 0)
+				goto failed;
+
+			while (sbracket <= tmp)
+				*sbracket++ = ' ';
+		}
 
                 if (bracket == NULL ||
 		    (comma != NULL && comma < bracket)) {
@@ -180,8 +257,8 @@ lnet_parse_networks(cfs_list_t *nilist, char *networks)
                                 goto failed;
                         }
 
-                        if (LNET_NETTYP(net) != LOLND && /* loopback is implicit */
-                            lnet_new_ni(net, nilist) == NULL)
+			if (LNET_NETTYP(net) != LOLND && /* LO is implicit */
+			    lnet_ni_alloc(net, &el, nilist) == NULL)
                                 goto failed;
 
 			str = comma;
@@ -197,7 +274,7 @@ lnet_parse_networks(cfs_list_t *nilist, char *networks)
                 }
 
                 nnets++;
-                ni = lnet_new_ni(net, nilist);
+		ni = lnet_ni_alloc(net, &el, nilist);
                 if (ni == NULL)
                         goto failed;
 
@@ -263,10 +340,14 @@ lnet_parse_networks(cfs_list_t *nilist, char *networks)
  failed:
         while (!cfs_list_empty(nilist)) {
                 ni = cfs_list_entry(nilist->next, lnet_ni_t, ni_list);
-                
+
                 cfs_list_del(&ni->ni_list);
-                LIBCFS_FREE(ni, sizeof(*ni));
+		lnet_ni_free(ni);
         }
+
+	if (el != NULL)
+		cfs_expr_list_free(el);
+
 	LIBCFS_FREE(tokens, tokensize);
         the_lnet.ln_network_tokens = NULL;
 

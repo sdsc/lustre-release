@@ -543,10 +543,10 @@ mxlnd_startup (lnet_ni_t *ni)
                          "kmx_mem_used %ld\n", cfs_atomic_read(&libcfs_kmemory),
                          kmxlnd_data.kmx_mem_used);
 
-        ni->ni_maxtxcredits = MXLND_TX_MSGS();
-        ni->ni_peertxcredits = *kmxlnd_tunables.kmx_peercredits;
-        if (ni->ni_maxtxcredits < ni->ni_peertxcredits)
-                ni->ni_maxtxcredits = ni->ni_peertxcredits;
+	ni->ni_credits = MXLND_TX_MSGS();
+	ni->ni_peertxcredits = *kmxlnd_tunables.kmx_peercredits;
+	if (ni->ni_credits < ni->ni_peertxcredits)
+		ni->ni_credits = ni->ni_peertxcredits;
 
         PORTAL_MODULE_USE;
         memset (&kmxlnd_data, 0, sizeof (kmxlnd_data));

@@ -892,7 +892,7 @@ kptllnd_startup (lnet_ni_t *ni)
         memset(net, 0, sizeof(*net));
         net->net_ni = ni;
 
-        ni->ni_maxtxcredits   = *kptllnd_tunables.kptl_credits;
+	ni->ni_credits	      = *kptllnd_tunables.kptl_credits;
         ni->ni_peertxcredits  = *kptllnd_tunables.kptl_peertxcredits;
         ni->ni_peerrtrcredits = *kptllnd_tunables.kptl_peerrtrcredits;
         ni->ni_nid = kptllnd_ptl2lnetnid(ni->ni_nid,
