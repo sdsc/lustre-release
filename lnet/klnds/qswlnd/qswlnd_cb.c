@@ -628,7 +628,7 @@ kqswnal_launch (kqswnal_tx_t *ktx)
                         /* single-shot proto test:
                          * Future version queries will use an RPC, so I'll
                          * co-opt one of the existing ones */
-                        LNET_LOCK();
+			lnet_net_lock(LNET_LOCK_EX);
                         if ((the_lnet.ln_testprotocompat & 1) != 0) {
                                 msg->kqm_version++;
                                 the_lnet.ln_testprotocompat &= ~1;
@@ -637,7 +637,7 @@ kqswnal_launch (kqswnal_tx_t *ktx)
                                 msg->kqm_magic = LNET_PROTO_MAGIC;
                                 the_lnet.ln_testprotocompat &= ~2;
                         }
-                        LNET_UNLOCK();
+			lnet_net_unlock(LNET_LOCK_EX);
                 }
 
                 /* NB ktx_frag[0] is the GET/PUT hdr + kqswnal_remotemd_t.

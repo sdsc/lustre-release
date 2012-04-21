@@ -296,7 +296,7 @@ kqswnal_startup (lnet_ni_t *ni)
 	kqswnal_data.kqn_ni = ni;
 	ni->ni_data = &kqswnal_data;
 	ni->ni_peertxcredits = *kqswnal_tunables.kqn_peercredits;
-	ni->ni_maxtxcredits = *kqswnal_tunables.kqn_credits;
+	ni->ni_credits = *kqswnal_tunables.kqn_credits;
 
 	CFS_INIT_LIST_HEAD (&kqswnal_data.kqn_idletxds);
 	CFS_INIT_LIST_HEAD (&kqswnal_data.kqn_activetxds);

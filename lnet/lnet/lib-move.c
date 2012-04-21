@@ -46,171 +46,18 @@ static int local_nid_dist_zero = 1;
 CFS_MODULE_PARM(local_nid_dist_zero, "i", int, 0444,
                 "Reserved");
 
-/* forward ref */
-static void lnet_commit_md (lnet_libmd_t *md, lnet_msg_t *msg);
+unsigned int lnet_redir_put = LNET_REDIR_AUTO;
+CFS_MODULE_PARM(lnet_redir_put, "i", int, 0644,
+		"redirect PUTs to different cpu-partitions");
 
-#define LNET_MATCHMD_NONE     0   /* Didn't match */
-#define LNET_MATCHMD_OK       1   /* Matched OK */
-#define LNET_MATCHMD_DROP     2   /* Must be discarded */
+unsigned int lnet_ni_peer_low = 16;
+CFS_MODULE_PARM(lnet_ni_peer_low, "i", int, 0644,
+		"redirect PUTs if number of peers is larger than this value, "
+		"it's valid only if lnet_redir_put is set to AUTO");
 
-static int
-lnet_try_match_md (int index, int op_mask, lnet_process_id_t src,
-                   unsigned int rlength, unsigned int roffset,
-                   __u64 match_bits, lnet_libmd_t *md, lnet_msg_t *msg,
-                   unsigned int *mlength_out, unsigned int *offset_out)
-{
-        /* ALWAYS called holding the LNET_LOCK, and can't LNET_UNLOCK;
-         * lnet_match_blocked_msg() relies on this to avoid races */
-        unsigned int  offset;
-        unsigned int  mlength;
-        lnet_me_t    *me = md->md_me;
-
-        /* mismatched MD op */
-        if ((md->md_options & op_mask) == 0)
-                return LNET_MATCHMD_NONE;
-
-        /* MD exhausted */
-        if (lnet_md_exhausted(md))
-                return LNET_MATCHMD_NONE;
-
-        /* mismatched ME nid/pid? */
-        if (me->me_match_id.nid != LNET_NID_ANY &&
-            me->me_match_id.nid != src.nid)
-                return LNET_MATCHMD_NONE;
-
-        if (me->me_match_id.pid != LNET_PID_ANY &&
-            me->me_match_id.pid != src.pid)
-                return LNET_MATCHMD_NONE;
-
-        /* mismatched ME matchbits? */
-        if (((me->me_match_bits ^ match_bits) & ~me->me_ignore_bits) != 0)
-                return LNET_MATCHMD_NONE;
-
-        /* Hurrah! This _is_ a match; check it out... */
-
-        if ((md->md_options & LNET_MD_MANAGE_REMOTE) == 0)
-                offset = md->md_offset;
-        else
-                offset = roffset;
-
-        if ((md->md_options & LNET_MD_MAX_SIZE) != 0) {
-                mlength = md->md_max_size;
-                LASSERT (md->md_offset + mlength <= md->md_length);
-        } else {
-                mlength = md->md_length - offset;
-        }
-
-        if (rlength <= mlength) {        /* fits in allowed space */
-                mlength = rlength;
-        } else if ((md->md_options & LNET_MD_TRUNCATE) == 0) {
-                /* this packet _really_ is too big */
-                CERROR("Matching packet from %s, match "LPU64
-                       " length %d too big: %d left, %d allowed\n",
-                       libcfs_id2str(src), match_bits, rlength,
-                       md->md_length - offset, mlength);
-
-                return LNET_MATCHMD_DROP;
-        }
-
-        /* Commit to this ME/MD */
-        CDEBUG(D_NET, "Incoming %s index %x from %s of "
-               "length %d/%d into md "LPX64" [%d] + %d\n",
-               (op_mask == LNET_MD_OP_PUT) ? "put" : "get",
-               index, libcfs_id2str(src), mlength, rlength,
-               md->md_lh.lh_cookie, md->md_niov, offset);
-
-        lnet_commit_md(md, msg);
-        md->md_offset = offset + mlength;
-
-        /* NB Caller will set ev.type and ev.hdr_data */
-        msg->msg_ev.initiator = src;
-        msg->msg_ev.pt_index = index;
-        msg->msg_ev.match_bits = match_bits;
-        msg->msg_ev.rlength = rlength;
-        msg->msg_ev.mlength = mlength;
-        msg->msg_ev.offset = offset;
-
-        lnet_md_deconstruct(md, &msg->msg_ev.md);
-        lnet_md2handle(&msg->msg_ev.md_handle, md);
-
-        *offset_out = offset;
-        *mlength_out = mlength;
-
-        /* Auto-unlink NOW, so the ME gets unlinked if required.
-         * We bumped md->md_refcount above so the MD just gets flagged
-         * for unlink when it is finalized. */
-        if ((md->md_flags & LNET_MD_FLAG_AUTO_UNLINK) != 0 &&
-            lnet_md_exhausted(md)) {
-                lnet_md_unlink(md);
-        }
-
-        return LNET_MATCHMD_OK;
-}
-
-static int
-lnet_match_md(int index, int op_mask, lnet_process_id_t src,
-              unsigned int rlength, unsigned int roffset,
-              __u64 match_bits, lnet_msg_t *msg,
-              unsigned int *mlength_out, unsigned int *offset_out,
-              lnet_libmd_t **md_out)
-{
-        lnet_portal_t    *ptl = &the_lnet.ln_portals[index];
-        cfs_list_t       *head;
-        lnet_me_t        *me;
-        lnet_me_t        *tmp;
-        lnet_libmd_t     *md;
-        int               rc;
-
-        CDEBUG (D_NET, "Request from %s of length %d into portal %d "
-                "MB="LPX64"\n", libcfs_id2str(src), rlength, index, match_bits);
-
-        if (index < 0 || index >= the_lnet.ln_nportals) {
-                CERROR("Invalid portal %d not in [0-%d]\n",
-                       index, the_lnet.ln_nportals);
-                return LNET_MATCHMD_DROP;
-        }
-
-        head = lnet_portal_me_head(index, src, match_bits);
-        if (head == NULL) /* nobody posted anything on this portal */
-                goto out;
-
-        cfs_list_for_each_entry_safe_typed (me, tmp, head,
-                                            lnet_me_t, me_list) {
-                md = me->me_md;
-
-                /* ME attached but MD not attached yet */
-                if (md == NULL)
-                        continue;
-
-                LASSERT (me == md->md_me);
-
-                rc = lnet_try_match_md(index, op_mask, src, rlength,
-                                       roffset, match_bits, md, msg,
-                                       mlength_out, offset_out);
-                switch (rc) {
-                default:
-                        LBUG();
-
-                case LNET_MATCHMD_NONE:
-                        continue;
-
-                case LNET_MATCHMD_OK:
-                        *md_out = md;
-                        return LNET_MATCHMD_OK;
-
-                case LNET_MATCHMD_DROP:
-                        return LNET_MATCHMD_DROP;
-                }
-                /* not reached */
-        }
-
- out:
-        if (op_mask == LNET_MD_OP_GET ||
-            !lnet_portal_is_lazy(ptl))
-                return LNET_MATCHMD_DROP;
-
-        return LNET_MATCHMD_NONE;
-}
+unsigned int lnet_remote_intent = 0;
+CFS_MODULE_PARM(lnet_remote_intent, "i", int, 0644,
+		"Enable remote PUT intent of server CPT");
 
 int
 lnet_fail_nid (lnet_nid_t nid, unsigned int threshold)
@@ -222,6 +69,10 @@ lnet_fail_nid (lnet_nid_t nid, unsigned int threshold)
 
         LASSERT (the_lnet.ln_init);
 
+	/*
+	 * NB: we just use lnet_net_lock(cpt = 0) to serialize
+	 * operations on test peers
+	 */
         if (threshold != 0) {
                 /* Adding a new entry */
                 LIBCFS_ALLOC(tp, sizeof(*tp));
@@ -230,17 +81,16 @@ lnet_fail_nid (lnet_nid_t nid, unsigned int threshold)
 
                 tp->tp_nid = nid;
                 tp->tp_threshold = threshold;
-
-                LNET_LOCK();
+		lnet_net_lock(0);
                 cfs_list_add_tail (&tp->tp_list, &the_lnet.ln_test_peers);
-                LNET_UNLOCK();
+		lnet_net_unlock(0);
                 return 0;
         }
 
         /* removing entries */
         CFS_INIT_LIST_HEAD (&cull);
 
-        LNET_LOCK();
+	lnet_net_lock(0);
 
         cfs_list_for_each_safe (el, next, &the_lnet.ln_test_peers) {
                 tp = cfs_list_entry (el, lnet_test_peer_t, tp_list);
@@ -254,7 +104,7 @@ lnet_fail_nid (lnet_nid_t nid, unsigned int threshold)
                 }
         }
 
-        LNET_UNLOCK();
+	lnet_net_unlock(0);
 
         while (!cfs_list_empty (&cull)) {
                 tp = cfs_list_entry (cull.next, lnet_test_peer_t, tp_list);
@@ -276,7 +126,8 @@ fail_peer (lnet_nid_t nid, int outgoing)
 
         CFS_INIT_LIST_HEAD (&cull);
 
-        LNET_LOCK();
+	/* NB: we just use cpt = 0 to serialize operations on test peers */
+	lnet_net_lock(0);
 
         cfs_list_for_each_safe (el, next, &the_lnet.ln_test_peers) {
                 tp = cfs_list_entry (el, lnet_test_peer_t, tp_list);
@@ -310,7 +161,7 @@ fail_peer (lnet_nid_t nid, int outgoing)
                 }
         }
 
-        LNET_UNLOCK ();
+	lnet_net_unlock(0);
 
         while (!cfs_list_empty (&cull)) {
                 tp = cfs_list_entry (cull.next, lnet_test_peer_t, tp_list);
@@ -774,10 +625,9 @@ lnet_ni_recv(lnet_ni_t *ni, void *private, lnet_msg_t *msg, int delayed,
                 LASSERT(msg->msg_receiving);
                 LASSERT(!msg->msg_sending);
                 LASSERT(rlen == msg->msg_len);
-                LASSERT(mlen <= msg->msg_len);
+		LASSERT(mlen == msg->msg_wanted);
+		LASSERT(offset == msg->msg_offset);
 
-                msg->msg_wanted = mlen;
-                msg->msg_offset = offset;
                 msg->msg_receiving = 0;
 
                 if (mlen != 0) {
@@ -795,34 +645,6 @@ lnet_ni_recv(lnet_ni_t *ni, void *private, lnet_msg_t *msg, int delayed,
         if (rc < 0)
                 lnet_finalize(ni, msg, rc);
 }
-
-int
-lnet_compare_routes(lnet_route_t *r1, lnet_route_t *r2)
-{
-        lnet_peer_t *p1 = r1->lr_gateway;
-        lnet_peer_t *p2 = r2->lr_gateway;
-
-        if (r1->lr_hops < r2->lr_hops)
-                return 1;
-
-        if (r1->lr_hops > r2->lr_hops)
-                return -1;
-
-        if (p1->lp_txqnob < p2->lp_txqnob)
-                return 1;
-
-        if (p1->lp_txqnob > p2->lp_txqnob)
-                return -1;
-
-        if (p1->lp_txcredits > p2->lp_txcredits)
-                return 1;
-
-        if (p1->lp_txcredits < p2->lp_txcredits)
-                return -1;
-
-        return 0;
-}
-
 
 void
 lnet_setpayloadbuffer(lnet_msg_t *msg)
@@ -845,7 +667,7 @@ lnet_setpayloadbuffer(lnet_msg_t *msg)
 
 void
 lnet_prep_send(lnet_msg_t *msg, int type, lnet_process_id_t target,
-               unsigned int offset, unsigned int len) 
+	       unsigned int offset, unsigned int len)
 {
         msg->msg_type = type;
         msg->msg_target = target;
@@ -880,54 +702,45 @@ lnet_ni_send(lnet_ni_t *ni, lnet_msg_t *msg)
 }
 
 int
-lnet_eager_recv_locked(lnet_msg_t *msg)
+lnet_ni_eager_recv(lnet_ni_t *ni, lnet_msg_t *msg)
 {
         lnet_peer_t *peer;
-        lnet_ni_t   *ni;
-        int          rc = 0;
+	int          rc;
 
-        LASSERT (!msg->msg_delayed);
-        msg->msg_delayed = 1;
+	LASSERT(msg->msg_delayed);
+	LASSERT(msg->msg_receiving);
+	LASSERT(!msg->msg_sending);
 
-        LASSERT (msg->msg_receiving);
-        LASSERT (!msg->msg_sending);
+	if (ni->ni_lnd->lnd_eager_recv == NULL)
+		return 0;
 
         peer = msg->msg_rxpeer;
-        ni   = peer->lp_ni;
+	rc = (ni->ni_lnd->lnd_eager_recv)(ni, msg->msg_private,
+					  msg, &msg->msg_private);
+	if (rc == 0)
+		return 0;
 
-        if (ni->ni_lnd->lnd_eager_recv != NULL) {
-                LNET_UNLOCK();
-
-                rc = (ni->ni_lnd->lnd_eager_recv)(ni, msg->msg_private, msg,
-                                                  &msg->msg_private);
-                if (rc != 0) {
-                        CERROR("recv from %s / send to %s aborted: "
-                               "eager_recv failed %d\n",
-                               libcfs_nid2str(peer->lp_nid),
-                               libcfs_id2str(msg->msg_target), rc);
-                        LASSERT (rc < 0); /* required by my callers */
-                }
-
-                LNET_LOCK();
-        }
+	CERROR("recv from %s / send to %s aborted: eager_recv failed %d\n",
+	       libcfs_nid2str(peer->lp_nid),
+	       libcfs_id2str(msg->msg_target), rc);
+	LASSERT(rc < 0); /* required by my callers */
 
         return rc;
 }
 
-/* NB: caller shall hold a ref on 'lp' as I'd drop LNET_LOCK */
+/* NB: caller shall hold a ref on 'lp' as I'd drop lnet_net_lock */
 void
-lnet_ni_peer_alive(lnet_peer_t *lp)
+lnet_ni_query_locked(lnet_ni_t *ni, lnet_peer_t *lp, int cpt)
 {
         cfs_time_t  last_alive = 0;
-        lnet_ni_t  *ni = lp->lp_ni;
 
         LASSERT (lnet_peer_aliveness_enabled(lp));
         LASSERT (ni->ni_lnd->lnd_query != NULL);
         LASSERT (the_lnet.ln_routing == 1);
 
-        LNET_UNLOCK();
+	lnet_net_unlock(cpt);
         (ni->ni_lnd->lnd_query)(ni, lp->lp_nid, &last_alive);
-        LNET_LOCK();
+	lnet_net_lock(cpt);
 
         lp->lp_last_query = cfs_time_current();
 
@@ -935,7 +748,7 @@ lnet_ni_peer_alive(lnet_peer_t *lp)
                 lp->lp_last_alive = last_alive;
 }
 
-/* NB: always called with LNET_LOCK held */
+/* NB: always called with lnet_net_lock held */
 static inline int
 lnet_peer_is_alive (lnet_peer_t *lp, cfs_time_t now)
 {
@@ -969,9 +782,9 @@ lnet_peer_is_alive (lnet_peer_t *lp, cfs_time_t now)
 
 
 /* NB: returns 1 when alive, 0 when dead, negative when error;
- *     may drop the LNET_LOCK */
+ *     may drop the lnet_net_lock */
 int
-lnet_peer_alive_locked (lnet_peer_t *lp)
+lnet_peer_alive_locked(lnet_peer_t *lp, int cpt)
 {
         cfs_time_t now = cfs_time_current();
 
@@ -1007,7 +820,7 @@ lnet_peer_alive_locked (lnet_peer_t *lp)
         }
 
         /* query NI for latest aliveness news */
-        lnet_ni_peer_alive(lp);
+	lnet_ni_query_locked(lp->lp_ni, lp, cpt);
 
         if (lnet_peer_is_alive(lp, now))
                 return 1;
@@ -1017,32 +830,38 @@ lnet_peer_alive_locked (lnet_peer_t *lp)
 }
 
 int
-lnet_post_send_locked (lnet_msg_t *msg, int do_send)
+lnet_post_send_locked(lnet_msg_t *msg, int do_send)
 {
-        /* lnet_send is going to LNET_UNLOCK immediately after this, so it sets
-         * do_send FALSE and I don't do the unlock/send/lock bit.  I return
-         * EAGAIN if msg blocked, EHOSTUNREACH if msg_txpeer appears dead, and
-         * 0 if sent or OK to send */
-        lnet_peer_t *lp = msg->msg_txpeer;
-        lnet_ni_t   *ni = lp->lp_ni;
+	/* lnet_send is going to lnet_net_unlock immediately after this,
+	 * so it sets do_send FALSE and I don't do the unlock/send/lock bit.
+	 * I return EAGAIN if msg blocked, EHOSTUNREACH if msg_txpeer
+	 * appears dead, and 0 if sent or OK to send */
+	lnet_peer_t		*lp = msg->msg_txpeer;
+	lnet_ni_t		*ni = lp->lp_ni;
+	struct lnet_tx_queue	*tq;
+	int			cpt;
 
         /* non-lnet_send() callers have checked before */
-        LASSERT (!do_send || msg->msg_delayed);
-        LASSERT (!msg->msg_receiving);
+        LASSERT(!do_send || msg->msg_delayed);
+        LASSERT(!msg->msg_receiving);
+	LASSERT(msg->msg_tx_committed);
+
+	cpt = msg->msg_tx_cpt;
+	tq = ni->ni_tx_queues[cpt];
 
         /* NB 'lp' is always the next hop */
         if ((msg->msg_target.pid & LNET_PID_USERFLAG) == 0 &&
-            lnet_peer_alive_locked(lp) == 0) {
-                the_lnet.ln_counters.drop_count++;
-                the_lnet.ln_counters.drop_length += msg->msg_len;
-                LNET_UNLOCK();
+	    lnet_peer_alive_locked(lp, cpt) == 0) {
+		the_lnet.ln_counters[cpt]->drop_count++;
+		the_lnet.ln_counters[cpt]->drop_count += msg->msg_len;
+		lnet_net_unlock(cpt);
 
                 CNETERR("Dropping message for %s: peer not alive\n",
                         libcfs_id2str(msg->msg_target));
                 if (do_send)
                         lnet_finalize(ni, msg, -EHOSTUNREACH);
 
-                LNET_LOCK();
+		lnet_net_lock(cpt);
                 return EHOSTUNREACH;
         }
 
@@ -1065,60 +884,43 @@ lnet_post_send_locked (lnet_msg_t *msg, int do_send)
         }
 
         if (!msg->msg_txcredit) {
-                LASSERT ((ni->ni_txcredits < 0) ==
-                         !cfs_list_empty(&ni->ni_txq));
+		LASSERT((tq->tq_credits < 0) ==
+			!cfs_list_empty(&tq->tq_delayed));
 
                 msg->msg_txcredit = 1;
-                ni->ni_txcredits--;
+		tq->tq_credits--;
 
-                if (ni->ni_txcredits < ni->ni_mintxcredits)
-                        ni->ni_mintxcredits = ni->ni_txcredits;
+		if (tq->tq_credits < tq->tq_credits_min)
+			tq->tq_credits_min = tq->tq_credits;
 
-                if (ni->ni_txcredits < 0) {
+		if (tq->tq_credits < 0) {
                         msg->msg_delayed = 1;
-                        cfs_list_add_tail(&msg->msg_list, &ni->ni_txq);
+			cfs_list_add_tail(&msg->msg_list, &tq->tq_delayed);
                         return EAGAIN;
                 }
         }
 
         if (do_send) {
-                LNET_UNLOCK();
+		lnet_net_unlock(cpt);
                 lnet_ni_send(ni, msg);
-                LNET_LOCK();
+		lnet_net_lock(cpt);
         }
         return 0;
 }
 
 #ifdef __KERNEL__
-static void
-lnet_commit_routedmsg (lnet_msg_t *msg)
-{
-        /* ALWAYS called holding the LNET_LOCK */
-        LASSERT (msg->msg_routing);
-
-        the_lnet.ln_counters.msgs_alloc++;
-        if (the_lnet.ln_counters.msgs_alloc >
-            the_lnet.ln_counters.msgs_max)
-                the_lnet.ln_counters.msgs_max =
-                        the_lnet.ln_counters.msgs_alloc;
-
-        the_lnet.ln_counters.route_count++;
-        the_lnet.ln_counters.route_length += msg->msg_len;
-
-        LASSERT (!msg->msg_onactivelist);
-        msg->msg_onactivelist = 1;
-        cfs_list_add (&msg->msg_activelist, &the_lnet.ln_active_msgs);
-}
 
 lnet_rtrbufpool_t *
-lnet_msg2bufpool(lnet_msg_t *msg)
+lnet_msg2bufpool(lnet_msg_t *msg, int cpt)
 {
-        lnet_rtrbufpool_t *rbp = &the_lnet.ln_rtrpools[0];
+	lnet_rtrbufpool_t *rbp;
 
         LASSERT (msg->msg_len <= LNET_MTU);
+
+	rbp = &the_lnet.ln_rtrpools[cpt][0];
         while (msg->msg_len > (unsigned int)rbp->rbp_npages * CFS_PAGE_SIZE) {
                 rbp++;
-                LASSERT (rbp < &the_lnet.ln_rtrpools[LNET_NRBPOOLS]);
+		LASSERT(rbp < &the_lnet.ln_rtrpools[cpt][LNET_NRBPOOLS]);
         }
 
         return rbp;
@@ -1127,12 +929,13 @@ lnet_msg2bufpool(lnet_msg_t *msg)
 int
 lnet_post_routed_recv_locked (lnet_msg_t *msg, int do_recv)
 {
-        /* lnet_parse is going to LNET_UNLOCK immediately after this, so it
-         * sets do_recv FALSE and I don't do the unlock/send/lock bit.  I
+	/* lnet_parse is going to lnet_net_unlock immediately after this, so
+	 * it sets do_recv FALSE and I don't do the unlock/send/lock bit.  I
          * return EAGAIN if msg blocked and 0 if received or OK to receive */
         lnet_peer_t         *lp = msg->msg_rxpeer;
         lnet_rtrbufpool_t   *rbp;
         lnet_rtrbuf_t       *rb;
+	int		    cpt;
 
         LASSERT (msg->msg_iov == NULL);
         LASSERT (msg->msg_kiov == NULL);
@@ -1161,7 +964,8 @@ lnet_post_routed_recv_locked (lnet_msg_t *msg, int do_recv)
                 }
         }
 
-        rbp = lnet_msg2bufpool(msg);
+	cpt = msg->msg_rx_cpt;
+	rbp = lnet_msg2bufpool(msg, cpt);
 
         if (!msg->msg_rtrcredit) {
                 LASSERT ((rbp->rbp_credits < 0) ==
@@ -1188,34 +992,35 @@ lnet_post_routed_recv_locked (lnet_msg_t *msg, int do_recv)
         msg->msg_kiov = &rb->rb_kiov[0];
 
         if (do_recv) {
-                LNET_UNLOCK();
+		lnet_net_unlock(cpt);
                 lnet_ni_recv(lp->lp_ni, msg->msg_private, msg, 1,
                              0, msg->msg_len, msg->msg_len);
-                LNET_LOCK();
+		lnet_net_lock(cpt);
         }
         return 0;
 }
 #endif
 
 void
-lnet_return_credits_locked (lnet_msg_t *msg)
+lnet_return_tx_credits_locked(lnet_msg_t *msg)
 {
         lnet_peer_t       *txpeer = msg->msg_txpeer;
-        lnet_peer_t       *rxpeer = msg->msg_rxpeer;
         lnet_msg_t        *msg2;
-        lnet_ni_t         *ni;
 
         if (msg->msg_txcredit) {
+		lnet_ni_t	     *ni = txpeer->lp_ni;
+		struct lnet_tx_queue *tq = ni->ni_tx_queues[msg->msg_tx_cpt];
+
                 /* give back NI txcredits */
                 msg->msg_txcredit = 0;
-                ni = txpeer->lp_ni;
 
-                LASSERT((ni->ni_txcredits < 0) == !cfs_list_empty(&ni->ni_txq));
+		LASSERT((tq->tq_credits < 0) ==
+			!cfs_list_empty(&tq->tq_delayed));
 
-                ni->ni_txcredits++;
-                if (ni->ni_txcredits <= 0) {
-                        msg2 = cfs_list_entry(ni->ni_txq.next, lnet_msg_t,
-                                              msg_list);
+		tq->tq_credits++;
+		if (tq->tq_credits <= 0) {
+			msg2 = cfs_list_entry(tq->tq_delayed.next,
+					      lnet_msg_t, msg_list);
                         cfs_list_del(&msg2->msg_list);
 
                         LASSERT(msg2->msg_txpeer->lp_ni == ni);
@@ -1252,8 +1057,15 @@ lnet_return_credits_locked (lnet_msg_t *msg)
                 msg->msg_txpeer = NULL;
                 lnet_peer_decref_locked(txpeer);
         }
+}
 
+void
+lnet_return_rx_credits_locked(lnet_msg_t *msg)
+{
+	lnet_peer_t       *rxpeer = msg->msg_rxpeer;
 #ifdef __KERNEL__
+	lnet_msg_t        *msg2;
+
         if (msg->msg_rtrcredit) {
                 /* give back global router credits */
                 lnet_rtrbuf_t     *rb;
@@ -1266,7 +1078,7 @@ lnet_return_credits_locked (lnet_msg_t *msg)
 
                 rb = cfs_list_entry(msg->msg_kiov, lnet_rtrbuf_t, rb_kiov[0]);
                 rbp = rb->rb_pool;
-                LASSERT (rbp == lnet_msg2bufpool(msg));
+		LASSERT(rbp == lnet_msg2bufpool(msg, msg->msg_rx_cpt));
 
                 msg->msg_kiov = NULL;
                 msg->msg_rtrcredit = 0;
@@ -1313,19 +1125,107 @@ lnet_return_credits_locked (lnet_msg_t *msg)
         }
 }
 
-int
-lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg)
+static int
+lnet_compare_routes(lnet_route_t *r1, lnet_route_t *r2)
 {
-        lnet_nid_t        dst_nid = msg->msg_target.nid;
-        lnet_ni_t        *src_ni;
-        lnet_ni_t        *local_ni;
+	lnet_peer_t *p1 = r1->lr_gateway;
+	lnet_peer_t *p2 = r2->lr_gateway;
+
+	if (r1->lr_hops < r2->lr_hops)
+		return 1;
+
+	if (r1->lr_hops > r2->lr_hops)
+		return -1;
+
+	if (p1->lp_txqnob < p2->lp_txqnob)
+		return 1;
+
+	if (p1->lp_txqnob > p2->lp_txqnob)
+		return -1;
+
+	if (p1->lp_txcredits > p2->lp_txcredits)
+		return 1;
+
+	if (p1->lp_txcredits < p2->lp_txcredits)
+		return -1;
+
+	if (r1->lr_seq - r2->lr_seq <= 0)
+		return 1;
+
+	return -1;
+}
+
+static lnet_peer_t *
+lnet_find_route_locked(lnet_ni_t *ni, lnet_nid_t target, lnet_nid_t rtr_nid)
+{
         lnet_remotenet_t *rnet;
-        lnet_route_t     *route;
-        lnet_route_t     *best_route;
-        cfs_list_t       *tmp;
+	lnet_route_t     *rtr;
+	lnet_route_t     *rtr_best;
+	lnet_route_t     *rtr_last;
+	lnet_peer_t      *lp_best;
         lnet_peer_t      *lp;
-        lnet_peer_t      *lp2;
         int               rc;
+
+	/* If @rtr_nid is not LNET_NID_ANY, return the gateway with
+	 * rtr_nid nid, otherwise find the best gateway I can use */
+
+	rnet = lnet_find_net_locked(LNET_NIDNET(target));
+	if (rnet == NULL)
+		return NULL;
+
+	lp_best = NULL;
+	rtr_best = rtr_last = NULL;
+	cfs_list_for_each_entry(rtr, &rnet->lrn_routes, lr_list) {
+		lp = rtr->lr_gateway;
+
+		if (!lp->lp_alive || /* gateway is down */
+		    (lp->lp_ping_version == LNET_PROTO_PING_VERSION &&
+		     rtr->lr_downis != 0)) /* NI to target is down */
+			continue;
+
+		if (ni != NULL && lp->lp_ni != ni)
+			continue;
+
+		if (lp->lp_nid == rtr_nid) /* it's preferred router */
+			return lp;
+
+		if (lp_best == NULL) {
+			rtr_best = rtr_last = rtr;
+			lp_best = lp;
+			continue;
+		}
+
+		/* not protection on below fields, but it's harmless */
+		if (rtr_last->lr_seq - rtr->lr_seq < 0)
+			rtr_last = rtr;
+
+		rc = lnet_compare_routes(rtr, rtr_best);
+		if (rc < 0)
+			continue;
+
+		rtr_best = rtr;
+		lp_best = lp;
+	}
+
+	/* set sequence number on the best router to the latest sequence + 1
+	 * so we can round-robin all routers, it's race and inaccurate but
+	 * harmless and functional  */
+	if (rtr_best != NULL)
+		rtr_best->lr_seq = rtr_last->lr_seq + 1;
+	return lp_best;
+}
+
+/* NB: in the future, we probably want to choose the router of incoming
+ * message for sending ACK or REPLY */
+int
+lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg, lnet_nid_t rtr_nid)
+{
+	lnet_nid_t	dst_nid = msg->msg_target.nid;
+	lnet_ni_t	*local_ni;
+	lnet_ni_t	*src_ni;
+	lnet_peer_t	*lp;
+	int		cpt;
+	int		rc;
 
         LASSERT (msg->msg_txpeer == NULL);
         LASSERT (!msg->msg_sending);
@@ -1334,21 +1234,24 @@ lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg)
 
         msg->msg_sending = 1;
 
+ again:
+	cpt = lnet_cpt_of_nid(rtr_nid == LNET_NID_ANY ? dst_nid : rtr_nid);
+
         /* NB! ni != NULL == interface pre-determined (ACK/REPLY) */
 
-        LNET_LOCK();
+	lnet_net_lock(cpt);
 
         if (the_lnet.ln_shutdown) {
-                LNET_UNLOCK();
+		lnet_net_unlock(cpt);
                 return -ESHUTDOWN;
         }
 
         if (src_nid == LNET_NID_ANY) {
                 src_ni = NULL;
         } else {
-                src_ni = lnet_nid2ni_locked(src_nid);
+		src_ni = lnet_nid2ni_locked(src_nid, cpt);
                 if (src_ni == NULL) {
-                        LNET_UNLOCK();
+			lnet_net_unlock(cpt);
                         LCONSOLE_WARN("Can't send to %s: src %s is not a "
                                       "local nid\n", libcfs_nid2str(dst_nid),
                                       libcfs_nid2str(src_nid));
@@ -1358,18 +1261,22 @@ lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg)
         }
 
         /* Is this for someone on a local network? */
-        local_ni = lnet_net2ni_locked(LNET_NIDNET(dst_nid));
+	local_ni = lnet_net2ni_locked(LNET_NIDNET(dst_nid), cpt);
 
         if (local_ni != NULL) {
+		/* NB: remove this assertion in the future when we can
+		 * add/remove interface at runtime */
+		LASSERT(rtr_nid == LNET_NID_ANY);
+
                 if (src_ni == NULL) {
                         src_ni = local_ni;
                         src_nid = src_ni->ni_nid;
                 } else if (src_ni == local_ni) {
-                        lnet_ni_decref_locked(local_ni);
+			lnet_ni_decref_locked(local_ni, cpt);
                 } else {
-                        lnet_ni_decref_locked(local_ni);
-                        lnet_ni_decref_locked(src_ni);
-                        LNET_UNLOCK();
+			lnet_ni_decref_locked(local_ni, cpt);
+			lnet_ni_decref_locked(src_ni, cpt);
+			lnet_net_unlock(cpt);
                         LCONSOLE_WARN("No route to %s via from %s\n",
                                       libcfs_nid2str(dst_nid),
                                       libcfs_nid2str(src_nid));
@@ -1381,18 +1288,24 @@ lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg)
                 if (!msg->msg_routing)
                         msg->msg_hdr.src_nid = cpu_to_le64(src_nid);
 
-                if (src_ni == the_lnet.ln_loni) {
+		if (src_ni == the_lnet.ln_ni_lo) {
                         /* No send credit hassles with LOLND */
-                        LNET_UNLOCK();
+			lnet_msg_commit(msg, msg->msg_type, cpt);
+			lnet_net_unlock(cpt);
+
                         lnet_ni_send(src_ni, msg);
-                        lnet_ni_decref(src_ni);
+
+			lnet_net_lock(cpt);
+			lnet_ni_decref_locked(src_ni, cpt);
+			lnet_net_unlock(cpt);
                         return 0;
                 }
 
-                rc = lnet_nid2peer_locked(&lp, dst_nid);
-                lnet_ni_decref_locked(src_ni);  /* lp has ref on src_ni; lose mine */
+		rc = lnet_nid2peer_locked(&lp, dst_nid, cpt);
+		/* lp has ref on src_ni; lose mine */
+		lnet_ni_decref_locked(src_ni, cpt);
                 if (rc != 0) {
-                        LNET_UNLOCK();
+			lnet_net_unlock(cpt);
                         LCONSOLE_WARN("Error %d finding peer %s\n", rc,
                                       libcfs_nid2str(dst_nid));
                         /* ENOMEM or shutting down */
@@ -1401,7 +1314,7 @@ lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg)
                 LASSERT (lp->lp_ni == src_ni);
         } else {
 #ifndef __KERNEL__
-                LNET_UNLOCK();
+		lnet_net_unlock(cpt);
 
                 /* NB
                  * - once application finishes computation, check here to update
@@ -1411,52 +1324,35 @@ lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg)
                 if (the_lnet.ln_rc_state == LNET_RC_STATE_RUNNING)
                         lnet_router_checker();
 
-                LNET_LOCK();
+		lnet_net_lock(cpt);
 #endif
                 /* sending to a remote network */
-                rnet = lnet_find_net_locked(LNET_NIDNET(dst_nid));
-                if (rnet == NULL) {
-                        if (src_ni != NULL)
-                                lnet_ni_decref_locked(src_ni);
-                        LNET_UNLOCK();
-                        LCONSOLE_WARN("No route to %s\n",
-                                      libcfs_id2str(msg->msg_target));
-                        return -EHOSTUNREACH;
-                }
-
-                /* Find the best gateway I can use */
-                lp = NULL;
-                best_route = NULL;
-                cfs_list_for_each(tmp, &rnet->lrn_routes) {
-                        route = cfs_list_entry(tmp, lnet_route_t, lr_list);
-                        lp2 = route->lr_gateway;
-
-                        if (lp2->lp_alive &&
-                            lnet_router_down_ni(lp2, rnet->lrn_net) <= 0 &&
-                            (src_ni == NULL || lp2->lp_ni == src_ni) &&
-                            (lp == NULL ||
-                             lnet_compare_routes(route, best_route) > 0)) {
-                                best_route = route;
-                                lp = lp2;
-                        }
-                }
-
+		lp = lnet_find_route_locked(src_ni, dst_nid, rtr_nid);
                 if (lp == NULL) {
                         if (src_ni != NULL)
-                                lnet_ni_decref_locked(src_ni);
-                        LNET_UNLOCK();
-
-                        LCONSOLE_WARN("No route to %s via %s "
-                                      "(all routers down)\n",
+				lnet_ni_decref_locked(src_ni, cpt);
+			lnet_net_unlock(cpt);
+			LCONSOLE_WARN("No route to %s via %s or"
+				      "all routers down\n",
                                       libcfs_id2str(msg->msg_target),
                                       libcfs_nid2str(src_nid));
                         return -EHOSTUNREACH;
                 }
 
-                /* Place selected route at the end of the route list to ensure
-                 * fairness; everything else being equal... */
-                cfs_list_del(&best_route->lr_list);
-                cfs_list_add_tail(&best_route->lr_list, &rnet->lrn_routes);
+		/* rtr_nid is LNET_NID_ANY or NID of preferred router, it's
+		 * possible that rtr_nid isn't LNET_NID_ANY and lp isn't
+		 * preferred router, this can happen if preferred router
+		 * is dead or removed from router table */
+		if (rtr_nid != lp->lp_nid) {
+			rtr_nid = lp->lp_nid;
+			if (cpt != lnet_cpt_of_nid_locked(rtr_nid)) {
+				if (src_ni != NULL)
+					lnet_ni_decref_locked(src_ni, cpt);
+				lnet_net_unlock(cpt);
+				goto again;
+			}
+		}
+
                 CDEBUG(D_NET, "Best route to %s via %s for %s %d\n",
                        libcfs_nid2str(dst_nid), libcfs_nid2str(lp->lp_nid),
                        lnet_msgtyp2str(msg->msg_type), msg->msg_len);
@@ -1466,7 +1362,7 @@ lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg)
                         src_nid = src_ni->ni_nid;
                 } else {
                         LASSERT (src_ni == lp->lp_ni);
-                        lnet_ni_decref_locked(src_ni);
+			lnet_ni_decref_locked(src_ni, cpt);
                 }
 
                 lnet_peer_addref_locked(lp);
@@ -1491,8 +1387,10 @@ lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg)
 
         msg->msg_txpeer = lp;                   /* msg takes my ref on lp */
 
+	lnet_msg_commit(msg, msg->msg_type, cpt);
+
         rc = lnet_post_send_locked(msg, 0);
-        LNET_UNLOCK();
+	lnet_net_unlock(cpt);
 
         if (rc == EHOSTUNREACH)
                 return -EHOSTUNREACH;
@@ -1504,482 +1402,287 @@ lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg)
 }
 
 static void
-lnet_commit_md (lnet_libmd_t *md, lnet_msg_t *msg)
+lnet_drop_message(lnet_ni_t *ni, void *private, unsigned int nob, int cpt)
 {
-        /* ALWAYS called holding the LNET_LOCK */
-        /* Here, we commit the MD to a network OP by marking it busy and
-         * decrementing its threshold.  Come what may, the network "owns"
-         * the MD until a call to lnet_finalize() signals completion. */
-        LASSERT (!msg->msg_routing);
-
-        msg->msg_md = md;
-
-        md->md_refcount++;
-        if (md->md_threshold != LNET_MD_THRESH_INF) {
-                LASSERT (md->md_threshold > 0);
-                md->md_threshold--;
-        }
-
-        the_lnet.ln_counters.msgs_alloc++;
-        if (the_lnet.ln_counters.msgs_alloc > 
-            the_lnet.ln_counters.msgs_max)
-                the_lnet.ln_counters.msgs_max = 
-                        the_lnet.ln_counters.msgs_alloc;
-
-        LASSERT (!msg->msg_onactivelist);
-        msg->msg_onactivelist = 1;
-        cfs_list_add (&msg->msg_activelist, &the_lnet.ln_active_msgs);
-}
-
-static void
-lnet_drop_message (lnet_ni_t *ni, void *private, unsigned int nob)
-{
-        LNET_LOCK();
-        the_lnet.ln_counters.drop_count++;
-        the_lnet.ln_counters.drop_length += nob;
-        LNET_UNLOCK();
+	lnet_net_lock(cpt);
+	the_lnet.ln_counters[cpt]->drop_count++;
+	the_lnet.ln_counters[cpt]->drop_length += nob;
+	lnet_net_unlock(cpt);
 
         lnet_ni_recv(ni, private, NULL, 0, 0, 0, nob);
 }
 
-static void
-lnet_drop_delayed_put(lnet_msg_t *msg, char *reason)
+static unsigned int
+lnet_put_intent(lnet_ni_t *ni, int index, lnet_msg_t *msg)
 {
-        lnet_process_id_t id = {0};
+	lnet_hdr_t	*hdr = &msg->msg_hdr;
+	unsigned int    intent;
+	unsigned int    routed;
 
-        id.nid = msg->msg_hdr.src_nid;
-        id.pid = msg->msg_hdr.src_pid;
+	/* parse CPT intent */
+	LASSERT(hdr->type == LNET_MSG_PUT);
 
-        LASSERT (msg->msg_md == NULL);
-        LASSERT (msg->msg_delayed);
-        LASSERT (msg->msg_rxpeer != NULL);
-        LASSERT (msg->msg_hdr.type == LNET_MSG_PUT);
+	if (LNET_CPT_NUMBER == 1 || /* no option */
+	    !lnet_ptl_is_wildcard(the_lnet.ln_portals[index]))
+		return 0;
 
-        CWARN("Dropping delayed PUT from %s portal %d match "LPU64
-              " offset %d length %d: %s\n", 
-              libcfs_id2str(id),
-              msg->msg_hdr.msg.put.ptl_index,
-              msg->msg_hdr.msg.put.match_bits,
-              msg->msg_hdr.msg.put.offset,
-              msg->msg_hdr.payload_length,
-              reason);
+	/* remote intent? */
+	if (lnet_remote_intent &&
+	    (hdr->msg.put.hdr_data & LNET_PUT_ITF_REMOTE) != 0) {
+		intent = hdr->msg.put.hdr_data;
+		return intent & LNET_PUT_ITF_MASK;
+	}
 
-        /* NB I can't drop msg's ref on msg_rxpeer until after I've
-         * called lnet_drop_message(), so I just hang onto msg as well
-         * until that's done */
+	routed = (LNET_NIDNET(hdr->src_nid) != LNET_NIDNET(hdr->dest_nid));
 
-        lnet_drop_message(msg->msg_rxpeer->lp_ni,
-                          msg->msg_private, msg->msg_len);
+	/* TODO: implement per-NI redirect policies and ioctl commands */
+	switch (lnet_redir_put) {
+	default:
+	case LNET_REDIR_OFF:
+		return 0;
 
-        LNET_LOCK();
+	case LNET_REDIR_AUTO:
+		/* don't redirect PUT if there are enough peers on this
+		 * network, because we believe workload should be fair enough
+		 * for all CPUs even w/o redirecting */
+		if (ni->ni_npeers / LNET_CPT_NUMBER >= lnet_ni_peer_low)
+			return 0;
+		break; /* redirect */
 
-        lnet_peer_decref_locked(msg->msg_rxpeer);
-        msg->msg_rxpeer = NULL;
+	case LNET_REDIR_ROUTED:
+		if (lnet_redir_put == LNET_REDIR_ROUTED && routed)
+			return 0;
+		break; /* redirect */
 
-        lnet_msg_free(msg);
+	case LNET_REDIR_ON:
+		break; /* redirect */
+	}
 
-        LNET_UNLOCK();
-}
+	intent = ni->ni_redir_rotor++; /* race but fine */
+	intent &= LNET_PUT_ITF_MASK;
+	intent |= LNET_PUT_ITF_REDIR;
 
-/**
- * Turn on the lazy portal attribute. Use with caution!
- *
- * This portal attribute only affects incoming PUT requests to the portal,
- * and is off by default. By default, if there's no matching MD for an
- * incoming PUT request, it is simply dropped. With the lazy attribute on,
- * such requests are queued indefinitely until either a matching MD is
- * posted to the portal or the lazy attribute is turned off.
- *
- * It would prevent dropped requests, however it should be regarded as the
- * last line of defense - i.e. users must keep a close watch on active
- * buffers on a lazy portal and once it becomes too low post more buffers as
- * soon as possible. This is because delayed requests usually have detrimental
- * effects on underlying network connections. A few delayed requests often
- * suffice to bring an underlying connection to a complete halt, due to flow
- * control mechanisms.
- *
- * There's also a DOS attack risk. If users don't post match-all MDs on a
- * lazy portal, a malicious peer can easily stop a service by sending some
- * PUT requests with match bits that won't match any MD. A routed server is
- * especially vulnerable since the connections to its neighbor routers are
- * shared among all clients.
- *
- * \param portal Index of the portal to enable the lazy attribute on.
- *
- * \retval 0       On success.
- * \retval -EINVAL If \a portal is not a valid index.
- */
-int
-LNetSetLazyPortal(int portal)
-{
-        lnet_portal_t *ptl = &the_lnet.ln_portals[portal];
-
-        if (portal < 0 || portal >= the_lnet.ln_nportals)
-                return -EINVAL;
-
-        CDEBUG(D_NET, "Setting portal %d lazy\n", portal);
-
-        LNET_LOCK();
-        lnet_portal_setopt(ptl, LNET_PTL_LAZY);
-        LNET_UNLOCK();
-
-        return 0;
-}
-
-/**
- * Turn off the lazy portal attribute. Delayed requests on the portal,
- * if any, will be all dropped when this function returns.
- *
- * \param portal Index of the portal to disable the lazy attribute on.
- *
- * \retval 0       On success.
- * \retval -EINVAL If \a portal is not a valid index.
- */
-int
-LNetClearLazyPortal(int portal)
-{
-        cfs_list_t        zombies;
-        lnet_portal_t    *ptl = &the_lnet.ln_portals[portal];
-        lnet_msg_t       *msg;
-
-        if (portal < 0 || portal >= the_lnet.ln_nportals)
-                return -EINVAL;
-
-        LNET_LOCK();
-
-        if (!lnet_portal_is_lazy(ptl)) {
-                LNET_UNLOCK();
-                return 0;
-        }
-
-        if (the_lnet.ln_shutdown)
-                CWARN ("Active lazy portal %d on exit\n", portal);
-        else
-                CDEBUG (D_NET, "clearing portal %d lazy\n", portal);
-
-        /* grab all the blocked messages atomically */
-        cfs_list_add(&zombies, &ptl->ptl_msgq);
-        cfs_list_del_init(&ptl->ptl_msgq);
-
-        ptl->ptl_msgq_version++;
-        lnet_portal_unsetopt(ptl, LNET_PTL_LAZY);
-
-        LNET_UNLOCK();
-
-        while (!cfs_list_empty(&zombies)) {
-                msg = cfs_list_entry(zombies.next, lnet_msg_t, msg_list);
-                cfs_list_del(&msg->msg_list);
-
-                lnet_drop_delayed_put(msg, "Clearing lazy portal attr");
-        }
-
-        return 0;
-}
-
-static void
-lnet_recv_put(lnet_libmd_t *md, lnet_msg_t *msg, int delayed,
-              unsigned int offset, unsigned int mlength)
-{
-        lnet_hdr_t       *hdr = &msg->msg_hdr;
-
-        LNET_LOCK();
-
-        the_lnet.ln_counters.recv_count++;
-        the_lnet.ln_counters.recv_length += mlength;
-
-        LNET_UNLOCK();
-
-        if (mlength != 0)
-                lnet_setpayloadbuffer(msg);
-
-        msg->msg_ev.type       = LNET_EVENT_PUT;
-        msg->msg_ev.target.pid = hdr->dest_pid;
-        msg->msg_ev.target.nid = hdr->dest_nid;
-        msg->msg_ev.hdr_data   = hdr->msg.put.hdr_data;
-
-        /* Must I ACK?  If so I'll grab the ack_wmd out of the header and put
-         * it back into the ACK during lnet_finalize() */
-        msg->msg_ack = (!lnet_is_wire_handle_none(&hdr->msg.put.ack_wmd) &&
-                        (md->md_options & LNET_MD_ACK_DISABLE) == 0);
-
-        lnet_ni_recv(msg->msg_rxpeer->lp_ni,
-                     msg->msg_private,
-                     msg, delayed, offset, mlength,
-                     hdr->payload_length);
-}
-
-/* called with LNET_LOCK held */
-void
-lnet_match_blocked_msg(lnet_libmd_t *md)
-{
-        CFS_LIST_HEAD    (drops);
-        CFS_LIST_HEAD    (matches);
-        cfs_list_t       *tmp;
-        cfs_list_t       *entry;
-        lnet_msg_t       *msg;
-        lnet_portal_t    *ptl;
-        lnet_me_t        *me  = md->md_me;
-
-        LASSERT (me->me_portal < (unsigned int)the_lnet.ln_nportals);
-
-        ptl = &the_lnet.ln_portals[me->me_portal];
-        if (!lnet_portal_is_lazy(ptl)) {
-                LASSERT (cfs_list_empty(&ptl->ptl_msgq));
-                return;
-        }
-
-        LASSERT (md->md_refcount == 0); /* a brand new MD */
-
-        cfs_list_for_each_safe (entry, tmp, &ptl->ptl_msgq) {
-                int               rc;
-                int               index;
-                unsigned int      mlength;
-                unsigned int      offset;
-                lnet_hdr_t       *hdr;
-                lnet_process_id_t src;
-
-                msg = cfs_list_entry(entry, lnet_msg_t, msg_list);
-
-                LASSERT (msg->msg_delayed);
-
-                hdr   = &msg->msg_hdr;
-                index = hdr->msg.put.ptl_index;
-
-                src.nid = hdr->src_nid;
-                src.pid = hdr->src_pid;
-
-                rc = lnet_try_match_md(index, LNET_MD_OP_PUT, src,
-                                       hdr->payload_length,
-                                       hdr->msg.put.offset,
-                                       hdr->msg.put.match_bits,
-                                       md, msg, &mlength, &offset);
-
-                if (rc == LNET_MATCHMD_NONE)
-                        continue;
-
-                /* Hurrah! This _is_ a match */
-                cfs_list_del(&msg->msg_list);
-                ptl->ptl_msgq_version++;
-
-                if (rc == LNET_MATCHMD_OK) {
-                        cfs_list_add_tail(&msg->msg_list, &matches);
-
-                        CDEBUG(D_NET, "Resuming delayed PUT from %s portal %d "
-                               "match "LPU64" offset %d length %d.\n",
-                               libcfs_id2str(src),
-                               hdr->msg.put.ptl_index,
-                               hdr->msg.put.match_bits,
-                               hdr->msg.put.offset,
-                               hdr->payload_length);
-                } else {
-                        LASSERT (rc == LNET_MATCHMD_DROP);
-
-                        cfs_list_add_tail(&msg->msg_list, &drops);
-                }
-
-                if (lnet_md_exhausted(md))
-                        break;
-        }
-
-        LNET_UNLOCK();
-
-        cfs_list_for_each_safe (entry, tmp, &drops) {
-                msg = cfs_list_entry(entry, lnet_msg_t, msg_list);
-
-                cfs_list_del(&msg->msg_list);
-
-                lnet_drop_delayed_put(msg, "Bad match");
-        }
-
-        cfs_list_for_each_safe (entry, tmp, &matches) {
-                msg = cfs_list_entry(entry, lnet_msg_t, msg_list);
-
-                cfs_list_del(&msg->msg_list);
-
-                /* md won't disappear under me, since each msg
-                 * holds a ref on it */
-                lnet_recv_put(md, msg, 1,
-                              msg->msg_ev.offset,
-                              msg->msg_ev.mlength);
-        }
-
-        LNET_LOCK();
+	return intent;
 }
 
 static int
 lnet_parse_put(lnet_ni_t *ni, lnet_msg_t *msg)
 {
-        int               rc;
-        int               index;
-        __u64             version;
-        lnet_hdr_t       *hdr = &msg->msg_hdr;
-        unsigned int      rlength = hdr->payload_length;
-        unsigned int      mlength = 0;
-        unsigned int      offset = 0;
-        lnet_process_id_t src= {0};
-        lnet_libmd_t     *md;
-        lnet_portal_t    *ptl;
+	struct lnet_match_table *mtable;
+	lnet_put_t	  *put = &msg->msg_hdr.msg.put;
+	unsigned int       rlength = msg->msg_hdr.payload_length;
+	lnet_process_id_t  src = {0};
+	int                index;
+	int                rc;
 
-        src.nid = hdr->src_nid;
-        src.pid = hdr->src_pid;
+	src.nid = msg->msg_hdr.src_nid;
+	src.pid = msg->msg_hdr.src_pid;
 
-        /* Convert put fields to host byte order */
-        hdr->msg.put.match_bits = le64_to_cpu(hdr->msg.put.match_bits);
-        hdr->msg.put.ptl_index = le32_to_cpu(hdr->msg.put.ptl_index);
-        hdr->msg.put.offset = le32_to_cpu(hdr->msg.put.offset);
+	if (!msg->msg_delayed) { /* the first call */
+		/* Convert put fields to host byte order */
+		put->match_bits = le64_to_cpu(put->match_bits);
+		put->ptl_index  = le32_to_cpu(put->ptl_index);
+		put->offset     = le32_to_cpu(put->offset);
+		put->hdr_data   = le64_to_cpu(put->hdr_data);
 
-        index = hdr->msg.put.ptl_index;
+		index = put->ptl_index;
+		if (index < 0 || index >= the_lnet.ln_nportals) {
+			CERROR("Invalid portal %d not in [0-%d]\n",
+			       index, the_lnet.ln_nportals);
+			return ENOENT;
+		}
 
-        LNET_LOCK();
+		mtable = lnet_mt_of_match(the_lnet.ln_portals[index],
+					  src, put->match_bits,
+					  lnet_put_intent(ni, index, msg));
 
- again:
-        rc = lnet_match_md(index, LNET_MD_OP_PUT, src,
-                           rlength, hdr->msg.put.offset,
-                           hdr->msg.put.match_bits, msg,
-                           &mlength, &offset, &md);
-        switch (rc) {
-        default:
-                LBUG();
+		lnet_res_lock(mtable->mt_cpt);
 
-        case LNET_MATCHMD_OK:
-                LNET_UNLOCK();
-                lnet_recv_put(md, msg, msg->msg_delayed, offset, mlength);
-                return 0;
+		rc = lnet_mt_match_msg(mtable, LNET_MD_OP_PUT, src,
+				       rlength, put->offset,
+				       put->match_bits, msg);
 
-        case LNET_MATCHMD_NONE:
-                ptl = &the_lnet.ln_portals[index];
-                version = ptl->ptl_ml_version;
+		if (lnet_ptl_is_wildcard(the_lnet.ln_portals[index]) &&
+		    (rc & LNET_MATCHMD_NONE) != 0 && /* no match */
+		    (rc & LNET_MATCHMD_EXHAUSTED) != 0) { /* no buffer */
+			lnet_ptl_disable_mt(the_lnet.ln_portals[index],
+					    mtable->mt_cpt);
+		}
 
-                rc = 0;
-                if (!msg->msg_delayed)
-                        rc = lnet_eager_recv_locked(msg);
+		lnet_res_unlock(mtable->mt_cpt);
 
-                if (rc == 0 &&
-                    !the_lnet.ln_shutdown &&
-                    lnet_portal_is_lazy(ptl)) {
-                        if (version != ptl->ptl_ml_version)
-                                goto again;
+	} else {
+		LASSERT(msg->msg_rxpeer != NULL);
 
-                        cfs_list_add_tail(&msg->msg_list, &ptl->ptl_msgq);
-                        ptl->ptl_msgq_version++;
-                        LNET_UNLOCK();
+		/* NB: it's the second call and could delay message */
+		/* this operation is more expensive then lnet_mt_match_msg,
+		 * but it only can happen if buffer is not enough which
+		 * should be rare */
+		rc = lnet_ptl_match_msg(the_lnet.ln_portals[put->ptl_index],
+					LNET_MD_OP_PUT, src,
+					rlength, put->offset,
+					put->match_bits, msg);
+	}
 
-                        CDEBUG(D_NET, "Delaying PUT from %s portal %d match "
-                               LPU64" offset %d length %d: no match \n",
-                               libcfs_id2str(src), index,
-                               hdr->msg.put.match_bits,
-                               hdr->msg.put.offset, rlength);
-                        return 0;
-                }
-                /* fall through */
+	if ((rc & LNET_MATCHMD_OK) != 0) { /* matched */
+		lnet_build_msg_event(msg, LNET_EVENT_PUT);
+		return 0;
+	}
 
-        case LNET_MATCHMD_DROP:
-                CNETERR("Dropping PUT from %s portal %d match "LPU64
-                        " offset %d length %d: %d\n",
-                        libcfs_id2str(src), index,
-                        hdr->msg.put.match_bits,
-                        hdr->msg.put.offset, rlength, rc);
-                LNET_UNLOCK();
+	if ((rc & LNET_MATCHMD_DROP) != 0)
+		return ENOENT;
 
-                return ENOENT;          /* +ve: OK but no match */
-        }
+	LASSERT((rc & LNET_MATCHMD_NONE) != 0);
+
+	if (!msg->msg_delayed) {
+		msg->msg_delayed = 1;
+		rc = lnet_ni_eager_recv(ni, msg);
+		if (rc < 0)
+			return ENOENT;
+	}
+
+	return EAGAIN;
 }
+
+static int
+lnet_recv_put(lnet_ni_t *ni, lnet_msg_t *msg)
+{
+	lnet_hdr_t	*hdr = &msg->msg_hdr;
+	lnet_put_t	*put = &hdr->msg.put;
+
+	LASSERT(msg->msg_md != NULL);
+	LASSERT(msg->msg_rxpeer != NULL);
+
+	if (msg->msg_delayed) {
+		int cpt = lnet_cpt_of_nid(msg->msg_from);
+
+		/* must be called before lnet_msg_commit */
+		lnet_build_msg_event(msg, LNET_EVENT_PUT);
+
+		lnet_net_lock(cpt);
+		lnet_msg_commit(msg, msg->msg_type, cpt);
+		lnet_net_unlock(cpt);
+		/* pass through to receive */
+	}
+
+	if (msg->msg_wanted != 0)
+		lnet_setpayloadbuffer(msg);
+
+        /* Must I ACK?  If so I'll grab the ack_wmd out of the header and put
+         * it back into the ACK during lnet_finalize() */
+	msg->msg_ack = (!lnet_is_wire_handle_none(&put->ack_wmd) &&
+			(msg->msg_md->md_options & LNET_MD_ACK_DISABLE) == 0);
+
+	lnet_ni_recv(msg->msg_rxpeer->lp_ni, msg->msg_private, msg,
+		     msg->msg_delayed, msg->msg_offset,
+		     msg->msg_wanted, msg->msg_len);
+	return 0;
+}
+
 
 static int
 lnet_parse_get(lnet_ni_t *ni, lnet_msg_t *msg, int rdma_get)
 {
-        lnet_hdr_t        *hdr = &msg->msg_hdr;
-        unsigned int       mlength = 0;
-        unsigned int       offset = 0;
-        lnet_process_id_t  src = {0};
-        lnet_handle_wire_t reply_wmd;
-        lnet_libmd_t      *md;
-        int                rc;
+	struct lnet_match_table *mtab;
+	lnet_hdr_t         *hdr = &msg->msg_hdr;
+	lnet_get_t         *get = &hdr->msg.get;
+	lnet_process_id_t   src = {0};
+	int                 rc;
 
         src.nid = hdr->src_nid;
         src.pid = hdr->src_pid;
 
-        /* Convert get fields to host byte order */
-        hdr->msg.get.match_bits = le64_to_cpu(hdr->msg.get.match_bits);
-        hdr->msg.get.ptl_index = le32_to_cpu(hdr->msg.get.ptl_index);
-        hdr->msg.get.sink_length = le32_to_cpu(hdr->msg.get.sink_length);
-        hdr->msg.get.src_offset = le32_to_cpu(hdr->msg.get.src_offset);
+	/* Convert get fields to host byte order */
+	get->match_bits  = le64_to_cpu(get->match_bits);
+	get->ptl_index   = le32_to_cpu(get->ptl_index);
+	get->sink_length = le32_to_cpu(get->sink_length);
+	get->src_offset  = le32_to_cpu(get->src_offset);
 
-        LNET_LOCK();
+	if (get->ptl_index >= the_lnet.ln_nportals) {
+		CERROR("Invalid portal %d not in [0-%d]\n",
+		       get->ptl_index, the_lnet.ln_nportals);
+		return ENOENT;
+	}
 
-        rc = lnet_match_md(hdr->msg.get.ptl_index, LNET_MD_OP_GET, src,
-                           hdr->msg.get.sink_length, hdr->msg.get.src_offset,
-                           hdr->msg.get.match_bits, msg,
-                           &mlength, &offset, &md);
-        if (rc == LNET_MATCHMD_DROP) {
-                CNETERR("Dropping GET from %s portal %d match "LPU64
-                        " offset %d length %d\n",
-                        libcfs_id2str(src),
-                        hdr->msg.get.ptl_index,
-                        hdr->msg.get.match_bits,
-                        hdr->msg.get.src_offset,
-                        hdr->msg.get.sink_length);
-                LNET_UNLOCK();
-                return ENOENT;                  /* +ve: OK but no match */
-        }
+	mtab = lnet_mt_of_match(the_lnet.ln_portals[get->ptl_index],
+				src, get->match_bits, 0);
 
-        LASSERT (rc == LNET_MATCHMD_OK);
+	lnet_res_lock(mtab->mt_cpt);
 
-        the_lnet.ln_counters.send_count++;
-        the_lnet.ln_counters.send_length += mlength;
+	rc = lnet_mt_match_msg(mtab, LNET_MD_OP_GET, src, get->sink_length,
+			       get->src_offset, get->match_bits, msg);
 
-        LNET_UNLOCK();
+	lnet_res_unlock(mtab->mt_cpt);
 
-        msg->msg_ev.type = LNET_EVENT_GET;
-        msg->msg_ev.target.pid = hdr->dest_pid;
-        msg->msg_ev.target.nid = hdr->dest_nid;
-        msg->msg_ev.hdr_data = 0;
+	if ((rc & LNET_MATCHMD_DROP) != 0) {
+		CNETERR("Dropping GET from %s portal %d match "LPU64
+			" offset %d length %d\n",
+			libcfs_id2str(src), hdr->msg.get.ptl_index,
+			hdr->msg.get.match_bits, hdr->msg.get.src_offset,
+			hdr->msg.get.sink_length);
+		return ENOENT;
+	}
 
-        reply_wmd = hdr->msg.get.return_wmd;
+	LASSERT((rc & LNET_MATCHMD_OK) != 0);
 
-        lnet_prep_send(msg, LNET_MSG_REPLY, src, offset, mlength);
+	lnet_build_msg_event(msg, LNET_EVENT_GET);
+	return 0;
+}
+
+static int
+lnet_recv_get(lnet_ni_t *ni, lnet_msg_t *msg, int rdma_get)
+{
+	lnet_hdr_t         *hdr = &msg->msg_hdr;
+	lnet_handle_wire_t reply_wmd = hdr->msg.get.return_wmd;
+	lnet_process_id_t  src = {0};
+	int		   rc;
+
+        src.nid = hdr->src_nid;
+        src.pid = hdr->src_pid;
+
+	lnet_prep_send(msg, LNET_MSG_REPLY, src,
+		       msg->msg_offset, msg->msg_wanted);
 
         msg->msg_hdr.msg.reply.dst_wmd = reply_wmd;
 
         if (rdma_get) {
                 /* The LND completes the REPLY from her recv procedure */
                 lnet_ni_recv(ni, msg->msg_private, msg, 0,
-                             msg->msg_offset, msg->msg_len, msg->msg_len);
+			     msg->msg_offset, msg->msg_wanted, msg->msg_len);
                 return 0;
         }
 
         lnet_ni_recv(ni, msg->msg_private, NULL, 0, 0, 0, 0);
         msg->msg_receiving = 0;
 
-        rc = lnet_send(ni->ni_nid, msg);
-        if (rc < 0) {
+	rc = lnet_send(ni->ni_nid, msg, LNET_NID_ANY);
+	if (rc != 0) {
                 /* didn't get as far as lnet_ni_send() */
                 CERROR("%s: Unable to send REPLY for GET from %s: %d\n",
                        libcfs_nid2str(ni->ni_nid), libcfs_id2str(src), rc);
 
                 lnet_finalize(ni, msg, rc);
         }
-
         return 0;
 }
 
 static int
 lnet_parse_reply(lnet_ni_t *ni, lnet_msg_t *msg)
 {
-        void             *private = msg->msg_private;
-        lnet_hdr_t       *hdr = &msg->msg_hdr;
-        lnet_process_id_t src = {0};
-        lnet_libmd_t     *md;
-        int               rlength;
-        int               mlength;
-
-        LNET_LOCK();
+	lnet_hdr_t        *hdr = &msg->msg_hdr;
+	lnet_libmd_t      *md  = NULL;
+	lnet_process_id_t  src = {0};
+	int                cpt;
 
         src.nid = hdr->src_nid;
         src.pid = hdr->src_pid;
 
+	cpt = lnet_cpt_of_cookie(hdr->msg.reply.dst_wmd.wh_object_cookie);
+	lnet_res_lock(cpt);
+
         /* NB handles only looked up by creator (no flips) */
         md = lnet_wire_handle2md(&hdr->msg.reply.dst_wmd);
+
         if (md == NULL || md->md_threshold == 0 || md->md_me != NULL) {
                 CNETERR("%s: Dropping REPLY from %s for %s "
                         "MD "LPX64"."LPX64"\n",
@@ -1991,61 +1694,54 @@ lnet_parse_reply(lnet_ni_t *ni, lnet_msg_t *msg)
                         CERROR("REPLY MD also attached to portal %d\n",
                                md->md_me->me_portal);
 
-                LNET_UNLOCK();
+		lnet_res_unlock(cpt);
                 return ENOENT;                  /* +ve: OK but no match */
         }
 
-        LASSERT (md->md_offset == 0);
-
-        rlength = hdr->payload_length;
-        mlength = MIN(rlength, (int)md->md_length);
-
-        if (mlength < rlength &&
+	if (md->md_length < msg->msg_len &&
             (md->md_options & LNET_MD_TRUNCATE) == 0) {
+		lnet_res_unlock(cpt);
+
                 CNETERR("%s: Dropping REPLY from %s length %d "
                         "for MD "LPX64" would overflow (%d)\n",
                         libcfs_nid2str(ni->ni_nid), libcfs_id2str(src),
-                        rlength, hdr->msg.reply.dst_wmd.wh_object_cookie,
-                        mlength);
-                LNET_UNLOCK();
+			msg->msg_len, hdr->msg.reply.dst_wmd.wh_object_cookie,
+			md->md_length);
+
                 return ENOENT;          /* +ve: OK but no match */
         }
 
+	LASSERT(md->md_offset == 0);
+	lnet_msg_attach_md(msg, md, 0, MIN(msg->msg_len, md->md_length));
+	lnet_res_unlock(cpt);
+
         CDEBUG(D_NET, "%s: Reply from %s of length %d/%d into md "LPX64"\n",
-               libcfs_nid2str(ni->ni_nid), libcfs_id2str(src), 
-               mlength, rlength, hdr->msg.reply.dst_wmd.wh_object_cookie);
+	       libcfs_nid2str(ni->ni_nid), libcfs_id2str(src),
+	       msg->msg_wanted, msg->msg_len,
+	       hdr->msg.reply.dst_wmd.wh_object_cookie);
 
-        lnet_commit_md(md, msg);
+	lnet_build_msg_event(msg, LNET_EVENT_REPLY);
+	return 0;
+}
 
-        if (mlength != 0)
+static int
+lnet_recv_reply(lnet_ni_t *ni, lnet_msg_t *msg)
+{
+	if (msg->msg_wanted != 0)
                 lnet_setpayloadbuffer(msg);
 
-        msg->msg_ev.type = LNET_EVENT_REPLY;
-        msg->msg_ev.target.pid = hdr->dest_pid;
-        msg->msg_ev.target.nid = hdr->dest_nid;
-        msg->msg_ev.initiator = src;
-        msg->msg_ev.rlength = rlength;
-        msg->msg_ev.mlength = mlength;
-        msg->msg_ev.offset = 0;
-
-        lnet_md_deconstruct(md, &msg->msg_ev.md);
-        lnet_md2handle(&msg->msg_ev.md_handle, md);
-
-        the_lnet.ln_counters.recv_count++;
-        the_lnet.ln_counters.recv_length += mlength;
-
-        LNET_UNLOCK();
-
-        lnet_ni_recv(ni, private, msg, 0, 0, mlength, rlength);
+	lnet_ni_recv(ni, msg->msg_private,
+		     msg, 0, 0, msg->msg_wanted, msg->msg_len);
         return 0;
 }
 
 static int
 lnet_parse_ack(lnet_ni_t *ni, lnet_msg_t *msg)
 {
-        lnet_hdr_t       *hdr = &msg->msg_hdr;
-        lnet_process_id_t src = {0};
-        lnet_libmd_t     *md;
+	lnet_hdr_t        *hdr = &msg->msg_hdr;
+	lnet_libmd_t      *md  = NULL;
+	lnet_process_id_t  src = {0};
+	int                cpt;
 
         src.nid = hdr->src_nid;
         src.pid = hdr->src_pid;
@@ -2054,7 +1750,8 @@ lnet_parse_ack(lnet_ni_t *ni, lnet_msg_t *msg)
         hdr->msg.ack.match_bits = le64_to_cpu(hdr->msg.ack.match_bits);
         hdr->msg.ack.mlength = le32_to_cpu(hdr->msg.ack.mlength);
 
-        LNET_LOCK();
+	cpt = lnet_cpt_of_cookie(hdr->msg.ack.dst_wmd.wh_object_cookie);
+	lnet_res_lock(cpt);
 
         /* NB handles only looked up by creator (no flips) */
         md = lnet_wire_handle2md(&hdr->msg.ack.dst_wmd);
@@ -2070,32 +1767,54 @@ lnet_parse_ack(lnet_ni_t *ni, lnet_msg_t *msg)
                         CERROR("Source MD also attached to portal %d\n",
                                md->md_me->me_portal);
 
-                LNET_UNLOCK();
+		lnet_res_unlock(cpt);
                 return ENOENT;                  /* +ve! */
         }
 
-        CDEBUG(D_NET, "%s: ACK from %s into md "LPX64"\n",
-               libcfs_nid2str(ni->ni_nid), libcfs_id2str(src), 
-               hdr->msg.ack.dst_wmd.wh_object_cookie);
+	lnet_msg_attach_md(msg, md, 0, 0);
 
-        lnet_commit_md(md, msg);
+	lnet_res_unlock(cpt);
 
-        msg->msg_ev.type = LNET_EVENT_ACK;
-        msg->msg_ev.target.pid = hdr->dest_pid;
-        msg->msg_ev.target.nid = hdr->dest_nid;
-        msg->msg_ev.initiator = src;
-        msg->msg_ev.mlength = hdr->msg.ack.mlength;
-        msg->msg_ev.match_bits = hdr->msg.ack.match_bits;
+	CDEBUG(D_NET, "%s: ACK from %s into md "LPX64"\n",
+	       libcfs_nid2str(ni->ni_nid), libcfs_id2str(src),
+	       hdr->msg.ack.dst_wmd.wh_object_cookie);
 
-        lnet_md_deconstruct(md, &msg->msg_ev.md);
-        lnet_md2handle(&msg->msg_ev.md_handle, md);
+	lnet_build_msg_event(msg, LNET_EVENT_ACK);
+	return 0;
+}
 
-        the_lnet.ln_counters.recv_count++;
-
-        LNET_UNLOCK();
-
+static int
+lnet_recv_ack(lnet_ni_t *ni, lnet_msg_t *msg)
+{
         lnet_ni_recv(ni, msg->msg_private, msg, 0, 0, 0, msg->msg_len);
         return 0;
+}
+
+static int
+lnet_parse_routed_locked(lnet_ni_t *ni, lnet_msg_t *msg, int cpt)
+{
+#ifdef __KERNEL__
+	if (msg->msg_rxpeer->lp_rtrcredits <= 0 ||
+	    lnet_msg2bufpool(msg, cpt)->rbp_credits <= 0) {
+		msg->msg_delayed = 1;
+
+		if (ni->ni_lnd->lnd_eager_recv != NULL) {
+			int     rc;
+
+			lnet_net_unlock(cpt);
+			rc = lnet_ni_eager_recv(ni, msg);
+			lnet_net_lock(cpt);
+			if (rc != 0)
+				return rc;
+		}
+	}
+
+	lnet_msg_commit(msg, msg->msg_type, cpt);
+	return lnet_post_routed_recv_locked(msg, 0);
+#else
+	LBUG();
+	return 0;
+#endif
 }
 
 char *
@@ -2180,12 +1899,13 @@ lnet_print_hdr(lnet_hdr_t * hdr)
 }
 
 int
-lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid, 
+lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
            void *private, int rdma_req)
 {
+	lnet_msg_t    *msg;
         int            rc = 0;
+	int            cpt;
         int            for_me;
-        lnet_msg_t    *msg;
         lnet_pid_t     dest_pid;
         lnet_nid_t     dest_nid;
         lnet_nid_t     src_nid;
@@ -2201,6 +1921,7 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
         payload_length = le32_to_cpu(hdr->payload_length);
 
         for_me = (ni->ni_nid == dest_nid);
+	cpt = lnet_cpt_of_nid(from_nid);
 
         switch (type) {
         case LNET_MSG_ACK:
@@ -2236,22 +1957,23 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
         }
 
         if (the_lnet.ln_routing) {
-                cfs_time_t now = cfs_time_current();
+		long now = cfs_time_current_sec();
 
-                LNET_LOCK();
+		if (ni->ni_last_alive != now) {
+			lnet_ni_lock(ni, 0);
 
-                ni->ni_last_alive = now;
-                if (ni->ni_status != NULL &&
-                    ni->ni_status->ns_status == LNET_NI_STATUS_DOWN)
-                        ni->ni_status->ns_status = LNET_NI_STATUS_UP;
+			ni->ni_last_alive = now;
+			if (ni->ni_status != NULL &&
+			    ni->ni_status->ns_status == LNET_NI_STATUS_DOWN)
+				ni->ni_status->ns_status = LNET_NI_STATUS_UP;
 
-                LNET_UNLOCK();
+			lnet_ni_unlock(ni, 0);
+		}
         }
 
         /* Regard a bad destination NID as a protocol error.  Senders should
          * know what they're doing; if they don't they're misconfigured, buggy
          * or malicious so we chop them off at the knees :) */
-
         if (!for_me) {
                 if (LNET_NIDNET(dest_nid) == LNET_NIDNET(ni->ni_nid)) {
                         /* should have gone direct */
@@ -2313,7 +2035,8 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
                 goto drop;
         }
 
-        /* msg zeroed in lnet_msg_alloc; i.e. flags all clear, pointers NULL etc */
+	/* msg zeroed in lnet_msg_alloc;
+	 * i.e. flags all clear, pointers NULL etc */
 
         msg->msg_type = type;
         msg->msg_private = private;
@@ -2321,93 +2044,195 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
         msg->msg_len = msg->msg_wanted = payload_length;
         msg->msg_offset = 0;
         msg->msg_hdr = *hdr;
+	msg->msg_from = from_nid;
 
-        LNET_LOCK();
-        rc = lnet_nid2peer_locked(&msg->msg_rxpeer, from_nid);
-        if (rc != 0) {
-                LNET_UNLOCK();
+	if (!for_me) { /* remote network */
+		msg->msg_target.nid   = dest_nid;
+		msg->msg_target.pid   = dest_pid;
+		msg->msg_routing      = 1;
+	} else {
+		/* convert common msg->hdr fields to host byteorder */
+		msg->msg_hdr.type     = type;
+		msg->msg_hdr.src_nid  = src_nid;
+		msg->msg_hdr.src_pid  = le32_to_cpu(msg->msg_hdr.src_pid);
+		msg->msg_hdr.dest_nid = dest_nid;
+		msg->msg_hdr.dest_pid = dest_pid;
+		msg->msg_hdr.payload_length = payload_length;
+
+		switch (type) {
+		case LNET_MSG_ACK:
+			rc = lnet_parse_ack(ni, msg);
+			break;
+		case LNET_MSG_PUT:
+			rc = lnet_parse_put(ni, msg);
+			/* NB: even no match, lazy portal will return 0 */
+			break;
+		case LNET_MSG_GET:
+			rc = lnet_parse_get(ni, msg, rdma_req);
+			break;
+		case LNET_MSG_REPLY:
+			rc = lnet_parse_reply(ni, msg);
+			break;
+		default: /* prevent an unused label if !kernel */
+			rc = ENOENT;
+			break;
+		}
+
+		if (rc == ENOENT)
+			goto free_drop;
+
+		LASSERT(rc == 0 || rc == EAGAIN);
+	}
+
+	lnet_net_lock(cpt);
+
+	rc = lnet_nid2peer_locked(&msg->msg_rxpeer, from_nid, cpt);
+	if (unlikely(rc != 0)) {
+		lnet_net_unlock(cpt);
                 CERROR("%s, src %s: Dropping %s "
                        "(error %d looking up sender)\n",
                        libcfs_nid2str(from_nid), libcfs_nid2str(src_nid),
                        lnet_msgtyp2str(type), rc);
+		/* release refcount on MD and notify upper layer */
+		lnet_msg_detach_md(msg, rc);
                 goto free_drop;
         }
-        LNET_UNLOCK();
 
-#ifndef __KERNEL__
-        LASSERT (for_me);
-#else
         if (!for_me) {
-                msg->msg_target.pid = dest_pid;
-                msg->msg_target.nid = dest_nid;
-                msg->msg_routing = 1;
-                msg->msg_offset = 0;
+		rc = lnet_parse_routed_locked(ni, msg, cpt);
+		lnet_net_unlock(cpt);
+		if (rc < 0)
+			goto free_drop;
+		/* receive or wait for credit */
 
-                LNET_LOCK();
-                if (msg->msg_rxpeer->lp_rtrcredits <= 0 ||
-                    lnet_msg2bufpool(msg)->rbp_credits <= 0) {
-                        rc = lnet_eager_recv_locked(msg);
-                        if (rc != 0) {
-                                LNET_UNLOCK();
-                                goto free_drop;
-                        }
-                }
-                lnet_commit_routedmsg(msg);
-                rc = lnet_post_routed_recv_locked(msg, 0);
-                LNET_UNLOCK();
-
-                if (rc == 0)
+		if (rc == 0) { /* receive now */
                         lnet_ni_recv(ni, msg->msg_private, msg, 0,
                                      0, payload_length, payload_length);
+		}
                 return 0;
         }
-#endif
-        /* convert common msg->hdr fields to host byteorder */
-        msg->msg_hdr.type = type;
-        msg->msg_hdr.src_nid = src_nid;
-        msg->msg_hdr.src_pid = le32_to_cpu(msg->msg_hdr.src_pid);
-        msg->msg_hdr.dest_nid = dest_nid;
-        msg->msg_hdr.dest_pid = dest_pid;
-        msg->msg_hdr.payload_length = payload_length;
 
-        msg->msg_ev.sender = from_nid;
+	/* for me */
+	if (msg->msg_md != NULL) {
+		lnet_msg_commit(msg, type, cpt);
+		lnet_net_unlock(cpt);
+
+	} else {
+		LASSERT(type == LNET_MSG_PUT);
+		lnet_net_unlock(cpt);
+
+		rc = lnet_parse_put(ni, msg);
+		if (rc == EAGAIN) /* attached on delayed list of portal */
+			return 0;
+
+		if (rc == ENOENT)
+			goto free_drop;
+
+		LASSERT(rc == 0); /* receive now */
+	}
 
         switch (type) {
         case LNET_MSG_ACK:
-                rc = lnet_parse_ack(ni, msg);
-                break;
+		lnet_recv_ack(ni, msg);
+		return 0;
         case LNET_MSG_PUT:
-                rc = lnet_parse_put(ni, msg);
-                break;
+		lnet_recv_put(ni, msg);
+		return 0;
         case LNET_MSG_GET:
-                rc = lnet_parse_get(ni, msg, rdma_req);
-                break;
+		lnet_recv_get(ni, msg, rdma_req);
+		return 0;
         case LNET_MSG_REPLY:
-                rc = lnet_parse_reply(ni, msg);
-                break;
+		lnet_recv_reply(ni, msg);
+		return 0;
         default:
-                LASSERT(0);
-                goto free_drop;  /* prevent an unused label if !kernel */
+		LBUG();
         }
-
-        if (rc == 0)
-                return 0;
-
-        LASSERT (rc == ENOENT);
-
  free_drop:
-        LASSERT (msg->msg_md == NULL);
-        LNET_LOCK();
-        if (msg->msg_rxpeer != NULL) {
-                lnet_peer_decref_locked(msg->msg_rxpeer);
-                msg->msg_rxpeer = NULL;
-        }
-        lnet_msg_free(msg);                     /* expects LNET_LOCK held */
-        LNET_UNLOCK();
-
+	if (msg->msg_rxpeer != NULL) {
+		lnet_net_lock(cpt);
+		lnet_peer_decref_locked(msg->msg_rxpeer);
+		lnet_net_unlock(cpt);
+	}
+	lnet_msg_free(msg);
  drop:
-        lnet_drop_message(ni, private, payload_length);
-        return 0;
+	lnet_drop_message(ni, private, payload_length, cpt);
+	return 0;
+}
+
+void
+lnet_drop_delayed_msg_list(cfs_list_t *head, char *reason)
+{
+	while (!cfs_list_empty(head)) {
+		lnet_process_id_t id = {0};
+		lnet_msg_t	  *msg;
+		int		  cpt;
+
+		msg = cfs_list_entry(head->next, lnet_msg_t, msg_list);
+		cfs_list_del(&msg->msg_list);
+
+		id.nid = msg->msg_hdr.src_nid;
+		id.pid = msg->msg_hdr.src_pid;
+
+		LASSERT(msg->msg_delayed);
+		LASSERT(msg->msg_md == NULL);
+		LASSERT(msg->msg_rxpeer != NULL);
+		LASSERT(msg->msg_hdr.type == LNET_MSG_PUT);
+
+		CWARN("Dropping delayed PUT from %s portal %d match "LPU64
+		      " offset %d length %d: %s\n",
+		      libcfs_id2str(id),
+		      msg->msg_hdr.msg.put.ptl_index,
+		      msg->msg_hdr.msg.put.match_bits,
+		      msg->msg_hdr.msg.put.offset,
+		      msg->msg_hdr.payload_length, reason);
+
+		/* NB I can't drop msg's ref on msg_rxpeer until after I've
+		 * called lnet_drop_message(), so I just hang onto msg as well
+		 * until that's done */
+
+		cpt = lnet_cpt_of_nid(msg->msg_rxpeer->lp_nid);
+
+		lnet_drop_message(msg->msg_rxpeer->lp_ni,
+				  msg->msg_private, msg->msg_len, cpt);
+
+		lnet_net_lock(cpt);
+                lnet_peer_decref_locked(msg->msg_rxpeer);
+		lnet_net_unlock(cpt);
+
+		lnet_msg_free(msg);
+        }
+}
+
+void
+lnet_recv_delayed_msg_list(cfs_list_t *head)
+{
+	while (!cfs_list_empty(head)) {
+		lnet_msg_t	  *msg;
+		lnet_process_id_t  id;
+
+		msg = cfs_list_entry(head->next, lnet_msg_t, msg_list);
+		cfs_list_del(&msg->msg_list);
+
+		/* md won't disappear under me, since each msg
+		 * holds a ref on it */
+
+		id.nid = msg->msg_hdr.src_nid;
+		id.pid = msg->msg_hdr.src_pid;
+
+		LASSERT(msg->msg_delayed);
+		LASSERT(msg->msg_md != NULL);
+		LASSERT(msg->msg_rxpeer != NULL);
+		LASSERT(msg->msg_hdr.type == LNET_MSG_PUT);
+
+		CDEBUG(D_NET, "Resuming delayed PUT from %s portal %d "
+		       "match "LPU64" offset %d length %d.\n",
+			libcfs_id2str(id), msg->msg_hdr.msg.put.ptl_index,
+			msg->msg_hdr.msg.put.match_bits,
+			msg->msg_hdr.msg.put.offset,
+			msg->msg_hdr.payload_length);
+
+		lnet_recv_put(msg->msg_rxpeer->lp_ni, msg);
+	}
 }
 
 /**
@@ -2460,9 +2285,10 @@ LNetPut(lnet_nid_t self, lnet_handle_md_t mdh, lnet_ack_req_t ack,
         __u64 match_bits, unsigned int offset,
         __u64 hdr_data)
 {
-        lnet_msg_t       *msg;
-        lnet_libmd_t     *md;
-        int               rc;
+	lnet_msg_t        *msg;
+	lnet_libmd_t      *md;
+	int                cpt;
+	int                rc;
 
         LASSERT (the_lnet.ln_init);
         LASSERT (the_lnet.ln_refcount > 0);
@@ -2483,71 +2309,58 @@ LNetPut(lnet_nid_t self, lnet_handle_md_t mdh, lnet_ack_req_t ack,
         }
         msg->msg_vmflush = !!cfs_memory_pressure_get();
 
-        LNET_LOCK();
+	cpt = lnet_cpt_of_cookie(mdh.cookie);
+	lnet_res_lock(cpt);
 
         md = lnet_handle2md(&mdh);
         if (md == NULL || md->md_threshold == 0 || md->md_me != NULL) {
-                lnet_msg_free(msg);
-
                 CERROR("Dropping PUT ("LPU64":%d:%s): MD (%d) invalid\n",
                        match_bits, portal, libcfs_id2str(target),
                        md == NULL ? -1 : md->md_threshold);
-                if (md != NULL && md->md_me != NULL)
+		if (md != NULL && md->md_me != NULL) {
                         CERROR("Source MD also attached to portal %d\n",
                                md->md_me->me_portal);
+		}
 
-                LNET_UNLOCK();
+		lnet_res_unlock(cpt);
+
+		lnet_msg_free(msg);
                 return -ENOENT;
         }
 
-        CDEBUG(D_NET, "LNetPut -> %s\n", libcfs_id2str(target));
+	lnet_msg_attach_md(msg, md, 0, 0);
 
-        lnet_commit_md(md, msg);
+	lnet_res_unlock(cpt);
+
+	CDEBUG(D_NET, "LNetPut -> %s\n", libcfs_id2str(target));
 
         lnet_prep_send(msg, LNET_MSG_PUT, target, 0, md->md_length);
 
         msg->msg_hdr.msg.put.match_bits = cpu_to_le64(match_bits);
         msg->msg_hdr.msg.put.ptl_index = cpu_to_le32(portal);
         msg->msg_hdr.msg.put.offset = cpu_to_le32(offset);
-        msg->msg_hdr.msg.put.hdr_data = hdr_data;
+	msg->msg_hdr.msg.put.hdr_data = cpu_to_le64(hdr_data);
 
         /* NB handles only looked up by creator (no flips) */
         if (ack == LNET_ACK_REQ) {
-                msg->msg_hdr.msg.put.ack_wmd.wh_interface_cookie = 
+		msg->msg_hdr.msg.put.ack_wmd.wh_interface_cookie =
                         the_lnet.ln_interface_cookie;
-                msg->msg_hdr.msg.put.ack_wmd.wh_object_cookie = 
+		msg->msg_hdr.msg.put.ack_wmd.wh_object_cookie =
                         md->md_lh.lh_cookie;
         } else {
-                msg->msg_hdr.msg.put.ack_wmd.wh_interface_cookie = 
+		msg->msg_hdr.msg.put.ack_wmd.wh_interface_cookie =
                         LNET_WIRE_HANDLE_COOKIE_NONE;
-                msg->msg_hdr.msg.put.ack_wmd.wh_object_cookie = 
+		msg->msg_hdr.msg.put.ack_wmd.wh_object_cookie =
                         LNET_WIRE_HANDLE_COOKIE_NONE;
         }
 
-        msg->msg_ev.type = LNET_EVENT_SEND;
-        msg->msg_ev.initiator.nid = LNET_NID_ANY;
-        msg->msg_ev.initiator.pid = the_lnet.ln_pid;
-        msg->msg_ev.target = target;
-        msg->msg_ev.sender = LNET_NID_ANY;
-        msg->msg_ev.pt_index = portal;
-        msg->msg_ev.match_bits = match_bits;
-        msg->msg_ev.rlength = md->md_length;
-        msg->msg_ev.mlength = md->md_length;
-        msg->msg_ev.offset = offset;
-        msg->msg_ev.hdr_data = hdr_data;
+	lnet_build_msg_event(msg, LNET_EVENT_SEND);
 
-        lnet_md_deconstruct(md, &msg->msg_ev.md);
-        lnet_md2handle(&msg->msg_ev.md_handle, md);
+	rc = lnet_send(self, msg, LNET_NID_ANY);
 
-        the_lnet.ln_counters.send_count++;
-        the_lnet.ln_counters.send_length += md->md_length;
-
-        LNET_UNLOCK();
-
-        rc = lnet_send(self, msg);
         if (rc != 0) {
-                CNETERR( "Error sending PUT to %s: %d\n",
-                       libcfs_id2str(target), rc);
+		CNETERR("Error sending PUT to %s: %d\n",
+			libcfs_id2str(target), rc);
                 lnet_finalize (NULL, msg, rc);
         }
 
@@ -2564,15 +2377,13 @@ lnet_create_reply_msg (lnet_ni_t *ni, lnet_msg_t *getmsg)
          *
          * CAVEAT EMPTOR: 'getmsg' is the original GET, which is freed when
          * lnet_finalize() is called on it, so the LND must call this first */
-
         lnet_msg_t        *msg = lnet_msg_alloc();
         lnet_libmd_t      *getmd = getmsg->msg_md;
         lnet_process_id_t  peer_id = getmsg->msg_target;
+	int                cpt;
 
         LASSERT (!getmsg->msg_target_is_router);
         LASSERT (!getmsg->msg_routing);
-
-        LNET_LOCK();
 
         LASSERT (getmd->md_refcount > 0);
 
@@ -2582,45 +2393,51 @@ lnet_create_reply_msg (lnet_ni_t *ni, lnet_msg_t *getmsg)
                 goto drop;
         }
 
+	msg->msg_receiving = 1;	/* required by lnet_msg_attach_md */
+	msg->msg_type = LNET_MSG_GET; /* flag this msg as an "optimized" GET */
+	msg->msg_from = peer_id.nid;
+	msg->msg_hdr.src_nid = peer_id.nid;
+	msg->msg_hdr.payload_length = getmd->md_length;
+
+	cpt = lnet_cpt_of_cookie(getmd->md_lh.lh_cookie);
+	lnet_res_lock(cpt);
+
         if (getmd->md_threshold == 0) {
                 CERROR ("%s: Dropping REPLY from %s for inactive MD %p\n",
                         libcfs_nid2str(ni->ni_nid), libcfs_id2str(peer_id), 
                         getmd);
-                goto drop_msg;
+		lnet_res_unlock(cpt);
+		goto drop;
         }
-
-        LASSERT (getmd->md_offset == 0);
 
         CDEBUG(D_NET, "%s: Reply from %s md %p\n", 
                libcfs_nid2str(ni->ni_nid), libcfs_id2str(peer_id), getmd);
 
-        lnet_commit_md (getmd, msg);
+	LASSERT(getmd->md_offset == 0);
 
-        msg->msg_type = LNET_MSG_GET; /* flag this msg as an "optimized" GET */
+	lnet_msg_attach_md(msg, getmd, getmd->md_offset, getmd->md_length);
+	lnet_res_unlock(cpt);
 
-        msg->msg_ev.type = LNET_EVENT_REPLY;
-        msg->msg_ev.initiator = peer_id;
-        msg->msg_ev.sender = peer_id.nid;  /* optimized GETs can't be routed */
-        msg->msg_ev.rlength = msg->msg_ev.mlength = getmd->md_length;
-        msg->msg_ev.offset = 0;
+	lnet_build_msg_event(msg, LNET_EVENT_REPLY);
 
-        lnet_md_deconstruct(getmd, &msg->msg_ev.md);
-        lnet_md2handle(&msg->msg_ev.md_handle, getmd);
+	cpt = lnet_cpt_of_nid(peer_id.nid);
 
-        the_lnet.ln_counters.recv_count++;
-        the_lnet.ln_counters.recv_length += getmd->md_length;
-
-        LNET_UNLOCK();
+	lnet_net_lock(cpt);
+	lnet_msg_commit(msg, LNET_MSG_REPLY, cpt);
+	lnet_net_unlock(cpt);
 
         return msg;
 
- drop_msg:
-        lnet_msg_free(msg);
  drop:
-        the_lnet.ln_counters.drop_count++;
-        the_lnet.ln_counters.drop_length += getmd->md_length;
+	if (msg != NULL)
+		lnet_msg_free(msg);
 
-        LNET_UNLOCK ();
+	cpt = lnet_cpt_of_nid(peer_id.nid);
+
+	lnet_net_lock(cpt);
+	the_lnet.ln_counters[cpt]->drop_count++;
+	the_lnet.ln_counters[cpt]->drop_length += getmd->md_length;
+	lnet_net_unlock(cpt);
 
         return NULL;
 }
@@ -2662,12 +2479,13 @@ lnet_set_reply_msg_len(lnet_ni_t *ni, lnet_msg_t *reply, unsigned int len)
  * \retval -ENOENT Invalid MD object.
  */
 int
-LNetGet(lnet_nid_t self, lnet_handle_md_t mdh, 
-        lnet_process_id_t target, unsigned int portal, 
+LNetGet(lnet_nid_t self, lnet_handle_md_t mdh,
+	lnet_process_id_t target, unsigned int portal,
         __u64 match_bits, unsigned int offset)
 {
         lnet_msg_t       *msg;
         lnet_libmd_t     *md;
+	int               cpt;
         int               rc;
 
         LASSERT (the_lnet.ln_init);
@@ -2688,12 +2506,11 @@ LNetGet(lnet_nid_t self, lnet_handle_md_t mdh,
                 return -ENOMEM;
         }
 
-        LNET_LOCK();
+	cpt = lnet_cpt_of_cookie(mdh.cookie);
+	lnet_res_lock(cpt);
 
         md = lnet_handle2md(&mdh);
         if (md == NULL || md->md_threshold == 0 || md->md_me != NULL) {
-                lnet_msg_free(msg);
-
                 CERROR("Dropping GET ("LPU64":%d:%s): MD (%d) invalid\n",
                        match_bits, portal, libcfs_id2str(target),
                        md == NULL ? -1 : md->md_threshold);
@@ -2701,13 +2518,17 @@ LNetGet(lnet_nid_t self, lnet_handle_md_t mdh,
                         CERROR("REPLY MD also attached to portal %d\n",
                                md->md_me->me_portal);
 
-                LNET_UNLOCK();
+		lnet_res_unlock(cpt);
+
+		lnet_msg_free(msg);
                 return -ENOENT;
         }
 
-        CDEBUG(D_NET, "LNetGet -> %s\n", libcfs_id2str(target));
+	lnet_msg_attach_md(msg, md, 0, 0);
 
-        lnet_commit_md(md, msg);
+	lnet_res_unlock(cpt);
+
+	CDEBUG(D_NET, "LNetGet -> %s\n", libcfs_id2str(target));
 
         lnet_prep_send(msg, LNET_MSG_GET, target, 0, 0);
 
@@ -2717,34 +2538,18 @@ LNetGet(lnet_nid_t self, lnet_handle_md_t mdh,
         msg->msg_hdr.msg.get.sink_length = cpu_to_le32(md->md_length);
 
         /* NB handles only looked up by creator (no flips) */
-        msg->msg_hdr.msg.get.return_wmd.wh_interface_cookie = 
+	msg->msg_hdr.msg.get.return_wmd.wh_interface_cookie =
                 the_lnet.ln_interface_cookie;
-        msg->msg_hdr.msg.get.return_wmd.wh_object_cookie = 
+	msg->msg_hdr.msg.get.return_wmd.wh_object_cookie =
                 md->md_lh.lh_cookie;
 
-        msg->msg_ev.type = LNET_EVENT_SEND;
-        msg->msg_ev.initiator.nid = LNET_NID_ANY;
-        msg->msg_ev.initiator.pid = the_lnet.ln_pid;
-        msg->msg_ev.target = target;
-        msg->msg_ev.sender = LNET_NID_ANY;
-        msg->msg_ev.pt_index = portal;
-        msg->msg_ev.match_bits = match_bits;
-        msg->msg_ev.rlength = md->md_length;
-        msg->msg_ev.mlength = md->md_length;
-        msg->msg_ev.offset = offset;
-        msg->msg_ev.hdr_data = 0;
+	lnet_build_msg_event(msg, LNET_EVENT_SEND);
 
-        lnet_md_deconstruct(md, &msg->msg_ev.md);
-        lnet_md2handle(&msg->msg_ev.md_handle, md);
+	rc = lnet_send(self, msg, LNET_NID_ANY);
 
-        the_lnet.ln_counters.send_count++;
-
-        LNET_UNLOCK();
-
-        rc = lnet_send(self, msg);
-        if (rc < 0) {
-                CNETERR( "Error sending GET to %s: %d\n",
-                       libcfs_id2str(target), rc);
+	if (rc != 0) {
+		CNETERR("error sending GET to %s: %d\n",
+			libcfs_id2str(target), rc);
                 lnet_finalize (NULL, msg, rc);
         }
 
@@ -2774,6 +2579,7 @@ LNetDist (lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
         lnet_remotenet_t *rnet;
         __u32             dstnet = LNET_NIDNET(dstnid);
         int               hops;
+	int               cpt;
         __u32             order = 2;
 
         /* if !local_nid_dist_zero, I don't return a distance of 0 ever
@@ -2784,7 +2590,7 @@ LNetDist (lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
         LASSERT (the_lnet.ln_init);
         LASSERT (the_lnet.ln_refcount > 0);
 
-        LNET_LOCK();
+	cpt = lnet_net_lock_current();
 
         cfs_list_for_each (e, &the_lnet.ln_nis) {
                 ni = cfs_list_entry(e, lnet_ni_t, ni_list);
@@ -2798,7 +2604,7 @@ LNetDist (lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
                                 else
                                         *orderp = 1;
                         }
-                        LNET_UNLOCK();
+			lnet_net_unlock(cpt);
 
                         return local_nid_dist_zero ? 0 : 1;
                 }
@@ -2808,7 +2614,7 @@ LNetDist (lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
                                 *srcnidp = ni->ni_nid;
                         if (orderp != NULL)
                                 *orderp = order;
-                        LNET_UNLOCK();
+			lnet_net_unlock(cpt);
                         return 1;
                 }
 
@@ -2837,13 +2643,13 @@ LNetDist (lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
                                 *srcnidp = shortest->lr_gateway->lp_ni->ni_nid;
                         if (orderp != NULL)
                                 *orderp = order;
-                        LNET_UNLOCK();
+			lnet_net_unlock(cpt);
                         return hops + 1;
                 }
                 order++;
         }
 
-        LNET_UNLOCK();
+	lnet_net_unlock(cpt);
         return -EHOSTUNREACH;
 }
 
@@ -2879,11 +2685,13 @@ LNetSetAsync(lnet_process_id_t id, int nasync)
         int               maxnids = 256;
         int               rc = 0;
         int               rc2;
+	int               cpt;
 
         /* Target on a local network? */
+
         ni = lnet_net2ni(LNET_NIDNET(id.nid));
         if (ni != NULL) {
-                if (ni->ni_lnd->lnd_setasync != NULL) 
+		if (ni->ni_lnd->lnd_setasync != NULL)
                         rc = (ni->ni_lnd->lnd_setasync)(ni, id, nasync);
                 lnet_ni_decref(ni);
                 return rc;
@@ -2897,12 +2705,13 @@ LNetSetAsync(lnet_process_id_t id, int nasync)
         nnids = 0;
 
         /* Snapshot all the router NIDs */
-        LNET_LOCK();
+	cpt = lnet_net_lock_current();
+
         rnet = lnet_find_net_locked(LNET_NIDNET(id.nid));
         if (rnet != NULL) {
                 cfs_list_for_each(tmp, &rnet->lrn_routes) {
                         if (nnids == maxnids) {
-                                LNET_UNLOCK();
+				lnet_net_unlock(cpt);
                                 LIBCFS_FREE(nids, maxnids * sizeof(*nids));
                                 maxnids *= 2;
                                 goto again;
@@ -2912,7 +2721,7 @@ LNetSetAsync(lnet_process_id_t id, int nasync)
                         nids[nnids++] = route->lr_gateway->lp_nid;
                 }
         }
-        LNET_UNLOCK();
+	lnet_net_unlock(cpt);
 
         /* set async on all the routers */
         while (nnids-- > 0) {
