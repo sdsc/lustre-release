@@ -90,20 +90,6 @@ lnet_get_networks(void)
         return "tcp";
 }
 
-void
-lnet_init_locks(void)
-{
-        cfs_spin_lock_init (&the_lnet.ln_lock);
-        cfs_waitq_init (&the_lnet.ln_waitq);
-        cfs_mutex_init(&the_lnet.ln_lnd_mutex);
-        cfs_mutex_init(&the_lnet.ln_api_mutex);
-}
-
-void
-lnet_fini_locks(void)
-{
-}
-
 #else
 
 char *
@@ -171,41 +157,6 @@ lnet_get_networks (void)
         return default_networks;
 }
 
-# ifndef HAVE_LIBPTHREAD
-
-void lnet_init_locks(void)
-{
-        the_lnet.ln_lock = 0;
-        the_lnet.ln_lnd_mutex = 0;
-        the_lnet.ln_api_mutex = 0;
-}
-
-void lnet_fini_locks(void)
-{
-        LASSERT (the_lnet.ln_api_mutex == 0);
-        LASSERT (the_lnet.ln_lnd_mutex == 0);
-        LASSERT (the_lnet.ln_lock == 0);
-}
-
-# else
-
-void lnet_init_locks(void)
-{
-        pthread_cond_init(&the_lnet.ln_cond, NULL);
-        pthread_mutex_init(&the_lnet.ln_lock, NULL);
-        pthread_mutex_init(&the_lnet.ln_lnd_mutex, NULL);
-        pthread_mutex_init(&the_lnet.ln_api_mutex, NULL);
-}
-
-void lnet_fini_locks(void)
-{
-        pthread_mutex_destroy(&the_lnet.ln_api_mutex);
-        pthread_mutex_destroy(&the_lnet.ln_lnd_mutex);
-        pthread_mutex_destroy(&the_lnet.ln_lock);
-        pthread_cond_destroy(&the_lnet.ln_cond);
-}
-
-# endif
 #endif
 
 void lnet_assert_wire_constants (void)
@@ -350,20 +301,48 @@ lnet_unregister_lnd (lnd_t *lnd)
         LNET_MUTEX_UNLOCK(&the_lnet.ln_lnd_mutex);
 }
 
-#ifndef LNET_USE_LIB_FREELIST
-
-int
-lnet_descriptor_setup (void)
+void
+lnet_counters_get(lnet_counters_t *counters)
 {
-        return 0;
+	lnet_counters_t *ctr;
+	int              i;
+
+	memset(counters, 0, sizeof(*counters));
+
+	lnet_net_lock(LNET_LOCK_EX);
+
+	cfs_percpt_for_each(ctr, i, the_lnet.ln_counters) {
+		counters->msgs_max     += ctr->msgs_max;
+		counters->msgs_alloc   += ctr->msgs_alloc;
+		counters->errors       += ctr->errors;
+		counters->send_count   += ctr->send_count;
+		counters->recv_count   += ctr->recv_count;
+		counters->route_count  += ctr->route_count;
+		counters->drop_length  += ctr->drop_length;
+		counters->send_length  += ctr->send_length;
+		counters->recv_length  += ctr->recv_length;
+		counters->route_length += ctr->route_length;
+		counters->drop_length  += ctr->drop_length;
+	}
+
+	lnet_net_unlock(LNET_LOCK_EX);
 }
 
 void
-lnet_descriptor_cleanup (void)
+lnet_counters_reset(void)
 {
+	lnet_counters_t *counters;
+	int		i;
+
+	lnet_net_lock(LNET_LOCK_EX);
+
+	cfs_percpt_for_each(counters, i, the_lnet.ln_counters)
+		memset(counters, 0, sizeof(lnet_counters_t));
+
+	lnet_net_unlock(LNET_LOCK_EX);
 }
 
-#else
+#ifdef LNET_USE_LIB_FREELIST
 
 int
 lnet_freelist_init (lnet_freelist_t *fl, int n, int size)
@@ -412,48 +391,7 @@ lnet_freelist_fini (lnet_freelist_t *fl)
         memset (fl, 0, sizeof (*fl));
 }
 
-int
-lnet_descriptor_setup (void)
-{
-        /* NB on failure caller must still call lnet_descriptor_cleanup */
-        /*               ******                                         */
-        int        rc;
-
-        memset (&the_lnet.ln_free_mes,  0, sizeof (the_lnet.ln_free_mes));
-        memset (&the_lnet.ln_free_msgs, 0, sizeof (the_lnet.ln_free_msgs));
-        memset (&the_lnet.ln_free_mds,  0, sizeof (the_lnet.ln_free_mds));
-        memset (&the_lnet.ln_free_eqs,  0, sizeof (the_lnet.ln_free_eqs));
-
-        rc = lnet_freelist_init(&the_lnet.ln_free_mes,
-                                MAX_MES, sizeof (lnet_me_t));
-        if (rc != 0)
-                return (rc);
-
-        rc = lnet_freelist_init(&the_lnet.ln_free_msgs,
-                                MAX_MSGS, sizeof (lnet_msg_t));
-        if (rc != 0)
-                return (rc);
-
-        rc = lnet_freelist_init(&the_lnet.ln_free_mds,
-                                MAX_MDS, sizeof (lnet_libmd_t));
-        if (rc != 0)
-                return (rc);
-
-        rc = lnet_freelist_init(&the_lnet.ln_free_eqs,
-                                MAX_EQS, sizeof (lnet_eq_t));
-        return (rc);
-}
-
-void
-lnet_descriptor_cleanup (void)
-{
-        lnet_freelist_fini (&the_lnet.ln_free_mes);
-        lnet_freelist_fini (&the_lnet.ln_free_msgs);
-        lnet_freelist_fini (&the_lnet.ln_free_mds);
-        lnet_freelist_fini (&the_lnet.ln_free_eqs);
-}
-
-#endif
+#endif /* LNET_USE_LIB_FREELIST */
 
 __u64
 lnet_create_interface_cookie (void)
@@ -476,162 +414,176 @@ lnet_create_interface_cookie (void)
         return cookie;
 }
 
-int
-lnet_setup_handle_hash (void)
+static char *
+lnet_res_type2str(int type)
 {
-        int       i;
+	switch (type) {
+	default:
+		LBUG();
 
-        /* Arbitrary choice of hash table size */
-#ifdef __KERNEL__
-        the_lnet.ln_lh_hash_size =
-                (2 * CFS_PAGE_SIZE) / sizeof (cfs_list_t);
-#else
-        the_lnet.ln_lh_hash_size = (MAX_MES + MAX_MDS + MAX_EQS)/4;
-#endif
-        LIBCFS_ALLOC(the_lnet.ln_lh_hash_table,
-                     the_lnet.ln_lh_hash_size * sizeof (cfs_list_t));
-        if (the_lnet.ln_lh_hash_table == NULL)
-                return (-ENOMEM);
+	case LNET_COOKIE_TYPE_MD:
+		return "MD";
 
-        for (i = 0; i < the_lnet.ln_lh_hash_size; i++)
-                CFS_INIT_LIST_HEAD (&the_lnet.ln_lh_hash_table[i]);
+	case LNET_COOKIE_TYPE_ME:
+		return "ME";
 
-        the_lnet.ln_next_object_cookie = LNET_COOKIE_TYPES;
-
-        return (0);
+	case LNET_COOKIE_TYPE_EQ:
+		return "EQ";
+	}
 }
 
 void
-lnet_cleanup_handle_hash (void)
+lnet_res_container_cleanup(struct lnet_res_container *rec)
 {
-        if (the_lnet.ln_lh_hash_table == NULL)
-                return;
+	int	count = 0;
 
-        LIBCFS_FREE(the_lnet.ln_lh_hash_table,
-                    the_lnet.ln_lh_hash_size * sizeof (cfs_list_t));
+	if (rec->rec_type == 0)
+		return;
+
+	while (!cfs_list_empty(&rec->rec_active)) {
+		cfs_list_t *e = rec->rec_active.next;
+
+		cfs_list_del_init(e);
+		if (rec->rec_type == LNET_COOKIE_TYPE_EQ) {
+			lnet_eq_free(cfs_list_entry(e, lnet_eq_t, eq_list));
+
+		} else if (rec->rec_type == LNET_COOKIE_TYPE_MD) {
+			lnet_md_free(cfs_list_entry(e, lnet_libmd_t, md_list));
+
+		} else { /* NB: Active MEs should be attached on portals */
+			LBUG();
+		}
+		count++;
+	}
+
+	if (count > 0) {
+		CERROR("%d active elements on exit of %s container\n",
+		       count, lnet_res_type2str(rec->rec_type));
+        }
+
+#ifdef LNET_USE_LIB_FREELIST
+	lnet_freelist_fini(&rec->rec_freelist);
+#endif
+	rec->rec_type = 0;
+	if (rec->rec_lh_hash == NULL)
+		return;
+
+	LIBCFS_FREE(rec->rec_lh_hash,
+		    LNET_LH_HASH_SIZE * sizeof(rec->rec_lh_hash[0]));
+	rec->rec_lh_hash = NULL;
+}
+
+int
+lnet_res_container_setup(struct lnet_res_container *rec, int cpt,
+			 int type, int objnum, int objsz)
+{
+	int	rc = 0;
+	int	i;
+
+	rec->rec_type = type;
+	CFS_INIT_LIST_HEAD(&rec->rec_active);
+
+#ifdef LNET_USE_LIB_FREELIST
+	memset(&rec->rec_freelist, 0, sizeof(rec->rec_freelist));
+	rc = lnet_freelist_init(&rec->rec_freelist, objnum, objsz);
+	if (rc != 0)
+		goto out;
+#endif
+	rec->rec_lh_cookie = (cpt << LNET_COOKIE_TYPE_BITS) | type;
+
+	/* Arbitrary choice of hash table size */
+	LIBCFS_CPT_ALLOC(rec->rec_lh_hash, lnet_cpt_table(), cpt,
+			 LNET_LH_HASH_SIZE * sizeof(rec->rec_lh_hash[0]));
+	if (rec->rec_lh_hash == NULL) {
+		rc = -ENOMEM;
+		goto out;
+	}
+
+	for (i = 0; i < LNET_LH_HASH_SIZE; i++)
+		CFS_INIT_LIST_HEAD(&rec->rec_lh_hash[i]);
+
+	return 0;
+
+out:
+	CERROR("Failed to setup %s resource container on CPT %d\n",
+	       lnet_res_type2str(type), cpt);
+	lnet_res_container_cleanup(rec);
+	return rc;
+}
+
+static void
+lnet_res_containers_destroy(struct lnet_res_container **recs)
+{
+	struct lnet_res_container *rec;
+	int	i;
+
+	cfs_percpt_for_each(rec, i, recs)
+		lnet_res_container_cleanup(rec);
+
+	cfs_percpt_free(recs);
+}
+
+static struct lnet_res_container **
+lnet_res_containers_create(int type, int objnum, int objsz)
+{
+	struct lnet_res_container **recs;
+	struct lnet_res_container  *rec;
+	int	rc;
+	int	i;
+
+	recs = cfs_percpt_alloc(lnet_cpt_table(), sizeof(*recs[0]));
+	if (recs == NULL) {
+		CERROR("Failed to allocate %s resource containers\n",
+		       lnet_res_type2str(type));
+		return NULL;
+	}
+
+	cfs_percpt_for_each(rec, i, recs) {
+		rc = lnet_res_container_setup(rec, i, type, objnum, objsz);
+		if (rc != 0) {
+			lnet_res_containers_destroy(recs);
+			return NULL;
+		}
+	}
+
+	return recs;
 }
 
 lnet_libhandle_t *
-lnet_lookup_cookie (__u64 cookie, int type)
+lnet_res_lh_lookup(struct lnet_res_container *rec, __u64 cookie)
 {
-        /* ALWAYS called with LNET_LOCK held */
-        cfs_list_t          *list;
-        cfs_list_t          *el;
-        unsigned int         hash;
+	/* ALWAYS called with lnet_res_lock held */
+	cfs_list_t           *head;
+	lnet_libhandle_t     *lh;
+	unsigned int          hash;
 
-        if ((cookie & (LNET_COOKIE_TYPES - 1)) != type)
-                return (NULL);
+	if ((cookie & (LNET_COOKIE_TYPES - 1)) != rec->rec_type)
+		return NULL;
 
-        hash = ((unsigned int)(cookie >> LNET_COOKIE_TYPE_BITS)) % the_lnet.ln_lh_hash_size;
-        list = &the_lnet.ln_lh_hash_table[hash];
+	hash = cookie >> (LNET_COOKIE_TYPE_BITS + LNET_CPT_BITS);
+	head = &rec->rec_lh_hash[hash & LNET_LH_HASH_MASK];
 
-        cfs_list_for_each (el, list) {
-                lnet_libhandle_t *lh = cfs_list_entry (el, lnet_libhandle_t,
-                                                      lh_hash_chain);
+	cfs_list_for_each_entry(lh, head, lh_hash_chain) {
+		if (lh->lh_cookie == cookie)
+			return lh;
+	}
 
-                if (lh->lh_cookie == cookie)
-                        return (lh);
-        }
-
-        return (NULL);
+	return NULL;
 }
 
 void
-lnet_initialise_handle (lnet_libhandle_t *lh, int type)
+lnet_res_lh_initialize(struct lnet_res_container *rec, lnet_libhandle_t *lh)
 {
-        /* ALWAYS called with LNET_LOCK held */
-        unsigned int    hash;
+	/* ALWAYS called with lnet_res_lock held */
+	unsigned int	ibits = LNET_COOKIE_TYPE_BITS + LNET_CPT_BITS;
+	unsigned int	hash;
 
-        LASSERT (type >= 0 && type < LNET_COOKIE_TYPES);
-        lh->lh_cookie = the_lnet.ln_next_object_cookie | type;
-        the_lnet.ln_next_object_cookie += LNET_COOKIE_TYPES;
+	lh->lh_cookie = rec->rec_lh_cookie;
+	rec->rec_lh_cookie += 1 << ibits;
 
-        hash = ((unsigned int)(lh->lh_cookie >> LNET_COOKIE_TYPE_BITS)) % the_lnet.ln_lh_hash_size;
-        cfs_list_add (&lh->lh_hash_chain, &the_lnet.ln_lh_hash_table[hash]);
-}
+	hash = (lh->lh_cookie >> ibits) & LNET_LH_HASH_MASK;
 
-void
-lnet_invalidate_handle (lnet_libhandle_t *lh)
-{
-        /* ALWAYS called with LNET_LOCK held */
-        cfs_list_del (&lh->lh_hash_chain);
-}
-
-cfs_list_t *
-lnet_portal_mhash_alloc(void)
-{
-        cfs_list_t       *mhash;
-        int               i;
-
-        LIBCFS_ALLOC(mhash, sizeof(cfs_list_t) * LNET_PORTAL_HASH_SIZE);
-        if (mhash == NULL)
-                return NULL;
-
-        for (i = 0; i < LNET_PORTAL_HASH_SIZE; i++)
-                CFS_INIT_LIST_HEAD(&mhash[i]);
-
-        return mhash;
-}
-
-void
-lnet_portal_mhash_free(cfs_list_t *mhash)
-{
-        int     i;
-
-        for (i = 0; i < LNET_PORTAL_HASH_SIZE; i++) {
-                while (!cfs_list_empty(&mhash[i])) {
-                        lnet_me_t *me = cfs_list_entry(mhash[i].next,
-                                                       lnet_me_t, me_list);
-                        CERROR ("Active ME %p on exit portal mhash\n", me);
-                        cfs_list_del(&me->me_list);
-                        lnet_me_free(me);
-                }
-        }
-        LIBCFS_FREE(mhash, sizeof(cfs_list_t) * LNET_PORTAL_HASH_SIZE);
-}
-
-int
-lnet_init_finalizers(void)
-{
-#ifdef __KERNEL__
-        int    i;
-
-        the_lnet.ln_nfinalizers = (int) cfs_num_online_cpus();
-
-        LIBCFS_ALLOC(the_lnet.ln_finalizers,
-                     the_lnet.ln_nfinalizers *
-                     sizeof(*the_lnet.ln_finalizers));
-        if (the_lnet.ln_finalizers == NULL) {
-                CERROR("Can't allocate ln_finalizers\n");
-                return -ENOMEM;
-        }
-
-        for (i = 0; i < the_lnet.ln_nfinalizers; i++)
-                the_lnet.ln_finalizers[i] = NULL;
-#else
-        the_lnet.ln_finalizing = 0;
-#endif
-
-        CFS_INIT_LIST_HEAD(&the_lnet.ln_finalizeq);
-        return 0;
-}
-
-void
-lnet_fini_finalizers(void)
-{
-#ifdef __KERNEL__
-        int    i;
-
-        for (i = 0; i < the_lnet.ln_nfinalizers; i++)
-                LASSERT (the_lnet.ln_finalizers[i] == NULL);
-
-        LIBCFS_FREE(the_lnet.ln_finalizers,
-                    the_lnet.ln_nfinalizers *
-                    sizeof(*the_lnet.ln_finalizers));
-#else
-        LASSERT (!the_lnet.ln_finalizing);
-#endif
-        LASSERT (cfs_list_empty(&the_lnet.ln_finalizeq));
+	cfs_list_add(&lh->lh_hash_chain, &rec->rec_lh_hash[hash]);
 }
 
 #ifndef __KERNEL__
@@ -642,17 +594,20 @@ lnet_fini_finalizers(void)
  * lnet/lib-types.h */
 
 void
-lnet_server_mode() {
+lnet_server_mode()
+{
         the_lnet.ln_server_mode_flag = 1;
 }
+
 #endif
+int lnet_unprepare(void);
 
 int
 lnet_prepare(lnet_pid_t requested_pid)
 {
         /* Prepare to bring up the network */
+	struct lnet_res_container **recs;
         int               rc = 0;
-        int               i;
 
         LASSERT (the_lnet.ln_refcount == 0);
 
@@ -676,72 +631,67 @@ lnet_prepare(lnet_pid_t requested_pid)
         }
 #endif
 
-        rc = lnet_descriptor_setup();
-        if (rc != 0)
-                goto failed0;
-
-        memset(&the_lnet.ln_counters, 0,
-               sizeof(the_lnet.ln_counters));
-
-        CFS_INIT_LIST_HEAD (&the_lnet.ln_active_msgs);
-        CFS_INIT_LIST_HEAD (&the_lnet.ln_active_mds);
-        CFS_INIT_LIST_HEAD (&the_lnet.ln_active_eqs);
         CFS_INIT_LIST_HEAD (&the_lnet.ln_test_peers);
         CFS_INIT_LIST_HEAD (&the_lnet.ln_nis);
-        CFS_INIT_LIST_HEAD (&the_lnet.ln_zombie_nis);
+	CFS_INIT_LIST_HEAD (&the_lnet.ln_nis_cpt);
+	CFS_INIT_LIST_HEAD (&the_lnet.ln_nis_zombie);
         CFS_INIT_LIST_HEAD (&the_lnet.ln_remote_nets);
         CFS_INIT_LIST_HEAD (&the_lnet.ln_routers);
 
         the_lnet.ln_interface_cookie = lnet_create_interface_cookie();
 
-        lnet_init_rtrpools();
+	the_lnet.ln_counters = cfs_percpt_alloc(lnet_cpt_table(),
+						sizeof(lnet_counters_t));
+	if (the_lnet.ln_counters == NULL) {
+		rc = -ENOMEM;
+		goto out;
+	}
 
-        rc = lnet_setup_handle_hash ();
+	rc = lnet_peer_tables_create();
+	if (rc != 0)
+		goto out;
+
+	rc = lnet_msg_containers_create();
+	if (rc != 0)
+		goto out;
+
+	rc = lnet_res_container_setup(&the_lnet.ln_eq_container, 0,
+				      LNET_COOKIE_TYPE_EQ, MAX_EQS,
+				      sizeof(lnet_eq_t));
         if (rc != 0)
-                goto failed0;
+                goto out;
 
-        rc = lnet_create_peer_table();
-        if (rc != 0)
-                goto failed1;
+	recs = lnet_res_containers_create(LNET_COOKIE_TYPE_MD,
+					  MAX_MDS, sizeof(lnet_libmd_t));
+	if (recs == NULL) {
+		rc = -ENOMEM;
+		goto out;
+	}
+	the_lnet.ln_md_containers = recs;
 
-        rc = lnet_init_finalizers();
-        if (rc != 0)
-                goto failed2;
+	recs = lnet_res_containers_create(LNET_COOKIE_TYPE_ME,
+					  MAX_MES, sizeof(lnet_me_t));
+	if (recs == NULL) {
+		rc = -ENOMEM;
+		goto out;
+	}
+	the_lnet.ln_me_containers = recs;
 
-        the_lnet.ln_nportals = MAX_PORTALS;
-        LIBCFS_ALLOC(the_lnet.ln_portals,
-                     the_lnet.ln_nportals *
-                     sizeof(*the_lnet.ln_portals));
-        if (the_lnet.ln_portals == NULL) {
-                rc = -ENOMEM;
-                goto failed3;
-        }
-
-        for (i = 0; i < the_lnet.ln_nportals; i++) {
-                CFS_INIT_LIST_HEAD(&(the_lnet.ln_portals[i].ptl_mlist));
-                CFS_INIT_LIST_HEAD(&(the_lnet.ln_portals[i].ptl_msgq));
-                the_lnet.ln_portals[i].ptl_options = 0;
-        }
+	rc = lnet_portals_create();
+	if (rc != 0)
+		goto out;
 
         return 0;
 
- failed3:
-        lnet_fini_finalizers();
- failed2:
-        lnet_destroy_peer_table();
- failed1:
-        lnet_cleanup_handle_hash();
- failed0:
-        lnet_descriptor_cleanup();
+out:
+        lnet_unprepare();
         return rc;
 }
 
 int
 lnet_unprepare (void)
 {
-        int       idx;
-
-        /* NB no LNET_LOCK since this is the last reference.  All LND instances
+	/* NB no lock since this is the last reference.  All LND instances
          * have shut down already, so it is safe to unlink and free all
          * descriptors, even those that appear committed to a network op (eg MD
          * with non-zero pending count) */
@@ -751,71 +701,37 @@ lnet_unprepare (void)
         LASSERT (cfs_list_empty(&the_lnet.ln_test_peers));
         LASSERT (the_lnet.ln_refcount == 0);
         LASSERT (cfs_list_empty(&the_lnet.ln_nis));
-        LASSERT (cfs_list_empty(&the_lnet.ln_zombie_nis));
-        LASSERT (the_lnet.ln_nzombie_nis == 0);
+	LASSERT (cfs_list_empty(&the_lnet.ln_nis_cpt));
+	LASSERT (cfs_list_empty(&the_lnet.ln_nis_zombie));
 
-        for (idx = 0; idx < the_lnet.ln_nportals; idx++) {
-                lnet_portal_t *ptl = &the_lnet.ln_portals[idx];
+	lnet_portals_destroy();
 
-                LASSERT (cfs_list_empty(&ptl->ptl_msgq));
-
-                while (!cfs_list_empty(&ptl->ptl_mlist)) {
-                        lnet_me_t *me = cfs_list_entry(ptl->ptl_mlist.next,
-                                                       lnet_me_t, me_list);
-                        CERROR ("Active ME %p on exit\n", me);
-                        cfs_list_del (&me->me_list);
-                        lnet_me_free (me);
-                }
-
-                if (ptl->ptl_mhash != NULL) {
-                        LASSERT (lnet_portal_is_unique(ptl));
-                        lnet_portal_mhash_free(ptl->ptl_mhash);
-                }
+	if (the_lnet.ln_md_containers != NULL) {
+		lnet_res_containers_destroy(the_lnet.ln_md_containers);
+		the_lnet.ln_md_containers = NULL;
         }
 
-        while (!cfs_list_empty (&the_lnet.ln_active_mds)) {
-                lnet_libmd_t *md = cfs_list_entry (the_lnet.ln_active_mds.next,
-                                                   lnet_libmd_t, md_list);
-
-                CERROR ("Active MD %p on exit\n", md);
-                cfs_list_del_init (&md->md_list);
-                lnet_md_free (md);
+	if (the_lnet.ln_me_containers != NULL) {
+		lnet_res_containers_destroy(the_lnet.ln_me_containers);
+		the_lnet.ln_me_containers = NULL;
         }
 
-        while (!cfs_list_empty (&the_lnet.ln_active_eqs)) {
-                lnet_eq_t *eq = cfs_list_entry (the_lnet.ln_active_eqs.next,
-                                                lnet_eq_t, eq_list);
+	lnet_res_container_cleanup(&the_lnet.ln_eq_container);
 
-                CERROR ("Active EQ %p on exit\n", eq);
-                cfs_list_del (&eq->eq_list);
-                lnet_eq_free (eq);
+	lnet_msg_containers_destroy();
+	lnet_peer_tables_destroy();
+	lnet_free_rtrpools();
+
+	if (the_lnet.ln_counters != NULL) {
+		cfs_percpt_free(the_lnet.ln_counters);
+		the_lnet.ln_counters = NULL;
         }
-
-        while (!cfs_list_empty (&the_lnet.ln_active_msgs)) {
-                lnet_msg_t *msg = cfs_list_entry (the_lnet.ln_active_msgs.next,
-                                                  lnet_msg_t, msg_activelist);
-
-                CERROR ("Active msg %p on exit\n", msg);
-                LASSERT (msg->msg_onactivelist);
-                msg->msg_onactivelist = 0;
-                cfs_list_del (&msg->msg_activelist);
-                lnet_msg_free (msg);
-        }
-
-        LIBCFS_FREE(the_lnet.ln_portals,  
-                    the_lnet.ln_nportals * sizeof(*the_lnet.ln_portals));
-
-        lnet_free_rtrpools();
-        lnet_fini_finalizers();
-        lnet_destroy_peer_table();
-        lnet_cleanup_handle_hash();
-        lnet_descriptor_cleanup();
 
         return (0);
 }
 
 lnet_ni_t  *
-lnet_net2ni_locked (__u32 net)
+lnet_net2ni_locked(__u32 net, int cpt)
 {
         cfs_list_t       *tmp;
         lnet_ni_t        *ni;
@@ -824,7 +740,8 @@ lnet_net2ni_locked (__u32 net)
                 ni = cfs_list_entry(tmp, lnet_ni_t, ni_list);
 
                 if (LNET_NIDNET(ni->ni_nid) == net) {
-                        lnet_ni_addref_locked(ni);
+			LASSERT(cpt != LNET_LOCK_EX);
+			lnet_ni_addref_locked(ni, cpt);
                         return ni;
                 }
         }
@@ -832,22 +749,76 @@ lnet_net2ni_locked (__u32 net)
         return NULL;
 }
 
+unsigned int
+lnet_nid_hash(lnet_nid_t nid)
+{
+	__u64 key = nid;
+
+	key ^= (key >> 8);
+	key ^= (key >> 16);
+
+	return (unsigned int)key % LNET_CPT_NUMBER;
+}
+
+int
+lnet_cpt_of_nid_locked(lnet_nid_t nid)
+{
+	if (LNET_CPT_NUMBER == 1)
+		return 0; /* the only one */
+
+	/* take lnet_net_lock(any) would be OK */
+	if (!cfs_list_empty(&the_lnet.ln_nis_cpt)) {
+		lnet_ni_t *ni;
+
+		cfs_list_for_each_entry(ni, &the_lnet.ln_nis_cpt,
+					ni_cptlist) {
+			if (LNET_NIDNET(ni->ni_nid) != LNET_NIDNET(nid))
+				continue;
+
+			LASSERT(ni->ni_cpts != NULL && ni->ni_ncpts > 0);
+			return ni->ni_cpts[lnet_nid_hash(nid) % ni->ni_ncpts];
+		}
+	}
+
+	return lnet_nid_hash(nid);
+}
+
+int
+lnet_cpt_of_nid(lnet_nid_t nid)
+{
+	int	cpt;
+	int	tmp;
+
+	if (LNET_CPT_NUMBER == 1)
+		return 0; /* the only one */
+
+	if (cfs_list_empty(&the_lnet.ln_nis_cpt))
+		return lnet_nid_hash(nid);
+
+	tmp = lnet_net_lock_current();
+	cpt = lnet_cpt_of_nid_locked(nid);
+	lnet_net_unlock(tmp);
+
+	return cpt;
+}
+
 int
 lnet_islocalnet (__u32 net)
 {
-        lnet_ni_t        *ni;
+	lnet_ni_t *ni;
+	int        cpt;
 
-        LNET_LOCK();
-        ni = lnet_net2ni_locked(net);
-        if (ni != NULL)
-                lnet_ni_decref_locked(ni);
-        LNET_UNLOCK();
+	cpt = lnet_net_lock_current();
+	ni = lnet_net2ni_locked(net, cpt);
+	if (ni != NULL)
+		lnet_ni_decref_locked(ni, cpt);
+	lnet_net_unlock(cpt);
 
         return ni != NULL;
 }
 
 lnet_ni_t  *
-lnet_nid2ni_locked (lnet_nid_t nid)
+lnet_nid2ni_locked(lnet_nid_t nid, int cpt)
 {
         cfs_list_t       *tmp;
         lnet_ni_t        *ni;
@@ -856,7 +827,7 @@ lnet_nid2ni_locked (lnet_nid_t nid)
                 ni = cfs_list_entry(tmp, lnet_ni_t, ni_list);
 
                 if (ni->ni_nid == nid) {
-                        lnet_ni_addref_locked(ni);
+			lnet_ni_addref_locked(ni, cpt);
                         return ni;
                 }
         }
@@ -867,15 +838,40 @@ lnet_nid2ni_locked (lnet_nid_t nid)
 int
 lnet_islocalnid (lnet_nid_t nid)
 {
-        lnet_ni_t     *ni;
+	lnet_ni_t	*ni;
+	int		cpt;
 
-        LNET_LOCK();
-        ni = lnet_nid2ni_locked(nid);
+	cpt = lnet_net_lock_current();
+	ni = lnet_nid2ni_locked(nid, cpt);
         if (ni != NULL)
-                lnet_ni_decref_locked(ni);
-        LNET_UNLOCK();
+		lnet_ni_decref_locked(ni, cpt);
+	lnet_net_unlock(cpt);
 
         return ni != NULL;
+}
+
+int
+lnet_ni_credits_estimate(lnet_ni_t *ni)
+{
+	int	credits;
+
+	LASSERT(ni->ni_maxtxcredits > 0 || ni->ni_maxtxcredits_cpt > 0);
+
+	if (ni->ni_maxtxcredits_cpt > 0)
+		return ni->ni_maxtxcredits_cpt;
+
+	if (ni->ni_ncpts == 1 || LNET_CPT_NUMBER == 1)
+		return ni->ni_maxtxcredits;
+
+	if (ni->ni_ncpts > 0)
+		credits = ni->ni_maxtxcredits / ni->ni_ncpts;
+	else
+		credits = ni->ni_maxtxcredits / LNET_CPT_NUMBER;
+
+	credits = max(8 * ni->ni_peertxcredits, credits);
+	credits = min(ni->ni_maxtxcredits, credits);
+
+	return credits;
 }
 
 int
@@ -886,8 +882,9 @@ lnet_count_acceptor_nis (void)
 #if defined(__KERNEL__) || defined(HAVE_LIBPTHREAD)
         cfs_list_t    *tmp;
         lnet_ni_t     *ni;
+	int	       cpt;
 
-        LNET_LOCK();
+	cpt = lnet_net_lock_current();
         cfs_list_for_each (tmp, &the_lnet.ln_nis) {
                 ni = cfs_list_entry(tmp, lnet_ni_t, ni_list);
 
@@ -895,7 +892,7 @@ lnet_count_acceptor_nis (void)
                         count++;
         }
 
-        LNET_UNLOCK();
+	lnet_net_unlock(cpt);
 
 #endif /* defined(__KERNEL__) || defined(HAVE_LIBPTHREAD) */
         return count;
@@ -913,36 +910,39 @@ lnet_shutdown_lndnis (void)
         /* All quiet on the API front */
         LASSERT (!the_lnet.ln_shutdown);
         LASSERT (the_lnet.ln_refcount == 0);
-        LASSERT (cfs_list_empty(&the_lnet.ln_zombie_nis));
-        LASSERT (the_lnet.ln_nzombie_nis == 0);
+	LASSERT (cfs_list_empty(&the_lnet.ln_nis_zombie));
         LASSERT (cfs_list_empty(&the_lnet.ln_remote_nets));
 
-        LNET_LOCK();
+	lnet_net_lock(LNET_LOCK_EX);
         the_lnet.ln_shutdown = 1;               /* flag shutdown */
 
         /* Unlink NIs from the global table */
         while (!cfs_list_empty(&the_lnet.ln_nis)) {
                 ni = cfs_list_entry(the_lnet.ln_nis.next,
                                     lnet_ni_t, ni_list);
-                cfs_list_del (&ni->ni_list);
+		cfs_list_move(&ni->ni_list, &the_lnet.ln_nis_zombie);
+                /* drop ln_nis's ref */
+		lnet_ni_decref_locked(ni, 0);
 
-                the_lnet.ln_nzombie_nis++;
-                lnet_ni_decref_locked(ni); /* drop ln_nis' ref */
+		if (!cfs_list_empty(&ni->ni_cptlist)) {
+			cfs_list_del_init(&ni->ni_cptlist);
+			lnet_ni_decref_locked(ni, 0);
+		}
         }
 
         /* Drop the cached eqwait NI. */
-        if (the_lnet.ln_eqwaitni != NULL) {
-                lnet_ni_decref_locked(the_lnet.ln_eqwaitni);
-                the_lnet.ln_eqwaitni = NULL;
+	if (the_lnet.ln_ni_eqwait != NULL) {
+		lnet_ni_decref_locked(the_lnet.ln_ni_eqwait, 0);
+		the_lnet.ln_ni_eqwait = NULL;
         }
 
         /* Drop the cached loopback NI. */
-        if (the_lnet.ln_loni != NULL) {
-                lnet_ni_decref_locked(the_lnet.ln_loni);
-                the_lnet.ln_loni = NULL;
+	if (the_lnet.ln_ni_lo != NULL) {
+		lnet_ni_decref_locked(the_lnet.ln_ni_lo, 0);
+		the_lnet.ln_ni_lo = NULL;
         }
 
-        LNET_UNLOCK();
+	lnet_net_unlock(LNET_LOCK_EX);
 
         /* Clear lazy portals and drop delayed messages which hold refs
          * on their lnet_msg_t::msg_rxpeer */
@@ -951,30 +951,44 @@ lnet_shutdown_lndnis (void)
 
         /* Clear the peer table and wait for all peers to go (they hold refs on
          * their NIs) */
-        lnet_clear_peer_table();
+	lnet_peer_tables_cleanup();
 
-        LNET_LOCK();
-        /* Now wait for the NI's I just nuked to show up on ln_zombie_nis
+	lnet_net_lock(LNET_LOCK_EX);
+	/* Now wait for the NI's I just nuked to show up on ln_nis_zombie
          * and shut them down in guaranteed thread context */
         i = 2;
-        while (the_lnet.ln_nzombie_nis != 0) {
+	while (!cfs_list_empty(&the_lnet.ln_nis_zombie)) {
+		int *ref;
+		int  cpt;
 
-                while (cfs_list_empty(&the_lnet.ln_zombie_nis)) {
-                        LNET_UNLOCK();
+		ni = cfs_list_entry(the_lnet.ln_nis_zombie.next,
+				    lnet_ni_t, ni_list);
+		cfs_list_del_init(&ni->ni_list);
+		cfs_percpt_for_each(ref, cpt, ni->ni_refs) {
+			if (*ref == 0)
+				continue;
+			/* busy, add it back */
+			cfs_list_add(&ni->ni_list, &the_lnet.ln_nis_zombie);
+			break;
+		}
+
+		if (!cfs_list_empty(&ni->ni_list)) {
+			lnet_nid_t  nid = ni->ni_nid;
+
+			lnet_net_unlock(LNET_LOCK_EX);
                         ++i;
-                        if ((i & (-i)) == i)
-                                CDEBUG(D_WARNING,"Waiting for %d zombie NIs\n",
-                                       the_lnet.ln_nzombie_nis);
-                        cfs_pause(cfs_time_seconds(1));
-                        LNET_LOCK();
+			if ((i & (-i)) == i) {
+				CDEBUG(D_WARNING, "Waiting for zombie NI %s\n",
+				       libcfs_nid2str(nid));
+			}
+			cfs_pause(cfs_time_seconds(1));
+			lnet_net_lock(LNET_LOCK_EX);
+			continue;
                 }
 
-                ni = cfs_list_entry(the_lnet.ln_zombie_nis.next,
-                                    lnet_ni_t, ni_list);
-                cfs_list_del(&ni->ni_list);
                 ni->ni_lnd->lnd_refcount--;
 
-                LNET_UNLOCK();
+		lnet_net_unlock(LNET_LOCK_EX);
 
                 islo = ni->ni_lnd->lnd_type == LOLND;
 
@@ -988,14 +1002,13 @@ lnet_shutdown_lndnis (void)
                         CDEBUG(D_LNI, "Removed LNI %s\n",
                                libcfs_nid2str(ni->ni_nid));
 
-                LIBCFS_FREE(ni, sizeof(*ni));
+		lnet_ni_free(ni);
 
-                LNET_LOCK();
-                the_lnet.ln_nzombie_nis--;
+		lnet_net_lock(LNET_LOCK_EX);
         }
 
         the_lnet.ln_shutdown = 0;
-        LNET_UNLOCK();
+	lnet_net_unlock(LNET_LOCK_EX);
 
         if (the_lnet.ln_network_tokens != NULL) {
                 LIBCFS_FREE(the_lnet.ln_network_tokens,
@@ -1007,13 +1020,15 @@ lnet_shutdown_lndnis (void)
 int
 lnet_startup_lndnis (void)
 {
-        lnd_t             *lnd;
-        lnet_ni_t         *ni;
-        cfs_list_t         nilist;
-        int                rc = 0;
-        int                lnd_type;
-        int                nicount = 0;
-        char              *nets = lnet_get_networks();
+	lnd_t			*lnd;
+	lnet_ni_t		*ni;
+	struct lnet_tx_queue	*tq;
+	cfs_list_t		nilist;
+	int			i = 0;
+	int			rc = 0;
+	int			nicount = 0;
+	int			lnd_type;
+	char			*nets = lnet_get_networks();
 
         CFS_INIT_LIST_HEAD(&nilist);
 
@@ -1072,11 +1087,12 @@ lnet_startup_lndnis (void)
                 }
 #endif
 
-                ni->ni_refcount = 1;
+		lnet_net_lock(LNET_LOCK_EX);
 
-                LNET_LOCK();
-                lnd->lnd_refcount++;
-                LNET_UNLOCK();
+		lnet_ni_addref_locked(ni, 0);
+		lnd->lnd_refcount++;
+
+		lnet_net_unlock(LNET_LOCK_EX);
 
                 ni->ni_lnd = lnd;
 
@@ -1088,9 +1104,9 @@ lnet_startup_lndnis (void)
                         LCONSOLE_ERROR_MSG(0x105, "Error %d starting up LNI %s"
                                            "\n",
                                            rc, libcfs_lnd2str(lnd->lnd_type));
-                        LNET_LOCK();
+			lnet_net_lock(LNET_LOCK_EX);
                         lnd->lnd_refcount--;
-                        LNET_UNLOCK();
+			lnet_net_unlock(LNET_LOCK_EX);
                         goto failed;
                 }
 
@@ -1098,22 +1114,27 @@ lnet_startup_lndnis (void)
 
                 cfs_list_del(&ni->ni_list);
 
-                LNET_LOCK();
+		lnet_net_lock(LNET_LOCK_EX);
                 cfs_list_add_tail(&ni->ni_list, &the_lnet.ln_nis);
-                LNET_UNLOCK();
+		if (ni->ni_ncpts > 0) {
+			cfs_list_add_tail(&ni->ni_cptlist,
+					  &the_lnet.ln_nis_cpt);
+			lnet_ni_addref_locked(ni, 0);
+		}
+		lnet_net_unlock(LNET_LOCK_EX);
 
                 if (lnd->lnd_type == LOLND) {
                         lnet_ni_addref(ni);
-                        LASSERT (the_lnet.ln_loni == NULL);
-                        the_lnet.ln_loni = ni;
+			LASSERT (the_lnet.ln_ni_lo == NULL);
+			the_lnet.ln_ni_lo = ni;
                         continue;
                 }
 
 #ifndef __KERNEL__
                 if (lnd->lnd_wait != NULL) {
-                        if (the_lnet.ln_eqwaitni == NULL) {
+			if (the_lnet.ln_ni_eqwait == NULL) {
                                 lnet_ni_addref(ni);
-                                the_lnet.ln_eqwaitni = ni;
+				the_lnet.ln_ni_eqwait = ni;
                         }
                 } else {
 # ifndef HAVE_LIBPTHREAD
@@ -1125,7 +1146,8 @@ lnet_startup_lndnis (void)
                 }
 #endif
                 if (ni->ni_peertxcredits == 0 ||
-                    ni->ni_maxtxcredits == 0) {
+		    (ni->ni_maxtxcredits == 0 &&
+		     ni->ni_maxtxcredits_cpt == 0)) {
                         LCONSOLE_ERROR_MSG(0x107, "LNI %s has no %scredits\n",
                                            libcfs_lnd2str(lnd->lnd_type),
                                            ni->ni_peertxcredits == 0 ?
@@ -1133,18 +1155,21 @@ lnet_startup_lndnis (void)
                         goto failed;
                 }
 
-                ni->ni_txcredits = ni->ni_mintxcredits = ni->ni_maxtxcredits;
+		cfs_percpt_for_each(tq, i, ni->ni_tx_queues) {
+			tq->tq_credits = lnet_ni_credits_estimate(ni);
+			tq->tq_credits_min = tq->tq_credits;
+		}
 
                 CDEBUG(D_LNI, "Added LNI %s [%d/%d/%d/%d]\n",
                        libcfs_nid2str(ni->ni_nid),
-                       ni->ni_peertxcredits, ni->ni_txcredits,
+                       ni->ni_peertxcredits, lnet_ni_credits_estimate(ni),
                        ni->ni_peerrtrcredits, ni->ni_peertimeout);
 
                 nicount++;
         }
 
-        if (the_lnet.ln_eqwaitni != NULL && nicount > 1) {
-                lnd_type = the_lnet.ln_eqwaitni->ni_lnd->lnd_type;
+	if (the_lnet.ln_ni_eqwait != NULL && nicount > 1) {
+		lnd_type = the_lnet.ln_ni_eqwait->ni_lnd->lnd_type;
                 LCONSOLE_ERROR_MSG(0x109, "LND %s can only run single-network"
                                    "\n",
                                    libcfs_lnd2str(lnd_type));
@@ -1159,7 +1184,7 @@ lnet_startup_lndnis (void)
         while (!cfs_list_empty(&nilist)) {
                 ni = cfs_list_entry(nilist.next, lnet_ni_t, ni_list);
                 cfs_list_del(&ni->ni_list);
-                LIBCFS_FREE(ni, sizeof(*ni));
+		lnet_ni_free(ni);
         }
 
         return -ENETDOWN;
@@ -1183,18 +1208,57 @@ LNetInit(void)
 
         memset(&the_lnet, 0, sizeof(the_lnet));
 
-        lnet_init_locks();
-        the_lnet.ln_refcount = 0;
+	/* refer to global cfs_cpt_table for now */
+	the_lnet.ln_cpt_table = cfs_cpt_table;
+	the_lnet.ln_cpt_number = cfs_cpt_number(cfs_cpt_table);
+
+	LASSERT(the_lnet.ln_cpt_number > 0);
+
+	if (the_lnet.ln_cpt_number > LNET_CPT_MAX) {
+		/* we are under risk of consuming all lh_cookie */
+		CERROR("Can't have %d CPTs for LNet (max allowed is %d), "
+		       "please change setting of CPT-table and retry\n",
+		       the_lnet.ln_cpt_number, LNET_CPT_MAX);
+		return -1;
+	}
+
+	while ((1 << the_lnet.ln_cpt_bits) < the_lnet.ln_cpt_number)
+		the_lnet.ln_cpt_bits++;
+
         the_lnet.ln_init = 1;
         LNetInvalidateHandle(&the_lnet.ln_rc_eqh);
         CFS_INIT_LIST_HEAD(&the_lnet.ln_lnds);
-        CFS_INIT_LIST_HEAD(&the_lnet.ln_zombie_rcd);
+	CFS_INIT_LIST_HEAD(&the_lnet.ln_rcd_zombie);
+	CFS_INIT_LIST_HEAD(&the_lnet.ln_rcd_deathrow);
 
+	the_lnet.ln_res_lock = cfs_percpt_lock_alloc(lnet_cpt_table());
+	if (the_lnet.ln_res_lock == NULL) {
+		CERROR("Failed to allocate resource lock for LNet\n");
+		goto failed;
+	}
+
+	the_lnet.ln_net_lock = cfs_percpt_lock_alloc(lnet_cpt_table());
+	if (the_lnet.ln_net_lock == NULL) {
+		CERROR("Failed to allocate network lock for LNet\n");
+		goto failed;
+	}
+
+	cfs_spin_lock_init(&the_lnet.ln_eq_wait_lock);
 #ifdef __KERNEL__
+	cfs_waitq_init (&the_lnet.ln_eq_waitq);
+
+	cfs_mutex_init(&the_lnet.ln_lnd_mutex);
+	cfs_mutex_init(&the_lnet.ln_api_mutex);
+
         /* All LNDs apart from the LOLND are in separate modules.  They
          * register themselves when their module loads, and unregister
          * themselves when their module is unloaded. */
 #else
+# ifdef HAVE_LIBPTHREAD
+	pthread_cond_init(&the_lnet.ln_eq_cond, NULL);
+	pthread_mutex_init(&the_lnet.ln_lnd_mutex, NULL);
+	pthread_mutex_init(&the_lnet.ln_api_mutex, NULL);
+# endif
         /* Register LNDs
          * NB the order here determines default 'networks=' order */
 # ifdef CRAY_XT3
@@ -1206,6 +1270,19 @@ LNetInit(void)
 #endif
         lnet_register_lnd(&the_lolnd);
         return 0;
+
+failed:
+	if (the_lnet.ln_net_lock != NULL) {
+		cfs_percpt_lock_free(the_lnet.ln_net_lock);
+		the_lnet.ln_net_lock = NULL;
+	}
+
+	if (the_lnet.ln_res_lock != NULL) {
+		cfs_percpt_lock_free(the_lnet.ln_res_lock);
+		the_lnet.ln_res_lock = NULL;
+	}
+
+	return -1;
 }
 
 /**
@@ -1223,11 +1300,21 @@ LNetFini(void)
         LASSERT (the_lnet.ln_init);
         LASSERT (the_lnet.ln_refcount == 0);
 
-        while (!cfs_list_empty(&the_lnet.ln_lnds))
+	while (!cfs_list_empty(&the_lnet.ln_lnds)) {
                 lnet_unregister_lnd(cfs_list_entry(the_lnet.ln_lnds.next,
                                                    lnd_t, lnd_list));
-        lnet_fini_locks();
+	}
 
+	cfs_percpt_lock_free(the_lnet.ln_net_lock);
+	cfs_percpt_lock_free(the_lnet.ln_res_lock);
+
+#ifndef __KERNEL__
+# ifdef HAVE_LIBPTHREAD
+	pthread_mutex_destroy(&the_lnet.ln_api_mutex);
+	pthread_mutex_destroy(&the_lnet.ln_lnd_mutex);
+	pthread_cond_destroy(&the_lnet.ln_eq_cond);
+# endif
+#endif
         the_lnet.ln_init = 0;
 }
 
@@ -1431,9 +1518,9 @@ LNetCtl(unsigned int cmd, void *arg)
                 return 0;
 
         case IOC_LIBCFS_TESTPROTOCOMPAT:
-                LNET_LOCK();
+		lnet_net_lock(LNET_LOCK_EX);
                 the_lnet.ln_testprotocompat = data->ioc_flags;
-                LNET_UNLOCK();
+		lnet_net_unlock(LNET_LOCK_EX);
                 return 0;
 
         case IOC_LIBCFS_PING:
@@ -1502,12 +1589,13 @@ LNetGetId(unsigned int index, lnet_process_id_t *id)
 {
         lnet_ni_t        *ni;
         cfs_list_t       *tmp;
+	int		  cpt;
         int               rc = -ENOENT;
 
         LASSERT (the_lnet.ln_init);
         LASSERT (the_lnet.ln_refcount > 0);
 
-        LNET_LOCK();
+	cpt = lnet_net_lock_current();
 
         cfs_list_for_each(tmp, &the_lnet.ln_nis) {
                 if (index-- != 0)
@@ -1521,7 +1609,7 @@ LNetGetId(unsigned int index, lnet_process_id_t *id)
                 break;
         }
 
-        LNET_UNLOCK();
+	lnet_net_unlock(cpt);
 
         return rc;
 }
@@ -1576,15 +1664,20 @@ lnet_create_ping_info(void)
                 ns->ns_nid    = id.nid;
                 ns->ns_status = LNET_NI_STATUS_UP;
 
-                LNET_LOCK();
+		lnet_net_lock(0);
 
-                ni = lnet_nid2ni_locked(id.nid);
+		ni = lnet_nid2ni_locked(id.nid, 0);
                 LASSERT (ni != NULL);
+
+		lnet_ni_lock(ni, 1);
+
                 LASSERT (ni->ni_status == NULL);
                 ni->ni_status = ns;
-                lnet_ni_decref_locked(ni);
 
-                LNET_UNLOCK();
+		lnet_ni_unlock(ni, 1);
+		lnet_ni_decref_locked(ni, 0);
+
+		lnet_net_unlock(0);
         }
 
         the_lnet.ln_ping_info = pinfo;
@@ -1596,13 +1689,15 @@ lnet_destroy_ping_info(void)
 {
         lnet_ni_t *ni;
 
-        LNET_LOCK();
+	lnet_net_lock(0);
 
         cfs_list_for_each_entry (ni, &the_lnet.ln_nis, ni_list) {
+		lnet_ni_lock(ni, 1);
                 ni->ni_status = NULL;
+		lnet_ni_unlock(ni, 1);
         }
 
-        LNET_UNLOCK();
+	lnet_net_unlock(0);
 
         LIBCFS_FREE(the_lnet.ln_ping_info,
                     offsetof(lnet_ping_info_t,

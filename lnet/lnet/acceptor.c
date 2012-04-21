@@ -109,7 +109,7 @@ EXPORT_SYMBOL(lnet_acceptor_timeout);
 
 void
 lnet_connect_console_error (int rc, lnet_nid_t peer_nid,
-                           __u32 peer_ip, int peer_port)
+                            __u32 peer_ip, int peer_port)
 {
         switch (rc) {
         /* "normal" errors */
@@ -199,7 +199,7 @@ lnet_connect(cfs_socket_t **sockp, lnet_nid_t peer_nid,
 
                 if (the_lnet.ln_testprotocompat != 0) {
                         /* single-shot proto check */
-                        LNET_LOCK();
+                        lnet_net_lock(LNET_LOCK_EX);
                         if ((the_lnet.ln_testprotocompat & 4) != 0) {
                                 cr.acr_version++;
                                 the_lnet.ln_testprotocompat &= ~4;
@@ -208,7 +208,7 @@ lnet_connect(cfs_socket_t **sockp, lnet_nid_t peer_nid,
                                 cr.acr_magic = LNET_PROTO_MAGIC;
                                 the_lnet.ln_testprotocompat &= ~8;
                         }
-                        LNET_UNLOCK();
+                        lnet_net_unlock(LNET_LOCK_EX);
                 }
 
                 rc = libcfs_sock_write(sock, &cr, sizeof(cr),
