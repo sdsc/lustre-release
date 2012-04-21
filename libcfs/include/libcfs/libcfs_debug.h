@@ -343,7 +343,10 @@ extern int libcfs_debug_vmsg2(struct libcfs_debug_msg_data *msgdata,
                               va_list args, const char *format2, ...)
         __attribute__ ((format (printf, 4, 5)));
 
-/* one more external symbol that tracefile provides: */
+/* external symbols that tracefile provides: */
+extern int cfs_trace_copyin_string(char *knl_buffer, int knl_buffer_nob,
+				   const char *usr_buffer,
+				   int usr_buffer_nob);
 extern int cfs_trace_copyout_string(char *usr_buffer, int usr_buffer_nob,
                                     const char *knl_buffer, char *append);
 
