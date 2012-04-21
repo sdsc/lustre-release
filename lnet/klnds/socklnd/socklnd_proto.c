@@ -472,7 +472,7 @@ ksocknal_send_hello_v1 (ksock_conn_t *conn, ksock_hello_msg_t *hello)
 
         if (the_lnet.ln_testprotocompat != 0) {
                 /* single-shot proto check */
-                LNET_LOCK();
+		lnet_net_lock(LNET_LOCK_EX);
                 if ((the_lnet.ln_testprotocompat & 1) != 0) {
                         hmv->version_major++;   /* just different! */
                         the_lnet.ln_testprotocompat &= ~1;
@@ -481,7 +481,7 @@ ksocknal_send_hello_v1 (ksock_conn_t *conn, ksock_hello_msg_t *hello)
                         hmv->magic = LNET_PROTO_MAGIC;
                         the_lnet.ln_testprotocompat &= ~2;
                 }
-                LNET_UNLOCK();
+		lnet_net_unlock(LNET_LOCK_EX);
         }
 
         hdr->src_nid        = cpu_to_le64 (hello->kshm_src_nid);
@@ -531,12 +531,12 @@ ksocknal_send_hello_v2 (ksock_conn_t *conn, ksock_hello_msg_t *hello)
 
         if (the_lnet.ln_testprotocompat != 0) {
                 /* single-shot proto check */
-                LNET_LOCK();
+		lnet_net_lock(LNET_LOCK_EX);
                 if ((the_lnet.ln_testprotocompat & 1) != 0) {
                         hello->kshm_version++;   /* just different! */
                         the_lnet.ln_testprotocompat &= ~1;
                 }
-                LNET_UNLOCK();
+		lnet_net_unlock(LNET_LOCK_EX);
         }
 
         rc = libcfs_sock_write(sock, hello, offsetof(ksock_hello_msg_t, kshm_ips),

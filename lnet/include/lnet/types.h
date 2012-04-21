@@ -159,8 +159,12 @@ typedef enum {
  * or after the last item in the list.
  */
 typedef enum {
-        LNET_INS_BEFORE,
-        LNET_INS_AFTER
+	/** insert ME before current position or head of the list */
+	LNET_INS_BEFORE,
+	/** insert ME after current position or tail of the list */
+	LNET_INS_AFTER,
+	/** attach ME at tail of local CPU partition ME list */
+	LNET_INS_LOCAL,
 } lnet_ins_pos_t;
 
 /** @} lnet_me */
@@ -343,7 +347,7 @@ typedef struct {
  */
 typedef enum {
         /** An incoming GET operation has completed on the MD. */
-        LNET_EVENT_GET,
+	LNET_EVENT_GET		= 1,
         /**
          * An incoming PUT operation has completed on the MD. The
          * underlying layers will not alter the memory (on behalf of this

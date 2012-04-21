@@ -571,7 +571,7 @@ kranal_active_conn_handshake(kra_peer_t *peer,
 
         if (the_lnet.ln_testprotocompat != 0) {
                 /* single-shot proto test */
-                LNET_LOCK();
+		lnet_net_lock(LNET_LOCK_EX);
                 if ((the_lnet.ln_testprotocompat & 1) != 0) {
                         connreq.racr_version++;
                         the_lnet.ln_testprotocompat &= ~1;
@@ -580,7 +580,7 @@ kranal_active_conn_handshake(kra_peer_t *peer,
                         connreq.racr_magic = LNET_PROTO_MAGIC;
                         the_lnet.ln_testprotocompat &= ~2;
                 }
-                LNET_UNLOCK();
+		lnet_net_unlock(LNET_LOCK_EX);
         }
 
         rc = lnet_connect(&sock, peer->rap_nid,
@@ -1587,7 +1587,7 @@ kranal_startup (lnet_ni_t *ni)
         
         memset(&kranal_data, 0, sizeof(kranal_data)); /* zero pointers, flags etc */
 
-        ni->ni_maxtxcredits = *kranal_tunables.kra_credits;
+	ni->ni_credits = *kranal_tunables.kra_credits;
         ni->ni_peertxcredits = *kranal_tunables.kra_peercredits;
 
         ni->ni_data = &kranal_data;
