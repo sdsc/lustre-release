@@ -1159,6 +1159,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 							* timestamps supported
 							*/
 #define OBD_CONNECT_LVB_TYPE	0x400000000000ULL /* variable type of LVB */
+#define OBD_CONNECT_FLOCK_DEAD 0x1000000000000ULL /* improved flock deadlock detection */
 
 /* XXX README XXX:
  * Please DO NOT add flag values here before first ensuring that this same
@@ -1191,7 +1192,8 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                 OBD_CONNECT_VBR | OBD_CONNECT_LOV_V3 | \
                                 OBD_CONNECT_SOM | OBD_CONNECT_FULL20 | \
                                 OBD_CONNECT_64BITHASH | \
-				OBD_CONNECT_EINPROGRESS | OBD_CONNECT_JOBSTATS)
+				OBD_CONNECT_EINPROGRESS | OBD_CONNECT_JOBSTATS | \
+				OBD_CONNECT_FLOCK_DEAD)
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
                                 OBD_CONNECT_TRUNCLOCK | OBD_CONNECT_INDEX | \

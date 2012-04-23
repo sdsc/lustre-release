@@ -9501,6 +9501,69 @@ test_227() {
 }
 run_test 227 "running truncated executable does not cause OOM"
 
+MDSSURVEY=${MDSSURVEY:-$(which mds-survey 2>/dev/null || true)}
+test_225a () {
+       if [ -z ${MDSSURVEY} ]; then
+              skip_env "mds-survey not found" && return
+       fi
+
+       local mds=$(facet_host $SINGLEMDS)
+       local target=$(do_nodes $mds 'lctl dl' | \
+                      awk "{if (\$2 == \"UP\" && \$3 == \"mdt\") {print \$4}}")
+
+       local cmd1="file_count=1000 thrhi=4"
+       local cmd2="dir_count=2 layer=mdd stripe_count=0"
+       local cmd3="rslt_loc=${TMP} targets=\"$mds:$target\" $MDSSURVEY"
+       local cmd="$cmd1 $cmd2 $cmd3"
+
+       rm -f ${TMP}/mds_survey*
+       echo + $cmd
+       eval $cmd || error "mds-survey with zero-stripe failed"
+       cat ${TMP}/mds_survey*
+       rm -f ${TMP}/mds_survey*
+}
+run_test 225a "Metadata survey sanity with zero-stripe"
+
+test_225b () {
+       if [ -z ${MDSSURVEY} ]; then
+              skip_env "mds-survey not found" && return
+       fi
+
+       if [ $($LCTL dl | grep -c osc) -eq 0 ]; then
+              skip_env "Need to mount OST to test" && return
+       fi
+
+       local mds=$(facet_host $SINGLEMDS)
+       local target=$(do_nodes $mds 'lctl dl' | \
+                      awk "{if (\$2 == \"UP\" && \$3 == \"mdt\") {print \$4}}")
+
+       local cmd1="file_count=1000 thrhi=4"
+       local cmd2="dir_count=2 layer=mdd stripe_count=1"
+       local cmd3="rslt_loc=${TMP} targets=\"$mds:$target\" $MDSSURVEY"
+       local cmd="$cmd1 $cmd2 $cmd3"
+
+       rm -f ${TMP}/mds_survey*
+       echo + $cmd
+       eval $cmd || error "mds-survey with stripe_count failed"
+       cat ${TMP}/mds_survey*
+       rm -f ${TMP}/mds_survey*
+}
+run_test 225b "Metadata survey sanity with stripe_count = 1"
+
+test_226() {
+    flock_deadlock $DIR/$tfile
+    local RC=$?
+    case $RC in
+          0)
+          ;;
+        124) error "process hangs on a deadlock"
+          ;;
+          *) error "error executing flock_deadlock $DIR/$tfile"
+          ;;
+    esac
+}
+run_test 226 "MRP-393: flock deadlock detection does not work properly"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
