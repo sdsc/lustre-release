@@ -597,6 +597,10 @@ struct dt_index_operations {
         } dio_it;
 };
 
+/* To unify the interfaces and hide backend filesystem detail, the bookmark
+ * for object local identifier will be represented as printable string. */
+#define LID_BOOKMARK_MAXLEN     64
+
 struct dt_device {
         struct lu_device                   dd_lu_dev;
         const struct dt_device_operations *dd_ops;
