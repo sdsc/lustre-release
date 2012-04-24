@@ -16,19 +16,6 @@ Index: linux-2.6.18-164.11.1/include/linux/blkdev.h
  
  #define MAX_SEGMENT_SIZE	65536
  
-Index: linux-2.6.18-164.11.1/include/scsi/scsi_host.h
-===================================================================
---- linux-2.6.18-164.11.1.orig/include/scsi/scsi_host.h
-+++ linux-2.6.18-164.11.1/include/scsi/scsi_host.h
-@@ -30,7 +30,7 @@ struct blk_queue_tags;
-  *	 used in one scatter-gather request.
-  */
- #define SG_NONE 0
--#define SG_ALL 0xff
-+#define SG_ALL 256
- 
- 
- #define DISABLE_CLUSTERING 0
 Index: linux-2.6.18-164.11.1/drivers/scsi/lpfc/lpfc.h
 ===================================================================
 --- linux-2.6.18-164.11.1.orig/drivers/scsi/lpfc/lpfc.h
