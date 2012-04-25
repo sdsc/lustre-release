@@ -53,6 +53,7 @@
 #include <signal.h>
 #include <ctype.h>
 #include <glob.h>
+#include <stdbool.h>
 
 #include "obdctl.h"
 
@@ -66,10 +67,10 @@
 #include <errno.h>
 #include <string.h>
 
+
 #include <obd_class.h>
 #include <lnet/lnetctl.h>
 #include <libcfs/libcfsutil.h>
-#include <stdio.h>
 #include <lustre/liblustreapi.h>
 
 #define MAX_STRING_SIZE 128
@@ -80,16 +81,21 @@
 #include <sys/shm.h>
 #include <pthread.h>
 
-#define MAX_THREADS 1024
-
+#define MAX_THREADS 4096
+#define MAX_BASE_ID 0xffffffff
 struct shared_data {
-        __u64 counters[MAX_THREADS];
-        __u64 offsets[MAX_THREADS];
-        int   running;
-        int   barrier;
-        int   stop;
         l_mutex_t mutex;
         l_cond_t  cond;
+        int       stopping;
+        struct {
+                __u64 counters[MAX_THREADS];
+                __u64 offsets[MAX_THREADS];
+                int   thr_running;
+                int   start_barrier;
+                int   stop_barrier;
+                struct timeval start_time;
+                struct timeval end_time;
+        } body;
 };
 
 static struct shared_data *shared_data;
@@ -431,15 +437,14 @@ int do_disconnect(char *func, int verbose)
 }
 
 #ifdef MAX_THREADS
-static void shmem_setup(void)
+static int shmem_setup(void)
 {
         /* Create new segment */
         int shmid = shmget(IPC_PRIVATE, sizeof(*shared_data), 0600);
-
         if (shmid == -1) {
                 fprintf(stderr, "Can't create shared data: %s\n",
                         strerror(errno));
-                return;
+                return errno;
         }
 
         /* Attatch to new segment */
@@ -449,7 +454,7 @@ static void shmem_setup(void)
                 fprintf(stderr, "Can't attach shared data: %s\n",
                         strerror(errno));
                 shared_data = NULL;
-                return;
+                return errno;
         }
 
         /* Mark segment as destroyed, so it will disappear when we exit.
@@ -458,7 +463,13 @@ static void shmem_setup(void)
         if (shmctl(shmid, IPC_RMID, NULL) == -1) {
                 fprintf(stderr, "Can't destroy shared data: %s\n",
                         strerror(errno));
+                return errno;
         }
+
+        l_mutex_init(&shared_data->mutex);
+        l_cond_init(&shared_data->cond);
+
+        return 0;
 }
 
 static inline void shmem_lock(void)
@@ -471,32 +482,66 @@ static inline void shmem_unlock(void)
         l_mutex_unlock(&shared_data->mutex);
 }
 
+static inline void shmem_wait(void)
+{
+        l_cond_wait(&shared_data->cond, &shared_data->mutex);
+}
+
+static inline void shmem_wakeup_all(void)
+{
+        l_cond_broadcast(&shared_data->cond);
+}
+
 static inline void shmem_reset(int total_threads)
 {
         if (shared_data == NULL)
                 return;
 
-        memset(shared_data, 0, sizeof(*shared_data));
-        l_mutex_init(&shared_data->mutex);
-        l_cond_init(&shared_data->cond);
+        memset(&shared_data->body, 0, sizeof(shared_data->body));
         memset(counter_snapshot, 0, sizeof(counter_snapshot));
         prev_valid = 0;
-        shared_data->barrier = total_threads;
+        shared_data->stopping = 0;
+        shared_data->body.start_barrier = total_threads;
+        shared_data->body.stop_barrier = total_threads;
 }
 
-static inline void shmem_bump(void)
+static inline void shmem_bump(__u32 counter)
 {
-        static int bumped_running;
+        static bool running_not_bumped = true;
 
         if (shared_data == NULL || thread <= 0 || thread > MAX_THREADS)
                 return;
 
         shmem_lock();
-        shared_data->counters[thread - 1]++;
-        if (!bumped_running)
-                shared_data->running++;
+        shared_data->body.counters[thread - 1] += counter;
+        if (running_not_bumped) {
+                shared_data->body.thr_running++;
+                running_not_bumped = false;
+        }
         shmem_unlock();
-        bumped_running = 1;
+}
+
+static void shmem_total(int total_threads)
+{
+        __u64 total = 0;
+        double secs;
+        int i;
+
+        if (shared_data == NULL || total_threads > MAX_THREADS)
+                return;
+
+        shmem_lock();
+        for (i = 0; i < total_threads; i++)
+                total += shared_data->body.counters[i];
+
+        secs = difftime(&shared_data->body.end_time,
+                        &shared_data->body.start_time);
+        shmem_unlock();
+
+        printf("Total: total "LPU64" threads %d sec %f %f/second\n",
+               total, total_threads, secs, total / secs);
+
+        return;
 }
 
 static void shmem_snap(int total_threads, int live_threads)
@@ -512,9 +557,9 @@ static void shmem_snap(int total_threads, int live_threads)
                 return;
 
         shmem_lock();
-        memcpy(counter_snapshot[0], shared_data->counters,
+        memcpy(counter_snapshot[0], shared_data->body.counters,
                total_threads * sizeof(counter_snapshot[0][0]));
-        running = shared_data->running;
+        running = shared_data->body.thr_running;
         shmem_unlock();
 
         gettimeofday(&this_time, NULL);
@@ -529,12 +574,10 @@ static void shmem_snap(int total_threads, int live_threads)
                 }
         }
 
-        secs = (this_time.tv_sec + this_time.tv_usec / 1000000.0) -
-               (prev_time.tv_sec + prev_time.tv_usec / 1000000.0);
-
-        if (prev_valid &&
-            secs > 1.0)                    /* someone screwed with the time? */
-                printf("%d/%d Total: %f/second\n", non_zero, total_threads, total / secs);
+        secs = difftime(&this_time, &prev_time);
+        if (prev_valid && secs > 1.0)    /* someone screwed with the time? */
+                printf("%d/%d Total: %f/second\n", non_zero, total_threads,
+                       total / secs);
 
         memcpy(counter_snapshot[1], counter_snapshot[0],
                total_threads * sizeof(counter_snapshot[0][0]));
@@ -549,24 +592,54 @@ static void shmem_stop(void)
         if (shared_data == NULL)
                 return;
 
-        shared_data->stop = 1;
+        shared_data->stopping = 1;
+}
+
+static void shmem_cleanup(void)
+{
+        if (shared_data == NULL)
+                return;
+
+        shmem_stop();
+
+        pthread_mutex_destroy(&shared_data->mutex);
+        pthread_cond_destroy(&shared_data->cond);
 }
 
 static int shmem_running(void)
 {
-        return (shared_data == NULL ||
-                !shared_data->stop);
+        return (shared_data == NULL || !shared_data->stopping);
 }
-#else
-static void shmem_setup(void)
+
+static void shmem_end_time_locked(void)
 {
+        shared_data->body.stop_barrier--;
+        if (shared_data->body.stop_barrier == 0)
+                gettimeofday(&shared_data->body.end_time, NULL);
+}
+
+static void shmem_start_time_locked(void)
+{
+        shared_data->body.start_barrier--;
+        if (shared_data->body.start_barrier == 0) {
+                shmem_wakeup_all();
+                gettimeofday(&shared_data->body.start_time, NULL);
+        } else {
+                shmem_wait();
+        }
+}
+
+#else
+static int shmem_setup(void)
+{
+        return 0;
 }
 
 static inline void shmem_reset(int total_threads)
 {
 }
 
-static inline void shmem_bump(void)
+static inline void shmem_bump(__u32 counters)
 {
 }
 
@@ -578,7 +651,7 @@ static void shmem_unlock()
 {
 }
 
-static void shmem_stop(void)
+static void shmem_cleanup(void)
 {
 }
 
@@ -784,6 +857,7 @@ int jt_opt_threads(int argc, char **argv)
                 sigaction(SIGALRM, &saveact1, NULL);
         }
 
+        shmem_total(threads);
         sigprocmask(SIG_SETMASK, &saveset, NULL);
 
         return rc;
@@ -1121,7 +1195,7 @@ int jt_obd_create(int argc, char **argv)
                 }
                 rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_CREATE, buf);
                 obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
-                shmem_bump();
+                shmem_bump(1);
                 if (rc < 0) {
                         fprintf(stderr, "error: %s: #%d - %s\n",
                                 jt_cmdname(argv[0]), i, strerror(rc = errno));
@@ -1244,7 +1318,7 @@ int jt_obd_test_setattr(int argc, char **argv)
                         return rc;
                 }
                 rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_SETATTR, &data);
-                shmem_bump();
+                shmem_bump(1);
                 if (rc < 0) {
                         fprintf(stderr, "error: %s: #"LPD64" - %d:%s\n",
                                 jt_cmdname(argv[0]), i, errno, strerror(rc = errno));
@@ -1330,7 +1404,7 @@ int jt_obd_destroy(int argc, char **argv)
                 }
                 rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_DESTROY, buf);
                 obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
-                shmem_bump();
+                shmem_bump(1);
                 if (rc < 0) {
                         fprintf(stderr, "error: %s: objid "LPX64": %s\n",
                                 jt_cmdname(argv[0]), id, strerror(rc = errno));
@@ -1449,7 +1523,7 @@ int jt_obd_test_getattr(int argc, char **argv)
                         return rc;
                 }
                 rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_GETATTR, &data);
-                shmem_bump();
+                shmem_bump(1);
                 if (rc < 0) {
                         fprintf(stderr, "error: %s: #"LPD64" - %d:%s\n",
                                 jt_cmdname(argv[0]), i, errno, strerror(rc = errno));
@@ -1629,20 +1703,15 @@ int jt_obd_test_brw(int argc, char **argv)
                         objid += obj_idx;
                         stride *= nthr_per_obj;
                         if ((thread - 1) % nthr_per_obj == 0)
-                                shared_data->offsets[obj_idx] = stride + thr_offset;
+                                shared_data->body.offsets[obj_idx] =
+                                        stride + thr_offset;
                         thr_offset += ((thread - 1) % nthr_per_obj) * len;
                 } else {
                         /* threads disjoint */
                         thr_offset += (thread - 1) * len;
                 }
 
-                shared_data->barrier--;
-                if (shared_data->barrier == 0)
-                        l_cond_broadcast(&shared_data->cond);
-                else
-                        l_cond_wait(&shared_data->cond,
-                                    &shared_data->mutex);
-
+                shmem_start_time_locked();
                 shmem_unlock ();
         }
 #endif
@@ -1674,7 +1743,7 @@ int jt_obd_test_brw(int argc, char **argv)
                         return rc;
                 }
                 rc = l2_ioctl(OBD_DEV_ID, cmd, buf);
-                shmem_bump();
+                shmem_bump(1);
                 if (rc) {
                         fprintf(stderr, "error: %s: #%d - %s on %s\n",
                                 jt_cmdname(argv[0]), i, strerror(rc = errno),
@@ -1695,8 +1764,9 @@ int jt_obd_test_brw(int argc, char **argv)
                                 data.ioc_offset += stride;
                         } else if (i < count) {
                                 shmem_lock ();
-                                data.ioc_offset = shared_data->offsets[obj_idx];
-                                shared_data->offsets[obj_idx] += len;
+                                data.ioc_offset =
+                                        shared_data->body.offsets[obj_idx];
+                                shared_data->body.offsets[obj_idx] += len;
                                 shmem_unlock ();
                         }
 #else
@@ -1724,6 +1794,13 @@ int jt_obd_test_brw(int argc, char **argv)
                                ctime(&end.tv_sec));
         }
 
+#ifdef MAX_THREADS
+        if (thread) {
+                shmem_lock();
+                shmem_end_time_locked();
+                shmem_unlock();
+        }
+#endif
         return rc;
 }
 
@@ -2500,7 +2577,9 @@ int obd_initialize(int argc, char **argv)
         for (i = 0; i < MAX_STRIPES; i++)
                 lsm_buffer.lsm.lsm_oinfo[i] = lov_oinfos + i;
 
-        shmem_setup();
+        if (shmem_setup() != 0)
+                return -1;
+
         register_ioc_dev(OBD_DEV_ID, OBD_DEV_PATH,
                          OBD_DEV_MAJOR, OBD_DEV_MINOR);
 
@@ -2516,7 +2595,7 @@ void obd_finalize(int argc, char **argv)
         sigact.sa_flags = SA_RESTART;
         sigaction(SIGINT, &sigact, NULL);
 
-        shmem_stop();
+        shmem_cleanup();
         do_disconnect(argv[0], 1);
 }
 
