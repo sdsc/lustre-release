@@ -373,7 +373,8 @@ int mdd_declare_llog_record(const struct lu_env *env, struct mdd_device *mdd,
                             int reclen, struct thandle *handle);
 int mdd_declare_changelog_store(const struct lu_env *env,
                                 struct mdd_device *mdd,
-                                const struct lu_name *fname,
+                                const struct lu_name *sname,
+                                const struct lu_name *tname,
                                 struct thandle *handle);
 int mdd_changelog(const struct lu_env *env, enum changelog_rec_type type,
                   int flags, struct md_object *obj);

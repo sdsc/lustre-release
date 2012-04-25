@@ -1365,7 +1365,7 @@ int mdd_changelog(const struct lu_env *env, enum changelog_rec_type type,
         if (IS_ERR(handle))
                 return(PTR_ERR(handle));
 
-        rc = mdd_declare_changelog_store(env, mdd, NULL, handle);
+        rc = mdd_declare_changelog_store(env, mdd, NULL, NULL, handle);
         if (rc)
                 GOTO(stop, rc);
 
@@ -1503,7 +1503,7 @@ static int mdd_declare_attr_set(const struct lu_env *env,
         if (rc)
                 return rc;
 
-        rc = mdd_declare_changelog_store(env, mdd, NULL, handle);
+        rc = mdd_declare_changelog_store(env, mdd, NULL, NULL, handle);
         if (rc)
                 return rc;
 
@@ -1803,7 +1803,7 @@ static int mdd_declare_xattr_set(const struct lu_env *env,
 
         /* Only record user xattr changes */
         if ((strncmp("user.", name, 5) == 0))
-                rc = mdd_declare_changelog_store(env, mdd, NULL, handle);
+                rc = mdd_declare_changelog_store(env, mdd, NULL, NULL, handle);
 
         return rc;
 }
@@ -1879,7 +1879,7 @@ static int mdd_declare_xattr_del(const struct lu_env *env,
 
         /* Only record user xattr changes */
         if ((strncmp("user.", name, 5) == 0))
-                rc = mdd_declare_changelog_store(env, mdd, NULL, handle);
+                rc = mdd_declare_changelog_store(env, mdd, NULL, NULL, handle);
 
         return rc;
 }
@@ -2405,7 +2405,7 @@ static int mdd_close(const struct lu_env *env, struct md_object *obj,
                 if (rc)
                         GOTO(stop, rc);
 
-                rc = mdd_declare_changelog_store(env, mdd, NULL, handle);
+                rc = mdd_declare_changelog_store(env, mdd, NULL, NULL, handle);
                 if (rc)
                         GOTO(stop, rc);
 
@@ -2470,7 +2470,7 @@ static int mdd_close(const struct lu_env *env, struct md_object *obj,
                                 if (rc)
                                         GOTO(out, rc);
 
-                                rc = mdd_declare_changelog_store(env, mdd,
+                                rc = mdd_declare_changelog_store(env, mdd, NULL,
                                                                  NULL, handle);
                                 if (rc)
                                         GOTO(stop, rc);
@@ -2506,7 +2506,7 @@ out:
                         if (IS_ERR(handle))
                                 GOTO(stop, rc = IS_ERR(handle));
 
-                        rc = mdd_declare_changelog_store(env, mdd, NULL,
+                        rc = mdd_declare_changelog_store(env, mdd, NULL, NULL,
                                                          handle);
                         if (rc)
                                 GOTO(stop, rc);

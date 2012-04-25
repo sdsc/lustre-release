@@ -519,7 +519,7 @@ enum changelog_rec_type {
 static inline const char *changelog_type2str(int type) {
         static const char *changelog_str[] = {
                 "MARK",  "CREAT", "MKDIR", "HLINK", "SLINK", "MKNOD", "UNLNK",
-                "RMDIR", "RNMFM", "RNMTO", "OPEN",  "CLOSE", "IOCTL", "TRUNC",
+                "RMDIR", "RENME", "RNMTO", "OPEN",  "CLOSE", "IOCTL", "TRUNC",
                 "SATTR", "XATTR", "HSM",   "MTIME", "CTIME", "ATIME"  };
         if (type >= 0 && type < CL_LAST)
                 return changelog_str[type];
@@ -527,13 +527,19 @@ static inline const char *changelog_type2str(int type) {
 }
 
 /* per-record flags */
-#define CLF_VERSION  0x1000
-#define CLF_FLAGMASK 0x0FFF
+#define CLF_VERSION   0x2000
+#define CLF_FLAGSHIFT 12
+#define CLF_FLAGMASK  ((1U << CLF_FLAGSHIFT) - 1)
+#define CLF_VERMASK   (~CLF_FLAGMASK)
 /* Anything under the flagmask may be per-type (if desired) */
 /* Flags for unlink */
 #define CLF_UNLINK_LAST       0x0001 /* Unlink of last hardlink */
 #define CLF_UNLINK_HSM_EXISTS 0x0002 /* File has something in HSM */
                                      /* HSM cleaning needed */
+/* Flags for rename */
+#define CLF_RENAME_LAST       0x0001 /* rename unlink last hardlink of target */
+#define CLF_RENAME_EXISTS     0x0002 /* rename target exists */
+
 /* Flags for HSM */
 /* 12b used (from high weight to low weight):
  * 2b for flags
@@ -603,7 +609,24 @@ static inline void hsm_set_cl_error(int *flags, int error)
         *flags |= (error << CLF_HSM_ERR_L);
 }
 
-#define CR_MAXSIZE (PATH_MAX + sizeof(struct changelog_rec))
+#define CR_MAXSIZE cfs_size_round(2*NAME_MAX + 1 + sizeof(struct changelog_rec))
+
+struct changelog_rec_v1 {
+        __u16                 cr_namelen;
+        __u16                 cr_flags; /**< (flags&CLF_FLAGMASK)|CLF_VERSION */
+        __u32                 cr_type;  /**< \a changelog_rec_type */
+        __u64                 cr_index; /**< changelog record number */
+        __u64                 cr_prev;  /**< last index for this target fid */
+        __u64                 cr_time;
+        union {
+                lustre_fid    cr_tfid;        /**< target fid */
+                __u32         cr_markerflags; /**< CL_MARK flags */
+        };
+        lustre_fid            cr_pfid;        /**< target parent fid */
+        char                  cr_name[0];     /**< last element */
+} __attribute__((packed));
+
+/* Changelog version 2 */
 struct changelog_rec {
         __u16                 cr_namelen;
         __u16                 cr_flags; /**< (flags&CLF_FLAGMASK)|CLF_VERSION */
@@ -615,9 +638,17 @@ struct changelog_rec {
                 lustre_fid    cr_tfid;        /**< target fid */
                 __u32         cr_markerflags; /**< CL_MARK flags */
         };
-        lustre_fid            cr_pfid;        /**< parent fid */
+        lustre_fid            cr_pfid;        /**< target parent fid */
+        lustre_fid            cr_spfid;       /**< source parent fid, or zero */
         char                  cr_name[0];     /**< last element */
 } __attribute__((packed));
+
+#define CHANGELOG_VERSION (CLF_VERSION >> CLF_FLAGSHIFT)
+
+static inline __u16 changelog_version(const struct changelog_rec *cr)
+{
+        return (cr->cr_flags & CLF_VERMASK) >> CLF_FLAGSHIFT;
+}
 
 struct ioc_changelog {
         __u64 icc_recno;

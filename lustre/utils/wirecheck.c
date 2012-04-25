@@ -1392,6 +1392,7 @@ check_changelog_rec(void)
         CHECK_MEMBER(changelog_rec, cr_time);
         CHECK_MEMBER(changelog_rec, cr_tfid);
         CHECK_MEMBER(changelog_rec, cr_pfid);
+        CHECK_MEMBER(changelog_rec, cr_spfid);
 }
 
 static void

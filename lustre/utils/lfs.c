@@ -2591,7 +2591,13 @@ static int lfs_changelog(int argc, char **argv)
         while ((rc = llapi_changelog_recv(changelog_priv, &rec)) == 0) {
                 time_t secs;
                 struct tm ts;
+                unsigned version = changelog_version(rec);
 
+                if (version > CHANGELOG_VERSION) {
+                        rc = -EFAULT;
+                        llapi_changelog_free(&rec);
+                        break;
+                }
                 if (endrec && rec->cr_index > endrec) {
                         llapi_changelog_free(&rec);
                         break;
@@ -2610,12 +2616,31 @@ static int lfs_changelog(int argc, char **argv)
                        (int)(rec->cr_time & ((1<<30) - 1)),
                        ts.tm_year + 1900, ts.tm_mon + 1, ts.tm_mday,
                        rec->cr_flags & CLF_FLAGMASK, PFID(&rec->cr_tfid));
-                if (rec->cr_namelen)
-                        /* namespace rec includes parent and filename */
-                        printf(" p="DFID" %.*s\n", PFID(&rec->cr_pfid),
-                               rec->cr_namelen, rec->cr_name);
-                else
-                        printf("\n");
+                switch (version) {
+                case 1:
+                        if (rec->cr_namelen)
+                                /* namespace rec includes parent and filename */
+                                printf(" p="DFID" %.*s", PFID(&rec->cr_pfid),
+                                       rec->cr_namelen,
+                                     ((struct changelog_rec_v1 *)rec)->cr_name);
+                        break;
+                case 2:
+                        if (rec->cr_namelen)
+                                /* namespace rec includes parent and filename */
+                                printf(" p="DFID" %.*s", PFID(&rec->cr_pfid),
+                                       rec->cr_namelen, rec->cr_name);
+                        if (fid_is_sane(&rec->cr_spfid)) {
+                                int namelen = rec->cr_namelen - strlen(rec->cr_name)-1;
+
+                                LASSERT(namelen > 0);
+                                printf(" sp="DFID" %.*s", PFID(&rec->cr_spfid),
+                                       namelen, rec->cr_name + strlen(rec->cr_name)+1);
+                        }
+                        break;
+                default:
+                        break;
+                }
+                printf("\n");
 
                 llapi_changelog_free(&rec);
         }
