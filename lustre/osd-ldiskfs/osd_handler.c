@@ -4075,6 +4075,7 @@ static int osd_shutdown(const struct lu_env *env, struct osd_device *o)
 
         ENTRY;
 
+        osd_scrub_cleanup(env, o);
         if (o->od_oi_table != NULL)
                 osd_oi_fini(info, o);
 
@@ -4180,6 +4181,7 @@ static struct lu_device *osd_device_alloc(const struct lu_env *env,
                         l->ld_ops = &osd_lu_ops;
                         o->od_dt_dev.dd_ops = &osd_dt_ops;
                         cfs_spin_lock_init(&o->od_osfs_lock);
+                        cfs_mutex_init(&o->od_mutex);
                         o->od_osfs_age = cfs_time_shift_64(-1000);
                         o->od_capa_hash = init_capa_hash();
                         if (o->od_capa_hash == NULL) {
@@ -4249,10 +4251,15 @@ static int osd_prepare(const struct lu_env *env, struct lu_device *pdev,
         if (result < 0)
                 RETURN(result);
 
+        /* 2. initialize scrub */
+        result = osd_scrub_setup(env, osd);
+        if (result < 0)
+                RETURN(result);
+
         if (!lu_device_is_md(pdev))
                 RETURN(0);
 
-        /* 2. setup local objects */
+        /* 3. setup local objects */
         result = llo_local_objects_setup(env, lu2md_dev(pdev), lu2dt_dev(dev));
         RETURN(result);
 }
