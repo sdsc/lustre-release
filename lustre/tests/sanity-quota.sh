@@ -2004,6 +2004,8 @@ test_29()
         local BLK_LIMIT=$((100 * 1024 * 1024)) # 100G
         local timeout
         local pid
+        local begin
+        local now
 
         if at_is_enabled; then
                 timeout=$(at_max_get client)
@@ -2012,16 +2014,25 @@ test_29()
                 timeout=$(lctl get_param -n timeout)
                 lctl set_param timeout=10
         fi
-	# actually send a RPC to make service at_current confined within at_max
-        $LFS setquota -u $TSTUSR -b 0 -B $BLK_LIMIT -i 0 -I 0 $DIR || error "should succeed"
+        # actually send a RPC to make service at_current confined within at_max
+        $LFS setquota -u $TSTUSR -b 0 -B $BLK_LIMIT -i 0 -I 0 $DIR ||
+                error "should succeed"
 
         #define OBD_FAIL_MDS_QUOTACTL_NET 0x12e
         lustre_fail mds 0x12e
 
         $LFS setquota -u $TSTUSR -b 0 -B $BLK_LIMIT -i 0 -I 0 $DIR & pid=$!
 
-        echo "sleeping for 10 * 1.25 + 5 + 10 seconds"
-        sleep 28
+        echo "sleeping for 2 * (10 * 1.25 + 5 + 10) seconds"
+        echo "it is server process time add the network latency."
+        deadline=56
+        begin=$(date +%s)
+        now=$(date +%s)
+        while [ $((now - begin)) -lt $deadline ]; do
+                sleep 5
+                now=$(date +%s)
+                ps -p $pid > /dev/null || break
+        done
         ps -p $pid && error "lfs hadn't finished by timeout"
         wait $pid && error "succeeded, but should have failed"
 
