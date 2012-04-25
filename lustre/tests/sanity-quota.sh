@@ -2020,8 +2020,9 @@ test_29()
 
         $LFS setquota -u $TSTUSR -b 0 -B $BLK_LIMIT -i 0 -I 0 $DIR & pid=$!
 
-        echo "sleeping for 10 * 1.25 + 5 + 10 seconds"
-        sleep 28
+        echo "sleeping for 2 * (10 * 1.25 + 5 + 10) seconds"
+        echo "it is server process time add the network latency."
+        sleep 56
         ps -p $pid && error "lfs hadn't finished by timeout"
         wait $pid && error "succeeded, but should have failed"
 
