@@ -519,6 +519,15 @@ struct client_obd {
         cfs_waitq_t              cl_ppr_waitq;
         int                    (*cl_ppr_set)(struct client_obd *, int);
 
+        /* lru for osc caching pages */
+        int                      cl_lru_total;
+        cfs_atomic_t             cl_lru_busy;
+        cfs_atomic_t             cl_lru_left;
+        cfs_atomic_t             cl_lru_in_list;
+        cfs_list_t               cl_lru_list;
+        cfs_waitq_t              cl_lru_waitq;
+        client_obd_lock_t        cl_lru_list_lock;
+
         /* number of in flight destroy rpcs is limited to max_rpcs_in_flight */
         cfs_atomic_t             cl_destroy_in_flight;
         cfs_waitq_t              cl_destroy_waitq;
