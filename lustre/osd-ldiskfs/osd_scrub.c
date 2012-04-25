@@ -1089,3 +1089,44 @@ const struct dt_index_operations osd_otable_ops = {
                 .load     = osd_otable_it_load,
         }
 };
+
+int osd_oii_insert(struct osd_device *dev, struct lu_object *obj,
+                   struct osd_idmap_cache *oic)
+{
+        struct osd_scrub             *scrub  = &dev->od_scrub;
+        struct ptlrpc_thread         *thread = &scrub->os_thread;
+        struct scrub_file            *sf     = &scrub->os_file;
+        struct osd_inconsistent_item *oii;
+        int                           wakeup = 0;
+        ENTRY;
+
+        if (!thread_is_running(thread) || sf->sf_status != SS_SCANNING)
+                RETURN(-EAGAIN);
+
+        OBD_ALLOC_PTR(oii);
+        if (unlikely(oii == NULL))
+                RETURN(-ENOMEM);
+
+        CFS_INIT_LIST_HEAD(&oii->oii_list);
+        oii->oii_cache = *oic;
+        oii->oii_obj = obj;
+
+        cfs_spin_lock(&scrub->os_lock);
+        if (unlikely(!thread_is_running(thread) ||
+                     sf->sf_status != SS_SCANNING)) {
+                cfs_spin_unlock(&scrub->os_lock);
+                OBD_FREE_PTR(oii);
+                RETURN(-EAGAIN);
+        }
+
+        if (cfs_list_empty(&scrub->os_inconsistent_items))
+                wakeup = 1;
+        lu_object_get(oii->oii_obj);
+        cfs_list_add_tail(&oii->oii_list, &scrub->os_inconsistent_items);
+        cfs_spin_unlock(&scrub->os_lock);
+
+        if (wakeup != 0)
+                cfs_waitq_broadcast(&thread->t_ctl_waitq);
+
+        RETURN(0);
+}
