@@ -274,11 +274,10 @@ struct osd_device {
         cfs_kstatfs_t             od_kstatfs;
         cfs_spinlock_t            od_osfs_lock;
 
-        /**
-         * The following flag indicates, if it is interop mode or not.
-         * It will be initialized, using mount param.
-         */
-        __u32                     od_iop_mode;
+        unsigned int              od_iop_mode:1, /* interop mode or not, will be
+                                                  * initialized by mount param*/
+                                  od_verify_oi:1; /* Whether need to verify OI
+                                                   * or not during lookup. */
 
         struct fsfilt_operations *od_fsops;
 
@@ -546,6 +545,7 @@ struct osd_thread_info {
                 long long      oti_alignment_lieutenant_colonel;
         };
 
+        struct osd_idmap_cache oti_cache;
 
         int                    oti_r_locks;
         int                    oti_w_locks;
@@ -624,6 +624,8 @@ int osd_compat_spec_insert(struct osd_thread_info *info,
 int osd_scrub_start(struct osd_device *dev);
 int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev);
 void osd_scrub_cleanup(const struct lu_env *env, struct osd_device *dev);
+int osd_oii_insert(struct osd_device *dev, struct lu_object *obj,
+                   struct osd_idmap_cache *oic);
 
 /*
  * Invariants, assertions.

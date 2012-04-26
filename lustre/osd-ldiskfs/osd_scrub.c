@@ -52,6 +52,11 @@
 
 #define HALF_SEC        (CFS_HZ >> 1)
 
+static inline struct osd_device *osd_scrub2dev(struct osd_scrub *scrub)
+{
+        return container_of0(scrub, struct osd_device, od_scrub);
+}
+
 static void osd_scrub_file_to_cpu(struct scrub_file *des,
                                   struct scrub_file *src)
 {
@@ -211,6 +216,7 @@ static int osd_scrub_prep(struct osd_device *dev)
         int                rc;
         ENTRY;
 
+        dev->od_verify_oi = 1;
         cfs_down_write(&scrub->os_rwsem);
         if ((flags & SS_SET_FAILOUT) && !(sf->sf_param & SP_FAILOUT))
                 sf->sf_param |= SP_FAILOUT;
@@ -394,10 +400,13 @@ static void osd_scrub_post(struct osd_scrub *scrub, int result)
         }
         sf->sf_time_last_checkpoint = cfs_time_current_sec();
         if (result > 0) {
+                struct osd_device *dev = osd_scrub2dev(scrub);
+
                 sf->sf_status = SS_COMPLETED;
                 sf->sf_flags &= ~(SF_RESTORED | SF_AUTO);
                 sf->sf_time_last_complete = sf->sf_time_last_checkpoint;
                 sf->sf_success_count++;
+                dev->od_verify_oi = 0;
         } else if (result == 0) {
                 sf->sf_status = SS_PAUSED;
         } else {
@@ -768,6 +777,9 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
                 }
         }
 
+        if (sf->sf_status != SS_COMPLETED)
+                dev->od_verify_oi = 1;
+
         if (dirty != 0)
                 rc = osd_scrub_file_store(scrub);
 
@@ -1100,3 +1112,44 @@ const struct dt_index_operations osd_otable_ops = {
                 .load     = osd_otable_it_load,
         }
 };
+
+int osd_oii_insert(struct osd_device *dev, struct lu_object *obj,
+                   struct osd_idmap_cache *oic)
+{
+        struct osd_scrub             *scrub  = &dev->od_scrub;
+        struct ptlrpc_thread         *thread = &scrub->os_thread;
+        struct scrub_file            *sf     = &scrub->os_file;
+        struct osd_inconsistent_item *oii;
+        int                           wakeup = 0;
+        ENTRY;
+
+        if (!thread_is_running(thread) || sf->sf_status != SS_SCANNING)
+                RETURN(-EAGAIN);
+
+        OBD_ALLOC_PTR(oii);
+        if (unlikely(oii == NULL))
+                RETURN(-ENOMEM);
+
+        CFS_INIT_LIST_HEAD(&oii->oii_list);
+        oii->oii_cache = *oic;
+        oii->oii_obj = obj;
+
+        cfs_spin_lock(&scrub->os_lock);
+        if (unlikely(!thread_is_running(thread) ||
+                     sf->sf_status != SS_SCANNING)) {
+                cfs_spin_unlock(&scrub->os_lock);
+                OBD_FREE_PTR(oii);
+                RETURN(-EAGAIN);
+        }
+
+        if (cfs_list_empty(&scrub->os_inconsistent_items))
+                wakeup = 1;
+        lu_object_get(oii->oii_obj);
+        cfs_list_add_tail(&oii->oii_list, &scrub->os_inconsistent_items);
+        cfs_spin_unlock(&scrub->os_lock);
+
+        if (wakeup != 0)
+                cfs_waitq_broadcast(&thread->t_ctl_waitq);
+
+        RETURN(0);
+}
