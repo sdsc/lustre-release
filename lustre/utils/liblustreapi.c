@@ -3739,7 +3739,7 @@ int llapi_path2fid(const char *path, lustre_fid *fid)
         }
 
         rc = ioctl(fd, LL_IOC_PATH2FID, fid) < 0 ? -errno : 0;
-        if (rc == -EINVAL) /* char special device */
+        if (rc == -ENOTTY) /* char special device */
                 rc = path2fid_from_lma(path, fid);
 
         close(fd);
