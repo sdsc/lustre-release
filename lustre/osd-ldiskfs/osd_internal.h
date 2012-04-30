@@ -80,7 +80,6 @@
 
 struct inode;
 
-#define OSD_OII_NOGEN (0)
 #define OSD_COUNTERS (0)
 
 /** Enable thandle usage statistics */
@@ -443,7 +442,9 @@ struct osd_thread_info {
         struct htree_lock     *oti_hlock;
 
         struct lu_fid          oti_fid;
+        struct lu_fid          oti_fid2;
         struct osd_inode_id    oti_id;
+        struct osd_inode_id    oti_id2;
         struct ost_id          oti_ostid;
 
         /*
@@ -520,6 +521,17 @@ struct osd_thread_info {
 
 extern int ldiskfs_pdo;
 
+enum osd_iget_flags {
+        /* verify with the fid in LMA */
+        OSD_IF_VERIFY   = 1 << 0,
+
+        /* re-generate osd_inode_id */
+        OSD_IF_GEN_LID  = 1 << 1,
+
+        /* return fid */
+        OSD_IF_RET_FID  = 1 << 2,
+};
+
 #ifdef LPROCFS
 /* osd_lproc.c */
 void lprocfs_osd_init_vars(struct lprocfs_static_vars *lvars);
@@ -537,9 +549,9 @@ int osd_object_auth(const struct lu_env *env, struct dt_object *dt,
                     struct lustre_capa *capa, __u64 opc);
 void osd_declare_qid(struct dt_object *dt, struct osd_thandle *oh,
                      int type, uid_t id, struct inode *inode);
-struct inode *osd_iget(struct osd_thread_info *info,
-                       struct osd_device *dev,
-                       const struct osd_inode_id *id);
+struct inode *osd_iget(struct osd_thread_info *info, struct osd_device *dev,
+                       struct osd_inode_id *id, struct lu_fid *fid,
+                       enum osd_iget_flags flags);
 
 int osd_compat_init(struct osd_device *dev);
 void osd_compat_fini(struct osd_device *dev);
@@ -690,6 +702,8 @@ static inline void osd_ipd_put(const struct lu_env *env,
 }
 
 int osd_ldiskfs_read(struct inode *inode, void *buf, int size, loff_t *offs);
+int osd_ldiskfs_write_record(struct inode *inode, void *buf, int bufsize,
+                             loff_t *offs, handle_t *handle);
 
 static inline
 struct dentry *osd_child_dentry_by_inode(const struct lu_env *env,
