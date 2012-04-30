@@ -1081,7 +1081,7 @@ const int osd_dto_credits_noquota[DTO_NR] = {
         [DTO_INDEX_INSERT]  = 16,
         [DTO_INDEX_DELETE]  = 16,
         /**
-         * Unused now
+         * Used for OI scrub
          */
         [DTO_INDEX_UPDATE]  = 16,
         /**
@@ -1772,12 +1772,25 @@ static int __osd_oi_insert(const struct lu_env *env, struct osd_object *obj,
         struct osd_inode_id    *id   = &info->oti_id;
         struct osd_device      *osd  = osd_obj2dev(obj);
         struct md_ucred        *uc   = md_ucred(env);
+        int                     rc;
 
         LASSERT(obj->oo_inode != NULL);
         LASSERT(uc != NULL);
 
         osd_id_gen(id, obj->oo_inode->i_ino, obj->oo_inode->i_generation);
-        return osd_oi_insert(info, osd, fid, id, th);
+        rc = osd_oi_insert(info, osd, fid, id, th);
+        /* XXX: there is race between create and OI scrub, after the creating
+         *      thread created the inode, it is found by the OI scrub thread.
+         *      And the OI scrub thread inserted it into the OI file ahead of
+         *      the creating thread. */
+        if (unlikely(rc == -EEXIST)) {
+                struct osd_inode_id id0;
+
+                osd_oi_lookup(info, osd, fid, &id0);
+                if (likely(osd_id_eq(id, &id0)))
+                        rc = 0;
+        }
+        return rc;
 }
 
 static int osd_declare_object_create(const struct lu_env *env,
@@ -1896,6 +1909,9 @@ static int osd_object_destroy(const struct lu_env *env,
         LASSERT(inode);
         LASSERT(!lu_object_is_dying(dt->do_lu.lo_header));
 
+        /* XXX: parallel control for OI scrub. For most of cases, there is no
+         *      lock contention. So it will not affect unlink performance. */
+        cfs_mutex_lock(&inode->i_mutex);
         if (S_ISDIR(inode->i_mode)) {
                 LASSERT(osd_inode_unlinked(inode) ||
                         inode->i_nlink == 1);
@@ -1910,6 +1926,7 @@ static int osd_object_destroy(const struct lu_env *env,
         OSD_EXEC_OP(th, destroy);
 
         result = osd_oi_delete(osd_oti_get(env), osd, fid, th);
+        cfs_mutex_unlock(&inode->i_mutex);
 
         /* XXX: add to ext3 orphan list */
         /* rc = ext3_orphan_add(handle_t *handle, struct inode *inode) */
@@ -4030,6 +4047,7 @@ static int osd_shutdown(const struct lu_env *env, struct osd_device *o)
 
         ENTRY;
 
+        osd_scrub_cleanup(env, o);
         if (o->od_oi_table != NULL)
                 osd_oi_fini(info, o);
 
@@ -4135,6 +4153,7 @@ static struct lu_device *osd_device_alloc(const struct lu_env *env,
                         l->ld_ops = &osd_lu_ops;
                         o->od_dt_dev.dd_ops = &osd_dt_ops;
                         cfs_spin_lock_init(&o->od_osfs_lock);
+                        cfs_mutex_init(&o->od_mutex);
                         o->od_osfs_age = cfs_time_shift_64(-1000);
                         o->od_capa_hash = init_capa_hash();
                         if (o->od_capa_hash == NULL) {
@@ -4204,10 +4223,15 @@ static int osd_prepare(const struct lu_env *env, struct lu_device *pdev,
         if (result < 0)
                 RETURN(result);
 
+        /* 2. initialize scrub */
+        result = osd_scrub_setup(env, osd);
+        if (result < 0)
+                RETURN(result);
+
         if (!lu_device_is_md(pdev))
                 RETURN(0);
 
-        /* 2. setup local objects */
+        /* 3. setup local objects */
         result = llo_local_objects_setup(env, lu2md_dev(pdev), lu2dt_dev(dev));
         RETURN(result);
 }
