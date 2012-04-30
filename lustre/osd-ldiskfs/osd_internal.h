@@ -80,7 +80,6 @@
 
 struct inode;
 
-#define OSD_OII_NOGEN (0)
 #define OSD_COUNTERS (0)
 
 /** Enable thandle usage statistics */
@@ -194,7 +193,54 @@ static inline void ldiskfs_htree_lock_free(struct htree_lock *lk)
 
 #endif /* HAVE_LDISKFS_PDO */
 
+#define OSD_OTABLE_IT_CACHE_SIZE        128
+#define OSD_OTABLE_IT_CACHE_MASK        (~(OSD_OTABLE_IT_CACHE_SIZE - 1))
+
+struct osd_idmap_cache {
+        struct lu_fid           oic_fid;
+        struct osd_inode_id     oic_lid;
+};
+
+struct osd_inconsistent_item {
+        cfs_list_t             oii_list;
+        struct osd_idmap_cache oii_cache;
+        int                    oii_insert;
+};
+
+struct osd_otable_cache {
+        struct osd_idmap_cache  ooc_cache[OSD_OTABLE_IT_CACHE_SIZE];
+
+        /* Index for next cache slot to be filled. */
+        int                     ooc_producer_idx;
+
+        /* Index for next cache slot to be returned by it::next(). */
+        int                     ooc_consumer_idx;
+
+        /* How many items in ooc_cache. */
+        int                     ooc_cached_items;
+
+        /* Position for up layer LFSCK iteration pre-loading. */
+        __u32                   ooc_pos_preload;
+};
+
+struct osd_otable_it {
+        struct osd_device       *ooi_dev;
+        struct osd_otable_cache  ooi_cache;
+
+        /* For osd_otable_it_key. */
+        __u8                     ooi_key[16];
+        unsigned int             ooi_used_outside:1, /* Some user out of OSD
+                                                      * uses the iteration. */
+                                 ooi_all_cached:1, /* No more entries can be
+                                                    * filled into cache. */
+                                 ooi_user_ready:1, /* The user out of OSD is
+                                                    * ready to iterate. */
+                                 ooi_waiting:1; /* it::next is waiting. */
+};
+
 extern const int osd_dto_credits_noquota[];
+
+#include "osd_scrub.h"
 
 /*
  * osd device.
@@ -247,6 +293,10 @@ struct osd_device {
         struct brw_stats          od_brw_stats;
         cfs_atomic_t              od_r_in_flight;
         cfs_atomic_t              od_w_in_flight;
+
+        cfs_mutex_t               od_mutex;
+        struct osd_otable_it     *od_otable_it;
+        struct osd_scrub          od_scrub;
 };
 
 #define OSD_TRACK_DECLARES
@@ -443,7 +493,9 @@ struct osd_thread_info {
         struct htree_lock     *oti_hlock;
 
         struct lu_fid          oti_fid;
+        struct lu_fid          oti_fid2;
         struct osd_inode_id    oti_id;
+        struct osd_inode_id    oti_id2;
         struct ost_id          oti_ostid;
 
         /*
@@ -497,6 +549,7 @@ struct osd_thread_info {
                 long long      oti_alignment_lieutenant_colonel;
         };
 
+        struct osd_idmap_cache oti_cache;
 
         int                    oti_r_locks;
         int                    oti_w_locks;
@@ -520,6 +573,17 @@ struct osd_thread_info {
 
 extern int ldiskfs_pdo;
 
+enum osd_iget_flags {
+        /* verify with the fid in LMA */
+        OSD_IF_VERIFY   = 1 << 0,
+
+        /* re-generate osd_inode_id */
+        OSD_IF_GEN_LID  = 1 << 1,
+
+        /* return fid */
+        OSD_IF_RET_FID  = 1 << 2,
+};
+
 #ifdef LPROCFS
 /* osd_lproc.c */
 void lprocfs_osd_init_vars(struct lprocfs_static_vars *lvars);
@@ -537,9 +601,9 @@ int osd_object_auth(const struct lu_env *env, struct dt_object *dt,
                     struct lustre_capa *capa, __u64 opc);
 void osd_declare_qid(struct dt_object *dt, struct osd_thandle *oh,
                      int type, uid_t id, struct inode *inode);
-struct inode *osd_iget(struct osd_thread_info *info,
-                       struct osd_device *dev,
-                       const struct osd_inode_id *id);
+struct inode *osd_iget(struct osd_thread_info *info, struct osd_device *dev,
+                       struct osd_inode_id *id, struct lu_fid *fid,
+                       enum osd_iget_flags flags);
 
 int osd_compat_init(struct osd_device *dev);
 void osd_compat_fini(struct osd_device *dev);
@@ -560,6 +624,15 @@ int osd_compat_spec_insert(struct osd_thread_info *info,
                            struct osd_device *osd,
                            const struct lu_fid *fid,
                            const struct osd_inode_id *id, struct thandle *th);
+
+int osd_scrub_start(struct osd_device *dev);
+int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev);
+void osd_scrub_cleanup(const struct lu_env *env, struct osd_device *dev);
+int osd_oii_insert(struct osd_device *dev, struct osd_idmap_cache *oic,
+                   int insert);
+int osd_oii_lookup(struct osd_device *dev, const struct lu_fid *fid,
+                   struct osd_inode_id *id);
+int osd_scrub_dump(struct osd_device *dev, char *buf, int len);
 
 /*
  * Invariants, assertions.
@@ -586,6 +659,8 @@ static inline int osd_invariant(const struct osd_object *obj)
 #else
 #define osd_invariant(obj) (1)
 #endif
+
+extern const struct dt_index_operations osd_otable_ops;
 
 static inline struct osd_oi *osd_fid2oi(struct osd_device *osd,
                                         const struct lu_fid *fid)
@@ -690,6 +765,8 @@ static inline void osd_ipd_put(const struct lu_env *env,
 }
 
 int osd_ldiskfs_read(struct inode *inode, void *buf, int size, loff_t *offs);
+int osd_ldiskfs_write_record(struct inode *inode, void *buf, int bufsize,
+                             loff_t *offs, handle_t *handle);
 
 static inline
 struct dentry *osd_child_dentry_by_inode(const struct lu_env *env,

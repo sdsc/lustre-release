@@ -397,6 +397,18 @@ command_t cmdlist[] = {
          "enable/disable routes via gateway in the portals routing table\n"
          "usage: set_route <gateway> <up/down> [<time>]"},
 
+        /* LFSCK commands */
+        {"==== LFSCK ====", jt_noop, 0, "LFSCK"},
+        {"lfsck_start", jt_lfsck_start, 0, "start LFSCK\n"
+         "usage: lfsck_start <-M | --device MDT_device>\n"
+         "                   [-e | --error error_handle] [-h | --help]\n"
+         "                   [-m | --method iteration_method]\n"
+         "                   [-n | --dryrun switch] [-r | --reset]\n"
+         "                   [-s | --speed speed_limit]\n"
+         "                   [-t | --type lfsck_type[,lfsck_type...]]"},
+        {"lfsck_stop", jt_lfsck_stop, 0, "stop lfsck(s)\n"
+         "usage: lfsck_stop <-M | --device MDT_device> [-h | --help]"},
+
         { 0, 0, 0, NULL }
 };
 
