@@ -5563,6 +5563,18 @@ static int mdt_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
         case OBD_IOC_CHANGELOG_CLEAR:
                 rc = mdt_ioc_child(&env, mdt, cmd, len, karg);
                 break;
+        case OBD_IOC_START_LFSCK:
+        case OBD_IOC_STOP_LFSCK: {
+                struct md_device *next = mdt->mdt_child;
+                void *data;
+
+                if (karg != NULL)
+                        data = ((struct obd_ioctl_data *)karg)->ioc_inlbuf1;
+                else
+                        data = uarg;
+                rc = next->md_ops->mdo_iocontrol(&env, next, cmd, 0, data);
+                break;
+        }
         case OBD_IOC_GET_OBJ_VERSION: {
                 struct mdt_thread_info *mti;
                 mti = lu_context_key_get(&env.le_ctx, &mdt_thread_key);
