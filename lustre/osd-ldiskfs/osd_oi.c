@@ -537,15 +537,15 @@ int osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
         struct osd_inode_id *id;
         const struct dt_key *key;
 
-        if (fid_is_igif(fid))
+        if (fid_is_igif(fid) || unlikely(fid_seq(fid) == FID_SEQ_DOT_LUSTRE))
                 return 0;
 
         if (fid_is_idif(fid) || fid_seq(fid) == FID_SEQ_LLOG)
                 return osd_compat_objid_insert(info, osd, fid, id0, th);
 
-        /* notice we don't return immediately, but continue to get into OI */
+        /* Server mount should not depends on OI files */
         if (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE))
-                osd_compat_spec_insert(info, osd, fid, id0, th);
+                return osd_compat_spec_insert(info, osd, fid, id0, th);
 
         fid_cpu_to_be(oi_fid, fid);
         key = (struct dt_key *)oi_fid;
@@ -590,9 +590,6 @@ int osd_oi_delete(struct osd_thread_info *info,
 {
         struct lu_fid       *oi_fid = &info->oti_fid;
         const struct dt_key *key;
-
-        if (!fid_is_norm(fid))
-                return 0;
 
         LASSERT(fid_seq(fid) != FID_SEQ_LOCAL_FILE);
 
