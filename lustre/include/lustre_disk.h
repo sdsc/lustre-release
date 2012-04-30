@@ -216,6 +216,8 @@ struct lustre_mount_data {
                                         existing MGS services */
 #define LMD_FLG_WRITECONF    0x0040  /* Rewrite config log */
 #define LMD_FLG_NOIR         0x0080  /* NO imperative recovery */
+#define LMD_FLG_NOAUTO_SCRUB 0x0100  /* Do not trigger scrub automatically */
+#define LMD_FLG_SCRUBBED     0x0200  /* OI scrub has been done before. */
 
 #define lmd_is_client(x) ((x)->lmd_flags & LMD_FLG_CLIENT)
 
@@ -478,6 +480,7 @@ struct lustre_sb_info {
 #define     s2lsi_nocast(sb) ((sb)->s_fs_info)
 
 #define     get_profile_name(sb)   (s2lsi(sb)->lsi_lmd->lmd_profile)
+#define     get_mount_flags(sb)    (s2lsi(sb)->lsi_lmd->lmd_flags)
 
 #endif /* __KERNEL__ */
 
