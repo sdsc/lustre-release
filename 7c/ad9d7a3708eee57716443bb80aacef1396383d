@@ -1,0 +1,11 @@
+Verified+1: Hudson
+Code-Review+2: Oleg Drokin <green@whamcloud.com>
+Code-Review+2: Andreas Dilger <adilger@whamcloud.com>
+Code-Review+1: Andrew Perepechko <andrew_perepechko@xyratex.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Andriy Skulysh <Andriy_Skulysh@xyratex.com>
+Submitted-by: Oleg Drokin <green@whamcloud.com>
+Submitted-at: Sun, 29 Apr 2012 21:46:56 -0400
+Reviewed-on: http://review.whamcloud.com/2365
+Project: fs/lustre-release
+Branch: refs/heads/master
