@@ -516,8 +516,8 @@ void llu_clear_inode(struct inode *inode)
                inode);
 
         lli->lli_flags &= ~LLIF_MDS_SIZE_LOCK;
-        md_change_cbdata(sbi->ll_md_exp, ll_inode2fid(inode),
-                         null_if_equal, inode);
+	md_change_cbdata(sbi->ll_md_exp, ll_inode2fid(inode),
+			 NULL, inode);
 
 	lsm = ccc_inode_lsm_get(inode);
 	if (lsm != NULL)
