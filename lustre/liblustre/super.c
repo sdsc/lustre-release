@@ -519,7 +519,7 @@ void llu_clear_inode(struct inode *inode)
 
         lli->lli_flags &= ~LLIF_MDS_SIZE_LOCK;
         md_change_cbdata(sbi->ll_md_exp, ll_inode2fid(inode),
-                         null_if_equal, inode);
+                         NULL, inode);
 
         if (lli->lli_smd)
                 obd_change_cbdata(sbi->ll_dt_exp, lli->lli_smd,
