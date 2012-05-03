@@ -1083,6 +1083,7 @@ static int mdd_declare_unlink(const struct lu_env *env, struct mdd_device *mdd,
                               const struct lu_name *name, struct md_attr *ma,
                               struct thandle *handle)
 {
+	struct lu_attr     *la = &mdd_env_info(env)->mti_la_for_fix;
         int rc;
 
         rc = mdo_declare_index_delete(env, p, name->ln_name, handle);
@@ -1101,9 +1102,12 @@ static int mdd_declare_unlink(const struct lu_env *env, struct mdd_device *mdd,
         if (rc)
                 return rc;
 
-        rc = mdo_declare_attr_set(env, p, NULL, handle);
-        if (rc)
-                return rc;
+	LASSERT(ma->ma_attr.la_valid & LA_CTIME);
+	la->la_ctime = la->la_mtime = ma->ma_attr.la_ctime;
+	la->la_valid = LA_CTIME | LA_MTIME;
+	rc = mdo_declare_attr_set(env, p, la, handle);
+	if (rc)
+		return rc;
 
         rc = mdo_declare_attr_set(env, c, NULL, handle);
         if (rc)
@@ -1650,7 +1654,6 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
 out:
         return rc;
 }
-
 
 /*
  * Create object and insert it into namespace.

@@ -686,7 +686,6 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 		if (rc)
 			GOTO(out_precreat, rc);
 	}
-
 	/*
 	 * Initiate connect to OST
 	 */
@@ -711,11 +710,14 @@ out_precreat:
 	if (!m->opd_connect_mdt)
 		osp_precreate_fini(m);
 out_last_used:
-	osp_last_used_fini(env, m);
+	if (!m->opd_connect_mdt)
+		osp_last_used_fini(env, m);
 out_proc:
 	ptlrpc_lprocfs_unregister_obd(obd);
 	lprocfs_obd_cleanup(obd);
 	class_destroy_import(obd->u.cli.cl_import);
+	if (m->opd_symlink)
+		lprocfs_remove(&m->opd_symlink);
 	client_obd_cleanup(obd);
 out_ref:
 	ptlrpcd_decref();

@@ -3210,6 +3210,10 @@ static int osd_index_ea_delete(const struct lu_env *env, struct dt_object *dt,
 	if (rc != 0)
 		GOTO(out, rc);
 
+	/* NO agent inode for .., though it might be in other MDT */
+	if (strcmp((char *)key, "..") == 0 && strlen((char *)key) == 2)
+		GOTO(out, rc);
+
 	LASSERT(de != NULL);
 	rc = osd_get_fid_from_dentry(de, (struct dt_rec *)fid);
 	if (rc == 0 && osd_remote_fid(env, osd, fid)) {
