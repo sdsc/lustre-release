@@ -345,7 +345,9 @@ static void ll_d_add(struct dentry *de, struct inode *inode)
         de->d_inode = inode;
         /* d_instantiate() replacement code should initialize security
          * context. */
-        security_d_instantiate(de, inode);
+	spin_unlock(&dcache_lock);
+	security_d_instantiate(de, inode);
+	spin_lock(&dcache_lock);
 
         /* d_rehash */
         if (!d_unhashed(de)) {
