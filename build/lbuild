@@ -78,7 +78,7 @@ KERNELTREE=
 # default to not adding -lustre- into the kernel RPM package names
 KERNEL_LUSTRE_NAMING=false
 # default not use kabi check.
-USE_KABI=false
+USE_KABI=true
 
 # patchless build
 KERNELRPMSBASE=
