@@ -1062,6 +1062,8 @@ static int mdt_unlink_unpack(struct mdt_thread_info *info)
 
         info->mti_spec.no_create = !!req_is_replay(mdt_info_req(info));
 
+	info->mti_cross_ref = !!(rec->ul_bias & MDS_CROSS_REF);
+
         rc = mdt_dlmreq_unpack(info);
         RETURN(rc);
 }

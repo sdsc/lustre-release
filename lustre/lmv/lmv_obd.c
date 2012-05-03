@@ -2552,6 +2552,52 @@ cleanup:
         return rc;
 }
 
+static int lmv_unlink_remote(struct obd_export *exp,
+			     struct ptlrpc_request **reqp,
+			     struct md_op_data *op_data)
+{
+	struct obd_device      *obd = exp->exp_obd;
+	struct lmv_obd	 *lmv = &obd->u.lmv;
+	struct ptlrpc_request  *req = NULL;
+	struct lmv_tgt_desc    *tgt;
+	struct mdt_body	*body;
+	int		     rc = 0;
+	ENTRY;
+
+	LASSERT(reqp != NULL && *reqp != NULL);
+
+	body = req_capsule_server_get(&(*reqp)->rq_pill, &RMF_MDT_BODY);
+	if (body == NULL)
+		RETURN(-EPROTO);
+	/*
+	 * Not cross-ref case, just get out of here.
+	 */
+	if (!(body->valid & OBD_MD_MDS))
+		RETURN(0);
+
+	LASSERT(fid_is_sane(&body->fid1));
+	tgt = lmv_find_target(lmv, &body->fid1);
+	if (IS_ERR(tgt))
+		RETURN(PTR_ERR(tgt));
+
+	op_data->op_fid2 = body->fid1;
+	op_data->op_bias = MDS_CROSS_REF;
+	CDEBUG(D_INODE, "REMOTE_unlink with fid="DFID" -> mds #%d\n",
+	       PFID(&body->fid1), tgt->ltd_idx);
+
+	rc = md_unlink(tgt->ltd_exp, op_data, &req);
+	if (rc != 0)
+		CERROR("%s: dir "DFID":"DFID" %*s: failed mdt#%d : rc = %d\n",
+			exp->exp_obd->obd_name, PFID(&op_data->op_fid1),
+			PFID(&op_data->op_fid2), op_data->op_namelen,
+			op_data->op_name, tgt->ltd_idx, rc);
+
+	ptlrpc_req_finished(*reqp);
+	*reqp = req;
+
+	RETURN(rc);
+}
+
 static int lmv_unlink(struct obd_export *exp, struct md_op_data *op_data,
                       struct ptlrpc_request **request)
 {
@@ -2633,7 +2679,26 @@ repeat:
                 if (rc == 0)
                         goto repeat;
         }
-        RETURN(rc);
+
+	if (rc != 0 && rc != -EREMOTE) {
+		CERROR("%s: dir "DFID"%*s: unlink failed: rc = %d\n",
+			exp->exp_obd->obd_name, PFID(&op_data->op_fid1),
+			op_data->op_namelen, op_data->op_name, rc);
+		RETURN(rc);
+	}
+
+	/*
+	 * Okay, MDS has returned success. Probably name has been resolved in
+	 * remote inode.
+	 */
+	rc = lmv_unlink_remote(exp, request, op_data);
+	if (rc != 0)
+		CDEBUG(D_INODE, "%s: Can't handle remote unlink: dir "DFID
+		       "%*s: %d\n", exp->exp_obd->obd_name,
+		       PFID(&op_data->op_fid1), op_data->op_namelen,
+		       op_data->op_name, rc);
+
+	RETURN(rc);
 }
 
 static int lmv_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)

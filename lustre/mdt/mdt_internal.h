@@ -329,6 +329,9 @@ struct tx_arg {
 			struct lu_buf	       buf;
 			loff_t		      pos;
 		} write;
+		struct {
+			struct ost_body	    *body;
+		} destroy;
 	} u;
 };
 
@@ -1075,5 +1078,6 @@ int mds_mod_init(void);
 void mds_mod_exit(void);
 
 int out_handle(struct mdt_thread_info *info);
+
 #endif /* __KERNEL__ */
 #endif /* _MDT_H */

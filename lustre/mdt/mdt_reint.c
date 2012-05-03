@@ -629,65 +629,95 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
                 RETURN(err_serious(-ENOENT));
 
         /*
-	 * step 1: lock the parent.
+	 * step 1: Found the parent.
          */
-        parent_lh = &info->mti_lh[MDT_LH_PARENT];
-	mdt_lock_pdo_init(parent_lh, LCK_PW, rr->rr_name,
-			  rr->rr_namelen);
+	mp = mdt_object_find(info->mti_env, info->mti_mdt, rr->rr_fid1);
+	if (IS_ERR(mp)) {
+		rc = PTR_ERR(mp);
+		GOTO(out, rc);
+	}
 
-        mp = mdt_object_find_lock(info, rr->rr_fid1, parent_lh,
-                                  MDS_INODELOCK_UPDATE);
-	if (IS_ERR(mp))
-		GOTO(out, rc = PTR_ERR(mp));
+	if (mdt_object_obf(mp))
+		GOTO(put_parent, rc = -EPERM);
 
-        if (mdt_object_obf(mp))
-                GOTO(out_unlock_parent, rc = -EPERM);
+	parent_lh = &info->mti_lh[MDT_LH_PARENT];
+	lname = mdt_name(info->mti_env, (char *)rr->rr_name, rr->rr_namelen);
+	if (mdt_object_exists(mp) < 0) {
+		if (info->mti_cross_ref == 0) {
+			CERROR("%s: parent "DFID" is on another MDT!\n",
+				mdt2obd_dev(info->mti_mdt)->obd_name,
+				PFID(mdt_object_fid(mp)));
+			GOTO(put_parent, rc = -ENOENT);
+		}
 
-        rc = mdt_version_get_check_save(info, mp, 0);
-        if (rc)
-                GOTO(out_unlock_parent, rc);
+		mdt_lock_reg_init(parent_lh, LCK_EX);
+		rc = mdt_remote_object_lock(info, mp, &parent_lh->mlh_rreg_lh,
+					    parent_lh->mlh_rreg_mode,
+					    MDS_INODELOCK_UPDATE);
+		if (rc != ELDLM_OK)
+			GOTO(put_parent, rc);
+
+		fid_zero(child_fid);
+		rc = mdt_lookup_version_check(info, mp, lname, child_fid, 1);
+		if (rc != 0)
+			GOTO(unlock_parent, rc);
+	} else {
+		mdt_lock_pdo_init(parent_lh, LCK_PW, rr->rr_name,
+				  rr->rr_namelen);
+		rc = mdt_object_lock(info, mp, parent_lh, MDS_INODELOCK_UPDATE,
+				     MDT_LOCAL_LOCK);
+		if (rc)
+			GOTO(put_parent, rc);
+
+		rc = mdt_version_get_check_save(info, mp, 0);
+		if (rc)
+			GOTO(unlock_parent, rc);
+
+		/* step 2: find & lock the child */
+		/* lookup child object along with version checking */
+		fid_zero(child_fid);
+		rc = mdt_lookup_version_check(info, mp, lname, child_fid, 1);
+		if (rc != 0)
+			GOTO(unlock_parent, rc);
+	}
 
         mdt_reint_init_ma(info, ma);
 
-        /* step 2: find & lock the child */
-        lname = mdt_name(info->mti_env, (char *)rr->rr_name, rr->rr_namelen);
-        /* lookup child object along with version checking */
-        fid_zero(child_fid);
-        rc = mdt_lookup_version_check(info, mp, lname, child_fid, 1);
-        if (rc != 0)
-                 GOTO(out_unlock_parent, rc);
+	/* We will lock the child regardless it is local or remote. No harm. */
+	mc = mdt_object_find(info->mti_env, info->mti_mdt, child_fid);
+	if (IS_ERR(mc))
+		GOTO(unlock_parent, rc = PTR_ERR(mc));
 
-        /* We will lock the child regardless it is local or remote. No harm. */
-        mc = mdt_object_find(info->mti_env, info->mti_mdt, child_fid);
-        if (IS_ERR(mc))
-                GOTO(out_unlock_parent, rc = PTR_ERR(mc));
         child_lh = &info->mti_lh[MDT_LH_CHILD];
         mdt_lock_reg_init(child_lh, LCK_EX);
 	if (mdt_object_exists(mc) < 0) {
-		/* Get Update lock from remote object,
-		 * and release this lock in mdt_object_unlock_put */
+		struct mdt_body	 *repbody;
 
-		/* FIXME: Current we only put UPDATE lock on remote node.
-		 * But for a file/directory with remote entry. There are
-		 * actually both LOOKUP|UPDATE lock on remote node. There
-		 * are two separate LOOKUP locks to cover a remote entry
-		 * - one on the remote namespace and one on the master
-		 * namespace. The remote LOOKUP lock only covers the existence
-		 * of the name, while the master LOOKUP lock covers
-		 * the permission bits and any local names.
-		 */
-		rc = mdt_remote_object_lock(info, mc, &child_lh->mlh_rreg_lh,
-					    child_lh->mlh_rreg_mode,
-					    MDS_INODELOCK_UPDATE);
-		if (rc != ELDLM_OK)
-			RETURN(rc);
+		CDEBUG(D_INFO, "%s: name %s: "DFID" is another MDT\n",
+		       mdt2obd_dev(info->mti_mdt)->obd_name,
+		       (char *)rr->rr_name, PFID(mdt_object_fid(mc)));
+
+		/* Revoke the LOOKUP lock of the remote object granted by
+		 * this MDT. Since the unlink will happen on another MDT,
+		 * it will release the LOOKUP lock right away. Then What
+		 * would happen if another client try to grab the LOOKUP
+		 * lock at the same time with unlink XXX */
+		mdt_object_lock(info, mc, child_lh, MDS_INODELOCK_LOOKUP,
+				MDT_CROSS_LOCK);
+		repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+		LASSERT(repbody != NULL);
+		repbody->fid1 = *mdt_object_fid(mc);
+		repbody->valid |= (OBD_MD_FLID | OBD_MD_MDS);
+		mdt_object_unlock_put(info, mc, child_lh, rc);
+		GOTO(unlock_parent, rc = -EREMOTE);
 	}
+
         rc = mdt_object_lock(info, mc, child_lh, MDS_INODELOCK_FULL,
                              MDT_CROSS_LOCK);
-        if (rc != 0) {
-                mdt_object_put(info->mti_env, mc);
-                GOTO(out_unlock_parent, rc);
-        }
+	if (rc != 0) {
+		mdt_object_put(info->mti_env, mc);
+		GOTO(unlock_parent, rc);
+	}
 
         mdt_fail_write(info->mti_env, info->mti_mdt->mdt_bottom,
                        OBD_FAIL_MDS_REINT_UNLINK_WRITE);
@@ -729,8 +759,10 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
         EXIT;
 
         mdt_object_unlock_put(info, mc, child_lh, rc);
-out_unlock_parent:
-        mdt_object_unlock_put(info, mp, parent_lh, rc);
+unlock_parent:
+	mdt_object_unlock(info, mp, parent_lh, rc);
+put_parent:
+	mdt_object_put(info->mti_env, mp);
 out:
         return rc;
 }
