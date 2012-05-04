@@ -1,5 +1,5 @@
 /* -*- mode: c; c-basic-offset: 8; indent-tabs-mode: nil; -*-
- * vim:expandtab:shiftwidth=8:tabstop=8:
+ * vim:shiftwidth=8:tabstop=8:
  *
  * GPL HEADER START
  *
@@ -909,9 +909,9 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 
         rc = mdt_object_exists(parent);
         if (unlikely(rc == 0)) {
-                LU_OBJECT_DEBUG(D_WARNING, info->mti_env,
-                                &parent->mot_obj.mo_lu,
-                                "Parent doesn't exist!\n");
+		LU_OBJECT_DEBUG(D_INODE, info->mti_env,
+				&parent->mot_obj.mo_lu,
+				"Parent doesn't exist!\n");
                 RETURN(-ESTALE);
         } else if (!info->mti_cross_ref) {
                 LASSERTF(rc > 0, "Parent "DFID" is on remote server\n",
