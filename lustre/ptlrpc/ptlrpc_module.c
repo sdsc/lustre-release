@@ -207,6 +207,7 @@ EXPORT_SYMBOL(ptlrpc_req_set_repsize);
 EXPORT_SYMBOL(ptlrpc_request_set_replen);
 
 EXPORT_SYMBOL(ptlrpc_prep_set);
+EXPORT_SYMBOL(ptlrpc_prep_fcset);
 EXPORT_SYMBOL(ptlrpc_set_add_cb);
 EXPORT_SYMBOL(ptlrpc_set_add_req);
 EXPORT_SYMBOL(ptlrpc_set_add_new_req);

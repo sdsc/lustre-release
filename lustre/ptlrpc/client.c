@@ -54,6 +54,8 @@
 
 #include "ptlrpc_internal.h"
 
+static int ptlrpc_send_new_req(struct ptlrpc_request *req);
+
 /**
  * Initialize passed in client structure \a cl.
  */
@@ -862,6 +864,33 @@ struct ptlrpc_request_set *ptlrpc_prep_set(void)
         cfs_spin_lock_init(&set->set_new_req_lock);
         CFS_INIT_LIST_HEAD(&set->set_new_requests);
         CFS_INIT_LIST_HEAD(&set->set_cblist);
+        set->set_max_inflight = UINT_MAX;
+        set->set_producer     = NULL;
+
+        RETURN(set);
+}
+
+/**
+ * Allocate and initialize new request set structure with flow control
+ * extension. This extension allows to control the number of requests in-flight
+ * for the whole set. A callback function to generate requests must be provided
+ * and the request set will keep the number of requests sent over the wire to
+ * @max_inflight.
+ * Returns a pointer to the newly allocated set structure or NULL on error.
+ */
+struct ptlrpc_request_set *ptlrpc_prep_fcset(int max, set_producer_func func,
+                                             void *arg)
+
+{
+        struct ptlrpc_request_set *set;
+
+        set = ptlrpc_prep_set();
+        if (!set)
+                RETURN(NULL);
+
+        set->set_max_inflight  = max;
+        set->set_producer      = func;
+        set->set_producer_arg  = arg;
 
         RETURN(set);
 }
@@ -960,6 +989,10 @@ void ptlrpc_set_add_req(struct ptlrpc_request_set *set,
         req->rq_set = set;
         cfs_atomic_inc(&set->set_remaining);
         req->rq_queued_time = cfs_time_current();
+        if (set->set_producer)
+                /* If the request set has a producer callback, the RPC must be
+                 * sent straight away */
+                ptlrpc_send_new_req(req);
 }
 
 /**
@@ -1392,6 +1425,29 @@ static int ptlrpc_send_new_req(struct ptlrpc_request *req)
         RETURN(0);
 }
 
+static inline int ptlrpc_set_producer(struct ptlrpc_request_set *set)
+{
+        int remaining, rc;
+
+        LASSERT(set->set_producer);
+
+        remaining = cfs_atomic_read(&set->set_remaining);
+
+        /* populate the ->set_requests list with requests until we
+         * reach the maximum number of RPCs in flight for this set */
+        while (cfs_atomic_read(&set->set_remaining) < set->set_max_inflight) {
+                rc = set->set_producer(set, set->set_producer_arg);
+                if (rc == -ENOENT) {
+                        /* no more RPC to produce */
+                        set->set_producer = NULL;
+                        set->set_producer_arg = NULL;
+                        break;
+                }
+        }
+
+        return (cfs_atomic_read(&set->set_remaining) - remaining);
+}
+
 /**
  * this sends any unsent RPCs in \a set and returns 1 if all are sent
  * and no more replies are expected.
@@ -1730,6 +1786,9 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 
                 cfs_atomic_dec(&set->set_remaining);
                 cfs_waitq_broadcast(&imp->imp_recovery_waitq);
+
+                if (set->set_producer && ptlrpc_set_producer(set) > 0)
+                        force_timer_recalc = 1;
         }
 
         /* If we hit an error, we want to recover promptly. */
@@ -1959,14 +2018,18 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
         int                    rc, timeout;
         ENTRY;
 
+        if (set->set_producer)
+                (void)ptlrpc_set_producer(set);
+        else
+                cfs_list_for_each(tmp, &set->set_requests) {
+                        req = cfs_list_entry(tmp, struct ptlrpc_request,
+                                             rq_set_chain);
+                        if (req->rq_phase == RQ_PHASE_NEW)
+                                (void)ptlrpc_send_new_req(req);
+                }
+
         if (cfs_list_empty(&set->set_requests))
                 RETURN(0);
-
-        cfs_list_for_each(tmp, &set->set_requests) {
-                req = cfs_list_entry(tmp, struct ptlrpc_request, rq_set_chain);
-                if (req->rq_phase == RQ_PHASE_NEW)
-                        (void)ptlrpc_send_new_req(req);
-        }
 
         do {
                 timeout = ptlrpc_set_next_timeout(set);
