@@ -248,8 +248,11 @@ int mdt_lookup_version_check(struct mdt_thread_info *info,
 
         info->mti_ver[idx] = ENOENT_VERSION;
         if (rc == 0) {
+                struct lu_object_conf *conf = &info->mti_conf;
                 struct mdt_object *child;
-                child = mdt_object_find(info->mti_env, info->mti_mdt, fid);
+
+                conf->loc_flags = LOC_F_EXIST;
+                child = mdt_object_find(info->mti_env, info->mti_mdt, fid,conf);
                 if (likely(!IS_ERR(child))) {
                         mdt_obj_version_get(info, child, &info->mti_ver[idx]);
                         mdt_object_put(info->mti_env, child);
@@ -277,6 +280,7 @@ static int mdt_md_create(struct mdt_thread_info *info)
         struct mdt_body         *repbody;
         struct md_attr          *ma = &info->mti_attr;
         struct mdt_reint_record *rr = &info->mti_rr;
+        struct lu_object_conf   *conf = &info->mti_conf;
         struct lu_name          *lname;
         int rc;
         ENTRY;
@@ -289,7 +293,7 @@ static int mdt_md_create(struct mdt_thread_info *info)
         lh = &info->mti_lh[MDT_LH_PARENT];
         mdt_lock_pdo_init(lh, LCK_PW, rr->rr_name, rr->rr_namelen);
 
-        parent = mdt_object_find_lock(info, rr->rr_fid1, lh,
+        parent = mdt_object_find_lock(info, rr->rr_fid1, lh, NULL,
                                       MDS_INODELOCK_UPDATE);
         if (IS_ERR(parent))
                 RETURN(PTR_ERR(parent));
@@ -308,14 +312,18 @@ static int mdt_md_create(struct mdt_thread_info *info)
         lname = mdt_name(info->mti_env, (char *)rr->rr_name, rr->rr_namelen);
         rc = mdt_lookup_version_check(info, parent, lname,
                                       &info->mti_tmp_fid1, 1);
+        if (rc == 0)
+                GOTO(out_put_parent, rc = -EEXIST);
+
         /* -ENOENT is expected here */
-        if (rc != 0 && rc != -ENOENT)
+        if (rc != -ENOENT)
                 GOTO(out_put_parent, rc);
 
         /* save version of file name for replay, it must be ENOENT here */
         mdt_enoent_version_save(info, 1);
 
-        child = mdt_object_find(info->mti_env, mdt, rr->rr_fid2);
+        conf->loc_flags = LOC_F_NEW;
+        child = mdt_object_find(info->mti_env, mdt, rr->rr_fid2, conf);
         if (likely(!IS_ERR(child))) {
                 struct md_object *next = mdt_object_child(parent);
 
@@ -343,7 +351,7 @@ static int mdt_md_create(struct mdt_thread_info *info)
                  * Do perform lookup sanity check. We do not know if name exists
                  * or not.
                  */
-                info->mti_spec.sp_cr_lookup = 1;
+                info->mti_spec.sp_cr_lookup = 0;
                 info->mti_spec.sp_feat = &dt_directory_features;
 
                 rc = mdo_create(info->mti_env, next, lname,
@@ -381,7 +389,7 @@ static int mdt_md_mkobj(struct mdt_thread_info *info)
 
         repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
 
-        o = mdt_object_find(info->mti_env, mdt, info->mti_rr.rr_fid2);
+        o = mdt_object_find(info->mti_env, mdt, info->mti_rr.rr_fid2, NULL);
         if (!IS_ERR(o)) {
                 struct md_object *next = mdt_object_child(o);
 
@@ -490,7 +498,7 @@ static int mdt_reint_setattr(struct mdt_thread_info *info,
                 ldlm_request_cancel(req, info->mti_dlm_req, 0);
 
         repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
-        mo = mdt_object_find(info->mti_env, info->mti_mdt, rr->rr_fid1);
+        mo = mdt_object_find(info->mti_env, info->mti_mdt, rr->rr_fid1, NULL);
         if (IS_ERR(mo))
                 GOTO(out, rc = PTR_ERR(mo));
 
@@ -666,6 +674,7 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
         struct mdt_lock_handle  *parent_lh;
         struct mdt_lock_handle  *child_lh;
         struct lu_name          *lname;
+        struct lu_object_conf   *conf = &info->mti_conf;
         int                      rc;
         ENTRY;
 
@@ -693,7 +702,7 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
                 mdt_lock_pdo_init(parent_lh, LCK_PW, rr->rr_name,
                                   rr->rr_namelen);
         }
-        mp = mdt_object_find_lock(info, rr->rr_fid1, parent_lh,
+        mp = mdt_object_find_lock(info, rr->rr_fid1, parent_lh, NULL,
                                   MDS_INODELOCK_UPDATE);
         if (IS_ERR(mp)) {
                 rc = PTR_ERR(mp);
@@ -740,8 +749,9 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
         if (rc != 0)
                  GOTO(out_unlock_parent, rc);
 
+        conf->loc_flags = LOC_F_EXIST;
         /* We will lock the child regardless it is local or remote. No harm. */
-        mc = mdt_object_find(info->mti_env, info->mti_mdt, child_fid);
+        mc = mdt_object_find(info->mti_env, info->mti_mdt, child_fid, conf);
         if (IS_ERR(mc))
                 GOTO(out_unlock_parent, rc = PTR_ERR(mc));
         child_lh = &info->mti_lh[MDT_LH_CHILD];
@@ -828,7 +838,7 @@ static int mdt_reint_link(struct mdt_thread_info *info,
                 /* MDT holding name ask us to add ref. */
                 lhs = &info->mti_lh[MDT_LH_CHILD];
                 mdt_lock_reg_init(lhs, LCK_EX);
-                ms = mdt_object_find_lock(info, rr->rr_fid1, lhs,
+                ms = mdt_object_find_lock(info, rr->rr_fid1, lhs, NULL,
                                           MDS_INODELOCK_UPDATE);
                 if (IS_ERR(ms))
                         RETURN(PTR_ERR(ms));
@@ -848,7 +858,7 @@ static int mdt_reint_link(struct mdt_thread_info *info,
         lhp = &info->mti_lh[MDT_LH_PARENT];
         mdt_lock_pdo_init(lhp, LCK_PW, rr->rr_name,
                           rr->rr_namelen);
-        mp = mdt_object_find_lock(info, rr->rr_fid2, lhp,
+        mp = mdt_object_find_lock(info, rr->rr_fid2, lhp, NULL,
                                   MDS_INODELOCK_UPDATE);
         if (IS_ERR(mp))
                 RETURN(PTR_ERR(mp));
@@ -864,7 +874,7 @@ static int mdt_reint_link(struct mdt_thread_info *info,
         lhs = &info->mti_lh[MDT_LH_CHILD];
         mdt_lock_reg_init(lhs, LCK_EX);
 
-        ms = mdt_object_find(info->mti_env, info->mti_mdt, rr->rr_fid1);
+        ms = mdt_object_find(info->mti_env, info->mti_mdt, rr->rr_fid1, NULL);
         if (IS_ERR(ms))
                 GOTO(out_unlock_parent, rc = PTR_ERR(ms));
 
@@ -952,6 +962,7 @@ static int mdt_reint_rename_tgt(struct mdt_thread_info *info)
         struct mdt_lock_handle  *lh_tgt = NULL;
         struct lu_fid           *tgt_fid = &info->mti_tmp_fid1;
         struct lu_name          *lname;
+        struct lu_object_conf   *conf = &info->mti_conf;
         int                      rc;
         ENTRY;
 
@@ -962,7 +973,7 @@ static int mdt_reint_rename_tgt(struct mdt_thread_info *info)
         lh_tgtdir = &info->mti_lh[MDT_LH_PARENT];
         mdt_lock_pdo_init(lh_tgtdir, LCK_PW, rr->rr_tgt,
                           rr->rr_tgtlen);
-        mtgtdir = mdt_object_find_lock(info, rr->rr_fid1, lh_tgtdir,
+        mtgtdir = mdt_object_find_lock(info, rr->rr_fid1, lh_tgtdir, NULL,
                                        MDS_INODELOCK_UPDATE);
         if (IS_ERR(mtgtdir))
                 RETURN(PTR_ERR(mtgtdir));
@@ -985,7 +996,8 @@ static int mdt_reint_rename_tgt(struct mdt_thread_info *info)
                 lh_tgt = &info->mti_lh[MDT_LH_CHILD];
                 mdt_lock_reg_init(lh_tgt, LCK_EX);
 
-                mtgt = mdt_object_find_lock(info, tgt_fid, lh_tgt,
+                conf->loc_flags = LOC_F_EXIST;
+                mtgt = mdt_object_find_lock(info, tgt_fid, lh_tgt, conf,
                                             MDS_INODELOCK_LOOKUP);
                 if (IS_ERR(mtgt))
                         GOTO(out_unlock_tgtdir, rc = PTR_ERR(mtgt));
@@ -1077,12 +1089,15 @@ static int mdt_rename_sanity(struct mdt_thread_info *info, struct lu_fid *fid)
         struct mdt_reint_record *rr = &info->mti_rr;
         struct lu_fid dst_fid = *rr->rr_fid2;
         struct mdt_object *dst;
+        struct lu_object_conf *conf = &info->mti_conf;
         int rc = 0;
         ENTRY;
 
         do {
                 LASSERT(fid_is_sane(&dst_fid));
-                dst = mdt_object_find(info->mti_env, info->mti_mdt, &dst_fid);
+                conf->loc_flags = LOC_F_EXIST;
+                dst = mdt_object_find(info->mti_env, info->mti_mdt, &dst_fid,
+                                      conf);
                 if (!IS_ERR(dst)) {
                         rc = mdo_is_subdir(info->mti_env,
                                            mdt_object_child(dst), fid,
@@ -1127,6 +1142,7 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
         struct lustre_handle     rename_lh = { 0 };
         struct lu_name           slname = { 0 };
         struct lu_name          *lname;
+        struct lu_object_conf   *conf = &info->mti_conf;
         int                      rc;
         ENTRY;
 
@@ -1154,7 +1170,7 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
         lh_srcdirp = &info->mti_lh[MDT_LH_PARENT];
         mdt_lock_pdo_init(lh_srcdirp, LCK_PW, rr->rr_name,
                           rr->rr_namelen);
-        msrcdir = mdt_object_find_lock(info, rr->rr_fid1, lh_srcdirp,
+        msrcdir = mdt_object_find_lock(info, rr->rr_fid1, lh_srcdirp, NULL,
                                        MDS_INODELOCK_UPDATE);
         if (IS_ERR(msrcdir))
                 GOTO(out_rename_lock, rc = PTR_ERR(msrcdir));
@@ -1182,7 +1198,7 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
                 }
         } else {
                 mtgtdir = mdt_object_find(info->mti_env, info->mti_mdt,
-                                          rr->rr_fid2);
+                                          rr->rr_fid2, NULL);
                 if (IS_ERR(mtgtdir))
                         GOTO(out_unlock_source, rc = PTR_ERR(mtgtdir));
 
@@ -1220,7 +1236,8 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
         if (lu_fid_eq(old_fid, rr->rr_fid1) || lu_fid_eq(old_fid, rr->rr_fid2))
                 GOTO(out_unlock_target, rc = -EINVAL);
 
-        mold = mdt_object_find(info->mti_env, info->mti_mdt, old_fid);
+        conf->loc_flags = LOC_F_EXIST;
+        mold = mdt_object_find(info->mti_env, info->mti_mdt, old_fid, conf);
         if (IS_ERR(mold))
                 GOTO(out_unlock_target, rc = PTR_ERR(mold));
 
@@ -1254,7 +1271,9 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
                         GOTO(out_unlock_old, rc = -EINVAL);
 
                 mdt_lock_reg_init(lh_newp, LCK_EX);
-                mnew = mdt_object_find(info->mti_env, info->mti_mdt, new_fid);
+                conf->loc_flags = LOC_F_EXIST;
+                mnew = mdt_object_find(info->mti_env, info->mti_mdt, new_fid,
+                                       conf);
                 if (IS_ERR(mnew))
                         GOTO(out_unlock_old, rc = PTR_ERR(mnew));
 

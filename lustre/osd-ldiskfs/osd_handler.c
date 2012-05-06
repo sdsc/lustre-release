@@ -248,31 +248,109 @@ static struct lu_object *osd_object_alloc(const struct lu_env *env,
         }
 }
 
+/**
+ * Helper function to form igif
+ */
+static inline void osd_igif_get(struct inode *inode, struct lu_fid *fid)
+{
+        LU_IGIF_BUILD(fid, inode->i_ino, inode->i_generation);
+}
+
+static int
+osd_iget_internal(struct osd_thread_info *info, struct inode *inode,
+                  struct osd_inode_id *id, struct lu_fid *fid,
+                  enum osd_iget_flags flags)
+{
+        struct dentry           *dentry = &info->oti_obj_dentry;
+        struct lustre_mdt_attrs *lma = &info->oti_mdt_attrs;
+        int                      rc;
+
+        if (flags == 0)
+                return 0;
+
+        if (flags & OSD_IF_GEN_LID) {
+                osd_id_gen(id, inode->i_ino, inode->i_generation);
+                if (flags == OSD_IF_GEN_LID)
+                        return 0;
+        }
+
+        LASSERT(fid != NULL);
+
+        if (flags & OSD_IF_VERIFY)
+                LASSERT(fid_is_norm(fid));
+
+        dentry->d_inode = inode;
+        rc = inode->i_op->getxattr(dentry, XATTR_NAME_LMA, (void *)lma,
+                                   sizeof(*lma));
+        if (rc > 0) {
+                /* Check LMA compatibility */
+                if (lma->lma_incompat & ~cpu_to_le32(LMA_INCOMPAT_SUPP)) {
+                        CWARN("%.16s: unsupported incompat LMA feature(s) "
+                              "%lx/%#x\n",
+                              LDISKFS_SB(inode->i_sb)->s_es->s_volume_name,
+                              inode->i_ino, le32_to_cpu(lma->lma_incompat) &
+                                                        ~LMA_INCOMPAT_SUPP);
+                        return -ENOSYS;
+                } else {
+                        lustre_lma_swab(lma);
+                        if (flags & OSD_IF_VERIFY) {
+                                if (!lu_fid_eq(fid, &lma->lma_self_fid)) {
+                                        CDEBUG(D_LFSCK, "inconsistent obj: "
+                                               DFID", %lu, "DFID"\n",
+                                               PFID(&lma->lma_self_fid),
+                                               inode->i_ino, PFID(fid));
+                                        return -EREMCHG;
+                                }
+                        } else if (flags & OSD_IF_RET_FID) {
+                                memcpy(fid, &lma->lma_self_fid, sizeof(*fid));
+                        }
+                }
+        } else if (rc == -ENODATA) {
+                if (flags & OSD_IF_VERIFY) {
+                        CDEBUG(D_LFSCK, "inconsistent obj: NULL, %lu, "DFID"\n",
+                               inode->i_ino, PFID(fid));
+                        return -EREMCHG;
+                } else if (flags & OSD_IF_RET_FID) {
+                        osd_igif_get(inode, fid);
+                }
+        } else {
+                LASSERT(rc != 0);
+
+                return rc;
+        }
+        return 0;
+}
+
 /*
  * retrieve object from backend ext fs.
  **/
-struct inode *osd_iget(struct osd_thread_info *info,
-                       struct osd_device *dev,
-                       const struct osd_inode_id *id)
+struct inode *osd_iget(struct osd_thread_info *info, struct osd_device *dev,
+                       struct osd_inode_id *id, struct lu_fid *fid,
+                       enum osd_iget_flags flags)
 {
         struct inode *inode = NULL;
+        char         *name  = dev->od_dt_dev.dd_lu_dev.ld_obd->obd_name;
+        int           rc;
 
         inode = ldiskfs_iget(osd_sb(dev), id->oii_ino);
         if (IS_ERR(inode)) {
-                CERROR("Cannot get inode, rc = %li\n", PTR_ERR(inode));
+                CWARN("%s: no inode: ino = %u, rc = %ld\n",
+                      name, id->oii_ino, PTR_ERR(inode));
         } else if (id->oii_gen != OSD_OII_NOGEN &&
                    inode->i_generation != id->oii_gen) {
+                CWARN("%s: unmatched inode: ino = %u, gen0 = %u, gen1 = %u\n",
+                      name, id->oii_ino, id->oii_gen, inode->i_generation);
                 iput(inode);
                 inode = ERR_PTR(-ESTALE);
         } else if (inode->i_nlink == 0) {
                 /* due to parallel readdir and unlink,
                 * we can have dead inode here. */
-                CWARN("stale inode\n");
+                CWARN("%s: stale inode: ino = %u\n", name, id->oii_ino);
                 make_bad_inode(inode);
                 iput(inode);
                 inode = ERR_PTR(-ESTALE);
         } else if (is_bad_inode(inode)) {
-                CERROR("bad inode %lx\n",inode->i_ino);
+                CWARN("%s: bad inode: ino = %u\n", name, id->oii_ino);
                 iput(inode);
                 inode = ERR_PTR(-ENOENT);
         } else {
@@ -283,19 +361,30 @@ struct inode *osd_iget(struct osd_thread_info *info,
                  * between if (...) and set S_NOCMTIME. */
                 if (!(inode->i_flags & S_NOCMTIME))
                         inode->i_flags |= S_NOCMTIME;
+
+                rc = osd_iget_internal(info, inode, id, fid, flags);
+                if (rc != 0) {
+                        iput(inode);
+                        inode = ERR_PTR(rc);
+                }
         }
         return inode;
 }
 
-static int osd_fid_lookup(const struct lu_env *env,
-                          struct osd_object *obj, const struct lu_fid *fid)
+static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
+                          const struct lu_fid *fid,
+                          const struct lu_object_conf *conf)
 {
         struct osd_thread_info *info;
         struct lu_device       *ldev = obj->oo_dt.do_lu.lo_dev;
         struct osd_device      *dev;
+        struct osd_idmap_cache *oic;
         struct osd_inode_id    *id;
         struct inode           *inode;
+        struct osd_scrub       *scrub;
+        struct scrub_file      *sf;
         int                     result;
+        enum osd_iget_flags     flags = 0;
 
         LINVRNT(osd_invariant(obj));
         LASSERT(obj->oo_inode == NULL);
@@ -309,31 +398,96 @@ static int osd_fid_lookup(const struct lu_env *env,
 
         ENTRY;
 
+        dev = osd_dev(ldev);
+        scrub = &dev->od_scrub;
+        sf = &scrub->os_file;
         info = osd_oti_get(env);
         LASSERT(info);
-        dev  = osd_dev(ldev);
-        id   = &info->oti_id;
+        oic = &info->oti_cache;
+        id  = &oic->oic_lid;
 
         if (OBD_FAIL_CHECK(OBD_FAIL_OST_ENOENT))
                 RETURN(-ENOENT);
 
-        result = osd_oi_lookup(info, dev, fid, id);
-        if (result != 0) {
-                if (result == -ENOENT)
-                        result = 0;
-                GOTO(out, result);
+        if (fid_is_norm(fid)) {
+                /* Search order: 1. per-thread cache. */
+                if (lu_fid_eq(fid, &oic->oic_fid)) {
+                        goto iget;
+                } else if (!cfs_list_empty(&scrub->os_inconsistent_items)) {
+                        /* Search order: 2. OI scrub pending list. */
+                        result = osd_oii_lookup(dev, fid, id);
+                        if (result == 0)
+                                goto iget;
+                }
+
+                if (sf->sf_flags & SF_INCONSISTENT)
+                        flags = OSD_IF_VERIFY;
         }
 
-        inode = osd_iget(info, dev, id);
+        fid_zero(&oic->oic_fid);
+        /* Search order: 3. OI files. */
+        result = osd_oi_lookup(info, dev, fid, id);
+        if (result != 0 && result != -ENOENT)
+                GOTO(out, result);
+
+        /* If fid wasn't found in oi, inode-less object is created,
+         * for which lu_object_exists() returns false. This is used
+         * in a (frequent) case when objects are created as locking
+         * anchors or place holders for objects yet to be created. */
+        if (conf != NULL) {
+                if (conf->loc_flags & LOC_F_NEW) {
+                        if (unlikely(result == 0))
+                                GOTO(out, result = -EEXIST);
+                        else
+                                GOTO(out, result = 0);
+                } else if (conf->loc_flags & LOC_F_EXIST) {
+                        if (likely(result == 0)) {
+                                goto iget;
+                        } else {
+                                if (ldiskfs_test_bit(osd_oi_fid2idx(dev, fid),
+                                                     sf->sf_oi_bitmap))
+                                        goto trigger;
+                                else
+                                        GOTO(out, result = -ENOENT);
+                        }
+                }
+        }
+
+        if (result == -ENOENT) {
+                if (!fid_is_norm(fid) ||
+                    !ldiskfs_test_bit(osd_oi_fid2idx(dev,fid), sf->sf_oi_bitmap))
+                        GOTO(out, result = 0);
+
+                goto trigger;
+        }
+
+iget:
+        inode = osd_iget(info, dev, id, (struct lu_fid *)fid, flags);
         if (IS_ERR(inode)) {
-                /*
-                 * If fid wasn't found in oi, inode-less object is
-                 * created, for which lu_object_exists() returns
-                 * false. This is used in a (frequent) case when
-                 * objects are created as locking anchors or
-                 * place holders for objects yet to be created.
-                 */
                 result = PTR_ERR(inode);
+                if (result == -ENOENT || result == -ESTALE) {
+                        LASSERT(ergo(conf != NULL,
+                                     !(conf->loc_flags & LOC_F_EXIST)));
+
+                        result = 0;
+                } else if (result == -EREMCHG) {
+
+trigger:
+                        if (thread_is_running(&scrub->os_thread)) {
+                                result = -EINPROGRESS;
+                        } else if (!scrub->os_no_scrub) {
+                                CDEBUG(D_LFSCK, "Trigger OI scrub by RPC for "
+                                       DFID"\n", PFID(fid));
+                                result = osd_scrub_start(dev);
+                                CDEBUG(D_LFSCK, "Trigger OI scrub by RPC for "
+                                       DFID", rc = %d\n", PFID(fid), result);
+                                if (result == 0 || result == -EALREADY)
+                                        result = -EINPROGRESS;
+                                else
+                                        result = -EREMCHG;
+                        }
+                }
+
                 GOTO(out, result);
         }
 
@@ -345,18 +499,20 @@ static int osd_fid_lookup(const struct lu_env *env,
         }
 
         if (!S_ISDIR(inode->i_mode) || !ldiskfs_pdo) /* done */
-                goto out;
+                GOTO(out, result = 0);
 
         LASSERT(obj->oo_hl_head == NULL);
         obj->oo_hl_head = ldiskfs_htree_lock_head_alloc(HTREE_HBITS_DEF);
         if (obj->oo_hl_head == NULL) {
                 obj->oo_inode = NULL;
                 iput(inode);
-                result = -ENOMEM;
+                GOTO(out, result = -ENOMEM);
         }
+        GOTO(out, result = 0);
+
 out:
         LINVRNT(osd_invariant(obj));
-        RETURN(result);
+        return result;
 }
 
 /*
@@ -375,14 +531,14 @@ static void osd_object_init0(struct osd_object *obj)
  * life-cycle.
  */
 static int osd_object_init(const struct lu_env *env, struct lu_object *l,
-                           const struct lu_object_conf *unused)
+                           const struct lu_object_conf *conf)
 {
         struct osd_object *obj = osd_obj(l);
         int result;
 
         LINVRNT(osd_invariant(obj));
 
-        result = osd_fid_lookup(env, obj, lu_object_fid(l));
+        result = osd_fid_lookup(env, obj, lu_object_fid(l), conf);
         obj->oo_dt.do_body_ops = &osd_body_ops_new;
         if (result == 0) {
                 if (obj->oo_inode != NULL)
@@ -873,7 +1029,7 @@ static void osd_conf_get(const struct lu_env *env,
          */
         param->ddp_max_name_len = LDISKFS_NAME_LEN;
         param->ddp_max_nlink    = LDISKFS_LINK_MAX;
-        param->ddp_block_shift  = osd_sb(osd_dt_dev(dev))->s_blocksize_bits;
+        param->ddp_block_shift  = sb->s_blocksize_bits;
         param->ddp_mntopts      = 0;
         if (test_opt(sb, XATTR_USER))
                 param->ddp_mntopts |= MNTOPT_USERXATTR;
@@ -1000,7 +1156,7 @@ const int osd_dto_credits_noquota[DTO_NR] = {
         [DTO_INDEX_INSERT]  = 16,
         [DTO_INDEX_DELETE]  = 16,
         /**
-         * Unused now
+         * Used for OI scrub
          */
         [DTO_INDEX_UPDATE]  = 16,
         /**
@@ -1484,6 +1640,7 @@ static int osd_mkfile(struct osd_thread_info *info, struct osd_object *obj,
                  * NB: don't need any lock because no contention at this
                  * early stage */
                 inode->i_flags |= S_NOCMTIME;
+                inode->i_state |= I_LUSTRE_NOSCRUB;
                 obj->oo_inode = inode;
                 result = 0;
         } else {
@@ -1697,11 +1854,8 @@ static int __osd_oi_insert(const struct lu_env *env, struct osd_object *obj,
         LASSERT(obj->oo_inode != NULL);
         LASSERT(uc != NULL);
 
-        id->oii_ino = obj->oo_inode->i_ino;
-        id->oii_gen = obj->oo_inode->i_generation;
-
-        return osd_oi_insert(info, osd, fid, id, th,
-                             uc->mu_cap & CFS_CAP_SYS_RESOURCE_MASK);
+        osd_id_gen(id, obj->oo_inode->i_ino, obj->oo_inode->i_generation);
+        return osd_oi_insert(info, osd, fid, id, th);
 }
 
 static int osd_declare_object_create(const struct lu_env *env,
@@ -1820,6 +1974,9 @@ static int osd_object_destroy(const struct lu_env *env,
         LASSERT(inode);
         LASSERT(!lu_object_is_dying(dt->do_lu.lo_header));
 
+        /* XXX: parallel control for OI scrub. For most of cases, there is no
+         *      lock contention. So it will not affect unlink performance. */
+        cfs_mutex_lock(&inode->i_mutex);
         if (S_ISDIR(inode->i_mode)) {
                 LASSERT(osd_inode_unlinked(inode) ||
                         inode->i_nlink == 1);
@@ -1834,6 +1991,7 @@ static int osd_object_destroy(const struct lu_env *env,
         OSD_EXEC_OP(th, destroy);
 
         result = osd_oi_delete(osd_oti_get(env), osd, fid, th);
+        cfs_mutex_unlock(&inode->i_mutex);
 
         /* XXX: add to ext3 orphan list */
         /* rc = ext3_orphan_add(handle_t *handle, struct inode *inode) */
@@ -1898,15 +2056,6 @@ static int osd_ea_fid_set(const struct lu_env *env, struct dt_object *dt,
 }
 
 /**
- * Helper function to form igif
- */
-static inline void osd_igif_get(const struct lu_env *env, struct inode  *inode,
-                                struct lu_fid *fid)
-{
-        LU_IGIF_BUILD(fid, inode->i_ino, inode->i_generation);
-}
-
-/**
  * ldiskfs supports fid in dirent, it is passed in dentry->d_fsdata.
  * lustre 1.8 also uses d_fsdata for passing other info to ldiskfs.
  * To have compatilibility with 1.8 ldiskfs driver we need to have
@@ -1933,54 +2082,22 @@ void osd_get_ldiskfs_dirent_param(struct ldiskfs_dentry_param *param,
  * \retval 0 on success
  */
 static int osd_ea_fid_get(const struct lu_env *env, struct osd_object *obj,
-                          __u32 ino, struct lu_fid *fid)
+                          __u32 ino, struct lu_fid *fid,
+                          struct osd_inode_id *id)
 {
-        struct osd_thread_info  *info      = osd_oti_get(env);
-        struct lustre_mdt_attrs *mdt_attrs = &info->oti_mdt_attrs;
-        struct lu_device        *ldev   = obj->oo_dt.do_lu.lo_dev;
-        struct dentry           *dentry = &info->oti_child_dentry;
-        struct osd_inode_id     *id     = &info->oti_id;
-        struct osd_device       *dev;
-        struct inode            *inode;
-        int                      rc;
-
+        struct osd_thread_info *info  = osd_oti_get(env);
+        struct inode           *inode;
+        enum osd_iget_flags     flags = OSD_IF_GEN_LID;
         ENTRY;
-        dev  = osd_dev(ldev);
 
-        id->oii_ino = ino;
-        id->oii_gen = OSD_OII_NOGEN;
+        osd_id_gen(id, ino, OSD_OII_NOGEN);
+        inode = osd_iget(info, osd_obj2dev(obj), id, fid,
+                         flags | OSD_IF_RET_FID);
+        if (IS_ERR(inode))
+                RETURN(PTR_ERR(inode));
 
-        inode = osd_iget(info, dev, id);
-        if (IS_ERR(inode)) {
-                rc = PTR_ERR(inode);
-                GOTO(out,rc);
-        }
-        dentry->d_inode = inode;
-
-        LASSERT(inode->i_op != NULL && inode->i_op->getxattr != NULL);
-        rc = inode->i_op->getxattr(dentry, XATTR_NAME_LMA, (void *)mdt_attrs,
-                                   sizeof *mdt_attrs);
-
-        /* Check LMA compatibility */
-        if (rc > 0 &&
-            (mdt_attrs->lma_incompat & ~cpu_to_le32(LMA_INCOMPAT_SUPP))) {
-                CWARN("Inode %lx: Unsupported incompat LMA feature(s) %#x\n",
-                      inode->i_ino, le32_to_cpu(mdt_attrs->lma_incompat) &
-                      ~LMA_INCOMPAT_SUPP);
-                return -ENOSYS;
-        }
-
-        if (rc > 0) {
-                lustre_lma_swab(mdt_attrs);
-                memcpy(fid, &mdt_attrs->lma_self_fid, sizeof(*fid));
-                rc = 0;
-        } else if (rc == -ENODATA) {
-                osd_igif_get(env, inode, fid);
-                rc = 0;
-        }
         iput(inode);
-out:
-        RETURN(rc);
+        RETURN(0);
 }
 
 /**
@@ -2521,6 +2638,9 @@ static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
                 else
                         result = -ENOTDIR;
                 ea_dir = 1;
+        } else if (unlikely(feat == &dt_otable_features)) {
+                dt->do_index_ops = &osd_otable_ops;
+                return 0;
         } else if (!osd_has_index(obj)) {
                 struct osd_directory *dir;
 
@@ -2914,7 +3034,7 @@ static int osd_index_iam_insert(const struct lu_env *env, struct dt_object *dt,
         LASSERT(th != NULL);
 
         if (osd_object_auth(env, dt, capa, CAPA_OPC_INDEX_INSERT))
-                return -EACCES;
+                RETURN(-EACCES);
 
         OSD_EXEC_OP(th, insert);
 
@@ -3132,22 +3252,80 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
 
         bh = osd_ldiskfs_find_entry(dir, dentry, &de, hlock);
         if (bh) {
+                struct osd_thread_info *oti = osd_oti_get(env);
+                struct osd_idmap_cache *oic = &oti->oti_cache;
+                struct osd_device *dev = osd_obj2dev(obj);
+                struct osd_scrub *scrub = &dev->od_scrub;
+                struct scrub_file *sf = &scrub->os_file;
+                struct osd_inode_id *id = &oti->oti_id;
+                int once = 0;
+
                 ino = le32_to_cpu(de->inode);
                 rc = osd_get_fid_from_dentry(de, rec);
 
                 /* done with de, release bh */
                 brelse(bh);
                 if (rc != 0)
-                        rc = osd_ea_fid_get(env, obj, ino, fid);
+                        rc = osd_ea_fid_get(env, obj, ino, fid, &oic->oic_lid);
+                else
+                        osd_id_gen(&oic->oic_lid, ino, OSD_OII_NOGEN);
+
+                if (rc != 0 || !fid_is_norm(fid))
+                        GOTO(out, rc);
+
+                oic->oic_fid = *fid;
+
+again:
+                if (scrub->os_pos_current > ino ||
+                    (!(sf->sf_flags & SF_INCONSISTENT) &&
+                     !ldiskfs_test_bit(osd_oi_fid2idx(dev, fid),
+                                       sf->sf_oi_bitmap)))
+                        GOTO(out, rc);
+
+                rc = osd_oi_lookup(oti, dev, fid, id);
+                if (rc != 0 && rc != -ENOENT)
+                        GOTO(out, rc);
+
+                if (rc == 0 && osd_id_eq(id, &oic->oic_lid))
+                        GOTO(out, rc);
+
+                if (thread_is_running(&scrub->os_thread)) {
+                        rc = osd_oii_insert(dev, oic, rc == -ENOENT);
+                        if (likely(rc != -EAGAIN))
+                                GOTO(out, rc);
+
+                        /* There is race condition between osd_oi_lookup
+                         * and OI scrub. The OI scrub finished just after
+                         * osd_oi_lookup() failure. Under such case, it is
+                         * unnecessary to trigger OI scrub again, but try to
+                         * call osd_oi_lookup() again. */
+                        if (++once == 1)
+                                goto again;
+                }
+
+                if (!scrub->os_no_scrub && ++once == 1) {
+                        CDEBUG(D_LFSCK, "Trigger OI scrub by RPC for "DFID"\n",
+                               PFID(fid));
+                        rc = osd_scrub_start(dev);
+                        CDEBUG(D_LFSCK, "Trigger OI scrub by RPC for "DFID
+                               ", rc = %d\n", PFID(fid), rc);
+                        if (rc == 0)
+                                goto again;
+                }
+
+                GOTO(out, rc = -EREMCHG);
         } else {
                 rc = -ENOENT;
         }
 
+        GOTO(out, rc);
+
+out:
         if (hlock != NULL)
                 ldiskfs_htree_unlock(hlock);
         else
                 cfs_up_read(&obj->oo_ext_idx_sem);
-        RETURN (rc);
+        return rc;
 }
 
 /**
@@ -3176,7 +3354,7 @@ struct osd_object *osd_object_find(const struct lu_env *env,
                         else
                                 LU_OBJECT_DEBUG(D_ERROR, env, luch,
                                                 "lu_object can't be located"
-                                                ""DFID"\n", PFID(fid));
+                                                DFID"\n", PFID(fid));
 
                         if (child == NULL) {
                                 lu_object_put(env, luch);
@@ -3187,6 +3365,7 @@ struct osd_object *osd_object_find(const struct lu_env *env,
                         LU_OBJECT_DEBUG(D_ERROR, env, luch,
                                         "lu_object does not exists "DFID"\n",
                                         PFID(fid));
+                        lu_object_put(env, luch);
                         child = ERR_PTR(-ENOENT);
                 }
         } else
@@ -3809,24 +3988,78 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
                                 const struct dt_it *di,
                                 struct dt_rec *dtrec, __u32 attr)
 {
-        struct osd_it_ea        *it     = (struct osd_it_ea *)di;
-        struct osd_object       *obj    = it->oie_obj;
-        struct lu_fid           *fid    = &it->oie_dirent->oied_fid;
-        struct lu_dirent        *lde    = (struct lu_dirent *)dtrec;
-        int    rc = 0;
+        struct osd_it_ea       *it    = (struct osd_it_ea *)di;
+        struct osd_object      *obj   = it->oie_obj;
+        struct osd_device      *dev   = osd_obj2dev(obj);
+        struct osd_scrub       *scrub = &dev->od_scrub;
+        struct scrub_file      *sf    = &scrub->os_file;
+        struct osd_thread_info *oti   = osd_oti_get(env);
+        struct osd_idmap_cache *oic   = &oti->oti_cache;
+        struct osd_inode_id    *id    = &oti->oti_id;
+        struct lu_fid          *fid   = &it->oie_dirent->oied_fid;
+        struct lu_dirent       *lde   = (struct lu_dirent *)dtrec;
+        __u32                   ino   = it->oie_dirent->oied_ino;
+        int                     once  = 0;
+        int                     rc    = 0;
 
         ENTRY;
 
-        if (!fid_is_sane(fid))
-                rc = osd_ea_fid_get(env, obj, it->oie_dirent->oied_ino, fid);
+        if (!fid_is_sane(fid)) {
+                rc = osd_ea_fid_get(env, obj, ino, fid, &oic->oic_lid);
+                if (rc != 0)
+                        RETURN(rc);
 
-        if (rc == 0)
-                osd_it_pack_dirent(lde, fid, it->oie_dirent->oied_off,
-                                   it->oie_dirent->oied_name,
-                                   it->oie_dirent->oied_namelen,
-                                   it->oie_dirent->oied_type,
-                                   attr);
-        RETURN(rc);
+        } else {
+                osd_id_gen(&oic->oic_lid, ino, OSD_OII_NOGEN);
+        }
+
+        osd_it_pack_dirent(lde, fid, it->oie_dirent->oied_off,
+                           it->oie_dirent->oied_name,
+                           it->oie_dirent->oied_namelen,
+                           it->oie_dirent->oied_type, attr);
+
+        if (!fid_is_norm(fid))
+                RETURN(0);
+
+        oic->oic_fid = *fid;
+
+again:
+        if (scrub->os_pos_current > ino ||
+            (!(sf->sf_flags & SF_INCONSISTENT) &&
+             !ldiskfs_test_bit(osd_oi_fid2idx(dev, fid), sf->sf_oi_bitmap)))
+                RETURN(0);
+
+        rc = osd_oi_lookup(oti, dev, fid, id);
+        if (rc != 0 && rc != -ENOENT)
+                RETURN(rc);
+
+        if (rc == 0 && osd_id_eq(id, &oic->oic_lid))
+                RETURN(0);
+
+        if (thread_is_running(&scrub->os_thread)) {
+                rc = osd_oii_insert(dev, oic, rc == -ENOENT);
+                if (likely(rc != -EAGAIN))
+                        RETURN(rc);
+
+                /* There is race condition between osd_oi_lookup and OI scrub.
+                 * The OI scrub finished just after osd_oi_lookup() failure.
+                 * Under such case, it is unnecessary to trigger OI scrub again,
+                 * but try to call osd_oi_lookup() again. */
+                if (++once == 1)
+                        goto again;
+        }
+
+        if (!scrub->os_no_scrub && ++once == 1) {
+                CDEBUG(D_LFSCK, "Trigger OI scrub by RPC for "DFID"\n",
+                       PFID(fid));
+                rc = osd_scrub_start(dev);
+                CDEBUG(D_LFSCK, "Trigger OI scrub by RPC for "DFID", rc = %d\n",
+                       PFID(fid), rc);
+                if (rc == 0)
+                        goto again;
+        }
+
+        RETURN(-EREMCHG);
 }
 
 /**
@@ -3992,12 +4225,9 @@ static int osd_device_init(const struct lu_env *env, struct lu_device *d,
 
 static int osd_shutdown(const struct lu_env *env, struct osd_device *o)
 {
-        struct osd_thread_info *info = osd_oti_get(env);
-
         ENTRY;
 
-        if (o->od_oi_table != NULL)
-                osd_oi_fini(info, o);
+        osd_scrub_cleanup(env, o);
 
         if (o->od_fsops) {
                 fsfilt_put_ops(o->od_fsops);
@@ -4101,6 +4331,7 @@ static struct lu_device *osd_device_alloc(const struct lu_env *env,
                         l->ld_ops = &osd_lu_ops;
                         o->od_dt_dev.dd_ops = &osd_dt_ops;
                         cfs_spin_lock_init(&o->od_osfs_lock);
+                        cfs_mutex_init(&o->od_mutex);
                         o->od_osfs_age = cfs_time_shift_64(-1000);
                         o->od_capa_hash = init_capa_hash();
                         if (o->od_capa_hash == NULL) {
@@ -4159,14 +4390,12 @@ static int osd_recovery_complete(const struct lu_env *env,
 static int osd_prepare(const struct lu_env *env, struct lu_device *pdev,
                        struct lu_device *dev)
 {
-        struct osd_device      *osd = osd_dev(dev);
-        struct osd_thread_info *oti = osd_oti_get(env);
-        int                     result;
-
+        struct osd_device *osd = osd_dev(dev);
+        int                result;
         ENTRY;
 
-        /* 1. initialize oi before any file create or file open */
-        result = osd_oi_init(oti, osd);
+        /* 1. setup scrub, including OI files initialization */
+        result = osd_scrub_setup(env, osd);
         if (result < 0)
                 RETURN(result);
 
