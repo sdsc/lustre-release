@@ -96,7 +96,7 @@ struct lustre_cfg {
         __u32 lcfg_version;
         __u32 lcfg_command;
 
-        __u32 lcfg_num; 
+        __u32 lcfg_num;
         __u32 lcfg_flags;
         __u64 lcfg_nid;
         __u32 lcfg_nal;                      /* not used any more */
@@ -190,7 +190,7 @@ static inline char *lustre_cfg_string(struct lustre_cfg *lcfg, int index)
          * of data.  Try to use the padding first though.
          */
         if (s[lcfg->lcfg_buflens[index] - 1] != '\0') {
-                int last = min((int)lcfg->lcfg_buflens[index], 
+                int last = min((int)lcfg->lcfg_buflens[index],
                                cfs_size_round(lcfg->lcfg_buflens[index]) - 1);
                 char lost = s[last];
                 s[last] = '\0';
@@ -268,7 +268,7 @@ static inline int lustre_cfg_sanity_check(void *buf, int len)
 
         if (lcfg->lcfg_version != LUSTRE_CFG_VERSION)
                 RETURN(-EINVAL);
-        
+
         if (lcfg->lcfg_bufcount >= LUSTRE_CFG_MAX_BUFCOUNT)
                 RETURN(-EINVAL);
 

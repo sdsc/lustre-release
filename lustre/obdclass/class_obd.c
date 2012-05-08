@@ -429,6 +429,7 @@ EXPORT_SYMBOL(class_decref);
 EXPORT_SYMBOL(class_get_profile);
 EXPORT_SYMBOL(class_del_profile);
 EXPORT_SYMBOL(class_del_profiles);
+EXPORT_SYMBOL(lustre_cfg_rename);
 EXPORT_SYMBOL(class_process_config);
 EXPORT_SYMBOL(class_process_proc_param);
 EXPORT_SYMBOL(class_config_parse_llog);
