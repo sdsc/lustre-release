@@ -19,7 +19,6 @@ CPU=`awk '/model/ {print $4}' /proc/cpuinfo`
 [ "$CPU" = "UML" ] && EXCEPT="$EXCEPT 27m 27n 27o 27p 27q 27r 31d 54a  64b 99a 99b 99c 99d 99e 99f 101a"
 
 case `uname -r` in
-2.4*) FSTYPE=${FSTYPE:-ext3} ;;
 2.6*) FSTYPE=${FSTYPE:-ldiskfs} ;;
 *) error "unsupported kernel" ;;
 esac
