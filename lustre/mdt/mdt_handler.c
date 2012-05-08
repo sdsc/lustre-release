@@ -4760,24 +4760,102 @@ static int mdt_process_config(const struct lu_env *env,
         switch (cfg->lcfg_command) {
         case LCFG_PARAM: {
                 struct lprocfs_static_vars lvars;
-                struct obd_device *obd = d->ld_obd;
+                struct obd_device         *obd = d->ld_obd;
+                int                        use_new_cfg = 0;
 
-                /*
-                 * For interoperability between 1.8 and 2.0,
-                 */
+                /* For interoperability between 1.8 and 2.0. */
                 {
-                        /* Skip old "mdt.group_upcall" param. */
-                        char *param = lustre_cfg_string(cfg, 1);
-                        if (param && !strncmp("mdt.group_upcall", param, 16)) {
-                                CWARN("For 1.8 interoperability, skip this"
-                                       " mdt.group_upcall. It is obsolete\n");
+                        char *param = NULL;
+                        char *new_name = NULL;
+
+                        param = lustre_cfg_string(cfg, 1);
+                        if (param == NULL) {
+                                CERROR("param is empty\n");
+                                rc = -EINVAL;
                                 break;
                         }
-                        /* Rename old "mdt.quota_type" to "mdd.quota_type. */
-                        if (param && !strncmp("mdt.quota_type", param, 14)) {
+
+                        /* Skip old "mdt.group_upcall" param. */
+                        if (strncmp(param, "mdt.group_upcall", 16) == 0) {
+                                CWARN("For 1.8 interoperability, skip this"
+                                      " mdt.group_upcall. It is obsolete.\n");
+                                break;
+                        }
+
+                        /* Rename old "mdt.quota_type" to "mdd.quota_type". */
+                        if (strncmp(param, "mdt.quota_type", 14) == 0) {
                                 CWARN("Found old param mdt.quota_type, changed"
                                       " it to mdd.quota_type.\n");
                                 param[2] = 'd';
+                        }
+
+                        /* Rename old "mdt.rootsquash" to "mdt.root_squash". */
+                        if (strncmp(param, "mdt.rootsquash", 14) == 0) {
+                                CWARN("Found old param mdt.rootsquash, changed"
+                                      " it to mdt.root_squash.\n");
+                                new_name = "mdt.root_squash";
+                        }
+
+                        /* Rename old "mdt.nosquash_nid" to
+                         * "mdt.nosquash_nids". */
+                        if (strncmp(param, "mdt.nosquash_nid", 16) == 0) {
+                                CWARN("Found old param mdt.nosquash_nid, "
+                                      "changed it to mdt.nosquash_nids.\n");
+                                new_name = "mdt.nosquash_nids";
+                        }
+
+                        if (new_name != NULL) {
+                                struct lustre_cfg_bufs  bufs;
+                                struct lustre_cfg      *old_cfg = NULL;
+                                struct lustre_cfg      *new_cfg = NULL;
+                                char                   *new_param = NULL;
+                                char                   *value = NULL;
+                                int                     name_len = 0;
+                                int                     new_len = 0;
+
+                                value = strchr(param, '=');
+                                if (value == NULL)
+                                        name_len = strlen(param);
+                                else
+                                        name_len = value - param;
+
+                                new_len = LUSTRE_CFG_BUFLEN(cfg, 1) +
+                                          strlen(new_name) - name_len;
+
+                                OBD_ALLOC(new_param, new_len);
+                                if (new_param == NULL) {
+                                        rc = -ENOMEM;
+                                        break;
+                                }
+
+                                if (value == NULL) {
+                                        strncpy(new_param, new_name,
+                                                new_len - 1);
+                                } else {
+                                        snprintf(new_param, new_len - 1,
+                                                 "%s%s", new_name, value);
+                                }
+                                new_param[new_len - 1] = '\0';
+
+                                lustre_cfg_bufs_reset(&bufs, NULL);
+                                lustre_cfg_bufs_init(&bufs, cfg);
+                                lustre_cfg_bufs_set_string(&bufs, 1, new_param);
+                                OBD_FREE(new_param, new_len);
+
+                                new_cfg = lustre_cfg_new(cfg->lcfg_command,
+                                                         &bufs);
+                                if (new_cfg == NULL) {
+                                        rc = -ENOMEM;
+                                        break;
+                                }
+                                new_cfg->lcfg_num = cfg->lcfg_num;
+                                new_cfg->lcfg_flags = cfg->lcfg_flags;
+                                new_cfg->lcfg_nid = cfg->lcfg_nid;
+                                new_cfg->lcfg_nal = cfg->lcfg_nal;
+
+                                old_cfg = cfg;
+                                cfg = new_cfg;
+                                use_new_cfg = 1;
                         }
                 }
 
@@ -4787,6 +4865,12 @@ static int mdt_process_config(const struct lu_env *env,
                 if (rc > 0 || rc == -ENOSYS)
                         /* we don't understand; pass it on */
                         rc = next->ld_ops->ldo_process_config(env, next, cfg);
+
+                if (use_new_cfg) {
+                        cfg = old_cfg;
+                        old_cfg = NULL;
+                        lustre_cfg_free(new_cfg);
+                }
                 break;
         }
         case LCFG_ADD_MDC:
