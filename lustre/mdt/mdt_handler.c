@@ -4806,38 +4806,73 @@ static int mdt_process_config(const struct lu_env *env,
         int rc = 0;
         ENTRY;
 
-        switch (cfg->lcfg_command) {
-        case LCFG_PARAM: {
-                struct lprocfs_static_vars lvars;
-                struct obd_device *obd = d->ld_obd;
+	switch (cfg->lcfg_command) {
+	case LCFG_PARAM: {
+		struct lprocfs_static_vars  lvars;
+		struct obd_device	   *obd = d->ld_obd;
 
-                /*
-                 * For interoperability between 1.8 and 2.0,
-                 */
-                {
-                        /* Skip old "mdt.group_upcall" param. */
-                        char *param = lustre_cfg_string(cfg, 1);
-                        if (param && !strncmp("mdt.group_upcall", param, 16)) {
-                                CWARN("For 1.8 interoperability, skip this"
-                                       " mdt.group_upcall. It is obsolete\n");
-                                break;
-                        }
-                        /* Rename old "mdt.quota_type" to "mdd.quota_type. */
-                        if (param && !strncmp("mdt.quota_type", param, 14)) {
-                                CWARN("Found old param mdt.quota_type, changed"
-                                      " it to mdd.quota_type.\n");
-                                param[2] = 'd';
-                        }
-                }
+		/* For interoperability between 1.8 and 2.0. */
+		struct lustre_cfg	   *old_cfg = NULL;
+		char			   *param = NULL;
+		char			   *new_name = NULL;
 
-                lprocfs_mdt_init_vars(&lvars);
-                rc = class_process_proc_param(PARAM_MDT, lvars.obd_vars,
-                                              cfg, obd);
-                if (rc > 0 || rc == -ENOSYS)
-                        /* we don't understand; pass it on */
-                        rc = next->ld_ops->ldo_process_config(env, next, cfg);
-                break;
-        }
+		param = lustre_cfg_string(cfg, 1);
+		if (param == NULL) {
+			CERROR("param is empty\n");
+			rc = -EINVAL;
+			break;
+		}
+
+		/* Skip old "mdt.group_upcall" param. */
+		if (strncmp(param, "mdt.group_upcall", 16) == 0) {
+			CWARN("For 1.8 interoperability, skip this"
+			      " mdt.group_upcall. It is obsolete.\n");
+			break;
+		}
+
+		/* Rename old "mdt.quota_type" to "mdd.quota_type". */
+		if (strncmp(param, "mdt.quota_type", 14) == 0) {
+			CWARN("Found old param mdt.quota_type, changed"
+			      " it to mdd.quota_type.\n");
+			param[2] = 'd';
+		}
+
+		/* Rename old "mdt.rootsquash" to "mdt.root_squash". */
+		if (strncmp(param, "mdt.rootsquash", 14) == 0) {
+			CWARN("Found old param mdt.rootsquash, changed"
+			      " it to mdt.root_squash.\n");
+			new_name = "mdt.root_squash";
+		}
+
+		/* Rename old "mdt.nosquash_nid" to "mdt.nosquash_nids". */
+		if (strncmp(param, "mdt.nosquash_nid", 16) == 0 &&
+		    param[16] != 's') {
+			CWARN("Found old param mdt.nosquash_nid, "
+			      "changed it to mdt.nosquash_nids.\n");
+			new_name = "mdt.nosquash_nids";
+		}
+
+		if (new_name != NULL) {
+			old_cfg = cfg;
+			cfg = lustre_cfg_rename(old_cfg, new_name);
+			if (IS_ERR(cfg)) {
+				rc = PTR_ERR(cfg);
+				break;
+			}
+		}
+
+		lprocfs_mdt_init_vars(&lvars);
+		rc = class_process_proc_param(PARAM_MDT, lvars.obd_vars,
+					      cfg, obd);
+		if (rc > 0 || rc == -ENOSYS)
+			/* we don't understand; pass it on */
+			rc = next->ld_ops->ldo_process_config(env, next, cfg);
+
+		if (old_cfg != NULL)
+			lustre_cfg_free(cfg);
+
+		break;
+	}
         case LCFG_ADD_MDC:
                 /*
                  * Add mdc hook to get first MDT uuid and connect it to
