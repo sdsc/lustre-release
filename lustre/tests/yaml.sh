@@ -1,6 +1,4 @@
 #!/bin/bash
-# vim:expandtab:shiftwidth=4:softtabstop=4:tabstop=4:
-
 #
 # Shell routines for logging results to a yaml file.
 #

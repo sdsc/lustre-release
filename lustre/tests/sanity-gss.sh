@@ -1,5 +1,4 @@
 #!/bin/bash
-# vim:expandtab:shiftwidth=4:softtabstop=4:tabstop=4:
 #
 # Run select tests by setting ONLY, or as arguments to the script.
 # Skip specific tests by setting EXCEPT.

@@ -1,6 +1,4 @@
 #!/bin/bash
-# vim:expandtab:shiftwidth=4:softtabstop=4:tabstop=4:
-
 #
 # setup_kerberos.sh - setup the Kerberos environment on Lustre cluster
 #

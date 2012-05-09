@@ -1,5 +1,4 @@
 #!/bin/bash
-# vim:expandtab:shiftwidth=4:softtabstop=4:tabstop=4:
 
 # Was Test 11 in cmd3.
 # For duration of 24 hours repeatedly failover a random MDS at

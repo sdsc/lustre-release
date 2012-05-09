@@ -1,5 +1,4 @@
 #!/bin/bash
-# vim:expandtab:shiftwidth=4:softtabstop=4:tabstop=4:
 
 trap 'print_summary && touch $TF_FAIL && \
     echo "test-framework exiting on error"' ERR

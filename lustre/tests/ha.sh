@@ -1,5 +1,4 @@
 #!/bin/bash
-# vim: expandtab tabstop=4 softtabstop=4 shiftwidth=4 textwidth=80
 #
 # NAME
 #
