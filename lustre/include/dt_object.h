@@ -208,6 +208,7 @@ enum dt_index_flags {
  * names to fids).
  */
 extern const struct dt_index_features dt_directory_features;
+extern const struct dt_index_features dt_otable_features;
 
 /**
  * This is a general purpose dt allocation hint.
@@ -594,6 +595,26 @@ struct dt_index_operations {
                                       const struct dt_it *di, void* key_rec);
         } dio_it;
 };
+
+enum dt_otable_it_valid {
+	DOIV_ERROR_HANDLE	= 1 << 0,
+};
+
+enum dt_otable_it_flags {
+	/* Exit when fail. */
+	DOIF_FAILOUT	= 1 << 0,
+
+	/* Reset iteration position to the device beginning. */
+	DOIF_RESET	= 1 << 1,
+
+	/* There is up layer component uses the iteration. */
+	DOIF_OUTUSED	= 1 << 2,
+};
+
+/* The 32-bits 'attr' for dt_it_ops::init() is composed of two parts:
+ * low 16-bits is for valid bits, high 16-bits is for flags bits. */
+#define DT_OTABLE_IT_FLAGS_SHIFT	16
+#define DT_OTABLE_IT_FLAGS_MASK 	0xffff0000
 
 struct dt_device {
         struct lu_device                   dd_lu_dev;
