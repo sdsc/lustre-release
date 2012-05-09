@@ -13,10 +13,26 @@ ONLY=${ONLY:-"$*"}
 ALWAYS_EXCEPT="                27u   42a  42b  42c  42d  45   51d   68b   $SANITY_EXCEPT"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
+# disable SOM test
+ALWAYS_EXCEPT="$ALWAYS_EXCEPT 132"
+
 # Tests that fail on uml
 CPU=`awk '/model/ {print $4}' /proc/cpuinfo`
 #                                    buffer i/o errs             sock spc runas
 [ "$CPU" = "UML" ] && EXCEPT="$EXCEPT 27m 27n 27o 27p 27q 27r 31d 54a  64b 99a 99b 99c 99d 99e 99f 101a"
+# test76 is not valid with FIDs because inode numbers are not reused
+ALWAYS_EXCEPT="$ALWAYS_EXCEPT 76"
+
+# Orion: to be fixed
+# 124a - LU-479 is not yet merged
+# 225 - md_echo needs fixes
+ALWAYS_EXCEPT="$ALWAYS_EXCEPT 124a 225"
+
+# Disable as fail in master
+# 39j  -- LU-988
+# 54c  -- LU-981 (not fixed in 2.1.1)
+# 133d -- LU-1209
+ALWAYS_EXCEPT="$ALWAYS_EXCEPT 39j 54c 133d"
 
 case `uname -r` in
 2.6*) FSTYPE=${FSTYPE:-ldiskfs} ;;
@@ -64,6 +80,17 @@ LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/${NAME}.sh}
 init_logging
+
+# ZFS/DMU exceptions:
+# 56r -- dmu-osd doesn't return correct type in direntry
+# 57a -- (bug 22607) can't determine dnode size in ZFS yet
+# 57b -- (bug 14113) don't have large dnodes yet
+# 130 -- (bug 23099) FIEMAP ioctl not supported yet
+# 155 -- we don't control cache via ZFS OSD yet
+# 156 -- we don't control cache via ZFS OSD yet
+if [ "$FSTYPE" = "zfs" ]; then
+    ALWAYS_EXCEPT="$ALWAYS_EXCEPT 56r 57 130 155 156"
+fi
 
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 24v 27m 36f 36g 36h 51b 51c 60c 63 64b 68 71 73 77f 78 101a 103 115 120g 124b"
 
@@ -1030,6 +1057,7 @@ reset_enospc() {
 	[ "$OSTIDX" ] && list=$(facet_host ost$((OSTIDX + 1)))
 
 	do_nodes $list lctl set_param fail_loc=0
+	sync	# initiate all OST_DESTROYs from MDS to OST
 	sleep_maxage
 }
 
@@ -1384,6 +1412,7 @@ test_27z() {
                 { error "setstripe -c 1 failed"; return 3; }
         dd if=/dev/zero of=$DIR/$tdir/$tfile-2 bs=1M count=$OSTCOUNT ||
                 { error "dd $OSTCOUNT mb failed"; return 4; }
+        cancel_lru_locks osc
         sync
 
         check_seq_oid $DIR/$tdir/$tfile-1 || return 5
@@ -3858,7 +3887,8 @@ run_test 65l "lfs find on -1 stripe dir ========================"
 test_66() {
 	COUNT=${COUNT:-8}
 	dd if=/dev/zero of=$DIR/f66 bs=1k count=$COUNT
-	sync; sleep 1; sync
+	sync; sync_all_data; sync; sync_all_data
+	cancel_lru_locks osc
 	BLOCKS=`ls -s $DIR/f66 | awk '{ print $1 }'`
 	[ $BLOCKS -ge $COUNT ] || error "$DIR/f66 blocks $BLOCKS < $COUNT"
 }
@@ -4412,6 +4442,16 @@ test_79() { # bug 12743
 run_test 79 "df report consistency check ======================="
 
 test_80() { # bug 10718
+        # relax strong synchronous semantics for slow backends like ZFS
+        local soc="obdfilter.*.sync_on_lock_cancel"
+        local soc_old=$(do_facet ost1 lctl get_param -n $soc | head -n1)
+        local hosts=
+        if [ "$soc_old" != "never" -a "$FSTYPE" != "ldiskfs" ]; then
+                hosts=$(for host in $(seq -f "ost%g" 1 $OSTCOUNT); do
+                          facet_active_host $host; done | sort -u)
+                do_nodes $hosts lctl set_param $soc=never
+        fi
+
         dd if=/dev/zero of=$DIR/$tfile bs=1M count=1 seek=1M
         sync; sleep 1; sync
         local BEFORE=`date +%s`
@@ -4421,6 +4461,9 @@ test_80() { # bug 10718
         if [ $DIFF -gt 1 ] ; then
                 error "elapsed for 1M@1T = $DIFF"
         fi
+
+        [ -n "$hosts" ] && do_nodes $hosts lctl set_param $soc=$soc_old
+
         true
         rm -f $DIR/$tfile
 }
@@ -4758,6 +4801,7 @@ test_101d() {
 
     set_read_ahead $old_READAHEAD
     rm -f $file
+    wait_delete_completed
 
     [ $time_ra_ON -lt $time_ra_OFF ] ||
         error "read-ahead enabled  time read (${time_ra_ON}s) is more than
@@ -6962,6 +7006,7 @@ test_133c() {
 	$LFS setstripe -c 1 -o 0 ${testdir}/${tfile}
 	sync
 	cancel_lru_locks osc
+	wait_delete_completed
 
 	# clear stats.
 	do_facet $SINGLEMDS $LCTL set_param mdt.*.md_stats=clear
@@ -6979,6 +7024,7 @@ test_133c() {
 	check_stats ost "punch" 1
 
 	rm -f ${testdir}/${tfile} || error "file remove failed"
+	wait_delete_completed
 	check_stats ost "destroy" 1
 
 	rm -rf $DIR/${tdir}
@@ -7049,7 +7095,7 @@ run_test 150 "truncate/append tests"
 function roc_hit() {
     local list=$(comma_list $(osts_nodes))
 
-    ACCNUM=$(do_nodes $list $LCTL get_param -n obdfilter.*.stats | \
+    ACCNUM=$(do_nodes $list $LCTL get_param -n osd*.*.stats | \
         awk '/'cache_hit'/ {sum+=$2} END {print sum}')
     echo $ACCNUM
 }
@@ -7061,7 +7107,7 @@ function set_cache() {
         on=0;
     fi
     local list=$(comma_list $(osts_nodes))
-    do_nodes $list lctl set_param obdfilter.*.${1}_cache_enable $on
+    do_nodes $list lctl set_param osd*.*OST*.${1}_cache_enable $on
 
     cancel_lru_locks osc
 }
@@ -7072,19 +7118,19 @@ test_151() {
         local CPAGES=3
         local list=$(comma_list $(osts_nodes))
 
-        # check whether obdfilter is cache capable at all
-        if ! do_nodes $list $LCTL get_param -n obdfilter.*.read_cache_enable > /dev/null; then
+        # check whether osd is cache capable at all
+        if ! do_nodes $list $LCTL get_param -n osd*.*OST*.read_cache_enable > /dev/null; then
                 echo "not cache-capable obdfilter"
                 return 0
         fi
 
-        # check cache is enabled on all obdfilters
-        if do_nodes $list $LCTL get_param -n obdfilter.*.read_cache_enable | grep 0 >&/dev/null; then
+        # check cache is enabled on all osd
+        if do_nodes $list $LCTL get_param -n osd*.*OST*.read_cache_enable | grep 0 >&/dev/null; then
                 echo "oss cache is disabled"
                 return 0
         fi
 
-        do_nodes $list $LCTL set_param -n obdfilter.*.writethrough_cache_enable 1
+        do_nodes $list $LCTL set_param -n osd*.*OST*.writethrough_cache_enable 1
 
         # pages should be in the case right after write
         dd if=/dev/urandom of=$DIR/$tfile bs=4k count=$CPAGES || error "dd failed"
@@ -7098,7 +7144,7 @@ test_151() {
 
         # the following read invalidates the cache
         cancel_lru_locks osc
-        do_nodes $list $LCTL set_param -n obdfilter.*.read_cache_enable 0
+        do_nodes $list $LCTL set_param -n osd*.*OST*.read_cache_enable 0
         cat $DIR/$tfile >/dev/null
 
         # now data shouldn't be found in the cache
@@ -7110,7 +7156,7 @@ test_151() {
                 error "IN CACHE: before: $BEFORE, after: $AFTER"
         fi
 
-        do_nodes $list $LCTL set_param -n obdfilter.*.read_cache_enable 1
+        do_nodes $list $LCTL set_param -n osd*.*OST*.read_cache_enable 1
         rm -f $DIR/$tfile
 }
 run_test 151 "test cache on oss and controls ==============================="
@@ -7417,7 +7463,7 @@ err17935 () {
 test_160() {
     USER=$(do_facet $SINGLEMDS lctl --device $MDT0 changelog_register -n)
     echo "Registered as changelog user $USER"
-    do_facet $SINGLEMDS lctl get_param -n mdd.$MDT0.changelog_users | \
+    do_facet $SINGLEMDS lctl get_param -n mdd.$MDT0*.changelog_users | \
 	grep -q $USER || error "User $USER not found in changelog_users"
 
     # change something
@@ -7454,15 +7500,15 @@ test_160() {
 	err17935 "pfid in changelog $fidc != dir fid $fidf"
 
     USER_REC1=$(do_facet $SINGLEMDS lctl get_param -n \
-	mdd.$MDT0.changelog_users | grep $USER | awk '{print $2}')
+	mdd.$MDT0*.changelog_users | grep $USER | awk '{print $2}')
     $LFS changelog_clear $MDT0 $USER $(($USER_REC1 + 5))
     USER_REC2=$(do_facet $SINGLEMDS lctl get_param -n \
-	mdd.$MDT0.changelog_users | grep $USER | awk '{print $2}')
+	mdd.$MDT0*.changelog_users | grep $USER | awk '{print $2}')
     echo "verifying user clear: $(( $USER_REC1 + 5 )) == $USER_REC2"
     [ $USER_REC2 == $(($USER_REC1 + 5)) ] || \
 	err17935 "user index should be $(($USER_REC1 + 5)); is $USER_REC2"
 
-    MIN_REC=$(do_facet $SINGLEMDS lctl get_param mdd.$MDT0.changelog_users | \
+    MIN_REC=$(do_facet $SINGLEMDS lctl get_param mdd.$MDT0*.changelog_users | \
 	awk 'min == "" || $2 < min {min = $2}; END {print min}')
     FIRST_REC=$($LFS changelog $MDT0 | head -1 | awk '{print $1}')
     echo "verifying min purge: $(( $MIN_REC + 1 )) == $FIRST_REC"
@@ -7471,17 +7517,17 @@ test_160() {
 
     echo "verifying user deregister"
     do_facet $SINGLEMDS lctl --device $MDT0 changelog_deregister $USER
-    do_facet $SINGLEMDS lctl get_param -n mdd.$MDT0.changelog_users | \
+    do_facet $SINGLEMDS lctl get_param -n mdd.$MDT0*.changelog_users | \
 	grep -q $USER && error "User $USER still found in changelog_users"
 
     USERS=$(( $(do_facet $SINGLEMDS lctl get_param -n \
-	mdd.$MDT0.changelog_users | wc -l) - 2 ))
+	mdd.$MDT0*.changelog_users | wc -l) - 2 ))
     if [ $USERS -eq 0 ]; then
 	LAST_REC1=$(do_facet $SINGLEMDS lctl get_param -n \
-	    mdd.$MDT0.changelog_users | head -1 | awk '{print $3}')
+	    mdd.$MDT0*.changelog_users | head -1 | awk '{print $3}')
 	touch $DIR/$tdir/chloe
 	LAST_REC2=$(do_facet $SINGLEMDS lctl get_param -n \
-	    mdd.$MDT0.changelog_users | head -1 | awk '{print $3}')
+	    mdd.$MDT0*.changelog_users | head -1 | awk '{print $3}')
 	echo "verify changelogs are off if we were the only user: $LAST_REC1 == $LAST_REC2"
 	[ $LAST_REC1 == $LAST_REC2 ] || error "changelogs not off"
     else

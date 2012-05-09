@@ -1368,23 +1368,53 @@ wait_update_facet () {
     wait_update  $(facet_active_host $facet) "$@"
 }
 
+sync_all_data () {
+    do_node $(osts_nodes) "lctl set_param -n osd*.*OS*.force_sync 1"
+}
+
 wait_delete_completed () {
-    local TOTALPREV=`lctl get_param -n osc.*.kbytesavail | \
-                     awk 'BEGIN{total=0}; {total+=$1}; END{print total}'`
+    local MAX_WAIT=${1:-20}
+    local mds2sync=""
+    local stime=`date +%s`
+    local etime
+
+    # find MDS with pending deletions
+    for node in $(mdts_nodes); do
+        changes=$(do_node $node "lctl get_param -n osp*.*.sync_*" | awk '{sum=sum+$1} END{print sum}')
+        #echo "$node: $changes changes on $node"
+        if let "changes == 0"; then
+            continue
+        fi
+        mds2sync="$mds2sync $node"
+    done
+    if [ "$mds2sync" == "" ]; then
+        #echo "no delete in progress"
+        return
+    fi
+
+    # sync MDS transactions
+    do_node $mds2sync "lctl set_param -n osd*.*MD*.force_sync 1"
+
+    # wait till all changes are sent and commmitted by OSTs
+    # for ldiskfs space is released upon execution, but DMU
+    # do this upon commit
 
     local WAIT=0
-    local MAX_WAIT=20
     while [ "$WAIT" -ne "$MAX_WAIT" ]; do
+        changes=$(do_node $mds2sync "lctl get_param -n osp*.*.sync_*" | awk '{sum=sum+$1} END{print sum}')
+        #echo "$node: $changes changes on all"
+        if [ "$changes" -eq "0" ]; then
+            etime=`date +%s`
+            #echo "delete took $((etime-stime)) seconds"
+            return
+        fi
         sleep 1
-        TOTAL=`lctl get_param -n osc.*.kbytesavail | \
-               awk 'BEGIN{total=0}; {total+=$1}; END{print total}'`
-        [ "$TOTAL" -eq "$TOTALPREV" ] && return 0
-        echo "Waiting delete completed ... prev: $TOTALPREV current: $TOTAL "
-        TOTALPREV=$TOTAL
         WAIT=$(( WAIT + 1))
     done
-    echo "Delete is not completed in $MAX_WAIT sec"
-    return 1
+
+    etime=`date +%s`
+    echo "Delete is not completed in $((etime-stime)) seconds"
+    do_node $mds2sync "lctl get_param osp*.*.sync_*"
 }
 
 wait_for_host() {
@@ -1455,15 +1485,15 @@ wait_mds_ost_sync () {
     # orphan cleanup. Wait for llogs to get synchronized.
     echo "Waiting for orphan cleanup..."
     # MAX value includes time needed for MDS-OST reconnection
-    local MAX=$(( TIMEOUT * 2 ))
+    local MAX=$(( TIMEOUT * 3 + 3 ))
     local WAIT=0
     while [ $WAIT -lt $MAX ]; do
-        local -a sync=($(do_nodes $(comma_list $(osts_nodes)) \
-            "$LCTL get_param -n obdfilter.*.mds_sync"))
+        local -a sync=($(do_nodes $(comma_list $(mdts_nodes)) \
+            "$LCTL get_param -n osp.*.old_sync_processed"))
         local con=1
         local i
         for ((i=0; i<${#sync[@]}; i++)); do
-            [ ${sync[$i]} -eq 0 ] && continue
+            [ ${sync[$i]} -ne 0 ] && continue
             # there is a not finished MDS-OST synchronization
             con=0
             break;
@@ -2654,7 +2684,9 @@ check_and_setup_lustre() {
     fi
 
     init_gss
-    set_flavor_all $SEC
+    if $GSS; then
+        set_flavor_all $SEC
+    fi
 
     if [ "$ONLY" == "setup" ]; then
         exit 0
@@ -4221,16 +4253,26 @@ wait_clients_import_state () {
 oos_full() {
         local -a AVAILA
         local -a GRANTA
+        local -a TOTALA
         local OSCFULL=1
         AVAILA=($(do_nodes $(comma_list $(osts_nodes)) \
                   $LCTL get_param obdfilter.*.kbytesavail))
         GRANTA=($(do_nodes $(comma_list $(osts_nodes)) \
                   $LCTL get_param -n obdfilter.*.tot_granted))
+        TOTALA=($(do_nodes $(comma_list $(osts_nodes)) \
+                  $LCTL get_param -n obdfilter.*.kbytestotal))
         for ((i=0; i<${#AVAILA[@]}; i++)); do
                 local -a AVAIL1=(${AVAILA[$i]//=/ })
+                local -a TOTAL=(${TOTALA[$i]//=/ })
                 GRANT=$((${GRANTA[$i]}/1024))
-                echo -n $(echo ${AVAIL1[0]} | cut -d"." -f2) avl=${AVAIL1[1]} grnt=$GRANT diff=$((AVAIL1[1] - GRANT))
-                [ $((AVAIL1[1] - GRANT)) -lt 400 ] && OSCFULL=0 && echo " FULL" || echo
+                # allow 1% of total space in bavail because of delayed allocation
+                # with ZFS which might release some free space after txg commit.
+                # For small devices, we set a mininum of 8MB
+                LIMIT=$((${TOTAL} / 100 + 8000))
+                echo -n $(echo ${AVAIL1[0]} | cut -d"." -f2) avl=${AVAIL1[1]} \
+                        grnt=$GRANT diff=$((AVAIL1[1] - GRANT)) limit=${LIMIT}
+                [ $((AVAIL1[1] - GRANT)) -lt $LIMIT ] && OSCFULL=0 && \
+                        echo " FULL" || echo
         done
         return $OSCFULL
 }
