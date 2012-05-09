@@ -209,6 +209,7 @@ struct echo_thread_info {
         struct lu_name          eti_lname;
         char                    eti_name[20];
         struct lu_buf           eti_buf;
+	struct lu_object_conf   eti_loc;
         char                    eti_xattr_buf[LUSTRE_POSIX_ACL_MAX_SIZE];
 };
 
@@ -1581,6 +1582,7 @@ static struct lu_object *echo_md_lookup(const struct lu_env *env,
         struct echo_thread_info *info = echo_env_info(env);
         struct lu_fid           *fid = &info->eti_fid;
         struct lu_object        *child;
+	struct lu_object_conf   *conf = &info->eti_loc;
         int    rc;
         ENTRY;
 
@@ -1592,7 +1594,8 @@ static struct lu_object *echo_md_lookup(const struct lu_env *env,
                 RETURN(ERR_PTR(rc));
         }
 
-        child = lu_object_find_at(env, &ed->ed_cl.cd_lu_dev, fid, NULL);
+	conf->loc_flags = LOC_F_EXIST;
+	child = lu_object_find_at(env, &ed->ed_cl.cd_lu_dev, fid, conf);
 
         RETURN(child);
 }
