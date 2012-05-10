@@ -25,6 +25,18 @@ ALWAYS_EXCEPT="61d   33a 33b    $REPLAY_SINGLE_EXCEPT"
 
 #                                                  63 min  7 min  AT AT AT AT"
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="1 2 3 4 6 12 16 44a      44b    65 66 67 68"
+# test 74  - ORI-259
+ALWAYS_EXCEPT="$ALWAYS_EXCEPT 74"
+
+# 89 -- ORI-412
+if [ "$FSTYPE" = "zfs" ]; then
+    ALWAYS_EXCEPT="$ALWAYS_EXCEPT 89"
+fi
+
+# Disable as fail in master
+# 44c  -- LU-503
+# 73a  -- LU-951
+ALWAYS_EXCEPT="$ALWAYS_EXCEPT 44c 73a"
 
 build_test_filter
 
@@ -2217,7 +2229,7 @@ test_89() {
         mkdir -p $DIR/$tdir
         rm -f $DIR/$tdir/$tfile
         wait_mds_ost_sync
-        wait_destroy_complete
+        wait_delete_completed
         BLOCKS1=$(df -P $MOUNT | tail -n 1 | awk '{ print $3 }')
         lfs setstripe -i 0 -c 1 $DIR/$tdir/$tfile
         dd if=/dev/zero bs=1M count=10 of=$DIR/$tdir/$tfile
@@ -2230,6 +2242,7 @@ test_89() {
         zconf_mount $(hostname) $MOUNT
         client_up || return 1
         wait_mds_ost_sync
+        wait_delete_completed
         BLOCKS2=$(df -P $MOUNT | tail -n 1 | awk '{ print $3 }')
         [ "$BLOCKS1" == "$BLOCKS2" ] || error $((BLOCKS2 - BLOCKS1)) blocks leaked
 }

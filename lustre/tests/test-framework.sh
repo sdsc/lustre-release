@@ -705,6 +705,28 @@ start() {
     return $RC
 }
 
+refresh_disk() {
+    local facet=$1
+    local fstype=$(facet_fstype $facet)
+    local _dev
+    local dev
+    local poolname
+
+    if [ "${fstype}" == "zfs" ]; then
+        _dev=$(facet_active $facet)_dev
+        dev=${!_dev} # expand _dev to its value, e.g. ${mds1_dev}
+        poolname="${dev%%/*}" # poolname is string before "/"
+
+        if [ "${poolname}" == "" ]; then
+            echo "invalid dataset name: $dev"
+            return
+        fi
+        do_facet $facet "cp /etc/zfs/zpool.cache /tmp/zpool.cache.back"
+        do_facet $facet "$ZPOOL export ${poolname}"
+        do_facet $facet "$ZPOOL import -f -c /tmp/zpool.cache.back ${poolname}"
+    fi
+}
+
 stop() {
     local running
     local facet=$1
@@ -1070,6 +1092,7 @@ reboot_facet() {
     if [ "$FAILURE_MODE" = HARD ]; then
         reboot_node $(facet_active_host $facet)
     else
+        refresh_disk ${facet}
         sleep 10
     fi
 }
@@ -1507,31 +1530,6 @@ wait_mds_ost_sync () {
     return 1
 }
 
-wait_destroy_complete () {
-    echo "Waiting for destroy to be done..."
-    # MAX value shouldn't be big as this mean server responsiveness
-    # never increase this just to make test pass but investigate
-    # why it takes so long time
-    local MAX=5
-    local WAIT=0
-    while [ $WAIT -lt $MAX ]; do
-        local -a RPCs=($($LCTL get_param -n osc.*.destroys_in_flight))
-        local con=1
-        for ((i=0; i<${#RPCs[@]}; i++)); do
-            [ ${RPCs[$i]} -eq 0 ] && continue
-            # there are still some destroy RPCs in flight
-            con=0
-            break;
-        done
-        sleep 1
-        [ ${con} -eq 1 ] && return 0 # done waiting
-        echo "Waiting $WAIT secs for destroys to be done."
-        WAIT=$((WAIT + 1))
-    done
-    echo "Destroys weren't done in $MAX sec."
-    return 1
-}
-
 wait_exit_ST () {
     local facet=$1
 
@@ -1675,7 +1673,9 @@ replay_barrier() {
 
     # make sure there will be no seq change
     local clients=${CLIENTS:-$HOSTNAME}
-    do_nodes $clients "f=${MOUNT}/fsa-\\\$(hostname); mcreate \\\$f; rm \\\$f"
+    local f=fsa-\\\$\(hostname\)
+    do_nodes $clients "mcreate $MOUNT/$f; rm $MOUNT/$f"
+    do_nodes $clients "if [ -d $MOUNT2 ]; then mcreate $MOUNT2/$f; rm $MOUNT2/$f; fi"
 
     local svc=${facet}_svc
     do_facet $facet $LCTL --device %${!svc} notransno
@@ -1728,6 +1728,7 @@ fail_nodf() {
 fail_abort() {
     local facet=$1
     stop $facet
+    refresh_disk ${facet}
     change_active $facet
     wait_for_facet $facet
     mount_facet $facet -o abort_recovery
