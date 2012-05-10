@@ -391,6 +391,7 @@ struct mdt_thread_info {
         struct lsd_client_data     mti_lcd;
         loff_t                     mti_off;
         struct lu_buf              mti_buf;
+        struct lu_buf              mti_buf2;
         struct lustre_capa_key     mti_capa_key;
 
         /* Ops object filename */
@@ -486,6 +487,9 @@ static inline void mdt_export_evict(struct obd_export *exp)
         class_export_put(exp);
 }
 
+int mdt_get_packaged_xattr(const struct lu_env *env, struct mdt_object *o,
+                           const char *name, const int namelen,
+                           struct lu_buf *lbuf, enum packaged_xattr_type pxt);
 int mdt_get_disposition(struct ldlm_reply *rep, int flag);
 void mdt_set_disposition(struct mdt_thread_info *info,
                         struct ldlm_reply *rep, int flag);
@@ -677,6 +681,8 @@ void mdt_flush_identity(struct upcall_cache *, int);
 __u32 mdt_identity_get_perm(struct md_identity *, __u32, lnet_nid_t);
 
 int mdt_pack_remote_perm(struct mdt_thread_info *, struct mdt_object *, void *);
+int mdt_get_packaged_rperm(struct mdt_thread_info *, struct mdt_object *,
+                           struct lu_buf *);
 
 extern struct lu_context_key       mdt_thread_key;
 /* debug issues helper starts here*/

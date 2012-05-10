@@ -26,6 +26,8 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2011 Whamcloud, Inc.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -223,43 +225,43 @@ static int mdc_req2attr_update(const struct lu_env *env,
 
         if (body->valid & OBD_MD_FLCOOKIE) {
                 /*
-                 * ACL and cookie share the same body->aclsize, we need
+                 * ACL and cookie share the same body->mb_pxattr, we need
                  * to make sure that they both never come here.
                  */
                 LASSERT(!(body->valid & OBD_MD_FLACL));
 
-                if (body->aclsize == 0) {
+                if (body->mb_pxattr == 0) {
                         CERROR("No size defined for cookie field\n");
                         RETURN(-EPROTO);
                 }
 
                 cookie = req_capsule_server_sized_get(&req->rq_pill,
                                                       &RMF_LOGCOOKIES,
-                                                      body->aclsize);
+                                                      body->mb_pxattr);
                 if (cookie == NULL)
                         RETURN(-EPROTO);
 
                 LASSERT(ma->ma_cookie != NULL);
-                LASSERT(ma->ma_cookie_size == body->aclsize);
+                LASSERT(ma->ma_cookie_size == body->mb_pxattr);
                 memcpy(ma->ma_cookie, cookie, ma->ma_cookie_size);
                 ma->ma_valid |= MA_COOKIE;
         }
 
 #ifdef CONFIG_FS_POSIX_ACL
         if (body->valid & OBD_MD_FLACL) {
-                if (body->aclsize == 0) {
+                if (body->mb_pxattr == 0) {
                         CERROR("No size defined for acl field\n");
                         RETURN(-EPROTO);
                 }
 
                 acl = req_capsule_server_sized_get(&req->rq_pill,
-                                                   &RMF_ACL,
-                                                   body->aclsize);
+                                                   &RMF_PACKAGED_XATTR,
+                                                   body->mb_pxattr);
                 if (acl == NULL)
                         RETURN(-EPROTO);
 
                 LASSERT(ma->ma_acl != NULL);
-                LASSERT(ma->ma_acl_size == body->aclsize);
+                LASSERT(ma->ma_acl_size == body->mb_pxattr);
                 memcpy(ma->ma_acl, acl, ma->ma_acl_size);
                 ma->ma_valid |= MA_ACL_DEF;
         }

@@ -277,6 +277,7 @@ int ll_getxattr_common(struct inode *inode, const char *name,
                        void *buffer, size_t size, __u64 valid)
 {
         struct ll_sb_info *sbi = ll_i2sbi(inode);
+        struct ll_inode_info *lli = ll_i2info(inode);
         struct ptlrpc_request *req = NULL;
         struct mdt_body *body;
         int xattr_type, rc;
@@ -308,9 +309,12 @@ int ll_getxattr_common(struct inode *inode, const char *name,
                 RETURN(-ENODATA);
 
 #ifdef CONFIG_FS_POSIX_ACL
+        if (xattr_type == XATTR_ACL_DEFAULT_T && !S_ISDIR(inode->i_mode))
+                RETURN(-ENODATA);
+
         if (sbi->ll_flags & LL_SBI_RMT_CLIENT &&
             (xattr_type == XATTR_ACL_ACCESS_T ||
-            xattr_type == XATTR_ACL_DEFAULT_T)) {
+             xattr_type == XATTR_ACL_DEFAULT_T)) {
                 rce = rct_search(&sbi->ll_rct, cfs_curproc_pid());
                 if (rce == NULL ||
                     (rce->rce_ops != RMT_LSETFACL &&
@@ -324,24 +328,34 @@ int ll_getxattr_common(struct inode *inode, const char *name,
          * we just have path resolution to the target inode, so we have great
          * chance that cached ACL is uptodate.
          */
-        if (xattr_type == XATTR_ACL_ACCESS_T &&
+        if (((xattr_type == XATTR_ACL_ACCESS_T &&
+              lli->lli_pxt_valid & PXT_ACL) ||
+             (xattr_type == XATTR_ACL_DEFAULT_T &&
+              lli->lli_pxt_valid & PXT_DEFACL)) &&
             !(sbi->ll_flags & LL_SBI_RMT_CLIENT)) {
-                struct ll_inode_info *lli = ll_i2info(inode);
                 struct posix_acl *acl;
 
                 cfs_spin_lock(&lli->lli_lock);
-                acl = posix_acl_dup(lli->lli_posix_acl);
-                cfs_spin_unlock(&lli->lli_lock);
+                if (xattr_type == XATTR_ACL_ACCESS_T)
+                        acl = lli->lli_posix_acl;
+                else
+                        acl = lli->lli_def_acl;
 
-                if (!acl)
+                if (acl == NULL) {
+                        cfs_spin_unlock(&lli->lli_lock);
                         RETURN(-ENODATA);
+                } else if (acl == DUMMY_ACL) {
+                        cfs_spin_unlock(&lli->lli_lock);
+                        RETURN(-EOPNOTSUPP);
+                } else {
+                        acl = posix_acl_dup(acl);
+                        cfs_spin_unlock(&lli->lli_lock);
+                }
 
                 rc = posix_acl_to_xattr(acl, buffer, size);
                 posix_acl_release(acl);
                 RETURN(rc);
         }
-        if (xattr_type == XATTR_ACL_DEFAULT_T && !S_ISDIR(inode->i_mode))
-                RETURN(-ENODATA);
 #endif
 
 do_getxattr:

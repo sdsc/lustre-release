@@ -554,7 +554,7 @@ int mdt_fix_reply(struct mdt_thread_info *info)
         struct req_capsule *pill = info->mti_pill;
         struct mdt_body    *body;
         int                md_size, md_packed = 0;
-        int                acl_size;
+        int                px_size;
         int                rc = 0;
         ENTRY;
 
@@ -566,23 +566,23 @@ int mdt_fix_reply(struct mdt_thread_info *info)
         else
                 md_size = 0;
 
-        acl_size = body->aclsize;
+        px_size = body->mb_pxattr;
 
         /* this replay - not send info to client */
         if (info->mti_spec.no_create == 1) {
                 md_size = 0;
-                acl_size = 0;
+                px_size = 0;
         }
 
-        CDEBUG(D_INFO, "Shrink to md_size = %d cookie/acl_size = %d"
+        CDEBUG(D_INFO, "Shrink to md_size = %d cookie/px_size = %d"
                         " MDSCAPA = %llx, OSSCAPA = %llx\n",
-                        md_size, acl_size,
+                        md_size, px_size,
                         (unsigned long long)(body->valid & OBD_MD_FLMDSCAPA),
                         (unsigned long long)(body->valid & OBD_MD_FLOSSCAPA));
 /*
             &RMF_MDT_BODY,
             &RMF_MDT_MD,
-            &RMF_ACL, or &RMF_LOGCOOKIES
+            &RMF_PACKAGED_XATTR, or &RMF_LOGCOOKIES
 (optional)  &RMF_CAPA1,
 (optional)  &RMF_CAPA2,
 (optional)  something else
@@ -606,11 +606,12 @@ int mdt_fix_reply(struct mdt_thread_info *info)
                 req_capsule_shrink(pill, &RMF_MDT_MD, md_size, RCL_SERVER);
         }
 
-        if (req_capsule_has_field(pill, &RMF_ACL, RCL_SERVER))
-                req_capsule_shrink(pill, &RMF_ACL, acl_size, RCL_SERVER);
+        if (req_capsule_has_field(pill, &RMF_PACKAGED_XATTR, RCL_SERVER))
+                req_capsule_shrink(pill, &RMF_PACKAGED_XATTR, px_size,
+                                   RCL_SERVER);
         else if (req_capsule_has_field(pill, &RMF_LOGCOOKIES, RCL_SERVER))
                 req_capsule_shrink(pill, &RMF_LOGCOOKIES,
-                                   acl_size, RCL_SERVER);
+                                   px_size, RCL_SERVER);
 
         if (req_capsule_has_field(pill, &RMF_CAPA1, RCL_SERVER) &&
             !(body->valid & OBD_MD_FLMDSCAPA))
@@ -697,7 +698,7 @@ int mdt_handle_last_unlink(struct mdt_thread_info *info, struct mdt_object *mo,
         }
 
         if (ma->ma_cookie_size && (ma->ma_valid & MA_COOKIE)) {
-                repbody->aclsize = ma->ma_cookie_size;
+                repbody->mb_pxattr = ma->ma_cookie_size;
                 repbody->valid |= OBD_MD_FLCOOKIE;
         }
 

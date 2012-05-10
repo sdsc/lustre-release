@@ -816,6 +816,7 @@ static const char *obd_connect_names[] = {
         "umask",
         "einprogress",
         "grant_param",
+        "packaged_xattr",
         NULL
 };
 
