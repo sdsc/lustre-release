@@ -113,7 +113,6 @@ static int mds_lov_clean(struct obd_device *obd)
 
         /* Cleanup the lov */
         obd_disconnect(mds->mds_lov_exp);
-        class_manual_cleanup(osc);
 
         RETURN(0);
 }
@@ -378,6 +377,9 @@ static int mds_cmd_cleanup(struct obd_device *obd)
 
         if (strncmp(obd->obd_name, MDD_OBD_NAME, strlen(MDD_OBD_NAME)))
                 RETURN(0);
+
+           /* Cleanup mds_lov */
+        class_manual_cleanup(mds->mds_lov_obd);
 
         push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
 
