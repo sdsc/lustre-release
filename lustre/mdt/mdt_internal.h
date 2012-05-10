@@ -285,6 +285,7 @@ struct mdt_thread_info {
 
         struct mdt_device         *mti_mdt;
         const struct lu_env       *mti_env;
+	struct lu_object_conf      mti_conf;
 
         /*
          * Additional fail id that can be set by handler. Passed to
@@ -515,10 +516,12 @@ void mdt_object_unlock(struct mdt_thread_info *,
 
 struct mdt_object *mdt_object_find(const struct lu_env *,
                                    struct mdt_device *,
-                                   const struct lu_fid *);
+				   const struct lu_fid *,
+				   const struct lu_object_conf *);
 struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *,
-                                        const struct lu_fid *,
-                                        struct mdt_lock_handle *,
+					const struct lu_fid *,
+					struct mdt_lock_handle *,
+					const struct lu_object_conf *,
                                         __u64);
 void mdt_object_unlock_put(struct mdt_thread_info *,
                            struct mdt_object *,

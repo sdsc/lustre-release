@@ -118,8 +118,24 @@ static int orphan_key_to_fid(char *key, struct lu_fid *lf)
         return -EINVAL;
 }
 
+static inline void mdd_orphan_read_lock(const struct lu_env *env,
+					struct mdd_device *mdd)
+{
+	struct dt_object *dor = mdd->mdd_orphans;
+
+	dor->do_ops->do_read_lock(env, dor, MOR_TGT_ORPHAN);
+}
+
+static inline void mdd_orphan_read_unlock(const struct lu_env *env,
+					  struct mdd_device *mdd)
+{
+	struct dt_object *dor = mdd->mdd_orphans;
+
+	dor->do_ops->do_read_unlock(env, dor);
+}
+
 static inline void mdd_orphan_write_lock(const struct lu_env *env,
-                                    struct mdd_device *mdd)
+					 struct mdd_device *mdd)
 {
 
         struct dt_object        *dor    = mdd->mdd_orphans;
@@ -143,7 +159,6 @@ static inline int mdd_orphan_insert_obj(const struct lu_env *env,
         struct dt_object        *dor    = mdd->mdd_orphans;
         const struct lu_fid     *lf     = mdo2fid(obj);
         struct dt_key           *key    = orph_key_fill(env, lf, op);
-        ENTRY;
 
         return  dor->do_index_ops->dio_insert(env, dor,
                                               (struct dt_rec *)lf,
@@ -426,6 +441,21 @@ stop:
         RETURN(rc);
 }
 
+static int __mdd_orphan_lookup(const struct lu_env *env, struct mdd_device *mdd,
+			       struct dt_key *key, struct lu_fid *fid)
+{
+	struct dt_object *dor = mdd->mdd_orphans;
+	int rc;
+	ENTRY;
+
+	mdd_orphan_read_lock(env, mdd);
+	rc = dor->do_index_ops->dio_lookup(env, dor, (struct dt_rec *)fid,
+					   key, BYPASS_CAPA);
+	mdd_orphan_read_unlock(env, mdd);
+
+	RETURN(rc);
+}
+
 /**
  * Delete unused orphan with FID \a lf from PENDING directory
  *
@@ -444,10 +474,19 @@ static int orph_key_test_and_del(const struct lu_env *env,
         struct mdd_object *mdo;
         int rc;
 
-        mdo = mdd_object_find(env, mdd, lf);
+again:
+	mdo = mdd_object_find(env, mdd, lf);
+	if (IS_ERR(mdo)) {
+		rc = PTR_ERR(mdo);
+		if (likely(rc != -EINPROGRESS && rc != -EREMCHG))
+			return PTR_ERR(mdo);
 
-        if (IS_ERR(mdo))
-                return PTR_ERR(mdo);
+		rc = __mdd_orphan_lookup(env, mdd, key, lf);
+		if (rc != 0)
+			return rc;
+
+		goto again;
+	}
 
         rc = -EBUSY;
         if (mdo->mod_count == 0) {

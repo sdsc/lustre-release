@@ -322,7 +322,7 @@ static int mdt_getstatus(struct mdt_thread_info *info)
                 struct mdt_object  *root;
                 struct lustre_capa *capa;
 
-                root = mdt_object_find(info->mti_env, mdt, &repbody->fid1);
+		root = mdt_object_find(info->mti_env, mdt, &repbody->fid1,NULL);
                 if (IS_ERR(root))
                         RETURN(PTR_ERR(root));
 
@@ -865,6 +865,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
         struct mdt_lock_handle *lhp       = NULL;
         struct ldlm_lock       *lock;
         struct ldlm_res_id     *res_id;
+	struct lu_object_conf  *conf      = &info->mti_conf;
         int                     is_resent;
         int                     ma_need = 0;
         int                     rc;
@@ -994,18 +995,21 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
                                 mdt_set_disposition(info, ldlm_rep,
                                                     DISP_LOOKUP_NEG);
                         GOTO(out_parent, rc);
-                } else
-                        mdt_set_disposition(info, ldlm_rep, DISP_LOOKUP_POS);
-        } else {
-                *child_fid = reqbody->fid2;
-                mdt_set_disposition(info, ldlm_rep, DISP_LOOKUP_POS);
-        }
+		} else {
+			conf->loc_flags = LOC_F_EXIST;
+			mdt_set_disposition(info, ldlm_rep, DISP_LOOKUP_POS);
+		}
+	} else {
+		*child_fid = reqbody->fid2;
+		conf->loc_flags = 0;
+		mdt_set_disposition(info, ldlm_rep, DISP_LOOKUP_POS);
+	}
 
-        /*
-         *step 3: find the child object by fid & lock it.
-         *        regardless if it is local or remote.
-         */
-        child = mdt_object_find(info->mti_env, info->mti_mdt, child_fid);
+	/*
+	 *step 3: find the child object by fid & lock it.
+	 *        regardless if it is local or remote.
+	 */
+	child = mdt_object_find(info->mti_env, info->mti_mdt, child_fid, conf);
 
         if (unlikely(IS_ERR(child)))
                 GOTO(out_parent, rc = PTR_ERR(child));
@@ -2082,14 +2086,15 @@ static struct mdt_object *mdt_obj(struct lu_object *o)
 
 struct mdt_object *mdt_object_find(const struct lu_env *env,
                                    struct mdt_device *d,
-                                   const struct lu_fid *f)
+				   const struct lu_fid *f,
+				   const struct lu_object_conf *c)
 {
-        struct lu_object *o;
-        struct mdt_object *m;
-        ENTRY;
+	struct lu_object *o;
+	struct mdt_object *m;
+	ENTRY;
 
-        CDEBUG(D_INFO, "Find object for "DFID"\n", PFID(f));
-        o = lu_object_find(env, &d->mdt_md_dev.md_lu_dev, f, NULL);
+	CDEBUG(D_INFO, "Find object for "DFID"\n", PFID(f));
+	o = lu_object_find(env, &d->mdt_md_dev.md_lu_dev, f, c);
         if (unlikely(IS_ERR(o)))
                 m = (struct mdt_object *)o;
         else
@@ -2370,11 +2375,12 @@ void mdt_object_unlock(struct mdt_thread_info *info, struct mdt_object *o,
 struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *info,
                                         const struct lu_fid *f,
                                         struct mdt_lock_handle *lh,
+					const struct lu_object_conf *c,
                                         __u64 ibits)
 {
-        struct mdt_object *o;
+	struct mdt_object *o;
 
-        o = mdt_object_find(info->mti_env, info->mti_mdt, f);
+	o = mdt_object_find(info->mti_env, info->mti_mdt, f, c);
         if (!IS_ERR(o)) {
                 int rc;
 
@@ -2478,7 +2484,7 @@ static int mdt_body_unpack(struct mdt_thread_info *info, __u32 flags)
                 mdt_set_capainfo(info, 0, &body->fid1,
                                  req_capsule_client_get(pill, &RMF_CAPA1));
 
-        obj = mdt_object_find(env, info->mti_mdt, &body->fid1);
+	obj = mdt_object_find(env, info->mti_mdt, &body->fid1, NULL);
         if (!IS_ERR(obj)) {
                 if ((flags & HABEO_CORPUS) &&
                     !mdt_object_exists(obj)) {
@@ -5401,7 +5407,7 @@ static int mdt_fid2path(const struct lu_env *env, struct mdt_device *mdt,
         if (!fid_is_sane(&fp->gf_fid))
                 RETURN(-EINVAL);
 
-        obj = mdt_object_find(env, mdt, &fp->gf_fid);
+	obj = mdt_object_find(env, mdt, &fp->gf_fid, NULL);
         if (obj == NULL || IS_ERR(obj)) {
                 CDEBUG(D_IOCTL, "no object "DFID": %ld\n", PFID(&fp->gf_fid),
                        PTR_ERR(obj));
@@ -5511,7 +5517,7 @@ static int mdt_ioc_version_get(struct mdt_thread_info *mti, void *karg)
         lh = &mti->mti_lh[MDT_LH_PARENT];
         mdt_lock_reg_init(lh, LCK_CR);
 
-        obj = mdt_object_find_lock(mti, fid, lh, MDS_INODELOCK_UPDATE);
+	obj = mdt_object_find_lock(mti, fid, lh, NULL, MDS_INODELOCK_UPDATE);
         if (IS_ERR(obj))
                 RETURN(PTR_ERR(obj));
 
