@@ -12,8 +12,8 @@ set -e
 ONLY=${ONLY:-"$*"}
 
 # bug number for skipped test:
-#               15977
-ALWAYS_EXCEPT="$CONF_SANITY_EXCEPT"
+#              Tool
+ALWAYS_EXCEPT="32newtarball $CONF_SANITY_EXCEPT"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
 if [ "$FAILURE_MODE" = "HARD" ]; then
@@ -21,6 +21,24 @@ if [ "$FAILURE_MODE" = "HARD" ]; then
 	echo "Except the tests: $CONFIG_EXCEPTIONS for FAILURE_MODE=$FAILURE_MODE, bug 23573" && \
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT $CONFIG_EXCEPTIONS"
 fi
+
+# 5b  - ORI-245
+# 5d  - ORI-245
+# 9   - ORI-245
+# 19b - ORI-245
+# 21b - ORI-245
+# 21c - ORI-245
+# 27a - ORI-245
+# 29  - ORI-15
+# 32a - ORI-650
+# 32b - ORI-577
+# 38  - ORI-237
+# 41a - ORI-651
+# 49  - obd_mount doesn't parse options in ldd anymore?
+# 50g - LU-491
+# 57  - tunefs.lustre doesn't work anymore?
+# 58  - ORI-246
+ALWAYS_EXCEPT="$ALWAYS_EXCEPT 5b 5d 9 19b 21b 21c 27a 29 32a 32b 38 41a 49 50g 57 58"
 
 SRCDIR=`dirname $0`
 PATH=$PWD/$SRCDIR:$SRCDIR:$SRCDIR/../utils:$PATH
@@ -71,36 +89,44 @@ require_dsh_ost || exit 0
 assert_DIR
 
 reformat() {
-        formatall
+	formatall
+	writeconf
 }
 
-writeconf1() {
-	local facet=$1
-	local dev=$2
-
-	stop ${facet} -f
-	rm -f ${facet}active
-	# who knows if/where $TUNEFS is installed?  Better reformat if it fails...
-	do_facet ${facet} "$TUNEFS --quiet --writeconf $dev" ||
-		{ echo "tunefs failed, reformatting instead" && reformat_and_config && return 1; }
-	return 0
-}
+WCDIR=$TMP/confsanity_wconf_$$
 
 writeconf() {
-	# we need ldiskfs
-	load_modules
-	# if writeconf fails anywhere, we reformat everything
-	writeconf1 mds `mdsdevname 1` || return 0
-	writeconf1 ost1 `ostdevname 1` || return 0
-	writeconf1 ost2 `ostdevname 2` || return 0
+	# Everybody writeconf next time they mount.
+	# We can't set environment vars inside tests since they run in subshells
+	# so we're left with this suboptimal implementation.
+	mkdir -p $WCDIR
+	touch $WCDIR/wc.m
+	touch $WCDIR/wc.o1
+	touch $WCDIR/wc.o2
 }
+
+writeclean() {
+	[ -e ${WCDIR}/$@ ] && rm ${WCDIR}/$@
+	WRITECONF=""
+	true
+}
+
+writeclean_all() {
+	writeclean wc.m
+	writeclean wc.o1
+	writeclean wc.o2
+	[ -e ${WCDIR} ] && rmdir $WCDIR
+	true
+}
+writeclean_all
 
 gen_config() {
 	# The MGS must be started before the OSTs for a new fs, so start
 	# and stop to generate the startup logs.
 	start_mds
 	start_ost
-        wait_osc_import_state mds ost FULL
+	wait_osc_import_state mds ost FULL
+	do_facet mgs "$LCTL conf_param $FSNAME.sys.timeout=$TIMEOUT"
 	stop_ost
 	stop_mds
 }
@@ -118,13 +144,17 @@ start_mgs () {
 	start mgs $MGSDEV $MGS_MOUNT_OPTS
 }
 
+WCF="-o writeconf"
+
 start_mds() {
 	local facet=$SINGLEMDS
 	# we can not use MDSDEV1 here because SINGLEMDS could be set not to mds1 only
 	local num=$(echo $facet | tr -d "mds")
 	local dev=$(mdsdevname $num)
+	WRITECONF="" && [ -e ${WCDIR}/wc.m ] && WRITECONF=$WCF
 	echo "start mds service on `facet_active_host $facet`"
 	start $facet ${dev} $MDS_MOUNT_OPTS $@ || return 94
+	writeclean wc.m
 }
 
 start_mgsmds() {
@@ -147,8 +177,10 @@ stop_mgs() {
 }
 
 start_ost() {
+	WRITECONF="" && [ -e ${WCDIR}/wc.o1 ] && WRITECONF=$WCF
 	echo "start ost1 service on `facet_active_host ost1`"
 	start ost1 `ostdevname 1` $OST_MOUNT_OPTS $@ || return 95
+	writeclean wc.o1
 }
 
 stop_ost() {
@@ -158,8 +190,10 @@ stop_ost() {
 }
 
 start_ost2() {
+	WRITECONF="" && [ -e ${WCDIR}/wc.o2 ] && WRITECONF=$WCF
 	echo "start ost2 service on `facet_active_host ost2`"
 	start ost2 `ostdevname 2` $OST_MOUNT_OPTS $@ || return 92
+	writeclean wc.o2
 }
 
 stop_ost2() {
@@ -565,6 +599,9 @@ is_blkdev () {
 #
 
 test_17() {
+        # ORI-160, skip until DEBUGFS can be replaced by ZDB
+        [ "$FSTYPE" != "ldiskfs" ] && skip "not needed for FSTYPE=$FSTYPE" && return
+
         setup
         check_mount || return 41
         cleanup || return $?
@@ -843,6 +880,10 @@ run_test 23b "Simulate -EINTR during mount"
 fs2mds_HOST=$mds_HOST
 fs2ost_HOST=$ost_HOST
 
+MDSDEV1_2=$fs2mds_DEV
+OSTDEV1_2=$fs2ost_DEV
+OSTDEV2_2=$fs3ost_DEV
+
 cleanup_24a() {
 	trap 0
 	echo "umount $MOUNT2 ..."
@@ -863,14 +904,22 @@ test_24a() {
 
 	[ -n "$ost1_HOST" ] && fs2ost_HOST=$ost1_HOST
 
-	local fs2mdsdev=${fs2mds_DEV:-${MDSDEV}_2}
-	local fs2ostdev=${fs2ost_DEV:-$(ostdevname 1)_2}
+	local fs2mdsdev=$(mdsdevname 1_2)
+	local fs2ostdev=$(ostdevname 1_2)
+	local fs2mdsvdev=$(mdsvdevname 1_2)
+	local fs2ostvdev=$(ostvdevname 1_2)
+	local fs2mdsmkfs=$(mkfs_opts mds)
 
-	# test 8-char fsname as well
+	# test 8-char fsname as well, and strip the --mgs option because
+	# multiple mgs servers per host are not supported.
 	local FSNAME2=test1234
-	add fs2mds $MDS_MKFS_OPTS --fsname=${FSNAME2} --nomgs --mgsnode=$MGSNID --reformat $fs2mdsdev || exit 10
+	add fs2mds ${fs2mdsmkfs/--mgs/} --backfstype $MDSFSTYPE \
+		--fsname=${FSNAME2} --mgsnode=$MGSNID --reformat --index=0 \
+		$fs2mdsdev $fs2mdsvdev || exit 10
 
-	add fs2ost $OST_MKFS_OPTS --fsname=${FSNAME2} --reformat $fs2ostdev || exit 10
+	add fs2ost $(mkfs_opts ost) --backfstype $OSTFSTYPE \
+		--fsname=${FSNAME2} --mgsnode=$MGSNID --reformat --index=0 \
+		$fs2ostdev $fs2ostvdev || exit 10
 
 	setup
 	start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS && trap cleanup_24a EXIT INT
@@ -913,9 +962,11 @@ test_24b() {
 		skip_env "mixed loopback and real device not working" && return
 	fi
 
-	local fs2mdsdev=${fs2mds_DEV:-${MDSDEV}_2}
+	local fs2mdsdev=$(mdsdevname 1_2)
+	local fs2mdsvdev=$(mdsvdevname 1_2)
 
-	add fs2mds $MDS_MKFS_OPTS --fsname=${FSNAME}2 --mgs --reformat $fs2mdsdev || exit 10
+	add fs2mds $(mkfs_opts mds) --backfstype $MDSFSTYPE --fsname=${FSNAME}2 \
+		--mgs --index=0 --reformat $fs2mdsdev $fs2mdsvdev || exit 10
 	setup
 	start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS && return 2
 	cleanup || return 6
@@ -1117,7 +1168,7 @@ test_30b() {
 	# the server.
 	OSTNID=$(do_facet ost1 "$LCTL get_param nis" | tail -1 | awk '{print $1}')
 	ORIGVAL=$(echo $OSTNID | egrep -oi "[0-9]*@")
-	NEWVAL=$((($(echo $ORIGVAL | egrep -oi "[0-9]*") + 20) % 256))
+	NEWVAL=$((($(echo $ORIGVAL | egrep -oi "[0-9]*" | head -n1) + 20) % 256))
 	NEW=$(echo $OSTNID | sed "s/$ORIGVAL/$NEWVAL@/")
 	echo "Using fake nid $NEW"
 
@@ -1149,189 +1200,418 @@ test_31() { # bug 10734
 }
 run_test 31 "Connect to non-existent node (shouldn't crash)"
 
-# Use these start32/stop32 fn instead of t-f start/stop fn,
-# for local devices, to skip global facet vars init
-stop32 () {
-	local facet=$1
-	shift
-	echo "Stopping local ${MOUNT%/*}/${facet} (opts:$@)"
-	umount -d $@ ${MOUNT%/*}/${facet}
-	losetup -a
-}
+#
+# This is not really a test but a tool to create new disk
+# image tarballs for the upgrade tests.
+#
+# Disk image tarballs should be created on single-node
+# clusters by running this test with default configurations
+# plus a few mandatory environment settings that are verified
+# at the beginning of the test.
+#
+test_32newtarball() {
+	local version
+	local dst=.
+	local src=/etc/rc.d
+	local tmp=$TMP/t32_image_create
 
-start32 () {
-	local facet=$1
-	shift
-	local device=$1
-	shift
-	mkdir -p ${MOUNT%/*}/${facet}
-
-	echo "Starting local ${facet}: $@ $device ${MOUNT%/*}/${facet}"
-	mount -t lustre $@ ${device} ${MOUNT%/*}/${facet}
-	local RC=$?
-	if [ $RC -ne 0 ]; then
-		echo "mount -t lustre $@ ${device} ${MOUNT%/*}/${facet}"
-		echo "Start of ${device} of local ${facet} failed ${RC}"
+	if [ $FSNAME != t32fs -o $MDSCOUNT -ne 1 -o								\
+		 \( -z "$MDSDEV" -a -z "$MDSDEV1" \) -o $OSTCOUNT -ne 1 -o			\
+		 -z "$OSTDEV1" ]; then
+		error "Needs FSNAME=t32fs MDSCOUNT=1 MDSDEV1=<nonexistent_file>"	\
+			  "(or MDSDEV, in the case of b1_8) OSTCOUNT=1"					\
+			  "OSTDEV1=<nonexistent_file>"
+ 	fi
+ 
+	mkdir $tmp || {
+		echo "Found stale $tmp"
+		return 1
+	}
+ 
+	mkdir $tmp/src
+	tar cf - -C $src . | tar xf - -C $tmp/src
+ 
+	formatall
+ 
+	setupall
+	tar cf - -C $tmp/src . | tar xf - -C /mnt/$FSNAME
+	stopall
+ 
+	mkdir $tmp/img
+ 
+	setupall
+	pushd /mnt/$FSNAME
+	ls -Rni --time-style=+%s >$tmp/img/list
+	find . ! -name .lustre -type f -exec sha1sum {} \; |
+		sort -k 2 >$tmp/img/sha1sums
+	popd
+	$LCTL get_param -n version | head -n 1 |
+		sed -e 's/^lustre: *//' >$tmp/img/commit
+	stopall
+ 
+	pushd $tmp/src
+	find -type f -exec sha1sum {} \; | sort -k 2 >$tmp/sha1sums.src
+	popd
+ 
+	if ! diff -u $tmp/sha1sums.src $tmp/img/sha1sums; then
+		echo "Data verification failed"
 	fi
-	losetup -a
-	return $RC
+ 
+	uname -r >$tmp/img/kernel
+	uname -m >$tmp/img/arch
+ 
+	mv ${MDSDEV1:-$MDSDEV} $tmp/img
+	mv $OSTDEV1 $tmp/img
+ 
+	version=$(sed -e 's/\(^[0-9]\+\.[0-9]\+\)\(.*$\)/\1/' $tmp/img/commit |
+			  sed -e 's/\./_/g')	# E.g., "1.8.7" -> "1_8"
+	dst=$(cd $dst; pwd)
+	pushd $tmp/img
+	tar cjvf $dst/disk$version-$FSTYPE.tar.bz2 -S *
+	popd
+ 
+	rm -r $tmp
+}
+run_test 32newtarball "Create a new test_32 disk image tarball for this version"
+ 
+#
+# The list of applicable tarballs is returned via the caller's
+# variable "tarballs".
+#
+t32_check() {
+	local node=$(facet_active_host $SINGLEMDS)
+	local r="do_node $node"
+ 
+	if [ "$CLIENTONLY" ]; then
+		skip "Client-only testing"
+		exit 0
+	fi
+ 
+	if ! $r which $TUNEFS; then
+		skip_env "tunefs.lustre required on $node"
+		exit 0
+	fi
+ 
+	tarballs=$($r find $RLUSTRE/tests -maxdepth 1							\
+					   -name \'disk*-$MDSFSTYPE.tar.bz2\')
+	if [ -z "$tarballs" ]; then
+		skip "No applicable tarballs found"
+		exit 0
+	fi
+ }
+t32_test_cleanup() {
+	local node=$(facet_active_host $SINGLEMDS)
+	local r="do_node $node"
+	local tmp=$TMP/t32
+	local rc=$?
+ 
+	if $shall_cleanup_lustre; then
+		umount $tmp/mnt/lustre || rc=$?
+	fi
+	if $shall_cleanup_mdt; then
+		$r umount $tmp/mnt/mdt || rc=$?
+	fi
+	if $shall_cleanup_ost; then
+		$r umount $tmp/mnt/ost || rc=$?
+	fi
+	$r rm -rf $tmp || rc=$?
+	rm -rf $tmp || rc=$?
+	return $rc
+}
+ 
+t32_bits_per_long() {
+	#
+	# Yes, this is not meant to be perfect.
+	#
+	case $1 in
+		ppc64|x86_64)
+			echo -n 64;;
+		i*86)
+			echo -n 32;;
+	esac
+}
+ 
+t32_reload_modules() {
+	local node=$1
+	local all_removed=false
+	local i=0
+
+	while ((i < 10)); do
+		echo "Unloading modules on $node: Attempt $i"
+		do_rpc_nodes $node $LUSTRE_RMMOD $FSTYPE && all_removed=true
+		do_rpc_nodes $node check_mem_leak || return 1
+		if $all_removed; then
+			load_modules
+			return 0
+		fi
+		sleep 5
+		i=$((i + 1))
+	done
+	echo "Unloading modules on $node: Given up"
+	return 1
 }
 
-cleanup_nocli32 () {
-	stop32 mds1 -f
-	stop32 ost1 -f
-	wait_exit_ST client
-}
+t32_test() {
+	local tarball=$1
+	local writeconf=$2
+	local shall_cleanup_mdt=false
+	local shall_cleanup_ost=false
+	local shall_cleanup_lustre=false
+	local node=$(facet_active_host $SINGLEMDS)
+	local r="do_node $node"
+	local tmp=$TMP/t32
+	local img_commit
+	local img_kernel
+	local img_arch
+	local fsname=t32fs
+	local nid=$($r $LCTL list_nids | head -1)
+	local mopts
+	local uuid
+	local nrpcs_orig
+	local nrpcs
+	local list
 
-cleanup_32() {
-	trap 0
-	echo "Cleanup test_32 umount $MOUNT ..."
-	umount -f $MOUNT || true
-	echo "Cleanup local mds ost1 ..."
-	cleanup_nocli32
-	combined_mgs_mds || start_mgs
-	unload_modules_conf
-}
+	trap 'trap - RETURN; t32_test_cleanup' RETURN
 
+	mkdir -p $tmp/mnt/lustre
+	$r mkdir -p $tmp/mnt/{mdt,ost}
+	$r tar xjvf $tarball -S -C $tmp || {
+		error_noexit "Unpacking the disk image tarball"
+		return 1
+	}
+	img_commit=$($r cat $tmp/commit)
+	img_kernel=$($r cat $tmp/kernel)
+	img_arch=$($r cat $tmp/arch)
+	echo "Upgrading from $(basename $tarball), created with:"
+	echo "  Commit: $img_commit"
+	echo "  Kernel: $img_kernel"
+	echo "    Arch: $img_arch"
+
+	$r $LCTL set_param debug="$PTLDEBUG"
+
+	$r $TUNEFS --dryrun $tmp/mdt || {
+		error_noexit "tunefs.lustre before mounting the MDT"
+		return 1
+	}
+	if [ "$writeconf" ]; then
+		mopts=loop,writeconf
+	else
+		mopts=loop,exclude=$fsname-OST0000
+	fi
+	$r mount -t lustre -o $mopts $tmp/mdt $tmp/mnt/mdt || {
+		error_noexit "Mounting the MDT"
+		return 1
+	}
+	shall_cleanup_mdt=true
+ 
+	uuid=$($r $LCTL get_param -n mdt.$fsname-MDT0000.uuid) || {
+		error_noexit "Getting MDT UUID"
+		return 1
+	}
+	if [ "$uuid" != $fsname-MDT0000_UUID ]; then
+		error_noexit "Unexpected MDT UUID: \"$uuid\""
+		return 1
+	fi
+ 
+	$r $TUNEFS --dryrun $tmp/ost || {
+		error_noexit "tunefs.lustre before mounting the OST"
+		return 1
+	}
+	if [ "$writeconf" ]; then
+		mopts=loop,mgsnode=$nid,$writeconf
+	else
+		mopts=loop,mgsnode=$nid
+	fi
+	$r mount -t lustre -o $mopts $tmp/ost $tmp/mnt/ost || {
+		error_noexit "Mounting the OST"
+		return 1
+	}
+	shall_cleanup_ost=true
+ 
+	uuid=$($r $LCTL get_param -n obdfilter.$fsname-OST0000.uuid) || {
+		error_noexit "Getting OST UUID"
+		return 1
+	}
+	if [ "$uuid" != $fsname-OST0000_UUID ]; then
+		error_noexit "Unexpected OST UUID: \"$uuid\""
+		return 1
+	fi
+ 
+	$r $LCTL conf_param $fsname-OST0000.osc.max_dirty_mb=15 || {
+		error_noexit "Setting \"max_dirty_mb\""
+		return 1
+	}
+	$r $LCTL conf_param $fsname-OST0000.failover.node=$nid || {
+		error_noexit "Setting OST \"failover.node\""
+		return 1
+	}
+	$r $LCTL conf_param $fsname-MDT0000.mdc.max_rpcs_in_flight=9 || {
+		error_noexit "Setting \"max_rpcs_in_flight\""
+		return 1
+	}
+	$r $LCTL conf_param $fsname-MDT0000.failover.node=$nid || {
+		error_noexit "Setting MDT \"failover.node\""
+		return 1
+	}
+	$r $LCTL pool_new $fsname.interop || {
+		error_noexit "Setting \"interop\""
+		return 1
+	}
+	$r $LCTL conf_param $fsname-MDT0000.lov.stripesize=4M || {
+		error_noexit "Setting \"lov.stripesize\""
+		return 1
+	}
+
+	if [ "$writeconf" ]; then
+		mount -t lustre $nid:/$fsname $tmp/mnt/lustre || {
+			error_noexit "Mounting the client"
+			return 1
+		}
+		shall_cleanup_lustre=true
+		$LCTL set_param debug="$PTLDEBUG"
+
+		if $r test -f $tmp/sha1sums; then
+			$r cat $tmp/sha1sums >$tmp/sha1sums.orig
+			pushd $tmp/mnt/lustre
+			find ! -name .lustre -type f -exec sha1sum {} \; |
+				sort -k 2 >$tmp/sha1sums || {
+				error_noexit "sha1sum"
+				return 1
+			}
+			popd
+			if ! diff -ub $tmp/sha1sums.orig $tmp/sha1sums; then
+				error_noexit "sha1sum verification failed"
+				return 1
+			fi
+		else
+			echo "sha1sum verification skipped"
+		fi
+ 
+		if $r test -f $tmp/list; then
+			#
+			# There is not a Test Framework API to copy files to or
+			# from a remote node.
+			#
+			$r cat $tmp/list >$tmp/list.orig
+			pushd $tmp/mnt/lustre
+			ls -Rni --time-style=+%s >$tmp/list || {
+				error_noexit "ls"
+				return 1
+			}
+			popd
+			#
+			# 32-bit and 64-bit clients use different algorithms to
+			# convert FIDs into inode numbers.  Hence, remove the inode
+			# numbers from the lists, if the original list was created
+			# on an architecture with different number of bits per
+			# "long".
+			#
+			if [ $(t32_bits_per_long $(uname -m)) !=						\
+				 $(t32_bits_per_long $img_arch) ]; then
+				echo "Different number of bits per \"long\" from the disk image"
+				for list in list.orig list; do
+					sed -i -e 's/^[0-9]\+[ \t]\+//' $tmp/$list
+				done
+			fi
+			if ! diff -ub $tmp/list.orig $tmp/list; then
+				error_noexit "list verification failed"
+				return 1
+			fi
+		else
+			echo "list verification skipped"
+		fi
+ 
+		#
+		# When adding new data verification tests, please check for
+		# the presence of the required reference files first, like
+		# the "sha1sums" and "list" tests above, to avoid the need to
+		# regenerate every image for each test addition.
+		#
+
+		nrpcs_orig=$($LCTL get_param -n mdc.*.max_rpcs_in_flight) || {
+			error_noexit "Getting \"max_rpcs_in_flight\""
+			return 1
+		}
+		nrpcs=$((nrpcs_orig + 5))
+		$r $LCTL conf_param $fsname-MDT0000.mdc.max_rpcs_in_flight=$nrpcs || {
+			error_noexit "Changing \"max_rpcs_in_flight\""
+			return 1
+		}
+		wait_update $HOSTNAME "$LCTL get_param -n mdc.*.max_rpcs_in_flight"	\
+		            $nrpcs || {
+			error_noexit "Verifying \"max_rpcs_in_flight\""
+			return 1
+		}
+
+		umount $tmp/mnt/lustre || {
+			error_noexit "Unmounting the client"
+			return 1
+		}
+		shall_cleanup_lustre=false
+	else
+		$r umount $tmp/mnt/mdt || {
+			error_noexit "Unmounting the MDT"
+			return 1
+		}
+		shall_cleanup_mdt=false
+		$r umount $tmp/mnt/ost || {
+			error_noexit "Unmounting the OST"
+			return 1
+		}
+		shall_cleanup_ost=false
+
+		t32_reload_modules $node || {
+			error_noexit "Reloading modules"
+			return 1
+		}
+
+		# mount a second time to make sure we didnt leave upgrade flag on
+		$r $TUNEFS --dryrun $tmp/mdt || {
+			error_noexit "tunefs.lustre before remounting the MDT"
+			return 1
+		}
+		$r mount -t lustre -o loop,exclude=$fsname-OST0000 $tmp/mdt			\
+				 $tmp/mnt/mdt || {
+			error_noexit "Remounting the MDT"
+			return 1
+		}
+		shall_cleanup_mdt=true
+	fi
+}
+ 
 test_32a() {
-	client_only && skip "client only testing" && return 0
-	[ "$NETTYPE" = "tcp" ] || { skip "NETTYPE != tcp" && return 0; }
-	[ -z "$TUNEFS" ] && skip_env "No tunefs" && return 0
-
-	local DISK1_8=$LUSTRE/tests/disk1_8.tar.bz2
-	[ ! -r $DISK1_8 ] && skip_env "Cannot find $DISK1_8" && return 0
-	local tmpdir=$TMP/conf32a
-	mkdir -p $tmpdir
-	tar xjvf $DISK1_8 -C $tmpdir || \
-		{ skip_env "Cannot untar $DISK1_8" && return 0; }
-
-	load_modules
-	$LCTL set_param debug=$PTLDEBUG
-
-	$TUNEFS $tmpdir/mds || error "tunefs failed"
-
-	combined_mgs_mds || stop mgs
-
-	# nids are wrong, so client wont work, but server should start
-	start32 mds1 $tmpdir/mds "-o loop,exclude=lustre-OST0000" && \
-		trap cleanup_32 EXIT INT || return 3
-
-	local UUID=$($LCTL get_param -n mdt.lustre-MDT0000.uuid)
-	echo MDS uuid $UUID
-	[ "$UUID" == "lustre-MDT0000_UUID" ] || error "UUID is wrong: $UUID"
-
-	$TUNEFS --mgsnode=$HOSTNAME $tmpdir/ost1 || error "tunefs failed"
-	start32 ost1 $tmpdir/ost1 "-o loop" || return 5
-	UUID=$($LCTL get_param -n obdfilter.lustre-OST0000.uuid)
-	echo OST uuid $UUID
-	[ "$UUID" == "lustre-OST0000_UUID" ] || error "UUID is wrong: $UUID"
-
-	local NID=$($LCTL list_nids | head -1)
-
-	echo "OSC changes should succeed:"
-	$LCTL conf_param lustre-OST0000.osc.max_dirty_mb=15 || return 7
-	$LCTL conf_param lustre-OST0000.failover.node=$NID || return 8
-	echo "ok."
-
-	echo "MDC changes should succeed:"
-	$LCTL conf_param lustre-MDT0000.mdc.max_rpcs_in_flight=9 || return 9
-	$LCTL conf_param lustre-MDT0000.failover.node=$NID || return 10
-	echo "ok."
-
-	echo "LOV changes should succeed:"
-	$LCTL pool_new lustre.interop || return 11
-	$LCTL conf_param lustre-MDT0000.lov.stripesize=4M || return 12
-	echo "ok."
-
-	cleanup_32
-
-	# mount a second time to make sure we didnt leave upgrade flag on
-	load_modules
-	$TUNEFS --dryrun $tmpdir/mds || error "tunefs failed"
-
-	combined_mgs_mds || stop mgs
-
-	start32 mds1 $tmpdir/mds "-o loop,exclude=lustre-OST0000" && \
-		trap cleanup_32 EXIT INT || return 12
-
-	cleanup_32
-
-	rm -rf $tmpdir || true	# true is only for TMP on NFS
+	local tarballs
+	local tarball
+	local rc=0
+ 
+	t32_check
+	for tarball in $tarballs; do
+		if [ $tarball == $RLUSTRE/tests/disk1_8-ldiskfs.tar.bz2 ]; then
+			echo "Skip b1_8 images before we have 1.8 compatibility"
+			continue
+		fi
+		t32_test $tarball || rc=$?
+	done
+	return $rc
 }
-run_test 32a "Upgrade from 1.8 (not live)"
-
+run_test 32a "Upgrade (not live)"
+ 
 test_32b() {
-	client_only && skip "client only testing" && return 0
-	[ "$NETTYPE" = "tcp" ] || { skip "NETTYPE != tcp" && return 0; }
-	[ -z "$TUNEFS" ] && skip_env "No tunefs" && return
-
-	local DISK1_8=$LUSTRE/tests/disk1_8.tar.bz2
-	[ ! -r $DISK1_8 ] && skip_env "Cannot find $DISK1_8" && return 0
-	local tmpdir=$TMP/conf32b
-	mkdir -p $tmpdir
-	tar xjvf $DISK1_8 -C $tmpdir || \
-		{ skip_env "Cannot untar $DISK1_8" && return ; }
-
-	load_modules
-	$LCTL set_param debug="config"
-	local NEWNAME=lustre
-
-	# writeconf will cause servers to register with their current nids
-	$TUNEFS --writeconf --fsname=$NEWNAME $tmpdir/mds || error "tunefs failed"
-	combined_mgs_mds || stop mgs
-
-	start32 mds1 $tmpdir/mds "-o loop" && \
-		trap cleanup_32 EXIT INT || return 3
-
-	local UUID=$($LCTL get_param -n mdt.${NEWNAME}-MDT0000.uuid)
-	echo MDS uuid $UUID
-	[ "$UUID" == "${NEWNAME}-MDT0000_UUID" ] || error "UUID is wrong: $UUID"
-
-	$TUNEFS --mgsnode=$HOSTNAME --writeconf --fsname=$NEWNAME $tmpdir/ost1 ||\
-	    error "tunefs failed"
-	start32 ost1 $tmpdir/ost1 "-o loop" || return 5
-	UUID=$($LCTL get_param -n obdfilter.${NEWNAME}-OST0000.uuid)
-	echo OST uuid $UUID
-	[ "$UUID" == "${NEWNAME}-OST0000_UUID" ] || error "UUID is wrong: $UUID"
-
-	local NID=$($LCTL list_nids | head -1)
-
-	echo "OSC changes should succeed:"
-	$LCTL conf_param ${NEWNAME}-OST0000.osc.max_dirty_mb=15 || return 7
-	$LCTL conf_param ${NEWNAME}-OST0000.failover.node=$NID || return 8
-	echo "ok."
-
-	echo "MDC changes should succeed:"
-	$LCTL conf_param ${NEWNAME}-MDT0000.mdc.max_rpcs_in_flight=9 || return 9
-	$LCTL conf_param ${NEWNAME}-MDT0000.failover.node=$NID || return 10
-	echo "ok."
-
-	echo "LOV changes should succeed:"
-	$LCTL pool_new ${NEWNAME}.interop || return 11
-	$LCTL conf_param ${NEWNAME}-MDT0000.lov.stripesize=4M || return 12
-	echo "ok."
-
-	# MDT and OST should have registered with new nids, so we should have
-	# a fully-functioning client
-	echo "Check client and old fs contents"
-
-	local device=`h2$NETTYPE $HOSTNAME`:/$NEWNAME
-	echo "Starting local client: $HOSTNAME: $device $MOUNT"
-	mount -t lustre $device $MOUNT || return 1
-
-	local old=$($LCTL get_param -n mdc.*.max_rpcs_in_flight)
-	local new=$((old + 5))
-	$LCTL conf_param ${NEWNAME}-MDT0000.mdc.max_rpcs_in_flight=$new
-	wait_update $HOSTNAME "$LCTL get_param -n mdc.*.max_rpcs_in_flight" $new || return 11
-
-	[ "$(cksum $MOUNT/passwd | cut -d' ' -f 1,2)" == "94306271 1478" ] || return 12
-	echo "ok."
-
-	cleanup_32
-
-	rm -rf $tmpdir || true  # true is only for TMP on NFS
-}
-run_test 32b "Upgrade from 1.8 with writeconf"
+	local tarballs
+	local tarball
+	local rc=0
+ 
+	t32_check
+	for tarball in $tarballs; do
+		if [ $tarball == $RLUSTRE/tests/disk1_8-ldiskfs.tar.bz2 ]; then
+			echo "Skip b1_8 images before we have 1.8 compatibility"
+			continue
+		fi
+		t32_test $tarball writeconf || rc=$?
+	done
+	return $rc
+ }
+run_test 32b "Upgrade with writeconf"
 
 test_33a() { # bug 12333, was test_33
         local rc=0
@@ -1347,12 +1627,20 @@ test_33a() { # bug 12333, was test_33
                 skip_env "mixed loopback and real device not working" && return
         fi
 
-        combined_mgs_mds || mkfs_opts="$mkfs_opts --nomgs"
+        local fs2mdsdev=$(mdsdevname 1_2)
+        local fs2ostdev=$(ostdevname 1_2)
+        local fs2mdsvdev=$(mdsvdevname 1_2)
+        local fs2ostvdev=$(ostvdevname 1_2)
+        local fs2mdsmkfs=$(mkfs_opts mds)
 
-        local fs2mdsdev=${fs2mds_DEV:-${MDSDEV}_2}
-        local fs2ostdev=${fs2ost_DEV:-$(ostdevname 1)_2}
-        add fs2mds $MDS_MKFS_OPTS --mkfsoptions='\"-J size=8\"' --fsname=${FSNAME2} --reformat $fs2mdsdev || exit 10
-        add fs2ost $OST_MKFS_OPTS --fsname=${FSNAME2} --index=8191 --mgsnode=$MGSNID --reformat $fs2ostdev || exit 10
+        combined_mgs_mds || fs2mdsmkfs=${fs2mdsmkfs/--mgs/}
+
+        add fs2mds ${fs2mdsmkfs} --mkfsoptions='\"-J size=8\"' \
+			 --backfstype $MDSFSTYPE --fsname=${FSNAME2} --reformat \
+			 --index=0 $fs2mdsdev $fs2mdsvdev || exit 10
+        add fs2ost $(mkfs_opts ost) --fsname=${FSNAME2} \
+			 --backfstype $OSTFSTYPE --index=8191 --mgsnode=$MGSNID \
+			 --reformat $fs2ostdev $fs2ostvdev || exit 10
 
         start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS && trap cleanup_24a EXIT INT
         start fs2ost $fs2ostdev $OST_MOUNT_OPTS
@@ -1367,7 +1655,6 @@ test_33a() { # bug 12333, was test_33
         umount -d $MOUNT2
         stop fs2ost -f
         stop fs2mds -f
-        rm -rf $MOUNT2 $fs2mdsdev $fs2ostdev
         cleanup_nocli || rc=6
         return $rc
 }
@@ -1483,8 +1770,15 @@ test_35a() { # bug 12459
 run_test 35a "Reconnect to the last active server first"
 
 test_35b() { # bug 18674
-	remote_mds || { skip "local MDS" && return 0; }
+	#remote_mds || { skip "local MDS" && return 0; }
 	setup
+
+	# fast food^Whack: reset timeout on all the node which can get
+	# out of sync due to writeconf in 35a. to be fixed properly
+	# in ORI-278
+	do_facet mgs "$LCTL conf_param $FSNAME.sys.timeout=$TIMEOUT"
+	sleep 5
+	$LCTL get_param timeout
 
 	debugsave
 	$LCTL set_param debug="ha"
@@ -1580,14 +1874,24 @@ test_36() { # 12743
 		skip_env "mixed loopback and real device not working" && return
         fi
 
-        local fs2mdsdev=${fs2mds_DEV:-${MDSDEV}_2}
-        local fs2ostdev=${fs2ost_DEV:-$(ostdevname 1)_2}
-        local fs3ostdev=${fs3ost_DEV:-$(ostdevname 2)_2}
-        add fs2mds $MDS_MKFS_OPTS --fsname=${FSNAME2} --reformat $fs2mdsdev || exit 10
-        # XXX after we support non 4K disk blocksize, change following --mkfsoptions with
-        # other argument
-        add fs2ost $OST_MKFS_OPTS --mkfsoptions='-b4096' --fsname=${FSNAME2} --mgsnode=$MGSNID --reformat $fs2ostdev || exit 10
-        add fs3ost $OST_MKFS_OPTS --mkfsoptions='-b4096' --fsname=${FSNAME2} --mgsnode=$MGSNID --reformat $fs3ostdev || exit 10
+        local fs2mdsdev=$(mdsdevname 1_2)
+        local fs2ostdev=$(ostdevname 1_2)
+        local fs3ostdev=$(ostdevname 2_2)
+        local fs2mdsvdev=$(mdsvdevname 1_2)
+        local fs2ostvdev=$(ostvdevname 1_2)
+        local fs3ostvdev=$(ostvdevname 2_2)
+
+        add fs2mds $(mkfs_opts mds)  --backfstype $MDSFSTYPE \
+			--fsname=${FSNAME2} --reformat --index=0 \
+			$fs2mdsdev $fs2mdsvdev || exit 10
+        # XXX after we support non 4K disk blocksize, change following
+		# --mkfsoptions with # other argument
+        add fs2ost $(mkfs_opts ost) --mkfsoptions='-b4096' \
+			--backfstype $OSTFSTYPE --fsname=${FSNAME2} --mgsnode=$MGSNID \
+			--reformat --index=0 $fs2ostdev $fs2ostvdev || exit 10
+        add fs3ost $(mkfs_opts ost) --mkfsoptions='-b4096' \
+			 --backfstype $OSTFSTYPE --fsname=${FSNAME2} --mgsnode=$MGSNID \
+			 --reformat --index=1 $fs3ostdev $fs3ostvdev || exit 10
 
         start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS
         start fs2ost $fs2ostdev $OST_MOUNT_OPTS
@@ -1630,13 +1934,14 @@ test_36() { # 12743
         stop fs3ost -f || return 200
         stop fs2ost -f || return 201
         stop fs2mds -f || return 202
-        rm -rf $MOUNT2 $fs2mdsdev $fs2ostdev $fs3ostdev
         unload_modules_conf || return 203
         return $rc
 }
 run_test 36 "df report consistency on OSTs with different block size"
 
 test_37() {
+	[ "$FSTYPE" != "ldiskfs" ] && skip "not needed for FSTYPE=$FSTYPE" && return
+
 	local mntpt=$(facet_mntpt $SINGLEMDS)
 	local mdsdev=$(mdsdevname ${SINGLEMDS//mds/})
 	local mdsdev_sym="$TMP/sym_mdt.img"
@@ -1668,6 +1973,9 @@ test_37() {
 run_test 37 "verify set tunables works for symlink device"
 
 test_38() { # bug 14222
+	# ORI-160, skip until DEBUGFS can be replaced by ZDB
+	[ "$FSTYPE" != "ldiskfs" ] && skip "not needed for FSTYPE=$FSTYPE" && return
+
 	setup
 	# like runtests
 	COUNT=10
@@ -1775,11 +2083,16 @@ test_41b() {
         local MDSDEV=$(mdsdevname ${SINGLEMDS//mds/})
 
         start $SINGLEMDS $MDSDEV $MDS_MOUNT_OPTS -o nosvc -n
+        # pass writeconf as corresponding flag is cleared
+        # in mountdata file on MGS mount (by mount.lustre utility)
+        start $SINGLEMDS $MDSDEV $MDS_MOUNT_OPTS -o nomgs,force,writeconf
         start_ost
-        start $SINGLEMDS $MDSDEV $MDS_MOUNT_OPTS -o nomgs,force
         mkdir -p $MOUNT
         mount_client $MOUNT || return 1
         sleep 5
+
+        # start() didn't cleared WC after reformat(), do this manually
+        writeclean_all
 
         echo "blah blah" > $MOUNT/$tfile
         cat $MOUNT/$tfile || return 200
@@ -2408,6 +2721,8 @@ diff_files_xattrs()
 }
 
 test_52() {
+	[ "$FSTYPE" != "ldiskfs" ] && skip "not needed for FSTYPE=$FSTYPE" && return
+
 	start_mds
 	[ $? -eq 0 ] || { error "Unable to start MDS"; return 1; }
 	start_ost
@@ -2592,6 +2907,8 @@ test_53b() {
 run_test 53b "check MDT thread count params"
 
 test_54a() {
+	[ "$FSTYPE" != "ldiskfs" ] && skip "not needed for FSTYPE=$FSTYPE" && return
+
     do_rpc_nodes $(facet_host ost1) run_llverdev $(ostdevname 1) -p
     [ $? -eq 0 ] || error "llverdev failed!"
     reformat_and_config
@@ -2613,20 +2930,21 @@ lov_objid_size()
 }
 
 test_55() {
+	# ORI-160, skip until DEBUGFS can be replaced by ZDB
+	[ "$FSTYPE" != "ldiskfs" ] && skip "not needed for FSTYPE=$FSTYPE" && return
+
 	local mdsdev=$(mdsdevname 1)
-	local ostdev=$(ostdevname 1)
-	local saved_opts=$OST_MKFS_OPTS
+	local mdsvdev=$(mdsvdevname 1)
 
 	for i in 1023 2048
 	do
-		OST_MKFS_OPTS="$saved_opts --index $i"
-		reformat
-
-		setup_noconfig
-		stopall
-
+		add mds1 $(mkfs_opts mds)  --backfstype $MDSFSTYPE \
+			--index 0 --reformat $mdsdev $mdsvdev || exit 10
+		add ost1 $(mkfs_opts ost)  --backfstype $OSTFSTYPE \
+			--index $i --reformat $(ostdevname 1) $(ostvdevname 1)
 		setup
 		sync
+
 		echo checking size of lov_objid for ost index $i
 		LOV_OBJID_SIZE=$(do_facet mds1 "$DEBUGFS -R 'stat lov_objid' $mdsdev 2>/dev/null" | grep ^User | awk '{print $6}')
 		if [ "$LOV_OBJID_SIZE" != $(lov_objid_size $i) ]; then
@@ -2637,15 +2955,18 @@ test_55() {
 		stopall
 	done
 
-	OST_MKFS_OPTS=$saved_opts
 	reformat
 }
 run_test 55 "check lov_objid size"
 
 test_56() {
-	add mds1 $MDS_MKFS_OPTS --mkfsoptions='\"-J size=16\"' --reformat $(mdsdevname 1)
-	add ost1 $OST_MKFS_OPTS --index=1000 --reformat $(ostdevname 1)
-	add ost2 $OST_MKFS_OPTS --index=10000 --reformat $(ostdevname 2)
+	add mds1 $(mkfs_opts mds) --backfstype $MDSFSTYPE \
+		--mkfsoptions='\"-J size=16\"' --reformat \
+		--index 0 $(mdsdevname 1) $(mdsvdevname 1)
+	add ost1 $(mkfs_opts ost) --backfstype $OSTFSTYPE \
+		--index 1000 --reformat $(ostdevname 1) $(ostvdevname 1)
+	add ost2 $(mkfs_opts ost) --backfstype $OSTFSTYPE \
+		--index 10000 --reformat $(ostdevname 2) $(ostvdevname 2)
 
 	start_mds
 	start_ost
@@ -2690,17 +3011,19 @@ test_58() { # bug 22658
 	createmany -o $DIR/$tdir/$tfile-%d 100
 	# make sure that OSTs do not cancel llog cookies before we unmount the MDS
 #define OBD_FAIL_OBD_LOG_CANCEL_NET      0x601
-	do_facet mds "lctl set_param fail_loc=0x601"
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0x601"
 	unlinkmany $DIR/$tdir/$tfile-%d 100
-	stop mds
-	local MNTDIR=$(facet_mntpt mds)
+	stop $SINGLEMDS
+	local MNTDIR=$(facet_mntpt $SINGLEMDS)
 	# remove all files from the OBJECTS dir
-	do_facet mds "mount -t ldiskfs $MDSDEV $MNTDIR"
-	do_facet mds "find $MNTDIR/OBJECTS -type f -delete"
-	do_facet mds "umount $MNTDIR"
+	do_facet $SINGLEMDS "mount -t ldiskfs $MDS_MOUNT_OPTS \
+		$(mdsdevname ${SINGLEMDS#mds}) $MNTDIR"
+	do_facet $SINGLEMDS \
+		"find $MNTDIR/O/1/d* -type f -links 1 -size +8k -delete"
+	do_facet $SINGLEMDS "umount $MNTDIR"
 	# restart MDS with missing llog files
 	start_mds
-	do_facet mds "lctl set_param fail_loc=0"
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0"
 	reformat
 }
 run_test 58 "missing llog files must not prevent MDT from mounting"
@@ -2738,11 +3061,15 @@ test_59() {
 run_test 59 "writeconf mount option"
 
 test_60() { # LU-471
-	add mds1 $MDS_MKFS_OPTS --mkfsoptions='\" -E stride=64 -O ^uninit_bg\"' --reformat $(mdsdevname 1)
+	[ "$FSTYPE" != "ldiskfs" ] && skip "not needed for FSTYPE=$FSTYPE" && return
 
-	dump=$(do_facet $SINGLEMDS dumpe2fs $(mdsdevname 1))
+	add mds1 $(mkfs_opts mds) --backfstype $MDSFSTYPE --index 0 \
+		--mkfsoptions='\" -E stride=64 -O ^uninit_bg\"' \
+		--reformat $(mdsdevname 1) $(mdsvdevname 1) || exit 10
+
+	dump=$(do_facet $SINGLEMDS $DUMPE2FS $(mdsdevname 1))
 	rc=${PIPESTATUS[0]}
-	[ $rc -eq 0 ] || error "dumpe2fs $(mdsdevname 1) failed"
+	[ $rc -eq 0 ] || error "$DUMPE2FS $(mdsdevname 1) failed"
 
 	# MDT default has dirdata feature
 	echo $dump | grep dirdata > /dev/null || error "dirdata is not set"

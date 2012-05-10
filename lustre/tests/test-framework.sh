@@ -114,14 +114,61 @@ init_test_env() {
     export TEST_FAILED=false
     export FAIL_ON_SKIP_ENV=${FAIL_ON_SKIP_ENV:-false}
 
-    export MKE2FS=${MKE2FS:-mke2fs}
-    export DEBUGFS=${DEBUGFS:-debugfs}
-    export TUNE2FS=${TUNE2FS:-tune2fs}
-    export E2LABEL=${E2LABEL:-e2label}
-    export DUMPE2FS=${DUMPE2FS:-dumpe2fs}
-    export E2FSCK=${E2FSCK:-e2fsck}
-    export LFSCK_BIN=${LFSCK_BIN:-lfsck}
+    export MKE2FS=$MKE2FS
+    if [ -z "$MKE2FS" ]; then
+        if which mkfs.ldiskfs >/dev/null 2>&1; then
+            export MKE2FS=mkfs.ldiskfs
+        else
+            export MKE2FS=mke2fs
+        fi
+    fi
 
+    export DEBUGFS=$DEBUGFS
+    if [ -z "$DEBUGFS" ]; then
+        if which debugfs.ldiskfs >/dev/null 2>&1; then
+            export DEBUGFS=debugfs.ldiskfs
+        else
+            export DEBUGFS=debugfs
+        fi
+    fi
+
+    export TUNE2FS=$TUNE2FS
+    if [ -z "$TUNE2FS" ]; then
+        if which tunefs.ldiskfs >/dev/null 2>&1; then
+            export TUNE2FS=tunefs.ldiskfs
+        else
+            export TUNE2FS=tune2fs
+        fi
+    fi
+
+    export E2LABEL=$E2LABEL
+    if [ -z "$E2LABEL" ]; then
+        if which label.ldiskfs >/dev/null 2>&1; then
+            export E2LABEL=label.ldiskfs
+        else
+            export E2LABEL=e2label
+        fi
+    fi
+
+    export DUMPE2FS=$DUMPE2FS
+    if [ -z "$DUMPE2FS" ]; then
+        if which dumpfs.ldiskfs >/dev/null 2>&1; then
+            export DUMPE2FS=dumpfs.ldiskfs
+        else
+            export DUMPE2FS=dumpe2fs
+        fi
+    fi
+
+    export E2FSCK=$E2FSCK
+    if [ -z "$E2FSCK" ]; then
+        if which fsck.ldiskfs >/dev/null 2>&1; then
+            export E2FSCK=fsck.ldiskfs
+        else
+            export E2FSCK=e2fsck
+        fi
+    fi
+
+    export LFSCK_BIN=${LFSCK_BIN:-lfsck}
     export LFSCK_ALWAYS=${LFSCK_ALWAYS:-"no"} # check fs after each test suite
     export FSCK_MAX_ERR=4   # File system errors left uncorrected
 
@@ -177,11 +224,11 @@ init_test_env() {
         fi
     fi
     export LL_DECODE_FILTER_FID=${LL_DECODE_FILTER_FID:-"$LUSTRE/utils/ll_decode_filter_fid"}
-    [ ! -f "$LL_DECODE_FILTER_FID" ] && export LL_DECODE_FILTER_FID=$(which ll_decode_filter_fid)
+    [ ! -f "$LL_DECODE_FILTER_FID" ] && export LL_DECODE_FILTER_FID="ll_decode_filter_fid"
     export MKFS=${MKFS:-"$LUSTRE/utils/mkfs.lustre"}
-    [ ! -f "$MKFS" ] && export MKFS=$(which mkfs.lustre)
+    [ ! -f "$MKFS" ] && export MKFS="mkfs.lustre"
     export TUNEFS=${TUNEFS:-"$LUSTRE/utils/tunefs.lustre"}
-    [ ! -f "$TUNEFS" ] && export TUNEFS=$(which tunefs.lustre)
+    [ ! -f "$TUNEFS" ] && export TUNEFS="tunefs.lustre"
     export CHECKSTAT="${CHECKSTAT:-"checkstat -v"} "
     export LUSTRE_RMMOD=${LUSTRE_RMMOD:-$LUSTRE/scripts/lustre_rmmod}
     [ ! -f "$LUSTRE_RMMOD" ] && export LUSTRE_RMMOD=$(which lustre_rmmod 2> /dev/null)
@@ -220,14 +267,15 @@ init_test_env() {
             ;;
     esac
     export LOAD_MODULES_REMOTE=${LOAD_MODULES_REMOTE:-false}
+    export USE_QUOTA=${USE_QUOTA:-no}
 
     # Paths on remote nodes, if different
     export RLUSTRE=${RLUSTRE:-$LUSTRE}
     export RPWD=${RPWD:-$PWD}
     export I_MOUNTED=${I_MOUNTED:-"no"}
-    if [ ! -f /lib/modules/$(uname -r)/kernel/fs/lustre/mds.ko -a \
-        ! -f /lib/modules/$(uname -r)/updates/kernel/fs/lustre/mds.ko -a \
-        ! -f `dirname $0`/../mds/mds.ko ]; then
+    if [ ! -f /lib/modules/$(uname -r)/kernel/fs/lustre/mdd.ko -a \
+        ! -f /lib/modules/$(uname -r)/updates/kernel/fs/lustre/mdd.ko -a \
+        ! -f `dirname $0`/../mdd/mdd.ko ]; then
         export CLIENTMODSONLY=yes
     fi
 
@@ -240,7 +288,7 @@ init_test_env() {
             f) CONFIG=$OPTARG;;
             r) REFORMAT=--reformat;;
             v) VERBOSE=true;;
-            w) WRITECONF=writeconf;;
+            w) WRITECONF="-o writeconf";;
             \?) usage;;
         esac
     done
@@ -253,12 +301,6 @@ init_test_env() {
     [ "$TESTSUITELOG" ] && rm -f $TESTSUITELOG || true
     rm -f $TMP/*active
 }
-
-case `uname -r` in
-2.4.*) EXT=".o"; USE_QUOTA=no; [ ! "$CLIENTONLY" ] && FSTYPE=ext3;;
-    *) EXT=".ko"; USE_QUOTA=yes;;
-esac
-
 
 module_loaded () {
    /sbin/lsmod | grep -q "^\<$1\>"
@@ -277,7 +319,7 @@ load_module() {
     EXT=".ko"
     module=$1
     shift
-    BASE=`basename $module $EXT`
+    BASE=`basename $module $EXT | tr '-' '_'`
 
     module_loaded ${BASE} && return
 
@@ -348,7 +390,7 @@ load_modules_local() {
     fi
 
     echo Loading modules from $LUSTRE
-    load_module ../libcfs/libcfs/libcfs
+    load_module ../libcfs/libcfs/libcfs libcfs_panic_on_lbug=0
     [ "$PTLDEBUG" ] && lctl set_param debug="$PTLDEBUG"
     [ "$SUBSYSTEM" ] && lctl set_param subsystem_debug="${SUBSYSTEM# }"
     load_module ../lnet/lnet/lnet
@@ -370,16 +412,20 @@ load_modules_local() {
         grep -q crc16 /proc/kallsyms || { modprobe crc16 2>/dev/null || true; }
         grep -q -w jbd /proc/kallsyms || { modprobe jbd 2>/dev/null || true; }
         grep -q -w jbd2 /proc/kallsyms || { modprobe jbd2 2>/dev/null || true; }
-        [ "$FSTYPE" = "ldiskfs" ] && load_module ../ldiskfs/ldiskfs/ldiskfs
         load_module mgs/mgs
-        load_module mds/mds
         load_module mdd/mdd
         load_module mdt/mdt
-        load_module lvfs/fsfilt_$FSTYPE
         load_module cmm/cmm
-        load_module osd-ldiskfs/osd_ldiskfs
         load_module ost/ost
-        load_module obdfilter/obdfilter
+        load_module ofd/obdfilter
+        load_module lod/lod
+        load_module osp/osp
+        [ "$FSTYPE" = "ldiskfs" ] && load_module ../ldiskfs/ldiskfs/ldiskfs
+        [ "$FSTYPE" = "ldiskfs" ] && load_module lvfs/fsfilt_$FSTYPE
+        [ "$FSTYPE" = "ldiskfs" ] && load_module osd-ldiskfs/osd_ldiskfs
+        [ "$FSTYPE" = "zfs" ] && load_module ../spl/module/spl/spl
+        [ "$FSTYPE" = "zfs" ] && load_module ../zfs/module/zfs/zfs
+        [ "$FSTYPE" = "zfs" ] && load_module osd-zfs/osd_zfs
     fi
 
 
@@ -665,7 +711,7 @@ mount_facet() {
     local mntpt=$(facet_mntpt $facet)
 
     echo "Starting ${facet}: ${!opt} $@ ${!dev} $mntpt"
-    do_facet ${facet} "mkdir -p $mntpt; mount -t lustre ${!opt} $@ ${!dev} $mntpt"
+    do_facet ${facet} "mkdir -p $mntpt; mount -t lustre ${!opt} $WRITECONF $@ ${!dev} $mntpt"
     RC=${PIPESTATUS[0]}
     if [ $RC -ne 0 ]; then
         echo "mount -t lustre $@ ${!dev} $mntpt"
@@ -2311,25 +2357,6 @@ remount_client()
         zconf_mount `hostname` $1 || error "mount failed"
 }
 
-writeconf_facet () {
-    local facet=$1
-    local dev=$2
-
-    do_facet $facet "$TUNEFS --writeconf $dev"
-}
-
-writeconf_all () {
-    for num in `seq $MDSCOUNT`; do
-        DEVNAME=$(mdsdevname $num)
-        writeconf_facet mds$num $DEVNAME
-    done
-
-    for num in `seq $OSTCOUNT`; do
-        DEVNAME=$(ostdevname $num)
-        writeconf_facet ost$num $DEVNAME
-    done
-}
-
 setupall() {
     nfs_client_mode && return
 
@@ -2340,8 +2367,6 @@ setupall() {
 
     if [ -z "$CLIENTONLY" ]; then
         echo Setup mgs, mdt, osts
-        echo $WRITECONF | grep -q "writeconf" && \
-            writeconf_all
         if ! combined_mgs_mds ; then
             start mgs $(mgsdevname) $MGS_MOUNT_OPTS
         fi
@@ -2376,6 +2401,9 @@ setupall() {
     fi
 
     do_facet mgs "$LCTL conf_param $FSNAME.sys.timeout=$TIMEOUT"
+
+    # don't writeconf next time we start
+    WRITECONF=""
 
     init_gss
 
@@ -2722,18 +2750,10 @@ cleanup_and_setup_lustre() {
 # Get all of the server target devices from a given server node and type.
 get_mnt_devs() {
     local node=$1
-    local type=$2
-    local obd_type
     local devs
     local dev
 
-    case $type in
-    mdt) obd_type="osd" ;;
-    ost) obd_type="obdfilter" ;; # needs to be fixed when OST also uses an OSD
-    *) echo "invalid server type" && return 1 ;;
-    esac
-
-    devs=$(do_node $node "lctl get_param -n $obd_type*.*.mntdev")
+    devs=$(do_node $node "lctl get_param -n osd*.*.mntdev")
     for dev in $devs; do
         case $dev in
         *loop*) do_node $node "losetup $dev" | \
@@ -2748,12 +2768,12 @@ get_svr_devs() {
     local i
 
     # MDT device
-    MDTDEV=$(get_mnt_devs $(mdts_nodes) mdt)
+    MDTDEV=$(get_mnt_devs $(mdts_nodes))
 
     # OST devices
     i=0
     for node in $(osts_nodes); do
-        OSTDEVS[i]=$(get_mnt_devs $node ost)
+        OSTDEVS[i]=$(get_mnt_devs $node)
         i=$((i + 1))
     done
 }
@@ -3217,6 +3237,10 @@ exit_status () {
 }
 
 error() {
+    # specific lod/osp bits: check space available and in-progress deletes
+    lfs df
+    do_nodes $(mdts_nodes) "lctl get_param osp.*.sync_*"
+    do_nodes $(mdts_nodes) "lctl get_param osp.*.prealloc_status"
     error_noexit "$@"
     exit 1
 }
@@ -3558,7 +3582,7 @@ osc_to_ost()
     osc=$1
     ost=`echo $1 | awk -F_ '{print $3}'`
     if [ -z $ost ]; then
-        ost=`echo $1 | sed 's/-osc.*//'`
+        ost=`echo $1 | sed 's/-os[cp].*//'`
     fi
     echo $ost
 }
@@ -4729,7 +4753,11 @@ set_flavor_all()
     # and remove global vars
     local cnt_all2all=$(calc_connection_cnt all2all)
 
+    echo $(get_mdtosc_proc_path mds1)
+    echo  "1" `flvr_cnt_mdt2ost $flavor`
+
     local res=$(do_check_flavor all2all $flavor)
+    echo "$res ?= $cnt_all2all"
     if [ $res -eq $cnt_all2all ]; then
         echo "already have total $res $flavor connections"
         return
@@ -4854,7 +4882,7 @@ remove_mdt_files() {
     local mntpt=${MOUNT%/*}/$facet
 
     echo "removing files from $mdtdev on $facet: $files"
-    mount -t $FSTYPE $MDS_MOUNT_OPTS $mdtdev $mntpt || return $?
+    mount -t $MDSFSTYPE $MDS_MOUNT_OPTS $mdtdev $mntpt || return $?
     rc=0;
     for f in $files; do
         rm $mntpt/ROOT/$f || { rc=$?; break; }
@@ -4872,7 +4900,7 @@ duplicate_mdt_files() {
 
     echo "duplicating files on $mdtdev on $facet: $files"
     mkdir -p $mntpt || return $?
-    mount -t $FSTYPE $MDS_MOUNT_OPTS $mdtdev $mntpt || return $?
+    mount -t $MDSFSTYPE $MDS_MOUNT_OPTS $mdtdev $mntpt || return $?
 
     do_umount() {
         trap 0

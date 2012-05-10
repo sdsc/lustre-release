@@ -19,12 +19,10 @@ GRANT_CHECK_LIST=${GRANT_CHECK_LIST:-""}
 
 require_dsh_mds || exit 0
 
-# Skip these tests
-# bug number:  17466 18857
-ALWAYS_EXCEPT="61d   33a 33b    $REPLAY_SINGLE_EXCEPT"
+#                                         63 min  7 min  AT AT AT AT"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW="12 16  44a     44b    65 66 67 68"
+FAIL_ON_ERROR=false
 
-#                                                  63 min  7 min  AT AT AT AT"
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="1 2 3 4 6 12 16 44a      44b    65 66 67 68"
 # test 74  - ORI-259
 ALWAYS_EXCEPT="$ALWAYS_EXCEPT 74"
 
@@ -66,6 +64,19 @@ test_0b() {
     unlinkmany $DIR/$tfile 20 || return 2
 }
 run_test 0b "ensure object created after recover exists. (3284)"
+
+test_0c() {
+    replay_barrier $SINGLEMDS
+    mcreate $DIR/$tfile
+    umount $MOUNT
+    facet_failover $SINGLEMDS
+    zconf_mount `hostname` $MOUNT || error "mount fails"
+    client_up || error "post-failover df failed"
+    # file shouldn't exist if replay-barrier works as expected
+    rm $DIR/$tfile && return 1
+    return 0
+}
+run_test 0c "check replay-barrier"
 
 test_0d() {
     replay_barrier $SINGLEMDS
@@ -466,7 +477,7 @@ test_21() {
 }
 run_test 21 "|X| open(O_CREAT), unlink touch new, replay, close (test mds_cleanup_orphans)"
 
-test_22() {
+test_22a() {
     multiop_bg_pause $DIR/$tfile O_tSc || return 3
     pid=$!
 
@@ -479,7 +490,26 @@ test_22() {
     [ -e $DIR/$tfile ] && return 2
     return 0
 }
-run_test 22 "open(O_CREAT), |X| unlink, replay, close (test mds_cleanup_orphans)"
+run_test 22a "open(O_CREAT), |X| unlink, replay, close (test mds_cleanup_orphans)"
+
+test_22b() {
+    # needed to prolong recovery so setting 0x148 failoc will happen
+    # before recovery end for sure
+    mount_client $MOUNT2 || return 11
+    multiop_bg_pause $DIR/$tfile O_tSc || return 3
+    pid=$!
+    replay_barrier $SINGLEMDS
+    rm -f $DIR/$tfile
+    umount_client $MOUNT2
+    facet_failover $SINGLEMDS
+#define OBD_FAIL_MDS_ORPHAN_RACE  0x148
+    do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000148"
+    client_up || return 1
+    kill -USR1 $pid
+    wait $pid
+    return 0
+}
+run_test 22b "check orphan code race in test 22"
 
 test_23() {
     multiop_bg_pause $DIR/$tfile O_tSc || return 5
@@ -779,7 +809,8 @@ test_39() { # bug 4176
 run_test 39 "test recovery from unlink llog (test llog_gen_rec) "
 
 count_ost_writes() {
-    lctl get_param -n osc.*.stats | awk -vwrites=0 '/ost_write/ { writes += $2 } END { print writes; }'
+    lctl get_param -n osc.*.stats | awk -vwrites=0 \
+        '/ost_write/ { writes += $2 } END { print writes; }'
 }
 
 #b=2477,2532
@@ -1025,7 +1056,7 @@ test_48() {
 run_test 48 "MDS->OSC failure during precreate cleanup (2824)"
 
 test_50() {
-    local mdtosc=$(get_mdtosc_proc_path $SINGLEMDS $ost1_svc) 
+    local mdtosc=$(get_mdtosc_proc_path $SINGLEMDS $ost1_svc)
     local oscdev=$(do_facet $SINGLEMDS "lctl get_param -n devices" | \
         grep $mdtosc | awk '{print $1}')
     [ "$oscdev" ] || return 1
@@ -1492,13 +1523,13 @@ test_61c() {
 }
 run_test 61c "test race mds llog sync vs llog cleanup"
 
-test_61d() { # bug 16002 # bug 17466 # bug 22137
+test_61d() { # bug 16002 # bug 17466 # bug 22137 # LU-472
 #   OBD_FAIL_OBD_LLOG_SETUP        0x605
-    stop mgs
-    do_facet mgs "lctl set_param fail_loc=0x80000605"
-    start mgs $MGSDEV $MGS_MOUNT_OPTS && error "mgs start should have failed"
-    do_facet mgs "lctl set_param fail_loc=0"
-    start mgs $MGSDEV $MGS_MOUNT_OPTS || error "cannot restart mgs"
+    stop $SINGLEMDS
+    do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000605"
+    start $SINGLEMDS $(mdsdevname 1) $MDS_MOUNT_OPTS && error "mds start should have failed"
+    do_facet $SINGLEMDS "lctl set_param fail_loc=0"
+    start $SINGLEMDS $(mdsdevname 1) $MDS_MOUNT_OPTS || error "cannot restart mds"
 }
 run_test 61d "error in llog_setup should cleanup the llog context correctly"
 
@@ -2169,7 +2200,7 @@ test_88() { #bug 17485
 
     last_id2=$(do_facet $SINGLEMDS lctl get_param -n osc.$mdtosc.prealloc_last_id)
     next_id2=$(do_facet $SINGLEMDS lctl get_param -n osc.$mdtosc.prealloc_next_id)
-    echo "before recovery: last_id = $last_id2, next_id = $next_id2" 
+    echo "before recovery: last_id = $last_id2, next_id = $next_id2"
 
     # if test uses shutdown_facet && reboot_facet instead of facet_failover ()
     # it has to take care about the affected facets, bug20407
@@ -2193,7 +2224,7 @@ test_88() { #bug 17485
 
     last_id2=$(do_facet $SINGLEMDS lctl get_param -n osc.$mdtosc.prealloc_last_id)
     next_id2=$(do_facet $SINGLEMDS lctl get_param -n osc.$mdtosc.prealloc_next_id)
-    echo "after recovery: last_id = $last_id2, next_id = $next_id2" 
+    echo "after recovery: last_id = $last_id2, next_id = $next_id2"
 
     # create new files, which should use new objids, and ensure the orphan 
     # cleanup phase for ost1 is completed at the same time

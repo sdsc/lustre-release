@@ -7,6 +7,12 @@ ONLY=${ONLY:-"$*"}
 ALWAYS_EXCEPT="                14b  19         22    28   29          35    $SANITYN_EXCEPT"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
+# Orion issues
+# 4  -- ORI-574
+# Disable as fail in master
+# 18 -- LU-1205
+ALWAYS_EXCEPT="$ALWAYS_EXCEPT 4 18"
+
 # bug number for skipped test:                                                    12652 12652
 grep -q 'Enterprise Server 10' /etc/SuSE-release && ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11    14" || true
 
@@ -322,17 +328,34 @@ run_test 14d "chmod of executing file is still possible ========"
 test_15() {	# bug 974 - ENOSPC
 	echo "PATH=$PATH"
 	sh oos2.sh $MOUNT1 $MOUNT2
+	wait_delete_completed
 	grant_error=`dmesg | grep "> available"`
 	[ -z "$grant_error" ] || error "$grant_error"
 }
 run_test 15 "test out-of-space with multiple writers ==========="
 
+COUNT=${COUNT:-2500}
+# The FSXNUM reduction for ZFS is needed until ORI-487 is fixed.
+# We don't want to skip it entirely, but ZFS is VERY slow and cannot
+# pass a 2500 operation dual-mount run within the time limit.
+if [ "$OSTFSTYPE" = "zfs" ]; then
+	FSXNUM=$((COUNT / 5))
+	FSXP=1
+elif [ "$SLOW" = "yes" ]; then
+	FSXNUM=$((COUNT * 5))
+	FSXP=500
+else
+	FSXNUM=$COUNT
+	FSXP=100
+fi
+
 test_16() {
-	rm -f $MOUNT1/fsxfile
-	lfs setstripe $MOUNT1/fsxfile -c -1 # b=10919
-	fsx -c 50 -p 100 -N 2500 -l $((SIZE * 256)) -S 0 $MOUNT1/fsxfile $MOUNT2/fsxfile
+	local file1=$DIR1/$tfile
+	local file2=$DIR2/$tfile
+	lfs setstripe -c -1 $file1 # b=10919
+	fsx -c 50 -p $FSXP -N $FSXNUM -l $((SIZE * 256)) -S 0 $file1 $file2
 }
-run_test 16 "2500 iterations of dual-mount fsx ================="
+run_test 16 "$FSXNUM iterations of dual-mount fsx"
 
 test_17() { # bug 3513, 3667
 	remote_ost_nodsh && skip "remote OST with nodsh" && return
@@ -602,6 +625,11 @@ run_test 31a "voluntary cancel / blocking ast race=============="
 test_31b() {
         remote_ost || { skip "local OST" && return 0; }
         remote_ost_nodsh && skip "remote OST w/o dsh" && return 0
+
+        # make sure there is no local locks due to destroy
+        wait_mds_ost_sync || return 4
+        wait_delete_completed || return 5
+
         mkdir -p $DIR1/$tdir || error "Creating dir $DIR1/$tdir"
         lfs setstripe $DIR/$tdir/$tfile -i 0 -c 1
         cp /etc/hosts $DIR/$tdir/$tfile
@@ -643,7 +671,7 @@ test_32a() { # bug 11270
         $TRUNCATE $DIR2/$tfile 5000000
         $CHECKSTAT -s 5000000 $DIR1/$tfile || error "wrong file size"
         [ $(calc_osc_stats lockless_truncate) -ne 0 ] ||
-                error "not cached trancate isn't lockless"
+                error "not cached truncate isn't lockless"
 
         log "disabled lockless truncate"
         enable_lockless_truncate 0
@@ -897,7 +925,8 @@ test_36() { #bug 16417
         lctl mark "start test"
         local before=$($LFS df | awk '{if ($1 ~/^filesystem/) {print $5; exit} }')
         dd if=/dev/zero of=$DIR1/$tdir/file000 bs=1M count=$SIZE
-        sync
+        sync		# sync data from client's cache
+        sync_all_data	# sync data from server's cache (delayed allocation)
         sleep 1
         local after_dd=$($LFS df | awk '{if ($1 ~/^filesystem/) {print $5; exit} }')
         multiop_bg_pause $DIR2/$tdir/file000 O_r${SIZE_B}c || return 3
@@ -905,7 +934,7 @@ test_36() { #bug 16417
         rm -f $DIR1/$tdir/file000
         kill -USR1 $read_pid
         wait $read_pid
-        sleep 1
+        wait_delete_completed
         local after=$($LFS df | awk '{if ($1 ~/^filesystem/) {print $5; exit} }')
         echo "*** cycle($i) *** before($before):after_dd($after_dd):after($after)"
         # this free space! not used

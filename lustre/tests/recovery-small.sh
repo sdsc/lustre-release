@@ -3,7 +3,7 @@
 set -e
 
 #         bug  5494 5493
-ALWAYS_EXCEPT="24   52 $RECOVERY_SMALL_EXCEPT"
+ALWAYS_EXCEPT="24   52   $RECOVERY_SMALL_EXCEPT"
 
 PTLDEBUG=${PTLDEBUG:--1}
 LUSTRE=${LUSTRE:-`dirname $0`/..}
@@ -17,6 +17,7 @@ require_dsh_mds || exit 0
 # also long tests: 19, 21a, 21e, 21f, 23, 27
 #                                   1  2.5  2.5    4    4          (min)"
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="17  26a  26b    50   51     57"
+FAIL_ON_ERROR=false
 
 build_test_filter
 
@@ -101,6 +102,7 @@ test_9() {
     do_facet client "cp $SAMPLE_FILE $DIR/${tfile}.2"  || return 2
     do_facet client "sync"
     do_facet client "rm $DIR/$tfile $DIR/${tfile}.2" || return 3
+    sleep 5 # make sure bulk pause timeout is happened
 }
 run_test 9 "pause bulk on OST (bug 1420)"
 
@@ -1056,7 +1058,7 @@ test_60() {
 
 	do_facet $SINGLEMDS lctl --device $MDT0 changelog_deregister $USER
 	USERS=$(( $(do_facet $SINGLEMDS lctl get_param -n \
-	    mdd.$MDT0.changelog_users | wc -l) - 2 ))
+	    mdd.$MDT0*.changelog_users | wc -l) - 2 ))
 	if [ $USERS -eq 0 ]; then
 	    [ $cl_count -eq $NUM_FILES ] || \
 		err17935 "Recorded ${cl_count} unlinks out of $NUM_FILES"
@@ -1077,7 +1079,7 @@ test_61()
 {
 	local mdtosc=$(get_mdtosc_proc_path $SINGLEMDS $FSNAME-OST0000)
 	mdtosc=${mdtosc/-MDT*/-MDT\*}
-	local cflags="osc.$mdtosc.connect_flags"
+	local cflags="os[cp].$mdtosc.connect_flags"
 	do_facet $SINGLEMDS "lctl get_param -n $cflags" |grep -q skip_orphan
 	[ $? -ne 0 ] && skip "don't have skip orphan feature" && return
 

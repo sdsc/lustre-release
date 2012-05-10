@@ -1315,7 +1315,7 @@ test_27y() {
         [ $fcount -eq 0 ] && skip "not enough space on OST0" && return
         [ $fcount -gt $OSTCOUNT ] && fcount=$OSTCOUNT
 
-        MDS_OSCS=`do_facet $SINGLEMDS lctl dl | awk '/[oO][sS][cC].*md[ts]/ { print $4 }'`
+        MDS_OSCS=`do_facet $SINGLEMDS lctl dl | awk '/[oO][sS][cCpP].*[mM][dD][Tts]/ { print $4 }'`
         OFFSET=$(($OSTCOUNT-1))
         OST=-1
         for OSC in $MDS_OSCS; do
@@ -3849,7 +3849,8 @@ test_65k() { # bug11679
         remote_mds_nodsh && skip "remote MDS with nodsh" && return
 
         echo "Check OST status: "
-        MDS_OSCS=`do_facet $SINGLEMDS lctl dl | awk '/[oO][sS][cC].*md[ts]/ { print $4 }'`
+        MDS_OSCS=`do_facet $SINGLEMDS lctl dl |
+              awk '/[oO][sS][cCpP].*md[ts]/ { print $4 }'`
         for OSC in $MDS_OSCS; do
                 echo $OSC "is activate"
                 do_facet $SINGLEMDS lctl --device %$OSC activate
