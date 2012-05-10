@@ -52,11 +52,18 @@ static int timeout = 50;
 CFS_MODULE_PARM(timeout, "i", int, 0644,
                 "timeout (seconds)");
 
+/* Number of threads in each scheduler pool which is percpt,
+ * we will estimate reasonable value based on CPUs if it's set to zero. */
+static int nscheds;
+CFS_MODULE_PARM(nscheds, "i", int, 0444,
+		"number of threads in each scheduler pool");
+
 static int ntx = 256;
 CFS_MODULE_PARM(ntx, "i", int, 0444,
-                "# of message descriptors");
+		"# of message descriptors allocated for each pool");
 
-static int credits = 64;
+/* NB: this value is shared by all CPTs */
+static int credits = 128;
 CFS_MODULE_PARM(credits, "i", int, 0444,
                 "# concurrent sends");
 
@@ -106,7 +113,7 @@ CFS_MODULE_PARM(map_on_demand, "i", int, 0444,
 
 static int fmr_pool_size = 512;
 CFS_MODULE_PARM(fmr_pool_size, "i", int, 0444,
-                "size of the fmr pool (>= ntx / 4)");
+		"size of fmr pool on each CPT (>= ntx / 4)");
 
 static int fmr_flush_trigger = 384;
 CFS_MODULE_PARM(fmr_flush_trigger, "i", int, 0444,
@@ -118,7 +125,7 @@ CFS_MODULE_PARM(fmr_cache, "i", int, 0444,
 
 static int pmr_pool_size = 512;
 CFS_MODULE_PARM(pmr_pool_size, "i", int, 0444,
-                "size of the MR cache pmr pool");
+		"size of MR cache pmr pool on each CPT");
 
 /*
  * 0: disable failover
@@ -161,7 +168,8 @@ kib_tunables_t kiblnd_tunables = {
         .kib_fmr_cache              = &fmr_cache,
         .kib_pmr_pool_size          = &pmr_pool_size,
         .kib_require_priv_port      = &require_privileged_port,
-        .kib_use_priv_port          = &use_privileged_port
+	.kib_use_priv_port	    = &use_privileged_port,
+	.kib_nscheds		    = &nscheds
 };
 
 #if defined(CONFIG_SYSCTL) && !CFS_SYSFS_MODULE_PARM
