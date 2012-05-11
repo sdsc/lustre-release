@@ -288,6 +288,16 @@ void lustre_assert_wire_constants(void)
                  (long long)MGS_TARGET_DEL);
         LASSERTF(MGS_SET_INFO == 255, " found %lld\n",
                  (long long)MGS_SET_INFO);
+        LASSERTF(PXT_ACL == 0x00000001UL, "found 0x%.8xUL\n",
+                 (unsigned)PXT_ACL);
+        LASSERTF(PXT_DEFACL == 0x00000002UL, "found 0x%.8xUL\n",
+                 (unsigned)PXT_DEFACL);
+        LASSERTF(PXT_RPERM == 0x00000004UL, "found 0x%.8xUL\n",
+                 (unsigned)PXT_RPERM);
+        LASSERTF(PXT_OTHERS == 0x80000000UL, "found 0x%.8xUL\n",
+                 (unsigned)PXT_OTHERS);
+        LASSERTF(PX_DUMMY_XATTR == 0x00ffffffUL, "found 0x%.8xUL\n",
+                 (unsigned)PX_DUMMY_XATTR);
         /* Sizes and Offsets */
 
         /* Checks for struct obd_uuid */
@@ -442,23 +452,23 @@ void lustre_assert_wire_constants(void)
                  (long long)(int)offsetof(struct obd_connect_data, ocd_ibits_known));
         LASSERTF((int)sizeof(((struct obd_connect_data *)0)->ocd_ibits_known) == 8, " found %lld\n",
                  (long long)(int)sizeof(((struct obd_connect_data *)0)->ocd_ibits_known));
-        LASSERTF((int)offsetof(struct obd_connect_data, ocd_blocksize) == 32, " found %lld\n",
+       LASSERTF((int)offsetof(struct obd_connect_data, ocd_blocksize) == 32, "found %lld\n",
                  (long long)(int)offsetof(struct obd_connect_data, ocd_blocksize));
-        LASSERTF((int)sizeof(((struct obd_connect_data *)0)->ocd_blocksize) == 1, " found %lld\n",
+       LASSERTF((int)sizeof(((struct obd_connect_data *)0)->ocd_blocksize) == 1, "found %lld\n",
                  (long long)(int)sizeof(((struct obd_connect_data *)0)->ocd_blocksize));
-        LASSERTF((int)offsetof(struct obd_connect_data, ocd_inodespace) == 33, " found %lld\n",
+       LASSERTF((int)offsetof(struct obd_connect_data, ocd_inodespace) == 33, "found %lld\n",
                  (long long)(int)offsetof(struct obd_connect_data, ocd_inodespace));
-        LASSERTF((int)sizeof(((struct obd_connect_data *)0)->ocd_inodespace) == 1, " found %lld\n",
+       LASSERTF((int)sizeof(((struct obd_connect_data *)0)->ocd_inodespace) == 1, "found %lld\n",
                  (long long)(int)sizeof(((struct obd_connect_data *)0)->ocd_inodespace));
-        LASSERTF((int)offsetof(struct obd_connect_data, ocd_grant_extent) == 34, " found %lld\n",
+       LASSERTF((int)offsetof(struct obd_connect_data, ocd_grant_extent) == 34, "found %lld\n",
                  (long long)(int)offsetof(struct obd_connect_data, ocd_grant_extent));
-        LASSERTF((int)sizeof(((struct obd_connect_data *)0)->ocd_grant_extent) == 2, " found %lld\n",
+       LASSERTF((int)sizeof(((struct obd_connect_data *)0)->ocd_grant_extent) == 2, "found %lld\n",
                  (long long)(int)sizeof(((struct obd_connect_data *)0)->ocd_grant_extent));
-        LASSERTF((int)offsetof(struct obd_connect_data, ocd_unused) == 36, " found %lld\n",
+       LASSERTF((int)offsetof(struct obd_connect_data, ocd_unused) == 36, "found %lld\n",
                  (long long)(int)offsetof(struct obd_connect_data, ocd_unused));
-        LASSERTF((int)sizeof(((struct obd_connect_data *)0)->ocd_unused) == 4, " found %lld\n",
+       LASSERTF((int)sizeof(((struct obd_connect_data *)0)->ocd_unused) == 4, "found %lld\n",
                  (long long)(int)sizeof(((struct obd_connect_data *)0)->ocd_unused));
-        LASSERTF((int)offsetof(struct obd_connect_data, ocd_transno) == 40, " found %lld\n",
+       LASSERTF((int)offsetof(struct obd_connect_data, ocd_transno) == 40, "found %lld\n",
                  (long long)(int)offsetof(struct obd_connect_data, ocd_transno));
         LASSERTF((int)sizeof(((struct obd_connect_data *)0)->ocd_transno) == 8, " found %lld\n",
                  (long long)(int)sizeof(((struct obd_connect_data *)0)->ocd_transno));
@@ -535,6 +545,7 @@ void lustre_assert_wire_constants(void)
         CLASSERT(OBD_CONNECT_UMASK ==           0x40000000000ULL);
         CLASSERT(OBD_CONNECT_EINPROGRESS ==     0x80000000000ULL);
         CLASSERT(OBD_CONNECT_GRANT_PARAM ==    0x100000000000ULL);
+        CLASSERT(OBD_CONNECT_PACKAGED_XATTR == 0x200000000000ULL);
 
         /* Checks for struct obdo */
         LASSERTF((int)sizeof(struct obdo) == 208, " found %lld\n",
@@ -1179,10 +1190,10 @@ void lustre_assert_wire_constants(void)
                  (long long)(int)offsetof(struct mds_body, eadatasize));
         LASSERTF((int)sizeof(((struct mds_body *)0)->eadatasize) == 4, " found %lld\n",
                  (long long)(int)sizeof(((struct mds_body *)0)->eadatasize));
-        LASSERTF((int)offsetof(struct mds_body, aclsize) == 152, " found %lld\n",
-                 (long long)(int)offsetof(struct mds_body, aclsize));
-        LASSERTF((int)sizeof(((struct mds_body *)0)->aclsize) == 4, " found %lld\n",
-                 (long long)(int)sizeof(((struct mds_body *)0)->aclsize));
+        LASSERTF((int)offsetof(struct mds_body, mb_pxattr) == 152, " found %lld\n",
+                 (long long)(int)offsetof(struct mds_body, mb_pxattr));
+        LASSERTF((int)sizeof(((struct mds_body *)0)->mb_pxattr) == 4, " found %lld\n",
+                 (long long)(int)sizeof(((struct mds_body *)0)->mb_pxattr));
         LASSERTF((int)offsetof(struct mds_body, max_mdsize) == 156, " found %lld\n",
                  (long long)(int)offsetof(struct mds_body, max_mdsize));
         LASSERTF((int)sizeof(((struct mds_body *)0)->max_mdsize) == 4, " found %lld\n",
@@ -2736,4 +2747,19 @@ void lustre_assert_wire_constants(void)
                  (long long)(int)offsetof(struct link_ea_entry, lee_name));
         LASSERTF((int)sizeof(((struct link_ea_entry *)0)->lee_name) == 0, " found %lld\n",
                  (long long)(int)sizeof(((struct link_ea_entry *)0)->lee_name));
+        /* Checks for struct packaged_xattr */
+        LASSERTF((int)sizeof(struct packaged_xattr) == 8, "found %lld\n",
+                 (long long)(int)sizeof(struct packaged_xattr));
+        LASSERTF((int)offsetof(struct packaged_xattr, px_type) == 0, "found %lld\n",
+                 (long long)(int)offsetof(struct packaged_xattr, px_type));
+        LASSERTF((int)sizeof(((struct packaged_xattr *)0)->px_type) == 4, "found %lld\n",
+                 (long long)(int)sizeof(((struct packaged_xattr *)0)->px_type));
+        LASSERTF((int)offsetof(struct packaged_xattr, px_size) == 4, "found %lld\n",
+                 (long long)(int)offsetof(struct packaged_xattr, px_size));
+        LASSERTF((int)sizeof(((struct packaged_xattr *)0)->px_size) == 4, "found %lld\n",
+                 (long long)(int)sizeof(((struct packaged_xattr *)0)->px_size));
+        LASSERTF((int)offsetof(struct packaged_xattr, px_data[0]) == 8, "found %lld\n",
+                 (long long)(int)offsetof(struct packaged_xattr, px_data[0]));
+        LASSERTF((int)sizeof(((struct packaged_xattr *)0)->px_data[0]) == 1, "found %lld\n",
+                 (long long)(int)sizeof(((struct packaged_xattr *)0)->px_data[0]));
 }

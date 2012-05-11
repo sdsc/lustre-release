@@ -1235,6 +1235,9 @@ struct md_op_data {
 
         /* Operation type */
         __u32                   op_opc;
+
+        /* valid bits for packaged xattr. */
+        enum packaged_xattr_type op_pxt_valid;
 };
 
 struct md_enqueue_info;
@@ -1446,16 +1449,20 @@ enum {
 #define MAX_HASH_SIZE            0x7fffffffffffffffULL
 #define MAX_HASH_HIGHEST_BIT     0x1000000000000000ULL
 
+#define DUMMY_ACL ((struct posix_acl *)(-1))
+
 struct lustre_md {
         struct mdt_body         *body;
         struct lov_stripe_md    *lsm;
         struct lmv_stripe_md    *mea;
 #ifdef CONFIG_FS_POSIX_ACL
         struct posix_acl        *posix_acl;
+        struct posix_acl        *def_acl;
 #endif
         struct mdt_remote_perm  *remote_perm;
         struct obd_capa         *mds_capa;
         struct obd_capa         *oss_capa;
+        enum packaged_xattr_type pxt_valid;
 };
 
 struct md_open_data {

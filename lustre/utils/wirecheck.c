@@ -246,6 +246,7 @@ static void check_obd_connect_data(void)
         CHECK_CDEFINE(OBD_CONNECT_UMASK);
         CHECK_CDEFINE(OBD_CONNECT_EINPROGRESS);
         CHECK_CDEFINE(OBD_CONNECT_GRANT_PARAM);
+        CHECK_CDEFINE(OBD_CONNECT_PACKAGED_XATTR);
 }
 
 static void
@@ -536,7 +537,7 @@ check_mds_body(void)
         CHECK_MEMBER(mds_body, generation);
         CHECK_MEMBER(mds_body, suppgid);
         CHECK_MEMBER(mds_body, eadatasize);
-        CHECK_MEMBER(mds_body, aclsize);
+        CHECK_MEMBER(mds_body, mb_pxattr);
         CHECK_MEMBER(mds_body, max_mdsize);
         CHECK_MEMBER(mds_body, max_cookiesize);
         CHECK_MEMBER(mds_body, padding_4);
@@ -1287,6 +1288,15 @@ check_hsm_user_state(void)
 }
 
 static void
+check_packaged_xattr(void)
+{
+       CHECK_STRUCT(packaged_xattr);
+       CHECK_MEMBER(packaged_xattr, px_type);
+       CHECK_MEMBER(packaged_xattr, px_size);
+       CHECK_MEMBER(packaged_xattr, px_data[0]);
+}
+
+static void
 system_string (char *cmdline, char *str, int len)
 {
         int   fds[2];
@@ -1491,6 +1501,13 @@ main(int argc, char **argv)
         CHECK_VALUE(LDF_COLLIDE);
         CHECK_VALUE(LU_PAGE_SIZE);
 
+       CHECK_VALUE_X(PXT_ACL);
+       CHECK_VALUE_X(PXT_DEFACL);
+       CHECK_VALUE_X(PXT_RPERM);
+       CHECK_VALUE_X(PXT_OTHERS);
+
+       CHECK_VALUE_X(PX_DUMMY_XATTR);
+
         COMMENT("Sizes and Offsets");
         BLANK_LINE();
         CHECK_STRUCT(obd_uuid);
@@ -1563,6 +1580,7 @@ main(int argc, char **argv)
         check_hsm_user_item();
         check_hsm_user_request();
         check_hsm_user_state();
+       check_packaged_xattr();
 
         printf("}\n\n");
 

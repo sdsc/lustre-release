@@ -1729,7 +1729,7 @@ void lustre_swab_mds_body (struct mds_body *b)
         __swab32s (&b->generation);
         __swab32s (&b->suppgid);
         __swab32s (&b->eadatasize);
-        __swab32s (&b->aclsize);
+        __swab32s (&b->mb_pxattr);
         __swab32s (&b->max_mdsize);
         __swab32s (&b->max_cookiesize);
         CLASSERT(offsetof(typeof(*b), padding_4) != 0);
@@ -1760,7 +1760,7 @@ void lustre_swab_mdt_body (struct mdt_body *b)
         __swab32s (&b->generation);
         __swab32s (&b->suppgid);
         __swab32s (&b->eadatasize);
-        __swab32s (&b->aclsize);
+       __swab32s (&b->mb_pxattr);
         __swab32s (&b->max_mdsize);
         __swab32s (&b->max_cookiesize);
         __swab32s (&b->uid_h);

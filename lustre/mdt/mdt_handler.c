@@ -466,7 +466,84 @@ static inline int mdt_body_has_lov(const struct lu_attr *la,
                                    const struct mdt_body *body)
 {
         return ((S_ISREG(la->la_mode) && (body->valid & OBD_MD_FLEASIZE)) ||
-                (S_ISDIR(la->la_mode) && (body->valid & OBD_MD_FLDIREA )) );
+               (S_ISDIR(la->la_mode) && (body->valid & OBD_MD_FLDIREA)));
+}
+
+static inline struct lu_buf *
+mdt_buf_get(const struct lu_env *env, void *area, ssize_t len)
+{
+       struct mdt_thread_info *info;
+       struct lu_buf *buf;
+
+       info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+       buf  = &info->mti_buf2;
+       buf->lb_buf = area;
+       buf->lb_len = len;
+       return buf;
+}
+
+int mdt_get_packaged_xattr(const struct lu_env *env, struct mdt_object *o,
+                          const char *name, const int namelen,
+                          struct lu_buf *lbuf, enum packaged_xattr_type pxt)
+{
+       struct md_object      *next = mdt_object_child(o);
+       struct packaged_xattr *px   = lbuf->lb_buf;
+       struct lu_buf         *tbuf;
+       int                    nsize;
+       int                    datalen;
+       int                    rc;
+
+       ENTRY;
+
+       LASSERT(px != NULL);
+
+       if (pxt == PXT_OTHERS) {
+               LASSERT(namelen > 0 && namelen < (1 << PX_NAMELEN_BITS));
+
+               nsize = PX_RECLEN_ALIGN(namelen);
+       } else {
+               LASSERT(namelen == 0);
+
+               nsize = 0;
+       }
+
+       datalen = lbuf->lb_len - sizeof(struct packaged_xattr) - nsize;
+       if (datalen < 0)
+               RETURN(-ENOSPC);
+
+       tbuf = mdt_buf_get(env, px->px_data + nsize, datalen);
+       rc = mo_xattr_get(env, next, tbuf, name);
+       if (rc < 0) {
+               if (rc == -ENODATA) {
+                       datalen = 0;
+                       rc = sizeof(struct packaged_xattr) + nsize;
+               } else if (rc == -EOPNOTSUPP) {
+                       datalen = PX_DUMMY_XATTR;
+                       rc = sizeof(struct packaged_xattr) + nsize;
+               } else {
+                       CERROR("packaged xattr %s error for "DFID": %d\n",
+                              name, PFID(mdt_object_fid(o)), rc);
+               }
+       } else {
+               LASSERT(PX_RECLEN_ALIGN(rc) < PX_DUMMY_XATTR);
+
+               datalen = rc;
+               rc = sizeof(struct packaged_xattr) + nsize +
+                    PX_RECLEN_ALIGN(rc);
+       }
+
+       if (rc > 0) {
+               px->px_type = cpu_to_be32(pxt);
+               px->px_size = cpu_to_be32((namelen << PX_NAMELEN_SHIFT) |
+                                         (datalen & PX_NAMELEN_MASK));
+               if (pxt == PXT_OTHERS)
+                       memcpy(px->px_data, name, namelen);
+
+               lbuf->lb_buf = (char *)(lbuf->lb_buf) + rc;
+               lbuf->lb_len -= rc;
+       }
+
+       RETURN(rc);
 }
 
 static int mdt_getattr_internal(struct mdt_thread_info *info,
@@ -475,6 +552,7 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
         struct md_object        *next = mdt_object_child(o);
         const struct mdt_body   *reqbody = info->mti_body;
         struct ptlrpc_request   *req = mdt_info_req(info);
+       struct obd_export       *exp = req->rq_export;
         struct md_attr          *ma = &info->mti_attr;
         struct lu_attr          *la = &ma->ma_attr;
         struct req_capsule      *pill = info->mti_pill;
@@ -582,33 +660,81 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
                        repbody->max_cookiesize);
         }
 
-        if (exp_connect_rmtclient(info->mti_exp) &&
-            reqbody->valid & OBD_MD_FLRMTPERM) {
-                void *buf = req_capsule_server_get(pill, &RMF_ACL);
+       /* This is new client with packaged xattr support. */
+       if (exp->exp_connect_flags & OBD_CONNECT_PACKAGED_XATTR &&
+           reqbody->valid & OBD_MD_FLXATTR) {
+               int size = 0;
+
+               buffer->lb_buf = req_capsule_server_get(pill,
+                                                       &RMF_PACKAGED_XATTR);
+               buffer->lb_len = req_capsule_get_size(pill, &RMF_PACKAGED_XATTR,
+                                                     RCL_SERVER);
+
+               if (exp_connect_rmtclient(exp) &&
+                   reqbody->mb_pxattr & PXT_RPERM) {
+                       rc = mdt_get_packaged_rperm(info, o, buffer);
+                       if (rc > 0)
+                               size += rc;
+#ifdef CONFIG_FS_POSIX_ACL
+               } else {
+                       if (exp->exp_connect_flags & OBD_CONNECT_ACL &&
+                           reqbody->mb_pxattr & PXT_ACL) {
+                               rc = mdt_get_packaged_xattr(env, o,
+                                                   XATTR_NAME_ACL_ACCESS, 0,
+                                                   buffer, PXT_ACL);
+                               if (rc > 0)
+                                       size += rc;
+                       }
+
+                       if (S_ISDIR(lu_object_attr(&next->mo_lu)) &&
+                           exp->exp_connect_flags & OBD_CONNECT_ACL &&
+                           reqbody->mb_pxattr & PXT_DEFACL) {
+                               rc = mdt_get_packaged_xattr(env, o,
+                                                   XATTR_NAME_ACL_DEFAULT, 0,
+                                                   buffer, PXT_DEFACL);
+                               if (rc > 0)
+                                       size += rc;
+                       }
+#endif
+               }
+               /* XXX: We can add more process for other xattrs, like security,
+                *      in the future */
+
+               if (size > 0) {
+                       repbody->valid |= OBD_MD_FLXATTR;
+                       repbody->mb_pxattr = size;
+               }
+               rc = 0;
+               goto capa;
+       }
+
+       if (exp_connect_rmtclient(exp) && reqbody->valid & OBD_MD_FLRMTPERM) {
+               void *buf = req_capsule_server_get(pill, &RMF_PACKAGED_XATTR);
 
                 /* mdt_getattr_lock only */
                 rc = mdt_pack_remote_perm(info, o, buf);
                 if (rc) {
                         repbody->valid &= ~OBD_MD_FLRMTPERM;
-                        repbody->aclsize = 0;
+                       repbody->mb_pxattr = 0;
                         RETURN(rc);
                 } else {
                         repbody->valid |= OBD_MD_FLRMTPERM;
-                        repbody->aclsize = sizeof(struct mdt_remote_perm);
+                       repbody->mb_pxattr = sizeof(struct mdt_remote_perm);
                 }
         }
 #ifdef CONFIG_FS_POSIX_ACL
-        else if ((req->rq_export->exp_connect_flags & OBD_CONNECT_ACL) &&
+       else if ((exp->exp_connect_flags & OBD_CONNECT_ACL) &&
                  (reqbody->valid & OBD_MD_FLACL)) {
-                buffer->lb_buf = req_capsule_server_get(pill, &RMF_ACL);
-                buffer->lb_len = req_capsule_get_size(pill,
-                                                      &RMF_ACL, RCL_SERVER);
+               buffer->lb_buf = req_capsule_server_get(pill,
+                                                       &RMF_PACKAGED_XATTR);
+               buffer->lb_len = req_capsule_get_size(pill, &RMF_PACKAGED_XATTR,
+                                                     RCL_SERVER);
                 if (buffer->lb_len > 0) {
                         rc = mo_xattr_get(env, next, buffer,
                                           XATTR_NAME_ACL_ACCESS);
                         if (rc < 0) {
                                 if (rc == -ENODATA) {
-                                        repbody->aclsize = 0;
+                                       repbody->mb_pxattr = 0;
                                         repbody->valid |= OBD_MD_FLACL;
                                         rc = 0;
                                 } else if (rc == -EOPNOTSUPP) {
@@ -617,7 +743,7 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
                                         CERROR("got acl size: %d\n", rc);
                                 }
                         } else {
-                                repbody->aclsize = rc;
+                               repbody->mb_pxattr = rc;
                                 repbody->valid |= OBD_MD_FLACL;
                                 rc = 0;
                         }
@@ -625,9 +751,10 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
         }
 #endif
 
+capa:
         if (reqbody->valid & OBD_MD_FLMDSCAPA &&
             info->mti_mdt->mdt_opts.mo_mds_capa &&
-            info->mti_exp->exp_connect_flags & OBD_CONNECT_MDS_CAPA) {
+           exp->exp_connect_flags & OBD_CONNECT_MDS_CAPA) {
                 struct lustre_capa *capa;
 
                 capa = req_capsule_server_get(pill, &RMF_CAPA1);
@@ -641,7 +768,7 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 
 out:
         if (rc == 0)
-                mdt_counter_incr(req->rq_export, LPROC_MDT_GETATTR);
+               mdt_counter_incr(exp, LPROC_MDT_GETATTR);
 
         RETURN(rc);
 }
@@ -719,7 +846,7 @@ static int mdt_getattr(struct mdt_thread_info *info)
         repbody = req_capsule_server_get(pill, &RMF_MDT_BODY);
         LASSERT(repbody != NULL);
         repbody->eadatasize = 0;
-        repbody->aclsize = 0;
+       repbody->mb_pxattr = 0;
 
         if (reqbody->valid & OBD_MD_FLRMTPERM)
                 rc = mdt_init_ucred(info, reqbody);
@@ -1096,7 +1223,7 @@ static int mdt_getattr_name(struct mdt_thread_info *info)
         info->mti_spec.sp_ck_split = !!(reqbody->valid & OBD_MD_FLCKSPLIT);
         info->mti_cross_ref = !!(reqbody->valid & OBD_MD_FLCROSSREF);
         repbody->eadatasize = 0;
-        repbody->aclsize = 0;
+       repbody->mb_pxattr = 0;
 
         rc = mdt_init_ucred(info, reqbody);
         if (unlikely(rc))
@@ -1522,7 +1649,7 @@ static int mdt_reint_internal(struct mdt_thread_info *info,
                 repbody = req_capsule_server_get(pill, &RMF_MDT_BODY);
                 LASSERT(repbody);
                 repbody->eadatasize = 0;
-                repbody->aclsize = 0;
+               repbody->mb_pxattr = 0;
         }
 
         if (OBD_FAIL_CHECK(OBD_FAIL_MDS_REINT_UNPACK))
@@ -3286,7 +3413,7 @@ static int mdt_intent_getattr(enum mdt_it_code opcode,
         info->mti_spec.sp_ck_split = !!(reqbody->valid & OBD_MD_FLCKSPLIT);
         info->mti_cross_ref = !!(reqbody->valid & OBD_MD_FLCROSSREF);
         repbody->eadatasize = 0;
-        repbody->aclsize = 0;
+       repbody->mb_pxattr = 0;
 
         switch (opcode) {
         case MDT_IT_LOOKUP:

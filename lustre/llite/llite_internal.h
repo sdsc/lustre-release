@@ -148,7 +148,9 @@ struct ll_inode_info {
         int                     lli_async_rc;
         int                     lli_write_rc;
 
+       enum packaged_xattr_type lli_pxt_valid;
         struct posix_acl       *lli_posix_acl;
+        struct posix_acl       *lli_def_acl;
 
         /* remote permission hash */
         cfs_hlist_head_t       *lli_remote_perms;
@@ -330,6 +332,7 @@ enum stats_track_type {
 #define LL_SBI_32BIT_API       0x2000 /* generate 32 bit inodes. */
 #define LL_SBI_64BIT_HASH      0x4000 /* support 64-bits dir hash/offset */
 #define LL_SBI_VERBOSE        0x10000 /* verbose mount/umount */
+#define LL_SBI_PACKAGED_XATTR 0x20000 /* support packaged xattr */
 
 /* default value for ll_sb_info->contention_time */
 #define SBI_DEFAULT_CONTENTION_SECONDS     60

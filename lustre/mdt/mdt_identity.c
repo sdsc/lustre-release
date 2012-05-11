@@ -317,3 +317,52 @@ int mdt_pack_remote_perm(struct mdt_thread_info *info, struct mdt_object *o,
 
         RETURN(0);
 }
+
+int mdt_get_packaged_rperm(struct mdt_thread_info *info, struct mdt_object *o,
+                          struct lu_buf *lbuf)
+{
+       const struct lu_env    *env  = info->mti_env;
+       struct md_ucred        *uc   = mdt_ucred(info);
+       struct md_object       *next = mdt_object_child(o);
+       struct packaged_xattr  *px   = lbuf->lb_buf;
+       struct mdt_remote_perm *perm;
+       int                     size;
+
+       ENTRY;
+
+       LASSERT(px != NULL);
+
+       if (!exp_connect_rmtclient(info->mti_exp))
+               RETURN(-EBADE);
+
+       if ((uc->mu_valid != UCRED_OLD) && (uc->mu_valid != UCRED_NEW))
+               RETURN(-EINVAL);
+
+       size = sizeof(struct packaged_xattr) +
+              PX_RECLEN_ALIGN(sizeof(struct mdt_remote_perm));
+       if (lbuf->lb_len < size)
+               RETURN(-ENOSPC);
+
+       perm = (struct mdt_remote_perm *)(px->px_data);
+       perm->rp_uid = cpu_to_be32(uc->mu_o_uid);
+       perm->rp_gid = cpu_to_be32(uc->mu_o_gid);
+       perm->rp_fsuid = cpu_to_be32(uc->mu_o_fsuid);
+       perm->rp_fsgid = cpu_to_be32(uc->mu_o_fsgid);
+
+       perm->rp_access_perm = 0;
+       if (mo_permission(env, NULL, next, NULL, MAY_READ) == 0)
+               perm->rp_access_perm |= MAY_READ;
+       if (mo_permission(env, NULL, next, NULL, MAY_WRITE) == 0)
+               perm->rp_access_perm |= MAY_WRITE;
+       if (mo_permission(env, NULL, next, NULL, MAY_EXEC) == 0)
+               perm->rp_access_perm |= MAY_EXEC;
+       perm->rp_access_perm = cpu_to_be32(perm->rp_access_perm);
+
+       px->px_type = cpu_to_be32(PXT_RPERM);
+       px->px_size = cpu_to_be32(sizeof(struct mdt_remote_perm));
+
+       lbuf->lb_buf = (char *)(lbuf->lb_buf) + size;
+       lbuf->lb_len -= size;
+
+       RETURN(size);
+}

@@ -444,7 +444,7 @@ static int hf_lustre_mds_body_io_epoch = -1;
 static int hf_lustre_mds_body_ino = -1;
 static int hf_lustre_mds_body_fid2 = -1;
 static int hf_lustre_mds_body_padding_4 = -1;
-static int hf_lustre_mds_body_aclsize = -1;
+static int hf_lustre_mds_body_mb_pxattr = -1;
 static int hf_lustre_mds_body_valid = -1;
 static int hf_lustre_mds_body_generation = -1;
 static int hf_lustre_mds_body_atime = -1;
@@ -2162,7 +2162,7 @@ lustre_dissect_struct_mds_status_req(tvbuff_t *tvb _U_, int offset _U_, packet_i
 /* IDL: 	uint32 generation; */
 /* IDL: 	uint32 suppgid; */
 /* IDL: 	uint32 eadatasize; */
-/* IDL: 	uint32 aclsize; */
+/* IDL: 	uint32 mb_pxattr; */
 /* IDL: 	uint32 max_mdsize; */
 /* IDL: 	uint32 max_cookiesize; */
 /* IDL: 	uint32 padding_4; */
@@ -2364,9 +2364,9 @@ lustre_dissect_element_mds_body_eadatasize(tvbuff_t *tvb _U_, int offset _U_, pa
 }
 
 static int
-lustre_dissect_element_mds_body_aclsize(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo _U_, proto_tree *tree _U_)
+lustre_dissect_element_mds_body_mb_pxattr(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo _U_, proto_tree *tree _U_)
 {
-  offset=dissect_uint32(tvb, offset, pinfo, tree,  hf_lustre_mds_body_aclsize);
+  offset=dissect_uint32(tvb, offset, pinfo, tree,  hf_lustre_mds_body_mb_pxattr);
 
   return offset;
 }
@@ -2456,7 +2456,7 @@ lustre_dissect_struct_mds_body(tvbuff_t *tvb _U_, int offset _U_, packet_info *p
 
   offset=lustre_dissect_element_mds_body_eadatasize(tvb, offset, pinfo, tree);
 
-  offset=lustre_dissect_element_mds_body_aclsize(tvb, offset, pinfo, tree);
+  offset=lustre_dissect_element_mds_body_mb_pxattr(tvb, offset, pinfo, tree);
 
   offset=lustre_dissect_element_mds_body_max_mdsize(tvb, offset, pinfo, tree);
 
@@ -8460,8 +8460,8 @@ void proto_register_dcerpc_lustre(void)
       { "Fid2", "lustre.mds_body.fid2", FT_NONE, BASE_HEX, NULL, 0, "", HFILL }},
     { &hf_lustre_mds_body_padding_4, 
       { "Padding 4", "lustre.mds_body.padding_4", FT_UINT32, BASE_DEC, NULL, 0, "", HFILL }},
-    { &hf_lustre_mds_body_aclsize, 
-      { "Aclsize", "lustre.mds_body.aclsize", FT_UINT32, BASE_DEC, NULL, 0, "", HFILL }},
+    { &hf_lustre_mds_body_mb_pxattr, 
+      { "Packaged xattr", "lustre.mds_body.mb_pxattr", FT_UINT32, BASE_DEC, NULL, 0, "", HFILL }},
     { &hf_lustre_mds_body_valid, 
       { "Valid", "lustre.mds_body.valid", FT_UINT64, BASE_DEC, NULL, 0, "", HFILL }},
     { &hf_lustre_mds_body_generation, 
