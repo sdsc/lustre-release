@@ -1021,19 +1021,21 @@ static int ptlrpc_at_send_early_reply(struct ptlrpc_request *req)
                             cfs_time_current_sec() -
                             req->rq_arrival_time.tv_sec);
 
-                /* Check to see if we've actually increased the deadline -
-                 * we may be past adaptive_max */
-                if (req->rq_deadline >= req->rq_arrival_time.tv_sec +
-                    at_get(&svc->srv_at_estimate)) {
-                        DEBUG_REQ(D_WARNING, req, "Couldn't add any time "
-                                  "(%ld/%ld), not sending early reply\n",
-                                  olddl, req->rq_arrival_time.tv_sec +
-                                  at_get(&svc->srv_at_estimate) -
-                                  cfs_time_current_sec());
-                        RETURN(-ETIMEDOUT);
-                }
         }
-        newdl = cfs_time_current_sec() + at_get(&svc->srv_at_estimate);
+
+	/* Check to see if we've actually increased the deadline -
+	* we may be past adaptive_max */
+	if (req->rq_deadline >= req->rq_arrival_time.tv_sec +
+			at_get(&svc->srv_at_estimate)) {
+		DEBUG_REQ(D_WARNING, req, "Couldn't add any time "
+			"(%ld/%ld), not sending early reply\n",
+			olddl, req->rq_arrival_time.tv_sec +
+			at_get(&svc->srv_at_estimate) -
+			cfs_time_current_sec());
+		RETURN(-ETIMEDOUT);
+	}
+
+	newdl = cfs_time_current_sec() + at_get(&svc->srv_at_estimate);
 
         OBD_ALLOC(reqcopy, sizeof *reqcopy);
         if (reqcopy == NULL)
