@@ -3244,11 +3244,9 @@ static int pool_cmd(enum lcfg_command_type cmd,
         if (ostname != NULL)
                 lustre_cfg_bufs_set_string(&bufs, 2, ostname);
 
-        lcfg = lustre_cfg_new(cmd, &bufs);
-        if (IS_ERR(lcfg)) {
-                rc = PTR_ERR(lcfg);
-                return rc;
-        }
+	lcfg = lustre_cfg_new(cmd, &bufs);
+	if (lcfg == NULL)
+		return -ENOMEM;
 
         memset(&data, 0, sizeof(data));
         rc = data.ioc_dev = get_mgs_device();

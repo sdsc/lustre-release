@@ -229,8 +229,8 @@ static inline struct lustre_cfg *lustre_cfg_new(int cmd,
 
         OBD_ALLOC(lcfg, lustre_cfg_len(bufs->lcfg_bufcount,
                                        bufs->lcfg_buflen));
-        if (!lcfg)
-                RETURN(ERR_PTR(-ENOMEM));
+	if (!lcfg)
+		RETURN(NULL);
 
         lcfg->lcfg_version = LUSTRE_CFG_VERSION;
         lcfg->lcfg_command = cmd;
