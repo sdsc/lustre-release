@@ -43,6 +43,14 @@ static int peer_timeout = 180;
 CFS_MODULE_PARM(peer_timeout, "i", int, 0444,
                 "Seconds without aliveness news to declare peer dead (<=0 to disable)");
 
+static unsigned int nscheds_cpt;
+CFS_MODULE_PARM(nscheds_cpt, "i", int, 0444,
+		"# scheduler daemons while starting");
+
+static unsigned int nscheds_cpt_max;
+CFS_MODULE_PARM(nscheds_cpt_max, "i", int, 0444,
+		"max allowed # scheduler daemons");
+
 static int nconnds = 4;
 CFS_MODULE_PARM(nconnds, "i", int, 0444,
                 "# connection daemons while starting");
@@ -171,9 +179,16 @@ ksock_tunables_t ksocknal_tunables;
 
 int ksocknal_tunables_init(void)
 {
+	if (zc_min_payload < SOCKNAL_ZC_MIN_PAYLOAD)
+		zc_min_payload = SOCKNAL_ZC_MIN_PAYLOAD;
+
+	if (nscheds_cpt > nscheds_cpt_max)
+		nscheds_cpt = nscheds_cpt_max;
 
         /* initialize ksocknal_tunables structure */
-        ksocknal_tunables.ksnd_timeout            = &sock_timeout;
+	ksocknal_tunables.ksnd_timeout		  = &sock_timeout;
+	ksocknal_tunables.ksnd_nscheds_cpt	  = &nscheds_cpt;
+	ksocknal_tunables.ksnd_nscheds_cpt_max	  = &nscheds_cpt_max;
         ksocknal_tunables.ksnd_nconnds            = &nconnds;
         ksocknal_tunables.ksnd_nconnds_max        = &nconnds_max;
         ksocknal_tunables.ksnd_min_reconnectms    = &min_reconnectms;
@@ -201,6 +216,12 @@ int ksocknal_tunables_init(void)
         ksocknal_tunables.ksnd_zc_recv_min_nfrags = &zc_recv_min_nfrags;
 
 #ifdef CPU_AFFINITY
+	if (enable_irq_affinity) {
+		CWARN("irq_affinity is removed from socklnd because modern "
+		      "computer always has fast CPUs and more cores than "
+		      "# NICs, although you still can set irq_affinity by "
+		      "another way, please check manual for details.\n");
+	}
         ksocknal_tunables.ksnd_irq_affinity       = &enable_irq_affinity;
 #endif
 
@@ -216,10 +237,6 @@ int ksocknal_tunables_init(void)
 #if defined(CONFIG_SYSCTL) && !CFS_SYSFS_MODULE_PARM
         ksocknal_tunables.ksnd_sysctl             =  NULL;
 #endif
-
-        if (*ksocknal_tunables.ksnd_zc_min_payload < (2 << 10))
-                *ksocknal_tunables.ksnd_zc_min_payload = (2 << 10);
-
         /* initialize platform-sepcific tunables */
         return ksocknal_lib_tunables_init();
 };

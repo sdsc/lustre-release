@@ -68,28 +68,31 @@
 # define SOCKNAL_RISK_KMAP_DEADLOCK  1
 #endif
 
+#define SOCKNAL_ZC_MIN_PAYLOAD	(2 << 10)
+
 typedef struct                                  /* per scheduler state */
 {
-        cfs_spinlock_t    kss_lock;             /* serialise */
-        cfs_list_t        kss_rx_conns;         /* conn waiting to be read */
-        cfs_list_t        kss_tx_conns;         /* conn waiting to be written */
-        cfs_list_t        kss_zombie_noop_txs;  /* zombie noop tx list */
-        cfs_waitq_t       kss_waitq;            /* where scheduler sleeps */
-        int               kss_nconns;           /* # connections assigned to this scheduler */
+	cfs_spinlock_t		kss_lock;	/* serialise */
+	cfs_list_t		kss_rx_conns;	/* conn waiting to be read */
+	/* conn waiting to be written */
+	cfs_list_t		kss_tx_conns;
+	/* zombie noop tx list */
+	cfs_list_t		kss_zombie_noop_txs;
+	cfs_waitq_t		kss_waitq;	/* where scheduler sleeps */
+	/* # connections assigned to this scheduler */
+	int			kss_nconns;
+	/* max allowed threads */
+	int			kss_nthreads_max;
+	/* number of threads */
+	int			kss_nthreads;
+	int			kss_cpt;	/* CPT id */
 #if !SOCKNAL_SINGLE_FRAG_RX
-        struct page      *kss_rx_scratch_pgs[LNET_MAX_IOV];
+	struct page		*kss_rx_scratch_pgs[LNET_MAX_IOV];
 #endif
 #if !SOCKNAL_SINGLE_FRAG_TX || !SOCKNAL_SINGLE_FRAG_RX
-        struct iovec      kss_scratch_iov[LNET_MAX_IOV];
+	struct iovec		kss_scratch_iov[LNET_MAX_IOV];
 #endif
 } ksock_sched_t;
-
-typedef struct
-{
-        unsigned int      ksni_valid:1;         /* been set yet? */
-        unsigned int      ksni_bound:1;         /* bound to a cpu yet? */
-        unsigned int      ksni_sched:6;         /* which scheduler (assumes < 64) */
-} ksock_irqinfo_t;
 
 typedef struct                                  /* in-use interface */
 {
@@ -97,12 +100,16 @@ typedef struct                                  /* in-use interface */
         __u32             ksni_netmask;         /* interface's network mask */
         int               ksni_nroutes;         /* # routes using (active) */
         int               ksni_npeers;          /* # peers using (passive) */
-        char              ksni_name[16];        /* interface name */
+	char		  ksni_name[IFALIASZ];	/* interface name */
 } ksock_interface_t;
 
 typedef struct
 {
         int              *ksnd_timeout;         /* "stuck" socket timeout (seconds) */
+	/* # scheduler threads while starting */
+	int		 *ksnd_nscheds_cpt;
+	/* max allowed # scheduler threads */
+	int		 *ksnd_nscheds_cpt_max;
         int              *ksnd_nconnds;         /* # connection daemons */
         int              *ksnd_nconnds_max;     /* max # connection daemons */
         int              *ksnd_min_reconnectms; /* first connection retry after (ms)... */
@@ -147,6 +154,7 @@ typedef struct
 {
         __u64             ksnn_incarnation;     /* my epoch */
         cfs_spinlock_t    ksnn_lock;            /* serialise */
+	cfs_list_t	  ksnn_list;		/* chain on global list */
         int               ksnn_npeers;          /* # peers */
         int               ksnn_shutdown;        /* shutting down? */
         int               ksnn_ninterfaces;     /* IP interfaces */
@@ -162,7 +170,7 @@ typedef struct
 {
         int               ksnd_init;           /* initialisation state */
         int               ksnd_nnets;          /* # networks set up */
-
+	cfs_list_t	  ksnd_nets;	       /* list of nets */
         cfs_rwlock_t      ksnd_global_lock;    /* stabilize peer/conn ops */
         cfs_list_t       *ksnd_peers;          /* hash table of all my known peers */
         int               ksnd_peer_hash_size; /* size of ksnd_peers */
@@ -170,7 +178,7 @@ typedef struct
         int               ksnd_nthreads;       /* # live threads */
         int               ksnd_shuttingdown;   /* tell threads to exit */
         int               ksnd_nschedulers;    /* # schedulers */
-        ksock_sched_t    *ksnd_schedulers;     /* their state */
+	ksock_sched_t	**ksnd_schedulers;     /* their state */
 
         cfs_atomic_t      ksnd_nactive_txs;    /* #active txs */
 
@@ -201,8 +209,6 @@ typedef struct
 
         cfs_list_t        ksnd_idle_noop_txs;  /* list head for freed noop tx */
         cfs_spinlock_t    ksnd_tx_lock;        /* serialise, NOT safe in g_lock */
-
-        ksock_irqinfo_t   ksnd_irqinfo[CFS_NR_IRQS];/* irq->scheduler lookup */
 
 } ksock_nal_data_t;
 
@@ -593,9 +599,7 @@ extern void ksocknal_lib_save_callback(cfs_socket_t *sock, ksock_conn_t *conn);
 extern void ksocknal_lib_set_callback(cfs_socket_t *sock,  ksock_conn_t *conn);
 extern void ksocknal_lib_reset_callback(cfs_socket_t *sock, ksock_conn_t *conn);
 extern void ksocknal_lib_push_conn (ksock_conn_t *conn);
-extern void ksocknal_lib_bind_irq (unsigned int irq);
 extern int ksocknal_lib_get_conn_addrs (ksock_conn_t *conn);
-extern unsigned int ksocknal_lib_sock_irq (cfs_socket_t *sock);
 extern int ksocknal_lib_setup_sock (cfs_socket_t *so);
 extern int ksocknal_lib_send_iov (ksock_conn_t *conn, ksock_tx_t *tx);
 extern int ksocknal_lib_send_kiov (ksock_conn_t *conn, ksock_tx_t *tx);
