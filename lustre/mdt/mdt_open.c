@@ -767,54 +767,100 @@ int mdt_finish_open(struct mdt_thread_info *info,
                     struct mdt_object *p, struct mdt_object *o,
                     __u64 flags, int created, struct ldlm_reply *rep)
 {
-        struct ptlrpc_request   *req = mdt_info_req(info);
-        struct obd_export       *exp = req->rq_export;
-        struct mdt_export_data  *med = &req->rq_export->exp_mdt_data;
-        struct md_attr          *ma  = &info->mti_attr;
-        struct lu_attr          *la  = &ma->ma_attr;
+	const struct lu_env     *env  = info->mti_env;
+	struct md_object        *next = mdt_object_child(o);
+	struct lu_buf           *lbuf = &info->mti_buf;
+	struct ptlrpc_request   *req  = mdt_info_req(info);
+	struct req_capsule      *pill = info->mti_pill;
+	struct obd_export       *exp  = req->rq_export;
+	struct mdt_export_data  *med  = &req->rq_export->exp_mdt_data;
+	struct md_attr          *ma   = &info->mti_attr;
+	struct lu_attr          *la   = &ma->ma_attr;
         struct mdt_file_data    *mfd;
         struct mdt_body         *repbody;
-        int                      rc = 0;
+	int                      rc   = 0;
         int                      isreg, isdir, islnk;
         cfs_list_t              *t;
         ENTRY;
 
         LASSERT(ma->ma_valid & MA_INODE);
 
-        repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+	repbody = req_capsule_server_get(pill, &RMF_MDT_BODY);
 
         isreg = S_ISREG(la->la_mode);
         isdir = S_ISDIR(la->la_mode);
         islnk = S_ISLNK(la->la_mode);
         mdt_pack_attr2body(info, repbody, la, mdt_object_fid(o));
 
+	/* This is new client with packaged xattr support. */
+	if (exp->exp_connect_flags & OBD_CONNECT_PACKAGED_XATTR) {
+		int size = 0;
+
+		lbuf->lb_buf = req_capsule_server_get(pill,
+						      &RMF_PACKAGED_XATTR);
+		lbuf->lb_len = req_capsule_get_size(pill, &RMF_PACKAGED_XATTR,
+						    RCL_SERVER);
+
+		if (exp_connect_rmtclient(exp)) {
+			rc = mdt_get_packaged_rperm(info, o, lbuf);
+			if (rc > 0)
+				size += rc;
+		}
+#ifdef CONFIG_FS_POSIX_ACL
+		else {
+			if (exp->exp_connect_flags & OBD_CONNECT_ACL) {
+				rc = mdt_get_packaged_xattr(env, o,
+						    XATTR_NAME_ACL_ACCESS, 0,
+						    lbuf, PXT_ACL);
+				if (rc > 0)
+					size += rc;
+			}
+
+			if (S_ISDIR(lu_object_attr(&next->mo_lu)) &&
+			    exp->exp_connect_flags & OBD_CONNECT_ACL) {
+				rc = mdt_get_packaged_xattr(env, o,
+						    XATTR_NAME_ACL_DEFAULT, 0,
+						    lbuf, PXT_DEFACL);
+				if (rc > 0)
+					size += rc;
+			}
+		}
+#endif
+		/* XXX: We can add more process for other xattrs, like security,
+		 *      in the future */
+
+		if (size > 0) {
+			repbody->valid |= OBD_MD_FLXATTR;
+			repbody->mb_pxattr = size;
+		}
+		GOTO(capa, rc = 0);
+	}
+
         if (exp_connect_rmtclient(exp)) {
-                void *buf = req_capsule_server_get(info->mti_pill, &RMF_ACL);
+		void *buf = req_capsule_server_get(pill,
+						   &RMF_PACKAGED_XATTR);
 
                 rc = mdt_pack_remote_perm(info, o, buf);
                 if (rc) {
                         repbody->valid &= ~OBD_MD_FLRMTPERM;
-                        repbody->aclsize = 0;
+			repbody->mb_pxattr = 0;
                 } else {
                         repbody->valid |= OBD_MD_FLRMTPERM;
-                        repbody->aclsize = sizeof(struct mdt_remote_perm);
+			repbody->mb_pxattr = sizeof(struct mdt_remote_perm);
                 }
         }
 #ifdef CONFIG_FS_POSIX_ACL
         else if (exp->exp_connect_flags & OBD_CONNECT_ACL) {
-                const struct lu_env *env = info->mti_env;
-                struct md_object *next = mdt_object_child(o);
-                struct lu_buf *buf = &info->mti_buf;
-
-                buf->lb_buf = req_capsule_server_get(info->mti_pill, &RMF_ACL);
-                buf->lb_len = req_capsule_get_size(info->mti_pill, &RMF_ACL,
-                                                   RCL_SERVER);
-                if (buf->lb_len > 0) {
-                        rc = mo_xattr_get(env, next, buf,
+		lbuf->lb_buf = req_capsule_server_get(pill,
+						      &RMF_PACKAGED_XATTR);
+		lbuf->lb_len = req_capsule_get_size(pill, &RMF_PACKAGED_XATTR,
+						    RCL_SERVER);
+		if (lbuf->lb_len > 0) {
+			rc = mo_xattr_get(env, next, lbuf,
                                           XATTR_NAME_ACL_ACCESS);
                         if (rc < 0) {
                                 if (rc == -ENODATA) {
-                                        repbody->aclsize = 0;
+					repbody->mb_pxattr = 0;
                                         repbody->valid |= OBD_MD_FLACL;
                                         rc = 0;
                                 } else if (rc == -EOPNOTSUPP) {
@@ -823,7 +869,7 @@ int mdt_finish_open(struct mdt_thread_info *info,
                                         CERROR("got acl size: %d\n", rc);
                                 }
                         } else {
-                                repbody->aclsize = rc;
+				repbody->mb_pxattr = rc;
                                 repbody->valid |= OBD_MD_FLACL;
                                 rc = 0;
                         }
@@ -831,11 +877,12 @@ int mdt_finish_open(struct mdt_thread_info *info,
         }
 #endif
 
+capa:
         if (info->mti_mdt->mdt_opts.mo_mds_capa &&
             exp->exp_connect_flags & OBD_CONNECT_MDS_CAPA) {
                 struct lustre_capa *capa;
 
-                capa = req_capsule_server_get(info->mti_pill, &RMF_CAPA1);
+		capa = req_capsule_server_get(pill, &RMF_CAPA1);
                 LASSERT(capa);
                 capa->lc_opc = CAPA_OPC_MDS_DEFAULT;
                 rc = mo_capa_get(info->mti_env, mdt_object_child(o), capa, 0);
@@ -848,7 +895,7 @@ int mdt_finish_open(struct mdt_thread_info *info,
             S_ISREG(lu_object_attr(&o->mot_obj.mo_lu))) {
                 struct lustre_capa *capa;
 
-                capa = req_capsule_server_get(info->mti_pill, &RMF_CAPA2);
+		capa = req_capsule_server_get(pill, &RMF_CAPA2);
                 LASSERT(capa);
                 capa->lc_opc = CAPA_OPC_OSS_DEFAULT | capa_open_opc(flags);
                 rc = mo_capa_get(info->mti_env, mdt_object_child(o), capa, 0);
@@ -1641,7 +1688,7 @@ int mdt_close(struct mdt_thread_info *info)
                                                           RCL_SERVER);
                 ma->ma_need = MA_INODE | MA_LOV | MA_COOKIE;
                 repbody->eadatasize = 0;
-                repbody->aclsize = 0;
+		repbody->mb_pxattr = 0;
         } else {
                 rc = err_serious(rc);
         }
@@ -1708,7 +1755,7 @@ int mdt_done_writing(struct mdt_thread_info *info)
         repbody = req_capsule_server_get(info->mti_pill,
                                          &RMF_MDT_BODY);
         repbody->eadatasize = 0;
-        repbody->aclsize = 0;
+	repbody->mb_pxattr = 0;
 
         /* Done Writing may come with the Size-on-MDS update. Unpack it. */
         rc = mdt_close_unpack(info);

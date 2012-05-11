@@ -311,6 +311,14 @@ static inline int client_is_remote(struct obd_export *exp)
                   OBD_CONNECT_RMT_CLIENT);
 }
 
+static inline int packaged_xattr_enabled(struct obd_export *exp)
+{
+	struct obd_import *imp = class_exp2cliimp(exp);
+
+	return !!(imp->imp_connect_data.ocd_connect_flags &
+		  OBD_CONNECT_PACKAGED_XATTR);
+}
+
 static inline int exp_connect_vbr(struct obd_export *exp)
 {
         LASSERT(exp != NULL);
