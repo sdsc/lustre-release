@@ -1390,20 +1390,27 @@ ksocknal_sched_cansleep(ksock_sched_t *sched)
 
 int ksocknal_scheduler (void *arg)
 {
-        ksock_sched_t     *sched = (ksock_sched_t *)arg;
-        ksock_conn_t      *conn;
-        ksock_tx_t        *tx;
-        int                rc;
-        int                nloops = 0;
-        int                id = (int)(sched - ksocknal_data.ksnd_schedulers);
-        char               name[16];
+	ksock_sched_t		*sched;
+	ksock_conn_t		*conn;
+	ksock_tx_t		*tx;
+	int			rc;
+	int			nloops = 0;
+	char			name[20];
+	long			id = (long)arg;
 
-        snprintf (name, sizeof (name),"socknal_sd%02d", id);
+	sched = ksocknal_data.ksnd_schedulers[id >> 16];
+
+	snprintf(name, sizeof(name), "socknal_sd%02d_%02d",
+		sched->kss_cpt, (int)(id & 0xff));
+
         cfs_daemonize (name);
         cfs_block_allsigs ();
 
-        if (ksocknal_lib_bind_thread_to_cpu(id))
-                CERROR ("Can't set CPU affinity for %s to %d\n", name, id);
+	rc = cfs_cpt_bind(lnet_cpt_table(), sched->kss_cpt);
+	if (rc != 0) {
+		CERROR("Can't set CPT affinity for %s to %d\n",
+		       name, sched->kss_cpt);
+	}
 
         cfs_spin_lock_bh (&sched->kss_lock);
 
