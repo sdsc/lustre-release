@@ -105,7 +105,7 @@ dist-hook:
 
 EXTRA_DIST = @PACKAGE_TARNAME@.spec					\
 	build/Makefile build/autoMakefile.am.toplevel build/lbuild*	\
-	build/Rules.in 							\
+	build/Rules.in build/libcfs_cleanup.sed				\
 	build/update_oldconfig						\
 	build/autoconf/lustre-build-linux.m4				\
 	build/autoconf/lustre-build-darwin.m4				\

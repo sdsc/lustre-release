@@ -37,4 +37,8 @@
 SUBDIRS = lnet klnds ulnds selftest doc utils include	\
 	autoconf
 
-sources:
+sources: libcfs_cleanup
+
+libcfs_cleanup:
+	echo "do libcfs cleanup in `pwd`"
+	sed -i -f ../build/libcfs_cleanup.sed  `find . -name "*.h" -or -name "*.c"`
