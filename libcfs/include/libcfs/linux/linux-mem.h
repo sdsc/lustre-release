@@ -57,62 +57,58 @@
 # include <linux/mm_inline.h>
 #endif
 
+#define CFS_ALLOC_FLAGS_MAPPED_TO_GFP   (1)
+/* memory allocation flags */
+/* allocation is not allowed to block */
+#define CFS_ALLOC_ATOMIC                GFP_ATOMIC
+/* allocation is allowed to block */
+#define CFS_ALLOC_WAIT                  __GFP_WAIT
+/* allocation should return zeroed memory */
+#define CFS_ALLOC_ZERO                  __GFP_ZERO
+/* allocation is allowed to call file-system code to free/clean memory */
+#define CFS_ALLOC_FS                    __GFP_FS
+/* allocation is allowed to do io to free/clean memory */
+#define CFS_ALLOC_IO                    __GFP_IO
+/* don't report allocation failure to the console */
+#define CFS_ALLOC_NOWARN                __GFP_NOWARN
+/* standard allocator flag combination */
+#define CFS_ALLOC_STD                   GFP_IOFS
+#define CFS_ALLOC_USER                  GFP_KERNEL
+/* flags for cfs_page_alloc() */
+/* allow to return page beyond KVM. It has to be mapped into KVM by
+ * cfs_page_map(); */
+#define CFS_ALLOC_HIGH                  __GFP_HIGHMEM
+#define CFS_ALLOC_HIGHUSER              GFP_HIGHUSER
+
 typedef struct page                     cfs_page_t;
 #define CFS_PAGE_SIZE                   PAGE_CACHE_SIZE
 #define CFS_PAGE_SHIFT                  PAGE_CACHE_SHIFT
-#define CFS_PAGE_MASK                   (~((__u64)CFS_PAGE_SIZE-1))
+#define CFS_PAGE_MASK                   PAGE_CACHE_MASK
 
 #define cfs_num_physpages               num_physpages
 
 #define cfs_copy_from_user(to, from, n) copy_from_user(to, from, n)
 #define cfs_copy_to_user(to, from, n)   copy_to_user(to, from, n)
 
-static inline void *cfs_page_address(cfs_page_t *page)
-{
-        /*
-         * XXX nikita: do NOT call portals_debug_msg() (CDEBUG/ENTRY/EXIT)
-         * from here: this will lead to infinite recursion.
-         */
-        return page_address(page);
-}
-
-static inline void *cfs_kmap(cfs_page_t *page)
-{
-        return kmap(page);
-}
-
-static inline void cfs_kunmap(cfs_page_t *page)
-{
-        kunmap(page);
-}
-
-static inline void cfs_get_page(cfs_page_t *page)
-{
-        get_page(page);
-}
-
-static inline int cfs_page_count(cfs_page_t *page)
-{
-        return page_count(page);
-}
-
-#define cfs_page_index(p)       ((p)->index)
-
-#define cfs_page_pin(page) page_cache_get(page)
-#define cfs_page_unpin(page) page_cache_release(page)
+#define cfs_page_address(page)          page_address(page)
+#define cfs_kmap(page)                  kmap(page)
+#define cfs_kunmap(page)                kunmap(page)
+#define cfs_get_page(page)              get_page(page)
+#define cfs_page_count(page)            page_count(page)
+#define cfs_page_index(page)            page_index(page)
+#define cfs_page_pin(page)              page_cache_get(page)
+#define cfs_page_unpin(page)            page_cache_release(page)
 
 /*
  * Memory allocator
  * XXX Liang: move these declare to public file
  */
-extern void *cfs_alloc(size_t nr_bytes, u_int32_t flags);
-extern void  cfs_free(void *addr);
-
-extern void *cfs_alloc_large(size_t nr_bytes);
-extern void  cfs_free_large(void *addr);
-
-extern cfs_page_t *cfs_alloc_page(unsigned int flags);
-extern void cfs_free_page(cfs_page_t *page);
+#define cfs_alloc(nr_bytes, flags)      kmalloc(nr_bytes, flags)
+#define cfs_free(addr)                  kfree(addr)
+#define cfs_alloc_large(nr_bytes)       vmalloc(nr_bytes)
+#define cfs_free_large(addr)            vfree(addr)
+#define cfs_alloc_page(flags)           alloc_page(flags)
+#define cfs_free_page(page)             __free_page(page)
 
 #define cfs_memory_pressure_get() (current->flags & PF_MEMALLOC)
 #define cfs_memory_pressure_set() do { current->flags |= PF_MEMALLOC; } while (0)

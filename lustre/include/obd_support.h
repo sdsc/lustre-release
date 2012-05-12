@@ -563,7 +563,10 @@ do {                                                                          \
 })
 #define OBD_ALLOC_GFP(ptr, size, gfp_mask)                                    \
 do {                                                                          \
-        (ptr) = cfs_alloc(size, (gfp_mask));                                  \
+	if ((gfp_mask) & CFS_ALLOC_ATOMIC)                                    \
+		(ptr) = cfs_alloc(size, (gfp_mask));                          \
+	else                                                                  \
+		(ptr) = cfs_alloc(size, (gfp_mask)|CFS_ALLOC_WAIT);           \
         if (likely((ptr) != NULL &&                                           \
                    (!HAS_FAIL_ALLOC_FLAG || obd_alloc_fail_rate == 0 ||       \
                     !obd_alloc_fail(ptr, #ptr, "km", size,                    \

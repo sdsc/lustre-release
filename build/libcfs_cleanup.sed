@@ -4,6 +4,9 @@
 # Migrate libcfs to emulate Linux kernel APIs.
 # http://jira.whamcloud.com/browse/LU-1346
 
+# remove extra blank line
+# /^$/{N;/^\n$/D}
+
 ################################################################################
 # lock - spinlock, rw_semaphore, rwlock, completion, semaphore, mutex
 #      - lock_kernel, unlock_kernel, lockdep
@@ -257,8 +260,100 @@ s/\bCFS_IFSHIFT\b/IFSHIFT/g
 s/\bCFS_IFTODT\b/IFTODT/g
 s/\bCFS_DTTOIF\b/DTTOIF/g
 
+################################################################################
+# memory operations
+
+s/\bcfs_page_t\b/page_t/g
+s/\bCFS_PAGE_SIZE\b/PAGE_CACHE_SIZE/g
+/# *define *\bPAGE_CACHE_SIZE\b *\bPAGE_CACHE_SIZE\b/d
+s/\bCFS_PAGE_SHIFT\b/PAGE_CACHE_SHIFT/g
+/# *define *\bPAGE_CACHE_SHIFT\b *\bPAGE_CACHE_SHIFT\b/d
+s/\bCFS_PAGE_MASK\b/PAGE_CACHE_MASK/g
+/# *define *\bPAGE_CACHE_MASK\b *\bPAGE_CACHE_MASK\b/d
+s/\bcfs_num_physpages\b/num_physpages/g
+/# *define *\bnum_physpages\b *\bnum_physpages\b/d
+s/\bcfs_copy_from_user\b/copy_from_user/g
+/# *define *\bcopy_from_user\b *( *\w* *, *\w* *, *\w* *) *\bcopy_from_user\b *( *\w* *, *\w* *, *\w* *)/d
+s/\bcfs_copy_to_user\b/copy_to_user/g
+/# *define *\bcopy_to_user\b *( *\w* *, *\w* *, *\w* *) *\bcopy_to_user\b *( *\w* *, *\w* *, *\w* *)/d
+s/\bcfs_page_address\b/page_address/g
+/# *define *\bpage_address\b *( *\w* *) *\bpage_address\b *( *\w* *)/d
+s/\bcfs_kmap\b/kmap/g
+/# *define *\bkmap\b *( *\w* *) *\bkmap\b *( *\w* *)/d
+s/\bcfs_kunmap\b/kunmap/g
+/# *define *\bkunmap\b *( *\w* *) *\bkunmap\b *( *\w* *)/d
+s/\bcfs_get_page\b/get_page/g
+/# *define *\bget_page\b *( *\w* *) *\bget_page\b *( *\w* *)/d
+s/\bcfs_page_count\b/page_count/g
+/# *define *\bpage_count\b *( *\w* *) *\bpage_count\b *( *\w* *)/d
+s/\bcfs_page_index\b/page_index/g
+/# *define *\bpage_index\b *( *\w* *) *\bpage_index\b *( *\w* *)/d
+s/\bcfs_page_pin\b/page_cache_get/g
+/# *define *\bpage_cache_get\b *( *\w* *) *\bpage_cache_get\b *( *\w* *)/d
+s/\bcfs_page_unpin\b/page_cache_release/g
+/# *define *\bpage_cache_release\b *( *\w* *) *\bpage_cache_release\b *( *\w* *)/d
+s/\bcfs_memory_pressure_get\b/memory_pressure_get/g
+s/\bcfs_memory_pressure_set\b/memory_pressure_set/g
+s/\bcfs_memory_pressure_clr\b/memory_pressure_clr/g
+s/\bCFS_NUM_CACHEPAGES\b/NUM_CACHEPAGES/g
+# memory allocator
+s/\bCFS_ALLOC_ATOMIC\b/GFP_ATOMIC/g
+/# *define *\bGFP_ATOMIC\b *\bGFP_ATOMIC\b/d
+s/\bCFS_ALLOC_WAIT\b/__GFP_WAIT/g
+/# *define *\b__GFP_WAIT\b *\b__GFP_WAIT\b/d
+s/\bCFS_ALLOC_ZERO\b/__GFP_ZERO/g
+/# *define *\b__GFP_ZERO\b *\b__GFP_ZERO\b/d
+s/\bCFS_ALLOC_FS\b/__GFP_FS/g
+/# *define *\b__GFP_FS\b *\b__GFP_FS\b/d
+s/\bCFS_ALLOC_IO\b/__GFP_IO/g
+/# *define *\b__GFP_IO\b *\b__GFP_IO\b/d
+s/\bCFS_ALLOC_NOWARN\b/__GFP_NOWARN/g
+/# *define *\b__GFP_NOWARN\b *\b__GFP_NOWARN\b/d
+s/\bCFS_ALLOC_STD\b/GFP_IOFS/g
+/# *define *\bGFP_IOFS\b *\bGFP_IOFS\b/d
+s/\bCFS_ALLOC_USER\b/GFP_KERNEL/g
+/# *define *\bGFP_KERNEL\b *\bGFP_KERNEL\b/d
+s/\bCFS_ALLOC_HIGH\b/__GFP_HIGHMEM/g
+/# *define *\b__GFP_HIGHMEM\b *\b__GFP_HIGHMEM\b/d
+s/\bCFS_ALLOC_HIGHUSER\b/GFP_HIGHUSER/g
+/# *define *\bGFP_HIGHUSER\b *\bGFP_HIGHUSER\b/d
+s/\bcfs_alloc\b/kmalloc/g
+/# *define *\bkmalloc\b *( *\w* *, *\w* *) *\bkmalloc\b *( *\w* *, *\w* *)/d
+s/\bcfs_free\b/kfree/g
+/# *define *\bkfree\b *( *\w* *) *\bkfree\b *( *\w* *)/d
+s/\bcfs_alloc_large\b/vmalloc/g
+/# *define *\bvmalloc\b *( *\w* *) *\bvmalloc\b *( *\w* *)/d
+s/\bcfs_free_large\b/vfree/g
+/# *define *\bvfree\b *( *\w* *) *\bvfree\b *( *\w* *)/d
+s/\bcfs_alloc_page\b/alloc_page/g
+/# *define *\balloc_page\b *( *\w* *) *\balloc_page\b *( *\w* *)/d
+s/\bcfs_free_page\b/__free_page/g
+/# *define *\b__free_page\b *( *\w* *) *\b__free_page\b *( *\w* *)/d
+# TODO: SLAB allocator
+s/\bCFS_DECL_MMSPACE\b/DECL_MMSPACE/g
+s/\bCFS_MMSPACE_OPEN\b/MMSPACE_OPEN/g
+s/\bCFS_MMSPACE_CLOSE\b/MMSPACE_CLOSE/g
+s/\bCFS_SLAB_HWCACHE_ALIGN\b/SLAB_HWCACHE_ALIGN/g
+/# *define *\bSLAB_HWCACHE_ALIGN\b *\bSLAB_HWCACHE_ALIGN\b/d
+s/\bCFS_SLAB_KERNEL\b/SLAB_KERNEL/g
+/# *define *\bSLAB_KERNEL\b *\bSLAB_KERNEL\b/d
+s/\bCFS_SLAB_NOFS\b/SLAB_NOFS/g
+/# *define *\bSLAB_NOFS\b *\bSLAB_NOFS\b/d
+s/\bcfs_shrinker\b/shrinker/g
+/# *define *\bshrinker\b *\bshrinker\b/d
+s/\bcfs_shrinker_t\b/shrinker_t/g
+/ *typedef *\bshrinker_t\b *\bshrinker_t\b/d
+s/\bcfs_set_shrinker\b/set_shrinker/g
+/# *define *\bset_shrinker\b *( *\w* *, *\w* *) *\bset_shrinker\b *( *\w* *, *\w* *)/d
+s/\bcfs_remove_shrinker\b/remove_shrinker/g
+/# *define *\bremove_shrinker\b *( *\w* *) *\bremove_shrinker\b *( *\w* *)/d
+s/\bCFS_DEFAULT_SEEKS\b/DEFAULT_SEEKS/g
+/# *define *\bDEFAULT_SEEKS\b *\bDEFAULT_SEEKS\b/d
+
+
 
 #s/\bcfs_\b//g
+#s/\bCFS_\b//g
 #/# *define *\b\b *\b\b/d
 #/# *define *\b\b *( *) *\b\b *( *)/d
 #/# *define *\b\b *( *\w* *) *\b\b *( *\w* *)/d

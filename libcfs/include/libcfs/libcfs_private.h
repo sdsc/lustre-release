@@ -158,8 +158,12 @@ do {                                                                      \
                (size <= LIBCFS_VMALLOC_SIZE && mask == CFS_ALLOC_ATOMIC));\
         if (unlikely((size) > LIBCFS_VMALLOC_SIZE))                       \
                 (ptr) = cfs_alloc_large(size);                            \
-        else                                                              \
-                (ptr) = cfs_alloc((size), (mask));                        \
+	else {                                                            \
+		if (mask & CFS_ALLOC_ATOMIC)                              \
+			(ptr) = cfs_alloc((size), (mask));                \
+		else                                                      \
+			(ptr) = cfs_alloc((size), (mask)|CFS_ALLOC_WAIT); \
+	}                                                                 \
         if (unlikely((ptr) == NULL)) {                                    \
                 CERROR("LNET: out of memory at %s:%d (tried to alloc '"   \
                        #ptr "' = %d)\n", __FILE__, __LINE__, (int)(size));\
