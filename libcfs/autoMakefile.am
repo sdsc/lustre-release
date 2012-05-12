@@ -36,5 +36,9 @@
 
 SUBDIRS = libcfs include autoconf
 
-sources:
+sources: libcfs_cleanup
 	$(MAKE) sources -C libcfs
+
+libcfs_cleanup:
+	echo "do libcfs cleanup in `pwd`"
+	sed -i -f ../build/libcfs_cleanup.sed  `find . -name "*.h" -or -name "*.c"`
