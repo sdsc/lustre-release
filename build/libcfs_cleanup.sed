@@ -218,6 +218,47 @@ s/\bcfs_ffs\b/ffs/g
 s/\bcfs_fls\b/fls/g
 /#[ \t]*define[ \t]*\bfls\b *( *\w* *)[ \t]*\bfls\b *( *\w* *)/d
 
+################################################################################
+# file operations
+
+s/\bcfs_file_t\b/file_t/g
+s/\bcfs_dentry_t\b/dentry_t/g
+s/\bcfs_dirent_t\b/dirent_t/g
+s/\bcfs_kstatfs_t\b/kstatfs_t/g
+s/\bcfs_filp_size\b/filp_size/g
+s/\bcfs_filp_poff\b/filp_poff/g
+s/\bcfs_filp_open\b/filp_open/g
+/#[ \t]*define[ \t]*\bfilp_open\b *( *\w* *, *\w* *, *\w* *)[ \t]*\bfilp_open\b *( *\w* *, *\w* *, *\w* *)/d
+s/\bcfs_do_fsync\b/do_fsync/g
+s/\bcfs_filp_close\b/filp_close/g
+/#[ \t]*define[ \t]*\bfilp_close\b *( *\w* *, *\w* *)[ \t]*\bfilp_close\b *( *\w* *, *\w* *)/d
+s/\bcfs_filp_read\b/filp_read/g
+s/\bcfs_filp_write\b/filp_write/g
+s/\bcfs_filp_fsync\b/filp_fsync/g
+s/\bcfs_get_file\b/get_file/g
+/#[ \t]*define[ \t]*\bget_file\b *( *\w* *)[ \t]*\bget_file\b *( *\w* *)/d
+s/\bcfs_get_fd\b/fget/g
+/#[ \t]*define[ \t]*\bfget\b *( *\w* *)[ \t]*\bfget\b *( *\w* *)/d
+s/\bcfs_put_file\b/fput/g
+/#[ \t]*define[ \t]*\bfput\b *( *\w* *)[ \t]*\bfput\b *( *\w* *)/d
+s/\bcfs_file_count\b/file_count/g
+/#[ \t]*define[ \t]*\bfile_count\b *( *\w* *)[ \t]*\bfile_count\b *( *\w* *)/d
+s/\bCFS_INT_LIMIT\b/INT_LIMIT/g
+s/\bCFS_OFFSET_MAX\b/OFFSET_MAX/g
+s/\bcfs_flock_t\b/flock_t/g
+s/\bcfs_flock_type\b/flock_type/g
+s/\bcfs_flock_set_type\b/flock_set_type/g
+s/\bcfs_flock_pid\b/flock_pid/g
+s/\bcfs_flock_set_pid\b/flock_set_pid/g
+s/\bcfs_flock_start\b/flock_start/g
+s/\bcfs_flock_set_start\b/flock_set_start/g
+s/\bcfs_flock_end\b/flock_end/g
+s/\bcfs_flock_set_end\b/flock_set_end/g
+s/\bcfs_user_write\b/user_write/g
+s/\bCFS_IFSHIFT\b/IFSHIFT/g
+s/\bCFS_IFTODT\b/IFTODT/g
+s/\bCFS_DTTOIF\b/DTTOIF/g
+
 
 #s/\bcfs_\b//g
 #s/\bCFS_\b//g

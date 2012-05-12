@@ -62,10 +62,7 @@ typedef struct kstatfs cfs_kstatfs_t;
 #define cfs_filp_size(f)               (i_size_read((f)->f_dentry->d_inode))
 #define cfs_filp_poff(f)                (&(f)->f_pos)
 
-/* 
- * XXX Do we need to parse flags and mode in cfs_filp_open? 
- */
-cfs_file_t *cfs_filp_open (const char *name, int flags, int mode, int *err);
+#define cfs_filp_open(n, f, m)     filp_open(n, f, m)
 #ifdef HAVE_FILE_FSYNC_4ARGS
 # define cfs_do_fsync(fp, flag)    ((fp)->f_op->fsync(fp, 0, LLONG_MAX, flag))
 #elif defined(HAVE_FILE_FSYNC_2ARGS)
@@ -73,7 +70,7 @@ cfs_file_t *cfs_filp_open (const char *name, int flags, int mode, int *err);
 #else
 # define cfs_do_fsync(fp, flag)    ((fp)->f_op->fsync(fp, (fp)->f_dentry, flag))
 #endif
-#define cfs_filp_close(f)                   filp_close(f, NULL)
+#define cfs_filp_close(f, i)                filp_close(f, i)
 #define cfs_filp_read(fp, buf, size, pos)   (fp)->f_op->read((fp), (buf), (size), pos)
 #define cfs_filp_write(fp, buf, size, pos)  (fp)->f_op->write((fp), (buf), (size), pos)
 #define cfs_filp_fsync(fp)                  cfs_do_fsync(fp, 1)

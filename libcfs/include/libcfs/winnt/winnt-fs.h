@@ -128,15 +128,15 @@ struct file {
 #define cfs_filp_size(f)               ((f)->f_size)
 #define cfs_filp_poff(f)                (&(f)->f_pos)
 
-cfs_file_t *cfs_filp_open(const char *name, int flags, int mode, int *err);
-int cfs_filp_close(cfs_file_t *fp);
+cfs_file_t *cfs_filp_open(const char *name, int flags, int mode);
+int cfs_filp_close(cfs_file_t *fp, void *id);
 int cfs_filp_read(cfs_file_t *fp, void *buf, size_t nbytes, loff_t *pos);
 int cfs_filp_write(cfs_file_t *fp, void *buf, size_t nbytes, loff_t *pos);
 int cfs_filp_fsync(cfs_file_t *fp);
 int cfs_get_file(cfs_file_t *fp);
 int cfs_put_file(cfs_file_t *fp);
 int cfs_file_count(cfs_file_t *fp);
-#define cfs_filp_unlink(x, y) (KdBreakPoint(),0) 
+#define cfs_filp_unlink(x, y) (KdBreakPoint(),0)
 /*
  * CFS_FLOCK routines
  */

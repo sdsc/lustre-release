@@ -53,7 +53,7 @@ const CHAR *dos_file_prefix[] = {
  * Return Value:
  *   the pointer to the cfs_file_t or NULL if it fails
  *
- * Notes: 
+ * Notes:
  *   N/A
  */
 
@@ -134,8 +134,7 @@ cfs_file_t *cfs_filp_open(const char *name, int flags, int mode, int *err)
     if (name[0] != '\\') {
         if (NameLength < 1 || name[1] != ':' || !is_drv_letter_valid(name[0])) {
             /* invalid file path name */
-            if (err) *err = -EINVAL;
-            return NULL;
+            return ERR_PTR(-EINVAL);
         }
         PrefixLength = (USHORT)strlen(dos_file_prefix[0]);
     } else {
@@ -147,24 +146,21 @@ cfs_file_t *cfs_filp_open(const char *name, int flags, int mode, int *err)
             }
         }
         if (i >= 3) {
-            if (err) *err = -EINVAL;
-            return NULL;
+            return ERR_PTR(-EINVAL);
         }
     }
 
     AnsiString = cfs_alloc( sizeof(CHAR) * (NameLength + PrefixLength + 1),
                             CFS_ALLOC_ZERO);
     if (NULL == AnsiString) {
-        if (err) *err = -ENOMEM;
-        return NULL;
+        return ERR_PTR(-ENOMEM);
     }
 
     UnicodeString = cfs_alloc( sizeof(WCHAR) * (NameLength + PrefixLength + 1),
                                CFS_ALLOC_ZERO);
     if (NULL == UnicodeString) {
-        if (err) *err = -ENOMEM;
         cfs_free(AnsiString);
-        return NULL;
+        return ERR_PTR(-ENOMEM);
     }
 
     if (PrefixLength) {
@@ -209,12 +205,9 @@ cfs_file_t *cfs_filp_open(const char *name, int flags, int mode, int *err)
 
     /* Check the returned status of IoStatus... */
     if (!NT_SUCCESS(IoStatus.Status)) {
-        if (err) {
-            *err = cfs_error_code(IoStatus.Status);
-        }
         cfs_free(UnicodeString);
         cfs_free(AnsiString);
-        return NULL;
+        return ERR_PTR(cfs_error_code(IoStatus.Status));
     }
 
     /* Allocate the cfs_file_t: libcfs file object */
@@ -223,12 +216,9 @@ cfs_file_t *cfs_filp_open(const char *name, int flags, int mode, int *err)
     if (NULL == fp) {
         Status = ZwClose(FileHandle);
         ASSERT(NT_SUCCESS(Status));
-        if (err) {
-            *err = -ENOMEM;
-        }
         cfs_free(UnicodeString);
         cfs_free(AnsiString);
-        return NULL;
+        return ERR_PTR(-ENOMEM);
     }
 
     fp->f_handle = FileHandle;
@@ -236,9 +226,6 @@ cfs_file_t *cfs_filp_open(const char *name, int flags, int mode, int *err)
     fp->f_flags = flags;
     fp->f_mode  = (mode_t)mode;
     fp->f_count = 1;
-    if (err) {
-        *err = 0;
-    }
 
     /* free the memory of temporary name strings */
     cfs_free(UnicodeString);
@@ -259,11 +246,11 @@ cfs_file_t *cfs_filp_open(const char *name, int flags, int mode, int *err)
  *   ZERO: on success
  *   Non-Zero: on failure
  *
- * Notes: 
+ * Notes:
  *   N/A
  */
 
-int cfs_filp_close(cfs_file_t *fp)
+int cfs_filp_close(cfs_file_t *fp, void *id)
 {
     NTSTATUS    Status;
 
@@ -653,14 +640,14 @@ int cfs_get_file(cfs_file_t *fp)
  *   Zero:  in success case
  *   Non-Zero: in failure case
  *
- * Notes: 
+ * Notes:
  *   N/A
  */
 
 int cfs_put_file(cfs_file_t *fp)
 {
     if (InterlockedDecrement(&(fp->f_count)) == 0) {
-        cfs_filp_close(fp);
+        cfs_filp_close(fp, NULL);
     }
 
     return 0;
