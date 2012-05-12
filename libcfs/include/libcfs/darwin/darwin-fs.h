@@ -101,14 +101,14 @@ int	kern_file_size(cfs_file_t *fp, off_t	*size);
 	 })
 #define cfs_filp_poff(fp)               (NULL)
 
-cfs_file_t *kern_file_open(const char *name, int flags, int mode, int *err);
+cfs_file_t *kern_file_open(const char *name, int flags, int mode);
 int kern_file_close(cfs_file_t *fp);
 int kern_file_read(cfs_file_t *fp, void *buf, size_t nbytes, off_t *pos);
 int kern_file_write(cfs_file_t *fp, void *buf, size_t nbytes, off_t *pos);
 int kern_file_sync(cfs_file_t *fp);
 
-#define cfs_filp_open(n, f, m, e)	kern_file_open(n, f, m, e)
-#define cfs_filp_close(f)		kern_file_close(f)
+#define cfs_filp_open(n, f, m)		kern_file_open(n, f, m)
+#define cfs_filp_close(f, i)		kern_file_close(f)
 #define cfs_filp_read(f, b, n, p)	kern_file_read(f, b, n, p)
 #define cfs_filp_write(f, b, n, p)	kern_file_write(f, b, n, p)
 #define cfs_filp_fsync(f)		kern_file_sync(f)

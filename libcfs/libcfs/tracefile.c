@@ -698,15 +698,16 @@ int cfs_tracefile_dump_all_pages(char *filename)
 
         cfs_tracefile_write_lock();
 
-        filp = cfs_filp_open(filename,
-                             O_CREAT|O_EXCL|O_WRONLY|O_LARGEFILE, 0600, &rc);
-        if (!filp) {
-                if (rc != -EEXIST)
-                        printk(CFS_KERN_ERR
-                               "LustreError: can't open %s for dump: rc %d\n",
-                               filename, rc);
-                goto out;
-        }
+	filp = cfs_filp_open(filename,
+			     O_CREAT|O_EXCL|O_WRONLY|O_LARGEFILE, 0600);
+	if (IS_ERR(filp)) {
+		rc = PTR_ERR(filp);
+		filp = NULL;
+		printk(CFS_KERN_ERR
+		      "LustreError: can't open %s for dump: rc %d\n",
+		      filename, rc);
+		goto out;
+	}
 
         cfs_spin_lock_init(&pc.pc_lock);
         pc.pc_want_daemon_pages = 1;
@@ -736,15 +737,15 @@ int cfs_tracefile_dump_all_pages(char *filename)
                 cfs_list_del(&tage->linkage);
                 cfs_tage_free(tage);
         }
-        CFS_MMSPACE_CLOSE;
-        rc = cfs_filp_fsync(filp);
-        if (rc)
-                printk(CFS_KERN_ERR "sync returns %d\n", rc);
+	CFS_MMSPACE_CLOSE;
+	rc = cfs_filp_fsync(filp);
+	if (rc)
+		printk(CFS_KERN_ERR "sync returns %d\n", rc);
  close:
-        cfs_filp_close(filp);
+	cfs_filp_close(filp, NULL);
  out:
-        cfs_tracefile_write_unlock();
-        return rc;
+	cfs_tracefile_write_unlock();
+	return rc;
 }
 
 void cfs_trace_flush_pages(void)
@@ -1016,11 +1017,14 @@ static int tracefiled(void *arg)
                 if (cfs_tracefile[0] != 0) {
                         filp = cfs_filp_open(cfs_tracefile,
                                              O_CREAT | O_RDWR | O_LARGEFILE,
-                                             0600, &rc);
-                        if (!(filp))
-                                printk(CFS_KERN_WARNING "couldn't open %s: "
-                                       "%d\n", cfs_tracefile, rc);
-                }
+                                             0600);
+			if (IS_ERR(filp)) {
+				rc = PTR_ERR(filp);
+				filp = NULL;
+				printk(CFS_KERN_WARNING "couldn't open %s: "
+				       "%d\n", cfs_tracefile, rc);
+			}
+		}
                 cfs_tracefile_read_unlock();
                 if (filp == NULL) {
                         put_pages_on_daemon_list(&pc);
@@ -1051,9 +1055,9 @@ static int tracefiled(void *arg)
                                 __LASSERT(cfs_list_empty(&pc.pc_pages));
                         }
                 }
-                CFS_MMSPACE_CLOSE;
+		CFS_MMSPACE_CLOSE;
 
-                cfs_filp_close(filp);
+		cfs_filp_close(filp, NULL);
                 put_pages_on_daemon_list(&pc);
                 if (!cfs_list_empty(&pc.pc_pages)) {
                         int i;

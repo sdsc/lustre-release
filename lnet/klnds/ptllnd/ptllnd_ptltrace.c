@@ -54,26 +54,27 @@ kptllnd_ptltrace_to_file(char *filename)
 
         CWARN("dumping ptltrace to %s\n", filename);
 
-        LIBCFS_ALLOC(tmpbuf, PAGE_SIZE);
-        if (tmpbuf == NULL) {
-                CERROR("Can't allocate page buffer to dump %s\n", filename);
-                return;
-        }
-        
-        CFS_PUSH_JOURNAL;
+	LIBCFS_ALLOC(tmpbuf, PAGE_SIZE);
+	if (tmpbuf == NULL) {
+		CERROR("Can't allocate page buffer to dump %s\n", filename);
+		return;
+	}
 
-        filp = cfs_filp_open(filename,
-                             O_CREAT|O_EXCL|O_WRONLY|O_LARGEFILE, 0600, &rc);
-        if (filp == NULL) {
-                if (rc != -EEXIST)
-                        CERROR("Error %d creating %s\n", rc, filename);
-                goto out;
-        }
+	CFS_PUSH_JOURNAL;
 
-        CFS_MMSPACE_OPEN;
+	filp = cfs_filp_open(filename,
+			     O_CREAT|O_EXCL|O_WRONLY|O_LARGEFILE, 0600);
+	if (IS_ERR(filp)) {
+		rc = PTR_ERR(filp);
+		filp = NULL;
+		CERROR("Error %d creating %s\n", rc, filename);
+		goto out;
+	}
 
-        while (!eof) { 
-                start = NULL; 
+	CFS_MMSPACE_OPEN;
+
+        while (!eof) {
+                start = NULL;
                 len = ptl_proc_read(tmpbuf, &start, offset,
                                     PAGE_SIZE, &eof, NULL);
 
@@ -123,7 +124,7 @@ kptllnd_ptltrace_to_file(char *filename)
         if (rc != 0)
                 CERROR("Error %d syncing %s\n", rc, filename);
 
-        cfs_filp_close(filp);
+        cfs_filp_close(filp, NULL);
 out:
         CFS_POP_JOURNAL;
         LIBCFS_FREE(tmpbuf, PAGE_SIZE);
