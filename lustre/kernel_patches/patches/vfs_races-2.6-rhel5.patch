@@ -23,13 +23,13 @@ diff -urp linux-2.6.18.rawops/fs/dcache.c linux-2.6.18.races/fs/dcache.c
 +void d_rehash_cond(struct dentry * entry, int lock)
  {
 -	spin_lock(&dcache_lock);
-+ 	if (lock)
++	if (lock)
 +	    spin_lock(&dcache_lock);
  	spin_lock(&entry->d_lock);
  	_d_rehash(entry);
  	spin_unlock(&entry->d_lock);
 -	spin_unlock(&dcache_lock);
-+ 	if (lock)	
++	if (lock)
 +	    spin_unlock(&dcache_lock);
 +}
 +EXPORT_SYMBOL(d_rehash_cond);
