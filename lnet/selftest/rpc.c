@@ -45,6 +45,7 @@
 
 typedef enum {
         SRPC_STATE_NONE,
+	SRPC_STATE_WI_INIT,
         SRPC_STATE_NI_INIT,
         SRPC_STATE_EQ_INIT,
         SRPC_STATE_RUNNING,
@@ -188,10 +189,10 @@ void
 srpc_init_server_rpc (srpc_server_rpc_t *rpc,
                       srpc_service_t *sv, srpc_buffer_t *buffer)
 {
-        memset(rpc, 0, sizeof(*rpc));
-        swi_init_workitem(&rpc->srpc_wi, rpc, srpc_handle_rpc,
-                          sv->sv_id <= SRPC_FRAMEWORK_SERVICE_MAX_ID ?
-                          CFS_WI_SCHED_SERIAL : CFS_WI_SCHED_ANY);
+	memset(rpc, 0, sizeof(*rpc));
+	swi_init_workitem(&rpc->srpc_wi, rpc, srpc_handle_rpc,
+			  sv->sv_id <= SRPC_FRAMEWORK_SERVICE_MAX_ID ?
+			  CFS_WI_SCHED_SERIAL : CFS_WI_SCHED_LST);
 
         rpc->srpc_ev.ev_fired = 1; /* no event expected now */
 
@@ -1453,6 +1454,20 @@ srpc_startup (void)
 
         srpc_data.rpc_state = SRPC_STATE_NONE;
 
+	/* single thread to guarantee order of framework RPC */
+	rc = cfs_wi_sched_start(CFS_WI_SCHED_SERIAL, 1);
+	if (rc == 0) {
+		int nthrs = cfs_cpt_weight(cfs_cpt_table, CFS_CPT_ANY);
+
+		rc = cfs_wi_sched_start(CFS_WI_SCHED_LST, nthrs);
+		if (rc != 0)
+			cfs_wi_sched_stop(CFS_WI_SCHED_SERIAL);
+	}
+
+	if (rc != 0)
+		return rc;
+
+	srpc_data.rpc_state = SRPC_STATE_WI_INIT;
 #ifdef __KERNEL__
         rc = LNetNIInit(LUSTRE_SRV_LNET_PID);
 #else
@@ -1463,7 +1478,7 @@ srpc_startup (void)
 #endif
         if (rc < 0) {
                 CERROR ("LNetNIInit() has failed: %d\n", rc);
-                return rc;
+		goto bail;
         }
 
         srpc_data.rpc_state = SRPC_STATE_NI_INIT;
@@ -1531,6 +1546,10 @@ srpc_shutdown (void)
 
         case SRPC_STATE_NI_INIT:
                 LNetNIFini();
+
+	case SRPC_STATE_WI_INIT:
+		cfs_wi_sched_stop(CFS_WI_SCHED_LST);
+		cfs_wi_sched_stop(CFS_WI_SCHED_SERIAL);
                 break;
         }
 

@@ -411,11 +411,19 @@ static int init_libcfs_module(void)
                 goto cleanup_lwt;
         }
 
-        rc = cfs_wi_startup();
-        if (rc) {
-                CERROR("startup workitem: error %d\n", rc);
-                goto cleanup_deregister;
-        }
+	rc = cfs_wi_startup();
+	if (rc) {
+		CERROR("initialize workitem: error %d\n", rc);
+		goto cleanup_deregister;
+	}
+
+	/* max to 2 threads, should be enough for rehash */
+	rc = cfs_wi_sched_start(CFS_WI_SCHED_DEFAULT,
+			min(cfs_cpt_weight(cfs_cpt_table, CFS_CPT_ANY), 2));
+	if (rc) {
+		CERROR("Startup workitem scheduler: error: %d\n", rc);
+		goto cleanup_deregister;
+	}
 
         rc = insert_proc();
         if (rc) {

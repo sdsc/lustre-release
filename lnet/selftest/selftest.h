@@ -487,8 +487,8 @@ srpc_init_client_rpc (srpc_client_rpc_t *rpc, lnet_process_id_t peer,
                                 crpc_bulk.bk_iovs[nbulkiov]));
 
         CFS_INIT_LIST_HEAD(&rpc->crpc_list);
-        swi_init_workitem(&rpc->crpc_wi, rpc, srpc_send_rpc,
-                          CFS_WI_SCHED_ANY);
+	swi_init_workitem(&rpc->crpc_wi, rpc, srpc_send_rpc,
+			  CFS_WI_SCHED_LST);
         cfs_spin_lock_init(&rpc->crpc_lock);
         cfs_atomic_set(&rpc->crpc_refcount, 1); /* 1 ref for caller */
 

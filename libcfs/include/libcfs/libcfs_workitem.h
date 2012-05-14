@@ -75,23 +75,42 @@ typedef struct cfs_workitem {
         /** arg for working function */
         void            *wi_data;
         /** scheduler id, can be negative */
-        short            wi_sched_id;
+	unsigned short	 wi_sched_id;
         /** in running */
         unsigned short   wi_running:1;
         /** scheduled */
         unsigned short   wi_scheduled:1;
 } cfs_workitem_t;
 
-/**
- * positive values are reserved as CPU id of future implementation of
- * per-cpu scheduler, so user can "bind" workitem on specific CPU.
- */
-#define CFS_WI_SCHED_ANY        (-1)
-#define CFS_WI_SCHED_SERIAL     (-2)
+/* 10 bits for scheduler ID, we can expand to 1024 schedulers */
+#define CFS_WI_SCHED_BITS		10
+#define CFS_WI_SCHED_ID_MASK		((1U << CFS_WI_SCHED_BITS) - 1)
+/* total number of regular WI schedulers */
+#define CFS_WI_SCHED_ID_MAX		3
+
+/* non-affinity WI scheduler ID */
+#define CFS_WI_SCHED_FL_REG		(1U << CFS_WI_SCHED_BITS)
+/* CPT-affinity WI scheduler ID */
+#define CFS_WI_SCHED_FL_CPT		(2U << CFS_WI_SCHED_BITS)
+
+#define CFS_WI_SCHED_FL_MASK		(~CFS_WI_SCHED_ID_MASK)
+
+
+enum {
+	/* libcfs rehash */
+	CFS_WI_SCHED_DEFAULT		= CFS_WI_SCHED_FL_REG | 0,
+	/* for LST framework RPC */
+	CFS_WI_SCHED_SERIAL		= CFS_WI_SCHED_FL_REG | 1,
+	/* for LST test RPC (non-affinity), it's deprecated because
+	 * LST will use CPT affinity scheduler soon */
+	CFS_WI_SCHED_LST		= CFS_WI_SCHED_FL_REG | 2,
+	CFS_WI_SCHED_MAX		= CFS_WI_SCHED_FL_REG | \
+					  CFS_WI_SCHED_ID_MAX,
+};
 
 static inline void
 cfs_wi_init(cfs_workitem_t *wi, void *data,
-            cfs_wi_action_t action, short sched_id)
+	    cfs_wi_action_t action, unsigned short sched_id)
 {
         CFS_INIT_LIST_HEAD(&wi->wi_list);
 
@@ -104,6 +123,8 @@ cfs_wi_init(cfs_workitem_t *wi, void *data,
 
 void cfs_wi_exit(cfs_workitem_t *wi);
 int  cfs_wi_cancel(cfs_workitem_t *wi);
+int  cfs_wi_sched_start(unsigned short sched_id, int nthrs);
+int  cfs_wi_sched_stop(unsigned short sched_id);
 void cfs_wi_schedule(cfs_workitem_t *wi);
 int  cfs_wi_startup(void);
 void cfs_wi_shutdown(void);

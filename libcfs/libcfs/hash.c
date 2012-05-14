@@ -983,9 +983,9 @@ static int cfs_hash_dep_print(cfs_workitem_t *wi)
 
 static void cfs_hash_depth_wi_init(cfs_hash_t *hs)
 {
-        cfs_spin_lock_init(&hs->hs_dep_lock);
-        cfs_wi_init(&hs->hs_dep_wi, hs,
-                    cfs_hash_dep_print, CFS_WI_SCHED_ANY);
+	cfs_spin_lock_init(&hs->hs_dep_lock);
+	cfs_wi_init(&hs->hs_dep_wi, hs,
+		    cfs_hash_dep_print, CFS_WI_SCHED_DEFAULT);
 }
 
 static void cfs_hash_depth_wi_cancel(cfs_hash_t *hs)
@@ -1067,8 +1067,8 @@ cfs_hash_create(char *name, unsigned cur_bits, unsigned max_bits,
         hs->hs_ops         = ops;
         hs->hs_extra_bytes = extra_bytes;
         hs->hs_rehash_bits = 0;
-        cfs_wi_init(&hs->hs_rehash_wi, hs,
-                    cfs_hash_rehash_worker, CFS_WI_SCHED_ANY);
+	cfs_wi_init(&hs->hs_rehash_wi, hs,
+		    cfs_hash_rehash_worker, CFS_WI_SCHED_DEFAULT);
         cfs_hash_depth_wi_init(hs);
 
         if (cfs_hash_with_rehash(hs))
