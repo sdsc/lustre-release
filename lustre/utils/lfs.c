@@ -140,9 +140,12 @@ command_t cmdlist[] = {
          "                 [--pool|-p] [--stripe-size|-S] [--directory|-d]\n"
          "                 [--mdt-index|-M] [--recursive|-r] [--raw|-R]\n"
          "                 <directory|filename> ..."},
-        {"pool_list", lfs_poollist, 0,
-         "List pools or pool OSTs\n"
-         "usage: pool_list <fsname>[.<pool>] | <pathname>\n"},
+	{"poollist", lfs_poollist, 0,
+	 "List pools or pool OSTs\n"
+	 "usage: poollist <fsname>[.<pool>] | <pathname>\n"},
+	{"pool_list", lfs_poollist, 0,
+	 "List pools or pool OSTs\n"
+	 "usage: pool_list <fsname>[.<pool>] | <pathname>\n"},
         {"find", lfs_find, 0,
          "find files matching given attributes recursively in directory tree.\n"
          "usage: find <directory|filename> ...\n"
