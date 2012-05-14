@@ -1460,35 +1460,36 @@ out_put:
 
 static int echo_set_lmm_size(const struct lu_env *env,
                              struct lu_device *ld,
-                             struct md_attr *ma)
+			     struct md_attr *ma, int *lmm_size,
+			     int *cookie_size)
 {
         struct md_device *md = lu2md_dev(ld);
-        int lmm_size, cookie_size, rc;
+        int 		  rc;
         ENTRY;
 
         md = lu2md_dev(ld);
-        rc = md->md_ops->mdo_maxsize_get(env, md,
-                                         &lmm_size, &cookie_size);
+	rc = md->md_ops->mdo_maxsize_get(env, md,
+					 lmm_size, cookie_size);
         if (rc)
                 RETURN(rc);
 
-        ma->ma_lmm_size = lmm_size;
-        if (lmm_size > 0) {
-                OBD_ALLOC(ma->ma_lmm, lmm_size);
-                if (ma->ma_lmm == NULL) {
-                        ma->ma_lmm_size = 0;
-                        RETURN(-ENOMEM);
-                }
-        }
+	ma->ma_lmm_size = *lmm_size;
+	if (*lmm_size > 0) {
+		OBD_ALLOC(ma->ma_lmm, *lmm_size);
+		if (ma->ma_lmm == NULL) {
+			ma->ma_lmm_size = 0;
+			RETURN(-ENOMEM);
+		}
+	}
 
-        ma->ma_cookie_size = cookie_size;
-        if (cookie_size > 0) {
-                OBD_ALLOC(ma->ma_cookie, cookie_size);
-                if (ma->ma_cookie == NULL) {
-                        ma->ma_cookie_size = 0;
-                        RETURN(-ENOMEM);
-                }
-        }
+	ma->ma_cookie_size = *cookie_size;
+	if (*cookie_size > 0) {
+		OBD_ALLOC(ma->ma_cookie, *cookie_size);
+		if (ma->ma_cookie == NULL) {
+			ma->ma_cookie_size = 0;
+			RETURN(-ENOMEM);
+		}
+	}
 
         RETURN(0);
 }
@@ -1508,6 +1509,8 @@ static int echo_create_md_object(const struct lu_env *env,
         struct md_attr          *ma = &info->eti_ma;
         struct lu_device        *ld = ed->ed_next;
         int                      rc = 0;
+	int			 lmm_size = 0;
+	int			 cookie_size = 0;
         int                      i;
 
         parent = lu_object_locate(ec_parent->lo_header, ld->ld_type);
@@ -1520,7 +1523,7 @@ static int echo_create_md_object(const struct lu_env *env,
         memset(spec, 0, sizeof(*spec));
         if (stripe_count != 0) {
                 spec->sp_cr_flags |= FMODE_WRITE;
-                rc = echo_set_lmm_size(env, ld, ma);
+		rc = echo_set_lmm_size(env, ld, ma, &lmm_size, &cookie_size);
                 if (rc)
                         GOTO(out_free, rc);
                 if (stripe_count != -1) {
@@ -1565,10 +1568,10 @@ static int echo_create_md_object(const struct lu_env *env,
         }
 
 out_free:
-        if (ma->ma_lmm_size > 0 && ma->ma_lmm != NULL)
-                OBD_FREE(ma->ma_lmm, ma->ma_lmm_size);
-        if (ma->ma_cookie_size > 0 && ma->ma_cookie != NULL)
-                OBD_FREE(ma->ma_cookie, ma->ma_cookie_size);
+	if (lmm_size > 0 && ma->ma_lmm != NULL)
+		OBD_FREE(ma->ma_lmm, lmm_size);
+	if (cookie_size > 0 && ma->ma_cookie != NULL)
+		OBD_FREE(ma->ma_cookie, cookie_size);
 
         return rc;
 }
@@ -1671,6 +1674,8 @@ static int echo_getattr_object(const struct lu_env *env,
         struct md_attr          *ma = &info->eti_ma;
         struct lu_device        *ld = ed->ed_next;
         int                      rc = 0;
+	int			 lmm_size = 0;
+	int			 cookie_size = 0;
         int                      i;
 
         parent = lu_object_locate(ec_parent->lo_header, ld->ld_type);
@@ -1680,7 +1685,7 @@ static int echo_getattr_object(const struct lu_env *env,
         }
 
         memset(ma, 0, sizeof(*ma));
-        rc = echo_set_lmm_size(env, ld, ma);
+	rc = echo_set_lmm_size(env, ld, ma, &lmm_size, &cookie_size);
         if (rc)
                 GOTO(out_free, rc);
 
@@ -1724,10 +1729,10 @@ static int echo_getattr_object(const struct lu_env *env,
         }
 
 out_free:
-        if (ma->ma_lmm_size > 0 && ma->ma_lmm != NULL)
-                OBD_FREE(ma->ma_lmm, ma->ma_lmm_size);
-        if (ma->ma_cookie_size > 0 && ma->ma_cookie != NULL)
-                OBD_FREE(ma->ma_cookie, ma->ma_cookie_size);
+	if (lmm_size > 0 && ma->ma_lmm != NULL)
+		OBD_FREE(ma->ma_lmm, lmm_size);
+	if (cookie_size > 0 && ma->ma_cookie != NULL)
+		OBD_FREE(ma->ma_cookie, cookie_size);
         return rc;
 }
 
@@ -1832,6 +1837,8 @@ static int echo_destroy_object(const struct lu_env *env,
         struct lu_device        *ld = ed->ed_next;
         struct lu_object        *parent;
         int                      rc = 0;
+	int			 lmm_size = 0;
+	int			 cookie_size = 0;
         int                      i;
         ENTRY;
 
@@ -1846,7 +1853,7 @@ static int echo_destroy_object(const struct lu_env *env,
         ma->ma_need = MA_INODE;
         ma->ma_valid = 0;
 
-        rc = echo_set_lmm_size(env, ld, ma);
+        rc = echo_set_lmm_size(env, ld, ma, &lmm_size, &cookie_size);
         if (rc)
                 GOTO(out_free, rc);
         if (name != NULL) {
@@ -1875,10 +1882,10 @@ static int echo_destroy_object(const struct lu_env *env,
         }
 
 out_free:
-        if (ma->ma_lmm_size > 0 && ma->ma_lmm != NULL)
-                OBD_FREE(ma->ma_lmm, ma->ma_lmm_size);
-        if (ma->ma_cookie_size > 0 && ma->ma_cookie != NULL)
-                OBD_FREE(ma->ma_cookie, ma->ma_cookie_size);
+	if (lmm_size > 0 && ma->ma_lmm != NULL)
+		OBD_FREE(ma->ma_lmm, lmm_size);
+	if (cookie_size > 0 && ma->ma_cookie != NULL)
+		OBD_FREE(ma->ma_cookie, cookie_size);
         RETURN(rc);
 }
 
@@ -1951,9 +1958,8 @@ static struct lu_object *echo_resolve_path(const struct lu_env *env,
         RETURN(parent);
 }
 
-#define ECHO_MD_CTX_TAG (LCT_REMEMBER | LCT_NOREF | LCT_MD_THREAD)
-#define ECHO_MD_SES_TAG (LCT_SESSION | LCT_REMEMBER | LCT_NOREF)
-
+#define ECHO_MD_CTX_TAG (LCT_REMEMBER | LCT_MD_THREAD)
+#define ECHO_MD_SES_TAG (LCT_REMEMBER | LCT_SESSION)
 static int echo_md_handler(struct echo_device *ed, int command,
                            char *path, int path_len, int id, int count,
                            struct obd_ioctl_data *data)
