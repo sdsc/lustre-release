@@ -56,48 +56,57 @@ typedef struct cfs_wi_sched {
         cfs_list_t      ws_runq;
         /** rescheduled running-workitems */
         cfs_list_t      ws_rerunq;
-        /** shutting down */
-        int             ws_shuttingdown;
+	/** scheduler identifier */
+	unsigned short	ws_id;
+	/** initialized */
+	__u8		ws_init:1;
+	/** shutting down, protected by cfs_wi_data::wi_glock */
+	__u8		ws_stopping:1;
+	/** serialize starting thread, protected by cfs_wi_sched::ws_lock */
+	__u8		ws_starting;
+	/** started scheduler thread, protected by cfs_wi_sched::ws_lock */
+	unsigned int	ws_nthreads;
 } cfs_wi_sched_t;
 
-#ifdef __KERNEL__
-/**
- * we have 2 cfs_wi_sched_t so far:
- * one for CFS_WI_SCHED_ANY, another for CFS_WI_SCHED_SERIAL
- * per-cpu implementation will be added for SMP scalability
- */
-
-#define CFS_WI_NSCHED   2
-#else
-/** always 2 for userspace */
-#define CFS_WI_NSCHED   2
-#endif /* __KERNEL__ */
-
 struct cfs_workitem_data {
-        /** serialize */
-        cfs_spinlock_t  wi_glock;
-        /** number of cfs_wi_sched_t */
-        int             wi_nsched;
-        /** number of threads (all schedulers) */
-        int             wi_nthreads;
-        /** default scheduler */
-        cfs_wi_sched_t *wi_scheds;
+	/** WI module is initialized */
+	int			wi_init;
+	/** shutting down the whole WI module */
+	int			wi_stopping;
+	/** serialize */
+	cfs_spinlock_t		wi_glock;
+	/** non-affinity schedulers */
+	struct cfs_wi_sched	*wi_scheds[CFS_WI_SCHED_ID_MAX];
+	/** CPT affinity schedulers */
+	struct cfs_wi_sched	**wi_scheds_cpt;
 } cfs_wi_data;
+
+static struct cfs_wi_sched **
+cfs_wi_sched_address(unsigned short sched_id)
+{
+	unsigned short	fl = (sched_id & CFS_WI_SCHED_FL_MASK);
+	unsigned short	id = (sched_id & CFS_WI_SCHED_ID_MASK);
+
+	if (fl == CFS_WI_SCHED_FL_REG) {
+		LASSERT(id  < CFS_WI_SCHED_ID_MAX);
+		return &cfs_wi_data.wi_scheds[id];
+
+	} else if (fl == CFS_WI_SCHED_FL_CPT) {
+		LASSERT(id < cfs_cpt_number(cfs_cpt_table));
+		return &cfs_wi_data.wi_scheds_cpt[id];
+	} else {
+		LBUG();
+		return NULL;
+	}
+}
 
 static inline cfs_wi_sched_t *
 cfs_wi_to_sched(cfs_workitem_t *wi)
 {
-        LASSERT(wi->wi_sched_id == CFS_WI_SCHED_ANY ||
-                wi->wi_sched_id == CFS_WI_SCHED_SERIAL ||
-                (wi->wi_sched_id >= 0 &&
-                 wi->wi_sched_id < cfs_wi_data.wi_nsched));
+	struct cfs_wi_sched *sched = *cfs_wi_sched_address(wi->wi_sched_id);
 
-        if (wi->wi_sched_id == CFS_WI_SCHED_ANY)
-                return &cfs_wi_data.wi_scheds[0];
-        if (wi->wi_sched_id == CFS_WI_SCHED_SERIAL)
-                return &cfs_wi_data.wi_scheds[cfs_wi_data.wi_nsched - 1];
-
-        return &cfs_wi_data.wi_scheds[wi->wi_sched_id];
+	LASSERT(!sched->ws_stopping);
+	return sched;
 }
 
 #ifdef __KERNEL__
@@ -116,8 +125,8 @@ cfs_wi_sched_unlock(cfs_wi_sched_t *sched)
 static inline int
 cfs_wi_sched_cansleep(cfs_wi_sched_t *sched)
 {
-        cfs_wi_sched_lock(sched);
-        if (sched->ws_shuttingdown) {
+	cfs_wi_sched_lock(sched);
+	if (sched->ws_stopping) {
                 cfs_wi_sched_unlock(sched);
                 return 0;
         }
@@ -130,7 +139,7 @@ cfs_wi_sched_cansleep(cfs_wi_sched_t *sched)
         return 1;
 }
 
-#else
+#else /* !__KERNEL__ */
 
 static inline void
 cfs_wi_sched_lock(cfs_wi_sched_t *sched)
@@ -144,7 +153,7 @@ cfs_wi_sched_unlock(cfs_wi_sched_t *sched)
         cfs_spin_unlock(&cfs_wi_data.wi_glock);
 }
 
-#endif
+#endif /* __KERNEL__ */
 
 /* XXX:
  * 0. it only works when called from wi->wi_action.
@@ -155,8 +164,9 @@ cfs_wi_exit(cfs_workitem_t *wi)
 {
         cfs_wi_sched_t *sched = cfs_wi_to_sched(wi);
 
-        LASSERT (!cfs_in_interrupt()); /* because we use plain spinlock */
-        LASSERT (!sched->ws_shuttingdown);
+	LASSERT(!cfs_in_interrupt()); /* because we use plain spinlock */
+	LASSERT(!sched->ws_stopping);
+	LASSERT(sched->ws_init);
 
         cfs_wi_sched_lock(sched);
 
@@ -174,19 +184,20 @@ cfs_wi_exit(cfs_workitem_t *wi)
         cfs_wi_sched_unlock(sched);
         return;
 }
-CFS_EXPORT_SYMBOL(cfs_wi_exit);
+EXPORT_SYMBOL(cfs_wi_exit);
 
 /**
  * cancel a workitem:
  */
 int
-cfs_wi_cancel (cfs_workitem_t *wi)
+cfs_wi_cancel(cfs_workitem_t *wi)
 {
         cfs_wi_sched_t *sched = cfs_wi_to_sched(wi);
         int             rc;
 
-        LASSERT (!cfs_in_interrupt()); /* because we use plain spinlock */
-        LASSERT (!sched->ws_shuttingdown);
+	LASSERT(!cfs_in_interrupt()); /* because we use plain spinlock */
+	LASSERT(!sched->ws_stopping);
+	LASSERT(sched->ws_init);
 
         cfs_wi_sched_lock(sched);
         /*
@@ -207,8 +218,7 @@ cfs_wi_cancel (cfs_workitem_t *wi)
         cfs_wi_sched_unlock(sched);
         return rc;
 }
-
-CFS_EXPORT_SYMBOL(cfs_wi_cancel);
+EXPORT_SYMBOL(cfs_wi_cancel);
 
 /*
  * Workitem scheduled with (serial == 1) is strictly serialised not only with
@@ -222,8 +232,9 @@ cfs_wi_schedule(cfs_workitem_t *wi)
 {
         cfs_wi_sched_t *sched = cfs_wi_to_sched(wi);
 
-        LASSERT (!cfs_in_interrupt()); /* because we use plain spinlock */
-        LASSERT (!sched->ws_shuttingdown);
+	LASSERT(!cfs_in_interrupt()); /* because we use plain spinlock */
+	LASSERT(!sched->ws_stopping);
+	LASSERT(sched->ws_init);
 
         cfs_wi_sched_lock(sched);
 
@@ -245,34 +256,51 @@ cfs_wi_schedule(cfs_workitem_t *wi)
         cfs_wi_sched_unlock(sched);
         return;
 }
-
-CFS_EXPORT_SYMBOL(cfs_wi_schedule);
+EXPORT_SYMBOL(cfs_wi_schedule);
 
 #ifdef __KERNEL__
 
 static int
 cfs_wi_scheduler (void *arg)
 {
-        int             id     = (int)(long_ptr_t) arg;
-        int             serial = (id == -1);
-        char            name[24];
-        cfs_wi_sched_t *sched;
+	struct cfs_wi_sched	*sched = (cfs_wi_sched_t *)arg;
+	char			name[16];
+	unsigned short		id;
+	unsigned short		fl;
 
-        if (serial) {
-                sched = &cfs_wi_data.wi_scheds[cfs_wi_data.wi_nsched - 1];
-                cfs_daemonize("wi_serial_sd");
-        } else {
-                /* will be sched = &cfs_wi_data.wi_scheds[id] in the future */
-                sched = &cfs_wi_data.wi_scheds[0];
-                snprintf(name, sizeof(name), "cfs_wi_sd%03d", id);
-                cfs_daemonize(name);
-        }
+	fl = (sched->ws_id & CFS_WI_SCHED_FL_MASK);
+	id = (sched->ws_id & CFS_WI_SCHED_ID_MASK);
 
-        cfs_block_allsigs();
+	if (fl == CFS_WI_SCHED_FL_REG) {
+		snprintf(name, sizeof(name), "cfs_wi_r_%02d_%02d",
+			 id, sched->ws_nthreads);
 
-        cfs_wi_sched_lock(sched);
+	} else if (fl == CFS_WI_SCHED_FL_CPT) {
+		snprintf(name, sizeof(name), "cfs_wi_c_%02d_%02d",
+			 id, sched->ws_nthreads);
+	} else {
+		snprintf(name, sizeof(name), "cfs_wi_%02d_%02d",
+			 id, sched->ws_nthreads);
+	}
 
-        while (!sched->ws_shuttingdown) {
+	cfs_daemonize(name);
+	cfs_block_allsigs();
+
+	/* CPT affinity scheduler? */
+	if ((sched->ws_id & CFS_WI_SCHED_FL_MASK) == CFS_WI_SCHED_FL_CPT) {
+		int id = sched->ws_id & CFS_WI_SCHED_ID_MASK;
+
+		LASSERT(id < cfs_cpt_number(cfs_cpt_table));
+		cfs_cpt_bind(cfs_cpt_table, id);
+	}
+
+	cfs_wi_sched_lock(sched);
+
+	LASSERT(sched->ws_starting == 1);
+	sched->ws_starting--;
+	sched->ws_nthreads++;
+
+	while (!sched->ws_stopping) {
                 int             nloops = 0;
                 int             rc;
                 cfs_workitem_t *wi;
@@ -321,26 +349,9 @@ cfs_wi_scheduler (void *arg)
                 cfs_wi_sched_lock(sched);
         }
 
+	sched->ws_nthreads--;
         cfs_wi_sched_unlock(sched);
 
-        cfs_spin_lock(&cfs_wi_data.wi_glock);
-        cfs_wi_data.wi_nthreads--;
-        cfs_spin_unlock(&cfs_wi_data.wi_glock);
-        return 0;
-}
-
-static int
-cfs_wi_start_thread (int (*func) (void*), void *arg)
-{
-        long pid;
-
-        pid = cfs_create_thread(func, arg, 0);
-        if (pid < 0)
-                return (int)pid;
-
-        cfs_spin_lock(&cfs_wi_data.wi_glock);
-        cfs_wi_data.wi_nthreads++;
-        cfs_spin_unlock(&cfs_wi_data.wi_glock);
         return 0;
 }
 
@@ -350,19 +361,31 @@ int
 cfs_wi_check_events (void)
 {
         int               n = 0;
+	int		  i;
         cfs_workitem_t   *wi;
-        cfs_list_t       *q;
 
         cfs_spin_lock(&cfs_wi_data.wi_glock);
 
         for (;;) {
+		struct cfs_wi_sched	*sched;
+		cfs_list_t		*q = NULL;
+
                 /** rerunq is always empty for userspace */
-                if (!cfs_list_empty(&cfs_wi_data.wi_scheds[1].ws_runq))
-                        q = &cfs_wi_data.wi_scheds[1].ws_runq;
-                else if (!cfs_list_empty(&cfs_wi_data.wi_scheds[0].ws_runq))
-                        q = &cfs_wi_data.wi_scheds[0].ws_runq;
-                else
-                        break;
+		for (i = 0; q == NULL && i < CFS_WI_SCHED_ID_MAX; i++) {
+			sched = cfs_wi_data.wi_scheds[i];
+			if (sched != NULL && !cfs_list_empty(&sched->ws_runq))
+				q = &sched->ws_runq;
+		}
+
+		for (i = 0; q == NULL &&
+			    i < cfs_cpt_number(cfs_cpt_table); i++) {
+			sched = cfs_wi_data.wi_scheds_cpt[i];
+			if (sched != NULL && !cfs_list_empty(&sched->ws_runq))
+				q = &sched->ws_runq;
+		}
+
+		if (q == NULL)
+			break;
 
                 wi = cfs_list_entry(q->next, cfs_workitem_t, wi_list);
                 cfs_list_del_init(&wi->wi_list);
@@ -384,9 +407,12 @@ cfs_wi_check_events (void)
 #endif
 
 static void
-cfs_wi_sched_init(cfs_wi_sched_t *sched)
+cfs_wi_sched_init(struct cfs_wi_sched *sched, int sched_id)
 {
-        sched->ws_shuttingdown = 0;
+	sched->ws_id = sched_id;
+	sched->ws_nthreads  = 0;
+	sched->ws_stopping = 0;
+	sched->ws_starting = 0;
 #ifdef __KERNEL__
         cfs_spin_lock_init(&sched->ws_lock);
         cfs_waitq_init(&sched->ws_waitq);
@@ -395,86 +421,208 @@ cfs_wi_sched_init(cfs_wi_sched_t *sched)
         CFS_INIT_LIST_HEAD(&sched->ws_rerunq);
 }
 
-static void
-cfs_wi_sched_shutdown(cfs_wi_sched_t *sched)
+int
+cfs_wi_sched_stop(unsigned short sched_id)
 {
-        cfs_wi_sched_lock(sched);
+	struct cfs_wi_sched	**tmp;
+	struct cfs_wi_sched	*sched;
+	unsigned short		fl;
+	unsigned short		id;
+	int			rc = 0;
 
-        LASSERT(cfs_list_empty(&sched->ws_runq));
-        LASSERT(cfs_list_empty(&sched->ws_rerunq));
+	LASSERT(cfs_wi_data.wi_init);
 
-        sched->ws_shuttingdown = 1;
+	id = sched_id & CFS_WI_SCHED_ID_MASK;
+	fl = sched_id & CFS_WI_SCHED_FL_MASK;
+
+	if ((fl != CFS_WI_SCHED_FL_REG && fl != CFS_WI_SCHED_FL_CPT) ||
+	    (fl == CFS_WI_SCHED_FL_REG && id >= CFS_WI_SCHED_ID_MAX) ||
+	    (fl == CFS_WI_SCHED_FL_CPT &&
+	     id >= cfs_cpt_number(cfs_cpt_table))) {
+		CDEBUG(D_INFO, "Invalid WI scheduler id: %u\n", sched_id);
+		return -EINVAL;
+	}
+
+	cfs_spin_lock(&cfs_wi_data.wi_glock);
+
+	tmp = cfs_wi_sched_address(sched_id);
+
+	sched = *tmp;
+	if (sched == NULL || sched->ws_stopping) {
+		CDEBUG(D_INFO, "can't find WI scheduler %d or "
+			       "it's in progress of stopping\n", sched_id);
+		rc = sched == NULL ? -ENOENT : -EAGAIN;
+
+	} else {
+		LASSERT(sched->ws_init);
+		sched->ws_stopping = 1;
+	}
+
+	cfs_spin_unlock(&cfs_wi_data.wi_glock);
+
+	if (rc != 0)
+		return rc;
 
 #ifdef __KERNEL__
-        cfs_waitq_broadcast(&sched->ws_waitq);
-#endif
-        cfs_wi_sched_unlock(sched);
-}
+	cfs_wi_sched_lock(sched);
 
+	cfs_waitq_broadcast(&sched->ws_waitq);
+	rc = 2;
+	while (sched->ws_nthreads > 0) {
+		CDEBUG(IS_PO2(++rc) ? D_WARNING : D_NET,
+		       "waiting for %d threads of WI sched[%d] to terminate\n",
+		       sched->ws_nthreads, sched_id);
+
+		cfs_wi_sched_unlock(sched);
+		cfs_pause(cfs_time_seconds(1) / 20);
+		cfs_wi_sched_lock(sched);
+	}
+
+	cfs_wi_sched_unlock(sched);
+#endif
+
+	cfs_spin_lock(&cfs_wi_data.wi_glock);
+
+	LASSERT(*tmp == sched);
+	*tmp = NULL;
+
+	cfs_spin_unlock(&cfs_wi_data.wi_glock);
+
+	LIBCFS_FREE(sched, sizeof(*sched));
+	return 0;
+}
+EXPORT_SYMBOL(cfs_wi_sched_stop);
 
 int
-cfs_wi_startup (void)
+cfs_wi_sched_start(unsigned short sched_id, int nthrs)
 {
-        int i;
-        int n, rc;
+	struct cfs_wi_sched	**tmp;
+	struct cfs_wi_sched	*sched;
+	unsigned short		fl;
+	unsigned short		id;
+	int			rc;
 
-        cfs_wi_data.wi_nthreads = 0;
-        cfs_wi_data.wi_nsched   = CFS_WI_NSCHED;
-        LIBCFS_ALLOC(cfs_wi_data.wi_scheds,
-                     cfs_wi_data.wi_nsched * sizeof(cfs_wi_sched_t));
-        if (cfs_wi_data.wi_scheds == NULL)
-                return -ENOMEM;
+	LASSERT(cfs_wi_data.wi_init);
+	LASSERT(!cfs_wi_data.wi_stopping);
 
-        cfs_spin_lock_init(&cfs_wi_data.wi_glock);
-        for (i = 0; i < cfs_wi_data.wi_nsched; i++)
-                cfs_wi_sched_init(&cfs_wi_data.wi_scheds[i]);
+	id = sched_id & CFS_WI_SCHED_ID_MASK;
+	fl = sched_id & CFS_WI_SCHED_FL_MASK;
 
+	if ((fl != CFS_WI_SCHED_FL_REG && fl != CFS_WI_SCHED_FL_CPT) ||
+	    (fl == CFS_WI_SCHED_FL_REG && id >= CFS_WI_SCHED_ID_MAX) ||
+	    (fl == CFS_WI_SCHED_FL_CPT &&
+	     id >= cfs_cpt_number(cfs_cpt_table))) {
+		CDEBUG(D_INFO, "Invalid WI scheduler id: %u\n", sched_id);
+		return -EINVAL;
+	}
+
+	tmp = cfs_wi_sched_address(sched_id);
+	if (*tmp != NULL) {
+		CDEBUG(D_INFO, "WI scheduler %u existed\n", sched_id);
+		return -EEXIST;
+	}
+
+	LIBCFS_ALLOC(sched, sizeof(*sched));
+	if (sched == NULL)
+		return -ENOMEM;
+
+	cfs_wi_sched_init(sched, sched_id);
+
+	cfs_spin_lock(&cfs_wi_data.wi_glock);
+	if (*tmp != NULL) { /* recheck with lock */
+		cfs_spin_unlock(&cfs_wi_data.wi_glock);
+
+		CDEBUG(D_INFO, "WI scheduler %u existed\n", sched_id);
+		LIBCFS_FREE(sched, sizeof(*sched));
+		return -EEXIST;
+	}
+
+	*tmp = sched;
+	cfs_spin_unlock(&cfs_wi_data.wi_glock);
+
+	rc = 0;
 #ifdef __KERNEL__
-        n = cfs_num_online_cpus();
-        for (i = 0; i <= n; i++) {
-                rc = cfs_wi_start_thread(cfs_wi_scheduler,
-                                         (void *)(long_ptr_t)(i == n ? -1 : i));
-                if (rc != 0) {
-                        CERROR ("Can't spawn workitem scheduler: %d\n", rc);
-                        cfs_wi_shutdown();
-                        return rc;
-                }
-        }
-#else
-        SET_BUT_UNUSED(rc);
-        SET_BUT_UNUSED(n);
+	while (nthrs > 0)  {
+		cfs_wi_sched_lock(sched);
+		while (sched->ws_starting > 0) {
+			cfs_wi_sched_unlock(sched);
+			cfs_schedule();
+			cfs_wi_sched_lock(sched);
+		}
+
+		sched->ws_starting++;
+		cfs_wi_sched_unlock(sched);
+
+		rc = cfs_create_thread(cfs_wi_scheduler, sched, 0);
+		if (rc >= 0) {
+			nthrs--;
+			continue;
+		}
+
+		cfs_wi_sched_lock(sched);
+		sched->ws_starting--;
+		cfs_wi_sched_unlock(sched);
+
+		sched->ws_init = 1; /* don't LBUG cfs_wi_sched_stop */
+		cfs_wi_sched_stop(sched_id);
+		return rc;
+	}
 #endif
 
+	sched->ws_init = 1;
+	return 0;
+}
+EXPORT_SYMBOL(cfs_wi_sched_start);
+
+int
+cfs_wi_startup(void)
+{
+	if (cfs_cpt_number(cfs_cpt_table) > (1 << CFS_WI_SCHED_BITS)) {
+		CERROR("Too many CPTs %d, workitem only reserved %d bits for "
+		       "CPT id, please decrease CPT numbers for libcfs.\n",
+		       cfs_cpt_number(cfs_cpt_table), CFS_WI_SCHED_BITS);
+		return -EPERM;
+	}
+
+	memset(&cfs_wi_data, 0, sizeof(cfs_wi_data));
+
+	cfs_spin_lock_init(&cfs_wi_data.wi_glock);
+
+	LIBCFS_ALLOC(cfs_wi_data.wi_scheds_cpt,
+		     sizeof(struct cfs_wi_sched *) *
+			    cfs_cpt_number(cfs_cpt_table));
+
+	if (cfs_wi_data.wi_scheds_cpt == NULL)
+		return -ENOMEM;
+
+	cfs_wi_data.wi_init = 1;
         return 0;
 }
 
 void
 cfs_wi_shutdown (void)
 {
-        int i;
+	int	i;
 
-        if (cfs_wi_data.wi_scheds == NULL)
-                return;
+	cfs_wi_data.wi_stopping = 1;
 
-        for (i = 0; i < cfs_wi_data.wi_nsched; i++)
-                cfs_wi_sched_shutdown(&cfs_wi_data.wi_scheds[i]);
+	for (i = 0; i < CFS_WI_SCHED_ID_MAX; i++) {
+		if (cfs_wi_data.wi_scheds[i] != NULL)
+			cfs_wi_sched_stop(i | CFS_WI_SCHED_FL_REG);
+	}
 
-#ifdef __KERNEL__
-        cfs_spin_lock(&cfs_wi_data.wi_glock);
-        i = 2;
-        while (cfs_wi_data.wi_nthreads != 0) {
-                CDEBUG(IS_PO2(++i) ? D_WARNING : D_NET,
-                       "waiting for %d threads to terminate\n",
-                       cfs_wi_data.wi_nthreads);
-                cfs_spin_unlock(&cfs_wi_data.wi_glock);
 
-                cfs_pause(cfs_time_seconds(1));
+	if (cfs_wi_data.wi_scheds_cpt != NULL) {
+		for (i = 0; i < cfs_cpt_number(cfs_cpt_table); i++) {
+			if (cfs_wi_data.wi_scheds_cpt[i] != NULL)
+				cfs_wi_sched_stop(i | CFS_WI_SCHED_FL_CPT);
+		}
 
-                cfs_spin_lock(&cfs_wi_data.wi_glock);
+		LIBCFS_FREE(cfs_wi_data.wi_scheds_cpt,
+			    sizeof(struct cfs_wi_sched *) *
+				   cfs_cpt_number(cfs_cpt_table));
         }
-        cfs_spin_unlock(&cfs_wi_data.wi_glock);
-#endif
-        LIBCFS_FREE(cfs_wi_data.wi_scheds,
-                    cfs_wi_data.wi_nsched * sizeof(cfs_wi_sched_t));
-        return;
+
+	cfs_wi_data.wi_stopping = 0;
+	cfs_wi_data.wi_init = 0;
 }
