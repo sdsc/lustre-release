@@ -188,10 +188,10 @@ void
 srpc_init_server_rpc (srpc_server_rpc_t *rpc,
                       srpc_service_t *sv, srpc_buffer_t *buffer)
 {
-        memset(rpc, 0, sizeof(*rpc));
-        swi_init_workitem(&rpc->srpc_wi, rpc, srpc_handle_rpc,
-                          sv->sv_id <= SRPC_FRAMEWORK_SERVICE_MAX_ID ?
-                          CFS_WI_SCHED_SERIAL : CFS_WI_SCHED_ANY);
+	memset(rpc, 0, sizeof(*rpc));
+	swi_init_workitem(&rpc->srpc_wi, rpc, srpc_handle_rpc,
+			  sv->sv_id <= SRPC_FRAMEWORK_SERVICE_MAX_ID ?
+			  lst_sched_serial : lst_sched_test);
 
         rpc->srpc_ev.ev_fired = 1; /* no event expected now */
 
@@ -1463,7 +1463,7 @@ srpc_startup (void)
 #endif
         if (rc < 0) {
                 CERROR ("LNetNIInit() has failed: %d\n", rc);
-                return rc;
+		return rc;
         }
 
         srpc_data.rpc_state = SRPC_STATE_NI_INIT;
@@ -1531,7 +1531,6 @@ srpc_shutdown (void)
 
         case SRPC_STATE_NI_INIT:
                 LNetNIFini();
-                break;
         }
 
         return;
