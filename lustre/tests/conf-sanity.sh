@@ -1590,6 +1590,174 @@ test_32b() {
 }
 run_test 32b "Upgrade with writeconf"
 
+t32c_dne_upgrade_test() {
+	local tarball=$1
+	local shall_cleanup_mdt=false
+	local shall_cleanup_ost=false
+	local shall_cleanup_lustre=false
+	local node=$(facet_active_host $SINGLEMDS)
+	local r="do_node $node"
+	local tmp=$TMP/t32
+	local img_commit
+	local img_kernel
+	local img_arch
+	local fsname=lustre
+	local nid=$($r $LCTL list_nids | head -1)
+	local mopts
+	local uuid
+
+	mkdir -p $tmp
+	mkdir -p /mnt/lustre
+	$r mkdir -p /mnt/{mdt,ost,mdt1}
+	$r tar xjvf $tarball -S -C $tmp || {
+		error_noexit "Unpacking the disk image tarball"
+		return 1
+	}
+	img_commit=$($r cat $tmp/commit)
+	img_kernel=$($r cat $tmp/kernel)
+	img_arch=$($r cat $tmp/arch)
+	echo "Upgrading from $(basename $tarball), created with:"
+	echo "  Commit: $img_commit"
+	echo "  Kernel: $img_kernel"
+	echo "    Arch: $img_arch"
+
+	$r $LCTL set_param debug="$PTLDEBUG"
+
+	local mopts=loop,acl,user_xattr,write_conf
+
+	echo "mount old MDT ...."
+	$r mount -t lustre -o $mopts $tmp/mdt /mnt/mdt || {
+		error_noexit "Mounting the MDT"
+		return 1
+	}
+
+	shall_cleanup_mdt=true
+
+	echo "mkfs new MDT...."
+	add mds2 $(mkfs_opts mds $(mdsdevname 2)) --backfstype $MDSFSTYPE\
+		--index 1 $MDS_ --reformat $(mdsdevname 2) $(mdsvdevname 2) > /dev/null || {
+		error_noexit "Mkfs new MDT failed"
+		return 1
+	}
+	echo "mount new MDT...."
+	mkdir -p $tmp/mnt/mdt1
+	$r mount -t lustre -o $mopts $(mdsdevname 2) /mnt/mdt1 || {
+		error_noexit "mount mdt1 failed"
+		return 1
+	}
+	shall_cleanup_mdt1=true
+
+	mopts=loop,write_conf,mgsnode=$nid
+	$r mount -t lustre -o $mopts $tmp/ost /mnt/ost || {
+		error_noexit "Mounting the OST"
+		return 1
+	}
+	shall_cleanup_ost=true
+
+	echo "Mount client with 2 MDTs "
+	mount -t lustre $nid:/$fsname /mnt/lustre || {
+		error_noexit "Mounting the client"
+		return 1
+	}
+	shall_cleanup_lustre=true
+
+	echo "Create the local directory and files on the old MDT"
+	mkdir /mnt/lustre/test_32a
+	createmany -o /mnt/lustre/test_32a/t- 10 || {
+		error_noexit "create files on remote directory failed"
+		return 1
+	}
+
+	echo -n "Verify the MDT index of these files..."
+    mdt_idx=$($LFS getstripe -M /mnt/lustre/test_32a)
+	[ $mdt_idx -ne 0 ] && {
+		error_noexit "create directory on wrong MDT $mdt_idx"
+		return 1
+	}
+	mdt_idx=$($LFS getstripe -M /mnt/lustre/test_32a/t-0)
+	[ $mdt_idx -ne 0 ] && {
+		error_noexit "create files on wrong MDT $mdt_idx"
+		return 1
+	}
+	echo "Pass"
+
+	echo "Create the remote directory and files on new MDT"
+	# Verify create remote directory success
+	$LFS setdirstripe -i 1 /mnt/lustre/test_32b || {
+		error_noexit "Create remote directory failed"
+		return 1
+	}
+	createmany -o /mnt/lustre/test_32b/t- 10 || {
+		error_noexit "create files on remote directory failed"
+		return 1
+	}
+
+	echo -n "Verify the MDT index of these files..."
+	local mdt_idx=$($LFS getstripe -M /mnt/lustre/test_32b)
+	[ $mdt_idx -ne 1 ] && {
+		error_noexit "create remote directory on wrong MDT $mdt_idx"
+		return 1
+	}
+
+	mdt_idx=$($LFS getstripe -M /mnt/lustre/test_32b/t-0)
+	[ $mdt_idx -ne 1 ] && {
+		error_noexit "create files on wrong MDT $mdt_idx"
+		return 1
+	}
+	echo "Pass"
+
+	rm -rf /mnt/lustre/test_32a || {
+		error_noexit "unlink local directory failed"
+		return 1
+	}
+
+    rm -rf /mnt/lustre/test_32b || {
+		error_noexit "unlink local directory failed"
+		return 1
+	}
+
+	umount /mnt/lustre || {
+		error_noexit "Unmounting the client"
+		return 1
+	}
+	shall_cleanup_lustre=false
+
+	$r umount /mnt/mdt || {
+		error_noexit "Unmounting the MDT"
+		return 1
+	}
+	shall_cleanup_mdt=false
+
+	$r umount /mnt/mdt1 || {
+		error_noexit "Unmounting the MDT"
+		return 1
+	}
+	shall_cleanup_mdt1=false
+
+	$r umount /mnt/ost || {
+		error_noexit "Unmounting the OST"
+		return 1
+	}
+	shall_cleanup_ost=false
+}
+
+test_32c() {
+	local tarballs
+	local tarball
+	local rc=0
+
+	t32_check
+	for tarball in $tarballs; do
+		if [ $tarball != $RLUSTRE/tests/disk2_2-ldiskfs.tar.bz2 ]; then
+			echo "Skip b1_8 images before we have 1.8 compatibility"
+			continue
+		fi
+		t32c_dne_upgrade_test $tarball || rc=$?
+	done
+	return $rc
+}
+run_test 32c "Upgrade with writeconf"
+
 test_33a() { # bug 12333, was test_33
         local rc=0
         local FSNAME2=test-123
