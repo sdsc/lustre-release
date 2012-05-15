@@ -259,8 +259,21 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
                 }
 
                 lli = ll_i2info(inode);
-                if (bits & MDS_INODELOCK_UPDATE)
+                if (bits & MDS_INODELOCK_UPDATE) {
+                        cfs_spin_lock(&lli->lli_lock);
                         lli->lli_flags &= ~LLIF_MDS_SIZE_LOCK;
+                        cfs_spin_unlock(&lli->lli_lock);
+                }
+                if (S_ISREG(inode->i_mode) && (bits & MDS_INODELOCK_LAYOUT)) {
+                        /* Mark the layout as invalid since we have lost the
+                         * the layout lock */
+                        CDEBUG(D_INODE,
+                               "canceling layout %p for inode "DFID"(%p)\n",
+                                lli->lli_smd, PFID(&lli->lli_fid), inode);
+                        cfs_spin_lock(&lli->lli_lock);
+                        lli->lli_flags |= LLIF_LAYOUT_CANCELED;
+                        cfs_spin_unlock(&lli->lli_lock);
+                }
 
                 if (S_ISDIR(inode->i_mode) &&
                      (bits & MDS_INODELOCK_UPDATE)) {
@@ -1079,7 +1092,7 @@ int ll_objects_destroy(struct ptlrpc_request *request, struct inode *dir)
 
         OBDO_ALLOC(oa);
         if (oa == NULL)
-                GOTO(out_free_memmd, rc = -ENOMEM);
+                GOTO(out, rc = -ENOMEM);
 
         oa->o_id = lsm->lsm_object_id;
         oa->o_seq = lsm->lsm_object_seq;
@@ -1102,7 +1115,7 @@ int ll_objects_destroy(struct ptlrpc_request *request, struct inode *dir)
         if (body->valid & OBD_MD_FLOSSCAPA) {
                 rc = md_unpack_capa(ll_i2mdexp(dir), request, &RMF_CAPA2, &oc);
                 if (rc)
-                        GOTO(out_free_memmd, rc);
+                        GOTO(out, rc);
         }
 
         rc = obd_destroy(ll_i2dtexp(dir), oa, lsm, &oti, ll_i2mdexp(dir), oc);
@@ -1111,9 +1124,11 @@ int ll_objects_destroy(struct ptlrpc_request *request, struct inode *dir)
         if (rc)
                 CERROR("obd destroy objid "LPX64" error %d\n",
                        lsm->lsm_object_id, rc);
- out_free_memmd:
-        obd_free_memmd(ll_i2dtexp(dir), &lsm);
- out:
+out:
+        if (lsm) {
+                lsm_decref(lsm);
+                obd_free_memmd(ll_i2dtexp(dir), &lsm);
+        }
         return rc;
 }
 
@@ -1125,9 +1140,10 @@ static int ll_unlink_generic(struct inode *dir, struct dentry *dparent,
                              struct dentry *dchild, struct qstr *name)
 {
         struct ptlrpc_request *request = NULL;
-        struct md_op_data *op_data;
-        int rc;
+        struct md_op_data     *op_data;
+        int                    rc;
         ENTRY;
+
         CDEBUG(D_VFSTRACE, "VFS Op:name=%.*s,dir=%lu/%u(%p)\n",
                name->len, name->name, dir->i_ino, dir->i_generation, dir);
 
@@ -1155,6 +1171,7 @@ static int ll_unlink_generic(struct inode *dir, struct dentry *dparent,
         rc = ll_objects_destroy(request, dir);
  out:
         ptlrpc_req_finished(request);
+
         RETURN(rc);
 }
 

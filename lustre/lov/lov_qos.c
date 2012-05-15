@@ -1114,8 +1114,10 @@ int qos_prep_create(struct obd_export *exp, struct lov_request_set *set)
                 set->set_cookies = oti->oti_logcookies;
         }
 out_err:
-        if (newea && rc)
+        if (newea && rc) {
+                lsm_decref(set->set_oi->oi_md);
                 obd_free_memmd(exp, &set->set_oi->oi_md);
+        }
         if (idx_arr)
                 free_idx_array(idx_arr, idx_cnt);
         EXIT;

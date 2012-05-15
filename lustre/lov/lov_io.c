@@ -61,10 +61,21 @@ static void lov_io_sub_fini(const struct lu_env *env, struct lov_io *lio,
         ENTRY;
         if (sub->sub_io != NULL) {
                 if (sub->sub_io_initialized) {
+                        int rc;
+
                         lov_sub_enter(sub);
                         cl_io_fini(sub->sub_env, sub->sub_io);
                         lov_sub_exit(sub);
                         sub->sub_io_initialized = 0;
+                        /* the parent i/o is supposed to own a reference on the
+                         * lsm so it is safe to use lsm_decref() instead of
+                         * cl_lsm_put() here */
+                        rc = lsm_decref(sub->sub_io->ci_lsm);
+                        LASSERTF(!rc, "sub i/o was holding last ref! (sub %p/%p"
+                                      " parent %p/%p)\n", sub->sub_io,
+                                      sub->sub_io->ci_lsm, lio->lis_cl.cis_io,
+                                      lio->lis_cl.cis_io->ci_lsm);
+                        sub->sub_io->ci_lsm = NULL;
                         lio->lis_active_subios--;
                 }
                 if (sub->sub_stripe == lio->lis_single_subio_index)
@@ -84,8 +95,8 @@ static void lov_io_sub_fini(const struct lu_env *env, struct lov_io *lio,
 static void lov_io_sub_inherit(struct cl_io *io, struct lov_io *lio,
                                int stripe, loff_t start, loff_t end)
 {
-        struct lov_stripe_md *lsm    = lov_r0(lio->lis_object)->lo_lsm;
         struct cl_io         *parent = lio->lis_cl.cis_io;
+        struct lov_stripe_md *lsm = io->ci_lsm;
 
         switch(io->ci_type) {
         case CIT_SETATTR: {
@@ -196,6 +207,7 @@ static int lov_io_sub_init(const struct lu_env *env, struct lov_io *lio,
                         lio->lis_active_subios++;
                         sub->sub_io_initialized = 1;
                         result = 0;
+                        sub_io->ci_lsm = lsm_addref(io->ci_lsm);
                 }
         }
         if (result != 0)
@@ -250,15 +262,17 @@ static int lov_page_stripe(const struct cl_page *page)
 struct lov_io_sub *lov_page_subio(const struct lu_env *env, struct lov_io *lio,
                                   const struct cl_page_slice *slice)
 {
-        struct lov_stripe_md *lsm  = lov_r0(lio->lis_object)->lo_lsm;
+        struct lov_stripe_md *lsm;
         struct cl_page       *page = slice->cpl_page;
         int stripe;
+        ENTRY;
 
         LASSERT(lio->lis_cl.cis_io != NULL);
         LASSERT(cl2lov(slice->cpl_obj) == lio->lis_object);
-        LASSERT(lsm != NULL);
         LASSERT(lio->lis_nr_subios > 0);
-        ENTRY;
+
+        lsm = lio->lis_cl.cis_io->ci_lsm;
+        LASSERT(lsm != NULL);
 
         stripe = lov_page_stripe(page);
         RETURN(lov_sub_get(env, lio, stripe));
@@ -268,12 +282,12 @@ struct lov_io_sub *lov_page_subio(const struct lu_env *env, struct lov_io *lio,
 static int lov_io_subio_init(const struct lu_env *env, struct lov_io *lio,
                              struct cl_io *io)
 {
-        struct lov_object    *lov = lio->lis_object;
-        struct lov_stripe_md *lsm = lov_r0(lov)->lo_lsm;
-        int result;
+        struct lov_stripe_md *lsm;
+        int                   result;
+        ENTRY;
 
         LASSERT(lio->lis_object != NULL);
-        ENTRY;
+        lsm = io->ci_lsm;
 
         /*
          * Need to be optimized, we can't afford to allocate a piece of memory
@@ -294,10 +308,12 @@ static int lov_io_subio_init(const struct lu_env *env, struct lov_io *lio,
 static void lov_io_slice_init(struct lov_io *lio,
                               struct lov_object *obj, struct cl_io *io)
 {
-        struct lov_stripe_md *lsm = lov_r0(obj)->lo_lsm;
+        struct lov_stripe_md *lsm;
+        ENTRY;
+
+        lsm = io->ci_lsm;
 
         LASSERT(lsm != NULL);
-        ENTRY;
 
         io->ci_result = 0;
         lio->lis_object = obj;
@@ -370,7 +386,7 @@ static int lov_io_iter_init(const struct lu_env *env,
                             const struct cl_io_slice *ios)
 {
         struct lov_io        *lio = cl2lov_io(env, ios);
-        struct lov_stripe_md *lsm = lov_r0(lio->lis_object)->lo_lsm;
+        struct lov_stripe_md *lsm = ios->cis_io->ci_lsm;
         struct lov_io_sub    *sub;
         obd_off endpos;
         obd_off start;
@@ -410,7 +426,7 @@ static int lov_io_rw_iter_init(const struct lu_env *env,
 {
         struct lov_io        *lio = cl2lov_io(env, ios);
         struct cl_io         *io  = ios->cis_io;
-        struct lov_stripe_md *lsm = lov_r0(cl2lov(ios->cis_obj))->lo_lsm;
+        struct lov_stripe_md *lsm = ios->cis_io->ci_lsm;
         loff_t start = io->u.ci_rw.crw_pos;
         loff_t next;
         unsigned long ssize = lsm->lsm_stripe_size;
@@ -856,12 +872,12 @@ int lov_io_init_raid0(const struct lu_env *env, struct cl_object *obj,
 {
         struct lov_io       *lio = lov_env_io(env);
         struct lov_object   *lov = cl2lov(obj);
-
         ENTRY;
+
         CFS_INIT_LIST_HEAD(&lio->lis_active);
         lov_io_slice_init(lio, lov, io);
         if (io->ci_result == 0) {
-                LASSERT(lov_r0(lov)->lo_lsm != NULL);
+                LASSERT(io->ci_lsm != NULL);
                 io->ci_result = lov_io_subio_init(env, lio, io);
                 if (io->ci_result == 0)
                         cl_io_slice_add(io, &lio->lis_cl, obj, &lov_io_ops);

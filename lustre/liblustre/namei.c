@@ -149,7 +149,7 @@ int llu_md_blocking_ast(struct ldlm_lock *lock,
                     lock->l_resource->lr_name.name[1] != fid_oid(fid) ||
                     lock->l_resource->lr_name.name[2] != fid_ver(fid)) {
                         LDLM_ERROR(lock,"data mismatch with ino %llu/%llu/%llu",
-                                  (long long)fid_seq(fid), 
+                                  (long long)fid_seq(fid),
                                   (long long)fid_oid(fid),
                                   (long long)fid_ver(fid));
                 }
@@ -160,6 +160,8 @@ int llu_md_blocking_ast(struct ldlm_lock *lock,
 
                         llu_invalidate_inode_pages(inode);
                 }
+                if (bits & MDS_INODELOCK_LAYOUT)
+                        lli->lli_flags |= LLIF_LAYOUT_CANCELED;
 
 /*
                 if (inode->i_sb->s_root &&
@@ -293,12 +295,12 @@ static int llu_pb_revalidate(struct pnode *pnode, int flags,
 static int lookup_it_finish(struct ptlrpc_request *request, int offset,
                             struct lookup_intent *it, void *data)
 {
-        struct it_cb_data *icbd = data;
-        struct pnode *child = icbd->icbd_child;
-        struct inode *parent = icbd->icbd_parent;
+        struct it_cb_data  *icbd = data;
+        struct pnode       *child = icbd->icbd_child;
+        struct inode       *parent = icbd->icbd_parent;
         struct llu_sb_info *sbi = llu_i2sbi(parent);
-        struct inode *inode = NULL;
-        int rc;
+        struct inode       *inode = NULL;
+        int                 rc;
 
         /* libsysio require us generate inode right away if success.
          * so if mds created new inode for us we need make sure it
@@ -327,9 +329,10 @@ static int lookup_it_finish(struct ptlrpc_request *request, int offset,
          * when I return
          */
         if (!it_disposition(it, DISP_LOOKUP_NEG) || (it->it_op & IT_CREAT)) {
-                struct lustre_md md;
+                struct lustre_md       md;
                 struct llu_inode_info *lli;
-                struct intnl_stat *st;
+                struct intnl_stat     *st;
+                struct lov_stripe_md  *lsm;
                 ENTRY;
 
                 if (it_disposition(it, DISP_OPEN_CREATE))
@@ -343,27 +346,31 @@ static int lookup_it_finish(struct ptlrpc_request *request, int offset,
                 inode = llu_iget(parent->i_fs, &md);
                 if (!inode || IS_ERR(inode)) {
                         /* free the lsm if we allocated one above */
-                        if (md.lsm != NULL)
+                        if (md.lsm != NULL) {
+                                lsm_decref(md.lsm);
                                 obd_free_memmd(sbi->ll_dt_exp, &md.lsm);
+                        }
                         RETURN(inode ? PTR_ERR(inode) : -ENOMEM);
                 } else if (md.lsm != NULL &&
                            llu_i2info(inode)->lli_smd != md.lsm) {
+                        lsm_decref(md.lsm);
                         obd_free_memmd(sbi->ll_dt_exp, &md.lsm);
                 }
 
                 lli = llu_i2info(inode);
                 st = llu_i2stat(inode);
 
+                lsm = cl_lsm_get(inode);
                 /* If this is a stat, get the authoritative file size */
                 if (it->it_op == IT_GETATTR && S_ISREG(st->st_mode) &&
-                    lli->lli_smd != NULL) {
-                        struct lov_stripe_md *lsm = lli->lli_smd;
+                    lsm != NULL) {
                         ldlm_error_t rc;
 
                         LASSERT(lsm->lsm_object_id != 0);
 
                         /* bug 2334: drop MDS lock before acquiring OST lock */
                         ll_intent_drop_lock(it);
+                        cl_lsm_put(inode, &lsm);
 
                         rc = cl_glimpse_size(inode);
                         if (rc) {

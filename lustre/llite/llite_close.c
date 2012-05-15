@@ -244,13 +244,16 @@ int ll_som_update(struct inode *inode, struct md_op_data *op_data)
 
         /* If inode is already in another epoch, skip getattr from OSTs. */
         if (lli->lli_ioepoch == op_data->op_ioepoch) {
+                struct lov_stripe_md *lsm;
+
+                lsm = cl_lsm_get(inode);
                 rc = ll_inode_getattr(inode, oa, op_data->op_ioepoch,
-                                      old_flags & MF_GETATTR_LOCK);
+                                      old_flags & MF_GETATTR_LOCK, lsm);
                 if (rc) {
                         oa->o_valid = 0;
                         if (rc == -ENOENT)
                                 CDEBUG(D_INODE, "objid "LPX64" is destroyed\n",
-                                       lli->lli_smd->lsm_object_id);
+                                       lsm->lsm_object_id);
                         else
                                 CERROR("inode_getattr failed (%d): unable to "
                                        "send a Size-on-MDS attribute update "
@@ -260,6 +263,7 @@ int ll_som_update(struct inode *inode, struct md_op_data *op_data)
                         CDEBUG(D_INODE, "Size-on-MDS update on "DFID"\n",
                                PFID(&lli->lli_fid));
                 }
+                cl_lsm_put(inode, &lsm);
                 /* Install attributes into op_data. */
                 md_from_obdo(op_data, oa, oa->o_valid);
         }

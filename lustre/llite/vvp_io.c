@@ -96,6 +96,7 @@ static void vvp_io_fini(const struct lu_env *env, const struct cl_io_slice *ios)
                         ll_ra_read_ex(cio->cui_fd->fd_file, &vio->cui_bead);
         }
 
+        ccc_io_fini(env, ios);
 }
 
 static void vvp_io_fault_fini(const struct lu_env *env,
@@ -225,12 +226,12 @@ static int vvp_io_read_lock(const struct lu_env *env,
                             const struct cl_io_slice *ios)
 {
         struct cl_io         *io  = ios->cis_io;
-        struct ll_inode_info *lli = ll_i2info(ccc_object_inode(io->ci_obj));
         int result;
 
         ENTRY;
         /* XXX: Layer violation, we shouldn't see lsm at llite level. */
-        if (lli->lli_smd != NULL) /* lsm-less file, don't need to lock */
+        /* lsm-less file, don't need to lock */
+        if (io->ci_lsm != NULL)
                 result = vvp_io_rw_lock(env, io, CLM_READ,
                                         io->u.ci_rd.rd.crw_pos,
                                         io->u.ci_rd.rd.crw_pos +
@@ -323,14 +324,15 @@ static int vvp_io_setattr_lock(const struct lu_env *env,
 
 static int vvp_do_vmtruncate(struct inode *inode, size_t size)
 {
-        int     result;
+        struct lov_stripe_md *lsm;
+        int                   result;
         /*
          * Only ll_inode_size_lock is taken at this level. lov_stripe_lock()
          * is grabbed by ll_truncate() only over call to obd_adjust_kms().
          */
-        ll_inode_size_lock(inode, 0);
+        lsm = ll_inode_size_lock(inode, 0);
         result = vmtruncate(inode, size);
-        ll_inode_size_unlock(inode, 0);
+        ll_inode_size_unlock(inode, &lsm, 0);
 
         return result;
 }
@@ -958,17 +960,17 @@ static int vvp_io_commit_write(const struct lu_env *env,
                                const struct cl_page_slice *slice,
                                unsigned from, unsigned to)
 {
-        struct cl_object  *obj    = slice->cpl_obj;
-        struct cl_io      *io     = ios->cis_io;
-        struct ccc_page   *cp     = cl2ccc_page(slice);
-        struct cl_page    *pg     = slice->cpl_page;
-        struct inode      *inode  = ccc_object_inode(obj);
-        struct ll_sb_info *sbi    = ll_i2sbi(inode);
-        cfs_page_t        *vmpage = cp->cpg_page;
-
-        int    result;
-        int    tallyop;
-        loff_t size;
+        struct cl_object     *obj    = slice->cpl_obj;
+        struct cl_io         *io     = ios->cis_io;
+        struct ccc_page      *cp     = cl2ccc_page(slice);
+        struct cl_page       *pg     = slice->cpl_page;
+        struct inode         *inode  = ccc_object_inode(obj);
+        struct ll_sb_info    *sbi    = ll_i2sbi(inode);
+        cfs_page_t           *vmpage = cp->cpg_page;
+        struct lov_stripe_md *lsm;
+        int                   result;
+        int                   tallyop;
+        loff_t                size;
 
         ENTRY;
 
@@ -1047,7 +1049,7 @@ static int vvp_io_commit_write(const struct lu_env *env,
 
         size = cl_offset(obj, pg->cp_index) + to;
 
-        ll_inode_size_lock(inode, 0);
+        lsm  = ll_inode_size_lock(inode, 0);
         if (result == 0) {
                 if (size > i_size_read(inode)) {
                         cl_isize_write_nolock(inode, size);
@@ -1060,7 +1062,8 @@ static int vvp_io_commit_write(const struct lu_env *env,
                 if (size > i_size_read(inode))
                         cl_page_discard(env, io, pg);
         }
-        ll_inode_size_unlock(inode, 0);
+        ll_inode_size_unlock(inode, &lsm, 0);
+
         RETURN(result);
 }
 
@@ -1131,6 +1134,9 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
                 if (!cl_io_is_trunc(io))
                         io->ci_lockreq = CILR_MANDATORY;
         }
+
+        if (result == 0)
+                RETURN(ccc_io_init(env, obj, io));
         RETURN(result);
 }
 

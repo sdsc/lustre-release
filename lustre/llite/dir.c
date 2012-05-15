@@ -1286,6 +1286,7 @@ out_free:
 
                 EXIT;
         free_lsm:
+                lsm_decref(lsm);
                 obd_free_memmd(sbi->ll_dt_exp, &lsm);
         free_lmm:
                 OBD_FREE_LARGE(lmm, lmmsize);

@@ -94,6 +94,10 @@ static int lsm_lmm_verify_common(struct lov_mds_md *lmm, int lmm_bytes,
         return 0;
 }
 
+/*
+ * allocate memory lsm fields
+ * field init is made by caller
+ */
 struct lov_stripe_md *lsm_alloc_plain(__u16 stripe_count, int *size)
 {
         struct lov_stripe_md *lsm;

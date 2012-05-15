@@ -47,6 +47,8 @@
 #include <linux/file.h>
 #include "llite_internal.h"
 #include <lustre/ll_fiemap.h>
+#include <lustre_fid.h>
+
 
 #include "cl_object.h"
 
@@ -283,11 +285,10 @@ int lov_test_and_clear_async_rc(struct lov_stripe_md *lsm);
  */
 int ll_file_release(struct inode *inode, struct file *file)
 {
-        struct ll_file_data *fd;
-        struct ll_sb_info *sbi = ll_i2sbi(inode);
+        struct ll_file_data  *fd;
+        struct ll_sb_info    *sbi = ll_i2sbi(inode);
         struct ll_inode_info *lli = ll_i2info(inode);
-        struct lov_stripe_md *lsm = lli->lli_smd;
-        int rc;
+        int                   rc;
         ENTRY;
 
         CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p)\n", inode->i_ino,
@@ -326,8 +327,12 @@ int ll_file_release(struct inode *inode, struct file *file)
         }
 
         if (!S_ISDIR(inode->i_mode)) {
+                struct lov_stripe_md *lsm;
+
+                lsm = cl_lsm_get(inode);
                 if (lsm)
                         lov_test_and_clear_async_rc(lsm);
+                cl_lsm_put(inode, &lsm);
                 lli->lli_async_rc = 0;
         }
 
@@ -494,14 +499,14 @@ int ll_local_open(struct file *file, struct lookup_intent *it,
  */
 int ll_file_open(struct inode *inode, struct file *file)
 {
-        struct ll_inode_info *lli = ll_i2info(inode);
-        struct lookup_intent *it, oit = { .it_op = IT_OPEN,
-                                          .it_flags = file->f_flags };
-        struct lov_stripe_md *lsm;
+        struct ll_inode_info      *lli = ll_i2info(inode);
+        struct lookup_intent      *it, oit = { .it_op = IT_OPEN,
+                                               .it_flags = file->f_flags };
+        struct lov_stripe_md      *lsm = NULL;
         struct obd_client_handle **och_p = NULL;
-        __u64 *och_usecount = NULL;
-        struct ll_file_data *fd;
-        int rc = 0, opendir_set = 0;
+        __u64                     *och_usecount = NULL;
+        struct ll_file_data       *fd;
+        int                        rc = 0, opendir_set = 0;
         ENTRY;
 
         CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p), flags %o\n", inode->i_ino,
@@ -568,7 +573,7 @@ restart:
         } else if (it->it_flags & FMODE_EXEC) {
                 och_p = &lli->lli_mds_exec_och;
                 och_usecount = &lli->lli_open_fd_exec_count;
-         } else {
+        } else {
                 och_p = &lli->lli_mds_read_och;
                 och_usecount = &lli->lli_open_fd_read_count;
         }
@@ -643,7 +648,7 @@ restart:
 
         ll_capa_open(inode);
 
-        lsm = lli->lli_smd;
+        lsm = cl_lsm_get(inode);
         if (lsm == NULL) {
                 if (file->f_flags & O_LOV_DELAY_CREATE ||
                     !(file->f_mode & FMODE_WRITE)) {
@@ -677,6 +682,7 @@ out_openerr:
                 ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_OPEN, 1);
         }
 
+        cl_lsm_put(inode, &lsm);
         return rc;
 }
 
@@ -734,21 +740,19 @@ static int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
   * If @sync != 0, perform the getattr under the server-side lock.
   */
 int ll_inode_getattr(struct inode *inode, struct obdo *obdo,
-                     __u64 ioepoch, int sync)
+                     __u64 ioepoch, int sync, struct lov_stripe_md *lsm)
 {
-        struct ll_inode_info *lli  = ll_i2info(inode);
-        struct obd_capa      *capa = ll_mdscapa_get(inode);
-        int rc;
+        struct obd_capa *capa = ll_mdscapa_get(inode);
+        int              rc;
         ENTRY;
 
-        rc = ll_lsm_getattr(lli->lli_smd, ll_i2dtexp(inode),
-                            capa, obdo, ioepoch, sync);
+        rc = ll_lsm_getattr(lsm, ll_i2dtexp(inode), capa, obdo, ioepoch, sync);
         capa_put(capa);
         if (rc == 0) {
                 obdo_refresh_inode(inode, obdo, obdo->o_valid);
                 CDEBUG(D_INODE,
                        "objid "LPX64" size %llu, blocks %llu, blksize %lu\n",
-                       lli->lli_smd->lsm_object_id, i_size_read(inode),
+                       lsm->lsm_object_id, i_size_read(inode),
                        (unsigned long long)inode->i_blocks,
                        (unsigned long)ll_inode_blksize(inode));
         }
@@ -760,11 +764,12 @@ int ll_merge_lvb(struct inode *inode)
         struct ll_inode_info *lli = ll_i2info(inode);
         struct ll_sb_info *sbi = ll_i2sbi(inode);
         struct ost_lvb lvb;
+        struct lov_stripe_md *lsm;
         int rc;
 
         ENTRY;
 
-        ll_inode_size_lock(inode, 1);
+        lsm = ll_inode_size_lock(inode, 1);
         inode_init_lvb(inode, &lvb);
 
         /* merge timestamps the most resently obtained from mds with
@@ -772,7 +777,7 @@ int ll_merge_lvb(struct inode *inode)
         lvb.lvb_atime = lli->lli_lvb.lvb_atime;
         lvb.lvb_mtime = lli->lli_lvb.lvb_mtime;
         lvb.lvb_ctime = lli->lli_lvb.lvb_ctime;
-        rc = obd_merge_lvb(sbi->ll_dt_exp, lli->lli_smd, &lvb, 0);
+        rc = obd_merge_lvb(sbi->ll_dt_exp, lsm, &lvb, 0);
         cl_isize_write_nolock(inode, lvb.lvb_size);
 
         CDEBUG(D_VFSTRACE, DFID" updating i_size "LPU64"\n",
@@ -782,7 +787,7 @@ int ll_merge_lvb(struct inode *inode)
         LTIME_S(inode->i_mtime) = lvb.lvb_mtime;
         LTIME_S(inode->i_atime) = lvb.lvb_atime;
         LTIME_S(inode->i_ctime) = lvb.lvb_ctime;
-        ll_inode_size_unlock(inode, 1);
+        ll_inode_size_unlock(inode, &lsm, 1);
 
         RETURN(rc);
 }
@@ -822,8 +827,8 @@ void ll_io_init(struct cl_io *io, const struct file *file, int write)
 }
 
 static ssize_t ll_file_io_generic(const struct lu_env *env,
-                struct vvp_io_args *args, struct file *file,
-                enum cl_io_type iot, loff_t *ppos, size_t count)
+                                  struct vvp_io_args *args, struct file *file,
+                                  enum cl_io_type iot, loff_t *ppos, size_t count)
 {
         struct ll_inode_info *lli = ll_i2info(file->f_dentry->d_inode);
         struct cl_io         *io;
@@ -1231,8 +1236,7 @@ static int ll_lov_recreate(struct inode *inode, obd_id id, obd_seq seq,
         if (oa == NULL)
                 RETURN(-ENOMEM);
 
-        ll_inode_size_lock(inode, 0);
-        lsm = ll_i2info(inode)->lli_smd;
+        lsm = ll_inode_size_lock(inode, 0);
         if (lsm == NULL)
                 GOTO(out, rc = -ENOENT);
         lsm_size = sizeof(*lsm) + (sizeof(struct lov_oinfo) *
@@ -1256,7 +1260,7 @@ static int ll_lov_recreate(struct inode *inode, obd_id id, obd_seq seq,
         OBD_FREE_LARGE(lsm2, lsm_size);
         GOTO(out, rc);
 out:
-        ll_inode_size_unlock(inode, 0);
+        ll_inode_size_unlock(inode, &lsm, 0);
         OBDO_FREE(oa);
         return rc;
 }
@@ -1304,14 +1308,15 @@ int ll_lov_setstripe_ea_info(struct inode *inode, struct file *file,
         int rc = 0;
         ENTRY;
 
-        ll_inode_size_lock(inode, 0);
-        lsm = ll_i2info(inode)->lli_smd;
+        lsm = ll_inode_size_lock(inode, 0);
         if (lsm) {
-                ll_inode_size_unlock(inode, 0);
+                ll_inode_size_unlock(inode, &lsm, 0);
                 CDEBUG(D_IOCTL, "stripe already exists for ino %lu\n",
                        inode->i_ino);
                 RETURN(-EEXIST);
         }
+
+        ll_inode_size_unlock(inode, &lsm, 0);
 
         rc = ll_intent_file_open(file, lum, lum_size, &oit);
         if (rc)
@@ -1322,8 +1327,7 @@ int ll_lov_setstripe_ea_info(struct inode *inode, struct file *file,
 
         ll_release_openhandle(file->f_dentry, &oit);
 
- out:
-        ll_inode_size_unlock(inode, 0);
+out:
         ll_intent_release(&oit);
         RETURN(rc);
 out_req_free:
@@ -1472,13 +1476,15 @@ static int ll_lov_setstripe(struct inode *inode, struct file *file,
 
 static int ll_lov_getstripe(struct inode *inode, unsigned long arg)
 {
-        struct lov_stripe_md *lsm = ll_i2info(inode)->lli_smd;
-        int rc = -ENODATA;
+        struct lov_stripe_md *lsm;
+        int                   rc = -ENODATA;
         ENTRY;
 
+        lsm = cl_lsm_get(inode);
         if (lsm != NULL)
                 rc = obd_iocontrol(LL_IOC_LOV_GETSTRIPE, ll_i2dtexp(inode), 0,
                                    lsm, (void *)arg);
+        cl_lsm_put(inode, &lsm);
         RETURN(rc);
 }
 
@@ -1610,7 +1616,7 @@ int ll_do_fiemap(struct inode *inode, struct ll_user_fiemap *fiemap,
               int num_bytes)
 {
         struct obd_export *exp = ll_i2dtexp(inode);
-        struct lov_stripe_md *lsm = ll_i2info(inode)->lli_smd;
+        struct lov_stripe_md *lsm;
         struct ll_fiemap_info_key fm_key = { .name = KEY_FIEMAP, };
         int vallen = num_bytes;
         int rc;
@@ -1619,22 +1625,23 @@ int ll_do_fiemap(struct inode *inode, struct ll_user_fiemap *fiemap,
         /* Checks for fiemap flags */
         if (fiemap->fm_flags & ~LUSTRE_FIEMAP_FLAGS_COMPAT) {
                 fiemap->fm_flags &= ~LUSTRE_FIEMAP_FLAGS_COMPAT;
-                return -EBADR;
+                RETURN(-EBADR);
         }
 
         /* Check for FIEMAP_FLAG_SYNC */
         if (fiemap->fm_flags & FIEMAP_FLAG_SYNC) {
                 rc = filemap_fdatawrite(inode->i_mapping);
                 if (rc)
-                        return rc;
+                        RETURN(rc);
         }
 
+        lsm = cl_lsm_get(inode);
         /* If the stripe_count > 1 and the application does not understand
          * DEVICE_ORDER flag, then it cannot interpret the extents correctly.
          */
         if (lsm->lsm_stripe_count > 1 &&
             !(fiemap->fm_flags & FIEMAP_FLAG_DEVICE_ORDER))
-                return -EOPNOTSUPP;
+                GOTO(out, rc = -EOPNOTSUPP);
 
         fm_key.oa.o_id = lsm->lsm_object_id;
         fm_key.oa.o_seq = lsm->lsm_object_seq;
@@ -1645,7 +1652,7 @@ int ll_do_fiemap(struct inode *inode, struct ll_user_fiemap *fiemap,
         /* If filesize is 0, then there would be no objects for mapping */
         if (fm_key.oa.o_size == 0) {
                 fiemap->fm_mapped_extents = 0;
-                RETURN(0);
+                GOTO(out, rc = 0);
         }
 
         memcpy(&fm_key.fiemap, fiemap, sizeof(*fiemap));
@@ -1654,6 +1661,9 @@ int ll_do_fiemap(struct inode *inode, struct ll_user_fiemap *fiemap,
         if (rc)
                 CERROR("obd_get_info failed: rc = %d\n", rc);
 
+        EXIT;
+out:
+        cl_lsm_put(inode, &lsm);
         RETURN(rc);
 }
 
@@ -1965,7 +1975,7 @@ int ll_flush(struct file *file)
 {
         struct inode *inode = file->f_dentry->d_inode;
         struct ll_inode_info *lli = ll_i2info(inode);
-        struct lov_stripe_md *lsm = lli->lli_smd;
+        struct lov_stripe_md *lsm;
         int rc, err;
 
         LASSERT(!S_ISDIR(inode->i_mode));
@@ -1978,12 +1988,14 @@ int ll_flush(struct file *file)
          * failed for pages in this mapping. */
         rc = lli->lli_async_rc;
         lli->lli_async_rc = 0;
+
+        lsm = cl_lsm_get(inode);
         if (lsm) {
                 err = lov_test_and_clear_async_rc(lsm);
                 if (rc == 0)
                         rc = err;
         }
-
+        cl_lsm_put(inode, &lsm);
         return rc ? -EIO : 0;
 }
 
@@ -1997,14 +2009,17 @@ int ll_fsync(struct file *file, struct dentry *dentry, int data)
 {
         struct inode *inode = file->f_dentry->d_inode;
         struct ll_inode_info *lli = ll_i2info(inode);
-        struct lov_stripe_md *lsm = lli->lli_smd;
+        struct lov_stripe_md *lsm;
         struct ptlrpc_request *req;
         struct obd_capa *oc;
         int rc, err;
         ENTRY;
+
         CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p)\n", inode->i_ino,
                inode->i_generation, inode);
         ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_FSYNC, 1);
+
+        lsm = cl_lsm_get(inode);
 
         /* fsync's caller has already called _fdata{sync,write}, we want
          * that IO to finish before calling the osc and mdc sync methods */
@@ -2038,11 +2053,11 @@ int ll_fsync(struct file *file, struct dentry *dentry, int data)
 
                 OBD_ALLOC_PTR(oinfo);
                 if (!oinfo)
-                        RETURN(rc ? rc : -ENOMEM);
+                        GOTO(out, rc ? rc : -ENOMEM);
                 OBDO_ALLOC(oinfo->oi_oa);
                 if (!oinfo->oi_oa) {
                         OBD_FREE_PTR(oinfo);
-                        RETURN(rc ? rc : -ENOMEM);
+                        GOTO(out, rc ? rc : -ENOMEM);
                 }
                 oinfo->oi_oa->o_id = lsm->lsm_object_id;
                 oinfo->oi_oa->o_seq = lsm->lsm_object_seq;
@@ -2063,8 +2078,10 @@ int ll_fsync(struct file *file, struct dentry *dentry, int data)
                 OBD_FREE_PTR(oinfo);
                 lli->lli_write_rc = rc < 0 ? rc : 0;
         }
-
-        RETURN(rc);
+        EXIT;
+out:
+        cl_lsm_put(inode, &lsm);
+        return rc;
 }
 
 int ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
@@ -2393,13 +2410,13 @@ int ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
                            __u64 ibits)
 {
         struct inode *inode = dentry->d_inode;
-        int rc;
+        int           rc;
         ENTRY;
 
         rc = __ll_inode_revalidate_it(dentry, it, ibits);
 
         /* if object not yet allocated, don't validate size */
-        if (rc == 0 && ll_i2info(dentry->d_inode)->lli_smd == NULL) {
+        if (rc == 0 && (ll_i2info(inode)->lli_smd == NULL)) {
                 LTIME_S(inode->i_atime) = ll_i2info(inode)->lli_lvb.lvb_atime;
                 LTIME_S(inode->i_mtime) = ll_i2info(inode)->lli_lvb.lvb_mtime;
                 LTIME_S(inode->i_ctime) = ll_i2info(inode)->lli_lvb.lvb_ctime;

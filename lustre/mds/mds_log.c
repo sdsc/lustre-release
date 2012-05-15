@@ -333,6 +333,7 @@ int mds_log_op_unlink(struct obd_device *obd,
                 RETURN(rc);
         rc = mds_llog_add_unlink(obd, lsm, 0, logcookies,
                                  cookies_size / sizeof(struct llog_cookie));
+        lsm_decref(lsm);
         obd_free_memmd(mds->mds_lov_exp, &lsm);
         RETURN(rc);
 }
