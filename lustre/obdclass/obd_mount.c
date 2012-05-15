@@ -2102,7 +2102,14 @@ struct lustre_mount_data2 {
 int lustre_fill_super(struct super_block *sb, void *data, int silent)
 {
         struct lustre_mount_data *lmd;
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,18))
+        char *options = data;
+        struct vfsmount *mnt = NULL;
+#else
         struct lustre_mount_data2 *lmd2 = data;
+        char *options = lmd2->lmd2_data;
+        struct vfsmount *mnt = lmd2->lmd2_mnt;
+#endif
         struct lustre_sb_info *lsi;
         int rc;
         ENTRY;
@@ -2121,7 +2128,7 @@ int lustre_fill_super(struct super_block *sb, void *data, int silent)
         cfs_lockdep_off();
 
         /* Figure out the lmd from the mount options */
-        if (lmd_parse((char *)(lmd2->lmd2_data), lmd)) {
+        if (lmd_parse(options, lmd)) {
                 lustre_put_lsi(sb);
                 GOTO(out, rc = -EINVAL);
         }
@@ -2142,7 +2149,7 @@ int lustre_fill_super(struct super_block *sb, void *data, int silent)
                         }
                         /* Connect and start */
                         /* (should always be ll_fill_super) */
-                        rc = (*client_fill_super)(sb, lmd2->lmd2_mnt);
+                        rc = (*client_fill_super)(sb, mnt);
                         /* c_f_s will call lustre_common_put_super on failure */
                 }
         } else {
