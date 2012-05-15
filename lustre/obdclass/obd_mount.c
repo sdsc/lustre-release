@@ -2102,7 +2102,14 @@ struct lustre_mount_data2 {
 int lustre_fill_super(struct super_block *sb, void *data, int silent)
 {
         struct lustre_mount_data *lmd;
+#ifdef HAVE_GET_SB_VFSMOUNT
         struct lustre_mount_data2 *lmd2 = data;
+        char *options = lmd2->lmd2_data;
+        struct vfsmount *mnt = lmd2->lmd2_mnt;
+#else
+        char *options = data;
+        struct vfsmount *mnt = NULL;
+#endif
         struct lustre_sb_info *lsi;
         int rc;
         ENTRY;
@@ -2121,7 +2128,7 @@ int lustre_fill_super(struct super_block *sb, void *data, int silent)
         cfs_lockdep_off();
 
         /* Figure out the lmd from the mount options */
-        if (lmd_parse((char *)(lmd2->lmd2_data), lmd)) {
+        if (lmd_parse(options, lmd)) {
                 lustre_put_lsi(sb);
                 GOTO(out, rc = -EINVAL);
         }
@@ -2142,7 +2149,7 @@ int lustre_fill_super(struct super_block *sb, void *data, int silent)
                         }
                         /* Connect and start */
                         /* (should always be ll_fill_super) */
-                        rc = (*client_fill_super)(sb, lmd2->lmd2_mnt);
+                        rc = (*client_fill_super)(sb, mnt);
                         /* c_f_s will call lustre_common_put_super on failure */
                 }
         } else {
@@ -2186,15 +2193,15 @@ void lustre_register_kill_super_cb(void (*cfs)(struct super_block *sb))
 
 /***************** FS registration ******************/
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,18))
+#ifndef HAVE_GET_SB_VFSMOUNT
 struct super_block * lustre_get_sb(struct file_system_type *fs_type, int flags,
-                                   const char *devname, void * data)
+                                   const char *devname, void *data)
 {
         return get_sb_nodev(fs_type, flags, data, lustre_fill_super);
 }
 #else
 int lustre_get_sb(struct file_system_type *fs_type, int flags,
-                  const char *devname, void * data, struct vfsmount *mnt)
+                  const char *devname, void *data, struct vfsmount *mnt)
 {
         struct lustre_mount_data2 lmd2 = {data, mnt};
 

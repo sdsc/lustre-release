@@ -1094,6 +1094,39 @@ LB_LINUX_TRY_COMPILE([
 EXTRA_KCFLAGS="$tmp_flags"
 ])
 
+# LC_GET_SB_HAS_VFSMOUNT
+# after 2.6.18 get_sb has different parameters
+AC_DEFUN([LC_GET_SB_HAS_VFSMOUNT],
+[AC_MSG_CHECKING([if get_sb needs vfsmount parameter])
+tmp_flags="$EXTRA_KCFLAGS"
+EXTRA_KCFLAGS="-Werror"
+LB_LINUX_TRY_COMPILE([
+	#include <linux/fs.h>
+
+	struct vfsmount;
+	static int cfg_get_sb (struct file_system_type *fst, int flags,
+				const char *dev, void * data,
+				struct vfsmount *mnt)
+	{
+		return 0;
+	}
+
+	static struct file_system_type cfg_file_system_type = {
+		.get_sb	= cfg_get_sb,
+	};
+],[
+	cfg_file_system_type.get_sb(NULL,0,NULL,NULL,NULL);
+],[
+	AC_MSG_RESULT(yes)
+	AC_DEFINE(HAVE_GET_SB_VFSMOUNT, 1,
+		[Define get_sb needs vfsmount parameter])
+],[
+	AC_MSG_RESULT(no)
+])
+EXTRA_KCFLAGS="$tmp_flags"
+])
+
+
 # LC_SEQ_LOCK
 # after 2.6.18 seq_file has lock intead of sem
 AC_DEFUN([LC_SEQ_LOCK],
@@ -2258,6 +2291,7 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_VFS_KERN_MOUNT
          LC_INVALIDATEPAGE_RETURN_INT
          LC_UMOUNTBEGIN_HAS_VFSMOUNT
+         LC_GET_SB_HAS_VFSMOUNT
          LC_SEQ_LOCK
          LC_EXPORT_FILEMAP_FDATAWRITE_RANGE
          LC_FLUSH_OWNER_ID
