@@ -377,95 +377,57 @@ static int quotfmt_test_4(struct lustre_quota_info *lqi)
         RETURN(rc);
 }
 
-static int quotfmt_test_5(struct lustre_quota_info *lqi)
-{
-#ifndef KERNEL_SUPPORTS_QUOTA_READ
-        int i, rc = 0;
-
-        for (i = USRQUOTA; i < MAXQUOTAS && !rc; i++) {
-                cfs_list_t list;
-                struct dquot_id *dqid, *tmp;
-
-                CFS_INIT_LIST_HEAD(&list);
-                rc = lustre_get_qids(lqi->qi_files[i], NULL, i, &list);
-                if (rc) {
-                        CERROR("%s get all %ss (rc:%d):\n",
-                               rc ? "error" : "success",
-                               i == USRQUOTA ? "uid" : "gid", rc);
-                }
-                cfs_list_for_each_entry_safe(dqid, tmp, &list, di_link) {
-                        cfs_list_del_init(&dqid->di_link);
-                        if (rc == 0)
-                                CDEBUG(D_INFO, "%d ", dqid->di_id);
-                        kfree(dqid);
-                }
-                CDEBUG(D_INFO, "\n");
-        }
-        return rc;
-#else
-        CWARN("kernel supports quota_read OR kernel version >= 2.6.12, test skipped\n");
-        return 0;
-#endif
-}
-
 static int quotfmt_run_tests(struct obd_device *obd, struct obd_device *tgt)
 {
-        struct lvfs_run_ctxt saved;
-        struct lustre_quota_info *lqi = NULL;
-        int rc = 0;
-        ENTRY;
+	struct lvfs_run_ctxt saved;
+	struct lustre_quota_info *lqi = NULL;
+	int rc = 0;
+	ENTRY;
 
-        OBD_ALLOC(lqi, sizeof(*lqi));
-        if (lqi == NULL) {
-                CERROR("not enough memory\n");
-                RETURN(-ENOMEM);
-        }
+	OBD_ALLOC(lqi, sizeof(*lqi));
+	if (lqi == NULL) {
+		CERROR("not enough memory\n");
+		RETURN(-ENOMEM);
+	}
 
-        CWARN("=== Initialize quotafile test\n");
-        rc = quotfmt_initialize(lqi, tgt, &saved);
-        if (rc)
-                GOTO(out, rc);
+	CWARN("=== Initialize quotafile test\n");
+	rc = quotfmt_initialize(lqi, tgt, &saved);
+	if (rc)
+		GOTO(out, rc);
 
-        CWARN("=== test  1: check quota header\n");
-        rc = quotfmt_test_1(lqi);
-        if (rc) {
-                CERROR("check quota header failed! (rc:%d)\n", rc);
-                GOTO(out, rc);
-        }
+	CWARN("=== test  1: check quota header\n");
+	rc = quotfmt_test_1(lqi);
+	if (rc) {
+		CERROR("check quota header failed! (rc:%d)\n", rc);
+		GOTO(out, rc);
+	}
 
-        CWARN("=== test  2: write/read quota info\n");
-        rc = quotfmt_test_2(lqi);
-        if (rc) {
-                CERROR("write/read quota info failed! (rc:%d)\n", rc);
-                GOTO(out, rc);
-        }
+	CWARN("=== test  2: write/read quota info\n");
+	rc = quotfmt_test_2(lqi);
+	if (rc) {
+		CERROR("write/read quota info failed! (rc:%d)\n", rc);
+		GOTO(out, rc);
+	}
 
-        CWARN("=== test  3: write/remove dquot\n");
-        rc = quotfmt_test_3(lqi);
-        if (rc) {
-                CERROR("write/remove dquot failed! (rc:%d)\n", rc);
-                GOTO(out, rc);
-        }
+	CWARN("=== test  3: write/remove dquot\n");
+	rc = quotfmt_test_3(lqi);
+	if (rc) {
+		CERROR("write/remove dquot failed! (rc:%d)\n", rc);
+		GOTO(out, rc);
+	}
 
-        CWARN("=== test  4: write/read 30000 dquot\n");
-        rc = quotfmt_test_4(lqi);
-        if (rc) {
-                CERROR("write/read 30000 dquot failed\n");
-                GOTO(out, rc);
-        }
+	CWARN("=== test  4: write/read 30000 dquot\n");
+	rc = quotfmt_test_4(lqi);
+	if (rc) {
+		CERROR("write/read 30000 dquot failed\n");
+		GOTO(out, rc);
+	}
 
-        CWARN("=== test 5: walk through quota file to get all ids\n");
-        rc = quotfmt_test_5(lqi);
-        if (rc) {
-                CERROR("walk through quota file failed\n");
-                GOTO(out, rc);
-        }
-
-      out:
-        CWARN("=== Finalize quotafile test\n");
-        rc = quotfmt_finalize(lqi, tgt, &saved);
-        OBD_FREE(lqi, sizeof(*lqi));
-        RETURN(rc);
+out:
+	CWARN("=== Finalize quotafile test\n");
+	rc = quotfmt_finalize(lqi, tgt, &saved);
+	OBD_FREE(lqi, sizeof(*lqi));
+	RETURN(rc);
 }
 
 static int quotfmt_test_cleanup(struct obd_device *obd)

@@ -1422,16 +1422,12 @@ static int qslave_recovery_main(void *arg)
                         break;
                 }
 
-                LASSERT(dqopt->files[type] != NULL);
-                CFS_INIT_LIST_HEAD(&id_list);
-#ifndef KERNEL_SUPPORTS_QUOTA_READ
-                rc = fsfilt_qids(obd, dqopt->files[type], NULL, type, &id_list);
-#else
-                rc = fsfilt_qids(obd, NULL, dqopt->files[type], type, &id_list);
-#endif
-                UNLOCK_DQONOFF_MUTEX(dqopt);
-                if (rc)
-                        CERROR("Get ids from quota file failed. (rc:%d)\n", rc);
+		LASSERT(dqopt->files[type] != NULL);
+		CFS_INIT_LIST_HEAD(&id_list);
+		rc = fsfilt_qids(obd, NULL, dqopt->files[type], type, &id_list);
+		UNLOCK_DQONOFF_MUTEX(dqopt);
+		if (rc)
+			CERROR("Get ids from quota file failed. (rc:%d)\n", rc);
 
                 cfs_list_for_each_entry_safe(dqid, tmp, &id_list, di_link) {
                         cfs_list_del_init(&dqid->di_link);
@@ -1511,60 +1507,55 @@ inline int quota_is_off(struct lustre_quota_ctxt *qctxt,
         return !(qctxt->lqc_flags & UGQUOTA2LQC(oqctl->qc_type));
 }
 
-/**
+/*
  * When quotaon, build a lqs for every uid/gid who has been set limitation
  * for quota. After quota_search_lqs, it will hold one ref for the lqs.
  * It will be released when qctxt_cleanup() is executed b=18574
  *
- * Should be called with obt->obt_quotachecking held. b=20152 
+ * Should be called with obt->obt_quotachecking held. b=20152
  */
 void build_lqs(struct obd_device *obd)
 {
-        struct obd_device_target *obt = &obd->u.obt;
-        struct lustre_quota_ctxt *qctxt = &obt->obt_qctxt;
-        cfs_list_t id_list;
-        int i, rc;
+	struct obd_device_target *obt = &obd->u.obt;
+	struct lustre_quota_ctxt *qctxt = &obt->obt_qctxt;
+	cfs_list_t id_list;
+	int i, rc;
 
-        LASSERT_SEM_LOCKED(&obt->obt_quotachecking);
-        CFS_INIT_LIST_HEAD(&id_list);
-        for (i = 0; i < MAXQUOTAS; i++) {
-                struct dquot_id *dqid, *tmp;
+	LASSERT_SEM_LOCKED(&obt->obt_quotachecking);
+	CFS_INIT_LIST_HEAD(&id_list);
+	for (i = 0; i < MAXQUOTAS; i++) {
+		struct dquot_id *dqid, *tmp;
 
-                if (sb_dqopt(qctxt->lqc_sb)->files[i] == NULL)
-                        continue;
+		if (sb_dqopt(qctxt->lqc_sb)->files[i] == NULL)
+			continue;
 
-#ifndef KERNEL_SUPPORTS_QUOTA_READ
-                rc = fsfilt_qids(obd, sb_dqopt(qctxt->lqc_sb)->files[i], NULL,
-                                 i, &id_list);
-#else
-                rc = fsfilt_qids(obd, NULL, sb_dqopt(qctxt->lqc_sb)->files[i],
-                                 i, &id_list);
-#endif
-                if (rc) {
-                        CERROR("%s: failed to get %s qids!\n", obd->obd_name,
-                               i ? "group" : "user");
-                        continue;
-                }
+		rc = fsfilt_qids(obd, NULL, sb_dqopt(qctxt->lqc_sb)->files[i],
+				 i, &id_list);
+		if (rc) {
+			CERROR("%s: failed to get %s qids!\n", obd->obd_name,
+			       i ? "group" : "user");
+			continue;
+		}
 
-                cfs_list_for_each_entry_safe(dqid, tmp, &id_list,
-                                             di_link) {
-                        struct lustre_qunit_size *lqs;
+		cfs_list_for_each_entry_safe(dqid, tmp, &id_list,
+					     di_link) {
+			struct lustre_qunit_size *lqs;
 
-                        cfs_list_del_init(&dqid->di_link);
-                        lqs = quota_search_lqs(LQS_KEY(i, dqid->di_id),
-                                               qctxt, 1);
-                        if (lqs && !IS_ERR(lqs)) {
-                                lqs->lqs_flags |= dqid->di_flag;
-                                lqs_putref(lqs);
-                        } else {
-                                CERROR("%s: failed to create a lqs for %sid %u"
-                                       "\n", obd->obd_name, i ? "g" : "u",
-                                       dqid->di_id);
-                        }
+			cfs_list_del_init(&dqid->di_link);
+			lqs = quota_search_lqs(LQS_KEY(i, dqid->di_id),
+					       qctxt, 1);
+			if (lqs && !IS_ERR(lqs)) {
+				lqs->lqs_flags |= dqid->di_flag;
+				lqs_putref(lqs);
+			} else {
+				CERROR("%s: failed to create a lqs for %sid %u"
+				       "\n", obd->obd_name, i ? "g" : "u",
+				       dqid->di_id);
+			}
 
-                        OBD_FREE_PTR(dqid);
-                }
-        }
+			OBD_FREE_PTR(dqid);
+		}
+	}
 }
 
 /**
