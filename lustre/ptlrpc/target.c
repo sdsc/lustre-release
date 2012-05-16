@@ -42,6 +42,7 @@
 #include <obd.h>
 #include <lustre_fsfilt.h>
 #include <obd_class.h>
+#include <lustre_fid.h>
 
 /**
  * Update client data in last_rcvd file. An obd API
@@ -458,9 +459,12 @@ EXPORT_SYMBOL(lut_new_client_cb_add);
 int lut_init(const struct lu_env *env, struct lu_target *lut,
              struct obd_device *obd, struct dt_device *dt)
 {
-        struct lu_fid fid;
-        struct dt_object *o;
-        int rc = 0;
+	struct dt_object_format	 dof;
+	struct lu_attr		 attr;
+	struct lu_fid		 fid;
+	struct dt_object	*o;
+	int			 rc = 0;
+
         ENTRY;
 
         LASSERT(lut);
@@ -480,17 +484,25 @@ int lut_init(const struct lu_env *env, struct lu_target *lut,
         /** obdfilter has no lu_device stack yet */
         if (dt == NULL)
                 RETURN(rc);
-        o = dt_store_open(env, lut->lut_bottom, "", LAST_RCVD, &fid);
-        if (!IS_ERR(o)) {
-                lut->lut_last_rcvd = o;
-        } else {
-                OBD_FREE(lut->lut_client_bitmap, LR_MAX_CLIENTS >> 3);
-                lut->lut_client_bitmap = NULL;
-                rc = PTR_ERR(o);
-                CERROR("cannot open %s: rc = %d\n", LAST_RCVD, rc);
-        }
 
-        RETURN(rc);
+	memset(&attr, 0, sizeof(attr));
+	attr.la_valid = LA_MODE;
+	attr.la_mode = S_IFREG | 0666;
+	dof.dof_type = DFT_REGULAR;
+
+	lu_local_obj_fid(&fid, MDT_LAST_RECV_OID);
+
+	o = dt_find_or_create(env, lut->lut_bottom, &fid, &dof, &attr);
+	if (!IS_ERR(o)) {
+		lut->lut_last_rcvd = o;
+	} else {
+		OBD_FREE(lut->lut_client_bitmap, LR_MAX_CLIENTS >> 3);
+		lut->lut_client_bitmap = NULL;
+		rc = PTR_ERR(o);
+		CERROR("cannot open %s: rc = %d\n", LAST_RCVD, rc);
+	}
+
+	RETURN(rc);
 }
 EXPORT_SYMBOL(lut_init);
 
