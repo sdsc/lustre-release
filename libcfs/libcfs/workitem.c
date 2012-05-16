@@ -152,7 +152,7 @@ cfs_wi_exit(struct cfs_wi_sched *sched, cfs_workitem_t *wi)
         LASSERT (wi->wi_running);
 #endif
         if (wi->wi_scheduled) { /* cancel pending schedules */
-                LASSERT(!cfs_list_empty(&wi->wi_list));
+		LASSERT(!cfs_list_empty(&wi->wi_list));
                 cfs_list_del_init(&wi->wi_list);
 
 		LASSERT(sched->ws_nscheduled > 0);
@@ -184,7 +184,7 @@ cfs_wi_deschedule(struct cfs_wi_sched *sched, cfs_workitem_t *wi)
          * means the workitem will not be scheduled and will not have
          * any race with wi_action.
          */
-        cfs_wi_sched_lock(sched);
+	cfs_wi_sched_lock(sched);
 
         rc = !(wi->wi_running);
 
