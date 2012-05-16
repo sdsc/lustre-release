@@ -2270,6 +2270,41 @@ int lprocfs_write_frac_u64_helper(const char *buffer, unsigned long count,
 }
 EXPORT_SYMBOL(lprocfs_write_frac_u64_helper);
 
+/**
+ * Find the string \a name in the input \a buffer, and return a pointer to the
+ * NUL-terminated value immediately following \a name, reducing \a count
+ * appropriately.
+ * If \a name is not found the original \a buffer is returned.
+ */
+char *lprocfs_find_named_value(char *buffer, const char *name,
+				unsigned long *count)
+{
+	char *start;
+	char *end;
+
+	start = strnstr(name, buffer, *count);
+	if (start == NULL)
+		return buffer;
+
+	start += strlen(name);                             /* skip prefix */
+	while (start < buffer + *count && isspace(*start)) /* skip separator */
+		start++;
+
+	end = start;
+	while (end < buffer + *count && !isspace(*end))    /* NUL after value */
+		end++;
+
+	if (end < buffer + *count) {
+		*end = '\0';
+		*count = end - start;
+	} else {
+		*count -= start - buffer;
+	}
+
+	return start;
+}
+EXPORT_SYMBOL(lprocfs_find_named_value);
+
 int lprocfs_seq_create(cfs_proc_dir_entry_t *parent, char *name, mode_t mode,
                        struct file_operations *seq_fops, void *data)
 {
