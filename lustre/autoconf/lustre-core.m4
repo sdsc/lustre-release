@@ -1,5 +1,3 @@
-#* -*- mode: c; c-basic-offset: 8; indent-tabs-mode: nil; -*-
-#* vim:expandtab:shiftwidth=8:tabstop=8:
 #
 # LC_CONFIG_SRCDIR
 #
@@ -716,6 +714,25 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 # 2.6.18
+
+# LC_GET_SB_5_PARAMS
+# 2.6.18 get_sb wants 5 parameters
+AC_DEFUN([LC_GET_SB_5_PARAMS],
+[AC_MSG_CHECKING([get_sb wants 5 args])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/fs.h>
+],[
+	struct file_system_type dummy;
+	struct vfsmount mnt;
+	dummy.get_sb(NULL, 0, NULL, NULL, NULL);
+],[
+	AC_MSG_RESULT(yes)
+	AC_DEFINE(GET_SB_5_PARAMS, 1,
+		  [get_sb wants 5 args])
+],[
+	AC_MSG_RESULT(no)
+])
+])
 
 # LC_NR_PAGECACHE
 # 2.6.18 don't export nr_pagecahe
@@ -2040,7 +2057,8 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_INODE_IPRIVATE
          LC_DQUOTOFF_MUTEX
 
-         # 2.6.18
+	 # 2.6.18
+	 LC_GET_SB_5_PARAMS
          LC_NR_PAGECACHE
          LC_STATFS_DENTRY_PARAM
          LC_UMOUNTBEGIN_HAS_VFSMOUNT

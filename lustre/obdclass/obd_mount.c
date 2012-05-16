@@ -2381,19 +2381,21 @@ void lustre_register_kill_super_cb(void (*cfs)(struct super_block *sb))
 
 /***************** FS registration ******************/
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,18))
+#ifndef GET_SB_5_PARAMS
 struct super_block * lustre_get_sb(struct file_system_type *fs_type, int flags,
-                                   const char *devname, void * data)
+				   const char *devname, void * data)
 {
-        return get_sb_nodev(fs_type, flags, data, lustre_fill_super);
+	struct lustre_mount_data2 lmd2 = {data, NULL};
+
+	return get_sb_nodev(fs_type, flags, &lmd2, lustre_fill_super);
 }
 #else
 int lustre_get_sb(struct file_system_type *fs_type, int flags,
-                  const char *devname, void * data, struct vfsmount *mnt)
+		  const char *devname, void * data, struct vfsmount *mnt)
 {
-        struct lustre_mount_data2 lmd2 = {data, mnt};
+	struct lustre_mount_data2 lmd2 = {data, mnt};
 
-        return get_sb_nodev(fs_type, flags, &lmd2, lustre_fill_super, mnt);
+	return get_sb_nodev(fs_type, flags, &lmd2, lustre_fill_super, mnt);
 }
 #endif
 
