@@ -363,25 +363,27 @@ static int ll_wr_max_read_ahead_whole_mb(struct file *file, const char *buffer,
 static int ll_rd_max_cached_mb(char *page, char **start, off_t off,
                                int count, int *eof, void *data)
 {
-        struct super_block *sb = data;
-        struct ll_sb_info *sbi = ll_s2sbi(sb);
-        long pages_number;
-        int mult;
+	struct super_block *sb = data;
+	struct ll_sb_info *sbi = ll_s2sbi(sb);
+	struct cl_client_lru *lru = &sbi->ll_lru;
 
-        cfs_spin_lock(&sbi->ll_lock);
-        pages_number = sbi->ll_async_page_max;
-        cfs_spin_unlock(&sbi->ll_lock);
-
-        mult = 1 << (20 - CFS_PAGE_SHIFT);
-        return lprocfs_read_frac_helper(page, count, pages_number, mult);;
+	*eof = 1;
+	return snprintf(page, count, "llite lru [ users: %d, total %luM, "
+			"left: %dP, reclaim count: %u ].\n",
+			cfs_atomic_read(&lru->ccl_refc),
+			lru->ccl_page_max >> (20 - CFS_PAGE_SHIFT),
+			cfs_atomic_read(&lru->ccl_page_left),
+			lru->ccl_reclaim_count);
 }
 
 static int ll_wr_max_cached_mb(struct file *file, const char *buffer,
                                unsigned long count, void *data)
 {
-        struct super_block *sb = data;
-        struct ll_sb_info *sbi = ll_s2sbi(sb);
-        int mult, rc, pages_number;
+	struct super_block *sb = data;
+	struct ll_sb_info *sbi = ll_s2sbi(sb);
+	struct cl_client_lru *lru = &sbi->ll_lru;
+	int mult, rc, pages_number;
+	int diff = 0;
 
         mult = 1 << (20 - CFS_PAGE_SHIFT);
         rc = lprocfs_write_frac_helper(buffer, count, &pages_number, mult);
@@ -394,15 +396,41 @@ static int ll_wr_max_cached_mb(struct file *file, const char *buffer,
                 return -ERANGE;
         }
 
-        cfs_spin_lock(&sbi->ll_lock);
-        sbi->ll_async_page_max = pages_number ;
-        cfs_spin_unlock(&sbi->ll_lock);
+	cfs_spin_lock(&sbi->ll_lock);
+	diff = pages_number - lru->ccl_page_max;
+	lru->ccl_page_max = pages_number;
+	cfs_spin_unlock(&sbi->ll_lock);
 
-        if (!sbi->ll_dt_exp)
-                /* Not set up yet, don't call llap_shrink_cache */
-                return count;
+	/* easy - add more lru slots. */
+	if (diff >= 0) {
+		cfs_atomic_add(diff, &lru->ccl_page_left);
+		return count;
+	}
 
-        return count;
+	/* difficult - reduce lru slots, but it has enough free slots. */
+	diff = -diff;
+	do {
+		rc = cfs_atomic_read(&lru->ccl_page_left);
+		mult = rc > diff ? rc - diff : 0;
+		mult = cfs_atomic_cmpxchg(&lru->ccl_page_left, rc, mult);
+		if (likely(rc == mult))
+			break;
+	} while (1);
+	if (rc >= diff)
+		return count;
+
+	if (sbi->ll_dt_exp == NULL)
+		return count;
+
+	/* more difficult - have to ask oscs to free lru slots. */
+	diff -= rc;
+	while (diff > 0) {
+		rc = obd_set_info_async(NULL, sbi->ll_dt_exp,
+				sizeof(KEY_LRU_SHRINK), KEY_LRU_SHRINK,
+				sizeof(diff), &diff, NULL);
+	}
+
+	return count;
 }
 
 static int ll_rd_checksum(char *page, char **start, off_t off,

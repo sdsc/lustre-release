@@ -152,6 +152,18 @@ static inline unsigned long hash_x_index(__u64 hash, int hash64)
         return ~0UL - hash;
 }
 
+/**
+ * Data structures for LRU management on lustre client mount
+ */
+struct cl_client_lru {
+	cfs_atomic_t   ccl_refc; /* how many users for this data */
+	unsigned long  ccl_page_max;
+	cfs_atomic_t   ccl_page_left;
+	cfs_spinlock_t ccl_lock; /* lock for list */
+	cfs_list_t     ccl_list; /* entities for lru - actually osc list */
+	unsigned int   ccl_reclaim_count; /* statistics */
+};
+
 /** @} lite */
 
 #endif
