@@ -369,7 +369,7 @@ brw_bulk_ready (srpc_server_rpc_t *rpc, int status)
 int
 brw_server_handle (srpc_server_rpc_t *rpc)
 {
-        srpc_service_t   *sv = rpc->srpc_service;
+	struct srpc_service	*sv = rpc->srpc_scd->scd_svc;
         srpc_msg_t       *replymsg = &rpc->srpc_replymsg;
         srpc_msg_t       *reqstmsg = &rpc->srpc_reqstbuf->buf_msg;
         srpc_brw_reply_t *reply = &replymsg->msg_body.brw_reply;
