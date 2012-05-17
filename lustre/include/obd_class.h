@@ -1684,6 +1684,48 @@ static inline int obd_register_observer(struct obd_device *obd,
         RETURN(0);
 }
 
+static inline
+int obd_register_observer_with_osc(struct obd_device *obd,
+                               struct obd_device *observer)
+{
+        ENTRY;
+        OBD_CHECK_DEV(obd);
+
+        down_write(&obd->obd_observer_link_sem);
+        if (obd->obd_observer && observer) {
+                up_write(&obd->obd_observer_link_sem);
+                RETURN(-EALREADY);
+        } else if (!observer) {
+                up_write(&obd->obd_observer_link_sem);
+                RETURN(-EINVAL);
+        }
+        obd->obd_observer = observer;
+        class_incref(obd->obd_observer);
+        up_write(&obd->obd_observer_link_sem);
+
+        RETURN(0);
+}
+
+static inline
+int obd_unregister_observer_with_osc(struct obd_device *obd)
+{
+         struct obd_device *observer;
+         ENTRY;
+         OBD_CHECK_DEV(obd);
+
+         down_write(&obd->obd_observer_link_sem);
+         if (!obd->obd_observer) {
+                 up_write(&obd->obd_observer_link_sem);
+                 RETURN(0);
+         }
+         observer = obd->obd_observer;
+         obd->obd_observer = NULL;
+         class_decref(observer);
+         up_write(&obd->obd_observer_link_sem);
+
+         RETURN(0);
+}
+
 static inline int obd_pin_observer(struct obd_device *obd,
                                    struct obd_device **observer)
 {
