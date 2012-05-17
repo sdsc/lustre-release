@@ -303,7 +303,7 @@ static int lov_connect_obd(struct obd_device *obd, __u32 index, int activate,
                 ptlrpc_activate_import(imp);
         }
 
-        rc = obd_register_observer(tgt_obd, obd);
+        rc = obd_register_observer_with_osc(tgt_obd, obd);
         if (rc) {
                 CERROR("Target %s register_observer error %d; "
                         "will not be able to reactivate\n",
@@ -471,8 +471,6 @@ static int lov_disconnect_obd(struct obd_device *obd, struct lov_tgt_desc *tgt)
                         osc_obd->obd_force = 1;
         }
 
-        obd_register_observer(osc_obd, NULL);
-
         obd_unregister_page_removal_cb(osc_obd, lov->lov_page_removal_cb);
         obd_unregister_lock_cancel_cb(osc_obd, lov->lov_lock_cancel_cb);
 
@@ -486,6 +484,8 @@ static int lov_disconnect_obd(struct obd_device *obd, struct lov_tgt_desc *tgt)
         qos_del_tgt(obd, tgt);
 
         tgt->ltd_exp = NULL;
+
+        obd_unregister_observer_with_osc(osc_obd);
 
         RETURN(0);
 }
