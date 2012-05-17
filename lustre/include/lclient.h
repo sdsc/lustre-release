@@ -404,4 +404,11 @@ int  cl_get_grouplock(struct cl_object *obj, unsigned long gid, int nonblock,
                       struct ccc_grouplock *cg);
 void cl_put_grouplock(struct ccc_grouplock *cg);
 
+struct lov_stripe_md *cl_lsm_get(struct inode *inode);
+void cl_lsm_put(struct inode *inode, struct lov_stripe_md *lsm);
+
+struct lov_stripe_md *lov_lsm_get(struct cl_object *clobj);
+void lov_lsm_put(struct cl_object *clobj, struct lov_stripe_md *lsm);
+int lov_test_and_clear_async_rc(struct cl_object *clob);
+
 #endif /*LCLIENT_H */

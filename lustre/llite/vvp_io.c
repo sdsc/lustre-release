@@ -328,9 +328,9 @@ static int vvp_do_vmtruncate(struct inode *inode, size_t size)
          * Only ll_inode_size_lock is taken at this level. lov_stripe_lock()
          * is grabbed by ll_truncate() only over call to obd_adjust_kms().
          */
-        ll_inode_size_lock(inode, 0);
+        ll_inode_size_lock(inode);
         result = vmtruncate(inode, size);
-        ll_inode_size_unlock(inode, 0);
+        ll_inode_size_unlock(inode);
 
         return result;
 }
@@ -1047,7 +1047,7 @@ static int vvp_io_commit_write(const struct lu_env *env,
 
         size = cl_offset(obj, pg->cp_index) + to;
 
-        ll_inode_size_lock(inode, 0);
+        ll_inode_size_lock(inode);
         if (result == 0) {
                 if (size > i_size_read(inode)) {
                         cl_isize_write_nolock(inode, size);
@@ -1060,7 +1060,7 @@ static int vvp_io_commit_write(const struct lu_env *env,
                 if (size > i_size_read(inode))
                         cl_page_discard(env, io, pg);
         }
-        ll_inode_size_unlock(inode, 0);
+        ll_inode_size_unlock(inode);
         RETURN(result);
 }
 
