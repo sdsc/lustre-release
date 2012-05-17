@@ -140,7 +140,7 @@ static inline int agl_should_run(struct ll_statahead_info *sai,
                                  struct inode *inode)
 {
         if (inode != NULL && S_ISREG(inode->i_mode) &&
-            ll_i2info(inode)->lli_smd != NULL && sai->sai_agl_valid)
+            ll_i2info(inode)->lli_has_smd && sai->sai_agl_valid)
                 return 1;
         return 0;
 }

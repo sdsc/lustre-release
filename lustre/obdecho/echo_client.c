@@ -525,7 +525,6 @@ static void echo_object_free(const struct lu_env *env, struct lu_object *obj)
 {
         struct echo_object *eco    = cl2echo_obj(lu2cl(obj));
         struct echo_client_obd *ec = eco->eo_dev->ed_ec;
-        struct lov_stripe_md *lsm  = eco->eo_lsm;
         ENTRY;
 
         LASSERT(cfs_atomic_read(&eco->eo_npages) == 0);
@@ -537,8 +536,8 @@ static void echo_object_free(const struct lu_env *env, struct lu_object *obj)
         lu_object_fini(obj);
         lu_object_header_fini(obj->lo_header);
 
-        if (lsm)
-                obd_free_memmd(ec->ec_exp, &lsm);
+        if (eco->eo_lsm)
+                obd_free_memmd(ec->ec_exp, &eco->eo_lsm);
         OBD_SLAB_FREE_PTR(eco, echo_object_kmem);
         EXIT;
 }
