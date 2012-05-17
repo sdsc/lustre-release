@@ -2614,19 +2614,16 @@ lov_objid_size()
 
 test_55() {
 	local mdsdev=$(mdsdevname 1)
-	local ostdev=$(ostdevname 1)
-	local saved_opts=$OST_MKFS_OPTS
 
 	for i in 1023 2048
 	do
-		OST_MKFS_OPTS="$saved_opts --index $i"
-		reformat
-
-		setup_noconfig
-		stopall
-
+		add mds1 $(mkfs_opts mds)  --backfstype $MDSFSTYPE \
+			--index 0 --reformat $mdsdev || exit 10
+		add ost1 $(mkfs_opts ost)  --backfstype $OSTFSTYPE \
+			--index $i --reformat $(ostdevname 1)
 		setup
 		sync
+
 		echo checking size of lov_objid for ost index $i
 		LOV_OBJID_SIZE=$(do_facet mds1 "$DEBUGFS -R 'stat lov_objid' $mdsdev 2>/dev/null" | grep ^User | awk '{print $6}')
 		if [ "$LOV_OBJID_SIZE" != $(lov_objid_size $i) ]; then
@@ -2637,7 +2634,6 @@ test_55() {
 		stopall
 	done
 
-	OST_MKFS_OPTS=$saved_opts
 	reformat
 }
 run_test 55 "check lov_objid size"
