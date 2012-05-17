@@ -943,6 +943,8 @@ struct lu_context {
          * from enum lu_context_tag.
          */
         __u32                  lc_tags;
+	/** lock ID */
+	unsigned		lc_guard;
         /**
          * Pointer to the home service thread. NULL for other execution
          * contexts.
@@ -1100,11 +1102,11 @@ struct lu_context_key {
          * reserved for this key.
          */
         int      lct_index;
-        /**
-         * Internal implementation detail: number of values created for this
-         * key.
-         */
-        cfs_atomic_t lct_used;
+	/**
+	 * Internal implementation detail: number of values created for this
+	 * key, it's percpt refcount.
+	 */
+	cfs_atomic_t **lct_refs;
         /**
          * Internal implementation detail: module for this key.
          */
