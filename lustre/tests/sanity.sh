@@ -5525,6 +5525,40 @@ test_102k() {
 }
 run_test 102k "setfattr without parameter of value shouldn't cause a crash"
 
+test_102l() {
+	# LU-532 trusted. xattr is invisible to non-root
+	local testfile=$DIR/$tfile
+
+	touch $testfile
+
+	[ "$UID" != 0 ] && skip_env "must run as root" && return
+	[ -z "`lctl get_param -n mdc.*-mdc-*.connect_flags | grep xattr`" ] &&
+		skip_env "must have user_xattr" && return
+
+	[ -z "$(which setfattr 2>/dev/null)" ] &&
+		skip_env "could not find setfattr" && return
+
+	echo "listxattr as root..."
+	setfattr -n trusted.name1 -v value1 $testfile ||
+		error "$testfile unable to set trusted.name1"
+	setfattr -n trusted.name2 -v value2 $testfile ||
+		error "$testfile unable to set trusted.name2"
+	setfattr -n trusted.name3 -v value3 $testfile ||
+		error "$testfile unable to set trusted.name3"
+	[ $(getfattr -d -m "^trusted" $testfile 2> /dev/null |
+	    grep "trusted.name" | wc -l) -eq 3 ] ||
+		error "$testfile missing 3 trusted.name xattrs"
+
+	echo "listxattr as user..."
+	chown $RUNAS_ID $testfile
+	$RUNAS getfattr -d -m "^trusted" $testfile 2>&1 |
+	    grep -q "trusted.name" &&
+		error "$testfile trusted.name xattrs are user visible"
+
+	return 0;
+}
+run_test 102l "listxattr filter test =================================="
+
 cleanup_test102
 
 run_acl_subtest()
