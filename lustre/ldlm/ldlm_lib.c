@@ -464,6 +464,8 @@ int client_disconnect_export(struct obd_export *exp)
         cli = &obd->u.cli;
         imp = cli->cl_import;
 
+        if (obd->obd_observer)
+                obd_getref(obd->obd_observer);
         down_write(&cli->cl_sem);
         CDEBUG(D_INFO, "disconnect %s - %d\n", obd->obd_name,
                cli->cl_conn_count);
@@ -519,6 +521,9 @@ int client_disconnect_export(struct obd_export *exp)
         if (!rc && err)
                 rc = err;
         up_write(&cli->cl_sem);
+
+        if (obd->obd_observer)
+                obd_putref(obd->obd_observer);
 
         RETURN(rc);
 }
