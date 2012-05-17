@@ -1231,23 +1231,25 @@ enum {
         LU_CONTEXT_KEY_NR = 32
 };
 
-static struct lu_context_key *lu_keys[LU_CONTEXT_KEY_NR] = { NULL, };
-
-static cfs_spinlock_t lu_keys_guard = CFS_SPIN_LOCK_UNLOCKED;
-
-/**
- * Global counter incremented whenever key is registered, unregistered,
- * revived or quiesced. This is used to void unnecessary calls to
- * lu_context_refill(). No locking is provided, as initialization and shutdown
- * are supposed to be externally serialized.
- */
-static unsigned key_set_version = 0;
+struct lu_key_data {
+	struct cfs_percpt_lock	*kd_guard;
+	struct lu_context_key	*kd_keys[LU_CONTEXT_KEY_NR];
+	cfs_list_t		**kd_remembered;
+	/**
+	 * Global counter incremented whenever key is registered, unregistered,
+	 * revived or quiesced. This is used to void unnecessary calls to
+	 * lu_context_refill(). No locking is provided, as initialization and
+	 * shutdown are supposed to be externally serialized.
+	 */
+	unsigned		kd_set_version;
+} lu_key_data;
 
 /**
  * Register new key.
  */
 int lu_context_key_register(struct lu_context_key *key)
 {
+	cfs_atomic_t **refs;
         int result;
         int i;
 
@@ -1256,44 +1258,63 @@ int lu_context_key_register(struct lu_context_key *key)
         LASSERT(key->lct_tags != 0);
         LASSERT(key->lct_owner != NULL);
 
-        result = -ENFILE;
-        cfs_spin_lock(&lu_keys_guard);
-        for (i = 0; i < ARRAY_SIZE(lu_keys); ++i) {
-                if (lu_keys[i] == NULL) {
-                        key->lct_index = i;
-                        cfs_atomic_set(&key->lct_used, 1);
-                        lu_keys[i] = key;
-                        lu_ref_init(&key->lct_reference);
-                        result = 0;
-                        ++key_set_version;
-                        break;
-                }
-        }
-        cfs_spin_unlock(&lu_keys_guard);
-        return result;
+	refs = cfs_percpt_atomic_alloc(cfs_cpt_table, 0);
+	if (refs == NULL)
+		return -ENOMEM;
+
+	result = -ENFILE;
+	cfs_percpt_lock(lu_key_data.kd_guard, CFS_PERCPT_LOCK_EX);
+
+	for (i = 0; i < ARRAY_SIZE(lu_key_data.kd_keys); ++i) {
+		if (lu_key_data.kd_keys[i] == NULL) {
+			key->lct_index = i;
+
+			LASSERT(key->lct_refs == NULL);
+			key->lct_refs = refs;
+			refs = NULL;
+
+			cfs_atomic_set(key->lct_refs[0], 1);
+			lu_key_data.kd_keys[i] = key;
+			lu_ref_init(&key->lct_reference);
+
+
+			result = 0;
+			++lu_key_data.kd_set_version;
+			break;
+		}
+	}
+	cfs_percpt_unlock(lu_key_data.kd_guard, CFS_PERCPT_LOCK_EX);
+
+	if (refs != NULL)
+		cfs_percpt_atomic_free(refs);
+
+	return result;
 }
 EXPORT_SYMBOL(lu_context_key_register);
 
 static void key_fini(struct lu_context *ctx, int index)
 {
-        if (ctx->lc_value != NULL && ctx->lc_value[index] != NULL) {
-                struct lu_context_key *key;
+	if (ctx->lc_value != NULL && ctx->lc_value[index] != NULL) {
+		struct lu_context_key *key;
 
-                key = lu_keys[index];
-                LASSERT(key != NULL);
-                LASSERT(key->lct_fini != NULL);
-                LASSERT(cfs_atomic_read(&key->lct_used) > 1);
+		key = lu_key_data.kd_keys[index];
+		LASSERT(key != NULL);
+		LASSERT(key->lct_fini != NULL);
 
-                key->lct_fini(ctx, key, ctx->lc_value[index]);
-                lu_ref_del(&key->lct_reference, "ctx", ctx);
-                cfs_atomic_dec(&key->lct_used);
-                LASSERT(key->lct_owner != NULL);
-                if (!(ctx->lc_tags & LCT_NOREF)) {
-                        LASSERT(cfs_module_refcount(key->lct_owner) > 0);
-                        cfs_module_put(key->lct_owner);
-                }
-                ctx->lc_value[index] = NULL;
-        }
+		key->lct_fini(ctx, key, ctx->lc_value[index]);
+		lu_ref_del(&key->lct_reference, "ctx", ctx);
+
+		LASSERT(cfs_atomic_read(key->lct_refs[ctx->lc_guard]) > 0);
+		cfs_atomic_dec(key->lct_refs[ctx->lc_guard]);
+
+		LASSERT(key->lct_owner != NULL);
+		if (!(ctx->lc_tags & LCT_NOREF)) {
+			/* NB: module_refcount is too heavy to assert at here
+			 * LASSERT(cfs_module_refcount(key->lct_owner) > 0); */
+			cfs_module_put(key->lct_owner);
+		}
+		ctx->lc_value[index] = NULL;
+	}
 }
 
 /**
@@ -1301,23 +1322,41 @@ static void key_fini(struct lu_context *ctx, int index)
  */
 void lu_context_key_degister(struct lu_context_key *key)
 {
-        LASSERT(cfs_atomic_read(&key->lct_used) >= 1);
-        LINVRNT(0 <= key->lct_index && key->lct_index < ARRAY_SIZE(lu_keys));
+	cfs_atomic_t	**refs = NULL;
+	int		total;
 
-        lu_context_key_quiesce(key);
+	LINVRNT(0 <= key->lct_index &&
+		key->lct_index < ARRAY_SIZE(lu_key_data.kd_keys));
 
-        ++key_set_version;
-        cfs_spin_lock(&lu_keys_guard);
-        key_fini(&lu_shrink_env.le_ctx, key->lct_index);
-        if (lu_keys[key->lct_index]) {
-                lu_keys[key->lct_index] = NULL;
-                lu_ref_fini(&key->lct_reference);
-        }
-        cfs_spin_unlock(&lu_keys_guard);
+	lu_context_key_quiesce(key);
 
-        LASSERTF(cfs_atomic_read(&key->lct_used) == 1,
-                 "key has instances: %d\n",
-                 cfs_atomic_read(&key->lct_used));
+	++lu_key_data.kd_set_version;
+	cfs_percpt_lock(lu_key_data.kd_guard, CFS_PERCPT_LOCK_EX);
+
+	if (lu_key_data.kd_keys[key->lct_index] != key) {
+		LASSERTF(0, "key %p(%d) has been degistered or never "
+			    "registered: %p\n", key, key->lct_index,
+			 lu_key_data.kd_keys[key->lct_index]);
+		cfs_percpt_unlock(lu_key_data.kd_guard, CFS_PERCPT_LOCK_EX);
+		return;
+	}
+
+	key_fini(&lu_shrink_env.le_ctx, key->lct_index);
+	lu_key_data.kd_keys[key->lct_index] = NULL;
+	lu_ref_fini(&key->lct_reference);
+
+	LASSERT(key->lct_refs != NULL);
+	cfs_atomic_dec(key->lct_refs[0]);
+
+	total = cfs_percpt_atomic_summary(key->lct_refs);
+	LASSERTF(total == 0, "key has instances: %d\n", total);
+
+	refs = key->lct_refs;
+	key->lct_refs = NULL;
+
+	cfs_percpt_unlock(lu_key_data.kd_guard, CFS_PERCPT_LOCK_EX);
+
+	cfs_percpt_atomic_free(refs);
 }
 EXPORT_SYMBOL(lu_context_key_degister);
 
@@ -1408,10 +1447,11 @@ EXPORT_SYMBOL(lu_context_key_quiesce_many);
 void *lu_context_key_get(const struct lu_context *ctx,
                          const struct lu_context_key *key)
 {
-        LINVRNT(ctx->lc_state == LCS_ENTERED);
-        LINVRNT(0 <= key->lct_index && key->lct_index < ARRAY_SIZE(lu_keys));
-        LASSERT(lu_keys[key->lct_index] == key);
-        return ctx->lc_value[key->lct_index];
+	LINVRNT(ctx->lc_state == LCS_ENTERED);
+	LINVRNT(0 <= key->lct_index &&
+		key->lct_index < ARRAY_SIZE(lu_key_data.kd_keys));
+	LASSERT(lu_key_data.kd_keys[key->lct_index] == key);
+	return ctx->lc_value[key->lct_index];
 }
 EXPORT_SYMBOL(lu_context_key_get);
 
@@ -1431,6 +1471,9 @@ void lu_context_key_quiesce(struct lu_context_key *key)
         extern unsigned cl_env_cache_purge(unsigned nr);
 
         if (!(key->lct_tags & LCT_QUIESCENT)) {
+		cfs_list_t	*head;
+		int		i;
+
                 /*
                  * XXX layering violation.
                  */
@@ -1439,36 +1482,47 @@ void lu_context_key_quiesce(struct lu_context_key *key)
                 /*
                  * XXX memory barrier has to go here.
                  */
-                cfs_spin_lock(&lu_keys_guard);
-                cfs_list_for_each_entry(ctx, &lu_context_remembered,
-                                        lc_remember)
-                        key_fini(ctx, key->lct_index);
-                cfs_spin_unlock(&lu_keys_guard);
-                ++key_set_version;
+		cfs_percpt_lock(lu_key_data.kd_guard, CFS_PERCPT_LOCK_EX);
+		cfs_percpt_for_each(head, i, lu_key_data.kd_remembered) {
+			cfs_list_for_each_entry(ctx, head, lc_remember)
+				key_fini(ctx, key->lct_index);
+		}
+		cfs_percpt_unlock(lu_key_data.kd_guard, CFS_PERCPT_LOCK_EX);
+		++lu_key_data.kd_set_version;
         }
 }
 EXPORT_SYMBOL(lu_context_key_quiesce);
 
 void lu_context_key_revive(struct lu_context_key *key)
 {
-        key->lct_tags &= ~LCT_QUIESCENT;
-        ++key_set_version;
+	key->lct_tags &= ~LCT_QUIESCENT;
+	++lu_key_data.kd_set_version;
 }
 EXPORT_SYMBOL(lu_context_key_revive);
 
 static void keys_fini(struct lu_context *ctx)
 {
-        int i;
+	void	**values = NULL;
+	int	i;
 
-        cfs_spin_lock(&lu_keys_guard);
-        if (ctx->lc_value != NULL) {
-                for (i = 0; i < ARRAY_SIZE(lu_keys); ++i)
-                        key_fini(ctx, i);
-                OBD_FREE(ctx->lc_value,
-                         ARRAY_SIZE(lu_keys) * sizeof ctx->lc_value[0]);
-                ctx->lc_value = NULL;
-        }
-        cfs_spin_unlock(&lu_keys_guard);
+	cfs_percpt_lock(lu_key_data.kd_guard, ctx->lc_guard);
+
+	if (ctx->lc_value != NULL) {
+		for (i = 0; i < ARRAY_SIZE(lu_key_data.kd_keys); ++i)
+			key_fini(ctx, i);
+		values = ctx->lc_value;
+		ctx->lc_value = NULL;
+	}
+
+	if (!cfs_list_empty(&ctx->lc_remember))
+		cfs_list_del_init(&ctx->lc_remember);
+
+	cfs_percpt_unlock(lu_key_data.kd_guard, ctx->lc_guard);
+
+	if (values != NULL) {
+		OBD_FREE(values, ARRAY_SIZE(lu_key_data.kd_keys) *
+				 sizeof(values[0]));
+	}
 }
 
 static int keys_fill(struct lu_context *ctx)
@@ -1476,10 +1530,10 @@ static int keys_fill(struct lu_context *ctx)
         int i;
 
         LINVRNT(ctx->lc_value != NULL);
-        for (i = 0; i < ARRAY_SIZE(lu_keys); ++i) {
-                struct lu_context_key *key;
+	for (i = 0; i < ARRAY_SIZE(lu_key_data.kd_keys); ++i) {
+		struct lu_context_key *key;
 
-                key = lu_keys[i];
+		key = lu_key_data.kd_keys[i];
                 if (ctx->lc_value[i] == NULL && key != NULL &&
                     (key->lct_tags & ctx->lc_tags) &&
                     /*
@@ -1500,7 +1554,7 @@ static int keys_fill(struct lu_context *ctx)
                         if (!(ctx->lc_tags & LCT_NOREF))
                                 cfs_try_module_get(key->lct_owner);
                         lu_ref_add_atomic(&key->lct_reference, "ctx", ctx);
-                        cfs_atomic_inc(&key->lct_used);
+			cfs_atomic_inc(key->lct_refs[ctx->lc_guard]);
                         /*
                          * This is the only place in the code, where an
                          * element of ctx->lc_value[] array is set to non-NULL
@@ -1510,7 +1564,7 @@ static int keys_fill(struct lu_context *ctx)
                         if (key->lct_exit != NULL)
                                 ctx->lc_tags |= LCT_HAS_EXIT;
                 }
-                ctx->lc_version = key_set_version;
+		ctx->lc_version = lu_key_data.kd_set_version;
         }
         return 0;
 }
@@ -1519,7 +1573,20 @@ static int keys_init(struct lu_context *ctx)
 {
         int result;
 
-        OBD_ALLOC(ctx->lc_value, ARRAY_SIZE(lu_keys) * sizeof ctx->lc_value[0]);
+	ctx->lc_guard = cfs_cpt_current(cfs_cpt_table, 1);
+
+	if ((ctx->lc_tags & LCT_REMEMBER) != 0) {
+		cfs_list_t *head = lu_key_data.kd_remembered[ctx->lc_guard];
+
+		cfs_percpt_lock(lu_key_data.kd_guard, ctx->lc_guard);
+		cfs_list_add(&ctx->lc_remember, head);
+		cfs_percpt_unlock(lu_key_data.kd_guard, ctx->lc_guard);
+	} else {
+		CFS_INIT_LIST_HEAD(&ctx->lc_remember);
+	}
+
+	OBD_ALLOC(ctx->lc_value, ARRAY_SIZE(lu_key_data.kd_keys) *
+				 sizeof ctx->lc_value[0]);
         if (likely(ctx->lc_value != NULL))
                 result = keys_fill(ctx);
         else
@@ -1538,12 +1605,7 @@ int lu_context_init(struct lu_context *ctx, __u32 tags)
         memset(ctx, 0, sizeof *ctx);
         ctx->lc_state = LCS_INITIALIZED;
         ctx->lc_tags = tags;
-        if (tags & LCT_REMEMBER) {
-                cfs_spin_lock(&lu_keys_guard);
-                cfs_list_add(&ctx->lc_remember, &lu_context_remembered);
-                cfs_spin_unlock(&lu_keys_guard);
-        } else
-                CFS_INIT_LIST_HEAD(&ctx->lc_remember);
+
         return keys_init(ctx);
 }
 EXPORT_SYMBOL(lu_context_init);
@@ -1556,9 +1618,6 @@ void lu_context_fini(struct lu_context *ctx)
         LINVRNT(ctx->lc_state == LCS_INITIALIZED || ctx->lc_state == LCS_LEFT);
         ctx->lc_state = LCS_FINALIZED;
         keys_fini(ctx);
-        cfs_spin_lock(&lu_keys_guard);
-        cfs_list_del_init(&ctx->lc_remember);
-        cfs_spin_unlock(&lu_keys_guard);
 }
 EXPORT_SYMBOL(lu_context_fini);
 
@@ -1582,11 +1641,11 @@ void lu_context_exit(struct lu_context *ctx)
         LINVRNT(ctx->lc_state == LCS_ENTERED);
         ctx->lc_state = LCS_LEFT;
         if (ctx->lc_tags & LCT_HAS_EXIT && ctx->lc_value != NULL) {
-                for (i = 0; i < ARRAY_SIZE(lu_keys); ++i) {
-                        if (ctx->lc_value[i] != NULL) {
-                                struct lu_context_key *key;
+		for (i = 0; i < ARRAY_SIZE(lu_key_data.kd_keys); ++i) {
+			if (ctx->lc_value[i] != NULL) {
+				struct lu_context_key *key;
 
-                                key = lu_keys[i];
+				key = lu_key_data.kd_keys[i];
                                 LASSERT(key != NULL);
                                 if (key->lct_exit != NULL)
                                         key->lct_exit(ctx,
@@ -1599,12 +1658,13 @@ EXPORT_SYMBOL(lu_context_exit);
 
 /**
  * Allocate for context all missing keys that were registered after context
- * creation. key_set_version is only changed in rare cases when modules
- * are loaded and removed.
+ * creation. lu_key_data.kd_set_version is only changed in rare cases when
+ * modules are loaded and removed.
  */
 int lu_context_refill(struct lu_context *ctx)
 {
-        return likely(ctx->lc_version == key_set_version) ? 0 : keys_fill(ctx);
+	return likely(ctx->lc_version == lu_key_data.kd_set_version) ?
+					 0 : keys_fill(ctx);
 }
 EXPORT_SYMBOL(lu_context_refill);
 
@@ -1618,39 +1678,40 @@ EXPORT_SYMBOL(lu_context_refill);
 __u32 lu_context_tags_default = 0;
 __u32 lu_session_tags_default = 0;
 
+/* NB: protected by slot-0 of lu_key_data.kd_guard */
 void lu_context_tags_update(__u32 tags)
 {
-        cfs_spin_lock(&lu_keys_guard);
-        lu_context_tags_default |= tags;
-        key_set_version ++;
-        cfs_spin_unlock(&lu_keys_guard);
+	cfs_percpt_lock(lu_key_data.kd_guard, 0);
+	lu_context_tags_default |= tags;
+	lu_key_data.kd_set_version++;
+	cfs_percpt_unlock(lu_key_data.kd_guard, 0);
 }
 EXPORT_SYMBOL(lu_context_tags_update);
 
 void lu_context_tags_clear(__u32 tags)
 {
-        cfs_spin_lock(&lu_keys_guard);
-        lu_context_tags_default &= ~tags;
-        key_set_version ++;
-        cfs_spin_unlock(&lu_keys_guard);
+	cfs_percpt_lock(lu_key_data.kd_guard, 0);
+	lu_context_tags_default &= ~tags;
+	lu_key_data.kd_set_version++;
+	cfs_percpt_unlock(lu_key_data.kd_guard, 0);
 }
 EXPORT_SYMBOL(lu_context_tags_clear);
 
 void lu_session_tags_update(__u32 tags)
 {
-        cfs_spin_lock(&lu_keys_guard);
-        lu_session_tags_default |= tags;
-        key_set_version ++;
-        cfs_spin_unlock(&lu_keys_guard);
+	cfs_percpt_lock(lu_key_data.kd_guard, 0);
+	lu_session_tags_default |= tags;
+	lu_key_data.kd_set_version++;
+	cfs_percpt_unlock(lu_key_data.kd_guard, 0);
 }
 EXPORT_SYMBOL(lu_session_tags_update);
 
 void lu_session_tags_clear(__u32 tags)
 {
-        cfs_spin_lock(&lu_keys_guard);
-        lu_session_tags_default &= ~tags;
-        key_set_version ++;
-        cfs_spin_unlock(&lu_keys_guard);
+	cfs_percpt_lock(lu_key_data.kd_guard, 0);
+	lu_session_tags_default &= ~tags;
+	lu_key_data.kd_set_version++;
+	cfs_percpt_unlock(lu_key_data.kd_guard, 0);
 }
 EXPORT_SYMBOL(lu_session_tags_clear);
 
@@ -1823,22 +1884,23 @@ void lu_debugging_setup(void)
 
 void lu_context_keys_dump(void)
 {
-        int i;
+	int i;
 
-        for (i = 0; i < ARRAY_SIZE(lu_keys); ++i) {
-                struct lu_context_key *key;
+	for (i = 0; i < ARRAY_SIZE(lu_key_data.kd_keys); ++i) {
+		struct lu_context_key *key;
 
-                key = lu_keys[i];
+		key = lu_key_data.kd_keys[i];
                 if (key != NULL) {
-                        CERROR("[%d]: %p %x (%p,%p,%p) %d %d \"%s\"@%p\n",
-                               i, key, key->lct_tags,
-                               key->lct_init, key->lct_fini, key->lct_exit,
-                               key->lct_index, cfs_atomic_read(&key->lct_used),
-                               key->lct_owner ? key->lct_owner->name : "",
-                               key->lct_owner);
-                        lu_ref_print(&key->lct_reference);
-                }
-        }
+			CERROR("[%d]: %p %x (%p,%p,%p) %d %d \"%s\"@%p\n",
+			       i, key, key->lct_tags,
+			       key->lct_init, key->lct_fini,
+			       key->lct_exit, key->lct_index,
+			       cfs_percpt_atomic_summary(key->lct_refs),
+			       key->lct_owner ? key->lct_owner->name : "",
+			       key->lct_owner);
+			lu_ref_print(&key->lct_reference);
+		}
+	}
 }
 EXPORT_SYMBOL(lu_context_keys_dump);
 #else  /* !__KERNEL__ */
@@ -1864,9 +1926,28 @@ void llo_global_fini(void);
  */
 int lu_global_init(void)
 {
-        int result;
+	cfs_list_t	*head;
+	int		result;
+	int		i;
 
-        CDEBUG(D_INFO, "Lustre LU module (%p).\n", &lu_keys);
+	CDEBUG(D_INFO, "Lustre LU module (%p).\n", &lu_key_data.kd_keys);
+
+	memset(&lu_key_data, 0, sizeof(lu_key_data));
+	lu_key_data.kd_guard = cfs_percpt_lock_alloc(cfs_cpt_table);
+	if (lu_key_data.kd_guard == NULL) {
+		CERROR("Failed to initialize percpt lock for lu_key\n");
+		return -ENOMEM;
+	}
+
+	lu_key_data.kd_remembered = cfs_percpt_alloc(cfs_cpt_table,
+						     sizeof(cfs_list_t));
+	if (lu_key_data.kd_remembered == NULL) {
+		CERROR("Failed to allocate remembered list for lu_key\n");
+		return -ENOMEM;
+	}
+
+	cfs_percpt_for_each(head, i, lu_key_data.kd_remembered)
+		CFS_INIT_LIST_HEAD(head);
 
         result = lu_ref_global_init();
         if (result != 0)
@@ -1942,7 +2023,24 @@ void lu_global_fini(void)
         cfs_mutex_unlock(&lu_sites_guard);
 
         lu_ref_global_fini();
+
+	if (lu_key_data.kd_remembered != NULL) {
+		cfs_list_t	*head;
+		int		i;
+
+		cfs_percpt_for_each(head, i, lu_key_data.kd_remembered)
+			LASSERT(cfs_list_empty(head));
+
+		cfs_percpt_free(lu_key_data.kd_remembered);
+		lu_key_data.kd_remembered = NULL;
+	}
+
+	if (lu_key_data.kd_guard != NULL) {
+		cfs_percpt_lock_free(lu_key_data.kd_guard);
+		lu_key_data.kd_guard = NULL;
+	}
 }
+
 
 struct lu_buf LU_BUF_NULL = {
         .lb_buf = NULL,
