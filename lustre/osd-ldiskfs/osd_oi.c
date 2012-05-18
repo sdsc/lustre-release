@@ -73,6 +73,7 @@
 /* osd_lookup(), struct osd_thread_info */
 #include "osd_internal.h"
 #include "osd_igif.h"
+#include "osd_scrub.h"
 
 static unsigned int osd_oi_count = OSD_OI_FID_NR;
 CFS_MODULE_PARM(osd_oi_count, "i", int, 0444,
@@ -98,7 +99,9 @@ static void osd_oi_table_put(struct osd_thread_info *info,
         int                   i;
 
         for (i = 0; i < oi_count; i++) {
-                LASSERT(oi_table[i] != NULL);
+		if (oi_table[i] == NULL)
+			continue;
+
                 LASSERT(oi_table[i]->oi_inode != NULL);
 
                 bag = &(oi_table[i]->oi_dir.od_container);
@@ -107,6 +110,7 @@ static void osd_oi_table_put(struct osd_thread_info *info,
                 iput(oi_table[i]->oi_inode);
                 oi_table[i]->oi_inode = NULL;
                 OBD_FREE_PTR(oi_table[i]);
+		oi_table[i] = NULL;
         }
 }
 
@@ -285,77 +289,123 @@ out_inode:
  */
 static int
 osd_oi_table_open(struct osd_thread_info *info, struct osd_device *osd,
-                  struct osd_oi **oi_table, unsigned oi_count, bool create)
+		  struct osd_oi **oi_table, unsigned oi_count, bool create)
 {
-        struct dt_device *dev = &osd->od_dt_dev;
-        int               count = 0;
-        int               rc = 0;
-        int               i;
+	struct dt_device  *dev = &osd->od_dt_dev;
+	struct scrub_file *sf = &osd->od_scrub.os_file;
+	int		   count = 0;
+	int		   rc = 0;
+	int		   i;
+	char		   name[12];
+	ENTRY;
 
-        /* NB: oi_count != 0 means that we have already created/known all OIs
-         * and have known exact number of OIs. */
-        LASSERT(oi_count <= OSD_OI_FID_NR_MAX);
+	/* NB: oi_count != 0 means that we have already created/known all OIs
+	 * and have known exact number of OIs. */
+	LASSERT(oi_count <= OSD_OI_FID_NR_MAX);
 
-        for (i = 0; i < (oi_count != 0 ? oi_count : OSD_OI_FID_NR_MAX); i++) {
-                char name[12];
+	for (i = 0; i < (oi_count != 0 ? oi_count : OSD_OI_FID_NR_MAX); i++) {
+		if (oi_table[i] != NULL) {
+			count++;
+			continue;
+		}
 
-                sprintf(name, "%s.%d", OSD_OI_NAME_BASE, i);
-                rc = osd_oi_open(info, osd, name, &oi_table[i], create);
-                if (rc == 0) {
-                        count++;
-                        continue;
-                }
+		sprintf(name, "%s.%d", OSD_OI_NAME_BASE, i);
+		rc = osd_oi_open(info, osd, name, &oi_table[i], create);
+		if (rc == 0) {
+			count++;
+			continue;
+		}
 
-                if (rc == -ENOENT && oi_count == 0)
-                        return count;
+		if (rc == -ENOENT && create == false) {
+			if (oi_count == 0)
+				return count;
 
-                CERROR("%s: can't open %s: rc = %d\n",
-                       dev->dd_lu_dev.ld_obd->obd_name, name, rc);
-                if (oi_count > 0) {
-                        CERROR("%s: expect to open total %d OI files.\n",
-                               dev->dd_lu_dev.ld_obd->obd_name, oi_count);
-                }
-                break;
-        }
+			rc = 0;
+			ldiskfs_set_bit(i, sf->sf_oi_bitmap);
+			continue;
+		}
 
-        if (rc < 0) {
-                osd_oi_table_put(info, oi_table, count);
-                return rc;
-        }
+		CERROR("%s: can't open %s: rc = %d\n",
+		       dev->dd_lu_dev.ld_obd->obd_name, name, rc);
+		if (oi_count > 0)
+			CERROR("%s: expect to open total %d OI files.\n",
+			       dev->dd_lu_dev.ld_obd->obd_name, oi_count);
+		break;
+	}
 
-        return count;
+	if (rc < 0) {
+		osd_oi_table_put(info, oi_table, oi_count > 0 ? oi_count : i);
+		count = rc;
+	}
+
+	RETURN(count);
 }
 
 int osd_oi_init(struct osd_thread_info *info, struct osd_device *osd)
 {
-        struct dt_device *dev = &osd->od_dt_dev;
-        struct osd_oi   **oi;
-        int               rc;
+	struct dt_device  *dev = &osd->od_dt_dev;
+	struct osd_scrub  *scrub = &osd->od_scrub;
+	struct scrub_file *sf = &scrub->os_file;
+	struct osd_oi    **oi;
+	int		   rc;
+	ENTRY;
 
-        OBD_ALLOC(oi, sizeof(*oi) * OSD_OI_FID_NR_MAX);
-        if (oi == NULL)
-                return -ENOMEM;
+	OBD_ALLOC(oi, sizeof(*oi) * OSD_OI_FID_NR_MAX);
+	if (oi == NULL)
+		RETURN(-ENOMEM);
 
-        cfs_mutex_lock(&oi_init_lock);
-        /* try to open existing multiple OIs first */
-        rc = osd_oi_table_open(info, osd, oi, 0, false);
-        if (rc != 0)
-                goto out;
+	cfs_mutex_lock(&oi_init_lock);
+	/* try to open existing multiple OIs first */
+	rc = osd_oi_table_open(info, osd, oi, sf->sf_oi_count, false);
+	if (rc < 0)
+		GOTO(out, rc);
 
-        /* if previous failed then try found single OI from old filesystem */
-        rc = osd_oi_open(info, osd, OSD_OI_NAME_BASE, &oi[0], false);
-        if (rc == 0) { /* found single OI from old filesystem */
-                rc = 1;
-                goto out;
-        } else if (rc != -ENOENT) {
-                CERROR("%s: can't open %s: rc = %d\n",
-                       dev->dd_lu_dev.ld_obd->obd_name, OSD_OI_NAME_BASE, rc);
-                goto out;
-        }
+	if (rc > 0) {
+		if (rc == sf->sf_oi_count || sf->sf_oi_count == 0)
+			GOTO(out, rc);
 
-        /* No OIs exist, new filesystem, create OI objects */
-        rc = osd_oi_table_open(info, osd, oi, osd_oi_count, true);
-        LASSERT(ergo(rc >= 0, rc == osd_oi_count));
+		osd_scrub_file_reset(scrub,
+				     LDISKFS_SB(osd_sb(osd))->s_es->s_uuid,
+				     SF_RECREATED);
+		osd_oi_count = sf->sf_oi_count;
+		goto create;
+	}
+
+	/* if previous failed then try found single OI from old filesystem */
+	rc = osd_oi_open(info, osd, OSD_OI_NAME_BASE, &oi[0], false);
+	if (rc == 0) { /* found single OI from old filesystem */
+		GOTO(out, rc = 1);
+	} else if (rc != -ENOENT) {
+		CERROR("%s: can't open %s: rc = %d\n",
+		       dev->dd_lu_dev.ld_obd->obd_name, OSD_OI_NAME_BASE, rc);
+		GOTO(out, rc);
+	}
+
+	if (sf->sf_oi_count > 0) {
+		int i;
+
+		memset(sf->sf_oi_bitmap, 0, SCRUB_OI_BITMAP_SIZE);
+		for (i = 0; i < osd_oi_count; i++)
+			ldiskfs_set_bit(i, sf->sf_oi_bitmap);
+		osd_scrub_file_reset(scrub,
+				     LDISKFS_SB(osd_sb(osd))->s_es->s_uuid,
+				     SF_RECREATED);
+	}
+	sf->sf_oi_count = osd_oi_count;
+
+create:
+	rc = osd_scrub_file_store(scrub);
+	if (rc < 0) {
+		osd_oi_table_put(info, oi, sf->sf_oi_count);
+		GOTO(out, rc);
+	}
+
+	/* No OIs exist, new filesystem, create OI objects */
+	rc = osd_oi_table_open(info, osd, oi, osd_oi_count, true);
+	LASSERT(ergo(rc >= 0, rc == osd_oi_count));
+
+	GOTO(out, rc);
+
 out:
         if (rc < 0) {
                 OBD_FREE(oi, sizeof(*oi) * OSD_OI_FID_NR_MAX);
