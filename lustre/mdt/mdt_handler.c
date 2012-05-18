@@ -2080,6 +2080,24 @@ static struct mdt_object *mdt_obj(struct lu_object *o)
         return container_of0(o, struct mdt_object, mot_obj.mo_lu);
 }
 
+struct mdt_object *mdt_object_new(const struct lu_env *env,
+				  struct mdt_device *d,
+				  const struct lu_fid *f)
+{
+	struct lu_object_conf conf = { .loc_flags = LOC_F_NEW };
+	struct lu_object *o;
+	struct mdt_object *m;
+	ENTRY;
+
+	CDEBUG(D_INFO, "Allocate object for "DFID"\n", PFID(f));
+	o = lu_object_find(env, &d->mdt_md_dev.md_lu_dev, f, &conf);
+	if (unlikely(IS_ERR(o)))
+		m = (struct mdt_object *)o;
+	else
+		m = mdt_obj(o);
+	RETURN(m);
+}
+
 struct mdt_object *mdt_object_find(const struct lu_env *env,
                                    struct mdt_device *d,
                                    const struct lu_fid *f)
@@ -5568,6 +5586,18 @@ static int mdt_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
         case OBD_IOC_CHANGELOG_CLEAR:
                 rc = mdt_ioc_child(&env, mdt, cmd, len, karg);
                 break;
+	case OBD_IOC_START_LFSCK:
+	case OBD_IOC_STOP_LFSCK: {
+		struct md_device *next = mdt->mdt_child;
+		void *data;
+
+		if (karg != NULL)
+			data = ((struct obd_ioctl_data *)karg)->ioc_inlbuf1;
+		else
+			data = uarg;
+		rc = next->md_ops->mdo_iocontrol(&env, next, cmd, 0, data);
+		break;
+	}
         case OBD_IOC_GET_OBJ_VERSION: {
                 struct mdt_thread_info *mti;
                 mti = lu_context_key_get(&env.le_ctx, &mdt_thread_key);
