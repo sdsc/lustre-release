@@ -11,6 +11,7 @@ ostfailover_HOST=${ostfailover_HOST}
 CLIENTS=""
 
 TMP=${TMP:-/tmp}
+FSTYPE=${FSTYPE:-ldiskfs}
 
 DAEMONSIZE=${DAEMONSIZE:-500}
 MDSCOUNT=${MDSCOUNT:-1}
@@ -22,15 +23,19 @@ for num in $(seq $MDSCOUNT); do
 done
 MDSDEVBASE=${MDSDEVBASE:-$TMP/${FSNAME}-mdt}
 MDSSIZE=${MDSSIZE:-200000}
-MDSOPT=${MDSOPT:-"--mountfsoptions=user_xattr"}
+MDSOPT=${MDSOPT:-""}
+MDSFSTYPE=${MDSFSTYPE:-$FSTYPE}
 
 MGSDEV=${MGSDEV:-$MDSDEV1}
 MGSSIZE=${MGSSIZE:-$MDSSIZE}
+MGSOPT=${MGSOPT:-""}
+MGSFSTYPE=${MGSFSTYPE:-$MDSFSTYPE}
 
 OSTCOUNT=${OSTCOUNT:-2}
 OSTDEVBASE=${OSTDEVBASE:-$TMP/${FSNAME}-ost}
 OSTSIZE=${OSTSIZE:-200000}
-OSTOPT=""
+OSTOPT=${OSTOPT:-""}
+OSTFSTYPE=${OSTFSTYPE:-$FSTYPE}
 # Can specify individual ost devs with
 # OSTDEV1="/dev/sda"
 # on specific hosts with
@@ -38,7 +43,6 @@ OSTOPT=""
 
 NETTYPE=${NETTYPE:-tcp}
 MGSNID=${MGSNID:-`h2$NETTYPE $mgs_HOST`}
-FSTYPE=${FSTYPE:-ldiskfs}
 STRIPE_BYTES=${STRIPE_BYTES:-1048576}
 STRIPES_PER_OBJ=${STRIPES_PER_OBJ:-0}
 SINGLEMDS=${SINGLEMDS:-"mds1"}
@@ -71,6 +75,8 @@ MKFSOPT=""
     MKFSOPT=$MKFSOPT" --param mdt.sec_level=$SECLEVEL"
 [ "x$MDSCAPA" != "x" ] &&
     MKFSOPT=$MKFSOPT" --param mdt.capa=$MDSCAPA"
+[ "$MDSFSTYPE" = "ldiskfs" ] &&
+    MDSOPT=$MDSOPT" --mountfsoptions=user_xattr"
 [ "x$mdsfailover_HOST" != "x" ] &&
     MDSOPT=$MDSOPT" --failnode=`h2$NETTYPE $mdsfailover_HOST`"
 [ "x$STRIPE_BYTES" != "x" ] &&
@@ -80,12 +86,21 @@ MKFSOPT=""
 [ "x$L_GETIDENTITY" != "x" ] &&
     MDSOPT=$MDSOPT" --param mdt.identity_upcall=$L_GETIDENTITY"
 
-MDS_MKFS_OPTS="--mdt --fsname=$FSNAME --device-size=$MDSSIZE --param sys.timeout=$TIMEOUT $MKFSOPT $MDSOPT $MDS_MKFS_OPTS"
-if [[ $mds1_HOST == $mgs_HOST ]] && [[ $MDSDEV1 == $MGSDEV ]]; then
+MDS_MKFS_OPTS="--mdt --fsname=$FSNAME --param sys.timeout=$TIMEOUT $MKFSOPT $MDSOPT $MDS_MKFS_OPTS"
+[ "$MDSFSTYPE" = "ldiskfs" ] &&
+    MDS_MKFS_OPTS=$MDS_MKFS_OPTS" --device-size=$MDSSIZE"
+[ "$MDSFSTYPE" = "zfs" ] &&
+    MDS_MKFS_OPTS=$MDS_MKFS_OPTS" --vdev-size=$MDSSIZE"
+
+if combined_mgs_mds; then
     MDS_MKFS_OPTS="--mgs $MDS_MKFS_OPTS"
 else
     MDS_MKFS_OPTS="--mgsnode=$MGSNID $MDS_MKFS_OPTS"
-    MGS_MKFS_OPTS="--mgs --device-size=$MGSSIZE"
+    MGS_MKFS_OPTS="--mgs $MGSOPT"
+    [ "$MGSFSTYPE" = "ldiskfs" ] &&
+        MGS_MKFS_OPTS="--device-size=$MGSSIZE"
+    [ "$MGSFSTYPE" = "zfs" ] &&
+        MGS_MKFS_OPTS="--vdev-size=$MGSSIZE"
 fi
 
 MKFSOPT=""
@@ -99,11 +114,29 @@ MKFSOPT=""
     MKFSOPT=$MKFSOPT" --param ost.capa=$OSSCAPA"
 [ "x$ostfailover_HOST" != "x" ] &&
     OSTOPT=$OSTOPT" --failnode=`h2$NETTYPE $ostfailover_HOST`"
-OST_MKFS_OPTS="--ost --fsname=$FSNAME --device-size=$OSTSIZE --mgsnode=$MGSNID --param sys.timeout=$TIMEOUT $MKFSOPT $OSTOPT $OST_MKFS_OPTS"
+OST_MKFS_OPTS="--ost --fsname=$FSNAME --mgsnode=$MGSNID --param sys.timeout=$TIMEOUT $MKFSOPT $OSTOPT $OST_MKFS_OPTS"
+[ "$OSTFSTYPE" = "ldiskfs" ] &&
+    OST_MKFS_OPTS=$OST_MKFS_OPTS" --device-size=$OSTSIZE"
+[ "$OSTFSTYPE" = "zfs" ] &&
+    OST_MKFS_OPTS=$OST_MKFS_OPTS" --vdev-size=$OSTSIZE"
 
-MDS_MOUNT_OPTS=${MDS_MOUNT_OPTS:-"-o loop,user_xattr"}
-OST_MOUNT_OPTS=${OST_MOUNT_OPTS:-"-o loop"}
-MGS_MOUNT_OPTS=${MGS_MOUNT_OPTS:-$MDS_MOUNT_OPTS}
+if [ "$OSTFSTYPE" == "ldiskfs" ]; then
+    OST_MOUNT_OPTS=${OST_MOUNT_OPTS:-"-o loop"}
+fi
+
+if [ "$MDSFSTYPE" == "ldiskfs" ]; then
+    MDS_MOUNT_OPTS=${MDS_MOUNT_OPTS:-"-o loop,user_xattr"}
+fi
+
+if combined_mgs_mds; then
+    MGS_MOUNT_OPTS=${MGS_MOUNT_OPTS:-$MDS_MOUNT_OPTS}
+else
+    if [ "$MGSFSTYPE" == "ldiskfs" ]; then
+        MGS_MOUNT_OPTS=${MGS_MOUNT_OPTS:-"-o loop"}
+    else
+        MGS_MOUNT_OPTS=${MGS_MOUNT_OPTS:-""}
+    fi
+fi
 
 #client
 MOUNT=${MOUNT:-/mnt/${FSNAME}}

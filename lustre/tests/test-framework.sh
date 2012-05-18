@@ -130,6 +130,10 @@ init_test_env() {
     export LFSCK_ALWAYS=${LFSCK_ALWAYS:-"no"} # check fs after each test suite
     export FSCK_MAX_ERR=4   # File system errors left uncorrected
 
+    export ZFS=${ZFS:-zfs}
+    export ZPOOL=${ZPOOL:-zpool}
+    export ZDB=${ZDB:-zdb}
+
     #[ -d /r ] && export ROOT=${ROOT:-/r}
     export TMP=${TMP:-$ROOT/tmp}
     export TESTSUITELOG=${TMP}/${TESTSUITE}.log
@@ -585,17 +589,45 @@ cleanup_gss() {
     fi
 }
 
+facet_fstype() {
+    local facet=$1
+    local tgt=$(echo $facet | tr -d [:digit:] | tr "[:lower:]" "[:upper:]")
+
+    local var=${tgt}FSTYPE
+
+    [[ -n ${!var} ]] && echo ${!var} || echo $FSTYPE
+}
+
+devicelabel() {
+    local facet=$1
+    local dev=$2
+    local label
+
+    local fstype=$(facet_fstype $facet)
+
+    case $fstype in
+        ldiskfs )
+             label=$(do_facet ${facet} "$E2LABEL ${dev} 2>/dev/null");;
+        zfs )
+             label=$(do_facet ${facet} \
+             "$ZFS get -H -o value lustre:svname ${dev} 2>/dev/null");;
+        * ) error "unknown fstype!";;
+    esac
+
+    echo $label
+}
+
 mdsdevlabel() {
     local num=$1
     local device=`mdsdevname $num`
-    local label=`do_facet mds$num "e2label ${device}" | grep -v "CMD: "`
+    local label=`devicelabel mds$num ${device} | grep -v "CMD: "`
     echo -n $label
 }
 
 ostdevlabel() {
     local num=$1
     local device=`ostdevname $num`
-    local label=`do_facet ost$num "e2label ${device}" | grep -v "CMD: "`
+    local label=`devicelabel ost$num ${device} | grep -v "CMD: "`
     echo -n $label
 }
 
@@ -684,7 +716,7 @@ mount_facet() {
     else
         set_default_debug_facet $facet
 
-        label=$(do_facet ${facet} "$E2LABEL ${!dev}")
+        label=$(devicelabel ${facet} ${!dev})
         [ -z "$label" ] && echo no label for ${!dev} && exit 1
         eval export ${facet}_svc=${label}
         echo Started ${label}
@@ -2068,17 +2100,119 @@ add() {
 ostdevname() {
     num=$1
     DEVNAME=OSTDEV$num
-    #if $OSTDEVn isn't defined, default is $OSTDEVBASE + num
-    eval DEVPTR=${!DEVNAME:=${OSTDEVBASE}${num}}
+
+    local fstype=$(facet_fstype $facet)
+
+    case $fstype in
+        ldiskfs )
+            #if $OSTDEVn isn't defined, default is $OSTDEVBASE + num
+            eval DEVPTR=${!DEVNAME:=${OSTDEVBASE}${num}};;
+        zfs )
+            #dataset name is independent of vdev device names
+            eval DEVPTR=${FSNAME}-ost${num}/ost${num};;
+        * )
+            error "unknown fstype!";;
+    esac
+
     echo -n $DEVPTR
+}
+
+ostvdevname() {
+    num=$1
+    DEVNAME=OSTDEV$num
+
+    local fstype=$(facet_fstype $facet)
+
+    case $fstype in
+        ldiskfs )
+            # vdevs are not supported by ldiskfs
+            eval VDEVPTR="";;
+        zfs )
+            #if $OSTDEVn isn't defined, default is $OSTDEVBASE + num
+            eval VDEVPTR=${!DEVNAME:=${OSTDEVBASE}${num}};;
+        * )
+            error "unknown fstype!";;
+    esac
+
+    echo -n $VDEVPTR
 }
 
 mdsdevname() {
     num=$1
     DEVNAME=MDSDEV$num
-    #if $MDSDEVn isn't defined, default is $MDSDEVBASE + num
-    eval DEVPTR=${!DEVNAME:=${MDSDEVBASE}${num}}
+
+    local fstype=$(facet_fstype $facet)
+
+    case $fstype in
+        ldiskfs )
+            #if $MDSDEVn isn't defined, default is $MDSDEVBASE + num
+            eval DEVPTR=${!DEVNAME:=${MDSDEVBASE}${num}};;
+        zfs )
+            #dataset name is independent of vdev device names
+            eval DEVPTR=${FSNAME}-mdt${num}/mdt${num};;
+        * )
+            error "unknown fstype!";;
+    esac
+
     echo -n $DEVPTR
+}
+
+mdsvdevname() {
+    num=$1
+    DEVNAME=MDSDEV$num
+
+    local fstype=$(facet_fstype $facet)
+
+    case $fstype in
+        ldiskfs )
+            # vdevs are not supported by ldiskfs
+            eval VDEVPTR="";;
+        zfs )
+            #if $MDSDEVn isn't defined, default is $MDSDEVBASE + num
+            eval VDEVPTR=${!DEVNAME:=${MDSDEVBASE}${num}};;
+        * )
+            error "unknown fstype!";;
+    esac
+
+    echo -n $VDEVPTR
+}
+
+mgsdevname() {
+    DEVNAME=MGSDEV
+
+    local fstype=$(facet_fstype $facet)
+
+    case $fstype in
+        ldiskfs )
+            #if $MGSDEV isn't defined, default is $MDSDEV1
+            eval DEVPTR=${!DEVNAME:=${MDSDEV1}};;
+        zfs )
+            #dataset name is independent of vdev device names
+            eval DEVPTR=${FSNAME}-mgs/mgs;;
+        * )
+            error "unknown fstype!";;
+    esac
+
+    echo -n $DEVPTR
+}
+
+mgsvdevname() {
+    DEVNAME=MGSDEV
+
+    local fstype=$(facet_fstype $facet)
+
+    case $fstype in
+        ldiskfs )
+            # vdevs are not supported by ldiskfs
+            eval VDEVPTR="";;
+        zfs )
+            #if $MGSDEV isn't defined, default is $MGSDEV1
+            eval VDEVPTR=${!DEVNAME:=${MDSDEV1}};;
+        * )
+            error "unknown fstype!";;
+    esac
+
+    echo -n $VDEVPTR
 }
 
 facet_mntpt () {
@@ -2205,7 +2339,9 @@ formatall() {
         MDS_MKFS_OPTS="$MDS_MKFS_OPTS --iam-dir"
     fi
 
-    [ "$FSTYPE" ] && FSTYPE_OPT="--backfstype $FSTYPE"
+    [ "$MGSFSTYPE" ] && MGSFSTYPE_OPT="--backfstype $MGSFSTYPE"
+    [ "$MDSFSTYPE" ] && MDSFSTYPE_OPT="--backfstype $MDSFSTYPE"
+    [ "$OSTFSTYPE" ] && OSTFSTYPE_OPT="--backfstype $OSTFSTYPE"
 
     stopall
     # We need ldiskfs here, may as well load them all
@@ -2213,15 +2349,26 @@ formatall() {
     [ "$CLIENTONLY" ] && return
     echo Formatting mgs, mds, osts
     if ! combined_mgs_mds ; then
-        add mgs $(mkfs_opts mgs) $FSTYPE_OPT --reformat $MGSDEV || exit 10
+        echo "Format mgs: $(mgsdevname)"
+        if $VERBOSE; then
+            add mgs $(mkfs_opts mgs) $MGSFSTYPE_OPT --reformat \
+                $(mgsdevname) $(mgsvdevname) || exit 10
+        else
+            add mgs $(mkfs_opts mgs) $MGSFSTYPE_OPT --reformat \
+                $(mgsdevname) $(mgsvdevname) > /dev/null || exit 10
+        fi
     fi
 
     for num in `seq $MDSCOUNT`; do
         echo "Format mds$num: $(mdsdevname $num)"
+        index=$((num-1))
         if $VERBOSE; then
-            add mds$num $(mkfs_opts mds) $FSTYPE_OPT --reformat $(mdsdevname $num) || exit 10
+            add mds$num $(mkfs_opts mds) $MDSFSTYPE_OPT --index $index \
+                --reformat $(mdsdevname $num) $(mdsvdevname $num) || exit 10
         else
-            add mds$num $(mkfs_opts mds) $FSTYPE_OPT --reformat $(mdsdevname $num) > /dev/null || exit 10
+            add mds$num $(mkfs_opts mds) $MDSFSTYPE_OPT --index $index \
+                --reformat $(mdsdevname $num) $(mdsvdevname $num) \
+                > /dev/null || exit 10
         fi
     done
 
@@ -2229,10 +2376,14 @@ formatall() {
     # because of different failnode-s
     for num in `seq $OSTCOUNT`; do
         echo "Format ost$num: $(ostdevname $num)"
+        index=$((num-1))
         if $VERBOSE; then
-            add ost$num $(mkfs_opts ost${num}) $FSTYPE_OPT --reformat `ostdevname $num` || exit 10
+            add ost$num $(mkfs_opts ost${num}) $OSTFSTYPE_OPT --index $index \
+                --reformat $(ostdevname $num) $(ostvdevname ${num}) || exit 10
         else
-            add ost$num $(mkfs_opts ost${num}) $FSTYPE_OPT --reformat `ostdevname $num` > /dev/null || exit 10
+            add ost$num $(mkfs_opts ost${num}) $OSTFSTYPE_OPT --index $index \
+                --reformat $(ostdevname $num) $(ostvdevname ${num}) \
+                > /dev/null || exit 10
         fi
     done
 }
@@ -2314,7 +2465,7 @@ setupall() {
         echo $WRITECONF | grep -q "writeconf" && \
             writeconf_all
         if ! combined_mgs_mds ; then
-            start mgs $MGSDEV $MGS_MOUNT_OPTS
+            start mgs $(mgsdevname) $MGS_MOUNT_OPTS
         fi
 
         for num in `seq $MDSCOUNT`; do
@@ -2345,6 +2496,9 @@ setupall() {
 
         done
     fi
+
+    # Orion servers do not respect ldd_params yet.
+    do_facet mgs "$LCTL conf_param $FSNAME.sys.timeout=$TIMEOUT"
 
     init_gss
 
@@ -2395,7 +2549,7 @@ init_facet_vars () {
     eval export ${facet}_opt=\"$@\"
 
     local dev=${facet}_dev
-    local label=$(do_facet ${facet} "$E2LABEL ${!dev}")
+    local label=$(devicelabel ${facet} ${!dev})
     [ -z "$label" ] && echo no label for ${!dev} && exit 1
 
     eval export ${facet}_svc=${label}
@@ -2435,7 +2589,7 @@ init_facets_vars () {
         done
     fi
 
-    combined_mgs_mds || init_facet_vars mgs $MGSDEV $MGS_MOUNT_OPTS
+    combined_mgs_mds || init_facet_vars mgs $(mgsdevname) $MGS_MOUNT_OPTS
 
     remote_ost_nodsh && return
 
@@ -2648,7 +2802,9 @@ check_and_setup_lustre() {
     fi
 
     init_gss
-    set_flavor_all $SEC
+    if $GSS; then
+        set_flavor_all $SEC
+    fi
 
     if [ "$ONLY" == "setup" ]; then
         exit 0
@@ -4791,7 +4947,7 @@ remove_mdt_files() {
     local mntpt=$(facet_mntpt $facet)
 
     echo "removing files from $mdtdev on $facet: $files"
-    mount -t $FSTYPE $MDS_MOUNT_OPTS $mdtdev $mntpt || return $?
+    mount -t $MDSFSTYPE $MDS_MOUNT_OPTS $mdtdev $mntpt || return $?
     rc=0;
     for f in $files; do
         rm $mntpt/ROOT/$f || { rc=$?; break; }
@@ -4809,7 +4965,7 @@ duplicate_mdt_files() {
 
     echo "duplicating files on $mdtdev on $facet: $files"
     mkdir -p $mntpt || return $?
-    mount -t $FSTYPE $MDS_MOUNT_OPTS $mdtdev $mntpt || return $?
+    mount -t $MDSFSTYPE $MDS_MOUNT_OPTS $mdtdev $mntpt || return $?
 
     do_umount() {
         trap 0
