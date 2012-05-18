@@ -4,7 +4,7 @@
 # manually did a 'lctl network up'.
 ###############################################################################
 
-FSTYPE=${1:-ldiskfs}
+FSTYPES=${1:-ldiskfs,zfs}
 
 TMP=${TMP:-/tmp}
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
@@ -29,8 +29,12 @@ unload_dep_module() {
 }
 
 lsmod | grep libcfs > /dev/null && $LCTL dl
-lsmod | grep $FSTYPE && unload_dep_module $FSTYPE
+
 unload_dep_module libcfs
+
+for FSTYPE in ${FSTYPES//,/ }; do
+	lsmod | grep $FSTYPE && unload_dep_module $FSTYPE
+done
 
 MODULES=$($LCTL modules | awk '{ print $2 }')
 if [ -n "$MODULES" ]; then

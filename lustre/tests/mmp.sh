@@ -27,8 +27,6 @@ init_logging
 
 remote_mds_nodsh && skip "remote MDS with nodsh" && exit 0
 remote_ost_nodsh && skip "remote OST with nodsh" && exit 0
-[ "$MDSFSTYPE" != "ldiskfs" ] && skip "MDS not running ldiskfs" && exit 0
-[ "$OSTFSTYPE" != "ldiskfs" ] && skip "OST not running ldiskfs" && exit 0
 
 # unmount and cleanup the Lustre filesystem
 MMP_RESTORE_MOUNT=false
@@ -165,6 +163,16 @@ get_mmp_check_interval() {
 # Enable the MMP feature on the Lustre server targets.
 mmp_init() {
     init_vars
+
+    if [ $(facet_fstype $MMP_MDS) != ldiskfs ]; then
+        skip "Only applicable to ldiskfs-based MDTs"
+        return
+    fi
+
+    if [ $(facet_fstype $MMP_OSS) != ldiskfs ]; then
+        skip "Only applicable to ldiskfs-based OSTs"
+        return
+    fi
 
     # The MMP feature is automatically enabled by mkfs.lustre for
     # new file system at format time if failover is being used.
