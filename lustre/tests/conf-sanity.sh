@@ -847,6 +847,10 @@ run_test 23b "Simulate -EINTR during mount"
 fs2mds_HOST=$mds_HOST
 fs2ost_HOST=$ost_HOST
 
+MDSDEV1_2=$fs2mds_DEV
+OSTDEV1_2=$fs2ost_DEV
+OSTDEV2_2=$fs3ost_DEV
+
 cleanup_24a() {
 	trap 0
 	echo "umount $MOUNT2 ..."
@@ -867,14 +871,22 @@ test_24a() {
 
 	[ -n "$ost1_HOST" ] && fs2ost_HOST=$ost1_HOST
 
-	local fs2mdsdev=${fs2mds_DEV:-${MDSDEV}_2}
-	local fs2ostdev=${fs2ost_DEV:-$(ostdevname 1)_2}
+	local fs2mdsdev=$(mdsdevname 1_2)
+	local fs2ostdev=$(ostdevname 1_2)
+	local fs2mdsvdev=$(mdsvdevname 1_2)
+	local fs2ostvdev=$(ostvdevname 1_2)
+	local fs2mdsmkfs=$(mkfs_opts mds)
 
-	# test 8-char fsname as well
+	# test 8-char fsname as well, and strip the --mgs option because
+	# multiple mgs servers per host are not supported.
 	local FSNAME2=test1234
-	add fs2mds $MDS_MKFS_OPTS --fsname=${FSNAME2} --nomgs --mgsnode=$MGSNID --reformat $fs2mdsdev || exit 10
+	add fs2mds ${fs2mdsmkfs/--mgs/} --backfstype $MDSFSTYPE \
+		--fsname=${FSNAME2} --mgsnode=$MGSNID --reformat --index=0 \
+		$fs2mdsdev $fs2mdsvdev || exit 10
 
-	add fs2ost $OST_MKFS_OPTS --fsname=${FSNAME2} --reformat $fs2ostdev || exit 10
+	add fs2ost $(mkfs_opts ost) --backfstype $OSTFSTYPE \
+		--fsname=${FSNAME2} --mgsnode=$MGSNID --reformat --index=0 \
+		$fs2ostdev $fs2ostvdev || exit 10
 
 	setup
 	start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS && trap cleanup_24a EXIT INT
@@ -917,9 +929,11 @@ test_24b() {
 		skip_env "mixed loopback and real device not working" && return
 	fi
 
-	local fs2mdsdev=${fs2mds_DEV:-${MDSDEV}_2}
+	local fs2mdsdev=$(mdsdevname 1_2)
+	local fs2mdsvdev=$(mdsvdevname 1_2)
 
-	add fs2mds $MDS_MKFS_OPTS --fsname=${FSNAME}2 --mgs --reformat $fs2mdsdev || exit 10
+	add fs2mds $(mkfs_opts mds) --backfstype $MDSFSTYPE --fsname=${FSNAME}2 \
+		--mgs --index=0 --reformat $fs2mdsdev $fs2mdsvdev || exit 10
 	setup
 	start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS && return 2
 	cleanup || return 6
@@ -1354,12 +1368,20 @@ test_33a() { # bug 12333, was test_33
                 skip_env "mixed loopback and real device not working" && return
         fi
 
-        combined_mgs_mds || mkfs_opts="$mkfs_opts --nomgs"
+        local fs2mdsdev=$(mdsdevname 1_2)
+        local fs2ostdev=$(ostdevname 1_2)
+        local fs2mdsvdev=$(mdsvdevname 1_2)
+        local fs2ostvdev=$(ostvdevname 1_2)
+        local fs2mdsmkfs=$(mkfs_opts mds)
 
-        local fs2mdsdev=${fs2mds_DEV:-${MDSDEV}_2}
-        local fs2ostdev=${fs2ost_DEV:-$(ostdevname 1)_2}
-        add fs2mds $MDS_MKFS_OPTS --mkfsoptions='\"-J size=8\"' --fsname=${FSNAME2} --reformat $fs2mdsdev || exit 10
-        add fs2ost $OST_MKFS_OPTS --fsname=${FSNAME2} --index=8191 --mgsnode=$MGSNID --reformat $fs2ostdev || exit 10
+        combined_mgs_mds || fs2mdsmkfs=${fs2mdsmkfs/--mgs/}
+
+        add fs2mds ${fs2mdsmkfs} --mkfsoptions='\"-J size=8\"' \
+			 --backfstype $MDSFSTYPE --fsname=${FSNAME2} --reformat \
+			 --index=0 $fs2mdsdev $fs2mdsvdev || exit 10
+        add fs2ost $(mkfs_opts ost) --fsname=${FSNAME2} \
+			 --backfstype $OSTFSTYPE --index=8191 --mgsnode=$MGSNID \
+			 --reformat $fs2ostdev $fs2ostvdev || exit 10
 
         start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS && trap cleanup_24a EXIT INT
         start fs2ost $fs2ostdev $OST_MOUNT_OPTS
@@ -1374,7 +1396,6 @@ test_33a() { # bug 12333, was test_33
         umount -d $MOUNT2
         stop fs2ost -f
         stop fs2mds -f
-        rm -rf $MOUNT2 $fs2mdsdev $fs2ostdev
         cleanup_nocli || rc=6
         return $rc
 }
@@ -1587,14 +1608,24 @@ test_36() { # 12743
 		skip_env "mixed loopback and real device not working" && return
         fi
 
-        local fs2mdsdev=${fs2mds_DEV:-${MDSDEV}_2}
-        local fs2ostdev=${fs2ost_DEV:-$(ostdevname 1)_2}
-        local fs3ostdev=${fs3ost_DEV:-$(ostdevname 2)_2}
-        add fs2mds $MDS_MKFS_OPTS --fsname=${FSNAME2} --reformat $fs2mdsdev || exit 10
-        # XXX after we support non 4K disk blocksize, change following --mkfsoptions with
-        # other argument
-        add fs2ost $OST_MKFS_OPTS --mkfsoptions='-b4096' --fsname=${FSNAME2} --mgsnode=$MGSNID --reformat $fs2ostdev || exit 10
-        add fs3ost $OST_MKFS_OPTS --mkfsoptions='-b4096' --fsname=${FSNAME2} --mgsnode=$MGSNID --reformat $fs3ostdev || exit 10
+        local fs2mdsdev=$(mdsdevname 1_2)
+        local fs2ostdev=$(ostdevname 1_2)
+        local fs3ostdev=$(ostdevname 2_2)
+        local fs2mdsvdev=$(mdsvdevname 1_2)
+        local fs2ostvdev=$(ostvdevname 1_2)
+        local fs3ostvdev=$(ostvdevname 2_2)
+
+        add fs2mds $(mkfs_opts mds)  --backfstype $MDSFSTYPE \
+			--fsname=${FSNAME2} --reformat --index=0 \
+			$fs2mdsdev $fs2mdsvdev || exit 10
+        # XXX after we support non 4K disk blocksize, change following
+		# --mkfsoptions with # other argument
+        add fs2ost $(mkfs_opts ost) --mkfsoptions='-b4096' \
+			--backfstype $OSTFSTYPE --fsname=${FSNAME2} --mgsnode=$MGSNID \
+			--reformat --index=0 $fs2ostdev $fs2ostvdev || exit 10
+        add fs3ost $(mkfs_opts ost) --mkfsoptions='-b4096' \
+			 --backfstype $OSTFSTYPE --fsname=${FSNAME2} --mgsnode=$MGSNID \
+			 --reformat --index=1 $fs3ostdev $fs3ostvdev || exit 10
 
         start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS
         start fs2ost $fs2ostdev $OST_MOUNT_OPTS
@@ -1637,7 +1668,6 @@ test_36() { # 12743
         stop fs3ost -f || return 200
         stop fs2ost -f || return 201
         stop fs2mds -f || return 202
-        rm -rf $MOUNT2 $fs2mdsdev $fs2ostdev $fs3ostdev
         unload_modules_conf || return 203
         return $rc
 }
@@ -2625,19 +2655,17 @@ lov_objid_size()
 
 test_55() {
 	local mdsdev=$(mdsdevname 1)
-	local ostdev=$(ostdevname 1)
-	local saved_opts=$OST_MKFS_OPTS
+	local mdsvdev=$(mdsvdevname 1)
 
 	for i in 1023 2048
 	do
-		OST_MKFS_OPTS="$saved_opts --index $i"
-		reformat
-
-		setup_noconfig
-		stopall
-
+		add mds1 $(mkfs_opts mds)  --backfstype $MDSFSTYPE \
+			--index 0 --reformat $mdsdev $(mdsvdevname 1) || exit 10
+		add ost1 $(mkfs_opts ost)  --backfstype $OSTFSTYPE \
+			--index $i --reformat $(ostdevname 1) $(ostvdevname 1)
 		setup_noconfig
 		sync
+
 		echo checking size of lov_objid for ost index $i
 		LOV_OBJID_SIZE=$(do_facet mds1 "$DEBUGFS -R 'stat lov_objid' $mdsdev 2>/dev/null" | grep ^User | awk '{print $6}')
 		if [ "$LOV_OBJID_SIZE" != $(lov_objid_size $i) ]; then
@@ -2648,15 +2676,18 @@ test_55() {
 		stopall
 	done
 
-	OST_MKFS_OPTS=$saved_opts
 	reformat
 }
 run_test 55 "check lov_objid size"
 
 test_56() {
-	add mds1 $MDS_MKFS_OPTS --mkfsoptions='\"-J size=16\"' --reformat $(mdsdevname 1)
-	add ost1 $OST_MKFS_OPTS --index=1000 --reformat $(ostdevname 1)
-	add ost2 $OST_MKFS_OPTS --index=10000 --reformat $(ostdevname 2)
+	add mds1 $(mkfs_opts mds) --backfstype $MDSFSTYPE \
+		--mkfsoptions='\"-J size=16\"' --reformat \
+		--index 0 $(mdsdevname 1) $(mdsvdevname 1)
+	add ost1 $(mkfs_opts ost) --backfstype $OSTFSTYPE \
+		--index 1000 --reformat $(ostdevname 1) $(ostvdevname 1)
+	add ost2 $(mkfs_opts ost) --backfstype $OSTFSTYPE \
+		--index 10000 --reformat $(ostdevname 2) $(ostvdevname 2)
 
 	start_mgsmds
 	start_ost
@@ -2749,7 +2780,9 @@ test_59() {
 run_test 59 "writeconf mount option"
 
 test_60() { # LU-471
-	add mds1 $MDS_MKFS_OPTS --mkfsoptions='\" -E stride=64 -O ^uninit_bg\"' --reformat $(mdsdevname 1)
+	add mds1 $(mkfs_opts mds) --backfstype $MDSFSTYPE --index 0 \
+		--mkfsoptions='\" -E stride=64 -O ^uninit_bg\"' \
+		--reformat $(mdsdevname 1) $(mdsvdevname 1) || exit 10
 
 	dump=$(do_facet $SINGLEMDS dumpe2fs $(mdsdevname 1))
 	rc=${PIPESTATUS[0]}
