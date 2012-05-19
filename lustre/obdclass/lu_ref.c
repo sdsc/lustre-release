@@ -59,15 +59,15 @@
  */
 #define REFASSERT(ref, expr)                            \
   do {                                                  \
-          struct lu_ref *__ref = (ref);                 \
-                                                        \
-          if (unlikely(!(expr))) {                      \
-                  lu_ref_print(__ref);                  \
-                  cfs_spin_unlock(&__ref->lf_guard);    \
-                  lu_ref_print_all();                   \
-                  LASSERT(0);                           \
-                  cfs_spin_lock(&__ref->lf_guard);      \
-          }                                             \
+	  struct lu_ref *__tmp = (ref);                 \
+							\
+	if (unlikely(!(expr))) {                        \
+		  lu_ref_print(__tmp);                  \
+		  cfs_spin_unlock(&__tmp->lf_guard);    \
+		  lu_ref_print_all();                   \
+		  LASSERT(0);                           \
+		  cfs_spin_lock(&__tmp->lf_guard);      \
+	}                                               \
   } while (0)
 
 struct lu_ref_link {
