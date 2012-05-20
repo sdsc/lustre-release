@@ -41,6 +41,7 @@
 #include <obd_class.h>
 #include <dt_object.h>
 #include <lustre_fid.h>
+#include <lustre_capa.h>
 
 #define OFD_INIT_OBJID	0
 #define OFD_ROCOMPAT_SUPP (0)
@@ -67,6 +68,11 @@ struct ofd_device {
 	cfs_mutex_t		 ofd_create_locks[OFD_MAX_GROUPS];
 	struct dt_object	*ofd_lastid_obj[OFD_MAX_GROUPS];
 	cfs_spinlock_t		 ofd_objid_lock;
+
+	/* capability related */
+	unsigned int		 ofd_fl_oss_capa;
+	cfs_list_t		 ofd_capa_keys;
+	cfs_hlist_head_t	*ofd_capa_hash;
 
 	struct lu_site		 ofd_site;
 };
@@ -106,18 +112,19 @@ static inline struct ofd_object *ofd_obj(struct lu_object *o)
  * to reduce stack consumption.
  */
 struct ofd_thread_info {
-	const struct lu_env	*fti_env;
+	const struct lu_env		*fti_env;
 
-	struct obd_export	*fti_exp;
-	struct lu_fid		 fti_fid;
-	struct lu_attr		 fti_attr;
+	struct obd_export		*fti_exp;
+	struct lu_fid			 fti_fid;
+	struct lu_attr			 fti_attr;
 	union {
-		char		 name[64]; /* for ofd_init0() */
+		char			 name[64]; /* for ofd_init0() */
+		struct obd_statfs	 osfs;    /* for obdofd_statfs() */
 	} fti_u;
 
-	struct dt_object_format	 fti_dof;
-	struct lu_buf		 fti_buf;
-	loff_t			 fti_off;
+	struct dt_object_format		 fti_dof;
+	struct lu_buf			 fti_buf;
+	loff_t				 fti_off;
 };
 
 static inline int ofd_export_stats_init(struct ofd_device *ofd,
@@ -128,6 +135,12 @@ static inline int ofd_export_stats_init(struct ofd_device *ofd,
 
 extern void target_recovery_fini(struct obd_device *obd);
 extern void target_recovery_init(struct lu_target *lut, svc_handler_t handler);
+
+/* ofd_capa.c */
+int ofd_update_capa_key(struct ofd_device *, struct lustre_capa_key *);
+int ofd_auth_capa(struct ofd_device *, struct lu_fid *, __u64,
+		  struct lustre_capa *, __u64);
+void ofd_free_capa_keys(struct ofd_device *ofd);
 
 /* ofd_dev.c */
 extern struct lu_context_key ofd_thread_key;
