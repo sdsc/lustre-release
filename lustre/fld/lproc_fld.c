@@ -49,8 +49,6 @@
 
 #include <obd.h>
 #include <obd_class.h>
-#include <dt_object.h>
-#include <md_object.h>
 #include <obd_support.h>
 #include <lustre_req_layout.h>
 #include <lustre_fld.h>
@@ -131,7 +129,7 @@ fld_proc_write_hash(struct file *file, const char *buffer,
                 CDEBUG(D_INFO, "%s: Changed hash to \"%s\"\n",
                        fld->lcf_name, hash->fh_name);
         }
-	
+
         RETURN(count);
 }
 
@@ -147,7 +145,7 @@ fld_proc_write_cache_flush(struct file *file, const char *buffer,
         fld_cache_flush(fld->lcf_cache);
 
         CDEBUG(D_INFO, "%s: Lookup cache is flushed\n", fld->lcf_name);
-	
+
         RETURN(count);
 }
 
