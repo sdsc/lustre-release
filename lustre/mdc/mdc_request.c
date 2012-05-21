@@ -52,7 +52,6 @@
 #include <obd_class.h>
 #include <lustre_dlm.h>
 #include <lustre_fid.h>
-#include <md_object.h>
 #include <lprocfs_status.h>
 #include <lustre_param.h>
 #include "mdc_internal.h"
