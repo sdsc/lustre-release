@@ -760,6 +760,12 @@ csa_add() {
     echo -n "$opts"
 }
 
+support_mntopt_writeconf() {
+    local facet=$1
+
+    do_facet $facet mount.lustre --help | grep -q writeconf
+}
+
 mount_facet() {
     local facet=$1
     shift
@@ -771,6 +777,12 @@ mount_facet() {
     if [ $(facet_fstype $facet) == ldiskfs ] &&
        ! do_facet $facet test -b ${!dev}; then
         opts=$(csa_add "$opts" -o loop)
+    fi
+
+    if support_mntopt_writeconf $facet &&
+       [ -f $TMP/shall-writeconf-$facet ]; then
+        opts=$(csa_add "$opts" -o writeconf)
+        rm $TMP/shall-writeconf-$facet
     fi
 
     echo "Starting ${facet}: $opts ${!dev} $mntpt"
@@ -2557,7 +2569,11 @@ writeconf_facet () {
     local facet=$1
     local dev=$2
 
-    do_facet $facet "$TUNEFS --writeconf $dev"
+    if support_mntopt_writeconf $facet; then
+        touch $TMP/shall-writeconf-$facet
+    else
+        do_facet $facet "$TUNEFS --writeconf $dev"
+    fi
 }
 
 writeconf_all () {
