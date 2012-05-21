@@ -657,15 +657,28 @@ mount_facets () {
     done
 }
 
+support_mntopt_writeconf() {
+    local facet=$1
+
+    do_facet $facet mount.lustre --help | grep -q writeconf
+}
+
 mount_facet() {
     local facet=$1
     shift
     local dev=$(facet_active $facet)_dev
     local opt=${facet}_opt
+    local opts="${!opt} $@"
     local mntpt=$(facet_mntpt $facet)
 
-    echo "Starting ${facet}: ${!opt} $@ ${!dev} $mntpt"
-    do_facet ${facet} "mkdir -p $mntpt; mount -t lustre ${!opt} $@ ${!dev} $mntpt"
+    if support_mntopt_writeconf $facet &&
+       [ -f $TMP/shall-writeconf-$facet ]; then
+        opts="$opts -o writeconf"
+        rm $TMP/shall-writeconf-$facet
+    fi
+
+    echo "Starting ${facet}: $opts ${!dev} $mntpt"
+    do_facet ${facet} "mkdir -p $mntpt; mount -t lustre $opts ${!dev} $mntpt"
     RC=${PIPESTATUS[0]}
     if [ $RC -ne 0 ]; then
         echo "mount -t lustre $@ ${!dev} $mntpt"
@@ -2309,7 +2322,11 @@ writeconf_facet () {
     local facet=$1
     local dev=$2
 
-    do_facet $facet "$TUNEFS --writeconf $dev"
+    if support_mntopt_writeconf $facet; then
+        touch $TMP/shall-writeconf-$facet
+    else
+        do_facet $facet "$TUNEFS --writeconf $dev"
+    fi
 }
 
 writeconf_all () {

@@ -81,8 +81,14 @@ writeconf1() {
 	stop ${facet} -f
 	rm -f ${facet}active
 	# who knows if/where $TUNEFS is installed?  Better reformat if it fails...
-	do_facet ${facet} "$TUNEFS --quiet --writeconf $dev" ||
-		{ echo "tunefs failed, reformatting instead" && reformat_and_config && return 1; }
+	if support_mntopt_writeconf $facet; then
+		touch $TMP/shall-writeconf-$facet
+	else
+		do_facet ${facet} "$TUNEFS --quiet --writeconf $dev" || {
+			echo "tunefs failed, reformatting instead" && reformat_and_config &&
+				return 1
+		}
+	fi
 	return 0
 }
 
@@ -101,6 +107,7 @@ gen_config() {
 	start_mds
 	start_ost
         wait_osc_import_state mds ost FULL
+	do_facet mgs "$LCTL conf_param $FSNAME.sys.timeout=$TIMEOUT"
 	stop_ost
 	stop_mds
 }
