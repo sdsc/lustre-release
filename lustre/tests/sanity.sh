@@ -1031,6 +1031,7 @@ reset_enospc() {
 	[ "$OSTIDX" ] && list=$(facet_host ost$((OSTIDX + 1)))
 
 	do_nodes $list lctl set_param fail_loc=0
+	sync	# initiate all OST_DESTROYs from MDS to OST
 	sleep_maxage
 }
 
@@ -4759,6 +4760,7 @@ test_101d() {
 
     set_read_ahead $old_READAHEAD
     rm -f $file
+    wait_delete_completed
 
     [ $time_ra_ON -lt $time_ra_OFF ] ||
         error "read-ahead enabled  time read (${time_ra_ON}s) is more than
@@ -6975,6 +6977,7 @@ test_133c() {
 	$LFS setstripe -c 1 -o 0 ${testdir}/${tfile}
 	sync
 	cancel_lru_locks osc
+	wait_delete_completed
 
 	# clear stats.
 	do_facet $SINGLEMDS $LCTL set_param mdt.*.md_stats=clear
@@ -6992,6 +6995,7 @@ test_133c() {
 	check_stats ost "punch" 1
 
 	rm -f ${testdir}/${tfile} || error "file remove failed"
+	wait_delete_completed
 	check_stats ost "destroy" 1
 
 	rm -rf $DIR/${tdir}
