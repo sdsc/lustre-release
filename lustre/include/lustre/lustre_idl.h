@@ -421,7 +421,10 @@ enum fid_seq {
         FID_SEQ_QUOTA      = 0x200000005ULL,
         FID_SEQ_QUOTA_GLB  = 0x200000006ULL,
         FID_SEQ_NORMAL     = 0x200000400ULL,
-        FID_SEQ_LOV_DEFAULT= 0xffffffffffffffffULL
+	FID_SEQ_ROOT	   = 0xffffffffffff0000ULL,
+	FID_SEQ_ROOT_MAX   = 0xfffffffffffffffeULL,
+	FID_SEQ_LOV_DEFAULT = 0xffffffffffffffffULL
+
 };
 
 #define OBIF_OID_MAX_BITS           32
@@ -435,6 +438,7 @@ enum fid_seq {
 enum special_oid {
         /* Big Filesystem Lock to serialize rename operations */
         FID_OID_SPECIAL_BFL     = 1UL,
+	FID_OID_ROOT		= 2UL,
 };
 
 /** OID for FID_SEQ_DOT_LUSTRE */
@@ -478,9 +482,27 @@ static inline int fid_seq_is_rsvd(const __u64 seq)
         return (seq > FID_SEQ_OST_MDT0 && seq <= FID_SEQ_RSVD);
 };
 
+static inline int fid_seq_is_special(const __u64 seq)
+{
+	return seq == FID_SEQ_SPECIAL;
+};
+
 static inline int fid_is_mdt0(const struct lu_fid *fid)
 {
         return fid_seq_is_mdt0(fid_seq(fid));
+}
+
+static inline int fid_is_root(const struct lu_fid *fid)
+{
+	return fid_seq(fid) == FID_SEQ_SPECIAL &&
+	       fid_oid(fid) == FID_OID_ROOT;
+}
+
+static inline void lu_root_fid(struct lu_fid *fid)
+{
+	fid->f_seq = FID_SEQ_SPECIAL;
+	fid->f_oid = FID_OID_ROOT;
+	fid->f_ver = 0;
 }
 
 /**
@@ -786,7 +808,8 @@ static inline int fid_is_sane(const struct lu_fid *fid)
                 fid != NULL &&
 		((fid_seq(fid) >= FID_SEQ_START && fid_ver(fid) == 0) ||
 		fid_is_igif(fid) || fid_is_idif(fid) ||
-		fid_seq_is_rsvd(fid_seq(fid)));
+		fid_seq_is_rsvd(fid_seq(fid)) ||
+		fid_seq_is_special(fid_seq(fid)));
 }
 
 static inline int fid_is_zero(const struct lu_fid *fid)
