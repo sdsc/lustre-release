@@ -1404,6 +1404,11 @@ wait_update_facet () {
     wait_update  $(facet_active_host $facet) "$@"
 }
 
+sync_all_data () {
+    do_node $(osts_nodes) "lctl set_param -n osd*.*OS*.force_sync 1" 2>&1 | 
+        grep -v 'Found no match'
+}
+
 wait_delete_completed_mds () {
     local MAX_WAIT=${1:-20}
     local mds2sync=""
