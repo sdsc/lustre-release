@@ -432,9 +432,12 @@ enum fid_seq {
 #define IDIF_OID_MASK               ((1ULL << IDIF_OID_MAX_BITS) - 1)
 
 /** OID for FID_SEQ_SPECIAL */
+#define MAX_MDT_INDEX	       4096
 enum special_oid {
         /* Big Filesystem Lock to serialize rename operations */
         FID_OID_SPECIAL_BFL     = 1UL,
+	FID_OID_SPECIAL_ROOT_START = 2UL,
+	FID_OID_SPECIAL_ROOT_END   = 2UL + MAX_MDT_INDEX,
 };
 
 /** OID for FID_SEQ_DOT_LUSTRE */
@@ -486,6 +489,28 @@ static inline int fid_seq_is_rsvd(const __u64 seq)
 static inline int fid_is_mdt0(const struct lu_fid *fid)
 {
         return fid_seq_is_mdt0(fid_seq(fid));
+}
+
+static inline int fid_is_root(const struct lu_fid *fid)
+{
+	return fid_seq(fid) == FID_SEQ_SPECIAL &&
+		fid_oid(fid) >= FID_OID_SPECIAL_ROOT_START &&
+		fid_oid(fid) < FID_OID_SPECIAL_ROOT_END;
+}
+
+static inline int fid_index_get_by_rootfid(const struct lu_fid *fid)
+{
+	LASSERT(fid_is_root(fid));
+	return fid_oid(fid) - FID_OID_SPECIAL_ROOT_START;
+}
+
+static inline void lu_root_fid(struct lu_fid *fid, __u32 index)
+{
+	fid->f_seq = FID_SEQ_SPECIAL;
+	LASSERTF(index < MAX_MDT_INDEX, "index %u is larger than 4096\n",
+		 index);
+	fid->f_oid = FID_OID_SPECIAL_ROOT_START + index;
+	fid->f_ver = 0;
 }
 
 /**
