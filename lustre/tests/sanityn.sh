@@ -912,7 +912,8 @@ test_36() { #bug 16417
         lctl mark "start test"
         local before=$($LFS df | awk '{if ($1 ~/^filesystem/) {print $5; exit} }')
         dd if=/dev/zero of=$DIR1/$tdir/file000 bs=1M count=$SIZE
-        sync
+        sync		# sync data from client's cache
+        sync_all_data	# sync data from server's cache (delayed allocation)
         sleep 1
         local after_dd=$($LFS df | awk '{if ($1 ~/^filesystem/) {print $5; exit} }')
         multiop_bg_pause $DIR2/$tdir/file000 O_r${SIZE_B}c || return 3
