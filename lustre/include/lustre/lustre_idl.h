@@ -421,7 +421,10 @@ enum fid_seq {
         FID_SEQ_QUOTA      = 0x200000005ULL,
         FID_SEQ_QUOTA_GLB  = 0x200000006ULL,
         FID_SEQ_NORMAL     = 0x200000400ULL,
-        FID_SEQ_LOV_DEFAULT= 0xffffffffffffffffULL
+	FID_SEQ_ROOT	   = 0xffffffffffff0000ULL,
+	FID_SEQ_ROOT_MAX   = 0xfffffffffffffffeULL,
+	FID_SEQ_LOV_DEFAULT = 0xffffffffffffffffULL
+
 };
 
 #define OBIF_OID_MAX_BITS           32
@@ -481,6 +484,28 @@ static inline int fid_seq_is_rsvd(const __u64 seq)
 static inline int fid_is_mdt0(const struct lu_fid *fid)
 {
         return fid_seq_is_mdt0(fid_seq(fid));
+}
+
+#define MAX_MDT_INDEX	0xffff	/* FID_SEQ_ROOT_MAX - FID_SEQ_ROOT */
+static inline int fid_is_root(const struct lu_fid *fid)
+{
+	return fid_seq(fid) >= FID_SEQ_ROOT &&
+	       fid_seq(fid) <= FID_SEQ_ROOT_MAX;
+}
+
+static inline int fid_index_get_by_rootfid(const struct lu_fid *fid)
+{
+	LASSERT(fid_is_root(fid));
+	return fid_seq(fid) - FID_SEQ_ROOT;
+}
+
+static inline void lu_root_fid(struct lu_fid *fid, __u32 index)
+{
+	LASSERTF(index < MAX_MDT_INDEX, "index %u is larger than %d\n",
+		 index, MAX_MDT_INDEX);
+	fid->f_seq = FID_SEQ_ROOT + index;
+	fid->f_oid = 0;
+	fid->f_ver = 0;
 }
 
 /**

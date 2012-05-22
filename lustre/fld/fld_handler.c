@@ -411,10 +411,20 @@ int fld_server_init(const struct lu_env *env, struct lu_server_fld *fld,
 
 	if (!mds_node_id && lsr_flags == LU_SEQ_RANGE_MDT) {
 		rc = fld_index_init(env, fld, dt);
-                if (rc)
-                        GOTO(out, rc);
-        } else
-                fld->lsf_obj = NULL;
+		if (rc)
+			GOTO(out, rc);
+
+		/* insert the root fid sequence for MDT 0 */
+		range.lsr_start = FID_SEQ_ROOT;
+		range.lsr_end = FID_SEQ_ROOT + 1;
+		range.lsr_index = 0;
+		range.lsr_flags = LU_SEQ_RANGE_MDT;
+		rc = fld_index_insert(env, fld, &range);
+		if (rc != 0)
+			GOTO(out, rc);
+	} else {
+		fld->lsf_obj = NULL;
+	}
 
         rc = fld_server_proc_init(fld);
         if (rc)

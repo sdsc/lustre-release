@@ -255,8 +255,9 @@ int fld_index_lookup(const struct lu_env *env, struct lu_server_fld *fld,
         RETURN(rc);
 }
 
-static int fld_insert_igif_fld(struct lu_server_fld *fld,
-			       const struct lu_env *env)
+static int fld_index_insert_locked(const struct lu_env *env,
+				   struct lu_server_fld *fld,
+				   const struct lu_seq_range *seq)
 {
 	struct thandle *th;
 	int rc;
@@ -266,7 +267,7 @@ static int fld_insert_igif_fld(struct lu_server_fld *fld,
 	if (IS_ERR(th))
 		RETURN(PTR_ERR(th));
 
-	rc = fld_declare_index_create(env, fld, &IGIF_FLD_RANGE, th);
+	rc = fld_declare_index_create(env, fld, seq, th);
 	if (rc != 0) {
 		if (rc == -EEXIST)
 			rc = 0;
@@ -278,13 +279,27 @@ static int fld_insert_igif_fld(struct lu_server_fld *fld,
 	if (rc)
 		GOTO(out, rc);
 
-	rc = fld_index_create(env, fld, &IGIF_FLD_RANGE, th);
+	rc = fld_index_create(env, fld, seq, th);
 	if (rc == -EEXIST)
 		rc = 0;
 out:
 	dt_trans_stop(env, lu2dt_dev(fld->lsf_obj->do_lu.lo_dev), th);
 	RETURN(rc);
 }
+
+int fld_index_insert(const struct lu_env *env,
+		     struct lu_server_fld *fld,
+		     const struct lu_seq_range *seq)
+{
+	int rc;
+
+	mutex_lock(&fld->lsf_lock);
+	rc = fld_index_insert_locked(env, fld, seq);
+	mutex_unlock(&fld->lsf_lock);
+
+	return rc;
+}
+EXPORT_SYMBOL(fld_index_insert);
 
 int fld_index_init(const struct lu_env *env, struct lu_server_fld *fld,
 		   struct dt_device *dt)
@@ -327,9 +342,7 @@ int fld_index_init(const struct lu_env *env, struct lu_server_fld *fld,
 	rc = dt_obj->do_ops->do_index_try(env, dt_obj, &fld_index_features);
 	if (rc == 0) {
 		LASSERT(dt_obj->do_index_ops != NULL);
-		mutex_lock(&fld->lsf_lock);
-		rc = fld_insert_igif_fld(fld, env);
-		mutex_unlock(&fld->lsf_lock);
+		rc = fld_index_insert(env, fld, &IGIF_FLD_RANGE);
 		if (rc != 0) {
 			CERROR("insert igif in fld! = %d\n", rc);
 			GOTO(out, rc);

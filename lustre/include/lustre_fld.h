@@ -166,6 +166,8 @@ int fld_server_create(const struct lu_env *env,
 int fld_server_lookup(const struct lu_env *env, struct lu_server_fld *fld,
 		      seqno_t seq, struct lu_seq_range *range);
 
+int fld_index_insert(const struct lu_env *env, struct lu_server_fld *fld,
+		     const struct lu_seq_range *seq);
 /* Client methods */
 int fld_client_init(struct lu_client_fld *fld,
                     const char *prefix, int hash);

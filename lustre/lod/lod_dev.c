@@ -63,10 +63,16 @@ int lod_fld_lookup(struct lod_device *lod, const struct lu_fid *fid,
 	ENTRY;
 
 	LASSERT(fid_is_sane(fid));
-	if (!lod->lod_initialized || !fid_is_norm(fid)) {
+	if (!lod->lod_initialized || (!fid_is_norm(fid) && !fid_is_root(fid))) {
 		LASSERT(lu_site2seq(lod2lu_dev(lod)->ld_site) != NULL);
 		*tgt = lu_site2seq(lod2lu_dev(lod)->ld_site)->ss_node_id;
 		RETURN(rc);
+	}
+
+	/* FIXME: move this to the server side */
+	if (fid_is_root(fid)) {
+		*tgt = fid_index_get_by_rootfid(fid);
+		RETURN(0);
 	}
 
 	server_fld = lu_site2seq(lod2lu_dev(lod)->ld_site)->ss_server_fld;
@@ -275,6 +281,39 @@ static int lod_seq_init_cli(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/**
+ * Insert the fid root to the FLD index entry
+ **/
+static int lod_seq_init_root_fid(const struct lu_env *env,
+				 struct lod_device *lod,
+				 int mdt_index)
+{
+	struct seq_server_site	*ss;
+	struct lu_seq_range	*range;
+	int			rc;
+	ENTRY;
+
+	ss = lu_site2seq(lod2lu_dev(lod)->ld_site);
+	LASSERT(ss != NULL);
+
+	if (ss->ss_node_id != 0)
+		RETURN(0);
+
+	OBD_ALLOC_PTR(range);
+	if (range == NULL)
+		RETURN(-ENOMEM);
+
+	LASSERTF(mdt_index < MAX_MDT_INDEX, "Invalid index %d\n", mdt_index);
+	range->lsr_index = mdt_index;
+	range->lsr_flags = LU_SEQ_RANGE_MDT;
+	range->lsr_start = FID_SEQ_ROOT + mdt_index;
+	range->lsr_end = FID_SEQ_ROOT + mdt_index + 1;
+	rc = fld_index_insert(env, ss->ss_server_fld, range);
+	OBD_FREE_PTR(range);
+
+	RETURN(rc);
+}
+
 static void lod_seq_fini_cli(struct lod_device *lod)
 {
 	struct seq_server_site *ss;
@@ -369,9 +408,17 @@ static int lod_process_config(const struct lu_env *env,
 			mdt_index = index;
 			rc = lod_add_device(env, lod, arg1, index, gen,
 					    mdt_index, LUSTRE_MDC_NAME, 1);
-			if (rc == 0)
-				rc = lod_seq_init_cli(env, lod, arg1,
-						      mdt_index);
+			if (rc != 0)
+				GOTO(out, rc);
+
+			rc = lod_seq_init_cli(env, lod, arg1, mdt_index);
+			if (rc != 0)
+				GOTO(out, rc);
+
+			rc = lod_seq_init_root_fid(env, lod, mdt_index);
+		       	if (rc != 0)
+				GOTO(out, rc);	
+
 		} else if (lcfg->lcfg_command == LCFG_LOV_ADD_INA) {
 			/*FIXME: Add mdt_index for LCFG_LOV_ADD_INA*/
 			mdt_index = 0;
