@@ -984,9 +984,8 @@ finish:
                         GOTO(out, rc = -ENODEV);
                 }
                 old_connect_flags = exp->exp_connect_flags;
-                exp->exp_connect_flags = ocd->ocd_connect_flags;
-                imp->imp_obd->obd_self_export->exp_connect_flags =
-                                                        ocd->ocd_connect_flags;
+                exp->exp_connect_data = *ocd;
+                imp->imp_obd->obd_self_export->exp_connect_data = *ocd;
                 class_export_put(exp);
 
                 obd_import_event(imp->imp_obd, imp, IMP_EVENT_OCD);

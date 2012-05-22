@@ -230,7 +230,7 @@ struct obd_export {
         /** protects exp_flags and exp_outstanding_replies */
         cfs_spinlock_t            exp_lock;
         /** Compatibility flags for this export */
-        __u64                     exp_connect_flags;
+        struct obd_connect_data   exp_connect_data;
         enum obd_option           exp_flags;
         unsigned long             exp_failed:1,
                                   exp_in_recovery:1,
@@ -273,10 +273,11 @@ struct obd_export {
         } u;
 };
 
-#define exp_target_data u.eu_target_data
-#define exp_mdt_data    u.eu_mdt_data
-#define exp_filter_data u.eu_filter_data
-#define exp_ec_data     u.eu_ec_data
+#define exp_connect_flags       exp_connect_data.ocd_connect_flags
+#define exp_target_data         u.eu_target_data
+#define exp_mdt_data            u.eu_mdt_data
+#define exp_filter_data         u.eu_filter_data
+#define exp_ec_data             u.eu_ec_data
 
 static inline int exp_expired(struct obd_export *exp, cfs_duration_t age)
 {
@@ -289,6 +290,13 @@ static inline int exp_connect_cancelset(struct obd_export *exp)
 {
         LASSERT(exp != NULL);
         return !!(exp->exp_connect_flags & OBD_CONNECT_CANCELSET);
+}
+
+static inline int exp_connect_multibulk(struct obd_export *exp)
+{
+        LASSERT(exp != NULL);
+        return ((exp->exp_connect_flags & OBD_CONNECT_BRW_SIZE) &&
+                 exp->exp_connect_data.ocd_brw_size == PTLRPC_MAX_BRW_SIZE);
 }
 
 static inline int exp_connect_lru_resize(struct obd_export *exp)

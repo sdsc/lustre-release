@@ -1445,10 +1445,10 @@ static int mdt_writepage(struct mdt_thread_info *info)
                         DEBUG_REQ(D_ERROR, req, "Eviction on bulk GET");
                         rc = -ENOTCONN;
                         ptlrpc_abort_bulk(desc);
-                } else if (!desc->bd_success ||
+                } else if (desc->bd_failure ||
                            desc->bd_nob_transferred != desc->bd_nob) {
                         DEBUG_REQ(D_ERROR, req, "%s bulk GET %d(%d)",
-                                  desc->bd_success ?
+                                  !desc->bd_failure ?
                                   "truncated" : "network error on",
                                   desc->bd_nob_transferred, desc->bd_nob);
                         /* XXX should this be a different errno? */
@@ -4955,7 +4955,7 @@ static int mdt_connect_internal(struct obd_export *exp,
                 }
 
                 cfs_spin_lock(&exp->exp_lock);
-                exp->exp_connect_flags = data->ocd_connect_flags;
+                exp->exp_connect_data = *data;
                 cfs_spin_unlock(&exp->exp_lock);
                 data->ocd_version = LUSTRE_VERSION_CODE;
                 exp->exp_mdt_data.med_ibits_known = data->ocd_ibits_known;

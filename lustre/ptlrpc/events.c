@@ -199,14 +199,16 @@ void client_bulk_callback (lnet_event_t *ev)
 
         cfs_spin_lock(&desc->bd_lock);
 
-        LASSERT(desc->bd_network_rw);
-        desc->bd_network_rw = 0;
+        LASSERT(desc->bd_md_count > 0);
+        desc->bd_md_count--;
 
         if (ev->type != LNET_EVENT_UNLINK && ev->status == 0) {
-                desc->bd_success = 1;
-                desc->bd_nob_transferred = ev->mlength;
+                desc->bd_nob_transferred += ev->mlength;
                 desc->bd_sender = ev->sender;
         }
+
+         if (ev->status != 0)
+                desc->bd_failure = 1;
 
         /* release the encrypted pages for write */
         if (desc->bd_req->rq_bulk_write)
@@ -388,21 +390,27 @@ void server_bulk_callback (lnet_event_t *ev)
 
         cfs_spin_lock(&desc->bd_lock);
 
+        LASSERT (desc->bd_md_count > 0);
+
         if ((ev->type == LNET_EVENT_ACK ||
              ev->type == LNET_EVENT_REPLY) &&
             ev->status == 0) {
                 /* We heard back from the peer, so even if we get this
                  * before the SENT event (oh yes we can), we know we
                  * read/wrote the peer buffer and how much... */
-                desc->bd_success = 1;
-                desc->bd_nob_transferred = ev->mlength;
+                desc->bd_nob_transferred += ev->mlength;
                 desc->bd_sender = ev->sender;
         }
 
+        if (ev->status != 0)
+                desc->bd_failure = 1;
+
         if (ev->unlinked) {
+                desc->bd_md_count--;
                 /* This is the last callback no matter what... */
-                desc->bd_network_rw = 0;
-                cfs_waitq_signal(&desc->bd_waitq);
+                /* TODO: can wakeup earlier if desc->bd_failure != 0? */
+                if (desc->bd_md_count == 0)
+                        cfs_waitq_signal(&desc->bd_waitq);
         }
 
         cfs_spin_unlock(&desc->bd_lock);

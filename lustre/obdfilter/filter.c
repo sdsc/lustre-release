@@ -2672,10 +2672,11 @@ static int filter_connect_internal(struct obd_export *exp,
                 RETURN(0);
 
         CDEBUG(D_RPCTRACE, "%s: cli %s/%p ocd_connect_flags: "LPX64
-               " ocd_version: %x ocd_grant: %d ocd_index: %u\n",
+               " ocd_version: %x ocd_grant: %d ocd_index: %u"
+               " ocd_brw_size: %u\n",
                exp->exp_obd->obd_name, exp->exp_client_uuid.uuid, exp,
                data->ocd_connect_flags, data->ocd_version,
-               data->ocd_grant, data->ocd_index);
+               data->ocd_grant, data->ocd_index, data->ocd_brw_size);
 
         if (fed->fed_group != 0 && fed->fed_group != data->ocd_group) {
                 CWARN("!!! This export (nid %s) used object group %d "
@@ -2688,8 +2689,8 @@ static int filter_connect_internal(struct obd_export *exp,
         fed->fed_group = data->ocd_group;
 
         data->ocd_connect_flags &= OST_CONNECT_SUPPORTED;
-        exp->exp_connect_flags = data->ocd_connect_flags;
         data->ocd_version = LUSTRE_VERSION_CODE;
+        exp->exp_connect_data = *data;
 
         /* Kindly make sure the SKIP_ORPHAN flag is from MDS. */
         if (data->ocd_connect_flags & OBD_CONNECT_MDS)
@@ -2748,7 +2749,7 @@ static int filter_connect_internal(struct obd_export *exp,
                 data->ocd_brw_size = 65536;
         } else if (data->ocd_connect_flags & OBD_CONNECT_BRW_SIZE) {
                 data->ocd_brw_size = min(data->ocd_brw_size,
-                               (__u32)(PTLRPC_MAX_BRW_PAGES << CFS_PAGE_SHIFT));
+                                        (__u32)(PTLRPC_MAX_BRW_SIZE));
                 if (data->ocd_brw_size == 0) {
                         CERROR("%s: cli %s/%p ocd_connect_flags: "LPX64
                                " ocd_version: %x ocd_grant: %d ocd_index: %u "

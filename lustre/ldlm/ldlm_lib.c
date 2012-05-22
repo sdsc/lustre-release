@@ -342,7 +342,7 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
         /* This value may be changed at connect time in
            ptlrpc_connect_interpret. */
         cli->cl_max_pages_per_rpc = min((int)PTLRPC_MAX_BRW_PAGES,
-                                        (int)(1024 * 1024 >> CFS_PAGE_SHIFT));
+                                        (int)(LNET_MTU >> CFS_PAGE_SHIFT));
 
         if (!strcmp(name, LUSTRE_MDC_NAME)) {
                 cli->cl_max_rpcs_in_flight = MDC_MAX_RIF_DEFAULT;
@@ -2707,10 +2707,10 @@ int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
                         /* we don't reply anyway */
                         rc = -ETIMEDOUT;
                         ptlrpc_abort_bulk(desc);
-                } else if (!desc->bd_success ||
+                } else if (desc->bd_failure ||
                            desc->bd_nob_transferred != desc->bd_nob) {
                         DEBUG_REQ(D_ERROR, req, "%s bulk %s %d(%d)",
-                                  desc->bd_success ?
+                                  !desc->bd_failure ?
                                   "truncated" : "network error on",
                                   bulk2type(desc),
                                   desc->bd_nob_transferred,

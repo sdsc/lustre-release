@@ -82,12 +82,17 @@
 /* MD flags we _always_ use */
 #define PTLRPC_MD_OPTIONS  0
 
+/* Max # of bulk operations in one request */
+#define PTLRPC_BULK_OPS_BITS    2
+#define PTLRPC_BULK_OPS_SIZE    (1UL << PTLRPC_BULK_OPS_BITS)
+#define PTLRPC_BULK_OPS_MASK    (~(PTLRPC_BULK_OPS_SIZE - 1))
+
 /**
  * Define maxima for bulk I/O
  * CAVEAT EMPTOR, with multinet (i.e. routers forwarding between networks)
  * these limits are system wide and not interface-local. */
-#define PTLRPC_MAX_BRW_BITS     LNET_MTU_BITS
-#define PTLRPC_MAX_BRW_SIZE     (1<<LNET_MTU_BITS)
+#define PTLRPC_MAX_BRW_BITS     (LNET_MTU_BITS + PTLRPC_BULK_OPS_BITS)
+#define PTLRPC_MAX_BRW_SIZE     (1 << PTLRPC_MAX_BRW_BITS)
 #define PTLRPC_MAX_BRW_PAGES    (PTLRPC_MAX_BRW_SIZE >> CFS_PAGE_SHIFT)
 
 /* When PAGE_SIZE is a constant, we can check our arithmetic here with cpp! */
@@ -98,10 +103,10 @@
 # if (PTLRPC_MAX_BRW_SIZE != (PTLRPC_MAX_BRW_PAGES * CFS_PAGE_SIZE))
 #  error "PTLRPC_MAX_BRW_SIZE isn't PTLRPC_MAX_BRW_PAGES * CFS_PAGE_SIZE"
 # endif
-# if (PTLRPC_MAX_BRW_SIZE > LNET_MTU)
+# if (PTLRPC_MAX_BRW_SIZE > LNET_MTU * PTLRPC_BULK_OPS_SIZE)
 #  error "PTLRPC_MAX_BRW_SIZE too big"
 # endif
-# if (PTLRPC_MAX_BRW_PAGES > LNET_MAX_IOV)
+# if (PTLRPC_MAX_BRW_PAGES > LNET_MAX_IOV * PTLRPC_BULK_OPS_SIZE)
 #  error "PTLRPC_MAX_BRW_PAGES too big"
 # endif
 #endif /* __KERNEL__ */
@@ -900,10 +905,8 @@ struct ptlrpc_bulk_page {
  *  Another user is readpage for MDT.
  */
 struct ptlrpc_bulk_desc {
-        /** completed successfully */
-        unsigned long bd_success:1;
-        /** accessible to the network (network io potentially in progress) */
-        unsigned long bd_network_rw:1;
+        /** completed with failure */
+        unsigned long bd_failure:1;
         /** {put,get}{source,sink} */
         unsigned long bd_type:2;
         /** client side */
@@ -929,8 +932,9 @@ struct ptlrpc_bulk_desc {
         __u64                  bd_last_xid;
 
         struct ptlrpc_cb_id    bd_cbid;         /* network callback info */
-        lnet_handle_md_t       bd_md_h;         /* associated MD */
         lnet_nid_t             bd_sender;       /* stash event::sender */
+        int                    bd_md_count;     /* # valid entries in bd_mds */
+        lnet_handle_md_t       bd_mds[PTLRPC_BULK_OPS_SIZE];
 
 #if defined(__KERNEL__)
         /*
@@ -1415,7 +1419,7 @@ static inline int ptlrpc_server_bulk_active(struct ptlrpc_bulk_desc *desc)
         LASSERT(desc != NULL);
 
         cfs_spin_lock(&desc->bd_lock);
-        rc = desc->bd_network_rw;
+        rc = desc->bd_md_count;
         cfs_spin_unlock(&desc->bd_lock);
         return rc;
 }
@@ -1439,7 +1443,7 @@ static inline int ptlrpc_client_bulk_active(struct ptlrpc_request *req)
                 return 0;
 
         cfs_spin_lock(&desc->bd_lock);
-        rc = desc->bd_network_rw;
+        rc = desc->bd_md_count;
         cfs_spin_unlock(&desc->bd_lock);
         return rc;
 }

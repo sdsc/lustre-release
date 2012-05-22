@@ -97,6 +97,7 @@ struct ptlrpc_connection *ptlrpc_uuid_to_connection(struct obd_uuid *uuid)
 struct ptlrpc_bulk_desc *new_bulk(int npages, int type, int portal)
 {
         struct ptlrpc_bulk_desc *desc;
+        int                      i;
 
         OBD_ALLOC(desc, offsetof (struct ptlrpc_bulk_desc, bd_iov[npages]));
         if (!desc)
@@ -106,10 +107,11 @@ struct ptlrpc_bulk_desc *new_bulk(int npages, int type, int portal)
         cfs_waitq_init(&desc->bd_waitq);
         desc->bd_max_iov = npages;
         desc->bd_iov_count = 0;
-        LNetInvalidateHandle(&desc->bd_md_h);
         desc->bd_portal = portal;
         desc->bd_type = type;
-
+        desc->bd_md_count = 0;
+        for (i = 0; i < PTLRPC_BULK_OPS_SIZE; i++)
+                LNetInvalidateHandle(&desc->bd_mds[i]);
         return desc;
 }
 
@@ -176,7 +178,7 @@ void ptlrpc_free_bulk(struct ptlrpc_bulk_desc *desc)
 
         LASSERT(desc != NULL);
         LASSERT(desc->bd_iov_count != LI_POISON); /* not freed already */
-        LASSERT(!desc->bd_network_rw);         /* network hands off or */
+        LASSERT(desc->bd_md_count == 0);          /* network hands off */
         LASSERT((desc->bd_export != NULL) ^ (desc->bd_import != NULL));
 
         sptlrpc_enc_pool_put_pages(desc);
@@ -1676,7 +1678,7 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
                 if (ptlrpc_client_bulk_active(req))
                         continue;
 
-                if (!req->rq_bulk->bd_success) {
+                if (req->rq_bulk->bd_failure) {
                         /* The RPC reply arrived OK, but the bulk screwed
                          * up!  Dead weird since the server told us the RPC
                          * was good after getting the REPLY for her GET or

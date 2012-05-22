@@ -86,7 +86,7 @@ static int mgs_connect(const struct lu_env *env,
 
         if (data != NULL) {
                 data->ocd_connect_flags &= MGS_CONNECT_SUPPORTED;
-                lexp->exp_connect_flags = data->ocd_connect_flags;
+                lexp->exp_connect_data = *data;
                 data->ocd_version = LUSTRE_VERSION_CODE;
         }
 
@@ -115,7 +115,7 @@ static int mgs_reconnect(const struct lu_env *env,
 
         if (data != NULL) {
                 data->ocd_connect_flags &= MGS_CONNECT_SUPPORTED;
-                exp->exp_connect_flags = data->ocd_connect_flags;
+                exp->exp_connect_data = *data;
                 data->ocd_version = LUSTRE_VERSION_CODE;
         }
 
