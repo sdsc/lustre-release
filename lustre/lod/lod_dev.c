@@ -63,10 +63,15 @@ int lod_fld_lookup(struct lod_device *lod, const struct lu_fid *fid,
 	ENTRY;
 
 	LASSERT(fid_is_sane(fid));
-	if (!lod->lod_initialized || !fid_is_norm(fid)) {
+	if (!lod->lod_initialized || (!fid_is_norm(fid) && !fid_is_root(fid))) {
 		LASSERT(lu_site2md(lod2lu_dev(lod)->ld_site) != NULL);
 		*tgt = lu_site2md(lod2lu_dev(lod)->ld_site)->ms_node_id;
 		RETURN(rc);
+	}
+
+	if (fid_is_root(fid)) {
+		*tgt = fid_index_get_by_rootfid(fid);
+		RETURN(0);
 	}
 
 	server_fld = lu_site2md(lod2lu_dev(lod)->ld_site)->ms_server_fld;

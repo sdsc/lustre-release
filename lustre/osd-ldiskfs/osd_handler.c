@@ -1912,6 +1912,14 @@ int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
 		return 0;
 	}
 
+	if (fid_is_root(fid)) {
+		range->lsr_flags = LU_SEQ_RANGE_MDT;
+		range->lsr_start = FID_SEQ_SPECIAL;
+		range->lsr_end = FID_SEQ_SPECIAL + 1;
+		range->lsr_index = fid_index_get_by_rootfid(fid);
+		return 0;
+	}
+
 	if (fid_is_idif(fid)) {
 		range->lsr_flags = LU_SEQ_RANGE_OST;
 		range->lsr_index = fid_idif_ost_idx(fid);
@@ -3510,11 +3518,12 @@ static int __osd_ea_add_rec(struct osd_thread_info *info,
          * it is IGIF now but needs FID in dir entry as well for readdir
          * to work.
          * LU-838 should fix that and remove fid_is_igif() check */
-        if (fid_is_igif((struct lu_fid *)fid) ||
-            fid_is_norm((struct lu_fid *)fid)) {
-                ldp = (struct ldiskfs_dentry_param *)info->oti_ldp;
-                osd_get_ldiskfs_dirent_param(ldp, fid);
-                child->d_fsdata = (void *)ldp;
+	if (fid_is_igif((struct lu_fid *)fid) ||
+	    fid_is_norm((struct lu_fid *)fid) ||
+	    fid_is_root((struct lu_fid *)fid)) {
+		ldp = (struct ldiskfs_dentry_param *)info->oti_ldp;
+		osd_get_ldiskfs_dirent_param(ldp, fid);
+	child->d_fsdata = (void *)ldp;
         } else {
                 child->d_fsdata = NULL;
         }
@@ -3883,7 +3892,8 @@ static int osd_index_declare_ea_insert(const struct lu_env *env,
 		return rc;
 	}
 
-	if (fid_is_norm(fid) && unlikely(ms->ms_node_id != range->lsr_index)) {
+	if ((fid_is_norm(fid) || fid_is_root(fid)) &&
+		unlikely(ms->ms_node_id != range->lsr_index)) {
 		struct dentry *agent;
 		/* Check whether agent dir for the MDT has been created */
 		agent = osd_agent_load(osd_dt_dev(handle->th_dev),
