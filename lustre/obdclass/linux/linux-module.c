@@ -166,6 +166,7 @@ int obd_ioctl_getdata(char **buf, int *len, void *arg)
         EXIT;
         return 0;
 }
+EXPORT_SYMBOL(obd_ioctl_getdata);
 
 int obd_ioctl_popdata(void *arg, void *data, int len)
 {
@@ -176,8 +177,6 @@ int obd_ioctl_popdata(void *arg, void *data, int len)
                 err = -EFAULT;
         return err;
 }
-
-EXPORT_SYMBOL(obd_ioctl_getdata);
 EXPORT_SYMBOL(obd_ioctl_popdata);
 
 /*  opening /dev/obd */
@@ -323,6 +322,7 @@ static int obd_proc_read_health(char *page, char **start, off_t off,
 
 /* Root for /proc/fs/lustre */
 struct proc_dir_entry *proc_lustre_root = NULL;
+EXPORT_SYMBOL(proc_lustre_root);
 
 struct lprocfs_vars lprocfs_base[] = {
         { "version", obd_proc_read_version, NULL, NULL },
