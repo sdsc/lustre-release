@@ -227,7 +227,8 @@ void request_in_callback(lnet_event_t *ev)
 {
         struct ptlrpc_cb_id               *cbid = ev->md.user_ptr;
         struct ptlrpc_request_buffer_desc *rqbd = cbid->cbid_arg;
-        struct ptlrpc_service             *service = rqbd->rqbd_service;
+	struct ptlrpc_service_part	  *svcpt = rqbd->rqbd_svcpt;
+	struct ptlrpc_service             *service = svcpt->scp_service;
         struct ptlrpc_request             *req;
         ENTRY;
 
@@ -289,21 +290,28 @@ void request_in_callback(lnet_event_t *ev)
 
         CDEBUG(D_RPCTRACE, "peer: %s\n", libcfs_id2str(req->rq_peer));
 
-        cfs_spin_lock(&service->srv_lock);
+	cfs_spin_lock(&svcpt->scp_lock);
 
-        req->rq_history_seq = service->srv_request_seq++;
-        cfs_list_add_tail(&req->rq_history_list, &service->srv_request_history);
+	/* NB: Although srv_hist_lock is unnecessary now, but we will need it
+	 * when we have multiple instances of ptlrpc_service_part, also,
+	 * we can bypass this lock when RPC history is disabled. */
+	cfs_spin_lock(&service->srv_hist_lock);
 
-        if (ev->unlinked) {
-                service->srv_nrqbd_receiving--;
-                CDEBUG(D_INFO, "Buffer complete: %d buffers still posted\n",
-                       service->srv_nrqbd_receiving);
+	req->rq_history_seq = service->srv_request_seq++;
+	cfs_list_add_tail(&req->rq_history_list, &service->srv_request_history);
 
-                /* Normally, don't complain about 0 buffers posted; LNET won't
-                 * drop incoming reqs since we set the portal lazy */
-                if (test_req_buffer_pressure &&
-                    ev->type != LNET_EVENT_UNLINK &&
-                    service->srv_nrqbd_receiving == 0)
+	cfs_spin_unlock(&service->srv_hist_lock);
+
+	if (ev->unlinked) {
+		svcpt->scp_nrqbds_posted--;
+		CDEBUG(D_INFO, "Buffer complete: %d buffers still posted\n",
+		       svcpt->scp_nrqbds_posted);
+
+		/* Normally, don't complain about 0 buffers posted; LNET won't
+		 * drop incoming reqs since we set the portal lazy */
+		if (test_req_buffer_pressure &&
+		    ev->type != LNET_EVENT_UNLINK &&
+		    svcpt->scp_nrqbds_posted == 0)
                         CWARN("All %s request buffers busy\n",
                               service->srv_name);
 
@@ -313,15 +321,15 @@ void request_in_callback(lnet_event_t *ev)
                 rqbd->rqbd_refcount++;
         }
 
-        cfs_list_add_tail(&req->rq_list, &service->srv_req_in_queue);
-        service->srv_n_queued_reqs++;
+	cfs_list_add_tail(&req->rq_list, &svcpt->scp_req_incoming);
+	svcpt->scp_nreqs_incoming++;
 
-        /* NB everything can disappear under us once the request
-         * has been queued and we unlock, so do the wake now... */
-        cfs_waitq_signal(&service->srv_waitq);
+	/* NB everything can disappear under us once the request
+	 * has been queued and we unlock, so do the wake now... */
+	cfs_waitq_signal(&svcpt->scp_waitq);
 
-        cfs_spin_unlock(&service->srv_lock);
-        EXIT;
+	cfs_spin_unlock(&svcpt->scp_lock);
+	EXIT;
 }
 
 /*
@@ -331,7 +339,7 @@ void reply_out_callback(lnet_event_t *ev)
 {
         struct ptlrpc_cb_id       *cbid = ev->md.user_ptr;
         struct ptlrpc_reply_state *rs = cbid->cbid_arg;
-        struct ptlrpc_service     *svc = rs->rs_service;
+	struct ptlrpc_service_part *svcpt = rs->rs_svcpt;
         ENTRY;
 
         LASSERT (ev->type == LNET_EVENT_SEND ||
@@ -352,14 +360,17 @@ void reply_out_callback(lnet_event_t *ev)
         if (ev->unlinked) {
                 /* Last network callback. The net's ref on 'rs' stays put
                  * until ptlrpc_handle_rs() is done with it */
-                cfs_spin_lock(&svc->srv_rs_lock);
-                cfs_spin_lock(&rs->rs_lock);
-                rs->rs_on_net = 0;
-                if (!rs->rs_no_ack ||
-                    rs->rs_transno <= rs->rs_export->exp_obd->obd_last_committed)
-                        ptlrpc_schedule_difficult_reply (rs);
-                cfs_spin_unlock(&rs->rs_lock);
-                cfs_spin_unlock(&svc->srv_rs_lock);
+		cfs_spin_lock(&svcpt->scp_rep_lock);
+		cfs_spin_lock(&rs->rs_lock);
+
+		rs->rs_on_net = 0;
+		if (!rs->rs_no_ack ||
+		    rs->rs_transno <=
+		    rs->rs_export->exp_obd->obd_last_committed)
+			ptlrpc_schedule_difficult_reply(rs);
+
+		cfs_spin_unlock(&rs->rs_lock);
+		cfs_spin_unlock(&svcpt->scp_rep_lock);
         }
 
         EXIT;
