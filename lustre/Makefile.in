@@ -10,5 +10,6 @@ subdir-m += quota
 
 @SERVER_TRUE@subdir-m += mds obdfilter ost mgs mdt cmm mdd osd-ldiskfs
 @CLIENT_TRUE@subdir-m += mdc lmv llite fld
+@ZFS_ENABLED_TRUE@subdir-m += osd-zfs
 
 @INCLUDE_RULES@
