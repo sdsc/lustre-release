@@ -170,6 +170,7 @@ static int mgs_llog_finish(struct obd_device *obd, int count)
 /* Start the MGS obd */
 static int mgs_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
+	static struct ptlrpc_service_conf	conf;
         struct lprocfs_static_vars lvars;
         struct mgs_obd *mgs = &obd->u.mgs;
         struct lustre_mount_info *lmi;
@@ -240,24 +241,34 @@ static int mgs_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
                         GOTO(err_llog, rc);
         }
 
+	conf = (typeof(conf)) {
+		.psc_name		= LUSTRE_MGS_NAME,
+		.psc_watchdog_factor	= 2,
+		.psc_buf		= {
+			.bc_nbufs		= MGS_NBUFS,
+			.bc_buf_size		= MGS_BUFSIZE,
+			.bc_req_max_size	= MGS_MAXREQSIZE,
+			.bc_rep_max_size	= MGS_MAXREPSIZE,
+			.bc_req_portal		= MGS_REQUEST_PORTAL,
+			.bc_rep_portal		= MGC_REPLY_PORTAL,
+		},
+		.psc_thr		= {
+			.tc_thr_name		= "ll_mgs",
+			.tc_nthrs_min		= MGS_THREADS_AUTO_MIN,
+			.tc_nthrs_max		= MGS_THREADS_AUTO_MAX,
+			.tc_ctx_tags		= LCT_MD_THREAD,
+		},
+		.psc_ops		= {
+			.so_req_handler		= mgs_handle,
+			.so_req_printer		= target_print_req,
+		},
+	};
         /* Start the service threads */
-        mgs->mgs_service =
-                ptlrpc_init_svc(MGS_NBUFS, MGS_BUFSIZE, MGS_MAXREQSIZE,
-                                MGS_MAXREPSIZE, MGS_REQUEST_PORTAL,
-                                MGC_REPLY_PORTAL, 2,
-                                mgs_handle, LUSTRE_MGS_NAME,
-                                obd->obd_proc_entry, target_print_req,
-                                MGS_THREADS_AUTO_MIN, MGS_THREADS_AUTO_MAX,
-                                "ll_mgs", LCT_MD_THREAD, NULL);
-
-        if (!mgs->mgs_service) {
+	mgs->mgs_service = ptlrpc_register_service(&conf, obd->obd_proc_entry);
+	if (IS_ERR(mgs->mgs_service)) {
                 CERROR("failed to start service\n");
-                GOTO(err_llog, rc = -ENOMEM);
+		GOTO(err_llog, rc = PTR_ERR(mgs->mgs_service));
         }
-
-        rc = ptlrpc_start_threads(mgs->mgs_service);
-        if (rc)
-                GOTO(err_thread, rc);
 
         ping_evictor_start();
 
@@ -265,8 +276,6 @@ static int mgs_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 
         RETURN(0);
 
-err_thread:
-        ptlrpc_unregister_service(mgs->mgs_service);
 err_llog:
         lproc_mgs_cleanup(obd);
         obd_llog_finish(obd, 0);
