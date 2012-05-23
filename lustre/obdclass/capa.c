@@ -101,6 +101,7 @@ cfs_hlist_head_t *init_capa_hash(void)
                 CFS_INIT_HLIST_HEAD(hash + i);
         return hash;
 }
+EXPORT_SYMBOL(init_capa_hash);
 
 #ifdef __KERNEL__
 static inline int capa_on_server(struct obd_capa *ocapa)
@@ -134,6 +135,7 @@ void cleanup_capa_hash(cfs_hlist_head_t *hash)
 
         OBD_FREE(hash, CFS_PAGE_SIZE);
 }
+EXPORT_SYMBOL(cleanup_capa_hash);
 
 static inline int capa_hashfn(struct lu_fid *fid)
 {
@@ -223,6 +225,7 @@ struct obd_capa *capa_add(cfs_hlist_head_t *hash, struct lustre_capa *capa)
                 return old;
         }
 }
+EXPORT_SYMBOL(capa_add);
 
 struct obd_capa *capa_lookup(cfs_hlist_head_t *hash, struct lustre_capa *capa,
                              int alive)
@@ -240,6 +243,7 @@ struct obd_capa *capa_lookup(cfs_hlist_head_t *hash, struct lustre_capa *capa,
 
         return ocapa;
 }
+EXPORT_SYMBOL(capa_lookup);
 
 int capa_hmac(__u8 *hmac, struct lustre_capa *capa, __u8 *key)
 {
@@ -272,6 +276,7 @@ int capa_hmac(__u8 *hmac, struct lustre_capa *capa, __u8 *key)
 
         return 0;
 }
+EXPORT_SYMBOL(capa_hmac);
 
 int capa_encrypt_id(__u32 *d, __u32 *s, __u8 *key, int keylen)
 {
@@ -324,6 +329,7 @@ out:
         ll_crypto_free_blkcipher(tfm);
         return rc;
 }
+EXPORT_SYMBOL(capa_encrypt_id);
 
 int capa_decrypt_id(__u32 *d, __u32 *s, __u8 *key, int keylen)
 {
@@ -377,6 +383,7 @@ out:
         ll_crypto_free_blkcipher(tfm);
         return rc;
 }
+EXPORT_SYMBOL(capa_decrypt_id);
 #endif
 
 void capa_cpy(void *capa, struct obd_capa *ocapa)
@@ -385,6 +392,7 @@ void capa_cpy(void *capa, struct obd_capa *ocapa)
         *(struct lustre_capa *)capa = ocapa->c_capa;
         cfs_spin_unlock(&ocapa->c_lock);
 }
+EXPORT_SYMBOL(capa_cpy);
 
 void _debug_capa(struct lustre_capa *c,
                  struct libcfs_debug_msg_data *msgdata,
@@ -402,12 +410,3 @@ void _debug_capa(struct lustre_capa *c,
         va_end(args);
 }
 EXPORT_SYMBOL(_debug_capa);
-
-EXPORT_SYMBOL(init_capa_hash);
-EXPORT_SYMBOL(cleanup_capa_hash);
-EXPORT_SYMBOL(capa_add);
-EXPORT_SYMBOL(capa_lookup);
-EXPORT_SYMBOL(capa_hmac);
-EXPORT_SYMBOL(capa_encrypt_id);
-EXPORT_SYMBOL(capa_decrypt_id);
-EXPORT_SYMBOL(capa_cpy);
