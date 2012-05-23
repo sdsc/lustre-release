@@ -76,6 +76,10 @@ unsigned int obd_dump_on_eviction;
 unsigned int obd_max_dirty_pages = 256;
 unsigned int obd_timeout = OBD_TIMEOUT_DEFAULT;   /* seconds */
 unsigned int ldlm_timeout = LDLM_TIMEOUT_DEFAULT; /* seconds */
+unsigned int obd_timeout_set;
+EXPORT_SYMBOL(obd_timeout_set);
+unsigned int ldlm_timeout_set;
+EXPORT_SYMBOL(ldlm_timeout_set);
 /* Adaptive timeout defs here instead of ptlrpc module for /proc/sys/ access */
 unsigned int at_min = 0;
 unsigned int at_max = 600;
