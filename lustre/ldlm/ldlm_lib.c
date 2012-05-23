@@ -223,6 +223,29 @@ void client_destroy_import(struct obd_import *imp)
 }
 EXPORT_SYMBOL(client_destroy_import);
 
+/**
+ * check whether the osc is on MDT or not
+ * In the config log,
+ * osc on MDT
+ *       setup 0:{fsname}-OSTxxxx-osc[-MDTxxxx] 1:lustre-OST0000_UUID 2:NID
+ * osc on client
+ *	 setup 0:{fsname}-OSTxxxx-osc 1:lustre-OST0000_UUID 2:NID
+ *
+ **/
+static int osc_on_mdt(char *obdname)
+{
+	char *ptr;
+
+	ptr = strrchr(obdname, '-');
+	if (ptr == NULL)
+		return 0;
+
+	if (strncmp(ptr + 1, "MDT", 3) == 0)
+		return 1;
+
+	return 0;
+}
+
 /* configure an RPC client OBD device
  *
  * lcfg parameters:
@@ -232,189 +255,190 @@ EXPORT_SYMBOL(client_destroy_import);
  */
 int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
 {
-        struct client_obd *cli = &obddev->u.cli;
-        struct obd_import *imp;
-        struct obd_uuid server_uuid;
-        int rq_portal, rp_portal, connect_op;
-        char *name = obddev->obd_type->typ_name;
-        ldlm_ns_type_t ns_type = LDLM_NS_TYPE_UNKNOWN;
-        int rc;
-        ENTRY;
+	struct client_obd *cli = &obddev->u.cli;
+	struct obd_import *imp;
+	struct obd_uuid server_uuid;
+	int rq_portal, rp_portal, connect_op;
+	char *name = obddev->obd_type->typ_name;
+	ldlm_ns_type_t ns_type = LDLM_NS_TYPE_UNKNOWN;
+	int rc;
+	ENTRY;
 
-        /* In a more perfect world, we would hang a ptlrpc_client off of
-         * obd_type and just use the values from there. */
-        if (!strcmp(name, LUSTRE_OSC_NAME)) {
-                rq_portal = OST_REQUEST_PORTAL;
-                rp_portal = OSC_REPLY_PORTAL;
-                connect_op = OST_CONNECT;
-                cli->cl_sp_me = LUSTRE_SP_CLI;
-                cli->cl_sp_to = LUSTRE_SP_OST;
-                ns_type = LDLM_NS_TYPE_OSC;
+	/* In a more perfect world, we would hang a ptlrpc_client off of
+	 * obd_type and just use the values from there. */
+	if (!strcmp(name, LUSTRE_OSC_NAME)) {
+		rq_portal = OST_REQUEST_PORTAL;
+		rp_portal = OSC_REPLY_PORTAL;
+		connect_op = OST_CONNECT;
+		cli->cl_sp_me = LUSTRE_SP_CLI;
+		cli->cl_sp_to = LUSTRE_SP_OST;
+		ns_type = LDLM_NS_TYPE_OSC;
+	} else if (!strcmp(name, LUSTRE_MDC_NAME)) {
+		rq_portal = MDS_REQUEST_PORTAL;
+		rp_portal = MDC_REPLY_PORTAL;
+		connect_op = MDS_CONNECT;
+		cli->cl_sp_me = LUSTRE_SP_CLI;
+		cli->cl_sp_to = LUSTRE_SP_MDT;
+		ns_type = LDLM_NS_TYPE_MDC;
 
-        } else if (!strcmp(name, LUSTRE_MDC_NAME)) {
-                rq_portal = MDS_REQUEST_PORTAL;
-                rp_portal = MDC_REPLY_PORTAL;
-                connect_op = MDS_CONNECT;
-                cli->cl_sp_me = LUSTRE_SP_CLI;
-                cli->cl_sp_to = LUSTRE_SP_MDT;
-                ns_type = LDLM_NS_TYPE_MDC;
+	} else if (!strcmp(name, LUSTRE_MGC_NAME)) {
+		rq_portal = MGS_REQUEST_PORTAL;
+		rp_portal = MGC_REPLY_PORTAL;
+		connect_op = MGS_CONNECT;
+		cli->cl_sp_me = LUSTRE_SP_MGC;
+		cli->cl_sp_to = LUSTRE_SP_MGS;
+		cli->cl_flvr_mgc.sf_rpc = SPTLRPC_FLVR_INVALID;
+		ns_type = LDLM_NS_TYPE_MGC;
 
-        } else if (!strcmp(name, LUSTRE_MGC_NAME)) {
-                rq_portal = MGS_REQUEST_PORTAL;
-                rp_portal = MGC_REPLY_PORTAL;
-                connect_op = MGS_CONNECT;
-                cli->cl_sp_me = LUSTRE_SP_MGC;
-                cli->cl_sp_to = LUSTRE_SP_MGS;
-                cli->cl_flvr_mgc.sf_rpc = SPTLRPC_FLVR_INVALID;
-                ns_type = LDLM_NS_TYPE_MGC;
+	} else {
+		CERROR("unknown client OBD type \"%s\", can't setup\n",
+		       name);
+		RETURN(-EINVAL);
+	}
 
-        } else {
-                CERROR("unknown client OBD type \"%s\", can't setup\n",
-                       name);
-                RETURN(-EINVAL);
-        }
+	if (LUSTRE_CFG_BUFLEN(lcfg, 1) < 1) {
+		CERROR("requires a TARGET UUID\n");
+		RETURN(-EINVAL);
+	}
 
-        if (LUSTRE_CFG_BUFLEN(lcfg, 1) < 1) {
-                CERROR("requires a TARGET UUID\n");
-                RETURN(-EINVAL);
-        }
+	if (LUSTRE_CFG_BUFLEN(lcfg, 1) > 37) {
+		CERROR("client UUID must be less than 38 characters\n");
+		RETURN(-EINVAL);
+	}
 
-        if (LUSTRE_CFG_BUFLEN(lcfg, 1) > 37) {
-                CERROR("client UUID must be less than 38 characters\n");
-                RETURN(-EINVAL);
-        }
+	if (LUSTRE_CFG_BUFLEN(lcfg, 2) < 1) {
+		CERROR("setup requires a SERVER UUID\n");
+		RETURN(-EINVAL);
+	}
 
-        if (LUSTRE_CFG_BUFLEN(lcfg, 2) < 1) {
-                CERROR("setup requires a SERVER UUID\n");
-                RETURN(-EINVAL);
-        }
+	if (LUSTRE_CFG_BUFLEN(lcfg, 2) > 37) {
+		CERROR("target UUID must be less than 38 characters\n");
+		RETURN(-EINVAL);
+	}
 
-        if (LUSTRE_CFG_BUFLEN(lcfg, 2) > 37) {
-                CERROR("target UUID must be less than 38 characters\n");
-                RETURN(-EINVAL);
-        }
+	cfs_init_rwsem(&cli->cl_sem);
+	cfs_sema_init(&cli->cl_mgc_sem, 1);
+	cli->cl_conn_count = 0;
+	memcpy(server_uuid.uuid, lustre_cfg_buf(lcfg, 2),
+	       min_t(unsigned int, LUSTRE_CFG_BUFLEN(lcfg, 2),
+		     sizeof(server_uuid)));
 
-        cfs_init_rwsem(&cli->cl_sem);
-        cfs_sema_init(&cli->cl_mgc_sem, 1);
-        cli->cl_conn_count = 0;
-        memcpy(server_uuid.uuid, lustre_cfg_buf(lcfg, 2),
-               min_t(unsigned int, LUSTRE_CFG_BUFLEN(lcfg, 2),
-                     sizeof(server_uuid)));
+	cli->cl_dirty = 0;
+	cli->cl_avail_grant = 0;
+	/* FIXME: should limit this for the sum of all cl_dirty_max */
+	cli->cl_dirty_max = OSC_MAX_DIRTY_DEFAULT * 1024 * 1024;
+	if (cli->cl_dirty_max >> CFS_PAGE_SHIFT > cfs_num_physpages / 8)
+		cli->cl_dirty_max = cfs_num_physpages << (CFS_PAGE_SHIFT - 3);
+	CFS_INIT_LIST_HEAD(&cli->cl_cache_waiters);
+	CFS_INIT_LIST_HEAD(&cli->cl_loi_ready_list);
+	CFS_INIT_LIST_HEAD(&cli->cl_loi_hp_ready_list);
+	CFS_INIT_LIST_HEAD(&cli->cl_loi_write_list);
+	CFS_INIT_LIST_HEAD(&cli->cl_loi_read_list);
+	client_obd_list_lock_init(&cli->cl_loi_list_lock);
+	cli->cl_r_in_flight = 0;
+	cli->cl_w_in_flight = 0;
 
-        cli->cl_dirty = 0;
-        cli->cl_avail_grant = 0;
-        /* FIXME: should limit this for the sum of all cl_dirty_max */
-        cli->cl_dirty_max = OSC_MAX_DIRTY_DEFAULT * 1024 * 1024;
-        if (cli->cl_dirty_max >> CFS_PAGE_SHIFT > cfs_num_physpages / 8)
-                cli->cl_dirty_max = cfs_num_physpages << (CFS_PAGE_SHIFT - 3);
-        CFS_INIT_LIST_HEAD(&cli->cl_cache_waiters);
-        CFS_INIT_LIST_HEAD(&cli->cl_loi_ready_list);
-        CFS_INIT_LIST_HEAD(&cli->cl_loi_hp_ready_list);
-        CFS_INIT_LIST_HEAD(&cli->cl_loi_write_list);
-        CFS_INIT_LIST_HEAD(&cli->cl_loi_read_list);
-        client_obd_list_lock_init(&cli->cl_loi_list_lock);
-        cli->cl_r_in_flight = 0;
-        cli->cl_w_in_flight = 0;
-
-        cfs_spin_lock_init(&cli->cl_read_rpc_hist.oh_lock);
-        cfs_spin_lock_init(&cli->cl_write_rpc_hist.oh_lock);
-        cfs_spin_lock_init(&cli->cl_read_page_hist.oh_lock);
-        cfs_spin_lock_init(&cli->cl_write_page_hist.oh_lock);
-        cfs_spin_lock_init(&cli->cl_read_offset_hist.oh_lock);
-        cfs_spin_lock_init(&cli->cl_write_offset_hist.oh_lock);
-        cfs_waitq_init(&cli->cl_destroy_waitq);
-        cfs_atomic_set(&cli->cl_destroy_in_flight, 0);
+	cfs_spin_lock_init(&cli->cl_read_rpc_hist.oh_lock);
+	cfs_spin_lock_init(&cli->cl_write_rpc_hist.oh_lock);
+	cfs_spin_lock_init(&cli->cl_read_page_hist.oh_lock);
+	cfs_spin_lock_init(&cli->cl_write_page_hist.oh_lock);
+	cfs_spin_lock_init(&cli->cl_read_offset_hist.oh_lock);
+	cfs_spin_lock_init(&cli->cl_write_offset_hist.oh_lock);
+	cfs_waitq_init(&cli->cl_destroy_waitq);
+	cfs_atomic_set(&cli->cl_destroy_in_flight, 0);
 #ifdef ENABLE_CHECKSUM
-        /* Turn on checksumming by default. */
-        cli->cl_checksum = 1;
-        /*
-         * The supported checksum types will be worked out at connect time
-         * Set cl_chksum* to CRC32 for now to avoid returning screwed info
-         * through procfs.
-         */
-        cli->cl_cksum_type = cli->cl_supp_cksum_types = OBD_CKSUM_CRC32;
+	/* Turn on checksumming by default. */
+	cli->cl_checksum = 1;
+	/*
+	 * The supported checksum types will be worked out at connect time
+	 * Set cl_chksum* to CRC32 for now to avoid returning screwed info
+	 * through procfs.
+	 */
+	cli->cl_cksum_type = cli->cl_supp_cksum_types = OBD_CKSUM_CRC32;
 #endif
-        cfs_atomic_set(&cli->cl_resends, OSC_DEFAULT_RESENDS);
+	cfs_atomic_set(&cli->cl_resends, OSC_DEFAULT_RESENDS);
 
-        /* This value may be changed at connect time in
-           ptlrpc_connect_interpret. */
-        cli->cl_max_pages_per_rpc = min((int)PTLRPC_MAX_BRW_PAGES,
-                                        (int)(1024 * 1024 >> CFS_PAGE_SHIFT));
+	/* This value may be changed at connect time in
+	   ptlrpc_connect_interpret. */
+	cli->cl_max_pages_per_rpc = min((int)PTLRPC_MAX_BRW_PAGES,
+					(int)(1024 * 1024 >> CFS_PAGE_SHIFT));
 
-        if (!strcmp(name, LUSTRE_MDC_NAME)) {
-                cli->cl_max_rpcs_in_flight = MDC_MAX_RIF_DEFAULT;
-        } else if (cfs_num_physpages >> (20 - CFS_PAGE_SHIFT) <= 128 /* MB */) {
-                cli->cl_max_rpcs_in_flight = 2;
-        } else if (cfs_num_physpages >> (20 - CFS_PAGE_SHIFT) <= 256 /* MB */) {
-                cli->cl_max_rpcs_in_flight = 3;
-        } else if (cfs_num_physpages >> (20 - CFS_PAGE_SHIFT) <= 512 /* MB */) {
-                cli->cl_max_rpcs_in_flight = 4;
-        } else {
-                cli->cl_max_rpcs_in_flight = OSC_MAX_RIF_DEFAULT;
-        }
+	if (!strcmp(name, LUSTRE_MDC_NAME)) {
+		cli->cl_max_rpcs_in_flight = MDC_MAX_RIF_DEFAULT;
+	} else if (cfs_num_physpages >> (20 - CFS_PAGE_SHIFT) <= 128 /* MB */) {
+		cli->cl_max_rpcs_in_flight = 2;
+	} else if (cfs_num_physpages >> (20 - CFS_PAGE_SHIFT) <= 256 /* MB */) {
+		cli->cl_max_rpcs_in_flight = 3;
+	} else if (cfs_num_physpages >> (20 - CFS_PAGE_SHIFT) <= 512 /* MB */) {
+		cli->cl_max_rpcs_in_flight = 4;
+	} else {
+		if (osc_on_mdt(obddev->obd_name))
+			cli->cl_max_rpcs_in_flight = MDS_OSC_MAX_RIF_DEFAULT;
+		else
+			cli->cl_max_rpcs_in_flight = OSC_MAX_RIF_DEFAULT;
+	}
 
-        rc = ldlm_get_ref();
-        if (rc) {
-                CERROR("ldlm_get_ref failed: %d\n", rc);
-                GOTO(err, rc);
-        }
+	rc = ldlm_get_ref();
+	if (rc) {
+		CERROR("ldlm_get_ref failed: %d\n", rc);
+		GOTO(err, rc);
+	}
 
-        ptlrpc_init_client(rq_portal, rp_portal, name,
-                           &obddev->obd_ldlm_client);
+	ptlrpc_init_client(rq_portal, rp_portal, name,
+			   &obddev->obd_ldlm_client);
 
-        imp = class_new_import(obddev);
-        if (imp == NULL)
-                GOTO(err_ldlm, rc = -ENOENT);
-        imp->imp_client = &obddev->obd_ldlm_client;
-        imp->imp_connect_op = connect_op;
-        CFS_INIT_LIST_HEAD(&imp->imp_pinger_chain);
-        memcpy(cli->cl_target_uuid.uuid, lustre_cfg_buf(lcfg, 1),
-               LUSTRE_CFG_BUFLEN(lcfg, 1));
-        class_import_put(imp);
+	imp = class_new_import(obddev);
+	if (imp == NULL)
+		GOTO(err_ldlm, rc = -ENOENT);
+	imp->imp_client = &obddev->obd_ldlm_client;
+	imp->imp_connect_op = connect_op;
+	CFS_INIT_LIST_HEAD(&imp->imp_pinger_chain);
+	memcpy(cli->cl_target_uuid.uuid, lustre_cfg_buf(lcfg, 1),
+	       LUSTRE_CFG_BUFLEN(lcfg, 1));
+	class_import_put(imp);
 
-        rc = client_import_add_conn(imp, &server_uuid, 1);
-        if (rc) {
-                CERROR("can't add initial connection\n");
-                GOTO(err_import, rc);
-        }
+	rc = client_import_add_conn(imp, &server_uuid, 1);
+	if (rc) {
+		CERROR("can't add initial connection\n");
+		GOTO(err_import, rc);
+	}
 
-        cli->cl_import = imp;
-        /* cli->cl_max_mds_{easize,cookiesize} updated by mdc_init_ea_size() */
-        cli->cl_max_mds_easize = sizeof(struct lov_mds_md_v3);
-        cli->cl_max_mds_cookiesize = sizeof(struct llog_cookie);
+	cli->cl_import = imp;
+	/* cli->cl_max_mds_{easize,cookiesize} updated by mdc_init_ea_size() */
+	cli->cl_max_mds_easize = sizeof(struct lov_mds_md_v3);
+	cli->cl_max_mds_cookiesize = sizeof(struct llog_cookie);
 
-        if (LUSTRE_CFG_BUFLEN(lcfg, 3) > 0) {
-                if (!strcmp(lustre_cfg_string(lcfg, 3), "inactive")) {
-                        CDEBUG(D_HA, "marking %s %s->%s as inactive\n",
-                               name, obddev->obd_name,
-                               cli->cl_target_uuid.uuid);
-                        cfs_spin_lock(&imp->imp_lock);
-                        imp->imp_deactive = 1;
-                        cfs_spin_unlock(&imp->imp_lock);
-                }
-        }
+	if (LUSTRE_CFG_BUFLEN(lcfg, 3) > 0) {
+		if (!strcmp(lustre_cfg_string(lcfg, 3), "inactive")) {
+			CDEBUG(D_HA, "marking %s %s->%s as inactive\n",
+			       name, obddev->obd_name,
+			       cli->cl_target_uuid.uuid);
+			cfs_spin_lock(&imp->imp_lock);
+			imp->imp_deactive = 1;
+			cfs_spin_unlock(&imp->imp_lock);
+		}
+	}
 
-        obddev->obd_namespace = ldlm_namespace_new(obddev, obddev->obd_name,
-                                                   LDLM_NAMESPACE_CLIENT,
-                                                   LDLM_NAMESPACE_GREEDY,
-                                                   ns_type);
-        if (obddev->obd_namespace == NULL) {
-                CERROR("Unable to create client namespace - %s\n",
-                       obddev->obd_name);
-                GOTO(err_import, rc = -ENOMEM);
-        }
+	obddev->obd_namespace = ldlm_namespace_new(obddev, obddev->obd_name,
+						   LDLM_NAMESPACE_CLIENT,
+						   LDLM_NAMESPACE_GREEDY,
+						   ns_type);
+	if (obddev->obd_namespace == NULL) {
+		CERROR("Unable to create client namespace - %s\n",
+		       obddev->obd_name);
+		GOTO(err_import, rc = -ENOMEM);
+	}
 
-        cli->cl_qchk_stat = CL_NOT_QUOTACHECKED;
+	cli->cl_qchk_stat = CL_NOT_QUOTACHECKED;
 
-        RETURN(rc);
+	RETURN(rc);
 
 err_import:
-        class_destroy_import(imp);
+	class_destroy_import(imp);
 err_ldlm:
-        ldlm_put_ref();
+	ldlm_put_ref();
 err:
-        RETURN(rc);
-
+	RETURN(rc);
 }
 
 int client_obd_cleanup(struct obd_device *obddev)

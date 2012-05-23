@@ -1086,9 +1086,7 @@ stop:
             ma->ma_valid & MA_FLAGS && ma->ma_attr_flags & MDS_UNLINK_DESTROY)
                 /* Since echo client is incapable of destorying ost object,
                  * it will destory the object here. */
-                rc = mdd_lovobj_unlink(env, mdd, mdd_cobj, la,
-                                       ma->ma_lmm, ma->ma_lmm_size,
-                                       ma->ma_cookie, 1);
+                rc = mdd_lovobj_unlink(env, mdd, mdd_cobj, la, ma, 1);
 #else
 #warning "please remove this after 2.4 (LOD/OSP)."
 #endif
