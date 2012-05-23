@@ -445,6 +445,45 @@ static void ptlrpc_at_timer(unsigned long castmeharder)
         cfs_waitq_signal(&svc->srv_waitq);
 }
 
+static void
+ptlrpc_server_nthreads_check(struct ptlrpc_service_conf *conf,
+			     int *min_p, int *max_p)
+{
+#ifdef __KERNEL__
+	struct ptlrpc_service_thr_conf	*tc = &conf->psc_thr;
+	int				nthrs_min;
+	int				nthrs;
+
+	nthrs_min = PTLRPC_NTHRS_MIN + (conf->psc_ops.so_hpreq_handler != NULL);
+	nthrs_min = max_t(int, nthrs_min, tc->tc_nthrs_min);
+
+	nthrs = tc->tc_nthrs_user;
+	if (nthrs != 0) { /* validate it */
+		nthrs = min_t(int, nthrs, tc->tc_nthrs_max);
+		nthrs = max_t(int, nthrs, nthrs_min);
+		*min_p = *max_p = nthrs;
+		return;
+	}
+
+	/*
+	 * NB: we will add some common estimate at here, for example:
+	 * add a new member ptlrpc_service_thr_conf::tc_factor, and estimate
+	 * threads number based on (online_cpus * tc_factor) + BASE_NTHRS.
+	 * So we can remove code block like estimation in ost_setup, also,
+	 * we might estimate MDS threads number as well instead of using
+	 * absolute number, and have more threads on fat servers to improve
+	 * availability of service.
+	 *
+	 * Also, we will need to validate threads number at here for
+	 * CPT (CPU partition) affinity service in the future.
+	 */
+	*max_p = tc->tc_nthrs_max;
+	*min_p = nthrs_min;
+#else /* __KERNEL__ */
+	*max_p = *min_p = 1; /* whatever */
+#endif
+}
+
 /**
  * Initialize service on a given portal.
  * This includes starting serving threads , allocating and posting rqbds and
@@ -489,8 +528,10 @@ ptlrpc_register_service(struct ptlrpc_service_conf *conf,
 	service->srv_req_portal		= conf->psc_buf.bc_req_portal;
 	service->srv_request_seq	= 1; /* valid seq #s start at 1 */
 	service->srv_request_max_cull_seq = 0;
-	service->srv_threads_min	= conf->psc_thr.tc_nthrs_min;
-	service->srv_threads_max	= conf->psc_thr.tc_nthrs_max;
+
+	ptlrpc_server_nthreads_check(conf, &service->srv_threads_min,
+				     &service->srv_threads_max);
+
 	service->srv_thread_name	= conf->psc_thr.tc_thr_name;
 	service->srv_ctx_tags		= conf->psc_thr.tc_ctx_tags;
 	service->srv_cpu_affinity	= !!conf->psc_thr.tc_cpu_affinity;
