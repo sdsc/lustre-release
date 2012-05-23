@@ -708,66 +708,63 @@ static int osc_destroy(const struct lu_env *env, struct obd_export *exp,
                        struct obd_trans_info *oti, struct obd_export *md_export,
                        void *capa)
 {
-        struct client_obd     *cli = &exp->exp_obd->u.cli;
-        struct ptlrpc_request *req;
-        struct ost_body       *body;
-        CFS_LIST_HEAD(cancels);
-        int rc, count;
-        ENTRY;
+	struct client_obd     *cli = &exp->exp_obd->u.cli;
+	struct ptlrpc_request *req;
+	struct ost_body       *body;
+	CFS_LIST_HEAD(cancels);
+	int rc, count;
+	ENTRY;
 
-        if (!oa) {
-                CDEBUG(D_INFO, "oa NULL\n");
-                RETURN(-EINVAL);
-        }
+	if (!oa) {
+		CDEBUG(D_INFO, "oa NULL\n");
+		RETURN(-EINVAL);
+	}
 
-        count = osc_resource_get_unused(exp, oa, &cancels, LCK_PW,
-                                        LDLM_FL_DISCARD_DATA);
+	count = osc_resource_get_unused(exp, oa, &cancels, LCK_PW,
+					LDLM_FL_DISCARD_DATA);
 
-        req = ptlrpc_request_alloc(class_exp2cliimp(exp), &RQF_OST_DESTROY);
-        if (req == NULL) {
-                ldlm_lock_list_put(&cancels, l_bl_ast, count);
-                RETURN(-ENOMEM);
-        }
+	req = ptlrpc_request_alloc(class_exp2cliimp(exp), &RQF_OST_DESTROY);
+	if (req == NULL) {
+		ldlm_lock_list_put(&cancels, l_bl_ast, count);
+		RETURN(-ENOMEM);
+	}
 
-        osc_set_capa_size(req, &RMF_CAPA1, (struct obd_capa *)capa);
-        rc = ldlm_prep_elc_req(exp, req, LUSTRE_OST_VERSION, OST_DESTROY,
-                               0, &cancels, count);
-        if (rc) {
-                ptlrpc_request_free(req);
-                RETURN(rc);
-        }
+	osc_set_capa_size(req, &RMF_CAPA1, (struct obd_capa *)capa);
+	rc = ldlm_prep_elc_req(exp, req, LUSTRE_OST_VERSION, OST_DESTROY,
+			       0, &cancels, count);
+	if (rc) {
+		ptlrpc_request_free(req);
+		RETURN(rc);
+	}
 
-        req->rq_request_portal = OST_IO_PORTAL; /* bug 7198 */
-        ptlrpc_at_set_req_timeout(req);
+	req->rq_request_portal = OST_IO_PORTAL; /* bug 7198 */
+	req->rq_interpret_reply = osc_destroy_interpret;
+	ptlrpc_at_set_req_timeout(req);
 
-        if (oti != NULL && oa->o_valid & OBD_MD_FLCOOKIE)
-                oa->o_lcookie = *oti->oti_logcookies;
-        body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
-        LASSERT(body);
-        lustre_set_wire_obdo(&body->oa, oa);
+	if (oti != NULL && oa->o_valid & OBD_MD_FLCOOKIE)
+		oa->o_lcookie = *oti->oti_logcookies;
+	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
+	LASSERT(body);
+	lustre_set_wire_obdo(&body->oa, oa);
 
-        osc_pack_capa(req, body, (struct obd_capa *)capa);
-        ptlrpc_request_set_replen(req);
+	osc_pack_capa(req, body, (struct obd_capa *)capa);
+	ptlrpc_request_set_replen(req);
 
-        /* don't throttle destroy RPCs for the MDT */
-        if (!(cli->cl_import->imp_connect_flags_orig & OBD_CONNECT_MDS)) {
-                req->rq_interpret_reply = osc_destroy_interpret;
-                if (!osc_can_send_destroy(cli)) {
-                        struct l_wait_info lwi = LWI_INTR(LWI_ON_SIGNAL_NOOP,
-                                                          NULL);
+	if (!osc_can_send_destroy(cli)) {
+		struct l_wait_info lwi = LWI_INTR(LWI_ON_SIGNAL_NOOP,
+						  NULL);
 
-                        /*
-                         * Wait until the number of on-going destroy RPCs drops
-                         * under max_rpc_in_flight
-                         */
-                        l_wait_event_exclusive(cli->cl_destroy_waitq,
-                                               osc_can_send_destroy(cli), &lwi);
-                }
-        }
+		/*
+		 * Wait until the number of on-going destroy RPCs drops
+		 * under max_rpc_in_flight
+		 */
+		l_wait_event_exclusive(cli->cl_destroy_waitq,
+				       osc_can_send_destroy(cli), &lwi);
+	}
 
-        /* Do not wait for response */
-        ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
-        RETURN(0);
+	/* Do not wait for response */
+	ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
+	RETURN(0);
 }
 
 static void osc_announce_cached(struct client_obd *cli, struct obdo *oa,
