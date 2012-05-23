@@ -388,7 +388,7 @@ int lut_server_data_update(const struct lu_env *env, struct lu_target *tg,
 	if (rc)
 		GOTO(out, rc);
 
-	rc = dt_trans_start(env, tg->lut_bottom, th);
+	rc = dt_trans_start_local(env, tg->lut_bottom, th);
 	if (rc)
 		GOTO(out, rc);
 
