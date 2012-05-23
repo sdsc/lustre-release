@@ -1107,12 +1107,14 @@ void lprocfs_free_per_client_stats(struct obd_device *obd)
 
         /* we need extra list - because hash_exit called to early */
         /* not need locking because all clients is died */
+        spin_lock(&obd->obd_nid_lock);
         while(!list_empty(&obd->obd_nid_stats)) {
                 stat = list_entry(obd->obd_nid_stats.next,
                                   struct nid_stat, nid_list);
                 list_del_init(&stat->nid_list);
                 lprocfs_free_client_stats(stat);
         }
+        spin_unlock(&obd->obd_nid_lock);
 
         EXIT;
 }
@@ -1701,6 +1703,24 @@ int lprocfs_exp_setup(struct obd_export *exp, lnet_nid_t *nid, int *newnid)
         /* we need set default refcount to 1 to balance obd_disconnect() */
         atomic_set(&new_stat->nid_exp_ref_count, 1);
 
+        /* there is a case in which some threads still remain in
+         * its connect-handling which have already passed the if
+         * statement in target_handle_connect() checking obd_stopping
+         * just when umount set obd_stopping 1, so we have to acquire
+         * the lock here */
+        while (!spin_trylock(&obd->obd_nid_lock)) {
+                /* When not being able to acquire the lock and
+                 * obd_stopping is already set 1, there is nothing
+                 * to do here */
+                if (obd->obd_stopping)
+                        GOTO(destroy_new, rc = -ENODEV);
+        }
+
+        if (obd->obd_stopping) {
+                spin_unlock(&obd->obd_nid_lock);
+                GOTO(destroy_new, rc = -ENODEV);
+        }
+
         old_stat = lustre_hash_findadd_unique(obd->obd_nid_stats_hash,
                                               nid, &new_stat->nid_hash);
         CDEBUG(D_INFO, "Found stats %p for nid %s - ref %d\n",
@@ -1718,8 +1738,10 @@ int lprocfs_exp_setup(struct obd_export *exp, lnet_nid_t *nid, int *newnid)
          * entry already has been created */
         if (old_stat != new_stat) {
                 exp->exp_nid_stats = old_stat;
+                spin_unlock(&obd->obd_nid_lock);
                 GOTO(destroy_new, rc = -EALREADY);
         }
+        spin_unlock(&obd->obd_nid_lock);
 
         /* not found - create */
         OBD_ALLOC(buffer, LNET_NIDSTR_SIZE);
@@ -1755,7 +1777,16 @@ int lprocfs_exp_setup(struct obd_export *exp, lnet_nid_t *nid, int *newnid)
         exp->exp_nid_stats = new_stat;
         *newnid = 1;
         /* protect competitive add to list, not need locking on destroy */
-        spin_lock(&obd->obd_nid_lock);
+        while (!spin_trylock(&obd->obd_nid_lock)) {
+                if (obd->obd_stopping)
+                        GOTO(destroy_new_ns, rc = -ENODEV);
+        }
+
+        if (obd->obd_stopping) {
+                spin_unlock(&obd->obd_nid_lock);
+                GOTO(destroy_new_ns, rc = -ENODEV);
+        }
+
         list_add(&new_stat->nid_list, &obd->obd_nid_stats);
         spin_unlock(&obd->obd_nid_lock);
 
@@ -1764,7 +1795,17 @@ int lprocfs_exp_setup(struct obd_export *exp, lnet_nid_t *nid, int *newnid)
 destroy_new_ns:
         if (new_stat->nid_proc != NULL)
                 lprocfs_remove(&new_stat->nid_proc);
-        lustre_hash_del(obd->obd_nid_stats_hash, nid, &new_stat->nid_hash);
+
+        /* when the nid_hash of the new_nid is registered with
+         * obd_nid_stats hash and obd_stopping is set 1 already,
+         * it menas the hash is going to be finanized soon in
+         * class_cleanup() or the hash node is already unhashed
+         * in lprocfs_free_client_stats() */
+        spin_lock(&obd->obd_nid_lock);
+        if (!obd->obd_stopping)
+                lustre_hash_del(obd->obd_nid_stats_hash, nid,
+                                &new_stat->nid_hash);
+        spin_unlock(&obd->obd_nid_lock);
 
 destroy_new:
         nidstat_putref(new_stat);
