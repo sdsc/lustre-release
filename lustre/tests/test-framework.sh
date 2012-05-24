@@ -384,6 +384,7 @@ load_modules_local() {
     load_module osc/osc
     load_module lov/lov
     load_module mgc/mgc
+    load_module obdecho/obdecho
     if ! client_only; then
         SYMLIST=/proc/kallsyms
         grep -q crc16 $SYMLIST || { modprobe crc16 2>/dev/null || true; }
