@@ -553,7 +553,7 @@ int osd_compat_spec_lookup(struct osd_thread_info *info,
 {
         struct dentry *dentry;
         char          *name;
-        int            rc = -ERESTART;
+        int            rc = -ENOENT;
 
         ENTRY;
 
