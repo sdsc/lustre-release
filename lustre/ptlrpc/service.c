@@ -620,8 +620,6 @@ ptlrpc_register_service(struct ptlrpc_service_conf *conf,
 	service->srv_buf_size		= conf->psc_buf.bc_buf_size;
 	service->srv_rep_portal		= conf->psc_buf.bc_rep_portal;
 	service->srv_req_portal		= conf->psc_buf.bc_req_portal;
-	service->srv_request_seq	= 1; /* valid seq #s start at 1 */
-	service->srv_request_max_cull_seq = 0;
 	/* Increase max reply size to next power of two */
 	service->srv_max_reply_size = 1;
 	while (service->srv_max_reply_size <
@@ -639,8 +637,9 @@ ptlrpc_register_service(struct ptlrpc_service_conf *conf,
 	service->srv_ops		= conf->psc_ops;
 
 	cfs_spin_lock_init(&service->srv_hist_lock);
-        CFS_INIT_LIST_HEAD(&service->srv_history_rqbds);
-        CFS_INIT_LIST_HEAD(&service->srv_request_history);
+	CFS_INIT_LIST_HEAD(&service->srv_hist_rqbds);
+	CFS_INIT_LIST_HEAD(&service->srv_hist_reqs);
+	service->srv_hist_req_seq	= 1; /* valid seq #s start at 1 */
 
 	OBD_ALLOC_PTR(service->srv_part);
 	if (service->srv_part == NULL)
@@ -701,6 +700,148 @@ static void ptlrpc_server_free_request(struct ptlrpc_request *req)
         }
 }
 
+static void ptlrpc_server_free_request_list(cfs_list_t *head)
+{
+	struct ptlrpc_request *req;
+
+	while (!cfs_list_empty(head)) {
+		req = cfs_list_entry(head->next,
+				     struct ptlrpc_request, rq_list);
+		cfs_list_del(&req->rq_list);
+		ptlrpc_server_free_request(req);
+	}
+}
+
+static void ptlrpc_cull_hist_req(struct ptlrpc_service *svc,
+				 struct ptlrpc_request *req)
+{
+	/* need to lock both svc::srv_hist_lock and
+	 * req::rq_rqbd::rqbd:svcpt::scp_lock */
+	cfs_list_del_init(&req->rq_history_list);
+	/* Track the highest culled req seq */
+	if (req->rq_history_seq > svc->srv_hist_req_seq_culled)
+		svc->srv_hist_req_seq_culled = req->rq_history_seq;
+}
+
+/*
+ * enqueue rqbd on history list, and release some other rqbds on LRU if
+ * total rqbds exceeding allowed number
+ */
+static void ptlrpc_enqueue_hist_rqbd(struct ptlrpc_service *svc,
+				     struct ptlrpc_request_buffer_desc *rqbd)
+{
+	struct ptlrpc_service_part	  *svcpt = rqbd->rqbd_svcpt;
+	struct ptlrpc_request		  *req;
+	CFS_LIST_HEAD			  (idles);
+
+	LASSERT(rqbd->rqbd_refcount == 0);
+
+	cfs_spin_lock(&svc->srv_hist_lock);
+	/*then add it to history list */
+	cfs_list_add_tail(&rqbd->rqbd_list, &svc->srv_hist_rqbds);
+	svc->srv_hist_nrqbds++;
+	/* cull some history?
+	 * I expect only about 1 or 2 rqbds need to be recycled here */
+	while (svc->srv_hist_nrqbds > svc->srv_hist_nrqbds_max) {
+		rqbd = cfs_list_entry(svc->srv_hist_rqbds.next,
+				      struct ptlrpc_request_buffer_desc,
+				      rqbd_list);
+
+		/* remove requests from history list */
+		cfs_list_for_each_entry(req, &rqbd->rqbd_reqs, rq_list) {
+			if (req->rq_history_seq == 0)
+				break;
+			ptlrpc_cull_hist_req(svc, req);
+		}
+
+		svc->srv_hist_nrqbds--;
+		/* remove rqbd from history list */
+		cfs_list_move(&rqbd->rqbd_list, &idles);
+		/* rqbd is ready for re-use */
+		LASSERT(cfs_atomic_read(&rqbd->rqbd_req.rq_refcount) == 0);
+	}
+
+	cfs_spin_unlock(&svc->srv_hist_lock);
+	cfs_spin_unlock(&svcpt->scp_lock);
+
+	/* must call this before put rqbd on idle list, and make sure we have
+	 * released the embedded request before re-use rqbd */
+	cfs_list_for_each_entry(rqbd, &idles, rqbd_list)
+		ptlrpc_server_free_request_list(&rqbd->rqbd_reqs);
+
+	cfs_spin_lock(&svcpt->scp_lock);
+	cfs_list_splice(&idles, &svcpt->scp_rqbd_idle);
+}
+
+/*
+ * check whether we need to leave the request & rqbd on history list or
+ * caller can free the request immediately.
+ * return 1 if caller can free the request right now.
+ * return 0 if the request is still attached history list or active rqbd.
+ */
+static int ptlrpc_enqueue_hist_req(struct ptlrpc_service *svc,
+				   struct ptlrpc_request *req)
+{
+	struct ptlrpc_request_buffer_desc *rqbd = req->rq_rqbd;
+	int				  cull;
+
+	/* eagerly free the request if it's under memory pressure or
+	 * it's not on history list */
+	cull = (req->rq_reply_state != NULL &&
+		req->rq_reply_state->rs_prealloc) || req->rq_history_seq == 0;
+
+	if (cull && req->rq_history_seq != 0) {
+		cfs_spin_lock(&svc->srv_hist_lock);
+		ptlrpc_cull_hist_req(svc, req);
+		req->rq_history_seq = 0;
+		cfs_spin_unlock(&svc->srv_hist_lock);
+	}
+
+	/* NB: history request is always on head of rqbd::rqbd_reqs */
+	if (req->rq_history_seq != 0)
+		cfs_list_add(&req->rq_list, &rqbd->rqbd_reqs);
+	else
+		cfs_list_add_tail(&req->rq_list, &rqbd->rqbd_reqs);
+
+	if (rqbd->rqbd_refcount != 0) {/* rqbd is still busy */
+		if (req == &req->rq_rqbd->rqbd_req || !cull) {
+			/* NB: don't release an embedded request of rqbd
+			 * if other requests still have refcount on it.
+			 * Because there is a therotical race that another
+			 * thread will release its refcount of rqbd and
+			 * re-use it before we free the embedded request,
+			 * although it's very unlikely. */
+			return 0;
+		}
+
+		/* remove the request from rqbd::rqbd_reqs, caller can
+		 * release it immediately. */
+		cfs_list_del(&req->rq_list);
+		return 1;
+	}
+
+	/* remove rqbd from svcpt::scp_rqbd_posted */
+	cfs_list_del(&rqbd->rqbd_list);
+
+	cfs_list_for_each_entry(req, &rqbd->rqbd_reqs, rq_list) {
+		if (req->rq_history_seq != 0) { /* has history request */
+			ptlrpc_enqueue_hist_rqbd(svc, rqbd);
+			return 0;
+		}
+
+		cfs_spin_unlock(&rqbd->rqbd_svcpt->scp_lock);
+		ptlrpc_server_free_request_list(&rqbd->rqbd_reqs);
+		cfs_spin_lock(&rqbd->rqbd_svcpt->scp_lock);
+		break;
+	}
+
+	/* rqbd is ready for re-use */
+	LASSERT(cfs_atomic_read(&rqbd->rqbd_req.rq_refcount) == 0);
+	cfs_list_add_tail(&rqbd->rqbd_list, &rqbd->rqbd_svcpt->scp_rqbd_idle);
+
+	return 0;
+}
+
 /**
  * drop a reference count of the request. if it reaches 0, we either
  * put it into history list, or free it immediately.
@@ -710,9 +851,7 @@ void ptlrpc_server_drop_request(struct ptlrpc_request *req)
         struct ptlrpc_request_buffer_desc *rqbd = req->rq_rqbd;
 	struct ptlrpc_service_part	  *svcpt = rqbd->rqbd_svcpt;
 	struct ptlrpc_service		  *svc = svcpt->scp_service;
-        int                                refcount;
-        cfs_list_t                        *tmp;
-        cfs_list_t                        *nxt;
+	int				   rc;
 
         if (!cfs_atomic_dec_and_test(&req->rq_refcount))
                 return;
@@ -742,80 +881,12 @@ void ptlrpc_server_drop_request(struct ptlrpc_request *req)
 
 	cfs_spin_lock(&svcpt->scp_lock);
 
-        cfs_list_add(&req->rq_list, &rqbd->rqbd_reqs);
+	rqbd->rqbd_refcount--;
+	rc = ptlrpc_enqueue_hist_req(svc, req);
 
-        refcount = --(rqbd->rqbd_refcount);
-        if (refcount == 0) {
-                /* request buffer is now idle: add to history */
-                cfs_list_del(&rqbd->rqbd_list);
-
-		cfs_spin_lock(&svc->srv_hist_lock);
-
-                cfs_list_add_tail(&rqbd->rqbd_list, &svc->srv_history_rqbds);
-                svc->srv_n_history_rqbds++;
-
-                /* cull some history?
-                 * I expect only about 1 or 2 rqbds need to be recycled here */
-                while (svc->srv_n_history_rqbds > svc->srv_max_history_rqbds) {
-                        rqbd = cfs_list_entry(svc->srv_history_rqbds.next,
-                                              struct ptlrpc_request_buffer_desc,
-                                              rqbd_list);
-
-                        cfs_list_del(&rqbd->rqbd_list);
-                        svc->srv_n_history_rqbds--;
-
-                        /* remove rqbd's reqs from svc's req history while
-                         * I've got the service lock */
-                        cfs_list_for_each(tmp, &rqbd->rqbd_reqs) {
-                                req = cfs_list_entry(tmp, struct ptlrpc_request,
-                                                     rq_list);
-                                /* Track the highest culled req seq */
-                                if (req->rq_history_seq >
-                                    svc->srv_request_max_cull_seq)
-                                        svc->srv_request_max_cull_seq =
-                                                req->rq_history_seq;
-                                cfs_list_del(&req->rq_history_list);
-                        }
-
-			cfs_spin_unlock(&svc->srv_hist_lock);
-			cfs_spin_unlock(&svcpt->scp_lock);
-
-                        cfs_list_for_each_safe(tmp, nxt, &rqbd->rqbd_reqs) {
-                                req = cfs_list_entry(rqbd->rqbd_reqs.next,
-                                                     struct ptlrpc_request,
-                                                     rq_list);
-                                cfs_list_del(&req->rq_list);
-                                ptlrpc_server_free_request(req);
-                        }
-
-			cfs_spin_lock(&svcpt->scp_lock);
-			cfs_spin_lock(&svc->srv_hist_lock);
-			/*
-			 * now all reqs including the embedded req has been
-			 * disposed, schedule request buffer for re-use.
-			 */
-			LASSERT(cfs_atomic_read(&rqbd->rqbd_req.rq_refcount) ==
-				0);
-			cfs_list_add_tail(&rqbd->rqbd_list,
-					  &svcpt->scp_rqbd_idle);
-		}
-
-		cfs_spin_unlock(&svc->srv_hist_lock);
-		cfs_spin_unlock(&svcpt->scp_lock);
-	} else if (req->rq_reply_state && req->rq_reply_state->rs_prealloc) {
-		/* If we are low on memory, we are not interested in history */
-		cfs_list_del(&req->rq_list);
-
-		cfs_spin_lock(&svc->srv_hist_lock);
-		cfs_list_del_init(&req->rq_history_list);
-		cfs_spin_unlock(&svc->srv_hist_lock);
-
-		cfs_spin_unlock(&svcpt->scp_lock);
-
+	cfs_spin_unlock(&svcpt->scp_lock);
+	if (rc) /* request can be released immediately */
 		ptlrpc_server_free_request(req);
-	} else {
-		cfs_spin_unlock(&svcpt->scp_lock);
-	}
 }
 
 /**
@@ -2747,9 +2818,8 @@ int ptlrpc_unregister_service(struct ptlrpc_service *service)
 
         ptlrpc_lprocfs_unregister_service(service);
 
-        /* All history will be culled when the next request buffer is
-         * freed */
-        service->srv_max_history_rqbds = 0;
+	/* All history will be culled when the next request buffer is freed */
+	service->srv_hist_nrqbds_max = 0;
 
         CDEBUG(D_NET, "%s: tearing down\n", service->srv_name);
 
@@ -2824,7 +2894,7 @@ int ptlrpc_unregister_service(struct ptlrpc_service *service)
 	}
 	LASSERT(svcpt->scp_nreqs_incoming == 0);
 	LASSERT(svcpt->scp_nreqs_active == 0);
-	LASSERT(service->srv_n_history_rqbds == 0);
+	LASSERT(service->srv_hist_nrqbds == 0);
 	LASSERT(cfs_list_empty(&svcpt->scp_rqbd_posted));
 
 	/* Now free all the request buffers since nothing references them
