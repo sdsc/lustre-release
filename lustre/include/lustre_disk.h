@@ -112,6 +112,7 @@ enum ldd_mount_type {
         LDD_MT_SMFS,
         LDD_MT_REISERFS,
         LDD_MT_LDISKFS2,
+        LDD_MT_ZFS,
         LDD_MT_LAST
 };
 
