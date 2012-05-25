@@ -1172,18 +1172,18 @@ struct ptlrpc_service {
 	 * history req & rqbd list
 	 */
 	cfs_spinlock_t			srv_hist_lock  __cfs_cacheline_aligned;
-        /** request buffer history */
-        cfs_list_t                      srv_history_rqbds;
-        /** # request buffers in history */
-        int                             srv_n_history_rqbds;
-        /** max # request buffers in history */
-        int                             srv_max_history_rqbds;
-        /** request history */
-        cfs_list_t                      srv_request_history;
-        /** next request sequence # */
-        __u64                           srv_request_seq;
-        /** highest seq culled from history */
-        __u64                           srv_request_max_cull_seq;
+	/** request buffer history */
+	cfs_list_t			srv_hist_rqbds;
+	/** # request buffers in history */
+	int				srv_hist_nrqbds;
+	/** max # request buffers in history */
+	int				srv_hist_nrqbds_max;
+	/** request history */
+	cfs_list_t			srv_hist_reqs;
+	/** next request sequence # */
+	__u64				srv_hist_req_seq;
+	/** highest seq culled from history */
+	__u64				srv_hist_req_seq_culled;
 };
 
 /**
