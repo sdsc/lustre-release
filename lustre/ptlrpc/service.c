@@ -2259,6 +2259,7 @@ static int ptlrpc_main(void *arg)
 	LASSERT(thread_is_starting(thread));
 	thread_clear_flags(thread, SVC_STARTING);
 
+	LASSERT(svcpt->scp_nthrs_starting == 1);
 	svcpt->scp_nthrs_starting--;
 
 	/* SVC_STOPPING may already be set here if someone else is trying
@@ -2295,7 +2296,7 @@ static int ptlrpc_main(void *arg)
 
 		if (ptlrpc_threads_need_create(svcpt)) {
 			/* Ignore return code - we tried... */
-			ptlrpc_start_thread(svcpt);
+			ptlrpc_start_thread(svcpt, 0);
                 }
 
 		/* Process all incoming reqs before handling any */
@@ -2504,29 +2505,53 @@ static int ptlrpc_start_hr_threads(struct ptlrpc_hr_service *hr)
         RETURN(0);
 }
 
-static void ptlrpc_stop_thread(struct ptlrpc_service_part *svcpt,
-			       struct ptlrpc_thread *thread)
+static void ptlrpc_svcpt_stop_threads(struct ptlrpc_service_part *svcpt)
 {
-	struct l_wait_info lwi = { 0 };
+	struct l_wait_info	lwi = { 0 };
+	struct ptlrpc_thread	*thread;
+	CFS_LIST_HEAD		(zombie);
+
 	ENTRY;
 
-	CDEBUG(D_RPCTRACE, "Stopping thread [ %p : %u ]\n",
-	       thread, thread->t_pid);
+	CDEBUG(D_INFO, "Stopping threads for service %s\n",
+	       svcpt->scp_service->srv_name);
 
 	cfs_spin_lock(&svcpt->scp_lock);
 	/* let the thread know that we would like it to stop asap */
-	thread_add_flags(thread, SVC_STOPPING);
-	cfs_spin_unlock(&svcpt->scp_lock);
+	list_for_each_entry(thread, &svcpt->scp_threads, t_link) {
+		CDEBUG(D_INFO, "Stopping thread %s #%u\n",
+		       svcpt->scp_service->srv_thread_name, thread->t_id);
+		thread_add_flags(thread, SVC_STOPPING);
+	}
 
 	cfs_waitq_broadcast(&svcpt->scp_waitq);
-	l_wait_event(thread->t_ctl_waitq,
-		     thread_is_stopped(thread), &lwi);
 
-	cfs_spin_lock(&svcpt->scp_lock);
-	cfs_list_del(&thread->t_link);
+	while (!cfs_list_empty(&svcpt->scp_threads)) {
+		thread = cfs_list_entry(svcpt->scp_threads.next,
+					struct ptlrpc_thread, t_link);
+		if (thread_is_stopped(thread)) {
+			cfs_list_del(&thread->t_link);
+			cfs_list_add(&thread->t_link, &zombie);
+			continue;
+		}
+		cfs_spin_unlock(&svcpt->scp_lock);
+
+		CDEBUG(D_INFO, "waiting for stopping-thread %s #%u\n",
+		       svcpt->scp_service->srv_thread_name, thread->t_id);
+		l_wait_event(thread->t_ctl_waitq,
+			     thread_is_stopped(thread), &lwi);
+
+		cfs_spin_lock(&svcpt->scp_lock);
+	}
+
 	cfs_spin_unlock(&svcpt->scp_lock);
 
-	OBD_FREE_PTR(thread);
+	while (!cfs_list_empty(&zombie)) {
+		thread = cfs_list_entry(zombie.next,
+					struct ptlrpc_thread, t_link);
+		cfs_list_del(&thread->t_link);
+		OBD_FREE_PTR(thread);
+	}
 	EXIT;
 }
 
@@ -2535,23 +2560,10 @@ static void ptlrpc_stop_thread(struct ptlrpc_service_part *svcpt,
  */
 void ptlrpc_stop_all_threads(struct ptlrpc_service *svc)
 {
-	struct ptlrpc_service_part	*svcpt = svc->srv_part;
-	struct ptlrpc_thread		*thread;
 	ENTRY;
 
-	LASSERT(svcpt != NULL);
-
-	cfs_spin_lock(&svcpt->scp_lock);
-	while (!cfs_list_empty(&svcpt->scp_threads)) {
-		thread = cfs_list_entry(svcpt->scp_threads.next,
-					struct ptlrpc_thread, t_link);
-
-		cfs_spin_unlock(&svcpt->scp_lock);
-		ptlrpc_stop_thread(svcpt, thread);
-		cfs_spin_lock(&svcpt->scp_lock);
-	}
-
-	cfs_spin_unlock(&svcpt->scp_lock);
+	if (svc != NULL && svc->srv_part != NULL)
+		ptlrpc_svcpt_stop_threads(svc->srv_part);
 	EXIT;
 }
 
@@ -2564,7 +2576,7 @@ int ptlrpc_start_threads(struct ptlrpc_service *svc)
            ptlrpc_server_handle_request */
         LASSERT(svc->srv_threads_min >= 2);
         for (i = 0; i < svc->srv_threads_min; i++) {
-		rc = ptlrpc_start_thread(svc->srv_part);
+		rc = ptlrpc_start_thread(svc->srv_part, 1);
                 /* We have enough threads, don't start more.  b=15759 */
                 if (rc == -EMFILE) {
                         rc = 0;
@@ -2580,7 +2592,7 @@ int ptlrpc_start_threads(struct ptlrpc_service *svc)
         RETURN(rc);
 }
 
-int ptlrpc_start_thread(struct ptlrpc_service_part *svcpt)
+int ptlrpc_start_thread(struct ptlrpc_service_part *svcpt, int wait)
 {
 	struct l_wait_info	lwi = { 0 };
 	struct ptlrpc_svc_data	d;
@@ -2596,6 +2608,7 @@ int ptlrpc_start_thread(struct ptlrpc_service_part *svcpt)
 	       svc->srv_name, svcpt->scp_nthrs_running,
 	       svc->srv_threads_min, svc->srv_threads_max);
 
+ again:
 	if (unlikely(svc->srv_is_stopping))
 		RETURN(-ESRCH);
 
@@ -2616,6 +2629,24 @@ int ptlrpc_start_thread(struct ptlrpc_service_part *svcpt)
 		RETURN(-EMFILE);
 	}
 
+	if (svcpt->scp_nthrs_starting != 0) {
+		/* serialize starting because some modules (obdfilter)
+		 * might require unique and contiguous t_id */
+		LASSERT(svcpt->scp_nthrs_starting == 1);
+		cfs_spin_unlock(&svcpt->scp_lock);
+		OBD_FREE_PTR(thread);
+		if (wait) {
+			CDEBUG(D_INFO, "Waiting for creating thread %s #%d\n",
+			       svc->srv_thread_name, svcpt->scp_thr_nextid);
+			cfs_schedule();
+			goto again;
+		}
+
+		CDEBUG(D_INFO, "Creating thread %s #%d race, retry later\n",
+		       svc->srv_thread_name, svcpt->scp_thr_nextid);
+		RETURN(-EAGAIN);
+	}
+
 	svcpt->scp_nthrs_starting++;
 	thread->t_id = svcpt->scp_thr_nextid++;
 	thread_add_flags(thread, SVC_STARTING);
@@ -2625,7 +2656,6 @@ int ptlrpc_start_thread(struct ptlrpc_service_part *svcpt)
 	cfs_spin_unlock(&svcpt->scp_lock);
 
         sprintf(name, "%s_%02d", svc->srv_thread_name, thread->t_id);
-        d.svc = svc;
         d.name = name;
         d.thread = thread;
 

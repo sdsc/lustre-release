@@ -1648,9 +1648,8 @@ void ptlrpc_hr_fini(void);
 #endif
 
 struct ptlrpc_svc_data {
-        char *name;
-        struct ptlrpc_service *svc;
-        struct ptlrpc_thread *thread;
+	char			*name;
+	struct ptlrpc_thread	*thread;
 };
 /** @} */
 
