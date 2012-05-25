@@ -685,6 +685,43 @@ ostdevlabel() {
     echo -n $label
 }
 
+#
+# This and set_obdfilter_param() shall be used to access OSD parameters
+# once existed under "obdfilter":
+#
+#   mntdev
+#   stats
+#   read_cache_enable
+#   writethrough_cache_enable
+#
+get_obdfilter_param() {
+	local nodes=$1
+	local device=${2:-$FSNAME-OST*}
+	local name=$3
+
+	do_nodes $nodes "
+		$LCTL get_param -n osd-*.$device.$name 2>&1 | grep -v 'Found no match';
+		if [ \\\${PIPESTATUS[1]} -ne 0 ]; then
+			$LCTL get_param -n obdfilter.$device.$name;
+		fi
+	"
+}
+
+set_obdfilter_param() {
+	local nodes=$1
+	local device=${2:-$FSNAME-OST*}
+	local name=$3
+	local value=$4
+
+	do_nodes $nodes "
+		$LCTL set_param -n osd-*.$device.$name $value 2>&1 |
+			grep -v 'Found no match';
+		if [ \\\${PIPESTATUS[1]} -ne 0 ]; then
+			$LCTL set_param -n obdfilter.$device.$name $value;
+		fi
+	"
+}
+
 set_debug_size () {
     local dz=${1:-$DEBUG_SIZE}
 
@@ -1591,12 +1628,23 @@ wait_mds_ost_sync () {
     local MAX=$(( TIMEOUT * 2 ))
     local WAIT=0
     while [ $WAIT -lt $MAX ]; do
-        local -a sync=($(do_nodes $(comma_list $(osts_nodes)) \
-            "$LCTL get_param -n obdfilter.*.mds_sync"))
-        local con=1
         local i
+        local -a sync=($(do_nodes $(comma_list $(mdts_nodes)) \
+            "$LCTL get_param -n osc.*-MDT*.old_sync_processed" 2>/dev/null))
+        if [ $? -ne 0 ]; then
+            local -a sync=($(do_nodes $(comma_list $(osts_nodes)) \
+                "$LCTL get_param -n obdfilter.*.mds_sync"))
+            for ((i=0; i<${#sync[@]}; i++)); do
+                if [ ${sync[$i]} -eq 0 ]; then
+                    sync[$i]=1
+                else
+                    sync[$i]=0
+                fi
+            done
+        fi
+        local con=1
         for ((i=0; i<${#sync[@]}; i++)); do
-            [ ${sync[$i]} -eq 0 ] && continue
+            [ ${sync[$i]} -ne 0 ] && continue
             # there is a not finished MDS-OST synchronization
             con=0
             break;
@@ -2983,17 +3031,14 @@ cleanup_and_setup_lustre() {
 get_mnt_devs() {
     local node=$1
     local type=$2
-    local obd_type
     local devs
     local dev
 
-    case $type in
-    mdt) obd_type="osd" ;;
-    ost) obd_type="obdfilter" ;; # needs to be fixed when OST also uses an OSD
-    *) echo "invalid server type" && return 1 ;;
-    esac
-
-    devs=$(do_node $node "lctl get_param -n $obd_type*.*.mntdev")
+    if [ $type == obdfilter ]; then
+        devs=$(get_obdfilter_param $node "" mntdev)
+    else
+        devs=$(do_node $node "lctl get_param -n osd-*.$FSNAME-M*.mntdev")
+    fi
     for dev in $devs; do
         case $dev in
         *loop*) do_node $node "losetup $dev" | \
