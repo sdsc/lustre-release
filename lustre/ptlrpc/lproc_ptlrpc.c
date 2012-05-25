@@ -248,22 +248,22 @@ void ptlrpc_lprocfs_register(struct proc_dir_entry *root, char *dir,
 
 static int
 ptlrpc_lprocfs_read_req_history_len(char *page, char **start, off_t off,
-                                    int count, int *eof, void *data)
+				    int count, int *eof, void *data)
 {
-        struct ptlrpc_service *svc = data;
+	struct ptlrpc_service *svc = data;
 
-        *eof = 1;
-        return snprintf(page, count, "%d\n", svc->srv_n_history_rqbds);
+	*eof = 1;
+	return snprintf(page, count, "%d\n", svc->srv_hist_nrqbds);
 }
 
 static int
 ptlrpc_lprocfs_read_req_history_max(char *page, char **start, off_t off,
-                                    int count, int *eof, void *data)
+				    int count, int *eof, void *data)
 {
-        struct ptlrpc_service *svc = data;
+	struct ptlrpc_service *svc = data;
 
-        *eof = 1;
-        return snprintf(page, count, "%d\n", svc->srv_max_history_rqbds);
+	*eof = 1;
+	return snprintf(page, count, "%d\n", svc->srv_hist_nrqbds_max);
 }
 
 static int
@@ -289,7 +289,7 @@ ptlrpc_lprocfs_write_req_history_max(struct file *file, const char *buffer,
                 return -ERANGE;
 
 	cfs_spin_lock(&svc->srv_hist_lock);
-	svc->srv_max_history_rqbds = val;
+	svc->srv_hist_nrqbds_max = val;
 	cfs_spin_unlock(&svc->srv_hist_lock);
 
         return count;
@@ -398,7 +398,7 @@ ptlrpc_lprocfs_svc_req_history_seek(struct ptlrpc_service *svc,
         struct ptlrpc_request *req;
 
         if (srhi->srhi_req != NULL &&
-            srhi->srhi_seq > svc->srv_request_max_cull_seq &&
+	    srhi->srhi_seq > svc->srv_hist_req_seq_culled &&
             srhi->srhi_seq <= seq) {
                 /* If srhi_req was set previously, hasn't been culled and
                  * we're searching for a seq on or after it (i.e. more
@@ -407,14 +407,14 @@ ptlrpc_lprocfs_svc_req_history_seek(struct ptlrpc_service *svc,
                  * be near the head), we shouldn't have to do long
                  * re-scans */
                 LASSERT (srhi->srhi_seq == srhi->srhi_req->rq_history_seq);
-                LASSERT (!cfs_list_empty(&svc->srv_request_history));
-                e = &srhi->srhi_req->rq_history_list;
-        } else {
-                /* search from start */
-                e = svc->srv_request_history.next;
-        }
+		LASSERT(!cfs_list_empty(&svc->srv_hist_reqs));
+		e = &srhi->srhi_req->rq_history_list;
+	} else {
+		/* search from start */
+		e = svc->srv_hist_reqs.next;
+	}
 
-        while (e != &svc->srv_request_history) {
+	while (e != &svc->srv_hist_reqs) {
                 req = cfs_list_entry(e, struct ptlrpc_request, rq_history_list);
 
                 if (req->rq_history_seq >= seq) {

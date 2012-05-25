@@ -295,12 +295,17 @@ void request_in_callback(lnet_event_t *ev)
 	/* NB: Although srv_hist_lock is unnecessary now, but we will need it
 	 * when we have multiple instances of ptlrpc_service_part, also,
 	 * we can bypass this lock when RPC history is disabled. */
-	cfs_spin_lock(&service->srv_hist_lock);
+	if (service->srv_hist_nrqbds_max > 0) {
+		cfs_spin_lock(&service->srv_hist_lock);
 
-	req->rq_history_seq = service->srv_request_seq++;
-	cfs_list_add_tail(&req->rq_history_list, &service->srv_request_history);
+		req->rq_history_seq = service->srv_hist_req_seq++;
+		cfs_list_add_tail(&req->rq_history_list,
+				  &service->srv_hist_reqs);
 
-	cfs_spin_unlock(&service->srv_hist_lock);
+		cfs_spin_unlock(&service->srv_hist_lock);
+	} else {
+		CFS_INIT_LIST_HEAD(&req->rq_history_list);
+	}
 
 	if (ev->unlinked) {
 		svcpt->scp_nrqbds_posted--;
