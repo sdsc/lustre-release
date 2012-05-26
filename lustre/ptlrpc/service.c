@@ -2793,150 +2793,211 @@ static void ptlrpc_wait_replies(struct ptlrpc_service_part *svcpt)
 	}
 }
 
+static void
+ptlrpc_service_del_atimer(struct ptlrpc_service *svc)
+{
+	struct ptlrpc_service_part	  *svcpt;
+
+	/* early disarm AT timer... */
+	do { /* iterrate over multiple partitions in the future */
+		svcpt = svc->srv_part;
+		if (svcpt == NULL || svcpt->scp_service == NULL)
+			break;
+
+		cfs_timer_disarm(&svcpt->scp_at_timer);
+	} while (0);
+}
+
+static void
+ptlrpc_service_unlink_rqbd(struct ptlrpc_service *svc)
+{
+	struct ptlrpc_service_part	  *svcpt;
+	struct ptlrpc_request_buffer_desc *rqbd;
+	struct l_wait_info		  lwi;
+	int				  rc;
+
+	/* All history will be culled when the next request buffer is
+	 * freed in ptlrpc_service_purge_all() */
+	svc->srv_hist_nrqbds_max = 0;
+
+	rc = LNetClearLazyPortal(svc->srv_req_portal);
+	LASSERT(rc == 0);
+
+	do { /* iterrate over multiple partitions in the future */
+		svcpt = svc->srv_part;
+		if (svcpt == NULL || svcpt->scp_service == NULL)
+			break;
+
+		/* Unlink all the request buffers.  This forces a 'final'
+		 * event with its 'unlink' flag set for each posted rqbd */
+		cfs_list_for_each_entry(rqbd, &svcpt->scp_rqbd_posted,
+					rqbd_list) {
+			rc = LNetMDUnlink(rqbd->rqbd_md_h);
+			LASSERT(rc == 0 || rc == -ENOENT);
+		}
+	} while (0);
+
+	do { /* iterrate over multiple partitions in the future */
+		svcpt = svc->srv_part;
+		if (svcpt == NULL || svcpt->scp_service == NULL)
+			break;
+
+		/* Wait for the network to release any buffers
+		 * it's currently filling */
+		cfs_spin_lock(&svcpt->scp_lock);
+		while (svcpt->scp_nrqbds_posted != 0) {
+			cfs_spin_unlock(&svcpt->scp_lock);
+			/* Network access will complete in finite time but
+			 * the HUGE timeout lets us CWARN for visibility
+			 * of sluggish NALs */
+			lwi = LWI_TIMEOUT_INTERVAL(
+					cfs_time_seconds(LONG_UNLINK),
+					cfs_time_seconds(1), NULL, NULL);
+			rc = l_wait_event(svcpt->scp_waitq,
+					  svcpt->scp_nrqbds_posted == 0, &lwi);
+			if (rc == -ETIMEDOUT) {
+				CWARN("Service %s waiting for "
+				      "request buffers\n",
+				      svcpt->scp_service->srv_name);
+			}
+			cfs_spin_lock(&svcpt->scp_lock);
+		}
+		cfs_spin_unlock(&svcpt->scp_lock);
+	} while (0);
+}
+
+static void
+ptlrpc_service_purge_all(struct ptlrpc_service *svc)
+{
+	struct ptlrpc_service_part		*svcpt;
+	struct ptlrpc_request_buffer_desc	*rqbd;
+	struct ptlrpc_request			*req;
+	struct ptlrpc_reply_state		*rs;
+
+	do { /* iterrate over multiple partitions in the future */
+		/* schedule all outstanding replies to terminate them */
+		svcpt = svc->srv_part;
+		if (svcpt == NULL || svcpt->scp_service == NULL)
+			break;
+
+		cfs_spin_lock(&svcpt->scp_rep_lock);
+		while (!cfs_list_empty(&svcpt->scp_rep_active)) {
+			rs = cfs_list_entry(svcpt->scp_rep_active.next,
+					    struct ptlrpc_reply_state, rs_list);
+			cfs_spin_lock(&rs->rs_lock);
+			ptlrpc_schedule_difficult_reply(rs);
+			cfs_spin_unlock(&rs->rs_lock);
+		}
+		cfs_spin_unlock(&svcpt->scp_rep_lock);
+
+		/* purge the request queue.  NB No new replies (rqbds
+		 * all unlinked) and no service threads, so I'm the only
+		 * thread noodling the request queue now */
+		while (!cfs_list_empty(&svcpt->scp_req_incoming)) {
+			req = cfs_list_entry(svcpt->scp_req_incoming.next,
+					     struct ptlrpc_request, rq_list);
+
+			cfs_list_del(&req->rq_list);
+			svcpt->scp_nreqs_incoming--;
+			svcpt->scp_nreqs_active++;
+			ptlrpc_server_finish_request(svcpt, req);
+		}
+
+		while (ptlrpc_server_request_pending(svcpt, 1)) {
+			req = ptlrpc_server_request_get(svcpt, 1);
+			cfs_list_del(&req->rq_list);
+			svcpt->scp_nreqs_active++;
+			ptlrpc_hpreq_fini(req);
+			ptlrpc_server_finish_request(svcpt, req);
+		}
+
+		LASSERT(cfs_list_empty(&svcpt->scp_rqbd_posted));
+		LASSERT(svcpt->scp_nreqs_incoming == 0);
+		LASSERT(svcpt->scp_nreqs_active == 0);
+
+		/* Now free all the request buffers since nothing
+		 * references them any more... */
+
+		while (!cfs_list_empty(&svcpt->scp_rqbd_idle)) {
+			rqbd = cfs_list_entry(svcpt->scp_rqbd_idle.next,
+					      struct ptlrpc_request_buffer_desc,
+					      rqbd_list);
+			ptlrpc_free_rqbd(rqbd);
+		}
+		ptlrpc_wait_replies(svcpt);
+
+		while (!cfs_list_empty(&svcpt->scp_rep_idle)) {
+			rs = cfs_list_entry(svcpt->scp_rep_idle.next,
+					    struct ptlrpc_reply_state,
+					    rs_list);
+			cfs_list_del(&rs->rs_list);
+			OBD_FREE_LARGE(rs, svc->srv_max_reply_size);
+		}
+	} while (0);
+
+	/* history should have been culled by ptlrpc_server_finish_request */
+	LASSERT(svc->srv_hist_nrqbds == 0);
+}
+
+static void
+ptlrpc_service_free(struct ptlrpc_service *svc)
+{
+	struct ptlrpc_service_part	*svcpt;
+	struct ptlrpc_at_array		*array;
+
+	do { /* iterrate over multiple partitions in the future */
+		svcpt = svc->srv_part;
+		if (svcpt == NULL || svcpt->scp_service == NULL)
+			break;
+
+		/* In case somebody rearmed this in the meantime */
+		cfs_timer_disarm(&svcpt->scp_at_timer);
+		array = &svcpt->scp_at_array;
+
+		if (array->paa_reqs_array != NULL) {
+			OBD_FREE(array->paa_reqs_array,
+				 sizeof(cfs_list_t) * array->paa_size);
+			array->paa_reqs_array = NULL;
+		}
+
+		if (array->paa_reqs_count != NULL) {
+			OBD_FREE(array->paa_reqs_count,
+				 sizeof(__u32) * array->paa_size);
+			array->paa_reqs_count = NULL;
+		}
+		svcpt->scp_service = NULL;
+	} while (0);
+
+	do { /* iterrate over multiple partitions in the future */
+		svcpt = svc->srv_part;
+		if (svcpt != NULL)
+			OBD_FREE_PTR(svcpt);
+	} while (0);
+
+	OBD_FREE_PTR(svc);
+}
+
 int ptlrpc_unregister_service(struct ptlrpc_service *service)
 {
-	struct l_wait_info		lwi;
-	struct ptlrpc_service_part	*svcpt;
-	struct ptlrpc_reply_state	*rs;
-	struct ptlrpc_reply_state	*t;
-	struct ptlrpc_at_array		*array;
-	cfs_list_t			*tmp;
-	int				rc;
 	ENTRY;
 
+	CDEBUG(D_NET, "%s: tearing down\n", service->srv_name);
+
 	service->srv_is_stopping = 1;
-	svcpt = service->srv_part;
 
-	if (svcpt == NULL || /* no instance of ptlrpc_service_part */
-	    svcpt->scp_service == NULL) /* it's not fully initailzed */
-		GOTO(out, rc = 0);
+	cfs_spin_lock(&ptlrpc_all_services_lock);
+	cfs_list_del_init(&service->srv_list);
+	cfs_spin_unlock(&ptlrpc_all_services_lock);
 
-	cfs_timer_disarm(&svcpt->scp_at_timer);
+	ptlrpc_lprocfs_unregister_service(service);
 
+	ptlrpc_service_del_atimer(service);
 	ptlrpc_stop_all_threads(service);
 
-        cfs_spin_lock (&ptlrpc_all_services_lock);
-        cfs_list_del_init (&service->srv_list);
-        cfs_spin_unlock (&ptlrpc_all_services_lock);
+	ptlrpc_service_unlink_rqbd(service);
+	ptlrpc_service_purge_all(service);
+	ptlrpc_service_free(service);
 
-        ptlrpc_lprocfs_unregister_service(service);
-
-	/* All history will be culled when the next request buffer is freed */
-	service->srv_hist_nrqbds_max = 0;
-
-        CDEBUG(D_NET, "%s: tearing down\n", service->srv_name);
-
-        rc = LNetClearLazyPortal(service->srv_req_portal);
-        LASSERT (rc == 0);
-
-	/* Unlink all the request buffers.  This forces a 'final' event with
-	 * its 'unlink' flag set for each posted rqbd */
-	cfs_list_for_each(tmp, &svcpt->scp_rqbd_posted) {
-                struct ptlrpc_request_buffer_desc *rqbd =
-                        cfs_list_entry(tmp, struct ptlrpc_request_buffer_desc,
-                                       rqbd_list);
-
-                rc = LNetMDUnlink(rqbd->rqbd_md_h);
-                LASSERT (rc == 0 || rc == -ENOENT);
-        }
-
-        /* Wait for the network to release any buffers it's currently
-         * filling */
-        for (;;) {
-		cfs_spin_lock(&svcpt->scp_lock);
-		rc = svcpt->scp_nrqbds_posted;
-		cfs_spin_unlock(&svcpt->scp_lock);
-
-                if (rc == 0)
-                        break;
-
-                /* Network access will complete in finite time but the HUGE
-                 * timeout lets us CWARN for visibility of sluggish NALs */
-                lwi = LWI_TIMEOUT_INTERVAL(cfs_time_seconds(LONG_UNLINK),
-                                           cfs_time_seconds(1), NULL, NULL);
-		rc = l_wait_event(svcpt->scp_waitq,
-				  svcpt->scp_nrqbds_posted == 0, &lwi);
-		if (rc == -ETIMEDOUT)
-			CWARN("Service %s waiting for request buffers\n",
-			      service->srv_name);
-	}
-
-	/* schedule all outstanding replies to terminate them */
-	cfs_spin_lock(&svcpt->scp_rep_lock);
-	while (!cfs_list_empty(&svcpt->scp_rep_active)) {
-		struct ptlrpc_reply_state *rs =
-			cfs_list_entry(svcpt->scp_rep_active.next,
-				       struct ptlrpc_reply_state, rs_list);
-		cfs_spin_lock(&rs->rs_lock);
-		ptlrpc_schedule_difficult_reply(rs);
-		cfs_spin_unlock(&rs->rs_lock);
-	}
-	cfs_spin_unlock(&svcpt->scp_rep_lock);
-
-	/* purge the request queue.  NB No new replies (rqbds all unlinked)
-	 * and no service threads, so I'm the only thread noodling the
-	 * request queue now */
-	while (!cfs_list_empty(&svcpt->scp_req_incoming)) {
-		struct ptlrpc_request *req =
-			cfs_list_entry(svcpt->scp_req_incoming.next,
-				       struct ptlrpc_request,
-				       rq_list);
-
-		cfs_list_del(&req->rq_list);
-		svcpt->scp_nreqs_incoming--;
-		svcpt->scp_nreqs_active++;
-		ptlrpc_server_finish_request(svcpt, req);
-	}
-	while (ptlrpc_server_request_pending(svcpt, 1)) {
-		struct ptlrpc_request *req;
-
-		req = ptlrpc_server_request_get(svcpt, 1);
-		cfs_list_del(&req->rq_list);
-		svcpt->scp_nreqs_active++;
-		ptlrpc_server_finish_request(svcpt, req);
-	}
-	LASSERT(svcpt->scp_nreqs_incoming == 0);
-	LASSERT(svcpt->scp_nreqs_active == 0);
-	LASSERT(service->srv_hist_nrqbds == 0);
-	LASSERT(cfs_list_empty(&svcpt->scp_rqbd_posted));
-
-	/* Now free all the request buffers since nothing references them
-	 * any more... */
-	while (!cfs_list_empty(&svcpt->scp_rqbd_idle)) {
-		struct ptlrpc_request_buffer_desc *rqbd =
-			cfs_list_entry(svcpt->scp_rqbd_idle.next,
-				       struct ptlrpc_request_buffer_desc,
-				       rqbd_list);
-
-		ptlrpc_free_rqbd(rqbd);
-	}
-
-	ptlrpc_wait_replies(svcpt);
-
-	cfs_list_for_each_entry_safe(rs, t, &svcpt->scp_rep_idle, rs_list) {
-		cfs_list_del(&rs->rs_list);
-		OBD_FREE_LARGE(rs, service->srv_max_reply_size);
-	}
-
-	/* In case somebody rearmed this in the meantime */
-	cfs_timer_disarm(&svcpt->scp_at_timer);
-
-	array = &svcpt->scp_at_array;
-        if (array->paa_reqs_array != NULL) {
-                OBD_FREE(array->paa_reqs_array,
-                         sizeof(cfs_list_t) * array->paa_size);
-                array->paa_reqs_array = NULL;
-        }
-
-        if (array->paa_reqs_count != NULL) {
-                OBD_FREE(array->paa_reqs_count,
-                         sizeof(__u32) * array->paa_size);
-                array->paa_reqs_count= NULL;
-        }
-
-	OBD_FREE_PTR(svcpt);
- out:
-	OBD_FREE_PTR(service);
 	RETURN(0);
 }
 
