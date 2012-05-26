@@ -1,0 +1,10 @@
+Verified+1: Hudson
+Code-Review+1: Brian J. Murrell <brian@whamcloud.com>
+Code-Review+2: Andreas Dilger <adilger@whamcloud.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Brian Behlendorf <behlendorf1@llnl.gov>
+Submitted-by: Andreas Dilger <adilger@whamcloud.com>
+Submitted-at: Sat, 26 May 2012 12:12:28 -0400
+Reviewed-on: http://review.whamcloud.com/2898
+Project: fs/lustre-release
+Branch: refs/heads/b2_1
