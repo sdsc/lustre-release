@@ -1788,15 +1788,9 @@ static int ll_data_version(struct inode *inode, __u64 *data_version,
         RETURN(rc);
 }
 
-#ifdef HAVE_UNLOCKED_IOCTL
 long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
         struct inode *inode = file->f_dentry->d_inode;
-#else
-int ll_file_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
-                  unsigned long arg)
-{
-#endif
         struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
         int flags;
 
@@ -2344,13 +2338,8 @@ int __ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
                    do_lookup() -> ll_revalidate_it(). We cannot use d_drop
                    here to preserve get_cwd functionality on 2.6.
                    Bug 10503 */
-                if (!dentry->d_inode->i_nlink) {
-                        cfs_spin_lock(&ll_lookup_lock);
-                        spin_lock(&dcache_lock);
-                        ll_drop_dentry(dentry);
-                        spin_unlock(&dcache_lock);
-                        cfs_spin_unlock(&ll_lookup_lock);
-                }
+		if (!dentry->d_inode->i_nlink)
+			d_lustre_invalidate(dentry);
 
                 ll_lookup_finish_locks(&oit, dentry);
         } else if (!ll_have_md_lock(dentry->d_inode, &ibits, LCK_MINMODE)) {
@@ -2511,7 +2500,7 @@ lustre_check_acl(struct inode *inode, int mask)
         int rc;
         ENTRY;
 
-#ifdef HAVE_GENERIC_PERMISSION_4ARGS
+#ifdef IPERM_FLAG_RCU
         if (flags & IPERM_FLAG_RCU)
                 return -ECHILD;
 #endif
@@ -2543,6 +2532,11 @@ int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd)
 {
         int rc = 0;
         ENTRY;
+
+#ifdef IPERM_FLAG_RCU
+	if (flags & IPERM_FLAG_RCU)
+		return -ECHILD;
+#endif
 
        /* as root inode are NOT getting validated in lookup operation,
         * need to do it before permission check. */
@@ -2586,11 +2580,7 @@ struct file_operations ll_file_operations = {
         .READ_METHOD    = READ_FUNCTION,
         .write          = ll_file_write,
         .WRITE_METHOD   = WRITE_FUNCTION,
-#ifdef HAVE_UNLOCKED_IOCTL
         .unlocked_ioctl = ll_file_ioctl,
-#else
-        .ioctl          = ll_file_ioctl,
-#endif
         .open           = ll_file_open,
         .release        = ll_file_release,
         .mmap           = ll_file_mmap,
@@ -2610,11 +2600,7 @@ struct file_operations ll_file_operations_flock = {
         .READ_METHOD    = READ_FUNCTION,
         .write          = ll_file_write,
         .WRITE_METHOD   = WRITE_FUNCTION,
-#ifdef HAVE_UNLOCKED_IOCTL
         .unlocked_ioctl = ll_file_ioctl,
-#else
-        .ioctl          = ll_file_ioctl,
-#endif
         .open           = ll_file_open,
         .release        = ll_file_release,
         .mmap           = ll_file_mmap,
@@ -2637,11 +2623,7 @@ struct file_operations ll_file_operations_noflock = {
         .READ_METHOD    = READ_FUNCTION,
         .write          = ll_file_write,
         .WRITE_METHOD   = WRITE_FUNCTION,
-#ifdef HAVE_UNLOCKED_IOCTL
         .unlocked_ioctl = ll_file_ioctl,
-#else
-        .ioctl          = ll_file_ioctl,
-#endif
         .open           = ll_file_open,
         .release        = ll_file_release,
         .mmap           = ll_file_mmap,
