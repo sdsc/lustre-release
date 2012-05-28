@@ -174,6 +174,7 @@ int osc_enter_cache_try(const struct lu_env *env,
 
 struct cl_page *osc_oap2cl_page(struct osc_async_page *oap);
 extern cfs_spinlock_t osc_ast_guard;
+int osc_lru_shrink(struct client_obd *cli, int target);
 
 int osc_cleanup(struct obd_device *obd);
 int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg);
