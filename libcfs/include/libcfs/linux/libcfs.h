@@ -77,9 +77,10 @@
                            (THREAD_SIZE - 1)))
 # endif /* __ia64__ */
 
-#define __CHECK_STACK(msgdata, mask, cdls)                              \
+#define __CHECK_STACK(mask, cdls)                                       \
 do {                                                                    \
         if (unlikely(CDEBUG_STACK() > libcfs_stack)) {                  \
+                LIBCFS_DEBUG_MSG_DATA_DECL(msgdata, mask, cdls);        \
                 libcfs_stack = CDEBUG_STACK();                          \
                 (msgdata)->msg_mask = D_WARNING;                        \
                 (msgdata)->msg_cdls = NULL;                             \
@@ -92,9 +93,9 @@ do {                                                                    \
               /*panic("LBUG");*/                                        \
         }                                                               \
 } while (0)
-#define CFS_CHECK_STACK(msgdata, mask, cdls)  __CHECK_STACK(msgdata, mask, cdls)
+#define CFS_CHECK_STACK(mask, cdls)  __CHECK_STACK(mask, cdls)
 #else /* __x86_64__ */
-#define CFS_CHECK_STACK(msgdata, mask, cdls) do {} while(0)
+#define CFS_CHECK_STACK(mask, cdls) do {} while(0)
 #define CDEBUG_STACK() (0L)
 #endif /* __x86_64__ */
 

@@ -843,7 +843,7 @@ void _debug_req(struct ptlrpc_request *req,
  */
 #define debug_req(msgdata, mask, cdls, req, fmt, a...)                        \
 do {                                                                          \
-        CFS_CHECK_STACK(msgdata, mask, cdls);                                 \
+        CFS_CHECK_STACK(mask, cdls);                                          \
                                                                               \
         if (((mask) & D_CANTMASK) != 0 ||                                     \
             ((libcfs_debug & (mask)) != 0 &&                                  \

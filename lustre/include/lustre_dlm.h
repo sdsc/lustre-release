@@ -893,7 +893,7 @@ extern char *ldlm_typename[];
 extern char *ldlm_it2str(int it);
 #ifdef LIBCFS_DEBUG
 #define ldlm_lock_debug(msgdata, mask, cdls, lock, fmt, a...) do {      \
-        CFS_CHECK_STACK(msgdata, mask, cdls);                           \
+        CFS_CHECK_STACK(mask, cdls);                                    \
                                                                         \
         if (((mask) & D_CANTMASK) != 0 ||                               \
             ((libcfs_debug & (mask)) != 0 &&                            \
