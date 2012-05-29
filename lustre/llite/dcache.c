@@ -135,8 +135,8 @@ static inline int return_if_equal(struct ldlm_lock *lock, void *data)
  *      < 0    error */
 static int find_cbdata(struct inode *inode)
 {
-        struct ll_inode_info *lli = ll_i2info(inode);
         struct ll_sb_info *sbi = ll_i2sbi(inode);
+	struct lov_stripe_md *lsm;
         int rc = 0;
         ENTRY;
 
@@ -146,9 +146,12 @@ static int find_cbdata(struct inode *inode)
         if (rc != 0)
                  RETURN(rc);
 
-        if (lli->lli_smd)
-                rc = obd_find_cbdata(sbi->ll_dt_exp, lli->lli_smd,
-                                     return_if_equal, NULL);
+	lsm = ccc_inode_lsm_get(inode);
+	if (lsm == NULL)
+		RETURN(rc);
+
+	rc = obd_find_cbdata(sbi->ll_dt_exp, lsm, return_if_equal, NULL);
+	ccc_inode_lsm_put(inode, lsm);
 
         RETURN(rc);
 }
