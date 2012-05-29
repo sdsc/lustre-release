@@ -128,7 +128,9 @@ int lov_merge_lvb(struct obd_export *exp,
         __u64 kms;
 
         ENTRY;
+	lov_stripe_lock(lsm);
         rc = lov_merge_lvb_kms(lsm, lvb, &kms);
+	lov_stripe_unlock(lsm);
         if (kms_only)
                 lvb->lvb_size = kms;
 	CDEBUG(D_INODE, "merged for FID "DFID" s="LPU64" m="LPU64" a="LPU64

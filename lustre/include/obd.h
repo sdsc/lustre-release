@@ -102,6 +102,7 @@ static inline void loi_init(struct lov_oinfo *loi)
 }
 
 struct lov_stripe_md {
+	cfs_atomic_t     lsm_refc;
         cfs_spinlock_t   lsm_lock;
         pid_t            lsm_lock_owner; /* debugging */
 
@@ -133,6 +134,13 @@ struct lov_stripe_md {
 #define lsm_pattern      lsm_wire.lw_pattern
 #define lsm_stripe_count lsm_wire.lw_stripe_count
 #define lsm_pool_name    lsm_wire.lw_pool_name
+
+static inline struct lov_stripe_md *lsm_addref(struct lov_stripe_md *lsm)
+{
+	LASSERT(cfs_atomic_read(&lsm->lsm_refc) > 0);
+	cfs_atomic_inc(&lsm->lsm_refc);
+	return lsm;
+}
 
 struct obd_info;
 
