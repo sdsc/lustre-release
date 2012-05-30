@@ -200,6 +200,7 @@ struct lustre_mount_data {
 #define LMD_FLG_NOMGS        0x0020  /* Only start target for servers, reusing
                                         existing MGS services */
 #define LMD_FLG_WRITECONF    0x0040  /* Rewrite config log */
+#define LMD_FLG_NOSCRUB	     0x0100  /* Do not trigger scrub automatically */
 
 #define lmd_is_client(x) ((x)->lmd_flags & LMD_FLG_CLIENT)
 
@@ -454,6 +455,7 @@ struct lustre_sb_info {
 #define     s2lsi_nocast(sb) ((sb)->s_fs_info)
 
 #define     get_profile_name(sb)   (s2lsi(sb)->lsi_lmd->lmd_profile)
+#define	    get_mount_flags(sb)	   (s2lsi(sb)->lsi_lmd->lmd_flags)
 
 #endif /* __KERNEL__ */
 
