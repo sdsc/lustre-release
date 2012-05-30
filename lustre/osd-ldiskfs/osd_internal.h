@@ -76,11 +76,47 @@
 
 struct inode;
 
-#define OSD_OII_NOGEN (0)
 #define OSD_COUNTERS (0)
 
 /** Enable thandle usage statistics */
 #define OSD_THANDLE_STATS (0)
+
+struct osd_directory {
+        struct iam_container od_container;
+        struct iam_descr     od_descr;
+};
+
+struct osd_object {
+        struct dt_object       oo_dt;
+        /**
+         * Inode for file system object represented by this osd_object. This
+         * inode is pinned for the whole duration of lu_object life.
+         *
+         * Not modified concurrently (either setup early during object
+         * creation, or assigned by osd_object_create() under write lock).
+         */
+        struct inode          *oo_inode;
+        /**
+         * to protect index ops.
+         */
+        cfs_rw_semaphore_t     oo_ext_idx_sem;
+        cfs_rw_semaphore_t     oo_sem;
+        struct osd_directory  *oo_dir;
+        /** protects inode attributes. */
+        cfs_spinlock_t         oo_guard;
+        /**
+         * Following two members are used to indicate the presence of dot and
+         * dotdot in the given directory. This is required for interop mode
+         * (b11826).
+         */
+        int                    oo_compat_dot_created;
+        int                    oo_compat_dotdot_created;
+
+        const struct lu_env   *oo_owner;
+#ifdef CONFIG_LOCKDEP
+        struct lockdep_map     oo_dep_map;
+#endif
+};
 
 #ifdef HAVE_QUOTA_SUPPORT
 struct osd_ctxt {
@@ -224,7 +260,10 @@ struct osd_thread_info {
         struct dentry          oti_it_dentry;
 
         struct lu_fid          oti_fid;
-        struct osd_inode_id    oti_id;
+	struct lu_fid	       oti_fid2;
+	struct osd_inode_id    oti_id;
+	struct osd_inode_id    oti_id2;
+
         /*
          * XXX temporary: for ->i_op calls.
          */
@@ -301,8 +340,66 @@ void osd_lprocfs_time_start(const struct lu_env *env);
 void osd_lprocfs_time_end(const struct lu_env *env,
                           struct osd_device *osd, int op);
 #endif
-int osd_statfs(const struct lu_env *env, struct dt_device *dev,
+int osd_statfs(const struct lu_env *env, struct dt_device *d,
                cfs_kstatfs_t *sfs);
+
+/*
+ * Helper functions.
+ */
+extern const struct lu_device_operations  osd_lu_ops;
+
+static inline int lu_device_is_osd(const struct lu_device *d)
+{
+        return ergo(d != NULL && d->ld_ops != NULL, d->ld_ops == &osd_lu_ops);
+}
+
+static inline struct osd_device *osd_dt_dev(const struct dt_device *d)
+{
+        LASSERT(lu_device_is_osd(&d->dd_lu_dev));
+        return container_of0(d, struct osd_device, od_dt_dev);
+}
+
+static inline struct osd_device *osd_dev(const struct lu_device *d)
+{
+        LASSERT(lu_device_is_osd(d));
+        return osd_dt_dev(container_of0(d, struct dt_device, dd_lu_dev));
+}
+
+static inline struct osd_device *osd_obj2dev(const struct osd_object *o)
+{
+        return osd_dev(o->oo_dt.do_lu.lo_dev);
+}
+
+static inline struct super_block *osd_sb(const struct osd_device *dev)
+{
+        return dev->od_mount->lmi_mnt->mnt_sb;
+}
+
+static inline int osd_object_is_root(const struct osd_object *obj)
+{
+        return osd_sb(osd_obj2dev(obj))->s_root->d_inode == obj->oo_inode;
+}
+
+static inline struct osd_object *osd_obj(const struct lu_object *o)
+{
+        LASSERT(lu_device_is_osd(o->lo_dev));
+        return container_of0(o, struct osd_object, oo_dt.do_lu);
+}
+
+static inline struct osd_object *osd_dt_obj(const struct dt_object *d)
+{
+        return osd_obj(&d->do_lu);
+}
+
+static inline struct lu_device *osd2lu_dev(struct osd_device *osd)
+{
+        return &osd->od_dt_dev.dd_lu_dev;
+}
+
+static inline journal_t *osd_journal(const struct osd_device *dev)
+{
+        return LDISKFS_SB(osd_sb(dev))->s_journal;
+}
 
 /*
  * Invariants, assertions.
@@ -329,6 +426,24 @@ static inline int osd_invariant(const struct osd_object *obj)
 #else
 #define osd_invariant(obj) (1)
 #endif
+
+extern const struct dt_index_operations osd_otable_ops;
+
+static inline int osd_oi_fid2idx(struct osd_device *dev,
+				 const struct lu_fid *fid)
+{
+	return fid->f_seq & (dev->od_oi_count - 1);
+}
+
+static inline struct osd_oi *osd_fid2oi(struct osd_device *osd,
+                                        const struct lu_fid *fid)
+{
+        LASSERT(!fid_is_igif(fid));
+        LASSERT(osd->od_oi_table != NULL && osd->od_oi_count >= 1);
+        /* It can work even od_oi_count equals to 1 although it's unexpected,
+         * the only reason we set it to 1 is for performance measurement */
+	return &osd->od_oi_table[osd_oi_fid2idx(osd, fid)];
+}
 
 /* The on-disk extN format reserves inodes 0-11 for internal filesystem
  * use, and these inodes will be invisible on client side, so the valid
@@ -363,18 +478,6 @@ static inline loff_t ldiskfs_get_htree_eof(struct file *filp)
 		return LDISKFS_HTREE_EOF_32BIT;
 	else
 		return LDISKFS_HTREE_EOF_64BIT;
-}
-
-static inline struct osd_oi *
-osd_fid2oi(struct osd_device *osd, const struct lu_fid *fid)
-{
-        if (!fid_is_norm(fid))
-                return NULL;
-
-        LASSERT(osd->od_oi_table != NULL && osd->od_oi_count >= 1);
-        /* It can work even od_oi_count equals to 1 although it's unexpected,
-         * the only reason we set it to 1 is for performance measurement */
-        return &osd->od_oi_table[fid->f_seq & (osd->od_oi_count - 1)];
 }
 
 #endif /* __KERNEL__ */

@@ -67,15 +67,12 @@
 
 /* fid_cpu_to_be() */
 #include <lustre_fid.h>
+#include <dt_object.h>
 
 #include "osd_oi.h"
 /* osd_lookup(), struct osd_thread_info */
 #include "osd_internal.h"
 #include "osd_igif.h"
-#include "dt_object.h"
-
-#define OSD_OI_FID_NR         (1UL << OSD_OI_FID_OID_BITS)
-#define OSD_OI_FID_NR_MAX     (1UL << OSD_OI_FID_OID_BITS_MAX)
 
 static unsigned int osd_oi_count = OSD_OI_FID_NR;
 CFS_MODULE_PARM(osd_oi_count, "i", int, 0444,
@@ -305,42 +302,44 @@ void osd_oi_fini(struct osd_thread_info *info,
         *oi_table = NULL;
 }
 
-int osd_oi_lookup(struct osd_thread_info *info, struct osd_oi *oi,
+int __osd_oi_lookup(struct osd_thread_info *info, struct osd_oi *oi,
+		    const struct lu_fid *fid, struct osd_inode_id *id)
+{
+	struct lu_fid *oi_fid = &info->oti_fid2;
+        struct dt_object *idx;
+        const struct dt_key *key;
+	int rc;
+
+        idx = oi->oi_dir;
+        key = (struct dt_key *) oi_fid;
+	fid_cpu_to_be(oi_fid, fid);
+        rc = idx->do_index_ops->dio_lookup(info->oti_env, idx,
+                                           (struct dt_rec *)id, key,
+                                           BYPASS_CAPA);
+	if (rc > 0) {
+		osd_id_unpack(id, id);
+		rc = 0;
+	} else if (rc == 0) {
+		rc = -ENOENT;
+	}
+	return rc;
+}
+
+int osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
                   const struct lu_fid *fid, struct osd_inode_id *id)
 {
-        struct lu_fid *oi_fid = &info->oti_fid;
-        int rc;
+        int rc = 0;
 
-	if (fid_seq(fid) == FID_SEQ_LOCAL_FILE)
-		return -ENOENT;
-
-        if (osd_fid_is_igif(fid)) {
+        if (osd_fid_is_igif(fid))
                 lu_igif_to_id(fid, id);
-                rc = 0;
-        } else {
-                struct dt_object    *idx;
-                const struct dt_key *key;
-
-                if (!fid_is_norm(fid))
-                        return -ENOENT;
-
-                idx = oi->oi_dir;
-                fid_cpu_to_be(oi_fid, fid);
-                key = (struct dt_key *) oi_fid;
-                rc = idx->do_index_ops->dio_lookup(info->oti_env, idx,
-                                                   (struct dt_rec *)id, key,
-                                                   BYPASS_CAPA);
-                if (rc > 0) {
-                        id->oii_ino = be32_to_cpu(id->oii_ino);
-                        id->oii_gen = be32_to_cpu(id->oii_gen);
-                        rc = 0;
-                } else if (rc == 0)
-                        rc = -ENOENT;
-        }
+        else if (!fid_is_norm(fid))
+                rc = -ENOENT;
+        else
+		rc = __osd_oi_lookup(info, osd_fid2oi(osd, fid), fid, id);
         return rc;
 }
 
-int osd_oi_insert(struct osd_thread_info *info, struct osd_oi *oi,
+int osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
                   const struct lu_fid *fid, const struct osd_inode_id *id0,
                   struct thandle *th, int ignore_quota)
 {
@@ -349,16 +348,10 @@ int osd_oi_insert(struct osd_thread_info *info, struct osd_oi *oi,
         struct osd_inode_id *id;
         const struct dt_key *key;
 
-	if (fid_seq(fid) == FID_SEQ_LOCAL_FILE)
-		return 0;
-
-        if (osd_fid_is_igif(fid))
-                return 0;
-
         if (!fid_is_norm(fid))
                 return 0;
 
-        idx = oi->oi_dir;
+        idx = osd_fid2oi(osd, fid)->oi_dir;
         fid_cpu_to_be(oi_fid, fid);
         key = (struct dt_key *) oi_fid;
 
@@ -371,9 +364,8 @@ int osd_oi_insert(struct osd_thread_info *info, struct osd_oi *oi,
                                              ignore_quota);
 }
 
-int osd_oi_delete(struct osd_thread_info *info,
-                  struct osd_oi *oi, const struct lu_fid *fid,
-                  struct thandle *th)
+int osd_oi_delete(struct osd_thread_info *info, struct osd_device *osd,
+                  const struct lu_fid *fid, struct thandle *th)
 {
         struct lu_fid *oi_fid = &info->oti_fid;
         struct dt_object    *idx;
@@ -382,14 +374,14 @@ int osd_oi_delete(struct osd_thread_info *info,
         if (!fid_is_norm(fid))
                 return 0;
 
-        idx = oi->oi_dir;
+        idx = osd_fid2oi(osd, fid)->oi_dir;
         fid_cpu_to_be(oi_fid, fid);
         key = (struct dt_key *) oi_fid;
         return idx->do_index_ops->dio_delete(info->oti_env, idx,
                                              key, th, BYPASS_CAPA);
 }
 
-int osd_oi_mod_init()
+int osd_oi_mod_init(void)
 {
         if (osd_oi_count == 0 || osd_oi_count > OSD_OI_FID_NR_MAX)
                 osd_oi_count = OSD_OI_FID_NR;
