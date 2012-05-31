@@ -175,6 +175,7 @@ ptlrpc_save_lock(struct ptlrpc_request *req,
                 rs->rs_no_ack = !!no_ack;
         }
 }
+EXPORT_SYMBOL(ptlrpc_save_lock);
 
 #ifdef __KERNEL__
 
@@ -362,6 +363,7 @@ ptlrpc_schedule_difficult_reply (struct ptlrpc_reply_state *rs)
         ptlrpc_dispatch_difficult_reply(rs);
         EXIT;
 }
+EXPORT_SYMBOL(ptlrpc_schedule_difficult_reply);
 
 void ptlrpc_commit_replies(struct obd_export *exp)
 {
@@ -389,6 +391,7 @@ void ptlrpc_commit_replies(struct obd_export *exp)
         rs_batch_fini(&batch);
         EXIT;
 }
+EXPORT_SYMBOL(ptlrpc_commit_replies);
 
 static int
 ptlrpc_server_post_idle_rqbds (struct ptlrpc_service *svc)
@@ -608,6 +611,7 @@ failed:
         ptlrpc_unregister_service(service);
         return NULL;
 }
+EXPORT_SYMBOL(ptlrpc_init_svc);
 
 /**
  * to actually free the request, must be called without holding svc_lock.
@@ -1308,6 +1312,7 @@ void ptlrpc_hpreq_reorder(struct ptlrpc_request *req)
         cfs_spin_unlock(&svc->srv_rq_lock);
         EXIT;
 }
+EXPORT_SYMBOL(ptlrpc_hpreq_reorder);
 
 /** Check if the request is a high priority one. */
 static int ptlrpc_server_hpreq_check(struct ptlrpc_service *svc,
@@ -2452,6 +2457,7 @@ void ptlrpc_stop_all_threads(struct ptlrpc_service *svc)
         cfs_spin_unlock(&svc->srv_lock);
         EXIT;
 }
+EXPORT_SYMBOL(ptlrpc_stop_all_threads);
 
 int ptlrpc_start_threads(struct ptlrpc_service *svc)
 {
@@ -2477,6 +2483,7 @@ int ptlrpc_start_threads(struct ptlrpc_service *svc)
         }
         RETURN(rc);
 }
+EXPORT_SYMBOL(ptlrpc_start_threads);
 
 int ptlrpc_start_thread(struct ptlrpc_service *svc)
 {
@@ -2548,6 +2555,7 @@ int ptlrpc_start_thread(struct ptlrpc_service *svc)
         rc = thread_is_stopped(thread) ? thread->t_id : 0;
         RETURN(rc);
 }
+EXPORT_SYMBOL(ptlrpc_start_thread);
 
 
 int ptlrpc_hr_init(void)
@@ -2753,6 +2761,7 @@ int ptlrpc_unregister_service(struct ptlrpc_service *service)
         OBD_FREE_PTR(service);
         RETURN(0);
 }
+EXPORT_SYMBOL(ptlrpc_unregister_service);
 
 /**
  * Returns 0 if the service is healthy.
@@ -2796,3 +2805,4 @@ int ptlrpc_service_health_check(struct ptlrpc_service *svc)
 
         return 0;
 }
+EXPORT_SYMBOL(ptlrpc_service_health_check);
