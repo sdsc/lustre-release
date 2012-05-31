@@ -68,6 +68,7 @@ void dump_lsm(int level, struct lov_stripe_md *lsm)
                lsm->lsm_stripe_size, lsm->lsm_stripe_count,
                lsm->lsm_layout_gen, lsm->lsm_pool_name);
 }
+EXPORT_SYMBOL(dump_lsm);
 
 #define LPDS sizeof(__u64)
 int block_debug_setup(void *addr, int len, __u64 off, __u64 id)
@@ -85,6 +86,7 @@ int block_debug_setup(void *addr, int len, __u64 off, __u64 id)
 
         return 0;
 }
+EXPORT_SYMBOL(block_debug_setup);
 
 int block_debug_check(char *who, void *addr, int end, __u64 off, __u64 id)
 {
@@ -120,9 +122,5 @@ int block_debug_check(char *who, void *addr, int end, __u64 off, __u64 id)
 
         return err;
 }
-#undef LPDS
-
-//EXPORT_SYMBOL(dump_req);
-EXPORT_SYMBOL(dump_lsm);
-EXPORT_SYMBOL(block_debug_setup);
 EXPORT_SYMBOL(block_debug_check);
+#undef LPDS
