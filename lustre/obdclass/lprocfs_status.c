@@ -98,6 +98,7 @@ struct proc_dir_entry *lprocfs_srch(struct proc_dir_entry *head,
         LPROCFS_SRCH_EXIT();
         return temp;
 }
+EXPORT_SYMBOL(lprocfs_srch);
 
 /* lprocfs API calls */
 
@@ -155,6 +156,7 @@ cfs_proc_dir_entry_t *lprocfs_add_simple(struct proc_dir_entry *root,
         LPROCFS_WRITE_EXIT();
         return proc;
 }
+EXPORT_SYMBOL(lprocfs_add_simple);
 
 struct proc_dir_entry *lprocfs_add_symlink(const char *name,
                         struct proc_dir_entry *parent, const char *format, ...)
@@ -182,6 +184,7 @@ struct proc_dir_entry *lprocfs_add_symlink(const char *name,
         OBD_FREE(dest, MAX_STRING_SIZE + 1);
         return entry;
 }
+EXPORT_SYMBOL(lprocfs_add_symlink);
 
 static ssize_t lprocfs_fops_read(struct file *f, char __user *buf,
                                  size_t size, loff_t *ppos)
@@ -373,6 +376,7 @@ out:
         LPROCFS_WRITE_EXIT();
         return rc;
 }
+EXPORT_SYMBOL(lprocfs_add_vars);
 
 void lprocfs_remove(struct proc_dir_entry **rooth)
 {
@@ -425,12 +429,14 @@ void lprocfs_remove(struct proc_dir_entry **rooth)
         }
         LPROCFS_WRITE_EXIT();
 }
+EXPORT_SYMBOL(lprocfs_remove);
 
 void lprocfs_remove_proc_entry(const char *name, struct proc_dir_entry *parent)
 {
         LASSERT(parent != NULL);
         remove_proc_entry(name, parent);
 }
+EXPORT_SYMBOL(lprocfs_remove_proc_entry);
 
 struct proc_dir_entry *lprocfs_register(const char *name,
                                         struct proc_dir_entry *parent,
@@ -455,6 +461,7 @@ struct proc_dir_entry *lprocfs_register(const char *name,
         }
         return newchild;
 }
+EXPORT_SYMBOL(lprocfs_register);
 
 /* Generic callbacks */
 int lprocfs_rd_uint(char *page, char **start, off_t off,
@@ -463,6 +470,7 @@ int lprocfs_rd_uint(char *page, char **start, off_t off,
         unsigned int *temp = data;
         return snprintf(page, count, "%u\n", *temp);
 }
+EXPORT_SYMBOL(lprocfs_rd_uint);
 
 int lprocfs_wr_uint(struct file *file, const char *buffer,
                     unsigned long count, void *data)
@@ -482,6 +490,7 @@ int lprocfs_wr_uint(struct file *file, const char *buffer,
         *p = (unsigned int)tmp;
         return count;
 }
+EXPORT_SYMBOL(lprocfs_wr_uint);
 
 int lprocfs_rd_u64(char *page, char **start, off_t off,
                    int count, int *eof, void *data)
@@ -490,6 +499,7 @@ int lprocfs_rd_u64(char *page, char **start, off_t off,
         *eof = 1;
         return snprintf(page, count, LPU64"\n", *(__u64 *)data);
 }
+EXPORT_SYMBOL(lprocfs_rd_u64);
 
 int lprocfs_rd_atomic(char *page, char **start, off_t off,
                    int count, int *eof, void *data)
@@ -499,6 +509,7 @@ int lprocfs_rd_atomic(char *page, char **start, off_t off,
         *eof = 1;
         return snprintf(page, count, "%d\n", cfs_atomic_read(atom));
 }
+EXPORT_SYMBOL(lprocfs_rd_atomic);
 
 int lprocfs_wr_atomic(struct file *file, const char *buffer,
                       unsigned long count, void *data)
@@ -517,6 +528,7 @@ int lprocfs_wr_atomic(struct file *file, const char *buffer,
         cfs_atomic_set(atm, val);
         return count;
 }
+EXPORT_SYMBOL(lprocfs_wr_atomic);
 
 int lprocfs_rd_uuid(char *page, char **start, off_t off, int count,
                     int *eof, void *data)
@@ -527,6 +539,7 @@ int lprocfs_rd_uuid(char *page, char **start, off_t off, int count,
         *eof = 1;
         return snprintf(page, count, "%s\n", obd->obd_uuid.uuid);
 }
+EXPORT_SYMBOL(lprocfs_rd_uuid);
 
 int lprocfs_rd_name(char *page, char **start, off_t off, int count,
                     int *eof, void *data)
@@ -538,6 +551,7 @@ int lprocfs_rd_name(char *page, char **start, off_t off, int count,
         *eof = 1;
         return snprintf(page, count, "%s\n", dev->obd_name);
 }
+EXPORT_SYMBOL(lprocfs_rd_name);
 
 int lprocfs_rd_fstype(char *page, char **start, off_t off, int count, int *eof,
                       void *data)
@@ -549,6 +563,7 @@ int lprocfs_rd_fstype(char *page, char **start, off_t off, int count, int *eof,
         LASSERT(obd->obd_fsops->fs_type != NULL);
         return snprintf(page, count, "%s\n", obd->obd_fsops->fs_type);
 }
+EXPORT_SYMBOL(lprocfs_rd_fstype);
 
 int lprocfs_rd_blksize(char *page, char **start, off_t off, int count,
                        int *eof, void *data)
@@ -564,6 +579,7 @@ int lprocfs_rd_blksize(char *page, char **start, off_t off, int count,
         }
         return rc;
 }
+EXPORT_SYMBOL(lprocfs_rd_blksize);
 
 int lprocfs_rd_kbytestotal(char *page, char **start, off_t off, int count,
                            int *eof, void *data)
@@ -585,6 +601,7 @@ int lprocfs_rd_kbytestotal(char *page, char **start, off_t off, int count,
         }
         return rc;
 }
+EXPORT_SYMBOL(lprocfs_rd_kbytestotal);
 
 int lprocfs_rd_kbytesfree(char *page, char **start, off_t off, int count,
                           int *eof, void *data)
@@ -606,6 +623,7 @@ int lprocfs_rd_kbytesfree(char *page, char **start, off_t off, int count,
         }
         return rc;
 }
+EXPORT_SYMBOL(lprocfs_rd_kbytesfree);
 
 int lprocfs_rd_kbytesavail(char *page, char **start, off_t off, int count,
                            int *eof, void *data)
@@ -627,6 +645,7 @@ int lprocfs_rd_kbytesavail(char *page, char **start, off_t off, int count,
         }
         return rc;
 }
+EXPORT_SYMBOL(lprocfs_rd_kbytesavail);
 
 int lprocfs_rd_filestotal(char *page, char **start, off_t off, int count,
                           int *eof, void *data)
@@ -643,6 +662,7 @@ int lprocfs_rd_filestotal(char *page, char **start, off_t off, int count,
 
         return rc;
 }
+EXPORT_SYMBOL(lprocfs_rd_filestotal);
 
 int lprocfs_rd_filesfree(char *page, char **start, off_t off, int count,
                          int *eof, void *data)
@@ -658,6 +678,7 @@ int lprocfs_rd_filesfree(char *page, char **start, off_t off, int count,
         }
         return rc;
 }
+EXPORT_SYMBOL(lprocfs_rd_filesfree);
 
 int lprocfs_rd_server_uuid(char *page, char **start, off_t off, int count,
                            int *eof, void *data)
@@ -679,6 +700,7 @@ int lprocfs_rd_server_uuid(char *page, char **start, off_t off, int count,
         LPROCFS_CLIMP_EXIT(obd);
         return rc;
 }
+EXPORT_SYMBOL(lprocfs_rd_server_uuid);
 
 int lprocfs_rd_conn_uuid(char *page, char **start, off_t off, int count,
                          int *eof,  void *data)
@@ -702,6 +724,7 @@ int lprocfs_rd_conn_uuid(char *page, char **start, off_t off, int count,
         LPROCFS_CLIMP_EXIT(obd);
         return rc;
 }
+EXPORT_SYMBOL(lprocfs_rd_conn_uuid);
 
 /** add up per-cpu counters */
 void lprocfs_stats_collect(struct lprocfs_stats *stats, int idx,
@@ -751,6 +774,7 @@ void lprocfs_stats_collect(struct lprocfs_stats *stats, int idx,
         cnt->lc_units = stats->ls_percpu[0]->lp_cntr[idx].lc_units;
         lprocfs_stats_unlock(stats, LPROCFS_GET_NUM_CPU);
 }
+EXPORT_SYMBOL(lprocfs_stats_collect);
 
 /**
  * Append a space separated list of current set flags to str.
@@ -976,6 +1000,7 @@ int lprocfs_rd_import(char *page, char **start, off_t off, int count,
         LPROCFS_CLIMP_EXIT(obd);
         return i;
 }
+EXPORT_SYMBOL(lprocfs_rd_import);
 
 int lprocfs_rd_state(char *page, char **start, off_t off, int count,
                       int *eof, void *data)
@@ -1007,6 +1032,7 @@ int lprocfs_rd_state(char *page, char **start, off_t off, int count,
         LPROCFS_CLIMP_EXIT(obd);
         return i;
 }
+EXPORT_SYMBOL(lprocfs_rd_state);
 
 int lprocfs_at_hist_helper(char *page, int count, int rc,
                            struct adaptive_timeout *at)
@@ -1017,6 +1043,7 @@ int lprocfs_at_hist_helper(char *page, int count, int rc,
         rc += snprintf(page + rc, count - rc, "\n");
         return rc;
 }
+EXPORT_SYMBOL(lprocfs_at_hist_helper);
 
 /* See also ptlrpc_lprocfs_rd_timeouts */
 int lprocfs_rd_timeouts(char *page, char **start, off_t off, int count,
@@ -1070,6 +1097,7 @@ int lprocfs_rd_timeouts(char *page, char **start, off_t off, int count,
         LPROCFS_CLIMP_EXIT(obd);
         return rc;
 }
+EXPORT_SYMBOL(lprocfs_rd_timeouts);
 
 int lprocfs_rd_connect_flags(char *page, char **start, off_t off,
                              int count, int *eof, void *data)
@@ -1097,6 +1125,7 @@ int lprocfs_rd_num_exports(char *page, char **start, off_t off, int count,
         *eof = 1;
         return snprintf(page, count, "%u\n", obd->obd_num_exports);
 }
+EXPORT_SYMBOL(lprocfs_rd_num_exports);
 
 int lprocfs_rd_numrefs(char *page, char **start, off_t off, int count,
                        int *eof, void *data)
@@ -1107,6 +1136,7 @@ int lprocfs_rd_numrefs(char *page, char **start, off_t off, int count,
         *eof = 1;
         return snprintf(page, count, "%d\n", class->typ_refcnt);
 }
+EXPORT_SYMBOL(lprocfs_rd_numrefs);
 
 int lprocfs_obd_setup(struct obd_device *obd, struct lprocfs_vars *list)
 {
@@ -1126,6 +1156,7 @@ int lprocfs_obd_setup(struct obd_device *obd, struct lprocfs_vars *list)
         }
         return rc;
 }
+EXPORT_SYMBOL(lprocfs_obd_setup);
 
 int lprocfs_obd_cleanup(struct obd_device *obd)
 {
@@ -1143,6 +1174,7 @@ int lprocfs_obd_cleanup(struct obd_device *obd)
         }
         return 0;
 }
+EXPORT_SYMBOL(lprocfs_obd_cleanup);
 
 static void lprocfs_free_client_stats(struct nid_stat *client_stat)
 {
@@ -1188,6 +1220,7 @@ void lprocfs_free_per_client_stats(struct obd_device *obd)
         }
         EXIT;
 }
+EXPORT_SYMBOL(lprocfs_free_per_client_stats);
 
 struct lprocfs_stats *lprocfs_alloc_stats(unsigned int num,
                                           enum lprocfs_stats_flags flags)
@@ -1243,6 +1276,7 @@ struct lprocfs_stats *lprocfs_alloc_stats(unsigned int num,
         stats->ls_num = num;
         return stats;
 }
+EXPORT_SYMBOL(lprocfs_alloc_stats);
 
 void lprocfs_free_stats(struct lprocfs_stats **statsh)
 {
@@ -1267,6 +1301,7 @@ void lprocfs_free_stats(struct lprocfs_stats **statsh)
                 OBD_FREE(stats->ls_percpu[i], percpusize);
         OBD_FREE(stats, offsetof(typeof(*stats), ls_percpu[num_cpu]));
 }
+EXPORT_SYMBOL(lprocfs_free_stats);
 
 void lprocfs_clear_stats(struct lprocfs_stats *stats)
 {
@@ -1291,6 +1326,7 @@ void lprocfs_clear_stats(struct lprocfs_stats *stats)
 
         lprocfs_stats_unlock(stats, LPROCFS_GET_NUM_CPU);
 }
+EXPORT_SYMBOL(lprocfs_clear_stats);
 
 static ssize_t lprocfs_stats_seq_write(struct file *file, const char *buf,
                                        size_t len, loff_t *off)
@@ -1422,6 +1458,7 @@ int lprocfs_register_stats(struct proc_dir_entry *root, const char *name,
 
         return 0;
 }
+EXPORT_SYMBOL(lprocfs_register_stats);
 
 void lprocfs_counter_init(struct lprocfs_stats *stats, int index,
                           unsigned conf, const char *name, const char *units)
@@ -1528,6 +1565,7 @@ void lprocfs_init_ops_stats(int num_private_stats, struct lprocfs_stats *stats)
         LPROCFS_OBD_OP_INIT(num_private_stats, stats, getref);
         LPROCFS_OBD_OP_INIT(num_private_stats, stats, putref);
 }
+EXPORT_SYMBOL(lprocfs_init_ops_stats);
 
 int lprocfs_alloc_obd_stats(struct obd_device *obd, unsigned num_private_stats)
 {
@@ -1566,12 +1604,14 @@ int lprocfs_alloc_obd_stats(struct obd_device *obd, unsigned num_private_stats)
         }
         return rc;
 }
+EXPORT_SYMBOL(lprocfs_alloc_obd_stats);
 
 void lprocfs_free_obd_stats(struct obd_device *obd)
 {
         if (obd->obd_stats)
                 lprocfs_free_stats(&obd->obd_stats);
 }
+EXPORT_SYMBOL(lprocfs_free_obd_stats);
 
 #define LPROCFS_MD_OP_INIT(base, stats, op)                             \
 do {                                                                    \
@@ -1615,6 +1655,7 @@ void lprocfs_init_mps_stats(int num_private_stats, struct lprocfs_stats *stats)
         LPROCFS_MD_OP_INIT(num_private_stats, stats, intent_getattr_async);
         LPROCFS_MD_OP_INIT(num_private_stats, stats, revalidate_lock);
 }
+EXPORT_SYMBOL(lprocfs_init_mps_stats);
 
 int lprocfs_alloc_md_stats(struct obd_device *obd,
                            unsigned num_private_stats)
@@ -1652,6 +1693,7 @@ int lprocfs_alloc_md_stats(struct obd_device *obd,
         }
         return rc;
 }
+EXPORT_SYMBOL(lprocfs_alloc_md_stats);
 
 void lprocfs_free_md_stats(struct obd_device *obd)
 {
@@ -1663,6 +1705,7 @@ void lprocfs_free_md_stats(struct obd_device *obd)
                 lprocfs_free_stats(&stats);
         }
 }
+EXPORT_SYMBOL(lprocfs_free_md_stats);
 
 void lprocfs_init_ldlm_stats(struct lprocfs_stats *ldlm_stats)
 {
@@ -1685,6 +1728,7 @@ void lprocfs_init_ldlm_stats(struct lprocfs_stats *ldlm_stats)
                              LDLM_GL_CALLBACK - LDLM_FIRST_OPC,
                              0, "ldlm_gl_callback", "reqs");
 }
+EXPORT_SYMBOL(lprocfs_init_ldlm_stats);
 
 int lprocfs_exp_rd_nid(char *page, char **start, off_t off, int count,
                          int *eof,  void *data)
@@ -1939,6 +1983,7 @@ destroy_new:
         OBD_FREE_PTR(new_stat);
         RETURN(rc);
 }
+EXPORT_SYMBOL(lprocfs_exp_setup);
 
 int lprocfs_exp_cleanup(struct obd_export *exp)
 {
@@ -1952,12 +1997,14 @@ int lprocfs_exp_cleanup(struct obd_export *exp)
 
         return 0;
 }
+EXPORT_SYMBOL(lprocfs_exp_cleanup);
 
 int lprocfs_write_helper(const char *buffer, unsigned long count,
                          int *val)
 {
         return lprocfs_write_frac_helper(buffer, count, val, 1);
 }
+EXPORT_SYMBOL(lprocfs_write_helper);
 
 int lprocfs_write_frac_helper(const char *buffer, unsigned long count,
                               int *val, int mult)
@@ -2000,6 +2047,7 @@ int lprocfs_write_frac_helper(const char *buffer, unsigned long count,
         }
         return 0;
 }
+EXPORT_SYMBOL(lprocfs_write_frac_helper);
 
 int lprocfs_read_frac_helper(char *buffer, unsigned long count, long val,
                              int mult)
@@ -2054,11 +2102,13 @@ int lprocfs_read_frac_helper(char *buffer, unsigned long count, long val,
         buffer[prtn++] ='\n';
         return prtn;
 }
+EXPORT_SYMBOL(lprocfs_read_frac_helper);
 
 int lprocfs_write_u64_helper(const char *buffer, unsigned long count,__u64 *val)
 {
         return lprocfs_write_frac_u64_helper(buffer, count, val, 1);
 }
+EXPORT_SYMBOL(lprocfs_write_u64_helper);
 
 int lprocfs_write_frac_u64_helper(const char *buffer, unsigned long count,
                               __u64 *val, int mult)
@@ -2120,6 +2170,7 @@ int lprocfs_write_frac_u64_helper(const char *buffer, unsigned long count,
         *val = whole * mult + frac;
         return 0;
 }
+EXPORT_SYMBOL(lprocfs_write_frac_u64_helper);
 
 int lprocfs_seq_create(cfs_proc_dir_entry_t *parent, char *name, mode_t mode,
                        struct file_operations *seq_fops, void *data)
@@ -2486,58 +2537,4 @@ int lprocfs_target_rd_instance(char *page, char **start, off_t off,
         return snprintf(page, count, "%u\n", obd->u.obt.obt_instance);
 }
 EXPORT_SYMBOL(lprocfs_target_rd_instance);
-
-EXPORT_SYMBOL(lprocfs_register);
-EXPORT_SYMBOL(lprocfs_srch);
-EXPORT_SYMBOL(lprocfs_remove);
-EXPORT_SYMBOL(lprocfs_remove_proc_entry);
-EXPORT_SYMBOL(lprocfs_add_vars);
-EXPORT_SYMBOL(lprocfs_obd_setup);
-EXPORT_SYMBOL(lprocfs_obd_cleanup);
-EXPORT_SYMBOL(lprocfs_add_simple);
-EXPORT_SYMBOL(lprocfs_add_symlink);
-EXPORT_SYMBOL(lprocfs_free_per_client_stats);
-EXPORT_SYMBOL(lprocfs_alloc_stats);
-EXPORT_SYMBOL(lprocfs_free_stats);
-EXPORT_SYMBOL(lprocfs_clear_stats);
-EXPORT_SYMBOL(lprocfs_register_stats);
-EXPORT_SYMBOL(lprocfs_init_ops_stats);
-EXPORT_SYMBOL(lprocfs_init_mps_stats);
-EXPORT_SYMBOL(lprocfs_init_ldlm_stats);
-EXPORT_SYMBOL(lprocfs_alloc_obd_stats);
-EXPORT_SYMBOL(lprocfs_alloc_md_stats);
-EXPORT_SYMBOL(lprocfs_free_obd_stats);
-EXPORT_SYMBOL(lprocfs_free_md_stats);
-EXPORT_SYMBOL(lprocfs_exp_setup);
-EXPORT_SYMBOL(lprocfs_exp_cleanup);
-
-EXPORT_SYMBOL(lprocfs_rd_u64);
-EXPORT_SYMBOL(lprocfs_rd_atomic);
-EXPORT_SYMBOL(lprocfs_wr_atomic);
-EXPORT_SYMBOL(lprocfs_rd_uint);
-EXPORT_SYMBOL(lprocfs_wr_uint);
-EXPORT_SYMBOL(lprocfs_rd_uuid);
-EXPORT_SYMBOL(lprocfs_rd_name);
-EXPORT_SYMBOL(lprocfs_rd_fstype);
-EXPORT_SYMBOL(lprocfs_rd_server_uuid);
-EXPORT_SYMBOL(lprocfs_rd_conn_uuid);
-EXPORT_SYMBOL(lprocfs_rd_num_exports);
-EXPORT_SYMBOL(lprocfs_rd_numrefs);
-EXPORT_SYMBOL(lprocfs_at_hist_helper);
-EXPORT_SYMBOL(lprocfs_rd_import);
-EXPORT_SYMBOL(lprocfs_rd_state);
-EXPORT_SYMBOL(lprocfs_rd_timeouts);
-EXPORT_SYMBOL(lprocfs_rd_blksize);
-EXPORT_SYMBOL(lprocfs_rd_kbytestotal);
-EXPORT_SYMBOL(lprocfs_rd_kbytesfree);
-EXPORT_SYMBOL(lprocfs_rd_kbytesavail);
-EXPORT_SYMBOL(lprocfs_rd_filestotal);
-EXPORT_SYMBOL(lprocfs_rd_filesfree);
-
-EXPORT_SYMBOL(lprocfs_write_helper);
-EXPORT_SYMBOL(lprocfs_write_frac_helper);
-EXPORT_SYMBOL(lprocfs_read_frac_helper);
-EXPORT_SYMBOL(lprocfs_write_u64_helper);
-EXPORT_SYMBOL(lprocfs_write_frac_u64_helper);
-EXPORT_SYMBOL(lprocfs_stats_collect);
 #endif /* LPROCFS*/
