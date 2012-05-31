@@ -493,6 +493,7 @@ static const struct named_oid oids[] = {
         { MDD_LOV_OBJ_OID,      "" /* LOV_OBJID */ },
         { MDD_CAPA_KEYS_OID,    "" /* CAPA_KEYS */ },
 	{ MDT_LAST_RECV_OID,    LAST_RCVD },
+	{ MDD_LFSCK_OID,        "" /* "lfsck" */ },
         { OFD_LAST_RECV_OID,    "" /* LAST_RCVD */ },
         { OFD_LAST_GROUP_OID,   "" /* "LAST_GROUP" */ },
         { LLOG_CATALOGS_OID,    "" /* "CATALOGS" */ },
