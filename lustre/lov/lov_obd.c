@@ -267,7 +267,6 @@ static int lov_connect_obd(struct obd_device *obd, __u32 index, int activate,
                            struct obd_connect_data *data)
 {
         struct lov_obd *lov = &obd->u.lov;
-        struct obd_uuid tgt_uuid;
         struct obd_device *tgt_obd;
         struct obd_uuid lov_osc_uuid = { "LOV_OSC_UUID" };
         struct lustre_handle conn = {0, };
@@ -283,7 +282,7 @@ static int lov_connect_obd(struct obd_device *obd, __u32 index, int activate,
 
         tgt_obd = lov->lov_tgts[index]->ltd_obd;
         if (!tgt_obd->obd_set_up) {
-                CERROR("Target %s not set up\n", obd_uuid2str(&tgt_uuid));
+                CERROR("Target %s not set up\n", tgt_obd->obd_name);
                 RETURN(-EINVAL);
         }
 
@@ -306,13 +305,13 @@ static int lov_connect_obd(struct obd_device *obd, __u32 index, int activate,
         if (rc) {
                 CERROR("Target %s register_observer error %d; "
                         "will not be able to reactivate\n",
-                        obd_uuid2str(&tgt_uuid), rc);
+                        tgt_obd->obd_name, rc);
                 RETURN(rc);
         }
 
         if (imp->imp_invalid) {
                 CDEBUG(D_CONFIG, "not connecting OSC %s; administratively "
-                       "disabled\n", obd_uuid2str(&tgt_uuid));
+                       "disabled\n", tgt_obd->obd_name);
                 RETURN(0);
         }
         if (lov->lov_lock_cancel_cb)
@@ -329,7 +328,7 @@ static int lov_connect_obd(struct obd_device *obd, __u32 index, int activate,
         rc = obd_connect(&conn, tgt_obd, &lov_osc_uuid, data, &lov->lov_tgts[index]->ltd_exp);
         if (rc || !lov->lov_tgts[index]->ltd_exp) {
                 CERROR("Target %s connect error %d\n",
-                       obd_uuid2str(&tgt_uuid), rc);
+                       tgt_obd->obd_name, rc);
                 GOTO(out_page_cb, rc);
         }
 
