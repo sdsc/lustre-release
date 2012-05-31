@@ -73,6 +73,8 @@ static struct cfs_trace_page *cfs_tage_alloc(int gfp)
         if (!cfs_in_interrupt() && cfs_memory_pressure_get())
                 return NULL;
 
+	if (!(gfp & CFS_ALLOC_ATOMIC))
+		gfp |= CFS_ALLOC_WAIT;
         /*
          * Don't spam console with allocation failures: they will be reported
          * by upper layer anyway.
@@ -826,9 +828,9 @@ int cfs_trace_allocate_string_buffer(char **str, int nob)
         if (nob > 2 * CFS_PAGE_SIZE)            /* string must be "sensible" */
                 return -EINVAL;
 
-        *str = cfs_alloc(nob, CFS_ALLOC_STD | CFS_ALLOC_ZERO);
-        if (*str == NULL)
-                return -ENOMEM;
+	*str = cfs_alloc(nob, CFS_ALLOC_STD | CFS_ALLOC_ZERO | CFS_ALLOC_WAIT);
+	if (*str == NULL)
+		return -ENOMEM;
 
         return 0;
 }

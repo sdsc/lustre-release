@@ -322,15 +322,14 @@ static void echo_page_completion(const struct lu_env *env,
 static void echo_page_fini(const struct lu_env *env,
                            struct cl_page_slice *slice)
 {
-        struct echo_page *ep    = cl2echo_page(slice);
-        struct echo_object *eco = cl2echo_obj(slice->cpl_obj);
-        cfs_page_t *vmpage      = ep->ep_vmpage;
-        ENTRY;
+	struct echo_page *ep    = cl2echo_page(slice);
+	struct echo_object *eco = cl2echo_obj(slice->cpl_obj);
+	ENTRY;
 
-        cfs_atomic_dec(&eco->eo_npages);
-        page_cache_release(vmpage);
-        OBD_SLAB_FREE_PTR(ep, echo_page_kmem);
-        EXIT;
+	cfs_atomic_dec(&eco->eo_npages);
+	page_cache_release(ep->ep_vmpage);
+	OBD_SLAB_FREE_PTR(ep, echo_page_kmem);
+	EXIT;
 }
 
 static int echo_page_prep(const struct lu_env *env,

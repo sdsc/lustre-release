@@ -140,6 +140,8 @@ char *cfs_strdup(const char *str, u_int32_t flags)
 
         lenz = strlen(str) + 1;
 
+	if (!(flags & CFS_ALLOC_ATOMIC))
+		flags |= CFS_ALLOC_WAIT;
         dup_str = cfs_alloc(lenz, flags);
         if (dup_str == NULL)
                 return NULL;

@@ -180,6 +180,7 @@ struct cfs_psdev_ops {
         int (*p_ioctl)(struct cfs_psdev_file *, unsigned long, void *);
 };
 
+#ifndef CFS_ALLOC_FLAGS_MAPPED_TO_GFP
 /*
  * Universal memory allocator API
  */
@@ -210,6 +211,7 @@ enum cfs_alloc_page_flags {
 	CFS_ALLOC_HIGHUSER = CFS_ALLOC_WAIT | CFS_ALLOC_FS | CFS_ALLOC_IO |
 			     CFS_ALLOC_HIGHMEM,
 };
+#endif
 
 /*
  * Drop into debugger, if possible. Implementation is provided by platform.

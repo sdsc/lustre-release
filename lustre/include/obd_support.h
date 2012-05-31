@@ -541,9 +541,12 @@ static inline void obd_pages_sub(int order)
 #if defined(LUSTRE_UTILS) /* this version is for utils only */
 #define __OBD_MALLOC_VERBOSE(ptr, cptab, cpt, size, flags)		      \
 do {									      \
+	u_int32_t __flags;						      \
+	__flags = ((flags) & CFS_ALLOC_ATOMIC) ?			      \
+		  (flags) : ((flags)|CFS_ALLOC_WAIT);			      \
 	(ptr) = (cptab) == NULL ?					      \
-		cfs_alloc(size, flags) :				      \
-		cfs_cpt_malloc(cptab, cpt, size, flags);		      \
+		cfs_alloc(size, __flags) :				      \
+		cfs_cpt_malloc(cptab, cpt, size, __flags);		      \
 	if (unlikely((ptr) == NULL)) {                                        \
 		CERROR("kmalloc of '" #ptr "' (%d bytes) failed at %s:%d\n",  \
 		       (int)(size), __FILE__, __LINE__);		      \
@@ -564,9 +567,12 @@ do {									      \
 
 #define __OBD_MALLOC_VERBOSE(ptr, cptab, cpt, size, flags)		      \
 do {									      \
+	u_int32_t __flags;						      \
+	__flags = ((flags) & CFS_ALLOC_ATOMIC) ?			      \
+		  (flags) : ((flags)|CFS_ALLOC_WAIT);			      \
 	(ptr) = (cptab) == NULL ?					      \
-		cfs_alloc(size, flags) :				      \
-		cfs_cpt_malloc(cptab, cpt, size, flags);		      \
+		cfs_alloc(size, __flags) :				      \
+		cfs_cpt_malloc(cptab, cpt, size, __flags);		      \
         if (likely((ptr) != NULL &&                                           \
                    (!HAS_FAIL_ALLOC_FLAG || obd_alloc_fail_rate == 0 ||       \
                     !obd_alloc_fail(ptr, #ptr, "km", size,                    \
@@ -746,10 +752,13 @@ do {                                                                          \
 
 #define __OBD_SLAB_ALLOC_VERBOSE(ptr, slab, cptab, cpt, size, type)	      \
 do {									      \
-        LASSERT(ergo(type != CFS_ALLOC_ATOMIC, !cfs_in_interrupt()));         \
+	u_int32_t __type;						      \
+	__type = ((type) & CFS_ALLOC_ATOMIC) ?				      \
+		  (type) : ((type)|CFS_ALLOC_WAIT);			      \
+	LASSERT(ergo(__type != CFS_ALLOC_ATOMIC, !cfs_in_interrupt()));       \
 	(ptr) = (cptab) == NULL ?					      \
-		cfs_mem_cache_alloc(slab, type) :			      \
-		cfs_mem_cache_cpt_alloc(slab, cptab, cpt, type);	      \
+		cfs_mem_cache_alloc(slab, __type) :			      \
+		cfs_mem_cache_cpt_alloc(slab, cptab, cpt, __type);	      \
         if (likely((ptr) != NULL &&                                           \
                    (!HAS_FAIL_ALLOC_FLAG || obd_alloc_fail_rate == 0 ||       \
                     !obd_alloc_fail(ptr, #ptr, "slab-", size,                 \
@@ -801,9 +810,12 @@ do {                                                                          \
 /* Wrapper for contiguous page frame allocation */
 #define __OBD_PAGE_ALLOC_VERBOSE(ptr, cptab, cpt, gfp_mask)		      \
 do {									      \
+	u_int32_t __mask;						      \
+	__mask = ((gfp_mask) & CFS_ALLOC_ATOMIC) ?			      \
+		  (gfp_mask) : ((gfp_mask)|CFS_ALLOC_WAIT);		      \
 	(ptr) = (cptab) == NULL ?					      \
-		cfs_alloc_page(gfp_mask) :				      \
-		cfs_page_cpt_alloc(cptab, cpt, gfp_mask);		      \
+		cfs_alloc_page(__mask) :				      \
+		cfs_page_cpt_alloc(cptab, cpt, __mask);			      \
         if (unlikely((ptr) == NULL)) {                                        \
                 CERROR("alloc_pages of '" #ptr "' %d page(s) / "LPU64" bytes "\
                        "failed\n", (int)1,                                    \

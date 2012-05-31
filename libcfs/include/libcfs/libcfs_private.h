@@ -184,9 +184,12 @@ do {									    \
  */
 #define LIBCFS_ALLOC_GFP(ptr, size, mask)				    \
 do {									    \
-	LIBCFS_ALLOC_PRE((size), (mask));				    \
+	u_int32_t __mask;						    \
+	__mask = ((mask) & CFS_ALLOC_ATOMIC) ?				    \
+		 (mask) : ((mask)|CFS_ALLOC_WAIT);			    \
+	LIBCFS_ALLOC_PRE((size), (__mask));				    \
 	(ptr) = (size) <= LIBCFS_VMALLOC_SIZE ?				    \
-		cfs_alloc((size), (mask)) : cfs_alloc_large(size);	    \
+		cfs_alloc((size), (__mask)) : cfs_alloc_large(size);	    \
 	LIBCFS_ALLOC_POST((ptr), (size));				    \
 } while (0)
 
@@ -209,9 +212,12 @@ do {									    \
  */
 #define LIBCFS_CPT_ALLOC_GFP(ptr, cptab, cpt, size, mask)		    \
 do {									    \
-	LIBCFS_ALLOC_PRE((size), (mask));				    \
+	u_int32_t __mask;						    \
+	__mask = ((mask) & CFS_ALLOC_ATOMIC) ?				    \
+		  (mask) : ((mask)|CFS_ALLOC_WAIT);			    \
+	LIBCFS_ALLOC_PRE((size), (__mask));				    \
 	(ptr) = (size) <= LIBCFS_VMALLOC_SIZE ?				    \
-		cfs_cpt_malloc((cptab), (cpt), (size), (mask)) :	    \
+		cfs_cpt_malloc((cptab), (cpt), (size), (__mask)) :	    \
 		cfs_cpt_vmalloc((cptab), (cpt), (size));		    \
 	LIBCFS_ALLOC_POST((ptr), (size));				    \
 } while (0)
