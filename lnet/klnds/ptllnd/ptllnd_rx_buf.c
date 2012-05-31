@@ -340,7 +340,7 @@ kptllnd_rx_alloc(void)
                 return NULL;
         }
 
-        rx = cfs_mem_cache_alloc(kptllnd_data.kptl_rx_cache, CFS_ALLOC_ATOMIC);
+	rx = cfs_mem_cache_alloc(kptllnd_data.kptl_rx_cache, GFP_ATOMIC);
         if (rx == NULL) {
                 CERROR("Failed to allocate rx\n");
                 return NULL;

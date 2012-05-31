@@ -193,7 +193,7 @@ static int ofd_parse_connect_data(const struct lu_env *env,
 		data->ocd_brw_size = 65536;
 	} else if (data->ocd_connect_flags & OBD_CONNECT_BRW_SIZE) {
 		data->ocd_brw_size = min(data->ocd_brw_size,
-			      (__u32)(PTLRPC_MAX_BRW_PAGES << CFS_PAGE_SHIFT));
+			      (__u32)(PTLRPC_MAX_BRW_PAGES << PAGE_CACHE_SHIFT));
 		if (data->ocd_brw_size == 0) {
 			CERROR("%s: cli %s/%p ocd_connect_flags: "LPX64
 			       " ocd_version: %x ocd_grant: %d ocd_index: %u "
@@ -1424,11 +1424,11 @@ static int ofd_health_check(const struct lu_env *nul, struct obd_device *obd)
 		GOTO(out, rc = -EROFS);
 
 #ifdef USE_HEALTH_CHECK_WRITE
-	OBD_ALLOC(info->fti_buf.lb_buf, CFS_PAGE_SIZE);
+	OBD_ALLOC(info->fti_buf.lb_buf, PAGE_CACHE_SIZE);
 	if (info->fti_buf.lb_buf == NULL)
 		GOTO(out, rc = -ENOMEM);
 
-	info->fti_buf.lb_len = CFS_PAGE_SIZE;
+	info->fti_buf.lb_len = PAGE_CACHE_SIZE;
 	info->fti_off = 0;
 
 	th = dt_trans_create(&env, ofd->ofd_osd);
@@ -1447,7 +1447,7 @@ static int ofd_health_check(const struct lu_env *nul, struct obd_device *obd)
 	}
 	dt_trans_stop(&env, ofd->ofd_osd, th);
 
-	OBD_FREE(info->fti_buf.lb_buf, CFS_PAGE_SIZE);
+	OBD_FREE(info->fti_buf.lb_buf, PAGE_CACHE_SIZE);
 
 	CDEBUG(D_INFO, "write 1 page synchronously for checking io rc %d\n",rc);
 #endif

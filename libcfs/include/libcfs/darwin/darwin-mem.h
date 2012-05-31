@@ -74,14 +74,14 @@
 /* Variable sized pages are not supported */
 
 #ifdef PAGE_SHIFT
-#define CFS_PAGE_SHIFT	PAGE_SHIFT
+#define PAGE_CACHE_SHIFT	PAGE_SHIFT
 #else
-#define CFS_PAGE_SHIFT	12
+#define PAGE_CACHE_SHIFT	12
 #endif
 
-#define CFS_PAGE_SIZE	(1UL << CFS_PAGE_SHIFT)
+#define PAGE_CACHE_SIZE	(1UL << PAGE_CACHE_SHIFT)
 
-#define CFS_PAGE_MASK	(~((__u64)CFS_PAGE_SIZE - 1))
+#define CFS_PAGE_MASK	(~((__u64)PAGE_CACHE_SIZE - 1))
 
 enum {
 	XNU_PAGE_RAW,
@@ -101,23 +101,23 @@ typedef __u32 page_off_t;
  *    - "xll" pages (XNU_PAGE_XLL): these are used by file system to cache
  *    file data, owned by file system objects, hashed, lrued, etc.
  *
- * cfs_page_t has to cover both of them, because core Lustre code is based on
+ * struct page has to cover both of them, because core Lustre code is based on
  * the Linux assumption that page is _both_ memory buffer and file system
  * caching entity.
  *
  * To achieve this, all types of pages supported on XNU has to start from
- * common header that contains only "page type". Common cfs_page_t operations
+ * common header that contains only "page type". Common struct page operations
  * dispatch through operation vector based on page type.
  *
  */
-typedef struct xnu_page {
+struct page {
 	int type;
-} cfs_page_t;
+};
 
 struct xnu_page_ops {
-	void *(*page_map)        (cfs_page_t *);
-	void  (*page_unmap)      (cfs_page_t *);
-	void *(*page_address)    (cfs_page_t *);
+	void *(*page_map)        (struct page *);
+	void  (*page_unmap)      (struct page *);
+	void *(*page_address)    (struct page *);
 };
 
 void xnu_page_ops_register(int type, struct xnu_page_ops *ops);
@@ -136,44 +136,44 @@ struct xnu_raw_page {
 /*
  * Public interface to lustre
  *
- * - cfs_alloc_page(f)
- * - cfs_free_page(p)
- * - cfs_kmap(p)
- * - cfs_kunmap(p)
- * - cfs_page_address(p)
+ * - alloc_page(f)
+ * - __free_page(p)
+ * - kmap(p)
+ * - kunmap(p)
+ * - page_address(p)
  */
 
 /*
- * Of all functions above only cfs_kmap(), cfs_kunmap(), and
- * cfs_page_address() can be called on file system pages. The rest is for raw
+ * Of all functions above only kmap(), kunmap(), and
+ * page_address() can be called on file system pages. The rest is for raw
  * pages only.
  */
 
-cfs_page_t *cfs_alloc_page(u_int32_t flags);
-void cfs_free_page(cfs_page_t *page);
-void cfs_get_page(cfs_page_t *page);
-int cfs_put_page_testzero(cfs_page_t *page);
-int cfs_page_count(cfs_page_t *page);
-#define cfs_page_index(pg)	(0)
+struct page *alloc_page(u_int32_t flags);
+void __free_page(struct page *page);
+void get_page(struct page *page);
+int cfs_put_page_testzero(struct page *page);
+int page_count(struct page *page);
+#define page_index(pg)	(0)
 
-void *cfs_page_address(cfs_page_t *pg);
-void *cfs_kmap(cfs_page_t *pg);
-void cfs_kunmap(cfs_page_t *pg);
+void *page_address(struct page *pg);
+void *kmap(struct page *pg);
+void kunmap(struct page *pg);
 
 /*
  * Memory allocator
  */
 
-void *cfs_alloc(size_t nr_bytes, u_int32_t flags);
-void  cfs_free(void *addr);
+void *kmalloc(size_t nr_bytes, u_int32_t flags);
+void  kfree(void *addr);
 
-void *cfs_alloc_large(size_t nr_bytes);
-void  cfs_free_large(void *addr);
+void *vmalloc(size_t nr_bytes);
+void  vfree(void *addr);
 
 extern int get_preemption_level(void);
 
-#define CFS_ALLOC_ATOMIC_TRY                                    \
-	(get_preemption_level() != 0 ? CFS_ALLOC_ATOMIC : 0)
+#define ALLOC_ATOMIC_TRY                                    \
+	(get_preemption_level() != 0 ? GFP_ATOMIC : 0)
 
 /*
  * Slab:
@@ -227,11 +227,11 @@ void cfs_mem_cache_free ( cfs_mem_cache_t *, void *);
  */
 /* XXX Liang: num_physpages... fix me */
 #define num_physpages			(64 * 1024)
-#define CFS_NUM_CACHEPAGES		num_physpages
+#define NUM_CACHEPAGES		num_physpages
 
-#define CFS_DECL_MMSPACE		
-#define CFS_MMSPACE_OPEN		do {} while(0)
-#define CFS_MMSPACE_CLOSE		do {} while(0)
+#define DECL_MMSPACE
+#define MMSPACE_OPEN		do {} while (0)
+#define MMSPACE_CLOSE		do {} while (0)
 
 #define copy_from_user(kaddr, uaddr, size)	copyin(CAST_USER_ADDR_T(uaddr), (caddr_t)kaddr, size)
 #define copy_to_user(uaddr, kaddr, size)	copyout((caddr_t)kaddr, CAST_USER_ADDR_T(uaddr), size)

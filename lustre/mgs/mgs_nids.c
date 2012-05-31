@@ -79,7 +79,7 @@ static int nidtbl_is_sane(struct mgs_nidtbl *tbl)
  * shouldn't cross unit boundaries.
  */
 static int mgs_nidtbl_read(struct obd_export *exp, struct mgs_nidtbl *tbl,
-                           struct mgs_config_res *res, cfs_page_t **pages,
+			   struct mgs_config_res *res, struct page **pages,
                            int nrpages, int units_total, int unit_size)
 {
         struct mgs_nidtbl_target *tgt;
@@ -97,7 +97,7 @@ static int mgs_nidtbl_read(struct obd_export *exp, struct mgs_nidtbl *tbl,
 
         /* make sure unit_size is power 2 */
         LASSERT((unit_size & (unit_size - 1)) == 0);
-        LASSERT(nrpages << CFS_PAGE_SHIFT >= units_total * unit_size);
+	LASSERT(nrpages << PAGE_CACHE_SHIFT >= units_total * unit_size);
 
 	mutex_lock(&tbl->mn_lock);
         LASSERT(nidtbl_is_sane(tbl));
@@ -156,7 +156,7 @@ static int mgs_nidtbl_read(struct obd_export *exp, struct mgs_nidtbl *tbl,
 
                         if (units_in_page == 0) {
                                 /* allocate a new page */
-                                pages[index] = cfs_alloc_page(CFS_ALLOC_STD);
+				pages[index] = alloc_page(GFP_IOFS);
                                 if (pages[index] == NULL) {
                                         rc = -ENOMEM;
                                         break;
@@ -164,13 +164,13 @@ static int mgs_nidtbl_read(struct obd_export *exp, struct mgs_nidtbl *tbl,
 
                                 /* destroy previous map */
                                 if (index > 0)
-                                        cfs_kunmap(pages[index - 1]);
+					kunmap(pages[index - 1]);
 
                                 /* reassign buffer */
-                                buf = cfs_kmap(pages[index]);
+				buf = kmap(pages[index]);
                                 ++index;
 
-                                units_in_page = CFS_PAGE_SIZE / unit_size;
+				units_in_page = PAGE_CACHE_SIZE / unit_size;
                                 LASSERT(units_in_page > 0);
                         }
 
@@ -212,7 +212,7 @@ static int mgs_nidtbl_read(struct obd_export *exp, struct mgs_nidtbl *tbl,
                        bytes_in_unit, index, nrpages, units_total);
         }
         if (index > 0)
-                cfs_kunmap(pages[index - 1]);
+		kunmap(pages[index - 1]);
 out:
         LASSERT(version <= tbl->mn_version);
         res->mcr_size = tbl->mn_version;
@@ -627,7 +627,7 @@ int mgs_get_ir_logs(struct ptlrpc_request *req)
         int                bytes;
         int                page_count;
         int                nrpages;
-        cfs_page_t       **pages = NULL;
+	struct page       **pages = NULL;
         ENTRY;
 
         body = req_capsule_client_get(&req->rq_pill, &RMF_MGS_CONFIG_BODY);
@@ -646,7 +646,7 @@ int mgs_get_ir_logs(struct ptlrpc_request *req)
 		RETURN(rc);
 
         bufsize = body->mcb_units << body->mcb_bits;
-        nrpages = (bufsize + CFS_PAGE_SIZE - 1) >> CFS_PAGE_SHIFT;
+	nrpages = (bufsize + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
         if (nrpages > PTLRPC_MAX_BRW_PAGES)
                 RETURN(-EINVAL);
 
@@ -666,14 +666,14 @@ int mgs_get_ir_logs(struct ptlrpc_request *req)
                 GOTO(out, rc = -EINVAL);
 
         res->mcr_offset = body->mcb_offset;
-        unit_size = min_t(int, 1 << body->mcb_bits, CFS_PAGE_SIZE);
+	unit_size = min_t(int, 1 << body->mcb_bits, PAGE_CACHE_SIZE);
 	bytes = mgs_nidtbl_read(req->rq_export, &fsdb->fsdb_nidtbl, res,
 				pages, nrpages, bufsize / unit_size, unit_size);
         if (bytes < 0)
                 GOTO(out, rc = bytes);
 
         /* start bulk transfer */
-        page_count = (bytes + CFS_PAGE_SIZE - 1) >> CFS_PAGE_SHIFT;
+	page_count = (bytes + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
         LASSERT(page_count <= nrpages);
         desc = ptlrpc_prep_bulk_exp(req, page_count,
                                     BULK_PUT_SOURCE, MGS_BULK_PORTAL);
@@ -682,8 +682,8 @@ int mgs_get_ir_logs(struct ptlrpc_request *req)
 
         for (i = 0; i < page_count && bytes > 0; i++) {
 		ptlrpc_prep_bulk_page_pin(desc, pages[i], 0,
-					  min_t(int, bytes, CFS_PAGE_SIZE));
-                bytes -= CFS_PAGE_SIZE;
+					  min_t(int, bytes, PAGE_CACHE_SIZE));
+		bytes -= PAGE_CACHE_SIZE;
         }
 
         rc = target_bulk_io(req->rq_export, desc, &lwi);
@@ -693,7 +693,7 @@ out:
 	for (i = 0; i < nrpages; i++) {
 		if (pages[i] == NULL)
 			break;
-		cfs_free_page(pages[i]);
+		__free_page(pages[i]);
 	}
 	OBD_FREE(pages, sizeof(*pages) * nrpages);
 	return rc;
@@ -759,7 +759,7 @@ int lprocfs_wr_ir_state(struct file *file, const char *buffer,
         char *ptr;
         int rc = 0;
 
-        if (count > CFS_PAGE_SIZE)
+	if (count > PAGE_CACHE_SIZE)
                 return -EINVAL;
 
         OBD_ALLOC(kbuf, count + 1);

@@ -65,13 +65,13 @@ static const struct cl_page_operations lovsub_page_ops = {
 
 struct cl_page *lovsub_page_init(const struct lu_env *env,
                                  struct cl_object *obj,
-                                 struct cl_page *page, cfs_page_t *unused)
+				 struct cl_page *page, struct page *unused)
 {
         struct lovsub_page *lsb;
         int result;
 
         ENTRY;
-        OBD_SLAB_ALLOC_PTR_GFP(lsb, lovsub_page_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(lsb, lovsub_page_kmem, __GFP_IO);
         if (lsb != NULL) {
                 cl_page_slice_add(page, &lsb->lsb_cl, obj, &lovsub_page_ops);
                 result = 0;

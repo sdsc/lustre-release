@@ -47,7 +47,7 @@
 
 #include <md_object.h>
 
-#define CFS_NGROUPS_PER_BLOCK   ((int)(CFS_PAGE_SIZE / sizeof(gid_t)))
+#define CFS_NGROUPS_PER_BLOCK   ((int)(PAGE_CACHE_SIZE / sizeof(gid_t)))
 
 #define CFS_GROUP_AT(gi, i) \
         ((gi)->blocks[(i) / CFS_NGROUPS_PER_BLOCK][(i) % CFS_NGROUPS_PER_BLOCK])

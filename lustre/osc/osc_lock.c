@@ -1692,7 +1692,7 @@ int osc_lock_init(const struct lu_env *env,
         struct osc_lock *clk;
         int result;
 
-        OBD_SLAB_ALLOC_PTR_GFP(clk, osc_lock_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(clk, osc_lock_kmem, __GFP_IO);
         if (clk != NULL) {
 		__u32 enqflags = lock->cll_descr.cld_enq_flags;
 

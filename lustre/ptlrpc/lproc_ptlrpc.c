@@ -299,8 +299,8 @@ ptlrpc_lprocfs_write_req_history_max(struct file *file, const char *buffer,
         /* This sanity check is more of an insanity check; we can still
          * hose a kernel by allowing the request history to grow too
          * far. */
-        bufpages = (svc->srv_buf_size + CFS_PAGE_SIZE - 1) >> CFS_PAGE_SHIFT;
-        if (val > cfs_num_physpages/(2 * bufpages))
+	bufpages = (svc->srv_buf_size + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
+	if (val > num_physpages/(2 * bufpages))
                 return -ERANGE;
 
 	spin_lock(&svc->srv_lock);
@@ -853,7 +853,7 @@ int lprocfs_wr_evict_client(struct file *file, const char *buffer,
          * bytes into kbuf, to ensure that the string is NUL-terminated.
          * UUID_MAX should include a trailing NUL already.
          */
-        if (cfs_copy_from_user(kbuf, buffer,
+	if (copy_from_user(kbuf, buffer,
                                min_t(unsigned long, BUFLEN - 1, count))) {
                 count = -EFAULT;
                 goto out;
@@ -928,14 +928,14 @@ int lprocfs_wr_import(struct file *file, const char *buffer,
         const char prefix[] = "connection=";
         const int prefix_len = sizeof(prefix) - 1;
 
-        if (count > CFS_PAGE_SIZE - 1 || count <= prefix_len)
+	if (count > PAGE_CACHE_SIZE - 1 || count <= prefix_len)
                 return -EINVAL;
 
         OBD_ALLOC(kbuf, count + 1);
         if (kbuf == NULL)
                 return -ENOMEM;
 
-        if (cfs_copy_from_user(kbuf, buffer, count))
+	if (copy_from_user(kbuf, buffer, count))
                 GOTO(out, count = -EFAULT);
 
         kbuf[count] = 0;

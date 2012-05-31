@@ -1134,7 +1134,7 @@ struct lu_context_key {
         {                                                         \
                 type *value;                                      \
                                                                   \
-                CLASSERT(CFS_PAGE_SIZE >= sizeof (*value));       \
+		CLASSERT(PAGE_CACHE_SIZE >= sizeof (*value));       \
                                                                   \
                 OBD_ALLOC_PTR(value);                             \
                 if (value == NULL)                                \

@@ -194,7 +194,7 @@ struct lu_ref_link *lu_ref_add(struct lu_ref *ref, const char *scope,
                                const void *source)
 {
         cfs_might_sleep();
-        return lu_ref_add_context(ref, CFS_ALLOC_STD, scope, source);
+	return lu_ref_add_context(ref, GFP_IOFS, scope, source);
 }
 EXPORT_SYMBOL(lu_ref_add);
 
@@ -204,7 +204,7 @@ EXPORT_SYMBOL(lu_ref_add);
 struct lu_ref_link *lu_ref_add_atomic(struct lu_ref *ref, const char *scope,
                                       const void *source)
 {
-        return lu_ref_add_context(ref, CFS_ALLOC_ATOMIC, scope, source);
+	return lu_ref_add_context(ref, GFP_ATOMIC, scope, source);
 }
 EXPORT_SYMBOL(lu_ref_add_atomic);
 

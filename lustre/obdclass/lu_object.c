@@ -824,12 +824,12 @@ static int lu_htable_order(void)
          *
          * Size of lu_object is (arbitrary) taken as 1K (together with inode).
          */
-        cache_size = cfs_num_physpages;
+	cache_size = num_physpages;
 
 #if BITS_PER_LONG == 32
         /* limit hashtable size for lowmem systems to low RAM */
-        if (cache_size > 1 << (30 - CFS_PAGE_SHIFT))
-                cache_size = 1 << (30 - CFS_PAGE_SHIFT) * 3 / 4;
+	if (cache_size > 1 << (30 - PAGE_CACHE_SHIFT))
+		cache_size = 1 << (30 - PAGE_CACHE_SHIFT) * 3 / 4;
 #endif
 
         /* clear off unreasonable cache setting. */
@@ -842,7 +842,7 @@ static int lu_htable_order(void)
                 lu_cache_percent = LU_CACHE_PERCENT_DEFAULT;
         }
         cache_size = cache_size / 100 * lu_cache_percent *
-                (CFS_PAGE_SIZE / 1024);
+		(PAGE_CACHE_SIZE / 1024);
 
         for (bits = 1; (1 << bits) < cache_size; ++bits) {
                 ;
@@ -1758,7 +1758,7 @@ int lu_env_refill_by_tags(struct lu_env *env, __u32 ctags,
 }
 EXPORT_SYMBOL(lu_env_refill_by_tags);
 
-static struct cfs_shrinker *lu_site_shrinker = NULL;
+static struct shrinker *lu_site_shrinker = NULL;
 
 typedef struct lu_site_stats{
         unsigned        lss_populated;
@@ -1969,7 +1969,7 @@ int lu_global_init(void)
          * inode, one for ea. Unfortunately setting this high value results in
          * lu_object/inode cache consuming all the memory.
          */
-        lu_site_shrinker = cfs_set_shrinker(CFS_DEFAULT_SEEKS, lu_cache_shrink);
+	lu_site_shrinker = set_shrinker(DEFAULT_SEEKS, lu_cache_shrink);
         if (lu_site_shrinker == NULL)
                 return -ENOMEM;
 
@@ -2004,7 +2004,7 @@ void lu_global_fini(void)
 #endif
         lu_time_global_fini();
         if (lu_site_shrinker != NULL) {
-                cfs_remove_shrinker(lu_site_shrinker);
+		remove_shrinker(lu_site_shrinker);
                 lu_site_shrinker = NULL;
         }
 

@@ -360,7 +360,7 @@ int qsd_intent_lock(const struct lu_env *, struct obd_export *,
 		    struct quota_body *, bool, int, qsd_req_completion_t,
 		    struct qsd_qtype_info *, union ldlm_wire_lvb *, void *);
 int qsd_fetch_index(const struct lu_env *, struct obd_export *,
-		    struct idx_info *, unsigned int, cfs_page_t **, bool *);
+		    struct idx_info *, unsigned int, struct page **, bool *);
 
 /* qsd_writeback.c */
 void qsd_bump_version(struct qsd_qtype_info *, __u64, bool);

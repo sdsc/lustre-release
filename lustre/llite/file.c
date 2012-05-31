@@ -54,7 +54,7 @@ struct ll_file_data *ll_file_data_get(void)
 {
 	struct ll_file_data *fd;
 
-	OBD_SLAB_ALLOC_PTR_GFP(fd, ll_file_data_slab, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(fd, ll_file_data_slab, __GFP_IO);
 	fd->fd_write_failed = false;
 	return fd;
 }
@@ -1277,7 +1277,7 @@ static int ll_lov_recreate_obj(struct inode *inode, unsigned long arg)
         if (!cfs_capable(CFS_CAP_SYS_ADMIN))
                 RETURN(-EPERM);
 
-        if (cfs_copy_from_user(&ucreat, (struct ll_recreate_obj *)arg,
+	if (copy_from_user(&ucreat, (struct ll_recreate_obj *)arg,
                                sizeof(struct ll_recreate_obj)))
                 RETURN(-EFAULT);
 
@@ -1295,7 +1295,7 @@ static int ll_lov_recreate_fid(struct inode *inode, unsigned long arg)
         if (!cfs_capable(CFS_CAP_SYS_ADMIN))
                 RETURN(-EPERM);
 
-        if (cfs_copy_from_user(&fid, (struct lu_fid *)arg,
+	if (copy_from_user(&fid, (struct lu_fid *)arg,
                                sizeof(struct lu_fid)))
                 RETURN(-EFAULT);
 
@@ -1435,7 +1435,7 @@ static int ll_lov_setea(struct inode *inode, struct file *file,
         if (lump == NULL) {
                 RETURN(-ENOMEM);
         }
-        if (cfs_copy_from_user(lump, (struct lov_user_md  *)arg, lum_size)) {
+	if (copy_from_user(lump, (struct lov_user_md  *)arg, lum_size)) {
                 OBD_FREE_LARGE(lump, lum_size);
                 RETURN(-EFAULT);
         }
@@ -1460,12 +1460,12 @@ static int ll_lov_setstripe(struct inode *inode, struct file *file,
 
         /* first try with v1 which is smaller than v3 */
         lum_size = sizeof(struct lov_user_md_v1);
-        if (cfs_copy_from_user(lumv1, lumv1p, lum_size))
+	if (copy_from_user(lumv1, lumv1p, lum_size))
                 RETURN(-EFAULT);
 
         if (lumv1->lmm_magic == LOV_USER_MAGIC_V3) {
                 lum_size = sizeof(struct lov_user_md_v3);
-                if (cfs_copy_from_user(&lumv3, lumv3p, lum_size))
+		if (copy_from_user(&lumv3, lumv3p, lum_size))
                         RETURN(-EFAULT);
         }
 
@@ -1692,7 +1692,7 @@ int ll_fid2path(struct inode *inode, void *arg)
         OBD_ALLOC_PTR(gfin);
         if (gfin == NULL)
                 RETURN(-ENOMEM);
-        if (cfs_copy_from_user(gfin, arg, sizeof(*gfin))) {
+	if (copy_from_user(gfin, arg, sizeof(*gfin))) {
                 OBD_FREE_PTR(gfin);
                 RETURN(-EFAULT);
         }
@@ -1710,7 +1710,7 @@ int ll_fid2path(struct inode *inode, void *arg)
         rc = obd_iocontrol(OBD_IOC_FID2PATH, exp, outsize, gfout, NULL);
         if (rc)
                 GOTO(gf_free, rc);
-        if (cfs_copy_to_user(arg, gfout, outsize))
+	if (copy_to_user(arg, gfout, outsize))
                 rc = -EFAULT;
 
 gf_free:
@@ -1892,7 +1892,7 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         case LL_IOC_FLUSHCTX:
                 RETURN(ll_flush_ctx(inode));
         case LL_IOC_PATH2FID: {
-                if (cfs_copy_to_user((void *)arg, ll_inode2fid(inode),
+		if (copy_to_user((void *)arg, ll_inode2fid(inode),
                                      sizeof(struct lu_fid)))
                         RETURN(-EFAULT);
 
@@ -1904,14 +1904,14 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 struct ioc_data_version idv;
                 int rc;
 
-                if (cfs_copy_from_user(&idv, (char *)arg, sizeof(idv)))
+		if (copy_from_user(&idv, (char *)arg, sizeof(idv)))
                         RETURN(-EFAULT);
 
                 rc = ll_data_version(inode, &idv.idv_version,
                                      !(idv.idv_flags & LL_DV_NOFLUSH));
 
                 if (rc == 0 &&
-                    cfs_copy_to_user((char *) arg, &idv, sizeof(idv)))
+		    copy_to_user((char *) arg, &idv, sizeof(idv)))
                         RETURN(-EFAULT);
 
                 RETURN(rc);

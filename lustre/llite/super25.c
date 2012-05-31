@@ -53,7 +53,7 @@ static struct inode *ll_alloc_inode(struct super_block *sb)
 {
         struct ll_inode_info *lli;
         ll_stats_ops_tally(ll_s2sbi(sb), LPROC_LL_ALLOC_INODE, 1);
-        OBD_SLAB_ALLOC_PTR_GFP(lli, ll_inode_cachep, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(lli, ll_inode_cachep, __GFP_IO);
         if (lli == NULL)
                 return NULL;
 
@@ -71,7 +71,7 @@ int ll_init_inodecache(void)
 {
         ll_inode_cachep = cfs_mem_cache_create("lustre_inode_cache",
                                                sizeof(struct ll_inode_info),
-                                               0, CFS_SLAB_HWCACHE_ALIGN);
+					       0, SLAB_HWCACHE_ALIGN);
         if (ll_inode_cachep == NULL)
                 return -ENOMEM;
         return 0;
@@ -126,7 +126,7 @@ static int __init init_lustre_lite(void)
                 return -ENOMEM;
         ll_file_data_slab = cfs_mem_cache_create("ll_file_data",
                                                  sizeof(struct ll_file_data), 0,
-                                                 CFS_SLAB_HWCACHE_ALIGN);
+						 SLAB_HWCACHE_ALIGN);
         if (ll_file_data_slab == NULL) {
                 ll_destroy_inodecache();
                 return -ENOMEM;

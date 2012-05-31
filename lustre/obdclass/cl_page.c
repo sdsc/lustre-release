@@ -333,7 +333,7 @@ static int cl_page_alloc(const struct lu_env *env, struct cl_object *o,
 
         ENTRY;
         result = +1;
-        OBD_SLAB_ALLOC_PTR_GFP(page, cl_page_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(page, cl_page_kmem, __GFP_IO);
         if (page != NULL) {
                 cfs_atomic_set(&page->cp_ref, 1);
                 page->cp_obj = o;
@@ -694,7 +694,7 @@ EXPORT_SYMBOL(cl_page_put);
 /**
  * Returns a VM page associated with a given cl_page.
  */
-cfs_page_t *cl_page_vmpage(const struct lu_env *env, struct cl_page *page)
+struct page *cl_page_vmpage(const struct lu_env *env, struct cl_page *page)
 {
         const struct cl_page_slice *slice;
 
@@ -717,7 +717,7 @@ EXPORT_SYMBOL(cl_page_vmpage);
 /**
  * Returns a cl_page associated with a VM page, and given cl_object.
  */
-struct cl_page *cl_vmpage_page(cfs_page_t *vmpage, struct cl_object *obj)
+struct cl_page *cl_vmpage_page(struct page *vmpage, struct cl_object *obj)
 {
 	struct cl_page *top;
 	struct cl_page *page;
@@ -1599,7 +1599,7 @@ loff_t cl_offset(const struct cl_object *obj, pgoff_t idx)
         /*
          * XXX for now.
          */
-        return (loff_t)idx << CFS_PAGE_SHIFT;
+	return (loff_t)idx << PAGE_CACHE_SHIFT;
 }
 EXPORT_SYMBOL(cl_offset);
 
@@ -1611,13 +1611,13 @@ pgoff_t cl_index(const struct cl_object *obj, loff_t offset)
         /*
          * XXX for now.
          */
-        return offset >> CFS_PAGE_SHIFT;
+	return offset >> PAGE_CACHE_SHIFT;
 }
 EXPORT_SYMBOL(cl_index);
 
 int cl_page_size(const struct cl_object *obj)
 {
-        return 1 << CFS_PAGE_SHIFT;
+	return 1 << PAGE_CACHE_SHIFT;
 }
 EXPORT_SYMBOL(cl_page_size);
 

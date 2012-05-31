@@ -743,7 +743,7 @@ static int lmv_iocontrol(unsigned int cmd, struct obd_export *exp,
                         RETURN(-EINVAL);
 
                 /* copy UUID */
-                if (cfs_copy_to_user(data->ioc_pbuf2, obd2cli_tgt(mdc_obd),
+		if (copy_to_user(data->ioc_pbuf2, obd2cli_tgt(mdc_obd),
                                      min((int) data->ioc_plen2,
                                          (int) sizeof(struct obd_uuid))))
                         RETURN(-EFAULT);
@@ -753,7 +753,7 @@ static int lmv_iocontrol(unsigned int cmd, struct obd_export *exp,
                                 0);
                 if (rc)
                         RETURN(rc);
-                if (cfs_copy_to_user(data->ioc_pbuf1, &stat_buf,
+		if (copy_to_user(data->ioc_pbuf1, &stat_buf,
                                      min((int) data->ioc_plen1,
                                          (int) sizeof(stat_buf))))
                         RETURN(-EFAULT);
@@ -2349,7 +2349,7 @@ static int lmv_readpage(struct obd_export *exp, struct md_op_data *op_data,
         int                      rc;
         int                      nr = 0;
         int                      i;
-        /* number of pages read, in CFS_PAGE_SIZE */
+	/* number of pages read, in PAGE_CACHE_SIZE */
         int                      nrdpgs;
         /* number of pages transferred in LU_PAGE_SIZE */
         int                      nlupgs;
@@ -2433,8 +2433,8 @@ static int lmv_readpage(struct obd_export *exp, struct md_op_data *op_data,
         if (rc)
                 GOTO(cleanup, rc);
 
-        nrdpgs = ((*request)->rq_bulk->bd_nob_transferred + CFS_PAGE_SIZE - 1)
-                 >> CFS_PAGE_SHIFT;
+	nrdpgs = ((*request)->rq_bulk->bd_nob_transferred + PAGE_CACHE_SIZE - 1)
+		 >> PAGE_CACHE_SHIFT;
         nlupgs = (*request)->rq_bulk->bd_nob_transferred >> LU_PAGE_SHIFT;
         LASSERT(!((*request)->rq_bulk->bd_nob_transferred & ~LU_PAGE_MASK));
         LASSERT(nrdpgs > 0 && nrdpgs <= op_data->op_npages);
@@ -2443,14 +2443,14 @@ static int lmv_readpage(struct obd_export *exp, struct md_op_data *op_data,
                op_data->op_npages);
 
         for (i = 0; i < nrdpgs; i++) {
-#if CFS_PAGE_SIZE > LU_PAGE_SIZE
+#if PAGE_CACHE_SIZE > LU_PAGE_SIZE
                 struct lu_dirpage *first;
                 __u64 hash_end = 0;
                 __u32 flags = 0;
 #endif
                 struct lu_dirent *tmp = NULL;
 
-                dp = cfs_kmap(pages[i]);
+		dp = kmap(pages[i]);
                 if (obj) {
                         lmv_hash_adjust(&dp->ldp_hash_start, hash_adj);
                         lmv_hash_adjust(&dp->ldp_hash_end,   hash_adj);
@@ -2471,7 +2471,7 @@ static int lmv_readpage(struct obd_export *exp, struct md_op_data *op_data,
                 }
 
                 ent = lu_dirent_start(dp);
-#if CFS_PAGE_SIZE > LU_PAGE_SIZE
+#if PAGE_CACHE_SIZE > LU_PAGE_SIZE
                 first = dp;
                 hash_end = dp->ldp_hash_end;
 repeat:
@@ -2483,7 +2483,7 @@ repeat:
                                 lmv_hash_adjust(&ent->lde_hash, hash_adj);
                 }
 
-#if CFS_PAGE_SIZE > LU_PAGE_SIZE
+#if PAGE_CACHE_SIZE > LU_PAGE_SIZE
                 dp = (struct lu_dirpage *)((char *)dp + LU_PAGE_SIZE);
                 if (((unsigned long)dp & ~CFS_PAGE_MASK) && nlupgs > 0) {
                         ent = lu_dirent_start(dp);
@@ -2524,7 +2524,7 @@ repeat:
 #else
                 SET_BUT_UNUSED(tmp);
 #endif
-                cfs_kunmap(pages[i]);
+		kunmap(pages[i]);
         }
         EXIT;
 cleanup:

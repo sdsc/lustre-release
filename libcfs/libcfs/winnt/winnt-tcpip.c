@@ -3033,7 +3033,7 @@ KsCleanupIpAddresses()
 
         list = RemoveHeadList(&ks_data.ksnd_addrs_list);
         slot = CONTAINING_RECORD(list, ks_addr_slot_t, link);
-        cfs_free(slot);
+	kfree(slot);
         ks_data.ksnd_naddrs--;
     }
 
@@ -3079,7 +3079,7 @@ KsAddAddressHandler(
                 return;
             }
 
-            slot = cfs_alloc(sizeof(ks_addr_slot_t) + DeviceName->Length, CFS_ALLOC_ZERO);
+	    slot = kmalloc(sizeof(ks_addr_slot_t) + DeviceName->Length, __GFP_ZERO);
             if (slot != NULL) {
 		spin_lock(&ks_data.ksnd_addrs_lock);
                 InsertTailList(&ks_data.ksnd_addrs_list, &slot->link);
@@ -3572,7 +3572,7 @@ KsTcpReceiveCompletionRoutine(
         /* free the Context structure... */
         ASSERT(Context->Magic == KS_TCP_CONTEXT_MAGIC);
         Context->Magic = 'CDAB';
-        cfs_free(Context);
+	kfree(Context);
     }
 
     /* free the Irp */
@@ -3743,7 +3743,7 @@ KsTcpSendCompletionRoutine(
     if (context) {
         ASSERT(context->Magic == KS_TCP_CONTEXT_MAGIC);
         context->Magic = 'CDAB';
-        cfs_free(context);
+	kfree(context);
     }
 
     /* free the Irp structure */
@@ -3852,7 +3852,7 @@ KsTcpReceiveEventHandler(
 
         /* there's still data in tdi internal queue, we need issue a new
            Irp to receive all of them. first allocate the tcp context */
-        context = cfs_alloc(sizeof(KS_TCP_COMPLETION_CONTEXT), 0);
+	context = kmalloc(sizeof(KS_TCP_COMPLETION_CONTEXT), 0);
         if (!context) {
             status = STATUS_INSUFFICIENT_RESOURCES;
             goto errorout;
@@ -3937,7 +3937,7 @@ errorout:
     if (context) {
         ASSERT(context->Magic == KS_TCP_CONTEXT_MAGIC);
         context->Magic = 'CDAB';
-        cfs_free(context);
+	kfree(context);
     }
 
     ks_abort_tconn(tconn);
@@ -4304,7 +4304,7 @@ ks_create_tconn()
 
     /* allocate ksoc_tconn_t from the slab cache memory */
     tconn = (ks_tconn_t *)cfs_mem_cache_alloc(
-                ks_data.ksnd_tconn_slab, CFS_ALLOC_ZERO);
+		ks_data.ksnd_tconn_slab, __GFP_ZERO);
 
     if (tconn) {
 
@@ -5643,7 +5643,7 @@ KsBuildSend(ks_tconn_t * tconn, PKS_TSDUMGR TsduMgr,
     length = KsQueryMdlsSize(mdl);
 
     /* we need allocate the ks_tx_t structure from memory pool. */
-    context = cfs_alloc(sizeof(ks_tdi_tx_t), 0);
+    context = kmalloc(sizeof(ks_tdi_tx_t), 0);
     if (!context) {
         status = STATUS_INSUFFICIENT_RESOURCES;
         goto errorout;
@@ -5694,7 +5694,7 @@ errorout:
     if (context) {
         ASSERT(context->Magic == KS_TCP_CONTEXT_MAGIC);
         context->Magic = 'CDAB';
-        cfs_free(context);
+	kfree(context);
     }
 
     /* here need free the Irp. */
@@ -5888,8 +5888,8 @@ ks_init_tdi_data()
     if (ks_data.ksnd_engine_nums < 4) {
         ks_data.ksnd_engine_nums = 4;
     }
-    ks_data.ksnd_engine_mgr = cfs_alloc(sizeof(ks_engine_mgr_t) * 
-                         ks_data.ksnd_engine_nums,CFS_ALLOC_ZERO);
+    ks_data.ksnd_engine_mgr = kmalloc(sizeof(ks_engine_mgr_t) * 
+			 ks_data.ksnd_engine_nums,__GFP_ZERO);
     if (ks_data.ksnd_engine_mgr == NULL) {
         rc = -ENOMEM;
         goto errorout;
@@ -6552,7 +6552,7 @@ int libcfs_ipif_enumerate(char ***names)
 
 	spin_lock(&ks_data.ksnd_addrs_lock);
 
-    *names = cfs_alloc(sizeof(char *) * ks_data.ksnd_naddrs, CFS_ALLOC_ZERO);
+    *names = kmalloc(sizeof(char *) * ks_data.ksnd_naddrs, __GFP_ZERO);
     if (*names == NULL) {
         goto errorout;
     }
@@ -6576,7 +6576,7 @@ errorout:
 void libcfs_ipif_free_enumeration(char **names, int n)
 {
     if (names) {
-        cfs_free(names);
+	kfree(names);
     }
 }
 

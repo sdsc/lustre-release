@@ -1923,7 +1923,7 @@ static int lov_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                         RETURN(-EINVAL);
 
                 /* copy UUID */
-                if (cfs_copy_to_user(data->ioc_pbuf2, obd2cli_tgt(osc_obd),
+		if (copy_to_user(data->ioc_pbuf2, obd2cli_tgt(osc_obd),
                                      min((int) data->ioc_plen2,
                                          (int) sizeof(struct obd_uuid))))
                         RETURN(-EFAULT);
@@ -1935,7 +1935,7 @@ static int lov_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                                 flags);
                 if (rc)
                         RETURN(rc);
-                if (cfs_copy_to_user(data->ioc_pbuf1, &stat_buf,
+		if (copy_to_user(data->ioc_pbuf1, &stat_buf,
                                      min((int) data->ioc_plen1,
                                          (int) sizeof(stat_buf))))
                         RETURN(-EFAULT);
@@ -1981,7 +1981,7 @@ static int lov_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                         *genp = lov->lov_tgts[i]->ltd_gen;
                 }
 
-                if (cfs_copy_to_user((void *)uarg, buf, len))
+		if (copy_to_user((void *)uarg, buf, len))
                         rc = -EFAULT;
                 obd_ioctl_freedata(buf, len);
                 break;
@@ -2866,7 +2866,7 @@ int __init lov_init(void)
 
         lov_oinfo_slab = cfs_mem_cache_create("lov_oinfo",
                                               sizeof(struct lov_oinfo),
-                                              0, CFS_SLAB_HWCACHE_ALIGN);
+					      0, SLAB_HWCACHE_ALIGN);
         if (lov_oinfo_slab == NULL) {
                 lu_kmem_fini(lov_caches);
                 return -ENOMEM;
