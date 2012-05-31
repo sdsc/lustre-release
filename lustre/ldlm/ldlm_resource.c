@@ -192,7 +192,7 @@ static int lprocfs_wr_lru_size(struct file *file, const char *buffer,
         int lru_resize;
 
         dummy[MAX_STRING_SIZE] = '\0';
-        if (cfs_copy_from_user(dummy, buffer, MAX_STRING_SIZE))
+	if (copy_from_user(dummy, buffer, MAX_STRING_SIZE))
                 return -EFAULT;
 
         if (strncmp(dummy, "clear", 5) == 0) {
@@ -1030,7 +1030,7 @@ static struct ldlm_resource *ldlm_resource_new(void)
         struct ldlm_resource *res;
         int idx;
 
-        OBD_SLAB_ALLOC_PTR_GFP(res, ldlm_resource_slab, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(res, ldlm_resource_slab, __GFP_IO);
         if (res == NULL)
                 return NULL;
 

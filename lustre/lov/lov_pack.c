@@ -602,7 +602,7 @@ int lov_getstripe(struct obd_export *exp, struct lov_stripe_md *lsm,
         /* we only need the header part from user space to get lmm_magic and
          * lmm_stripe_count, (the header part is common to v1 and v3) */
         lum_size = sizeof(struct lov_user_md_v1);
-        if (cfs_copy_from_user(&lum, lump, lum_size))
+	if (copy_from_user(&lum, lump, lum_size))
                 GOTO(out_set, rc = -EFAULT);
         else if ((lum.lmm_magic != LOV_USER_MAGIC) &&
                  (lum.lmm_magic != LOV_USER_MAGIC_V3))
@@ -612,7 +612,7 @@ int lov_getstripe(struct obd_export *exp, struct lov_stripe_md *lsm,
             (lum.lmm_stripe_count < lsm->lsm_stripe_count)) {
                 /* Return right size of stripe to user */
                 lum.lmm_stripe_count = lsm->lsm_stripe_count;
-                rc = cfs_copy_to_user(lump, &lum, lum_size);
+		rc = copy_to_user(lump, &lum, lum_size);
                 GOTO(out_set, rc = -EOVERFLOW);
         }
         rc = lov_packmd(exp, &lmmk, lsm);
@@ -662,7 +662,7 @@ int lov_getstripe(struct obd_export *exp, struct lov_stripe_md *lsm,
         lum.u.lum_layout_gen = lmmk->lmm_layout_gen;
         ((struct lov_user_md*)lmmk)->u.lum_layout_gen = lum.u.lum_layout_gen;
         ((struct lov_user_md*)lmmk)->lmm_stripe_count = lum.lmm_stripe_count;
-        if (cfs_copy_to_user(lump, lmmk, lmm_size))
+	if (copy_to_user(lump, lmmk, lmm_size))
                 rc = -EFAULT;
 
         obd_free_diskmd(exp, &lmmk);

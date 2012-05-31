@@ -54,8 +54,8 @@
 #define ECHO_INIT_OID        0x10000000ULL
 #define ECHO_HANDLE_MAGIC    0xabcd0123fedc9876ULL
 
-#define ECHO_PERSISTENT_PAGES (ECHO_PERSISTENT_SIZE >> CFS_PAGE_SHIFT)
-static cfs_page_t *echo_persistent_pages[ECHO_PERSISTENT_PAGES];
+#define ECHO_PERSISTENT_PAGES (ECHO_PERSISTENT_SIZE >> PAGE_CACHE_SHIFT)
+static page_t *echo_persistent_pages[ECHO_PERSISTENT_PAGES];
 
 enum {
         LPROC_ECHO_READ_BYTES = 1,
@@ -226,11 +226,11 @@ static int echo_setattr(const struct lu_env *env, struct obd_export *exp,
 }
 
 static void
-echo_page_debug_setup(cfs_page_t *page, int rw, obd_id id,
+echo_page_debug_setup(page_t *page, int rw, obd_id id,
                       __u64 offset, int len)
 {
-        int   page_offset = offset & ~CFS_PAGE_MASK;
-        char *addr        = ((char *)cfs_kmap(page)) + page_offset;
+	int   page_offset = offset & ~PAGE_CACHE_MASK;
+	char *addr        = ((char *)kmap(page)) + page_offset;
 
         if (len % OBD_ECHO_BLOCK_SIZE != 0)
                 CERROR("Unexpected block size %d\n", len);
@@ -249,15 +249,15 @@ echo_page_debug_setup(cfs_page_t *page, int rw, obd_id id,
                 len    -= OBD_ECHO_BLOCK_SIZE;
         }
 
-        cfs_kunmap(page);
+	kunmap(page);
 }
 
 static int
-echo_page_debug_check(cfs_page_t *page, obd_id id,
+echo_page_debug_check(page_t *page, obd_id id,
                       __u64 offset, int len)
 {
-        int   page_offset = offset & ~CFS_PAGE_MASK;
-        char *addr        = ((char *)cfs_kmap(page)) + page_offset;
+	int   page_offset = offset & ~PAGE_CACHE_MASK;
+	char *addr        = ((char *)kmap(page)) + page_offset;
         int   rc          = 0;
         int   rc2;
 
@@ -276,7 +276,7 @@ echo_page_debug_check(cfs_page_t *page, obd_id id,
                 len    -= OBD_ECHO_BLOCK_SIZE;
         }
 
-        cfs_kunmap(page);
+	kunmap(page);
 
         return (rc);
 }
@@ -288,7 +288,7 @@ static int echo_map_nb_to_lb(struct obdo *oa, struct obd_ioobj *obj,
                              struct niobuf_remote *nb, int *pages,
                              struct niobuf_local *lb, int cmd, int *left)
 {
-        int gfp_mask = (obj->ioo_id & 1) ? CFS_ALLOC_HIGHUSER : CFS_ALLOC_STD;
+	int gfp_mask = (obj->ioo_id & 1) ? GFP_HIGHUSER : GFP_IOFS;
         int ispersistent = obj->ioo_id == ECHO_PERSISTENT_OBJID;
         int debug_setup = (!ispersistent &&
                            (oa->o_valid & OBD_MD_FLFLAGS) != 0 &&
@@ -298,7 +298,7 @@ static int echo_map_nb_to_lb(struct obdo *oa, struct obd_ioobj *obj,
         int len = nb->len;
 
         while (len > 0) {
-                int plen = CFS_PAGE_SIZE - (offset & (CFS_PAGE_SIZE-1));
+		int plen = PAGE_CACHE_SIZE - (offset & (PAGE_CACHE_SIZE-1));
                 if (len < plen)
                         plen = len;
 
@@ -308,17 +308,17 @@ static int echo_map_nb_to_lb(struct obdo *oa, struct obd_ioobj *obj,
 
 		res->lnb_file_offset = offset;
 		res->len = plen;
-		LASSERT((res->lnb_file_offset & ~CFS_PAGE_MASK) + res->len <=
-			CFS_PAGE_SIZE);
+		LASSERT((res->lnb_file_offset & ~PAGE_CACHE_MASK) + res->len <=
+			PAGE_CACHE_SIZE);
 
 		if (ispersistent &&
-		    ((res->lnb_file_offset >> CFS_PAGE_SHIFT) <
+		    ((res->lnb_file_offset >> PAGE_CACHE_SHIFT) <
 		      ECHO_PERSISTENT_PAGES)) {
 			res->page =
 				echo_persistent_pages[res->lnb_file_offset >>
-						      CFS_PAGE_SHIFT];
+						      PAGE_CACHE_SHIFT];
                         /* Take extra ref so __free_pages() can be called OK */
-                        cfs_get_page (res->page);
+			get_page (res->page);
                 } else {
                         OBD_PAGE_ALLOC(res->page, gfp_mask);
                         if (res->page == NULL) {
@@ -354,14 +354,14 @@ static int echo_finalize_lb(struct obdo *oa, struct obd_ioobj *obj,
                             struct niobuf_local *lb, int verify)
 {
         struct niobuf_local *res = lb;
-        obd_off start  = rb->offset >> CFS_PAGE_SHIFT;
-        obd_off end    = (rb->offset + rb->len + CFS_PAGE_SIZE - 1) >> CFS_PAGE_SHIFT;
+	obd_off start  = rb->offset >> PAGE_CACHE_SHIFT;
+	obd_off end    = (rb->offset + rb->len + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
         int     count  = (int)(end - start);
         int     rc     = 0;
         int     i;
 
         for (i = 0; i < count; i++, (*pgs) ++, res++) {
-                cfs_page_t *page = res->page;
+		page_t *page = res->page;
                 void       *addr;
 
                 if (page == NULL) {
@@ -370,7 +370,7 @@ static int echo_finalize_lb(struct obdo *oa, struct obd_ioobj *obj,
                         return -EFAULT;
                 }
 
-                addr = cfs_kmap(page);
+		addr = kmap(page);
 
                 CDEBUG(D_PAGE, "$$$$ use page %p, addr %p@"LPU64"\n",
 		       res->page, addr, res->lnb_file_offset);
@@ -384,7 +384,7 @@ static int echo_finalize_lb(struct obdo *oa, struct obd_ioobj *obj,
                                 rc = vrc;
                 }
 
-                cfs_kunmap(page);
+		kunmap(page);
                 /* NB see comment above regarding persistent pages */
                 OBD_PAGE_FREE(page);
         }
@@ -459,7 +459,7 @@ preprw_cleanup:
          */
         CERROR("cleaning up %u pages (%d obdos)\n", *pages, objcount);
         for (i = 0; i < *pages; i++) {
-                cfs_kunmap(res[i].page);
+		kunmap(res[i].page);
                 /* NB if this is a persistent page, __free_pages will just
                  * lose the extra ref gained above */
                 OBD_PAGE_FREE(res[i].page);
@@ -539,7 +539,7 @@ commitrw_cleanup:
                niocount - pgs - 1, objcount);
 
         while (pgs < niocount) {
-                cfs_page_t *page = res[pgs++].page;
+		page_t *page = res[pgs++].page;
 
                 if (page == NULL)
                         continue;
@@ -649,12 +649,12 @@ void echo_persistent_pages_fini(void)
 
 int echo_persistent_pages_init(void)
 {
-        cfs_page_t *pg;
+	page_t *pg;
         int          i;
 
         for (i = 0; i < ECHO_PERSISTENT_PAGES; i++) {
                 int gfp_mask = (i < ECHO_PERSISTENT_PAGES/2) ?
-                        CFS_ALLOC_STD : CFS_ALLOC_HIGHUSER;
+			GFP_IOFS : GFP_HIGHUSER;
 
                 OBD_PAGE_ALLOC(pg, gfp_mask);
                 if (pg == NULL) {
@@ -662,8 +662,8 @@ int echo_persistent_pages_init(void)
                         return (-ENOMEM);
                 }
 
-                memset (cfs_kmap (pg), 0, CFS_PAGE_SIZE);
-                cfs_kunmap (pg);
+		memset (kmap (pg), 0, PAGE_CACHE_SIZE);
+		kunmap (pg);
 
                 echo_persistent_pages[i] = pg;
         }

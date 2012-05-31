@@ -126,7 +126,7 @@ static void *osc_key_init(const struct lu_context *ctx,
 {
         struct osc_thread_info *info;
 
-        OBD_SLAB_ALLOC_PTR_GFP(info, osc_thread_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(info, osc_thread_kmem, __GFP_IO);
         if (info == NULL)
                 info = ERR_PTR(-ENOMEM);
         return info;
@@ -150,7 +150,7 @@ static void *osc_session_init(const struct lu_context *ctx,
 {
         struct osc_session *info;
 
-        OBD_SLAB_ALLOC_PTR_GFP(info, osc_session_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(info, osc_session_kmem, __GFP_IO);
         if (info == NULL)
                 info = ERR_PTR(-ENOMEM);
         return info;

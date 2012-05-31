@@ -76,12 +76,12 @@ lwt_lookup_string (int *size, char *knl_ptr,
                 if (user_size < 4)
                         return (-EINVAL);
 
-                if (cfs_copy_to_user (user_ptr, knl_ptr, *size))
+		if (copy_to_user (user_ptr, knl_ptr, *size))
                         return (-EFAULT);
 
                 /* Did I truncate the string?  */
                 if (knl_ptr[*size - 1] != 0)
-                        cfs_copy_to_user (user_ptr + *size - 4, "...", 4);
+			copy_to_user (user_ptr + *size - 4, "...", 4);
         }
 
         return (0);
@@ -115,7 +115,7 @@ lwt_control (int enable, int clear)
                         continue;
 
                 for (j = 0; j < lwt_pages_per_cpu; j++) {
-                        memset (p->lwtp_events, 0, CFS_PAGE_SIZE);
+			memset (p->lwtp_events, 0, PAGE_CACHE_SIZE);
 
                         p = cfs_list_entry (p->lwtp_list.next,
                                             lwt_page_t, lwtp_list);
@@ -135,7 +135,7 @@ int
 lwt_snapshot (cfs_cycles_t *now, int *ncpu, int *total_size,
               void *user_ptr, int user_size)
 {
-        const int    events_per_page = CFS_PAGE_SIZE / sizeof(lwt_event_t);
+	const int    events_per_page = PAGE_CACHE_SIZE / sizeof(lwt_event_t);
         const int    bytes_per_page = events_per_page * sizeof(lwt_event_t);
         lwt_page_t  *p;
         int          i;
@@ -159,7 +159,7 @@ lwt_snapshot (cfs_cycles_t *now, int *ncpu, int *total_size,
                         return (-ENODATA);
 
                 for (j = 0; j < lwt_pages_per_cpu; j++) {
-                        if (cfs_copy_to_user(user_ptr, p->lwtp_events,
+			if (copy_to_user(user_ptr, p->lwtp_events,
                                              bytes_per_page))
                                 return (-EFAULT);
 
@@ -187,7 +187,7 @@ lwt_init ()
 	/* NULL pointers, zero scalars */
 	memset (lwt_cpus, 0, sizeof (lwt_cpus));
         lwt_pages_per_cpu =
-                LWT_MEMORY / (cfs_num_online_cpus() * CFS_PAGE_SIZE);
+		LWT_MEMORY / (cfs_num_online_cpus() * PAGE_CACHE_SIZE);
 
 	for (i = 0; i < cfs_num_online_cpus(); i++)
 		for (j = 0; j < lwt_pages_per_cpu; j++) {
@@ -210,7 +210,7 @@ lwt_init ()
 
                         lwtp->lwtp_page = page;
                         lwtp->lwtp_events = page_address(page);
-			memset (lwtp->lwtp_events, 0, CFS_PAGE_SIZE);
+			memset (lwtp->lwtp_events, 0, PAGE_CACHE_SIZE);
 
 			if (j == 0) {
 				CFS_INIT_LIST_HEAD (&lwtp->lwtp_list);

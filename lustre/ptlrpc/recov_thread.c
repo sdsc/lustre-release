@@ -102,9 +102,9 @@ static struct llog_canceld_ctxt *llcd_alloc(struct llog_commit_master *lcm)
          * will be assigned later to the rpc, this is why we preserve the
          * space for rpc header.
          */
-        size = CFS_PAGE_SIZE - lustre_msg_size(LUSTRE_MSG_MAGIC_V2, 1, NULL);
+	size = PAGE_CACHE_SIZE - lustre_msg_size(LUSTRE_MSG_MAGIC_V2, 1, NULL);
         overhead =  offsetof(struct llog_canceld_ctxt, llcd_cookies);
-	OBD_SLAB_ALLOC_GFP(llcd, llcd_cache, size + overhead, CFS_ALLOC_STD);
+	OBD_SLAB_ALLOC_GFP(llcd, llcd_cache, size + overhead, GFP_IOFS);
         if (!llcd)
                 return NULL;
 
@@ -741,7 +741,7 @@ int llog_recov_init(void)
 {
         int llcd_size;
 
-        llcd_size = CFS_PAGE_SIZE -
+	llcd_size = PAGE_CACHE_SIZE -
                 lustre_msg_size(LUSTRE_MSG_MAGIC_V2, 1, NULL);
         llcd_size += offsetof(struct llog_canceld_ctxt, llcd_cookies);
         llcd_cache = cfs_mem_cache_create("llcd_cache", llcd_size, 0, 0);

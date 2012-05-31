@@ -208,7 +208,7 @@ static inline int lov_lum_swab_if_needed(struct lov_user_md_v3 *lumv3,
                                          int *lmm_magic,
                                          struct lov_user_md *lum)
 {
-        if (lum && cfs_copy_from_user(lumv3, lum,sizeof(struct lov_user_md_v1)))
+	if (lum && copy_from_user(lumv3, lum, sizeof(struct lov_user_md_v1)))
                 return -EFAULT;
 
         *lmm_magic = lumv3->lmm_magic;
@@ -217,10 +217,10 @@ static inline int lov_lum_swab_if_needed(struct lov_user_md_v3 *lumv3,
                 lustre_swab_lov_user_md_v1((struct lov_user_md_v1 *)lumv3);
                 *lmm_magic = LOV_USER_MAGIC_V1;
         } else if (*lmm_magic == LOV_USER_MAGIC_V3) {
-                if (lum && cfs_copy_from_user(lumv3, lum, sizeof(*lumv3)))
+		if (lum && copy_from_user(lumv3, lum, sizeof(*lumv3)))
                         return -EFAULT;
         } else if (*lmm_magic == __swab32(LOV_USER_MAGIC_V3)) {
-                if (lum && cfs_copy_from_user(lumv3, lum, sizeof(*lumv3)))
+		if (lum && copy_from_user(lumv3, lum, sizeof(*lumv3)))
                         return -EFAULT;
                 lustre_swab_lov_user_md_v3(lumv3);
                 *lmm_magic = LOV_USER_MAGIC_V3;
@@ -249,7 +249,7 @@ struct obd_type {
 
 struct brw_page {
         obd_off  off;
-        cfs_page_t *pg;
+	page_t *pg;
         int count;
         obd_flag flag;
 };
@@ -458,7 +458,7 @@ struct client_obd {
 	int                  cl_grant_shrink_interval; /* seconds */
 
 	/* A chunk is an optimal size used by osc_extent to determine
-	 * the extent size. A chunk is max(CFS_PAGE_SIZE, OST block size) */
+	 * the extent size. A chunk is max(PAGE_CACHE_SIZE, OST block size) */
 	int                  cl_chunkbits;
 	int                  cl_chunk;
 	int                  cl_extent_tax; /* extent overhead, by bytes */
@@ -753,7 +753,7 @@ struct niobuf_local {
 	__u32 lnb_page_offset;
         __u32 len;
         __u32 flags;
-        cfs_page_t    *page;
+	page_t    *page;
 	dentry_t  *dentry;
         int lnb_grant_used;
         int rc;

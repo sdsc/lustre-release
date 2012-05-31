@@ -292,10 +292,10 @@ static inline struct ll_inode_info *ll_i2info(struct inode *inode)
 
 /* default to about 40meg of readahead on a given system.  That much tied
  * up in 512k readahead requests serviced at 40ms each is about 1GB/s. */
-#define SBI_DEFAULT_READAHEAD_MAX (40UL << (20 - CFS_PAGE_SHIFT))
+#define SBI_DEFAULT_READAHEAD_MAX (40UL << (20 - PAGE_CACHE_SHIFT))
 
 /* default to read-ahead full files smaller than 2MB on the second read */
-#define SBI_DEFAULT_READAHEAD_WHOLE_MAX (2UL << (20 - CFS_PAGE_SHIFT))
+#define SBI_DEFAULT_READAHEAD_WHOLE_MAX (2UL << (20 - PAGE_CACHE_SHIFT))
 
 enum ra_stat {
         RA_STAT_HIT = 0,
@@ -825,7 +825,7 @@ int ll_show_options(struct seq_file *seq, struct dentry *dentry);
 #else
 int ll_show_options(struct seq_file *seq, struct vfsmount *vfs);
 #endif
-void ll_dirty_page_discard_warn(cfs_page_t *page, int ioret);
+void ll_dirty_page_discard_warn(page_t *page, int ioret);
 int ll_prep_inode(struct inode **inode, struct ptlrpc_request *req,
 		  struct super_block *);
 void lustre_dump_dentry(struct dentry *, int recur);
@@ -906,7 +906,7 @@ struct vvp_io {
                         /**
                          *  locked page returned from vvp_io
                          */
-                        cfs_page_t            *ft_vmpage;
+			page_t            *ft_vmpage;
 #ifndef HAVE_VM_OP_FAULT
                         struct vm_nopage_api {
                                 /**
@@ -1065,7 +1065,7 @@ static inline void ll_invalidate_page(struct page *vmpage)
         if (mapping == NULL)
                 return;
 
-        ll_teardown_mmaps(mapping, offset, offset + CFS_PAGE_SIZE);
+	ll_teardown_mmaps(mapping, offset, offset + PAGE_CACHE_SIZE);
         truncate_complete_page(mapping, vmpage);
 }
 

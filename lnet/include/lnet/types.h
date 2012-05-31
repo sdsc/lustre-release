@@ -322,13 +322,13 @@ typedef struct iovec lnet_md_iovec_t;
  */
 typedef struct {
         /** Pointer to the page where the fragment resides */
-        cfs_page_t      *kiov_page;
+	page_t      *kiov_page;
         /** Length in bytes of the fragment */
         unsigned int     kiov_len;
         /**
          * Starting offset of the fragment within the page. Note that the
          * end of the fragment must not pass the end of the page; i.e.,
-         * kiov_len + kiov_offset <= CFS_PAGE_SIZE.
+	 * kiov_len + kiov_offset <= PAGE_CACHE_SIZE.
          */
         unsigned int     kiov_offset;
 } lnet_kiov_t;

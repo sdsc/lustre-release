@@ -61,7 +61,7 @@ lst_session_new_ioctl(lstio_session_new_args_t *args)
         if (name == NULL)
                 return -ENOMEM;
 
-        if (cfs_copy_from_user(name,
+	if (copy_from_user(name,
                                args->lstio_ses_namep,
                                args->lstio_ses_nmlen)) {
                 LIBCFS_FREE(name, args->lstio_ses_nmlen + 1);
@@ -135,7 +135,7 @@ lst_debug_ioctl(lstio_debug_args_t *args)
                 if (name == NULL)
                         return -ENOMEM;
 
-                if (cfs_copy_from_user(name, args->lstio_dbg_namep,
+		if (copy_from_user(name, args->lstio_dbg_namep,
                                        args->lstio_dbg_nmlen)) {
                         LIBCFS_FREE(name, args->lstio_dbg_nmlen + 1);
 
@@ -211,7 +211,7 @@ lst_group_add_ioctl(lstio_group_add_args_t *args)
         if (name == NULL)
                 return -ENOMEM;
 
-        if (cfs_copy_from_user(name,
+	if (copy_from_user(name,
                                args->lstio_grp_namep,
                                args->lstio_grp_nmlen)) {
                 LIBCFS_FREE(name, args->lstio_grp_nmlen);
@@ -245,7 +245,7 @@ lst_group_del_ioctl(lstio_group_del_args_t *args)
         if (name == NULL)
                 return -ENOMEM;
 
-        if (cfs_copy_from_user(name,
+	if (copy_from_user(name,
                                args->lstio_grp_namep,
                                args->lstio_grp_nmlen)) {
                 LIBCFS_FREE(name, args->lstio_grp_nmlen + 1);
@@ -280,7 +280,7 @@ lst_group_update_ioctl(lstio_group_update_args_t *args)
         if (name == NULL)
                 return -ENOMEM;
 
-        if (cfs_copy_from_user(name,
+	if (copy_from_user(name,
                            args->lstio_grp_namep,
                            args->lstio_grp_nmlen)) {
                 LIBCFS_FREE(name, args->lstio_grp_nmlen + 1);
@@ -342,7 +342,7 @@ lst_nodes_add_ioctl(lstio_group_nodes_args_t *args)
         if (name == NULL)
                 return -ENOMEM;
 
-        if (cfs_copy_from_user(name, args->lstio_grp_namep,
+	if (copy_from_user(name, args->lstio_grp_namep,
                                args->lstio_grp_nmlen)) {
                 LIBCFS_FREE(name, args->lstio_grp_nmlen + 1);
 
@@ -357,7 +357,7 @@ lst_nodes_add_ioctl(lstio_group_nodes_args_t *args)
 
 	LIBCFS_FREE(name, args->lstio_grp_nmlen + 1);
 	if (rc == 0 &&
-	    cfs_copy_to_user(args->lstio_grp_featp, &feats, sizeof(feats))) {
+	    copy_to_user(args->lstio_grp_featp, &feats, sizeof(feats))) {
 		return -EINVAL;
 	}
 
@@ -406,9 +406,9 @@ lst_group_info_ioctl(lstio_group_info_args_t *args)
                     args->lstio_grp_ndentp == NULL) /* # of node entry */
                         return -EINVAL;
 
-                if (cfs_copy_from_user(&ndent, args->lstio_grp_ndentp,
+		if (copy_from_user(&ndent, args->lstio_grp_ndentp,
                                        sizeof(ndent)) ||
-                    cfs_copy_from_user(&index, args->lstio_grp_idxp,
+		    copy_from_user(&index, args->lstio_grp_idxp,
                                        sizeof(index)))
                         return -EFAULT;
 
@@ -420,7 +420,7 @@ lst_group_info_ioctl(lstio_group_info_args_t *args)
         if (name == NULL)
                 return -ENOMEM;
 
-        if (cfs_copy_from_user(name,
+	if (copy_from_user(name,
                                args->lstio_grp_namep,
                                args->lstio_grp_nmlen)) {
                 LIBCFS_FREE(name, args->lstio_grp_nmlen + 1);
@@ -438,8 +438,8 @@ lst_group_info_ioctl(lstio_group_info_args_t *args)
                 return rc;
 
         if (args->lstio_grp_dentsp != NULL && 
-            (cfs_copy_to_user(args->lstio_grp_idxp, &index, sizeof(index)) ||
-             cfs_copy_to_user(args->lstio_grp_ndentp, &ndent, sizeof(ndent))))
+	    (copy_to_user(args->lstio_grp_idxp, &index, sizeof(index)) ||
+	     copy_to_user(args->lstio_grp_ndentp, &ndent, sizeof(ndent))))
                 rc = -EFAULT;
 
         return 0;
@@ -463,7 +463,7 @@ lst_batch_add_ioctl(lstio_batch_add_args_t *args)
         if (name == NULL)
                 return -ENOMEM;
 
-        if (cfs_copy_from_user(name,
+	if (copy_from_user(name,
                                args->lstio_bat_namep,
                                args->lstio_bat_nmlen)) {
                 LIBCFS_FREE(name, args->lstio_bat_nmlen + 1);
@@ -497,7 +497,7 @@ lst_batch_run_ioctl(lstio_batch_run_args_t *args)
         if (name == NULL)
                 return -ENOMEM;
 
-        if (cfs_copy_from_user(name,
+	if (copy_from_user(name,
                                args->lstio_bat_namep,
                                args->lstio_bat_nmlen)) {
                 LIBCFS_FREE(name, args->lstio_bat_nmlen + 1);
@@ -533,7 +533,7 @@ lst_batch_stop_ioctl(lstio_batch_stop_args_t *args)
         if (name == NULL)
                 return -ENOMEM;
 
-        if (cfs_copy_from_user(name,
+	if (copy_from_user(name,
                                args->lstio_bat_namep,
                                args->lstio_bat_nmlen)) {
                 LIBCFS_FREE(name, args->lstio_bat_nmlen + 1);
@@ -572,7 +572,7 @@ lst_batch_query_ioctl(lstio_batch_query_args_t *args)
         if (name == NULL)
                 return -ENOMEM;
 
-        if (cfs_copy_from_user(name,
+	if (copy_from_user(name,
                                args->lstio_bat_namep,
                                args->lstio_bat_nmlen)) {
                 LIBCFS_FREE(name, args->lstio_bat_nmlen + 1);
@@ -634,9 +634,9 @@ lst_batch_info_ioctl(lstio_batch_info_args_t *args)
                     args->lstio_bat_ndentp == NULL) /* # of node entry */
                         return -EINVAL;
 
-                if (cfs_copy_from_user(&index, args->lstio_bat_idxp,
+		if (copy_from_user(&index, args->lstio_bat_idxp,
                                        sizeof(index)) ||
-                    cfs_copy_from_user(&ndent, args->lstio_bat_ndentp,
+		    copy_from_user(&ndent, args->lstio_bat_ndentp,
                                        sizeof(ndent)))
                         return -EFAULT;
 
@@ -648,7 +648,7 @@ lst_batch_info_ioctl(lstio_batch_info_args_t *args)
         if (name == NULL)
                 return -ENOMEM;
 
-        if (cfs_copy_from_user(name,
+	if (copy_from_user(name,
                                args->lstio_bat_namep, args->lstio_bat_nmlen)) {
                 LIBCFS_FREE(name, args->lstio_bat_nmlen + 1);
                 return -EFAULT;
@@ -667,8 +667,8 @@ lst_batch_info_ioctl(lstio_batch_info_args_t *args)
                 return rc;
 
         if (args->lstio_bat_dentsp != NULL && 
-            (cfs_copy_to_user(args->lstio_bat_idxp, &index, sizeof(index)) ||
-             cfs_copy_to_user(args->lstio_bat_ndentp, &ndent, sizeof(ndent))))
+	    (copy_to_user(args->lstio_bat_idxp, &index, sizeof(index)) ||
+	     copy_to_user(args->lstio_bat_ndentp, &ndent, sizeof(ndent))))
                 rc = -EFAULT;
 
         return rc;
@@ -699,7 +699,7 @@ lst_stat_query_ioctl(lstio_stat_args_t *args)
         if (name == NULL)
                 return -ENOMEM;
 
-        if (cfs_copy_from_user(name, args->lstio_sta_namep,
+	if (copy_from_user(name, args->lstio_sta_namep,
                                args->lstio_sta_nmlen)) {
                 LIBCFS_FREE(name, args->lstio_sta_nmlen + 1);
                 return -EFAULT;
@@ -751,7 +751,7 @@ int lst_test_add_ioctl(lstio_test_args_t *args)
         /* have parameter, check if parameter length is valid */
         if (args->lstio_tes_param != NULL &&
             (args->lstio_tes_param_len <= 0 ||
-             args->lstio_tes_param_len > CFS_PAGE_SIZE - sizeof(lstcon_test_t)))
+	     args->lstio_tes_param_len > PAGE_CACHE_SIZE - sizeof(lstcon_test_t)))
                 return -EINVAL;
 
         LIBCFS_ALLOC(name, args->lstio_tes_bat_nmlen + 1);
@@ -773,16 +773,16 @@ int lst_test_add_ioctl(lstio_test_args_t *args)
         }
 
         rc = -EFAULT;
-        if (cfs_copy_from_user(name,
+	if (copy_from_user(name,
                               args->lstio_tes_bat_name,
                               args->lstio_tes_bat_nmlen) ||
-            cfs_copy_from_user(srcgrp,
+	    copy_from_user(srcgrp,
                               args->lstio_tes_sgrp_name,
                               args->lstio_tes_sgrp_nmlen) ||
-            cfs_copy_from_user(dstgrp,
+	    copy_from_user(dstgrp,
                               args->lstio_tes_dgrp_name,
                               args->lstio_tes_dgrp_nmlen) ||
-            cfs_copy_from_user(param, args->lstio_tes_param,
+	    copy_from_user(param, args->lstio_tes_param,
                               args->lstio_tes_param_len))
                 goto out;
 
@@ -795,7 +795,7 @@ int lst_test_add_ioctl(lstio_test_args_t *args)
                             &ret, args->lstio_tes_resultp);
 
         if (ret != 0)
-                rc = (cfs_copy_to_user(args->lstio_tes_retp, &ret,
+		rc = (copy_to_user(args->lstio_tes_retp, &ret,
                                        sizeof(ret))) ? -EFAULT : 0;
 out:
         if (name != NULL)
@@ -823,7 +823,7 @@ lstcon_ioctl_entry(unsigned int cmd, struct libcfs_ioctl_data *data)
         if (cmd != IOC_LIBCFS_LNETST)
                 return -EINVAL;
 
-        if (data->ioc_plen1 > CFS_PAGE_SIZE)
+	if (data->ioc_plen1 > PAGE_CACHE_SIZE)
                 return -EINVAL;
 
         LIBCFS_ALLOC(buf, data->ioc_plen1);
@@ -831,7 +831,7 @@ lstcon_ioctl_entry(unsigned int cmd, struct libcfs_ioctl_data *data)
                 return -ENOMEM;
 
         /* copy in parameter */
-        if (cfs_copy_from_user(buf, data->ioc_pbuf1, data->ioc_plen1)) {
+	if (copy_from_user(buf, data->ioc_pbuf1, data->ioc_plen1)) {
                 LIBCFS_FREE(buf, data->ioc_plen1);
                 return -EFAULT;
         }
@@ -916,7 +916,7 @@ lstcon_ioctl_entry(unsigned int cmd, struct libcfs_ioctl_data *data)
                         rc = -EINVAL;
         }
 
-        if (cfs_copy_to_user(data->ioc_pbuf2, &console_session.ses_trans_stat,
+	if (copy_to_user(data->ioc_pbuf2, &console_session.ses_trans_stat,
                              sizeof(lstcon_trans_stat_t)))
                 rc = -EFAULT;
 out:

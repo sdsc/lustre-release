@@ -122,7 +122,7 @@ static int lprocfs_wr_atime_diff(struct file *file, const char *buffer,
         if (count > (sizeof(kernbuf) - 1))
                 return -EINVAL;
 
-        if (cfs_copy_from_user(kernbuf, buffer, count))
+	if (copy_from_user(kernbuf, buffer, count))
                 return -EFAULT;
 
         kernbuf[count] = '\0';
@@ -170,12 +170,12 @@ static int lprocfs_wr_changelog_mask(struct file *file, const char *buffer,
         int rc;
         ENTRY;
 
-        if (count >= CFS_PAGE_SIZE)
+	if (count >= PAGE_CACHE_SIZE)
                 RETURN(-EINVAL);
-        OBD_ALLOC(kernbuf, CFS_PAGE_SIZE);
+	OBD_ALLOC(kernbuf, PAGE_CACHE_SIZE);
         if (kernbuf == NULL)
                 RETURN(-ENOMEM);
-        if (cfs_copy_from_user(kernbuf, buffer, count))
+	if (copy_from_user(kernbuf, buffer, count))
                 GOTO(out, rc = -EFAULT);
         kernbuf[count] = 0;
 
@@ -184,7 +184,7 @@ static int lprocfs_wr_changelog_mask(struct file *file, const char *buffer,
         if (rc == 0)
                 rc = count;
 out:
-        OBD_FREE(kernbuf, CFS_PAGE_SIZE);
+	OBD_FREE(kernbuf, PAGE_CACHE_SIZE);
         return rc;
 }
 

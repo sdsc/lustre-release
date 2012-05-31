@@ -88,15 +88,15 @@
  * these limits are system wide and not interface-local. */
 #define PTLRPC_MAX_BRW_BITS     LNET_MTU_BITS
 #define PTLRPC_MAX_BRW_SIZE     (1<<LNET_MTU_BITS)
-#define PTLRPC_MAX_BRW_PAGES    (PTLRPC_MAX_BRW_SIZE >> CFS_PAGE_SHIFT)
+#define PTLRPC_MAX_BRW_PAGES    (PTLRPC_MAX_BRW_SIZE >> PAGE_CACHE_SHIFT)
 
 /* When PAGE_SIZE is a constant, we can check our arithmetic here with cpp! */
 #ifdef __KERNEL__
 # if ((PTLRPC_MAX_BRW_PAGES & (PTLRPC_MAX_BRW_PAGES - 1)) != 0)
 #  error "PTLRPC_MAX_BRW_PAGES isn't a power of two"
 # endif
-# if (PTLRPC_MAX_BRW_SIZE != (PTLRPC_MAX_BRW_PAGES * CFS_PAGE_SIZE))
-#  error "PTLRPC_MAX_BRW_SIZE isn't PTLRPC_MAX_BRW_PAGES * CFS_PAGE_SIZE"
+# if (PTLRPC_MAX_BRW_SIZE != (PTLRPC_MAX_BRW_PAGES * PAGE_CACHE_SIZE))
+#  error "PTLRPC_MAX_BRW_SIZE isn't PTLRPC_MAX_BRW_PAGES * PAGE_CACHE_SIZE"
 # endif
 # if (PTLRPC_MAX_BRW_SIZE > LNET_MTU)
 #  error "PTLRPC_MAX_BRW_SIZE too big"
@@ -360,7 +360,7 @@
   */
  /* depress threads factor for VM with small memory size */
 #define OSS_THR_FACTOR		min_t(int, 8, \
-				CFS_NUM_CACHEPAGES >> (28 - CFS_PAGE_SHIFT))
+				NUM_CACHEPAGES >> (28 - PAGE_CACHE_SHIFT))
 #define OSS_NTHRS_INIT		(PTLRPC_NTHRS_INIT + 1)
 #define OSS_NTHRS_BASE		64
 #define OSS_NTHRS_MAX		512
@@ -1776,16 +1776,16 @@ static inline void ptlrpc_free_bulk_nopin(struct ptlrpc_bulk_desc *bulk)
 	__ptlrpc_free_bulk(bulk, 0);
 }
 void __ptlrpc_prep_bulk_page(struct ptlrpc_bulk_desc *desc,
-			     cfs_page_t *page, int pageoffset, int len, int);
+			     page_t *page, int pageoffset, int len, int);
 static inline void ptlrpc_prep_bulk_page_pin(struct ptlrpc_bulk_desc *desc,
-					     cfs_page_t *page, int pageoffset,
+					     page_t *page, int pageoffset,
 					     int len)
 {
 	__ptlrpc_prep_bulk_page(desc, page, pageoffset, len, 1);
 }
 
 static inline void ptlrpc_prep_bulk_page_nopin(struct ptlrpc_bulk_desc *desc,
-					       cfs_page_t *page, int pageoffset,
+					       page_t *page, int pageoffset,
 					       int len)
 {
 	__ptlrpc_prep_bulk_page(desc, page, pageoffset, len, 0);

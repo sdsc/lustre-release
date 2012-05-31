@@ -57,7 +57,7 @@ static void  slp_type_fini     (struct lu_device_type *t);
 
 static struct cl_page * slp_page_init(const struct lu_env *env,
                                      struct cl_object *obj,
-                                     struct cl_page *page, cfs_page_t *vmpage);
+				     struct cl_page *page, page_t *vmpage);
 static int   slp_attr_get     (const struct lu_env *env, struct cl_object *obj,
                                struct cl_attr *attr);
 
@@ -224,7 +224,7 @@ void slp_global_fini(void)
 
 static struct cl_page *slp_page_init(const struct lu_env *env,
                                      struct cl_object *obj,
-                                     struct cl_page *page, cfs_page_t *vmpage)
+				     struct cl_page *page, page_t *vmpage)
 {
         struct ccc_page *cpg;
         int result;
@@ -299,7 +299,7 @@ static int slp_attr_get(const struct lu_env *env, struct cl_object *obj,
 
 static void slp_page_fini_common(struct ccc_page *cp)
 {
-        cfs_page_t *vmpage = cp->cpg_page;
+	page_t *vmpage = cp->cpg_page;
 
         LASSERT(vmpage != NULL);
         llu_free_user_page(vmpage);
@@ -501,9 +501,9 @@ static int llu_queue_pio(const struct lu_env *env, struct cl_io *io,
         do {
                 unsigned long index, offset, bytes;
 
-                offset = (pos & ~CFS_PAGE_MASK);
-                index = pos >> CFS_PAGE_SHIFT;
-                bytes = CFS_PAGE_SIZE - offset;
+		offset = (pos & ~PAGE_CACHE_MASK);
+		index = pos >> PAGE_CACHE_SHIFT;
+		bytes = PAGE_CACHE_SIZE - offset;
                 if (bytes > count)
                         bytes = count;
 
@@ -587,7 +587,7 @@ struct llu_io_group * get_io_group(struct inode *inode, int maxpages,
 
 static int max_io_pages(ssize_t len, int iovlen)
 {
-        return (((len + CFS_PAGE_SIZE -1) / CFS_PAGE_SIZE) + 2 + iovlen - 1);
+	return (((len + PAGE_CACHE_SIZE -1) / PAGE_CACHE_SIZE) + 2 + iovlen - 1);
 }
 
 void put_io_group(struct llu_io_group *group)

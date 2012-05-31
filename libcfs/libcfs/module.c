@@ -43,39 +43,39 @@
 void
 kportal_memhog_free (struct libcfs_device_userstate *ldu)
 {
-        cfs_page_t **level0p = &ldu->ldu_memhog_root_page;
-        cfs_page_t **level1p;
-        cfs_page_t **level2p;
+	page_t **level0p = &ldu->ldu_memhog_root_page;
+	page_t **level1p;
+	page_t **level2p;
         int           count1;
         int           count2;
 
         if (*level0p != NULL) {
 
-                level1p = (cfs_page_t **)cfs_page_address(*level0p);
+		level1p = (page_t **)page_address(*level0p);
                 count1 = 0;
 
-                while (count1 < CFS_PAGE_SIZE/sizeof(cfs_page_t *) &&
+		while (count1 < PAGE_CACHE_SIZE/sizeof(page_t *) &&
                        *level1p != NULL) {
 
-                        level2p = (cfs_page_t **)cfs_page_address(*level1p);
+			level2p = (page_t **)page_address(*level1p);
                         count2 = 0;
 
-                        while (count2 < CFS_PAGE_SIZE/sizeof(cfs_page_t *) &&
+			while (count2 < PAGE_CACHE_SIZE/sizeof(page_t *) &&
                                *level2p != NULL) {
 
-                                cfs_free_page(*level2p);
+				__free_page(*level2p);
                                 ldu->ldu_memhog_pages--;
                                 level2p++;
                                 count2++;
                         }
 
-                        cfs_free_page(*level1p);
+			__free_page(*level1p);
                         ldu->ldu_memhog_pages--;
                         level1p++;
                         count1++;
                 }
 
-                cfs_free_page(*level0p);
+		__free_page(*level0p);
                 ldu->ldu_memhog_pages--;
 
                 *level0p = NULL;
@@ -87,9 +87,9 @@ kportal_memhog_free (struct libcfs_device_userstate *ldu)
 int
 kportal_memhog_alloc (struct libcfs_device_userstate *ldu, int npages, int flags)
 {
-        cfs_page_t **level0p;
-        cfs_page_t **level1p;
-        cfs_page_t **level2p;
+	page_t **level0p;
+	page_t **level1p;
+	page_t **level2p;
         int           count1;
         int           count2;
 
@@ -103,37 +103,37 @@ kportal_memhog_alloc (struct libcfs_device_userstate *ldu, int npages, int flags
                 return 0;
 
         level0p = &ldu->ldu_memhog_root_page;
-        *level0p = cfs_alloc_page(flags);
+	*level0p = alloc_page(flags);
         if (*level0p == NULL)
                 return -ENOMEM;
         ldu->ldu_memhog_pages++;
 
-        level1p = (cfs_page_t **)cfs_page_address(*level0p);
+	level1p = (page_t **)page_address(*level0p);
         count1 = 0;
-        memset(level1p, 0, CFS_PAGE_SIZE);
+	memset(level1p, 0, PAGE_CACHE_SIZE);
 
         while (ldu->ldu_memhog_pages < npages &&
-               count1 < CFS_PAGE_SIZE/sizeof(cfs_page_t *)) {
+	       count1 < PAGE_CACHE_SIZE/sizeof(page_t *)) {
 
                 if (cfs_signal_pending())
                         return (-EINTR);
 
-                *level1p = cfs_alloc_page(flags);
+		*level1p = alloc_page(flags);
                 if (*level1p == NULL)
                         return -ENOMEM;
                 ldu->ldu_memhog_pages++;
 
-                level2p = (cfs_page_t **)cfs_page_address(*level1p);
+		level2p = (page_t **)page_address(*level1p);
                 count2 = 0;
-                memset(level2p, 0, CFS_PAGE_SIZE);
+		memset(level2p, 0, PAGE_CACHE_SIZE);
 
                 while (ldu->ldu_memhog_pages < npages &&
-                       count2 < CFS_PAGE_SIZE/sizeof(cfs_page_t *)) {
+		       count2 < PAGE_CACHE_SIZE/sizeof(page_t *)) {
 
                         if (cfs_signal_pending())
                                 return (-EINTR);
 
-                        *level2p = cfs_alloc_page(flags);
+			*level2p = alloc_page(flags);
                         if (*level2p == NULL)
                                 return (-ENOMEM);
                         ldu->ldu_memhog_pages++;
@@ -331,7 +331,7 @@ static int libcfs_ioctl(struct cfs_psdev_file *pfile, unsigned long cmd, void *a
         int err = 0;
         ENTRY;
 
-        LIBCFS_ALLOC_GFP(buf, 1024, CFS_ALLOC_STD);
+	LIBCFS_ALLOC_GFP(buf, 1024, GFP_IOFS);
         if (buf == NULL)
                 RETURN(-ENOMEM);
 

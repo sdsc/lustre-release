@@ -182,13 +182,13 @@ void *cfs_mem_cache_alloc (cfs_mem_cache_t *cachep, int flags)
         void *result;
 
         /* zalloc_canblock() is not exported... Emulate it. */
-        if (flags & CFS_ALLOC_ATOMIC) {
+	if (flags & GFP_ATOMIC) {
                 result = (void *)mem_cache_alloc_nb(cachep);
         } else {
                 LASSERT(get_preemption_level() == 0);
                 result = (void *)mem_cache_alloc(cachep);
         }
-        if (result != NULL && (flags & CFS_ALLOC_ZERO))
+	if (result != NULL && (flags & __GFP_ZERO))
                 memset(result, 0, cachep->mc_size);
 
         return result;
@@ -217,35 +217,35 @@ static struct xnu_page_ops *page_ops[XNU_PAGE_NTYPES] = {
 };
 
 #if defined(LIBCFS_DEBUG)
-static int page_type_is_valid(cfs_page_t *page)
+static int page_type_is_valid(page_t *page)
 {
         LASSERT(page != NULL);
         return 0 <= page->type && page->type < XNU_PAGE_NTYPES;
 }
 
-static int page_is_raw(cfs_page_t *page)
+static int page_is_raw(page_t *page)
 {
         return page->type == XNU_PAGE_RAW;
 }
 #endif
 
-static struct xnu_raw_page *as_raw(cfs_page_t *page)
+static struct xnu_raw_page *as_raw(page_t *page)
 {
         LASSERT(page_is_raw(page));
         return list_entry(page, struct xnu_raw_page, header);
 }
 
-static void *raw_page_address(cfs_page_t *pg)
+static void *raw_page_address(page_t *pg)
 {
         return (void *)as_raw(pg)->virtual;
 }
 
-static void *raw_page_map(cfs_page_t *pg)
+static void *raw_page_map(page_t *pg)
 {
         return (void *)as_raw(pg)->virtual;
 }
 
-static void raw_page_unmap(cfs_page_t *pg)
+static void raw_page_unmap(page_t *pg)
 {
 }
 
@@ -265,7 +265,7 @@ static void raw_page_finish(struct xnu_raw_page *pg)
         -- raw_pages;
         if (pg->virtual != NULL)
                 cfs_mem_cache_free(raw_page_cache, pg->virtual);
-        cfs_free(pg);
+	kfree(pg);
 }
 
 void raw_page_death_row_clean(void)
@@ -292,7 +292,7 @@ void free_raw_page(struct xnu_raw_page *pg)
 	/*
 	 * kmem_free()->vm_map_remove()->vm_map_delete()->lock_write() may
 	 * block. (raw_page_done()->upl_abort() can block too) On the other
-	 * hand, cfs_free_page() may be called in non-blockable context. To
+	 * hand, __free_page() may be called in non-blockable context. To
 	 * work around this, park pages on global list when cannot block.
 	 */
 	if (get_preemption_level() > 0) {
@@ -305,7 +305,7 @@ void free_raw_page(struct xnu_raw_page *pg)
 	}
 }
 
-cfs_page_t *cfs_alloc_page(u_int32_t flags)
+page_t *alloc_page(u_int32_t flags)
 {
         struct xnu_raw_page *page;
 
@@ -314,7 +314,7 @@ cfs_page_t *cfs_alloc_page(u_int32_t flags)
          * from here: this will lead to infinite recursion.
          */
 
-        page = cfs_alloc(sizeof *page, flags);
+	page = kmalloc(sizeof *page, flags);
         if (page != NULL) {
                 page->virtual = cfs_mem_cache_alloc(raw_page_cache, flags);
                 if (page->virtual != NULL) {
@@ -322,29 +322,29 @@ cfs_page_t *cfs_alloc_page(u_int32_t flags)
                         page->header.type = XNU_PAGE_RAW;
                         atomic_set(&page->count, 1);
                 } else {
-                        cfs_free(page);
+			kfree(page);
                         page = NULL;
                 }
         }
         return page != NULL ? &page->header : NULL;
 }
 
-void cfs_free_page(cfs_page_t *pages)
+void __free_page(page_t *pages)
 {
         free_raw_page(as_raw(pages));
 }
 
-void cfs_get_page(cfs_page_t *p)
+void get_page(page_t *p)
 {
         atomic_inc(&as_raw(p)->count);
 }
 
-int cfs_put_page_testzero(cfs_page_t *p)
+int cfs_put_page_testzero(page_t *p)
 {
 	return atomic_dec_and_test(&as_raw(p)->count);
 }
 
-int cfs_page_count(cfs_page_t *p)
+int page_count(page_t *p)
 {
         return atomic_read(&as_raw(p)->count);
 }
@@ -353,7 +353,7 @@ int cfs_page_count(cfs_page_t *p)
  * Generic page operations
  */
 
-void *cfs_page_address(cfs_page_t *pg)
+void *page_address(page_t *pg)
 {
         /*
          * XXX nikita: do NOT call libcfs_debug_msg() (CDEBUG/ENTRY/EXIT)
@@ -363,13 +363,13 @@ void *cfs_page_address(cfs_page_t *pg)
         return page_ops[pg->type]->page_address(pg);
 }
 
-void *cfs_kmap(cfs_page_t *pg)
+void *kmap(page_t *pg)
 {
         LASSERT(page_type_is_valid(pg));
         return page_ops[pg->type]->page_map(pg);
 }
 
-void cfs_kunmap(cfs_page_t *pg)
+void kunmap(page_t *pg)
 {
         LASSERT(page_type_is_valid(pg));
         return page_ops[pg->type]->page_unmap(pg);
@@ -401,36 +401,36 @@ extern int get_preemption_level(void);
 #define get_preemption_level() (0)
 #endif
 
-void *cfs_alloc(size_t nr_bytes, u_int32_t flags)
+void *kmalloc(size_t nr_bytes, u_int32_t flags)
 {
         int mflags;
 
         mflags = 0;
-        if (flags & CFS_ALLOC_ATOMIC) {
+	if (flags & GFP_ATOMIC) {
                 mflags |= M_NOWAIT;
         } else {
                 LASSERT(get_preemption_level() == 0);
                 mflags |= M_WAITOK;
         }
 
-        if (flags & CFS_ALLOC_ZERO)
+	if (flags & __GFP_ZERO)
                 mflags |= M_ZERO;
 
         return _MALLOC(nr_bytes, M_TEMP, mflags);
 }
 
-void cfs_free(void *addr)
+void kfree(void *addr)
 {
         return _FREE(addr, M_TEMP);
 }
 
-void *cfs_alloc_large(size_t nr_bytes)
+void *vmalloc(size_t nr_bytes)
 {
         LASSERT(get_preemption_level() == 0);
         return _MALLOC(nr_bytes, M_TEMP, M_WAITOK);
 }
 
-void  cfs_free_large(void *addr)
+void  vfree(void *addr)
 {
         LASSERT(get_preemption_level() == 0);
         return _FREE(addr, M_TEMP);
@@ -475,7 +475,7 @@ int cfs_mem_init(void)
 #endif
 	CFS_INIT_LIST_HEAD(&page_death_row);
 	spin_lock_init(&page_death_row_phylax);
-	raw_page_cache = cfs_mem_cache_create("raw-page", CFS_PAGE_SIZE, 0, 0);
+	raw_page_cache = cfs_mem_cache_create("raw-page", PAGE_CACHE_SIZE, 0, 0);
 	return 0;
 }
 

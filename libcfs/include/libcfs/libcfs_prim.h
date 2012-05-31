@@ -90,31 +90,31 @@ cfs_time_t cfs_timer_deadline(cfs_timer_t *t);
 /*
  * Memory
  */
-#ifndef cfs_memory_pressure_get
-#define cfs_memory_pressure_get() (0)
+#ifndef memory_pressure_get
+#define memory_pressure_get() (0)
 #endif
-#ifndef cfs_memory_pressure_set
-#define cfs_memory_pressure_set() do {} while (0)
+#ifndef memory_pressure_set
+#define memory_pressure_set() do {} while (0)
 #endif
-#ifndef cfs_memory_pressure_clr
-#define cfs_memory_pressure_clr() do {} while (0)
+#ifndef memory_pressure_clr
+#define memory_pressure_clr() do {} while (0)
 #endif
 
 static inline int cfs_memory_pressure_get_and_set(void)
 {
-        int old = cfs_memory_pressure_get();
+	int old = memory_pressure_get();
 
         if (!old)
-                cfs_memory_pressure_set();
+		memory_pressure_set();
         return old;
 }
 
 static inline void cfs_memory_pressure_restore(int old)
 {
         if (old)
-                cfs_memory_pressure_set();
+		memory_pressure_set();
         else
-                cfs_memory_pressure_clr();
+		memory_pressure_clr();
         return;
 }
 #endif

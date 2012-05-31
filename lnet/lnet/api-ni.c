@@ -2049,7 +2049,7 @@ lnet_ping (lnet_process_id_t id, int timeout_ms, lnet_process_id_t *ids, int n_i
                 tmpid.pid = info->pi_pid;
                 tmpid.nid = info->pi_ni[i].ns_nid;
 #ifdef __KERNEL__
-                if (cfs_copy_to_user(&ids[i], &tmpid, sizeof(tmpid)))
+		if (copy_to_user(&ids[i], &tmpid, sizeof(tmpid)))
                         goto out_1;
 #else
                 ids[i] = tmpid;

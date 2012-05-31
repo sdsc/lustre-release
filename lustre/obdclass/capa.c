@@ -86,11 +86,11 @@ cfs_hlist_head_t *init_capa_hash(void)
         cfs_hlist_head_t *hash;
         int nr_hash, i;
 
-        OBD_ALLOC(hash, CFS_PAGE_SIZE);
+	OBD_ALLOC(hash, PAGE_CACHE_SIZE);
         if (!hash)
                 return NULL;
 
-        nr_hash = CFS_PAGE_SIZE / sizeof(cfs_hlist_head_t);
+	nr_hash = PAGE_CACHE_SIZE / sizeof(cfs_hlist_head_t);
         LASSERT(nr_hash > NR_CAPAHASH);
 
         for (i = 0; i < NR_CAPAHASH; i++)
@@ -129,7 +129,7 @@ void cleanup_capa_hash(cfs_hlist_head_t *hash)
 	}
 	spin_unlock(&capa_lock);
 
-	OBD_FREE(hash, CFS_PAGE_SIZE);
+	OBD_FREE(hash, PAGE_CACHE_SIZE);
 }
 EXPORT_SYMBOL(cleanup_capa_hash);
 
@@ -265,7 +265,7 @@ int capa_hmac(__u8 *hmac, struct lustre_capa *capa, __u8 *key)
 
         sg_set_page(&sl, virt_to_page(capa),
                     offsetof(struct lustre_capa, lc_hmac),
-                    (unsigned long)(capa) % CFS_PAGE_SIZE);
+		    (unsigned long)(capa) % PAGE_CACHE_SIZE);
 
         ll_crypto_hmac(tfm, key, &keylen, &sl, sl.length, hmac);
         ll_crypto_free_hash(tfm);
@@ -306,10 +306,10 @@ int capa_encrypt_id(__u32 *d, __u32 *s, __u8 *key, int keylen)
         }
 
         sg_set_page(&sd, virt_to_page(d), 16,
-                    (unsigned long)(d) % CFS_PAGE_SIZE);
+		    (unsigned long)(d) % PAGE_CACHE_SIZE);
 
         sg_set_page(&ss, virt_to_page(s), 16,
-                    (unsigned long)(s) % CFS_PAGE_SIZE);
+		    (unsigned long)(s) % PAGE_CACHE_SIZE);
         desc.tfm   = tfm;
         desc.info  = NULL;
         desc.flags = 0;
@@ -359,10 +359,10 @@ int capa_decrypt_id(__u32 *d, __u32 *s, __u8 *key, int keylen)
         }
 
         sg_set_page(&sd, virt_to_page(d), 16,
-                    (unsigned long)(d) % CFS_PAGE_SIZE);
+		    (unsigned long)(d) % PAGE_CACHE_SIZE);
 
         sg_set_page(&ss, virt_to_page(s), 16,
-                    (unsigned long)(s) % CFS_PAGE_SIZE);
+		    (unsigned long)(s) % PAGE_CACHE_SIZE);
 
         desc.tfm   = tfm;
         desc.info  = NULL;

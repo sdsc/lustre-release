@@ -830,11 +830,11 @@ static int getparam_display(struct param_opts *popt, char *pattern)
                 return -ESRCH;
         }
 
-        buf = malloc(CFS_PAGE_SIZE);
+	buf = malloc(PAGE_CACHE_SIZE);
         for (i = 0; i  < glob_info.gl_pathc; i++) {
                 char *valuename = NULL;
 
-                memset(buf, 0, CFS_PAGE_SIZE);
+		memset(buf, 0, PAGE_CACHE_SIZE);
                 /* As listparam_display is used to show param name (with type),
                  * here "if (only_path)" is ignored.*/
                 if (popt->show_path) {
@@ -852,7 +852,7 @@ static int getparam_display(struct param_opts *popt, char *pattern)
                 }
 
                 do {
-                        rc = read(fd, buf, CFS_PAGE_SIZE);
+			rc = read(fd, buf, PAGE_CACHE_SIZE);
                         if (rc == 0)
                                 break;
                         if (rc < 0) {

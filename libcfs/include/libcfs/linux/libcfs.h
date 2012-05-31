@@ -170,7 +170,7 @@ typedef long long_ptr_t;
 
 #ifndef HAVE_SCATTERLIST_SETPAGE
 #define sg_set_page(sg, p, len, off) \
-	sg_set_buf(sg, page_address(p) + ((off) & ~CFS_PAGE_MASK), len)
+	sg_set_buf(sg, page_address(p) + ((off) & ~PAGE_CACHE_MASK), len)
 #endif
 
 #endif /* _LINUX_LIBCFS_H */

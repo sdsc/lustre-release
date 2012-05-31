@@ -253,7 +253,7 @@ int LL_PROC_PROTO(proc_lnet_routes)
         if (len > *lenp) {    /* linux-supplied buffer is too small */
                 rc = -EINVAL;
         } else if (len > 0) { /* wrote something */
-                if (cfs_copy_to_user(buffer, tmpstr, len))
+		if (copy_to_user(buffer, tmpstr, len))
                         rc = -EFAULT;
                 else {
 			off += 1;
@@ -389,7 +389,7 @@ int LL_PROC_PROTO(proc_lnet_routers)
         if (len > *lenp) {    /* linux-supplied buffer is too small */
                 rc = -EINVAL;
         } else if (len > 0) { /* wrote something */
-                if (cfs_copy_to_user(buffer, tmpstr, len))
+		if (copy_to_user(buffer, tmpstr, len))
                         rc = -EFAULT;
                 else {
 			off += 1;
@@ -557,7 +557,7 @@ int LL_PROC_PROTO(proc_lnet_peers)
         if (len > *lenp) {    /* linux-supplied buffer is too small */
                 rc = -EINVAL;
         } else if (len > 0) { /* wrote something */
-                if (cfs_copy_to_user(buffer, tmpstr, len))
+		if (copy_to_user(buffer, tmpstr, len))
                         rc = -EFAULT;
                 else
 			*ppos = LNET_PROC_POS_MAKE(cpt, ver, hash, hoff);
@@ -737,7 +737,7 @@ int LL_PROC_PROTO(proc_lnet_nis)
         if (len > *lenp) {    /* linux-supplied buffer is too small */
                 rc = -EINVAL;
         } else if (len > 0) { /* wrote something */
-                if (cfs_copy_to_user(buffer, tmpstr, len))
+		if (copy_to_user(buffer, tmpstr, len))
                         rc = -EFAULT;
                 else
                         *ppos += 1;

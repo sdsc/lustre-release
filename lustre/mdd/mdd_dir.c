@@ -2395,7 +2395,7 @@ struct mdd_link_data {
 static int mdd_links_new(const struct lu_env *env,
 			 struct mdd_link_data *ldata)
 {
-	ldata->ml_buf = mdd_buf_alloc(env, CFS_PAGE_SIZE);
+	ldata->ml_buf = mdd_buf_alloc(env, PAGE_CACHE_SIZE);
 	if (ldata->ml_buf->lb_buf == NULL)
 		return -ENOMEM;
 	ldata->ml_leh = ldata->ml_buf->lb_buf;
@@ -2421,7 +2421,7 @@ int mdd_links_read(const struct lu_env *env,
 
 	/* First try a small buf */
 	LASSERT(env != NULL);
-	ldata->ml_buf = mdd_buf_alloc(env, CFS_PAGE_SIZE);
+	ldata->ml_buf = mdd_buf_alloc(env, PAGE_CACHE_SIZE);
 	if (ldata->ml_buf->lb_buf == NULL)
 		return -ENOMEM;
 

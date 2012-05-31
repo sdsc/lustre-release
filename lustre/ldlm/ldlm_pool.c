@@ -114,7 +114,7 @@
 /*
  * 50 ldlm locks for 1MB of RAM.
  */
-#define LDLM_POOL_HOST_L ((CFS_NUM_CACHEPAGES >> (20 - CFS_PAGE_SHIFT)) * 50)
+#define LDLM_POOL_HOST_L ((NUM_CACHEPAGES >> (20 - PAGE_CACHE_SHIFT)) * 50)
 
 /*
  * Maximal possible grant step plan in %.
@@ -1064,8 +1064,8 @@ static int ldlm_pool_granted(struct ldlm_pool *pl)
 }
 
 static struct ptlrpc_thread *ldlm_pools_thread;
-static struct cfs_shrinker *ldlm_pools_srv_shrinker;
-static struct cfs_shrinker *ldlm_pools_cli_shrinker;
+static struct shrinker *ldlm_pools_srv_shrinker;
+static struct shrinker *ldlm_pools_cli_shrinker;
 static struct completion ldlm_pools_comp;
 
 /*
@@ -1405,10 +1405,10 @@ int ldlm_pools_init(void)
         rc = ldlm_pools_thread_start();
         if (rc == 0) {
                 ldlm_pools_srv_shrinker =
-                        cfs_set_shrinker(CFS_DEFAULT_SEEKS,
+			set_shrinker(DEFAULT_SEEKS,
                                          ldlm_pools_srv_shrink);
                 ldlm_pools_cli_shrinker =
-                        cfs_set_shrinker(CFS_DEFAULT_SEEKS,
+			set_shrinker(DEFAULT_SEEKS,
                                          ldlm_pools_cli_shrink);
         }
         RETURN(rc);
@@ -1418,11 +1418,11 @@ EXPORT_SYMBOL(ldlm_pools_init);
 void ldlm_pools_fini(void)
 {
         if (ldlm_pools_srv_shrinker != NULL) {
-                cfs_remove_shrinker(ldlm_pools_srv_shrinker);
+		remove_shrinker(ldlm_pools_srv_shrinker);
                 ldlm_pools_srv_shrinker = NULL;
         }
         if (ldlm_pools_cli_shrinker != NULL) {
-                cfs_remove_shrinker(ldlm_pools_cli_shrinker);
+		remove_shrinker(ldlm_pools_cli_shrinker);
                 ldlm_pools_cli_shrinker = NULL;
         }
         ldlm_pools_thread_stop();

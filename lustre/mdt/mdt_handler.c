@@ -893,7 +893,7 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
                         CERROR("readlink failed: %d\n", rc);
                         rc = -EFAULT;
                 } else {
-			int print_limit = min_t(int, CFS_PAGE_SIZE - 128, rc);
+			int print_limit = min_t(int, PAGE_CACHE_SIZE - 128, rc);
 
 			if (OBD_FAIL_CHECK(OBD_FAIL_MDS_READLINK_EPROTO))
 				rc -= 2;
@@ -1622,7 +1622,7 @@ static int mdt_sendpage(struct mdt_thread_info *info,
 
 	for (i = 0, tmpcount = nob; i < rdpg->rp_npages && tmpcount > 0;
 	     i++, tmpcount -= tmpsize) {
-                tmpsize = min_t(int, tmpcount, CFS_PAGE_SIZE);
+		tmpsize = min_t(int, tmpcount, PAGE_CACHE_SIZE);
 		ptlrpc_prep_bulk_page_pin(desc, rdpg->rp_pages[i], 0, tmpsize);
         }
 
@@ -1667,14 +1667,14 @@ static int mdt_readpage(struct mdt_thread_info *info)
                 rdpg->rp_attrs |= LUDA_64BITHASH;
         rdpg->rp_count  = min_t(unsigned int, reqbody->nlink,
                                 PTLRPC_MAX_BRW_SIZE);
-        rdpg->rp_npages = (rdpg->rp_count + CFS_PAGE_SIZE - 1) >>
-                          CFS_PAGE_SHIFT;
+	rdpg->rp_npages = (rdpg->rp_count + PAGE_CACHE_SIZE - 1) >>
+			  PAGE_CACHE_SHIFT;
         OBD_ALLOC(rdpg->rp_pages, rdpg->rp_npages * sizeof rdpg->rp_pages[0]);
         if (rdpg->rp_pages == NULL)
                 RETURN(-ENOMEM);
 
         for (i = 0; i < rdpg->rp_npages; ++i) {
-                rdpg->rp_pages[i] = cfs_alloc_page(CFS_ALLOC_STD);
+		rdpg->rp_pages[i] = alloc_page(GFP_IOFS);
                 if (rdpg->rp_pages[i] == NULL)
                         GOTO(free_rdpg, rc = -ENOMEM);
         }
@@ -1692,7 +1692,7 @@ free_rdpg:
 
         for (i = 0; i < rdpg->rp_npages; i++)
                 if (rdpg->rp_pages[i] != NULL)
-                        cfs_free_page(rdpg->rp_pages[i]);
+			__free_page(rdpg->rp_pages[i]);
         OBD_FREE(rdpg->rp_pages, rdpg->rp_npages * sizeof rdpg->rp_pages[0]);
 
         if (OBD_FAIL_CHECK(OBD_FAIL_MDS_SENDPAGE))
@@ -2100,14 +2100,14 @@ static int mdt_obd_idx_read(struct mdt_thread_info *info)
 		GOTO(out, rc = -EFAULT);
 	rdpg->rp_count = min_t(unsigned int, req_ii->ii_count << LU_PAGE_SHIFT,
 			       PTLRPC_MAX_BRW_SIZE);
-	rdpg->rp_npages = (rdpg->rp_count + CFS_PAGE_SIZE -1) >> CFS_PAGE_SHIFT;
+	rdpg->rp_npages = (rdpg->rp_count + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
 
 	/* allocate pages to store the containers */
 	OBD_ALLOC(rdpg->rp_pages, rdpg->rp_npages * sizeof(rdpg->rp_pages[0]));
 	if (rdpg->rp_pages == NULL)
 		GOTO(out, rc = -ENOMEM);
 	for (i = 0; i < rdpg->rp_npages; i++) {
-		rdpg->rp_pages[i] = cfs_alloc_page(CFS_ALLOC_STD);
+		rdpg->rp_pages[i] = alloc_page(GFP_IOFS);
 		if (rdpg->rp_pages[i] == NULL)
 			GOTO(out, rc = -ENOMEM);
 	}
@@ -2128,7 +2128,7 @@ out:
 	if (rdpg->rp_pages) {
 		for (i = 0; i < rdpg->rp_npages; i++)
 			if (rdpg->rp_pages[i])
-				cfs_free_page(rdpg->rp_pages[i]);
+				__free_page(rdpg->rp_pages[i]);
 		OBD_FREE(rdpg->rp_pages,
 			 rdpg->rp_npages * sizeof(rdpg->rp_pages[0]));
 	}
@@ -5313,7 +5313,7 @@ static struct lu_object *mdt_object_alloc(const struct lu_env *env,
 
         ENTRY;
 
-	OBD_SLAB_ALLOC_PTR_GFP(mo, mdt_object_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(mo, mdt_object_kmem, __GFP_IO);
         if (mo != NULL) {
                 struct lu_object *o;
                 struct lu_object_header *h;
@@ -5508,7 +5508,7 @@ static int mdt_connect_internal(struct obd_export *exp,
 
 	if (data->ocd_connect_flags & OBD_CONNECT_BRW_SIZE) {
 		data->ocd_brw_size = min(data->ocd_brw_size,
-			(__u32)(PTLRPC_MAX_BRW_PAGES << CFS_PAGE_SHIFT));
+			(__u32)(PTLRPC_MAX_BRW_PAGES << PAGE_CACHE_SHIFT));
 		if (data->ocd_brw_size == 0) {
 			CERROR("%s: cli %s/%p ocd_connect_flags: "LPX64
 			       " ocd_version: %x ocd_grant: %d "

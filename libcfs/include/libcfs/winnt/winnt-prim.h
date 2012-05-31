@@ -506,7 +506,7 @@ static __inline cfs_group_info_t *cfs_groups_alloc(int gidsetsize)
     cfs_group_info_t * groupinfo;
     KdPrint(("%s(%d): %s NOT implemented.\n", __FILE__, __LINE__, __FUNCTION__));
     groupinfo =
-        (cfs_group_info_t *)cfs_alloc(sizeof(cfs_group_info_t), 0);
+	(cfs_group_info_t *)kmalloc(sizeof(cfs_group_info_t), 0);
 
     if (groupinfo) {
         memset(groupinfo, 0, sizeof(cfs_group_info_t));
@@ -517,7 +517,7 @@ static __inline void cfs_groups_free(cfs_group_info_t *group_info)
 {
     KdPrint(("%s(%d): %s NOT implemented.\n", __FILE__, __LINE__,
             __FUNCTION__));
-    cfs_free(group_info);
+    kfree(group_info);
 }
 static __inline int
 cfs_set_current_groups(cfs_group_info_t *group_info)

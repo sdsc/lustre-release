@@ -53,9 +53,9 @@ typedef struct cfs_mem_cache cfs_mem_cache_t;
  * page definitions
  */
 
-#define CFS_PAGE_SIZE                   PAGE_SIZE
-#define CFS_PAGE_SHIFT                  PAGE_SHIFT
-#define CFS_PAGE_MASK                   (~(PAGE_SIZE - 1))
+#define PAGE_CACHE_SIZE                   PAGE_SIZE
+#define PAGE_CACHE_SHIFT                  PAGE_SHIFT
+#define PAGE_CACHE_MASK                   (~(PAGE_SIZE - 1))
 
 typedef struct cfs_page {
     void *          addr;
@@ -64,7 +64,7 @@ typedef struct cfs_page {
     void *          mapping;
     __u32           index;
     __u32           flags;
-} cfs_page_t;
+} page_t;
 
 #define page cfs_page
 
@@ -148,65 +148,65 @@ typedef struct cfs_page {
 #define GFP_KERNEL  (2)
 #define GFP_ATOMIC  (4)
 
-cfs_page_t *cfs_alloc_page(int flags);
-void cfs_free_page(cfs_page_t *pg);
-void cfs_release_page(cfs_page_t *pg);
-cfs_page_t * virt_to_page(void * addr);
+page_t *alloc_page(int flags);
+void __free_page(page_t *pg);
+void cfs_release_page(page_t *pg);
+page_t * virt_to_page(void *addr);
 int cfs_mem_is_in_cache(const void *addr, const cfs_mem_cache_t *kmem);
 
 #define page_cache_get(a) do {} while (0)
 #define page_cache_release(a) do {} while (0)
 
-static inline void *cfs_page_address(cfs_page_t *page)
+static inline void *page_address(page_t *page)
 {
     return page->addr;
 }
 
-static inline void *cfs_kmap(cfs_page_t *page)
+static inline void *kmap(page_t *page)
 {
     return page->addr;
 }
 
-static inline void cfs_kunmap(cfs_page_t *page)
+static inline void kunmap(page_t *page)
 {
     return;
 }
 
-static inline void cfs_get_page(cfs_page_t *page)
+static inline void get_page(page_t *page)
 {
     cfs_atomic_inc(&page->count);
 }
 
-static inline void cfs_put_page(cfs_page_t *page)
+static inline void cfs_put_page(page_t *page)
 {
     cfs_atomic_dec(&page->count);
 }
 
-static inline int cfs_page_count(cfs_page_t *page)
+static inline int page_count(page_t *page)
 {
     return cfs_atomic_read(&page->count);
 }
 
-#define cfs_page_index(p)       ((p)->index)
+#define page_index(p)       ((p)->index)
 
 /*
  * Memory allocator
  */
 
-#define CFS_ALLOC_ATOMIC_TRY	(0)
-extern void *cfs_alloc(size_t nr_bytes, u_int32_t flags);
-extern void  cfs_free(void *addr);
+#define ALLOC_ATOMIC_TRY	(0)
+extern void *kmalloc(size_t nr_bytes, u_int32_t flags);
+extern void  kfree(void *addr);
 
-#define kmalloc cfs_alloc
+#define kmalloc kmalloc
 
-extern void *cfs_alloc_large(size_t nr_bytes);
-extern void  cfs_free_large(void *addr);
+extern void *vmalloc(size_t nr_bytes);
+extern void  vfree(void *addr);
 
 /*
  * SLAB allocator
  */
 
-#define CFS_SLAB_HWCACHE_ALIGN		0
+#define SLAB_HWCACHE_ALIGN		0
 
 /* The cache name is limited to 20 chars */
 
@@ -227,7 +227,7 @@ extern void cfs_mem_cache_free (cfs_mem_cache_t *, void *);
  * shrinker 
  */
 typedef int (*shrink_callback)(int nr_to_scan, gfp_t gfp_mask);
-struct cfs_shrinker {
+struct shrinker {
         shrink_callback cb;
 	int seeks;	/* seeks to recreate an obj */
 
@@ -236,23 +236,23 @@ struct cfs_shrinker {
 	long nr;	/* objs pending delete */
 };
 
-struct cfs_shrinker *cfs_set_shrinker(int seeks, shrink_callback cb);
-void cfs_remove_shrinker(struct cfs_shrinker *s);
+struct shrinker *set_shrinker(int seeks, shrink_callback cb);
+void remove_shrinker(struct shrinker *s);
 
 int start_shrinker_timer();
 void stop_shrinker_timer();
 
 /*
- * Page allocator slabs 
+ * Page allocator slabs
  */
 
 extern cfs_mem_cache_t *cfs_page_t_slab;
 extern cfs_mem_cache_t *cfs_page_p_slab;
 
 
-#define CFS_DECL_MMSPACE
-#define CFS_MMSPACE_OPEN    do {} while(0)
-#define CFS_MMSPACE_CLOSE   do {} while(0)
+#define DECL_MMSPACE
+#define MMSPACE_OPEN    do {} while(0)
+#define MMSPACE_CLOSE   do {} while(0)
 
 
 #define cfs_mb()     do {} while(0)
@@ -263,7 +263,7 @@ extern cfs_mem_cache_t *cfs_page_p_slab;
  * MM defintions from (linux/mm.h)
  */
 
-#define CFS_DEFAULT_SEEKS 2 /* shrink seek */
+#define DEFAULT_SEEKS 2 /* shrink seek */
 
 #else  /* !__KERNEL__ */
 

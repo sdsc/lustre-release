@@ -597,16 +597,16 @@ int   lov_sublock_modify  (const struct lu_env *env, struct lov_lock *lov,
 
 
 struct cl_page *lov_page_init   (const struct lu_env *env, struct cl_object *ob,
-                                 struct cl_page *page, cfs_page_t *vmpage);
+				 struct cl_page *page, page_t *vmpage);
 struct cl_page *lovsub_page_init(const struct lu_env *env, struct cl_object *ob,
-                                 struct cl_page *page, cfs_page_t *vmpage);
+				 struct cl_page *page, page_t *vmpage);
 
 struct cl_page   *lov_page_init_empty(const struct lu_env *env,
                                       struct cl_object *obj,
-                                      struct cl_page *page, cfs_page_t *vmpage);
+				      struct cl_page *page, page_t *vmpage);
 struct cl_page   *lov_page_init_raid0(const struct lu_env *env,
                                       struct cl_object *obj,
-                                      struct cl_page *page, cfs_page_t *vmpage);
+				      struct cl_page *page, page_t *vmpage);
 struct lu_object *lov_object_alloc   (const struct lu_env *env,
                                       const struct lu_object_header *hdr,
                                       struct lu_device *dev);

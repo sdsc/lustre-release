@@ -429,7 +429,7 @@ struct lu_object *osc_object_alloc(const struct lu_env *env,
                                    struct lu_device *dev);
 struct cl_page   *osc_page_init   (const struct lu_env *env,
                                    struct cl_object *obj,
-                                   struct cl_page *page, cfs_page_t *vmpage);
+				   struct cl_page *page, page_t *vmpage);
 
 void osc_lock_build_res(const struct lu_env *env, const struct osc_object *obj,
                         struct ldlm_res_id *resname);
@@ -444,7 +444,7 @@ int osc_cancel_async_page(const struct lu_env *env, struct osc_page *ops);
 int osc_set_async_flags(struct osc_object *obj, struct osc_page *opg,
 			obd_flag async_flags);
 int osc_prep_async_page(struct osc_object *osc, struct osc_page *ops,
-			cfs_page_t *page, loff_t offset);
+			page_t *page, loff_t offset);
 int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 		       struct osc_page *ops);
 int osc_teardown_async_page(const struct lu_env *env, struct osc_object *obj,

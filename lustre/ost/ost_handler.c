@@ -233,14 +233,14 @@ static int ost_lock_get(struct obd_export *exp, struct obdo *oa,
         osc_build_res_name(oa->o_id, oa->o_seq, &res_id);
         CDEBUG(D_INODE, "OST-side extent lock.\n");
 
-        policy.l_extent.start = start & CFS_PAGE_MASK;
+	policy.l_extent.start = start & PAGE_CACHE_MASK;
 
         /* If ->o_blocks is EOF it means "lock till the end of the
          * file". Otherwise, it's size of a hole being punched (in bytes) */
         if (count == OBD_OBJECT_EOF || end < start)
                 policy.l_extent.end = OBD_OBJECT_EOF;
         else
-                policy.l_extent.end = end | ~CFS_PAGE_MASK;
+		policy.l_extent.end = end | ~PAGE_CACHE_MASK;
 
         RETURN(ldlm_cli_enqueue_local(exp->exp_obd->obd_namespace, &res_id,
                                       LDLM_EXTENT, &policy, mode, &flags,
@@ -562,7 +562,7 @@ static __u32 ost_checksum_bulk(struct ptlrpc_bulk_desc *desc, int opc,
 		 * simulate a client->OST data error */
 		if (i == 0 && opc == OST_WRITE &&
 		    OBD_FAIL_CHECK(OBD_FAIL_OST_CHECKSUM_RECEIVE)) {
-			int off = desc->bd_iov[i].kiov_offset & ~CFS_PAGE_MASK;
+			int off = desc->bd_iov[i].kiov_offset & ~PAGE_CACHE_MASK;
 			int len = desc->bd_iov[i].kiov_len;
 			struct page *np = ost_page_to_corrupt;
 			char *ptr = kmap(desc->bd_iov[i].kiov_page) + off;
@@ -579,14 +579,14 @@ static __u32 ost_checksum_bulk(struct ptlrpc_bulk_desc *desc, int opc,
 			}
 		}
 		cfs_crypto_hash_update_page(hdesc, desc->bd_iov[i].kiov_page,
-				  desc->bd_iov[i].kiov_offset & ~CFS_PAGE_MASK,
+				  desc->bd_iov[i].kiov_offset & ~PAGE_CACHE_MASK,
 				  desc->bd_iov[i].kiov_len);
 
 		 /* corrupt the data after we compute the checksum, to
 		 * simulate an OST->client data error */
 		if (i == 0 && opc == OST_READ &&
 		    OBD_FAIL_CHECK(OBD_FAIL_OST_CHECKSUM_SEND)) {
-			int off = desc->bd_iov[i].kiov_offset & ~CFS_PAGE_MASK;
+			int off = desc->bd_iov[i].kiov_offset & ~PAGE_CACHE_MASK;
 			int len = desc->bd_iov[i].kiov_len;
 			struct page *np = ost_page_to_corrupt;
 			char *ptr = kmap(desc->bd_iov[i].kiov_page) + off;
@@ -635,9 +635,9 @@ static int ost_brw_lock_get(int mode, struct obd_export *exp,
                     (nb[i].flags & OBD_BRW_SRVLOCK))
                         RETURN(-EFAULT);
 
-        policy.l_extent.start = nb[0].offset & CFS_PAGE_MASK;
+	policy.l_extent.start = nb[0].offset & PAGE_CACHE_MASK;
         policy.l_extent.end   = (nb[nrbufs - 1].offset +
-                                 nb[nrbufs - 1].len - 1) | ~CFS_PAGE_MASK;
+				 nb[nrbufs - 1].len - 1) | ~PAGE_CACHE_MASK;
 
         RETURN(ldlm_cli_enqueue_local(exp->exp_obd->obd_namespace, &res_id,
                                       LDLM_EXTENT, &policy, mode, &flags,
@@ -1015,7 +1015,7 @@ static int ost_brw_write(struct ptlrpc_request *req, struct obd_trans_info *oti)
 
         if ((remote_nb[0].flags & OBD_BRW_MEMALLOC) &&
             (exp->exp_connection->c_peer.nid == exp->exp_connection->c_self))
-                cfs_memory_pressure_set();
+		memory_pressure_set();
 
         if (body->oa.o_valid & OBD_MD_FLOSSCAPA) {
                 capa = req_capsule_client_get(&req->rq_pill, &RMF_CAPA1);
@@ -1199,7 +1199,7 @@ out:
                               obd_uuid2str(&exp->exp_client_uuid),
                               obd_export_nid2str(exp), rc);
         }
-        cfs_memory_pressure_clr();
+	memory_pressure_clr();
         RETURN(rc);
 }
 
@@ -2690,7 +2690,7 @@ static int __init ost_init(void)
         int rc;
         ENTRY;
 
-	ost_page_to_corrupt = cfs_alloc_page(CFS_ALLOC_STD);
+	ost_page_to_corrupt = alloc_page(GFP_IOFS);
 
         lprocfs_ost_init_vars(&lvars);
         rc = class_register_type(&ost_obd_ops, NULL, lvars.module_vars,

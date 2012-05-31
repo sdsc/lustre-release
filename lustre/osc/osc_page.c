@@ -510,16 +510,16 @@ static const struct cl_page_operations osc_page_ops = {
 
 struct cl_page *osc_page_init(const struct lu_env *env,
                               struct cl_object *obj,
-                              struct cl_page *page, cfs_page_t *vmpage)
+			      struct cl_page *page, page_t *vmpage)
 {
         struct osc_object *osc = cl2osc(obj);
         struct osc_page   *opg;
         int result;
 
-        OBD_SLAB_ALLOC_PTR_GFP(opg, osc_page_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(opg, osc_page_kmem, __GFP_IO);
         if (opg != NULL) {
                 opg->ops_from = 0;
-                opg->ops_to   = CFS_PAGE_SIZE;
+		opg->ops_to   = PAGE_CACHE_SIZE;
 
 		result = osc_prep_async_page(osc, opg, vmpage,
 					     cl_offset(obj, page->cp_index));
@@ -599,9 +599,9 @@ static CFS_DECL_WAITQ(osc_lru_waitq);
 static cfs_atomic_t osc_lru_waiters = CFS_ATOMIC_INIT(0);
 /* LRU pages are freed in batch mode. OSC should at least free this
  * number of pages to avoid running out of LRU budget, and.. */
-static const int lru_shrink_min = 2 << (20 - CFS_PAGE_SHIFT);  /* 2M */
+static const int lru_shrink_min = 2 << (20 - PAGE_CACHE_SHIFT);  /* 2M */
 /* free this number at most otherwise it will take too long time to finsih. */
-static const int lru_shrink_max = 32 << (20 - CFS_PAGE_SHIFT); /* 32M */
+static const int lru_shrink_max = 32 << (20 - PAGE_CACHE_SHIFT); /* 32M */
 
 /* Check if we can free LRU slots from this OSC. If there exists LRU waiters,
  * we should free slots aggressively. In this way, slots are freed in a steady

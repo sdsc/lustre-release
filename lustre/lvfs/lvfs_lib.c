@@ -59,7 +59,7 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
                        "("LPU64" bytes) allocated by Lustre, "
                        "%d total bytes by LNET\n",
                        obd_memory_sum(),
-                       obd_pages_sum() << CFS_PAGE_SHIFT,
+		       obd_pages_sum() << PAGE_CACHE_SHIFT,
                        obd_pages_sum(),
                        cfs_atomic_read(&libcfs_kmemory));
                 return 1;
@@ -165,7 +165,7 @@ int lprocfs_stats_alloc_one(struct lprocfs_stats *stats, unsigned int idx)
 
 	percpusize = CFS_L1_CACHE_ALIGN(offsetof(struct lprocfs_percpu,
 						 lp_cntr[stats->ls_num]));
-	OBD_ALLOC_GFP(stats->ls_percpu[idx], percpusize, CFS_ALLOC_ATOMIC);
+	OBD_ALLOC_GFP(stats->ls_percpu[idx], percpusize, GFP_ATOMIC);
 	if (stats->ls_percpu[idx] != NULL) {
 		rc = 0;
 		if (unlikely(stats->ls_biggest_alloc_num <= idx)) {

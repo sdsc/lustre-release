@@ -239,7 +239,7 @@ int class_handle_ioctl(unsigned int cmd, unsigned long arg)
                 OBD_ALLOC(lcfg, data->ioc_plen1);
                 if (lcfg == NULL)
                         GOTO(out, err = -ENOMEM);
-                err = cfs_copy_from_user(lcfg, data->ioc_pbuf1,
+		err = copy_from_user(lcfg, data->ioc_pbuf1,
                                          data->ioc_plen1);
                 if (!err)
                         err = lustre_cfg_sanity_check(lcfg, data->ioc_plen1);
@@ -485,9 +485,9 @@ int obd_init_checks(void)
                 CWARN("LPD64 wrong length! strlen(%s)=%d != 2\n", buf, len);
                 ret = -EINVAL;
         }
-        if ((u64val & ~CFS_PAGE_MASK) >= CFS_PAGE_SIZE) {
+	if ((u64val & ~PAGE_CACHE_MASK) >= PAGE_CACHE_SIZE) {
                 CWARN("mask failed: u64val "LPU64" >= "LPU64"\n", u64val,
-                      (__u64)CFS_PAGE_SIZE);
+		      (__u64)PAGE_CACHE_SIZE);
                 ret = -EINVAL;
         }
 
@@ -559,10 +559,10 @@ int init_obdclass(void)
         /* Default the dirty page cache cap to 1/2 of system memory.
          * For clients with less memory, a larger fraction is needed
          * for other purposes (mostly for BGL). */
-        if (cfs_num_physpages <= 512 << (20 - CFS_PAGE_SHIFT))
-                obd_max_dirty_pages = cfs_num_physpages / 4;
+	if (num_physpages <= 512 << (20 - PAGE_CACHE_SHIFT))
+		obd_max_dirty_pages = num_physpages / 4;
         else
-                obd_max_dirty_pages = cfs_num_physpages / 2;
+		obd_max_dirty_pages = num_physpages / 2;
 
         err = obd_init_caches();
         if (err)

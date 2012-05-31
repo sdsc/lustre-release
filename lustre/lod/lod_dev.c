@@ -75,7 +75,7 @@ struct lu_object *lod_object_alloc(const struct lu_env *env,
 	struct lu_object  *lu_obj;
 	struct lod_object *lo;
 
-	OBD_SLAB_ALLOC_PTR_GFP(lo, lod_object_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(lo, lod_object_kmem, __GFP_IO);
 	if (lo == NULL)
 		return NULL;
 

@@ -203,14 +203,14 @@ struct cfs_crypto_hash_desc *
 	int		     err;
 	const struct cfs_crypto_hash_type       *type;
 
-	hdesc = cfs_alloc(sizeof(*hdesc), 0);
+	hdesc = kmalloc(sizeof(*hdesc), 0);
 	if (hdesc == NULL)
 		return ERR_PTR(-ENOMEM);
 
 	err = cfs_crypto_hash_alloc(alg_id, &type, hdesc, key, key_len);
 
 	if (err) {
-		cfs_free(hdesc);
+		kfree(hdesc);
 		return ERR_PTR(err);
 	}
 	return (struct cfs_crypto_hash_desc *)hdesc;
@@ -218,13 +218,13 @@ struct cfs_crypto_hash_desc *
 EXPORT_SYMBOL(cfs_crypto_hash_init);
 
 int cfs_crypto_hash_update_page(struct cfs_crypto_hash_desc *hdesc,
-				cfs_page_t *page, unsigned int offset,
+				page_t *page, unsigned int offset,
 				unsigned int len)
 {
 	struct scatterlist sl;
 
 	sg_init_table(&sl, 1);
-	sg_set_page(&sl, page, len, offset & ~CFS_PAGE_MASK);
+	sg_set_page(&sl, page, len, offset & ~PAGE_CACHE_MASK);
 
 	return crypto_hash_update((struct hash_desc *)hdesc, &sl, sl.length);
 }
@@ -250,7 +250,7 @@ int cfs_crypto_hash_final(struct cfs_crypto_hash_desc *hdesc,
 
 	if (hash_len == NULL) {
 		crypto_free_hash(((struct hash_desc *)hdesc)->tfm);
-		cfs_free(hdesc);
+		kfree(hdesc);
 		return 0;
 	}
 	if (hash == NULL || *hash_len < size) {
@@ -264,7 +264,7 @@ int cfs_crypto_hash_final(struct cfs_crypto_hash_desc *hdesc,
 		return err;
 	}
 	crypto_free_hash(((struct hash_desc *)hdesc)->tfm);
-	cfs_free(hdesc);
+	kfree(hdesc);
 	return err;
 }
 EXPORT_SYMBOL(cfs_crypto_hash_final);
@@ -324,7 +324,7 @@ static int cfs_crypto_test_hashes(void)
 	 * kmalloc size for 2.6.18 kernel is 128K */
 	unsigned int	    data_len = 1 * 128 * 1024;
 
-	data = cfs_alloc(data_len, 0);
+	data = kmalloc(data_len, 0);
 	if (data == NULL) {
 		CERROR("Failed to allocate mem\n");
 		return -ENOMEM;
@@ -336,7 +336,7 @@ static int cfs_crypto_test_hashes(void)
 	for (i = 0; i < CFS_HASH_ALG_MAX; i++)
 		cfs_crypto_performance_test(i, data, data_len);
 
-	cfs_free(data);
+	kfree(data);
 	return 0;
 }
 

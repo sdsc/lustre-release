@@ -93,7 +93,7 @@ static struct ll_sb_info *ll_init_sbi(void)
 
         si_meminfo(&si);
         pages = si.totalram - si.totalhigh;
-        if (pages >> (20 - CFS_PAGE_SHIFT) < 512) {
+	if (pages >> (20 - PAGE_CACHE_SHIFT) < 512) {
 #ifdef HAVE_BGL_SUPPORT
 		lru_page_max = pages / 4;
 #else
@@ -305,15 +305,15 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
             valid != CLIENT_CONNECT_MDT_REQD) {
                 char *buf;
 
-                OBD_ALLOC_WAIT(buf, CFS_PAGE_SIZE);
-                obd_connect_flags2str(buf, CFS_PAGE_SIZE,
+		OBD_ALLOC_WAIT(buf, PAGE_CACHE_SIZE);
+		obd_connect_flags2str(buf, PAGE_CACHE_SIZE,
                                       valid ^ CLIENT_CONNECT_MDT_REQD, ",");
                 LCONSOLE_ERROR_MSG(0x170, "Server %s does not support "
                                    "feature(s) needed for correct operation "
                                    "of this client (%s). Please upgrade "
                                    "server or downgrade client.\n",
                                    sbi->ll_md_exp->exp_obd->obd_name, buf);
-                OBD_FREE(buf, CFS_PAGE_SIZE);
+		OBD_FREE(buf, PAGE_CACHE_SIZE);
                 GOTO(out_md, err = -EPROTO);
         }
 
@@ -382,7 +382,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         if (data->ocd_connect_flags & OBD_CONNECT_BRW_SIZE)
                 sbi->ll_md_brw_size = data->ocd_brw_size;
         else
-                sbi->ll_md_brw_size = CFS_PAGE_SIZE;
+		sbi->ll_md_brw_size = PAGE_CACHE_SIZE;
 
 	if (data->ocd_connect_flags & OBD_CONNECT_LAYOUTLOCK) {
 		LCONSOLE_INFO("Layout lock feature supported.\n");
@@ -2378,7 +2378,7 @@ int ll_get_obd_name(struct inode *inode, unsigned int cmd, unsigned long arg)
         if (!obd)
                 RETURN(-ENOENT);
 
-        if (cfs_copy_to_user((void *)arg, obd->obd_name,
+	if (copy_to_user((void *)arg, obd->obd_name,
                              strlen(obd->obd_name) + 1))
                 RETURN(-EFAULT);
 
@@ -2437,7 +2437,7 @@ static char* ll_d_path(struct dentry *dentry, char *buf, int bufsize)
 	return path;
 }
 
-void ll_dirty_page_discard_warn(cfs_page_t *page, int ioret)
+void ll_dirty_page_discard_warn(page_t *page, int ioret)
 {
 	char *buf, *path = NULL;
 	struct dentry *dentry = NULL;

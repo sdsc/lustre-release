@@ -161,7 +161,7 @@ alloc_task_slot()
     if (cfs_win_task_manger.slab) {
         task = cfs_mem_cache_alloc(cfs_win_task_manger.slab, 0);
     } else {
-        task = cfs_alloc(sizeof(TASK_SLOT), 0);
+	task = kmalloc(sizeof(TASK_SLOT), 0);
     }
 
     return task;
@@ -186,7 +186,7 @@ cleanup_task_slot(PTASK_SLOT task)
     if (cfs_win_task_manger.slab) {
         cfs_mem_cache_free(cfs_win_task_manger.slab, task);
     } else {
-        cfs_free(task);
+	kfree(task);
     }
 }
 

@@ -142,18 +142,18 @@ static int osc_wr_max_dirty_mb(struct file *file, const char *buffer,
         struct client_obd *cli = &dev->u.cli;
         int pages_number, mult, rc;
 
-        mult = 1 << (20 - CFS_PAGE_SHIFT);
+	mult = 1 << (20 - PAGE_CACHE_SHIFT);
         rc = lprocfs_write_frac_helper(buffer, count, &pages_number, mult);
         if (rc)
                 return rc;
 
         if (pages_number < 0 ||
-            pages_number > OSC_MAX_DIRTY_MB_MAX << (20 - CFS_PAGE_SHIFT) ||
-            pages_number > cfs_num_physpages / 4) /* 1/4 of RAM */
+	    pages_number > OSC_MAX_DIRTY_MB_MAX << (20 - PAGE_CACHE_SHIFT) ||
+	    pages_number > num_physpages / 4) /* 1/4 of RAM */
                 return -ERANGE;
 
         client_obd_list_lock(&cli->cl_loi_list_lock);
-        cli->cl_dirty_max = (obd_count)(pages_number << CFS_PAGE_SHIFT);
+	cli->cl_dirty_max = (obd_count)(pages_number << PAGE_CACHE_SHIFT);
         osc_wake_cache_waiters(cli);
         client_obd_list_unlock(&cli->cl_loi_list_lock);
 
@@ -165,7 +165,7 @@ static int osc_rd_cached_mb(char *page, char **start, off_t off, int count,
 {
 	struct obd_device *dev = data;
 	struct client_obd *cli = &dev->u.cli;
-	int shift = 20 - CFS_PAGE_SHIFT;
+	int shift = 20 - PAGE_CACHE_SHIFT;
 	int rc;
 
 	rc = snprintf(page, count,
@@ -186,7 +186,7 @@ static int osc_wr_cached_mb(struct file *file, const char *buffer,
 	struct client_obd *cli = &dev->u.cli;
 	int pages_number, mult, rc;
 
-	mult = 1 << (20 - CFS_PAGE_SHIFT);
+	mult = 1 << (20 - PAGE_CACHE_SHIFT);
 	buffer = lprocfs_find_named_value(buffer, "used_mb:", &count);
 	rc = lprocfs_write_frac_helper(buffer, count, &pages_number, mult);
 	if (rc)
@@ -373,7 +373,7 @@ static int osc_wd_checksum_type(struct file *file, const char *buffer,
 
         if (count > sizeof(kernbuf) - 1)
                 return -EINVAL;
-        if (cfs_copy_from_user(kernbuf, buffer, count))
+	if (copy_from_user(kernbuf, buffer, count))
                 return -EFAULT;
         if (count > 0 && kernbuf[count - 1] == '\n')
                 kernbuf[count - 1] = '\0';
@@ -478,10 +478,10 @@ static int lprocfs_osc_wr_max_pages_per_rpc(struct file *file,
 
 	LPROCFS_CLIMP_CHECK(dev);
 
-	chunk_mask = ~((1 << (cli->cl_chunkbits - CFS_PAGE_SHIFT)) - 1);
+	chunk_mask = ~((1 << (cli->cl_chunkbits - PAGE_CACHE_SHIFT)) - 1);
 	/* max_pages_per_rpc must be chunk aligned */
 	val = (val + ~chunk_mask) & chunk_mask;
-	if (val == 0 || val > ocd->ocd_brw_size >> CFS_PAGE_SHIFT) {
+	if (val == 0 || val > ocd->ocd_brw_size >> PAGE_CACHE_SHIFT) {
 		LPROCFS_CLIMP_EXIT(dev);
 		return -ERANGE;
 	}

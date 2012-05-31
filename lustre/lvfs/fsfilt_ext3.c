@@ -338,7 +338,7 @@ static int fsfilt_ext3_credits_needed(int objcount, struct fsfilt_objinfo *fso,
 {
         struct super_block *sb = fso->fso_dentry->d_inode->i_sb;
         __u64 next_indir;
-        const int blockpp = 1 << (CFS_PAGE_SHIFT - sb->s_blocksize_bits);
+	const int blockpp = 1 << (PAGE_CACHE_SHIFT - sb->s_blocksize_bits);
         int nbitmaps = 0, ngdblocks;
         int needed = objcount + 1; /* inodes + superblock */
         int i, j;
@@ -782,7 +782,7 @@ static int fsfilt_ext3_add_journal_cb(struct obd_device *obd, __u64 last_rcvd,
 {
         struct fsfilt_cb_data *fcb;
 
-        OBD_SLAB_ALLOC_PTR_GFP(fcb, fcb_cache, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(fcb, fcb_cache, __GFP_IO);
         if (fcb == NULL)
                 RETURN(-ENOMEM);
 
@@ -1087,7 +1087,7 @@ int fsfilt_ext3_map_ext_inode_pages(struct inode *inode, struct page **page,
                                     int pages, unsigned long *blocks,
                                     int *created, int create)
 {
-        int blocks_per_page = CFS_PAGE_SIZE >> inode->i_blkbits;
+	int blocks_per_page = PAGE_CACHE_SIZE >> inode->i_blkbits;
         int rc = 0, i = 0;
         struct page *fp = NULL;
         int clen = 0;
@@ -1139,7 +1139,7 @@ int fsfilt_ext3_map_bm_inode_pages(struct inode *inode, struct page **page,
                                    int pages, unsigned long *blocks,
                                    int *created, int create)
 {
-        int blocks_per_page = CFS_PAGE_SIZE >> inode->i_blkbits;
+	int blocks_per_page = PAGE_CACHE_SIZE >> inode->i_blkbits;
         unsigned long *b;
         int rc = 0, i, *cr;
 
@@ -1365,7 +1365,7 @@ static int fsfilt_ext3_get_op_len(int op, struct fsfilt_objinfo *fso, int logs)
                 int i;
                 int needed = 0;
                 struct super_block *sb = fso->fso_dentry->d_inode->i_sb;
-                int blockpp = 1 << (CFS_PAGE_SHIFT - sb->s_blocksize_bits);
+		int blockpp = 1 << (PAGE_CACHE_SHIFT - sb->s_blocksize_bits);
                 int addrpp = EXT3_ADDR_PER_BLOCK(sb) * blockpp;
                 for (i = 0; i < op; i++, fso++) {
                         int nblocks = fso->fso_bufcnt * blockpp;
