@@ -1559,6 +1559,26 @@ static int mdd_iocontrol(const struct lu_env *env, struct md_device *m,
                 *mntopts = mdd->mdd_dt_conf.ddp_mntopts;
                 RETURN(0);
         }
+	case OBD_IOC_START_LFSCK: {
+		struct lfsck_start *start = karg;
+		struct md_lfsck *lfsck = &mdd->mdd_lfsck;
+		__u16 version = start->ls_version;
+
+		/* Return the kernel service version. */
+		start->ls_version = lfsck->ml_version;
+
+		/* XXX: more version check should be done in the future for
+		 *	compatibility. @len should be checked also. */
+		if (lfsck->ml_version < version)
+			RETURN(-EPROTO);
+
+		rc = mdd_lfsck_start(env, lfsck, start);
+		RETURN(rc);
+	}
+	case OBD_IOC_STOP_LFSCK: {
+		rc = mdd_lfsck_stop(env, &mdd->mdd_lfsck);
+		RETURN(rc);
+	}
         }
 
         /* Below ioctls use obd_ioctl_data */
