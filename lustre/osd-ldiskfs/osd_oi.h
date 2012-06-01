@@ -93,6 +93,11 @@ struct osd_inode_id {
 	__u32 oii_gen; /* inode generation */
 };
 
+struct osd_idmap_cache {
+	struct lu_fid		oic_fid;
+	struct osd_inode_id	oic_lid;
+};
+
 static inline void osd_id_pack(struct osd_inode_id *tgt,
 			       const struct osd_inode_id *src)
 {
@@ -131,13 +136,11 @@ static inline int osd_id_eq(const struct osd_inode_id *id0,
 
 int osd_oi_mod_init(void);
 int osd_oi_init(struct osd_thread_info *info,
-                struct osd_oi **oi_table,
-                struct dt_device *dev,
+                struct osd_device *osd,
                 struct md_device *mdev);
-void osd_oi_fini(struct osd_thread_info *info,
-                 struct osd_oi **oi_table, unsigned oi_count);
+void osd_oi_fini(struct osd_thread_info *info, struct osd_device *osd);
 
-int __osd_oi_lookup(struct osd_thread_info *info, struct osd_oi *oi,
+int __osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
 		    const struct lu_fid *fid, struct osd_inode_id *id);
 int  osd_oi_lookup(struct osd_thread_info *info, struct osd_device *dev,
                    const struct lu_fid *fid, struct osd_inode_id *id);
