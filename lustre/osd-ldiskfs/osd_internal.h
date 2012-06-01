@@ -73,10 +73,14 @@
 #include <dt_object.h>
 #include "osd_oi.h"
 #include "osd_iam.h"
+#include "osd_scrub.h"
 
 struct inode;
 
 #define OSD_COUNTERS (0)
+
+/* Lustre special inode::i_state to indicate OI scrub skip this inode. */
+#define I_LUSTRE_NOSCRUB	(1 << 31)
 
 /** Enable thandle usage statistics */
 #define OSD_THANDLE_STATS (0)
@@ -126,6 +130,55 @@ struct osd_ctxt {
 };
 #endif
 
+#define OSD_OTABLE_IT_CACHE_SIZE	128
+#define OSD_OTABLE_IT_CACHE_MASK	(~(OSD_OTABLE_IT_CACHE_SIZE - 1))
+
+struct osd_inconsistent_item {
+	/* link into osd_scrub::os_inconsistent_items,
+	 * protected by osd_scrub::os_lock. */
+	cfs_list_t	       oii_list;
+
+	/* The right FID <=> ino#/gen mapping. */
+	struct osd_idmap_cache oii_cache;
+
+	unsigned int	       oii_insert:1; /* insert or update mapping. */
+};
+
+struct osd_otable_cache {
+	struct osd_idmap_cache ooc_cache[OSD_OTABLE_IT_CACHE_SIZE];
+
+	/* Index for next cache slot to be filled. */
+	int		       ooc_producer_idx;
+
+	/* Index for next cache slot to be returned by it::next(). */
+	int		       ooc_consumer_idx;
+
+	/* How many items in ooc_cache. */
+	int		       ooc_cached_items;
+
+	/* Position for up layer LFSCK iteration pre-loading. */
+	__u32		       ooc_pos_preload;
+};
+
+struct osd_otable_it {
+	struct osd_device       *ooi_dev;
+	struct osd_otable_cache  ooi_cache;
+
+	/* For osd_otable_it_key. */
+	__u8			 ooi_key[16];
+
+	/* The following bits can be updated/checked w/o lock protection.
+	 * If more bits will be introduced in the future and need lock to
+	 * protect, please add comment. */
+	unsigned long		 ooi_used_outside:1, /* Some user out of OSD
+						      * uses the iteration. */
+				 ooi_all_cached:1, /* No more entries can be
+						    * filled into cache. */
+				 ooi_user_ready:1, /* The user out of OSD is
+						    * ready to iterate. */
+				 ooi_waiting:1; /* it::next is waiting. */
+};
+
 /*
  * osd device.
  */
@@ -149,7 +202,7 @@ struct osd_device {
         struct lu_env             od_env_for_commit;
 
         /* object index */
-        struct osd_oi            *od_oi_table;
+        struct osd_oi           **od_oi_table;
         /* total number of OI containers */
         int                       od_oi_count;
 
@@ -176,6 +229,10 @@ struct osd_device {
          * It will be initialized, using mount param.
          */
         __u32                     od_iop_mode;
+
+	cfs_mutex_t		  od_otable_mutex;
+	struct osd_otable_it	 *od_otable_it;
+	struct osd_scrub	  od_scrub;
 };
 
 /*
@@ -192,6 +249,19 @@ enum {
         LPROC_OSD_NR
 };
 #endif
+
+extern const int osd_dto_credits_noquota[];
+
+int osd_ldiskfs_read(struct inode *inode, void *buf, int size, loff_t *offs);
+int osd_ldiskfs_write_record(struct inode *inode, void *buf, int bufsize,
+                             int write_NUL, loff_t *offs, handle_t *handle);
+
+struct inode *osd_iget(struct osd_thread_info *info,
+                       struct osd_device *dev,
+                       struct osd_inode_id *id);
+struct inode *osd_iget_fid(struct osd_thread_info *info, struct osd_device *dev,
+			   struct osd_inode_id *id, struct lu_fid *fid);
+
 
 /**
  * Storage representation for fids.
@@ -331,6 +401,13 @@ struct osd_thread_info {
         char                   oti_ldp2[OSD_FID_REC_SZ];
 };
 
+extern struct lu_context_key osd_key;
+
+static inline struct osd_thread_info *osd_oti_get(const struct lu_env *env)
+{
+        return lu_context_key_get(&env->le_ctx, &osd_key);
+}
+
 #ifdef LPROCFS
 /* osd_lproc.c */
 void lprocfs_osd_init_vars(struct lprocfs_static_vars *lvars);
@@ -342,6 +419,13 @@ void osd_lprocfs_time_end(const struct lu_env *env,
 #endif
 int osd_statfs(const struct lu_env *env, struct dt_device *d,
                cfs_kstatfs_t *sfs);
+
+void osd_scrub_file_reset(struct osd_scrub *scrub, __u8 *uuid, __u64 flags);
+int osd_scrub_file_store(struct osd_scrub *scrub);
+int osd_scrub_start(struct osd_device *dev);
+int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev,
+                    struct md_device *mdev);
+void osd_scrub_cleanup(const struct lu_env *env, struct osd_device *dev);
 
 /*
  * Helper functions.
@@ -401,6 +485,32 @@ static inline journal_t *osd_journal(const struct osd_device *dev)
         return LDISKFS_SB(osd_sb(dev))->s_journal;
 }
 
+/**
+ * IAM Iterator
+ */
+static inline
+struct iam_path_descr *osd_it_ipd_get(const struct lu_env *env,
+                                      const struct iam_container *bag)
+{
+        return bag->ic_descr->id_ops->id_ipd_alloc(bag,
+                                           osd_oti_get(env)->oti_it_ipd);
+}
+ 
+static inline struct iam_path_descr *osd_idx_ipd_get(const struct lu_env *env,
+                                              const struct iam_container *bag)
+{
+        return bag->ic_descr->id_ops->id_ipd_alloc(bag,
+                                           osd_oti_get(env)->oti_idx_ipd);
+}
+
+static inline void osd_ipd_put(const struct lu_env *env,
+                        const struct iam_container *bag,
+                        struct iam_path_descr *ipd)
+{
+        bag->ic_descr->id_ops->id_ipd_free(ipd);
+}
+
+
 /*
  * Invariants, assertions.
  */
@@ -442,7 +552,7 @@ static inline struct osd_oi *osd_fid2oi(struct osd_device *osd,
         LASSERT(osd->od_oi_table != NULL && osd->od_oi_count >= 1);
         /* It can work even od_oi_count equals to 1 although it's unexpected,
          * the only reason we set it to 1 is for performance measurement */
-	return &osd->od_oi_table[osd_oi_fid2idx(osd, fid)];
+	return osd->od_oi_table[osd_oi_fid2idx(osd, fid)];
 }
 
 /* The on-disk extN format reserves inodes 0-11 for internal filesystem

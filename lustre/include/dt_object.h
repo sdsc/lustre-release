@@ -80,7 +80,7 @@ struct dt_device_param {
 enum dt_txn_op {
         DTO_INDEX_INSERT,
         DTO_INDEX_DELETE,
-        DTO_IDNEX_UPDATE,
+        DTO_INDEX_UPDATE,
         DTO_OBJECT_CREATE,
         DTO_OBJECT_DELETE,
         DTO_ATTR_SET_BASE,

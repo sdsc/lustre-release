@@ -84,7 +84,6 @@ static const char dotdot[] = "..";
 static const char remote_obj_dir[] = "REM_OBJ_DIR";
 
 static const struct lu_object_operations      osd_lu_obj_ops;
-static       struct lu_context_key            osd_key;
 static const struct dt_object_operations      osd_obj_ops;
 static const struct dt_object_operations      osd_obj_ea_ops;
 static const struct dt_body_operations        osd_body_ops;
@@ -154,11 +153,6 @@ osd_pop_ctxt(struct osd_ctxt *save)
         }
 }
 #endif
-
-static inline struct osd_thread_info *osd_oti_get(const struct lu_env *env)
-{
-        return lu_context_key_get(&env->le_ctx, &osd_key);
-}
 
 /*
  * Concurrency: doesn't matter
@@ -255,9 +249,9 @@ static int osd_get_lma(struct inode *inode, struct dentry *dentry,
 /*
  * retrieve object from backend ext fs.
  **/
-static struct inode *osd_iget(struct osd_thread_info *info,
-                              struct osd_device *dev,
-                              struct osd_inode_id *id)
+struct inode *osd_iget(struct osd_thread_info *info,
+                       struct osd_device *dev,
+                       struct osd_inode_id *id)
 {
 	struct inode *inode = NULL;
 
@@ -428,30 +422,6 @@ static void osd_object_free(const struct lu_env *env, struct lu_object *l)
 
         dt_object_fini(&obj->oo_dt);
         OBD_FREE_PTR(obj);
-}
-
-/**
- * IAM Iterator
- */
-static struct iam_path_descr *osd_it_ipd_get(const struct lu_env *env,
-                                             const struct iam_container *bag)
-{
-        return bag->ic_descr->id_ops->id_ipd_alloc(bag,
-                                           osd_oti_get(env)->oti_it_ipd);
-}
-
-static struct iam_path_descr *osd_idx_ipd_get(const struct lu_env *env,
-                                              const struct iam_container *bag)
-{
-        return bag->ic_descr->id_ops->id_ipd_alloc(bag,
-                                           osd_oti_get(env)->oti_idx_ipd);
-}
-
-static void osd_ipd_put(const struct lu_env *env,
-                        const struct iam_container *bag,
-                        struct iam_path_descr *ipd)
-{
-        bag->ic_descr->id_ops->id_ipd_free(ipd);
 }
 
 /*
@@ -946,7 +916,7 @@ static void osd_init_quota_ctxt(const struct lu_env *env, struct dt_device *d,
  * Note: we do not count into QUOTA here.
  * If we mount with --data_journal we may need more.
  */
-static const int osd_dto_credits_noquota[DTO_NR] = {
+const int osd_dto_credits_noquota[DTO_NR] = {
         /**
          * Insert/Delete.
          * INDEX_EXTRA_TRANS_BLOCKS(8) +
@@ -957,9 +927,9 @@ static const int osd_dto_credits_noquota[DTO_NR] = {
         [DTO_INDEX_INSERT]  = 16,
         [DTO_INDEX_DELETE]  = 16,
         /**
-         * Unused now
+	 * Used for OI scrub
          */
-        [DTO_IDNEX_UPDATE]  = 16,
+        [DTO_INDEX_UPDATE]  = 16,
         /**
          * Create a object. The same as create object in EXT3.
          * DATA_TRANS_BLOCKS(14) +
@@ -1017,9 +987,9 @@ static const int osd_dto_credits_quota[DTO_NR] = {
          */
         [DTO_INDEX_DELETE]  = 20,
         /**
-         * Unused now.
+         * Used for OI Scrub
          */
-        [DTO_IDNEX_UPDATE]  = 16,
+        [DTO_INDEX_UPDATE]  = 16,
         /*
          * Create a object. Same as create object in EXT3 filesystem.
          * DATA_TRANS_BLOCKS(16) +
@@ -1492,6 +1462,7 @@ static int osd_mkfile(struct osd_thread_info *info, struct osd_object *obj,
                  * NB: don't need any lock because no contention at this
                  * early stage */
                 inode->i_flags |= S_NOCMTIME;
+		inode->i_state |= I_LUSTRE_NOSCRUB;
                 obj->oo_inode = inode;
                 result = 0;
         } else
@@ -2386,8 +2357,7 @@ static int osd_ldiskfs_readlink(struct inode *inode, char *buffer, int buflen)
         return  buflen;
 }
 
-static int osd_ldiskfs_read(struct inode *inode, void *buf, int size,
-                            loff_t *offs)
+int osd_ldiskfs_read(struct inode *inode, void *buf, int size, loff_t *offs)
 {
         struct buffer_head *bh;
         unsigned long block;
@@ -3791,7 +3761,7 @@ static void osd_key_exit(const struct lu_context *ctx,
 /* type constructor/destructor: osd_type_init, osd_type_fini */
 LU_TYPE_INIT_FINI(osd, &osd_key);
 
-static struct lu_context_key osd_key = {
+struct lu_context_key osd_key = {
         .lct_tags = LCT_DT_THREAD | LCT_MD_THREAD,
         .lct_init = osd_key_init,
         .lct_fini = osd_key_fini,
@@ -3817,16 +3787,15 @@ static int osd_device_init(const struct lu_env *env, struct lu_device *d,
 
 static int osd_shutdown(const struct lu_env *env, struct osd_device *o)
 {
-        struct osd_thread_info *info = osd_oti_get(env);
         ENTRY;
+
         if (o->od_obj_area != NULL) {
                 lu_object_put(env, &o->od_obj_area->do_lu);
                 o->od_obj_area = NULL;
         }
-        if (o->od_oi_table != NULL)
-                osd_oi_fini(info, &o->od_oi_table, o->od_oi_count);
+	osd_scrub_cleanup(env, o);
 
-        RETURN(0);
+	RETURN(0);
 }
 
 static int osd_mount(const struct lu_env *env,
@@ -3908,6 +3877,7 @@ static struct lu_device *osd_device_alloc(const struct lu_env *env,
                         l->ld_ops = &osd_lu_ops;
                         o->od_dt_dev.dd_ops = &osd_dt_ops;
                         cfs_spin_lock_init(&o->od_osfs_lock);
+			cfs_mutex_init(&o->od_otable_mutex);
                         o->od_osfs_age = cfs_time_shift_64(-1000);
                         o->od_capa_hash = init_capa_hash();
                         if (o->od_capa_hash == NULL) {
@@ -3974,16 +3944,12 @@ static int osd_prepare(const struct lu_env *env,
         struct osd_thread_info *oti = osd_oti_get(env);
         struct dt_object *d;
         int result;
+	ENTRY;
 
-        ENTRY;
-        /* 1. initialize oi before any file create or file open */
-        result = osd_oi_init(oti, &osd->od_oi_table,
-                             &osd->od_dt_dev, lu2md_dev(pdev));
+	/* 1. setup scrub, including OI files initialization */
+	result = osd_scrub_setup(env, osd, lu2md_dev(pdev));
         if (result < 0)
                 RETURN(result);
-
-        LASSERT(result > 0);
-        osd->od_oi_count = result;
 
         lmi = osd->od_mount;
         lsi = s2lsi(lmi->lmi_sb);
