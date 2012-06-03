@@ -453,7 +453,9 @@ struct ptlrpc_service *ptlrpc_init_svc_conf(struct ptlrpc_service_conf *c,
                                c->psc_watchdog_factor,
                                h, name, proc_entry,
                                prntfn, c->psc_min_threads, c->psc_max_threads,
-                               threadname, c->psc_ctx_tags, NULL);
+			       threadname, c->psc_ctx_tags,
+			       PTLRPC_NRS_TYPE_COMMON, PTLRPC_NRS_QUEUE_REG,
+			       NULL);
 }
 EXPORT_SYMBOL(ptlrpc_init_svc_conf);
 
@@ -481,17 +483,22 @@ static void ptlrpc_at_timer(unsigned long castmeharder)
  * \a proc_entry - entry in the /proc tree for sttistics reporting
  * \a min_threads \a max_threads - min/max number of service threads to start.
  * \a threadname should be 11 characters or less - 3 will be added on
+ * \a has_hp - the service has an HP request queue, [boolean]
  * \a hp_handler - function to determine priority of the request, also called
  *                 on every new request.
+ * TODO: Possibly remove \a queue if LU-1239 lands, and infer the value from the
+ * presence or absence of \a svc_hpreq_handler_t
  */
 struct ptlrpc_service *
 ptlrpc_init_svc(int nbufs, int bufsize, int max_req_size, int max_reply_size,
                 int req_portal, int rep_portal, int watchdog_factor,
                 svc_handler_t handler, char *name,
                 cfs_proc_dir_entry_t *proc_entry,
-                svc_req_printfn_t svcreq_printfn,
-                int min_threads, int max_threads,
-                char *threadname, __u32 ctx_tags,
+		svc_req_printfn_t svcreq_printfn,
+		int min_threads, int max_threads,
+		char *threadname, __u32 ctx_tags,
+		enum ptlrpc_nrs_pol_type supp,
+		enum ptlrpc_nrs_queue_type queue,
                 svc_hpreq_handler_t hp_handler)
 {
         int                     rc;
@@ -500,9 +507,10 @@ ptlrpc_init_svc(int nbufs, int bufsize, int max_req_size, int max_reply_size,
         unsigned int            size, index;
         ENTRY;
 
-        LASSERT (nbufs > 0);
-        LASSERT (bufsize >= max_req_size + SPTLRPC_MAX_PAYLOAD);
-        LASSERT (ctx_tags != 0);
+	LASSERT(nbufs > 0);
+	LASSERT(bufsize >= max_req_size + SPTLRPC_MAX_PAYLOAD);
+	LASSERT(ctx_tags != 0);
+	LASSERT(ergo(hp_handler != NULL, queue != PTLRPC_NRS_QUEUE_REG));
 
         OBD_ALLOC_PTR(service);
         if (service == NULL)
@@ -531,6 +539,7 @@ ptlrpc_init_svc(int nbufs, int bufsize, int max_req_size, int max_reply_size,
         service->srv_threads_max = max_threads;
         service->srv_thread_name = threadname;
         service->srv_ctx_tags = ctx_tags;
+	service->srv_nrs_supported = supp;
         service->srv_hpreq_handler = hp_handler;
         service->srv_hpreq_ratio = PTLRPC_SVC_HP_RATIO;
         service->srv_hpreq_count = 0;
@@ -539,8 +548,10 @@ ptlrpc_init_svc(int nbufs, int bufsize, int max_req_size, int max_reply_size,
         rc = LNetSetLazyPortal(service->srv_req_portal);
         LASSERT (rc == 0);
 
-        CFS_INIT_LIST_HEAD(&service->srv_request_queue);
-        CFS_INIT_LIST_HEAD(&service->srv_request_hpq);
+	rc = ptlrpc_server_nrs_setup(service, queue);
+	if (rc != 0)
+		GOTO(failed, NULL);
+
         CFS_INIT_LIST_HEAD(&service->srv_idle_rqbds);
         CFS_INIT_LIST_HEAD(&service->srv_active_rqbds);
         CFS_INIT_LIST_HEAD(&service->srv_history_rqbds);
@@ -742,17 +753,21 @@ void ptlrpc_server_drop_request(struct ptlrpc_request *req)
  * the request. should be called after we finished handling the request.
  */
 static void ptlrpc_server_finish_request(struct ptlrpc_service *svc,
-                                         struct ptlrpc_request *req)
+					 struct ptlrpc_request *req)
 {
-        ptlrpc_hpreq_fini(req);
+	ptlrpc_hpreq_fini(req);
 
-        cfs_spin_lock(&svc->srv_rq_lock);
-        svc->srv_n_active_reqs--;
-        if (req->rq_hp)
-                svc->srv_n_active_hpreq--;
-        cfs_spin_unlock(&svc->srv_rq_lock);
+	cfs_spin_lock(&svc->srv_rq_lock);
 
-        ptlrpc_server_drop_request(req);
+	ptlrpc_nrs_req_stop_nolock(req);
+	svc->srv_n_active_reqs--;
+	if (req->rq_hp)
+		svc->srv_n_active_hpreq--;
+
+	cfs_spin_unlock(&svc->srv_rq_lock);
+
+	ptlrpc_nrs_req_finalize(req);
+	ptlrpc_server_drop_request(req);
 }
 
 /**
@@ -1248,6 +1263,7 @@ static int ptlrpc_hpreq_init(struct ptlrpc_service *svc,
 static void ptlrpc_hpreq_fini(struct ptlrpc_request *req)
 {
         ENTRY;
+
         if (req->rq_export && req->rq_ops) {
                 /* refresh lock timeout again so that client has more
                  * room to send lock cancel RPC. */
@@ -1262,51 +1278,17 @@ static void ptlrpc_hpreq_fini(struct ptlrpc_request *req)
 }
 
 /**
- * Make the request a high priority one.
- *
- * All the high priority requests are queued in a separate FIFO
- * ptlrpc_service::srv_request_hpq list which is parallel to
- * ptlrpc_service::srv_request_queue list but has a higher priority
- * for handling.
- *
- * \see ptlrpc_server_handle_request().
- */
-static void ptlrpc_hpreq_reorder_nolock(struct ptlrpc_service *svc,
-                                        struct ptlrpc_request *req)
-{
-        ENTRY;
-        LASSERT(svc != NULL);
-        cfs_spin_lock(&req->rq_lock);
-        if (req->rq_hp == 0) {
-                int opc = lustre_msg_get_opc(req->rq_reqmsg);
-
-                /* Add to the high priority queue. */
-                cfs_list_move_tail(&req->rq_list, &svc->srv_request_hpq);
-                req->rq_hp = 1;
-                if (opc != OBD_PING)
-                        DEBUG_REQ(D_RPCTRACE, req, "high priority req");
-        }
-        cfs_spin_unlock(&req->rq_lock);
-        EXIT;
-}
-
-/**
- * \see ptlrpc_hpreq_reorder_nolock
+ * \see ptlrpc_server_hpreq_add_nolock
  */
 void ptlrpc_hpreq_reorder(struct ptlrpc_request *req)
 {
-        struct ptlrpc_service *svc = req->rq_rqbd->rqbd_service;
-        ENTRY;
+	ENTRY;
 
-        cfs_spin_lock(&svc->srv_rq_lock);
-        /* It may happen that the request is already taken for the processing
-         * but still in the export list, or the request is not in the request
-         * queue but in the export list already, do not add it into the
-         * HP list. */
-        if (!cfs_list_empty(&req->rq_list))
-                ptlrpc_hpreq_reorder_nolock(svc, req);
-        cfs_spin_unlock(&svc->srv_rq_lock);
-        EXIT;
+	/* It may happen that the request is already taken for the processing
+	 * but still in the export list, do not re-add it into the HP list. */
+	ptlrpc_nrs_req_prioritize(req);
+
+	EXIT;
 }
 
 /** Check if the request is a high priority one. */
@@ -1322,28 +1304,26 @@ static int ptlrpc_server_hpreq_check(struct ptlrpc_service *svc,
         RETURN(ptlrpc_hpreq_init(svc, req));
 }
 
-/** Check if a request is a high priority one. */
+/** Add a request for procssing later. */
 static int ptlrpc_server_request_add(struct ptlrpc_service *svc,
-                                     struct ptlrpc_request *req)
+				     struct ptlrpc_request *req)
 {
-        int rc;
-        ENTRY;
+	int rc;
+	ENTRY;
 
-        rc = ptlrpc_server_hpreq_check(svc, req);
-        if (rc < 0)
-                RETURN(rc);
+	rc = ptlrpc_server_hpreq_check(svc, req);
+	if (rc < 0)
+		RETURN(rc);
 
-        cfs_spin_lock(&svc->srv_rq_lock);
+	ptlrpc_nrs_req_add(svc, req, !!rc);
 
-        if (rc)
-                ptlrpc_hpreq_reorder_nolock(svc, req);
-        else
-                cfs_list_add_tail(&req->rq_list,
-                                  &svc->srv_request_queue);
+	RETURN(0);
+}
 
-        cfs_spin_unlock(&svc->srv_rq_lock);
-
-        RETURN(0);
+static void ptlrpc_server_request_del_nolock(struct ptlrpc_service *svc,
+					     struct ptlrpc_request *req)
+{
+	ptlrpc_nrs_req_del_nolock(req);
 }
 
 /**
@@ -1353,20 +1333,23 @@ static int ptlrpc_server_request_add(struct ptlrpc_service *svc,
  */
 static int ptlrpc_server_allow_high(struct ptlrpc_service *svc, int force)
 {
-        if (force)
-                return 1;
+	if (!ptlrpc_nrs_svc_has_hp(svc))
+		return 0;
 
-        if (svc->srv_n_active_reqs >= svc->srv_threads_running - 1)
-                return 0;
+	if (force)
+		return 1;
 
-        return cfs_list_empty(&svc->srv_request_queue) ||
-               svc->srv_hpreq_count < svc->srv_hpreq_ratio;
+	if (svc->srv_n_active_reqs >= svc->srv_threads_running - 1)
+		return 0;
+
+	return !ptlrpc_nrs_req_pending_nolock(svc, 0) ||
+	       svc->srv_hpreq_count < svc->srv_hpreq_ratio;
 }
 
 static int ptlrpc_server_high_pending(struct ptlrpc_service *svc, int force)
 {
-        return ptlrpc_server_allow_high(svc, force) &&
-               !cfs_list_empty(&svc->srv_request_hpq);
+	return ptlrpc_server_allow_high(svc, force) &&
+	       ptlrpc_nrs_req_pending_nolock(svc, 1);
 }
 
 /**
@@ -1396,8 +1379,8 @@ static int ptlrpc_server_allow_normal(struct ptlrpc_service *svc, int force)
 
 static int ptlrpc_server_normal_pending(struct ptlrpc_service *svc, int force)
 {
-        return ptlrpc_server_allow_normal(svc, force) &&
-               !cfs_list_empty(&svc->srv_request_queue);
+	return ptlrpc_server_allow_normal(svc, force) &&
+	       ptlrpc_nrs_req_pending_nolock(svc, 0);
 }
 
 /**
@@ -1423,24 +1406,21 @@ ptlrpc_server_request_pending(struct ptlrpc_service *svc, int force)
 static struct ptlrpc_request *
 ptlrpc_server_request_get(struct ptlrpc_service *svc, int force)
 {
-        struct ptlrpc_request *req;
-        ENTRY;
+	struct ptlrpc_request *req;
+	ENTRY;
 
-        if (ptlrpc_server_high_pending(svc, force)) {
-                req = cfs_list_entry(svc->srv_request_hpq.next,
-                                     struct ptlrpc_request, rq_list);
-                svc->srv_hpreq_count++;
-                RETURN(req);
+	if (ptlrpc_server_high_pending(svc, force)) {
+		req = ptlrpc_nrs_req_poll_nolock(svc, 1);
+		svc->srv_hpreq_count++;
+		RETURN(req);
+	}
 
-        }
-
-        if (ptlrpc_server_normal_pending(svc, force)) {
-                req = cfs_list_entry(svc->srv_request_queue.next,
-                                     struct ptlrpc_request, rq_list);
-                svc->srv_hpreq_count = 0;
-                RETURN(req);
-        }
-        RETURN(NULL);
+	if (ptlrpc_server_normal_pending(svc, force)) {
+		req = ptlrpc_nrs_req_poll_nolock(svc, 0);
+		svc->srv_hpreq_count = 0;
+		RETURN(req);
+	}
+	RETURN(NULL);
 }
 
 /**
@@ -1572,6 +1552,7 @@ ptlrpc_server_handle_req_in(struct ptlrpc_service *svc)
         }
 
         ptlrpc_at_add_timed(req);
+	ptlrpc_nrs_req_initialize(svc, req);
 
         /* Move it over to the request processing queue */
         rc = ptlrpc_server_request_add(svc, req);
@@ -1642,11 +1623,12 @@ ptlrpc_server_handle_request(struct ptlrpc_service *svc,
                 }
         }
 
-        cfs_list_del_init(&request->rq_list);
+	ptlrpc_server_request_del_nolock(svc, request);
         svc->srv_n_active_reqs++;
         if (request->rq_hp)
                 svc->srv_n_active_hpreq++;
 
+	ptlrpc_nrs_req_start_nolock(request);
         cfs_spin_unlock(&svc->srv_rq_lock);
 
         ptlrpc_rqphase_move(request, RQ_PHASE_INTERPRET);
@@ -1739,7 +1721,7 @@ put_conn:
 
         cfs_gettimeofday(&work_end);
         timediff = cfs_timeval_sub(&work_end, &work_start, NULL);
-        CDEBUG(D_RPCTRACE, "Handled RPC pname:cluuid+ref:pid:xid:nid:opc "
+	CDEBUG(D_RPCTRACE, "Handled RPC pname:cluuid+ref:pid:xid:nid:opc:epoch "
                "%s:%s+%d:%d:x"LPU64":%s:%d Request procesed in "
                "%ldus (%ldus total) trans "LPU64" rc %d/%d\n",
                 cfs_curproc_comm(),
@@ -2633,8 +2615,6 @@ int ptlrpc_unregister_service(struct ptlrpc_service *service)
         cfs_list_del_init (&service->srv_list);
         cfs_spin_unlock (&ptlrpc_all_services_lock);
 
-        ptlrpc_lprocfs_unregister_service(service);
-
         /* All history will be culled when the next request buffer is
          * freed */
         service->srv_max_history_rqbds = 0;
@@ -2707,7 +2687,7 @@ int ptlrpc_unregister_service(struct ptlrpc_service *service)
                 struct ptlrpc_request *req;
 
                 req = ptlrpc_server_request_get(service, 1);
-                cfs_list_del(&req->rq_list);
+		ptlrpc_server_request_del_nolock(service, req);
                 service->srv_n_active_reqs++;
                 ptlrpc_server_finish_request(service, req);
         }
@@ -2715,6 +2695,11 @@ int ptlrpc_unregister_service(struct ptlrpc_service *service)
         LASSERT(service->srv_n_active_reqs == 0);
         LASSERT(service->srv_n_history_rqbds == 0);
         LASSERT(cfs_list_empty(&service->srv_active_rqbds));
+
+	ptlrpc_server_nrs_cleanup(service);
+
+	/* XXX: Moving this here may potentially introduce other issues */
+	ptlrpc_lprocfs_unregister_service(service);
 
         /* Now free all the request buffers since nothing references them
          * any more... */
@@ -2778,12 +2763,9 @@ int ptlrpc_service_health_check(struct ptlrpc_service *svc)
         }
 
         /* How long has the next entry been waiting? */
-        if (cfs_list_empty(&svc->srv_request_queue))
-                request = cfs_list_entry(svc->srv_request_hpq.next,
-                                         struct ptlrpc_request, rq_list);
-        else
-                request = cfs_list_entry(svc->srv_request_queue.next,
-                                         struct ptlrpc_request, rq_list);
+	request = ptlrpc_nrs_req_poll_nolock(svc, 1);
+	if (request == NULL)
+		request = ptlrpc_nrs_req_poll_nolock(svc, 0);
         timediff = cfs_timeval_sub(&right_now, &request->rq_arrival_time, NULL);
         cfs_spin_unlock(&svc->srv_rq_lock);
 

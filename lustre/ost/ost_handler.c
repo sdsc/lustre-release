@@ -2443,7 +2443,8 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
                                 ost_handle, LUSTRE_OSS_NAME,
                                 obd->obd_proc_entry, target_print_req,
                                 oss_min_threads, oss_max_threads,
-                                "ll_ost", LCT_DT_THREAD, NULL);
+				"ll_ost", LCT_DT_THREAD, PTLRPC_NRS_TYPE_COMMON,
+				PTLRPC_NRS_QUEUE_REG, NULL);
         if (ost->ost_service == NULL) {
                 CERROR("failed to start service\n");
                 GOTO(out_lprocfs, rc = -ENOMEM);
@@ -2472,7 +2473,9 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
                                 ost_handle, "ost_create",
                                 obd->obd_proc_entry, target_print_req,
                                 oss_min_create_threads, oss_max_create_threads,
-                                "ll_ost_creat", LCT_DT_THREAD, NULL);
+				"ll_ost_creat", LCT_DT_THREAD,
+				PTLRPC_NRS_TYPE_COMMON, PTLRPC_NRS_QUEUE_REG,
+				NULL);
         if (ost->ost_create_service == NULL) {
                 CERROR("failed to start OST create service\n");
                 GOTO(out_service, rc = -ENOMEM);
@@ -2489,7 +2492,8 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
                                 ost_handle, "ost_io",
                                 obd->obd_proc_entry, target_print_req,
                                 oss_min_threads, oss_max_threads,
-                                "ll_ost_io", LCT_DT_THREAD, ost_hpreq_handler);
+				"ll_ost_io", LCT_DT_THREAD, PTLRPC_NRS_TYPE_ALL,
+				PTLRPC_NRS_QUEUE_BOTH, ost_hpreq_handler);
         if (ost->ost_io_service == NULL) {
                 CERROR("failed to start OST I/O service\n");
                 GOTO(out_create, rc = -ENOMEM);
