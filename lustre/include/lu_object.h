@@ -638,6 +638,7 @@ struct lu_site {
         cfs_list_t                ls_ld_linkage;
         cfs_spinlock_t            ls_ld_lock;
 
+
         /**
          * lu_site stats
          */

@@ -2568,7 +2568,9 @@ static int ldlm_setup(void)
                                 ldlm_svc_proc_dir, NULL,
                                 ldlm_min_threads, ldlm_max_threads,
                                 "ldlm_cb",
-                                LCT_MD_THREAD|LCT_DT_THREAD, NULL);
+				LCT_MD_THREAD|LCT_DT_THREAD,
+				PTLRPC_NRS_TYPE_COMMON, PTLRPC_NRS_QUEUE_REG,
+				NULL);
 
         if (!ldlm_state->ldlm_cb_service) {
                 CERROR("failed to start service\n");
@@ -2585,6 +2587,7 @@ static int ldlm_setup(void)
                                 ldlm_min_threads, ldlm_max_threads,
                                 "ldlm_cn",
                                 LCT_MD_THREAD|LCT_DT_THREAD|LCT_CL_THREAD,
+				PTLRPC_NRS_TYPE_COMMON, PTLRPC_NRS_QUEUE_BOTH,
                                 ldlm_hpreq_handler);
 
         if (!ldlm_state->ldlm_cancel_service) {
