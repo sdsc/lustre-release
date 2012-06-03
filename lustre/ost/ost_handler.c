@@ -2454,6 +2454,10 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 			.tc_nthrs_user		= oss_num_threads,
 			.tc_ctx_tags		= LCT_DT_THREAD,
 		},
+		.psc_nrs		= {
+			.nc_supp		= PTLRPC_NRS_TYPE_COMMON,
+			.nc_type		= PTLRPC_NRS_QUEUE_REG,
+		},
 		.psc_ops		= {
 			.so_req_handler		= ost_handle,
 			.so_req_printer		= target_print_req,
@@ -2485,6 +2489,10 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 			.tc_nthrs_max		= OSS_CR_THREADS_MAX,
 			.tc_nthrs_user		= oss_num_create_threads,
 			.tc_ctx_tags		= LCT_DT_THREAD,
+		},
+		.psc_nrs		= {
+			.nc_supp		= PTLRPC_NRS_TYPE_COMMON,
+			.nc_type		= PTLRPC_NRS_QUEUE_REG,
 		},
 		.psc_ops		= {
 			.so_req_handler		= ost_handle,
@@ -2518,6 +2526,10 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 			.tc_nthrs_user		= oss_num_threads,
 			.tc_cpu_affinity	= 1,
 			.tc_ctx_tags		= LCT_DT_THREAD,
+		},
+		.psc_nrs		= {
+			.nc_supp		= PTLRPC_NRS_TYPE_ALL,
+			.nc_type		= PTLRPC_NRS_QUEUE_BOTH,
 		},
 		.psc_ops		= {
 			.so_thr_init		= ost_thread_init,

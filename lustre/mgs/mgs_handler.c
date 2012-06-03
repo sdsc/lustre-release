@@ -255,6 +255,10 @@ static int mgs_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 			.tc_nthrs_max		= MGS_THREADS_AUTO_MAX,
 			.tc_ctx_tags		= LCT_MD_THREAD,
 		},
+		.psc_nrs		= {
+			.nc_supp		= PTLRPC_NRS_TYPE_COMMON,
+			.nc_type		= PTLRPC_NRS_QUEUE_BOTH,
+		},
 		.psc_ops		= {
 			.so_req_handler		= mgs_handle,
 			.so_req_printer		= target_print_req,

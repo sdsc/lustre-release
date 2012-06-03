@@ -83,6 +83,41 @@ void ptlrpc_lprocfs_do_request_stat (struct ptlrpc_request *req,
 #define ptlrpc_lprocfs_do_request_stat(params...) do{}while(0)
 #endif /* LPROCFS */
 
+/* NRS */
+static inline int
+ptlrpc_nrs_svc_has_hp(struct ptlrpc_service *svc)
+{
+	return svc->srv_hpreq_nrs != NULL;
+}
+
+static inline struct ptlrpc_nrs *
+ptlrpc_server_nrs(struct ptlrpc_service *svc, __u8 hp)
+{
+	/* Probably safe to remove this LASSERT() */
+	LASSERT(ergo(hp, ptlrpc_nrs_svc_has_hp(svc)));
+	return hp ? svc->srv_hpreq_nrs : &svc->srv_req_nrs;
+}
+
+int ptlrpc_server_nrs_setup(struct ptlrpc_service *svc,
+			    enum ptlrpc_nrs_queue_type queue);
+void ptlrpc_server_nrs_cleanup(struct ptlrpc_service *svc);
+void ptlrpc_nrs_req_initialize(struct ptlrpc_service *svc,
+			       struct ptlrpc_request *req);
+void ptlrpc_nrs_req_finalize(struct ptlrpc_request *req);
+void ptlrpc_nrs_req_add(struct ptlrpc_service *svc,
+			struct ptlrpc_request *req, __u8 hp);
+void ptlrpc_nrs_req_del_nolock(struct ptlrpc_request *req);
+int ptlrpc_nrs_req_pending_nolock(struct ptlrpc_service *svc, __u8 hp);
+struct ptlrpc_request *ptlrpc_nrs_req_poll_nolock(struct ptlrpc_service *svc,
+						  __u8 hp);
+void ptlrpc_nrs_req_start_nolock(struct ptlrpc_request *req);
+void ptlrpc_nrs_req_stop_nolock(struct ptlrpc_request *req);
+void ptlrpc_nrs_req_prioritize(struct ptlrpc_request *req);
+int ptlrpc_nrs_policy_control(struct ptlrpc_service *svc,
+			      enum ptlrpc_nrs_queue_type queue,
+			      enum ptlrpc_nrs_pol_type type,
+			      enum ptlrpc_nrs_ctl opc, void *arg);
+
 /* recovd_thread.c */
 
 int ptlrpc_expire_one_request(struct ptlrpc_request *req, int async_unlink);
