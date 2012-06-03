@@ -245,7 +245,8 @@ static int mgs_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
                                 mgs_handle, LUSTRE_MGS_NAME,
                                 obd->obd_proc_entry, target_print_req,
                                 MGS_THREADS_AUTO_MIN, MGS_THREADS_AUTO_MAX,
-                                "ll_mgs", LCT_MD_THREAD, NULL);
+				"ll_mgs", LCT_MD_THREAD, PTLRPC_NRS_TYPE_COMMON,
+				PTLRPC_NRS_QUEUE_BOTH, NULL);
 
         if (!mgs->mgs_service) {
                 CERROR("failed to start service\n");

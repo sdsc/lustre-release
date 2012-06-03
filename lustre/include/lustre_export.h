@@ -249,6 +249,8 @@ struct obd_export {
                                   /* client timed out and tried to reconnect,
                                    * but couldn't because of active rpcs */
                                   exp_abort_active_req:1;
+	nrs_crr_export_t	  exp_nrs_res;
+	nrs_crr_export_t	  exp_nrs_res_hp;
         /* also protected by exp_lock */
         enum lustre_sec_part      exp_sp_peer;
         struct sptlrpc_flavor     exp_flvr;             /* current */
