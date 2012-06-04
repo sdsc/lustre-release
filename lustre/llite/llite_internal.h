@@ -266,6 +266,9 @@ struct ll_inode_info {
          */
 	bool                            lli_has_smd;
         struct cl_object               *lli_clob;
+
+	/* mutex to request for layout lock exclusively. */
+	cfs_mutex_t                     lli_layout_mutex;
 };
 
 /*
@@ -387,6 +390,7 @@ enum stats_track_type {
 #define LL_SBI_64BIT_HASH      0x4000 /* support 64-bits dir hash/offset */
 #define LL_SBI_AGL_ENABLED     0x8000 /* enable agl */
 #define LL_SBI_VERBOSE        0x10000 /* verbose mount/umount */
+#define LL_SBI_LAYOUT_LOCK    0x20000 /* layout lock support */
 
 /* default value for ll_sb_info->contention_time */
 #define SBI_DEFAULT_CONTENTION_SECONDS     60
