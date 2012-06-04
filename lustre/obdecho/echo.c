@@ -646,24 +646,21 @@ void echo_persistent_pages_fini(void)
 
 int echo_persistent_pages_init(void)
 {
-        cfs_page_t *pg;
-        int          i;
+	cfs_page_t *pg;
+	int          i;
 
-        for (i = 0; i < ECHO_PERSISTENT_PAGES; i++) {
-                int gfp_mask = (i < ECHO_PERSISTENT_PAGES/2) ?
-                        CFS_ALLOC_STD : CFS_ALLOC_HIGHUSER;
+	for (i = 0; i < ECHO_PERSISTENT_PAGES; i++) {
+		OBD_PAGE_ALLOC(pg, CFS_ALLOC_STD);
+		if (pg == NULL) {
+			echo_persistent_pages_fini();
+			return(-ENOMEM);
+		}
 
-                OBD_PAGE_ALLOC(pg, gfp_mask);
-                if (pg == NULL) {
-                        echo_persistent_pages_fini ();
-                        return (-ENOMEM);
-                }
+		memset(cfs_kmap(pg), 0, CFS_PAGE_SIZE);
+		cfs_kunmap(pg);
 
-                memset (cfs_kmap (pg), 0, CFS_PAGE_SIZE);
-                cfs_kunmap (pg);
+		echo_persistent_pages[i] = pg;
+	}
 
-                echo_persistent_pages[i] = pg;
-        }
-
-        return (0);
+	return (0);
 }

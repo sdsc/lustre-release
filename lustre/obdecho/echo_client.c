@@ -762,8 +762,11 @@ static struct lu_device *echo_device_alloc(const struct lu_env *env,
         ENTRY;
 
         OBD_ALLOC_PTR(ed);
-        if (ed == NULL)
-                GOTO(out, rc = -ENOMEM);
+        if (ed == NULL) {
+		CERROR("%s: can not alloc echo device\n",
+			lustre_cfg_string(cfg, 0));
+		GOTO(out, rc = -ENOMEM);
+	}
 
         cleanup = 1;
         cd = &ed->ed_cl;
@@ -2983,7 +2986,9 @@ int echo_client_init(void)
                                          &echo_device_type);
                 if (rc)
                         lu_kmem_fini(echo_caches);
-        }
+	} else {
+		CERROR("init lu_kmem error: rc = %d\n", rc); 
+	}
         return rc;
 }
 
@@ -3007,9 +3012,11 @@ static int __init obdecho_init(void)
         lprocfs_echo_init_vars(&lvars);
 
 # ifdef HAVE_SERVER_SUPPORT
-        rc = echo_persistent_pages_init();
-        if (rc != 0)
-                goto failed_0;
+	rc = echo_persistent_pages_init();
+	if (rc != 0) {
+		CERROR("init persistent pages failed: rc = %d\n", rc);
+		goto failed_0;
+	}
 
         rc = class_register_type(&echo_obd_ops, NULL, lvars.module_vars,
                                  LUSTRE_ECHO_NAME, NULL);
