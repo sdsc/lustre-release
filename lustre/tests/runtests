@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # Script which does some basic tests to ensure we haven't regressed.
 # Probably a good idea to run this before doing any checkins.
@@ -67,10 +67,12 @@ mkdir $DST || error "can't mkdir $DST" 10
 FILES=$TMP/runtests.files
 # use "NUL" instead of newline as filename terminator, bug 19702 
 find $RUNTESTS_SRC -type f -mtime +1 | head -n $COUNT | tr '\n' '\0' > $FILES
-[ -s "$FILES" ] || error "$RUNTESTS_SRC contains only files modifed less than 2 days ago"
+[ -s "$FILES" ] ||
+	error "$RUNTESTS_SRC contains only files modifed less than 2 days ago"
 
-log "copying files from $RUNTESTS_SRC to $DST$RUNTESTS_SRC at `date`"
-tar cf - --null --files-from $FILES | tar xvf - -C $DST > /dev/null || error "copying $RUNTESTS_SRC" 11
+log "copying $COUNT files from $RUNTESTS_SRC to $DST$RUNTESTS_SRC at `date`"
+tar cf - --null --files-from $FILES | tar xvf - -C $DST > /dev/null ||
+	error "copying $RUNTESTS_SRC" 11
 
 log "comparing newly copied files at `date`"
 
