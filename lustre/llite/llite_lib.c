@@ -215,7 +215,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                                   OBD_CONNECT_RMT_CLIENT | OBD_CONNECT_VBR    |
                                   OBD_CONNECT_FULL20   | OBD_CONNECT_64BITHASH|
 				  OBD_CONNECT_EINPROGRESS |
-				  OBD_CONNECT_JOBSTATS;
+				  OBD_CONNECT_JOBSTATS | OBD_CONNECT_LAYOUTLOCK;
 
         if (sbi->ll_flags & LL_SBI_SOM_PREVIEW)
                 data->ocd_connect_flags |= OBD_CONNECT_SOM;
@@ -371,6 +371,11 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                 sbi->ll_md_brw_size = data->ocd_brw_size;
         else
                 sbi->ll_md_brw_size = CFS_PAGE_SIZE;
+
+	if (data->ocd_connect_flags & OBD_CONNECT_LAYOUTLOCK) {
+		LCONSOLE_INFO("Layout lock feature supported.\n");
+		sbi->ll_flags |= LL_SBI_LAYOUT_LOCK;
+	}
 
         obd = class_name2obd(dt);
         if (!obd) {
@@ -902,6 +907,7 @@ void ll_lli_init(struct ll_inode_info *lli)
                 CFS_INIT_LIST_HEAD(&lli->lli_agl_list);
                 lli->lli_agl_index = 0;
         }
+	cfs_mutex_init(&lli->lli_layout_mutex);
 }
 
 static inline int ll_bdi_register(struct backing_dev_info *bdi)
@@ -1607,7 +1613,7 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
 		 * but lov raid0 is not setup yet and parallel e.g.
 		 * glimpse would try to use uninitialized lov */
 		if (cl_file_inode_init(inode, md) == 0)
-			lli->lli_has_smd = true;
+			lli->lli_has_smd = lsm != NULL;
 		cfs_mutex_unlock(&lli->lli_och_mutex);
 		lli->lli_maxbytes = lsm->lsm_maxbytes;
 		if (lli->lli_maxbytes > MAX_LFS_FILESIZE)
@@ -2048,6 +2054,7 @@ int ll_prep_inode(struct inode **inode,
 {
         struct ll_sb_info *sbi = NULL;
         struct lustre_md md;
+	__u64 ibits;
         int rc;
         ENTRY;
 
@@ -2085,6 +2092,12 @@ int ll_prep_inode(struct inode **inode,
                         GOTO(out, rc);
                 }
         }
+
+	/* sanity check for LAYOUT lock. */
+	ibits = MDS_INODELOCK_LAYOUT;
+	if (S_ISREG(md.body->mode) && sbi->ll_flags & LL_SBI_LAYOUT_LOCK &&
+	    md.lsm != NULL && !ll_have_md_lock(*inode, &ibits, LCK_MINMODE))
+		CERROR("inode %p, layout lock is not granted.\n", inode);
 
 out:
         md_free_lustre_md(sbi->ll_md_exp, &md);
