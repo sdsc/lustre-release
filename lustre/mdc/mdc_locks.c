@@ -437,7 +437,8 @@ static struct ptlrpc_request *mdc_intent_getattr_pack(struct obd_export *exp,
         RETURN(req);
 }
 
-static struct ptlrpc_request *ldlm_enqueue_pack(struct obd_export *exp)
+static struct ptlrpc_request *ldlm_enqueue_pack(struct obd_export *exp,
+						int lvb_len)
 {
         struct ptlrpc_request *req;
         int rc;
@@ -446,6 +447,12 @@ static struct ptlrpc_request *ldlm_enqueue_pack(struct obd_export *exp)
         req = ptlrpc_request_alloc(class_exp2cliimp(exp), &RQF_LDLM_ENQUEUE);
         if (req == NULL)
                 RETURN(ERR_PTR(-ENOMEM));
+
+	if (lvb_len > 0) {
+		req_capsule_extend(&req->rq_pill, &RQF_LDLM_ENQUEUE_LVB);
+		req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER,
+				     lvb_len);
+	}
 
         rc = ldlm_prep_enqueue_req(exp, req, NULL, 0);
         if (rc) {
@@ -542,6 +549,8 @@ static int mdc_finish_enqueue(struct obd_export *exp,
                         mdc_set_open_replay_data(NULL, NULL, req);
                 }
 
+		/* TODO: check LAYOUT lock is returned along with EA */
+
                 if ((body->valid & (OBD_MD_FLDIREA | OBD_MD_FLEASIZE)) != 0) {
                         void *eadata;
 
@@ -637,6 +646,8 @@ int mdc_enqueue(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
                             { .l_inodebits = { MDS_INODELOCK_LOOKUP } };
         static const ldlm_policy_data_t update_policy =
                             { .l_inodebits = { MDS_INODELOCK_UPDATE } };
+        static const ldlm_policy_data_t layout_policy =
+                            { .l_inodebits = { MDS_INODELOCK_LAYOUT } };
         ldlm_policy_data_t const *policy = &lookup_policy;
         int                    generation, resends = 0;
         struct ldlm_reply     *lockrep;
@@ -647,10 +658,13 @@ int mdc_enqueue(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
 
         fid_build_reg_res_name(&op_data->op_fid1, &res_id);
 
-        if (it)
-                saved_flags |= LDLM_FL_HAS_INTENT;
-        if (it && it->it_op & (IT_UNLINK | IT_GETATTR | IT_READDIR))
-                policy = &update_policy;
+        if (it) {
+		saved_flags |= LDLM_FL_HAS_INTENT;
+        	if (it->it_op & (IT_UNLINK | IT_GETATTR | IT_READDIR))
+			policy = &update_policy;
+		else if (it->it_op & IT_LAYOUT)
+			policy = &layout_policy;
+	}
 
         LASSERT(reqp == NULL);
 
@@ -673,11 +687,14 @@ resend:
                 lmm = NULL;
         } else if (it->it_op & IT_UNLINK)
                 req = mdc_intent_unlink_pack(exp, it, op_data);
-        else if (it->it_op & (IT_GETATTR | IT_LOOKUP | IT_LAYOUT))
+        else if (it->it_op & (IT_GETATTR | IT_LOOKUP))
                 req = mdc_intent_getattr_pack(exp, it, op_data);
         else if (it->it_op == IT_READDIR)
-                req = ldlm_enqueue_pack(exp);
-        else {
+                req = ldlm_enqueue_pack(exp, 0);
+        else if (it->it_op == IT_LAYOUT) {
+		/* reload lmmsize as lvb_len for IT_LAYOUT */
+                req = ldlm_enqueue_pack(exp, lmmsize);
+        } else {
                 LBUG();
                 RETURN(-EINVAL);
         }

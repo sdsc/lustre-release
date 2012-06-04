@@ -224,7 +224,8 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 
                 LASSERT(lock->l_flags & LDLM_FL_CANCELING);
                 /* For OPEN locks we differentiate between lock modes - CR, CW. PR - bug 22891 */
-                if (bits & (MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE))
+                if (bits & (MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE |
+			    MDS_INODELOCK_LAYOUT))
                         ll_have_md_lock(inode, &bits, LCK_MINMODE);
 
                 if (bits & MDS_INODELOCK_OPEN)
@@ -257,6 +258,11 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
                         }
                         ll_md_real_close(inode, flags);
                 }
+
+		if (bits & MDS_INODELOCK_LAYOUT) {
+			struct lustre_md md = { NULL };
+			ll_update_inode(inode, &md);
+		}
 
                 lli = ll_i2info(inode);
                 if (bits & MDS_INODELOCK_UPDATE)
