@@ -1266,19 +1266,31 @@ void lprocfs_free_stats(struct lprocfs_stats **statsh)
 	OBD_FREE(stats, offsetof(typeof(*stats), ls_percpu[num_entry]));
 }
 
-void lprocfs_clear_stats(struct lprocfs_stats *stats)
+void lprocfs_clear_stats(struct lprocfs_stats *stats, int free)
 {
 	struct lprocfs_counter *percpu_cntr;
 	int			i;
 	int			j;
 	unsigned int		num_entry;
+	unsigned int		percpusize;
 	unsigned long		flags = 0;
 
 	num_entry = lprocfs_stats_lock(stats, LPROCFS_GET_NUM_CPU, &flags);
 
+	percpusize = offsetof(struct lprocfs_percpu, lp_cntr[stats->ls_num]);
+	if (num_entry > 1)
+		percpusize = CFS_L1_CACHE_ALIGN(percpusize);
+
 	for (i = 0; i < num_entry; i++) {
 		if (stats->ls_percpu[i] == NULL)
 			continue;
+		/* the 1st percpu entry was statically allocated in
+		 * lprocfs_alloc_stats() */
+		if (free && i > 0) {
+			OBD_FREE(stats->ls_percpu[i], percpusize);
+			stats->ls_percpu[i] = NULL;
+			continue;
+		}
                 for (j = 0; j < stats->ls_num; j++) {
                         percpu_cntr = &(stats->ls_percpu[i])->lp_cntr[j];
                         cfs_atomic_inc(&percpu_cntr->lc_cntl.la_entry);
@@ -1297,12 +1309,13 @@ void lprocfs_clear_stats(struct lprocfs_stats *stats)
 static ssize_t lprocfs_stats_seq_write(struct file *file, const char *buf,
                                        size_t len, loff_t *off)
 {
-        struct seq_file *seq = file->private_data;
-        struct lprocfs_stats *stats = seq->private;
+	struct seq_file *seq = file->private_data;
+	struct lprocfs_stats *stats = seq->private;
 
-        lprocfs_clear_stats(stats);
+	if (strncmp(buf, "clear", 5) == 0)
+		lprocfs_clear_stats(stats, 1);
 
-        return len;
+	return len;
 }
 
 static void *lprocfs_stats_seq_start(struct seq_file *p, loff_t *pos)
@@ -1799,15 +1812,15 @@ static int lprocfs_nid_stats_clear_write_cb(void *obj, void *data)
                 cfs_spin_unlock(&stat->nid_obd->obd_nid_lock);
                 RETURN(1);
         }
-        /* we has reference to object - only clear data*/
-        if (stat->nid_stats)
-                lprocfs_clear_stats(stat->nid_stats);
+	/* we has reference to object - only clear data*/
+	if (stat->nid_stats)
+		lprocfs_clear_stats(stat->nid_stats, 1);
 
-        if (stat->nid_brw_stats) {
-                for (i = 0; i < BRW_LAST; i++)
-                        lprocfs_oh_clear(&stat->nid_brw_stats->hist[i]);
-        }
-        RETURN(0);
+	if (stat->nid_brw_stats) {
+		for (i = 0; i < BRW_LAST; i++)
+			lprocfs_oh_clear(&stat->nid_brw_stats->hist[i]);
+	}
+	RETURN(0);
 }
 
 int lprocfs_nid_stats_clear_write(struct file *file, const char *buffer,

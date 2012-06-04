@@ -480,21 +480,21 @@ static int ll_rd_track_id(char *page, int count, void *data,
 }
 
 static int ll_wr_track_id(const char *buffer, unsigned long count, void *data,
-                          enum stats_track_type type)
+			  enum stats_track_type type)
 {
-        struct super_block *sb = data;
-        int rc, pid;
+	struct super_block *sb = data;
+	int rc, pid;
 
-        rc = lprocfs_write_helper(buffer, count, &pid);
-        if (rc)
-                return rc;
-        ll_s2sbi(sb)->ll_stats_track_id = pid;
-        if (pid == 0)
-                ll_s2sbi(sb)->ll_stats_track_type = STATS_TRACK_ALL;
-        else
-                ll_s2sbi(sb)->ll_stats_track_type = type;
-        lprocfs_clear_stats(ll_s2sbi(sb)->ll_stats);
-        return count;
+	rc = lprocfs_write_helper(buffer, count, &pid);
+	if (rc)
+		return rc;
+	ll_s2sbi(sb)->ll_stats_track_id = pid;
+	if (pid == 0)
+		ll_s2sbi(sb)->ll_stats_track_type = STATS_TRACK_ALL;
+	else
+		ll_s2sbi(sb)->ll_stats_track_type = type;
+	lprocfs_clear_stats(ll_s2sbi(sb)->ll_stats, 1);
+	return count;
 }
 
 static int ll_rd_track_pid(char *page, char **start, off_t off,
