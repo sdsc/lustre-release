@@ -65,9 +65,9 @@ prepare_and_build_srpm() {
     for arch in $BUILD_ARCHS; do
         # XXX - ok.  so here's a hack that needs to be fixed properly
         #       ppc64 was merged to ppc some time ago pre 2.6.18
-        if [ $arch = ppc64 ]; then
-            arch=ppc
-        fi
+        #if [ $arch = ppc64 ]; then
+        #    arch=ppc
+        #fi
         targets="--target $arch $targets"
         # copy our .config into the RPM build tree
         (echo "# $(basearch $arch)"; cat $CONFIG_FILE) > \
