@@ -948,6 +948,38 @@ int make_lustre_backfs(struct mkfs_opts *mop)
         return ret;
 }
 
+int ldiskfs_prepare_lustre(struct mkfs_opts *mop,
+                           char *default_mountopts, int default_len,
+                           char *always_mountopts, int always_len)
+{
+        struct lustre_disk_data *ldd = &mop->mo_ldd;
+        int ret;
+
+        /* Set MO_IS_LOOP to indicate a loopback device is needed */
+        ret = is_block(mop->mo_device);
+        if (ret < 0) {
+                return errno;
+        } else if (ret == 0) {
+                mop->mo_flags |= MO_IS_LOOP;
+        }
+
+        strscat(default_mountopts, ",errors=remount-ro", default_len);
+        if (IS_MDT(ldd) || IS_MGS(ldd))
+                strscat(always_mountopts, ",user_xattr", always_len);
+
+        /*
+         * NB: Files created while extents are enabled can only be
+         * read if mounted using the ext4 or ldiskfs filesystem type.
+         */
+        if (IS_OST(ldd) &&
+            (ldd->ldd_mount_type == LDD_MT_LDISKFS ||
+             ldd->ldd_mount_type == LDD_MT_LDISKFS2)) {
+                strscat(default_mountopts, ",extents,mballoc", default_len);
+        }
+
+        return 0;
+}
+
 /* return canonicalized absolute pathname, even if the target file does not
  * exist, unlike realpath */
 static char *absolute_path(char *devname)
