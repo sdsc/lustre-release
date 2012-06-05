@@ -146,4 +146,42 @@ static inline void __add_wait_queue_exclusive(wait_queue_head_t *q,
 }
 #endif /* HAVE___ADD_WAIT_QUEUE_EXCLUSIVE */
 
+#ifdef HAVE_3ARGS_INIT_WORK
+# define prepare_work(wq, cb, cbdata)                                         \
+do {                                                                          \
+	INIT_WORK((wq), (void *)(cb), (void *)(cbdata));                      \
+} while (0)
+# define cfs_get_work_data(type, field, data)   (data)
+#else
+# define prepare_work(wq, cb, cbdata)                                         \
+do {                                                                          \
+	INIT_WORK((wq), (void *)(cb));                                        \
+} while (0)
+# define cfs_get_work_data(type, field, data) container_of(data, type, field)
+#endif
+
+#ifdef HAVE_SEM_COUNT_ATOMIC
+# define SEM_COUNT(sem)          (atomic_read(&(sem)->count))
+#else
+# define SEM_COUNT(sem)          ((sem)->count)
+#endif
+
+#ifndef HAVE_SCATTERLIST_SETPAGE
+static inline void sg_set_page(struct scatterlist *sg, struct page *page,
+			       unsigned int len, unsigned int offset)
+{
+	sg->page = page;
+	sg->offset = offset;
+	sg->length = len;
+}
+#endif
+
+#ifdef HAVE_SYSCTL_CTLNAME
+# define INIT_CTL_NAME(a) .ctl_name = a,
+# define INIT_STRATEGY(a) .strategy = a,
+#else
+# define INIT_CTL_NAME(a)
+# define INIT_STRATEGY(a)
+#endif
+
 #endif /* _PORTALS_COMPAT_H */
