@@ -306,11 +306,11 @@ lustre_get_emerg_rs(struct ptlrpc_service_part *svcpt)
 
 	rs = cfs_list_entry(svcpt->scp_rep_idle.next,
 			    struct ptlrpc_reply_state, rs_list);
-	cfs_list_del(&rs->rs_list);
+	LASSERT(rs != NULL);
 
+	cfs_list_del(&rs->rs_list);
 	cfs_spin_unlock(&svcpt->scp_rep_lock);
 
-	LASSERT(rs != NULL);
 	memset(rs, 0, svcpt->scp_service->srv_max_reply_size);
 	rs->rs_svcpt = svcpt;
 	rs->rs_prealloc = 1;
