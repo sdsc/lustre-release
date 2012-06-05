@@ -298,9 +298,9 @@ struct ptlrpc_reply_state *lustre_get_emerg_rs(struct ptlrpc_service *svc)
 
         rs = cfs_list_entry(svc->srv_free_rs_list.next,
                             struct ptlrpc_reply_state, rs_list);
+        LASSERT(rs != NULL);
         cfs_list_del(&rs->rs_list);
         cfs_spin_unlock(&svc->srv_rs_lock);
-        LASSERT(rs);
         memset(rs, 0, svc->srv_max_reply_size);
         rs->rs_service = svc;
         rs->rs_prealloc = 1;

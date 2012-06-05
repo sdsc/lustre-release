@@ -26,6 +26,8 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2012, Whamcloud, Inc.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -43,28 +45,39 @@
 #include <liblustre.h>
 #endif
 #include <lustre_lib.h>
+#include <obd_support.h>
 #include <lprocfs_status.h>
 
 unsigned int obd_alloc_fail_rate = 0;
 
+/* Check if the allocation has failed, and print a console error message.
+ * This function is only entered if the allocation has already failed,
+ * or if the allocation-failure fault injection code is active, so will
+ * not impact the normal allocation codepath. */
 int obd_alloc_fail(const void *ptr, const char *name, const char *type,
-                   size_t size, const char *file, int line)
+		   __u64 size, const char *file, const char *func, int line)
 {
-        if (ptr == NULL ||
-            (cfs_rand() & OBD_ALLOC_FAIL_MASK) < obd_alloc_fail_rate) {
-                CERROR("%s%salloc of %s ("LPU64" bytes) failed at %s:%d\n",
-                       ptr ? "force " :"", type, name, (__u64)size, file,
-                       line);
-                CERROR(LPU64" total bytes and "LPU64" total pages "
-                       "("LPU64" bytes) allocated by Lustre, "
-                       "%d total bytes by LNET\n",
-                       obd_memory_sum(),
-                       obd_pages_sum() << CFS_PAGE_SHIFT,
-                       obd_pages_sum(),
-                       cfs_atomic_read(&libcfs_kmemory));
-                return 1;
-        }
-        return 0;
+	if (ptr == NULL ||
+	    (cfs_rand() & OBD_ALLOC_FAIL_MASK) < obd_alloc_fail_rate) {
+		static cfs_debug_limit_state_t cdls;
+		static struct libcfs_debug_msg_data msgdata;
+
+		LIBCFS_DEBUG_MSG_DATA_INIT_WITH_LOC(&msgdata, D_ERROR, &cdls,
+						    file, func, line);
+		libcfs_debug_msg(&msgdata,
+				 "%s of %s ("LPU64" bytes) %sfailed\n",
+				 type, name, size, ptr ? "force " : "");
+		libcfs_debug_msg(&msgdata,
+				 LPU64" total bytes and "LPU64" total pages "
+				 "("LPU64" bytes) allocated by Lustre, "
+				 "%u total bytes by LNET\n",
+				 obd_memory_sum(),
+				 obd_pages_sum() << CFS_PAGE_SHIFT,
+				 obd_pages_sum(),
+				 cfs_atomic_read(&libcfs_kmemory));
+		return 1;
+	}
+	return 0;
 }
 EXPORT_SYMBOL(obd_alloc_fail);
 
