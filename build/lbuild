@@ -851,8 +851,8 @@ build_lustre() {
 
         if ! $RPMBUILD $targets $rpmbuildopt lustre-ldiskfs*.tar.gz \
             --define "configure_args $confoptions ${CONFIGURE_FLAGS}" \
-            --define "kdir $linux" \
-            ${linuxobj:+--define "kobjdir $linuxobj"} \
+            --define "_with_linux $linux" \
+            ${linuxobj:+--define "_with_linux_obj $linuxobj"} \
             --define "_tmppath /var/tmp" \
             --define "_topdir $TOPDIR" 2>&1; then
             popd >/dev/null # pushd ldiskfs
@@ -863,8 +863,8 @@ build_lustre() {
         if $DO_SRC; then
             if ! $RPMBUILD -ts lustre-ldiskfs*.tar.gz \
                 --define "configure_args $confoptions ${CONFIGURE_FLAGS}" \
-                --define "kdir $linux" \
-                ${linuxobj:+--define "kobjdir $linuxobj"} \
+                --define "_with_linux $linux" \
+                ${linuxobj:+--define "_with_linux_obj $linuxobj"} \
                 --define "_tmppath /var/tmp" \
                 --define "_topdir $TOPDIR" 2>&1; then
                 popd >/dev/null # pushd ldiskfs
@@ -909,8 +909,8 @@ build_lustre() {
         ${lustre_tests:+--define "build_lustre_tests 0"} \
         ${FIND_REQUIRES:+--define "__find_requires $FIND_REQUIRES"} \
         --define "configure_args $confoptions ${CONFIGURE_FLAGS}" \
-        --define "kdir $linux" \
-        ${linuxobj:+--define "kobjdir $linuxobj"} \
+        --define "_with_linux $linux" \
+        ${linuxobj:+--define "_with_linux_obj $linuxobj"} \
         --define "_tmppath $TMPDIR" \
         --define "_topdir $TOPDIR" 2>&1 || \
         fatal 1 "Error building rpms for $BUILD_ARCHS."
@@ -921,8 +921,8 @@ build_lustre() {
                  ${lustre_tests:+--define "build_lustre_tests 0"} \
                  ${FIND_REQUIRES:+--define "__find_requires $FIND_REQUIRES"} \
                  --define "configure_args $confoptions ${CONFIGURE_FLAGS}" \
-                 --define "kdir $linux" \
-                 ${linuxobj:+--define "kobjdir $linuxobj"} \
+                 --define "_with_linux $linux" \
+                 ${linuxobj:+--define "_with_linux_obj $linuxobj"} \
                  --define "_tmppath $TMPDIR" \
                  --define "_topdir $TOPDIR" 2>&1; then
             popd

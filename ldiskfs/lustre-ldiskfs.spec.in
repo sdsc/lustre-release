@@ -1,11 +1,11 @@
 # lustre-ldiskfs.spec
 %{!?version: %define version @VERSION@}
-%{!?kdir: %define kdir %(dir=$(echo "%configure_args" | sed -ne 's/.*--with-linux=\\([^ ][^ ]*\\).*$/\\1/p'); if [ -n "$dir" ]; then echo "$dir"; else echo "/lib/modules/$(uname -r)/build"; fi)}
 
-%{!?kobjdir: %define kobjdir %(dir=$(echo "%configure_args" | sed -ne 's/.*--with-linux-obj=\\([^ ][^ ]*\\).*$/\\1/p'); if [ -n "$dir" ]; then echo "$dir"; else echo "%kdir"; fi)}
+%{!?_with_linux: %define _with_linux /lib/modules/$(uname -r)/source}
+%{!?_with_linux_obj: %define _with_linux_obj /lib/modules/$(uname -r)/build}
 
-# as an alternative to this implementation we could simply "make -C $kdir kernelversion"
-%{!?kversion: %define kversion %(if test -s %kobjdir/include/linux/utsrelease.h ; then LINUXRELEASEHEADER=utsrelease.h; else LINUXRELEASEHEADER=version.h; fi; sed -ne '/^#define UTS_RELEASE/s/.*"\\(.*\\)"$/\\1/p' %kobjdir/include/linux/$LINUXRELEASEHEADER)}
+# as an alternative to this implementation we could simply "make -C $_with_linux kernelversion"
+%{!?kversion: %define kversion %(if test -s %_with_linux_obj/include/linux/utsrelease.h ; then LINUXRELEASEHEADER=utsrelease.h; else LINUXRELEASEHEADER=version.h; fi; sed -ne '/^#define UTS_RELEASE/s/.*"\\(.*\\)"$/\\1/p' %_with_linux_obj/include/linux/$LINUXRELEASEHEADER)}
 
 %{!?downstream_release: %define downstream_release "@DOWNSTREAM_RELEASE@"}
 
@@ -56,12 +56,12 @@ rm -rf $RPM_BUILD_ROOT
 cd $RPM_BUILD_DIR/lustre-ldiskfs-%{version}
 CONFIGURE_ARGS="%{?configure_args} --with-release=%release"
 
-# if %%kdir was given, make sure it's not in the configure arguments
-if [ -n "%kdir" ]; then
+# if %%_with_linux was given, make sure it's not in the configure arguments
+if [ -n "%_with_linux" ]; then
 	CONFIGURE_ARGS=$(echo $CONFIGURE_ARGS | sed -e 's/"\?--with-linux=[^ ][^ ]* \?//')
 fi
-# ditto for %%kobjdir
-if [ -n "%kobjdir" ]; then
+# ditto for %%_with_linux_obj
+if [ -n "%_with_linux_obj" ]; then
 	CONFIGURE_ARGS=$(echo $CONFIGURE_ARGS | sed -e 's/"\?--with-linux-obj=[^ ][^ ]* \?//')
 fi
 
@@ -70,7 +70,7 @@ fi
 %define eval_configure %(echo '%configure' | sed -e 's#\./configure#eval ./configure#')
 
 eval ./configure %{?configure_args} \
-	%{?kdir: --with-linux=%kdir} %{?kobjdir: --with-linux-obj=%kobjdir} \
+	%{?_with_linux: --with-linux=%_with_linux} %{?_with_linux_obj: --with-linux-obj=%_with_linux_obj} \
 	--sysconfdir=%{_sysconfdir} \
 	--mandir=%{_mandir} \
 	--libdir=%{_libdir} \

@@ -1,12 +1,13 @@
 # lustre.spec
 %{!?version: %define version @VERSION@}
 %{!?kver: %define kver ""}
-%{!?kdir: %define kdir %(dir=$(echo "%configure_args" | sed -ne 's/.*--with-linux=\\([^ ][^ ]*\\).*$/\\1/p'); if [ -n "$dir" ]; then echo "$dir"; else if [ -n "%kver" ]; then kversion="%kver"; else kversion="$(uname -r)"; fi; echo "/lib/modules/$kversion/source"; fi)}
 
-%{!?kobjdir: %define kobjdir %(dir=$(echo "%configure_args" | sed -ne 's/.*--with-linux-obj=\\([^ ][^ ]*\\).*$/\\1/p'); if [ -n "$dir" ]; then echo "$dir"; else if [ -n "%kver" ]; then kversion="%kver"; else kversion="$(uname -r)"; fi; if [ "%kdir" = "/lib/modules/$kversion/source" ]; then echo "/lib/modules/$kversion/build"; else echo "%kdir"; fi; fi)}
+%{!?_with_linux: %define _with_linux /lib/modules/$(uname -r)/source}
+%{!?_with_linux_obj: %define _with_linux_obj /lib/modules/$(uname -r)/build}
 
-# as an alternative to this implementation we could simply "make -C $kdir kernelversion"
-%{!?kversion: %define kversion %(if test -s %kobjdir/include/linux/utsrelease.h ; then LINUXRELEASEHEADER=utsrelease.h; else LINUXRELEASEHEADER=version.h; fi; sed -ne '/^#define UTS_RELEASE/s/.*"\\(.*\\)"$/\\1/p' %kobjdir/include/linux/$LINUXRELEASEHEADER)}
+# as an alternative to this implementation we could simply "make -C $_with_linux kernelversion"
+%{!?kversion: %define kversion %(if test -s %{_with_linux_obj}/include/linux/utsrelease.h ; then LINUXRELEASEHEADER=utsrelease.h; else LINUXRELEASEHEADER=version
+.h; fi; sed -ne '/^#define UTS_RELEASE/s/.*"\\(.*\\)"$/\\1/p' %{_with_linux_obj}/include/linux/$LINUXRELEASEHEADER)}
 
 %{!?downstream_release: %define downstream_release "@DOWNSTREAM_RELEASE@"}
 
@@ -175,12 +176,12 @@ CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-tests --enable-liblustre-tests"
 CONFIGURE_ARGS="$CONFIGURE_ARGS --disable-tests --disable-liblustre-tests"
 %endif
 
-# if %%kdir was given, make sure it's not in the configure arguments
-if [ -n "%kdir" ]; then
+# if %%_with_linux was given, make sure it's not in the configure arguments
+if [ -n "%_with_linux " ]; then
 	CONFIGURE_ARGS=$(echo $CONFIGURE_ARGS | sed -e 's/"\?--with-linux=[^ ][^ ]* \?//')
 fi
-# ditto for %%kobjdir
-if [ -n "%kobjdir" ]; then
+# ditto for %%_with_linux_obj
+if [ -n "%_with_linux_obj" ]; then
 	CONFIGURE_ARGS=$(echo $CONFIGURE_ARGS | sed -e 's/"\?--with-linux-obj=[^ ][^ ]* \?//')
 fi
 
@@ -189,7 +190,7 @@ fi
 %define eval_configure %(echo '%configure' | sed -e 's#\./configure#eval ./configure#')
 
 %eval_configure \
-	%{?kdir: --with-linux=%kdir} %{?kobjdir: --with-linux-obj=%kobjdir} \
+	%{?_with_linux: --with-linux=%_with_linux} %{?_with_linux_obj: --with-linux-obj=%_with_linux_obj} \
 	$CONFIGURE_ARGS
 make -j $RPM_BUILD_NCPUS -s
 
