@@ -60,6 +60,7 @@
 #define STRIPE_CACHE_SIZE       "md/stripe_cache_size"
 #define MAX_RETRIES 99
 
+int          failover = 0;
 int          verbose = 0;
 int          nomtab = 0;
 int          fake = 0;
