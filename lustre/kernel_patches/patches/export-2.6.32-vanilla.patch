@@ -7,7 +7,7 @@ Index: linux+rh+chaos/security/security.c
 ===================================================================
 --- linux+rh+chaos.orig/security/security.c
 +++ linux+rh+chaos/security/security.c
-@@ -60,6 +60,7 @@ int __init security_init(void)
+@@ -61,6 +61,7 @@ int __init security_init(void)
  
  	return 0;
  }
