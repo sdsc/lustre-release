@@ -313,9 +313,11 @@ int null_alloc_rs(struct ptlrpc_request *req, int msgsize)
 
         rs = req->rq_reply_state;
 
-        if (rs) {
-                /* pre-allocated */
-                LASSERT(rs->rs_size >= rs_size);
+	if (rs != NULL) {
+		/* pre-allocated */
+		LASSERTF(rs->rs_size >= rs_size,
+			 "rs_size = %d, rs = %p, rs->rs_size = %d\n",
+			 rs_size, rs, rs->rs_size);
         } else {
                 OBD_ALLOC_LARGE(rs, rs_size);
                 if (rs == NULL)

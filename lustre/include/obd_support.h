@@ -80,7 +80,7 @@ extern char obd_jobid_var[];
 
 /* lvfs.c */
 int obd_alloc_fail(const void *ptr, const char *name, const char *type,
-                   size_t size, const char *file, int line);
+		   __u64 size, const char *file, const char *func, int line);
 
 /* Some hash init argument constants */
 #define HASH_POOLS_BKT_BITS 3
@@ -405,8 +405,6 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 
 #define OBD_FAIL_LPROC_REMOVE            0xB00
 
-#define OBD_FAIL_GENERAL_ALLOC           0xC00
-
 #define OBD_FAIL_SEQ                     0x1000
 #define OBD_FAIL_SEQ_QUERY_NET           0x1001
 
@@ -536,12 +534,6 @@ static inline void obd_pages_sub(int order)
 
 #endif /* !OBD_DEBUG_MEMUSAGE */
 
-#ifdef RANDOM_FAIL_ALLOC
-#define HAS_FAIL_ALLOC_FLAG OBD_FAIL_CHECK(OBD_FAIL_GENERAL_ALLOC)
-#else
-#define HAS_FAIL_ALLOC_FLAG 0
-#endif
-
 #define OBD_ALLOC_FAIL_BITS 24
 #define OBD_ALLOC_FAIL_MASK ((1 << OBD_ALLOC_FAIL_BITS) - 1)
 #define OBD_ALLOC_FAIL_MULT (OBD_ALLOC_FAIL_MASK / 100)
@@ -575,14 +567,13 @@ do {									      \
 	(ptr) = (cptab) == NULL ?					      \
 		cfs_alloc(size, flags) :				      \
 		cfs_cpt_malloc(cptab, cpt, size, flags);		      \
-        if (likely((ptr) != NULL &&                                           \
-                   (!HAS_FAIL_ALLOC_FLAG || obd_alloc_fail_rate == 0 ||       \
-                    !obd_alloc_fail(ptr, #ptr, "km", size,                    \
-                                    __FILE__, __LINE__) ||                    \
-                    OBD_FREE_RTN0(ptr)))){                                    \
-                memset(ptr, 0, size);                                         \
-                OBD_ALLOC_POST(ptr, size, "kmalloced");                       \
-        }                                                                     \
+	if (likely(((ptr) != NULL && obd_alloc_fail_rate == 0) ||	      \
+		   !obd_alloc_fail(ptr, #ptr, "kmalloc", size,		      \
+				   __FILE__, __func__, __LINE__) ||	      \
+		   OBD_FREE_RTN0(ptr))) {				      \
+		memset(ptr, 0, size);					      \
+		OBD_ALLOC_POST(ptr, size, "kmalloced");			      \
+	}                                                                     \
 } while (0)
 #endif
 
@@ -748,14 +739,13 @@ do {									      \
 	(ptr) = (cptab) == NULL ?					      \
 		cfs_mem_cache_alloc(slab, type) :			      \
 		cfs_mem_cache_cpt_alloc(slab, cptab, cpt, type);	      \
-        if (likely((ptr) != NULL &&                                           \
-                   (!HAS_FAIL_ALLOC_FLAG || obd_alloc_fail_rate == 0 ||       \
-                    !obd_alloc_fail(ptr, #ptr, "slab-", size,                 \
-                                    __FILE__, __LINE__) ||                    \
-                    OBD_SLAB_FREE_RTN0(ptr, slab)))) {                        \
-                memset(ptr, 0, size);                                         \
-                OBD_ALLOC_POST(ptr, size, "slab-alloced");                    \
-        }                                                                     \
+	if (likely(((ptr) != NULL && obd_alloc_fail_rate == 0) ||	      \
+		   !obd_alloc_fail(ptr, #ptr, "slab-alloc", size,	      \
+				   __FILE__, __func__, __LINE__) ||	      \
+		   OBD_SLAB_FREE_RTN0(ptr, slab))) {			      \
+		memset(ptr, 0, size);					      \
+		OBD_ALLOC_POST(ptr, size, "slab-alloced");		      \
+	}								      \
 } while(0)
 
 #define OBD_SLAB_ALLOC_GFP(ptr, slab, size, flags)			      \

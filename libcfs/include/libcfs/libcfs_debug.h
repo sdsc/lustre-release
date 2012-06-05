@@ -180,24 +180,28 @@ struct libcfs_debug_msg_data {
         cfs_debug_limit_state_t  *msg_cdls;
 };
 
-#define LIBCFS_DEBUG_MSG_DATA_INIT(data, mask, cdls)        \
-do {                                                        \
-        (data)->msg_subsys = DEBUG_SUBSYSTEM;               \
-        (data)->msg_file   = __FILE__;                      \
-        (data)->msg_fn     = __FUNCTION__;                  \
-        (data)->msg_line   = __LINE__;                      \
-        (data)->msg_cdls   = (cdls);                        \
-        (data)->msg_mask   = (mask);                        \
+#define LIBCFS_DEBUG_MSG_DATA_INIT_WITH_LOC(data, mask, cdls, file, func, line)\
+do {									\
+	(data)->msg_subsys = DEBUG_SUBSYSTEM;				\
+	(data)->msg_file   = (file);					\
+	(data)->msg_fn     = (func);					\
+	(data)->msg_line   = (line);					\
+	(data)->msg_cdls   = (cdls);					\
+	(data)->msg_mask   = (mask);					\
 } while (0)
 
-#define LIBCFS_DEBUG_MSG_DATA_DECL(dataname, mask, cdls)    \
-        static struct libcfs_debug_msg_data dataname = {    \
-               .msg_subsys = DEBUG_SUBSYSTEM,               \
-               .msg_file   = __FILE__,                      \
-               .msg_fn     = __FUNCTION__,                  \
-               .msg_line   = __LINE__,                      \
-               .msg_cdls   = (cdls)         };              \
-        dataname.msg_mask   = (mask);
+#define LIBCFS_DEBUG_MSG_DATA_INIT(data, mask, cdls)			\
+	LIBCFS_DEBUG_MSG_DATA_INIT_WITH_LOC(data, mask, cdls,		\
+					    __FILE__, __func__, __LINE__)
+
+#define LIBCFS_DEBUG_MSG_DATA_DECL(dataname, mask, cdls)		\
+	static struct libcfs_debug_msg_data dataname = {		\
+		.msg_subsys = DEBUG_SUBSYSTEM,				\
+		.msg_file   = __FILE__,					\
+		.msg_fn     = __func__,					\
+		.msg_line   = __LINE__,					\
+		.msg_cdls   = (cdls) };					\
+	dataname.msg_mask   = (mask);
 
 #if defined(__KERNEL__) || (defined(__arch_lib__) && !defined(LUSTRE_UTILS))
 
