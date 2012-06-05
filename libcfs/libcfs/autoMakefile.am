@@ -34,11 +34,11 @@
 # Lustre is a trademark of Sun Microsystems, Inc.
 #
 
-SUBDIRS := linux util posix
+SUBDIRS = linux util posix
 if DARWIN
 SUBDIRS += darwin
 endif
-DIST_SUBDIRS := linux util posix darwin
+DIST_SUBDIRS = linux util posix darwin
 
 if LIBLUSTRE
 noinst_LIBRARIES= libcfs.a
@@ -69,9 +69,9 @@ modulenet_DATA := libcfs$(KMODEXT)
 endif
 
 if DARWIN
-macos_PROGRAMS := libcfs
+macos_PROGRAMS = libcfs
 
-nodist_libcfs_SOURCES := darwin/darwin-sync.c darwin/darwin-mem.c	\
+nodist_libcfs_SOURCES = darwin/darwin-sync.c darwin/darwin-mem.c	\
 	darwin/darwin-prim.c darwin/darwin-fs.c darwin/darwin-curproc.c	\
 	darwin/darwin-tcpip.c darwin/darwin-utils.c 			\
 	darwin/darwin-debug.c darwin/darwin-proc.c 			\
@@ -83,9 +83,9 @@ libcfs_CFLAGS := $(EXTRA_KCFLAGS)
 libcfs_LDFLAGS := $(EXTRA_KLDFLAGS)
 libcfs_LDADD := $(EXTRA_KLIBS)
 
-plist_DATA := Info.plist
+plist_DATA = Info.plist
 
-install_data_hook := fix-kext-ownership
+install_data_hook = fix-kext-ownership
 
 endif
 
