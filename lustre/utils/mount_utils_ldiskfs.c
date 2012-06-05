@@ -277,12 +277,11 @@ out_rmdir:
         return ret;
 }
 
-int read_local_files(struct mkfs_opts *mop)
+int ldiskfs_read_ldd(char *dev, struct lustre_disk_data *mo_ldd)
 {
         char tmpdir[] = "/tmp/dirXXXXXX";
         char cmd[PATH_MAX];
         char filepnm[128];
-        char *dev;
         FILE *filep;
         int ret = 0;
         int cmdsz = sizeof(cmd);
@@ -293,8 +292,6 @@ int read_local_files(struct mkfs_opts *mop)
                         progname, tmpdir, strerror(errno));
                 return errno;
         }
-
-        dev = mop->mo_device;
 
         /* TODO: it's worth observing the get_mountdata() function that is
                  in mount_utils.c for getting the mountdata out of the
@@ -314,7 +311,7 @@ int read_local_files(struct mkfs_opts *mop)
         if (filep) {
                 size_t num_read;
                 vprint("Reading %s\n", MOUNT_DATA_FILE);
-                num_read = fread(&mop->mo_ldd, sizeof(mop->mo_ldd), 1, filep);
+                num_read = fread(mo_ldd, sizeof(*mo_ldd), 1, filep);
                 if (num_read < 1 && ferror(filep)) {
                         fprintf(stderr, "%s: Unable to read from file %s: %s\n",
                                 progname, filepnm, strerror(errno));
@@ -371,16 +368,16 @@ int read_local_files(struct mkfs_opts *mop)
 
                 if ((lsd.lsd_feature_compat & OBD_COMPAT_OST) ||
                     (lsd.lsd_feature_incompat & OBD_INCOMPAT_OST)) {
-                        mop->mo_ldd.ldd_flags = LDD_F_SV_TYPE_OST;
-                        mop->mo_ldd.ldd_svindex = lsd.lsd_ost_index;
+                        mo_ldd->ldd_flags = LDD_F_SV_TYPE_OST;
+                        mo_ldd->ldd_svindex = lsd.lsd_ost_index;
                 } else if ((lsd.lsd_feature_compat & OBD_COMPAT_MDT) ||
                            (lsd.lsd_feature_incompat & OBD_INCOMPAT_MDT)) {
                         /* We must co-locate so mgs can see old logs.
                            If user doesn't want this, they can copy the old
                            logs manually and re-tunefs. */
-                        mop->mo_ldd.ldd_flags =
+                        mo_ldd->ldd_flags =
                                 LDD_F_SV_TYPE_MDT | LDD_F_SV_TYPE_MGS;
-                        mop->mo_ldd.ldd_svindex = lsd.lsd_mdt_index;
+                        mo_ldd->ldd_svindex = lsd.lsd_mdt_index;
                 } else  {
                         /* If neither is set, we're pre-1.4.6, make a guess. */
                         /* Construct debugfs command line. */
@@ -390,20 +387,20 @@ int read_local_files(struct mkfs_opts *mop)
 
                         sprintf(filepnm, "%s/%s", tmpdir, MDT_LOGS_DIR);
                         if (lsd.lsd_ost_index > 0) {
-                                mop->mo_ldd.ldd_flags = LDD_F_SV_TYPE_OST;
-                                mop->mo_ldd.ldd_svindex = lsd.lsd_ost_index;
+                                mo_ldd->ldd_flags = LDD_F_SV_TYPE_OST;
+                                mo_ldd->ldd_svindex = lsd.lsd_ost_index;
                         } else {
                                 /* If there's a LOGS dir, it's an MDT */
                                 if ((ret = access(filepnm, F_OK)) == 0) {
-                                        mop->mo_ldd.ldd_flags =
+                                        mo_ldd->ldd_flags =
                                         LDD_F_SV_TYPE_MDT |
                                         LDD_F_SV_TYPE_MGS;
                                         /* Old MDT's are always index 0
                                            (pre CMD) */
-                                        mop->mo_ldd.ldd_svindex = 0;
+                                        mo_ldd->ldd_svindex = 0;
                                 } else {
                                         /* The index may not be correct */
-                                        mop->mo_ldd.ldd_flags =
+                                        mo_ldd->ldd_flags =
                                         LDD_F_SV_TYPE_OST | LDD_F_NEED_INDEX;
                                         verrprint("OST with unknown index\n");
                                 }
@@ -411,9 +408,9 @@ int read_local_files(struct mkfs_opts *mop)
                 }
 
                 ret = 0;
-                memcpy(mop->mo_ldd.ldd_uuid, lsd.lsd_uuid,
-                       sizeof(mop->mo_ldd.ldd_uuid));
-                mop->mo_ldd.ldd_flags |= LDD_F_UPGRADE14;
+                memcpy(mo_ldd->ldd_uuid, lsd.lsd_uuid,
+                       sizeof(mo_ldd->ldd_uuid));
+                mo_ldd->ldd_flags |= LDD_F_UPGRADE14;
         }
         /* end COMPAT_146 */
 out_close:
