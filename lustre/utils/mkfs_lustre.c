@@ -137,31 +137,6 @@ void usage(FILE *out)
         return;
 }
 
-/*================ utility functions =====================*/
-
-static int check_mtab_entry(char *spec)
-{
-        FILE *fp;
-        struct mntent *mnt;
-
-        fp = setmntent(MOUNTED, "r");
-        if (fp == NULL)
-                return(0);
-
-        while ((mnt = getmntent(fp)) != NULL) {
-                if (strcmp(mnt->mnt_fsname, spec) == 0) {
-                        endmntent(fp);
-                        fprintf(stderr, "%s: according to %s %s is "
-                                "already mounted on %s\n",
-                                progname, MOUNTED, spec, mnt->mnt_dir);
-                        return(EEXIST);
-                }
-        }
-        endmntent(fp);
-
-        return(0);
-}
-
 /* ==================== Lustre config functions =============*/
 
 void print_ldd(char *str, struct lustre_disk_data *ldd)
@@ -692,7 +667,7 @@ int main(int argc, char *const argv[])
                 goto out;
         }
 
-        if (check_mtab_entry(mop.mo_device))
+        if (check_mtab_entry(mop.mo_device, mop.mo_device, NULL, NULL))
                 return(EEXIST);
 
         /* Create the loopback file */
