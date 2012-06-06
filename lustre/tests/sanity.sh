@@ -9256,6 +9256,65 @@ test_206() {
 }
 run_test 206 "fail lov_init_raid0() doesn't lbug"
 
+obdecho_destroy_obj() {
+	local OBD=$1
+	local node=$2
+	local objid=$3
+	local rc=0
+	do_facet $node "$LCTL attach echo_client ec ec_uuid" || rc=1
+	[ $rc -eq 0 ] && { do_facet $node "$LCTL --device ec setup $OBD" ||
+				rc=2; }
+
+	[ $rc -eq 0 ] && { do_facet $node "$LCTL --device ec destroy " \
+				"$objid 1 verbose 0" || rc=3; }
+
+	[ $rc -eq 0 -o $rc -gt 2 ] && { do_facet $node "$LCTL --device ec " \
+					"cleanup" || rc=4; }
+	[ $rc -eq 0 -o $rc -gt 1 ] && { do_facet $node "$LCTL --device ec " \
+					"detach" || rc=5; }
+
+	return $rc
+}
+
+test_207() {
+	local stripe_cnt=2
+	[ "$OSTCOUNT" -lt "$stripe_cnt" ] &&
+		skip_env "$OSTCOUNT < $stripe_cnt" && return
+
+	local rc=0
+	local rmmod_local=0
+	local objid
+
+	$LFS setstripe -i 0 -c $stripe_cnt $DIR/$tfile
+	objid=$($LFS getstripe $DIR/$tfile | awk '$1 == 0 {print $2}')
+
+	if ! module_loaded obdecho; then
+		load_module obdecho/obdecho
+		rmmod_local=1
+	fi
+
+	local osc=$($LCTL dl | grep -v mdt | awk '$3 == "osc" {print $4; exit}')
+	local host=$(lctl get_param -n osc.$osc.import |
+			awk '/current_connection:/ {print $2}' )
+	local target=$(lctl get_param -n osc.$osc.import |
+			awk '/target:/ {print $2}' )
+	target=${target%_UUID}
+
+	[[ -n $target ]] && { setup_obdecho_osc $host $target || rc=1; } || rc=1
+	[ $rc -eq 0 ] && { obdecho_destroy_obj ${target}_osc client $objid ||
+				rc=2; }
+	[[ -n $target ]] && cleanup_obdecho_osc $target
+	[ $rmmod_local -eq 1 ] && rmmod obdecho
+
+	[ $rc -eq 0 ] || error "destroy object $objid failed"
+
+	cancel_lru_locks osc
+	stat $DIR/$tfile && error "glimpse should return error"
+	rm -f $DIR/$tfile
+	return 0
+}
+run_test 207 "glimpse size should return error when some object is missing"
+
 test_212() {
 	size=`date +%s`
 	size=$((size % 8192 + 1))

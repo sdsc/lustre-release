@@ -1764,16 +1764,16 @@ int jt_obd_destroy(int argc, char **argv)
         struct obd_ioctl_data data;
         struct timeval next_time;
         char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf;
-        __u64 count = 1, next_count;
+	__u64 count = 1, next_count, seq = 0;
         int verbose = 1;
         __u64 id;
         char *end;
-        int rc = 0, i;
+	int rc = 0, i, with_seq = 0;
 
         memset(&data, 0, sizeof(data));
         data.ioc_dev = cur_device;
-        if (argc < 2 || argc > 4)
-                return CMD_HELP;
+	if (argc < 2 || argc > 5)
+		return CMD_HELP;
 
         id = strtoull(argv[1], &end, 0);
         if (*end || id == 0 || errno != 0) {
@@ -1797,6 +1797,16 @@ int jt_obd_destroy(int argc, char **argv)
                         return CMD_HELP;
         }
 
+	if (argc > 4) {
+		seq = strtoll(argv[4], &end, 0);
+		if (*end) {
+			fprintf(stderr, "error: %s: invalid seq '%s'\n",
+				jt_cmdname(argv[0]), argv[4]);
+			return CMD_HELP;
+		}
+		with_seq = 1;
+	}
+
         printf("%s: "LPD64" objects\n", jt_cmdname(argv[0]), count);
         gettimeofday(&next_time, NULL);
         next_time.tv_sec -= verbose;
@@ -1805,6 +1815,10 @@ int jt_obd_destroy(int argc, char **argv)
                 data.ioc_obdo1.o_id = id;
                 data.ioc_obdo1.o_mode = S_IFREG | 0644;
                 data.ioc_obdo1.o_valid = OBD_MD_FLID | OBD_MD_FLMODE;
+		if (with_seq) {
+			data.ioc_obdo1.o_seq = seq;
+			data.ioc_obdo1.o_valid |= OBD_MD_FLGROUP;
+		}
 
                 memset(buf, 0, sizeof(rawbuf));
                 rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));

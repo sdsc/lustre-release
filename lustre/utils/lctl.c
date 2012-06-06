@@ -322,7 +322,7 @@ command_t cmdlist[] = {
          "create <num> OST objects (with <mode>)\n"
          "usage: create [num [mode [verbose [lsm data]]]]"},
         {"destroy", jt_obd_destroy, 0,
-         "destroy OST object <objid> [num [verbose]]\n"
+	 "destroy OST object <objid> [num [verbose [seq]]]\n"
          "usage: destroy <num> objects, starting at objid <objid>"},
         {"test_getattr", jt_obd_test_getattr, 0,
          "do <num> getattrs (on OST object <objid> (objid+1 on each thread))\n"
