@@ -9372,6 +9372,40 @@ test_227() {
 }
 run_test 227 "running truncated executable does not cause OOM"
 
+test_228() { # LU-1043
+	local stripe_cnt=2
+	[ "$OSTCOUNT" -lt "$stripe_cnt" ] &&
+		skip_env "$OSTCOUNT < $stripe_cnt" && return
+	[ -z "$SHARED_DIRECTORY" ] &&
+		skip_env "SHARED_DIRECTORY needs be specified" && return
+
+	# create file with two stripe count, start with ost0
+	echo "create $DIR/$tfile with $stripe_cnt stripe count"
+	$SETSTRIPE -c $stripe_cnt -i 0 $DIR/$tfile|| error "setstripe failed"
+
+	# get devname & object id
+	local group=0
+	local objid=$(get_objects 0 $group $DIR/$tfile) ||
+		error "get_objects 0 $group $DIR/$tfile failed"
+	local ostnode=$(get_ost_node 0) || error "get_ost_node 0 failed"
+	local ostdev=$(get_ost_dev $ostnode 0) ||
+		error "get_ost_dev $ostnode 0 failed"
+
+	stopall
+
+	# remove the object on ost0
+	echo "remove object $objid on $ostdev of $ostnode"
+	tmp=$(mktemp $SHARED_DIRECTORY/debugfs.XXXXXXXXXX)
+	echo "rm O/$group/d$(($objid % 32))/$objid" >> $tmp
+	do_node $ostnode "$DEBUGFS -w -f $tmp $ostdev"
+
+	setupall
+
+	stat $DIR/$tfile && error "glimpse size dosen't return error"
+	return 0
+}
+run_test 228 "glimpse size should return error when some ost object is missing"
+
 #
 # tests that do cleanup/setup should be run at the end
 #

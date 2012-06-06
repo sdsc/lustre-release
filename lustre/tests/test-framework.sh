@@ -3013,6 +3013,60 @@ cleanup_and_setup_lustre() {
     check_and_setup_lustre
 }
 
+# Get the objids for files on the OST (given the OST index and object group).
+get_objects() {
+	local obdidx=$1
+	shift
+	local group=$1
+	shift
+	local ost_files="$@"
+	local ost_objids
+	ost_objids=$($LFS getstripe $ost_files | \
+		awk '{if ($1 == '$obdidx' && $4 == '$group') print $2 }')
+	echo $ost_objids
+}
+
+# Get the OST nodet name (given the OST index).
+get_ost_node() {
+	local obdidx=$1
+	local ost_uuid
+	local ost_node
+	local node
+
+	ost_uuid=$(ostuuid_from_index $obdidx)
+
+	for node in $(osts_nodes); do
+		do_node $node "lctl get_param -n obdfilter.*.uuid" | \
+			grep -q $ost_uuid
+		[ ${PIPESTATUS[1]} -eq 0 ] && ost_node=$node && break
+	done
+	[ -z "$ost_node" ] &&
+		echo "failed to find the OST with index $obdidx" && return 1
+	echo $ost_node
+}
+
+# Get the OST target device (given the OST facet name and OST index).
+get_ost_dev() {
+	local node=$1
+	local obdidx=$2
+	local ost_name
+	local ost_dev
+
+	ost_name=$(ostname_from_index $obdidx)
+	ost_dev=$(do_node $node "lctl get_param -n \
+		obdfilter.${ost_name}.mntdev")
+	[ ${PIPESTATUS[0]} -ne 0 ] &&
+		echo "failed to find the OST device with index $obdidx \
+			on $facet" && return 1
+
+	if [[ $ost_dev = *loop* ]]; then
+		ost_dev=$(do_node $node "losetup $ost_dev" | \
+			sed -e "s/.*(//" -e "s/).*//")
+	fi
+
+	echo $ost_dev
+}
+
 # Get all of the server target devices from a given server node and type.
 get_mnt_devs() {
     local node=$1
