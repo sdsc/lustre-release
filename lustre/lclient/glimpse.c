@@ -157,7 +157,7 @@ int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
                         LASSERT(agl == 0);
                         result = cl_wait(env, lock);
                         if (result == 0) {
-                                cl_merge_lvb(inode);
+				result = cl_merge_lvb(inode);
                                 if (cl_isize_read(inode) > 0 &&
                                     inode->i_blocks == 0) {
                                         /*
