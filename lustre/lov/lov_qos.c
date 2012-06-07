@@ -523,7 +523,10 @@ static int lov_check_and_create_object(struct lov_obd *lov, int ost_idx,
                 rc = obd_create(NULL, lov->lov_tgts[ost_idx]->ltd_exp,
                                 req->rq_oi.oi_oa, &req->rq_oi.oi_md,
                                 oti);
-        }
+	} else {
+		rc = 0;
+	}
+
         RETURN(rc);
 }
 
