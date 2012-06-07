@@ -38,6 +38,7 @@
 #define _MOUNT_UTILS_H_
 
 #include <lustre_disk.h>
+#include <lustre_param.h>
 
 #define MAX_LOOP_DEVICES 16
 #define MO_IS_LOOP     0x01
@@ -54,9 +55,11 @@ extern int failover;
 struct mkfs_opts {
 	struct lustre_disk_data	mo_ldd; /* to be written in MOUNT_DATA_FILE */
 	char	mo_device[128];   /* disk device name */
+	char	**mo_pool_vdevs;  /* list of pool vdevs */
 	char	mo_loopdev[128];  /* in case a loop dev is needed */
 	char	mo_mkfsopts[512]; /* options to the backing-store mkfs */
 	__u64	mo_device_sz;     /* in KB */
+	__u64	mo_vdev_sz;	  /* in KB */
 	int	mo_stripe_count;
 	int	mo_flags;
 	int	mo_mgs_failnodes;
