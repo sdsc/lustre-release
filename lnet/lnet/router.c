@@ -659,7 +659,6 @@ lnet_parse_rc_info(lnet_rc_data_t *rcd)
 static void
 lnet_router_checker_event(lnet_event_t *event)
 {
-	/* CAVEAT EMPTOR: I'm called with lnet_res_locked */
 	lnet_rc_data_t		*rcd = event->md.user_ptr;
 	struct lnet_peer	*lp;
 
@@ -680,11 +679,14 @@ lnet_router_checker_event(lnet_event_t *event)
 		return;
 
 	if (event->type == LNET_EVENT_SEND) {
-		lp->lp_ping_notsent = 0; /* NB: re-enable another ping */
+		/* NB: re-enable another ping, it's logically serialized
+		 * so don't need to hold LNET_LOCK */
+		lp->lp_ping_notsent = 0;
 		if (event->status == 0)
 			return;
 	}
 
+	LNET_LOCK();
 	/* LNET_EVENT_REPLY */
 	/* A successful REPLY means the router is up.  If _any_ comms
 	 * to the router fail I assume it's down (this will happen if
@@ -699,6 +701,8 @@ lnet_router_checker_event(lnet_event_t *event)
 
 	if (avoid_asym_router_failure && event->status == 0)
 		lnet_parse_rc_info(rcd);
+
+	LNET_UNLOCK();
 }
 
 void
@@ -1549,9 +1553,7 @@ lnet_router_checker (void)
 
                 LASSERT (rc == 1);
 
-                LNET_LOCK();
                 lnet_router_checker_event(&ev);
-                LNET_UNLOCK();
         }
 
 	if (the_lnet.ln_rc_state == LNET_RC_STATE_STOPPING) {
