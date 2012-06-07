@@ -181,6 +181,8 @@ void set_defaults(struct mkfs_opts *mop)
 
         mop->mo_ldd.ldd_svindex = INDEX_UNASSIGNED;
         mop->mo_stripe_count = 1;
+	mop->mo_pool_vdevs = NULL;
+	mop->mo_vdev_sz = 0;
 }
 
 static inline void badopt(const char *opt, char *type)
@@ -247,6 +249,7 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                 {"comment", 1, 0, 'u'},
                 {"configdev", 1, 0, 'C'},
                 {"device-size", 1, 0, 'd'},
+		{"vdev-size", 1, 0, 1},
                 {"dryrun", 0, 0, 'n'},
                 {"erase-params", 0, 0, 'e'},
                 {"failnode", 1, 0, 'f'},
@@ -318,6 +321,9 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                         return 1;
                 case 'd':
                         mop->mo_device_sz = atol(optarg);
+                        break;
+                case 1:
+                        mop->mo_vdev_sz = atol(optarg);
                         break;
                 case 'e':
                         mop->mo_ldd.ldd_params[0] = '\0';
@@ -483,16 +489,20 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                 }
         }//while
 
-        /* Last arg is device */
-        if (optind != argc - 1) {
+        if (optind == argc) {
+                /* The user didn't specify device name */
                 fatal();
-                fprintf(stderr, "Bad argument: %s\n", argv[optind]);
+                fprintf(stderr, "Not enough arguments - device name or "
+                        "pool/dataset name not specified.\n");
                 return EINVAL;
-        }
+        } else {
+                /*  The device or pool/filesystem name */
+                strscpy(mop->mo_device, argv[optind], sizeof(mop->mo_device));
 
-        /* single argument: <device> */
-        if (argc == 2)
-                ++print_only;
+                /* Followed by optional vdevs */
+                if (optind < argc - 1)
+                        mop->mo_pool_vdevs = (char **) &argv[optind + 1];
+        }
 
         return 0;
 }
