@@ -22,7 +22,7 @@ for num in $(seq $MDSCOUNT); do
 done
 MDSDEVBASE=${MDSDEVBASE:-$TMP/${FSNAME}-mdt}
 MDSSIZE=${MDSSIZE:-200000}
-MDSOPT=${MDSOPT:-"--mountfsoptions=user_xattr"}
+MDSOPT=${MDSOPT:-"--mountfsoptions=errors=remount-ro,user_xattr"}
 
 MGSDEV=${MGSDEV:-$MDSDEV1}
 MGSSIZE=${MGSSIZE:-$MDSSIZE}

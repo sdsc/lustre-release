@@ -22,10 +22,6 @@ fi
 
 [ "$SIZE" ] || SIZE=$((RAMKB * 2))
 [ "$RSIZE" ] || RSIZE=512
-[ "$UID" ] || UID=1000
-[ "$MOUNT" ] || MOUNT=/mnt/lustre
-[ "$MOUNT2" ] || MOUNT2=${MOUNT}2
-[ "$TMP" ] || TMP=/tmp
 [ "$COUNT" ] || COUNT=1000
 [ "$DEBUG_LVL" ] || DEBUG_LVL=0
 [ "$DEBUG_OFF" ] || DEBUG_OFF="eval lctl set_param debug=\"$DEBUG_LVL\""
@@ -50,6 +46,13 @@ STARTTIME=`date +%s`
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
 . $LUSTRE/tests/test-framework.sh
 init_test_env
+
+export NAME MOUNT START CLEAN
+. $LUSTRE/tests/cfg/$NAME.sh
+
+assert_env mds_HOST MDS_MKFS_OPTS
+assert_env ost_HOST OST_MKFS_OPTS OSTCOUNT
+assert_env FSNAME MOUNT MOUNT2
 
 if $GSS; then
     # liblustre doesn't support GSS
@@ -164,13 +167,6 @@ run_suites() {
         run_suite $suite
     done
 }
-
-export NAME MOUNT START CLEAN
-. $LUSTRE/tests/cfg/$NAME.sh
-
-assert_env mds_HOST MDS_MKFS_OPTS 
-assert_env ost_HOST OST_MKFS_OPTS OSTCOUNT
-assert_env FSNAME MOUNT MOUNT2
 
 setup_if_needed
 init_logging
