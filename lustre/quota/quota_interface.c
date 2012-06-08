@@ -289,6 +289,10 @@ static int quota_check_common(struct obd_device *obd, unsigned int uid,
                         QDATA_SET_BLK(&qdata[i]);
                 qdata[i].qd_count = 0;
 
+                /* check if quota is enabled */
+                if (!ll_sb_has_quota_active(qctxt->lqc_sb, i))
+                        continue;
+
                 /* ignore root user */
                 if (qdata[i].qd_id == 0 && !QDATA_IS_GRP(&qdata[i]))
                         continue;
@@ -505,6 +509,9 @@ int quota_is_set(struct obd_device *obd, unsigned int uid,
                 RETURN(0);
 
         for (i = 0; i < MAXQUOTAS; i++) {
+                /* check if quota is enabled */
+                if (!ll_sb_has_quota_active(obd->u.obt.obt_qctxt.lqc_sb, i))
+                        continue;
                 lqs = quota_search_lqs(LQS_KEY(i, id[i]),
                                        &obd->u.obt.obt_qctxt, 0);
                 if (lqs && !IS_ERR(lqs)) {
