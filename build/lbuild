@@ -542,8 +542,14 @@ download_ofed() {
 
     local location="http://www.openfabrics.org/downloads/OFED/ofed-${OFED_BASE_VERSION}/"
 
+    if [[ $OFED_VERSION = *-rc[0-9] ]]; then
+        local Mmv
+        Mmv=${OFED_VERSION%%-*}
+        location="http://www.openfabrics.org/downloads/OFED/ofed-${Mmv}/"
+    fi
+
     if [[ $OFED_VERSION = daily-* ]]; then
-        local Mmv daily
+        local daily
         OFED_VERSION=${OFED_VERSION/daily-/}
         Mmv=${OFED_VERSION%%-*}
         daily=${OFED_VERSION##$Mmv-}
@@ -1170,15 +1176,24 @@ unpack_linux_devel_rpm() {
 build_kernel_ib() {
     local linux="$1"
 
-    # build kernel-ib{,-devel}
+    # build kernel-ib{,-devel}/compat-rdma{,-devel}
     local K_SRC="K_SRC"
     # ofed 1.3 had a bug in the rpm spec
     if [ "$OFED_VERSION" = "1.3" ]; then
         K_SRC="KSRC"
     fi
 
-    local OFED_CORE="--with-core-mod --with-ipoib-mod --with-sdp-mod --with-user_mad-mod --with-user_access-mod --with-addr_trans-mod --with-rds-mod --with-madeye-mod"
+    local OFED_CORE="--with-core-mod --with-ipoib-mod --with-sdp-mod --with-user_mad-mod --with-user_access-mod --with-addr_trans-mod --with-rds-mod"
     local OFED_HARDWARE="--with-mthca-mod --with-mlx4-mod --with-mlx4_en-mod --with-cxgb3-mod --with-nes-mod"
+    case "$OFED_VERSION" in
+        1.[0-5]*)
+            OFED_CORE="$OFED_CORE --with-madeye-mod"
+            ;;
+        3.[0-9]*)
+            OFED_HARDWARE="$OFED_HARDWARE --with-cxgb4-mod"
+            ;;
+    esac
+
     # some I/B drivers are architecture dependent and kernel-ib's configure
     # does not figure it out for us ~sigh~
     case "$TARGET_ARCH" in
@@ -1197,13 +1212,21 @@ build_kernel_ib() {
 
     # assume we are just rebuilding the SRPM
     local BUILD_TYPE=${BUILD_TYPE:-"--rebuild"}
-    local SOURCE="${TOPDIR}/OFED/SRPMS/ofa_kernel-*.src.rpm"
+    local KIB_PREFIX KIB_RPM
+    if [[ $OFED_VERSION = 3.[0-9]* ]]; then
+        KIB_PREFIX=compat-rdma
+        KIB_RPM=compat-rdma
+    else
+        KIB_PREFIX=ofa_kernel
+        KIB_RPM=kernel-ib
+    fi
+    local SOURCE="${TOPDIR}/OFED/SRPMS/${KIB_PREFIX}-*.src.rpm"
 
     # but switch to building from the SPEC if we need to apply patches
     if ls ${TOPDIR}/lustre/build/patches/ofed/* >/dev/null; then
         BUILD_TYPE="-bb"
         rpm --define "_topdir ${TOPDIR}" -ivh $SOURCE
-        SOURCE="${TOPDIR}/SPECS/ofa_kernel.spec"
+        SOURCE="${TOPDIR}/SPECS/${KIB_PREFIX}.spec"
         local file ed_fragment1 ed_fragment2 n=1
         for file in $(ls ${TOPDIR}/lustre/build/patches/ofed/*.patch); do
             ed_fragment1="$ed_fragment1
@@ -1243,7 +1266,7 @@ EOF
                   ${OFA_KERNEL_RELEASE:+--define "_release $OFA_KERNEL_RELEASE"} \
                   --define "configure_options --without-quilt $OFED_CORE $OFED_HARDWARE $OFED_ISCSI" \
                   ${SOURCE} 2>&1; then
-        fatal 1 "Error building kernel-ib"
+        fatal 1 "Error building ${KIB_RPM}"
     fi
 
 }
@@ -1497,7 +1520,7 @@ build_ofed() {
         fi
     fi
 
-    # build kernel-ib
+    # build kernel-ib/compat-rdma
     if $USE_BUILD_CACHE && [ -n "$REUSEBUILD" ]; then
         local REUSE_SIGNATURE=$({ echo "$ofed_version";
                                   echo "$(find_linux_release ${linux})";
@@ -1549,19 +1572,19 @@ build_ofed() {
     fi
 
     pushd "$TOPDIR" >/dev/null
-    rm -rf kernel-ib-devel
-    mkdir kernel-ib-devel
-    cd kernel-ib-devel
+    rm -rf ${KIB_RPM}-devel
+    mkdir ${KIB_RPM}-devel
+    cd ${KIB_RPM}-devel
     # the actual ofed RPMs don't have the -rc$n or -$date string appened that
     # might be present on the file
     local linuxrelease=$(find_linux_release "$linux")
     ofed_version=$(echo $ofed_version |
                    sed -re 's/-(20[0-9]{6,6}-[0-9]{4,4}|rc[0-9]*)$//')
-    local rpm=$(ls $TOPDIR/RPMS/*/kernel-ib-devel-${ofed_version}-${linuxrelease//-/_}.*.rpm)
+    local rpm=$(ls $TOPDIR/RPMS/*/${KIB_RPM}-devel-${ofed_version}-${linuxrelease//-/_}.*.rpm)
     if ! rpm2cpio < $rpm | cpio -id; then
-        fatal 1 "could not unpack the kernel-ib-devel rpm."
+        fatal 1 "could not unpack the ${KIB_RPM}-devel rpm."
     fi
-    CONFIGURE_FLAGS="--with-o2ib=$(pwd)/usr/src/ofa_kernel ${CONFIGURE_FLAGS}"
+    CONFIGURE_FLAGS="--with-o2ib=$(pwd)/usr/src/${KIB_PREFIX} ${CONFIGURE_FLAGS}"
     popd >/dev/null
 
 }
