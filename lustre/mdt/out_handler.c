@@ -263,6 +263,114 @@ static struct dt_object *out_object_find(struct mdt_thread_info *info,
 	return dt_obj;
 }
 
+static void out_common_reconstruct(struct mdt_thread_info *mti,
+				   struct dt_object *obj,
+				   struct update_reply *reply,
+				   int index)
+{
+	update_insert_reply(reply, NULL, 0, index, 0);
+	return;
+}
+
+typedef void (*out_reconstruct_t)(struct mdt_thread_info *mti,
+				  struct dt_object *obj,
+				  struct update_reply *reply,
+				  int index);
+
+static inline int out_common_check_resent(struct mdt_thread_info *info,
+					  struct dt_object *obj,
+					  out_reconstruct_t reconstruct,
+					  struct update_reply *reply,
+					  int index)
+{
+	struct ptlrpc_request *req = mdt_info_req(info);
+	ENTRY;
+
+	if (lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT) {
+		/* FIXME: We should check XID, but for phase I, the
+		 * cross-MDT operation will be synchronously, and all
+		 * of the updates for a remote creation are in one RPC,
+		 * so we will know whether the operation has been
+		 * executed by checking whether the object exists */
+		if (info->mti_u.update.mti_update_resend) {
+			reconstruct(info, obj, reply, index);
+			RETURN(1);
+		}
+	}
+	RETURN(0);
+}
+
+static inline int out_create_check_resent(struct mdt_thread_info *info,
+					  struct dt_object *obj,
+					  out_reconstruct_t reconstruct,
+					  struct update_reply *reply,
+					  int index)
+{
+	struct ptlrpc_request *req = mdt_info_req(info);
+
+	ENTRY;
+
+	if (lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT) {
+		/* FIXME: We should check XID, but for phase I, the
+		 * cross-MDT operation will be synchronously, and all
+		 * of the updates for a remote creation are in one RPC,
+		 * so we will know whether the operation has been
+		 * executed by checking whether the object exists */
+		if (info->mti_u.update.mti_update_resend) {
+			reconstruct(info, obj, reply, index);
+			RETURN(1);
+		}
+
+		if (lu_object_exists(&obj->do_lu) > 0) {
+			info->mti_u.update.mti_update_resend = 1;
+			reconstruct(info, obj, reply, index);
+			RETURN(1);
+		}
+	}
+	RETURN(0);
+}
+
+static inline int out_index_delete_check_resent(struct mdt_thread_info *info,
+						struct dt_object *obj,
+						out_reconstruct_t reconstruct,
+						struct update_reply *reply,
+						int index, char *name)
+{
+	struct ptlrpc_request *req = mdt_info_req(info);
+
+	ENTRY;
+
+	if (lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT) {
+		const struct lu_env     *env = info->mti_env;
+		int rc;
+
+		if (info->mti_u.update.mti_update_resend) {
+			reconstruct(info, obj, reply, index);
+			RETURN(1);
+		}
+
+		if (name == NULL)
+			RETURN(0);
+
+		if (dt_try_as_dir(info->mti_env, obj) == 0) {
+			CERROR("%s: "DFID" is not directory\n",
+				mdt2obd_dev(info->mti_mdt)->obd_name,
+				PFID(lu_object_fid(&obj->do_lu)));
+			return -ENOTDIR;
+		}
+
+		rc = dt_lookup(env, obj,
+			       (struct dt_rec *)&info->mti_tmp_fid1,
+			       (struct dt_key *)name, NULL);
+		if (rc == -ENOENT) {
+			reconstruct(info, obj, reply, index);
+			info->mti_u.update.mti_update_resend = 1;
+			RETURN(1);
+		}
+	}
+	RETURN(0);
+}
+
 /**
  * All of the xxx_undo will be used once execution failed,
  * But because all of the required resource has been reserved in
@@ -392,6 +500,11 @@ static int out_create(struct mdt_thread_info *info)
 		}
 	}
 
+	if (out_create_check_resent(info, obj, out_common_reconstruct,
+			     info->mti_u.update.mti_update_reply,
+			     info->mti_u.update.mti_update_reply_index))
+		RETURN(0);
+
 	rc = out_tx_create(info, obj, attr, fid, dof, &info->mti_handle,
 			   info->mti_u.update.mti_update_reply,
 			   info->mti_u.update.mti_update_reply_index);
@@ -478,6 +591,11 @@ static int out_attr_set(struct mdt_thread_info *info)
 	obdo_le_to_cpu(wobdo, wobdo);
 	lustre_get_wire_obdo(lobdo, wobdo);
 	obdo_to_lu_attr(attr, lobdo);
+
+	if (out_common_check_resent(info, obj, out_common_reconstruct,
+			    info->mti_u.update.mti_update_reply,
+			    info->mti_u.update.mti_update_reply_index))
+		RETURN(0);
 
 	rc = out_tx_attr_set(info, obj, attr, &info->mti_handle,
 			     info->mti_u.update.mti_update_reply,
@@ -746,6 +864,12 @@ static int out_xattr_set(struct mdt_thread_info *info)
 
 	flag = le32_to_cpu(*(int *)tmp);
 
+
+	if (out_common_check_resent(info, obj, out_common_reconstruct,
+			    info->mti_u.update.mti_update_reply,
+			    info->mti_u.update.mti_update_reply_index))
+		RETURN(0);
+
 	rc = out_tx_xattr_set(info, obj, lbuf, name, flag, &info->mti_handle,
 			 info->mti_u.update.mti_update_reply,
 			 info->mti_u.update.mti_update_reply_index);
@@ -821,6 +945,11 @@ static int out_ref_add(struct mdt_thread_info *info)
 	int		  rc;
 
 	ENTRY;
+
+	if (out_common_check_resent(info, obj, out_common_reconstruct,
+				info->mti_u.update.mti_update_reply,
+				info->mti_u.update.mti_update_reply_index))
+		RETURN(0);
 
 	rc = out_tx_ref_add(info, obj, &info->mti_handle,
 			    info->mti_u.update.mti_update_reply,
@@ -1006,6 +1135,11 @@ static int out_index_insert(struct mdt_thread_info *info)
 		RETURN(-EPROTO);
 	}
 
+	if (out_common_check_resent(info, obj, out_common_reconstruct,
+			    info->mti_u.update.mti_update_reply,
+			    info->mti_u.update.mti_update_reply_index))
+		RETURN(0);
+
 	rc = out_tx_index_insert(info, obj, name, fid, &info->mti_handle,
 				 info->mti_u.update.mti_update_reply,
 				 info->mti_u.update.mti_update_reply_index);
@@ -1073,6 +1207,12 @@ static int out_index_delete(struct mdt_thread_info *info)
 		       mdt_obd_name(info->mti_mdt), -EPROTO);
 		RETURN(-EPROTO);
 	}
+
+	if (out_index_delete_check_resent(info, obj, out_common_reconstruct,
+				info->mti_u.update.mti_update_reply,
+				info->mti_u.update.mti_update_reply_index,
+				name))
+		RETURN(0);
 
 	rc = out_tx_index_delete(info, obj, name, &info->mti_handle,
 				 info->mti_u.update.mti_update_reply,
@@ -1198,6 +1338,7 @@ int out_handle(struct mdt_thread_info *info)
 
 	/* Walk through updates in the request to execute them synchronously */
 	off = cfs_size_round(offsetof(struct update_buf, ub_bufs[0]));
+	info->mti_u.update.mti_update_resend = 0;
 	for (i = 0; i < count; i++) {
 		struct out_handler *h;
 		struct dt_object   *dt_obj;

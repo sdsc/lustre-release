@@ -459,6 +459,7 @@ struct mdt_thread_info {
 			int			mti_update_reply_index;
 			struct obdo		mti_obdo;
 			struct dt_object	*mti_dt_object;
+			int			mti_update_resend;
 		} update;
         } mti_u;
 

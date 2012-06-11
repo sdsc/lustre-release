@@ -3424,6 +3424,10 @@ struct update_request {
 	struct update_buf	*ur_buf;   /* Holding the update req */
 };
 
+enum update_flags {
+	UPDATE_RECREATE =  1 << 0,
+};
+
 void lustre_swab_update_buf(struct update_buf *ub);
 void lustre_swab_update_reply_buf(struct update_reply *ur);
 

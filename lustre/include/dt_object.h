@@ -259,6 +259,7 @@ struct dt_object_format {
 			int striped;
                 } dof_reg;
                 struct dof_dir {
+			int recreate;
                 } dof_dir;
                 struct dof_node {
                 } dof_node;

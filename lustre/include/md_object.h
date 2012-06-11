@@ -194,10 +194,11 @@ struct md_op_spec {
         /** Create flag from client: such as MDS_OPEN_CREAT, and others. */
         __u64      sp_cr_flags;
 
-        /** Should mdd do lookup sanity check or not. */
-        int        sp_cr_lookup;
+	/** Should mdd do lookup sanity check or not. */
+	int	sp_cr_lookup:1,
+		sp_cr_recreate:1; /* create from a resend req */
 
-        /** Current lock mode for parent dir where create is performing. */
+	/** Current lock mode for parent dir where create is performing. */
         mdl_mode_t sp_cr_mode;
 
         /** to create directory */
@@ -205,7 +206,7 @@ struct md_op_spec {
 };
 
 /**
- * Operations implemented for each md object (both directory and leaf).
+ * Operations implemented for each md object by(both directory and leaf).
  */
 struct md_object_operations {
         int (*moo_permission)(const struct lu_env *env,
