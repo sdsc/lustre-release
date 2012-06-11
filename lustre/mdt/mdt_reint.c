@@ -305,6 +305,7 @@ static int mdt_md_create(struct mdt_thread_info *info)
 	child = mdt_object_new(info->mti_env, mdt, rr->rr_fid2);
         if (likely(!IS_ERR(child))) {
                 struct md_object *next = mdt_object_child(parent);
+		struct ptlrpc_request *req = mdt_info_req(info);
 
                 ma->ma_need = MA_INODE;
                 ma->ma_valid = 0;
@@ -331,6 +332,9 @@ static int mdt_md_create(struct mdt_thread_info *info)
 		 * not exist.
 		 */
 		info->mti_spec.sp_cr_lookup = 0;
+		info->mti_spec.sp_cr_recreate =
+				!!(lustre_msg_get_flags(req->rq_reqmsg) &
+				   (MSG_RESENT | MSG_REPLAY));
                 info->mti_spec.sp_feat = &dt_directory_features;
 
                 rc = mdo_create(info->mti_env, next, lname,
