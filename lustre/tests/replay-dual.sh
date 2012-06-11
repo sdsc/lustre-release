@@ -571,11 +571,262 @@ test_21b() {
     [ $n_attempts -gt 3 ] &&
         error "The test cannot check whether COS works or not: all renames are replied w/o COS"
     done
+    zconf_mount_clients $CLIENTS $MOUNT2
     restore_lustre_params < $param_file
     rm -f $param_file
     return 0
 }
 run_test 21b "commit on sharing, two clients"
+
+test_22a () {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+
+    do_node $CLIENT1 mkdir -p $MOUNT1/${tdir}
+
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
+    do_node $CLIENT1 $LFS setdirstripe -i $MDTIDX $MOUNT1/${tdir}/remote_dir &
+    CLIENT_PID=$!
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0
+
+    fail mds${MDTIDX}
+    wait $CLIENT_PID || return 1
+
+    replay_barrier mds${MDTIDX}
+
+    do_node $CLIENT2 mkdir ${MOUNT2}/${tdir}/remote_dir/dir || return 2
+    do_node $CLIENT1 createmany -o $MOUNT1/${tdir}/remote_dir/dir/$tfile- 2 ||
+                                                               return 3
+    do_node $CLIENT2 createmany -o $MOUNT2/${tdir}/remote_dir/$tfile- 2 ||
+                                                               return 4
+    fail mds${MDTIDX}
+
+    checkstat $MOUNT1/${tdir}/remote_dir || return 5
+    checkstat $MOUNT1/${tdir}/remote_dir/dir || return 6
+    checkstat $MOUNT1/${tdir}/remote_dir/$tfile-1 || return 7
+    checkstat $MOUNT1/${tdir}/remote_dir/dir/$tfile-1 || return 8
+
+    rm -rf $MOUNT1/$tdir || return 9
+
+    return 0
+}
+run_test 22a "c1 lfs mkdir -i 1 dir1, M0 drop reply & fail, c2 mkdir dir1/dir"
+
+test_22b () {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+
+    do_node $CLIENT1 mkdir -p $MOUNT1/${tdir}
+
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
+    do_node $CLIENT1 $LFS setdirstripe -i $MDTIDX $MOUNT1/${tdir}/remote_dir &
+    CLIENT_PID=$!
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0
+
+    fail mds${MDTIDX},mds$((MDTIDX + 1))
+    wait $CLIENT_PID || return 1
+
+    replay_barrier mds$MDTIDX
+
+    do_node $CLIENT2 mkdir ${MOUNT2}/${tdir}/remote_dir/dir || return 2
+    do_node $CLIENT1 createmany -o $MOUNT1/${tdir}/remote_dir/dir/$tfile- 2 ||
+                                                               return 3
+    do_node $CLIENT2 createmany -o $MOUNT2/${tdir}/remote_dir/$tfile- 2 ||
+                                                               return 4
+    fail mds${MDTIDX}
+
+    checkstat $MOUNT1/${tdir}/remote_dir || return 5
+    checkstat $MOUNT1/${tdir}/remote_dir/dir || return 6
+    checkstat $MOUNT1/${tdir}/remote_dir/$tfile-1 || return 7
+    checkstat $MOUNT1/${tdir}/remote_dir/dir/$tfile-1 || return 8
+
+    rm -rf $MOUNT1/$tdir || return 9
+
+    return 0
+}
+run_test 22b "c1 lfs mkdir -i 1 d1, M0 drop reply & fail M0/M1, c2 mkdir d1/dir"
+
+test_22c () {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+
+    do_node $CLIENT1 mkdir -p $MOUNT1/${tdir}
+
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x188
+    do_node $CLIENT1 $LFS setdirstripe -i $MDTIDX $MOUNT1/${tdir}/remote_dir &
+    CLIENT_PID=$!
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0
+
+    fail mds$((MDTIDX+1))
+    wait $CLIENT_PID || return 1
+
+    replay_barrier mds$MDTIDX
+    do_node $CLIENT2 mkdir ${MOUNT2}/${tdir}/remote_dir/dir || return 2
+    do_node $CLIENT1 createmany -o $MOUNT1/${tdir}/remote_dir/dir/$tfile- 2 ||
+                                                               return 3
+    do_node $CLIENT2 createmany -o $MOUNT2/${tdir}/remote_dir/$tfile- 2 ||
+                                                               return 4 
+    fail mds$MDTIDX 
+
+    checkstat $MOUNT1/${tdir}/remote_dir || return 5
+    checkstat $MOUNT1/${tdir}/remote_dir/dir || return 6
+    checkstat $MOUNT1/${tdir}/remote_dir/$tfile-1 || return 7
+    checkstat $MOUNT1/${tdir}/remote_dir/dir/$tfile-1 || return 8
+
+    rm -rf $MOUNT1/$tdir || return 9
+    return 0
+}
+run_test 22c "c1 lfs mkdir -i 1 d1, M1 drop update & fail M1, c2 mkdir d1/dir"
+
+test_22d () {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+
+    do_node $CLIENT1 mkdir -p $MOUNT1/${tdir}
+
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x188
+    do_node $CLIENT1 $LFS setdirstripe -i $MDTIDX $MOUNT1/${tdir}/remote_dir & 
+    CLIENT_PID=$!
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0
+
+    fail mds${MDTIDX},mds$((MDTIDX + 1)) 
+    wait $CLIENT_PID || return 1 
+
+    replay_barrier mds$MDTIDX
+    do_node $CLIENT2 mkdir ${MOUNT2}/${tdir}/remote_dir/dir || return 2
+    do_node $CLIENT1 createmany -o $MOUNT1/${tdir}/remote_dir/dir/$tfile- 2 ||
+                                                               return 3
+    do_node $CLIENT2 createmany -o $MOUNT2/${tdir}/remote_dir/$tfile- 2 ||
+                                                               return 4 
+
+    fail mds$MDTIDX
+
+    checkstat $MOUNT1/${tdir}/remote_dir || return 5
+    checkstat $MOUNT1/${tdir}/remote_dir/dir || return 6
+    checkstat $MOUNT1/${tdir}/remote_dir/$tfile-1 || return 7
+    checkstat $MOUNT1/${tdir}/remote_dir/dir/$tfile-1 || return 8
+
+    rm -rf $MOUNT1/$tdir || return 9
+    return 0
+}
+run_test 22d "c1 lfs mkdir -i 1 d1, M1 drop update & fail M0/M1,c2 mkdir d1/dir"
+
+test_23a () {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+
+    do_node $CLIENT1 mkdir -p $MOUNT1/${tdir}
+    do_node $CLIENT1 $LFS setdirstripe -i $MDTIDX $MOUNT1/${tdir}/remote_dir
+
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x119
+    do_node $CLIENT1 rmdir $MOUNT1/${tdir}/remote_dir &
+    CLIENT_PID=$!
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0
+
+    fail mds$((MDTIDX + 1))
+    wait $CLIENT_PID || return 1
+
+    replay_barrier mds${MDTIDX}
+    do_node $CLIENT2 mkdir ${MOUNT2}/${tdir}/remote_dir || return 2
+    do_node $CLIENT2 createmany -o $MOUNT2/${tdir}/remote_dir/$tfile- 2 ||
+                                                           return 3
+
+    fail mds${MDTIDX} 
+
+    checkstat $MOUNT1/${tdir}/remote_dir || return 4 
+    checkstat $MOUNT1/${tdir}/remote_dir/$tfile-1 || return 5 
+
+    rm -rf $MOUNT1/$tdir || return 6 
+    return 0
+}
+run_test 23a "c1 rmdir d1, M1 drop reply and fail, client2 mkdir d1"
+
+test_23b () {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+
+    do_node $CLIENT1 mkdir -p $MOUNT1/${tdir}
+    do_node $CLIENT1 $LFS setdirstripe -i $MDTIDX $MOUNT1/${tdir}/remote_dir
+
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x119
+    do_node $CLIENT1 rmdir $MOUNT1/${tdir}/remote_dir &
+    CLIENT_PID=$!
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0
+
+    fail mds${MDTIDX},mds$((MDTIDX + 1))
+    wait $CLIENT_PID || return 1
+
+    replay_barrier mds${MDTIDX}
+    do_node $CLIENT2 mkdir ${MOUNT2}/${tdir}/remote_dir || return 2
+    do_node $CLIENT2 createmany -o $MOUNT2/${tdir}/remote_dir/$tfile- 2 ||
+                                                           return 3
+    fail mds${MDTIDX}
+
+    checkstat $MOUNT1/${tdir}/remote_dir || return 4
+    checkstat $MOUNT1/${tdir}/remote_dir/$tfile-1 || return 5
+
+    rm -rf $MOUNT1/$tdir || return 6
+    return 0
+}
+run_test 23b "c1 rmdir d1, M1 drop reply and fail M0/M1, c2 mkdir d1"
+
+test_23c () {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+
+    do_node $CLIENT1 mkdir -p $MOUNT1/${tdir}
+    do_node $CLIENT1 $LFS setdirstripe -i $MDTIDX $MOUNT1/${tdir}/remote_dir
+
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0x188
+    do_node $CLIENT1 rmdir $MOUNT1/${tdir}/remote_dir &
+    CLIENT_PID=$!
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0
+
+    fail mds${MDTIDX}
+    wait $CLIENT_PID || return 1
+
+    replay_barrier mds${MDTIDX}
+    do_node $CLIENT2 mkdir ${MOUNT2}/${tdir}/remote_dir || return 2
+    do_node $CLIENT2 createmany -o $MOUNT2/${tdir}/remote_dir/$tfile- 2 ||
+                                                           return 3
+    fail mds${MDTIDX}
+
+    checkstat $MOUNT1/${tdir}/remote_dir || return 4
+    checkstat $MOUNT1/${tdir}/remote_dir/$tfile-1 || return 5
+
+    rm -rf $MOUNT1/$tdir || return 6
+    return 0
+}
+run_test 23c "c1 rmdir d1, M0 drop update reply and fail M0, c2 mkdir d1"
+
+test_23d () {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+
+    do_node $CLIENT1 mkdir -p $MOUNT1/${tdir}
+    do_node $CLIENT1 $LFS setdirstripe -i $MDTIDX $MOUNT1/${tdir}/remote_dir
+
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0x188
+    do_node $CLIENT1 rmdir $MOUNT1/${tdir}/remote_dir &
+    CLIENT_PID=$!
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0
+
+    fail mds${MDTIDX},mds$((MDTIDX + 1))
+    wait $CLIENT_PID || return 1
+
+    replay_barrier mds${MDTIDX}
+    do_node $CLIENT2 mkdir ${MOUNT2}/${tdir}/remote_dir || return 2
+    do_node $CLIENT2 createmany -o $MOUNT2/${tdir}/remote_dir/$tfile- 2 ||
+                                                           return 3
+    fail mds${MDTIDX}
+
+    checkstat $MOUNT1/${tdir}/remote_dir || return 4
+    checkstat $MOUNT1/${tdir}/remote_dir/$tfile-1 || return 5
+
+    rm -rf $MOUNT1/$tdir || return 6
+    return 0
+}
+run_test 23d "c1 rmdir d1, M0 drop update reply and fail M0/M1, c2 mkdir d1"
 
 # end commit on sharing tests 
 
