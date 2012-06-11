@@ -103,11 +103,11 @@ static int osc_object_init(const struct lu_env *env, struct lu_object *obj,
 
 static void osc_object_free(const struct lu_env *env, struct lu_object *obj)
 {
-        struct osc_object *osc = lu2osc(obj);
-        int i;
+	struct osc_object *osc = lu2osc(obj);
+	int i;
 
-        for (i = 0; i < CRT_NR; ++i)
-                LASSERT(cfs_list_empty(&osc->oo_inflight[i]));
+	for (i = 0; i < CRT_NR; ++i)
+		LASSERT(cfs_list_empty(&osc->oo_inflight[i]));
 
 	LASSERT(cfs_list_empty(&osc->oo_ready_item));
 	LASSERT(cfs_list_empty(&osc->oo_hp_ready_item));

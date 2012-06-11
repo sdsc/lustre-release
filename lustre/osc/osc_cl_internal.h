@@ -40,6 +40,7 @@
  * Internal interfaces of OSC layer.
  *
  *   Author: Nikita Danilov <nikita.danilov@sun.com>
+ *   Author: Jinshan Xiong <jinshan.xiong@whamcloud.com>
  */
 
 #ifndef OSC_CL_INTERNAL_H
@@ -653,8 +654,8 @@ struct osc_extent {
 	 * oe_start is used as keyword for red-black tree. */
 	pgoff_t            oe_start;
 	pgoff_t            oe_end;
-	/** maximum high of this extent, this is limited by max_pages_per_rpc,
-	 * lock extent and block size. */
+	/** maximum ending index of this extent, this is limited by
+	 * max_pages_per_rpc, lock extent and trunk size. */
 	pgoff_t            oe_max_end;
 	/** waitqueue - for those who want to be notified if this extent's
 	 * state has changed. */

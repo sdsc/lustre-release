@@ -427,13 +427,13 @@ static int osc_io_setattr_start(const struct lu_env *env,
 		result = cl_object_attr_get(env, obj, attr);
 		if (result == 0) {
 			struct ost_lvb *lvb = &io->u.ci_setattr.sa_attr;
-                        unsigned int cl_valid = 0;
+			unsigned int cl_valid = 0;
 
-                        if (ia_valid & ATTR_SIZE) {
-                                attr->cat_size = attr->cat_kms = size;
-                                cl_valid = (CAT_SIZE | CAT_KMS);
-                        }
-                        if (ia_valid & ATTR_MTIME_SET) {
+			if (ia_valid & ATTR_SIZE) {
+				attr->cat_size = attr->cat_kms = size;
+				cl_valid = (CAT_SIZE | CAT_KMS);
+			}
+			if (ia_valid & ATTR_MTIME_SET) {
 				attr->cat_mtime = lvb->lvb_mtime;
 				cl_valid |= CAT_MTIME;
 			}

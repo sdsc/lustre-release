@@ -168,7 +168,8 @@ static inline struct osc_extent *first_extent(struct osc_object *obj)
 	return rb_extent(rb_first(&obj->oo_root));
 }
 
-static int osc_extent_sanity_check0(struct osc_extent *ext, int locked,
+/* object must be locked by caller. */
+static int osc_extent_sanity_check0(struct osc_extent *ext,
 				    const char *func, const int line)
 {
 	struct osc_object *obj = ext->oe_obj;
@@ -176,9 +177,7 @@ static int osc_extent_sanity_check0(struct osc_extent *ext, int locked,
 	int page_count;
 	int rc = 0;
 
-	if (!locked)
-		osc_object_lock(obj);
-	else if (!osc_object_is_locked(obj))
+	if (!osc_object_is_locked(obj))
 		GOTO(out, rc = 9);
 
 	if (ext->oe_state >= OES_STATE_MAX)
@@ -250,8 +249,6 @@ static int osc_extent_sanity_check0(struct osc_extent *ext, int locked,
 		GOTO(out, rc = 120);
 
 out:
-	if (!locked)
-		osc_object_unlock(obj);
 	if (rc != 0)
 		OSC_EXTENT_DUMP(D_ERROR, ext,
 				"%s:%d sanity check %p failed with rc = %d\n",
@@ -260,9 +257,16 @@ out:
 }
 
 #define sanity_check_nolock(ext) \
-	osc_extent_sanity_check0(ext, 1, __func__, __LINE__)
-#define sanity_check(ext) \
-	osc_extent_sanity_check0(ext, 0, __func__, __LINE__)
+	osc_extent_sanity_check0(ext, __func__, __LINE__)
+
+#define sanity_check(ext) ({                                                   \
+	int __res;                                                             \
+	osc_object_lock((ext)->oe_obj);                                        \
+	__res = sanity_check_nolock(ext);                                      \
+	osc_object_unlock((ext)->oe_obj);                                      \
+	__res;                                                                 \
+})
+
 
 /**
  * sanity check - to make sure there is no overlapped extent in the tree.
@@ -478,15 +482,15 @@ static void osc_extent_remove(struct osc_extent *ext)
 
 /**
  * This function is used to merge extents to get better performance. It checks
- * if @cur and @victim are contiguous at block level.
+ * if @cur and @victim are contiguous at trunk level.
  */
 static int osc_extent_merge(const struct lu_env *env, struct osc_extent *cur,
 			    struct osc_extent *victim)
 {
 	struct osc_object *obj = cur->oe_obj;
-	pgoff_t block_start;
-	pgoff_t block_end;
-	int ppb_bits;
+	pgoff_t trunk_start;
+	pgoff_t trunk_end;
+	int ppt_bits;
 
 	LASSERT(cur->oe_state == OES_CACHE);
 	LASSERT(osc_object_is_locked(obj));
@@ -500,11 +504,11 @@ static int osc_extent_merge(const struct lu_env *env, struct osc_extent *cur,
 		return -ERANGE;
 
 	LASSERT(cur->oe_osclock == victim->oe_osclock);
-	ppb_bits = osc_cli(obj)->cl_blockbits - CFS_PAGE_SHIFT;
-	block_start = cur->oe_start >> ppb_bits;
-	block_end   = cur->oe_end   >> ppb_bits;
-	if (block_start   != (victim->oe_end >> ppb_bits) + 1 &&
-	    block_end + 1 != victim->oe_start >> ppb_bits)
+	ppt_bits = osc_cli(obj)->cl_trunkbits - CFS_PAGE_SHIFT;
+	trunk_start = cur->oe_start >> ppt_bits;
+	trunk_end   = cur->oe_end   >> ppt_bits;
+	if (trunk_start   != (victim->oe_end >> ppt_bits) + 1 &&
+	    trunk_end + 1 != victim->oe_start >> ppt_bits)
 		return -ERANGE;
 
 	OSC_EXTENT_DUMP(D_CACHE, victim, "will be merged by %p.\n", cur);
@@ -590,12 +594,12 @@ struct osc_extent *osc_extent_find(const struct lu_env *env,
 	struct osc_extent *ext;
 	struct osc_extent *conflict = NULL;
 	struct osc_extent *found = NULL;
-	pgoff_t    block;
+	pgoff_t    trunk;
 	pgoff_t    max_end;
 	int        max_pages; /* max_pages_per_rpc */
-	int        blocksize;
-	int        ppb_bits; /* pages per block bits */
-	int        block_mask;
+	int        trunksize;
+	int        ppt_bits; /* pages per trunk bits */
+	int        trunk_mask;
 	int        rc;
 	ENTRY;
 
@@ -607,21 +611,22 @@ struct osc_extent *osc_extent_find(const struct lu_env *env,
 	LASSERT(lock != NULL);
 	LASSERT(lock->cll_descr.cld_mode >= CLM_WRITE);
 
-	LASSERT(cli->cl_blockbits >= CFS_PAGE_SHIFT);
-	ppb_bits   = cli->cl_blockbits - CFS_PAGE_SHIFT;
-	block_mask = ~((1 << ppb_bits) - 1);
-	blocksize  = 1 << cli->cl_blockbits;
-	block      = index >> ppb_bits;
+	LASSERT(cli->cl_trunkbits >= CFS_PAGE_SHIFT);
+	ppt_bits   = cli->cl_trunkbits - CFS_PAGE_SHIFT;
+	trunk_mask = ~((1 << ppt_bits) - 1);
+	trunksize  = 1 << cli->cl_trunkbits;
+	trunk      = index >> ppt_bits;
 
-	/* align end to rpc edge */
+	/* align end to rpc edge, rpc size may not be a power 2 integer. */
 	max_pages = cli->cl_max_pages_per_rpc;
-	max_end = ((index + max_pages) & ~(max_pages - 1)) - 1;
+	LASSERT((max_pages & ~trunk_mask) == 0);
+	max_end = index - index % max_pages + max_pages - 1;
 	max_end = min_t(pgoff_t, max_end, lock->cll_descr.cld_end);
 
 	/* initialize new extent by parameters so far */
 	cur->oe_max_end = max_end;
-	cur->oe_start   = index & block_mask;
-	cur->oe_end     = ((index + ~block_mask + 1) & block_mask) - 1;
+	cur->oe_start   = index & trunk_mask;
+	cur->oe_end     = ((index + ~trunk_mask + 1) & trunk_mask) - 1;
 	if (cur->oe_start < lock->cll_descr.cld_start)
 		cur->oe_start = lock->cll_descr.cld_start;
 	if (cur->oe_end > max_end)
@@ -631,8 +636,8 @@ struct osc_extent *osc_extent_find(const struct lu_env *env,
 	cur->oe_mppr    = max_pages;
 
 	/* grants has been allocated by caller */
-	LASSERTF(*grants >= blocksize + cli->cl_extent_tax,
-		 "%u/%u/%u.\n", *grants, blocksize, cli->cl_extent_tax);
+	LASSERTF(*grants >= trunksize + cli->cl_extent_tax,
+		 "%u/%u/%u.\n", *grants, trunksize, cli->cl_extent_tax);
 	LASSERTF((max_end - cur->oe_start) < max_pages, EXTSTR, EXTPARA(cur));
 
 restart:
@@ -641,11 +646,11 @@ restart:
 	if (ext == NULL)
 		ext = first_extent(obj);
 	while (ext != NULL) {
-		loff_t ext_blk_start = ext->oe_start >> ppb_bits;
-		loff_t ext_blk_end   = ext->oe_end   >> ppb_bits;
+		loff_t ext_trk_start = ext->oe_start >> ppt_bits;
+		loff_t ext_trk_end   = ext->oe_end   >> ppt_bits;
 
 		LASSERT(sanity_check_nolock(ext) == 0);
-		if (block > ext_blk_end + 1)
+		if (trunk > ext_trk_end + 1)
 			break;
 
 		/* if covering by different locks, no chance to match */
@@ -657,15 +662,15 @@ restart:
 			continue;
 		}
 
-		/* discontiguous blocks? */
-		if (block + 1 < ext_blk_start) {
+		/* discontiguous trunks? */
+		if (trunk + 1 < ext_trk_start) {
 			ext = next_extent(ext);
 			continue;
 		}
 
 		/* ok, from now on, ext and cur have these attrs:
 		 * 1. covered by the same lock
-		 * 2. contiguous at block level or overlapping. */
+		 * 2. contiguous at trunk level or overlapping. */
 
 		if (overlapped(ext, cur)) {
 			/* cur is the minimum unit, so overlapping means
@@ -696,7 +701,7 @@ restart:
 
 		/* check if they belong to the same rpc slot before trying to
 		 * merge. the extents are not overlapped and contiguous at
-		 * block level to get here. */
+		 * trunk level to get here. */
 		if (ext->oe_max_end != max_end) {
 			/* if they don't belong to the same RPC slot or
 			 * max_pages_per_rpc has ever changed, do not merge. */
@@ -704,28 +709,28 @@ restart:
 			continue;
 		}
 
-		/* it's required that an extent must be contiguous at block
+		/* it's required that an extent must be contiguous at trunk
 		 * level so that we know the whole extent is covered by grant
 		 * (the pages in the extent are NOT required to be contiguous).
 		 * Otherwise, it will be too much difficult to know which
-		 * blocks have grants allocated. */
+		 * trunks have grants allocated. */
 
 		/* try to do front merge - extend ext's start */
-		if (block + 1 == ext_blk_start) {
-			/* ext must be block size aligned */
-			EASSERT((ext->oe_start & ~block_mask) == 0, ext);
+		if (trunk + 1 == ext_trk_start) {
+			/* ext must be trunk size aligned */
+			EASSERT((ext->oe_start & ~trunk_mask) == 0, ext);
 
 			/* pull ext's start back to cover cur */
 			ext->oe_start   = cur->oe_start;
-			ext->oe_grants += blocksize;
-			*grants -= blocksize;
+			ext->oe_grants += trunksize;
+			*grants -= trunksize;
 
 			found = osc_extent_hold(ext);
-		} else if (block == ext_blk_end + 1) {
+		} else if (trunk == ext_trk_end + 1) {
 			/* rear merge */
 			ext->oe_end     = cur->oe_end;
-			ext->oe_grants += blocksize;
-			*grants -= blocksize;
+			ext->oe_grants += trunksize;
+			*grants -= trunksize;
 
 			/* try to merge with the next one because we just fill
 			 * in a gap */
@@ -752,7 +757,7 @@ restart:
 	} else if (conflict == NULL) {
 		/* create a new extent */
 		EASSERT(osc_extent_is_overlapped(obj, cur) == 0, cur);
-		cur->oe_grants = blocksize + cli->cl_extent_tax;
+		cur->oe_grants = trunksize + cli->cl_extent_tax;
 		*grants -= cur->oe_grants;
 		LASSERT(*grants >= 0);
 
@@ -821,7 +826,7 @@ int osc_extent_finish(const struct lu_env *env, struct osc_extent *ext,
 	} else if (blocksize < CFS_PAGE_SIZE &&
 		   last->oap_count != CFS_PAGE_SIZE) {
 		/* For short writes we shouldn't count parts of pages that
-		 * span a whole block on the OST side, or our accounting goes
+		 * span a whole trunk on the OST side, or our accounting goes
 		 * wrong.  Should match the code in filter_grant_check. */
 		int offset = oap->oap_page_off & ~CFS_PAGE_MASK;
 		int count = oap->oap_count + (offset & (blocksize - 1));
@@ -888,9 +893,9 @@ static int osc_extent_truncate(struct osc_extent *ext, pgoff_t trunc_index)
 	struct client_obd     *cli = osc_cli(obj);
 	struct osc_async_page *oap;
 	struct osc_async_page *tmp;
-	int                    pages_in_block = 0;
-	int                    ppb_bits    = cli->cl_blockbits - CFS_PAGE_SHIFT;
-	__u64                  trunc_block = trunc_index >> ppb_bits;
+	int                    pages_in_trunk = 0;
+	int                    ppt_bits    = cli->cl_trunkbits - CFS_PAGE_SHIFT;
+	__u64                  trunc_trunk = trunc_index >> ppt_bits;
 	int                    grants   = 0;
 	int                    nr_pages = 0;
 	int                    rc       = 0;
@@ -921,10 +926,10 @@ static int osc_extent_truncate(struct osc_extent *ext, pgoff_t trunc_index)
 		/* only discard the pages with their index greater than
 		 * trunc_index, and ... */
 		if (sub->cp_index < trunc_index) {
-			/* accounting how many pages remaining in the block
+			/* accounting how many pages remaining in the trunk
 			 * so that we can calculate grants correctly. */
-			if (sub->cp_index >> ppb_bits == trunc_block)
-				++pages_in_block;
+			if (sub->cp_index >> ppt_bits == trunc_trunk)
+				++pages_in_trunk;
 			continue;
 		}
 
@@ -953,29 +958,29 @@ static int osc_extent_truncate(struct osc_extent *ext, pgoff_t trunc_index)
 
 	osc_object_lock(obj);
 	if (ext->oe_nr_pages == 0) {
-		LASSERT(pages_in_block == 0);
+		LASSERT(pages_in_trunk == 0);
 		grants = ext->oe_grants;
 		ext->oe_grants = 0;
 	} else { /* calculate how many grants we can free */
-		int     blocks = (ext->oe_end >> ppb_bits) - trunc_block;
+		int     trunks = (ext->oe_end >> ppt_bits) - trunc_trunk;
 		pgoff_t last_index;
 
 
-		/* if there is no pages in this block, we can also free grants
-		 * for the last block */
-		if (pages_in_block == 0) {
-			/* if this is the 1st block and no pages in this block,
+		/* if there is no pages in this trunk, we can also free grants
+		 * for the last trunk */
+		if (pages_in_trunk == 0) {
+			/* if this is the 1st trunk and no pages in this trunk,
 			 * ext->oe_nr_pages must be zero, so we should be in
 			 * the other if-clause. */
-			LASSERT(trunc_block > 0);
-			--trunc_block;
-			++blocks;
+			LASSERT(trunc_trunk > 0);
+			--trunc_trunk;
+			++trunks;
 		}
 
 		/* this is what we can free from this extent */
-		grants          = blocks << cli->cl_blockbits;
+		grants          = trunks << cli->cl_trunkbits;
 		ext->oe_grants -= grants;
-		last_index      = ((trunc_block + 1) << ppb_bits) - 1;
+		last_index      = ((trunc_trunk + 1) << ppt_bits) - 1;
 		ext->oe_end     = min(last_index, ext->oe_max_end);
 		LASSERT(ext->oe_end >= ext->oe_start);
 		LASSERT(ext->oe_grants > 0);
@@ -1069,34 +1074,34 @@ static int osc_extent_make_ready(const struct lu_env *env,
 /**
  * Quick and simple version of osc_extent_find(). This function is frequently
  * called to expand the extent for the same IO. To expand the extent, the
- * page index must be in the same or next block of ext->oe_end.
+ * page index must be in the same or next trunk of ext->oe_end.
  */
 static int osc_extent_expand(struct osc_extent *ext, pgoff_t index, int *grants)
 {
 	struct osc_object *obj = ext->oe_obj;
 	struct client_obd *cli = osc_cli(obj);
 	struct osc_extent *next;
-	int ppb_bits = cli->cl_blockbits - CFS_PAGE_SHIFT;
-	pgoff_t block = index >> ppb_bits;
-	pgoff_t end_block;
+	int ppt_bits = cli->cl_trunkbits - CFS_PAGE_SHIFT;
+	pgoff_t trunk = index >> ppt_bits;
+	pgoff_t end_trunk;
 	pgoff_t end_index;
-	int blocksize = 1 << cli->cl_blockbits;
+	int trunksize = 1 << cli->cl_trunkbits;
 	int rc = 0;
 	ENTRY;
 
 	LASSERT(ext->oe_max_end >= index && ext->oe_start <= index);
 	osc_object_lock(obj);
 	LASSERT(sanity_check_nolock(ext) == 0);
-	end_block = ext->oe_end >> ppb_bits;
-	if (block > end_block + 1)
+	end_trunk = ext->oe_end >> ppt_bits;
+	if (trunk > end_trunk + 1)
 		GOTO(out, rc = -ERANGE);
 
-	if (end_block >= block)
+	if (end_trunk >= trunk)
 		GOTO(out, rc = 0);
 
-	LASSERT(end_block + 1 == block);
+	LASSERT(end_trunk + 1 == trunk);
 	/* try to expand this extent to cover @index */
-	end_index = min(ext->oe_max_end, ((block + 1) << ppb_bits) - 1);
+	end_index = min(ext->oe_max_end, ((trunk + 1) << ppt_bits) - 1);
 
 	next = next_extent(ext);
 	if (next != NULL && next->oe_start <= end_index)
@@ -1105,8 +1110,8 @@ static int osc_extent_expand(struct osc_extent *ext, pgoff_t index, int *grants)
 		GOTO(out, rc = -EAGAIN);
 
 	ext->oe_end = end_index;
-	ext->oe_grants += blocksize;
-	*grants -= blocksize;
+	ext->oe_grants += trunksize;
+	*grants -= trunksize;
 	LASSERT(*grants >= 0);
 	EASSERTF(osc_extent_is_overlapped(obj, ext) == 0, ext,
 		 "overlapped after expanding for %lu.\n", index);
@@ -1352,8 +1357,8 @@ static void __osc_unreserve_grant(struct client_obd *cli,
 {
 	/* it's quite normal for us to get more grant than reserved.
 	 * Thinking about a case that two extents merged by adding a new
-	 * block, we can save one extent tax. If extent tax is greater than
-	 * one block, we can save more grant by adding a new block */
+	 * trunk, we can save one extent tax. If extent tax is greater than
+	 * one trunk, we can save more grant by adding a new trunk */
 	cli->cl_reserved_grant -= reserved;
 	if (unused > reserved) {
 		cli->cl_avail_grant += reserved;
@@ -1381,7 +1386,7 @@ void osc_unreserve_grant(struct client_obd *cli,
  * can be lost:
  * 1. truncate;
  * 2. blocksize at OST is less than CFS_PAGE_SIZE and a partial page was
- *    written. In this case OST may use less blocks to serve this partial
+ *    written. In this case OST may use less trunks to serve this partial
  *    write. OSTs don't actually know the page size on the client side. so
  *    clients have to calculate lost grant by the blocksize on the OST.
  *    See filter_grant_check() for details.
@@ -1389,7 +1394,7 @@ void osc_unreserve_grant(struct client_obd *cli,
 static void osc_free_grant(struct client_obd *cli, unsigned int nr_pages,
 			   unsigned int lost_grant)
 {
-	int grant = (1 << cli->cl_blockbits) + cli->cl_extent_tax;
+	int grant = (1 << cli->cl_trunkbits) + cli->cl_extent_tax;
 
 	client_obd_list_lock(&cli->cl_loi_list_lock);
 	cfs_atomic_sub(nr_pages, &obd_dirty_pages);
@@ -2222,9 +2227,9 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 
 	ext = oio->oi_active;
 	if (ext != NULL && ext->oe_start <= index && ext->oe_max_end >= index) {
-		/* one block plus extent overhead must be enough to write this
+		/* one trunk plus extent overhead must be enough to write this
 		 * page */
-		grants = (1 << cli->cl_blockbits) + cli->cl_extent_tax;
+		grants = (1 << cli->cl_trunkbits) + cli->cl_extent_tax;
 		if (ext->oe_end >= index)
 			grants = 0;
 
@@ -2261,7 +2266,7 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 	}
 
 	if (ext == NULL) {
-		int tmp = (1 << cli->cl_blockbits) + cli->cl_extent_tax;
+		int tmp = (1 << cli->cl_trunkbits) + cli->cl_extent_tax;
 
 		/* try to find new extent to cover this page */
 		LASSERT(oio->oi_active == NULL);

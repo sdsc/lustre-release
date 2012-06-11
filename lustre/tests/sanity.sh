@@ -7,8 +7,8 @@
 set -e
 
 ONLY=${ONLY:-"$*"}
-# bug number for skipped test: 13297 2108 9789 3637 9789 3561 12622 5188
-ALWAYS_EXCEPT="                27u   42a  42b  42c  42d  45   51d   68b   $SANITY_EXCEPT"
+# bug number for skipped test: 13297 3561 12622 5188
+ALWAYS_EXCEPT="                27u   45   51d   68b   $SANITY_EXCEPT"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
 # Tests that fail on uml
@@ -3030,6 +3030,29 @@ test_48e() { # bug 4134
 	$TRACE rm $DIR/d48e || error "rm '$DIR/d48e' failed"
 }
 run_test 48e "Access to recreated parent subdir (should return errors)"
+
+test_49() { # LU-1030
+	# get ost1 size - lustre-OST0000
+	ost1_size=$(do_facet ost1 lfs df |grep ${ost1_svc} |awk '{print $4}')
+	# write 800M at maximum
+	[ $ost1_size -gt 819200 ] && ost1_size=819200
+
+	lfs setstripe -c 1 -i 0 $DIR/$tfile
+	dd if=/dev/zero of=$DIR/$tfile bs=4k count=$((ost1_size >> 2)) &
+	local dd_pid=$!
+
+	# change max_pages_per_rpc while writing the file
+	local osc1_mppc=osc.$(get_osc_import_name client ost1).max_pages_per_rpc
+	local orig_mppc=`$LCTL get_param -n $osc1_mppc`
+	# loop until dd process exits
+	while ps ax -opid | grep -q $dd_pid; do
+		$LCTL set_param $osc1_mppc=$((RANDOM % 256 + 1))
+		sleep $((RANDOM % 5 + 1))
+	done
+	# restore original max_pages_per_rpc
+	$LCTL set_param $osc1_mppc=$orig_mppc
+}
+run_test 49 "Change max_pages_per_rpc won't break osc extent"
 
 test_50() {
 	# bug 1485
@@ -9322,34 +9345,6 @@ test_227() {
 	rm -f $MOUNT/date
 }
 run_test 227 "running truncated executable does not cause OOM"
-
-test_228() {
-	# get ost1 size - lustre-OST0000
-	ost1_size=`do_facet ost1 lfs df |grep ${ost1_svc} |awk '{print $4}'`
-	# write 800M at maximum
-	[ $ost1_size -gt 819200 ] && ost1_size=819200
-
-	lfs setstripe -c 1 -i 0 $DIR/$tfile
-	dd if=/dev/zero of=$DIR/$tfile bs=4k count=$((ost1_size>>2)) &
-	local dd_pid=$!
-
-	# change max_pages_per_rpc while writing the file
-	local osc1_mppc=osc.$(get_osc_import_name client ost1).max_pages_per_rpc
-	local orig_mppc=`$LCTL get_param -n $osc1_mppc`
-	local mppc=(32 64 128 256)
-	while /bin/true; do
-		local index=$((RANDOM%${#mppc[*]}))
-		echo "Set max_pages_per_rpc to ${mppc[index]}"
-		$LCTL set_param -n $osc1_mppc ${mppc[index]}
-
-		# loop until dd process exits
-		`ps ax -opid |grep -q $dd_pid` || break
-		sleep 0.$((RANDOM%10))
-	done
-	# restore original max_pages_per_rpc
-	$LCTL set_param $osc1_name $orig_mppc
-}
-run_test 228 "Change max_pages_per_rpc won't break osc extent attr"
 
 #
 # tests that do cleanup/setup should be run at the end

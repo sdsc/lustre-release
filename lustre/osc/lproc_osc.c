@@ -565,22 +565,24 @@ static int osc_rd_destroys_in_flight(char *page, char **start, off_t off,
                         cfs_atomic_read(&obd->u.cli.cl_destroy_in_flight));
 }
 
-static int lprocfs_osc_wr_mppr(struct file *file, const char *buffer,
-			       unsigned long count, void *data)
+static int lprocfs_osc_wr_max_pages_per_rpc(struct file *file,
+	const char *buffer, unsigned long count, void *data)
 {
 	struct obd_device *dev = data;
 	struct client_obd *cli = &dev->u.cli;
 	struct obd_connect_data *ocd = &cli->cl_import->imp_connect_data;
-	int val, rc;
+	int trunk_mask, val, rc;
 
 	rc = lprocfs_write_helper(buffer, count, &val);
 	if (rc)
 		return rc;
 
 	LPROCFS_CLIMP_CHECK(dev);
-	if (val < 1 || val & (val - 1) ||
-	    val > ocd->ocd_brw_size >> CFS_PAGE_SHIFT ||
-	    val < (1 << ocd->ocd_blocksize) >> CFS_PAGE_SHIFT) {
+
+	trunk_mask = ~((1 << (cli->cl_trunkbits - CFS_PAGE_SHIFT)) - 1);
+	/* max_pages_per_rpc must be trunk aligned */
+	val = (val + ~trunk_mask) & trunk_mask;
+	if (val == 0 || val > ocd->ocd_brw_size >> CFS_PAGE_SHIFT) {
 		LPROCFS_CLIMP_EXIT(dev);
 		return -ERANGE;
 	}
@@ -608,7 +610,7 @@ static struct lprocfs_vars lprocfs_osc_obd_vars[] = {
         { "active",          osc_rd_active,
                              osc_wr_active, 0 },
         { "max_pages_per_rpc", lprocfs_obd_rd_max_pages_per_rpc,
-			       lprocfs_osc_wr_mppr, 0 },
+			       lprocfs_osc_wr_max_pages_per_rpc, 0 },
         { "max_rpcs_in_flight", osc_rd_max_rpcs_in_flight,
                                 osc_wr_max_rpcs_in_flight, 0 },
         { "destroys_in_flight", osc_rd_destroys_in_flight, 0, 0 },

@@ -1330,14 +1330,14 @@ static int osc_lock_use(const struct lu_env *env,
 
 static int osc_lock_flush(struct osc_lock *ols, int discard)
 {
-        struct cl_lock       *lock  = ols->ols_cl.cls_lock;
-        struct cl_env_nest    nest;
-        struct lu_env        *env;
-        int result = 0;
+	struct cl_lock       *lock  = ols->ols_cl.cls_lock;
+	struct cl_env_nest    nest;
+	struct lu_env        *env;
+	int result = 0;
 	ENTRY;
 
-        env = cl_env_nested_get(&nest);
-        if (!IS_ERR(env)) {
+	env = cl_env_nested_get(&nest);
+	if (!IS_ERR(env)) {
 		struct osc_object    *obj   = cl2osc(ols->ols_cl.cls_obj);
 		struct cl_lock_descr *descr = &lock->cll_descr;
 		int rc = 0;

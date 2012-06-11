@@ -355,8 +355,8 @@ static int osc_page_print(const struct lu_env *env,
         return (*printer)(env, cookie, LUSTRE_OSC_NAME"-page@%p: "
 			  "1< %#x %d %u %s %s > "
 			  "2< "LPU64" %u %u %#x %#x | %p %p %p > "
-                          "3< %s %p %d %lu %d > "
-                          "4< %d %d %d %lu %s | %s %s %s %s > "
+			  "3< %s %p %d %lu %d > "
+			  "4< %d %d %d %lu %s | %s %s %s %s > "
 			  "5< %s %s %s %s | %d %s | %d %s %s>\n",
                           opg,
                           /* 1 */
@@ -524,11 +524,11 @@ void osc_page_submit(const struct lu_env *env, struct osc_page *opg,
 	struct osc_async_page *oap = &opg->ops_oap;
 	struct osc_object     *obj = oap->oap_obj;
 
-        LINVRNT(osc_page_protected(env, opg,
-                                   crt == CRT_WRITE ? CLM_WRITE : CLM_READ, 1));
+	LINVRNT(osc_page_protected(env, opg,
+				   crt == CRT_WRITE ? CLM_WRITE : CLM_READ, 1));
 
 	LASSERTF(oap->oap_magic == OAP_MAGIC, "Bad oap magic: oap %p, "
-			"magic 0x%x\n", oap, oap->oap_magic);
+		 "magic 0x%x\n", oap, oap->oap_magic);
 	LASSERT(oap->oap_async_flags & ASYNC_READY);
 	LASSERT(oap->oap_async_flags & ASYNC_COUNT_STABLE);
 
@@ -544,8 +544,8 @@ void osc_page_submit(const struct lu_env *env, struct osc_page *opg,
 	}
 
 	opg->ops_submit_time = cfs_time_current();
-        osc_page_transfer_get(opg, "transfer\0imm");
-        osc_page_transfer_add(env, opg, crt);
+	osc_page_transfer_get(opg, "transfer\0imm");
+	osc_page_transfer_add(env, opg, crt);
 }
 
 /** @} osc */

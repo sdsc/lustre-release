@@ -464,9 +464,10 @@ struct client_obd {
 	cfs_list_t           cl_grant_shrink_list;  /* Timeout event list */
 	int                  cl_grant_shrink_interval; /* seconds */
 
-	int                  cl_blockbits;  /* fixed blockbits, greater or
-					     * equal to CFS_PAGE_SHIFT. */
-	int                  cl_bsize;      /* real blocksize */
+	/* A trunk is an optimal size used by osc_extent to determine
+	 * the extent size. A trunk is max(CFS_PAGE_SIZE, OST block size) */
+	int                  cl_trunkbits;
+	int                  cl_trunk;
 	int                  cl_extent_tax; /* extent overhead, by bytes */
 
         /* keep track of objects that have lois that contain pages which
@@ -501,7 +502,6 @@ struct client_obd {
 	cfs_atomic_t             cl_pending_w_pages;
 	cfs_atomic_t             cl_pending_r_pages;
 	int                      cl_max_pages_per_rpc;
-	int                      cl_rpc_bits; /* max pages per RPC bits */
         int                      cl_max_rpcs_in_flight;
         struct obd_histogram     cl_read_rpc_hist;
         struct obd_histogram     cl_write_rpc_hist;

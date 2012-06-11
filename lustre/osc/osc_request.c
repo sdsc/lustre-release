@@ -1030,20 +1030,17 @@ static void osc_init_grant(struct client_obd *cli, struct obd_connect_data *ocd)
                 cli->cl_avail_grant = ocd->ocd_grant;
         }
 
-	/* determine the appropriate blocksize used by osc_extent. */
-	cli->cl_blockbits = max_t(int, CFS_PAGE_SHIFT, ocd->ocd_blocksize);
-	cli->cl_bsize = 1 << cli->cl_blockbits;
-        client_obd_list_unlock(&cli->cl_loi_list_lock);
+	/* determine the appropriate trunk size used by osc_extent. */
+	cli->cl_trunkbits = max_t(int, CFS_PAGE_SHIFT, ocd->ocd_blocksize);
+	client_obd_list_unlock(&cli->cl_loi_list_lock);
 
 	CDEBUG(D_CACHE, "%s, setting cl_avail_grant: %ld cl_lost_grant: %ld."
-			"blocksize: %d, blockbits: %d.\n",
-               cli->cl_import->imp_obd->obd_name,
-	       cli->cl_avail_grant, cli->cl_lost_grant,
-	       cli->cl_bsize, cli->cl_blockbits);
+		"trunk bits: %d.\n", cli->cl_import->imp_obd->obd_name,
+		cli->cl_avail_grant, cli->cl_lost_grant, cli->cl_trunkbits);
 
-        if (ocd->ocd_connect_flags & OBD_CONNECT_GRANT_SHRINK &&
-            cfs_list_empty(&cli->cl_grant_shrink_list))
-                osc_add_shrink_grant(cli);
+	if (ocd->ocd_connect_flags & OBD_CONNECT_GRANT_SHRINK &&
+	    cfs_list_empty(&cli->cl_grant_shrink_list))
+		osc_add_shrink_grant(cli);
 }
 
 /* We assume that the reason this OSC got a short read is because it read
@@ -1716,8 +1713,8 @@ int osc_brw_redo_request(struct ptlrpc_request *request,
 	 * set from old request. */
 	ptlrpcd_add_req(new_req, PDL_POLICY_SAME, -1);
 
-        DEBUG_REQ(D_INFO, new_req, "new request");
-        RETURN(0);
+	DEBUG_REQ(D_INFO, new_req, "new request");
+	RETURN(0);
 }
 
 /*
@@ -1874,7 +1871,7 @@ out:
 static int brw_interpret(const struct lu_env *env,
                          struct ptlrpc_request *req, void *data, int rc)
 {
-        struct osc_brw_async_args *aa = data;
+	struct osc_brw_async_args *aa = data;
 	struct osc_extent *ext;
 	struct osc_extent *tmp;
 	struct cl_object  *obj = NULL;
