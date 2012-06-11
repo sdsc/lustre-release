@@ -659,7 +659,7 @@ EXPORT_SYMBOL(target_recovery_check_and_stop);
 int target_handle_connect(struct ptlrpc_request *req, svc_handler_t handler)
 {
         struct obd_device *target, *targref = NULL;
-        struct obd_export *export = NULL;
+        struct obd_export *export = NULL, *old_export = NULL;
         struct obd_import *revimp;
         struct lustre_handle conn;
         struct obd_uuid tgtuuid;
@@ -848,7 +848,6 @@ int target_handle_connect(struct ptlrpc_request *req, svc_handler_t handler)
                 spin_lock(&export->exp_lock);
                 export->exp_connecting = 1;
                 spin_unlock(&export->exp_lock);
-                class_export_put(export);
                 LASSERT(export->exp_obd == target);
 
                 rc = target_handle_reconnect(&conn, export, &cluuid);
@@ -967,11 +966,18 @@ no_export:
 
         lustre_msg_set_handle(req->rq_repmsg, &conn);
 
+        old_export = export;
         /* ownership of this export ref transfers to the request AFTER we
          * drop any previous reference the request had, but we don't want
          * that to go to zero before we get our new export reference. */
         export = class_conn2export(&conn);
         if (!export) {
+                /* when class_conn2expor() returns NULL
+                 * we have to decrement the previous export */
+                if (old_export) {
+                        class_export_put(old_export);
+                        old_export = NULL;
+                }
                 DEBUG_REQ(D_ERROR, req, "Missing export!");
                 GOTO(out, rc = -ENODEV);
         }
@@ -1085,6 +1091,7 @@ out:
                 spin_lock(&export->exp_lock);
                 export->exp_connecting = 0;
                 spin_unlock(&export->exp_lock);
+                class_export_put(export);
         }
         if (targref)
                 class_decref(targref);
