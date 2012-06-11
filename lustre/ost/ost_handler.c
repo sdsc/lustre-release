@@ -52,6 +52,7 @@
 #include <lprocfs_status.h>
 #include <libcfs/list.h>
 #include <lustre_quota.h>
+#include <lustre_fid.h>
 #include "ost_internal.h"
 
 static int oss_num_threads;
@@ -222,7 +223,7 @@ static int ost_lock_get(struct obd_export *exp, struct obdo *oa,
             !(oa->o_flags & OBD_FL_SRVLOCK))
                 RETURN(0);
 
-        osc_build_res_name(oa->o_id, oa->o_seq, &res_id);
+	ostid_build_res_name(oa->o_id, oa->o_seq, &res_id);
         CDEBUG(D_INODE, "OST-side extent lock.\n");
 
         policy.l_extent.start = start & CFS_PAGE_MASK;
@@ -596,7 +597,7 @@ static int ost_brw_lock_get(int mode, struct obd_export *exp,
         int i;
         ENTRY;
 
-        osc_build_res_name(obj->ioo_id, obj->ioo_seq, &res_id);
+	ostid_build_res_name(obj->ioo_id, obj->ioo_seq, &res_id);
         LASSERT(mode == LCK_PR || mode == LCK_PW);
         LASSERT(!lustre_handle_is_used(lh));
 
@@ -1881,7 +1882,7 @@ static int ost_rw_hpreq_check(struct ptlrpc_request *req)
         LASSERT(nb != NULL);
         LASSERT(!(nb->flags & OBD_BRW_SRVLOCK));
 
-        osc_build_res_name(ioo->ioo_id, ioo->ioo_seq, &opd.opd_resid);
+	ostid_build_res_name(ioo->ioo_id, ioo->ioo_seq, &opd.opd_resid);
 
         opd.opd_req = req;
         mode = LCK_PW;
@@ -1965,7 +1966,7 @@ static int ost_punch_hpreq_check(struct ptlrpc_request *req)
                 opd.opd_extent.end = OBD_OBJECT_EOF;
         opd.opd_timeout = prolong_timeout(req);
 
-        osc_build_res_name(oa->o_id, oa->o_seq, &opd.opd_resid);
+	ostid_build_res_name(oa->o_id, oa->o_seq, &opd.opd_resid);
 
         CDEBUG(D_DLMTRACE,
                "%s: refresh locks: "LPU64"/"LPU64" ("LPU64"->"LPU64")\n",
