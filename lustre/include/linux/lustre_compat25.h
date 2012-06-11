@@ -39,8 +39,8 @@
 
 #ifdef __KERNEL__
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,9)
-#error sorry, lustre requires at least linux kernel 2.6.9 or later
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,32)
+#error sorry, lustre requires at least linux kernel 2.6.32 or later
 #endif
 
 #include <linux/fs_struct.h>
@@ -57,14 +57,10 @@
  #define SEEK_END 2
 #endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,14)
 struct ll_iattr {
         struct iattr    iattr;
         unsigned int    ia_attr_flags;
 };
-#else
-#define ll_iattr iattr
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,14) */
 
 #ifdef HAVE_FS_STRUCT_RWLOCK
 # define LOCK_FS_STRUCT(fs)   cfs_write_lock(&(fs)->lock)
@@ -136,10 +132,8 @@ do {cfs_mutex_lock_nested(&(inode)->i_mutex, I_MUTEX_PARENT); } while(0)
 #define LOCK_INODE_MUTEX_PARENT(inode) LOCK_INODE_MUTEX(inode)
 #endif /* HAVE_INODE_I_MUTEX */
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
 #define d_child d_u.d_child
 #define d_rcu d_u.d_rcu
-#endif
 
 #ifdef HAVE_DQUOTOFF_MUTEX
 #define UNLOCK_DQONOFF_MUTEX(dqopt) cfs_mutex_unlock(&(dqopt)->dqonoff_mutex)
