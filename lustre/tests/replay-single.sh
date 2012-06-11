@@ -2010,11 +2010,10 @@ test_80a() {
 	local remote_dir=$DIR/$tdir/remote_dir
 
 	mkdir -p $DIR/$tdir
-	# OBD_FAIL_UPDATE_OBJ_NET    0x1500
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1500
+	#define OBD_FAIL_UPDATE_OBJ_NET_REP	0x1701
+	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1701
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0
 
 	fail mds$((MDTIDX + 1))
 
@@ -2038,11 +2037,10 @@ test_80b() {
 	local remote_dir=$DIR/$tdir/remote_dir
 
 	mkdir -p $DIR/$tdir
-	# OBD_FAIL_UPDATE_OBJ_NET    0x1500
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1500
+	#define OBD_FAIL_UPDATE_OBJ_NET_REP	0x1701
+	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1701
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0
 
 	fail mds${MDTIDX}
 
@@ -2066,11 +2064,10 @@ test_80c() {
 	local remote_dir=$DIR/$tdir/remote_dir
 
 	mkdir -p $DIR/$tdir
-	# OBD_FAIL_UPDATE_OBJ_NET    0x1500
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1500
+	#define OBD_FAIL_UPDATE_OBJ_NET_REP	0x1701
+	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1701
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0
 
 	fail mds${MDTIDX}
 	fail mds$((MDTIDX + 1))
@@ -2090,11 +2087,10 @@ test_80d() {
 	local remote_dir=$DIR/$tdir/remote_dir
 
 	mkdir -p $DIR/$tdir
-	# OBD_FAIL_UPDATE_OBJ_NET    0x1500
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1500
+	#define OBD_FAIL_UPDATE_OBJ_NET_REP	0x1701
+	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1701
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0
 
 	fail mds${MDTIDX},mds$((MDTIDX + 1))
 
@@ -2122,7 +2118,6 @@ test_80e() {
 	do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0
 
 	fail mds${MDTIDX}
 
@@ -2149,7 +2144,6 @@ test_80f() {
 	do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0
 
 	fail mds$((MDTIDX + 1))
 
@@ -2177,7 +2171,6 @@ test_80g() {
 	do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0
 
 	fail mds${MDTIDX}
 	fail mds$((MDTIDX + 1))
@@ -2201,7 +2194,6 @@ test_80h() {
 	do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0
 
 	fail mds${MDTIDX},mds$((MDTIDX + 1))
 
@@ -2227,11 +2219,11 @@ test_81a() {
 	mkdir -p $DIR/$tdir
 	$LFS mkdir -i $MDTIDX $remote_dir || error "lfs mkdir failed"
 
-	# OBD_FAIL_UPDATE_OBJ_NET    0x1500
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0x1500
+	touch $remote_dir
+	# OBD_FAIL_OBJ_UPDATE_NET_REP       0x1701
+	do_facet mds${MDTIDX} lctl set_param fail_loc=0x1701
 	rmdir $remote_dir &
 	local CLIENT_PID=$!
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0
 
 	fail mds$((MDTIDX + 1))
 
@@ -2257,11 +2249,10 @@ test_81b() {
 	mkdir -p $DIR/$tdir
 	$LFS mkdir -i $MDTIDX $remote_dir || error "lfs mkdir failed"
 
-	# OBD_FAIL_UPDATE_OBJ_NET    0x1500
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0x1500
+	# OBD_FAIL_OBJ_UPDATE_NET_REP       0x1701
+	do_facet mds${MDTIDX} lctl set_param fail_loc=0x1701
 	rmdir $remote_dir &
 	local CLIENT_PID=$!
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0
 
 	fail mds${MDTIDX}
 
@@ -2288,11 +2279,10 @@ test_81c() {
 	mkdir -p $DIR/$tdir
 	$LFS mkdir -i $MDTIDX $remote_dir || error "lfs mkdir failed"
 
-	# OBD_FAIL_UPDATE_OBJ_NET    0x1500
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0x1500
+	# OBD_FAIL_OBJ_UPDATE_NET_REP       0x1701
+	do_facet mds${MDTIDX} lctl set_param fail_loc=0x1701
 	rmdir $remote_dir &
 	local CLIENT_PID=$!
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0
 
 	fail mds${MDTIDX}
 	fail mds$((MDTIDX + 1))
@@ -2315,11 +2305,10 @@ test_81d() {
 	mkdir -p $DIR/$tdir
 	$LFS mkdir -i $MDTIDX $remote_dir || error "lfs mkdir failed"
 
-	# OBD_FAIL_UPDATE_OBJ_NET    0x1500
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0x1500
+	# OBD_FAIL_OBJ_UPDATE_NET_REP       0x1701
+	do_facet mds${MDTIDX} lctl set_param fail_loc=0x1701
 	rmdir $remote_dir &
 	local CLIENT_PID=$!
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0
 
 	fail mds${MDTIDX},mds$((MDTIDX + 1))
 
@@ -2381,7 +2370,6 @@ test_81f() {
 	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x119
 	rmdir $remote_dir &
 	local CLIENT_PID=$!
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0
 
 	fail mds$((MDTIDX + 1))
 
@@ -2412,7 +2400,6 @@ test_81g() {
 	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x119
 	rmdir $remote_dir &
 	local CLIENT_PID=$!
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0
 
 	fail mds${MDTIDX}
 	fail mds$((MDTIDX + 1))
@@ -2439,7 +2426,6 @@ test_81h() {
 	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x119
 	rmdir $remote_dir &
 	local CLIENT_PID=$!
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0
 
 	fail mds${MDTIDX},mds$((MDTIDX + 1))
 
