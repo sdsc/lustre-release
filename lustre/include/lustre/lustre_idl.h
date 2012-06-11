@@ -251,6 +251,13 @@ static inline int range_compare_loc(const struct lu_seq_range *r1,
                r1->lsr_flags != r2->lsr_flags;
 }
 
+static inline int range_index_is_equal(struct lu_seq_range *r1,
+                                       struct lu_seq_range *r2)
+{
+        return (r1->lsr_index == r2->lsr_index) &&
+               (r1->lsr_flags == r2->lsr_flags);
+}
+
 #define DRANGE "[%#16.16"LPF64"x-%#16.16"LPF64"x):%x:%x"
 
 #define PRANGE(range)      \
