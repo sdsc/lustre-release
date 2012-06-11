@@ -36,7 +36,10 @@ struct update_request {
 	struct dt_device	*ur_dt;
 	cfs_list_t		ur_list;    /* attached itself to thandle */
 	int			ur_flags;
-	int			ur_rc;
+	int			ur_rc;	    /* request result */
+	int			ur_batchid; /* Current batch(trans) id,
+					     * how many transactions in
+					     * in one update request */
 	struct update_buf	*ur_buf;   /* Holding the update req */
 };
 

@@ -462,7 +462,8 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 #define OBD_FAIL_LOV_INIT			    0x1403
 #define OBD_FAIL_GLIMPSE_DELAY			    0x1404
 
-#define OBD_FAIL_UPDATE_OBJ_NET				0x1500
+#define OBD_FAIL_UPDATE_OBJ_NET			0x1500
+#define OBD_FAIL_UPDATE_OBJ_NET_REP		0x1501
 
 #define OBD_FAIL_FID_INDIR	0x1501
 #define OBD_FAIL_FID_INLMA	0x1502
