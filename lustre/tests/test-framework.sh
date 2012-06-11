@@ -2044,32 +2044,54 @@ affected_facets () {
 }
 
 facet_failover() {
-    local facet=$1
+    local facets=$1
     local sleep_time=$2
-    local host=$(facet_active_host $facet)
+    local affecteds
+    local facet
+    local index=0
+    
+    #Because it will only get up facets, we need get affected
+    #facets before shutdown
+    for facet in $(echo $facets | sed -e "s/,/ /g"); do
+        affecteds[$index]=$(affected_facets $facet)
+        index=$((index+1))
+    done
 
-    echo "Failing $facet on node $host"
+    for facet in $(echo $facets | sed -e "s/,/ /g"); do
+        local host=$(facet_active_host $facet)
 
-    local affected=$(affected_facets $facet)
+        echo "Failing $facet on node $host"
+        # Make sure the client data is synced to disk. LU-924
+        #
+        # We don't write client data synchrnously (to avoid flooding sync writes
+        # when there are many clients connecting), so if the server reboots before
+        # the client data reachs disk, the client data will be lost and the client
+        # will be evicted after recovery, which is not what we expected.
+        do_facet $facet "sync; sync; sync"
+ 
+        shutdown_facet $facet
+    done
 
-    shutdown_facet $facet
+    index=0
+    for facet in $(echo $facets | sed -e "s/,/ /g"); do
+        echo reboot facets: $facet
+        echo affected facets: ${affecteds[$index]}
 
-    echo affected facets: $affected
+        reboot_facet $facet
 
-    [ -n "$sleep_time" ] && sleep $sleep_time
+        change_active ${affecteds[$index]}
 
-    reboot_facet $facet
-
-    change_active $affected
-
-    wait_for_facet $affected
-    # start mgs first if it is affected
-    if ! combined_mgs_mds && list_member $affected mgs; then
-        mount_facet mgs || error "Restart of mgs failed"
-    fi
-    # FIXME; has to be changed to mount all facets concurrently
-    affected=$(exclude_items_from_list $affected mgs)
-    mount_facets $affected
+        wait_for_facet ${affecteds[$index]}
+        # start mgs first if it is affected
+        if ! combined_mgs_mds && list_member $affected mgs; then
+            mount_facet mgs || error "Restart of mgs failed"
+        fi
+        # FIXME; has to be changed to mount all facets concurrently
+        affected=$(exclude_items_from_list $affected mgs)
+        echo mount facets: ${affecteds[$index]}
+        mount_facets ${affecteds[$index]}
+        index=$((index+1))
+    done
 }
 
 obd_name() {
