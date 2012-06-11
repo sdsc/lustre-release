@@ -826,6 +826,7 @@ test_29a() { # bug 22273 - error adding new clients
 	# fail abort so client will be new again
 	fail_abort $SINGLEMDS
 	client_up || error "reconnect failed"
+	wait_osc_import_state mds ost FULL
 	return 0
 }
 run_test 29a "error adding new clients doesn't cause LBUG (bug 22273)"
@@ -1565,6 +1566,93 @@ test_107 () {
 	return $rc
 }
 run_test 107 "drop reint reply, then restart MDT"
+
+test_110a () {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+ 
+    mkdir -p $DIR/$tdir
+    drop_request "$LFS setdirstripe -i $MDTIDX $DIR/$tdir/remote_dir"  || return 1
+
+    local diridx=$($GETSTRIPE -M $DIR/$tdir/remote_dir)
+    [ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
+
+    rm -rf $DIR/$tdir || return 2
+}
+run_test 110a "create remote directory: drop client req"
+
+test_110b () {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+ 
+    mkdir -p $DIR/$tdir
+    
+    drop_reint_reply " $LFS setdirstripe -i $MDTIDX $DIR/$tdir/remote_dir" || return 1 
+ 
+    diridx=$($GETSTRIPE -M $DIR/$tdir/remote_dir)
+    [ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
+
+    rm -rf $DIR/$tdir/remote_dir || return 2
+
+}
+run_test 110b "create remote directory: drop Master rep"
+
+test_110c () {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+ 
+    mkdir -p $DIR/$tdir
+
+    drop_update_reply $((MDTIDX + 1)) "$LFS setdirstripe -i $MDTIDX $DIR/$tdir/remote_dir" || return 1 
+
+    diridx=$($GETSTRIPE -M $DIR/$tdir/remote_dir)
+    [ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
+
+    rm -rf $DIR/$tdir || return 2 
+}
+run_test 110c "create remote directory: drop update rep on slave MDT"
+
+test_110d () {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+ 
+    mkdir -p $DIR/$tdir
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/remote_dir  || return 1
+
+    drop_request "rm -rf $DIR/$tdir/remote_dir" || return 2 
+    
+    rm -rf $DIR/$tdir || return 3 
+
+    return 0
+}
+run_test 110d "remove remote directory: drop client req"
+
+test_110e () {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+ 
+    mkdir -p $DIR/$tdir
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/remote_dir  || return 1
+    drop_reint_reply "rm -rf $DIR/$tdir/remote_dir" || return 2 
+
+    rm -rf $DIR/$tdir || return 3 
+    
+    return 0
+}
+run_test 110e "remove remote directory: drop master rep"
+
+test_110f () {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+ 
+    mkdir -p $DIR/$tdir
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/remote_dir || return 1
+    drop_update_reply 1 "rm -rf $DIR/$tdir/remote_dir" || return  2 
+
+    rm -rf $DIR/$tdir || return 3 
+}
+run_test 110f "remove remote directory: drop slave rep"
+
 complete $SECONDS
 check_and_cleanup_lustre
 exit_status
