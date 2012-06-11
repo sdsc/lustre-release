@@ -210,7 +210,8 @@ struct md_op_spec {
 
         /** Should mdd do lookup sanity check or not. */
 	int	sp_cr_lookup:1,
-		sp_rm_entry:1;    /* only remove name entry */
+		sp_rm_entry:1,    /* only remove name entry */
+		sp_cr_recreate:1; /* create from a resend req */
         /** Current lock mode for parent dir where create is performing. */
         mdl_mode_t sp_cr_mode;
 
@@ -219,7 +220,7 @@ struct md_op_spec {
 };
 
 /**
- * Operations implemented for each md object (both directory and leaf).
+ * Operations implemented for each md object by(both directory and leaf).
  */
 struct md_object_operations {
         int (*moo_permission)(const struct lu_env *env,
