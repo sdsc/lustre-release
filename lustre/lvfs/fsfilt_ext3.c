@@ -94,13 +94,8 @@ extern int ext3_xattr_set_handle(handle_t *, struct inode *, int, const char *, 
 
 #include "lustre_quota_fmt.h"
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,15)
-#define FSFILT_DATA_TRANS_BLOCKS(sb)      EXT3_DATA_TRANS_BLOCKS
-#define FSFILT_DELETE_TRANS_BLOCKS(sb)    EXT3_DELETE_TRANS_BLOCKS
-#else
 #define FSFILT_DATA_TRANS_BLOCKS(sb)      EXT3_DATA_TRANS_BLOCKS(sb)
 #define FSFILT_DELETE_TRANS_BLOCKS(sb)    EXT3_DELETE_TRANS_BLOCKS(sb)
-#endif
 
 /* for kernels 2.6.18 and later */
 #define FSFILT_SINGLEDATA_TRANS_BLOCKS(sb) EXT3_SINGLEDATA_TRANS_BLOCKS(sb)
@@ -826,32 +821,16 @@ static int fsfilt_ext3_sync(struct super_block *sb)
 #define EXT3_EXTENTS_FL                 0x00080000 /* Inode uses extents */
 #endif
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,17))
-# define fsfilt_up_truncate_sem(inode)  up(&LDISKFS_I(inode)->truncate_sem);
-# define fsfilt_down_truncate_sem(inode)  down(&LDISKFS_I(inode)->truncate_sem);
-#else
-# define fsfilt_up_truncate_sem(inode) do{ }while(0)
-# define fsfilt_down_truncate_sem(inode) do{ }while(0)
-#endif
-
 #ifndef EXT_ASSERT
 #define EXT_ASSERT(cond)  BUG_ON(!(cond))
 #endif
 
-#ifdef EXT3_EXT_HAS_NO_TREE
-/* for kernels 2.6.18 and later */
 #define EXT_GENERATION(inode)           (EXT4_I(inode)->i_ext_generation)
 #define ext3_ext_base                   inode
 #define ext3_ext_base2inode(inode)      (inode)
 #define EXT_DEPTH(inode)                ext_depth(inode)
 #define fsfilt_ext3_ext_walk_space(inode, block, num, cb, cbdata) \
                         ext3_ext_walk_space(inode, block, num, cb, cbdata);
-#else
-#define ext3_ext_base                   ext3_extents_tree
-#define ext3_ext_base2inode(tree)       (tree->inode)
-#define fsfilt_ext3_ext_walk_space(tree, block, num, cb, cbdata) \
-                        ext3_ext_walk_space(tree, block, num, cb);
-#endif
 
 struct bpointers {
         unsigned long *blocks;
@@ -942,27 +921,15 @@ static unsigned long new_blocks(handle_t *handle, struct ext3_ext_base *base,
 }
 #endif
 
-#ifdef EXT3_EXT_HAS_NO_TREE
 static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
                                   struct ext3_ext_path *path,
                                   struct ext3_ext_cache *cex,
 #ifdef HAVE_EXT_PREPARE_CB_EXTENT
-                                   struct ext3_extent *ex,
+                                  struct ext3_extent *ex,
 #endif
                                   void *cbdata)
 {
         struct bpointers *bp = cbdata;
-#else
-static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
-                                  struct ext3_ext_path *path,
-                                  struct ext3_ext_cache *cex
-#ifdef HAVE_EXT_PREPARE_CB_EXTENT
-                                  , struct ext3_extent *ex
-#endif
-                                 )
-{
-        struct bpointers *bp = base->private;
-#endif
         struct inode *inode = ext3_ext_base2inode(base);
         struct ext3_extent nex;
         unsigned long pblock;
@@ -997,15 +964,11 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
 
         tgen = EXT_GENERATION(base);
         count = ext3_ext_calc_credits_for_insert(base, path);
-        fsfilt_up_truncate_sem(inode);
 
         handle = ext3_journal_start(inode, count+EXT3_ALLOC_NEEDED+1);
-        if (IS_ERR(handle)) {
-                fsfilt_down_truncate_sem(inode);
+        if (IS_ERR(handle))
                 return PTR_ERR(handle);
-        }
 
-        fsfilt_down_truncate_sem(inode);
         if (tgen != EXT_GENERATION(base)) {
                 /* the tree has changed. so path can be invalid at moment */
                 ext3_journal_stop(handle);
@@ -1103,33 +1066,22 @@ int fsfilt_map_nblocks(struct inode *inode, unsigned long block,
                        unsigned long num, unsigned long *blocks,
                        int *created, int create)
 {
-#ifdef EXT3_EXT_HAS_NO_TREE
         struct ext3_ext_base *base = inode;
-#else
-        struct ext3_extents_tree tree;
-        struct ext3_ext_base *base = &tree;
-#endif
         struct bpointers bp;
         int err;
 
         CDEBUG(D_OTHER, "blocks %lu-%lu requested for inode %u\n",
                block, block + num - 1, (unsigned) inode->i_ino);
 
-#ifndef EXT3_EXT_HAS_NO_TREE
-        ext3_init_tree_desc(base, inode);
-        tree.private = &bp;
-#endif
         bp.blocks = blocks;
         bp.created = created;
         bp.start = block;
         bp.init_num = bp.num = num;
         bp.create = create;
 
-        fsfilt_down_truncate_sem(inode);
         err = fsfilt_ext3_ext_walk_space(base, block, num,
                                          ext3_ext_new_extent_cb, &bp);
         ext3_ext_invalidate_cache(base);
-        fsfilt_up_truncate_sem(inode);
 
         return err;
 }
@@ -1383,8 +1335,7 @@ static int fsfilt_ext3_write_record(struct file *file, void *buf, int bufsize,
 
 static int fsfilt_ext3_setup(struct super_block *sb)
 {
-#if ((LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,6)) && \
-     defined(HAVE_QUOTA_SUPPORT)) || defined(S_PDIROPS)
+#if defined(HAVE_QUOTA_SUPPORT) || defined(S_PDIROPS)
         struct ext3_sb_info *sbi = EXT3_SB(sb);
 #if 0
         sbi->dx_lock = fsfilt_ext3_dx_lock;
@@ -1404,7 +1355,7 @@ static int fsfilt_ext3_setup(struct super_block *sb)
 #endif
         if (!EXT3_HAS_COMPAT_FEATURE(sb, EXT3_FEATURE_COMPAT_DIR_INDEX))
                 CWARN("filesystem doesn't have dir_index feature enabled\n");
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,6)) && defined(HAVE_QUOTA_SUPPORT)
+#if defined(HAVE_QUOTA_SUPPORT)
         /* enable journaled quota support */
         /* kfreed in ext3_put_super() */
         sbi->s_qf_names[USRQUOTA] = kstrdup("lquota.user.reserved", GFP_KERNEL);
@@ -1417,9 +1368,7 @@ static int fsfilt_ext3_setup(struct super_block *sb)
                 return -ENOMEM;
         }
         sbi->s_jquota_fmt = QFMT_LUSTRE;
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,13))
         set_opt(sbi->s_mount_opt, QUOTA);
-#endif
 #endif
         return 0;
 }
@@ -2172,14 +2121,7 @@ static int fsfilt_ext3_dquot(struct lustre_dquot *dquot, int cmd)
 static int fsfilt_ext3_get_mblk(struct super_block *sb, int *count,
                                 struct inode *inode, int frags)
 {
-#ifdef EXT3_EXT_HAS_NO_TREE
         struct ext3_ext_base *base = inode;
-#else
-        struct ext3_extents_tree tree;
-        struct ext3_ext_base *base = &tree;
-
-        ext3_init_tree_desc(base, inode);
-#endif
         /* for an ost_write request, it needs <#fragments> * <tree depth + 1>
          * metablocks at maxium b=16542 */
         *count = frags * (EXT_DEPTH(base) + 1) * EXT3_BLOCK_SIZE(sb);
