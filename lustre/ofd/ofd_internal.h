@@ -472,7 +472,7 @@ static inline void ofd_build_resid(const struct lu_fid *fid,
 {
 	if (fid_is_idif(fid)) {
 		/* get id/seq like ostid_idif_pack() does */
-		osc_build_res_name(fid_idif_id(fid_seq(fid), fid_oid(fid),
+		ostid_build_res_name(fid_idif_id(fid_seq(fid), fid_oid(fid),
 					       fid_ver(fid)),
 				   FID_SEQ_OST_MDT0, resname);
 	} else {

@@ -73,6 +73,7 @@
 #include <linux/slab.h>
 #include <lustre_param.h>
 #include <lustre/ll_fiemap.h>
+#include <lustre_fid.h>
 
 #include "filter_internal.h"
 
@@ -1536,7 +1537,7 @@ static int filter_prepare_destroy(struct obd_device *obd, obd_id objid,
         ldlm_policy_data_t policy = { .l_extent = { 0, OBD_OBJECT_EOF } };
         ENTRY;
 
-        osc_build_res_name(objid, group, &res_id);
+	ostid_build_res_name(objid, group, &res_id);
         /* Tell the clients that the object is gone now and that they should
          * throw away any cached pages. */
         rc = ldlm_cli_enqueue_local(obd->obd_namespace, &res_id, LDLM_EXTENT,
@@ -3518,7 +3519,7 @@ int filter_setattr(const struct lu_env *env, struct obd_export *exp,
                         RETURN(rc);
         }
 
-        osc_build_res_name(oa->o_id, oa->o_seq, &res_id);
+	ostid_build_res_name(oa->o_id, oa->o_seq, &res_id);
         /* This would be very bad - accidentally truncating a file when
          * changing the time or similar - bug 12203. */
         if (oa->o_valid & OBD_MD_FLSIZE &&
