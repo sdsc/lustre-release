@@ -1556,23 +1556,49 @@ sync_all_data() {
         grep -v 'Found no match'
 }
 
-wait_delete_completed () {
-    local TOTALPREV=`lctl get_param -n osc.*.kbytesavail | \
-                     awk 'BEGIN{total=0}; {total+=$1}; END{print total}'`
+wait_delete_completed_mds () {
+    local MAX_WAIT=${1:-20}
+    local mds2sync=""
+    local stime=`date +%s`
+    local etime
+
+    # find MDS with pending deletions
+    for node in $(mdts_nodes); do
+        changes=$(do_node $node "lctl get_param -n osp*.*.sync_*" 2>/dev/null | awk '{sum=sum+$1} END{print sum}')
+        #echo "$node: $changes changes on $node"
+        if [ -z "$changes" ] || [ $changes -eq 0 ]; then
+            continue
+        fi
+        mds2sync="$mds2sync $node"
+    done
+    if [ "$mds2sync" == "" ]; then
+        echo "No OST_DESTROY in progress on any MDS"
+        return
+    fi
+
+    # sync MDS transactions
+    do_node $mds2sync "lctl set_param -n osd*.*MD*.force_sync 1"
+
+    # wait till all changes are sent and commmitted by OSTs
+    # for ldiskfs space is released upon execution, but DMU
+    # do this upon commit
 
     local WAIT=0
-    local MAX_WAIT=20
     while [ "$WAIT" -ne "$MAX_WAIT" ]; do
+        changes=$(do_node $mds2sync "lctl get_param -n osp*.*.sync_*" | awk '{sum=sum+$1} END{print sum}')
+        #echo "$node: $changes changes on all"
+        if [ "$changes" -eq "0" ]; then
+            etime=`date +%s`
+            #echo "delete took $((etime-stime)) seconds"
+            return
+        fi
         sleep 1
-        TOTAL=`lctl get_param -n osc.*.kbytesavail | \
-               awk 'BEGIN{total=0}; {total+=$1}; END{print total}'`
-        [ "$TOTAL" -eq "$TOTALPREV" ] && return 0
-        echo "Waiting delete completed ... prev: $TOTALPREV current: $TOTAL "
-        TOTALPREV=$TOTAL
         WAIT=$(( WAIT + 1))
     done
-    echo "Delete is not completed in $MAX_WAIT sec"
-    return 1
+
+    etime=`date +%s`
+    echo "Delete is not completed in $((etime-stime)) seconds"
+    do_node $mds2sync "lctl get_param osp*.*.sync_*"
 }
 
 wait_for_host() {
@@ -1677,7 +1703,7 @@ wait_mds_ost_sync () {
 }
 
 wait_destroy_complete () {
-    echo "Waiting for destroy to be done..."
+    echo "Waiting for destroys from this client to be done..."
     # MAX value shouldn't be big as this mean server responsiveness
     # never increase this just to make test pass but investigate
     # why it takes so long time
@@ -1694,11 +1720,16 @@ wait_destroy_complete () {
         done
         sleep 1
         [ ${con} -eq 1 ] && return 0 # done waiting
-        echo "Waiting $WAIT secs for destroys to be done."
+        echo "Waiting $WAIT secs for destroys from this client to be done."
         WAIT=$((WAIT + 1))
     done
-    echo "Destroys weren't done in $MAX sec."
+    echo "Destroys from this client weren't done in $MAX sec."
     return 1
+}
+
+wait_delete_completed() {
+    wait_delete_completed_mds $1 || return $?
+    wait_destroy_complete
 }
 
 wait_exit_ST () {
