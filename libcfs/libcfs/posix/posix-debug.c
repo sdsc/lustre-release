@@ -380,11 +380,10 @@ libcfs_assertion_failed(const char *expr, struct libcfs_debug_msg_data *msgdata)
  * on the stack - function calling RETURN() doesn't need to allocate two
  * additional 'rc' on the stack
  */
-long libcfs_log_return(struct libcfs_debug_msg_data *msgdata, long rc)
+void libcfs_log_return(struct libcfs_debug_msg_data *msgdata, long rc)
 {
-        libcfs_debug_msg(msgdata, "Process leaving (rc=%lu : %ld : %lx)\n",
-                         rc, rc, rc);
-        return rc;
+	libcfs_debug_msg(msgdata, "Process leaving (rc=%lu : %ld : %lx)\n",
+			 rc, rc, rc);
 }
 
 /*
