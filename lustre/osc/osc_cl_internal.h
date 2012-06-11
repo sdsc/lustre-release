@@ -406,7 +406,7 @@ int osc_teardown_async_page(struct osc_object *obj,
 int osc_queue_sync_page(const struct lu_env *env, struct osc_page *ops,
 			int cmd, int brw_flags);
 void osc_io_unplug(const struct lu_env *env, struct client_obd *cli,
-		   struct osc_object *osc, pdl_policy_t pol);
+		   struct osc_object *osc, pdl_policy_t pol, int async);
 
 void osc_object_set_contended  (struct osc_object *obj);
 void osc_object_clear_contended(struct osc_object *obj);

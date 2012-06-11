@@ -1932,7 +1932,7 @@ static int brw_interpret(const struct lu_env *env,
 	OBDO_FREE(aa->aa_oa);
 
 	osc_wake_cache_waiters(cli);
-	osc_io_unplug(env, cli, NULL, PDL_POLICY_SAME);
+	osc_io_unplug(env, cli, NULL, PDL_POLICY_SAME, 0);
 	client_obd_list_unlock(&cli->cl_loi_list_lock);
 
 	cl_req_completion(env, aa->aa_clerq, rc < 0 ? rc :
@@ -2107,7 +2107,11 @@ out:
 		 * So more ptlrpcd threads sharing BRW load
 		 * (with PDL_POLICY_ROUND) seems better.
 		 */
+		/* ptlrpcd_add_req will allocate memory, then the spin lock
+		 * should be released. */
+		client_obd_list_unlock(&cli->cl_loi_list_lock);
 		ptlrpcd_add_req(req, pol, -1);
+		client_obd_list_lock(&cli->cl_loi_list_lock);
 	}
 	RETURN(rc);
 }
@@ -3377,7 +3381,7 @@ static int osc_import_event(struct obd_device *obd,
                         client_obd_list_lock(&cli->cl_loi_list_lock);
                         /* all pages go to failing rpcs due to the invalid
                          * import */
-			osc_io_unplug(env, cli, NULL, PDL_POLICY_ROUND);
+			osc_io_unplug(env, cli, NULL, PDL_POLICY_ROUND, 0);
                         client_obd_list_unlock(&cli->cl_loi_list_lock);
 
                         ldlm_namespace_cleanup(ns, LDLM_FL_LOCAL_ONLY);
@@ -3460,7 +3464,7 @@ static int brw_queue_work(const struct lu_env *env, void *data)
 	CDEBUG(D_CACHE, "Run writeback work for client obd %p.\n", cli);
 
 	client_obd_list_lock(&cli->cl_loi_list_lock);
-	osc_io_unplug(env, cli, NULL, PDL_POLICY_SAME);
+	osc_io_unplug(env, cli, NULL, PDL_POLICY_ROUND, 0);
 	client_obd_list_unlock(&cli->cl_loi_list_lock);
 	RETURN(0);
 }

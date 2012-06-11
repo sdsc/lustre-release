@@ -209,7 +209,7 @@ static int osc_io_submit(const struct lu_env *env,
         LASSERT(ergo(result == 0, osc == osc0));
 
         if (queued > 0)
-		osc_io_unplug(env, cli, osc, PDL_POLICY_ROUND);
+		osc_io_unplug(env, cli, osc, PDL_POLICY_ROUND, 1);
         if (osc0)
                 client_obd_list_unlock(&cli->cl_loi_list_lock);
         CDEBUG(D_INFO, "%d/%d %d\n", qin->pl_nr, qout->pl_nr, result);

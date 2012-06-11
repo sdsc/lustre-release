@@ -334,7 +334,7 @@ static int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
 		cfs_list_add_tail(&ocw.ocw_entry, &cli->cl_cache_waiters);
 		ocw.ocw_rc = 0;
 
-		osc_io_unplug(env, cli, osc, PDL_POLICY_ROUND);
+		osc_io_unplug(env, cli, osc, PDL_POLICY_ROUND, 0);
 		client_obd_list_unlock(&cli->cl_loi_list_lock);
 
 		CDEBUG(D_CACHE, "%s: sleeping for cache space @ %p for %p\n",
@@ -942,11 +942,15 @@ static void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli,
 }
 
 void osc_io_unplug(const struct lu_env *env, struct client_obd *cli,
-		   struct osc_object *osc, pdl_policy_t pol)
+		   struct osc_object *osc, pdl_policy_t pol, int async)
 {
 	if (osc)
 		osc_list_maint(cli, osc);
-	osc_check_rpcs(env, cli, pol);
+
+	if (async)
+		ptlrpcd_queue_work(cli->cl_writeback_work);
+	else
+		osc_check_rpcs(env, cli, pol);
 }
 
 int osc_prep_async_page(struct osc_object *osc, struct osc_page *ops,
