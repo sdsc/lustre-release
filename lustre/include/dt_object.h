@@ -259,6 +259,7 @@ struct dt_object_format {
 			int striped;
                 } dof_reg;
                 struct dof_dir {
+			int recreate;
                 } dof_dir;
                 struct dof_node {
                 } dof_node;
@@ -763,11 +764,16 @@ struct update_buf {
 	__u32	ub_bufs[0];
 };
 
+enum update_flags {
+	UPDATE_RECREATE =  1 << 0,
+};
+
 struct update_request {
 	struct dt_device	*ur_dt;
 	cfs_list_t		ur_cb_list;
 	spinlock_t		ur_cb_list_lock;
 	cfs_list_t		ur_list;
+	int			ur_flags;
 	int			ur_rc;
 	char			ur_buf[UPDATE_BUFFER_SIZE];
 };

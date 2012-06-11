@@ -630,6 +630,8 @@ int mdd_declare_object_create_internal(const struct lu_env *env,
 			/* is this replay? */
 			if (spec->no_create)
 				dof->u.dof_reg.striped = 0;
+		} else if (dof->dof_type == DFT_DIR) {
+			dof->u.dof_dir.recreate = spec->sp_cr_recreate;
 		}
 	}
 

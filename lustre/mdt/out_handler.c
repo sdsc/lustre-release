@@ -336,6 +336,132 @@ static void out_unlock_objects(struct mdt_thread_info *info)
 	}
 }
 
+static void out_common_reconstruct(struct mdt_thread_info *mti,
+				   struct lu_object *obj,
+				   struct update_reply *reply,
+				   int index)
+{
+	update_insert_reply(reply, NULL, 0, index, 0);
+	return;
+}
+
+typedef void (*out_reconstruct_t)(struct mdt_thread_info *mti,
+				  struct lu_object *obj,
+				  struct update_reply *reply,
+				  int index);
+
+static inline int out_common_check_resent(struct mdt_thread_info *info,
+					  struct lu_object *obj,
+					  out_reconstruct_t reconstruct,
+					  struct update_reply *reply,
+					  int index)
+{
+	struct ptlrpc_request *req = mdt_info_req(info);
+	ENTRY;
+
+	if (lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT) {
+		/* FIXME: We should check XID, but for phase I, the
+		 * cross-MDT operation will be synchronously, and all
+		 * of the updates for a remote creation are in one RPC,
+		 * so we will know whether the operation has been
+		 * executed by checking whether the object exists */
+		if (info->mti_u.update.mti_update_resend) {
+			reconstruct(info, obj, reply, index);
+			RETURN(1);
+		}
+	}
+	RETURN(0);
+}
+
+static inline int out_create_check_resent(struct mdt_thread_info *info,
+					  struct lu_object *obj,
+					  out_reconstruct_t reconstruct,
+					  struct update_reply *reply,
+					  int index)
+{
+	struct ptlrpc_request *req = mdt_info_req(info);
+
+	ENTRY;
+
+	if (lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT) {
+		/* FIXME: We should check XID, but for phase I, the
+		 * cross-MDT operation will be synchronously, and all
+		 * of the updates for a remote creation are in one RPC,
+		 * so we will know whether the operation has been
+		 * executed by checking whether the object exists */
+		if (info->mti_u.update.mti_update_resend) {
+			reconstruct(info, obj, reply, index);
+			RETURN(1);
+		}
+
+		if (lu_object_exists(obj) > 0) {
+			info->mti_u.update.mti_update_resend = 1;
+			reconstruct(info, obj, reply, index);
+			RETURN(1);
+		}
+	}
+	RETURN(0);
+}
+
+static inline int out_index_delete_check_resent(struct mdt_thread_info *info,
+						struct lu_object *obj,
+						out_reconstruct_t reconstruct,
+						struct update_reply *reply,
+						int index, char *name)
+{
+	struct ptlrpc_request *req = mdt_info_req(info);
+
+	ENTRY;
+
+	if (lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT) {
+		const struct lu_env     *env = info->mti_env;
+		struct dt_object	*dt_obj;
+		int rc;
+
+		if (info->mti_u.update.mti_update_resend) {
+			reconstruct(info, obj, reply, index);
+			RETURN(1);
+		}
+
+		if (name == NULL)
+			RETURN(0);
+
+		dt_obj = out_get_dt_obj(obj);
+		LASSERT(dt_obj != NULL && !IS_ERR(dt_obj));
+
+		if (dt_try_as_dir(info->mti_env, dt_obj) == 0) {
+			CERROR("%s: "DFID" is not directory\n",
+				mdt2obd_dev(info->mti_mdt)->obd_name,
+				PFID(lu_object_fid(obj)));
+			return -ENOTDIR;
+		}
+
+		rc = dt_lookup(env, dt_obj,
+			       (struct dt_rec *)&info->mti_tmp_fid1,
+			       (struct dt_key *)name, NULL);
+		if (rc == -ENOENT) {
+			reconstruct(info, obj, reply, index);
+			info->mti_u.update.mti_update_resend = 1;
+			RETURN(1);
+		}
+	}
+	RETURN(0);
+}
+
+static void out_create_reconstruct(struct mdt_thread_info *mti,
+				   struct lu_object *obj,
+				   struct update_reply *reply,
+				   int index)
+{
+	struct dt_object *dt_obj = out_get_dt_obj(obj);
+	struct lu_attr   *la = &mti->mti_attr.ma_attr;
+	int		  rc;
+
+	rc = dt_attr_get(mti->mti_env, dt_obj, la, NULL);
+	update_insert_reply(reply, (void *)la, sizeof(*la), index, rc);
+	return;
+}
+
 int out_tx_create_undo(const struct lu_env *env, struct thandle *th,
 		       struct tx_arg *arg)
 {
@@ -461,6 +587,11 @@ static int out_create(struct mdt_thread_info *info)
 
 	LASSERT(obj != NULL);
 
+	if (out_create_check_resent(info, obj, out_create_reconstruct,
+			     info->mti_u.update.mti_update_reply,
+			     info->mti_u.update.mti_update_reply_index))
+		return 0;
+
 	if (info->mti_handle.ta_handle == NULL) {
 		out_tx_start(info->mti_env, info->mti_mdt, &info->mti_handle,
 			     1);
@@ -573,6 +704,11 @@ static int out_attr_set(struct mdt_thread_info *info)
 		return rc;
 
 	LASSERT(obj != NULL);
+
+	if (out_common_check_resent(info, obj, out_common_reconstruct,
+				    info->mti_u.update.mti_update_reply,
+				    info->mti_u.update.mti_update_reply_index))
+		return 0;
 
 	if (info->mti_handle.ta_handle == NULL) {
 		out_tx_start(info->mti_env, info->mti_mdt, &info->mti_handle,
@@ -874,6 +1010,11 @@ static int out_xattr_set(struct mdt_thread_info *info)
 
 	LASSERT(obj != NULL);
 
+	if (out_common_check_resent(info, obj, out_common_reconstruct,
+				    info->mti_u.update.mti_update_reply,
+				    info->mti_u.update.mti_update_reply_index))
+		return 0;
+
 	if (info->mti_handle.ta_handle == NULL) {
 		out_tx_start(info->mti_env, info->mti_mdt, &info->mti_handle,
 			     1);
@@ -971,6 +1112,11 @@ static int out_ref_add(struct mdt_thread_info *info)
 		return rc;
 
 	LASSERT(obj != NULL);
+
+	if (out_common_check_resent(info, obj, out_common_reconstruct,
+				    info->mti_u.update.mti_update_reply,
+				    info->mti_u.update.mti_update_reply_index))
+		return 0;
 
 	if (info->mti_handle.ta_handle == NULL) {
 		out_tx_start(info->mti_env, info->mti_mdt, &info->mti_handle,
@@ -1193,6 +1339,10 @@ static int out_index_insert(struct mdt_thread_info *info)
 		return rc;
 
 	LASSERT(obj != NULL);
+	if (out_common_check_resent(info, obj, out_common_reconstruct,
+				    info->mti_u.update.mti_update_reply,
+				    info->mti_u.update.mti_update_reply_index))
+		return 0;
 
 	if (info->mti_handle.ta_handle == NULL) {
 		out_tx_start(info->mti_env, info->mti_mdt, &info->mti_handle,
@@ -1285,6 +1435,12 @@ static int out_index_delete(struct mdt_thread_info *info)
 		return rc;
 
 	LASSERT(obj != NULL);
+
+	if (out_index_delete_check_resent(info, obj, out_common_reconstruct,
+				info->mti_u.update.mti_update_reply,
+				info->mti_u.update.mti_update_reply_index,
+				name))
+		return 0;
 
 	if (info->mti_handle.ta_handle == NULL) {
 		out_tx_start(info->mti_env, info->mti_mdt, &info->mti_handle,
@@ -1411,6 +1567,7 @@ int out_handle(struct mdt_thread_info *info)
 
 	off = cfs_size_round(offsetof(struct update_buf, ub_bufs[0]));
 	out_init_update_object(info);
+	info->mti_u.update.mti_update_resend = 0;
 	for (i = 0; i < count; i++) {
 		struct out_handler *h;
 

@@ -157,6 +157,14 @@ static int osp_md_sync(const struct lu_env *env, struct dt_device *dt,
 	if (rc)
 		RETURN(rc);
 
+	/* If UPDATE_RECREATE is set, it means the update(create remote
+	 * obj) comes from a resend request, though these resend flags should
+	 * be per update. But in phase I, since all the updates for creating
+	 * remote directory will be in a single RPC, so we just set RESENT flag
+	 * for this req */
+	if (update->ur_flags & UPDATE_RECREATE)
+		lustre_msg_add_flags(req->rq_reqmsg, MSG_RESENT);
+
 	if (callback != NULL && data != NULL) {
 		arg = ptlrpc_req_async_args(req);
 		arg->callback = callback;
@@ -451,6 +459,9 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 		bufs[1] = (char *)tmp_fid;
 		buf_count++;
 	}
+
+	if (dof->u.dof_dir.recreate != 0)
+		update->ur_flags |= UPDATE_RECREATE;
 
 	rc = osp_insert_update(env, update, OBJ_CREATE, fid1, buf_count, sizes,
 			       bufs);
