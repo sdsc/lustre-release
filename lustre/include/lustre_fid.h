@@ -332,6 +332,26 @@ fid_build_pdo_res_name(const struct lu_fid *f,
         return name;
 }
 
+/**
+ * Build DLM resource name from object id & seq, which will be removed
+ * finnally, when we replace ost_id with FID in data stack.
+ *
+ * To keep the compatibility,
+ *    seq == fid_seq_mdt0(0), [0] = oid, [1] = seq
+ *    seq != fid_seq_mdt0(0), [0] = seq, [1] = oid
+ */
+static inline void ostid_build_res_name(obd_id id, obd_seq seq,
+                                        struct ldlm_res_id *name)
+{
+	memset(name, 0, sizeof *name);
+	if (fid_seq_is_mdt0(seq)) {
+		name->name[LUSTRE_RES_ID_SEQ_OFF] = id;
+		name->name[LUSTRE_RES_ID_VER_OID_OFF] = seq;
+	} else {
+		name->name[LUSTRE_RES_ID_SEQ_OFF] = seq;
+		name->name[LUSTRE_RES_ID_VER_OID_OFF] = id;
+	}
+}
 
 /**
  * Flatten 128-bit FID values into a 64-bit value for use as an inode number.
