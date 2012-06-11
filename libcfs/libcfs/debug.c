@@ -457,11 +457,12 @@ void libcfs_debug_set_level(unsigned int debug_level)
 
 EXPORT_SYMBOL(libcfs_debug_set_level);
 
-long libcfs_log_return(struct libcfs_debug_msg_data *msgdata, long rc)
+long long libcfs_log_return(struct libcfs_debug_msg_data *msgdata,
+			    long long rc)
 {
-        libcfs_debug_msg(msgdata, "Process leaving (rc=%lu : %ld : %lx)\n",
-                         rc, rc, rc);
-        return rc;
+	libcfs_debug_msg(msgdata, "Process leaving (rc=%llu : %lld : %llx)\n",
+			 rc, rc, rc);
+	return rc;
 }
 EXPORT_SYMBOL(libcfs_log_return);
 
