@@ -670,7 +670,7 @@ int target_handle_connect(struct ptlrpc_request *req, svc_handler_t handler)
         struct obd_connect_data *data;
         __u32 size[2] = { sizeof(struct ptlrpc_body), sizeof(*data) };
         lnet_nid_t *client_nid = NULL;
-        int mds_conn = 0;
+        int mds_conn = 0, connected = 0;
         ENTRY;
 
         OBD_RACE(OBD_FAIL_TGT_CONN_RACE);
@@ -848,7 +848,6 @@ int target_handle_connect(struct ptlrpc_request *req, svc_handler_t handler)
                 spin_lock(&export->exp_lock);
                 export->exp_connecting = 1;
                 spin_unlock(&export->exp_lock);
-                class_export_put(export);
                 LASSERT(export->exp_obd == target);
 
                 rc = target_handle_reconnect(&conn, export, &cluuid);
@@ -967,6 +966,11 @@ no_export:
 
         lustre_msg_set_handle(req->rq_repmsg, &conn);
 
+        if (export) {
+                class_export_put(export);
+                export = NULL;
+        }
+
         /* ownership of this export ref transfers to the request AFTER we
          * drop any previous reference the request had, but we don't want
          * that to go to zero before we get our new export reference. */
@@ -975,6 +979,8 @@ no_export:
                 DEBUG_REQ(D_ERROR, req, "Missing export!");
                 GOTO(out, rc = -ENODEV);
         }
+
+        connected = 1;
 
         /* If the client and the server are the same node, we will already
          * have an export that really points to the client's DLM export,
@@ -1085,6 +1091,8 @@ out:
                 spin_lock(&export->exp_lock);
                 export->exp_connecting = 0;
                 spin_unlock(&export->exp_lock);
+                if (!connected)
+                        class_export_put(export);
         }
         if (targref)
                 class_decref(targref);
