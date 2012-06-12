@@ -24,11 +24,6 @@ ONLY=${ONLY:-"$*"}
 ALWAYS_EXCEPT="10 12 $SANITY_QUOTA_EXCEPT"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
-case `uname -r` in
-2.6*) FSTYPE=${FSTYPE:-ldiskfs};;
-*) error "unsupported kernel" ;;
-esac
-
 [ "$ALWAYS_EXCEPT$EXCEPT" ] && \
 	echo "Skipping tests: `echo $ALWAYS_EXCEPT $EXCEPT`"
 
