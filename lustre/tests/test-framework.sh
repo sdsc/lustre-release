@@ -420,11 +420,6 @@ load_modules_local() {
     $LCTL modules > $OGDB/ogdb-$HOSTNAME
 
     # 'mount' doesn't look in $PATH, just sbin
-    if [ -f $LUSTRE/utils/mount.lustre ] && \
-       ! grep -qe "/sbin/mount\.lustre " /proc/mounts; then
-        [ ! -f /sbin/mount.lustre ] && touch /sbin/mount.lustre
-        mount --bind $LUSTRE/utils/mount.lustre /sbin/mount.lustre || true
-    fi
 }
 
 load_modules () {
