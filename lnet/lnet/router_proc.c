@@ -97,10 +97,8 @@ static int __proc_lnet_stats(void *data, int write,
         const int        tmpsiz = 256; /* 7 %u and 4 LPU64 */
 
         if (write) {
-                LNET_LOCK();
-                memset(&the_lnet.ln_counters, 0, sizeof(the_lnet.ln_counters));
-                LNET_UNLOCK();
-                return 0;
+		lnet_counters_reset();
+		return 0;
         }
 
         /* read */
@@ -115,9 +113,7 @@ static int __proc_lnet_stats(void *data, int write,
                 return -ENOMEM;
         }
 
-        LNET_LOCK();
-        *ctrs = the_lnet.ln_counters;
-        LNET_UNLOCK();
+	lnet_counters_get(ctrs);
 
         len = snprintf(tmpstr, tmpsiz,
                        "%u %u %u %u %u %u %u "LPU64" "LPU64" "
