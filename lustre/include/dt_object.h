@@ -102,9 +102,14 @@ typedef void (*dt_cb_t)(struct lu_env *env, struct thandle *th,
  * Special per-transaction callback for cases when just commit callback
  * is needed and per-device callback are not convenient to use
  */
+#define TRANS_COMMIT_CB_MAGIC	0xa0a00a0a
+#define MAX_COMMIT_CB_STR_LEN	32
+
 struct dt_txn_commit_cb {
-        cfs_list_t dcb_linkage;
-        dt_cb_t    dcb_func;
+	__u32		dcb_magic;
+	char		dcb_name[MAX_COMMIT_CB_STR_LEN];
+	cfs_list_t	dcb_linkage;
+	dt_cb_t		dcb_func;
 };
 
 /**
