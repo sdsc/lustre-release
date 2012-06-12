@@ -2,7 +2,7 @@ Index: linux-stage/fs/ext4/ext4_jbd2.h
 ===================================================================
 --- linux-stage.orig/fs/ext4/ext4_jbd2.h
 +++ linux-stage/fs/ext4/ext4_jbd2.h
-@@ -106,6 +106,80 @@
+@@ -106,6 +106,70 @@
  #define EXT4_MAXQUOTAS_INIT_BLOCKS(sb) (MAXQUOTAS*EXT4_QUOTA_INIT_BLOCKS(sb))
  #define EXT4_MAXQUOTAS_DEL_BLOCKS(sb) (MAXQUOTAS*EXT4_QUOTA_DEL_BLOCKS(sb))
  
@@ -48,18 +48,13 @@ Index: linux-stage/fs/ext4/ext4_jbd2.h
 + */
 +static inline void ext4_journal_callback_add(handle_t *handle,
 +			void (*func)(struct super_block *sb,
-+				     struct ext4_journal_cb_entry *jce,
-+				     int rc),
++				     struct ext4_journal_cb_entry *jce, int rc),
 +			struct ext4_journal_cb_entry *jce)
 +{
-+	struct ext4_sb_info *sbi =
-+			EXT4_SB(handle->h_transaction->t_journal->j_private);
-+
 +	/* Add the jce to transaction's private list */
 +	jce->jce_func = func;
-+	spin_lock(&sbi->s_md_lock);
++	INIT_LIST_HEAD(&jce->jce_list);
 +	list_add_tail(&jce->jce_list, &handle->h_transaction->t_private_list);
-+	spin_unlock(&sbi->s_md_lock);
 +}
 +
 +/**
@@ -70,12 +65,7 @@ Index: linux-stage/fs/ext4/ext4_jbd2.h
 +static inline void ext4_journal_callback_del(handle_t *handle,
 +					     struct ext4_journal_cb_entry *jce)
 +{
-+	struct ext4_sb_info *sbi =
-+			EXT4_SB(handle->h_transaction->t_journal->j_private);
-+
-+	spin_lock(&sbi->s_md_lock);
 +	list_del_init(&jce->jce_list);
-+	spin_unlock(&sbi->s_md_lock);
 +}
 +
 +#define HAVE_EXT4_JOURNAL_CALLBACK_ADD
@@ -140,7 +130,9 @@ Index: linux-stage/fs/ext4/mballoc.c
  
 -	list_for_each_safe(l, ltmp, &txn->t_private_list) {
 -		entry = list_entry(l, struct ext4_free_data, list);
--
++	mb_debug(1, "gonna free %u blocks in group %u (0x%p):",
++		 entry->efd_count, entry->efd_group, entry);
+ 
 -		mb_debug(1, "gonna free %u blocks in group %u (0x%p):",
 -			 entry->count, entry->group, entry);
 -
@@ -165,9 +157,7 @@ Index: linux-stage/fs/ext4/mballoc.c
 -			page_cache_release(e4b.bd_bitmap_page);
 -		}
 -		ext4_unlock_group(sb, entry->group);
-+	mb_debug(1, "gonna free %u blocks in group %u (0x%p):",
-+		 entry->efd_count, entry->efd_group, entry);
- 
+-
 -		kmem_cache_free(ext4_free_ext_cachep, entry);
 -		ext4_mb_unload_buddy(&e4b);
 +	err = ext4_mb_load_buddy(sb, entry->efd_group, &e4b);
@@ -253,7 +243,7 @@ Index: linux-stage/fs/ext4/mballoc.c
  		n = rb_next(n);
  	}
  	return;
-@@ -4974,11 +4969,11 @@ out3:
+@@ -4956,11 +4951,11 @@ out3:
   * AND the blocks are associated with the same group.
   */
  static int can_merge(struct ext4_free_data *entry1,
@@ -269,15 +259,7 @@ Index: linux-stage/fs/ext4/mballoc.c
  		return 1;
  	return 0;
  }
-@@ -4991,7 +4986,6 @@ ext4_mb_free_metadata(handle_t *handle, 
- 	struct ext4_free_data *entry;
- 	struct ext4_group_info *db = e4b->bd_info;
- 	struct super_block *sb = e4b->bd_sb;
--	struct ext4_sb_info *sbi = EXT4_SB(sb);
- 	struct rb_node **n = &db->bb_free_root.rb_node, *node;
- 	struct rb_node *parent = NULL, *new_node;
- 
-@@ -4999,8 +4993,8 @@ ext4_mb_free_metadata(handle_t *handle, 
+@@ -4981,8 +4976,8 @@ ext4_mb_free_metadata(handle_t *handle, 
  	BUG_ON(e4b->bd_bitmap_page == NULL);
  	BUG_ON(e4b->bd_buddy_page == NULL);
  
@@ -288,7 +270,7 @@ Index: linux-stage/fs/ext4/mballoc.c
  
  	if (!*n) {
  		/* first free block exent. We need to
-@@ -5013,15 +5007,15 @@ ext4_mb_free_metadata(handle_t *handle, 
+@@ -4995,15 +4990,15 @@ ext4_mb_free_metadata(handle_t *handle, 
  	}
  	while (*n) {
  		parent = *n;
@@ -308,7 +290,7 @@ Index: linux-stage/fs/ext4/mballoc.c
  			return 0;
  		}
  	}
-@@ -5032,34 +5026,29 @@ ext4_mb_free_metadata(handle_t *handle, 
+@@ -5014,33 +5009,34 @@ ext4_mb_free_metadata(handle_t *handle, 
  	/* Now try to see the extent can be merged to left and right */
  	node = rb_prev(new_node);
  	if (node) {
@@ -320,11 +302,11 @@ Index: linux-stage/fs/ext4/mballoc.c
 +			new_entry->efd_start_blk = entry->efd_start_blk;
 +			new_entry->efd_count += entry->efd_count;
  			rb_erase(node, &(db->bb_free_root));
--			spin_lock(&sbi->s_md_lock);
+ 			spin_lock(&sbi->s_md_lock);
 -			list_del(&entry->list);
--			spin_unlock(&sbi->s_md_lock);
--			kmem_cache_free(ext4_free_ext_cachep, entry);
 +			ext4_journal_callback_del(handle, &entry->efd_jce);
+ 			spin_unlock(&sbi->s_md_lock);
+-			kmem_cache_free(ext4_free_ext_cachep, entry);
 +			kmem_cache_free(ext4_free_data_cachep, entry);
  		}
  	}
@@ -337,24 +319,23 @@ Index: linux-stage/fs/ext4/mballoc.c
 -			new_entry->count += entry->count;
 +			new_entry->efd_count += entry->efd_count;
  			rb_erase(node, &(db->bb_free_root));
--			spin_lock(&sbi->s_md_lock);
+ 			spin_lock(&sbi->s_md_lock);
 -			list_del(&entry->list);
--			spin_unlock(&sbi->s_md_lock);
--			kmem_cache_free(ext4_free_ext_cachep, entry);
 +			ext4_journal_callback_del(handle, &entry->efd_jce);
+ 			spin_unlock(&sbi->s_md_lock);
+-			kmem_cache_free(ext4_free_ext_cachep, entry);
 +			kmem_cache_free(ext4_free_data_cachep, entry);
  		}
  	}
  	/* Add the extent to transaction's private list */
--	spin_lock(&sbi->s_md_lock);
+ 	spin_lock(&sbi->s_md_lock);
 -	list_add(&new_entry->list, &handle->h_transaction->t_private_list);
--	spin_unlock(&sbi->s_md_lock);
 +	ext4_journal_callback_add(handle, ext4_free_data_callback,
 +				  &new_entry->efd_jce);
+ 	spin_unlock(&sbi->s_md_lock);
  	return 0;
  }
- 
-@@ -5191,11 +5180,11 @@ do_more:
+@@ -5164,11 +5160,11 @@ do_more:
  		 * blocks being freed are metadata. these blocks shouldn't
  		 * be used until this transaction is committed
  		 */
@@ -413,31 +394,26 @@ Index: linux-stage/fs/ext4/super.c
 ===================================================================
 --- linux-stage.orig/fs/ext4/super.c
 +++ linux-stage/fs/ext4/super.c
-@@ -304,6 +304,23 @@ void ext4_journal_abort_handle(const cha
+@@ -304,6 +304,18 @@ void ext4_journal_abort_handle(const cha
  
  EXPORT_SYMBOL(ext4_journal_abort_handle);
  
 +static void ext4_journal_commit_callback(journal_t *journal, transaction_t *txn)
 +{
 +	struct super_block		*sb = journal->j_private;
-+	struct ext4_sb_info		*sbi = EXT4_SB(sb);
 +	int				error = is_journal_aborted(journal);
 +	struct ext4_journal_cb_entry	*jce, *tmp;
 +
-+	spin_lock(&sbi->s_md_lock);
 +	list_for_each_entry_safe(jce, tmp, &txn->t_private_list, jce_list) {
 +		list_del_init(&jce->jce_list);
-+		spin_unlock(&sbi->s_md_lock);
 +		jce->jce_func(sb, jce, error);
-+		spin_lock(&sbi->s_md_lock);
 +	}
-+	spin_unlock(&sbi->s_md_lock);
 +}
 +
  /* Deal with the reporting of failure conditions on a filesystem such as
   * inconsistencies detected or read IO failures.
   *
-@@ -2997,6 +3014,8 @@ static int ext4_fill_super(struct super_
+@@ -2997,6 +3009,8 @@ static int ext4_fill_super(struct super_
  	}
  	set_task_ioprio(sbi->s_journal->j_task, journal_ioprio);
  
