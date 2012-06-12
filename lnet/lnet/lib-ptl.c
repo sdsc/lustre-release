@@ -463,6 +463,7 @@ LNetSetLazyPortal(int portal)
 
 	return 0;
 }
+EXPORT_SYMBOL(LNetSetLazyPortal);
 
 /**
  * Turn off the lazy portal attribute. Delayed requests on the portal,
@@ -508,3 +509,4 @@ LNetClearLazyPortal(int portal)
 
 	return 0;
 }
+EXPORT_SYMBOL(LNetClearLazyPortal);
