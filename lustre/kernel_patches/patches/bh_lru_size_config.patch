@@ -12,7 +12,7 @@
  	struct buffer_head *bhs[BH_LRU_SIZE];
 --- linux-2.6.32-131.6.1/fs/Kconfig
 +++ linux-2.6.32-131.6.1-pdo/fs/Kconfig
-@@ -253,4 +253,13 @@
+@@ -254,4 +254,13 @@
  source "fs/nls/Kconfig"
  source "fs/dlm/Kconfig"
  

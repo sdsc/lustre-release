@@ -21,7 +21,7 @@ Index: linux-2.6.32.i386/drivers/message/fusion/mptbase.h
 ===================================================================
 --- linux-2.6.32.i386.orig/drivers/message/fusion/mptbase.h	2009-12-03 09:21:21.000000000 +0530
 +++ linux-2.6.32.i386/drivers/message/fusion/mptbase.h	2010-03-16 16:46:54.000000000 +0530
-@@ -165,10 +165,10 @@
+@@ -166,10 +166,10 @@
   * Set the MAX_SGE value based on user input.
   */
  #ifdef CONFIG_FUSION_MAX_SGE
