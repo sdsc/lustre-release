@@ -492,6 +492,9 @@ static int mdt_reint_setattr(struct mdt_thread_info *info,
         if (IS_ERR(mo))
                 GOTO(out, rc = PTR_ERR(mo));
 
+	if (mdt_object_obf(mo))
+		GOTO(out_put, rc = -EPERM);
+
         /* start a log jounal handle if needed */
         if (!(mdt_conn_flags(info) & OBD_CONNECT_SOM)) {
                 if ((ma->ma_attr.la_valid & LA_SIZE) ||
@@ -1255,6 +1258,11 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
                 mnew = mdt_object_find(info->mti_env, info->mti_mdt, new_fid);
                 if (IS_ERR(mnew))
                         GOTO(out_unlock_old, rc = PTR_ERR(mnew));
+
+		if (mdt_object_obf(mnew)) {
+			mdt_object_put(info->mti_env, mnew);
+			GOTO(out_unlock_old, rc = -EPERM);
+		}
 
                 rc = mdt_object_lock(info, mnew, lh_newp,
                                      MDS_INODELOCK_FULL, MDT_CROSS_LOCK);
