@@ -492,6 +492,9 @@ static int mdt_reint_setattr(struct mdt_thread_info *info,
         if (IS_ERR(mo))
                 GOTO(out, rc = PTR_ERR(mo));
 
+	if (mdt_object_obf(mo))
+		GOTO(out_put, rc = -EPERM);
+
         /* start a log jounal handle if needed */
         if (!(mdt_conn_flags(info) & OBD_CONNECT_SOM)) {
                 if ((ma->ma_attr.la_valid & LA_SIZE) ||
