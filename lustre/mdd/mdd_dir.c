@@ -359,7 +359,7 @@ static inline int mdd_is_sticky(const struct lu_env *env,
                                 struct mdd_object *cobj)
 {
         struct lu_attr *tmp_la = &mdd_env_info(env)->mti_la;
-        struct md_ucred *uc = md_ucred(env);
+        struct md_ucred *uc = md_ucred_assert(env);
         int rc;
 
         if (pobj) {
@@ -517,13 +517,14 @@ static int __mdd_index_insert_only(const struct lu_env *env,
         ENTRY;
 
         if (dt_try_as_dir(env, next)) {
-                struct md_ucred  *uc = md_ucred(env);
+                struct md_ucred  *uc = md_ucred_check(env);
+                int ignore_quota;
 
+                ignore_quota = uc ? uc->mu_cap & CFS_CAP_SYS_RESOURCE_MASK : 1;
                 rc = next->do_index_ops->dio_insert(env, next,
                                                     (struct dt_rec*)lf,
                                                     (const struct dt_key *)name,
-                                                    handle, capa, uc->mu_cap &
-                                                    CFS_CAP_SYS_RESOURCE_MASK);
+                                                    handle, capa, ignore_quota);
         } else {
                 rc = -ENOTDIR;
         }
@@ -1137,7 +1138,7 @@ static int mdd_name_insert(const struct lu_env *env,
         int is_dir = S_ISDIR(ma->ma_attr.la_mode);
 #ifdef HAVE_QUOTA_SUPPORT
         struct mdd_device *mdd = mdo2mdd(pobj);
-        struct md_ucred *uc = md_ucred(env);
+        struct md_ucred *uc = md_ucred_assert(env);
         struct obd_device *obd = mdd->mdd_obd_dev;
         struct obd_export *exp = md_quota(env)->mq_exp;
         struct mds_obd *mds = &obd->u.mds;
@@ -2108,7 +2109,7 @@ static int mdd_create(const struct lu_env *env,
         }
 
         if (S_ISLNK(attr->la_mode)) {
-                struct md_ucred  *uc = md_ucred(env);
+                struct md_ucred  *uc = md_ucred_assert(env);
                 struct dt_object *dt = mdd_object_child(son);
                 const char *target_name = spec->u.sp_symname;
                 int sym_len = strlen(target_name);
