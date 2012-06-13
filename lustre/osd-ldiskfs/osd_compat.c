@@ -378,7 +378,9 @@ int osd_compat_objid_lookup(struct osd_thread_info *info,
         /* on the very first lookup we find and open directories */
 
         map = dev->od_ost_map;
-        LASSERT(map);
+	if (map == NULL)
+		RETURN(-ENOENT);
+
         LASSERT(map->root);
 
         fid_ostid_pack(fid, ostid);
