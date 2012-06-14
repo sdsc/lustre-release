@@ -1085,6 +1085,24 @@ static int mgs_write_log_osc_to_lov(struct obd_device *obd, struct fs_db *fsdb,
 static void name_create_mdt_and_lov(char **logname, char **lovname,
                                     struct fs_db *fsdb, int i);
 
+static int add_param(char *params, char *key, char *val)
+{
+	char *start = params + strlen(params);
+	char *end = params + sizeof(((struct mgs_target_info *)0)->mti_params);
+	int keylen = 0;
+
+	if (key != NULL)
+		keylen = strlen(key);
+	if (start + 1 + keylen + strlen(val) >= end) {
+		CERROR("params are too long: %s %s%s\n",
+		       params, key != NULL ? key : "", val);
+		return -EINVAL;
+	}
+
+	sprintf(start, " %s%s", key != NULL ? key : "", val);
+	return 0;
+}
+
 static int mgs_steal_llog_handler(struct llog_handle *llh,
                                   struct llog_rec_hdr *rec,
                                   void *data)
@@ -1171,15 +1189,23 @@ static int mgs_steal_llog_handler(struct llog_handle *llh,
         if (got_an_osc_or_mdc == 0 || last_step < 0)
                 RETURN(rc);
 
-        if (lcfg->lcfg_command == LCFG_ADD_UUID) {
-                uint64_t nodenid;
-                nodenid = lcfg->lcfg_nid;
+	if (lcfg->lcfg_command == LCFG_ADD_UUID) {
+		uint64_t nodenid = lcfg->lcfg_nid;
 
-                tmti->mti_nids[tmti->mti_nid_count] = nodenid;
-                tmti->mti_nid_count++;
+		if (strlen(tmti->mti_uuid) == 0) {
+			/* target uuid not set, this config record is before
+			 * LCFG_SETUP, this nid is one of target node nid.
+			 */
+			tmti->mti_nids[tmti->mti_nid_count] = nodenid;
+			tmti->mti_nid_count++;
+		} else {
+			/* failover node nid */
+			rc = add_param(tmti->mti_params, PARAM_FAILNODE,
+				       libcfs_nid2str(nodenid));
+		}
 
-                RETURN(rc);
-        }
+		RETURN(rc);
+	}
 
         if (lcfg->lcfg_command == LCFG_SETUP) {
                 char *target;
@@ -1751,6 +1777,11 @@ static int mgs_write_log_osc_to_lov(struct obd_device *obd, struct fs_db *fsdb,
         /* FIXME these should be a single journal transaction */
         rc = record_marker(obd, llh, fsdb, CM_START | flags, mti->mti_svname,
                            "add osc");
+	/* NB: don't change record order, because upon MDT steal OSC config
+	 * from client, it treats all nids before LCFG_SETUP as target nids
+	 * (multiple interfaces), while nids after as failover node nids.
+	 * See mgs_steal_llog_handler() LCFG_ADD_UUID.
+	 */
         for (i = 0; i < mti->mti_nid_count; i++) {
                 CDEBUG(D_MGS, "add nid %s\n", libcfs_nid2str(mti->mti_nids[i]));
                 rc = record_add_uuid(obd, llh, mti->mti_nids[i], nodeuuid);
