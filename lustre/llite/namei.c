@@ -370,7 +370,7 @@ static struct dentry *ll_find_alias(struct inode *inode, struct dentry *dentry)
 }
 
 /*
- * Similar to d_splice_alias(), but lustre treats DCACHE_LUSTRE_INVALID alias
+ * Similar to d_splice_alias(), but lustre treats invalid alias
  * similar to DCACHE_DISCONNECTED, and tries to use it anyway.
  */
 struct dentry *ll_splice_alias(struct inode *inode, struct dentry *de)
