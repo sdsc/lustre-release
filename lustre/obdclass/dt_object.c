@@ -434,3 +434,6 @@ EXPORT_SYMBOL(dt_record_write);
 
 const struct dt_index_features dt_directory_features;
 EXPORT_SYMBOL(dt_directory_features);
+
+const struct dt_index_features dt_otable_features;
+EXPORT_SYMBOL(dt_otable_features);
