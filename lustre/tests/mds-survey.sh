@@ -16,7 +16,7 @@ thrlo=${thrlo:-1}
 [ "$SLOW" = no ] && { file_count=50000; dir_count=2; thrhi=4; }
 
 # Skip these tests
-ALWAYS_EXCEPT="$MDS_SURVEY_EXCEPT"
+ALWAYS_EXCEPT="1 2 $MDS_SURVEY_EXCEPT"
 
 MDSSURVEY=${MDSSURVEY:-$(which mds-survey 2>/dev/null || true)}
 if [ -z ${MDSSURVEY} ]; then
