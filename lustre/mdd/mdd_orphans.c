@@ -97,29 +97,6 @@ static struct dt_key* orph_key_fill_18(const struct lu_env *env,
                 return ERR_PTR(rc);
 }
 
-static int orphan_key_to_fid(char *key, struct lu_fid *lf)
-{
-        int rc = 0;
-        unsigned int op;
-
-        rc = sscanf(key, ORPHAN_FILE_NAME_FORMAT,
-                    (long long unsigned int *)&lf->f_seq, &lf->f_oid,
-                    &lf->f_ver, &op);
-        if (rc == 4)
-                return 0;
-
-        /* build igif */
-        rc = sscanf(key, ORPHAN_FILE_NAME_FORMAT_18,
-                    (long long unsigned int *)&lf->f_seq, &lf->f_oid);
-        if (rc == 2) {
-                lf->f_ver = 0;
-                return 0;
-        }
-
-        CERROR("can not parse orphan file name %s\n",key);
-        return -EINVAL;
-}
-
 static inline void mdd_orphan_write_lock(const struct lu_env *env,
                                     struct mdd_device *mdd)
 {
@@ -385,15 +362,13 @@ static int orph_key_test_and_del(const struct lu_env *env,
 }
 
 static int orph_index_iterate(const struct lu_env *env,
-                              struct mdd_device *mdd)
+			      struct mdd_device *mdd)
 {
-        struct dt_object *dor = mdd->mdd_orphans;
-        char             *mti_key = mdd_env_info(env)->mti_orph_key;
-        const struct dt_it_ops *iops;
-        struct dt_it     *it;
-        char             *key;
-        struct lu_fid     fid;
-        int               result = 0;
+	struct dt_object *dor = mdd->mdd_orphans;
+	struct lu_dirent *ent = &mdd_env_info(env)->mti_orph_ent;
+	const struct dt_it_ops *iops;
+	struct dt_it     *it;
+	struct lu_fid     fid;
         int               key_sz = 0;
         int               rc;
         __u64             cookie;
@@ -403,63 +378,65 @@ static int orph_index_iterate(const struct lu_env *env,
 
         iops = &dor->do_index_ops->dio_it;
         it = iops->init(env, dor, LUDA_64BITHASH, BYPASS_CAPA);
-        if (!IS_ERR(it)) {
-                result = iops->load(env, it, 0);
-                if (result > 0) {
-                        /* main cycle */
-                        do {
-
-                                key = (void *)iops->key(env, it);
-                                if (IS_ERR(key)) {
-                                        CERROR("key failed when clean pending.\n");
-                                        goto next;
-                                }
-                                key_sz = iops->key_size(env, it);
-
-                                /* filter out "." and ".." entries from
-                                 * PENDING dir. */
-                                if (key_sz < 8)
-                                        goto next;
-
-                                memcpy(mti_key, key, key_sz);
-                                mti_key[key_sz] = 0;
-
-                                if (orphan_key_to_fid(mti_key, &fid))
-                                        goto next;
-                                if (!fid_is_sane(&fid)) {
-                                        CERROR("fid is not sane when clean pending.\n");
-                                        goto next;
-                                }
-
-                                /* kill orphan object */
-                                cookie =  iops->store(env, it);
-                                iops->put(env, it);
-                                rc = orph_key_test_and_del(env, mdd, &fid,
-                                                (struct dt_key *)mti_key);
-
-                                /* after index delete reset iterator */
-                                if (!rc)
-                                        result = iops->get(env, it,
-                                                           (const void *)"");
-                                else
-                                        result = iops->load(env, it, cookie);
-next:
-                                result = iops->next(env, it);
-                        } while (result == 0);
-                        result = 0;
-                } else if (result == 0) {
-                        CERROR("Input/Output for clean pending.\n");
-                        /* Index contains no zero key? */
-                        result = -EIO;
-                }
-                iops->put(env, it);
-                iops->fini(env, it);
-        } else {
-                result = PTR_ERR(it);
-                CERROR("Cannot clean pending (%d).\n", result);
+        if (IS_ERR(it)) {
+                rc = PTR_ERR(it);
+                CERROR("%s: cannot clean PENDING: rc = %d\n",
+                       mdd->mdd_obd_dev->obd_name, rc);
+                GOTO(out, rc);
         }
 
-        RETURN(result);
+        rc = iops->load(env, it, 0);
+        if (rc < 0)
+                GOTO(out_put, rc);
+        if (rc == 0) {
+                CERROR("%s: error loading iterator to clean PENDING\n",
+                       mdd->mdd_obd_dev->obd_name);
+                /* Index contains no zero key? */
+                GOTO(out_put, rc = -EIO);
+        }
+
+	do {
+		key_sz = iops->key_size(env, it);
+		/* filter out "." and ".." entries from PENDING dir. */
+		if (key_sz < 8)
+			goto next;
+
+		rc = iops->rec(env, it, ent, LUDA_64BITHASH);
+		if (rc != 0) {
+			CERROR("%s: fail to get FID for orphan it: rc = %d\n",
+			       mdd->mdd_obd_dev->obd_name, rc);
+			goto next;
+		}
+
+		fid_le_to_cpu(&fid, &ent->lde_fid);
+		if (!fid_is_sane(&fid)) {
+			CERROR("%s: bad FID "DFID" cleaning PENDING\n",
+			       mdd->mdd_obd_dev->obd_name, PFID(&fid));
+			goto next;
+		}
+
+		/* kill orphan object */
+		cookie = iops->store(env, it);
+		iops->put(env, it);
+		rc = orph_key_test_and_del(env, mdd, &fid,
+					   (struct dt_key *)ent->lde_name);
+
+		/* after index delete reset iterator */
+		if (rc == 0)
+			rc = iops->get(env, it, (const void *)"");
+		else
+			rc = iops->load(env, it, cookie);
+next:
+		rc = iops->next(env, it);
+	} while (rc == 0);
+
+	GOTO(out_put, rc = 0);
+out_put:
+	iops->put(env, it);
+	iops->fini(env, it);
+
+out:
+	return rc;
 }
 
 int orph_index_init(const struct lu_env *env, struct mdd_device *mdd)

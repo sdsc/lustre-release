@@ -199,6 +199,7 @@ struct echo_thread_info {
         struct cl_io            eti_io;
         struct cl_lock_descr    eti_descr;
         struct lu_fid           eti_fid;
+	struct lu_fid		eti_fid2;
 };
 
 /* No session used right now */

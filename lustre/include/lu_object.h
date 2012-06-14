@@ -169,11 +169,24 @@ struct lu_device_operations {
 };
 
 /**
+ * For lu_object_conf flags
+ */
+typedef enum {
+	/* This is a new object to be allocated, or the file
+	 * corresponding to the object does not exists. */
+	LOC_F_NEW	= 0x00000001,
+} loc_flags_t;
+
+/**
  * Object configuration, describing particulars of object being created. On
  * server this is not used, as server objects are full identified by fid. On
  * client configuration contains struct lustre_md.
  */
 struct lu_object_conf {
+        /**
+         * Some hints for obj find and alloc.
+         */
+        loc_flags_t     loc_flags;
 };
 
 /**
