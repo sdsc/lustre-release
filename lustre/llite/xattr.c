@@ -439,12 +439,6 @@ ssize_t ll_getxattr(struct dentry *dentry, const char *name,
                 if (!S_ISREG(inode->i_mode) && !S_ISDIR(inode->i_mode))
                         return -ENODATA;
 
-                if (size == 0 && S_ISDIR(inode->i_mode)) {
-                        /* XXX directory EA is fix for now, optimize to save
-                         * RPC transfer */
-                        GOTO(out, rc = sizeof(struct lov_user_md));
-                }
-
                 if (!ll_i2info(inode)->lli_smd) {
                         if (S_ISDIR(inode->i_mode)) {
                                 rc = ll_dir_getstripe(inode, &lmm,
@@ -487,7 +481,7 @@ out:
                         ptlrpc_req_finished(request);
                 else if (lmm)
                         obd_free_diskmd(ll_i2dtexp(inode), &lmm);
-                return(rc);
+                RETURN(rc);
         }
 
         return ll_getxattr_common(inode, name, buffer, size, OBD_MD_FLXATTR);
