@@ -482,14 +482,37 @@ test_17i() { #bug 20018
 }
 run_test 17i "don't panic on short symlink"
 
+cleanup_17k()
+{
+	local OSTIDX=0
+	local OST=$(lfs osts | grep ${OSTIDX}": " | \
+		awk '{print $2}' | sed -e 's/_UUID$//')
+	trap 0
+	do_facet mgs $LCTL pool_remove $FSNAME.$TESTNAME $OST
+	do_facet mgs $LCTL pool_destroy $FSNAME.$TESTNAME
+}
+
 test_17k() { #bug 22301
-        rsync --help | grep -q xattr ||
-                skip_env "$(rsync --version| head -1) does not support xattrs"
-        mkdir -p $DIR/{$tdir,$tdir.new}
-        touch $DIR/$tdir/$tfile
-        ln -s $DIR/$tdir/$tfile $DIR/$tdir/$tfile.lnk
-        rsync -av -X $DIR/$tdir/ $DIR/$tdir.new ||
-                error "rsync failed with xattrs enabled"
+	rsync --help | grep -q xattr ||
+		skip_env "$(rsync --version| head -1) does not support xattrs"
+	local OSTIDX=0
+
+	local OST=$(lfs osts | grep ${OSTIDX}": " | \
+		awk '{print $2}' | sed -e 's/_UUID$//')
+
+	trap cleanup_17k EXIT
+
+	do_facet mgs $LCTL pool_new $FSNAME.$TESTNAME || return 1
+	do_facet mgs $LCTL pool_add $FSNAME.$TESTNAME $OST || return 2
+
+	mkdir -p $DIR/{$tdir,$tdir.new}
+
+	$SETSTRIPE -c -1 -p $FSNAME.$TESTNAME $DIR/$tdir.new
+	touch $DIR/$tdir/$tfile
+	ln -s $DIR/$tdir/$tfile $DIR/$tdir/$tfile.lnk
+	rsync -av -X $DIR/$tdir/ $DIR/$tdir.new ||
+		error "rsync failed with xattrs enabled"
+	cleanup_17k
 }
 run_test 17k "symlinks: rsync with xattrs enabled ========================="
 
