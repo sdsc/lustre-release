@@ -388,6 +388,7 @@ enum stats_track_type {
 #define LL_SBI_64BIT_HASH      0x4000 /* support 64-bits dir hash/offset */
 #define LL_SBI_AGL_ENABLED     0x8000 /* enable agl */
 #define LL_SBI_VERBOSE        0x10000 /* verbose mount/umount */
+#define LL_SBI_USER_FID2PATH  0x20000 /* allow fid2path by unprivileged users */
 
 /* default value for ll_sb_info->contention_time */
 #define SBI_DEFAULT_CONTENTION_SECONDS     60
@@ -765,7 +766,7 @@ int ll_do_fiemap(struct inode *inode, struct ll_user_fiemap *fiemap,
 int ll_merge_lvb(struct inode *inode);
 int ll_get_grouplock(struct inode *inode, struct file *file, unsigned long arg);
 int ll_put_grouplock(struct inode *inode, struct file *file, unsigned long arg);
-int ll_fid2path(struct obd_export *exp, void *arg);
+int ll_fid2path(struct inode *inode, void *arg);
 
 /* llite/dcache.c */
 
