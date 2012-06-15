@@ -299,17 +299,21 @@ do {                                                                    \
  */
 #if defined(__GNUC__)
 
-long libcfs_log_return(struct libcfs_debug_msg_data *, long rc);
-#define RETURN(rc)                                                      \
-do {                                                                    \
-        EXIT_NESTING;                                                   \
-        if (cfs_cdebug_show(D_TRACE, DEBUG_SUBSYSTEM)) {                \
-                LIBCFS_DEBUG_MSG_DATA_DECL(msgdata, D_TRACE, NULL);     \
-                return (typeof(rc))libcfs_log_return(&msgdata,          \
-                                                     (long)(rc));       \
-        }                                                               \
-                                                                        \
-        return (rc);                                                    \
+long long libcfs_log_return(struct libcfs_debug_msg_data *, long long rc);
+#define RETURN(rc)                                                             \
+do {                                                                           \
+	EXIT_NESTING;                                                          \
+	if (cfs_cdebug_show(D_TRACE, DEBUG_SUBSYSTEM)) {                       \
+		LIBCFS_DEBUG_MSG_DATA_DECL(msgdata, D_TRACE, NULL);            \
+		if (sizeof(rc) == sizeof(long))                                \
+			return (typeof(rc))(long)libcfs_log_return(&msgdata,   \
+						     (long)(rc));              \
+		else                                                           \
+			return (typeof(rc))libcfs_log_return(&msgdata,         \
+							     (long long)(rc)); \
+        }                                                                      \
+                                                                               \
+        return (rc);                                                           \
 } while (0)
 #elif defined(_MSC_VER)
 #define RETURN(rc)                                                      \
