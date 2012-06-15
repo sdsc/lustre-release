@@ -93,13 +93,13 @@ build_sles_ofed_rpm() {
         rpm2cpio < $KERNELTREE/ofed${variant}-${OFED_DEVEL_VERSION}.src.rpm | cpio -id
         ed ofed${variant}.spec <<"EOF"
 /^%define kver /c
-%define kver %(flavors=($(ls %kobjdir/%_target_cpu/)); if test -s %kobjdir/%_target_cpu/${flavors[0]}/include/linux/utsrelease.h ; then LINUXRELEASEHEADER=utsrelease.h; else LINUXRELEASEHEADER=version.h; fi; sed -ne "/^#define UTS_RELEASE/s/.*\\"\\\(.*\\\)-${flavors[0]}\\"$/\\1/p" %kobjdir/%_target_cpu/${flavors[0]}/include/linux/$LINUXRELEASEHEADER)
+%define kver %(flavors=($(ls %_with_linux_obj/%_target_cpu/)); if test -s %_with_linux_obj/%_target_cpu/${flavors[0]}/include/linux/utsrelease.h ; then LINUXRELEASEHEADER=utsrelease.h; else LINUXRELEASEHEADER=version.h; fi; sed -ne "/^#define UTS_RELEASE/s/.*\\"\\\(.*\\\)-${flavors[0]}\\"$/\\1/p" %_with_linux_obj/%_target_cpu/${flavors[0]}/include/linux/$LINUXRELEASEHEADER)
 .
 /^		--kernel-version=%kver-$flavor --kernel-sources=\/usr\/src\/linux-obj\/%_target_cpu\/\$flavor/c
-		--kernel-version=%kver-$flavor --kernel-sources=%kobjdir/%_target_cpu/$flavor
+		--kernel-version=%kver-$flavor --kernel-sources=%_with_linux_obj/%_target_cpu/$flavor
 .
 /^     make -C \/usr\/src\/linux-obj\/%_target_cpu\/\$flavor modules_install \\/c
-     make -C %kobjdir/%_target_cpu/$flavor modules_install \
+     make -C %_with_linux_obj/%_target_cpu/$flavor modules_install \
 .
 wq
 EOF
@@ -128,21 +128,21 @@ EOF
         fi
         cat <<"EOF" >~/.rpmmacros
 # an overridable specification of where the linux-obj tree is located
-%{!?kobjdir: %define kobjdir /usr/src/linux-obj}
+%{!?_with_linux_obj: %define _with_linux_obj /usr/src/linux-obj}
 
 # Defines %flavors_to_build and %kernel_source() as a side effect.
 %_kernel_module_package(n:v:r:s:f:Xp:) \
 %{expand:%( subpkg=%{-s*}%{!-s:/usr/lib/rpm/rpm-suse-kernel-module-subpackage} \
         echo "%%define _suse_kernel_module_subpackage(n:v:r:f:p:) %%{expand:%%(cd %_sourcedir; cat $subpkg; echo %%%%nil)}" \
-        flavors="%{!-X:%*}%{-X:$(ls %kobjdir/%_target_cpu 2>/dev/null)}" \
+        flavors="%{!-X:%*}%{-X:$(ls %_with_linux_obj/%_target_cpu 2>/dev/null)}" \
 	a_flavor=($flavors)
         flavors_to_build= \
-        if [ -s %kobjdir/%_target_cpu/${a_flavor}/include/linux/utsrelease.h ]; then
+        if [ -s %_with_linux_obj/%_target_cpu/${a_flavor}/include/linux/utsrelease.h ]; then
             LINUXRELEASEHEADER=utsrelease.h
         else
             LINUXRELEASEHEADER=version.h
         fi
-        kver=$(sed -ne "/^#define UTS_RELEASE/s/.*\\"\\\(.*\\\)-${a_flavor}\\"$/\\1/p" %kobjdir/%_target_cpu/${a_flavor}/include/linux/$LINUXRELEASEHEADER)
+        kver=$(sed -ne "/^#define UTS_RELEASE/s/.*\\"\\\(.*\\\)-${a_flavor}\\"$/\\1/p" %_with_linux_obj/%_target_cpu/${a_flavor}/include/linux/$LINUXRELEASEHEADER)
         for flavor in $flavors; do \
             if [ -n "%{-X}" ]; then \
                 case " %* " in \
@@ -150,13 +150,13 @@ EOF
                     continue ;; \
                 esac \
             fi \
-            krel=$(make -s -C %kobjdir/%_target_cpu/$flavor kernelrelease) \
+            krel=$(make -s -C %_with_linux_obj/%_target_cpu/$flavor kernelrelease) \
             [ -e %symsetsdir/symsets-$krel.tar.gz ] || continue \
             flavors_to_build="$flavors_to_build $flavor" \
             echo "%%_suse_kernel_module_subpackage -n %{-n*}%{!-n:%name}-kmp -v %{-v*}%{!-v:%version} -r %{-r*}%{!-r:%release} %{-p} $flavor $krel $kver" \
         done \
         echo "%%global flavors_to_build${flavors_to_build:-%%nil}" \
-        echo "%%global kernel_source() %kobjdir/%_target_cpu/%%%%{1}" \
+        echo "%%global kernel_source() %_with_linux_obj/%_target_cpu/%%%%{1}" \
         \
         echo "%package -n %{-n*}%{!-n:%name}-kmp-_dummy_" \
         echo "Version: %version" \
@@ -171,7 +171,7 @@ EOF
         done
         if ! $RPMBUILD --rebuild --nodeps $targets \
                                  --define "symsetsdir ${TOPDIR}/reused/boot" \
-                                 --define "kobjdir ${LINUXOBJ%/*/*}" \
+                                 --define "_with_linux_obj ${LINUXOBJ%/*/*}" \
                                  --define "_tmppath /var/tmp" \
                                  --define "_topdir ${TOPDIR}" \
                       ${SOURCE} 2>&1; then
