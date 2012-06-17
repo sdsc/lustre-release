@@ -2553,11 +2553,13 @@ static int ldlm_setup(void)
 		},
 		.psc_thr		= {
 			.tc_thr_name		= "ldlm_cb",
-			.tc_nthrs_min		= LDLM_THREADS_AUTO_MIN,
-			.tc_nthrs_max		= LDLM_THREADS_AUTO_MAX,
+			.tc_thr_factor		= LDLM_THR_FACTOR,
+			.tc_nthrs_init		= LDLM_NTHRS_INIT,
+			.tc_nthrs_base		= LDLM_NTHRS_BASE,
+			.tc_nthrs_max		= LDLM_NTHRS_MAX,
 			.tc_nthrs_user		= ldlm_num_threads,
-			.tc_ctx_tags		= LCT_MD_THREAD | \
-						  LCT_DT_THREAD,
+			.tc_cpu_affinity	= 1,
+			.tc_ctx_tags		= LCT_MD_THREAD | LCT_DT_THREAD,
 		},
 		.psc_ops		= {
 			.so_req_handler		= ldlm_callback_handler,
@@ -2588,9 +2590,12 @@ static int ldlm_setup(void)
 		},
 		.psc_thr		= {
 			.tc_thr_name		= "ldlm_cn",
-			.tc_nthrs_min		= LDLM_THREADS_AUTO_MIN,
-			.tc_nthrs_max		= LDLM_THREADS_AUTO_MAX,
+			.tc_thr_factor		= LDLM_THR_FACTOR,
+			.tc_nthrs_init		= LDLM_NTHRS_INIT,
+			.tc_nthrs_base		= LDLM_NTHRS_BASE,
+			.tc_nthrs_max		= LDLM_NTHRS_MAX,
 			.tc_nthrs_user		= ldlm_num_threads,
+			.tc_cpu_affinity	= 1,
 			.tc_ctx_tags		= LCT_MD_THREAD | \
 						  LCT_DT_THREAD | \
 						  LCT_CL_THREAD,
@@ -2624,20 +2629,19 @@ static int ldlm_setup(void)
 
 #ifdef __KERNEL__
 	if (ldlm_num_threads == 0) {
-		blp->blp_min_threads = LDLM_THREADS_AUTO_MIN;
-		blp->blp_max_threads = LDLM_THREADS_AUTO_MAX;
+		blp->blp_min_threads = LDLM_NTHRS_INIT;
+		blp->blp_max_threads = LDLM_NTHRS_MAX;
 	} else {
 		blp->blp_min_threads = blp->blp_max_threads = \
-			min_t(int, LDLM_THREADS_AUTO_MAX,
-				   max_t(int, LDLM_THREADS_AUTO_MIN,
-					      ldlm_num_threads));
+			min_t(int, LDLM_NTHRS_MAX, max_t(int, LDLM_NTHRS_INIT,
+							 ldlm_num_threads));
 	}
 
-        for (i = 0; i < blp->blp_min_threads; i++) {
-                rc = ldlm_bl_thread_start(blp);
-                if (rc < 0)
+	for (i = 0; i < blp->blp_min_threads; i++) {
+		rc = ldlm_bl_thread_start(blp);
+		if (rc < 0)
 			GOTO(out, rc);
-        }
+	}
 
         CFS_INIT_LIST_HEAD(&expired_lock_thread.elt_expired_locks);
         expired_lock_thread.elt_state = ELT_STOPPED;
@@ -2660,11 +2664,11 @@ static int ldlm_setup(void)
         if (rc)
 		GOTO(out, rc);
 #endif
-        RETURN(0);
+	RETURN(0);
 
  out:
 	ldlm_cleanup();
-        return rc;
+	return rc;
 }
 
 static int ldlm_cleanup(void)
