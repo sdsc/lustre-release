@@ -238,8 +238,7 @@ void client_bulk_callback (lnet_event_t *ev)
 #define REQS_ALL_BITS(svcpt)	((int)(sizeof((svcpt)->scp_hist_seq) * 8))
 #define REQS_SEC_BITS		32
 #define REQS_USEC_BITS		16
-/* will be replaced by bits for total service partition number soon */
-#define REQS_CPT_BITS(svcpt)	0
+#define REQS_CPT_BITS(svcpt)	((svcpt)->scp_service->srv_cpt_bits)
 #define REQS_SEQ_BITS(svcpt)	(REQS_ALL_BITS(svcpt) - REQS_CPT_BITS(svcpt) -\
 				 REQS_SEC_BITS - REQS_USEC_BITS)
 
