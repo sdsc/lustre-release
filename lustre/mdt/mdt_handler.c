@@ -97,6 +97,29 @@ ldlm_mode_t mdt_dlm_lock_modes[] = {
  * Initialized in mdt_mod_init().
  */
 static unsigned long mdt_num_threads;
+CFS_MODULE_PARM(mdt_num_threads, "ul", ulong, 0444,
+		"number of mdt service threads to start");
+
+static char *mdt_cpts;
+CFS_MODULE_PARM(mdt_cpts, "c", charp, 0444,
+		"CPU partitions MDT threads should run on");
+
+static unsigned long mdt_rdpg_num_threads;
+CFS_MODULE_PARM(mdt_rdpg_num_threads, "ul", ulong, 0444,
+		"number of mdt readpage service threads to start");
+
+static char *mdt_rdpg_cpts;
+CFS_MODULE_PARM(mdt_rdpg_cpts, "c", charp, 0444,
+		"CPU partitions MDT readpage threads should run on");
+
+/* NB: these two should be removed along with setattr service in the future */
+static unsigned long mdt_attr_num_threads;
+CFS_MODULE_PARM(mdt_attr_num_threads, "ul", ulong, 0444,
+		"number of mdt setattr service threads to start");
+
+static char *mdt_attr_cpts;
+CFS_MODULE_PARM(mdt_attr_cpts, "c", charp, 0444,
+		"CPU partitions MDT setattr threads should run on");
 
 /* ptlrpc request handler for MDT. All handlers are
  * grouped into several slices - struct mdt_opc_slice,
@@ -3947,10 +3970,16 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		 */
 		.psc_thr		= {
 			.tc_thr_name		= LUSTRE_MDT_NAME,
-			.tc_nthrs_min		= MDT_MIN_THREADS,
-			.tc_nthrs_max		= MDT_MAX_THREADS,
+			.tc_thr_factor		= MDT_THR_FACTOR,
+			.tc_nthrs_init		= MDT_NTHRS_INIT,
+			.tc_nthrs_base		= MDT_NTHRS_BASE,
+			.tc_nthrs_max		= MDT_NTHRS_MAX,
 			.tc_nthrs_user		= mdt_num_threads,
+			.tc_cpu_affinity	= 1,
 			.tc_ctx_tags		= LCT_MD_THREAD,
+		},
+		.psc_cpt		= {
+			.cc_pattern		= mdt_cpts,
 		},
 		.psc_ops		= {
 			.so_req_handler		= mdt_regular_handle,
@@ -3984,10 +4013,16 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		},
 		.psc_thr		= {
 			.tc_thr_name		= "mdt_rdpg",
-			.tc_nthrs_min		= MDT_MIN_THREADS,
-			.tc_nthrs_max		= MDT_MAX_THREADS,
-			.tc_nthrs_user		= mdt_num_threads,
+			.tc_thr_factor		= MDT_RDPG_THR_FACTOR,
+			.tc_nthrs_init		= MDT_RDPG_NTHRS_INIT,
+			.tc_nthrs_base		= MDT_RDPG_NTHRS_BASE,
+			.tc_nthrs_max		= MDT_RDPG_NTHRS_MAX,
+			.tc_nthrs_user		= mdt_rdpg_num_threads,
+			.tc_cpu_affinity	= 1,
 			.tc_ctx_tags		= LCT_MD_THREAD,
+		},
+		.psc_cpt		= {
+			.cc_pattern		= mdt_rdpg_cpts,
 		},
 		.psc_ops		= {
 			.so_req_handler		= mdt_readpage_handle,
@@ -4024,10 +4059,16 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		},
 		.psc_thr		= {
 			.tc_thr_name		= "mdt_attr",
-			.tc_nthrs_min		= MDT_MIN_THREADS,
-			.tc_nthrs_max		= MDT_MAX_THREADS,
-			.tc_nthrs_user		= mdt_num_threads,
+			.tc_thr_factor		= MDT_SETA_THR_FACTOR,
+			.tc_nthrs_init		= MDT_SETA_NTHRS_INIT,
+			.tc_nthrs_base		= MDT_SETA_NTHRS_BASE,
+			.tc_nthrs_max		= MDT_SETA_NTHRS_MAX,
+			.tc_nthrs_user		= mdt_attr_num_threads,
+			.tc_cpu_affinity	= 1,
 			.tc_ctx_tags		= LCT_MD_THREAD,
+		},
+		.psc_cpt		= {
+			.cc_pattern		= mdt_attr_cpts,
 		},
 		.psc_ops		= {
 			.so_req_handler		= mdt_regular_handle,
@@ -4060,9 +4101,8 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		},
 		.psc_thr		= {
 			.tc_thr_name		= "mdt_mdsc",
-			.tc_nthrs_min		= MDT_MIN_THREADS,
-			.tc_nthrs_max		= MDT_MAX_THREADS,
-			.tc_nthrs_user		= mdt_num_threads,
+			.tc_nthrs_init		= MDT_OTHR_NTHRS_INIT,
+			.tc_nthrs_max		= MDT_OTHR_NTHRS_MAX,
 			.tc_ctx_tags		= LCT_MD_THREAD,
 		},
 		.psc_ops		= {
@@ -4096,9 +4136,8 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		},
 		.psc_thr		= {
 			.tc_thr_name		= "mdt_mdss",
-			.tc_nthrs_min		= MDT_MIN_THREADS,
-			.tc_nthrs_max		= MDT_MAX_THREADS,
-			.tc_nthrs_user		= mdt_num_threads,
+			.tc_nthrs_init		= MDT_OTHR_NTHRS_INIT,
+			.tc_nthrs_max		= MDT_OTHR_NTHRS_MAX,
 			.tc_ctx_tags		= LCT_MD_THREAD | LCT_DT_THREAD
 		},
 		.psc_ops		= {
@@ -4134,9 +4173,8 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		},
 		.psc_thr		= {
 			.tc_thr_name		= "mdt_dtss",
-			.tc_nthrs_min		= MDT_MIN_THREADS,
-			.tc_nthrs_max		= MDT_MAX_THREADS,
-			.tc_nthrs_user		= mdt_num_threads,
+			.tc_nthrs_init		= MDT_OTHR_NTHRS_INIT,
+			.tc_nthrs_max		= MDT_OTHR_NTHRS_MAX,
 			.tc_ctx_tags		= LCT_MD_THREAD | LCT_DT_THREAD
 		},
 		.psc_ops		= {
@@ -4168,9 +4206,8 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		},
 		.psc_thr		= {
 			.tc_thr_name		= "mdt_fld",
-			.tc_nthrs_min		= MDT_MIN_THREADS,
-			.tc_nthrs_max		= MDT_MAX_THREADS,
-			.tc_nthrs_user		= mdt_num_threads,
+			.tc_nthrs_init		= MDT_OTHR_NTHRS_INIT,
+			.tc_nthrs_max		= MDT_OTHR_NTHRS_MAX,
 			.tc_ctx_tags		= LCT_DT_THREAD | LCT_MD_THREAD
 		},
 		.psc_ops		= {
@@ -4205,9 +4242,8 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		},
 		.psc_thr		= {
 			.tc_thr_name		= "mdt_mds",
-			.tc_nthrs_min		= MDT_MIN_THREADS,
-			.tc_nthrs_max		= MDT_MAX_THREADS,
-			.tc_nthrs_user		= mdt_num_threads,
+			.tc_nthrs_init		= MDT_OTHR_NTHRS_INIT,
+			.tc_nthrs_max		= MDT_OTHR_NTHRS_MAX,
 			.tc_ctx_tags		= LCT_MD_THREAD,
 		},
 		.psc_ops		= {
@@ -6123,8 +6159,5 @@ static struct mdt_opc_slice mdt_fld_handlers[] = {
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Meta-data Target ("LUSTRE_MDT_NAME")");
 MODULE_LICENSE("GPL");
-
-CFS_MODULE_PARM(mdt_num_threads, "ul", ulong, 0444,
-                "number of mdt service threads to start");
 
 cfs_module(mdt, "0.2.0", mdt_mod_init, mdt_mod_exit);
