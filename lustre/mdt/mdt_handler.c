@@ -97,6 +97,9 @@ ldlm_mode_t mdt_dlm_lock_modes[] = {
  * Initialized in mdt_mod_init().
  */
 static unsigned long mdt_num_threads;
+static char *mdt_cpts;
+CFS_MODULE_PARM(mdt_cpts, "c", charp, 0444,
+		"CPU partitions MDT threads should run on");
 
 /* ptlrpc request handler for MDT. All handlers are
  * grouped into several slices - struct mdt_opc_slice,
@@ -3929,10 +3932,17 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		 */
 		.psc_thr		= {
 			.tc_thr_name		= LUSTRE_MDT_NAME,
-			.tc_nthrs_min		= MDT_MIN_THREADS,
-			.tc_nthrs_max		= MDT_MAX_THREADS,
+			.tc_thr_factor		= MDT_THR_FACTOR,
+			.tc_nthrs_init		= MDT_NTHRS_INIT,
+			.tc_nthrs_base		= MDT_NTHRS_BASE,
+			.tc_nthrs_default	= MDT_NTHRS_DEFAULT,
+			.tc_nthrs_max		= MDT_NTHRS_MAX,
 			.tc_nthrs_user		= mdt_num_threads,
+			.tc_cpu_affinity	= 1,
 			.tc_ctx_tags		= LCT_MD_THREAD,
+		},
+		.psc_cpt		= {
+			.cc_pattern		= mdt_cpts,
 		},
 		.psc_ops		= {
 			.so_req_handler		= mdt_regular_handle,
@@ -3966,10 +3976,17 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		},
 		.psc_thr		= {
 			.tc_thr_name		= "mdt_rdpg",
-			.tc_nthrs_min		= MDT_MIN_THREADS,
-			.tc_nthrs_max		= MDT_MAX_THREADS,
+			.tc_thr_factor		= MDT_RDPG_THR_FACTOR,
+			.tc_nthrs_init		= MDT_RDPG_NTHRS_INIT,
+			.tc_nthrs_base		= MDT_RDPG_NTHRS_BASE,
+			.tc_nthrs_default	= MDT_RDPG_NTHRS_DEFAULT,
+			.tc_nthrs_max		= MDT_RDPG_NTHRS_MAX,
 			.tc_nthrs_user		= mdt_num_threads,
+			.tc_cpu_affinity	= 1,
 			.tc_ctx_tags		= LCT_MD_THREAD,
+		},
+		.psc_cpt		= {
+			.cc_pattern		= mdt_cpts,
 		},
 		.psc_ops		= {
 			.so_req_handler		= mdt_readpage_handle,
@@ -4006,10 +4023,17 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		},
 		.psc_thr		= {
 			.tc_thr_name		= "mdt_attr",
-			.tc_nthrs_min		= MDT_MIN_THREADS,
-			.tc_nthrs_max		= MDT_MAX_THREADS,
+			.tc_thr_factor		= MDT_SETA_THR_FACTOR,
+			.tc_nthrs_init		= MDT_SETA_NTHRS_INIT,
+			.tc_nthrs_base		= MDT_SETA_NTHRS_BASE,
+			.tc_nthrs_default	= MDT_SETA_NTHRS_DEFAULT,
+			.tc_nthrs_max		= MDT_SETA_NTHRS_MAX,
 			.tc_nthrs_user		= mdt_num_threads,
+			.tc_cpu_affinity	= 1,
 			.tc_ctx_tags		= LCT_MD_THREAD,
+		},
+		.psc_cpt		= {
+			.cc_pattern		= mdt_cpts,
 		},
 		.psc_ops		= {
 			.so_req_handler		= mdt_regular_handle,
@@ -4042,8 +4066,8 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		},
 		.psc_thr		= {
 			.tc_thr_name		= "mdt_mdsc",
-			.tc_nthrs_min		= MDT_MIN_THREADS,
-			.tc_nthrs_max		= MDT_MAX_THREADS,
+			.tc_nthrs_init		= MDT_OTHR_NTHRS_INIT,
+			.tc_nthrs_max		= MDT_OTHR_NTHRS_MAX,
 			.tc_nthrs_user		= mdt_num_threads,
 			.tc_ctx_tags		= LCT_MD_THREAD,
 		},
@@ -4078,8 +4102,8 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		},
 		.psc_thr		= {
 			.tc_thr_name		= "mdt_mdss",
-			.tc_nthrs_min		= MDT_MIN_THREADS,
-			.tc_nthrs_max		= MDT_MAX_THREADS,
+			.tc_nthrs_init		= MDT_OTHR_NTHRS_INIT,
+			.tc_nthrs_max		= MDT_OTHR_NTHRS_MAX,
 			.tc_nthrs_user		= mdt_num_threads,
 			.tc_ctx_tags		= LCT_MD_THREAD | LCT_DT_THREAD
 		},
@@ -4116,8 +4140,8 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		},
 		.psc_thr		= {
 			.tc_thr_name		= "mdt_dtss",
-			.tc_nthrs_min		= MDT_MIN_THREADS,
-			.tc_nthrs_max		= MDT_MAX_THREADS,
+			.tc_nthrs_init		= MDT_OTHR_NTHRS_INIT,
+			.tc_nthrs_max		= MDT_OTHR_NTHRS_MAX,
 			.tc_nthrs_user		= mdt_num_threads,
 			.tc_ctx_tags		= LCT_MD_THREAD | LCT_DT_THREAD
 		},
@@ -4150,8 +4174,8 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		},
 		.psc_thr		= {
 			.tc_thr_name		= "mdt_fld",
-			.tc_nthrs_min		= MDT_MIN_THREADS,
-			.tc_nthrs_max		= MDT_MAX_THREADS,
+			.tc_nthrs_init		= MDT_OTHR_NTHRS_INIT,
+			.tc_nthrs_max		= MDT_OTHR_NTHRS_MAX,
 			.tc_nthrs_user		= mdt_num_threads,
 			.tc_ctx_tags		= LCT_DT_THREAD | LCT_MD_THREAD
 		},
@@ -4187,8 +4211,8 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		},
 		.psc_thr		= {
 			.tc_thr_name		= "mdt_mds",
-			.tc_nthrs_min		= MDT_MIN_THREADS,
-			.tc_nthrs_max		= MDT_MAX_THREADS,
+			.tc_nthrs_init		= MDT_OTHR_NTHRS_INIT,
+			.tc_nthrs_max		= MDT_OTHR_NTHRS_MAX,
 			.tc_nthrs_user		= mdt_num_threads,
 			.tc_ctx_tags		= LCT_MD_THREAD,
 		},
