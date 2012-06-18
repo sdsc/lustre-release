@@ -1485,7 +1485,7 @@ static int ll_lov_getstripe(struct inode *inode, unsigned long arg)
 	lsm = ccc_inode_lsm_get(inode);
 	if (lsm != NULL)
 		rc = obd_iocontrol(LL_IOC_LOV_GETSTRIPE, ll_i2dtexp(inode), 0,
-				lsm, (void *)arg);
+				   lsm, (void *)arg);
 	ccc_inode_lsm_put(inode, lsm);
 	RETURN(rc);
 }
@@ -1774,8 +1774,8 @@ static int ll_data_version(struct inode *inode, __u64 *data_version,
 {
 	struct lov_stripe_md *lsm = NULL;
 	struct ll_sb_info    *sbi = ll_i2sbi(inode);
-	struct obdo          *obdo = NULL;
-	int                   rc;
+	struct obdo	  *obdo = NULL;
+	int		   rc;
 	ENTRY;
 
 	/* If no stripe, we consider version is 0. */
@@ -2797,4 +2797,155 @@ enum llioc_iter ll_iocontrol_call(struct inode *inode, struct file *file,
         if (rcp)
                 *rcp = rc;
         return ret;
+}
+
+static int ll_layout_validate(struct inode *inode)
+{
+	struct ll_inode_info *lli = ll_i2info(inode);
+	struct cl_env_nest nest;
+	struct lu_env *env;
+	struct cl_object_conf conf = { .coc_validate_only = 1 };
+	int result;
+	ENTRY;
+
+	if (lli->lli_clob == NULL)
+		RETURN(0);
+
+	env = cl_env_nested_get(&nest);
+	if (IS_ERR(env))
+		RETURN(PTR_ERR(env));
+
+	result = cl_conf_set(env, lli->lli_clob, &conf);
+	cl_env_nested_put(&nest, env);
+	RETURN(result);
+}
+
+/**
+ * This function checks if there exists a LAYOUT lock on the client side,
+ * or enqueues it if it doesn't have one in cache.
+ *
+ * This function will not hold layout lock so it may be revoked any time after
+ * this function returns. Any operations depend on layout should be redone
+ * in that case.
+ *
+ * This function should be called before lov_io_init() to get an uptodate
+ * layout version, the caller should save the version number and after IO
+ * is finished, this function should be called again to verify that layout
+ * is not changed during IO time.
+ */
+int ll_layout_refresh(struct inode *inode, __u32 *gen)
+{
+	struct ll_inode_info  *lli = ll_i2info(inode);
+	struct ll_sb_info     *sbi = ll_i2sbi(inode);
+	struct md_op_data     *op_data = NULL;
+	struct ptlrpc_request *req = NULL;
+	struct lookup_intent   it = { .it_op = IT_LAYOUT };
+	ldlm_policy_data_t     pol = { .l_inodebits = {MDS_INODELOCK_LAYOUT} };
+	struct lustre_handle   lockh;
+	int		    lmmsize;
+	int		    rc;
+	ENTRY;
+
+	*gen = 0;
+	if (!(ll_i2sbi(inode)->ll_flags & LL_SBI_LAYOUT_LOCK))
+		RETURN(0);
+
+	/* sanity checks */
+	LASSERT(fid_is_sane(ll_inode2fid(inode)));
+	LASSERT(S_ISREG(inode->i_mode));
+
+	/* mostly layout lock is caching on the local side, so try to match
+	 * it before grabbing layout lock mutex. */
+	rc = md_lock_match(sbi->ll_md_exp, LDLM_FL_BLOCK_GRANTED,
+			ll_inode2fid(inode), LDLM_IBITS, &pol,
+			LCK_CR, &lockh);
+	if (rc != 0) { /* hit caching lock */
+		struct lov_stripe_md *lsm;
+
+		lsm = ccc_inode_lsm_get(inode);
+		if (lsm != NULL)
+			*gen = lsm->lsm_layout_gen;
+		ccc_inode_lsm_put(inode, lsm);
+		ldlm_lock_decref(&lockh, LCK_CR);
+
+		RETURN(0);
+	}
+
+	rc = ll_get_max_mdsize(sbi, &lmmsize);
+	if (rc)
+		RETURN(rc);
+
+	op_data = ll_prep_md_op_data(NULL, inode, inode, NULL,
+			0, 0, LUSTRE_OPC_ANY, NULL);
+	if (IS_ERR(op_data))
+		RETURN(PTR_ERR(op_data));
+
+	/* take layout lock mutex to enqueue layout lock exclusively. */
+	cfs_mutex_lock(&lli->lli_layout_mutex);
+
+	/* make sure the old conf goes away */
+	ll_layout_validate(inode);
+
+	/* enqueue layout lock */
+	rc = md_intent_lock(sbi->ll_md_exp, op_data, NULL, lmmsize, &it, 0,
+			&req, ll_md_blocking_ast, 0);
+	if (rc == 0) {
+		struct lustre_md md = { NULL };
+		void *lmm;
+
+		/* we get a new lock, so update the lock data */
+		lockh.cookie = it.d.lustre.it_lock_handle;
+		md_set_lock_data(sbi->ll_md_exp, &lockh.cookie, inode, NULL);
+
+		/* req == NULL is when lock was found in client cache, without
+		 * any request to server (but lsm can be canceled just after a
+		 * release) */
+		if (req != NULL) {
+			struct ldlm_lock *lock = NULL;
+
+			/* for IT_LAYOUT lock, lmm could be returned at two
+			 * places: in enqueue request if the lock is granted
+			 * right away, or in lock's lvb data via completion
+			 * callback */
+			lmmsize = req_capsule_get_size(&req->rq_pill,
+					&RMF_DLM_REQ, RCL_SERVER);
+			if (lmmsize > 0) {
+				lmm = req_capsule_server_get(&req->rq_pill,
+						&RMF_DLM_LVB);
+				LASSERT(lmm != NULL);
+			} else {
+				/* lvb data is immutable after setting so
+				 * no lock is needed. */
+				lock = ldlm_handle2lock(&lockh);
+				LASSERT(lock != NULL);
+				lmm = lock->l_lvb_data;
+				lmmsize = lock->l_lvb_len;
+			}
+
+			if (lmm != NULL) {
+				rc = obd_unpackmd(sbi->ll_dt_exp, &md.lsm,
+						lmm, lmmsize);
+				if (rc == 0) {
+					ll_update_inode(inode, &md);
+					if (md.lsm != NULL)
+						*gen = md.lsm->lsm_layout_gen;
+				}
+			}
+			if (lock != NULL)
+				LDLM_LOCK_PUT(lock);
+			ptlrpc_req_finished(req);
+		} else { /* hit caching lock */
+			struct lov_stripe_md *lsm;
+
+			lsm = ccc_inode_lsm_get(inode);
+			if (lsm != NULL)
+				*gen = lsm->lsm_layout_gen;
+			ccc_inode_lsm_put(inode, lsm);
+		}
+		ll_intent_drop_lock(&it);
+	}
+	cfs_mutex_unlock(&lli->lli_layout_mutex);
+	ll_finish_md_op_data(op_data);
+
+	RETURN(rc);
 }
