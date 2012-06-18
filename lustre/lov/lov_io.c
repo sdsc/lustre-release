@@ -385,7 +385,7 @@ static obd_off lov_offset_mod(obd_off val, int delta)
 static int lov_io_iter_init(const struct lu_env *env,
                             const struct cl_io_slice *ios)
 {
-	struct lov_io        *lio = cl2lov_io(env, ios);
+	struct lov_io	*lio = cl2lov_io(env, ios);
 	struct lov_stripe_md *lsm = lio->lis_lsm;
         struct lov_io_sub    *sub;
         obd_off endpos;
@@ -424,8 +424,8 @@ static int lov_io_iter_init(const struct lu_env *env,
 static int lov_io_rw_iter_init(const struct lu_env *env,
                                const struct cl_io_slice *ios)
 {
-	struct lov_io        *lio = cl2lov_io(env, ios);
-	struct cl_io         *io  = ios->cis_io;
+	struct lov_io	*lio = cl2lov_io(env, ios);
+	struct cl_io	 *io  = ios->cis_io;
 	struct lov_stripe_md *lsm = lio->lis_lsm;
         loff_t start = io->u.ci_rw.crw_pos;
         loff_t next;

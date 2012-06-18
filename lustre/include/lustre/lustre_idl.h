@@ -1624,10 +1624,7 @@ extern void lustre_swab_generic_32s (__u32 *val);
 #define MDS_INODELOCK_OPEN   0x000004       /* For opened files */
 #define MDS_INODELOCK_LAYOUT 0x000008       /* for layout */
 
-/* Do not forget to increase MDS_INODELOCK_MAXSHIFT when adding new bits
- * XXX: MDS_INODELOCK_MAXSHIFT should be increased to 3 once the layout lock is
- * supported */
-#define MDS_INODELOCK_MAXSHIFT 2
+#define MDS_INODELOCK_MAXSHIFT 3
 /* This FULL lock is useful to take on unlink sort of operations */
 #define MDS_INODELOCK_FULL ((1<<(MDS_INODELOCK_MAXSHIFT+1))-1)
 
@@ -1942,6 +1939,7 @@ extern void lustre_swab_mdt_rec_setattr (struct mdt_rec_setattr *sa);
 #define MDS_OPEN_NORESTORE  0100000000000ULL /* Do not restore file at open */
 #define MDS_OPEN_NEWSTRIPE  0200000000000ULL /* New stripe needed (restripe or
                                               * hsm restore) */
+#define MDS_OPEN_LAYOUT     0400000000000ULL /* return layout lock for open */
 
 /* permission for create non-directory file */
 #define MAY_CREATE      (1 << 7)
