@@ -66,8 +66,8 @@ void dump_lsm(int level, struct lov_stripe_md *lsm)
 	       "layout_gen %u, pool ["LOV_POOLNAMEF"]\n", lsm,
 	       lsm->lsm_object_id, lsm->lsm_maxbytes, lsm->lsm_magic,
 	       lsm->lsm_stripe_size, lsm->lsm_stripe_count,
-	       cfs_atomic_read(&lsm->lsm_refc), lsm->lsm_layout_gen,
-	       lsm->lsm_pool_name);
+		cfs_atomic_read(&lsm->lsm_refc), lsm->lsm_layout_gen,
+		lsm->lsm_pool_name);
 }
 
 #define LPDS sizeof(__u64)

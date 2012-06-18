@@ -156,7 +156,7 @@ static void lovsub_lock_descr_map(const struct cl_lock_descr *in,
                                   struct lov_object *obj,
                                   int stripe, struct cl_lock_descr *out)
 {
-        struct lov_stripe_md *lsm = lov_r0(obj)->lo_lsm;
+	struct lov_stripe_md *lsm = obj->lo_lsm;
         pgoff_t size; /* stripe size in pages */
         pgoff_t skip; /* how many pages in every stripe are occupied by
                        * "other" stripes */
