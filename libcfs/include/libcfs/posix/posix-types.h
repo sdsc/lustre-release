@@ -84,4 +84,9 @@ typedef unsigned long long __u64;
 typedef unsigned long ulong_ptr_t;
 typedef long long_ptr_t;
 
+typedef enum {
+	true = 1,
+	false = 0
+} bool;
+
 #endif
