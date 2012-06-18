@@ -107,12 +107,13 @@
 #define LDD_F_ONDISK_MASK  (LDD_F_SV_TYPE_MASK | LDD_F_IAM_DIR)
 
 enum ldd_mount_type {
-        LDD_MT_EXT3 = 0,
-        LDD_MT_LDISKFS,
-        LDD_MT_SMFS,
-        LDD_MT_REISERFS,
-        LDD_MT_LDISKFS2,
-        LDD_MT_LAST
+	LDD_MT_EXT3 = 0,
+	LDD_MT_LDISKFS,
+	LDD_MT_SMFS,
+	LDD_MT_REISERFS,
+	LDD_MT_LDISKFS2,
+	LDD_MT_ZFS,
+	LDD_MT_LAST
 };
 
 static inline char *mt_str(enum ldd_mount_type mt)
@@ -122,7 +123,8 @@ static inline char *mt_str(enum ldd_mount_type mt)
                 "ldiskfs",
                 "smfs",
                 "reiserfs",
-                "ldiskfs2"
+                "ldiskfs2",
+                "zfs",
         };
         return mount_type_string[mt];
 }
