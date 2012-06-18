@@ -132,8 +132,8 @@
 #define LDLM_MAXREPSIZE (1024)
 
 /** Absolute limits */
-#ifndef MDT_MAX_THREADS
 #define MDT_MIN_THREADS PTLRPC_NTHRS_MIN
+#ifndef MDT_MAX_THREADS
 #define MDT_MAX_THREADS 512UL
 #endif
 #define MDS_NBUFS       (64 * cfs_num_online_cpus())
