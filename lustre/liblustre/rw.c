@@ -60,8 +60,7 @@ size_t llap_cookie_size;
 
 static int llu_lock_to_stripe_offset(struct inode *inode, struct ldlm_lock *lock)
 {
-        struct llu_inode_info *lli = llu_i2info(inode);
-        struct lov_stripe_md *lsm = lli->lli_smd;
+	struct lov_stripe_md *lsm = NULL;
         struct obd_export *exp = llu_i2obdexp(inode);
         struct {
                 char name[16];
@@ -71,8 +70,11 @@ static int llu_lock_to_stripe_offset(struct inode *inode, struct ldlm_lock *lock
         int rc;
         ENTRY;
 
-        if (lsm->lsm_stripe_count == 1)
-                RETURN(0);
+	lsm = ccc_inode_lsm_get(inode);
+	if (lsm == NULL || lsm->lsm_stripe_count == 1) {
+		ccc_inode_lsm_put(inode, lsm);
+		RETURN(0);
+	}
 
         /* get our offset in the lov */
         rc = obd_get_info(NULL, exp, sizeof(key), &key, &vallen, &stripe, lsm);
@@ -81,7 +83,8 @@ static int llu_lock_to_stripe_offset(struct inode *inode, struct ldlm_lock *lock
                 LBUG();
         }
         LASSERT(stripe < lsm->lsm_stripe_count);
-        RETURN(stripe);
+	ccc_inode_lsm_put(inode, lsm);
+	RETURN(stripe);
 }
 
 int llu_extent_lock_cancel_cb(struct ldlm_lock *lock,
@@ -121,9 +124,12 @@ int llu_extent_lock_cancel_cb(struct ldlm_lock *lock,
                 lli= llu_i2info(inode);
                 if (!lli)
                         goto iput;
-                if (!lli->lli_smd)
-                        goto iput;
-                lsm = lli->lli_smd;
+		if (!lli->lli_has_smd)
+			goto iput;
+
+		lsm = ccc_inode_lsm_get(inode);
+		if (lsm == NULL)
+			goto iput;
 
                 stripe = llu_lock_to_stripe_offset(inode, lock);
                 lock_res_and_lock(lock);
@@ -134,6 +140,7 @@ int llu_extent_lock_cancel_cb(struct ldlm_lock *lock,
                         LDLM_DEBUG(lock, "updating kms from "LPU64" to "LPU64,
                                    lsm->lsm_oinfo[stripe]->loi_kms, kms);
                 loi_kms_set(lsm->lsm_oinfo[stripe], kms);
+		ccc_inode_lsm_put(inode, lsm);
 iput:
                 I_RELE(inode);
                 break;
@@ -147,10 +154,11 @@ iput:
 
 static int llu_glimpse_callback(struct ldlm_lock *lock, void *reqp)
 {
-        struct ptlrpc_request *req = reqp;
-        struct inode *inode = llu_inode_from_lock(lock);
-        struct llu_inode_info *lli;
-        struct ost_lvb *lvb;
+	struct ptlrpc_request *req = reqp;
+	struct inode *inode = llu_inode_from_lock(lock);
+	struct llu_inode_info *lli;
+	struct ost_lvb *lvb;
+	struct lov_stripe_md *lsm;
         int rc, stripe = 0;
         ENTRY;
 
@@ -159,12 +167,9 @@ static int llu_glimpse_callback(struct ldlm_lock *lock, void *reqp)
         lli = llu_i2info(inode);
         if (lli == NULL)
                 GOTO(iput, rc = -ELDLM_NO_LOCK_DATA);
-        if (lli->lli_smd == NULL)
-                GOTO(iput, rc = -ELDLM_NO_LOCK_DATA);
 
         /* First, find out which stripe index this lock corresponds to. */
-        if (lli->lli_smd->lsm_stripe_count > 1)
-                stripe = llu_lock_to_stripe_offset(inode, lock);
+	stripe = llu_lock_to_stripe_offset(inode, lock);
 
         req_capsule_extend(&req->rq_pill, &RQF_LDLM_GL_CALLBACK);
         req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER,
@@ -175,8 +180,13 @@ static int llu_glimpse_callback(struct ldlm_lock *lock, void *reqp)
                 GOTO(iput, rc);
         }
 
-        lvb = req_capsule_server_get(&req->rq_pill, &RMF_DLM_LVB);
-        lvb->lvb_size = lli->lli_smd->lsm_oinfo[stripe]->loi_kms;
+	lsm = ccc_inode_lsm_get(inode);
+	if (lsm == NULL)
+		GOTO(iput, rc = -ELDLM_NO_LOCK_DATA);
+
+	lvb = req_capsule_server_get(&req->rq_pill, &RMF_DLM_LVB);
+	lvb->lvb_size = lsm->lsm_oinfo[stripe]->loi_kms;
+	ccc_inode_lsm_put(inode, lsm);
 
         LDLM_DEBUG(lock, "i_size: "LPU64" -> stripe number %u -> kms "LPU64,
                    (__u64)llu_i2stat(inode)->st_size, stripe,lvb->lvb_size);
@@ -194,21 +204,26 @@ static int llu_glimpse_callback(struct ldlm_lock *lock, void *reqp)
 
 int llu_merge_lvb(struct inode *inode)
 {
-        struct llu_inode_info *lli = llu_i2info(inode);
-        struct llu_sb_info *sbi = llu_i2sbi(inode);
-        struct intnl_stat *st = llu_i2stat(inode);
-        struct ost_lvb lvb;
-        int rc;
-        ENTRY;
+	struct llu_inode_info *lli = llu_i2info(inode);
+	struct llu_sb_info *sbi = llu_i2sbi(inode);
+	struct intnl_stat *st = llu_i2stat(inode);
+	struct ost_lvb lvb;
+	struct lov_stripe_md *lsm;
+	int rc;
+	ENTRY;
 
-        lov_stripe_lock(lli->lli_smd);
+	lsm = ccc_inode_lsm_get(inode);
+	if (lsm == NULL)
+		RETURN(0);
+
+	lov_stripe_lock(lsm);
         inode_init_lvb(inode, &lvb);
         /* merge timestamps the most resently obtained from mds with
            timestamps obtained from osts */
         lvb.lvb_atime = lli->lli_lvb.lvb_atime;
         lvb.lvb_mtime = lli->lli_lvb.lvb_mtime;
         lvb.lvb_ctime = lli->lli_lvb.lvb_ctime;
-        rc = obd_merge_lvb(sbi->ll_dt_exp, lli->lli_smd, &lvb, 0);
+	rc = obd_merge_lvb(sbi->ll_dt_exp, lsm, &lvb, 0);
         st->st_size = lvb.lvb_size;
         st->st_blocks = lvb.lvb_blocks;
         /* handle st_blocks overflow gracefully */
@@ -217,9 +232,10 @@ int llu_merge_lvb(struct inode *inode)
         st->st_mtime = lvb.lvb_mtime;
         st->st_atime = lvb.lvb_atime;
         st->st_ctime = lvb.lvb_ctime;
-        lov_stripe_unlock(lli->lli_smd);
+	lov_stripe_unlock(lsm);
+	ccc_inode_lsm_put(inode, lsm);
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 int llu_extent_lock(struct ll_file_data *fd, struct inode *inode,
