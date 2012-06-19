@@ -2576,6 +2576,10 @@ thread_sanity() {
         lassert 23 "$msg (PDSH problems?)" '(($tstarted && $tmin && $tmax))' || return $?
         lassert 24 "$msg" '(($tstarted >= $tmin && $tstarted <= $tmax ))' || return $?
 
+	[ $tmin -eq $tmax -a $tmin -eq $tstarted ] &&
+		skip_env "module parameter forced $facet thread count" &&
+		tmin=3 && tmax=$((3 * tmax))
+
         # Check that we can change min/max
         do_facet $facet "lctl set_param ${paramp}.threads_min=$((tmin + 1))"
         do_facet $facet "lctl set_param ${paramp}.threads_max=$((tmax - 1))"
