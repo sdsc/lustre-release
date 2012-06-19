@@ -1341,11 +1341,12 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
                attr->ia_valid);
 
         if (ia_valid & ATTR_SIZE) {
+#ifdef HAVE_VFS_INODE_NEWSIZE_OK
                 /* Check new size against VFS/VM file size limit and rlimit */
                 rc = inode_newsize_ok(inode, attr->ia_size);
                 if (rc)
                         RETURN(rc);
-
+#endif
                 /* The maximum Lustre file size is variable, based on the
                  * OST maximum object size and number of stripes.  This
                  * needs another check in addition to the VFS check above. */
