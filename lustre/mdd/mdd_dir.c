@@ -1685,20 +1685,8 @@ int mdd_object_initialize(const struct lu_env *env, const struct lu_fid *pfid,
                           struct md_attr *ma, struct thandle *handle,
                           const struct md_op_spec *spec)
 {
-        int rc;
+        int rc = 0;
         ENTRY;
-
-        /*
-         * Update attributes for child.
-         *
-         * FIXME:
-         *  (1) the valid bits should be converted between Lustre and Linux;
-         *  (2) maybe, the child attributes should be set in OSD when creation.
-         */
-
-        rc = mdd_attr_set_internal(env, child, &ma->ma_attr, handle, 0);
-        if (rc != 0)
-                RETURN(rc);
 
         if (S_ISDIR(ma->ma_attr.la_mode)) {
                 /* Add "." and ".." for newly created dir */
