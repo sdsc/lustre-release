@@ -213,6 +213,13 @@ static int expired_lock_main(void *arg)
                                 LDLM_LOCK_RELEASE(lock);
                                 continue;
                         }
+
+			if (lock->l_destroyed) {
+				/* release the lock refcount where
+				 * waiting_locks_callback() founds */
+				LDLM_LOCK_RELEASE(lock);
+				continue;
+			}
                         export = class_export_lock_get(lock->l_export, lock);
                         cfs_spin_unlock_bh(&waiting_locks_spinlock);
 
@@ -243,6 +250,7 @@ static int expired_lock_main(void *arg)
 }
 
 static int ldlm_add_waiting_lock(struct ldlm_lock *lock);
+static int __ldlm_add_waiting_lock(struct ldlm_lock *lock, int seconds);
 
 /**
  * Check if there is a request in the export request list
@@ -273,9 +281,9 @@ static int ldlm_lock_busy(struct ldlm_lock *lock)
 /* This is called from within a timer interrupt and cannot schedule */
 static void waiting_locks_callback(unsigned long unused)
 {
-        struct ldlm_lock *lock;
+	struct ldlm_lock	*lock;
+	int			need_dump = 0;
 
-repeat:
         cfs_spin_lock_bh(&waiting_locks_spinlock);
         while (!cfs_list_empty(&waiting_locks_list)) {
                 lock = cfs_list_entry(waiting_locks_list.next, struct ldlm_lock,
@@ -297,9 +305,16 @@ repeat:
                                    libcfs_nid2str(lock->l_export->exp_connection->c_peer.nid));
 
                         cfs_list_del_init(&lock->l_pending_chain);
-                        cfs_spin_unlock_bh(&waiting_locks_spinlock);
-                        ldlm_add_waiting_lock(lock);
-                        goto repeat;
+			if (lock->l_destroyed) {
+				/* relay the lock refcount decrease to
+				 * expired lock thread */
+				cfs_list_add(&lock->l_pending_chain,
+					&expired_lock_thread.elt_expired_locks);
+			} else {
+				__ldlm_add_waiting_lock(lock,
+						ldlm_get_enq_timeout(lock));
+			}
+			continue;
                 }
 
                 /* if timeout overlaps the activation time of suspended timeouts
@@ -313,9 +328,16 @@ repeat:
                                    libcfs_nid2str(lock->l_export->exp_connection->c_peer.nid));
 
                         cfs_list_del_init(&lock->l_pending_chain);
-                        cfs_spin_unlock_bh(&waiting_locks_spinlock);
-                        ldlm_add_waiting_lock(lock);
-                        goto repeat;
+			if (lock->l_destroyed) {
+				/* relay the lock refcount decrease to
+				 * expired lock thread */
+				cfs_list_add(&lock->l_pending_chain,
+					&expired_lock_thread.elt_expired_locks);
+			} else {
+				__ldlm_add_waiting_lock(lock,
+						ldlm_get_enq_timeout(lock));
+			}
+			continue;
                 }
 
                 /* Check if we need to prolong timeout */
@@ -355,14 +377,15 @@ repeat:
                 cfs_list_del(&lock->l_pending_chain);
                 cfs_list_add(&lock->l_pending_chain,
                              &expired_lock_thread.elt_expired_locks);
-        }
+		need_dump = 1;
+	}
 
-        if (!cfs_list_empty(&expired_lock_thread.elt_expired_locks)) {
-                if (obd_dump_on_timeout)
-                        expired_lock_thread.elt_dump = __LINE__;
+	if (!cfs_list_empty(&expired_lock_thread.elt_expired_locks)) {
+		if (obd_dump_on_timeout && need_dump)
+			expired_lock_thread.elt_dump = __LINE__;
 
-                cfs_waitq_signal(&expired_lock_thread.elt_waitq);
-        }
+		cfs_waitq_signal(&expired_lock_thread.elt_waitq);
+	}
 
         /*
          * Make sure the timer will fire again if we have any locks
@@ -420,10 +443,14 @@ static int __ldlm_add_waiting_lock(struct ldlm_lock *lock, int seconds)
 
 static int ldlm_add_waiting_lock(struct ldlm_lock *lock)
 {
-        int ret;
-        int timeout = ldlm_get_enq_timeout(lock);
+	int ret;
+	int timeout = ldlm_get_enq_timeout(lock);
 
-        LASSERT(!(lock->l_flags & LDLM_FL_CANCEL_ON_BLOCK));
+	/* NB: must be called with hold of lock_res_and_lock() */
+	LASSERT(lock->l_res_locked);
+	lock->l_waited = 1;
+
+	LASSERT(!(lock->l_flags & LDLM_FL_CANCEL_ON_BLOCK));
 
         cfs_spin_lock_bh(&waiting_locks_spinlock);
         if (lock->l_destroyed) {
@@ -570,8 +597,9 @@ int ldlm_refresh_waiting_lock(struct ldlm_lock *lock, int timeout)
 # ifndef __KERNEL__
 static int ldlm_add_waiting_lock(struct ldlm_lock *lock)
 {
-        LASSERT(!(lock->l_flags & LDLM_FL_CANCEL_ON_BLOCK));
-        RETURN(1);
+	LASSERT(lock->l_res_locked);
+	LASSERT(!(lock->l_flags & LDLM_FL_CANCEL_ON_BLOCK));
+	RETURN(1);
 }
 # endif
 
@@ -772,22 +800,23 @@ int ldlm_server_blocking_ast(struct ldlm_lock *lock,
         req->rq_interpret_reply = ldlm_cb_interpret;
         req->rq_no_resend = 1;
 
-        lock_res(lock->l_resource);
-        if (lock->l_granted_mode != lock->l_req_mode) {
-                /* this blocking AST will be communicated as part of the
-                 * completion AST instead */
-                unlock_res(lock->l_resource);
-                ptlrpc_req_finished(req);
-                LDLM_DEBUG(lock, "lock not granted, not sending blocking AST");
-                RETURN(0);
-        }
+	lock_res_and_lock(lock);
+	if (lock->l_granted_mode != lock->l_req_mode) {
+		/* this blocking AST will be communicated as part of the
+		 * completion AST instead */
+		unlock_res_and_lock(lock);
 
-        if (lock->l_destroyed) {
-                /* What's the point? */
-                unlock_res(lock->l_resource);
-                ptlrpc_req_finished(req);
-                RETURN(0);
-        }
+		ptlrpc_req_finished(req);
+		LDLM_DEBUG(lock, "lock not granted, not sending blocking AST");
+		RETURN(0);
+	}
+
+	if (lock->l_destroyed) {
+		/* What's the point? */
+		unlock_res_and_lock(lock);
+		ptlrpc_req_finished(req);
+		RETURN(0);
+	}
 
         if (lock->l_flags & LDLM_FL_CANCEL_ON_BLOCK)
                 instant_cancel = 1;
@@ -800,14 +829,14 @@ int ldlm_server_blocking_ast(struct ldlm_lock *lock,
         LDLM_DEBUG(lock, "server preparing blocking AST");
 
         ptlrpc_request_set_replen(req);
-        if (instant_cancel) {
-                unlock_res(lock->l_resource);
-                ldlm_lock_cancel(lock);
-        } else {
-                LASSERT(lock->l_granted_mode == lock->l_req_mode);
-                ldlm_add_waiting_lock(lock);
-                unlock_res(lock->l_resource);
-        }
+	if (instant_cancel) {
+		unlock_res_and_lock(lock);
+		ldlm_lock_cancel(lock);
+	} else {
+		LASSERT(lock->l_granted_mode == lock->l_req_mode);
+		ldlm_add_waiting_lock(lock);
+		unlock_res_and_lock(lock);
+	}
 
         req->rq_send_state = LUSTRE_IMP_FULL;
         /* ptlrpc_request_alloc_pack already set timeout */
