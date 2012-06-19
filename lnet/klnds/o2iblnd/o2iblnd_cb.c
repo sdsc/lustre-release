@@ -975,7 +975,16 @@ kiblnd_tx_complete (kib_tx_t *tx, int status)
         kib_conn_t   *conn = tx->tx_conn;
         int           idle;
 
-        LASSERT (tx->tx_sending > 0);
+	/* If tx_status indicates a memory error (ENOMEM) and tx_sending is zero, 
+	   we go this error when trying to send but ended up with a "partial" send
+	   which triggered this completion call.  For this rare condition, don't
+	   assert, but make sure that failed is true.  */
+	if ((tx->tx_sending == 0) && (tx->tx_status == -ENOMEM)) {
+		failed = 1;
+	} else {
+		LASSERT (tx->tx_sending > 0);
+	}
+
 
         if (failed) {
                 if (conn->ibc_state == IBLND_CONN_ESTABLISHED)
