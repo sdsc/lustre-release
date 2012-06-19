@@ -2537,11 +2537,14 @@ lustre_check_acl(struct inode *inode, int mask)
                 return -ECHILD;
 #endif
         cfs_spin_lock(&lli->lli_lock);
-        acl = posix_acl_dup(lli->lli_posix_acl);
-        cfs_spin_unlock(&lli->lli_lock);
-
-        if (!acl)
-                RETURN(-EAGAIN);
+	if ((lli->lli_pxt_valid & PXT_ACL) &&
+	    (lli->lli_posix_acl == NULL || lli->lli_posix_acl == DUMMY_ACL)) {
+		cfs_spin_unlock(&lli->lli_lock);
+		RETURN(-EAGAIN);
+	} else {
+		acl = posix_acl_dup(lli->lli_posix_acl);
+		cfs_spin_unlock(&lli->lli_lock);
+	}
 
         rc = posix_acl_permission(inode, acl, mask);
         posix_acl_release(acl);

@@ -1154,6 +1154,40 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                                   * write RPC error properly */
 #define OBD_CONNECT_GRANT_PARAM 0x100000000000ULL/* extra grant params used for
                                                   * finer space reservation */
+#define OBD_CONNECT_PACKAGED_XATTR 0x200000000000ULL	/* packaged xattr support */
+
+/* packaged xattr type */
+enum packaged_xattr_type {
+	PXT_ACL		= 0x00000001U,
+	PXT_DEFACL	= 0x00000002U,
+	PXT_RPERM	= 0x00000004U,
+	/* All user specified xattrs: user.xxx */
+	PXT_OTHERS	= 0x80000000U,
+};
+
+/* The packaged xattrs are composed of a series of packaged_xattr unit with
+ * 4-byte boundaries consecutively. */
+struct packaged_xattr {
+	/* enum packaged_xattr_type */
+	__u32	px_type;
+	/* byte[0-2]: size of the packaged xattr.
+	 * byte[3]  : namelen for PXT_OTHERS. */
+	__u32	px_size;
+	/* packaged xattr name (for PXT_OTHERS) and xattr data,
+	 * both are 4-byte boundaries. */
+	char	px_data[0];
+};
+
+#define PX_NAMELEN_BITS		8
+#define PX_NAMELEN_SHIFT	(32 - PX_NAMELEN_BITS)
+#define PX_NAMELEN_MASK		(~0U >> PX_NAMELEN_BITS)
+#define PX_DUMMY_XATTR		PX_NAMELEN_MASK
+
+/* 4-bytes align for packaged xattr. */
+#define PX_RECLEN_ALIGN(reclen)	((reclen + 3) & ~3)
+
+#define PX_NEXT_REC(px, reclen)	((struct packaged_xattr *)((char *)px + reclen))
+
 /* XXX README XXX:
  * Please DO NOT add flag values here before first ensuring that this same
  * flag value is not in use on some other branch.  Please clear any such
@@ -1184,7 +1218,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                 OBD_CONNECT_FID | LRU_RESIZE_CONNECT_FLAG | \
                                 OBD_CONNECT_VBR | OBD_CONNECT_LOV_V3 | \
                                 OBD_CONNECT_SOM | OBD_CONNECT_FULL20 | \
-                                OBD_CONNECT_64BITHASH | \
+				OBD_CONNECT_64BITHASH | OBD_CONNECT_PACKAGED_XATTR \
 				OBD_CONNECT_EINPROGRESS | OBD_CONNECT_JOBSTATS)
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
@@ -1464,7 +1498,7 @@ struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
 #define OBD_MD_MEA         (0x0000000400000000ULL) /* CMD split EA  */
 #define OBD_MD_MDTIDX      (0x0000000800000000ULL) /* Get MDT index  */
 
-#define OBD_MD_FLXATTR       (0x0000001000000000ULL) /* xattr */
+#define OBD_MD_FLXATTR		(0x0000001000000000ULL)	/* xattr, packaged xattrs*/
 #define OBD_MD_FLXATTRLS     (0x0000002000000000ULL) /* xattr list */
 #define OBD_MD_FLXATTRRM     (0x0000004000000000ULL) /* xattr remove */
 #define OBD_MD_FLACL         (0x0000008000000000ULL) /* ACL */
@@ -1730,7 +1764,9 @@ struct mdt_body {
         __u32          generation;
         __u32          suppgid;
         __u32          eadatasize;
-        __u32          aclsize;
+	/* valid bits for packaged xattr request,
+	 * size for packaged xattr reply. */
+	__u32		mb_pxattr;
         __u32          max_mdsize;
         __u32          max_cookiesize;
         __u32          uid_h; /* high 32-bits of uid, for FUID */

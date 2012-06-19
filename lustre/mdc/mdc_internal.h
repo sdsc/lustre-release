@@ -51,7 +51,8 @@ static inline void lprocfs_mdc_init_vars(struct lprocfs_static_vars *lvars)
 
 void mdc_pack_body(struct ptlrpc_request *req, const struct lu_fid *fid,
                    struct obd_capa *oc, __u64 valid, int ea_size,
-                   __u32 suppgid, int flags);
+		   enum packaged_xattr_type pxt_valid, __u32 suppgid,
+		   int flags);
 void mdc_pack_capa(struct ptlrpc_request *req, const struct req_msg_field *field,
                    struct obd_capa *oc);
 int mdc_pack_req(struct ptlrpc_request *req, int version, int opc);

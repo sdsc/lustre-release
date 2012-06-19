@@ -129,6 +129,7 @@ struct ll_inode_info {
         __u64                           lli_ioepoch;
 
         cfs_spinlock_t                  lli_lock;
+	enum packaged_xattr_type	lli_pxt_valid;
         struct posix_acl               *lli_posix_acl;
 
         cfs_hlist_head_t               *lli_remote_perms;
@@ -388,6 +389,7 @@ enum stats_track_type {
 #define LL_SBI_64BIT_HASH      0x4000 /* support 64-bits dir hash/offset */
 #define LL_SBI_AGL_ENABLED     0x8000 /* enable agl */
 #define LL_SBI_VERBOSE        0x10000 /* verbose mount/umount */
+#define LL_SBI_PACKAGED_XATTR 0x20000 /* support packaged xattr */
 
 /* default value for ll_sb_info->contention_time */
 #define SBI_DEFAULT_CONTENTION_SECONDS     60
