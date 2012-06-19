@@ -175,6 +175,12 @@ struct dt_device_operations {
         void (*dt_init_quota_ctxt)(const struct lu_env *env,
                                    struct dt_device *dev,
                                    struct dt_quota_ctxt *ctxt, void *data);
+	struct dt_quota_operations {
+		int (*dt_setup)(const struct lu_env *env,
+				struct dt_device *dev, void *data);
+		void (*dt_cleanup)(const struct lu_env *env,
+				   struct dt_device *dev);
+	} dt_quota;
 };
 
 struct dt_index_features {

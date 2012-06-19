@@ -72,6 +72,8 @@
 
 /* llo_* api support */
 #include <md_object.h>
+/* dt_acct_features */
+#include <lquota.h>
 
 #ifdef HAVE_LDISKFS_PDO
 int ldiskfs_pdo = 1;
@@ -1042,6 +1044,17 @@ static void osd_init_quota_ctxt(const struct lu_env *env, struct dt_device *d,
         EXIT;
 }
 
+static int osd_quota_setup(const struct lu_env *env, struct dt_device *d,
+			   void *data)
+{
+	return 0;
+}
+
+static void osd_quota_cleanup(const struct lu_env *env, struct dt_device *d)
+{
+        return;
+}
+
 /**
  * Note: we do not count into QUOTA here.
  * If we mount with --data_journal we may need more.
@@ -1111,6 +1124,10 @@ static const struct dt_device_operations osd_dt_ops = {
         .dt_commit_async   = osd_commit_async,
         .dt_init_capa_ctxt = osd_init_capa_ctxt,
         .dt_init_quota_ctxt= osd_init_quota_ctxt,
+	.dt_quota	   = {
+		.dt_setup	= osd_quota_setup,
+		.dt_cleanup	= osd_quota_cleanup,
+	},
 };
 
 static void osd_object_read_lock(const struct lu_env *env,
@@ -1380,6 +1397,30 @@ static int osd_inode_setattr(const struct lu_env *env,
         bits = attr->la_valid;
 
         LASSERT(!(bits & LA_TYPE)); /* Huh? You want too much. */
+
+	if (LDISKFS_HAS_RO_COMPAT_FEATURE(inode->i_sb,
+					  LDISKFS_FEATURE_RO_COMPAT_QUOTA)) {
+		if ((bits & LA_UID && attr->la_uid != inode->i_uid) ||
+		    (bits & LA_GID && attr->la_gid != inode->i_gid)) {
+			struct iattr	iattr;
+			int		rc;
+
+			iattr.ia_valid = 0;
+			if (bits & LA_UID)
+				iattr.ia_valid |= ATTR_UID;
+			if (bits & LA_GID)
+				iattr.ia_valid |= ATTR_GID;
+			iattr.ia_uid = attr->la_uid;
+			iattr.ia_gid = attr->la_gid;
+			rc = ll_vfs_dq_transfer(inode, &iattr);
+			if (rc) {
+				CERROR("quota transfer failed with %d on %s, is quota "
+				       "enforcement enabled on the ldiskfs filesystem?",
+				       rc, inode->i_sb->s_id);
+				return rc;
+			}
+		}
+	}
 
         if (bits & LA_ATIME)
                 inode->i_atime  = *osd_inode_time(env, inode, attr->la_atime);
@@ -1817,6 +1858,11 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
         LASSERT(osd_write_locked(env, obj));
         LASSERT(th != NULL);
 
+	if (unlikely(fid_is_acct(fid)))
+		/* Quota files can't be created from the kernel any more,
+		 * 'tune2fs -O quota' will take care of creating them */
+		RETURN(-EPERM);
+
         OSD_EXEC_OP(th, create);
 
         result = __osd_object_create(info, obj, attr, hint, dof, th);
@@ -1874,6 +1920,9 @@ static int osd_object_destroy(const struct lu_env *env,
         LASSERT(oh->ot_handle);
         LASSERT(inode);
         LASSERT(!lu_object_is_dying(dt->do_lu.lo_header));
+
+	if (unlikely(fid_is_acct(fid)))
+		RETURN(-EPERM);
 
 	/* Parallel control for OI scrub. For most of cases, there is no
 	 * lock contention. So it will not affect unlink performance. */
@@ -2024,6 +2073,11 @@ static int osd_object_ea_create(const struct lu_env *env, struct dt_object *dt,
         LASSERT(!dt_object_exists(dt));
         LASSERT(osd_write_locked(env, obj));
         LASSERT(th != NULL);
+
+	if (unlikely(fid_is_acct(fid)))
+		/* Quota files can't be created from the kernel any more,
+		 * 'tune2fs -O quota' will take care of creating them */
+		RETURN(-EPERM);
 
         OSD_EXEC_OP(th, create);
 
@@ -2519,10 +2573,10 @@ static int osd_iam_container_init(const struct lu_env *env,
 static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
                          const struct dt_index_features *feat)
 {
-        int result;
-        int ea_dir = 0;
-        struct osd_object *obj = osd_dt_obj(dt);
-        struct osd_device *osd = osd_obj2dev(obj);
+	int			 result;
+	int			 skip_iam = 0;
+	struct osd_object	*obj = osd_dt_obj(dt);
+	struct osd_device	*osd = osd_obj2dev(obj);
 
         LINVRNT(osd_invariant(obj));
         LASSERT(dt_object_exists(dt));
@@ -2536,7 +2590,12 @@ static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
                         result = 0;
                 else
                         result = -ENOTDIR;
-                ea_dir = 1;
+		skip_iam = 1;
+	} else if (feat == &dt_acct_features) {
+		LASSERT(!osd_has_index(obj));
+		dt->do_index_ops = &osd_acct_index_ops;
+		result = 0;
+		skip_iam = 1;
         } else if (!osd_has_index(obj)) {
                 struct osd_directory *dir;
 
@@ -2572,7 +2631,7 @@ static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
                 result = 0;
         }
 
-        if (result == 0 && ea_dir == 0) {
+	if (result == 0 && skip_iam == 0) {
                 if (!osd_iam_index_probe(env, obj, feat))
                         result = -ENOTDIR;
         }
