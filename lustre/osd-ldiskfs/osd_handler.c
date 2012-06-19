@@ -72,6 +72,8 @@
 
 /* llo_* api support */
 #include <md_object.h>
+/* dt_acct_features */
+#include <lquota.h>
 
 #ifdef HAVE_LDISKFS_PDO
 int ldiskfs_pdo = 1;
@@ -1521,28 +1523,56 @@ static int osd_attr_set(const struct lu_env *env,
         OSD_EXEC_OP(handle, attr_set);
 
         inode = obj->oo_inode;
+	if (LDISKFS_HAS_RO_COMPAT_FEATURE(inode->i_sb,
+					  LDISKFS_FEATURE_RO_COMPAT_QUOTA)) {
+		if ((attr->la_valid & LA_UID &&
+		     attr->la_uid != inode->i_uid) ||
+		    (attr->la_valid & LA_GID &&
+		     attr->la_gid != inode->i_gid)) {
+			struct iattr	iattr;
+			int		rc;
+
+			iattr.ia_valid = 0;
+			if (attr->la_valid & LA_UID)
+				iattr.ia_valid |= ATTR_UID;
+			if (attr->la_valid & LA_GID)
+				iattr.ia_valid |= ATTR_GID;
+			iattr.ia_uid = attr->la_uid;
+			iattr.ia_gid = attr->la_gid;
+			rc = ll_vfs_dq_transfer(inode, &iattr);
+			if (rc) {
+				CERROR("%s: quota transfer failed: rc = %d. "
+				       "Is quota enforcement enabled on the "
+				       "ldiskfs filesystem?",
+				       inode->i_sb->s_id, rc);
+				return rc;
+			}
+		}
+	} else {
 #ifdef HAVE_QUOTA_SUPPORT
-        if ((attr->la_valid & LA_UID && attr->la_uid != inode->i_uid) ||
-            (attr->la_valid & LA_GID && attr->la_gid != inode->i_gid)) {
-                struct osd_ctxt *save = &osd_oti_get(env)->oti_ctxt;
-                struct iattr iattr;
-                int rc;
+		if ((attr->la_valid & LA_UID &&
+		     attr->la_uid != inode->i_uid) ||
+		    (attr->la_valid & LA_GID &&
+		     attr->la_gid != inode->i_gid)) {
+			struct osd_ctxt	*save = &osd_oti_get(env)->oti_ctxt;
+			struct		 iattr iattr;
+			int		 rc;
 
-                iattr.ia_valid = 0;
-                if (attr->la_valid & LA_UID)
-                        iattr.ia_valid |= ATTR_UID;
-                if (attr->la_valid & LA_GID)
-                        iattr.ia_valid |= ATTR_GID;
-                iattr.ia_uid = attr->la_uid;
-                iattr.ia_gid = attr->la_gid;
-                osd_push_ctxt(env, save);
-                rc = ll_vfs_dq_transfer(inode, &iattr) ? -EDQUOT : 0;
-                osd_pop_ctxt(save);
-                if (rc != 0)
-                        return rc;
-        }
+			iattr.ia_valid = 0;
+			if (attr->la_valid & LA_UID)
+				iattr.ia_valid |= ATTR_UID;
+			if (attr->la_valid & LA_GID)
+				iattr.ia_valid |= ATTR_GID;
+			iattr.ia_uid = attr->la_uid;
+			iattr.ia_gid = attr->la_gid;
+			osd_push_ctxt(env, save);
+			rc = ll_vfs_dq_transfer(inode, &iattr) ? -EDQUOT : 0;
+			osd_pop_ctxt(save);
+			if (rc != 0)
+				return rc;
+		}
 #endif
-
+	}
         cfs_spin_lock(&obj->oo_guard);
         rc = osd_inode_setattr(env, inode, attr);
         cfs_spin_unlock(&obj->oo_guard);
@@ -1900,6 +1930,11 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
         LASSERT(osd_write_locked(env, obj));
         LASSERT(th != NULL);
 
+	if (unlikely(fid_is_acct(fid)))
+		/* Quota files can't be created from the kernel any more,
+		 * 'tune2fs -O quota' will take care of creating them */
+		RETURN(-EPERM);
+
         OSD_EXEC_OP(th, create);
 
         result = __osd_object_create(info, obj, attr, hint, dof, th);
@@ -1957,6 +1992,9 @@ static int osd_object_destroy(const struct lu_env *env,
         LASSERT(oh->ot_handle);
         LASSERT(inode);
         LASSERT(!lu_object_is_dying(dt->do_lu.lo_header));
+
+	if (unlikely(fid_is_acct(fid)))
+		RETURN(-EPERM);
 
 	/* Parallel control for OI scrub. For most of cases, there is no
 	 * lock contention. So it will not affect unlink performance. */
@@ -2106,6 +2144,11 @@ static int osd_object_ea_create(const struct lu_env *env, struct dt_object *dt,
         LASSERT(!dt_object_exists(dt));
         LASSERT(osd_write_locked(env, obj));
         LASSERT(th != NULL);
+
+	if (unlikely(fid_is_acct(fid)))
+		/* Quota files can't be created from the kernel any more,
+		 * 'tune2fs -O quota' will take care of creating them */
+		RETURN(-EPERM);
 
         OSD_EXEC_OP(th, create);
 
@@ -2601,10 +2644,10 @@ static int osd_iam_container_init(const struct lu_env *env,
 static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
                          const struct dt_index_features *feat)
 {
-        int result;
-        int ea_dir = 0;
-        struct osd_object *obj = osd_dt_obj(dt);
-        struct osd_device *osd = osd_obj2dev(obj);
+	int			 result;
+	int			 skip_iam = 0;
+	struct osd_object	*obj = osd_dt_obj(dt);
+	struct osd_device	*osd = osd_obj2dev(obj);
 
         LINVRNT(osd_invariant(obj));
         LASSERT(dt_object_exists(dt));
@@ -2618,10 +2661,14 @@ static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
                         result = 0;
                 else
                         result = -ENOTDIR;
-                ea_dir = 1;
+		skip_iam = 1;
 	} else if (unlikely(feat == &dt_otable_features)) {
 		dt->do_index_ops = &osd_otable_ops;
 		return 0;
+	} else if (feat == &dt_acct_features) {
+		dt->do_index_ops = &osd_acct_index_ops;
+		result = 0;
+		skip_iam = 1;
         } else if (!osd_has_index(obj)) {
                 struct osd_directory *dir;
 
@@ -2657,7 +2704,7 @@ static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
                 result = 0;
         }
 
-        if (result == 0 && ea_dir == 0) {
+	if (result == 0 && skip_iam == 0) {
                 if (!osd_iam_index_probe(env, obj, feat))
                         result = -ENOTDIR;
         }
@@ -4179,7 +4226,10 @@ struct lu_context_key osd_key = {
 static int osd_device_init(const struct lu_env *env, struct lu_device *d,
                            const char *name, struct lu_device *next)
 {
-        return osd_procfs_init(osd_dev(d), name);
+	struct osd_device *osd = osd_dev(d);
+
+	strncpy(osd->od_svname, name, MAX_OBD_NAME);
+	return osd_procfs_init(osd, name);
 }
 
 static int osd_shutdown(const struct lu_env *env, struct osd_device *o)
@@ -4190,7 +4240,13 @@ static int osd_shutdown(const struct lu_env *env, struct osd_device *o)
 
 	if (o->od_fsops) {
 		fsfilt_put_ops(o->od_fsops);
-	o->od_fsops = NULL;
+		o->od_fsops = NULL;
+	}
+
+	/* shutdown quota slave instance associated with the device */
+	if (o->od_quota_slave != NULL) {
+		qsd_fini(env, o->od_quota_slave);
+		o->od_quota_slave = NULL;
 	}
 
 	RETURN(0);
@@ -4358,10 +4414,16 @@ static int osd_prepare(const struct lu_env *env, struct lu_device *pdev,
         if (result < 0)
                 RETURN(result);
 
+	/* 2. setup quota slave instance */
+	osd->od_quota_slave = qsd_init(env, osd->od_svname, &osd->od_dt_dev,
+				       osd->od_proc_entry);
+	if (IS_ERR(osd->od_quota_slave))
+		RETURN(PTR_ERR(osd->od_quota_slave));
+
         if (!lu_device_is_md(pdev))
                 RETURN(0);
 
-        /* 2. setup local objects */
+        /* 3. setup local objects */
         result = llo_local_objects_setup(env, lu2md_dev(pdev), lu2dt_dev(dev));
         RETURN(result);
 }
