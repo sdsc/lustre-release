@@ -376,6 +376,426 @@ ptlrpc_lprocfs_wr_threads_max(struct file *file, const char *buffer,
 	return count;
 }
 
+static const char *
+ptlrpc_lprocfs_nrs_state2str(enum ptlrpc_nrs_policy_state state)
+{
+	switch (state) {
+	default:
+		return "unknown";
+	case NRS_POLICY_STATE_STOPPED:
+		return "stopped";
+	case NRS_POLICY_STATE_STOPPING:
+		return "stopping";
+	case NRS_POLICY_STATE_STARTING:
+		return "starting";
+	case NRS_POLICY_STATE_STARTED:
+		return "started";
+	}
+}
+
+static int
+ptlrpc_lprocfs_rd_nrs_helper(struct ptlrpc_service_part *svcpt,
+			     enum ptlrpc_nrs_queue_type queue,
+			     enum ptlrpc_nrs_pol_type type, char *buf,
+			     int count)
+{
+	int				rc;
+	struct ptlrpc_nrs_policy_info	info;
+
+	if (queue == PTLRPC_NRS_QUEUE_REG) {
+		/* Print regular NRS head stats */
+		rc = ptlrpc_nrs_policy_control(svcpt, PTLRPC_NRS_QUEUE_REG,
+					       type, PTLRPC_NRS_CTL_GET_INFO,
+					       &info);
+		if (rc < 0)
+			return rc;
+
+		rc = snprintf(buf, count, "%s\t%s\t%s\t%-8d%-8d\n",
+			      info.pi_name,
+			      ptlrpc_lprocfs_nrs_state2str(info.pi_state),
+			      info.pi_fallback ? "   *" : " ",
+			      (int)info.pi_req_queued,
+			      (int)info.pi_req_started);
+	} else if (queue == PTLRPC_NRS_QUEUE_HP) {
+		/* Print HP NRS head stats */
+		rc = ptlrpc_nrs_policy_control(svcpt, PTLRPC_NRS_QUEUE_HP,
+					       type, PTLRPC_NRS_CTL_GET_INFO,
+					       &info);
+		if (rc < 0)
+			return rc;
+
+		rc = snprintf(buf, count, "%s\t%s\t%s\t%-8d%-8d\n",
+			      info.pi_name,
+			      ptlrpc_lprocfs_nrs_state2str(info.pi_state),
+			      info.pi_fallback ? "   *" : " ",
+			      (int)info.pi_req_queued,
+			      (int)info.pi_req_started);
+	} else {
+		LBUG();
+	}
+
+	return rc;
+}
+
+static int
+ptlrpc_lprocfs_rd_nrs(char *page, char **start, off_t off,
+		      int count, int *eof, void *data)
+{
+	struct ptlrpc_service	       *svc = data;
+	struct ptlrpc_service_part     *svcpt = svc->srv_part;
+	enum ptlrpc_nrs_queue_type	queue = PTLRPC_NRS_QUEUE_REG;
+	enum ptlrpc_nrs_pol_type	type;
+	int				rc;
+	int				rc2;
+
+
+	rc = snprintf(page, count, "name\tstate\tdefault\tqueued\tactive\n");
+	rc += snprintf(page + rc, count, "REG:\n");
+
+	/* Print regular RPC head, and optionally HP RPC head stats for every
+	 * policy supported by the service */
+	/* TODO: Rework this loop */
+	for (type = PTLRPC_NRS_TYPE_FIFO; type <= PTLRPC_NRS_TYPE_LAST;
+	     type <<= 1) {
+		/* If the service has an HP NRS head, print the stats for those
+		 * policies as well. */
+		if (type == PTLRPC_NRS_TYPE_LAST &&
+		    queue == PTLRPC_NRS_QUEUE_REG &&
+		    ptlrpc_nrs_svc_has_hp(svcpt)) {
+			rc += snprintf(page + rc, count, "HP:\n");
+			type = PTLRPC_NRS_TYPE_FIRST;
+			queue = PTLRPC_NRS_QUEUE_HP;
+			continue;
+		}
+		if (svcpt->scp_nrs_supported & type) {
+			rc2 = ptlrpc_lprocfs_rd_nrs_helper(svcpt, queue, type,
+							   page + rc, count);
+			if (rc2 < 0)
+				return rc2;
+			rc += rc2;
+		}
+	}
+	return rc;
+}
+
+/* Simple function to return enum ptlrpc_nrs_queue_type based on name string */
+static int
+ptlrpc_lprocfs_nrs_name2type(char *name)
+{
+	if (!strcmp(name, "crr"))
+		return PTLRPC_NRS_TYPE_CRR;
+	else if (!strcmp(name, "crrn"))
+		return PTLRPC_NRS_TYPE_CRRN;
+	else if (!strcmp(name, "orr"))
+		return PTLRPC_NRS_TYPE_ORR;
+	else if (!strcmp(name, "trr"))
+		return PTLRPC_NRS_TYPE_TRR;
+	else
+		return -EINVAL;
+}
+
+/* The longest valid command string is "crrn start reg" or "crre start reg" */
+#define LPROCFS_NRS_WR_MAX_CMD	15
+
+/* Commands are in the form: <policy_name> [start|stop] followed by an optional
+ * [reg|hp] token to control either of the heads independently; by default, the
+ * operation is performed on both heads, assuming the service has a valid HP
+ * head */
+static int
+ptlrpc_lprocfs_wr_nrs(struct file *file, const char *buffer,
+		      unsigned long count, void *data)
+{
+	struct ptlrpc_service	       *svc = data;
+	struct ptlrpc_service_part     *svcpt = svc->srv_part;
+	enum ptlrpc_nrs_pol_type	type = PTLRPC_NRS_TYPE_LAST;
+	enum ptlrpc_nrs_queue_type	queue = PTLRPC_NRS_QUEUE_BOTH;
+	enum ptlrpc_nrs_ctl		opc = PTLRPC_NRS_CTL_INVALID;
+	char			       *cmd = NULL;
+	char			       *cmd_token;
+	__u8				step = 0;
+	int				rc = 0;
+
+	if (count > LPROCFS_NRS_WR_MAX_CMD)
+		GOTO(out, rc = -EINVAL);
+
+	OBD_ALLOC(cmd, LPROCFS_NRS_WR_MAX_CMD);
+	if (cmd == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	if (cfs_copy_from_user(cmd, buffer, count))
+		GOTO(out, rc = -EFAULT);
+
+	while (step++, (cmd_token = strsep(&cmd, " ")) != NULL) {
+		switch (step) {
+		case 1:
+			if (strlen(cmd_token) > NRS_POL_NAME_MAX)
+				GOTO(out, rc = -EINVAL);
+			/* The first token should be a policy name */
+			type = ptlrpc_lprocfs_nrs_name2type(cmd_token);
+			if (type < 0)
+				GOTO(out, rc = type);
+			break;
+		case 2:
+			/* The second token should be [start|stop] */
+			if (!strcmp(cmd_token, "start"))
+				opc = PTLRPC_NRS_CTL_START;
+			else if (!strcmp(cmd_token, "stop"))
+				opc = PTLRPC_NRS_CTL_STOP;
+			else
+				GOTO(out, rc = -EINVAL);
+			break;
+		case 3:
+			/* The third token is either NULL, or an optional
+			 * [reg|hp] string */
+			if (!(strcmp(cmd_token, "reg"))) {
+				queue = PTLRPC_NRS_QUEUE_REG;
+			} else if (!(strcmp(cmd_token, "hp"))) {
+				if (!ptlrpc_nrs_svc_has_hp(svcpt))
+					GOTO(out, rc = -EINVAL);
+				queue = PTLRPC_NRS_QUEUE_HP;
+			} else {
+				GOTO(out, rc = -EINVAL);
+			}
+			break;
+		default:
+			LBUG();
+		}
+	}
+
+	if (opc == PTLRPC_NRS_CTL_INVALID)
+		GOTO(out, rc = -EINVAL);
+
+	if (queue == PTLRPC_NRS_QUEUE_BOTH && !ptlrpc_nrs_svc_has_hp(svcpt))
+		queue = PTLRPC_NRS_QUEUE_REG;
+
+	rc = ptlrpc_nrs_policy_control(svcpt, queue, type, opc, NULL);
+
+out:
+	if (cmd)
+		OBD_FREE(cmd, LPROCFS_NRS_WR_MAX_CMD);
+	RETURN(rc < 0 ? rc : count);
+
+}
+
+static int
+ptlrpc_lprocfs_rd_nrs_orr_quantum(char *page, char **start, off_t off,
+				  int count, int *eof, void *data)
+{
+	struct ptlrpc_nrs_policy       *policy = data;
+	struct ptlrpc_service_part     *svcpt = policy->pol_nrs->nrs_svcpt;
+	struct nrs_orr_info		info;
+	int				rc;
+	int				rc2;
+
+	LASSERT(policy->pol_type == PTLRPC_NRS_TYPE_ORR ||
+		policy->pol_type == PTLRPC_NRS_TYPE_TRR);
+
+	rc = snprintf(page, count, "num RPCs:");
+
+	rc2 = ptlrpc_nrs_policy_control(svcpt, policy->pol_nrs->nrs_queue_type,
+					policy->pol_type,
+					PTLRPC_NRS_CTL_ORR_RD_QUANTUM, &info);
+	if (rc2 < 0)
+		return rc2;
+
+	rc += snprintf(page + rc, count, "\t%-8d\n", info.oi_quantum);
+
+	return rc;
+}
+
+/* XXX: libcfs should really have these, right? Keep this in line with
+ * struct nrs_orr_object
+ */
+#ifndef PTLRPC_U16_MAX
+# define PTLRPC_U16_MAX	((__u16)(~0U))
+#endif
+
+/* Changing the quantum only takes effect from the next round of request merges
+ * for the object */
+static int
+ptlrpc_lprocfs_wr_nrs_orr_quantum(struct file *file, const char *buffer,
+				  unsigned long count, void *data)
+{
+	struct ptlrpc_nrs_policy       *policy = data;
+	struct ptlrpc_service_part     *svcpt = policy->pol_nrs->nrs_svcpt;
+	int				rc;
+	int				rc2;
+	int				val;
+
+	LASSERT(policy->pol_type == PTLRPC_NRS_TYPE_ORR ||
+		policy->pol_type == PTLRPC_NRS_TYPE_TRR);
+
+	rc = lprocfs_write_helper(buffer, count, &val);
+
+	if (rc < 0)
+		return rc;
+
+	if (val < 0)
+		return -ERANGE;
+
+	if (val > PTLRPC_U16_MAX)
+		return -ERANGE;
+
+	/* Change both NRS heads with each command */
+	rc2 = ptlrpc_nrs_policy_control(svcpt, PTLRPC_NRS_QUEUE_BOTH,
+					policy->pol_type,
+					PTLRPC_NRS_CTL_ORR_WR_QUANTUM, &val);
+	if (rc2 < 0)
+		return rc2;
+
+	return count;
+}
+
+/* Read the NRS ORR/TRR policy offset type, {physical|logical}
+ * TODO: These are all temporary, there is not much point in going through
+ * ptlrpc_nrs_policy_control if we already have the policy pointer here
+ */
+static int
+ptlrpc_lprocfs_rd_nrs_orr_off_type(char *page, char **start, off_t off,
+				   int count, int *eof, void *data)
+{
+	struct ptlrpc_nrs_policy       *policy = data;
+	struct ptlrpc_service_part     *svcpt = policy->pol_nrs->nrs_svcpt;
+	struct nrs_orr_info		info;
+	int				rc;
+	int				rc2;
+	__u8				physical = 0;
+
+
+	LASSERT(policy->pol_type == PTLRPC_NRS_TYPE_ORR ||
+		policy->pol_type == PTLRPC_NRS_TYPE_TRR);
+	LASSERT(policy->pol_nrs->nrs_queue_type == PTLRPC_NRS_QUEUE_REG ||
+		policy->pol_nrs->nrs_queue_type == PTLRPC_NRS_QUEUE_HP);
+
+	rc = snprintf(page, count, "offset type:");
+
+	rc2 = ptlrpc_nrs_policy_control(svcpt, policy->pol_nrs->nrs_queue_type,
+					policy->pol_type,
+					PTLRPC_NRS_CTL_ORR_RD_OFF_TYPE, &info);
+	if (rc2 < 0)
+		return rc2;
+
+	if (info.oi_physical == 1)
+		physical = 1;
+
+	rc += snprintf(page + rc, count, "\t%s\n",
+		       physical == 1 ? "physical\n" : "logical\n");
+
+	return rc;
+}
+
+/* Change the NRS ORR/TRR offset type between {physical|logical} */
+static int
+ptlrpc_lprocfs_wr_nrs_orr_off_type(struct file *file, const char *buffer,
+				   unsigned long count, void *data)
+{
+	struct ptlrpc_nrs_policy       *policy = data;
+	struct ptlrpc_service_part     *svcpt = policy->pol_nrs->nrs_svcpt;
+	char				off_type[9];
+	int				rc;
+
+	LASSERT(policy->pol_type == PTLRPC_NRS_TYPE_ORR ||
+		policy->pol_type == PTLRPC_NRS_TYPE_TRR);
+
+	if (count > sizeof(off_type) - 1)
+		return -EINVAL;
+	if (cfs_copy_from_user(off_type, buffer, count))
+		return -EFAULT;
+	off_type[count] = '\0';
+
+	if (strcmp(off_type, "physical") && strcmp(off_type, "logical"))
+		return -EINVAL;
+
+	/* Change both NRS heads with each command */
+	rc = ptlrpc_nrs_policy_control(svcpt, PTLRPC_NRS_QUEUE_BOTH,
+				       policy->pol_type,
+				       PTLRPC_NRS_CTL_ORR_WR_OFF_TYPE,
+				       off_type);
+	if (rc < 0)
+		return rc;
+
+	return count;
+}
+
+/* Obtain the currectly handled type of RPCs for an ORR/TRR policy
+ */
+static int
+ptlrpc_lprocfs_rd_nrs_orr_supp_req(char *page, char **start, off_t off,
+				   int count, int *eof, void *data)
+{
+	struct ptlrpc_nrs_policy       *policy = data;
+	struct ptlrpc_service_part     *svcpt = policy->pol_nrs->nrs_svcpt;
+	struct nrs_orr_info		info;
+	int				rc;
+	int				rc2;
+	enum nrs_orr_supp		supp;
+	char			       *supp_str;
+
+	LASSERT(policy->pol_type == PTLRPC_NRS_TYPE_ORR ||
+		policy->pol_type == PTLRPC_NRS_TYPE_TRR);
+	LASSERT(policy->pol_nrs->nrs_queue_type == PTLRPC_NRS_QUEUE_REG ||
+		policy->pol_nrs->nrs_queue_type == PTLRPC_NRS_QUEUE_HP);
+
+	rc = snprintf(page, count, "RPCs handled:");
+
+	rc2 = ptlrpc_nrs_policy_control(svcpt, policy->pol_nrs->nrs_queue_type,
+					policy->pol_type,
+					PTLRPC_NRS_CTL_ORR_RD_SUPP_REQ, &info);
+	if (rc2 < 0)
+		return rc2;
+
+	supp = info.oi_supp_req;
+
+	if (supp == NOS_OST_READ)
+		supp_str = "OST_READ";
+	else if (supp == NOS_OST_WRITE)
+		supp_str = "OST_WRITE";
+	else if (supp == NOS_OST_RW)
+		supp_str = "OST_READ and OST_WRITE";
+	else
+		LBUG();
+
+	rc += snprintf(page + rc, count, "\t%s\n",
+		       supp_str);
+
+	return rc;
+}
+
+/* Set the currectly handled type of RPCs for an ORR/TRR policy; see
+ * enum nrs_orr_supp; inputs are read, write, readwrite
+ */
+static int
+ptlrpc_lprocfs_wr_nrs_orr_supp_req(struct file *file, const char *buffer,
+				   unsigned long count, void *data)
+{
+	struct ptlrpc_nrs_policy       *policy = data;
+	struct ptlrpc_service_part     *svcpt = policy->pol_nrs->nrs_svcpt;
+	char				supp[10];
+	int				rc;
+
+	LASSERT(policy->pol_type == PTLRPC_NRS_TYPE_ORR ||
+		policy->pol_type == PTLRPC_NRS_TYPE_TRR);
+
+	if (count > sizeof(supp) - 1)
+		return -EINVAL;
+	if (cfs_copy_from_user(supp, buffer, count))
+		return -EFAULT;
+	supp[count] = '\0';
+
+	if (strcmp(supp, "read") && strcmp(supp, "write") &&
+	    strcmp(supp, "readwrite"))
+		return -EINVAL;
+
+	/* Change both NRS heads with each command */
+	rc = ptlrpc_nrs_policy_control(svcpt, PTLRPC_NRS_QUEUE_BOTH,
+				       policy->pol_type,
+				       PTLRPC_NRS_CTL_ORR_WR_SUPP_REQ, supp);
+	if (rc < 0)
+		return rc;
+
+	return count;
+}
+
 struct ptlrpc_srh_iterator {
         __u64                  srhi_seq;
         struct ptlrpc_request *srhi_req;
@@ -659,7 +1079,11 @@ void ptlrpc_lprocfs_register_service(struct proc_dir_entry *entry,
                 {.name       = "timeouts",
                  .read_fptr  = ptlrpc_lprocfs_rd_timeouts,
                  .data       = svc},
-                {NULL}
+		{.name       = "nrs_policies",
+		 .read_fptr  = ptlrpc_lprocfs_rd_nrs,
+		 .write_fptr = ptlrpc_lprocfs_wr_nrs,
+		 .data       = svc},
+		{NULL}
         };
         static struct file_operations req_history_fops = {
                 .owner       = THIS_MODULE,
@@ -939,5 +1363,82 @@ int lprocfs_wr_pinger_recov(struct file *file, const char *buffer,
 
 }
 EXPORT_SYMBOL(lprocfs_wr_pinger_recov);
+
+int nrs_orr_lprocfs_init(struct ptlrpc_nrs_policy *policy)
+{
+	struct ptlrpc_service	*svc = policy->pol_nrs->nrs_svcpt->scp_service;
+	int			 rc = 0;
+
+	struct lprocfs_vars nrs_orr_lprocfs_vars[] = {
+		{ .name       = "nrs_orr_quantum",
+		  .read_fptr  = ptlrpc_lprocfs_rd_nrs_orr_quantum,
+		  .write_fptr = ptlrpc_lprocfs_wr_nrs_orr_quantum,
+		  .data       = policy },
+		{ .name       = "nrs_orr_off_type",
+		  .read_fptr  = ptlrpc_lprocfs_rd_nrs_orr_off_type,
+		  .write_fptr = ptlrpc_lprocfs_wr_nrs_orr_off_type,
+		  .data       = policy },
+		{ .name       = "nrs_orr_supp_req",
+		  .read_fptr  = ptlrpc_lprocfs_rd_nrs_orr_supp_req,
+		  .write_fptr = ptlrpc_lprocfs_wr_nrs_orr_supp_req,
+		  .data       = policy },
+		{ NULL }
+	};
+
+	struct lprocfs_vars nrs_trr_lprocfs_vars[] = {
+		{ .name       = "nrs_trr_quantum",
+		  .read_fptr  = ptlrpc_lprocfs_rd_nrs_orr_quantum,
+		  .write_fptr = ptlrpc_lprocfs_wr_nrs_orr_quantum,
+		  .data       = policy },
+		{ .name       = "nrs_trr_off_type",
+		  .read_fptr  = ptlrpc_lprocfs_rd_nrs_orr_off_type,
+		  .write_fptr = ptlrpc_lprocfs_wr_nrs_orr_off_type,
+		  .data       = policy },
+		{ .name       = "nrs_trr_supp_req",
+		  .read_fptr  = ptlrpc_lprocfs_rd_nrs_orr_supp_req,
+		  .write_fptr = ptlrpc_lprocfs_wr_nrs_orr_supp_req,
+		  .data       = policy },
+		{ NULL }
+	};
+
+	LASSERT(svc != NULL);
+
+	/* TODO: separate directory for each NRS head under service? */
+	if (policy->pol_type == PTLRPC_NRS_TYPE_ORR)
+		rc = lprocfs_add_vars(svc->srv_procroot,
+				      nrs_orr_lprocfs_vars, NULL);
+	else if (policy->pol_type == PTLRPC_NRS_TYPE_TRR)
+		rc = lprocfs_add_vars(svc->srv_procroot,
+				      nrs_trr_lprocfs_vars, NULL);
+	else
+		LBUG();
+
+	return rc;
+}
+
+void nrs_orr_lprocfs_fini(struct ptlrpc_nrs_policy *policy)
+{
+	struct ptlrpc_service	*svc = policy->pol_nrs->nrs_svcpt->scp_service;
+
+	LASSERT(svc != NULL);
+
+	if (policy->pol_type == PTLRPC_NRS_TYPE_ORR) {
+		lprocfs_remove_proc_entry("nrs_orr_quantum",
+					  svc->srv_procroot);
+		lprocfs_remove_proc_entry("nrs_orr_off_type",
+					  svc->srv_procroot);
+		lprocfs_remove_proc_entry("nrs_orr_supp_req",
+					  svc->srv_procroot);
+	} else if (policy->pol_type == PTLRPC_NRS_TYPE_TRR) {
+		lprocfs_remove_proc_entry("nrs_trr_quantum",
+					  svc->srv_procroot);
+		lprocfs_remove_proc_entry("nrs_trr_off_type",
+					  svc->srv_procroot);
+		lprocfs_remove_proc_entry("nrs_trr_supp_req",
+					  svc->srv_procroot);
+	} else {
+		LBUG();
+	}
+}
 
 #endif /* LPROCFS */

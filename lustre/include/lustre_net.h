@@ -440,6 +440,372 @@ struct lu_env;
 
 struct ldlm_lock;
 
+/* NRS */
+struct ptlrpc_nrs_policy;
+struct ptlrpc_nrs_resource;
+struct ptlrpc_nrs_request;
+
+/**
+ * NRS operations
+ */
+struct ptlrpc_nrs_ops {
+	int	      (*op_policy_init)(struct ptlrpc_nrs_policy *policy,
+					void *arg);
+	void	      (*op_policy_fini)(struct ptlrpc_nrs_policy *policy);
+	/** activate policy, i.e: allocate resource etc. */
+	int	      (*op_policy_start)(struct ptlrpc_nrs_policy *policy);
+	/** deactivate policy, i.e: release resource etc */
+	void	      (*op_policy_stop)(struct ptlrpc_nrs_policy *policy);
+	int	      (*op_policy_ctl)(struct ptlrpc_nrs_policy *policy,
+				       unsigned int cmd, void *arg);
+
+	int	      (*op_res_get)(struct ptlrpc_nrs_policy *policy,
+				    struct ptlrpc_nrs_request *nrq,
+				    struct ptlrpc_nrs_resource *parent,
+				    struct ptlrpc_nrs_resource **resp);
+	void	      (*op_res_put)(struct ptlrpc_nrs_policy *policy,
+				    struct ptlrpc_nrs_resource *res);
+
+	/** poll a request, the second parameter is reserved */
+	struct ptlrpc_nrs_request *
+		      (*op_req_poll)(struct ptlrpc_nrs_policy *policy,
+				     void *arg);
+	int	      (*op_req_enqueue)(struct ptlrpc_nrs_policy *policy,
+					struct ptlrpc_nrs_request *nrq);
+	void	      (*op_req_dequeue)(struct ptlrpc_nrs_policy *policy,
+					struct ptlrpc_nrs_request *nrq);
+	/**
+	 * non-blocking, called before scheduling the request,
+	 * it's callback function for resource/job control
+	 */
+	void	      (*op_req_start)(struct ptlrpc_nrs_policy *policy,
+				      struct ptlrpc_nrs_request *nrq);
+	/* non-blocking, called after the request being scheduled */
+	void	      (*op_req_stop)(struct ptlrpc_nrs_policy *policy,
+				     struct ptlrpc_nrs_request *nrq);
+};
+
+enum ptlrpc_nrs_pol_type {
+	/* First entry, not a valid policy */
+	PTLRPC_NRS_TYPE_FIRST		= (1 << 0),
+	/* Valid policies */
+	PTLRPC_NRS_TYPE_FIFO		= (1 << 1),
+	PTLRPC_NRS_TYPE_CRR		= (1 << 2),
+	PTLRPC_NRS_TYPE_CRRN		= (1 << 3),
+	PTLRPC_NRS_TYPE_ORR		= (1 << 4),
+	PTLRPC_NRS_TYPE_TRR		= (1 << 5),
+	/* Last entry, not a valid policy */
+	PTLRPC_NRS_TYPE_LAST		= (1 << 6),
+	/* Mask sets for supported policy configurations by services */
+	PTLRPC_NRS_TYPE_COMMON		= PTLRPC_NRS_TYPE_FIFO |
+					  PTLRPC_NRS_TYPE_CRR |
+					  PTLRPC_NRS_TYPE_CRRN,
+	PTLRPC_NRS_TYPE_ALL		= PTLRPC_NRS_TYPE_FIFO |
+					  PTLRPC_NRS_TYPE_CRR |
+					  PTLRPC_NRS_TYPE_CRRN |
+					  PTLRPC_NRS_TYPE_ORR |
+					  PTLRPC_NRS_TYPE_TRR
+};
+
+enum ptlrpc_nrs_ctl {
+	PTLRPC_NRS_CTL_GET_INFO		= 1,
+	PTLRPC_NRS_CTL_START		= 2,
+	PTLRPC_NRS_CTL_STOP		= 3,
+	PTLRPC_NRS_CTL_ORR_RD_QUANTUM	= 4,
+	PTLRPC_NRS_CTL_ORR_WR_QUANTUM	= 5,
+	PTLRPC_NRS_CTL_ORR_RD_OFF_TYPE	= 6,
+	PTLRPC_NRS_CTL_ORR_WR_OFF_TYPE	= 7,
+	PTLRPC_NRS_CTL_ORR_RD_SUPP_REQ	= 8,
+	PTLRPC_NRS_CTL_ORR_WR_SUPP_REQ	= 9,
+	/* Not a valid opcode */
+	PTLRPC_NRS_CTL_INVALID		= 11,
+	/** reserved, recycle resource for inactive policy */
+	PTLRPC_NRS_CTL_SHRINK		= 12,
+};
+
+enum {
+	/** fallback policy */
+	PTLRPC_NRS_FL_FALLBACK		= (1 << 0),
+	/** start policy immediately after registering */
+	PTLRPC_NRS_FL_REG_START		= (1 << 1),
+};
+
+enum ptlrpc_nrs_queue_type {
+	PTLRPC_NRS_QUEUE_HP,
+	PTLRPC_NRS_QUEUE_REG,
+	PTLRPC_NRS_QUEUE_BOTH,
+};
+
+/**
+ * NRS
+ * - maintains a list of policies
+ * - must have one and only one DEFAULT NRS policy
+ * - can have one ACTIVE NRS policy, default policy will be used if
+ *   there is no active policy, or if the active policy fails to handle a
+ *   request
+ */
+struct ptlrpc_nrs {
+	cfs_spinlock_t			nrs_lock;
+	/** XXX reserved for future use */
+	cfs_spinlock_t			nrs_req_lock;
+	/** list of registered policy */
+	cfs_list_t			nrs_policy_list;
+	/** list of policy with queued request */
+	cfs_list_t			nrs_policy_queued;
+	/** reference to service partition */
+	struct ptlrpc_service_part     *nrs_svcpt;
+	/** primary policy, which is the preferred policy */
+	struct ptlrpc_nrs_policy       *nrs_policy_primary;
+	/** fallback policy, which is the backup policy */
+	struct ptlrpc_nrs_policy       *nrs_policy_fallback;
+	/** for HP or regular request */
+	enum ptlrpc_nrs_queue_type	nrs_queue_type;
+	/** # queued requests */
+	unsigned long			nrs_req_queued;
+	/** # scheduled requests */
+	unsigned long			nrs_req_started;
+	/** in progress of starting any policy */
+	unsigned			nrs_policy_starting:1;
+	/** shutting down the whole NRS */
+	unsigned			nrs_stopping:1;
+};
+
+#define NRS_POL_NAME_MAX	    7
+
+/**
+ * NRS policy registering descriptor
+ */
+struct ptlrpc_nrs_policy_desc {
+	char				pd_name[NRS_POL_NAME_MAX + 1];
+	enum ptlrpc_nrs_pol_type	pd_type;
+	struct ptlrpc_nrs_ops	       *pd_ops;
+};
+
+enum ptlrpc_nrs_policy_state {
+	/** already stopped */
+	NRS_POLICY_STATE_STOPPED,
+	/** in progress of stopping */
+	NRS_POLICY_STATE_STOPPING,
+	/** in progress of starting */
+	NRS_POLICY_STATE_STARTING,
+	/** already started */
+	NRS_POLICY_STATE_STARTED,
+};
+
+struct ptlrpc_nrs_policy_info {
+	char				pi_name[NRS_POL_NAME_MAX + 1];
+	enum ptlrpc_nrs_policy_state	pi_state;
+	long				pi_req_queued;
+	long				pi_req_started;
+	unsigned			pi_fallback:1;
+};
+
+/**
+ * NRS policy descriptor
+ */
+struct ptlrpc_nrs_policy {
+	cfs_list_t			pol_list;
+	cfs_list_t			pol_list_queued;
+	enum ptlrpc_nrs_pol_type	pol_type;
+	enum ptlrpc_nrs_policy_state	pol_state;
+	unsigned			pol_flags;
+	/** number of queued requests */
+	long				pol_req_queued;
+	/** number of scheduled requests */
+	long				pol_req_started;
+	long				pol_ref;
+	struct ptlrpc_nrs	       *pol_nrs;
+	struct ptlrpc_nrs_ops	       *pol_ops;
+	void			       *pol_private;
+	char			       *pol_name;
+};
+
+struct ptlrpc_nrs_resource {
+	struct ptlrpc_nrs_resource     *res_parent;
+	struct ptlrpc_nrs_policy       *res_policy;
+};
+
+enum {
+	NRS_RES_FALLBACK,
+	NRS_RES_PRIMARY,
+	NRS_RES_MAX
+};
+
+/*
+ * FIFO policy
+ */
+
+/**
+ * private data structure for FIFO NRS
+ */
+struct nrs_fifo_head {
+	struct ptlrpc_nrs_resource	fh_res;
+	/** fifo list head */
+	cfs_list_t			fh_list;
+	__u64				fh_sequence;
+};
+
+struct nrs_fifo_req {
+	/** request header, must be the first member of structure */
+	cfs_list_t		fr_list;
+	__u64			fr_sequence;
+};
+
+/**
+ * CRR, Client Round Robin over exports
+ */
+
+/*
+ * private data structure for CRR NRS
+ */
+struct nrs_crr_data {
+	struct ptlrpc_nrs_resource	cd_res;
+	cfs_binheap_t		       *cd_binheap;
+	__u64				cd_round;
+	__u64				cd_sequence;
+};
+
+/**
+ * target object for CRR NRS which is embedded in client structure
+ */
+struct nrs_crr_export {
+	struct ptlrpc_nrs_resource	ce_res;
+	__u64				ce_round;
+};
+
+/**
+ * embed it to ptlrpc request for CRR NRS
+ */
+struct nrs_crr_req {
+	/** request header, must be the first member of structure */
+	cfs_binheap_node_t	cr_node;
+	__u64			cr_round;
+	__u64			cr_sequence;
+};
+
+/**
+ * CRR-N, Client Round Robin over NIDs
+ */
+
+/*
+ * private data structure for CRR-N NRS
+ */
+struct nrs_crrn_net {
+	struct ptlrpc_nrs_resource	cn_res;
+	cfs_binheap_t		       *cn_binheap;
+	cfs_hash_t		       *cn_cli_hash;
+	__u64				cn_round;
+	__u64				cn_sequence;
+};
+
+/**
+ * target object for CRR-N NRS which is embedded in client structure
+ */
+struct nrs_crrn_client {
+	struct ptlrpc_nrs_resource	cc_res;
+	cfs_hlist_node_t		cc_hnode;
+	cfs_atomic_t			cc_ref;
+	lnet_nid_t			cc_nid;
+	__u64				cc_round;
+};
+
+/**
+ * ORR, Object-based Round Robin policy
+ */
+struct nrs_orr_req_range {
+	__u64		or_start;
+	__u64		or_end;
+};
+
+/* RPC types supported by NRS ORR */
+enum nrs_orr_supp {
+	NOS_OST_READ  = (1 << 0),
+	NOS_OST_WRITE = (1 << 1),
+	NOS_OST_RW    = (1 << 2)
+};
+
+#define NOS_DFLT	NOS_OST_READ
+
+/* For unique keys for the objects, we can use OST index + object ID; later,
+ * this can be replaced by OST FID */
+struct nrs_orr_key {
+	/* Object ID */
+	obd_id		ok_id;
+	/* OST index */
+	__u32		ok_idx;
+};
+
+/**
+ * private data structure for ORR and TRR NRS
+ */
+struct nrs_orr_data {
+	__u64				od_round;
+	cfs_binheap_t		       *od_binheap;
+	cfs_hash_t		       *od_obj_hash;
+	cfs_mem_cache_t		       *od_cache;
+	struct ptlrpc_nrs_resource	od_res;
+	enum nrs_orr_supp		od_supp;
+	__u16				od_quantum;
+	/* Protects policy parameters, supp, quantum, physical */
+	/* XXX: We don't care for the effects of race conditions in most of
+	 * these cases */
+	cfs_rwlock_t			od_lock;
+	__u8				od_physical;
+};
+
+/**
+ * target object for ORR and TRR NRS which is embedded in object structure
+ * TODO: Maybe we can delete these when the corresponding backend-fs object is
+ * deleted; look at this after testing
+ */
+struct nrs_orr_object {
+	struct ptlrpc_nrs_resource	oo_res;
+	__u64				oo_round;
+	cfs_atomic_t			oo_ref;
+	cfs_hlist_node_t		oo_hnode;
+	struct nrs_orr_key		oo_key;
+	__u16				oo_quantum;
+	__u16				oo_active;
+	__u8				oo_started;
+};
+
+/**
+ * embed it to ptlrpc request for ORR binheap NRS
+ */
+struct nrs_orr_req {
+	cfs_binheap_node_t		or_node;
+	struct nrs_orr_req_range	or_range;
+	__u64				or_round;
+	/** For debugging purposes */
+	struct nrs_orr_key		or_key;
+	/* Set for OST_WRITE requests */
+	__u8				or_write;
+};
+
+struct nrs_orr_info {
+	enum nrs_orr_supp	oi_supp_req;
+	__u16			oi_quantum;
+	/* Is the offset type physical or logical */
+	__u8			oi_physical;
+};
+
+struct ptlrpc_nrs_request {
+	struct ptlrpc_nrs_resource      *nr_res_ptrs[NRS_RES_MAX];
+	unsigned			nr_res_idx;
+	unsigned			nr_initialized:1;
+	unsigned			nr_enqueued:1;
+	unsigned			nr_dequeued:1;
+	unsigned			nr_started:1;
+	unsigned			nr_stopped:1;
+	unsigned			nr_finalized:1;
+	union {
+		struct nrs_fifo_req	fifo;
+		/* NB: CRR and CRR-N share the same request definition */
+		struct nrs_crr_req	crr;
+		struct nrs_orr_req	orr;
+	} nr_u;
+};
+
 /**
  * Basic request prioritization operations structure.
  * The whole idea is centered around locks and RPCs that might affect locks.
@@ -495,6 +861,8 @@ struct ptlrpc_request {
         struct ptlrpc_hpreq_ops *rq_ops;
         /** history sequence # */
         __u64 rq_history_seq;
+	/** stub for NRS request */
+	struct ptlrpc_nrs_request rq_nrq;
         /** the index of service's srv_at_array into which request is linked */
         time_t rq_at_index;
         /** Result of request processing */
@@ -1282,6 +1650,14 @@ struct ptlrpc_service_part {
 	/** # hp requests handled */
 	int				scp_hreq_count;
 
+	/** NRS head for regular requests */
+	struct ptlrpc_nrs		scp_req_nrs;
+	/** NRS head for HP requests; this is only valid for services that can
+	 *  handle HP requests */
+	struct ptlrpc_nrs	       *scp_hpreq_nrs;
+	/** Bitmask of  supported NRS policies */
+	enum ptlrpc_nrs_pol_type	scp_nrs_supported;
+
 	/** AT stuff */
 	/** @{ */
 	/**
@@ -1624,6 +2000,13 @@ struct ptlrpc_service_thr_conf {
 	__u32				tc_ctx_tags;
 };
 
+struct ptlrpc_service_nrs_conf {
+	/* bitmask of supported NRS policies */
+	enum ptlrpc_nrs_pol_type	nc_supp;
+	/* types of NRS queues for the service; regular, hp or both */
+	enum ptlrpc_nrs_queue_type	nc_type;
+};
+
 struct ptlrpc_service_conf {
 	/* service name */
 	char				*psc_name;
@@ -1633,6 +2016,8 @@ struct ptlrpc_service_conf {
 	struct ptlrpc_service_buf_conf	psc_buf;
 	/* thread information */
 	struct ptlrpc_service_thr_conf	psc_thr;
+	/* NRS information */
+	struct ptlrpc_service_nrs_conf	psc_nrs;
 	/* function table */
 	struct ptlrpc_service_ops	psc_ops;
 };

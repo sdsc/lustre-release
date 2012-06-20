@@ -3952,6 +3952,10 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 			.tc_nthrs_user		= mdt_num_threads,
 			.tc_ctx_tags		= LCT_MD_THREAD,
 		},
+		.psc_nrs		= {
+			.nc_supp		= PTLRPC_NRS_TYPE_COMMON,
+			.nc_type		= PTLRPC_NRS_QUEUE_REG,
+		},
 		.psc_ops		= {
 			.so_req_handler		= mdt_regular_handle,
 			.so_req_printer		= target_print_req,
@@ -3988,6 +3992,10 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 			.tc_nthrs_max		= MDT_MAX_THREADS,
 			.tc_nthrs_user		= mdt_num_threads,
 			.tc_ctx_tags		= LCT_MD_THREAD,
+		},
+		.psc_nrs		= {
+			.nc_supp		= PTLRPC_NRS_TYPE_COMMON,
+			.nc_type		= PTLRPC_NRS_QUEUE_REG,
 		},
 		.psc_ops		= {
 			.so_req_handler		= mdt_readpage_handle,
@@ -4029,6 +4037,10 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 			.tc_nthrs_user		= mdt_num_threads,
 			.tc_ctx_tags		= LCT_MD_THREAD,
 		},
+		.psc_nrs		= {
+			.nc_supp		= PTLRPC_NRS_TYPE_COMMON,
+			.nc_type		= PTLRPC_NRS_QUEUE_REG,
+		},
 		.psc_ops		= {
 			.so_req_handler		= mdt_regular_handle,
 			.so_req_printer		= target_print_req,
@@ -4065,6 +4077,10 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 			.tc_nthrs_user		= mdt_num_threads,
 			.tc_ctx_tags		= LCT_MD_THREAD,
 		},
+		.psc_nrs		= {
+			.nc_supp		= PTLRPC_NRS_TYPE_COMMON,
+			.nc_type		= PTLRPC_NRS_QUEUE_REG,
+		},
 		.psc_ops		= {
 			.so_req_handler		= mdt_mdsc_handle,
 			.so_req_printer		= target_print_req,
@@ -4100,6 +4116,10 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 			.tc_nthrs_max		= MDT_MAX_THREADS,
 			.tc_nthrs_user		= mdt_num_threads,
 			.tc_ctx_tags		= LCT_MD_THREAD | LCT_DT_THREAD
+		},
+		.psc_nrs		= {
+			.nc_supp		= PTLRPC_NRS_TYPE_COMMON,
+			.nc_type		= PTLRPC_NRS_QUEUE_REG,
 		},
 		.psc_ops		= {
 			.so_req_handler		= mdt_mdss_handle,
@@ -4139,6 +4159,10 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 			.tc_nthrs_user		= mdt_num_threads,
 			.tc_ctx_tags		= LCT_MD_THREAD | LCT_DT_THREAD
 		},
+		.psc_nrs		= {
+			.nc_supp		= PTLRPC_NRS_TYPE_COMMON,
+			.nc_type		= PTLRPC_NRS_QUEUE_REG,
+		},
 		.psc_ops		= {
 			.so_req_handler		= mdt_dtss_handle,
 			.so_req_printer		= target_print_req,
@@ -4172,6 +4196,10 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 			.tc_nthrs_max		= MDT_MAX_THREADS,
 			.tc_nthrs_user		= mdt_num_threads,
 			.tc_ctx_tags		= LCT_DT_THREAD | LCT_MD_THREAD
+		},
+		.psc_nrs		= {
+			.nc_supp		= PTLRPC_NRS_TYPE_COMMON,
+			.nc_type		= PTLRPC_NRS_QUEUE_REG,
 		},
 		.psc_ops		= {
 			.so_req_handler		= mdt_fld_handle,
@@ -4209,6 +4237,10 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 			.tc_nthrs_max		= MDT_MAX_THREADS,
 			.tc_nthrs_user		= mdt_num_threads,
 			.tc_ctx_tags		= LCT_MD_THREAD,
+		},
+		.psc_nrs		= {
+			.nc_supp		= PTLRPC_NRS_TYPE_COMMON,
+			.nc_type		= PTLRPC_NRS_QUEUE_REG,
 		},
 		.psc_ops		= {
 			.so_req_handler		= mdt_xmds_handle,

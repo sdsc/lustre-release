@@ -2564,6 +2564,10 @@ static int ldlm_setup(void)
 			.tc_ctx_tags		= LCT_MD_THREAD | \
 						  LCT_DT_THREAD,
 		},
+		.psc_nrs		= {
+			.nc_supp		= PTLRPC_NRS_TYPE_COMMON,
+			.nc_type		= PTLRPC_NRS_QUEUE_REG,
+		},
 		.psc_ops		= {
 			.so_req_handler		= ldlm_callback_handler,
 		},
@@ -2603,6 +2607,10 @@ static int ldlm_setup(void)
 		.psc_ops		= {
 			.so_req_handler		= ldlm_cancel_handler,
 			.so_hpreq_handler	= ldlm_hpreq_handler,
+		},
+		.psc_nrs		= {
+			.nc_supp		= PTLRPC_NRS_TYPE_COMMON,
+			.nc_type		= PTLRPC_NRS_QUEUE_BOTH,
 		},
 	};
 	ldlm_state->ldlm_cancel_service = \
