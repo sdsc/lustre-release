@@ -3778,7 +3778,7 @@ static int osd_it_ea_next(const struct lu_env *env, struct dt_it *di)
                 it->oie_it_dirent++;
                 RETURN(0);
         } else {
-                if (it->oie_file.f_pos == LDISKFS_HTREE_EOF)
+		if (it->oie_file.f_pos == get_ldiskfs_htree_eof(&it->oie_file))
                         rc = +1;
                 else
                         rc = osd_ldiskfs_it_fill(env, di);

@@ -814,5 +814,30 @@ int osd_fid_unpack(struct lu_fid *fid, const struct osd_fid_pack *pack)
         return result;
 }
 
+#ifdef HAS_64BIT_NAMEHASH_MERGED
+ /* copy from fs/ext4/dir.c */
+static inline int is_32bit_api(void)
+{
+#ifdef CONFIG_COMPAT
+	return is_compat_task();
+#else
+	return (BITS_PER_LONG == 32);
+#endif
+}
+static inline loff_t get_ldiskfs_htree_eof(struct file *filp)
+{
+	if ((filp->f_mode & FMODE_32BITHASH) ||
+	    (!(filp->f_mode & FMODE_64BITHASH) && is_32bit_api()))
+		return LDISKFS_HTREE_EOF_32BIT;
+	else
+		return LDISKFS_HTREE_EOF_64BIT;
+}
+ /* copy end */
+# define O_32BITHASH FMODE_32BITHASH
+# define O_64BITHASH FMODE_64BITHASH
+#else
+# define get_ldiskfs_htree_eof(file) LDISKFS_HTREE_EOF
+#endif
+
 #endif /* __KERNEL__ */
 #endif /* _OSD_INTERNAL_H */
