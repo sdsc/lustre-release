@@ -67,7 +67,7 @@ static int ptlrpc_server_post_idle_rqbds(struct ptlrpc_service_part *svcpt);
 static void ptlrpc_server_hpreq_fini(struct ptlrpc_request *req);
 static void ptlrpc_at_remove_timed(struct ptlrpc_request *req);
 
-static CFS_LIST_HEAD(ptlrpc_all_services);
+CFS_LIST_HEAD(ptlrpc_all_services);
 cfs_spinlock_t ptlrpc_all_services_lock;
 
 struct ptlrpc_request_buffer_desc *
@@ -590,7 +590,8 @@ ptlrpc_server_nthreads_check(struct ptlrpc_service *svc,
  */
 static int
 ptlrpc_service_part_init(struct ptlrpc_service *svc,
-			 struct ptlrpc_service_part *svcpt, int cpt)
+			 struct ptlrpc_service_part *svcpt, int cpt,
+			 struct ptlrpc_service_conf *conf)
 {
 	struct ptlrpc_at_array	*array;
 	int			size;
@@ -790,10 +791,14 @@ ptlrpc_register_service(struct ptlrpc_service_conf *conf,
 			GOTO(failed, rc = -ENOMEM);
 
 		service->srv_parts[i] = svcpt;
-		rc = ptlrpc_service_part_init(service, svcpt, cpt);
+		rc = ptlrpc_service_part_init(service, svcpt, cpt, conf);
 		if (rc != 0)
 			GOTO(failed, rc);
 	}
+
+	rc = ptlrpc_service_nrs_setup(service, conf);
+	if (rc != 0)
+		GOTO(failed, rc);
 
 	ptlrpc_server_nthreads_check(service, conf);
 
@@ -967,10 +972,13 @@ static void ptlrpc_server_finish_request(struct ptlrpc_service_part *svcpt,
 	ptlrpc_server_hpreq_fini(req);
 
 	cfs_spin_lock(&svcpt->scp_req_lock);
+	ptlrpc_nrs_req_stop_nolock(req);
 	svcpt->scp_nreqs_active--;
 	if (req->rq_hp)
 		svcpt->scp_nhreqs_active--;
 	cfs_spin_unlock(&svcpt->scp_req_lock);
+
+	ptlrpc_nrs_req_finalize(req);
 
 	ptlrpc_server_drop_request(req);
 }
@@ -1478,6 +1486,7 @@ static int ptlrpc_server_hpreq_init(struct ptlrpc_service *svc,
 static void ptlrpc_server_hpreq_fini(struct ptlrpc_request *req)
 {
         ENTRY;
+
         if (req->rq_export && req->rq_ops) {
                 /* refresh lock timeout again so that client has more
                  * room to send lock cancel RPC. */
@@ -1515,59 +1524,7 @@ int ptlrpc_hpreq_handler(struct ptlrpc_request *req)
 }
 EXPORT_SYMBOL(ptlrpc_hpreq_handler);
 
-/**
- * Make the request a high priority one.
- *
- * All the high priority requests are queued in a separate FIFO
- * ptlrpc_service_part::scp_hpreq_pending list which is parallel to
- * ptlrpc_service_part::scp_req_pending list but has a higher priority
- * for handling.
- *
- * \see ptlrpc_server_handle_request().
- */
-static void ptlrpc_hpreq_reorder_nolock(struct ptlrpc_service_part *svcpt,
-                                        struct ptlrpc_request *req)
-{
-        ENTRY;
-
-        cfs_spin_lock(&req->rq_lock);
-        if (req->rq_hp == 0) {
-                int opc = lustre_msg_get_opc(req->rq_reqmsg);
-
-                /* Add to the high priority queue. */
-		cfs_list_move_tail(&req->rq_list, &svcpt->scp_hreq_pending);
-                req->rq_hp = 1;
-                if (opc != OBD_PING)
-                        DEBUG_REQ(D_RPCTRACE, req, "high priority req");
-        }
-        cfs_spin_unlock(&req->rq_lock);
-        EXIT;
-}
-
-/**
- * \see ptlrpc_hpreq_reorder_nolock
- */
-void ptlrpc_hpreq_reorder(struct ptlrpc_request *req)
-{
-	struct ptlrpc_service_part *svcpt = req->rq_rqbd->rqbd_svcpt;
-	ENTRY;
-
-	cfs_spin_lock(&svcpt->scp_req_lock);
-	/* It may happen that the request is already taken for the processing
-	 * but still in the export list, or the request is not in the request
-	 * queue but in the export list already, do not add it into the
-	 * HP list. */
-	if (!cfs_list_empty(&req->rq_list))
-		ptlrpc_hpreq_reorder_nolock(svcpt, req);
-	cfs_spin_unlock(&svcpt->scp_req_lock);
-	EXIT;
-}
-EXPORT_SYMBOL(ptlrpc_hpreq_reorder);
-
-/**
- * Add a request to the regular or HP queue; optionally perform HP request
- * initialization.
- */
+/** Check if a request is a high priority one. */
 static int ptlrpc_server_request_add(struct ptlrpc_service_part *svcpt,
 				     struct ptlrpc_request *req)
 {
@@ -1578,16 +1535,14 @@ static int ptlrpc_server_request_add(struct ptlrpc_service_part *svcpt,
 	if (rc < 0)
 		RETURN(rc);
 
-	cfs_spin_lock(&svcpt->scp_req_lock);
-
-	if (rc)
-		ptlrpc_hpreq_reorder_nolock(svcpt, req);
-	else
-		cfs_list_add_tail(&req->rq_list, &svcpt->scp_req_pending);
-
-	cfs_spin_unlock(&svcpt->scp_req_lock);
+	ptlrpc_nrs_req_add(svcpt, req, !!rc);
 
 	RETURN(0);
+}
+
+static void ptlrpc_server_request_del_nolock(struct ptlrpc_request *req)
+{
+	ptlrpc_nrs_req_del_nolock(req);
 }
 
 /**
@@ -1598,6 +1553,9 @@ static int ptlrpc_server_request_add(struct ptlrpc_service_part *svcpt,
 static int ptlrpc_server_allow_high(struct ptlrpc_service_part *svcpt,
 				    int force)
 {
+	if (!nrs_svcpt_has_hp(svcpt))
+		return 0;
+
 	if (force)
 		return 1;
 
@@ -1607,7 +1565,7 @@ static int ptlrpc_server_allow_high(struct ptlrpc_service_part *svcpt,
 	if (svcpt->scp_nhreqs_active == 0)
 		return 1;
 
-	return cfs_list_empty(&svcpt->scp_req_pending) ||
+	return !ptlrpc_nrs_req_pending_nolock(svcpt, 0) ||
 	       svcpt->scp_hreq_count < svcpt->scp_service->srv_hpreq_ratio;
 }
 
@@ -1615,7 +1573,7 @@ static int ptlrpc_server_high_pending(struct ptlrpc_service_part *svcpt,
 				      int force)
 {
 	return ptlrpc_server_allow_high(svcpt, force) &&
-	       !cfs_list_empty(&svcpt->scp_hreq_pending);
+	       ptlrpc_nrs_req_pending_nolock(svcpt, 1);
 }
 
 /**
@@ -1642,14 +1600,14 @@ static int ptlrpc_server_allow_normal(struct ptlrpc_service_part *svcpt,
 		return 0;
 
 	return svcpt->scp_nhreqs_active > 0 ||
-	       svcpt->scp_service->srv_ops.so_hpreq_handler == NULL;
+	       !nrs_svcpt_has_hp(svcpt);
 }
 
 static int ptlrpc_server_normal_pending(struct ptlrpc_service_part *svcpt,
 					int force)
 {
 	return ptlrpc_server_allow_normal(svcpt, force) &&
-	       !cfs_list_empty(&svcpt->scp_req_pending);
+	       ptlrpc_nrs_req_pending_nolock(svcpt, 0);
 }
 
 /**
@@ -1679,15 +1637,13 @@ ptlrpc_server_request_get(struct ptlrpc_service_part *svcpt, int force)
 	ENTRY;
 
 	if (ptlrpc_server_high_pending(svcpt, force)) {
-		req = cfs_list_entry(svcpt->scp_hreq_pending.next,
-				     struct ptlrpc_request, rq_list);
+		req = ptlrpc_nrs_req_poll_nolock(svcpt, 1);
 		svcpt->scp_hreq_count++;
 		RETURN(req);
 	}
 
 	if (ptlrpc_server_normal_pending(svcpt, force)) {
-		req = cfs_list_entry(svcpt->scp_req_pending.next,
-				     struct ptlrpc_request, rq_list);
+		req = ptlrpc_nrs_req_poll_nolock(svcpt, 0);
 		svcpt->scp_hreq_count = 0;
 		RETURN(req);
 	}
@@ -1824,6 +1780,8 @@ ptlrpc_server_handle_req_in(struct ptlrpc_service_part *svcpt)
 
         ptlrpc_at_add_timed(req);
 
+	ptlrpc_nrs_req_initialize(svcpt, req);
+
         /* Move it over to the request processing queue */
 	rc = ptlrpc_server_request_add(svcpt, req);
 	if (rc) {
@@ -1895,12 +1853,12 @@ ptlrpc_server_handle_request(struct ptlrpc_service_part *svcpt,
 			}
 		}
 	}
-
-	cfs_list_del_init(&request->rq_list);
+	ptlrpc_server_request_del_nolock(request);
 	svcpt->scp_nreqs_active++;
 	if (request->rq_hp)
 		svcpt->scp_nhreqs_active++;
 
+	ptlrpc_nrs_req_start_nolock(request);
 	cfs_spin_unlock(&svcpt->scp_req_lock);
 
         ptlrpc_rqphase_move(request, RQ_PHASE_INTERPRET);
@@ -1989,7 +1947,7 @@ put_conn:
 
         cfs_gettimeofday(&work_end);
         timediff = cfs_timeval_sub(&work_end, &work_start, NULL);
-        CDEBUG(D_RPCTRACE, "Handled RPC pname:cluuid+ref:pid:xid:nid:opc "
+	CDEBUG(D_RPCTRACE, "Handled RPC pname:cluuid+ref:pid:xid:nid:opc:epoch "
                "%s:%s+%d:%d:x"LPU64":%s:%d Request procesed in "
                "%ldus (%ldus total) trans "LPU64" rc %d/%d\n",
                 cfs_curproc_comm(),
@@ -3039,7 +2997,7 @@ ptlrpc_service_purge_all(struct ptlrpc_service *svc)
 
 		while (ptlrpc_server_request_pending(svcpt, 1)) {
 			req = ptlrpc_server_request_get(svcpt, 1);
-			cfs_list_del(&req->rq_list);
+			ptlrpc_server_request_del_nolock(req);
 			svcpt->scp_nreqs_active++;
 			ptlrpc_server_hpreq_fini(req);
 
@@ -3133,6 +3091,7 @@ int ptlrpc_unregister_service(struct ptlrpc_service *service)
 
 	ptlrpc_service_unlink_rqbd(service);
 	ptlrpc_service_purge_all(service);
+	ptlrpc_service_nrs_cleanup(service);
 	ptlrpc_service_free(service);
 
 	RETURN(0);
@@ -3159,16 +3118,13 @@ int ptlrpc_svcpt_health_check(struct ptlrpc_service_part *svcpt)
 		return 0;
 	}
 
-	/* How long has the next entry been waiting? */
-	if (cfs_list_empty(&svcpt->scp_req_pending)) {
-		request = cfs_list_entry(svcpt->scp_hreq_pending.next,
-					 struct ptlrpc_request, rq_list);
-	} else {
-		request = cfs_list_entry(svcpt->scp_req_pending.next,
-					 struct ptlrpc_request, rq_list);
-	}
+        /* How long has the next entry been waiting? */
+	request = ptlrpc_nrs_req_poll_nolock(svcpt, 1);
+	if (request == NULL)
+		request = ptlrpc_nrs_req_poll_nolock(svcpt, 0);
 
 	timediff = cfs_timeval_sub(&right_now, &request->rq_arrival_time, NULL);
+
 	cfs_spin_unlock(&svcpt->scp_req_lock);
 
 	if ((timediff / ONE_MILLION) >

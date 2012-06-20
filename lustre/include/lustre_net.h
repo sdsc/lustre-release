@@ -625,6 +625,241 @@ struct lu_env;
 
 struct ldlm_lock;
 
+/* NRS */
+struct ptlrpc_nrs_policy;
+struct ptlrpc_nrs_resource;
+struct ptlrpc_nrs_request;
+
+/**
+ * NRS operations
+ */
+struct ptlrpc_nrs_ops {
+	int	      (*op_policy_init)(struct ptlrpc_nrs_policy *policy,
+					void *arg);
+	void	      (*op_policy_fini)(struct ptlrpc_nrs_policy *policy);
+	/** activate policy, i.e: allocate resource etc. */
+	int	      (*op_policy_start)(struct ptlrpc_nrs_policy *policy);
+	/** deactivate policy, i.e: release resource etc */
+	void	      (*op_policy_stop)(struct ptlrpc_nrs_policy *policy);
+	int	      (*op_policy_ctl)(struct ptlrpc_nrs_policy *policy,
+				       unsigned int cmd, void *arg);
+
+	/**
+	 * Primary policies should return -ve for requests they do not want to
+	 * handle.
+	 */
+	int	      (*op_res_get)(struct ptlrpc_nrs_policy *policy,
+				    struct ptlrpc_nrs_request *nrq,
+				    struct ptlrpc_nrs_resource *parent,
+				    struct ptlrpc_nrs_resource **resp,
+				    __u8 ltd);
+	void	      (*op_res_put)(struct ptlrpc_nrs_policy *policy,
+				    struct ptlrpc_nrs_resource *res);
+
+	/** poll a request, the second parameter is reserved */
+	struct ptlrpc_nrs_request *
+		      (*op_req_poll)(struct ptlrpc_nrs_policy *policy,
+				     void *arg);
+	int	      (*op_req_enqueue)(struct ptlrpc_nrs_policy *policy,
+					struct ptlrpc_nrs_request *nrq);
+	void	      (*op_req_dequeue)(struct ptlrpc_nrs_policy *policy,
+					struct ptlrpc_nrs_request *nrq);
+	/**
+	 * non-blocking, called before scheduling the request,
+	 * it's callback function for resource/job control
+	 */
+	void	      (*op_req_start)(struct ptlrpc_nrs_policy *policy,
+				      struct ptlrpc_nrs_request *nrq);
+	/* non-blocking, called after the request being scheduled */
+	void	      (*op_req_stop)(struct ptlrpc_nrs_policy *policy,
+				     struct ptlrpc_nrs_request *nrq);
+};
+
+enum ptlrpc_nrs_ctl {
+	PTLRPC_NRS_CTL_GET_INFO		= 1,
+	PTLRPC_NRS_CTL_START		= 2,
+	/** Reserved, multiple primary policies */
+	PTLRPC_NRS_CTL_STOP		= 3,
+	/** Not a valid opcode */
+	PTLRPC_NRS_CTL_INVALID		= 11,
+	/** Reserved, recycle resource for inactive policy */
+	PTLRPC_NRS_CTL_SHRINK		= 12,
+};
+
+enum {
+	/**
+	 * Fallback policy, use this flag only on a single supported policy per
+	 * service. Do not use this flag for policies registering using
+	 * ptlrpc_nrs_policy_register().
+	 */
+	PTLRPC_NRS_FL_FALLBACK		= (1 << 0),
+	/**
+	 * Start policy immediately after registering
+	 */
+	PTLRPC_NRS_FL_REG_START		= (1 << 1),
+	/**
+	 * This is a polciy registering externally with NRS core, via
+	 * ptlrpc_nrs_policy_register(). Used to avoid
+	 * ptlrpc_nrs_policy_register() racing with a policy start operation
+	 * issued by the user.
+	 */
+	PTLRPC_NRS_FL_REG_EXTERN	= (1 << 2),
+};
+
+enum ptlrpc_nrs_queue_type {
+	PTLRPC_NRS_QUEUE_HP,
+	PTLRPC_NRS_QUEUE_REG,
+	PTLRPC_NRS_QUEUE_BOTH,
+};
+
+/**
+ * NRS
+ * - maintains a list of policies
+ * - must have one and only one FALLBACK NRS policy
+ * - can have one PRIMARY NRS policy, default policy will be used if
+ *   there is no primary policy, or if the primary policy fails to handle a
+ *   request
+ */
+struct ptlrpc_nrs {
+	cfs_spinlock_t			nrs_lock;
+	/** XXX Possibly replace svcpt->scp_req_lock with another lock here. */
+	/** List of registered policies */
+	cfs_list_t			nrs_policy_list;
+	/** List of policies with queued request */
+	cfs_list_t			nrs_policy_queued;
+	/** Service partition for this NRS head */
+	struct ptlrpc_service_part     *nrs_svcpt;
+	/** Primary policy, which is the preferred policy */
+	struct ptlrpc_nrs_policy       *nrs_policy_primary;
+	/** Fallback policy, which is the backup policy */
+	struct ptlrpc_nrs_policy       *nrs_policy_fallback;
+	/** This NRS head handles either HP or regular requests */
+	enum ptlrpc_nrs_queue_type	nrs_queue_type;
+	/** # queued requests */
+	unsigned long			nrs_req_queued;
+	/** # scheduled requests */
+	unsigned long			nrs_req_started;
+	/** In progress of starting any policy */
+	unsigned			nrs_policy_starting:1;
+	/** Shutting down the whole NRS */
+	unsigned			nrs_stopping:1;
+};
+
+#define NRS_POL_NAME_MAX	    7
+
+
+/**
+ * NRS policy registering descriptor
+ */
+struct ptlrpc_nrs_pol_desc {
+	char			pd_name[NRS_POL_NAME_MAX + 1];
+	struct ptlrpc_nrs_ops  *pd_ops;
+	/**
+	 * This should give the same result during policy registration and
+	 * unregistration; so the result should not depend on temporal service
+	 * partition or other properties, that may influence the result.
+	 */
+	int		      (*pd_compat) (struct ptlrpc_service_part *svcpt,
+					    struct ptlrpc_nrs_pol_desc *desc);
+	/** Optionally set for policies that support a single ptlrpc service */
+	char		       *pd_svc_name;
+	unsigned		pd_flags;
+	/** Link into nrs_pols_list */
+	cfs_list_t		pd_list;
+};
+
+enum ptlrpc_nrs_pol_state {
+	/** Cannot be started; transient state during registration of external
+	 * policies.
+	 */
+	NRS_POL_STATE_UNAVAIL,
+	NRS_POL_STATE_STOPPED,
+	/** In progress of stopping */
+	NRS_POL_STATE_STOPPING,
+	/** In progress of starting */
+	NRS_POL_STATE_STARTING,
+	NRS_POL_STATE_STARTED,
+};
+
+struct ptlrpc_nrs_pol_info {
+	char				pi_name[NRS_POL_NAME_MAX + 1];
+	enum ptlrpc_nrs_pol_state	pi_state;
+	long				pi_req_queued;
+	long				pi_req_started;
+	unsigned			pi_fallback:1;
+};
+
+/**
+ * NRS policy descriptor
+ */
+struct ptlrpc_nrs_policy {
+	cfs_list_t			pol_list;
+	cfs_list_t			pol_list_queued;
+	enum ptlrpc_nrs_pol_state	pol_state;
+	unsigned			pol_flags;
+	/** number of queued requests */
+	long				pol_req_queued;
+	/** number of scheduled requests */
+	long				pol_req_started;
+	long				pol_ref;
+	struct ptlrpc_nrs	       *pol_nrs;
+	struct ptlrpc_nrs_ops	       *pol_ops;
+	void			       *pol_private;
+	char			       *pol_name;
+};
+
+struct ptlrpc_nrs_resource {
+	struct ptlrpc_nrs_resource     *res_parent;
+	struct ptlrpc_nrs_policy       *res_policy;
+};
+
+enum {
+	NRS_RES_FALLBACK,
+	NRS_RES_PRIMARY,
+	NRS_RES_MAX
+};
+
+/*
+ * FIFO policy
+ */
+
+/**
+ * private data structure for FIFO NRS
+ */
+struct nrs_fifo_head {
+	struct ptlrpc_nrs_resource	fh_res;
+	/** fifo list head */
+	cfs_list_t			fh_list;
+	__u64				fh_sequence;
+};
+
+struct nrs_fifo_req {
+	/** request header, must be the first member of structure */
+	cfs_list_t		fr_list;
+	__u64			fr_sequence;
+};
+
+struct ptlrpc_nrs_request {
+	struct ptlrpc_nrs_resource     *nr_res_ptrs[NRS_RES_MAX];
+	unsigned			nr_res_idx;
+	/* XXX: Some of these fields are not used anywhere */
+	unsigned			nr_initialized:1;
+	unsigned			nr_enqueued:1;
+	unsigned			nr_dequeued:1;
+	unsigned			nr_started:1;
+	unsigned			nr_stopped:1;
+	unsigned			nr_finalized:1;
+
+	union {
+		struct nrs_fifo_req	fifo;
+		/**
+		 * Externally registered policies may need to use this to
+		 * allocate their own request properties.
+		 */
+		void		       *ext;
+	} nr_u;
+};
+
 /**
  * Basic request prioritization operations structure.
  * The whole idea is centered around locks and RPCs that might affect locks.
@@ -686,6 +921,8 @@ struct ptlrpc_request {
 
         /** history sequence # */
         __u64 rq_history_seq;
+	/** stub for NRS request */
+	struct ptlrpc_nrs_request rq_nrq;
         /** the index of service's srv_at_array into which request is linked */
         time_t rq_at_index;
         /** Lock to protect request flags and some other important bits, like
@@ -923,6 +1160,31 @@ static inline int ptlrpc_req_interpret(const struct lu_env *env,
                 return req->rq_status;
         }
         return rc;
+}
+
+/**
+ * Exported NRS API
+ */
+int ptlrpc_nrs_policy_register(struct ptlrpc_nrs_pol_desc *desc);
+int ptlrpc_nrs_policy_unregister(struct ptlrpc_nrs_pol_desc *desc);
+void ptlrpc_nrs_req_hp_move(struct ptlrpc_request *req);
+int nrs_policy_compat_all(struct ptlrpc_service_part *svcpt,
+			  struct ptlrpc_nrs_pol_desc *desc);
+int nrs_policy_compat_one(struct ptlrpc_service_part *svcpt,
+			  struct ptlrpc_nrs_pol_desc *desc);
+
+/*
+ * For a reliable result, this should be checked under svcpt->scp_req lock.
+ */
+static inline __u8
+ptlrpc_nrs_req_can_move(struct ptlrpc_request *req)
+{
+	struct ptlrpc_nrs_request *nrq = &req->rq_nrq;
+
+	/**
+	 * XXX: The nr_enqueued requirement only serves to prevent a race for
+	 * the ORR/TRR policies. */
+	return nrq->nr_enqueued && !nrq->nr_started && !req->rq_hp;
 }
 
 /**
@@ -1471,6 +1733,14 @@ struct ptlrpc_service_part {
 	/** # hp requests handled */
 	int				scp_hreq_count;
 
+	/** NRS head for regular requests */
+	struct ptlrpc_nrs		scp_nrs_reg;
+	/** NRS head for HP requests; this is only valid for services that can
+	 *  handle HP requests */
+	struct ptlrpc_nrs	       *scp_nrs_hp;
+	/** proc root entry for this partition */
+	cfs_proc_dir_entry_t	       *scp_procroot;
+
 	/** AT stuff */
 	/** @{ */
 	/**
@@ -1894,7 +2164,6 @@ int ptlrpc_unregister_service(struct ptlrpc_service *service);
 int liblustre_check_services(void *arg);
 void ptlrpc_daemonize(char *name);
 int ptlrpc_service_health_check(struct ptlrpc_service *);
-void ptlrpc_hpreq_reorder(struct ptlrpc_request *req);
 void ptlrpc_server_drop_request(struct ptlrpc_request *req);
 
 #ifdef __KERNEL__
