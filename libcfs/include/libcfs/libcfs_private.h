@@ -294,6 +294,7 @@ do {						\
 # define LIBCFS_FREE(ptr, size) do { free(ptr); } while((size) - (size))
 # define LIBCFS_ALLOC(ptr, size)				\
 	 LIBCFS_ALLOC_GFP(ptr, size, 0)
+# define LIBCFS_ALLOC_ATOMIC(ptr, size) LIBCFS_ALLOC(ptr, size)
 # define LIBCFS_CPT_ALLOC_GFP(ptr, cptab, cpt, size, mask)	\
 	 LIBCFS_ALLOC(ptr, size)
 # define LIBCFS_CPT_ALLOC(ptr, cptab, cpt, size)		\
