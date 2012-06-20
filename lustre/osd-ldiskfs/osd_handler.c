@@ -3591,9 +3591,9 @@ static struct dt_it *osd_it_ea_init(const struct lu_env *env,
         it->oie_file.f_pos      = 0;
         it->oie_file.f_dentry   = obj_dentry;
         if (attr & LUDA_64BITHASH)
-                it->oie_file.f_flags = O_64BITHASH;
-        else
-                it->oie_file.f_flags = O_32BITHASH;
+		it->oie_file.f_flags = FMODE_64BITHASH;
+	else
+		it->oie_file.f_flags = FMODE_32BITHASH;
         it->oie_file.f_mapping    = obj->oo_inode->i_mapping;
         it->oie_file.f_op         = obj->oo_inode->i_fop;
         it->oie_file.private_data = NULL;
