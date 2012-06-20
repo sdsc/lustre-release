@@ -507,6 +507,9 @@ int class_cleanup(struct obd_device *obd, struct lustre_cfg *lcfg)
         /* destroy an uuid-export hash body */
         lustre_hash_exit(obd->obd_uuid_hash);
 
+        while (atomic_read(&obd->obd_conn_inprogress) > 0)
+                cfs_cond_resched();
+
         /* destroy a nid-export hash body */
         lustre_hash_exit(obd->obd_nid_hash);
 
