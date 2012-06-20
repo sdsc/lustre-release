@@ -102,7 +102,7 @@ static int send_getstatus(struct obd_import *imp, struct lu_fid *rootfid,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        mdc_pack_body(req, NULL, NULL, 0, 0, -1, 0);
+	mdc_pack_body(req, NULL, NULL, 0, 0, 0, -1, 0);
         lustre_msg_add_flags(req->rq_reqmsg, msg_flags);
         req->rq_send_state = level;
 
@@ -181,16 +181,6 @@ static int mdc_getattr_common(struct obd_export *exp,
                         RETURN(-EPROTO);
         }
 
-        if (body->valid & OBD_MD_FLRMTPERM) {
-                struct mdt_remote_perm *perm;
-
-                LASSERT(client_is_remote(exp));
-                perm = req_capsule_server_swab_get(pill, &RMF_ACL,
-                                                lustre_swab_mdt_remote_perm);
-                if (perm == NULL)
-                        RETURN(-EPROTO);
-        }
-
         if (body->valid & OBD_MD_FLMDSCAPA) {
                 struct lustre_capa *capa;
                 capa = req_capsule_server_get(pill, &RMF_CAPA1);
@@ -222,14 +212,27 @@ int mdc_getattr(struct obd_export *exp, struct md_op_data *op_data,
         }
 
         mdc_pack_body(req, &op_data->op_fid1, op_data->op_capa1,
-                      op_data->op_valid, op_data->op_mode, -1, 0);
+		      op_data->op_valid, op_data->op_mode,
+		      op_data->op_pxt_valid, -1, 0);
 
         req_capsule_set_size(&req->rq_pill, &RMF_MDT_MD, RCL_SERVER,
                              op_data->op_mode);
-        if (op_data->op_valid & OBD_MD_FLRMTPERM) {
-                LASSERT(client_is_remote(exp));
-                req_capsule_set_size(&req->rq_pill, &RMF_ACL, RCL_SERVER,
-                                     sizeof(struct mdt_remote_perm));
+	if (client_is_remote(exp)) {
+		int size = 0;
+
+		if (op_data->op_valid & OBD_MD_FLXATTR &&
+		    op_data->op_pxt_valid & PXT_RPERM) {
+			LASSERT(packaged_xattr_enabled(exp));
+
+			size = sizeof(struct packaged_xattr) +
+			       PX_RECLEN_ALIGN(sizeof(struct mdt_remote_perm));
+		} else if (op_data->op_valid & OBD_MD_FLRMTPERM) {
+			size = sizeof(struct mdt_remote_perm);
+		}
+
+		if (size > 0)
+			req_capsule_set_size(&req->rq_pill, &RMF_PACKAGED_XATTR,
+					     RCL_SERVER, size);
         }
         ptlrpc_request_set_replen(req);
 
@@ -266,7 +269,7 @@ int mdc_getattr_name(struct obd_export *exp, struct md_op_data *op_data,
 
         mdc_pack_body(req, &op_data->op_fid1, op_data->op_capa1,
                       op_data->op_valid, op_data->op_mode,
-                      op_data->op_suppgids[0], 0);
+		      op_data->op_pxt_valid, op_data->op_suppgids[0], 0);
 
         if (op_data->op_name) {
                 char *name = req_capsule_client_get(&req->rq_pill, &RMF_NAME);
@@ -375,7 +378,8 @@ static int mdc_xattr_common(struct obd_export *exp,const struct req_format *fmt,
 
                 mdc_pack_capa(req, &RMF_CAPA1, oc);
         } else {
-                mdc_pack_body(req, fid, oc, valid, output_size, suppgid, flags);
+		mdc_pack_body(req, fid, oc, valid, output_size, 0, suppgid,
+			      flags);
         }
 
         if (xattr_name) {
@@ -430,75 +434,102 @@ int mdc_getxattr(struct obd_export *exp, const struct lu_fid *fid,
                                 -1, request);
 }
 
-#ifdef CONFIG_FS_POSIX_ACL
-static int mdc_unpack_acl(struct ptlrpc_request *req, struct lustre_md *md)
+static int mdc_unpack_rperm(void *data, int len, struct mdt_remote_perm **pperm)
 {
-        struct req_capsule     *pill = &req->rq_pill;
-        struct mdt_body        *body = md->body;
-        struct posix_acl       *acl;
-        void                   *buf;
-        int                     rc;
+	struct mdt_remote_perm *perm;
         ENTRY;
 
-        if (!body->aclsize)
-                RETURN(0);
+	LASSERT(data != NULL);
 
-        buf = req_capsule_server_sized_get(pill, &RMF_ACL, body->aclsize);
+	if (len != sizeof(struct mdt_remote_perm))
+		RETURN(-EINVAL);
 
-        if (!buf)
-                RETURN(-EPROTO);
+	perm = data;
+	perm->rp_uid = be32_to_cpu(perm->rp_uid);
+	perm->rp_gid = be32_to_cpu(perm->rp_gid);
+	perm->rp_fsuid = be32_to_cpu(perm->rp_fsuid);
+	perm->rp_fsgid = be32_to_cpu(perm->rp_fsgid);
+	perm->rp_access_perm = be32_to_cpu(perm->rp_access_perm);
+	*pperm = perm;
 
-        acl = posix_acl_from_xattr(buf, body->aclsize);
+	RETURN(0);
+}
+
+static int mdc_unpack_acl(void *data, int len, struct posix_acl **pacl)
+{
+	struct posix_acl *acl;
+	int rc = 0;
+	ENTRY;
+
+#ifdef CONFIG_FS_POSIX_ACL
+	if (len == 0) {
+		*pacl = NULL;
+		GOTO(out, rc);
+	}
+
+	if (len == -1) {
+		*pacl = DUMMY_ACL;
+		GOTO(out, rc);
+	}
+
+	if (len < 0)
+		GOTO(out, rc = -EINVAL);
+
+	acl = posix_acl_from_xattr(data, len);
         if (IS_ERR(acl)) {
                 rc = PTR_ERR(acl);
-                CERROR("convert xattr to acl: %d\n", rc);
-                RETURN(rc);
+		CERROR("failed to convert xattr to acl: %d\n", rc);
+		GOTO(out, rc);
         }
 
         rc = posix_acl_valid(acl);
         if (rc) {
-                CERROR("validate acl: %d\n", rc);
+		CERROR("fail to validate acl: %d\n", rc);
                 posix_acl_release(acl);
-                RETURN(rc);
+		GOTO(out, rc);
         }
 
-        md->posix_acl = acl;
-        RETURN(0);
-}
+	*pacl = acl;
 #else
-#define mdc_unpack_acl(req, md) 0
+	*pacl = DUMMY_ACL;
 #endif
+	EXIT;
+
+out:
+	return rc;
+}
 
 int mdc_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,
                       struct obd_export *dt_exp, struct obd_export *md_exp,
                       struct lustre_md *md)
 {
         struct req_capsule *pill = &req->rq_pill;
-        int rc;
+	struct mdt_body    *body;
+	int                 rc;
         ENTRY;
 
         LASSERT(md);
         memset(md, 0, sizeof(*md));
 
-        md->body = req_capsule_server_get(pill, &RMF_MDT_BODY);
-        LASSERT(md->body != NULL);
+	body = req_capsule_server_get(pill, &RMF_MDT_BODY);
+	LASSERT(body != NULL);
 
-        if (md->body->valid & OBD_MD_FLEASIZE) {
+	if (body->valid & OBD_MD_FLEASIZE) {
                 int lmmsize;
                 struct lov_mds_md *lmm;
 
-                if (!S_ISREG(md->body->mode)) {
+		if (!S_ISREG(body->mode)) {
                         CDEBUG(D_INFO, "OBD_MD_FLEASIZE set, should be a "
                                "regular file, but is not\n");
                         GOTO(out, rc = -EPROTO);
                 }
 
-                if (md->body->eadatasize == 0) {
+		if (body->eadatasize == 0) {
                         CDEBUG(D_INFO, "OBD_MD_FLEASIZE set, "
                                "but eadatasize 0\n");
                         GOTO(out, rc = -EPROTO);
                 }
-                lmmsize = md->body->eadatasize;
+		lmmsize = body->eadatasize;
                 lmm = req_capsule_server_sized_get(pill, &RMF_MDT_MD, lmmsize);
                 if (!lmm)
                         GOTO(out, rc = -EPROTO);
@@ -514,23 +545,23 @@ int mdc_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,
                         GOTO(out, rc = -EPROTO);
                 }
 
-        } else if (md->body->valid & OBD_MD_FLDIREA) {
+	} else if (body->valid & OBD_MD_FLDIREA) {
                 int lmvsize;
                 struct lov_mds_md *lmv;
 
-                if(!S_ISDIR(md->body->mode)) {
+		if (!S_ISDIR(body->mode)) {
                         CDEBUG(D_INFO, "OBD_MD_FLDIREA set, should be a "
                                "directory, but is not\n");
                         GOTO(out, rc = -EPROTO);
                 }
 
-                if (md->body->eadatasize == 0) {
+		if (body->eadatasize == 0) {
                         CDEBUG(D_INFO, "OBD_MD_FLDIREA is set, "
                                "but eadatasize 0\n");
                         RETURN(-EPROTO);
                 }
-                if (md->body->valid & OBD_MD_MEA) {
-                        lmvsize = md->body->eadatasize;
+		if (body->valid & OBD_MD_MEA) {
+			lmvsize = body->eadatasize;
                         lmv = req_capsule_server_sized_get(pill, &RMF_MDT_MD,
                                                            lmvsize);
                         if (!lmv)
@@ -551,30 +582,107 @@ int mdc_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,
         }
         rc = 0;
 
-        if (md->body->valid & OBD_MD_FLRMTPERM) {
-                /* remote permission */
+	if (body->valid & OBD_MD_FLXATTR && body->mb_pxattr > 0) {
+		void *buf = req_capsule_server_sized_get(pill,
+							 &RMF_PACKAGED_XATTR,
+							 body->mb_pxattr);
+		int left = body->mb_pxattr;
+		struct packaged_xattr *px = buf;
+
+		if (unlikely(px == NULL))
+			GOTO(out, rc = -EPROTO);
+
+		while (left > 0) {
+			__u32 type = be32_to_cpu(px->px_type);
+			__u32 size = be32_to_cpu(px->px_size);
+			__u32 namelen = size >> PX_NAMELEN_SHIFT;
+			__u32 nsize = PX_RECLEN_ALIGN(namelen);
+			void *data = px->px_data + nsize;
+			__u32 datalen = size & PX_NAMELEN_MASK;
+			__u32 reclen;
+
+			switch (type) {
+			case PXT_ACL:
+				rc = mdc_unpack_acl(data, datalen,
+						    &md->posix_acl);
+				if (rc)
+					GOTO(out, rc);
+
+				md->pxt_valid |= PXT_ACL;
+				break;
+			case PXT_DEFACL:
+				rc = mdc_unpack_acl(data, datalen,
+						    &md->def_acl);
+				if (rc)
+					GOTO(out, rc);
+
+				md->pxt_valid |= PXT_DEFACL;
+				break;
+			case PXT_RPERM:
+				rc = mdc_unpack_rperm(data, datalen,
+						      &md->remote_perm);
+				if (rc)
+					GOTO(out, rc);
+
+				md->pxt_valid |= PXT_RPERM;
+				break;
+			case PXT_OTHERS:
+				/* XXX: Add more process for other xattrs,
+				 *      like security, in the future. */
+#if 0
+				memcpy(md->md_xattr_name, px->px_data, namelen);
+				rc = mdc_unpack_xattr(data, datalen,
+						      &md->md_xattr);
+#endif
+				break;
+			default:
+				CWARN("%s: unknown packaged xattr type [%d] "
+				      "for ["DFID"]\n", exp->exp_obd->obd_name,
+				      type, PFID(&body->fid1));
+				GOTO(out, rc = -EINVAL);
+			}
+
+			if (datalen == PX_DUMMY_XATTR)
+				datalen = 0;
+			reclen = sizeof(struct packaged_xattr) + nsize +
+				 PX_RECLEN_ALIGN(datalen);
+			px = PX_NEXT_REC(px, reclen);
+			left -= reclen;
+		}
+		goto capa;
+	}
+
+	if (body->valid & OBD_MD_FLRMTPERM) {
                 LASSERT(client_is_remote(exp));
-                md->remote_perm = req_capsule_server_swab_get(pill, &RMF_ACL,
+
+		md->remote_perm = req_capsule_server_swab_get(pill,
+						&RMF_PACKAGED_XATTR,
                                                 lustre_swab_mdt_remote_perm);
                 if (!md->remote_perm)
                         GOTO(out, rc = -EPROTO);
-        }
-        else if (md->body->valid & OBD_MD_FLACL) {
-                /* for ACL, it's possible that FLACL is set but aclsize is zero.
-                 * only when aclsize != 0 there's an actual segment for ACL
-                 * in reply buffer.
-                 */
-                if (md->body->aclsize) {
-                        rc = mdc_unpack_acl(req, md);
-                        if (rc)
-                                GOTO(out, rc);
-#ifdef CONFIG_FS_POSIX_ACL
+	} else if (body->valid & OBD_MD_FLACL && body->mb_pxattr >= 0) {
+		void *data;
+
+		if (body->mb_pxattr == 0) {
+			rc = mdc_unpack_acl(NULL, 0, &md->posix_acl);
                 } else {
-                        md->posix_acl = NULL;
-#endif
+			data = req_capsule_server_sized_get(pill,
+							&RMF_PACKAGED_XATTR,
+							body->mb_pxattr);
+			if (unlikely(data == NULL))
+				GOTO(out, rc = -EPROTO);
+
+			rc = mdc_unpack_acl(data, body->mb_pxattr,
+					    &md->posix_acl);
                 }
+		if (rc)
+			GOTO(out, rc);
+
+		md->pxt_valid |= PXT_ACL;
         }
-        if (md->body->valid & OBD_MD_FLMDSCAPA) {
+
+capa:
+	if (body->valid & OBD_MD_FLMDSCAPA) {
                 struct obd_capa *oc = NULL;
 
                 rc = mdc_unpack_capa(NULL, req, &RMF_CAPA1, &oc);
@@ -583,7 +691,7 @@ int mdc_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,
                 md->mds_capa = oc;
         }
 
-        if (md->body->valid & OBD_MD_FLOSSCAPA) {
+	if (body->valid & OBD_MD_FLOSSCAPA) {
                 struct obd_capa *oc = NULL;
 
                 rc = mdc_unpack_capa(NULL, req, &RMF_CAPA2, &oc);
@@ -604,10 +712,18 @@ out:
                         md->mds_capa = NULL;
                 }
 #ifdef CONFIG_FS_POSIX_ACL
-                posix_acl_release(md->posix_acl);
+		if (md->posix_acl && md->posix_acl != DUMMY_ACL)
+			posix_acl_release(md->posix_acl);
+		md->posix_acl = NULL;
+
+		if (md->def_acl && md->def_acl != DUMMY_ACL)
+			posix_acl_release(md->def_acl);
+		md->def_acl = NULL;
 #endif
                 if (md->lsm)
                         obd_free_memmd(dt_exp, &md->lsm);
+	} else {
+		md->body = body;
         }
         return rc;
 }
@@ -1833,7 +1949,7 @@ static int mdc_pin(struct obd_export *exp, const struct lu_fid *fid,
                 RETURN(rc);
         }
 
-        mdc_pack_body(req, fid, oc, 0, 0, -1, flags);
+	mdc_pack_body(req, fid, oc, 0, 0, 0, -1, flags);
 
         ptlrpc_request_set_replen(req);
 
@@ -1919,7 +2035,7 @@ int mdc_sync(struct obd_export *exp, const struct lu_fid *fid,
                 RETURN(rc);
         }
 
-        mdc_pack_body(req, fid, oc, 0, 0, -1, 0);
+	mdc_pack_body(req, fid, oc, 0, 0, 0, -1, 0);
 
         ptlrpc_request_set_replen(req);
 
@@ -2267,9 +2383,9 @@ int mdc_get_remote_perm(struct obd_export *exp, const struct lu_fid *fid,
                 RETURN(rc);
         }
 
-        mdc_pack_body(req, fid, oc, OBD_MD_FLRMTPERM, 0, suppgid, 0);
+	mdc_pack_body(req, fid, oc, OBD_MD_FLRMTPERM, 0, 0, suppgid, 0);
 
-        req_capsule_set_size(&req->rq_pill, &RMF_ACL, RCL_SERVER,
+	req_capsule_set_size(&req->rq_pill, &RMF_PACKAGED_XATTR, RCL_SERVER,
                              sizeof(struct mdt_remote_perm));
 
         ptlrpc_request_set_replen(req);
@@ -2325,7 +2441,8 @@ static int mdc_renew_capa(struct obd_export *exp, struct obd_capa *oc,
         /* NB, OBD_MD_FLOSSCAPA is set here, but it doesn't necessarily mean the
          * capa to renew is oss capa.
          */
-        mdc_pack_body(req, &oc->c_capa.lc_fid, oc, OBD_MD_FLOSSCAPA, 0, -1, 0);
+	mdc_pack_body(req, &oc->c_capa.lc_fid, oc, OBD_MD_FLOSSCAPA, 0, 0, -1,
+		      0);
         ptlrpc_request_set_replen(req);
 
         CLASSERT(sizeof(*ra) <= sizeof(req->rq_async_args));
