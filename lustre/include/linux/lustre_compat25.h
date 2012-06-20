@@ -859,5 +859,10 @@ static inline bool selinux_is_enabled(void)
 }
 #endif
 
+#ifdef HAS_64BIT_NAMEHASH_MERGED
+# define O_32BITHASH FMODE_32BITHASH
+# define O_64BITHASH FMODE_64BITHASH
+#endif
+
 #endif /* __KERNEL__ */
 #endif /* _COMPAT25_H */
