@@ -405,6 +405,372 @@ ptlrpc_lprocfs_wr_threads_max(struct file *file, const char *buffer,
 	return count;
 }
 
+static const char *
+ptlrpc_lprocfs_nrs_state2str(enum ptlrpc_nrs_pol_state state)
+{
+	switch (state) {
+	default:
+		return "unknown";
+	case NRS_POL_STATE_UNAVAIL:
+		return "unavail";
+	case NRS_POL_STATE_STOPPED:
+		return "stopped";
+	case NRS_POL_STATE_STOPPING:
+		return "stopping";
+	case NRS_POL_STATE_STARTING:
+		return "starting";
+	case NRS_POL_STATE_STARTED:
+		return "started";
+	}
+}
+
+static int
+ptlrpc_lprocfs_rd_nrs0(struct ptlrpc_service_part *svcpt,
+		       enum ptlrpc_nrs_queue_type queue,
+		       char *name, char *buf, int count)
+{
+	int				rc;
+	struct ptlrpc_nrs_pol_info	info;
+
+
+	rc = ptlrpc_nrs_policy_control(svcpt, queue,
+				       name, PTLRPC_NRS_CTL_GET_INFO,
+				       &info);
+	if (rc < 0)
+		return rc;
+
+	rc = snprintf(buf, count, "%s\t%s\t%s\t%-8d%-8d\n",
+		      info.pi_name,
+		      ptlrpc_lprocfs_nrs_state2str(info.pi_state),
+		      info.pi_fallback ? "   *" : " ",
+		      (int)info.pi_req_queued,
+		      (int)info.pi_req_started);
+
+	return rc;
+}
+
+static int
+ptlrpc_lprocfs_rd_nrs(char *page, char **start, off_t off,
+		      int count, int *eof, void *data)
+{
+	struct ptlrpc_service_part     *svcpt = data;
+	struct ptlrpc_nrs_policy       *policy;
+	int				rc;
+	int				rc2;
+
+	rc = snprintf(page, count,
+		      "\nREG:\nname\tstate\tfallbac\tqueued\tactive\n");
+
+	cfs_list_for_each_entry(policy, &svcpt->scp_nrs_reg.nrs_policy_list,
+				pol_list) {
+		rc2 = ptlrpc_lprocfs_rd_nrs0(svcpt, PTLRPC_NRS_QUEUE_REG,
+					     policy->pol_name, page + rc,
+					     count);
+		if (rc2 < 0)
+			RETURN(rc2);
+
+		rc += rc2;
+	}
+
+	rc += snprintf(page + rc, count, "\n");
+
+	if (!nrs_svcpt_has_hp(svcpt))
+		return rc;
+
+	rc += snprintf(page + rc, count,
+		       "HP:\nname\tstate\tfallbac\tqueued\tactive\n");
+
+	cfs_list_for_each_entry(policy, &svcpt->scp_nrs_hp->nrs_policy_list,
+				pol_list) {
+		rc2 = ptlrpc_lprocfs_rd_nrs0(svcpt, PTLRPC_NRS_QUEUE_HP,
+					     policy->pol_name, page + rc,
+					     count);
+		if (rc2 < 0)
+			RETURN(rc2);
+
+		rc += rc2;
+	}
+
+	rc += snprintf(page + rc, count, "\n");
+
+	return rc;
+}
+
+/* The longest valid command string is +5 for the " both" substring */
+#define LPROCFS_NRS_WR_MAX_CMD	(NRS_POL_NAME_MAX + 5)
+
+/* Commands consist of the policy name, followed by an optional [both|hp] token;
+ * by default, the operation is performed on the regular NRS head.
+ */
+static int
+ptlrpc_lprocfs_wr_nrs(struct file *file, const char *buffer,
+		      unsigned long count, void *data)
+{
+	struct ptlrpc_service_part     *svcpt = data;
+	enum ptlrpc_nrs_queue_type	queue = PTLRPC_NRS_QUEUE_REG;
+	char			       *cmd;
+	/* strsep modifies the address of its argument, so keep a copy */
+	char			       *cmd_copy = NULL;
+	char			       *token;
+	int				rc;
+
+	if (count > LPROCFS_NRS_WR_MAX_CMD)
+		GOTO(out, rc = -EINVAL);
+
+	OBD_ALLOC(cmd, LPROCFS_NRS_WR_MAX_CMD);
+	if (cmd == NULL)
+		GOTO(out, rc = -ENOMEM);
+	cmd_copy = cmd;
+
+	if (cfs_copy_from_user(cmd, buffer, count))
+		GOTO(out, rc = -EFAULT);
+
+	token = strsep(&cmd, " ");
+	/* XXX: token can't actually be NULL here; see strsep()
+	 * implementation */
+	if (token == NULL)
+		GOTO(out, rc = -EFAULT);
+
+	if (strlen(token) > NRS_POL_NAME_MAX)
+		GOTO(out, rc = -EINVAL);
+
+	/* No [both|hp] token has been specified */
+	if (cmd == NULL)
+		goto dflt_queue;
+
+	/* The second token is either NULL, or an optional
+	 * [both|hp] string */
+	if (!(strcmp(cmd, "both")))
+		queue = PTLRPC_NRS_QUEUE_BOTH;
+	else if (!(strcmp(cmd, "hp")))
+		queue = PTLRPC_NRS_QUEUE_HP;
+	else
+		GOTO(out, rc = -EINVAL);
+
+dflt_queue:
+
+	if (queue == PTLRPC_NRS_QUEUE_HP &&
+	    !nrs_svcpt_has_hp(svcpt))
+		GOTO(out, rc = -ENODEV);
+
+	if (queue == PTLRPC_NRS_QUEUE_BOTH &&
+	    !nrs_svcpt_has_hp(svcpt))
+		queue = PTLRPC_NRS_QUEUE_REG;
+
+	rc = ptlrpc_nrs_policy_control(svcpt, queue, token,
+				       PTLRPC_NRS_CTL_START, NULL);
+
+out:
+	if (cmd_copy)
+		OBD_FREE(cmd_copy, LPROCFS_NRS_WR_MAX_CMD);
+	RETURN(rc < 0 ? rc : count);
+}
+
+static int
+ptlrpc_lprocfs_rd_nrs_orr_quantum(char *page, char **start, off_t off,
+				  int count, int *eof, void *data)
+{
+	struct ptlrpc_nrs_policy       *policy = data;
+	struct ptlrpc_service_part     *svcpt = policy->pol_nrs->nrs_svcpt;
+	struct nrs_orr_info		info;
+	int				rc;
+	int				rc2;
+
+	rc = snprintf(page, count, "num RPCs:");
+
+	rc2 = ptlrpc_nrs_policy_control(svcpt, policy->pol_nrs->nrs_queue_type,
+					policy->pol_name,
+					NRS_CTL_ORR_RD_QUANTUM, &info);
+	if (rc2 < 0)
+		return rc2;
+
+	rc += snprintf(page + rc, count, "\t%-8d\n", info.oi_quantum);
+
+	return rc;
+}
+
+/**
+ * TODO: Replace or remove this: newer kernels define USHRT_MAX instead of
+ * USHORT_MAX
+ */
+#ifndef USHORT_MAX
+# ifdef USHRT_MAX
+#  define USHORT_MAX USHRT_MAX
+# else
+#  define USHORT_MAX ((u16)(~0U))
+# endif
+#endif
+
+/* Changing the quantum only takes effect from the next round of request merges
+ * for the object */
+static int
+ptlrpc_lprocfs_wr_nrs_orr_quantum(struct file *file, const char *buffer,
+				  unsigned long count, void *data)
+{
+	struct ptlrpc_nrs_policy       *policy = data;
+	struct ptlrpc_service_part     *svcpt = nrs_pol2svcpt(policy);
+	int				rc;
+	int				val;
+
+	rc = lprocfs_write_helper(buffer, count, &val);
+
+	if (rc < 0)
+		return rc;
+
+	if (val < 0)
+		return -ERANGE;
+
+	/**
+	 * N.B. USHORT_MAX inline with __u16 nrs_orr_object::oo_quantum
+	 */
+	if (val > USHORT_MAX)
+		return -ERANGE;
+
+	/* Change both NRS heads with each command */
+	rc = ptlrpc_nrs_policy_control(svcpt, PTLRPC_NRS_QUEUE_BOTH,
+				       policy->pol_name,
+				       NRS_CTL_ORR_WR_QUANTUM,
+				       &val);
+	if (rc < 0)
+		return rc;
+
+	return count;
+}
+
+/* Read the NRS ORR/TRR policy offset type, {physical|logical} */
+static int
+ptlrpc_lprocfs_rd_nrs_orr_off_type(char *page, char **start, off_t off,
+				   int count, int *eof, void *data)
+{
+	struct ptlrpc_nrs_policy       *policy = data;
+	struct ptlrpc_service_part     *svcpt = nrs_pol2svcpt(policy);
+	struct nrs_orr_info		info;
+	int				rc;
+	int				rc2;
+
+	LASSERT(policy->pol_nrs->nrs_queue_type == PTLRPC_NRS_QUEUE_REG ||
+		policy->pol_nrs->nrs_queue_type == PTLRPC_NRS_QUEUE_HP);
+
+	rc = snprintf(page, count, "offset type:");
+
+	rc2 = ptlrpc_nrs_policy_control(svcpt, policy->pol_nrs->nrs_queue_type,
+					policy->pol_name,
+					NRS_CTL_ORR_RD_OFF_TYPE, &info);
+	if (rc2 < 0)
+		return rc2;
+
+	rc += snprintf(page + rc, count, "\t%s\n",
+		       info.oi_physical ? "physical\n" : "logical\n");
+
+	return rc;
+}
+
+/* Change the NRS ORR/TRR offset type between {physical|logical} */
+static int
+ptlrpc_lprocfs_wr_nrs_orr_off_type(struct file *file, const char *buffer,
+				   unsigned long count, void *data)
+{
+	struct ptlrpc_nrs_policy       *policy = data;
+	struct ptlrpc_service_part     *svcpt = nrs_pol2svcpt(policy);
+	char				off_type[9];
+	int				rc;
+
+
+	if (count > sizeof(off_type) - 1)
+		return -EINVAL;
+	if (cfs_copy_from_user(off_type, buffer, count))
+		return -EFAULT;
+	off_type[count] = '\0';
+
+	if (strcmp(off_type, "physical") && strcmp(off_type, "logical"))
+		return -EINVAL;
+
+	/* Change both NRS heads with each command */
+	rc = ptlrpc_nrs_policy_control(svcpt, PTLRPC_NRS_QUEUE_BOTH,
+				       policy->pol_name,
+				       NRS_CTL_ORR_WR_OFF_TYPE, off_type);
+	if (rc < 0)
+		return rc;
+
+	return count;
+}
+
+/* Obtain the currectly handled type of RPCs for an ORR/TRR policy
+ */
+static int
+ptlrpc_lprocfs_rd_nrs_orr_supp_req(char *page, char **start, off_t off,
+				   int count, int *eof, void *data)
+{
+	struct ptlrpc_nrs_policy       *policy = data;
+	struct ptlrpc_service_part     *svcpt = nrs_pol2svcpt(policy);
+	struct nrs_orr_info		info;
+	int				rc;
+	int				rc2;
+	char			       *supp_str;
+
+	LASSERT(policy->pol_nrs->nrs_queue_type == PTLRPC_NRS_QUEUE_REG ||
+		policy->pol_nrs->nrs_queue_type == PTLRPC_NRS_QUEUE_HP);
+
+	rc = snprintf(page, count, "RPCs handled:");
+
+	rc2 = ptlrpc_nrs_policy_control(svcpt, policy->pol_nrs->nrs_queue_type,
+					policy->pol_name,
+					NRS_CTL_ORR_RD_SUPP_REQ, &info);
+	if (rc2 < 0)
+		return rc2;
+
+	switch (info.oi_supp_req) {
+	case NOS_OST_READ:
+		supp_str = "OST_READ";
+		break;
+	case NOS_OST_WRITE:
+		supp_str = "OST_WRITE";
+		break;
+	case NOS_OST_RW:
+		supp_str = "OST_READ and OST_WRITE";
+		break;
+	default:
+		LBUG();
+	}
+
+	rc += snprintf(page + rc, count, "\t%s\n",
+		       supp_str);
+
+	return rc;
+}
+
+/* Set the currectly handled type of RPCs for an ORR/TRR policy; see
+ * enum nrs_orr_supp; inputs are read, write, readwrite
+ */
+static int
+ptlrpc_lprocfs_wr_nrs_orr_supp_req(struct file *file, const char *buffer,
+				   unsigned long count, void *data)
+{
+	struct ptlrpc_nrs_policy       *policy = data;
+	struct ptlrpc_service_part     *svcpt = nrs_pol2svcpt(policy);
+	char				supp[10];
+	int				rc;
+
+	if (count > sizeof(supp) - 1)
+		return -EINVAL;
+	if (cfs_copy_from_user(supp, buffer, count))
+		return -EFAULT;
+	supp[count] = '\0';
+
+	if (strcmp(supp, "read") && strcmp(supp, "write") &&
+	    strcmp(supp, "readwrite"))
+		return -EINVAL;
+
+	/* Change both NRS heads with each command */
+	rc = ptlrpc_nrs_policy_control(svcpt, PTLRPC_NRS_QUEUE_BOTH,
+				       policy->pol_name,
+				       NRS_CTL_ORR_WR_SUPP_REQ, supp);
+	if (rc < 0)
+		return rc;
+
+	return count;
+}
+
 struct ptlrpc_srh_iterator {
 	int			srhi_idx;
 	__u64			srhi_seq;
@@ -709,6 +1075,43 @@ static int ptlrpc_lprocfs_wr_hp_ratio(struct file *file, const char *buffer,
 	return count;
 }
 
+static int
+ptlrpc_lprocfs_register_svc_parts(struct ptlrpc_service *svc)
+{
+	struct ptlrpc_service_part     *svcpt;
+	int				i;
+	char				cptidstr[4];
+	cfs_proc_dir_entry_t	       *srv_cpt_procroot;
+
+	struct lprocfs_vars lproc_vars[] = {
+		{ .name       = "nrs_policies",
+		  .read_fptr  = ptlrpc_lprocfs_rd_nrs,
+		  .write_fptr = ptlrpc_lprocfs_wr_nrs },
+		{ NULL}
+	};
+
+	srv_cpt_procroot = lprocfs_register("cpt", svc->srv_procroot, NULL,
+					    NULL);
+	if (IS_ERR(srv_cpt_procroot))
+		return PTR_ERR(srv_cpt_procroot);
+
+	ptlrpc_service_for_each_part(svcpt, i, svc) {
+		snprintf(cptidstr, sizeof(cptidstr), "%d", svcpt->scp_cpt);
+                svcpt->scp_procroot = lprocfs_register(cptidstr,
+						       srv_cpt_procroot,
+						       NULL, NULL);
+                if (IS_ERR(svcpt->scp_procroot)) {
+			lprocfs_remove(&srv_cpt_procroot);
+			return PTR_ERR(svcpt->scp_procroot);
+		}
+
+		lproc_vars[0].data = svcpt;
+		lprocfs_add_vars(svcpt->scp_procroot, lproc_vars, NULL);
+	}
+
+	return 0;
+}
+
 void ptlrpc_lprocfs_register_service(struct proc_dir_entry *entry,
                                      struct ptlrpc_service *svc)
 {
@@ -738,7 +1141,7 @@ void ptlrpc_lprocfs_register_service(struct proc_dir_entry *entry,
                 {.name       = "timeouts",
                  .read_fptr  = ptlrpc_lprocfs_rd_timeouts,
                  .data       = svc},
-                {NULL}
+		{NULL}
         };
         static struct file_operations req_history_fops = {
                 .owner       = THIS_MODULE,
@@ -763,6 +1166,12 @@ void ptlrpc_lprocfs_register_service(struct proc_dir_entry *entry,
                                 0400, &req_history_fops, svc);
         if (rc)
                 CWARN("Error adding the req_history file\n");
+
+	rc = ptlrpc_lprocfs_register_svc_parts(svc);
+	if (rc)
+                CERROR("Failed to initalize lprocfs for %s service CPTs. Only "
+		       "the FIFO NRS policy will be available.\n",
+		       svc->srv_name);
 }
 
 void ptlrpc_lprocfs_register_obd(struct obd_device *obddev)
@@ -1018,5 +1427,87 @@ int lprocfs_wr_pinger_recov(struct file *file, const char *buffer,
 
 }
 EXPORT_SYMBOL(lprocfs_wr_pinger_recov);
+
+/** NRS */
+int nrs_orr_lprocfs_init(struct ptlrpc_nrs_policy *policy)
+{
+	struct ptlrpc_service_part     *svcpt = nrs_pol2svcpt(policy);
+	int				rc;
+
+	struct lprocfs_vars nrs_orr_lprocfs_vars[] = {
+		{ .name       = "nrs_orr_quantum",
+		  .read_fptr  = ptlrpc_lprocfs_rd_nrs_orr_quantum,
+		  .write_fptr = ptlrpc_lprocfs_wr_nrs_orr_quantum,
+		  .data       = policy },
+		{ .name       = "nrs_orr_off_type",
+		  .read_fptr  = ptlrpc_lprocfs_rd_nrs_orr_off_type,
+		  .write_fptr = ptlrpc_lprocfs_wr_nrs_orr_off_type,
+		  .data       = policy },
+		{ .name       = "nrs_orr_supp_req",
+		  .read_fptr  = ptlrpc_lprocfs_rd_nrs_orr_supp_req,
+		  .write_fptr = ptlrpc_lprocfs_wr_nrs_orr_supp_req,
+		  .data       = policy },
+		{ NULL }
+	};
+
+	rc = lprocfs_add_vars(svcpt->scp_procroot,
+			      nrs_orr_lprocfs_vars, NULL);
+
+	return rc;
+}
+
+void nrs_orr_lprocfs_fini(struct ptlrpc_nrs_policy *policy)
+{
+	struct ptlrpc_service_part     *svcpt = nrs_pol2svcpt(policy);
+
+
+	lprocfs_remove_proc_entry("nrs_orr_quantum",
+				  svcpt->scp_procroot);
+	lprocfs_remove_proc_entry("nrs_orr_off_type",
+				  svcpt->scp_procroot);
+	lprocfs_remove_proc_entry("nrs_orr_supp_req",
+				  svcpt->scp_procroot);
+}
+
+int nrs_trr_lprocfs_init(struct ptlrpc_nrs_policy *policy)
+{
+	struct ptlrpc_service_part     *svcpt = nrs_pol2svcpt(policy);
+	int				rc;
+
+
+	struct lprocfs_vars nrs_trr_lprocfs_vars[] = {
+		{ .name       = "nrs_trr_quantum",
+		  .read_fptr  = ptlrpc_lprocfs_rd_nrs_orr_quantum,
+		  .write_fptr = ptlrpc_lprocfs_wr_nrs_orr_quantum,
+		  .data       = policy },
+		{ .name       = "nrs_trr_off_type",
+		  .read_fptr  = ptlrpc_lprocfs_rd_nrs_orr_off_type,
+		  .write_fptr = ptlrpc_lprocfs_wr_nrs_orr_off_type,
+		  .data       = policy },
+		{ .name       = "nrs_trr_supp_req",
+		  .read_fptr  = ptlrpc_lprocfs_rd_nrs_orr_supp_req,
+		  .write_fptr = ptlrpc_lprocfs_wr_nrs_orr_supp_req,
+		  .data       = policy },
+		{ NULL }
+	};
+
+	rc = lprocfs_add_vars(svcpt->scp_procroot,
+			      nrs_trr_lprocfs_vars, NULL);
+
+	return rc;
+}
+
+void nrs_trr_lprocfs_fini(struct ptlrpc_nrs_policy *policy)
+{
+	struct ptlrpc_service_part     *svcpt = nrs_pol2svcpt(policy);
+
+
+	lprocfs_remove_proc_entry("nrs_trr_quantum",
+				  svcpt->scp_procroot);
+	lprocfs_remove_proc_entry("nrs_trr_off_type",
+				  svcpt->scp_procroot);
+	lprocfs_remove_proc_entry("nrs_trr_supp_req",
+				  svcpt->scp_procroot);
+}
 
 #endif /* LPROCFS */
