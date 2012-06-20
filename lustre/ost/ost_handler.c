@@ -2481,6 +2481,10 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 		.psc_cpt                = {
 			.cc_pattern             = oss_cpts,
 		},
+		.psc_nrs		= {
+			.nc_supp		= PTLRPC_NRS_TYPE_COMMON,
+			.nc_type		= PTLRPC_NRS_QUEUE_REG,
+		},
 		.psc_ops		= {
 			.so_req_handler		= ost_handle,
 			.so_req_printer		= target_print_req,
@@ -2519,6 +2523,10 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 		},
 		.psc_cpt                = {
 			.cc_pattern             = oss_cpts,
+		},
+		.psc_nrs		= {
+			.nc_supp		= PTLRPC_NRS_TYPE_COMMON,
+			.nc_type		= PTLRPC_NRS_QUEUE_REG,
 		},
 		.psc_ops		= {
 			.so_req_handler		= ost_handle,
@@ -2585,6 +2593,10 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 			.cc_cptable		= ost_io_cptable,
 			.cc_pattern		= ost_io_cptable == NULL ?
 						  oss_io_cpts : NULL,
+		},
+		.psc_nrs		= {
+			.nc_supp		= PTLRPC_NRS_TYPE_ALL,
+			.nc_type		= PTLRPC_NRS_QUEUE_BOTH,
 		},
 		.psc_ops		= {
 			.so_thr_init		= ost_thread_init,
