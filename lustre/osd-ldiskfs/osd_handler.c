@@ -1933,7 +1933,10 @@ static int osd_declare_object_create(const struct lu_env *env,
                                      struct dt_object_format *dof,
                                      struct thandle *handle)
 {
-        struct osd_thandle *oh;
+	struct osd_thandle	*oh;
+	struct osd_object	*obj = osd_dt_obj(dt);
+	struct osd_device	*osd = osd_obj2dev(obj);
+	struct osd_obj_seq	*osd_seq;
 
         LASSERT(handle != NULL);
 
@@ -1963,7 +1966,16 @@ static int osd_declare_object_create(const struct lu_env *env,
                 osd_declare_qid(dt, oh, USRQUOTA, attr->la_uid, NULL);
                 osd_declare_qid(dt, oh, GRPQUOTA, attr->la_gid, NULL);
         }
-        return 0;
+
+	/* Since init osd_seq includes some disk update, and we do not
+	 * reserve this transaction credit for each create, so we will
+	 * check/create the seq in the declare phase, instead of reserve
+	 * the credit */
+	osd_seq = osd_seq_load(osd, fid_seq(lu_object_fid(&dt->do_lu)));
+	if (IS_ERR(osd_seq))
+		return PTR_ERR(osd_seq);
+
+	return 0;
 }
 
 static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
@@ -4366,7 +4378,7 @@ static int osd_mount(const struct lu_env *env,
                 o->od_iop_mode = 1;
 
         if (ldd->ldd_flags & LDD_F_SV_TYPE_OST) {
-                rc = osd_compat_init(o);
+		rc = osd_obj_map_init(o);
                 if (rc)
                         CERROR("%s: can't initialize compats: %d\n", dev, rc);
         }
@@ -4380,7 +4392,7 @@ static struct lu_device *osd_device_fini(const struct lu_env *env,
         int rc;
         ENTRY;
 
-        osd_compat_fini(osd_dev(d));
+	osd_obj_map_fini(osd_dev(d));
 
         shrink_dcache_sb(osd_sb(osd_dev(d)));
         osd_sync(env, lu2dt_dev(d));

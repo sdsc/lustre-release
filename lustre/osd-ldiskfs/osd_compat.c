@@ -35,7 +35,7 @@
  *
  * lustre/osd/osd_compat.c
  *
- * on-disk compatibility stuff for OST
+ * on-disk structure for managing /O
  *
  * Author: Alex Zhuravlev <bzzz@whamcloud.com>
  */
@@ -57,25 +57,6 @@
 #include "osd_internal.h"
 #include "osd_oi.h"
 
-struct osd_compat_objid_seq {
-        /* protects on-fly initialization */
-        cfs_semaphore_t        dir_init_sem;
-        /* file storing last created objid */
-        struct osd_inode_id    last_id;
-        struct dentry         *groot; /* O/<seq> */
-        struct dentry        **dirs;  /* O/<seq>/d0-dXX */
-};
-
-#define MAX_OBJID_GROUP (FID_SEQ_ECHO + 1)
-
-struct osd_compat_objid {
-        int                          subdir_count;
-        struct dentry               *root;
-        struct osd_inode_id          last_rcvd_id;
-        struct osd_inode_id          last_seq_id;
-        struct osd_compat_objid_seq  groups[MAX_OBJID_GROUP];
-};
-
 static void osd_push_ctxt(const struct osd_device *dev,
                           struct lvfs_run_ctxt *newctxt,
                           struct lvfs_run_ctxt *save)
@@ -86,91 +67,6 @@ static void osd_push_ctxt(const struct osd_device *dev,
         newctxt->fs = get_ds();
 
         push_ctxt(save, newctxt, NULL);
-}
-
-void osd_compat_seq_fini(struct osd_device *osd, int seq)
-{
-        struct osd_compat_objid_seq *grp;
-        struct osd_compat_objid     *map = osd->od_ost_map;
-        int                          i;
-
-        ENTRY;
-
-        grp = &map->groups[seq];
-        if (grp->groot ==NULL)
-                RETURN_EXIT;
-        LASSERT(grp->dirs);
-
-        for (i = 0; i < map->subdir_count; i++) {
-                if (grp->dirs[i] == NULL)
-                        break;
-                dput(grp->dirs[i]);
-        }
-
-        OBD_FREE(grp->dirs, sizeof(struct dentry *) * map->subdir_count);
-        dput(grp->groot);
-        EXIT;
-}
-
-int osd_compat_seq_init(struct osd_device *osd, int seq)
-{
-        struct osd_compat_objid_seq *grp;
-        struct osd_compat_objid     *map;
-        struct dentry               *d;
-        int                          rc = 0;
-        char                         name[32];
-        int                          i;
-        ENTRY;
-
-        map = osd->od_ost_map;
-        LASSERT(map);
-        LASSERT(map->root);
-        grp = &map->groups[seq];
-
-        if (grp->groot != NULL)
-                RETURN(0);
-
-        cfs_down(&grp->dir_init_sem);
-
-        sprintf(name, "%d", seq);
-        d = simple_mkdir(map->root, osd->od_mnt, name, 0755, 1);
-        if (IS_ERR(d)) {
-                rc = PTR_ERR(d);
-                GOTO(out, rc);
-        } else if (d->d_inode == NULL) {
-                rc = -EFAULT;
-                dput(d);
-                GOTO(out, rc);
-        }
-
-        LASSERT(grp->dirs == NULL);
-        OBD_ALLOC(grp->dirs, sizeof(d) * map->subdir_count);
-        if (grp->dirs == NULL) {
-                dput(d);
-                GOTO(out, rc = -ENOMEM);
-        }
-
-        grp->groot = d;
-        for (i = 0; i < map->subdir_count; i++) {
-                sprintf(name, "d%d", i);
-                d = simple_mkdir(grp->groot, osd->od_mnt, name, 0755, 1);
-                if (IS_ERR(d)) {
-                        rc = PTR_ERR(d);
-                        break;
-                } else if (d->d_inode == NULL) {
-                        rc = -EFAULT;
-                        dput(d);
-                        break;
-                }
-
-                grp->dirs[i] = d;
-        }
-
-        if (rc)
-                osd_compat_seq_fini(osd, seq);
-out:
-        cfs_up(&grp->dir_init_sem);
-        RETURN(rc);
 }
 
 int osd_last_rcvd_subdir_count(struct osd_device *osd)
@@ -211,25 +107,6 @@ out:
 	return count;
 }
 
-void osd_compat_fini(struct osd_device *dev)
-{
-        int i;
-
-        ENTRY;
-
-        if (dev->od_ost_map == NULL)
-                RETURN_EXIT;
-
-        for (i = 0; i < MAX_OBJID_GROUP; i++)
-                osd_compat_seq_fini(dev, i);
-
-        dput(dev->od_ost_map->root);
-        OBD_FREE_PTR(dev->od_ost_map);
-        dev->od_ost_map = NULL;
-
-        EXIT;
-}
-
 /*
  * directory structure on legacy OST:
  *
@@ -240,14 +117,14 @@ void osd_compat_fini(struct osd_device *dev)
  * CONFIGS
  *
  */
-int osd_compat_init(struct osd_device *dev)
+
+int osd_ost_init(struct osd_device *dev)
 {
 	struct lvfs_run_ctxt  new;
 	struct lvfs_run_ctxt  save;
 	struct dentry	     *rootd = osd_sb(dev)->s_root;
 	struct dentry	     *d;
-	int		      rc;
-	int		      i;
+	int                   rc = 0;
 
 	ENTRY;
 
@@ -262,147 +139,377 @@ int osd_compat_init(struct osd_device *dev)
 		RETURN(rc);
 	}
 
-        dev->od_ost_map->subdir_count = rc;
-        rc = 0;
+	dev->od_ost_map->oom_subdir_count = rc;
+	rc = 0;
 
-        LASSERT(dev->od_fsops);
-        osd_push_ctxt(dev, &new, &save);
+	CFS_INIT_LIST_HEAD(&dev->od_ost_map->oom_seq_list);
+	cfs_rwlock_init(&dev->od_ost_map->oom_seq_list_lock);
 
-        d = simple_mkdir(rootd, dev->od_mnt, "O", 0755, 1);
-        pop_ctxt(&save, &new, NULL);
-        if (IS_ERR(d)) {
-                OBD_FREE_PTR(dev->od_ost_map);
-                RETURN(PTR_ERR(d));
-        }
+	LASSERT(dev->od_fsops);
+	osd_push_ctxt(dev, &new, &save);
 
-        dev->od_ost_map->root = d;
+	d = simple_mkdir(rootd, dev->od_mnt, "O", 0755, 1);
+	if (IS_ERR(d))
+		GOTO(cleanup, rc = PTR_ERR(d));
 
-        /* Initialize all groups */
-        for (i = 0; i < MAX_OBJID_GROUP; i++) {
-                cfs_sema_init(&dev->od_ost_map->groups[i].dir_init_sem, 1);
-                rc = osd_compat_seq_init(dev, i);
-                if (rc) {
-                        osd_compat_fini(dev);
-                        break;
-                }
-        }
+	dev->od_ost_map->oom_root = d;
 
-        RETURN(rc);
+cleanup:
+	pop_ctxt(&save, &new, NULL);
+	if (IS_ERR(d)) {
+		OBD_FREE_PTR(dev->od_ost_map);
+		RETURN(PTR_ERR(d));
+	}
+
+	dev->od_ost_map->oom_root = d;
+
+	RETURN(rc);
 }
 
-int osd_compat_del_entry(struct osd_thread_info *info, struct osd_device *osd,
-                         struct dentry *dird, char *name, struct thandle *th)
+static void osd_seq_free(struct osd_obj_map *map,
+			 struct osd_obj_seq *osd_seq)
 {
-        struct ldiskfs_dir_entry_2 *de;
-        struct buffer_head         *bh;
-        struct osd_thandle         *oh;
-        struct dentry              *child;
-        struct inode               *dir = dird->d_inode;
-        int                         rc;
+	int j;
 
-        ENTRY;
+	cfs_list_del_init(&osd_seq->oos_seq_list);
 
-        oh = container_of(th, struct osd_thandle, ot_super);
-        LASSERT(oh->ot_handle != NULL);
-        LASSERT(oh->ot_handle->h_transaction != NULL);
+	if (osd_seq->oos_dirs) {
+		for (j = 0; j < osd_seq->oos_subdir_count; j++) {
+			if (osd_seq->oos_dirs[j])
+				dput(osd_seq->oos_dirs[j]);
+		}
+		OBD_FREE(osd_seq->oos_dirs,
+			 sizeof(struct dentry *) * osd_seq->oos_subdir_count);
+	}
 
+	if (osd_seq->oos_root)
+		dput(osd_seq->oos_root);
 
-        child = &info->oti_child_dentry;
-        child->d_name.hash = 0;
-        child->d_name.name = name;
-        child->d_name.len = strlen(name);
-        child->d_parent = dird;
-        child->d_inode = NULL;
+	OBD_FREE_PTR(osd_seq);
 
-        LOCK_INODE_MUTEX(dir);
-        rc = -ENOENT;
-        bh = osd_ldiskfs_find_entry(dir, child, &de, NULL);
-        if (bh) {
-                rc = ldiskfs_delete_entry(oh->ot_handle, dir, de, bh);
-                brelse(bh);
-        }
-        UNLOCK_INODE_MUTEX(dir);
-
-        RETURN(rc);
+	return;
 }
 
-int osd_compat_add_entry(struct osd_thread_info *info, struct osd_device *osd,
-                         struct dentry *dir, char *name,
-                         const struct osd_inode_id *id, struct thandle *th)
+int osd_obj_map_init(struct osd_device *dev)
 {
-        struct osd_thandle *oh;
-        struct dentry *child;
-        struct inode *inode;
-        int rc;
+	int rc;
+	ENTRY;
 
-        ENTRY;
+	/* prepare structures for OST */
+	rc = osd_ost_init(dev);
 
-        oh = container_of(th, struct osd_thandle, ot_super);
-        LASSERT(oh->ot_handle != NULL);
-        LASSERT(oh->ot_handle->h_transaction != NULL);
+	/* prepare structures for MDS */
 
-        inode = &info->oti_inode;
-        inode->i_sb = osd_sb(osd);
+	RETURN(rc);
+}
+
+struct osd_obj_seq *osd_seq_find_locked(struct osd_obj_map *map, obd_seq seq)
+{
+	struct osd_obj_seq *osd_seq;
+
+	cfs_list_for_each_entry(osd_seq, &map->oom_seq_list, oos_seq_list) {
+		if (osd_seq->oos_seq == seq)
+			return osd_seq;
+	}
+	return NULL;
+}
+
+struct osd_obj_seq *osd_seq_find(struct osd_obj_map *map, obd_seq seq)
+{
+	struct osd_obj_seq *osd_seq;
+
+	cfs_read_lock(&map->oom_seq_list_lock);
+	osd_seq = osd_seq_find_locked(map, seq);
+	cfs_read_unlock(&map->oom_seq_list_lock);
+	return osd_seq;
+}
+
+struct osd_obj_seq *osd_find_or_add_seq(struct osd_obj_map *map, obd_seq seq)
+{
+	struct osd_obj_seq *osd_seq;
+	struct osd_obj_seq *tmp;
+	ENTRY;
+
+	osd_seq = osd_seq_find(map, seq);
+	if (osd_seq != NULL)
+		RETURN(osd_seq);
+
+	OBD_ALLOC_PTR(osd_seq);
+	if (osd_seq == NULL)
+		RETURN(ERR_PTR(-ENOMEM));
+
+	cfs_sema_init(&osd_seq->oos_dir_init_sem, 1);
+	CFS_INIT_LIST_HEAD(&osd_seq->oos_seq_list);
+	osd_seq->oos_seq = seq;
+	/* Init subdir count to be 32, but each seq can have
+	 * different subdir count */
+	osd_seq->oos_subdir_count = map->oom_subdir_count;
+	cfs_write_lock(&map->oom_seq_list_lock);
+	tmp = osd_seq_find_locked(map, seq);
+	if (tmp != NULL) {
+		cfs_write_unlock(&map->oom_seq_list_lock);
+		CDEBUG(D_INFO, "seq: "LPX64i" has been added\n", seq);
+		OBD_FREE_PTR(osd_seq);
+		RETURN(tmp);
+	}
+	cfs_list_add(&osd_seq->oos_seq_list, &map->oom_seq_list);
+	cfs_write_unlock(&map->oom_seq_list_lock);
+
+	return osd_seq;
+}
+
+void osd_obj_map_fini(struct osd_device *dev)
+{
+	struct osd_obj_seq    *osd_seq;
+	struct osd_obj_seq    *tmp;
+	struct osd_obj_map    *map = dev->od_ost_map;
+	ENTRY;
+
+	map = dev->od_ost_map;
+	if (map == NULL)
+		return;
+
+	cfs_write_lock(&dev->od_ost_map->oom_seq_list_lock);
+	cfs_list_for_each_entry_safe(osd_seq, tmp,
+				     &dev->od_ost_map->oom_seq_list,
+				     oos_seq_list) {
+		osd_seq_free(map, osd_seq);
+	}
+	cfs_write_unlock(&dev->od_ost_map->oom_seq_list_lock);
+	if (map->oom_root)
+		dput(map->oom_root);
+	OBD_FREE_PTR(dev->od_ost_map);
+	dev->od_ost_map = NULL;
+	EXIT;
+}
+
+static int osd_obj_del_entry(struct osd_thread_info *info,
+			     struct osd_device *osd,
+			     struct dentry *dird, char *name,
+			     struct thandle *th)
+{
+	struct ldiskfs_dir_entry_2 *de;
+	struct buffer_head         *bh;
+	struct osd_thandle         *oh;
+	struct dentry              *child;
+	struct inode               *dir = dird->d_inode;
+	int                         rc;
+
+	ENTRY;
+
+	oh = container_of(th, struct osd_thandle, ot_super);
+	LASSERT(oh->ot_handle != NULL);
+	LASSERT(oh->ot_handle->h_transaction != NULL);
+
+
+	child = &info->oti_child_dentry;
+	child->d_name.hash = 0;
+	child->d_name.name = name;
+	child->d_name.len = strlen(name);
+	child->d_parent = dird;
+	child->d_inode = NULL;
+
+	LOCK_INODE_MUTEX(dir);
+	rc = -ENOENT;
+	bh = osd_ldiskfs_find_entry(dir, child, &de, NULL);
+	if (bh) {
+		rc = ldiskfs_delete_entry(oh->ot_handle, dir, de, bh);
+		brelse(bh);
+	}
+	UNLOCK_INODE_MUTEX(dir);
+
+	RETURN(rc);
+}
+
+int osd_obj_add_entry(struct osd_thread_info *info,
+		      struct osd_device *osd,
+		      struct dentry *dir, char *name,
+		      const struct osd_inode_id *id,
+		      struct thandle *th)
+{
+	struct osd_thandle *oh;
+	struct dentry *child;
+	struct inode *inode;
+	int rc;
+
+	ENTRY;
+
+	oh = container_of(th, struct osd_thandle, ot_super);
+	LASSERT(oh->ot_handle != NULL);
+	LASSERT(oh->ot_handle->h_transaction != NULL);
+
+	inode = &info->oti_inode;
+	inode->i_sb = osd_sb(osd);
 	osd_id_to_inode(inode, id);
 
-        child = &info->oti_child_dentry;
-        child->d_name.hash = 0;
-        child->d_name.name = name;
-        child->d_name.len = strlen(name);
-        child->d_parent = dir;
-        child->d_inode = inode;
+	child = &info->oti_child_dentry;
+	child->d_name.hash = 0;
+	child->d_name.name = name;
+	child->d_name.len = strlen(name);
+	child->d_parent = dir;
+	child->d_inode = inode;
 
-        LOCK_INODE_MUTEX(dir->d_inode);
-        rc = osd_ldiskfs_add_entry(oh->ot_handle, child, inode, NULL);
-        UNLOCK_INODE_MUTEX(dir->d_inode);
+	LOCK_INODE_MUTEX(dir->d_inode);
+	rc = osd_ldiskfs_add_entry(oh->ot_handle, child, inode, NULL);
+	UNLOCK_INODE_MUTEX(dir->d_inode);
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
-int osd_compat_objid_lookup(struct osd_thread_info *info,
-                            struct osd_device *dev, const struct lu_fid *fid,
-                            struct osd_inode_id *id)
+/**
+ * Use LPU64 for legacy OST sequences, but use LPX64i for new
+ * sequences names, so that the O/{seq}/dN/{oid} more closely
+ * follows the DFID/PFID format. This makes it easier to map from
+ * debug messages to objects in the future, and the legacy space
+ * of FID_SEQ_OST_MDT0 will be unused in the future.
+ **/
+static inline void osd_seq_name(char *seq_name, obd_seq seq)
 {
-        struct osd_compat_objid    *map;
-        struct dentry              *d;
-        struct dentry              *d_seq;
-        struct ost_id              *ostid = &info->oti_ostid;
-        int                         dirn;
-        char                        name[32];
-        struct ldiskfs_dir_entry_2 *de;
-        struct buffer_head         *bh;
-        struct inode               *dir;
-	struct inode		   *inode;
-        ENTRY;
+	sprintf(seq_name, (fid_seq_is_rsvd(seq) ||
+		fid_seq_is_mdt0(seq) ||
+		fid_seq_is_idif(seq)) ? LPU64 : LPX64i, seq);
+}
 
-        /* on the very first lookup we find and open directories */
+static inline void osd_obj_name(char *obj_name, obd_seq seq,
+				obd_id oid)
+{
+	sprintf(obj_name, (fid_seq_is_rsvd(seq) ||
+		fid_seq_is_mdt0(seq) ||
+		fid_seq_is_idif(seq)) ? LPU64 : LPX64i, oid);
+}
 
-        map = dev->od_ost_map;
-        LASSERT(map);
-        LASSERT(map->root);
+/* external locking is required */
+static int osd_seq_load_locked(struct osd_device *osd,
+			       struct osd_obj_seq *osd_seq)
+{
+	struct osd_obj_map  *map = osd->od_ost_map;
+	struct dentry       *seq_dir;
+	int                  rc = 0;
+	int                  i;
+	char                 seq_name[32];
+	ENTRY;
 
-        fid_ostid_pack(fid, ostid);
-        LASSERT(ostid->oi_seq < MAX_OBJID_GROUP);
-        LASSERT(map->subdir_count > 0);
-        LASSERT(map->groups[ostid->oi_seq].groot);
+	if (osd_seq->oos_root != NULL)
+		RETURN(0);
 
-        dirn = ostid->oi_id & (map->subdir_count - 1);
-        d = map->groups[ostid->oi_seq].dirs[dirn];
-        LASSERT(d);
+	LASSERT(map);
+	LASSERT(map->oom_root);
 
-        sprintf(name, "%llu", ostid->oi_id);
-        d_seq = &info->oti_child_dentry;
-        d_seq->d_parent = d;
-        d_seq->d_name.hash = 0;
-        d_seq->d_name.name = name;
-        /* XXX: we can use rc from sprintf() instead of strlen() */
-        d_seq->d_name.len = strlen(name);
+	osd_seq_name(seq_name, osd_seq->oos_seq);
+	seq_dir = simple_mkdir(map->oom_root, osd->od_mnt, seq_name, 0755, 1);
+	if (IS_ERR(seq_dir))
+		GOTO(out_err, rc = PTR_ERR(seq_dir));
+	else if (seq_dir->d_inode == NULL)
+		GOTO(out_put, rc = -EFAULT);
 
-        dir = d->d_inode;
-        LOCK_INODE_MUTEX(dir);
-        bh = osd_ldiskfs_find_entry(dir, d_seq, &de, NULL);
-        UNLOCK_INODE_MUTEX(dir);
+	osd_seq->oos_root = seq_dir;
 
+	LASSERT(osd_seq->oos_dirs == NULL);
+	OBD_ALLOC(osd_seq->oos_dirs,
+		  sizeof(seq_dir) * osd_seq->oos_subdir_count);
+	if (osd_seq->oos_dirs == NULL)
+		GOTO(out_put, rc = -ENOMEM);
+
+	for (i = 0; i < osd_seq->oos_subdir_count; i++) {
+		struct dentry   *dir;
+		char             name[32];
+
+		sprintf(name, "d%u", i);
+		dir = simple_mkdir(osd_seq->oos_root, osd->od_mnt, name,
+				   0700, 1);
+		if (IS_ERR(dir)) {
+			rc = PTR_ERR(dir);
+		} else if (dir->d_inode) {
+			osd_seq->oos_dirs[i] = dir;
+			rc = 0;
+		} else {
+			LBUG();
+		}
+	}
+
+	if (rc)
+		osd_seq_free(map, osd_seq);
+out_put:
+	if (rc != 0)
+		dput(seq_dir);
+out_err:
+	RETURN(rc);
+}
+
+struct osd_obj_seq *osd_seq_load(struct osd_device *osd, obd_seq seq)
+{
+	struct osd_obj_map     *map;
+	struct osd_obj_seq     *osd_seq;
+	int                     rc = 0;
+	ENTRY;
+
+	if (osd->od_ost_map == NULL)
+		RETURN(NULL);
+
+	map = osd->od_ost_map;
+	LASSERT(map->oom_root);
+
+	osd_seq = osd_find_or_add_seq(map, seq);
+	if (IS_ERR(osd_seq))
+		RETURN(osd_seq);
+
+	if (osd_seq->oos_root != NULL)
+		RETURN(osd_seq);
+
+	cfs_down(&osd_seq->oos_dir_init_sem);
+	rc = osd_seq_load_locked(osd, osd_seq);
+	cfs_up(&osd_seq->oos_dir_init_sem);
+
+	if (rc != 0)
+		RETURN(ERR_PTR(rc));
+
+	RETURN(osd_seq);
+}
+
+int osd_obj_map_lookup(struct osd_thread_info *info, struct osd_device *dev,
+			const struct lu_fid *fid, struct osd_inode_id *id)
+{
+	struct osd_obj_map          *map;
+	struct osd_obj_seq          *osd_seq;
+	struct dentry               *d;
+	struct dentry               *child;
+	struct ost_id               *ostid = &info->oti_ostid;
+	int                          dirn;
+	char                         name[32];
+	struct ldiskfs_dir_entry_2  *de;
+	struct buffer_head          *bh;
+	struct inode                *dir;
+	struct inode		    *inode;
+
+	ENTRY;
+
+	/* on the very first lookup we find and open directories */
+
+	map = dev->od_ost_map;
+	LASSERT(map);
+	LASSERT(map->oom_root);
+
+	fid_ostid_pack(fid, ostid);
+	osd_seq = osd_seq_load(dev, ostid->oi_seq);
+	if (IS_ERR(osd_seq))
+		RETURN(PTR_ERR(osd_seq));
+
+	dirn = ostid->oi_id & (osd_seq->oos_subdir_count - 1);
+	d = osd_seq->oos_dirs[dirn];
+	LASSERT(d);
+
+	osd_obj_name(name, fid_seq(fid), ostid->oi_id);
+
+	child = &info->oti_child_dentry;
+	child->d_parent = d;
+	child->d_name.hash = 0;
+	child->d_name.name = name;
+	child->d_name.len = strlen(name);
+
+	dir = d->d_inode;
+	LOCK_INODE_MUTEX(dir);
+	bh = osd_ldiskfs_find_entry(dir, child, &de, NULL);
+	UNLOCK_INODE_MUTEX(dir);
 	if (bh == NULL)
 		RETURN(-ENOENT);
 
@@ -417,64 +524,69 @@ int osd_compat_objid_lookup(struct osd_thread_info *info,
 	RETURN(0);
 }
 
-int osd_compat_objid_insert(struct osd_thread_info *info,
-                            struct osd_device *osd,
-                            const struct lu_fid *fid,
-                            const struct osd_inode_id *id,
-                            struct thandle *th)
+int osd_obj_map_insert(struct osd_thread_info *info,
+		       struct osd_device *osd,
+		       const struct lu_fid *fid,
+		       const struct osd_inode_id *id,
+		       struct thandle *th)
 {
-        struct osd_compat_objid *map;
-        struct dentry           *d;
-        struct ost_id           *ostid = &info->oti_ostid;
-        int                      dirn, rc = 0;
-        char                     name[32];
-        ENTRY;
+	struct osd_obj_map    *map;
+	struct osd_obj_seq    *osd_seq;
+	struct dentry         *d;
+	struct ost_id         *ostid = &info->oti_ostid;
+	int                    dirn, rc = 0;
+	char                   obj_name[32];
+	ENTRY;
 
-        map = osd->od_ost_map;
-        LASSERT(map);
-        LASSERT(map->root);
-        LASSERT(map->subdir_count > 0);
-        LASSERT(map->groups[ostid->oi_seq].groot);
+	map = osd->od_ost_map;
+	LASSERT(map);
 
-        /* map fid to group:objid */
-        fid_ostid_pack(fid, ostid);
-        dirn = ostid->oi_id & (map->subdir_count - 1);
-        d = map->groups[ostid->oi_seq].dirs[dirn];
-        LASSERT(d);
+	/* map fid to seq:objid */
+	fid_ostid_pack(fid, ostid);
 
-        sprintf(name, "%llu", ostid->oi_id);
-        rc = osd_compat_add_entry(info, osd, d, name, id, th);
+	osd_seq = osd_seq_load(osd, ostid->oi_seq);
+	if (IS_ERR(osd_seq))
+		RETURN(PTR_ERR(osd_seq));
 
-        RETURN(rc);
+	dirn = ostid->oi_id & (osd_seq->oos_subdir_count - 1);
+	d = osd_seq->oos_dirs[dirn];
+	LASSERT(d);
+
+	osd_obj_name(obj_name, fid_seq(fid), ostid->oi_id);
+	rc = osd_obj_add_entry(info, osd, d, obj_name, id, th);
+
+	RETURN(rc);
 }
 
-int osd_compat_objid_delete(struct osd_thread_info *info,
-                            struct osd_device *osd,
-                            const struct lu_fid *fid, struct thandle *th)
+int osd_obj_map_delete(struct osd_thread_info *info, struct osd_device *osd,
+		       const struct lu_fid *fid, struct thandle *th)
 {
-        struct osd_compat_objid *map;
-        struct dentry           *d;
-        struct ost_id           *ostid = &info->oti_ostid;
-        int                      dirn, rc = 0;
-        char                     name[32];
-        ENTRY;
+	struct osd_obj_map    *map;
+	struct osd_obj_seq    *osd_seq;
+	struct dentry         *d;
+	struct ost_id         *ostid = &info->oti_ostid;
+	int                    dirn, rc = 0;
+	char                   obj_name[32];
+	ENTRY;
 
-        map = osd->od_ost_map;
-        LASSERT(map);
-        LASSERT(map->root);
-        LASSERT(map->subdir_count > 0);
-        LASSERT(map->groups[ostid->oi_seq].groot);
+	map = osd->od_ost_map;
+	LASSERT(map);
 
-        /* map fid to group:objid */
-        fid_ostid_pack(fid, ostid);
-        dirn = ostid->oi_id & (map->subdir_count - 1);
-        d = map->groups[ostid->oi_seq].dirs[dirn];
-        LASSERT(d);
+	/* map fid to seq:objid */
+	fid_ostid_pack(fid, ostid);
 
-        sprintf(name, "%llu", ostid->oi_id);
-        rc = osd_compat_del_entry(info, osd, d, name, th);
+	osd_seq = osd_seq_load(osd, ostid->oi_seq);
+	if (IS_ERR(osd_seq))
+		GOTO(cleanup, rc = PTR_ERR(osd_seq));
 
-        RETURN(rc);
+	dirn = ostid->oi_id & (osd_seq->oos_subdir_count - 1);
+	d = osd_seq->oos_dirs[dirn];
+	LASSERT(d);
+
+	osd_obj_name(obj_name, fid_seq(fid), ostid->oi_id);
+	rc = osd_obj_del_entry(info, osd, d, obj_name, th);
+cleanup:
+	RETURN(rc);
 }
 
 struct named_oid {
@@ -513,39 +625,37 @@ static char *oid2name(const unsigned long oid)
         return NULL;
 }
 
-int osd_compat_spec_insert(struct osd_thread_info *info,
-                           struct osd_device *osd, const struct lu_fid *fid,
-                           const struct osd_inode_id *id, struct thandle *th)
+int osd_obj_spec_insert(struct osd_thread_info *info, struct osd_device *osd,
+			const struct lu_fid *fid, const struct osd_inode_id *id,
+			struct thandle *th)
 {
-        struct osd_compat_objid *map = osd->od_ost_map;
+	struct osd_obj_seq      *osd_seq;
         struct dentry           *root = osd_sb(osd)->s_root;
         char                    *name;
         int                      rc = 0;
-        int                      seq;
         ENTRY;
 
         if (fid_oid(fid) >= OFD_GROUP0_LAST_OID &&
             fid_oid(fid) < OFD_GROUP4K_LAST_OID) {
-                /* on creation of LAST_ID we create O/<group> hierarchy */
-                LASSERT(map);
-                seq = fid_oid(fid) - OFD_GROUP0_LAST_OID;
-                LASSERT(seq < MAX_OBJID_GROUP);
-                LASSERT(map->groups[seq].groot);
+		/* on creation of LAST_ID we create O/<seq> hierarchy */
+		osd_seq = osd_seq_load(osd, fid_seq(fid));
+		if (IS_ERR(osd_seq))
+			RETURN(PTR_ERR(osd_seq));
+		rc = osd_obj_add_entry(info, osd, osd_seq->oos_root,
+				       "LAST_ID", id, th);
         } else {
-                name = oid2name(fid_oid(fid));
-                if (name == NULL)
-                        CWARN("UNKNOWN COMPAT FID "DFID"\n", PFID(fid));
-                else if (name[0])
-                        rc = osd_compat_add_entry(info, osd, root, name, id,
-                                                  th);
-        }
+		name = oid2name(fid_oid(fid));
+		if (name == NULL)
+			CWARN("UNKNOWN COMPAT FID "DFID"\n", PFID(fid));
+		else if (name[0])
+			rc = osd_obj_add_entry(info, osd, root, name, id, th);
+	}
 
         RETURN(rc);
 }
 
-int osd_compat_spec_lookup(struct osd_thread_info *info,
-			   struct osd_device *osd, const struct lu_fid *fid,
-			   struct osd_inode_id *id)
+int osd_obj_spec_lookup(struct osd_thread_info *info, struct osd_device *osd,
+			const struct lu_fid *fid, struct osd_inode_id *id)
 {
 	struct dentry *dentry;
 	struct inode  *inode;
