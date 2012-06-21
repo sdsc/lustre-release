@@ -4071,7 +4071,7 @@ static int osd_mount(const struct lu_env *env,
                 o->od_iop_mode = 1;
 
         if (ldd->ldd_flags & LDD_F_SV_TYPE_OST) {
-                rc = osd_compat_init(o);
+		rc = osd_obj_map_init(o);
                 if (rc)
                         CERROR("%s: can't initialize compats: %d\n", dev, rc);
         }
@@ -4085,7 +4085,7 @@ static struct lu_device *osd_device_fini(const struct lu_env *env,
         int rc;
         ENTRY;
 
-        osd_compat_fini(osd_dev(d));
+        osd_obj_map_fini(osd_dev(d));
 
         shrink_dcache_sb(osd_sb(osd_dev(d)));
         osd_sync(env, lu2dt_dev(d));
