@@ -203,6 +203,8 @@ int class_attach(struct lustre_cfg *lcfg)
         LASSERTF(strncmp(obd->obd_name, name, strlen(name)) == 0,
                  "%p obd_name %s != %s\n", obd, obd->obd_name, name);
 
+        obd->obd_conn_inprogress = 0;
+
         rwlock_init(&obd->obd_pool_lock);
         obd->obd_pool_limit = 0;
         obd->obd_pool_slv = 0;
@@ -452,6 +454,14 @@ int class_cleanup(struct obd_device *obd, struct lustre_cfg *lcfg)
         }
         /* Leave this on forever */
         obd->obd_stopping = 1;
+
+        /* wait for finishing the threads which are handling */
+        /* already-arrived-connection in target_handle_connect() */
+        while (obd->obd_conn_inprogress > 0) {
+                spin_unlock(&obd->obd_dev_lock);
+                cfs_cond_resched();
+                spin_lock(&obd->obd_dev_lock);
+        }
         spin_unlock(&obd->obd_dev_lock);
 
         if (lcfg->lcfg_bufcount >= 2 && LUSTRE_CFG_BUFLEN(lcfg, 1) > 0) {
