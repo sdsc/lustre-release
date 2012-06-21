@@ -1618,7 +1618,7 @@ static int osd_mk_index(struct osd_thread_info *info, struct osd_object *obj,
                         result = iam_lfix_create(obj->oo_inode,
                                                  feat->dif_keysize_max,
                                                  feat->dif_ptrsize,
-                                                 feat->dif_recsize_max,
+                                                 feat->dif_recsize_max, 0,
                                                  oth->ot_handle);
 
         }

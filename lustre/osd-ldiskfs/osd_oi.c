@@ -61,9 +61,6 @@
  */
 #include <obd.h>
 #include <obd_support.h>
-
-/* fid_cpu_to_be() */
-#include <lustre_fid.h>
 #include <dt_object.h>
 
 #include "osd_oi.h"
@@ -149,14 +146,15 @@ static int osd_oi_index_create_one(struct osd_thread_info *info,
 		return PTR_ERR(inode);
 	}
 
-	if (feat->dif_flags & DT_IND_VARKEY)
-		rc = iam_lvar_create(inode, feat->dif_keysize_max,
-				     feat->dif_ptrsize, feat->dif_recsize_max,
-				     jh);
-	else
-		rc = iam_lfix_create(inode, feat->dif_keysize_max,
-				     feat->dif_ptrsize, feat->dif_recsize_max,
-				     jh);
+	rc = iam_lfix_create(inode, feat->dif_keysize_max,
+			     feat->dif_ptrsize, feat->dif_recsize_max, 1, jh);
+	if (rc != 0) {
+		/* Lose one inode, but it is not important. */
+		iput(inode);
+		ldiskfs_journal_stop(jh);
+		return rc;
+	}
+
 	dentry = osd_child_dentry_by_inode(env, dir, name, strlen(name));
 	rc = osd_ldiskfs_add_entry(jh, dentry, inode, NULL);
 	ldiskfs_journal_stop(jh);
@@ -433,139 +431,111 @@ static inline int fid_is_fs_root(const struct lu_fid *fid)
                          fid_oid(fid) == OSD_FS_ROOT_OID));
 }
 
-static int osd_oi_iam_lookup(struct osd_thread_info *oti,
-                             struct osd_oi *oi, struct dt_rec *rec,
-                             const struct dt_key *key)
+int osd_oi_iam_lookup(struct osd_thread_info *oti, struct osd_oi *oi,
+		      const struct lu_fid *fid, struct osd_inode_id *id)
 {
-        struct iam_container  *bag;
-        struct iam_iterator   *it = &oti->oti_idx_it;
-        struct iam_rec        *iam_rec;
-        struct iam_path_descr *ipd;
-        int                    rc;
-        ENTRY;
+	struct lu_fid	      *oi_fid = &oti->oti_fid2;
+	struct iam_iterator   *it     = &oti->oti_idx_it;
+	struct iam_container  *bag;
+	struct iam_path_descr *ipd;
+	int		       rc;
+	ENTRY;
 
-        LASSERT(oi);
-        LASSERT(oi->oi_inode);
+	LASSERT(oi);
+	LASSERT(oi->oi_inode);
 
-        bag = &oi->oi_dir.od_container;
-        ipd = osd_idx_ipd_get(oti->oti_env, bag);
-        if (IS_ERR(ipd))
-                RETURN(-ENOMEM);
+	bag = &oi->oi_dir.od_container;
+	ipd = osd_idx_ipd_get(oti->oti_env, bag);
+	if (IS_ERR(ipd))
+		RETURN(-ENOMEM);
 
-        /* got ipd now we can start iterator. */
-        iam_it_init(it, bag, 0, ipd);
+	/* got ipd now we can start iterator. */
+	iam_it_init(it, bag, 0, ipd);
 
-        rc = iam_it_get(it, (struct iam_key *)key);
-        if (rc >= 0) {
-                if (S_ISDIR(oi->oi_inode->i_mode))
-                        iam_rec = (struct iam_rec *)oti->oti_ldp;
-                else
-                        iam_rec = (struct iam_rec *)rec;
-
-                iam_reccpy(&it->ii_path.ip_leaf, (struct iam_rec *)iam_rec);
-                if (S_ISDIR(oi->oi_inode->i_mode))
-                        osd_fid_unpack((struct lu_fid *)rec,
-                                       (struct osd_fid_pack *)iam_rec);
-        }
-        iam_it_put(it);
-        iam_it_fini(it);
-        osd_ipd_put(oti->oti_env, bag, ipd);
-
-        LINVRNT(osd_invariant(obj));
-
-        RETURN(rc);
-}
-
-int __osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
-		    const struct lu_fid *fid, struct osd_inode_id *id)
-{
-	struct lu_fid *oi_fid = &info->oti_fid2;
-	int	       rc;
-
-	fid_cpu_to_be(oi_fid, fid);
-	rc = osd_oi_iam_lookup(info, osd_fid2oi(osd, fid), (struct dt_rec *)id,
-			       (const struct dt_key *)oi_fid);
+	osd_oi_fid_to_hash(oi_fid, fid, bag->ic_hash_wrap);
+	rc = iam_it_get(it, (struct iam_key *)oi_fid);
 	if (rc > 0) {
+		iam_reccpy(&it->ii_path.ip_leaf, (struct iam_rec *)id);
 		osd_id_unpack(id, id);
 		rc = 0;
 	} else if (rc == 0) {
 		rc = -ENOENT;
 	}
-	return rc;
+	iam_it_put(it);
+	iam_it_fini(it);
+	osd_ipd_put(oti->oti_env, bag, ipd);
+	LINVRNT(osd_invariant(obj));
+	RETURN(rc);
 }
 
 int osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
-                  const struct lu_fid *fid, struct osd_inode_id *id)
+		  const struct lu_fid *fid, struct osd_inode_id *id)
 {
-        int                  rc = 0;
+	int rc = 0;
 
-        if (fid_is_idif(fid) || fid_seq(fid) == FID_SEQ_LLOG) {
-                /* old OSD obj id */
-                rc = osd_compat_objid_lookup(info, osd, fid, id);
-        } else if (fid_is_igif(fid)) {
-                lu_igif_to_id(fid, id);
-        } else if (fid_is_fs_root(fid)) {
+	if (fid_is_idif(fid) || fid_seq(fid) == FID_SEQ_LLOG) {
+		/* old OSD obj id */
+		rc = osd_compat_objid_lookup(info, osd, fid, id);
+	} else if (fid_is_igif(fid)) {
+		lu_igif_to_id(fid, id);
+	} else if (fid_is_fs_root(fid)) {
 		osd_id_gen(id, osd_sb(osd)->s_root->d_inode->i_ino,
 			   osd_sb(osd)->s_root->d_inode->i_generation);
 	} else {
 		if (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE))
 			return osd_compat_spec_lookup(info, osd, fid, id);
 
-		rc = __osd_oi_lookup(info, osd, fid, id);
-        }
-        return rc;
+		rc = osd_oi_iam_lookup(info, osd_fid2oi(osd, fid), fid, id);
+	}
+	return rc;
 }
 
 static int osd_oi_iam_insert(struct osd_thread_info *oti, struct osd_oi *oi,
-			     const struct dt_rec *rec, const struct dt_key *key,
+			     const struct lu_fid *fid,
+			     const struct osd_inode_id *id,
 			     struct thandle *th)
 {
-        struct iam_container  *bag;
-        struct iam_rec        *iam_rec = (struct iam_rec *)oti->oti_ldp;
-        struct iam_path_descr *ipd;
-        struct osd_thandle    *oh;
-        int                    rc;
+	struct lu_fid	      *oi_fid = &oti->oti_fid2;
+	struct osd_inode_id   *oi_id  = &oti->oti_id2;
+	struct iam_container  *bag;
+	struct iam_path_descr *ipd;
+	struct osd_thandle    *oh;
+	int		       rc;
 #ifdef HAVE_QUOTA_SUPPORT
-        cfs_cap_t              save    = cfs_curproc_cap_pack();
+	cfs_cap_t	       save = cfs_curproc_cap_pack();
 #endif
-        ENTRY;
+	ENTRY;
 
-        LASSERT(oi);
-        LASSERT(oi->oi_inode);
+	LASSERT(oi);
+	LASSERT(oi->oi_inode);
 
-        bag = &oi->oi_dir.od_container;
-        ipd = osd_idx_ipd_get(oti->oti_env, bag);
-        if (unlikely(ipd == NULL))
-                RETURN(-ENOMEM);
+	bag = &oi->oi_dir.od_container;
+	ipd = osd_idx_ipd_get(oti->oti_env, bag);
+	if (unlikely(ipd == NULL))
+		RETURN(-ENOMEM);
 
-        oh = container_of0(th, struct osd_thandle, ot_super);
-        LASSERT(oh->ot_handle != NULL);
-        LASSERT(oh->ot_handle->h_transaction != NULL);
+	oh = container_of0(th, struct osd_thandle, ot_super);
+	LASSERT(oh->ot_handle != NULL);
+	LASSERT(oh->ot_handle->h_transaction != NULL);
 #ifdef HAVE_QUOTA_SUPPORT
 	cfs_cap_raise(CFS_CAP_SYS_RESOURCE);
 #endif
-        if (S_ISDIR(oi->oi_inode->i_mode))
-                osd_fid_pack((struct osd_fid_pack *)iam_rec, rec,
-                             &oti->oti_fid);
-        else
-                iam_rec = (struct iam_rec *) rec;
-        rc = iam_insert(oh->ot_handle, bag, (const struct iam_key *)key,
-                        iam_rec, ipd);
+	osd_oi_fid_to_hash(oi_fid, fid, bag->ic_hash_wrap);
+	osd_id_pack(oi_id, id);
+	rc = iam_insert(oh->ot_handle, bag, (const struct iam_key *)oi_fid,
+			(const struct iam_rec *)oi_id, ipd);
 #ifdef HAVE_QUOTA_SUPPORT
-        cfs_curproc_cap_unpack(save);
+	cfs_curproc_cap_unpack(save);
 #endif
-        osd_ipd_put(oti->oti_env, bag, ipd);
-        LINVRNT(osd_invariant(obj));
-        RETURN(rc);
+	osd_ipd_put(oti->oti_env, bag, ipd);
+	LINVRNT(osd_invariant(obj));
+	RETURN(rc);
 }
 
 int osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
 		  const struct lu_fid *fid, const struct osd_inode_id *id,
 		  struct thandle *th)
 {
-	struct lu_fid	    *oi_fid = &info->oti_fid2;
-	struct osd_inode_id *oi_id = &info->oti_id2;
-
 	if (fid_is_igif(fid) || unlikely(fid_seq(fid) == FID_SEQ_DOT_LUSTRE))
 		return 0;
 
@@ -576,45 +546,42 @@ int osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
 	if (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE))
 		return osd_compat_spec_insert(info, osd, fid, id, th);
 
-	fid_cpu_to_be(oi_fid, fid);
-	osd_id_pack(oi_id, id);
-	return osd_oi_iam_insert(info, osd_fid2oi(osd, fid),
-				 (const struct dt_rec *)oi_id,
-				 (const struct dt_key *)oi_fid, th);
+	return osd_oi_iam_insert(info, osd_fid2oi(osd, fid), fid, id, th);
 }
 
 static int osd_oi_iam_delete(struct osd_thread_info *oti, struct osd_oi *oi,
-                             const struct dt_key *key, struct thandle *handle)
+			     const struct lu_fid *fid, struct thandle *handle)
 {
-        struct iam_container  *bag;
-        struct iam_path_descr *ipd;
-        struct osd_thandle    *oh;
-        int                    rc;
-        ENTRY;
+	struct lu_fid	      *oi_fid = &oti->oti_fid2;
+	struct iam_container  *bag;
+	struct iam_path_descr *ipd;
+	struct osd_thandle    *oh;
+	int		       rc;
+	ENTRY;
 
-        LASSERT(oi);
+	LASSERT(oi);
 
-        bag = &oi->oi_dir.od_container;
-        ipd = osd_idx_ipd_get(oti->oti_env, bag);
-        if (unlikely(ipd == NULL))
-                RETURN(-ENOMEM);
+	bag = &oi->oi_dir.od_container;
+	ipd = osd_idx_ipd_get(oti->oti_env, bag);
+	if (unlikely(ipd == NULL))
+		RETURN(-ENOMEM);
 
-        oh = container_of0(handle, struct osd_thandle, ot_super);
-        LASSERT(oh->ot_handle != NULL);
-        LASSERT(oh->ot_handle->h_transaction != NULL);
+	oh = container_of0(handle, struct osd_thandle, ot_super);
+	LASSERT(oh->ot_handle != NULL);
+	LASSERT(oh->ot_handle->h_transaction != NULL);
 
-        rc = iam_delete(oh->ot_handle, bag, (const struct iam_key *)key, ipd);
-        osd_ipd_put(oti->oti_env, bag, ipd);
-        LINVRNT(osd_invariant(obj));
-        RETURN(rc);
+	osd_oi_fid_to_hash(oi_fid, fid, bag->ic_hash_wrap);
+	rc = iam_delete(oh->ot_handle, bag,
+			(const struct iam_key *)oi_fid, ipd);
+	osd_ipd_put(oti->oti_env, bag, ipd);
+	LINVRNT(osd_invariant(obj));
+	RETURN(rc);
 }
 
 int osd_oi_delete(struct osd_thread_info *info,
 		  struct osd_device *osd, const struct lu_fid *fid,
 		  struct thandle *th)
 {
-	struct lu_fid *oi_fid = &info->oti_fid2;
-
 	if (fid_is_igif(fid))
 		return 0;
 
@@ -623,9 +590,7 @@ int osd_oi_delete(struct osd_thread_info *info,
 	if (fid_is_idif(fid) || fid_seq(fid) == FID_SEQ_LLOG)
 		return osd_compat_objid_delete(info, osd, fid, th);
 
-	fid_cpu_to_be(oi_fid, fid);
-	return osd_oi_iam_delete(info, osd_fid2oi(osd, fid),
-				 (const struct dt_key *)oi_fid, th);
+	return osd_oi_iam_delete(info, osd_fid2oi(osd, fid), fid, th);
 }
 
 int osd_oi_mod_init(void)

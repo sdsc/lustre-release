@@ -462,6 +462,7 @@ struct iam_container {
          * read-write lock protecting index consistency.
          */
         cfs_rw_semaphore_t   ic_sem;
+	unsigned int	     ic_hash_wrap:1; /* For OI file hash wrap. */
 };
 
 /*
@@ -1081,8 +1082,8 @@ void iam_lfix_format_init(void);
 void iam_lvar_format_init(void);
 void iam_htree_format_init(void);
 
-int iam_lfix_create(struct inode *obj,
-                    int keysize, int ptrsize, int recsize, handle_t *handle);
+int iam_lfix_create(struct inode *obj, int keysize, int ptrsize, int recsize,
+		    int hash_wrap, handle_t *handle);
 struct iam_private_info;
 
 void ldiskfs_iam_release(struct file *filp, struct inode *inode);
