@@ -802,8 +802,11 @@ int mdd_attr_get_internal(const struct lu_env *env, struct mdd_object *mdd_obj,
         int rc = 0;
         ENTRY;
 
-        if (ma->ma_need & MA_INODE)
+	if (ma->ma_need & MA_INODE) {
                 rc = mdd_iattr_get(env, mdd_obj, ma);
+		if (mdd_is_dead_obj(mdd_obj))
+			ma->ma_attr.la_nlink = 0;
+	}
 
         if (rc == 0 && ma->ma_need & MA_LOV) {
                 if (S_ISREG(mdd_object_type(mdd_obj)) ||
