@@ -125,11 +125,29 @@ static inline int osd_id_eq(const struct osd_inode_id *id0,
 		id1->oii_gen == OSD_OII_NOGEN);
 }
 
+#define OSD_OI_SEQ_HASH_WRAP_BITS	10
+
+static inline void osd_oi_fid_to_hash(struct lu_fid *dst,
+				      const struct lu_fid *src,
+				      int hash_wrap)
+{
+	if (hash_wrap) {
+		__u64 seq = (fid_seq(src) >> OSD_OI_SEQ_HASH_WRAP_BITS) |
+			    (fid_seq(src) << (64 - OSD_OI_SEQ_HASH_WRAP_BITS));
+
+		dst->f_seq = cpu_to_be64(seq);
+	} else {
+		dst->f_seq = cpu_to_be64(fid_seq(src));
+	}
+	dst->f_oid = cpu_to_be32(fid_oid(src));
+	dst->f_ver = cpu_to_be32(fid_ver(src));
+}
+
 int osd_oi_mod_init(void);
 int osd_oi_init(struct osd_thread_info *info, struct osd_device *osd);
 void osd_oi_fini(struct osd_thread_info *info, struct osd_device *osd);
-int __osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
-		    const struct lu_fid *fid, struct osd_inode_id *id);
+int osd_oi_iam_lookup(struct osd_thread_info *oti, struct osd_oi *oi,
+		      const struct lu_fid *fid, struct osd_inode_id *id);
 int  osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
 		   const struct lu_fid *fid, struct osd_inode_id *id);
 int  osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,

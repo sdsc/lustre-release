@@ -351,6 +351,8 @@ int seq_client_alloc_fid(const struct lu_env *env,
         }
 
         *fid = seq->lcs_fid;
+	if (OBD_FAIL_CHECK(OBD_FAIL_SEQ_EXHAUST))
+		seq->lcs_fid.f_oid = seq->lcs_width;
         cfs_mutex_unlock(&seq->lcs_mutex);
 
         CDEBUG(D_INFO, "%s: Allocated FID "DFID"\n", seq->lcs_name,  PFID(fid));

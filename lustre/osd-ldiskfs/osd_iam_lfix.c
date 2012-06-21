@@ -541,16 +541,21 @@ static struct iam_leaf_operations iam_lfix_leaf_ops = {
  */
 
 enum {
-        /* This is duplicated in lustre/utils/create_iam.c */
-        /*
-         * Then shalt thou see the dew-BEDABBLED wretch
-         * Turn, and return, indenting with the way;
-         * Each envious brier his weary legs doth scratch,
-         * Each shadow makes him stop, each murmur stay:
-         * For misery is trodden on by many,
-         * And being low never relieved by any.
-         */
-        IAM_LFIX_ROOT_MAGIC = 0xbedabb1edULL // d01efull
+	/* This is duplicated in lustre/utils/create_iam.c */
+	/*
+	 * Then shalt thou see the dew-BEDABBLED wretch
+	 * Turn, and return, indenting with the way;
+	 * Each envious brier his weary legs doth scratch,
+	 * Each shadow makes him stop, each murmur stay:
+	 * For misery is trodden on by many,
+	 * And being low never relieved by any.
+	 */
+	IAM_LFIX_ROOT_MAGIC_V1 = 0xbedabb1edULL, // d01efull
+
+	/*
+	 * This is for OI file which support hash wrap.
+	 */
+	IAM_LFIX_ROOT_MAGIC_V2 = 0xdebabb1e5ULL,
 };
 
 /* This is duplicated in lustre/utils/create_iam.c */
@@ -587,7 +592,8 @@ static struct iam_entry *iam_lfix_root_inc(struct iam_container *c,
         assert_corr(dx_get_limit(entries) == dx_root_limit(path));
 
         root = (void *)frame->bh->b_data;
-        assert_corr(le64_to_cpu(root->ilr_magic) == IAM_LFIX_ROOT_MAGIC);
+	assert_corr(le64_to_cpu(root->ilr_magic) == IAM_LFIX_ROOT_MAGIC_V1 ||
+		    le64_to_cpu(root->ilr_magic) == IAM_LFIX_ROOT_MAGIC_V2);
         root->ilr_indirect_levels ++;
         frame->at = entries = iam_entry_shift(path, entries, 1);
         memset(iam_ikey_at(path, entries), 0,
@@ -608,7 +614,8 @@ static int iam_lfix_node_check(struct iam_path *path, struct iam_frame *frame)
                 struct iam_lfix_root *root;
 
                 root = (void *)frame->bh->b_data;
-                if (le64_to_cpu(root->ilr_magic) != IAM_LFIX_ROOT_MAGIC) {
+		if (le64_to_cpu(root->ilr_magic) != IAM_LFIX_ROOT_MAGIC_V1 &&
+		    le64_to_cpu(root->ilr_magic) != IAM_LFIX_ROOT_MAGIC_V2) {
                         return -EIO;
                 }
                 limit_correct = dx_root_limit(path);
@@ -683,7 +690,8 @@ static int iam_lfix_guess(struct iam_container *c)
         result = iam_node_read(c, iam_lfix_root_ptr(c), NULL, &bh);
         if (result == 0) {
                 root = (void *)bh->b_data;
-                if (le64_to_cpu(root->ilr_magic) == IAM_LFIX_ROOT_MAGIC) {
+		if (le64_to_cpu(root->ilr_magic) == IAM_LFIX_ROOT_MAGIC_V1 ||
+		    le64_to_cpu(root->ilr_magic) == IAM_LFIX_ROOT_MAGIC_V2) {
                         struct iam_descr *descr;
 
                         descr = c->ic_descr;
@@ -695,6 +703,10 @@ static int iam_lfix_guess(struct iam_container *c)
                         descr->id_node_gap  = 0;
                         descr->id_ops       = &iam_lfix_ops;
                         descr->id_leaf_ops  = &iam_lfix_leaf_ops;
+			if (le64_to_cpu(root->ilr_magic) == IAM_LFIX_ROOT_MAGIC_V2)
+				c->ic_hash_wrap = 1;
+			else
+				c->ic_hash_wrap = 0;
                 } else
                         result = -EBADF;
                 brelse(bh);
@@ -759,8 +771,8 @@ struct lfix_leaf {
         memcpy(dst, &__val, sizeof(*(dst)));            \
 })
 
-static void lfix_root(void *buf,
-                      int blocksize, int keysize, int ptrsize, int recsize)
+static void lfix_root(void *buf, int blocksize, int keysize, int ptrsize,
+		      int recsize, int hash_wrap)
 {
         struct iam_lfix_root *root;
         struct dx_countlimit *limit;
@@ -768,12 +780,16 @@ static void lfix_root(void *buf,
 
         root = buf;
         *root = (typeof(*root)) {
-                .ilr_magic           = cpu_to_le64(IAM_LFIX_ROOT_MAGIC),
-                .ilr_keysize         = cpu_to_le16(keysize),
-                .ilr_recsize         = cpu_to_le16(recsize),
-                .ilr_ptrsize         = cpu_to_le16(ptrsize),
-                .ilr_indirect_levels = 0
-        };
+		.ilr_keysize	     = cpu_to_le16(keysize),
+		.ilr_recsize	     = cpu_to_le16(recsize),
+		.ilr_ptrsize	     = cpu_to_le16(ptrsize),
+		.ilr_indirect_levels = 0
+	};
+
+	if (hash_wrap)
+		root->ilr_magic = cpu_to_le64(IAM_LFIX_ROOT_MAGIC_V2);
+	else
+		root->ilr_magic = cpu_to_le64(IAM_LFIX_ROOT_MAGIC_V1);
 
         limit = (void *)(root + 1);
         *limit = (typeof(*limit)){
@@ -824,8 +840,8 @@ static void lfix_leaf(void *buf,
         };
 }
 
-int iam_lfix_create(struct inode *obj,
-                    int keysize, int ptrsize, int recsize, handle_t *handle)
+int iam_lfix_create(struct inode *obj, int keysize, int ptrsize, int recsize,
+		    int hash_wrap, handle_t *handle)
 {
         struct buffer_head *root_node;
         struct buffer_head *leaf_node;
@@ -842,7 +858,8 @@ int iam_lfix_create(struct inode *obj,
         root_node = ldiskfs_append(handle, obj, &blknr, &result);
         leaf_node = ldiskfs_append(handle, obj, &blknr, &result);
         if (root_node != NULL && leaf_node != NULL) {
-                lfix_root(root_node->b_data, bsize, keysize, ptrsize, recsize);
+		lfix_root(root_node->b_data, bsize, keysize, ptrsize, recsize,
+			  hash_wrap);
                 lfix_leaf(leaf_node->b_data, bsize, keysize, ptrsize, recsize);
                 ldiskfs_mark_inode_dirty(handle, obj);
                 result = ldiskfs_journal_dirty_metadata(handle, root_node);

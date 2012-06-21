@@ -298,22 +298,22 @@ osd_scrub_error(struct osd_device *dev, struct osd_inode_id *lid, int rc)
 }
 
 static int
-osd_scrub_check_update(struct osd_thread_info *info,  struct osd_device *dev,
+osd_scrub_check_update(struct osd_thread_info *info, struct osd_device *dev,
 		       struct osd_idmap_cache *oic)
 {
-	struct osd_scrub	     *scrub  = &dev->od_scrub;
-	struct scrub_file	     *sf     = &scrub->os_file;
-	struct osd_inode_id	     *lid2   = &info->oti_id;
-	struct lu_fid		     *oi_fid = &info->oti_fid;
-	struct osd_inode_id	     *oi_id  = &info->oti_id;
-	handle_t		     *jh     = NULL;
-	struct osd_inconsistent_item *oii    = NULL;
-	struct inode		     *inode  = NULL;
-	struct lu_fid		     *fid    = &oic->oic_fid;
-	struct osd_inode_id	     *lid    = &oic->oic_lid;
+	struct osd_scrub	     *scrub   = &dev->od_scrub;
+	struct scrub_file	     *sf      = &scrub->os_file;
+	struct osd_inode_id	     *lid2    = &info->oti_id;
+	struct lu_fid		     *oi_hash = &info->oti_fid;
+	struct osd_inode_id	     *oi_id   = &info->oti_id2;
+	handle_t		     *jh      = NULL;
+	struct osd_inconsistent_item *oii     = NULL;
+	struct inode		     *inode   = NULL;
+	struct lu_fid		     *fid     = &oic->oic_fid;
+	struct osd_inode_id	     *lid     = &oic->oic_lid;
 	struct iam_container	     *bag;
 	struct iam_path_descr	     *ipd;
-	int			      ops    = DTO_INDEX_UPDATE;
+	int			      ops     = DTO_INDEX_UPDATE;
 	int			      idx;
 	int			      rc;
 	ENTRY;
@@ -363,8 +363,6 @@ iget:
 	}
 
 	sf->sf_flags |= SF_INCONSISTENT;
-	fid_cpu_to_be(oi_fid, fid);
-	osd_id_pack(oi_id, &oic->oic_lid);
 	jh = ldiskfs_journal_start_sb(osd_sb(dev),
 				osd_dto_credits_noquota[ops]);
 	if (IS_ERR(jh)) {
@@ -383,11 +381,13 @@ iget:
 		GOTO(out, rc = -ENOMEM);
 	}
 
+	osd_oi_fid_to_hash(oi_hash, fid, bag->ic_hash_wrap);
+	osd_id_pack(oi_id, lid);
 	if (ops == DTO_INDEX_UPDATE)
-		rc = iam_update(jh, bag, (const struct iam_key *)oi_fid,
+		rc = iam_update(jh, bag, (const struct iam_key *)oi_hash,
 				(struct iam_rec *)oi_id, ipd);
 	else
-		rc = iam_insert(jh, bag, (const struct iam_key *)oi_fid,
+		rc = iam_insert(jh, bag, (const struct iam_key *)oi_hash,
 				(struct iam_rec *)oi_id, ipd);
 	osd_ipd_put(info->oti_env, bag, ipd);
 	ldiskfs_journal_stop(jh);
@@ -1026,7 +1026,8 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
 		RETURN(rc);
 
 	if (init != 0) {
-		rc = __osd_oi_lookup(info, dev, &LU_DOT_LUSTRE_FID, id);
+		rc = osd_oi_iam_lookup(info, osd_fid2oi(dev,&LU_DOT_LUSTRE_FID),
+				       &LU_DOT_LUSTRE_FID, id);
 		if (rc == 0) {
 			inode = osd_iget(info, dev, id);
 			if (IS_ERR(inode)) {
