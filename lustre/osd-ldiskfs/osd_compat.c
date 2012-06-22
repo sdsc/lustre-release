@@ -632,8 +632,7 @@ int osd_obj_spec_insert(struct osd_thread_info *info, struct osd_device *osd,
         int                      rc = 0;
         ENTRY;
 
-        if (fid_oid(fid) >= OFD_GROUP0_LAST_OID &&
-            fid_oid(fid) < OFD_GROUP4K_LAST_OID) {
+	if (fid_is_last_obj(fid)) {
 		/* on creation of LAST_ID we create O/<seq> hierarchy */
 		osd_seq = osd_seq_load(osd, fid_seq(fid));
 		if (IS_ERR(osd_seq))
@@ -655,16 +654,28 @@ int osd_obj_spec_lookup(struct osd_thread_info *info, struct osd_device *osd,
 			const struct lu_fid *fid, struct osd_inode_id *id)
 {
 	struct dentry *dentry;
+	struct dentry *parent;
 	struct inode  *inode;
 	char	      *name;
 	int	       rc = -ENOENT;
 	ENTRY;
 
-	name = oid2name(fid_oid(fid));
-	if (name == NULL || strlen(name) == 0)
-		RETURN(-ENOENT);
+	if (fid_is_last_obj(fid)) {
+		struct osd_obj_seq     *osd_seq;
 
-	dentry = ll_lookup_one_len(name, osd_sb(osd)->s_root, strlen(name));
+		osd_seq = osd_seq_load(osd, fid_seq(fid));
+		if (IS_ERR(osd_seq))
+			RETURN(PTR_ERR(osd_seq));
+		parent = osd_seq->oos_root;
+		name = "LAST_ID";
+	} else {
+		parent = osd_sb(osd)->s_root,
+		name = oid2name(fid_oid(fid));
+		if (name == NULL || strlen(name) == 0)
+			return -ENOENT;
+	}
+
+	dentry = ll_lookup_one_len(name, parent, strlen(name));
 	if (!IS_ERR(dentry)) {
 		inode = dentry->d_inode;
 		if (inode) {
