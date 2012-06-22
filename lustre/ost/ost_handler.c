@@ -2439,7 +2439,6 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 {
 	static struct ptlrpc_service_conf	svc_conf;
 	struct ost_obd *ost = &obd->u.ost;
-	struct lprocfs_static_vars lvars;
 	nodemask_t		*mask;
 	int rc;
 	ENTRY;
@@ -2448,8 +2447,7 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
         if (rc)
                 RETURN(rc);
 
-        lprocfs_ost_init_vars(&lvars);
-        lprocfs_obd_setup(obd, lvars.obd_vars);
+	lprocfs_obd_setup(obd, lprocfs_ost_obd_vars);
 
         cfs_mutex_init(&ost->ost_health_mutex);
 
@@ -2608,8 +2606,8 @@ out_service:
         ptlrpc_unregister_service(ost->ost_service);
         ost->ost_service = NULL;
 out_lprocfs:
-        lprocfs_obd_cleanup(obd);
-        RETURN(rc);
+	lprocfs_obd_cleanup(obd, lprocfs_ost_obd_vars);
+	RETURN(rc);
 }
 
 static int ost_cleanup(struct obd_device *obd)
@@ -2633,7 +2631,7 @@ static int ost_cleanup(struct obd_device *obd)
 
 	cfs_mutex_unlock(&ost->ost_health_mutex);
 
-	lprocfs_obd_cleanup(obd);
+	lprocfs_obd_cleanup(obd, lprocfs_ost_obd_vars);
 
 	if (ost_io_cptable != NULL) {
 		cfs_cpt_table_free(ost_io_cptable);
@@ -2680,13 +2678,11 @@ static struct obd_ops ost_obd_ops = {
 
 static int __init ost_init(void)
 {
-        struct lprocfs_static_vars lvars;
-        int rc;
-        ENTRY;
+	int rc;
+	ENTRY;
 
-        lprocfs_ost_init_vars(&lvars);
-        rc = class_register_type(&ost_obd_ops, NULL, lvars.module_vars,
-                                 LUSTRE_OSS_NAME, NULL);
+	rc = class_register_type(&ost_obd_ops, NULL, lprocfs_ost_module_vars,
+				 LUSTRE_OSS_NAME, NULL);
 
         if (ost_num_threads != 0 && oss_num_threads == 0) {
                 LCONSOLE_INFO("ost_num_threads module parameter is deprecated, "
@@ -2700,7 +2696,7 @@ static int __init ost_init(void)
 
 static void /*__exit*/ ost_exit(void)
 {
-        class_unregister_type(LUSTRE_OSS_NAME);
+	class_unregister_type(LUSTRE_OSS_NAME, lprocfs_ost_module_vars);
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");

@@ -3572,11 +3572,8 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
         }
 
         if (rc == 0) {
-                struct lprocfs_static_vars lvars = { 0 };
-
-                cli->cl_grant_shrink_interval = GRANT_SHRINK_INTERVAL;
-                lprocfs_osc_init_vars(&lvars);
-                if (lprocfs_obd_setup(obd, lvars.obd_vars) == 0) {
+		cli->cl_grant_shrink_interval = GRANT_SHRINK_INTERVAL;
+		if (lprocfs_obd_setup(obd, lprocfs_osc_obd_vars) == 0) {
                         lproc_osc_attach_seqstat(obd);
                         sptlrpc_lprocfs_cliobd_attach(obd);
                         ptlrpc_lprocfs_register_obd(obd);
@@ -3638,7 +3635,7 @@ static int osc_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
                 }
                 obd_cleanup_client_import(obd);
                 ptlrpc_lprocfs_unregister_obd(obd);
-                lprocfs_obd_cleanup(obd);
+		lprocfs_obd_cleanup(obd, lprocfs_osc_obd_vars);
                 rc = obd_llog_finish(obd, 0);
                 if (rc != 0)
                         CERROR("failed to cleanup llogging subsystems\n");
@@ -3665,14 +3662,11 @@ int osc_cleanup(struct obd_device *obd)
 
 int osc_process_config_base(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
-        struct lprocfs_static_vars lvars = { 0 };
         int rc = 0;
-
-        lprocfs_osc_init_vars(&lvars);
 
         switch (lcfg->lcfg_command) {
         default:
-                rc = class_process_proc_param(PARAM_OSC, lvars.obd_vars,
+		rc = class_process_proc_param(PARAM_OSC, lprocfs_osc_obd_vars,
                                               lcfg, obd);
                 if (rc > 0)
                         rc = 0;
@@ -3746,11 +3740,9 @@ int __init osc_init(void)
 
         rc = lu_kmem_init(osc_caches);
 
-        lprocfs_osc_init_vars(&lvars);
-
-        osc_quota_init();
-        rc = class_register_type(&osc_obd_ops, NULL, lvars.module_vars,
-                                 LUSTRE_OSC_NAME, &osc_device_type);
+	osc_quota_init();
+	rc = class_register_type(&osc_obd_ops, NULL, lprocfs_osc_module_vars,
+				 LUSTRE_OSC_NAME, &osc_device_type);
         if (rc) {
                 lu_kmem_fini(osc_caches);
                 RETURN(rc);

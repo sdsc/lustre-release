@@ -168,7 +168,6 @@ static int mgs_llog_finish(struct obd_device *obd, int count)
 static int mgs_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
 	static struct ptlrpc_service_conf	conf;
-        struct lprocfs_static_vars lvars;
         struct mgs_obd *mgs = &obd->u.mgs;
         struct lustre_mount_info *lmi;
         struct lustre_sb_info *lsi;
@@ -230,8 +229,7 @@ static int mgs_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
         mgs->mgs_start_time = cfs_time_current_sec();
 
         /* Setup proc */
-        lprocfs_mgs_init_vars(&lvars);
-        if (lprocfs_obd_setup(obd, lvars.obd_vars) == 0) {
+	if (lprocfs_obd_setup(obd, lprocfs_mgs_obd_vars) == 0) {
                 lproc_mgs_setup(obd);
                 rc = lprocfs_alloc_md_stats(obd, LPROC_MGS_LAST);
                 if (rc)
@@ -1207,18 +1205,13 @@ static struct obd_ops mgs_obd_ops = {
 
 static int __init mgs_init(void)
 {
-        struct lprocfs_static_vars lvars;
-
-        lprocfs_mgs_init_vars(&lvars);
-        class_register_type(&mgs_obd_ops, NULL,
-                            lvars.module_vars, LUSTRE_MGS_NAME, NULL);
-
-        return 0;
+	return class_register_type(&mgs_obd_ops, NULL, lprocfs_mgs_module_vars,
+				   LUSTRE_MGS_NAME, NULL);
 }
 
 static void /*__exit*/ mgs_exit(void)
 {
-        class_unregister_type(LUSTRE_MGS_NAME);
+	class_unregister_type(LUSTRE_MGS_NAME, lprocfs_mgs_module_vars);
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");

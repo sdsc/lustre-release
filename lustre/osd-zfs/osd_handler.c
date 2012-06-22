@@ -792,7 +792,7 @@ int __init osd_init(void)
 		return rc;
 
 	rc = class_register_type(&osd_obd_device_ops, NULL,
-				 lprocfs_osd_module_vars,
+				 lprocfs_osd_zfs_module_vars,
 				 LUSTRE_OSD_ZFS_NAME, &osd_device_type);
 	if (rc)
 		lu_kmem_fini(osd_caches);
@@ -801,7 +801,7 @@ int __init osd_init(void)
 
 void __exit osd_exit(void)
 {
-	class_unregister_type(LUSTRE_OSD_ZFS_NAME);
+	class_unregister_type(LUSTRE_OSD_ZFS_NAME, lprocfs_osd_zfs_module_vars);
 	lu_kmem_fini(osd_caches);
 }
 

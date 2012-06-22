@@ -41,12 +41,11 @@
 #include <lustre_mds.h>
 
 #ifdef LPROCFS
-void lprocfs_mdc_init_vars(struct lprocfs_static_vars *lvars);
+extern struct lprocfs_vars lprocfs_mdc_module_vars[];
+extern struct lprocfs_vars lprocfs_mdc_obd_vars[];
 #else
-static inline void lprocfs_mdc_init_vars(struct lprocfs_static_vars *lvars)
-{
-        memset(lvars, 0, sizeof(*lvars));
-}
+#define lprocfs_mdc_module_vars NULL
+#define lprocfs_mdc_obd_vars NULL
 #endif
 
 void mdc_pack_body(struct ptlrpc_request *req, const struct lu_fid *fid,

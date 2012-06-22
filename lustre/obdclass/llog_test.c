@@ -671,30 +671,20 @@ static int llog_test_llog_finish(struct obd_device *obd, int count)
         rc = llog_cleanup(llog_get_context(obd, LLOG_TEST_ORIG_CTXT));
         RETURN(rc);
 }
-#ifdef LPROCFS
-static struct lprocfs_vars lprocfs_llog_test_obd_vars[] = { {0} };
-static struct lprocfs_vars lprocfs_llog_test_module_vars[] = { {0} };
-static void lprocfs_llog_test_init_vars(struct lprocfs_static_vars *lvars)
-{
-    lvars->module_vars  = lprocfs_llog_test_module_vars;
-    lvars->obd_vars     = lprocfs_llog_test_obd_vars;
-}
-#endif
 
 static int llog_test_cleanup(struct obd_device *obd)
 {
-        int rc = obd_llog_finish(obd, 0);
-        if (rc)
-                CERROR("failed to llog_test_llog_finish: %d\n", rc);
+	int rc = obd_llog_finish(obd, 0);
+	if (rc)
+		CERROR("failed to llog_test_llog_finish: %d\n", rc);
 
-        lprocfs_obd_cleanup(obd);
+	lprocfs_obd_cleanup(obd, NULL);
 
-        return rc;
+	return rc;
 }
 
 static int llog_test_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
-        struct lprocfs_static_vars lvars;
         struct obd_device *tgt;
         int rc;
         ENTRY;
@@ -727,10 +717,9 @@ static int llog_test_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
         if (rc)
                 llog_test_cleanup(obd);
 
-        lprocfs_llog_test_init_vars(&lvars);
-        lprocfs_obd_setup(obd, lvars.obd_vars);
+	lprocfs_obd_setup(obd, NULL);
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 static struct obd_ops llog_obd_ops = {
@@ -743,16 +732,13 @@ static struct obd_ops llog_obd_ops = {
 
 static int __init llog_test_init(void)
 {
-        struct lprocfs_static_vars lvars;
-
-        lprocfs_llog_test_init_vars(&lvars);
-        return class_register_type(&llog_obd_ops, NULL,
-                                   lvars.module_vars,"llog_test", NULL);
+	return class_register_type(&llog_obd_ops, NULL, NULL, "llog_test",
+				   NULL);
 }
 
 static void __exit llog_test_exit(void)
 {
-        class_unregister_type("llog_test");
+	class_unregister_type("llog_test", NULL);
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");

@@ -790,7 +790,6 @@ enum {
 };
 void mdt_counter_incr(struct ptlrpc_request *req, int opcode);
 void mdt_stats_counter_init(struct lprocfs_stats *stats);
-void lprocfs_mdt_init_vars(struct lprocfs_static_vars *lvars);
 int mdt_procfs_init(struct mdt_device *mdt, const char *name);
 int mdt_procfs_fini(struct mdt_device *mdt);
 void mdt_rename_counter_tally(struct mdt_thread_info *info,
@@ -851,4 +850,11 @@ static inline struct obd_device *mdt2obd_dev(const struct mdt_device *mdt)
         return mdt->mdt_md_dev.md_lu_dev.ld_obd;
 }
 #endif /* __KERNEL__ */
+#ifdef LPROCFS
+extern struct lprocfs_vars lprocfs_mdt_obd_vars[];
+extern struct lprocfs_vars lprocfs_mdt_module_vars[];
+#else
+#define lprocfs_mdt_obd_vars NULL
+#define lprocfs_mdt_module_vars NULL
+#endif
 #endif /* _MDT_H */

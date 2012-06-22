@@ -417,41 +417,33 @@ static void seq_server_proc_fini(struct lu_server_seq *seq);
 #ifdef LPROCFS
 static int seq_server_proc_init(struct lu_server_seq *seq)
 {
-        int rc;
-        ENTRY;
+	int rc;
+	ENTRY;
 
-        seq->lss_proc_dir = lprocfs_register(seq->lss_name,
-                                             seq_type_proc_dir,
-                                             NULL, NULL);
-        if (IS_ERR(seq->lss_proc_dir)) {
-                rc = PTR_ERR(seq->lss_proc_dir);
-                RETURN(rc);
-        }
+	seq->lss_proc_dir = lprocfs_register(seq->lss_name,
+					     seq_type_proc_dir,
+					     seq_server_proc_list, seq);
+	if (IS_ERR(seq->lss_proc_dir)) {
+		rc = PTR_ERR(seq->lss_proc_dir);
+		seq->lss_proc_dir = NULL;
+		RETURN(rc);
+	}
 
-        rc = lprocfs_add_vars(seq->lss_proc_dir,
-                              seq_server_proc_list, seq);
-        if (rc) {
-                CERROR("%s: Can't init sequence manager "
-                       "proc, rc %d\n", seq->lss_name, rc);
-                GOTO(out_cleanup, rc);
-        }
-
-        RETURN(0);
+	RETURN(0);
 
 out_cleanup:
-        seq_server_proc_fini(seq);
-        return rc;
+	seq_server_proc_fini(seq);
+	return rc;
 }
 
 static void seq_server_proc_fini(struct lu_server_seq *seq)
 {
-        ENTRY;
-        if (seq->lss_proc_dir != NULL) {
-                if (!IS_ERR(seq->lss_proc_dir))
-                        lprocfs_remove(&seq->lss_proc_dir);
-                seq->lss_proc_dir = NULL;
-        }
-        EXIT;
+	ENTRY;
+	if (seq->lss_proc_dir != NULL) {
+		lprocfs_unregister(&seq->lss_proc_dir, seq_server_proc_list);
+		seq->lss_proc_dir = NULL;
+	}
+	EXIT;
 }
 #else
 static int seq_server_proc_init(struct lu_server_seq *seq)

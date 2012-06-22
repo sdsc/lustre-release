@@ -229,14 +229,12 @@ int mdt_procfs_init(struct mdt_device *mdt, const char *name)
 {
         struct lu_device *ld = &mdt->mdt_md_dev.md_lu_dev;
         struct obd_device *obd = ld->ld_obd;
-        struct lprocfs_static_vars lvars;
         int rc;
         ENTRY;
 
         LASSERT(name != NULL);
 
-        lprocfs_mdt_init_vars(&lvars);
-        rc = lprocfs_obd_setup(obd, lvars.obd_vars);
+	rc = lprocfs_obd_setup(obd, lprocfs_mdt_obd_vars);
         if (rc) {
                 CERROR("Can't init lprocfs, rc %d\n", rc);
                 return rc;
@@ -290,7 +288,7 @@ int mdt_procfs_fini(struct mdt_device *mdt)
                 obd->obd_proc_exports_entry = NULL;
         }
         lprocfs_free_per_client_stats(obd);
-        lprocfs_obd_cleanup(obd);
+	lprocfs_obd_cleanup(obd, lprocfs_mdt_obd_vars);
         ptlrpc_lprocfs_unregister_obd(obd);
         if (mdt->mdt_proc_entry) {
                 lu_time_fini(&ld->ld_site->ls_time_stats);
@@ -983,7 +981,7 @@ out:
         return count;
 }
 
-static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
+struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
         { "uuid",                       lprocfs_rd_uuid,                 0, 0 },
         { "recovery_status",            lprocfs_obd_rd_recovery_status,  0, 0 },
         { "num_exports",                lprocfs_rd_num_exports,          0, 0 },
@@ -1023,16 +1021,10 @@ static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
         { 0 }
 };
 
-static struct lprocfs_vars lprocfs_mdt_module_vars[] = {
-        { "num_refs",                   lprocfs_rd_numrefs,              0, 0 },
-        { 0 }
+struct lprocfs_vars lprocfs_mdt_module_vars[] = {
+	{ "num_refs",			lprocfs_rd_numrefs,		0, 0 },
+	{ 0 }
 };
-
-void lprocfs_mdt_init_vars(struct lprocfs_static_vars *lvars)
-{
-    lvars->module_vars  = lprocfs_mdt_module_vars;
-    lvars->obd_vars     = lprocfs_mdt_obd_vars;
-}
 
 void mdt_counter_incr(struct ptlrpc_request *req, int opcode)
 {

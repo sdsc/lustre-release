@@ -740,16 +740,15 @@ static int mgc_cleanup(struct obd_device *obd)
                 /* Only for the last mgc */
                 class_del_profiles();
 
-        lprocfs_obd_cleanup(obd);
-        ptlrpcd_decref();
+	lprocfs_obd_cleanup(obd, lprocfs_mgc_obd_vars);
+	ptlrpcd_decref();
 
-        rc = client_obd_cleanup(obd);
+	rc = client_obd_cleanup(obd, lprocfs_mgc_obd_vars);
         RETURN(rc);
 }
 
 static int mgc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
-        struct lprocfs_static_vars lvars;
         int rc;
         ENTRY;
 
@@ -765,8 +764,7 @@ static int mgc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
                 GOTO(err_cleanup, rc);
         }
 
-        lprocfs_mgc_init_vars(&lvars);
-        lprocfs_obd_setup(obd, lvars.obd_vars);
+	lprocfs_obd_setup(obd, lprocfs_mgc_obd_vars);
         sptlrpc_lprocfs_cliobd_attach(obd);
 
         if (cfs_atomic_inc_return(&mgc_count) == 1) {
@@ -1961,14 +1959,14 @@ struct obd_ops mgc_obd_ops = {
 
 int __init mgc_init(void)
 {
-        return class_register_type(&mgc_obd_ops, NULL, NULL,
-                                   LUSTRE_MGC_NAME, NULL);
+	return class_register_type(&mgc_obd_ops, NULL, lprocfs_mgc_module_vars,
+				   LUSTRE_MGC_NAME, NULL);
 }
 
 #ifdef __KERNEL__
 static void /*__exit*/ mgc_exit(void)
 {
-        class_unregister_type(LUSTRE_MGC_NAME);
+	class_unregister_type(LUSTRE_MGC_NAME, lprocfs_mgc_module_vars);
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");

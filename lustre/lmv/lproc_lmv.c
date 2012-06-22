@@ -41,8 +41,8 @@
 #include <obd_class.h>
 
 #ifndef LPROCFS
-static struct lprocfs_vars lprocfs_module_vars[] = { {0} };
-static struct lprocfs_vars lprocfs_obd_vars[] = { {0} };
+#define lprocfs_module_vars NULL
+#define lprocfs_obd_vars NULL
 #else
 static int lmv_rd_numobd(char *page, char **start, off_t off, int count,
                          int *eof, void *data)
@@ -217,7 +217,7 @@ struct lprocfs_vars lprocfs_lmv_obd_vars[] = {
         { 0 }
 };
 
-static struct lprocfs_vars lprocfs_lmv_module_vars[] = {
+struct lprocfs_vars lprocfs_lmv_module_vars[] = {
         { "num_refs",           lprocfs_rd_numrefs,     0, 0 },
         { 0 }
 };
@@ -231,8 +231,3 @@ struct file_operations lmv_proc_target_fops = {
 };
 
 #endif /* LPROCFS */
-void lprocfs_lmv_init_vars(struct lprocfs_static_vars *lvars)
-{
-        lvars->module_vars    = lprocfs_lmv_module_vars;
-        lvars->obd_vars       = lprocfs_lmv_obd_vars;
-}

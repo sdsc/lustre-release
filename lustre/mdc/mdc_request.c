@@ -2075,7 +2075,6 @@ static int mdc_cancel_for_recovery(struct ldlm_lock *lock)
 static int mdc_setup(struct obd_device *obd, struct lustre_cfg *cfg)
 {
         struct client_obd *cli = &obd->u.cli;
-        struct lprocfs_static_vars lvars = { 0 };
         int rc;
         ENTRY;
 
@@ -2094,8 +2093,7 @@ static int mdc_setup(struct obd_device *obd, struct lustre_cfg *cfg)
         rc = client_obd_setup(obd, cfg);
         if (rc)
                 GOTO(err_close_lock, rc);
-        lprocfs_mdc_init_vars(&lvars);
-        lprocfs_obd_setup(obd, lvars.obd_vars);
+	lprocfs_obd_setup(obd, lprocfs_mdc_obd_vars);
         sptlrpc_lprocfs_cliobd_attach(obd);
         ptlrpc_lprocfs_register_obd(obd);
 
@@ -2155,7 +2153,7 @@ static int mdc_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
 
                 obd_cleanup_client_import(obd);
                 ptlrpc_lprocfs_unregister_obd(obd);
-                lprocfs_obd_cleanup(obd);
+		lprocfs_obd_cleanup(obd, lprocfs_mdc_obd_vars);
 
                 rc = obd_llog_finish(obd, 0);
                 if (rc != 0)
@@ -2227,14 +2225,12 @@ static int mdc_llog_finish(struct obd_device *obd, int count)
 static int mdc_process_config(struct obd_device *obd, obd_count len, void *buf)
 {
         struct lustre_cfg *lcfg = buf;
-        struct lprocfs_static_vars lvars = { 0 };
         int rc = 0;
 
-        lprocfs_mdc_init_vars(&lvars);
         switch (lcfg->lcfg_command) {
         default:
-                rc = class_process_proc_param(PARAM_MDC, lvars.obd_vars,
-                                              lcfg, obd);
+		rc = class_process_proc_param(PARAM_MDC, lprocfs_mdc_obd_vars,
+					      lcfg, obd);
                 if (rc > 0)
                         rc = 0;
                 break;
@@ -2423,19 +2419,18 @@ struct md_ops mdc_md_ops = {
 
 int __init mdc_init(void)
 {
-        int rc;
-        struct lprocfs_static_vars lvars = { 0 };
-        lprocfs_mdc_init_vars(&lvars);
+	int rc;
 
-        rc = class_register_type(&mdc_obd_ops, &mdc_md_ops, lvars.module_vars,
-                                 LUSTRE_MDC_NAME, NULL);
-        RETURN(rc);
+	rc = class_register_type(&mdc_obd_ops, &mdc_md_ops,
+				 lprocfs_mdc_module_vars, LUSTRE_MDC_NAME,
+				 NULL);
+	RETURN(rc);
 }
 
 #ifdef __KERNEL__
 static void /*__exit*/ mdc_exit(void)
 {
-        class_unregister_type(LUSTRE_MDC_NAME);
+	class_unregister_type(LUSTRE_MDC_NAME, lprocfs_mdc_module_vars);
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");

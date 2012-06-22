@@ -221,7 +221,7 @@ int class_register_type(struct obd_ops *dt_ops, struct md_ops *md_ops,
 }
 EXPORT_SYMBOL(class_register_type);
 
-int class_unregister_type(const char *name)
+int class_unregister_type(const char *name, struct lprocfs_vars *vars)
 {
         struct obd_type *type = class_search_type(name);
         ENTRY;
@@ -240,9 +240,8 @@ int class_unregister_type(const char *name)
                 RETURN(-EBUSY);
         }
 
-        if (type->typ_procroot) {
-                lprocfs_remove(&type->typ_procroot);
-        }
+	if (type->typ_procroot)
+		lprocfs_unregister(&type->typ_procroot, vars);
 
         if (type->typ_lu)
                 lu_device_type_fini(type->typ_lu);

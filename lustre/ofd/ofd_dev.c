@@ -191,11 +191,8 @@ static int ofd_process_config(const struct lu_env *env, struct lu_device *d,
 
 	switch (cfg->lcfg_command) {
 	case LCFG_PARAM: {
-		struct lprocfs_static_vars lvars;
-
-		lprocfs_ofd_init_vars(&lvars);
-		rc = class_process_proc_param(PARAM_OST, lvars.obd_vars, cfg,
-					      d->ld_obd);
+		rc = class_process_proc_param(PARAM_OST, lprocfs_ofd_obd_vars,
+					      cfg, d->ld_obd);
 		if (rc > 0 || rc == -ENOSYS)
 			/* we don't understand; pass it on */
 			rc = next->ld_ops->ldo_process_config(env, next, cfg);
@@ -334,7 +331,6 @@ static struct lu_device_operations ofd_lu_ops = {
 
 static int ofd_procfs_init(struct ofd_device *ofd)
 {
-	struct lprocfs_static_vars	 lvars;
 	struct obd_device		*obd = ofd_obd(ofd);
 	cfs_proc_dir_entry_t		*entry;
 	int				 rc = 0;
@@ -343,8 +339,7 @@ static int ofd_procfs_init(struct ofd_device *ofd)
 
 	/* lprocfs must be setup before the ofd so state can be safely added
 	 * to /proc incrementally as the ofd is setup */
-	lprocfs_ofd_init_vars(&lvars);
-	rc = lprocfs_obd_setup(obd, lvars.obd_vars);
+	rc = lprocfs_obd_setup(obd, lprocfs_ofd_obd_vars);
 	if (rc) {
 		CERROR("%s: lprocfs_obd_setup failed: %d.\n",
 		       obd->obd_name, rc);
@@ -393,7 +388,7 @@ static int ofd_procfs_init(struct ofd_device *ofd)
 free_obd_stats:
 	lprocfs_free_obd_stats(obd);
 obd_cleanup:
-	lprocfs_obd_cleanup(obd);
+	lprocfs_obd_cleanup(obd, lprocfs_ofd_obd_vars);
 	return rc;
 }
 
@@ -404,7 +399,7 @@ static int ofd_procfs_fini(struct ofd_device *ofd)
 	lprocfs_remove_proc_entry("clear", obd->obd_proc_exports_entry);
 	lprocfs_free_per_client_stats(obd);
 	lprocfs_free_obd_stats(obd);
-	lprocfs_obd_cleanup(obd);
+	lprocfs_obd_cleanup(obd, lprocfs_ofd_obd_vars);
 	return 0;
 }
 
@@ -701,7 +696,6 @@ static struct lu_device_type ofd_device_type = {
 
 int __init ofd_init(void)
 {
-	struct lprocfs_static_vars	lvars;
 	int				rc;
 
 	rc = lu_kmem_init(ofd_caches);
@@ -714,9 +708,7 @@ int __init ofd_init(void)
 		return(rc);
 	}
 
-	lprocfs_ofd_init_vars(&lvars);
-
-	rc = class_register_type(&ofd_obd_ops, NULL, lvars.module_vars,
+	rc = class_register_type(&ofd_obd_ops, NULL, lprocfs_ofd_module_vars,
 				 LUSTRE_OST_NAME, &ofd_device_type);
 	return rc;
 }
@@ -725,7 +717,7 @@ void __exit ofd_exit(void)
 {
 	ofd_fmd_exit();
 	lu_kmem_fini(ofd_caches);
-	class_unregister_type(LUSTRE_OST_NAME);
+	class_unregister_type(LUSTRE_OST_NAME, lprocfs_ofd_module_vars);
 }
 
 MODULE_AUTHOR("Whamcloud, Inc. <http://www.whamcloud.com/>");

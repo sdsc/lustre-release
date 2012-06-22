@@ -2980,21 +2980,18 @@ static struct obd_ops echo_client_obd_ops = {
 
 int echo_client_init(void)
 {
-        struct lprocfs_static_vars lvars = { 0 };
-        int rc;
+	int rc;
 
-        lprocfs_echo_init_vars(&lvars);
-
-        rc = lu_kmem_init(echo_caches);
-        if (rc == 0) {
-                rc = class_register_type(&echo_client_obd_ops, NULL,
-                                         lvars.module_vars,
-                                         LUSTRE_ECHO_CLIENT_NAME,
-                                         &echo_device_type);
+	rc = lu_kmem_init(echo_caches);
+	if (rc == 0) {
+		rc = class_register_type(&echo_obd_ops, NULL,
+					 lprocfs_echo_module_vars,
+					 LUSTRE_ECHO_CLIENT_NAME,
+					 &echo_device_type);
                 if (rc)
-                        lu_kmem_fini(echo_caches);
-        }
-        return rc;
+			lu_kmem_fini(echo_caches);
+	}
+	return rc;
 }
 
 void echo_client_exit(void)
@@ -3006,7 +3003,6 @@ void echo_client_exit(void)
 #ifdef __KERNEL__
 static int __init obdecho_init(void)
 {
-        struct lprocfs_static_vars lvars;
         int rc;
 
         ENTRY;
@@ -3014,15 +3010,13 @@ static int __init obdecho_init(void)
 
         LASSERT(CFS_PAGE_SIZE % OBD_ECHO_BLOCK_SIZE == 0);
 
-        lprocfs_echo_init_vars(&lvars);
-
 # ifdef HAVE_SERVER_SUPPORT
         rc = echo_persistent_pages_init();
         if (rc != 0)
                 goto failed_0;
 
-        rc = class_register_type(&echo_obd_ops, NULL, lvars.module_vars,
-                                 LUSTRE_ECHO_NAME, NULL);
+	rc = class_register_type(&echo_obd_ops, NULL, lprocfs_echo_module_vars,
+				 LUSTRE_ECHO_NAME, NULL);
         if (rc != 0)
                 goto failed_1;
 # endif

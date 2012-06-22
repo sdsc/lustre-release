@@ -88,7 +88,7 @@ struct obd_export *class_conn2export(struct lustre_handle *);
 int class_register_type(struct obd_ops *, struct md_ops *,
                         struct lprocfs_vars *, const char *nm,
                         struct lu_device_type *ldt);
-int class_unregister_type(const char *nm);
+int class_unregister_type(const char *nm, struct lprocfs_vars *);
 
 struct obd_device *class_newdev(const char *type_name, const char *name);
 void class_release_dev(struct obd_device *obd);
@@ -141,14 +141,6 @@ void class_decref(struct obd_device *obd,
 void dump_exports(struct obd_device *obd, int locks);
 
 /*obdecho*/
-#ifdef LPROCFS
-extern void lprocfs_echo_init_vars(struct lprocfs_static_vars *lvars);
-#else
-static inline void lprocfs_echo_init_vars(struct lprocfs_static_vars *lvars)
-{
-        memset(lvars, 0, sizeof(*lvars));
-}
-#endif
 
 #define CFG_F_START     0x01   /* Set when we start updating from a log */
 #define CFG_F_MARKER    0x02   /* We are within a maker */

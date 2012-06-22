@@ -865,33 +865,17 @@ static struct lu_device_type cmm_device_type = {
         .ldt_ctx_tags = LCT_MD_THREAD | LCT_DT_THREAD
 };
 
-struct lprocfs_vars lprocfs_cmm_obd_vars[] = {
-        { 0 }
-};
-
-struct lprocfs_vars lprocfs_cmm_module_vars[] = {
-        { 0 }
-};
-
-static void lprocfs_cmm_init_vars(struct lprocfs_static_vars *lvars)
-{
-    lvars->module_vars  = lprocfs_cmm_module_vars;
-    lvars->obd_vars     = lprocfs_cmm_obd_vars;
-}
 /** @} */
 
 static int __init cmm_mod_init(void)
 {
-        struct lprocfs_static_vars lvars;
-
-        lprocfs_cmm_init_vars(&lvars);
-        return class_register_type(&cmm_obd_device_ops, NULL, lvars.module_vars,
-                                   LUSTRE_CMM_NAME, &cmm_device_type);
+	return class_register_type(&cmm_obd_device_ops, NULL, NULL,
+				   LUSTRE_CMM_NAME, &cmm_device_type);
 }
 
 static void __exit cmm_mod_exit(void)
 {
-        class_unregister_type(LUSTRE_CMM_NAME);
+	class_unregister_type(LUSTRE_CMM_NAME, NULL);
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");

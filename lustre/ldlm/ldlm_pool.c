@@ -750,6 +750,7 @@ static int ldlm_pool_proc_init(struct ldlm_pool *pl)
                 GOTO(out_free_name, rc);
         }
 
+#error fixme
         var_name[MAX_STRING_SIZE] = '\0';
         memset(pool_vars, 0, sizeof(pool_vars));
         pool_vars[0].name = var_name;

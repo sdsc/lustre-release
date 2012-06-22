@@ -650,7 +650,7 @@ static int ll_rd_maxea_size(char *page, char **start, off_t off,
         return snprintf(page, count, "%u\n", ealen);
 }
 
-static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
+struct lprocfs_vars lprocfs_llite_obd_vars[] = {
         { "uuid",         ll_rd_sb_uuid,          0, 0 },
         //{ "mntpt_path",   ll_rd_path,             0, 0 },
         { "fstype",       ll_rd_fstype,           0, 0 },
@@ -1280,10 +1280,4 @@ static ssize_t ll_rw_offset_stats_seq_write(struct file *file, const char *buf,
 }
 
 LPROC_SEQ_FOPS(ll_rw_offset_stats);
-
-void lprocfs_llite_init_vars(struct lprocfs_static_vars *lvars)
-{
-    lvars->module_vars  = NULL;
-    lvars->obd_vars     = lprocfs_llite_obd_vars;
-}
 #endif /* LPROCFS */

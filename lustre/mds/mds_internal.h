@@ -76,5 +76,13 @@ int mds_obd_destroy(const struct lu_env *env, struct obd_export *exp,
 extern struct lvfs_callback_ops mds_lvfs_ops;
 
 /* mds/lproc_mds.c */
-void lprocfs_mds_init_vars(struct lprocfs_static_vars *lvars);
+#ifdef LPROCFS
+extern struct lprocfs_vars lprocfs_mds_obd_vars[];
+extern struct lprocfs_vars lprocfs_mds_module_vars[];
+extern struct lprocfs_vars lprocfs_mdt_obd_vars[];
+#else
+#define lprocfs_mds_obd_vars NULL
+#define lprocfs_mds_module_vars NULL
+#define lprocfs_mdt_obd_vars NULL
+#endif
 #endif /* _MDS_INTERNAL_H */

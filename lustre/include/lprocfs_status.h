@@ -66,11 +66,6 @@ struct lprocfs_vars {
         mode_t                  proc_mode;
 };
 
-struct lprocfs_static_vars {
-        struct lprocfs_vars *module_vars;
-        struct lprocfs_vars *obd_vars;
-};
-
 /* if we find more consumers this could be generalized */
 #define OBD_HIST_MAX 32
 struct obd_histogram {
@@ -885,22 +880,29 @@ static inline cfs_proc_dir_entry_t *
 lprocfs_register(const char *name, cfs_proc_dir_entry_t *parent,
                  struct lprocfs_vars *list, void *data)
 { return NULL; }
+static inline void
+lprocfs_unregister(cfs_proc_dir_entry_t *dir, struct lprocfs_vars *list)
+{ return; }
 static inline int lprocfs_add_vars(cfs_proc_dir_entry_t *root,
                                    struct lprocfs_vars *var,
                                    void *data)
 { return 0; }
+static inline void lprocfs_del_vars(cfs_proc_dir_entry_t *root,
+				    struct lprocfs_vars *var);
+{ return; }
 static inline void lprocfs_remove(cfs_proc_dir_entry_t **root)
 { return; }
 static inline void lprocfs_remove_proc_entry(const char *name,
-                                             struct proc_dir_entry *parent)
+					     struct proc_dir_entry *parent)
 { return; }
 static inline cfs_proc_dir_entry_t *lprocfs_srch(cfs_proc_dir_entry_t *head,
-                                                 const char *name)
+						 const char *name)
 { return 0; }
 static inline int lprocfs_obd_setup(struct obd_device *dev,
-                                    struct lprocfs_vars *list)
+				    struct lprocfs_vars *vars)
 { return 0; }
-static inline int lprocfs_obd_cleanup(struct obd_device *dev)
+static inline int lprocfs_obd_cleanup(struct obd_device *dev,
+				      struct lprocfs_vars *vars)
 { return 0; }
 static inline int lprocfs_rd_u64(char *page, char **start, off_t off,
                                  int count, int *eof, void *data)

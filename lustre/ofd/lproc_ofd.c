@@ -421,7 +421,7 @@ int lprocfs_ofd_wr_grant_compat_disable(struct file *file, const char *buffer,
 	return count;
 }
 
-static struct lprocfs_vars lprocfs_ofd_obd_vars[] = {
+struct lprocfs_vars lprocfs_ofd_obd_vars[] = {
 	{ "uuid",		 lprocfs_rd_uuid, 0, 0 },
 	{ "blocksize",		 lprocfs_rd_blksize, 0, 0 },
 	{ "kbytestotal",	 lprocfs_rd_kbytestotal, 0, 0 },
@@ -470,8 +470,8 @@ static struct lprocfs_vars lprocfs_ofd_obd_vars[] = {
 	{ 0 }
 };
 
-static struct lprocfs_vars lprocfs_ofd_module_vars[] = {
-	{ "num_refs",	  lprocfs_rd_numrefs,	0, 0 },
+struct lprocfs_vars lprocfs_ofd_module_vars[] = {
+	{ "num_refs",		lprocfs_rd_numrefs,	0, 0 },
 	{ 0 }
 };
 
@@ -588,12 +588,6 @@ int lproc_ofd_attach_seqstat(struct obd_device *dev)
 {
 	return lprocfs_obd_seq_create(dev, "brw_stats", 0444,
 				      &ofd_brw_stats_fops, dev);
-}
-
-void lprocfs_ofd_init_vars(struct lprocfs_static_vars *lvars)
-{
-	lvars->module_vars  = lprocfs_ofd_module_vars;
-	lvars->obd_vars     = lprocfs_ofd_obd_vars;
 }
 
 static int ofd_per_nid_stats_seq_show(struct seq_file *seq, void *v)

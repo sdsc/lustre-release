@@ -763,7 +763,6 @@ void lov_fix_desc(struct lov_desc *desc)
 
 int lov_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
-        struct lprocfs_static_vars lvars = { 0 };
         struct lov_desc *desc;
         struct lov_obd *lov = &obd->u.lov;
         int rc;
@@ -834,9 +833,8 @@ int lov_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
         if (rc)
                 GOTO(out_free_lov_packed, rc);
 
-        lprocfs_lov_init_vars(&lvars);
-        lprocfs_obd_setup(obd, lvars.obd_vars);
 #ifdef LPROCFS
+	lprocfs_obd_setup(obd, lprocfs_lov_obd_vars);
         {
                 int rc;
 
@@ -903,7 +901,7 @@ static int lov_cleanup(struct obd_device *obd)
         lov_ost_pool_free(&(lov->lov_qos.lq_rr.lqr_pool));
         lov_ost_pool_free(&lov->lov_packed);
 
-	lprocfs_obd_cleanup(obd);
+	lprocfs_obd_cleanup(obd, lprocfs_lov_obd_vars);
         if (lov->lov_tgts) {
                 int i;
                 obd_getref(obd);
@@ -967,16 +965,13 @@ int lov_process_config_base(struct obd_device *obd, struct lustre_cfg *lcfg,
                 GOTO(out, rc);
         }
         case LCFG_PARAM: {
-                struct lprocfs_static_vars lvars = { 0 };
                 struct lov_desc *desc = &(obd->u.lov.desc);
 
                 if (!desc)
                         GOTO(out, rc = -EINVAL);
 
-                lprocfs_lov_init_vars(&lvars);
-
-                rc = class_process_proc_param(PARAM_LOV, lvars.obd_vars,
-                                              lcfg, obd);
+		rc = class_process_proc_param(PARAM_LOV, lprocfs_lov_obd_vars,
+					      lcfg, obd);
                 if (rc > 0)
                         rc = 0;
                 GOTO(out, rc);
@@ -3022,7 +3017,6 @@ extern struct lu_kmem_descr lov_caches[];
 
 int __init lov_init(void)
 {
-        struct lprocfs_static_vars lvars = { 0 };
         int rc, rc2;
         ENTRY;
 
@@ -3042,14 +3036,13 @@ int __init lov_init(void)
                 lu_kmem_fini(lov_caches);
                 return -ENOMEM;
         }
-        lprocfs_lov_init_vars(&lvars);
 
         cfs_request_module("lquota");
         quota_interface = PORTAL_SYMBOL_GET(lov_quota_interface);
         init_obd_quota_ops(quota_interface, &lov_obd_ops);
 
-        rc = class_register_type(&lov_obd_ops, NULL, lvars.module_vars,
-                                 LUSTRE_LOV_NAME, &lov_device_type);
+	rc = class_register_type(&lov_obd_ops, NULL, lprocfs_lov_module_vars,
+				 LUSTRE_LOV_NAME, &lov_device_type);
 
         if (rc) {
                 if (quota_interface)
@@ -3070,7 +3063,7 @@ static void /*__exit*/ lov_exit(void)
         if (quota_interface)
                 PORTAL_SYMBOL_PUT(lov_quota_interface);
 
-        class_unregister_type(LUSTRE_LOV_NAME);
+	class_unregister_type(LUSTRE_LOV_NAME, lprocfs_lov_module_vars);
         rc = cfs_mem_cache_destroy(lov_oinfo_slab);
         LASSERT(rc == 0);
 

@@ -249,7 +249,6 @@ static const char *osd_counter_names[] = {
 
 int osd_procfs_init(struct osd_device *osd, const char *name)
 {
-        struct lprocfs_static_vars lvars;
         struct lu_device    *ld = &osd->od_dt_dev.dd_lu_dev;
         struct obd_type     *type;
         int                  rc;
@@ -260,10 +259,10 @@ int osd_procfs_init(struct osd_device *osd, const char *name)
         LASSERT(name != NULL);
         LASSERT(type != NULL);
 
-        /* Find the type procroot and add the proc entry for this device */
-        lprocfs_osd_init_vars(&lvars);
-        osd->od_proc_entry = lprocfs_register(name, type->typ_procroot,
-                                              lvars.obd_vars, &osd->od_dt_dev);
+	/* Find the type procroot and add the proc entry for this device */
+	osd->od_proc_entry = lprocfs_register(name, type->typ_procroot,
+					      lprocfs_osd_ldiskfs_obd_vars,
+					      &osd->od_dt_dev);
         if (IS_ERR(osd->od_proc_entry)) {
                 rc = PTR_ERR(osd->od_proc_entry);
                 CERROR("Error %d setting up lprocfs for %s\n",
@@ -404,7 +403,7 @@ static int lprocfs_osd_rd_oi_scrub(char *page, char **start, off_t off,
 	return osd_scrub_dump(dev, page, count);
 }
 
-struct lprocfs_vars lprocfs_osd_obd_vars[] = {
+struct lprocfs_vars lprocfs_osd_ldiskfs_obd_vars[] = {
         { "blocksize",       lprocfs_osd_rd_blksize,     0, 0 },
         { "kbytestotal",     lprocfs_osd_rd_kbytestotal, 0, 0 },
         { "kbytesfree",      lprocfs_osd_rd_kbytesfree,  0, 0 },
@@ -422,14 +421,8 @@ struct lprocfs_vars lprocfs_osd_obd_vars[] = {
 	{ 0 }
 };
 
-struct lprocfs_vars lprocfs_osd_module_vars[] = {
-        { "num_refs",        lprocfs_rd_numrefs,     0, 0 },
-        { 0 }
+struct lprocfs_vars lprocfs_osd_ldiskf_module_vars[] = {
+	{ "num_refs",		lprocfs_rd_numrefs,		0, 0 },
+	{ 0 }
 };
-
-void lprocfs_osd_init_vars(struct lprocfs_static_vars *lvars)
-{
-        lvars->module_vars = lprocfs_osd_module_vars;
-        lvars->obd_vars = lprocfs_osd_obd_vars;
-}
 #endif

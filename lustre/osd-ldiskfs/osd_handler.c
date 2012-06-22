@@ -4547,17 +4547,16 @@ static struct obd_ops osd_obd_device_ops = {
 
 static int __init osd_mod_init(void)
 {
-        struct lprocfs_static_vars lvars;
+	osd_oi_mod_init();
 
-        osd_oi_mod_init();
-        lprocfs_osd_init_vars(&lvars);
-        return class_register_type(&osd_obd_device_ops, NULL, lvars.module_vars,
-                                   LUSTRE_OSD_NAME, &osd_device_type);
+	return class_register_type(&osd_obd_device_ops, NULL,
+				   lprocfs_osd_ldiskfs_module_vars,
+				   LUSTRE_OSD_NAME, &osd_device_type);
 }
 
 static void __exit osd_mod_exit(void)
 {
-        class_unregister_type(LUSTRE_OSD_NAME);
+	class_unregister_type(LUSTRE_OSD_NAME, lprocfs_osd_ldiskfs_module_vars);
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");

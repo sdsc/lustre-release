@@ -64,4 +64,10 @@ static inline void page_cache_release(struct page *page)
 
 #endif /* ifdef __KERNEL__ */
 
+#ifdef LPROCFS
+extern struct lprocfs_vars lprocfs_echo_obd_vars[];
+extern struct lprocfs_vars lprocfs_echo_module_vars[];
+#else
+#define lprocfs_echo_obd_vars NULL
+#define lprocfs_echo_module_vars NULL
 #endif

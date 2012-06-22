@@ -184,7 +184,7 @@ int lproc_mgs_cleanup(struct obd_device *obd)
         lprocfs_free_obd_stats(obd);
         lprocfs_free_md_stats(obd);
 
-        return lprocfs_obd_cleanup(obd);
+	return lprocfs_obd_cleanup(obd, NULL);
 }
 
 static int mgs_live_seq_show(struct seq_file *seq, void *v)
@@ -292,11 +292,5 @@ void mgs_stats_counter_init(struct lprocfs_stats *stats)
                              "reqs");
         lprocfs_counter_init(stats, LPROC_MGS_TARGET_REG, 0, "tgtreg", "reqs");
         lprocfs_counter_init(stats, LPROC_MGS_TARGET_DEL, 0, "tgtdel", "reqs");
-}
-
-void lprocfs_mgs_init_vars(struct lprocfs_static_vars *lvars)
-{
-    lvars->module_vars  = lprocfs_mgs_module_vars;
-    lvars->obd_vars     = lprocfs_mgs_obd_vars;
 }
 #endif

@@ -1049,7 +1049,6 @@ static int lmv_fid_delete(struct obd_export *exp, const struct lu_fid *fid)
 static int lmv_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
         struct lmv_obd             *lmv = &obd->u.lmv;
-        struct lprocfs_static_vars  lvars;
         struct lmv_desc            *desc;
         int                         rc;
         int                         i = 0;
@@ -1101,9 +1100,8 @@ static int lmv_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
                 GOTO(out_free_datas, rc);
         }
 
-        lprocfs_lmv_init_vars(&lvars);
-        lprocfs_obd_setup(obd, lvars.obd_vars);
 #ifdef LPROCFS
+	lprocfs_obd_setup(obd, lprocfs_lmv_obd_vars);
         {
                 rc = lprocfs_seq_create(obd->obd_proc_entry, "target_obd",
                                         0444, &lmv_proc_target_fops, obd);
@@ -2634,8 +2632,8 @@ static int lmv_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
                  * stack. */
                 break;
         case OBD_CLEANUP_EXPORTS:
-                fld_client_proc_fini(&lmv->lmv_fld);
-                lprocfs_obd_cleanup(obd);
+		fld_client_proc_fini(&lmv->lmv_fld);
+		lprocfs_obd_cleanup(obd, lprocfs_lmv_obd_vars);
                 rc = obd_llog_finish(obd, 0);
                 if (rc != 0)
                         CERROR("failed to cleanup llogging subsystems\n");
@@ -3227,8 +3225,7 @@ struct md_ops lmv_md_ops = {
 
 int __init lmv_init(void)
 {
-        struct lprocfs_static_vars lvars;
-        int                        rc;
+	int rc;
 
         lmv_object_cache = cfs_mem_cache_create("lmv_objects",
                                                 sizeof(struct lmv_object),
@@ -3238,25 +3235,24 @@ int __init lmv_init(void)
                 return -ENOMEM;
         }
 
-        lprocfs_lmv_init_vars(&lvars);
+	rc = class_register_type(&lmv_obd_ops, &lmv_md_ops,
+				 lprocfs_lmv_module_vars, LUSTRE_LMV_NAME,
+				 NULL);
+	if (rc)
+		cfs_mem_cache_destroy(lmv_object_cache);
 
-        rc = class_register_type(&lmv_obd_ops, &lmv_md_ops,
-                                 lvars.module_vars, LUSTRE_LMV_NAME, NULL);
-        if (rc)
-                cfs_mem_cache_destroy(lmv_object_cache);
-
-        return rc;
+	return rc;
 }
 
 #ifdef __KERNEL__
 static void lmv_exit(void)
 {
-        class_unregister_type(LUSTRE_LMV_NAME);
+	class_unregister_type(LUSTRE_LMV_NAME, lprocfs_lmv_module_vars);
 
-        LASSERTF(cfs_atomic_read(&lmv_object_count) == 0,
-                 "Can't free lmv objects cache, %d object(s) busy\n",
-                 cfs_atomic_read(&lmv_object_count));
-        cfs_mem_cache_destroy(lmv_object_cache);
+	LASSERTF(cfs_atomic_read(&lmv_object_count) == 0,
+		 "Can't free lmv objects cache, %d object(s) busy\n",
+		 cfs_atomic_read(&lmv_object_count));
+	cfs_mem_cache_destroy(lmv_object_cache);
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");

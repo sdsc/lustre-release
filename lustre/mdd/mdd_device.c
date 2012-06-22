@@ -955,10 +955,8 @@ static int mdd_process_config(const struct lu_env *env,
 
         switch (cfg->lcfg_command) {
         case LCFG_PARAM: {
-                struct lprocfs_static_vars lvars;
-
-                lprocfs_mdd_init_vars(&lvars);
-                rc = class_process_proc_param(PARAM_MDD, lvars.obd_vars, cfg,m);
+		rc = class_process_proc_param(PARAM_MDD, lprocfs_mdd_obd_vars,
+					      cfg, m);
                 if (rc > 0 || rc == -ENOSYS)
                         /* we don't understand; pass it on */
                         rc = next->ld_ops->ldo_process_config(env, next, cfg);
@@ -1680,15 +1678,13 @@ static struct lu_local_obj_desc llod_lfsck_bookmark_key = {
 
 static int __init mdd_mod_init(void)
 {
-	struct lprocfs_static_vars lvars;
-	lprocfs_mdd_init_vars(&lvars);
-
 	llo_local_obj_register(&llod_capa_key);
 	llo_local_obj_register(&llod_mdd_orphan);
 	llo_local_obj_register(&llod_mdd_root);
 	llo_local_obj_register(&llod_lfsck_bookmark_key);
 
-	return class_register_type(&mdd_obd_device_ops, NULL, lvars.module_vars,
+	return class_register_type(&mdd_obd_device_ops, NULL,
+				   lprocfs_mdd_module_vars,
 				   LUSTRE_MDD_NAME, &mdd_device_type);
 }
 
@@ -1699,11 +1695,11 @@ static void __exit mdd_mod_exit(void)
 	llo_local_obj_unregister(&llod_mdd_root);
 	llo_local_obj_unregister(&llod_lfsck_bookmark_key);
 
-	class_unregister_type(LUSTRE_MDD_NAME);
+	class_unregister_type(LUSTRE_MDD_NAME, lprocfs_mdd_module_vars);
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Meta-data Device Prototype ("LUSTRE_MDD_NAME")");
 MODULE_LICENSE("GPL");
 
-cfs_module(mdd, "0.1.0", mdd_mod_init, mdd_mod_exit);
+cfs_module(mdd, LUSTRE_VERSION_STRING, mdd_mod_init, mdd_mod_exit);

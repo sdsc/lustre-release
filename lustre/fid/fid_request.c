@@ -400,44 +400,36 @@ static void seq_client_proc_fini(struct lu_client_seq *seq);
 #ifdef LPROCFS
 static int seq_client_proc_init(struct lu_client_seq *seq)
 {
-        int rc;
-        ENTRY;
+	int rc;
+	ENTRY;
 
-        seq->lcs_proc_dir = lprocfs_register(seq->lcs_name,
-                                             seq_type_proc_dir,
-                                             NULL, NULL);
+	seq->lcs_proc_dir = lprocfs_register(seq->lcs_name,
+					     seq_type_proc_dir,
+					     seq_client_proc_list, seq);
 
-        if (IS_ERR(seq->lcs_proc_dir)) {
-                CERROR("%s: LProcFS failed in seq-init\n",
-                       seq->lcs_name);
-                rc = PTR_ERR(seq->lcs_proc_dir);
-                RETURN(rc);
-        }
+	if (IS_ERR(seq->lcs_proc_dir)) {
+		CERROR("%s: LProcFS failed in seq-init\n",
+		       seq->lcs_name);
+		rc = PTR_ERR(seq->lcs_proc_dir);
+		seq->lcs_proc_dir = NULL;
+		RETURN(rc);
+	}
 
-        rc = lprocfs_add_vars(seq->lcs_proc_dir,
-                              seq_client_proc_list, seq);
-        if (rc) {
-                CERROR("%s: Can't init sequence manager "
-                       "proc, rc %d\n", seq->lcs_name, rc);
-                GOTO(out_cleanup, rc);
-        }
-
-        RETURN(0);
+	RETURN(0);
 
 out_cleanup:
-        seq_client_proc_fini(seq);
-        return rc;
+	seq_client_proc_fini(seq);
+	return rc;
 }
 
 static void seq_client_proc_fini(struct lu_client_seq *seq)
 {
-        ENTRY;
-        if (seq->lcs_proc_dir) {
-                if (!IS_ERR(seq->lcs_proc_dir))
-                        lprocfs_remove(&seq->lcs_proc_dir);
-                seq->lcs_proc_dir = NULL;
-        }
-        EXIT;
+	ENTRY;
+	if (seq->lcs_proc_dir) {
+		lprocfs_unregister(&seq->lcs_proc_dir, seq_client_proc_list);
+		seq->lcs_proc_dir = NULL;
+	}
+	EXIT;
 }
 #else
 static int seq_client_proc_init(struct lu_client_seq *seq)

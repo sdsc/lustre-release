@@ -80,71 +80,72 @@ static int ldlm_proc_dump_ns(struct file *file, const char *buffer,
         RETURN(count);
 }
 
+struct lprocfs_vars list[] = {
+	{ "dump_namespaces", NULL, ldlm_proc_dump_ns, NULL },
+	{ "dump_granted_max", lprocfs_rd_uint, lprocfs_wr_uint,
+		&ldlm_dump_granted_max, NULL },
+	{ "cancel_unused_locks_before_replay", lprocfs_rd_uint, lprocfs_wr_uint,
+		&ldlm_cancel_unused_locks_before_replay, NULL },
+	{ NULL },
+};
+
 int ldlm_proc_setup(void)
 {
         int rc;
-        struct lprocfs_vars list[] = {
-                { "dump_namespaces", NULL, ldlm_proc_dump_ns, NULL },
-                { "dump_granted_max",
-                  lprocfs_rd_uint, lprocfs_wr_uint,
-                  &ldlm_dump_granted_max, NULL },
-                { "cancel_unused_locks_before_replay",
-                  lprocfs_rd_uint, lprocfs_wr_uint,
-                  &ldlm_cancel_unused_locks_before_replay, NULL },
-                { NULL }};
         ENTRY;
         LASSERT(ldlm_ns_proc_dir == NULL);
 
         ldlm_type_proc_dir = lprocfs_register(OBD_LDLM_DEVICENAME,
                                               proc_lustre_root,
                                               NULL, NULL);
-        if (IS_ERR(ldlm_type_proc_dir)) {
-                CERROR("LProcFS failed in ldlm-init\n");
-                rc = PTR_ERR(ldlm_type_proc_dir);
-                GOTO(err, rc);
-        }
+	if (IS_ERR(ldlm_type_proc_dir)) {
+		CERROR("LProcFS failed in ldlm-init\n");
+		rc = PTR_ERR(ldlm_type_proc_dir);
+		ldlm_type_proc_dir = NULL;
+		GOTO(err, rc);
+	}
 
-        ldlm_ns_proc_dir = lprocfs_register("namespaces",
-                                            ldlm_type_proc_dir,
-                                            NULL, NULL);
-        if (IS_ERR(ldlm_ns_proc_dir)) {
-                CERROR("LProcFS failed in ldlm-init\n");
-                rc = PTR_ERR(ldlm_ns_proc_dir);
-                GOTO(err_type, rc);
-        }
+	ldlm_ns_proc_dir = lprocfs_register("namespaces",
+					    ldlm_type_proc_dir,
+					    NULL, NULL);
+	if (IS_ERR(ldlm_ns_proc_dir)) {
+		CERROR("LProcFS failed in ldlm-init\n");
+		rc = PTR_ERR(ldlm_ns_proc_dir);
+		ldlm_ns_proc_dir = NULL;
+		GOTO(err_type, rc);
+	}
 
-        ldlm_svc_proc_dir = lprocfs_register("services",
-                                            ldlm_type_proc_dir,
-                                            NULL, NULL);
-        if (IS_ERR(ldlm_svc_proc_dir)) {
-                CERROR("LProcFS failed in ldlm-init\n");
-                rc = PTR_ERR(ldlm_svc_proc_dir);
-                GOTO(err_ns, rc);
-        }
+	ldlm_svc_proc_dir = lprocfs_register("services",
+					     ldlm_type_proc_dir,
+					     ldlm_proc_list, NULL);
+	if (IS_ERR(ldlm_svc_proc_dir)) {
+		CERROR("LProcFS failed in ldlm-init\n");
+		rc = PTR_ERR(ldlm_svc_proc_dir);
+		ldlm_svc_proc_dir = NULL;
+		GOTO(err_ns, rc);
+	}
 
-        rc = lprocfs_add_vars(ldlm_type_proc_dir, list, NULL);
-
-        RETURN(0);
+	RETURN(0);
 
 err_ns:
-        lprocfs_remove(&ldlm_ns_proc_dir);
+	lprocfs_unregister(&ldlm_ns_proc_dir, NULL);
 err_type:
-        lprocfs_remove(&ldlm_type_proc_dir);
+	lprocfs_unregister(&ldlm_type_proc_dir, NULL);
 err:
-        ldlm_svc_proc_dir = NULL;
-        RETURN(rc);
+	ldlm_svc_proc_dir = NULL;
+	RETURN(rc);
 }
 
 void ldlm_proc_cleanup(void)
 {
-        if (ldlm_svc_proc_dir)
-                lprocfs_remove(&ldlm_svc_proc_dir);
+	if (ldlm_svc_proc_dir)
+		lprocfs_unregister(&ldlm_svc_proc_dir, ldlm_proc_list);
 
-        if (ldlm_ns_proc_dir)
-                lprocfs_remove(&ldlm_ns_proc_dir);
+	if (ldlm_ns_proc_dir)
+		lprocfs_unregister(&ldlm_ns_proc_dir, NULL);
 
-        if (ldlm_type_proc_dir)
-                lprocfs_remove(&ldlm_type_proc_dir);
+	if (ldlm_type_proc_dir)
+		lprocfs_unregister(&ldlm_type_proc_dir, NULL);
 }
 
 static int lprocfs_rd_ns_resources(char *page, char **start, off_t off,

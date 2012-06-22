@@ -2221,7 +2221,6 @@ err_mntput:
 
 static int filter_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 {
-        struct lprocfs_static_vars lvars;
         cfs_proc_dir_entry_t *entry;
         unsigned long addr;
         struct page *page;
@@ -2236,8 +2235,7 @@ static int filter_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 
         /* lprocfs must be setup before the filter so state can be safely added
          * to /proc incrementally as the filter is setup */
-        lprocfs_filter_init_vars(&lvars);
-        rc = lprocfs_obd_setup(obd, lvars.obd_vars);
+	rc = lprocfs_obd_setup(obd, lprocfs_filter_obd_vars);
         if (rc) {
                 CERROR("%s: lprocfs_obd_setup failed: %d.\n",
                        obd->obd_name, rc);
@@ -2323,8 +2321,8 @@ remove_entry_clear:
 free_obd_stats:
         lprocfs_free_obd_stats(obd);
 obd_cleanup:
-        lprocfs_obd_cleanup(obd);
-        return rc;
+	lprocfs_obd_cleanup(obd, lprocfs_filter_obd_vars);
+	return rc;
 }
 
 static struct llog_operations filter_mds_ost_repl_logops;
@@ -2695,9 +2693,9 @@ static int filter_precleanup(struct obd_device *obd,
 
                 rc = filter_llog_preclean(obd);
 		lprocfs_job_stats_fini(obd);
-                lprocfs_remove_proc_entry("clear", obd->obd_proc_exports_entry);
-                lprocfs_free_per_client_stats(obd);
-                lprocfs_obd_cleanup(obd);
+		lprocfs_remove_proc_entry("clear", obd->obd_proc_exports_entry);
+		lprocfs_free_per_client_stats(obd);
+		lprocfs_obd_cleanup(obd, lprocfs_filter_obd_vars);
                 lprocfs_free_obd_stats(obd);
                 lquota_cleanup(filter_quota_interface_ref, obd);
                 break;
@@ -4792,14 +4790,12 @@ static int filter_process_config(struct obd_device *obd, obd_count len,
                                  void *buf)
 {
         struct lustre_cfg *lcfg = buf;
-        struct lprocfs_static_vars lvars;
         int rc = 0;
 
         switch (lcfg->lcfg_command) {
         default:
-                lprocfs_filter_init_vars(&lvars);
-
-                rc = class_process_proc_param(PARAM_OST, lvars.obd_vars,
+		rc = class_process_proc_param(PARAM_OST,
+					      lprocfs_filter_obd_vars,
                                               lcfg, obd);
                 if (rc > 0)
                         rc = 0;
@@ -4868,14 +4864,11 @@ extern quota_interface_t filter_quota_interface;
 
 static int __init obdfilter_init(void)
 {
-        struct lprocfs_static_vars lvars;
         int rc, i;
 
         /** sanity check for group<->mdsno conversion */
         for (i = 0; i < MAX_MDT_COUNT; i++)
                  LASSERT(objseq_to_mdsno(mdt_to_obd_objseq(i)) == i);
-
-        lprocfs_filter_init_vars(&lvars);
 
         cfs_request_module("%s", "lquota");
         OBD_ALLOC(obdfilter_created_scratchpad,
@@ -4893,7 +4886,8 @@ static int __init obdfilter_init(void)
         filter_quota_interface_ref = PORTAL_SYMBOL_GET(filter_quota_interface);
         init_obd_quota_ops(filter_quota_interface_ref, &filter_obd_ops);
 
-        rc = class_register_type(&filter_obd_ops, NULL, lvars.module_vars,
+	rc = class_register_type(&filter_obd_ops, NULL,
+				 lprocfs_filter_module_vars,
                                  LUSTRE_OST_NAME, NULL);
         if (rc) {
                 int err;

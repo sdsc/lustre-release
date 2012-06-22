@@ -76,10 +76,10 @@ static int mgc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
         RETURN(rc);
 
 err_cleanup:
-        client_obd_cleanup(obd);
+	client_obd_cleanup(obd, lprocfs_mgc_obd_vars);
 err_decref:
-        ptlrpcd_decref();
-        RETURN(rc);
+	ptlrpcd_decref();
+	RETURN(rc);
 }
 
 static int mgc_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
@@ -157,6 +157,11 @@ struct obd_ops mgc_obd_ops = {
 
 int __init mgc_init(void)
 {
-        return class_register_type(&mgc_obd_ops, NULL,
-                                   NULL, LUSTRE_MGC_NAME, NULL);
+	return class_register_type(&mgc_obd_ops, NULL, lprocfs_mgc_module_vars,
+				   LUSTRE_MGC_NAME, NULL);
+}
+
+int __exit mgc_exit(void)
+{
+	return class_unregister_type(LUSTRE_MGC_NAME, lprocfs_mgc_module_vars);
 }

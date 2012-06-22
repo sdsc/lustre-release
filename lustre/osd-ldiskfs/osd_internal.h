@@ -608,14 +608,17 @@ extern int ldiskfs_pdo;
 
 #ifdef LPROCFS
 /* osd_lproc.c */
-void lprocfs_osd_init_vars(struct lprocfs_static_vars *lvars);
+extern struct lprocfs_vars lprocfs_osd_ldiskfs_obd_vars[];
+extern struct lprocfs_vars lprocfs_osd_ldiskfs_module_vars[];
 int osd_procfs_init(struct osd_device *osd, const char *name);
 int osd_procfs_fini(struct osd_device *osd);
 void osd_lprocfs_time_start(const struct lu_env *env);
 void osd_lprocfs_time_end(const struct lu_env *env,
                           struct osd_device *osd, int op);
 void osd_brw_stats_update(struct osd_device *osd, struct osd_iobuf *iobuf);
-
+#else
+#define lprocfs_osd_ldiskfs_obd_vars NULL
+#define lprocfs_osd_ldiskfs_module_vars NULL
 #endif
 int osd_statfs(const struct lu_env *env, struct dt_device *dev,
                struct obd_statfs *sfs);

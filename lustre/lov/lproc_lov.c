@@ -384,16 +384,10 @@ struct lprocfs_vars lprocfs_lov_obd_vars[] = {
         { 0 }
 };
 
-static struct lprocfs_vars lprocfs_lov_module_vars[] = {
+struct lprocfs_vars lprocfs_lov_module_vars[] = {
         { "num_refs",     lprocfs_rd_numrefs,     0, 0 },
         { 0 }
 };
-
-void lprocfs_lov_init_vars(struct lprocfs_static_vars *lvars)
-{
-    lvars->module_vars  = lprocfs_lov_module_vars;
-    lvars->obd_vars     = lprocfs_lov_obd_vars;
-}
 
 struct file_operations lov_proc_target_fops = {
         .owner   = THIS_MODULE,

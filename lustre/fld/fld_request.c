@@ -280,44 +280,36 @@ EXPORT_SYMBOL(fld_client_del_target);
 #ifdef LPROCFS
 static int fld_client_proc_init(struct lu_client_fld *fld)
 {
-        int rc;
-        ENTRY;
+	int rc;
+	ENTRY;
 
-        fld->lcf_proc_dir = lprocfs_register(fld->lcf_name,
-                                             fld_type_proc_dir,
-                                             NULL, NULL);
+	fld->lcf_proc_dir = lprocfs_register(fld->lcf_name,
+					     fld_type_proc_dir,
+					     fld_client_proc_list, fld);
 
-        if (IS_ERR(fld->lcf_proc_dir)) {
-                CERROR("%s: LProcFS failed in fld-init\n",
-                       fld->lcf_name);
-                rc = PTR_ERR(fld->lcf_proc_dir);
-                RETURN(rc);
-        }
+	if (IS_ERR(fld->lcf_proc_dir)) {
+		CERROR("%s: LProcFS failed in fld-init\n",
+		       fld->lcf_name);
+		rc = PTR_ERR(fld->lcf_proc_dir);
+		fld->lcf_proc_dir = NULL;
+		RETURN(rc);
+	}
 
-        rc = lprocfs_add_vars(fld->lcf_proc_dir,
-                              fld_client_proc_list, fld);
-        if (rc) {
-                CERROR("%s: Can't init FLD proc, rc %d\n",
-                       fld->lcf_name, rc);
-                GOTO(out_cleanup, rc);
-        }
-
-        RETURN(0);
+	RETURN(0);
 
 out_cleanup:
-        fld_client_proc_fini(fld);
-        return rc;
+	fld_client_proc_fini(fld);
+	return rc;
 }
 
 void fld_client_proc_fini(struct lu_client_fld *fld)
 {
-        ENTRY;
-        if (fld->lcf_proc_dir) {
-                if (!IS_ERR(fld->lcf_proc_dir))
-                        lprocfs_remove(&fld->lcf_proc_dir);
-                fld->lcf_proc_dir = NULL;
-        }
-        EXIT;
+	ENTRY;
+	if (fld->lcf_proc_dir) {
+		lprocfs_unregister(&fld->lcf_proc_dir, fld_client_proc_list);
+		fld->lcf_proc_dir = NULL;
+	}
+	EXIT;
 }
 #else
 static int fld_client_proc_init(struct lu_client_fld *fld)

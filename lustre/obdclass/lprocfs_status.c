@@ -434,8 +434,8 @@ void lprocfs_remove_proc_entry(const char *name, struct proc_dir_entry *parent)
 }
 
 struct proc_dir_entry *lprocfs_register(const char *name,
-                                        struct proc_dir_entry *parent,
-                                        struct lprocfs_vars *list, void *data)
+					struct proc_dir_entry *parent,
+					struct lprocfs_vars *vars, void *data)
 {
         struct proc_dir_entry *newchild;
 
@@ -448,14 +448,28 @@ struct proc_dir_entry *lprocfs_register(const char *name,
 
         newchild = proc_mkdir(name, parent);
         if (newchild != NULL && list != NULL) {
-                int rc = lprocfs_add_vars(newchild, list, data);
-                if (rc) {
-                        lprocfs_remove(&newchild);
-                        return ERR_PTR(rc);
-                }
-        }
-        return newchild;
+		int rc = lprocfs_add_vars(newchild, vars, data);
+		if (rc) {
+			lprocfs_del_vars(vars);
+			return ERR_PTR(rc);
+		}
+	}
+	return newchild;
 }
+EXPORT_SYMBOL(lprocfs_register);
+
+struct proc_dir_entry *lprocfs_unregister(struct proc_dir_entry *dir,
+					  struct lprocfs_vars *vars)
+{
+	if (dir == NULL)
+		return;
+
+	if (vars != NULL)
+		lprocfs_del_vars(dir, vars);
+
+	lprocfs_remove_proc_entry(dir->name, dir->parent);
+}
+EXPORT_SYMBOL(lprocfs_unregister);
 
 /* Generic callbacks */
 int lprocfs_rd_uint(char *page, char **start, off_t off,
@@ -1218,7 +1232,7 @@ int lprocfs_rd_numrefs(char *page, char **start, off_t off, int count,
         return snprintf(page, count, "%d\n", class->typ_refcnt);
 }
 
-int lprocfs_obd_setup(struct obd_device *obd, struct lprocfs_vars *list)
+int lprocfs_obd_setup(struct obd_device *obd, struct lprocfs_vars *vars)
 {
         int rc = 0;
 
@@ -1226,9 +1240,9 @@ int lprocfs_obd_setup(struct obd_device *obd, struct lprocfs_vars *list)
         LASSERT(obd->obd_magic == OBD_DEVICE_MAGIC);
         LASSERT(obd->obd_type->typ_procroot != NULL);
 
-        obd->obd_proc_entry = lprocfs_register(obd->obd_name,
-                                               obd->obd_type->typ_procroot,
-                                               list, obd);
+	obd->obd_proc_entry = lprocfs_register(obd->obd_name,
+					       obd->obd_type->typ_procroot,
+					       vars, obd);
         if (IS_ERR(obd->obd_proc_entry)) {
                 rc = PTR_ERR(obd->obd_proc_entry);
                 CERROR("error %d setting up lprocfs for %s\n",rc,obd->obd_name);
@@ -1237,7 +1251,7 @@ int lprocfs_obd_setup(struct obd_device *obd, struct lprocfs_vars *list)
         return rc;
 }
 
-int lprocfs_obd_cleanup(struct obd_device *obd)
+int lprocfs_obd_cleanup(struct obd_device *obd, struct lprocfs_vars *vars)
 {
         if (!obd)
                 return -EINVAL;
@@ -1247,11 +1261,11 @@ int lprocfs_obd_cleanup(struct obd_device *obd)
                 lprocfs_remove(&obd->obd_proc_exports_entry);
                 obd->obd_proc_exports_entry = NULL;
         }
-        if (obd->obd_proc_entry) {
-                lprocfs_remove(&obd->obd_proc_entry);
-                obd->obd_proc_entry = NULL;
-        }
-        return 0;
+	if (obd->obd_proc_entry) {
+		lprocfs_unregister(&obd->obd_proc_entry, vars);
+		obd->obd_proc_entry = NULL;
+	}
+	return 0;
 }
 
 static void lprocfs_free_client_stats(struct nid_stat *client_stat)
@@ -2577,6 +2591,7 @@ int lprocfs_target_rd_instance(char *page, char **start, off_t off,
 EXPORT_SYMBOL(lprocfs_target_rd_instance);
 
 EXPORT_SYMBOL(lprocfs_register);
+EXPORT_SYMBOL(lprocfs_unregister);
 EXPORT_SYMBOL(lprocfs_srch);
 EXPORT_SYMBOL(lprocfs_remove);
 EXPORT_SYMBOL(lprocfs_remove_proc_entry);

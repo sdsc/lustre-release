@@ -550,7 +550,6 @@ commitrw_cleanup:
 
 static int echo_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
-        struct lprocfs_static_vars lvars;
         int                        rc;
         int                        lock_flags = 0;
         struct ldlm_res_id         res_id = {.name = {1}};
@@ -577,8 +576,7 @@ static int echo_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
                                     &obd->u.echo.eo_nl_lock);
         LASSERT (rc == ELDLM_OK);
 
-        lprocfs_echo_init_vars(&lvars);
-        if (lprocfs_obd_setup(obd, lvars.obd_vars) == 0 &&
+	if (lprocfs_obd_setup(obd, lprocfs_echo_obd_vars) == 0 &&
             lprocfs_alloc_obd_stats(obd, LPROC_ECHO_LAST) == 0) {
                 lprocfs_counter_init(obd->obd_stats, LPROC_ECHO_READ_BYTES,
                                      LPROCFS_CNTR_AVGMINMAX,
@@ -598,7 +596,7 @@ static int echo_cleanup(struct obd_device *obd)
         int leaked;
         ENTRY;
 
-        lprocfs_obd_cleanup(obd);
+	lprocfs_obd_cleanup(obd, lprocfs_echo_obd_vars);
         lprocfs_free_obd_stats(obd);
 
         ldlm_lock_decref(&obd->u.echo.eo_nl_lock, LCK_NL);

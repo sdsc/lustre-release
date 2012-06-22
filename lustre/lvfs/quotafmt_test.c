@@ -466,14 +466,13 @@ static int quotfmt_run_tests(struct obd_device *obd, struct obd_device *tgt)
 
 static int quotfmt_test_cleanup(struct obd_device *obd)
 {
-        ENTRY;
-        lprocfs_obd_cleanup(obd);
-        RETURN(0);
+	ENTRY;
+	lprocfs_obd_cleanup(obd, NULL);
+	RETURN(0);
 }
 
 static int quotfmt_test_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
-        struct lprocfs_static_vars lvars;
         struct obd_device *tgt;
         int rc;
         ENTRY;
@@ -494,10 +493,9 @@ static int quotfmt_test_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
         if (rc)
                 quotfmt_test_cleanup(obd);
 
-        lprocfs_quotfmt_test_init_vars(&lvars);
-        lprocfs_obd_setup(obd, lvars.obd_vars);
+	lprocfs_obd_setup(obd, NULL);
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 static struct obd_ops quotfmt_obd_ops = {
@@ -506,28 +504,15 @@ static struct obd_ops quotfmt_obd_ops = {
         .o_cleanup = quotfmt_test_cleanup,
 };
 
-#ifdef LPROCFS
-static struct lprocfs_vars lprocfs_quotfmt_test_obd_vars[] = { {0} };
-static struct lprocfs_vars lprocfs_quotfmt_test_module_vars[] = { {0} };
-
-void lprocfs_quotfmt_test_init_vars(struct lprocfs_static_vars *lvars)
-{
-    lvars->module_vars  = lprocfs_quotfmt_test_module_vars;
-    lvars->obd_vars     = lprocfs_quotfmt_test_obd_vars;
-}
-#endif
 static int __init quotfmt_test_init(void)
 {
-        struct lprocfs_static_vars lvars;
-
-        lprocfs_quotfmt_test_init_vars(&lvars);
-        return class_register_type(&quotfmt_obd_ops, NULL, lvars.module_vars,
-                                   "quotfmt_test", NULL);
+	return class_register_type(&quotfmt_obd_ops, NULL, NULL,
+				   "quotfmt_test", NULL);
 }
 
 static void __exit quotfmt_test_exit(void)
 {
-        class_unregister_type("quotfmt_test");
+	class_unregister_type("quotfmt_test", NULL);
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");

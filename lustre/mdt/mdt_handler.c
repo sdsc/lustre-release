@@ -4878,7 +4878,6 @@ static int mdt_process_config(const struct lu_env *env,
 
 	switch (cfg->lcfg_command) {
 	case LCFG_PARAM: {
-		struct lprocfs_static_vars  lvars;
 		struct obd_device	   *obd = d->ld_obd;
 
 		/* For interoperability between 1.8 and 2.0. */
@@ -4936,8 +4935,7 @@ static int mdt_process_config(const struct lu_env *env,
 			}
 		}
 
-		lprocfs_mdt_init_vars(&lvars);
-		rc = class_process_proc_param(PARAM_MDT, lvars.obd_vars,
+		rc = class_process_proc_param(PARAM_MDT, lprocfs_mdt_obd_vars,
 					      cfg, obd);
 		if (rc > 0 || rc == -ENOSYS)
 			/* we don't understand; pass it on */
@@ -5976,20 +5974,18 @@ static struct lu_device_type mdt_device_type = {
 
 static int __init mdt_mod_init(void)
 {
-        struct lprocfs_static_vars lvars;
-        int rc;
+	int rc;
 
-        lprocfs_mdt_init_vars(&lvars);
-        rc = class_register_type(&mdt_obd_device_ops, NULL,
-                                 lvars.module_vars, LUSTRE_MDT_NAME,
-                                 &mdt_device_type);
+	rc = class_register_type(&mdt_obd_device_ops, NULL,
+				 lprocfs_mdt_module_vars, LUSTRE_MDT_NAME,
+				 &mdt_device_type);
 
-        return rc;
+	return rc;
 }
 
 static void __exit mdt_mod_exit(void)
 {
-        class_unregister_type(LUSTRE_MDT_NAME);
+	class_unregister_type(LUSTRE_MDT_NAME, lprocfs_mdt_module_vars);
 }
 
 
