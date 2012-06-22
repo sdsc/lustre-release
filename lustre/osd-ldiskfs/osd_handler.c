@@ -353,7 +353,7 @@ osd_iget_verify(struct osd_thread_info *info, struct osd_device *dev,
 	inode = osd_iget(info, dev, id);
 	if (IS_ERR(inode))
 		return inode;
-
+	
 	rc = osd_get_lma(inode, &info->oti_obj_dentry, lma);
 	if (rc != 0) {
 		if (rc == -ENODATA) {
