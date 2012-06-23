@@ -460,8 +460,9 @@ trigger:
 				result = -EINPROGRESS;
 			} else if (!scrub->os_no_scrub) {
 				result = osd_scrub_start(dev);
-				LCONSOLE_ERROR("Trigger OI scrub by RPC for "
-					       DFID", rc = %d\n",
+				LCONSOLE_ERROR("%s: trigger OI scrub by RPC "
+					       "for "DFID", rc = %d\n",
+					       ldev->ld_obd->obd_name,
 					       PFID(fid), result);
 				if (result == 0 || result == -EALREADY)
 					result = -EINPROGRESS;
@@ -3234,8 +3235,10 @@ again:
 		CDEBUG(D_LFSCK, "Trigger OI scrub by RPC for "DFID"\n",
 		       PFID(fid));
 		rc = osd_scrub_start(dev);
-		CDEBUG(D_LFSCK, "Trigger OI scrub by RPC for "DFID", rc = %d\n",
-		       PFID(fid), rc);
+		LCONSOLE_ERROR("%s: trigger OI scrub by RPC for "DFID
+			       ", rc = %d\n",
+			       dev->od_dt_dev.dd_lu_dev.ld_obd->obd_name,
+			       PFID(fid), rc);
 		if (rc == 0)
 			goto again;
 	}
