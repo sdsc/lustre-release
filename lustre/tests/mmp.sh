@@ -25,8 +25,12 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 
-remote_mds_nodsh && skip "remote MDS with nodsh" && exit 0
-remote_ost_nodsh && skip "remote OST with nodsh" && exit 0
+TEST_MDT=true
+TEST_OST=true
+remote_mds_nodsh && log "remote MDT with nodsh" && TEST_MDT=false
+remote_ost_nodsh && log "remote OST with nodsh" && TEST_MDT=false
+
+! $TEST_MDT && ! $TEST_OST && skip "no local targets for testing" && exit 0
 
 # unmount and cleanup the Lustre filesystem
 MMP_RESTORE_MOUNT=false
@@ -85,8 +89,8 @@ stop_services() {
         oss_facet=$MMP_OSS
     fi
 
-    stop $mds_facet $opts || return ${PIPESTATUS[0]}
-    stop $oss_facet $opts || return ${PIPESTATUS[0]}
+    $TEST_MDT && stop $mds_facet $opts || return ${PIPESTATUS[0]}
+    $TEST_OST && stop $oss_facet $opts || return ${PIPESTATUS[0]}
 }
 
 # Enable the MMP feature.
@@ -177,66 +181,72 @@ set_mmp_update_interval() {
 mmp_init() {
 	init_vars
 
-	if [ $(facet_fstype $MMP_MDS) != ldiskfs ]; then
-		skip "Only applicable to ldiskfs-based MDTs"
-		exit
+	[ "$(facet_fstype $MMP_MDS)" != "ldiskfs" ] &&
+		log "MDT backfstype is $(facet_fstype $MMP_MDS), not ldiskfs" &&
+		TEST_MDT=false
+
+	[ "$(facet_fstype $MMP_OSS)" != "ldiskfs" ] &&
+		log "OST backfstype is $(facet_fstype $MMP_OSS), not ldiskfs" &&
+		TEST_OST=false
+
+	! $TEST_MDT && ! $TEST_OST && skip "no ldiskfs targets configured" && exit 0
+
+	# The MMP feature is automatically enabled by mkfs.lustre for
+	# new file system at format time if failover is being used.
+	# Otherwise, the Lustre administrator has to manually enable
+	# this feature when the file system is unmounted.
+	if $TEST_MDT; then
+		local var=${MMP_MDS}failover_HOST
+		if [ -z "${!var}" ]; then
+			log "Failover is not used on MDS, enable MMP manually"
+			enable_mmp $MMP_MDS $MMP_MDSDEV ||
+				error "enable failed on $MMP_MDS:$MMP_MDSDEV"
+		fi
+
+		# check whether the MMP feature is enabled or not
+		$TEST_MDT && mmp_is_enabled $MMP_MDS $MMP_MDSDEV ||
+			error "MMP was not enabled on $MMP_MDSDEV on $MMP_MDS"
 	fi
 
-	if [ $(facet_fstype $MMP_OSS) != ldiskfs ]; then
-		skip "Only applicable to ldiskfs-based OSTs"
-		exit
+	if $TEST_OST; then
+		var=${MMP_OSS}failover_HOST
+		if [ -z "${!var}" ]; then
+			log "Failover is not used on OSS, enable MMP manually"
+			enable_mmp $MMP_OSS $MMP_OSTDEV ||
+				error "enable failed on $MMP_OSS:$MMP_OSTDEV"
+		fi
+
+		$TEST_OST && mmp_is_enabled $MMP_OSS $MMP_OSTDEV ||
+			error "MMP was not enabled on $MMP_OSS:$MMP_OSTDEV"
 	fi
-
-    # The MMP feature is automatically enabled by mkfs.lustre for
-    # new file system at format time if failover is being used.
-    # Otherwise, the Lustre administrator has to manually enable
-    # this feature when the file system is unmounted.
-
-    local var=${MMP_MDS}failover_HOST
-    if [ -z "${!var}" ]; then
-        log "Failover is not used on MDS, enabling MMP manually..."
-        enable_mmp $MMP_MDS $MMP_MDSDEV || \
-            error "failed to enable MMP on $MMP_MDSDEV on $MMP_MDS"
-    fi
-
-    var=${MMP_OSS}failover_HOST
-    if [ -z "${!var}" ]; then
-        log "Failover is not used on OSS, enabling MMP manually..."
-        enable_mmp $MMP_OSS $MMP_OSTDEV || \
-            error "failed to enable MMP on $MMP_OSTDEV on $MMP_OSS"
-    fi
-
-    # check whether the MMP feature is enabled or not
-    mmp_is_enabled $MMP_MDS $MMP_MDSDEV || \
-        error "MMP was not enabled on $MMP_MDSDEV on $MMP_MDS"
-
-    mmp_is_enabled $MMP_OSS $MMP_OSTDEV || \
-        error "MMP was not enabled on $MMP_OSTDEV on $MMP_OSS"
 }
 
 # Disable the MMP feature on the Lustre server targets
 # which did not use failover.
 mmp_fini() {
+	if $TEST_MDT; then
+		local var=${MMP_MDS}failover_HOST
+		if [ -z "${!var}" ]; then
+			log "Failover is not used on MDS, disable MMP manually"
+			disable_mmp $MMP_MDS $MMP_MDSDEV ||
+				error "disable failed on $MMP_MDS:$MMP_MDSDEV"
+			mmp_is_enabled $MMP_MDS $MMP_MDSDEV &&
+				error "MMP not disabled on $MMP_MDS:$MMP_MDSDEV"
+		fi
+	fi
 
-    local var=${MMP_MDS}failover_HOST
-    if [ -z "${!var}" ]; then
-        log "Failover is not used on MDS, disabling MMP manually..."
-        disable_mmp $MMP_MDS $MMP_MDSDEV || \
-            error "failed to disable MMP on $MMP_MDSDEV on $MMP_MDS"
-        mmp_is_enabled $MMP_MDS $MMP_MDSDEV && \
-            error "MMP was not disabled on $MMP_MDSDEV on $MMP_MDS"
-    fi
+	if $TEST_OST; then
+		var=${MMP_OSS}failover_HOST
+		if [ -z "${!var}" ]; then
+			log "Failover is not used on OSS, disable MMP manually"
+			disable_mmp $MMP_OSS $MMP_OSTDEV ||
+				error "disable failed on $MMP_OSS:$MMP_OSTDEV"
+			mmp_is_enabled $MMP_OSS $MMP_OSTDEV &&
+				error "MMP not disabled on $MMP_OSS:$MMP_OSTDEV"
+		fi
+	fi
 
-    var=${MMP_OSS}failover_HOST
-    if [ -z "${!var}" ]; then
-        log "Failover is not used on OSS, disabling MMP manually..."
-        disable_mmp $MMP_OSS $MMP_OSTDEV || \
-            error "failed to disable MMP on $MMP_OSTDEV on $MMP_OSS"
-        mmp_is_enabled $MMP_OSS $MMP_OSTDEV && \
-            error "MMP was not disabled on $MMP_OSTDEV on $MMP_OSS"
-    fi
-
-    return 0
+	return 0
 }
 
 # Mount the shared target on the failover server after some interval it's
@@ -334,7 +344,7 @@ mount_during_unmount() {
 
     if [ $mount_rc -eq 0 ]; then
         error_noexit "mount during unmount of the first filesystem should fail"
-        stop $failover_facet || return ${PIPESTATUS[0]}
+        stop $failover_facet
         return 1
     fi
 
@@ -395,7 +405,7 @@ mount_after_reboot() {
     rc=${PIPESTATUS[0]}
     if [ $rc -ne 0 ]; then
         error_noexit "mount $device on $failover_facet should succeed"
-        stop $facet || return ${PIPESTATUS[0]}
+        stop $facet
         return $rc
     fi
 
@@ -416,10 +426,14 @@ run_e2fsck() {
 }
 
 # Check whether there are failover pairs for MDS and OSS servers.
+# Testing one of them is enough, in case only one is using ldiskfs.
 check_failover_pair() {
-    [ "$MMP_MDS" = "$MMP_MDS_FAILOVER" -o "$MMP_OSS" = "$MMP_OSS_FAILOVER" ] \
-        && { skip_env "failover pair is needed" && return 1; }
-    return 0
+	$TEST_MDT && ! $TEST_OST && [ "$MMP_MDS" = "$MMP_MDS_FAILOVER" ] &&
+		skip_env "MDS failover pair is needed" && return 1
+	$TEST_OST && ! $TEST_MDT && [ "$MMP_OSS" = "$MMP_OSS_FAILOVER" ] &&
+		skip_env "OSS failover pair is needed" && return 1
+
+	return 0
 }
 
 mmp_init
@@ -477,71 +491,71 @@ run_test 4 "one mount delayed by > 2x mmp check interval"
 
 # Test 5 - mount during unmount of the first filesystem.
 test_5() {
-    local rc=0
-    check_failover_pair || return 0
+	local rc=0
+	check_failover_pair || return 0
 
-    mount_during_unmount $MMP_MDSDEV $MMP_MDS $MDS_MOUNT_OPTS || \
-        return ${PIPESTATUS[0]}
+	$TEST_MDT && mount_during_unmount $MMP_MDSDEV $MMP_MDS $MDS_MOUNT_OPTS||
+		return ${PIPESTATUS[0]}
 
-    echo
-    start $MMP_MDS $MMP_MDSDEV $MDS_MOUNT_OPTS || return ${PIPESTATUS[0]}
-    mount_during_unmount $MMP_OSTDEV $MMP_OSS $OST_MOUNT_OPTS
-    rc=${PIPESTATUS[0]}
-    if [ $rc -ne 0 ]; then
-        stop $MMP_MDS || return ${PIPESTATUS[0]}
-        return $rc
-    fi
+	echo
+	start $MMP_MDS $MMP_MDSDEV $MDS_MOUNT_OPTS || return ${PIPESTATUS[0]}
+	$TEST_MDT && mount_during_unmount $MMP_OSTDEV $MMP_OSS $OST_MOUNT_OPTS
+	rc=${PIPESTATUS[0]}
+	if [ $rc -ne 0 ]; then
+		stop $MMP_MDS
+		return $rc
+	fi
 
-    stop $MMP_MDS || return ${PIPESTATUS[0]}
+	stop $MMP_MDS || return ${PIPESTATUS[0]}
 }
 run_test 5 "mount during unmount of the first filesystem"
 
 # Test 6 - mount after clean unmount.
 test_6() {
-    local rc=0
-    check_failover_pair || return 0
+	local rc=0
+	check_failover_pair || return 0
 
-    mount_after_unmount $MMP_MDSDEV $MMP_MDS $MDS_MOUNT_OPTS || \
-        return ${PIPESTATUS[0]}
+	$TEST_MDT && mount_after_unmount $MMP_MDSDEV $MMP_MDS $MDS_MOUNT_OPTS ||
+		return ${PIPESTATUS[0]}
 
-    echo
-    mount_after_unmount $MMP_OSTDEV $MMP_OSS $OST_MOUNT_OPTS
-    rc=${PIPESTATUS[0]}
-    if [ $rc -ne 0 ]; then
-        stop $MMP_MDS_FAILOVER || return ${PIPESTATUS[0]}
-        return $rc
-    fi
+	echo
+	$TEST_OST && mount_after_unmount $MMP_OSTDEV $MMP_OSS $OST_MOUNT_OPTS
+	rc=${PIPESTATUS[0]}
+	if [ $rc -ne 0 ]; then
+		stop $MMP_MDS_FAILOVER
+		return $rc
+	fi
 
-    stop_services failover || return ${PIPESTATUS[0]}
+	stop_services failover || return ${PIPESTATUS[0]}
 }
 run_test 6 "mount after clean unmount"
 
 # Test 7 - mount after reboot.
 test_7() {
-    local rc=0
-    check_failover_pair || return 0
+	local rc=0
+	check_failover_pair || return 0
 
-    mount_after_reboot $MMP_MDSDEV $MMP_MDS $MDS_MOUNT_OPTS || \
-        return ${PIPESTATUS[0]}
+	$TEST_MDT && mount_after_reboot $MMP_MDSDEV $MMP_MDS $MDS_MOUNT_OPTS ||
+		return ${PIPESTATUS[0]}
 
-    echo
-    mount_after_reboot $MMP_OSTDEV $MMP_OSS $OST_MOUNT_OPTS
-    rc=${PIPESTATUS[0]}
-    if [ $rc -ne 0 ]; then
-        stop $MMP_MDS || return ${PIPESTATUS[0]}
-        stop $MMP_MDS_FAILOVER || return ${PIPESTATUS[0]}
-        return $rc
-    fi
+	echo
+	$TEST_OST && mount_after_reboot $MMP_OSTDEV $MMP_OSS $OST_MOUNT_OPTS
+	rc=${PIPESTATUS[0]}
+	if [ $rc -ne 0 ]; then
+		stop $MMP_MDS
+		stop $MMP_MDS_FAILOVER
+		return $rc
+	fi
 
-    stop_services failover || return ${PIPESTATUS[0]}
-    stop_services primary || return ${PIPESTATUS[0]}
+	stop_services failover || return ${PIPESTATUS[0]}
+	stop_services primary || return ${PIPESTATUS[0]}
 }
 run_test 7 "mount after reboot"
 
 # Test 8 - mount during e2fsck (should never succeed).
 test_8() {
 	local e2fsck_pid
-	local saved_interval
+	local saved
 	local new_interval
 
 	# After writing a new sequence number into the MMP block, e2fsck will
@@ -549,118 +563,127 @@ test_8() {
 	# e2fsck passes.
 	new_interval=30
 
-	# MDT
-	saved_interval=$(get_mmp_update_interval $MMP_MDS $MMP_MDSDEV)
-	set_mmp_update_interval $MMP_MDS $MMP_MDSDEV $new_interval
+	if $TEST_MDT; then
+		saved=$(get_mmp_update_interval $MMP_MDS $MMP_MDSDEV)
+		set_mmp_update_interval $MMP_MDS $MMP_MDSDEV $new_interval
 
-	run_e2fsck $MMP_MDS $MMP_MDSDEV "-fy" &
-	e2fsck_pid=$!
-	sleep 5
+		run_e2fsck $MMP_MDS $MMP_MDSDEV "-fy" &
+		e2fsck_pid=$!
+		sleep 5
 
-	if start $MMP_MDS_FAILOVER $MMP_MDSDEV $MDS_MOUNT_OPTS; then
-		error_noexit \
-			"mount $MMP_MDSDEV on $MMP_MDS_FAILOVER should fail"
-		stop $MMP_MDS_FAILOVER || return ${PIPESTATUS[0]}
-		set_mmp_update_interval $MMP_MDS $MMP_MDSDEV $saved_interval
-		return 1
+		if start $MMP_MDS_FAILOVER $MMP_MDSDEV $MDS_MOUNT_OPTS; then
+			error_noexit "mount $MMP_MDSDEV should fail"
+			stop $MMP_MDS_FAILOVER || return ${PIPESTATUS[0]}
+			set_mmp_update_interval $MMP_MDS $MMP_MDSDEV $saved
+			return 1
+		fi
+		wait $e2fsck_pid
+		set_mmp_update_interval $MMP_MDS $MMP_MDSDEV $saved
 	fi
 
-	wait $e2fsck_pid
-	set_mmp_update_interval $MMP_MDS $MMP_MDSDEV $saved_interval
+	if $TEST_OST; then
+		echo
+		saved=$(get_mmp_update_interval $MMP_OSS $MMP_OSTDEV)
+		set_mmp_update_interval $MMP_OSS $MMP_OSTDEV $new_interval
 
-	# OST
-	echo
-	saved_interval=$(get_mmp_update_interval $MMP_OSS $MMP_OSTDEV)
-	set_mmp_update_interval $MMP_OSS $MMP_OSTDEV $new_interval
+		run_e2fsck $MMP_OSS $MMP_OSTDEV "-fy" &
+		e2fsck_pid=$!
+		sleep 5
 
-	run_e2fsck $MMP_OSS $MMP_OSTDEV "-fy" &
-	e2fsck_pid=$!
-	sleep 5
+		if start $MMP_OSS_FAILOVER $MMP_OSTDEV $OST_MOUNT_OPTS; then
+			error_noexit "mount $MMP_OSTDEV should fail"
+			stop $MMP_OSS_FAILOVER || return ${PIPESTATUS[0]}
+			set_mmp_update_interval $MMP_OSS $MMP_OSTDEV $saved
+			return 2
+		fi
 
-	if start $MMP_OSS_FAILOVER $MMP_OSTDEV $OST_MOUNT_OPTS; then
-		error_noexit \
-			"mount $MMP_OSTDEV on $MMP_OSS_FAILOVER should fail"
-		stop $MMP_OSS_FAILOVER || return ${PIPESTATUS[0]}
-		set_mmp_update_interval $MMP_OSS $MMP_OSTDEV $saved_interval
-		return 2
+		wait $e2fsck_pid
+		set_mmp_update_interval $MMP_OSS $MMP_OSTDEV $saved
 	fi
 
-	wait $e2fsck_pid
-	set_mmp_update_interval $MMP_OSS $MMP_OSTDEV $saved_interval
 	return 0
 }
 run_test 8 "mount during e2fsck"
 
 # Test 9 - mount after aborted e2fsck (should never succeed).
 test_9() {
-    start $MMP_MDS $MMP_MDSDEV $MDS_MOUNT_OPTS || return ${PIPESTATUS[0]}
-    if ! start $MMP_OSS $MMP_OSTDEV $OST_MOUNT_OPTS; then
-        local rc=${PIPESTATUS[0]}
-        stop $MMP_MDS || return ${PIPESTATUS[0]}
-        return $rc
-    fi
-    stop_services primary || return ${PIPESTATUS[0]}
+	start $MMP_MDS $MMP_MDSDEV $MDS_MOUNT_OPTS || return ${PIPESTATUS[0]}
+	if ! start $MMP_OSS $MMP_OSTDEV $OST_MOUNT_OPTS; then
+		local rc=${PIPESTATUS[0]}
+		stop $MMP_MDS
+		return $rc
+	fi
+	stop_services primary || return ${PIPESTATUS[0]}
 
-    mark_mmp_block $MMP_MDS $MMP_MDSDEV || return ${PIPESTATUS[0]}
+	if $TEST_MDT; then
+		mark_mmp_block $MMP_MDS $MMP_MDSDEV || return ${PIPESTATUS[0]}
 
-    log "Mounting $MMP_MDSDEV on $MMP_MDS..."
-    if start $MMP_MDS $MMP_MDSDEV $MDS_MOUNT_OPTS; then
-        error_noexit "mount $MMP_MDSDEV on $MMP_MDS should fail"
-        stop $MMP_MDS || return ${PIPESTATUS[0]}
-        return 1
-    fi
+		log "Mounting $MMP_MDSDEV on $MMP_MDS..."
+		if start $MMP_MDS $MMP_MDSDEV $MDS_MOUNT_OPTS; then
+			error_noexit "mount $MMP_MDSDEV on $MMP_MDS should fail"
+			stop $MMP_MDS
+			return 1
+		fi
 
-    reset_mmp_block $MMP_MDS $MMP_MDSDEV || return ${PIPESTATUS[0]}
+		reset_mmp_block $MMP_MDS $MMP_MDSDEV || return ${PIPESTATUS[0]}
+	fi
 
-    mark_mmp_block $MMP_OSS $MMP_OSTDEV || return ${PIPESTATUS[0]}
 
-    log "Mounting $MMP_OSTDEV on $MMP_OSS..."
-    if start $MMP_OSS $MMP_OSTDEV $OST_MOUNT_OPTS; then
-        error_noexit "mount $MMP_OSTDEV on $MMP_OSS should fail"
-        stop $MMP_OSS || return ${PIPESTATUS[0]}
-        return 2
-    fi
+	if $TEST_OST; then
+		mark_mmp_block $MMP_OSS $MMP_OSTDEV || return ${PIPESTATUS[0]}
 
-    reset_mmp_block $MMP_OSS $MMP_OSTDEV || return ${PIPESTATUS[0]}
-    return 0
+		log "Mounting $MMP_OSTDEV on $MMP_OSS..."
+		if start $MMP_OSS $MMP_OSTDEV $OST_MOUNT_OPTS; then
+			error_noexit "mount $MMP_OSTDEV on $MMP_OSS should fail"
+			stop $MMP_OSS
+			return 2
+		fi
+
+		reset_mmp_block $MMP_OSS $MMP_OSTDEV || return ${PIPESTATUS[0]}
+	fi
+	return 0
 }
 run_test 9 "mount after aborted e2fsck"
 
 # Test 10 - e2fsck with mounted filesystem.
 test_10() {
-    local rc=0
+	local rc=0
 
-    log "Mounting $MMP_MDSDEV on $MMP_MDS..."
-    start $MMP_MDS $MMP_MDSDEV $MDS_MOUNT_OPTS || return ${PIPESTATUS[0]}
+	if $TEST_MDT; then
+		log "Mounting $MMP_MDSDEV on $MMP_MDS..."
+		start $MMP_MDS $MMP_MDSDEV $MDS_MOUNT_OPTS ||
+			return ${PIPESTATUS[0]}
 
-    run_e2fsck $MMP_MDS_FAILOVER $MMP_MDSDEV "-fn"
-    rc=${PIPESTATUS[0]}
+		run_e2fsck $MMP_MDS_FAILOVER $MMP_MDSDEV "-fn"
+		rc=${PIPESTATUS[0]}
 
-    # e2fsck is called with -n option (Open the filesystem read-only), so
-    # 0 (No errors) and 4 (File system errors left uncorrected) are the only
-    # acceptable exit codes in this case
-    if [ $rc -ne 0 ] && [ $rc -ne 4 ]; then
-        error_noexit "e2fsck $MMP_MDSDEV on $MMP_MDS_FAILOVER returned $rc"
-        stop $MMP_MDS || return ${PIPESTATUS[0]}
-        return $rc
-    fi
+		# e2fsck is called with -n option (Open filesystem read-only),
+		# so 0 (No errors) and 4 (Filesystem errors left uncorrected)
+		# are the only acceptable exit codes in this case
+		if [ $rc -ne 0 -a $rc -ne 4 ]; then
+			error_noexit "fsck $MMP_MDS_FAILOVER:$MMP_MDSDEV rc $rc"
+			stop $MMP_MDS
+			return $rc
+		fi
+	fi
 
-    log "Mounting $MMP_OSTDEV on $MMP_OSS..."
-    start $MMP_OSS $MMP_OSTDEV $OST_MOUNT_OPTS
-    rc=${PIPESTATUS[0]}
-    if [ $rc -ne 0 ]; then
-        stop $MMP_MDS || return ${PIPESTATUS[0]}
-        return $rc
-    fi
+	if $TEST_OST; then
+		log "Mounting $MMP_OSTDEV on $MMP_OSS..."
+		start $MMP_OSS $MMP_OSTDEV $OST_MOUNT_OPTS
+		rc=${PIPESTATUS[0]}
+		if [ $rc -ne 0 ]; then
+			stop $MMP_MDS
+			return $rc
+		fi
 
-    run_e2fsck $MMP_OSS_FAILOVER $MMP_OSTDEV "-fn"
-    rc=${PIPESTATUS[0]}
-    if [ $rc -ne 0 ] && [ $rc -ne 4 ]; then
-        error_noexit "e2fsck $MMP_OSTDEV on $MMP_OSS_FAILOVER returned $rc"
-    fi
+		run_e2fsck $MMP_OSS_FAILOVER $MMP_OSTDEV "-fn"
+		rc=${PIPESTATUS[0]}
+		[ $rc -ne 0 -a $rc -ne 4 ] &&
+			error_noexit "fsck $MMP_OSS_FAILOVER:$MMP_OSTDEV rc $rc"
+	fi
 
-    stop_services primary || return ${PIPESTATUS[0]}
-    return 0
+	stop_services primary || return ${PIPESTATUS[0]}
+	return 0
 }
 run_test 10 "e2fsck with mounted filesystem"
 
