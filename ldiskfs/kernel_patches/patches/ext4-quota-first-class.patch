@@ -28,8 +28,8 @@ Signed-off-by: Aditya Kali <adityakali@google.com>
 ---
 Index: linux-stage/fs/ext4/ext4.h
 ===================================================================
---- linux-stage.orig/fs/ext4/ext4.h	2012-06-23 01:45:53.888093000 +0200
-+++ linux-stage/fs/ext4/ext4.h	2012-06-23 01:45:53.928918000 +0200
+--- linux-stage.orig/fs/ext4/ext4.h	2012-06-24 10:01:30.309649000 +0200
++++ linux-stage/fs/ext4/ext4.h	2012-06-24 10:01:30.351651000 +0200
 @@ -162,6 +162,8 @@ typedef struct ext4_io_end {
   */
  #define	EXT4_BAD_INO		 1	/* Bad blocks inode */
@@ -87,8 +87,8 @@ Index: linux-stage/fs/ext4/ext4.h
   * Default values for user and/or group using reserved blocks
 Index: linux-stage/fs/ext4/ext4_jbd2.h
 ===================================================================
---- linux-stage.orig/fs/ext4/ext4_jbd2.h	2012-06-23 01:45:53.918131000 +0200
-+++ linux-stage/fs/ext4/ext4_jbd2.h	2012-06-23 01:45:53.929177000 +0200
+--- linux-stage.orig/fs/ext4/ext4_jbd2.h	2012-06-24 10:01:30.337698000 +0200
++++ linux-stage/fs/ext4/ext4_jbd2.h	2012-06-24 10:01:30.351999000 +0200
 @@ -89,14 +89,20 @@
  #ifdef CONFIG_QUOTA
  /* Amount of blocks needed for quota update - we know that the structure was
@@ -117,8 +117,8 @@ Index: linux-stage/fs/ext4/ext4_jbd2.h
  #define EXT4_QUOTA_INIT_BLOCKS(sb) 0
 Index: linux-stage/fs/ext4/super.c
 ===================================================================
---- linux-stage.orig/fs/ext4/super.c	2012-06-23 01:45:53.919265000 +0200
-+++ linux-stage/fs/ext4/super.c	2012-06-23 02:11:40.807255000 +0200
+--- linux-stage.orig/fs/ext4/super.c	2012-06-24 10:01:30.338795000 +0200
++++ linux-stage/fs/ext4/super.c	2012-06-24 10:07:32.431485000 +0200
 @@ -86,6 +86,11 @@ wait_queue_head_t aio_wq[WQ_HASH_SZ];
  
  static int bigendian_extents;
@@ -298,7 +298,17 @@ Index: linux-stage/fs/ext4/super.c
  	if (!sb_any_quota_loaded(sb) || !inode) {
  		/* nothing to do */
  		mutex_unlock(&dqopt->dqonoff_mutex);
-@@ -4617,6 +4700,106 @@ out:
+@@ -4603,6 +4686,9 @@ static int ext4_quota_off(struct super_b
+ 		up_read(&sb->s_umount);
+ 	}
+ 
++	printf("quota_off: inode %p\n", inode);
++	printf("quota_off: inode sb %p\n", inode->i_sb);
++
+ 	/* Update modification times of quota files when userspace can
+ 	 * start looking at them */
+ 	handle = ext4_journal_start(inode, 1);
+@@ -4617,6 +4703,106 @@ out:
  	return vfs_quota_off(sb, type, remount);
  }
  
