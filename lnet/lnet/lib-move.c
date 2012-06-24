@@ -1165,7 +1165,7 @@ lnet_find_route_locked(lnet_ni_t *ni, lnet_nid_t target, lnet_nid_t rtr_nid)
 		lp = rtr->lr_gateway;
 
 		if (!lp->lp_alive || /* gateway is down */
-		    (lp->lp_ping_version == LNET_PROTO_PING_VERSION &&
+		    ((lp->lp_ping_feats & LNET_PING_FEAT_NI_STATUS) != 0 &&
 		     rtr->lr_downis != 0)) /* NI to target is down */
 			continue;
 

@@ -519,7 +519,7 @@ lnet_res_container_cleanup(struct lnet_res_container *rec)
 {
 	int	count = 0;
 
-	if (rec->rec_type == 0) /* not set yet, it's a uninitialized */
+	if (rec->rec_type == 0) /* not set yet, it's uninitialized */
 		return;
 
 	while (!cfs_list_empty(&rec->rec_active)) {
@@ -644,7 +644,7 @@ lnet_res_lh_lookup(struct lnet_res_container *rec, __u64 cookie)
 	lnet_libhandle_t	*lh;
 	unsigned int		hash;
 
-	if ((cookie & (LNET_COOKIE_TYPES - 1)) != rec->rec_type)
+	if ((cookie & LNET_COOKIE_MASK) != rec->rec_type)
 		return NULL;
 
 	hash = cookie >> (LNET_COOKIE_TYPE_BITS + LNET_CPT_BITS);
@@ -1708,7 +1708,7 @@ lnet_create_ping_info(void)
         pinfo->pi_nnis    = n;
         pinfo->pi_pid     = the_lnet.ln_pid;
         pinfo->pi_magic   = LNET_PROTO_PING_MAGIC;
-        pinfo->pi_version = LNET_PROTO_PING_VERSION;
+	pinfo->pi_features = LNET_PING_FEAT_NI_STATUS;
 
         for (i = 0; i < n; i++) {
                 lnet_ni_status_t *ns = &pinfo->pi_ni[i];
@@ -2004,11 +2004,11 @@ lnet_ping (lnet_process_id_t id, int timeout_ms, lnet_process_id_t *ids, int n_i
                 goto out_1;
         }
 
-        if (info->pi_version != LNET_PROTO_PING_VERSION) {
-                CERROR("%s: Unexpected version 0x%x\n",
-                       libcfs_id2str(id), info->pi_version);
-                goto out_1;
-        }
+	if ((info->pi_features & LNET_PING_FEAT_NI_STATUS) == 0) {
+		CERROR("%s: ping w/o NI status: 0x%x\n",
+		       libcfs_id2str(id), info->pi_features);
+		goto out_1;
+	}
 
         if (nob < offsetof(lnet_ping_info_t, pi_ni[0])) {
                 CERROR("%s: Short reply %d(%d min)\n", libcfs_id2str(id),
