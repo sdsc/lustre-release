@@ -2534,7 +2534,7 @@ int ll_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 }
 #endif
 
-
+#ifndef HAVE_GENERIC_PERMISSION_2ARGS
 static int
 #ifdef HAVE_GENERIC_PERMISSION_4ARGS
 lustre_check_acl(struct inode *inode, int mask, unsigned int flags)
@@ -2567,6 +2567,7 @@ lustre_check_acl(struct inode *inode, int mask)
         return -EAGAIN;
 #endif
 }
+#endif
 
 #ifdef HAVE_GENERIC_PERMISSION_4ARGS
 int ll_inode_permission(struct inode *inode, int mask, unsigned int flags)
