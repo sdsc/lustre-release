@@ -658,7 +658,7 @@ EXPORT_SYMBOL(target_recovery_check_and_stop);
 
 int target_handle_connect(struct ptlrpc_request *req, svc_handler_t handler)
 {
-        struct obd_device *target, *targref = NULL;
+        struct obd_device *target = NULL, *targref = NULL;
         struct obd_export *export = NULL;
         struct obd_import *revimp;
         struct lustre_handle conn;
@@ -695,16 +695,25 @@ int target_handle_connect(struct ptlrpc_request *req, svc_handler_t handler)
                 target = class_name2obd(str);
         /* end COMPAT_146 */
 
-        if (!target || target->obd_stopping || !target->obd_set_up) {
+        if (!target) {
+                LCONSOLE_ERROR_MSG(0x137, "UUID '%s' is not available "
+                                   " for connect (no target)\n", str);
+                GOTO(out, rc = -ENODEV);
+
+        }
+
+        spin_lock(&target->obd_dev_lock);
+        if (target->obd_stopping || !target->obd_set_up) {
+                spin_unlock(&target->obd_dev_lock);
                 LCONSOLE_ERROR_MSG(0x137, "UUID '%s' is not available "
                                    " for connect (%s)\n", str,
-                                   !target ? "no target" :
                                    (target->obd_stopping ? "stopping" :
                                    "not set up"));
                 GOTO(out, rc = -ENODEV);
         }
 
         if (target->obd_no_conn) {
+                spin_unlock(&target->obd_dev_lock);
                 LCONSOLE_WARN("%s: temporarily refusing client connection "
                               "from %s\n", target->obd_name,
                               libcfs_nid2str(req->rq_peer.nid));
@@ -715,6 +724,9 @@ int target_handle_connect(struct ptlrpc_request *req, svc_handler_t handler)
            there's still a race between the above check and our incref here.
            Really, class_uuid2obd should take the ref. */
         targref = class_incref(target);
+
+        target->obd_conn_inprogress++;
+        spin_unlock(&target->obd_dev_lock);
 
         lustre_set_req_swabbed(req, REQ_REC_OFF + 1);
         str = lustre_msg_string(req->rq_reqmsg, REQ_REC_OFF + 1,
@@ -848,7 +860,6 @@ int target_handle_connect(struct ptlrpc_request *req, svc_handler_t handler)
                 spin_lock(&export->exp_lock);
                 export->exp_connecting = 1;
                 spin_unlock(&export->exp_lock);
-                class_export_put(export);
                 LASSERT(export->exp_obd == target);
 
                 rc = target_handle_reconnect(&conn, export, &cluuid);
@@ -947,6 +958,19 @@ no_export:
  dont_check_exports:
                         rc = obd_connect(&conn, target, &cluuid, data,
                                          client_nid);
+                        if (rc == 0) {
+                                /* ownership of this export ref transfers to
+                                 * the request AFTER we drop any previsous
+                                 * reference the request had, but we don't
+                                 * want that to go to zero before we get our
+                                 * new export reference. */
+                                export = class_conn2export(&conn);
+                                if (export == NULL) {
+                                        DEBUG_REQ(D_ERROR, req,
+                                                  "Missing export!");
+                                        rc = -ENODEV;
+                                }
+                        }
                 }
         } else {
                 rc = obd_reconnect(export, target, &cluuid, data, client_nid);
@@ -967,15 +991,6 @@ no_export:
 
         lustre_msg_set_handle(req->rq_repmsg, &conn);
 
-        /* ownership of this export ref transfers to the request AFTER we
-         * drop any previous reference the request had, but we don't want
-         * that to go to zero before we get our new export reference. */
-        export = class_conn2export(&conn);
-        if (!export) {
-                DEBUG_REQ(D_ERROR, req, "Missing export!");
-                GOTO(out, rc = -ENODEV);
-        }
-
         /* If the client and the server are the same node, we will already
          * have an export that really points to the client's DLM export,
          * because we have a shared handles table.
@@ -986,7 +1001,8 @@ no_export:
         if (req->rq_export != NULL)
                 class_export_put(req->rq_export);
 
-        req->rq_export = export;
+        /* This export is going to be put at the end of this function */
+        req->rq_export = class_export_get(export);
 
         spin_lock(&export->exp_lock);
         if (export->exp_conn_cnt >= lustre_msg_get_conn_cnt(req->rq_reqmsg)) {
@@ -1085,9 +1101,16 @@ out:
                 spin_lock(&export->exp_lock);
                 export->exp_connecting = 0;
                 spin_unlock(&export->exp_lock);
+
+                class_export_put(export);
         }
-        if (targref)
+        if (targref) {
+                spin_lock(&target->obd_dev_lock);
+                target->obd_conn_inprogress--;
+                spin_unlock(&target->obd_dev_lock);
                 class_decref(targref);
+        }
+
         if (rc)
                 req->rq_status = rc;
         RETURN(rc);
