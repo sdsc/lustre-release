@@ -350,6 +350,7 @@ static int ll_readdir_18(struct file *filp, void *dirent, filldir_t filldir)
         unsigned chunk_mask = ll_dir_page_mask(inode);
         int need_revalidate = (filp->f_version != inode->i_version);
         int rc              = 0;
+        struct ll_dir_entry *de;
         int done; /* when this becomes negative --- stop iterating */
 
         ENTRY;
@@ -402,6 +403,24 @@ static int ll_readdir_18(struct file *filp, void *dirent, filldir_t filldir)
                                                        chunk_mask);
                         need_revalidate = 0;
                 }
+                /*
+                 * Sanity check first dentry.
+                 * need_revalidate is not enough because lseek() may be called
+                 * before i_version is changed.
+                 */
+                de = ll_entry_at(kaddr, offset);
+                if (unlikely(ll_dir_check_entry(inode, de, offset,
+                                                le16_to_cpu(de->lde_rec_len),
+                                                idx))) {
+                        /*
+                         * On error, skip current f_pos to the next block
+                         */
+                        filp->f_pos = (filp->f_pos + inode->i_sb->s_blocksize)
+                                      & chunk_mask;
+                        rc = 0;
+                        goto out;
+                }
+
                 done = ll_readdir_page(kaddr, idx << CFS_PAGE_SHIFT,
                                        &offset, filldir, dirent);
                 ll_put_page(page);
@@ -421,7 +440,7 @@ static int ll_readdir_18(struct file *filp, void *dirent, filldir_t filldir)
         filp->f_pos = (idx << CFS_PAGE_SHIFT) | offset;
         filp->f_version = inode->i_version;
         touch_atime(filp->f_vfsmnt, filp->f_dentry);
-
+out:
         RETURN(rc);
 }
 
