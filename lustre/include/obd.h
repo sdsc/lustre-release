@@ -1084,6 +1084,8 @@ struct obd_device {
         rwlock_t               obd_pool_lock;
         int                    obd_pool_limit;
         __u64                  obd_pool_slv;
+
+        int                    obd_conn_inprogress;
 };
 
 #define OBD_LLOG_FL_SENDNOW     0x0001
