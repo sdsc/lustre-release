@@ -529,6 +529,7 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
         repbody = req_capsule_server_get(pill, &RMF_MDT_BODY);
 
         ma->ma_valid = 0;
+        ma->ma_need  = ma_need;
 
         rc = mdt_object_exists(o);
         if (rc < 0) {
@@ -547,11 +548,13 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
                 /* Assumption: MDT_MD size is enough for lmv size. */
                 ma->ma_lmv = buffer->lb_buf;
                 ma->ma_lmv_size = buffer->lb_len;
-                ma->ma_need = MA_LMV | MA_INODE;
+                ma->ma_need |= MA_LMV | MA_INODE;
         } else {
-                ma->ma_lmm = buffer->lb_buf;
-                ma->ma_lmm_size = buffer->lb_len;
-                ma->ma_need = MA_LOV | MA_INODE;
+                ma->ma_need |= MA_INODE;
+		if (ma->ma_need & MA_LOV) {
+			ma->ma_lmm = buffer->lb_buf;
+			ma->ma_lmm_size = buffer->lb_len;
+		}
         }
 
         if (S_ISDIR(lu_object_attr(&next->mo_lu)) &&
@@ -560,7 +563,6 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
                 /* get default stripe info for this dir. */
                 ma->ma_need |= MA_LOV_DEF;
         }
-        ma->ma_need |= ma_need;
         if (ma->ma_need & MA_SOM)
                 ma->ma_som = &info->mti_u.som.data;
 
@@ -890,7 +892,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
         struct ldlm_lock       *lock;
         struct ldlm_res_id     *res_id;
         int                     is_resent;
-        int                     ma_need = 0;
+        int                     ma_need = MA_LOV;
         int                     rc;
 
         ENTRY;
@@ -1060,6 +1062,9 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
                 LDLM_LOCK_PUT(lock);
                 rc = 0;
         } else {
+		struct md_attr *ma;
+		bool try_layout;
+
 relock:
                 OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_RESEND, obd_timeout*2);
                 mdt_lock_handle_init(lhc);
@@ -1075,22 +1080,15 @@ relock:
                         GOTO(out_child, rc = -ENOENT);
                 }
 
+		try_layout = false;
+		ma = &info->mti_attr;
+		ma->ma_valid = 0;
+		ma->ma_need = MA_INODE;
+		rc = mo_attr_get(info->mti_env, mdt_object_child(child), ma);
+		if (unlikely(rc != 0))
+			GOTO(out_child, rc);
+
                 if (!(child_bits & MDS_INODELOCK_UPDATE)) {
-                        struct md_attr *ma = &info->mti_attr;
-
-                        ma->ma_valid = 0;
-                        ma->ma_need = MA_INODE;
-                        rc = mo_attr_get(info->mti_env,
-                                         mdt_object_child(child), ma);
-                        if (unlikely(rc != 0))
-                                GOTO(out_child, rc);
-
-                        /* layout lock is used only on regular files */
-                        if ((ma->ma_valid & MA_INODE) &&
-                            (ma->ma_attr.la_valid & LA_MODE) &&
-                            !S_ISREG(ma->ma_attr.la_mode))
-                                child_bits &= ~MDS_INODELOCK_LAYOUT;
-
                         /* If the file has not been changed for some time, we
                          * return not only a LOOKUP lock, but also an UPDATE
                          * lock and this might save us RPC on later STAT. For
@@ -1103,9 +1101,33 @@ relock:
                                 child_bits |= MDS_INODELOCK_UPDATE;
                 }
 
-                rc = mdt_object_lock(info, child, lhc, child_bits,
-                                     MDT_CROSS_LOCK);
+		/* layout lock is used only on regular files */
+		LASSERT(!(child_bits & MDS_INODELOCK_LAYOUT));
+		if (ma->ma_valid & MA_INODE &&
+		    ma->ma_attr.la_valid & LA_MODE &&
+		    S_ISREG(ma->ma_attr.la_mode)) {
+			/* try to grant layout lock. */
+			try_layout = true;
+			child_bits |= MDS_INODELOCK_LAYOUT;
+		}
 
+		rc = 0;
+		if (try_layout) {
+			LASSERT(child_bits & MDS_INODELOCK_LAYOUT);
+			/* try layout lock, it may fail to be granted due to
+			 * contention at LOOKUP or UPDATE */
+			if (!mdt_object_lock_try(info, child, lhc, child_bits,
+						 MDT_CROSS_LOCK)) {
+				ma_need &= ~MA_LOV;
+				child_bits &= ~MDS_INODELOCK_LAYOUT;
+				LASSERT(child_bits != 0);
+				rc = mdt_object_lock(info, child, lhc,
+						child_bits, MDT_CROSS_LOCK);
+			}
+		} else {
+			rc = mdt_object_lock(info, child, lhc, child_bits,
+						MDT_CROSS_LOCK);
+		}
                 if (unlikely(rc != 0))
                         GOTO(out_child, rc);
         }
@@ -1115,7 +1137,7 @@ relock:
         if (lock &&
             lock->l_policy_data.l_inodebits.bits & MDS_INODELOCK_UPDATE &&
             S_ISREG(lu_object_attr(&mdt_object_child(child)->mo_lu)))
-                ma_need = MA_SOM;
+		ma_need |= MA_SOM;
 
         /* finally, we can get attr for child. */
         mdt_set_capainfo(info, 1, child_fid, BYPASS_CAPA);
@@ -2026,8 +2048,81 @@ static int mdt_llog_prev_block(struct mdt_thread_info *info)
 /*
  * DLM handlers.
  */
+
+static int mdt_completion_ast(struct ldlm_lock *lock, int flags, void *data)
+{
+	struct lu_env env;
+	struct mdt_thread_info *info;
+	struct ldlm_res_id *name = &lock->l_resource->lr_name;
+	struct lu_fid *fid;
+	struct mdt_object *obj = NULL;
+	struct md_object *child = NULL;
+	struct lu_buf *buf = NULL;
+	int rc;
+	ENTRY;
+
+	if (!(lock->l_policy_data.l_inodebits.bits & MDS_INODELOCK_LAYOUT))
+		RETURN(ldlm_server_completion_ast(lock, flags, data));
+
+	/* layout lock will be granted to client, fill in lvb with layout */
+
+	/* XXX create an env to talk to mdt stack. We should get this env from
+	 * ptlrpc_thread->t_env. */
+	rc = lu_env_init(&env, LCT_MD_THREAD);
+	LASSERT(rc == 0);
+
+	info = lu_context_key_get(&env.le_ctx, &mdt_thread_key);
+        LASSERT(info != NULL);
+        memset(info, 0, sizeof *info);
+        info->mti_env = &env;
+        info->mti_exp = lock->l_export;
+        info->mti_mdt = mdt_dev(lock->l_export->exp_obd->obd_lu_dev);
+
+	/* XXX get fid by resource id. why don't include fid in ldlm_resource */
+	fid = &info->mti_tmp_fid2;
+	fid_build_from_res_name(fid, name);
+
+	obj = mdt_object_find(&env, info->mti_mdt, fid);
+	if (IS_ERR(obj))
+		GOTO(out, rc = PTR_ERR(obj));
+
+	if (mdt_object_exists(obj) <= 0)
+		GOTO(out, rc = -ENOENT);
+
+	child = mdt_object_child(obj);
+
+	/* get the length of lsm */
+	rc = mo_xattr_get(&env, child, &LU_BUF_NULL, XATTR_NAME_LOV);
+	if (rc < 0)
+		GOTO(out, rc);
+
+	if (rc > 0) {
+		buf = &info->mti_buf;
+		buf->lb_len = rc;
+		OBD_ALLOC_LARGE(buf->lb_buf, buf->lb_len);
+		if (buf->lb_buf == NULL)
+			GOTO(out, rc = -ENOMEM);
+
+		rc = mo_xattr_get(&env, child, buf, XATTR_NAME_LOV);
+		if (rc < 0)
+			GOTO(out, rc);
+	}
+
+	/* call ldlm_server_completion_ast to pack RPC */
+	rc = ldlm_server_completion_ast_lvb(lock, flags, data,
+					    buf->lb_buf, buf->lb_len);
+
+out:
+	if (buf != NULL && buf->lb_buf != NULL)
+		OBD_FREE_LARGE(buf->lb_buf, buf->lb_len);
+	if (obj != NULL && !IS_ERR(obj))
+		mdt_object_put(&env, obj);
+	lu_env_fini(&env);
+	RETURN(rc);
+}
+
 static struct ldlm_callback_suite cbs = {
-        .lcs_completion = ldlm_server_completion_ast,
+        .lcs_completion = mdt_completion_ast,
         .lcs_blocking   = ldlm_server_blocking_ast,
         .lcs_glimpse    = NULL
 };
@@ -2241,12 +2336,14 @@ int mdt_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
         RETURN(rc);
 }
 
-int mdt_object_lock(struct mdt_thread_info *info, struct mdt_object *o,
-                    struct mdt_lock_handle *lh, __u64 ibits, int locality)
+static int mdt_object_lock0(struct mdt_thread_info *info, struct mdt_object *o,
+			    struct mdt_lock_handle *lh, __u64 ibits,
+			    bool nonblock, int locality)
 {
         struct ldlm_namespace *ns = info->mti_mdt->mdt_namespace;
         ldlm_policy_data_t *policy = &info->mti_policy;
         struct ldlm_res_id *res_id = &info->mti_res_id;
+	int dlmflags;
         int rc;
         ENTRY;
 
@@ -2283,6 +2380,10 @@ int mdt_object_lock(struct mdt_thread_info *info, struct mdt_object *o,
         memset(policy, 0, sizeof(*policy));
         fid_build_reg_res_name(mdt_object_fid(o), res_id);
 
+	dlmflags = LDLM_FL_ATOMIC_CB;
+	if (nonblock)
+		dlmflags |= LDLM_FL_BLOCK_NOWAIT;
+
         /*
          * Take PDO lock on whole directory and build correct @res_id for lock
          * on part of directory.
@@ -2298,7 +2399,7 @@ int mdt_object_lock(struct mdt_thread_info *info, struct mdt_object *o,
                          */
                         policy->l_inodebits.bits = MDS_INODELOCK_UPDATE;
                         rc = mdt_fid_lock(ns, &lh->mlh_pdo_lh, lh->mlh_pdo_mode,
-                                          policy, res_id, LDLM_FL_ATOMIC_CB,
+                                          policy, res_id, dlmflags,
                                           &info->mti_exp->exp_handle.h_cookie);
                         if (unlikely(rc))
                                 RETURN(rc);
@@ -2319,7 +2420,7 @@ int mdt_object_lock(struct mdt_thread_info *info, struct mdt_object *o,
          * fix it up and turn FL_LOCAL flag off.
          */
         rc = mdt_fid_lock(ns, &lh->mlh_reg_lh, lh->mlh_reg_mode, policy,
-                          res_id, LDLM_FL_LOCAL_ONLY | LDLM_FL_ATOMIC_CB,
+                          res_id, LDLM_FL_LOCAL_ONLY | dlmflags,
                           &info->mti_exp->exp_handle.h_cookie);
         if (rc)
                 mdt_object_unlock(info, o, lh, 1);
@@ -2330,6 +2431,20 @@ int mdt_object_lock(struct mdt_thread_info *info, struct mdt_object *o,
         }
 
         RETURN(rc);
+}
+
+int mdt_object_lock(struct mdt_thread_info *info, struct mdt_object *o,
+		    struct mdt_lock_handle *lh, __u64 ibits, int locality)
+{
+	return mdt_object_lock0(info, o, lh, ibits, false, locality);
+}
+
+int mdt_object_lock_try(struct mdt_thread_info *info, struct mdt_object *o,
+		        struct mdt_lock_handle *lh, __u64 ibits, int locality)
+{
+	int rc;
+	rc = mdt_object_lock0(info, o, lh, ibits, true, locality);
+	return rc == 0;
 }
 
 /**
@@ -3638,6 +3753,7 @@ static int mdt_intent_policy(struct ldlm_namespace *ns,
                         rc = err_serious(-EFAULT);
         } else {
                 /* No intent was provided */
+		/* fake intent, for IT_READDIR and IT_LAYOUT now. */
                 LASSERT(pill->rc_fmt == &RQF_LDLM_ENQUEUE);
                 rc = req_capsule_server_pack(pill);
                 if (rc)

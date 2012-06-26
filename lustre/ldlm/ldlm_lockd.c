@@ -858,7 +858,8 @@ int ldlm_server_blocking_ast(struct ldlm_lock *lock,
         RETURN(rc);
 }
 
-int ldlm_server_completion_ast(struct ldlm_lock *lock, int flags, void *data)
+int ldlm_server_completion_ast_lvb(struct ldlm_lock *lock, int flags,
+				   void *data, void *lvb_data, int lvb_len)
 {
         struct ldlm_cb_set_arg *arg = data;
         struct ldlm_request    *body;
@@ -881,9 +882,9 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, int flags, void *data)
                 RETURN(-ENOMEM);
 
         /* server namespace, doesn't need lock */
-        if (lock->l_resource->lr_lvb_len) {
+        if (lvb_len > 0) {
                  req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_CLIENT,
-                                      lock->l_resource->lr_lvb_len);
+                                      lvb_len);
         }
 
         rc = ptlrpc_request_pack(req, LUSTRE_DLM_VERSION, LDLM_CP_CALLBACK);
@@ -904,13 +905,9 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, int flags, void *data)
         body->lock_handle[0] = lock->l_remote_handle;
         body->lock_flags = flags;
         ldlm_lock2desc(lock, &body->lock_desc);
-        if (lock->l_resource->lr_lvb_len) {
+        if (lvb_len > 0) {
                 void *lvb = req_capsule_client_get(&req->rq_pill, &RMF_DLM_LVB);
-
-                lock_res(lock->l_resource);
-                memcpy(lvb, lock->l_resource->lr_lvb_data,
-                       lock->l_resource->lr_lvb_len);
-                unlock_res(lock->l_resource);
+                memcpy(lvb, lvb_data, lvb_len);
         }
 
         LDLM_DEBUG(lock, "server preparing completion AST (after %lds wait)",
@@ -971,6 +968,13 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, int flags, void *data)
         rc = ldlm_bl_and_cp_ast_tail(req, arg, lock, instant_cancel);
 
         RETURN(rc);
+}
+EXPORT_SYMBOL(ldlm_server_completion_ast_lvb);
+
+int ldlm_server_completion_ast(struct ldlm_lock *lock, int flags, void *data)
+{
+	return ldlm_server_completion_ast_lvb(lock, flags, data,
+		   lock->l_resource->lr_lvb_data, lock->l_resource->lr_lvb_len);
 }
 
 int ldlm_server_glimpse_ast(struct ldlm_lock *lock, void *data)

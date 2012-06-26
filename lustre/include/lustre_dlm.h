@@ -993,6 +993,8 @@ struct ldlm_callback_suite {
 int ldlm_server_blocking_ast(struct ldlm_lock *, struct ldlm_lock_desc *,
                              void *data, int flag);
 int ldlm_server_completion_ast(struct ldlm_lock *lock, int flags, void *data);
+int ldlm_server_completion_ast_lvb(struct ldlm_lock *lock, int flags,
+				   void *data, void *lvb, int lvb_len);
 int ldlm_server_glimpse_ast(struct ldlm_lock *lock, void *data);
 int ldlm_handle_enqueue(struct ptlrpc_request *req, ldlm_completion_callback,
                         ldlm_blocking_callback, ldlm_glimpse_callback);
