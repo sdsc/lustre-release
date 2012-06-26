@@ -2458,6 +2458,7 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 		.psc_ops		= {
 			.so_req_handler		= ost_handle,
 			.so_req_printer		= target_print_req,
+			.so_hpreq_handler	= ptlrpc_hpreq_handler,
 		},
 	};
 	ost->ost_service = ptlrpc_register_service(&svc_conf,
@@ -2490,6 +2491,7 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 		.psc_ops		= {
 			.so_req_handler		= ost_handle,
 			.so_req_printer		= target_print_req,
+			.so_hpreq_handler	= NULL,
 		},
 	};
 	ost->ost_create_service = ptlrpc_register_service(&svc_conf,
@@ -2526,6 +2528,7 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 			.so_req_handler		= ost_handle,
 			.so_hpreq_handler	= ost_hpreq_handler,
 			.so_req_printer		= target_print_req,
+			.so_hpreq_handler	= NULL,
 		},
 	};
 	ost->ost_io_service = ptlrpc_register_service(&svc_conf,
