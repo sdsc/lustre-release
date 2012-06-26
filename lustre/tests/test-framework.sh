@@ -784,6 +784,11 @@ restore_quota_type () {
 setup_quota(){
     local mntpt=$1
 
+	if [ "x$USE_OFD" = "xyes" ]; then
+		$LFS quotacheck $mntpt || error "quotacheck failed"
+		return
+	fi
+
     # We need save the original quota_type params, and restore them after testing
 
     # Suppose that quota type the same on mds and ost
