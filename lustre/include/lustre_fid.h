@@ -112,6 +112,8 @@ enum local_oid {
         OSD_FS_ROOT_OID         = 13UL,
         ACCT_USER_OID           = 15UL,
         ACCT_GROUP_OID          = 16UL,
+	LFSCK_BOOKMARK_OID	= 17UL,
+	LFSCK_IT_OID		= 18UL,
         OFD_LAST_RECV_OID       = 19UL,
         OFD_GROUP0_LAST_OID     = 20UL,
         OFD_GROUP4K_LAST_OID    = 20UL+4096,
