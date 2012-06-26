@@ -133,7 +133,8 @@
 
 /** Absolute limits */
 #ifndef MDT_MAX_THREADS
-#define MDT_MIN_THREADS PTLRPC_NTHRS_MIN
+/* difficult replies, HPQ, others */
+#define MDT_MIN_THREADS PTLRPC_NTHRS_MIN + 1
 #define MDT_MAX_THREADS 512UL
 #endif
 #define MDS_NBUFS       (64 * cfs_num_online_cpus())
@@ -1647,6 +1648,7 @@ void ptlrpc_save_lock(struct ptlrpc_request *req,
 void ptlrpc_commit_replies(struct obd_export *exp);
 void ptlrpc_dispatch_difficult_reply(struct ptlrpc_reply_state *rs);
 void ptlrpc_schedule_difficult_reply(struct ptlrpc_reply_state *rs);
+int ptlrpc_hpreq_handler(struct ptlrpc_request *req);
 struct ptlrpc_service *ptlrpc_register_service(
 				struct ptlrpc_service_conf *conf,
 				struct proc_dir_entry *proc_entry);
