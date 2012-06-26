@@ -1415,6 +1415,31 @@ test_105()
 }
 run_test 105 "IR: NON IR clients support"
 
+test_106 () {
+	local CLIENT_PID
+	local close_pid
+
+	mkdir -p $DIR/$tdir
+	multiop_bg_pause $DIR/$tdir D_c
+	# OBD_FAIL_MDS_REINT_NET_REP   0x119
+	do_facet $SINGLEMDS lctl set_param fail_loc=0x119
+	close_pid=$!
+	mkdir $DIR/$tdir/dir_106 &
+	CLIENT_PID=$!
+	fail $SINGLEMDS
+
+	do_facet $SINGLEMDS lctl set_param fail_loc=0
+
+	wait $CLIENT_PID || rc=$?
+	checkstat -t dir $DIR/$tdir/dir_106 || return 1
+
+	kill -USR1 $close_pid
+	wait $close_pid || return 2
+
+	return $rc
+}
+run_test 106 "drop reint reply, then restart MDT"
+
 complete $(basename $0) $SECONDS
 check_and_cleanup_lustre
 exit_status
