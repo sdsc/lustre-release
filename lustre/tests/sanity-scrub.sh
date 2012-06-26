@@ -32,6 +32,8 @@ build_test_filter
 
 MDT_DEV="${FSNAME}-MDT0000"
 MDT_DEVNAME=$(mdsdevname ${SINGLEMDS//mds/})
+START_SCRUB="do_facet $SINGLEMDS $LCTL lfsck_start -M ${MDT_DEV}"
+STOP_SCRUB="do_facet $SINGLEMDS $LCTL lfsck_stop -M ${MDT_DEV}"
 SHOW_SCRUB="do_facet $SINGLEMDS \
 		$LCTL get_param -n osd-ldiskfs.${MDT_DEV}.oi_scrub"
 
@@ -94,6 +96,34 @@ test_1a() {
 		error "(5) File diff failed unexpected!"
 }
 run_test 1a "Trigger OI scrub when MDT mounts for OI files remove/recreate case"
+
+test_1b() {
+	local index
+
+	for index in 0 1 2 3 5 7; do
+		scrub_prep 0
+		mds_remove_ois ${index} || error "(1) Fail to remove/recreate!"
+
+		echo "start $SINGLEMDS with disable OI scrub"
+		start $SINGLEMDS $MDT_DEVNAME $MDS_MOUNT_OPTS,noscrub > \
+			/dev/null || error "(2) Fail to start MDS!"
+
+		local FLAGS=$($SHOW_SCRUB | sed -n '5'p | awk '{print $2}')
+		[ "$FLAGS" == "recreated" ] ||
+			error "(3) Expect 'recreated', but got '$STATUS'"
+
+		$START_SCRUB || error "(4) Fail to start OI scrub!"
+		sleep 3
+		local STATUS=$($SHOW_SCRUB | sed -n '4'p | awk '{print $2}')
+		[ "$STATUS" == "completed" ] ||
+			error "(5) Expect 'completed', but got '$STATUS'"
+
+		FLAGS=$($SHOW_SCRUB | sed -n '5'p | awk '{print $2}')
+		[ -z "$FLAGS" ] ||
+			error "(6) Expect empty flags, but got '$FLAGS'"
+	done
+}
+run_test 1b "Auto detect kinds of OI file(s) removed/recreated cases"
 
 test_2() {
 	scrub_prep 0
@@ -386,6 +416,119 @@ test_7() {
 	[ -z "$FLAGS" ] || error "(11) Expect empty flags, but got '$FLAGS'"
 }
 run_test 7 "System is available during OI scrub scanning"
+
+test_8() {
+	scrub_prep 0
+	mds_backup_restore || error "(1) Fail to backup/restore!"
+
+	echo "start $SINGLEMDS with disable OI scrub"
+	start $SINGLEMDS $MDT_DEVNAME $MDS_MOUNT_OPTS,noscrub > /dev/null ||
+		error "(2) Fail to start MDS!"
+
+	local STATUS=$($SHOW_SCRUB | sed -n '4'p | awk '{print $2}')
+	[ "$STATUS" == "init" ] ||
+		error "(3) Expect 'init', but got '$STATUS'"
+
+	local FLAGS=$($SHOW_SCRUB | sed -n '5'p | awk '{print $2}')
+	[ "$FLAGS" == "inconsistent" ] ||
+		error "(4) Expect 'inconsistent', but got '$FLAGS'"
+
+#define OBD_FAIL_OSD_SCRUB_DELAY	 0x190
+	do_facet $SINGLEMDS $LCTL set_param fail_val=3
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x190
+	$START_SCRUB || error "(5) Fail to start OI scrub!"
+
+	STATUS=$($SHOW_SCRUB | sed -n '4'p | awk '{print $2}')
+	[ "$STATUS" == "scanning" ] ||
+		error "(6) Expect 'scanning', but got '$STATUS'"
+
+	$STOP_SCRUB || error "(7) Fail to stop OI scrub!"
+
+	STATUS=$($SHOW_SCRUB | sed -n '4'p | awk '{print $2}')
+	[ "$STATUS" == "paused" ] ||
+		error "(8) Expect 'paused', but got '$STATUS'"
+
+	$START_SCRUB || error "(9) Fail to start OI scrub!"
+
+	STATUS=$($SHOW_SCRUB | sed -n '4'p | awk '{print $2}')
+	[ "$STATUS" == "scanning" ] ||
+		error "(10) Expect 'scanning', but got '$STATUS'"
+
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+	do_facet $SINGLEMDS $LCTL set_param fail_val=0
+	sleep 5
+	STATUS=$($SHOW_SCRUB | sed -n '4'p | awk '{print $2}')
+	[ "$STATUS" == "completed" ] ||
+		error "(11) Expect 'completed', but got '$STATUS'"
+
+	FLAGS=$($SHOW_SCRUB | sed -n '5'p | awk '{print $2}')
+	[ -z "$FLAGS" ] || error "(12) Expect empty flags, but got '$FLAGS'"
+}
+run_test 8 "Control OI scrub manually"
+
+test_9() {
+	scrub_prep 8000
+	mds_backup_restore || error "(1) Fail to backup/restore!"
+
+	echo "start $SINGLEMDS with disable OI scrub"
+	start $SINGLEMDS $MDT_DEVNAME $MDS_MOUNT_OPTS,noscrub > /dev/null ||
+		error "(2) Fail to start MDS!"
+
+	local STATUS=$($SHOW_SCRUB | sed -n '4'p | awk '{print $2}')
+	[ "$STATUS" == "init" ] ||
+		error "(3) Expect 'init', but got '$STATUS'"
+
+	local FLAGS=$($SHOW_SCRUB | sed -n '5'p | awk '{print $2}')
+	[ "$FLAGS" == "inconsistent" ] ||
+		error "(4) Expect 'inconsistent', but got '$FLAGS'"
+
+	# OI scrub should run with full speed under inconsistent case
+	$START_SCRUB -s 100 || error "(5) Fail to start OI scrub!"
+
+	sleep 10
+	STATUS=$($SHOW_SCRUB | sed -n '4'p | awk '{print $2}')
+	[ "$STATUS" == "completed" ] ||
+		error "(6) Expect 'completed', but got '$STATUS'"
+
+	FLAGS=$($SHOW_SCRUB | sed -n '5'p | awk '{print $2}')
+	[ -z "$FLAGS" ] || error "(7) Expect empty flags, but got '$FLAGS'"
+
+	# OI scrub should run with limited speed under non-inconsistent case
+	$START_SCRUB -s 100 -r || error "(8) Fail to start OI scrub!"
+
+	sleep 10
+	STATUS=$($SHOW_SCRUB | sed -n '4'p | awk '{print $2}')
+	[ "$STATUS" == "scanning" ] ||
+		error "(9) Expect 'scanning', but got '$STATUS'"
+
+	# Do NOT ignore that there are 1024 pre-fetched items.
+	# So the max speed may be (1024 + 100 * 10) / 10.
+	# And there may be time error, so the max speed may be more large.
+	local SPEED=$($SHOW_SCRUB | sed -n '19'p | awk '{print $2}')
+	[ $SPEED -gt 220 ] &&
+		error "(10) Unexpected speed $SPEED, should not more than 220"
+
+	# adjust speed limit
+	do_facet $SINGLEMDS \
+		$LCTL set_param -n mdd.${MDT_DEV}.lfsck_speed_limit 300
+	sleep 10
+
+	SPEED=$($SHOW_SCRUB | sed -n '19'p | awk '{print $2}')
+	[ $SPEED -lt 220 ] &&
+		error "(11) Unexpected speed $SPEED, should not less than 220"
+
+	# (1024 + 100 * 10 + 300 * 10) / 20
+	[ $SPEED -gt 270 ] &&
+		error "(12) Unexpected speed $SPEED, should not more than 270"
+
+	do_facet $SINGLEMDS \
+		$LCTL set_param -n mdd.${MDT_DEV}.lfsck_speed_limit 0
+	sleep 6
+	STATUS=$($SHOW_SCRUB | sed -n '4'p | awk '{print $2}')
+	[ "$STATUS" == "completed" ] ||
+		error "(13) Expect 'completed', but got '$STATUS'"
+}
+run_test 9 "OI scrub speed control"
 
 # restore the ${facet}_MKFS_OPTS variables
 for facet in MGS MDS OST; do
