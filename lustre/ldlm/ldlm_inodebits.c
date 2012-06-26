@@ -172,6 +172,9 @@ int ldlm_process_inodebits_lock(struct ldlm_lock *lock, int *flags,
         rc += ldlm_inodebits_compat_queue(&res->lr_waiting, lock, &rpc_list);
 
         if (rc != 2) {
+		if (*flags & LDLM_FL_BLOCK_NOWAIT)
+			RETURN(-EWOULDBLOCK);
+
                 /* If either of the compat_queue()s returned 0, then we
                  * have ASTs to send and must go onto the waiting list.
                  *
