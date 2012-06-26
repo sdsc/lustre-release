@@ -111,4 +111,11 @@ int proc_call_handler(void *data, int write,
                       int (*handler)(void *data, int write,
                                      loff_t pos, void *buffer, int len));
 
+/* Kernel 3.3 removes NETIF_F_NO_CSUM feature bit,
+ * in most cases NETIF_F_NO_CSUM is equivalent to NETIF_F_HW_CSUM.
+ * See kernel commit 34324dc2bf27c1773045fea63cb11f7e2a6ad2b9 */
+#ifndef NETIF_F_NO_CSUM
+#define NETIF_F_NO_CSUM NETIF_F_HW_CSUM
+#endif
+
 #endif /* _PORTALS_COMPAT_H */
