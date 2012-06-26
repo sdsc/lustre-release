@@ -243,8 +243,29 @@ out_unlock:
 	return rc;
 }
 
+static int ofd_lvbo_size(struct ldlm_lock *unused)
+{
+	return sizeof(struct ost_lvb);
+}
+
+static int ofd_lvbo_fill(struct ldlm_lock *lock, void *buf, int buflen)
+{
+	struct ldlm_resource *res;
+
+	lock_res_and_lock(lock);
+	res = lock->l_resource;
+	LASSERT(buflen >= res->lr_lvb_len);
+	buflen = res->lr_lvb_len;
+	memcpy(buf, res->lr_lvb_data, res->lr_lvb_len);
+	lock_res_and_lock(lock);
+
+	return buflen;
+}
+
 struct ldlm_valblock_ops ofd_lvbo = {
 	lvbo_init:	ofd_lvbo_init,
 	lvbo_update:	ofd_lvbo_update,
 	lvbo_free:	ofd_lvbo_free,
+	lvbo_size: 	ofd_lvbo_size,
+        lvbo_fill: 	ofd_lvbo_fill
 };

@@ -867,6 +867,7 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, int flags, void *data)
         long                    total_enqueue_wait;
         int                     instant_cancel = 0;
         int                     rc = 0;
+	int			lvb_len;
         ENTRY;
 
         LASSERT(lock != NULL);
@@ -881,9 +882,10 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, int flags, void *data)
                 RETURN(-ENOMEM);
 
         /* server namespace, doesn't need lock */
-        if (lock->l_resource->lr_lvb_len) {
+        lvb_len = ldlm_lvbo_size(lock);
+	if (lvb_len > 0) {
                  req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_CLIENT,
-                                      lock->l_resource->lr_lvb_len);
+                                      lvb_len);
         }
 
         rc = ptlrpc_request_pack(req, LUSTRE_DLM_VERSION, LDLM_CP_CALLBACK);
@@ -904,13 +906,11 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, int flags, void *data)
         body->lock_handle[0] = lock->l_remote_handle;
         body->lock_flags = flags;
         ldlm_lock2desc(lock, &body->lock_desc);
-        if (lock->l_resource->lr_lvb_len) {
+        if (lvb_len > 0) {
                 void *lvb = req_capsule_client_get(&req->rq_pill, &RMF_DLM_LVB);
-
-                lock_res(lock->l_resource);
-                memcpy(lvb, lock->l_resource->lr_lvb_data,
-                       lock->l_resource->lr_lvb_len);
-                unlock_res(lock->l_resource);
+		lvb_len = ldlm_lvbo_fill(lock, lvb, lvb_len);
+		req_capsule_shrink(&req->rq_pill, &RMF_DLM_LVB,
+				   lvb_len, RCL_CLIENT);
         }
 
         LDLM_DEBUG(lock, "server preparing completion AST (after %lds wait)",
@@ -1306,20 +1306,20 @@ existing_lock:
                            "(err=%d, rc=%d)", err, rc);
 
                 if (rc == 0) {
-                        if (lock->l_resource->lr_lvb_len > 0) {
-                                /* MDT path won't handle lr_lvb_data, so
-                                 * lock/unlock better be contained in the
-                                 * if block */
-                                void *lvb;
+			int lvb_len = ldlm_lvbo_size(lock);
+			if (lvb_len > 0) {
+                                void *buf;
+				int buflen;
 
-                                lvb = req_capsule_server_get(&req->rq_pill,
+                                buf = req_capsule_server_get(&req->rq_pill,
                                                              &RMF_DLM_LVB);
-                                LASSERTF(lvb != NULL, "req %p, lock %p\n",
+                                LASSERTF(buf != NULL, "req %p, lock %p\n",
                                          req, lock);
-                                lock_res(lock->l_resource);
-                                memcpy(lvb, lock->l_resource->lr_lvb_data,
-                                       lock->l_resource->lr_lvb_len);
-                                unlock_res(lock->l_resource);
+				buflen = req_capsule_get_size(&req->rq_pill,
+						&RMF_DLM_LVB, RCL_SERVER);
+				buflen = ldlm_lvbo_fill(lock, buf, buflen);
+				req_capsule_shrink(&req->rq_pill, &RMF_DLM_LVB,
+						   buflen, RCL_SERVER);
                         }
                 } else {
                         lock_res_and_lock(lock);
