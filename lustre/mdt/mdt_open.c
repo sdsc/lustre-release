@@ -603,7 +603,12 @@ static void mdt_empty_transno(struct mdt_thread_info *info, int rc)
                 }
                 if (info->mti_transno != 0)
                         lcd->lcd_last_transno = info->mti_transno;
-                lcd->lcd_last_xid = req->rq_xid;
+
+		/* Do not update last_xid during replay, otherwise
+ 		 * the following resend(after replay) can not be 
+ 		 * matched with correct xid */
+		if (!req_is_replay(req))
+			lcd->lcd_last_xid = req->rq_xid;
                 lcd->lcd_last_result = rc;
                 lcd->lcd_last_data = info->mti_opdata;
         }
