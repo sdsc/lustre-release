@@ -232,7 +232,7 @@ typedef struct {
 
 #define SRPC_MSG_MAGIC                  0xeeb0f00d
 #define SRPC_MSG_VERSION                1
-typedef struct {
+typedef struct srpc_msg {
 	__u32 	msg_magic;              /* magic */
 	__u32 	msg_version;            /* # version */
         __u32 	msg_type;               /* what's in msg_body? srpc_msg_type_t */

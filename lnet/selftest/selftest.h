@@ -74,6 +74,7 @@
 
 /* forward refs */
 struct srpc_service;
+struct srpc_service_cd;
 struct sfw_test_unit;
 struct sfw_test_instance;
 
@@ -173,7 +174,7 @@ typedef struct {
 } srpc_bulk_t; /* bulk descriptor */
 
 /* message buffer descriptor */
-typedef struct {
+typedef struct srpc_buffer {
         cfs_list_t           buf_list; /* chain on srpc_service::*_msgq */
         srpc_msg_t           buf_msg;
         lnet_handle_md_t     buf_mdh;
@@ -185,6 +186,7 @@ struct swi_workitem;
 typedef int (*swi_action_t) (struct swi_workitem *);
 
 typedef struct swi_workitem {
+	struct cfs_wi_sched	*swi_sched;
         cfs_workitem_t       swi_workitem;
         swi_action_t         swi_action;
         int                  swi_state;
@@ -193,7 +195,7 @@ typedef struct swi_workitem {
 /* server-side state of a RPC */
 typedef struct srpc_server_rpc {
         cfs_list_t           srpc_list;    /* chain on srpc_service::*_rpcq */
-        struct srpc_service *srpc_service;
+	struct srpc_service_cd *srpc_scd;
         swi_workitem_t       srpc_wi;
         srpc_event_t         srpc_ev;      /* bulk/reply event */
         lnet_nid_t           srpc_self;
@@ -267,21 +269,52 @@ do {                                                                    \
                                    (rpc)->crpc_reqstev.ev_fired == 0 || \
                                    (rpc)->crpc_replyev.ev_fired == 0)
 
+/* CPU partition data of srpc service */
+struct srpc_service_cd {
+	/** serialize */
+	cfs_spinlock_t		scd_lock;
+	/** backref to service */
+	struct srpc_service	*scd_svc;
+	/** event buffer */
+	srpc_event_t		scd_ev;
+	/** free RPC descriptors */
+	cfs_list_t		scd_rpc_free;
+	/** in-flight RPCs */
+	cfs_list_t		scd_rpc_active;
+	/** workitem for posting buffer */
+	swi_workitem_t		scd_buf_wi;
+	/** CPT id */
+	int			scd_cpt;
+	/** error code for scd_buf_wi */
+	int			scd_buf_err;
+	/** timestamp for scd_buf_err */
+	unsigned long           scd_buf_err_stamp;
+	/** total # request buffers */
+	int			scd_buf_total;
+	/** # posted request buffers */
+	int			scd_buf_nposted;
+	/** in progress of buffer posting */
+	int			scd_buf_posting;
+	/** allocate more buffers if scd_buf_nposted < scd_buf_low */
+	int			scd_buf_low;
+	/** increase/decrease some buffers */
+	int			scd_buf_adjust;
+	/** posted message buffers */
+	cfs_list_t		scd_buf_posted;
+	/** blocked for RPC descriptor */
+	cfs_list_t		scd_buf_blocked;
+};
+
+#define SRPC_SVC_RPC_MIN    16
+#define SRPC_SVC_RPC_MAX    1024
+
 typedef struct srpc_service {
-        int                sv_id;            /* service id */
-        const char        *sv_name;          /* human readable name */
-        int                sv_nprune;        /* # posted RPC to be pruned */
-        int                sv_concur;        /* max # concurrent RPCs */
-
-        cfs_spinlock_t     sv_lock;
-        int                sv_shuttingdown;
-        srpc_event_t       sv_ev;            /* LNet event */
-        int                sv_nposted_msg;   /* # posted message buffers */
-        cfs_list_t         sv_free_rpcq;     /* free RPC descriptors */
-        cfs_list_t         sv_active_rpcq;   /* in-flight RPCs */
-        cfs_list_t         sv_posted_msgq;   /* posted message buffers */
-        cfs_list_t         sv_blocked_msgq;  /* blocked for RPC descriptor */
-
+	int			sv_id;		/* service id */
+	const char		*sv_name;	/* human readable name */
+	/* percpt data for srpc_service */
+	struct srpc_service_cd	**sv_cpt_data;
+	int			sv_rpc_total;
+	int			sv_shuttingdown;
         /* Service callbacks:
          * - sv_handler: process incoming RPC request
          * - sv_bulk_ready: notify bulk data
@@ -290,8 +323,8 @@ typedef struct srpc_service {
         int              (*sv_bulk_ready) (srpc_server_rpc_t *, int);
 } srpc_service_t;
 
-#define SFW_POST_BUFFERS         256
-#define SFW_SERVICE_CONCURRENCY  (SFW_POST_BUFFERS/2)
+#define SFW_SVC_RPC_MAX		256
+#define SFW_SVC_BUF_MAX		SFW_SVC_RPC_MAX
 
 typedef struct {
         cfs_list_t        sn_list;    /* chain on fw_zombie_sessions */
@@ -371,7 +404,7 @@ typedef struct sfw_test_unit {
         swi_workitem_t        tsu_worker;       /* workitem of the test unit */
 } sfw_test_unit_t;
 
-typedef struct {
+typedef struct sfw_test_case {
         cfs_list_t              tsc_list;         /* chain on fw_tests */
         srpc_service_t         *tsc_srv_service;  /* test service */
         sfw_test_client_ops_t  *tsc_cli_ops;      /* ops of test client */
@@ -388,7 +421,7 @@ void sfw_client_rpc_done(srpc_client_rpc_t *rpc);
 void sfw_unpack_message(srpc_msg_t *msg);
 void sfw_free_pages(srpc_server_rpc_t *rpc);
 void sfw_add_bulk_page(srpc_bulk_t *bk, cfs_page_t *pg, int i);
-int sfw_alloc_pages(srpc_server_rpc_t *rpc, int npages, int sink);
+int sfw_alloc_pages(srpc_server_rpc_t *rpc, int cpt, int npages, int sink);
 int sfw_make_session (srpc_mksn_reqst_t *request, srpc_mksn_reply_t *reply);
 
 srpc_client_rpc_t *
@@ -399,7 +432,7 @@ srpc_create_client_rpc(lnet_process_id_t peer, int service,
 void srpc_post_rpc(srpc_client_rpc_t *rpc);
 void srpc_abort_rpc(srpc_client_rpc_t *rpc, int why);
 void srpc_free_bulk(srpc_bulk_t *bk);
-srpc_bulk_t *srpc_alloc_bulk(int npages, int sink);
+srpc_bulk_t *srpc_alloc_bulk(int cpt, int npages, int sink);
 int srpc_send_rpc(swi_workitem_t *wi);
 int srpc_send_reply(srpc_server_rpc_t *rpc);
 int srpc_add_service(srpc_service_t *sv);
@@ -412,6 +445,15 @@ void srpc_service_remove_buffers(srpc_service_t *sv, int nbuffer);
 void srpc_get_counters(srpc_counters_t *cnt);
 void srpc_set_counters(const srpc_counters_t *cnt);
 
+extern struct cfs_wi_sched *lst_sched_serial;
+extern struct cfs_wi_sched **lst_sched_test;
+
+static inline int
+srpc_serv_is_framework(struct srpc_service *svc)
+{
+	return svc->sv_id < SRPC_FRAMEWORK_SERVICE_MAX_ID;
+}
+
 static inline int
 swi_wi_action(cfs_workitem_t *wi)
 {
@@ -421,24 +463,31 @@ swi_wi_action(cfs_workitem_t *wi)
 }
 
 static inline void
-swi_init_workitem (swi_workitem_t *swi, void *data,
-                   swi_action_t action, short sched_id)
+swi_init_workitem(swi_workitem_t *swi, void *data,
+		  swi_action_t action, struct cfs_wi_sched *sched)
 {
-        swi->swi_action = action;
-        swi->swi_state  = SWI_STATE_NEWBORN;
-        cfs_wi_init(&swi->swi_workitem, data, swi_wi_action, sched_id);
+	swi->swi_sched  = sched;
+	swi->swi_action = action;
+	swi->swi_state  = SWI_STATE_NEWBORN;
+	cfs_wi_init(&swi->swi_workitem, data, swi_wi_action);
 }
 
 static inline void
 swi_schedule_workitem(swi_workitem_t *wi)
 {
-        cfs_wi_schedule(&wi->swi_workitem);
+	cfs_wi_schedule(wi->swi_sched, &wi->swi_workitem);
 }
 
 static inline void
-swi_kill_workitem(swi_workitem_t *swi)
+swi_exit_workitem(swi_workitem_t *swi)
 {
-        cfs_wi_exit(&swi->swi_workitem);
+	cfs_wi_exit(swi->swi_sched, &swi->swi_workitem);
+}
+
+static inline int
+swi_deschedule_workitem(swi_workitem_t *swi)
+{
+	return cfs_wi_deschedule(swi->swi_sched, &swi->swi_workitem);
 }
 
 #ifndef __KERNEL__
@@ -485,8 +534,8 @@ srpc_init_client_rpc (srpc_client_rpc_t *rpc, lnet_process_id_t peer,
                                 crpc_bulk.bk_iovs[nbulkiov]));
 
         CFS_INIT_LIST_HEAD(&rpc->crpc_list);
-        swi_init_workitem(&rpc->crpc_wi, rpc, srpc_send_rpc,
-                          CFS_WI_SCHED_ANY);
+	swi_init_workitem(&rpc->crpc_wi, rpc, srpc_send_rpc,
+			  lst_sched_test[lnet_cpt_of_nid(peer.nid)]);
         cfs_spin_lock_init(&rpc->crpc_lock);
         cfs_atomic_set(&rpc->crpc_refcount, 1); /* 1 ref for caller */
 
@@ -547,7 +596,7 @@ int selftest_wait_events(void);
 
 #else
 
-#define selftest_wait_events()    cfs_pause(cfs_time_seconds(1))
+#define selftest_wait_events()	cfs_pause(cfs_time_seconds(1) / 20)
 
 #endif
 
@@ -568,11 +617,9 @@ do {                                                                    \
 static inline void
 srpc_wait_service_shutdown (srpc_service_t *sv)
 {
-        int i = 2;
+	int i = 2;
 
-        cfs_spin_lock(&sv->sv_lock);
-        LASSERT (sv->sv_shuttingdown);
-        cfs_spin_unlock(&sv->sv_lock);
+	LASSERT(sv->sv_shuttingdown);
 
         while (srpc_finish_service(sv) == 0) {
                 i++;

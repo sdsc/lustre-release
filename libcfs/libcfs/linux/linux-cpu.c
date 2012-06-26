@@ -48,7 +48,7 @@
  */
 /* NB: we set it to 1 for now, multiple partitions will be enabled after
  * all smp node affinity code landed */
-static int	cpu_npartitions = 1;
+static int	cpu_npartitions = 0;
 CFS_MODULE_PARM(cpu_npartitions, "i", int, 0444, "# of CPU partitions");
 
 /**

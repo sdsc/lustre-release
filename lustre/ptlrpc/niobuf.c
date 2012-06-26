@@ -775,8 +775,10 @@ int ptlrpc_register_rqbd(struct ptlrpc_request_buffer_desc *rqbd)
         if (OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_RQBD))
                 return (-ENOMEM);
 
+	/* NB: We need to replace LNET_INS_AFTER with LNET_INS_LOCAL
+	 * after LNet SMP patches landed */
         rc = LNetMEAttach(service->srv_req_portal,
-                          match_id, 0, ~0, LNET_UNLINK, LNET_INS_AFTER, &me_h);
+                          match_id, 0, ~0, LNET_UNLINK, LNET_INS_LOCAL, &me_h);
         if (rc != 0) {
                 CERROR("LNetMEAttach failed: %d\n", rc);
                 return (-ENOMEM);
