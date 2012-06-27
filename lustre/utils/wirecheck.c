@@ -262,6 +262,7 @@ static void check_obd_connect_data(void)
         CHECK_CDEFINE(OBD_CONNECT_UMASK);
         CHECK_CDEFINE(OBD_CONNECT_EINPROGRESS);
         CHECK_CDEFINE(OBD_CONNECT_GRANT_PARAM);
+        CHECK_CDEFINE(OBD_CONNECT_FLOCK_OWNER);
 }
 
 static void
