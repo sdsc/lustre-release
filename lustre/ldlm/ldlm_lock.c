@@ -117,7 +117,8 @@ void ldlm_convert_policy_to_local(struct obd_export *exp, ldlm_type_t type,
         int new_client;
 
         /** some badnes for 2.0.0 clients, but 2.0.0 isn't supported */
-        new_client = (exp->exp_connect_flags & OBD_CONNECT_FULL20) != 0;
+	new_client = ((exp->exp_connect_flags & OBD_CONNECT_FULL20) ||
+		      (exp->exp_connect_flags & OBD_CONNECT_FLOCK_OWNER)) != 0;
         if (new_client)
                convert = ldlm_policy_wire21_to_local[type - LDLM_MIN_TYPE];
         else
