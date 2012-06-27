@@ -796,6 +796,7 @@ retry:
                 if (rc == 0)
                         rc = err;
         }
+	oti->oti_wait = sync_journal_commit;
 
         /* In rare cases fsfilt_commit_wait() will wake up and return after
          * the transaction has finished its work and updated j_commit_sequence

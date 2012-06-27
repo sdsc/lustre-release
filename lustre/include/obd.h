@@ -889,6 +889,7 @@ struct obd_trans_info {
 	char                    *oti_jobid;
 
         struct obd_uuid         *oti_ost_uuid;
+	unsigned long		oti_wait:1;
 };
 
 static inline void oti_init(struct obd_trans_info *oti,
