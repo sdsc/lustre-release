@@ -1154,6 +1154,8 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                                   * write RPC error properly */
 #define OBD_CONNECT_GRANT_PARAM 0x100000000000ULL/* extra grant params used for
                                                   * finer space reservation */
+#define OBD_CONNECT_FLOCK_OWNER 0x200000000000ULL/* for the fixed 1.8
+                                                  * policy and 2.x server */
 /* XXX README XXX:
  * Please DO NOT add flag values here before first ensuring that this same
  * flag value is not in use on some other branch.  Please clear any such
@@ -1185,7 +1187,8 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                 OBD_CONNECT_VBR | OBD_CONNECT_LOV_V3 | \
                                 OBD_CONNECT_SOM | OBD_CONNECT_FULL20 | \
                                 OBD_CONNECT_64BITHASH | \
-				OBD_CONNECT_EINPROGRESS | OBD_CONNECT_JOBSTATS)
+				OBD_CONNECT_EINPROGRESS | OBD_CONNECT_JOBSTATS | \
+				OBD_CONNECT_FLOCK_OWNER)
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
                                 OBD_CONNECT_TRUNCLOCK | OBD_CONNECT_INDEX | \
@@ -1200,10 +1203,12 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                 OBD_CONNECT_GRANT_SHRINK | OBD_CONNECT_FULL20 | \
                                 OBD_CONNECT_64BITHASH | OBD_CONNECT_MAXBYTES | \
                                 OBD_CONNECT_MAX_EASIZE | \
-				OBD_CONNECT_EINPROGRESS | OBD_CONNECT_JOBSTATS)
+				OBD_CONNECT_EINPROGRESS | OBD_CONNECT_JOBSTATS | \
+				OBD_CONNECT_FLOCK_OWNER)
 #define ECHO_CONNECT_SUPPORTED (0)
 #define MGS_CONNECT_SUPPORTED  (OBD_CONNECT_VERSION | OBD_CONNECT_AT | \
-                                OBD_CONNECT_FULL20 | OBD_CONNECT_IMP_RECOV)
+				OBD_CONNECT_FULL20 | OBD_CONNECT_IMP_RECOV | \
+				OBD_CONNECT_FLOCK_OWNER)
 
 /* Features required for this version of the client to work with server */
 #define CLIENT_CONNECT_MDT_REQD (OBD_CONNECT_IBITS | OBD_CONNECT_FID | \
