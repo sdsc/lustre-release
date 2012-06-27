@@ -2615,6 +2615,12 @@ EXPORT_SYMBOL(lprocfs_rd_kbytesfree);
 EXPORT_SYMBOL(lprocfs_rd_kbytesavail);
 EXPORT_SYMBOL(lprocfs_rd_filestotal);
 EXPORT_SYMBOL(lprocfs_rd_filesfree);
+EXPORT_SYMBOL(lprocfs_osd_rd_filestotal);
+EXPORT_SYMBOL(lprocfs_osd_rd_blksize);
+EXPORT_SYMBOL(lprocfs_osd_rd_filesfree);
+EXPORT_SYMBOL(lprocfs_osd_rd_kbytesavail);
+EXPORT_SYMBOL(lprocfs_osd_rd_kbytesfree);
+EXPORT_SYMBOL(lprocfs_osd_rd_kbytestotal);
 
 EXPORT_SYMBOL(lprocfs_write_helper);
 EXPORT_SYMBOL(lprocfs_write_frac_helper);
