@@ -288,7 +288,8 @@ static int client_common_fill_super(struct super_block *sb,
                                   OBD_CONNECT_NODEVOH | OBD_CONNECT_CANCELSET  |
                                   OBD_CONNECT_AT      | OBD_CONNECT_FID        |
                                   OBD_CONNECT_VBR     | OBD_CONNECT_LOV_V3     |
-                                  OBD_CONNECT_64BITHASH;
+                                  OBD_CONNECT_64BITHASH |
+                                  OBD_CONNECT_FLOCK_OWNER;
 #ifdef HAVE_LRU_RESIZE_SUPPORT
         if (sbi->ll_flags & LL_SBI_LRU_RESIZE)
                 data->ocd_connect_flags |= OBD_CONNECT_LRU_RESIZE;
