@@ -55,6 +55,9 @@
 
 #include "curproc.h"
 
+#define CFS_VERSION(major,minor,patch,fix) (((major)<<24) + ((minor)<<16) +\
+					    ((patch)<<8) + (fix))
+
 #ifndef offsetof
 # define offsetof(typ,memb) ((long)(long_ptr_t)((char *)&(((typ *)0)->memb)))
 #endif
