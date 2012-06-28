@@ -892,8 +892,8 @@ static void cl_lock_used_mod(const struct lu_env *env, struct cl_lock *lock,
         }
 }
 
-static void cl_lock_hold_release(const struct lu_env *env, struct cl_lock *lock,
-                                 const char *scope, const void *source)
+void cl_lock_hold_release(const struct lu_env *env, struct cl_lock *lock,
+                          const char *scope, const void *source)
 {
         LINVRNT(cl_lock_is_mutexed(lock));
         LINVRNT(cl_lock_invariant(env, lock));
@@ -923,6 +923,7 @@ static void cl_lock_hold_release(const struct lu_env *env, struct cl_lock *lock,
         }
         EXIT;
 }
+EXPORT_SYMBOL(cl_lock_hold_release);
 
 /**
  * Waits until lock state is changed.
