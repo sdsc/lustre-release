@@ -892,8 +892,8 @@ static void cl_lock_used_mod(const struct lu_env *env, struct cl_lock *lock,
         }
 }
 
-static void cl_lock_hold_release(const struct lu_env *env, struct cl_lock *lock,
-                                 const char *scope, const void *source)
+void cl_lock_hold_release(const struct lu_env *env, struct cl_lock *lock,
+                          const char *scope, const void *source)
 {
         LINVRNT(cl_lock_is_mutexed(lock));
         LINVRNT(cl_lock_invariant(env, lock));
@@ -923,6 +923,7 @@ static void cl_lock_hold_release(const struct lu_env *env, struct cl_lock *lock,
         }
         EXIT;
 }
+EXPORT_SYMBOL(cl_lock_hold_release);
 
 /**
  * Waits until lock state is changed.
@@ -2081,7 +2082,6 @@ void cl_locks_prune(const struct lu_env *env, struct cl_object *obj, int cancel)
 again:
                 cl_lock_mutex_get(env, lock);
                 if (lock->cll_state < CLS_FREEING) {
-                        LASSERT(lock->cll_holds == 0);
                         LASSERT(lock->cll_users <= 1);
                         if (unlikely(lock->cll_users == 1)) {
                                 struct l_wait_info lwi = { 0 };
