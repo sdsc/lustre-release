@@ -1390,6 +1390,11 @@ test_105()
         local ir_state=$(check_cli_ir_state $rcli)
         [ $ir_state = OFF ] || error "IR state must be OFF at $rcli"
 
+	# first RPC after mount will force last_rcvd to commit the export
+	# so the client can reconnect during OST recovery (LU-924, LU-1582)
+	$SETSTRIPE -i 0 $DIR/$tfile
+	dd if=/dev/zero of=$DIR/$tfile bs=4k count=1
+
         # make sure MGS's state is Partial
         [ $(get_ir_status) = "partial" ] || error "MGS IR state must be partial"
 
