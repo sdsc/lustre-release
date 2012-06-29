@@ -2295,9 +2295,12 @@ static int osd_declare_xattr_set(const struct lu_env *env,
         LASSERT(oh->ot_handle == NULL);
 
         OSD_DECLARE_OP(oh, xattr_set);
-        oh->ot_credits += osd_dto_credits_noquota[DTO_XATTR_SET];
-
-        return 0;
+	if (strcmp(name, XATTR_NAME_VERSION) == 0)
+		oh->ot_credits += osd_dto_credits_noquota[DTO_ATTR_SET_BASE];
+	else
+		oh->ot_credits += osd_dto_credits_noquota[DTO_XATTR_SET];
+	
+	return 0;
 }
 
 /*
