@@ -151,18 +151,28 @@ struct lprocfs_atomic {
 
 #define LC_MIN_INIT ((~(__u64)0) >> 1)
 
-struct lprocfs_counter {
-        struct lprocfs_atomic  lc_cntl;  /* may need to move to per set */
-        unsigned int           lc_config;
-        __s64                  lc_count;
-        __s64                  lc_sum;
-        __s64                  lc_sum_irq;
-        __s64                  lc_min;
-        __s64                  lc_max;
-        __s64                  lc_sumsquare;
-        const char            *lc_name;   /* must be static */
-        const char            *lc_units;  /* must be static */
+struct lprocfs_counter_header {
+	struct lprocfs_atomic	lc_cntl;
+	unsigned int		lc_config;
+	const char		*lc_name;   /* must be static */
+	const char		*lc_units;  /* must be static */
 };
+
+struct lprocfs_counter {
+	__s64	lc_count;
+	__s64	lc_min;
+	__s64	lc_max;
+	__s64	lc_sumsquare;
+	/*
+	 * Every counter has lc_array_sum[0], while lc_array_sum[1] is only
+	 * for irq context counter, i.e. stats with
+	 * LPROCFS_STAT_FLAGS_SOFTIRQ_SAFE flag, its counter need
+	 * lc_array_sum[1]
+	 */
+	__s64	lc_array_sum[1];
+};
+#define lc_sum		lc_array_sum[0]
+#define lc_sum_irq	lc_array_sum[1]
 
 struct lprocfs_percpu {
 #ifndef __GNUC__
@@ -175,9 +185,13 @@ struct lprocfs_percpu {
 #define LPROCFS_GET_SMP_ID  0x0002
 
 enum lprocfs_stats_flags {
-        LPROCFS_STATS_FLAG_NONE     = 0x0000, /* per cpu counter */
-        LPROCFS_STATS_FLAG_NOPERCPU = 0x0001, /* stats have no percpu
-                                               * area and need locking */
+	/* per cpu counter */
+	LPROCFS_STATS_FLAG_NONE		= 0x0000,
+	/* stats have no percpu area and need locking */
+	LPROCFS_STATS_FLAG_NOPERCPU	= 0x0001,
+	/* stats need alloc its all percpu data at the beginning, so that
+	 * no memory allocation happens in irq context */
+	LPROCFS_STATS_FLAG_SOFTIRQ_SAFE	= 0x0010,
 };
 
 enum lprocfs_fields_flags {
@@ -191,16 +205,18 @@ enum lprocfs_fields_flags {
 };
 
 struct lprocfs_stats {
-	unsigned short	       ls_num;   /* # of counters */
-	unsigned short	       ls_biggest_alloc_num;
-					 /* 1 + the highest slot index which has
-					  * been allocated, the 0th entry is
-					  * a statically intialized template */
-	int		       ls_flags; /* See LPROCFS_STATS_FLAG_* */
+	/* # of counters */
+	unsigned short			ls_num;
+	/* 1 + the biggest cpu # whose ls_percpu slot has been allocated */
+	unsigned short			ls_biggest_alloc_num;
+	enum lprocfs_stats_flags	ls_flags;
 	/* Lock used when there are no percpu stats areas; For percpu stats,
 	 * it is used to protect ls_biggest_alloc_num change */
-	cfs_spinlock_t	       ls_lock;
-	struct lprocfs_percpu *ls_percpu[0];
+	cfs_spinlock_t			ls_lock;
+
+	/* has ls_num of counter headers */
+	struct lprocfs_counter_header	*ls_cnt_header;
+	struct lprocfs_percpu		*ls_percpu[0];
 };
 
 #define OPC_RANGE(seg) (seg ## _LAST_OPC - seg ## _FIRST_OPC)
@@ -395,9 +411,9 @@ static inline int lprocfs_stats_lock(struct lprocfs_stats *stats, int opc,
 		} else {
 			unsigned int cpuid = cfs_get_cpu();
 
-			if (unlikely(stats->ls_percpu[cpuid + 1] == NULL))
-				rc = lprocfs_stats_alloc_one(stats, cpuid + 1);
-			return rc < 0 ? rc : cpuid + 1;
+			if (unlikely(stats->ls_percpu[cpuid] == NULL))
+				rc = lprocfs_stats_alloc_one(stats, cpuid);
+			return rc < 0 ? rc : cpuid;
 		}
 
 	case LPROCFS_GET_NUM_CPU:
@@ -431,6 +447,37 @@ static inline void lprocfs_stats_unlock(struct lprocfs_stats *stats, int opc,
 	}
 }
 
+static inline unsigned int
+lprocfs_stats_counter_size(struct lprocfs_stats *stats)
+{
+	unsigned int percpusize;
+
+	percpusize = offsetof(struct lprocfs_percpu, lp_cntr[stats->ls_num]);
+
+	/* softirq safe stats need lc_array_sum[1] */
+	if ((stats->ls_flags & LPROCFS_STATS_FLAG_SOFTIRQ_SAFE) != 0)
+		percpusize += stats->ls_num * sizeof(__s64);
+
+	if ((stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU) == 0)
+		percpusize = CFS_L1_CACHE_ALIGN(percpusize);
+
+	return percpusize;
+}
+
+static inline struct lprocfs_counter *
+lprocfs_stats_counter_get(struct lprocfs_stats *stats, unsigned int cpuid,
+			  int index)
+{
+	struct lprocfs_counter *cntr;
+
+	cntr = &stats->ls_percpu[cpuid]->lp_cntr[index];
+
+	if ((stats->ls_flags & LPROCFS_STATS_FLAG_SOFTIRQ_SAFE) != 0)
+		cntr = (void *)cntr + index * sizeof(__s64);
+
+	return cntr;
+}
+
 /* Two optimized LPROCFS counter increment functions are provided:
  *     lprocfs_counter_incr(cntr, value) - optimized for by-one counters
  *     lprocfs_counter_add(cntr) - use for multi-valued counters
@@ -449,7 +496,9 @@ extern void lprocfs_counter_sub(struct lprocfs_stats *stats, int idx,
         lprocfs_counter_sub(stats, idx, 1)
 
 extern __s64 lprocfs_read_helper(struct lprocfs_counter *lc,
-                                 enum lprocfs_fields_flags field);
+				 struct lprocfs_counter_header *header,
+				 enum lprocfs_stats_flags flags,
+				 enum lprocfs_fields_flags field);
 static inline __u64 lprocfs_stats_collector(struct lprocfs_stats *stats,
                                             int idx,
                                             enum lprocfs_fields_flags field)
@@ -465,8 +514,10 @@ static inline __u64 lprocfs_stats_collector(struct lprocfs_stats *stats,
 	for (i = 0; i < num_cpu; i++) {
 		if (stats->ls_percpu[i] == NULL)
 			continue;
-		ret += lprocfs_read_helper(&(stats->ls_percpu[i]->lp_cntr[idx]),
-					   field);
+		ret += lprocfs_read_helper(
+				lprocfs_stats_counter_get(stats, i, idx),
+				&stats->ls_cnt_header[idx], stats->ls_flags,
+				field);
 	}
 	lprocfs_stats_unlock(stats, LPROCFS_GET_NUM_CPU, &flags);
 	return ret;
