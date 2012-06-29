@@ -204,7 +204,6 @@ osd_oi_table_open(struct osd_thread_info *info, struct osd_device *osd,
                   unsigned oi_count, bool create)
 {
 	struct scrub_file *sf = &osd->od_scrub.os_file;
-        struct dt_device *dev = &osd->od_dt_dev;
         int count = 0;
         int rc = 0;
         int i;
@@ -239,15 +238,13 @@ osd_oi_table_open(struct osd_thread_info *info, struct osd_device *osd,
 			continue;
                 }
 
-                CERROR("%s: can't open %s: rc = %d\n",
-                       dev->dd_lu_dev.ld_obd->obd_name, name, rc);
-
-                if (oi_count > 0) {
-                        CERROR("%s: expect to open total %d OI files.\n",
-                               dev->dd_lu_dev.ld_obd->obd_name, oi_count);
-                }
-
-                break;
+		CERROR("%.16s: can't open %s: rc = %d\n",
+		       LDISKFS_SB(osd_sb(osd))->s_es->s_volume_name, name, rc);
+		if (oi_count > 0)
+			CERROR("%.16s: expect to open total %d OI files.\n",
+			       LDISKFS_SB(osd_sb(osd))->s_es->s_volume_name,
+			       oi_count);
+		break;
         }
 
         if (rc < 0) {
@@ -262,7 +259,6 @@ int osd_oi_init(struct osd_thread_info *info,
                 struct osd_device *osd,
                 struct md_device *mdev)
 {
-	struct dt_device  *dev = &osd->od_dt_dev;
 	struct osd_scrub  *scrub = &osd->od_scrub;
 	struct scrub_file *sf = &scrub->os_file;
 	struct osd_oi    **oi;
@@ -295,8 +291,9 @@ int osd_oi_init(struct osd_thread_info *info,
 	if (rc == 0) { /* found single OI from old filesystem */
 		GOTO(out, rc = 1);
 	} else if (rc != -ENOENT) {
-		CERROR("%s: can't open %s: rc = %d\n",
-		       dev->dd_lu_dev.ld_obd->obd_name, OSD_OI_NAME_BASE, rc);
+		CERROR("%.16s: can't open %s: rc = %d\n",
+		       LDISKFS_SB(osd_sb(osd))->s_es->s_volume_name,
+		       OSD_OI_NAME_BASE, rc);
 		GOTO(out, rc);
 	}
 
