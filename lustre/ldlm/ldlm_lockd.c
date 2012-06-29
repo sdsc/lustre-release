@@ -1549,6 +1549,7 @@ static void ldlm_handle_cp_callback(struct ptlrpc_request *req,
                                     struct ldlm_request *dlm_req,
                                     struct ldlm_lock *lock)
 {
+	int lvb_len;
         CFS_LIST_HEAD(ast_list);
         ENTRY;
 
@@ -1564,6 +1565,24 @@ static void ldlm_handle_cp_callback(struct ptlrpc_request *req,
                                 break;
                 }
         }
+
+	lvb_len = req_capsule_get_size(&req->rq_pill, &RMF_DLM_LVB, RCL_CLIENT);
+	if (lvb_len > 0) {
+		if (lock->l_lvb_len > 0) {
+			LASSERT(lock->l_lvb_data != NULL);
+			LASSERTF(lock->l_lvb_len == lvb_len,
+				"preallocated %d, actual %d.\n",
+				lock->l_lvb_len, lvb_len);
+		} else {
+			LASSERT(lock->l_lvb_data == NULL);
+			OBD_ALLOC(lock->l_lvb_data, lvb_len);
+			if (lock->l_lvb_data == NULL) {
+				LDLM_ERROR(lock, "no memory.\n");
+				lock->l_flags |= LDLM_FL_FAILED;
+			} else
+				lock->l_lvb_len = lvb_len;
+		}
+	}
 
         lock_res_and_lock(lock);
         if (lock->l_destroyed ||
