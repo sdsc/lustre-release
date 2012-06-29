@@ -2196,6 +2196,23 @@ do_facet() {
     do_node $HOST "$@"
 }
 
+# Function: do_facet_random_file $FACET $FILE $SIZE
+# Creates FILE with random content on the given FACET of given SIZE
+
+do_facet_random_file() {
+	local facet=$1
+	local fpath=$2
+	local fsize=$3
+	do_facet $facet "dd if=/dev/urandom of=$fpath bs=$fsize count=1 2>/dev/null"
+}
+
+do_facet_create_file() {
+	local facet=$1
+	local fpath=$2
+	local fsize=$3
+	do_facet $facet "dd if=/dev/zero of=$fpath bs=$fsize count=1 2>/dev/null"
+}
+
 do_nodesv() {
     do_nodes --verbose "$@"
 }
@@ -3429,6 +3446,14 @@ stop_full_debug_logging() {
     debugrestore
 }
 
+# prints bash call stack
+log_trace_dump() {
+	echo "  Trace dump:"
+	for (( i=1; i < ${#BASH_LINENO[*]} ; i++ )) ; do
+		echo "  = ${BASH_SOURCE[$i]}:${BASH_LINENO[$i-1]}:${FUNCNAME[$i]}()"
+	done
+}
+
 ##################################
 # Test interface
 ##################################
@@ -3444,6 +3469,7 @@ error_noexit() {
     fi
 
     log " ${TESTSUITE} ${TESTNAME}: @@@@@@ ${TYPE}: $@ "
+    log_trace_dump
 
     mkdir -p $LOGDIR
     # We need to dump the logs on all nodes
@@ -3691,7 +3717,7 @@ banner() {
 run_one() {
     local testnum=$1
     local message=$2
-    tfile=f${testnum}
+    tfile=f.${TESTSUITE}.${testnum}
     export tdir=d0.${TESTSUITE}/d${base}
     export TESTNAME=test_$testnum
     local SAVE_UMASK=`umask`
