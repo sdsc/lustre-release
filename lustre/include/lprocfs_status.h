@@ -197,8 +197,9 @@ struct lprocfs_stats {
 					  * been allocated, the 0th entry is
 					  * a statically intialized template */
 	int		       ls_flags; /* See LPROCFS_STATS_FLAG_* */
-	cfs_spinlock_t	       ls_lock;  /* Lock used only when there are
-					  * no percpu stats areas */
+	/* Lock used when there are no percpu stats areas; For percpu stats,
+	 * it is used to protect ls_biggest_alloc_num change */
+	cfs_spinlock_t	       ls_lock;
 	struct lprocfs_percpu *ls_percpu[0];
 };
 
