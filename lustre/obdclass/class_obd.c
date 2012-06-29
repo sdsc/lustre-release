@@ -611,6 +611,9 @@ static void cleanup_obdclass(void)
         int lustre_unregister_fs(void);
         __u64 memory_leaked, pages_leaked;
         __u64 memory_max, pages_max;
+#ifdef LPROCFS
+	unsigned int percpusize;
+#endif
         ENTRY;
 
         lustre_unregister_fs();
@@ -638,6 +641,19 @@ static void cleanup_obdclass(void)
 
         memory_leaked = obd_memory_sum();
         pages_leaked = obd_pages_sum();
+
+#ifdef LPROCFS
+	/*
+	 * Becuase obd_memory percpu data are allocated after obd_memory is
+	 * allocated, so before lprocfs_free_stats(&obd_memory) is called,
+	 * obd_memory percpu data allocation is not counted in memory_leaked
+	 */
+	percpusize = CFS_L1_CACHE_ALIGN(offsetof(struct lprocfs_percpu,
+					         lp_cntr[obd_memory->ls_num]));
+	for (i = 0; i < obd_memory->ls_biggest_alloc_num; ++i)
+		if (obd_memory->ls_percpu[i] != NULL)
+			memory_leaked -= percpusize;
+#endif
 
         memory_max = obd_memory_max();
         pages_max = obd_pages_max();

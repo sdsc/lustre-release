@@ -576,20 +576,21 @@ EXPORT_SYMBOL(obd_pages_max);
 
 #ifdef LPROCFS
 __s64 lprocfs_read_helper(struct lprocfs_counter *lc,
-                          enum lprocfs_fields_flags field)
+			  struct lprocfs_counter_header *header,
+			  enum lprocfs_fields_flags field)
 {
-        __s64 ret = 0;
-        int centry;
+	__s64 ret = 0;
+	int centry;
 
-        if (!lc)
-                RETURN(0);
-        do {
-                centry = cfs_atomic_read(&lc->lc_cntl.la_entry);
+	if (lc == NULL || header == NULL)
+		RETURN(0);
+	do {
+		centry = cfs_atomic_read(&header->lc_cntl.la_entry);
 
-                switch (field) {
-                        case LPROCFS_FIELDS_FLAGS_CONFIG:
-                                ret = lc->lc_config;
-                                break;
+		switch (field) {
+			case LPROCFS_FIELDS_FLAGS_CONFIG:
+				ret = header->lc_config;
+				break;
                         case LPROCFS_FIELDS_FLAGS_SUM:
                                 ret = lc->lc_sum + lc->lc_sum_irq;
                                 break;
@@ -610,11 +611,11 @@ __s64 lprocfs_read_helper(struct lprocfs_counter *lc,
                                 break;
                         default:
                                 break;
-                };
-        } while (centry != cfs_atomic_read(&lc->lc_cntl.la_entry) &&
-                 centry != cfs_atomic_read(&lc->lc_cntl.la_exit));
+		};
+	} while (centry != cfs_atomic_read(&header->lc_cntl.la_entry) &&
+		 centry != cfs_atomic_read(&header->lc_cntl.la_exit));
 
-        RETURN(ret);
+	RETURN(ret);
 }
 EXPORT_SYMBOL(lprocfs_read_helper);
 #endif /* LPROCFS */
