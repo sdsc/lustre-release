@@ -69,12 +69,12 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 EXPORT_SYMBOL(obd_alloc_fail);
 
 #ifdef LPROCFS
-void lprocfs_counter_add(struct lprocfs_stats *stats, int idx,
-                                       long amount)
+void lprocfs_counter_add(struct lprocfs_stats *stats, int idx, long amount)
 {
-	struct lprocfs_counter *percpu_cntr;
-	int			smp_id;
-	unsigned long		flags = 0;
+	struct lprocfs_counter		*percpu_cntr;
+	struct lprocfs_counter_header	*header;
+	int				smp_id;
+	unsigned long			flags = 0;
 
         if (stats == NULL)
                 return;
@@ -85,17 +85,18 @@ void lprocfs_counter_add(struct lprocfs_stats *stats, int idx,
 	if (smp_id < 0)
 		return;
 
+	header = stats->ls_cnt_header[idx];
         percpu_cntr = &(stats->ls_percpu[smp_id]->lp_cntr[idx]);
         if (!(stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU))
-                cfs_atomic_inc(&percpu_cntr->lc_cntl.la_entry);
+                cfs_atomic_inc(&header->lc_cntl.la_entry);
         percpu_cntr->lc_count++;
 
-        if (percpu_cntr->lc_config & LPROCFS_CNTR_AVGMINMAX) {
+        if (header->lc_config & LPROCFS_CNTR_AVGMINMAX) {
                 /* see comment in lprocfs_counter_sub */
                 LASSERT(!cfs_in_interrupt());
 
                 percpu_cntr->lc_sum += amount;
-                if (percpu_cntr->lc_config & LPROCFS_CNTR_STDDEV)
+                if (header->lc_config & LPROCFS_CNTR_STDDEV)
                         percpu_cntr->lc_sumsquare += (__s64)amount * amount;
                 if (amount < percpu_cntr->lc_min)
                         percpu_cntr->lc_min = amount;
@@ -103,16 +104,17 @@ void lprocfs_counter_add(struct lprocfs_stats *stats, int idx,
                         percpu_cntr->lc_max = amount;
         }
         if (!(stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU))
-                cfs_atomic_inc(&percpu_cntr->lc_cntl.la_exit);
+                cfs_atomic_inc(&header->lc_cntl.la_exit);
         lprocfs_stats_unlock(stats, LPROCFS_GET_SMP_ID, &flags);
 }
 EXPORT_SYMBOL(lprocfs_counter_add);
 
 void lprocfs_counter_sub(struct lprocfs_stats *stats, int idx, long amount)
 {
-	struct lprocfs_counter *percpu_cntr;
-	int			smp_id;
-	unsigned long		flags = 0;
+	struct lprocfs_counter		*percpu_cntr;
+	struct lprocfs_counter_header	*header;
+	int				smp_id;
+	unsigned long			flags = 0;
 
         if (stats == NULL)
                 return;
@@ -123,10 +125,11 @@ void lprocfs_counter_sub(struct lprocfs_stats *stats, int idx, long amount)
 	if (smp_id < 0)
 		return;
 
+	header = stats->ls_cnt_header[idx];
         percpu_cntr = &(stats->ls_percpu[smp_id]->lp_cntr[idx]);
         if (!(stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU))
-                cfs_atomic_inc(&percpu_cntr->lc_cntl.la_entry);
-        if (percpu_cntr->lc_config & LPROCFS_CNTR_AVGMINMAX) {
+                cfs_atomic_inc(&header->lc_cntl.la_entry);
+        if (header->lc_config & LPROCFS_CNTR_AVGMINMAX) {
                 /*
                  * currently lprocfs_count_add() can only be called in thread
                  * context; sometimes we use RCU callbacks to free memory
@@ -141,19 +144,17 @@ void lprocfs_counter_sub(struct lprocfs_stats *stats, int idx, long amount)
                         percpu_cntr->lc_sum -= amount;
         }
         if (!(stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU))
-                cfs_atomic_inc(&percpu_cntr->lc_cntl.la_exit);
+                cfs_atomic_inc(&header->lc_cntl.la_exit);
         lprocfs_stats_unlock(stats, LPROCFS_GET_SMP_ID, &flags);
 }
 EXPORT_SYMBOL(lprocfs_counter_sub);
 
 int lprocfs_stats_alloc_one(struct lprocfs_stats *stats, unsigned int idx)
 {
-	unsigned int percpusize;
-	int          rc = -ENOMEM;
+	unsigned int	percpusize;
+	int		rc = -ENOMEM;
+	int		i;
 
-	/* the 1st percpu entry was statically allocated in
-	 * lprocfs_alloc_stats() */
-	LASSERT(idx != 0 && stats->ls_percpu[0] != NULL);
 	LASSERT(stats->ls_percpu[idx] == NULL);
 	LASSERT((stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU) == 0);
 
@@ -168,11 +169,9 @@ int lprocfs_stats_alloc_one(struct lprocfs_stats *stats, unsigned int idx)
 				stats->ls_biggest_alloc_num = idx + 1;
 			cfs_spin_unlock(&stats->ls_lock);
 		}
-
-		/* initialize the ls_percpu[idx] by copying the 0th template
-		 * entry */
-		memcpy(stats->ls_percpu[idx], stats->ls_percpu[0],
-		       percpusize);
+		/* initialize the ls_percpu[idx] non-zero conter */
+		for (i = 0; i < stats->ls_num; ++i)
+			stats->ls_percpu[idx]->lp_cntr[i].lc_min = LC_MIN_INIT;
 	}
 
 	return rc;
