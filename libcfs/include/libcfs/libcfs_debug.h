@@ -299,17 +299,23 @@ do {                                                                    \
  */
 #if defined(__GNUC__)
 
-long libcfs_log_return(struct libcfs_debug_msg_data *, long rc);
+void libcfs_log_return(struct libcfs_debug_msg_data *, long long rc);
 #define RETURN(rc)                                                      \
 do {                                                                    \
-        EXIT_NESTING;                                                   \
-        if (cfs_cdebug_show(D_TRACE, DEBUG_SUBSYSTEM)) {                \
-                LIBCFS_DEBUG_MSG_DATA_DECL(msgdata, D_TRACE, NULL);     \
-                return (typeof(rc))libcfs_log_return(&msgdata,          \
-                                                     (long)(rc));       \
-        }                                                               \
+	static typeof(rc) RETURN__ret;                                  \
+	RETURN__ret = (rc);                                             \
+	EXIT_NESTING;                                                   \
+	if (cfs_cdebug_show(D_TRACE, DEBUG_SUBSYSTEM)) {                \
+		LIBCFS_DEBUG_MSG_DATA_DECL(msgdata, D_TRACE, NULL);     \
+		if (sizeof(RETURN__ret) == 32)                          \
+			libcfs_log_return(&msgdata,                     \
+					  (long)(RETURN__ret));         \
+		else                                                    \
+			libcfs_log_return(&msgdata,                     \
+					  (long long)(RETURN__ret));    \
+	}                                                               \
                                                                         \
-        return (rc);                                                    \
+        return RETURN__ret;                                             \
 } while (0)
 #elif defined(_MSC_VER)
 #define RETURN(rc)                                                      \
