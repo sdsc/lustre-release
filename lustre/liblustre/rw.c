@@ -58,10 +58,10 @@ typedef ssize_t llu_file_piov_t(const struct iovec *iovec, int iovlen,
 
 size_t llap_cookie_size;
 
-static int llu_lock_to_stripe_offset(struct inode *inode, struct ldlm_lock *lock)
+static int llu_lock_to_stripe_offset(struct obd_export *exp,
+				     struct lov_stripe_md *lsm,
+				     struct ldlm_lock *lock)
 {
-	struct lov_stripe_md *lsm = NULL;
-        struct obd_export *exp = llu_i2obdexp(inode);
         struct {
                 char name[16];
                 struct ldlm_lock *lock;
@@ -70,11 +70,8 @@ static int llu_lock_to_stripe_offset(struct inode *inode, struct ldlm_lock *lock
         int rc;
         ENTRY;
 
-	lsm = ccc_inode_lsm_get(inode);
-	if (lsm == NULL || lsm->lsm_stripe_count == 1) {
-		ccc_inode_lsm_put(inode, lsm);
+	if (lsm == NULL || lsm->lsm_stripe_count == 1)
 		RETURN(0);
-	}
 
         /* get our offset in the lov */
         rc = obd_get_info(NULL, exp, sizeof(key), &key, &vallen, &stripe, lsm);
@@ -83,7 +80,6 @@ static int llu_lock_to_stripe_offset(struct inode *inode, struct ldlm_lock *lock
                 LBUG();
         }
         LASSERT(stripe < lsm->lsm_stripe_count);
-	ccc_inode_lsm_put(inode, lsm);
 	RETURN(stripe);
 }
 
@@ -131,7 +127,8 @@ int llu_extent_lock_cancel_cb(struct ldlm_lock *lock,
 		if (lsm == NULL)
 			goto iput;
 
-                stripe = llu_lock_to_stripe_offset(inode, lock);
+                stripe = llu_lock_to_stripe_offset(llu_i2obdexp(inode),
+						   lsm, lock);
                 lock_res_and_lock(lock);
                 kms = ldlm_extent_shift_kms(lock,
                                             lsm->lsm_oinfo[stripe]->loi_kms);
@@ -168,9 +165,6 @@ static int llu_glimpse_callback(struct ldlm_lock *lock, void *reqp)
         if (lli == NULL)
                 GOTO(iput, rc = -ELDLM_NO_LOCK_DATA);
 
-        /* First, find out which stripe index this lock corresponds to. */
-	stripe = llu_lock_to_stripe_offset(inode, lock);
-
         req_capsule_extend(&req->rq_pill, &RQF_LDLM_GL_CALLBACK);
         req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER,
                              sizeof(*lvb));
@@ -183,6 +177,9 @@ static int llu_glimpse_callback(struct ldlm_lock *lock, void *reqp)
 	lsm = ccc_inode_lsm_get(inode);
 	if (lsm == NULL)
 		GOTO(iput, rc = -ELDLM_NO_LOCK_DATA);
+
+        /* First, find out which stripe index this lock corresponds to. */
+	stripe = llu_lock_to_stripe_offset(llu_i2obdexp(inode), lsm, lock);
 
 	lvb = req_capsule_server_get(&req->rq_pill, &RMF_DLM_LVB);
 	lvb->lvb_size = lsm->lsm_oinfo[stripe]->loi_kms;

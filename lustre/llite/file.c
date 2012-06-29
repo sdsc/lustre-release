@@ -757,29 +757,31 @@ int ll_merge_lvb(struct inode *inode)
 	struct ll_sb_info *sbi = ll_i2sbi(inode);
 	struct lov_stripe_md *lsm;
 	struct ost_lvb lvb;
-	int rc;
+	int rc = 0;
 
 	ENTRY;
 
 	lsm = ccc_inode_lsm_get(inode);
 	ll_inode_size_lock(inode);
-        inode_init_lvb(inode, &lvb);
+	inode_init_lvb(inode, &lvb);
 
-        /* merge timestamps the most resently obtained from mds with
-           timestamps obtained from osts */
-        lvb.lvb_atime = lli->lli_lvb.lvb_atime;
-        lvb.lvb_mtime = lli->lli_lvb.lvb_mtime;
-        lvb.lvb_ctime = lli->lli_lvb.lvb_ctime;
-	rc = obd_merge_lvb(sbi->ll_dt_exp, lsm, &lvb, 0);
-        cl_isize_write_nolock(inode, lvb.lvb_size);
+	/* merge timestamps the most resently obtained from mds with
+	   timestamps obtained from osts */
+	lvb.lvb_atime = lli->lli_lvb.lvb_atime;
+	lvb.lvb_mtime = lli->lli_lvb.lvb_mtime;
+	lvb.lvb_ctime = lli->lli_lvb.lvb_ctime;
+	if (lsm != NULL) {
+		rc = obd_merge_lvb(sbi->ll_dt_exp, lsm, &lvb, 0);
+		cl_isize_write_nolock(inode, lvb.lvb_size);
 
-        CDEBUG(D_VFSTRACE, DFID" updating i_size "LPU64"\n",
-               PFID(&lli->lli_fid), lvb.lvb_size);
-        inode->i_blocks = lvb.lvb_blocks;
+		CDEBUG(D_VFSTRACE, DFID" updating i_size "LPU64"\n",
+				PFID(&lli->lli_fid), lvb.lvb_size);
+		inode->i_blocks = lvb.lvb_blocks;
 
-        LTIME_S(inode->i_mtime) = lvb.lvb_mtime;
-        LTIME_S(inode->i_atime) = lvb.lvb_atime;
-        LTIME_S(inode->i_ctime) = lvb.lvb_ctime;
+		LTIME_S(inode->i_mtime) = lvb.lvb_mtime;
+		LTIME_S(inode->i_atime) = lvb.lvb_atime;
+		LTIME_S(inode->i_ctime) = lvb.lvb_ctime;
+	}
 	ll_inode_size_unlock(inode);
 	ccc_inode_lsm_put(inode, lsm);
 

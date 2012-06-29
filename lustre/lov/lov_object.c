@@ -184,7 +184,8 @@ static int lov_init_raid0(const struct lu_env *env,
 
 	if (lsm->lsm_magic != LOV_MAGIC_V1 && lsm->lsm_magic != LOV_MAGIC_V3) {
 		dump_lsm(D_ERROR, lsm);
-		LBUG();
+		LASSERTF(0, "magic mismatch, expected %d/%d, actual %d.\n",
+			 LOV_MAGIC_V1, LOV_MAGIC_V3, lsm->lsm_magic);
 	}
 
 	r0->lo_lsm = lsm_addref(lsm);
@@ -742,14 +743,11 @@ struct lov_stripe_md *lov_lsm_addref(struct lov_object *lov)
 
 void lov_lsm_decref(struct lov_object *lov, struct lov_stripe_md *lsm)
 {
-	int refc;
-
 	if (lsm == NULL)
 		return;
 
-	refc = cfs_atomic_read(&lsm->lsm_refc);
 	lov_free_memmd(&lsm);
-	if (refc == 2 && lov->lo_owner != NULL)
+	if (lov->lo_owner != NULL)
 		cfs_waitq_signal(&lov->lo_waitq);
 }
 

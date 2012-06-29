@@ -1324,6 +1324,7 @@ static int ll_setattr_ost(struct inode *inode, struct iattr *attr)
  */
 int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
 {
+	struct lov_stripe_md *lsm;
         struct inode *inode = dentry->d_inode;
         struct ll_inode_info *lli = ll_i2info(inode);
         struct md_op_data *op_data = NULL;
@@ -1380,11 +1381,6 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
                        LTIME_S(attr->ia_mtime), LTIME_S(attr->ia_ctime),
                        cfs_time_current_sec());
 
-        /* NB: ATTR_SIZE will only be set after this point if the size
-         * resides on the MDS, ie, this file has no objects. */
-	if (lli->lli_has_smd)
-                attr->ia_valid &= ~ATTR_SIZE;
-
         /* We always do an MDS RPC, even if we're only changing the size;
          * only the MDS knows whether truncate() should fail with -ETXTBUSY */
 
@@ -1402,6 +1398,15 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
                         DOWN_WRITE_I_ALLOC_SEM(inode);
         }
 
+	/* We need a steady stripe configuration for setattr to avoid
+	 * confusion. */
+	lsm = ccc_inode_lsm_get(inode);
+
+	/* NB: ATTR_SIZE will only be set after this point if the size
+	 * resides on the MDS, ie, this file has no objects. */
+	if (lsm != NULL)
+		attr->ia_valid &= ~ATTR_SIZE;
+
         memcpy(&op_data->op_attr, attr, sizeof(*attr));
 
         /* Open epoch for truncate. */
@@ -1414,7 +1419,7 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
                 GOTO(out, rc);
 
         ll_ioepoch_open(lli, op_data->op_ioepoch);
-	if (!lli->lli_has_smd || !S_ISREG(inode->i_mode)) {
+	if (lsm == NULL || !S_ISREG(inode->i_mode)) {
                 CDEBUG(D_INODE, "no lsm: not setting attrs on OST\n");
                 GOTO(out, rc = 0);
         }
@@ -1433,6 +1438,7 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
                 rc = ll_setattr_ost(inode, attr);
         EXIT;
 out:
+	ccc_inode_lsm_put(inode, lsm);
         if (op_data) {
                 if (op_data->op_ioepoch) {
                         rc1 = ll_setattr_done_writing(inode, op_data, mod);
