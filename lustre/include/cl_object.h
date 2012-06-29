@@ -276,6 +276,11 @@ struct cl_object_conf {
          * VFS inode. This is consumed by vvp.
          */
         struct inode             *coc_inode;
+	/**
+	 * Validate object conf. If object is using an invalid conf,
+	 * then invalidate it and set the new layout.
+	 */
+	int			  coc_validate_only;
 };
 
 /**
