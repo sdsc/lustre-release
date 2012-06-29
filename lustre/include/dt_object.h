@@ -208,7 +208,6 @@ enum dt_index_flags {
  * names to fids).
  */
 extern const struct dt_index_features dt_directory_features;
-extern const struct dt_index_features dt_otable_features;
 
 /**
  * This is a general purpose dt allocation hint.
