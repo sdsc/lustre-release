@@ -241,7 +241,7 @@ int mdt_procfs_init(struct mdt_device *mdt, const char *name)
                 CERROR("Can't init lprocfs, rc %d\n", rc);
                 return rc;
         }
-        ptlrpc_lprocfs_register_obd(obd);
+	ptlrpc_lprocfs_register_obd(obd, LPROCFS_STATS_FLAG_NONE);
 
         mdt->mdt_proc_entry = obd->obd_proc_entry;
         LASSERT(mdt->mdt_proc_entry != NULL);

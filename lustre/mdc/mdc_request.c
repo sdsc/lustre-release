@@ -2097,7 +2097,7 @@ static int mdc_setup(struct obd_device *obd, struct lustre_cfg *cfg)
         lprocfs_mdc_init_vars(&lvars);
         lprocfs_obd_setup(obd, lvars.obd_vars);
         sptlrpc_lprocfs_cliobd_attach(obd);
-        ptlrpc_lprocfs_register_obd(obd);
+	ptlrpc_lprocfs_register_obd(obd, LPROCFS_STATS_FLAG_NOPERCPU);
 
         ns_register_cancel(obd->obd_namespace, mdc_cancel_for_recovery);
 

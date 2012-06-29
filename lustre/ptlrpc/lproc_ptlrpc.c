@@ -175,8 +175,9 @@ const char* ll_eopcode2str(__u32 opcode)
 }
 #ifdef LPROCFS
 void ptlrpc_lprocfs_register(struct proc_dir_entry *root, char *dir,
-                             char *name, struct proc_dir_entry **procroot_ret,
-                             struct lprocfs_stats **stats_ret)
+			     char *name, struct proc_dir_entry **procroot_ret,
+			     enum lprocfs_stats_flags flag,
+			     struct lprocfs_stats **stats_ret)
 {
         struct proc_dir_entry *svc_procroot;
         struct lprocfs_stats *svc_stats;
@@ -187,7 +188,8 @@ void ptlrpc_lprocfs_register(struct proc_dir_entry *root, char *dir,
         LASSERT(*procroot_ret == NULL);
         LASSERT(*stats_ret == NULL);
 
-        svc_stats = lprocfs_alloc_stats(EXTRA_MAX_OPCODES+LUSTRE_MAX_OPCODES,0);
+	svc_stats = lprocfs_alloc_stats(EXTRA_MAX_OPCODES + LUSTRE_MAX_OPCODES,
+					flag);
         if (svc_stats == NULL)
                 return;
 
@@ -672,8 +674,9 @@ void ptlrpc_lprocfs_register_service(struct proc_dir_entry *entry,
         int rc;
 
         ptlrpc_lprocfs_register(entry, svc->srv_name,
-                                "stats", &svc->srv_procroot,
-                                &svc->srv_stats);
+				"stats", &svc->srv_procroot,
+				LPROCFS_STATS_FLAG_NONE,
+				&svc->srv_stats);
 
         if (svc->srv_procroot == NULL)
                 return;
@@ -686,11 +689,12 @@ void ptlrpc_lprocfs_register_service(struct proc_dir_entry *entry,
                 CWARN("Error adding the req_history file\n");
 }
 
-void ptlrpc_lprocfs_register_obd(struct obd_device *obddev)
+void ptlrpc_lprocfs_register_obd(struct obd_device *obddev,
+				 enum lprocfs_stats_flags flag)
 {
-        ptlrpc_lprocfs_register(obddev->obd_proc_entry, NULL, "stats",
-                                &obddev->obd_svc_procroot,
-                                &obddev->obd_svc_stats);
+	ptlrpc_lprocfs_register(obddev->obd_proc_entry, NULL, "stats",
+				&obddev->obd_svc_procroot, flag,
+				&obddev->obd_svc_stats);
 }
 EXPORT_SYMBOL(ptlrpc_lprocfs_register_obd);
 

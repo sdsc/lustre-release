@@ -162,8 +162,12 @@ int lprocfs_stats_alloc_one(struct lprocfs_stats *stats, unsigned int idx)
 	OBD_ALLOC_GFP(stats->ls_percpu[idx], percpusize, CFS_ALLOC_ATOMIC);
 	if (stats->ls_percpu[idx] != NULL) {
 		rc = 0;
-		if (unlikely(stats->ls_biggest_alloc_num <= idx))
-			stats->ls_biggest_alloc_num = idx + 1;
+		if (unlikely(stats->ls_biggest_alloc_num <= idx)) {
+			cfs_spin_lock(&stats->ls_lock);
+			if (stats->ls_biggest_alloc_num <= idx)
+				stats->ls_biggest_alloc_num = idx + 1;
+			cfs_spin_unlock(&stats->ls_lock);
+		}
 
 		/* initialize the ls_percpu[idx] by copying the 0th template
 		 * entry */

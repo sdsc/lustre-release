@@ -2054,11 +2054,13 @@ void ptlrpcd_decref(void);
  */
 const char* ll_opcode2str(__u32 opcode);
 #ifdef LPROCFS
-void ptlrpc_lprocfs_register_obd(struct obd_device *obd);
+void ptlrpc_lprocfs_register_obd(struct obd_device *obd,
+				 enum lprocfs_stats_flags flag);
 void ptlrpc_lprocfs_unregister_obd(struct obd_device *obd);
 void ptlrpc_lprocfs_brw(struct ptlrpc_request *req, int bytes);
 #else
-static inline void ptlrpc_lprocfs_register_obd(struct obd_device *obd) {}
+static inline void ptlrpc_lprocfs_register_obd(struct obd_device *obd,
+					       enum lprocfs_stats_flags flag) {}
 static inline void ptlrpc_lprocfs_unregister_obd(struct obd_device *obd) {}
 static inline void ptlrpc_lprocfs_brw(struct ptlrpc_request *req, int bytes) {}
 #endif
