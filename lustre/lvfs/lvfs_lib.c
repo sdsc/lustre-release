@@ -69,15 +69,15 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 EXPORT_SYMBOL(obd_alloc_fail);
 
 #ifdef LPROCFS
-void lprocfs_counter_add(struct lprocfs_stats *stats, int idx,
-                                       long amount)
+void lprocfs_counter_add(struct lprocfs_stats *stats, int idx, long amount)
 {
-	struct lprocfs_counter *percpu_cntr;
-	int			smp_id;
-	unsigned long		flags = 0;
+	struct lprocfs_counter		*percpu_cntr;
+	struct lprocfs_counter_header	*header;
+	int				smp_id;
+	unsigned long			flags = 0;
 
-        if (stats == NULL)
-                return;
+	if (stats == NULL)
+		return;
 
 	/* With per-client stats, statistics are allocated only for
 	 * single CPU area, so the smp_id should be 0 always. */
@@ -85,37 +85,39 @@ void lprocfs_counter_add(struct lprocfs_stats *stats, int idx,
 	if (smp_id < 0)
 		return;
 
-        percpu_cntr = &(stats->ls_percpu[smp_id]->lp_cntr[idx]);
-        if (!(stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU))
-                cfs_atomic_inc(&percpu_cntr->lc_cntl.la_entry);
-        percpu_cntr->lc_count++;
+	header = stats->ls_cnt_header[idx];
+	percpu_cntr = &(stats->ls_percpu[smp_id]->lp_cntr[idx]);
+	if (!(stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU))
+		cfs_atomic_inc(&header->lc_cntl.la_entry);
+	percpu_cntr->lc_count++;
 
-        if (percpu_cntr->lc_config & LPROCFS_CNTR_AVGMINMAX) {
-                /* see comment in lprocfs_counter_sub */
-                LASSERT(!cfs_in_interrupt());
+	if (header->lc_config & LPROCFS_CNTR_AVGMINMAX) {
+		/* see comment in lprocfs_counter_sub */
+		LASSERT(!cfs_in_interrupt());
 
-                percpu_cntr->lc_sum += amount;
-                if (percpu_cntr->lc_config & LPROCFS_CNTR_STDDEV)
-                        percpu_cntr->lc_sumsquare += (__s64)amount * amount;
-                if (amount < percpu_cntr->lc_min)
-                        percpu_cntr->lc_min = amount;
-                if (amount > percpu_cntr->lc_max)
-                        percpu_cntr->lc_max = amount;
-        }
-        if (!(stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU))
-                cfs_atomic_inc(&percpu_cntr->lc_cntl.la_exit);
-        lprocfs_stats_unlock(stats, LPROCFS_GET_SMP_ID, &flags);
+		percpu_cntr->lc_sum += amount;
+		if (header->lc_config & LPROCFS_CNTR_STDDEV)
+			percpu_cntr->lc_sumsquare += (__s64)amount * amount;
+		if (amount < percpu_cntr->lc_min)
+			percpu_cntr->lc_min = amount;
+		if (amount > percpu_cntr->lc_max)
+			percpu_cntr->lc_max = amount;
+	}
+	if (!(stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU))
+		cfs_atomic_inc(&header->lc_cntl.la_exit);
+	lprocfs_stats_unlock(stats, LPROCFS_GET_SMP_ID, &flags);
 }
 EXPORT_SYMBOL(lprocfs_counter_add);
 
 void lprocfs_counter_sub(struct lprocfs_stats *stats, int idx, long amount)
 {
-	struct lprocfs_counter *percpu_cntr;
-	int			smp_id;
-	unsigned long		flags = 0;
+	struct lprocfs_counter		*percpu_cntr;
+	struct lprocfs_counter_header	*header;
+	int				smp_id;
+	unsigned long			flags = 0;
 
-        if (stats == NULL)
-                return;
+	if (stats == NULL)
+		return;
 
 	/* With per-client stats, statistics are allocated only for
 	 * single CPU area, so the smp_id should be 0 always. */
@@ -123,37 +125,36 @@ void lprocfs_counter_sub(struct lprocfs_stats *stats, int idx, long amount)
 	if (smp_id < 0)
 		return;
 
-        percpu_cntr = &(stats->ls_percpu[smp_id]->lp_cntr[idx]);
-        if (!(stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU))
-                cfs_atomic_inc(&percpu_cntr->lc_cntl.la_entry);
-        if (percpu_cntr->lc_config & LPROCFS_CNTR_AVGMINMAX) {
-                /*
-                 * currently lprocfs_count_add() can only be called in thread
-                 * context; sometimes we use RCU callbacks to free memory
-                 * which calls lprocfs_counter_sub(), and RCU callbacks may
-                 * execute in softirq context - right now that's the only case
-                 * we're in softirq context here, use separate counter for that.
-                 * bz20650.
-                 */
-                if (cfs_in_interrupt())
-                        percpu_cntr->lc_sum_irq -= amount;
-                else
-                        percpu_cntr->lc_sum -= amount;
-        }
-        if (!(stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU))
-                cfs_atomic_inc(&percpu_cntr->lc_cntl.la_exit);
-        lprocfs_stats_unlock(stats, LPROCFS_GET_SMP_ID, &flags);
+	header = stats->ls_cnt_header[idx];
+	percpu_cntr = &(stats->ls_percpu[smp_id]->lp_cntr[idx]);
+	if (!(stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU))
+		cfs_atomic_inc(&header->lc_cntl.la_entry);
+	if (header->lc_config & LPROCFS_CNTR_AVGMINMAX) {
+		/*
+		 * currently lprocfs_count_add() can only be called in thread
+		 * context; sometimes we use RCU callbacks to free memory
+		 * which calls lprocfs_counter_sub(), and RCU callbacks may
+		 * execute in softirq context - right now that's the only case
+		 * we're in softirq context here, use separate counter for that.
+		 * bz20650.
+		 */
+		if (cfs_in_interrupt())
+			percpu_cntr->lc_sum_irq -= amount;
+		else
+			percpu_cntr->lc_sum -= amount;
+	}
+	if (!(stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU))
+		cfs_atomic_inc(&header->lc_cntl.la_exit);
+	lprocfs_stats_unlock(stats, LPROCFS_GET_SMP_ID, &flags);
 }
 EXPORT_SYMBOL(lprocfs_counter_sub);
 
 int lprocfs_stats_alloc_one(struct lprocfs_stats *stats, unsigned int idx)
 {
-	unsigned int percpusize;
-	int          rc = -ENOMEM;
+	unsigned int	percpusize;
+	int		rc = -ENOMEM;
+	int		i;
 
-	/* the 1st percpu entry was statically allocated in
-	 * lprocfs_alloc_stats() */
-	LASSERT(idx != 0 && stats->ls_percpu[0] != NULL);
 	LASSERT(stats->ls_percpu[idx] == NULL);
 	LASSERT((stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU) == 0);
 
@@ -168,11 +169,9 @@ int lprocfs_stats_alloc_one(struct lprocfs_stats *stats, unsigned int idx)
 				stats->ls_biggest_alloc_num = idx + 1;
 			cfs_spin_unlock(&stats->ls_lock);
 		}
-
-		/* initialize the ls_percpu[idx] by copying the 0th template
-		 * entry */
-		memcpy(stats->ls_percpu[idx], stats->ls_percpu[0],
-		       percpusize);
+		/* initialize the ls_percpu[idx] non-zero counter */
+		for (i = 0; i < stats->ls_num; ++i)
+			stats->ls_percpu[idx]->lp_cntr[i].lc_min = LC_MIN_INIT;
 	}
 
 	return rc;

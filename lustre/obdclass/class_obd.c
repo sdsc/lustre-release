@@ -526,7 +526,8 @@ static int __init init_obdclass(void)
 int init_obdclass(void)
 #endif
 {
-        int i, err;
+	int	i;
+	int	err	= 0;
 #ifdef __KERNEL__
         int lustre_register_fs(void);
 
@@ -545,6 +546,19 @@ int init_obdclass(void)
                 CERROR("kmalloc of 'obd_memory' failed\n");
                 RETURN(-ENOMEM);
         }
+	/*
+	 * we need allocate all percpu data for obd_memory, or else
+	 * later obd_momery percpu data allocation will mess up the
+	 * memory usage counter.
+	 */
+	for (i = 0; i < cfs_num_possible_cpus(); ++i) {
+		if (obd_memory->ls_percpu[i] == NULL)
+			err = lprocfs_stats_alloc_one(obd_memory, i);
+		if (err < 0) {
+			lprocfs_free_stats(&obd_memory);
+			RETURN(-ENOMEM);
+		}
+	}
 
         lprocfs_counter_init(obd_memory, OBD_MEMORY_STAT,
                              LPROCFS_CNTR_AVGMINMAX,
