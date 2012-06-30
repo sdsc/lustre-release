@@ -149,10 +149,11 @@ struct lprocfs_atomic {
         cfs_atomic_t               la_exit;
 };
 
+extern struct lprocfs_atomic **g_lproc_cntl;
+
 #define LC_MIN_INIT ((~(__u64)0) >> 1)
 
 struct lprocfs_counter_header {
-	struct lprocfs_atomic	lc_cntl;
 	unsigned int		lc_config;
 	const char		*lc_name;   /* must be static */
 	const char		*lc_units;  /* must be static */
@@ -434,6 +435,34 @@ static inline void lprocfs_stats_unlock(struct lprocfs_stats *stats, int opc,
 			cfs_spin_unlock_irqrestore(&stats->ls_lock, *flags);
 		return;
 	}
+}
+
+static inline void lprocfs_entry_incr(void)
+{
+	unsigned int cpuid = cfs_get_cpu();
+
+	cfs_atomic_inc(&g_lproc_cntl[cpuid]->la_entry);
+}
+
+static inline int lprocfs_entry_read(void)
+{
+	unsigned int cpuid = cfs_get_cpu();
+
+	return cfs_atomic_read(&g_lproc_cntl[cpuid]->la_entry);
+}
+
+static inline void lprocfs_exit_incr(void)
+{
+	unsigned int cpuid = cfs_get_cpu();
+
+	cfs_atomic_inc(&g_lproc_cntl[cpuid]->la_exit);
+}
+
+static inline int lprocfs_exit_read(void)
+{
+	unsigned int cpuid = cfs_get_cpu();
+
+	return cfs_atomic_read(&g_lproc_cntl[cpuid]->la_exit);
 }
 
 /* Two optimized LPROCFS counter increment functions are provided:

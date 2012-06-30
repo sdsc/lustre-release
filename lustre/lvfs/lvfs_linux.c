@@ -585,7 +585,7 @@ __s64 lprocfs_read_helper(struct lprocfs_counter *lc,
 	if (lc == NULL || header == NULL)
 		RETURN(0);
 	do {
-		centry = cfs_atomic_read(&header->lc_cntl.la_entry);
+		centry = lprocfs_entry_read();
 
 		switch (field) {
 			case LPROCFS_FIELDS_FLAGS_CONFIG:
@@ -612,8 +612,8 @@ __s64 lprocfs_read_helper(struct lprocfs_counter *lc,
                         default:
                                 break;
 		};
-	} while (centry != cfs_atomic_read(&header->lc_cntl.la_entry) &&
-		 centry != cfs_atomic_read(&header->lc_cntl.la_exit));
+	} while (centry != lprocfs_entry_read() &&
+		 centry != lprocfs_exit_read());
 
 	RETURN(ret);
 }
