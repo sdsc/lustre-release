@@ -149,10 +149,11 @@ struct lprocfs_atomic {
         cfs_atomic_t               la_exit;
 };
 
+extern struct lprocfs_atomic **g_lproc_cntl;
+
 #define LC_MIN_INIT ((~(__u64)0) >> 1)
 
 struct lprocfs_counter_header {
-	struct lprocfs_atomic	lc_cntl;
 	unsigned int		lc_config;
 	const char		*lc_name;   /* must be static */
 	const char		*lc_units;  /* must be static */
@@ -436,6 +437,26 @@ static inline void lprocfs_stats_unlock(struct lprocfs_stats *stats, int opc,
 	}
 }
 
+static inline void lprocfs_entry_incr(unsigned int cpuid)
+{
+	cfs_atomic_inc(&g_lproc_cntl[cpuid]->la_entry);
+}
+
+static inline int lprocfs_entry_read(unsigned int cpuid)
+{
+	return cfs_atomic_read(&g_lproc_cntl[cpuid]->la_entry);
+}
+
+static inline void lprocfs_exit_incr(unsigned int cpuid)
+{
+	cfs_atomic_inc(&g_lproc_cntl[cpuid]->la_exit);
+}
+
+static inline int lprocfs_exit_read(unsigned int cpuid)
+{
+	return cfs_atomic_read(&g_lproc_cntl[cpuid]->la_exit);
+}
+
 /* Two optimized LPROCFS counter increment functions are provided:
  *     lprocfs_counter_incr(cntr, value) - optimized for by-one counters
  *     lprocfs_counter_add(cntr) - use for multi-valued counters
@@ -455,6 +476,7 @@ extern void lprocfs_counter_sub(struct lprocfs_stats *stats, int idx,
 
 extern __s64 lprocfs_read_helper(struct lprocfs_counter *lc,
 				 struct lprocfs_counter_header *header,
+				 unsigned int cpuid,
 				 enum lprocfs_fields_flags field);
 static inline __u64 lprocfs_stats_collector(struct lprocfs_stats *stats,
                                             int idx,
@@ -472,7 +494,7 @@ static inline __u64 lprocfs_stats_collector(struct lprocfs_stats *stats,
 		if (stats->ls_percpu[i] == NULL)
 			continue;
 		ret += lprocfs_read_helper(&(stats->ls_percpu[i]->lp_cntr[idx]),
-					   stats->ls_cnt_header[idx], field);
+					   stats->ls_cnt_header[idx], i, field);
 	}
 	lprocfs_stats_unlock(stats, LPROCFS_GET_NUM_CPU, &flags);
 	return ret;

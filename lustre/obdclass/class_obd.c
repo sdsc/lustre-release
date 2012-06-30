@@ -520,6 +520,29 @@ extern cfs_spinlock_t obd_types_lock;
 extern int class_procfs_init(void);
 extern int class_procfs_clean(void);
 
+#ifdef LPROCFS
+int lprocfs_cntl_init(void)
+{
+	int	rc = 0;
+
+	if (g_lproc_cntl != NULL)
+		return rc;
+	g_lproc_cntl = cfs_array_alloc(cfs_num_possible_cpus(),
+				       sizeof(struct lprocfs_atomic));
+	if (g_lproc_cntl == NULL)
+		rc = -ENOMEM;
+
+	return rc;
+}
+
+void lprocfs_cntl_free(void)
+{
+	LASSERT(g_lproc_cntl != NULL);
+	cfs_array_free(g_lproc_cntl);
+}
+#endif
+
+
 #ifdef __KERNEL__
 static int __init init_obdclass(void)
 #else
@@ -539,6 +562,13 @@ int init_obdclass(void)
         cfs_spin_lock_init(&obd_types_lock);
         obd_zombie_impexp_init();
 #ifdef LPROCFS
+	/* initialize g_lproc_cntl percpu array */
+	err = lprocfs_cntl_init();
+	if (err < 0) {
+		CERROR("alloc global lprocfs control (g_lproc_cntl) failed\n");
+		RETURN(-ENOMEM);
+	}
+
         obd_memory = lprocfs_alloc_stats(OBD_STATS_NUM,
                                          LPROCFS_STATS_FLAG_NONE);
         if (obd_memory == NULL) {
@@ -665,6 +695,10 @@ static void cleanup_obdclass(void)
         CDEBUG((pages_leaked) ? D_ERROR : D_INFO,
                "obd_memory_pages max: "LPU64", leaked: "LPU64"\n",
                pages_max, pages_leaked);
+
+#ifdef LPROCFS
+	lprocfs_cntl_free();
+#endif
 
         EXIT;
 }

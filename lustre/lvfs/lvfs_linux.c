@@ -577,6 +577,7 @@ EXPORT_SYMBOL(obd_pages_max);
 #ifdef LPROCFS
 __s64 lprocfs_read_helper(struct lprocfs_counter *lc,
 			  struct lprocfs_counter_header *header,
+			  unsigned int cpuid,
 			  enum lprocfs_fields_flags field)
 {
 	__s64 ret = 0;
@@ -585,7 +586,7 @@ __s64 lprocfs_read_helper(struct lprocfs_counter *lc,
 	if (lc == NULL || header == NULL)
 		RETURN(0);
 	do {
-		centry = cfs_atomic_read(&header->lc_cntl.la_entry);
+		centry = lprocfs_entry_read(cpuid);
 
 		switch (field) {
 			case LPROCFS_FIELDS_FLAGS_CONFIG:
@@ -612,8 +613,8 @@ __s64 lprocfs_read_helper(struct lprocfs_counter *lc,
                         default:
                                 break;
 		};
-	} while (centry != cfs_atomic_read(&header->lc_cntl.la_entry) &&
-		 centry != cfs_atomic_read(&header->lc_cntl.la_exit));
+	} while (centry != lprocfs_entry_read(cpuid) &&
+		 centry != lprocfs_exit_read(cpuid));
 
 	RETURN(ret);
 }

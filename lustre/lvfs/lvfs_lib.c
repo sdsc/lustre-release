@@ -47,6 +47,9 @@
 
 unsigned int obd_alloc_fail_rate = 0;
 
+struct lprocfs_atomic **g_lproc_cntl;
+EXPORT_SYMBOL(g_lproc_cntl);
+
 int obd_alloc_fail(const void *ptr, const char *name, const char *type,
                    size_t size, const char *file, int line)
 {
@@ -88,7 +91,7 @@ void lprocfs_counter_add(struct lprocfs_stats *stats, int idx, long amount)
 	header = stats->ls_cnt_header[idx];
 	percpu_cntr = &(stats->ls_percpu[smp_id]->lp_cntr[idx]);
 	if (!(stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU))
-		cfs_atomic_inc(&header->lc_cntl.la_entry);
+		lprocfs_entry_incr(smp_id);
 	percpu_cntr->lc_count++;
 
 	if (header->lc_config & LPROCFS_CNTR_AVGMINMAX) {
@@ -104,7 +107,7 @@ void lprocfs_counter_add(struct lprocfs_stats *stats, int idx, long amount)
 			percpu_cntr->lc_max = amount;
 	}
 	if (!(stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU))
-		cfs_atomic_inc(&header->lc_cntl.la_exit);
+		lprocfs_exit_incr(smp_id);
 	lprocfs_stats_unlock(stats, LPROCFS_GET_SMP_ID, &flags);
 }
 EXPORT_SYMBOL(lprocfs_counter_add);
@@ -128,7 +131,7 @@ void lprocfs_counter_sub(struct lprocfs_stats *stats, int idx, long amount)
 	header = stats->ls_cnt_header[idx];
 	percpu_cntr = &(stats->ls_percpu[smp_id]->lp_cntr[idx]);
 	if (!(stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU))
-		cfs_atomic_inc(&header->lc_cntl.la_entry);
+		lprocfs_entry_incr(smp_id);
 	if (header->lc_config & LPROCFS_CNTR_AVGMINMAX) {
 		/*
 		 * currently lprocfs_count_add() can only be called in thread
@@ -144,7 +147,7 @@ void lprocfs_counter_sub(struct lprocfs_stats *stats, int idx, long amount)
 			percpu_cntr->lc_sum -= amount;
 	}
 	if (!(stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU))
-		cfs_atomic_inc(&header->lc_cntl.la_exit);
+		lprocfs_exit_incr(smp_id);
 	lprocfs_stats_unlock(stats, LPROCFS_GET_SMP_ID, &flags);
 }
 EXPORT_SYMBOL(lprocfs_counter_sub);
