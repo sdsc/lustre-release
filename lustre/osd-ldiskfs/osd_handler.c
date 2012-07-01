@@ -87,6 +87,7 @@ static const struct lu_object_operations      osd_lu_obj_ops;
 static const struct dt_object_operations      osd_obj_ops;
 static const struct dt_object_operations      osd_obj_ea_ops;
 static const struct dt_body_operations        osd_body_ops;
+static const struct dt_object_operations      osd_obj_otable_it_ops;
 static const struct dt_index_operations       osd_index_iam_ops;
 static const struct dt_index_operations       osd_index_ea_ops;
 
@@ -487,12 +488,17 @@ static int osd_object_init(const struct lu_env *env, struct lu_object *l,
 	LINVRNT(osd_invariant(obj));
 
 	result = osd_fid_lookup(env, obj, lu_object_fid(l), conf);
-        if (result == 0) {
-                if (obj->oo_inode != NULL)
-                        osd_object_init0(obj);
-        }
-        LINVRNT(osd_invariant(obj));
-        return result;
+	if (result == 0) {
+		if (obj->oo_inode != NULL) {
+			osd_object_init0(obj);
+		} else if (fid_is_otable_it(&l->lo_header->loh_fid)) {
+			obj->oo_dt.do_ops = &osd_obj_otable_it_ops;
+			/* LFSCK iterator object is special without inode */
+			l->lo_header->loh_attr |= LOHA_EXISTS;
+		}
+	}
+	LINVRNT(osd_invariant(obj));
+	return result;
 }
 
 /*
@@ -2369,6 +2375,15 @@ static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
         return result;
 }
 
+static int osd_otable_it_attr_get(const struct lu_env *env,
+				 struct dt_object *dt,
+				 struct lu_attr *attr,
+				 struct lustre_capa *capa)
+{
+	attr->la_valid = 0;
+	return 0;
+}
+
 static const struct dt_object_operations osd_obj_ops = {
         .do_read_lock    = osd_object_read_lock,
         .do_write_lock   = osd_object_write_lock,
@@ -2436,6 +2451,12 @@ static const struct dt_object_operations osd_obj_ea_ops = {
  *
  * which doesn't work for globally shared files like /last-received.
  */
+
+static const struct dt_object_operations osd_obj_otable_it_ops = {
+	.do_attr_get	= osd_otable_it_attr_get,
+	.do_index_try	= osd_index_try,
+};
+
 static int osd_ldiskfs_readlink(struct inode *inode, char *buffer, int buflen)
 {
         struct ldiskfs_inode_info *ei = LDISKFS_I(inode);
