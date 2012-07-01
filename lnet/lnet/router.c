@@ -1179,7 +1179,7 @@ lnet_prune_rc_data(int wait_unlink)
 		}
 
 		if (!wait_unlink)
-			break;
+			return;
 
 		i++;
 		CDEBUG(((i & (-i)) == i) ? D_WARNING : D_NET,
@@ -1188,6 +1188,8 @@ lnet_prune_rc_data(int wait_unlink)
 
 		lnet_net_lock(LNET_LOCK_EX);
 	}
+
+	lnet_net_unlock(LNET_LOCK_EX);
 }
 
 
