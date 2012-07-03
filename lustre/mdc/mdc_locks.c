@@ -685,6 +685,10 @@ resend:
         if (IS_ERR(req))
                 RETURN(PTR_ERR(req));
 
+	/* ask ptlrpc not to resend on EINPROGRESS since we have our own retry
+	 * logic */
+	req->rq_no_retry_einprogress = 1;
+
         if (resends) {
                 req->rq_generation_set = 1;
                 req->rq_import_generation = generation;

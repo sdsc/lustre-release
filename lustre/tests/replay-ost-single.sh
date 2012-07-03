@@ -340,6 +340,22 @@ test_9d() {
 }
 run_test 9d "Verify redo creation on -EINPROGRESS"
 
+test_8e() {
+	sleep 1 # ensure we have a fresh statfs
+#define OBD_FAIL_OST_STATFS_EINPROGRESS  0x231
+    do_facet ost1 "lctl set_param fail_loc=0x231"
+	df $MOUNT &
+	dfpid=$!
+	sleep $TIMEOUT
+    if ! ps -p $dfid  > /dev/null 2>&1; then
+			do_facet ost1 "lctl set_param fail_loc=0"
+            error "df shouldn't have completed!"
+            return 1
+    fi
+    do_facet ost1 "lctl set_param fail_loc=0"
+}
+run_test 8e "Verify that ptlrpc resends request on -EINPROGRESS"
+
 complete $(basename $0) $SECONDS
 check_and_cleanup_lustre
 exit_status
