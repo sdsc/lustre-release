@@ -129,10 +129,14 @@ static void osc_object_free(const struct lu_env *env, struct lu_object *obj)
 int osc_lvb_print(const struct lu_env *env, void *cookie,
                   lu_printer_t p, const struct ost_lvb *lvb)
 {
-        return (*p)(env, cookie, "size: "LPU64" mtime: "LPU64" atime: "LPU64" "
-                    "ctime: "LPU64" blocks: "LPU64,
-                    lvb->lvb_size, lvb->lvb_mtime, lvb->lvb_atime,
-                    lvb->lvb_ctime, lvb->lvb_blocks);
+	return (*p)(env, cookie, "size: "LPU64" mtime: "LPU64".%09u "
+		    "atime: "LPU64".%09u "
+		    "ctime: "LPU64".%09u blocks: "LPU64,
+		    lvb->lvb_size,
+		    lvb->lvb_mtime, lvb->lvb_mtime_ns,
+		    lvb->lvb_atime, lvb->lvb_atime_ns,
+		    lvb->lvb_ctime, lvb->lvb_ctime_ns,
+		    lvb->lvb_blocks);
 }
 
 static int osc_object_print(const struct lu_env *env, void *cookie,
@@ -171,16 +175,25 @@ int osc_attr_set(const struct lu_env *env, struct cl_object *obj,
 
         if (valid & CAT_SIZE)
                 lvb->lvb_size = attr->cat_size;
-        if (valid & CAT_MTIME)
-                lvb->lvb_mtime = attr->cat_mtime;
-        if (valid & CAT_ATIME)
-                lvb->lvb_atime = attr->cat_atime;
-        if (valid & CAT_CTIME)
-                lvb->lvb_ctime = attr->cat_ctime;
+	if (valid & CAT_MTIME) {
+		CDEBUG(D_INODE, "set mtime from %llu.%09u to %lu.%09lu\n",
+		       lvb->lvb_mtime, lvb->lvb_mtime_ns,
+		       attr->cat_mtime.tv_sec, attr->cat_mtime.tv_nsec);
+		lvb->lvb_mtime = attr->cat_mtime.tv_sec;
+		lvb->lvb_mtime_ns = attr->cat_mtime.tv_nsec;
+	}
+	if (valid & CAT_ATIME) {
+		lvb->lvb_atime = attr->cat_atime.tv_sec;
+		lvb->lvb_atime_ns = attr->cat_atime.tv_nsec;
+	}
+	if (valid & CAT_CTIME) {
+		lvb->lvb_ctime = attr->cat_ctime.tv_sec;
+		lvb->lvb_ctime_ns = attr->cat_ctime.tv_nsec;
+	}
         if (valid & CAT_BLOCKS)
                 lvb->lvb_blocks = attr->cat_blocks;
         if (valid & CAT_KMS) {
-                CDEBUG(D_CACHE, "set kms from "LPU64"to "LPU64"\n",
+		CDEBUG(D_CACHE, "set kms from "LPU64" to "LPU64"\n",
                        oinfo->loi_kms, (__u64)attr->cat_kms);
                 loi_kms_set(oinfo, attr->cat_kms);
         }

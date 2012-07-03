@@ -84,9 +84,12 @@ static inline void inode_init_lvb(struct inode *inode, struct ost_lvb *lvb)
 {
         lvb->lvb_size = i_size_read(inode);
         lvb->lvb_blocks = inode->i_blocks;
-        lvb->lvb_mtime = LTIME_S(inode->i_mtime);
-        lvb->lvb_atime = LTIME_S(inode->i_atime);
-        lvb->lvb_ctime = LTIME_S(inode->i_ctime);
+	lvb->lvb_mtime = inode->i_mtime.tv_sec;
+	lvb->lvb_mtime_ns = inode->i_mtime.tv_nsec;
+	lvb->lvb_atime = inode->i_atime.tv_sec;
+	lvb->lvb_atime_ns = inode->i_atime.tv_nsec;
+	lvb->lvb_ctime = inode->i_ctime.tv_sec;
+	lvb->lvb_ctime_ns = inode->i_ctime.tv_nsec;
 }
 #else
 /* defined in liblustre/llite_lib.h */

@@ -336,9 +336,12 @@ static inline void inode_init_lvb(struct inode *inode, struct ost_lvb *lvb)
         struct intnl_stat *st = llu_i2stat(inode);
         lvb->lvb_size = st->st_size;
         lvb->lvb_blocks = st->st_blocks;
-        lvb->lvb_mtime = st->st_mtime;
-        lvb->lvb_atime = st->st_atime;
-        lvb->lvb_ctime = st->st_ctime;
+	lvb->lvb_mtime = st->st_mtim.tv_sec;
+	lvb->lvb_mtime_ns = st->st_mtim.tv_nsec;
+	lvb->lvb_atime = st->st_atim.tv_sec;
+	lvb->lvb_atime_ns = st->st_atim.tv_nsec;
+	lvb->lvb_ctime = st->st_ctim.tv_sec;
+	lvb->lvb_ctime_ns = st->st_ctim.tv_nsec;
 }
 
 #define LLU_IO_GROUP_SIZE(x) \

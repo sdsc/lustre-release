@@ -1701,7 +1701,9 @@ void lustre_swab_obdo (struct obdo  *o)
         __swab32s (&o->o_uid_h);
         __swab32s (&o->o_gid_h);
         __swab64s (&o->o_data_version);
-        CLASSERT(offsetof(typeof(*o), o_padding_4) != 0);
+	__swab32s(&o->o_mtime_ns);
+	__swab32s(&o->o_atime_ns);
+	__swab32s(&o->o_ctime_ns);
         CLASSERT(offsetof(typeof(*o), o_padding_5) != 0);
         CLASSERT(offsetof(typeof(*o), o_padding_6) != 0);
 
@@ -1773,6 +1775,9 @@ void lustre_swab_lvb(union ldlm_wire_lvb *lvb)
         __swab64s(&lvb->l_ost.lvb_atime);
         __swab64s(&lvb->l_ost.lvb_ctime);
         __swab64s(&lvb->l_ost.lvb_blocks);
+	__swab32s(&lvb->l_ost.lvb_mtime_ns);
+	__swab32s(&lvb->l_ost.lvb_atime_ns);
+	__swab32s(&lvb->l_ost.lvb_ctime_ns);
 }
 
 void lustre_swab_mdt_body (struct mdt_body *b)
@@ -1805,7 +1810,9 @@ void lustre_swab_mdt_body (struct mdt_body *b)
         __swab32s (&b->max_cookiesize);
         __swab32s (&b->uid_h);
         __swab32s (&b->gid_h);
-        CLASSERT(offsetof(typeof(*b), padding_5) != 0);
+	__swab32s(&b->mtime_ns);
+	__swab32s(&b->atime_ns);
+	__swab32s(&b->ctime_ns);
 }
 
 void lustre_swab_mdt_ioepoch (struct mdt_ioepoch *b)
@@ -1977,9 +1984,9 @@ void lustre_swab_mdt_rec_reint (struct mdt_rec_reint *rr)
         __swab32s (&rr->rr_mode);
         __swab32s (&rr->rr_flags);
 
-        CLASSERT(offsetof(typeof(*rr), rr_padding_2) != 0);
-        CLASSERT(offsetof(typeof(*rr), rr_padding_3) != 0);
-        CLASSERT(offsetof(typeof(*rr), rr_padding_4) != 0);
+	__swab32s(&rr->rr_ctime_ns);
+	__swab32s(&rr->rr_atime_ns);
+	__swab32s(&rr->rr_mtime_ns);
 };
 
 void lustre_swab_lov_desc (struct lov_desc *ld)

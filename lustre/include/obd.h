@@ -1305,6 +1305,8 @@ struct md_op_data {
         /* Used by readdir */
         __u32                   op_npages;
         __u64                   op_offset;
+
+	__u32                   op_mod_time_ns;
 };
 
 struct md_enqueue_info;
