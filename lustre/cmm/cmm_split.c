@@ -444,6 +444,7 @@ static int cmm_split_remove_entry(const struct lu_env *env,
          * and no permission check for name_remove.
          */
         ma->ma_attr.la_ctime = 0;
+	ma->ma_attr.la_ctime_ns = 0;
         if (is_dir)
                 ma->ma_attr.la_mode = S_IFDIR;
         else

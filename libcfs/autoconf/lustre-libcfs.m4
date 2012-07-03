@@ -938,10 +938,10 @@ if test "$enable_libpthread" = "yes" ; then
 		[ENABLE_LIBPTHREAD="no"])
 	if test "$ENABLE_LIBPTHREAD" = "yes" ; then
 		AC_MSG_RESULT([$ENABLE_LIBPTHREAD])
-		PTHREAD_LIBS="-lpthread"
+		PTHREAD_LIBS="-lpthread -lrt"
 		AC_DEFINE([HAVE_LIBPTHREAD], 1, [use libpthread])
 	else
-		PTHREAD_LIBS=""
+		PTHREAD_LIBS="-lrt"
 		AC_MSG_RESULT([no libpthread is found])
 	fi
 	AC_SUBST(PTHREAD_LIBS)
@@ -950,9 +950,8 @@ else
 	ENABLE_LIBPTHREAD="no"
 fi
 AC_SUBST(ENABLE_LIBPTHREAD)
-
-
 ])
+
 
 #
 # LIBCFS_CONDITIONALS

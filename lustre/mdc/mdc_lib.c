@@ -148,6 +148,7 @@ void mdc_create_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
         rec->cr_mode     = mode;
         rec->cr_rdev     = rdev;
         rec->cr_time     = op_data->op_mod_time;
+	rec->cr_time_ns  = op_data->op_mod_time_ns;
         rec->cr_suppgid1 = op_data->op_suppgids[0];
         rec->cr_suppgid2 = op_data->op_suppgids[1];
         set_mrc_cr_flags(rec, op_data->op_flags & MF_SOM_LOCAL_FLAGS);
@@ -219,6 +220,7 @@ void mdc_open_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
         cr_flags = mds_pack_open_flags(flags, mode);
         rec->cr_rdev     = rdev;
         rec->cr_time     = op_data->op_mod_time;
+	rec->cr_time_ns  = op_data->op_mod_time_ns;
         rec->cr_suppgid1 = op_data->op_suppgids[0];
         rec->cr_suppgid2 = op_data->op_suppgids[1];
         rec->cr_bias     = op_data->op_bias;
@@ -301,9 +303,12 @@ static void mdc_setattr_pack_rec(struct mdt_rec_setattr *rec,
         rec->sa_gid    = op_data->op_attr.ia_gid;
         rec->sa_size   = op_data->op_attr.ia_size;
         rec->sa_blocks = op_data->op_attr_blocks;
-        rec->sa_atime  = LTIME_S(op_data->op_attr.ia_atime);
-        rec->sa_mtime  = LTIME_S(op_data->op_attr.ia_mtime);
-        rec->sa_ctime  = LTIME_S(op_data->op_attr.ia_ctime);
+	rec->sa_atime  = op_data->op_attr.ia_atime.tv_sec;
+	rec->sa_mtime  = op_data->op_attr.ia_mtime.tv_sec;
+	rec->sa_ctime  = op_data->op_attr.ia_ctime.tv_sec;
+	rec->sa_atime_ns = op_data->op_attr.ia_atime.tv_nsec;
+	rec->sa_mtime_ns = op_data->op_attr.ia_mtime.tv_nsec;
+	rec->sa_ctime_ns = op_data->op_attr.ia_ctime.tv_nsec;
         rec->sa_attr_flags = ((struct ll_iattr *)&op_data->op_attr)->ia_attr_flags;
         if ((op_data->op_attr.ia_valid & ATTR_GID) &&
             cfs_curproc_is_in_groups(op_data->op_attr.ia_gid))
@@ -377,6 +382,7 @@ void mdc_unlink_pack(struct ptlrpc_request *req, struct md_op_data *op_data)
         rec->ul_fid1    = op_data->op_fid1;
         rec->ul_fid2    = op_data->op_fid2;
         rec->ul_time    = op_data->op_mod_time;
+	rec->ul_time_ns = op_data->op_mod_time_ns;
         rec->ul_bias    = op_data->op_bias;
 
         mdc_pack_capa(req, &RMF_CAPA1, op_data->op_capa1);
@@ -404,6 +410,7 @@ void mdc_link_pack(struct ptlrpc_request *req, struct md_op_data *op_data)
         rec->lk_fid1     = op_data->op_fid1;
         rec->lk_fid2     = op_data->op_fid2;
         rec->lk_time     = op_data->op_mod_time;
+	rec->lk_time_ns  = op_data->op_mod_time_ns;
         rec->lk_bias     = op_data->op_bias;
 
         mdc_pack_capa(req, &RMF_CAPA1, op_data->op_capa1);
@@ -432,6 +439,7 @@ void mdc_rename_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
         rec->rn_fid1     = op_data->op_fid1;
         rec->rn_fid2     = op_data->op_fid2;
         rec->rn_time     = op_data->op_mod_time;
+	rec->rn_time_ns  = op_data->op_mod_time_ns;
         rec->rn_mode     = op_data->op_mode;
         rec->rn_bias     = op_data->op_bias;
 

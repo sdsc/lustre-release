@@ -96,13 +96,16 @@ static int ofd_lvbo_init(struct ldlm_resource *res)
 	lvb->lvb_size = info->fti_attr.la_size;
 	lvb->lvb_blocks = info->fti_attr.la_blocks;
 	lvb->lvb_mtime = info->fti_attr.la_mtime;
+	lvb->lvb_mtime_ns = info->fti_attr.la_mtime_ns;
 	lvb->lvb_atime = info->fti_attr.la_atime;
+	lvb->lvb_atime_ns = info->fti_attr.la_atime_ns;
 	lvb->lvb_ctime = info->fti_attr.la_ctime;
+	lvb->lvb_ctime_ns = info->fti_attr.la_ctime_ns;
 
 	CDEBUG(D_DLMTRACE, "res: "LPX64" initial lvb size: "LPX64", "
-	       "mtime: "LPX64", blocks: "LPX64"\n",
+	       "mtime: "LPU64".%u, blocks: "LPX64"\n",
 	       res->lr_name.name[0], lvb->lvb_size,
-	       lvb->lvb_mtime, lvb->lvb_blocks);
+	       lvb->lvb_mtime, lvb->lvb_mtime_ns, lvb->lvb_blocks);
 
 	EXIT;
 out_put:
@@ -168,23 +171,41 @@ static int ofd_lvbo_update(struct ldlm_resource *res,
 			       lvb->lvb_size, rpc_lvb->lvb_size);
 			lvb->lvb_size = rpc_lvb->lvb_size;
 		}
-		if (rpc_lvb->lvb_mtime > lvb->lvb_mtime || !increase_only) {
+		if (cfs_nanotime_after(rpc_lvb->lvb_mtime,
+				       rpc_lvb->lvb_mtime_ns,
+				       lvb->lvb_mtime,
+				       lvb->lvb_mtime_ns) || !increase_only) {
 			CDEBUG(D_DLMTRACE, "res: "LPU64" updating lvb mtime: "
-			       LPU64" -> "LPU64"\n", res->lr_name.name[0],
-			       lvb->lvb_mtime, rpc_lvb->lvb_mtime);
+			       LPU64".%u -> "LPU64".%u\n",
+			       res->lr_name.name[0],
+			       lvb->lvb_mtime, lvb->lvb_mtime_ns,
+			       rpc_lvb->lvb_mtime, rpc_lvb->lvb_mtime_ns);
 			lvb->lvb_mtime = rpc_lvb->lvb_mtime;
+			lvb->lvb_mtime_ns = rpc_lvb->lvb_mtime_ns;
 		}
-		if (rpc_lvb->lvb_atime > lvb->lvb_atime || !increase_only) {
+		if (cfs_nanotime_after(rpc_lvb->lvb_atime,
+				       rpc_lvb->lvb_atime_ns,
+				       lvb->lvb_atime,
+				       lvb->lvb_atime_ns) || !increase_only) {
 			CDEBUG(D_DLMTRACE, "res: "LPU64" updating lvb atime: "
-			       LPU64" -> "LPU64"\n", res->lr_name.name[0],
-			       lvb->lvb_atime, rpc_lvb->lvb_atime);
+			       LPU64".%u -> "LPU64".%u\n",
+			       res->lr_name.name[0],
+			       lvb->lvb_atime, lvb->lvb_atime_ns,
+			       rpc_lvb->lvb_atime, rpc_lvb->lvb_atime_ns);
 			lvb->lvb_atime = rpc_lvb->lvb_atime;
+			lvb->lvb_atime_ns = rpc_lvb->lvb_atime_ns;
 		}
-		if (rpc_lvb->lvb_ctime > lvb->lvb_ctime || !increase_only) {
+		if (cfs_nanotime_after(rpc_lvb->lvb_ctime,
+				       rpc_lvb->lvb_ctime_ns,
+				       lvb->lvb_ctime,
+				       lvb->lvb_ctime_ns) || !increase_only) {
 			CDEBUG(D_DLMTRACE, "res: "LPU64" updating lvb ctime: "
-			       LPU64" -> "LPU64"\n", res->lr_name.name[0],
-			       lvb->lvb_ctime, rpc_lvb->lvb_ctime);
+			       LPU64".%u -> "LPU64".%u\n",
+			       res->lr_name.name[0],
+			       lvb->lvb_ctime, lvb->lvb_ctime_ns,
+			       rpc_lvb->lvb_ctime, rpc_lvb->lvb_ctime_ns);
 			lvb->lvb_ctime = rpc_lvb->lvb_ctime;
+			lvb->lvb_ctime_ns = rpc_lvb->lvb_ctime_ns;
 		}
 		unlock_res(res);
 	}
@@ -208,23 +229,38 @@ disk_update:
 		lvb->lvb_size = info->fti_attr.la_size;
 	}
 
-	if (info->fti_attr.la_mtime >lvb->lvb_mtime || !increase_only) {
+	if (cfs_nanotime_after(info->fti_attr.la_mtime,
+			       info->fti_attr.la_mtime_ns,
+			       lvb->lvb_mtime,
+			       lvb->lvb_mtime_ns) || !increase_only) {
 		CDEBUG(D_DLMTRACE, "res: "LPU64" updating lvb mtime from disk: "
-		       LPU64" -> "LPU64"\n", res->lr_name.name[0],
-		       lvb->lvb_mtime, info->fti_attr.la_mtime);
+		       LPU64".%u -> "LPU64".%u\n", res->lr_name.name[0],
+		       lvb->lvb_mtime, lvb->lvb_mtime_ns,
+		       info->fti_attr.la_mtime, info->fti_attr.la_mtime_ns);
 		lvb->lvb_mtime = info->fti_attr.la_mtime;
+		lvb->lvb_mtime_ns = info->fti_attr.la_mtime_ns;
 	}
-	if (info->fti_attr.la_atime >lvb->lvb_atime || !increase_only) {
+	if (cfs_nanotime_after(info->fti_attr.la_atime,
+			       info->fti_attr.la_atime_ns,
+			       lvb->lvb_atime,
+			       lvb->lvb_atime_ns) || !increase_only) {
 		CDEBUG(D_DLMTRACE, "res: "LPU64" updating lvb atime from disk: "
-		       LPU64" -> "LPU64"\n", res->lr_name.name[0],
-		       lvb->lvb_atime, info->fti_attr.la_atime);
+		       LPU64".%u -> "LPU64".%u\n", res->lr_name.name[0],
+		       lvb->lvb_atime, lvb->lvb_atime_ns,
+		       info->fti_attr.la_atime, info->fti_attr.la_atime_ns);
 		lvb->lvb_atime = info->fti_attr.la_atime;
+		lvb->lvb_atime_ns = info->fti_attr.la_atime_ns;
 	}
-	if (info->fti_attr.la_ctime >lvb->lvb_ctime || !increase_only) {
+	if (cfs_nanotime_after(info->fti_attr.la_ctime,
+			       info->fti_attr.la_ctime_ns,
+			       lvb->lvb_ctime,
+			       lvb->lvb_ctime_ns) || !increase_only) {
 		CDEBUG(D_DLMTRACE, "res: "LPU64" updating lvb ctime from disk: "
-		       LPU64" -> "LPU64"\n", res->lr_name.name[0],
-		       lvb->lvb_ctime, info->fti_attr.la_ctime);
+		       LPU64".%u -> "LPU64".%u\n", res->lr_name.name[0],
+		       lvb->lvb_ctime, lvb->lvb_ctime_ns,
+		       info->fti_attr.la_ctime, info->fti_attr.la_ctime_ns);
 		lvb->lvb_ctime = info->fti_attr.la_ctime;
+		lvb->lvb_ctime_ns = info->fti_attr.la_ctime_ns;
 	}
 	if (lvb->lvb_blocks != info->fti_attr.la_blocks) {
 		CDEBUG(D_DLMTRACE,"res: "LPU64" updating lvb blocks from disk: "

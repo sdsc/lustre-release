@@ -900,6 +900,7 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
 
         LASSERT(ma->ma_attr.la_valid & LA_CTIME);
         la->la_ctime = la->la_mtime = ma->ma_attr.la_ctime;
+	la->la_ctime_ns = la->la_mtime_ns = ma->ma_attr.la_ctime_ns;
 
         la->la_valid = LA_CTIME | LA_MTIME;
         rc = mdd_attr_check_set_internal_locked(env, mdd_tobj, la, handle, 0);
@@ -1117,6 +1118,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 
         LASSERT(ma->ma_attr.la_valid & LA_CTIME);
         la->la_ctime = la->la_mtime = ma->ma_attr.la_ctime;
+	la->la_ctime_ns = la->la_mtime_ns = ma->ma_attr.la_ctime_ns;
 
         la->la_valid = LA_CTIME | LA_MTIME;
         rc = mdd_attr_check_set_internal_locked(env, mdd_pobj, la, handle, 0);
@@ -1292,6 +1294,7 @@ static int mdd_name_insert(const struct lu_env *env,
          */
         if (ma->ma_attr.la_valid & LA_CTIME) {
                 la->la_ctime = la->la_mtime = ma->ma_attr.la_ctime;
+		la->la_ctime_ns = la->la_mtime_ns = ma->ma_attr.la_ctime_ns;
                 la->la_valid = LA_CTIME | LA_MTIME;
                 rc = mdd_attr_check_set_internal_locked(env, mdd_obj, la,
                                                         handle, 0);
@@ -1402,6 +1405,7 @@ static int mdd_name_remove(const struct lu_env *env,
          */
         if (ma->ma_attr.la_valid & LA_CTIME) {
                 la->la_ctime = la->la_mtime = ma->ma_attr.la_ctime;
+		la->la_ctime_ns = la->la_mtime_ns = ma->ma_attr.la_ctime_ns;
                 la->la_valid = LA_CTIME | LA_MTIME;
                 rc = mdd_attr_check_set_internal_locked(env, mdd_obj, la,
                                                         handle, 0);
@@ -1528,6 +1532,7 @@ static int mdd_rename_tgt(const struct lu_env *env,
 
         LASSERT(ma->ma_attr.la_valid & LA_CTIME);
         la->la_ctime = la->la_mtime = ma->ma_attr.la_ctime;
+	la->la_ctime_ns = la->la_mtime_ns = ma->ma_attr.la_ctime_ns;
 
         la->la_valid = LA_CTIME | LA_MTIME;
         rc = mdd_attr_check_set_internal_locked(env, mdd_tpobj, la, handle, 0);
@@ -2643,6 +2648,7 @@ static int mdd_rename(const struct lu_env *env,
 
         LASSERT(ma->ma_attr.la_valid & LA_CTIME);
         la->la_ctime = la->la_mtime = ma->ma_attr.la_ctime;
+	la->la_ctime_ns = la->la_mtime_ns = ma->ma_attr.la_ctime_ns;
 
         /* XXX: mdd_sobj must be local one if it is NOT NULL. */
         if (mdd_sobj) {

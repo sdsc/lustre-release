@@ -928,6 +928,7 @@ static const char *obd_connect_names[] = {
         "umask",
         "einprogress",
         "grant_param",
+	"nanosecond_times",
         NULL
 };
 

@@ -43,6 +43,7 @@
 # include <linux/init.h>
 #else
 # include <liblustre.h>
+# include <sys/time.h>
 #endif
 
 #include <lustre_acl.h>
@@ -353,6 +354,7 @@ static int mdc_xattr_common(struct obd_export *exp,const struct req_format *fmt,
 
         if (opcode == MDS_REINT) {
                 struct mdt_rec_setxattr *rec;
+		struct timespec now;
 
                 CLASSERT(sizeof(struct mdt_rec_setxattr) ==
                          sizeof(struct mdt_rec_reint));
@@ -362,6 +364,7 @@ static int mdc_xattr_common(struct obd_export *exp,const struct req_format *fmt,
                  *  cfs_curproc_fs{u,g}id() should replace
                  *  current->fs{u,g}id for portability.
                  */
+		now = CFS_CURRENT_TIME;
                 rec->sx_fsuid  = cfs_curproc_fsuid();
                 rec->sx_fsgid  = cfs_curproc_fsgid();
                 rec->sx_cap    = cfs_curproc_cap_pack();
@@ -369,7 +372,8 @@ static int mdc_xattr_common(struct obd_export *exp,const struct req_format *fmt,
                 rec->sx_suppgid2 = -1;
                 rec->sx_fid    = *fid;
                 rec->sx_valid  = valid | OBD_MD_FLCTIME;
-                rec->sx_time   = cfs_time_current_sec();
+		rec->sx_time   = now.tv_sec;
+		rec->sx_time_ns = now.tv_nsec;
                 rec->sx_size   = output_size;
                 rec->sx_flags  = flags;
 
