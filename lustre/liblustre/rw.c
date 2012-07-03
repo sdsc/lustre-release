@@ -284,9 +284,12 @@ int llu_extent_lock(struct ll_file_data *fd, struct inode *inode,
                 st->st_size = lvb.lvb_size;
 
         if (rc == 0) {
-                st->st_mtime = lvb.lvb_mtime;
-                st->st_atime = lvb.lvb_atime;
-                st->st_ctime = lvb.lvb_ctime;
+		st->st_mtim.tv_sec = lvb.lvb_mtime;
+		st->st_mtim.tv_nsec = lvb.lvb_mtime_ns;
+		st->st_atim.tv_sec = lvb.lvb_atime;
+		st->st_atim.tv_nsec = lvb.lvb_atime_ns;
+		st->st_ctim.tv_sec = lvb.lvb_ctime;
+		st->st_ctim.tv_nsec = lvb.lvb_ctime_ns;
         }
 
         RETURN(rc);
@@ -458,8 +461,7 @@ int llu_iop_read(struct inode *ino,
         int refcheck;
         int ret;
 
-        /* BUG: 5972 */
-        st->st_atime = CFS_CURRENT_TIME;
+	st->st_atim = CFS_CURRENT_TIME;
 
         env = cl_env_get(&refcheck);
         if (IS_ERR(env))
@@ -483,7 +485,7 @@ int llu_iop_write(struct inode *ino,
         int refcheck;
         int ret;
 
-        st->st_mtime = st->st_ctime = CFS_CURRENT_TIME;
+	st->st_mtim = st->st_ctim = CFS_CURRENT_TIME;
 
         env = cl_env_get(&refcheck);
         if (IS_ERR(env))

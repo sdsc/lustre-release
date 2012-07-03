@@ -354,13 +354,17 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
                 GOTO(out_unlock, rc);
 
         if (unlikely(!(valid & OBD_MD_FLCTIME))) {
+		struct timespec now;
+
                 /* This isn't strictly an error, but all current clients
                  * should set OBD_MD_FLCTIME when setting attributes. */
                 CWARN("%s: client miss to set OBD_MD_FLCTIME when "
                       "setxattr %s: [object "DFID"] [valid "LPU64"]\n",
                       info->mti_exp->exp_obd->obd_name, xattr_name,
                       PFID(rr->rr_fid1), valid);
-                attr->la_ctime = cfs_time_current_sec();
+		now = CFS_CURRENT_TIME;
+		attr->la_ctime = now.tv_sec;
+		attr->la_ctime_ns = now.tv_nsec;
         }
         attr->la_valid = LA_CTIME;
         child = mdt_object_child(obj);

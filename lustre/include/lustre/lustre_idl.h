@@ -1154,6 +1154,9 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                                   * write RPC error properly */
 #define OBD_CONNECT_GRANT_PARAM 0x100000000000ULL/* extra grant params used for
                                                   * finer space reservation */
+#define OBD_CONNECT_NANOSECOND_TIMES 0x200000000000ULL /* nanosec resolution
+							* timestamps supported
+							*/
 /* XXX README XXX:
  * Please DO NOT add flag values here before first ensuring that this same
  * flag value is not in use on some other branch.  Please clear any such
@@ -1185,7 +1188,9 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                 OBD_CONNECT_VBR | OBD_CONNECT_LOV_V3 | \
                                 OBD_CONNECT_SOM | OBD_CONNECT_FULL20 | \
                                 OBD_CONNECT_64BITHASH | \
-				OBD_CONNECT_EINPROGRESS | OBD_CONNECT_JOBSTATS)
+				OBD_CONNECT_EINPROGRESS | \
+				OBD_CONNECT_JOBSTATS | \
+				OBD_CONNECT_NANOSECOND_TIMES)
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
                                 OBD_CONNECT_TRUNCLOCK | OBD_CONNECT_INDEX | \
@@ -1200,7 +1205,9 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                 OBD_CONNECT_GRANT_SHRINK | OBD_CONNECT_FULL20 | \
                                 OBD_CONNECT_64BITHASH | OBD_CONNECT_MAXBYTES | \
                                 OBD_CONNECT_MAX_EASIZE | \
-				OBD_CONNECT_EINPROGRESS | OBD_CONNECT_JOBSTATS)
+				OBD_CONNECT_EINPROGRESS | \
+				OBD_CONNECT_JOBSTATS | \
+				OBD_CONNECT_NANOSECOND_TIMES)
 #define ECHO_CONNECT_SUPPORTED (0)
 #define MGS_CONNECT_SUPPORTED  (OBD_CONNECT_VERSION | OBD_CONNECT_AT | \
                                 OBD_CONNECT_FULL20 | OBD_CONNECT_IMP_RECOV)
@@ -1549,11 +1556,15 @@ extern void lustre_swab_niobuf_remote (struct niobuf_remote *nbr);
 #define OST_LVB_GET_ERR(blocks)    (int)(blocks - OST_LVB_ERR_INIT)
 
 struct ost_lvb {
-        __u64     lvb_size;
-        obd_time  lvb_mtime;
-        obd_time  lvb_atime;
-        obd_time  lvb_ctime;
-        __u64     lvb_blocks;
+	__u64  lvb_size;
+	obd_time lvb_mtime;
+	obd_time lvb_atime;
+	obd_time lvb_ctime;
+	__u64  lvb_blocks;
+	__u32  lvb_mtime_ns;
+	__u32  lvb_atime_ns;
+	__u32  lvb_ctime_ns;
+	__u32  lvb_padding_0;
 };
 
 /*
@@ -1712,9 +1723,9 @@ struct mdt_body {
         struct lustre_handle handle;
         __u64          valid;
         __u64          size;   /* Offset, in the case of MDS_READPAGE */
-       obd_time        mtime;
-       obd_time        atime;
-       obd_time        ctime;
+	obd_time       mtime;
+	obd_time       atime;
+	obd_time       ctime;
         __u64          blocks; /* XID, in the case of MDS_READPAGE */
         __u64          ioepoch;
         __u64          ino;
@@ -1735,9 +1746,10 @@ struct mdt_body {
         __u32          max_cookiesize;
         __u32          uid_h; /* high 32-bits of uid, for FUID */
         __u32          gid_h; /* high 32-bits of gid, for FUID */
-        __u32          padding_5; /* also fix lustre_swab_mdt_body */
-        __u64          padding_6;
-        __u64          padding_7;
+	__u32          mtime_ns;
+	__u32          atime_ns;
+	__u32          ctime_ns;
+	__u64          padding_7; /* also fix lustre_swab_mdt_body */
         __u64          padding_8;
         __u64          padding_9;
         __u64          padding_10;
@@ -1863,17 +1875,20 @@ struct mdt_rec_setattr {
         __u64           sa_valid;
         __u32           sa_uid;
         __u32           sa_gid;
-        __u64           sa_size;
-        __u64           sa_blocks;
-        obd_time        sa_mtime;
-        obd_time        sa_atime;
-        obd_time        sa_ctime;
-        __u32           sa_attr_flags;
-        __u32           sa_mode;
-        __u32           sa_padding_2;
-        __u32           sa_padding_3;
-        __u32           sa_padding_4;
-        __u32           sa_padding_5;
+	/* Note that sa_size, sa_blocks and the sa_{m,a,c}time fields are
+	 * swapped in relation to their positions in the parent
+	 * mdt_rec_reint. */
+	__u64           sa_size; /* rr_mtime */
+	__u64           sa_blocks; /* rr_atime */
+	obd_time        sa_mtime; /* rr_ctime */
+	obd_time        sa_atime; /* rr_size */
+	obd_time        sa_ctime; /* rr_blocks */
+	__u32           sa_attr_flags; /* rr_bias */
+	__u32           sa_mode;
+	__u32           sa_padding_2; /* rr_flags */
+	__u32           sa_ctime_ns;
+	__u32           sa_atime_ns;
+	__u32           sa_mtime_ns;
 };
 
 extern void lustre_swab_mdt_rec_setattr (struct mdt_rec_setattr *sa);
@@ -1989,7 +2004,7 @@ struct mdt_rec_create {
         struct lu_fid   cr_fid1;
         struct lu_fid   cr_fid2;
         struct lustre_handle cr_old_handle; /* handle in case of open replay */
-        obd_time        cr_time;
+	obd_time        cr_time;
         __u64           cr_rdev;
         __u64           cr_ioepoch;
         __u64           cr_padding_1;   /* rr_blocks */
@@ -2000,8 +2015,8 @@ struct mdt_rec_create {
          * extend cr_flags size without breaking 1.8 compat */
         __u32           cr_flags_l;     /* for use with open, low  32 bits  */
         __u32           cr_flags_h;     /* for use with open, high 32 bits */
-        __u32           cr_padding_3;   /* rr_padding_3 */
-        __u32           cr_padding_4;   /* rr_padding_4 */
+	__u32           cr_padding_3;   /* rr_atime_ns */
+	__u32           cr_time_ns;
 };
 
 static inline void set_mrc_cr_flags(struct mdt_rec_create *mrc, __u64 flags)
@@ -2029,7 +2044,7 @@ struct mdt_rec_link {
         __u32           lk_suppgid2_h;
         struct lu_fid   lk_fid1;
         struct lu_fid   lk_fid2;
-        obd_time        lk_time;
+	obd_time        lk_time;
         __u64           lk_padding_1;   /* rr_atime */
         __u64           lk_padding_2;   /* rr_ctime */
         __u64           lk_padding_3;   /* rr_size */
@@ -2037,9 +2052,9 @@ struct mdt_rec_link {
         __u32           lk_bias;
         __u32           lk_padding_5;   /* rr_mode */
         __u32           lk_padding_6;   /* rr_flags */
-        __u32           lk_padding_7;   /* rr_padding_2 */
-        __u32           lk_padding_8;   /* rr_padding_3 */
-        __u32           lk_padding_9;   /* rr_padding_4 */
+	__u32           lk_padding_7;   /* rr_ctime_ns */
+	__u32           lk_padding_8;   /* rr_atime_ns */
+	__u32           lk_time_ns;
 };
 
 /* instance of mdt_reint_rec */
@@ -2056,7 +2071,7 @@ struct mdt_rec_unlink {
         __u32           ul_suppgid2_h;
         struct lu_fid   ul_fid1;
         struct lu_fid   ul_fid2;
-        obd_time        ul_time;
+	obd_time        ul_time;
         __u64           ul_padding_2;   /* rr_atime */
         __u64           ul_padding_3;   /* rr_ctime */
         __u64           ul_padding_4;   /* rr_size */
@@ -2064,9 +2079,9 @@ struct mdt_rec_unlink {
         __u32           ul_bias;
         __u32           ul_mode;
         __u32           ul_padding_6;   /* rr_flags */
-        __u32           ul_padding_7;   /* rr_padding_2 */
-        __u32           ul_padding_8;   /* rr_padding_3 */
-        __u32           ul_padding_9;   /* rr_padding_4 */
+	__u32           ul_padding_7;   /* rr_ctime_ns */
+	__u32           ul_padding_8;   /* rr_atime_ns */
+	__u32           ul_time_ns;
 };
 
 /* instance of mdt_reint_rec */
@@ -2083,7 +2098,7 @@ struct mdt_rec_rename {
         __u32           rn_suppgid2_h;
         struct lu_fid   rn_fid1;
         struct lu_fid   rn_fid2;
-        obd_time        rn_time;
+	obd_time        rn_time;
         __u64           rn_padding_1;   /* rr_atime */
         __u64           rn_padding_2;   /* rr_ctime */
         __u64           rn_padding_3;   /* rr_size */
@@ -2091,9 +2106,9 @@ struct mdt_rec_rename {
         __u32           rn_bias;        /* some operation flags */
         __u32           rn_mode;        /* cross-ref rename has mode */
         __u32           rn_padding_5;   /* rr_flags */
-        __u32           rn_padding_6;   /* rr_padding_2 */
-        __u32           rn_padding_7;   /* rr_padding_3 */
-        __u32           rn_padding_8;   /* rr_padding_4 */
+	__u32           rn_padding_6;   /* rr_ctime_ns */
+	__u32           rn_padding_7;   /* rr_atime_ns */
+	__u32           rn_time_ns;
 };
 
 /* instance of mdt_reint_rec */
@@ -2113,16 +2128,16 @@ struct mdt_rec_setxattr {
         __u32           sx_padding_2;
         __u32           sx_padding_3;
         __u64           sx_valid;
-        obd_time        sx_time;
+	obd_time        sx_time;
         __u64           sx_padding_5;   /* rr_ctime */
         __u64           sx_padding_6;   /* rr_size */
         __u64           sx_padding_7;   /* rr_blocks */
         __u32           sx_size;
         __u32           sx_flags;
-        __u32           sx_padding_8;   /* rr_flags */
-        __u32           sx_padding_9;   /* rr_padding_2 */
-        __u32           sx_padding_10;  /* rr_padding_3 */
-        __u32           sx_padding_11;  /* rr_padding_4 */
+	__u32           sx_padding_8;
+	__u32           sx_padding_9;   /* rr_ctime_ns */
+	__u32           sx_padding_10;  /* rr_atime_ns */
+	__u32           sx_time_ns;
 };
 
 /*
@@ -2146,17 +2161,17 @@ struct mdt_rec_reint {
         __u32           rr_suppgid2_h;
         struct lu_fid   rr_fid1;
         struct lu_fid   rr_fid2;
-        obd_time        rr_mtime;
-        obd_time        rr_atime;
-        obd_time        rr_ctime;
-        __u64           rr_size;
-        __u64           rr_blocks;
-        __u32           rr_bias;
-        __u32           rr_mode;
-        __u32           rr_flags;
-        __u32           rr_padding_2; /* also fix lustre_swab_mdt_rec_reint */
-        __u32           rr_padding_3; /* also fix lustre_swab_mdt_rec_reint */
-        __u32           rr_padding_4; /* also fix lustre_swab_mdt_rec_reint */
+	obd_time        rr_mtime;
+	obd_time        rr_atime;
+	obd_time        rr_ctime;
+	__u64           rr_size;
+	__u64           rr_blocks;
+	__u32           rr_bias;
+	__u32           rr_mode;
+	__u32           rr_flags;
+	__u32           rr_ctime_ns;
+	__u32           rr_atime_ns;
+	__u32           rr_mtime_ns; /*mtime is last field for mdt_create_rec*/
 };
 
 extern void lustre_swab_mdt_rec_reint(struct mdt_rec_reint *rr);
@@ -2512,8 +2527,8 @@ struct cfg_marker {
         __u32             cm_flags;
         __u32             cm_vers;       /* lustre release version number */
         __u32             cm_padding;    /* 64 bit align */
-        obd_time          cm_createtime; /*when this record was first created */
-        obd_time          cm_canceltime; /*when this record is no longer valid*/
+	obd_time          cm_createtime; /*when this record was first created */
+	obd_time          cm_canceltime; /*when this record is no longer valid*/
         char              cm_tgtname[MTI_NAME_MAXLEN];
         char              cm_comment[MTI_NAME_MAXLEN];
 };
@@ -2723,7 +2738,7 @@ struct llog_gen_rec {
 
 struct llog_log_hdr {
         struct llog_rec_hdr     llh_hdr;
-        obd_time                llh_timestamp;
+	obd_time                llh_timestamp;
         __u32                   llh_count;
         __u32                   llh_bitmap_offset;
         __u32                   llh_size;
@@ -2785,9 +2800,9 @@ struct obdo {
         struct ost_id           o_oi;
         obd_id                  o_parent_seq;
         obd_size                o_size;         /* o_size-o_blocks == ost_lvb */
-        obd_time                o_mtime;
-        obd_time                o_atime;
-        obd_time                o_ctime;
+	obd_time                o_mtime;
+	obd_time                o_atime;
+	obd_time                o_ctime;
         obd_blocks              o_blocks;       /* brw: cli sent cached bytes */
         obd_size                o_grant;
 
@@ -2814,8 +2829,10 @@ struct obdo {
                                                  * each stripe.
                                                  * brw: grant space consumed on
                                                  * the client for the write */
-        __u64                   o_padding_4;
-        __u64                   o_padding_5;
+	__u32                   o_mtime_ns;
+	__u32                   o_atime_ns;
+	__u32                   o_ctime_ns;
+	__u32                   o_padding_5;
         __u64                   o_padding_6;
 };
 

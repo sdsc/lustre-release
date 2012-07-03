@@ -199,9 +199,9 @@ struct iattr {
         uid_t           ia_uid;
         gid_t           ia_gid;
         loff_t          ia_size;
-        time_t          ia_atime;
-        time_t          ia_mtime;
-        time_t          ia_ctime;
+	struct timespec ia_mtime;
+	struct timespec ia_atime;
+	struct timespec ia_ctime;
         unsigned int    ia_attr_flags;
 };
 

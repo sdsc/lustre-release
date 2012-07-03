@@ -158,21 +158,36 @@ void llu_update_inode(struct inode *inode, struct lustre_md *md)
 			obd_free_memmd(llu_i2obdexp(inode), &md->lsm);
         }
 
-        if (body->valid & OBD_MD_FLATIME) {
-                if (body->atime > LTIME_S(st->st_atime))
-                        LTIME_S(st->st_atime) = body->atime;
-                lli->lli_lvb.lvb_atime = body->atime;
-        }
-        if (body->valid & OBD_MD_FLMTIME) {
-                if (body->mtime > LTIME_S(st->st_mtime))
-                        LTIME_S(st->st_mtime) = body->mtime;
-                lli->lli_lvb.lvb_mtime = body->mtime;
-        }
-        if (body->valid & OBD_MD_FLCTIME) {
-                if (body->ctime > LTIME_S(st->st_ctime))
-                        LTIME_S(st->st_ctime) = body->ctime;
-                lli->lli_lvb.lvb_ctime = body->ctime;
-        }
+	if (body->valid & OBD_MD_FLATIME) {
+		if (cfs_nanotime_after(body->atime, body->atime_ns,
+				       st->st_atim.tv_sec,
+				       st->st_atim.tv_nsec)) {
+			st->st_atim.tv_sec = body->atime;
+			st->st_atim.tv_nsec = body->atime_ns;
+		}
+		lli->lli_lvb.lvb_atime = body->atime;
+		lli->lli_lvb.lvb_atime_ns = body->atime_ns;
+	}
+	if (body->valid & OBD_MD_FLMTIME) {
+		if (cfs_nanotime_after(body->mtime, body->mtime_ns,
+				       st->st_mtim.tv_sec,
+				       st->st_mtim.tv_nsec)) {
+			st->st_mtim.tv_sec = body->mtime;
+			st->st_mtim.tv_nsec = body->mtime_ns;
+		}
+		lli->lli_lvb.lvb_mtime = body->mtime;
+		lli->lli_lvb.lvb_mtime_ns = body->mtime_ns;
+	}
+	if (body->valid & OBD_MD_FLCTIME) {
+		if (cfs_nanotime_after(body->ctime, body->ctime_ns,
+				       st->st_ctim.tv_sec,
+				       st->st_ctim.tv_nsec)) {
+			st->st_ctim.tv_sec = body->ctime;
+			st->st_ctim.tv_nsec = body->ctime_ns;
+		}
+		lli->lli_lvb.lvb_ctime = body->ctime;
+		lli->lli_lvb.lvb_ctime_ns = body->ctime_ns;
+	}
         if (S_ISREG(st->st_mode))
                 st->st_blksize = min(2UL * PTLRPC_MAX_BRW_SIZE, LL_MAX_BLKSIZE);
         else
@@ -226,18 +241,28 @@ void obdo_to_inode(struct inode *dst, struct obdo *src, obd_flag valid)
                  src->o_id, src->o_seq, valid);
 
         if (valid & (OBD_MD_FLCTIME | OBD_MD_FLMTIME))
-                CDEBUG(D_INODE,"valid "LPX64", cur time "CFS_TIME_T"/"CFS_TIME_T
-                       ", new %lu/%lu\n",
+		CDEBUG(D_INODE, "valid "LPX64", cur time %lu.%09lu/%lu.%09lu"
+		       ", new "LPU64".%09u/"LPU64".%09u\n",
                        src->o_valid,
-                       LTIME_S(st->st_mtime), LTIME_S(st->st_ctime),
-                       (long)src->o_mtime, (long)src->o_ctime);
+		       st->st_mtim.tv_sec, st->st_mtim.tv_nsec,
+		       st->st_ctim.tv_sec, st->st_ctim.tv_nsec,
+		       src->o_mtime, src->o_mtime_ns,
+		       src->o_ctime, src->o_ctime_ns);
 
-        if (valid & OBD_MD_FLATIME)
-                LTIME_S(st->st_atime) = src->o_atime;
-        if (valid & OBD_MD_FLMTIME)
-                LTIME_S(st->st_mtime) = src->o_mtime;
-        if (valid & OBD_MD_FLCTIME && src->o_ctime > LTIME_S(st->st_ctime))
-                LTIME_S(st->st_ctime) = src->o_ctime;
+	if (valid & OBD_MD_FLATIME) {
+		st->st_atim.tv_sec = src->o_atime;
+		st->st_atim.tv_nsec = src->o_atime_ns;
+	}
+	if (valid & OBD_MD_FLMTIME) {
+		st->st_mtim.tv_sec = src->o_mtime;
+		st->st_mtim.tv_nsec = src->o_mtime_ns;
+	}
+	if (valid & OBD_MD_FLCTIME &&
+	    cfs_nanotime_after(src->o_ctime, src->o_ctime_ns,
+			       st->st_ctim.tv_sec, st->st_ctim.tv_nsec)) {
+		st->st_ctim.tv_sec = src->o_ctime;
+		st->st_ctim.tv_nsec = src->o_ctime_ns;
+	}
         if (valid & OBD_MD_FLSIZE)
                 st->st_size = src->o_size;
         if (valid & OBD_MD_FLBLOCKS) /* allocation of space */
@@ -446,9 +471,12 @@ static int llu_inode_revalidate(struct inode *inode)
 
 	if (!lli->lli_has_smd) {
                 /* object not yet allocated, don't validate size */
-                st->st_atime = lli->lli_lvb.lvb_atime;
-                st->st_mtime = lli->lli_lvb.lvb_mtime;
-                st->st_ctime = lli->lli_lvb.lvb_ctime;
+		st->st_atim.tv_sec = lli->lli_lvb.lvb_atime;
+		st->st_atim.tv_nsec = lli->lli_lvb.lvb_atime_ns;
+		st->st_mtim.tv_sec = lli->lli_lvb.lvb_mtime;
+		st->st_mtim.tv_nsec = lli->lli_lvb.lvb_mtime_ns;
+		st->st_ctim.tv_sec = lli->lli_lvb.lvb_ctime;
+		st->st_ctim.tv_nsec = lli->lli_lvb.lvb_ctime_ns;
                 RETURN(0);
         }
 
@@ -566,12 +594,12 @@ static int inode_setattr(struct inode * inode, struct iattr * attr)
                 st->st_uid = attr->ia_uid;
         if (ia_valid & ATTR_GID)
                 st->st_gid = attr->ia_gid;
-        if (ia_valid & ATTR_ATIME)
-                st->st_atime = attr->ia_atime;
-        if (ia_valid & ATTR_MTIME)
-                st->st_mtime = attr->ia_mtime;
-        if (ia_valid & ATTR_CTIME)
-                st->st_ctime = attr->ia_ctime;
+	if (ia_valid & ATTR_ATIME)
+		st->st_atim = attr->ia_atime;
+	if (ia_valid & ATTR_MTIME)
+		st->st_mtim = attr->ia_mtime;
+	if (ia_valid & ATTR_CTIME)
+		st->st_ctim = attr->ia_ctime;
         if (ia_valid & ATTR_MODE) {
                 st->st_mode = attr->ia_mode;
                 if (!cfs_curproc_is_in_groups(st->st_gid) &&
@@ -676,6 +704,7 @@ int llu_setattr_raw(struct inode *inode, struct iattr *attr)
         struct md_op_data op_data = { { 0 } };
         struct md_open_data *mod = NULL;
         int rc = 0, rc1 = 0;
+	struct timespec now;
         ENTRY;
 
         CDEBUG(D_VFSTRACE, "VFS Op:inode=%llu\n", (long long)st->st_ino);
@@ -692,24 +721,26 @@ int llu_setattr_raw(struct inode *inode, struct iattr *attr)
         }
 
         /* We mark all of the fields "set" so MDS/OST does not re-set them */
-        if (attr->ia_valid & ATTR_CTIME) {
-                attr->ia_ctime = CFS_CURRENT_TIME;
-                attr->ia_valid |= ATTR_CTIME_SET;
-        }
-        if (!(ia_valid & ATTR_ATIME_SET) && (attr->ia_valid & ATTR_ATIME)) {
-                attr->ia_atime = CFS_CURRENT_TIME;
-                attr->ia_valid |= ATTR_ATIME_SET;
-        }
-        if (!(ia_valid & ATTR_MTIME_SET) && (attr->ia_valid & ATTR_MTIME)) {
-                attr->ia_mtime = CFS_CURRENT_TIME;
-                attr->ia_valid |= ATTR_MTIME_SET;
-        }
+	now = CFS_CURRENT_TIME;
+	if (attr->ia_valid & ATTR_CTIME) {
+		attr->ia_ctime = now;
+		attr->ia_valid |= ATTR_CTIME_SET;
+	}
+	if (!(ia_valid & ATTR_ATIME_SET) && (attr->ia_valid & ATTR_ATIME)) {
+		attr->ia_atime = now;
+		attr->ia_valid |= ATTR_ATIME_SET;
+	}
+	if (!(ia_valid & ATTR_MTIME_SET) && (attr->ia_valid & ATTR_MTIME)) {
+		attr->ia_mtime = now;
+		attr->ia_valid |= ATTR_MTIME_SET;
+	}
 
-        if (attr->ia_valid & (ATTR_MTIME | ATTR_CTIME))
-                CDEBUG(D_INODE, "setting mtime "CFS_TIME_T", ctime "CFS_TIME_T
-		       ", now = "CFS_TIME_T"\n",
-		       LTIME_S(attr->ia_mtime), LTIME_S(attr->ia_ctime),
-		       LTIME_S(CFS_CURRENT_TIME));
+	if (attr->ia_valid & (ATTR_MTIME | ATTR_CTIME))
+		CDEBUG(D_INODE, "setting mtime %lu.%09lu, ctime %lu.%09lu"
+				", now = %lu.%09lu\n",
+		       attr->ia_mtime.tv_sec, attr->ia_mtime.tv_nsec,
+		       attr->ia_ctime.tv_sec, attr->ia_ctime.tv_nsec,
+		       now.tv_sec, now.tv_nsec);
 
 	/* NB: ATTR_SIZE will only be set after this point if the size
 	 * resides on the MDS, ie, this file has no objects. */
@@ -802,14 +833,14 @@ static int llu_iop_setattr(struct pnode *pno,
                 iattr.ia_mode = stbuf->st_mode;
                 iattr.ia_valid |= ATTR_MODE;
         }
-        if (mask & SETATTR_MTIME) {
-                iattr.ia_mtime = stbuf->st_mtime;
-                iattr.ia_valid |= ATTR_MTIME | ATTR_MTIME_SET;
-        }
-        if (mask & SETATTR_ATIME) {
-                iattr.ia_atime = stbuf->st_atime;
-                iattr.ia_valid |= ATTR_ATIME | ATTR_ATIME_SET;
-        }
+	if (mask & SETATTR_MTIME) {
+		iattr.ia_mtime = stbuf->st_mtim;
+		iattr.ia_valid |= ATTR_MTIME | ATTR_MTIME_SET;
+	}
+	if (mask & SETATTR_ATIME) {
+		iattr.ia_atime = stbuf->st_atim;
+		iattr.ia_valid |= ATTR_ATIME | ATTR_ATIME_SET;
+	}
         if (mask & SETATTR_UID) {
                 iattr.ia_uid = stbuf->st_uid;
                 iattr.ia_valid |= ATTR_UID;

@@ -27,7 +27,7 @@
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  *
- * Copyright (c) 2011, Whamcloud, Inc.
+ * Copyright (c) 2011, 2012, Whamcloud, Inc.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -432,15 +432,18 @@ static int osc_io_setattr_start(const struct lu_env *env,
 				cl_valid = (CAT_SIZE | CAT_KMS);
 			}
 			if (ia_valid & ATTR_MTIME_SET) {
-				attr->cat_mtime = lvb->lvb_mtime;
+				attr->cat_mtime.tv_sec = lvb->lvb_mtime;
+				attr->cat_mtime.tv_nsec = lvb->lvb_mtime_ns;
 				cl_valid |= CAT_MTIME;
 			}
 			if (ia_valid & ATTR_ATIME_SET) {
-				attr->cat_atime = lvb->lvb_atime;
+				attr->cat_atime.tv_sec = lvb->lvb_atime;
+				attr->cat_atime.tv_nsec = lvb->lvb_atime_ns;
 				cl_valid |= CAT_ATIME;
 			}
 			if (ia_valid & ATTR_CTIME_SET) {
-				attr->cat_ctime = lvb->lvb_ctime;
+				attr->cat_ctime.tv_sec = lvb->lvb_ctime;
+				attr->cat_ctime.tv_nsec = lvb->lvb_ctime_ns;
                                 cl_valid |= CAT_CTIME;
                         }
                         result = cl_object_attr_set(env, obj, attr, cl_valid);
@@ -451,9 +454,12 @@ static int osc_io_setattr_start(const struct lu_env *env,
         if (result == 0) {
                 oa->o_id = loi->loi_id;
                 oa->o_seq = loi->loi_seq;
-                oa->o_mtime = attr->cat_mtime;
-                oa->o_atime = attr->cat_atime;
-                oa->o_ctime = attr->cat_ctime;
+		oa->o_mtime = attr->cat_mtime.tv_sec;
+		oa->o_mtime_ns = attr->cat_mtime.tv_nsec;
+		oa->o_atime = attr->cat_atime.tv_sec;
+		oa->o_atime_ns = attr->cat_atime.tv_nsec;
+		oa->o_ctime = attr->cat_ctime.tv_sec;
+		oa->o_ctime_ns = attr->cat_ctime.tv_nsec;
                 oa->o_valid = OBD_MD_FLID | OBD_MD_FLGROUP | OBD_MD_FLATIME |
                         OBD_MD_FLCTIME | OBD_MD_FLMTIME;
                 if (ia_valid & ATTR_SIZE) {
@@ -532,7 +538,7 @@ static int osc_io_read_start(const struct lu_env *env,
                 cl_object_attr_lock(obj);
                 result = cl_object_attr_get(env, obj, attr);
                 if (result == 0) {
-                        attr->cat_atime = LTIME_S(CFS_CURRENT_TIME);
+			attr->cat_atime = CFS_CURRENT_TIME;
                         result = cl_object_attr_set(env, obj, attr,
                                                     CAT_ATIME);
                 }
@@ -555,8 +561,7 @@ static int osc_io_write_start(const struct lu_env *env,
                 cl_object_attr_lock(obj);
                 result = cl_object_attr_get(env, obj, attr);
                 if (result == 0) {
-                        attr->cat_mtime = attr->cat_ctime =
-                                LTIME_S(CFS_CURRENT_TIME);
+			attr->cat_mtime = attr->cat_ctime = CFS_CURRENT_TIME;
                         result = cl_object_attr_set(env, obj, attr,
                                                     CAT_MTIME | CAT_CTIME);
                 }
@@ -758,14 +763,17 @@ static void osc_req_attr_set(const struct lu_env *env,
 
 	if ((flags & OBD_MD_FLMTIME) != 0) {
 		oa->o_mtime = lvb->lvb_mtime;
+		oa->o_mtime_ns = lvb->lvb_mtime_ns;
 		oa->o_valid |= OBD_MD_FLMTIME;
 	}
 	if ((flags & OBD_MD_FLATIME) != 0) {
 		oa->o_atime = lvb->lvb_atime;
+		oa->o_atime_ns = lvb->lvb_atime_ns;
 		oa->o_valid |= OBD_MD_FLATIME;
 	}
 	if ((flags & OBD_MD_FLCTIME) != 0) {
 		oa->o_ctime = lvb->lvb_ctime;
+		oa->o_ctime_ns = lvb->lvb_ctime_ns;
 		oa->o_valid |= OBD_MD_FLCTIME;
 	}
         if (flags & OBD_MD_FLID) {

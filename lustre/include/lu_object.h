@@ -413,14 +413,20 @@ enum lu_object_flags {
  * Common object attributes.
  */
 struct lu_attr {
+	/**
+	 * valid bits
+	 *
+	 * \see enum la_valid
+	 */
+	__u64          la_valid;
         /** size in bytes */
         __u64          la_size;
-        /** modification time in seconds since Epoch */
-        obd_time       la_mtime;
-        /** access time in seconds since Epoch */
-        obd_time       la_atime;
-        /** change time in seconds since Epoch */
-        obd_time       la_ctime;
+	/** modification time in seconds since Epoch */
+	obd_time        la_mtime;
+	/** access time in seconds since Epoch */
+	obd_time        la_atime;
+	/** change time in seconds since Epoch */
+	obd_time        la_ctime;
         /** 512-byte blocks allocated to object */
         __u64          la_blocks;
         /** permission bits and file type */
@@ -439,12 +445,12 @@ struct lu_attr {
         __u32          la_blksize;
         /** real device */
         __u32          la_rdev;
-        /**
-         * valid bits
-         *
-         * \see enum la_valid
-         */
-        __u64          la_valid;
+	/** nanosecond granularity on modification time */
+	__u32          la_mtime_ns;
+	/** nanosecond granularity on access time */
+	__u32          la_atime_ns;
+	/** nanosecond granularity on change time */
+	__u32          la_ctime_ns;
 };
 
 /** Bit-mask of valid attributes */

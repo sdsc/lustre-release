@@ -548,21 +548,24 @@ static int fsfilt_ext3_setattr(struct dentry *dentry, void *handle,
          * being stored on disk as an unsigned value.  This fixes up any
          * bad values held by the client before storing them on disk,
          * and ensures any timestamp updates are correct.  LU-1042 */
-        if (unlikely(LTIME_S(inode->i_atime) == LU221_BAD_TIME &&
+	if (unlikely(inode->i_atime.tv_sec == LU221_BAD_TIME &&
                      !(iattr->ia_valid & ATTR_ATIME))) {
                 iattr->ia_valid |= ATTR_ATIME;
-                LTIME_S(iattr->ia_atime) = 0;
+		iattr->ia_atime.tv_sec = 0;
+		iattr->ia_atime.tv_nsec = 0;
         }
-        if (unlikely(LTIME_S(inode->i_mtime) == LU221_BAD_TIME &&
+	if (unlikely(inode->i_mtime.tv_sec == LU221_BAD_TIME &&
                      !(iattr->ia_valid & ATTR_MTIME))) {
                 iattr->ia_valid |= ATTR_MTIME;
-                LTIME_S(iattr->ia_mtime) = 0;
+		iattr->ia_mtime.tv_sec = 0;
+		iattr->ia_mtime.tv_nsec = 0;
         }
-        if (unlikely((LTIME_S(inode->i_ctime) == LU221_BAD_TIME ||
-                      LTIME_S(inode->i_ctime) == 0) &&
+	if (unlikely((inode->i_ctime.tv_sec == LU221_BAD_TIME ||
+		      inode->i_ctime.tv_sec == 0) &&
                      !(iattr->ia_valid & ATTR_CTIME))) {
                 iattr->ia_valid |= ATTR_CTIME;
-                LTIME_S(iattr->ia_ctime) = 0;
+		iattr->ia_ctime.tv_sec = 0;
+		iattr->ia_ctime.tv_nsec = 0;
         }
 #else
 #warning "remove old LU-221/LU-1042 workaround code"
@@ -573,8 +576,8 @@ static int fsfilt_ext3_setattr(struct dentry *dentry, void *handle,
          * that this is potentially an invalid inode.  Files with an old ctime
          * migrated to a newly-formatted OST with a newer s_mkfs_time will not
          * hit this check, since it is only for ctime == 0.  LU-1010/LU-1042 */
-        if ((iattr->ia_valid & ATTR_CTIME) && LTIME_S(iattr->ia_ctime) == 0)
-                LTIME_S(iattr->ia_ctime) =
+	if ((iattr->ia_valid & ATTR_CTIME) && iattr->ia_ctime.tv_sec == 0)
+		iattr->ia_ctime.tv_sec =
                         EXT4_SB(inode->i_sb)->s_es->s_mkfs_time;
 
         /* Avoid marking the inode dirty on the superblock list unnecessarily.
@@ -591,6 +594,8 @@ static int fsfilt_ext3_setattr(struct dentry *dentry, void *handle,
                         inode->i_uid = iattr->ia_uid;
                 if (iattr->ia_valid & ATTR_GID)
                         inode->i_gid = iattr->ia_gid;
+		/* MAC time copies work here because lhs and rhs are struct
+		 * timespecs. */
                 if (iattr->ia_valid & ATTR_ATIME)
                         inode->i_atime = iattr->ia_atime;
                 if (iattr->ia_valid & ATTR_MTIME)
@@ -1603,8 +1608,8 @@ struct chk_dqblk{
         qsize_t                 dqb_ihardlimit;  /** inode hard limit */
         qsize_t                 dqb_isoftlimit;  /** inode soft limit */
         qsize_t                 dqb_curinodes;   /** current inodes */
-        obd_time                dqb_btime;       /** block grace time */
-        obd_time                dqb_itime;       /** inode grace time */
+	obd_time                dqb_btime;       /** block grace time */
+	obd_time                dqb_itime;       /** inode grace time */
         __u32                   dqb_valid;       /** flag for above fields */
 };
 
@@ -2298,7 +2303,7 @@ struct dentry *fsfilt_ext3_fid2dentry(struct vfsmount *mnt,
                 goto err_out;
 
         if (inode->i_nlink == 0 &&
-            inode->i_mode == 0 && LTIME_S(inode->i_ctime) == 0) {
+	    inode->i_mode == 0 && inode->i_ctime.tv_sec == 0) {
                 LCONSOLE_WARN("Found inode with zero nlink, mode and"
                               " ctime -- this may indicate disk "
                               "corruption (inode: %lu, link: %lu, "

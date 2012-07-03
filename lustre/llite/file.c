@@ -791,18 +791,21 @@ int ll_merge_lvb(struct inode *inode)
 int ll_glimpse_ioctl(struct ll_sb_info *sbi, struct lov_stripe_md *lsm,
                      lstat_t *st)
 {
-        struct obdo obdo = { 0 };
-        int rc;
+	struct obdo obdo = { 0 };
+	int rc;
 
-        rc = ll_lsm_getattr(lsm, sbi->ll_dt_exp, NULL, &obdo, 0, 0);
-        if (rc == 0) {
-                st->st_size   = obdo.o_size;
-                st->st_blocks = obdo.o_blocks;
-                st->st_mtime  = obdo.o_mtime;
-                st->st_atime  = obdo.o_atime;
-                st->st_ctime  = obdo.o_ctime;
-        }
-        return rc;
+	rc = ll_lsm_getattr(lsm, sbi->ll_dt_exp, NULL, &obdo, 0, 0);
+	if (rc == 0) {
+		st->st_size = obdo.o_size;
+		st->st_blocks = obdo.o_blocks;
+		st->st_mtime = obdo.o_mtime;
+		st->st_mtime_nsec = obdo.o_mtime_ns;
+		st->st_atime = obdo.o_atime;
+		st->st_atime_nsec = obdo.o_atime_ns;
+		st->st_ctime = obdo.o_ctime;
+		st->st_ctime_nsec = obdo.o_ctime_ns;
+	}
+	return rc;
 }
 
 void ll_io_init(struct cl_io *io, const struct file *file, int write)
