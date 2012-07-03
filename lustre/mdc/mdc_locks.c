@@ -685,6 +685,11 @@ resend:
         if (IS_ERR(req))
                 RETURN(PTR_ERR(req));
 
+	if (req != NULL && it && it->it_op & IT_CREAT)
+		/* ask ptlrpc not to resend on EINPROGRESS since we have our own
+		 * retry logic */
+		req->rq_no_retry_einprogress = 1;
+
         if (resends) {
                 req->rq_generation_set = 1;
                 req->rq_import_generation = generation;
@@ -743,7 +748,7 @@ resend:
                 if (generation == obddev->u.cli.cl_import->imp_generation) {
                         goto resend;
                 } else {
-                        CDEBUG(D_HA, "resned cross eviction\n");
+                        CDEBUG(D_HA, "resend cross eviction\n");
                         RETURN(-EIO);
                 }
         }
