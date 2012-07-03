@@ -96,9 +96,9 @@ do {                                            \
 	(dest)->st_gid     = (src)->st_gid;     \
 	(dest)->st_rdev    = (src)->st_rdev;    \
 	(dest)->st_size    = (src)->st_size;    \
-	(dest)->st_atime   = (src)->st_atime;   \
-	(dest)->st_mtime   = (src)->st_mtime;   \
-	(dest)->st_ctime   = (src)->st_ctime;   \
+	(dest)->st_atim    = (src)->st_atim;   \
+	(dest)->st_mtim    = (src)->st_mtim;   \
+	(dest)->st_ctim    = (src)->st_ctim;   \
 	(dest)->st_blksize = (src)->st_blksize; \
 	(dest)->st_blocks  = (src)->st_blocks;  \
 	(dest)->st_flags   = (src)->st_flags;   \
@@ -116,9 +116,9 @@ do {                                            \
 	(dest)->st_gid     = (src)->st_gid;     \
 	(dest)->st_rdev    = (src)->st_rdev;    \
 	(dest)->st_size    = (src)->st_size;    \
-	(dest)->st_atime   = (src)->st_atime;   \
-	(dest)->st_mtime   = (src)->st_mtime;   \
-	(dest)->st_ctime   = (src)->st_ctime;   \
+	(dest)->st_atim    = (src)->st_atim;   \
+	(dest)->st_mtim    = (src)->st_mtim;   \
+	(dest)->st_ctim    = (src)->st_ctim;   \
 	(dest)->st_blksize = (src)->st_blksize; \
 	(dest)->st_blocks  = (src)->st_blocks;  \
 } while (0)

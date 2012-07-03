@@ -2206,14 +2206,35 @@ test_38() {
 }
 run_test 38 "open a regular file with O_DIRECTORY should return -ENOTDIR ==="
 
+# NOTE FOR NANOSECOND-CAPABLE LUSTRE ONLY:
+# Some of the following tests (39X) have an infinitesimally small chance of
+# failure even if the system is actually working correctly. If a modification
+# occurs at some *exact* multiple of seconds after another, the nanosecond
+# time stamps will read the same, and this will be considered a problem.
+# Scheduling and such help to keep this from happening in the general case,
+# but maybe real-time systems will get hammered here?
+get_ns_mtime() {
+        echo "$(stat -c '%y' $1 | awk '{ print $2 }' | \
+                sed 's/^.*\.\(.*\)$/\1/g')"
+}
+NANOTIME_SUPPORTED="$(lctl get_param mdc.*-mdc-*.connect_flags | \
+                      grep nanosecond_times)"
+
 test_39() {
 	touch $DIR/$tfile
 	touch $DIR/${tfile}2
-#	ls -l  $DIR/$tfile $DIR/${tfile}2
-#	ls -lu  $DIR/$tfile $DIR/${tfile}2
-#	ls -lc  $DIR/$tfile $DIR/${tfile}2
 	sleep 2
 	$OPENFILE -f O_CREAT:O_TRUNC:O_WRONLY $DIR/${tfile}2
+
+        if [ -n $NANOTIME_SUPPORTED ]; then
+                local mtime_ns=`get_ns_mtime $DIR/$tfile`
+                [ $mtime_ns != "000000000" ] || error "touch doesn't set nanotime"
+                mtime_ns=`get_ns_mtime $DIR/${tfile}2`
+                [ $mtime_ns != "000000000" ] || error "create doesn't set nanotime"
+        else
+                skip "nanosecond time"
+        fi
+
 	if [ ! $DIR/${tfile}2 -nt $DIR/$tfile ]; then
 		echo "mtime"
 		ls -l --full-time $DIR/$tfile $DIR/${tfile}2
@@ -2245,6 +2266,29 @@ test_39b() {
 	local unlink_new=`stat -c %Y $DIR/$tdir/funlink`
 	local rename_new=`stat -c %Y $DIR/$tdir/frename`
 
+        local open_new_ns=""
+        local link_new_ns=""
+        local unlink_new_ns=""
+        local rename_new_ns=""
+
+        if [ -n $NANOTIME_SUPPORTED ]; then
+               open_new_ns=`get_ns_mtime $DIR/$tdir/fopen`
+               link_new_ns=`get_ns_mtime $DIR/$tdir/flink`
+               unlink_new_ns=`get_ns_mtime $DIR/$tdir/funlink`
+               rename_new_ns=`get_ns_mtime $DIR/$tdir/frename`
+
+               [ $open_new_ns != "000000000" ] || \
+                       error "nanotime not recorded on open"
+               [ $link_new_ns != "000000000" ] || \
+                       error "nanotime not recorded on link"
+               [ $unlink_new_ns != "000000000" ] || \
+                       error "nanotime not recorded on unlink"
+               [ $rename_new_ns != "000000000" ] || \
+                       error "nanotime not recorded on rename"
+        else
+                skip "nanosecond time"
+        fi
+
 	cat $DIR/$tdir/fopen > /dev/null
 	ln $DIR/$tdir/flink $DIR/$tdir/flink2
 	rm -f $DIR/$tdir/funlink2
@@ -2256,10 +2300,31 @@ test_39b() {
 		local unlink_new2=`stat -c %Y $DIR/$tdir/funlink`
 		local rename_new2=`stat -c %Y $DIR/$tdir/frename2`
 
+                local open_new2_ns=""
+                local link_new2_ns=""
+                local unlink_new2_ns=""
+                local rename_new2_ns=""
+
 		[ $open_new2 -eq $open_new ] || error "open file reverses mtime"
 		[ $link_new2 -eq $link_new ] || error "link file reverses mtime"
 		[ $unlink_new2 -eq $unlink_new ] || error "unlink file reverses mtime"
 		[ $rename_new2 -eq $rename_new ] || error "rename file reverses mtime"
+
+                if [ -n $NANOTIME_SUPPORTED ]; then
+                        open_new2_ns=`get_ns_mtime $DIR/$tdir/fopen`
+                        link_new2_ns=`get_ns_mtime $DIR/$tdir/flink`
+                        unlink_new2_ns=`get_ns_mtime $DIR/$tdir/funlink`
+                        rename_new2_ns=`get_ns_mtime $DIR/$tdir/frename2`
+
+                        [ $open_new2_ns = $open_new_ns ] || \
+                                error "open file reverse nano mtime"
+                        [ $link_new2_ns = $link_new_ns ] || \
+                                error "link file reverses nano mtime"
+                        [ $unlink_new2_ns = $unlink_new_ns ] || \
+                                error "unlink file reverses nano mtime"
+                        [ $rename_new2_ns = $rename_new_ns ] || \
+                                error "rename file reverses nano mtime"
+                fi
 
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
@@ -2269,24 +2334,40 @@ run_test 39b "mtime change on open, link, unlink, rename  ======"
 
 # this should be set to past
 TEST_39_MTIME=`date -d "1 year ago" +%s`
+TEST_39_MTIMENS='013371337' # random non-zero nanosecond value
 
 # bug 11063
 test_39c() {
 	touch $DIR1/$tfile
 	sleep 2
 	local mtime0=`stat -c %Y $DIR1/$tfile`
+        if [ -z $NANOTIME_SUPPORTED ]; then
+                skip "nanosecond time"
+        fi
 
 	touch -m -d @$TEST_39_MTIME $DIR1/$tfile
 	local mtime1=`stat -c %Y $DIR1/$tfile`
 	[ "$mtime1" = $TEST_39_MTIME ] || \
 		error "mtime is not set to past: $mtime1, should be $TEST_39_MTIME"
+        if [ -n $NANOTIME_SUPPORTED ]; then
+                touch -m -d "@$TEST_39_MTIME.$TEST_39_MTIMENS" $DIR1/$tfile
+                local mtime1_ns=`get_ns_mtime $DIR1/$tfile`
+                [ $mtime1_ns = $TEST_39_MTIMENS ] || \
+                        error "nano mtime not set to test value: $mtime1_ns"
+        fi
 
 	local d1=`date +%s`
 	echo hello >> $DIR1/$tfile
 	local d2=`date +%s`
 	local mtime2=`stat -c %Y $DIR1/$tfile`
+        local mtime2_ns=""
 	[ "$mtime2" -ge "$d1" ] && [ "$mtime2" -le "$d2" ] || \
 		error "mtime is not updated on write: $d1 <= $mtime2 <= $d2"
+        if [ -n $NANOTIME_SUPPORTED ]; then
+                mtime2_ns=`get_ns_mtime $DIR1/$tfile`
+                [ $mtime2_ns != $TEST_39_MTIMENS ] || \
+                        error "nano mtime is not updated on write: still $mtime2_ns"
+        fi
 
 	mv $DIR1/$tfile $DIR1/$tfile-1
 
@@ -2294,6 +2375,11 @@ test_39c() {
 		local mtime3=`stat -c %Y $DIR1/$tfile-1`
 		[ "$mtime2" = "$mtime3" ] || \
 			error "mtime ($mtime2) changed (to $mtime3) on rename"
+                if [ -n $NANOTIME_SUPPORTED ]; then
+                        local mtime3_ns=`get_ns_mtime $DIR1/$tfile-1`
+                        [ $mtime2_ns = $mtime3_ns ] || \
+                                error "nano mtime ($mtime2_ns) changed (to $mtime3_ns) on rename"
+                fi
 
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
@@ -2306,11 +2392,21 @@ test_39d() {
 	touch $DIR1/$tfile
 
 	touch -m -d @$TEST_39_MTIME $DIR1/$tfile
+        if [ -n $NANOTIME_SUPPORTED ]; then
+                touch -m -d "@$TEST_39_MTIME.$TEST_39_MTIMENS" $DIR1/$tfile
+        else
+                skip "nanosecond time"
+        fi
 
 	for (( i=0; i < 2; i++ )) ; do
 		local mtime=`stat -c %Y $DIR1/$tfile`
 		[ $mtime = $TEST_39_MTIME ] || \
 			error "mtime($mtime) is not set to $TEST_39_MTIME"
+                if [ -n $NANOTIME_SUPPORTED ]; then
+                        local mtime_ns=`get_ns_mtime $DIR1/$tfile`
+                        [ $mtime_ns = $TEST_39_MTIMENS ] || \
+                                error "nano mtime($mtime_ns) is not set to $TEST_39_MTIMENS"
+                fi
 
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
@@ -2324,11 +2420,21 @@ test_39e() {
 	local mtime1=`stat -c %Y $DIR1/$tfile`
 
 	touch -m -d @$TEST_39_MTIME $DIR1/$tfile
+        if [ -n $NANOTIME_SUPPORTED ]; then
+                touch -m -d "@$TEST_39_MTIME.$TEST_39_MTIMENS" $DIR1/$tfile
+        else
+                skip "nanosecond time"
+        fi
 
 	for (( i=0; i < 2; i++ )) ; do
 		local mtime2=`stat -c %Y $DIR1/$tfile`
 		[ $mtime2 = $TEST_39_MTIME ] || \
 			error "mtime($mtime2) is not set to $TEST_39_MTIME"
+                if [ -n $NANOTIME_SUPPORTED ]; then
+                        local mtime2_ns=`get_ns_mtime $DIR1/$tfile`
+                        [ $mtime2_ns = $TEST_39_MTIMENS ] || \
+                                error "nano mtime($mtime2_ns) is not set to $TEST_39_MTIMENS"
+                fi
 
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
@@ -2343,11 +2449,21 @@ test_39f() {
 
 	sleep 2
 	touch -m -d @$TEST_39_MTIME $DIR1/$tfile
+        if [ -n $NANOTIME_SUPPORTED ]; then
+                touch -m -d "@$TEST_39_MTIME.$TEST_39_MTIMENS" $DIR1/$tfile
+        else
+                skip "nanosecond time"
+        fi
 
 	for (( i=0; i < 2; i++ )) ; do
 		local mtime2=`stat -c %Y $DIR1/$tfile`
 		[ $mtime2 = $TEST_39_MTIME ] || \
 			error "mtime($mtime2) is not set to $TEST_39_MTIME"
+                if [ -n $NANOTIME_SUPPORTED ]; then
+                        local mtime2_ns=`get_ns_mtime $DIR1/$tfile`
+                        [ $mtime2_ns = $TEST_39_MTIMENS ] || \
+                                error "nano mtime($mtime2_ns) is not set to $TEST_39_MTIMENS"
+                fi
 
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
@@ -2359,6 +2475,12 @@ run_test 39f "create, stat, sleep, utime, stat ================="
 test_39g() {
 	echo hello >> $DIR1/$tfile
 	local mtime1=`stat -c %Y $DIR1/$tfile`
+        local mtime1_ns=""
+        if [ -n $NANOTIME_SUPPORTED ]; then
+                mtime1_ns=`get_ns_mtime $DIR1/$tfile`
+        else
+                skip "nanosecond time"
+        fi
 
 	sleep 2
 	chmod o+r $DIR1/$tfile
@@ -2367,7 +2489,11 @@ test_39g() {
 		local mtime2=`stat -c %Y $DIR1/$tfile`
 		[ "$mtime1" = "$mtime2" ] || \
 			error "lost mtime: $mtime2, should be $mtime1"
-
+                if [ -n $NANOTIME_SUPPORTED ]; then
+                        local mtime2_ns=`get_ns_mtime $DIR1/$tfile`
+                        [ $mtime1_ns = $mtime2_ns ] || \
+                                error "lost nano mtime: $mtime2_ns, should be $mtime1_ns"
+                fi
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
 	done
@@ -2379,12 +2505,30 @@ test_39h() {
 	touch $DIR1/$tfile
 	sleep 1
 
-	local d1=`date`
-	echo hello >> $DIR1/$tfile
-	local mtime1=`stat -c %Y $DIR1/$tfile`
+        local d1=""
+        local d2=""
+        local mtime1=""
+        local mtime1_ns=""
 
-	touch -m -d @$TEST_39_MTIME $DIR1/$tfile
-	local d2=`date`
+        if [ -z $NANOTIME_SUPPORTED ]; then
+                skip "nanosecond time"
+
+	        d1=`date`
+	        echo hello >> $DIR1/$tfile
+	        mtime1=`stat -c %Y $DIR1/$tfile`
+
+	        touch -m -d @$TEST_39_MTIME $DIR1/$tfile
+	        d2=`date`
+        else
+                d1=`date`
+                echo hello >> $DIR1/$tfile
+                mtime1=`stat -c %Y $DIR1/$tfile`
+                mtime1_ns=`get_ns_mtime $DIR1/$tfile`
+
+                touch -m -d "@$TEST_39_MTIME.$TEST_39_MTIMENS" $DIR1/$tfile
+                d2=`date`
+        fi
+
 	if [ "$d1" != "$d2" ]; then
 		echo "write and touch not within one second"
 	else
@@ -2392,6 +2536,11 @@ test_39h() {
 			local mtime2=`stat -c %Y $DIR1/$tfile`
 			[ "$mtime2" = $TEST_39_MTIME ] || \
 				error "lost mtime: $mtime2, should be $TEST_39_MTIME"
+                        if [ -n $NANOTIME_SUPPORTED ]; then
+                                local mtime2_ns=`get_ns_mtime $DIR1/$tfile`
+                                [ $mtime2_ns = $TEST_39_MTIMENS ] || \
+                                        error "lost nano mtime: $mtime2_ns, should be $TEST_39_MTIMENS"
+                        fi
 
 			cancel_lru_locks osc
 			if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
@@ -2406,6 +2555,12 @@ test_39i() {
 
 	echo hello >> $DIR1/$tfile
 	local mtime1=`stat -c %Y $DIR1/$tfile`
+        local mtime1_ns=""
+        if [ -n $NANOTIME_SUPPORTED ]; then
+                mtime1_ns=`get_ns_mtime $DIR1/$tfile`
+        else
+                skip "nanosecond time"
+        fi
 
 	mv $DIR1/$tfile $DIR1/$tfile-1
 
@@ -2414,6 +2569,11 @@ test_39i() {
 
 		[ "$mtime1" = "$mtime2" ] || \
 			error "lost mtime: $mtime2, should be $mtime1"
+                if [ -n $NANOTIME_SUPPORTED ]; then
+                        local mtime2_ns=`get_ns_mtime $DIR1/$tfile-1`
+                        [ $mtime2_ns = $mtime1_ns ] || \
+                                error "lost nano mtime: $mtime2_ns, should be $mtime1_ns"
+                fi
 
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
@@ -2432,6 +2592,12 @@ test_39j() {
 		error "multiop failed"
 	local multipid=$!
 	local mtime1=`stat -c %Y $DIR1/$tfile`
+        local mtime1_ns=""
+        if [ -n $NANOTIME_SUPPORTED ]; then
+                mtime1_ns=`get_ns_mtime $DIR1/$tfile`
+        else
+                skip "nanosecond time"
+        fi
 
 	mv $DIR1/$tfile $DIR1/$tfile-1
 
@@ -2440,10 +2606,13 @@ test_39j() {
 
 	for (( i=0; i < 2; i++ )) ; do
 		local mtime2=`stat -c %Y $DIR1/$tfile-1`
-		[ "$mtime1" = "$mtime2" ] ||
-			error "mtime is lost on close: $mtime2, " \
-			      "should be $mtime1"
-
+		[ "$mtime1" = "$mtime2" ] || \
+			error "mtime is lost on close: $mtime2, should be $mtime1"
+                if [ -n $NANOTIME_SUPPORTED ]; then
+                        local mtime2_ns=`get_ns_mtime $DIR1/$tfile-1`
+                        [ $mtime2_ns = $mtime1_ns ] || \
+                                error "nano mtime is lost on close: $mtime2_ns, should be $mtime1_ns"
+                fi
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
 	done
@@ -2459,8 +2628,14 @@ test_39k() {
 	multiop_bg_pause $DIR1/$tfile oO_RDWR:w2097152_c || error "multiop failed"
 	local multipid=$!
 	local mtime1=`stat -c %Y $DIR1/$tfile`
-
-	touch -m -d @$TEST_39_MTIME $DIR1/$tfile
+        local mtime1_ns=""
+        if [ -n $NANOTIME_SUPPORTED ]; then
+                mtime1_ns=`get_ns_mtime $DIR1/$tfile`
+                touch -m -d "@$TEST_39_MTIME.$TEST_39_MTIMENS" $DIR1/$tfile
+        else
+                skip "nanosecond time"
+	        touch -m -d @$TEST_39_MTIME $DIR1/$tfile
+        fi
 
 	kill -USR1 $multipid
 	wait $multipid || error "multiop close failed"
@@ -2470,6 +2645,11 @@ test_39k() {
 
 		[ "$mtime2" = $TEST_39_MTIME ] || \
 			error "mtime is lost on close: $mtime2, should be $TEST_39_MTIME"
+                if [ -n $NANOTIME_SUPPORTED ]; then
+                        local mtime2_ns=`get_ns_mtime $DIR1/$tfile`
+                        [ $mtime2_ns = $TEST_39_MTIMENS ] || \
+                                error "nano mtime is lost on close: $mtime2_ns, should be $TEST_39_MTIMENS"
+                fi
 
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
@@ -9371,6 +9551,7 @@ test_227() {
 	rm -f $MOUNT/date
 }
 run_test 227 "running truncated executable does not cause OOM"
+
 
 #
 # tests that do cleanup/setup should be run at the end

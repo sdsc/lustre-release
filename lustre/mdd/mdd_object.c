@@ -1696,8 +1696,10 @@ static int mdd_attr_set(const struct lu_env *env, struct md_object *obj,
                 handle->th_sync |= !!mdd->mdd_sync_permission;
 
         if (ma->ma_attr.la_valid & (LA_MTIME | LA_CTIME))
-                CDEBUG(D_INODE, "setting mtime "LPU64", ctime "LPU64"\n",
-                       ma->ma_attr.la_mtime, ma->ma_attr.la_ctime);
+		CDEBUG(D_INODE, "setting mtime "LPU64".%09u, "
+				"ctime "LPU64".%09u\n",
+		       ma->ma_attr.la_mtime, ma->ma_attr.la_mtime_ns,
+		       ma->ma_attr.la_ctime, ma->ma_attr.la_ctime_ns);
 
 #ifdef HAVE_QUOTA_SUPPORT
         if (mds->mds_quota && la_copy->la_valid & (LA_UID | LA_GID)) {
@@ -2029,6 +2031,7 @@ static int mdd_ref_del(const struct lu_env *env, struct md_object *obj,
 
         LASSERT(ma->ma_attr.la_valid & LA_CTIME);
         la_copy->la_ctime = ma->ma_attr.la_ctime;
+	la_copy->la_ctime_ns = ma->ma_attr.la_ctime_ns;
 
         la_copy->la_valid = LA_CTIME;
         rc = mdd_attr_check_set_internal(env, mdd_obj, la_copy, handle, 0);
@@ -2241,6 +2244,7 @@ static int mdd_ref_add(const struct lu_env *env, struct md_object *obj,
         if (rc == 0) {
                 LASSERT(ma->ma_attr.la_valid & LA_CTIME);
                 la_copy->la_ctime = ma->ma_attr.la_ctime;
+		la_copy->la_ctime_ns = ma->ma_attr.la_ctime_ns;
 
                 la_copy->la_valid = LA_CTIME;
                 rc = mdd_attr_check_set_internal_locked(env, mdd_obj, la_copy,

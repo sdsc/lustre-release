@@ -50,6 +50,7 @@
 #endif
 
 #ifdef __KERNEL__
+#include <linux/time.h>
 
 #ifdef LIBCFS_DEBUG
 
@@ -263,6 +264,7 @@ int libcfs_debug_mark_buffer(const char *text);
 void libcfs_debug_set_level(unsigned int debug_level);
 
 #else  /* !__KERNEL__ */
+# include <sys/time.h>
 # ifdef LIBCFS_DEBUG
 #  undef NDEBUG
 #  include <assert.h>
@@ -580,9 +582,17 @@ int         cfs_match_nid(lnet_nid_t nid, cfs_list_t *list);
 /* logical equivalence */
 #define equi(a, b) (!!(a) == !!(b))
 
-#ifndef CFS_CURRENT_TIME
-# define CFS_CURRENT_TIME time(0)
+static inline struct timespec cfs_current_time(void)
+{
+	struct timespec now;
+#ifdef __KERNEL__
+	getnstimeofday(&now);
+#else
+	clock_gettime(CLOCK_REALTIME, &now);
 #endif
+	return now;
+}
+#define CFS_CURRENT_TIME cfs_current_time()
 
 /* --------------------------------------------------------------------
  * Light-weight trace

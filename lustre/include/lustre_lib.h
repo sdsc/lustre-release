@@ -137,6 +137,19 @@ void l_lock(struct lustre_lock *);
 void l_unlock(struct lustre_lock *);
 int l_has_lock(struct lustre_lock *);
 
+/* Comparing nanotimes; effectively lhs > rhs operation where lhs and rhs
+ * are (second, nanosecond) time pairs. */
+static inline int ll_nanotime_after(__u64 lhs_sec, __u32 lhs_nsec,
+				    __u64 rhs_sec, __u32 rhs_nsec)
+{
+	if (lhs_sec > rhs_sec)
+		return 1;
+	else if (lhs_sec == rhs_sec)
+		return lhs_nsec > rhs_nsec;
+	else
+		return 0;
+}
+
 /*
  * For md echo client
  */

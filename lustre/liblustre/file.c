@@ -79,6 +79,8 @@ void llu_prep_md_op_data(struct md_op_data *op_data, struct inode *i1,
                          struct inode *i2, const char *name, int namelen,
                          int mode, __u32 opc)
 {
+	struct timespec now;
+
         LASSERT(i1 != NULL || i2 != NULL);
         LASSERT(op_data);
 
@@ -95,11 +97,13 @@ void llu_prep_md_op_data(struct md_op_data *op_data, struct inode *i1,
         else
                 fid_zero(&op_data->op_fid2);
 
+	now = CFS_CURRENT_TIME;
         op_data->op_opc = opc;
         op_data->op_name = name;
         op_data->op_mode = mode;
         op_data->op_namelen = namelen;
-        op_data->op_mod_time = CFS_CURRENT_TIME;
+	op_data->op_mod_time = now.tv_sec;
+	op_data->op_mod_time_ns = now.tv_nsec;
         op_data->op_data = NULL;
 }
 
@@ -111,18 +115,32 @@ void obdo_refresh_inode(struct inode *dst,
         valid &= src->o_valid;
 
         if (valid & (OBD_MD_FLCTIME | OBD_MD_FLMTIME))
-                CDEBUG(D_INODE,"valid "LPX64", cur time "CFS_TIME_T"/"CFS_TIME_T
-		       ", new %lu/%lu\n",
-                       src->o_valid, LTIME_S(st->st_mtime),
-                       LTIME_S(st->st_ctime),
-                       (long)src->o_mtime, (long)src->o_ctime);
+		CDEBUG(D_INODE, "valid "LPX64", cur time %lu.%09lu/%lu.%09lu"
+		       ", new "LPU64".%09u/"LPU64".%09u\n",
+		       src->o_valid,
+		       st->st_mtim.tv_sec, st->st_mtim.tv_nsec,
+		       st->st_ctim.tv_sec, st->st_ctim.tv_nsec,
+		       src->o_mtime, src->o_mtime_ns,
+		       src->o_ctime, src->o_ctime_ns);
 
-        if (valid & OBD_MD_FLATIME && src->o_atime > LTIME_S(st->st_atime))
-                LTIME_S(st->st_atime) = src->o_atime;
-        if (valid & OBD_MD_FLMTIME && src->o_mtime > LTIME_S(st->st_mtime))
-                LTIME_S(st->st_mtime) = src->o_mtime;
-        if (valid & OBD_MD_FLCTIME && src->o_ctime > LTIME_S(st->st_ctime))
-                LTIME_S(st->st_ctime) = src->o_ctime;
+	if (valid & OBD_MD_FLATIME &&
+	    ll_nanotime_after(src->o_atime, src->o_atime_ns,
+			      st->st_atim.tv_sec, st->st_atim.tv_nsec)) {
+		st->st_atim.tv_sec = src->o_atime;
+		st->st_atim.tv_nsec = src->o_atime_ns;
+	}
+	if (valid & OBD_MD_FLMTIME &&
+	    ll_nanotime_after(src->o_mtime, src->o_mtime_ns,
+			      st->st_mtim.tv_sec, st->st_mtim.tv_nsec)) {
+		st->st_mtim.tv_sec = src->o_mtime;
+		st->st_mtim.tv_nsec = src->o_mtime_ns;
+	}
+	if (valid & OBD_MD_FLCTIME &&
+	    ll_nanotime_after(src->o_ctime, src->o_ctime_ns,
+			      st->st_ctim.tv_sec, st->st_ctim.tv_nsec)) {
+		st->st_ctim.tv_sec = src->o_ctime;
+		st->st_ctim.tv_nsec = src->o_ctime_ns;
+	}
         if (valid & OBD_MD_FLSIZE && src->o_size > st->st_size)
                 st->st_size = src->o_size;
         /* optimum IO size */
@@ -360,9 +378,9 @@ void llu_pack_inode2opdata(struct inode *inode, struct md_op_data *op_data,
         ENTRY;
 
         op_data->op_fid1 = lli->lli_fid;
-        op_data->op_attr.ia_atime = st->st_atime;
-        op_data->op_attr.ia_mtime = st->st_mtime;
-        op_data->op_attr.ia_ctime = st->st_ctime;
+	op_data->op_attr.ia_atime = st->st_atim;
+	op_data->op_attr.ia_mtime = st->st_mtim;
+	op_data->op_attr.ia_ctime = st->st_ctim;
         op_data->op_attr.ia_size = st->st_size;
         op_data->op_attr_blocks = st->st_blocks;
         op_data->op_attr.ia_attr_flags = lli->lli_st_flags;

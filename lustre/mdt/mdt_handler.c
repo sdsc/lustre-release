@@ -403,8 +403,11 @@ void mdt_pack_attr2body(struct mdt_thread_info *info, struct mdt_body *b,
         LASSERT(ma->ma_valid & MA_INODE);
 
         b->atime      = attr->la_atime;
+	b->atime_ns   = attr->la_atime_ns;
         b->mtime      = attr->la_mtime;
+	b->mtime_ns   = attr->la_mtime_ns;
         b->ctime      = attr->la_ctime;
+	b->ctime_ns   = attr->la_ctime_ns;
         b->mode       = attr->la_mode;
         b->size       = attr->la_size;
         b->blocks     = attr->la_blocks;
@@ -1329,6 +1332,7 @@ static int mdt_write_dir_page(struct mdt_thread_info *info, struct page *page,
          * and no permission check for name_insert.
          */
         ma->ma_attr.la_ctime = 0;
+	ma->ma_attr.la_ctime_ns = 0;
         ma->ma_attr.la_valid = LA_MODE;
         ma->ma_valid = MA_INODE;
 
@@ -1550,7 +1554,6 @@ static int mdt_reint_internal(struct mdt_thread_info *info,
         struct mdt_body         *repbody;
         int                      rc = 0, rc2;
         ENTRY;
-
 
         rc = mdt_reint_unpack(info, op);
         if (rc != 0) {

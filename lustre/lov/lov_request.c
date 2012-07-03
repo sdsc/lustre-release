@@ -594,7 +594,6 @@ static int lov_update_create_set(struct lov_request_set *set,
         req->rq_stripe = cfs_atomic_read(&set->set_success);
         loi = lsm->lsm_oinfo[req->rq_stripe];
 
-
         if (rc) {
                 lov_update_set(set, req, rc);
                 cfs_spin_unlock(&set->set_lock);
@@ -1190,15 +1189,24 @@ int lov_update_setattr_set(struct lov_request_set *set,
                 rc = 0;
 
         if (rc == 0) {
-                if (req->rq_oi.oi_oa->o_valid & OBD_MD_FLCTIME)
+		if (req->rq_oi.oi_oa->o_valid & OBD_MD_FLCTIME) {
                         lsm->lsm_oinfo[req->rq_stripe]->loi_lvb.lvb_ctime =
                                 req->rq_oi.oi_oa->o_ctime;
-                if (req->rq_oi.oi_oa->o_valid & OBD_MD_FLMTIME)
+			lsm->lsm_oinfo[req->rq_stripe]->loi_lvb.lvb_ctime_ns =
+				req->rq_oi.oi_oa->o_ctime_ns;
+		}
+		if (req->rq_oi.oi_oa->o_valid & OBD_MD_FLMTIME) {
                         lsm->lsm_oinfo[req->rq_stripe]->loi_lvb.lvb_mtime =
                                 req->rq_oi.oi_oa->o_mtime;
-                if (req->rq_oi.oi_oa->o_valid & OBD_MD_FLATIME)
+			lsm->lsm_oinfo[req->rq_stripe]->loi_lvb.lvb_mtime_ns =
+				req->rq_oi.oi_oa->o_mtime_ns;
+		}
+		if (req->rq_oi.oi_oa->o_valid & OBD_MD_FLATIME) {
                         lsm->lsm_oinfo[req->rq_stripe]->loi_lvb.lvb_atime =
                                 req->rq_oi.oi_oa->o_atime;
+			lsm->lsm_oinfo[req->rq_stripe]->loi_lvb.lvb_atime_ns =
+				req->rq_oi.oi_oa->o_atime_ns;
+		}
         }
 
         RETURN(rc);

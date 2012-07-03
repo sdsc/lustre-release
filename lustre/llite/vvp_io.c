@@ -79,7 +79,8 @@ static int vvp_io_fault_iter_init(const struct lu_env *env,
 
         LASSERT(inode ==
                 cl2ccc_io(env, ios)->cui_fd->fd_file->f_dentry->d_inode);
-        vio->u.fault.ft_mtime = LTIME_S(inode->i_mtime);
+	/* XXX vio fault should have nanosec timestamps as well? */
+	vio->u.fault.ft_mtime = inode->i_mtime.tv_sec;
         return 0;
 }
 
@@ -362,13 +363,20 @@ static int vvp_io_setattr_time(const struct lu_env *env,
         unsigned valid = CAT_CTIME;
 
         cl_object_attr_lock(obj);
-        attr->cat_ctime = io->u.ci_setattr.sa_attr.lvb_ctime;
+	attr->cat_ctime.tv_sec = io->u.ci_setattr.sa_attr.lvb_ctime;
+	attr->cat_ctime.tv_nsec = io->u.ci_setattr.sa_attr.lvb_ctime_ns;
         if (io->u.ci_setattr.sa_valid & ATTR_ATIME_SET) {
-                attr->cat_atime = io->u.ci_setattr.sa_attr.lvb_atime;
+		attr->cat_atime.tv_sec =
+			io->u.ci_setattr.sa_attr.lvb_atime;
+		attr->cat_atime.tv_nsec =
+			io->u.ci_setattr.sa_attr.lvb_atime_ns;
                 valid |= CAT_ATIME;
         }
         if (io->u.ci_setattr.sa_valid & ATTR_MTIME_SET) {
-                attr->cat_mtime = io->u.ci_setattr.sa_attr.lvb_mtime;
+		attr->cat_mtime.tv_sec =
+			io->u.ci_setattr.sa_attr.lvb_mtime;
+		attr->cat_mtime.tv_nsec =
+			io->u.ci_setattr.sa_attr.lvb_mtime_ns;
                 valid |= CAT_MTIME;
         }
         result = cl_object_attr_set(env, obj, attr, valid);
@@ -664,7 +672,7 @@ static int vvp_io_fault_start(const struct lu_env *env,
         pgoff_t              last; /* last page in a file data region */
 
         if (fio->ft_executable &&
-            LTIME_S(inode->i_mtime) != vio->u.fault.ft_mtime)
+	    inode->i_mtime.tv_sec != vio->u.fault.ft_mtime)
                 CWARN("binary "DFID
                       " changed while waiting for the page fault lock\n",
                       PFID(lu_object_fid(&obj->co_lu)));
