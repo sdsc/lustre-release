@@ -1275,6 +1275,16 @@ static int after_reply(struct ptlrpc_request *req)
                 RETURN(rc);
         }
 
+	/* retry indefinitely on EINPROGRESS */
+	if (lustre_msg_get_status(req->rq_repmsg) == -EINPROGRESS &&
+	    ptlrpc_no_resend(req) == 0 && !req->rq_no_retry_einprogress) {
+		DEBUG_REQ(D_RPCTRACE, req, "Resending request on EINPROGRESS");
+		req->rq_resend = 1;
+		req->rq_nr_resend++;
+		/* delay resend to give a chance to the server to get ready */
+		req->rq_sent = cfs_time_current_sec() + req->rq_nr_resend;
+	}
+
         /*
          * Security layer unwrap might ask resend this request.
          */
@@ -1512,6 +1522,11 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
                 /* delayed send - skip */
                 if (req->rq_phase == RQ_PHASE_NEW && req->rq_sent)
                         continue;
+
+		/* delayed resend - skip */
+		if (req->rq_phase == RQ_PHASE_RPC && req->rq_resend &&
+		    req->rq_sent > cfs_time_current_sec())
+			continue;
 
                 if (!(req->rq_phase == RQ_PHASE_RPC ||
                       req->rq_phase == RQ_PHASE_BULK ||
@@ -2042,6 +2057,8 @@ int ptlrpc_set_next_timeout(struct ptlrpc_request_set *set)
 
                 if (req->rq_phase == RQ_PHASE_NEW)
                         deadline = req->rq_sent;
+		else if (req->rq_phase == RQ_PHASE_RPC && req->rq_resend)
+			deadline = req->rq_sent;
                 else
                         deadline = req->rq_sent + req->rq_timeout;
 
