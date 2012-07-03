@@ -44,6 +44,7 @@
 #include <linux/types.h>
 #include <linux/version.h>
 #include <linux/mm.h>
+#include <linux/time.h>
 
 #include <lustre_lite.h>
 #include <lustre_ha.h>
@@ -215,7 +216,8 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                                   OBD_CONNECT_RMT_CLIENT | OBD_CONNECT_VBR    |
                                   OBD_CONNECT_FULL20   | OBD_CONNECT_64BITHASH|
 				  OBD_CONNECT_EINPROGRESS |
-				  OBD_CONNECT_JOBSTATS;
+				  OBD_CONNECT_JOBSTATS |
+				  OBD_CONNECT_NANOSECOND_TIMES;
 
         if (sbi->ll_flags & LL_SBI_SOM_PREVIEW)
                 data->ocd_connect_flags |= OBD_CONNECT_SOM;
@@ -392,7 +394,8 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                                   OBD_CONNECT_FULL20 | OBD_CONNECT_64BITHASH |
                                   OBD_CONNECT_MAXBYTES |
 				  OBD_CONNECT_EINPROGRESS |
-				  OBD_CONNECT_JOBSTATS;
+				  OBD_CONNECT_JOBSTATS |
+				  OBD_CONNECT_NANOSECOND_TIMES;
 
         if (sbi->ll_flags & LL_SBI_SOM_PREVIEW)
                 data->ocd_connect_flags |= OBD_CONNECT_SOM;
@@ -976,6 +979,9 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
 #ifdef HAVE_SB_BDI
         sb->s_bdi = &lsi->lsi_bdi;
 #endif
+	/* We support nanosecond times now, so set this in the superblock.
+	   This one escaped me for the longest time. */
+	sb->s_time_gran = 1;
 
         /* Generate a string unique to this super, in case some joker tries
            to mount the same fs at two mount points.
@@ -1336,6 +1342,7 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
         struct md_op_data *op_data = NULL;
         struct md_open_data *mod = NULL;
         int ia_valid = attr->ia_valid;
+	struct timespec now;
         int rc = 0, rc1 = 0;
         ENTRY;
 
@@ -1368,24 +1375,27 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
                         RETURN(-EPERM);
         }
 
-        /* We mark all of the fields "set" so MDS/OST does not re-set them */
-        if (attr->ia_valid & ATTR_CTIME) {
-                attr->ia_ctime = CFS_CURRENT_TIME;
-                attr->ia_valid |= ATTR_CTIME_SET;
-        }
-        if (!(ia_valid & ATTR_ATIME_SET) && (attr->ia_valid & ATTR_ATIME)) {
-                attr->ia_atime = CFS_CURRENT_TIME;
-                attr->ia_valid |= ATTR_ATIME_SET;
-        }
-        if (!(ia_valid & ATTR_MTIME_SET) && (attr->ia_valid & ATTR_MTIME)) {
-                attr->ia_mtime = CFS_CURRENT_TIME;
-                attr->ia_valid |= ATTR_MTIME_SET;
-        }
+	/* We mark all of the fields "set" so MDS/OST does not re-set them */
+	now = CFS_CURRENT_TIME;
+	if (attr->ia_valid & ATTR_CTIME) {
+		attr->ia_ctime = now;
+		attr->ia_valid |= ATTR_CTIME_SET;
+	}
+	if (!(ia_valid & ATTR_ATIME_SET) && (attr->ia_valid & ATTR_ATIME)) {
+		attr->ia_atime = now;
+		attr->ia_valid |= ATTR_ATIME_SET;
+	}
+	if (!(ia_valid & ATTR_MTIME_SET) && (attr->ia_valid & ATTR_MTIME)) {
+		attr->ia_mtime = now;
+		attr->ia_valid |= ATTR_MTIME_SET;
+	}
 
-        if (attr->ia_valid & (ATTR_MTIME | ATTR_CTIME))
-                CDEBUG(D_INODE, "setting mtime %lu, ctime %lu, now = %lu\n",
-                       LTIME_S(attr->ia_mtime), LTIME_S(attr->ia_ctime),
-                       cfs_time_current_sec());
+	if (attr->ia_valid & (ATTR_MTIME | ATTR_CTIME))
+		CDEBUG(D_INODE, "setting mtime %lu.%09lu, ctime %lu.%09lu, "
+				"now = %lu.%09lu\n",
+		       attr->ia_mtime.tv_sec, attr->ia_mtime.tv_nsec,
+		       attr->ia_ctime.tv_sec, attr->ia_ctime.tv_nsec,
+		       now.tv_sec, now.tv_nsec);
 
         /* We always do an MDS RPC, even if we're only changing the size;
          * only the MDS knows whether truncate() should fail with -ETXTBUSY */
@@ -1651,24 +1661,39 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
         inode->i_generation = cl_fid_build_gen(&body->fid1);
 
         if (body->valid & OBD_MD_FLATIME) {
-                if (body->atime > LTIME_S(inode->i_atime))
-                        LTIME_S(inode->i_atime) = body->atime;
-                lli->lli_lvb.lvb_atime = body->atime;
+		if (cfs_nanotime_after(body->atime, body->atime_ns,
+				       inode->i_atime.tv_sec,
+				       inode->i_atime.tv_nsec)) {
+			inode->i_atime.tv_sec = body->atime;
+			inode->i_atime.tv_nsec = body->atime_ns;
+		}
+		lli->lli_lvb.lvb_atime = body->atime;
+		lli->lli_lvb.lvb_atime_ns = body->atime_ns;
         }
         if (body->valid & OBD_MD_FLMTIME) {
-                if (body->mtime > LTIME_S(inode->i_mtime)) {
-                        CDEBUG(D_INODE, "setting ino %lu mtime from %lu "
-                               "to "LPU64"\n", inode->i_ino,
-                               LTIME_S(inode->i_mtime), body->mtime);
-                        LTIME_S(inode->i_mtime) = body->mtime;
-                }
-                lli->lli_lvb.lvb_mtime = body->mtime;
-        }
-        if (body->valid & OBD_MD_FLCTIME) {
-                if (body->ctime > LTIME_S(inode->i_ctime))
-                        LTIME_S(inode->i_ctime) = body->ctime;
-                lli->lli_lvb.lvb_ctime = body->ctime;
-        }
+		if (cfs_nanotime_after(body->mtime, body->mtime_ns,
+				       inode->i_mtime.tv_sec,
+				       inode->i_mtime.tv_nsec)) {
+			CDEBUG(D_INODE, "setting ino %lu mtime from %lu.%09lu "
+			       "to "LPU64".%09u\n", inode->i_ino,
+			       inode->i_mtime.tv_sec, inode->i_mtime.tv_nsec,
+			       body->mtime, body->mtime_ns);
+		       inode->i_mtime.tv_sec = body->mtime;
+		       inode->i_mtime.tv_nsec = body->mtime_ns;
+		}
+		lli->lli_lvb.lvb_mtime = body->mtime;
+		lli->lli_lvb.lvb_mtime_ns = body->mtime_ns;
+	}
+	if (body->valid & OBD_MD_FLCTIME) {
+		if (cfs_nanotime_after(body->ctime, body->ctime_ns,
+				       inode->i_ctime.tv_sec,
+				       inode->i_ctime.tv_nsec)) {
+			inode->i_ctime.tv_sec = body->ctime;
+			inode->i_ctime.tv_nsec = body->ctime_ns;
+		}
+		lli->lli_lvb.lvb_ctime = body->ctime;
+		lli->lli_lvb.lvb_ctime_ns = body->ctime_ns;
+	}
         if (body->valid & OBD_MD_FLMODE)
                 inode->i_mode = (inode->i_mode & S_IFMT)|(body->mode & ~S_IFMT);
         if (body->valid & OBD_MD_FLTYPE)
@@ -1773,9 +1798,12 @@ void ll_read_inode2(struct inode *inode, void *opaque)
          * the VFS doesn't zero times in the core inode so we have to do
          * it ourselves.  They will be overwritten by either MDS or OST
          * attributes - we just need to make sure they aren't newer. */
-        LTIME_S(inode->i_mtime) = 0;
-        LTIME_S(inode->i_atime) = 0;
-        LTIME_S(inode->i_ctime) = 0;
+	inode->i_mtime.tv_sec = 0;
+	inode->i_mtime.tv_nsec = 0;
+	inode->i_atime.tv_sec = 0;
+	inode->i_atime.tv_nsec = 0;
+	inode->i_ctime.tv_sec = 0;
+	inode->i_ctime.tv_nsec = 0;
         inode->i_rdev = 0;
         ll_update_inode(inode, md);
 
@@ -1783,7 +1811,6 @@ void ll_read_inode2(struct inode *inode, void *opaque)
 
         /* initializing backing dev info. */
         inode->i_mapping->backing_dev_info = &s2lsi(inode->i_sb)->lsi_bdi;
-
 
         if (S_ISREG(inode->i_mode)) {
                 struct ll_sb_info *sbi = ll_i2sbi(inode);
@@ -2204,6 +2231,8 @@ struct md_op_data * ll_prep_md_op_data(struct md_op_data *op_data,
                                        const char *name, int namelen,
                                        int mode, __u32 opc, void *data)
 {
+	struct timespec now;
+
         LASSERT(i1 != NULL);
 
         if (namelen > ll_i2sbi(i1)->ll_namelen)
@@ -2227,10 +2256,12 @@ struct md_op_data * ll_prep_md_op_data(struct md_op_data *op_data,
                 op_data->op_capa2 = NULL;
         }
 
+	now = CFS_CURRENT_TIME;
         op_data->op_name = name;
         op_data->op_namelen = namelen;
         op_data->op_mode = mode;
-        op_data->op_mod_time = cfs_time_current_sec();
+	op_data->op_mod_time = now.tv_sec;
+	op_data->op_mod_time_ns = now.tv_nsec;
         op_data->op_fsuid = cfs_curproc_fsuid();
         op_data->op_fsgid = cfs_curproc_fsgid();
         op_data->op_cap = cfs_curproc_cap_pack();

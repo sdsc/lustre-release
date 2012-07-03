@@ -743,10 +743,11 @@ retry:
                 iattr.ia_valid = save & ~(ATTR_UID | ATTR_GID);
         }
 
-	CDEBUG(D_INODE, "FID "DFID" to write: s="LPU64" m="LPU64" a="LPU64
-			" c="LPU64" b="LPU64"\n",
+	CDEBUG(D_INODE, "FID "DFID" to write: s="LPU64" m="LPU64".%09u "
+			"a="LPU64".%09u c="LPU64".%09u b="LPU64"\n",
 			oa->o_id, (__u32)oa->o_seq, (__u32)oa->o_seq,
-			oa->o_size, oa->o_mtime, oa->o_atime, oa->o_ctime,
+			oa->o_size, oa->o_mtime, oa->o_mtime_ns, oa->o_atime,
+			oa->o_atime_ns, oa->o_ctime, oa->o_ctime_ns,
 			oa->o_blocks);
         /* filter_direct_io drops i_mutex */
         rc = filter_direct_io(OBD_BRW_WRITE, res->dentry, iobuf, exp, &iattr,
@@ -762,10 +763,11 @@ retry:
         obdo_from_inode(oa, inode, (rc == 0 ? FILTER_VALID_FLAGS : 0) |
                                    OBD_MD_FLUID | OBD_MD_FLGID);
 
-	CDEBUG(D_INODE, "FID "DFID" after write: s="LPU64" m="LPU64" a="LPU64
-			" c="LPU64" b="LPU64"\n",
+	CDEBUG(D_INODE, "FID "DFID" after write: s="LPU64" m="LPU64".%09u "
+			"a="LPU64".%09u c="LPU64".%09u b="LPU64"\n",
 			oa->o_id, (__u32)oa->o_seq, (__u32)oa->o_seq,
-			oa->o_size, oa->o_mtime, oa->o_atime, oa->o_ctime,
+			oa->o_size, oa->o_mtime, oa->o_mtime_ns, oa->o_atime,
+			oa->o_atime_ns, oa->o_ctime, oa->o_ctime_ns,
 			oa->o_blocks);
         lquota_getflag(filter_quota_interface_ref, obd, oa);
 

@@ -59,7 +59,7 @@
 #include <sys/stat.h>
 #include <sys/queue.h>
 #include <fcntl.h>
-# include <liblustre.h>
+#include <liblustre.h>
 #endif
 
 #include <obd.h>
@@ -434,9 +434,12 @@ int ccc_object_glimpse(const struct lu_env *env,
         struct inode *inode = ccc_object_inode(obj);
 
         ENTRY;
-        lvb->lvb_mtime = cl_inode_mtime(inode);
-        lvb->lvb_atime = cl_inode_atime(inode);
-        lvb->lvb_ctime = cl_inode_ctime(inode);
+	lvb->lvb_mtime = inode->i_mtime.tv_sec;
+	lvb->lvb_mtime_ns = inode->i_mtime.tv_nsec;
+	lvb->lvb_atime = inode->i_atime.tv_sec;
+	lvb->lvb_atime_ns = inode->i_atime.tv_nsec;
+	lvb->lvb_ctime = inode->i_ctime.tv_sec;
+	lvb->lvb_ctime_ns = inode->i_ctime.tv_nsec;
         /*
          * LU-417: Add dirty pages block count lest i_blocks reports 0, some
          * "cp" or "tar" on remote node may think it's a completely sparse file
@@ -710,9 +713,10 @@ void ccc_lock_state(const struct lu_env *env,
                                        PFID(lu_object_fid(&obj->co_lu)),
                                        (__u64)cl_isize_read(inode));
                         }
-                        cl_inode_mtime(inode) = attr->cat_mtime;
-                        cl_inode_atime(inode) = attr->cat_atime;
-                        cl_inode_ctime(inode) = attr->cat_ctime;
+
+			inode->i_mtime = attr->cat_mtime;
+			inode->i_atime = attr->cat_atime;
+			inode->i_ctime = attr->cat_ctime;
                 } else {
                         CL_LOCK_DEBUG(D_INFO, env, lock, "attr_get: %d\n", rc);
                 }
@@ -1023,9 +1027,12 @@ int cl_setattr_ost(struct inode *inode, const struct iattr *attr,
         io = ccc_env_thread_io(env);
         io->ci_obj = cl_i2info(inode)->lli_clob;
 
-        io->u.ci_setattr.sa_attr.lvb_atime = LTIME_S(attr->ia_atime);
-        io->u.ci_setattr.sa_attr.lvb_mtime = LTIME_S(attr->ia_mtime);
-        io->u.ci_setattr.sa_attr.lvb_ctime = LTIME_S(attr->ia_ctime);
+	io->u.ci_setattr.sa_attr.lvb_atime = attr->ia_atime.tv_sec;
+	io->u.ci_setattr.sa_attr.lvb_atime_ns = attr->ia_atime.tv_nsec;
+	io->u.ci_setattr.sa_attr.lvb_mtime = attr->ia_mtime.tv_sec;
+	io->u.ci_setattr.sa_attr.lvb_mtime_ns = attr->ia_mtime.tv_nsec;
+	io->u.ci_setattr.sa_attr.lvb_ctime = attr->ia_ctime.tv_sec;
+	io->u.ci_setattr.sa_attr.lvb_ctime_ns = attr->ia_ctime.tv_nsec;
         io->u.ci_setattr.sa_attr.lvb_size = attr->ia_size;
         io->u.ci_setattr.sa_valid = attr->ia_valid;
         io->u.ci_setattr.sa_capa = capa;

@@ -832,18 +832,22 @@ static int mdt_setattr_unpack_rec(struct mdt_thread_info *info)
         uc->mu_suppgids[0] = rec->sa_suppgid;
         uc->mu_suppgids[1] = -1;
 
-        rr->rr_fid1 = &rec->sa_fid;
-        la->la_valid = mdt_attr_valid_xlate(attr_unpack(rec->sa_valid), rr, ma);
-        la->la_mode  = rec->sa_mode;
-        la->la_flags = rec->sa_attr_flags;
-        la->la_uid   = rec->sa_uid;
-        la->la_gid   = rec->sa_gid;
-        la->la_size  = rec->sa_size;
-        la->la_blocks = rec->sa_blocks;
-        la->la_ctime = rec->sa_ctime;
-        la->la_atime = rec->sa_atime;
-        la->la_mtime = rec->sa_mtime;
-        ma->ma_valid = MA_INODE;
+	rr->rr_fid1     = &rec->sa_fid;
+	la->la_valid    = mdt_attr_valid_xlate(attr_unpack(rec->sa_valid),
+					       rr, ma);
+	la->la_mode     = rec->sa_mode;
+	la->la_flags    = rec->sa_attr_flags;
+	la->la_uid      = rec->sa_uid;
+	la->la_gid      = rec->sa_gid;
+	la->la_size     = rec->sa_size;
+	la->la_blocks   = rec->sa_blocks;
+	la->la_ctime    = rec->sa_ctime;
+	la->la_ctime_ns = rec->sa_ctime_ns;
+	la->la_atime    = rec->sa_atime;
+	la->la_atime_ns = rec->sa_atime_ns;
+	la->la_mtime    = rec->sa_mtime;
+	la->la_mtime_ns = rec->sa_mtime_ns;
+	ma->ma_valid    = MA_INODE;
 
         if (req_capsule_get_size(pill, &RMF_CAPA1, RCL_CLIENT))
                 mdt_set_capainfo(info, 0, rr->rr_fid1,
@@ -948,15 +952,18 @@ static int mdt_create_unpack(struct mdt_thread_info *info)
         uc->mu_suppgids[0] = rec->cr_suppgid1;
         uc->mu_suppgids[1] = -1;
 
-        rr->rr_fid1 = &rec->cr_fid1;
-        rr->rr_fid2 = &rec->cr_fid2;
-        attr->la_mode = rec->cr_mode;
-        attr->la_rdev  = rec->cr_rdev;
-        attr->la_uid   = rec->cr_fsuid;
-        attr->la_gid   = rec->cr_fsgid;
-        attr->la_ctime = rec->cr_time;
-        attr->la_mtime = rec->cr_time;
-        attr->la_atime = rec->cr_time;
+	rr->rr_fid1       = &rec->cr_fid1;
+	rr->rr_fid2       = &rec->cr_fid2;
+	attr->la_mode     = rec->cr_mode;
+	attr->la_rdev     = rec->cr_rdev;
+	attr->la_uid      = rec->cr_fsuid;
+	attr->la_gid      = rec->cr_fsgid;
+	attr->la_ctime    = rec->cr_time;
+	attr->la_ctime_ns = rec->cr_time_ns;
+	attr->la_mtime    = rec->cr_time;
+	attr->la_mtime_ns = rec->cr_time_ns;
+	attr->la_atime    = rec->cr_time;
+	attr->la_atime_ns = rec->cr_time_ns;
         attr->la_valid = LA_MODE | LA_RDEV | LA_UID | LA_GID |
                          LA_CTIME | LA_MTIME | LA_ATIME;
         memset(&sp->u, 0, sizeof(sp->u));
@@ -1058,8 +1065,10 @@ static int mdt_link_unpack(struct mdt_thread_info *info)
         attr->la_gid = rec->lk_fsgid;
         rr->rr_fid1 = &rec->lk_fid1;
         rr->rr_fid2 = &rec->lk_fid2;
-        attr->la_ctime = rec->lk_time;
-        attr->la_mtime = rec->lk_time;
+	attr->la_ctime    = rec->lk_time;
+	attr->la_ctime_ns = rec->lk_time_ns;
+	attr->la_mtime    = rec->lk_time;
+	attr->la_mtime_ns = rec->lk_time_ns;
         attr->la_valid = LA_UID | LA_GID | LA_CTIME | LA_MTIME;
 
         if (req_capsule_get_size(pill, &RMF_CAPA1, RCL_CLIENT))
@@ -1108,8 +1117,10 @@ static int mdt_unlink_unpack(struct mdt_thread_info *info)
         attr->la_gid = rec->ul_fsgid;
         rr->rr_fid1 = &rec->ul_fid1;
         rr->rr_fid2 = &rec->ul_fid2;
-        attr->la_ctime = rec->ul_time;
-        attr->la_mtime = rec->ul_time;
+	attr->la_ctime    = rec->ul_time;
+	attr->la_ctime_ns = rec->ul_time_ns;
+	attr->la_mtime    = rec->ul_time;
+	attr->la_mtime_ns = rec->ul_time_ns;
         attr->la_mode  = rec->ul_mode;
         attr->la_valid = LA_UID | LA_GID | LA_CTIME | LA_MTIME | LA_MODE;
 
@@ -1167,8 +1178,10 @@ static int mdt_rename_unpack(struct mdt_thread_info *info)
         attr->la_gid = rec->rn_fsgid;
         rr->rr_fid1 = &rec->rn_fid1;
         rr->rr_fid2 = &rec->rn_fid2;
-        attr->la_ctime = rec->rn_time;
-        attr->la_mtime = rec->rn_time;
+	attr->la_ctime    = rec->rn_time;
+	attr->la_ctime_ns = rec->rn_time_ns;
+	attr->la_mtime    = rec->rn_time;
+	attr->la_mtime_ns = rec->rn_time_ns;
         /* rename_tgt contains the mode already */
         attr->la_mode = rec->rn_mode;
         attr->la_valid = LA_UID | LA_GID | LA_CTIME | LA_MTIME | LA_MODE;
@@ -1232,9 +1245,12 @@ static int mdt_open_unpack(struct mdt_thread_info *info)
         attr->la_rdev  = rec->cr_rdev;
         attr->la_uid   = rec->cr_fsuid;
         attr->la_gid   = rec->cr_fsgid;
-        attr->la_ctime = rec->cr_time;
-        attr->la_mtime = rec->cr_time;
-        attr->la_atime = rec->cr_time;
+	attr->la_ctime    = rec->cr_time;
+	attr->la_ctime_ns = rec->cr_time_ns;
+	attr->la_mtime    = rec->cr_time;
+	attr->la_mtime_ns = rec->cr_time_ns;
+	attr->la_atime    = rec->cr_time;
+	attr->la_atime_ns = rec->cr_time_ns;
         attr->la_valid = LA_MODE  | LA_RDEV  | LA_UID   | LA_GID |
                          LA_CTIME | LA_MTIME | LA_ATIME;
         memset(&info->mti_spec.u, 0, sizeof(info->mti_spec.u));
@@ -1320,6 +1336,7 @@ static int mdt_setxattr_unpack(struct mdt_thread_info *info)
         rr->rr_fid1   = &rec->sx_fid;
         attr->la_valid = rec->sx_valid;
         attr->la_ctime = rec->sx_time;
+	attr->la_ctime_ns = rec->sx_time_ns;
         attr->la_size = rec->sx_size;
         attr->la_flags = rec->sx_flags;
 

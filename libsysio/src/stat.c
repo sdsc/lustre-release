@@ -72,7 +72,6 @@
 static void
 convstat(struct stat64 *st64_buf, struct stat *st_buf)
 {
-
 	st_buf->st_dev = st64_buf->st_dev;
 	st_buf->st_ino = st64_buf->st_ino;
 	st_buf->st_mode = st64_buf->st_mode;
@@ -84,8 +83,11 @@ convstat(struct stat64 *st64_buf, struct stat *st_buf)
 	st_buf->st_blksize = st64_buf->st_blksize;
 	st_buf->st_blocks = st64_buf->st_blocks;
 	st_buf->st_atime = st64_buf->st_atime;
+	st_buf->st_atimensec = st64_buf->st_atimensec;
 	st_buf->st_mtime = st64_buf->st_mtime;
+	st_buf->st_mtimensec = st64_buf->st_mtimensec;
 	st_buf->st_ctime = st64_buf->st_ctime;
+	st_buf->st_ctimensec = st64_buf->st_ctimensec;
 }
 #endif
 

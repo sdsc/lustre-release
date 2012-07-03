@@ -1195,19 +1195,22 @@ out_free:
                         struct lov_user_mds_data *lmdp;
                         lstat_t st = { 0 };
 
-                        st.st_dev     = inode->i_sb->s_dev;
-                        st.st_mode    = body->mode;
-                        st.st_nlink   = body->nlink;
-                        st.st_uid     = body->uid;
-                        st.st_gid     = body->gid;
-                        st.st_rdev    = body->rdev;
-                        st.st_size    = body->size;
-                        st.st_blksize = CFS_PAGE_SIZE;
-                        st.st_blocks  = body->blocks;
-                        st.st_atime   = body->atime;
-                        st.st_mtime   = body->mtime;
-                        st.st_ctime   = body->ctime;
-                        st.st_ino     = inode->i_ino;
+			st.st_dev        = inode->i_sb->s_dev;
+			st.st_mode       = body->mode;
+			st.st_nlink      = body->nlink;
+			st.st_uid        = body->uid;
+			st.st_gid        = body->gid;
+			st.st_rdev       = body->rdev;
+			st.st_size       = body->size;
+			st.st_blksize    = CFS_PAGE_SIZE;
+			st.st_blocks     = body->blocks;
+			st.st_atime      = body->atime;
+			st.st_atime_nsec = body->atime_ns;
+			st.st_mtime      = body->mtime;
+			st.st_mtime_nsec = body->mtime_ns;
+			st.st_ctime      = body->ctime;
+			st.st_ctime_nsec = body->ctime_ns;
+			st.st_ino        = inode->i_ino;
 
                         lmdp = (struct lov_user_mds_data *)arg;
                         if (cfs_copy_to_user(&lmdp->lmd_st, &st, sizeof(st)))

@@ -195,9 +195,9 @@ struct iattr {
         uid_t           ia_uid;
         gid_t           ia_gid;
         loff_t          ia_size;
-        time_t          ia_atime;
-        time_t          ia_mtime;
-        time_t          ia_ctime;
+	struct timespec ia_mtime;
+	struct timespec ia_atime;
+	struct timespec ia_ctime;
         unsigned int    ia_attr_flags;
 };
 
@@ -406,9 +406,9 @@ typedef struct file_lock {
 #define OFFSET_MAX      INT_LIMIT(loff_t)
 #endif
 
-#define i_atime                     i_stbuf.st_atime
-#define i_mtime                     i_stbuf.st_mtime
-#define i_ctime                     i_stbuf.st_ctime
+#define i_atime			    i_stbuf.st_atim
+#define i_mtime			    i_stbuf.st_mtim
+#define i_ctime			    i_stbuf.st_ctim
 /* use i_size_read() i_size_write() to access i_stbuf.st_size */
 #define i_blocks                    i_stbuf.st_blocks
 #define i_blksize                   i_stbuf.st_blksize

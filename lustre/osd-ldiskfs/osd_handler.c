@@ -1394,13 +1394,14 @@ int osd_object_auth(const struct lu_env *env, struct dt_object *dt,
 }
 
 static struct timespec *osd_inode_time(const struct lu_env *env,
-				       struct inode *inode, __u64 seconds)
+				       struct inode *inode, __u64 seconds,
+				       __u32 nanoseconds)
 {
 	struct osd_thread_info	*oti = osd_oti_get(env);
 	struct timespec		*t   = &oti->oti_time;
 
 	t->tv_sec = seconds;
-	t->tv_nsec = 0;
+	t->tv_nsec = nanoseconds;
 	*t = timespec_trunc(*t, inode->i_sb->s_time_gran);
 	return t;
 }
@@ -1413,9 +1414,12 @@ static void osd_inode_getattr(const struct lu_env *env,
                                LA_SIZE | LA_BLOCKS | LA_UID | LA_GID |
                                LA_FLAGS | LA_NLINK | LA_RDEV | LA_BLKSIZE;
 
-        attr->la_atime      = LTIME_S(inode->i_atime);
-        attr->la_mtime      = LTIME_S(inode->i_mtime);
-        attr->la_ctime      = LTIME_S(inode->i_ctime);
+	attr->la_atime      = inode->i_atime.tv_sec;
+	attr->la_atime_ns   = inode->i_atime.tv_nsec;
+	attr->la_mtime      = inode->i_mtime.tv_sec;
+	attr->la_mtime_ns   = inode->i_mtime.tv_nsec;
+	attr->la_ctime      = inode->i_ctime.tv_sec;
+	attr->la_ctime_ns   = inode->i_ctime.tv_nsec;
         attr->la_mode       = inode->i_mode;
         attr->la_size       = i_size_read(inode);
         attr->la_blocks     = inode->i_blocks;
@@ -1493,11 +1497,14 @@ static int osd_inode_setattr(const struct lu_env *env,
         LASSERT(!(bits & LA_TYPE)); /* Huh? You want too much. */
 
         if (bits & LA_ATIME)
-                inode->i_atime  = *osd_inode_time(env, inode, attr->la_atime);
+		inode->i_atime  = *osd_inode_time(env, inode, attr->la_atime,
+						  attr->la_atime_ns);
         if (bits & LA_CTIME)
-                inode->i_ctime  = *osd_inode_time(env, inode, attr->la_ctime);
+		inode->i_ctime  = *osd_inode_time(env, inode, attr->la_ctime,
+						  attr->la_ctime_ns);
         if (bits & LA_MTIME)
-                inode->i_mtime  = *osd_inode_time(env, inode, attr->la_mtime);
+		inode->i_mtime  = *osd_inode_time(env, inode, attr->la_mtime,
+						  attr->la_mtime_ns);
         if (bits & LA_SIZE) {
                 LDISKFS_I(inode)->i_disksize = attr->la_size;
                 i_size_write(inode, attr->la_size);

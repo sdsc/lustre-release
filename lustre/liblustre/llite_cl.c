@@ -284,9 +284,9 @@ static int slp_attr_get(const struct lu_env *env, struct cl_object *obj,
 
         attr->cat_size = st->st_size;
         attr->cat_blocks = st->st_blocks;
-        attr->cat_mtime  = st->st_mtime;
-        attr->cat_atime  = st->st_atime;
-        attr->cat_ctime  = st->st_ctime;
+	attr->cat_mtime  = st->st_mtim;
+	attr->cat_atime  = st->st_atim;
+	attr->cat_ctime  = st->st_ctim;
         /* KMS is not known by this layer */
         return 0; /* layers below have to fill in the rest */
 }

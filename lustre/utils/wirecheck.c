@@ -489,6 +489,7 @@ check_obd_connect_data(void)
         CHECK_DEFINE_64X(OBD_CONNECT_UMASK);
         CHECK_DEFINE_64X(OBD_CONNECT_EINPROGRESS);
         CHECK_DEFINE_64X(OBD_CONNECT_GRANT_PARAM);
+	CHECK_DEFINE_64X(OBD_CONNECT_NANOSECOND_TIMES);
 
         CHECK_VALUE_X(OBD_CKSUM_CRC32);
         CHECK_VALUE_X(OBD_CKSUM_ADLER);
@@ -526,9 +527,9 @@ check_obdo(void)
         CHECK_MEMBER(obdo, o_uid_h);
         CHECK_MEMBER(obdo, o_gid_h);
         CHECK_MEMBER(obdo, o_data_version);
-        CHECK_MEMBER(obdo, o_padding_4);
-        CHECK_MEMBER(obdo, o_padding_5);
-        CHECK_MEMBER(obdo, o_padding_6);
+	CHECK_MEMBER(obdo, o_mtime_ns);
+	CHECK_MEMBER(obdo, o_atime_ns);
+	CHECK_MEMBER(obdo, o_ctime_ns);
 
         CHECK_DEFINE_64X(OBD_MD_FLID);
         CHECK_DEFINE_64X(OBD_MD_FLATIME);
@@ -801,8 +802,9 @@ check_mdt_body(void)
         CHECK_MEMBER(mdt_body, max_cookiesize);
         CHECK_MEMBER(mdt_body, uid_h);
         CHECK_MEMBER(mdt_body, gid_h);
-        CHECK_MEMBER(mdt_body, padding_5);
-        CHECK_MEMBER(mdt_body, padding_6);
+	CHECK_MEMBER(mdt_body, mtime_ns);
+	CHECK_MEMBER(mdt_body, atime_ns);
+	CHECK_MEMBER(mdt_body, ctime_ns);
         CHECK_MEMBER(mdt_body, padding_7);
         CHECK_MEMBER(mdt_body, padding_8);
         CHECK_MEMBER(mdt_body, padding_9);
@@ -904,9 +906,9 @@ check_mdt_rec_setattr(void)
         CHECK_MEMBER(mdt_rec_setattr, sa_attr_flags);
         CHECK_MEMBER(mdt_rec_setattr, sa_mode);
         CHECK_MEMBER(mdt_rec_setattr, sa_padding_2);
-        CHECK_MEMBER(mdt_rec_setattr, sa_padding_3);
-        CHECK_MEMBER(mdt_rec_setattr, sa_padding_4);
-        CHECK_MEMBER(mdt_rec_setattr, sa_padding_5);
+	CHECK_MEMBER(mdt_rec_setattr, sa_ctime_ns);
+	CHECK_MEMBER(mdt_rec_setattr, sa_atime_ns);
+	CHECK_MEMBER(mdt_rec_setattr, sa_mtime_ns);
 }
 
 static void
@@ -936,7 +938,7 @@ check_mdt_rec_create(void)
         CHECK_MEMBER(mdt_rec_create, cr_flags_l);
         CHECK_MEMBER(mdt_rec_create, cr_flags_h);
         CHECK_MEMBER(mdt_rec_create, cr_padding_3);
-        CHECK_MEMBER(mdt_rec_create, cr_padding_4);
+	CHECK_MEMBER(mdt_rec_create, cr_time_ns);
 }
 
 static void
@@ -966,7 +968,7 @@ check_mdt_rec_link(void)
         CHECK_MEMBER(mdt_rec_link, lk_padding_6);
         CHECK_MEMBER(mdt_rec_link, lk_padding_7);
         CHECK_MEMBER(mdt_rec_link, lk_padding_8);
-        CHECK_MEMBER(mdt_rec_link, lk_padding_9);
+	CHECK_MEMBER(mdt_rec_link, lk_time_ns);
 }
 
 static void
@@ -996,7 +998,7 @@ check_mdt_rec_unlink(void)
         CHECK_MEMBER(mdt_rec_unlink, ul_padding_6);
         CHECK_MEMBER(mdt_rec_unlink, ul_padding_7);
         CHECK_MEMBER(mdt_rec_unlink, ul_padding_8);
-        CHECK_MEMBER(mdt_rec_unlink, ul_padding_9);
+	CHECK_MEMBER(mdt_rec_unlink, ul_time_ns);
 }
 
 static void
@@ -1026,7 +1028,7 @@ check_mdt_rec_rename(void)
         CHECK_MEMBER(mdt_rec_rename, rn_padding_5);
         CHECK_MEMBER(mdt_rec_rename, rn_padding_6);
         CHECK_MEMBER(mdt_rec_rename, rn_padding_7);
-        CHECK_MEMBER(mdt_rec_rename, rn_padding_8);
+	CHECK_MEMBER(mdt_rec_rename, rn_time_ns);
 }
 
 static void
@@ -1058,7 +1060,7 @@ check_mdt_rec_setxattr(void)
         CHECK_MEMBER(mdt_rec_setxattr, sx_padding_8);
         CHECK_MEMBER(mdt_rec_setxattr, sx_padding_9);
         CHECK_MEMBER(mdt_rec_setxattr, sx_padding_10);
-        CHECK_MEMBER(mdt_rec_setxattr, sx_padding_11);
+	CHECK_MEMBER(mdt_rec_setxattr, sx_time_ns);
 }
 
 static void
@@ -1086,9 +1088,9 @@ check_mdt_rec_reint(void)
         CHECK_MEMBER(mdt_rec_reint, rr_bias);
         CHECK_MEMBER(mdt_rec_reint, rr_mode);
         CHECK_MEMBER(mdt_rec_reint, rr_flags);
-        CHECK_MEMBER(mdt_rec_reint, rr_padding_2);
-        CHECK_MEMBER(mdt_rec_reint, rr_padding_3);
-        CHECK_MEMBER(mdt_rec_reint, rr_padding_4);
+	CHECK_MEMBER(mdt_rec_reint, rr_ctime_ns);
+	CHECK_MEMBER(mdt_rec_reint, rr_atime_ns);
+	CHECK_MEMBER(mdt_rec_reint, rr_mtime_ns);
 }
 
 static void
@@ -1245,6 +1247,9 @@ check_ldlm_lvb(void)
         CHECK_MEMBER(ost_lvb, lvb_atime);
         CHECK_MEMBER(ost_lvb, lvb_ctime);
         CHECK_MEMBER(ost_lvb, lvb_blocks);
+	CHECK_MEMBER(ost_lvb, lvb_mtime_ns);
+	CHECK_MEMBER(ost_lvb, lvb_atime_ns);
+	CHECK_MEMBER(ost_lvb, lvb_ctime_ns);
 }
 
 static void

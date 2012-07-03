@@ -3219,12 +3219,18 @@ struct dentry *__filter_oa2dentry(struct obd_device *obd, struct ost_id *ostid,
          * being stored on disk as an unsigned value.  This fixes up any
          * bad values stored on disk before returning them to the client,
          * and ensures any timestamp updates are correct.  LU-1042 */
-        if (unlikely(LTIME_S(dchild->d_inode->i_atime) == LU221_BAD_TIME))
-                LTIME_S(dchild->d_inode->i_atime) = 0;
-        if (unlikely(LTIME_S(dchild->d_inode->i_mtime) == LU221_BAD_TIME))
-                LTIME_S(dchild->d_inode->i_mtime) = 0;
-        if (unlikely(LTIME_S(dchild->d_inode->i_ctime) == LU221_BAD_TIME))
-                LTIME_S(dchild->d_inode->i_ctime) = 0;
+	if (unlikely(dchild->d_inode->i_atime.tv_sec == LU221_BAD_TIME)) {
+		dchild->d_inode->i_atime.tv_sec = 0;
+		dchild->d_inode->i_atime.tv_nsec = 0;
+	}
+	if (unlikely(dchild->d_inode->i_mtime.tv_sec == LU221_BAD_TIME)) {
+		dchild->d_inode->i_mtime.tv_sec = 0;
+		dchild->d_inode->i_mtime.tv_nsec = 0;
+	}
+	if (unlikely(dchild->d_inode->i_ctime.tv_sec == LU221_BAD_TIME)) {
+		dchild->d_inode->i_ctime.tv_sec = 0;
+		dchild->d_inode->i_ctime.tv_nsec = 0;
+	}
 #else
 #warning "remove old LU-221/LU-1042 workaround code"
 #endif
@@ -4085,9 +4091,12 @@ set_last_id:
                  * be newer and update the inode. ctime = 0 is also handled
                  * specially in fsfilt_ext3_setattr(). See LU-221, LU-1042 */
                 iattr.ia_valid = ATTR_ATIME | ATTR_MTIME | ATTR_CTIME;
-                LTIME_S(iattr.ia_atime) = 0;
-                LTIME_S(iattr.ia_mtime) = 0;
-                LTIME_S(iattr.ia_ctime) = 0;
+		iattr.ia_atime.tv_sec = 0;
+		iattr.ia_atime.tv_nsec = 0;
+		iattr.ia_mtime.tv_sec = 0;
+		iattr.ia_mtime.tv_nsec = 0;
+		iattr.ia_ctime.tv_sec = 0;
+		iattr.ia_ctime.tv_nsec = 0;
                 err = fsfilt_setattr(obd, dchild, handle, &iattr, 0);
                  if (err)
                         CWARN("%s: unable to initialize a/c/m time of newly "
