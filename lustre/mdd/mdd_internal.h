@@ -489,9 +489,9 @@ int mdd_changelog_on(struct mdd_device *mdd, int on);
 #define mdd_cap_raised(c, flag) (mdd_cap_t(c) & MDD_CAP_TO_MASK(flag))
 
 /* capable() is copied from linux kernel! */
-static inline int mdd_capable(struct md_ucred *uc, cfs_cap_t cap)
+static inline int mdd_capable(struct lu_ucred *uc, cfs_cap_t cap)
 {
-        if (mdd_cap_raised(uc->mu_cap, cap))
+        if (mdd_cap_raised(uc->uc_cap, cap))
                 return 1;
         return 0;
 }

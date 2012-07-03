@@ -108,27 +108,33 @@ static int osd_object_invariant(const struct lu_object *l)
 static inline void
 osd_push_ctxt(const struct lu_env *env, struct osd_ctxt *save)
 {
-        struct md_ucred *uc = md_ucred(env);
+        struct lu_ucred *uc = lu_ucred_check(env);
         struct cred     *tc;
 
-        LASSERT(uc != NULL);
+        if (uc == NULL) {
+                CWARN("ucred is not initialized\n");
+                return;
+        }
 
         save->oc_uid = current_fsuid();
         save->oc_gid = current_fsgid();
         save->oc_cap = current_cap();
         if ((tc = prepare_creds())) {
-                tc->fsuid         = uc->mu_fsuid;
-                tc->fsgid         = uc->mu_fsgid;
+                tc->fsuid         = uc->uc_fsuid;
+                tc->fsgid         = uc->uc_fsgid;
                 commit_creds(tc);
         }
         /* XXX not suboptimal */
-        cfs_curproc_cap_unpack(uc->mu_cap);
+        cfs_curproc_cap_unpack(uc->uc_cap);
 }
 
 static inline void
-osd_pop_ctxt(struct osd_ctxt *save)
+osd_pop_ctxt(const struct lu_env *env, struct osd_ctxt *save)
 {
         struct cred *tc;
+
+        if (lu_ucred_check(env) == NULL)
+                return;
 
         if ((tc = prepare_creds())) {
                 tc->fsuid         = save->oc_uid;
@@ -1582,7 +1588,7 @@ static int osd_attr_set(const struct lu_env *env,
 			iattr.ia_gid = attr->la_gid;
 			osd_push_ctxt(env, save);
 			rc = ll_vfs_dq_transfer(inode, &iattr) ? -EDQUOT : 0;
-			osd_pop_ctxt(save);
+			osd_pop_ctxt(env, save);
 			if (rc != 0)
 				return rc;
 		}
@@ -1642,7 +1648,7 @@ static int osd_mkfile(struct osd_thread_info *info, struct osd_object *obj,
                                               osd_sb(osd)->s_root->d_inode,
                                      mode);
 #ifdef HAVE_QUOTA_SUPPORT
-        osd_pop_ctxt(save);
+        osd_pop_ctxt(info->oti_env, save);
 #endif
         if (!IS_ERR(inode)) {
                 /* Do not update file c/mtime in ldiskfs.
@@ -1917,10 +1923,8 @@ static int __osd_oi_insert(const struct lu_env *env, struct osd_object *obj,
         struct osd_thread_info *info = osd_oti_get(env);
         struct osd_inode_id    *id   = &info->oti_id;
         struct osd_device      *osd  = osd_obj2dev(obj);
-        struct md_ucred        *uc   = md_ucred(env);
 
         LASSERT(obj->oo_inode != NULL);
-        LASSERT(uc != NULL);
 
 	osd_id_gen(id, obj->oo_inode->i_ino, obj->oo_inode->i_generation);
 	return osd_oi_insert(info, osd, fid, id, th);

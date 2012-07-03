@@ -351,7 +351,7 @@ static inline int mdd_is_sticky(const struct lu_env *env,
                                 struct mdd_object *cobj)
 {
         struct lu_attr *tmp_la = &mdd_env_info(env)->mti_la;
-        struct md_ucred *uc = md_ucred(env);
+        struct lu_ucred *uc = lu_ucred_assert(env);
         int rc;
 
         if (pobj) {
@@ -360,7 +360,7 @@ static inline int mdd_is_sticky(const struct lu_env *env,
                         return rc;
 
                 if (!(tmp_la->la_mode & S_ISVTX) ||
-                     (tmp_la->la_uid == uc->mu_fsuid))
+                     (tmp_la->la_uid == uc->uc_fsuid))
                         return 0;
         }
 
@@ -368,7 +368,7 @@ static inline int mdd_is_sticky(const struct lu_env *env,
         if (rc)
                 return rc;
 
-        if (tmp_la->la_uid == uc->mu_fsuid)
+        if (tmp_la->la_uid == uc->uc_fsuid)
                 return 0;
 
         return !mdd_capable(uc, CFS_CAP_FOWNER);
@@ -509,13 +509,14 @@ static int __mdd_index_insert_only(const struct lu_env *env,
         ENTRY;
 
         if (dt_try_as_dir(env, next)) {
-                struct md_ucred  *uc = md_ucred(env);
+                struct lu_ucred  *uc = lu_ucred_check(env);
+                int ignore_quota;
 
+                ignore_quota = uc ? uc->uc_cap & CFS_CAP_SYS_RESOURCE_MASK : 1;
                 rc = next->do_index_ops->dio_insert(env, next,
                                                     (struct dt_rec*)lf,
                                                     (const struct dt_key *)name,
-                                                    handle, capa, uc->mu_cap &
-                                                    CFS_CAP_SYS_RESOURCE_MASK);
+                                                    handle, capa, ignore_quota);
         } else {
                 rc = -ENOTDIR;
         }
@@ -1127,13 +1128,13 @@ static int mdd_name_insert(const struct lu_env *env,
         int is_dir = S_ISDIR(ma->ma_attr.la_mode);
 #ifdef HAVE_QUOTA_SUPPORT
         struct mdd_device *mdd = mdo2mdd(pobj);
-        struct md_ucred *uc = md_ucred(env);
+        struct lu_ucred *uc = lu_ucred_assert(env);
         struct obd_device *obd = mdd->mdd_obd_dev;
         struct obd_export *exp = md_quota(env)->mq_exp;
         struct mds_obd *mds = &obd->u.mds;
         unsigned int qids[MAXQUOTAS] = { 0, 0 };
         int quota_opc = 0, rec_pending[MAXQUOTAS] = { 0, 0 };
-        cfs_cap_t save = uc->mu_cap;
+        cfs_cap_t save = uc->uc_cap;
 #endif
         int rc;
         ENTRY;
@@ -1159,7 +1160,7 @@ static int mdd_name_insert(const struct lu_env *env,
                                                 LQUOTA_FLAGS_BLK, data, 1);
                         }
                 } else {
-                        uc->mu_cap |= CFS_CAP_SYS_RESOURCE_MASK;
+                        uc->uc_cap |= CFS_CAP_SYS_RESOURCE_MASK;
                 }
         }
 #endif
@@ -1210,7 +1211,7 @@ out_pending:
                         lquota_adjust(mds_quota_interface_ref, obd, 0, qids,
                                       rc, quota_opc);
                 } else {
-                        uc->mu_cap = save;
+                        uc->uc_cap = save;
                 }
         }
 #endif
@@ -2098,7 +2099,7 @@ static int mdd_create(const struct lu_env *env,
         }
 
         if (S_ISLNK(attr->la_mode)) {
-                struct md_ucred  *uc = md_ucred(env);
+                struct lu_ucred  *uc = lu_ucred_assert(env);
                 struct dt_object *dt = mdd_object_child(son);
                 const char *target_name = spec->u.sp_symname;
                 int sym_len = strlen(target_name);
@@ -2108,7 +2109,7 @@ static int mdd_create(const struct lu_env *env,
                 buf = mdd_buf_get_const(env, target_name, sym_len);
                 rc = dt->do_body_ops->dbo_write(env, dt, buf, &pos, handle,
                                                 mdd_object_capa(env, son),
-                                                uc->mu_cap &
+                                                uc->uc_cap &
                                                 CFS_CAP_SYS_RESOURCE_MASK);
 
                 if (rc == sym_len)
