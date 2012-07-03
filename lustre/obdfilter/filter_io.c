@@ -706,6 +706,13 @@ static int filter_preprw_write(int cmd, struct obd_export *exp, struct obdo *oa,
                                 noa->o_valid = OBD_MD_FLID;
                         }
 
+			if ((oa->o_valid & OBD_MD_FLFLAGS) == 0) {
+				noa->o_valid |= OBD_MD_FLFLAGS;
+				noa->o_flags = OBD_FL_RECREATE_OBJS;
+			} else {
+				noa->o_flags |= OBD_FL_RECREATE_OBJS;
+			}
+
                         if (filter_create(exp, noa, NULL, oti) == 0) {
                                 f_dput(dentry);
                                 dentry = filter_fid2dentry(exp->exp_obd, NULL,
