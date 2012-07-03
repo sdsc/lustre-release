@@ -26,6 +26,8 @@
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2011, 2012, Whamcloud, Inc.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -57,8 +59,11 @@ int lov_merge_lvb_kms(struct lov_stripe_md *lsm,
         __u64 kms = 0;
         __u64 blocks = 0;
         obd_time current_mtime = lvb->lvb_mtime;
+	__u32 current_mtime_ns = lvb->lvb_mtime_ns;
         obd_time current_atime = lvb->lvb_atime;
+	__u32 current_atime_ns = lvb->lvb_atime_ns;
         obd_time current_ctime = lvb->lvb_ctime;
+	__u32 current_ctime_ns = lvb->lvb_ctime_ns;
         int i;
         int rc = 0;
 
@@ -67,11 +72,15 @@ int lov_merge_lvb_kms(struct lov_stripe_md *lsm,
         LASSERT(lsm->lsm_lock_owner == cfs_curproc_pid());
 #endif
 
-	CDEBUG(D_INODE, "MDT FID "DFID" initial value: s="LPU64" m="LPU64
-	       " a="LPU64" c="LPU64" b="LPU64"\n",
+	CDEBUG(D_INODE, "MDT FID "DFID" initial value: s="LPU64
+	       " m="LPU64".%09u a="LPU64".%09u c="LPU64".%09u"
+	       " b="LPU64"\n",
 	       lsm->lsm_object_seq, (__u32)lsm->lsm_object_id,
 	       (__u32)(lsm->lsm_object_id >> 32), lvb->lvb_size,
-	       lvb->lvb_mtime, lvb->lvb_atime, lvb->lvb_ctime, lvb->lvb_blocks);
+	       lvb->lvb_mtime, lvb->lvb_mtime_ns,
+	       lvb->lvb_atime, lvb->lvb_atime_ns,
+	       lvb->lvb_ctime, lvb->lvb_ctime_ns,
+	       lvb->lvb_blocks);
         for (i = 0; i < lsm->lsm_stripe_count; i++) {
                 struct lov_oinfo *loi = lsm->lsm_oinfo[i];
                 obd_size lov_size, tmpsize;
@@ -94,18 +103,42 @@ int lov_merge_lvb_kms(struct lov_stripe_md *lsm,
                         size = lov_size;
                 /* merge blocks, mtime, atime */
                 blocks += loi->loi_lvb.lvb_blocks;
-                if (loi->loi_lvb.lvb_mtime > current_mtime)
-                        current_mtime = loi->loi_lvb.lvb_mtime;
-                if (loi->loi_lvb.lvb_atime > current_atime)
-                        current_atime = loi->loi_lvb.lvb_atime;
-                if (loi->loi_lvb.lvb_ctime > current_ctime)
-                        current_ctime = loi->loi_lvb.lvb_ctime;
+		if (loi->loi_lvb.lvb_mtime >= current_mtime) {
+			if (loi->loi_lvb.lvb_mtime == current_mtime &&
+			    loi->loi_lvb.lvb_mtime_ns > current_mtime_ns) {
+				current_mtime_ns = loi->loi_lvb.lvb_mtime_ns;
+			} else if (loi->loi_lvb.lvb_mtime > current_mtime) {
+				current_mtime = loi->loi_lvb.lvb_mtime;
+				current_mtime_ns = loi->loi_lvb.lvb_mtime_ns;
+			}
+		}
+		if (loi->loi_lvb.lvb_atime >= current_atime) {
+			if (loi->loi_lvb.lvb_atime == current_atime &&
+			    loi->loi_lvb.lvb_atime_ns > current_atime_ns) {
+				current_atime_ns = loi->loi_lvb.lvb_atime_ns;
+			} else if (loi->loi_lvb.lvb_atime > current_atime) {
+				current_atime = loi->loi_lvb.lvb_atime;
+				current_atime_ns = loi->loi_lvb.lvb_atime_ns;
+			}
+		}
+		if (loi->loi_lvb.lvb_ctime >= current_ctime) {
+			if (loi->loi_lvb.lvb_ctime == current_ctime &&
+			    loi->loi_lvb.lvb_ctime_ns > current_ctime_ns) {
+				current_ctime_ns = loi->loi_lvb.lvb_ctime_ns;
+			} else if (loi->loi_lvb.lvb_ctime > current_ctime) {
+				current_ctime = loi->loi_lvb.lvb_ctime;
+				current_ctime_ns = loi->loi_lvb.lvb_ctime_ns;
+			}
+		}
+
 		CDEBUG(D_INODE, "MDT FID "DFID" on OST[%u]: s="LPU64" m="LPU64
-		       " a="LPU64" c="LPU64" b="LPU64"\n",
+		       ".%09u a="LPU64".%09u c="LPU64".%09u b="LPU64"\n",
 		       lsm->lsm_object_seq, (__u32)lsm->lsm_object_id,
 		       (__u32)(lsm->lsm_object_id >> 32), loi->loi_ost_idx,
-		       loi->loi_lvb.lvb_size, loi->loi_lvb.lvb_mtime,
-		       loi->loi_lvb.lvb_atime, loi->loi_lvb.lvb_ctime,
+		       loi->loi_lvb.lvb_size,
+		       loi->loi_lvb.lvb_mtime, loi->loi_lvb.lvb_mtime_ns,
+		       loi->loi_lvb.lvb_atime, loi->loi_lvb.lvb_atime_ns,
+		       loi->loi_lvb.lvb_ctime, loi->loi_lvb.lvb_ctime_ns,
 		       loi->loi_lvb.lvb_blocks);
         }
 
@@ -113,8 +146,11 @@ int lov_merge_lvb_kms(struct lov_stripe_md *lsm,
         lvb->lvb_size = size;
         lvb->lvb_blocks = blocks;
         lvb->lvb_mtime = current_mtime;
+	lvb->lvb_mtime_ns = current_mtime_ns;
         lvb->lvb_atime = current_atime;
+	lvb->lvb_atime_ns = current_atime_ns;
         lvb->lvb_ctime = current_ctime;
+	lvb->lvb_ctime_ns = current_ctime_ns;
         RETURN(rc);
 }
 
@@ -205,10 +241,24 @@ void lov_merge_attrs(struct obdo *tgt, struct obdo *src, obd_valid valid,
                         tgt->o_blocks += src->o_blocks;
                 if (valid & OBD_MD_FLBLKSZ)
                         tgt->o_blksize += src->o_blksize;
-                if (valid & OBD_MD_FLCTIME && tgt->o_ctime < src->o_ctime)
-                        tgt->o_ctime = src->o_ctime;
-                if (valid & OBD_MD_FLMTIME && tgt->o_mtime < src->o_mtime)
-                        tgt->o_mtime = src->o_mtime;
+		if (valid & OBD_MD_FLCTIME && src->o_ctime >= tgt->o_ctime) {
+			if (src->o_ctime == tgt->o_ctime &&
+			    src->o_ctime_ns > tgt->o_ctime_ns) {
+				tgt->o_ctime_ns = src->o_ctime_ns;
+			} else if (src->o_ctime > tgt->o_ctime) {
+				tgt->o_ctime = src->o_ctime;
+				tgt->o_ctime_ns = src->o_ctime_ns;
+			}
+		}
+		if (valid & OBD_MD_FLMTIME && src->o_mtime >= tgt->o_mtime) {
+			if (src->o_mtime == tgt->o_mtime &&
+			    src->o_mtime_ns > tgt->o_mtime_ns) {
+				tgt->o_mtime_ns = src->o_mtime_ns;
+			} else if (src->o_mtime > tgt->o_mtime) {
+				tgt->o_mtime = src->o_mtime;
+				tgt->o_mtime_ns = src->o_mtime_ns;
+			}
+		}
                 if (valid & OBD_MD_FLDATAVERSION)
                         tgt->o_data_version += src->o_data_version;
         } else {

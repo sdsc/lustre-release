@@ -1519,6 +1519,7 @@ static int echo_create_md_object(const struct lu_env *env,
         struct lu_device        *ld = ed->ed_next;
         int                      rc = 0;
         int                      i;
+	struct timespec	  now;
 
         parent = lu_object_locate(ec_parent->lo_header, ld->ld_type);
         if (ec_parent == NULL) {
@@ -1544,9 +1545,11 @@ static int echo_create_md_object(const struct lu_env *env,
                 }
         }
 
+	now = CFS_CURRENT_TIME;
         ma->ma_attr.la_mode = mode;
         ma->ma_attr.la_valid = LA_CTIME;
-        ma->ma_attr.la_ctime = cfs_time_current_64();
+	ma->ma_attr.la_ctime = now.tv_sec;
+	ma->ma_attr.la_ctime_ns = now.tv_nsec;
 
         if (name != NULL) {
                 lname->ln_name = name;
@@ -1843,6 +1846,7 @@ static int echo_destroy_object(const struct lu_env *env,
         struct lu_object        *parent;
         int                      rc = 0;
         int                      i;
+	struct timespec	  now;
         ENTRY;
 
         parent = lu_object_locate(ec_parent->lo_header, ld->ld_type);
@@ -1850,9 +1854,11 @@ static int echo_destroy_object(const struct lu_env *env,
                 RETURN(-EINVAL);
 
         memset(ma, 0, sizeof(*ma));
+	now = CFS_CURRENT_TIME;
         ma->ma_attr.la_mode = mode;
         ma->ma_attr.la_valid = LA_CTIME;
-        ma->ma_attr.la_ctime = cfs_time_current_64();
+	ma->ma_attr.la_ctime = now.tv_sec;
+	ma->ma_attr.la_ctime_ns = now.tv_nsec;
         ma->ma_need = MA_INODE;
         ma->ma_valid = 0;
 

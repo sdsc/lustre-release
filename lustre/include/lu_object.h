@@ -445,6 +445,12 @@ struct lu_attr {
          * \see enum la_valid
          */
         __u64          la_valid;
+	/** nanosecond granularity on modification time */
+	__u32          la_mtime_ns;
+	/** nanosecond granularity on access time */
+	__u32          la_atime_ns;
+	/** nanosecond granularity on change time */
+	__u32          la_ctime_ns;
 };
 
 /** Bit-mask of valid attributes */

@@ -76,6 +76,17 @@
  */
 
 /*
+ * Get current time.
+ */
+static inline struct timespec cfs_current_time(void)
+{
+	struct timespec ts;
+	getnstimeofday(&ts);
+	return ts;
+}
+#define CFS_CURRENT_TIME cfs_current_time()
+
+/*
  * Pseudo-blocksize.
  */
 #define INCORE_BLKSIZE		(8192)
@@ -433,6 +444,7 @@ incore_trunc(struct incore_inode *icino, _SYSIO_OFF_T size, int clear)
 {
 	_SYSIO_OFF_T n;
 	void	*p;
+	struct timeval tv;
 
 	if (size < 0) 
 		return -EINVAL;
@@ -457,7 +469,7 @@ out:
 	icino->ici_st.st_size = n;
 	icino->ici_st.st_blocks =
 	    (n + icino->ici_st.st_blksize - 1) / icino->ici_st.st_blksize;
-	icino->ici_st.st_mtime = time(NULL);
+	icino->ici_st.st_mtim = CFS_CURRENT_TIME;
 	return 0;
 }
 
@@ -512,7 +524,7 @@ incore_directory_new(struct incore_filesys *icfs,
 	/*
 	 * Set creation time to modify time set by truncate.
 	 */
-	st->st_ctime = st->st_mtime;
+	st->st_ctim = st->st_mtim;
 
 	return icino;
 }
@@ -620,11 +632,12 @@ _sysio_incore_fsswop_mount(const char *source,
 	stat.st_blksize = INCORE_BLKSIZE;
 	stat.st_blocks = 0;
 	stat.st_ctime = stat.st_mtime = stat.st_atime = 0;
+	stat.st_ctim.tv_nsec = stat.st_mtim.tv_nsec = stat.st_atim.tv_nsec = 0;
 	stat.st_ino = inum;
 	icino = incore_directory_new(icfs, NULL, &stat);
 	if (!icino)
 		return -ENOSPC;
-	icino->ici_st.st_atime = icino->ici_st.st_mtime;
+	icino->ici_st.st_atim = icino->ici_st.st_mtim;
 
 	fs =
 	    _sysio_fs_new(&incore_fs_ops,
@@ -909,6 +922,7 @@ _sysio_incore_inop_setattr(struct pnode *pno,
 {
 	struct incore_inode *icino;
 	int	err;
+	struct timeval tv;
 
 	if (!ino)
 		ino = pno->p_base->pb_ino;
@@ -928,14 +942,14 @@ _sysio_incore_inop_setattr(struct pnode *pno,
 		    (icino->ici_st.st_mode & S_IFMT) | (stbuf->st_mode & 07777);
 	}
 	if (mask & SETATTR_MTIME)
-		icino->ici_st.st_mtime = stbuf->st_mtime;
+		icino->ici_st.st_mtim = stbuf->st_mtim;
 	if (mask & SETATTR_ATIME)
-		icino->ici_st.st_atime = stbuf->st_atime;
+		icino->ici_st.st_atim = stbuf->st_atim;
 	if (mask & SETATTR_UID)
 		icino->ici_st.st_uid = stbuf->st_uid;
 	if (mask & SETATTR_GID)
 		icino->ici_st.st_gid = stbuf->st_gid;
-	icino->ici_st.st_ctime = time(NULL);
+	icino->ici_st.st_ctim = CFS_CURRENT_TIME;
 
 	ino->i_stbuf = icino->ici_st;
 out:
@@ -1024,7 +1038,7 @@ _sysio_incore_dirop_filldirentries(struct inode *ino,
 				   (probe_ty )incore_directory_enumerate,
 				   NULL,
 				   &copy_info);
-	icino->ici_st.st_atime = time(NULL);
+	icino->ici_st.st_atim = CFS_CURRENT_TIME;
 	if (nbytes == copy_info.nbytes && copy_info.count)
 		return -EINVAL;
 	nbytes -= copy_info.nbytes;
@@ -1057,6 +1071,7 @@ incore_directory_insert(struct incore_inode *parent,
 	size_t	reclen;
 	struct lookup_data lookup_data;
 	struct intnl_dirent *de;
+	struct timeval tv;
 	size_t	xt;
 	size_t	n;
 	size_t	r;
@@ -1147,7 +1162,8 @@ incore_directory_insert(struct incore_inode *parent,
 	 */
 	parent->ici_st.st_nlink++;
 	assert(parent->ici_st.st_nlink);
-	parent->ici_st.st_atime = parent->ici_st.st_mtime = time(NULL);
+	parent->ici_st.st_mtim = CFS_CURRENT_TIME;
+	parent->ici_st.st_atim = parent->ici_st.st_mtim;
 
 	return 0;
 }

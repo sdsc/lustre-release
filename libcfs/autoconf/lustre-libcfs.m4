@@ -951,8 +951,21 @@ else
 fi
 AC_SUBST(ENABLE_LIBPTHREAD)
 
+# -------- check for -lrt support, needed for nanosecond times ----
+# TODO: Someone with better autoconf-fu should make this better.
+AC_MSG_CHECKING([whether librt is available for libcfs])
+AC_CHECK_LIB([rt], [clock_gettime],
+             [ENABLE_LIBRT="yes"],
+             [ENABLE_LIBRT="no"])
+if test "$ENABLE_LIBRT" = "yes" ; then
+        PTHREAD_LIBS="$PTHREAD_LIBS -lrt"
+        AC_MSG_RESULT([yes])
+else
+        AC_MSG_RESULT([no])
+fi
 
 ])
+
 
 #
 # LIBCFS_CONDITIONALS

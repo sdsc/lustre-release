@@ -1957,15 +1957,18 @@ static int brw_interpret(const struct lu_env *env,
 			valid |= CAT_BLOCKS;
 		}
 		if (oa->o_valid & OBD_MD_FLMTIME) {
-			attr->cat_mtime = oa->o_mtime;
+			attr->cat_mtime.tv_sec = oa->o_mtime;
+			attr->cat_mtime.tv_nsec = oa->o_mtime_ns;
 			valid |= CAT_MTIME;
 		}
 		if (oa->o_valid & OBD_MD_FLATIME) {
-			attr->cat_atime = oa->o_atime;
+			attr->cat_atime.tv_sec = oa->o_atime;
+			attr->cat_atime.tv_nsec = oa->o_atime_ns;
 			valid |= CAT_ATIME;
 		}
 		if (oa->o_valid & OBD_MD_FLCTIME) {
-			attr->cat_ctime = oa->o_ctime;
+			attr->cat_ctime.tv_sec = oa->o_ctime;
+			attr->cat_ctime.tv_nsec = oa->o_ctime_ns;
 			valid |= CAT_CTIME;
 		}
 		if (valid != 0) {
@@ -2298,8 +2301,10 @@ static int osc_enqueue_fini(struct ptlrpc_request *req, struct ost_lvb *lvb,
         if ((intent != 0 && rc == ELDLM_LOCK_ABORTED && agl == 0) ||
             (rc == 0)) {
                 *flags |= LDLM_FL_LVB_READY;
-                CDEBUG(D_INODE,"got kms "LPU64" blocks "LPU64" mtime "LPU64"\n",
-                       lvb->lvb_size, lvb->lvb_blocks, lvb->lvb_mtime);
+		CDEBUG(D_INODE, "got kms "LPU64" blocks "LPU64" mtime "
+				LPU64".%09u\n",
+		       lvb->lvb_size, lvb->lvb_blocks, lvb->lvb_mtime,
+		       lvb->lvb_mtime_ns);
         }
 
         /* Call the update callback. */

@@ -723,14 +723,28 @@ static void ll_update_times(struct ptlrpc_request *request,
 
         LASSERT(body);
         if (body->valid & OBD_MD_FLMTIME &&
-            body->mtime > LTIME_S(inode->i_mtime)) {
-                CDEBUG(D_INODE, "setting ino %lu mtime from %lu to "LPU64"\n",
-                       inode->i_ino, LTIME_S(inode->i_mtime), body->mtime);
-                LTIME_S(inode->i_mtime) = body->mtime;
+	    body->mtime >= inode->i_mtime.tv_sec) {
+		if ((body->mtime_ns > inode->i_mtime.tv_nsec &&
+		    body->mtime == inode->i_mtime.tv_sec) ||
+		    body->mtime > inode->i_mtime.tv_sec) {
+			CDEBUG(D_INODE, "setting ino %lu mtime from %lu.%09lu "
+					"to "LPU64".%09u\n",
+			       inode->i_ino,
+			       inode->i_mtime.tv_sec, inode->i_mtime.tv_nsec,
+			       body->mtime, body->mtime_ns);
+			inode->i_mtime.tv_sec = body->mtime;
+			inode->i_mtime.tv_nsec = body->mtime_ns;
+		}
         }
         if (body->valid & OBD_MD_FLCTIME &&
-            body->ctime > LTIME_S(inode->i_ctime))
-                LTIME_S(inode->i_ctime) = body->ctime;
+	    body->ctime >= inode->i_ctime.tv_sec) {
+		if ((body->ctime_ns > inode->i_ctime.tv_nsec &&
+		    body->ctime == inode->i_ctime.tv_sec) ||
+		    body->ctime > inode->i_ctime.tv_sec) {
+			inode->i_ctime.tv_sec = body->ctime;
+			inode->i_ctime.tv_nsec = body->ctime_ns;
+		}
+	}
 }
 
 static int ll_new_node(struct inode *dir, struct qstr *name,

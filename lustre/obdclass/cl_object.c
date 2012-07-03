@@ -301,10 +301,14 @@ int cl_object_glimpse(const struct lu_env *env, struct cl_object *obj,
                 }
         }
         LU_OBJECT_HEADER(D_DLMTRACE, env, lu_object_top(top),
-                         "size: "LPU64" mtime: "LPU64" atime: "LPU64" "
-                         "ctime: "LPU64" blocks: "LPU64"\n",
-                         lvb->lvb_size, lvb->lvb_mtime, lvb->lvb_atime,
-                         lvb->lvb_ctime, lvb->lvb_blocks);
+			 "size: "LPU64" mtime: "LPU64".%09u "
+			 "atime: "LPU64".%09u ctime: "LPU64".%09u "
+			 "blocks: "LPU64"\n",
+			 lvb->lvb_size,
+			 lvb->lvb_mtime, lvb->lvb_mtime_ns,
+			 lvb->lvb_atime, lvb->lvb_atime_ns,
+			 lvb->lvb_ctime, lvb->lvb_ctime_ns,
+			 lvb->lvb_blocks);
         RETURN(result);
 }
 EXPORT_SYMBOL(cl_object_glimpse);
@@ -1079,11 +1083,14 @@ EXPORT_SYMBOL(cl_env_nested_put);
 void cl_attr2lvb(struct ost_lvb *lvb, const struct cl_attr *attr)
 {
         ENTRY;
-        lvb->lvb_size   = attr->cat_size;
-        lvb->lvb_mtime  = attr->cat_mtime;
-        lvb->lvb_atime  = attr->cat_atime;
-        lvb->lvb_ctime  = attr->cat_ctime;
-        lvb->lvb_blocks = attr->cat_blocks;
+	lvb->lvb_size     = attr->cat_size;
+	lvb->lvb_mtime    = attr->cat_mtime.tv_sec;
+	lvb->lvb_mtime_ns = attr->cat_mtime.tv_nsec;
+	lvb->lvb_atime    = attr->cat_atime.tv_sec;
+	lvb->lvb_atime_ns = attr->cat_atime.tv_nsec;
+	lvb->lvb_ctime    = attr->cat_ctime.tv_sec;
+	lvb->lvb_ctime_ns = attr->cat_ctime.tv_nsec;
+	lvb->lvb_blocks   = attr->cat_blocks;
         EXIT;
 }
 EXPORT_SYMBOL(cl_attr2lvb);
@@ -1097,9 +1104,12 @@ void cl_lvb2attr(struct cl_attr *attr, const struct ost_lvb *lvb)
 {
         ENTRY;
         attr->cat_size   = lvb->lvb_size;
-        attr->cat_mtime  = lvb->lvb_mtime;
-        attr->cat_atime  = lvb->lvb_atime;
-        attr->cat_ctime  = lvb->lvb_ctime;
+	attr->cat_mtime.tv_sec  = lvb->lvb_mtime;
+	attr->cat_mtime.tv_nsec = lvb->lvb_mtime_ns;
+	attr->cat_atime.tv_sec  = lvb->lvb_atime;
+	attr->cat_atime.tv_nsec = lvb->lvb_atime_ns;
+	attr->cat_ctime.tv_sec  = lvb->lvb_ctime;
+	attr->cat_ctime.tv_nsec = lvb->lvb_ctime_ns;
         attr->cat_blocks = lvb->lvb_blocks;
         EXIT;
 }

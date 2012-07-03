@@ -26,6 +26,8 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2012, Whamcloud, Inc.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -142,10 +144,17 @@ static void mdc_body2attr(struct mdt_body *body, struct md_attr *ma)
         struct lu_attr *la = &ma->ma_attr;
         /* update time */
         if (body->valid & OBD_MD_FLCTIME && body->ctime >= la->la_ctime) {
-                la->la_ctime = body->ctime;
-                if (body->valid & OBD_MD_FLMTIME)
-                        la->la_mtime = body->mtime;
-        }
+		if ((body->ctime == la->la_ctime &&
+		     body->ctime_ns > la->la_ctime_ns) ||
+		     body->ctime > la->la_ctime) {
+			la->la_ctime = body->ctime;
+			la->la_ctime_ns = body->ctime_ns;
+			if (body->valid & OBD_MD_FLMTIME) {
+				la->la_mtime = body->mtime;
+				la->la_mtime_ns = body->mtime_ns;
+			}
+		}
+	}
 
         if (body->valid & OBD_MD_FLMODE)
                 la->la_mode = body->mode;
@@ -300,10 +309,12 @@ static int mdc_attr_get(const struct lu_env *env, struct md_object *mo,
 /**
  * Helper to init timspec \a t.
  */
-static inline struct timespec *mdc_attr_time(struct timespec *t, obd_time seconds)
+static inline struct timespec *mdc_attr_time(struct timespec *t,
+					     obd_time seconds,
+					     __u32 nanoseconds)
 {
         t->tv_sec = seconds;
-        t->tv_nsec = 0;
+	t->tv_nsec = nanoseconds;
         return t;
 }
 
@@ -330,7 +341,8 @@ static int mdc_attr_set(const struct lu_env *env, struct md_object *mo,
         memset(&mci->mci_opdata, 0, sizeof(mci->mci_opdata));
 
         mci->mci_opdata.op_fid1 = *lu_object_fid(&mo->mo_lu);
-        mdc_attr_time(&mci->mci_opdata.op_attr.ia_ctime, la->la_ctime);
+	mdc_attr_time(&mci->mci_opdata.op_attr.ia_ctime, la->la_ctime,
+		      la->la_ctime_ns);
         mci->mci_opdata.op_attr.ia_mode = la->la_mode;
         mci->mci_opdata.op_attr.ia_valid = ATTR_CTIME_SET;
         if (uc &&
@@ -390,6 +402,7 @@ static int mdc_object_create(const struct lu_env *env,
         /* Parent fid is needed to create dotdot on the remote node. */
         mci->mci_opdata.op_fid1 = *(spec->u.sp_pfid);
         mci->mci_opdata.op_mod_time = la->la_ctime;
+	mci->mci_opdata.op_mod_time_ns = la->la_ctime_ns;
         if (uc &&
             ((uc->mu_valid == UCRED_OLD) || (uc->mu_valid == UCRED_NEW))) {
                 uid = uc->mu_fsuid;
@@ -461,6 +474,7 @@ static int mdc_ref_add(const struct lu_env *env, struct md_object *mo,
         mci->mci_opdata.op_bias = MDS_CROSS_REF;
         mci->mci_opdata.op_fid1 = *lu_object_fid(&mo->mo_lu);
         mci->mci_opdata.op_mod_time = la->la_ctime;
+	mci->mci_opdata.op_mod_time_ns = la->la_ctime_ns;
         if (uc &&
             ((uc->mu_valid == UCRED_OLD) || (uc->mu_valid == UCRED_NEW))) {
                 mci->mci_opdata.op_fsuid = uc->mu_fsuid;
@@ -511,6 +525,7 @@ static int mdc_ref_del(const struct lu_env *env, struct md_object *mo,
         mci->mci_opdata.op_fid1 = *lu_object_fid(&mo->mo_lu);
         mci->mci_opdata.op_mode = la->la_mode;
         mci->mci_opdata.op_mod_time = la->la_ctime;
+	mci->mci_opdata.op_mod_time_ns = la->la_ctime_ns;
         if (uc &&
             ((uc->mu_valid == UCRED_OLD) || (uc->mu_valid == UCRED_NEW))) {
                 mci->mci_opdata.op_fsuid = uc->mu_fsuid;
@@ -595,6 +610,7 @@ static int mdc_rename_tgt(const struct lu_env *env, struct md_object *mo_p,
         mci->mci_opdata.op_fid2 = *lf;
         mci->mci_opdata.op_mode = la->la_mode;
         mci->mci_opdata.op_mod_time = la->la_ctime;
+	mci->mci_opdata.op_mod_time_ns = la->la_ctime_ns;
         if (uc &&
             ((uc->mu_valid == UCRED_OLD) || (uc->mu_valid == UCRED_NEW))) {
                 mci->mci_opdata.op_fsuid = uc->mu_fsuid;
