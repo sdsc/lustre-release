@@ -129,23 +129,23 @@ void lustre_groups_sort(cfs_group_info_t *group_info)
 }
 EXPORT_SYMBOL(lustre_groups_sort);
 
-int lustre_in_group_p(struct md_ucred *mu, gid_t grp)
+int lustre_in_group_p(struct lu_ucred *mu, gid_t grp)
 {
         int rc = 1;
 
-        if (grp != mu->mu_fsgid) {
+        if (grp != mu->uc_fsgid) {
                 cfs_group_info_t *group_info = NULL;
 
-                if (mu->mu_ginfo || !mu->mu_identity ||
-                    mu->mu_valid == UCRED_OLD)
-                        if (grp == mu->mu_suppgids[0] ||
-                            grp == mu->mu_suppgids[1])
+                if (mu->uc_ginfo || !mu->uc_identity ||
+                    mu->uc_valid == UCRED_OLD)
+                        if (grp == mu->uc_suppgids[0] ||
+                            grp == mu->uc_suppgids[1])
                                 return 1;
 
-                if (mu->mu_ginfo)
-                        group_info = mu->mu_ginfo;
-                else if (mu->mu_identity)
-                        group_info = mu->mu_identity->mi_ginfo;
+                if (mu->uc_ginfo)
+                        group_info = mu->uc_ginfo;
+                else if (mu->uc_identity)
+                        group_info = mu->uc_identity->mi_ginfo;
 
                 if (!group_info)
                         return 0;
@@ -365,23 +365,23 @@ int lustre_idmap_del(struct lustre_idmap_table *t,
 }
 EXPORT_SYMBOL(lustre_idmap_del);
 
-int lustre_idmap_lookup_uid(struct md_ucred *mu,
+int lustre_idmap_lookup_uid(struct lu_ucred *mu,
                             struct lustre_idmap_table *t,
                             int reverse, uid_t uid)
 {
         cfs_list_t *hash;
 
-        if (mu && (mu->mu_valid == UCRED_OLD || mu->mu_valid == UCRED_NEW)) {
+        if (mu && (mu->uc_valid == UCRED_OLD || mu->uc_valid == UCRED_NEW)) {
                 if (!reverse) {
-                        if (uid == mu->mu_o_uid)
-                                return mu->mu_uid;
-                        else if (uid == mu->mu_o_fsuid)
-                                return mu->mu_fsuid;
+                        if (uid == mu->uc_o_uid)
+                                return mu->uc_uid;
+                        else if (uid == mu->uc_o_fsuid)
+                                return mu->uc_fsuid;
                 } else {
-                        if (uid == mu->mu_uid)
-                                return mu->mu_o_uid;
-                        else if (uid == mu->mu_fsuid)
-                                return mu->mu_o_fsuid;
+                        if (uid == mu->uc_uid)
+                                return mu->uc_o_uid;
+                        else if (uid == mu->uc_fsuid)
+                                return mu->uc_o_fsuid;
                 }
         }
 
@@ -398,22 +398,22 @@ int lustre_idmap_lookup_uid(struct md_ucred *mu,
 }
 EXPORT_SYMBOL(lustre_idmap_lookup_uid);
 
-int lustre_idmap_lookup_gid(struct md_ucred *mu, struct lustre_idmap_table *t,
+int lustre_idmap_lookup_gid(struct lu_ucred *mu, struct lustre_idmap_table *t,
                             int reverse, gid_t gid)
 {
         cfs_list_t *hash;
 
-        if (mu && (mu->mu_valid == UCRED_OLD || mu->mu_valid == UCRED_NEW)) {
+        if (mu && (mu->uc_valid == UCRED_OLD || mu->uc_valid == UCRED_NEW)) {
                 if (!reverse) {
-                        if (gid == mu->mu_o_gid)
-                                return mu->mu_gid;
-                        else if (gid == mu->mu_o_fsgid)
-                                return mu->mu_fsgid;
+                        if (gid == mu->uc_o_gid)
+                                return mu->uc_gid;
+                        else if (gid == mu->uc_o_fsgid)
+                                return mu->uc_fsgid;
                 } else {
-                        if (gid == mu->mu_gid)
-                                return mu->mu_o_gid;
-                        else if (gid == mu->mu_fsgid)
-                                return mu->mu_o_fsgid;
+                        if (gid == mu->uc_gid)
+                                return mu->uc_o_gid;
+                        else if (gid == mu->uc_fsgid)
+                                return mu->uc_o_fsgid;
                 }
         }
 

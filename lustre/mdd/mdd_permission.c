@@ -231,7 +231,7 @@ static int mdd_check_acl(const struct lu_env *env, struct mdd_object *obj,
                          struct lu_attr *la, int mask)
 {
 #ifdef CONFIG_FS_POSIX_ACL
-        struct md_ucred  *uc  = md_ucred(env);
+        struct lu_ucred  *uc  = lu_ucred_assert(env);
         posix_acl_xattr_header *head;
         posix_acl_xattr_entry *entry;
         struct lu_buf   *buf;
@@ -263,7 +263,7 @@ static int mdd_check_acl(const struct lu_env *env, struct mdd_object *obj,
 int __mdd_permission_internal(const struct lu_env *env, struct mdd_object *obj,
                               struct lu_attr *la, int mask, int role)
 {
-        struct md_ucred *uc = md_ucred(env);
+        struct lu_ucred *uc = lu_ucred(env);
         __u32 mode;
         int rc;
         ENTRY;
@@ -272,11 +272,11 @@ int __mdd_permission_internal(const struct lu_env *env, struct mdd_object *obj,
                 RETURN(0);
 
         /* These means unnecessary for permission check */
-        if ((uc == NULL) || (uc->mu_valid == UCRED_INIT))
+        if ((uc == NULL) || (uc->uc_valid == UCRED_INIT))
                 RETURN(0);
 
         /* Invalid user credit */
-        if (uc->mu_valid == UCRED_INVALID)
+        if (uc->uc_valid == UCRED_INVALID)
                 RETURN(-EACCES);
 
         /*
@@ -293,7 +293,7 @@ int __mdd_permission_internal(const struct lu_env *env, struct mdd_object *obj,
         }
 
         mode = la->la_mode;
-        if (uc->mu_fsuid == la->la_uid) {
+        if (uc->uc_fsuid == la->la_uid) {
                 mode >>= 6;
         } else {
                 if (mode & S_IRWXG) {
@@ -334,7 +334,7 @@ int mdd_permission(const struct lu_env *env,
                    struct md_attr *ma, int mask)
 {
         struct mdd_object *mdd_pobj, *mdd_cobj;
-        struct md_ucred *uc = NULL;
+        struct lu_ucred *uc = NULL;
 	struct lu_attr *la = &mdd_env_info(env)->mti_cattr;
         int check_create, check_link;
         int check_unlink;
@@ -389,7 +389,7 @@ int mdd_permission(const struct lu_env *env,
         }
 
         if (!rc && (check_vtx_part || check_vtx_full)) {
-                uc = md_ucred(env);
+                uc = lu_ucred_assert(env);
                 if (likely(!la)) {
                         la = &mdd_env_info(env)->mti_la;
                         rc = mdd_la_get(env, mdd_cobj, la, BYPASS_CAPA);
@@ -397,9 +397,9 @@ int mdd_permission(const struct lu_env *env,
                                 RETURN(rc);
                 }
 
-                if (!(la->la_mode & S_ISVTX) || (la->la_uid == uc->mu_fsuid) ||
+                if (!(la->la_mode & S_ISVTX) || (la->la_uid == uc->uc_fsuid) ||
                     (check_vtx_full && (ma->ma_attr.la_valid & LA_UID) &&
-                    (ma->ma_attr.la_uid == uc->mu_fsuid))) {
+                    (ma->ma_attr.la_uid == uc->uc_fsuid))) {
                         ma->ma_attr_flags |= MDS_VTX_BYPASS;
                 } else {
                         ma->ma_attr_flags &= ~MDS_VTX_BYPASS;
@@ -410,9 +410,9 @@ int mdd_permission(const struct lu_env *env,
 
         if (unlikely(!rc && check_rgetfacl)) {
                 if (likely(!uc))
-                        uc = md_ucred(env);
+                        uc = lu_ucred_assert(env);
 
-                if (la->la_uid != uc->mu_fsuid &&
+                if (la->la_uid != uc->uc_fsuid &&
                     !mdd_capable(uc, CFS_CAP_FOWNER))
                         rc = -EPERM;
         }

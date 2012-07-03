@@ -111,7 +111,7 @@ int mdt_getxattr(struct mdt_thread_info *info)
 {
         struct ptlrpc_request  *req = mdt_info_req(info);
         struct mdt_export_data *med = mdt_req2med(req);
-        struct md_ucred        *uc  = mdt_ucred(info);
+        struct lu_ucred        *uc  = mdt_ucred(info);
         struct mdt_body        *reqbody;
         struct mdt_body        *repbody = NULL;
         struct md_object       *next;
@@ -140,7 +140,7 @@ int mdt_getxattr(struct mdt_thread_info *info)
                 if (unlikely(!remote))
                         GOTO(out, rc = err_serious(-EINVAL));
 
-                perm = mdt_identity_get_perm(uc->mu_identity, remote,
+                perm = mdt_identity_get_perm(uc->uc_identity, remote,
                                              req->rq_peer.nid);
                 if (!(perm & CFS_RMTACL_PERM))
                         GOTO(out, rc = err_serious(-EPERM));
@@ -226,7 +226,7 @@ static int mdt_rmtlsetfacl(struct mdt_thread_info *info,
 {
         struct ptlrpc_request  *req = mdt_info_req(info);
         struct mdt_export_data *med = mdt_req2med(req);
-        struct md_ucred        *uc = mdt_ucred(info);
+        struct lu_ucred        *uc = mdt_ucred(info);
         struct lu_buf          *buf = &info->mti_buf;
         int                     rc;
         ENTRY;
@@ -269,7 +269,7 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
                        struct mdt_lock_handle *unused)
 {
         struct ptlrpc_request   *req = mdt_info_req(info);
-        struct md_ucred         *uc  = mdt_ucred(info);
+        struct lu_ucred         *uc  = mdt_ucred(info);
         struct mdt_lock_handle  *lh;
         const struct lu_env     *env  = info->mti_env;
         struct lu_buf           *buf  = &info->mti_buf;
@@ -304,7 +304,7 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
                 if (unlikely(!remote))
                         GOTO(out, rc = err_serious(-EINVAL));
 
-                perm = mdt_identity_get_perm(uc->mu_identity, remote,
+                perm = mdt_identity_get_perm(uc->uc_identity, remote,
                                              req->rq_peer.nid);
                 if (!(perm & CFS_RMTACL_PERM))
                         GOTO(out, rc = err_serious(-EPERM));

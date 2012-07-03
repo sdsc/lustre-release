@@ -93,7 +93,7 @@ static inline void lustre_posix_acl_cpu_to_le(posix_acl_xattr_entry *d,
 /*
  * Check permission based on POSIX ACL.
  */
-int lustre_posix_acl_permission(struct md_ucred *mu, struct lu_attr *la,
+int lustre_posix_acl_permission(struct lu_ucred *mu, struct lu_attr *la,
                                 int want, posix_acl_xattr_entry *entry,
                                 int count)
 {
@@ -109,11 +109,11 @@ int lustre_posix_acl_permission(struct md_ucred *mu, struct lu_attr *la,
                 switch (ae.e_tag) {
                 case ACL_USER_OBJ:
                         /* (May have been checked already) */
-                        if (la->la_uid == mu->mu_fsuid)
+                        if (la->la_uid == mu->uc_fsuid)
                                 goto check_perm;
                         break;
                 case ACL_USER:
-                        if (ae.e_id == mu->mu_fsuid)
+                        if (ae.e_id == mu->uc_fsuid)
                                 goto mask;
                         break;
                 case ACL_GROUP_OBJ:
@@ -465,7 +465,7 @@ EXPORT_SYMBOL(lustre_posix_acl_xattr_filter);
  * @CFS_IC_UNMAPPED
  *  only unmapped ids are converted to "nobody".
  */
-int lustre_posix_acl_xattr_id2client(struct md_ucred *mu,
+int lustre_posix_acl_xattr_id2client(struct lu_ucred *mu,
                                      struct lustre_idmap_table *t,
                                      posix_acl_xattr_header *header,
                                      int size, int flags)
@@ -548,7 +548,7 @@ EXPORT_SYMBOL(lustre_posix_acl_xattr_free);
  *  mapped ids are converted to server-side ones,
  *  unmapped ones cause "EPERM" error.
  */
-int lustre_ext_acl_xattr_id2server(struct md_ucred *mu,
+int lustre_ext_acl_xattr_id2server(struct lu_ucred *mu,
                                    struct lustre_idmap_table *t,
                                    ext_acl_xattr_header *header)
 
