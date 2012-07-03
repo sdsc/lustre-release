@@ -435,8 +435,8 @@ static int __init mds_cmd_init(void)
         init_obd_quota_ops(mds_quota_interface_ref, &mds_cmd_obd_ops);
 
         lprocfs_mds_init_vars(&lvars);
-        class_register_type(&mds_cmd_obd_ops, NULL, lvars.module_vars,
-                            LUSTRE_MDS_NAME, NULL);
+	class_register_type(&mds_cmd_obd_ops, NULL, lvars.module_vars,
+			    LUSTRE_MDD_MDS_NAME, NULL);
 
         return 0;
 }
@@ -447,7 +447,7 @@ static void /*__exit*/ mds_cmd_exit(void)
         if (mds_quota_interface_ref)
                 PORTAL_SYMBOL_PUT(mds_quota_interface);
 
-        class_unregister_type(LUSTRE_MDS_NAME);
+	class_unregister_type(LUSTRE_MDD_MDS_NAME);
 }
 
 EXPORT_SYMBOL(mds_quota_interface_ref);
