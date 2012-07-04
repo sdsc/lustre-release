@@ -252,6 +252,37 @@ void * lr_grow_buf(void *buf, int size)
         return ptr;
 }
 
+#if !defined(HAVE_UTIMENSAT)
+# ifndef NSEC_PER_USEC
+#  define NSEC_PER_USEC 1000
+# endif
+
+/* We're on a system without a proper utimensat function, so we wrap the
+ * next best function to serve our purposes: utimes, which operates at a
+ * microsecond resolution instead of nanosecond. Make sure we complain to
+ * the user that times may be truncated, however. */
+static int utimensat(int dirfd, const char *pathname,
+		     const struct timespec times[2], int flags)
+{
+	static int made_nanotime_complaint; /* = 0; */
+	struct timeval truncated[2];
+
+	if (!made_nanotime_complaint) {
+		fprintf(stderr, "Warning: Only microsecond-resolution times"
+				"can be used on this system.\n");
+		fprintf(stderr, "Warning: Files which use full width of "
+				"nanosecond time will have times truncated.\n");
+		made_nanotime_complaint = 1;
+	}
+
+	truncated[0].tv_sec  = times[0].tv_sec;
+	truncated[0].tv_usec = times[0].tv_nsec / NSEC_PER_USEC;
+	truncated[1].tv_sec  = times[1].tv_sec;
+	truncated[1].tv_usec = times[1].tv_nsec / NSEC_PER_USEC;
+	return utimes(pathname, truncated);
+}
+#endif
+
 
 /* Use rsync to replicate file data */
 int lr_rsync_data(struct lr_info *info)
@@ -278,7 +309,8 @@ int lr_rsync_data(struct lr_info *info)
                 return -errno;
         }
 
-        if (st_src.st_mtime != st_dest.st_mtime ||
+	if (st_src.st_mtim.tv_sec != st_dest.st_mtim.tv_sec ||
+	    st_src.st_mtim.tv_nsec != st_dest.st_mtim.tv_nsec ||
             st_src.st_size != st_dest.st_size) {
                 /* XXX spawning off an rsync for every data sync and
                  * waiting synchronously is bad for performance.
@@ -400,22 +432,22 @@ int lr_sync_data(struct lr_info *info)
                 return lr_copy_data(info);
 }
 
-/* Copy all attributes from file src to file dest */
+/* Copy all attributes from file src to file dest, including nanotimes */
 int lr_copy_attr(char *src, char *dest)
 {
-        struct stat st;
-        struct utimbuf time;
+	struct stat st;
+	struct timespec times[2];
 
-        if (stat(src, &st) == -1 ||
-            chmod(dest, st.st_mode) == -1 ||
-            chown(dest, st.st_uid, st.st_gid) == -1)
-                return -errno;
+	if (stat(src, &st) == -1 ||
+	    chmod(dest, st.st_mode) == -1 ||
+	    chown(dest, st.st_uid, st.st_gid) == -1)
+		return -errno;
 
-        time.actime = st.st_atime;
-        time.modtime = st.st_mtime;
-        if (utime(dest, &time) == -1)
-                return -errno;
-        return 0;
+	times[0] = st.st_atim;
+	times[1] = st.st_mtim;
+	if (utimensat(AT_FDCWD, dest, times, 0) == -1)
+		return -errno;
+	return 0;
 }
 
 /* Copy all xattrs from file info->src to info->dest */
