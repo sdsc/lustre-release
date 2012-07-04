@@ -104,9 +104,9 @@ extern int llapi_file_lookup(int dirfd, const char *name);
 
 struct find_param {
         unsigned int maxdepth;
-        time_t  atime;
-        time_t  mtime;
-        time_t  ctime;
+	struct timespec atime;
+	struct timespec mtime;
+	struct timespec ctime;
         int     asign;  /* cannot be bitfields due to using pointers to */
         int     csign;  /* access them during argument parsing. */
         int     msign;
