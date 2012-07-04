@@ -214,10 +214,10 @@ lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid, int cpt)
 
 	ptable = the_lnet.ln_peer_tables[cpt2];
 	lp = lnet_find_peer_locked(ptable, nid);
-        if (lp != NULL) {
-                *lpp = lp;
-                return 0;
-        }
+	if (lp != NULL) {
+		*lpp = lp;
+		return 0;
+	}
 
 	if (!cfs_list_empty(&ptable->pt_deathrow)) {
 		lp = cfs_list_entry(ptable->pt_deathrow.next,
@@ -271,13 +271,13 @@ lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid, int cpt)
 	if (lp2 != NULL) {
 		*lpp = lp2;
 		goto out;
-        }
+	}
 
 	lp->lp_ni = lnet_net2ni_locked(LNET_NIDNET(nid), cpt2);
 	if (lp->lp_ni == NULL) {
 		rc = -EHOSTUNREACH;
 		goto out;
-        }
+	}
 
         lp->lp_txcredits    =
         lp->lp_mintxcredits = lp->lp_ni->ni_peertxcredits;
