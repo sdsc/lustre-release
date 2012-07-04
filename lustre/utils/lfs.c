@@ -480,9 +480,9 @@ static int lfs_poollist(int argc, char **argv)
         return llapi_poollist(argv[1]);
 }
 
-static int set_time(time_t *time, time_t *set, char *str)
+static int set_time(struct timespec *time, struct timespec *set, char *str)
 {
-        time_t t;
+	struct timespec t;
         int res = 0;
 
         if (str[0] == '+')
@@ -493,15 +493,18 @@ static int set_time(time_t *time, time_t *set, char *str)
         if (res)
                 str++;
 
-        t = strtol(str, NULL, 0);
-        if (*time < t * 24 * 60 * 60) {
+	t.tv_sec = strtol(str, NULL, 0); /* unit here is days, not seconds */
+	t.tv_sec *= 24 * 60 * 60; /* now unit is seconds */
+	t.tv_nsec = 0; /* no love for nanoseconds */
+	if (time->tv_sec < t.tv_sec) {
                 if (res)
                         str--;
-                fprintf(stderr, "Wrong time '%s' is specified.\n", str);
+		fprintf(stderr, "Bad time '%s' specified.\n", str);
                 return INT_MAX;
         }
 
-        *set = *time - t * 24 * 60 * 60;
+	set->tv_sec = time->tv_sec - t.tv_sec;
+	set->tv_nsec = time->tv_nsec;
         return res;
 }
 
@@ -566,7 +569,7 @@ static int id2name(char **name, unsigned int id, int type)
 static int lfs_find(int argc, char **argv)
 {
         int c, ret;
-        time_t t;
+	struct timespec t;
         struct find_param param = { .maxdepth = -1, .quiet = 1 };
         struct option long_opts[] = {
                 {"atime",        required_argument, 0, 'A'},
@@ -599,12 +602,12 @@ static int lfs_find(int argc, char **argv)
         int pathstart = -1;
         int pathend = -1;
         int neg_opt = 0;
-        time_t *xtime;
+	struct timespec *xtime;
         int *xsign;
         int isoption;
         char *endptr;
 
-        time(&t);
+	clock_gettime(CLOCK_REALTIME, &t);
 
         optind = 0;
         /* when getopt_long_only() hits '!' it returns 1, puts "!" in optarg */

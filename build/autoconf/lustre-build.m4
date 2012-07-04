@@ -286,6 +286,33 @@ AC_SUBST(LIBCFS_INCLUDE_DIR)
 ])
 
 #
+# LB_HAVE_UTIMENSAT
+#
+# Test for existence of utimensat function (not present in older glibcs,
+# which are used in el5 and older distros).
+AC_DEFUN([LB_HAVE_UTIMENSAT],
+[AC_MSG_CHECKING([if utimensat is present])
+AC_COMPILE_IFELSE([[
+	#include <time.h>
+	#include <sys/stat.h>
+	#include <fcntl.h>
+
+	int main(void)
+	{
+		struct timespec times[2] __attribute__((unused));
+		utimensat(AT_FDCWD, "/tmp/a", times, 0);
+		return 0;
+	}
+]],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(HAVE_UTIMENSAT, 1,
+                [utimensat is present])
+],[
+        AC_MSG_RESULT(NO)
+])
+])
+
+#
 # LB_CONFIG_CRAY_XT3
 #
 # Enable Cray XT3 features
@@ -772,6 +799,7 @@ LB_INCLUDE_RULES
 LB_CONFIG_CRAY_XT3
 LB_CONFIG_BGL
 LB_PATH_DEFAULTS
+LB_HAVE_UTIMENSAT
 
 LB_PROG_CC
 

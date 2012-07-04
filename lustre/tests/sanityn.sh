@@ -499,23 +499,41 @@ test_25() {
 }
 run_test 25 "change ACL on one mountpoint be seen on another ==="
 
+get_ns_mtime() {
+	echo "$(stat -c '%y' $1 | awk '{ print $2 }' | \
+		sed 's/^.*\.\(.*\)$/\1/g')"
+}
+NANOTIME_SUPPORTED="$(lctl get_param mdc.*-mdc-*.connect_flags | \
+		      grep nanosecond_times)"
+
 test_26a() {
-        utime $DIR1/f26a -s $DIR2/f26a || error
+	utime $DIR1/f26a -s $DIR2/f26a || error
 }
 run_test 26a "allow mtime to get older"
 
 test_26b() {
-        touch $DIR1/$tfile
-        sleep 1
-        echo "aaa" >> $DIR1/$tfile
-        sleep 1
-        chmod a+x $DIR2/$tfile
-        mt1=`stat -c %Y $DIR1/$tfile`
-        mt2=`stat -c %Y $DIR2/$tfile`
+	touch $DIR1/$tfile
+	sleep 1
+	echo "aaa" >> $DIR1/$tfile
+	sleep 1
+	chmod a+x $DIR2/$tfile
+	mt1=`stat -c %Y $DIR1/$tfile`
+	mt2=`stat -c %Y $DIR2/$tfile`
+	if [ -n "$NANOTIME_SUPPORTED" ]; then
+		mt1_ns=`get_ns_mtime $DIR1/$tfile`
+		mt2_ns=`get_ns_mtime $DIR2/$tfile`
+	else
+		skip "nanosecond time"
+	fi
 
-        if [ x"$mt1" != x"$mt2" ]; then
-                error "not equal mtime, client1: "$mt1", client2: "$mt2"."
-        fi
+	if [ x"$mt1" != x"$mt2" ]; then
+		error "not equal mtime, client1: "$mt1", client2: "$mt2"."
+	fi
+	if [ -n "$NANOTIME_SUPPORTED" ]; then
+		if [ "$mt1_ns" != "$mt2_ns" ]; then
+			error "not equal nano mtime, client1: "$mt1_ns", client2: "$mt2_ns"."
+		fi
+	fi
 }
 run_test 26b "sync mtime between ost and mds"
 
@@ -950,6 +968,7 @@ run_test 37 "check i_size is not updated for directory on close (bug 18695) ====
 
 # this should be set to past
 TEST_39_MTIME=`date -d "1 year ago" +%s`
+TEST_39_MTIMENS='013371337' # random non-zero nanosecond value
 
 # bug 11063
 test_39a() {
@@ -958,10 +977,22 @@ test_39a() {
 
 	do_node $client1 "touch $DIR1/$tfile"
 
-	do_node $client1 "touch -m -d @$TEST_39_MTIME $DIR1/$tfile"
+	if [ -n "$NANOTIME_SUPPORTED" ]; then
+		do_node $client1 "touch -m -d @$TEST_39_MTIME.$TEST_39_MTIMENS $DIR1/$tfile"
+	else
+		skip "nanosecond time"
+		do_node $client1 "touch -m -d @$TEST_39_MTIME $DIR1/$tfile"
+	fi
 	local mtime1=`do_node $client2 "stat -c %Y $DIR1/$tfile"`
 	[ "$mtime1" = $TEST_39_MTIME ] || \
 		error "mtime is not set to past: $mtime1, should be $TEST_39_MTIME"
+	if [ -n "$NANOTIME_SUPPORTED" ]; then
+		# get_ns_mtime is not defined on clients, so we have to inline it; joy
+		local mtime1_ns="`do_node $client2 "stat -c '%y' $DIR1/$tfile"`"
+		mtime1_ns=`echo $mtime1_ns | awk '{ print $2 }' | sed 's/^.*\.\(.*\)$/\1/g'`
+		[ "$mtime1_ns" = "$TEST_39_MTIMENS" ] || \
+			error "nano mtime is not set to past: $mtime1_ns, should be $TEST_39_MTIMENS"
+	fi
 
 	local d1=`do_node $client1 date +%s`
 	do_node $client1 'echo hello >> '$DIR1/$tfile
@@ -970,6 +1001,11 @@ test_39a() {
 	local mtime2=`do_node $client2 "stat -c %Y $DIR1/$tfile"`
 	[ "$mtime2" -ge "$d1" ] && [ "$mtime2" -le "$d2" ] || \
 		error "mtime is not updated on write: $d1 <= $mtime2 <= $d2"
+	local mtime2_ns=""
+	if [ -n "$NANOTIME_SUPPORTED" ]; then
+		local mtime2_ns=`do_node $client2 "stat -c '%y' $DIR1/$tfile"`
+		mtime2_ns=`echo $mtime2_ns | awk '{ print $2 }' | sed 's/^.*\.\(.*\)$/\1/g'`
+	fi
 
 	do_node $client1 "mv $DIR1/$tfile $DIR1/$tfile-1"
 
@@ -977,6 +1013,12 @@ test_39a() {
 		local mtime3=`do_node $client2 "stat -c %Y $DIR1/$tfile-1"`
 		[ "$mtime2" = "$mtime3" ] || \
 			error "mtime ($mtime2) changed (to $mtime3) on rename"
+		if [ -n "$NANOTIME_SUPPORTED" ]; then
+			local mtime3_ns="`do_node $client2 "stat -c '%y' $DIR1/$tfile-1"`"
+			mtime3_ns=`echo $mtime3_ns | awk '{ print $2 }' | sed 's/^.*\.\(.*\)$/\1/g'`
+			[ "$mtime2_ns" = "$mtime3_ns" ] || \
+				error "nano mtime ($mtime2_ns) changed (to $mtime3_ns) on rename"
+		fi
 
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
@@ -992,18 +1034,42 @@ test_39b() {
 
 	local mtime1=`stat -c %Y $DIR1/$tfile`
 	local mtime2=`do_node $client2 "stat -c %Y $DIR1/$tfile"`
+	local mtime1_ns=""
+	local mtime2_ns=""
+	if [ -n "$NANOTIME_SUPPORTED" ]; then
+		mtime1_ns=`get_ns_mtime $DIR1/$tfile`
+		mtime2_ns=`do_node $client2 "stat -c '%y' $DIR1/$tfile"`
+		mtime2_ns=`echo $mtime2_ns | awk '{ print $2 }' | sed 's/^.*\.\(.*\)$/\1/g'`
+	else
+		skip "nanosecond time"
+	fi
 
 	sleep 1
-	touch -m -d @$TEST_39_MTIME $DIR1/$tfile
+	if [ -n "$NANOTIME_SUPPORTED" ]; then
+		touch -m -d @$TEST_39_MTIME.$TEST_39_MTIMENS $DIR1/$tfile
+	else
+		touch -m -d @$TEST_39_MTIME $DIR1/$tfile
+	fi
 
 	for (( i=0; i < 2; i++ )) ; do
 		local mtime3=`stat -c %Y $DIR1/$tfile`
 		local mtime4=`do_node $client2 "stat -c %Y $DIR1/$tfile"`
+		local mtime3_ns=""
+		local mtime4_ns=""
 
 		[ "$mtime3" = "$mtime4" ] || \
 			error "different mtime on clients: $mtime3, $mtime4"
 		[ "$mtime3" = $TEST_39_MTIME ] || \
 			error "lost mtime: $mtime3, should be $TEST_39_MTIME"
+		if [ -n "$NANOTIME_SUPPORTED" ]; then
+			mtime3_ns=`get_ns_mtime $DIR1/$tfile`
+			mtime4_ns=`do_node $client2 "stat -c '%y' $DIR1/$tfile"`
+			mtime4_ns=`echo $mtime4_ns | awk '{ print $2 }' | sed 's/^.*\.\(.*\)$/\1/g'`
+			[ "$mtime3_ns" = "$mtime4_ns" ] || \
+				error "different nano mtime on clients: $mtime3_ns, $mtime4_ns"
+			[ "$mtime3_ns" = $TEST_39_MTIMENS ] || \
+				error "lost nano mtime: $mtime3_ns, should be $TEST_39_MTIMENS"
+		fi
 
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
@@ -1021,6 +1087,17 @@ test_39c() {
 	local mtime2=`do_node $client2 "stat -c %Y $DIR1/$tfile"`
 	[ "$mtime1" = "$mtime2" ] || \
 		error "create: different mtime on clients: $mtime1, $mtime2"
+	local mtime1_ns=""
+	local mtime2_ns=""
+	if [ -n "$NANOTIME_SUPPORTED" ]; then
+		mtime1_ns=`get_ns_mtime $DIR1/$tfile`
+		mtime2_ns=`do_node $client2 "stat -c '%y' $DIR1/$tfile"`
+		mtime2_ns=`echo $mtime2_ns | awk '{ print $2 }' | sed 's/^.*\.\(.*\)$/\1/g'`
+		[ "$mtime1_ns" = "$mtime2_ns" ] || \
+			error "create: different nano mtime on clients: $mtime1_ns, $mtime2_ns"
+	else
+		skip "nanosecond time"
+	fi
 
 	sleep 1
 	$TRUNCATE $DIR1/$tfile 1
@@ -1028,11 +1105,22 @@ test_39c() {
 	for (( i=0; i < 2; i++ )) ; do
 		local mtime3=`stat -c %Y $DIR1/$tfile`
 		local mtime4=`do_node $client2 "stat -c %Y $DIR1/$tfile"`
+		local mtime3_ns=""
+		local mtime4_ns=""
 
 		[ "$mtime3" = "$mtime4" ] || \
 			error "different mtime on clients: $mtime3, $mtime4"
 		[ "$mtime3" -gt $mtime2 ] || \
 			error "truncate did not update mtime: $mtime2, $mtime3"
+		if [ -n "$NANOTIME_SUPPORTED" ]; then
+			mtime3_ns=`get_ns_mtime $DIR1/$tfile`
+			mtime4_ns=`do_node $client2 "stat -c '%y' $DIR1/$tfile"`
+			mtime4_ns=`echo $mtime4_ns | awk '{ print $2 }' | sed 's/^.*\.\(.*\)$/\1/g'`
+			[ "$mtime3_ns" = "$mtime4_ns" ] || \
+				error "different nano mtime on clients: $mtime3_ns, $mtime4_ns"
+			[ "$mtime3_ns" != "$mtime2_ns" ] || \
+				error "truncate did not update nano mtime: $mtime2_ns, $mtime3_ns"
+		fi
 
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
