@@ -278,7 +278,8 @@ int lr_rsync_data(struct lr_info *info)
                 return -errno;
         }
 
-        if (st_src.st_mtime != st_dest.st_mtime ||
+	if (st_src.st_mtim.tv_sec != st_dest.st_mtim.tv_sec ||
+	    st_src.st_mtim.tv_nsec != st_dest.st_mtim.tv_nsec ||
             st_src.st_size != st_dest.st_size) {
                 /* XXX spawning off an rsync for every data sync and
                  * waiting synchronously is bad for performance.
@@ -400,22 +401,37 @@ int lr_sync_data(struct lr_info *info)
                 return lr_copy_data(info);
 }
 
-/* Copy all attributes from file src to file dest */
+/* Copy all attributes from file src to file dest, including nanotimes */
 int lr_copy_attr(char *src, char *dest)
 {
+#if defined(HAVE_UTIMENSAT)
         struct stat st;
-        struct utimbuf time;
+	struct timespec times[2];
 
         if (stat(src, &st) == -1 ||
             chmod(dest, st.st_mode) == -1 ||
             chown(dest, st.st_uid, st.st_gid) == -1)
                 return -errno;
 
-        time.actime = st.st_atime;
-        time.modtime = st.st_mtime;
-        if (utime(dest, &time) == -1)
+	times[0] = st.st_atim;
+	times[1] = st.st_mtim;
+	if (utimensat(AT_FDCWD, dest, times, 0) == -1)
                 return -errno;
-        return 0;
+#else /* no utimensat, so nanotimes won't be copied; eek! */
+	struct stat st;
+	struct utimbuf timbuf;
+
+        if (stat(src, &st) == -1 ||
+            chmod(dest, st.st_mode) == -1 ||
+            chown(dest, st.st_uid, st.st_gid) == -1)
+                return -errno;
+
+	timbuf.actime = st.st_atim.tv_sec;
+	timbuf.modtime = st.st_mtim.tv_sec;
+	if (utime(dest, &timbuf) == -1)
+		return -errno;
+#endif
+	return 0;
 }
 
 /* Copy all xattrs from file info->src to info->dest */
@@ -1637,6 +1653,10 @@ int main(int argc, char *argv[])
         signal(SIGHUP, termination_handler);
         signal(SIGTERM, termination_handler);
 
+#if !defined(HAVE_UTIMENSAT)
+	fprintf(stderr, "Warning: lustre_rsync cannot copy nanosecond times "
+			"on this system.\n");
+#endif
         rc = lr_replicate();
 
         return rc;
