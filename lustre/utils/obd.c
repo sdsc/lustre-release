@@ -207,11 +207,12 @@ char *obdo_print(struct obdo *obd)
 {
         char buf[1024];
 
-        sprintf(buf, "id: "LPX64"\ngrp: "LPX64"\natime: "LPU64"\nmtime: "LPU64
-                "\nctime: "LPU64"\nsize: "LPU64"\nblocks: "LPU64
+	sprintf(buf, "id: "LPX64"\ngrp: "LPX64"\natime: "LPU64".%09u\nmtime: "
+		LPU64".%09u\nctime: "LPU64".%09u\nsize: "LPU64"\nblocks: "LPU64
                 "\nblksize: %u\nmode: %o\nuid: %d\ngid: %d\nflags: %x\n"
                 "misc: %x\nnlink: %d,\nvalid "LPX64"\n",
-                obd->o_id, obd->o_seq, obd->o_atime, obd->o_mtime, obd->o_ctime,
+		obd->o_id, obd->o_seq, obd->o_atime, obd->o_atime_ns,
+		obd->o_mtime, obd->o_mtime_ns, obd->o_ctime, obd->o_ctime_ns,
                 obd->o_size, obd->o_blocks, obd->o_blksize, obd->o_mode,
                 obd->o_uid, obd->o_gid, obd->o_flags, obd->o_misc,
                 obd->o_nlink, obd->o_valid);
