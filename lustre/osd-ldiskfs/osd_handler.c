@@ -387,7 +387,7 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 	struct inode	       *inode;
 	struct osd_scrub       *scrub;
 	struct scrub_file      *sf;
-	int 			result;
+	int			result = 0;
 	int			verify = 0;
 	ENTRY;
 
@@ -423,21 +423,18 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 
 	fid_zero(&oic->oic_fid);
 	/* Search order: 3. OI files. */
-	result = osd_oi_lookup(info, dev, fid, id);
-	if (result != 0 && result != -ENOENT)
+
+	/*
+	 * Objects are created as locking anchors or place holders for objects
+	 * yet to be created. No need to osd_oi_lookup() at here because FID
+	 * shouldn't never be re-used, if it's really a duplicate FID from
+	 * unexpected reason, we should be able to detect it later by calling
+	 * do_create->osd_oi_insert()
+	 */
+	if (conf != NULL && (conf->loc_flags & LOC_F_NEW) != 0)
 		GOTO(out, result);
 
-	/* If fid wasn't found in oi, inode-less object is created,
-	 * for which lu_object_exists() returns false. This is used
-	 * in a (frequent) case when objects are created as locking
-	 * anchors or place holders for objects yet to be created. */
-	if (conf != NULL && conf->loc_flags & LOC_F_NEW) {
-		if (unlikely(result == 0))
-			GOTO(out, result = -EEXIST);
-		else
-			GOTO(out, result = 0);
-	}
-
+	result = osd_oi_lookup(info, dev, fid, id);
 	if (result == -ENOENT) {
 		if (!fid_is_norm(fid) ||
 		    !ldiskfs_test_bit(osd_oi_fid2idx(dev,fid),
@@ -446,6 +443,9 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 
 		goto trigger;
 	}
+
+	if (result != 0)
+		GOTO(out, result);
 
 iget:
 	if (verify == 0)
@@ -1995,7 +1995,6 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
         if (result == 0)
                 result = __osd_oi_insert(env, obj, fid, th);
 
-        LASSERT(ergo(result == 0, dt_object_exists(dt)));
         LASSERT(osd_invariant(obj));
         RETURN(result);
 }
@@ -2214,7 +2213,6 @@ static int osd_object_ea_create(const struct lu_env *env, struct dt_object *dt,
         if (result == 0)
                 result = __osd_oi_insert(env, obj, fid, th);
 
-        LASSERT(ergo(result == 0, dt_object_exists(dt)));
         LINVRNT(osd_invariant(obj));
         RETURN(result);
 }

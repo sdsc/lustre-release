@@ -986,11 +986,11 @@ int mdd_object_create_internal(const struct lu_env *env, struct mdd_object *p,
                                          attr->la_mode & S_IFMT);
 
                 rc = mdo_create_obj(env, c, attr, hint, dof, handle);
-                LASSERT(ergo(rc == 0, mdd_object_exists(c)));
-        } else
-                rc = -EEXIST;
+	} else {
+		rc = -EEXIST;
+	}
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 /**
