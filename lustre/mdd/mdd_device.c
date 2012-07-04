@@ -1530,11 +1530,27 @@ static int mdd_iocontrol(const struct lu_env *env, struct md_device *m,
         mdd = lu2mdd_dev(&m->md_lu_dev);
 
         /* Doesn't use obd_ioctl_data */
-        if (cmd == OBD_IOC_CHANGELOG_CLEAR) {
+        switch (cmd) {
+        case OBD_IOC_CHANGELOG_CLEAR: {
                 struct changelog_setinfo *cs = karg;
                 rc = mdd_changelog_user_purge(env, mdd, cs->cs_id,
                                               cs->cs_recno);
                 RETURN(rc);
+        }
+	case OBD_IOC_START_LFSCK: {
+		struct lfsck_start *start = karg;
+		struct md_lfsck *lfsck = &mdd->mdd_lfsck;
+
+		/* Return the kernel service version. */
+		/* XXX: version can be used for compatibility in the future. */
+		start->ls_version = lfsck->ml_version;
+		rc = mdd_lfsck_start(env, lfsck, start);
+		RETURN(rc);
+	}
+	case OBD_IOC_STOP_LFSCK: {
+		rc = mdd_lfsck_stop(env, &mdd->mdd_lfsck);
+		RETURN(rc);
+	}
         }
 
         /* Below ioctls use obd_ioctl_data */
