@@ -87,9 +87,11 @@ int main(int argc, char **argv)
                 return 1;
         }
 
-        if ( st1.st_mtime != st2.st_mtime ) {
-                printf("Mtimes don't match %ld, %ld\n",
-                       st1.st_mtime, st2.st_mtime);
+	if (st1.st_mtim.tv_sec != st2.st_mtim.tv_sec ||
+	    st1.st_mtim.tv_nsec != st2.st_mtim.tv_nsec) {
+		printf("Mtimes don't match %ld.%09ld, %ld.%09ld\n",
+		       st1.st_mtim.tv_sec, st1.st_mtim.tv_nsec,
+		       st2.st_mtim.tv_sec, st2.st_mtim.tv_nsec);
                 return 1;
         }
 

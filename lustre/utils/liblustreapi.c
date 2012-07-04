@@ -115,6 +115,10 @@ static const int S_IFMAX = DT_DOOR;
 static const int S_IFMAX = DT_SOCK;
 #endif
 
+/* a day represented by a struct timespec */
+#define TIMESPEC_DAY ((struct timespec){ .tv_sec = 24 * 24 * 60, \
+					 .tv_nsec = 0 })
+
 /* liblustreapi message level */
 static int llapi_msg_level = LLAPI_MSG_MAX;
 
@@ -2122,6 +2126,43 @@ int llapi_file_lookup(int dirfd, const char *name)
         return rc;
 }
 
+/* Add two timespecs together and account for possible nanosecond overflow. */
+static struct timespec timespec_add(struct timespec lhs, struct timespec rhs)
+{
+	struct timespec sum;
+
+	sum.tv_sec = lhs.tv_sec + rhs.tv_sec;
+	sum.tv_nsec = lhs.tv_nsec + rhs.tv_nsec;
+	if (sum.tv_nsec >= 1000000000) {
+		sum.tv_sec++;
+		sum.tv_nsec -= 1000000000;
+	}
+
+	return sum;
+}
+
+/* Return 0 if timespecs equal, -1 is lhs < rhs, 1 if lhs > rhs. */
+static int timespec_cmp(struct timespec lhs, struct timespec rhs)
+{
+	int ret = 0;
+
+	if (lhs.tv_sec == rhs.tv_sec) {
+		if (lhs.tv_nsec < rhs.tv_nsec) {
+			ret = -1;
+		} else if (lhs.tv_nsec > rhs.tv_nsec) {
+			ret = 1;
+		} else /* lhs.tv_nsec == rhs.tv_nsec */ {
+			ret = 0;
+		}
+	} else if (lhs.tv_sec < rhs.tv_sec) {
+		ret = -1;
+	} else /* lhs.tv_sec > rhs.tv_sec */ {
+		ret = 1;
+	}
+
+	return ret;
+}
+
 /* Check if the value matches 1 of the given criteria (e.g. --atime +/-N).
  * @mds indicates if this is MDS timestamps and there are attributes on OSTs.
  *
@@ -2148,7 +2189,6 @@ static int find_value_cmp(unsigned long long file, unsigned long long limit,
         int ret = -1;
 
         if (sign > 0) {
-                /* Drop the fraction of margin (of days). */
                 if (file + margin <= limit)
                         ret = mds ? 0 : 1;
         } else if (sign == 0) {
@@ -2156,7 +2196,7 @@ static int find_value_cmp(unsigned long long file, unsigned long long limit,
                         ret = mds ? 0 : 1;
                 else if (file + margin <= limit)
                         ret = mds ? 0 : -1;
-        } else if (sign < 0) {
+	} else /* sign < 0 */ {
                 if (file > limit)
                         ret = 1;
                 else if (mds)
@@ -2164,6 +2204,33 @@ static int find_value_cmp(unsigned long long file, unsigned long long limit,
         }
 
         return negopt ? ~ret + 1 : ret;
+}
+
+/* Same as above, but for timespec values. */
+static int find_time_cmp(struct timespec file, struct timespec limit,
+			 int sign, int negopt, struct timespec margin,
+			 int mds)
+{
+	int ret = -1;
+	struct timespec bound = timespec_add(file, margin);
+
+	if (sign > 0) {
+		if (timespec_cmp(bound, limit) <= 0)
+			ret = mds ? 0 : 1;
+	} else if (sign == 0) {
+		if (timespec_cmp(file, limit) <= 0 &&
+		    timespec_cmp(bound, limit) > 0)
+			ret = mds ? 0 : 1;
+		else if (timespec_cmp(bound, limit) <= 0)
+			ret = mds ? 0 : -1;
+	} else /* sign < 0 */ {
+		if (timespec_cmp(file, limit) > 0)
+			ret = 1;
+		else if (mds)
+			ret = 0;
+	}
+
+	return negopt ? ~ret + 1 : ret;
 }
 
 /* Check if the file time matches all the given criteria (e.g. --atime +/-N).
@@ -2179,19 +2246,19 @@ static int find_time_check(lstat_t *st, struct find_param *param, int mds)
         int rc = 1;
 
         /* Check if file is accepted. */
-        if (param->atime) {
-                ret = find_value_cmp(st->st_atime, param->atime,
-                                     param->asign, param->exclude_atime,
-                                     24 * 60 * 60, mds);
+	if (param->atime.tv_sec) {
+		ret = find_time_cmp(st->st_atim, param->atime,
+				    param->asign, param->exclude_atime,
+				    TIMESPEC_DAY, mds);
                 if (ret < 0)
                         return ret;
                 rc = ret;
         }
 
-        if (param->mtime) {
-                ret = find_value_cmp(st->st_mtime, param->mtime,
-                                     param->msign, param->exclude_mtime,
-                                     24 * 60 * 60, mds);
+	if (param->mtime.tv_sec) {
+		ret = find_time_cmp(st->st_mtim, param->mtime,
+				    param->msign, param->exclude_mtime,
+				    TIMESPEC_DAY, mds);
                 if (ret < 0)
                         return ret;
 
@@ -2201,10 +2268,10 @@ static int find_time_check(lstat_t *st, struct find_param *param, int mds)
                         rc = ret;
         }
 
-        if (param->ctime) {
-                ret = find_value_cmp(st->st_ctime, param->ctime,
-                                     param->csign, param->exclude_ctime,
-                                     24 * 60 * 60, mds);
+	if (param->ctime.tv_sec) {
+		ret = find_time_cmp(st->st_ctim, param->ctime,
+				    param->csign, param->exclude_ctime,
+				    TIMESPEC_DAY, mds);
                 if (ret < 0)
                         return ret;
 
@@ -2358,8 +2425,8 @@ static int cb_find_init(char *path, DIR *parent, DIR *dir,
         /* Request MDS for the stat info if some of these parameters need
          * to be compared. */
         if (param->obduuid    || param->mdtuuid || param->check_uid ||
-            param->check_gid || param->check_pool || param->atime   ||
-            param->ctime     || param->mtime || param->check_size ||
+	    param->check_gid || param->check_pool || param->atime.tv_sec ||
+	    param->ctime.tv_sec || param->mtime.tv_sec || param->check_size ||
             param->check_stripecount || param->check_stripesize)
                 decision = 0;
 
@@ -2534,7 +2601,8 @@ obd_matches:
 
         /* Check the time on mds. */
         decision = 1;
-        if (param->atime || param->ctime || param->mtime) {
+	if (param->atime.tv_sec || param->ctime.tv_sec ||
+	    param->mtime.tv_sec) {
                 int for_mds;
 
                 for_mds = lustre_fs ? (S_ISREG(st->st_mode) &&
