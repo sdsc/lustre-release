@@ -106,10 +106,16 @@ static int osd_object_invariant(const struct lu_object *l)
 
 #ifdef HAVE_QUOTA_SUPPORT
 static inline void
-osd_push_ctxt(const struct lu_env *env, struct osd_ctxt *save)
+osd_push_ctxt(const struct lu_env *env, struct osd_ctxt *save, bool is_md)
 {
-        struct md_ucred *uc = md_ucred(env);
+	struct md_ucred *uc;
         struct cred     *tc;
+
+	if (!is_md)
+		/* OFD support */
+		return;
+
+	uc = md_ucred(env);
 
         LASSERT(uc != NULL);
 
@@ -126,9 +132,13 @@ osd_push_ctxt(const struct lu_env *env, struct osd_ctxt *save)
 }
 
 static inline void
-osd_pop_ctxt(struct osd_ctxt *save)
+osd_pop_ctxt(struct osd_ctxt *save, bool is_md)
 {
         struct cred *tc;
+
+	if (!is_md)
+		/* OFD support */
+		return;
 
         if ((tc = prepare_creds())) {
                 tc->fsuid         = save->oc_uid;
@@ -1560,8 +1570,8 @@ static int osd_attr_set(const struct lu_env *env,
         OSD_EXEC_OP(handle, attr_set);
 
         inode = obj->oo_inode;
-	if (LDISKFS_HAS_RO_COMPAT_FEATURE(inode->i_sb,
-					  LDISKFS_FEATURE_RO_COMPAT_QUOTA)) {
+	if (!lu_device_is_md(&handle->th_dev->dd_lu_dev)) {
+		/* OFD support */
 		rc = osd_quota_transfer(inode, attr);
 		if (rc)
 			return rc;
@@ -1580,9 +1590,9 @@ static int osd_attr_set(const struct lu_env *env,
 				iattr.ia_valid |= ATTR_GID;
 			iattr.ia_uid = attr->la_uid;
 			iattr.ia_gid = attr->la_gid;
-			osd_push_ctxt(env, save);
+			osd_push_ctxt(env, save, 1);
 			rc = ll_vfs_dq_transfer(inode, &iattr) ? -EDQUOT : 0;
-			osd_pop_ctxt(save);
+			osd_pop_ctxt(save, 1);
 			if (rc != 0)
 				return rc;
 		}
@@ -1635,14 +1645,15 @@ static int osd_mkfile(struct osd_thread_info *info, struct osd_object *obj,
                 parent = hint->dah_parent;
 
 #ifdef HAVE_QUOTA_SUPPORT
-        osd_push_ctxt(info->oti_env, save);
+	osd_push_ctxt(info->oti_env, save,
+		      lu_device_is_md(&th->th_dev->dd_lu_dev));
 #endif
         inode = ldiskfs_create_inode(oth->ot_handle,
                                      parent ? osd_dt_obj(parent)->oo_inode :
                                               osd_sb(osd)->s_root->d_inode,
                                      mode);
 #ifdef HAVE_QUOTA_SUPPORT
-        osd_pop_ctxt(save);
+	osd_pop_ctxt(save, lu_device_is_md(&th->th_dev->dd_lu_dev));
 #endif
         if (!IS_ERR(inode)) {
                 /* Do not update file c/mtime in ldiskfs.
@@ -1845,8 +1856,8 @@ static void osd_attr_init(struct osd_thread_info *info, struct osd_object *obj,
         if ((valid & LA_MTIME) && (attr->la_mtime == LTIME_S(inode->i_mtime)))
                 attr->la_valid &= ~LA_MTIME;
 
-	if (LDISKFS_HAS_RO_COMPAT_FEATURE(inode->i_sb,
-					  LDISKFS_FEATURE_RO_COMPAT_QUOTA)) {
+	if (!lu_device_is_md(osd2lu_dev(osd_obj2dev(obj)))) {
+		/* OFD support */
 		result = osd_quota_transfer(inode, attr);
 		if (result)
 			return;
@@ -1917,10 +1928,13 @@ static int __osd_oi_insert(const struct lu_env *env, struct osd_object *obj,
         struct osd_thread_info *info = osd_oti_get(env);
         struct osd_inode_id    *id   = &info->oti_id;
         struct osd_device      *osd  = osd_obj2dev(obj);
-        struct md_ucred        *uc   = md_ucred(env);
 
         LASSERT(obj->oo_inode != NULL);
-        LASSERT(uc != NULL);
+
+	if (lu_device_is_md(&th->th_dev->dd_lu_dev)) {
+		struct md_ucred	*uc = md_ucred(env);
+		LASSERT(uc != NULL);
+	}
 
 	osd_id_gen(id, obj->oo_inode->i_ino, obj->oo_inode->i_generation);
 	return osd_oi_insert(info, osd, fid, id, th);
