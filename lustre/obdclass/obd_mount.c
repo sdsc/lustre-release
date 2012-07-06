@@ -261,22 +261,20 @@ int server_put_mount_2(const char *name, struct vfsmount *mnt)
 
 /******* mount helper utilities *********/
 
-#if 0
 static void ldd_print(struct lustre_disk_data *ldd)
 {
-        PRINT_CMD(PRINT_MASK, "  disk data:\n");
-        PRINT_CMD(PRINT_MASK, "server:  %s\n", ldd->ldd_svname);
-        PRINT_CMD(PRINT_MASK, "uuid:    %s\n", (char *)ldd->ldd_uuid);
-        PRINT_CMD(PRINT_MASK, "fs:      %s\n", ldd->ldd_fsname);
-        PRINT_CMD(PRINT_MASK, "index:   %04x\n", ldd->ldd_svindex);
-        PRINT_CMD(PRINT_MASK, "config:  %d\n", ldd->ldd_config_ver);
-        PRINT_CMD(PRINT_MASK, "flags:   %#x\n", ldd->ldd_flags);
-        PRINT_CMD(PRINT_MASK, "diskfs:  %s\n", MT_STR(ldd));
-        PRINT_CMD(PRINT_MASK, "options: %s\n", ldd->ldd_mount_opts);
-        PRINT_CMD(PRINT_MASK, "params:  %s\n", ldd->ldd_params);
-        PRINT_CMD(PRINT_MASK, "comment: %s\n", ldd->ldd_userdata);
+	CDEBUG(PRINT_MASK, "disk data:\n");
+	CDEBUG(PRINT_MASK, "  server:  %s\n", ldd->ldd_svname);
+	CDEBUG(PRINT_MASK, "  uuid:    %s\n", (char *)ldd->ldd_uuid);
+	CDEBUG(PRINT_MASK, "  fs:      %s\n", ldd->ldd_fsname);
+	CDEBUG(PRINT_MASK, "  index:   %04x\n", ldd->ldd_svindex);
+	CDEBUG(PRINT_MASK, "  config:  %d\n", ldd->ldd_config_ver);
+	CDEBUG(PRINT_MASK, "  flags:   %#x\n", ldd->ldd_flags);
+	CDEBUG(PRINT_MASK, "  diskfs:  %s\n", MT_STR(ldd));
+	CDEBUG(PRINT_MASK, "  options: %s\n", ldd->ldd_mount_opts);
+	CDEBUG(PRINT_MASK, "  params:  %s\n", ldd->ldd_params);
+	CDEBUG(PRINT_MASK, "  comment: %s\n", ldd->ldd_userdata);
 }
-#endif
 
 static int ldd_parse(struct lvfs_run_ctxt *mount_ctxt,
                      struct lustre_disk_data *ldd)
@@ -299,11 +297,11 @@ static int ldd_parse(struct lvfs_run_ctxt *mount_ctxt,
 
         len = i_size_read(file->f_dentry->d_inode);
         CDEBUG(D_MOUNT, "Have %s, size %lu\n", MOUNT_DATA_FILE, len);
-        if (len != sizeof(*ldd)) {
-                CERROR("disk data size does not match: see %lu expect %u\n",
-                       len, (int)sizeof(*ldd));
-                GOTO(out_close, rc = -EINVAL);
-        }
+	if (len < sizeof(*ldd)) {
+		CERROR("%s: disk data too small: got %lu, expect %u\n",
+		       len, (int)sizeof(*ldd));
+		GOTO(out_close, rc = -EINVAL);
+	}
 
         rc = lustre_fread(file, ldd, len, &off);
         if (rc != len) {
@@ -320,6 +318,7 @@ static int ldd_parse(struct lvfs_run_ctxt *mount_ctxt,
                 GOTO(out_close, rc = -EINVAL);
         }
 
+	ldd_print(ldd);
         if (ldd->ldd_feature_incompat & ~LDD_INCOMPAT_SUPP) {
                 CERROR("%s: unsupported incompat filesystem feature(s) %x\n",
                        ldd->ldd_svname,
@@ -354,6 +353,7 @@ static int ldd_write(struct lvfs_run_ctxt *mount_ctxt,
         LASSERT(ldd->ldd_magic == LDD_MAGIC);
 
         ldd->ldd_config_ver++;
+	ldd_print(ldd);
 
         push_ctxt(&saved, mount_ctxt, NULL);
 
