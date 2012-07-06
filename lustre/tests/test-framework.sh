@@ -266,6 +266,17 @@ init_test_env() {
     rm -f $TMP/*active
 }
 
+check_cpt_number() {
+	local ncpts
+
+	if [ -f /proc/sys/lnet/cpu_partition_table ]; then
+		ncpts=`cat /proc/sys/lnet/cpu_partition_table | wc -l`
+	else
+		ncpts=1
+	fi
+	echo $ncpts
+}
+
 version_code() {
     # split arguments like "1.8.6-wc3" into "1", "8", "6", "wc3"
     eval set -- $(tr "[:punct:]" " " <<< $*)
@@ -379,8 +390,36 @@ load_modules_local() {
 		return 0
 	fi
 
-    echo Loading modules from $LUSTRE
-    load_module ../libcfs/libcfs/libcfs
+	echo Loading modules from $LUSTRE
+
+	local ncpus
+
+	if [ -f /sys/devices/system/cpu/online ]; then
+		ncpus=$(($(cut -d "-" -f 2 /sys/devices/system/cpu/online) + 1))
+		echo "detected $ncpus online CPUs by sysfs"
+	elif [ -f /proc/cpuinfo ]; then
+		ncpus=`cat /proc/cpuinfo|grep "core id" | wc -l`
+		echo "detected $ncpus online CPUs by procfs"
+	else
+		ncpus=$(getconf _NPROCESSORS_CONF)
+		echo "detected $ncpus online CPUs by getconf"
+	fi
+
+	local ncpts=0
+	# if there is only one CPU core, libcfs can only create one partition
+	# if there is more than 4 CPU cores, libcfs should create multiple CPU
+	# partitions. So we just force libcfs to create 2 partitions for
+	# system with 2 or 4 cores
+	if [ $ncpus -le 4 ] && [ $ncpus -gt 1 ]; then
+		# force to enable multiple CPU partitions
+		echo "Force libcfs to create 2 CPU partitions"
+		ncpts=2
+	else
+		echo "libcfs will create CPU partition based on online CPUs"
+	fi
+
+	load_module ../libcfs/libcfs/libcfs cpu_npartitions=$ncpts
+
     [ "$PTLDEBUG" ] && lctl set_param debug="$PTLDEBUG"
     [ "$SUBSYSTEM" ] && lctl set_param subsystem_debug="${SUBSYSTEM# }"
     load_module ../lnet/lnet/lnet
