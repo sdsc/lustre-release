@@ -267,25 +267,23 @@ int server_put_mount_2(const char *name, struct vfsmount *mnt)
 
 /******* mount helper utilities *********/
 
-#if 0
-static void ldd_print(struct lustre_disk_data *ldd)
+static void ldd_print(const char *devname, struct lustre_disk_data *ldd)
 {
-        PRINT_CMD(PRINT_MASK, "  disk data:\n");
-        PRINT_CMD(PRINT_MASK, "server:  %s\n", ldd->ldd_svname);
-        PRINT_CMD(PRINT_MASK, "uuid:    %s\n", (char *)ldd->ldd_uuid);
-        PRINT_CMD(PRINT_MASK, "fs:      %s\n", ldd->ldd_fsname);
-        PRINT_CMD(PRINT_MASK, "index:   %04x\n", ldd->ldd_svindex);
-        PRINT_CMD(PRINT_MASK, "config:  %d\n", ldd->ldd_config_ver);
-        PRINT_CMD(PRINT_MASK, "flags:   %#x\n", ldd->ldd_flags);
-        PRINT_CMD(PRINT_MASK, "diskfs:  %s\n", MT_STR(ldd));
-        PRINT_CMD(PRINT_MASK, "options: %s\n", ldd->ldd_mount_opts);
-        PRINT_CMD(PRINT_MASK, "params:  %s\n", ldd->ldd_params);
-        PRINT_CMD(PRINT_MASK, "comment: %s\n", ldd->ldd_userdata);
+	CDEBUG(PRINT_MASK, "disk data: %s\n", devname);
+	CDEBUG(PRINT_MASK, "  server:  %s\n", ldd->ldd_svname);
+	CDEBUG(PRINT_MASK, "  uuid:    %s\n", (char *)ldd->ldd_uuid);
+	CDEBUG(PRINT_MASK, "  fs:      %s\n", ldd->ldd_fsname);
+	CDEBUG(PRINT_MASK, "  index:   %04x\n", ldd->ldd_svindex);
+	CDEBUG(PRINT_MASK, "  config:  %d\n", ldd->ldd_config_ver);
+	CDEBUG(PRINT_MASK, "  flags:   %#x\n", ldd->ldd_flags);
+	CDEBUG(PRINT_MASK, "  diskfs:  %s\n", MT_STR(ldd));
+	CDEBUG(PRINT_MASK, "  options: %s\n", ldd->ldd_mount_opts);
+	CDEBUG(PRINT_MASK, "  params:  %s\n", ldd->ldd_params);
+	CDEBUG(PRINT_MASK, "  comment: %s\n", ldd->ldd_userdata);
 }
-#endif
 
-static int ldd_parse(struct lvfs_run_ctxt *mount_ctxt,
-                     struct lustre_disk_data *ldd)
+static int ldd_parse(const char *devname, struct lvfs_run_ctxt *mount_ctxt,
+		     struct lustre_disk_data *ldd)
 {
         struct lvfs_run_ctxt saved;
         struct file *file;
@@ -296,36 +294,38 @@ static int ldd_parse(struct lvfs_run_ctxt *mount_ctxt,
 
         push_ctxt(&saved, mount_ctxt, NULL);
 
-        file = filp_open(MOUNT_DATA_FILE, O_RDONLY, 0644);
-        if (IS_ERR(file)) {
-                rc = PTR_ERR(file);
-                CERROR("cannot open %s: rc = %d\n", MOUNT_DATA_FILE, rc);
-                GOTO(out, rc);
-        }
+	file = filp_open(MOUNT_DATA_FILE, O_RDONLY, 0644);
+	if (IS_ERR(file)) {
+		rc = PTR_ERR(file);
+		CERROR("%s: cannot open %s: rc = %d\n",
+		       devname, MOUNT_DATA_FILE, rc);
+		GOTO(out, rc);
+	}
 
-        len = i_size_read(file->f_dentry->d_inode);
-        CDEBUG(D_MOUNT, "Have %s, size %lu\n", MOUNT_DATA_FILE, len);
-        if (len != sizeof(*ldd)) {
-                CERROR("disk data size does not match: see %lu expect %u\n",
-                       len, (int)sizeof(*ldd));
-                GOTO(out_close, rc = -EINVAL);
-        }
+	len = i_size_read(file->f_dentry->d_inode);
+	CDEBUG(D_MOUNT, "Have %s, size %lu\n", MOUNT_DATA_FILE, len);
+	if (len < sizeof(*ldd)) {
+		CERROR("%s: disk data %s too small: got %lu, expect %u\n",
+		       devname, MOUNT_DATA_FILE, len, (int)sizeof(*ldd));
+		GOTO(out_close, rc = -EINVAL);
+	}
 
-        rc = lustre_fread(file, ldd, len, &off);
-        if (rc != len) {
-                CERROR("error reading %s: read %d of %lu\n",
-                       MOUNT_DATA_FILE, rc, len);
-                GOTO(out_close, rc = -EINVAL);
-        }
-        rc = 0;
+	rc = lustre_fread(file, ldd, len, &off);
+	if (rc != len) {
+		CERROR("%s: error reading %s: read %d of %lu\n",
+		       devname, MOUNT_DATA_FILE, rc, len);
+		GOTO(out_close, rc = -EINVAL);
+	}
+	rc = 0;
 
-        if (ldd->ldd_magic != LDD_MAGIC) {
-                /* FIXME add swabbing support */
-                CERROR("Bad magic in %s: %x!=%x\n", MOUNT_DATA_FILE,
-                       ldd->ldd_magic, LDD_MAGIC);
-                GOTO(out_close, rc = -EINVAL);
-        }
+	if (ldd->ldd_magic != LDD_MAGIC) {
+		/* FIXME add swabbing support */
+		CERROR("%s: bad magic in %s: %x != %x\n",
+		       devname, MOUNT_DATA_FILE, ldd->ldd_magic, LDD_MAGIC);
+		GOTO(out_close, rc = -EINVAL);
+	}
 
+	ldd_print(devname, ldd);
         if (ldd->ldd_feature_incompat & ~LDD_INCOMPAT_SUPP) {
                 CERROR("%s: unsupported incompat filesystem feature(s) %x\n",
                        ldd->ldd_svname,
@@ -347,8 +347,8 @@ out:
         RETURN(rc);
 }
 
-static int ldd_write(struct lvfs_run_ctxt *mount_ctxt,
-                     struct lustre_disk_data *ldd)
+static int ldd_write(const char *devname, struct lvfs_run_ctxt *mount_ctxt,
+		     struct lustre_disk_data *ldd)
 {
         struct lvfs_run_ctxt saved;
         struct file *file;
@@ -360,25 +360,27 @@ static int ldd_write(struct lvfs_run_ctxt *mount_ctxt,
 	if (ldd->ldd_magic == 0)
 		RETURN(0);
 
-        LASSERT(ldd->ldd_magic == LDD_MAGIC);
+	LASSERT(ldd->ldd_magic == LDD_MAGIC);
 
-        ldd->ldd_config_ver++;
+	ldd->ldd_config_ver++;
+	ldd_print(devname, ldd);
 
-        push_ctxt(&saved, mount_ctxt, NULL);
+	push_ctxt(&saved, mount_ctxt, NULL);
 
-        file = filp_open(MOUNT_DATA_FILE, O_RDWR|O_SYNC, 0644);
-        if (IS_ERR(file)) {
-                rc = PTR_ERR(file);
-                CERROR("cannot open %s: rc = %d\n", MOUNT_DATA_FILE, rc);
-                GOTO(out, rc);
-        }
+	file = filp_open(MOUNT_DATA_FILE, O_RDWR|O_SYNC, 0644);
+	if (IS_ERR(file)) {
+		rc = PTR_ERR(file);
+		CERROR("%s: cannot open %s: rc = %d\n",
+		       ldd->ldd_svname, MOUNT_DATA_FILE, rc);
+		GOTO(out, rc);
+	}
 
-        rc = lustre_fwrite(file, ldd, len, &off);
-        if (rc != len) {
-                CERROR("error writing %s: read %d of %lu\n",
-                       MOUNT_DATA_FILE, rc, len);
-                GOTO(out_close, rc = -EINVAL);
-        }
+	rc = lustre_fwrite(file, ldd, len, &off);
+	if (rc != len) {
+		CERROR("%s: error writing %s: wrote %d of %lu\n",
+		       ldd->ldd_svname, MOUNT_DATA_FILE, rc, len);
+		GOTO(out_close, rc = -EINVAL);
+	}
 
         rc = 0;
 
@@ -1148,7 +1150,7 @@ int server_register_target(struct super_block *sb)
                 strncpy(ldd->ldd_svname, mti->mti_svname,
                         sizeof(ldd->ldd_svname));
                 /* or ldd_make_sv_name(ldd); */
-                ldd_write(&mgc->obd_lvfs_ctxt, ldd);
+		ldd_write(sb->s_id, &mgc->obd_lvfs_ctxt, ldd);
 		if (lsi->lsi_lmd->lmd_osd_type)
 			goto out;
                 err = fsfilt_set_label(mgc, lsi->lsi_srv_mnt->mnt_sb,
@@ -1567,8 +1569,8 @@ static struct vfsmount *server_kernel_mount(struct super_block *sb)
         mount_ctxt.pwd = mnt->mnt_root;
         mount_ctxt.fs = get_ds();
 
-        rc = ldd_parse(&mount_ctxt, ldd);
-        unlock_mntput(mnt);
+	rc = ldd_parse(lmd->lmd_dev, &mount_ctxt, ldd);
+	unlock_mntput(mnt);
 
         if (rc) {
                 CERROR("premount parse options failed: rc = %d\n", rc);
