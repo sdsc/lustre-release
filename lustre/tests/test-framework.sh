@@ -379,8 +379,22 @@ load_modules_local() {
 		return 0
 	fi
 
-    echo Loading modules from $LUSTRE
-    load_module ../libcfs/libcfs/libcfs
+	echo Loading modules from $LUSTRE
+
+	if [ -f /sys/devices/system/cpu/online ]; then
+		local ncpus=$(($(cut -d "-" -f 2 \
+			         /sys/devices/system/cpu/online) + 1))
+	else
+		local ncpus=$(getconf _NPROCESSORS_CONF)
+	fi
+
+	local ncpts=0
+	if [ $ncpus -le 4 ] && [ $ncpus -gt 1 ]; then
+		ncpts=2
+	fi
+	export NCPTS=$ncpts
+
+	load_module ../libcfs/libcfs/libcfs cpu_npartitions=$ncpts
     [ "$PTLDEBUG" ] && lctl set_param debug="$PTLDEBUG"
     [ "$SUBSYSTEM" ] && lctl set_param subsystem_debug="${SUBSYSTEM# }"
     load_module ../lnet/lnet/lnet
