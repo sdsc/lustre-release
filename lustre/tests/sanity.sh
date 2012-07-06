@@ -1679,6 +1679,21 @@ test_31m() {
 }
 run_test 31m "link to file: the same, non-existing, dir==============="
 
+test_31n() {
+	[ -e /proc/self/fd/173 ] && echo "skipping, fd 173 is in use" && return
+	touch $DIR/$tfile || error
+	nlink=$(stat --format=%h $DIR/$tfile)
+	[ ${nlink:--1} -eq 1 ] || error "nlink should be 1"
+	exec 173<$DIR/$tfile
+	nlink=$(stat --dereference --format=%h /proc/self/fd/173)
+	[ ${nlink:--1} -eq 1 ] || error "nlink should be 1"
+	rm $DIR/$tfile || error
+	nlink=$(stat --dereference --format=%h /proc/self/fd/173)
+	[ ${nlink:--1} -eq 0 ] || error "nlink should be 0"
+	exec 173<&-
+}
+run_test 31n "check link count of unlinked file"
+
 test_32a() {
 	echo "== more mountpoints and symlinks ================="
 	[ -e $DIR/d32a ] && rm -fr $DIR/d32a
