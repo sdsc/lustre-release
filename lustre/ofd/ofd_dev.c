@@ -81,12 +81,6 @@ static int ofd_stack_init(const struct lu_env *env,
 		RETURN(-ENODEV);
 	}
 
-	rc = lu_env_refill((struct lu_env *)env);
-	if (rc != 0) {
-		CERROR("Failure to refill session: '%d'\n", rc);
-		GOTO(out_type, rc);
-	}
-
 	ldt = type->typ_lu;
 	if (ldt == NULL) {
 		CERROR("type: '%s'\n", LUSTRE_OSD_NAME);
@@ -107,6 +101,13 @@ static int ofd_stack_init(const struct lu_env *env,
 		 "%s-osd", lustre_cfg_string(cfg, 0));
 
 	type->typ_refcnt++;
+
+	rc = lu_env_refill((struct lu_env *)env);
+	if (rc != 0) {
+		CERROR("Failure to refill session: '%d'\n", rc);
+		GOTO(out_free, rc);
+	}
+
 	rc = ldt->ldt_ops->ldto_device_init(env, d, dev, NULL);
 	if (rc) {
 		CERROR("can't init device '%s', rc %d\n", LUSTRE_OSD_NAME, rc);
