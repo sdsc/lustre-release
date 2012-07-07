@@ -62,12 +62,14 @@ static int __mdd_lookup(const struct lu_env *env, struct md_object *pobj,
                         int mask);
 static int mdd_declare_links_add(const struct lu_env *env,
                                  struct mdd_object *mdd_obj,
-                                 struct thandle *handle);
+				 struct thandle *handle,
+				 struct lu_buf *buf);
 static int mdd_links_add(const struct lu_env *env,
                          struct mdd_object *mdd_obj,
                          const struct lu_fid *pfid,
                          const struct lu_name *lname,
-                         struct thandle *handle, int first);
+			 struct thandle *handle, int first,
+			 struct lu_buf *buf);
 static int mdd_links_rename(const struct lu_env *env,
                             struct mdd_object *mdd_obj,
                             const struct lu_fid *oldpfid,
@@ -75,6 +77,11 @@ static int mdd_links_rename(const struct lu_env *env,
                             const struct lu_fid *newpfid,
                             const struct lu_name *newlname,
                             struct thandle *handle);
+static int mdd_linkea_prepare(const struct lu_env *env,
+			 struct mdd_object *mdd_obj,
+			 const struct lu_fid *pfid,
+			 const struct lu_name *lname,
+			 int first, struct lu_buf **pbuf);
 
 static int
 __mdd_lookup_locked(const struct lu_env *env, struct md_object *pobj,
@@ -914,7 +921,8 @@ static int mdd_declare_link(const struct lu_env *env,
                             struct mdd_object *p,
                             struct mdd_object *c,
                             const struct lu_name *name,
-                            struct thandle *handle)
+			    struct thandle *handle,
+			    struct lu_buf *buf)
 {
         int rc;
 
@@ -934,7 +942,7 @@ static int mdd_declare_link(const struct lu_env *env,
         if (rc)
                 return rc;
 
-        rc = mdd_declare_links_add(env, c, handle);
+	rc = mdd_declare_links_add(env, c, handle, buf);
         if (rc)
                 return rc;
 
@@ -954,6 +962,7 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
         struct mdd_device *mdd = mdo2mdd(src_obj);
         struct dynlock_handle *dlh;
         struct thandle *handle;
+	struct lu_buf	*lbuf = NULL;
         int rc;
         ENTRY;
 
@@ -961,7 +970,13 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
         if (IS_ERR(handle))
                 GOTO(out_pending, rc = PTR_ERR(handle));
 
-        rc = mdd_declare_link(env, mdd, mdd_tobj, mdd_sobj, lname, handle);
+	rc = mdd_linkea_prepare(env, mdd_sobj, mdo2fid(mdd_tobj), lname, 0,
+				&lbuf);
+	if (rc <= 0)
+		GOTO(out_free, rc);
+
+	rc = mdd_declare_link(env, mdd, mdd_tobj, mdd_sobj, lname, handle,
+			      lbuf);
         if (rc)
                 GOTO(stop, rc);
 
@@ -1001,11 +1016,9 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
 
         la->la_valid = LA_CTIME;
         rc = mdd_attr_check_set_internal(env, mdd_sobj, la, handle, 0);
-        if (rc == 0) {
-                mdd_links_add(env, mdd_sobj,
-                              mdo2fid(mdd_tobj), lname, handle, 0);
-        }
-
+	if (rc == 0)
+		mdd_links_add(env, mdd_sobj, mdo2fid(mdd_tobj), lname, handle,
+			      0, lbuf);
         EXIT;
 out_unlock:
         mdd_write_unlock(env, mdd_sobj);
@@ -1016,6 +1029,10 @@ out_trans:
 					    mdd_tobj, lname, handle);
 stop:
         mdd_trans_stop(env, mdd, rc, handle);
+out_free:
+	if (lbuf != NULL && lbuf->lb_len > OBD_ALLOC_BIG)
+		/* if we vmalloced a large buffer drop it */
+		mdd_buf_put(lbuf);
 out_pending:
         return rc;
 }
@@ -1239,7 +1256,7 @@ static int mdd_declare_unlink(const struct lu_env *env, struct mdd_device *mdd,
         if (rc)
                 return rc;
 
-        rc = mdd_declare_links_add(env, c, handle);
+	rc = mdd_declare_links_add(env, c, handle, NULL);
         if (rc)
                 return rc;
 
@@ -1500,11 +1517,9 @@ __mdd_lookup(const struct lu_env *env, struct md_object *pobj,
         rc = mdd_object_exists(mdd_obj);
         if (unlikely(rc == 0))
                 RETURN(-ESTALE);
-        else if (unlikely(rc < 0)) {
-                CERROR("Object "DFID" locates on remote server\n",
-                        PFID(mdo2fid(mdd_obj)));
-                RETURN(-EINVAL);
-        }
+	else if (unlikely(rc < 0))
+		CWARN("Object "DFID" locates on remote server\n",
+			PFID(mdo2fid(mdd_obj)));
 
         /* The common filename length check. */
         if (unlikely(lname->ln_namelen > m->mdd_dt_conf.ddp_max_name_len))
@@ -1535,7 +1550,8 @@ static int mdd_declare_object_initialize(const struct lu_env *env,
 					 struct mdd_object *parent,
 					 struct mdd_object *child,
 					 struct lu_attr *attr,
-					 struct thandle *handle)
+					 struct thandle *handle,
+					 struct lu_buf	*link_buf)
 {
         int rc;
 
@@ -1551,15 +1567,18 @@ static int mdd_declare_object_initialize(const struct lu_env *env,
         }
 
         if (rc == 0)
-                mdd_declare_links_add(env, child, handle);
+		mdd_declare_links_add(env, child, handle, link_buf);
 
         return rc;
 }
 
-int mdd_object_initialize(const struct lu_env *env, const struct lu_fid *pfid,
-			  const struct lu_name *lname, struct mdd_object *child,
-			  struct lu_attr *attr, struct thandle *handle,
-			  const struct md_op_spec *spec)
+static int mdd_object_initialize(const struct lu_env *env,
+				 const struct lu_fid *pfid,
+				 const struct lu_name *lname,
+				 struct mdd_object *child,
+				 struct lu_attr *attr, struct thandle *handle,
+				 const struct md_op_spec *spec,
+				 struct lu_buf *lbuf)
 {
         int rc;
         ENTRY;
@@ -1589,7 +1608,7 @@ int mdd_object_initialize(const struct lu_env *env, const struct lu_fid *pfid,
                         mdo_ref_del(env, child, handle);
         }
         if (rc == 0)
-                mdd_links_add(env, child, pfid, lname, handle, 1);
+		mdd_links_add(env, child, pfid, lname, handle, 1, lbuf);
 
         RETURN(rc);
 }
@@ -1680,7 +1699,8 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
 			      struct lu_attr *attr,
 			      int got_def_acl,
 			      struct thandle *handle,
-			      const struct md_op_spec *spec)
+			      const struct md_op_spec *spec,
+			      struct lu_buf *link_buf)
 {
 	struct mdd_thread_info *info = mdd_env_info(env);
         int            rc = 0;
@@ -1720,7 +1740,7 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
 			GOTO(out, rc);
         }
 
-	rc = mdd_declare_object_initialize(env, p, c, attr, handle);
+	rc = mdd_declare_object_initialize(env, p, c, attr, handle, link_buf);
         if (rc)
                 GOTO(out, rc);
 
@@ -1776,6 +1796,7 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
         struct lu_attr         *attr = &ma->ma_attr;
         struct thandle         *handle;
 	struct lu_attr         *pattr = &info->mti_pattr;
+	struct lu_buf		*lbuf = NULL;
         struct dynlock_handle  *dlh;
         const char             *name = lname->ln_name;
 	int rc, created = 0, initialized = 0, inserted = 0;
@@ -1851,8 +1872,13 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
         if (IS_ERR(handle))
                 GOTO(out_free, rc = PTR_ERR(handle));
 
+	rc = mdd_linkea_prepare(env, son, mdd_object_fid(mdd_pobj), lname, 1,
+				&lbuf);
+	if (rc <= 0)
+		GOTO(out_free, rc);
+
 	rc = mdd_declare_create(env, mdd, mdd_pobj, son, lname, attr,
-				got_def_acl, handle, spec);
+				got_def_acl, handle, spec, lbuf);
         if (rc)
                 GOTO(out_stop, rc);
 
@@ -1887,8 +1913,7 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 #endif
 
         rc = mdd_object_initialize(env, mdo2fid(mdd_pobj), lname,
-				   son, attr, handle, spec);
-
+				   son, attr, handle, spec, lbuf);
 	/*
 	 * in case of replay we just set LOVEA provided by the client
 	 * XXX: I think it would be interesting to try "old" way where
@@ -1993,6 +2018,9 @@ out_trans:
 out_stop:
         mdd_trans_stop(env, mdd, rc, handle);
 out_free:
+	if (lbuf != NULL && lbuf->lb_len > OBD_ALLOC_BIG)
+		/* if we vmalloced a large buffer drop it */
+		mdd_buf_put(lbuf);
         /* The child object shouldn't be cached anymore */
         if (rc)
                 cfs_set_bit(LU_OBJECT_HEARD_BANSHEE,
@@ -2135,7 +2163,7 @@ static int mdd_declare_rename(const struct lu_env *env,
         rc = mdo_declare_attr_set(env, mdd_sobj, NULL, handle);
         if (rc)
                 return rc;
-        mdd_declare_links_add(env, mdd_sobj, handle);
+	mdd_declare_links_add(env, mdd_sobj, handle, NULL);
         if (rc)
                 return rc;
 
@@ -2179,7 +2207,7 @@ static int mdd_declare_rename(const struct lu_env *env,
                 if (rc)
                         return rc;
 
-                mdd_declare_links_add(env, mdd_tobj, handle);
+		mdd_declare_links_add(env, mdd_tobj, handle, NULL);
                 if (rc)
                         return rc;
 
@@ -2404,7 +2432,7 @@ static int mdd_rename(const struct lu_env *env,
                 if (rc == -ENOENT)
                         /* Old files might not have EA entry */
                         mdd_links_add(env, mdd_sobj, mdo2fid(mdd_spobj),
-                                      lsname, handle, 0);
+				      lsname, handle, 0, NULL);
                 mdd_write_unlock(env, mdd_sobj);
                 /* We don't fail the transaction if the link ea can't be
                    updated -- fid2path will use alternate lookup method. */
@@ -2523,8 +2551,10 @@ struct lu_buf *mdd_links_get(const struct lu_env *env,
                 leh->leh_len = __swab64(leh->leh_len);
                 /* entries are swabbed by mdd_lee_unpack */
         }
+
         if (leh->leh_magic != LINK_EA_MAGIC)
                 return ERR_PTR(-EINVAL);
+
         if (leh->leh_reccount == 0)
                 return ERR_PTR(-ENODATA);
 
@@ -2592,25 +2622,31 @@ static int __mdd_links_add(const struct lu_env *env, struct lu_buf *buf,
 
 static int mdd_declare_links_add(const struct lu_env *env,
                                  struct mdd_object *mdd_obj,
-                                 struct thandle *handle)
+				 struct thandle *handle,
+				 struct lu_buf *buf)
 {
-        int rc;
+	int	rc;
+	int	ea_len;
+	void	*linkea;
 
 	if (!mdd_linkea_enable)
 		return 0;
 
-	/* FIXME: the linkea buf is not ready yet, so
-	 * we skip linkea for remote directory, besides
-	 * for remote directory, it can always find parent
-	 * by lookup dotdot. */
-	if (mdd_object_exists(mdd_obj) < 0)
-		return 0;
+	if (buf != NULL) {
+		struct link_ea_header *leh;
 
-        /* XXX: max size? */
-        rc = mdo_declare_xattr_set(env, mdd_obj,
-                             mdd_buf_get_const(env, NULL, 4096),
-                             XATTR_NAME_LINK, 0, handle);
+		leh = buf->lb_buf;
+		ea_len = leh->leh_len;
+		linkea = buf->lb_buf;
+	} else {
+		ea_len = 4096;
+		linkea = NULL;
+	}
 
+	/* XXX: max size? */
+	rc = mdo_declare_xattr_set(env, mdd_obj,
+				   mdd_buf_get_const(env, linkea, ea_len),
+				   XATTR_NAME_LINK, 0, handle);
         return rc;
 }
 
@@ -2620,18 +2656,18 @@ static int mdd_declare_links_add(const struct lu_env *env,
  */
 #define LINKEA_MAX_COUNT 128
 
-static int mdd_links_add(const struct lu_env *env,
+static int mdd_linkea_prepare(const struct lu_env *env,
                          struct mdd_object *mdd_obj,
                          const struct lu_fid *pfid,
                          const struct lu_name *lname,
-                         struct thandle *handle, int first)
+			 int first, struct lu_buf **pbuf)
 {
         struct lu_buf *buf;
         struct link_ea_header *leh;
         int rc;
         ENTRY;
 
-        if (!mdd_linkea_enable)
+	if (!mdd_linkea_enable)
                 RETURN(0);
 
         buf = first ? ERR_PTR(-ENODATA) : mdd_links_get(env, mdd_obj);
@@ -2660,11 +2696,36 @@ static int mdd_links_add(const struct lu_env *env,
         if (rc)
                 RETURN(rc);
 
-        leh = buf->lb_buf;
+	*pbuf = buf;
+	RETURN(leh->leh_len);
+}
+
+static int mdd_links_add(const struct lu_env *env,
+			 struct mdd_object *mdd_obj,
+			 const struct lu_fid *pfid,
+			 const struct lu_name *lname,
+			 struct thandle *handle, int first,
+			 struct lu_buf *buf)
+{
+	struct lu_buf *linkbuf;
+	struct link_ea_header *leh;
+	int rc;
+	ENTRY;
+
+	if (buf == NULL) {
+		rc = mdd_linkea_prepare(env, mdd_obj, pfid, lname, first,
+					&linkbuf);
+		if (rc <= 0)
+			RETURN(rc);
+	} else {
+		linkbuf = buf;
+	}
+
+	leh = linkbuf->lb_buf;
 	rc = mdo_xattr_set(env, mdd_obj,
-                             mdd_buf_get_const(env, buf->lb_buf, leh->leh_len),
-			     XATTR_NAME_LINK, 0, handle,
-			     mdd_object_capa(env, mdd_obj));
+			mdd_buf_get_const(env, linkbuf->lb_buf, leh->leh_len),
+			XATTR_NAME_LINK, 0, handle,
+			mdd_object_capa(env, mdd_obj));
         if (rc) {
                 if (rc == -ENOSPC)
                         CDEBUG(D_INODE, "link_ea add failed %d "DFID"\n", rc,
@@ -2674,9 +2735,9 @@ static int mdd_links_add(const struct lu_env *env,
                                PFID(mdd_object_fid(mdd_obj)));
         }
 
-        if (buf->lb_len > OBD_ALLOC_BIG)
+	if (linkbuf->lb_len > OBD_ALLOC_BIG)
                 /* if we vmalloced a large buffer drop it */
-                mdd_buf_put(buf);
+		mdd_buf_put(linkbuf);
 
         RETURN (rc);
 }

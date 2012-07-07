@@ -8566,10 +8566,10 @@ test_160() {
 run_test 160 "changelog sanity"
 
 test_161() {
-    test_mkdir -p $DIR/$tdir
+    mkdir -p $DIR/$tdir
     cp /etc/hosts $DIR/$tdir/$tfile
-    test_mkdir $DIR/$tdir/foo1
-    test_mkdir $DIR/$tdir/foo2
+    mkdir $DIR/$tdir/foo1
+    mkdir $DIR/$tdir/foo2
     ln $DIR/$tdir/$tfile $DIR/$tdir/foo1/sofia
     ln $DIR/$tdir/$tfile $DIR/$tdir/foo2/zachary
     ln $DIR/$tdir/$tfile $DIR/$tdir/foo1/luna
@@ -8605,6 +8605,58 @@ test_161() {
 	error "failed to unlink many hardlinks"
 }
 run_test 161 "link ea sanity"
+
+test_161b() {
+	[ "$MDTCOUNT" -lt "2" ] &&
+		skip_env "skipping remote directory test" && return
+	local MDTIDX=1
+	local remote_dir=remote_dir
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i $MDTIDX $DIR/$tdir/$remote_dir ||
+		error "create remote directory failed"
+
+	cp /etc/hosts $DIR/$tdir/$remote_dir/$tfile
+	mkdir -p $DIR/$tdir/$remote_dir/foo1
+	mkdir -p $DIR/$tdir/$remote_dir/foo2
+	ln $DIR/$tdir/$remote_dir/$tfile $DIR/$tdir/$remote_dir/foo1/sofia
+	ln $DIR/$tdir/$remote_dir/$tfile $DIR/$tdir/$remote_dir/foo2/zachary
+	ln $DIR/$tdir/$remote_dir/$tfile $DIR/$tdir/$remote_dir/foo1/luna
+	ln $DIR/$tdir/$remote_dir/$tfile $DIR/$tdir/$remote_dir/foo2/thor
+
+	local FID=$($LFS path2fid $DIR/$tdir/$remote_dir/$tfile | tr -d '[')
+	if [ "$($LFS fid2path $DIR $FID | wc -l)" != "5" ]; then
+		$LFS fid2path $DIR $FID
+		err17935 "bad link ea"
+	fi
+	# middle
+	rm $DIR/$tdir/$remote_dir/foo2/zachary
+	# last
+	rm $DIR/$tdir/$remote_dir/foo2/thor
+	# first
+	rm $DIR/$tdir/$remote_dir/$tfile
+	# rename
+	mv $DIR/$tdir/$remote_dir/foo1/sofia $DIR/$tdir/$remote_dir/foo2/maggie
+	if [ "$($LFS fid2path $FSNAME --link 1 $FID)" !=
+		 "$tdir/$remote_dir/foo2/maggie" ]
+	then
+		$LFS fid2path $DIR $FID
+		err17935 "bad link rename"
+	fi
+	rm $DIR/$tdir/$remote_dir/foo2/maggie
+
+	# overflow the EA
+	local longname=filename_avg_len_is_thirty_two_
+	createmany -l$DIR/$tdir/$remote_dir/foo1/luna \
+		   $DIR/$tdir/$remote_dir/foo2/$longname 1000 ||
+		error "failed to hardlink many files"
+	links=$($LFS fid2path $DIR $FID | wc -l)
+	echo -n "${links}/1000 links in link EA"
+	[ ${links} -gt 60 ] || err17935 "expected at least 60 links in link EA"
+	unlinkmany $DIR/$tdir/$remote_dir/foo2/$longname 1000 ||
+	error "failed to unlink many hardlinks"
+}
+run_test 161b "link ea sanity on remote directory"
 
 check_path() {
     local expected=$1
@@ -9896,6 +9948,25 @@ test_226 () {
 	mcreate_path2fid 0140666 0 0 sock "socket"
 }
 run_test 226 "call path2fid and fid2path on files of all type"
+
+test_226b () {
+	[ $MDTCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	rm -rf $DIR/$tdir
+	local MDTIDX=1
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i $MDTIDX $DIR/$tdir/remote_dir ||
+		error "create remote directory failed"
+	mcreate_path2fid 0010666 0 0 "remote_dir/fifo" "FIFO"
+	mcreate_path2fid 0020666 1 3 "remote_dir/null" "character special file (null)"
+	mcreate_path2fid 0020666 1 255 "remote_dir/none" "character special file (no device)"
+	mcreate_path2fid 0040666 0 0 "remote_dir/dir" "directory"
+	mcreate_path2fid 0060666 7 0 "remote_dir/loop0" "block special file (loop)"
+	mcreate_path2fid 0100666 0 0 "remote_dir/file" "regular file"
+	mcreate_path2fid 0120666 0 0 "remote_dir/link" "symbolic link"
+	mcreate_path2fid 0140666 0 0 "remote_dir/sock" "socket"
+}
+run_test 226b "call path2fid and fid2path on files of all type under remote dir"
 
 # LU-1299 Executing or running ldd on a truncated executable does not
 # cause an out-of-memory condition.
