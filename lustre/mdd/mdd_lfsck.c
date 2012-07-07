@@ -1058,7 +1058,7 @@ static int mdd_declare_lfsck_namespace_exec_dir(const struct lu_env *env,
 		return rc;
 
 	/* For insert new linkEA entry. */
-	rc = mdd_declare_links_add(env, obj, handle);
+	rc = mdd_declare_links_add(env, obj, handle, NULL);
 	return rc;
 }
 
