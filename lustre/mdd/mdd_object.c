@@ -136,10 +136,9 @@ const struct lu_buf *mdd_buf_get_const(const struct lu_env *env,
         return buf;
 }
 
-struct lu_buf *mdd_buf_alloc(const struct lu_env *env, ssize_t len)
+struct lu_buf *mdd_buf_alloc_internal(const struct lu_env *env, ssize_t len,
+				      struct lu_buf *buf)
 {
-	struct lu_buf *buf = &mdd_env_info(env)->mti_big_buf;
-
 	if ((len > buf->lb_len) && (buf->lb_buf != NULL)) {
 		OBD_FREE_LARGE(buf->lb_buf, buf->lb_len);
 		*buf = LU_BUF_NULL;
@@ -153,14 +152,9 @@ struct lu_buf *mdd_buf_alloc(const struct lu_env *env, ssize_t len)
 	return buf;
 }
 
-/** Increase the size of the \a mti_big_buf.
- * preserves old data in buffer
- * old buffer remains unchanged on error
- * \retval 0 or -ENOMEM
- */
-int mdd_buf_grow(const struct lu_env *env, ssize_t len)
+int mdd_buf_grow_internal(const struct lu_env *env, ssize_t len,
+			  struct lu_buf *oldbuf)
 {
-        struct lu_buf *oldbuf = &mdd_env_info(env)->mti_big_buf;
         struct lu_buf buf;
 
         LASSERT(len >= oldbuf->lb_len);
@@ -177,6 +171,38 @@ int mdd_buf_grow(const struct lu_env *env, ssize_t len)
         memcpy(oldbuf, &buf, sizeof(buf));
 
         return 0;
+}
+
+struct lu_buf *mdd_buf_alloc(const struct lu_env *env, ssize_t len)
+{
+	struct lu_buf *buf = &mdd_env_info(env)->mti_big_buf;
+
+	return mdd_buf_alloc_internal(env, len, buf);
+}
+
+/** Increase the size of the \a mti_big_buf.
+ * preserves old data in buffer
+ * old buffer remains unchanged on error
+ * \retval 0 or -ENOMEM
+ */
+int mdd_buf_grow(const struct lu_env *env, ssize_t len)
+{
+	struct lu_buf *oldbuf = &mdd_env_info(env)->mti_big_buf;
+	return mdd_buf_grow_internal(env, len, oldbuf);
+}
+
+struct lu_buf *mdd_link_buf_alloc(const struct lu_env *env, ssize_t len)
+{
+	struct lu_buf *linkbuf = &mdd_env_info(env)->mti_link_buf;
+
+	return mdd_buf_alloc_internal(env, len, linkbuf);
+}
+
+int mdd_link_buf_grow(const struct lu_env *env, ssize_t len)
+{
+	struct lu_buf *linkbuf = &mdd_env_info(env)->mti_link_buf;
+
+	return mdd_buf_grow_internal(env, len, linkbuf);
 }
 
 struct lu_object *mdd_object_alloc(const struct lu_env *env,
@@ -283,8 +309,8 @@ static int mdd_path2fid(const struct lu_env *env, struct mdd_device *mdd,
 
         lname->ln_name = name = buf->lb_buf;
         lname->ln_namelen = 0;
-        *f = mdd->mdd_root_fid;
 
+	lu_root_fid(f, 0);
         while(1) {
                 while (*path == '/')
                         path++;
@@ -339,6 +365,16 @@ struct path_lookup_info {
         int                  pli_fidcount;     /**< number of \a pli_fids */
 };
 
+static inline int mdd_is_fs_root(const struct lu_env *env,
+				 const struct lu_fid *fid)
+{
+	struct lu_fid *root_fid = &mdd_env_info(env)->mti_fid;
+
+	lu_root_fid(root_fid, 0);
+	return fid_seq(root_fid) == fid_seq(fid) &&
+		fid_oid(root_fid) == fid_oid(fid);
+}
+
 static int mdd_path_current(const struct lu_env *env,
                             struct path_lookup_info *pli)
 {
@@ -360,7 +396,7 @@ static int mdd_path_current(const struct lu_env *env,
         pli->pli_fidcount = 0;
         pli->pli_fids[0] = *(struct lu_fid *)mdd_object_fid(pli->pli_mdd_obj);
 
-        while (!mdd_is_root(mdd, &pli->pli_fids[pli->pli_fidcount])) {
+	while (!mdd_is_fs_root(env, &pli->pli_fids[pli->pli_fidcount])) {
                 mdd_obj = mdd_object_find(env, mdd,
                                           &pli->pli_fids[pli->pli_fidcount]);
                 if (mdd_obj == NULL)
@@ -368,13 +404,9 @@ static int mdd_path_current(const struct lu_env *env,
                 if (IS_ERR(mdd_obj))
                         GOTO(out, rc = PTR_ERR(mdd_obj));
                 rc = lu_object_exists(&mdd_obj->mod_obj.mo_lu);
-                if (rc <= 0) {
+		if (rc == 0) {
                         mdd_object_put(env, mdd_obj);
-                        if (rc == -1)
-                                rc = -EREMOTE;
-                        else if (rc == 0)
-                                /* Do I need to error out here? */
-                                rc = -ENOENT;
+			rc = -ENOENT;
                         GOTO(out, rc);
                 }
 
@@ -465,7 +497,7 @@ static int mdd_path(const struct lu_env *env, struct md_object *obj,
         if (pathlen < 3)
                 RETURN(-EOVERFLOW);
 
-        if (mdd_is_root(mdo2mdd(obj), mdd_object_fid(md2mdd_obj(obj)))) {
+	if (mdd_is_fs_root(env, mdd_object_fid(md2mdd_obj(obj)))) {
                 path[0] = '\0';
                 RETURN(0);
         }

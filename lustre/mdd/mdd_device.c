@@ -1786,7 +1786,8 @@ static void mdd_key_fini(const struct lu_context *ctx,
                 OBD_FREE(info->mti_max_lmm, info->mti_max_lmm_size);
         if (info->mti_max_cookie != NULL)
                 OBD_FREE(info->mti_max_cookie, info->mti_max_cookie_size);
-        mdd_buf_put(&info->mti_big_buf);
+	mdd_buf_put(&info->mti_big_buf);
+	mdd_buf_put(&info->mti_link_buf);
 
         OBD_FREE_PTR(info);
 }
