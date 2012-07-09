@@ -317,20 +317,32 @@ static inline int mapping_has_pages(struct address_space *mapping)
 
 #include <linux/mpage.h>        /* for generic_writepages */
 
+#ifdef HAVE_HIDE_VFSMOUNT_GUTS
+# include <../fs/mount.h>
+#endif
+
 #ifndef HAVE_ATOMIC_MNT_COUNT
 static inline unsigned int mnt_get_count(struct vfsmount *mnt)
 {
 #ifdef CONFIG_SMP
-        unsigned int count = 0;
-        int cpu;
+	unsigned int count = 0;
+	int cpu;
 
-        for_each_possible_cpu(cpu) {
-                count += per_cpu_ptr(mnt->mnt_pcp, cpu)->mnt_count;
-        }
+	for_each_possible_cpu(cpu) {
+# ifdef HAVE_HIDE_VFSMOUNT_GUTS
+		count += per_cpu_ptr(real_mount(mnt)->mnt_pcp, cpu)->mnt_count;
+# else
+		count += per_cpu_ptr(mnt->mnt_pcp, cpu)->mnt_count;
+# endif
+	}
 
-        return count;
+	return count;
 #else
-        return mnt->mnt_count;
+# ifdef HAVE_HIDE_VFSMOUNT_GUTS
+	return real_mount(mnt)->mnt_count;
+# else
+	return mnt->mnt_count;
+# endif
 #endif
 }
 #else
