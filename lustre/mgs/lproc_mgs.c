@@ -48,13 +48,14 @@
 static int lprocfs_mgs_rd_mntdev(char *page, char **start, off_t off, int count,
                                  int *eof, void *data)
 {
-        struct obd_device* obd = (struct obd_device *)data;
+	struct obd_device *obd = (struct obd_device *)data;
 
-        LASSERT(obd != NULL);
-        LASSERT(obd->u.mgs.mgs_vfsmnt->mnt_devname);
-        *eof = 1;
+	LASSERT(obd != NULL);
+	LASSERT(real_mount(obd->u.mgs.mgs_vfsmnt)->mnt_devname);
+	*eof = 1;
 
-        return snprintf(page, count, "%s\n",obd->u.mgs.mgs_vfsmnt->mnt_devname);
+	return snprintf(page, count, "%s\n",
+			real_mount(obd->u.mgs.mgs_vfsmnt)->mnt_devname);
 }
 
 static int mgs_fs_seq_show(struct seq_file *seq, void *v)
