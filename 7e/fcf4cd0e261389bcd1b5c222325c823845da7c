@@ -1,0 +1,9 @@
+Verified+1: Hudson
+Code-Review+2: Andreas Dilger <adilger@whamcloud.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Thomas LEIBOVICI - CEA <thomas.leibovici@cea.fr>
+Submitted-by: Andreas Dilger <adilger@whamcloud.com>
+Submitted-at: Tue, 10 Jul 2012 00:04:23 -0400
+Reviewed-on: http://review.whamcloud.com/2577
+Project: fs/lustre-release
+Branch: refs/heads/master
