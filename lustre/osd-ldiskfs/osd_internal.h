@@ -283,7 +283,6 @@ struct osd_device {
          * The following flag indicates, if it is interop mode or not.
          * It will be initialized, using mount param.
          */
-        __u32                     od_iop_mode;
 
         struct fsfilt_operations *od_fsops;
 
