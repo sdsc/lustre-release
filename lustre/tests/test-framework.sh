@@ -2556,8 +2556,6 @@ mkfs_opts() {
 		opts+=${L_GETIDENTITY:+" --param=mdt.identity_upcall=$L_GETIDENTITY"}
 
 		if [ $fstype == ldiskfs ]; then
-			opts+=${IAMDIR:+" --iam-dir"}
-
 			fs_mkfs_opts+=${MDSJOURNALSIZE:+" -J size=$MDSJOURNALSIZE"}
 			fs_mkfs_opts+=${MDSISIZE:+" -i $MDSISIZE"}
 		fi

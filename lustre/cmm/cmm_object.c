@@ -1250,15 +1250,6 @@ static int cmr_create(const struct lu_env *env, struct md_object *mo_p,
                 }
         }
 
-#ifdef CONFIG_FS_POSIX_ACL
-        if (tmp_ma->ma_valid & MA_ACL_DEF) {
-                spec->u.sp_ea.fid = spec->u.sp_pfid;
-                spec->u.sp_ea.eadata = tmp_ma->ma_acl;
-                spec->u.sp_ea.eadatalen = tmp_ma->ma_acl_size;
-                spec->sp_cr_flags |= MDS_CREATE_RMT_ACL;
-        }
-#endif
-
         /* Local permission check for name_insert before remote ops. */
         rc = mo_permission(env, NULL, md_object_next(mo_p), NULL,
                            (S_ISDIR(ma->ma_attr.la_mode) ?

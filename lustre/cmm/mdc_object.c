@@ -372,9 +372,9 @@ static int mdc_object_create(const struct lu_env *env,
         struct mdc_device *mc = md2mdc_dev(md_obj2dev(mo));
         struct lu_attr *la = &ma->ma_attr;
         struct mdc_thread_info *mci;
-        const void *symname;
+	const void *symname = NULL;
         struct md_ucred *uc = md_ucred(env);
-        int rc, symlen;
+	int rc, symlen = 0;
         uid_t uid;
         gid_t gid;
         cfs_cap_t cap;
@@ -407,24 +407,6 @@ static int mdc_object_create(const struct lu_env *env,
                 gid = la->la_gid;
                 cap = 0;
                 mci->mci_opdata.op_suppgids[0] = -1;
-        }
-
-        /* get data from spec */
-        if (spec->sp_cr_flags & MDS_CREATE_SLAVE_OBJ) {
-                symname = spec->u.sp_ea.eadata;
-                symlen = spec->u.sp_ea.eadatalen;
-                mci->mci_opdata.op_fid1 = *(spec->u.sp_ea.fid);
-                mci->mci_opdata.op_flags |= MDS_CREATE_SLAVE_OBJ;
-#ifdef CONFIG_FS_POSIX_ACL
-        } else if (spec->sp_cr_flags & MDS_CREATE_RMT_ACL) {
-                symname = spec->u.sp_ea.eadata;
-                symlen = spec->u.sp_ea.eadatalen;
-                mci->mci_opdata.op_fid1 = *(spec->u.sp_ea.fid);
-                mci->mci_opdata.op_flags |= MDS_CREATE_RMT_ACL;
-#endif
-        } else {
-                symname = spec->u.sp_symname;
-                symlen = symname ? strlen(symname) + 1 : 0;
         }
 
         rc = md_create(mc->mc_desc.cl_exp, &mci->mci_opdata,
