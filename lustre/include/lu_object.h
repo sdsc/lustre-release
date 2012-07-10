@@ -1280,6 +1280,7 @@ int  lu_env_refill_by_tags(struct lu_env *env, __u32 ctags, __u32 stags);
 
 /** @} lu_context */
 
+#ifdef HAVE_SERVER_SUPPORT
 struct lu_ucred {
 	__u32               uc_valid;
 	__u32               uc_o_uid;
@@ -1299,6 +1300,7 @@ struct lu_ucred {
 struct lu_ucred *lu_ucred(const struct lu_env *env);
 struct lu_ucred *lu_ucred_check(const struct lu_env *env);
 struct lu_ucred *lu_ucred_assert(const struct lu_env *env);
+#endif
 
 /**
  * Output site statistical counters into a buffer. Suitable for
