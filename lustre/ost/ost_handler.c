@@ -140,12 +140,13 @@ void oti_to_request(struct obd_trans_info *oti, struct ptlrpc_request *req)
 }
 
 static int ost_destroy(struct obd_export *exp, struct ptlrpc_request *req,
-                       struct obd_trans_info *oti)
+		       struct obd_trans_info *oti)
 {
-        struct ost_body *body, *repbody;
-        struct lustre_capa *capa = NULL;
-        int rc;
-        ENTRY;
+	struct ost_body		*body;
+	struct ost_body		*repbody;
+	struct lustre_capa	*capa = BYPASS_CAPA;
+	int			rc;
+	ENTRY;
 
         /* Get the request body */
         body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
@@ -252,12 +253,13 @@ static void ost_lock_put(struct obd_export *exp,
 
 static int ost_getattr(struct obd_export *exp, struct ptlrpc_request *req)
 {
-        struct ost_body *body, *repbody;
-        struct obd_info *oinfo;
-        struct lustre_handle lh = { 0 };
-        struct lustre_capa *capa = NULL;
-        int rc;
-        ENTRY;
+	struct ost_body		*body;
+	struct ost_body		*repbody;
+	struct obd_info		*oinfo;
+	struct lustre_handle	lh = { 0 };
+	struct lustre_capa	*capa = BYPASS_CAPA;
+	int rc;
+	ENTRY;
 
         body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
         if (body == NULL)
@@ -392,8 +394,8 @@ static int ost_punch(struct obd_export *exp, struct ptlrpc_request *req,
         rc = ost_lock_get(exp, &repbody->oa, repbody->oa.o_size,
                           repbody->oa.o_blocks, &lh, LCK_PW, flags);
         if (rc == 0) {
-                struct obd_info *oinfo;
-                struct lustre_capa *capa = NULL;
+		struct obd_info		*oinfo;
+		struct lustre_capa	*capa = BYPASS_CAPA;
 
                 if (repbody->oa.o_valid & OBD_MD_FLFLAGS &&
                     repbody->oa.o_flags == OBD_FL_SRVLOCK)
@@ -436,11 +438,12 @@ unlock:
 static int ost_sync(struct obd_export *exp, struct ptlrpc_request *req,
 		    struct obd_trans_info *oti)
 {
-        struct ost_body *body, *repbody;
-        struct obd_info *oinfo;
-        struct lustre_capa *capa = NULL;
-        int rc;
-        ENTRY;
+	struct ost_body		*body;
+	struct ost_body		*repbody;
+	struct obd_info		*oinfo;
+	struct lustre_capa	*capa = BYPASS_CAPA;
+	int			rc;
+	ENTRY;
 
         body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
         if (body == NULL)
@@ -482,13 +485,14 @@ static int ost_sync(struct obd_export *exp, struct ptlrpc_request *req,
 }
 
 static int ost_setattr(struct obd_export *exp, struct ptlrpc_request *req,
-                       struct obd_trans_info *oti)
+		       struct obd_trans_info *oti)
 {
-        struct ost_body *body, *repbody;
-        struct obd_info *oinfo;
-        struct lustre_capa *capa = NULL;
-        int rc;
-        ENTRY;
+	struct ost_body		*body;
+	struct ost_body		*repbody;
+	struct obd_info		*oinfo;
+	struct lustre_capa	*capa = BYPASS_CAPA;
+	int			rc;
+	ENTRY;
 
         body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
         if (body == NULL)
@@ -665,21 +669,27 @@ static void ost_tls_put(struct ptlrpc_request *r)
         }
 }
 
-static int ost_brw_read(struct ptlrpc_request *req, struct obd_trans_info *oti)
+static int ost_brw_read(struct ptlrpc_request *req,
+			struct obd_trans_info *oti)
 {
-        struct ptlrpc_bulk_desc *desc = NULL;
-        struct obd_export *exp = req->rq_export;
-        struct niobuf_remote *remote_nb;
-        struct niobuf_local *local_nb;
-        struct obd_ioobj *ioo;
-        struct ost_body *body, *repbody;
-        struct lustre_capa *capa = NULL;
-        struct l_wait_info lwi;
-        struct lustre_handle lockh = { 0 };
-        int niocount, npages, nob = 0, rc, i;
-        int no_reply = 0;
-        struct ost_thread_local_cache *tls;
-        ENTRY;
+	struct ptlrpc_bulk_desc		*desc = NULL;
+	struct obd_export		*exp = req->rq_export;
+	struct niobuf_remote		*remote_nb;
+	struct niobuf_local		*local_nb;
+	struct obd_ioobj		*ioo;
+	struct ost_body			*body;
+	struct ost_body			*repbody;
+	struct lustre_capa		*capa = BYPASS_CAPA;
+	struct l_wait_info		lwi;
+	struct lustre_handle		lockh = { 0 };
+	int				niocount;
+	int				npages;
+	int				nob = 0;
+	int				rc;
+	int				i;
+	int				no_reply = 0;
+	struct ost_thread_local_cache	*tls;
+	ENTRY;
 
         req->rq_bulk_read = 1;
 
@@ -876,26 +886,35 @@ out:
         RETURN(rc);
 }
 
-static int ost_brw_write(struct ptlrpc_request *req, struct obd_trans_info *oti)
+static int ost_brw_write(struct ptlrpc_request *req,
+			 struct obd_trans_info *oti)
 {
-        struct ptlrpc_bulk_desc *desc = NULL;
-        struct obd_export       *exp = req->rq_export;
-        struct niobuf_remote    *remote_nb;
-        struct niobuf_local     *local_nb;
-        struct obd_ioobj        *ioo;
-        struct ost_body         *body, *repbody;
-        struct l_wait_info       lwi;
-        struct lustre_handle     lockh = {0};
-        struct lustre_capa      *capa = NULL;
-        __u32                   *rcs;
-        int objcount, niocount, npages;
-        int rc, i, j;
-        obd_count                client_cksum = 0, server_cksum = 0;
-        cksum_type_t             cksum_type = OBD_CKSUM_CRC32;
-        int                      no_reply = 0, mmap = 0;
-        __u32                    o_uid = 0, o_gid = 0;
-        struct ost_thread_local_cache *tls;
-        ENTRY;
+	struct ptlrpc_bulk_desc		*desc = NULL;
+	struct obd_export		*exp = req->rq_export;
+	struct niobuf_remote		*remote_nb;
+	struct niobuf_local		*local_nb;
+	struct obd_ioobj		*ioo;
+	struct ost_body			*body;
+	struct ost_body			*repbody;
+	struct l_wait_info		lwi;
+	struct lustre_handle		lockh = {0};
+	struct lustre_capa		*capa = BYPASS_CAPA;
+	__u32				*rcs;
+	int				objcount;
+	int				niocount;
+	int				npages;
+	int				rc;
+	int				i;
+	int				j;
+	obd_count			client_cksum = 0;
+	obd_count			server_cksum = 0;
+	cksum_type_t			cksum_type = OBD_CKSUM_CRC32;
+	int				no_reply = 0;
+	int				mmap = 0;
+	__u32				o_uid = 0;
+	__u32				o_gid = 0;
+	struct ost_thread_local_cache	*tls;
+	ENTRY;
 
         req->rq_bulk_write = 1;
 
@@ -1588,6 +1607,7 @@ int ost_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 		oa->o_seq = lock->l_resource->lr_name.name[1];
 		oa->o_valid = OBD_MD_FLID|OBD_MD_FLGROUP;
 		oinfo->oi_oa = oa;
+		oinfo->oi_capa = BYPASS_CAPA;
 
 		rc = obd_sync(&env, lock->l_export, oinfo,
 			      lock->l_policy_data.l_extent.start,

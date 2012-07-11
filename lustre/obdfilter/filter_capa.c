@@ -110,8 +110,9 @@ int filter_update_capa_key(struct obd_device *obd, struct lustre_capa_key *new)
         RETURN(0);
 }
 
-int filter_auth_capa(struct obd_export *exp, struct lu_fid *fid, obd_seq seq,
-                     struct lustre_capa *capa, __u64 opc)
+int filter_auth_capa(struct obd_export *exp,
+		     struct lu_fid *fid, obd_seq seq,
+		     struct lustre_capa *capa, __u64 opc)
 {
         struct obd_device *obd = exp->exp_obd;
         struct filter_obd *filter = &obd->u.filter;
@@ -125,6 +126,9 @@ int filter_auth_capa(struct obd_export *exp, struct lu_fid *fid, obd_seq seq,
         /* skip capa check for llog and obdecho */
         if (!fid_seq_is_mdt(seq))
                 RETURN(0);
+
+	if (capa == BYPASS_CAPA)
+		RETURN(0);
 
         /* capability is disabled */
         if (!filter->fo_fl_oss_capa)
