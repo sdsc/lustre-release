@@ -835,14 +835,15 @@ static int server_stop_servers(int lsiflags)
 
         cfs_mutex_lock(&server_start_lock);
 
-        /* Either an MDT or an OST or neither  */
-        /* if this was an MDT, and there are no more MDT's, clean up the MDS */
+	/* Either an MDT or an OST or neither  */
+	/* if this was an MDT, and there are no more MDT's, clean up the MDS */
 	if ((lsiflags & LDD_F_SV_TYPE_MDT) &&
-            (obd = class_name2obd(LUSTRE_MDS_OBDNAME))) {
-                /*FIXME pre-rename, should eventually be LUSTRE_MDT_NAME*/
-                type = class_search_type(LUSTRE_MDS_NAME);
-        }
-        /* if this was an OST, and there are no more OST's, clean up the OSS */
+	    (obd = class_name2obd(LUSTRE_MDS_OBDNAME))) {
+		/*FIXME pre-rename, should eventually be LUSTRE_MDT_NAME*/
+		type = class_search_type(LUSTRE_MDT_NAME);
+	}
+
+	/* if this was an OST, and there are no more OST's, clean up the OSS */
 	if ((lsiflags & LDD_F_SV_TYPE_OST) &&
             (obd = class_name2obd(LUSTRE_OSS_OBDNAME))) {
                 type = class_search_type(LUSTRE_OST_NAME);
@@ -1142,27 +1143,24 @@ static int server_start_targets(struct super_block *sb, struct vfsmount *mnt)
 
 	CDEBUG(D_MOUNT, "starting target %s\n", lsi->lsi_svname);
 
-#if 0
         /* If we're an MDT, make sure the global MDS is running */
-        if (lsi->lsi_ldd->ldd_flags & LDD_F_SV_TYPE_MDT) {
-                /* make sure the MDS is started */
-                cfs_mutex_lock(&server_start_lock);
-                obd = class_name2obd(LUSTRE_MDS_OBDNAME);
-                if (!obd) {
-                        rc = lustre_start_simple(LUSTRE_MDS_OBDNAME,
-                    /* FIXME pre-rename, should eventually be LUSTRE_MDS_NAME */
-                                                 LUSTRE_MDT_NAME,
-                                                 LUSTRE_MDS_OBDNAME"_uuid",
-                                                 0, 0);
-                        if (rc) {
-                                cfs_mutex_unlock(&server_start_lock);
-                                CERROR("failed to start MDS: %d\n", rc);
-                                RETURN(rc);
-                        }
-                }
-                cfs_mutex_unlock(&server_start_lock);
-        }
-#endif
+	if (IS_MDT(lsi)) {
+		/* make sure the MDS is started */
+		cfs_mutex_lock(&server_start_lock);
+		obd = class_name2obd(LUSTRE_MDS_OBDNAME);
+		if (!obd) {
+			rc = lustre_start_simple(LUSTRE_MDS_OBDNAME,
+						 LUSTRE_MDS_NAME,
+						 LUSTRE_MDS_OBDNAME"_uuid",
+						 0, 0, 0, 0);
+			if (rc) {
+				cfs_mutex_unlock(&server_start_lock);
+				CERROR("failed to start MDS: %d\n", rc);
+				RETURN(rc);
+			}
+		}
+		cfs_mutex_unlock(&server_start_lock);
+	}
 
         /* If we're an OST, make sure the global OSS is running */
 	if (IS_OST(lsi)) {

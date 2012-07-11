@@ -402,6 +402,57 @@ struct mdt_thread_info {
         struct lu_name             mti_name;
 };
 
+struct mdt_handler {
+	/* The name of this handler. */
+	const char *mh_name;
+	/* Fail id for this handler, checked at the beginning of this handler*/
+	int         mh_fail_id;
+	/* Operation code for this handler */
+	__u32       mh_opc;
+	/* flags are listed in enum mdt_handler_flags below. */
+	__u32       mh_flags;
+	/* The actual handler function to execute. */
+	int (*mh_act)(struct mdt_thread_info *info);
+	/* Request format for this request. */
+	const struct req_format *mh_fmt;
+};
+
+enum mdt_handler_flags {
+	/*
+	 * struct mdt_body is passed in the incoming message, and object
+	 * identified by this fid exists on disk.
+	 *
+	 * "habeo corpus" == "I have a body"
+	 */
+	HABEO_CORPUS = (1 << 0),
+	/*
+	 * struct ldlm_request is passed in the incoming message.
+	 *
+	 * "habeo clavis" == "I have a key"
+	 */
+	HABEO_CLAVIS = (1 << 1),
+	/*
+	 * this request has fixed reply format, so that reply message can be
+	 * packed by generic code.
+	 *
+	 * "habeo refero" == "I have a reply"
+	 */
+	HABEO_REFERO = (1 << 2),
+	/*
+	 * this request will modify something, so check whether the filesystem
+	 * is readonly or not, then return EROFS to client asap if necessary.
+	 *
+	 * "mutabor" == "I shall modify"
+	 */
+	MUTABOR      = (1 << 3)
+};
+
+struct mdt_opc_slice {
+	__u32               mos_opc_start;
+	int                 mos_opc_end;
+	struct mdt_handler *mos_hs;
+};
+
 static inline const struct md_device_operations *
 mdt_child_ops(struct mdt_device * m)
 {
@@ -610,6 +661,47 @@ void mdt_version_get_save(struct mdt_thread_info *, struct mdt_object *, int);
 int mdt_version_get_check_save(struct mdt_thread_info *, struct mdt_object *,
                                int);
 
+int mdt_handle_common(struct ptlrpc_request *req,
+		      struct mdt_opc_slice *supported);
+int mdt_connect(struct mdt_thread_info *info);
+int mdt_disconnect(struct mdt_thread_info *info);
+int mdt_set_info(struct mdt_thread_info *info);
+int mdt_get_info(struct mdt_thread_info *info);
+int mdt_getstatus(struct mdt_thread_info *info);
+int mdt_getattr(struct mdt_thread_info *info);
+int mdt_getattr_name(struct mdt_thread_info *info);
+int mdt_statfs(struct mdt_thread_info *info);
+int mdt_reint(struct mdt_thread_info *info);
+int mdt_sync(struct mdt_thread_info *info);
+int mdt_is_subdir(struct mdt_thread_info *info);
+int mdt_obd_ping(struct mdt_thread_info *info);
+int mdt_obd_idx_read(struct mdt_thread_info *info);
+int mdt_obd_log_cancel(struct mdt_thread_info *info);
+int mdt_obd_qc_callback(struct mdt_thread_info *info);
+int mdt_enqueue(struct mdt_thread_info *info);
+int mdt_convert(struct mdt_thread_info *info);
+int mdt_bl_callback(struct mdt_thread_info *info);
+int mdt_cp_callback(struct mdt_thread_info *info);
+int mdt_llog_create(struct mdt_thread_info *info);
+int mdt_llog_destroy(struct mdt_thread_info *info);
+int mdt_llog_read_header(struct mdt_thread_info *info);
+int mdt_llog_next_block(struct mdt_thread_info *info);
+int mdt_llog_prev_block(struct mdt_thread_info *info);
+int mdt_sec_ctx_handle(struct mdt_thread_info *info);
+int mdt_readpage(struct mdt_thread_info *info);
+int mdt_writepage(struct mdt_thread_info *info);
+
+extern struct mdt_opc_slice mdt_regular_handlers[];
+extern struct mdt_opc_slice mdt_seq_handlers[];
+extern struct mdt_opc_slice mdt_fld_handlers[];
+
+#ifdef HAVE_QUOTA_SUPPORT
+int mdt_quotacheck_handle(struct mdt_thread_info *info);
+int mdt_quotactl_handle(struct mdt_thread_info *info);
+#endif
+
+extern struct lprocfs_vars lprocfs_mds_module_vars[];
+extern struct lprocfs_vars lprocfs_mds_obd_vars[];
 /* mdt_idmap.c */
 int mdt_init_sec_level(struct mdt_thread_info *);
 int mdt_init_idmap(struct mdt_thread_info *);
@@ -799,6 +891,7 @@ enum {
 void mdt_counter_incr(struct ptlrpc_request *req, int opcode);
 void mdt_stats_counter_init(struct lprocfs_stats *stats);
 void lprocfs_mdt_init_vars(struct lprocfs_static_vars *lvars);
+void lprocfs_mds_init_vars(struct lprocfs_static_vars *lvars);
 int mdt_procfs_init(struct mdt_device *mdt, const char *name);
 int mdt_procfs_fini(struct mdt_device *mdt);
 void mdt_rename_counter_tally(struct mdt_thread_info *info,
@@ -858,5 +951,9 @@ static inline struct obd_device *mdt2obd_dev(const struct mdt_device *mdt)
 {
         return mdt->mdt_md_dev.md_lu_dev.ld_obd;
 }
+
+int mds_mod_init(void);
+void mds_mod_exit(void);
+
 #endif /* __KERNEL__ */
 #endif /* _MDT_H */

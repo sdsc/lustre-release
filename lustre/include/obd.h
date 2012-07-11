@@ -834,6 +834,7 @@ struct niobuf_local {
 
 /* obd device type names */
  /* FIXME all the references to LUSTRE_MDS_NAME should be swapped with LUSTRE_MDT_NAME */
+#define LUSTRE_MDD_MDS_NAME     "mdd_mds"
 #define LUSTRE_MDS_NAME         "mds"
 #define LUSTRE_MDT_NAME         "mdt"
 #define LUSTRE_MDC_NAME         "mdc"

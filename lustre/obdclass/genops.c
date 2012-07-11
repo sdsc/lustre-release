@@ -119,16 +119,31 @@ struct obd_type *class_get_type(const char *name)
         struct obd_type *type = class_search_type(name);
 
 #ifdef HAVE_MODULE_LOADING_SUPPORT
-        if (!type) {
-                const char *modname = name;
-                if (!cfs_request_module("%s", modname)) {
-                        CDEBUG(D_INFO, "Loaded module '%s'\n", modname);
-                        type = class_search_type(name);
-                } else {
-                        LCONSOLE_ERROR_MSG(0x158, "Can't load module '%s'\n",
-                                           modname);
-                }
-        }
+	if (!type) {
+		const char *modname = name;
+		/* Generally, "MDS" layer is for receiving the RPCs and the
+		 * "MDT" is interaction with the backing filesystem. But for
+		 * some reasons, MDS is also used in master MDS stack to be
+		 * compatible with the data stack (lov/osc on MDS), so it will
+		 * use
+		 *   #define LUSTRE_MDS_NAME  "mds" to refer general MDS layer.
+		 *   #define LUSTRE_MDD_MDS_NAME "mdd_mds" to refer the legacy
+		 *   MDS on the master MDS stack.
+		 */
+		if (!strncmp(name, LUSTRE_MDS_NAME, strlen(LUSTRE_MDS_NAME)))
+			modname = LUSTRE_MDT_NAME;
+		else if (!strncmp(name, LUSTRE_MDD_MDS_NAME,
+					strlen(LUSTRE_MDD_MDS_NAME)))
+			modname = LUSTRE_MDS_NAME;
+
+		if (!cfs_request_module("%s", modname)) {
+			CDEBUG(D_INFO, "Loaded module '%s'\n", modname);
+			type = class_search_type(name);
+		} else {
+			LCONSOLE_ERROR_MSG(0x158, "Can't load module '%s'\n",
+					   modname);
+		}
+	}
 #endif
         if (type) {
                 cfs_spin_lock(&type->obd_type_lock);
