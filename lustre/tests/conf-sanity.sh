@@ -2640,7 +2640,7 @@ test_53b() {
 	local nthrs
 
 	nthrs=`expr 16 \* $ncpts`
-	thread_sanity MDT $SINGLEMDS 'mdt.*.*.' 'mdt_num_threads='$nthrs
+	thread_sanity MDT $SINGLEMDS 'mds.*.*.' 'mds_num_threads='$nthrs
 }
 run_test 53b "check MDT thread count params"
 
