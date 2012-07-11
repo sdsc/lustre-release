@@ -601,6 +601,7 @@ struct lnet_match_info {
 /* ME hash of RDMA portal */
 #define LNET_MT_HASH_BITS		8
 #define LNET_MT_HASH_SIZE		(1 << LNET_MT_HASH_BITS)
+#define LNET_MT_HASH_MASK		(LNET_MT_HASH_SIZE - 1)
 
 /* portal match table */
 struct lnet_match_table {
@@ -610,7 +611,8 @@ struct lnet_match_table {
 	/* match table is set as "enabled" if there's non-exhausted MD
 	 * attached on mt_mlist, it's only valide for wildcard portal */
 	unsigned int		mt_enabled;
-	cfs_list_t		mt_mlist;       /* matching list */
+	/* matching list, it's only used for ME with ignore-bits */
+	cfs_list_t		mt_mlist;
 	cfs_list_t		*mt_mhash;      /* matching hash */
 };
 

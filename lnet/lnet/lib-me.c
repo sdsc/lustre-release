@@ -107,7 +107,10 @@ LNetMEAttach(unsigned int portal,
 
 	lnet_res_lh_initialize(the_lnet.ln_me_containers[mtable->mt_cpt],
 			       &me->me_lh);
-	head = lnet_mt_match_head(mtable, match_id, match_bits);
+	if (ignore_bits != 0)
+		head = &mtable->mt_mlist;
+	else
+		head = lnet_mt_match_head(mtable, match_id, match_bits);
 
 	if (pos == LNET_INS_AFTER || pos == LNET_INS_LOCAL)
 		cfs_list_add_tail(&me->me_list, head);

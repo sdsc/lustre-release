@@ -318,8 +318,7 @@ lnet_mt_match_head(struct lnet_match_table *mtable,
 	struct lnet_portal *ptl = the_lnet.ln_portals[mtable->mt_portal];
 
 	if (lnet_ptl_is_wildcard(ptl)) {
-		return &mtable->mt_mlist;
-
+		return &mtable->mt_mhash[mbits & LNET_MT_HASH_MASK];
 	} else {
 		unsigned long hash = mbits + id.nid + id.pid;
 
@@ -343,8 +342,12 @@ lnet_mt_match_md(struct lnet_match_table *mtable,
 	if (lnet_ptl_is_wildcard(the_lnet.ln_portals[mtable->mt_portal]))
 		exhausted = LNET_MATCHMD_EXHAUSTED;
 
-	head = lnet_mt_match_head(mtable, info->mi_id, info->mi_mbits);
+	/* any ME with ignore bits? */
+	head = cfs_list_empty(&mtable->mt_mlist) ? NULL : &mtable->mt_mlist;
+	if (head == NULL)
+		head = lnet_mt_match_head(mtable, info->mi_id, info->mi_mbits);
 
+ again:
 	cfs_list_for_each_entry_safe(me, tmp, head, me_list) {
 		/* ME attached but MD not attached yet */
 		if (me->me_md == NULL)
@@ -361,6 +364,12 @@ lnet_mt_match_md(struct lnet_match_table *mtable,
 			 * whether the mlist is empty or not */
 			return rc & ~LNET_MATCHMD_EXHAUSTED;
 		}
+	}
+
+	if (head == &mtable->mt_mlist) { /* checked MEs with ignore bits */
+		/* retry to check MEs w/o ignore bits */
+		head = lnet_mt_match_head(mtable, info->mi_id, info->mi_mbits);
+		goto again;
 	}
 
 	if (info->mi_opc == LNET_MD_OP_GET ||
