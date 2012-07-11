@@ -2631,7 +2631,7 @@ test_53a() {
 run_test 53a "check OSS thread count params"
 
 test_53b() {
-        thread_sanity MDT $SINGLEMDS 'mdt.*.*.' 'mdt_num_threads=64'
+        thread_sanity MDT $SINGLEMDS 'mds.*.*.' 'mdt_num_threads=64'
 }
 run_test 53b "check MDT thread count params"
 
