@@ -2053,6 +2053,63 @@ AC_DEFINE(HAVE_SIMPLE_SETATTR, 1,
 ])
 
 #
+# 2.6.3[89] migratepage adds a migratemode parameter
+#
+AC_DEFUN([LC_HAVE_MIGRATE_HEADER],
+[LB_CHECK_FILE([$LINUX/include/linux/migrate.h],[
+        AC_DEFINE(HAVE_MIGRATE_H, 1,
+                [kernel has include/linux/migrate.h])
+],[LB_CHECK_FILE([$LINUX/include/linux/migrate_mode.h],[
+               AC_DEFINE(HAVE_MIGRATE_MODE_H, 1,
+                [kernel has include/linux/migrate_mode.h])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+])
+
+AC_DEFUN([LC_HAVE_MIGRATEMODE],
+[AC_MSG_CHECKING([if migratepage adds a migratemode parameter])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+#ifdef HAVE_MIGRATE_H
+        #include <linux/migrate.h>
+#elif defined(HAVE_MIGRATE_MODE_H)
+	#include <linux/migrate_mode.h>
+#endif
+],[
+        struct address_space_operations aops;
+
+        aops.migratepage(NULL, NULL, NULL, MIGRATE_ASYNC);
+],[
+	AC_DEFINE(HAVE_MIGRATEMODE, 1,
+		[migratepage functions adds a migratemode parameter])
+	AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+#
+# 2.6.39 replace get_sb with mount in struct file_system_type
+#
+AC_DEFUN([LC_HAVE_FSTYPE_MOUNT],
+[AC_MSG_CHECKING([if file_system_type has mount field])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        struct file_system_type fst;
+        void *i = (void *) fst.mount;
+],[
+        AC_DEFINE(HAVE_FSTYPE_MOUNT, 1,
+                  [struct file_system_type has mount field])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+#
 # LC_PROG_LINUX
 #
 # Lustre linux kernel checks
@@ -2217,6 +2274,9 @@ AC_DEFUN([LC_PROG_LINUX],
 
          # 2.6.39
          LC_REQUEST_QUEUE_UNPLUG_FN
+	 LC_HAVE_FSTYPE_MOUNT
+	 LC_HAVE_MIGRATE_HEADER
+	 LC_HAVE_MIGRATEMODE
 
          #
          if test x$enable_server = xyes ; then
