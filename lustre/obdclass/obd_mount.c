@@ -52,6 +52,9 @@
 #include <obd_class.h>
 #include <lustre/lustre_user.h>
 #include <linux/version.h>
+#ifdef HAVE_KERNEL_LOCKED
+#include <linux/smp_lock.h>
+#endif
 #include <lustre_log.h>
 #include <lustre_disk.h>
 #include <lustre_param.h>
