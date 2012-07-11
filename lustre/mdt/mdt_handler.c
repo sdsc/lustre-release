@@ -98,28 +98,32 @@ ldlm_mode_t mdt_dlm_lock_modes[] = {
  */
 static unsigned long mdt_num_threads;
 CFS_MODULE_PARM(mdt_num_threads, "ul", ulong, 0444,
-		"number of mdt service threads to start");
+		"number of mdt service threads to start (depreciated)");
 
-static char *mdt_cpts;
-CFS_MODULE_PARM(mdt_cpts, "c", charp, 0444,
-		"CPU partitions MDT threads should run on");
+static unsigned long mds_num_threads;
+CFS_MODULE_PARM(mds_num_threads, "ul", ulong, 0444,
+		"number of mds service threads to start");
 
-static unsigned long mdt_rdpg_num_threads;
-CFS_MODULE_PARM(mdt_rdpg_num_threads, "ul", ulong, 0444,
-		"number of mdt readpage service threads to start");
+static char *mds_cpts;
+CFS_MODULE_PARM(mds_cpts, "c", charp, 0444,
+		"CPU partitions MDS threads should run on");
 
-static char *mdt_rdpg_cpts;
-CFS_MODULE_PARM(mdt_rdpg_cpts, "c", charp, 0444,
-		"CPU partitions MDT readpage threads should run on");
+static unsigned long mds_rdpg_num_threads;
+CFS_MODULE_PARM(mds_rdpg_num_threads, "ul", ulong, 0444,
+		"number of mds readpage service threads to start");
+
+static char *mds_rdpg_cpts;
+CFS_MODULE_PARM(mds_rdpg_cpts, "c", charp, 0444,
+		"CPU partitions MDS readpage threads should run on");
 
 /* NB: these two should be removed along with setattr service in the future */
-static unsigned long mdt_attr_num_threads;
-CFS_MODULE_PARM(mdt_attr_num_threads, "ul", ulong, 0444,
-		"number of mdt setattr service threads to start");
+static unsigned long mds_attr_num_threads;
+CFS_MODULE_PARM(mds_attr_num_threads, "ul", ulong, 0444,
+		"number of mds setattr service threads to start");
 
-static char *mdt_attr_cpts;
-CFS_MODULE_PARM(mdt_attr_cpts, "c", charp, 0444,
-		"CPU partitions MDT setattr threads should run on");
+static char *mds_attr_cpts;
+CFS_MODULE_PARM(mds_attr_cpts, "c", charp, 0444,
+		"CPU partitions MDS setattr threads should run on");
 
 /* ptlrpc request handler for MDT. All handlers are
  * grouped into several slices - struct mdt_opc_slice,
@@ -3981,7 +3985,7 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 			.tc_nthrs_init		= MDT_NTHRS_INIT,
 			.tc_nthrs_base		= MDT_NTHRS_BASE,
 			.tc_nthrs_max		= MDT_NTHRS_MAX,
-			.tc_nthrs_user		= mdt_num_threads,
+			.tc_nthrs_user		= mds_num_threads,
 			.tc_cpu_affinity	= 1,
 			.tc_ctx_tags		= LCT_MD_THREAD,
 		},
@@ -6001,6 +6005,13 @@ static int __init mdt_mod_init(void)
 {
         struct lprocfs_static_vars lvars;
         int rc;
+
+	if (mdt_num_threads != 0 && mds_num_threads == 0) {
+		LCONSOLE_INFO("mdt_num_threads module parameter is deprecated,"
+			      "use mds_num_threads instead or unset both for"
+			      "dynamic thread startup\n");
+		mds_num_threads = mdt_num_threads;
+	}
 
         lprocfs_mdt_init_vars(&lvars);
         rc = class_register_type(&mdt_obd_device_ops, NULL,
