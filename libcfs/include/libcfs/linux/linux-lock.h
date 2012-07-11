@@ -47,7 +47,6 @@
 #error This include is only for kernel use.
 #endif
 
-#include <linux/smp_lock.h>
 #include <linux/mutex.h>
 
 /*
@@ -76,8 +75,6 @@
  * - read_lock_irqsave(lock, f)
  * - write_lock_irqsave(lock, f)
  * - write_unlock_irqrestore(lock, f)
- *
- * - SPIN_LOCK_UNLOCKED
  */
 
 /*
@@ -102,8 +99,6 @@ typedef spinlock_t cfs_spinlock_t;
 #define cfs_write_unlock_irqrestore(lock, f) write_unlock_irqrestore(lock, f)
 #define cfs_spin_lock_irqsave(lock, f)       spin_lock_irqsave(lock, f)
 #define cfs_spin_unlock_irqrestore(lock, f)  spin_unlock_irqrestore(lock, f)
-
-#define CFS_SPIN_LOCK_UNLOCKED               SPIN_LOCK_UNLOCKED
 
 /*
  * rw_semaphore "implementation" (use Linux kernel's primitives)
@@ -153,8 +148,6 @@ typedef rwlock_t cfs_rwlock_t;
 #define cfs_write_unlock(lock)                 write_unlock(lock)
 #define cfs_write_lock_bh(lock)                write_lock_bh(lock)
 #define cfs_write_unlock_bh(lock)              write_unlock_bh(lock)
-
-#define CFS_RW_LOCK_UNLOCKED                   RW_LOCK_UNLOCKED
 
 /*
  * completion "implementation" (use Linux kernel's primitives)

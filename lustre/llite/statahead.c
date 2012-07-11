@@ -37,7 +37,6 @@
 #include <linux/fs.h>
 #include <linux/sched.h>
 #include <linux/mm.h>
-#include <linux/smp_lock.h>
 #include <linux/highmem.h>
 #include <linux/pagemap.h>
 
@@ -84,7 +83,7 @@ struct ll_sa_entry {
 };
 
 static unsigned int sai_generation = 0;
-static cfs_spinlock_t sai_generation_lock = CFS_SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(sai_generation_lock);
 
 static inline int ll_sa_entry_unlinked(struct ll_sa_entry *entry)
 {
