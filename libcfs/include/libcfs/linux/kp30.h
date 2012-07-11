@@ -60,7 +60,9 @@
 #include <linux/highmem.h>
 #include <linux/module.h>
 #include <linux/version.h>
+#ifdef HAVE_LINUX_KERNEL_LOCK
 #include <linux/smp_lock.h>
+#endif
 #include <asm/atomic.h>
 #include <asm/uaccess.h>
 #include <linux/rwsem.h>

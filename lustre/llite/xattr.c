@@ -37,7 +37,9 @@
 #include <linux/fs.h>
 #include <linux/sched.h>
 #include <linux/mm.h>
+#ifdef HAVE_LINUX_KERNEL_LOCK
 #include <linux/smp_lock.h>
+#endif
 #ifdef HAVE_SELINUX_IS_ENABLED
 #include <linux/selinux.h>
 #endif

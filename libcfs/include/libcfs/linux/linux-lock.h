@@ -47,7 +47,9 @@
 #error This include is only for kernel use.
 #endif
 
+#ifdef HAVE_LINUX_KERNEL_LOCK
 #include <linux/smp_lock.h>
+#endif
 #include <linux/mutex.h>
 
 /*
