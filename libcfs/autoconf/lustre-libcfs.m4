@@ -98,6 +98,8 @@ AC_DEFINE(HAVE_TASKLIST_LOCK, 1,
 #
 AC_DEFUN([LIBCFS_DIGEST_SETKEY_FLAGS],
 [AC_MSG_CHECKING([if kernel dia_setkey takes 4 args])
+tmp_flags="$EXTRA_KCFLAGS"
+EXTRA_KCFLAGS="$EXTRA_KCFLAGS -Werror"
 LB_LINUX_TRY_COMPILE([
 	#include <linux/err.h>
 	#include <linux/crypto.h>
@@ -114,6 +116,7 @@ LB_LINUX_TRY_COMPILE([
 ],[
 	AC_MSG_RESULT([no])
 ])
+EXTRA_KCFLAGS="$tmp_flags"
 ])
 
 
