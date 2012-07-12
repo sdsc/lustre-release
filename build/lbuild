@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# vim:expandtab:shiftwidth=4:softtabstop=4:tabstop=4:
+# vim:shiftwidth=4:softtabstop=4:tabstop=4:
 
 # this is an alternative FD for stdout, to be used especially when we are
 # taking stdout from a function as it's return value.  i.e. foo=$(bar)
@@ -970,9 +970,9 @@ build_spl_zfs() {
         [ "$pkg" == "zfs" ] && spldir="$(ls -d $TOPDIR/usr/src/spl-*/*)"
         rpmmod=$pkg-modules
 
-        # need to fetch the repo in order to build it.
-        # default to github but allow override
-        git clone ${SPLZFSGITREPO:-"git@github.com:zfsonlinux"}/$pkg.git $pkg 2>&1
+		# need to fetch the repo in order to build it.
+		# default to github but allow override
+		git clone ${SPLZFSGITREPO:-"https://github.com/zfsonlinux"}/$pkg.git $pkg 2>&1
 
         pushd $pkg || return 255
 
