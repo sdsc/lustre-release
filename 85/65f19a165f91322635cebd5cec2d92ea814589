@@ -1,0 +1,11 @@
+Verified+1: Hudson
+Code-Review+1: Niu Yawei <niu@whamcloud.com>
+Code-Review+2: Andreas Dilger <adilger@whamcloud.com>
+Verified+1: Yu Jian <yujian@whamcloud.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Liang Zhen <liang@whamcloud.com>
+Submitted-by: Oleg Drokin <green@whamcloud.com>
+Submitted-at: Fri, 13 Jul 2012 16:17:30 -0400
+Reviewed-on: http://review.whamcloud.com/3237
+Project: fs/lustre-release
+Branch: refs/heads/b2_1
