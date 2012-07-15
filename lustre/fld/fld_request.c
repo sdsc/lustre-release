@@ -58,8 +58,6 @@
 #include <obd_support.h>
 #include <lprocfs_status.h>
 
-#include <dt_object.h>
-#include <md_object.h>
 #include <lustre_req_layout.h>
 #include <lustre_fld.h>
 #include <lustre_mdc.h>
@@ -142,8 +140,12 @@ fld_rrb_scan(struct lu_client_fld *fld, seqno_t seq)
                fld->lcf_count);
 
         cfs_list_for_each_entry(target, &fld->lcf_targets, ft_chain) {
-                const char *srv_name = target->ft_srv != NULL  ?
-                        target->ft_srv->lsf_name : "<null>";
+#ifdef HAVE_SERVER_SUPPORT
+		const char *srv_name = target->ft_srv != NULL  ?
+				       target->ft_srv->lsf_name : "<null>";
+#else
+		const char *srv_name = "<null>";
+#endif
                 const char *exp_name = target->ft_exp != NULL ?
                         (char *)target->ft_exp->exp_obd->obd_uuid.uuid :
                         "<null>";
@@ -488,7 +490,7 @@ int fld_client_lookup(struct lu_client_fld *fld, seqno_t seq, mdsno_t *mds,
 
         res.lsr_start = seq;
         res.lsr_flags = flags;
-#ifdef __KERNEL__
+#if defined (__KERNEL__) && defined (HAVE_SERVER_SUPPORT)
         if (target->ft_srv != NULL) {
                 LASSERT(env != NULL);
                 rc = fld_server_lookup(target->ft_srv,
@@ -497,7 +499,7 @@ int fld_client_lookup(struct lu_client_fld *fld, seqno_t seq, mdsno_t *mds,
 #endif
                 rc = fld_client_rpc(target->ft_exp,
                                     &res, FLD_LOOKUP);
-#ifdef __KERNEL__
+#if defined (__KERNEL__) && defined (HAVE_SERVER_SUPPORT)
         }
 #endif
 
@@ -515,3 +517,38 @@ void fld_client_flush(struct lu_client_fld *fld)
         fld_cache_flush(fld->lcf_cache);
 }
 EXPORT_SYMBOL(fld_client_flush);
+
+#ifdef __KERNEL__
+cfs_proc_dir_entry_t *fld_type_proc_dir = NULL;
+
+static int __init fld_mod_init(void)
+{
+	fld_type_proc_dir = lprocfs_register(LUSTRE_FLD_NAME,
+					     proc_lustre_root,
+					     NULL, NULL);
+	if (IS_ERR(fld_type_proc_dir))
+		return PTR_ERR(fld_type_proc_dir);
+
+#ifdef HAVE_SERVER_SUPPORT
+	fld_mod_init_server();
+#endif
+	return 0;
+}
+
+static void __exit fld_mod_exit(void)
+{
+#ifdef HAVE_SERVER_SUPPORT
+	fld_mod_exit_server();
+#endif
+	if (fld_type_proc_dir != NULL && !IS_ERR(fld_type_proc_dir)) {
+		lprocfs_remove(&fld_type_proc_dir);
+		fld_type_proc_dir = NULL;
+	}
+}
+
+MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
+MODULE_DESCRIPTION("Lustre FLD");
+MODULE_LICENSE("GPL");
+
+cfs_module(mdd, LUSTRE_VERSION_STRING, fld_mod_init, fld_mod_exit);
+#endif
