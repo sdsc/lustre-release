@@ -539,7 +539,12 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                                  NULL);
         cl_sb_init(sb);
 
-        sb->s_root = d_alloc_root(root);
+#ifdef HAVE_D_MAKE_ROOT
+	sb->s_root = d_make_root(root);
+#else
+	sb->s_root = d_alloc_root(root);
+#endif
+
 #ifdef HAVE_DCACHE_LOCK
 	sb->s_root->d_op = &ll_d_root_ops;
 #else

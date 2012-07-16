@@ -1879,7 +1879,11 @@ static int server_fill_super_common(struct super_block *sb)
         /* apparently we need to be a directory for the mount to finish */
         root->i_mode = S_IFDIR;
 
-        sb->s_root = d_alloc_root(root);
+#ifdef HAVE_D_MAKE_ROOT
+	sb->s_root = d_make_root(root);
+#else
+	sb->s_root = d_alloc_root(root);
+#endif
         if (!sb->s_root) {
                 CERROR("Can't make root dentry\n");
                 iput(root);
