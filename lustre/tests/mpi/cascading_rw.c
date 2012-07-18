@@ -56,7 +56,7 @@
 # include <ioctl.h>
 #endif
 
-#include <lustre/liblustreapi.h>
+#include <lustre/lustreapi.h>
 
 int rank = 0;
 int size = 0;

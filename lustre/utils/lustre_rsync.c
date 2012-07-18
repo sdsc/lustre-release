@@ -121,7 +121,7 @@
 
 #include <libcfs/libcfs.h>
 #include <libcfs/libcfsutil.h>
-#include <lustre/liblustreapi.h>
+#include <lustre/lustreapi.h>
 #include <lustre/lustre_idl.h>
 #include "lustre_rsync.h"
 

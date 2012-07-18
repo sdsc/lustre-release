@@ -48,7 +48,7 @@
 #include <unistd.h>
 #include <semaphore.h>
 #include <libcfs/libcfs.h>
-#include <lustre/liblustreapi.h>
+#include <lustre/lustreapi.h>
 
 #define T1 "write data before unlink\n"
 #define T2 "write data after unlink\n"

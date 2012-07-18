@@ -70,7 +70,7 @@
 #include <obd_class.h>
 #include <lnet/lnetctl.h>
 #include <libcfs/libcfsutil.h>
-#include <lustre/liblustreapi.h>
+#include <lustre/lustreapi.h>
 
 #define MAX_STRING_SIZE 128
 #define DEVICES_LIST "/proc/fs/lustre/devices"
