@@ -797,5 +797,11 @@ static inline void set_nlink(struct inode *inode, unsigned int nlink)
 }
 #endif
 
+#ifdef HAVE_INODEOPS_USE_UMODE_T
+# define ll_umode_t	umode_t
+#else
+# define ll_umode_t	int
+#endif
+
 #endif /* __KERNEL__ */
 #endif /* _COMPAT25_H */

@@ -823,7 +823,11 @@ void ll_umount_begin(struct vfsmount *vfsmnt, int flags);
 void ll_umount_begin(struct super_block *sb);
 #endif
 int ll_remount_fs(struct super_block *sb, int *flags, char *data);
+#ifdef HAVE_SUPEROPS_USE_DENTRY
+int ll_show_options(struct seq_file *seq, struct dentry *dentry);
+#else
 int ll_show_options(struct seq_file *seq, struct vfsmount *vfs);
+#endif
 int ll_prep_inode(struct inode **inode, struct ptlrpc_request *req,
                   struct super_block *);
 void lustre_dump_dentry(struct dentry *, int recur);
