@@ -814,8 +814,13 @@ static int ll_mknod_generic(struct inode *dir, struct qstr *name, int mode,
         RETURN(err);
 }
 
+#ifdef HAVE_INODEOPS_USE_UMODE_T
 static int ll_create_nd(struct inode *dir, struct dentry *dentry,
-                        int mode, struct nameidata *nd)
+			umode_t mode, struct nameidata *nd)
+#else
+static int ll_create_nd(struct inode *dir, struct dentry *dentry,
+			int mode, struct nameidata *nd)
+#endif
 {
         struct lookup_intent *it = ll_d2d(dentry)->lld_it;
         int rc;
@@ -1128,8 +1133,13 @@ static int ll_rename_generic(struct inode *src, struct dentry *src_dparent,
         RETURN(err);
 }
 
+#ifdef HAVE_INODEOPS_USE_UMODE_T
+static int ll_mknod(struct inode *dir, struct dentry *dchild, umode_t mode,
+		    ll_dev_t rdev)
+#else
 static int ll_mknod(struct inode *dir, struct dentry *dchild, int mode,
-                    ll_dev_t rdev)
+		    ll_dev_t rdev)
+#endif
 {
         return ll_mknod_generic(dir, &dchild->d_name, mode,
                                 old_encode_dev(rdev), dchild);
@@ -1139,7 +1149,11 @@ static int ll_unlink(struct inode * dir, struct dentry *dentry)
 {
         return ll_unlink_generic(dir, NULL, dentry, &dentry->d_name);
 }
+#ifdef HAVE_INODEOPS_USE_UMODE_T
+static int ll_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
+#else
 static int ll_mkdir(struct inode *dir, struct dentry *dentry, int mode)
+#endif
 {
         return ll_mkdir_generic(dir, &dentry->d_name, mode, dentry);
 }
