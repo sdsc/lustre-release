@@ -58,11 +58,11 @@ int lov_merge_lvb_kms(struct lov_stripe_md *lsm,
         __u64 size = 0;
         __u64 kms = 0;
         __u64 blocks = 0;
-	obd_time current_mtime = lvb->lvb_mtime;
+	__s64 current_mtime = lvb->lvb_mtime;
 	__u32 current_mtime_ns = lvb->lvb_mtime_ns;
-	obd_time current_atime = lvb->lvb_atime;
+	__s64 current_atime = lvb->lvb_atime;
 	__u32 current_atime_ns = lvb->lvb_atime_ns;
-	obd_time current_ctime = lvb->lvb_ctime;
+	__s64 current_ctime = lvb->lvb_ctime;
 	__u32 current_ctime_ns = lvb->lvb_ctime_ns;
         int i;
         int rc = 0;

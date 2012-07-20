@@ -170,7 +170,6 @@ typedef __u32 mdsno_t;
 typedef __u64 seqno_t;
 typedef __u64 obd_id;
 typedef __u64 obd_seq;
-typedef __s64 obd_time;
 typedef __u64 obd_size;
 typedef __u64 obd_off;
 typedef __u64 obd_blocks;
@@ -1558,9 +1557,9 @@ extern void lustre_swab_niobuf_remote (struct niobuf_remote *nbr);
 
 struct ost_lvb {
 	__u64  lvb_size;
-	obd_time lvb_mtime;
-	obd_time lvb_atime;
-	obd_time lvb_ctime;
+	__s64  lvb_mtime;
+	__s64  lvb_atime;
+	__s64  lvb_ctime;
 	__u64  lvb_blocks;
 	__u32  lvb_mtime_ns;
 	__u32  lvb_atime_ns;
@@ -1724,9 +1723,9 @@ struct mdt_body {
         struct lustre_handle handle;
         __u64          valid;
         __u64          size;   /* Offset, in the case of MDS_READPAGE */
-	obd_time       mtime;
-	obd_time       atime;
-	obd_time       ctime;
+	__s64          mtime;
+	__s64          atime;
+	__s64          ctime;
         __u64          blocks; /* XID, in the case of MDS_READPAGE */
         __u64          ioepoch;
         __u64          ino;
@@ -1881,9 +1880,9 @@ struct mdt_rec_setattr {
 	 * mdt_rec_reint. */
 	__u64           sa_size; /* rr_mtime */
 	__u64           sa_blocks; /* rr_atime */
-	obd_time        sa_mtime; /* rr_ctime */
-	obd_time        sa_atime; /* rr_size */
-	obd_time        sa_ctime; /* rr_blocks */
+	__s64           sa_mtime; /* rr_ctime */
+	__s64           sa_atime; /* rr_size */
+	__s64           sa_ctime; /* rr_blocks */
 	__u32           sa_attr_flags; /* rr_bias */
 	__u32           sa_mode;
 	__u32           sa_padding_2; /* rr_flags */
@@ -2005,7 +2004,7 @@ struct mdt_rec_create {
         struct lu_fid   cr_fid1;
         struct lu_fid   cr_fid2;
         struct lustre_handle cr_old_handle; /* handle in case of open replay */
-	obd_time        cr_time;
+	__s64           cr_time;
         __u64           cr_rdev;
         __u64           cr_ioepoch;
         __u64           cr_padding_1;   /* rr_blocks */
@@ -2045,7 +2044,7 @@ struct mdt_rec_link {
         __u32           lk_suppgid2_h;
         struct lu_fid   lk_fid1;
         struct lu_fid   lk_fid2;
-	obd_time        lk_time;
+	__s64           lk_time;
         __u64           lk_padding_1;   /* rr_atime */
         __u64           lk_padding_2;   /* rr_ctime */
         __u64           lk_padding_3;   /* rr_size */
@@ -2072,7 +2071,7 @@ struct mdt_rec_unlink {
         __u32           ul_suppgid2_h;
         struct lu_fid   ul_fid1;
         struct lu_fid   ul_fid2;
-	obd_time        ul_time;
+	__s64           ul_time;
         __u64           ul_padding_2;   /* rr_atime */
         __u64           ul_padding_3;   /* rr_ctime */
         __u64           ul_padding_4;   /* rr_size */
@@ -2099,7 +2098,7 @@ struct mdt_rec_rename {
         __u32           rn_suppgid2_h;
         struct lu_fid   rn_fid1;
         struct lu_fid   rn_fid2;
-	obd_time        rn_time;
+	__s64           rn_time;
         __u64           rn_padding_1;   /* rr_atime */
         __u64           rn_padding_2;   /* rr_ctime */
         __u64           rn_padding_3;   /* rr_size */
@@ -2129,7 +2128,7 @@ struct mdt_rec_setxattr {
         __u32           sx_padding_2;
         __u32           sx_padding_3;
         __u64           sx_valid;
-	obd_time        sx_time;
+	__s64           sx_time;
         __u64           sx_padding_5;   /* rr_ctime */
         __u64           sx_padding_6;   /* rr_size */
         __u64           sx_padding_7;   /* rr_blocks */
@@ -2162,9 +2161,9 @@ struct mdt_rec_reint {
         __u32           rr_suppgid2_h;
         struct lu_fid   rr_fid1;
         struct lu_fid   rr_fid2;
-	obd_time        rr_mtime;
-	obd_time        rr_atime;
-	obd_time        rr_ctime;
+	__s64           rr_mtime;
+	__s64           rr_atime;
+	__s64           rr_ctime;
 	__u64           rr_size;
 	__u64           rr_blocks;
 	__u32           rr_bias;
@@ -2528,8 +2527,8 @@ struct cfg_marker {
         __u32             cm_flags;
         __u32             cm_vers;       /* lustre release version number */
         __u32             cm_padding;    /* 64 bit align */
-	obd_time          cm_createtime; /*when this record was first created */
-	obd_time          cm_canceltime; /*when this record is no longer valid*/
+	__s64             cm_createtime; /*when this record was first created */
+	__s64             cm_canceltime; /*when this record is no longer valid*/
         char              cm_tgtname[MTI_NAME_MAXLEN];
         char              cm_comment[MTI_NAME_MAXLEN];
 };
@@ -2745,7 +2744,7 @@ struct llog_gen_rec {
 
 struct llog_log_hdr {
         struct llog_rec_hdr     llh_hdr;
-	obd_time                llh_timestamp;
+	__s64                   llh_timestamp;
         __u32                   llh_count;
         __u32                   llh_bitmap_offset;
         __u32                   llh_size;
@@ -2807,9 +2806,9 @@ struct obdo {
         struct ost_id           o_oi;
         obd_id                  o_parent_seq;
         obd_size                o_size;         /* o_size-o_blocks == ost_lvb */
-	obd_time                o_mtime;
-	obd_time                o_atime;
-	obd_time                o_ctime;
+	__s64                   o_mtime;
+	__s64                   o_atime;
+	__s64                   o_ctime;
         obd_blocks              o_blocks;       /* brw: cli sent cached bytes */
         obd_size                o_grant;
 

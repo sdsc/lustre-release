@@ -79,8 +79,8 @@ struct lustre_disk_dqblk_v2 {
         __u64 dqb_bhardlimit;   /**< absolute limit on disk space (in QUOTABLOCK_SIZE) */
         __u64 dqb_bsoftlimit;   /**< preferred limit on disk space (in QUOTABLOCK_SIZE) */
         __u64 dqb_curspace;     /**< current space occupied (in bytes) */
-	obd_time dqb_btime;     /**< time limit for excessive disk use */
-	obd_time dqb_itime;     /**< time limit for excessive inode use */
+	__s64 dqb_btime;        /**< time limit for excessive disk use */
+	__s64 dqb_itime;        /**< time limit for excessive inode use */
 };
 
 /* Number of entries in one blocks(14 entries) */
