@@ -19,7 +19,10 @@ export LIBLUSTRE_MOUNT_TARGET=$MGSNID:/$FSNAME
 export LIBLUSTRE_TIMEOUT=`lctl get_param -n timeout`
 #export LIBLUSTRE_DEBUG_MASK=`lctl get_param -n debug`
 
+build_test_filter
+
 test_1() {
+    error "auto error"
     if ! check_versions; then
 	skip "liblustre version mismatch: cli $(lustre_version_code client), \
               mds $(lustre_version_code $SINGLEMDS), ost $(lustre_version_code ost1)"
@@ -40,6 +43,14 @@ test_1() {
     fi
 }
 run_test 1 "liblustre sanity"
+
+test_2() { # LU-1606
+    local prog="#include <lustre/lustreapi.h>
+main(){llapi_file_get_stripe(NULL, NULL);}"
+    echo "attempting to compile and link: $prog"
+    echo "$prog" | gcc -x c - -llustreapi || error
+}
+run_test 2 "verify that headers and libraries are available"
 
 complete $(basename $0) $SECONDS
 check_and_cleanup_lustre
