@@ -1850,6 +1850,27 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 3.1 kills inode->i_alloc_sem, use i_dio_count and inode_dio_wait/
+#     inode_dio_done instead.
+# see kernel commit bd5fe6c5eb9c548d7f07fe8f89a150bb6705e8e3
+#
+AC_DEFUN([LC_INODE_DIO_WAIT],
+[AC_MSG_CHECKING([if inode->i_alloc_sem is killed and use inode_dio_wait/done.])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/fs.h>
+],[
+	inode_dio_wait((struct inode *)0);
+	inode_dio_done((struct inode *)0);
+],[
+	AC_DEFINE(HAVE_INODE_DIO_WAIT, 1,
+		  [inode->i_alloc_sem is killed and use inode_dio_wait/done])
+	AC_MSG_RESULT([yes])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
+#
 # 3.3 introduces migrate_mode.h and migratepage has 4 args
 #
 AC_DEFUN([LC_HAVE_MIGRATE_HEADER],
@@ -2035,6 +2056,7 @@ AC_DEFUN([LC_PROG_LINUX],
 
 	 # 3.1
 	 LC_LM_XXX_LOCK_MANAGER_OPS
+	 LC_INODE_DIO_WAIT
 
 	 # 3.3
 	 LC_HAVE_MIGRATE_HEADER

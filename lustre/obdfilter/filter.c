@@ -3359,13 +3359,13 @@ int filter_setattr_internal(struct obd_export *exp, struct dentry *dentry,
         }
 	if (ia_valid & (ATTR_SIZE | ATTR_UID | ATTR_GID)) {
 		unsigned long now = jiffies;
-		/* Filter truncates and writes are serialized by
-		 * i_alloc_sem, see the comment in
-		 * filter_preprw_write.*/
-		if (ia_valid & ATTR_SIZE)
-			down_write(&inode->i_alloc_sem);
+		/* Filter truncates and writes are serialized.
+		 * See the comment in filter_preprw_write.*/
 		mutex_lock(&inode->i_mutex);
-		fsfilt_check_slow(exp->exp_obd, now, "i_alloc_sem and i_mutex");
+		if (ia_valid & ATTR_SIZE)
+			inode_dio_wait(inode);
+		fsfilt_check_slow(exp->exp_obd, now,
+				  "i_mutex and inode_dio_wait");
 		old_size = i_size_read(inode);
 	}
 
@@ -3486,10 +3486,10 @@ out_unlock:
         if (page)
                 page_cache_release(page);
 
+	if (ia_valid & ATTR_SIZE)
+		inode_dio_write_done(inode);
 	if (ia_valid & (ATTR_SIZE | ATTR_UID | ATTR_GID))
 		mutex_unlock(&inode->i_mutex);
-	if (ia_valid & ATTR_SIZE)
-		up_write(&inode->i_alloc_sem);
 	if (fcc)
 		OBD_FREE(fcc, sizeof(*fcc));
 
@@ -3570,14 +3570,22 @@ int filter_setattr(const struct lu_env *env, struct obd_export *exp,
          */
         if (oa->o_valid &
             (OBD_MD_FLMTIME | OBD_MD_FLATIME | OBD_MD_FLCTIME)) {
-                unsigned long now = jiffies;
-                down_write(&dentry->d_inode->i_alloc_sem);
-                fsfilt_check_slow(exp->exp_obd, now, "i_alloc_sem");
-                fmd = filter_fmd_get(exp, oa->o_id, oa->o_seq);
-                if (fmd && fmd->fmd_mactime_xid < oti->oti_xid)
-                        fmd->fmd_mactime_xid = oti->oti_xid;
-                filter_fmd_put(exp, fmd);
-                up_write(&dentry->d_inode->i_alloc_sem);
+#if HAVE_INODE_DIO_WAIT
+/* Since inode_dio_wait() and friends are no longer proper locks in newer kernels,
+ * the access and update of fmd here will now be racy. However, the obdfilter code
+ * is also being removed for 2.4, likely before 3.1 kernels are supported on the server.
+ * So no need to fix this code and just add a compiling error here.
+ */
+# error "need to add proper locking for fmd structure"
+#endif
+		unsigned long now = jiffies;
+		inode_dio_wait(dentry->d_inode);
+		fsfilt_check_slow(exp->exp_obd, now, "inode_dio_wait");
+		fmd = filter_fmd_get(exp, oa->o_id, oa->o_seq);
+		if (fmd && fmd->fmd_mactime_xid < oti->oti_xid)
+			fmd->fmd_mactime_xid = oti->oti_xid;
+		filter_fmd_put(exp, fmd);
+		inode_dio_write_done(dentry->d_inode);
         }
 
         /* setting objects attributes (including owner/group) */
@@ -4308,36 +4316,37 @@ int filter_destroy(const struct lu_env *env, struct obd_export *exp,
                         *fcc = oa->o_lcookie;
         }
 
-        /* we're gonna truncate it first in order to avoid possible deadlock:
-         *      P1                      P2
-         * open trasaction      open transaction
-         * down(i_zombie)       down(i_zombie)
-         *                      restart transaction
-         * (see BUG 4180) -bzzz
-         *
-         * take i_alloc_sem too to prevent other threads from writing to the
-         * file while we are truncating it. This can cause lock ordering issue
-         * between page lock, i_mutex & starting new journal handle.
-         * (see bug 20321) -johann
-         */
+	/* we're gonna truncate it first in order to avoid possible deadlock:
+	 *      P1                      P2
+	 * open trasaction      open transaction
+	 * down(i_zombie)       down(i_zombie)
+	 *                      restart transaction
+	 * (see BUG 4180) -bzzz
+	 *
+	 * inode_dio_wait too to prevent other threads from writing to the
+	 * file while we are truncating it. This can cause lock ordering issue
+	 * between page lock, i_mutex & starting new journal handle.
+	 * (see bug 20321) -johann
+	 */
 	now = jiffies;
-	down_write(&dchild->d_inode->i_alloc_sem);
 	mutex_lock(&dchild->d_inode->i_mutex);
-	fsfilt_check_slow(exp->exp_obd, now, "i_alloc_sem and i_mutex");
+	inode_dio_wait(dchild->d_inode);
+	fsfilt_check_slow(exp->exp_obd, now,
+			  "i_mutex and inode_dio_wait");
 
 	/* VBR: version recovery check */
 	rc = filter_version_get_check(exp, oti, dchild->d_inode);
 	if (rc) {
+		inode_dio_write_done(dchild->d_inode);
 		mutex_unlock(&dchild->d_inode->i_mutex);
-		up_write(&dchild->d_inode->i_alloc_sem);
 		GOTO(cleanup, rc);
 	}
 
 	handle = fsfilt_start_log(obd, dchild->d_inode, FSFILT_OP_SETATTR,
 				  NULL, 1);
 	if (IS_ERR(handle)) {
+		inode_dio_write_done(dchild->d_inode);
 		mutex_unlock(&dchild->d_inode->i_mutex);
-		up_write(&dchild->d_inode->i_alloc_sem);
 		GOTO(cleanup, rc = PTR_ERR(handle));
 	}
 
@@ -4348,8 +4357,8 @@ int filter_destroy(const struct lu_env *env, struct obd_export *exp,
 	iattr.ia_size = 0;
 	rc = fsfilt_setattr(obd, dchild, handle, &iattr, 1);
 	rc2 = fsfilt_commit(obd, dchild->d_inode, handle, 0);
+	inode_dio_write_done(dchild->d_inode);
 	mutex_unlock(&dchild->d_inode->i_mutex);
-	up_write(&dchild->d_inode->i_alloc_sem);
 	if (rc)
 		GOTO(cleanup, rc);
 	if (rc2)
