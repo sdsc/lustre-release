@@ -635,10 +635,10 @@ int filter_commitrw_write(struct obd_export *exp, struct obdo *oa,
                 LASSERT(PageLocked(lnb->page));
                 LASSERT(!PageWriteback(lnb->page));
 
-                /* since write & truncate are serialized by the i_alloc_sem,
-                 * even partial truncate should not leave dirty pages in
-                 * the page cache */
-                LASSERT(!PageDirty(lnb->page));
+		/* since write & truncate are serialized by the inode_dio_wait,
+		 * even partial truncate should not leave dirty pages in
+		 * the page cache */
+		LASSERT(!PageDirty(lnb->page));
 
                 SetPageUptodate(lnb->page);
 
@@ -867,7 +867,7 @@ cleanup:
                 if (fo->fo_writethrough_cache == 0 ||
                     i_size_read(inode) > fo->fo_readcache_max_filesize)
                         filter_release_cache(obd, obj, nb, inode);
-                up_read(&inode->i_alloc_sem);
+		inode_dio_done(inode);
         }
 
         RETURN(rc);
