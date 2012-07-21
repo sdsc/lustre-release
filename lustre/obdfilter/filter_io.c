@@ -633,7 +633,8 @@ static int filter_grant_check(struct obd_export *exp, struct obdo *oa,
  * on mulitple inodes.  That isn't all, because there still exists the
  * possibility of a truncate starting a new transaction while holding the ext3
  * rwsem = write while some writes (which have started their transactions here)
- * blocking on the ext3 rwsem = read => lock inversion.
+ * blocking on the ext3 rwsem = read => lock inversion. (kernel 3.1 kills the
+ * rwsem and replaces it by i_dio_count and inode_dio_wait/done.)
  *
  * The handling gets very ugly when dealing with locked pages.  It may be easier
  * to just get rid of the locked page code (which has problems of its own) and
@@ -729,14 +730,15 @@ static int filter_preprw_write(int cmd, struct obd_export *exp, struct obdo *oa,
 
         fsfilt_check_slow(obd, now, "preprw_write setup");
 
-        /* Filter truncate first locks i_mutex then partially truncated
-         * page, filter write code first locks pages then take
-         * i_mutex.  To avoid a deadlock in case of concurrent
-         * punch/write requests from one client, filter writes and
-         * filter truncates are serialized by i_alloc_sem, allowing
-         * multiple writes or single truncate. */
-        down_read(&dentry->d_inode->i_alloc_sem);
-        fsfilt_check_slow(obd, now, "i_alloc_sem");
+	/* Filter truncate first locks i_mutex then partially truncated
+	 * page, filter write code first locks pages then take
+	 * i_mutex.  To avoid a deadlock in case of concurrent
+	 * punch/write requests from one client, filter writes and
+	 * filter truncates are serialized by INODE_DIO_LOCK_READ, allowing
+	 * multiple writes or single truncate. */
+
+	INODE_DIO_LOCK_READ(dentry->d_inode);
+	fsfilt_check_slow(obd, now, "INODE_DIO_LOCK_READ");
 
         /* Don't update inode timestamps if this write is older than a
          * setattr which modifies the timestamps. b=10150 */
@@ -894,11 +896,11 @@ cleanup:
                                 }
                         }
                 }
-        case 3:
-                if (rc)
-                        up_read(&dentry->d_inode->i_alloc_sem);
+	case 3:
+		if (rc)
+			INODE_DIO_RELEASE_READ(dentry->d_inode);
 
-                filter_iobuf_put(&obd->u.filter, iobuf, oti);
+		filter_iobuf_put(&obd->u.filter, iobuf, oti);
         case 2:
                 pop_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
                 if (rc)
