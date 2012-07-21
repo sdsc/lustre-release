@@ -295,7 +295,7 @@ static int vvp_io_setattr_iter_init(const struct lu_env *env,
 	 */
 	mutex_unlock(&inode->i_mutex);
 	if (cl_io_is_trunc(ios->cis_io))
-		UP_WRITE_I_ALLOC_SEM(inode);
+		INODE_DIO_RELEASE_WRITE(inode);
 	cio->u.setattr.cui_locks_released = 1;
 	return 0;
 }
@@ -348,7 +348,7 @@ static int vvp_io_setattr_trunc(const struct lu_env *env,
                                 const struct cl_io_slice *ios,
                                 struct inode *inode, loff_t size)
 {
-	DOWN_WRITE_I_ALLOC_SEM(inode);
+	INODE_DIO_LOCK_WRITE(inode);
 	return 0;
 }
 
@@ -420,7 +420,7 @@ static void vvp_io_setattr_fini(const struct lu_env *env,
 	if (cio->u.setattr.cui_locks_released) {
 		mutex_lock(&inode->i_mutex);
 		if (cl_io_is_trunc(io))
-			DOWN_WRITE_I_ALLOC_SEM(inode);
+			INODE_DIO_LOCK_WRITE(inode);
 		cio->u.setattr.cui_locks_released = 0;
 	}
 	vvp_io_fini(env, ios);
@@ -687,23 +687,25 @@ static int vvp_io_fault_start(const struct lu_env *env,
         if (result != 0)
                 return result;
 
+	vmpage = cfio->ft_vmpage;
+
         /* must return locked page */
         if (fio->ft_mkwrite) {
-		/* we grab alloc_sem to exclude truncate case.
-		 * Otherwise, we could add dirty pages into osc cache
-		 * while truncate is on-going. */
-		DOWN_READ_I_ALLOC_SEM(inode);
-
-                LASSERT(cfio->ft_vmpage != NULL);
-                lock_page(cfio->ft_vmpage);
+		LASSERT(vmpage != NULL);
+		lock_page(vmpage);
         } else {
                 result = vvp_io_kernel_fault(cfio);
                 if (result != 0)
                         return result;
         }
 
-        vmpage = cfio->ft_vmpage;
-        LASSERT(PageLocked(vmpage));
+	LASSERT(PageLocked(vmpage));
+	size = i_size_read(inode);
+	if ((vmpage->mapping != inode->i_mapping) ||
+	    (page_offset(vmpage) > size)) {
+		/* We overload EFAULT to mean page got truncated */
+		GOTO(out, result = -EFAULT);
+	}
 
         if (OBD_FAIL_CHECK(OBD_FAIL_LLITE_FAULT_TRUNC_RACE))
                 ll_invalidate_page(vmpage);
@@ -758,7 +760,6 @@ static int vvp_io_fault_start(const struct lu_env *env,
                 }
         }
 
-        size = i_size_read(inode);
         last = cl_index(obj, size - 1);
         LASSERT(fio->ft_index <= last);
         if (fio->ft_index == last)
@@ -777,8 +778,6 @@ out:
         /* return unlocked vmpage to avoid deadlocking */
 	if (vmpage != NULL)
 		unlock_page(vmpage);
-	if (fio->ft_mkwrite)
-		UP_READ_I_ALLOC_SEM(inode);
 #ifdef HAVE_VM_OP_FAULT
 	cfio->fault.ft_flags &= ~VM_FAULT_LOCKED;
 #endif
