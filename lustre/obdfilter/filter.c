@@ -3343,13 +3343,13 @@ int filter_setattr_internal(struct obd_export *exp, struct dentry *dentry,
         }
 	if (ia_valid & (ATTR_SIZE | ATTR_UID | ATTR_GID)) {
 		unsigned long now = jiffies;
-		/* Filter truncates and writes are serialized by
-		 * i_alloc_sem, see the comment in
-		 * filter_preprw_write.*/
-		if (ia_valid & ATTR_SIZE)
-			down_write(&inode->i_alloc_sem);
+		/* Filter truncates and writes are serialized.
+		 * See the comment in filter_preprw_write.*/
 		mutex_lock(&inode->i_mutex);
-		fsfilt_check_slow(exp->exp_obd, now, "i_alloc_sem and i_mutex");
+		if (ia_valid & ATTR_SIZE)
+			INODE_DIO_LOCK_WRITE(inode);
+		fsfilt_check_slow(exp->exp_obd, now,
+				  "i_mutex and INODE_DIO_LOCK_WRITE");
 		old_size = i_size_read(inode);
 	}
 
@@ -3473,7 +3473,7 @@ out_unlock:
 	if (ia_valid & (ATTR_SIZE | ATTR_UID | ATTR_GID))
 		mutex_unlock(&inode->i_mutex);
 	if (ia_valid & ATTR_SIZE)
-		up_write(&inode->i_alloc_sem);
+		INODE_DIO_RELEASE_WRITE(inode);
 	if (fcc)
 		OBD_FREE(fcc, sizeof(*fcc));
 
@@ -3554,14 +3554,14 @@ int filter_setattr(const struct lu_env *env, struct obd_export *exp,
          */
         if (oa->o_valid &
             (OBD_MD_FLMTIME | OBD_MD_FLATIME | OBD_MD_FLCTIME)) {
-                unsigned long now = jiffies;
-                down_write(&dentry->d_inode->i_alloc_sem);
-                fsfilt_check_slow(exp->exp_obd, now, "i_alloc_sem");
-                fmd = filter_fmd_get(exp, oa->o_id, oa->o_seq);
-                if (fmd && fmd->fmd_mactime_xid < oti->oti_xid)
-                        fmd->fmd_mactime_xid = oti->oti_xid;
-                filter_fmd_put(exp, fmd);
-                up_write(&dentry->d_inode->i_alloc_sem);
+		unsigned long now = jiffies;
+		INODE_DIO_LOCK_WRITE(dentry->d_inode);
+		fsfilt_check_slow(exp->exp_obd, now, "INODE_DIO_LOCK_WRITE");
+		fmd = filter_fmd_get(exp, oa->o_id, oa->o_seq);
+		if (fmd && fmd->fmd_mactime_xid < oti->oti_xid)
+			fmd->fmd_mactime_xid = oti->oti_xid;
+		filter_fmd_put(exp, fmd);
+		INODE_DIO_RELEASE_WRITE(dentry->d_inode);
         }
 
         /* setting objects attributes (including owner/group) */
@@ -4292,28 +4292,29 @@ int filter_destroy(const struct lu_env *env, struct obd_export *exp,
                         *fcc = oa->o_lcookie;
         }
 
-        /* we're gonna truncate it first in order to avoid possible deadlock:
-         *      P1                      P2
-         * open trasaction      open transaction
-         * down(i_zombie)       down(i_zombie)
-         *                      restart transaction
-         * (see BUG 4180) -bzzz
-         *
-         * take i_alloc_sem too to prevent other threads from writing to the
-         * file while we are truncating it. This can cause lock ordering issue
-         * between page lock, i_mutex & starting new journal handle.
-         * (see bug 20321) -johann
-         */
+	/* we're gonna truncate it first in order to avoid possible deadlock:
+	 *      P1                      P2
+	 * open trasaction      open transaction
+	 * down(i_zombie)       down(i_zombie)
+	 *                      restart transaction
+	 * (see BUG 4180) -bzzz
+	 *
+	 * INODE_DIO_LOCK_WRITE too to prevent other threads from writing to the
+	 * file while we are truncating it. This can cause lock ordering issue
+	 * between page lock, i_mutex & starting new journal handle.
+	 * (see bug 20321) -johann
+	 */
 	now = jiffies;
-	down_write(&dchild->d_inode->i_alloc_sem);
+	INODE_DIO_LOCK_WRITE(dchild->d_inode);
 	mutex_lock(&dchild->d_inode->i_mutex);
-	fsfilt_check_slow(exp->exp_obd, now, "i_alloc_sem and i_mutex");
+	fsfilt_check_slow(exp->exp_obd, now,
+			  "INODE_DIO_LOCK_WRITE and i_mutex");
 
 	/* VBR: version recovery check */
 	rc = filter_version_get_check(exp, oti, dchild->d_inode);
 	if (rc) {
 		mutex_unlock(&dchild->d_inode->i_mutex);
-		up_write(&dchild->d_inode->i_alloc_sem);
+		INODE_DIO_RELEASE_WRITE(dchild->d_inode);
 		GOTO(cleanup, rc);
 	}
 
@@ -4321,7 +4322,7 @@ int filter_destroy(const struct lu_env *env, struct obd_export *exp,
 				  NULL, 1);
 	if (IS_ERR(handle)) {
 		mutex_unlock(&dchild->d_inode->i_mutex);
-		up_write(&dchild->d_inode->i_alloc_sem);
+		INODE_DIO_RELEASE_WRITE(dchild->d_inode);
 		GOTO(cleanup, rc = PTR_ERR(handle));
 	}
 
@@ -4333,7 +4334,7 @@ int filter_destroy(const struct lu_env *env, struct obd_export *exp,
 	rc = fsfilt_setattr(obd, dchild, handle, &iattr, 1);
 	rc2 = fsfilt_commit(obd, dchild->d_inode, handle, 0);
 	mutex_unlock(&dchild->d_inode->i_mutex);
-	up_write(&dchild->d_inode->i_alloc_sem);
+	INODE_DIO_RELEASE_WRITE(dchild->d_inode);
 	if (rc)
 		GOTO(cleanup, rc);
 	if (rc2)
