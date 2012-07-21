@@ -27,6 +27,7 @@ PTLDEBUG=${PTLDEBUG:--1}
 SAVE_PWD=$PWD
 LUSTRE=${LUSTRE:-`dirname $0`/..}
 RLUSTRE=${RLUSTRE:-$LUSTRE}
+APITESTSRC=$SRCDIR/tests/clientapi
 export MULTIOP=${MULTIOP:-multiop}
 
 . $LUSTRE/tests/test-framework.sh
@@ -2904,6 +2905,12 @@ test_62() {
     reformat_and_config
 }
 run_test 62 "start with disabled journal"
+
+test_70() { # LU-1606
+    gcc $APITESTSRC/simple_test.c -llustreapi || error "client api broken"
+}
+run_test 70 "verify that headers and libraries are available"
+
 
 if ! combined_mgs_mds ; then
 	stop mgs
