@@ -205,15 +205,19 @@ static struct lu_object *lu_object_alloc(const struct lu_env *env,
  */
 static void lu_object_free(const struct lu_env *env, struct lu_object *o)
 {
-        struct lu_site_bkt_data *bkt;
-        struct lu_site          *site;
-        struct lu_object        *scan;
-        cfs_list_t              *layers;
-        cfs_list_t               splice;
+	struct lu_site_bkt_data	*bkt;
+	struct lu_site		*site;
+	struct lu_object	*scan;
+	cfs_list_t		*layers;
+	cfs_list_t		splice;
+	cfs_hash_t		*hash;
+	cfs_hash_bd_t		bkt_desc;
 
-        site   = o->lo_dev->ld_site;
-        layers = &o->lo_header->loh_layers;
-        bkt    = lu_site_bkt_from_fid(site, &o->lo_header->loh_fid);
+	site   = o->lo_dev->ld_site;
+	hash   = site->ls_obj_hash;
+	layers = &o->lo_header->loh_layers;
+	cfs_hash_bd_get(hash, &o->lo_header->loh_fid, &bkt_desc);
+	bkt    = cfs_hash_bd_extra_get(hash, &bkt_desc);
         /*
          * First call ->loo_object_delete() method to release all resources.
          */
@@ -242,8 +246,15 @@ static void lu_object_free(const struct lu_env *env, struct lu_object *o)
                 o->lo_ops->loo_object_free(env, o);
         }
 
-        if (cfs_waitq_active(&bkt->lsb_marche_funebre))
-                cfs_waitq_broadcast(&bkt->lsb_marche_funebre);
+	/*
+	 * without bucket lock, thread calling htable_lookup() could be add
+	 * to the bucket waiting queue missing this waking up signal and
+	 * waiting forever, LU-1640.
+	 */
+	cfs_hash_bd_lock(hash, &bkt_desc, 1);
+	if (cfs_waitq_active(&bkt->lsb_marche_funebre))
+		cfs_waitq_broadcast(&bkt->lsb_marche_funebre);
+	cfs_hash_bd_unlock(hash, &bkt_desc, 1);
 }
 
 /**
