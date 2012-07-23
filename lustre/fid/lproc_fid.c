@@ -183,9 +183,11 @@ seq_server_proc_write_width(struct file *file, const char *buffer,
 
         cfs_mutex_lock(&seq->lss_mutex);
 
-        rc = lprocfs_write_helper(buffer, count, &val);
-        if (rc)
-                RETURN(rc);
+	rc = lprocfs_write_helper(buffer, count, &val);
+	if (rc != 0) {
+		cfs_mutex_unlock(&seq->lss_mutex);
+		RETURN(rc);
+	}
 
         seq->lss_width = val;
 
