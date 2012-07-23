@@ -657,6 +657,7 @@ static int filter_preprw_write(int cmd, struct obd_export *exp, struct obdo *oa,
         obd_size left;
         unsigned long now = jiffies, timediff;
         int rc = 0, i, tot_bytes = 0, cleanup_phase = 0, localreq = 0;
+	int retries = 0;
         ENTRY;
         LASSERT(objcount == 1);
         LASSERT(obj->ioo_bufcnt > 0);
@@ -745,6 +746,7 @@ static int filter_preprw_write(int cmd, struct obd_export *exp, struct obdo *oa,
         fmd = filter_fmd_find(exp, obj->ioo_id, obj->ioo_seq);
 
         LASSERT(oa != NULL);
+retry:
         cfs_spin_lock(&obd->obd_osfs_lock);
         filter_grant_incoming(exp, oa);
         if (fmd && fmd->fmd_mactime_xid > oti->oti_xid)
@@ -776,6 +778,21 @@ static int filter_preprw_write(int cmd, struct obd_export *exp, struct obdo *oa,
                                            left, 1);
 
         cfs_spin_unlock(&obd->obd_osfs_lock);
+
+	if (rc == -ENOSPC && retries == 0) {
+		void *handle = NULL;
+
+		CDEBUG(D_INODE, "retry after commit pending journals");
+
+		retries = 1;
+		handle = fsfilt_start_log(obd, dentry->d_inode,
+					  FSFILT_OP_SETATTR, NULL, 1);
+		if (handle != NULL) {
+			fsfilt_commit_wait(obd, dentry->d_inode, handle);
+			goto retry;
+		}
+	}
+
         filter_fmd_put(exp, fmd);
 
         OBD_FAIL_TIMEOUT(OBD_FAIL_OST_BRW_PAUSE_BULK2, (obd_timeout + 1) / 4);
