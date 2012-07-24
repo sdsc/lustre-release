@@ -594,7 +594,9 @@ static int mdc_finish_enqueue(struct obd_export *exp,
                 if (body->valid & OBD_MD_FLRMTPERM) {
                         struct mdt_remote_perm *perm;
 
-                        LASSERT(client_is_remote(exp));
+                        if (!client_is_remote(exp))
+				CERROR("Server insists we are remote client\n");
+
                         perm = req_capsule_server_swab_get(pill, &RMF_ACL,
                                                 lustre_swab_mdt_remote_perm);
                         if (perm == NULL)

@@ -193,7 +193,9 @@ static int mdc_getattr_common(struct obd_export *exp,
         if (body->valid & OBD_MD_FLRMTPERM) {
                 struct mdt_remote_perm *perm;
 
-                LASSERT(client_is_remote(exp));
+                if (!client_is_remote(exp))
+			CERROR("Server insists we are a remote client\n");
+
                 perm = req_capsule_server_swab_get(pill, &RMF_ACL,
                                                 lustre_swab_mdt_remote_perm);
                 if (perm == NULL)
@@ -236,7 +238,8 @@ int mdc_getattr(struct obd_export *exp, struct md_op_data *op_data,
         req_capsule_set_size(&req->rq_pill, &RMF_MDT_MD, RCL_SERVER,
                              op_data->op_mode);
         if (op_data->op_valid & OBD_MD_FLRMTPERM) {
-                LASSERT(client_is_remote(exp));
+                if (!client_is_remote(exp))
+			CERROR("Server insists we are a remote client\n");
                 req_capsule_set_size(&req->rq_pill, &RMF_ACL, RCL_SERVER,
                                      sizeof(struct mdt_remote_perm));
         }
@@ -562,7 +565,8 @@ int mdc_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,
 
         if (md->body->valid & OBD_MD_FLRMTPERM) {
                 /* remote permission */
-                LASSERT(client_is_remote(exp));
+                if (!client_is_remote(exp))
+			CERROR("Server claims we are a remote client\n");
                 md->remote_perm = req_capsule_server_swab_get(pill, &RMF_ACL,
                                                 lustre_swab_mdt_remote_perm);
                 if (!md->remote_perm)
