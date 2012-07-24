@@ -91,6 +91,13 @@ do {                                    \
         cfs_down_read(&_lprocfs_lock);  \
 } while(0)
 
+#define LPROCFS_ENTRY_TRY_MAX		5
+
+#define LPROCFS_TRY_ENTRY()			\
+({						\
+	cfs_down_read_trylock(&_lprocfs_lock);	\
+})
+
 #define LPROCFS_EXIT()                  \
 do {                                    \
         cfs_up_read(&_lprocfs_lock);    \
@@ -110,12 +117,20 @@ do {                                    \
 static inline
 int LPROCFS_ENTRY_AND_CHECK(struct proc_dir_entry *dp)
 {
-        LPROCFS_ENTRY();
-        if ((dp)->deleted) {
-                LPROCFS_EXIT();
-                return -ENODEV;
-        }
-        return 0;
+	int try = 0;
+
+	while (LPROCFS_TRY_ENTRY() != 1) {
+		if (dp->deleted)
+			return -ENODEV;
+		if (try++ == LPROCFS_ENTRY_TRY_MAX)
+			return -EBUSY;
+		schedule();
+	}
+	if (dp->deleted) {
+		LPROCFS_EXIT();
+		return -ENODEV;
+	}
+	return 0;
 }
 #elif defined(HAVE_PROCFS_USERS) /* !HAVE_PROCFS_DELETED*/
 static inline
@@ -134,8 +149,20 @@ int LPROCFS_ENTRY_AND_CHECK(struct proc_dir_entry *dp)
 static inline
 int LPROCFS_ENTRY_AND_CHECK(struct proc_dir_entry *dp)
 {
-        LPROCFS_ENTRY();
-        return 0;
+	int try = 0;
+
+	while (LPROCFS_TRY_ENTRY() != 1) {
+		if (dp->proc_fops == NULL)
+			return -ENODEV;
+		if (try++ == LPROCFS_ENTRY_TRY_MAX)
+			return -EBUSY;
+		schedule();
+	}
+	if (dp->proc_fops == NULL) {
+		LPROCFS_EXIT();
+		return -ENODEV;
+	}
+	return 0;
 }
 #endif /* HAVE_PROCFS_DELETED */
 #define LPROCFS_SRCH_ENTRY()            \
