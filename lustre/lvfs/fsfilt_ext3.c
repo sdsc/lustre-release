@@ -282,11 +282,15 @@ static void *fsfilt_ext3_start(struct inode *inode, int op, void *desc_private,
                 nblocks += (EXT3_INDEX_EXTRA_TRANS_BLOCKS +
                             FSFILT_SINGLEDATA_TRANS_BLOCKS(inode->i_sb)) * logs;
                 break;
-        case FSFILT_OP_CANCEL_UNLINK:
-                /* blocks for log header bitmap update OR
-                 * blocks for catalog header bitmap update + unlink of logs */
+	case FSFILT_OP_CANCEL_UNLINK:
+		LASSERT(logs == 1);
+
+		/* blocks for log header bitmap update OR
+		 * blocks for catalog header bitmap update + unlink of logs +
+		 * blocks for delete the inode. */
 		nblocks = (LLOG_CHUNK_SIZE >> inode->i_blkbits) +
-			EXT3_DELETE_TRANS_BLOCKS(inode->i_sb) * logs;
+			  EXT3_DELETE_TRANS_BLOCKS(inode->i_sb) +
+			  blocks_for_truncate(inode) + 3;
 		break;
         default: CERROR("unknown transaction start op %d\n", op);
                 LBUG();
