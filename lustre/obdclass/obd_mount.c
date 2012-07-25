@@ -1426,6 +1426,8 @@ static int lustre_put_lsi(struct super_block *sb)
         RETURN(0);
 }
 
+static int server_name2fsname(char *, char *, char **);
+
 static int lsi_prepare(struct lustre_sb_info *lsi)
 {
 	struct lustre_disk_data  *ldd;
@@ -1451,7 +1453,10 @@ static int lsi_prepare(struct lustre_sb_info *lsi)
 		RETURN(-ENAMETOOLONG);
 
 	strcpy(ldd->ldd_svname, lsi->lsi_lmd->lmd_profile);
-	strcpy(ldd->ldd_fsname, "lustre");
+
+	rc = server_name2fsname(ldd->ldd_svname, ldd->ldd_fsname, NULL);
+	if (rc != 0)
+		RETURN(rc);
 
 	/* Determine osd type */
 	if (lsi->lsi_lmd->lmd_osd_type != NULL) {
@@ -1998,6 +2003,42 @@ int server_name2index(char *svname, __u32 *idx, char **endptr)
         index = simple_strtoul(dash + 4, endptr, 16);
         *idx = index;
         return rc;
+}
+
+/** Get the fsname ("lustre") from the server name ("lustre-OST003F").
+ * @param [in] svname server name including type and index
+ * @param [out] fsname Buffer to copy filesystem name prefix into.
+ *  Must have at least 'strlen(fsname) + 1' chars.
+ * @param [out] endptr if endptr isn't NULL it is set to end of fsname
+ * rc < 0  on error
+ */
+static int server_name2fsname(char *svname, char *fsname, char **endptr)
+{
+	char *dash = strrchr(svname, '-');
+	if (!dash) {
+		dash = strrchr(svname, ':');
+		if (!dash)
+			return -EINVAL;
+	}
+
+	/* interpret <fsname>-MDTXXXXX-mdc as mdt, the better way is to pass
+	 * in the fsname, then determine the server index */
+	if (!strcmp(LUSTRE_MDC_NAME, dash + 1)) {
+		dash--;
+		for (; dash > svname && *dash != '-' && *dash != ':'; dash--);
+		if (dash == svname)
+			return -EINVAL;
+	}
+
+	if (fsname != NULL) {
+		strncpy(fsname, svname, dash - svname);
+		fsname[dash - svname] = '\0';
+	}
+
+	if (endptr != NULL)
+		*endptr = dash;
+
+	return 0;
 }
 
 /*
