@@ -533,7 +533,8 @@ test_9() {
 		error "(11) Unexpected speed $SPEED, should not less than 220"
 
 	# (1024 + 100 * 10 + 300 * 10) / 20
-	[ $SPEED -gt 270 ] &&
+	# And there may be time error, so the max speed may be more large.
+	[ $SPEED -gt 300 ] &&
 		error "(12) Unexpected speed $SPEED, should not more than 270"
 
 	do_facet $SINGLEMDS \
