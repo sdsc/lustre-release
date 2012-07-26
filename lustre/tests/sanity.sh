@@ -7809,6 +7809,17 @@ test_154() {
 	touch $DIR/.lustre/fid/$tfile && \
 		error "touch $DIR/.lustre/fid/$tfile should fail."
 
+	$OPENFILE -f O_LOV_DELAY_CREATE:O_CREAT $DIR/$tfile-2
+	fid=$($LFS path2fid $DIR/$tfile-2)
+	echo "cp /etc/passwd $DIR/.lustre/fid/$fid"
+	cp /etc/passwd $DIR/.lustre/fid/$fid &&
+		error "create lov date thru .lustre should fail."
+	echo "cp /etc/passwd $DIR/$tfile-2"
+	cp /etc/passwd $DIR/$tfile-2 || error "copy to $DIR/$tfile-2 failed."
+	echo "diff /etc/passwd $DIR/.lustre/fid/$fid"
+	diff /etc/passwd $DIR/.lustre/fid/$fid ||
+		error "diff /etc/passwd $DIR/.lustre/fid/$fid failed."
+
 	echo "Open-by-FID succeeded"
 }
 run_test 154 "Open-by-FID"

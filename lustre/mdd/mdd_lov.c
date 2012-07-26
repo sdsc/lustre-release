@@ -419,6 +419,10 @@ int mdd_lov_create(const struct lu_env *env, struct mdd_device *mdd,
                 *lmm_size = 0;
                 RETURN(0);
         }
+	/* can not create child's lov_mds_md by access it thru .lustre path */
+	if (mdd_object_obf(parent))
+		RETURN(-EBADFD);
+
         oti_init(oti, NULL);
 
         /* replay case, has objects already, only get lov from eadata */
