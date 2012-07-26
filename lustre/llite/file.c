@@ -1778,7 +1778,7 @@ static ssize_t ll_file_aio_write(struct kiocb *iocb, const struct iovec *iov,
         unsigned long nrsegs_copy, nrsegs_orig = 0;
         size_t count, iov_offset = 0;
         int got_write_sem = 0;
-        struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
+	struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
         ENTRY;
 
         count = ll_file_get_iov_count(iov, &nr_segs);
@@ -1979,6 +1979,7 @@ out:
         retval = (sum > 0) ? sum : retval;
         ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_WRITE_BYTES,
                            retval > 0 ? retval : 0);
+	fd->fd_last_write = retval < 0 ? retval : 0;
         RETURN(retval);
 }
 
@@ -3083,22 +3084,28 @@ int ll_flush(struct file *file, fl_owner_t id)
 int ll_flush(struct file *file)
 #endif
 {
-        struct inode *inode = file->f_dentry->d_inode;
-        struct ll_inode_info *lli = ll_i2info(inode);
-        struct lov_stripe_md *lsm = lli->lli_smd;
-        int rc, err;
+	struct inode *inode = file->f_dentry->d_inode;
+	struct ll_inode_info *lli = ll_i2info(inode);
+	struct lov_stripe_md *lsm = lli->lli_smd;
+	struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
+	int rc, err;
 
-        /* catch async errors that were recorded back when async writeback
-         * failed for pages in this mapping. */
-        rc = lli->lli_async_rc;
-        lli->lli_async_rc = 0;
-        if (lsm) {
-                err = lov_test_and_clear_async_rc(lsm);
-                if (rc == 0)
-                        rc = err;
-        }
+	/* catch async errors that were recorded back when async writeback
+	 * failed for pages in this mapping. */
+	rc = lli->lli_async_rc;
+	lli->lli_async_rc = 0;
+	if (lsm) {
+		err = lov_test_and_clear_async_rc(lsm);
+		if (rc == 0)
+			rc = err;
+	}
 
-        return rc ? -EIO : 0;
+	/* The application has be told write failure already.
+	 * Do not report failure again. */
+	if (fd->fd_last_write)
+		fd->fd_last_write = rc = 0;
+
+	return rc ? -EIO : 0;
 }
 
 int ll_fsync(struct file *file, struct dentry *dentry, int data)
@@ -3139,6 +3146,7 @@ int ll_fsync(struct file *file, struct dentry *dentry, int data)
 
         if (data && lsm) {
                 struct obd_info *oinfo;
+		struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
 
                 OBD_ALLOC_PTR(oinfo);
                 if (!oinfo)
@@ -3161,6 +3169,7 @@ int ll_fsync(struct file *file, struct dentry *dentry, int data)
                         rc = err;
                 OBDO_FREE(oinfo->oi_oa);
                 OBD_FREE_PTR(oinfo);
+		fd->fd_last_write = rc < 0 ? rc : 0;
         }
 
         RETURN(rc);

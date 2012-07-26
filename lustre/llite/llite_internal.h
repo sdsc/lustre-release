@@ -585,6 +585,8 @@ struct ll_file_data {
         unsigned long fd_gid;
         struct ll_file_dir fd_dir;
         __u32 fd_flags;
+	/* for the last write/fsync result. */
+	int fd_last_write;
 };
 
 struct lov_stripe_md;
