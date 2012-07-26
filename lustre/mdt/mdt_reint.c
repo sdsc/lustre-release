@@ -376,7 +376,7 @@ int mdt_attr_set(struct mdt_thread_info *info, struct mdt_object *mo,
         mdt_lock_reg_init(lh, LCK_PW);
 
         if (ma->ma_attr.la_valid & (LA_MODE|LA_UID|LA_GID))
-                lockpart |= MDS_INODELOCK_LOOKUP;
+		lockpart |= MDS_INODELOCK_PERM;
 
         rc = mdt_object_lock(info, mo, lh, lockpart, MDT_LOCAL_LOCK);
         if (rc != 0)
