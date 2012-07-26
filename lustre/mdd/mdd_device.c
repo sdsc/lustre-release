@@ -130,6 +130,7 @@ static int mdd_init0(const struct lu_env *env, struct mdd_device *mdd,
 	mdd->mdd_atime_diff = MAX_ATIME_DIFF;
         /* sync permission changes */
         mdd->mdd_sync_permission = 1;
+	mdd->mdd_remote_dir = 0;
 
 	dt_conf_get(env, mdd->mdd_child, &mdd->mdd_dt_conf);
 
