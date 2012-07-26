@@ -135,9 +135,12 @@ int lmv_intent_remote(struct obd_export *exp, void *lmm,
                                  it->d.lustre.it_lock_mode);
                 it->d.lustre.it_lock_mode = 0;
         }
+	/* Release the remote lock in the following set_lock_mode */
+
         it->d.lustre.it_lock_handle = plock.cookie;
         it->d.lustre.it_lock_mode = pmode;
 
+	it->d.lustre.it_remote_lock = 1;
         EXIT;
 out_free_op_data:
         OBD_FREE_PTR(op_data);
