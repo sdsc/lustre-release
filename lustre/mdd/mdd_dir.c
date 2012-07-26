@@ -1473,6 +1473,7 @@ int mdd_object_initialize(const struct lu_env *env, const struct lu_fid *pfid,
 /* has not lock on pobj yet */
 static int mdd_create_sanity_check(const struct lu_env *env,
                                    struct md_object *pobj,
+				   struct md_object *cobj,
 				   struct lu_attr *pattr,
                                    const struct lu_name *lname,
 				   struct lu_attr *cattr,
@@ -1481,6 +1482,7 @@ static int mdd_create_sanity_check(const struct lu_env *env,
         struct mdd_thread_info *info = mdd_env_info(env);
         struct lu_fid     *fid       = &info->mti_fid;
         struct mdd_object *obj       = md2mdd_obj(pobj);
+	struct mdd_object *child     = md2mdd_obj(cobj);
         struct mdd_device *m         = mdo2mdd(pobj);
         int lookup                   = spec->sp_cr_lookup;
         int rc;
@@ -1489,6 +1491,18 @@ static int mdd_create_sanity_check(const struct lu_env *env,
         /* EEXIST check */
         if (mdd_is_dead_obj(obj))
                 RETURN(-ENOENT);
+
+	if (mdd_object_exists(child) < 0) {
+		struct seq_server_site *ss;
+
+		ss = mdd_seq_site(m);
+		if (ss->ss_node_id != 0 && !m->mdd_remote_dir) {
+			CERROR("%s: remote dir is only permitted on MDT0"
+			       "or set_param mdd.*.enable_remote_dir=1\n",
+				mdd2obd_dev(m)->obd_name);
+			RETURN(-EPERM);
+		}
+	}
 
         /*
          * In some cases this lookup is not needed - we know before if name
@@ -1700,7 +1714,8 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 		RETURN(rc);
 
         /* Sanity checks before big job. */
-	rc = mdd_create_sanity_check(env, pobj, pattr, lname, attr, spec);
+	rc = mdd_create_sanity_check(env, pobj, child, pattr, lname, attr,
+				     spec);
         if (rc)
                 RETURN(rc);
 
