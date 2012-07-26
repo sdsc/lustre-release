@@ -1494,7 +1494,34 @@ static inline int ll_file_nolock(const struct file *file)
 static inline void ll_set_lock_data(struct obd_export *exp, struct inode *inode,
                                     struct lookup_intent *it, __u64 *bits)
 {
-        if (!it->d.lustre.it_lock_set) {
+	if (!it->d.lustre.it_lock_set) {
+		/* If this inode is a remote object, it will get two
+		 * separate locks in different namespaces, Master MDT,
+		 * where the name entry is, will grant LOOKUP lock,
+		 * remote MDT, where the object is, will grant
+		 * UPDATE|LOOKUP lock. And we will set the inode to
+		 * both locks here. i.e. the inode will be shared by
+		 * these two locks, which means during the revoke of 
+		 * any of these two locks, the dcache of the inode
+		 * will be cleared. */
+		if (it->d.lustre.it_remote_lock) {
+			struct lustre_handle 	lockh;
+			ldlm_policy_data_t 	policy;
+			int			rc;
+			ldlm_mode_t		mode = LCK_PR;
+
+			memset(&policy, 0, sizeof(policy));
+			policy.l_inodebits.bits = MDS_INODELOCK_UPDATE;
+			rc = md_lock_match(exp, LDLM_FL_BLOCK_GRANTED,
+					   ll_inode2fid(inode), LDLM_IBITS,
+					   &policy, mode, &lockh);
+			if (rc) {
+				md_set_lock_data(exp, &lockh.cookie, inode,
+						 NULL);
+				ldlm_lock_decref(&lockh, mode);
+			}
+		}
+
                 CDEBUG(D_DLMTRACE, "setting l_data to inode %p (%lu/%u)\n",
                        inode, inode->i_ino, inode->i_generation);
                 md_set_lock_data(exp, &it->d.lustre.it_lock_handle,

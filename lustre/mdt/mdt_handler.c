@@ -1155,14 +1155,14 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
                         mdt_lock_handle_init(lhc);
                         mdt_lock_reg_init(lhc, LCK_PR);
 
-                        /*
-                         * Object's name is on another MDS, no lookup lock is
-                         * needed here but update is.
-                         */
-                        child_bits &= ~MDS_INODELOCK_LOOKUP;
-                        child_bits |= MDS_INODELOCK_UPDATE;
+			/* Since the LOOKUP lock is also used to protect the 
+			 * permission, here in remote MDT, it will grant another
+			 * LOOKUP lock to the client. The client will have two
+			 * LOOKUP locks for the remote object, but they are from
+			 * different namespace. */
+			child_bits |= MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE;
 
-                        rc = mdt_object_lock(info, child, lhc, child_bits,
+			rc = mdt_object_lock(info, child, lhc, child_bits,
                                              MDT_LOCAL_LOCK);
                 }
                 if (rc == 0) {
@@ -2450,10 +2450,13 @@ static int mdt_object_lock0(struct mdt_thread_info *info, struct mdt_object *o,
 
 	if (mdt_object_remote(o)) {
                 if (locality == MDT_CROSS_LOCK) {
-                        ibits &= ~MDS_INODELOCK_UPDATE;
+			ibits &= ~MDS_INODELOCK_UPDATE;
                         ibits |= MDS_INODELOCK_LOOKUP;
                 } else {
-                        LASSERT(!(ibits & MDS_INODELOCK_UPDATE));
+			LASSERTF(!(ibits & MDS_INODELOCK_UPDATE),
+				"%s: fid is "DFID"\n",
+			info->mti_mdt->mdt_md_dev.md_lu_dev.ld_obd->obd_name,
+				PFID(mdt_object_fid(o)));
                         LASSERT(ibits & MDS_INODELOCK_LOOKUP);
                 }
                 /* No PDO lock on remote object */
@@ -3565,10 +3568,10 @@ static int mdt_intent_getattr(enum mdt_it_code opcode,
 
         switch (opcode) {
         case MDT_IT_LOOKUP:
-                child_bits = MDS_INODELOCK_LOOKUP;
+		child_bits = MDS_INODELOCK_LOOKUP;
                 break;
         case MDT_IT_GETATTR:
-                child_bits = MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE;
+		child_bits = MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE;
                 break;
         default:
                 CERROR("Unsupported intent (%d)\n", opcode);
