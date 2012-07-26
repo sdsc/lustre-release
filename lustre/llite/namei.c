@@ -282,12 +282,16 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 			ll_invalidate_negative_children(inode);
 		}
 
+		/* For remote object, there might be two LOOKUP lock,
+		 * one from Master MDT, one from Remote MDT, currently
+		 * it will clear the dcache when either lock is being
+		 * cancelled. */
 		if (inode->i_sb->s_root &&
 		    inode != inode->i_sb->s_root->d_inode &&
 		    (bits & MDS_INODELOCK_LOOKUP))
 			ll_invalidate_aliases(inode);
-                iput(inode);
-                break;
+		iput(inode);
+		break;
         }
         default:
                 LBUG();
