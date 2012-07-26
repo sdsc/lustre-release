@@ -1463,7 +1463,9 @@ struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
 #define OBD_MD_MDS         (0x0000000100000000ULL) /* where an inode lives on */
 #define OBD_MD_REINT       (0x0000000200000000ULL) /* reintegrate oa */
 #define OBD_MD_MEA         (0x0000000400000000ULL) /* CMD split EA  */
-#define OBD_MD_MDTIDX      (0x0000000800000000ULL) /* Get MDT index  */
+
+/* OBD_MD_MDTIDX is used to get MDT index, but it is already obsolete now */
+/* #define OBD_MD_MDTIDX      (0x0000000800000000ULL) */
 
 #define OBD_MD_FLXATTR       (0x0000001000000000ULL) /* xattr */
 #define OBD_MD_FLXATTRLS     (0x0000002000000000ULL) /* xattr list */
@@ -1663,6 +1665,7 @@ enum md_op_flags {
         MF_SOM_AU               = (1 << 7),
         /* Cancel OST locks while getattr OST attributes. */
         MF_GETATTR_LOCK         = (1 << 8),
+        MF_GET_MDT_IDX          = (1 << 9),
 };
 
 #define MF_SOM_LOCAL_FLAGS (MF_SOM_CHANGE | MF_EPOCH_OPEN | MF_EPOCH_CLOSE)

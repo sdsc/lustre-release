@@ -1301,7 +1301,7 @@ static int lmv_getattr(struct obd_export *exp, struct md_op_data *op_data,
         if (IS_ERR(tgt))
                 RETURN(PTR_ERR(tgt));
 
-        if (op_data->op_valid & OBD_MD_MDTIDX) {
+        if (op_data->op_flags & MF_GET_MDT_IDX) {
                 op_data->op_mds = tgt->ltd_idx;
                 RETURN(0);
         }
