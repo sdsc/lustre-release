@@ -133,6 +133,9 @@ struct mdd_device {
 	struct md_lfsck			 mdd_lfsck;
 	unsigned int			 mdd_sync_permission;
 	int				 mdd_connects;
+	unsigned int			 mdd_remote_dir:1; /* enable to create
+							    * remote dir on this
+							    * MDD */
 };
 
 enum mod_flags {
@@ -573,6 +576,11 @@ static inline int mdd_object_exists(struct mdd_object *obj)
 static inline const struct lu_fid *mdd_object_fid(struct mdd_object *obj)
 {
         return lu_object_fid(mdd2lu_obj(obj));
+}
+
+static inline struct seq_server_site *mdd_seq_site(struct mdd_device *mdd)
+{
+	return mdd->mdd_md_dev.md_lu_dev.ld_site->ld_seq_site;
 }
 
 static inline struct lustre_capa *mdd_object_capa(const struct lu_env *env,
