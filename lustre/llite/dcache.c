@@ -271,7 +271,16 @@ void ll_intent_drop_lock(struct lookup_intent *it)
                 /* bug 494: intent_release may be called multiple times, from
                  * this thread and we don't want to double-decref this lock */
                 it->d.lustre.it_lock_mode = 0;
-        }
+		if (it->d.lustre.it_remote_lock_mode != 0) {
+			handle.cookie = it->d.lustre.it_remote_lock_handle;
+
+			CDEBUG(D_DLMTRACE, "releasing remote lock with cookie"
+			       LPX64" from it %p\n", handle.cookie, it);
+			ldlm_lock_decref(&handle,
+					 it->d.lustre.it_remote_lock_mode);
+			it->d.lustre.it_remote_lock_mode = 0;
+		}
+	}
 }
 
 void ll_intent_release(struct lookup_intent *it)
@@ -556,11 +565,18 @@ out:
 		       "inode %p refc %d\n", de->d_name.len,
 		       de->d_name.name, de, de->d_parent, de->d_inode,
 		       d_refcount(de));
+
+		/* Note: for remote entries, LOOKUP bits and PERM bits
+		 * will be in different namespace, so the following
+		 * check will always return negative (see ll_set_lock_data).
+		 * it means we do not revalidate dentry for remote entries */
 		ll_set_lock_data(exp, de->d_inode, it, &bits);
-		if ((bits & MDS_INODELOCK_LOOKUP) && d_lustre_invalid(de))
+		if (((bits & (MDS_INODELOCK_LOOKUP | MDS_INODELOCK_PERM)) ==
+		    (MDS_INODELOCK_LOOKUP | MDS_INODELOCK_PERM)) &&
+		    d_lustre_invalid(de))
 			d_lustre_revalidate(de);
-                ll_lookup_finish_locks(it, de);
-        }
+		ll_lookup_finish_locks(it, de);
+	}
 
 mark:
         if (it != NULL && it->it_op == IT_GETATTR && rc > 0)
