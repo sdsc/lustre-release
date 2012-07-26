@@ -45,7 +45,8 @@ struct lustre_intent_data {
         __u64           it_lock_bits;
         void           *it_data;
         int             it_lock_mode;
-        unsigned int    it_lock_set:1;
+	unsigned int    it_lock_set:1,
+			it_remote_lock:1;
 };
 
 struct lookup_intent {
