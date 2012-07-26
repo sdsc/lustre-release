@@ -338,7 +338,7 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
          * other existing inodes. It is setting the ACLs inherited
          * by new directories/files at create time. */
         if (!strcmp(xattr_name, XATTR_NAME_ACL_ACCESS))
-                lockpart |= MDS_INODELOCK_LOOKUP;
+		lockpart |= MDS_INODELOCK_PERM;
 
         lh = &info->mti_lh[MDT_LH_PARENT];
         /* ACLs were sent to clients under LCK_CR locks, so taking LCK_EX
