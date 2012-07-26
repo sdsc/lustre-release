@@ -1159,7 +1159,8 @@ out_unlock:
 
 int ll_writepage(struct page *vmpage, struct writeback_control *wbc)
 {
-        struct inode           *inode = vmpage->mapping->host;
+	struct inode	       *inode = vmpage->mapping->host;
+	struct ll_inode_info   *lli   = ll_i2info(inode);
         struct lu_env          *env;
         struct cl_io           *io;
         struct cl_page         *page;
@@ -1172,12 +1173,12 @@ int ll_writepage(struct page *vmpage, struct writeback_control *wbc)
         LASSERT(PageLocked(vmpage));
         LASSERT(!PageWriteback(vmpage));
 
-        if (ll_i2dtexp(inode) == NULL)
-                RETURN(-EINVAL);
+	if (ll_i2dtexp(inode) == NULL)
+		GOTO(out, result = -EINVAL);
 
-        env = cl_env_nested_get(&nest);
-        if (IS_ERR(env))
-                RETURN(PTR_ERR(env));
+	env = cl_env_nested_get(&nest);
+	if (IS_ERR(env))
+		GOTO(out, result = PTR_ERR(env));
 
         clob  = ll_i2info(inode)->lli_clob;
         LASSERT(clob != NULL);
@@ -1234,7 +1235,12 @@ int ll_writepage(struct page *vmpage, struct writeback_control *wbc)
 	}
 
         cl_env_nested_put(&nest, env);
-        RETURN(result);
+	GOTO(out, result);
+
+out:
+	if (result < 0 && !lli->lli_async_rc)
+		lli->lli_async_rc = result;
+	return result;
 }
 
 int ll_writepages(struct address_space *mapping, struct writeback_control *wbc)

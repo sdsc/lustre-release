@@ -824,11 +824,13 @@ void ll_io_init(struct cl_io *io, const struct file *file, int write)
         }
 }
 
-static ssize_t ll_file_io_generic(const struct lu_env *env,
-                struct vvp_io_args *args, struct file *file,
-                enum cl_io_type iot, loff_t *ppos, size_t count)
+static ssize_t
+ll_file_io_generic(const struct lu_env *env, struct vvp_io_args *args,
+		   struct file *file, enum cl_io_type iot,
+		   loff_t *ppos, size_t count)
 {
-        struct ll_inode_info *lli = ll_i2info(file->f_dentry->d_inode);
+	struct ll_inode_info *lli = ll_i2info(file->f_dentry->d_inode);
+	struct ll_file_data  *fd  = LUSTRE_FPRIVATE(file);
         struct cl_io         *io;
         ssize_t               result;
         ENTRY;
@@ -900,13 +902,13 @@ out:
                 if (result >= 0) {
                         ll_stats_ops_tally(ll_i2sbi(file->f_dentry->d_inode),
                                            LPROC_LL_WRITE_BYTES, result);
-                        lli->lli_write_rc = 0;
-                } else {
-                        lli->lli_write_rc = result;
-                }
-        }
+			fd->fd_last_write = 0;
+		} else {
+			fd->fd_last_write = result;
+		}
+	}
 
-        return result;
+	return result;
 }
 
 
@@ -1978,23 +1980,25 @@ int ll_flush(struct file *file, fl_owner_t id)
 int ll_flush(struct file *file)
 #endif
 {
-        struct inode *inode = file->f_dentry->d_inode;
-        struct ll_inode_info *lli = ll_i2info(inode);
-        int rc, err;
+	struct inode *inode = file->f_dentry->d_inode;
+	struct ll_inode_info *lli = ll_i2info(inode);
+	struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
+	int rc, err;
 
-        LASSERT(!S_ISDIR(inode->i_mode));
+	LASSERT(!S_ISDIR(inode->i_mode));
 
-        /* the application should know write failure already. */
-        if (lli->lli_write_rc)
-                return 0;
-
-        /* catch async errors that were recorded back when async writeback
-         * failed for pages in this mapping. */
-        rc = lli->lli_async_rc;
-        lli->lli_async_rc = 0;
+	/* catch async errors that were recorded back when async writeback
+	 * failed for pages in this mapping. */
+	rc = lli->lli_async_rc;
+	lli->lli_async_rc = 0;
 	err = lov_read_and_clear_async_rc(lli->lli_clob);
 	if (rc == 0)
 		rc = err;
+
+	/* The application has be told write failure already.
+	 * Do not report failure again. */
+	if (fd->fd_last_write)
+		fd->fd_last_write = rc = 0;
 
 	return rc ? -EIO : 0;
 }
@@ -2099,11 +2103,13 @@ int ll_fsync(struct file *file, struct dentry *dentry, int data)
 
 	lsm = ccc_inode_lsm_get(inode);
 	if (data && lsm) {
+		struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
+
 		err = cl_sync_file_range(inode, 0, OBD_OBJECT_EOF,
 				CL_FSYNC_ALL);
 		if (rc == 0 && err < 0)
 			rc = err;
-		lli->lli_write_rc = rc < 0 ? rc : 0;
+		fd->fd_last_write = rc < 0 ? rc : 0;
 	}
 	ccc_inode_lsm_put(inode, lsm);
 
