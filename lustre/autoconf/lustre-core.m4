@@ -1871,6 +1871,25 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 3.1 changes the translation from open_flag to namei_flag,
+# does not transliterate lower bits of ->intent.open.flags to FMODE_xxx.
+# see kernel commit 8a5e929dd2e05ab4d3d89f58c5e8fca596af8f3a .
+#
+AC_DEFUN([LC_NEW_OPEN_TO_NAMEI_FLAGS],
+[AC_MSG_CHECKING([if have new open_to_namei_flags.])
+sed -n "/\Wopen_to_namei_flags\s*/N;/\Wopen_to_namei_flags.*{/,/}/p" \
+	$LINUX/fs/namei.c | grep "flag--"
+rc=$?
+if test $rc -eq 0; then
+	AC_MSG_RESULT([yes])
+	AC_DEFINE(HAVE_NEW_OPEN_TO_NAMEI_FLAGS, 1,
+		  [kernel have new open_to_namei_flags which does not transliterate lower bits])
+else
+	AC_MSG_RESULT([no])
+fi
+])
+
+#
 # 3.2 request_queue.make_request_fn defined as function returns with void
 # see kernel commit 5a7bbad27a410350e64a2d7f5ec18fc73836c14f
 #
@@ -2192,6 +2211,7 @@ AC_DEFUN([LC_PROG_LINUX],
 	 # 3.1
 	 LC_LM_XXX_LOCK_MANAGER_OPS
 	 LC_INODE_DIO_WAIT
+	 LC_NEW_OPEN_TO_NAMEI_FLAGS
 
 	 # 3.2
 	 LC_HAVE_VOID_MAKE_REQUEST_FN

@@ -821,5 +821,21 @@ static inline void set_nlink(struct inode *inode, unsigned int nlink)
 }
 #endif
 
+#include <linux/version.h>
+
+/*
+ * After 3.1, kernel's nameidata.intent.open.flags is different
+ * with lustre's lookup_intent.it_flags, as lustre's it_flags'
+ * lower bits equal to FMODE_xxx while kernel doesn't transliterate
+ * lower bits of nameidata.intent.open.flags to FMODE_xxx.
+ * */
+static inline int ll_namei_to_lookup_intent_flag(int flag)
+{
+#ifdef HAVE_NEW_OPEN_TO_NAMEI_FLAGS
+	flag = (flag & ~O_ACCMODE) | OPEN_FMODE(flag);
+#endif
+	return flag;
+}
+
 #endif /* __KERNEL__ */
 #endif /* _COMPAT25_H */
