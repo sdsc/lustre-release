@@ -1456,9 +1456,10 @@ int cl_wait_try(const struct lu_env *env, struct cl_lock *lock)
         do {
                 LINVRNT(cl_lock_is_mutexed(lock));
                 LINVRNT(cl_lock_invariant(env, lock));
-                LASSERT(lock->cll_state == CLS_ENQUEUED ||
-                        lock->cll_state == CLS_HELD ||
-                        lock->cll_state == CLS_INTRANSIT);
+		LASSERTF(lock->cll_state == CLS_ENQUEUED ||
+			 lock->cll_state == CLS_HELD ||
+			 lock->cll_state == CLS_INTRANSIT,
+			 "lock state: %d\n", lock->cll_state);
                 LASSERT(lock->cll_users > 0);
                 LASSERT(lock->cll_holds > 0);
 
