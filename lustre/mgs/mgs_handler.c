@@ -336,7 +336,7 @@ static int mgs_cleanup(struct obd_device *obd)
         RETURN(0);
 }
 
-static int mgs_completion_ast_config(struct ldlm_lock *lock, int flags,
+static int mgs_completion_ast_config(struct ldlm_lock *lock, __u64 flags,
                                      void *cbdata)
 {
         ENTRY;
@@ -356,7 +356,7 @@ static int mgs_completion_ast_config(struct ldlm_lock *lock, int flags,
         RETURN(ldlm_completion_ast(lock, flags, cbdata));
 }
 
-static int mgs_completion_ast_ir(struct ldlm_lock *lock, int flags,
+static int mgs_completion_ast_ir(struct ldlm_lock *lock, __u64 flags,
                                  void *cbdata)
 {
         ENTRY;
@@ -390,7 +390,7 @@ void mgs_revoke_lock(struct obd_device *obd, struct fs_db *fsdb, int type)
         ldlm_completion_callback cp = NULL;
         struct lustre_handle     lockh = { 0 };
         struct ldlm_res_id       res_id;
-        int flags = LDLM_FL_ATOMIC_CB;
+	__u64 flags = LDLM_FL_ATOMIC_CB;
         int rc;
         ENTRY;
 
