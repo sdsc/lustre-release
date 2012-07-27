@@ -1811,8 +1811,14 @@ int mgc_process_log(struct obd_device *mgc, struct config_llog_data *cld)
                 /* mark cld_lostlock so that it will requeue
                  * after MGC becomes available. */
                 cld->cld_lostlock = 1;
-                /* Get extra reference, it will be put in requeue thread */
-                config_log_get(cld);
+
+		/* mgc_blocking_ast will never be called when ldlm_cli_enqueue
+		   failed to allocate memory for a new ldlm_lock.
+		   when the case, we shouldn't get cld refcount */
+		if (lustre_handle_is_used(&lockh))
+			/* Get extra reference, it will be put in
+			   requeue thread */
+			config_log_get(cld);
         }
 
 
