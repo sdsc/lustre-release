@@ -2906,9 +2906,9 @@ test_53a() {
 run_test 53a "check OSS thread count params"
 
 test_53b() {
-	thread_sanity MDT $SINGLEMDS 'mdt.*.*.' 'mdt_num_threads' '16'
+	thread_sanity MDT $SINGLEMDS 'mds.*.*.' 'mds_num_threads='$nthrs
 }
-run_test 53b "check MDT thread count params"
+run_test 53b "check MDS thread count params"
 
 test_54a() {
 	if [ $(facet_fstype $SINGLEMDS) != ldiskfs ]; then
