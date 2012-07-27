@@ -1987,7 +1987,7 @@ static inline int md_intent_lock(struct obd_export *exp,
                                  int lmmsize, struct lookup_intent *it,
                                  int flags, struct ptlrpc_request **reqp,
                                  ldlm_blocking_callback cb_blocking,
-                                 int extra_lock_flags)
+				 __u64 extra_lock_flags)
 {
         int rc;
         ENTRY;
@@ -2181,7 +2181,7 @@ static inline int md_cancel_unused(struct obd_export *exp,
         RETURN(rc);
 }
 
-static inline ldlm_mode_t md_lock_match(struct obd_export *exp, int flags,
+static inline ldlm_mode_t md_lock_match(struct obd_export *exp, __u64 flags,
                                         const struct lu_fid *fid,
                                         ldlm_type_t type,
                                         ldlm_policy_data_t *policy,
