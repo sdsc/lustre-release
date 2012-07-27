@@ -717,6 +717,9 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
                         lock->l_req_extent = policy->l_extent;
                 LDLM_DEBUG(lock, "client-side enqueue START");
         }
+        lock->l_conn_export = exp;
+        lock->l_export = NULL;
+        lock->l_blocking_ast = einfo->ei_cb_bl;
 
         /* lock not sent to server yet */
 
@@ -738,10 +741,6 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
                          lustre_msg_buflen(req->rq_reqmsg, DLM_LOCKREQ_OFF),
                          (int)sizeof(*body));
         }
-
-        lock->l_conn_export = exp;
-        lock->l_export = NULL;
-        lock->l_blocking_ast = einfo->ei_cb_bl;
 
         /* Dump lock data into the request buffer */
         body = lustre_msg_buf(req->rq_reqmsg, DLM_LOCKREQ_OFF, sizeof(*body));
