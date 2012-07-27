@@ -668,6 +668,12 @@ static int mgc_enqueue(struct obd_export *exp, struct lov_stripe_md *lsm,
         /* A failed enqueue should still call the mgc_blocking_ast,
            where it will be requeued if needed ("grant failed"). */
 
+        /* But when the memory allocation failure for a new ldlm_lock,
+           mgc_bloking_ast will never be called, so we have to put
+           cld refcount here */
+        if (rc == -ENOMEM && !lustre_handle_is_used(lockh))
+                config_log_put(cld);
+
         RETURN(rc);
 }
 
@@ -1100,7 +1106,7 @@ static int mgc_process_log(struct obd_device *mgc,
                            struct config_llog_data *cld)
 {
         struct llog_ctxt *ctxt, *lctxt;
-        struct lustre_handle lockh;
+        struct lustre_handle lockh = { 0ull };
         struct client_obd *cli = &mgc->u.cli;
         struct lvfs_run_ctxt saved;
         struct lustre_sb_info *lsi;
