@@ -733,6 +733,10 @@ int main(int argc, char *const argv[])
                 fprintf(stderr, "mkfs failed %d\n", ret);
                 goto out;
         }
+#else
+	/* update svname with ':' */
+	if (mop.mo_ldd.ldd_flags & LDD_F_WRITECONF)
+		(void) osd_label_lustre(&mop);
 #endif
 
         /* Write our config files */

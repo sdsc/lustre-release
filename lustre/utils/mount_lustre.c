@@ -300,15 +300,6 @@ static int parse_ldd(char *source, struct mount_opts *mop, char *options)
 		return ENODEV;
 	}
 
-	/* for new backends (i.e. ZFS) we will be parsing mount data
-	 * in the userspace and pass it in the form of mount options.
-	 * to adopt this schema smoothly we're still doing old way
-	 * (parsing mount data within the kernel) for ldiskfs */
-	if (ldd->ldd_mount_type == LDD_MT_EXT3 ||
-	    ldd->ldd_mount_type == LDD_MT_LDISKFS ||
-	    ldd->ldd_mount_type == LDD_MT_LDISKFS2)
-		return 0;
-
 	rc = osd_read_ldd(source, ldd);
 	if (rc) {
 		fprintf(stderr, "%s: %s failed to read permanent mount"
@@ -362,7 +353,7 @@ static int parse_ldd(char *source, struct mount_opts *mop, char *options)
 		return EINVAL;
 	}
 
-	if (ldd->ldd_flags & (LDD_F_VIRGIN | LDD_F_WRITECONF))
+	if (ldd->ldd_flags & LDD_F_VIRGIN)
 		append_option(options, "writeconf");
 	if (ldd->ldd_flags & LDD_F_IAM_DIR)
 		append_option(options, "iam");
