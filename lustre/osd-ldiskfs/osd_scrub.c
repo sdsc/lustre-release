@@ -314,6 +314,7 @@ osd_scrub_check_update(struct osd_thread_info *info, struct osd_device *dev,
 	struct iam_container	     *bag;
 	struct iam_path_descr	     *ipd;
 	int			      ops    = DTO_INDEX_UPDATE;
+	int			      credits;
 	int			      idx;
 	int			      rc;
 	ENTRY;
@@ -365,8 +366,12 @@ iget:
 	sf->sf_flags |= SF_INCONSISTENT;
 	fid_cpu_to_be(oi_fid, fid);
 	osd_id_pack(oi_id, &oic->oic_lid);
-	jh = ldiskfs_journal_start_sb(osd_sb(dev),
-				osd_dto_credits_noquota[ops]);
+	if (ops == DTO_INDEX_INSERT)
+		credits = osd_dto_credits_noquota[DTO_INDEX_INSERT] +
+			  osd_dto_credits_noquota[DTO_WRITE_BLOCK];
+	else
+		credits = osd_dto_credits_noquota[DTO_INDEX_UPDATE];
+	jh = ldiskfs_journal_start_sb(osd_sb(dev), credits);
 	if (IS_ERR(jh)) {
 		rc = PTR_ERR(jh);
 		CERROR("%.16s: fail to start trans for scrub store, rc = %d\n",
