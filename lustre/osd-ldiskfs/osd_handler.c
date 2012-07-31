@@ -2942,7 +2942,9 @@ static int osd_index_declare_ea_delete(const struct lu_env *env,
         LASSERT(oh->ot_handle == NULL);
 
         OSD_DECLARE_OP(oh, delete);
-        oh->ot_credits += osd_dto_credits_noquota[DTO_INDEX_DELETE];
+	/* The delete may change the OI file idle blocks list. */
+	oh->ot_credits += osd_dto_credits_noquota[DTO_INDEX_DELETE] +
+			  osd_dto_credits_noquota[DTO_WRITE_BLOCK];
 
         LASSERT(osd_dt_obj(dt)->oo_inode);
         osd_declare_qid(dt, oh, USRQUOTA, osd_dt_obj(dt)->oo_inode->i_uid,
@@ -3523,7 +3525,9 @@ static int osd_index_declare_ea_insert(const struct lu_env *env,
         LASSERT(oh->ot_handle == NULL);
 
         OSD_DECLARE_OP(oh, insert);
-        oh->ot_credits += osd_dto_credits_noquota[DTO_INDEX_INSERT];
+	/* The insert may change the OI file idle blocks list. */
+	oh->ot_credits += osd_dto_credits_noquota[DTO_INDEX_INSERT] +
+			  osd_dto_credits_noquota[DTO_WRITE_BLOCK];
 
         LASSERT(osd_dt_obj(dt)->oo_inode);
         osd_declare_qid(dt, oh, USRQUOTA, osd_dt_obj(dt)->oo_inode->i_uid,

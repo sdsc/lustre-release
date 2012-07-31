@@ -511,6 +511,11 @@ static void iam_lfix_split(struct iam_leaf *l, struct buffer_head **bh,
         iam_insert_key_lock(path, path->ip_frame, pivot, new_blknr);
 }
 
+static int iam_lfix_leaf_empty(struct iam_leaf *leaf)
+{
+	return lentry_count_get(leaf) == 0;
+}
+
 static struct iam_leaf_operations iam_lfix_leaf_ops = {
         .init           = iam_lfix_init,
         .init_new       = iam_lfix_init_new,
@@ -533,7 +538,8 @@ static struct iam_leaf_operations iam_lfix_leaf_ops = {
         .rec_add        = iam_lfix_rec_add,
         .rec_del        = iam_lfix_rec_del,
         .can_add        = iam_lfix_can_add,
-        .split          = iam_lfix_split
+	.split          = iam_lfix_split,
+	.leaf_empty	= iam_lfix_leaf_empty,
 };
 
 /*

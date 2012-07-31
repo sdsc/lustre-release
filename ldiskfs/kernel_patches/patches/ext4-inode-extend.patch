@@ -1,0 +1,53 @@
+Index: linux-stage/fs/ext4/ext4.h
+===================================================================
+--- linux-stage.orig/fs/ext4/ext4.h	2012-07-31 16:19:21.000000000 +0800
++++ linux-stage/fs/ext4/ext4.h	2012-07-31 16:38:50.000000000 +0800
+@@ -467,7 +467,7 @@
+ 	__le32	i_generation;	/* File version (for NFS) */
+ 	__le32	i_file_acl_lo;	/* File ACL */
+ 	__le32	i_size_high;
+-	__le32	i_obso_faddr;	/* Obsoleted fragment address */
++	__le32	i_idle_blocks;
+ 	union {
+ 		struct {
+ 			__le16	l_i_blocks_high; /* were l_i_reserved1 */
+@@ -699,6 +699,7 @@
+ 
+ 	/* ialloc */
+ 	ext4_group_t	i_last_alloc_group;
++	ext4_lblk_t	i_idle_blocks;
+ 
+ 	/* allocation reservation info for delalloc */
+ 	unsigned int i_reserved_data_blocks;
+Index: linux-stage/fs/ext4/ialloc.c
+===================================================================
+--- linux-stage.orig/fs/ext4/ialloc.c	2012-07-31 16:19:20.000000000 +0800
++++ linux-stage/fs/ext4/ialloc.c	2012-07-31 16:24:08.000000000 +0800
+@@ -1018,6 +1018,7 @@
+ 	ei->i_block_group = group;
+ 	ei->i_last_alloc_group = ~0;
+ 	ei->i_fs_version = 0;
++	ei->i_idle_blocks = 0;
+ 
+ 	ext4_set_inode_flags(inode);
+ 	if (IS_DIRSYNC(inode))
+Index: linux-stage/fs/ext4/inode.c
+===================================================================
+--- linux-stage.orig/fs/ext4/inode.c	2012-07-31 16:19:20.000000000 +0800
++++ linux-stage/fs/ext4/inode.c	2012-07-31 16:41:24.000000000 +0800
+@@ -4939,6 +4939,7 @@
+ 	}
+ 	ei->i_flags = le32_to_cpu(raw_inode->i_flags);
+ 	inode->i_blocks = ext4_inode_blocks(raw_inode, ei);
++	ei->i_idle_blocks = le32_to_cpu(raw_inode->i_idle_blocks);
+ 	ei->i_file_acl = le32_to_cpu(raw_inode->i_file_acl_lo);
+ 	if (EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_64BIT))
+ 		ei->i_file_acl |=
+@@ -5177,6 +5178,7 @@
+ 		goto out_brelse;
+ 	raw_inode->i_dtime = cpu_to_le32(ei->i_dtime);
+ 	raw_inode->i_flags = cpu_to_le32(ei->i_flags);
++	raw_inode->i_idle_blocks = cpu_to_le32(ei->i_idle_blocks);
+ 	if (EXT4_SB(inode->i_sb)->s_es->s_creator_os !=
+ 	    cpu_to_le32(EXT4_OS_HURD))
+ 		raw_inode->i_file_acl_high =

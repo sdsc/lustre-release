@@ -765,6 +765,11 @@ static void lvar_split(struct iam_leaf *leaf, struct buffer_head **bh,
         assert_inv(n_invariant(leaf));
 }
 
+static int lvar_leaf_empty(struct iam_leaf *leaf)
+{
+	return h_used(n_head(leaf)) == sizeof(struct lvar_leaf_header);
+}
+
 static struct iam_leaf_operations lvar_leaf_ops = {
         .init           = lvar_init,
         .init_new       = lvar_init_new,
@@ -787,7 +792,8 @@ static struct iam_leaf_operations lvar_leaf_ops = {
         .rec_add        = lvar_rec_add,
         .rec_del        = lvar_rec_del,
         .can_add        = lvar_can_add,
-        .split          = lvar_split
+	.split          = lvar_split,
+	.leaf_empty	= lvar_leaf_empty,
 };
 
 /*
