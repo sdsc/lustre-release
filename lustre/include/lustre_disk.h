@@ -219,6 +219,7 @@ struct lustre_mount_data {
         char      *lmd_mgssec;        /* sptlrpc flavor to mgs */
         char      *lmd_opts;          /* lustre mount options (as opposed to
                                          _device_ mount options) */
+	char      *lmd_params;        /* lustre params */
         __u32     *lmd_exclude;       /* array of OSTs to ignore */
 	char	*lmd_mgs;           /* MGS nid */
 	char	*lmd_osd_type;      /* OSD type */
@@ -234,6 +235,10 @@ struct lustre_mount_data {
 #define LMD_FLG_WRITECONF    0x0040  /* Rewrite config log */
 #define LMD_FLG_NOIR         0x0080  /* NO imperative recovery */
 #define LMD_FLG_NOSCRUB	     0x0100  /* Do not trigger scrub automatically */
+#define LMD_FLG_MGS	     0x0200  /* Also start MGS along with server */
+#define LMD_FLG_IAM	     0x0400  /* IAM dir */
+#define LMD_FLG_NO_PRIMNODE  0x0800  /* all nodes are service nodes */
+#define LMD_FLG_VIRGIN	     0x1000
 
 #define lmd_is_client(x) ((x)->lmd_flags & LMD_FLG_CLIENT)
 

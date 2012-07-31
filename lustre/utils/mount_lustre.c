@@ -241,6 +241,9 @@ int parse_options(struct mount_opts *mop, char *orig_options, int *flagp)
 				mop->mo_retry = 0;
                 } else if (val && strncmp(arg, "mgssec", 6) == 0) {
                         append_option(options, opt);
+		} else if (strncmp(arg, "nosvc", 5) == 0) {
+			mop->mo_nosvc = 1;
+			append_option(options, opt);
                 } else if (strcmp(opt, "force") == 0) {
                         //XXX special check for 'force' option
 			++mop->mo_force;
@@ -300,15 +303,6 @@ static int parse_ldd(char *source, struct mount_opts *mop, char *options)
 		return ENODEV;
 	}
 
-	/* for new backends (i.e. ZFS) we will be parsing mount data
-	 * in the userspace and pass it in the form of mount options.
-	 * to adopt this schema smoothly we're still doing old way
-	 * (parsing mount data within the kernel) for ldiskfs */
-	if (ldd->ldd_mount_type == LDD_MT_EXT3 ||
-	    ldd->ldd_mount_type == LDD_MT_LDISKFS ||
-	    ldd->ldd_mount_type == LDD_MT_LDISKFS2)
-		return 0;
-
 	rc = osd_read_ldd(source, ldd);
 	if (rc) {
 		fprintf(stderr, "%s: %s failed to read permanent mount"
@@ -362,12 +356,31 @@ static int parse_ldd(char *source, struct mount_opts *mop, char *options)
 		return EINVAL;
 	}
 
-	if (ldd->ldd_flags & (LDD_F_VIRGIN | LDD_F_WRITECONF))
-		append_option(options, "writeconf");
+	if (ldd->ldd_flags & LDD_F_VIRGIN)
+		append_option(options, "virgin");
 	if (ldd->ldd_flags & LDD_F_IAM_DIR)
 		append_option(options, "iam");
 	if (ldd->ldd_flags & LDD_F_NO_PRIMNODE)
 		append_option(options, "noprimnode");
+
+	{
+		char *start = ldd->ldd_params;
+		char *cur;
+		while (start && *start != '\0') {
+			while (*start == ' ') start++;
+			if (*start == '\0')
+				break;
+			cur = start;
+			start = strchr(cur, ' ');
+			if (start) {
+				*start = '\0';
+				start++;
+			}
+			append_option(options, "param=");
+			strcat(options, cur);
+
+		}
+	}
 
 	/* svname must be last option */
 	append_option(options, "svname=");
@@ -388,6 +401,7 @@ static void set_defaults(struct mount_opts *mop)
 	mop->mo_have_mgsnid = 0;
 	mop->mo_md_stripe_cache_size = 16384;
 	mop->mo_orig_options = "";
+	mop->mo_nosvc = 0;
 }
 
 static int parse_opts(int argc, char *const argv[], struct mount_opts *mop)
@@ -672,8 +686,10 @@ int main(int argc, char *const argv[])
 				       mop.mo_orig_options, 0,0,0);
 
 		/* change label from <fsname>:<index> to <fsname>-<index>
-		 * to indicate the device has been registered. */
-		if (mop.mo_ldd.ldd_flags & LDD_F_VIRGIN)
+		 * to indicate the device has been registered.
+		 * only if the label is supposed to be changed and
+		 * target service is supposed to start */
+		if (mop.mo_nosvc == 0 && mop.mo_ldd.ldd_flags & LDD_F_VIRGIN)
 			(void) osd_label_lustre(&mop);
         }
 
