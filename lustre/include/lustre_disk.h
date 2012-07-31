@@ -234,6 +234,9 @@ struct lustre_mount_data {
 #define LMD_FLG_WRITECONF    0x0040  /* Rewrite config log */
 #define LMD_FLG_NOIR         0x0080  /* NO imperative recovery */
 #define LMD_FLG_NOSCRUB	     0x0100  /* Do not trigger scrub automatically */
+#define LMD_FLG_MGS	     0x0200  /* Also start MGS along with server */
+#define LMD_FLG_IAM	     0x0400  /* IAM dir */
+#define LMD_FLG_NO_PRIMNODE  0x0800  /* all nodes are service nodes */
 
 #define lmd_is_client(x) ((x)->lmd_flags & LMD_FLG_CLIENT)
 

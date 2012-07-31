@@ -733,6 +733,14 @@ int main(int argc, char *const argv[])
                 fprintf(stderr, "mkfs failed %d\n", ret);
                 goto out;
         }
+#else
+	/* update svname with ':' to refresh config */
+	if (mop.mo_ldd.ldd_flags & LDD_F_WRITECONF) {
+		struct mount_opts opts;
+		opts.mo_ldd = mop.mo_ldd;
+		opts.mo_source = mop.mo_device;
+		(void) osd_label_lustre(&opts);
+	}
 #endif
 
         /* Write our config files */
