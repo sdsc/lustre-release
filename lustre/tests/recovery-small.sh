@@ -1282,13 +1282,15 @@ test_100()
         # disable IR
         set_ir_status disabled
 
+	local prev_ver=$(nidtbl_version_client client)
+
         local saved_FAILURE_MODE=$FAILURE_MODE
         [ $(facet_host mgs) = $(facet_host ost1) ] && FAILURE_MODE="SOFT"
         fail ost1
 
         # valid check
-        nidtbl_versions_match &&
-                error "version must differ due to IR disabled"
+	[ $(nidtbl_version_client client) -eq $prev_ver ] ||
+		error "version must not change due to IR disabled"
         target_instance_match ost1 || error "instance mismatch"
 
         # restore env
