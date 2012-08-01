@@ -2014,9 +2014,6 @@ void ll_umount_begin(struct super_block *sb)
         }
 #endif
 
-        /* Tell the MGC we got umount -f */
-        lsi->lsi_flags |= LSI_UMOUNT_FORCE;
-
         CDEBUG(D_VFSTRACE, "VFS Op: superblock %p count %d active %d\n", sb,
                sb->s_count, atomic_read(&sb->s_active));
 
