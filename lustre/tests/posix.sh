@@ -1,5 +1,5 @@
 #!/bin/bash
-#set -vx
+set -vx
 set -e
 
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
