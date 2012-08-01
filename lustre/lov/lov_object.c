@@ -313,20 +313,24 @@ static void lov_fini_empty(const struct lu_env *env, struct lov_object *lov,
 static void lov_fini_raid0(const struct lu_env *env, struct lov_object *lov,
                            union lov_layout_state *state)
 {
-        struct lov_layout_raid0 *r0 = &state->raid0;
+	struct lov_layout_raid0 *r0 = &state->raid0;
+	int refc;
 
-        ENTRY;
+	ENTRY;
 
-        if (r0->lo_sub != NULL) {
-                OBD_FREE_LARGE(r0->lo_sub, r0->lo_nr * sizeof r0->lo_sub[0]);
-                r0->lo_sub = NULL;
-        }
+	if (r0->lo_sub != NULL) {
+		OBD_FREE_LARGE(r0->lo_sub, r0->lo_nr * sizeof r0->lo_sub[0]);
+		r0->lo_sub = NULL;
+	}
 
-	LASSERTF(cfs_atomic_read(&lov->lo_lsm->lsm_refc) == 1,
-		"actual %d proc %p.\n",
-		cfs_atomic_read(&lov->lo_lsm->lsm_refc), cfs_current());
-	lov_free_memmd(&lov->lo_lsm);
+	refc = lov_free_memmd(&lov->lo_lsm);
 	lov->lo_lsm = NULL;
+
+	if (refc != 0) {
+		/* This could be true only if initialization failed. */
+		CERROR("proc: %p, refc %d, only possible if init failed.\n",
+			cfs_current(), refc);
+	}
 
 	EXIT;
 }
