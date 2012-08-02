@@ -3585,7 +3585,7 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 		ptlrpc_lprocfs_register_obd(obd);
 	}
 
-	oscc_init(obd);
+	oscc_init_obd(obd);
 	/* We need to allocate a few requests more, because
 	 * brw_interpret tries to create new requests before freeing
 	 * previous ones, Ideally we want to have 2x max_rpcs_in_flight
@@ -3624,6 +3624,7 @@ static int osc_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
                 cfs_spin_lock(&imp->imp_lock);
                 imp->imp_pingable = 0;
                 cfs_spin_unlock(&imp->imp_lock);
+ 	       oscc_fini_obd(obd);
                 break;
         }
         case OBD_CLEANUP_EXPORTS: {
@@ -3756,10 +3757,12 @@ int __init osc_init(void)
 
         rc = class_register_type(&osc_obd_ops, NULL, lvars.module_vars,
                                  LUSTRE_OSC_NAME, &osc_device_type);
-        if (rc) {
-                lu_kmem_fini(osc_caches);
-                RETURN(rc);
-        }
+	if (rc)
+ 	       GOTO(error_type, rc);
+
+	rc = oscc_init();
+	if (rc != 0)
+ 	       GOTO(error_osc, rc);
 
         cfs_spin_lock_init(&osc_ast_guard);
         cfs_lockdep_set_class(&osc_ast_guard, &osc_ast_guard_class);
@@ -3770,12 +3773,20 @@ int __init osc_init(void)
         osc_mds_ost_orig_logops.lop_add = llog_obd_origin_add;
         osc_mds_ost_orig_logops.lop_connect = llog_origin_connect;
 
-        RETURN(rc);
+	RETURN(0);
+
+error_osc:
+	class_unregister_type(LUSTRE_OSC_NAME);
+
+error_type:
+	lu_kmem_fini(osc_caches);
+	RETURN(rc);
 }
 
 #ifdef __KERNEL__
 static void /*__exit*/ osc_exit(void)
 {
+	oscc_fini();
 	class_unregister_type(LUSTRE_OSC_NAME);
 	lu_kmem_fini(osc_caches);
 }
