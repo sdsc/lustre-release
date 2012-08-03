@@ -3126,10 +3126,10 @@ get_mnt_devs() {
 	local dev
 
 	if [ "$type" == ost ]; then
-		devs=$(get_obdfilter_param $node "" mntdev)
+		devs=$(get_obdfilter_param $node "" mntdev | grep -v 'CMD: ')
 	else
 		devs=$(do_node $node \
-		       "lctl get_param -n osd-*.$FSNAME-M*.mntdev")
+		       "lctl get_param -n osd-*.$FSNAME-M*.mntdev" | grep -v 'CMD: ')
 	fi
 	for dev in $devs; do
 		case $dev in
