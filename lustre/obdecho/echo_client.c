@@ -1830,8 +1830,9 @@ static int echo_md_destroy_internal(const struct lu_env *env,
                         lname->ln_name, rc);
                 GOTO(out_put, rc);
         }
-        CDEBUG(D_RPCTRACE, "End destroy object "DFID" %s %p\n",
-               PFID(lu_object_fid(&parent->mo_lu)), lname->ln_name, parent);
+	cfs_set_bit(LU_OBJECT_HEARD_BANSHEE, &ec_child->lo_header->loh_flags);
+	CDEBUG(D_RPCTRACE, "End destroy object "DFID" %s %p\n",
+		PFID(lu_object_fid(&parent->mo_lu)), lname->ln_name, parent);
 out_put:
         lu_object_put(env, ec_child);
         return rc;
