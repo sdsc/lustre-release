@@ -747,6 +747,7 @@ int target_handle_connect(struct ptlrpc_request *req)
         struct obd_connect_data *data, *tmpdata;
         int size, tmpsize;
         lnet_nid_t *client_nid = NULL;
+	bool is_2_2_client; /* for LU-1644 */
         ENTRY;
 
         OBD_RACE(OBD_FAIL_TGT_CONN_RACE);
@@ -837,6 +838,12 @@ int target_handle_connect(struct ptlrpc_request *req)
         rc = req_capsule_server_pack(&req->rq_pill);
         if (rc)
                 GOTO(out, rc);
+
+	/* check if the client is a 2.2 client. Do this as early as possible
+	 * in case the version code is modified. See LU-1644 for details. */
+	is_2_2_client = OBD_OCD_VERSION_MAJOR(data->ocd_version) == 2 &&
+			OBD_OCD_VERSION_MINOR(data->ocd_version) == 2 &&
+			OBD_OCD_VERSION_PATCH(data->ocd_version) < 50;
 
         if (lustre_msg_get_op_flags(req->rq_reqmsg) & MSG_CONNECT_LIBCLIENT) {
                 if (!data) {
@@ -1031,6 +1038,11 @@ dont_check_exports:
         }
         if (rc)
                 GOTO(out, rc);
+
+	/* 2.2 clients always swap nidtbl entries due to a bug, so server will
+	 * do the swabbing for it in case the client is using the same endian.
+	 * See LU-1634 for details. */
+	export->exp_need_mne_swab = !ptlrpc_req_need_swab(req) && is_2_2_client;
 
         LASSERT(target->u.obt.obt_magic == OBT_MAGIC);
         data->ocd_instance = target->u.obt.obt_instance;
