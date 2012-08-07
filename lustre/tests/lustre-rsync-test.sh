@@ -40,7 +40,7 @@ build_test_filter
 
 export LRSYNC=${LRSYNC:-"$LUSTRE/utils/lustre_rsync"}
 [ ! -f "$LRSYNC" ] && export LRSYNC=$(which lustre_rsync)
-export LRSYNC="$LRSYNC -v" # -a
+export LRSYNC="$LRSYNC -v -c no -d 2"
 
 # control the time of tests
 DBENCH_TIME=${DBENCH_TIME:-60}  # No of seconds to run dbench
@@ -95,13 +95,16 @@ check_xattr() {
 }
 
 check_diff() {
-    if [ -e $1 -o -e $2 ]; then 
-        diff -rq -x "dev1" $1 $2
-        local RC=$?
-        if [ $RC -ne 0 ]; then
-            error "Failure in replication; differences found."
-        fi
-    fi
+	local changelog_file=$LOGDIR/${TESTSUITE}.test_${3}.changelog
+
+	if [ -e $1 -o -e $2 ]; then
+		diff -rq -x "dev1" $1 $2
+		local RC=$?
+		if [ $RC -ne 0 ]; then
+			$LFS changelog $MDT0 > $changelog_file
+			error "Failure in replication; differences found."
+		fi
+	fi
 }
 
 # Test 1 - test basic operations
@@ -140,8 +143,10 @@ test_1() {
     #mknod $DIR/$tdir/dev1 b 8 1
 
     # Replicate
+    local LRSYNC_LOG=$TESTLOG_PREFIX.$TESTNAME.lrsync_log.$(hostname -s).log
     echo "Replication #1"
-    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG
+    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG	\
+	    -D $LRSYNC_LOG
 
     # Set attributes
     chmod 000 $DIR/$tdir/d2/file3
@@ -154,7 +159,7 @@ test_1() {
     fi
 
     echo "Replication #2"
-    $LRSYNC -l $LREPL_LOG
+    $LRSYNC -l $LREPL_LOG -D $LRSYNC_LOG
 
     if [ "$xattr" == "yes" ]; then
 	local xval1=$(getfattr -n user.foo --absolute-names --only-values \
@@ -178,8 +183,8 @@ test_1() {
     fi
 
     # Use diff to compare the source and the destination
-    check_diff $DIR/$tdir $TGT/$tdir
-    check_diff $DIR/$tdir $TGT2/$tdir
+    check_diff $DIR/$tdir $TGT/$tdir 1
+    check_diff $DIR/$tdir $TGT2/$tdir 1
 
     fini_changelog
     cleanup_src_tgt
@@ -196,12 +201,14 @@ test_2a() {
     # Run dbench
     sh rundbench -C -D $DIR/$tdir 2 -t $DBENCH_TIME || error "dbench failed!"
 
+    local LRSYNC_LOG=$TESTLOG_PREFIX.$TESTNAME.lrsync_log.$(hostname -s).log
     # Replicate the changes to $TGT
-    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG
+    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG	\
+	    -D $LRSYNC_LOG
 
     # Use diff to compare the source and the destination
-    check_diff $DIR/$tdir $TGT/$tdir
-    check_diff $DIR/$tdir $TGT2/$tdir
+    check_diff $DIR/$tdir $TGT/$tdir 2a
+    check_diff $DIR/$tdir $TGT2/$tdir 2a
 
     fini_changelog
     cleanup_src_tgt
@@ -226,9 +233,11 @@ test_2b() {
     echo Stopping dbench
     $KILL -SIGSTOP $child_pid
 
+    local LRSYNC_LOG=$TESTLOG_PREFIX.$TESTNAME.lrsync_log.$(hostname -s).log
     echo Starting replication
-    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG
-    check_diff $DIR/$tdir $TGT/$tdir
+    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG	\
+	    -D $LRSYNC_LOG
+    check_diff $DIR/$tdir $TGT/$tdir 2b
 
     echo Resuming dbench
     $KILL -SIGCONT $child_pid
@@ -238,8 +247,8 @@ test_2b() {
     $KILL -SIGSTOP $child_pid
 
     echo Starting replication
-    $LRSYNC -l $LREPL_LOG
-    check_diff $DIR/$tdir $TGT/$tdir
+    $LRSYNC -l $LREPL_LOG -D $LRSYNC_LOG
+    check_diff $DIR/$tdir $TGT/$tdir 2b
 
     echo "Wait for dbench to finish"
     $KILL -SIGCONT $child_pid
@@ -247,10 +256,10 @@ test_2b() {
 
     # Replicate the changes to $TGT
     echo Starting replication
-    $LRSYNC -l $LREPL_LOG
+    $LRSYNC -l $LREPL_LOG -D $LRSYNC_LOG
 
-    check_diff $DIR/$tdir $TGT/$tdir
-    check_diff $DIR/$tdir $TGT2/$tdir
+    check_diff $DIR/$tdir $TGT/$tdir 2b
+    check_diff $DIR/$tdir $TGT2/$tdir 2b
 
     fini_changelog
     cleanup_src_tgt
@@ -267,13 +276,15 @@ test_2c() {
     # Run dbench
     sh rundbench -C -D $DIR/$tdir 2 -t $DBENCH_TIME &
 
+    local LRSYNC_LOG=$TESTLOG_PREFIX.$TESTNAME.lrsync_log.$(hostname -s).log
     # Replicate the changes to $TGT
     sleep 10 # give dbench a headstart
     local quit=0
     while [ $quit -le 1 ];
     do
         echo "Running lustre_rsync"
-        $LRSYNC -s $DIR -t $TGT -t $TGT2 -m ${mds1_svc} -u $CL_USER -l $LREPL_LOG
+        $LRSYNC -s $DIR -t $TGT -t $TGT2 -m ${mds1_svc} -u $CL_USER	\
+		-l $LREPL_LOG -D $LRSYNC_LOG
         sleep 5
         pgrep dbench
         if [ $? -ne 0 ]; then
@@ -282,8 +293,8 @@ test_2c() {
     done
 
     # Use diff to compare the source and the destination
-    check_diff $DIR/$tdir $TGT/$tdir
-    check_diff $DIR/$tdir $TGT2/$tdir
+    check_diff $DIR/$tdir $TGT/$tdir 2c
+    check_diff $DIR/$tdir $TGT2/$tdir 2c
 
     fini_changelog
     cleanup_src_tgt
@@ -301,10 +312,12 @@ test_3a() {
     local numfiles=1000
     createmany -o $DIR/$tdir/$tfile $numfiles || error "createmany failed!"
 
+    local LRSYNC_LOG=$TESTLOG_PREFIX.$TESTNAME.lrsync_log.$(hostname -s).log
     # Replicate the changes to $TGT
-    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG
-    check_diff $DIR/$tdir $TGT/$tdir   
-    check_diff $DIR/$tdir $TGT2/$tdir
+    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG	\
+	    -D $LRSYNC_LOG
+    check_diff $DIR/$tdir $TGT/$tdir 3a
+    check_diff $DIR/$tdir $TGT2/$tdir 3a
 
     fini_changelog
     cleanup_src_tgt
@@ -324,11 +337,13 @@ test_3b() {
     local threads=5
     writemany -q -a $DIR/$tdir/$tfile $time $threads || error "writemany failed!"
 
+    local LRSYNC_LOG=$TESTLOG_PREFIX.$TESTNAME.lrsync_log.$(hostname -s).log
     # Replicate the changes to $TGT
-    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG
+    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG	\
+	    -D LRSYNC_LOG
 
-    check_diff $DIR/$tdir $TGT/$tdir   
-    check_diff $DIR/$tdir $TGT2/$tdir
+    check_diff $DIR/$tdir $TGT/$tdir 3b
+    check_diff $DIR/$tdir $TGT2/$tdir 3b
 
     fini_changelog
     cleanup_src_tgt
@@ -347,10 +362,12 @@ test_3c() {
     createmany -o $DIR/$tdir/$tfile $numfiles || error "createmany failed!"
     unlinkmany $DIR/$tdir/$tfile $numfiles || error "unlinkmany failed!"
 
+    local LRSYNC_LOG=$TESTLOG_PREFIX.$TESTNAME.lrsync_log.$(hostname -s).log
     # Replicate the changes to $TGT
-    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0  -u $CL_USER -l $LREPL_LOG
-    check_diff $DIR/$tdir $TGT/$tdir   
-    check_diff $DIR/$tdir $TGT2/$tdir
+    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0  -u $CL_USER -l $LREPL_LOG \
+	    -D LRSYNC_LOG
+    check_diff $DIR/$tdir $TGT/$tdir 3c
+    check_diff $DIR/$tdir $TGT2/$tdir 3c
 
     fini_changelog
     cleanup_src_tgt
@@ -377,10 +394,12 @@ test_4() {
     child_pid=$(pgrep iozone)
     $KILL -SIGSTOP $child_pid
 
+    local LRSYNC_LOG=$TESTLOG_PREFIX.$TESTNAME.lrsync_log.$(hostname -s).log
     # Replicate the changes to $TGT
-    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0  -u $CL_USER -l $LREPL_LOG
-    check_diff $DIR/$tdir $TGT/$tdir
-    check_diff $DIR/$tdir $TGT2/$tdir
+    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0  -u $CL_USER -l $LREPL_LOG \
+	    -D $LRSYNC_LOG
+    check_diff $DIR/$tdir $TGT/$tdir 4
+    check_diff $DIR/$tdir $TGT2/$tdir 4
 
     $KILL -SIGCONT $child_pid
     sleep 60
@@ -399,9 +418,9 @@ test_4() {
       sleep 1;
     done
 
-    $LRSYNC -l $LREPL_LOG
-    check_diff $DIR/$tdir $TGT/$tdir
-    check_diff $DIR/$tdir $TGT2/$tdir
+    $LRSYNC -l $LREPL_LOG -D $LRSYNC_LOG
+    check_diff $DIR/$tdir $TGT/$tdir 4
+    check_diff $DIR/$tdir $TGT2/$tdir 4
 
     fini_changelog
     cleanup_src_tgt
@@ -420,16 +439,17 @@ test_5a() {
     createmany -o $DIR/$tdir/$tfile $NUMTEST
 
     # Replicate the changes to $TGT
-    
-    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG &
+    local LRSYNC_LOG=$TESTLOG_PREFIX.$TESTNAME.lrsync_log.$(hostname -s).log
+    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG \
+	    -D $LRSYNC_LOG &
     local child_pid=$!
     sleep 30
     $KILL -SIGHUP $child_pid
     wait
-    $LRSYNC -l $LREPL_LOG
+    $LRSYNC -l $LREPL_LOG -D $LRSYNC_LOG
 
-    check_diff $DIR/$tdir $TGT/$tdir   
-    check_diff $DIR/$tdir $TGT2/$tdir
+    check_diff $DIR/$tdir $TGT/$tdir 5a
+    check_diff $DIR/$tdir $TGT2/$tdir 5a
 
     fini_changelog
     cleanup_src_tgt
@@ -448,16 +468,17 @@ test_5b() {
     createmany -o $DIR/$tdir/$tfile $NUMTEST
 
     # Replicate the changes to $TGT
-    
-    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG &
+    local LRSYNC_LOG=$TESTLOG_PREFIX.$TESTNAME.lrsync_log.$(hostname -s).log
+    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG \
+	    -D $LRSYNC_LOG &
     local child_pid=$!
     sleep 30
     $KILL -SIGKILL $child_pid
     wait
-    $LRSYNC -l $LREPL_LOG
+    $LRSYNC -l $LREPL_LOG -D $LRSYNC_LOG
 
-    check_diff $DIR/$tdir $TGT/$tdir   
-    check_diff $DIR/$tdir $TGT2/$tdir
+    check_diff $DIR/$tdir $TGT/$tdir 5b
+    check_diff $DIR/$tdir $TGT2/$tdir 5b
 
     fini_changelog
     cleanup_src_tgt
@@ -479,10 +500,12 @@ test_6() {
       i=$(expr $i + 1)
     done
 
+    local LRSYNC_LOG=$TESTLOG_PREFIX.$TESTNAME.lrsync_log.$(hostname -s).log
     # Replicate the changes to $TGT
-    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG
-    check_diff $DIR/$tdir $TGT/$tdir
-    check_diff $DIR/$tdir $TGT2/$tdir
+    $LRSYNC -s $DIR -t $TGT -t $TGT2 -m $MDT0 -u $CL_USER -l $LREPL_LOG	\
+	    -D $LRSYNC_LOG
+    check_diff $DIR/$tdir $TGT/$tdir 6
+    check_diff $DIR/$tdir $TGT2/$tdir 6
 
     local count1=$(ls -l $TGT/$tdir/link0 | sed -r 's/ +/ /g' | cut -f 2 -d ' ')
     local count2=$(ls -l $TGT/$tdir/link0 | sed -r 's/ +/ /g' | cut -f 2 -d ' ')
@@ -508,11 +531,13 @@ test_7() {
 
     # To simulate replication to another lustre filesystem, replicate
     # the changes to $DIR/tgt. We can't turn off the changelogs
-    # while we are registered, so lustre_rsync better not try to 
+    # while we are registered, so lustre_rsync better not try to
     # replicate the replication steps.  It seems ok :)
 
-    $LRSYNC -s $DIR -t $DIR/tgt -m $MDT0 -u $CL_USER -l $LREPL_LOG
-    check_diff ${DIR}/$tdir $DIR/tgt/$tdir
+    local LRSYNC_LOG=$TESTLOG_PREFIX.$TESTNAME.lrsync_log.$(hostname -s).log
+    $LRSYNC -s $DIR -t $DIR/tgt -m $MDT0 -u $CL_USER -l $LREPL_LOG	\
+	    -D $LRSYNC_LOG
+    check_diff ${DIR}/$tdir $DIR/tgt/$tdir 7
 
     local i=0
     while [ $i -lt $NUMFILES ];
@@ -548,9 +573,10 @@ test_8() {
 	    mv $DIR/$tdir/d$i $DIR/$tdir/d0$i
     done
 
-    $LRSYNC -s $DIR -t $TGT -m $MDT0 -u $CL_USER -l $LREPL_LOG
+    local LRSYNC_LOG=$TESTLOG_PREFIX.$TESTNAME.lrsync_log.$(hostname -s).log
+    $LRSYNC -s $DIR -t $TGT -m $MDT0 -u $CL_USER -l $LREPL_LOG -D $LRSYNC_LOG
 
-    check_diff ${DIR}/$tdir $TGT/$tdir
+    check_diff ${DIR}/$tdir $TGT/$tdir 8
 
     fini_changelog
     cleanup_src_tgt
@@ -565,15 +591,16 @@ test_9() {
     mkdir $DIR/$tdir/foo
     touch $DIR/$tdir/foo/a1
 
-    $LRSYNC -s $DIR -t $TGT -m $MDT0 -u $CL_USER -l $LREPL_LOG
+    local LRSYNC_LOG=$TESTLOG_PREFIX.$TESTNAME.lrsync_log.$(hostname -s).log
+    $LRSYNC -s $DIR -t $TGT -m $MDT0 -u $CL_USER -l $LREPL_LOG -D $LRSYNC_LOG
 
-    check_diff ${DIR}/$tdir $TGT/$tdir
+    check_diff ${DIR}/$tdir $TGT/$tdir 9
 
     rm -rf $DIR/$tdir/foo
 
-    $LRSYNC -s $DIR -t $TGT -m $MDT0 -u $CL_USER -l $LREPL_LOG
+    $LRSYNC -s $DIR -t $TGT -m $MDT0 -u $CL_USER -l $LREPL_LOG -D LRSYNC_LOG
 
-    check_diff ${DIR}/$tdir $TGT/$tdir
+    check_diff ${DIR}/$tdir $TGT/$tdir 9
 
     fini_changelog
     cleanup_src_tgt
