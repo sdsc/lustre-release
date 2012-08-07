@@ -42,7 +42,7 @@ build_test_filter
 
 export LRSYNC=${LRSYNC:-"$LUSTRE/utils/lustre_rsync"}
 [ ! -f "$LRSYNC" ] && export LRSYNC=$(which lustre_rsync)
-export LRSYNC="$LRSYNC -v" # -a
+export LRSYNC="$LRSYNC -v -c no" # -a
 
 # control the time of tests
 DBENCH_TIME=${DBENCH_TIME:-60}  # No of seconds to run dbench
@@ -80,8 +80,11 @@ cleanup_src_tgt() {
 }
 
 fini_changelog() {
-    $LFS changelog_clear $MDT0 $CL_USER 0
-    do_facet $SINGLEMDS lctl --device $MDT0 changelog_deregister $CL_USER
+	local changelog_file=$LOGDIR/${TESTSUITE}.test_${1}.changelog
+
+	$LFS changelog $MDT0 > $changelog_file
+	$LFS changelog_clear $MDT0 $CL_USER 0
+	do_facet $SINGLEMDS lctl --device $MDT0 changelog_deregister $CL_USER
 }
 
 # Check whether the filesystem supports xattr or not.
@@ -195,7 +198,7 @@ test_1() {
     check_diff $DIR/$tdir $TGT/$tdir
     check_diff $DIR/$tdir $TGT2/$tdir
 
-    fini_changelog
+	fini_changelog 1
     cleanup_src_tgt
     return $RC
 }
@@ -217,7 +220,7 @@ test_2a() {
     check_diff $DIR/$tdir $TGT/$tdir
     check_diff $DIR/$tdir $TGT2/$tdir
 
-    fini_changelog
+	fini_changelog 2a
     cleanup_src_tgt
     return 0
 }
@@ -266,7 +269,7 @@ test_2b() {
     check_diff $DIR/$tdir $TGT/$tdir
     check_diff $DIR/$tdir $TGT2/$tdir
 
-    fini_changelog
+	fini_changelog 2b
     cleanup_src_tgt
     return 0
 }
@@ -299,7 +302,7 @@ test_2c() {
     check_diff $DIR/$tdir $TGT/$tdir
     check_diff $DIR/$tdir $TGT2/$tdir
 
-    fini_changelog
+	fini_changelog 2c
     cleanup_src_tgt
     return 0
 }
@@ -320,7 +323,7 @@ test_3a() {
     check_diff $DIR/$tdir $TGT/$tdir   
     check_diff $DIR/$tdir $TGT2/$tdir
 
-    fini_changelog
+	fini_changelog 3a
     cleanup_src_tgt
     return 0
 }
@@ -344,7 +347,7 @@ test_3b() {
     check_diff $DIR/$tdir $TGT/$tdir   
     check_diff $DIR/$tdir $TGT2/$tdir
 
-    fini_changelog
+	fini_changelog 3b
     cleanup_src_tgt
     return 0
 }
@@ -366,7 +369,7 @@ test_3c() {
     check_diff $DIR/$tdir $TGT/$tdir   
     check_diff $DIR/$tdir $TGT2/$tdir
 
-    fini_changelog
+	fini_changelog 3c
     cleanup_src_tgt
     return 0
 }
@@ -417,7 +420,7 @@ test_4() {
     check_diff $DIR/$tdir $TGT/$tdir
     check_diff $DIR/$tdir $TGT2/$tdir
 
-    fini_changelog
+	fini_changelog 4
     cleanup_src_tgt
     return 0
 }
@@ -445,7 +448,7 @@ test_5a() {
     check_diff $DIR/$tdir $TGT/$tdir   
     check_diff $DIR/$tdir $TGT2/$tdir
 
-    fini_changelog
+	fini_changelog 5a
     cleanup_src_tgt
     return 0
 }
@@ -473,7 +476,7 @@ test_5b() {
     check_diff $DIR/$tdir $TGT/$tdir   
     check_diff $DIR/$tdir $TGT2/$tdir
 
-    fini_changelog
+	fini_changelog 5b
     cleanup_src_tgt
     return 0
 }
@@ -504,7 +507,7 @@ test_6() {
 	ls -l $TGT/$tdir/link0 $TGT2/$tdir/link0
 	error "Incorrect no of hard links found $count1, $count2"
     fi
-    fini_changelog
+	fini_changelog 6
     cleanup_src_tgt
     return 0
 }
@@ -537,7 +540,7 @@ test_7() {
       fi
       i=$(expr $i + 1)
     done
-    fini_changelog
+	fini_changelog 7
     cleanup_src_tgt
     return 0
 }
@@ -566,7 +569,7 @@ test_8() {
 
     check_diff ${DIR}/$tdir $TGT/$tdir
 
-    fini_changelog
+	fini_changelog 8
     cleanup_src_tgt
     return 0
 }
@@ -589,7 +592,7 @@ test_9() {
 
     check_diff ${DIR}/$tdir $TGT/$tdir
 
-    fini_changelog
+	fini_changelog 9
     cleanup_src_tgt
     return 0
 }
