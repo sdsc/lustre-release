@@ -970,7 +970,7 @@ static int osd_ldiskfs_writelink(struct inode *inode, char *buffer, int buflen)
 }
 
 int osd_ldiskfs_write_record(struct inode *inode, void *buf, int bufsize,
-			     loff_t *offs, handle_t *handle)
+			     int write_NUL, loff_t *offs, handle_t *handle)
 {
         struct buffer_head *bh        = NULL;
         loff_t              offset    = *offs;
@@ -982,6 +982,15 @@ int osd_ldiskfs_write_record(struct inode *inode, void *buf, int bufsize,
         int                 boffs;
         int                 dirty_inode = 0;
 
+	if (write_NUL) {
+		/*
+		 * long symlink write does not count the NUL terminator in
+		 * bufsize, we write it, and the inode's file size does not
+		 * count the NUL terminator as well.
+		 */
+		((char *)buf)[bufsize] = '\0';
+		++bufsize;
+	}
         while (bufsize > 0) {
                 if (bh != NULL)
                         brelse(bh);
@@ -1020,6 +1029,8 @@ int osd_ldiskfs_write_record(struct inode *inode, void *buf, int bufsize,
         if (bh)
                 brelse(bh);
 
+	if (write_NUL)
+		--new_size;
         /* correct in-core and on-disk sizes */
         if (new_size > i_size_read(inode)) {
                 cfs_spin_lock(&inode->i_lock);
@@ -1069,16 +1080,18 @@ static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
         else
                 cfs_cap_lower(CFS_CAP_SYS_RESOURCE);
 #endif
-        /* Write small symlink to inode body as we need to maintain correct
-         * on-disk symlinks for ldiskfs.
-         */
+	/* Write small symlink to inode body as we need to maintain correct
+	 * on-disk symlinks for ldiskfs.
+	 * Note: the buf->lb_buf contains a NUL terminator while buf->lb_len
+	 * does not count it in.
+	 */
         if (S_ISLNK(dt->do_lu.lo_header->loh_attr) &&
             (buf->lb_len < sizeof(LDISKFS_I(inode)->i_data)))
                 result = osd_ldiskfs_writelink(inode, buf->lb_buf, buf->lb_len);
         else
-                result = osd_ldiskfs_write_record(inode, buf->lb_buf,
-                                                  buf->lb_len, pos,
-                                                  oh->ot_handle);
+		result = osd_ldiskfs_write_record(inode, buf->lb_buf,
+						  buf->lb_len, 1, pos,
+						  oh->ot_handle);
 #ifdef HAVE_QUOTA_SUPPORT
         cfs_curproc_cap_unpack(save);
 #endif

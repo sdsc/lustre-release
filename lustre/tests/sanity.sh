@@ -9499,6 +9499,38 @@ test_227() {
 }
 run_test 227 "running truncated executable does not cause OOM"
 
+# LU-1540
+test_899() {
+	local long_sym="0123456789"
+	local devname
+	local cmd
+	local i
+	local rc=0
+
+	[ "$MDSCOUNT" -gt "1" ] && skip_env "Only test on single MDS" && return
+
+	# create a long symlink file
+	for ((i = 0; i < 4; ++i)); do
+		long_sym=${long_sym}${long_sym}
+	done
+	ln -sf ${long_sym}"a5a5" $DIR/$tfile
+	# rewrite the symlink file with a shorter string
+	ln -sf ${long_sym} $DIR/$tfile
+
+	# e2fsck should not return error
+	stop $SINGLEMDS -f
+	devname=$(mdsdevname 1)
+	cmd="$E2FSCK -fnvd $devname"
+	echo $cmd
+	do_facet $SINGLEMDS $cmd || rc=$?
+
+	start $SINGLEMDS $devname $MDS_MOUNT_OPTS
+	[ $rc -ne 0 ] &&
+		error "e2fsck should not report error upon long symlink MDT"
+	return $rc
+}
+run_test 899 "run e2fsck against MDT which contains long symlink"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
