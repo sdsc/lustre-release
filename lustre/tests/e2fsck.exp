@@ -1,0 +1,24 @@
+#!/usr/bin/expect -f
+set env(PATH) "/usr/bin:/bin:/sbin"
+
+log_user 1
+
+if {$argc == 1} {
+	set dev [lindex $argv 0]
+} else {
+	set prog [lindex [split $argv0 "/"] end]
+	send_user "Usage: $prog <device>\r\n"
+	exit 1
+}
+
+spawn e2fsck -f $dev
+expect {
+	-gl "<y>? " {
+		sleep 10
+   		send "yes\r"
+		exp_continue
+	}
+	-gl "FILE SYSTEM WAS MODIFIED" {
+		exit 0
+	}
+}
