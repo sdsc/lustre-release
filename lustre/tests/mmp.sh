@@ -531,7 +531,7 @@ test_8() {
 
     run_e2fsck $MMP_MDS $MMP_MDSDEV "-fy" &
     e2fsck_pid=$!
-    sleep 1
+    sleep 2
 
     log "Mounting $MMP_MDSDEV on $MMP_MDS_FAILOVER..."
     if start $MMP_MDS_FAILOVER $MMP_MDSDEV $MDS_MOUNT_OPTS; then
