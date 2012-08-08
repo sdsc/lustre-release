@@ -960,13 +960,13 @@ static ssize_t osd_declare_write(const struct lu_env *env, struct dt_object *dt,
 
 static int osd_ldiskfs_writelink(struct inode *inode, char *buffer, int buflen)
 {
+	memcpy((char *)&LDISKFS_I(inode)->i_data, (char *)buffer, buflen);
+	((char *)LDISKFS_I(inode)->i_data)[buflen] = '\0';
+	LDISKFS_I(inode)->i_disksize = buflen;
+	i_size_write(inode, buflen);
+	inode->i_sb->s_op->dirty_inode(inode);
 
-        memcpy((char *)&LDISKFS_I(inode)->i_data, (char *)buffer, buflen);
-        LDISKFS_I(inode)->i_disksize = buflen;
-        i_size_write(inode, buflen);
-        inode->i_sb->s_op->dirty_inode(inode);
-
-        return 0;
+	return 0;
 }
 
 int osd_ldiskfs_write_record(struct inode *inode, void *buf, int bufsize,
