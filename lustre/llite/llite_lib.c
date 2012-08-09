@@ -1218,7 +1218,7 @@ int ll_md_setattr(struct dentry *dentry, struct md_op_data *op_data,
         if (rc) {
                 ptlrpc_req_finished(request);
                 if (rc == -ENOENT) {
-                        inode->i_nlink = 0;
+			clear_nlink(inode);
                         /* Unlinked special device node? Or just a race?
                          * Pretend we done everything. */
                         if (!S_ISREG(inode->i_mode) &&
@@ -1724,7 +1724,7 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
         if (body->valid & OBD_MD_FLFLAGS)
                 inode->i_flags = ll_ext_to_inode_flags(body->flags);
         if (body->valid & OBD_MD_FLNLINK)
-                inode->i_nlink = body->nlink;
+		set_nlink(inode, body->nlink);
         if (body->valid & OBD_MD_FLRDEV)
                 inode->i_rdev = old_decode_dev(body->rdev);
 
