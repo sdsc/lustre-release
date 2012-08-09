@@ -1830,6 +1830,26 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 3.1 renames lock-manager ops(lock_manager_operations) from fl_xxx to lm_xxx
+# see kernel commit 8fb47a4fbf858a164e973b8ea8ef5e83e61f2e50
+#
+AC_DEFUN([LC_LM_XXX_LOCK_MANAGER_OPS],
+[AC_MSG_CHECKING([if lock-manager ops renamed to lm_xxx])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/fs.h>
+],[
+	struct lock_manager_operations lm_ops;
+	lm_ops.lm_compare_owner = NULL;
+],[
+	AC_DEFINE(HAVE_LM_XXX_LOCK_MANAGER_OPS, 1,
+		  [lock-manager ops renamed to lm_xxx])
+	AC_MSG_RESULT([yes])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
+#
 # 3.2 request_queue.make_request_fn defined as function returns with void
 # see kernel commit 5a7bbad27a410350e64a2d7f5ec18fc73836c14f
 #
@@ -2073,6 +2093,9 @@ AC_DEFUN([LC_PROG_LINUX],
 
 	 # 3.1.1
 	 LC_BLOCKS_FOR_TRUNCATE
+
+	 # 3.1
+	 LC_LM_XXX_LOCK_MANAGER_OPS
 
 	 # 3.2
 	 LC_HAVE_VOID_MAKE_REQUEST_FN
