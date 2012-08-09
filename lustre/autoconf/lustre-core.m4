@@ -1810,6 +1810,47 @@ AC_DEFINE(HAVE_SIMPLE_SETATTR, 1,
 ])
 
 #
+# 3.1.1 has ext4_blocks_for_truncate
+#
+AC_DEFUN([LC_BLOCKS_FOR_TRUNCATE],
+[AC_MSG_CHECKING([if kernel has ext4_blocks_for_truncate])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/fs.h>
+	#include "$LINUX/fs/ext4/ext4_jbd2.h"
+	#include "$LINUX/fs/ext4/truncate.h"
+],[
+	ext4_blocks_for_truncate(NULL);
+],[
+	AC_MSG_RESULT([yes])
+	AC_DEFINE(HAVE_BLOCKS_FOR_TRUNCATE, 1,
+		  [kernel has ext4_blocks_for_truncate])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
+#
+# 3.2 request_queue.make_request_fn defined as function returns with void
+# see kernel commit 5a7bbad27a410350e64a2d7f5ec18fc73836c14f
+#
+AC_DEFUN([LC_HAVE_VOID_MAKE_REQUEST_FN],
+[AC_MSG_CHECKING([if request_queue.make_request_fn returns void but not int])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/blkdev.h>
+],[
+	int ret;
+	make_request_fn		*mrf;
+	ret = mrf(NULL, NULL);
+],[
+	AC_MSG_RESULT([no])
+],[
+	AC_DEFINE(HAVE_VOID_MAKE_REQUEST_FN, 1,
+		  [request_queue.make_request_fn returns void but not int])
+	AC_MSG_RESULT([yes])
+])
+])
+
+#
 # 3.3 introduces migrate_mode.h and migratepage has 4 args
 #
 AC_DEFUN([LC_HAVE_MIGRATE_HEADER],
@@ -1842,26 +1883,6 @@ LB_LINUX_TRY_COMPILE([
 	AC_DEFINE(HAVE_MIGRATEPAGE_4ARGS, 1,
 		[address_space_operations.migratepage has 4 args])
 	AC_MSG_RESULT([yes])
-],[
-	AC_MSG_RESULT([no])
-])
-])
-
-#
-# 3.1.1 has ext4_blocks_for_truncate
-#
-AC_DEFUN([LC_BLOCKS_FOR_TRUNCATE],
-[AC_MSG_CHECKING([if kernel has ext4_blocks_for_truncate])
-LB_LINUX_TRY_COMPILE([
-	#include <linux/fs.h>
-	#include "$LINUX/fs/ext4/ext4_jbd2.h"
-	#include "$LINUX/fs/ext4/truncate.h"
-],[
-	ext4_blocks_for_truncate(NULL);
-],[
-	AC_MSG_RESULT([yes])
-	AC_DEFINE(HAVE_BLOCKS_FOR_TRUNCATE, 1,
-		  [kernel has ext4_blocks_for_truncate])
 ],[
 	AC_MSG_RESULT([no])
 ])
@@ -2008,14 +2029,17 @@ AC_DEFUN([LC_PROG_LINUX],
 
          # 2.6.39
          LC_REQUEST_QUEUE_UNPLUG_FN
-	LC_HAVE_FSTYPE_MOUNT
-
-	# 3.3
-	LC_HAVE_MIGRATE_HEADER
-	LC_MIGRATEPAGE_4ARGS
+	 LC_HAVE_FSTYPE_MOUNT
 
 	 # 3.1.1
 	 LC_BLOCKS_FOR_TRUNCATE
+
+	 # 3.2
+	 LC_HAVE_VOID_MAKE_REQUEST_FN
+
+	 # 3.3
+	 LC_HAVE_MIGRATE_HEADER
+	 LC_MIGRATEPAGE_4ARGS
 
          #
          if test x$enable_server = xyes ; then

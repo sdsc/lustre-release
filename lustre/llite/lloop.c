@@ -338,7 +338,11 @@ static unsigned int loop_get_bio(struct lloop_device *lo, struct bio **req)
         return count;
 }
 
+#ifdef HAVE_VOID_MAKE_REQUEST_FN
+static void loop_make_request(struct request_queue *q, struct bio *old_bio)
+#else
 static int loop_make_request(struct request_queue *q, struct bio *old_bio)
+#endif
 {
         struct lloop_device *lo = q->queuedata;
         int rw = bio_rw(old_bio);
@@ -366,10 +370,18 @@ static int loop_make_request(struct request_queue *q, struct bio *old_bio)
                 goto err;
         }
         loop_add_bio(lo, old_bio);
-        return 0;
+#ifdef HAVE_VOID_MAKE_REQUEST_FN
+	return;
+#else
+	return 0;
+#endif
 err:
-        cfs_bio_io_error(old_bio, old_bio->bi_size);
-        return 0;
+	cfs_bio_io_error(old_bio, old_bio->bi_size);
+#ifdef HAVE_VOID_MAKE_REQUEST_FN
+	return;
+#else
+	return 0;
+#endif
 }
 
 #ifdef HAVE_REQUEST_QUEUE_UNPLUG_FN
