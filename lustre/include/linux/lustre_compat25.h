@@ -789,5 +789,13 @@ static inline int ll_namei_to_lookup_intent_flag(int flag)
 # define LL_MRF_RETURN(rc) RETURN(rc)
 #endif
 
+#include <linux/fs.h>
+#ifndef HAVE_PROTECT_I_NLINK
+static inline void set_nlink(struct inode *inode, unsigned int nlink)
+{
+	inode->i_nlink = nlink;
+}
+#endif
+
 #endif /* __KERNEL__ */
 #endif /* _COMPAT25_H */
