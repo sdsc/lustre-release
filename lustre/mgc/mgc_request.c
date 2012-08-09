@@ -402,6 +402,9 @@ static int config_log_end(char *logname, struct config_llog_instance *cfg)
         /* drop the start ref */
         config_log_put(cld);
 
+	/* kick a requeued cld out of config_log_list */
+	mgc_notify_active(NULL);
+
         CDEBUG(D_MGC, "end config log %s (%d)\n", logname ? logname : "client",
                rc);
         RETURN(rc);
