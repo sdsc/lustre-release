@@ -831,5 +831,13 @@ static inline int ll_namei_to_lookup_intent_flag(int flag)
 	return flag;
 }
 
+#ifdef HAVE_VOID_MAKE_REQUEST_FN
+# define ll_mrf_ret void
+# define LL_MRF_RETURN(rc) EXIT
+#else
+# define ll_mrf_ret int
+# define LL_MRF_RETURN(rc) RETURN(rc)
+#endif
+
 #endif /* __KERNEL__ */
 #endif /* _COMPAT25_H */
