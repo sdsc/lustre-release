@@ -46,6 +46,7 @@
 
 #ifndef __KERNEL__
 
+#include <string.h>
 #include <libcfs/libcfs.h>
 
 /*
@@ -261,6 +262,23 @@ uid_t cfs_curproc_fsuid(void)
 gid_t cfs_curproc_fsgid(void)
 {
         return getgid();
+}
+
+/* Read the environment variable of current process specified by @key. */
+int cfs_get_environ(const char *key, char *value, int *val_len)
+{
+	char *entry;
+	int len;
+
+	entry = getenv(key);
+	if (entry == NULL)
+		return -ENOENT;
+
+	len = strlcpy(value, entry, *val_len);
+	if (len >= *val_len)
+		return -EOVERFLOW;
+
+	return 0;
 }
 
 void cfs_enter_debugger(void)
