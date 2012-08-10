@@ -152,7 +152,7 @@ typedef struct cfs_hash_bucket {
         __u32                       hsb_version;    /**< change version */
         unsigned int                hsb_index;      /**< index of bucket */
         int                         hsb_depmax;     /**< max depth on bucket */
-        char                        hsb_head[0];    /**< hash-head array */
+        long                        hsb_head[0];    /**< hash-head array */
 } cfs_hash_bucket_t;
 
 /**
