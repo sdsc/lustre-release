@@ -44,6 +44,7 @@
 #include <linux/string.h>
 #else
 #include <liblustre.h>
+#include <string.h>
 #include <obd_class.h>
 #include <obd.h>
 #endif
@@ -902,8 +903,8 @@ static int class_set_global(char *ptr, int val, struct lustre_cfg *lcfg)
 		at_history = val;
 	else if (class_match_param(ptr, PARAM_JOBID_VAR, NULL) == 0) {
 		memset(obd_jobid_var, 0, JOBSTATS_JOBID_VAR_MAX_LEN + 1);
-		memcpy(obd_jobid_var, lustre_cfg_string(lcfg, 2),
-		       JOBSTATS_JOBID_VAR_MAX_LEN + 1);
+		strlcpy(obd_jobid_var, lustre_cfg_string(lcfg, 2),
+			JOBSTATS_JOBID_VAR_MAX_LEN + 1);
 	} else
 		RETURN(-EINVAL);
 
