@@ -2547,6 +2547,7 @@ thread_sanity() {
         local facet=$2
         local parampat=$3
         local opts=$4
+	local basethr=$5
         local tmin
         local tmin2
         local tmax
@@ -2554,7 +2555,7 @@ thread_sanity() {
         local tstarted
         local paramp
         local msg="Insane $modname thread counts"
-	local ncpts=$(check_cpt_number)
+	local ncpts=$(check_cpt_number $facet)
         shift 4
 
         setup
@@ -2602,7 +2603,8 @@ thread_sanity() {
         LOAD_MODULES_REMOTE=true
         cleanup
         local oldvalue
-        setmodopts -a $modname "$opts" oldvalue
+	local newvalue="${opts}=$(expr $basethr \* $ncpts)"
+	setmodopts -a $modname "$newvalue" oldvalue
 
         load_modules
         setup
@@ -2627,20 +2629,12 @@ thread_sanity() {
 }
 
 test_53a() {
-	local ncpts=$(check_cpt_number)
-	local nthrs
-
-	nthrs=`expr 16 \* $ncpts`
-	thread_sanity OST ost1 'ost.*.ost' 'oss_num_threads='$nthrs
+	thread_sanity OST ost1 'ost.*.ost' 'oss_num_threads' '16'
 }
 run_test 53a "check OSS thread count params"
 
 test_53b() {
-	local ncpts=$(check_cpt_number)
-	local nthrs
-
-	nthrs=`expr 16 \* $ncpts`
-	thread_sanity MDT $SINGLEMDS 'mdt.*.*.' 'mdt_num_threads='$nthrs
+	thread_sanity MDT $SINGLEMDS 'mdt.*.*.' 'mdt_num_threads' '16'
 }
 run_test 53b "check MDT thread count params"
 
