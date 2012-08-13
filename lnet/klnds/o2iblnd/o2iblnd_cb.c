@@ -2990,28 +2990,29 @@ kiblnd_cm_callback(struct rdma_cm_id *cmid, struct rdma_cm_event *event)
 static int
 kiblnd_check_txs_locked(kib_conn_t *conn, cfs_list_t *txs)
 {
-        kib_tx_t          *tx;
-        cfs_list_t        *ttmp;
+	kib_tx_t	*tx;
+	cfs_list_t	*ttmp;
 
-        cfs_list_for_each (ttmp, txs) {
-                tx = cfs_list_entry (ttmp, kib_tx_t, tx_list);
+	cfs_list_for_each (ttmp, txs) {
+		tx = cfs_list_entry (ttmp, kib_tx_t, tx_list);
 
-                if (txs != &conn->ibc_active_txs) {
-                        LASSERT (tx->tx_queued);
-                } else {
-                        LASSERT (!tx->tx_queued);
-                        LASSERT (tx->tx_waiting || tx->tx_sending != 0);
-                }
+		if (txs != &conn->ibc_active_txs) {
+			LASSERT (tx->tx_queued);
+		} else {
+			LASSERT (!tx->tx_queued);
+			LASSERT (tx->tx_waiting || tx->tx_sending != 0);
+		}
 
-                if (cfs_time_aftereq (jiffies, tx->tx_deadline)) {
-                        CERROR("Timed out tx: %s, %lu seconds\n",
-                               kiblnd_queue2str(conn, txs),
-                               cfs_duration_sec(jiffies - tx->tx_deadline));
-                        return 1;
-                }
-        }
+		if (cfs_time_aftereq (jiffies, tx->tx_deadline)) {
+			CERROR("Timed out tx: %s, %lu seconds\n",
+			       kiblnd_queue2str(conn, txs),
+			       *kiblnd_tunables.kib_timeout +
+			       cfs_duration_sec(jiffies - tx->tx_deadline));
+			return 1;
+		}
+	}
 
-        return 0;
+	return 0;
 }
 
 static int
