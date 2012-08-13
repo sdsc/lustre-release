@@ -490,7 +490,6 @@ struct ll_sb_info {
                                                  * clustred nfs */
         struct rmtacl_ctl_table   ll_rct;
         struct eacl_table         ll_et;
-        struct vfsmount          *ll_mnt;
 };
 
 #define LL_DEFAULT_MAX_RW_CHUNK      (32 * 1024 * 1024)
@@ -669,9 +668,10 @@ static void lprocfs_llite_init_vars(struct lprocfs_static_vars *lvars)
 void ll_release_page(struct page *page, int remove);
 extern struct file_operations ll_dir_operations;
 extern struct inode_operations ll_dir_inode_operations;
-struct page *ll_get_dir_page(struct file *filp, struct inode *dir, __u64 hash,
+struct page *ll_get_dir_page(struct inode *dir, __u64 hash,
                              struct ll_dir_chain *chain);
-int ll_readdir(struct file *filp, void *cookie, filldir_t filldir);
+int ll_dir_read(struct inode *inode, __u64 *_pos, __u64 *_next, void *cookie,
+		filldir_t filldir);
 
 int ll_get_mdt_idx(struct inode *inode);
 char *ll_get_fsname(struct inode *inode);

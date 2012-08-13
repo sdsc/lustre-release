@@ -463,7 +463,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         CDEBUG(D_SUPER, "rootfid "DFID"\n", PFID(&sbi->ll_root_fid));
 
         sb->s_op = &lustre_super_operations;
-#if THREAD_SIZE >= 8192 /*b=17630*/ && !defined(HAVE_FSTYPE_MOUNT) /*LU-812*/
+#if THREAD_SIZE >= 8192 /*b=17630*/
         sb->s_export_op = &lustre_export_operations;
 #endif
 
@@ -558,7 +558,6 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         uuid = obd_get_uuid(sbi->ll_md_exp);
         if (uuid != NULL)
                 sb->s_dev = get_uuid2int(uuid->uuid, strlen(uuid->uuid));
-        sbi->ll_mnt = mnt;
 
         if (data != NULL)
                 OBD_FREE_PTR(data);
