@@ -1490,6 +1490,19 @@ test_105()
 }
 run_test 105 "IR: NON IR clients support"
 
+test_106() /* LU-1716 */
+{
+#define OBD_FAIL_PTLRPC_DELAY_CONNECT 0x516
+	zconf_umount `hostname` $DIR
+	do_facet mgs "lctl set_param fail_loc=0x516"
+	zconf_mount `hostname` $DIR ||
+		{ error "Failed to mount $DIR"; return 2; }
+	touch $DIR/$tfile
+	do_facet mgs "lctl set_param fail_loc=0"
+	return 0;
+}
+run_test 106 "interop mount failure"
+
 complete $(basename $0) $SECONDS
 check_and_cleanup_lustre
 exit_status
