@@ -608,8 +608,10 @@ int server_disconnect_export(struct obd_export *exp)
         /* Disconnect early so that clients can't keep using export */
         rc = class_disconnect(exp);
         /* close import for avoid sending any requests */
-        if (exp->exp_imp_reverse)
-                ptlrpc_cleanup_imp(exp->exp_imp_reverse);
+	if (exp->exp_imp_reverse) {
+		ptlrpc_cleanup_imp(exp->exp_imp_reverse);
+		exp->exp_imp_reverse = NULL;
+	}
 
         if (exp->exp_obd->obd_namespace != NULL)
                 ldlm_cancel_locks_for_export(exp);
@@ -875,9 +877,9 @@ int target_handle_connect(struct ptlrpc_request *req)
         if (obd_uuid_equals(&cluuid, &target->obd_uuid))
                 goto dont_check_exports;
 
-        export = cfs_hash_lookup(target->obd_uuid_hash, &cluuid);
-        if (!export)
-                goto no_export;
+	export = cfs_hash_lookup(target->obd_uuid_hash, &cluuid);
+	if (!export || export->exp_disconnected)
+		goto no_export;
 
         /* we've found an export in the hash */
         if (export->exp_connecting) { /* bug 9635, et. al. */
