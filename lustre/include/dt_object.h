@@ -846,6 +846,9 @@ struct dt_object *local_file_find_or_create_with_fid(const struct lu_env *env,
 int dt_lookup_dir(const struct lu_env *env, struct dt_object *dir,
 		  const char *name, struct lu_fid *fid);
 
+int dt_lookup_dir(const struct lu_env *env, struct dt_object *dir,
+		  const char *name, struct lu_fid *fid);
+
 static inline int dt_object_sync(const struct lu_env *env,
                                  struct dt_object *o)
 {
