@@ -668,6 +668,33 @@ struct dt_object {
         const struct dt_index_operations  *do_index_ops;
 };
 
+/*
+ * on-disk structure describing local object OIDs storage
+ */
+struct los_ondisk {
+	__u32 lso_magic;
+	__u32 lso_next_oid;
+};
+
+/*
+ * In-core representation of per-device local object OID storage
+ */
+struct local_oid_storage {
+	/* all initialized llog systems on this node linked by this */
+	cfs_list_t	  los_list;
+
+	/* how many handle's reference this los has */
+	cfs_atomic_t	  los_refcount;
+	struct dt_device *los_dev;
+	struct lu_device *los_top; /* top might differ from lu_site top */
+	struct dt_object *los_obj;
+
+	/* data used to generate new fids */
+	cfs_mutex_t	  los_id_lock;
+	__u64		  los_seq;
+	__u32		  los_last_oid;
+};
+
 static inline struct dt_object *lu2dt(struct lu_object *l)
 {
         LASSERT(l == NULL || IS_ERR(l) || lu_device_is_dt(l->lo_dev));
@@ -780,6 +807,40 @@ struct dt_object *dt_find_or_create(const struct lu_env *env,
 struct dt_object *dt_locate(const struct lu_env *env,
                             struct dt_device *dev,
                             const struct lu_fid *fid);
+struct dt_object *dt_locate_at(const struct lu_env *env,
+			       struct dt_device *dev,
+			       const struct lu_fid *fid,
+			       struct lu_device *top_dev);
+
+int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
+			   struct lu_device *top,
+			   const struct lu_fid *first_fid,
+			   struct local_oid_storage **los);
+void local_oid_storage_fini(const struct lu_env *env,
+			    struct local_oid_storage *los);
+int local_object_fid_generate(const struct lu_env *env,
+			      struct local_oid_storage *los,
+			      struct lu_fid *fid);
+int local_object_declare_create(const struct lu_env *env,
+				struct local_oid_storage *los,
+				struct dt_object *o,
+				struct lu_attr *attr,
+				struct dt_object_format *dof,
+				struct thandle *th);
+int local_object_create(const struct lu_env *env,
+			struct local_oid_storage *los,
+			struct dt_object *o,
+			struct lu_attr *attr, struct dt_object_format *dof,
+			struct thandle *th);
+struct dt_object *local_file_find_or_create(const struct lu_env *env,
+					    struct local_oid_storage *los,
+					    struct dt_object *parent,
+					    const char *name, __u32 mode);
+struct dt_object *local_index_find_or_create(const struct lu_env *env,
+					     struct local_oid_storage *los,
+					     struct dt_object *parent,
+					     const char *name, __u32 mode,
+					     struct dt_index_features *idx_feat);
 
 static inline int dt_object_sync(const struct lu_env *env,
                                  struct dt_object *o)
