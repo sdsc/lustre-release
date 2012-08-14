@@ -2659,21 +2659,19 @@ formatall() {
 		echo "Format mgs: $(mgsdevname)"
 		add mgs $(mkfs_opts mgs) --reformat $(mgsdevname) \
 			$(mgsvdevname) ${quiet:+>/dev/null} || exit 10
-		fi
+	fi
 
-		for num in `seq $MDSCOUNT`; do
-			echo "Format mds$num: $(mdsdevname $num)"
-			add mds$num $(mkfs_opts mds$num) --reformat \
-			$(mdsdevname $num) $(mdsvdevname $num) \
-			${quiet:+>/dev/null} || exit 10
-		done
+	for num in `seq $MDSCOUNT`; do
+		echo "Format mds$num: $(mdsdevname $num)"
+		add mds$num $(mkfs_opts mds$num) --reformat $(mdsdevname $num) \
+			$(mdsvdevname $num) ${quiet:+>/dev/null} || exit 10
+	done
 
-		for num in `seq $OSTCOUNT`; do
-			echo "Format ost$num: $(ostdevname $num)"
-			add ost$num $(mkfs_opts ost$num) --reformat \
-			$(ostdevname $num) $(ostvdevname ${num}) \
-			${quiet:+>/dev/null} || exit 10
-		done
+	for num in `seq $OSTCOUNT`; do
+		echo "Format ost$num: $(ostdevname $num)"
+		add ost$num $(mkfs_opts ost$num) --reformat $(ostdevname $num) \
+			$(ostvdevname ${num}) ${quiet:+>/dev/null} || exit 10
+	done
 }
 
 mount_client() {
