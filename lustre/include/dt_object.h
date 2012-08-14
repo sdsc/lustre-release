@@ -842,6 +842,9 @@ struct dt_object *local_index_find_or_create(const struct lu_env *env,
 					     const char *name, __u32 mode,
 					     struct dt_index_features *idx_feat);
 
+int dt_lookup_dir(const struct lu_env *env, struct dt_object *dir,
+		  const char *name, struct lu_fid *fid);
+
 static inline int dt_object_sync(const struct lu_env *env,
                                  struct dt_object *o)
 {
