@@ -171,7 +171,8 @@ struct mgs_device {
 	struct ptlrpc_service		*mgs_service;
 	struct dt_device		*mgs_bottom;
 	struct obd_export		*mgs_bottom_exp;
-	struct dentry			*mgs_configs_dir;
+	struct dt_object		*mgs_configs_dir;
+	struct dentry			*mgs_configs_dir_old;
 	struct dt_object		*mgs_nidtbl_dir;
 	cfs_list_t			 mgs_fs_db_list;
 	cfs_spinlock_t			 mgs_lock; /* covers mgs_fs_db_list */
