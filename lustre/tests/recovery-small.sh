@@ -1189,8 +1189,8 @@ check_target_ir_state()
 
         st=$(do_facet $target "lctl get_param -n $recovery_proc |
                                awk '/IR:/{ print \\\$2}'")
-        [ $st != ON -o $st != OFF ] ||
-                error "Error state $st, must be ON or OFF"
+	[ $st != ON -o $st != OFF -o $st != ENABLED -o $st != DISABLED ] ||
+		error "Error state $st, must be ENABLED or DISABLED"
         echo -n $st
 }
 
