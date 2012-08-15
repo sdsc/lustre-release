@@ -1312,7 +1312,7 @@ check_llog_rec_hdr(void)
         CHECK_MEMBER(llog_rec_hdr, lrh_len);
         CHECK_MEMBER(llog_rec_hdr, lrh_index);
         CHECK_MEMBER(llog_rec_hdr, lrh_type);
-        CHECK_MEMBER(llog_rec_hdr, lrh_padding);
+        CHECK_MEMBER(llog_rec_hdr, lrh_id);
 }
 
 static void

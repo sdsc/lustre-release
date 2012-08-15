@@ -454,9 +454,8 @@ static int llog_lvfs_next_block(struct llog_handle *loghandle, int *cur_idx,
                 tail = (struct llog_rec_tail *)((char *)buf + rc -
                                                 sizeof(struct llog_rec_tail));
 
-                if (LLOG_REC_HDR_NEEDS_SWABBING(rec)) {
-                        lustre_swab_llog_rec(rec, tail);
-                }
+		if (LLOG_REC_HDR_NEEDS_SWABBING(rec))
+			lustre_swab_llog_rec(rec);
 
                 *cur_idx = tail->lrt_index;
 
