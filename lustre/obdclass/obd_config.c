@@ -47,10 +47,9 @@
 #include <obd_class.h>
 #include <obd.h>
 #endif
-#include <lustre_log.h>
-#include <lprocfs_status.h>
-#include <libcfs/list.h>
 #include <lustre_param.h>
+
+#include "llog_internal.h"
 
 static cfs_hash_ops_t uuid_hash_ops;
 static cfs_hash_ops_t nid_hash_ops;
@@ -1260,9 +1259,6 @@ int class_process_proc_param(char *prefix, struct lprocfs_vars *lvars,
 }
 EXPORT_SYMBOL(class_process_proc_param);
 
-int class_config_dump_handler(struct llog_handle * handle,
-                              struct llog_rec_hdr *rec, void *data);
-
 #ifdef __KERNEL__
 extern int lustre_check_exclusion(struct super_block *sb, char *svname);
 #else
@@ -1274,8 +1270,9 @@ extern int lustre_check_exclusion(struct super_block *sb, char *svname);
  * records, change uuids, etc), then class_process_config() resulting
  * net records.
  */
-static int class_config_llog_handler(struct llog_handle * handle,
-                                     struct llog_rec_hdr *rec, void *data)
+static int class_config_llog_handler(const struct lu_env *env,
+				     struct llog_handle *handle,
+				     struct llog_rec_hdr *rec, void *data)
 {
         struct config_llog_instance *clli = data;
         int cfg_len = rec->lrh_len;
@@ -1455,7 +1452,7 @@ static int class_config_llog_handler(struct llog_handle * handle,
 out:
         if (rc) {
                 CERROR("Err %d on cfg command:\n", rc);
-                class_config_dump_handler(handle, rec, data);
+		class_config_dump_handler(NULL, handle, rec, data);
         }
         RETURN(rc);
 }
@@ -1499,8 +1496,9 @@ parse_out:
 }
 EXPORT_SYMBOL(class_config_parse_llog);
 
-int class_config_dump_handler(struct llog_handle * handle,
-                              struct llog_rec_hdr *rec, void *data)
+int class_config_dump_handler(const struct lu_env *env,
+			      struct llog_handle *handle,
+			      struct llog_rec_hdr *rec, void *data)
 {
         int cfg_len = rec->lrh_len;
         char *cfg_buf = (char*) (rec + 1);
