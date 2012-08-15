@@ -1,4 +1,4 @@
-.TH LLAPI_FILE_OPEN 3 "2009 Jul 10" Lustre API
+.TH LUSTREAPI 3 "2009 Jul 10" The Lustre user application interface library
 .SH NAME
 llapi_file_open, llapi_file_create \- open and possibly create a file or a device on a Lustre filesystem
 .SH SYNOPSIS
@@ -6,13 +6,10 @@ llapi_file_open, llapi_file_create \- open and possibly create a file or a devic
 .B #include <sys/types.h>
 .B #include <sys/stat.h>
 .B #include <fcntl.h>
-.B #include <liblustre.h>
-.B #include <lustre/lustre_idl.h>
-.B #include <lustre/liblustreapi.h>
-.B #include <lustre/lustre_user.h>
+.B #include <lustre/lustreapi.h>
 .sp
-.BI "int llapi_file_open(const char *"name ", int " flags ", int " mode "," 
-.BI "                    unsigned long long " stripe_size ", int " stripe_offset "," 
+.BI "int llapi_file_open(const char *"name ", int " flags ", int " mode ","
+.BI "                    unsigned long long " stripe_size ", int " stripe_offset ","
 .BI "                    int " stripe_count ", int " stripe_pattern );
 
 .BI "int llapi_file_create(const char *" name ", unsigned long long " stripe_size ","
@@ -23,10 +20,10 @@ llapi_file_open, llapi_file_create \- open and possibly create a file or a devic
 .SH DESCRIPTION
 .LP
 .B llapi_file_create(\|)
-call is equivalent to 
+call is equivalent to
 .B llapi_file_open
-call with 
-.I flags 
+call with
+.I flags
 equal to
 .B O_CREAT|O_WRONLY
 and
@@ -36,12 +33,12 @@ equal to
 followed by file close.
 .PP
 .B llapi_file_open(\|)
-opens a file with a given 
+opens a file with a given
 .I name
 on a Lustre filesystem.
 .TP 15
 .I flags
-can be a combination of 
+can be a combination of
 .BR O_RDONLY ,
 .BR O_WRONLY ,
 .BR O_RDWR ,
@@ -85,9 +82,9 @@ specifies number of OSTs to stripe the file across, -1 to use the default settin
 specifies striping pattern, only LOV_PATTERN_RAID0 is available in this Lustre version, 0 to use the default setting.
 .SH RETURN VALUES
 .LP
-.B llapi_file_open(\|) 
-and 
-.B llapi_file_create(\|) 
+.B llapi_file_open(\|)
+and
+.B llapi_file_create(\|)
 return:
 .TP
 >=0
@@ -128,10 +125,7 @@ may not point to a Lustre filesystem.
 #include <fcntl.h>
 #include <errno.h>
 #include <stdio.h>
-#include <liblustre.h>
-#include <lustre/lustre_idl.h>
-#include <lustre/liblustreapi.h>
-#include <lustre/lustre_user.h>
+#include <lustre/lustreapi.h>
 int main(int argc, char *argv[])
 {
         int rc;
@@ -152,4 +146,4 @@ int main(int argc, char *argv[])
 .SH "SEE ALSO"
 .BR open (2),
 .BR lustre (7),
-.BR liblustreapi (7)
+.BR lustreapi (7)
