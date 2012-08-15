@@ -3668,13 +3668,14 @@ static int filter_destroy_precreated(struct obd_export *exp, struct obdo *oa,
         doa.o_seq = oa->o_seq;
         doa.o_mode = S_IFREG;
 
-        if (!cfs_test_bit(doa.o_seq, &filter->fo_destroys_in_progress)) {
-                CERROR("%s:["LPU64"] destroys_in_progress already cleared\n",
-                       exp->exp_obd->obd_name, doa.o_seq);
-                RETURN(0);
-        }
-
-        last = filter_last_id(filter, doa.o_seq);
+	last = filter_last_id(filter, doa.o_seq);
+	if (!cfs_test_bit(doa.o_seq, &filter->fo_destroys_in_progress)) {
+		CERROR("%s:["LPU64"] destroys_in_progress already cleared"
+			"last id "LPU64"\n", exp->exp_obd->obd_name, doa.o_seq,
+			last);
+		oa->o_id = last; 
+		RETURN(0);
+	}
 
         skip_orphan = !!(exp->exp_connect_flags & OBD_CONNECT_SKIP_ORPHAN);
 
