@@ -782,14 +782,17 @@ retry:
 
 	if (rc == -ENOSPC && retries == 0) {
 		void *handle = NULL;
+		void *wait_handle = NULL;
 
 		CDEBUG(D_INODE, "retry after commit pending journals");
 
 		retries = 1;
 		handle = fsfilt_start_log(obd, dentry->d_inode,
 					  FSFILT_OP_SETATTR, NULL, 1);
-		if (handle != NULL) {
-			fsfilt_commit_wait(obd, dentry->d_inode, handle);
+		if (handle != NULL &&
+		    fsfilt_commit_async(obd, dentry->d_inode,
+					handle, &wait_handle) == 0) {
+			fsfilt_commit_wait(obd, dentry->d_inode, wait_handle);
 			goto retry;
 		}
 	}
