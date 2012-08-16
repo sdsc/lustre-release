@@ -1106,7 +1106,7 @@ check_cli_ir_state()
         local st
         st=$(do_node $NODE "lctl get_param mgc.*.ir_state |
                             awk '/imperative_recovery:/ { print \\\$2}'")
-        [ $st != ON -o $st != OFF ] ||
+        [ $st != ON -o $st != OFF -o $st != ENABLED -o $st != DISABLED ] ||
                 error "Error state $st, must be ON or OFF"
         echo -n $st
 }
@@ -1120,7 +1120,7 @@ check_target_ir_state()
 
         st=$(do_facet $target "lctl get_param -n $recovery_proc |
                                awk '/IR:/{ print \\\$2}'")
-        [ $st != ON -o $st != OFF ] ||
+        [ $st != ON -o $st != OFF -o $st != ENABLED -o $st != DISABLED ] ||
                 error "Error state $st, must be ON or OFF"
         echo -n $st
 }
@@ -1337,7 +1337,8 @@ test_104()
         clients_up
 
         local ir_state=$(check_target_ir_state ost1)
-        [ $ir_state = "OFF" ] || error "ir status on ost1 should be OFF"
+        [ $ir_state = "OFF" -o $ir_state = "DISABLED" ] || \
+                error "ir status on ost1 should be OFF"
 }
 run_test 104 "IR: ost can disable IR voluntarily"
 
@@ -1357,7 +1358,8 @@ test_105()
 
         # make sure lustre mount at $rcli disabling IR
         local ir_state=$(check_cli_ir_state $rcli)
-        [ $ir_state = OFF ] || error "IR state must be OFF at $rcli"
+        [ $ir_state = "OFF" -o $ir_state = "DISABLED" ] ||
+                error "IR state must be OFF at $rcli"
 
         # make sure MGS's state is Partial
         [ $(get_ir_status) = "partial" ] || error "MGS IR state must be partial"
@@ -1365,7 +1367,8 @@ test_105()
         fail ost1
         # make sure IR on ost1 is OFF
         local ir_state=$(check_target_ir_state ost1)
-        [ $ir_state = "OFF" ] || error "IR status on ost1 should be OFF"
+        [ $ir_state = "OFF" -o $ir_state = "DISABLED" ] ||
+                error "IR status on ost1 should be OFF"
 
         # restore it
         MOUNTOPT=$old_MOUNTOPT
@@ -1378,7 +1381,8 @@ test_105()
         fail ost1
         # make sure IR on ost1 is ON
         local ir_state=$(check_target_ir_state ost1)
-        [ $ir_state = "ON" ] || error "IR status on ost1 should be OFF"
+        [ $ir_state = "ON" -o $ir_state = "ENABLED" ] ||
+                error "IR status on ost1 should be OFF"
 
         return 0
 }
