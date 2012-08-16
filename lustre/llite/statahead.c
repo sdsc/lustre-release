@@ -1119,7 +1119,7 @@ static int ll_statahead_thread(void *arg)
 
         plli->lli_sa_pos = 0;
         ll_dir_chain_init(&chain);
-        page = ll_get_dir_page(NULL, dir, pos, &chain);
+	page = ll_get_dir_page(dir, pos, &chain);
 
         while (1) {
                 struct lu_dirpage *dp;
@@ -1278,7 +1278,7 @@ do_it:
                                               LDF_COLLIDE);
                         plli->lli_sa_pos = pos;
                         sai->sai_in_readpage = 1;
-                        page = ll_get_dir_page(NULL, dir, pos, &chain);
+			page = ll_get_dir_page(dir, pos, &chain);
                         sai->sai_in_readpage = 0;
                 } else {
                         LASSERT(le32_to_cpu(dp->ldp_flags) & LDF_COLLIDE);
@@ -1405,7 +1405,7 @@ static int is_first_dirent(struct inode *dir, struct dentry *dentry)
 
         lli->lli_sa_pos = 0;
         ll_dir_chain_init(&chain);
-        page = ll_get_dir_page(NULL, dir, pos, &chain);
+	page = ll_get_dir_page(dir, pos, &chain);
 
         while (1) {
                 struct lu_dirpage *dp;
@@ -1493,7 +1493,7 @@ static int is_first_dirent(struct inode *dir, struct dentry *dentry)
                         ll_release_page(page, le32_to_cpu(dp->ldp_flags) &
                                               LDF_COLLIDE);
                         lli->lli_sa_pos = pos;
-                        page = ll_get_dir_page(NULL, dir, pos, &chain);
+			page = ll_get_dir_page(dir, pos, &chain);
                 } else {
                         /*
                          * go into overflow page.
