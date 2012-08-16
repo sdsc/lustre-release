@@ -159,7 +159,8 @@ static int llog_lvfs_read_blob(struct obd_device *obd, struct l_file *file,
         RETURN(0);
 }
 
-static int llog_lvfs_read_header(struct llog_handle *handle)
+static int llog_lvfs_read_header(const struct lu_env *env,
+				 struct llog_handle *handle)
 {
         struct obd_device *obd;
         int rc;
@@ -211,10 +212,11 @@ static int llog_lvfs_read_header(struct llog_handle *handle)
 
 /* returns negative in on error; 0 if success && reccookie == 0; 1 otherwise */
 /* appends if idx == -1, otherwise overwrites record idx. */
-static int llog_lvfs_write_rec(struct llog_handle *loghandle,
-                               struct llog_rec_hdr *rec,
-                               struct llog_cookie *reccookie, int cookiecount,
-                               void *buf, int idx)
+static int llog_lvfs_write_rec(const struct lu_env *env,
+			       struct llog_handle *loghandle,
+			       struct llog_rec_hdr *rec,
+			       struct llog_cookie *reccookie, int cookiecount,
+			       void *buf, int idx)
 {
         struct llog_log_hdr *llh;
         int reclen = rec->lrh_len, index, rc;
@@ -398,9 +400,10 @@ static void llog_skip_over(__u64 *off, int curr, int goal)
  *  - cur_idx to the log index preceeding cur_offset
  * returns -EIO/-EINVAL on error
  */
-static int llog_lvfs_next_block(struct llog_handle *loghandle, int *cur_idx,
-                                int next_idx, __u64 *cur_offset, void *buf,
-                                int len)
+static int llog_lvfs_next_block(const struct lu_env *env,
+				struct llog_handle *loghandle, int *cur_idx,
+				int next_idx, __u64 *cur_offset, void *buf,
+				int len)
 {
         int rc;
         ENTRY;
@@ -481,8 +484,9 @@ static int llog_lvfs_next_block(struct llog_handle *loghandle, int *cur_idx,
         RETURN(-EIO);
 }
 
-static int llog_lvfs_prev_block(struct llog_handle *loghandle,
-                                int prev_idx, void *buf, int len)
+static int llog_lvfs_prev_block(const struct lu_env *env,
+				struct llog_handle *loghandle,
+				int prev_idx, void *buf, int len)
 {
         __u64 cur_offset;
         int rc;
@@ -579,8 +583,9 @@ static struct file *llog_filp_open(char *dir, char *name, int flags, int mode)
 
 /* This is a callback from the llog_* functions.
  * Assumes caller has already pushed us into the kernel context. */
-static int llog_lvfs_create(struct llog_ctxt *ctxt, struct llog_handle **res,
-                            struct llog_logid *logid, char *name)
+static int llog_lvfs_create(const struct lu_env *env,
+			    struct llog_ctxt *ctxt, struct llog_handle **res,
+			    struct llog_logid *logid, char *name)
 {
         struct llog_handle *handle;
         struct obd_device *obd;
@@ -684,7 +689,8 @@ out:
         RETURN(rc);
 }
 
-static int llog_lvfs_close(struct llog_handle *handle)
+static int llog_lvfs_close(const struct lu_env *env,
+			   struct llog_handle *handle)
 {
         int rc;
         ENTRY;
@@ -695,7 +701,8 @@ static int llog_lvfs_close(struct llog_handle *handle)
         RETURN(rc);
 }
 
-static int llog_lvfs_destroy(struct llog_handle *handle)
+static int llog_lvfs_destroy(const struct lu_env *env,
+			     struct llog_handle *handle)
 {
         struct dentry *fdentry;
         struct obdo *oa;
@@ -716,7 +723,7 @@ static int llog_lvfs_destroy(struct llog_handle *handle)
 
                 push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
                 dget(fdentry);
-                rc = llog_lvfs_close(handle);
+                rc = llog_lvfs_close(env, handle);
 
 		if (rc == 0) {
 			mutex_lock_nested(&inode->i_mutex, I_MUTEX_PARENT);
@@ -740,7 +747,7 @@ static int llog_lvfs_destroy(struct llog_handle *handle)
 #undef o_generation
         oa->o_valid = OBD_MD_FLID | OBD_MD_FLGROUP | OBD_MD_FLGENER;
 
-        rc = llog_lvfs_close(handle);
+        rc = llog_lvfs_close(env, handle);
         if (rc)
                 GOTO(out, rc);
 
@@ -877,50 +884,57 @@ EXPORT_SYMBOL(llog_lvfs_ops);
 
 #else /* !__KERNEL__ */
 
-static int llog_lvfs_read_header(struct llog_handle *handle)
+static int llog_lvfs_read_header(const struct lu_env *env,
+				 struct llog_handle *handle)
 {
         LBUG();
         return 0;
 }
 
-static int llog_lvfs_write_rec(struct llog_handle *loghandle,
-                               struct llog_rec_hdr *rec,
-                               struct llog_cookie *reccookie, int cookiecount,
-                               void *buf, int idx)
+static int llog_lvfs_write_rec(const struct lu_env *env,
+			       struct llog_handle *loghandle,
+			       struct llog_rec_hdr *rec,
+			       struct llog_cookie *reccookie, int cookiecount,
+			       void *buf, int idx)
 {
         LBUG();
         return 0;
 }
 
-static int llog_lvfs_next_block(struct llog_handle *loghandle, int *cur_idx,
-                                int next_idx, __u64 *cur_offset, void *buf,
-                                int len)
+static int llog_lvfs_next_block(const struct lu_env *env,
+				struct llog_handle *loghandle, int *cur_idx,
+				int next_idx, __u64 *cur_offset, void *buf,
+				int len)
 {
         LBUG();
         return 0;
 }
 
-static int llog_lvfs_prev_block(struct llog_handle *loghandle,
-                                int prev_idx, void *buf, int len)
+static int llog_lvfs_prev_block(const struct lu_env *env,
+				struct llog_handle *loghandle,
+				int prev_idx, void *buf, int len)
 {
         LBUG();
         return 0;
 }
 
-static int llog_lvfs_create(struct llog_ctxt *ctxt, struct llog_handle **res,
-                            struct llog_logid *logid, char *name)
+static int llog_lvfs_create(const struct lu_env *env,
+			    struct llog_ctxt *ctxt, struct llog_handle **res,
+			    struct llog_logid *logid, char *name)
 {
         LBUG();
         return 0;
 }
 
-static int llog_lvfs_close(struct llog_handle *handle)
+static int llog_lvfs_close(const struct lu_env *env,
+			   struct llog_handle *handle)
 {
         LBUG();
         return 0;
 }
 
-static int llog_lvfs_destroy(struct llog_handle *handle)
+static int llog_lvfs_destroy(const struct lu_env *env,
+			     struct llog_handle *handle)
 {
         LBUG();
         return 0;

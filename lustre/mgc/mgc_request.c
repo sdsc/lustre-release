@@ -1549,11 +1549,11 @@ static int mgc_llog_is_empty(struct obd_device *obd, struct llog_ctxt *ctxt,
         int rc = 0;
 
         push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
-        rc = llog_create(ctxt, &llh, NULL, name);
+	rc = llog_create(NULL, ctxt, &llh, NULL, name);
         if (rc == 0) {
-                llog_init_handle(llh, LLOG_F_IS_PLAIN, NULL);
+		llog_init_handle(NULL, llh, LLOG_F_IS_PLAIN, NULL);
                 rc = llog_get_size(llh);
-                llog_close(llh);
+		llog_close(NULL, llh);
         }
         pop_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
         /* header is record 1 */
@@ -1572,7 +1572,7 @@ static int mgc_copy_handler(const struct lu_env *env, struct llog_handle *llh,
 
         /* Append all records */
         local_rec.lrh_len -= sizeof(*rec) + sizeof(struct llog_rec_tail);
-        rc = llog_write_rec(local_llh, &local_rec, NULL, 0,
+	rc = llog_write_rec(NULL, local_llh, &local_rec, NULL, 0,
                             (void *)cfg_buf, -1);
 
         lcfg = (struct lustre_cfg *)cfg_buf;
@@ -1602,35 +1602,35 @@ static int mgc_copy_llog(struct obd_device *obd, struct llog_ctxt *rctxt,
         sprintf(temp_log, "%sT", logname);
 
         /* Make sure there's no old temp log */
-        rc = llog_create(lctxt, &local_llh, NULL, temp_log);
+	rc = llog_create(NULL, lctxt, &local_llh, NULL, temp_log);
         if (rc)
                 GOTO(out, rc);
-        rc = llog_init_handle(local_llh, LLOG_F_IS_PLAIN, NULL);
+	rc = llog_init_handle(NULL, local_llh, LLOG_F_IS_PLAIN, NULL);
         if (rc)
                 GOTO(out, rc);
-        rc = llog_destroy(local_llh);
+	rc = llog_destroy(NULL, local_llh);
         llog_free_handle(local_llh);
         if (rc)
                 GOTO(out, rc);
 
         /* open local log */
-        rc = llog_create(lctxt, &local_llh, NULL, temp_log);
+	rc = llog_create(NULL, lctxt, &local_llh, NULL, temp_log);
         if (rc)
                 GOTO(out, rc);
 
         /* set the log header uuid for fun */
         OBD_ALLOC_PTR(uuid);
         obd_str2uuid(uuid, logname);
-        rc = llog_init_handle(local_llh, LLOG_F_IS_PLAIN, uuid);
+	rc = llog_init_handle(NULL, local_llh, LLOG_F_IS_PLAIN, uuid);
         OBD_FREE_PTR(uuid);
         if (rc)
                 GOTO(out_closel, rc);
 
         /* open remote log */
-        rc = llog_create(rctxt, &remote_llh, NULL, logname);
+	rc = llog_create(NULL, rctxt, &remote_llh, NULL, logname);
         if (rc)
                 GOTO(out_closel, rc);
-        rc = llog_init_handle(remote_llh, LLOG_F_IS_PLAIN, NULL);
+	rc = llog_init_handle(NULL, remote_llh, LLOG_F_IS_PLAIN, NULL);
         if (rc)
                 GOTO(out_closer, rc);
 
@@ -1639,11 +1639,11 @@ static int mgc_copy_llog(struct obd_device *obd, struct llog_ctxt *rctxt,
 			  (void *)local_llh, NULL);
 
 out_closer:
-        rc2 = llog_close(remote_llh);
+	rc2 = llog_close(NULL, remote_llh);
         if (!rc)
                 rc = rc2;
 out_closel:
-        rc2 = llog_close(local_llh);
+	rc2 = llog_close(NULL, local_llh);
         if (!rc)
                 rc = rc2;
 
