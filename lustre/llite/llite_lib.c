@@ -1439,12 +1439,12 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
 
 	if (!S_ISDIR(inode->i_mode)) {
 		if (ia_valid & ATTR_SIZE)
-			UP_WRITE_I_ALLOC_SEM(inode);
+			up_write(&inode->i_alloc_sem);
 		mutex_unlock(&inode->i_mutex);
 		cfs_down_write(&lli->lli_trunc_sem);
 		mutex_lock(&inode->i_mutex);
 		if (ia_valid & ATTR_SIZE)
-			DOWN_WRITE_I_ALLOC_SEM(inode);
+			down_write(&inode->i_alloc_sem);
 	}
 
 	/* We need a steady stripe configuration for setattr to avoid

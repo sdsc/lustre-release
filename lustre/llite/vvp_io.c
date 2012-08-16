@@ -295,7 +295,7 @@ static int vvp_io_setattr_iter_init(const struct lu_env *env,
 	 */
 	mutex_unlock(&inode->i_mutex);
 	if (cl_io_is_trunc(ios->cis_io))
-		UP_WRITE_I_ALLOC_SEM(inode);
+		up_write(&inode->i_alloc_sem);
 	cio->u.setattr.cui_locks_released = 1;
 	return 0;
 }
@@ -348,7 +348,7 @@ static int vvp_io_setattr_trunc(const struct lu_env *env,
                                 const struct cl_io_slice *ios,
                                 struct inode *inode, loff_t size)
 {
-	DOWN_WRITE_I_ALLOC_SEM(inode);
+	down_write(&inode->i_alloc_sem);
 	return 0;
 }
 
@@ -420,7 +420,7 @@ static void vvp_io_setattr_fini(const struct lu_env *env,
 	if (cio->u.setattr.cui_locks_released) {
 		mutex_lock(&inode->i_mutex);
 		if (cl_io_is_trunc(io))
-			DOWN_WRITE_I_ALLOC_SEM(inode);
+			down_write(&inode->i_alloc_sem);
 		cio->u.setattr.cui_locks_released = 0;
 	}
 	vvp_io_fini(env, ios);
@@ -692,7 +692,7 @@ static int vvp_io_fault_start(const struct lu_env *env,
 		/* we grab alloc_sem to exclude truncate case.
 		 * Otherwise, we could add dirty pages into osc cache
 		 * while truncate is on-going. */
-		DOWN_READ_I_ALLOC_SEM(inode);
+		down_read(&inode->i_alloc_sem);
 
                 LASSERT(cfio->ft_vmpage != NULL);
                 lock_page(cfio->ft_vmpage);
@@ -778,7 +778,7 @@ out:
 	if (vmpage != NULL)
 		unlock_page(vmpage);
 	if (fio->ft_mkwrite)
-		UP_READ_I_ALLOC_SEM(inode);
+		up_read(&inode->i_alloc_sem);
 #ifdef HAVE_VM_OP_FAULT
 	cfio->fault.ft_flags &= ~VM_FAULT_LOCKED;
 #endif
