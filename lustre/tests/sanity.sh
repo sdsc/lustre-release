@@ -7291,6 +7291,7 @@ som_mode_switch() {
         local gl1=$2
         local gl2=$3
 
+	echo "ldlm_glimpse_enqueue: old = $gl1, new = $gl2"
         if [ x$som = x"enabled" ]; then
                 [ $((gl2 - gl1)) -gt 0 ] && error "no glimpse RPC is expected"
                 MOUNTOPT=`echo $MOUNTOPT | sed 's/som_preview//g'`
@@ -7321,6 +7322,7 @@ test_132() { #1028, SOM
 
         gl1=$(get_ost_param "ldlm_glimpse_enqueue")
         stat $DIR/$tfile >/dev/null
+	sleep 1
         gl2=$(get_ost_param "ldlm_glimpse_enqueue")
         echo "====> SOM is "$som1", "$((gl2 - gl1))" glimpse RPC occured"
         rm $DIR/$tfile
