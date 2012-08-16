@@ -1517,7 +1517,7 @@ static int qslave_recovery_main(void *arg)
                 int ret;
 
 		mutex_lock(&dqopt->dqonoff_mutex);
-		if (!sb_any_quota_loaded(qctxt->lqc_sb, type)) {
+		if (!sb_has_quota_active(qctxt->lqc_sb, type)) {
 			mutex_unlock(&dqopt->dqonoff_mutex);
 			break;
 		}

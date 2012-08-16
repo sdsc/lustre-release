@@ -368,7 +368,7 @@ int dqacq_handler(struct obd_device *obd, struct qunit_data *qdata, int opc)
         if (OBD_FAIL_CHECK(OBD_FAIL_OBD_DQACQ))
                 RETURN(-EIO);
 
-	if (!sb_any_quota_loaded(qctxt->lqc_sb,
+	if (!sb_has_quota_active(qctxt->lqc_sb,
 				    QDATA_IS_GRP(qdata) ? GRPQUOTA : USRQUOTA))
                 RETURN(-EIO);
 
