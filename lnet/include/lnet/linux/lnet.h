@@ -58,6 +58,11 @@
 #define cfs_tcp_sendpage(sk, page, offset, size, flags) \
         tcp_sendpage(sk, page, offset, size, flags)
 #endif
+
+#ifndef HAVE_SCATTERLIST_INITTABLE
+#define sg_init_table(sg, nents) memset(sg, 0, sizeof(*(sg))*(nents))
+#endif
+
 #else
 #include <sys/types.h>
 #include <sys/uio.h>
