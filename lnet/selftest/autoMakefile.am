@@ -1,10 +1,8 @@
-my_sources = console.c conrpc.c conctl.c console.h conrpc.h \
-	     framework.c timer.c rpc.c module.c \
-	     ping_test.c brw_test.c
 
 if LIBLUSTRE
 noinst_LIBRARIES= libselftest.a
-libselftest_a_SOURCES= $(my_sources)
+libselftest_a_SOURCES= $(lnet_selftest-objs:%.o=%.c) console.h conrpc.h \
+			rpc.h selftest.h timer.h
 libselftest_a_CPPFLAGS = $(LLCPPFLAGS)
 libselftest_a_CFLAGS = $(LLCFLAGS)
 endif

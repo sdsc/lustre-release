@@ -38,5 +38,5 @@ if MODULES
 modulefs_DATA = cmm$(KMODEXT)
 endif
 
-MOSTLYCLEANFILES := @MOSTLYCLEANFILES@ 
+MOSTLYCLEANFILES = @MOSTLYCLEANFILES@
 EXTRA_DIST = $(cmm-objs:%.o=%.c) cmm_internal.h mdc_internal.h

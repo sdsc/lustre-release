@@ -1,6 +1,6 @@
 MODULES = libcfs
 
-libcfs-linux-objs := linux-tracefile.o linux-debug.o
+libcfs-linux-objs = linux-tracefile.o linux-debug.o
 libcfs-linux-objs += linux-prim.o linux-mem.o linux-cpu.o
 libcfs-linux-objs += linux-fs.o linux-sync.o linux-tcpip.o
 libcfs-linux-objs += linux-lwt.o linux-proc.o linux-curproc.o
@@ -8,19 +8,19 @@ libcfs-linux-objs += linux-utils.o linux-module.o
 libcfs-linux-objs += linux-crypto.o linux-crypto-crc32.o
 libcfs-linux-objs += linux-crypto-adler.o
 
-libcfs-pclmul-obj :=
+libcfs_pclmul_obj =
 
 ifeq ($(ARCH),x86)
 libcfs-linux-objs += linux-crypto-crc32pclmul.o
-libcfs-pclmul-obj += crc32-pclmul_asm.o
+libcfs_pclmul_obj += crc32-pclmul_asm.o
 endif
 ifeq ($(ARCH),i386)
 libcfs-linux-objs += linux-crypto-crc32pclmul.o
-libcfs-pclmul-obj += crc32-pclmul_asm.o
+libcfs_pclmul_obj += crc32-pclmul_asm.o
 endif
 ifeq ($(ARCH),x86_64)
 libcfs-linux-objs += linux-crypto-crc32pclmul.o
-libcfs-pclmul-obj += crc32-pclmul_asm.o
+libcfs_pclmul_obj += crc32-pclmul_asm.o
 endif
 
 default: all
@@ -39,13 +39,13 @@ libcfs-linux-objs := $(addprefix linux/,$(libcfs-linux-objs))
 
 endif
 
-libcfs-all-objs := debug.o fail.o nidstrings.o lwt.o module.o tracefile.o \
+libcfs_all_objs = debug.o fail.o nidstrings.o lwt.o tracefile.o module.o \
 		   watchdog.o libcfs_string.o hash.o kernel_user_comm.o \
 		   prng.o workitem.o upcall_cache.o libcfs_cpu.o \
-		   libcfs_mem.o libcfs_lock.o
+		   libcfs_mem.o libcfs_lock.o $(libcfs_pclmul_obj)
 
-libcfs-objs := $(libcfs-linux-objs) $(libcfs-all-objs) $(libcfs-pclmul-obj)
+libcfs-objs = $(libcfs-linux-objs) $(libcfs-all-objs) $(libcfs-pclmul-obj)
 
-EXTRA_PRE_CFLAGS := -I@LUSTRE@/../libcfs/libcfs
+EXTRA_PRE_CFLAGS = -I@LUSTRE@/../libcfs/libcfs
 
 @INCLUDE_RULES@
