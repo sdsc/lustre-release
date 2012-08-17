@@ -75,8 +75,9 @@ extern struct address_space_operations_ext ll_dir_aops;
 
 static struct ll_sb_info *ll_init_sbi(void)
 {
-        struct ll_sb_info *sbi = NULL;
-        unsigned long pages;
+	struct ll_sb_info *sbi = NULL;
+	unsigned long pages;
+	unsigned long lru_page_max;
         struct sysinfo si;
         class_uuid_t uuid;
         int i;
@@ -96,13 +97,20 @@ static struct ll_sb_info *ll_init_sbi(void)
         pages = si.totalram - si.totalhigh;
         if (pages >> (20 - CFS_PAGE_SHIFT) < 512) {
 #ifdef HAVE_BGL_SUPPORT
-                sbi->ll_async_page_max = pages / 4;
+		lru_page_max = pages / 4;
 #else
-                sbi->ll_async_page_max = pages / 2;
+		lru_page_max = pages / 2;
 #endif
-        } else {
-                sbi->ll_async_page_max = (pages / 4) * 3;
-        }
+	} else {
+		lru_page_max = (pages / 4) * 3;
+	}
+
+	/* initialize lru data */
+	cfs_atomic_set(&sbi->ll_lru.ccl_users, 0);
+	sbi->ll_lru.ccl_page_max = lru_page_max;
+	cfs_atomic_set(&sbi->ll_lru.ccl_page_left, lru_page_max);
+	cfs_spin_lock_init(&sbi->ll_lru.ccl_lock);
+	CFS_INIT_LIST_HEAD(&sbi->ll_lru.ccl_list);
 
         sbi->ll_ra_info.ra_max_pages_per_file = min(pages / 32,
                                            SBI_DEFAULT_READAHEAD_MAX);
@@ -539,7 +547,11 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                                  NULL);
         cl_sb_init(sb);
 
-        sb->s_root = d_alloc_root(root);
+	err = obd_set_info_async(NULL, sbi->ll_dt_exp, sizeof(KEY_LRU_SET),
+				 KEY_LRU_SET, sizeof(sbi->ll_lru),
+				 &sbi->ll_lru, NULL);
+
+	sb->s_root = d_alloc_root(root);
 #ifdef HAVE_DCACHE_LOCK
 	sb->s_root->d_op = &ll_d_root_ops;
 #else
@@ -2147,8 +2159,8 @@ int ll_prep_inode(struct inode **inode,
 	if (S_ISREG(md.body->mode) && sbi->ll_flags & LL_SBI_LAYOUT_LOCK &&
 	    md.lsm != NULL && !ll_have_md_lock(*inode, &ibits, LCK_MINMODE)) {
 		CERROR("%s: inode "DFID" (%p) layout lock not granted.\n",
-			ll_get_fsname(*inode), PFID(ll_inode2fid(*inode)),
-			*inode);
+			ll_get_fsname(sbi, NULL, 0),
+			PFID(ll_inode2fid(*inode)), *inode);
 	}
 
 out:
@@ -2343,4 +2355,37 @@ int ll_get_obd_name(struct inode *inode, unsigned int cmd, unsigned long arg)
                 RETURN(-EFAULT);
 
         RETURN(0);
+}
+
+/**
+ * Get lustre file system name by \a sbi. If \a buf is provided(non-NULL), the
+ * fsname will be returned in this buffer; otherwise, a static buffer will be
+ * used to store the fsname and returned to caller.
+ */
+char *ll_get_fsname(struct ll_sb_info *sbi, char *buf, int buflen)
+{
+	static char fsname_static[MTI_NAME_MAXLEN];
+	struct lustre_sb_info *lsi = s2lsi(sbi->ll_mnt->mnt_sb);
+	char *ptr;
+	int len;
+
+	if (buf == NULL) {
+		/* this means the caller wants to use static buffer
+		 * and it doesn't care about race. Usually this is
+		 * in error reporting path */
+		buf = fsname_static;
+		buflen = sizeof(fsname_static);
+	}
+
+	len = strlen(lsi->lsi_lmd->lmd_profile);
+	ptr = strrchr(lsi->lsi_lmd->lmd_profile, '-');
+	if (ptr && (strcmp(ptr, "-client") == 0))
+		len -= 7;
+
+	if (unlikely(len >= buflen))
+		len = buflen - 1;
+	strncpy(buf, lsi->lsi_lmd->lmd_profile, len);
+	buf[len] = '\0';
+
+	return buf;
 }
