@@ -965,7 +965,7 @@ int mdd_finish_unlink(const struct lu_env *env,
 
         /* read HSM flags, needed to set changelogs flags */
         ma->ma_need = MA_HSM | MA_INODE;
-        rc = mdd_attr_get_internal(env, obj, ma);
+	rc = mdd_iattr_get(env, obj, ma);
         if (rc == 0 && (ma->ma_attr.la_nlink == 0 || is_dir)) {
                 obj->mod_flags |= DEAD_OBJ;
                 /* add new orphan and the object
@@ -991,7 +991,7 @@ int mdd_finish_unlink(const struct lu_env *env,
 
                 /* get the i_nlink */
                 ma->ma_need = MA_INODE;
-                rc = mdd_attr_get_internal(env, obj, ma);
+		rc = mdd_iattr_get(env, obj, ma);
         }
         if (reset)
                 ma->ma_valid &= ~(MA_LOV | MA_COOKIE);
@@ -1688,9 +1688,6 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
                 rc = mdd_lov_set_md(env, mdd_pobj, son, lmm,
                                     lmm_size, handle, 0);
 
-        if (rc == 0)
-               rc = mdd_attr_get_internal_locked(env, son, ma);
-
         /* update lov_objid data, must be before transaction stop! */
         if (rc == 0)
                 mdd_lov_objid_update(mdd, lmm);
@@ -2187,20 +2184,6 @@ static int mdd_create(const struct lu_env *env,
                 CERROR("error on stripe info copy %d \n", rc);
                 GOTO(cleanup, rc);
         }
-        if (lmm && lmm_size > 0) {
-                /* Set Lov here, do not get lmm again later */
-                if (lmm_size > ma->ma_lmm_size) {
-                        /* Reply buffer is smaller, need bigger one */
-                        mdd_max_lmm_buffer(env, lmm_size);
-                        if (unlikely(info->mti_max_lmm == NULL))
-                                GOTO(cleanup, rc = -ENOMEM);
-                        ma->ma_lmm = info->mti_max_lmm;
-                        ma->ma_big_lmm_used = 1;
-                }
-                memcpy(ma->ma_lmm, lmm, lmm_size);
-                ma->ma_lmm_size = lmm_size;
-                ma->ma_valid |= MA_LOV;
-        }
 
         if (S_ISLNK(attr->la_mode)) {
                 struct md_ucred  *uc = md_ucred(env);
@@ -2228,8 +2211,6 @@ static int mdd_create(const struct lu_env *env,
         if (rc)
                 GOTO(cleanup, rc);
 
-        /* Return attr back. */
-        rc = mdd_attr_get_internal_locked(env, son, ma);
         EXIT;
 cleanup:
         if (rc && created) {
