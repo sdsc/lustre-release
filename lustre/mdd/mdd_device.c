@@ -492,7 +492,7 @@ static int dot_lustre_mdd_attr_get(const struct lu_env *env,
 {
         struct mdd_object *mdd_obj = md2mdd_obj(obj);
 
-        return mdd_attr_get_internal_locked(env, mdd_obj, ma);
+	return mdd_iattr_get(env, mdd_obj, ma);
 }
 
 static int dot_lustre_mdd_attr_set(const struct lu_env *env,
