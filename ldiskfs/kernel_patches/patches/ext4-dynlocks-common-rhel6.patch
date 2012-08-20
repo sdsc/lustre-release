@@ -12,7 +12,7 @@ Index: linux-stage/fs/ext4/dynlocks.c
 + *
 + */
 +
-+#include <linux/dynlocks.h>
++#include "dynlocks.h"
 +#include <linux/module.h>
 +#include <linux/slab.h>
 +#include <linux/sched.h>
@@ -21,10 +21,10 @@ Index: linux-stage/fs/ext4/dynlocks.c
 +#define DYNLOCK_HANDLE_DEAD	0xd1956ee
 +#define DYNLOCK_LIST_MAGIC	0x11ee91e6
 +
-+static struct kmem_cache * dynlock_cachep = NULL;
++static struct kmem_cache *dynlock_cachep = NULL;
 +
 +struct dynlock_handle {
-+	unsigned 		dh_magic;
++	unsigned		dh_magic;
 +	struct list_head	dh_list;
 +	unsigned long		dh_value;	/* lock value */
 +	int			dh_refcount;	/* number of users */
@@ -239,10 +239,10 @@ Index: linux-stage/fs/ext4/dynlocks.c
 +	return result;
 +}
 +EXPORT_SYMBOL(dynlock_is_locked);
-Index: linux-stage/include/linux/dynlocks.h
+Index: linux-stage/fs/ext4/dynlocks.h
 ===================================================================
 --- /dev/null
-+++ linux-stage/include/linux/dynlocks.h
++++ linux-stage/fs/ext4/dynlocks.h
 @@ -0,0 +1,34 @@
 +#ifndef _LINUX_DYNLOCKS_H
 +#define _LINUX_DYNLOCKS_H
