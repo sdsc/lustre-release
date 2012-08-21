@@ -1565,7 +1565,7 @@ static int mgc_llog_is_empty(struct obd_device *obd, struct llog_ctxt *ctxt,
 	int			 rc = 0;
 
 	push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
-	rc = llog_create(NULL, ctxt, &llh, NULL, name);
+	rc = llog_open(NULL, ctxt, &llh, NULL, name, LLOG_OPEN_EXISTS);
 	if (rc == 0) {
 		llog_init_handle(NULL, llh, LLOG_F_IS_PLAIN, NULL);
 		rc = llog_get_size(llh);
@@ -1618,39 +1618,33 @@ static int mgc_copy_llog(struct obd_device *obd, struct llog_ctxt *rctxt,
         sprintf(temp_log, "%sT", logname);
 
         /* Make sure there's no old temp log */
-	rc = llog_create(NULL, lctxt, &local_llh, NULL, temp_log);
+	rc = llog_erase(NULL, lctxt, NULL, temp_log);
+	if (rc < 0 && rc != -ENOENT)
+		GOTO(out, rc);
+
+	/* open local log */
+	rc = llog_open_create(NULL, lctxt, &local_llh, NULL, temp_log);
 	if (rc)
 		GOTO(out, rc);
-	rc = llog_init_handle(NULL, local_llh, LLOG_F_IS_PLAIN, NULL);
-	if (rc)
-		GOTO(out, rc);
-	rc = llog_destroy(NULL, local_llh);
-        llog_free_handle(local_llh);
-        if (rc)
-                GOTO(out, rc);
 
-        /* open local log */
-	rc = llog_create(NULL, lctxt, &local_llh, NULL, temp_log);
-        if (rc)
-                GOTO(out, rc);
-
-        /* set the log header uuid for fun */
-        OBD_ALLOC_PTR(uuid);
-        obd_str2uuid(uuid, logname);
+	/* set the log header uuid for fun */
+	OBD_ALLOC_PTR(uuid);
+	obd_str2uuid(uuid, logname);
 	rc = llog_init_handle(NULL, local_llh, LLOG_F_IS_PLAIN, uuid);
-        OBD_FREE_PTR(uuid);
-        if (rc)
-                GOTO(out_closel, rc);
+	OBD_FREE_PTR(uuid);
+	if (rc)
+		GOTO(out_closel, rc);
 
-        /* open remote log */
-	rc = llog_create(NULL, rctxt, &remote_llh, NULL, logname);
+	/* open remote log */
+	rc = llog_open(NULL, rctxt, &remote_llh, NULL, logname,
+		       LLOG_OPEN_EXISTS);
 	if (rc)
 		GOTO(out_closel, rc);
 	rc = llog_init_handle(NULL, remote_llh, LLOG_F_IS_PLAIN, NULL);
-        if (rc)
-                GOTO(out_closer, rc);
+	if (rc)
+		GOTO(out_closer, rc);
 
-        /* Copy remote log */
+	/* Copy remote log */
 	rc = llog_process(NULL, remote_llh, mgc_copy_handler,
 			  (void *)local_llh, NULL);
 

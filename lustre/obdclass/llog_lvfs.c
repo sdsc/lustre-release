@@ -578,112 +578,156 @@ static struct file *llog_filp_open(char *dir, char *name, int flags, int mode)
         return filp;
 }
 
+static int llog_lvfs_open(const struct lu_env *env,  struct llog_handle *handle,
+			  struct llog_logid *logid, char *name,
+			  enum llog_open_flag flags)
+{
+	struct llog_ctxt	*ctxt = handle->lgh_ctxt;
+	struct l_dentry		*dchild = NULL;
+	struct obd_device	*obd;
+	int			 rc = 0;
+
+	ENTRY;
+
+	LASSERT(ctxt);
+	LASSERT(ctxt->loc_exp);
+	LASSERT(ctxt->loc_exp->exp_obd);
+	obd = ctxt->loc_exp->exp_obd;
+
+	LASSERT(handle);
+	if (logid != NULL) {
+		dchild = obd_lvfs_fid2dentry(ctxt->loc_exp, logid->lgl_oid,
+					     logid->lgl_ogen, logid->lgl_oseq);
+		if (IS_ERR(dchild)) {
+			rc = PTR_ERR(dchild);
+			CERROR("error looking up logfile "LPX64":0x%x: "
+			       "rc = %d\n", logid->lgl_oid, logid->lgl_ogen,
+			       rc);
+			GOTO(out, rc);
+		}
+		if (dchild->d_inode == NULL) {
+			l_dput(dchild);
+			rc = -ENOENT;
+			CERROR("nonexistent log file "LPX64":"LPX64": rc %d\n",
+			       logid->lgl_oid, logid->lgl_oseq, rc);
+			GOTO(out, rc);
+		}
+		/* l_dentry_open will call dput(dchild) if there is an error */
+		handle->lgh_file = l_dentry_open(&obd->obd_lvfs_ctxt, dchild,
+						 O_RDWR | O_LARGEFILE);
+		if (IS_ERR(handle->lgh_file)) {
+			rc = PTR_ERR(handle->lgh_file);
+			handle->lgh_file = NULL;
+			CERROR("error opening logfile "LPX64"0x%x: rc %d\n",
+			       logid->lgl_oid, logid->lgl_ogen, rc);
+			GOTO(out, rc);
+		}
+
+		handle->lgh_id = *logid;
+	} else if (name) {
+		handle->lgh_file = llog_filp_open(MOUNT_CONFIGS_DIR, name,
+						  O_RDWR | O_LARGEFILE, 0644);
+		if (IS_ERR(handle->lgh_file)) {
+			rc = PTR_ERR(handle->lgh_file);
+			handle->lgh_file = NULL;
+			if (rc == -ENOENT && flags & LLOG_OPEN_NEW) {
+				OBD_ALLOC(handle->lgh_name, strlen(name) + 1);
+				if (handle->lgh_name)
+					strcpy(handle->lgh_name, name);
+				else
+					GOTO(out, rc = -ENOMEM);
+			} else {
+				GOTO(out, rc);
+			}
+		} else {
+			handle->lgh_id.lgl_oseq = FID_SEQ_LLOG;
+			handle->lgh_id.lgl_oid =
+				handle->lgh_file->f_dentry->d_inode->i_ino;
+			handle->lgh_id.lgl_ogen =
+				handle->lgh_file->f_dentry->d_inode->i_generation;
+		}
+	} else {
+		LASSERTF(flags & LLOG_OPEN_NEW, "%#x\n", flags);
+		handle->lgh_file = NULL;
+	}
+
+	/* No new llog is expected but doesn't exist */
+	if (!(flags & LLOG_OPEN_NEW) && handle->lgh_file == NULL)
+		GOTO(out, rc = -ENOENT);
+out:
+	RETURN(rc);
+}
+
+static int llog_lvfs_exist(struct llog_handle *handle)
+{
+	return (handle->lgh_file != NULL);
+}
+
 /* This is a callback from the llog_* functions.
  * Assumes caller has already pushed us into the kernel context. */
 static int llog_lvfs_create(const struct lu_env *env,
-			    struct llog_ctxt *ctxt, struct llog_handle **res,
-			    struct llog_logid *logid, char *name)
+			    struct llog_handle *handle,
+			    struct thandle *th)
 {
-        struct llog_handle *handle;
-        struct obd_device *obd;
-        struct l_dentry *dchild = NULL;
-        struct obdo *oa = NULL;
-        int rc = 0;
-        int open_flags = O_RDWR | O_CREAT | O_LARGEFILE;
-        ENTRY;
+	struct llog_ctxt	*ctxt = handle->lgh_ctxt;
+	struct obd_device	*obd;
+	struct l_dentry		*dchild = NULL;
+	struct obdo		*oa = NULL;
+	int			 rc = 0;
+	int			 open_flags = O_RDWR | O_CREAT | O_LARGEFILE;
 
-        handle = llog_alloc_handle();
-        if (handle == NULL)
-                RETURN(-ENOMEM);
-        *res = handle;
+	ENTRY;
 
-        LASSERT(ctxt);
-        LASSERT(ctxt->loc_exp);
-        obd = ctxt->loc_exp->exp_obd;
+	LASSERT(ctxt);
+	LASSERT(ctxt->loc_exp);
+	obd = ctxt->loc_exp->exp_obd;
+	LASSERT(handle->lgh_file == NULL);
 
-        if (logid != NULL) {
-                dchild = obd_lvfs_fid2dentry(ctxt->loc_exp, logid->lgl_oid,
-                                             logid->lgl_ogen, logid->lgl_oseq);
+	if (handle->lgh_name) {
+		handle->lgh_file = llog_filp_open(MOUNT_CONFIGS_DIR,
+						  handle->lgh_name,
+						  open_flags, 0644);
+		if (IS_ERR(handle->lgh_file))
+			RETURN(PTR_ERR(handle->lgh_file));
 
-                if (IS_ERR(dchild)) {
-                        rc = PTR_ERR(dchild);
-                        CERROR("error looking up logfile "LPX64":0x%x: rc %d\n",
-                               logid->lgl_oid, logid->lgl_ogen, rc);
-                        GOTO(out, rc);
-                }
+		handle->lgh_id.lgl_oseq = FID_SEQ_LLOG;
+		handle->lgh_id.lgl_oid =
+			handle->lgh_file->f_dentry->d_inode->i_ino;
+		handle->lgh_id.lgl_ogen =
+			handle->lgh_file->f_dentry->d_inode->i_generation;
+	} else {
+		OBDO_ALLOC(oa);
+		if (oa == NULL)
+			RETURN(-ENOMEM);
 
-                if (dchild->d_inode == NULL) {
-                        l_dput(dchild);
-                        rc = -ENOENT;
-                        CERROR("nonexistent log file "LPX64":"LPX64": rc %d\n",
-                               logid->lgl_oid, logid->lgl_oseq, rc);
-                        GOTO(out, rc);
-                }
+		oa->o_seq = FID_SEQ_LLOG;
+		oa->o_valid = OBD_MD_FLGENER | OBD_MD_FLGROUP;
 
-                /* l_dentry_open will call dput(dchild) if there is an error */
-                handle->lgh_file = l_dentry_open(&obd->obd_lvfs_ctxt, dchild,
-                                                    O_RDWR | O_LARGEFILE);
-                if (IS_ERR(handle->lgh_file)) {
-                        rc = PTR_ERR(handle->lgh_file);
-                        CERROR("error opening logfile "LPX64"0x%x: rc %d\n",
-                               logid->lgl_oid, logid->lgl_ogen, rc);
-                        GOTO(out, rc);
-                }
+		rc = obd_create(NULL, ctxt->loc_exp, oa, NULL, NULL);
+		if (rc)
+			GOTO(out, rc);
 
-                /* assign the value of lgh_id for handle directly */
-                handle->lgh_id = *logid;
-
-        } else if (name) {
-                handle->lgh_file = llog_filp_open(MOUNT_CONFIGS_DIR,
-                                                  name, open_flags, 0644);
-                if (IS_ERR(handle->lgh_file))
-                        GOTO(out, rc = PTR_ERR(handle->lgh_file));
-
-                handle->lgh_id.lgl_oseq = 1;
-                handle->lgh_id.lgl_oid =
-                        handle->lgh_file->f_dentry->d_inode->i_ino;
-                handle->lgh_id.lgl_ogen =
-                        handle->lgh_file->f_dentry->d_inode->i_generation;
-        } else {
-                OBDO_ALLOC(oa);
-                if (oa == NULL)
-                        GOTO(out, rc = -ENOMEM);
-
-                oa->o_seq = FID_SEQ_LLOG;
-                oa->o_valid = OBD_MD_FLGENER | OBD_MD_FLGROUP;
-
-                rc = obd_create(NULL, ctxt->loc_exp, oa, NULL, NULL);
-                if (rc)
-                        GOTO(out, rc);
-
-                /* FIXME: rationalize the misuse of o_generation in
-                 *        this API along with mds_obd_{create,destroy}.
-                 *        Hopefully it is only an internal API issue. */
+		/* FIXME: rationalize the misuse of o_generation in
+		 *        this API along with mds_obd_{create,destroy}.
+		 *        Hopefully it is only an internal API issue. */
 #define o_generation o_parent_oid
-                dchild = obd_lvfs_fid2dentry(ctxt->loc_exp, oa->o_id,
-                                             oa->o_generation, oa->o_seq);
+		dchild = obd_lvfs_fid2dentry(ctxt->loc_exp, oa->o_id,
+					     oa->o_generation, oa->o_seq);
+		if (IS_ERR(dchild))
+			GOTO(out, rc = PTR_ERR(dchild));
 
-                if (IS_ERR(dchild))
-                        GOTO(out, rc = PTR_ERR(dchild));
+		handle->lgh_file = l_dentry_open(&obd->obd_lvfs_ctxt, dchild,
+						 open_flags);
+		if (IS_ERR(handle->lgh_file))
+			GOTO(out, rc = PTR_ERR(handle->lgh_file));
 
-                handle->lgh_file = l_dentry_open(&obd->obd_lvfs_ctxt, dchild,
-                                                 open_flags);
-                if (IS_ERR(handle->lgh_file))
-                        GOTO(out, rc = PTR_ERR(handle->lgh_file));
-
-                handle->lgh_id.lgl_oseq = oa->o_seq;
-                handle->lgh_id.lgl_oid = oa->o_id;
-                handle->lgh_id.lgl_ogen = oa->o_generation;
-        }
-
-        handle->lgh_ctxt = ctxt;
+		handle->lgh_id.lgl_oseq = oa->o_seq;
+		handle->lgh_id.lgl_oid = oa->o_id;
+		handle->lgh_id.lgl_ogen = oa->o_generation;
 out:
-        if (rc)
-                llog_free_handle(handle);
-
-        if (oa)
-                OBDO_FREE(oa);
-        RETURN(rc);
+		OBDO_FREE(oa);
+	}
+	RETURN(rc);
 }
 
 static int llog_lvfs_close(const struct lu_env *env,
@@ -692,9 +736,12 @@ static int llog_lvfs_close(const struct lu_env *env,
         int rc;
         ENTRY;
 
+	if (handle->lgh_file == NULL)
+		RETURN(0);
         rc = filp_close(handle->lgh_file, 0);
         if (rc)
                 CERROR("error closing log: rc %d\n", rc);
+	handle->lgh_file = NULL;
         RETURN(rc);
 }
 
@@ -712,6 +759,7 @@ static int llog_lvfs_destroy(const struct lu_env *env,
 
         dir = MOUNT_CONFIGS_DIR;
 
+	LASSERT(handle->lgh_file);
         fdentry = handle->lgh_file->f_dentry;
         inode = fdentry->d_parent->d_inode;
         if (strcmp(fdentry->d_parent->d_name.name, dir) == 0) {
@@ -866,98 +914,33 @@ out1:
 EXPORT_SYMBOL(llog_put_cat_list);
 
 struct llog_operations llog_lvfs_ops = {
-        lop_write_rec:   llog_lvfs_write_rec,
-        lop_next_block:  llog_lvfs_next_block,
-        lop_prev_block:  llog_lvfs_prev_block,
-        lop_read_header: llog_lvfs_read_header,
-        lop_create:      llog_lvfs_create,
-        lop_destroy:     llog_lvfs_destroy,
-        lop_close:       llog_lvfs_close,
-        //        lop_cancel: llog_lvfs_cancel,
+	.lop_write_rec		= llog_lvfs_write_rec,
+	.lop_next_block		= llog_lvfs_next_block,
+	.lop_prev_block		= llog_lvfs_prev_block,
+	.lop_read_header	= llog_lvfs_read_header,
+	.lop_create		= llog_lvfs_create,
+	.lop_destroy		= llog_lvfs_destroy,
+	.lop_close		= llog_lvfs_close,
+	.lop_open		= llog_lvfs_open,
+	.lop_exist		= llog_lvfs_exist,
 };
-
 EXPORT_SYMBOL(llog_lvfs_ops);
-
 #else /* !__KERNEL__ */
-
-static int llog_lvfs_read_header(const struct lu_env *env,
-				 struct llog_handle *handle)
-{
-        LBUG();
-        return 0;
-}
-
-static int llog_lvfs_write_rec(const struct lu_env *env,
-			       struct llog_handle *loghandle,
-			       struct llog_rec_hdr *rec,
-			       struct llog_cookie *reccookie, int cookiecount,
-			       void *buf, int idx)
-{
-        LBUG();
-        return 0;
-}
-
-static int llog_lvfs_next_block(const struct lu_env *env,
-				struct llog_handle *loghandle, int *cur_idx,
-				int next_idx, __u64 *cur_offset, void *buf,
-				int len)
-{
-        LBUG();
-        return 0;
-}
-
-static int llog_lvfs_prev_block(const struct lu_env *env,
-				struct llog_handle *loghandle,
-				int prev_idx, void *buf, int len)
-{
-        LBUG();
-        return 0;
-}
-
-static int llog_lvfs_create(const struct lu_env *env,
-			    struct llog_ctxt *ctxt, struct llog_handle **res,
-			    struct llog_logid *logid, char *name)
-{
-        LBUG();
-        return 0;
-}
-
-static int llog_lvfs_close(const struct lu_env *env,
-			   struct llog_handle *handle)
-{
-        LBUG();
-        return 0;
-}
-
-static int llog_lvfs_destroy(const struct lu_env *env,
-			     struct llog_handle *handle)
-{
-        LBUG();
-        return 0;
-}
-
 int llog_get_cat_list(struct obd_device *disk_obd,
-                      char *name, int idx, int count, struct llog_catid *idarray)
+		      char *name, int idx, int count,
+		      struct llog_catid *idarray)
 {
-        LBUG();
-        return 0;
+	LBUG();
+	return 0;
 }
 
 int llog_put_cat_list(struct obd_device *disk_obd,
-                      char *name, int idx, int count, struct llog_catid *idarray)
+		      char *name, int idx, int count,
+		      struct llog_catid *idarray)
 {
-        LBUG();
-        return 0;
+	LBUG();
+	return 0;
 }
 
-struct llog_operations llog_lvfs_ops = {
-        lop_write_rec:   llog_lvfs_write_rec,
-        lop_next_block:  llog_lvfs_next_block,
-        lop_prev_block:  llog_lvfs_prev_block,
-        lop_read_header: llog_lvfs_read_header,
-        lop_create:      llog_lvfs_create,
-        lop_destroy:     llog_lvfs_destroy,
-        lop_close:       llog_lvfs_close,
-//        lop_cancel:      llog_lvfs_cancel,
-};
+struct llog_operations llog_lvfs_ops = {};
 #endif
