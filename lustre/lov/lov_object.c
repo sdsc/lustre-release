@@ -216,10 +216,12 @@ static int lov_init_raid0(const struct lu_env *env,
                                 result = lov_init_sub(env, lov, stripe, r0, i);
                         else
                                 result = PTR_ERR(stripe);
-                }
-        } else
-                result = -ENOMEM;
-        RETURN(result);
+			if (OBD_FAIL_CHECK(OBD_FAIL_LOV_INIT))
+				result = -EIO;
+		}
+	} else
+		result = -ENOMEM;
+	RETURN(result);
 }
 
 static int lov_delete_empty(const struct lu_env *env, struct lov_object *lov,
@@ -285,9 +287,15 @@ static int lov_delete_raid0(const struct lu_env *env, struct lov_object *lov,
 
 	ENTRY;
 
-	dump_lsm(D_INODE, lsm);
-	if (cfs_atomic_read(&lsm->lsm_refc) > 1)
-		RETURN(-EBUSY);
+	/*
+	 * If lov_init_raid0() failed, lov_fini_raid0() will free lov->lo_lsm.
+	 * LU-1773
+	 */
+	if (lsm != NULL) {
+		dump_lsm(D_INODE, lsm);
+		if (cfs_atomic_read(&lsm->lsm_refc) > 1)
+			RETURN(-EBUSY);
+	}
 
         if (r0->lo_sub != NULL) {
                 for (i = 0; i < r0->lo_nr; ++i) {
@@ -321,8 +329,10 @@ static void lov_fini_raid0(const struct lu_env *env, struct lov_object *lov,
 		r0->lo_sub = NULL;
 	}
 
-	dump_lsm(D_INODE, lov->lo_lsm);
-	lov_free_memmd(&lov->lo_lsm);
+	if (lov->lo_lsm != NULL) {
+		dump_lsm(D_INODE, lov->lo_lsm);
+		lov_free_memmd(&lov->lo_lsm);
+	}
 
 	EXIT;
 }
