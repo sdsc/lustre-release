@@ -194,32 +194,34 @@ static int lov_init_raid0(const struct lu_env *env,
         LASSERT(r0->lo_nr <= lov_targets_nr(dev));
 
         OBD_ALLOC_LARGE(r0->lo_sub, r0->lo_nr * sizeof r0->lo_sub[0]);
-        if (r0->lo_sub != NULL) {
-                result = 0;
-                subconf->coc_inode = conf->coc_inode;
-                cfs_spin_lock_init(&r0->lo_sub_lock);
-                /*
-                 * Create stripe cl_objects.
-                 */
-                for (i = 0; i < r0->lo_nr && result == 0; ++i) {
-                        struct cl_device *subdev;
-                        struct lov_oinfo *oinfo = lsm->lsm_oinfo[i];
-                        int ost_idx = oinfo->loi_ost_idx;
+	if (r0->lo_sub == NULL)
+		RETURN(-ENOMEM);
 
-                        fid_ostid_unpack(ofid, &oinfo->loi_oi,
-                                         oinfo->loi_ost_idx);
-                        subdev = lovsub2cl_dev(dev->ld_target[ost_idx]);
-                        subconf->u.coc_oinfo = oinfo;
-                        LASSERTF(subdev != NULL, "not init ost %d\n", ost_idx);
-                        stripe = lov_sub_find(env, subdev, ofid, subconf);
-                        if (!IS_ERR(stripe))
-                                result = lov_init_sub(env, lov, stripe, r0, i);
-                        else
-                                result = PTR_ERR(stripe);
-                }
-        } else
-                result = -ENOMEM;
-        RETURN(result);
+	result = 0;
+	subconf->coc_inode = conf->coc_inode;
+	cfs_spin_lock_init(&r0->lo_sub_lock);
+	/*
+	 * Create stripe cl_objects.
+	 */
+	for (i = 0; i < r0->lo_nr && result == 0; ++i) {
+		struct cl_device *subdev;
+		struct lov_oinfo *oinfo = lsm->lsm_oinfo[i];
+		int ost_idx = oinfo->loi_ost_idx;
+
+		fid_ostid_unpack(ofid, &oinfo->loi_oi,
+				 oinfo->loi_ost_idx);
+		subdev = lovsub2cl_dev(dev->ld_target[ost_idx]);
+		subconf->u.coc_oinfo = oinfo;
+		LASSERTF(subdev != NULL, "not init ost %d\n", ost_idx);
+		stripe = lov_sub_find(env, subdev, ofid, subconf);
+		if (!IS_ERR(stripe))
+			result = lov_init_sub(env, lov, stripe, r0, i);
+		else
+			result = PTR_ERR(stripe);
+		if (OBD_FAIL_CHECK(OBD_FAIL_LOV_INIT))
+			result = -EIO;
+	}
+	RETURN(result);
 }
 
 static int lov_delete_empty(const struct lu_env *env, struct lov_object *lov,
@@ -285,9 +287,15 @@ static int lov_delete_raid0(const struct lu_env *env, struct lov_object *lov,
 
 	ENTRY;
 
-	dump_lsm(D_INODE, lsm);
-	if (cfs_atomic_read(&lsm->lsm_refc) > 1)
-		RETURN(-EBUSY);
+	/*
+	 * If lov_init_raid0() failed, lov_fini_raid0() will free lov->lo_lsm.
+	 * LU-1773
+	 */
+	if (lsm != NULL) {
+		dump_lsm(D_INODE, lsm);
+		if (cfs_atomic_read(&lsm->lsm_refc) > 1)
+			RETURN(-EBUSY);
+	}
 
         if (r0->lo_sub != NULL) {
                 for (i = 0; i < r0->lo_nr; ++i) {
@@ -321,8 +329,10 @@ static void lov_fini_raid0(const struct lu_env *env, struct lov_object *lov,
 		r0->lo_sub = NULL;
 	}
 
-	dump_lsm(D_INODE, lov->lo_lsm);
-	lov_free_memmd(&lov->lo_lsm);
+	if (lov->lo_lsm != NULL) {
+		dump_lsm(D_INODE, lov->lo_lsm);
+		lov_free_memmd(&lov->lo_lsm);
+	}
 
 	EXIT;
 }

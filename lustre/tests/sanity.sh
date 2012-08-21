@@ -9554,6 +9554,15 @@ test_227() {
 }
 run_test 227 "running truncated executable does not cause OOM"
 
+# LU-1773 and LU-1657
+test_229() {
+	mkdir -p $DIR/$tdir
+	#define OBD_FAIL_LOV_INIT 0x1403
+	$LCTL set_param fail_loc=0x80001403
+	touch $DIR/$tdir/$tfile || true
+}
+run_test 229 "fail lov_init_raid0() doesn't lbug"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
