@@ -261,8 +261,8 @@ static int llog_remove_log(const struct lu_env *env, struct llog_handle *cat,
         llog_cat_set_first_idx(cat, index);
         rc = llog_cancel_rec(env, cat, index);
 out:
-        llog_free_handle(log);
         cfs_up_write(&cat->lgh_lock);
+        llog_close(env, log);
         RETURN(rc);
 
 }
@@ -293,12 +293,15 @@ int llog_ioctl(struct llog_ctxt *ctxt, int cmd, struct obd_ioctl_data *data)
                 err = str2logid(&logid, data->ioc_inlbuf1, data->ioc_inllen1);
                 if (err)
                         GOTO(out, err);
-                err = llog_create(NULL, ctxt, &handle, &logid, NULL);
+		err = llog_open(NULL, ctxt, &handle, &logid, NULL,
+				LLOG_OPEN_OLD);
                 if (err)
                         GOTO(out, err);
         } else if (*data->ioc_inlbuf1 == '$') {
                 char *name = data->ioc_inlbuf1 + 1;
-                err = llog_create(NULL, ctxt, &handle, NULL, name);
+
+                err = llog_open(NULL, ctxt, &handle, NULL, name,
+				LLOG_OPEN_OLD);
                 if (err)
                         GOTO(out, err);
         } else {
@@ -387,13 +390,10 @@ int llog_ioctl(struct llog_ctxt *ctxt, int cmd, struct obd_ioctl_data *data)
 
                 if (handle->lgh_hdr->llh_flags & LLOG_F_IS_PLAIN) {
                         err = llog_destroy(NULL, handle);
-                        if (!err)
-                                llog_free_handle(handle);
-                        GOTO(out, err);
-                }
-
-                if (!(handle->lgh_hdr->llh_flags & LLOG_F_IS_CAT))
-                        GOTO(out_close, err = -EINVAL);
+                        GOTO(out_close, err);
+		} else if (!(handle->lgh_hdr->llh_flags & LLOG_F_IS_CAT)) {
+			GOTO(out_close, err = -EINVAL);
+		}
 
                 if (data->ioc_inlbuf2) {
                         /*remove indicate log from the catalog*/
@@ -404,16 +404,23 @@ int llog_ioctl(struct llog_ctxt *ctxt, int cmd, struct obd_ioctl_data *data)
                         err = llog_remove_log(NULL, handle, &plain);
                 } else {
                         /*remove all the log of the catalog*/
-                        llog_process(NULL, handle, llog_delete_cb, NULL, NULL);
+                        err = llog_process(NULL, handle, llog_delete_cb, NULL,
+					   NULL);
+			if (err)
+				GOTO(out_close, err);
                 }
-                GOTO(out_close, err);
+                break;
         }
+	default:
+		CERROR("%s: Unknown ioctl cmd %#x\n",
+		       ctxt->loc_obd->obd_name, cmd);
+		GOTO(out_close, err = -ENOTTY);
         }
 
 out_close:
         if (handle->lgh_hdr &&
             handle->lgh_hdr->llh_flags & LLOG_F_IS_CAT)
-                llog_cat_put(NULL, handle);
+                llog_cat_close(NULL, handle);
         else
                 llog_close(NULL, handle);
 out:

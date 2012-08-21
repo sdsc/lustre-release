@@ -1289,9 +1289,10 @@ static int mdc_changelog_send_thread(void *csdata)
         ctxt = llog_get_context(cs->cs_obd, LLOG_CHANGELOG_REPL_CTXT);
         if (ctxt == NULL)
                 GOTO(out, rc = -ENOENT);
-	rc = llog_create(NULL, ctxt, &llh, NULL, CHANGELOG_CATALOG);
+	rc = llog_open(NULL, ctxt, &llh, NULL, CHANGELOG_CATALOG,
+		       LLOG_OPEN_OLD);
         if (rc) {
-                CERROR("llog_create() failed %d\n", rc);
+                CERROR("llog_open() failed %d\n", rc);
                 GOTO(out, rc);
         }
 	rc = llog_init_handle(NULL, llh, LLOG_F_IS_CAT, NULL);
@@ -1312,7 +1313,7 @@ static int mdc_changelog_send_thread(void *csdata)
 out:
         cfs_put_file(cs->cs_fp);
         if (llh)
-		llog_cat_put(NULL, llh);
+		llog_cat_close(NULL, llh);
         if (ctxt)
                 llog_ctxt_put(ctxt);
         if (cs->cs_buf)
