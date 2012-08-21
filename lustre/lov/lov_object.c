@@ -285,9 +285,15 @@ static int lov_delete_raid0(const struct lu_env *env, struct lov_object *lov,
 
 	ENTRY;
 
-	dump_lsm(D_INODE, lsm);
-	if (cfs_atomic_read(&lsm->lsm_refc) > 1)
-		RETURN(-EBUSY);
+	/*
+	 * If lov_init_raid0() failed, lov_fini_raid0() will free lov->lo_lsm.
+	 * LU-1773
+	 */
+	if (lsm != NULL) {
+		dump_lsm(D_INODE, lsm);
+		if (cfs_atomic_read(&lsm->lsm_refc) > 1)
+			RETURN(-EBUSY);
+	}
 
         if (r0->lo_sub != NULL) {
                 for (i = 0; i < r0->lo_nr; ++i) {
