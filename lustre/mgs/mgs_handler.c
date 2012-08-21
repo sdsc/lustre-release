@@ -907,9 +907,9 @@ int mgs_handle(struct ptlrpc_request *req)
                 break;
 
         case LLOG_ORIGIN_HANDLE_CREATE:
-                DEBUG_REQ(D_MGS, req, "llog_init");
-                req_capsule_set(&req->rq_pill, &RQF_LLOG_ORIGIN_HANDLE_CREATE);
-                rc = llog_origin_handle_create(req);
+		DEBUG_REQ(D_MGS, req, "llog_open");
+		req_capsule_set(&req->rq_pill, &RQF_LLOG_ORIGIN_HANDLE_CREATE);
+		rc = llog_origin_handle_open(req);
                 if (rc == 0)
                         (void)mgs_handle_fslog_hack(req);
                 break;
