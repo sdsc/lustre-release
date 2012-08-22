@@ -837,5 +837,9 @@ static inline int ll_namei_to_lookup_intent_flag(int flag)
 	return flag;
 }
 
+#ifndef HAVE_CLEAR_INODE
+#define clear_inode(i)		end_writeback(i)
+#endif
+
 #endif /* __KERNEL__ */
 #endif /* _COMPAT25_H */

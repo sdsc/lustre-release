@@ -1881,10 +1881,8 @@ void ll_delete_inode(struct inode *inode)
 
 #ifdef HAVE_SBOPS_EVICT_INODE
         ll_clear_inode(inode);
-        end_writeback(inode);
-#else
-        clear_inode(inode);
 #endif
+        clear_inode(inode);
 
         EXIT;
 }
