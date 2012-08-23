@@ -264,6 +264,9 @@ int seq_client_alloc_fid(struct lu_client_seq *seq, struct lu_fid *fid)
         cfs_waitlink_init(&link);
         cfs_down(&seq->lcs_sem);
 
+        if (OBD_FAIL_CHECK(OBD_FAIL_SEQ_EXHAUST))
+                seq->lcs_fid.f_oid = seq->lcs_width;
+
         while (1) {
                 seqno_t seqnr = 0;
 
