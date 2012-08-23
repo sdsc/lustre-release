@@ -499,6 +499,11 @@ static void iam_lfix_split(struct iam_leaf *l, struct buffer_head **bh,
         iam_insert_key_lock(path, path->ip_frame, pivot, new_blknr);
 }
 
+static int iam_lfix_leaf_empty(struct iam_leaf *leaf)
+{
+        return lentry_count_get(leaf) == 0;
+}
+
 static struct iam_leaf_operations iam_lfix_leaf_ops = {
         .init           = iam_lfix_init,
         .init_new       = iam_lfix_init_new,
@@ -520,7 +525,8 @@ static struct iam_leaf_operations iam_lfix_leaf_ops = {
         .rec_add        = iam_lfix_rec_add,
         .rec_del        = iam_lfix_rec_del,
         .can_add        = iam_lfix_can_add,
-        .split          = iam_lfix_split
+        .split          = iam_lfix_split,
+        .leaf_empty        = iam_lfix_leaf_empty,
 };
 
 /*
@@ -682,9 +688,12 @@ static int iam_lfix_guess(struct iam_container *c)
                         descr->id_node_gap  = 0;
                         descr->id_ops       = &iam_lfix_ops;
                         descr->id_leaf_ops  = &iam_lfix_leaf_ops;
-                } else
+
+                        c->ic_root_bh = bh;
+                } else {
                         result = -EBADF;
-                brelse(bh);
+                        brelse(bh);
+                }
         }
         return result;
 }
@@ -772,6 +781,18 @@ static void lfix_root(void *buf,
                                         blocksize, keysize + ptrsize)
         };
 
+        /* To guarantee that the padding "keysize + ptrsize"
+         * covers the "dx_countlimit" and the "idle_blocks". */
+        LASSERT((keysize + ptrsize) >=
+                (sizeof(struct dx_countlimit) + sizeof(__u32)));
+
+        entry = limit + 1;
+        /* Put "idle_blocks" just after the limit. There was padding after
+         * the limit, the "idle_blocks" re-uses part of the padding, so no
+         * compatibility issues with old layout.
+         */
+        *(__u32 *)entry = 0;
+
         entry = root + 1;
         /*
          * Skip over @limit.
@@ -786,6 +807,7 @@ static void lfix_root(void *buf,
          * XXX: this key is hard-coded to be a sequence of 0's.
          */
 
+        memset(entry, 0, keysize);
         entry += keysize;
         /* now @entry points to <ptr> */
         if (ptrsize == 4)
@@ -798,6 +820,7 @@ static void lfix_leaf(void *buf,
                       int blocksize, int keysize, int ptrsize, int recsize)
 {
         struct iam_leaf_head *head;
+        void *entry;
 
         /* form leaf */
         head = buf;
@@ -809,6 +832,9 @@ static void lfix_leaf(void *buf,
                  */
                 .ill_count = cpu_to_le16(1),
         };
+
+        entry = (void *)(head + 1);
+        memset(entry, 0, keysize + recsize);
 }
 
 int iam_lfix_create(struct inode *obj,
