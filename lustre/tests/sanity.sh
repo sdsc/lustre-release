@@ -9554,6 +9554,66 @@ test_227() {
 }
 run_test 227 "running truncated executable does not cause OOM"
 
+# Recover the test environment from test_228.
+cleanup_228() {
+	trap 0
+
+	MDSSIZE=$SAVED_MDSSIZE
+	OSTSIZE=$SAVED_OSTSIZE
+	stopall
+	do_facet $SINGLEMDS rmmod osd-ldiskfs
+	do_facet $SINGLEMDS load_module osd-ldiskfs/osd_ldiskfs
+	formatall
+	setupall
+}
+
+# LU-1512 try to reuse idle OI blocks
+test_228() {
+	[ "$FSTYPE" != "ldiskfs" ] && skip "non-ldiskfs backend" && return
+
+	SAVED_MDSSIZE=$MDSSIZE
+	SAVED_OSTSIZE=$OSTSIZE
+	local MDT_DEV=$(mdsdevname ${SINGLEMDS//mds/})
+
+	trap cleanup_68 EXIT
+
+	MDSSIZE=100000
+	OSTSIZE=100000
+	stopall
+	do_facet $SINGLEMDS rmmod osd-ldiskfs
+	# use single OI file
+	do_facet $SINGLEMDS insmod $LUSTRE/osd-ldiskfs/osd_ldiskfs.ko osd_oi_count=1
+	formatall
+	setupall
+
+	local myDIR=$DIR/$tdir
+	mkdir -p $myDIR
+	createmany -o $myDIR/t- 10000
+	# The guard is current the largest FID holder
+	touch $myDIR/guard
+
+	do_facet $SINGLEMDS sync
+	# Make sure journal flushed.
+	sleep 6
+	local blk1=$(do_facet $SINGLEMDS "$DEBUGFS -c -R \\\"stat oi.16.0\\\" \
+			$MDT_DEV" | grep Blockcount | awk '{print $4}')
+
+	# Remove old files, some OI blocks will become idle.
+	unlinkmany $myDIR/t- 10000
+	# Create new files, idle OI blocks should be reused.
+	createmany -o $myDIR/t- 2000
+	do_facet $SINGLEMDS sync
+	# Make sure journal flushed.
+	sleep 6
+	local blk2=$(do_facet $SINGLEMDS "$DEBUGFS -c -R \\\"stat oi.16.0\\\" \
+		     $MDT_DEV" | grep Blockcount | awk '{print $4}')
+
+	[ $blk1 == $blk2 ] || error "old blk1=$blk1, new blk2=$blk2, unmatched!"
+
+	cleanup_228
+}
+run_test 228 "try to reuse idle OI mapping slot"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
