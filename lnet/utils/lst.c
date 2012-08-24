@@ -68,6 +68,11 @@ typedef struct list_string {
 # define offsetof(typ,memb)     ((unsigned long)((char *)&(((typ *)0)->memb)))
 #endif
 
+/* Return codes for ioctl() operations. */
+#define IOCTL_LOCAL_ERROR -1
+#define IOCTL_RPC_ERROR -2
+#define IOCTL_FRAMEWORK_ERROR -3
+
 static int alloc_count = 0;
 static int alloc_nob   = 0;
 
@@ -497,17 +502,17 @@ lst_ioctl(unsigned int opc, void *buf, int len)
 
         rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_LNETST, &data);
 
-        /* local error, no valid RPC result */
-        if (rc != 0)
-                return -1;
+	/* local error, no valid RPC result */
+	if (rc != 0)
+		return IOCTL_LOCAL_ERROR;
 
-        /* RPC error */
-        if (trans_stat.trs_rpc_errno != 0)
-                return -2;
+	/* RPC error */
+	if (trans_stat.trs_rpc_errno != 0)
+		return IOCTL_RPC_ERROR;
 
-        /* Framework error */
-        if (trans_stat.trs_fwk_errno != 0)
-                return -3;
+	/* Framework error */
+	if (trans_stat.trs_fwk_errno != 0)
+		return IOCTL_FRAMEWORK_ERROR;
 
         return 0;
 }
@@ -608,12 +613,30 @@ jt_lst_new_session(int argc,  char **argv)
                 return -1;
         }
 
-        rc = lst_new_session_ioctl(name, timeout, force, &session_id);
-        if (rc != 0) {
-                lst_print_error("session", "Failed to create session: %s\n",
-                                strerror(errno));
-                return rc;
-        }
+	rc = lst_new_session_ioctl(name, timeout, force, &session_id);
+	if ((rc == IOCTL_LOCAL_ERROR) && (errno == ENODEV)) {
+		/*  In case this is due to the module lnet_selftest not being
+		    loaded try loading that module and attempt the new session
+		    again.  */
+		fprintf(stdout, "Attempting to load lnet_selftest module...");
+		fflush(stdout);
+		rc = system("modprobe lnet_selftest");
+		if ((rc != -1) && (WIFEXITED(rc)) && (WEXITSTATUS(rc) == 0)) {
+			fprintf(stdout, "done.\nRemember to load lnet_selftest "
+				"on all test nodes.\n");
+			rc = lst_new_session_ioctl(name, timeout, force,
+						   &session_id);
+		} else {
+			fprintf(stdout, "failed.\n");
+			rc = -1;
+		}
+	}
+	if (rc != 0) {
+		lst_print_error("session",
+				"Failed to create session: %s\n",
+				strerror(errno));
+		return rc;
+	}
 
 	fprintf(stdout, "SESSION: %s FEATURES: %x TIMEOUT: %d FORCE: %s\n",
 		name, session_features, timeout, force ? "Yes" : "No");
@@ -689,7 +712,7 @@ jt_lst_end_session(int argc, char **argv)
                 return 0;
         }
 
-        if (rc == -1) {
+	if (rc == IOCTL_LOCAL_ERROR) {
                 lst_print_error("session", "Failed to end session: %s\n",
                                 strerror(errno));
                 return rc;
@@ -877,7 +900,7 @@ jt_lst_ping(int argc,  char **argv)
         }
 
         rc = lst_ping_ioctl(str, type, timeout, count, ids, &head);
-        if (rc == -1) { /* local failure */
+	if (rc == IOCTL_LOCAL_ERROR) { /* local failure */
                 lst_print_error("debug", "Failed to ping %s: %s\n",
                                 (str == NULL) ? "session" : str,
                                 strerror(errno));
@@ -1015,7 +1038,7 @@ jt_lst_add_group(int argc, char **argv)
 	return 0;
 
 failed:
-	if (rc == -1) {
+	if (rc == IOCTL_LOCAL_ERROR) {
 		lst_print_error("group", "Failed to add nodes %s: %s\n",
 				argv[i], strerror(errno));
 
@@ -1069,7 +1092,7 @@ jt_lst_del_group(int argc, char **argv)
                 return 0;
         }
 
-        if (rc == -1) {
+	if (rc == IOCTL_LOCAL_ERROR) {
                 lst_print_error("group", "Failed to delete group: %s\n",
                                 strerror(errno));
                 return rc;
@@ -1222,7 +1245,7 @@ jt_lst_update_group(int argc, char **argv)
                 return 0;
         }
 
-        if (rc == -1) {
+	if (rc == IOCTL_LOCAL_ERROR) {
                 lst_free_rpcent(&head);
                 lst_print_error("group", "Failed to update group: %s\n",
                                 strerror(errno));
@@ -1971,7 +1994,7 @@ jt_lst_stat(int argc, char **argv)
                         rc = lst_stat_ioctl(srp->srp_name,
                                             srp->srp_count, srp->srp_ids,
                                             timeout, &srp->srp_result[idx]);
-                        if (rc == -1) {
+			if (rc == IOCTL_LOCAL_ERROR) {
                                 lst_print_error("stat", "Failed to stat %s: %s\n",
                                                 srp->srp_name, strerror(errno));
                                 goto out;
@@ -2063,7 +2086,7 @@ jt_lst_show_error(int argc, char **argv)
                 rc = lst_stat_ioctl(srp->srp_name, srp->srp_count,
                                     srp->srp_ids, 10, &srp->srp_result[0]);
 
-                if (rc == -1) {
+		if (rc == IOCTL_LOCAL_ERROR) {
                         lst_print_error(srp->srp_name, "Failed to show errors of %s: %s\n",
                                         srp->srp_name, strerror(errno));
                         goto out;
@@ -2262,7 +2285,7 @@ jt_lst_start_batch(int argc, char **argv)
                 return 0;
         }
 
-        if (rc == -1) {
+	if (rc == IOCTL_LOCAL_ERROR) {
                 lst_print_error("batch", "Failed to start batch: %s\n",
                                 strerror(errno));
                 lst_free_rpcent(&head);
@@ -2382,7 +2405,7 @@ jt_lst_stop_batch(int argc, char **argv)
 
         return 0;
 out:
-        if (rc == -1) {
+	if (rc == IOCTL_LOCAL_ERROR) {
                 lst_print_error("batch", "Failed to stop batch: %s\n",
                                 strerror(errno));
                 lst_free_rpcent(&head);
@@ -2824,7 +2847,7 @@ jt_lst_query_batch(int argc, char **argv)
 
                 rc = lst_query_batch_ioctl(batch, test,
                                            server, timeout, &head);
-                if (rc == -1) {
+		if (rc == IOCTL_LOCAL_ERROR) {
                         fprintf(stderr, "Failed to query batch: %s\n",
                                 strerror(errno));
                         break;
@@ -3168,7 +3191,7 @@ jt_lst_add_test(int argc, char **argv)
                 goto out;
         }
 
-        if (rc == -1) {
+	if (rc == IOCTL_LOCAL_ERROR) {
                 lst_print_error("test", "Failed to add test: %s\n",
                                 strerror(errno));
                 goto out;
