@@ -615,15 +615,20 @@ jt_lst_new_session(int argc,  char **argv)
 		    again.  */
 		fprintf(stdout, "Attempting to load lnet-selftest module...");
 		fflush(stdout);
-		system("modprobe lnet-selftest");
-		fprintf(stdout, "done.\n");
-		rc = lst_new_session_ioctl(name, timeout, force, &session_id);
-		if (rc != 0) {
-			lst_print_error("session",
-					"Failed to create session: %s\n",
-					strerror(errno));
-			return rc;
+		if (system("modprobe lnet-selftest") < 0)
+			fprintf(stdout, "failed.\n");
+		else {
+			fprintf(stdout, "done.\nRemember to load lnet-selftest "
+				"on all test nodes.\n");
+			rc = lst_new_session_ioctl(name, timeout, force,
+						   &session_id);
 		}
+	}
+	if (rc != 0) {
+		lst_print_error("session",
+				"Failed to create session: %s\n",
+				strerror(errno));
+		return rc;
 	}
 
 	fprintf(stdout, "SESSION: %s FEATURES: %x TIMEOUT: %d FORCE: %s\n",
