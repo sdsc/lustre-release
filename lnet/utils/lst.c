@@ -68,6 +68,11 @@ typedef struct list_string {
 # define offsetof(typ,memb)     ((unsigned long)((char *)&(((typ *)0)->memb)))
 #endif
 
+/* Return codes for ioctl() operations. */
+#define IOCTL_LOCAL_ERROR -1
+#define IOCTL_RPC_ERROR -2
+#define IOCTL_FRAMEWORK_ERROR -3
+
 static int alloc_count = 0;
 static int alloc_nob   = 0;
 
@@ -497,17 +502,17 @@ lst_ioctl(unsigned int opc, void *buf, int len)
 
         rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_LNETST, &data);
 
-        /* local error, no valid RPC result */
-        if (rc != 0)
-                return -1;
+	/* local error, no valid RPC result */
+	if (rc != 0)
+		return IOCTL_LOCAL_ERROR;
 
-        /* RPC error */
-        if (trans_stat.trs_rpc_errno != 0)
-                return -2;
+	/* RPC error */
+	if (trans_stat.trs_rpc_errno != 0)
+		return IOCTL_RPC_ERROR;
 
-        /* Framework error */
-        if (trans_stat.trs_fwk_errno != 0)
-                return -3;
+	/* Framework error */
+	if (trans_stat.trs_fwk_errno != 0)
+		return IOCTL_FRAMEWORK_ERROR;
 
         return 0;
 }
@@ -608,12 +613,30 @@ jt_lst_new_session(int argc,  char **argv)
                 return -1;
         }
 
-        rc = lst_new_session_ioctl(name, timeout, force, &session_id);
-        if (rc != 0) {
-                lst_print_error("session", "Failed to create session: %s\n",
-                                strerror(errno));
-                return rc;
-        }
+	rc = lst_new_session_ioctl(name, timeout, force, &session_id);
+	if ((rc == IOCTL_LOCAL_ERROR) && (errno == ENODEV)) {
+		/*  In case this is due to the module lnet_selftest not being
+		    loaded try loading that module and attempt the new session
+		    again.  */
+		fprintf(stdout, "Attempting to load lnet_selftest module...");
+		fflush(stdout);
+		rc = system("modprobe lnet_selftest");
+		if ((rc != -1) && (WIFEXITED(rc)) && (WEXITSTATUS(rc) == 0)) {
+			fprintf(stdout, "done.\nRemember to load lnet_selftest "
+				"on all test nodes.\n");
+			rc = lst_new_session_ioctl(name, timeout, force,
+						   &session_id);
+		} else {
+			fprintf(stdout, "failed.\n");
+			rc = -1;
+		}
+	}
+	if (rc != 0) {
+		lst_print_error("session",
+				"Failed to create session: %s\n",
+				strerror(errno));
+		return rc;
+	}
 
 	fprintf(stdout, "SESSION: %s FEATURES: %x TIMEOUT: %d FORCE: %s\n",
 		name, session_features, timeout, force ? "Yes" : "No");
