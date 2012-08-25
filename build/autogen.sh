@@ -124,6 +124,7 @@ run_cmd()
 export ACLOCAL="aclocal-$AMVER"
 export AUTOMAKE="automake-$AMVER"
 
+run_cmd "libtoolize --automake --copy --force"
 run_cmd "$ACLOCAL $ACLOCAL_FLAGS"
 run_cmd "autoheader"
 run_cmd "$AUTOMAKE -a -c $AMOPT"

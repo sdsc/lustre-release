@@ -32,6 +32,7 @@ sbin_SCRIPTS = $(sbin_scripts)
 endif # UTILS
 
 lib_LIBRARIES = liblustreapi.a libiam.a
+lib_LTLIBRARIES = liblustreapi.la
 
 lctl_SOURCES = lustre_lfsck.c obd.c lustre_cfg.c lctl.c obdctl.h
 lctl_LDADD := $(LIBREADLINE) liblustreapi.a $(LIBPTLCTL) $(PTHREAD_LIBS)
@@ -75,7 +76,9 @@ llverdev_LDADD := $(EXT2FSLIB) $(BLKIDLIB)
 
 L_IOCTL := $(top_builddir)/libcfs/libcfs/util/l_ioctl.c
 L_KERNELCOMM := $(top_builddir)/libcfs/libcfs/kernel_user_comm.c
+liblustreapi_a_CFLAGS = $(AM_CFLAGS)
 liblustreapi_a_SOURCES = liblustreapi.c $(L_IOCTL) $(L_KERNELCOMM)
+liblustreapi_la_SOURCES = liblustreapi.c $(L_IOCTL) $(L_KERNELCOMM)
 
 libiam_a_SOURCES = libiam.c
 
