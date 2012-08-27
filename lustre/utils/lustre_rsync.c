@@ -200,6 +200,8 @@ char rsync[PATH_MAX];
 char rsync_ver[PATH_MAX];
 struct lr_parent_child_list *parents;
 
+FILE *debug_log;
+
 /* Command line options */
 struct option long_opts[] = {
         {"source",      required_argument, 0, 's'},
@@ -217,7 +219,8 @@ struct option long_opts[] = {
         {"start-recno", required_argument, 0, 'n'},
         {"abort-on-err",no_argument,       0, 'a'},
         {"debug",       required_argument, 0, 'd'},
-        {0, 0, 0, 0}
+	{"debuglog",	required_argument, 0, 'D'},
+	{0, 0, 0, 0}
 };
 
 /* Command line usage */
@@ -235,18 +238,31 @@ void lr_usage()
                 "\t--dry-run        don't write anything\n");
 }
 
+#define DEBUG_ENTRY(info)						       \
+	lr_debug(D_TRACE, "***** Start %lld %s (%d) %s %s %s *****\n",         \
+		 (info)->recno, changelog_type2str((info)->type),	       \
+		 (info)->type, (info)->tfid, (info)->pfid, (info)->name);
+
+#define DEBUG_EXIT(info, rc)						       \
+	lr_debug(D_TRACE, "##### End %lld %s (%d) %s %s %s rc=%d #####\n",     \
+		 (info)->recno, changelog_type2str((info)->type),	       \
+		 (info)->type, (info)->tfid, (info)->pfid, (info)->name, rc);
+
 /* Print debug information. This is controlled by the value of the
    global variable 'debug' */
 void lr_debug(int level, const char *fmt, ...)
 {
-        va_list ap;
+	va_list ap;
 
-        if (level > debug)
-                return;
+	if (level > debug)
+		return;
 
-        va_start(ap, fmt);
-        vprintf(fmt, ap);
-        va_end(ap);
+	va_start(ap, fmt);
+	if (debug_log != NULL)
+		vfprintf(debug_log, fmt, ap);
+	else
+		vfprintf(stdout, fmt, ap);
+	va_end(ap);
 }
 
 
@@ -816,7 +832,7 @@ int lr_create(struct lr_info *info)
                 if (rc1)
                         rc = rc1;
         }
-        return rc;
+	return rc;
 }
 
 /* Replicate a file remove (rmdir/unlink) operation */
@@ -857,7 +873,7 @@ int lr_remove(struct lr_info *info)
                         continue;
                 }
         }
-        return rc;
+	return rc;
 }
 
 /* Replicate a rename/move operation. */
@@ -935,7 +951,7 @@ int lr_move(struct lr_info *info)
                 if (rc1)
                         rc = rc1;
         }
-        return rc;
+	return rc;
 }
 
 /* Replicate a hard link */
@@ -1007,7 +1023,7 @@ int lr_link(struct lr_info *info)
                 if (rc1)
                         rc = rc1;
         }
-        return rc;
+	return rc;
 }
 
 /* Replicate file attributes */
@@ -1039,7 +1055,7 @@ int lr_setattr(struct lr_info *info)
                 if (rc1)
                         rc = rc1;
         }
-        return rc;
+	return rc;
 }
 
 /* Replicate xattrs */
@@ -1069,7 +1085,7 @@ int lr_setxattr(struct lr_info *info)
                         rc = rc1;
         }
 
-        return rc;
+	return rc;
 }
 
 /* Parse a line of changelog entry */
@@ -1464,6 +1480,8 @@ int lr_replicate()
                 if (dryrun)
                         continue;
 
+		DEBUG_ENTRY(info);
+
                 switch(info->type) {
                 case CL_CREATE:
                 case CL_MKDIR:
@@ -1497,6 +1515,7 @@ int lr_replicate()
                 default:
                         break;
                 }
+		DEBUG_EXIT(info, rc);
                 if (rc && rc != -ENOENT) {
                         lr_print_failure(info, rc);
                         errors++;
@@ -1543,8 +1562,8 @@ int main(int argc, char *argv[])
         if ((rc = lr_init_status()) != 0)
                 return rc;
 
-        while ((rc = getopt_long(argc, argv, "as:t:m:u:l:vx:zc:ry:n:d:",
-                                long_opts, NULL)) >= 0) {
+	while ((rc = getopt_long(argc, argv, "as:t:m:u:l:vx:zc:ry:n:d:D:",
+				 long_opts, NULL)) >= 0) {
                 switch (rc) {
                 case 'a':
                         /* Assume absolute paths */
@@ -1634,6 +1653,15 @@ int main(int argc, char *argv[])
                         if (debug < 0 || debug > 2)
                                 debug = 0;
                         break;
+		case 'D':
+			/* Undocumented option debug log file */
+			debug_log = fopen(optarg, "a");
+			if (debug_log == NULL) {
+				printf("Cannot open %s for debug log\n",
+				       optarg);
+				return -1;
+			}
+			break;
                 default:
                         fprintf(stderr, "error: %s: option '%s' "
                                 "unrecognized.\n", argv[0], argv[optind - 1]);
@@ -1680,5 +1708,7 @@ int main(int argc, char *argv[])
 
         rc = lr_replicate();
 
-        return rc;
+	if (debug_log != NULL)
+		fclose(debug_log);
+	return rc;
 }
