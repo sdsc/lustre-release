@@ -17,6 +17,7 @@ export IDENTITY_UPCALL=default
 export QUOTA_AUTO=1
 export JOBSTATS_AUTO=${JOBSTATS_AUTO:-1}
 export JOBID_VAR=${JOBID_VAR:-"procname_uid"}
+export USE_OFD=${USE_OFD:="yes"}
 
 # LOAD_LLOOP: LU-409: only load llite_lloop module if kernel < 2.6.32 or
 #             LOAD_LLOOP is true. LOAD_LLOOP is false by default.
@@ -233,7 +234,7 @@ init_test_env() {
             IDENTITY_UPCALL=false
             ;;
     esac
-    export LOAD_MODULES_REMOTE=${LOAD_MODULES_REMOTE:-false}
+    export LOAD_MODULES_REMOTE=${LOAD_MODULES_REMOTE:-true}
 
     # Paths on remote nodes, if different
     export RLUSTRE=${RLUSTRE:-$LUSTRE}
