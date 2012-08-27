@@ -1193,6 +1193,9 @@ struct inode_operations ll_dir_inode_operations = {
         .getxattr           = ll_getxattr,
         .listxattr          = ll_listxattr,
         .removexattr        = ll_removexattr,
+#ifdef  HAVE_GENERIC_PERMISSION_2ARGS
+	.get_acl	    = ll_get_acl,
+#endif
 };
 
 struct inode_operations ll_special_inode_operations = {
@@ -1203,4 +1206,7 @@ struct inode_operations ll_special_inode_operations = {
         .getxattr       = ll_getxattr,
         .listxattr      = ll_listxattr,
         .removexattr    = ll_removexattr,
+#ifdef  HAVE_GENERIC_PERMISSION_2ARGS
+	.get_acl	    = ll_get_acl,
+#endif
 };
