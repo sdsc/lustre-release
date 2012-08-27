@@ -3572,8 +3572,10 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 		GOTO(out_ptlrpcd, rc);
 
 	handler = ptlrpcd_alloc_work(cli->cl_import, brw_queue_work, cli);
-	if (IS_ERR(handler))
-		GOTO(out_client_setup, PTR_ERR(handler));
+	if (IS_ERR(handler)) {
+		rc = PTR_ERR(handler);
+		GOTO(out_client_setup, rc);
+	}
 	cli->cl_writeback_work = handler;
 
 	rc = osc_quota_setup(obd);
