@@ -2536,16 +2536,29 @@ int ll_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 }
 #endif
 
+struct posix_acl * ll_get_acl(struct inode *inode, int type)
+{
+	struct ll_inode_info *lli = ll_i2info(inode);
+	struct posix_acl *acl = NULL;
+	ENTRY;
+
+	cfs_spin_lock(&lli->lli_lock);
+	/* VFS' acl_permission_check->check_acl will release the refcount */
+	acl = posix_acl_dup(lli->lli_posix_acl);
+	cfs_spin_unlock(&lli->lli_lock);
+
+	RETURN(acl);
+}
+
 #ifndef HAVE_GENERIC_PERMISSION_2ARGS
 static int
 # ifdef HAVE_GENERIC_PERMISSION_4ARGS
-lustre_check_acl(struct inode *inode, int mask, unsigned int flags)
+ll_check_acl(struct inode *inode, int mask, unsigned int flags)
 # else
-lustre_check_acl(struct inode *inode, int mask)
+ll_check_acl(struct inode *inode, int mask)
 # endif
 {
 # ifdef CONFIG_FS_POSIX_ACL
-	struct ll_inode_info *lli = ll_i2info(inode);
 	struct posix_acl *acl;
 	int rc;
 	ENTRY;
@@ -2554,9 +2567,7 @@ lustre_check_acl(struct inode *inode, int mask)
 	if (flags & IPERM_FLAG_RCU)
 		return -ECHILD;
 #  endif
-	cfs_spin_lock(&lli->lli_lock);
-	acl = posix_acl_dup(lli->lli_posix_acl);
-	cfs_spin_unlock(&lli->lli_lock);
+	acl = ll_get_acl(inode, ACL_TYPE_ACCESS);
 
 	if (!acl)
 		RETURN(-EAGAIN);
@@ -2608,7 +2619,7 @@ int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd)
                 return lustre_check_remote_perm(inode, mask);
 
         ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_INODE_PERM, 1);
-        rc = ll_generic_permission(inode, mask, flags, lustre_check_acl);
+        rc = ll_generic_permission(inode, mask, flags, ll_check_acl);
 
         RETURN(rc);
 }
@@ -2702,6 +2713,9 @@ struct inode_operations ll_file_inode_operations = {
         .removexattr    = ll_removexattr,
 #ifdef  HAVE_LINUX_FIEMAP_H
         .fiemap         = ll_fiemap,
+#endif
+#ifdef  HAVE_GENERIC_PERMISSION_2ARGS
+	.get_acl	= ll_get_acl,
 #endif
 };
 
