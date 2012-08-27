@@ -1783,6 +1783,9 @@ LB_LINUX_TRY_COMPILE([
 #
 # 3.1 generic_permission taken 2 parameters.
 # see kernel commit 2830ba7f34ebb27c4e5b8b6ef408cd6d74860890
+# When generic_permission taken 2 parameters, it also means
+# inode_operations has get_acl member function,
+# see kernel commit 4e34e719e457f2e031297175410fc0bd4016a085
 #
 AC_DEFUN([LC_GENERIC_PERMISSION],
 [AC_MSG_CHECKING([if generic_permission take 2 or 4 arguments])
