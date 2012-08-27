@@ -42,7 +42,7 @@ build_test_filter
 
 export LRSYNC=${LRSYNC:-"$LUSTRE/utils/lustre_rsync"}
 [ ! -f "$LRSYNC" ] && export LRSYNC=$(which lustre_rsync)
-export LRSYNC="$LRSYNC -v -c no" # -a
+export LRSYNC="$LRSYNC -v -c no -d 2 -D $LOGDIR/${TESTSUITE}.lrsync.debuglog"
 
 # control the time of tests
 DBENCH_TIME=${DBENCH_TIME:-60}  # No of seconds to run dbench
