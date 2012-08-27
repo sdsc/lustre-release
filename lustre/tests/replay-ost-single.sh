@@ -265,6 +265,8 @@ test_8a() {
     cancel_lru_locks osc
     cmp $verify $TDIR/$tfile || return 2
     rm -f $verify $TDIR/$tfile
+	dmesg | grep "redo for recoverable error -115" &&
+		error "redo error messages found in dmesg"
 }
 run_test 8a "Verify redo io: redo io when get -EINPROGRESS error"
 
