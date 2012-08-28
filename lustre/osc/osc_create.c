@@ -149,6 +149,7 @@ static int osc_interpret_create(const struct lu_env *env,
                 break;
         }
         case -EINTR:
+	case -ENOTCONN:
         case -EWOULDBLOCK: {
                 /* aka EAGAIN we should not delay create if import failed -
                  * this avoid client stick in create and avoid race with
@@ -156,6 +157,8 @@ static int osc_interpret_create(const struct lu_env *env,
                 /* EINTR say - old create request is killed due mds<>ost
                  * eviction - OSCC_FLAG_RECOVERING can already set due
                  * IMP_DISCONN event */
+		/* ENOTCONN is a signal that we are evicted somewhere, need to
+		 * retry reconnecting */
                 oscc->oscc_flags |= OSCC_FLAG_RECOVERING;
                 /* oscc->oscc_grow_count = OST_MIN_PRECREATE; */
                 cfs_spin_unlock(&oscc->oscc_lock);
