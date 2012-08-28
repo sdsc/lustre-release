@@ -829,5 +829,21 @@ static inline struct dentry *d_make_root(struct inode *root_inode)
 #define ll_kunmap_atomic(a,b)	kunmap_atomic(a,b)
 #endif
 
+#ifdef HAVE_DENTRY_D_ALIAS_HLIST
+#define ll_d_hlist_node hlist_node
+#define ll_d_hlist_empty(list) hlist_empty(list)
+#define ll_d_hlist_entry(ptr, type, name) hlist_entry(ptr.first, type, name)
+#define ll_d_hlist_for_each(tmp, i_dentry) hlist_for_each(tmp, i_dentry)
+#define ll_d_hlist_for_each_entry(dentry, p, i_dentry, alias) \
+        hlist_for_each_entry(dentry, p, i_dentry, alias)
+#else
+#define ll_d_hlist_node list_head
+#define ll_d_hlist_empty(list) list_empty(list)
+#define ll_d_hlist_entry(ptr, type, name) list_entry(ptr.next, type, name)
+#define ll_d_hlist_for_each(tmp, i_dentry) list_for_each(tmp, i_dentry)
+#define ll_d_hlist_for_each_entry(dentry, p, i_dentry, alias) \
+        p = NULL; list_for_each_entry(dentry, i_dentry, alias)
+#endif
+
 #endif /* __KERNEL__ */
 #endif /* _COMPAT25_H */
