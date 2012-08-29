@@ -3678,13 +3678,19 @@ skip_env () {
     $FAIL_ON_SKIP_ENV && error false $@ || skip $@
 }
 
-skip () {
-    echo
-    log " SKIP: ${TESTSUITE} ${TESTNAME} $@"
-    [ "$ALWAYS_SKIPPED" ] && \
-        skip_logged ${TESTNAME} "$@" || true
-    [ "$TESTSUITELOG" ] && \
-        echo "${TESTSUITE}: SKIP: $TESTNAME $@" >> $TESTSUITELOG || true
+skip() {
+	echo
+	log " SKIP: $TESTSUITE $TESTNAME $@"
+
+	if [[ -n "$ALWAYS_SKIPPED" ]]; then
+		skip_logged $TESTNAME "$@"
+	else
+		mkdir -p $LOGDIR
+		echo "$@" > $LOGDIR/skip
+	fi
+
+	[[ -n "$TESTSUITELOG" ]] &&
+		echo "$TESTSUITE: SKIP: $TESTNAME $@" >> $TESTSUITELOG || true
 }
 
 build_test_filter() {
@@ -3755,12 +3761,14 @@ run_test() {
     testname=EXCEPT_$1
     if [ ${!testname}x != x ]; then
         LAST_SKIPPED="y"
+	ALWAYS_SKIPPED="y"
         TESTNAME=test_$1 skip "skipping excluded test $1"
         return 0
     fi
     testname=EXCEPT_$base
     if [ ${!testname}x != x ]; then
         LAST_SKIPPED="y"
+	ALWAYS_SKIPPED="y"
         TESTNAME=test_$1 skip "skipping excluded test $1 (base $base)"
         return 0
     fi
@@ -3781,12 +3789,14 @@ run_test() {
     testname=EXCEPT_SLOW_$1
     if [ ${!testname}x != x ]; then
         LAST_SKIPPED="y"
+	ALWAYS_SKIPPED="y"
         TESTNAME=test_$1 skip "skipping SLOW test $1"
         return 0
     fi
     testname=EXCEPT_SLOW_$base
     if [ ${!testname}x != x ]; then
         LAST_SKIPPED="y"
+	ALWAYS_SKIPPED="y"
         TESTNAME=test_$1 skip "skipping SLOW test $1 (base $base)"
         return 0
     fi
@@ -3834,13 +3844,15 @@ complete () {
 }
 
 pass() {
-    # Set TEST_STATUS here; will be used for logging the result
-    if [ -f $LOGDIR/err ]; then
-        TEST_STATUS="FAIL"
-    else
-        TEST_STATUS="PASS"
-    fi
-    echo "$TEST_STATUS $@" 2>&1 | tee -a $TESTSUITELOG
+	# Set TEST_STATUS here. It will be used for logging the result.
+	TEST_STATUS="PASS"
+
+	if [[ -f $LOGDIR/err ]]; then
+		TEST_STATUS="FAIL"
+	elif [[ -f $LOGDIR/skip ]]; then
+		TEST_STATUS="SKIP"
+	fi
+	echo "$TEST_STATUS $@" 2>&1 | tee -a $TESTSUITELOG
 }
 
 check_mds() {
@@ -3914,6 +3926,7 @@ run_one_logged() {
 	local name=${TESTSUITE}.test_${1}.test_log.$(hostname -s).log
 	local test_log=$LOGDIR/$name
 	rm -rf $LOGDIR/err
+	rm -rf $LOGDIR/skip
 	local SAVE_UMASK=`umask`
 	umask 0022
 
@@ -3927,7 +3940,12 @@ run_one_logged() {
 
 	duration=$((`date +%s` - $BEFORE))
 	pass "$1" "(${duration}s)"
-	[ -f $LOGDIR/err ] && TEST_ERROR=$(cat $LOGDIR/err)
+
+	if [[ -f $LOGDIR/err ]]; then
+		TEST_ERROR=$(cat $LOGDIR/err)
+	elif [[ -f $LOGDIR/skip ]]; then
+		TEST_ERROR=$(cat $LOGDIR/skip)
+	fi
 	log_sub_test_end $TEST_STATUS $duration "$RC" "$TEST_ERROR"
 
 	if [ -f $LOGDIR/err ]; then
