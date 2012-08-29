@@ -9021,6 +9021,9 @@ verify_jobstats() {
 }
 
 test_205() { # Job stats
+	[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ] ||
+		{ skip "Need MDS version at least 2.3.0"; return; }
+
 	local cmd
 	OLD_JOBENV=`$LCTL get_param -n jobid_var`
 	if [ $OLD_JOBENV != $JOBENV ]; then

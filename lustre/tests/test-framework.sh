@@ -2915,7 +2915,9 @@ init_param_vars () {
 	osc_ensure_active client $TIMEOUT
 
 	local jobid_var
-	if [ $JOBSTATS_AUTO -ne 0 ]; then
+	if [ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.3.0) ]; then
+		jobid_var="none"
+	elif [ $JOBSTATS_AUTO -ne 0 ]; then
 		echo "enable jobstats, set job scheduler as $JOBID_VAR"
 		jobid_var=$JOBID_VAR
 	else
