@@ -1514,6 +1514,7 @@ node_var_name() {
 start_client_load() {
     local client=$1
     local load=$2
+    local nodenum=$3
     local var=$(node_var_name $client)_load
     eval export ${var}=$load
 
@@ -1525,6 +1526,9 @@ TESTLOG_PREFIX=$TESTLOG_PREFIX \
 TESTNAME=$TESTNAME \
 DBENCH_LIB=$DBENCH_LIB \
 DBENCH_SRC=$DBENCH_SRC \
+MDTCOUNT=$MDSCOUNT \
+LFS=$LFS \
+NODENUM=$nodenum \
 run_${load}.sh" &
     local ppid=$!
     log "Started client load: ${load} on $client"
@@ -1542,7 +1546,7 @@ start_client_loads () {
 
     for ((nodenum=0; nodenum < ${#clients[@]}; nodenum++ )); do
         testnum=$((nodenum % numloads))
-        start_client_load ${clients[nodenum]} ${CLIENT_LOADS[testnum]}
+        start_client_load ${clients[nodenum]} ${CLIENT_LOADS[testnum]} $nodenum
     done
     # bug 22169: wait the background threads to start
     sleep 2
@@ -1617,16 +1621,19 @@ check_client_loads () {
 
 restart_client_loads () {
     local clients=${1//,/ }
-    local expectedfail=${2:-""}
+    local nodes=$2 
+    local expectedfail=${3:-""}
     local client=
+    local client_index=
     local rc=0
 
     for client in $clients; do
+        client_index=$(get_entry_index $client $nodes)
         check_client_load $client
         rc=${PIPESTATUS[0]}
         if [ "$rc" != 0 -a "$expectedfail" ]; then
             local var=$(node_var_name $client)_load
-            start_client_load $client ${!var}
+            start_client_load $client ${!var} $client_index
             echo "Restarted client load ${!var}: on $client. Checking ..."
             check_client_load $client
             rc=${PIPESTATUS[0]}
@@ -4458,6 +4465,23 @@ get_random_entry () {
     local i=$((RANDOM * num * 2 / 65536))
 
     echo ${nodes[i]}
+}
+
+get_entry_index () {
+    local node=$1
+    local rnodes=$2
+    local i
+
+    rnodes=${rnodes//,/ }
+
+    local -a nodes=($rnodes)
+
+    for ((i=0; $i<${#nodes[@]}; i++)); do
+        if [ "$node" == "${nodes[i]}" ]; then
+            break;
+        fi
+    done
+    echo $i
 }
 
 client_only () {
