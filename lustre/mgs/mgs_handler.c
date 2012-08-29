@@ -55,8 +55,10 @@
 #include <lprocfs_status.h>
 #include <lustre_fsfilt.h>
 #include <lustre_disk.h>
-#include "mgs_internal.h"
 #include <lustre_param.h>
+#include <lustre_log.h>
+
+#include "mgs_internal.h"
 
 /* Establish a connection to the MGS.*/
 static int mgs_connect(const struct lu_env *env,
@@ -919,6 +921,12 @@ int mgs_handle(struct ptlrpc_request *req)
                                 &RQF_LLOG_ORIGIN_HANDLE_NEXT_BLOCK);
                 rc = llog_origin_handle_next_block(req);
                 break;
+	case LLOG_ORIGIN_HANDLE_PREV_BLOCK:
+		DEBUG_REQ(D_MGS, req, "llog prev block");
+		req_capsule_set(&req->rq_pill,
+				&RQF_LLOG_ORIGIN_HANDLE_PREV_BLOCK);
+		rc = llog_origin_handle_prev_block(req);
+		break;
         case LLOG_ORIGIN_HANDLE_READ_HEADER:
                 DEBUG_REQ(D_MGS, req, "llog read header");
                 req_capsule_set(&req->rq_pill,
@@ -929,20 +937,18 @@ int mgs_handle(struct ptlrpc_request *req)
                 DEBUG_REQ(D_MGS, req, "llog close");
                 rc = llog_origin_handle_close(req);
                 break;
-        case LLOG_CATINFO:
-		DEBUG_REQ(D_MGS, req, "llog catinfo");
+	default:
 		rc = -EOPNOTSUPP;
-		break;
-        default:
-                req->rq_status = -ENOTSUPP;
-                rc = ptlrpc_error(req);
-                RETURN(rc);
         }
 
         LASSERT(current->journal_info == NULL);
 
-        if (rc)
-                CERROR("MGS handle cmd=%d rc=%d\n", opc, rc);
+	if (rc) {
+		CDEBUG(D_MGS, "MGS handle cmd=%d rc=%d\n", opc, rc);
+		req->rq_status = rc;
+		rc = ptlrpc_error(req);
+		RETURN(rc);
+	}
 
 out:
         target_send_reply(req, rc, fail);
