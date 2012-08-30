@@ -284,18 +284,23 @@ typedef struct srpc_msg {
 
 #include <libcfs/libcfs_unpack.h>
 
-static inline void
+static inline int
 srpc_unpack_msg_hdr(srpc_msg_t *msg)
 {
 	if (msg->msg_magic == SRPC_MSG_MAGIC)
-		return; /* no flipping needed */
+		return 0; /* no flipping needed */
 
-	__swab32s(&msg->msg_magic);
+	/*  We do not swap the magic number here as it is needed to
+	    determine whether the body needs to be swapped.
+	    NB: It is important for the caller to keep track of
+		whether the header has been swapped or not!  */
+	/* __swab32s(&msg->msg_magic); */
 	__swab32s(&msg->msg_type);
 	__swab32s(&msg->msg_version);
 	__swab32s(&msg->msg_ses_feats);
 	__swab32s(&msg->msg_reserved0);
 	__swab32s(&msg->msg_reserved1);
+	return 1;
 }
 
 #endif /* __SELFTEST_RPC_H__ */
