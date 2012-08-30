@@ -1258,24 +1258,28 @@ srpc_send_rpc (swi_workitem_t *wi)
                 wi->swi_state = SWI_STATE_REQUEST_SENT;
                 /* perhaps more events, fall thru */
         case SWI_STATE_REQUEST_SENT: {
-                srpc_msg_type_t type = srpc_service2reply(rpc->crpc_service);
+		srpc_msg_type_t type = srpc_service2reply(rpc->crpc_service);
+		int header_swapped = 0;
 
-                if (!rpc->crpc_replyev.ev_fired) break;
+		if (!rpc->crpc_replyev.ev_fired)
+			break;
 
-                rc = rpc->crpc_replyev.ev_status;
-                if (rc != 0) break;
+		rc = rpc->crpc_replyev.ev_status;
+		if (rc != 0)
+			break;
 
-		srpc_unpack_msg_hdr(reply);
+		header_swapped = srpc_unpack_msg_hdr(reply);
 		if (reply->msg_type != type ||
-		    reply->msg_magic != SRPC_MSG_MAGIC) {
-                        CWARN ("Bad message from %s: type %u (%d expected),"
-                               " magic %u (%d expected).\n",
-                               libcfs_id2str(rpc->crpc_dest),
-                               reply->msg_type, type,
-                               reply->msg_magic, SRPC_MSG_MAGIC);
-                        rc = -EBADMSG;
-                        break;
-                }
+		    ((header_swapped) &&
+		     (reply->msg_magic != __swab32(SRPC_MSG_MAGIC)))) {
+			CWARN("Bad message from %s: type %u (%d expected),"
+			      " magic %u (%d expected).\n",
+			      libcfs_id2str(rpc->crpc_dest),
+			      reply->msg_type, type,
+			      reply->msg_magic, SRPC_MSG_MAGIC);
+			rc = -EBADMSG;
+			break;
+		}
 
                 if (do_bulk && reply->msg_body.reply.status != 0) {
                         CWARN ("Remote error %d at %s, unlink bulk buffer in "
