@@ -2091,8 +2091,10 @@ int filter_common_setup(struct obd_device *obd, struct lustre_cfg* lcfg,
         /* failover is the default */
         obd->obd_replayable = 1;
 
-        /* disable connection until configuration finishes */
-        obd->obd_no_conn = 1;
+	/* disable connection until configuration finishes */
+	cfs_spin_lock(&obd->obd_dev_lock);
+	obd->obd_no_conn = 1;
+	cfs_spin_unlock(&obd->obd_dev_lock);
 
         if (lcfg->lcfg_bufcount > 3 && LUSTRE_CFG_BUFLEN(lcfg, 3) > 0) {
                 str = lustre_cfg_string(lcfg, 3);
