@@ -2930,6 +2930,78 @@ test_63() {
 }
 run_test 63 "Verify each page can at least hold 3 ldisk inodes"
 
+test_64() {
+	setup
+	local OST1_NID=$(do_facet ost $LCTL list_nids | head -1)
+	local MDS_NID=$(do_facet $SINGLEMDS $LCTL list_nids | head -1)
+	local MDSDEV=$(mdsdevname ${SINGLEMDS//mds/})
+	local MNTDIR=$(facet_mntpt $SINGLEMDS)
+
+	echo "replace_nids should fail if MDS, OSTs and clients are UP"
+	do_facet mgs $LCTL replace_nids $FSNAME-OST0000 $OST1_NID &&
+	error "replace_nids fail"
+
+	manual_umount_client
+	echo "replace_nids should fail if MDS and OSTs are UP"
+	do_facet mgs $LCTL replace_nids $FSNAME-OST0000 $OST1_NID &&
+	error "replace_nids fail"
+
+	stop_ost2
+	stop_ost
+	echo "replace_nids should fail if MDS is UP"
+	do_facet mgs $LCTL replace_nids $FSNAME-OST0000 $OST1_NID &&
+	error "replace_nids fail"
+
+	stop_mds || error "stopping mds failed"
+
+	if ! combined_mgs_mds ; then
+	start_mgs
+	else
+	start mds $MDSDEV $MDS_MOUNT_OPTS -o nosvc
+	fi
+
+	echo "command should accept two parameters"
+	do_facet mgs $LCTL replace_nids $FSNAME-OST0000 &&
+	error "command should accept two params"
+
+	echo "correct device name should be passed"
+	do_facet mgs $LCTL replace_nids $FSNAME-WRONG0000 $OST1_NID &&
+	error "wrong devname"
+
+	echo "wrong nids list should not destroy the system"
+	do_facet mgs $LCTL replace_nids $FSNAME-OST0000 "wrong nids list" &&
+	error "wrong parse"
+
+	echo "replace OST nid"
+	do_facet mgs $LCTL replace_nids $FSNAME-OST0000 $OST1_NID ||
+	error "replace nids failed"
+
+	echo "command should accept two parameters"
+	do_facet mgs $LCTL replace_nids $FSNAME-MDT0000 &&
+	error "command should accept two params"
+
+	echo "wrong nids list should not destroy the system"
+	do_facet mgs $LCTL replace_nids $FSNAME-MDT0000 "wrong nids list" &&
+	error "wrong parse"
+
+	echo "replace MDS nid"
+	do_facet mgs $LCTL replace_nids $FSNAME-MDT0000 $MDS_NID ||
+	error "replace nids failed"
+
+	if ! combined_mgs_mds ; then
+	stop_mgs
+	else
+	stop mds
+	fi
+
+	setup_noconfig
+	check_mount || error "error after nid replace"
+	cleanup
+	reformat
+}
+run_test 64 "replace nids"
+
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
