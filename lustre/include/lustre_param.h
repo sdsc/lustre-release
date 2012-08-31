@@ -104,6 +104,12 @@ int do_lcfg(char *cfgname, lnet_nid_t nid, int cmd,
 #define PARAM_SRPC_UDESC           "srpc.udesc.cli2mdt"
 #define PARAM_SEC                  "security."
 
+/* For interoperability between 1.8 and 2.0. */
+struct cfg_interop_param {
+	char *old_param;
+	char *new_param;
+};
+
 /** @} param */
 
 #endif /* _LUSTRE_PARAM_H */
