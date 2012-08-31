@@ -1903,12 +1903,13 @@ obd_name() {
 
 replay_barrier() {
     local facet=$1
-    do_facet $facet "sync; sync; sync"
     df $MOUNT
 
     # make sure there will be no seq change
     local clients=${CLIENTS:-$HOSTNAME}
     do_nodes $clients "f=${MOUNT}/fsa-\\\$(hostname); mcreate \\\$f; rm \\\$f"
+
+    do_facet $facet "sync; sync; sync"
 
     local svc=${facet}_svc
     do_facet $facet $LCTL --device %${!svc} notransno
