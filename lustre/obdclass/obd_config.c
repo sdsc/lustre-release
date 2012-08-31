@@ -77,6 +77,40 @@ int class_find_param(char *buf, char *key, char **valp)
 EXPORT_SYMBOL(class_find_param);
 
 /**
+ * Check whether the proc parameter \a param is an old parameter or not from
+ * the array \a ptr which contains the mapping from old parameters to new ones.
+ * If it's an old one, then copy the new parameter into \a new_param.
+ *
+ * \param param		proc parameter
+ * \param ptr		an array which contains the mapping from old parameters
+ *			to new ones
+ * \param new_param	new proc parameter
+ *
+ * \retval 0		\a param is not an old parameter
+ * \retval 1		\a param is an old parameter
+ */
+int class_find_old_param(const char *param, const struct cfg_interop_param *ptr,
+			 char **new_param)
+{
+	if (param == NULL || ptr == NULL || new_param == NULL)
+		return 0;
+
+	int param_len = strlen(param);
+
+	while (ptr->old_param != NULL) {
+		if (strncmp(param, ptr->old_param, param_len) == 0 &&
+		    param_len == strlen(ptr->old_param)) {
+			*new_param = ptr->new_param;
+			return 1;
+		}
+		ptr++;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(class_find_old_param);
+
+/**
  * Finds a parameter in \a params and copies it to \a copy.
  *
  * Leading spaces are skipped. Next space or end of string is the
