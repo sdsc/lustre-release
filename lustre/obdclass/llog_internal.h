@@ -87,4 +87,5 @@ int class_config_dump_handler(const struct lu_env *env,
 int llog_process_or_fork(const struct lu_env *env,
 			 struct llog_handle *loghandle,
 			 llog_cb_t cb, void *data, void *catdata, bool fork);
+int llog_cat_set_first_idx(struct llog_handle *cathandle, int index);
 #endif
