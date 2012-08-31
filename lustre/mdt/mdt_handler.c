@@ -4874,13 +4874,13 @@ err_lmi:
 }
 
 /* For interoperability between 1.8 and 2.0. */
-#define CFG_GROUP_UPCALL	"mdt.group_upcall"
-#define CFG_QUOTA_TYPE_OLD	"mdt.quota_type"
-#define CFG_QUOTA_TYPE_NEW	"mdd.quota_type"
-#define CFG_ROOT_SQUASH_OLD	"mdt.rootsquash"
-#define CFG_ROOT_SQUASH_NEW	"mdt.root_squash"
-#define CFG_NOSQUASH_NID_OLD	"mdt.nosquash_nid"
-#define CFG_NOSQUASH_NID_NEW	"mdt.nosquash_nids"
+static const struct cfg_interop_param mdt_interop_param[] = {
+	{ "mdt.group_upcall",	NULL },
+	{ "mdt.quota_type",	"mdd.quota_type" },
+	{ "mdt.rootsquash",	"mdt.root_squash" },
+	{ "mdt.nosquash_nid",	"mdt.nosquash_nids" },
+	{ NULL }
+};
 
 /* used by MGS to process specific configurations */
 static int mdt_process_config(const struct lu_env *env,
@@ -4909,46 +4909,21 @@ static int mdt_process_config(const struct lu_env *env,
 			break;
 		}
 
-		/* Skip old "mdt.group_upcall" param. */
-		if (strncmp(param, CFG_GROUP_UPCALL,
-			    strlen(CFG_GROUP_UPCALL)) == 0) {
-			CWARN("For 1.8 interoperability, skip this %s."
-			      " It is obsolete.\n", CFG_GROUP_UPCALL);
-			break;
-		}
+		if (class_find_old_param(param, mdt_interop_param, &new_name)) {
+			if (new_name == NULL) {
+				CWARN("For 1.8 interoperability, skip this %s."
+				      " It is obsolete.\n", param);
+					break;
+			} else {
+				CWARN("Found old param %s, changed it to %s.\n",
+				      param, new_name);
 
-		/* Rename old "mdt.quota_type" to "mdd.quota_type". */
-		if (strncmp(param, CFG_QUOTA_TYPE_OLD,
-			    strlen(CFG_QUOTA_TYPE_OLD)) == 0) {
-			CWARN("Found old param %s, changed it to %s.\n",
-			      CFG_QUOTA_TYPE_OLD, CFG_QUOTA_TYPE_NEW);
-			new_name = CFG_QUOTA_TYPE_NEW;
-
-		} else if (strncmp(param, CFG_ROOT_SQUASH_OLD,
-				   strlen(CFG_ROOT_SQUASH_OLD)) == 0) {
-			/* Rename old "mdt.rootsquash" to "mdt.root_squash". */
-			CWARN("Found old param %s, changed it to %s.\n",
-			      CFG_ROOT_SQUASH_OLD, CFG_ROOT_SQUASH_NEW);
-			new_name = CFG_ROOT_SQUASH_NEW;
-
-		} else if (strncmp(param, CFG_NOSQUASH_NID_OLD,
-				   strlen(CFG_NOSQUASH_NID_OLD)) == 0 &&
-			   param[strlen(CFG_NOSQUASH_NID_OLD)] != 's') {
-			/*
-			 * Rename old "mdt.nosquash_nid" to
-			 * "mdt.nosquash_nids".
-			 */
-			CWARN("Found old param %s, changed it to %s.\n",
-			      CFG_NOSQUASH_NID_OLD, CFG_NOSQUASH_NID_NEW);
-			new_name = CFG_NOSQUASH_NID_NEW;
-		}
-
-		if (new_name != NULL) {
-			old_cfg = cfg;
-			cfg = lustre_cfg_rename(old_cfg, new_name);
-			if (IS_ERR(cfg)) {
-				rc = PTR_ERR(cfg);
-				break;
+				old_cfg = cfg;
+				cfg = lustre_cfg_rename(old_cfg, new_name);
+				if (IS_ERR(cfg)) {
+					rc = PTR_ERR(cfg);
+					break;
+				}
 			}
 		}
 
