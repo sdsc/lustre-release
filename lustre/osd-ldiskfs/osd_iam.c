@@ -304,6 +304,7 @@ void iam_path_release(struct iam_path *path)
 
         for (i = 0; i < ARRAY_SIZE(path->ip_frames); i++) {
                 if (path->ip_frames[i].bh != NULL) {
+			path->ip_frames[i].at_shifted = 0;
                         brelse(path->ip_frames[i].bh);
                         path->ip_frames[i].bh = NULL;
                 }
