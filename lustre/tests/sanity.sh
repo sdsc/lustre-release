@@ -9993,6 +9993,13 @@ verify_jobstats() {
 	fi
 }
 
+jobstats_set() {
+	trap 0
+	NEW_JOBENV=${1:-$OLD_JOBENV}
+	do_facet mgs $LCTL conf_param $FSNAME.sys.jobid_var=$NEW_JOBENV
+	wait_update $HOSTNAME "$LCTL get_param -n jobid_var" $NEW_JOBENV
+}
+
 test_205() { # Job stats
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	[ -z "$(lctl get_param -n mdc.*.connect_flags | grep jobstats)" ] &&
@@ -10001,9 +10008,8 @@ test_205() { # Job stats
 	local cmd
 	OLD_JOBENV=`$LCTL get_param -n jobid_var`
 	if [ $OLD_JOBENV != $JOBENV ]; then
-		do_facet mgs $LCTL conf_param $FSNAME.sys.jobid_var=$JOBENV
-		wait_update $HOSTNAME "$LCTL get_param -n jobid_var" \
-			$JOBENV || return 1
+		jobstats_set $JOBENV
+		trap jobstats_set EXIT
 	fi
 
 	# mkdir
@@ -10040,11 +10046,7 @@ test_205() { # Job stats
 	# cleanup
 	rm -f $DIR/jobstats_test_rename
 
-	if [ $OLD_JOBENV != $JOBENV ]; then
-		do_facet mgs $LCTL conf_param $FSNAME.sys.jobid_var=$OLD_JOBENV
-		wait_update $HOSTNAME "$LCTL get_param -n jobid_var" \
-			$OLD_JOBENV || return 1
-	fi
+	[ $OLD_JOBENV != $JOBENV ] && jobstats_set $OLD_JOBENV
 }
 run_test 205 "Verify job stats"
 
