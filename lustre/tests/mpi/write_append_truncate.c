@@ -524,9 +524,10 @@ int main(int argc, char *argv[])
                         }
 
                         if (error == 1) {
+				int rc;
                                 char command[4096];
-                                int rc;
 
+				SET_BUT_UNUSED(rc);
                                 rprintf(rank, n, 0, STATUS_FMT"\n",
                                         write_char, write_size, write_size,
                                         append_char, append_size, append_size,

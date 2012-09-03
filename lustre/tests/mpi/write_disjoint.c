@@ -205,6 +205,8 @@ int main (int argc, char *argv[]) {
                         for (i = 0; i < noProcessors; i++) {
                                 char command[4096];
                                 int j, rc;
+				
+				SET_BUT_UNUSED(rc);
                                 if (!memcmp(read_buf + (i * CHUNK_SIZE(n)),
                                             chunk_buf[i], CHUNK_SIZE(n)))
                                         continue;
