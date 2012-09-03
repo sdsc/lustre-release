@@ -144,6 +144,9 @@ autodetect_distro() {
             "SUSE LINUX")
                 name="sles"
                 ;;
+            "Fedora")
+                name="fc"
+                ;;
             *)
                 fatal 1 "I don't know what distro name $name and version $version is.\nEither update autodetect_distro() or use the --distro argument."
                 ;;
