@@ -3414,11 +3414,10 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
 			rc = osd_ea_fid_get(env, obj, ino, fid, &oic->oic_lid);
 		else
 			osd_id_gen(&oic->oic_lid, ino, OSD_OII_NOGEN);
-
+		oic->oic_fid = *fid;
 		if (rc != 0 || !fid_is_norm(fid))
 			GOTO(out, rc);
 
-		oic->oic_fid = *fid;
 		if ((scrub->os_pos_current <= ino) &&
 		    (sf->sf_flags & SF_INCONSISTENT ||
 		     ldiskfs_test_bit(osd_oi_fid2idx(dev, fid),
@@ -4130,11 +4129,10 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 			   it->oie_dirent->oied_name,
 			   it->oie_dirent->oied_namelen,
 			   it->oie_dirent->oied_type, attr);
-
+	oic->oic_fid = *fid;
 	if (!fid_is_norm(fid))
 		RETURN(0);
 
-	oic->oic_fid = *fid;
 	if ((scrub->os_pos_current <= ino) &&
 	    (sf->sf_flags & SF_INCONSISTENT ||
 	     ldiskfs_test_bit(osd_oi_fid2idx(dev, fid), sf->sf_oi_bitmap)))
