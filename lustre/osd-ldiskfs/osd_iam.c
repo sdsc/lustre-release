@@ -304,6 +304,7 @@ void iam_path_release(struct iam_path *path)
 
         for (i = 0; i < ARRAY_SIZE(path->ip_frames); i++) {
                 if (path->ip_frames[i].bh != NULL) {
+			path->ip_frames[i].at_shifted = 0;
                         brelse(path->ip_frames[i].bh);
                         path->ip_frames[i].bh = NULL;
                 }
@@ -1671,7 +1672,7 @@ iam_new_node(handle_t *h, struct iam_container *c, iam_ptr_t *b, int *e)
 		goto newblock;
 
 	cfs_down(&c->ic_idle_sem);
-	if (unlikely(c->ic_idle_failed || c->ic_idle_bh == NULL)) {
+	if (unlikely(c->ic_idle_bh == NULL)) {
 		cfs_up(&c->ic_idle_sem);
 		goto newblock;
 	}
