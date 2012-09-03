@@ -670,6 +670,40 @@ test_10b() {
 }
 run_test 10b "non-stopped OI scrub should auto restarts after MDS remount (2)"
 
+test_11() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+	mkdir -p $DIR/$tdir
+	createmany -o $DIR/$tdir/`date +%s` 100 || error "(1) Fail to create!"
+
+	# reset OI scrub start point by force
+	$START_SCRUB -r || error "(2) Fail to start OI scrub!"
+	sleep 3
+	local STATUS=$($SHOW_SCRUB | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(3) Expect 'completed', but got '$STATUS'"
+
+	# OI scrub should skip the new created objects for the first accessing
+	local SKIPPED=$($SHOW_SCRUB | awk '/^noscrub/ { print $2 }')
+	[ $SKIPPED -eq 102 ] ||
+		error "(4) Expect 102 objects skipped, but got $SKIPPED"
+
+	# reset OI scrub start point by force
+	$START_SCRUB -r || error "(5) Fail to start OI scrub!"
+	sleep 3
+	STATUS=$($SHOW_SCRUB | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(6) Expect 'completed', but got '$STATUS'"
+
+	# OI scrub should skip the new created object only once
+	SKIPPED=$($SHOW_SCRUB | awk '/^noscrub/ { print $2 }')
+	[ $SKIPPED -eq 0 ] ||
+		error "(7) Expect 0 objects skipped, but got $SKIPPED"
+}
+run_test 11 "OI scrub skips the new created objects only once"
+
 # restore the ${facet}_MKFS_OPTS variables
 for facet in MGS MDS OST; do
 	opts=SAVED_${facet}_MKFS_OPTS
