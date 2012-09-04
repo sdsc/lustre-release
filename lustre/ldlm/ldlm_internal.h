@@ -42,6 +42,11 @@ extern cfs_mutex_t ldlm_srv_namespace_lock;
 extern cfs_list_t ldlm_srv_namespace_list;
 extern cfs_mutex_t ldlm_cli_namespace_lock;
 extern cfs_list_t ldlm_cli_namespace_list;
+extern cfs_atomic_t ldlm_cli_all_ns_unused;
+extern cfs_atomic_t ldlm_srv_all_pl_granted;
+#define LDLM_POOL_SHRINK_BATCH_SIZE 64
+#define LDLM_POOL_SHRINK_THREAD_LIMIT 32
+extern cfs_semaphore_t ldlm_pool_shrink_lock;
 
 static inline cfs_atomic_t *ldlm_namespace_nr(ldlm_side_t client)
 {
