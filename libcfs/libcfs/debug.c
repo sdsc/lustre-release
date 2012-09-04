@@ -251,6 +251,8 @@ libcfs_debug_dbg2str(int debug)
                 return "quota";
         case D_SEC:
                 return "sec";
+	case D_LFSCK:
+		return "lfsck";
         }
 }
 

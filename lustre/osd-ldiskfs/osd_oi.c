@@ -347,6 +347,10 @@ int osd_oi_insert(struct osd_thread_info *info, struct osd_oi *oi,
         if (!fid_is_norm(fid))
                 return 0;
 
+	if (fid_seq(fid) == FID_SEQ_LLOG ||
+            unlikely(fid_seq(fid) == FID_SEQ_DOT_LUSTRE))
+		return 0;
+
         idx = oi->oi_dir;
         fid_cpu_to_be(oi_fid, fid);
         key = (struct dt_key *) oi_fid;

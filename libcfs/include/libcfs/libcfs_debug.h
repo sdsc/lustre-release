@@ -151,6 +151,7 @@ struct ptldebug_header {
 #define D_CONSOLE     0x02000000
 #define D_QUOTA       0x04000000
 #define D_SEC         0x08000000
+#define D_LFSCK       0x10000000 /* For both OI scrub and LFSCK */
 /* keep these in sync with lnet/{utils,libcfs}/debug.c */
 
 #define D_HSM         D_TRACE
