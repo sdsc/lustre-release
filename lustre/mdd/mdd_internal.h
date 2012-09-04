@@ -183,6 +183,8 @@ struct mdd_thread_info {
 	/* mti_orph_ent and mti_orph_key must be conjoint,
 	 * then mti_orph_ent::lde_name will be mti_orph_key. */
 	struct lu_dirent	  mti_orph_ent;
+	struct lu_attr            mti_pattr;
+	struct lu_attr            mti_cattr;
         char                      mti_orph_key[NAME_MAX + 1];
         struct obd_trans_info     mti_oti;
         struct lu_buf             mti_buf;
