@@ -1,4 +1,5 @@
 FSNAME=${FSNAME:-lustre}
+# just to kick off a test on autotest
 
 # facet hosts
 mds_HOST=${mds_HOST:-`hostname`}
