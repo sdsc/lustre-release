@@ -180,12 +180,30 @@ int check_mtab_entry(char *spec1, char *spec2, char *mtpt, char *type)
 	return 0;
 }
 
+#define PROC_MOUNTS	"/proc/mounts"
+static int mtab_is_proc(const char *mtab)
+{
+	char path[16];
+
+	if (readlink(mtab, path, sizeof(path)) < 0)
+		return 0;
+
+	if (strncmp(path, PROC_MOUNTS, strlen(PROC_MOUNTS)))
+		return 0;
+
+	return 1;
+}
+
 int update_mtab_entry(char *spec, char *mtpt, char *type, char *opts,
 		int flags, int freq, int pass)
 {
 	FILE *fp;
 	struct mntent mnt;
 	int rc = 0;
+
+	/* Don't update mtab if it is linked to /proc/mounts */
+	if (mtab_is_proc(MOUNTED))
+		return 0;
 
 	mnt.mnt_fsname = spec;
 	mnt.mnt_dir = mtpt;
