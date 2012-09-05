@@ -885,12 +885,12 @@ static void search_granted_lock(cfs_list_t *queue,
 
                 /* suitable mode group is found */
                 if (lock->l_resource->lr_type == LDLM_PLAIN) {
-                        /* insert point is last lock of the mode group */
-                        prev->res_link = &mode_end->l_res_link;
-                        prev->mode_link = &mode_end->l_sl_mode;
-                        prev->policy_link = &req->l_sl_policy;
-                        EXIT;
-                        return;
+			/* insert point is last lock of the mode group */
+			prev->res_link = &mode_end->l_res_link;
+			prev->mode_link = &mode_end->l_sl_mode;
+			prev->policy_link = NULL;
+			EXIT;
+			return;
                 } else if (lock->l_resource->lr_type == LDLM_IBITS) {
                         for (;;) {
                                 policy_end =
@@ -922,26 +922,26 @@ static void search_granted_lock(cfs_list_t *queue,
                                                       l_res_link);
                         }  /* loop over policy groups within the mode group */
 
-                        /* insert point is last lock of the mode group,
-                         * new policy group is started */
-                        prev->res_link = &mode_end->l_res_link;
-                        prev->mode_link = &mode_end->l_sl_mode;
-                        prev->policy_link = &req->l_sl_policy;
-                        EXIT;
-                        return;
+			/* insert point is last lock of the mode group,
+			 * new policy group is started */
+			prev->res_link = &mode_end->l_res_link;
+			prev->mode_link = &mode_end->l_sl_mode;
+			prev->policy_link = NULL;
+			EXIT;
+			return;
                 } else {
                         LDLM_ERROR(lock,"is not LDLM_PLAIN or LDLM_IBITS lock");
                         LBUG();
                 }
         }
 
-        /* insert point is last lock on the queue,
-         * new mode group and new policy group are started */
-        prev->res_link = queue->prev;
-        prev->mode_link = &req->l_sl_mode;
-        prev->policy_link = &req->l_sl_policy;
-        EXIT;
-        return;
+	/* insert point is last lock on the queue,
+	 * new mode group and new policy group are started */
+	prev->res_link = queue->prev;
+	prev->mode_link = NULL;
+	prev->policy_link = NULL;
+	EXIT;
+	return;
 }
 
 static void ldlm_granted_list_add_lock(struct ldlm_lock *lock,
@@ -964,9 +964,12 @@ static void ldlm_granted_list_add_lock(struct ldlm_lock *lock,
         LASSERT(cfs_list_empty(&lock->l_sl_mode));
         LASSERT(cfs_list_empty(&lock->l_sl_policy));
 
-        cfs_list_add(&lock->l_res_link, prev->res_link);
-        cfs_list_add(&lock->l_sl_mode, prev->mode_link);
-        cfs_list_add(&lock->l_sl_policy, prev->policy_link);
+	if (prev->res_link != NULL)
+		cfs_list_add(&lock->l_res_link, prev->res_link);
+	if (prev->mode_link != NULL)
+		cfs_list_add(&lock->l_sl_mode, prev->mode_link);
+	if (prev->policy_link != NULL)
+		cfs_list_add(&lock->l_sl_policy, prev->policy_link);
 
         EXIT;
 }
