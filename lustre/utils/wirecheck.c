@@ -163,6 +163,12 @@ do {                                                            \
                 CHECK_VALUE((int)sizeof(s));                    \
 } while(0)
 
+#define CHECK_UNION(s)						\
+do {								\
+	COMMENT("Checks for union "#s);				\
+	CHECK_VALUE((int)sizeof(union s));			\
+} while(0)
+
 #define CHECK_VALUE_SAME(v1, v2)                                \
 do {                                                            \
 	printf("\tLASSERTF("#v1" == "#v2", "                    \
@@ -693,6 +699,9 @@ check_obd_ioobj(void)
 static void
 check_obd_quotactl(void)
 {
+	BLANK_LINE();
+	CHECK_UNION(quota_id);
+
         BLANK_LINE();
         CHECK_STRUCT(obd_quotactl);
         CHECK_MEMBER(obd_quotactl, qc_cmd);
