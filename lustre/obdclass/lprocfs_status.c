@@ -823,6 +823,10 @@ static const char *obd_connect_names[] = {
         "umask",
         "einprogress",
         "grant_param",
+        "nanosec_time",
+        "variable_lvb",
+        "unknown",
+        "short_io",
         NULL
 };
 
