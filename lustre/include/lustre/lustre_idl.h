@@ -1112,6 +1112,8 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 #define OBD_CONNECT_NANOSECOND_TIMES 0x200000000000ULL /* nanosec resolution
                                                         * timestamps supported
                                                         */
+#define OBD_CONNECT_SHORTIO    0x2000000000000ULL /* short io */
+
 /* XXX README XXX:
  * Please DO NOT add flag values here before first ensuring that this same
  * flag value is not in use on some other branch.  Please clear any such
