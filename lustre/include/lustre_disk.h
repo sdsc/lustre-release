@@ -523,6 +523,15 @@ struct lustre_mount_info {
         cfs_list_t            lmi_list_chain;
 };
 
+/* on-disk structure describing local object OIDs storage
+ * the structure to be used with any sequence managed by
+ * local object library */
+struct los_ondisk {
+	__u32 lso_magic;
+	__u32 lso_next_oid;
+};
+
+
 /****************** prototypes *********************/
 
 #ifdef __KERNEL__
