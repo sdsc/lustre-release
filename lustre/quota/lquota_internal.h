@@ -33,11 +33,61 @@
 
 #define QTYPE_NAME(qtype) ((qtype) == USRQUOTA ? "usr" : "grp")
 
+#define QIF_IFLAGS (QIF_INODES | QIF_ITIME | QIF_ILIMITS)
+#define QIF_BFLAGS (QIF_SPACE | QIF_BTIME | QIF_BLIMITS)
+
+/* The biggest filename are the one used for slave index which are in the form
+ * of 0x%x-%s,glb_fid,slv_uuid, which mean 2(0x) + 8(fid) + 1(-) + 40(UUID_MAX)
+ * which means 51 chars + '\0' */
+#define LQUOTA_NAME_MAX 52
+
+/* reserved OID in FID_SEQ_QUOTA for local objects */
+enum quota_local_oid {
+	QUOTA_USR_OID = 1UL, /* slave index copy for user quota */
+	QUOTA_GRP_OID = 2UL, /* slave index copy for group quota */
+	/* all OID after this are allocated dynamically by the QMT */
+	QUOTA_GENERATED_OID = 100UL,
+};
+
+/* Common data shared by quota-level handlers. This is allocated per-thread to
+ * reduce stack consumption */
+struct lquota_thread_info {
+	union  lquota_rec	qti_rec;
+	struct lu_buf		qti_lb;
+	struct lu_attr		qti_attr;
+	struct dt_object_format	qti_dof;
+	struct lustre_mdt_attrs	qti_lma;
+	struct lu_fid		qti_fid;
+	char			qti_buf[LQUOTA_NAME_MAX];
+};
+
+#define qti_glb_rec	qti_rec.lqr_glb_rec
+#define qti_acct_rec	qti_rec.lqr_acct_rec
+#define qti_slv_rec	qti_rec.lqr_slv_rec
+
+extern struct lu_context_key lquota_thread_key;
+
+/* extract lquota_threa_info context from environment */
+static inline
+struct lquota_thread_info *lquota_info(const struct lu_env *env)
+{
+	struct lquota_thread_info	*info;
+
+	info = lu_context_key_get(&env->le_ctx, &lquota_thread_key);
+	LASSERT(info);
+	return info;
+}
+
 /* lquota_lib.c */
 struct dt_object *acct_obj_lookup(const struct lu_env *, struct dt_device *,
-                                  __u32);
+				  int);
 
 /* lproc_quota.c */
 extern struct file_operations lprocfs_quota_seq_fops;
+
+/* quota_interface.c
+ * old quota module initialization routines, to be removed */
+int init_lustre_quota(void);
+void exit_lustre_quota(void);
 
 #endif /* _LQUOTA_INTERNAL_H */

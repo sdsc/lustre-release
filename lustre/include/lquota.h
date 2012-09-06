@@ -43,6 +43,38 @@ struct acct_rec { /* 16 bytes */
 };
 
 /*
+ * Global quota index support
+ * Format of a global record, providing global quota settings for a given quota
+ * identifier
+ */
+struct quota_glb_rec { /* 32 bytes */
+	__u64 qbr_hardlimit; /* quota hard limit, in #inodes or kbytes */
+	__u64 qbr_softlimit; /* quota soft limit, in #inodes or kbytes */
+	__u64 qbr_time;      /* grace time, in seconds */
+	__u64 qbr_granted;   /* how much is granted to slaves, in #inodes or
+			      * kbytes */
+};
+
+/*
+ * Slave index support
+ * Format of a slave record, recording how much space is granted to a given
+ * slave
+ */
+struct quota_slv_rec { /* 8 bytes */
+	__u64 qsr_granted; /* space granted to the slave for the key=ID,
+			    * in #inodes or kbytes */
+};
+
+/* Gather all quota record type in an union that can be used to read any records
+ * from disk. All fields of these records must be 64-bit aligned, otherwise the
+ * OSD layer may swab them incorrectly. */
+union lquota_rec {
+	struct quota_glb_rec	lqr_glb_rec;
+	struct quota_slv_rec	lqr_slv_rec;
+	struct acct_rec		lqr_acct_rec;
+};
+
+/*
  * Quota enforcement support on slaves
  */
 
