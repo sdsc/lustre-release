@@ -254,7 +254,7 @@ int main(int argc, char **argv)
                 goto cleanup;
         }
 
-        rc = llapi_file_get_stripe(argv[1], lum_dir);
+	rc = llapi_file_get_layout(argv[1], lum_dir, lum_size);
         if (rc) {
                 if (rc == -ENODATA) {
                         free(lum_dir);
@@ -283,7 +283,7 @@ int main(int argc, char **argv)
                 goto cleanup;
         }
 
-        rc = llapi_file_get_stripe(argv[2], lum_file1);
+	rc = llapi_file_get_layout(argv[2], lum_file1, lum_size);
         if (rc) {
                 llapi_error(LLAPI_MSG_ERROR, rc,
                             "error: unable to get EA for %s\n", argv[2]);
@@ -300,7 +300,7 @@ int main(int argc, char **argv)
                         goto cleanup;
                 }
 
-                rc = llapi_file_get_stripe(argv[3], lum_file2);
+		rc = llapi_file_get_layout(argv[3], lum_file2, lum_size);
                 if (rc) {
                         llapi_error(LLAPI_MSG_ERROR, rc,
                                     "error: can't get EA for %s\n", argv[3]);

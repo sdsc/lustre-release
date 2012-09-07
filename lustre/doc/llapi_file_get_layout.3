@@ -1,7 +1,6 @@
-.TH llapi_file_get_stripe 3 "2009 Jul 22" Lustre liblustreapi
+.TH llapi_file_get_layout 3 "2012 Sep 11" Lustre liblustreapi
 .SH NAME
-llapi_file_get_stripe \- get striping information for a file or a directory on a Lustre filesystem
-.B (deprecated)
+llapi_file_get_layout \- get layout information for a file or a directory on a Lustre filesystem
 .SH SYNOPSIS
 .nf
 .B #include <sys/types.h>
@@ -12,21 +11,19 @@ llapi_file_get_stripe \- get striping information for a file or a directory on a
 .B #include <lustre/liblustreapi.h>
 .B #include <lustre/lustre_user.h>
 .sp
-.BI "int llapi_file_get_stripe(const char *"path ", void *"lum );
+.BI "int llapi_file_get_layout(const char *"path ", void *"lum ", int "lum_len ");"
 .sp
 .fi
 .SH DESCRIPTION
 .LP
-This function is now deprecated, please use
-.B llapi_file_get_layout
-instead.
-
-.B llapi_file_get_stripe(\|)
-returns striping information for a file or a directory 
+.B llapi_file_get_layout(\|)
+returns layout information for a file or a directory
 .I path
 in
 .I lum
-(which should point to a large enough memory region) in one of the following formats:
+(which points to a memory region of size
+.I lum_len
+) in one of the following formats:
 
 .nf
 struct lov_user_md_v1 {
@@ -111,7 +108,7 @@ holds the generation of the OST index.
 holds the OST index in LOV.
 .SH RETURN VALUES
 .LP
-.B llapi_file_get_stripe(\|) 
+.B llapi_file_get_layout(\|)
 returns:
 .TP
 0
@@ -157,7 +154,7 @@ static inline int maxint(int a, int b)
         return a > b ? a : b;
 }
 
-static void *alloc_lum()
+static void *alloc_lum(int *size)
 {
         int v1, v3, join;
 
@@ -166,7 +163,8 @@ static void *alloc_lum()
         v3 = sizeof(struct lov_user_md_v3) +
              LOV_MAX_STRIPE_COUNT * sizeof(struct lov_user_ost_data_v1);
 
-        return malloc(maxint(v1, v3));
+        *size = maxint(v1, v3);
+        return malloc(*size);
 }
 
 int main(int argc, char** argv)
@@ -180,13 +178,13 @@ int main(int argc, char** argv)
                 return 1;
         }
 
-        lum_file = alloc_lum();
+        lum_file = alloc_lum(&lum_size);
         if (lum_file == NULL) {
                 rc = ENOMEM;
                 goto cleanup;
         }
 
-        rc = llapi_file_get_stripe(argv[1], lum_file);
+        rc = llapi_file_get_layout(argv[1], lum_file, lum_size);
         if (rc) {
                 rc = errno;
                 goto cleanup;
