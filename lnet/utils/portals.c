@@ -152,7 +152,8 @@ ptl_ipaddr_2_str (__u32 ipaddr, char *str, int lookup)
                 net_ip = htonl (ipaddr);
                 he = gethostbyaddr (&net_ip, sizeof (net_ip), AF_INET);
                 if (he != NULL) {
-                        strcpy(str, he->h_name);
+			strncpy(str, he->h_name, HOST_NAME_MAX);
+			str[HOST_NAME_MAX-1] = '\0';
                         return (str);
                 }
         }

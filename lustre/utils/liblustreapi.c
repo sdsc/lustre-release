@@ -2082,7 +2082,8 @@ int llapi_file_get_stripe(const char *path, struct lov_user_md *lum)
                 return rc;
         }
 
-        strcpy((char *)lum, fname);
+	strncpy((char *)lum, fname, sizeof(struct lov_user_md));
+	((char *)lum)[sizeof(struct lov_user_md)-1] = '\0';
         if (ioctl(fd, IOC_MDC_GETFILESTRIPE, (void *)lum) == -1)
                 rc = -errno;
 
