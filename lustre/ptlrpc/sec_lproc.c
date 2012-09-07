@@ -66,17 +66,16 @@ char *sec_flags2str(unsigned long flags, char *buf, int bufsize)
         buf[0] = '\0';
 
         if (flags & PTLRPC_SEC_FL_REVERSE)
-                strncat(buf, "reverse,", bufsize);
+		strncat(buf, "reverse,", bufsize-1);
         if (flags & PTLRPC_SEC_FL_ROOTONLY)
-                strncat(buf, "rootonly,", bufsize);
+		strncat(buf, "rootonly,", bufsize-1);
         if (flags & PTLRPC_SEC_FL_UDESC)
-                strncat(buf, "udesc,", bufsize);
+		strncat(buf, "udesc,", bufsize-1);
         if (flags & PTLRPC_SEC_FL_BULK)
-                strncat(buf, "bulk,", bufsize);
+		strncat(buf, "bulk,", bufsize-1);
         if (buf[0] == '\0')
-                strncat(buf, "-,", bufsize);
+		strncat(buf, "-,", bufsize-1);
 
-        buf[strlen(buf) - 1] = '\0';
         return buf;
 }
 

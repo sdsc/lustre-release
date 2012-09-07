@@ -238,17 +238,16 @@ char *sptlrpc_secflags2str(__u32 flags, char *buf, int bufsize)
         buf[0] = '\0';
 
         if (flags & PTLRPC_SEC_FL_REVERSE)
-                strncat(buf, "reverse,", bufsize);
+		strncat(buf, "reverse,", bufsize-1);
         if (flags & PTLRPC_SEC_FL_ROOTONLY)
-                strncat(buf, "rootonly,", bufsize);
+		strncat(buf, "rootonly,", bufsize-1);
         if (flags & PTLRPC_SEC_FL_UDESC)
-                strncat(buf, "udesc,", bufsize);
+		strncat(buf, "udesc,", bufsize-1);
         if (flags & PTLRPC_SEC_FL_BULK)
-                strncat(buf, "bulk,", bufsize);
+		strncat(buf, "bulk,", bufsize-1);
         if (buf[0] == '\0')
-                strncat(buf, "-,", bufsize);
+		strncat(buf, "-,", bufsize-1);
 
-        buf[bufsize - 1] = '\0';
         return buf;
 }
 EXPORT_SYMBOL(sptlrpc_secflags2str);
