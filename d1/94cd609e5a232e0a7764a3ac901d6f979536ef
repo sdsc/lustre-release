@@ -1,0 +1,10 @@
+Verified+1: Hudson
+Code-Review+2: Andreas Dilger <adilger@whamcloud.com>
+Verified+1: Yu Jian <yujian@whamcloud.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Minh Diep <mdiep@whamcloud.com>
+Submitted-by: Andreas Dilger <adilger@whamcloud.com>
+Submitted-at: Fri, 07 Sep 2012 17:48:38 -0400
+Reviewed-on: http://review.whamcloud.com/3733
+Project: fs/lustre-release
+Branch: refs/heads/b2_1
