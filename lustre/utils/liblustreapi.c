@@ -2059,46 +2059,101 @@ void llapi_lov_dump_user_lmm(struct find_param *param,
         }
 }
 
-int llapi_file_get_stripe(const char *path, struct lov_user_md *lum)
+int llapi_file_fdir_get_layout(int dirfd, const char *fname,
+			       struct lov_user_md *lum, int lum_len)
 {
-        const char *fname;
-        char *dname;
-        int fd, rc = 0;
+	int len = strlen(fname);
+	struct lov_user_md *tmp_lum = NULL, *lump;
+	int rc = 0;
 
-        fname = strrchr(path, '/');
+	if (lum_len < sizeof(*lum))
+		return -EINVAL;
+
+	/* Passed buffer is too small for filename needed by ioctl(),
+	 * but is potentially still a valid call if layout is small. */
+	if (lum_len <= len) {
+		tmp_lum = malloc(len + 1);
+		lump = tmp_lum;
+	} else {
+		lump = lum;
+	}
+
+	strncpy((char *)lump, fname, len);
+	((char *)lump)[len] = '\0';
+
+	/* How can we pass lum_len down to the kernel here?
+	 * That would avoid all of the complexity below. */
+	if (ioctl(dirfd, IOC_MDC_GETFILESTRIPE, (void *)lump) == -1)
+		rc = -errno;
+
+	len = lov_mds_md_size(lump->lmm_stripe_count,
+			      lump->lmm_magic);
+	if (rc == 0 && lum_len < len)
+		rc = -EOVERFLOW;
+
+	if (rc == -EOVERFLOW)
+		len = sizeof(*lum);
+
+	if (tmp_lum != NULL) {
+		memcpy(lum, tmp_lum, len);
+		free(tmp_lum);
+	}
+
+	return rc;
+}
+
+int llapi_file_get_layout(const char *path, struct lov_user_md *lum,
+			  int lum_len)
+{
+	const char *fname;
+	char *dname;
+	int dirfd, rc = 0;
+
+	fname = strrchr(path, '/');
 
         /* It should be a file (or other non-directory) */
-        if (fname == NULL) {
-                dname = (char *)malloc(2);
-                if (dname == NULL)
-                        return -ENOMEM;
-                strcpy(dname, ".");
-                fname = (char *)path;
-        } else {
-                dname = (char *)malloc(fname - path + 1);
-                if (dname == NULL)
-                        return -ENOMEM;
-                strncpy(dname, path, fname - path);
-                dname[fname - path] = '\0';
-                fname++;
-        }
+	if (fname == NULL) {
+		dname = (char *)malloc(2);
+		if (dname == NULL)
+			return -ENOMEM;
+		strcpy(dname, ".");
+		fname = (char *)path;
+	} else {
+		dname = (char *)malloc(fname - path + 1);
+		if (dname == NULL)
+			return -ENOMEM;
+		strncpy(dname, path, fname - path);
+		dname[fname - path] = '\0';
+		fname++;
+	}
 
-        fd = open(dname, O_RDONLY);
-        if (fd == -1) {
-                rc = -errno;
-                free(dname);
-                return rc;
-        }
+	dirfd = open(dname, O_RDONLY);
+	if (dirfd == -1) {
+		rc = -errno;
+		free(dname);
+		return rc;
+	}
 
-        strcpy((char *)lum, fname);
-        if (ioctl(fd, IOC_MDC_GETFILESTRIPE, (void *)lum) == -1)
-                rc = -errno;
+	rc = llapi_file_fdir_get_layout(dirfd, fname, lum, lum_len);
 
-        if (close(fd) == -1 && rc == 0)
-                rc = -errno;
+	if (close(dirfd) == -1 && rc == 0)
+		rc = -errno;
 
-        free(dname);
-        return rc;
+	free(dname);
+	return rc;
+}
+
+int llapi_file_get_stripe(const char *path, struct lov_user_md *lum)
+{
+	static int printed_warning;
+
+	if (!printed_warning) {
+		fprintf(stderr, "%s: using unsafe API, "
+			"please use llapi_file_get_layout()\n", __func__);
+		printed_warning = 1;
+	}
+
+	return llapi_file_get_layout(path, lum, 8192);
 }
 
 int llapi_file_lookup(int dirfd, const char *name)
@@ -2727,10 +2782,9 @@ static int cb_getstripe(char *path, DIR *parent, DIR *d, void *data,
                 char *fname = strrchr(path, '/');
                 fname = (fname == NULL ? path : fname + 1);
 
-                strncpy((char *)&param->lmd->lmd_lmm, fname, param->lumlen);
-
-                ret = ioctl(dirfd(parent), IOC_MDC_GETFILESTRIPE,
-                            (void *)&param->lmd->lmd_lmm);
+		ret = llapi_file_fdir_get_layout(dirfd(parent), fname,
+						 (void *)&param->lmd->lmd_lmm,
+						 param->lumlen);
         }
 
         if (ret) {
