@@ -2373,6 +2373,42 @@ test_50g() {
 }
 run_test 50g "deactivated OST should not cause panic====================="
 
+# LU-642
+test_50h() {
+	# prepare MDT/OST, make OSC inactive for OST1
+	[ "$OSTCOUNT" -lt "2" ] && skip_env "$OSTCOUNT < 2, skipping" && return
+	do_facet ost1 "$TUNEFS --param osc.active=0 `ostdevname 1`" ||
+		error "tunefs OST1 failed"
+	start_mds  || error "Unable to start MDT"
+	start_ost  || error "Unable to start OST1"
+	start_ost2 || error "Unable to start OST2"
+	mount_client $MOUNT || error "client start failed"
+
+	mkdir -p $DIR/$tdir
+
+	# activatate OSC for OST1
+	local TEST="$LCTL get_param -n osc.${FSNAME}-OST0000-osc-[!M]*.active"
+	set_conf_param_and_check client					\
+		"$TEST" "${FSNAME}-OST0000.osc.active" 1 ||
+		error "Unable to activate OST1"
+
+	mkdir -p $DIR/$tdir/2
+	$LFS setstripe -c -1 -i 0 $DIR/$tdir/2
+	sleep 1 && echo "create a file after OST1 is activated"
+	# create some file
+	createmany -o $DIR/$tdir/2/$tfile-%d 1
+
+	# check OSC import is working
+	stat $DIR/$tdir/2/* >/dev/null 2>&1 ||
+		error "some OSC imports are still not connected"
+
+	# cleanup
+	umount_client $MOUNT || error "Unable to umount client"
+	stop_ost2 || error "Unable to stop OST2"
+	cleanup_nocli
+}
+run_test 50h "LU-642: activate deactivated OST  ==="
+
 test_51() {
 	local LOCAL_TIMEOUT=20
 
@@ -2932,6 +2968,42 @@ test_63() {
 	return
 }
 run_test 63 "Verify each page can at least hold 3 ldisk inodes"
+
+test_72() { #LU-2634
+	local mdsdev=$(mdsdevname 1)
+	local ostdev=$(ostdevname 1)
+	local cmd="$E2FSCK -fnvd $mdsdev"
+	local fn=3
+
+	#tune MDT with "-O extents"
+	add $SINGLEMDS \
+		$(mkfs_opts $SINGLEMDS ${mdsdev}) --reformat $mdsdev ||
+			error "add $SINGLEMDS failed"
+	$TUNE2FS -O extents $mdsdev
+	add ost1 $(mkfs_opts ost1 $ostdev) --reformat $ostdev ||
+		error "add $ostdev failed"
+	start_mgsmds || error "start mds failed"
+	start_ost || error "start ost failed"
+	mount_client $MOUNT || error "mount client failed"
+
+	#create some short symlinks
+	mkdir -p $DIR/$tdir
+	createmany -o $DIR/$tdir/$tfile-%d $fn
+	echo "create $fn short symlinks"
+	for i in $(seq -w 1 $fn); do
+		ln -s $DIR/$tdir/$tfile-$i $MOUNT/$tfile-$i
+	done
+	ls -al $MOUNT
+
+	#umount
+	umount_client $MOUNT || error "umount client failed"
+	stop_mds || error "stop mds failed"
+	stop_ost || error "stop ost failed"
+
+	#run e2fsck
+	run_e2fsck $(facet_active_host $SINGLEMDS) $mdsdev "-n"
+}
+run_test 72 "test fast symlink with extents flag enabled"
 
 if ! combined_mgs_mds ; then
 	stop mgs
