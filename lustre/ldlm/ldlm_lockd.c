@@ -551,6 +551,7 @@ int ldlm_del_waiting_lock(struct ldlm_lock *lock)
         LDLM_DEBUG(lock, "%s", ret == 0 ? "wasn't waiting" : "removed");
         return ret;
 }
+EXPORT_SYMBOL(ldlm_del_waiting_lock);
 
 /*
  * Prolong the lock
@@ -582,6 +583,7 @@ int ldlm_refresh_waiting_lock(struct ldlm_lock *lock, int timeout)
         LDLM_DEBUG(lock, "refreshed");
         return 1;
 }
+EXPORT_SYMBOL(ldlm_refresh_waiting_lock);
 
 #else /* !HAVE_SERVER_SUPPORT ||  !__KERNEL__ */
 
@@ -857,6 +859,7 @@ int ldlm_server_blocking_ast(struct ldlm_lock *lock,
 
         RETURN(rc);
 }
+EXPORT_SYMBOL(ldlm_server_blocking_ast);
 
 int ldlm_server_completion_ast(struct ldlm_lock *lock, int flags, void *data)
 {
@@ -972,6 +975,7 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, int flags, void *data)
 
         RETURN(rc);
 }
+EXPORT_SYMBOL(ldlm_server_completion_ast);
 
 int ldlm_server_glimpse_ast(struct ldlm_lock *lock, void *data)
 {
@@ -1033,6 +1037,7 @@ int ldlm_server_glimpse_ast(struct ldlm_lock *lock, void *data)
 
         RETURN(rc);
 }
+EXPORT_SYMBOL(ldlm_server_glimpse_ast);
 
 static void ldlm_svc_get_eopc(const struct ldlm_request *dlm_req,
                        struct lprocfs_stats *srv_stats)
@@ -1339,6 +1344,7 @@ existing_lock:
 
         return rc;
 }
+EXPORT_SYMBOL(ldlm_handle_enqueue0);
 
 int ldlm_handle_enqueue(struct ptlrpc_request *req,
                         ldlm_completion_callback completion_callback,
@@ -1362,6 +1368,7 @@ int ldlm_handle_enqueue(struct ptlrpc_request *req,
         }
         return rc;
 }
+EXPORT_SYMBOL(ldlm_handle_enqueue);
 
 int ldlm_handle_convert0(struct ptlrpc_request *req,
                          const struct ldlm_request *dlm_req)
@@ -1413,6 +1420,7 @@ int ldlm_handle_convert0(struct ptlrpc_request *req,
 
         RETURN(0);
 }
+EXPORT_SYMBOL(ldlm_handle_convert0);
 
 int ldlm_handle_convert(struct ptlrpc_request *req)
 {
@@ -1428,6 +1436,7 @@ int ldlm_handle_convert(struct ptlrpc_request *req)
         }
         return rc;
 }
+EXPORT_SYMBOL(ldlm_handle_convert);
 
 /* Cancel all the locks whos handles are packed into ldlm_request */
 int ldlm_request_cancel(struct ptlrpc_request *req,
@@ -1486,6 +1495,7 @@ int ldlm_request_cancel(struct ptlrpc_request *req,
         LDLM_DEBUG_NOLOCK("server-side cancel handler END");
         RETURN(done);
 }
+EXPORT_SYMBOL(ldlm_request_cancel);
 
 int ldlm_handle_cancel(struct ptlrpc_request *req)
 {
@@ -1513,6 +1523,7 @@ int ldlm_handle_cancel(struct ptlrpc_request *req)
 
         RETURN(ptlrpc_reply(req));
 }
+EXPORT_SYMBOL(ldlm_handle_cancel);
 #endif /* HAVE_SERVER_SUPPORT */
 
 void ldlm_handle_bl_callback(struct ldlm_namespace *ns,
@@ -2307,6 +2318,7 @@ void ldlm_revoke_export_locks(struct obd_export *exp)
 
         EXIT;
 }
+EXPORT_SYMBOL(ldlm_revoke_export_locks);
 #endif /* HAVE_SERVER_SUPPORT */
 
 #ifdef __KERNEL__
@@ -2465,6 +2477,7 @@ int ldlm_get_ref(void)
 
         RETURN(rc);
 }
+EXPORT_SYMBOL(ldlm_get_ref);
 
 void ldlm_put_ref(void)
 {
@@ -2483,6 +2496,7 @@ void ldlm_put_ref(void)
 
         EXIT;
 }
+EXPORT_SYMBOL(ldlm_put_ref);
 
 /*
  * Export handle<->lock hash operations.
@@ -2861,112 +2875,3 @@ void ldlm_exit(void)
         rc = cfs_mem_cache_destroy(ldlm_interval_slab);
         LASSERTF(rc == 0, "couldn't free interval node slab\n");
 }
-
-/* ldlm_extent.c */
-EXPORT_SYMBOL(ldlm_extent_shift_kms);
-
-/* ldlm_lock.c */
-#ifdef HAVE_SERVER_SUPPORT
-EXPORT_SYMBOL(ldlm_get_processing_policy);
-#endif
-EXPORT_SYMBOL(ldlm_lock2desc);
-EXPORT_SYMBOL(ldlm_register_intent);
-EXPORT_SYMBOL(ldlm_lockname);
-EXPORT_SYMBOL(ldlm_typename);
-EXPORT_SYMBOL(ldlm_lock2handle);
-EXPORT_SYMBOL(__ldlm_handle2lock);
-EXPORT_SYMBOL(ldlm_lock_get);
-EXPORT_SYMBOL(ldlm_lock_put);
-EXPORT_SYMBOL(ldlm_lock_match);
-EXPORT_SYMBOL(ldlm_lock_cancel);
-EXPORT_SYMBOL(ldlm_lock_addref);
-EXPORT_SYMBOL(ldlm_lock_addref_try);
-EXPORT_SYMBOL(ldlm_lock_decref);
-EXPORT_SYMBOL(ldlm_lock_decref_and_cancel);
-EXPORT_SYMBOL(ldlm_lock_change_resource);
-EXPORT_SYMBOL(ldlm_it2str);
-EXPORT_SYMBOL(ldlm_lock_dump_handle);
-EXPORT_SYMBOL(ldlm_reprocess_all_ns);
-EXPORT_SYMBOL(ldlm_lock_allow_match_locked);
-EXPORT_SYMBOL(ldlm_lock_allow_match);
-EXPORT_SYMBOL(ldlm_lock_downgrade);
-EXPORT_SYMBOL(ldlm_lock_convert);
-
-/* ldlm_request.c */
-EXPORT_SYMBOL(ldlm_completion_ast_async);
-EXPORT_SYMBOL(ldlm_blocking_ast_nocheck);
-EXPORT_SYMBOL(ldlm_completion_ast);
-EXPORT_SYMBOL(ldlm_blocking_ast);
-EXPORT_SYMBOL(ldlm_glimpse_ast);
-EXPORT_SYMBOL(ldlm_expired_completion_wait);
-EXPORT_SYMBOL(ldlm_prep_enqueue_req);
-EXPORT_SYMBOL(ldlm_prep_elc_req);
-EXPORT_SYMBOL(ldlm_cli_convert);
-EXPORT_SYMBOL(ldlm_cli_enqueue);
-EXPORT_SYMBOL(ldlm_cli_enqueue_fini);
-EXPORT_SYMBOL(ldlm_cli_enqueue_local);
-EXPORT_SYMBOL(ldlm_cli_cancel);
-EXPORT_SYMBOL(ldlm_cli_cancel_unused);
-EXPORT_SYMBOL(ldlm_cli_cancel_unused_resource);
-EXPORT_SYMBOL(ldlm_cli_cancel_req);
-EXPORT_SYMBOL(ldlm_replay_locks);
-EXPORT_SYMBOL(ldlm_resource_foreach);
-EXPORT_SYMBOL(ldlm_namespace_foreach);
-EXPORT_SYMBOL(ldlm_resource_iterate);
-EXPORT_SYMBOL(ldlm_cancel_resource_local);
-EXPORT_SYMBOL(ldlm_cli_cancel_list_local);
-EXPORT_SYMBOL(ldlm_cli_cancel_list);
-
-/* ldlm_lockd.c */
-#ifdef HAVE_SERVER_SUPPORT
-EXPORT_SYMBOL(ldlm_server_blocking_ast);
-EXPORT_SYMBOL(ldlm_server_completion_ast);
-EXPORT_SYMBOL(ldlm_server_glimpse_ast);
-EXPORT_SYMBOL(ldlm_handle_enqueue);
-EXPORT_SYMBOL(ldlm_handle_enqueue0);
-EXPORT_SYMBOL(ldlm_handle_cancel);
-EXPORT_SYMBOL(ldlm_request_cancel);
-EXPORT_SYMBOL(ldlm_handle_convert);
-EXPORT_SYMBOL(ldlm_handle_convert0);
-EXPORT_SYMBOL(ldlm_revoke_export_locks);
-#endif
-EXPORT_SYMBOL(ldlm_del_waiting_lock);
-EXPORT_SYMBOL(ldlm_get_ref);
-EXPORT_SYMBOL(ldlm_put_ref);
-EXPORT_SYMBOL(ldlm_refresh_waiting_lock);
-
-/* ldlm_resource.c */
-EXPORT_SYMBOL(ldlm_namespace_new);
-EXPORT_SYMBOL(ldlm_namespace_cleanup);
-EXPORT_SYMBOL(ldlm_namespace_free);
-EXPORT_SYMBOL(ldlm_namespace_dump);
-EXPORT_SYMBOL(ldlm_dump_all_namespaces);
-EXPORT_SYMBOL(ldlm_resource_get);
-EXPORT_SYMBOL(ldlm_resource_putref);
-EXPORT_SYMBOL(ldlm_resource_unlink_lock);
-
-/* ldlm_lib.c */
-EXPORT_SYMBOL(client_import_add_conn);
-EXPORT_SYMBOL(client_import_del_conn);
-EXPORT_SYMBOL(client_obd_setup);
-EXPORT_SYMBOL(client_obd_cleanup);
-EXPORT_SYMBOL(client_connect_import);
-EXPORT_SYMBOL(client_disconnect_export);
-EXPORT_SYMBOL(target_send_reply);
-EXPORT_SYMBOL(target_pack_pool_reply);
-
-#ifdef HAVE_SERVER_SUPPORT
-EXPORT_SYMBOL(server_disconnect_export);
-EXPORT_SYMBOL(target_stop_recovery_thread);
-EXPORT_SYMBOL(target_handle_connect);
-EXPORT_SYMBOL(target_cleanup_recovery);
-EXPORT_SYMBOL(target_destroy_export);
-EXPORT_SYMBOL(target_cancel_recovery_timer);
-EXPORT_SYMBOL(target_queue_recovery_request);
-EXPORT_SYMBOL(target_handle_ping);
-EXPORT_SYMBOL(target_handle_disconnect);
-#endif
-
-/* l_lock.c */
-EXPORT_SYMBOL(lock_res_and_lock);
-EXPORT_SYMBOL(unlock_res_and_lock);
