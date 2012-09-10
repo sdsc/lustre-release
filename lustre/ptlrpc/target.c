@@ -556,6 +556,9 @@ int lut_last_commit_cb_add(struct thandle *th, struct lu_target *lut,
 	struct dt_txn_commit_cb		   *dcb;
 	int				   rc;
 
+	if ((exp->exp_connect_flags & OBD_CONNECT_LIGHTWEIGHT) != 0)
+		return -EPERM;
+
 	OBD_ALLOC_PTR(ccb);
 	if (ccb == NULL)
 		return -ENOMEM;
@@ -649,6 +652,11 @@ int lut_client_new(const struct lu_env *env, struct obd_export *exp)
 	if (!strcmp(ted->ted_lcd->lcd_uuid, tg->lut_obd->obd_uuid.uuid))
 		RETURN(0);
 
+	cfs_mutex_init(&ted->ted_lcd_lock);
+
+	if ((exp->exp_connect_flags & OBD_CONNECT_LIGHTWEIGHT) != 0)
+		RETURN(0);
+
 	/* the bitmap operations can handle cl_idx > sizeof(long) * 8, so
 	 * there's no need for extra complication here
 	 */
@@ -672,8 +680,6 @@ repeat:
 	ted->ted_lr_idx = idx;
 	ted->ted_lr_off = tg->lut_lsd.lsd_client_start +
 			  idx * tg->lut_lsd.lsd_client_size;
-
-	cfs_mutex_init(&ted->ted_lcd_lock);
 
 	LASSERTF(ted->ted_lr_off > 0, "ted_lr_off = %llu\n", ted->ted_lr_off);
 
@@ -711,7 +717,8 @@ int lut_client_add(const struct lu_env *env,  struct obd_export *exp, int idx)
 	LASSERT(tg->lut_client_bitmap != NULL);
 	LASSERTF(idx >= 0, "%d\n", idx);
 
-	if (!strcmp(ted->ted_lcd->lcd_uuid, tg->lut_obd->obd_uuid.uuid))
+	if (!strcmp(ted->ted_lcd->lcd_uuid, tg->lut_obd->obd_uuid.uuid) ||
+	    (exp->exp_connect_flags & OBD_CONNECT_LIGHTWEIGHT) != 0)
 		RETURN(0);
 
 	if (cfs_test_and_set_bit(idx, tg->lut_client_bitmap)) {
@@ -747,7 +754,8 @@ int lut_client_del(const struct lu_env *env, struct obd_export *exp)
 
 	/* XXX if lcd_uuid were a real obd_uuid, I could use obd_uuid_equals */
 	if (!strcmp((char *)ted->ted_lcd->lcd_uuid,
-		    (char *)tg->lut_obd->obd_uuid.uuid))
+		    (char *)tg->lut_obd->obd_uuid.uuid) ||
+	    (exp->exp_connect_flags & OBD_CONNECT_LIGHTWEIGHT) != 0)
 		RETURN(0);
 
 	CDEBUG(D_INFO, "%s: del client at idx %u, off %lld, UUID '%s'\n",
