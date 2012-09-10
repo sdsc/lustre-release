@@ -136,7 +136,8 @@ int llog_cancel_rec(const struct lu_env *env, struct llog_handle *loghandle,
 	}
 	cfs_spin_unlock(&loghandle->lgh_hdr_lock);
 
-	rc = llog_write_rec(env, loghandle, &llh->llh_hdr, NULL, 0, NULL, 0);
+	rc = llog_write_rec(env, loghandle, &llh->llh_hdr, NULL, 0, NULL, 0,
+			    NULL);
 	if (rc < 0) {
 		CERROR("%s: fail to write header for llog #"LPX64"#"LPX64
 		       "#%08x: rc = %d\n",
@@ -645,6 +646,52 @@ int llog_erase(const struct lu_env *env, struct llog_ctxt *ctxt,
 	RETURN(rc);
 }
 EXPORT_SYMBOL(llog_erase);
+
+/*
+ * Helper function for write record in llog.
+ * It hides all transaction handling from caller.
+ * Valid only with local llog.
+ */
+int llog_write(const struct lu_env *env, struct llog_handle *loghandle,
+	       struct llog_rec_hdr *rec, struct llog_cookie *reccookie,
+	       int cookiecount, void *buf, int idx)
+{
+	int rc;
+
+	ENTRY;
+
+	LASSERT(loghandle);
+	LASSERT(loghandle->lgh_ctxt);
+
+	if (loghandle->lgh_obj != NULL) {
+		struct dt_device	*dt;
+		struct thandle		*th;
+
+		dt = lu2dt_dev(loghandle->lgh_obj->do_lu.lo_dev);
+
+		th = dt_trans_create(env, dt);
+		if (IS_ERR(th))
+			RETURN(PTR_ERR(th));
+
+		rc = llog_declare_write_rec(env, loghandle, rec, idx, th);
+		if (rc)
+			GOTO(out_trans, rc);
+
+		rc = dt_trans_start_local(env, dt, th);
+		if (rc)
+			GOTO(out_trans, rc);
+
+		rc = llog_write_rec(env, loghandle, rec, reccookie,
+				    cookiecount, buf, idx, th);
+out_trans:
+		dt_trans_stop(env, dt, th);
+	} else { /* lvfs compatibility */
+		rc = llog_write_rec(env, loghandle, rec, reccookie,
+				    cookiecount, buf, idx, NULL);
+	}
+	RETURN(rc);
+}
+EXPORT_SYMBOL(llog_write);
 
 int llog_open(const struct lu_env *env, struct llog_ctxt *ctxt,
 	      struct llog_handle **lgh, struct llog_logid *logid,
