@@ -441,6 +441,11 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 #define OBD_FAIL_LOCK_STATE_WAIT_INTR               0x1402
 #define OBD_FAIL_LOV_INIT			    0x1403
 
+#define OBD_FAIL_TEST                               0x2000
+#define OBD_FAIL_TEST_ATTR_GRANT_LAYOUT             0x2001
+#define OBD_FAIL_TEST_OPEN_GRANT_LAYOUT             0x2002
+#define OBD_FAIL_TEST_BLOCK_LAYOUT                  0x2003
+
 /* Assign references to moved code to reduce code changes */
 #define OBD_FAIL_PRECHECK(id)                   CFS_FAIL_PRECHECK(id)
 #define OBD_FAIL_CHECK(id)                      CFS_FAIL_CHECK(id)

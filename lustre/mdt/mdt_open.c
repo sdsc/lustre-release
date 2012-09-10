@@ -1086,6 +1086,7 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
         struct mdt_object       *o;
         int                      rc;
         ldlm_mode_t              lm;
+	__u64 			 ibits;
         ENTRY;
 
 	if (md_should_create(flags) && !(flags & MDS_OPEN_HAS_EA)) {
@@ -1129,9 +1130,16 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
 
         mdt_lock_handle_init(lhc);
         mdt_lock_reg_init(lhc, lm);
-        rc = mdt_object_lock(info, o, lhc,
-                             MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN,
-                             MDT_CROSS_LOCK);
+
+	ibits = MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN |
+		MDS_INODELOCK_LAYOUT;
+        if (mdt_object_lock_try(info, o, lhc, ibits, MDT_CROSS_LOCK)) {
+		/* get lsm unless granting layout lock */
+		ma->ma_need |= MA_LOV;
+	} else {
+		ibits &= ~MDS_INODELOCK_LAYOUT;
+		rc = mdt_object_lock(info, o, lhc, ibits, MDT_CROSS_LOCK);
+	}
         if (rc)
                 GOTO(out, rc);
 
@@ -1248,8 +1256,10 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         ma->ma_lmm_size = req_capsule_get_size(info->mti_pill, &RMF_MDT_MD,
                                                RCL_SERVER);
         ma->ma_need = MA_INODE;
+#if 0
         if (ma->ma_lmm_size > 0)
                 ma->ma_need |= MA_LOV;
+#endif
 
         ma->ma_valid = 0;
 
@@ -1414,77 +1424,96 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                                 GOTO(out_child, result);
                 }
                 created = 1;
-        } else {
-                /* We have to get attr & lov ea for this object */
-                result = mo_attr_get(info->mti_env, mdt_object_child(child),
-                                     ma);
+        } else if (mdt_object_exists(child) == 0) { /* remote object */
                 /*
                  * The object is on remote node, return its FID for remote open.
                  */
-                if (result == -EREMOTE) {
-                        /*
-                         * Check if this lock already was sent to client and
-                         * this is resent case. For resent case do not take lock
-                         * again, use what is already granted.
-                         */
-                        LASSERT(lhc != NULL);
+		/*
+		 * Check if this lock already was sent to client and
+		 * this is resent case. For resent case do not take lock
+		 * again, use what is already granted.
+		 */
+		LASSERT(lhc != NULL);
 
-                        if (lustre_handle_is_used(&lhc->mlh_reg_lh)) {
-                                struct ldlm_lock *lock;
+		if (lustre_handle_is_used(&lhc->mlh_reg_lh)) {
+			struct ldlm_lock *lock;
 
-                                LASSERT(msg_flags & MSG_RESENT);
+			LASSERT(msg_flags & MSG_RESENT);
 
-                                lock = ldlm_handle2lock(&lhc->mlh_reg_lh);
-                                if (!lock) {
-                                        CERROR("Invalid lock handle "LPX64"\n",
-                                               lhc->mlh_reg_lh.cookie);
-                                        LBUG();
-                                }
-                                LASSERT(fid_res_name_eq(mdt_object_fid(child),
-                                                        &lock->l_resource->lr_name));
-                                LDLM_LOCK_PUT(lock);
-                                rc = 0;
-                        } else {
-                                mdt_lock_handle_init(lhc);
-                                mdt_lock_reg_init(lhc, LCK_PR);
+			lock = ldlm_handle2lock(&lhc->mlh_reg_lh);
+			if (!lock) {
+				CERROR("Invalid lock handle "LPX64"\n",
+						lhc->mlh_reg_lh.cookie);
+				LBUG();
+			}
+			LASSERT(fid_res_name_eq(mdt_object_fid(child),
+						&lock->l_resource->lr_name));
+			LDLM_LOCK_PUT(lock);
+			rc = 0;
+		} else {
+			mdt_lock_handle_init(lhc);
+			mdt_lock_reg_init(lhc, LCK_PR);
 
-                                rc = mdt_object_lock(info, child, lhc,
-                                                     MDS_INODELOCK_LOOKUP,
-                                                     MDT_CROSS_LOCK);
-                        }
-                        repbody->fid1 = *mdt_object_fid(child);
-                        repbody->valid |= (OBD_MD_FLID | OBD_MD_MDS);
-                        if (rc != 0)
-                                result = rc;
-                        GOTO(out_child, result);
-                }
+			rc = mdt_object_lock(info, child, lhc,
+					MDS_INODELOCK_LOOKUP,
+					MDT_CROSS_LOCK);
+		}
+		repbody->fid1 = *mdt_object_fid(child);
+		repbody->valid |= (OBD_MD_FLID | OBD_MD_MDS);
+		if (rc != 0)
+			result = rc;
+		GOTO(out_child, result);
         }
+
 
         LASSERT(!lustre_handle_is_used(&lhc->mlh_reg_lh));
 
         /* get openlock if this is not replay and if a client requested it */
-        if (!req_is_replay(req) && create_flags & MDS_OPEN_LOCK) {
-                ldlm_mode_t lm;
+        if (!req_is_replay(req)) {
+		__u64 ibits = MDS_INODELOCK_LAYOUT;
 
-                if (create_flags & FMODE_WRITE)
-                        lm = LCK_CW;
-                else if (create_flags & MDS_FMODE_EXEC)
-                        lm = LCK_PR;
-                else
-                        lm = LCK_CR;
-                mdt_lock_handle_init(lhc);
-                mdt_lock_reg_init(lhc, lm);
-                rc = mdt_object_lock(info, child, lhc,
-                                     MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN,
-                                     MDT_CROSS_LOCK);
-                if (rc) {
-                        result = rc;
-                        GOTO(out_child, result);
-                } else {
-                        result = -EREMOTE;
-                        mdt_set_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
-                }
+		mdt_lock_handle_init(lhc);
+		if (create_flags & MDS_OPEN_LOCK) {
+			ldlm_mode_t lm;
+
+			if (create_flags & FMODE_WRITE)
+				lm = LCK_CW;
+			else if (create_flags & MDS_FMODE_EXEC)
+				lm = LCK_PR;
+			else
+				lm = LCK_CR;
+			mdt_lock_reg_init(lhc, lm);
+
+			ibits |= MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN;
+		} else {
+			mdt_lock_reg_init(lhc, LCK_CR);
+		}
+
+		if (mdt_object_lock_try(info, child, lhc, ibits,
+					MDT_CROSS_LOCK)) {
+			ma->ma_need |= MA_LOV;
+		} else {
+			ibits &= ~MDS_INODELOCK_LAYOUT;
+			if (ibits != 0)
+				rc = mdt_object_lock_try(info, child, lhc,
+							 ibits, MDT_CROSS_LOCK);
+		}
+		if (rc) {
+			result = rc;
+			GOTO(out_child, result);
+		} else if (create_flags & MDS_OPEN_LOCK) {
+			result = -EREMOTE;
+			mdt_set_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
+		}
         }
+
+	/* We have to get attr & lov ea for this object, this will get lov ea
+	 * only if we have layout lock. - Jinshan */
+	rc = mo_attr_get(info->mti_env, mdt_object_child(child), ma);
+	if (rc != 0 && lustre_handle_is_used(&lhc->mlh_reg_lh)) {
+		mdt_object_unlock(info, child, lhc, 1);
+		GOTO(out, result = rc);
+	}
 
         /* Try to open it now. */
         rc = mdt_finish_open(info, parent, child, create_flags,
