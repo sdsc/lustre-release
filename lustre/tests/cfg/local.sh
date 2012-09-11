@@ -82,6 +82,13 @@ ZFS_MKFS_OPTS=${ZFS_MKFS_OPTS:-}
 # blacklist the undesired (and aliased the other, if necessary).
 #
 USE_OFD=${USE_OFD:-no}
+# Must use OFD when backend FS is zfs
+if [ x"$OSTFSTYPE" = "xzfs" -o x"$OST_FSTYPE" = "xzfs" -o \
+        x"$FSTYPE" = "xzfs" ]; then
+        USE_OFD=yes
+fi
+
+LOAD_MODULES_REMOTE=${LOAD_MODULES_REMOTE:-false}
 
 STRIPE_BYTES=${STRIPE_BYTES:-1048576}
 STRIPES_PER_OBJ=${STRIPES_PER_OBJ:-0}
