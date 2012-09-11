@@ -107,6 +107,7 @@ void reply_in_callback(lnet_event_t *ev)
 
         req->rq_receiving_reply = 0;
         req->rq_early = 0;
+	req->rq_status = ev->status;
         if (ev->unlinked)
                 req->rq_must_unlink = 0;
 
@@ -187,11 +188,13 @@ void client_bulk_callback (lnet_event_t *ev)
                  ev->type == LNET_EVENT_UNLINK);
         LASSERT (ev->unlinked);
 
-        if (CFS_FAIL_CHECK_ORSET(OBD_FAIL_PTLRPC_CLIENT_BULK_CB, CFS_FAIL_ONCE))
-                ev->status = -EIO;
+	if (CFS_FAIL_CHECK_ORSET(OBD_FAIL_PTLRPC_CLIENT_BULK_CB,
+				 CFS_FAIL_ONCE))
+		ev->status = -EIO;
 
-        if (CFS_FAIL_CHECK_ORSET(OBD_FAIL_PTLRPC_CLIENT_BULK_CB2,CFS_FAIL_ONCE))
-                ev->status = -EIO;
+	if (CFS_FAIL_CHECK_ORSET(OBD_FAIL_PTLRPC_CLIENT_BULK_CB2,
+				 CFS_FAIL_ONCE))
+		ev->status = -EIO;
 
         CDEBUG((ev->status == 0) ? D_NET : D_ERROR,
                "event type %d, status %d, desc %p\n",

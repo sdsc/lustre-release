@@ -358,12 +358,13 @@ void ptlrpc_invalidate_import(struct obd_import *imp)
                                                   "still on delayed list");
                                 }
 
-                                CERROR("%s: RPCs in \"%s\" phase found (%d). "
-                                       "Network is sluggish? Waiting them "
-                                       "to error out.\n", cli_tgt,
-                                       ptlrpc_phase2str(RQ_PHASE_UNREGISTERING),
-                                       cfs_atomic_read(&imp->
-                                                       imp_unregistering));
+				CERROR("%s: RPCs in \"%s/%s\" phase found (%d)."
+					" Network is sluggish? Waiting them "
+					"to error out.\n", cli_tgt,
+					ptlrpc_phase2str(RQ_PHASE_RPC_UNREG),
+					ptlrpc_phase2str(RQ_PHASE_BULK_UNREG),
+					cfs_atomic_read(&imp->
+							imp_unregistering));
                         }
                         cfs_spin_unlock(&imp->imp_lock);
                   }

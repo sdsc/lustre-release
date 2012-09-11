@@ -855,17 +855,18 @@ do_check_set:
                        req);
 
                 /* This will also unregister reply. */
-                ptlrpc_expire_one_request(req, 0);
+		ptlrpc_expire_one_request(req);
+
+		ptlrpc_unregister_reply(req, 0);
+		ptlrpc_unregister_bulk(req, 0);
 
                 /* We're done with this req, let's finally move it to complete
                  * phase and take care of inflights. */
                 ptlrpc_rqphase_move(req, RQ_PHASE_COMPLETE);
                 imp = req->rq_import;
                 cfs_spin_lock(&imp->imp_lock);
-                if (!cfs_list_empty(&req->rq_list)) {
-                        cfs_list_del_init(&req->rq_list);
-                        cfs_atomic_dec(&imp->imp_inflight);
-                }
+		cfs_list_del_init(&req->rq_list);
+		cfs_atomic_dec(&imp->imp_inflight);
                 cfs_spin_unlock(&imp->imp_lock);
                 cfs_atomic_dec(&set->set_remaining);
         }

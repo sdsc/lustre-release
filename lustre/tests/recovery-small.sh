@@ -29,6 +29,7 @@ CLEANUP=${CLEANUP:-""}
 check_and_setup_lustre
 
 assert_DIR
+touch $DIR/f0
 rm -rf $DIR/[df][0-9]*
 
 test_1() {
@@ -1014,7 +1015,8 @@ test_55() {
 	#define OBD_FAIL_OST_DROP_REQ            0x21d
 	do_facet ost1 lctl set_param fail_loc=0x0000021d
 	# second dd will be never finished
-	dd if=/dev/zero of=$DIR/$tdir/$tfile-2 bs=32M count=4  &	
+	# sync will guaranted dd isn't finished until writeback done.
+	dd if=/dev/zero of=$DIR/$tdir/$tfile-2 bs=32M count=4 oflag=sync  &
 	DDPID=$!
 	count=0
 	echo  "step2: testing ......"

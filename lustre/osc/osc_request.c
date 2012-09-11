@@ -1279,6 +1279,7 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
 	/* ask ptlrpc not to resend on EINPROGRESS since BRWs have their own
 	 * retry logic */
 	req->rq_no_retry_einprogress = 1;
+	req->rq_no_resend = 1;
 
         if (opc == OST_WRITE)
                 desc = ptlrpc_prep_bulk_imp(req, page_count,

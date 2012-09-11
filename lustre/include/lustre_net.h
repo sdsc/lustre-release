@@ -591,11 +591,12 @@ struct ptlrpc_thread;
 enum rq_phase {
         RQ_PHASE_NEW            = 0xebc0de00,
         RQ_PHASE_RPC            = 0xebc0de01,
-        RQ_PHASE_BULK           = 0xebc0de02,
-        RQ_PHASE_INTERPRET      = 0xebc0de03,
-        RQ_PHASE_COMPLETE       = 0xebc0de04,
-        RQ_PHASE_UNREGISTERING  = 0xebc0de05,
-        RQ_PHASE_UNDEFINED      = 0xebc0de06
+	RQ_PHASE_RPC_UNREG      = 0xebc0de02,
+	RQ_PHASE_BULK           = 0xebc0de03,
+	RQ_PHASE_BULK_UNREG     = 0xebc0de04,
+	RQ_PHASE_INTERPRET      = 0xebc0de05,
+	RQ_PHASE_COMPLETE       = 0xebc0de06,
+	RQ_PHASE_UNDEFINED      = 0xebc0de07,
 };
 
 /** Type of request interpreter call-back */
@@ -719,12 +720,13 @@ struct ptlrpc_request {
                 rq_invalid_rqset:1,
 		rq_generation_set:1,
 		/* do not resend request on -EINPROGRESS */
-		rq_no_retry_einprogress:1;
+		rq_no_retry_einprogress:1,
+		rq_in_flight:1,
+		rq_unreg:1;
 
 	unsigned int rq_nr_resend;
 
         enum rq_phase rq_phase; /* one of RQ_PHASE_* */
-        enum rq_phase rq_next_phase; /* one of RQ_PHASE_* to be used next */
         cfs_atomic_t rq_refcount;/* client-side refcount for SENT race,
                                     server-side refcounf for multiple replies */
 
@@ -909,6 +911,27 @@ struct ptlrpc_request {
 };
 
 /**
+ check request hit network timeout or not
+ */
+static inline int ptlrpc_req_timeout(const struct ptlrpc_request *req,
+					const time_t now)
+{
+	/* don't expire request waiting for context */
+	if (req->rq_wait_ctx)
+		return 0;
+
+	/* Request new or wait recovery? */
+	if (!req->rq_in_flight || req->rq_waiting)
+		return 0;
+
+	if (req->rq_timedout ||     /* already dealt with */
+		req->rq_deadline > now) /* not expired */
+		return 0;
+
+	return 1;
+}
+
+/**
  * Call completion handler for rpc if any, return it's status or original
  * rc if there was no handler defined for this request.
  */
@@ -989,14 +1012,16 @@ ptlrpc_phase2str(enum rq_phase phase)
                 return "New";
         case RQ_PHASE_RPC:
                 return "Rpc";
+	case RQ_PHASE_RPC_UNREG:
+		return "Rpc Unregistering";
         case RQ_PHASE_BULK:
                 return "Bulk";
+	case RQ_PHASE_BULK_UNREG:
+		return "BULK Unregistering";
         case RQ_PHASE_INTERPRET:
                 return "Interpret";
         case RQ_PHASE_COMPLETE:
                 return "Complete";
-        case RQ_PHASE_UNREGISTERING:
-                return "Unregistering";
         default:
                 return "?Phase?";
         }
@@ -2021,28 +2046,46 @@ lustre_shrink_reply(struct ptlrpc_request *req, int segment,
 
 /** Change request phase of \a req to \a new_phase */
 static inline void
-ptlrpc_rqphase_move(struct ptlrpc_request *req, enum rq_phase new_phase)
+_ptlrpc_rqphase_move(struct ptlrpc_request *req, enum rq_phase new_phase)
 {
         if (req->rq_phase == new_phase)
                 return;
 
-        if (new_phase == RQ_PHASE_UNREGISTERING) {
-                req->rq_next_phase = req->rq_phase;
-                if (req->rq_import)
+	if ((new_phase == RQ_PHASE_RPC_UNREG ||
+	     new_phase == RQ_PHASE_BULK_UNREG) && !req->rq_unreg) {
+		if (req->rq_import) {
+			req->rq_unreg = 1;
                         cfs_atomic_inc(&req->rq_import->imp_unregistering);
+		}
         }
 
-        if (req->rq_phase == RQ_PHASE_UNREGISTERING) {
-                if (req->rq_import)
+	if (new_phase == RQ_PHASE_INTERPRET) {
+		if (req->rq_import && req->rq_unreg) {
                         cfs_atomic_dec(&req->rq_import->imp_unregistering);
+			req->rq_unreg = 0;
+		} else if (req->rq_import) {
+			LBUG();
+		}
         }
-
-        DEBUG_REQ(D_INFO, req, "move req \"%s\" -> \"%s\"",
-                  ptlrpc_rqphase2str(req), ptlrpc_phase2str(new_phase));
 
         req->rq_phase = new_phase;
 }
 
+static inline enum rq_phase
+_ptlrpc_rqphase_unreg(struct ptlrpc_request *req)
+{
+	if (req->rq_phase == RQ_PHASE_BULK)
+		return RQ_PHASE_BULK_UNREG;
+
+	return RQ_PHASE_RPC_UNREG;
+}
+
+#define ptlrpc_rqphase_move(req, new_phase)                                \
+	do {                                                               \
+		DEBUG_REQ(D_INFO, req, "move req \"%s\" -> \"%s\"",        \
+			ptlrpc_rqphase2str(req), ptlrpc_phase2str(new_phase)); \
+		_ptlrpc_rqphase_move(req, new_phase);                      \
+	} while (0);
 /**
  * Returns true if request \a req got early reply and hard deadline is not met 
  */
