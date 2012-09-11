@@ -574,7 +574,6 @@ static int __ptlrpc_request_bufs_pack(struct ptlrpc_request *request,
 
         request->rq_reply_deadline = 0;
         request->rq_phase = RQ_PHASE_NEW;
-        request->rq_next_phase = RQ_PHASE_UNDEFINED;
 
         request->rq_request_portal = imp->imp_client->cli_request_portal;
         request->rq_reply_portal = imp->imp_client->cli_reply_portal;
@@ -1176,24 +1175,9 @@ static int after_reply(struct ptlrpc_request *req)
         /* repbuf must be unlinked */
         LASSERT(!req->rq_receiving_reply && !req->rq_must_unlink);
 
-        if (req->rq_reply_truncate) {
-                if (ptlrpc_no_resend(req)) {
-                        DEBUG_REQ(D_ERROR, req, "reply buffer overflow,"
-                                  " expected: %d, actual size: %d",
-                                  req->rq_nob_received, req->rq_repbuf_len);
-                        RETURN(-EOVERFLOW);
-                }
-
-                sptlrpc_cli_free_repbuf(req);
-                /* Pass the required reply buffer size (include
-                 * space for early reply).
-                 * NB: no need to roundup because alloc_repbuf
-                 * will roundup it */
-                req->rq_replen       = req->rq_nob_received;
-                req->rq_nob_received = 0;
-                req->rq_resend       = 1;
-                RETURN(0);
-        }
+	/* no send - no reply */
+	if (!req->rq_replied)
+		RETURN(req->rq_status != 0 ? req->rq_status : -EINTR);
 
         /*
          * NB Until this point, the whole of the incoming message,
@@ -1202,7 +1186,6 @@ static int after_reply(struct ptlrpc_request *req)
         rc = sptlrpc_cli_unwrap_reply(req);
         if (rc) {
                 DEBUG_REQ(D_ERROR, req, "unwrap reply failed (%d):", rc);
-                RETURN(rc);
         }
 
 	/* retry indefinitely on EINPROGRESS */
@@ -1343,22 +1326,26 @@ static int after_reply(struct ptlrpc_request *req)
  */
 static int ptlrpc_send_new_req(struct ptlrpc_request *req)
 {
-        struct obd_import     *imp = req->rq_import;
-        int rc;
-        ENTRY;
+	struct obd_import     *imp = req->rq_import;
+	int rc;
+	ENTRY;
 
-        LASSERT(req->rq_phase == RQ_PHASE_NEW);
-        if (req->rq_sent && (req->rq_sent > cfs_time_current_sec()) &&
-            (!req->rq_generation_set ||
-             req->rq_import_generation == imp->imp_generation))
-                RETURN (0);
-
-        ptlrpc_rqphase_move(req, RQ_PHASE_RPC);
+	LASSERT(req->rq_phase == RQ_PHASE_NEW);
+	if (req->rq_sent && (req->rq_sent > cfs_time_current_sec()) &&
+	    (!req->rq_generation_set ||
+	     req->rq_import_generation == imp->imp_generation))
+		RETURN(0);
 
 	spin_lock(&imp->imp_lock);
-
 	if (!req->rq_generation_set)
 		req->rq_import_generation = imp->imp_generation;
+
+	spin_lock(&req->rq_lock);
+	if (!req->rq_in_flight) {
+		req->rq_in_flight = 1;
+		cfs_atomic_inc(&imp->imp_inflight);
+	}
+	spin_unlock(&req->rq_lock);
 
 	if (ptlrpc_import_delay_req(imp, req, &rc)) {
 		spin_lock(&req->rq_lock);
@@ -1369,52 +1356,96 @@ static int ptlrpc_send_new_req(struct ptlrpc_request *req)
 			  "(%s != %s)", lustre_msg_get_status(req->rq_reqmsg),
 			  ptlrpc_import_state_name(req->rq_send_state),
 			  ptlrpc_import_state_name(imp->imp_state));
-		LASSERT(cfs_list_empty(&req->rq_list));
+		cfs_list_del_init(&req->rq_list);
 		cfs_list_add_tail(&req->rq_list, &imp->imp_delayed_list);
-		cfs_atomic_inc(&req->rq_import->imp_inflight);
 		spin_unlock(&imp->imp_lock);
 		RETURN(0);
 	}
 
+	ptlrpc_rqphase_move(req, RQ_PHASE_RPC);
 	if (rc != 0) {
-		spin_unlock(&imp->imp_lock);
+		spin_lock(&req->rq_lock);
 		req->rq_status = rc;
-		ptlrpc_rqphase_move(req, RQ_PHASE_INTERPRET);
-		RETURN(rc);
+		req->rq_err = 1;
+		spin_unlock(&req->rq_lock);
+		spin_unlock(&imp->imp_lock);
+		RETURN(0);
 	}
 
-	LASSERT(cfs_list_empty(&req->rq_list));
+	cfs_list_del_init(&req->rq_list);
 	cfs_list_add_tail(&req->rq_list, &imp->imp_sending_list);
-	cfs_atomic_inc(&req->rq_import->imp_inflight);
 	spin_unlock(&imp->imp_lock);
 
-        lustre_msg_set_status(req->rq_reqmsg, cfs_curproc_pid());
+	lustre_msg_set_status(req->rq_reqmsg, cfs_curproc_pid());
 
-        rc = sptlrpc_req_refresh_ctx(req, -1);
-        if (rc) {
-                if (req->rq_err) {
-                        req->rq_status = rc;
-                        RETURN(1);
-                } else {
-                        req->rq_wait_ctx = 1;
-                        RETURN(0);
-                }
-        }
+	rc = sptlrpc_req_refresh_ctx(req, -1);
+	if (rc) {
+		/* is that is fatal error or need resend ? :/ */
+		spin_lock(&req->rq_lock);
+		if (req->rq_err)
+			req->rq_status = rc;
+		else
+			req->rq_wait_ctx = 1;
+		spin_unlock(&req->rq_lock);
 
-        CDEBUG(D_RPCTRACE, "Sending RPC pname:cluuid:pid:xid:nid:opc"
-               " %s:%s:%d:"LPU64":%s:%d\n", cfs_curproc_comm(),
-               imp->imp_obd->obd_uuid.uuid,
-               lustre_msg_get_status(req->rq_reqmsg), req->rq_xid,
-               libcfs_nid2str(imp->imp_connection->c_peer.nid),
-               lustre_msg_get_opc(req->rq_reqmsg));
+		RETURN(0);
+	}
 
-        rc = ptl_send_rpc(req, 0);
-        if (rc) {
-                DEBUG_REQ(D_HA, req, "send failed (%d); expect timeout", rc);
-                req->rq_net_err = 1;
-                RETURN(rc);
-        }
-        RETURN(0);
+	CDEBUG(D_RPCTRACE, "Sending RPC pname:cluuid:pid:xid:nid:opc"
+	       " %s:%s:%d:"LPU64":%s:%d\n", cfs_curproc_comm(),
+	       imp->imp_obd->obd_uuid.uuid,
+	       lustre_msg_get_status(req->rq_reqmsg), req->rq_xid,
+	       libcfs_nid2str(imp->imp_connection->c_peer.nid),
+	       lustre_msg_get_opc(req->rq_reqmsg));
+
+	rc = ptl_send_rpc(req, 0);
+	if (rc) {
+		DEBUG_REQ(D_HA, req, "send failed (%d); expect timeout", rc);
+		spin_lock(&req->rq_lock);
+		req->rq_net_err = 1;
+		req->rq_status = rc;
+		spin_unlock(&req->rq_lock);
+		RETURN(0);
+	}
+	/* send - find a new earst timeout */
+	RETURN(1);
+}
+
+static void ptlrpc_resend_rpc(struct ptlrpc_request *req)
+{
+	DEBUG_REQ(D_HA, req, "going to resend");
+
+	lustre_msg_set_handle(req->rq_reqmsg, &(struct lustre_handle){ 0 });
+	req->rq_status = -EAGAIN;
+
+	spin_lock(&req->rq_lock);
+	req->rq_resend = 1;
+	req->rq_net_err = 0;
+	req->rq_timedout = 0;
+	/* Clear any flags that may be present from previous sends. */
+	req->rq_replied = 0;
+	if (req->rq_bulk) {
+		__u64 old_xid = req->rq_xid;
+
+		/* ensure previous bulk fails */
+		req->rq_xid = ptlrpc_next_xid();
+		CDEBUG(D_HA, "resend bulk old x"LPU64" new x"LPU64"\n",
+			old_xid, req->rq_xid);
+	}
+	spin_unlock(&req->rq_lock);
+	ptlrpc_rqphase_move(req, RQ_PHASE_NEW);
+}
+
+/**
+ * Schedule previously sent request for resend.
+ * For bulk requests we assign new xid (to avoid problems with
+ * lost replies and therefore several transfers landing into same buffer
+ * from different sending attempts).
+ */
+void ptlrpc_resend_req(struct ptlrpc_request *req)
+{
+	ptlrpc_resend_rpc(req);
+	ptlrpc_client_wake_req(req);
 }
 
 static inline int ptlrpc_set_producer(struct ptlrpc_request_set *set)
@@ -1449,241 +1480,77 @@ static inline int ptlrpc_set_producer(struct ptlrpc_request_set *set)
  */
 int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 {
-        cfs_list_t *tmp, *next;
-        int force_timer_recalc = 0;
-        ENTRY;
+	cfs_list_t	*tmp;
+	int		force_timer_recalc = 0;
+	time_t		now = cfs_time_current_sec();
+	ENTRY;
 
-        if (cfs_atomic_read(&set->set_remaining) == 0)
-                RETURN(1);
+	if (cfs_atomic_read(&set->set_remaining) == 0)
+		RETURN(1);
 
-        cfs_list_for_each_safe(tmp, next, &set->set_requests) {
-                struct ptlrpc_request *req =
-                        cfs_list_entry(tmp, struct ptlrpc_request,
-                                       rq_set_chain);
-                struct obd_import *imp = req->rq_import;
-                int unregistered = 0;
-                int rc = 0;
+	cfs_list_for_each(tmp, &set->set_requests) {
+		struct ptlrpc_request *req =
+			cfs_list_entry(tmp, struct ptlrpc_request,
+				       rq_set_chain);
+resend:
+		if (req->rq_phase == RQ_PHASE_NEW &&
+		    ptlrpc_send_new_req(req)) {
+			force_timer_recalc = 1;
+		}
 
-                if (req->rq_phase == RQ_PHASE_NEW &&
-                    ptlrpc_send_new_req(req)) {
-                        force_timer_recalc = 1;
-                }
-
-                /* delayed send - skip */
-                if (req->rq_phase == RQ_PHASE_NEW && req->rq_sent)
+		if (req->rq_phase == RQ_PHASE_COMPLETE)
 			continue;
 
-		/* delayed resend - skip */
-		if (req->rq_phase == RQ_PHASE_RPC && req->rq_resend &&
-		    req->rq_sent > cfs_time_current_sec())
+		/* valid states */
+		if (!(req->rq_phase == RQ_PHASE_NEW ||
+		      req->rq_phase == RQ_PHASE_RPC ||
+		      req->rq_phase == RQ_PHASE_RPC_UNREG ||
+		      req->rq_phase == RQ_PHASE_BULK ||
+		      req->rq_phase == RQ_PHASE_BULK_UNREG ||
+		      req->rq_phase == RQ_PHASE_INTERPRET)) {
+			DEBUG_REQ(D_ERROR, req, "bad phase %x", req->rq_phase);
+			LBUG();
+		}
+
+		if (req->rq_net_err || ptlrpc_req_timeout(req, now)) {
+			if (!req->rq_timedout)
+				ptlrpc_expire_one_request(req);
+			ptlrpc_rqphase_move(req, _ptlrpc_rqphase_unreg(req));
+		}
+
+		if (req->rq_err) {
+			if (req->rq_status == 0)
+				req->rq_status = -EIO;
+			ptlrpc_rqphase_move(req, _ptlrpc_rqphase_unreg(req));
+		}
+
+		/* ptlrpc_set_wait->l_wait_event sets lwi_allow_intr
+		 * so it sets rq_intr regardless of individual rpc
+		 * timeouts. The synchronous IO waiting path sets
+		 * rq_intr irrespective of whether ptlrpcd
+		 * has seen a timeout.  Our policy is to only interpret
+		 * interrupted rpcs after they have timed out, so we
+		 * need to enforce that here.
+		 */
+		if (req->rq_intr && (req->rq_timedout || req->rq_waiting ||
+				     req->rq_wait_ctx)) {
+			req->rq_status = -EINTR;
+
+			ptlrpc_rqphase_move(req, _ptlrpc_rqphase_unreg(req));
+		}
+
+		/* delayed send - skip */
+		if (req->rq_phase == RQ_PHASE_NEW)
 			continue;
 
-                if (!(req->rq_phase == RQ_PHASE_RPC ||
-                      req->rq_phase == RQ_PHASE_BULK ||
-                      req->rq_phase == RQ_PHASE_INTERPRET ||
-                      req->rq_phase == RQ_PHASE_UNREGISTERING ||
-                      req->rq_phase == RQ_PHASE_COMPLETE)) {
-                        DEBUG_REQ(D_ERROR, req, "bad phase %x", req->rq_phase);
-                        LBUG();
-                }
+		if (req->rq_phase == RQ_PHASE_RPC) {
 
-                if (req->rq_phase == RQ_PHASE_UNREGISTERING) {
-                        LASSERT(req->rq_next_phase != req->rq_phase);
-                        LASSERT(req->rq_next_phase != RQ_PHASE_UNDEFINED);
-
-                        /*
-                         * Skip processing until reply is unlinked. We
-                         * can't return to pool before that and we can't
-                         * call interpret before that. We need to make
-                         * sure that all rdma transfers finished and will
-                         * not corrupt any data.
-                         */
-                        if (ptlrpc_client_recv_or_unlink(req) ||
-                            ptlrpc_client_bulk_active(req))
-                                continue;
-
-                        /*
-                         * Turn fail_loc off to prevent it from looping
-                         * forever.
-                         */
-                        if (OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_LONG_REPL_UNLINK)) {
-                                OBD_FAIL_CHECK_ORSET(OBD_FAIL_PTLRPC_LONG_REPL_UNLINK,
-                                                     OBD_FAIL_ONCE);
-                        }
-                        if (OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_LONG_BULK_UNLINK)) {
-                                OBD_FAIL_CHECK_ORSET(OBD_FAIL_PTLRPC_LONG_BULK_UNLINK,
-                                                     OBD_FAIL_ONCE);
-                        }
-
-                        /*
-                         * Move to next phase if reply was successfully
-                         * unlinked.
-                         */
-                        ptlrpc_rqphase_move(req, req->rq_next_phase);
-                }
-
-                if (req->rq_phase == RQ_PHASE_COMPLETE)
-                        continue;
-
-                if (req->rq_phase == RQ_PHASE_INTERPRET)
-                        GOTO(interpret, req->rq_status);
-
-                /*
-                 * Note that this also will start async reply unlink.
-                 */
-                if (req->rq_net_err && !req->rq_timedout) {
-                        ptlrpc_expire_one_request(req, 1);
-
-                        /*
-                         * Check if we still need to wait for unlink.
-                         */
-                        if (ptlrpc_client_recv_or_unlink(req) ||
-                            ptlrpc_client_bulk_active(req))
-                                continue;
-                        /* If there is no need to resend, fail it now. */
-                        if (req->rq_no_resend) {
-                                if (req->rq_status == 0)
-                                        req->rq_status = -EIO;
-                                ptlrpc_rqphase_move(req, RQ_PHASE_INTERPRET);
-                                GOTO(interpret, req->rq_status);
-                        } else {
-                                continue;
-                        }
-                }
-
-                if (req->rq_err) {
-			spin_lock(&req->rq_lock);
-			req->rq_replied = 0;
-			spin_unlock(&req->rq_lock);
-                        if (req->rq_status == 0)
-                                req->rq_status = -EIO;
-                        ptlrpc_rqphase_move(req, RQ_PHASE_INTERPRET);
-                        GOTO(interpret, req->rq_status);
-                }
-
-                /* ptlrpc_set_wait->l_wait_event sets lwi_allow_intr
-                 * so it sets rq_intr regardless of individual rpc
-                 * timeouts. The synchronous IO waiting path sets 
-                 * rq_intr irrespective of whether ptlrpcd
-                 * has seen a timeout.  Our policy is to only interpret
-                 * interrupted rpcs after they have timed out, so we
-                 * need to enforce that here.
-                 */
-
-                if (req->rq_intr && (req->rq_timedout || req->rq_waiting ||
-                                     req->rq_wait_ctx)) {
-                        req->rq_status = -EINTR;
-                        ptlrpc_rqphase_move(req, RQ_PHASE_INTERPRET);
-                        GOTO(interpret, req->rq_status);
-                }
-
-                if (req->rq_phase == RQ_PHASE_RPC) {
-                        if (req->rq_timedout || req->rq_resend ||
-                            req->rq_waiting || req->rq_wait_ctx) {
-                                int status;
-
-                                if (!ptlrpc_unregister_reply(req, 1))
-                                        continue;
-
-				spin_lock(&imp->imp_lock);
-				if (ptlrpc_import_delay_req(imp, req, &status)){
-					/* put on delay list - only if we wait
-					 * recovery finished - before send */
-					cfs_list_del_init(&req->rq_list);
-					cfs_list_add_tail(&req->rq_list,
-							  &imp->
-							  imp_delayed_list);
-					spin_unlock(&imp->imp_lock);
-                                        continue;
-                                }
-
-                                if (status != 0)  {
-                                        req->rq_status = status;
-                                        ptlrpc_rqphase_move(req,
-                                                RQ_PHASE_INTERPRET);
-					spin_unlock(&imp->imp_lock);
-					GOTO(interpret, req->rq_status);
-				}
-				if (ptlrpc_no_resend(req) &&
-				    !req->rq_wait_ctx) {
-					req->rq_status = -ENOTCONN;
-					ptlrpc_rqphase_move(req,
-							    RQ_PHASE_INTERPRET);
-					spin_unlock(&imp->imp_lock);
-					GOTO(interpret, req->rq_status);
-				}
-
-				cfs_list_del_init(&req->rq_list);
-				cfs_list_add_tail(&req->rq_list,
-						  &imp->imp_sending_list);
-
-				spin_unlock(&imp->imp_lock);
-
-				spin_lock(&req->rq_lock);
-				req->rq_waiting = 0;
-				spin_unlock(&req->rq_lock);
-
-				if (req->rq_timedout || req->rq_resend) {
-					/* This is re-sending anyways,
-					 * let's mark req as resend. */
-					spin_lock(&req->rq_lock);
-					req->rq_resend = 1;
-					spin_unlock(&req->rq_lock);
-                                        if (req->rq_bulk) {
-                                                __u64 old_xid;
-
-                                                if (!ptlrpc_unregister_bulk(req, 1))
-                                                        continue;
-
-                                                /* ensure previous bulk fails */
-                                                old_xid = req->rq_xid;
-                                                req->rq_xid = ptlrpc_next_xid();
-                                                CDEBUG(D_HA, "resend bulk "
-                                                       "old x"LPU64
-                                                       " new x"LPU64"\n",
-                                                       old_xid, req->rq_xid);
-                                        }
-                                }
-                                /*
-                                 * rq_wait_ctx is only touched by ptlrpcd,
-                                 * so no lock is needed here.
-                                 */
-                                status = sptlrpc_req_refresh_ctx(req, -1);
-                                if (status) {
-                                        if (req->rq_err) {
-                                                req->rq_status = status;
-						spin_lock(&req->rq_lock);
-						req->rq_wait_ctx = 0;
-						spin_unlock(&req->rq_lock);
-						force_timer_recalc = 1;
-					} else {
-						spin_lock(&req->rq_lock);
-						req->rq_wait_ctx = 1;
-						spin_unlock(&req->rq_lock);
-					}
-
-					continue;
-				} else {
-					spin_lock(&req->rq_lock);
-					req->rq_wait_ctx = 0;
-					spin_unlock(&req->rq_lock);
-				}
-
-				rc = ptl_send_rpc(req, 0);
-				if (rc) {
-					DEBUG_REQ(D_HA, req,
-						  "send failed: rc = %d", rc);
-					force_timer_recalc = 1;
-					spin_lock(&req->rq_lock);
-					req->rq_net_err = 1;
-					spin_unlock(&req->rq_lock);
-				}
-				/* need to reset the timeout */
-				force_timer_recalc = 1;
-			}
+			/* delayed resend - skip */
+			if (req->rq_resend &&
+			    req->rq_sent > cfs_time_current_sec())
+				continue;
 
 			spin_lock(&req->rq_lock);
-
 			if (ptlrpc_client_early(req)) {
 				ptlrpc_at_recv_early_reply(req);
 				spin_unlock(&req->rq_lock);
@@ -1701,113 +1568,139 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 				spin_unlock(&req->rq_lock);
 				continue;
 			}
-
 			spin_unlock(&req->rq_lock);
 
-                        /* unlink from net because we are going to
-                         * swab in-place of reply buffer */
-                        unregistered = ptlrpc_unregister_reply(req, 1);
-                        if (!unregistered)
-                                continue;
+			ptlrpc_rqphase_move(req, RQ_PHASE_RPC_UNREG);
+		}
 
-                        req->rq_status = after_reply(req);
-                        if (req->rq_resend)
-                                continue;
+		if (req->rq_phase == RQ_PHASE_RPC_UNREG) {
+			OBD_FAIL_CHECK_ORSET(OBD_FAIL_PTLRPC_LONG_REPL_UNLINK,
+					     OBD_FAIL_ONCE);
 
-                        /* If there is no bulk associated with this request,
-                         * then we're done and should let the interpreter
-                         * process the reply. Similarly if the RPC returned
-                         * an error, and therefore the bulk will never arrive.
-                         */
-                        if (req->rq_bulk == NULL || req->rq_status < 0) {
-                                ptlrpc_rqphase_move(req, RQ_PHASE_INTERPRET);
-                                GOTO(interpret, req->rq_status);
-                        }
+			/*
+			 * Skip processing until reply is unlinked. We
+			 * can't return to pool before that and we can't
+			 * call interpret before that. We need to make
+			 * sure that all rdma transfers finished and will
+			 * not corrupt any data.
+			 */
+			if (!ptlrpc_unregister_reply(req, 1))
+				continue;
 
-                        ptlrpc_rqphase_move(req, RQ_PHASE_BULK);
-                }
 
-                LASSERT(req->rq_phase == RQ_PHASE_BULK);
-                if (ptlrpc_client_bulk_active(req))
-                        continue;
+			req->rq_status = after_reply(req);
 
-                if (!req->rq_bulk->bd_success) {
-                        /* The RPC reply arrived OK, but the bulk screwed
-                         * up!  Dead weird since the server told us the RPC
-                         * was good after getting the REPLY for her GET or
-                         * the ACK for her PUT. */
-                        DEBUG_REQ(D_ERROR, req, "bulk transfer failed");
-                        req->rq_status = -EIO;
-                }
+			/* If there is no bulk associated with this request,
+			 * then we're done and should let the interpreter
+			 * process the reply.
+			 */
+			if (req->rq_bulk == NULL) {
+				ptlrpc_rqphase_move(req, RQ_PHASE_INTERPRET);
+			} else {
+				ptlrpc_rqphase_move(req, RQ_PHASE_BULK);
+			}
+		}
 
-                ptlrpc_rqphase_move(req, RQ_PHASE_INTERPRET);
+		if (req->rq_phase == RQ_PHASE_BULK) {
+			/* if client replied with error, we don't need a data
+			 * from it. bulk transfer size sends as rq_status
+			 */
+			if (req->rq_status > 0 &&
+			    ptlrpc_client_bulk_active(req))
+				continue;
 
-        interpret:
-                LASSERT(req->rq_phase == RQ_PHASE_INTERPRET);
+			ptlrpc_rqphase_move(req, RQ_PHASE_BULK_UNREG);
+		}
 
-                /* This moves to "unregistering" phase we need to wait for
-                 * reply unlink. */
-                if (!unregistered && !ptlrpc_unregister_reply(req, 1)) {
-                        /* start async bulk unlink too */
-                        ptlrpc_unregister_bulk(req, 1);
-                        continue;
-                }
+		if (req->rq_phase == RQ_PHASE_BULK_UNREG) {
+			OBD_FAIL_CHECK_ORSET(OBD_FAIL_PTLRPC_LONG_BULK_UNLINK,
+					     OBD_FAIL_ONCE);
 
-                if (!ptlrpc_unregister_bulk(req, 1))
-                        continue;
+			if (!ptlrpc_unregister_bulk(req, 1))
+				continue;
+			ptlrpc_rqphase_move(req, RQ_PHASE_INTERPRET);
+		}
 
-                /* When calling interpret receiving already should be
-                 * finished. */
-                LASSERT(!req->rq_receiving_reply);
+		if (req->rq_phase == RQ_PHASE_INTERPRET) {
+			struct obd_import *imp;
+			/* When calling interpret receiving already should be
+			 * finished. */
+			LASSERT(!req->rq_receiving_reply);
 
-                ptlrpc_req_interpret(env, req, req->rq_status);
+			/*
+			 * we need select one of two phases after unregstering
+			 * (1) NEW, if request need to be resend after network
+			 *     error
+			 * (2) INTERPRET, if request successfuly processed
+			 *     or resend not need
+			 */
+			if (req->rq_timedout || req->rq_resend ||
+			    req->rq_waiting || req->rq_wait_ctx) {
+				if (ptlrpc_no_resend(req) &&
+				    !req->rq_wait_ctx) {
+					req->rq_status = req->rq_status != 0 ?
+						req->rq_status : -ENOTCONN;
+				} else {
+					spin_lock(&req->rq_lock);
+					req->rq_waiting = 0;
+					spin_unlock(&req->rq_lock);
 
-                ptlrpc_rqphase_move(req, RQ_PHASE_COMPLETE);
+					if (req->rq_reply_truncate) {
+						sptlrpc_cli_free_repbuf(req);
+						/* Pass the required buffer
+						 * size (include space for early
+						 * reply). no need to roundup
+						 * because alloc_repbuf will
+						 * roundup it */
+						req->rq_replen = req->rq_nob_received;
+						req->rq_nob_received = 0;
+						req->rq_resend       = 1;
+					}
 
-		CDEBUG(req->rq_reqmsg != NULL ? D_RPCTRACE : 0,
-			"Completed RPC pname:cluuid:pid:xid:nid:"
-			"opc %s:%s:%d:"LPU64":%s:%d\n",
-			cfs_curproc_comm(), imp->imp_obd->obd_uuid.uuid,
-			lustre_msg_get_status(req->rq_reqmsg), req->rq_xid,
-			libcfs_nid2str(imp->imp_connection->c_peer.nid),
-			lustre_msg_get_opc(req->rq_reqmsg));
+					if ((req->rq_timedout || req->rq_resend)
+					    && !req->rq_err) {
+						ptlrpc_resend_rpc(req);
+						GOTO(resend, 0);
+					}
+				}
+			}
 
-		spin_lock(&imp->imp_lock);
-		/* Request already may be not on sending or delaying list. This
-		 * may happen in the case of marking it erroneous for the case
-		 * ptlrpc_import_delay_req(req, status) find it impossible to
-		 * allow sending this rpc and returns *status != 0. */
-		if (!cfs_list_empty(&req->rq_list)) {
+			ptlrpc_req_interpret(env, req, req->rq_status);
+
+			ptlrpc_rqphase_move(req, RQ_PHASE_COMPLETE);
+
+			imp = req->rq_import;
+			CDEBUG(D_RPCTRACE,
+			       "Completed RPC pname:cluuid:pid:xid:nid:"
+			       "opc %s:%s:%d:"LPU64":%s:%d\n", cfs_curproc_comm(),
+			       imp->imp_obd->obd_uuid.uuid,
+			       req->rq_reqmsg ?
+			       lustre_msg_get_status(req->rq_reqmsg) : -1,
+			       req->rq_xid,
+			       libcfs_nid2str(imp->imp_connection->c_peer.nid),
+			       req->rq_reqmsg ?
+			       lustre_msg_get_opc(req->rq_reqmsg) : -1);
+
+			spin_lock(&imp->imp_lock);
+			/* Request already may not on sending or delaying list.
+			 * This may happen in the case of marking it erroneous
+			 * for the case ptlrpc_import_delay_req(req, status)
+			 * find it impossible to allow sending this rpc and
+			 * returns *status != 0. */
 			cfs_list_del_init(&req->rq_list);
-			cfs_atomic_dec(&imp->imp_inflight);
+			if (req->rq_in_flight) {
+				req->rq_in_flight = 0;
+				cfs_atomic_dec(&imp->imp_inflight);
+			}
+			spin_unlock(&imp->imp_lock);
+
+			cfs_atomic_dec(&set->set_remaining);
+			cfs_waitq_broadcast(&imp->imp_recovery_waitq);
 		}
-		spin_unlock(&imp->imp_lock);
+	}
 
-                cfs_atomic_dec(&set->set_remaining);
-                cfs_waitq_broadcast(&imp->imp_recovery_waitq);
-
-		if (set->set_producer) {
-			/* produce a new request if possible */
-			if (ptlrpc_set_producer(set) > 0)
-				force_timer_recalc = 1;
-
-			/* free the request that has just been completed
-			 * in order not to pollute set->set_requests */
-			cfs_list_del_init(&req->rq_set_chain);
-			spin_lock(&req->rq_lock);
-			req->rq_set = NULL;
-			req->rq_invalid_rqset = 0;
-			spin_unlock(&req->rq_lock);
-
-			/* record rq_status to compute the final status later */
-			if (req->rq_status != 0)
-				set->set_rc = req->rq_status;
-			ptlrpc_req_finished(req);
-		}
-        }
-
-        /* If we hit an error, we want to recover promptly. */
-        RETURN(cfs_atomic_read(&set->set_remaining) == 0 || force_timer_recalc);
+	/* If we hit an error, we want to recover promptly. */
+	RETURN(cfs_atomic_read(&set->set_remaining) == 0 || force_timer_recalc);
 }
 EXPORT_SYMBOL(ptlrpc_check_set);
 
@@ -1816,7 +1709,7 @@ EXPORT_SYMBOL(ptlrpc_check_set);
  * until LNet actually confirms network buffer unlinking.
  * Return 1 if we should give up further retrying attempts or 0 otherwise.
  */
-int ptlrpc_expire_one_request(struct ptlrpc_request *req, int async_unlink)
+int ptlrpc_expire_one_request(struct ptlrpc_request *req)
 {
 	struct obd_import *imp = req->rq_import;
 	int rc = 0;
@@ -1824,6 +1717,9 @@ int ptlrpc_expire_one_request(struct ptlrpc_request *req, int async_unlink)
 
 	spin_lock(&req->rq_lock);
 	req->rq_timedout = 1;
+	if (!req->rq_replied && req->rq_status == 0)
+		req->rq_status = -ETIMEDOUT;
+	req->rq_net_err = 1;
 	spin_unlock(&req->rq_lock);
 
 	DEBUG_REQ(D_WARNING, req, "Request sent has %s: [sent "CFS_DURATION_T
@@ -1837,9 +1733,6 @@ int ptlrpc_expire_one_request(struct ptlrpc_request *req, int async_unlink)
 
         if (imp != NULL && obd_debug_peer_on_timeout)
                 LNetCtl(IOC_LIBCFS_DEBUG_PEER, &imp->imp_connection->c_peer);
-
-        ptlrpc_unregister_reply(req, async_unlink);
-        ptlrpc_unregister_bulk(req, async_unlink);
 
         if (obd_dump_on_timeout)
                 libcfs_debug_dumplog();
@@ -1863,11 +1756,7 @@ int ptlrpc_expire_one_request(struct ptlrpc_request *req, int async_unlink)
                 DEBUG_REQ(D_RPCTRACE, req, "err -110, sent_state=%s (now=%s)",
                           ptlrpc_import_state_name(req->rq_send_state),
                           ptlrpc_import_state_name(imp->imp_state));
-		spin_lock(&req->rq_lock);
-		req->rq_status = -ETIMEDOUT;
-		req->rq_err = 1;
-		spin_unlock(&req->rq_lock);
-		RETURN(1);
+                RETURN(1);
         }
 
         /* if a request can't be resent we can't wait for an answer after
@@ -1904,23 +1793,8 @@ int ptlrpc_expired_set(void *data)
                         cfs_list_entry(tmp, struct ptlrpc_request,
                                        rq_set_chain);
 
-                /* don't expire request waiting for context */
-                if (req->rq_wait_ctx)
-                        continue;
-
-                /* Request in-flight? */
-                if (!((req->rq_phase == RQ_PHASE_RPC &&
-                       !req->rq_waiting && !req->rq_resend) ||
-                      (req->rq_phase == RQ_PHASE_BULK)))
-                        continue;
-
-                if (req->rq_timedout ||     /* already dealt with */
-                    req->rq_deadline > now) /* not expired */
-                        continue;
-
-                /* Deal with this guy. Do it asynchronously to not block
-                 * ptlrpcd thread. */
-                ptlrpc_expire_one_request(req, 1);
+		if (ptlrpc_req_timeout(req, now))
+			ptlrpc_expire_one_request(req);
         }
 
         /*
@@ -1961,7 +1835,7 @@ void ptlrpc_interrupted_set(void *data)
                                        rq_set_chain);
 
                 if (req->rq_phase != RQ_PHASE_RPC &&
-                    req->rq_phase != RQ_PHASE_UNREGISTERING)
+			req->rq_phase != RQ_PHASE_BULK)
                         continue;
 
                 ptlrpc_mark_interrupted(req);
@@ -1989,9 +1863,7 @@ int ptlrpc_set_next_timeout(struct ptlrpc_request_set *set)
                 /*
                  * Request in-flight?
                  */
-                if (!(((req->rq_phase == RQ_PHASE_RPC) && !req->rq_waiting) ||
-                      (req->rq_phase == RQ_PHASE_BULK) ||
-                      (req->rq_phase == RQ_PHASE_NEW)))
+		if (!req->rq_in_flight)
                         continue;
 
                 /*
@@ -2008,8 +1880,6 @@ int ptlrpc_set_next_timeout(struct ptlrpc_request_set *set)
 
                 if (req->rq_phase == RQ_PHASE_NEW)
                         deadline = req->rq_sent;
-		else if (req->rq_phase == RQ_PHASE_RPC && req->rq_resend)
-			deadline = req->rq_sent;
                 else
                         deadline = req->rq_sent + req->rq_timeout;
 
@@ -2036,20 +1906,13 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
         int                    rc, timeout;
         ENTRY;
 
-	if (set->set_producer)
-		(void)ptlrpc_set_producer(set);
-	else
-		cfs_list_for_each(tmp, &set->set_requests) {
-			req = cfs_list_entry(tmp, struct ptlrpc_request,
-					     rq_set_chain);
-			if (req->rq_phase == RQ_PHASE_NEW)
-				(void)ptlrpc_send_new_req(req);
-		}
+	do {
+		if (set->set_producer)
+			(void)ptlrpc_set_producer(set);
 
-        if (cfs_list_empty(&set->set_requests))
-                RETURN(0);
+		if (cfs_list_empty(&set->set_requests))
+			RETURN(0);
 
-        do {
                 timeout = ptlrpc_set_next_timeout(set);
 
                 /* wait until all complete, interrupted, or an in-flight
@@ -2065,7 +1928,7 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
                          * so we allow interrupts during the timeout.
                          */
                         lwi = LWI_TIMEOUT_INTR_ALL(cfs_time_seconds(1), 
-                                                   ptlrpc_expired_set,
+							NULL,
                                                    ptlrpc_interrupted_set, set);
                 else
                         /*
@@ -2074,7 +1937,7 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
                          * complete, or an in-flight req times out. 
                          */
                         lwi = LWI_TIMEOUT(cfs_time_seconds(timeout? timeout : 1),
-                                          ptlrpc_expired_set, set);
+						NULL, set);
 
                 rc = l_wait_event(set->set_waitq, ptlrpc_check_set(NULL, set), &lwi);
 
@@ -2310,15 +2173,10 @@ int ptlrpc_unregister_reply(struct ptlrpc_request *request, int async)
         LNetMDUnlink(request->rq_reply_md_h);
 
         /*
-         * Let's check it once again.
+	 * Nothing left to do.
          */
         if (!ptlrpc_client_recv_or_unlink(request))
                 RETURN(1);
-
-        /*
-         * Move to "Unregistering" phase as reply was not unlinked yet.
-         */
-        ptlrpc_rqphase_move(request, RQ_PHASE_UNREGISTERING);
 
         /*
          * Do not wait for unlink to finish.
@@ -2343,10 +2201,8 @@ int ptlrpc_unregister_reply(struct ptlrpc_request *request, int async)
                                            cfs_time_seconds(1), NULL, NULL);
                 rc = l_wait_event(*wq, !ptlrpc_client_recv_or_unlink(request),
                                   &lwi);
-                if (rc == 0) {
-                        ptlrpc_rqphase_move(request, request->rq_next_phase);
+		if (rc == 0)
                         RETURN(1);
-                }
 
                 LASSERT(rc == -ETIMEDOUT);
                 DEBUG_REQ(D_WARNING, request, "Unexpectedly long timeout "
@@ -2441,35 +2297,6 @@ void ptlrpc_cleanup_client(struct obd_import *imp)
         return;
 }
 EXPORT_SYMBOL(ptlrpc_cleanup_client);
-
-/**
- * Schedule previously sent request for resend.
- * For bulk requests we assign new xid (to avoid problems with
- * lost replies and therefore several transfers landing into same buffer
- * from different sending attempts).
- */
-void ptlrpc_resend_req(struct ptlrpc_request *req)
-{
-        DEBUG_REQ(D_HA, req, "going to resend");
-        lustre_msg_set_handle(req->rq_reqmsg, &(struct lustre_handle){ 0 });
-        req->rq_status = -EAGAIN;
-
-	spin_lock(&req->rq_lock);
-        req->rq_resend = 1;
-        req->rq_net_err = 0;
-        req->rq_timedout = 0;
-        if (req->rq_bulk) {
-                __u64 old_xid = req->rq_xid;
-
-                /* ensure previous bulk fails */
-                req->rq_xid = ptlrpc_next_xid();
-                CDEBUG(D_HA, "resend bulk old x"LPU64" new x"LPU64"\n",
-                       old_xid, req->rq_xid);
-        }
-        ptlrpc_client_wake_req(req);
-	spin_unlock(&req->rq_lock);
-}
-EXPORT_SYMBOL(ptlrpc_resend_req);
 
 /* XXX: this function and rq_status are currently unused */
 void ptlrpc_restart_req(struct ptlrpc_request *req)
@@ -2706,7 +2533,6 @@ int ptlrpc_replay_req(struct ptlrpc_request *req)
         aa->praa_old_state = req->rq_send_state;
         req->rq_send_state = LUSTRE_IMP_REPLAY;
         req->rq_phase = RQ_PHASE_NEW;
-        req->rq_next_phase = RQ_PHASE_UNDEFINED;
         if (req->rq_repmsg)
                 aa->praa_old_status = lustre_msg_get_status(req->rq_repmsg);
         req->rq_status = 0;
@@ -2802,11 +2628,11 @@ void ptlrpc_abort_set(struct ptlrpc_request_set *set)
                                        rq_set_chain);
 
 		spin_lock(&req->rq_lock);
-		if (req->rq_phase != RQ_PHASE_RPC) {
+		if (req->rq_phase != RQ_PHASE_RPC &&
+			req->rq_phase != RQ_PHASE_BULK) {
 			spin_unlock(&req->rq_lock);
 			continue;
 		}
-
 		req->rq_err = 1;
 		req->rq_status = -EINTR;
 		ptlrpc_client_wake_req(req);
@@ -3004,7 +2830,6 @@ int ptlrpcd_queue_work(void *handler)
         req->rq_deadline       = req->rq_sent + req->rq_timeout;
         req->rq_reply_deadline = req->rq_deadline;
         req->rq_phase          = RQ_PHASE_INTERPRET;
-        req->rq_next_phase     = RQ_PHASE_COMPLETE;
         req->rq_xid            = ptlrpc_next_xid();
         req->rq_import_generation = req->rq_import->imp_generation;
 

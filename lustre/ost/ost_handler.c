@@ -1180,7 +1180,7 @@ out_lock:
 out_tls:
         ost_tls_put(req);
 out_bulk:
-        if (desc)
+	if (desc && !CFS_FAIL_PRECHECK(OBD_FAIL_PTLRPC_CLIENT_BULK_CB2))
 		ptlrpc_free_bulk_nopin(desc);
 out:
         if (rc == 0) {
@@ -1201,6 +1201,20 @@ out:
                               obd_uuid2str(&exp->exp_client_uuid),
                               obd_export_nid2str(exp), rc);
         }
+	/* send a bulk after reply to simulate a network delay or reordering
+	 * after router */
+	if (CFS_FAIL_PRECHECK(OBD_FAIL_PTLRPC_CLIENT_BULK_CB2)) {
+		cfs_waitq_t              waitq;
+		struct l_wait_info       lwi1;
+
+		CDEBUG(D_INFO, "reoder BULK\n");
+		cfs_waitq_init(&waitq);
+
+		lwi1 = LWI_TIMEOUT_INTR(cfs_time_seconds(3), NULL, NULL, NULL);
+		l_wait_event(waitq, 0, &lwi1);
+		rc = target_bulk_io(exp, desc, &lwi);
+		ptlrpc_free_bulk_nopin(desc);
+	}
         cfs_memory_pressure_clr();
         RETURN(rc);
 }
@@ -1497,7 +1511,6 @@ static int ost_init_sec_level(struct ptlrpc_request *req)
         default:
                 RETURN(-EINVAL);
         }
-
         RETURN(rc);
 }
 

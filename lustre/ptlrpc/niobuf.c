@@ -363,14 +363,10 @@ int ptlrpc_unregister_bulk(struct ptlrpc_request *req, int async)
          * one.  If it fails, it must be because completion just happened,
          * but we must still l_wait_event() in this case to give liblustre
          * a chance to run client_bulk_callback() */
-
         LNetMDUnlink(desc->bd_md_h);
 
         if (!ptlrpc_client_bulk_active(req))  /* completed or */
                 RETURN(1);                    /* never registered */
-
-        /* Move to "Unregistering" phase as bulk was not unlinked yet. */
-        ptlrpc_rqphase_move(req, RQ_PHASE_UNREGISTERING);
 
         /* Do not wait for unlink to finish. */
         if (async)
@@ -387,10 +383,8 @@ int ptlrpc_unregister_bulk(struct ptlrpc_request *req, int async)
                 lwi = LWI_TIMEOUT_INTERVAL(cfs_time_seconds(LONG_UNLINK),
                                            cfs_time_seconds(1), NULL, NULL);
                 rc = l_wait_event(*wq, !ptlrpc_client_bulk_active(req), &lwi);
-                if (rc == 0) {
-                        ptlrpc_rqphase_move(req, req->rq_next_phase);
+		if (rc == 0)
                         RETURN(1);
-                }
 
                 LASSERT(rc == -ETIMEDOUT);
                 DEBUG_REQ(D_WARNING, req, "Unexpectedly long timeout: desc %p",
@@ -679,8 +673,6 @@ int ptl_send_rpc(struct ptlrpc_request *request, int noreply)
         request->rq_receiving_reply = !noreply;
         /* We are responsible for unlinking the reply buffer */
         request->rq_must_unlink = !noreply;
-        /* Clear any flags that may be present from previous sends. */
-        request->rq_replied = 0;
         request->rq_err = 0;
         request->rq_timedout = 0;
         request->rq_net_err = 0;
