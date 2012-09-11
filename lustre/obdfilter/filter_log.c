@@ -274,15 +274,18 @@ int filter_recov_log_mds_ost_cb(const struct lu_env *env,
         }
 
         OBD_FAIL_TIMEOUT(OBD_FAIL_OST_LLOG_RECOVERY_TIMEOUT, 30);
+	/* cookie initialization */
         cookie.lgc_lgl = llh->lgh_id;
         cookie.lgc_subsys = LLOG_MDS_OST_ORIG_CTXT;
         cookie.lgc_index = rec->lrh_index;
 
         switch (rec->lrh_type) {
         case MDS_UNLINK_REC:
+		/* coverity[uninit_use_in_call] */
                 rc = filter_recov_log_unlink_cb(ctxt, rec, &cookie);
                 break;
         case MDS_SETATTR64_REC:
+		/* coverity[uninit_use_in_call] */
                 rc = filter_recov_log_setattr_cb(ctxt, rec, &cookie);
                 break;
         case LLOG_GEN_REC: {
