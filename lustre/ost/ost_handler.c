@@ -960,7 +960,7 @@ out:
         /* send a bulk after reply to simulate a network delay or reordering
          * by a router */
 	if (unlikely(CFS_FAIL_PRECHECK(OBD_FAIL_PTLRPC_CLIENT_BULK_CB2))) {
-		wait_queue_head_t              waitq;
+		wait_queue_head_t        waitq;
 		struct l_wait_info       lwi1;
 
 		CDEBUG(D_INFO, "reorder BULK\n");
@@ -1244,7 +1244,7 @@ out_lock:
 out_tls:
         ost_tls_put(req);
 out_bulk:
-        if (desc)
+	if (desc && !CFS_FAIL_PRECHECK(OBD_FAIL_PTLRPC_CLIENT_BULK_CB2))
 		ptlrpc_free_bulk_nopin(desc);
 out:
         if (rc == 0) {
@@ -1266,6 +1266,20 @@ out:
                               obd_export_nid2str(exp), rc);
         }
 	memory_pressure_clr();
+	/* send a bulk after reply to simulate a network delay or reordering
+	 * after router */
+	if (CFS_FAIL_PRECHECK(OBD_FAIL_PTLRPC_CLIENT_BULK_CB2)) {
+		wait_queue_head_t        waitq;
+		struct l_wait_info       lwi1;
+
+		CDEBUG(D_INFO, "reoder BULK\n");
+		init_waitqueue_head(&waitq);
+
+		lwi1 = LWI_TIMEOUT_INTR(cfs_time_seconds(3), NULL, NULL, NULL);
+		l_wait_event(waitq, 0, &lwi1);
+		rc = target_bulk_io(exp, desc, &lwi);
+		ptlrpc_free_bulk_nopin(desc);
+	}
         RETURN(rc);
 }
 
@@ -1664,7 +1678,6 @@ static int ost_init_sec_level(struct ptlrpc_request *req)
         default:
                 RETURN(-EINVAL);
         }
-
         RETURN(rc);
 }
 
