@@ -524,17 +524,15 @@ int main(int argc, char *argv[])
                         }
 
                         if (error == 1) {
-				int rc;
                                 char command[4096];
 
-				SET_BUT_UNUSED(rc);
                                 rprintf(rank, n, 0, STATUS_FMT"\n",
                                         write_char, write_size, write_size,
                                         append_char, append_size, append_size,
                                         trunc_offset, trunc_offset);
 
                                 sprintf(command, "od -Ax -a %s", fnames[0]);
-                                rc = system(command);
+                                ret = system(command);
                                 MPI_Abort(MPI_COMM_WORLD, 1);
                         }
                 }
