@@ -146,6 +146,7 @@ test_1b() { # former test_0b
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
     if ! do_node $CLIENT1 $CHECKSTAT -a $DIR/$tdir/$tfile; then
+		remount_client $MOUNT
         error "open succeeded unexpectedly"
     fi
 }
@@ -233,6 +234,7 @@ test_2b() { # former test_0e
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
     if ! do_node $CLIENT1 $CHECKSTAT -a $DIR/$tdir/$tfile; then
+		remount_client $MOUNT
         error "create succeeded unexpectedly"
     fi
 }
@@ -270,6 +272,7 @@ test_3b() { # former test_0g
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
     if do_node $CLIENT1 $CHECKSTAT -a $DIR/$tdir/$tfile; then
+		remount_client $MOUNT
         error "unlink succeeded unexpectedly"
     fi
 }
@@ -323,6 +326,7 @@ test_4c() { # former test_0j
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
     if ! do_node $CLIENT1 $CHECKSTAT -u \\\#$UID $file; then
+		remount_client $MOUNT
         error "setattr of UID succeeded unexpectedly"
     fi
 }
@@ -346,6 +350,7 @@ test_4d() { # former test_0k
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
     if ! do_node $CLIENT1 $CHECKSTAT -g \\\#$UID $file; then
+		remount_client $MOUNT
         error "setattr of GID succeeded unexpectedly"
     fi
 }
@@ -384,6 +389,7 @@ test_4f() { # former test_0m
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
     if ! do_node $CLIENT1 $CHECKSTAT -p 0644 $file; then
+		remount_client $MOUNT
         error "setattr of permission succeeded unexpectedly"
     fi
 }
@@ -513,6 +519,7 @@ test_4k() { # former test_0r
         error "time not changed: pre $mtime_pre, post $mtime_post"
     fi
     if ! do_node $CLIENT1 $CHECKSTAT -s 1 $file; then
+		remount_client $MOUNT
         error "setattr of size failed"
     fi
     mtime=$(do_node $CLIENT1 stat --format=%Y $file)
@@ -562,6 +569,7 @@ test_5b() { # former test_0t
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
     if ! do_node $CLIENT1 $CHECKSTAT -a $DIR/$tdir/$tfile; then
+		remount_client $MOUNT
         error "link should fail"
     fi
 }
@@ -585,6 +593,7 @@ test_5c() { # former test_0u
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
     if ! do_node $CLIENT1 $CHECKSTAT -a $DIR/$tdir/$tfile; then
+		remount_client $MOUNT
         error "link should fail"
     fi
 }
@@ -644,6 +653,7 @@ test_6c() { # former test_0x
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
     if do_node $CLIENT1 $CHECKSTAT -a $DIR/$tfile; then
+		remount_client $MOUNT
         error "rename should fail"
     fi
 }
@@ -667,6 +677,7 @@ test_6d() { # former test_0y
 
     client_evicted $CLIENT1 || error "$CLIENT1 not evicted"
     if do_node $CLIENT1 $CHECKSTAT -a $DIR/$tfile; then
+		remount_client $MOUNT
         error "rename should fail"
     fi
 }
