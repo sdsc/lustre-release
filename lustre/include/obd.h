@@ -820,8 +820,12 @@ struct lmv_obd {
 };
 
 struct niobuf_local {
-	__u64 lnb_file_offset;
-        __u64 offset;
+	/*
+	 * This shall be renamed to "lnb_file_offset" after lvfs and obdfilter
+	 * are removed.
+	 */
+	__u64 offset;
+	__u64 lnb_page_offset;
         __u32 len;
         __u32 flags;
         cfs_page_t    *page;
@@ -829,6 +833,7 @@ struct niobuf_local {
         int lnb_grant_used;
         int rc;
 };
+#define lnb_file_offset offset
 
 #define LUSTRE_FLD_NAME         "fld"
 #define LUSTRE_SEQ_NAME         "seq"
