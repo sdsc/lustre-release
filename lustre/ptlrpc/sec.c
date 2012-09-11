@@ -594,7 +594,7 @@ int ctx_refresh_timeout(void *data)
         /* conn_cnt is needed in expire_one_request */
         lustre_msg_set_conn_cnt(req->rq_reqmsg, req->rq_import->imp_conn_cnt);
 
-        rc = ptlrpc_expire_one_request(req, 1);
+	rc = ptlrpc_expire_one_request(req);
         /* if we started recovery, we should mark this ctx dead; otherwise
          * in case of lgssd died nobody would retire this ctx, following
          * connecting will still find the same ctx thus cause deadlock.
