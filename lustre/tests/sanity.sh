@@ -10589,6 +10589,7 @@ test_220() { #LU-325
 }
 run_test 220 "preallocated MDS objects still used if ENOSPC from OST"
 
+
 test_221() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
         dd if=`which date` of=$MOUNT/date oflag=sync
@@ -10946,6 +10947,26 @@ test_228c() {
 	[ $blk1 == $blk2 ] || error "old blk1=$blk1, new blk2=$blk2, unmatched!"
 }
 run_test 228c "NOT shrink the last entry in OI index node to recycle idle leaf"
+
+test_229a() {
+	#define OBD_FAIL_PTLRPC_CLIENT_BULK_CB   0x508
+	$LCTL set_param fail_loc=0x508
+	dd if=/dev/zero of=$DIR/$tfile bs=4096 count=1 conv=fsync
+	$LCTL set_param fail_loc=0
+	df $DIR
+}
+run_test 229a "MRP-303: don't panic on bulk IO fail"
+
+test_229b() {
+	dd if=/dev/zero of=$DIR/$tfile bs=4096 count=1
+	cancel_lru_locks osc
+	#define OBD_FAIL_PTLRPC_CLIENT_BULK_CB2   0x515
+	$LCTL set_param fail_loc=0x515
+	dd of=/dev/null if=$DIR/$tfile bs=4096 count=1
+	$LCTL set_param fail_loc=0
+	df $DIR
+}
+run_test 229b "MRP-303: don't panic on bulk IO fail"
 
 test_230a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
