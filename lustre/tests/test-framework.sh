@@ -373,6 +373,7 @@ llite_lloop_enabled() {
 }
 
 load_modules_local() {
+	[ $(facet_fstype OST) == "zfs" ] && export USE_OFD=yes
 	if [ "$USE_OFD" == yes ]; then
 		if module_loaded obdfilter; then
 			if ! $LUSTRE_RMMOD ldiskfs; then
