@@ -809,6 +809,8 @@ int dt_record_read(const struct lu_env *env, struct dt_object *dt,
                    struct lu_buf *buf, loff_t *pos);
 int dt_record_write(const struct lu_env *env, struct dt_object *dt,
                     const struct lu_buf *buf, loff_t *pos, struct thandle *th);
+int dt_index_read(const struct lu_env *env, struct dt_device *dev,
+		  struct idx_info *ii, struct lu_rdpg *rdpg);
 
 static inline struct thandle *dt_trans_create(const struct lu_env *env,
                                               struct dt_device *d)

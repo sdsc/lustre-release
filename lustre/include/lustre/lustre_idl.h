@@ -2569,6 +2569,7 @@ typedef enum {
         OBD_PING = 400,
         OBD_LOG_CANCEL,
         OBD_QC_CALLBACK,
+	OBD_IDX_READ,
         OBD_LAST_OPC
 } obd_cmd_t;
 #define OBD_FIRST_OPC OBD_PING
@@ -2933,6 +2934,82 @@ void dump_ioo(struct obd_ioobj *nb);
 void dump_obdo(struct obdo *oa);
 void dump_ost_body(struct ost_body *ob);
 void dump_rcs(__u32 *rc);
+
+#define IDX_INFO_MAGIC 0x3D37CC37
+
+/* Index file transfer through the network. The server serializes the index into
+ * a byte stream which is sent to the client via a bulk transfer */
+struct idx_info {
+	__u32		ii_magic;
+
+	/* reply: see idx_info_flags below */
+	__u32		ii_flags;
+
+	/* request & reply: number of 4KB containers (to be) transferred */
+	__u16		ii_count;
+	__u16		ii_pad0;
+
+	/* request: requested attributes passed down to the iterator API */
+	__u32		ii_attrs;
+
+	/* request & reply: index file identifier (FID) */
+	struct lu_fid	ii_fid;
+
+	/* reply: version of the index file before starting to walk the index.
+	 * Please note that the version can be modified at any time during the
+	 * transfer */
+	__u64		ii_version;
+
+	/* request: hash to start with:
+	 * reply: hash of the first entry of the first container and hash
+	 *        of the last entry of the last container */
+	__u64		ii_hash_start;
+	__u64		ii_hash_end;
+
+	/* reply: size of keys in the containers, minimal one if II_FL_VARKEY is
+	 * set */
+	__u16		ii_keysize;
+
+	/* reply: size of records in the containers, minimal one if II_FL_VARREC
+	 * is set */
+	__u16		ii_recsize;
+
+	__u32		ii_pad1;
+	__u64		ii_pad2;
+	__u64		ii_pad3;
+};
+extern void lustre_swab_idx_info(struct idx_info *ii);
+
+/* List of flags used in idx_info::ii_flags */
+enum idx_info_flags {
+	II_FL_LAST	= 1 << 0,/* all entries have been read */
+	II_FL_VARKEY	= 1 << 1,/* keys can be of variable size */
+	II_FL_VARREC	= 1 << 2,/* records can be of variable size */
+	II_FL_NONUNQ	= 1 << 3,/* index supports non-unique keys */
+};
+
+#define IDX_CT_MAGIC 0x8A6D6B6C
+
+/* 4KB (= LU_PAGE_SIZE) container gathering key/record pairs */
+struct idx_container {
+	/* 16-byte header */
+	__u32 ic_magic;
+	__u16 ic_flags;
+	__u16 ic_nr;   /* number of entries in the container */
+	__u64 ic_pad0; /* additional padding for future use */
+
+	/* key/record pairs are stored in the remaining 4080 bytes.
+	 * depending upon the flags in idx_info::ii_flags, each key/record
+	 * pair might be preceded by:
+	 * - a hash value
+	 * - the key size (II_FL_VARKEY is set)
+	 * - the record size (II_FL_VARREC is set)
+	 *
+	 * For the time being, we only support fixed-size key & record. */
+	char  ic_entries[0];
+};
+
+#define IDX_CT_HDR_SIZE (offsetof(struct idx_container, ic_entries))
 
 /* this will be used when OBD_CONNECT_CHANGE_QS is set */
 struct qunit_data {

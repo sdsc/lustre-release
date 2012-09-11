@@ -51,6 +51,9 @@
 
 #include <lquota.h>
 
+static inline const struct dt_index_features *dt_index_feat_select(__u64,
+								   __u32);
+
 struct dt_find_hint {
         struct lu_fid        *dfh_fid;
         struct dt_device     *dfh_dt;
@@ -561,6 +564,239 @@ dt_obj_version_t dt_version_get(const struct lu_env *env, struct dt_object *o)
 }
 EXPORT_SYMBOL(dt_version_get);
 
+/*
+ * fill one 4KB container with key/record read from the index file
+ */
+static int dt_index_container_build(const struct lu_env *env,
+				    struct idx_container *ic,
+				    const struct dt_it_ops *iops,
+				    struct dt_it *it, __u32 attr,
+				    struct idx_info *ii)
+{
+	char	*entry;
+	int	 rc, nob = LU_PAGE_SIZE;
+	ENTRY;
+
+	/* no support for variable key & record size for now */
+	LASSERT((ii->ii_flags & II_FL_VARKEY) == 0);
+	LASSERT((ii->ii_flags & II_FL_VARREC) == 0);
+
+	/* initialize the header of the container */
+	memset(ic, 0, IDX_CT_HDR_SIZE);
+	ic->ic_magic = IDX_CT_MAGIC;
+	nob -= IDX_CT_HDR_SIZE;
+
+	entry = ic->ic_entries;
+	do {
+		char		*tmp_entry = entry;
+		struct dt_key	*key;
+		__u64		 hash;
+		int		 size;
+
+		size = ii->ii_recsize + ii->ii_keysize + sizeof(__u64);
+		if (nob < size) {
+			if (ic->ic_nr == 0)
+				GOTO(out, rc = -EINVAL);
+			GOTO(out, rc = 0);
+		}
+
+		/* copy the 64-bit hash value first */
+		hash = iops->store(env, it);
+		memcpy(tmp_entry, &hash, sizeof(hash));
+		tmp_entry += sizeof(hash);
+
+		/* then the key value */
+		LASSERT(iops->key_size(env, it) == ii->ii_keysize);
+		key = iops->key(env, it);
+		memcpy(tmp_entry, key, ii->ii_keysize);
+		tmp_entry += ii->ii_keysize;
+
+		/* and finally the record */
+		rc = iops->rec(env, it, (struct dt_rec *)tmp_entry, attr);
+		if (rc == -ESTALE)
+			GOTO(next, rc);
+		if (rc != 0)
+			GOTO(out, rc);
+
+		/* hash/key/record successfully copied! */
+		ic->ic_nr++;
+		ii->ii_hash_end = hash;
+		if (unlikely(ic->ic_nr == 1 && ii->ii_count == 0))
+			ii->ii_hash_start = hash;
+		entry = tmp_entry + ii->ii_recsize;
+		nob -= size;
+next:
+		rc = iops->next(env, it);
+		if (rc == -ESTALE)
+			GOTO(next, rc);
+	} while (rc == 0);
+
+	GOTO(out, rc);
+out:
+	if (rc >= 0 && ic->ic_nr > 0)
+		/* one more container */
+		ii->ii_count++;
+	return rc;
+}
+
+/*
+ * Walk index and fill containers with key/record pairs
+ */
+int dt_index_walk(const struct lu_env *env, struct dt_object *obj,
+		  struct lu_rdpg *rdpg, struct idx_info *ii)
+{
+	struct dt_it		*it;
+	const struct dt_it_ops	*iops;
+	int			 rc = 0, i;
+	unsigned int		 nr;
+	ENTRY;
+
+	LASSERT(rdpg->rp_pages != NULL);
+	LASSERT(obj->do_index_ops != NULL);
+
+	/* iterate through index and fill containers from @rdpg */
+	iops = &obj->do_index_ops->dio_it;
+	it = iops->init(env, obj, rdpg->rp_attrs, BYPASS_CAPA);
+	if (IS_ERR(it))
+		RETURN(PTR_ERR(it));
+
+	rc = iops->load(env, it, rdpg->rp_hash);
+	if (rc == 0) {
+		/*
+		 * Iterator didn't find record with exactly the key requested.
+		 *
+		 * It is currently either
+		 *
+		 *     - positioned above record with key less than
+		 *     requested---skip it.
+		 *     - or not positioned at all (is in IAM_IT_SKEWED
+		 *     state)---position it on the next item.
+		 */
+		rc = iops->next(env, it);
+	} else if (rc > 0)
+		rc = 0;
+
+	nr = rdpg->rp_count >> LU_PAGE_SHIFT;
+
+	/* At this point and across for-loop:
+	 *
+	 *  rc == 0 -> ok, proceed.
+	 *  rc >  0 -> end of directory.
+	 *  rc <  0 -> error. */
+	for (i = 0; rc == 0 && nr > 0; i++) {
+		struct idx_container	*ic;
+		int			 j;
+
+		LASSERT(i < rdpg->rp_npages);
+		ic = cfs_kmap(rdpg->rp_pages[i]);
+		for (j = 0; j < LU_PAGE_COUNT; j++, nr--) {
+			rc = dt_index_container_build(env, ic, iops, it,
+					rdpg->rp_attrs, ii);
+			if (rc)
+				break;
+			ic = (struct idx_container *)((char *)ic +LU_PAGE_SIZE);
+		}
+		cfs_kunmap(rdpg->rp_pages[i]);
+	}
+
+	if (rc > 0)
+		/* no more entries */
+		ii->ii_flags |= II_FL_LAST;
+	if (rc >= 0)
+		rc = ii->ii_count;
+
+	iops->put(env, it);
+	iops->fini(env, it);
+
+	RETURN(rc);
+}
+
+/**
+ * Walk key/record pairs of an index and copy them into 4KB containers to be
+ * transferred over the network. This is used by OBD_IDX_READ RPC.
+ *
+ * On success, return the number of containers filled
+ * Appropriate error otherwise.
+ */
+int dt_index_read(const struct lu_env *env, struct dt_device *dev,
+                  struct idx_info *ii, struct lu_rdpg *rdpg)
+{
+	const struct dt_index_features	*feat;
+	struct dt_object		*obj;
+	int				 rc;
+	ENTRY;
+
+	/* rp_count shouldn't be null and should be a multiple of the container
+	 * size */
+	if (rdpg->rp_count <= 0 && (rdpg->rp_count & (LU_PAGE_SIZE - 1)) != 0)
+		RETURN(-EFAULT);
+
+	if (fid_seq(&ii->ii_fid) < FID_SEQ_SPECIAL)
+		/* block access to local files for now */
+		RETURN(-EPERM);
+
+	if (fid_seq(&ii->ii_fid) >= FID_SEQ_NORMAL)
+		/* we don't support directory transfer for the time being */
+		RETURN(-EOPNOTSUPP);
+
+	/* lookup index object subject to the transfer */
+	obj = dt_locate(env, dev, &ii->ii_fid);
+	if (IS_ERR(obj))
+		RETURN(PTR_ERR(obj));
+	if (dt_object_exists(obj) == 0)
+		GOTO(out, rc = -ENOENT);
+
+	/* fetch index features associated with index object */
+	feat = dt_index_feat_select(fid_seq(&ii->ii_fid),
+				    lu_object_attr(&obj->do_lu));
+	if (IS_ERR(feat))
+		GOTO(out, rc = PTR_ERR(feat));
+
+	/* load index feature if not done already */
+	if (obj->do_index_ops == NULL) {
+		rc = obj->do_ops->do_index_try(env, obj, feat);
+		if (rc)
+			GOTO(out, rc);
+	}
+
+	/* fill ii_flags with supported index features */
+	ii->ii_flags = 0;
+
+	ii->ii_keysize = feat->dif_keysize_max;
+	if (feat->dif_flags & DT_IND_VARKEY) {
+		/* key size is variable */
+		ii->ii_flags |= II_FL_VARKEY;
+		/* we don't support variable key size for the time being */
+		GOTO(out, rc = -EOPNOTSUPP);
+	}
+
+	ii->ii_recsize = feat->dif_recsize_max;
+	if (feat->dif_flags & DT_IND_VARREC) {
+		/* record size is variable */
+		ii->ii_flags |= II_FL_VARREC;
+		/* we don't support variable record size for the time being */
+		GOTO(out, rc = -EOPNOTSUPP);
+	}
+
+	if (feat->dif_flags & DT_IND_NONUNQ)
+		/* key isn't necessarily unique */
+		ii->ii_flags |= II_FL_NONUNQ;
+
+	dt_read_lock(env, obj, 0);
+	/* fetch object version before walking the index */
+	ii->ii_version = dt_version_get(env, obj);
+
+	/* walk the index and fill containers with key/record pairs */
+	rc = dt_index_walk(env, obj, rdpg, ii);
+	dt_read_unlock(env, obj);
+
+	GOTO(out, rc);
+out:
+	lu_object_put(env, &obj->do_lu);
+	return rc;
+}
+EXPORT_SYMBOL(dt_index_read);
+
 /* list of all supported index types */
 
 /* directories */
@@ -605,3 +841,32 @@ const struct dt_index_features dt_quota_slv_features = {
 	.dif_ptrsize		= 4
 };
 EXPORT_SYMBOL(dt_quota_slv_features);
+
+/* helper function returning what dt_index_features structure should be used
+ * based on the FID sequence. This is used by OBD_IDX_READ RPC */
+static inline const struct dt_index_features *dt_index_feat_select(__u64 seq,
+								   __u32 mode)
+{
+	if (seq == FID_SEQ_QUOTA_GLB) {
+		/* global quota index */
+		if (!S_ISREG(mode))
+			/* global quota index should be a regular file */
+			return ERR_PTR(-ENOENT);
+		return &dt_quota_glb_features;
+	} else if (seq == FID_SEQ_QUOTA) {
+		/* quota slave index */
+		if (!S_ISREG(mode))
+			/* slave index should be a regular file */
+			return ERR_PTR(-ENOENT);
+		return &dt_quota_slv_features;
+	} else if (seq >= FID_SEQ_NORMAL) {
+		/* object is part of the namespace, verify that it is a
+		 * directory */
+		if (!S_ISDIR(mode))
+			/* sorry, we can only deal with directory */
+			return ERR_PTR(-ENOTDIR);
+		return &dt_directory_features;
+	}
+
+	return ERR_PTR(-EOPNOTSUPP);
+}
