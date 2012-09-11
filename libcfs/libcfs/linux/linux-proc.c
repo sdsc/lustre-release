@@ -177,6 +177,7 @@ static int __proc_dobitmasks(void *data, int write,
         } else {
                 rc = cfs_trace_copyin_string(tmpstr, tmpstrlen, buffer, nob);
                 if (rc < 0)
+			cfs_trace_free_string_buffer(tmpstr, tmpstrlen);
                         return rc;
 
                 rc = libcfs_debug_str2mask(mask, tmpstr, is_subsys);

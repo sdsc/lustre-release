@@ -1050,29 +1050,37 @@ static int mgs_iocontrol_pool(struct obd_device *obd,
 
         switch (lcfg->lcfg_command) {
         case LCFG_POOL_NEW: {
-                if (lcfg->lcfg_bufcount != 2)
-                        RETURN(-EINVAL);
+		if (lcfg->lcfg_bufcount != 2) {
+			rc = -EINVAL;
+			GOTO(out_pool, rc);
+		}
                 rc = mgs_pool_cmd(obd, LCFG_POOL_NEW, fsname,
                                   poolname, NULL);
                 break;
         }
         case LCFG_POOL_ADD: {
-                if (lcfg->lcfg_bufcount != 3)
-                        RETURN(-EINVAL);
+		if (lcfg->lcfg_bufcount != 3) {
+			rc = -EINVAL;
+			GOTO(out_pool, rc);
+		}
                 rc = mgs_pool_cmd(obd, LCFG_POOL_ADD, fsname, poolname,
                                   lustre_cfg_string(lcfg, 2));
                 break;
         }
         case LCFG_POOL_REM: {
-                if (lcfg->lcfg_bufcount != 3)
-                        RETURN(-EINVAL);
+		if (lcfg->lcfg_bufcount != 3) {
+			rc = -EINVAL;
+			GOTO(out_pool, rc);
+		}
                 rc = mgs_pool_cmd(obd, LCFG_POOL_REM, fsname, poolname,
                                   lustre_cfg_string(lcfg, 2));
                 break;
         }
         case LCFG_POOL_DEL: {
-                if (lcfg->lcfg_bufcount != 2)
-                        RETURN(-EINVAL);
+		if (lcfg->lcfg_bufcount != 2) {
+			rc = -EINVAL;
+			GOTO(out_pool, rc);
+		}
                 rc = mgs_pool_cmd(obd, LCFG_POOL_DEL, fsname,
                                   poolname, NULL);
                 break;

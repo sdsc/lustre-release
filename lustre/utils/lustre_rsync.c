@@ -1386,7 +1386,7 @@ int lr_replicate()
 {
         void *changelog_priv;
         struct lr_info *info;
-        struct lr_info *ext;
+	struct lr_info *ext = NULL;
         time_t start;
         int xattr_not_supp;
         int i;
@@ -1402,7 +1402,7 @@ int lr_replicate()
         if (rc) {
                 fprintf(stderr, "Source path is not a valid Lustre client "
                         "mountpoint.\n");
-                return rc;
+		goto out;
         }
         if (status->ls_mdt_device[0] == '\0')
                 snprintf(status->ls_mdt_device, LR_NAME_MAXLEN, "%s%s",
@@ -1419,7 +1419,8 @@ int lr_replicate()
                 if (rc == -1 && errno != EEXIST) {
                         fprintf(stderr, "Error writing to target path %s.\n",
                                 status->ls_targets[i]);
-                        return -errno;
+			rc = -errno;
+			goto out;
                 }
                 rc = llistxattr(info->src, info->xlist, info->xsize);
                 if (rc == -1 && errno == ENOTSUP) {
@@ -1440,7 +1441,7 @@ int lr_replicate()
         if (rc < 0) {
                 fprintf(stderr, "Error opening changelog file for fs %s.\n",
                         status->ls_source_fs);
-                return rc;
+		goto out;
         }
 
         while (!quit && lr_parse_line(changelog_priv, info) == 0) {
@@ -1523,7 +1524,15 @@ int lr_replicate()
                 printf("Changelog records consumed: %lld\n", rec_count);
         }
 
-        return 0;
+	rc = 0;
+
+out:
+	if (info != NULL)
+		free(info);
+	if (ext != NULL)
+		free(ext);
+
+	return rc;
 }
 
 void
