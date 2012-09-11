@@ -175,8 +175,12 @@ int ptlrpc_resend(struct obd_import *imp)
                 LASSERTF((long)req > CFS_PAGE_SIZE && req != LP_POISON,
                          "req %p bad\n", req);
                 LASSERTF(req->rq_type != LI_POISON, "req %p freed\n", req);
-                if (!ptlrpc_no_resend(req))
-                        ptlrpc_resend_req(req);
+		cfs_spin_lock(&req->rq_lock);
+		req->rq_net_err = 1;
+		/* avoid additional timeout hanlding */
+		req->rq_timeout = 1;
+		cfs_spin_unlock(&req->rq_lock);
+		ptlrpc_client_wake_req(req);
         }
         cfs_spin_unlock(&imp->imp_lock);
 
@@ -198,7 +202,7 @@ void ptlrpc_wake_delayed(struct obd_import *imp)
                 req = cfs_list_entry(tmp, struct ptlrpc_request, rq_list);
 
                 DEBUG_REQ(D_HA, req, "waking (set %p):", req->rq_set);
-                ptlrpc_client_wake_req(req);
+		ptlrpc_resend_req(req); /* rq_phase == NEW now*/
         }
         cfs_spin_unlock(&imp->imp_lock);
 }
