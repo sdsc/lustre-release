@@ -7,6 +7,8 @@
 #set -vx
 set -e
 
+[ "$1" = "-v" ] && shift && VERBOSE=echo || VERBOSE=:
+
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
@@ -17,9 +19,9 @@ NUMDIRS=${NUMDIRS:-4}
 OSTIDX=${OSTIDX:-0} # the OST index in LOV
 OBJGRP=${OBJGRP:-0} # the OST object group
 
-[ -d "$SHARED_DIRECTORY" ] || \
-    { skip "SHARED_DIRECTORY should be specified with a shared directory \
-which can be accessable on all of the nodes" && exit 0; }
+[ ! -d "$SHARED_DIRECTORY" ] &&
+	skip "SHARED_DIRECTORY should be directory accessible on all nodes" &&
+	exit 0
 [[ $(facet_fstype $SINGLEMDS) != ldiskfs ]] &&
 	skip "Only applicable to ldiskfs-based MDTs" && exit 0
 [[ $(facet_fstype OST) != ldiskfs ]] &&
@@ -38,84 +40,79 @@ dd if=/dev/urandom of=$SAMPLE_FILE bs=1M count=1
 
 # Create some dirs and files on the filesystem.
 create_files_sub() {
-    local test_dir=$1
-    local num_dirs=$2
-    local file_name=$3
-    local first_num=$4
-    local last_num=$5
-    local d e f
+	local test_dir=$1
+	local num_dirs=$2
+	local file_name=$3
+	local first_num=$4
+	local last_num=$5
+	local d e f
 
-    for d in $(seq -f d%g $first_num $last_num); do
-        echo "creating files in $test_dir/$d"
-        for e in $(seq -f d%g $num_dirs); do
-            mkdir -p $test_dir/$d/$e || error "mkdir $test_dir/$d/$e failed"
-            for f in $(seq -f test%g $num_dirs); do
-                cp $file_name $test_dir/$d/$e/$f || \
-                    error "cp $file_name $test_dir/$d/$e/$f failed"
-            done
-        done
-    done
+	echo "creating files in $test_dir/d[$first_num..$last_num]:"
+	for d in $(seq -f $test_dir/d%g $first_num $last_num); do
+		mkdir -p $d || error "mkdir $d failed"
+		$VERBOSE "created $d $(lfs path2fid $d)"
+		for e in $(seq -f $d/d%g $num_dirs); do
+			mkdir -p $e || error "mkdir $$e failed"
+			$VERBOSE "created $e $(lfs path2fid $e)"
+			for f in $(seq -f $e/test%g $num_dirs); do
+				cp $file_name $f ||
+					error "cp $file_name $f failed"
+				$VERBOSE "created $f $(lfs path2fid $f)"
+			done
+		done
+	done
 }
 
 create_files() {
-    local test_dir=$1
-    local num_dirs=$2
-    local num_files=$3
-    local f
+	local test_dir=$1
+	local num_dirs=$2
+	local num_files=$3
+	local f
 
-    # create some files on the filesystem
-    local first_num=1
-    local last_num=$num_dirs
-    create_files_sub $test_dir $num_dirs /etc/fstab $first_num $last_num
+	# create some files on the filesystem
+	local first_num=1
+	local last_num=$num_dirs
+	create_files_sub $test_dir $num_dirs /etc/fstab $first_num $last_num
 
-    # create files to be modified
-    for f in $(seq -f $test_dir/testfile.%g $((num_files * 3))); do
-        echo "creating $f"
-        cp $SAMPLE_FILE $f || error "cp $SAMPLE_FILE $f failed"
-    done
+	# create files to be modified
+	echo "creating files $test_dir/testfile.[0..$((num_files * 3))]:"
+	for f in $(seq -f $test_dir/testfile.%g $((num_files * 3))); do
+		cp $SAMPLE_FILE $f || error "cp $SAMPLE_FILE $f failed"
+		$VERBOSE "created $f $(lfs path2fid $f)"
+	done
 
-    # create some more files
-    first_num=$((num_dirs * 2 + 1))
-    last_num=$((num_dirs * 2 + 3))
-    create_files_sub $test_dir $num_dirs /etc/hosts $first_num $last_num
+	# create some more files
+	first_num=$((num_dirs * 2 + 1))
+	last_num=$((num_dirs * 2 + 3))
+	create_files_sub $test_dir $num_dirs /etc/hosts $first_num $last_num
 
-    # these should NOT be taken as duplicates
-    for f in $(seq -f $test_dir/d$last_num/linkfile.%g $num_files); do
-        echo "linking files in $test_dir/d$last_num"
-        cp /etc/hosts $f || error "cp /etc/hosts $f failed"
-        ln $f $f.link || error "ln $f $f.link failed"
-    done
+	# these should NOT be taken as duplicates
+	echo "linking files in $test_dir/d[$first_num..$last_num]:"
+	for f in $(seq -f $test_dir/d$last_num/linkfile.%g $num_files); do
+		cp /etc/hosts $f || error "cp /etc/hosts $f failed"
+		ln $f $f.link || error "ln $f $f.link failed"
+		$VERBOSE "linked $f to $f.link $(lfs path2fid $f)"
+	done
 }
 
 # Get the objids for files on the OST (given the OST index and object group).
 get_objects() {
-    local obdidx=$1
-    shift
-    local group=$1
-    shift
-    local ost_files="$@"
-    local ost_objids
-    ost_objids=$($LFS getstripe $ost_files | \
-                awk '{if ($1 == '$obdidx' && $4 == '$group') print $2 }')
-    echo $ost_objids
-}
+	local obdidx=$1
+	shift
+	local seq=$1
+	shift
+	local ost_files="$@"
+	local ost_objids
+	local objids
 
-# Get the OST nodet name (given the OST index).
-get_ost_node() {
-    local obdidx=$1
-    local ost_uuid
-    local ost_node
-    local node
+	for F in $ostfiles; do
+		objid=$($GETSTRIPE $F |
+			awk "{ if (\$1 == $obdidx && \$4 == $seq) print \$2 }")
+		$VERBOSE $GETSTRIPE -v $F | grep -v "lmm_seq|lmm_object_id" 1>&2
+		ost_objids="$ost_objids $objid"
+	done
 
-    ost_uuid=$(ostuuid_from_index $obdidx)
-
-    for node in $(osts_nodes); do
-        do_node $node "lctl get_param -n obdfilter.*.uuid" | grep -q $ost_uuid
-        [ ${PIPESTATUS[1]} -eq 0 ] && ost_node=$node && break
-    done
-    [ -z "$ost_node" ] && \
-        echo "failed to find the OST with index $obdidx" && return 1
-    echo $ost_node
+	echo $ost_objids
 }
 
 # Get the OST target device (given the OST facet name and OST index).
@@ -133,8 +130,8 @@ get_ost_dev() {
 	fi
 
 	if [[ $ost_dev = *loop* ]]; then
-		ost_dev=$(do_node $node "losetup $ost_dev" | \
-		          sed -e "s/.*(//" -e "s/).*//")
+		ost_dev=$(do_node $node "losetup $ost_dev" |
+			  sed -e "s/.*(//" -e "s/).*//")
 	fi
 
 	echo $ost_dev
@@ -164,6 +161,8 @@ get_files() {
     local f 
     for f in $(seq -f testfile.%g $first $last); do
         test_file=$test_dir/$f
+		$GETSTRIPE -v $test_file |
+			egrep -v "lmm_stripe|lmm_layout|lmm_magic" 1>&2
         files="$files $test_file"
     done
     files=$(echo $files | sed "s#$DIR/##g")
@@ -183,7 +182,7 @@ remove_objects() {
 	local i
 	local rc
 
-	echo "removing objects from $ostdev on $facet: $objids"
+	echo "removing objects from $node:$ostdev: $objids"
 	if ! do_facet $facet test -b $ostdev; then
 		opts=$(csa_add "$opts" -o loop)
 	fi
@@ -223,17 +222,27 @@ if is_empty_fs $MOUNT; then
     create_files $TESTDIR $NUMDIRS $NUMFILES
 
     # get the objids for files in group $OBJGRP on the OST with index $OSTIDX
+	echo "objects to be removed, leaving dangling references:"
     OST_REMOVE=$(get_objects $OSTIDX $OBJGRP \
                 $(seq -f $TESTDIR/testfile.%g $NUMFILES))
 
+<<<<<<< HEAD
     # get the node name and target device for the OST with index $OSTIDX
     OSTNODE=$(get_ost_node $OSTIDX) || error "get_ost_node by index $OSTIDX failed"
     OSTDEV=$(get_ost_dev $OSTNODE $OSTIDX) ||
 	error "get_ost_dev $OSTNODE $OSTIDX failed"
+=======
+	# get the node name and target device for the OST with index $OSTIDX
+	OSTNODE=$(facet_active_host ost$((OSTIDX + 1)))
+	OSTDEV=$(get_ost_dev $OSTNODE $OSTIDX) ||
+		error "get_ost_dev $OSTNODE $OSTIDX failed"
+>>>>>>> LU-0000 tests: lfsck.sh improved messages
 
     # get the file names to be duplicated on the MDS
+	echo "files to be duplicated, leaving double-referenced objects:"
     MDS_DUPE=$(get_files dup $TESTDIR $NUMFILES) || error "$MDS_DUPE"
     # get the file names to be removed from the MDS
+	echo "files to be removed, leaving orphan objects:"
     MDS_REMOVE=$(get_files remove $TESTDIR $NUMFILES) || error "$MDS_REMOVE"
 
     stopall -f || error "cleanupall failed"
