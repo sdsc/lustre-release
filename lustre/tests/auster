@@ -253,7 +253,7 @@ run_suites() {
 	reset_logging $logdir
 	set -- "${argv[@]}"
 	while [[ -n $1 ]]; do
-	    unset ONLY EXCEPT START_AT STOP_AT
+	    unset EXCEPT START_AT STOP_AT
 	    local opts=""
 	    local time_limit=""
 #	    echo "argv: $*"
@@ -263,7 +263,7 @@ run_suites() {
 		case "$1" in
 		    --only)
 			shift;
-			export ONLY=$(split_commas $1)
+			export ONLY="$ONLY $(split_commas $1)"
 			opts+="ONLY=$ONLY ";;
 		    --except)
 			shift;
