@@ -156,6 +156,7 @@ struct osd_thread_info {
 	struct luz_direntry	 oti_zde;
 
 	struct lquota_id_info	 oti_qi;
+	struct lu_seq_range	 oti_seq_range;
 };
 
 extern struct lu_context_key osd_key;
@@ -241,6 +242,19 @@ struct osd_device {
 	arc_prune_t		*arc_prune_cb;
 };
 
+struct osd_range_root {
+	cfs_rwlock_t	orr_list_lock;
+	cfs_list_t	orr_list;
+	int		orr_key_size;
+	int		orr_rec_size;
+};
+
+struct osd_range {
+	cfs_list_t	or_list;
+	struct dt_key	*or_key;
+	struct dt_rec	*or_rec;
+};
+
 struct osd_object {
 	struct dt_object	 oo_dt;
 	/*
@@ -267,6 +281,8 @@ struct osd_object {
 
 	/* record size for index file */
 	int			 oo_recsize;
+
+	struct osd_range_root	*oo_range_root;
 };
 
 int osd_statfs(const struct lu_env *, struct dt_device *, struct obd_statfs *);
@@ -334,6 +350,15 @@ static inline int osd_object_invariant(const struct lu_object *l)
 	return osd_invariant(osd_obj(l));
 }
 
+static inline struct md_site *osd_md_site(struct osd_device *osd)
+{
+	return osd->od_dt_dev.dd_lu_dev.ld_site->ld_md_site;
+}
+
+static inline char *osd_name(struct osd_device *osd)
+{
+	return osd->od_dt_dev.dd_lu_dev.ld_obd->obd_name;
+}
 
 #ifdef LPROCFS
 enum {
@@ -392,7 +417,7 @@ int osd_options_init(void);
 /* osd_index.c */
 int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 		  const struct dt_index_features *feat);
-
+int osd_fini_index_range(const struct lu_env *env, struct dt_object *dt);
 
 /* osd_xattr.c */
 int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
