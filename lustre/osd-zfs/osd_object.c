@@ -626,12 +626,16 @@ out:
 	RETURN (0);
 }
 
+static struct dt_index_operations osd_index_range_ops;
+
 static void osd_object_delete(const struct lu_env *env, struct lu_object *l)
 {
 	struct osd_object *obj = osd_obj(l);
 
 	if (obj->oo_db != NULL) {
 		osd_object_sa_fini(obj);
+		if (obj->oo_dt.do_index_ops == &osd_index_range_ops)
+			osd_fini_index_range(env, &obj->oo_dt);
 		if (obj->oo_sa_xattr) {
 			nvlist_free(obj->oo_sa_xattr);
 			obj->oo_sa_xattr = NULL;
