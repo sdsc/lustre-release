@@ -803,5 +803,19 @@ static inline void set_nlink(struct inode *inode, unsigned int nlink)
 # define ll_umode_t	int
 #endif
 
+#include <linux/dcache.h>
+#ifndef HAVE_D_MAKE_ROOT
+static inline struct dentry *d_make_root(struct inode *root_inode)
+{
+	struct dentry *res;
+
+	res = d_alloc_root(root_inode);
+	if (res == NULL)
+		iput(root_inode);
+
+	return res;
+}
+#endif
+
 #endif /* __KERNEL__ */
 #endif /* _COMPAT25_H */

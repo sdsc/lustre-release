@@ -2283,14 +2283,13 @@ static int server_fill_super_common(struct super_block *sb)
         /* apparently we need to be a directory for the mount to finish */
         root->i_mode = S_IFDIR;
 
-        sb->s_root = d_alloc_root(root);
-        if (!sb->s_root) {
-                CERROR("Can't make root dentry\n");
-                iput(root);
-                RETURN(-EIO);
-        }
+	sb->s_root = d_make_root(root);
+	if (!sb->s_root) {
+		CERROR("Can't make root dentry\n");
+		RETURN(-EIO);
+	}
 
-        RETURN(0);
+	RETURN(0);
 }
 
 static int osd_start(struct lustre_sb_info *lsi, unsigned long mflags)
