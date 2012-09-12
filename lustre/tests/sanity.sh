@@ -7047,7 +7047,7 @@ test_130a() {
 	dd if=/dev/zero of=$fm_file bs=65536 count=1 || error "dd failed for $fm_file"
 
 	filefrag -ves $fm_file || error "filefrag $fm_file failed"
-	filefrag_op=`filefrag -ve $fm_file | grep -A 100 "ext:" | grep -v "ext:" | grep -v "found"`
+	filefrag_op=`filefrag -ve $fm_file | grep -A 100 "ext" | grep -v "ext" | grep -v "found"`
 
 	lun=$($GETSTRIPE -i $fm_file)
 
@@ -7091,7 +7091,7 @@ test_130b() {
 	dd if=/dev/zero of=$fm_file bs=1M count=2 || error "dd failed on $fm_file"
 
 	filefrag -ves $fm_file || error "filefrag $fm_file failed"
-	filefrag_op=`filefrag -ve $fm_file | grep -A 100 "ext:" | grep -v "ext:" | grep -v "found"`
+	filefrag_op=`filefrag -ve $fm_file | grep -A 100 "ext" | grep -v "ext" | grep -v "found"`
 
 	last_lun=`echo $filefrag_op | cut -d: -f5`
 
@@ -7140,7 +7140,7 @@ test_130c() {
 	dd if=/dev/zero of=$fm_file seek=1 bs=1M count=1 || error "dd failed on $fm_file"
 
 	filefrag -ves $fm_file || error "filefrag $fm_file failed"
-	filefrag_op=`filefrag -ve $fm_file | grep -A 100 "ext:" | grep -v "ext:" | grep -v "found"`
+	filefrag_op=`filefrag -ve $fm_file | grep -A 100 "ext" | grep -v "ext" | grep -v "found"`
 
 	last_lun=`echo $filefrag_op | cut -d: -f5`
 
@@ -7195,7 +7195,7 @@ test_130d() {
 	dd if=/dev/zero of=$fm_file bs=1M count=$OSTCOUNT || error "dd failed on $fm_file"
 
 	filefrag -ves $fm_file || error "filefrag $fm_file failed"
-	filefrag_op=`filefrag -ve $fm_file | grep -A 100 "ext:" | grep -v "ext:" | grep -v "found"`
+	filefrag_op=`filefrag -ve $fm_file | grep -A 100 "ext" | grep -v "ext" | grep -v "found"`
 
 	last_lun=`echo $filefrag_op | cut -d: -f5`
 
@@ -7249,7 +7249,7 @@ test_130e() {
 	done
 
 	filefrag -ves $fm_file || error "filefrag $fm_file failed"
-	filefrag_op=`filefrag -ve $fm_file | grep -A 12000 "ext:" | grep -v "ext:" | grep -v "found"`
+	filefrag_op=`filefrag -ve $fm_file | grep -A 12000 "ext" | grep -v "ext" | grep -v "found"`
 
 	last_lun=`echo $filefrag_op | cut -d: -f5`
 
