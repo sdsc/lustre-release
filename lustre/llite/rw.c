@@ -593,7 +593,8 @@ static inline int llap_shrink_cache_internal(struct ll_sb_info *sbi,
 
                keep = (llap->llap_write_queued || PageDirty(page) ||
                       PageWriteback(page) || (!PageUptodate(page) &&
-                      llap->llap_origin != LLAP_ORIGIN_READAHEAD));
+                      llap->llap_origin != LLAP_ORIGIN_READAHEAD) ||
+                      page_count(page) > 2);
 
                 LL_CDEBUG_PAGE(D_PAGE, page,
                                "%s LRU page: %s%s%s%s%s origin %s\n",
