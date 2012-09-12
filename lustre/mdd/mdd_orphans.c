@@ -137,23 +137,6 @@ static inline int mdd_orphan_delete_obj(const struct lu_env *env,
                                               BYPASS_CAPA);
 }
 
-static inline void mdd_orphan_ref_add(const struct lu_env *env,
-                                 struct mdd_device *mdd,
-                                 struct thandle *th)
-{
-        struct dt_object        *dor    = mdd->mdd_orphans;
-        dor->do_ops->do_ref_add(env, dor, th);
-}
-
-static inline void mdd_orphan_ref_del(const struct lu_env *env,
-                                 struct mdd_device *mdd,
-                                 struct thandle *th)
-{
-        struct dt_object        *dor    = mdd->mdd_orphans;
-        dor->do_ops->do_ref_del(env, dor, th);
-}
-
-
 int orph_declare_index_insert(const struct lu_env *env,
                               struct mdd_object *obj,
                               struct thandle *th)
@@ -173,10 +156,6 @@ int orph_declare_index_insert(const struct lu_env *env,
                 return 0;
 
         rc = mdo_declare_ref_add(env, obj, th);
-        if (rc)
-                return rc;
-
-        rc = dt_declare_ref_add(env, mdd->mdd_orphans, th);
         if (rc)
                 return rc;
 
@@ -216,7 +195,6 @@ static int orph_index_insert(const struct lu_env *env,
                 goto out;
 
         mdo_ref_add(env, obj, th);
-        mdd_orphan_ref_add(env, mdd, th);
 
         /* try best to fixup directory, dont return errors
          * from here */
@@ -265,7 +243,6 @@ static int orphan_object_kill(const struct lu_env *env,
         mdo_ref_del(env, obj, th);
         if (S_ISDIR(mdd_object_type(obj))) {
                 mdo_ref_del(env, obj, th);
-                mdd_orphan_ref_del(env, mdd, th);
         } else {
                 /* regular file , cleanup linked ost objects */
                 rc = mdd_la_get(env, obj, la, BYPASS_CAPA);
@@ -291,13 +268,8 @@ int orph_declare_index_delete(const struct lu_env *env,
         if (rc)
                 return rc;
 
-        if (S_ISDIR(mdd_object_type(obj))) {
+	if (S_ISDIR(mdd_object_type(obj)))
                 rc = mdo_declare_ref_del(env, obj, th);
-                if (rc)
-                        return rc;
-
-                rc = dt_declare_ref_del(env, mdd->mdd_orphans, th);
-        }
 
         return rc;
 }
@@ -333,10 +305,8 @@ static int orph_index_delete(const struct lu_env *env,
         if (!rc) {
                 /* lov objects will be destroyed by caller */
                 mdo_ref_del(env, obj, th);
-                if (S_ISDIR(mdd_object_type(obj))) {
+		if (S_ISDIR(mdd_object_type(obj)))
                         mdo_ref_del(env, obj, th);
-                        mdd_orphan_ref_del(env, mdd, th);
-                }
                 obj->mod_flags &= ~ORPHAN_OBJ;
         } else {
                 CERROR("could not delete object: rc = %d\n",rc);
@@ -552,6 +522,7 @@ out:
  */
 int orph_index_init(const struct lu_env *env, struct mdd_device *mdd)
 {
+	struct lu_attr *la = &mdd_env_info(env)->mti_la;
         struct lu_fid fid;
         struct dt_object *d;
         int rc = 0;
@@ -570,6 +541,34 @@ int orph_index_init(const struct lu_env *env, struct mdd_device *mdd)
                        orph_index_name, (int)PTR_ERR(d));
                 rc = PTR_ERR(d);
         }
+
+	/*
+	 * to avoid contention on orphan's nlink,
+	 * make it 1 and do not modify any more
+	 */
+	rc = dt_attr_get(env, mdd->mdd_orphans, la, BYPASS_CAPA);
+	if (rc == 0 && la->la_nlink != 1) {
+		struct thandle *th;
+
+		th = mdd_trans_create(env, mdd);
+		if (IS_ERR(th))
+			return -ENOMEM;
+
+		la->la_nlink = 1;
+		la->la_valid = LA_NLINK;
+
+		rc = dt_declare_attr_set(env, mdd->mdd_orphans, la, th);
+		if (rc)
+			goto stop;
+
+		rc = mdd_trans_start(env, mdd, th);
+		if (rc)
+			goto stop;
+
+		rc = dt_attr_set(env, mdd->mdd_orphans, la, th, BYPASS_CAPA);
+stop:
+		mdd_trans_stop(env, mdd, 0, th);
+	}
 
         RETURN(rc);
 }
