@@ -4674,6 +4674,30 @@ static int mdt_adapt_sptlrpc_conf(struct obd_device *obd, int initial)
 
 int mdt_postrecov(const struct lu_env *, struct mdt_device *);
 
+/* Called with res->lr_lvb_sem held */
+static int mdt_lvbo_init(struct ldlm_resource *res)
+{
+        return 0;
+}
+
+static int mdt_lvbo_free(struct ldlm_resource *res)
+{
+        return 0;
+}
+
+static int mdt_lvbo_update(struct ldlm_resource *res,
+                           struct ptlrpc_request *req,
+                           int increase_only)
+{
+        return 0;
+}
+
+struct ldlm_valblock_ops mdt_lvbo = {
+        lvbo_init:   mdt_lvbo_init,
+        lvbo_update: mdt_lvbo_update,
+        lvbo_free:   mdt_lvbo_free,
+};
+
 static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
                      struct lu_device_type *ldt, struct lustre_cfg *cfg)
 {
@@ -4807,6 +4831,10 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
                 GOTO(err_fini_seq, rc = -ENOMEM);
 
         ldlm_register_intent(m->mdt_namespace, mdt_intent_policy);
+        /* quota and layout locks will need to register a LVB */
+        m->mdt_namespace->ns_lvbo = &mdt_lvbo;
+        m->mdt_namespace->ns_lvbp = m;
+
         /* set obd_namespace for compatibility with old code */
         obd->obd_namespace = m->mdt_namespace;
 
