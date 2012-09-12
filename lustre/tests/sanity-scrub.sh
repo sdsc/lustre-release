@@ -61,6 +61,8 @@ scrub_prep() {
 }
 
 test_0() {
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
+	{ skip "Need MDS version at least 2.3.0"; return; }
 	scrub_prep 0
 	echo "start $SINGLEMDS without disabling OI scrub"
 	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_SCRUB > /dev/null ||
@@ -81,6 +83,8 @@ test_0() {
 run_test 0 "Do not auto trigger OI scrub for non-backup/restore case"
 
 test_1a() {
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
+	{ skip "Need MDS version at least 2.3.0"; return; }
 	scrub_prep 0
 	mds_remove_ois || error "(1) Fail to remove/recreate!"
 
@@ -102,6 +106,8 @@ run_test 1a "Trigger OI scrub when MDT mounts for OI files remove/recreate case"
 
 test_1b() {
 	local index
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
+	{ skip "Need MDS version at least 2.3.0"; return; }
 
 	# OI files to be removed:
 	# idx 0: oi.16.0
@@ -136,6 +142,8 @@ test_1b() {
 run_test 1b "Auto detect kinds of OI file(s) removed/recreated cases"
 
 test_2() {
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
+	{ skip "Need MDS version at least 2.3.0"; return; }
 	scrub_prep 0
 	mds_backup_restore || error "(1) Fail to backup/restore!"
 
@@ -156,6 +164,8 @@ test_2() {
 run_test 2 "Trigger OI scrub when MDT mounts for backup/restore case"
 
 test_3() {
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
+	{ skip "Need MDS version at least 2.3.0"; return; }
 	scrub_prep 0
 	mds_backup_restore || error "(1) Fail to backup/restore!"
 
@@ -176,6 +186,8 @@ test_3() {
 run_test 3 "Do not trigger OI scrub when MDT mounts if 'noscrub' specified"
 
 test_4() {
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
+	{ skip "Need MDS version at least 2.3.0"; return; }
 	scrub_prep 0
 	mds_backup_restore || error "(1) Fail to backup/restore!"
 
@@ -206,6 +218,8 @@ test_4() {
 run_test 4 "Trigger OI scrub automatically if inconsistent OI mapping was found"
 
 test_5() {
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
+	{ skip "Need MDS version at least 2.3.0"; return; }
 	scrub_prep 1500
 	mds_backup_restore || error "(1) Fail to backup/restore!"
 
@@ -297,6 +311,8 @@ test_5() {
 run_test 5 "OI scrub state machine"
 
 test_6() {
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
+	{ skip "Need MDS version at least 2.3.0"; return; }
 	scrub_prep 1000
 	mds_backup_restore || error "(1) Fail to backup/restore!"
 
@@ -384,6 +400,8 @@ test_6() {
 run_test 6 "OI scrub resumes from last checkpoint"
 
 test_7() {
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
+	{ skip "Need MDS version at least 2.3.0"; return; }
 	scrub_prep 500
 	mds_backup_restore || error "(1) Fail to backup/restore!"
 
@@ -433,6 +451,8 @@ test_7() {
 run_test 7 "System is available during OI scrub scanning"
 
 test_8() {
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
+	{ skip "Need MDS version at least 2.3.0"; return; }
 	scrub_prep 0
 	mds_backup_restore || error "(1) Fail to backup/restore!"
 
@@ -482,6 +502,8 @@ test_8() {
 run_test 8 "Control OI scrub manually"
 
 test_9() {
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
+	{ skip "Need MDS version at least 2.3.0"; return; }
 	if [ -z "$(grep "processor.*: 1" /proc/cpuinfo)" ]; then
 		skip "Testing on UP system, the speed may be inaccurate."
 		return 0
@@ -550,6 +572,8 @@ test_9() {
 run_test 9 "OI scrub speed control"
 
 test_10a() {
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
+	{ skip "Need MDS version at least 2.3.0"; return; }
 	scrub_prep 0
 	mds_backup_restore || error "(1) Fail to backup/restore!"
 
@@ -616,6 +640,8 @@ test_10a() {
 run_test 10a "non-stopped OI scrub should auto restarts after MDS remount (1)"
 
 test_10b() {
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
+	{ skip "Need MDS version at least 2.3.0"; return; }
 	scrub_prep 0
 	mds_backup_restore || error "(1) Fail to backup/restore!"
 
@@ -676,6 +702,8 @@ test_10b() {
 run_test 10b "non-stopped OI scrub should auto restarts after MDS remount (2)"
 
 test_11() {
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
+	{ skip "Need MDS version at least 2.3.0"; return; }
 	echo "stopall"
 	stopall > /dev/null
 	echo "setupall"
