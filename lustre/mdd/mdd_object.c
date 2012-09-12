@@ -958,11 +958,10 @@ int mdd_declare_object_create_internal(const struct lu_env *env,
 }
 
 int mdd_object_create_internal(const struct lu_env *env, struct mdd_object *p,
-                               struct mdd_object *c, struct md_attr *ma,
+			       struct mdd_object *c, struct lu_attr *attr,
                                struct thandle *handle,
                                const struct md_op_spec *spec)
 {
-        struct lu_attr *attr = &ma->ma_attr;
         struct dt_allocation_hint *hint = &mdd_env_info(env)->mti_hint;
         struct dt_object_format *dof = &mdd_env_info(env)->mti_dof;
         const struct dt_index_features *feat = spec->sp_feat;
@@ -2146,7 +2145,8 @@ static int mdd_object_create(const struct lu_env *env,
         if (rc)
                 GOTO(unlock, rc);
 
-        rc = mdd_object_create_internal(env, NULL, mdd_obj, ma, handle, spec);
+	rc = mdd_object_create_internal(env, NULL, mdd_obj, &ma->ma_attr,
+					handle, spec);
         if (rc)
                 GOTO(unlock, rc);
 
@@ -2186,8 +2186,8 @@ static int mdd_object_create(const struct lu_env *env,
                         pfid = spec->u.sp_ea.fid;
                 }
 #endif
-                rc = mdd_object_initialize(env, pfid, NULL, mdd_obj, ma, handle,
-                                           spec);
+		rc = mdd_object_initialize(env, pfid, NULL, mdd_obj, &ma->ma_attr,
+					   handle, spec);
         }
         EXIT;
 unlock:

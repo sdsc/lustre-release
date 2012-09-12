@@ -1788,9 +1788,9 @@ int mdd_declare_object_initialize(const struct lu_env *env,
 }
 
 int mdd_object_initialize(const struct lu_env *env, const struct lu_fid *pfid,
-                          const struct lu_name *lname, struct mdd_object *child,
-                          struct md_attr *ma, struct thandle *handle,
-                          const struct md_op_spec *spec)
+			  const struct lu_name *lname, struct mdd_object *child,
+			  struct lu_attr *attr, struct thandle *handle,
+			  const struct md_op_spec *spec)
 {
         int rc;
         ENTRY;
@@ -1803,11 +1803,11 @@ int mdd_object_initialize(const struct lu_env *env, const struct lu_fid *pfid,
          *  (2) maybe, the child attributes should be set in OSD when creation.
          */
 
-        rc = mdd_attr_set_internal(env, child, &ma->ma_attr, handle, 0);
+	rc = mdd_attr_set_internal(env, child, attr, handle, 0);
         if (rc != 0)
                 RETURN(rc);
 
-        if (S_ISDIR(ma->ma_attr.la_mode)) {
+	if (S_ISDIR(attr->la_mode)) {
                 /* Add "." and ".." for newly created dir */
                 mdo_ref_add(env, child, handle);
                 rc = __mdd_index_insert_only(env, child, mdo2fid(child),
@@ -1828,12 +1828,12 @@ int mdd_object_initialize(const struct lu_env *env, const struct lu_fid *pfid,
 /* has not lock on pobj yet */
 static int mdd_create_sanity_check(const struct lu_env *env,
                                    struct md_object *pobj,
+				   struct lu_attr *pattr,
                                    const struct lu_name *lname,
-                                   struct md_attr *ma,
+				   struct lu_attr *cattr,
                                    struct md_op_spec *spec)
 {
         struct mdd_thread_info *info = mdd_env_info(env);
-        struct lu_attr    *la        = &info->mti_la;
         struct lu_fid     *fid       = &info->mti_fid;
         struct mdd_object *obj       = md2mdd_obj(pobj);
         struct mdd_device *m         = mdo2mdd(pobj);
@@ -1866,26 +1866,22 @@ static int mdd_create_sanity_check(const struct lu_env *env,
                  * EXEC permission have been checked
                  * when lookup before create already.
                  */
-                rc = mdd_permission_internal_locked(env, obj, NULL, MAY_WRITE,
-                                                    MOR_TGT_PARENT);
+		rc = mdd_permission_internal_locked(env, obj, pattr, MAY_WRITE,
+						    MOR_TGT_PARENT);
                 if (rc)
                         RETURN(rc);
         }
 
         /* sgid check */
-        rc = mdd_la_get(env, obj, la, BYPASS_CAPA);
-        if (rc != 0)
-                RETURN(rc);
+	if (pattr->la_mode & S_ISGID) {
+		cattr->la_gid = pattr->la_gid;
+		if (S_ISDIR(cattr->la_mode)) {
+			cattr->la_mode |= S_ISGID;
+			cattr->la_valid |= LA_MODE;
+		}
+	}
 
-        if (la->la_mode & S_ISGID) {
-                ma->ma_attr.la_gid = la->la_gid;
-                if (S_ISDIR(ma->ma_attr.la_mode)) {
-                        ma->ma_attr.la_mode |= S_ISGID;
-                        ma->ma_attr.la_valid |= LA_MODE;
-                }
-        }
-
-        switch (ma->ma_attr.la_mode & S_IFMT) {
+	switch (cattr->la_mode & S_IFMT) {
         case S_IFLNK: {
                 unsigned int symlen = strlen(spec->u.sp_symname) + 1;
 
@@ -1998,6 +1994,7 @@ static int mdd_create(const struct lu_env *env,
         struct lu_attr         *attr = &ma->ma_attr;
         struct lov_mds_md      *lmm = NULL;
         struct thandle         *handle;
+	struct lu_attr         *pattr = &info->mti_pattr;
         struct dynlock_handle  *dlh;
         const char             *name = lname->ln_name;
         int rc, created = 0, initialized = 0, inserted = 0, lmm_size = 0;
@@ -2051,8 +2048,12 @@ static int mdd_create(const struct lu_env *env,
          *     2. insert            (__mdd_index_insert(), lookup again)
          */
 
+	rc = mdd_la_get(env, mdd_pobj, pattr, BYPASS_CAPA);
+	if (rc != 0)
+		RETURN(rc);
+
         /* Sanity checks before big job. */
-        rc = mdd_create_sanity_check(env, pobj, lname, ma, spec);
+	rc = mdd_create_sanity_check(env, pobj, pattr, lname, attr, spec);
         if (rc)
                 RETURN(rc);
 
@@ -2148,7 +2149,7 @@ static int mdd_create(const struct lu_env *env,
                 GOTO(out_trans, rc = -ENOMEM);
 
         mdd_write_lock(env, son, MOR_TGT_CHILD);
-        rc = mdd_object_create_internal(env, mdd_pobj, son, ma, handle, spec);
+	rc = mdd_object_create_internal(env, mdd_pobj, son, attr, handle, spec);
         if (rc) {
                 mdd_write_unlock(env, son);
                 GOTO(cleanup, rc);
@@ -2173,7 +2174,7 @@ static int mdd_create(const struct lu_env *env,
 #endif
 
         rc = mdd_object_initialize(env, mdo2fid(mdd_pobj), lname,
-                                   son, ma, handle, spec);
+				   son, attr, handle, spec);
         mdd_write_unlock(env, son);
         if (rc)
                 /*

@@ -178,6 +178,8 @@ struct mdd_thread_info {
         struct lu_fid             mti_fid2; /* used for be & cpu converting */
         struct lu_attr            mti_la;
         struct lu_attr            mti_la_for_fix;
+	struct lu_attr            mti_pattr;
+	struct lu_attr            mti_cattr;
         struct md_attr            mti_ma;
         struct obd_info           mti_oi;
 	/* mti_orph_ent and mti_orph_key must be conjoint,
@@ -275,9 +277,9 @@ int mdd_attr_get_internal_locked(const struct lu_env *env,
                                  struct mdd_object *mdd_obj,
                                  struct md_attr *ma);
 int mdd_object_create_internal(const struct lu_env *env, struct mdd_object *p,
-                               struct mdd_object *c, struct md_attr *ma,
-                               struct thandle *handle,
-                               const struct md_op_spec *spec);
+			       struct mdd_object *c, struct lu_attr *attr,
+			       struct thandle *handle,
+			       const struct md_op_spec *spec);
 int mdd_attr_check_set_internal_locked(const struct lu_env *env,
                                        struct mdd_object *obj,
                                        struct lu_attr *attr,
@@ -320,9 +322,9 @@ int mdd_unlink_sanity_check(const struct lu_env *env, struct mdd_object *pobj,
 int mdd_finish_unlink(const struct lu_env *env, struct mdd_object *obj,
                       struct md_attr *ma, struct thandle *th);
 int mdd_object_initialize(const struct lu_env *env, const struct lu_fid *pfid,
-                          const struct lu_name *lname, struct mdd_object *child,
-                          struct md_attr *ma, struct thandle *handle,
-                          const struct md_op_spec *spec);
+			  const struct lu_name *lname, struct mdd_object *child,
+			  struct lu_attr *attr, struct thandle *handle,
+			  const struct md_op_spec *spec);
 int mdd_link_sanity_check(const struct lu_env *env, struct mdd_object *tgt_obj,
                           const struct lu_name *lname, struct mdd_object *src_obj);
 int mdd_is_root(struct mdd_device *mdd, const struct lu_fid *fid);
