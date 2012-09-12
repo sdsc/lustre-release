@@ -593,9 +593,11 @@ static inline int llap_shrink_cache_internal(struct ll_sb_info *sbi,
                         continue;
                 }
 
-               keep = (llap->llap_write_queued || PageDirty(page) ||
-                      PageWriteback(page) || (!PageUptodate(page) &&
-                      llap->llap_origin != LLAP_ORIGIN_READAHEAD));
+                keep = (llap->llap_write_queued || PageDirty(page) ||
+                        PageWriteback(page) || (!PageUptodate(page) &&
+                        llap->llap_origin != LLAP_ORIGIN_READAHEAD) ||
+                        /* page count 3 - caller, private and page cache. */
+                        page_count(page) > 3);
 
                 LL_CDEBUG_PAGE(D_PAGE, page,
                                "%s LRU page: %s%s%s%s%s origin %s\n",
