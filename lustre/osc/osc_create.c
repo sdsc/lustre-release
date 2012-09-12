@@ -351,8 +351,7 @@ int osc_precreate(struct obd_export *exp)
 
         /* Handle critical states first */
         spin_lock(&oscc->oscc_lock);
-        if (oscc->oscc_flags & OSCC_FLAG_NOSPC ||
-            oscc->oscc_flags & OSCC_FLAG_RDONLY ||
+        if (oscc->oscc_flags & OSCC_FLAG_RDONLY ||
             oscc->oscc_flags & OSCC_FLAG_EXITING)
                 GOTO(out, rc = 1000);
 
@@ -365,6 +364,9 @@ int osc_precreate(struct obd_export *exp)
 
         /* Return 0, if we have at least one object - bug 22884 */
         rc = oscc_has_objects_nolock(oscc, 1) ? 0 : 1;
+
+        if (rc == 1 && oscc->oscc_flags & OSCC_FLAG_NOSPC)
+                GOTO(out, rc = 1000);
 
         /* Do not check for OSCC_FLAG_CREATING flag here, let
          * osc_precreate() call oscc_internal_create() and
@@ -400,9 +402,6 @@ static int handle_async_create(struct ptlrpc_request *req, int rc)
         if (oscc->oscc_flags & OSCC_FLAG_EXITING)
                 GOTO(out_wake, rc = -EIO);
 
-        if (oscc->oscc_flags & OSCC_FLAG_NOSPC)
-                GOTO(out_wake, rc = -ENOSPC);
-
         if (oscc->oscc_flags & OSCC_FLAG_RDONLY)
                 GOTO(out_wake, rc = -EROFS);
 
@@ -421,6 +420,9 @@ static int handle_async_create(struct ptlrpc_request *req, int rc)
                        oscc->oscc_next_id);
                 GOTO(out_wake, rc = 0);
         }
+
+        if (oscc->oscc_flags & OSCC_FLAG_NOSPC)
+                GOTO(out_wake, rc = -ENOSPC);
 
         /* we don't have objects now - continue wait */
         RETURN(-EAGAIN);
@@ -626,12 +628,6 @@ int osc_create(struct obd_export *exp, struct obdo *oa,
                         break;
                 }
 
-                if (oscc->oscc_flags & OSCC_FLAG_NOSPC) {
-                        rc = -ENOSPC;
-                        spin_unlock(&oscc->oscc_lock);
-                        break;
-                }
-
                 if (oscc->oscc_flags & OSCC_FLAG_RDONLY) {
                         rc = -EROFS;
                         spin_unlock(&oscc->oscc_lock);
@@ -654,6 +650,12 @@ int osc_create(struct obd_export *exp, struct obdo *oa,
 
                         CDEBUG(D_RPCTRACE, "%s: set oscc_next_id = "LPU64"\n",
                                exp->exp_obd->obd_name, oscc->oscc_next_id);
+                        break;
+                }
+
+                if (oscc->oscc_flags & OSCC_FLAG_NOSPC) {
+                        rc = -ENOSPC;
+                        spin_unlock(&oscc->oscc_lock);
                         break;
                 }
 

@@ -3359,8 +3359,7 @@ inodes_available () {
 }
 
 mdsrate_inodes_available () {
-    local min_inodes=$(inodes_available)
-    echo $((min_inodes * 99 / 100))
+    echo $(($(inodes_available) - 1))
 }
 
 # reset llite stat counters
