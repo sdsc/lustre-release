@@ -42,7 +42,9 @@
 #include <lustre_dlm.h>
 #include <lustre_lib.h>
 
-/*
+/**
+ * Lock a lock and its resource.
+ *
  * ldlm locking uses resource to serialize access to locks
  * but there is a case when we change resource of lock upon
  * enqueue reply. we rely on that lock->l_resource = new_res
@@ -60,6 +62,9 @@ struct ldlm_resource * lock_res_and_lock(struct ldlm_lock *lock)
 	return lock->l_resource;
 }
 
+/**
+ * Unlock a lock and its resource previously locked with lock_res_and_lock
+ */
 void unlock_res_and_lock(struct ldlm_lock *lock)
 {
 	/* on server-side resource of lock doesn't change */
