@@ -63,7 +63,7 @@ int osc_quota_chkdq(struct client_obd *cli, const unsigned int qid[])
 
 			/* the slot is busy, the user is about to run out of
 			 * quota space on this OST */
-			CDEBUG(D_QUOTA, "chkdq found noquota for %s %d\n",
+			CERROR("chkdq found noquota for %s %d\n",
 			       type == USRQUOTA ? "user" : "grout", qid[type]);
 			RETURN(NO_QUOTA);
 		}
