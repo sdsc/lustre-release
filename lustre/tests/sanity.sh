@@ -498,6 +498,9 @@ test_17m() {
 	local i
 	local rc=0
 
+	[ "$(facet_fstype $MDS1)" != "ldiskfs" ] &&
+		skip "only for ldiskfs MDT" && return 0
+
 	mkdir -p $WDIR
 	long_sym=$short_sym
 	# create a long symlink file
