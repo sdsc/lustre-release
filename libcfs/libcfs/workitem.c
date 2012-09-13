@@ -387,7 +387,9 @@ cfs_wi_check_events (void)
 void
 cfs_wi_sched_destroy(struct cfs_wi_sched *sched)
 {
+#ifdef __KERNEL__
 	int	i;
+#endif
 
 	LASSERT(cfs_wi_data.wi_init);
 	LASSERT(!cfs_wi_data.wi_stopping);
@@ -405,8 +407,8 @@ cfs_wi_sched_destroy(struct cfs_wi_sched *sched)
 
 	cfs_spin_unlock(&cfs_wi_data.wi_glock);
 
-	i = 2;
 #ifdef __KERNEL__
+	i = 2;
 	cfs_waitq_broadcast(&sched->ws_waitq);
 
 	cfs_spin_lock(&cfs_wi_data.wi_glock);
@@ -435,7 +437,9 @@ cfs_wi_sched_create(char *name, struct cfs_cpt_table *cptab,
 		    int cpt, int nthrs, struct cfs_wi_sched **sched_pp)
 {
 	struct cfs_wi_sched	*sched;
+#ifdef __KERNEL__
 	int			rc;
+#endif
 
 	LASSERT(cfs_wi_data.wi_init);
 	LASSERT(!cfs_wi_data.wi_stopping);
@@ -458,8 +462,8 @@ cfs_wi_sched_create(char *name, struct cfs_cpt_table *cptab,
 	CFS_INIT_LIST_HEAD(&sched->ws_rerunq);
 	CFS_INIT_LIST_HEAD(&sched->ws_list);
 
-	rc = 0;
 #ifdef __KERNEL__
+	rc = 0;
 	while (nthrs > 0)  {
 		cfs_spin_lock(&cfs_wi_data.wi_glock);
 		while (sched->ws_starting > 0) {
