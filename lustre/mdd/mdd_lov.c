@@ -934,24 +934,28 @@ static int grouplock_blocking_ast(struct ldlm_lock *lock,
 
 static int grouplock_glimpse_ast(struct ldlm_lock *lock, void *data)
 {
-        struct ptlrpc_request *req = data;
-        struct ost_lvb *lvb;
-        int rc;
-        struct md_attr *ma;
-        ENTRY;
+	struct ptlrpc_request *req = data;
+	struct md_attr *ma = lock->l_ast_data;
+	struct ost_lvb *lvb;
+	int rc;
+	ENTRY;
 
-        ma = lock->l_ast_data;
+	req_capsule_extend(&req->rq_pill, &RQF_LDLM_GL_CALLBACK);
+	if (exp_connect_lvb_type(req->rq_export))
+		req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER,
+				     sizeof(*lvb));
+	else
+		req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER,
+				     sizeof(struct ost_lvb_v1));
+	rc = req_capsule_server_pack(&req->rq_pill);
+	if (rc) {
+		CERROR("failed pack reply: %d\n", rc);
+		GOTO(out, rc);
+	}
 
-        req_capsule_extend(&req->rq_pill, &RQF_LDLM_GL_CALLBACK);
-        req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER,
-                             sizeof(*lvb));
-        rc = req_capsule_server_pack(&req->rq_pill);
-        if (rc) {
-                CERROR("failed pack reply: %d\n", rc);
-                GOTO(out, rc);
-        }
+	lvb = req_capsule_server_get(&req->rq_pill, &RMF_DLM_LVB);
 
-        lvb = req_capsule_server_get(&req->rq_pill, &RMF_DLM_LVB);
+	/* XXX: fill lvb->lvb_xtime_ns only when lvb_type set. */
 
         if ((ma) && (ma->ma_valid & MA_SOM)) {
                 lvb->lvb_size = ma->ma_som->msd_size;

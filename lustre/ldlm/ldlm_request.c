@@ -507,18 +507,36 @@ int ldlm_cli_enqueue_fini(struct obd_export *exp, struct ptlrpc_request *req,
                                                        &RMF_DLM_REP);
                         if (reply == NULL)
                                 rc = -EPROTO;
-                        if (lvb_len) {
 
-                                req_capsule_set_size(&req->rq_pill,
-                                                     &RMF_DLM_LVB, RCL_SERVER,
-                                                     lvb_len);
-                                tmplvb = req_capsule_server_get(&req->rq_pill,
-                                                                 &RMF_DLM_LVB);
-                                if (tmplvb == NULL)
-                                        GOTO(cleanup, rc = -EPROTO);
-                                if (lvb != NULL)
-                                        memcpy(lvb, tmplvb, lvb_len);
-                        }
+			if (lvb_len == 0)
+				GOTO(cleanup, rc);
+
+			if (exp_connect_lvb_type(exp)) {
+				tmplvb = req_capsule_server_sized_swab_get(
+							&req->rq_pill,
+							&RMF_DLM_LVB,
+							lvb_len,
+							lustre_swab_lvb);
+			} else {
+				lvb_len = sizeof(struct ost_lvb_v1);
+				tmplvb = req_capsule_server_sized_swab_get(
+							&req->rq_pill,
+							&RMF_DLM_LVB,
+							lvb_len,
+							lustre_swab_lvb_v1);
+			}
+			if (tmplvb == NULL)
+				GOTO(cleanup, rc = -EPROTO);
+
+			if (lvb != NULL) {
+				memcpy(lvb, tmplvb, lvb_len);
+				if (lvb_len == sizeof(struct ost_lvb_v1)) {
+					tmplvb = lvb;
+					tmplvb->lvb_mtime_ns = 0;
+					tmplvb->lvb_atime_ns = 0;
+					tmplvb->lvb_ctime_ns = 0;
+				}
+			}
                 }
                 GOTO(cleanup, rc);
         }
@@ -614,16 +632,31 @@ int ldlm_cli_enqueue_fini(struct obd_export *exp, struct ptlrpc_request *req,
                    a tiny window for completion to get in */
                 lock_res_and_lock(lock);
                 if (lock->l_req_mode != lock->l_granted_mode) {
-
-                        req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB,
-                                             RCL_SERVER, lvb_len);
-                        tmplvb = req_capsule_server_get(&req->rq_pill,
-                                                             &RMF_DLM_LVB);
+			if (exp_connect_lvb_type(exp)) {
+				tmplvb = req_capsule_server_sized_swab_get(
+							&req->rq_pill,
+							&RMF_DLM_LVB,
+							lvb_len,
+							lustre_swab_lvb);
+			} else {
+				lvb_len = sizeof(struct ost_lvb_v1);
+				tmplvb = req_capsule_server_sized_swab_get(
+							&req->rq_pill,
+							&RMF_DLM_LVB,
+							lvb_len,
+							lustre_swab_lvb_v1);
+			}
                         if (tmplvb == NULL) {
                                 unlock_res_and_lock(lock);
                                 GOTO(cleanup, rc = -EPROTO);
                         }
                         memcpy(lock->l_lvb_data, tmplvb, lvb_len);
+			if (lvb_len == sizeof(struct ost_lvb_v1)) {
+				tmplvb = lock->l_lvb_data;
+				tmplvb->lvb_mtime_ns = 0;
+				tmplvb->lvb_atime_ns = 0;
+				tmplvb->lvb_ctime_ns = 0;
+			}
                 }
                 unlock_res_and_lock(lock);
         }
@@ -805,10 +838,15 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
                                         lvb_len);
                 if (lock == NULL)
                         RETURN(-ENOMEM);
+
                 /* for the local lock, add the reference */
                 ldlm_lock_addref_internal(lock, einfo->ei_mode);
                 ldlm_lock2handle(lock, lockh);
                 if (policy != NULL) {
+			if (einfo->ei_type == LDLM_IBITS &&
+			    policy->l_inodebits.bits & MDS_INODELOCK_LAYOUT)
+				lock->l_ns_layout = 1;
+
                         /* INODEBITS_INTEROP: If the server does not support
                          * inodebits, we will request a plain lock in the
                          * descriptor (ldlm_lock2desc() below) but use an
@@ -866,13 +904,12 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 
         /* Continue as normal. */
         if (!req_passed_in) {
-                if (lvb_len > 0) {
-                        req_capsule_extend(&req->rq_pill,
-                                           &RQF_LDLM_ENQUEUE_LVB);
-                        req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB,
-                                             RCL_SERVER, lvb_len);
-                }
-                ptlrpc_request_set_replen(req);
+		if (lvb_len > 0)
+			req_capsule_extend(&req->rq_pill,
+					   &RQF_LDLM_ENQUEUE_LVB);
+		req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER,
+				     lvb_len);
+		ptlrpc_request_set_replen(req);
         }
 
         /*
@@ -2063,6 +2100,7 @@ static int replay_one_lock(struct obd_import *imp, struct ldlm_lock *lock)
         struct ldlm_async_args *aa;
         struct ldlm_request   *body;
         int flags;
+	int lvb_len = 0;
         ENTRY;
 
 
@@ -2080,6 +2118,13 @@ static int replay_one_lock(struct obd_import *imp, struct ldlm_lock *lock)
                 ldlm_lock_cancel(lock);
                 RETURN(0);
         }
+
+	if (lock->l_ns_layout && !imp_connect_lvb_type(imp)) {
+                LDLM_DEBUG(lock, "Not replaying LAYOUT lock:");
+                ldlm_lock_cancel(lock);
+                RETURN(0);
+	}
+
         /*
          * If granted mode matches the requested mode, this lock is granted.
          *
@@ -2116,11 +2161,15 @@ static int replay_one_lock(struct obd_import *imp, struct ldlm_lock *lock)
         body->lock_flags = flags;
 
         ldlm_lock2handle(lock, &body->lock_handle[0]);
-        if (lock->l_lvb_len != 0) {
-                req_capsule_extend(&req->rq_pill, &RQF_LDLM_ENQUEUE_LVB);
-                req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER,
-                                     lock->l_lvb_len);
-        }
+	if (lock->l_ns_layout || lock->l_lvb_len > 0) {
+		req_capsule_extend(&req->rq_pill, &RQF_LDLM_ENQUEUE_LVB);
+		if (lock->l_ns_layout)
+			lvb_len = imp->imp_obd->u.cli.cl_max_mds_easize;
+		else
+			/* The server may be upgraded with LVB_TYPE supported.*/
+			lvb_len = sizeof(struct ost_lvb);
+	}
+	req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER, lvb_len);
         ptlrpc_request_set_replen(req);
         /* notify the server we've replayed all requests.
          * also, we mark the request to be put on a dedicated

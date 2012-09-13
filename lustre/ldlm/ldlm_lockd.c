@@ -867,6 +867,7 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, int flags, void *data)
         long                    total_enqueue_wait;
         int                     instant_cancel = 0;
         int                     rc = 0;
+	int			lvb_len = lock->l_resource->lr_lvb_len;
         ENTRY;
 
         LASSERT(lock != NULL);
@@ -881,10 +882,10 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, int flags, void *data)
                 RETURN(-ENOMEM);
 
         /* server namespace, doesn't need lock */
-        if (lock->l_resource->lr_lvb_len) {
-                 req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_CLIENT,
-                                      lock->l_resource->lr_lvb_len);
-        }
+	if (lvb_len > sizeof(struct ost_lvb_v1) &&
+	    !exp_connect_lvb_type(lock->l_export))
+		lvb_len = sizeof(struct ost_lvb_v1);
+	req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_CLIENT, lvb_len);
 
         rc = ptlrpc_request_pack(req, LUSTRE_DLM_VERSION, LDLM_CP_CALLBACK);
         if (rc) {
@@ -904,14 +905,13 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, int flags, void *data)
         body->lock_handle[0] = lock->l_remote_handle;
         body->lock_flags = flags;
         ldlm_lock2desc(lock, &body->lock_desc);
-        if (lock->l_resource->lr_lvb_len) {
-                void *lvb = req_capsule_client_get(&req->rq_pill, &RMF_DLM_LVB);
+        if (lvb_len > 0) {
+		void *lvb = req_capsule_client_get(&req->rq_pill, &RMF_DLM_LVB);
 
-                lock_res(lock->l_resource);
-                memcpy(lvb, lock->l_resource->lr_lvb_data,
-                       lock->l_resource->lr_lvb_len);
-                unlock_res(lock->l_resource);
-        }
+		lock_res(lock->l_resource);
+		memcpy(lvb, lock->l_resource->lr_lvb_data, lvb_len);
+		unlock_res(lock->l_resource);
+	}
 
         LDLM_DEBUG(lock, "server preparing completion AST (after %lds wait)",
                    total_enqueue_wait);
@@ -1649,15 +1649,22 @@ static void ldlm_handle_cp_callback(struct ptlrpc_request *req,
         }
 
         if (lock->l_lvb_len) {
-                if (req_capsule_get_size(&req->rq_pill, &RMF_DLM_LVB,
-                                         RCL_CLIENT) < lock->l_lvb_len) {
-                        LDLM_ERROR(lock, "completion AST did not contain "
-                                   "expected LVB!");
-                } else {
-                        void *lvb = req_capsule_client_get(&req->rq_pill,
-                                                           &RMF_DLM_LVB);
-                        memcpy(lock->l_lvb_data, lvb, lock->l_lvb_len);
-                }
+		void *lvb;
+
+		lvb_len = req_capsule_get_size(&req->rq_pill, &RMF_DLM_LVB,
+					       RCL_CLIENT);
+		if (lvb_len > lock->l_lvb_len)
+			lvb_len = lock->l_lvb_len;
+
+		if (exp_connect_lvb_type(req->rq_export))
+			lvb = req_capsule_client_swab_get(&req->rq_pill,
+							  &RMF_DLM_LVB,
+							  lustre_swab_lvb);
+		else
+			lvb = req_capsule_client_swab_get(&req->rq_pill,
+							  &RMF_DLM_LVB,
+							  lustre_swab_lvb_v1);
+		memcpy(lock->l_lvb_data, lvb, lvb_len);
         }
 
         ldlm_grant_lock(lock, &ast_list);

@@ -437,7 +437,8 @@ static struct ptlrpc_request *mdc_intent_getattr_pack(struct obd_export *exp,
         RETURN(req);
 }
 
-static struct ptlrpc_request *ldlm_enqueue_pack(struct obd_export *exp)
+static struct ptlrpc_request *
+mdc_enqueue_pack(struct obd_export *exp, int lvb_len)
 {
         struct ptlrpc_request *req;
         int rc;
@@ -453,6 +454,7 @@ static struct ptlrpc_request *ldlm_enqueue_pack(struct obd_export *exp)
                 RETURN(ERR_PTR(rc));
         }
 
+	req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER, lvb_len);
         ptlrpc_request_set_replen(req);
         RETURN(req);
 }
@@ -627,6 +629,8 @@ static int mdc_finish_enqueue(struct obd_export *exp,
 		if (lock != NULL && lock->l_lvb_data == NULL) {
 			int lvb_len;
 
+			LASSERT(lock->l_ns_layout);
+
 			/* maybe the lock was granted right away and layout
 			 * is packed into RMF_DLM_LVB of req */
 			lvb_len = req_capsule_get_size(pill, &RMF_DLM_LVB,
@@ -635,8 +639,8 @@ static int mdc_finish_enqueue(struct obd_export *exp,
 				void *lvb;
 				void *lmm;
 
-				lvb = req_capsule_server_get(pill,
-							     &RMF_DLM_LVB);
+				lvb = req_capsule_server_sized_get(pill,
+							&RMF_DLM_LVB, lvb_len);
 				if (lvb == NULL) {
 					LDLM_LOCK_PUT(lock);
 					RETURN(-EPROTO);
@@ -719,13 +723,18 @@ resend:
                 policy = &update_policy;
                 einfo->ei_cbdata = NULL;
                 lmm = NULL;
-        } else if (it->it_op & IT_UNLINK)
-                req = mdc_intent_unlink_pack(exp, it, op_data);
-	else if (it->it_op & (IT_GETATTR | IT_LOOKUP))
+	} else if (it->it_op & IT_UNLINK) {
+		req = mdc_intent_unlink_pack(exp, it, op_data);
+	} else if (it->it_op & (IT_GETATTR | IT_LOOKUP)) {
 		req = mdc_intent_getattr_pack(exp, it, op_data);
-	else if (it->it_op & (IT_READDIR | IT_LAYOUT))
-		req = ldlm_enqueue_pack(exp);
-	else {
+	} else if (it->it_op & IT_READDIR) {
+		req = mdc_enqueue_pack(exp, 0);
+	} else if (it->it_op & IT_LAYOUT) {
+		if (!imp_connect_lvb_type(class_exp2cliimp(exp)))
+			RETURN(-EOPNOTSUPP);
+
+		req = mdc_enqueue_pack(exp, obddev->u.cli.cl_max_mds_easize);
+	} else {
                 LBUG();
                 RETURN(-EINVAL);
         }

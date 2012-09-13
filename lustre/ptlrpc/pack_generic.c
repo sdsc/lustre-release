@@ -1822,18 +1822,27 @@ void lustre_swab_generic_32s(__u32 *val)
 }
 EXPORT_SYMBOL(lustre_swab_generic_32s);
 
-void lustre_swab_lvb(union ldlm_wire_lvb *lvb)
+void lustre_swab_lvb_v1(struct ost_lvb_v1 *lvb)
 {
-        /* The ldlm_wire_lvb union represents all the possible LVB types.
-         * Unfortunately, there is no way to know what member of the union we
-         * are dealing with at this point. Therefore, all LVB structures must
-         * have fields of the same types, although used for different purposes
-         */
-        __swab64s(&lvb->l_ost.lvb_size);
-        __swab64s(&lvb->l_ost.lvb_mtime);
-        __swab64s(&lvb->l_ost.lvb_atime);
-        __swab64s(&lvb->l_ost.lvb_ctime);
-        __swab64s(&lvb->l_ost.lvb_blocks);
+	__swab64s(&lvb->lvb_size);
+	__swab64s(&lvb->lvb_mtime);
+	__swab64s(&lvb->lvb_atime);
+	__swab64s(&lvb->lvb_ctime);
+	__swab64s(&lvb->lvb_blocks);
+}
+EXPORT_SYMBOL(lustre_swab_lvb_v1);
+
+void lustre_swab_lvb(struct ost_lvb *lvb)
+{
+	__swab64s(&lvb->lvb_size);
+	__swab64s(&lvb->lvb_mtime);
+	__swab64s(&lvb->lvb_atime);
+	__swab64s(&lvb->lvb_ctime);
+	__swab64s(&lvb->lvb_blocks);
+	__swab32s(&lvb->lvb_mtime_ns);
+	__swab32s(&lvb->lvb_atime_ns);
+	__swab32s(&lvb->lvb_ctime_ns);
+	__swab32s(&lvb->lvb_padding);
 }
 EXPORT_SYMBOL(lustre_swab_lvb);
 

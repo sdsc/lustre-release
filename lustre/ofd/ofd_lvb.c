@@ -154,13 +154,38 @@ static int ofd_lvbo_update(struct ldlm_resource *res,
 	/* Update the LVB from the network message */
 	if (req != NULL) {
 		struct ost_lvb *rpc_lvb;
+		int lvb_type;
 
-		/* XXX update always from reply buffer */
-		rpc_lvb = req_capsule_server_get(&req->rq_pill, &RMF_DLM_LVB);
-		if (rpc_lvb == NULL) {
-			CERROR("lustre_swab_buf failed\n");
-			goto disk_update;
+		if (req->rq_import != NULL)
+			lvb_type = imp_connect_lvb_type(req->rq_import);
+		else
+			lvb_type = exp_connect_lvb_type(req->rq_export);
+
+		if (lvb_type == 0) {
+			struct ost_lvb_v1 *lvb_v1;
+
+			lvb_v1 = req_capsule_server_swab_get(&req->rq_pill,
+					&RMF_DLM_LVB, lustre_swab_lvb_v1);
+			if (lvb_v1 == NULL) {
+				CERROR("lustre_swab_buf failed\n");
+				goto disk_update;
+			}
+
+			rpc_lvb = &info->fti_lvb;
+			memcpy(rpc_lvb, lvb_v1, sizeof *lvb_v1);
+			rpc_lvb->lvb_mtime_ns = 0;
+			rpc_lvb->lvb_atime_ns = 0;
+			rpc_lvb->lvb_ctime_ns = 0;
+		} else {
+			rpc_lvb = req_capsule_server_swab_get(&req->rq_pill,
+							      &RMF_DLM_LVB,
+							      lustre_swab_lvb);
+			if (rpc_lvb == NULL) {
+				CERROR("lustre_swab_buf failed\n");
+				goto disk_update;
+			}
 		}
+
 		lock_res(res);
 		if (rpc_lvb->lvb_size > lvb->lvb_size || !increase_only) {
 			CDEBUG(D_DLMTRACE, "res: "LPU64" updating lvb size: "

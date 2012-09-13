@@ -752,7 +752,11 @@ struct ldlm_lock {
         /**
          * flag whether this is a server namespace lock.
          */
-                              l_ns_srv:1;
+			      l_ns_srv:1,
+	/**
+	 * for LAYOUT lock.
+	 */
+			      l_ns_layout:1;
 
         /*
          * Client-side-only members.
