@@ -1,0 +1,10 @@
+Verified+1: Hudson
+Code-Review+1: Fan Yong <yong.fan@whamcloud.com>
+Code-Review+1: Cory Spitz <spitzcor@cray.com>
+Code-Review+2: Johann Lombardi <johann@whamcloud.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Submitted-by: Johann Lombardi <johann@whamcloud.com>
+Submitted-at: Thu, 13 Sep 2012 04:38:52 -0400
+Reviewed-on: http://review.whamcloud.com/3475
+Project: fs/lustre-release
+Branch: refs/heads/b1_8
