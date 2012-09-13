@@ -554,6 +554,9 @@ ldlm_ns_hash_def_t ldlm_ns_hash_defs[] =
         },
 };
 
+/**
+ * Create and initialize new empty namespace.
+ */
 struct ldlm_namespace *ldlm_namespace_new(struct obd_device *obd, char *name,
                                           ldlm_side_t client,
                                           ldlm_appetite_t apt,
@@ -661,7 +664,10 @@ out_ref:
 
 extern struct ldlm_lock *ldlm_lock_get(struct ldlm_lock *lock);
 
-/* If flags contains FL_LOCAL_ONLY, don't try to tell the server, just cleanup.
+/**
+ * Cancel and destroy all locks on a resource.
+ *
+ * If flags contains FL_LOCAL_ONLY, don't try to tell the server, just cleanup.
  * This is currently only used for recovery, and we make certain assumptions
  * as a result--notably, that we shouldn't cancel locks with refs. -phil */
 static void cleanup_resource(struct ldlm_resource *res, cfs_list_t *q,
@@ -768,6 +774,13 @@ static int ldlm_resource_complain(cfs_hash_t *hs, cfs_hash_bd_t *bd,
         return 0;
 }
 
+/**
+ * Cancel and destroy all locks in the namespace.
+ *
+ * Typically used during evictions when server notified client that it was
+ * evicted and all of its state needs to be destroyed.
+ * Also used during shutdown.
+ */
 int ldlm_namespace_cleanup(struct ldlm_namespace *ns, int flags)
 {
         if (ns == NULL) {
@@ -781,6 +794,11 @@ int ldlm_namespace_cleanup(struct ldlm_namespace *ns, int flags)
         return ELDLM_OK;
 }
 
+/**
+ * Attempts to free namespace.
+ *
+ * Only used when namespace goes away, like during an unmount.
+ */
 static int __ldlm_namespace_free(struct ldlm_namespace *ns, int force)
 {
         ENTRY;
@@ -826,13 +844,13 @@ force_wait:
 }
 
 /**
- * Performs various cleanups for passed \a ns to make it drop refc and be ready
- * for freeing. Waits for refc == 0.
+ * Performs various cleanups for passed \param ns to make it drop refc and be
+ * ready for freeing. Waits for refc == 0.
  *
  * The following is done:
- * (0) Unregister \a ns from its list to make inaccessible for potential users
- * like pools thread and others;
- * (1) Clear all locks in \a ns.
+ * (0) Unregister \param ns from its list to make inaccessible for potential
+ * users like pools thread and others;
+ * (1) Clear all locks in \param ns.
  */
 void ldlm_namespace_free_prior(struct ldlm_namespace *ns,
                                struct obd_import *imp,
@@ -870,9 +888,9 @@ void ldlm_namespace_free_prior(struct ldlm_namespace *ns,
 }
 
 /**
- * Performs freeing memory structures related to \a ns. This is only done when
- * ldlm_namespce_free_prior() successfully removed all resources referencing
- * \a ns and its refc == 0.
+ * Performs freeing memory structures related to \param ns. This is only done
+ * when * ldlm_namespce_free_prior() successfully removed all resources
+ * referencing \param ns and its refc == 0.
  */
 void ldlm_namespace_free_post(struct ldlm_namespace *ns)
 {
@@ -896,10 +914,11 @@ void ldlm_namespace_free_post(struct ldlm_namespace *ns)
 
         ldlm_namespace_proc_unregister(ns);
         cfs_hash_putref(ns->ns_rs_hash);
-        /*
-         * Namespace \a ns should be not on list in this time, otherwise this
-         * will cause issues realted to using freed \a ns in pools thread.
-         */
+	/*
+	 * Namespace \param ns should be not on list in this time, otherwise
+	 * this will cause issues realted to using freed \param ns in pools
+	 * thread.
+	 */
         LASSERT(cfs_list_empty(&ns->ns_list_chain));
         OBD_FREE_PTR(ns);
         ldlm_put_ref();
@@ -907,7 +926,8 @@ void ldlm_namespace_free_post(struct ldlm_namespace *ns)
 }
 
 
-/* Cleanup the resource, and free namespace.
+/**
+ * Cleanup the resource, and free namespace.
  * bug 12864:
  * Deadlock issue:
  * proc1: destroy import
@@ -945,7 +965,9 @@ void ldlm_namespace_put(struct ldlm_namespace *ns)
         }
 }
 
-/* Register @ns in the list of namespaces */
+/**
+ * Register \param ns in the list of namespaces
+ */
 void ldlm_namespace_register(struct ldlm_namespace *ns, ldlm_side_t client)
 {
         cfs_mutex_lock(ldlm_namespace_lock(client));
@@ -955,7 +977,9 @@ void ldlm_namespace_register(struct ldlm_namespace *ns, ldlm_side_t client)
         cfs_mutex_unlock(ldlm_namespace_lock(client));
 }
 
-/* Unregister @ns from the list of namespaces */
+/**
+ * Unregister \param ns from the list of namespaces
+ */
 void ldlm_namespace_unregister(struct ldlm_namespace *ns, ldlm_side_t client)
 {
         cfs_mutex_lock(ldlm_namespace_lock(client));
@@ -987,6 +1011,9 @@ struct ldlm_namespace *ldlm_namespace_first_locked(ldlm_side_t client)
                 struct ldlm_namespace, ns_list_chain);
 }
 
+/**
+ * Create and initialize new resource.
+ */
 static struct ldlm_resource *ldlm_resource_new(void)
 {
         struct ldlm_resource *res;
@@ -1019,9 +1046,12 @@ static struct ldlm_resource *ldlm_resource_new(void)
         return res;
 }
 
-/* Args: unlocked namespace
- *  * Locks: takes and releases NS hash-lock and res->lr_lock
- *   * Returns: referenced, unlocked ldlm_resource or NULL */
+/**
+ * Return a reference to resource with given name, creating it if necessary.
+ * Args: namespace with ns_lock unlocked
+ * Locks: takes and releases NS hash-lock and res->lr_lock
+ * Returns: referenced, unlocked ldlm_resource or NULL
+ */
 struct ldlm_resource *
 ldlm_resource_get(struct ldlm_namespace *ns, struct ldlm_resource *parent,
                   const struct ldlm_res_id *name, ldlm_type_t type, int create)
@@ -1196,6 +1226,9 @@ int ldlm_resource_putref_locked(struct ldlm_resource *res)
         return 0;
 }
 
+/**
+ * Add a lock into a given resource into specified lock list.
+ */
 void ldlm_resource_add_lock(struct ldlm_resource *res, cfs_list_t *head,
                             struct ldlm_lock *lock)
 {
@@ -1213,6 +1246,11 @@ void ldlm_resource_add_lock(struct ldlm_resource *res, cfs_list_t *head,
         cfs_list_add_tail(&lock->l_res_link, head);
 }
 
+/**
+ * Insert a lock into resource after specified lock
+ *
+ * Obtain resource description from the lock we are inserting after.
+ */
 void ldlm_resource_insert_lock_after(struct ldlm_lock *original,
                                      struct ldlm_lock *new)
 {
@@ -1252,6 +1290,9 @@ void ldlm_res2desc(struct ldlm_resource *res, struct ldlm_resource_desc *desc)
         desc->lr_name = res->lr_name;
 }
 
+/**
+ * Print information about all locks in all namespaces on this node to debug log
+ */
 void ldlm_dump_all_namespaces(ldlm_side_t client, int level)
 {
         cfs_list_t *tmp;
@@ -1283,6 +1324,9 @@ static int ldlm_res_hash_dump(cfs_hash_t *hs, cfs_hash_bd_t *bd,
         return 0;
 }
 
+/**
+ * Print information about all locks in this namespace on this node to debug log
+ */
 void ldlm_namespace_dump(int level, struct ldlm_namespace *ns)
 {
         if (!((libcfs_debug | D_ERROR) & level))
@@ -1303,6 +1347,9 @@ void ldlm_namespace_dump(int level, struct ldlm_namespace *ns)
         cfs_spin_unlock(&ns->ns_lock);
 }
 
+/**
+ * Print information about all locks in this resource to debug log
+ */
 void ldlm_resource_dump(int level, struct ldlm_resource *res)
 {
         struct ldlm_lock *lock;
