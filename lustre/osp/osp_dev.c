@@ -219,6 +219,9 @@ static int osp_shutdown(const struct lu_env *env, struct osp_device *d)
 
 	ptlrpc_invalidate_import(imp);
 
+	/* stop precreate thread */
+	osp_precreate_fini(d);
+
 	RETURN(rc);
 }
 
@@ -273,6 +276,7 @@ static int osp_recovery_complete(const struct lu_env *env,
 
 	ENTRY;
 	osp->opd_recovery_completed = 1;
+	cfs_waitq_signal(&osp->opd_pre_waitq);
 	RETURN(rc);
 }
 
@@ -455,6 +459,13 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 		GOTO(out_proc, rc);
 
 	/*
+	 * Initialize precreation thread, it handles new connections as well
+	 */
+	rc = osp_init_precreate(m);
+	if (rc)
+		GOTO(out_last_used, rc);
+
+	/*
 	 * Initiate connect to OST
 	 */
 	ll_generate_random_uuid(uuid);
@@ -470,6 +481,9 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 	RETURN(0);
 
 out:
+	/* stop precreate thread */
+	osp_precreate_fini(m);
+out_last_used:
 	osp_last_used_fini(env, m);
 out_proc:
 	ptlrpc_lprocfs_unregister_obd(m->opd_obd);

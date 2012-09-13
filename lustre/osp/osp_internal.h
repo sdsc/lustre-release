@@ -76,6 +76,41 @@ struct osp_device {
 	 * reported via ->ldo_recovery_complete() */
 	int				 opd_recovery_completed;
 
+	/*
+	 * Precreation pool
+	 */
+	cfs_spinlock_t			 opd_pre_lock;
+	/* next id to assign in creation */
+	__u64				 opd_pre_next;
+	/* last created id OST reported, next-created - available id's */
+	__u64				 opd_pre_last_created;
+	/* how many ids are reserved in declare, we shouldn't block in create */
+	__u64				 opd_pre_reserved;
+	/* dedicate precreate thread */
+	struct ptlrpc_thread		 opd_pre_thread;
+	/* thread waits for signals about pool going empty */
+	cfs_waitq_t			 opd_pre_waitq;
+	/* consumers (who needs new ids) wait here */
+	cfs_waitq_t			 opd_pre_user_waitq;
+	/* current precreation status: working, failed, stopping? */
+	int				 opd_pre_status;
+	/* how many to precreate next time */
+	int				 opd_pre_grow_count;
+	int				 opd_pre_min_grow_count;
+	int				 opd_pre_max_grow_count;
+	/* whether to grow precreation window next time or not */
+	int				 opd_pre_grow_slow;
+
+	/*
+	 * statfs related fields: OSP maintains it on its own
+	 */
+	struct obd_statfs		 opd_statfs;
+	cfs_time_t			 opd_statfs_fresh_till;
+	cfs_timer_t			 opd_statfs_timer;
+	int				 opd_statfs_update_in_progress;
+	/* how often to update statfs data */
+	int				 opd_statfs_maxage;
+
 	cfs_proc_dir_entry_t		*opd_symlink;
 };
 
@@ -94,6 +129,7 @@ struct osp_thread_info {
 	struct lu_buf		 osi_lb;
 	struct lu_fid		 osi_fid;
 	struct lu_attr		 osi_attr;
+	struct ost_id		 osi_oi;
 	obd_id			 osi_id;
 	loff_t			 osi_off;
 };
@@ -189,6 +225,15 @@ static inline struct dt_object *osp_object_child(struct osp_object *o)
 
 /* osp_dev.c */
 void osp_update_last_id(struct osp_device *d, obd_id objid);
+
+/* osp_precreate.c */
+int osp_init_precreate(struct osp_device *d);
+int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d);
+__u64 osp_precreate_get_id(struct osp_device *d);
+void osp_precreate_fini(struct osp_device *d);
+int osp_object_truncate(const struct lu_env *env, struct dt_object *dt, __u64);
+void osp_pre_update_status(struct osp_device *d, int rc);
+void osp_statfs_need_now(struct osp_device *d);
 
 /* lproc_osp.c */
 void lprocfs_osp_init_vars(struct lprocfs_static_vars *lvars);
