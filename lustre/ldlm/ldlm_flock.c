@@ -38,6 +38,28 @@
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
+/**
+ * This file implements POSIX lock type for lustre.
+ * it's policy properties are start and end of extent and pid.
+ *
+ * These locks are only done through MDS due to POSIX semantics requiring
+ * e.g. that locks could be only partially released and as such split into
+ * two parts and also two adjacent locks from the same process to be merged
+ * into a single wider lock.
+ *
+ * lock modes are mapped like this:
+ * PR and PW for READ and WRITE locks
+ * NL to request a releasing of a portion of the lock
+ *
+ * these flock locks never timeout.
+ *
+ * This code also has limited support for flock locks (whole file locks from
+ * flock() system call, also called bsd locks). Limitaion is only process
+ * that requested a lcok can release it, so if you share a file descriptor
+ * with another process with this lock held and attempt to release such a lock
+ * from that other process, it won't do anything.
+ */
+
 #define DEBUG_SUBSYSTEM S_LDLM
 
 #ifdef __KERNEL__
@@ -154,6 +176,18 @@ ldlm_flock_destroy(struct ldlm_lock *lock, ldlm_mode_t mode, int flags)
         EXIT;
 }
 
+/**
+ * POSIX locks deadlock detection code.
+ *
+ * Given a new lock \param req and an existing lock it conflicts with
+ * \param blocking_lock, we need to iterate through all blocked posix locks
+ * for this export and see if there is a deadlock condition arising.
+ * (i.e. when one client holds a lock on something and want a lock on something
+ * else and at the same time another client has the opposite situation).
+ *
+ * This function has a horrible double O(n^2) list iterations that really
+ * suck a lot of CPU time on a highly-contended resources.
+ */
 static int
 ldlm_flock_deadlock(struct ldlm_lock *req, struct ldlm_lock *bl_lock)
 {
@@ -197,6 +231,24 @@ ldlm_flock_deadlock(struct ldlm_lock *req, struct ldlm_lock *bl_lock)
         return 0;
 }
 
+/**
+ * Process a granting attempt for flock lock.
+ * Must be called under ns lock held.
+ *
+ * This function tries to see if there are any conflicts for \param req in
+ * any of the granted or waiting queues. If no conflict met in both,
+ * the lock is granted.
+ *
+ * It is also responsible for splitting a lock if a portion of the lock
+ * is released.
+ *
+ * If \param first_enq is 0 (ie, called from ldlm_reprocess_queue):
+ *   - blocking ASTs have already been sent
+ *
+ * If \param first_enq is 1 (ie, called from ldlm_lock_enqueue):
+ *   - blocking ASTs have not been sent yet, so list of conflicting locks
+ *     would be collected and ASTs sent.
+ */
 int
 ldlm_process_flock_lock(struct ldlm_lock *req, int *flags, int first_enq,
                         ldlm_error_t *err, cfs_list_t *work_list)
@@ -514,10 +566,10 @@ restart:
 #endif /* HAVE_SERVER_SUPPORT */
         }
 
-        /* In case we're reprocessing the requested lock we can't destroy
-         * it until after calling ldlm_ast_work_item() above so that lawi()
-         * can bump the reference count on req. Otherwise req could be freed
-         * before the completion AST can be sent.  */
+	/* In case we're reprocessing the requested lock we can't destroy
+	 * it until after calling ldlm_add_ast_work_item() above so that laawi()
+	 * can bump the reference count on \param req. Otherwise \param req
+	 * could be freed before the completion AST can be sent.  */
         if (added)
                 ldlm_flock_destroy(req, mode, *flags);
 
@@ -550,7 +602,7 @@ ldlm_flock_interrupted_wait(void *data)
 }
 
 /**
- * Flock completion calback function.
+ * Flock completion callback function.
  *
  * \param lock [in,out]: A lock to be handled
  * \param flags    [in]: flags
