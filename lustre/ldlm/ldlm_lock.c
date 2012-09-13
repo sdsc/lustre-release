@@ -181,7 +181,9 @@ void ldlm_register_intent(struct ldlm_namespace *ns, ldlm_res_policy arg)
  */
 
 
-/*
+/**
+ * Get a reference on a lock.
+ *
  * Lock refcounts, during creation:
  *   - one special one for allocation, dec'd only once in destroy
  *   - one for being a lock that's in-use
@@ -193,6 +195,11 @@ struct ldlm_lock *ldlm_lock_get(struct ldlm_lock *lock)
         return lock;
 }
 
+/**
+ * Release lock reference.
+ *
+ * Also frees the lock if it was last reference.
+ */
 void ldlm_lock_put(struct ldlm_lock *lock)
 {
         ENTRY;
@@ -231,6 +238,9 @@ void ldlm_lock_put(struct ldlm_lock *lock)
         EXIT;
 }
 
+/**
+ * Removes ldlm lock \param lock from lru. Assumes lru is already locked.
+ */
 int ldlm_lock_remove_from_lru_nolock(struct ldlm_lock *lock)
 {
         int rc = 0;
@@ -248,6 +258,9 @@ int ldlm_lock_remove_from_lru_nolock(struct ldlm_lock *lock)
         return rc;
 }
 
+/**
+ * Removes ldlm lock \param lock from lru. Obtains the lru lock first.
+ */
 int ldlm_lock_remove_from_lru(struct ldlm_lock *lock)
 {
         struct ldlm_namespace *ns = ldlm_lock_to_ns(lock);
@@ -266,6 +279,9 @@ int ldlm_lock_remove_from_lru(struct ldlm_lock *lock)
         return rc;
 }
 
+/**
+ * Adds ldlm lock \param lock to namespace LRU. Assumes LRU is already locked.
+ */
 void ldlm_lock_add_to_lru_nolock(struct ldlm_lock *lock)
 {
         struct ldlm_namespace *ns = ldlm_lock_to_ns(lock);
@@ -278,6 +294,10 @@ void ldlm_lock_add_to_lru_nolock(struct ldlm_lock *lock)
         ns->ns_nr_unused++;
 }
 
+/**
+ * Adds ldlm lock \param lock to namespace LRU. Obtains necessary LRU locks
+ * first.
+ */
 void ldlm_lock_add_to_lru(struct ldlm_lock *lock)
 {
         struct ldlm_namespace *ns = ldlm_lock_to_ns(lock);
@@ -289,6 +309,10 @@ void ldlm_lock_add_to_lru(struct ldlm_lock *lock)
         EXIT;
 }
 
+/**
+ * Moves ldlm lock \param lock that is already in namespace LRU to the tail of
+ * the LRU. Performs necessary LRU locking
+ */
 void ldlm_lock_touch_in_lru(struct ldlm_lock *lock)
 {
         struct ldlm_namespace *ns = ldlm_lock_to_ns(lock);
@@ -309,11 +333,25 @@ void ldlm_lock_touch_in_lru(struct ldlm_lock *lock)
         EXIT;
 }
 
-/* This used to have a 'strict' flag, which recovery would use to mark an
+/**
+ * Destroy a locked lock helper.
+ *
+ * Used by ldlm_lock_destroy and ldlm_lock_destroy_nolock
+ * Must be called under lock and resource lock.
+ *
+ * Does not actually free the lock data, rather marks the lock as
+ * destroyed by setting l_destroyed field in the lock to 1.  Destroys a
+ * handle->lock association too so that the lock can no longer be found
+ * and removes the lock from lru list.  Actual lock freeing would occur
+ * when last lock reference goes away.
+ *
+ * Original comment (of some historical value):
+ * This used to have a 'strict' flag, which recovery would use to mark an
  * in-use lock as needing-to-die.  Lest I am ever tempted to put it back, I
  * shall explain why it's gone: with the new hash table scheme, once you call
  * ldlm_lock_destroy, you can never drop your final references on this lock.
- * Because it's not in the hash table anymore.  -phil */
+ * Because it's not in the hash table anymore.  -phil
+ */
 int ldlm_lock_destroy_internal(struct ldlm_lock *lock)
 {
         ENTRY;
@@ -362,6 +400,9 @@ int ldlm_lock_destroy_internal(struct ldlm_lock *lock)
         return 1;
 }
 
+/**
+ * Destroys a ldlm lock \param lock. Performs necessary locking first.
+ */
 void ldlm_lock_destroy(struct ldlm_lock *lock)
 {
         int first;
@@ -378,6 +419,9 @@ void ldlm_lock_destroy(struct ldlm_lock *lock)
         EXIT;
 }
 
+/**
+ * Destroys a ldlm lock \param lock that is already locked.
+ */
 void ldlm_lock_destroy_nolock(struct ldlm_lock *lock)
 {
         int first;
@@ -408,7 +452,10 @@ struct portals_handle_ops lock_handle_ops = {
 	.hop_free   = lock_handle_free,
 };
 
-/*
+/**
+ *
+ * Allocate and initialize new lock structure.
+ *
  * usage: pass in a resource on which you have done ldlm_resource_get
  *        new lock will take over the refcount.
  * returns: lock with refcount 2 - one for current caller and one for remote
@@ -462,6 +509,11 @@ static struct ldlm_lock *ldlm_lock_new(struct ldlm_resource *resource)
         RETURN(lock);
 }
 
+/**
+ * Moves ldlm lock \param lock to another resource.
+ * This is used on client when server returns some other lock than requested
+ * (typically as a result of intent operation)
+ */
 int ldlm_lock_change_resource(struct ldlm_namespace *ns, struct ldlm_lock *lock,
                               const struct ldlm_res_id *new_resid)
 {
@@ -521,19 +573,26 @@ int ldlm_lock_change_resource(struct ldlm_namespace *ns, struct ldlm_lock *lock,
         RETURN(0);
 }
 
-/*
- *  HANDLES
+/** \defgroup ldlm_handles LDLM HANDLES
+ * Ways to get hold of locks without any addresses.
+ * @{
  */
 
+/**
+ * Fills in handle for ldlm lock \param lock into supplied \param lockh
+ * Does not take any references.
+ */
 void ldlm_lock2handle(const struct ldlm_lock *lock, struct lustre_handle *lockh)
 {
         lockh->cookie = lock->l_handle.h_cookie;
 }
 
-/* if flags: atomically get the lock and set the flags.
- *           Return NULL if flag already set
+/**
+ * Obtain a lock reference by handle.
+ *
+ * if \param flags: atomically get the lock and set the flags.
+ *              Return NULL if flag already set
  */
-
 struct ldlm_lock *__ldlm_handle2lock(const struct lustre_handle *handle,
                                      int flags)
 {
@@ -577,7 +636,12 @@ struct ldlm_lock *__ldlm_handle2lock(const struct lustre_handle *handle,
         unlock_res_and_lock(lock);
         RETURN(lock);
 }
+/** @} ldlm_handles */
 
+/**
+ * Fill in "on the wire" representation for given ldlm lock into supplied
+ * lock descriptor \param desc structure.
+ */
 void ldlm_lock2desc(struct ldlm_lock *lock, struct ldlm_lock_desc *desc)
 {
         struct obd_export *exp = lock->l_export?:lock->l_conn_export;
@@ -627,6 +691,11 @@ void ldlm_lock2desc(struct ldlm_lock *lock, struct ldlm_lock_desc *desc)
         }
 }
 
+/**
+ * Add a lock to list of conflicting locks to send AST to.
+ *
+ * Only add if we have not sent a blocking ast to the lock yet.
+ */
 void ldlm_add_bl_work_item(struct ldlm_lock *lock, struct ldlm_lock *new,
                            cfs_list_t *work_list)
 {
@@ -645,6 +714,9 @@ void ldlm_add_bl_work_item(struct ldlm_lock *lock, struct ldlm_lock *new,
         }
 }
 
+/**
+ * Add a lock to list of just granted locks to send completion AST to.
+ */
 void ldlm_add_cp_work_item(struct ldlm_lock *lock, cfs_list_t *work_list)
 {
         if ((lock->l_flags & LDLM_FL_CP_REQD) == 0) {
@@ -656,7 +728,12 @@ void ldlm_add_cp_work_item(struct ldlm_lock *lock, cfs_list_t *work_list)
         }
 }
 
-/* must be called with lr_lock held */
+/**
+ * Aggregator function to add ast work items into a list. Determines
+ * what sort of an ast work needs to be done and calls the proper
+ * adding function.
+ * Must be called with lr_lock held.
+ */
 void ldlm_add_ast_work_item(struct ldlm_lock *lock, struct ldlm_lock *new,
                             cfs_list_t *work_list)
 {
@@ -669,6 +746,11 @@ void ldlm_add_ast_work_item(struct ldlm_lock *lock, struct ldlm_lock *new,
         EXIT;
 }
 
+/**
+ * Add specified r/w reference to ldlm lock with handle \param lockh.
+ * r/w reference type is determined by \param mode
+ * Calls ldlm_lock_addref_internal.
+ */
 void ldlm_lock_addref(struct lustre_handle *lockh, __u32 mode)
 {
         struct ldlm_lock *lock;
@@ -679,6 +761,13 @@ void ldlm_lock_addref(struct lustre_handle *lockh, __u32 mode)
         LDLM_LOCK_PUT(lock);
 }
 
+/**
+ * Helper function.
+ * Add specified r/w reference to ldlm lock \param lock.
+ * r/w reference type is determined by \param mode
+ * Removes lock from LRU if it is there.
+ * Assumes the ldlm lock is already locked.
+ */
 void ldlm_lock_addref_internal_nolock(struct ldlm_lock *lock, __u32 mode)
 {
         ldlm_lock_remove_from_lru(lock);
@@ -696,8 +785,8 @@ void ldlm_lock_addref_internal_nolock(struct ldlm_lock *lock, __u32 mode)
 }
 
 /**
- * Attempts to addref a lock, and fails if lock is already LDLM_FL_CBPENDING
- * or destroyed.
+ * Attempts to add r/w reference to a lock with handle \param lockh, and fails
+ * if lock is already LDLM_FL_CBPENDING or destroyed.
  *
  * \retval 0 success, lock was addref-ed
  *
@@ -723,7 +812,11 @@ int ldlm_lock_addref_try(struct lustre_handle *lockh, __u32 mode)
         return result;
 }
 
-/* only called for local locks */
+/**
+ * Add specified r/w reference to ldlm lock \param lock.
+ * Locks ldlm lock and Calls ldlm_lock_addref_internal to do the work.
+ * only called for local locks
+ */
 void ldlm_lock_addref_internal(struct ldlm_lock *lock, __u32 mode)
 {
         lock_res_and_lock(lock);
@@ -731,10 +824,13 @@ void ldlm_lock_addref_internal(struct ldlm_lock *lock, __u32 mode)
         unlock_res_and_lock(lock);
 }
 
-/* only called in ldlm_flock_destroy and for local locks.
- *  * for LDLM_FLOCK type locks, l_blocking_ast is null, and
- *   * ldlm_lock_remove_from_lru() does nothing, it is safe
- *    * for ldlm_flock_destroy usage by dropping some code */
+/**
+ * Removes r/w reference for ldlm lock \param lock.
+ * Assumes ldlm lock is already locked.
+ * only called in ldlm_flock_destroy and for local locks.
+ * Does NOT add lock to LRU if no r/w references left to accomodate flock locks
+ * that cannot be placed in LRU.
+ */
 void ldlm_lock_decref_internal_nolock(struct ldlm_lock *lock, __u32 mode)
 {
         LDLM_DEBUG(lock, "ldlm_lock_decref(%s)", ldlm_lockname[mode]);
@@ -753,6 +849,14 @@ void ldlm_lock_decref_internal_nolock(struct ldlm_lock *lock, __u32 mode)
         LDLM_LOCK_RELEASE(lock);    /* matches the LDLM_LOCK_GET() in addref */
 }
 
+/**
+ * Removes r/w reference for ldlm lock \param lock.
+ * Locks ldlm lock first.
+ * If the lock is determined to be client lock on a client and r/w refcount
+ * drops to zero and the lock is not blocked, the lock is added to LRU lock
+ * on the namespace.
+ * For blocked ldlm locks if r/w count drops to zero, blocking_ast is called.
+ */
 void ldlm_lock_decref_internal(struct ldlm_lock *lock, __u32 mode)
 {
         struct ldlm_namespace *ns;
@@ -821,6 +925,9 @@ void ldlm_lock_decref_internal(struct ldlm_lock *lock, __u32 mode)
         EXIT;
 }
 
+/**
+ * Decrease r/w refcount for ldlm lock with handle \param lockh
+ */
 void ldlm_lock_decref(struct lustre_handle *lockh, __u32 mode)
 {
         struct ldlm_lock *lock = __ldlm_handle2lock(lockh, 0);
@@ -829,8 +936,13 @@ void ldlm_lock_decref(struct lustre_handle *lockh, __u32 mode)
         LDLM_LOCK_PUT(lock);
 }
 
-/* This will drop a lock reference and mark it for destruction, but will not
- * necessarily cancel the lock before returning. */
+/**
+ * Decrease r/w refcount for ldlm lock with handle \param lockh and mark it for
+ * subsequent cancellation once r/w crefcount drops to zero instead of putting
+ * into LRU.
+ *
+ * Typical usage is for GROUP locks which we cannot allow to be cached.
+ */
 void ldlm_lock_decref_and_cancel(struct lustre_handle *lockh, __u32 mode)
 {
         struct ldlm_lock *lock = __ldlm_handle2lock(lockh, 0);
@@ -852,11 +964,11 @@ struct sl_insert_point {
         cfs_list_t *policy_link;
 };
 
-/*
- * search_granted_lock
+/**
+ * Finds a position to insert the new lock into granted lock list.
  *
- * Description:
- *      Finds a position to insert the new lock.
+ * Used for locks eligible for skiplist optimization.
+ *
  * Parameters:
  *      queue [input]:  the granted list where search acts on;
  *      req [input]:    the lock whose position to be located;
@@ -947,6 +1059,10 @@ static void search_granted_lock(cfs_list_t *queue,
         return;
 }
 
+/**
+ * Add a lock into resource granted list after a position described by
+ * \param prev
+ */
 static void ldlm_granted_list_add_lock(struct ldlm_lock *lock,
                                        struct sl_insert_point *prev)
 {
@@ -974,6 +1090,10 @@ static void ldlm_granted_list_add_lock(struct ldlm_lock *lock,
         EXIT;
 }
 
+/**
+ * Add a lock to granted list on a resource maintaining skiplist
+ * correctness
+ */
 static void ldlm_grant_lock_with_skiplist(struct ldlm_lock *lock)
 {
         struct sl_insert_point prev;
@@ -986,7 +1106,11 @@ static void ldlm_grant_lock_with_skiplist(struct ldlm_lock *lock)
         EXIT;
 }
 
-/* NOTE: called by
+/**
+ * Perform lock granting bookkeeping.
+ *
+ * Includes putting the lock into granted list and updating lock mode.
+ * NOTE: called by
  *  - ldlm_lock_enqueue
  *  - ldlm_reprocess_queue
  *  - ldlm_lock_convert
@@ -1018,7 +1142,10 @@ void ldlm_grant_lock(struct ldlm_lock *lock, cfs_list_t *work_list)
         EXIT;
 }
 
-/* returns a referenced lock or NULL.  See the flag descriptions below, in the
+/**
+ * Search for a lock with given properties in a queue.
+ *
+ * \retval a referenced lock or NULL.  See the flag descriptions below, in the
  * comment above ldlm_lock_match */
 static struct ldlm_lock *search_queue(cfs_list_t *queue,
                                       ldlm_mode_t *mode,
@@ -1112,12 +1239,23 @@ void ldlm_lock_fail_match(struct ldlm_lock *lock)
 }
 EXPORT_SYMBOL(ldlm_lock_fail_match);
 
+/**
+ * Mark lock as "matchable" by OST
+ *
+ * Used to prevent certain races in LOV/OSC where the lock is granted, but LVB
+ * is not yet valid.
+ * Assumes ldlm lock is already locked.
+ */
 void ldlm_lock_allow_match_locked(struct ldlm_lock *lock)
 {
         lock->l_flags |= LDLM_FL_LVB_READY;
         cfs_waitq_broadcast(&lock->l_waitq);
 }
 
+/**
+ * Mark lock as "matchable" by OST
+ * Locks the lock and then \see ldlm_lock_allow_match_locked
+ */
 void ldlm_lock_allow_match(struct ldlm_lock *lock)
 {
         lock_res_and_lock(lock);
@@ -1125,7 +1263,13 @@ void ldlm_lock_allow_match(struct ldlm_lock *lock)
         unlock_res_and_lock(lock);
 }
 
-/* Can be called in two ways:
+/**
+ * Attempt to find a lock with specified properties.
+ *
+ * Typically returns a reference to matched lock unless LDLM_FL_TEST_LOCK is
+ * set in \param flags
+ *
+ * Can be called in two ways:
  *
  * If 'ns' is NULL, then lockh describes an existing lock that we want to look
  * for a duplicate of.
@@ -1142,7 +1286,7 @@ void ldlm_lock_allow_match(struct ldlm_lock *lock)
  * If 'flags' contains LDLM_FL_TEST_LOCK, then don't actually reference a lock,
  *     just tell us if we would have matched.
  *
- * Returns 1 if it finds an already-existing lock that is compatible; in this
+ * \retval 1 if it finds an already-existing lock that is compatible; in this
  * case, lockh is filled in with a addref()ed lock
  *
  * we also check security context, if that failed we simply return 0 (to keep
@@ -1306,7 +1450,9 @@ out:
 }
 EXPORT_SYMBOL(ldlm_revalidate_lock_handle);
 
-/* Returns a referenced lock */
+/**
+ * Create and fill in new ldlm lock with specified properties.
+ * Returns a referenced lock */
 struct ldlm_lock *ldlm_lock_create(struct ldlm_namespace *ns,
                                    const struct ldlm_res_id *res_id,
                                    ldlm_type_t type,
@@ -1363,6 +1509,16 @@ out:
         return NULL;
 }
 
+/**
+ * Enqueue (request) a lock.
+ *
+ * Does not block. As a result of enqueue the lock would be put
+ * into granted or waiting list.
+ *
+ * If namespace has intent policy sent and the lock has LDLM_FL_HAS_INTENT flag
+ * set, skip all the enqueueing and delegate lock processing to intent policy
+ * function.
+ */
 ldlm_error_t ldlm_lock_enqueue(struct ldlm_namespace *ns,
                                struct ldlm_lock **lockp,
                                void *cookie, int *flags)
@@ -1487,7 +1643,12 @@ out:
 }
 
 #ifdef HAVE_SERVER_SUPPORT
-/* Must be called with namespace taken: queue is waiting or converting. */
+/**
+ * Iterate through all waiting locks on a given resource queue and attempt to
+ * grant them.
+ *
+ * Must be called with resource lock held.
+ */
 int ldlm_reprocess_queue(struct ldlm_resource *res, cfs_list_t *queue,
                          cfs_list_t *work_list)
 {
@@ -1519,6 +1680,9 @@ int ldlm_reprocess_queue(struct ldlm_resource *res, cfs_list_t *queue,
 }
 #endif
 
+/**
+ * Process a call to blocking ast callback for a lock in ast_work list
+ */
 static int
 ldlm_work_bl_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 {
@@ -1553,6 +1717,9 @@ ldlm_work_bl_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 	RETURN(rc);
 }
 
+/**
+ * Process a call to completion ast callback for a lock in ast_work list
+ */
 static int
 ldlm_work_cp_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 {
@@ -1595,6 +1762,9 @@ ldlm_work_cp_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 	RETURN(rc);
 }
 
+/**
+ * Process a call to revocation ast callback for a lock in ast_work list
+ */
 static int
 ldlm_work_revoke_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 {
@@ -1621,6 +1791,9 @@ ldlm_work_revoke_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 	RETURN(rc);
 }
 
+/**
+ * Process a call to glimpse ast callback for a lock in ast_work list
+ */
 int ldlm_work_gl_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 {
 	struct ldlm_cb_set_arg		*arg = opaq;
@@ -1653,6 +1826,12 @@ int ldlm_work_gl_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 	RETURN(rc);
 }
 
+/**
+ * Process list of locks in need of ASTs being sent.
+ *
+ * Used on server to send multiple ASTs together instead of sending one by
+ * one.
+ */
 int ldlm_run_ast_work(struct ldlm_namespace *ns, cfs_list_t *rpc_list,
                       ldlm_desc_ast_t ast_type)
 {
@@ -1727,6 +1906,10 @@ static int ldlm_reprocess_res(cfs_hash_t *hs, cfs_hash_bd_t *bd,
         return rc == LDLM_ITER_STOP;
 }
 
+/**
+ * Iterate through all resources on a namespace attempting to grant waiting
+ * locks.
+ */
 void ldlm_reprocess_all_ns(struct ldlm_namespace *ns)
 {
         ENTRY;
@@ -1738,6 +1921,14 @@ void ldlm_reprocess_all_ns(struct ldlm_namespace *ns)
         EXIT;
 }
 
+/**
+ * Try to grant all waiting locks on a resource.
+ *
+ * Calls ldlm_reprocess_queue on converting and waiting queues.
+ *
+ * Typicaly is called after some resource locks are cancelled to see
+ * if anything could be granted as a result of that cancellation.
+ */
 void ldlm_reprocess_all(struct ldlm_resource *res)
 {
         CFS_LIST_HEAD(rpc_list);
@@ -1775,6 +1966,10 @@ restart:
         EXIT;
 }
 
+/**
+ * Helper function to call blocking AST for ldlm lock \param lock in a
+ * "cancelling" mode.
+ */
 void ldlm_cancel_callback(struct ldlm_lock *lock)
 {
         check_res_locked(lock->l_resource);
@@ -1793,6 +1988,9 @@ void ldlm_cancel_callback(struct ldlm_lock *lock)
         lock->l_flags |= LDLM_FL_BL_DONE;
 }
 
+/**
+ * Remove skiplist-enabled ldlm lock \param req from granted list
+ */
 void ldlm_unlink_lock_skiplist(struct ldlm_lock *req)
 {
         if (req->l_resource->lr_type != LDLM_PLAIN &&
@@ -1803,6 +2001,9 @@ void ldlm_unlink_lock_skiplist(struct ldlm_lock *req)
         cfs_list_del_init(&req->l_sl_mode);
 }
 
+/**
+ * Attempts to cancel ldlm lock \param lock that has no r/w references.
+ */
 void ldlm_lock_cancel(struct ldlm_lock *lock)
 {
         struct ldlm_resource *res;
@@ -1846,6 +2047,9 @@ void ldlm_lock_cancel(struct ldlm_lock *lock)
         EXIT;
 }
 
+/**
+ * Set opaque data into the lock that only makes sense to upper layer.
+ */
 int ldlm_lock_set_data(struct lustre_handle *lockh, void *data)
 {
         struct ldlm_lock *lock = ldlm_handle2lock(lockh);
@@ -1868,6 +2072,10 @@ struct export_cl_data {
 	int			ecl_loop;
 };
 
+/**
+ * Iterator function for ldlm_cancel_locks_for_export.
+ * Cancels passed locks.
+ */
 int ldlm_cancel_locks_for_export_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
                                     cfs_hlist_node_t *hnode, void *data)
 
@@ -1899,6 +2107,11 @@ int ldlm_cancel_locks_for_export_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
 	return 0;
 }
 
+/**
+ * Cancel all locks for given export.
+ *
+ * Typically called on client disconnection/eviction
+ */
 void ldlm_cancel_locks_for_export(struct obd_export *exp)
 {
 	struct export_cl_data	ecl = {
@@ -1915,6 +2128,7 @@ void ldlm_cancel_locks_for_export(struct obd_export *exp)
  *
  * A fast variant of ldlm_lock_convert for convertion of exclusive
  * locks. The convertion is always successful.
+ * Used by Commit on Sharing (COS) code.
  *
  * \param lock A lock to convert
  * \param new_mode new lock mode
@@ -1942,6 +2156,11 @@ void ldlm_lock_downgrade(struct ldlm_lock *lock, int new_mode)
         EXIT;
 }
 
+/**
+ * Attempt to convert already granted lock to a different mode.
+ *
+ * Currently not implemented
+ */
 struct ldlm_resource *ldlm_lock_convert(struct ldlm_lock *lock, int new_mode,
                                         __u32 *flags)
 {
@@ -2061,6 +2280,11 @@ struct ldlm_resource *ldlm_lock_convert(struct ldlm_lock *lock, int new_mode,
         RETURN(res);
 }
 
+/**
+ * Print lock with lock handle \param lockh description into debug log.
+ *
+ * Used when printing all locks on a resource for debug purposes.
+ */
 void ldlm_lock_dump_handle(int level, struct lustre_handle *lockh)
 {
         struct ldlm_lock *lock;
@@ -2077,6 +2301,10 @@ void ldlm_lock_dump_handle(int level, struct lustre_handle *lockh)
         LDLM_LOCK_PUT(lock);
 }
 
+/**
+ * Print lock information with custom message into debug log.
+ * Helper function.
+ */
 void _ldlm_lock_debug(struct ldlm_lock *lock,
                       struct libcfs_debug_msg_data *msgdata,
                       const char *fmt, ...)
