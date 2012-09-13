@@ -34,6 +34,12 @@
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
+/**
+ * This file is actually much more related to ptlrpc code than ldlm.
+ * It primarily deals with various client/target related logic
+ * including recovery topics.
+ */
+
 #define DEBUG_SUBSYSTEM S_LDLM
 
 #ifdef __KERNEL__

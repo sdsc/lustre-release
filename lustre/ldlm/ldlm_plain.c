@@ -52,6 +52,15 @@
 #include "ldlm_internal.h"
 
 #ifdef HAVE_SERVER_SUPPORT
+/**
+ * Determine if the lock is compatible with all locks on the queue.
+ *
+ * If \param work_list is provided, conflicting locks are linked there.
+ * If \param work_list is not provided, we exit this function on first conflict.
+ *
+ * \retval 0 if there are conflicting locks in the \param queue
+ * \retval 1 if the lock is compatible to all locks in \param queue
+ */
 static inline int
 ldlm_plain_compat_queue(cfs_list_t *queue, struct ldlm_lock *req,
                         cfs_list_t *work_list)
@@ -67,6 +76,11 @@ ldlm_plain_compat_queue(cfs_list_t *queue, struct ldlm_lock *req,
         cfs_list_for_each(tmp, queue) {
                 lock = cfs_list_entry(tmp, struct ldlm_lock, l_res_link);
 
+		/**
+		 * We stop walking the queue if we hit ourselves so we don't
+		 * take conflicting locks enqueued after us into account,
+		 * or we'd wait forever.
+		 */
                 if (req == lock)
                         RETURN(compat);
 
@@ -102,13 +116,21 @@ ldlm_plain_compat_queue(cfs_list_t *queue, struct ldlm_lock *req,
         RETURN(compat);
 }
 
-/* If first_enq is 0 (ie, called from ldlm_reprocess_queue):
- *   - blocking ASTs have already been sent
- *   - must call this function with the resource lock held
+/**
+ * Process a granting attempt for plain lock.
+ * Must be called under ns lock held.
  *
- * If first_enq is 1 (ie, called from ldlm_lock_enqueue):
- *   - blocking ASTs have not been sent
- *   - must call this function with the resource lock held */
+ * This function tries to see if there are any conflicts for \a lock in
+ * any of the granted or waiting queues. If no conflict met in both,
+ * the lock is granted.
+ *
+ * If \a first_enq is 0 (ie, called from ldlm_reprocess_queue):
+ *   - blocking ASTs have already been sent
+ *
+ * If \a first_enq is 1 (ie, called from ldlm_lock_enqueue):
+ *   - blocking ASTs have not been sent yet, so list of conflicting locks
+ *     would be collected and ASTs sent.
+ */
 int ldlm_process_plain_lock(struct ldlm_lock *lock, int *flags, int first_enq,
                             ldlm_error_t *err, cfs_list_t *work_list)
 {
