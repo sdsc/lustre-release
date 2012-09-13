@@ -1,6 +1,8 @@
 /*
  *  Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
  *
+ *  Copyright (c) 2012, Intel Corporation.
+ *
  *   This file is part of Lustre, http://www.lustre.org.
  *
  *   Lustre is free software; you can redistribute it and/or

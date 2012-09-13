@@ -24,6 +24,8 @@
  * Copyright (c) 2011, 2012, Whamcloud, Inc.
  * Use is subject to license terms.
  *
+ * Copyright (c) 2012, Intel Corporation.
+ *
  * Lustre administrative quota format.
  * from linux/fs/quota_v2.c
  */

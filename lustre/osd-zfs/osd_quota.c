@@ -24,6 +24,8 @@
  * Copyright (c) 2011 Whamcloud, Inc.
  * Use is subject to license terms.
  *
+ * Copyright (c) 2012, Intel Corporation.
+ *
  * Author: Johann Lombardi <johann@whamcloud.com>
  */
 

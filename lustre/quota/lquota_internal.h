@@ -23,6 +23,8 @@
 /*
  * Copyright (c) 2012 Whamcloud, Inc.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2012, Intel Corporation.
  */
 
 #include <obd.h>
