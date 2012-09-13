@@ -836,11 +836,12 @@ static int mdt_pdir_hash_lock(struct mdt_thread_info *info,
 static int mdt_rename_lock(struct mdt_thread_info *info,
                            struct lustre_handle *lh)
 {
-        struct ldlm_namespace *ns     = info->mti_mdt->mdt_namespace;
-        ldlm_policy_data_t    *policy = &info->mti_policy;
-        struct ldlm_res_id    *res_id = &info->mti_res_id;
-        struct md_site        *ms;
-        int rc;
+	struct ldlm_namespace	*ns     = info->mti_mdt->mdt_namespace;
+	ldlm_policy_data_t	*policy = &info->mti_policy;
+	struct ldlm_res_id	*res_id = &info->mti_res_id;
+	struct md_site		*ms;
+	int			flags;
+	int			rc;
         ENTRY;
 
         ms = mdt_md_site(info->mti_mdt);
@@ -848,7 +849,7 @@ static int mdt_rename_lock(struct mdt_thread_info *info,
 
         memset(policy, 0, sizeof *policy);
         policy->l_inodebits.bits = MDS_INODELOCK_UPDATE;
-
+#if 0
         if (ms->ms_control_exp == NULL) {
                 int flags = LDLM_FL_LOCAL_ONLY | LDLM_FL_ATOMIC_CB;
 
@@ -873,7 +874,21 @@ static int mdt_rename_lock(struct mdt_thread_info *info,
                 rc = ldlm_cli_enqueue(ms->ms_control_exp, NULL, &einfo, res_id,
                                       policy, &flags, NULL, 0, lh, 0);
         }
-
+#else
+	/* In phase I, we will not do cross-rename, so local BFL lock would
+	 * be enough
+	 */
+	flags = LDLM_FL_LOCAL_ONLY | LDLM_FL_ATOMIC_CB;
+	/*
+	 * Current node is controller, that is mdt0, where we should
+	 * take BFL lock.
+	 */
+	rc = ldlm_cli_enqueue_local(ns, res_id, LDLM_IBITS, policy,
+				    LCK_EX, &flags, ldlm_blocking_ast,
+				    ldlm_completion_ast, NULL, NULL, 0,
+				    &info->mti_exp->exp_handle.h_cookie,
+				    lh);
+#endif
         RETURN(rc);
 }
 
