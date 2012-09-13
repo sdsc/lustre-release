@@ -128,7 +128,7 @@ AM_CONDITIONAL(LDISKFS_DEVEL, \
 AM_CONDITIONAL(LDISKFS_BUILD, test x$enable_ldiskfs_build = xyes)
 AM_CONDITIONAL(LDISKFS_ENABLED, test x$with_ldiskfs = xyes)
 
-if test -e "$PWD/ldiskfs"; then
+if test -e "$LDISKFS_DIR"; then
 	LDISKFS_DIST_SUBDIR="ldiskfs"
 	AC_SUBST(LDISKFS_DIST_SUBDIR)
 	AC_CONFIG_SUBDIRS("ldiskfs")
