@@ -613,6 +613,8 @@ struct osd_thread_info {
 		struct if_dqblk		oti_dqblk;
 		struct if_dqinfo	oti_dqinfo;
 	};
+	union lquota_rec	oti_quota_rec;
+	__u64			oti_quota_id;
 };
 
 extern int ldiskfs_pdo;
@@ -681,6 +683,13 @@ loff_t find_tree_dqentry(const struct lu_env *env,
                          struct osd_object *obj, int type,
                          qid_t dqid, uint blk, int depth,
                          struct osd_it_quota *it);
+
+/* osd_quota.c */
+const struct dt_rec *osd_quota_pack(struct osd_object *obj,
+				    const struct dt_rec *rec,
+				    union lquota_rec *quota_rec);
+void osd_quota_unpack(struct osd_object *obj, const struct dt_rec *rec);
+
 /*
  * Invariants, assertions.
  */
