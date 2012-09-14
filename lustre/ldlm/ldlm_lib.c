@@ -1661,6 +1661,43 @@ static int check_for_clients(struct obd_device *obd)
         return 0;
 }
 
+/**
+ * extend recovery window for the target
+ *
+ * Adjust the recovery time of the target according to the incoming
+ * request so next request from this client may come in time.
+ **/
+static void target_extend_recovery_timer(struct ptlrpc_request *req)
+{
+	int to = obd_timeout;
+
+	if (exp_finished(req->rq_export))
+		return;
+	/**
+	 * Add request timeout to the recovery time so next request from
+	 * this client may come in recovery time
+	 */
+	if (!AT_OFF) {
+		struct ptlrpc_service_part *svcpt;
+
+		svcpt = req->rq_rqbd->rqbd_svcpt;
+		/* If the server sent early reply for this request,
+		* the client will recalculate the timeout according to
+		* current server estimate service time, so we will
+		* use the maxium timeout here for waiting the client
+		* sending the next req */
+		to = max((int)at_est2timeout(
+			at_get(&svcpt->scp_at_estimate)),
+			(int)lustre_msg_get_timeout(req->rq_reqmsg));
+		/* Add net_latency (see ptlrpc_replay_req), client will
+		 * also add net_latency to this request deadline, so we
+		 * need add 2 net_latency, one for balance rq_deadline
+		 * (see ptl_send_rpc), one for resend the req to server */
+		to += 2 * lustre_msg_get_service_time(req->rq_reqmsg);
+	}
+	extend_recovery_timer(class_exp2obd(req->rq_export), to, true);
+}
+
 static int check_for_next_transno(struct obd_device *obd)
 {
         struct ptlrpc_request *req = NULL;
@@ -1897,31 +1934,9 @@ static int handle_recovery_req(struct ptlrpc_thread *thread,
 
         lu_context_exit(&req->rq_recov_session);
         lu_context_fini(&req->rq_recov_session);
-        /* don't reset timer for final stage */
-        if (!exp_finished(req->rq_export)) {
-                int to = obd_timeout;
 
-                /**
-                 * Add request timeout to the recovery time so next request from
-                 * this client may come in recovery time
-                 */
-                if (!AT_OFF) {
-			struct ptlrpc_service_part *svcpt;
-
-			svcpt = req->rq_rqbd->rqbd_svcpt;
-			/* If the server sent early reply for this request,
-			 * the client will recalculate the timeout according to
-			 * current server estimate service time, so we will
-			 * use the maxium timeout here for waiting the client
-			 * sending the next req */
-			to = max((int)at_est2timeout(
-				 at_get(&svcpt->scp_at_estimate)),
-				 (int)lustre_msg_get_timeout(req->rq_reqmsg));
-                        /* Add net_latency (see ptlrpc_replay_req) */
-                        to += lustre_msg_get_service_time(req->rq_reqmsg);
-                }
-                extend_recovery_timer(class_exp2obd(req->rq_export), to, true);
-        }
+	/* don't reset timer for final stage */
+	target_extend_recovery_timer(req);
 reqcopy_put:
         RETURN(rc);
 }
@@ -2235,6 +2250,10 @@ int target_queue_recovery_request(struct ptlrpc_request *req,
                 cfs_spin_unlock(&obd->obd_recovery_task_lock);
                 RETURN(0);
         }
+
+#ifdef __KERNEL__
+	target_extend_recovery_timer(req);
+#endif
 
         /* CAVEAT EMPTOR: The incoming request message has been swabbed
          * (i.e. buflens etc are in my own byte order), but type-dependent
