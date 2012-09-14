@@ -1205,6 +1205,7 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 		if (!oseq->os_destroys_in_progress) {
 			CERROR("%s:["LPU64"] destroys_in_progress already cleared\n",
 			       exp->exp_obd->obd_name, oa->o_seq);
+			oa->o_id = ofd_seq_last_oid(oseq);
 			GOTO(out, rc = 0);
 		}
 		diff = oa->o_id - ofd_seq_last_oid(oseq);
