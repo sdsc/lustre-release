@@ -43,7 +43,6 @@
 #define DEBUG_SUBSYSTEM S_MDS
 
 #include <linux/module.h>
-#include <ldiskfs/ldiskfs_jbd2.h>
 #include <obd.h>
 #include <obd_class.h>
 #include <lustre_ver.h>
@@ -51,7 +50,6 @@
 #include <lprocfs_status.h>
 
 #include <lustre_fid.h>
-#include <ldiskfs/ldiskfs.h>
 #include <lustre_mds.h>
 #include <lustre/lustre_idl.h>
 #include <lustre_disk.h>      /* for changelogs */
