@@ -367,15 +367,25 @@ test_18() {
 run_test 18 "mmap sanity check ================================="
 
 test_19() { # bug3811
-	[ -d /proc/fs/lustre/obdfilter ] || return 0
+	local param;
 
-	MAX=`lctl get_param -n obdfilter.*.readcache_max_filesize | head -n 1`
-	lctl set_param -n obdfilter.*OST*.readcache_max_filesize=4096
+	if [ -d /proc/fs/lustre/obdfilter ] ; then
+		[ -d /proc/fs/lustre/osd-ldiskfs ] || return 0
+	fi
+
+	if [ "$USE_OFD" == yes ]; then
+		param="osd*.*.readcache_max_filesize"
+	else
+		param="obdfilter.*.readcache_max_filesize"
+	fi
+
+	MAX=`lctl get_param -n $param | head -n 1`
+	lctl set_param -n $param=4096
 	dd if=/dev/urandom of=$TMP/f19b bs=512k count=32
 	SUM=`cksum $TMP/f19b | cut -d" " -f 1,2`
 	cp $TMP/f19b $DIR1/f19b
 	for i in `seq 1 20`; do
-		[ $((i % 5)) -eq 0 ] && log "test_18 loop $i"
+		[ $((i % 5)) -eq 0 ] && log "test_19 loop $i"
 		cancel_lru_locks osc > /dev/null
 		cksum $DIR1/f19b | cut -d" " -f 1,2 > $TMP/sum1 & \
 		cksum $DIR2/f19b | cut -d" " -f 1,2 > $TMP/sum2
@@ -385,7 +395,7 @@ test_19() { # bug3811
 		[ "`cat $TMP/sum2`" = "$SUM" ] || \
 			error "$DIR2/f19b `cat $TMP/sum2` != $SUM"
 	done
-	lctl set_param -n obdfilter.*OST*.readcache_max_filesize=$MAX
+	lctl set_param -n $param=$MAX
 	rm $DIR1/f19b
 }
 run_test 19 "test concurrent uncached read races ==============="
