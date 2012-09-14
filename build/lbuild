@@ -1043,14 +1043,14 @@ build_spl_zfs() {
 
         # We have built the rpms for the package. No we need to extract the
         # contained files so we can build further things against them
-        local rpm=$(ls $TOPDIR/RPMS/*/$rpmmod-devel-*.rpm)
+        #local rpm=$(ls $TOPDIR/RPMS/*/$rpmmod-devel-*.rpm)
 
         # cpio only extract to pwd so we need to go there.
-        pushd $TOPDIR
-        rpm2cpio < $rpm | cpio -id
-        popd
+        #pushd $TOPDIR
+        #rpm2cpio < $rpm | cpio -id
+        #popd
 
-        CONFIGURE_FLAGS="--with-$pkg=$(ls -d $TOPDIR/usr/src/$pkg-*/*) ${CONFIGURE_FLAGS}"
+        CONFIGURE_FLAGS="--with-$pkg=$(ls -d $TOPDIR/usr/src/$pkg-*) ${CONFIGURE_FLAGS}"
     done
 
     return 0

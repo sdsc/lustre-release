@@ -30,7 +30,7 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <libzfs/libzfs.h>
+#include <libzfs.h>
 #include <dlfcn.h>
 
 #include "mount_utils.h"
