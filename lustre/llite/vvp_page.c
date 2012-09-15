@@ -65,6 +65,40 @@ static void vvp_page_fini_common(struct ccc_page *cp)
         OBD_SLAB_FREE_PTR(cp, vvp_page_kmem);
 }
 
+#ifdef __KERNEL__
+#include <linux/mm_inline.h>
+
+/* isolate_lru_page() is not exported */
+static int my_isolate_lru_page(struct page *page)
+{
+        int ret = -EBUSY;
+
+        if (PageLRU(page)) {
+                struct zone *zone = page_zone(page);
+
+                spin_lock_irq(&zone->lru_lock);
+                if (PageLRU(page) && get_page_unless_zero(page)) {
+                        int lru = page_lru(page);
+                        ret = 0;
+                        ClearPageLRU(page);
+
+			/* del_page_from_lru() */
+			{
+				list_del(&page->lru);
+				__mod_zone_page_state(zone, NR_LRU_BASE + lru, -hpage_nr_pages(page));
+			}
+                }
+                spin_unlock_irq(&zone->lru_lock);
+        }
+        return ret;
+}
+#else
+static int my_isolate_lru_page(struct page *page)
+{
+	return -EBUSY;
+}
+#endif
+
 static void vvp_page_fini(const struct lu_env *env,
                           struct cl_page_slice *slice)
 {
@@ -76,6 +110,17 @@ static void vvp_page_fini(const struct lu_env *env,
          * VPG_FREEING state.
          */
         LASSERT((struct cl_page *)vmpage->private != slice->cpl_page);
+
+
+	/* remove this page from kernel's LRU list */
+	if (my_isolate_lru_page(vmpage) == 0) {
+		/* 1 for private and 1 for isolate_lru_page() */
+		LASSERTF(page_count(vmpage) >= 2,
+			"Invalid page count is %d\n", page_count(vmpage));
+		/* isolate */
+		page_cache_release(vmpage);
+	}
+
         vvp_page_fini_common(cp);
 }
 
