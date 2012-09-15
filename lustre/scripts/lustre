@@ -41,6 +41,24 @@ ZPOOL_LAYOUT_MAP=${ZPOOL_LAYOUT_MAP:-""}
 MOUNT_DELAY=${MOUNT_DELAY:-2}
 LOAD_ZFS=${LOAD_ZFS:-""}
 
+export TUNE2FS=$TUNE2FS
+if [ -z "$TUNE2FS" ]; then
+	if which tunefs.ldiskfs >/dev/null 2>&1; then
+		export TUNE2FS=tunefs.ldiskfs
+	else
+		export TUNE2FS=tune2fs
+	fi
+fi
+
+export PFSCK=$PFSCK
+if [ -z "$PFSCK" ]; then
+	if which pfsck.ldiskfs >/dev/null 2>&1; then
+		export PFSCK=pfsck.ldiskfs
+	else
+		export PFSCK=fsck
+	fi
+fi
+
 shopt -s nullglob
 
 start_zfs_services ()
@@ -180,15 +198,15 @@ fsck_test ()
 	devices=`echo $devices |xargs -n 1|grep '^/'|xargs`
 
 	if [ -n "${FSCK_ARGS}" -a -n "$devices" ]; then
-		if [ -x /sbin/@PFSCK@ ] ; then
-			echo "@PFSCK@ $devices -- ${FSCK_ARGS}"
-			/sbin/@PFSCK@ $devices -- ${FSCK_ARGS}
+		if [ -x /sbin/$PFSCK ] ; then
+			echo "$PFSCK $devices -- ${FSCK_ARGS}"
+			/sbin/$PFSCK $devices -- ${FSCK_ARGS}
 			if [ $? -ne 0 -a $? -ne 1 ] ; then
-				echo "FAILED: @PFSCK@ -- ${FSCK_ARGS}: $?"
+				echo "FAILED: $PFSCK -- ${FSCK_ARGS}: $?"
 				return 1
 			fi
 		else
-			echo "/sbin/@PFSCK@ not found"
+			echo "/sbin/$PFSCK not found"
 			return 1
 		fi
 	fi
@@ -203,7 +221,7 @@ test_feature_flag()
 	local result=1
 	local feature
 
-	for feature in `/sbin/@TUNE2FS@ -l $dev 2>/dev/null \
+	for feature in `/sbin/$TUNE2FS -l $dev 2>/dev/null \
 				| grep features: | sed -e 's/^.*: //'`; do
 		if [ "$feature" == "$flag" ]; then
 			result=0
@@ -222,13 +240,13 @@ mmp_test ()
 	local result=0
 
 	if [ "$REQUIRE_MMP_FEATURE" == "yes" ]; then
-		if [ -x /sbin/@TUNE2FS@ ]; then
+		if [ -x /sbin/$TUNE2FS ]; then
 			if ! test_feature_flag $dev "mmp"; then
 				echo "mmp feature flag is not set on $dev"
 				result=1
 			fi
 		else
-			echo "/sbin/@TUNE2FS@ not found"
+			echo "/sbin/$TUNE2FS not found"
 			result=1
 		fi
 	fi
