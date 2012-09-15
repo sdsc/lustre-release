@@ -784,7 +784,7 @@ retry:
 	if (rc == -ENOSPC && retries == 0) {
 		void *handle = NULL;
 
-		CDEBUG(D_INODE, "retry after commit pending journals");
+		CERROR("retry after commit pending journals");
 
 		retries = 1;
 		handle = fsfilt_start(obd, dentry->d_inode,
@@ -792,6 +792,33 @@ retry:
 		if (handle != NULL &&
 		    fsfilt_commit(obd, dentry->d_inode, handle, 1) == 0)
 			goto retry;
+	}
+
+	if (rc == -ENOSPC) {
+		int blockbits = obd->u.obt.obt_sb->s_blocksize_bits;
+		obd_size avail, left = 0;
+		avail = obd->obd_osfs.os_bavail;
+
+		left = avail - (avail >> (blockbits - 3)); /* (d)indirect */
+		if (left > GRANT_FOR_LLOG(obd))
+			left = (left - GRANT_FOR_LLOG(obd)) << blockbits;
+		else
+			left = 0 /* << blockbits */;
+
+		if (left >= obd->u.filter.fo_tot_granted)
+			left -= obd->u.filter.fo_tot_granted;
+		else
+			left = 0;
+
+		CERROR("%s: cli %s/%p free: "LPU64" avail: "LPU64" grant "LPU64
+		       " left: "LPU64" pending: "LPU64" osfs_age "LPU64
+		       ", current "LPU64"\n", obd->obd_name,
+		       exp->exp_client_uuid.uuid, exp,
+		       obd->obd_osfs.os_bfree << blockbits, avail << blockbits,
+		       obd->u.filter.fo_tot_granted, left,
+		       obd->u.filter.fo_tot_pending, obd->obd_osfs_age,
+		       cfs_time_current_64());
+
 	}
 
         filter_fmd_put(exp, fmd);
