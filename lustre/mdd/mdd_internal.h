@@ -68,7 +68,7 @@ static inline void mdd_quota_wrapper(struct lu_attr *la, unsigned int *qids)
 
 /* PDO lock is unnecessary for current MDT stack because operations
  * are already protected by ldlm lock */
-#define MDD_DISABLE_PDO_LOCK    1
+#define MDD_DISABLE_PDO_LOCK    0
 
 /* Changelog flags */
 /** changelog is recording */
