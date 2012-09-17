@@ -1019,12 +1019,18 @@ static char *absolute_path(char *devname)
 	char *ptr;
 
 	path = malloc(PATH_MAX + 1);
-	if (path == NULL)
+	if (path == NULL) {
+		fprintf(stderr, "%s/%d: can't allocate %d\n",
+			progname, __LINE__, PATH_MAX + 1);
 		return NULL;
+	}
 
 	if (devname[0] != '/') {
-		if (getcwd(buf, sizeof(buf) - 1) == NULL)
+		if (getcwd(buf, sizeof(buf) - 1) == NULL) {
+			fprintf(stderr, "%s/%d: getcwd() failed\n",
+				progname, __LINE__);
 			return NULL;
+		}
 		strcat(buf, "/");
 		strcat(buf, devname);
 	} else {
@@ -1033,11 +1039,15 @@ static char *absolute_path(char *devname)
 	/* truncate filename before calling realpath */
 	ptr = strrchr(buf, '/');
 	if (ptr == NULL) {
+		fprintf(stderr, "%s/%d: no / in the path %s\n",
+				progname, __LINE__, buf);
 		free(path);
 		return NULL;
 	}
 	*ptr = '\0';
 	if (path != realpath(buf, path)) {
+		fprintf(stderr, "%s/%d: realpath( %s ) failed\n",
+				progname, __LINE__, buf);
 		free(path);
 		return NULL;
 	}

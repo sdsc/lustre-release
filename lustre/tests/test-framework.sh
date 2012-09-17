@@ -2659,12 +2659,22 @@ formatall() {
 	echo Formatting mgs, mds, osts
 	if ! combined_mgs_mds ; then
 		echo "Format mgs: $(mgsdevname)"
+		if [ -a $(mgsdevname) ]; then
+			stat $(mgsdevname)
+		else
+			echo "No $(mgsdevname) yet"
+		fi
 		add mgs $(mkfs_opts mgs) --reformat $(mgsdevname) \
 			$(mgsvdevname) ${quiet:+>/dev/null} || exit 10
 		fi
 
 		for num in `seq $MDSCOUNT`; do
 			echo "Format mds$num: $(mdsdevname $num)"
+			if [ -a $(mdsdevname $num) ]; then
+				stat $(mdsdevname $num)
+			else
+				echo "No $(mdsdevname $num) yet"
+			fi
 			add mds$num $(mkfs_opts mds$num) --reformat \
 			$(mdsdevname $num) $(mdsvdevname $num) \
 			${quiet:+>/dev/null} || exit 10
@@ -2672,6 +2682,11 @@ formatall() {
 
 		for num in `seq $OSTCOUNT`; do
 			echo "Format ost$num: $(ostdevname $num)"
+			if [ -a $(ostdevname $num) ]; then
+				stat $(ostdevname $num)
+			else
+				echo "No $(ostdevname $num) yet"
+			fi
 			add ost$num $(mkfs_opts ost$num) --reformat \
 			$(ostdevname $num) $(ostvdevname ${num}) \
 			${quiet:+>/dev/null} || exit 10
