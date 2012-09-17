@@ -1,7 +1,9 @@
 # Lustre MPI test Makefile
 AM_CPPFLAGS = $(LLCPPFLAGS) -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -DLUSTRE_UTILS
 AM_CFLAGS = $(LLCFLAGS)
+if LIBLUSTRE
 LIBCFS :=  $(top_builddir)/libcfs/libcfs/libcfs.a
+endif
 
 CC = @MPICC_WRAPPER@
 

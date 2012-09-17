@@ -1,4 +1,6 @@
+if LIBLUSTRE
 LIBCFS := $(top_builddir)/libcfs/libcfs/libcfs.a
+endif
 
 # Lustre test Makefile
 AM_CPPFLAGS = $(LLCPPFLAGS) -I/opt/lam/include -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -DLUSTRE_UTILS

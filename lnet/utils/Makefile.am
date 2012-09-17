@@ -38,7 +38,10 @@
 #COMPILE = $(CC) -Wall -g -I$(srcdir)/../include -I../../include
 #LINK = $(CC) -o $@
 
+if LIBLUSTRE
 LIBCFS= $(top_builddir)/libcfs/libcfs/libcfs.a
+endif
+
 LIBCFSUTIL= $(top_builddir)/libcfs/libcfs/libcfsutil.a
 
 if LIBLUSTRE
