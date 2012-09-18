@@ -978,6 +978,10 @@ stop() {
 
 # save quota version (both administrative and operational quotas)
 # add an additional parameter if mountpoint is ever different from $MOUNT
+#
+# XXX This function is kept for interoprability with old server (< 2.4),
+#     it should be removed whenever we drop the interoprability for such
+#     server.
 quota_save_version() {
     local fsname=${2:-$FSNAME}
     local spec=$1
@@ -997,7 +1001,11 @@ quota_save_version() {
     done
 }
 
-# client could mount several lustre 
+# client could mount several lustre
+#
+# XXX This function is kept for interoprability with old server (< 2.4),
+#     it should be removed whenever we drop the interoprability for such
+#     server.
 quota_type () {
     local fsname=${1:-$FSNAME}
     local rc=0
@@ -1007,7 +1015,10 @@ quota_type () {
     return $rc 
 }
 
-restore_quota_type () {
+# XXX This function is kept for interoprability with old server (< 2.4),
+#     it should be removed whenever we drop the interoprability for such
+#     server.
+restore_quota_old () {
    local mntpt=${1:-$MOUNT}
    local quota_type=$(quota_type $FSNAME | grep MDT | cut -d "=" -f2)
    if [ ! "$old_QUOTA_TYPE" ] || [ "$quota_type" = "$old_QUOTA_TYPE" ]; then
@@ -1016,7 +1027,10 @@ restore_quota_type () {
    quota_save_version $old_QUOTA_TYPE
 }
 
-setup_quota(){
+# XXX This function is kept for interoprability with old server (< 2.4),
+#     it should be removed whenever we drop the interoprability for such
+#     server.
+setup_quota_old(){
     local mntpt=$1
 
 	if [ "$USE_OFD" = "yes" ]; then
@@ -1064,6 +1078,93 @@ setup_quota(){
         echo "Quota settings for $usr : "
         $LFS quota -v -u $usr $mntpt || true
     done
+}
+
+# get mdt quota type
+mdt_quota_type () {
+	local varsvc=mds1_svc
+	do_facet mds1 $LCTL get_param -n \
+		osd-$FSTYPE.${!varsvc}.quota_slave.enabled
+}
+
+# get ost quota type
+ost_quota_type () {
+	# All OSTs should have same quota type
+	local varsvc=ost1_svc
+	do_facet ost1 $LCTL get_param -n \
+		osd-$FSTYPE.${!varsvc}.quota_slave.enabled
+}
+
+# restore old quota type settings
+restore_quota () {
+	if [ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.4.0) ]; then
+		restore_quota_old
+		return
+	fi
+
+	if [ "$old_MDT_QUOTA_TYPE" ]; then
+		do_facet mgs $LCTL conf_param \
+			$FSNAME.quota.mdt=$old_MDT_QUOTA_TYPE
+	fi
+	if [ "$old_OST_QUOTA_TYPE" ]; then
+		do_facet mgs $LCTL conf_param \
+			$FSNAME.quota.ost=$old_OST_QUOTA_TYPE
+	fi
+}
+
+setup_quota(){
+	if [ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.4.0) ]; then
+		setup_quota_old $1
+		return
+	fi
+
+	local mntpt=$1
+
+	# save old quota type & set new quota type
+	local mdt_qtype=`mdt_quota_type`
+	local ost_qtype=`ost_quota_type`
+
+	echo "[HOST:$HOSTNAME] [old_mdt_qtype:$mdt_qtype] \
+		[old_ost_qtype:$ost_qtype] [new_qtype:$QUOTA_TYPE]"
+
+	export old_MDT_QUOTA_TYPE=$mdt_qtype
+	export old_OST_QUOTA_TYPE=$ost_qtype
+
+	do_facet mgs $LCTL conf_param $FSNAME.quota.mdt=$QUOTA_TYPE ||
+		error "set mdt quota type failed"
+	do_facet mgs $LCTL conf_param $FSNAME.quota.ost=$QUOTA_TYPE ||
+		error "set ost quota type failed"
+
+	local quota_usrs=$QUOTA_USERS
+
+	# get_filesystem_size
+	local disksz=$(lfs df $mntpt | grep "filesystem summary:"  | \
+		awk '{print $3}')
+	local blk_soft=$((disksz + 1024))
+	local blk_hard=$((blk_soft + blk_soft / 20)) # Go 5% over
+
+	local Inodes=$(lfs df -i $mntpt | grep "filesystem summary:"  | \
+		awk '{print $3}')
+	local i_soft=$Inodes
+	local i_hard=$((i_soft + i_soft / 20))
+
+	echo "Total disk size: $disksz  block-softlimit: $blk_soft \
+		block-hardlimit: $blk_hard inode-softlimit: $i_soft \
+		inode-hardlimit: $i_hard"
+
+	local cmd
+	for usr in $quota_usrs; do
+		echo "Setting up quota on $HOSTNAME:$mntpt for $usr..."
+		for type in u g; do
+			cmd="$LFS setquota -$type $usr -b $blk_soft \
+				-B $blk_hard -i $i_soft -I $i_hard $mntpt"
+			echo "+ $cmd"
+			eval $cmd || error "$cmd FAILED!"
+		done
+		# display the quota status
+		echo "Quota settings for $usr : "
+		$LFS quota -v -u $usr $mntpt || true
+	done
 }
 
 zconf_mount() {
@@ -1280,7 +1381,7 @@ facet_up () {
     local host=${2:-$(facet_host $facet)}
 
     local label=$(convert_facet2label $facet)
-    do_node $host lctl dl | awk '{print $4}' | grep -q $label
+    do_node $host lctl dl | awk '{print $4}' | grep -q -x $label
 }
 
 facets_up_on_host () {
@@ -1623,6 +1724,7 @@ wait_update () {
 
 wait_update_facet () {
     local facet=$1
+    shift
     wait_update  $(facet_active_host $facet) "$@"
 }
 
@@ -3259,7 +3361,7 @@ check_and_cleanup_lustre() {
     if is_mounted $MOUNT; then
         [ -n "$DIR" ] && rm -rf $DIR/[Rdfs][0-9]* ||
             error "remove sub-test dirs failed"
-        [ "$ENABLE_QUOTA" ] && restore_quota_type || true
+        [ "$ENABLE_QUOTA" ] && restore_quota || true
     fi
 
     if [ "$I_UMOUNTED2" = "yes" ]; then
