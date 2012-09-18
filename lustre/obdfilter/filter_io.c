@@ -665,6 +665,7 @@ static int filter_preprw_write(int cmd, struct obd_export *exp, struct obdo *oa,
         ENTRY;
         LASSERT(objcount == 1);
         LASSERT(obj->ioo_bufcnt > 0);
+	LASSERT(oa != NULL);
 
         rc = filter_auth_capa(exp, NULL, oa->o_seq, capa,
                               CAPA_OPC_OSS_WRITE);
@@ -689,26 +690,13 @@ static int filter_preprw_write(int cmd, struct obd_export *exp, struct obdo *oa,
 
         if (dentry->d_inode == NULL) {
                 if (exp->exp_obd->obd_recovering) {
-                        struct obdo *noa = oa;
-
-                        if (oa == NULL) {
-                                OBDO_ALLOC(noa);
-                                if (noa == NULL)
-                                        GOTO(recreate_out, rc = -ENOMEM);
-                                noa->o_id = obj->ioo_id;
-                                noa->o_valid = OBD_MD_FLID;
-                        }
-
-                        if (filter_create(NULL, exp, noa, NULL, oti) == 0) {
-                                f_dput(dentry);
-                                dentry = filter_fid2dentry(exp->exp_obd, NULL,
-                                                           obj->ioo_seq,
-                                                           obj->ioo_id);
-                        }
-                        if (oa == NULL)
-                                OBDO_FREE(noa);
+			if (filter_create(NULL, exp, oa, NULL, oti) == 0) {
+				f_dput(dentry);
+				dentry = filter_fid2dentry(exp->exp_obd, NULL,
+							   obj->ioo_seq,
+							   obj->ioo_id);
+			}
                 }
-    recreate_out:
                 if (IS_ERR(dentry) || dentry->d_inode == NULL) {
                         CERROR("%s: BRW to missing obj "LPU64"/"LPU64":rc %d\n",
                                exp->exp_obd->obd_name,
@@ -749,7 +737,6 @@ static int filter_preprw_write(int cmd, struct obd_export *exp, struct obdo *oa,
          * already exist so we can store the reservation handle there. */
         fmd = filter_fmd_find(exp, obj->ioo_id, obj->ioo_seq);
 
-	LASSERT(oa != NULL);
 retry:
 	cfs_spin_lock(&obd->obd_osfs_lock);
 	if (retries == 0)

@@ -1529,11 +1529,10 @@ static int echo_create_md_object(const struct lu_env *env,
 	int			 cookie_size = 0;
         int                      i;
 
-        parent = lu_object_locate(ec_parent->lo_header, ld->ld_type);
         if (ec_parent == NULL) {
-                lu_object_put(env, ec_parent);
-                RETURN(PTR_ERR(parent));
+		return -1;
         }
+	parent = lu_object_locate(ec_parent->lo_header, ld->ld_type);
 
         memset(ma, 0, sizeof(*ma));
         memset(spec, 0, sizeof(*spec));
@@ -1630,11 +1629,10 @@ static int echo_setattr_object(const struct lu_env *env,
         int                      rc = 0;
         int                      i;
 
-        parent = lu_object_locate(ec_parent->lo_header, ld->ld_type);
         if (ec_parent == NULL) {
-                lu_object_put(env, ec_parent);
-                return PTR_ERR(parent);
+		return -1;
         }
+	parent = lu_object_locate(ec_parent->lo_header, ld->ld_type);
 
         buf->lb_buf = info->eti_xattr_buf;
         buf->lb_len = sizeof(info->eti_xattr_buf);
@@ -1694,11 +1692,10 @@ static int echo_getattr_object(const struct lu_env *env,
 	int			 cookie_size = 0;
         int                      i;
 
-        parent = lu_object_locate(ec_parent->lo_header, ld->ld_type);
         if (ec_parent == NULL) {
-                lu_object_put(env, ec_parent);
-                return PTR_ERR(parent);
+		return -1;
         }
+	parent = lu_object_locate(ec_parent->lo_header, ld->ld_type);
 
         memset(ma, 0, sizeof(*ma));
 	rc = echo_set_lmm_size(env, ld, ma, &lmm_size, &cookie_size);
@@ -1766,11 +1763,10 @@ static int echo_lookup_object(const struct lu_env *env,
         int                      rc = 0;
         int                      i;
 
-        parent = lu_object_locate(ec_parent->lo_header, ld->ld_type);
         if (ec_parent == NULL) {
-                lu_object_put(env, ec_parent);
-                return PTR_ERR(parent);
+		return -1;
         }
+	parent = lu_object_locate(ec_parent->lo_header, ld->ld_type);
 
         /*prepare the requests*/
         for (i = 0; i < count; i++) {

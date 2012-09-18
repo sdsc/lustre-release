@@ -244,13 +244,15 @@ static int ofd_obd_reconnect(const struct lu_env *env, struct obd_export *exp,
 			     struct obd_device *obd, struct obd_uuid *cluuid,
 			     struct obd_connect_data *data, void *localdata)
 {
-	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
+	struct ofd_device	*ofd;
 	int			 rc;
 
 	ENTRY;
 
 	if (exp == NULL || obd == NULL || cluuid == NULL)
 		RETURN(-EINVAL);
+
+	ofd = ofd_dev(obd->obd_lu_dev);
 
 	rc = lu_env_refill((struct lu_env *)env);
 	if (rc != 0) {
@@ -483,7 +485,7 @@ static int ofd_set_info_async(const struct lu_env *env, struct obd_export *exp,
 			      __u32 keylen, void *key, __u32 vallen, void *val,
 			      struct ptlrpc_request_set *set)
 {
-	struct ofd_device	*ofd = ofd_exp(exp);
+	struct ofd_device	*ofd;
 	int			 rc = 0;
 
 	ENTRY;
@@ -492,6 +494,8 @@ static int ofd_set_info_async(const struct lu_env *env, struct obd_export *exp,
 		CDEBUG(D_IOCTL, "invalid export %p\n", exp);
 		RETURN(-EINVAL);
 	}
+
+	ofd = ofd_exp(exp);
 
 	if (KEY_IS(KEY_CAPA_KEY)) {
 		rc = ofd_update_capa_key(ofd, val);
@@ -520,7 +524,7 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 			__u32 keylen, void *key, __u32 *vallen, void *val,
 			struct lov_stripe_md *lsm)
 {
-	struct ofd_device	*ofd = ofd_exp(exp);
+	struct ofd_device	*ofd;
 	int			 rc = 0;
 
 	ENTRY;
@@ -529,6 +533,8 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 		CDEBUG(D_IOCTL, "invalid client export %p\n", exp);
 		RETURN(-EINVAL);
 	}
+
+	ofd = ofd_exp(exp);
 
 	if (KEY_IS(KEY_BLOCKSIZE)) {
 		__u32 *blocksize = val;

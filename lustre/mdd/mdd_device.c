@@ -1059,12 +1059,14 @@ static int mdd_recovery_complete(const struct lu_env *env,
                                  struct lu_device *d)
 {
         struct mdd_device *mdd = lu2mdd_dev(d);
-        struct lu_device *next = &mdd->mdd_child->dd_lu_dev;
-        struct obd_device *obd = mdd2obd_dev(mdd);
+	struct lu_device *next;
+	struct obd_device *obd;
         int rc;
         ENTRY;
 
         LASSERT(mdd != NULL);
+	next = &mdd->mdd_child->dd_lu_dev;
+	obd = mdd2obd_dev(mdd);
         LASSERT(obd != NULL);
 #if 0
         /* XXX: Do we need this in new stack? */
