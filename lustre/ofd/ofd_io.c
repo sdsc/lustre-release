@@ -214,6 +214,8 @@ int ofd_preprw(const struct lu_env* env, int cmd, struct obd_export *exp,
 	struct ofd_thread_info	*info;
 	int			 rc = 0;
 
+	LASSERT(oa != NULL);
+
 	if (OBD_FAIL_CHECK(OBD_FAIL_OST_ENOENT) &&
 	    ofd->ofd_destroys_in_progress == 0) {
 		/* don't fail lookups for orphan recovery, it causes
@@ -232,7 +234,6 @@ int ofd_preprw(const struct lu_env* env, int cmd, struct obd_export *exp,
 		rc = ofd_auth_capa(exp, &info->fti_fid, oa->o_seq,
 				   capa, CAPA_OPC_OSS_WRITE);
 		if (rc == 0) {
-			LASSERT(oa != NULL);
 			la_from_obdo(&info->fti_attr, oa, OBD_MD_FLGETATTR);
 			rc = ofd_preprw_write(env, exp, ofd, &info->fti_fid,
 					      &info->fti_attr, oa, objcount,
