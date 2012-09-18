@@ -7799,6 +7799,9 @@ test_153() {
 run_test 153 "test if fdatasync does not crash ======================="
 
 test_154() {
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
+		{ skip "Need MDS version at least 2.3.0"; return 0; }
+
 	cp /etc/hosts $DIR/$tfile
 
 	fid=$($LFS path2fid $DIR/$tfile)
