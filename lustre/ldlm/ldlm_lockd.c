@@ -1021,6 +1021,8 @@ int ldlm_server_glimpse_ast(struct ldlm_lock *lock, void *data)
         ENTRY;
 
         LASSERT(lock != NULL);
+	LASSERT(lock->l_export != NULL);
+	LASSERT(lock->l_resource != NULL);
 
 	if (arg->gl_desc != NULL)
 		/* There is a glimpse descriptor to pack */
