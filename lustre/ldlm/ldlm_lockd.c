@@ -1015,6 +1015,8 @@ int ldlm_server_glimpse_ast(struct ldlm_lock *lock, void *data)
         ENTRY;
 
         LASSERT(lock != NULL);
+	LASSERT(lock->l_export != NULL);
+	LASSERT(lock->l_resource != NULL);
 
         req = ptlrpc_request_alloc_pack(lock->l_export->exp_imp_reverse,
                                         &RQF_LDLM_GL_CALLBACK,
@@ -2290,6 +2292,8 @@ int ldlm_revoke_lock_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
         cfs_list_t         *rpc_list = data;
         struct ldlm_lock   *lock = cfs_hash_object(hs, hnode);
 
+	LASSERT(lock->l_resource);
+
         lock_res_and_lock(lock);
 
         if (lock->l_req_mode != lock->l_granted_mode) {
@@ -2297,7 +2301,6 @@ int ldlm_revoke_lock_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
                 return 0;
         }
 
-        LASSERT(lock->l_resource);
         if (lock->l_resource->lr_type != LDLM_IBITS &&
             lock->l_resource->lr_type != LDLM_PLAIN) {
                 unlock_res_and_lock(lock);

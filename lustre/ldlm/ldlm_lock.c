@@ -550,9 +550,9 @@ struct ldlm_lock *__ldlm_handle2lock(const struct lustre_handle *handle,
                 RETURN(lock);
         }
 
-        lock_res_and_lock(lock);
+	LASSERT(lock->l_resource != NULL);
 
-        LASSERT(lock->l_resource != NULL);
+	lock_res_and_lock(lock);
 
         lu_ref_add_atomic(&lock->l_reference, "handle", cfs_current());
         if (unlikely(lock->l_destroyed)) {

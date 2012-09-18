@@ -1352,7 +1352,7 @@ static int mdd_changelog_data_store(const struct lu_env     *env,
                                     struct mdd_object       *mdd_obj,
                                     struct thandle          *handle)
 {
-        const struct lu_fid *tfid = mdo2fid(mdd_obj);
+	const struct lu_fid *tfid;
         struct llog_changelog_rec *rec;
         struct thandle *th = NULL;
         struct lu_buf *buf;
@@ -1367,6 +1367,8 @@ static int mdd_changelog_data_store(const struct lu_env     *env,
 
         LASSERT(mdd_obj != NULL);
         LASSERT(handle != NULL);
+
+	tfid = mdo2fid(mdd_obj);
 
         if ((type >= CL_MTIME) && (type <= CL_ATIME) &&
             cfs_time_before_64(mdd->mdd_cl.mc_starttime, mdd_obj->mod_cltime)) {
