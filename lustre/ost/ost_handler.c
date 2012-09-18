@@ -2113,6 +2113,8 @@ int ost_handle(struct ptlrpc_request *req)
         struct obd_device *obd = NULL;
         ENTRY;
 
+	LASSERT(req != NULL);
+
         /* OST module is kept between remounts, but the last reference
          * to specific module (say, osd or ofd) kills all related keys
          * from the environment. so we have to refill it until the root
