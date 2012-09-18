@@ -2001,7 +2001,7 @@ static int lmd_parse_mgs(struct lustre_mount_data *lmd, char **ptr)
 	int   oldlen = 0;
 
 	/* Find end of nidlist */
-	while (class_parse_nid(tail, &nid, &tail) == 0) {}
+	while (class_parse_nid_quiet(tail, &nid, &tail) == 0) {}
 	length = tail - *ptr;
 	if (length == 0) {
 		LCONSOLE_ERROR_MSG(0x159, "Can't parse NID '%s'\n", *ptr);
