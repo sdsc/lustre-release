@@ -1018,10 +1018,8 @@ int dquot_create_oqaq(struct lustre_quota_ctxt *qctxt,
         __u64 bunit_curr_o, iunit_curr_o;
         unsigned long shrink_qunit_limit = qctxt->lqc_cqs_boundary_factor;
         unsigned long cqs_factor = qctxt->lqc_cqs_qs_factor;
-        __u64 blimit = dquot->dq_dqb.dqb_bhardlimit ?
-                dquot->dq_dqb.dqb_bhardlimit : dquot->dq_dqb.dqb_bsoftlimit;
-        __u64 ilimit = dquot->dq_dqb.dqb_ihardlimit ?
-                dquot->dq_dqb.dqb_ihardlimit : dquot->dq_dqb.dqb_isoftlimit;
+	__u64 blimit;
+	__u64 ilimit;
         int rc = 0;
         ENTRY;
 
@@ -1030,6 +1028,11 @@ int dquot_create_oqaq(struct lustre_quota_ctxt *qctxt,
         LASSERT_MUTEX_LOCKED(&dquot->dq_mutex);
         LASSERT(oqaq->qaq_iunit_sz);
         LASSERT(oqaq->qaq_bunit_sz);
+
+	blimit = dquot->dq_dqb.dqb_bhardlimit ?
+		dquot->dq_dqb.dqb_bhardlimit : dquot->dq_dqb.dqb_bsoftlimit;
+	ilimit = dquot->dq_dqb.dqb_ihardlimit ?
+		dquot->dq_dqb.dqb_ihardlimit : dquot->dq_dqb.dqb_isoftlimit;
 
         /* don't change qunit size */
         if (!qctxt->lqc_switch_qs)
