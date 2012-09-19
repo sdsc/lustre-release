@@ -72,6 +72,8 @@ int mds_quota_ctl(struct obd_device *obd, struct obd_export *unused,
         int rc = 0;
         ENTRY;
 
+	RETURN(-EFAULT);
+
         cfs_gettimeofday(&work_start);
         switch (oqctl->qc_cmd) {
         case Q_QUOTAON:
