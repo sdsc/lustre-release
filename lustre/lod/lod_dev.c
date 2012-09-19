@@ -48,6 +48,9 @@
 
 #include "lod_internal.h"
 
+extern struct lu_object_operations lod_lu_obj_ops;
+extern struct dt_object_operations lod_obj_ops;
+
 /* Slab for OSD object allocation */
 cfs_mem_cache_t *lod_object_kmem;
 
@@ -61,6 +64,28 @@ static struct lu_kmem_descr lod_caches[] = {
 		.ckd_cache = NULL
 	}
 };
+
+static struct lu_device *lod_device_fini(const struct lu_env *env,
+					 struct lu_device *d);
+
+struct lu_object *lod_object_alloc(const struct lu_env *env,
+				   const struct lu_object_header *hdr,
+				   struct lu_device *dev)
+{
+	struct lu_object  *lu_obj;
+	struct lod_object *lo;
+
+	OBD_SLAB_ALLOC_PTR_GFP(lo, lod_object_kmem, CFS_ALLOC_IO);
+	if (lo == NULL)
+		return NULL;
+
+	lu_obj = lod2lu_obj(lo);
+	dt_object_init(&lo->ldo_obj, NULL, dev);
+	lo->ldo_obj.do_ops = &lod_obj_ops;
+	lu_obj->lo_ops = &lod_lu_obj_ops;
+
+	return lu_obj;
+}
 
 static int lod_process_config(const struct lu_env *env,
 			      struct lu_device *dev,
@@ -87,13 +112,21 @@ static int lod_process_config(const struct lu_env *env,
 		if (sscanf(lustre_cfg_buf(lcfg, 3), "%d", &gen) != 1)
 			GOTO(out, rc = -EINVAL);
 
-		rc = -EINVAL;
+		if (lcfg->lcfg_command == LCFG_LOV_ADD_OBD)
+			rc = lod_add_device(env, lod, arg1, index, gen, 1);
+		else if (lcfg->lcfg_command == LCFG_LOV_ADD_INA)
+			rc = lod_add_device(env, lod, arg1, index, gen, 0);
+		else
+			rc = lod_del_device(env, lod, arg1, index, gen);
+
 		break;
 	}
 
 	case LCFG_PARAM: {
 		struct lprocfs_static_vars  v = { 0 };
 		struct obd_device	  *obd = lod2obd(lod);
+
+		lprocfs_lod_init_vars(&v);
 
 		rc = class_process_proc_param(PARAM_LOV, v.obd_vars, lcfg, obd);
 		if (rc > 0)
@@ -126,6 +159,10 @@ static int lod_process_config(const struct lu_env *env,
 		if (rc)
 			CERROR("%s: can't process %u: %d\n",
 			       lod2obd(lod)->obd_name, lcfg->lcfg_command, rc);
+
+		rc = obd_disconnect(lod->lod_child_exp);
+		if (rc)
+			CERROR("error in disconnect from storage: %d\n", rc);
 		break;
 
 	default:
@@ -168,9 +205,24 @@ static int lod_recovery_complete(const struct lu_env *env,
 	RETURN(rc);
 }
 
+static int lod_prepare(const struct lu_env *env, struct lu_device *pdev,
+		       struct lu_device *cdev)
+{
+	struct lod_device   *lod = lu2lod_dev(cdev);
+	struct lu_device    *next = &lod->lod_child->dd_lu_dev;
+	int		     rc;
+	ENTRY;
+
+	rc = next->ld_ops->ldo_prepare(env, pdev, next);
+
+	RETURN(rc);
+}
+
 const struct lu_device_operations lod_lu_ops = {
+	.ldo_object_alloc	= lod_object_alloc,
 	.ldo_process_config	= lod_process_config,
 	.ldo_recovery_complete	= lod_recovery_complete,
+	.ldo_prepare		= lod_prepare,
 };
 
 static int lod_root_get(const struct lu_env *env,
@@ -366,6 +418,8 @@ static int lod_init0(const struct lu_env *env, struct lod_device *lod,
 		RETURN(-ENODEV);
 	}
 
+	obd->obd_lu_dev = &lod->lod_dt_dev.dd_lu_dev;
+	lod->lod_dt_dev.dd_lu_dev.ld_obd = obd;
 	lod->lod_dt_dev.dd_lu_dev.ld_ops = &lod_lu_ops;
 	lod->lod_dt_dev.dd_ops = &lod_dt_ops;
 
@@ -375,6 +429,11 @@ static int lod_init0(const struct lu_env *env, struct lod_device *lod,
 
 	dt_conf_get(env, &lod->lod_dt_dev, &ddp);
 	lod->lod_osd_max_easize = ddp.ddp_max_ea_size;
+
+	/* setup obd to be used with old lov code */
+	rc = lod_pools_init(lod, cfg);
+	if (rc)
+		GOTO(out_disconnect, rc);
 
 	/* for compatibility we link old procfs's OSC entries to osp ones */
 	lov_proc_dir = lprocfs_srch(proc_lustre_root, "lov");
@@ -400,6 +459,7 @@ static int lod_init0(const struct lu_env *env, struct lod_device *lod,
 
 	RETURN(0);
 
+out_disconnect:
 	obd_disconnect(lod->lod_child_exp);
 	RETURN(rc);
 }
@@ -446,15 +506,12 @@ static struct lu_device *lod_device_fini(const struct lu_env *env,
 					 struct lu_device *d)
 {
 	struct lod_device *lod = lu2lod_dev(d);
-	int		   rc;
 	ENTRY;
 
 	if (lod->lod_symlink)
 		lprocfs_remove(&lod->lod_symlink);
 
-	rc = obd_disconnect(lod->lod_child_exp);
-	if (rc)
-		CERROR("error in disconnect from storage: %d\n", rc);
+	lod_pools_fini(lod);
 
 	RETURN(NULL);
 }
@@ -575,7 +632,7 @@ static int lod_obd_health_check(const struct lu_env *env,
 
 	LASSERT(d);
 	lod_getref(d);
-	cfs_foreach_bit(d->lod_ost_bitmap, i) {
+	lod_foreach_ost(d, i) {
 		ost = OST_TGT(d, i);
 		LASSERT(ost && ost->ltd_ost);
 		rc = obd_health_check(env, ost->ltd_exp->exp_obd);
@@ -592,6 +649,10 @@ static struct obd_ops lod_obd_device_ops = {
 	.o_connect      = lod_obd_connect,
 	.o_disconnect   = lod_obd_disconnect,
 	.o_health_check = lod_obd_health_check,
+	.o_pool_new     = lod_pool_new,
+	.o_pool_rem     = lod_pool_remove,
+	.o_pool_add     = lod_pool_add,
+	.o_pool_del     = lod_pool_del,
 };
 
 static int __init lod_mod_init(void)
@@ -603,6 +664,8 @@ static int __init lod_mod_init(void)
 	rc = lu_kmem_init(lod_caches);
 	if (rc)
 		return rc;
+
+	lprocfs_lod_init_vars(&lvars);
 
 	rc = class_register_type(&lod_obd_device_ops, NULL, lvars.module_vars,
 				 LUSTRE_LOD_NAME, &lod_device_type);
