@@ -835,33 +835,8 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
         struct mdd_device *mdd = mdo2mdd(src_obj);
         struct dynlock_handle *dlh;
         struct thandle *handle;
-#ifdef HAVE_QUOTA_SUPPORT
-        struct obd_device *obd = mdd->mdd_obd_dev;
-        struct obd_export *exp = md_quota(env)->mq_exp;
-        struct mds_obd *mds = &obd->u.mds;
-        unsigned int qids[MAXQUOTAS] = { 0, 0 };
-        int quota_opc = 0, rec_pending[MAXQUOTAS] = { 0, 0 };
-#endif
         int rc;
         ENTRY;
-
-#ifdef HAVE_QUOTA_SUPPORT
-        if (mds->mds_quota) {
-                struct lu_attr *la_tmp = &mdd_env_info(env)->mti_la;
-
-                rc = mdd_la_get(env, mdd_tobj, la_tmp, BYPASS_CAPA);
-                if (!rc) {
-                        void *data = NULL;
-                        mdd_data_get(env, mdd_tobj, &data);
-                        quota_opc = FSFILT_OP_LINK;
-                        mdd_quota_wrapper(la_tmp, qids);
-                        /* get block quota for parent */
-                        lquota_chkquota(mds_quota_interface_ref, obd, exp,
-                                        qids, rec_pending, 1, NULL,
-                                        LQUOTA_FLAGS_BLK, data, 1);
-                }
-        }
-#endif
 
         handle = mdd_trans_create(env, mdd);
         if (IS_ERR(handle))
@@ -923,16 +898,6 @@ out_trans:
 stop:
         mdd_trans_stop(env, mdd, rc, handle);
 out_pending:
-#ifdef HAVE_QUOTA_SUPPORT
-        if (quota_opc) {
-                lquota_pending_commit(mds_quota_interface_ref, obd,
-                                      qids, rec_pending, 1);
-                /* Trigger dqacq for the parent owner. If failed,
-                 * the next call for lquota_chkquota will process it. */
-                lquota_adjust(mds_quota_interface_ref, obd, 0, qids, rc,
-                              quota_opc);
-        }
-#endif
         return rc;
 }
 
@@ -947,7 +912,7 @@ int mdd_declare_finish_unlink(const struct lu_env *env,
         if (rc)
                 return rc;
 
-        return mdd_declare_object_kill(env, obj, ma, handle);
+	return mdo_declare_destroy(env, obj, handle);
 }
 
 /* caller should take a lock before calling */
@@ -956,7 +921,6 @@ int mdd_finish_unlink(const struct lu_env *env,
                       struct thandle *th)
 {
 	int rc = 0;
-        int reset = 1;
         int is_dir = S_ISDIR(ma->ma_attr.la_mode);
         ENTRY;
 
@@ -980,13 +944,9 @@ int mdd_finish_unlink(const struct lu_env *env,
                                         PFID(mdd_object_fid(obj)),
                                         obj->mod_count);
                 } else {
-                        rc = mdd_object_kill(env, obj, ma, th);
-                        if (rc == 0)
-                                reset = 0;
+			rc = mdo_destroy(env, obj, th);
                 }
         }
-        if (reset)
-                ma->ma_valid &= ~(MA_LOV | MA_COOKIE);
 
         RETURN(rc);
 }
@@ -1062,13 +1022,6 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
         struct mdd_device *mdd = mdo2mdd(pobj);
         struct dynlock_handle *dlh;
         struct thandle    *handle;
-#ifdef HAVE_QUOTA_SUPPORT
-        struct obd_device *obd = mdd->mdd_obd_dev;
-        struct mds_obd *mds = &obd->u.mds;
-        unsigned int qcids[MAXQUOTAS] = { 0, 0 };
-        unsigned int qpids[MAXQUOTAS] = { 0, 0 };
-        int quota_opc = 0;
-#endif
 	int rc, is_dir;
         ENTRY;
 
@@ -1153,23 +1106,6 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 		rc = mdd_la_get(env, mdd_cobj, cattr,
 				mdd_object_capa(env, mdd_cobj));
 
-#ifdef HAVE_QUOTA_SUPPORT
-        if (mds->mds_quota && ma->ma_valid & MA_INODE &&
-            ma->ma_attr.la_nlink == 0) {
-                struct lu_attr *la_tmp = &mdd_env_info(env)->mti_la;
-
-                rc = mdd_la_get(env, mdd_pobj, la_tmp, BYPASS_CAPA);
-                if (!rc) {
-                        mdd_quota_wrapper(la_tmp, qpids);
-                        if (mdd_cobj->mod_count == 0) {
-                                quota_opc = FSFILT_OP_UNLINK;
-                                mdd_quota_wrapper(&ma->ma_attr, qcids);
-                        } else {
-                                quota_opc = FSFILT_OP_UNLINK_PARTIAL_PARENT;
-                        }
-                }
-        }
-#endif
         if (!is_dir)
                 /* old files may not have link ea; ignore errors */
                 mdd_links_rename(env, mdd_cobj, mdo2fid(mdd_pobj),
@@ -1199,23 +1135,7 @@ cleanup:
 
 stop:
         mdd_trans_stop(env, mdd, rc, handle);
-#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 3, 55, 0)
-	if (rc == 0 && ma->ma_valid & MA_COOKIE && ma->ma_valid & MA_LOV &&
-	    ma->ma_valid & MA_FLAGS && ma->ma_attr_flags & MDS_UNLINK_DESTROY)
-		/* Since echo client is incapable of destorying ost object,
-		 * it will destory the object here. */
-		rc = mdd_lovobj_unlink(env, mdd, mdd_cobj, la, ma, 1);
-#else
-#warning "please remove this after 2.4 (LOD/OSP)."
-#endif
 
-#ifdef HAVE_QUOTA_SUPPORT
-        if (quota_opc)
-                /* Trigger dqrel on the owner of child and parent. If failed,
-                 * the next call for lquota_chkquota will process it. */
-                lquota_adjust(mds_quota_interface_ref, obd, qcids, qpids, rc,
-                              quota_opc);
-#endif
         return rc;
 }
 
@@ -1235,27 +1155,6 @@ static int mdd_cd_sanity_check(const struct lu_env *env,
 
 }
 
-static int mdd_declare_create_data(const struct lu_env *env,
-                                   struct mdd_device *mdd,
-                                   struct mdd_object *obj,
-                                   int lmm_size,
-                                   struct thandle *handle)
-{
-        struct lu_buf *buf = &mdd_env_info(env)->mti_buf;
-        int            rc;
-
-        buf->lb_buf = NULL;
-        buf->lb_len = lmm_size;
-        rc = mdo_declare_xattr_set(env, obj, buf, XATTR_NAME_LOV,
-                                   0, handle);
-        if (rc)
-                return rc;
-
-        rc = mdd_declare_lov_objid_update(env, mdd, handle);
-
-        return rc;
-}
-
 static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
                            struct md_object *cobj, const struct md_op_spec *spec,
                            struct md_attr *ma)
@@ -1263,12 +1162,16 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
         struct mdd_device *mdd = mdo2mdd(cobj);
         struct mdd_object *mdd_pobj = md2mdd_obj(pobj);
         struct mdd_object *son = md2mdd_obj(cobj);
-        struct lov_mds_md *lmm = NULL;
-        int                lmm_size = 0;
         struct thandle    *handle;
-	struct lu_attr    *attr = &mdd_env_info(env)->mti_la_for_fix;
+	const struct lu_buf *buf;
+	struct lu_attr    *attr = &mdd_env_info(env)->mti_cattr;
         int                rc;
         ENTRY;
+
+	/* do not let users to create stripes via .lustre/
+	 * mdd_obf_setup() sets IMMUTE_OBJ on this directory */
+	if (pobj && mdd_pobj->mod_flags & IMMUTE_OBJ)
+		RETURN(-ENOENT);
 
         rc = mdd_cd_sanity_check(env, son);
         if (rc)
@@ -1276,12 +1179,13 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
 
         if (!md_should_create(spec->sp_cr_flags))
                 RETURN(0);
-        lmm_size = ma->ma_lmm_size;
 
-        rc = mdd_lov_create(env, mdd, mdd_pobj, son, &lmm, &lmm_size, spec, ma);
-        if (rc)
-                RETURN(rc);
-
+	/*
+	 * there are following use cases for this function:
+	 * 1) late striping - file was created with MDS_OPEN_DELAY_CREATE
+	 *    striping can be specified or not
+	 * 2) CMD?
+	 */
 	rc = mdd_la_get(env, son, attr, mdd_object_capa(env, son));
 	if (rc)
 		RETURN(rc);
@@ -1293,44 +1197,46 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
         if (IS_ERR(handle))
                 GOTO(out_free, rc = PTR_ERR(handle));
 
-        rc = mdd_declare_create_data(env, mdd, son, lmm_size, handle);
-        if (rc)
-                GOTO(stop, rc);
-
-        rc = mdd_trans_start(env, mdd, handle);
-        if (rc)
-                GOTO(stop, rc);
-
         /*
          * XXX: Setting the lov ea is not locked but setting the attr is locked?
          * Should this be fixed?
          */
+	CDEBUG(D_OTHER, "ea %p/%u, cr_flags %Lo, no_create %u\n",
+	       spec->u.sp_ea.eadata, spec->u.sp_ea.eadatalen,
+	       spec->sp_cr_flags, spec->no_create);
 
-        /* Replay creates has objects already */
-#if 0
-        if (spec->no_create) {
-                CDEBUG(D_INFO, "we already have lov ea\n");
-                rc = mdd_lov_set_md(env, mdd_pobj, son,
-                                    (struct lov_mds_md *)spec->u.sp_ea.eadata,
-                                    spec->u.sp_ea.eadatalen, handle, 0);
-        } else
-#endif
-                /* No need mdd_lsm_sanity_check here */
-                rc = mdd_lov_set_md(env, mdd_pobj, son, lmm,
-                                    lmm_size, handle, 0);
+	if (spec->no_create) {
+		/* replay case */
+		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
+					spec->u.sp_ea.eadatalen);
+	} else  if (!(spec->sp_cr_flags & MDS_OPEN_HAS_OBJS)) {
+		if (spec->sp_cr_flags & MDS_OPEN_HAS_EA) {
+			/* lfs setstripe */
+			buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
+						spec->u.sp_ea.eadatalen);
+		} else {
+			buf = &LU_BUF_NULL;
+		}
+	} else {
+		/* MDS_OPEN_HAS_OBJS is not used anymore ? */
+		LBUG();
+	}
 
-        /* update lov_objid data, must be before transaction stop! */
-        if (rc == 0)
-                mdd_lov_objid_update(mdd, lmm);
+	rc = dt_declare_xattr_set(env, mdd_object_child(son), buf,
+				  XATTR_NAME_LOV, 0, handle);
+	if (rc)
+		GOTO(stop, rc);
 
+	rc = mdd_trans_start(env, mdd, handle);
+	if (rc)
+		GOTO(stop, rc);
+
+	rc = dt_xattr_set(env, mdd_object_child(son), buf, XATTR_NAME_LOV,
+			  0, handle, mdd_object_capa(env, son));
 stop:
-        mdd_trans_stop(env, mdd, rc, handle);
+	mdd_trans_stop(env, mdd, rc, handle);
 out_free:
-        /* Finish mdd_lov_create() stuff. */
-        /* if no_create == 0 (not replay), we free lmm allocated by
-         * mdd_lov_create() */
-        mdd_lov_create_finish(env, mdd, lmm, lmm_size, spec);
-        RETURN(rc);
+	RETURN(rc);
 }
 
 /* Get fid from name and parent */
@@ -1525,13 +1431,12 @@ static int mdd_create_sanity_check(const struct lu_env *env,
 static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
 			      struct mdd_object *p, struct mdd_object *c,
 			      const struct lu_name *name,
-			      struct lu_attr *attr, int lmm_size,
+			      struct lu_attr *attr,
 			      int got_def_acl,
 			      struct thandle *handle,
 			      const struct md_op_spec *spec)
 {
 	struct mdd_thread_info *info = mdd_env_info(env);
-        struct lu_buf *buf = &mdd_env_info(env)->mti_buf;
         int            rc = 0;
 
 	rc = mdd_declare_object_create_internal(env, p, c, attr, handle, spec);
@@ -1578,10 +1483,17 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
         if (rc)
                 GOTO(out, rc);
 
-        rc = mdo_declare_xattr_set(env, c, buf, XATTR_NAME_LOV,
-                                   0, handle);
-        if (rc)
-                GOTO(out, rc);
+	/* replay case, create LOV EA from client data */
+	if (spec->no_create || (spec->sp_cr_flags & MDS_OPEN_HAS_EA)) {
+		const struct lu_buf *buf;
+
+		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
+					spec->u.sp_ea.eadatalen);
+		rc = mdo_declare_xattr_set(env, c, buf, XATTR_NAME_LOV,
+					   0, handle);
+		if (rc)
+			GOTO(out, rc);
+	}
 
 	if (S_ISLNK(attr->la_mode)) {
                 rc = dt_declare_record_write(env, mdd_object_child(c),
@@ -1598,8 +1510,6 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
         rc = mdd_declare_changelog_store(env, mdd, name, handle);
         if (rc)
                 return rc;
-
-        rc = mdd_declare_lov_objid_update(env, mdd, handle);
 
 out:
         return rc;
@@ -1619,24 +1529,12 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
         struct mdd_object      *son = md2mdd_obj(child);
         struct mdd_device      *mdd = mdo2mdd(pobj);
         struct lu_attr         *attr = &ma->ma_attr;
-        struct lov_mds_md      *lmm = NULL;
         struct thandle         *handle;
 	struct lu_attr         *pattr = &info->mti_pattr;
         struct dynlock_handle  *dlh;
         const char             *name = lname->ln_name;
-        int rc, created = 0, initialized = 0, inserted = 0, lmm_size = 0;
+	int rc, created = 0, initialized = 0, inserted = 0;
         int got_def_acl = 0;
-#ifdef HAVE_QUOTA_SUPPORT
-        struct obd_device *obd = mdd->mdd_obd_dev;
-        struct obd_export *exp = md_quota(env)->mq_exp;
-        struct mds_obd *mds = &obd->u.mds;
-        unsigned int qcids[MAXQUOTAS] = { 0, 0 };
-        unsigned int qpids[MAXQUOTAS] = { 0, 0 };
-        int quota_opc = 0, block_count = 0;
-        int inode_pending[MAXQUOTAS] = { 0, 0 };
-        int block_pending[MAXQUOTAS] = { 0, 0 };
-        int parent_pending[MAXQUOTAS] = { 0, 0 };
-#endif
         ENTRY;
 
         /*
@@ -1684,59 +1582,8 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
         if (rc)
                 RETURN(rc);
 
-#ifdef HAVE_QUOTA_SUPPORT
-        if (mds->mds_quota) {
-		int same = 0;
-
-		quota_opc = FSFILT_OP_CREATE;
-		mdd_quota_wrapper(attr, qcids);
-		mdd_quota_wrapper(pattr, qpids);
-		/* get file quota for child */
-		lquota_chkquota(mds_quota_interface_ref, obd, exp,
-				qcids, inode_pending, 1, NULL, 0, NULL,
-				0);
-		switch (attr->la_mode & S_IFMT) {
-		case S_IFLNK:
-		case S_IFDIR:
-			block_count = 2;
-			break;
-		case S_IFREG:
-			block_count = 1;
-			break;
-		}
-		if (qcids[USRQUOTA] == qpids[USRQUOTA] &&
-		    qcids[GRPQUOTA] == qpids[GRPQUOTA]) {
-			block_count += 1;
-			same = 1;
-		}
-		/* get block quota for child and parent */
-		if (block_count)
-			lquota_chkquota(mds_quota_interface_ref, obd,
-					exp, qcids, block_pending,
-					block_count, NULL,
-					LQUOTA_FLAGS_BLK, NULL, 0);
-		if (!same)
-			lquota_chkquota(mds_quota_interface_ref, obd,
-					exp, qpids, parent_pending, 1,
-					NULL, LQUOTA_FLAGS_BLK, NULL,
-					0);
-        }
-#endif
-
         if (OBD_FAIL_CHECK(OBD_FAIL_MDS_DQACQ_NET))
-                GOTO(out_pending, rc = -EINPROGRESS);
-
-        /*
-         * No RPC inside the transaction, so OST objects should be created at
-         * first.
-         */
-        if (S_ISREG(attr->la_mode)) {
-                lmm_size = ma->ma_lmm_size;
-                rc = mdd_lov_create(env, mdd, mdd_pobj, son, &lmm, &lmm_size,
-                                    spec, ma);
-                if (rc)
-                        GOTO(out_pending, rc);
-        }
+		GOTO(out_free, rc = -EINPROGRESS);
 
         if (!S_ISLNK(attr->la_mode)) {
 		struct lu_buf *acl_buf;
@@ -1760,7 +1607,7 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
                 GOTO(out_free, rc = PTR_ERR(handle));
 
 	rc = mdd_declare_create(env, mdd, mdd_pobj, son, lname, attr,
-				got_def_acl, lmm_size, handle, spec);
+				got_def_acl, handle, spec);
         if (rc)
                 GOTO(out_stop, rc);
 
@@ -1796,6 +1643,22 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 
         rc = mdd_object_initialize(env, mdo2fid(mdd_pobj), lname,
 				   son, attr, handle, spec);
+
+	/*
+	 * in case of replay we just set LOVEA provided by the client
+	 * XXX: I think it would be interesting to try "old" way where
+	 *      MDT calls this xattr_set(LOV) in a different transaction.
+	 *      probably this way we code can be made better.
+	 */
+	if (rc == 0 &&
+			(spec->no_create || (spec->sp_cr_flags & MDS_OPEN_HAS_EA))) {
+		const struct lu_buf *buf;
+
+		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
+				spec->u.sp_ea.eadatalen);
+		rc = mdo_xattr_set(env, son, buf, XATTR_NAME_LOV, 0, handle,
+				BYPASS_CAPA);
+	}
         mdd_write_unlock(env, son);
         if (rc)
                 /*
@@ -1813,13 +1676,6 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
                 GOTO(cleanup, rc);
 
         inserted = 1;
-
-        /* No need mdd_lsm_sanity_check here */
-        rc = mdd_lov_set_md(env, mdd_pobj, son, lmm, lmm_size, handle, 0);
-        if (rc) {
-                CERROR("error on stripe info copy %d \n", rc);
-                GOTO(cleanup, rc);
-        }
 
         if (S_ISLNK(attr->la_mode)) {
                 struct md_ucred  *uc = md_ucred(env);
@@ -1881,10 +1737,6 @@ cleanup:
 		mdd_write_unlock(env, son);
         }
 
-        /* update lov_objid data, must be before transaction stop! */
-        if (rc == 0)
-                mdd_lov_objid_update(mdd, lmm);
-
         mdd_pdo_write_unlock(env, mdd_pobj, dlh);
 out_trans:
         if (rc == 0)
@@ -1896,23 +1748,6 @@ out_trans:
 out_stop:
         mdd_trans_stop(env, mdd, rc, handle);
 out_free:
-        /* finish lov_create stuff, free all temporary data */
-        mdd_lov_create_finish(env, mdd, lmm, lmm_size, spec);
-out_pending:
-#ifdef HAVE_QUOTA_SUPPORT
-        if (quota_opc) {
-                lquota_pending_commit(mds_quota_interface_ref, obd, qcids,
-                                      inode_pending, 0);
-                lquota_pending_commit(mds_quota_interface_ref, obd, qcids,
-                                      block_pending, 1);
-                lquota_pending_commit(mds_quota_interface_ref, obd, qpids,
-                                      parent_pending, 1);
-                /* Trigger dqacq on the owner of child and parent. If failed,
-                 * the next call for lquota_chkquota will process it. */
-                lquota_adjust(mds_quota_interface_ref, obd, qcids, qpids, rc,
-                              quota_opc);
-        }
-#endif
         /* The child object shouldn't be cached anymore */
         if (rc)
                 cfs_set_bit(LU_OBJECT_HEARD_BANSHEE,
@@ -2139,48 +1974,11 @@ static int mdd_rename(const struct lu_env *env,
         int is_dir;
 	unsigned cl_flags = 0;
         int rc, rc2;
-
-#ifdef HAVE_QUOTA_SUPPORT
-        struct obd_device *obd = mdd->mdd_obd_dev;
-        struct obd_export *exp = md_quota(env)->mq_exp;
-        struct mds_obd *mds = &obd->u.mds;
-        unsigned int qspids[MAXQUOTAS] = { 0, 0 };
-        unsigned int qtcids[MAXQUOTAS] = { 0, 0 };
-        unsigned int qtpids[MAXQUOTAS] = { 0, 0 };
-        int quota_copc = 0, quota_popc = 0;
-        int rec_pending[MAXQUOTAS] = { 0, 0 };
-#endif
         ENTRY;
 
         if (tobj)
                 mdd_tobj = md2mdd_obj(tobj);
 
-#ifdef HAVE_QUOTA_SUPPORT
-        if (mds->mds_quota) {
-                struct lu_attr *la_tmp = &mdd_env_info(env)->mti_la;
-
-                rc = mdd_la_get(env, mdd_spobj, la_tmp, BYPASS_CAPA);
-                if (!rc) {
-                        mdd_quota_wrapper(la_tmp, qspids);
-                        if (!tobj) {
-                                rc = mdd_la_get(env, mdd_tpobj, la_tmp,
-                                                BYPASS_CAPA);
-                                if (!rc) {
-                                        void *data = NULL;
-                                        mdd_data_get(env, mdd_tpobj, &data);
-                                        quota_popc = FSFILT_OP_LINK;
-                                        mdd_quota_wrapper(la_tmp, qtpids);
-                                        /* get block quota for target parent */
-                                        lquota_chkquota(mds_quota_interface_ref,
-                                                        obd, exp, qtpids,
-                                                        rec_pending, 1, NULL,
-                                                        LQUOTA_FLAGS_BLK,
-                                                        data, 1);
-                                }
-                        }
-                }
-        }
-#endif
         mdd_sobj = mdd_object_find(env, mdd, lf);
 
         handle = mdd_trans_create(env, mdd);
@@ -2339,15 +2137,8 @@ static int mdd_rename(const struct lu_env *env,
 		ma->ma_attr = *tg_attr;
 		ma->ma_valid |= MA_INODE;
 
-		if (so_attr->la_nlink == 0) {
+		if (so_attr->la_nlink == 0)
 			cl_flags |= CLF_RENAME_LAST;
-#ifdef HAVE_QUOTA_SUPPORT
-			if (mds->mds_quota && mdd_tobj->mod_count == 0) {
-				quota_copc = FSFILT_OP_UNLINK_PARTIAL_CHILD;
-				mdd_quota_wrapper(&ma->ma_attr, qtcids);
-			}
-#endif
-		}
         }
 
         la->la_valid = LA_CTIME | LA_MTIME;
@@ -2435,27 +2226,6 @@ stop:
         if (mdd_sobj)
                 mdd_object_put(env, mdd_sobj);
 out_pending:
-#ifdef HAVE_QUOTA_SUPPORT
-        if (mds->mds_quota) {
-                if (quota_popc)
-                        lquota_pending_commit(mds_quota_interface_ref, obd,
-                                              qtpids, rec_pending, 1);
-
-                if (quota_copc) {
-                        /* Trigger dqrel on the source owner of parent.
-                         * If failed, the next call for lquota_chkquota will
-                         * process it. */
-                        lquota_adjust(mds_quota_interface_ref, obd, 0, qspids, rc,
-                                      FSFILT_OP_UNLINK_PARTIAL_PARENT);
-
-                        /* Trigger dqrel on the target owner of child.
-                         * If failed, the next call for lquota_chkquota
-                         * will process it. */
-                        lquota_adjust(mds_quota_interface_ref, obd, qtcids,
-                                      qtpids, rc, quota_copc);
-                }
-        }
-#endif
         return rc;
 }
 

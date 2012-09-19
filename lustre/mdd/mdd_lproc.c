@@ -55,12 +55,13 @@ static const char *mdd_counter_names[LPROC_MDD_NR] = {
 int mdd_procfs_init(struct mdd_device *mdd, const char *name)
 {
         struct lprocfs_static_vars lvars;
-        struct lu_device    *ld = &mdd->mdd_md_dev.md_lu_dev;
         struct obd_type     *type;
         int                  rc;
         ENTRY;
 
-        type = ld->ld_type->ldt_obd_type;
+	/* at the moment there is no linkage between lu_type
+	 * and obd_type, so we lookup obd_type this way */
+	type = class_search_type(LUSTRE_MDD_NAME);
 
         LASSERT(name != NULL);
         LASSERT(type != NULL);
@@ -249,23 +250,6 @@ static int lprocfs_rd_changelog_users(char *page, char **start, off_t off,
         return cucb.idx;
 }
 
-#ifdef HAVE_QUOTA_SUPPORT
-static int mdd_lprocfs_quota_rd_type(char *page, char **start, off_t off,
-                                     int count, int *eof, void *data)
-{
-        struct mdd_device *mdd = data;
-        return lprocfs_quota_rd_type(page, start, off, count, eof,
-                                     mdd->mdd_obd_dev);
-}
-
-static int mdd_lprocfs_quota_wr_type(struct file *file, const char *buffer,
-                                     unsigned long count, void *data)
-{
-        struct mdd_device *mdd = data;
-        return lprocfs_quota_wr_type(file, buffer, count, mdd->mdd_obd_dev);
-}
-#endif
-
 static int lprocfs_rd_sync_perm(char *page, char **start, off_t off,
                                 int count, int *eof, void *data)
 {
@@ -324,10 +308,6 @@ static struct lprocfs_vars lprocfs_mdd_obd_vars[] = {
         { "changelog_mask",  lprocfs_rd_changelog_mask,
                              lprocfs_wr_changelog_mask, 0 },
         { "changelog_users", lprocfs_rd_changelog_users, 0, 0},
-#ifdef HAVE_QUOTA_SUPPORT
-        { "quota_type",      mdd_lprocfs_quota_rd_type,
-                             mdd_lprocfs_quota_wr_type, 0 },
-#endif
         { "sync_permission", lprocfs_rd_sync_perm, lprocfs_wr_sync_perm, 0 },
 	{ "lfsck_speed_limit", lprocfs_rd_lfsck_speed_limit,
 			       lprocfs_wr_lfsck_speed_limit, 0 },

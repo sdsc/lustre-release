@@ -730,7 +730,6 @@ struct lov_tgt_desc {
 #define pool_tgt_count(_p)  _p->pool_obds.op_count
 #define pool_tgt_array(_p)  _p->pool_obds.op_array
 #define pool_tgt_rw_sem(_p) _p->pool_obds.op_rw_sem
-#define pool_tgt(_p, _i)    _p->pool_lov->lov_tgts[_p->pool_obds.op_array[_i]]
 
 struct pool_desc {
         char                  pool_name[LOV_MAXPOOLNAME + 1]; /* name of pool */
@@ -740,8 +739,8 @@ struct pool_desc {
         cfs_hlist_node_t      pool_hash;              /* access by poolname */
         cfs_list_t            pool_list;              /* serial access */
         cfs_proc_dir_entry_t *pool_proc_entry;        /* file in /proc */
-        struct lov_obd       *pool_lov;               /* lov obd to which this
-                                                         pool belong */
+	struct obd_device    *pool_lobd;	      /* obd of the lov/lod to which
+						       * this pool belongs */
 };
 
 struct lov_obd {
@@ -959,8 +958,6 @@ enum obd_notify_event {
         OBD_NOTIFY_SYNC,
         /* Configuration event */
         OBD_NOTIFY_CONFIG,
-        /* Trigger quota recovery */
-        OBD_NOTIFY_QUOTA,
         /* Administratively deactivate/activate event */
         OBD_NOTIFY_DEACTIVATE,
         OBD_NOTIFY_ACTIVATE
@@ -1471,11 +1468,6 @@ struct obd_ops {
                             struct obd_quotactl *);
         int (*o_quotactl)(struct obd_device *, struct obd_export *,
                           struct obd_quotactl *);
-        int (*o_quota_adjust_qunit)(struct obd_export *exp,
-                                    struct quota_adjust_qunit *oqaq,
-                                    struct lustre_quota_ctxt *qctxt,
-                                    struct ptlrpc_request_set *rqset);
-
 
         int (*o_ping)(const struct lu_env *, struct obd_export *exp);
 
@@ -1687,18 +1679,6 @@ static inline void obd_transno_commit_cb(struct obd_device *obd, __u64 transno,
         }
         if (transno > obd->obd_last_committed)
                 obd->obd_last_committed = transno;
-}
-
-static inline void init_obd_quota_ops(quota_interface_t *interface,
-                                      struct obd_ops *obd_ops)
-{
-        if (!interface)
-                return;
-
-        LASSERT(obd_ops);
-        obd_ops->o_quotacheck = QUOTA_OP(interface, check);
-        obd_ops->o_quotactl = QUOTA_OP(interface, ctl);
-        obd_ops->o_quota_adjust_qunit = QUOTA_OP(interface, adjust_qunit);
 }
 
 static inline struct lustre_capa *oinfo_capa(struct obd_info *oinfo)
