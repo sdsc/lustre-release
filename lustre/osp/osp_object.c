@@ -24,10 +24,8 @@
  * GPL HEADER END
  */
 /*
- * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright  2009 Sun Microsystems, Inc. All rights reserved
  * Use is subject to license terms.
- *
- * Copyright (c) 2011, 2012, Intel, Inc.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -37,8 +35,8 @@
  *
  * Lustre OST Proxy Device
  *
- * Author: Alex Zhuravlev <alexey.zhuravlev@intel.com>
- * Author: Mikhail Pershin <mike.tappro@intel.com>
+ * Author: Alex Zhuravlev <bzzz@sun.com>
+ * Author: Mikhail Pershin <tappro@whamcloud.com>
  */
 
 #ifndef EXPORT_SYMTAB
@@ -93,13 +91,20 @@ static int osp_declare_attr_set(const struct lu_env *env, struct dt_object *dt,
 	 *
 	 * 2) send synchronous truncate RPC with just assigned id
 	 */
-	LASSERT(attr != NULL);
+	if (attr == NULL)
+		RETURN(0);
+
 	if (attr->la_valid & LA_SIZE && attr->la_size > 0) {
 		LASSERT(!dt_object_exists(dt));
 		osp_object_assign_id(env, d, o);
 		rc = osp_object_truncate(env, dt, attr->la_size);
 		if (rc)
 			RETURN(rc);
+	}
+
+	if (o->opo_new) {
+		/* no need in logging for new objects being created */
+		RETURN(0);
 	}
 
 	if (!(attr->la_valid & (LA_UID | LA_GID)))
@@ -125,6 +130,15 @@ static int osp_attr_set(const struct lu_env *env, struct dt_object *dt,
 	/* we're interested in uid/gid changes only */
 	if (!(attr->la_valid & (LA_UID | LA_GID)))
 		RETURN(0);
+
+	/* new object, the very first ->attr_set()
+	 * initializing attributes needs no logging
+	 * all subsequent one are subject to the
+	 * logging and synchronization with OST */
+	if (o->opo_new) {
+		o->opo_new = 0;
+		RETURN(0);
+	}
 
 	/*
 	 * once transaction is committed put proper command on
@@ -252,6 +266,10 @@ static int osp_object_create(const struct lu_env *env, struct dt_object *dt,
 		}
 	}
 
+	/* new object, the very first ->attr_set()
+	 * initializing attributes needs no logging */
+	o->opo_new = 1;
+
 	osp_objid_buf_prep(osi, d, d->opd_index);
 	rc = dt_record_write(env, d->opd_last_used_file, &osi->osi_lb,
 			     &osi->osi_off, th);
@@ -305,23 +323,24 @@ struct dt_object_operations osp_obj_ops = {
 };
 
 static int osp_object_init(const struct lu_env *env, struct lu_object *o,
-			   const struct lu_object_conf *unused)
+                           const struct lu_object_conf *unused)
 {
-	struct osp_object *po = lu2osp_obj(o);
+        struct osp_object *po = lu2osp_obj(o);
 
-	po->opo_obj.do_ops = &osp_obj_ops;
+        po->opo_obj.do_ops = &osp_obj_ops;
 
-	return 0;
+        return 0;
 }
 
+extern cfs_mem_cache_t *osp_object_kmem;
 static void osp_object_free(const struct lu_env *env, struct lu_object *o)
 {
-	struct osp_object	*obj = lu2osp_obj(o);
-	struct lu_object_header	*h = o->lo_header;
+        struct osp_object *obj = lu2osp_obj(o);
+        struct lu_object_header *h = o->lo_header;
 
-	dt_object_fini(&obj->opo_obj);
-	lu_object_header_fini(h);
-	OBD_SLAB_FREE_PTR(obj, osp_object_kmem);
+        dt_object_fini(&obj->opo_obj);
+        lu_object_header_fini(h);
+        OBD_SLAB_FREE_PTR(obj, osp_object_kmem);
 }
 
 static void osp_object_release(const struct lu_env *env, struct lu_object *o)
@@ -348,22 +367,23 @@ static void osp_object_release(const struct lu_env *env, struct lu_object *o)
 }
 
 static int osp_object_print(const struct lu_env *env, void *cookie,
-			    lu_printer_t p, const struct lu_object *l)
+                             lu_printer_t p, const struct lu_object *l)
 {
-	const struct osp_object *o = lu2osp_obj((struct lu_object *)l);
+        const struct osp_object *o = lu2osp_obj((struct lu_object *) l);
 
-	return (*p)(env, cookie, LUSTRE_OSP_NAME"-object@%p", o);
+        return (*p)(env, cookie, LUSTRE_OSP_NAME"-object@%p", o);
 }
 
 static int osp_object_invariant(const struct lu_object *o)
 {
-	LBUG();
+        LBUG();
 }
 
 struct lu_object_operations osp_lu_obj_ops = {
-	.loo_object_init	= osp_object_init,
-	.loo_object_free	= osp_object_free,
-	.loo_object_release	= osp_object_release,
-	.loo_object_print	= osp_object_print,
-	.loo_object_invariant	= osp_object_invariant
+        .loo_object_init      = osp_object_init,
+        .loo_object_free      = osp_object_free,
+        .loo_object_release   = osp_object_release,
+        .loo_object_print     = osp_object_print,
+        .loo_object_invariant = osp_object_invariant
 };
+

@@ -74,6 +74,8 @@ int mdd_quota_cleanup(const struct lu_env *env, struct md_device *m)
         int rc1, rc2;
         ENTRY;
 
+	if (obd == NULL)
+		RETURN(0);
         rc1 = lquota_cleanup(mds_quota_interface_ref, obd);
         rc2 = lquota_fs_cleanup(mds_quota_interface_ref, obd);
         RETURN(rc1 ? : rc2);
@@ -86,6 +88,8 @@ int mdd_quota_recovery(const struct lu_env *env, struct md_device *m)
         int rc;
         ENTRY;
 
+	if (obd == NULL)
+		RETURN(0);
         rc = lquota_recovery(mds_quota_interface_ref, obd);
         RETURN(rc);
 }

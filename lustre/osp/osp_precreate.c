@@ -312,6 +312,56 @@ out_req:
 	RETURN(rc);
 }
 
+
+static int osp_get_lastid_from_ost(struct osp_device *d)
+{
+	struct ptlrpc_request	*req;
+	struct obd_import	*imp;
+	obd_id			*reply;
+	char			*tmp;
+	int			 rc;
+
+	imp = d->opd_obd->u.cli.cl_import;
+	LASSERT(imp);
+
+	req = ptlrpc_request_alloc(imp, &RQF_OST_GET_INFO_LAST_ID);
+	if (req == NULL)
+		RETURN(-ENOMEM);
+
+	req_capsule_set_size(&req->rq_pill, &RMF_SETINFO_KEY,
+			     RCL_CLIENT, sizeof(KEY_LAST_ID));
+	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_GET_INFO);
+	if (rc) {
+		ptlrpc_request_free(req);
+		RETURN(rc);
+	}
+
+	tmp = req_capsule_client_get(&req->rq_pill, &RMF_SETINFO_KEY);
+	memcpy(tmp, KEY_LAST_ID, sizeof(KEY_LAST_ID));
+
+	req->rq_no_delay = req->rq_no_resend = 1;
+	ptlrpc_request_set_replen(req);
+	rc = ptlrpc_queue_wait(req);
+	if (rc) {
+		/* bad-bad OST.. let sysadm sort this out */
+		ptlrpc_set_import_active(imp, 0);
+		GOTO(out, rc);
+	}
+
+	reply = req_capsule_server_get(&req->rq_pill, &RMF_OBD_ID);
+	if (reply == NULL)
+		GOTO(out, rc = -EPROTO);
+
+	d->opd_last_used_id = *reply;
+	CERROR("%s: got last_id %Lu from OST\n", d->opd_obd->obd_name,
+			(unsigned long long) d->opd_last_used_id);
+
+out:
+	ptlrpc_req_finished(req);
+	RETURN(rc);
+
+}
+
 /**
  * asks OST to clean precreate orphans
  * and gets next id for new objects
@@ -327,6 +377,16 @@ static int osp_precreate_cleanup_orphans(struct osp_device *d)
 
 	LASSERT(d->opd_recovery_completed);
 	LASSERT(d->opd_pre_reserved == 0);
+
+	CERROR("%s: going to cleanup orphans since "LPU64"\n",
+		d->opd_obd->obd_name, d->opd_last_used_id);
+
+	if (d->opd_last_used_id < 2) {
+		/* lastid looks strange... ask OST */
+		rc = osp_get_lastid_from_ost(d);
+		if (rc)
+			RETURN(rc);
+	}
 
 	imp = d->opd_obd->u.cli.cl_import;
 	LASSERT(imp);
@@ -358,8 +418,10 @@ static int osp_precreate_cleanup_orphans(struct osp_device *d)
 	req->rq_no_resend = req->rq_no_delay = 1;
 
 	rc = ptlrpc_queue_wait(req);
-	if (rc)
+	if (rc) {
+		ptlrpc_set_import_active(imp, 0);
 		GOTO(out_req, rc);
+	}
 
 	body = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
 	if (body == NULL)

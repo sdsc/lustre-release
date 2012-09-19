@@ -24,10 +24,8 @@
  * GPL HEADER END
  */
 /*
- * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright  2009 Sun Microsystems, Inc. All rights reserved
  * Use is subject to license terms.
- *
- * Copyright (c) 2011, 2012, Intel, Inc.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -35,7 +33,7 @@
  *
  * lustre/osp/osp_internal.h
  *
- * Author: Alex Zhuravlev <alexey.zhuravlev@intel.com>
+ * Author: Alex Zhuravlev <bzzz@sun.com>
  */
 
 #ifndef _OSP_INTERNAL_H
@@ -44,6 +42,8 @@
 #include <obd.h>
 #include <dt_object.h>
 #include <lustre_fid.h>
+
+struct osp_id_tracker;
 
 struct osp_device {
 	struct dt_device		 opd_dt_dev;
@@ -105,6 +105,40 @@ struct osp_device {
 	/* whether to grow precreation window next time or not */
 	int				 opd_pre_grow_slow;
 
+        /*
+         * OST synchronization
+         */
+        cfs_spinlock_t                  opd_syn_lock;
+        /* unique generation, to recognize where new records start in the llog */
+        struct llog_gen                 opd_syn_generation;
+        /* number of changes to sync, used to wake up sync thread */
+        unsigned long                   opd_syn_changes;
+        /* processing of changes from previous mount is done? */
+        int                             opd_syn_prev_done;
+        /* found records */
+        struct ptlrpc_thread            opd_syn_thread;
+        cfs_waitq_t                     opd_syn_waitq;
+        /* list of remotely committed rpc */
+        cfs_list_t                      opd_syn_committed_there;
+        /* number of changes being under sync */
+        int                             opd_syn_sync_in_progress;
+        /* number of RPCs in flight - flow control */
+        int                             opd_syn_rpc_in_flight;
+        int                             opd_syn_max_rpc_in_flight;
+        /* number of RPC in processing (including non-committed by OST) */
+        int                             opd_syn_rpc_in_progress;
+        int                             opd_syn_max_rpc_in_progress;
+        /* osd api's commit cb control structure */
+        struct dt_txn_callback          opd_syn_txn_cb;
+        /* last used change number -- semantically similar to transno */
+        unsigned long                   opd_syn_last_used_id;
+        /* last committed change number -- semantically similar to last_committed */
+        unsigned long                   opd_syn_last_committed_id;
+        /* last processed (taken from llog) id */
+        unsigned long                   opd_syn_last_processed_id;
+        struct osp_id_tracker          *opd_syn_tracker;
+        cfs_list_t                      opd_syn_ontrack;
+
 	/*
 	 * statfs related fields: OSP maintains it on its own
 	 */
@@ -118,16 +152,13 @@ struct osp_device {
 	cfs_proc_dir_entry_t		*opd_symlink;
 };
 
-extern cfs_mem_cache_t *osp_object_kmem;
-
 /* this is a top object */
 struct osp_object {
-	struct lu_object_header	 opo_header;
-	struct dt_object	 opo_obj;
-	int			 opo_reserved;
+        struct lu_object_header opo_header;
+        struct dt_object        opo_obj;
+	int                     opo_reserved:1,
+				opo_new:1;
 };
-
-extern struct lu_object_operations osp_lu_obj_ops;
 
 struct osp_thread_info {
 	struct lu_buf		 osi_lb;
@@ -136,99 +167,145 @@ struct osp_thread_info {
 	struct ost_id		 osi_oi;
 	obd_id			 osi_id;
 	loff_t			 osi_off;
+        union {
+                struct llog_rec_hdr       hdr;
+                struct llog_unlink64_rec  unlink;
+                struct llog_setattr64_rec setattr;
+                struct llog_gen_rec       gen;
+        } u;
+        struct llog_cookie   osi_cookie;
+        struct llog_catid    osi_cid;
 };
 
 static inline void osp_objid_buf_prep(struct osp_thread_info *osi,
-				      struct osp_device *d, int index)
+                                      struct osp_device *d, int index)
 {
-	osi->osi_lb.lb_buf = (void *)&d->opd_last_used_id;
-	osi->osi_lb.lb_len = sizeof(d->opd_last_used_id);
-	osi->osi_off = sizeof(d->opd_last_used_id) * index;
+        osi->osi_lb.lb_buf = (void*)&d->opd_last_used_id;
+        osi->osi_lb.lb_len = sizeof(d->opd_last_used_id);
+        osi->osi_off = sizeof(d->opd_last_used_id) * index;
 }
 
 extern struct lu_context_key osp_thread_key;
 
 static inline struct osp_thread_info *osp_env_info(const struct lu_env *env)
 {
-	struct osp_thread_info *info;
+        struct osp_thread_info *info;
 
-	info = lu_context_key_get(&env->le_ctx, &osp_thread_key);
-	if (info == NULL) {
-		lu_env_refill((struct lu_env *)env);
-		info = lu_context_key_get(&env->le_ctx, &osp_thread_key);
-	}
-	LASSERT(info);
-	return info;
+        info = lu_context_key_get(&env->le_ctx, &osp_thread_key);
+        if (info == NULL) {
+                lu_env_refill((struct lu_env *)env);
+                info = lu_context_key_get(&env->le_ctx, &osp_thread_key);
+        }
+        LASSERT(info);
+        return info;
 }
 
 struct osp_txn_info {
-	__u32   oti_current_id;
+        __u32   oti_current_id;
 };
 
 extern struct lu_context_key osp_txn_key;
 
 static inline struct osp_txn_info *osp_txn_info(struct lu_context *ctx)
 {
-	struct osp_txn_info *info;
+        struct osp_txn_info *info;
 
-	info = lu_context_key_get(ctx, &osp_txn_key);
-	return info;
+        info = lu_context_key_get(ctx, &osp_txn_key);
+        return info;
 }
 
 extern const struct lu_device_operations osp_lu_ops;
 
 static inline int lu_device_is_osp(struct lu_device *d)
 {
-	return ergo(d != NULL && d->ld_ops != NULL, d->ld_ops == &osp_lu_ops);
+        return ergo(d != NULL && d->ld_ops != NULL, d->ld_ops == &osp_lu_ops);
 }
 
-static inline struct osp_device *lu2osp_dev(struct lu_device *d)
+static inline struct osp_device* lu2osp_dev(struct lu_device *d)
 {
-	LASSERT(lu_device_is_osp(d));
-	return container_of0(d, struct osp_device, opd_dt_dev.dd_lu_dev);
+        LASSERT(lu_device_is_osp(d));
+        return container_of0(d, struct osp_device, opd_dt_dev.dd_lu_dev);
 }
 
 static inline struct lu_device *osp2lu_dev(struct osp_device *d)
 {
-	return &d->opd_dt_dev.dd_lu_dev;
+        return (&d->opd_dt_dev.dd_lu_dev);
 }
 
 static inline struct osp_device *dt2osp_dev(struct dt_device *d)
 {
-	LASSERT(lu_device_is_osp(&d->dd_lu_dev));
-	return container_of0(d, struct osp_device, opd_dt_dev);
+        LASSERT(lu_device_is_osp(&d->dd_lu_dev));
+        return container_of0(d, struct osp_device, opd_dt_dev);
 }
 
 static inline struct osp_object *lu2osp_obj(struct lu_object *o)
 {
-	LASSERT(ergo(o != NULL, lu_device_is_osp(o->lo_dev)));
-	return container_of0(o, struct osp_object, opo_obj.do_lu);
+        LASSERT(ergo(o != NULL, lu_device_is_osp(o->lo_dev)));
+        return container_of0(o, struct osp_object, opo_obj.do_lu);
 }
 
 static inline struct lu_object *osp2lu_obj(struct osp_object *obj)
 {
-	return &obj->opo_obj.do_lu;
+        return &obj->opo_obj.do_lu;
 }
 
 static inline struct osp_object *osp_obj(const struct lu_object *o)
 {
-	LASSERT(lu_device_is_osp(o->lo_dev));
-	return container_of0(o, struct osp_object, opo_obj.do_lu);
+        LASSERT(lu_device_is_osp(o->lo_dev));
+        return container_of0(o, struct osp_object, opo_obj.do_lu);
 }
 
 static inline struct osp_object *dt2osp_obj(const struct dt_object *d)
 {
-	return osp_obj(&d->do_lu);
+        return osp_obj(&d->do_lu);
 }
 
-static inline struct dt_object *osp_object_child(struct osp_object *o)
+static inline struct dt_object* osp_object_child(struct osp_object *o)
 {
-	return container_of0(lu_object_next(osp2lu_obj(o)),
+        return container_of0(lu_object_next(osp2lu_obj(o)),
                              struct dt_object, do_lu);
 }
 
-/* osp_dev.c */
-void osp_update_last_id(struct osp_device *d, obd_id objid);
+/* Update opd_last_used_id along with checking for gap in objid sequence */
+static inline void osp_update_last_id(struct osp_device *d, obd_id objid)
+{
+        /*
+         * we might have lost precreated objects due to VBR and precreate
+         * orphans, the gap in objid can be calculated properly only here
+         */
+
+        if (objid > le64_to_cpu(d->opd_last_used_id)) {
+                if (objid - le64_to_cpu(d->opd_last_used_id) > 1) {
+                        d->opd_gap_start = le64_to_cpu(d->opd_last_used_id) + 1;
+                        d->opd_gap_count = objid - d->opd_gap_start;
+                        CDEBUG(D_HA, "Gap in objids: %d, start = %llu\n",
+                               d->opd_gap_count, d->opd_gap_start);
+                }
+                d->opd_last_used_id = cpu_to_le64(objid);
+        }
+}
+
+/* osp_precreate.c */
+int osp_init_precreate(struct osp_device *d);
+int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d);
+__u64 osp_precreate_get_id(struct osp_device *d);
+void osp_precreate_fini(struct osp_device *d);
+int osp_object_truncate(const struct lu_env *env, struct dt_object *dt, __u64);
+void osp_pre_update_status(struct osp_device *d, int rc);
+void osp_statfs_need_now(struct osp_device *d);
+
+/* osp_sync.c */
+int osp_sync_init(const struct lu_env *env, struct osp_device *d);
+int osp_sync_declare_add(const struct lu_env *env, struct osp_object *o,
+                         llog_op_type type, struct thandle *th);
+int osp_sync_add(const struct lu_env *env, struct osp_object *d,
+                 llog_op_type type, struct thandle *th,
+                 const struct lu_attr *attr);
+int osp_sync_gap(const struct lu_env *env, struct osp_device *d,
+                 struct lu_fid *fid, int lost, struct thandle *th);
+int osp_sync_fini(struct osp_device *d);
+void __osp_sync_check_for_work(struct osp_device *d);
+
 
 /* osp_precreate.c */
 int osp_init_precreate(struct osp_device *d);
@@ -243,20 +320,5 @@ void osp_statfs_need_now(struct osp_device *d);
 void lprocfs_osp_init_vars(struct lprocfs_static_vars *lvars);
 
 /* osp_sync.c */
-/* functions below will be replaced by full versions with osp_sync.c code */
-static inline
-int osp_sync_declare_add(const struct lu_env *env, struct osp_object *o,
-			 llog_op_type type, struct thandle *th)
-{
-	return 0;
-}
-
-static inline
-int osp_sync_add(const struct lu_env *env, struct osp_object *o,
-		 llog_op_type type, struct thandle *th,
-		 const struct lu_attr *attr)
-{
-	return 0;
-}
-
 #endif
+
