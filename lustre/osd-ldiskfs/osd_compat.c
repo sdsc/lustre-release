@@ -488,7 +488,7 @@ static const struct named_oid oids[] = {
 	{ FID_SEQ_SRV_OID,      "" /* "seq_srv" */ },
 	{ MDD_ROOT_INDEX_OID,   "" /* "ROOT" */ },
 	{ MDD_ORPHAN_OID,       "" /* "PENDING" */ },
-	{ MDD_LOV_OBJ_OID,      "" /* LOV_OBJID */ },
+	{ MDD_LOV_OBJ_OID,      LOV_OBJID },
 	{ MDD_CAPA_KEYS_OID,    "" /* CAPA_KEYS */ },
 	{ MDT_LAST_RECV_OID,    LAST_RCVD },
 	{ LFSCK_BOOKMARK_OID,   "" /* "lfsck_bookmark" */ },
