@@ -242,7 +242,64 @@ static inline struct lod_thread_info *lod_env_info(const struct lu_env *env)
 /* lod_lov.c */
 void lod_getref(struct lod_device *lod);
 void lod_putref(struct lod_device *lod);
+int lod_add_device(const struct lu_env *env, struct lod_device *m,
+		   char *osp, unsigned index, unsigned gen, int active);
+int lod_del_device(const struct lu_env *env, struct lod_device *m,
+		   char *osp, unsigned index, unsigned gen);
+int lod_load_striping(const struct lu_env *env, struct lod_object *mo);
+int lod_get_lov_ea(const struct lu_env *env, struct lod_object *mo);
+void lod_fix_desc(struct lov_desc *desc);
+void lod_fix_desc_qos_maxage(__u32 *val);
+void lod_fix_desc_pattern(__u32 *val);
+void lod_fix_desc_stripe_count(__u32 *val);
+void lod_fix_desc_stripe_size(__u64 *val);
+int lod_pools_init(struct lod_device *m, struct lustre_cfg *cfg);
+int lod_pools_fini(struct lod_device *m);
+int lod_parse_striping(const struct lu_env *env, struct lod_object *mo,
+		       const struct lu_buf *buf);
+int lod_initialize_objects(const struct lu_env *env, struct lod_object *mo,
+			   struct lov_ost_data_v1 *objs);
+int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
+			   struct thandle *th);
+int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf, int specific);
+int lod_generate_and_set_lovea(const struct lu_env *env,
+			       struct lod_object *mo, struct thandle *th);
 
+/* lod_pool.c */
+int lod_ost_pool_add(struct ost_pool *op, __u32 idx, unsigned int min_count);
+int lod_ost_pool_remove(struct ost_pool *op, __u32 idx);
+int lod_ost_pool_extend(struct ost_pool *op, unsigned int min_count);
+struct pool_desc *lod_find_pool(struct lod_device *lod, char *poolname);
+void lod_pool_putref(struct pool_desc *pool);
+int lod_ost_pool_free(struct ost_pool *op);
+int lod_pool_del(struct obd_device *obd, char *poolname);
+int lod_ost_pool_init(struct ost_pool *op, unsigned int count);
+extern cfs_hash_ops_t pool_hash_operations;
+int lod_check_index_in_pool(__u32 idx, struct pool_desc *pool);
+int lod_pool_new(struct obd_device *obd, char *poolname);
+int lod_pool_add(struct obd_device *obd, char *poolname, char *ostname);
+int lod_pool_remove(struct obd_device *obd, char *poolname, char *ostname);
+
+/* lod_qos.c */
+int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
+			struct lu_attr *attr, const struct lu_buf *buf,
+			struct thandle *th);
+int qos_add_tgt(struct lod_device*, struct lod_ost_desc *);
+int qos_del_tgt(struct lod_device *, struct lod_ost_desc *);
+
+/* lproc_lod.c */
+extern struct file_operations lod_proc_target_fops;
+void lprocfs_lod_init_vars(struct lprocfs_static_vars *lvars);
+
+/* lod_object.c */
+int lod_object_set_pool(struct lod_object *o, char *pool);
+int lod_declare_striped_object(const struct lu_env *env, struct dt_object *dt,
+			       struct lu_attr *attr,
+			       const struct lu_buf *lovea, struct thandle *th);
+int lod_striping_create(const struct lu_env *env, struct dt_object *dt,
+			struct lu_attr *attr, struct dt_object_format *dof,
+			struct thandle *th);
+void lod_object_free_striping(const struct lu_env *env, struct lod_object *lo);
 
 #endif
 
