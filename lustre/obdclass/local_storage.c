@@ -139,8 +139,7 @@ static struct lu_device_type ls_lu_type = {
 	.ldt_ops  = &ls_device_type_ops,
 };
 
-static struct ls_device *ls_device_get(const struct lu_env *env,
-				       struct dt_device *dev)
+struct ls_device *ls_device_get(struct dt_device *dev)
 {
 	struct ls_device *ls;
 
@@ -174,7 +173,8 @@ out_ls:
 	RETURN(ls);
 }
 
-static void ls_device_put(const struct lu_env *env, struct ls_device *ls)
+
+void ls_device_put(const struct lu_env *env, struct ls_device *ls)
 {
 	LASSERT(env);
 	if (!cfs_atomic_dec_and_test(&ls->ls_refcount))
@@ -461,7 +461,7 @@ struct dt_object *local_file_find_or_create_with_fid(const struct lu_env *env,
 	} else {
 		struct ls_device *ls;
 
-		ls = ls_device_get(env, dt);
+		ls = ls_device_get(dt);
 		if (IS_ERR(ls))
 			dto = ERR_PTR(PTR_ERR(ls));
 		else
@@ -473,7 +473,7 @@ struct dt_object *local_file_find_or_create_with_fid(const struct lu_env *env,
 }
 EXPORT_SYMBOL(local_file_find_or_create_with_fid);
 
-static struct local_oid_storage *dt_los_find(struct ls_device *ls, __u64 seq)
+struct local_oid_storage *dt_los_find(struct ls_device *ls, __u64 seq)
 {
 	struct local_oid_storage *los, *ret = NULL;
 
@@ -485,6 +485,15 @@ static struct local_oid_storage *dt_los_find(struct ls_device *ls, __u64 seq)
 		}
 	}
 	return ret;
+}
+
+void dt_los_put(struct local_oid_storage *los)
+{
+	if (cfs_atomic_dec_and_test(&los->los_refcount))
+		/* should never happen, only local_oid_storage_fini should
+		 * drop refcount to zero */
+		LBUG();
+	return;
 }
 
 /**
@@ -518,7 +527,7 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 
 	ENTRY;
 
-	ls = ls_device_get(env, dev);
+	ls = ls_device_get(dev);
 	if (IS_ERR(ls))
 		RETURN(PTR_ERR(ls));
 
