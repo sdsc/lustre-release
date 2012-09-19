@@ -95,6 +95,8 @@ static int lod_process_config(const struct lu_env *env,
 		struct lprocfs_static_vars  v = { 0 };
 		struct obd_device	  *obd = lod2obd(lod);
 
+		lprocfs_lod_init_vars(&v);
+
 		rc = class_process_proc_param(PARAM_LOV, v.obd_vars, lcfg, obd);
 		if (rc > 0)
 			rc = 0;
@@ -603,6 +605,8 @@ static int __init lod_mod_init(void)
 	rc = lu_kmem_init(lod_caches);
 	if (rc)
 		return rc;
+
+	lprocfs_lod_init_vars(&lvars);
 
 	rc = class_register_type(&lod_obd_device_ops, NULL, lvars.module_vars,
 				 LUSTRE_LOD_NAME, &lod_device_type);
