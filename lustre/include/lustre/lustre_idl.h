@@ -534,6 +534,13 @@ static inline obd_id fid_idif_id(obd_seq seq, __u32 oid, __u32 ver)
         return ((__u64)ver << 48) | ((seq & 0xffff) << 32) | oid;
 }
 
+/* extract ost index from IDIF FID */
+static inline __u32 fid_idif_ost_idx(const struct lu_fid *fid)
+{
+	LASSERT(fid_is_idif(fid));
+	return (fid_seq(fid) >> 16) & 0xffff;
+}
+
 /* unpack an ostid (id/seq) from a wire/disk structure into an IDIF FID */
 static inline void ostid_idif_unpack(struct ost_id *ostid,
                                      struct lu_fid *fid, __u32 ost_idx)
@@ -1382,6 +1389,21 @@ enum obdo_flags {
 #define LOV_MAGIC         LOV_MAGIC_V1
 #define LOV_MAGIC_JOIN_V1 0x0BD20BD0
 #define LOV_MAGIC_V3      0x0BD30BD0
+
+/*
+ * magic for fully defined striping
+ * the idea is that we should have different magics for striping "hints"
+ * (struct lov_user_md_v[13]) and defined ready-to-use striping (struct
+ * lov_mds_md_v[13]). at the moment the magics are used in wire protocol,
+ * we can't just change it w/o long way preparation, but we still need a
+ * mechanism to allow LOD to differentiate hint versus ready striping.
+ * so, at the moment we do a trick: MDT knows what to expect from request
+ * depending on the case (replay uses ready striping, non-replay req uses
+ * hints), so MDT replaces magic with appropriate one and now LOD can
+ * easily understand what's inside -bzzz
+ */
+#define LOV_MAGIC_V1_DEF  0x0CD10BD0
+#define LOV_MAGIC_V3_DEF  0x0CD30BD0
 
 #define LOV_PATTERN_RAID0 0x001   /* stripes are used round-robin */
 #define LOV_PATTERN_RAID1 0x002   /* stripes are mirrors of each other */
