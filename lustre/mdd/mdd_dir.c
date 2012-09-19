@@ -890,16 +890,15 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
         if (rc)
                 GOTO(out_unlock, rc);
 
-        rc = __mdd_index_insert_only(env, mdd_tobj, mdo2fid(mdd_sobj),
-                                     name, handle,
-                                     mdd_object_capa(env, mdd_tobj));
+	rc = mdo_ref_add(env, mdd_sobj, handle);
         if (rc)
                 GOTO(out_unlock, rc);
 
-	rc = mdo_ref_add(env, mdd_sobj, handle);
+        rc = __mdd_index_insert_only(env, mdd_tobj, mdo2fid(mdd_sobj),
+                                     name, handle,
+                                     mdd_object_capa(env, mdd_tobj));
 	if (rc != 0) {
-		__mdd_index_delete_only(env, mdd_tobj, name, handle,
-					mdd_object_capa(env, mdd_tobj));
+		mdo_ref_del(env, mdd_sobj, handle);
                 GOTO(out_unlock, rc);
 	}
 
