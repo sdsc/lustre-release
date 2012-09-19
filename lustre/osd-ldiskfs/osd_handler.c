@@ -4507,11 +4507,9 @@ static int osd_device_init0(const struct lu_env *env,
 	strncpy(o->od_svname, lustre_cfg_string(cfg, 4),
 			sizeof(o->od_svname) - 1);
 
-	if (strstr(o->od_svname, "-OST")) {
-		rc = osd_compat_init(o);
-		if (rc != 0)
-			GOTO(out_mnt, rc);
-	}
+	rc = osd_compat_init(o);
+	if (rc != 0)
+		GOTO(out_mnt, rc);
 
 	rc = lu_site_init(&o->od_site, l);
 	if (rc)
@@ -4687,13 +4685,15 @@ static int osd_prepare(const struct lu_env *env, struct lu_device *pdev,
 	 * LOD is landed since LOD is of DT type.
 	 * This code should be removed once the orion MDT changes (LOD/OSP, ...)
 	 * have been landed */
-	osd->od_is_md = lu_device_is_md(pdev);
+	if (dev->ld_site && dev->ld_site->ls_top_dev)
+		osd->od_is_md = lu_device_is_md(dev->ld_site->ls_top_dev);
 #else
 #warning "all is_md checks must be removed from osd-ldiskfs"
 #endif
 
-        if (osd->od_is_md) {
-		/* 1. setup local objects */
+	if (dev->ld_site && lu_device_is_md(dev->ld_site->ls_top_dev)) {
+		/* MDT/MDD still use old infrastructure to create
+		 * special files */
 		result = llo_local_objects_setup(env, lu2md_dev(pdev),
 						 lu2dt_dev(dev));
 		if (result)
