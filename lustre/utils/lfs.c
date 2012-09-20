@@ -2911,7 +2911,7 @@ static int lfs_ls(int argc, char **argv)
 static int lfs_changelog(int argc, char **argv)
 {
         void *changelog_priv;
-	struct changelog_ext_rec *rec;
+	struct changelog_ext_rec_v2 *rec;
         long long startrec = 0, endrec = 0;
         char *mdd;
         struct option long_opts[] = {
@@ -2947,6 +2947,7 @@ static int lfs_changelog(int argc, char **argv)
 
         rc = llapi_changelog_start(&changelog_priv,
                                    CHANGELOG_FLAG_BLOCK |
+                                   CHANGELOG_FLAG_JOBID |
                                    (follow ? CHANGELOG_FLAG_FOLLOW : 0),
                                    mdd, startrec);
         if (rc < 0) {
@@ -2977,6 +2978,8 @@ static int lfs_changelog(int argc, char **argv)
                        (int)(rec->cr_time & ((1<<30) - 1)),
                        ts.tm_year + 1900, ts.tm_mon + 1, ts.tm_mday,
                        rec->cr_flags & CLF_FLAGMASK, PFID(&rec->cr_tfid));
+		if (CHANGELOG_HAS_JOBID(rec))
+			printf(" j=%s", rec->cr_jobid);
                 if (rec->cr_namelen)
                         /* namespace rec includes parent and filename */
 			printf(" p="DFID" %.*s", PFID(&rec->cr_pfid),

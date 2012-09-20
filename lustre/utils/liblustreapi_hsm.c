@@ -259,7 +259,7 @@ out_free:
 int llapi_hsm_copytool_free(struct hsm_action_list **hal)
 {
 	/* Reuse the llapi_changelog_free function */
-	return llapi_changelog_free((struct changelog_ext_rec **)hal);
+	return llapi_changelog_free((struct changelog_ext_rec_v2 **)hal);
 }
 
 
