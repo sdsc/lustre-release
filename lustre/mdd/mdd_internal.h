@@ -409,7 +409,8 @@ int mdd_changelog_store(const struct lu_env *env, struct mdd_device *mdd,
 int mdd_changelog_ns_store(const struct lu_env *env, struct mdd_device *mdd,
 			   enum changelog_rec_type type, unsigned flags,
 			   struct mdd_object *target, struct mdd_object *parent,
-			   const struct lu_name *tname, struct thandle *handle);
+			   const struct lu_name *tname, struct thandle *handle,
+			   const char *jobid);
 int mdd_declare_object_create_internal(const struct lu_env *env,
 				       struct mdd_object *p,
 				       struct mdd_object *c,
