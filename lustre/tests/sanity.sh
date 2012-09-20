@@ -8846,7 +8846,7 @@ test_160() {
 	err17935 "fid in changelog $fidc != file fid $fidf"
     echo "verifying parent fid"
     fidc=$($LFS changelog $MDT0 | grep timestamp | grep "CREAT" | \
-	tail -1 | awk '{print $7}')
+	tail -1 | awk '{print $8}')
     fidf=$($LFS path2fid $DIR/$tdir/pics/zach)
     [ "$fidc" == "p=$fidf" ] || \
 	err17935 "pfid in changelog $fidc != dir fid $fidf"
@@ -10445,6 +10445,55 @@ test_228c() {
 	[ $blk1 == $blk2 ] || error "old blk1=$blk1, new blk2=$blk2, unmatched!"
 }
 run_test 228c "NOT shrink the last entry in OI index node to recycle idle leaf"
+
+test_229a () {
+	JOBID_VAL="123TestZZZ"
+
+	do_facet mgs $LCTL conf_param $FSNAME.sys.jobid_var="JOBID_TEST"
+	wait_update $HOSTNAME "$LCTL get_param -n jobid_var" "JOBID_TEST" || return 1
+
+	export JOBID_TEST=$JOBID_VAL
+
+	USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_register -n)
+	echo "Registered as changelog user $USER"
+
+	# Do some operations
+	mkdir -p $DIR/$tdir/a/somelongerdirname
+	touch $DIR/$tdir/a/somelongerdirname/file.dat
+	echo "TEST" > $DIR/$tdir/a/somelongerdirname/file.dat
+	mv $DIR/$tdir/a/somelongerdirname/file.dat $DIR/$tdir/a/
+	ln $DIR/$tdir/a/file.dat $DIR/$tdir/a/somelongerdirname/file2.dat
+	ln -s $DIR/$tdir/a/somelongerdirname/file2.dat $DIR/$tdir/a/b.lnk
+	rm $DIR/$tdir/a/file.dat
+
+	$LFS changelog $MDT0 | tail -5
+
+	JOBIDS=$($LFS changelog $MDT0 | tail -5 | grep -c "j=$JOBID_VAL")
+	[ $JOBIDS -eq 5 ] || error "Wrong changelog jobid count $JOBIDS != 5"
+}
+run_test 229a "Get desired JOBID value in changelogs"
+
+test_229b () {
+	JOBID_VAL=$(printf '%.0sA' {1..256})
+
+	do_facet mgs $LCTL conf_param $FSNAME.sys.jobid_var="JOBID_TEST"
+	wait_update $HOSTNAME "$LCTL get_param -n jobid_var" "JOBID_TEST" || return 1
+
+	export JOBID_TEST=$JOBID_VAL
+
+	USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_register -n)
+	echo "Registered as changelog user $USER"
+
+	# Do some operations
+	mkdir -p $DIR/$tdir/xyz
+	echo "TEST" > $DIR/$tdir/xyz/test
+
+	$LFS changelog $MDT0 | tail -2
+
+	JOBIDS=$($LFS changelog $MDT0 | tail -2 | grep -c "j=$JOBID_VAL")
+	[ $JOBIDS -eq 0 ] || error "Wrong changelog jobid count $JOBIDS != 0"
+}
+run_test 229b "Malformed (too long) jobid don't appear in changelogs"
 
 test_230a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return

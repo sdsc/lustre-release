@@ -58,7 +58,7 @@ static struct lu_name lname_dotdot = {
 };
 
 static int __mdd_lookup(const struct lu_env *env, struct md_object *pobj,
-                        const struct lu_name *lname, struct lu_fid* fid,
+                        const struct lu_name *lname, struct lu_fid *fid,
                         int mask);
 static int mdd_declare_links_add(const struct lu_env *env,
                                  struct mdd_object *mdd_obj,
@@ -84,7 +84,7 @@ static int mdd_links_rename(const struct lu_env *env,
 
 static int
 __mdd_lookup_locked(const struct lu_env *env, struct md_object *pobj,
-                    const struct lu_name *lname, struct lu_fid* fid, int mask)
+                    const struct lu_name *lname, struct lu_fid *fid, int mask)
 {
         const char *name = lname->ln_name;
         struct mdd_object *mdd_obj = md2mdd_obj(pobj);
@@ -102,7 +102,7 @@ __mdd_lookup_locked(const struct lu_env *env, struct md_object *pobj,
 
 int mdd_lookup(const struct lu_env *env,
                struct md_object *pobj, const struct lu_name *lname,
-               struct lu_fid* fid, struct md_op_spec *spec)
+               struct lu_fid *fid, struct md_op_spec *spec)
 {
         int rc;
         ENTRY;
@@ -777,7 +777,8 @@ static int mdd_changelog_ns_store(const struct lu_env  *env,
 				  struct mdd_object    *target,
 				  struct mdd_object    *parent,
 				  const struct lu_name *tname,
-				  struct thandle *handle)
+				  struct thandle *handle,
+				  const char *jobid)
 {
 	struct llog_changelog_rec *rec;
 	struct lu_buf *buf;
@@ -802,12 +803,17 @@ static int mdd_changelog_ns_store(const struct lu_env  *env,
 		RETURN(-ENOMEM);
 	rec = buf->lb_buf;
 
-	rec->cr.cr_flags = CLF_VERSION | (CLF_FLAGMASK & flags);
+	rec->cr.cr_flags = CLF_VERSION | (CLF_FLAGMASK & flags) | CLF_HAS_JOBID;
 	rec->cr.cr_type = (__u32)type;
 	rec->cr.cr_tfid = *mdo2fid(target);
 	rec->cr.cr_pfid = *mdo2fid(parent);
 	rec->cr.cr_namelen = tname->ln_namelen;
 	memcpy(rec->cr.cr_name, tname->ln_name, tname->ln_namelen);
+	if (jobid) {
+		strncpy(rec->cr.cr_jobid, jobid, sizeof(rec->cr.cr_jobid) - 1);
+		rec->cr.cr_jobid[sizeof(rec->cr.cr_jobid) - 1] = '\0';
+	}
+
 
 	target->mod_cltime = cfs_time_current_64();
 
@@ -844,7 +850,8 @@ static int mdd_changelog_ext_ns_store(const struct lu_env  *env,
 				      const struct lu_fid  *spfid,
 				      const struct lu_name *tname,
 				      const struct lu_name *sname,
-				      struct thandle *handle)
+				      struct thandle *handle,
+				      const char *jobid)
 {
 	struct llog_changelog_ext_rec *rec;
 	struct lu_buf *buf;
@@ -870,13 +877,19 @@ static int mdd_changelog_ext_ns_store(const struct lu_env  *env,
 		RETURN(-ENOMEM);
 	rec = buf->lb_buf;
 
-	rec->cr.cr_flags = CLF_EXT_VERSION | (CLF_FLAGMASK & flags);
+	rec->cr.cr_flags = CLF_EXT_VERSION | (CLF_FLAGMASK & flags) |
+			   CLF_HAS_JOBID;
 	rec->cr.cr_type = (__u32)type;
 	rec->cr.cr_pfid = *tpfid;
 	rec->cr.cr_sfid = *sfid;
 	rec->cr.cr_spfid = *spfid;
 	rec->cr.cr_namelen = tname->ln_namelen;
 	memcpy(rec->cr.cr_name, tname->ln_name, tname->ln_namelen);
+	if (jobid) {
+		strncpy(rec->cr.cr_jobid, jobid, sizeof(rec->cr.cr_jobid) - 1);
+		rec->cr.cr_jobid[sizeof(rec->cr.cr_jobid) - 1] = '\0';
+	}
+
 	if (sname) {
 		LASSERT(sfid != NULL);
 		rec->cr.cr_name[tname->ln_namelen] = '\0';
@@ -938,7 +951,7 @@ static int mdd_declare_link(const struct lu_env *env,
 
 static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
                     struct md_object *src_obj, const struct lu_name *lname,
-                    struct md_attr *ma)
+		    struct md_attr *ma, const char *jobid)
 {
         const char *name = lname->ln_name;
         struct lu_attr    *la = &mdd_env_info(env)->mti_la_for_fix;
@@ -1006,7 +1019,7 @@ out_unlock:
 out_trans:
         if (rc == 0)
 		rc = mdd_changelog_ns_store(env, mdd, CL_HARDLINK, 0, mdd_sobj,
-					    mdd_tobj, lname, handle);
+					    mdd_tobj, lname, handle, jobid);
 stop:
         mdd_trans_stop(env, mdd, rc, handle);
 out_pending:
@@ -1124,7 +1137,7 @@ static int mdd_declare_unlink(const struct lu_env *env, struct mdd_device *mdd,
 
 static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
                       struct md_object *cobj, const struct lu_name *lname,
-                      struct md_attr *ma)
+		      struct md_attr *ma, const char *jobid)
 {
         const char *name = lname->ln_name;
 	struct lu_attr     *cattr = &mdd_env_info(env)->mti_cattr;
@@ -1241,7 +1254,7 @@ cleanup:
 
 		rc = mdd_changelog_ns_store(env, mdd,
 			is_dir ? CL_RMDIR : CL_UNLINK, cl_flags,
-			mdd_cobj, mdd_pobj, lname, handle);
+			mdd_cobj, mdd_pobj, lname, handle, jobid);
         }
 
 stop:
@@ -1268,7 +1281,7 @@ static int mdd_cd_sanity_check(const struct lu_env *env,
 
 static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
                            struct md_object *cobj, const struct md_op_spec *spec,
-                           struct md_attr *ma)
+			   struct md_attr *ma, const char *jobid)
 {
         struct mdd_device *mdd = mdo2mdd(cobj);
         struct mdd_object *mdd_pobj = md2mdd_obj(pobj);
@@ -1353,7 +1366,7 @@ out_free:
 /* Get fid from name and parent */
 static int
 __mdd_lookup(const struct lu_env *env, struct md_object *pobj,
-             const struct lu_name *lname, struct lu_fid* fid, int mask)
+             const struct lu_name *lname, struct lu_fid *fid, int mask)
 {
         const char          *name = lname->ln_name;
         const struct dt_key *key = (const struct dt_key *)name;
@@ -1639,7 +1652,8 @@ out:
  */
 static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 		      const struct lu_name *lname, struct md_object *child,
-		      struct md_op_spec *spec, struct md_attr* ma)
+		      struct md_op_spec *spec, struct md_attr *ma,
+		      const char *jobid)
 {
         struct mdd_thread_info *info = mdd_env_info(env);
         struct lu_attr         *la = &info->mti_la_for_fix;
@@ -1862,7 +1876,7 @@ out_trans:
 			S_ISDIR(attr->la_mode) ? CL_MKDIR :
 			S_ISREG(attr->la_mode) ? CL_CREATE :
 			S_ISLNK(attr->la_mode) ? CL_SOFTLINK : CL_MKNOD,
-			0, son, mdd_pobj, lname, handle);
+			0, son, mdd_pobj, lname, handle, jobid);
 out_stop:
         mdd_trans_stop(env, mdd, rc, handle);
 out_free:
@@ -2073,7 +2087,7 @@ static int mdd_rename(const struct lu_env *env,
                       struct md_object *src_pobj, struct md_object *tgt_pobj,
                       const struct lu_fid *lf, const struct lu_name *lsname,
                       struct md_object *tobj, const struct lu_name *ltname,
-                      struct md_attr *ma)
+		      struct md_attr *ma, const char *jobid)
 {
         const char *sname = lsname->ln_name;
         const char *tname = ltname->ln_name;
@@ -2367,7 +2381,7 @@ cleanup_unlocked:
 		rc = mdd_changelog_ext_ns_store(env, mdd, CL_RENAME, cl_flags,
 						mdd_tobj, tpobj_fid, lf,
 						spobj_fid, ltname, lsname,
-						handle);
+						handle, jobid);
 
 stop:
         mdd_trans_stop(env, mdd, rc, handle);
