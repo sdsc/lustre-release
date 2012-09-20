@@ -484,26 +484,23 @@ static void iam_lfix_split(struct iam_leaf *l, struct buffer_head **bh,
         pivot = (const struct iam_ikey *)iam_leaf_key_at(start);
 
         memmove(iam_entries(new_leaf), start, finis - start);
-        hdr->ill_count = count - split;
-        lentry_count_set(l, split);
-        if ((void *)l->il_at >= start) {
-                /*
-                 * insertion point moves into new leaf.
-                 */
-                int shift;
-                int result;
+	hdr->ill_magic = cpu_to_le16(IAM_LEAF_HEADER_MAGIC);
+	hdr->ill_count = cpu_to_le16(count - split);
+	lentry_count_set(l, split);
+	if ((void *)l->il_at >= start) {
+		/*
+		 * insertion point moves into new leaf.
+		 */
+		int shift;
 
-                shift = iam_lfix_diff(l, l->il_at, start);
-                *bh = l->il_bh;
-                l->il_bh = new_leaf;
-                l->il_curidx = new_blknr;
-                result = iam_lfix_init(l);
-                /*
-                 * init cannot fail, as node was just initialized.
-                 */
-                assert_corr(result == 0);
-                l->il_at = iam_lfix_shift(l, iam_get_lentries(l), shift);
-        }
+		shift = iam_lfix_diff(l, l->il_at, start);
+		*bh = l->il_bh;
+		l->il_bh = new_leaf;
+		l->il_curidx = new_blknr;
+		l->il_entries = iam_get_lentries(l);
+		l->il_at = iam_lfix_shift(l, iam_get_lentries(l), shift);
+		path->ip_frame->leaf = new_blknr;
+	}
         /*
          * Insert pointer to the new node (together with the least key in
          * the node) into index node.

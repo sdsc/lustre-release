@@ -1658,7 +1658,7 @@ int iam_it_key_size(const struct iam_iterator *it)
 }
 EXPORT_SYMBOL(iam_it_key_size);
 
-struct buffer_head *
+static struct buffer_head *
 iam_new_node(handle_t *h, struct iam_container *c, iam_ptr_t *b, int *e)
 {
 	struct inode *inode = c->ic_object;
@@ -1730,6 +1730,7 @@ iam_new_node(handle_t *h, struct iam_container *c, iam_ptr_t *b, int *e)
 
 	c->ic_idle_bh = idle;
 	cfs_up(&c->ic_idle_sem);
+	set_buffer_uptodate(bh);
 
 got:
 	/* get write access for the found buffer head */
@@ -1739,6 +1740,9 @@ got:
 		bh = NULL;
 		ldiskfs_std_error(inode->i_sb, *e);
 	}
+
+	/* cleanup the reused node as new node does. */
+	memset(bh->b_data, 0, inode->i_sb->s_blocksize);
 	return bh;
 
 newblock:
@@ -1782,7 +1786,6 @@ static int iam_new_leaf(handle_t *handle, struct iam_leaf *leaf)
         int err;
         iam_ptr_t blknr;
         struct buffer_head   *new_leaf;
-        struct buffer_head   *old_leaf;
         struct iam_container *c;
         struct inode         *obj;
         struct iam_path      *path;
@@ -1803,17 +1806,8 @@ static int iam_new_leaf(handle_t *handle, struct iam_leaf *leaf)
                 if (lh != NULL) {
                         iam_leaf_ops(leaf)->init_new(c, new_leaf);
                         do_corr(schedule());
-                        old_leaf = leaf->il_bh;
                         iam_leaf_split(leaf, &new_leaf, blknr);
-                        if (old_leaf != leaf->il_bh) {
-                                /*
-                                 * Switched to the new leaf.
-                                 */
-                                iam_leaf_unlock(leaf);
-                                leaf->il_lock = lh;
-                                path->ip_frame->leaf = blknr;
-                        } else
-				iam_unlock_htree(path->ip_container, lh);
+			iam_unlock_htree(path->ip_container, lh);
                         do_corr(schedule());
                         err = iam_txn_dirty(handle, path, new_leaf);
                         brelse(new_leaf);
@@ -2069,9 +2063,6 @@ int split_index_node(handle_t *handle, struct iam_path *path,
                         ++ frame;
                         assert_inv(dx_node_check(path, frame));
                         bh_new[0] = NULL; /* buffer head is "consumed" */
-                        err = ldiskfs_journal_get_write_access(handle, bh2);
-                        if (err)
-                                goto journal_error;
                         do_corr(schedule());
                 } else {
                         /* splitting non-root index node. */
