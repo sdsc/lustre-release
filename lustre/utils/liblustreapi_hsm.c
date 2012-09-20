@@ -293,7 +293,7 @@ out_free:
 void llapi_hsm_action_list_free(struct hsm_action_list **hal)
 {
 	/* Reuse the llapi_changelog_free function */
-	llapi_changelog_free((struct changelog_ext_rec **)hal);
+	llapi_changelog_free((struct changelog_ext_rec_v2 **)hal);
 }
 
 /** Get parent path from mount point and fid.

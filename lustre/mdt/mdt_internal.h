@@ -1284,5 +1284,48 @@ static inline char *mdt_obd_name(struct mdt_device *mdt)
 int mds_mod_init(void);
 void mds_mod_exit(void);
 
+static inline char *mdt_req_get_jobid(struct ptlrpc_request *req)
+{
+	struct obd_export *exp   = req->rq_export;
+	char		  *jobid = NULL;
+
+	if (exp_connect_flags(exp) & OBD_CONNECT_JOBSTATS)
+		jobid = lustre_msg_get_jobid(req->rq_reqmsg);
+
+	return jobid;
+}
+
+/* Update handlers */
+int out_handle(struct mdt_thread_info *info);
+
+#define out_tx_create(info, obj, attr, fid, dof, th, reply, idx) \
+	__out_tx_create(info, obj, attr, fid, dof, th, reply, idx, \
+			__FILE__, __LINE__)
+
+#define out_tx_attr_set(info, obj, attr, th, reply, idx) \
+	__out_tx_attr_set(info, obj, attr, th, reply, idx, \
+			  __FILE__, __LINE__)
+
+#define out_tx_xattr_set(info, obj, buf, name, fl, th, reply, idx)	\
+	__out_tx_xattr_set(info, obj, buf, name, fl, th, reply, idx,	\
+			   __FILE__, __LINE__)
+
+#define out_tx_ref_add(info, obj, th, reply, idx) \
+	__out_tx_ref_add(info, obj, th, reply, idx, __FILE__, __LINE__)
+
+#define out_tx_ref_del(info, obj, th, reply, idx) \
+	__out_tx_ref_del(info, obj, th, reply, idx, __FILE__, __LINE__)
+
+#define out_tx_index_insert(info, obj, th, name, fid, reply, idx) \
+	__out_tx_index_insert(info, obj, th, name, fid, reply, idx, \
+			      __FILE__, __LINE__)
+
+#define out_tx_index_delete(info, obj, th, name, reply, idx) \
+	__out_tx_index_delete(info, obj, th, name, reply, idx, \
+			      __FILE__, __LINE__)
+
+#define out_tx_destroy(info, obj, th, reply, idx) \
+	__out_tx_destroy(info, obj, th, reply, idx, __FILE__, __LINE__)
+
 #endif /* __KERNEL__ */
 #endif /* _MDT_H */

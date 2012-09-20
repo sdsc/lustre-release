@@ -159,6 +159,7 @@ struct lr_info {
 	char spfid[LR_FID_STR_LEN];
 	char sname[NAME_MAX + 1];
 	char name[NAME_MAX + 1];
+	char jobid[LUSTRE_JOBID_SIZE + 1];
         char src[PATH_MAX + 1];
         char dest[PATH_MAX + 1];
         char path[PATH_MAX + 1];
@@ -1101,17 +1102,23 @@ int lr_setxattr(struct lr_info *info)
 /* Parse a line of changelog entry */
 int lr_parse_line(void *priv, struct lr_info *info)
 {
-	struct changelog_ext_rec *rec;
+	struct changelog_ext_rec_v2 *rec;
 
         if (llapi_changelog_recv(priv, &rec) != 0)
                 return -1;
 
-	info->is_extended = CHANGELOG_REC_EXTENDED(rec);
+	info->is_extended = !!CHANGELOG_REC_EXTENDED(rec);
         info->recno = rec->cr_index;
         info->type = rec->cr_type;
         sprintf(info->tfid, DFID, PFID(&rec->cr_tfid));
         sprintf(info->pfid, DFID, PFID(&rec->cr_pfid));
-        strncpy(info->name, rec->cr_name, rec->cr_namelen);
+
+	strncpy(info->name, rec->cr_name, rec->cr_namelen);
+
+	if (CHANGELOG_HAS_JOBID(rec)) {
+		strncpy(info->jobid, rec->cr_jobid, sizeof(info->jobid));
+		info->jobid[sizeof(info->jobid) - 1] = '\0';
+	}
 
 	if (fid_is_sane(&rec->cr_sfid)) {
 		sprintf(info->sfid, DFID, PFID(&rec->cr_sfid));
@@ -1121,14 +1128,15 @@ int lr_parse_line(void *priv, struct lr_info *info)
 		info->sname[changelog_rec_snamelen(rec)] = '\0';
 
 		if (verbose > 1)
-			printf("Rec %lld: %d %s %s\n", info->recno, info->type,
-				info->name, info->sname);
+			printf("Rec %lld: %d %s %s %s\n", info->recno,
+				info->type, info->name, info->sname,
+				info->jobid);
 	} else {
 		info->name[rec->cr_namelen] = '\0';
 
 		if (verbose > 1)
-			printf("Rec %lld: %d %s\n", info->recno, info->type,
-				info->name);
+			printf("Rec %lld: %d %s %s\n", info->recno, info->type,
+				info->name, info->jobid);
 	}
 
         llapi_changelog_free(&rec);
@@ -1464,7 +1472,8 @@ int lr_replicate()
         lr_print_status(info);
 
         /* Open changelogs for consumption*/
-        rc = llapi_changelog_start(&changelog_priv, CHANGELOG_FLAG_BLOCK,
+        rc = llapi_changelog_start(&changelog_priv,
+				   CHANGELOG_FLAG_BLOCK | CHANGELOG_FLAG_JOBID,
                                    status->ls_source_fs, status->ls_last_recno);
         if (rc < 0) {
                 fprintf(stderr, "Error opening changelog file for fs %s.\n",

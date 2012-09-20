@@ -10445,7 +10445,7 @@ jobstats_set() {
 	wait_update $HOSTNAME "$LCTL get_param -n jobid_var" $NEW_JOBENV
 }
 
-test_205() { # Job stats
+test_205a() { # Job stats
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	[ -z "$(lctl get_param -n mdc.*.connect_flags | grep jobstats)" ] &&
 		skip "Server doesn't support jobstats" && return 0
@@ -10493,7 +10493,51 @@ test_205() { # Job stats
 
 	[ $OLD_JOBENV != $JOBENV ] && jobstats_set $OLD_JOBENV
 }
-run_test 205 "Verify job stats"
+run_test 205a "Verify job stats"
+
+test_205b() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ -z "$(lctl get_param -n mdc.*.connect_flags | grep jobstats)" ] &&
+		skip "Server doesn't support jobstats" && return 0
+
+	local jobenv="123TestZZZ"
+
+	local old_jobenv=$($LCTL get_param -n jobid_var)
+	if [ $old_jobenv != $jobenv ]; then
+		jobstats_set $jobenv
+		trap jobstats_set EXIT
+	fi
+
+	do_facet mgs $LCTL conf_param $FSNAME.sys.jobid_var="JOBID_TEST"
+	wait_update $HOSTNAME "$LCTL get_param -n jobid_var" "JOBID_TEST" ||
+		error "Cannot set jobid to JOBID_TEST"
+
+	export JOBID_TEST=$jobenv
+
+	local user=$(do_facet $SINGLEMDS $LCTL --device $MDT0 \
+		changelog_register -n)
+	echo "Registered as changelog user $user"
+
+	# Do some operations
+	mkdir -p $DIR/$tdir/a/somelongerdirname || error "mkdir failed"
+	touch $DIR/$tdir/a/somelongerdirname/file.dat || error "touch failed"
+	cp /bin/ls $DIR/$tdir/a/somelongerdirname/file.dat || error "cp failed"
+	mv $DIR/$tdir/a/somelongerdirname/file.dat $DIR/$tdir/a/ ||
+		error "mv failed"
+	ln $DIR/$tdir/a/file.dat $DIR/$tdir/a/somelongerdirname/file2.dat ||
+		error "ln failed"
+	ln -s $DIR/$tdir/a/somelongerdirname/file2.dat $DIR/$tdir/a/b.lnk ||
+		error "ln -s failed"
+	rm $DIR/$tdir/a/file.dat || error "rm failed"
+
+	$LFS changelog $MDT0 | tail -7
+	jobids=$($LFS changelog $MDT0 | tail -7 | grep -c "j=$jobenv")
+	[ $jobids -eq 7 ] || error "Wrong changelog jobid count $jobids != 7"
+
+	[ $old_jobenv != $jobenv ] && jobstats_set $old_jobenv
+}
+run_test 205b "Get desired JOBID value in changelogs"
+
 
 # LU-1480, LU-1773 and LU-1657
 test_206() {

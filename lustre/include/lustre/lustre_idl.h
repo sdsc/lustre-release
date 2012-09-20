@@ -1125,7 +1125,6 @@ struct lustre_msg_v2 {
 
 /* without gss, ptlrpc_body is put at the first buffer. */
 #define PTLRPC_NUM_VERSIONS     4
-#define JOBSTATS_JOBID_SIZE     32  /* 32 bytes string */
 struct ptlrpc_body_v3 {
 	struct lustre_handle pb_handle;
 	__u32 pb_type;
@@ -1147,7 +1146,7 @@ struct ptlrpc_body_v3 {
 	__u64 pb_pre_versions[PTLRPC_NUM_VERSIONS];
 	/* padding for future needs */
 	__u64 pb_padding[4];
-	char  pb_jobid[JOBSTATS_JOBID_SIZE];
+	char  pb_jobid[LUSTRE_JOBID_SIZE];
 };
 #define ptlrpc_body     ptlrpc_body_v3
 
@@ -2993,6 +2992,7 @@ typedef enum {
 	CHANGELOG_REC		= LLOG_OP_MAGIC | 0x60000,
 	CHANGELOG_USER_REC	= LLOG_OP_MAGIC | 0x70000,
 	HSM_AGENT_REC		= LLOG_OP_MAGIC | 0x80000,
+	CHANGELOG_REC_V2	= LLOG_OP_MAGIC | 0x90000,
 	LLOG_HDR_MAGIC		= LLOG_OP_MAGIC | 0x45539,
 	LLOG_LOGID_MAGIC	= LLOG_OP_MAGIC | 0x4553b,
 } llog_op_type;
@@ -3091,15 +3091,27 @@ struct changelog_setinfo {
 
 /** changelog record */
 struct llog_changelog_rec {
-        struct llog_rec_hdr  cr_hdr;
-        struct changelog_rec cr;
-        struct llog_rec_tail cr_tail; /**< for_sizezof_only */
+	struct llog_rec_hdr	cr_hdr;
+	struct changelog_rec	cr;
+	struct llog_rec_tail	cr_tail; /**< for_sizezof_only */
 } __attribute__((packed));
 
 struct llog_changelog_ext_rec {
-	struct llog_rec_hdr      cr_hdr;
-	struct changelog_ext_rec cr;
-	struct llog_rec_tail     cr_tail; /**< for_sizezof_only */
+	struct llog_rec_hdr		cr_hdr;
+	struct changelog_ext_rec	cr;
+	struct llog_rec_tail		cr_tail; /**< for_sizezof_only */
+} __attribute__((packed));
+
+struct llog_changelog_rec_v2 {
+	struct llog_rec_hdr	cr_hdr;
+	struct changelog_rec_v2	cr;
+	struct llog_rec_tail	cr_tail; /**< for_sizezof_only */
+} __attribute__((packed));
+
+struct llog_changelog_ext_rec_v2 {
+	struct llog_rec_hdr		cr_hdr;
+	struct changelog_ext_rec_v2	cr;
+	struct llog_rec_tail		cr_tail; /**< for_sizezof_only */
 } __attribute__((packed));
 
 #define CHANGELOG_USER_PREFIX "cl"
@@ -3119,6 +3131,12 @@ enum agent_req_status {
 	ARS_CANCELED,
 	ARS_SUCCEED,
 };
+
+static inline bool changelog_rec_is_valid(struct llog_changelog_rec *rec)
+{
+	return (rec->cr_hdr.lrh_type == CHANGELOG_REC ||
+		rec->cr_hdr.lrh_type == CHANGELOG_REC_V2);
+}
 
 static inline char *agent_req_status2name(enum agent_req_status ars)
 {
