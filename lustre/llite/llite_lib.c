@@ -1984,6 +1984,9 @@ int ll_iocontrol(struct inode *inode, struct file *file,
 		if (rc && rc != -EPERM && rc != -EACCES)
 			CERROR("osc_setattr_async fails: rc = %d\n", rc);
 
+		if (!rc)
+			inode->i_flags = ll_ext_to_inode_flags(flags);
+
 		RETURN(rc);
         }
         default:
