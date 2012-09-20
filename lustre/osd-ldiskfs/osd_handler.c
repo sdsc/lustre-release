@@ -4491,7 +4491,7 @@ static int osd_mount(const struct lu_env *env,
 	const char		*dev  = lustre_cfg_string(cfg, 1);
 	const char              *opts;
 	unsigned long            page, s_flags, lmd_flags = 0;
-	struct page             *__page;
+	struct page             *__page = NULL;
 	struct file_system_type *type;
 	char                    *options = NULL;
 	char			*str;
@@ -4508,8 +4508,10 @@ static int osd_mount(const struct lu_env *env,
         }
 
 	OBD_PAGE_ALLOC(__page, CFS_ALLOC_STD);
-	if (__page == NULL)
+	if (__page == NULL) {
+		GOTO(out, rc = -ENOMEM);
 		RETURN(-ENOMEM);
+	}
 
 	str = lustre_cfg_string(cfg, 2);
 	s_flags = simple_strtoul(str, NULL, 0);
@@ -4573,6 +4575,10 @@ static int osd_mount(const struct lu_env *env,
 out:
 	if (__page)
 		OBD_PAGE_FREE(__page);
+	if (rc) {
+		fsfilt_put_ops(o->od_fsops);
+		o->od_fsops = NULL;
+	}
 
         RETURN(rc);
 }
