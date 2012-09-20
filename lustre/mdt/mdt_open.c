@@ -108,9 +108,11 @@ void mdt_mfd_free(struct mdt_file_data *mfd)
 static int mdt_create_data(struct mdt_thread_info *info,
                            struct mdt_object *p, struct mdt_object *o)
 {
-	struct md_op_spec     *spec = &info->mti_spec;
-	struct md_attr        *ma   = &info->mti_attr;
-	int                    rc   = 0;
+	struct md_op_spec     *spec  = &info->mti_spec;
+	struct md_attr        *ma    = &info->mti_attr;
+	struct ptlrpc_request *req   = mdt_info_req(info);
+	char                  *jobid = mdt_req_get_jobid(req);
+	int                    rc    = 0;
 	ENTRY;
 
 	if (!md_should_create(spec->sp_cr_flags))
@@ -126,7 +128,7 @@ static int mdt_create_data(struct mdt_thread_info *info,
 
 		rc = mdo_create_data(info->mti_env,
 				     p ? mdt_object_child(p) : NULL,
-				     mdt_object_child(o), spec, ma);
+				     mdt_object_child(o), spec, ma, jobid);
 		if (rc == 0)
 			rc = mdt_attr_get_complex(info, o, ma);
 
@@ -1423,6 +1425,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         int                      result, rc;
         int                      created = 0;
         __u32                    msg_flags;
+	char                    *jobid = mdt_req_get_jobid(req);
         ENTRY;
 
         OBD_FAIL_TIMEOUT_ORSET(OBD_FAIL_MDS_PAUSE_OPEN, OBD_FAIL_ONCE,
@@ -1605,7 +1608,8 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                                     lname,
                                     mdt_object_child(child),
                                     &info->mti_spec,
-                                    &info->mti_attr);
+				    &info->mti_attr,
+				    jobid);
                 if (result == -ERESTART) {
                         mdt_clear_disposition(info, ldlm_rep, DISP_OPEN_CREATE);
                         GOTO(out_child, result);
@@ -1702,7 +1706,8 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                                         mdt_object_child(parent),
                                         mdt_object_child(child),
                                         lname,
-                                        &info->mti_attr);
+					&info->mti_attr,
+					jobid);
                         if (rc != 0)
                                 CERROR("Error in cleanup of open\n");
 			mdt_clear_disposition(info, ldlm_rep, DISP_OPEN_CREATE);
