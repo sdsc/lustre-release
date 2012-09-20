@@ -3126,7 +3126,7 @@ static int lfs_ls(int argc, char **argv)
 static int lfs_changelog(int argc, char **argv)
 {
         void *changelog_priv;
-	struct changelog_ext_rec *rec;
+	struct changelog_ext_rec_v2 *rec;
         long long startrec = 0, endrec = 0;
         char *mdd;
         struct option long_opts[] = {
@@ -3160,52 +3160,54 @@ static int lfs_changelog(int argc, char **argv)
         if (argc > optind)
                 endrec = strtoll(argv[optind++], NULL, 10);
 
-        rc = llapi_changelog_start(&changelog_priv,
-                                   CHANGELOG_FLAG_BLOCK |
-                                   (follow ? CHANGELOG_FLAG_FOLLOW : 0),
-                                   mdd, startrec);
+	rc = llapi_changelog_start(&changelog_priv,
+				   CHANGELOG_FLAG_BLOCK |
+				   CHANGELOG_FLAG_JOBID |
+				   (follow ? CHANGELOG_FLAG_FOLLOW : 0),
+				   mdd, startrec);
         if (rc < 0) {
                 fprintf(stderr, "Can't start changelog: %s\n",
                         strerror(errno = -rc));
                 return rc;
         }
 
-        while ((rc = llapi_changelog_recv(changelog_priv, &rec)) == 0) {
-                time_t secs;
-                struct tm ts;
+	while ((rc = llapi_changelog_recv(changelog_priv, &rec)) == 0) {
+		time_t secs;
+		struct tm ts;
 
-                if (endrec && rec->cr_index > endrec) {
-                        llapi_changelog_free(&rec);
-                        break;
-                }
-                if (rec->cr_index < startrec) {
-                        llapi_changelog_free(&rec);
-                        continue;
-                }
+		if (endrec && rec->cr_index > endrec) {
+			llapi_changelog_free(&rec);
+			break;
+		}
+		if (rec->cr_index < startrec) {
+			llapi_changelog_free(&rec);
+			continue;
+		}
 
-                secs = rec->cr_time >> 30;
-                gmtime_r(&secs, &ts);
-                printf(LPU64" %02d%-5s %02d:%02d:%02d.%06d %04d.%02d.%02d "
-                       "0x%x t="DFID, rec->cr_index, rec->cr_type,
-                       changelog_type2str(rec->cr_type),
-                       ts.tm_hour, ts.tm_min, ts.tm_sec,
-                       (int)(rec->cr_time & ((1<<30) - 1)),
-                       ts.tm_year + 1900, ts.tm_mon + 1, ts.tm_mday,
-                       rec->cr_flags & CLF_FLAGMASK, PFID(&rec->cr_tfid));
-                if (rec->cr_namelen)
-                        /* namespace rec includes parent and filename */
+		secs = rec->cr_time >> 30;
+		gmtime_r(&secs, &ts);
+		printf(LPU64" %02d%-5s %02d:%02d:%02d.%06d %04d.%02d.%02d "
+		       "0x%x t="DFID, rec->cr_index, rec->cr_type,
+		       changelog_type2str(rec->cr_type),
+		       ts.tm_hour, ts.tm_min, ts.tm_sec,
+		       (int)(rec->cr_time & ((1<<30) - 1)),
+		       ts.tm_year + 1900, ts.tm_mon + 1, ts.tm_mday,
+		       rec->cr_flags & CLF_FLAGMASK, PFID(&rec->cr_tfid));
+		if (changelog_jobid_isset(rec))
+			printf(" j=%s", rec->cr_jobid);
+		if (rec->cr_namelen)
+			/* namespace rec includes parent and filename */
 			printf(" p="DFID" %.*s", PFID(&rec->cr_pfid),
-				rec->cr_namelen, rec->cr_name);
-
+			       rec->cr_namelen, rec->cr_name);
 		if (!fid_is_zero(&rec->cr_sfid))
 			printf(" s="DFID" sp="DFID" %.*s",
-				PFID(&rec->cr_sfid), PFID(&rec->cr_spfid),
-				changelog_rec_snamelen(rec),
-				changelog_rec_sname(rec));
+			       PFID(&rec->cr_sfid), PFID(&rec->cr_spfid),
+			       changelog_rec_snamelen(rec),
+			       changelog_rec_sname(rec));
 		printf("\n");
 
-                llapi_changelog_free(&rec);
-        }
+		llapi_changelog_free(&rec);
+	}
 
         llapi_changelog_fini(&changelog_priv);
 

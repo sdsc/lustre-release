@@ -723,6 +723,7 @@ static inline const char *changelog_type2str(int type) {
 /* per-record flags */
 #define CLF_VERSION     0x1000
 #define CLF_EXT_VERSION 0x2000
+#define CLF_VERSION_V2  0x4000
 #define CLF_FLAGSHIFT   12
 #define CLF_FLAGMASK    ((1U << CLF_FLAGSHIFT) - 1)
 #define CLF_VERMASK     (~CLF_FLAGMASK)
@@ -807,22 +808,51 @@ static inline void hsm_set_cl_error(int *flags, int error)
         *flags |= (error << CLF_HSM_ERR_L);
 }
 
-#define CR_MAXSIZE cfs_size_round(2*NAME_MAX + 1 + \
-				  sizeof(struct changelog_ext_rec))
+#define CHANGELOG_FLAG_FOLLOW 0x01   /* Not yet implemented */
+#define CHANGELOG_FLAG_BLOCK  0x02   /* Blocking IO makes sense in case of
+   slow user parsing of the records, but it also prevents us from cleaning
+   up if the records are not consumed. */
+#define CHANGELOG_FLAG_JOBID 0x04    /* Get v2 records, that include jobid */
+
+
+#define CR_MAXSIZE cfs_size_round(2 * NAME_MAX + 1 + \
+				  sizeof(struct changelog_ext_rec_v2))
+
+#define LUSTRE_JOBID_SIZE 32 /* 32 bytes string (31 usable + null byte) */
 
 struct changelog_rec {
-        __u16                 cr_namelen;
-        __u16                 cr_flags; /**< (flags&CLF_FLAGMASK)|CLF_VERSION */
-        __u32                 cr_type;  /**< \a changelog_rec_type */
-        __u64                 cr_index; /**< changelog record number */
-        __u64                 cr_prev;  /**< last index for this target fid */
-        __u64                 cr_time;
-        union {
-                lustre_fid    cr_tfid;        /**< target fid */
-                __u32         cr_markerflags; /**< CL_MARK flags */
-        };
-        lustre_fid            cr_pfid;        /**< parent fid */
-        char                  cr_name[0];     /**< last element */
+	__u16			cr_namelen;
+	__u16			cr_flags;	/**< (flags & CLF_FLAGMASK)|
+						      CLF_VERSION */
+	__u32			cr_type;	/**< \a changelog_rec_type */
+	__u64			cr_index;	/**< changelog record number */
+	__u64			cr_prev;	/**< last index for this target
+						     fid */
+	__u64			cr_time;
+	union {
+		lustre_fid	cr_tfid;	/**< target fid */
+		__u32		cr_markerflags;	/**< CL_MARK flags */
+	};
+	lustre_fid		cr_pfid;	/**< parent fid */
+	char			cr_name[0];	/**< last element */
+} __attribute__((packed));
+
+struct changelog_rec_v2 {
+	__u16			cr_namelen;
+	__u16			cr_flags;	/**< (flags & CLF_FLAGMASK)|
+						      CLF_VERSION_V2 */
+	__u32			cr_type;	/**< \a changelog_rec_type */
+	__u64			cr_index;	/**< changelog record number */
+	__u64			cr_prev;	/**< last index for this target
+						     fid */
+	__u64			cr_time;
+	union {
+		lustre_fid	cr_tfid;	/**< target fid */
+		__u32		cr_markerflags;	/**< CL_MARK flags */
+	};
+	lustre_fid		cr_pfid;	/**< parent fid */
+	char			cr_jobid[LUSTRE_JOBID_SIZE];
+	char			cr_name[0];	/**< last element */
 } __attribute__((packed));
 
 /* changelog_ext_rec is 2*sizeof(lu_fid) bigger than changelog_rec, to save
@@ -831,7 +861,7 @@ struct changelog_rec {
  */
 struct changelog_ext_rec {
 	__u16			cr_namelen;
-	__u16			cr_flags; /**< (flags & CLF_FLAGMASK) |
+	__u16			cr_flags; /**< (flags & CLF_FLAGMASK)|
 						CLF_EXT_VERSION */
 	__u32			cr_type;  /**< \a changelog_rec_type */
 	__u64			cr_index; /**< changelog record number */
@@ -847,30 +877,124 @@ struct changelog_ext_rec {
 	char			cr_name[0];     /**< last element */
 } __attribute__((packed));
 
-#define CHANGELOG_REC_EXTENDED(rec) \
-	(((rec)->cr_flags & CLF_VERMASK) == CLF_EXT_VERSION)
+struct changelog_ext_rec_v2 {
+	__u16			cr_namelen;
+	__u16			cr_flags; /**< (flags & CLF_FLAGMASK)|
+						CLF_EXT_VERSION|CLF_VERSION_V2
+					   */
+	__u32			cr_type;  /**< \a changelog_rec_type */
+	__u64			cr_index; /**< changelog record number */
+	__u64			cr_prev;  /**< last index for this target fid */
+	__u64			cr_time;
+	union {
+		lustre_fid	cr_tfid;	/**< target fid */
+		__u32		cr_markerflags; /**< CL_MARK flags */
+	};
+	lustre_fid		cr_pfid;	/**< target parent fid */
+	lustre_fid		cr_sfid;	/**< source fid, or zero */
+	lustre_fid		cr_spfid;       /**< source parent fid, or zero */
+	char			cr_jobid[LUSTRE_JOBID_SIZE];
+	char			cr_name[0];     /**< last element */
+} __attribute__((packed));
 
-static inline int changelog_rec_size(struct changelog_rec *rec)
+#define CHANGELOG_REC_EXTENDED(rec)	((rec)->cr_flags & CLF_EXT_VERSION)
+
+#define CHANGELOG_REC_FMT_V1	1
+#define CHANGELOG_REC_FMT_V2	2
+#define CHANGELOG_REC_FORMAT(rec)	(((rec)->cr_flags & CLF_VERSION_V2) ? \
+					 CHANGELOG_REC_FMT_V2 : \
+					 CHANGELOG_REC_FMT_V1)
+
+
+static inline int changelog_rec_size(struct changelog_rec_v2 *rec)
 {
-	return CHANGELOG_REC_EXTENDED(rec) ? sizeof(struct changelog_ext_rec):
-					     sizeof(*rec);
+	if (CHANGELOG_REC_FORMAT(rec) == CHANGELOG_REC_FMT_V2)
+		return CHANGELOG_REC_EXTENDED(rec) ?
+			sizeof(struct changelog_ext_rec_v2) :
+			sizeof(*rec);
+	else
+		return CHANGELOG_REC_EXTENDED(rec) ?
+			sizeof(struct changelog_ext_rec) :
+			sizeof(struct changelog_rec);
+
 }
 
-static inline char *changelog_rec_name(struct changelog_rec *rec)
+static inline char *changelog_rec_name(struct changelog_rec_v2 *rec)
 {
-	return CHANGELOG_REC_EXTENDED(rec) ?
-		((struct changelog_ext_rec *)rec)->cr_name: rec->cr_name;
+	if (CHANGELOG_REC_FORMAT(rec) == CHANGELOG_REC_FMT_V2)
+		return CHANGELOG_REC_EXTENDED(rec) ?
+			((struct changelog_ext_rec_v2 *)rec)->cr_name :
+			rec->cr_name;
+	else
+		return CHANGELOG_REC_EXTENDED(rec) ?
+			((struct changelog_ext_rec *)rec)->cr_name :
+			((struct changelog_rec *)rec)->cr_name;
 }
 
-static inline int changelog_rec_snamelen(struct changelog_ext_rec *rec)
+static inline int changelog_rec_snamelen(struct changelog_ext_rec_v2 *rec)
 {
+	if (CHANGELOG_REC_FORMAT(rec) == CHANGELOG_REC_FMT_V1) {
+		struct changelog_ext_rec *ext =
+			(struct changelog_ext_rec *)rec;
+
+		return ext->cr_namelen - strlen(rec->cr_name) - 1;
+	}
 	return rec->cr_namelen - strlen(rec->cr_name) - 1;
 }
 
-static inline char *changelog_rec_sname(struct changelog_ext_rec *rec)
+static inline char *changelog_rec_sname(struct changelog_ext_rec_v2 *rec)
 {
+	if (CHANGELOG_REC_FORMAT(rec) == CHANGELOG_REC_FMT_V1) {
+		struct changelog_ext_rec *ext =
+			(struct changelog_ext_rec *)rec;
+
+		return ext->cr_name + strlen(ext->cr_name) + 1;
+	}
 	return rec->cr_name + strlen(rec->cr_name) + 1;
 }
+
+static inline bool changelog_jobid_isset(struct changelog_ext_rec_v2 *rec)
+{
+	return (CHANGELOG_REC_FORMAT(rec) == CHANGELOG_REC_FMT_V2 &&
+		rec->cr_jobid[0] != '\0');
+}
+
+/* Remap a changelog record to the desired format (in-place). */
+static inline void changelog_rec_remap(struct changelog_rec_v2 *rv2, int format)
+{
+	struct changelog_rec		*rv1 = (struct changelog_rec *)rv2;
+	struct changelog_ext_rec	*xrv1 = (struct changelog_ext_rec *)rv2;
+	struct changelog_ext_rec_v2	*xrv2 =
+		(struct changelog_ext_rec_v2 *)rv2;
+
+	if (CHANGELOG_REC_FORMAT(rv2) == format)
+		return; /* nothing to do */
+
+	if (format == CHANGELOG_REC_FMT_V1) {
+		if (CHANGELOG_REC_EXTENDED(xrv2)) {
+			memmove(xrv1->cr_name, xrv2->cr_name, xrv2->cr_namelen);
+			memset(xrv1->cr_name + xrv2->cr_namelen, 0,
+			       sizeof(xrv2->cr_jobid));
+		} else {
+			memmove(rv1->cr_name, rv2->cr_name, rv2->cr_namelen);
+			memset(rv1->cr_name + rv2->cr_namelen, 0,
+			       sizeof(rv2->cr_jobid));
+		}
+		rv1->cr_flags &= ~CLF_VERSION_V2;
+		rv1->cr_flags |= CLF_VERSION;
+	} else if (format == CHANGELOG_REC_FMT_V2) {
+		if (CHANGELOG_REC_EXTENDED(rv1)) {
+			memmove(xrv2->cr_name, xrv1->cr_name, xrv1->cr_namelen);
+			memset(xrv2->cr_jobid, 0, sizeof(xrv2->cr_jobid));
+		} else {
+			memmove(rv2->cr_name, rv1->cr_name, rv1->cr_namelen);
+			memset(rv2->cr_jobid, 0, sizeof(rv2->cr_jobid));
+		}
+		rv1->cr_flags &= ~CLF_VERSION;
+		rv1->cr_flags |= CLF_VERSION_V2;
+	}
+}
+
 
 struct ioc_changelog {
         __u64 icc_recno;

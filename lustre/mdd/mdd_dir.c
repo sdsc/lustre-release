@@ -659,7 +659,7 @@ int mdd_declare_changelog_store(const struct lu_env *env,
 {
 	struct obd_device		*obd = mdd2obd_dev(mdd);
 	struct llog_ctxt		*ctxt;
-	struct llog_changelog_rec	*rec;
+	struct llog_changelog_rec_v2	*rec;
 	struct lu_buf			*buf;
 	int				 reclen;
 	int				 rc;
@@ -676,7 +676,7 @@ int mdd_declare_changelog_store(const struct lu_env *env,
 
 	rec = buf->lb_buf;
 	rec->cr_hdr.lrh_len = reclen;
-	rec->cr_hdr.lrh_type = CHANGELOG_REC;
+	rec->cr_hdr.lrh_type = CHANGELOG_REC_V2;
 
 	ctxt = llog_get_context(obd, LLOG_CHANGELOG_ORIG_CTXT);
 	if (ctxt == NULL)
@@ -694,12 +694,12 @@ static int mdd_declare_changelog_ext_store(const struct lu_env *env,
 					   const struct lu_name *sname,
 					   struct thandle *handle)
 {
-	struct obd_device		*obd = mdd2obd_dev(mdd);
-	struct llog_ctxt		*ctxt;
-	struct llog_changelog_ext_rec	*rec;
-	struct lu_buf			*buf;
-	int				 reclen;
-	int				 rc;
+	struct obd_device			*obd = mdd2obd_dev(mdd);
+	struct llog_ctxt			*ctxt;
+	struct llog_changelog_ext_rec_v2	*rec;
+	struct lu_buf				*buf;
+	int					 reclen;
+	int					 rc;
 
 	/* Not recording */
 	if (!(mdd->mdd_cl.mc_flags & CLM_ON))
@@ -714,7 +714,7 @@ static int mdd_declare_changelog_ext_store(const struct lu_env *env,
 
 	rec = buf->lb_buf;
 	rec->cr_hdr.lrh_len = reclen;
-	rec->cr_hdr.lrh_type = CHANGELOG_REC;
+	rec->cr_hdr.lrh_type = CHANGELOG_REC_V2;
 
 	ctxt = llog_get_context(obd, LLOG_CHANGELOG_ORIG_CTXT);
 	if (ctxt == NULL)
@@ -734,14 +734,14 @@ static int mdd_declare_changelog_ext_store(const struct lu_env *env,
  * \retval 0 ok
  */
 int mdd_changelog_store(const struct lu_env *env, struct mdd_device *mdd,
-			struct llog_changelog_rec *rec, struct thandle *th)
+			struct llog_changelog_rec_v2 *rec, struct thandle *th)
 {
 	struct obd_device	*obd = mdd2obd_dev(mdd);
 	struct llog_ctxt	*ctxt;
 	int			 rc;
 
 	rec->cr_hdr.lrh_len = llog_data_len(sizeof(*rec) + rec->cr.cr_namelen);
-	rec->cr_hdr.lrh_type = CHANGELOG_REC;
+	rec->cr_hdr.lrh_type = CHANGELOG_REC_V2;
 	rec->cr.cr_time = cl_time();
 
 	spin_lock(&mdd->mdd_cl.mc_lock);
@@ -771,7 +771,8 @@ int mdd_changelog_store(const struct lu_env *env, struct mdd_device *mdd,
  */
 static int
 mdd_changelog_ext_store(const struct lu_env *env, struct mdd_device *mdd,
-			struct llog_changelog_ext_rec *rec, struct thandle *th)
+			struct llog_changelog_ext_rec_v2 *rec,
+			struct thandle *th)
 {
 	struct obd_device	*obd = mdd2obd_dev(mdd);
 	struct llog_ctxt	*ctxt;
@@ -779,7 +780,7 @@ mdd_changelog_ext_store(const struct lu_env *env, struct mdd_device *mdd,
 
 	rec->cr_hdr.lrh_len = llog_data_len(sizeof(*rec) + rec->cr.cr_namelen);
 	/* llog_lvfs_write_rec sets the llog tail len */
-	rec->cr_hdr.lrh_type = CHANGELOG_REC;
+	rec->cr_hdr.lrh_type = CHANGELOG_REC_V2;
 	rec->cr.cr_time = cl_time();
 
 	spin_lock(&mdd->mdd_cl.mc_lock);
@@ -815,10 +816,11 @@ int mdd_changelog_ns_store(const struct lu_env *env, struct mdd_device *mdd,
 			   struct mdd_object *target, struct mdd_object *parent,
 			   const struct lu_name *tname, struct thandle *handle)
 {
-	struct llog_changelog_rec *rec;
-	struct lu_buf *buf;
-	int reclen;
-	int rc;
+	const struct lu_ucred		*uc = lu_ucred(env);
+	struct llog_changelog_rec_v2	*rec;
+	struct lu_buf			*buf;
+	int				 reclen;
+	int				 rc;
 	ENTRY;
 
 	/* Not recording */
@@ -838,12 +840,18 @@ int mdd_changelog_ns_store(const struct lu_env *env, struct mdd_device *mdd,
 		RETURN(-ENOMEM);
 	rec = buf->lb_buf;
 
-	rec->cr.cr_flags = CLF_VERSION | (CLF_FLAGMASK & flags);
+	rec->cr.cr_flags = CLF_VERSION_V2 | (CLF_FLAGMASK & flags);
 	rec->cr.cr_type = (__u32)type;
 	rec->cr.cr_tfid = *mdo2fid(target);
 	rec->cr.cr_pfid = *mdo2fid(parent);
 	rec->cr.cr_namelen = tname->ln_namelen;
 	memcpy(rec->cr.cr_name, tname->ln_name, tname->ln_namelen);
+
+	if (uc->uc_jobid[0] != '0') {
+		strncpy(rec->cr.cr_jobid, uc->uc_jobid,
+			sizeof(rec->cr.cr_jobid));
+		rec->cr.cr_jobid[sizeof(rec->cr.cr_jobid) - 1] = '\0';
+	}
 
 	target->mod_cltime = cfs_time_current_64();
 
@@ -882,10 +890,11 @@ static int mdd_changelog_ext_ns_store(const struct lu_env  *env,
 				      const struct lu_name *sname,
 				      struct thandle *handle)
 {
-	struct llog_changelog_ext_rec *rec;
-	struct lu_buf *buf;
-	int reclen;
-	int rc;
+	const struct lu_ucred			*uc = lu_ucred(env);
+	struct llog_changelog_ext_rec_v2	*rec;
+	struct lu_buf				*buf;
+	int					 reclen;
+	int					 rc;
 	ENTRY;
 
 	/* Not recording */
@@ -906,18 +915,26 @@ static int mdd_changelog_ext_ns_store(const struct lu_env  *env,
 		RETURN(-ENOMEM);
 	rec = buf->lb_buf;
 
-	rec->cr.cr_flags = CLF_EXT_VERSION | (CLF_FLAGMASK & flags);
+	rec->cr.cr_flags = CLF_EXT_VERSION | (CLF_FLAGMASK & flags) |
+			   CLF_VERSION_V2;
 	rec->cr.cr_type = (__u32)type;
 	rec->cr.cr_pfid = *tpfid;
 	rec->cr.cr_sfid = *sfid;
 	rec->cr.cr_spfid = *spfid;
 	rec->cr.cr_namelen = tname->ln_namelen;
 	memcpy(rec->cr.cr_name, tname->ln_name, tname->ln_namelen);
+
 	if (sname) {
 		rec->cr.cr_name[tname->ln_namelen] = '\0';
 		memcpy(rec->cr.cr_name + tname->ln_namelen + 1, sname->ln_name,
-			sname->ln_namelen);
+		       sname->ln_namelen);
 		rec->cr.cr_namelen += 1 + sname->ln_namelen;
+	}
+
+	if (uc->uc_jobid[0] != '0') {
+		strncpy(rec->cr.cr_jobid, uc->uc_jobid,
+			sizeof(rec->cr.cr_jobid));
+		rec->cr.cr_jobid[sizeof(rec->cr.cr_jobid) - 1] = '\0';
 	}
 
 	if (likely(target != NULL)) {

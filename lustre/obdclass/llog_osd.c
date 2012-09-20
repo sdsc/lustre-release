@@ -187,6 +187,7 @@ static int llog_osd_read_header(const struct lu_env *env,
 	struct llog_rec_hdr	*llh_hdr;
 	struct dt_object	*o;
 	struct llog_thread_info	*lgi;
+	__u32			 flags;
 	int			 rc;
 
 	ENTRY;
@@ -208,6 +209,8 @@ static int llog_osd_read_header(const struct lu_env *env,
 		CDEBUG(D_HA, "not reading header from 0-byte log\n");
 		RETURN(LLOG_EEMPTY);
 	}
+
+	flags = handle->lgh_hdr->llh_flags;
 
 	lgi->lgi_off = 0;
 	lgi->lgi_buf.lb_buf = handle->lgh_hdr;
@@ -242,6 +245,9 @@ static int llog_osd_read_header(const struct lu_env *env,
 		       llh_hdr->lrh_len, LLOG_CHUNK_SIZE);
 		RETURN(-EIO);
 	}
+
+	if (flags & LLOG_F_DELIVER_REC_V2)
+		handle->lgh_hdr->llh_flags |= LLOG_F_DELIVER_REC_V2;
 
 	handle->lgh_last_idx = handle->lgh_hdr->llh_tail.lrt_index;
 
@@ -587,6 +593,27 @@ static inline void llog_skip_over(__u64 *off, int curr, int goal)
 }
 
 /**
+ * Remap changelog_rec_v2 records to the desired format if the
+ * reader doesn't ask explicitely for v2. This in order to ensure
+ * compatibility between new servers and older clients.
+ */
+static void changelog_block_remap(struct llog_rec_hdr *hdr,
+				  struct llog_rec_hdr *last_hdr)
+{
+	struct changelog_rec_v2	*rv2;
+
+	if (hdr->lrh_type != CHANGELOG_REC_V2)
+		return;
+
+	do {
+		rv2 = (struct changelog_rec_v2 *)(hdr + 1);
+		changelog_rec_remap(rv2, CHANGELOG_REC);
+		hdr->lrh_type = CHANGELOG_REC;
+		hdr = llog_rec_hdr_next(hdr);
+	} while ((char *)hdr <= (char *)last_hdr);
+}
+
+/**
  * Implementation of the llog_operations::lop_next_block
  *
  * This function finds the the next llog block to return which contains
@@ -713,6 +740,11 @@ static int llog_osd_next_block(const struct lu_env *env,
 			       rec->lrh_index, next_idx);
 			GOTO(out, rc = -ENOENT);
 		}
+
+		/* Remap the record to the desired format if needed. */
+		if (!(loghandle->lgh_hdr->llh_flags & LLOG_F_DELIVER_REC_V2))
+			changelog_block_remap(rec, last_rec);
+
 		GOTO(out, rc = 0);
 	}
 	GOTO(out, rc = -EIO);
@@ -738,8 +770,8 @@ out:
  * \retval		negative value on error
  */
 static int llog_osd_prev_block(const struct lu_env *env,
-			       struct llog_handle *loghandle,
-			       int prev_idx, void *buf, int len)
+			       struct llog_handle *loghandle, int prev_idx,
+			       void *buf, int len)
 {
 	struct llog_thread_info	*lgi = llog_info(env);
 	struct dt_object	*o;
@@ -831,6 +863,11 @@ static int llog_osd_prev_block(const struct lu_env *env,
 			       rec->lrh_index, prev_idx);
 			GOTO(out, rc = -ENOENT);
 		}
+
+		/* Remap the record to the desired format if needed. */
+		if (!(loghandle->lgh_hdr->llh_flags & LLOG_F_DELIVER_REC_V2))
+			changelog_block_remap(rec, last_rec);
+
 		GOTO(out, rc = 0);
 	}
 	GOTO(out, rc = -EIO);

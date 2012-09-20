@@ -963,7 +963,7 @@ void ccc_req_attr_set(const struct lu_env *env,
 		oa->o_parent_oid++;
 #ifdef __KERNEL__
 	memcpy(attr->cra_jobid, cl_i2info(inode)->lli_jobid,
-	       JOBSTATS_JOBID_SIZE);
+	       LUSTRE_JOBID_SIZE);
 #endif
 }
 

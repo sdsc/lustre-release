@@ -69,8 +69,8 @@
 struct job_stat {
 	cfs_hlist_node_t      js_hash;
 	cfs_list_t            js_list;
-	atomic_t          js_refcount;
-	char                  js_jobid[JOBSTATS_JOBID_SIZE];
+	atomic_t	      js_refcount;
+	char		      js_jobid[LUSTRE_JOBID_SIZE];
 	time_t                js_timestamp; /* seconds */
 	struct lprocfs_stats *js_stats;
 	struct obd_job_stats *js_jobstats;
@@ -199,7 +199,7 @@ static struct job_stat *job_alloc(char *jobid, struct obd_job_stats *jobs)
 
 	jobs->ojs_cntr_init_fn(job->js_stats);
 
-	memcpy(job->js_jobid, jobid, JOBSTATS_JOBID_SIZE);
+	memcpy(job->js_jobid, jobid, LUSTRE_JOBID_SIZE);
 	job->js_timestamp = cfs_time_current_sec();
 	job->js_jobstats = jobs;
 	CFS_INIT_HLIST_NODE(&job->js_hash);
@@ -223,9 +223,9 @@ int lprocfs_job_stats_log(struct obd_device *obd, char *jobid,
 	if (!jobid || !strlen(jobid))
 		RETURN(-EINVAL);
 
-	if (strlen(jobid) >= JOBSTATS_JOBID_SIZE) {
+	if (strlen(jobid) >= LUSTRE_JOBID_SIZE) {
 		CERROR("Invalid jobid size (%lu), expect(%d)\n",
-		       (unsigned long)strlen(jobid) + 1, JOBSTATS_JOBID_SIZE);
+		       (unsigned long)strlen(jobid) + 1, LUSTRE_JOBID_SIZE);
 		RETURN(-EINVAL);
 	}
 
@@ -436,11 +436,11 @@ static ssize_t lprocfs_jobstats_seq_write(struct file *file,
 {
 	struct seq_file *seq = file->private_data;
 	struct obd_job_stats *stats = seq->private;
-	char jobid[JOBSTATS_JOBID_SIZE];
+	char jobid[LUSTRE_JOBID_SIZE];
 	int all = 0;
 	struct job_stat *job;
 
-	if (len == 0 || len >= JOBSTATS_JOBID_SIZE)
+	if (len == 0 || len >= LUSTRE_JOBID_SIZE)
 		return -EINVAL;
 
 	if (copy_from_user(jobid, buf, len))

@@ -1082,5 +1082,16 @@ static inline char *mdt_obd_name(struct mdt_device *mdt)
 int mds_mod_init(void);
 void mds_mod_exit(void);
 
+static inline char *mdt_req_get_jobid(struct ptlrpc_request *req)
+{
+	struct obd_export *exp   = req->rq_export;
+	char		  *jobid = NULL;
+
+	if (exp_connect_flags(exp) & OBD_CONNECT_JOBSTATS)
+		jobid = lustre_msg_get_jobid(req->rq_reqmsg);
+
+	return jobid;
+}
+
 #endif /* __KERNEL__ */
 #endif /* _MDT_H */

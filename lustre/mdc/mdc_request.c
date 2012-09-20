@@ -2057,19 +2057,77 @@ struct changelog_show {
 	struct obd_device *cs_obd;
 };
 
+static inline char *cs_obd_name(struct changelog_show *cs)
+{
+	return cs->cs_obd->obd_name;
+}
+
+static int kuc_msg_length(struct changelog_rec_v2 *rec, int format)
+{
+	int len;
+
+	len = sizeof(struct kuc_hdr) + changelog_rec_size(rec) +
+	      rec->cr_namelen;
+
+	if (CHANGELOG_REC_FORMAT(rec) != format) {
+		int delta = sizeof(struct changelog_rec_v2) -
+			    sizeof(struct changelog_rec);
+
+		if (format == CHANGELOG_REC_FMT_V1)
+			len -= delta;
+		else
+			len += delta;
+	}
+	return len;
+}
+
+static struct kuc_hdr *setup_kuc_message(struct changelog_show *cs,
+					 struct changelog_rec_v2 *rec,
+					 int *msg_len)
+{
+	struct kuc_hdr	*lh;
+	int		 len;
+
+	if ((cs->cs_flags & CHANGELOG_FLAG_JOBID) &&
+	    CHANGELOG_REC_FORMAT(rec) != CHANGELOG_REC_FMT_V2) {
+		/* _v2 desired, but got _v1. Remap. */
+		len = kuc_msg_length(rec, CHANGELOG_REC_FMT_V2);
+		lh = changelog_kuc_hdr(cs->cs_buf, len, cs->cs_flags);
+		memcpy(lh + 1, rec, len - sizeof(*lh));
+		changelog_rec_remap((struct changelog_rec_v2 *)(lh + 1),
+				    CHANGELOG_REC_V2);
+	} else if (!(cs->cs_flags & CHANGELOG_FLAG_JOBID) &&
+		   CHANGELOG_REC_FORMAT(rec) == CHANGELOG_REC_FMT_V2) {
+		/* _v1 desired, but got _v2. Remap. */
+		len = kuc_msg_length(rec, CHANGELOG_REC_FMT_V1);
+		lh = changelog_kuc_hdr(cs->cs_buf, len, cs->cs_flags);
+		memcpy(lh + 1, rec, len - sizeof(*lh));
+		changelog_rec_remap((struct changelog_rec_v2 *)(lh + 1),
+				    CHANGELOG_REC);
+	} else {
+		/* Got the desired version. OK. */
+		len = kuc_msg_length(rec, CHANGELOG_REC_FORMAT(rec));
+		lh = changelog_kuc_hdr(cs->cs_buf, len, cs->cs_flags);
+		memcpy(lh + 1, rec, len - sizeof(*lh));
+	}
+
+	*msg_len = len;
+	return lh;
+}
+
 static int changelog_kkuc_cb(const struct lu_env *env, struct llog_handle *llh,
 			     struct llog_rec_hdr *hdr, void *data)
 {
 	struct changelog_show *cs = data;
-	struct llog_changelog_rec *rec = (struct llog_changelog_rec *)hdr;
+	struct llog_changelog_rec_v2 *rec = (struct llog_changelog_rec_v2 *)hdr;
 	struct kuc_hdr *lh;
 	int len, rc;
 	ENTRY;
 
-	if (rec->cr_hdr.lrh_type != CHANGELOG_REC) {
+	if (!changelog_rec_is_valid((struct llog_changelog_rec *)rec)) {
 		rc = -EINVAL;
 		CERROR("%s: not a changelog rec %x/%d: rc = %d\n",
-		       cs->cs_obd->obd_name, rec->cr_hdr.lrh_type,
+		       cs_obd_name(cs), rec->cr_hdr.lrh_type,
 		       rec->cr.cr_type, rc);
 		RETURN(rc);
 	}
@@ -2088,28 +2146,26 @@ static int changelog_kkuc_cb(const struct lu_env *env, struct llog_handle *llh,
 		PFID(&rec->cr.cr_tfid), PFID(&rec->cr.cr_pfid),
 		rec->cr.cr_namelen, changelog_rec_name(&rec->cr));
 
-	len = sizeof(*lh) + changelog_rec_size(&rec->cr) + rec->cr.cr_namelen;
+	lh = setup_kuc_message(cs, &rec->cr, &len);
 
-        /* Set up the message */
-        lh = changelog_kuc_hdr(cs->cs_buf, len, cs->cs_flags);
-        memcpy(lh + 1, &rec->cr, len - sizeof(*lh));
+	rc = libcfs_kkuc_msg_put(cs->cs_fp, lh);
+	CDEBUG(D_CHANGELOG, "kucmsg fp=%p name=%s len=%d rc=%d\n", cs->cs_fp,
+	       cs_obd_name(cs), len, rc);
 
-        rc = libcfs_kkuc_msg_put(cs->cs_fp, lh);
-        CDEBUG(D_CHANGELOG, "kucmsg fp %p len %d rc %d\n", cs->cs_fp, len,rc);
-
-        RETURN(rc);
+	RETURN(rc);
 }
 
 static int mdc_changelog_send_thread(void *csdata)
 {
-	struct changelog_show *cs = csdata;
-	struct llog_ctxt *ctxt = NULL;
-	struct llog_handle *llh = NULL;
-	struct kuc_hdr *kuch;
-	int rc;
+	struct changelog_show	*cs = csdata;
+	struct llog_ctxt	*ctxt = NULL;
+	struct llog_handle	*llh = NULL;
+	struct kuc_hdr		*kuch;
+	__u32			 flags;
+	int			 rc;
 
-	CDEBUG(D_CHANGELOG, "changelog to fp=%p start "LPU64"\n",
-	       cs->cs_fp, cs->cs_startrec);
+	CDEBUG(D_CHANGELOG, "changelog to fp=%p start "LPU64" flags=%d\n",
+	       cs->cs_fp, cs->cs_startrec, cs->cs_flags);
 
 	OBD_ALLOC(cs->cs_buf, KUC_CHANGELOG_MSG_MAXSIZE);
 	if (cs->cs_buf == NULL)
@@ -2119,14 +2175,20 @@ static int mdc_changelog_send_thread(void *csdata)
         ctxt = llog_get_context(cs->cs_obd, LLOG_CHANGELOG_REPL_CTXT);
         if (ctxt == NULL)
                 GOTO(out, rc = -ENOENT);
+
 	rc = llog_open(NULL, ctxt, &llh, NULL, CHANGELOG_CATALOG,
 		       LLOG_OPEN_EXISTS);
 	if (rc) {
 		CERROR("%s: fail to open changelog catalog: rc = %d\n",
-		       cs->cs_obd->obd_name, rc);
+		       cs_obd_name(cs), rc);
 		GOTO(out, rc);
 	}
-	rc = llog_init_handle(NULL, llh, LLOG_F_IS_CAT, NULL);
+
+	flags = LLOG_F_IS_CAT;
+	if (cs->cs_flags & CHANGELOG_FLAG_JOBID)
+		flags |= LLOG_F_DELIVER_REC_V2;
+
+	rc = llog_init_handle(NULL, llh, flags, NULL);
 	if (rc) {
 		CERROR("llog_init_handle failed %d\n", rc);
 		GOTO(out, rc);
