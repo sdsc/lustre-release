@@ -157,6 +157,7 @@ struct lr_info {
 	char spfid[LR_FID_STR_LEN];
 	char sname[NAME_MAX + 1];
 	char name[NAME_MAX + 1];
+	char jobid[JOBID_SIZE + 1];
         char src[PATH_MAX + 1];
         char dest[PATH_MAX + 1];
         char path[PATH_MAX + 1];
@@ -1110,6 +1111,8 @@ int lr_parse_line(void *priv, struct lr_info *info)
         sprintf(info->tfid, DFID, PFID(&rec->cr_tfid));
         sprintf(info->pfid, DFID, PFID(&rec->cr_pfid));
         strncpy(info->name, rec->cr_name, rec->cr_namelen);
+	strncpy(info->jobid, rec->cr_jobid, sizeof(rec->cr_jobid));
+	info->jobid[JOBID_SIZE] = '\0';
 
 	if (fid_is_sane(&rec->cr_sfid)) {
 		sprintf(info->sfid, DFID, PFID(&rec->cr_sfid));
@@ -1119,14 +1122,15 @@ int lr_parse_line(void *priv, struct lr_info *info)
 		info->sname[changelog_rec_snamelen(rec)] = '\0';
 
 		if (verbose > 1)
-			printf("Rec %lld: %d %s %s\n", info->recno, info->type,
-				info->name, info->sname);
+			printf("Rec %lld: %d %s %s %s\n", info->recno,
+				info->type, info->name, info->sname,
+				info->jobid);
 	} else {
 		info->name[rec->cr_namelen] = '\0';
 
 		if (verbose > 1)
-			printf("Rec %lld: %d %s\n", info->recno, info->type,
-				info->name);
+			printf("Rec %lld: %d %s %s\n", info->recno, info->type,
+				info->name, info->jobid);
 	}
 
         llapi_changelog_free(&rec);

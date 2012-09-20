@@ -981,7 +981,7 @@ static int mdd_changelog_data_store(const struct lu_env *env,
                 RETURN(-ENOMEM);
 	rec = buf->lb_buf;
 
-        rec->cr.cr_flags = CLF_VERSION | (CLF_FLAGMASK & flags);
+	rec->cr.cr_flags = CLF_VERSION | (CLF_FLAGMASK & flags) | CLF_HAS_JOBID;
         rec->cr.cr_type = (__u32)type;
         rec->cr.cr_tfid = *tfid;
         rec->cr.cr_namelen = 0;

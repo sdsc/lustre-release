@@ -296,7 +296,7 @@ static struct md_object *llo_create_obj(const struct lu_env *env,
         ma->ma_valid = 0;
         ma->ma_need = 0;
 
-        rc = mdo_create(env, dir, lname, mdo, spec, ma);
+	rc = mdo_create(env, dir, lname, mdo, spec, ma, NULL);
 
         if (rc) {
                 lu_object_put(env, &mdo->mo_lu);
@@ -326,9 +326,9 @@ struct md_object *llo_store_create_index(const struct lu_env *env,
                                          const struct dt_index_features *feat)
 {
         struct llo_thread_info *info = llo_env_info(env);
-        struct md_object *obj;
-        struct md_object *dir;
-        struct lu_fid *ignore = &info->lti_fid;
+	struct md_object      *obj;
+	struct md_object      *dir;
+	struct lu_fid         *ignore = &info->lti_fid;
 
         dir = llo_store_resolve(env, md, dt, dirname, ignore);
         if (!IS_ERR(dir)) {

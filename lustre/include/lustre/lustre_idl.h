@@ -1005,7 +1005,7 @@ struct lustre_msg_v2 {
 
 /* without gss, ptlrpc_body is put at the first buffer. */
 #define PTLRPC_NUM_VERSIONS     4
-#define JOBSTATS_JOBID_SIZE     32  /* 32 bytes string */
+#define JOBSTATS_JOBID_SIZE     JOBID_SIZE
 struct ptlrpc_body_v3 {
 	struct lustre_handle pb_handle;
 	__u32 pb_type;
