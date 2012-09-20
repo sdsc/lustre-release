@@ -487,7 +487,8 @@ static mdl_mode_t cml_lock_mode(const struct lu_env *env,
  */
 static int cml_create(const struct lu_env *env, struct md_object *mo_p,
                       const struct lu_name *lname, struct md_object *mo_c,
-                      struct md_op_spec *spec, struct md_attr *ma)
+		      struct md_op_spec *spec, struct md_attr *ma,
+		      const char *jobid)
 {
         int rc;
         ENTRY;
@@ -544,7 +545,7 @@ static int cml_create(const struct lu_env *env, struct md_object *mo_p,
 #endif
 
         rc = mdo_create(env, md_object_next(mo_p), lname, md_object_next(mo_c),
-                        spec, ma);
+			spec, ma, jobid);
 
         EXIT;
 #ifdef HAVE_SPLIT_SUPPORT
@@ -557,36 +558,37 @@ out:
 static int cml_create_data(const struct lu_env *env, struct md_object *p,
                            struct md_object *o,
                            const struct md_op_spec *spec,
-                           struct md_attr *ma)
+			   struct md_attr *ma,
+			   const char *jobid)
 {
         int rc;
         ENTRY;
         rc = mdo_create_data(env, md_object_next(p), md_object_next(o),
-                             spec, ma);
+			     spec, ma, jobid);
         RETURN(rc);
 }
 
 /** Call mdo_link() on next layer. All objects are local. */
 static int cml_link(const struct lu_env *env, struct md_object *mo_p,
                     struct md_object *mo_s, const struct lu_name *lname,
-                    struct md_attr *ma)
+		    struct md_attr *ma, const char *jobid)
 {
         int rc;
         ENTRY;
         rc = mdo_link(env, md_object_next(mo_p), md_object_next(mo_s),
-                      lname, ma);
+		      lname, ma, jobid);
         RETURN(rc);
 }
 
 /** Call mdo_unlink() on next layer. All objects are local. */
 static int cml_unlink(const struct lu_env *env, struct md_object *mo_p,
                       struct md_object *mo_c, const struct lu_name *lname,
-                      struct md_attr *ma)
+		      struct md_attr *ma, const char *jobid)
 {
         int rc;
         ENTRY;
         rc = mdo_unlink(env, md_object_next(mo_p), md_object_next(mo_c),
-                        lname, ma);
+			lname, ma, jobid);
         RETURN(rc);
 }
 
@@ -707,7 +709,8 @@ static inline void cml_rename_warn(const char *fname,
 static int cml_rename(const struct lu_env *env, struct md_object *mo_po,
                       struct md_object *mo_pn, const struct lu_fid *lf,
                       const struct lu_name *ls_name, struct md_object *mo_t,
-                      const struct lu_name *lt_name, struct md_attr *ma)
+		      const struct lu_name *lt_name, struct md_attr *ma,
+		      const char *jobid)
 {
         struct cmm_thread_info *cmi;
         struct md_attr *tmp_ma = NULL;
@@ -816,7 +819,8 @@ static int cml_rename(const struct lu_env *env, struct md_object *mo_po,
         /* local rename, mo_t can be NULL */
         rc = mdo_rename(env, md_object_next(mo_po),
                         md_object_next(mo_pn), lf, ls_name,
-                        md_object_next(mo_t), lt_name, tmp_ma ? tmp_ma : ma);
+			md_object_next(mo_t), lt_name, tmp_ma ? tmp_ma : ma,
+			jobid);
         if (rc)
                 /* TODO: revoke all cml_rename */
                 cml_rename_warn("mdo_rename", mo_po, mo_pn, lf,
@@ -831,13 +835,14 @@ static int cml_rename(const struct lu_env *env, struct md_object *mo_po,
  */
 static int cml_rename_tgt(const struct lu_env *env, struct md_object *mo_p,
                           struct md_object *mo_t, const struct lu_fid *lf,
-                          const struct lu_name *lname, struct md_attr *ma)
+			  const struct lu_name *lname, struct md_attr *ma,
+			  const char *jobid)
 {
         int rc;
         ENTRY;
 
         rc = mdo_rename_tgt(env, md_object_next(mo_p),
-                            md_object_next(mo_t), lf, lname, ma);
+			    md_object_next(mo_t), lf, lname, ma, jobid);
         RETURN(rc);
 }
 
@@ -1209,7 +1214,7 @@ static mdl_mode_t cmr_lock_mode(const struct lu_env *env,
 static int cmr_create(const struct lu_env *env, struct md_object *mo_p,
                       const struct lu_name *lchild_name, struct md_object *mo_c,
                       struct md_op_spec *spec,
-                      struct md_attr *ma)
+		      struct md_attr *ma, const char *jobid)
 {
         struct cmm_thread_info *cmi;
         struct md_attr *tmp_ma;
@@ -1303,7 +1308,7 @@ static int cmr_create(const struct lu_env *env, struct md_object *mo_p,
  */
 static int cmr_link(const struct lu_env *env, struct md_object *mo_p,
                     struct md_object *mo_s, const struct lu_name *lname,
-                    struct md_attr *ma)
+		    struct md_attr *ma, const char *jobid)
 {
         int rc;
         ENTRY;
@@ -1353,7 +1358,7 @@ static int cmr_link(const struct lu_env *env, struct md_object *mo_p,
  */
 static int cmr_unlink(const struct lu_env *env, struct md_object *mo_p,
                       struct md_object *mo_c, const struct lu_name *lname,
-                      struct md_attr *ma)
+		      struct md_attr *ma, const char *jobid)
 {
         struct cmm_thread_info *cmi;
         struct md_attr *tmp_ma;
@@ -1425,7 +1430,7 @@ static int cmr_rename(const struct lu_env *env,
                       struct md_object *mo_po, struct md_object *mo_pn,
                       const struct lu_fid *lf, const struct lu_name *ls_name,
                       struct md_object *mo_t, const struct lu_name *lt_name,
-                      struct md_attr *ma)
+		      struct md_attr *ma, const char *jobid)
 {
         struct cmm_thread_info *cmi;
         struct md_attr *tmp_ma;
@@ -1458,7 +1463,7 @@ static int cmr_rename(const struct lu_env *env,
          * lookup and process this further.
          */
         rc = mdo_rename_tgt(env, md_object_next(mo_pn),
-                            NULL/* mo_t */, lf, lt_name, ma);
+			    NULL/* mo_t */, lf, lt_name, ma, jobid);
         if (rc)
                 RETURN(rc);
 
@@ -1490,7 +1495,7 @@ static int cmr_rename(const struct lu_env *env,
 static int cmr_rename_tgt(const struct lu_env *env,
                           struct md_object *mo_p, struct md_object *mo_t,
                           const struct lu_fid *lf, const struct lu_name *lname,
-                          struct md_attr *ma)
+			  struct md_attr *ma, const char *jobid)
 {
         struct cmm_thread_info *cmi;
         struct md_attr *tmp_ma;
@@ -1516,7 +1521,7 @@ static int cmr_rename_tgt(const struct lu_env *env,
         if (rc == 0) {
                 tmp_ma->ma_attr_flags |= MDS_PERM_BYPASS;
                 rc = mdo_rename_tgt(env, md_object_next(mo_p),
-                                    NULL, lf, lname, tmp_ma);
+				    NULL, lf, lname, tmp_ma, jobid);
                 if (unlikely(rc)) {
                         /* TODO: ref_add to mo_t on remote MDS */
                         CWARN("cmr_rename_tgt failed, should revoke: "

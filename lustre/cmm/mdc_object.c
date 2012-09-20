@@ -576,7 +576,8 @@ static const struct md_object_operations mdc_mo_ops = {
  */
 static int mdc_rename_tgt(const struct lu_env *env, struct md_object *mo_p,
                           struct md_object *mo_t, const struct lu_fid *lf,
-                          const struct lu_name *lname, struct md_attr *ma)
+			  const struct lu_name *lname, struct md_attr *ma,
+			  const char *jobid)
 {
         struct mdc_device *mc = md2mdc_dev(md_obj2dev(mo_p));
         struct lu_attr *la = &ma->ma_attr;

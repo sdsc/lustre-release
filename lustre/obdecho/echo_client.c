@@ -1462,7 +1462,7 @@ echo_md_create_internal(const struct lu_env *env, struct echo_device *ed,
 	 * Do not perform lookup sanity check. We know that name does not exist.
 	 */
 	spec->sp_cr_lookup = 0;
-        rc = mdo_create(env, parent, lname, lu2md(child), spec, ma);
+	rc = mdo_create(env, parent, lname, lu2md(child), spec, ma, NULL);
         if (rc) {
                 CERROR("Can not create child "DFID": rc = %d\n", PFID(fid), rc);
                 GOTO(out_put, rc);
@@ -1827,7 +1827,7 @@ static int echo_md_destroy_internal(const struct lu_env *env,
 #else
 #warning "Please remove this after 2.4 (LOD/OSP)"
 #endif
-        rc = mdo_unlink(env, parent, lu2md(child), lname, ma);
+	rc = mdo_unlink(env, parent, lu2md(child), lname, ma, NULL);
         if (rc) {
                 CERROR("Can not unlink child %s: rc = %d\n",
                         lname->ln_name, rc);

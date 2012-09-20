@@ -549,6 +549,7 @@ static inline const char *changelog_type2str(int type) {
 /* per-record flags */
 #define CLF_VERSION     0x1000
 #define CLF_EXT_VERSION 0x2000
+#define CLF_HAS_JOBID   0x4000
 #define CLF_FLAGSHIFT   12
 #define CLF_FLAGMASK    ((1U << CLF_FLAGSHIFT) - 1)
 #define CLF_VERMASK     (~CLF_FLAGMASK)
@@ -631,9 +632,12 @@ static inline void hsm_set_cl_error(int *flags, int error)
 
 #define CR_MAXSIZE cfs_size_round(2*NAME_MAX + 1 + sizeof(struct changelog_rec))
 
+#define JOBID_SIZE 32 /* 32 bytes string */
+
 struct changelog_rec {
         __u16                 cr_namelen;
-        __u16                 cr_flags; /**< (flags&CLF_FLAGMASK)|CLF_VERSION */
+	__u16                 cr_flags; /**< (flags&CLF_FLAGMASK)|CLF_VERSION|
+					      CLF_HAS_JOBID */
         __u32                 cr_type;  /**< \a changelog_rec_type */
         __u64                 cr_index; /**< changelog record number */
         __u64                 cr_prev;  /**< last index for this target fid */
@@ -643,6 +647,7 @@ struct changelog_rec {
                 __u32         cr_markerflags; /**< CL_MARK flags */
         };
         lustre_fid            cr_pfid;        /**< parent fid */
+	char                  cr_jobid[JOBID_SIZE];
         char                  cr_name[0];     /**< last element */
 } __attribute__((packed));
 
@@ -653,7 +658,7 @@ struct changelog_rec {
 struct changelog_ext_rec {
 	__u16			cr_namelen;
 	__u16			cr_flags; /**< (flags & CLF_FLAGMASK) |
-						CLF_EXT_VERSION */
+						CLF_EXT_VERSION|CLF_HAS_JOBID */
 	__u32			cr_type;  /**< \a changelog_rec_type */
 	__u64			cr_index; /**< changelog record number */
 	__u64			cr_prev;  /**< last index for this target fid */
@@ -665,11 +670,15 @@ struct changelog_ext_rec {
 	lustre_fid		cr_pfid;	/**< target parent fid */
 	lustre_fid		cr_sfid;	/**< source fid, or zero */
 	lustre_fid		cr_spfid;       /**< source parent fid, or zero */
+	char                    cr_jobid[JOBID_SIZE];
 	char			cr_name[0];     /**< last element */
 } __attribute__((packed));
 
 #define CHANGELOG_REC_EXTENDED(rec) \
-	(((rec)->cr_flags & CLF_VERMASK) == CLF_EXT_VERSION)
+	(((rec)->cr_flags & CLF_EXT_VERSION) == CLF_EXT_VERSION)
+
+#define CHANGELOG_HAS_JOBID(rec) \
+	(((rec)->cr_flags & CLF_HAS_JOBID) == CLF_HAS_JOBID)
 
 static inline int changelog_rec_size(struct changelog_rec *rec)
 {

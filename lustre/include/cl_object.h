@@ -2449,7 +2449,7 @@ struct cl_req_attr {
 	/** Capability. */
 	struct obd_capa	*cra_capa;
 	/** Jobid */
-	char		 cra_jobid[JOBSTATS_JOBID_SIZE];
+	char		 cra_jobid[JOBID_SIZE];
 };
 
 /**

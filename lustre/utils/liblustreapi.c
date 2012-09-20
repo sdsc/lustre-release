@@ -3540,18 +3540,33 @@ int llapi_changelog_fini(void **priv)
 /** Convert a changelog_rec to changelog_ext_rec, in this way client can treat
  *  all records in the format of changelog_ext_rec, this can make record
  *  analysis simpler.
+ *
+ *  The cr_jobid field is located just before cr_name. Therefore, in case the
+ *  record has no jobid field (older format) the cr_name has to be read at
+ *  cr_jobid offset.
  */
 static inline int changelog_extend_rec(struct changelog_ext_rec *ext)
 {
 	if (!CHANGELOG_REC_EXTENDED(ext)) {
 		struct changelog_rec *rec = (struct changelog_rec *)ext;
 
-		memmove(ext->cr_name, rec->cr_name, rec->cr_namelen);
+		if (CHANGELOG_HAS_JOBID(ext)) {
+			memmove(ext->cr_name, rec->cr_name, rec->cr_namelen);
+			memmove(ext->cr_jobid, rec->cr_jobid,
+				sizeof(rec->cr_jobid));
+		} else {
+			memmove(ext->cr_name, rec->cr_jobid, rec->cr_namelen);
+			memset(ext->cr_jobid, 0, sizeof(ext->cr_jobid));
+		}
 		fid_zero(&ext->cr_sfid);
 		fid_zero(&ext->cr_spfid);
 		return 1;
 	}
 
+	if (!CHANGELOG_HAS_JOBID(ext)) {
+		memmove(ext->cr_name, ext->cr_jobid, ext->cr_namelen);
+		memset(ext->cr_jobid, 0, sizeof(ext->cr_jobid));
+	}
 	return 0;
 }
 

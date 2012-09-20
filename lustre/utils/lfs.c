@@ -2521,6 +2521,8 @@ static int lfs_changelog(int argc, char **argv)
                        (int)(rec->cr_time & ((1<<30) - 1)),
                        ts.tm_year + 1900, ts.tm_mon + 1, ts.tm_mday,
                        rec->cr_flags & CLF_FLAGMASK, PFID(&rec->cr_tfid));
+		if (rec->cr_jobid[0])
+			printf(" j=%s", rec->cr_jobid);
                 if (rec->cr_namelen)
                         /* namespace rec includes parent and filename */
 			printf(" p="DFID" %.*s", PFID(&rec->cr_pfid),

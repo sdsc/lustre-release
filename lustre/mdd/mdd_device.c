@@ -446,7 +446,7 @@ int mdd_changelog_write_header(struct mdd_device *mdd, int markerflags)
         if (rec == NULL)
                 RETURN(-ENOMEM);
 
-        rec->cr.cr_flags = CLF_VERSION;
+	rec->cr.cr_flags = CLF_VERSION | CLF_HAS_JOBID;
         rec->cr.cr_type = CL_MARK;
         rec->cr.cr_namelen = len;
         memcpy(rec->cr.cr_name, obd->obd_name, rec->cr.cr_namelen);
@@ -655,7 +655,8 @@ static int dot_lustre_mdd_create(const struct lu_env *env,
                                  const struct lu_name *lname,
                                  struct md_object *child,
                                  struct md_op_spec *spec,
-                                 struct md_attr* ma)
+				 struct md_attr *ma,
+				 const char *jobid)
 {
         return -EPERM;
 }
@@ -664,7 +665,8 @@ static int dot_lustre_mdd_create_data(const struct lu_env *env,
                                       struct md_object *p,
                                       struct md_object *o,
                                       const struct md_op_spec *spec,
-                                      struct md_attr *ma)
+				      struct md_attr *ma,
+				      const char *jobid)
 {
         return -EPERM;
 }
@@ -676,7 +678,8 @@ static int dot_lustre_mdd_rename(const struct lu_env *env,
                                  const struct lu_name *lsname,
                                  struct md_object *tobj,
                                  const struct lu_name *ltname,
-                                 struct md_attr *ma)
+				 struct md_attr *ma,
+				 const char *jobid)
 {
         return -EPERM;
 }
@@ -685,7 +688,8 @@ static int dot_lustre_mdd_link(const struct lu_env *env,
                                struct md_object *tgt_obj,
                                struct md_object *src_obj,
                                const struct lu_name *lname,
-                               struct md_attr *ma)
+			       struct md_attr *ma,
+			       const char *jobid)
 {
         return -EPERM;
 }
@@ -694,7 +698,8 @@ static int dot_lustre_mdd_unlink(const struct lu_env *env,
                                  struct md_object *pobj,
                                  struct md_object *cobj,
                                  const struct lu_name *lname,
-                                 struct md_attr *ma)
+				 struct md_attr *ma,
+				 const char *jobid)
 {
         return -EPERM;
 }
@@ -721,7 +726,8 @@ static int dot_lustre_mdd_rename_tgt(const struct lu_env *env,
                                      struct md_object *tobj,
                                      const struct lu_fid *fid,
                                      const struct lu_name *lname,
-                                     struct md_attr *ma)
+				     struct md_attr *ma,
+				     const char *jobid)
 {
         return -EPERM;
 }
@@ -915,7 +921,8 @@ out:
 
 static int obf_create(const struct lu_env *env, struct md_object *pobj,
                       const struct lu_name *lname, struct md_object *child,
-                      struct md_op_spec *spec, struct md_attr* ma)
+		      struct md_op_spec *spec, struct md_attr *ma,
+		      const char *jobid)
 {
         return -EPERM;
 }
@@ -924,21 +931,21 @@ static int obf_rename(const struct lu_env *env,
                       struct md_object *src_pobj, struct md_object *tgt_pobj,
                       const struct lu_fid *lf, const struct lu_name *lsname,
                       struct md_object *tobj, const struct lu_name *ltname,
-                      struct md_attr *ma)
+		      struct md_attr *ma, const char *jobid)
 {
         return -EPERM;
 }
 
 static int obf_link(const struct lu_env *env, struct md_object *tgt_obj,
                     struct md_object *src_obj, const struct lu_name *lname,
-                    struct md_attr *ma)
+		    struct md_attr *ma, const char *jobid)
 {
         return -EPERM;
 }
 
 static int obf_unlink(const struct lu_env *env, struct md_object *pobj,
                       struct md_object *cobj, const struct lu_name *lname,
-                      struct md_attr *ma)
+		      struct md_attr *ma, const char *jobid)
 {
         return -EPERM;
 }

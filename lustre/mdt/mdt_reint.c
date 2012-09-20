@@ -316,6 +316,8 @@ static int mdt_md_create(struct mdt_thread_info *info)
 	child = mdt_object_new(info->mti_env, mdt, rr->rr_fid2);
         if (likely(!IS_ERR(child))) {
                 struct md_object *next = mdt_object_child(parent);
+		struct ptlrpc_request *req = mdt_info_req(info);
+		char *jobid = lustre_msg_get_jobid(req->rq_reqmsg);
 
                 ma->ma_need = MA_INODE;
                 ma->ma_valid = 0;
@@ -346,7 +348,7 @@ static int mdt_md_create(struct mdt_thread_info *info)
 
                 rc = mdo_create(info->mti_env, next, lname,
                                 mdt_object_child(child),
-                                &info->mti_spec, ma);
+				&info->mti_spec, ma, jobid);
                 if (rc == 0) {
                         /* Return fid & attr to client. */
                         if (ma->ma_valid & MA_INODE)
@@ -571,6 +573,7 @@ static int mdt_reint_setattr(struct mdt_thread_info *info,
 
         ma->ma_need = MA_INODE;
         ma->ma_valid = 0;
+
         next = mdt_object_child(mo);
         rc = mo_attr_get(info->mti_env, next, ma);
         if (rc != 0)
@@ -668,6 +671,7 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
         struct mdt_lock_handle  *child_lh;
         struct lu_name          *lname;
         int                      rc;
+	char                    *jobid = lustre_msg_get_jobid(req->rq_reqmsg);
         ENTRY;
 
         DEBUG_REQ(D_INODE, req, "unlink "DFID"/%s", PFID(rr->rr_fid1),
@@ -764,9 +768,10 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
          */
         ma->ma_need = MA_INODE;
         ma->ma_valid = 0;
+
         mdt_set_capainfo(info, 1, child_fid, BYPASS_CAPA);
         rc = mdo_unlink(info->mti_env, mdt_object_child(mp),
-                        mdt_object_child(mc), lname, ma);
+			mdt_object_child(mc), lname, ma, jobid);
         if (rc == 0)
                 mdt_handle_last_unlink(info, mc, ma);
 
@@ -813,6 +818,7 @@ static int mdt_reint_link(struct mdt_thread_info *info,
         struct mdt_lock_handle  *lhs;
         struct mdt_lock_handle  *lhp;
         struct lu_name          *lname;
+	char                    *jobid = lustre_msg_get_jobid(req->rq_reqmsg);
         int rc;
         ENTRY;
 
@@ -897,7 +903,7 @@ static int mdt_reint_link(struct mdt_thread_info *info,
         }
 
         rc = mdo_link(info->mti_env, mdt_object_child(mp),
-                      mdt_object_child(ms), lname, ma);
+		      mdt_object_child(ms), lname, ma, jobid);
 
         if (rc == 0)
 		mdt_counter_incr(req, LPROC_MDT_LINK);
@@ -953,6 +959,7 @@ static int mdt_reint_rename_tgt(struct mdt_thread_info *info)
         struct mdt_lock_handle  *lh_tgt = NULL;
         struct lu_fid           *tgt_fid = &info->mti_tmp_fid1;
         struct lu_name          *lname;
+	char                    *jobid = lustre_msg_get_jobid(req->rq_reqmsg);
         int                      rc;
         ENTRY;
 
@@ -997,7 +1004,7 @@ static int mdt_reint_rename_tgt(struct mdt_thread_info *info)
 
                 rc = mdo_rename_tgt(info->mti_env, mdt_object_child(mtgtdir),
                                     mdt_object_child(mtgt), rr->rr_fid2,
-                                    lname, ma);
+				    lname, ma, jobid);
         } else /* -ENOENT */ {
                 rc = mdo_name_insert(info->mti_env, mdt_object_child(mtgtdir),
                                      lname, rr->rr_fid2, ma);
@@ -1128,7 +1135,9 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
         struct lustre_handle     rename_lh = { 0 };
         struct lu_name           slname = { 0 };
         struct lu_name          *lname;
+	char                    *jobid = lustre_msg_get_jobid(req->rq_reqmsg);
         int                      rc;
+
         ENTRY;
 
         if (info->mti_dlm_req)
@@ -1301,7 +1310,7 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
         rc = mdo_rename(info->mti_env, mdt_object_child(msrcdir),
                         mdt_object_child(mtgtdir), old_fid, &slname,
                         (mnew ? mdt_object_child(mnew) : NULL),
-                        lname, ma);
+			lname, ma, jobid);
 
         /* handle last link of tgt object */
         if (rc == 0) {
