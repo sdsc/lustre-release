@@ -121,24 +121,25 @@ EXPORT_SYMBOL(obd_jobid_var);
  */
 int lustre_get_jobid(char *jobid)
 {
-	int jobid_len = JOBSTATS_JOBID_SIZE;
+	int jobid_len = JOBID_SIZE;
 	int rc = 0;
 	ENTRY;
 
-	memset(jobid, 0, JOBSTATS_JOBID_SIZE);
+	memset(jobid, 0, JOBID_SIZE);
 	/* Jobstats isn't enabled */
 	if (strcmp(obd_jobid_var, JOBSTATS_DISABLE) == 0)
 		RETURN(0);
 
 	/* Use process name + fsuid as jobid */
 	if (strcmp(obd_jobid_var, JOBSTATS_PROCNAME_UID) == 0) {
-		snprintf(jobid, JOBSTATS_JOBID_SIZE, "%s.%u",
+		snprintf(jobid, JOBID_SIZE, "%s.%u",
 			 cfs_curproc_comm(), cfs_curproc_fsuid());
 		RETURN(0);
 	}
 
 	rc = cfs_get_environ(obd_jobid_var, jobid, &jobid_len);
 	if (rc) {
+		LCONSOLE_ERROR_MSG(0x16b, "%s discarded (%s)\n", obd_jobid_var, jobid);
 		if (rc == -EOVERFLOW) {
 			/* For the PBS_JOBID and LOADL_STEP_ID keys (which are
 			 * variable length strings instead of just numbers), it
