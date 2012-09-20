@@ -1535,19 +1535,106 @@ struct changelog_show {
 	struct obd_device *cs_obd;
 };
 
+static inline char *cs_obd_name(struct changelog_show *cs)
+{
+	return cs->cs_obd->obd_name;
+}
+
+static int changelog_record_upgrade(struct changelog_rec_v2 *rec)
+{
+	if (CHANGELOG_REC_EXTENDED(rec)) {
+		struct changelog_ext_rec *extv1 =
+			(struct changelog_ext_rec *)rec;
+
+		memmove(rec->cr_name, extv1->cr_name, extv1->cr_namelen);
+	} else {
+		struct changelog_rec *recv1 = (struct changelog_rec *)rec;
+
+		memmove(rec->cr_name, recv1->cr_name, recv1->cr_namelen);
+	}
+
+	/* We're building a record with a jobid field from one that doesn't
+	 * carry this information. Mark the field as present but make sure
+	 * it's empty. */
+	memset(rec->cr_jobid, 0, sizeof(rec->cr_jobid));
+	rec->cr_flags |= CLF_HAS_JOBID;
+	return 0;
+}
+
+static int changelog_record_downgrade(struct changelog_rec_v2 *src,
+				      struct changelog_rec *dst)
+{
+	if (CHANGELOG_REC_EXTENDED(src)) {
+		struct changelog_ext_rec_v2 *src_ext =
+			(struct changelog_ext_rec_v2 *)src;
+		struct changelog_ext_rec *dst_ext =
+			(struct changelog_ext_rec *)dst;
+
+		memmove(dst_ext->cr_name, src_ext->cr_name,
+			src_ext->cr_namelen);
+	} else
+		memmove(dst->cr_name, src->cr_name, src->cr_namelen);
+
+	dst->cr_flags &= ~CLF_HAS_JOBID;
+	return 0;
+}
+
+static struct kuc_hdr *setup_kuc_message(struct changelog_show *cs,
+					 struct changelog_rec_v2 *rec,
+					 int *msg_len)
+{
+	struct kuc_hdr	*lh;
+	int		 len;
+
+	if ((cs->cs_flags & CHANGELOG_FLAG_JOBID) &&
+	    !CHANGELOG_HAS_JOBID(rec)) {
+		/* _v2 desired, but got _v1. Remap. */
+		len = sizeof(*lh) + changelog_rec_size(rec) +
+			LUSTRE_JOBID_SIZE + rec->cr_namelen;
+
+		lh = changelog_kuc_hdr(cs->cs_buf, len, cs->cs_flags);
+		memcpy(lh + 1, rec, len - sizeof(*lh));
+
+		changelog_record_upgrade((struct changelog_rec_v2 *)(lh + 1));
+		goto out;
+	} else if ((cs->cs_flags & CHANGELOG_FLAG_JOBID) == 0 &&
+		   CHANGELOG_HAS_JOBID(rec)) {
+		/* _v1 desired, but got _v2. Remap. */
+		len = sizeof(*lh) + rec->cr_namelen +
+			(changelog_rec_size(rec) - LUSTRE_JOBID_SIZE);
+
+		lh = changelog_kuc_hdr(cs->cs_buf, len, cs->cs_flags);
+		memcpy(lh + 1, rec, len - sizeof(*lh));
+
+		changelog_record_downgrade(rec,
+					   (struct changelog_rec *)(lh + 1));
+		goto out;
+	}
+
+	/* Got the desired version. OK. */
+	len = sizeof(*lh) + changelog_rec_size(rec) + rec->cr_namelen;
+
+	lh = changelog_kuc_hdr(cs->cs_buf, len, cs->cs_flags);
+	memcpy(lh + 1, rec, len - sizeof(*lh));
+
+out:
+	*msg_len = len;
+	return lh;
+}
+
 static int changelog_kkuc_cb(const struct lu_env *env, struct llog_handle *llh,
 			     struct llog_rec_hdr *hdr, void *data)
 {
 	struct changelog_show *cs = data;
-	struct llog_changelog_rec *rec = (struct llog_changelog_rec *)hdr;
+	struct llog_changelog_rec_v2 *rec = (struct llog_changelog_rec_v2 *)hdr;
 	struct kuc_hdr *lh;
 	int len, rc;
 	ENTRY;
 
-	if (rec->cr_hdr.lrh_type != CHANGELOG_REC) {
+	if (!changelog_rec_is_valid((struct llog_changelog_rec *)rec)) {
 		rc = -EINVAL;
 		CERROR("%s: not a changelog rec %x/%d: rc = %d\n",
-		       cs->cs_obd->obd_name, rec->cr_hdr.lrh_type,
+		       cs_obd_name(cs), rec->cr_hdr.lrh_type,
 		       rec->cr.cr_type, rc);
 		RETURN(rc);
 	}
@@ -1566,16 +1653,13 @@ static int changelog_kkuc_cb(const struct lu_env *env, struct llog_handle *llh,
 		PFID(&rec->cr.cr_tfid), PFID(&rec->cr.cr_pfid),
 		rec->cr.cr_namelen, changelog_rec_name(&rec->cr));
 
-	len = sizeof(*lh) + changelog_rec_size(&rec->cr) + rec->cr.cr_namelen;
+	lh = setup_kuc_message(cs, &rec->cr, &len);
 
-        /* Set up the message */
-        lh = changelog_kuc_hdr(cs->cs_buf, len, cs->cs_flags);
-        memcpy(lh + 1, &rec->cr, len - sizeof(*lh));
+	rc = libcfs_kkuc_msg_put(cs->cs_fp, lh);
+	CDEBUG(D_CHANGELOG, "kucmsg fp=%p name=%s len=%d rc=%d\n", cs->cs_fp,
+	       cs_obd_name(cs), len, rc);
 
-        rc = libcfs_kkuc_msg_put(cs->cs_fp, lh);
-        CDEBUG(D_CHANGELOG, "kucmsg fp %p len %d rc %d\n", cs->cs_fp, len,rc);
-
-        RETURN(rc);
+	RETURN(rc);
 }
 
 static int mdc_changelog_send_thread(void *csdata)
@@ -1586,8 +1670,8 @@ static int mdc_changelog_send_thread(void *csdata)
         struct kuc_hdr *kuch;
         int rc;
 
-        CDEBUG(D_CHANGELOG, "changelog to fp=%p start "LPU64"\n",
-               cs->cs_fp, cs->cs_startrec);
+	CDEBUG(D_CHANGELOG, "changelog to fp=%p start "LPU64" flags=%d\n",
+	       cs->cs_fp, cs->cs_startrec, cs->cs_flags);
 
         OBD_ALLOC(cs->cs_buf, CR_MAXSIZE);
         if (cs->cs_buf == NULL)
@@ -1601,7 +1685,7 @@ static int mdc_changelog_send_thread(void *csdata)
 		       LLOG_OPEN_EXISTS);
 	if (rc) {
 		CERROR("%s: fail to open changelog catalog: rc = %d\n",
-		       cs->cs_obd->obd_name, rc);
+		       cs_obd_name(cs), rc);
 		GOTO(out, rc);
 	}
 	rc = llog_init_handle(NULL, llh, LLOG_F_IS_CAT, NULL);

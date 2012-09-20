@@ -3844,41 +3844,49 @@ struct changelog_private {
 int llapi_changelog_start(void **priv, int flags, const char *device,
                           long long startrec)
 {
-        struct changelog_private *cp;
-        int rc;
+	struct changelog_private	*cp;
+	int				 rc;
 
-        /* Set up the receiver control struct */
-        cp = calloc(1, sizeof(*cp));
-        if (cp == NULL)
-                return -ENOMEM;
+	/* Set up the receiver control struct */
+	cp = calloc(1, sizeof(*cp));
+	if (cp == NULL)
+		return -ENOMEM;
 
-        cp->magic = CHANGELOG_PRIV_MAGIC;
-        cp->flags = flags;
+	cp->magic = CHANGELOG_PRIV_MAGIC;
+	cp->flags = flags;
 
-        /* Set up the receiver */
-        rc = libcfs_ukuc_start(&cp->kuc, 0 /* no group registration */);
-        if (rc < 0)
-                goto out_free;
+	/* Set up the receiver */
+	rc = libcfs_ukuc_start(&cp->kuc, 0 /* no group registration */);
+	if (rc < 0)
+		goto out_free;
 
-        *priv = cp;
+	*priv = cp;
 
-        /* Tell the kernel to start sending */
-        rc = changelog_ioctl(device, OBD_IOC_CHANGELOG_SEND, cp->kuc.lk_wfd,
-                             startrec, flags);
-        /* Only the kernel reference keeps the write side open */
-        close(cp->kuc.lk_wfd);
-        cp->kuc.lk_wfd = 0;
-        if (rc < 0) {
-                /* frees and clears priv */
-                llapi_changelog_fini(priv);
-                return rc;
-        }
+	/* CHANGELOG_FLAG_JOBID is to become mandatory at some point.
+	 * Print a warning if missing. */
+	if (!(flags & CHANGELOG_FLAG_JOBID))
+		llapi_err_noerrno(LLAPI_MSG_WARN,
+				  "warning: %s() called w/o "
+				  "CHANGELOG_FLAG_JOBID flag",
+				  __func__);
 
-        return 0;
+	/* Tell the kernel to start sending */
+	rc = changelog_ioctl(device, OBD_IOC_CHANGELOG_SEND, cp->kuc.lk_wfd,
+			     startrec, flags);
+	/* Only the kernel reference keeps the write side open */
+	close(cp->kuc.lk_wfd);
+	cp->kuc.lk_wfd = 0;
+	if (rc < 0) {
+		/* frees and clears priv */
+		llapi_changelog_fini(priv);
+		return rc;
+	}
+
+	return 0;
 
 out_free:
-        free(cp);
-        return rc;
+	free(cp);
+	return rc;
 }
 
 /** Finish reading from a changelog */
@@ -3895,22 +3903,92 @@ int llapi_changelog_fini(void **priv)
         return 0;
 }
 
-/** Convert a changelog_rec to changelog_ext_rec, in this way client can treat
- *  all records in the format of changelog_ext_rec, this can make record
- *  analysis simpler.
+/** Convert a v1 changelog record into an extended one (v2 if wants_v2 is set).
  */
-static inline int changelog_extend_rec(struct changelog_ext_rec *ext)
+static int changelog_extend_rec_v1(struct changelog_ext_rec *ext, int wants_v2)
 {
-	if (!CHANGELOG_REC_EXTENDED(ext)) {
-		struct changelog_rec *rec = (struct changelog_rec *)ext;
+	struct changelog_rec	*rec = (struct changelog_rec *)ext;
+	int			 rc = 0;
 
+	if (wants_v2) {
+		struct changelog_ext_rec_v2	*extv2 =
+			(struct changelog_ext_rec_v2 *)ext;
+
+		ext->cr_flags |= CLF_HAS_JOBID;
+		if (CHANGELOG_REC_EXTENDED(ext)) {
+			/* ext_v1 to ext_v2 */
+			memmove(extv2->cr_name, ext->cr_name, ext->cr_namelen);
+		} else {
+			/* v1 to ext_v2 */
+			memmove(extv2->cr_name, rec->cr_name, rec->cr_namelen);
+			fid_zero(&extv2->cr_sfid);
+			fid_zero(&extv2->cr_spfid);
+		}
+		memset(extv2->cr_jobid, 0, sizeof(extv2->cr_jobid));
+		rc = 1;
+	} else if (!CHANGELOG_REC_EXTENDED(ext)) {
+		/* v1 to ext_v1 */
 		memmove(ext->cr_name, rec->cr_name, rec->cr_namelen);
 		fid_zero(&ext->cr_sfid);
 		fid_zero(&ext->cr_spfid);
-		return 1;
+		rc = 1;
 	}
+	return rc;
+}
 
-	return 0;
+/** Convert a v2 changelog record into an extended one (v2 if wants_v2 is set).
+ */
+static int changelog_extend_rec_v2(struct changelog_ext_rec_v2 *ext,
+				   int wants_v2)
+{
+	struct changelog_rec_v2	*rec = (struct changelog_rec_v2 *)ext;
+	int			 rc = 0;
+
+	if (wants_v2) {
+		if (!CHANGELOG_REC_EXTENDED(ext)) {
+			/* v2 to ext_v2 */
+			memmove(ext->cr_name, rec->cr_name, rec->cr_namelen);
+			memmove(ext->cr_jobid, rec->cr_jobid,
+				sizeof(rec->cr_jobid));
+			fid_zero(&ext->cr_sfid);
+			fid_zero(&ext->cr_spfid);
+			ext->cr_flags |= CLF_HAS_JOBID;
+			rc = 1;
+		}
+	} else {
+		struct changelog_ext_rec *extv1 =
+			(struct changelog_ext_rec *)ext;
+
+		if (CHANGELOG_REC_EXTENDED(ext)) {
+			/* ext_v2 to ext_v1 */
+			memmove(extv1->cr_name, ext->cr_name, ext->cr_namelen);
+		} else {
+			struct changelog_rec_v2 *recv2 =
+				(struct changelog_rec_v2 *)ext;
+
+			/* v2 to ext_v1 */
+			memmove(extv1->cr_name, recv2->cr_name,
+				recv2->cr_namelen);
+			fid_zero(&extv1->cr_sfid);
+			fid_zero(&extv1->cr_spfid);
+		}
+		ext->cr_flags &= ~CLF_HAS_JOBID;
+		rc = 1;
+	}
+	return rc;
+}
+
+/** Convert changelog_rec to changelog_ext_rec and changelog_rec_v2 to
+ * changelog_ext_rec_v2 so that client can treat all records in the format of
+ * extended records, this can make record analysis simpler.
+ */
+static int changelog_extend_rec(struct changelog_ext_rec_v2 *rec, int wants_v2)
+{
+	if (!CHANGELOG_HAS_JOBID(rec))
+		return changelog_extend_rec_v1((struct changelog_ext_rec *)rec,
+					       wants_v2);
+	else
+		return changelog_extend_rec_v2(rec, wants_v2);
 }
 
 /** Read the next changelog entry
@@ -3920,7 +3998,7 @@ static inline int changelog_extend_rec(struct changelog_ext_rec *ext)
  *         <0 error code
  *         1 EOF
  */
-int llapi_changelog_recv(void *priv, struct changelog_ext_rec **rech)
+int llapi_changelog_recv(void *priv, struct changelog_ext_rec_v2 **rech)
 {
         struct changelog_private *cp = (struct changelog_private *)priv;
         struct kuc_hdr *kuch;
@@ -3961,11 +4039,15 @@ repeat:
                 }
         }
 
-	/* Our message is a changelog_ext_rec.  Use pointer math to skip
-	 * kuch_hdr and point directly to the message payload.
+	/* Our message can be:
+	 *   - changelog_rec or changelog_ext_rec if CHANGELOG_FLAG_JOBID is
+	 *     not set.
+	 *   - changelog_rec_v2 or changelog_ext_rec_v2 otherwise.
+	 * Use pointer math to skip kuch_hdr and point directly to the message
+	 * payload.
 	 */
-	*rech = (struct changelog_ext_rec *)(kuch + 1);
-	changelog_extend_rec(*rech);
+	*rech = (struct changelog_ext_rec_v2 *)(kuch + 1);
+	changelog_extend_rec(*rech, cp->flags & CHANGELOG_FLAG_JOBID);
 
         return 0;
 
@@ -3976,7 +4058,7 @@ out_free:
 }
 
 /** Release the changelog record when done with it. */
-int llapi_changelog_free(struct changelog_ext_rec **rech)
+int llapi_changelog_free(struct changelog_ext_rec_v2 **rech)
 {
         if (*rech) {
                 /* We allocated memory starting at the kuc_hdr, but passed

@@ -164,10 +164,10 @@ static int changelog_init_cb(const struct lu_env *env, struct llog_handle *llh,
 			     struct llog_rec_hdr *hdr, void *data)
 {
 	struct mdd_device *mdd = (struct mdd_device *)data;
-	struct llog_changelog_rec *rec = (struct llog_changelog_rec *)hdr;
+	struct llog_changelog_rec_v2 *rec = (struct llog_changelog_rec_v2 *)hdr;
 
 	LASSERT(llh->lgh_hdr->llh_flags & LLOG_F_IS_PLAIN);
-	LASSERT(rec->cr_hdr.lrh_type == CHANGELOG_REC);
+	LASSERT(changelog_rec_is_valid((struct llog_changelog_rec *)rec));
 
 	CDEBUG(D_INFO,
 	       "seeing record at index %d/%d/"LPU64" t=%x %.*s in log"
@@ -207,10 +207,11 @@ static int llog_changelog_cancel_cb(const struct lu_env *env,
 				    struct llog_handle *llh,
 				    struct llog_rec_hdr *hdr, void *data)
 {
-	struct llog_changelog_rec *rec = (struct llog_changelog_rec *)hdr;
-	struct llog_cookie	 cookie;
-	long long		 endrec = *(long long *)data;
-	int			 rc;
+	struct llog_changelog_rec_v2	*rec =
+		(struct llog_changelog_rec_v2 *)hdr;
+	struct llog_cookie		 cookie;
+	long long			 endrec = *(long long *)data;
+	int				 rc;
 
 	ENTRY;
 
@@ -494,7 +495,7 @@ int mdd_changelog_write_header(const struct lu_env *env,
 			       struct mdd_device *mdd, int markerflags)
 {
 	struct obd_device		*obd = mdd2obd_dev(mdd);
-	struct llog_changelog_rec	*rec;
+	struct llog_changelog_rec_v2	*rec;
 	struct lu_buf			*buf;
 	struct llog_ctxt		*ctxt;
 	int				 reclen;
@@ -514,14 +515,14 @@ int mdd_changelog_write_header(const struct lu_env *env,
 		RETURN(-ENOMEM);
 	rec = buf->lb_buf;
 
-        rec->cr.cr_flags = CLF_VERSION;
+	rec->cr.cr_flags = CLF_VERSION | CLF_HAS_JOBID;
         rec->cr.cr_type = CL_MARK;
         rec->cr.cr_namelen = len;
         memcpy(rec->cr.cr_name, obd->obd_name, rec->cr.cr_namelen);
         /* Status and action flags */
 	rec->cr.cr_markerflags = mdd->mdd_cl.mc_flags | markerflags;
 	rec->cr_hdr.lrh_len = llog_data_len(sizeof(*rec) + rec->cr.cr_namelen);
-	rec->cr_hdr.lrh_type = CHANGELOG_REC;
+	rec->cr_hdr.lrh_type = CHANGELOG_REC_V2;
 	rec->cr.cr_time = cl_time();
 	spin_lock(&mdd->mdd_cl.mc_lock);
 	rec->cr.cr_index = ++mdd->mdd_cl.mc_index;
@@ -1244,6 +1245,7 @@ struct mdd_changelog_user_data {
         __u32 mcud_minid;  /**< user id with lowest rec reference */
         __u32 mcud_usercount;
 	unsigned int mcud_found:1;
+	unsigned int use_rec_v2:1;
 };
 #define MCUD_UNREGISTER -1LL
 

@@ -682,8 +682,9 @@ int mdd_changelog_data_store(const struct lu_env *env, struct mdd_device *mdd,
 			     enum changelog_rec_type type, int flags,
 			     struct mdd_object *mdd_obj, struct thandle *handle)
 {
+	const struct lu_ucred           *uc = lu_ucred(env);
 	const struct lu_fid		*tfid;
-	struct llog_changelog_rec	*rec;
+	struct llog_changelog_rec_v2	*rec;
 	struct lu_buf			*buf;
 	int				 reclen;
 	int				 rc;
@@ -713,11 +714,14 @@ int mdd_changelog_data_store(const struct lu_env *env, struct mdd_device *mdd,
 		RETURN(-ENOMEM);
 	rec = buf->lb_buf;
 
-        rec->cr.cr_flags = CLF_VERSION | (CLF_FLAGMASK & flags);
+	rec->cr.cr_flags = CLF_VERSION | (CLF_FLAGMASK & flags) | CLF_HAS_JOBID;
         rec->cr.cr_type = (__u32)type;
         rec->cr.cr_tfid = *tfid;
-        rec->cr.cr_namelen = 0;
+	rec->cr.cr_namelen = 0;
         mdd_obj->mod_cltime = cfs_time_current_64();
+
+	strncpy(rec->cr.cr_jobid, uc->uc_jobid, sizeof(rec->cr.cr_jobid) - 1);
+	rec->cr.cr_name[sizeof(rec->cr.cr_jobid) - 1] = '\0';
 
 	rc = mdd_changelog_store(env, mdd, rec, handle);
 

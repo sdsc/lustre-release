@@ -695,7 +695,7 @@ static union {
 	struct llog_unlink64_rec	lur;   /* MDS_UNLINK64_REC */
 	struct llog_setattr64_rec	lsr64; /* MDS_SETATTR64_REC */
 	struct llog_size_change_rec	lscr;  /* OST_SZ_REC */
-	struct llog_changelog_rec	lcr;   /* CHANGELOG_REC */
+	struct llog_changelog_rec_v2	lcr;   /* CHANGELOG_REC_V2 */
 	struct llog_changelog_user_rec	lcur;  /* CHANGELOG_USER_REC */
 	struct llog_gen_rec		lgr;   /* LLOG_GEN_REC */
 } llog_records;
@@ -864,7 +864,7 @@ static int llog_test_7(const struct lu_env *env, struct obd_device *obd)
 	CWARN("7e: test llog_changelog_rec\n");
 	llog_records.lcr.cr_hdr.lrh_len = sizeof(llog_records.lcr);
 	llog_records.lcr.cr_tail.lrt_len = sizeof(llog_records.lcr);
-	llog_records.lcr.cr_hdr.lrh_type = CHANGELOG_REC;
+	llog_records.lcr.cr_hdr.lrh_type = CHANGELOG_REC_V2;
 
 	rc = llog_test_7_sub(env, ctxt);
 	if (rc) {
