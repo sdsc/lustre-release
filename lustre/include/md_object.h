@@ -58,6 +58,7 @@
  */
 #include <dt_object.h>
 #include <lvfs.h>
+#include <lustre/lustre_idl.h>
 
 /* LU-1051, temperary solution to reduce llog credits */
 #define DECLARE_LLOG_REWRITE  0
@@ -306,26 +307,31 @@ struct md_dir_operations {
         int (*mdo_create)(const struct lu_env *env, struct md_object *pobj,
                           const struct lu_name *lname, struct md_object *child,
                           struct md_op_spec *spec,
-                          struct md_attr *ma);
+			  struct md_attr *ma,
+			  const char *jobid);
 
         /** This method is used for creating data object for this meta object*/
         int (*mdo_create_data)(const struct lu_env *env, struct md_object *p,
                                struct md_object *o,
                                const struct md_op_spec *spec,
-                               struct md_attr *ma);
+			       struct md_attr *ma,
+			       const char *jobid);
 
         int (*mdo_rename)(const struct lu_env *env, struct md_object *spobj,
                           struct md_object *tpobj, const struct lu_fid *lf,
                           const struct lu_name *lsname, struct md_object *tobj,
-                          const struct lu_name *ltname, struct md_attr *ma);
+			  const struct lu_name *ltname, struct md_attr *ma,
+			  const char *jobid);
 
         int (*mdo_link)(const struct lu_env *env, struct md_object *tgt_obj,
                         struct md_object *src_obj, const struct lu_name *lname,
-                        struct md_attr *ma);
+			struct md_attr *ma,
+			const char *jobid);
 
         int (*mdo_unlink)(const struct lu_env *env, struct md_object *pobj,
                           struct md_object *cobj, const struct lu_name *lname,
-                          struct md_attr *ma);
+			  struct md_attr *ma,
+			  const char *jobid);
 
         /** This method is used to compare a requested layout to an existing
          * layout (struct lov_mds_md_v1/3 vs struct lov_mds_md_v1/3) */
@@ -348,7 +354,8 @@ struct md_dir_operations {
 
         int (*mdo_rename_tgt)(const struct lu_env *env, struct md_object *pobj,
                               struct md_object *tobj, const struct lu_fid *fid,
-                              const struct lu_name *lname, struct md_attr *ma);
+			      const struct lu_name *lname, struct md_attr *ma,
+			      const char *jobid);
 };
 
 struct md_device_operations {
@@ -727,20 +734,23 @@ static inline int mdo_create(const struct lu_env *env,
                              const struct lu_name *lchild_name,
                              struct md_object *c,
                              struct md_op_spec *spc,
-                             struct md_attr *at)
+			     struct md_attr *at,
+			     const char *jobid)
 {
 	LASSERT(p->mo_dir_ops->mdo_create);
-	return p->mo_dir_ops->mdo_create(env, p, lchild_name, c, spc, at);
+	return p->mo_dir_ops->mdo_create(env, p, lchild_name, c, spc, at,
+					 jobid);
 }
 
 static inline int mdo_create_data(const struct lu_env *env,
                                   struct md_object *p,
                                   struct md_object *c,
                                   const struct md_op_spec *spec,
-                                  struct md_attr *ma)
+				  struct md_attr *ma,
+				  const char *jobid)
 {
         LASSERT(c->mo_dir_ops->mdo_create_data);
-        return c->mo_dir_ops->mdo_create_data(env, p, c, spec, ma);
+	return c->mo_dir_ops->mdo_create_data(env, p, c, spec, ma, jobid);
 }
 
 static inline int mdo_rename(const struct lu_env *env,
@@ -750,11 +760,12 @@ static inline int mdo_rename(const struct lu_env *env,
                              const struct lu_name *lsname,
                              struct md_object *t,
                              const struct lu_name *ltname,
-                             struct md_attr *ma)
+			     struct md_attr *ma,
+			     const char *jobid)
 {
         LASSERT(tp->mo_dir_ops->mdo_rename);
         return tp->mo_dir_ops->mdo_rename(env, sp, tp, lf, lsname, t, ltname,
-                                          ma);
+					  ma, jobid);
 }
 
 static inline int mdo_is_subdir(const struct lu_env *env,
@@ -770,20 +781,22 @@ static inline int mdo_link(const struct lu_env *env,
                            struct md_object *p,
                            struct md_object *s,
                            const struct lu_name *lname,
-                           struct md_attr *ma)
+			   struct md_attr *ma,
+			   const char *jobid)
 {
         LASSERT(s->mo_dir_ops->mdo_link);
-        return s->mo_dir_ops->mdo_link(env, p, s, lname, ma);
+	return s->mo_dir_ops->mdo_link(env, p, s, lname, ma, jobid);
 }
 
 static inline int mdo_unlink(const struct lu_env *env,
                              struct md_object *p,
                              struct md_object *c,
                              const struct lu_name *lname,
-                             struct md_attr *ma)
+			     struct md_attr *ma,
+			     const char *jobid)
 {
         LASSERT(c->mo_dir_ops->mdo_unlink);
-        return c->mo_dir_ops->mdo_unlink(env, p, c, lname, ma);
+	return c->mo_dir_ops->mdo_unlink(env, p, c, lname, ma, jobid);
 }
 
 static inline int mdo_lum_lmm_cmp(const struct lu_env *env,
@@ -819,14 +832,17 @@ static inline int mdo_rename_tgt(const struct lu_env *env,
                                  struct md_object *t,
                                  const struct lu_fid *lf,
                                  const struct lu_name *lname,
-                                 struct md_attr *ma)
+				 struct md_attr *ma,
+				 const char *jobid)
 {
         if (t) {
                 LASSERT(t->mo_dir_ops->mdo_rename_tgt);
-                return t->mo_dir_ops->mdo_rename_tgt(env, p, t, lf, lname, ma);
+		return t->mo_dir_ops->mdo_rename_tgt(env, p, t, lf, lname, ma,
+						     jobid);
         } else {
                 LASSERT(p->mo_dir_ops->mdo_rename_tgt);
-                return p->mo_dir_ops->mdo_rename_tgt(env, p, t, lf, lname, ma);
+		return p->mo_dir_ops->mdo_rename_tgt(env, p, t, lf, lname, ma,
+						     jobid);
         }
 }
 
