@@ -717,10 +717,11 @@ int mdd_changelog_ns_store(const struct lu_env *env, struct mdd_device *mdd,
 			   struct mdd_object *target, struct mdd_object *parent,
 			   const struct lu_name *tname, struct thandle *handle)
 {
+	const struct lu_ucred     *uc = lu_ucred(env);
 	struct llog_changelog_rec *rec;
-	struct lu_buf *buf;
-	int reclen;
-	int rc;
+	struct lu_buf             *buf;
+	int                        reclen;
+	int                        rc;
 	ENTRY;
 
 	/* Not recording */
@@ -740,12 +741,15 @@ int mdd_changelog_ns_store(const struct lu_env *env, struct mdd_device *mdd,
 		RETURN(-ENOMEM);
 	rec = buf->lb_buf;
 
-	rec->cr.cr_flags = CLF_VERSION | (CLF_FLAGMASK & flags);
+	rec->cr.cr_flags = CLF_VERSION | (CLF_FLAGMASK & flags) | CLF_HAS_JOBID;
 	rec->cr.cr_type = (__u32)type;
 	rec->cr.cr_tfid = *mdo2fid(target);
 	rec->cr.cr_pfid = *mdo2fid(parent);
 	rec->cr.cr_namelen = tname->ln_namelen;
 	memcpy(rec->cr.cr_name, tname->ln_name, tname->ln_namelen);
+
+	strncpy(rec->cr.cr_jobid, uc->uc_jobid,	sizeof(rec->cr.cr_jobid) - 1);
+	rec->cr.cr_jobid[sizeof(rec->cr.cr_jobid) - 1] = '\0';
 
 	target->mod_cltime = cfs_time_current_64();
 
@@ -784,10 +788,11 @@ static int mdd_changelog_ext_ns_store(const struct lu_env  *env,
 				      const struct lu_name *sname,
 				      struct thandle *handle)
 {
+	const struct lu_ucred         *uc = lu_ucred(env);
 	struct llog_changelog_ext_rec *rec;
-	struct lu_buf *buf;
-	int reclen;
-	int rc;
+	struct lu_buf                 *buf;
+	int                            reclen;
+	int                            rc;
 	ENTRY;
 
 	/* Not recording */
@@ -808,13 +813,18 @@ static int mdd_changelog_ext_ns_store(const struct lu_env  *env,
 		RETURN(-ENOMEM);
 	rec = buf->lb_buf;
 
-	rec->cr.cr_flags = CLF_EXT_VERSION | (CLF_FLAGMASK & flags);
+	rec->cr.cr_flags = CLF_EXT_VERSION | (CLF_FLAGMASK & flags) |
+			   CLF_HAS_JOBID;
 	rec->cr.cr_type = (__u32)type;
 	rec->cr.cr_pfid = *tpfid;
 	rec->cr.cr_sfid = *sfid;
 	rec->cr.cr_spfid = *spfid;
 	rec->cr.cr_namelen = tname->ln_namelen;
 	memcpy(rec->cr.cr_name, tname->ln_name, tname->ln_namelen);
+
+	strncpy(rec->cr.cr_jobid, uc->uc_jobid, sizeof(rec->cr.cr_jobid) - 1);
+	rec->cr.cr_jobid[sizeof(rec->cr.cr_jobid) - 1] = '\0';
+
 	if (sname) {
 		rec->cr.cr_name[tname->ln_namelen] = '\0';
 		memcpy(rec->cr.cr_name + tname->ln_namelen + 1, sname->ln_name,

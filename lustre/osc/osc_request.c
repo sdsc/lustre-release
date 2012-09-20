@@ -2142,6 +2142,7 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 	/* always get the data for the obdo for the rpc */
 	LASSERT(clerq != NULL);
 	crattr->cra_oa = oa;
+	memset(crattr->cra_jobid, 0, JOBID_SIZE);
 	cl_req_attr_set(env, clerq, crattr, ~0ULL);
 	if (lock) {
 		oa->o_handle = lock->l_remote_handle;

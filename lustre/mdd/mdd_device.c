@@ -512,7 +512,7 @@ int mdd_changelog_write_header(const struct lu_env *env,
 		RETURN(-ENOMEM);
 	rec = buf->lb_buf;
 
-        rec->cr.cr_flags = CLF_VERSION;
+	rec->cr.cr_flags = CLF_VERSION | CLF_HAS_JOBID;
         rec->cr.cr_type = CL_MARK;
         rec->cr.cr_namelen = len;
         memcpy(rec->cr.cr_name, obd->obd_name, rec->cr.cr_namelen);
