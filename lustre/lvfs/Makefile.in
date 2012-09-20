@@ -1,5 +1,5 @@
 MODULES := lvfs
-@SERVER_TRUE@MODULES += fsfilt_ldiskfs
+@LDISKFS_ENABLED_TRUE@MODULES += fsfilt_ldiskfs
 @SERVER_TRUE@MODULES += quotafmt_test
 
 lvfs-objs := lvfs_common.o lvfs_linux.o fsfilt.o lvfs_lib.o
@@ -7,7 +7,7 @@ lvfs-objs := lvfs_common.o lvfs_linux.o fsfilt.o lvfs_lib.o
 @SERVER_TRUE@quotafmt-objs := quotafmt_test.o
 
 fsfilt_ldiskfs-objs := fsfilt-ldiskfs.o
-@SERVER_TRUE@fsfilt_ldiskfs-objs += lustre_quota_fmt.o
+@LDISKFS_ENABLED_TRUE@fsfilt_ldiskfs-objs += lustre_quota_fmt.o
 
 $(obj)/fsfilt-%.c: $(obj)/fsfilt_%.c
 	ln -s $< $@
@@ -18,6 +18,7 @@ EXTRA_DIST = $(lvfs-objs:.o=.c)  $(quotafmt-objs:.o=.c) \
 	lustre_quota_fmt.c lustre_quota_fmt.h quotafmt_test.c
 
 # for <ext3/xattr.h> on 2.6
-EXTRA_PRE_CFLAGS := -I@LINUX@/fs -I@LDISKFS_DIR@ -I@LDISKFS_DIR@/ldiskfs
+EXTRA_PRE_CFLAGS := -I@LINUX@/fs
+@LDISKFS_ENABLED_TRUE@EXTRA_PRE_CFLAGS += -I@LDISKFS_DIR@ -I@LDISKFS_DIR@/ldiskfs
 
 @INCLUDE_RULES@

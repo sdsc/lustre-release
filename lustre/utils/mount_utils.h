@@ -37,6 +37,10 @@
 #ifndef _MOUNT_UTILS_H_
 #define _MOUNT_UTILS_H_
 
+#ifdef HAVE_ZFS_OSD
+#define _SPL_ZFS_H
+#define _SPL_SIGNAL_H
+#endif
 #include <lustre_disk.h>
 #include <lustre_param.h>
 

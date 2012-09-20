@@ -1050,7 +1050,7 @@ build_spl_zfs() {
         rpm2cpio < $rpm | cpio -id
         popd
 
-        CONFIGURE_FLAGS="--with-$pkg=$(ls -d $TOPDIR/usr/src/$pkg-*/*) ${CONFIGURE_FLAGS}"
+        CONFIGURE_FLAGS="--with-$pkg=$(ls -d $TOPDIR/usr/src/$pkg-*/*) --with-zfs-headers=$TOPDIR/usr/include ${CONFIGURE_FLAGS}"
     done
 
     return 0

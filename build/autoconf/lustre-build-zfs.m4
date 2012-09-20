@@ -263,7 +263,6 @@ case x$with_zfs in
 				fi
 			fi
 		fi
-
 		;;
 	*)
 		ZFS_DIR=$(readlink -f $with_zfs)
@@ -304,7 +303,7 @@ if test x$with_zfs = xyes; then
 
 	LB_SPL_BUILD
 	LB_ZFS_BUILD
-
+	LB_LIBZFS
 fi
 
 AM_CONDITIONAL(SPL_BUILD, test x$enable_spl_build = xyes)
@@ -354,6 +353,33 @@ else
 	enable_zfs_build='no'
 	AC_MSG_RESULT([$enable_zfs_build])
 fi
+])
+
+#
+# LB_LIBZFS
+#
+AC_DEFUN([LB_LIBZFS],
+[
+AC_MSG_CHECKING([for location of zfs library headers])
+AC_ARG_WITH([zfs-headers],
+	AC_HELP_STRING([--with-zfs-headers],[location of libzfs/libspl headers]),
+	[
+		LB_CHECK_FILE([$withval/libzfs/libzfs.h], [],
+			      [ AC_MSG_ERROR([Could not locate zfs library headers]) ])
+		AC_MSG_RESULT([$withval])
+		EXTRA_LIBZFS_INCLUDE="$EXTRA_LIBZFS_INCLUDE -I $withval/libspl -I $withval/libzfs"
+	], [
+		if test -e "$ZFS_DIR/include/libzfs.h"; then
+			EXTRA_LIBZFS_INCLUDE="$EXTRA_LIBZFS_INCLUDE -I $ZFS_DIR/lib/libspl/include -I $ZFS_DIR/include"
+			AC_MSG_RESULT([$ZFS_DIR])
+		else
+			LB_CHECK_FILE([/usr/include/libzfs/libzfs.h], [],
+				      [ AC_MSG_ERROR([Could not locate zfs library headers]) ])
+			AC_MSG_RESULT([/usr/include])
+			EXTRA_LIBZFS_INCLUDE="$EXTRA_LIBZFS_INCLUDE -I /usr/include/libspl -I /usr/include/libzfs"
+		fi
+	])
+AC_SUBST(EXTRA_LIBZFS_INCLUDE)
 ])
 
 #
