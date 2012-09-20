@@ -2130,7 +2130,7 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 	LASSERT(clerq != NULL);
 	crattr.cra_oa = oa;
 	crattr.cra_capa = NULL;
-	memset(crattr.cra_jobid, 0, JOBSTATS_JOBID_SIZE);
+	memset(crattr.cra_jobid, 0, JOBID_SIZE);
         cl_req_attr_set(env, clerq, &crattr, ~0ULL);
         if (lock) {
                 oa->o_handle = lock->l_remote_handle;

@@ -58,6 +58,7 @@
  */
 #include <dt_object.h>
 #include <lvfs.h>
+#include <lustre/lustre_idl.h>
 
 /* LU-1051, temperary solution to reduce llog credits */
 #define DECLARE_LLOG_REWRITE  0
@@ -921,6 +922,7 @@ struct lu_ucred {
 	__u32               uc_umask;
 	cfs_group_info_t   *uc_ginfo;
 	struct md_identity *uc_identity;
+	char                uc_jobid[JOBID_SIZE];
 };
 
 struct lu_ucred *lu_ucred(const struct lu_env *env);
