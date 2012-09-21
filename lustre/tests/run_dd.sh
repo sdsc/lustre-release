@@ -30,6 +30,8 @@ CONTINUE=true
 while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
     echoerr "$(date +'%F %H:%M:%S'): dd run starting"
     mkdir -p $TESTDIR
+    $SETSTIPE --stripe-count $OSTCOUNT $TESTDIR
+
     cd $TESTDIR
     # suppress dd xfer stat to workaround buggy coreutils/gettext
     # combination in RHEL5 and OEL5, see BZ 21264
