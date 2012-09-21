@@ -1,4 +1,6 @@
 #!/bin/bash
+# -*- mode: Bash; tab-width: 4; indent-tabs-mode: t; -*-
+# vim:shiftwidth=4:softtabstop=4:tabstop=4:
 
 trap 'print_summary && touch $TF_FAIL && \
     echo "test-framework exiting on error"' ERR
@@ -1743,28 +1745,28 @@ wait_mds_ost_sync () {
 }
 
 wait_destroy_complete () {
-    echo "Waiting for destroy to be done..."
-    # MAX value shouldn't be big as this mean server responsiveness
-    # never increase this just to make test pass but investigate
-    # why it takes so long time
-    local MAX=5
-    local WAIT=0
-    while [ $WAIT -lt $MAX ]; do
-        local -a RPCs=($($LCTL get_param -n osc.*.destroys_in_flight))
-        local con=1
-        for ((i=0; i<${#RPCs[@]}; i++)); do
-            [ ${RPCs[$i]} -eq 0 ] && continue
-            # there are still some destroy RPCs in flight
-            con=0
-            break;
-        done
-        sleep 1
-        [ ${con} -eq 1 ] && return 0 # done waiting
-        echo "Waiting $WAIT secs for destroys to be done."
-        WAIT=$((WAIT + 1))
-    done
-    echo "Destroys weren't done in $MAX sec."
-    return 1
+	echo "Waiting for destroy to be done..."
+	# MAX value shouldn't be big as this mean server responsiveness
+	# never increase this just to make test pass but investigate
+	# why it takes so long time
+	local MAX=5
+	local WAIT=0
+	while [ $WAIT -lt $MAX ]; do
+		local -a RPCs=($($LCTL get_param -n osc.*.destroys_in_flight))
+		local con=1
+		for ((i=0; i<${#RPCs[@]}; i++)); do
+			[ ${RPCs[$i]} -eq 0 ] && continue
+			# there are still some destroy RPCs in flight
+			con=0
+			break;
+		done
+		sleep 1
+		[ ${con} -eq 1 ] && return 0 # done waiting
+		echo "Waiting $WAIT secs for destroys to be done."
+		WAIT=$((WAIT + 1))
+	done
+	echo "Destroys weren't done in $MAX sec."
+	return 1
 }
 
 wait_exit_ST () {
