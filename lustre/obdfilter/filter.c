@@ -2700,6 +2700,9 @@ static int filter_precleanup(struct obd_device *obd,
         case OBD_CLEANUP_EARLY:
                 break;
         case OBD_CLEANUP_EXPORTS:
+		/* disconnect the osp-on-ost */
+		lustre_disconnect_osp(obd->obd_name);
+
                 /* Stop recovery before namespace cleanup. */
                 target_recovery_fini(obd);
 

@@ -183,24 +183,23 @@ out:
 
 static void osp_last_used_fini(const struct lu_env *env, struct osp_device *d)
 {
-	lu_object_put(env, &d->opd_last_used_file->do_lu);
-	d->opd_last_used_file = NULL;
+	if (d->opd_last_used_file != NULL) {
+		lu_object_put(env, &d->opd_last_used_file->do_lu);
+		d->opd_last_used_file = NULL;
+	}
 }
 
-static int osp_shutdown(const struct lu_env *env, struct osp_device *d)
+int osp_disconnect(struct osp_device *d)
 {
-	struct obd_import	*imp;
-	int			 rc = 0;
-	ENTRY;
-
-	/* release last_used file */
-	osp_last_used_fini(env, d);
+	struct obd_import *imp;
+	int rc = 0;
 
 	imp = d->opd_obd->u.cli.cl_import;
 
 	/* Mark import deactivated now, so we don't try to reconnect if any
 	 * of the cleanup RPCs fails (e.g. ldlm cancel, etc).  We don't
 	 * fully deactivate the import, or that would drop all requests. */
+	LASSERT(imp != NULL);
 	cfs_spin_lock(&imp->imp_lock);
 	imp->imp_deactive = 1;
 	cfs_spin_unlock(&imp->imp_lock);
@@ -210,14 +209,32 @@ static int osp_shutdown(const struct lu_env *env, struct osp_device *d)
 	/* Some non-replayable imports (MDS's OSCs) are pinged, so just
 	 * delete it regardless.  (It's safe to delete an import that was
 	 * never added.) */
-	(void)ptlrpc_pinger_del_import(imp);
+	(void) ptlrpc_pinger_del_import(imp);
 
 	rc = ptlrpc_disconnect_import(imp, 0);
 	if (rc)
-		CERROR("%s: can't disconnect: rc = %d\n",
-		       d->opd_obd->obd_name, rc);
+		CERROR("can't disconnect: %d\n", rc);
 
 	ptlrpc_invalidate_import(imp);
+
+	RETURN(rc);
+}
+
+static int osp_shutdown(const struct lu_env *env, struct osp_device *d)
+{
+	int			 rc = 0;
+	ENTRY;
+
+	if (is_osp_on_ost(d->opd_obd->obd_name)) {
+		rc = osp_disconnect(d);
+		RETURN(rc);
+	}
+
+	LASSERT(env);
+	/* release last_used file */
+	osp_last_used_fini(env, d);
+
+	rc = osp_disconnect(d);
 
 	RETURN(rc);
 }
@@ -233,7 +250,8 @@ static int osp_process_config(const struct lu_env *env,
 
 	switch (lcfg->lcfg_command) {
 	case LCFG_CLEANUP:
-		lu_dev_del_linkage(dev->ld_site, dev);
+		if (!is_osp_on_ost(d->opd_obd->obd_name))
+			lu_dev_del_linkage(dev->ld_site, dev);
 		rc = osp_shutdown(env, d);
 		break;
 	case LCFG_PARAM:
@@ -293,7 +311,7 @@ static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 	RETURN(0);
 }
 
-static const struct dt_device_operations osp_dt_ops = {
+const struct dt_device_operations osp_dt_ops = {
 	.dt_sync	= osp_sync,
 };
 
@@ -513,7 +531,10 @@ static struct lu_device *osp_device_alloc(const struct lu_env *env,
 
 		l = osp2lu_dev(m);
 		dt_device_init(&m->opd_dt_dev, t);
-		rc = osp_init0(env, m, t, lcfg);
+		if (is_osp_on_ost(lustre_cfg_string(lcfg, 0)))
+			rc = osp_init_for_ost(env, m, t, lcfg);
+		else
+			rc = osp_init0(env, m, t, lcfg);
 		if (rc != 0) {
 			osp_device_free(env, l);
 			l = ERR_PTR(rc);
@@ -531,8 +552,11 @@ static struct lu_device *osp_device_fini(const struct lu_env *env,
 
 	ENTRY;
 
-	LASSERT(m->opd_storage_exp);
-	obd_disconnect(m->opd_storage_exp);
+	if (m->opd_storage_exp)
+		obd_disconnect(m->opd_storage_exp);
+
+	if (is_osp_on_ost(m->opd_obd->obd_name))
+		osp_fini_for_ost(m);
 
 	imp = m->opd_obd->u.cli.cl_import;
 
@@ -589,6 +613,8 @@ static int osp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 		RETURN(rc);
 
 	*exp = class_conn2export(&conn);
+	if (is_osp_on_ost(obd->obd_name))
+		osp->opd_exp = *exp;
 
 	/* Why should there ever be more than 1 connect? */
 	osp->opd_connects++;
@@ -608,7 +634,8 @@ static int osp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 				 OBD_CONNECT_OSS_CAPA |
 				 OBD_CONNECT_REQPORTAL |
 				 OBD_CONNECT_SKIP_ORPHAN |
-				 OBD_CONNECT_VERSION;
+				 OBD_CONNECT_VERSION |
+				 OBD_CONNECT_FID;
 	ocd->ocd_version = LUSTRE_VERSION_CODE;
 	LASSERT(data->ocd_connect_flags & OBD_CONNECT_INDEX);
 	ocd->ocd_index = data->ocd_index;
@@ -635,7 +662,6 @@ static int osp_obd_disconnect(struct obd_export *exp)
 	struct obd_device *obd = exp->exp_obd;
 	struct osp_device *osp = lu2osp_dev(obd->obd_lu_dev);
 	int                rc;
-
 	ENTRY;
 
 	/* Only disconnect the underlying layers on the final disconnect. */
@@ -643,9 +669,14 @@ static int osp_obd_disconnect(struct obd_export *exp)
 	osp->opd_connects--;
 
 	rc = class_disconnect(exp);
+	if (rc) {
+		CERROR("%s: class disconnect error: rc = %d\n",
+		       obd->obd_name, rc);
+		RETURN(rc);
+	}
 
 	/* destroy the device */
-	if (rc == 0)
+	if (!is_osp_on_ost(obd->obd_name))
 		class_manual_cleanup(obd);
 
 	RETURN(rc);
