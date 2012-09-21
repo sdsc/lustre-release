@@ -781,12 +781,13 @@ int class_add_conn(struct obd_device *obd, struct lustre_cfg *lcfg)
                 CERROR("invalid conn_uuid\n");
                 RETURN(-EINVAL);
         }
-        if (strcmp(obd->obd_type->typ_name, LUSTRE_MDC_NAME) &&
-            strcmp(obd->obd_type->typ_name, LUSTRE_OSC_NAME) &&
-            strcmp(obd->obd_type->typ_name, LUSTRE_MGC_NAME)) {
-                CERROR("can't add connection on non-client dev\n");
-                RETURN(-EINVAL);
-        }
+	if (strcmp(obd->obd_type->typ_name, LUSTRE_MDC_NAME) &&
+	    strcmp(obd->obd_type->typ_name, LUSTRE_OSC_NAME) &&
+	    strcmp(obd->obd_type->typ_name, LUSTRE_MGC_NAME) &&
+	    strcmp(obd->obd_type->typ_name, LUSTRE_OSP_NAME)) {
+		CERROR("can't add connection on non-client dev\n");
+		RETURN(-EINVAL);
+	}
 
         imp = obd->u.cli.cl_import;
         if (!imp) {
@@ -799,6 +800,7 @@ int class_add_conn(struct obd_device *obd, struct lustre_cfg *lcfg)
 
         RETURN(rc);
 }
+EXPORT_SYMBOL(class_add_conn);
 
 /** Remove a failover nid location.
  */
@@ -1333,9 +1335,9 @@ extern int lustre_check_exclusion(struct super_block *sb, char *svname);
  * records, change uuids, etc), then class_process_config() resulting
  * net records.
  */
-static int class_config_llog_handler(const struct lu_env *env,
-				     struct llog_handle *handle,
-				     struct llog_rec_hdr *rec, void *data)
+int class_config_llog_handler(const struct lu_env *env,
+			      struct llog_handle *handle,
+			      struct llog_rec_hdr *rec, void *data)
 {
         struct config_llog_instance *clli = data;
         int cfg_len = rec->lrh_len;
@@ -1519,12 +1521,14 @@ out:
         }
         RETURN(rc);
 }
+EXPORT_SYMBOL(class_config_llog_handler);
 
 int class_config_parse_llog(struct llog_ctxt *ctxt, char *name,
                             struct config_llog_instance *cfg)
 {
         struct llog_process_cat_data cd = {0, 0};
         struct llog_handle *llh;
+	llog_cb_t callback;
         int rc, rc2;
         ENTRY;
 
@@ -1537,12 +1541,18 @@ int class_config_parse_llog(struct llog_ctxt *ctxt, char *name,
         if (rc)
                 GOTO(parse_out, rc);
 
-        /* continue processing from where we last stopped to end-of-log */
-        if (cfg)
-                cd.lpcd_first_idx = cfg->cfg_last_idx;
+	/* continue processing from where we last stopped to end-of-log */
+	if (cfg) {
+		cd.lpcd_first_idx = cfg->cfg_last_idx;
+		callback = cfg->cfg_callback;
+		LASSERT(callback != NULL);
+	} else {
+		callback = class_config_llog_handler;
+	}
+
         cd.lpcd_last_idx = 0;
 
-	rc = llog_process(NULL, llh, class_config_llog_handler, cfg, &cd);
+	rc = llog_process(NULL, llh, callback, cfg, &cd);
 
         CDEBUG(D_CONFIG, "Processed log %s gen %d-%d (rc=%d)\n", name,
                cd.lpcd_first_idx + 1, cd.lpcd_last_idx, rc);
