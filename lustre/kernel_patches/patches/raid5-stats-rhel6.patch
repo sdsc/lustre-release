@@ -1,0 +1,212 @@
+diff --git a/drivers/md/raid5.c b/drivers/md/raid5.c
+index 0770e10..58fb69b 100644
+--- a/drivers/md/raid5.c
++++ b/drivers/md/raid5.c
+@@ -218,10 +218,12 @@ static void __release_stripe(struct r5conf *conf, struct stripe_head *sh)
+ 			if (test_bit(STRIPE_DELAYED, &sh->state)) {
+ 				list_add_tail(&sh->lru, &conf->delayed_list);
+ 				plugger_set_plug(&conf->plug);
++				atomic_inc(&conf->delayed);
+ 			} else if (test_bit(STRIPE_BIT_DELAY, &sh->state) &&
+ 				   sh->bm_seq - conf->seq_write > 0) {
+ 				list_add_tail(&sh->lru, &conf->bitmap_list);
+ 				plugger_set_plug(&conf->plug);
++				atomic_inc(&conf->delayed);
+ 			} else {
+ 				clear_bit(STRIPE_BIT_DELAY, &sh->state);
+ 				list_add_tail(&sh->lru, &conf->handle_list);
+@@ -468,6 +470,7 @@ get_active_stripe(struct r5conf *conf, sector_t sector,
+ 			if (noblock && sh == NULL)
+ 				break;
+ 			if (!sh) {
++				atomic_inc(&conf->out_of_stripes);
+ 				conf->inactive_blocked = 1;
+ 				wait_event_lock_irq(conf->wait_for_stripe,
+ 						    !list_empty(&conf->inactive_list) &&
+@@ -491,6 +494,10 @@ get_active_stripe(struct r5conf *conf, sector_t sector,
+ 				    !test_bit(STRIPE_EXPANDING, &sh->state))
+ 					BUG();
+ 				list_del_init(&sh->lru);
++				if (test_bit(STRIPE_DELAYED, &sh->state))
++					atomic_dec(&conf->delayed);
++				if (test_bit(STRIPE_BIT_DELAY, &sh->state))
++					atomic_dec(&conf->bit_delayed);
+ 			}
+ 		}
+ 	} while (sh == NULL);
+@@ -551,10 +558,13 @@ static void ops_run_io(struct stripe_head *sh, struct stripe_head_state *s)
+ 		bi = &sh->dev[i].req;
+ 
+ 		bi->bi_rw = rw;
+-		if (rw & WRITE)
++		if (rw & WRITE) {
++			atomic_inc(&conf->writes_out);
+ 			bi->bi_end_io = raid5_end_write_request;
+-		else
++		} else {
++			atomic_inc(&conf->reads_out);
+ 			bi->bi_end_io = raid5_end_read_request;
++		}
+ 
+ 		rcu_read_lock();
+ 		rdev = rcu_dereference(conf->disks[i].rdev);
+@@ -599,6 +609,7 @@ static void ops_run_io(struct stripe_head *sh, struct stripe_head_state *s)
+ 				md_sync_acct(rdev->bdev, STRIPE_SECTORS);
+ 
+ 			set_bit(STRIPE_IO_STARTED, &sh->state);
++			atomic_inc(&conf->out_reqs_in_queue);
+ 
+ 			bi->bi_bdev = rdev->bdev;
+ 			pr_debug("%s: for %llu schedule op %ld on disc %d\n",
+@@ -1670,6 +1681,8 @@ static void raid5_end_read_request(struct bio * bi, int error)
+ 	struct md_rdev *rdev;
+ 
+ 
++	atomic_dec(&conf->out_reqs_in_queue);
++
+ 	for (i=0 ; i<disks; i++)
+ 		if (bi == &sh->dev[i].req)
+ 			break;
+@@ -1757,6 +1770,8 @@ static void raid5_end_write_request(struct bio *bi, int error)
+ 	sector_t first_bad;
+ 	int bad_sectors;
+ 
++	atomic_dec(&conf->out_reqs_in_queue);
++
+ 	for (i=0 ; i<disks; i++)
+ 		if (bi == &sh->dev[i].req)
+ 			break;
+@@ -2691,6 +2706,7 @@ static void handle_stripe_dirtying(struct r5conf *conf,
+ 					set_bit(R5_LOCKED, &dev->flags);
+ 					set_bit(R5_Wantread, &dev->flags);
+ 					s->locked++;
++					atomic_inc(&conf->reads_for_rmw);
+ 				} else {
+ 					set_bit(STRIPE_DELAYED, &sh->state);
+ 					set_bit(STRIPE_HANDLE, &sh->state);
+@@ -2717,6 +2733,7 @@ static void handle_stripe_dirtying(struct r5conf *conf,
+ 					set_bit(R5_LOCKED, &dev->flags);
+ 					set_bit(R5_Wantread, &dev->flags);
+ 					s->locked++;
++					atomic_inc(&conf->reads_for_rcw);
+ 				} else {
+ 					set_bit(STRIPE_DELAYED, &sh->state);
+ 					set_bit(STRIPE_HANDLE, &sh->state);
+@@ -3077,6 +3094,8 @@ static void analyse_stripe(struct stripe_head *sh, struct stripe_head_state *s)
+ 
+ 	memset(s, 0, sizeof(*s));
+ 
++	atomic_inc(&conf->handle_called);
++
+ 	s->syncing = test_bit(STRIPE_SYNCING, &sh->state);
+ 	s->expanding = test_bit(STRIPE_EXPAND_SOURCE, &sh->state);
+ 	s->expanded = test_bit(STRIPE_EXPAND_READY, &sh->state);
+@@ -3491,6 +3510,7 @@ static void raid5_activate_delayed(struct r5conf *conf)
+ 			if (!test_and_set_bit(STRIPE_PREREAD_ACTIVE, &sh->state))
+ 				atomic_inc(&conf->preread_active_stripes);
+ 			list_add_tail(&sh->lru, &conf->hold_list);
++			atomic_dec(&conf->delayed);
+ 		}
+ 	} else
+ 		plugger_set_plug(&conf->plug);
+@@ -3786,7 +3806,8 @@ static int chunk_aligned_read(struct mddev *mddev, struct bio * raid_bio)
+ 				    conf->device_lock, /* nothing */);
+ 		atomic_inc(&conf->active_aligned_reads);
+ 		spin_unlock_irq(&conf->device_lock);
+-
++		atomic_inc(&conf->out_reqs_in_queue);
++		atomic_inc(&conf->reads_out);
+ 		generic_make_request(align_bi);
+ 		return 1;
+ 	} else {
+@@ -3859,6 +3880,8 @@ static int make_request(struct mddev *mddev, struct bio * bi)
+ 	const int rw = bio_data_dir(bi);
+ 	int remaining;
+ 
++	atomic_inc(&conf->in_reqs_in_queue);
++
+ 	if (unlikely(bi->bi_rw & BIO_FLUSH)) {
+ 		md_flush_request(mddev, bi);
+ 		return 0;
+@@ -3866,6 +3889,11 @@ static int make_request(struct mddev *mddev, struct bio * bi)
+ 
+ 	md_write_start(mddev, bi);
+ 
++	if (rw == WRITE)
++		atomic_inc(&conf->writes_in);
++	else
++		atomic_inc(&conf->reads_in);
++
+ 	if (rw == READ &&
+ 	     mddev->reshape_position == MaxSector &&
+ 	     chunk_aligned_read(mddev,bi))
+@@ -3997,7 +4025,7 @@ static int make_request(struct mddev *mddev, struct bio * bi)
+ 
+ 		if ( rw == WRITE )
+ 			md_write_end(mddev);
+-
++		atomic_dec(&conf->in_reqs_in_queue);
+ 		bio_endio(bi, 0);
+ 	}
+ 
+@@ -4428,6 +4456,7 @@ static void raid5d(struct mddev *mddev)
+ 		spin_unlock_irq(&conf->device_lock);
+ 		
+ 		handled++;
++		atomic_inc(&conf->handled_in_raid5d);
+ 		handle_stripe(sh);
+ 		release_stripe(sh);
+ 		cond_resched();
+@@ -5129,6 +5158,22 @@ static void status(struct seq_file *seq, struct mddev *mddev)
+ 			       conf->disks[i].rdev &&
+ 			       test_bit(In_sync, &conf->disks[i].rdev->flags) ? "U" : "_");
+ 	seq_printf (seq, "]");
++	seq_printf (seq, "\n\t\tin: %u reads, %u writes; out: %u reads, %u writes, %u zwrites",
++			atomic_read(&conf->reads_in), atomic_read(&conf->writes_in),
++			atomic_read(&conf->reads_out), atomic_read(&conf->writes_out),
++			atomic_read(&conf->writes_zcopy));
++	seq_printf (seq, "\n\t\t%u in raid5d, %u out of stripes, %u handle called",
++			atomic_read(&conf->handled_in_raid5d),
++			atomic_read(&conf->out_of_stripes),
++			atomic_read(&conf->handle_called));
++	seq_printf (seq, "\n\t\treads: %u for rmw, %u for rcw",
++			atomic_read(&conf->reads_for_rmw),
++			atomic_read(&conf->reads_for_rcw));
++	seq_printf (seq, "\n\t\t%u delayed, %u bit delayed, %u active, queues: %u in, %u out\n",
++			atomic_read(&conf->delayed), atomic_read(&conf->bit_delayed),
++			atomic_read(&conf->active_stripes),
++			atomic_read(&conf->in_reqs_in_queue),
++			atomic_read(&conf->out_reqs_in_queue));
+ }
+ 
+ static void print_raid5_conf (struct r5conf *conf)
+diff --git a/drivers/md/raid5.h b/drivers/md/raid5.h
+index dda8382..7c95465 100644
+--- a/drivers/md/raid5.h
++++ b/drivers/md/raid5.h
+@@ -441,6 +441,25 @@ struct r5conf {
+ 	 * the new thread here until we fully activate the array.
+ 	 */
+ 	struct md_thread	*thread;
++
++	/*
++	 * Stats
++	 */
++	atomic_t		reads_in;
++	atomic_t		writes_in;
++	atomic_t		reads_out;
++	atomic_t		writes_out;
++	atomic_t		handled_in_raid5d;
++	atomic_t		out_of_stripes;
++	atomic_t		reads_for_rmw;
++	atomic_t		reads_for_rcw;
++	atomic_t		writes_zcopy;
++	atomic_t		writes_copied;
++	atomic_t		handle_called;
++	atomic_t		delayed;
++	atomic_t		bit_delayed;
++	atomic_t		in_reqs_in_queue;
++	atomic_t		out_reqs_in_queue;
+ };
+ 
+ /*
