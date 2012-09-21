@@ -1,0 +1,10 @@
+Verified+1: Hudson
+Code-Review+2: Oleg Drokin <green@whamcloud.com>
+Code-Review+1: James Simmons <uja.ornl@gmail.com>
+Code-Review+1: Li Wei <liwei@whamcloud.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Submitted-by: Oleg Drokin <green@whamcloud.com>
+Submitted-at: Fri, 21 Sep 2012 09:21:38 -0400
+Reviewed-on: http://review.whamcloud.com/3719
+Project: fs/lustre-release
+Branch: refs/heads/master
