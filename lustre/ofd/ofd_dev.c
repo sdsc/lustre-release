@@ -571,6 +571,9 @@ static void ofd_fini(const struct lu_env *env, struct ofd_device *m)
 	struct obd_device *obd = ofd_obd(m);
 	struct lu_device  *d = &m->ofd_dt_dev.dd_lu_dev;
 
+	/* disconnect the osp-on-ost */
+	lustre_disconnect_osp(ofd_name(m));
+
 	target_recovery_fini(obd);
 	obd_exports_barrier(obd);
 	obd_zombie_barrier();

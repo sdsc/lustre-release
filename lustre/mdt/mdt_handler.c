@@ -4894,6 +4894,9 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
         struct obd_device *obd = mdt2obd_dev(m);
         ENTRY;
 
+	/* disconnect the osp-on-ost */
+	lustre_disconnect_osp(obd->obd_name);
+
         target_recovery_fini(obd);
 
         ping_evictor_stop();
