@@ -1381,8 +1381,12 @@ start_client_load() {
     local load=$2
     local var=$(node_var_name $client)_load
     eval export ${var}=$load
+    ROOTDIR=$MOUNT/client_load_tests
 
-    do_node $client "PATH=$PATH MOUNT=$MOUNT ERRORS_OK=$ERRORS_OK \
+    mkdir -p $ROOTDIR
+    $SETSTRIPE  --stripe-count $OSTCOUNT $ROOTDIR
+
+    do_node $client "PATH=$PATH MOUNT=$ROOTDIR ERRORS_OK=$ERRORS_OK \
 BREAK_ON_ERROR=$BREAK_ON_ERROR \
 END_RUN_FILE=$END_RUN_FILE \
 LOAD_PID_FILE=$LOAD_PID_FILE \
