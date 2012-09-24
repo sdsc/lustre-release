@@ -1720,15 +1720,14 @@ static inline int obd_quota_adjust_qunit(struct obd_export *exp,
                                          struct lustre_quota_ctxt *qctxt,
                                          struct ptlrpc_request_set *set)
 {
-#if defined(LPROCFS) && defined(HAVE_QUOTA_SUPPORT)
+#ifdef LPROCFS
         struct timeval work_start;
         struct timeval work_end;
-        long timediff;
 #endif
         int rc;
         ENTRY;
 
-#if defined(LPROCFS) && defined(HAVE_QUOTA_SUPPORT)
+#ifdef LPROCFS
         if (qctxt)
                 cfs_gettimeofday(&work_start);
 #endif
@@ -1737,8 +1736,9 @@ static inline int obd_quota_adjust_qunit(struct obd_export *exp,
 
         rc = OBP(exp->exp_obd, quota_adjust_qunit)(exp, oqaq, qctxt, set);
 
-#if defined(LPROCFS) && defined(HAVE_QUOTA_SUPPORT)
+#ifdef LPROCFS
         if (qctxt) {
+		long timediff;
                 cfs_gettimeofday(&work_end);
                 timediff = cfs_timeval_sub(&work_end, &work_start, NULL);
                 lprocfs_counter_add(qctxt->lqc_stats, LQUOTA_ADJUST_QUNIT,
