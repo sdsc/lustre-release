@@ -1022,7 +1022,6 @@ setup_quota(){
     local mntpt=$1
 
 	if [ "$USE_OFD" = "yes" ]; then
-		$LFS quotacheck $mntpt || error "quotacheck failed"
 		return
 	fi
 
