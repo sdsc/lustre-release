@@ -178,9 +178,8 @@ init_test_env() {
         fi
     fi
 
-    export LFSCK_BIN=${LFSCK_BIN:-lfsck}
-    export LFSCK_ALWAYS=${LFSCK_ALWAYS:-"no"} # check fs after each test suite
-    export FSCK_MAX_ERR=4   # File system errors left uncorrected
+	export FSCK_ALWAYS=${FSCK_ALWAYS:-"yes"} # check fs after each test
+	export LFSCK_ALWAYS=${LFSCK_ALWAYS:-"no"} # full check after each test
 
 	export ZFS=${ZFS:-zfs}
 	export ZPOOL=${ZPOOL:-zpool}
@@ -3096,7 +3095,6 @@ init_facet_vars () {
 	local facet=$1
 	shift
 	local device=$1
-
 	shift
 
 	eval export ${facet}_dev=${device}
@@ -3496,22 +3494,6 @@ get_svr_devs() {
     done
 }
 
-# Run e2fsck on MDT or OST device.
-run_e2fsck() {
-    local node=$1
-    local target_dev=$2
-    local extra_opts=$3
-
-    df > /dev/null      # update statfs data on disk
-    local cmd="$E2FSCK -d -v -t -t -f $extra_opts $target_dev"
-    echo $cmd
-    local rc=0
-    do_node $node $cmd || rc=$?
-    [ $rc -le $FSCK_MAX_ERR ] || \
-        error "$cmd returned $rc, should be <= $FSCK_MAX_ERR"
-    return 0
-}
-
 # verify a directory is shared among nodes.
 check_shared_dir() {
 	local dir=$1
@@ -3522,57 +3504,125 @@ check_shared_dir() {
 	return 0
 }
 
-# Run e2fsck on MDT and OST(s) to generate databases used for lfsck.
-generate_db() {
-    local i
-    local ostidx
-    local dev
+# Run e2fsck on MDT or OST device.
+facet_fsck_ldiskfs() {
+	local facet="$1"
+	local facet_dev="$2"
+	shift 2
+	local extra_opts="$*"
 
-	[[ $(lustre_version_code $SINGLEMDS) -ne $(version_code 2.2.0) ]] ||
+	[[ $(lustre_version_code $facet) -ne $(version_code 2.2.0) ]] ||
 		{ skip "Lustre 2.2.0 lacks the patch for LU-1255"; exit 0; }
 
-    check_shared_dir $SHARED_DIRECTORY ||
-        error "$SHARED_DIRECTORY isn't a shared directory"
+	echo "Running e2fsck on the device $facet_dev on $facet:"
+	local cmd="$E2FSCK -d -v -t -t -f -n $extra_opts $facet_dev"
+	echo $cmd
+	local rc=0
+	do_facet $facet $cmd
+}
 
-    export MDSDB=$SHARED_DIRECTORY/mdsdb
-    export OSTDB=$SHARED_DIRECTORY/ostdb
+# Run ZFS scrub on MDT or OST device.
+facet_fsck_zfs() {
+	local facet="$1"
+	local facet_dev="$2"
+	shift 2
+	local extra_opts="$@"
 
-    [ $MDSCOUNT -eq 1 ] || error "CMD is not supported"
+	echo "Running ZFS Scrub on the device $facet_dev on $facet:"
+	local cmd="$ZPOOL scrub $extra_opts $facet_dev"
+	echo $cmd
+	local rc=0
+	do_facet $facet $cmd
+}
 
-    run_e2fsck $(mdts_nodes) $MDTDEV "-n --mdsdb $MDSDB"
+facet_fsck() {
+	local facet="$1"
+	local lfsck_opts="$@"
+	local fstype=$(facet_fstype $facet)
+	local facet_dev=${facet}_dev; facet_dev=${!facet_dev}
 
-    i=0
-    ostidx=0
-    OSTDB_LIST=""
-    for node in $(osts_nodes); do
-        for dev in ${OSTDEVS[i]}; do
-            run_e2fsck $node $dev "-n --mdsdb $MDSDB --ostdb $OSTDB-$ostidx"
-            OSTDB_LIST="$OSTDB_LIST $OSTDB-$ostidx"
-            ostidx=$((ostidx + 1))
-        done
-        i=$((i + 1))
-    done
+	case $fstype in
+	ldiskfs)
+		run_fsck_ldiskfs $(facet_host $facet) $facet_dev $lfsck_opts
+		rc=$?
+		;;
+	zfs)
+		run_fsck_zfs $(facet_host $facet) $facet_dev
+		rc=$?
+		;;
+	*)	error "unkown fstype '$fstype'"
+		rc=97
+	esac
+
+	return $rc
+}
+
+# Run fsck on MDT and OST(s), optionally generate databases used for lfsck.
+run_fsck_all() {
+	local LFSCK_MDT_OPTS=
+	local LFSCK_OST_OPTS=#
+	local rc=0
+
+	if [ "$1" = "-lfsck" ]; then
+		export MDSDB=$SHARED_DIRECTORY/mdsdb
+		export OSTDB=$SHARED_DIRECTORY/ostdb
+		export OSTDB_LIST=""
+		! check_shared_dir $SHARED_DIRECTORY &&
+			error "$SHARED_DIRECTORY isn't a shared directory" &&
+			return 99
+
+		LFSCK_MDT_OPTS="-n --mdsdb $MDSDB"
+		LFSCK_OST_OPTS="-n --ostdb $OSTDB"
+		[ $MDSCOUNT -gt 1 ] && error "CMD is not supported" && return 98
+	fi
+
+	for facet in $(get_facets MDT); do
+		facet_fsck $facet $LFSCK_MDT_OPTS
+		rc=$((rc | $?))
+	done
+
+	for facet in $(get_facets OST); do
+		facet_fsck $facet $LFSCK_MDT_OPTS $LFSCK_OST_OPTS-$facet
+		rc=$((rc | $?))
+		OSTDB_LIST="$OSTDB_LIST $OSTDB-$facet"
+	done
 }
 
 run_lfsck() {
-    local cmd="$LFSCK_BIN -c -l --mdsdb $MDSDB --ostdb $OSTDB_LIST $MOUNT"
-    echo $cmd
-    local rc=0
-    eval $cmd || rc=$?
-    [ $rc -le $FSCK_MAX_ERR ] || \
-        error "$cmd returned $rc, should be <= $FSCK_MAX_ERR"
-    echo "lfsck finished with rc=$rc"
+	local cmd="$LFSCK_BIN -c -l --mdsdb $MDSDB --ostdb $OSTDB_LIST $MOUNT"
+	local rc=0
 
-    rm -rvf $MDSDB* $OSTDB* || true
-    return 0
+	[ $(facet_fstype $SINGLEMDS) != "ldiskfs" ] && return 0
+	[ $(facet_fstype ost1) != "ldiskfs" ] && return 0
+	# a non-empty "$MDSDB" variable is critical to check, so the below
+	# cleanup does not turn into "rm -vf *" for an empty variable
+	[ ! -s "$MDSDB" ] && error "mdsdb '$mdsdb' missing or empty" && return 1
+	for F in "$OSTDB_LIST"; do
+		[ ! -s "$F" ] && error "ostdb '$F' missing or empty" && return 1
+	done
+
+	echo $cmd
+	eval $cmd || rc=$?
+	echo "lfsck finished with rc=$rc"
+
+	rm -vf $MDSDB* $OSTDB_LIST || true
+	return $rc
 }
 
 check_and_cleanup_lustre() {
-    if [ "$LFSCK_ALWAYS" = "yes" -a "$TESTSUITE" != "lfsck" ]; then
-        get_svr_devs
-        generate_db
-        run_lfsck
-    fi
+	if [ "$LFSCK_ALWAYS" = "yes" -a "$TESTSUITE" != "lfsck" ]; then
+		run_fsck_all -lfsck
+		rc=$?
+		# allow uncorrected errors (in particular the superblock
+		# free blocks/inodes summary counters), since fs is mounted
+		if [ $rc -ne 0 -a $rc -ne 4 ]; then
+			error "initial fsck run failed: $rc"
+		else
+			run_lfsck
+			rc=$?
+			error "lfsck run failed: $rc"
+		fi
+	fi
 
 	if is_mounted $MOUNT; then
 		[ -n "$DIR" ] && rm -rf $DIR/[Rdfs][0-9]* ||
@@ -3580,18 +3630,21 @@ check_and_cleanup_lustre() {
 		[ "$ENABLE_QUOTA" ] && restore_quota || true
 	fi
 
-    if [ "$I_UMOUNTED2" = "yes" ]; then
-        restore_mount $MOUNT2 || error "restore $MOUNT2 failed"
-    fi
+	if [ "$I_UMOUNTED2" = "yes" ]; then
+		restore_mount $MOUNT2 || error "restore $MOUNT2 failed"
+	fi
 
-    if [ "$I_MOUNTED2" = "yes" ]; then
-        cleanup_mount $MOUNT2
-    fi
+	if [ "$I_MOUNTED2" = "yes" ]; then
+		cleanup_mount $MOUNT2
+	fi
 
-    if [ "$I_MOUNTED" = "yes" ]; then
-        cleanupall -f || error "cleanup failed"
-        unset I_MOUNTED
-    fi
+	if [ "$I_MOUNTED" = "yes" ]; then
+		cleanupall -f || error "cleanup failed"
+		unset I_MOUNTED
+		if [ "$FSCK_ALWAYS" = "yes" ]; then
+			run_fsck_all || error "fsck run failed: $rc"
+		fi
+	fi
 }
 
 #######
