@@ -7694,6 +7694,7 @@ test_140() { #bug-17379
         cp /usr/bin/stat . || error "Copying stat to $DIR/$tdir"
 
         # VFS limits max symlink depth to 5(4KSTACK) or 7(8KSTACK) or 8
+	# For kernel > 3.6, bellow only tests consecutive symlink (MAX 40)
         local i=0
         while i=`expr $i + 1`; do
                 mkdir -p $i || error "Creating dir $i"
@@ -7714,7 +7715,13 @@ test_140() { #bug-17379
         done
         i=`expr $i - 1`
         echo "The symlink depth = $i"
-        [ $i -eq 5 -o $i -eq 7 -o $i -eq 8 ] || error "Invalid symlink depth"
+        [ $i -eq 5 -o $i -eq 7 -o $i -eq 8 -o $i -eq 40 ] || error "Invalid symlink depth"
+
+	# Test recursive symlink
+	ln -s symlink_self symlink_self
+	$OPENFILE -f O_RDONLY symlink_self >/dev/null 2>&1; ret=$?
+	echo "open symlink_self returns $ret"
+	[ $ret -eq 40 ] || error "recursive symlink doesn't return -ELOOP"
 }
 run_test 140 "Check reasonable stack depth (shouldn't LBUG) ===="
 
