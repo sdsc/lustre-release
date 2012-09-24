@@ -2504,7 +2504,6 @@ int target_handle_qc_callback(struct ptlrpc_request *req)
         return 0;
 }
 
-#ifdef HAVE_QUOTA_SUPPORT
 int target_handle_dqacq_callback(struct ptlrpc_request *req)
 {
 #ifdef __KERNEL__
@@ -2599,7 +2598,6 @@ out:
         return 0;
 #endif /* !__KERNEL__ */
 }
-#endif /* HAVE_QUOTA_SUPPORT */
 
 ldlm_mode_t lck_compat_array[] = {
         [LCK_EX] LCK_COMPAT_EX,

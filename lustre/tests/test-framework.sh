@@ -1022,7 +1022,6 @@ setup_quota(){
     local mntpt=$1
 
 	if [ "$USE_OFD" = "yes" ]; then
-		$LFS quotacheck $mntpt || error "quotacheck failed"
 		return
 	fi
 
@@ -2944,7 +2943,10 @@ init_param_vars () {
 			setup_quota $MOUNT || return 2
 		else
 			echo "disable quota as required"
+			# ignore possible errors
+			set +e
 			$LFS quotaoff -ug $MOUNT > /dev/null 2>&1
+			set -e
 		fi
 	fi
 	return 0
