@@ -103,13 +103,13 @@ static int lov_llog_origin_add(const struct lu_env *env,
                         break;
                 }
 
-                /* inject error in llog_add() below */
-                if (OBD_FAIL_CHECK(OBD_FAIL_MDS_FAIL_LOV_LOG_ADD)) {
-                        llog_ctxt_put(cctxt);
-                        cctxt = NULL;
-                }
-		rc = llog_add(env, cctxt, rec, NULL, logcookies + cookies,
-			      numcookies - cookies);
+		/* inject error in llog_obd_add() below */
+		if (OBD_FAIL_CHECK(OBD_FAIL_MDS_FAIL_LOV_LOG_ADD)) {
+			llog_ctxt_put(cctxt);
+			cctxt = NULL;
+		}
+		rc = llog_obd_add(env, cctxt, rec, NULL, logcookies + cookies,
+				  numcookies - cookies);
                 llog_ctxt_put(cctxt);
                 if (rc < 0) {
                         CERROR("Can't add llog (rc = %d) for stripe %d\n",
@@ -118,7 +118,7 @@ static int lov_llog_origin_add(const struct lu_env *env,
                                sizeof(struct llog_cookie));
                         rc = 1; /* skip this cookie */
                 }
-                /* Note that rc is always 1 if llog_add was successful */
+		/* Note that rc is always 1 if llog_obd_add was successful */
                 cookies += rc;
         }
         RETURN(cookies);
@@ -200,12 +200,12 @@ static int lov_llog_repl_cancel(const struct lu_env *env,
 }
 
 static struct llog_operations lov_mds_ost_orig_logops = {
-        lop_add: lov_llog_origin_add,
-        lop_connect: lov_llog_origin_connect
+	.lop_obd_add	= lov_llog_origin_add,
+	.lop_connect	= lov_llog_origin_connect,
 };
 
 static struct llog_operations lov_size_repl_logops = {
-        lop_cancel: lov_llog_repl_cancel
+	.lop_cancel	= lov_llog_repl_cancel,
 };
 
 int lov_llog_init(struct obd_device *obd, struct obd_llog_group *olg,
@@ -217,13 +217,13 @@ int lov_llog_init(struct obd_device *obd, struct obd_llog_group *olg,
         ENTRY;
 
         LASSERT(olg == &obd->obd_olg);
-        rc = llog_setup(obd, olg, LLOG_MDS_OST_ORIG_CTXT, disk_obd, 0, NULL,
-                        &lov_mds_ost_orig_logops);
-        if (rc)
-                RETURN(rc);
+	rc = llog_setup(NULL, obd, olg, LLOG_MDS_OST_ORIG_CTXT, disk_obd,
+			&lov_mds_ost_orig_logops);
+	if (rc)
+		RETURN(rc);
 
-        rc = llog_setup(obd, olg, LLOG_SIZE_REPL_CTXT, disk_obd, 0, NULL,
-                        &lov_size_repl_logops);
+	rc = llog_setup(NULL, obd, olg, LLOG_SIZE_REPL_CTXT, disk_obd,
+			&lov_size_repl_logops);
         if (rc)
                 GOTO(err_cleanup, rc);
 
@@ -251,32 +251,30 @@ err_cleanup:
                 struct llog_ctxt *ctxt =
                         llog_get_context(obd, LLOG_SIZE_REPL_CTXT);
                 if (ctxt)
-                        llog_cleanup(ctxt);
+			llog_cleanup(NULL, ctxt);
                 ctxt = llog_get_context(obd, LLOG_MDS_OST_ORIG_CTXT);
                 if (ctxt)
-                        llog_cleanup(ctxt);
+			llog_cleanup(NULL, ctxt);
         }
         return rc;
 }
 
 int lov_llog_finish(struct obd_device *obd, int count)
 {
-        struct llog_ctxt *ctxt;
-        int rc = 0, rc2 = 0;
-        ENTRY;
+	struct llog_ctxt *ctxt;
 
-        /* cleanup our llogs only if the ctxts have been setup
-         * (client lov doesn't setup, mds lov does). */
-        ctxt = llog_get_context(obd, LLOG_MDS_OST_ORIG_CTXT);
-        if (ctxt)
-                rc = llog_cleanup(ctxt);
+	ENTRY;
 
-        ctxt = llog_get_context(obd, LLOG_SIZE_REPL_CTXT);
-        if (ctxt)
-                rc2 = llog_cleanup(ctxt);
-        if (!rc)
-                rc = rc2;
+	/* cleanup our llogs only if the ctxts have been setup
+	 * (client lov doesn't setup, mds lov does). */
+	ctxt = llog_get_context(obd, LLOG_MDS_OST_ORIG_CTXT);
+	if (ctxt)
+		llog_cleanup(NULL, ctxt);
 
-        /* lov->tgt llogs are cleaned during osc_cleanup. */
-        RETURN(rc);
+	ctxt = llog_get_context(obd, LLOG_SIZE_REPL_CTXT);
+	if (ctxt)
+		llog_cleanup(NULL, ctxt);
+
+	/* lov->tgt llogs are cleaned during osc_cleanup. */
+	RETURN(0);
 }

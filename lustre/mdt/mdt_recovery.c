@@ -555,8 +555,6 @@ int mdt_fs_setup(const struct lu_env *env, struct mdt_device *mdt,
                  struct obd_device *obd,
                  struct lustre_sb_info *lsi)
 {
-        struct lu_fid fid;
-        struct dt_object *o;
         int rc = 0;
         ENTRY;
 
@@ -574,28 +572,8 @@ int mdt_fs_setup(const struct lu_env *env, struct mdt_device *mdt,
         dt_txn_callback_add(mdt->mdt_bottom, &mdt->mdt_txn_cb);
 
         rc = mdt_server_data_init(env, mdt, lsi);
-        if (rc)
-                RETURN(rc);
 
-        o = dt_store_open(env, mdt->mdt_bottom, "", CAPA_KEYS, &fid);
-        if (!IS_ERR(o)) {
-                mdt->mdt_ck_obj = o;
-                rc = mdt_capa_keys_init(env, mdt);
-                if (rc)
-                        GOTO(put_ck_object, rc);
-        } else {
-                rc = PTR_ERR(o);
-                CERROR("cannot open %s: rc = %d\n", CAPA_KEYS, rc);
-                GOTO(disconnect_exports, rc);
-        }
-        RETURN(0);
-
-put_ck_object:
-        lu_object_put(env, &o->do_lu);
-        mdt->mdt_ck_obj = NULL;
-disconnect_exports:
-        class_disconnect_exports(obd);
-        return rc;
+	RETURN(rc);
 }
 
 void mdt_fs_cleanup(const struct lu_env *env, struct mdt_device *mdt)
@@ -741,7 +719,7 @@ static void mdt_reconstruct_create(struct mdt_thread_info *mti,
         body = req_capsule_server_get(mti->mti_pill, &RMF_MDT_BODY);
         mti->mti_attr.ma_need = MA_INODE;
         mti->mti_attr.ma_valid = 0;
-        rc = mo_attr_get(mti->mti_env, mdt_object_child(child), &mti->mti_attr);
+	rc = mdt_attr_get_complex(mti, child, &mti->mti_attr);
         if (rc == -EREMOTE) {
                 /* object was created on remote server */
                 req->rq_status = rc;
@@ -781,7 +759,7 @@ static void mdt_reconstruct_setattr(struct mdt_thread_info *mti,
         }
         mti->mti_attr.ma_need = MA_INODE;
         mti->mti_attr.ma_valid = 0;
-        mo_attr_get(mti->mti_env, mdt_object_child(obj), &mti->mti_attr);
+	mdt_attr_get_complex(mti, obj, &mti->mti_attr);
         mdt_pack_attr2body(mti, body, &mti->mti_attr.ma_attr,
                            mdt_object_fid(obj));
         if (mti->mti_ioepoch && (mti->mti_ioepoch->flags & MF_EPOCH_OPEN)) {

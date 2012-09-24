@@ -72,27 +72,79 @@ static struct lu_kmem_descr mdd_caches[] = {
 	}
 };
 
-static int mdd_device_init(const struct lu_env *env, struct lu_device *d,
-                           const char *name, struct lu_device *next)
+static int mdd_connect_to_next(const struct lu_env *env, struct mdd_device *m,
+			       const char *nextdev)
 {
-        struct mdd_device *mdd = lu2mdd_dev(d);
-        int rc;
-        ENTRY;
+	struct obd_connect_data *data = NULL;
+	struct obd_device       *obd;
+	int			 rc;
+	ENTRY;
 
-        mdd->mdd_child = lu2dt_dev(next);
+	LASSERT(m->mdd_child_exp == NULL);
 
-        /* Prepare transactions callbacks. */
-        mdd->mdd_txn_cb.dtc_txn_start = NULL;
-        mdd->mdd_txn_cb.dtc_txn_stop = mdd_txn_stop_cb;
-        mdd->mdd_txn_cb.dtc_txn_commit = NULL;
-        mdd->mdd_txn_cb.dtc_cookie = mdd;
-        mdd->mdd_txn_cb.dtc_tag = LCT_MD_THREAD;
-        CFS_INIT_LIST_HEAD(&mdd->mdd_txn_cb.dtc_linkage);
-        mdd->mdd_atime_diff = MAX_ATIME_DIFF;
+	OBD_ALLOC(data, sizeof(*data));
+	if (data == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	obd = class_name2obd(nextdev);
+	if (obd == NULL) {
+		CERROR("can't locate next device: %s\n", nextdev);
+		GOTO(out, rc = -ENOTCONN);
+	}
+
+	data->ocd_connect_flags = OBD_CONNECT_VERSION;
+	data->ocd_version = LUSTRE_VERSION_CODE;
+
+	rc = obd_connect(NULL, &m->mdd_child_exp, obd, &obd->obd_uuid, data, NULL);
+	if (rc) {
+		CERROR("cannot connect to next dev %s (%d)\n", nextdev, rc);
+		GOTO(out, rc);
+	}
+
+	m->mdd_md_dev.md_lu_dev.ld_site =
+		m->mdd_child_exp->exp_obd->obd_lu_dev->ld_site;
+	LASSERT(m->mdd_md_dev.md_lu_dev.ld_site);
+	m->mdd_child = lu2dt_dev(m->mdd_child_exp->exp_obd->obd_lu_dev);
+
+out:
+	if (data)
+		OBD_FREE(data, sizeof(*data));
+	RETURN(rc);
+}
+
+static int mdd_init0(const struct lu_env *env, struct mdd_device *mdd,
+		struct lu_device_type *t, struct lustre_cfg *lcfg)
+{
+	int rc;
+	ENTRY;
+
+	mdd->mdd_md_dev.md_lu_dev.ld_ops = &mdd_lu_ops;
+	mdd->mdd_md_dev.md_ops = &mdd_ops;
+
+	rc = mdd_connect_to_next(env, mdd, lustre_cfg_string(lcfg, 3));
+	if (rc)
+		RETURN(rc);
+
+	/* Prepare transactions callbacks. */
+	mdd->mdd_txn_cb.dtc_txn_start = NULL;
+	mdd->mdd_txn_cb.dtc_txn_stop = mdd_txn_stop_cb;
+	mdd->mdd_txn_cb.dtc_txn_commit = NULL;
+	mdd->mdd_txn_cb.dtc_cookie = mdd;
+	mdd->mdd_txn_cb.dtc_tag = LCT_MD_THREAD;
+	CFS_INIT_LIST_HEAD(&mdd->mdd_txn_cb.dtc_linkage);
+	mdd->mdd_atime_diff = MAX_ATIME_DIFF;
         /* sync permission changes */
         mdd->mdd_sync_permission = 1;
 
-        rc = mdd_procfs_init(mdd, name);
+        dt_conf_get(env, mdd->mdd_child, &mdd->mdd_dt_conf);
+
+        /* we are using service name but not mdd obd name
+         * for compatibility reasons.
+         * It is passed from MDT in lustre_cfg[2] buffer */
+        rc = mdd_procfs_init(mdd, lustre_cfg_string(lcfg, 2));
+        if (rc < 0)
+                obd_disconnect(mdd->mdd_child_exp);
+
         RETURN(rc);
 }
 
@@ -124,15 +176,18 @@ static void mdd_device_shutdown(const struct lu_env *env,
                 mdd_object_put(env, m->mdd_dot_lustre_objs.mdd_obf);
         if (m->mdd_dot_lustre)
                 mdd_object_put(env, m->mdd_dot_lustre);
-        if (m->mdd_obd_dev)
-                mdd_fini_obd(env, m, cfg);
         orph_index_fini(env, m);
         if (m->mdd_capa != NULL) {
                 lu_object_put(env, &m->mdd_capa->do_lu);
                 m->mdd_capa = NULL;
         }
+	lu_site_purge(env, m->mdd_md_dev.md_lu_dev.ld_site, -1);
         /* remove upcall device*/
         md_upcall_fini(&m->mdd_md_dev);
+
+	if (m->mdd_child_exp)
+		obd_disconnect(m->mdd_child_exp);
+
         EXIT;
 }
 
@@ -326,7 +381,7 @@ int mdd_changelog_llog_write(struct mdd_device         *mdd,
                 return -ENXIO;
 
         /* nested journal transaction */
-	rc = llog_add(NULL, ctxt, &rec->cr_hdr, NULL, NULL, 0);
+	rc = llog_obd_add(NULL, ctxt, &rec->cr_hdr, NULL, NULL, 0);
         llog_ctxt_put(ctxt);
 
         return rc;
@@ -362,7 +417,7 @@ int mdd_changelog_ext_llog_write(struct mdd_device *mdd,
 		return -ENXIO;
 
 	/* nested journal transaction */
-	rc = llog_add(NULL, ctxt, &rec->cr_hdr, NULL, NULL, 0);
+	rc = llog_obd_add(NULL, ctxt, &rec->cr_hdr, NULL, NULL, 0);
 	llog_ctxt_put(ctxt);
 
 	return rc;
@@ -736,42 +791,11 @@ static struct md_dir_operations mdd_dot_lustre_dir_ops = {
 static int obf_attr_get(const struct lu_env *env, struct md_object *obj,
                         struct md_attr *ma)
 {
-        int rc = 0;
+	struct mdd_device *mdd = mdo2mdd(obj);
 
-        if (ma->ma_need & MA_INODE) {
-                struct mdd_device *mdd = mdo2mdd(obj);
-
-                /* "fid" is a virtual object and hence does not have any "real"
-                 * attributes. So we reuse attributes of .lustre for "fid" dir */
-                ma->ma_need |= MA_INODE;
-		rc = mdd_attr_get(env, &mdd->mdd_dot_lustre->mod_obj, ma);
-                if (rc)
-                        return rc;
-                ma->ma_valid |= MA_INODE;
-        }
-
-        /* "fid" directory does not have any striping information. */
-        if (ma->ma_need & MA_LOV) {
-                struct mdd_object *mdd_obj = md2mdd_obj(obj);
-
-                if (ma->ma_valid & MA_LOV)
-                        return 0;
-
-                if (!(S_ISREG(mdd_object_type(mdd_obj)) ||
-                      S_ISDIR(mdd_object_type(mdd_obj))))
-                        return 0;
-
-                if (ma->ma_need & MA_LOV_DEF) {
-                        rc = mdd_get_default_md(mdd_obj, ma->ma_lmm);
-                        if (rc > 0) {
-                                ma->ma_lmm_size = rc;
-                                ma->ma_valid |= MA_LOV;
-                                rc = 0;
-                        }
-                }
-        }
-
-        return rc;
+	/* "fid" is a virtual object and hence does not have any "real"
+	 * attributes. So we reuse attributes of .lustre for "fid" dir */
+	return mdd_attr_get(env, &mdd->mdd_dot_lustre->mod_obj, ma);
 }
 
 static int obf_attr_set(const struct lu_env *env, struct md_object *obj,
@@ -790,7 +814,28 @@ static int obf_xattr_get(const struct lu_env *env,
                          struct md_object *obj, struct lu_buf *buf,
                          const char *name)
 {
-        return 0;
+	struct mdd_device *mdd = mdo2mdd(obj);
+	struct mdd_object *root;
+	struct lu_fid      rootfid;
+	int rc = 0;
+
+	/*
+	 * .lustre returns default striping which is 'stored'
+	 * in the root
+	 */
+	if (strcmp(name, XATTR_NAME_LOV) == 0) {
+		rc = dt_root_get(env, mdd->mdd_child, &rootfid);
+		if (rc)
+			return rc;
+		root = mdd_object_find(env, mdd, &rootfid);
+		if (IS_ERR(root))
+			return PTR_ERR(root);
+		rc = mdo_xattr_get(env, root, buf, name,
+				   mdd_object_capa(env, md2mdd_obj(obj)));
+		mdd_object_put(env, root);
+	}
+
+	return rc;
 }
 
 static int obf_xattr_set(const struct lu_env *env,
@@ -1030,17 +1075,13 @@ static int mdd_process_config(const struct lu_env *env,
                         GOTO(out, rc);
                 dt->dd_ops->dt_conf_get(env, dt, &m->mdd_dt_conf);
 
-                rc = mdd_init_obd(env, m, cfg);
-                if (rc) {
-                        CERROR("lov init error %d\n", rc);
-                        GOTO(out, rc);
-                }
-
                 mdd_changelog_init(env, m);
                 break;
         case LCFG_CLEANUP:
+		rc = next->ld_ops->ldo_process_config(env, next, cfg);
 		lu_dev_del_linkage(d->ld_site, d);
                 mdd_device_shutdown(env, m, cfg);
+		break;
         default:
                 rc = next->ld_ops->ldo_process_config(env, next, cfg);
                 break;
@@ -1078,38 +1119,10 @@ static int mdd_recovery_complete(const struct lu_env *env,
 {
         struct mdd_device *mdd = lu2mdd_dev(d);
         struct lu_device *next = &mdd->mdd_child->dd_lu_dev;
-        struct obd_device *obd = mdd2obd_dev(mdd);
         int rc;
         ENTRY;
 
         LASSERT(mdd != NULL);
-        LASSERT(obd != NULL);
-#if 0
-        /* XXX: Do we need this in new stack? */
-        rc = mdd_lov_set_nextid(env, mdd);
-        if (rc) {
-                CERROR("mdd_lov_set_nextid() failed %d\n",
-                       rc);
-                RETURN(rc);
-        }
-
-        /* XXX: cleanup unlink. */
-        rc = mdd_cleanup_unlink_llog(env, mdd);
-        if (rc) {
-                CERROR("mdd_cleanup_unlink_llog() failed %d\n",
-                       rc);
-                RETURN(rc);
-        }
-#endif
-        /* Call that with obd_recovering = 1 just to update objids */
-        obd_notify(obd->u.mds.mds_lov_obd, NULL, (obd->obd_async_recov ?
-                    OBD_NOTIFY_SYNC_NONBLOCK : OBD_NOTIFY_SYNC), NULL);
-
-        /* Drop obd_recovering to 0 and call o_postrecov to recover mds_lov */
-        cfs_spin_lock(&obd->obd_dev_lock);
-        obd->obd_recovering = 0;
-        cfs_spin_unlock(&obd->obd_dev_lock);
-        obd->obd_type->typ_dt_ops->o_postrecov(obd);
 
         /* XXX: orphans handling. */
         __mdd_orphan_cleanup(env, mdd);
@@ -1143,8 +1156,9 @@ static int mdd_prepare(const struct lu_env *env,
         } else {
                 rc = PTR_ERR(root);
         }
-        if (rc)
+        if (rc) {
                 GOTO(out, rc);
+	}
 
         rc = mdd_dot_lustre_setup(env, mdd);
         if (rc) {
@@ -1241,15 +1255,8 @@ static int mdd_update_capa_key(const struct lu_env *env,
                                struct md_device *m,
                                struct lustre_capa_key *key)
 {
-        struct mds_capa_info info = { .uuid = NULL, .capa = key };
-        struct mdd_device *mdd = lu2mdd_dev(&m->md_lu_dev);
-        struct obd_export *lov_exp = mdd2obd_dev(mdd)->u.mds.mds_lov_exp;
-        int rc;
-        ENTRY;
-
-        rc = obd_set_info_async(env, lov_exp, sizeof(KEY_CAPA_KEY),
-                                KEY_CAPA_KEY, sizeof(info), &info, NULL);
-        RETURN(rc);
+	/* we do not support capabilities ... */
+        return -EINVAL;
 }
 
 static int mdd_llog_ctxt_get(const struct lu_env *env, struct md_device *m,
@@ -1259,27 +1266,6 @@ static int mdd_llog_ctxt_get(const struct lu_env *env, struct md_device *m,
 
         *h = llog_group_get_ctxt(&mdd2obd_dev(mdd)->obd_olg, idx);
         return (*h == NULL ? -ENOENT : 0);
-}
-
-static struct lu_device *mdd_device_alloc(const struct lu_env *env,
-                                          struct lu_device_type *t,
-                                          struct lustre_cfg *lcfg)
-{
-        struct lu_device  *l;
-        struct mdd_device *m;
-
-        OBD_ALLOC_PTR(m);
-        if (m == NULL) {
-                l = ERR_PTR(-ENOMEM);
-        } else {
-                md_device_init(&m->mdd_md_dev, t);
-                l = mdd2lu_dev(m);
-                l->ld_ops = &mdd_lu_ops;
-                m->mdd_md_dev.md_ops = &mdd_ops;
-                md_upcall_init(&m->mdd_md_dev, NULL);
-        }
-
-        return l;
 }
 
 static struct lu_device *mdd_device_free(const struct lu_env *env,
@@ -1294,8 +1280,107 @@ static struct lu_device *mdd_device_free(const struct lu_env *env,
 	RETURN(NULL);
 }
 
+static struct lu_device *mdd_device_alloc(const struct lu_env *env,
+                                          struct lu_device_type *t,
+                                          struct lustre_cfg *lcfg)
+{
+        struct lu_device  *l;
+        struct mdd_device *m;
+
+        OBD_ALLOC_PTR(m);
+        if (m == NULL) {
+                l = ERR_PTR(-ENOMEM);
+        } else {
+                int rc;
+
+                l = mdd2lu_dev(m);
+                md_device_init(&m->mdd_md_dev, t);
+                rc = mdd_init0(env, m, t, lcfg);
+                if (rc != 0) {
+                        mdd_device_free(env, l);
+                        l = ERR_PTR(rc);
+                }
+        }
+
+        return l;
+}
+
+/*
+ * we use exports to track all mdd users
+ */
+static int mdd_obd_connect(const struct lu_env *env, struct obd_export **exp,
+		struct obd_device *obd, struct obd_uuid *cluuid,
+		struct obd_connect_data *data, void *localdata)
+{
+	struct mdd_device    *mdd = lu2mdd_dev(obd->obd_lu_dev);
+	struct lustre_handle  conn;
+	int                   rc;
+	ENTRY;
+
+	CDEBUG(D_CONFIG, "connect #%d\n", mdd->mdd_connects);
+
+	rc = class_connect(&conn, obd, cluuid);
+	if (rc)
+		RETURN(rc);
+
+	*exp = class_conn2export(&conn);
+
+	/* Why should there ever be more than 1 connect? */
+	/* XXX: locking ? */
+	mdd->mdd_connects++;
+	LASSERT(mdd->mdd_connects == 1);
+
+	RETURN(0);
+}
+
+/*
+ * once last export (we don't count self-export) disappeared
+ * mdd can be released
+ */
+static int mdd_obd_disconnect(struct obd_export *exp)
+{
+	struct obd_device *obd = exp->exp_obd;
+	struct mdd_device *mdd = lu2mdd_dev(obd->obd_lu_dev);
+	int                rc, release = 0;
+	ENTRY;
+
+	/* Only disconnect the underlying layers on the final disconnect. */
+	/* XXX: locking ? */
+	mdd->mdd_connects--;
+	if (mdd->mdd_connects != 0) {
+		/* why should there be more than 1 connect? */
+		CERROR("disconnect #%d\n", mdd->mdd_connects);
+		goto out;
+	}
+
+	/* XXX: the last user of lod has gone, let's release the device */
+	release = 1;
+
+out:
+	rc = class_disconnect(exp); /* bz 9811 */
+
+	if (rc == 0 && release)
+		class_manual_cleanup(obd);
+	RETURN(rc);
+}
+
+static int mdd_obd_health_check(const struct lu_env *env,
+		struct obd_device *obd)
+{
+	struct mdd_device *mdd = lu2mdd_dev(obd->obd_lu_dev);
+	int                rc;
+	ENTRY;
+
+	LASSERT(mdd);
+	rc = obd_health_check(env, mdd->mdd_child_exp->exp_obd);
+	RETURN(rc);
+}
+
 static struct obd_ops mdd_obd_device_ops = {
-        .o_owner = THIS_MODULE
+	.o_owner	= THIS_MODULE,
+	.o_connect	= mdd_obd_connect,
+	.o_disconnect	= mdd_obd_disconnect,
+	.o_health_check	= mdd_obd_health_check
 };
 
 /* context key constructor/destructor: mdd_ucred_key_init, mdd_ucred_key_fini */
@@ -1388,7 +1473,7 @@ static int mdd_changelog_user_register(struct mdd_device *mdd, int *id)
         rec->cur_endrec = mdd->mdd_cl.mc_index;
         cfs_spin_unlock(&mdd->mdd_cl.mc_user_lock);
 
-	rc = llog_add(NULL, ctxt, &rec->cur_hdr, NULL, NULL, 0);
+	rc = llog_obd_add(NULL, ctxt, &rec->cur_hdr, NULL, NULL, 0);
 
         CDEBUG(D_IOCTL, "Registered changelog user %d\n", *id);
 out:
@@ -1516,7 +1601,7 @@ stop:
         /* hdr+1 is loc of data */
         hdr->lrh_len -= sizeof(*hdr) + sizeof(struct llog_rec_tail);
 	rc = llog_write_rec(env, llh, hdr, NULL, 0, (void *)(hdr + 1),
-			    hdr->lrh_index);
+			    hdr->lrh_index, NULL);
 
         RETURN(rc);
 }
@@ -1696,7 +1781,6 @@ static struct lu_device_type_operations mdd_device_type_ops = {
         .ldto_device_alloc = mdd_device_alloc,
         .ldto_device_free  = mdd_device_free,
 
-        .ldto_device_init    = mdd_device_init,
         .ldto_device_fini    = mdd_device_fini
 };
 

@@ -35,8 +35,8 @@
 #
 
 if MODULES
-modulefs_DATA = osp$(KMODEXT)
+modulefs_DATA = lod$(KMODEXT)
 endif
 
 MOSTLYCLEANFILES := @MOSTLYCLEANFILES@
-EXTRA_DIST := $(osp-objs:%.o=%.c) osp_internal.h
+EXTRA_DIST := $(lod-objs:%.o=%.c) lod_internal.h

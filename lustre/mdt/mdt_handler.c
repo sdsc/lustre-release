@@ -482,7 +482,7 @@ void mdt_pack_attr2body(struct mdt_thread_info *info, struct mdt_body *b,
 
         if (!S_ISREG(attr->la_mode)) {
                 b->valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS | OBD_MD_FLRDEV;
-        } else if (ma->ma_need & MA_LOV && ma->ma_lmm_size == 0) {
+	} else if (ma->ma_need & MA_LOV && !(ma->ma_valid & MA_LOV)) {
                 /* means no objects are allocated on osts. */
                 LASSERT(!(ma->ma_valid & MA_LOV));
                 /* just ignore blocks occupied by extend attributes on MDS */
@@ -544,6 +544,186 @@ void mdt_client_compatibility(struct mdt_thread_info *info)
         EXIT;
 }
 
+static int mdt_big_lmm_get(const struct lu_env *env, struct mdt_object *o,
+			   struct md_attr *ma)
+{
+	struct mdt_thread_info *info;
+	int rc;
+	ENTRY;
+
+	info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+	LASSERT(info != NULL);
+	LASSERT(ma->ma_lmm_size > 0);
+	LASSERT(info->mti_big_lmm_used == 0);
+	rc = mo_xattr_get(env, mdt_object_child(o), &LU_BUF_NULL,
+			  XATTR_NAME_LOV);
+	if (rc < 0)
+		RETURN(rc);
+
+	/* big_lmm may need to be grown */
+	if (info->mti_big_lmmsize < rc) {
+		int size = size_roundup_power2(rc);
+
+		if (info->mti_big_lmmsize > 0) {
+			/* free old buffer */
+			LASSERT(info->mti_big_lmm);
+			OBD_FREE_LARGE(info->mti_big_lmm,
+				       info->mti_big_lmmsize);
+			info->mti_big_lmm = NULL;
+			info->mti_big_lmmsize = 0;
+		}
+
+		OBD_ALLOC_LARGE(info->mti_big_lmm, size);
+		if (info->mti_big_lmm == NULL)
+			RETURN(-ENOMEM);
+		info->mti_big_lmmsize = size;
+	}
+	LASSERT(info->mti_big_lmmsize >= rc);
+
+	info->mti_buf.lb_buf = info->mti_big_lmm;
+	info->mti_buf.lb_len = info->mti_big_lmmsize;
+	rc = mo_xattr_get(env, mdt_object_child(o), &info->mti_buf,
+			  XATTR_NAME_LOV);
+	if (rc < 0)
+		RETURN(rc);
+
+	info->mti_big_lmm_used = 1;
+	ma->ma_valid |= MA_LOV;
+	ma->ma_lmm = info->mti_big_lmm;
+	ma->ma_lmm_size = rc;
+
+	/* update mdt_max_mdsize so all clients will be aware about that */
+	if (info->mti_mdt->mdt_max_mdsize < rc)
+		info->mti_mdt->mdt_max_mdsize = rc;
+
+	RETURN(0);
+}
+
+int mdt_attr_get_lov(struct mdt_thread_info *info,
+		     struct mdt_object *o, struct md_attr *ma)
+{
+	struct md_object *next = mdt_object_child(o);
+	struct lu_buf    *buf = &info->mti_buf;
+	int rc;
+
+	buf->lb_buf = ma->ma_lmm;
+	buf->lb_len = ma->ma_lmm_size;
+	rc = mo_xattr_get(info->mti_env, next, buf, XATTR_NAME_LOV);
+	if (rc > 0) {
+		ma->ma_lmm_size = rc;
+		ma->ma_valid |= MA_LOV;
+		rc = 0;
+	} else if (rc == -ENODATA) {
+		/* no LOV EA */
+		rc = 0;
+	} else if (rc == -ERANGE) {
+		rc = mdt_big_lmm_get(info->mti_env, o, ma);
+	}
+
+	return rc;
+}
+
+int mdt_attr_get_complex(struct mdt_thread_info *info,
+			 struct mdt_object *o, struct md_attr *ma)
+{
+	const struct lu_env *env = info->mti_env;
+	struct md_object    *next = mdt_object_child(o);
+	struct lu_buf       *buf = &info->mti_buf;
+	u32                  mode = lu_object_attr(&next->mo_lu);
+	int                  need = ma->ma_need;
+	int                  rc = 0, rc2;
+	ENTRY;
+
+	/* do we really need PFID */
+	LASSERT((ma->ma_need & MA_PFID) == 0);
+
+	ma->ma_valid = 0;
+
+	if (need & MA_INODE) {
+		ma->ma_need = MA_INODE;
+		rc = mo_attr_get(env, next, ma);
+		if (rc)
+			GOTO(out, rc);
+		ma->ma_valid |= MA_INODE;
+	}
+
+	if (need & MA_LOV && (S_ISREG(mode) || S_ISDIR(mode))) {
+		rc = mdt_attr_get_lov(info, o, ma);
+		if (rc)
+			GOTO(out, rc);
+	}
+
+	if (need & MA_LMV && S_ISDIR(mode)) {
+		buf->lb_buf = ma->ma_lmv;
+		buf->lb_len = ma->ma_lmv_size;
+		rc2 = mo_xattr_get(env, next, buf, XATTR_NAME_LMV);
+		if (rc2 > 0) {
+			ma->ma_lmv_size = rc2;
+			ma->ma_valid |= MA_LMV;
+		} else if (rc2 == -ENODATA) {
+			/* no LMV EA */
+			ma->ma_lmv_size = 0;
+		} else
+			GOTO(out, rc = rc2);
+	}
+
+
+	if (rc == 0 && S_ISREG(mode) && (need & (MA_HSM | MA_SOM))) {
+		struct lustre_mdt_attrs *lma;
+
+		lma = (struct lustre_mdt_attrs *)info->mti_xattr_buf;
+		CLASSERT(sizeof(*lma) <= sizeof(info->mti_xattr_buf));
+
+		buf->lb_buf = lma;
+		buf->lb_len = sizeof(info->mti_xattr_buf);
+		rc = mo_xattr_get(env, next, buf, XATTR_NAME_LMA);
+		if (rc > 0) {
+			lustre_lma_swab(lma);
+			/* Swab and copy LMA */
+			if (need & MA_HSM) {
+				if (lma->lma_compat & LMAC_HSM)
+					ma->ma_hsm.mh_flags =
+						lma->lma_flags & HSM_FLAGS_MASK;
+				else
+					ma->ma_hsm.mh_flags = 0;
+				ma->ma_valid |= MA_HSM;
+			}
+			/* Copy SOM */
+			if (need & MA_SOM && lma->lma_compat & LMAC_SOM) {
+				LASSERT(ma->ma_som != NULL);
+				ma->ma_som->msd_ioepoch = lma->lma_ioepoch;
+				ma->ma_som->msd_size    = lma->lma_som_size;
+				ma->ma_som->msd_blocks  = lma->lma_som_blocks;
+				ma->ma_som->msd_mountid = lma->lma_som_mountid;
+				ma->ma_valid |= MA_SOM;
+			}
+			rc = 0;
+		} else if (rc == -ENODATA) {
+			rc = 0;
+		}
+	}
+
+#ifdef CONFIG_FS_POSIX_ACL
+	if (need & MA_ACL_DEF && S_ISDIR(mode)) {
+		buf->lb_buf = ma->ma_acl;
+		buf->lb_len = ma->ma_acl_size;
+		rc2 = mo_xattr_get(env, next, buf, XATTR_NAME_ACL_DEFAULT);
+		if (rc2 > 0) {
+			ma->ma_acl_size = rc2;
+			ma->ma_valid |= MA_ACL_DEF;
+		} else if (rc2 == -ENODATA) {
+			/* no ACLs */
+			ma->ma_acl_size = 0;
+		} else
+			GOTO(out, rc = rc2);
+	}
+#endif
+out:
+	ma->ma_need = need;
+	CDEBUG(D_INODE, "after getattr rc = %d, ma_valid = "LPX64" ma_lmm=%p\n",
+	       rc, ma->ma_valid, ma->ma_lmm);
+	RETURN(rc);
+}
 
 static int mdt_getattr_internal(struct mdt_thread_info *info,
                                 struct mdt_object *o, int ma_need)
@@ -558,6 +738,7 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
         struct mdt_body         *repbody;
         struct lu_buf           *buffer = &info->mti_buf;
         int                     rc;
+	int			is_root;
         ENTRY;
 
         if (OBD_FAIL_CHECK(OBD_FAIL_MDS_GETATTR_PACK))
@@ -575,8 +756,11 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
                 GOTO(out, rc = 0);
         }
 
-        buffer->lb_buf = req_capsule_server_get(pill, &RMF_MDT_MD);
-        buffer->lb_len = req_capsule_get_size(pill, &RMF_MDT_MD, RCL_SERVER);
+	buffer->lb_len = reqbody->eadatasize;
+	if (buffer->lb_len > 0)
+		buffer->lb_buf = req_capsule_server_get(pill, &RMF_MDT_MD);
+	else
+		buffer->lb_buf = NULL;
 
         /* If it is dir object and client require MEA, then we got MEA */
         if (S_ISDIR(lu_object_attr(&next->mo_lu)) &&
@@ -601,12 +785,37 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
         if (ma->ma_need & MA_SOM)
                 ma->ma_som = &info->mti_u.som.data;
 
-        rc = mo_attr_get(env, next, ma);
+	rc = mdt_attr_get_complex(info, o, ma);
         if (unlikely(rc)) {
                 CERROR("getattr error for "DFID": %d\n",
                         PFID(mdt_object_fid(o)), rc);
                 RETURN(rc);
         }
+
+	is_root = lu_fid_eq(mdt_object_fid(o), &info->mti_mdt->mdt_md_root_fid);
+
+	/* the Lustre protocol supposes to return default striping
+	 * on the user-visible root if explicitly requested */
+	if ((ma->ma_valid & MA_LOV) == 0 && S_ISDIR(la->la_mode) &&
+	    (ma->ma_need & MA_LOV_DEF && is_root) && (ma->ma_need & MA_LOV)) {
+		struct lu_fid      rootfid;
+		struct mdt_object *root;
+		struct mdt_device *mdt = info->mti_mdt;
+
+		rc = dt_root_get(env, mdt->mdt_bottom, &rootfid);
+		if (rc)
+			RETURN(rc);
+		root = mdt_object_find(env, mdt, &rootfid);
+		if (IS_ERR(root))
+			RETURN(PTR_ERR(root));
+		rc = mdt_attr_get_lov(info, root, ma);
+		mdt_object_put(info->mti_env, root);
+		if (unlikely(rc)) {
+			CERROR("getattr error for "DFID": %d\n",
+					PFID(mdt_object_fid(o)), rc);
+			RETURN(rc);
+		}
+	}
 
         if (likely(ma->ma_valid & MA_INODE))
                 mdt_pack_attr2body(info, repbody, la, mdt_object_fid(o));
@@ -664,7 +873,7 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
         }
 
         if (reqbody->valid & OBD_MD_FLMODEASIZE) {
-                repbody->max_cookiesize = info->mti_mdt->mdt_max_cookiesize;
+		repbody->max_cookiesize = 0;
                 repbody->max_mdsize = info->mti_mdt->mdt_max_mdsize;
                 repbody->valid |= OBD_MD_FLMODEASIZE;
                 CDEBUG(D_INODE, "I am going to change the MAX_MD_SIZE & "
@@ -1117,8 +1326,7 @@ relock:
 
                         ma->ma_valid = 0;
                         ma->ma_need = MA_INODE;
-                        rc = mo_attr_get(info->mti_env,
-                                         mdt_object_child(child), ma);
+			rc = mdt_attr_get_complex(info, child, ma);
                         if (unlikely(rc != 0))
                                 GOTO(out_child, rc);
 
@@ -1628,9 +1836,9 @@ static int mdt_reint_internal(struct mdt_thread_info *info,
                 req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER,
                                      info->mti_rr.rr_eadatalen);
 
+	/* llog cookies are always 0, the field is kept for compatibility */
         if (req_capsule_has_field(pill, &RMF_LOGCOOKIES, RCL_SERVER))
-                req_capsule_set_size(pill, &RMF_LOGCOOKIES, RCL_SERVER,
-                                     info->mti_mdt->mdt_max_cookiesize);
+		req_capsule_set_size(pill, &RMF_LOGCOOKIES, RCL_SERVER, 0);
 
         rc = req_capsule_server_pack(pill);
         if (rc != 0) {
@@ -1790,15 +1998,13 @@ static int mdt_sync(struct mdt_thread_info *info)
                 if (rc == 0) {
                         rc = mdt_object_sync(info);
                         if (rc == 0) {
-                                struct md_object *next;
                                 const struct lu_fid *fid;
                                 struct lu_attr *la = &info->mti_attr.ma_attr;
 
-                                next = mdt_object_child(info->mti_object);
                                 info->mti_attr.ma_need = MA_INODE;
                                 info->mti_attr.ma_valid = 0;
-                                rc = mo_attr_get(info->mti_env, next,
-                                                 &info->mti_attr);
+				rc = mdt_attr_get_complex(info, info->mti_object,
+							  &info->mti_attr);
                                 if (rc == 0) {
                                         body = req_capsule_server_get(pill,
                                                                 &RMF_MDT_BODY);
@@ -2078,7 +2284,8 @@ static int mdt_llog_ctxt_clone(const struct lu_env *env, struct mdt_device *mdt,
         rc = next->md_ops->mdo_llog_ctxt_get(env, next, idx, (void **)&ctxt);
         if (rc || ctxt == NULL) {
                 CERROR("Can't get mdd ctxt %d\n", rc);
-                return rc;
+                //return rc;
+		return 0;
         }
 
         rc = llog_group_set_ctxt(&mdt2obd_dev(mdt)->obd_olg, ctxt, idx);
@@ -2683,8 +2890,8 @@ static int mdt_unpack_req_pack_rep(struct mdt_thread_info *info, __u32 flags)
                         req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER,
                                              info->mti_body->eadatasize);
                 if (req_capsule_has_field(pill, &RMF_LOGCOOKIES, RCL_SERVER))
-                        req_capsule_set_size(pill, &RMF_LOGCOOKIES, RCL_SERVER,
-                                             info->mti_mdt->mdt_max_cookiesize);
+			req_capsule_set_size(pill, &RMF_LOGCOOKIES,
+					     RCL_SERVER, 0);
 
                 rc = req_capsule_server_pack(pill);
         }
@@ -2903,6 +3110,7 @@ static void mdt_thread_info_init(struct ptlrpc_request *req,
         info->mti_no_need_trans = 0;
         info->mti_cross_ref = 0;
         info->mti_opdata = 0;
+	info->mti_big_lmm_used = 0;
 
         /* To not check for split by default. */
         info->mti_spec.sp_ck_split = 0;
@@ -4429,6 +4637,7 @@ static void mdt_stack_fini(const struct lu_env *env,
 
         bufs = &info->mti_u.bufs;
         /* process cleanup, pass mdt obd name to get obd umount flags */
+	/* another purpose is to let all layers to release their objects */
         lustre_cfg_bufs_reset(bufs, obd->obd_name);
         if (obd->obd_force)
                 strcat(flags, "F");
@@ -4444,72 +4653,14 @@ static void mdt_stack_fini(const struct lu_env *env,
         top->ld_ops->ldo_process_config(env, top, lcfg);
         lustre_cfg_free(lcfg);
 
-        lu_stack_fini(env, top);
         m->mdt_child = NULL;
         m->mdt_bottom = NULL;
 
+	obd_disconnect(m->mdt_child_exp);
+	m->mdt_child_exp = NULL;
+
 	obd_disconnect(m->mdt_bottom_exp);
-}
-
-static struct lu_device *mdt_layer_setup(struct lu_env *env,
-                                         const char *typename,
-                                         struct lu_device *child,
-                                         struct lustre_cfg *cfg)
-{
-        const char            *dev = lustre_cfg_string(cfg, 0);
-        struct obd_type       *type;
-        struct lu_device_type *ldt;
-        struct lu_device      *d;
-        int rc;
-        ENTRY;
-
-        /* find the type */
-        type = class_get_type(typename);
-        if (!type) {
-                CERROR("Unknown type: '%s'\n", typename);
-                GOTO(out, rc = -ENODEV);
-        }
-
-        rc = lu_env_refill((struct lu_env *)env);
-        if (rc != 0) {
-                CERROR("Failure to refill session: '%d'\n", rc);
-                GOTO(out_type, rc);
-        }
-
-        ldt = type->typ_lu;
-        if (ldt == NULL) {
-                CERROR("type: '%s'\n", typename);
-                GOTO(out_type, rc = -EINVAL);
-        }
-
-        ldt->ldt_obd_type = type;
-        d = ldt->ldt_ops->ldto_device_alloc(env, ldt, cfg);
-        if (IS_ERR(d)) {
-                CERROR("Cannot allocate device: '%s'\n", typename);
-                GOTO(out_type, rc = -ENODEV);
-        }
-
-        LASSERT(child->ld_site);
-        d->ld_site = child->ld_site;
-
-        type->typ_refcnt++;
-        rc = ldt->ldt_ops->ldto_device_init(env, d, dev, child);
-        if (rc) {
-                CERROR("can't init device '%s', rc %d\n", typename, rc);
-                GOTO(out_alloc, rc);
-        }
-        lu_device_get(d);
-        lu_ref_add(&d->ld_reference, "lu-stack", &lu_site_init);
-
-	lu_dev_add_linkage(d->ld_site, d);
-        RETURN(d);
-out_alloc:
-        ldt->ldt_ops->ldto_device_free(env, d);
-        type->typ_refcnt--;
-out_type:
-        class_put_type(type);
-out:
-        return ERR_PTR(rc);
+	m->mdt_child_exp = NULL;
 }
 
 static int mdt_connect_to_next(const struct lu_env *env, struct mdt_device *m,
@@ -4547,81 +4698,146 @@ out:
 	RETURN(rc);
 }
 
-static int mdt_stack_init(struct lu_env *env,
-                          struct mdt_device *m,
-                          struct lustre_cfg *cfg,
-                          struct lustre_mount_info  *lmi)
+static int mdt_stack_init(const struct lu_env *env, struct mdt_device *mdt,
+                          struct lustre_cfg *cfg)
 {
-        struct lu_device  *d = &m->mdt_md_dev.md_lu_dev;
-        struct lu_device  *tmp;
-        struct md_device  *md;
-        struct lu_device  *child_lu_dev;
-	char		  *osdname;
-        int rc;
+        char		       *dev = lustre_cfg_string(cfg, 0);
+        int			rc, name_size, uuid_size;
+        char		       *name, *uuid, *p;
+        struct lustre_cfg_bufs *bufs;
+        struct lustre_cfg      *lcfg;
+        struct obd_device      *obd;
+        struct lustre_profile  *lprof;
+	struct lu_site	       *site;
         ENTRY;
 
-	/* find bottom osd */
-	OBD_ALLOC(osdname, MTI_NAME_MAXLEN);
-	if (osdname == NULL)
-		RETURN(-ENOMEM);
+        /* in 1.8 we had the only device in the stack - MDS.
+         * 2.0 introduces MDT, MDD, OSD; MDT starts others internally.
+         * in 2.3 OSD is instantiated by obd_mount.c, so we need
+         * to generate names and setup MDT, MDD. MDT will be using
+         * generated name to connect to MDD. for MDD the next device
+         * will be LOD with name taken from so called "profile" which
+         * is generated by mount_option line
+         *
+         * 1.8 MGS generates config. commands like this:
+         *   #06 (104)mount_option 0:  1:lustre-MDT0000  2:lustre-mdtlov
+         *   #08 (120)setup   0:lustre-MDT0000  1:dev 2:type 3:lustre-MDT0000
+         * 2.0 MGS generates config. commands like this:
+         *   #07 (112)mount_option 0:  1:lustre-MDT0000  2:lustre-MDT0000-mdtlov
+         *   #08 (160)setup   0:lustre-MDT0000  1:lustre-MDT0000_UUID  2:0
+         *                    3:lustre-MDT0000-mdtlov  4:f
+         *
+         * we generate MDD name from MDT one, just replacing T with D
+         *
+         * after all the preparations, the logical equivalent will be
+         *   #01 (160)setup   0:lustre-MDD0000  1:lustre-MDD0000_UUID  2:0
+         *                    3:lustre-MDT0000-mdtlov  4:f
+         *   #02 (160)setup   0:lustre-MDT0000  1:lustre-MDT0000_UUID  2:0
+         *                    3:lustre-MDD0000  4:f
+         *
+         *  notice we build the stack from down to top: MDD first, then MDT */
 
-	snprintf(osdname, MTI_NAME_MAXLEN, "%s-osd", lustre_cfg_string(cfg, 0));
-	rc = mdt_connect_to_next(env, m, osdname, &m->mdt_bottom_exp);
-	OBD_FREE(osdname, MTI_NAME_MAXLEN);
+        name_size = MAX_OBD_NAME;
+        uuid_size = MAX_OBD_NAME;
+
+        OBD_ALLOC(name, name_size);
+        OBD_ALLOC(uuid, uuid_size);
+        if (name == NULL || uuid == NULL)
+                GOTO(cleanup_mem, rc = -ENOMEM);
+
+        OBD_ALLOC_PTR(bufs);
+        if (!bufs)
+                GOTO(cleanup_mem, rc = -ENOMEM);
+
+        strcpy(name, dev);
+        p = strstr(name, "-MDT");
+        if (p == NULL)
+                GOTO(cleanup_mem, rc = -ENOMEM);
+        p[3] = 'D';
+
+        snprintf(uuid, MAX_OBD_NAME, "%s_UUID", name);
+
+        lprof = class_get_profile(lustre_cfg_string(cfg, 0));
+        if (lprof == NULL || lprof->lp_dt == NULL) {
+                CERROR("can't find the profile: %s\n", lustre_cfg_string(cfg, 0));
+                GOTO(cleanup_mem, rc = -EINVAL);
+        }
+
+        lustre_cfg_bufs_reset(bufs, name);
+        lustre_cfg_bufs_set_string(bufs, 1, LUSTRE_MDD_NAME);
+        lustre_cfg_bufs_set_string(bufs, 2, uuid);
+        lustre_cfg_bufs_set_string(bufs, 3, lprof->lp_dt);
+
+        lcfg = lustre_cfg_new(LCFG_ATTACH, bufs);
+        if (!lcfg)
+                GOTO(free_bufs, rc = -ENOMEM);
+
+        rc = class_attach(lcfg);
+        if (rc)
+                GOTO(lcfg_cleanup, rc);
+
+        obd = class_name2obd(name);
+        if (!obd) {
+                CERROR("Can not find obd %s (%s in config)\n",
+                       MDD_OBD_NAME, lustre_cfg_string(cfg, 0));
+                GOTO(class_detach, rc = -EINVAL);
+        }
+
+        lustre_cfg_free(lcfg);
+
+        lustre_cfg_bufs_reset(bufs, name);
+        lustre_cfg_bufs_set_string(bufs, 1, uuid);
+        lustre_cfg_bufs_set_string(bufs, 2, dev);
+        lustre_cfg_bufs_set_string(bufs, 3, lprof->lp_dt);
+
+        lcfg = lustre_cfg_new(LCFG_SETUP, bufs);
+
+        rc = class_setup(obd, lcfg);
+        if (rc)
+                GOTO(class_detach, rc);
+
+	/* connect to MDD we just setup */
+	rc = mdt_connect_to_next(env, mdt, name, &mdt->mdt_child_exp);
 	if (rc)
 		RETURN(rc);
 
-	tmp = m->mdt_bottom_exp->exp_obd->obd_lu_dev;
-	LASSERT(tmp);
-	m->mdt_bottom = lu2dt_dev(tmp);
+        site = mdt->mdt_child_exp->exp_obd->obd_lu_dev->ld_site;
+        LASSERT(site);
+        LASSERT(mdt->mdt_md_dev.md_lu_dev.ld_site == NULL);
+        mdt->mdt_md_dev.md_lu_dev.ld_site = site;
+        site->ls_top_dev = &mdt->mdt_md_dev.md_lu_dev;
+        mdt->mdt_child = lu2md_dev(mdt->mdt_child_exp->exp_obd->obd_lu_dev);
 
-	/* initialize site's pointers: md_site, top device */
-	d->ld_site = tmp->ld_site;
-	d->ld_site->ls_top_dev = d;
-	m->mdt_mite.ms_lu = tmp->ld_site;
-	tmp->ld_site->ld_md_site = &m->mdt_mite;
-	LASSERT(d->ld_site);
-	d = tmp;
 
-        tmp = mdt_layer_setup(env, LUSTRE_MDD_NAME, d, cfg);
-        if (IS_ERR(tmp)) {
-                GOTO(out, rc = PTR_ERR(tmp));
-        }
-        d = tmp;
-        md = lu2md_dev(d);
+	/* now connect to bottom OSD */
+        snprintf(name, MAX_OBD_NAME, "%s-osd", dev);
+	rc = mdt_connect_to_next(env, mdt, name, &mdt->mdt_bottom_exp);
+	if (rc)
+		RETURN(rc);
+        mdt->mdt_bottom =
+                lu2dt_dev(mdt->mdt_bottom_exp->exp_obd->obd_lu_dev);
 
-        tmp = mdt_layer_setup(env, LUSTRE_CMM_NAME, d, cfg);
-        if (IS_ERR(tmp)) {
-                GOTO(out, rc = PTR_ERR(tmp));
-        }
-        d = tmp;
-        /*set mdd upcall device*/
-        md_upcall_dev_set(md, lu2md_dev(d));
 
-        md = lu2md_dev(d);
-        /*set cmm upcall device*/
-        md_upcall_dev_set(md, &m->mdt_md_dev);
+        rc = lu_env_refill((struct lu_env *)env);
+        if (rc != 0)
+                CERROR("Failure to refill session: '%d'\n", rc);
 
-        m->mdt_child = lu2md_dev(d);
+	//////////////////lu_dev_add_linkage(d->ld_site, d);
 
-        /* process setup config */
-        tmp = &m->mdt_md_dev.md_lu_dev;
-        rc = tmp->ld_ops->ldo_process_config(env, tmp, cfg);
+        EXIT;
+class_detach:
         if (rc)
-                GOTO(out, rc);
-
-        /* initialize local objects */
-        child_lu_dev = &m->mdt_child->md_lu_dev;
-
-        rc = child_lu_dev->ld_ops->ldo_prepare(env,
-                                               &m->mdt_md_dev.md_lu_dev,
-                                               child_lu_dev);
-out:
-        /* fini from last known good lu_device */
-        if (rc)
-                mdt_stack_fini(env, m, d);
-
-        return rc;
+                class_detach(obd, lcfg);
+lcfg_cleanup:
+        lustre_cfg_free(lcfg);
+free_bufs:
+        OBD_FREE_PTR(bufs);
+cleanup_mem:
+        if (name)
+                OBD_FREE(name, name_size);
+        if (uuid)
+                OBD_FREE(uuid, uuid_size);
+        RETURN(rc);
 }
 
 /**
@@ -4650,8 +4866,8 @@ static int mdt_obd_llog_setup(struct obd_device *obd,
         obd->obd_lvfs_ctxt.pwd = lsi->lsi_srv_mnt->mnt_root;
         obd->obd_lvfs_ctxt.fs = get_ds();
 
-        rc = llog_setup(obd, &obd->obd_olg, LLOG_CONFIG_ORIG_CTXT, obd,
-                        0, NULL, &llog_lvfs_ops);
+	rc = llog_setup(NULL, obd, &obd->obd_olg, LLOG_CONFIG_ORIG_CTXT, obd,
+			&llog_lvfs_ops);
         if (rc) {
                 CERROR("llog_setup() failed: %d\n", rc);
                 fsfilt_put_ops(obd->obd_fsops);
@@ -4666,7 +4882,7 @@ static void mdt_obd_llog_cleanup(struct obd_device *obd)
 
         ctxt = llog_get_context(obd, LLOG_CONFIG_ORIG_CTXT);
         if (ctxt)
-                llog_cleanup(ctxt);
+		llog_cleanup(NULL, ctxt);
 
         if (obd->obd_fsops) {
                 fsfilt_put_ops(obd->obd_fsops);
@@ -4799,7 +5015,6 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         LASSERT(obd != NULL);
 
         m->mdt_max_mdsize = MAX_MD_SIZE; /* 4 stripes */
-        m->mdt_max_cookiesize = sizeof(struct llog_cookie);
 
         m->mdt_som_conf = 0;
 
@@ -4846,7 +5061,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         obd->obd_lu_dev = &m->mdt_md_dev.md_lu_dev;
 
 	/* init the stack */
-	rc = mdt_stack_init((struct lu_env *)env, m, cfg, lmi);
+	rc = mdt_stack_init((struct lu_env *)env, m, cfg);
 	if (rc) {
 		CERROR("Can't init device stack, rc %d\n", rc);
 		RETURN(rc);
@@ -4854,6 +5069,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 
 	s = m->mdt_md_dev.md_lu_dev.ld_site;
 	mite = &m->mdt_mite;
+	s->ld_md_site = mite;
 
         /* set server index */
 	mite->ms_node_id = node_id;
@@ -4877,14 +5093,6 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         rc = lut_init(env, &m->mdt_lut, obd, m->mdt_bottom);
         if (rc)
                 GOTO(err_fini_stack, rc);
-
-        rc = mdt_fld_init(env, obd->obd_name, m);
-        if (rc)
-                GOTO(err_lut, rc);
-
-        rc = mdt_seq_init(env, obd->obd_name, m);
-        if (rc)
-                GOTO(err_fini_fld, rc);
 
         snprintf(info->mti_u.ns_name, sizeof info->mti_u.ns_name,
                  LUSTRE_MDT_NAME"-%p", m);
@@ -4920,7 +5128,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         mdt_adapt_sptlrpc_conf(obd, 1);
 
         next = m->mdt_child;
-#ifdef HAVE_QUOTA_SUPPORT
+#ifdef HAVE_QUOTA_SUPPORT__
         rc = next->md_ops->mdo_quota.mqo_setup(env, next, lmi->lmi_mnt);
         if (rc)
                 GOTO(err_llog_cleanup, rc);
@@ -4954,8 +5162,6 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
                 GOTO(err_quota, rc);
         }
 
-        target_recovery_init(&m->mdt_lut, mdt_recovery_handle);
-
         rc = mdt_procfs_init(m, dev);
         if (rc) {
                 CERROR("Can't init MDT lprocfs, rc %d\n", rc);
@@ -4968,8 +5174,9 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 
         ping_evictor_start();
 
-        if (obd->obd_recovering == 0)
-                mdt_postrecov(env, m);
+	/* recovery will be started upon mdt_prepare()
+	 * when the whole stack is complete and ready
+	 * to serve the requests */
 
         mdt_init_capa_ctxt(env, m);
 
@@ -5006,9 +5213,7 @@ err_free_ns:
         obd->obd_namespace = m->mdt_namespace = NULL;
 err_fini_seq:
         mdt_seq_fini(env, m);
-err_fini_fld:
         mdt_fld_fini(env, m);
-err_lut:
         lut_fini(env, &m->mdt_lut);
 err_fini_stack:
         mdt_stack_fini(env, m, md2lu_dev(m->mdt_child));
@@ -5179,9 +5384,54 @@ static int mdt_object_print(const struct lu_env *env, void *cookie,
                     mdto->mot_ioepoch_count, mdto->mot_writecount);
 }
 
+static int mdt_prepare(const struct lu_env *env,
+                       struct lu_device *pdev,
+                       struct lu_device *cdev)
+{
+        struct mdt_device *mdt = mdt_dev(cdev);
+        struct lu_device *next = &mdt->mdt_child->md_lu_dev;
+	struct obd_device *obd = cdev->ld_obd;
+        int rc;
+
+        ENTRY;
+
+	LASSERT(obd);
+
+        rc = next->ld_ops->ldo_prepare(env, cdev, next);
+	if (rc)
+		RETURN(rc);
+
+        rc = mdt_fld_init(env, obd->obd_name, mdt);
+	if (rc)
+		RETURN(rc);
+
+        rc = mdt_seq_init(env, obd->obd_name, mdt);
+	if (rc)
+		RETURN(rc);
+
+	rc = mdt->mdt_child->md_ops->mdo_root_get(env, mdt->mdt_child,
+			&mdt->mdt_md_root_fid);
+	if (rc)
+		RETURN(rc);
+
+        LASSERT(!cfs_test_bit(MDT_FL_CFGLOG, &mdt->mdt_state));
+        target_recovery_init(&mdt->mdt_lut, mdt_recovery_handle);
+        cfs_set_bit(MDT_FL_CFGLOG, &mdt->mdt_state);
+        LASSERT(obd->obd_no_conn);
+        cfs_spin_lock(&obd->obd_dev_lock);
+        obd->obd_no_conn = 0;
+        cfs_spin_unlock(&obd->obd_dev_lock);
+
+        if (obd->obd_recovering == 0)
+                mdt_postrecov(env, mdt);
+
+	RETURN(rc);
+}
+
 static const struct lu_device_operations mdt_lu_ops = {
         .ldo_object_alloc   = mdt_object_alloc,
         .ldo_process_config = mdt_process_config,
+        .ldo_prepare	    = mdt_prepare,
 };
 
 static const struct lu_object_operations mdt_obj_ops = {
@@ -5352,6 +5602,18 @@ static int mdt_obd_connect(const struct lu_env *env,
         req = info->mti_pill->rc_req;
         mdt = mdt_dev(obd->obd_lu_dev);
 
+	/*
+	 * first, check whether the stack is ready to handle requests
+	 * XXX: probably not very appropriate method is used now
+	 *      at some point we should find a better one
+	 */
+	if (!cfs_test_bit(MDT_FL_SYNCED, &mdt->mdt_state)) {
+		rc = obd_health_check(env, mdt->mdt_child_exp->exp_obd);
+		if (rc)
+			RETURN(-EAGAIN);
+		cfs_set_bit(MDT_FL_SYNCED, &mdt->mdt_state);
+	}
+
         rc = class_connect(&conn, obd, cluuid);
         if (rc)
                 RETURN(rc);
@@ -5458,42 +5720,19 @@ static int mdt_export_cleanup(struct obd_export *exp)
 
         if (!cfs_list_empty(&closing_list)) {
                 struct md_attr *ma = &info->mti_attr;
-                int lmm_size;
-                int cookie_size;
-
-                lmm_size = mdt->mdt_max_mdsize;
-                OBD_ALLOC_LARGE(ma->ma_lmm, lmm_size);
-                if (ma->ma_lmm == NULL)
-                        GOTO(out_lmm, rc = -ENOMEM);
-
-                cookie_size = mdt->mdt_max_cookiesize;
-                OBD_ALLOC_LARGE(ma->ma_cookie, cookie_size);
-                if (ma->ma_cookie == NULL)
-                        GOTO(out_cookie, rc = -ENOMEM);
 
                 /* Close any open files (which may also cause orphan unlinking). */
                 cfs_list_for_each_entry_safe(mfd, n, &closing_list, mfd_list) {
                         cfs_list_del_init(&mfd->mfd_list);
-                        memset(&ma->ma_attr, 0, sizeof(ma->ma_attr));
-                        ma->ma_lmm_size = lmm_size;
-                        ma->ma_cookie_size = cookie_size;
-                        ma->ma_need = 0;
-                        /* It is not for setattr, just tell MDD to send
-                         * DESTROY RPC to OSS if needed */
-                        ma->ma_valid = MA_FLAGS;
-                        ma->ma_attr_flags = MDS_CLOSE_CLEANUP;
-                        /* Don't unlink orphan on failover umount, LU-184 */
-                        if (exp->exp_flags & OBD_OPT_FAILOVER)
-                                ma->ma_attr_flags |= MDS_KEEP_ORPHAN;
+			ma->ma_need = ma->ma_valid = 0;
+			/* Don't unlink orphan on failover umount, LU-184 */
+			if (exp->exp_flags & OBD_OPT_FAILOVER) {
+				ma->ma_valid = MA_FLAGS;
+				ma->ma_attr_flags |= MDS_KEEP_ORPHAN;
+			}
                         mdt_mfd_close(info, mfd);
                 }
-                OBD_FREE_LARGE(ma->ma_cookie, cookie_size);
-                ma->ma_cookie = NULL;
-out_cookie:
-                OBD_FREE_LARGE(ma->ma_lmm, lmm_size);
-                ma->ma_lmm = NULL;
         }
-out_lmm:
         info->mti_mdt = NULL;
         /* cleanup client slot early */
         /* Do not erase record for recoverable client. */
@@ -5579,99 +5818,6 @@ static int mdt_destroy_export(struct obd_export *exp)
         LASSERT(cfs_list_empty(&exp->exp_outstanding_replies));
         LASSERT(cfs_list_empty(&exp->exp_mdt_data.med_open_head));
 
-        RETURN(0);
-}
-
-static void mdt_allow_cli(struct mdt_device *m, unsigned int flag)
-{
-        if (flag & CONFIG_LOG)
-                cfs_set_bit(MDT_FL_CFGLOG, &m->mdt_state);
-
-        /* also notify active event */
-        if (flag & CONFIG_SYNC)
-                cfs_set_bit(MDT_FL_SYNCED, &m->mdt_state);
-
-        if (cfs_test_bit(MDT_FL_CFGLOG, &m->mdt_state) &&
-            cfs_test_bit(MDT_FL_SYNCED, &m->mdt_state)) {
-                struct obd_device *obd = m->mdt_md_dev.md_lu_dev.ld_obd;
-
-                /* Open for clients */
-                if (obd->obd_no_conn) {
-                        cfs_spin_lock(&obd->obd_dev_lock);
-                        obd->obd_no_conn = 0;
-                        cfs_spin_unlock(&obd->obd_dev_lock);
-                }
-        }
-}
-
-static int mdt_upcall(const struct lu_env *env, struct md_device *md,
-                      enum md_upcall_event ev, void *data)
-{
-        struct mdt_device *m = mdt_dev(&md->md_lu_dev);
-        struct md_device  *next  = m->mdt_child;
-        struct mdt_thread_info *mti;
-        int rc = 0;
-        ENTRY;
-
-        switch (ev) {
-                case MD_LOV_SYNC:
-                        rc = next->md_ops->mdo_maxsize_get(env, next,
-                                        &m->mdt_max_mdsize,
-                                        &m->mdt_max_cookiesize);
-                        CDEBUG(D_INFO, "get max mdsize %d max cookiesize %d\n",
-                                     m->mdt_max_mdsize, m->mdt_max_cookiesize);
-                        mdt_allow_cli(m, CONFIG_SYNC);
-                        if (data)
-                                (*(__u64 *)data) =
-                                      m->mdt_lut.lut_obd->u.obt.obt_mount_count;
-                        break;
-                case MD_NO_TRANS:
-                        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-                        mti->mti_no_need_trans = 1;
-                        CDEBUG(D_INFO, "disable mdt trans for this thread\n");
-                        break;
-                case MD_LOV_CONFIG:
-                        /* Check that MDT is not yet configured */
-                        LASSERT(!cfs_test_bit(MDT_FL_CFGLOG, &m->mdt_state));
-                        break;
-#ifdef HAVE_QUOTA_SUPPORT
-                case MD_LOV_QUOTA:
-                        if (md->md_lu_dev.ld_obd->obd_recovering == 0 &&
-                            likely(md->md_lu_dev.ld_obd->obd_stopping == 0))
-                                next->md_ops->mdo_quota.mqo_recovery(env, next);
-                        break;
-#endif
-                default:
-                        CERROR("invalid event\n");
-                        rc = -EINVAL;
-                        break;
-        }
-        RETURN(rc);
-}
-
-static int mdt_obd_notify(struct obd_device *obd,
-                          struct obd_device *watched,
-                          enum obd_notify_event ev, void *data)
-{
-        struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-#ifdef HAVE_QUOTA_SUPPORT
-        struct md_device *next = mdt->mdt_child;
-#endif
-        ENTRY;
-
-        switch (ev) {
-        case OBD_NOTIFY_CONFIG:
-                mdt_allow_cli(mdt, (unsigned long)data);
-
-#ifdef HAVE_QUOTA_SUPPORT
-               /* quota_type has been processed, we can now handle
-                * incoming quota requests */
-                next->md_ops->mdo_quota.mqo_notify(NULL, next);
-#endif
-                break;
-        default:
-                CDEBUG(D_INFO, "Unhandled notification %#x\n", ev);
-        }
         RETURN(0);
 }
 
@@ -6010,7 +6156,6 @@ static struct obd_ops mdt_obd_device_ops = {
         .o_destroy_export = mdt_destroy_export,
         .o_iocontrol      = mdt_iocontrol,
         .o_postrecov      = mdt_obd_postrecov,
-        .o_notify         = mdt_obd_notify
 };
 
 static struct lu_device* mdt_device_fini(const struct lu_env *env,
@@ -6052,14 +6197,26 @@ static struct lu_device *mdt_device_alloc(const struct lu_env *env,
                         l = ERR_PTR(rc);
                         return l;
                 }
-                md_upcall_init(&m->mdt_md_dev, mdt_upcall);
         } else
                 l = ERR_PTR(-ENOMEM);
         return l;
 }
 
 /* context key constructor/destructor: mdt_key_init, mdt_key_fini */
-LU_KEY_INIT_FINI(mdt, struct mdt_thread_info);
+LU_KEY_INIT(mdt, struct mdt_thread_info);
+
+static void mdt_key_fini(const struct lu_context *ctx,
+			 struct lu_context_key *key, void* data)
+{
+	struct mdt_thread_info *info = data;
+
+	if (info->mti_big_lmm) {
+		OBD_FREE_LARGE(info->mti_big_lmm, info->mti_big_lmmsize);
+		info->mti_big_lmm = NULL;
+		info->mti_big_lmmsize = 0;
+	}
+	OBD_FREE_PTR(info);
+}
 
 /* context key: mdt_thread_key */
 LU_CONTEXT_KEY_DEFINE(mdt, LCT_MD_THREAD);

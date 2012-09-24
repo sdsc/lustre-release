@@ -66,7 +66,7 @@ static int mds_llog_origin_add(const struct lu_env *env,
         ENTRY;
 
         lctxt = llog_get_context(lov_obd, ctxt->loc_idx);
-	rc = llog_add(env, lctxt, rec, lsm, logcookies, numcookies);
+	rc = llog_obd_add(env, lctxt, rec, lsm, logcookies, numcookies);
         llog_ctxt_put(lctxt);
 
         RETURN(rc);
@@ -90,8 +90,8 @@ static int mds_llog_origin_connect(struct llog_ctxt *ctxt,
 }
 
 static struct llog_operations mds_ost_orig_logops = {
-        lop_add:        mds_llog_origin_add,
-        lop_connect:    mds_llog_origin_connect,
+	.lop_obd_add	= mds_llog_origin_add,
+	.lop_connect	= mds_llog_origin_connect,
 };
 
 static int mds_llog_repl_cancel(const struct lu_env *env,
@@ -198,32 +198,68 @@ static int llog_changelog_cancel(const struct lu_env *env,
 
 int mds_changelog_llog_init(struct obd_device *obd, struct obd_device *tgt)
 {
-        int rc;
+	struct llog_ctxt	*ctxt = NULL, *uctxt = NULL;
+	int			 rc;
 
-        /* see osc_llog_init */
-        changelog_orig_logops = llog_lvfs_ops;
-        changelog_orig_logops.lop_setup = llog_obd_origin_setup;
-        changelog_orig_logops.lop_cleanup = llog_obd_origin_cleanup;
-        changelog_orig_logops.lop_add = llog_obd_origin_add;
-        changelog_orig_logops.lop_cancel = llog_changelog_cancel;
+	/* see osc_llog_init */
+	changelog_orig_logops = llog_lvfs_ops;
+	changelog_orig_logops.lop_obd_add = llog_obd_origin_add;
+	changelog_orig_logops.lop_cancel = llog_changelog_cancel;
 
-        rc = llog_setup_named(obd, &obd->obd_olg, LLOG_CHANGELOG_ORIG_CTXT,
-                              tgt, 1, NULL, CHANGELOG_CATALOG,
-                              &changelog_orig_logops);
-        if (rc) {
-                CERROR("changelog llog setup failed %d\n", rc);
-                RETURN(rc);
-        }
+	rc = llog_setup(NULL, obd, &obd->obd_olg, LLOG_CHANGELOG_ORIG_CTXT,
+			tgt, &changelog_orig_logops);
+	if (rc) {
+		CERROR("%s: changelog llog setup failed: rc = %d\n",
+		       obd->obd_name, rc);
+		RETURN(rc);
+	}
 
-        rc = llog_setup_named(obd, &obd->obd_olg, LLOG_CHANGELOG_USER_ORIG_CTXT,
-                              tgt, 1, NULL, CHANGELOG_USERS,
-                              &changelog_orig_logops);
-        if (rc) {
-                CERROR("changelog users llog setup failed %d\n", rc);
-                RETURN(rc);
-        }
+	ctxt = llog_get_context(obd, LLOG_CHANGELOG_ORIG_CTXT);
+	LASSERT(ctxt);
 
-        RETURN(rc);
+	rc = llog_open_create(NULL, ctxt, &ctxt->loc_handle, NULL,
+			      CHANGELOG_CATALOG);
+	if (rc)
+		GOTO(out_cleanup, rc);
+
+	rc = llog_cat_init_and_process(NULL, ctxt->loc_handle);
+	if (rc)
+		GOTO(out_close, rc);
+
+	/* setup user changelog */
+	rc = llog_setup(NULL, obd, &obd->obd_olg,
+			LLOG_CHANGELOG_USER_ORIG_CTXT, tgt,
+			&changelog_orig_logops);
+	if (rc) {
+		CERROR("%s: changelog users llog setup failed: rc = %d\n",
+		       obd->obd_name, rc);
+		GOTO(out_close, rc);
+	}
+
+	uctxt = llog_get_context(obd, LLOG_CHANGELOG_USER_ORIG_CTXT);
+	LASSERT(uctxt);
+
+	rc = llog_open_create(NULL, uctxt, &uctxt->loc_handle, NULL,
+			      CHANGELOG_USERS);
+	if (rc)
+		GOTO(out_ucleanup, rc);
+
+	rc = llog_cat_init_and_process(NULL, uctxt->loc_handle);
+	if (rc)
+		GOTO(out_uclose, rc);
+
+	llog_ctxt_put(ctxt);
+	llog_ctxt_put(uctxt);
+	RETURN(0);
+out_uclose:
+	llog_cat_close(NULL, uctxt->loc_handle);
+out_ucleanup:
+	llog_cleanup(NULL, uctxt);
+out_close:
+	llog_cat_close(NULL, ctxt->loc_handle);
+out_cleanup:
+	llog_cleanup(NULL, ctxt);
+	return rc;
 }
 EXPORT_SYMBOL(mds_changelog_llog_init);
 
@@ -236,13 +272,13 @@ int mds_llog_init(struct obd_device *obd, struct obd_llog_group *olg,
         ENTRY;
 
         LASSERT(olg == &obd->obd_olg);
-        rc = llog_setup(obd, &obd->obd_olg, LLOG_MDS_OST_ORIG_CTXT, disk_obd,
-                        0, NULL, &mds_ost_orig_logops);
-        if (rc)
-                RETURN(rc);
+	rc = llog_setup(NULL, obd, &obd->obd_olg, LLOG_MDS_OST_ORIG_CTXT,
+			disk_obd, &mds_ost_orig_logops);
+	if (rc)
+		RETURN(rc);
 
-        rc = llog_setup(obd, &obd->obd_olg, LLOG_SIZE_REPL_CTXT, disk_obd,
-                        0, NULL, &mds_size_repl_logops);
+	rc = llog_setup(NULL, obd, &obd->obd_olg, LLOG_SIZE_REPL_CTXT,
+			disk_obd, &mds_size_repl_logops);
         if (rc)
                 GOTO(err_llog, rc);
 
@@ -254,45 +290,42 @@ int mds_llog_init(struct obd_device *obd, struct obd_llog_group *olg,
 
         RETURN(rc);
 err_cleanup:
-        ctxt = llog_get_context(obd, LLOG_SIZE_REPL_CTXT);
-        if (ctxt)
-                llog_cleanup(ctxt);
+	ctxt = llog_get_context(obd, LLOG_SIZE_REPL_CTXT);
+	if (ctxt)
+		llog_cleanup(NULL, ctxt);
 err_llog:
-        ctxt = llog_get_context(obd, LLOG_MDS_OST_ORIG_CTXT);
-        if (ctxt)
-                llog_cleanup(ctxt);
-        return rc;
+	ctxt = llog_get_context(obd, LLOG_MDS_OST_ORIG_CTXT);
+	if (ctxt)
+		llog_cleanup(NULL, ctxt);
+	return rc;
 }
 
 int mds_llog_finish(struct obd_device *obd, int count)
 {
-        struct llog_ctxt *ctxt;
-        int rc = 0, rc2 = 0;
-        ENTRY;
+	struct llog_ctxt *ctxt;
 
-        ctxt = llog_get_context(obd, LLOG_MDS_OST_ORIG_CTXT);
-        if (ctxt)
-                rc = llog_cleanup(ctxt);
+	ENTRY;
 
-        ctxt = llog_get_context(obd, LLOG_SIZE_REPL_CTXT);
-        if (ctxt)
-                rc2 = llog_cleanup(ctxt);
-        if (!rc)
-                rc = rc2;
+	ctxt = llog_get_context(obd, LLOG_MDS_OST_ORIG_CTXT);
+	if (ctxt)
+		llog_cleanup(NULL, ctxt);
 
-        ctxt = llog_get_context(obd, LLOG_CHANGELOG_ORIG_CTXT);
-        if (ctxt)
-                rc2 = llog_cleanup(ctxt);
-        if (!rc)
-                rc = rc2;
+	ctxt = llog_get_context(obd, LLOG_SIZE_REPL_CTXT);
+	if (ctxt)
+		llog_cleanup(NULL, ctxt);
 
-        ctxt = llog_get_context(obd, LLOG_CHANGELOG_USER_ORIG_CTXT);
-        if (ctxt)
-                rc2 = llog_cleanup(ctxt);
-        if (!rc)
-                rc = rc2;
+	ctxt = llog_get_context(obd, LLOG_CHANGELOG_ORIG_CTXT);
+	if (ctxt) {
+		llog_cat_close(NULL, ctxt->loc_handle);
+		llog_cleanup(NULL, ctxt);
+	}
 
-        RETURN(rc);
+	ctxt = llog_get_context(obd, LLOG_CHANGELOG_USER_ORIG_CTXT);
+	if (ctxt) {
+		llog_cat_close(NULL, ctxt->loc_handle);
+		llog_cleanup(NULL, ctxt);
+	}
+	RETURN(0);
 }
 
 static int mds_llog_add_unlink(struct obd_device *obd,
@@ -315,7 +348,7 @@ static int mds_llog_add_unlink(struct obd_device *obd,
         lur->lur_count = count;
 
         ctxt = llog_get_context(obd, LLOG_MDS_OST_ORIG_CTXT);
-	rc = llog_add(NULL, ctxt, &lur->lur_hdr, lsm, logcookie, cookies);
+	rc = llog_obd_add(NULL, ctxt, &lur->lur_hdr, lsm, logcookie, cookies);
         llog_ctxt_put(ctxt);
 
         OBD_FREE_PTR(lur);

@@ -124,6 +124,7 @@ struct md_lfsck {
 
 struct mdd_device {
         struct md_device                 mdd_md_dev;
+	struct obd_export               *mdd_child_exp;
         struct dt_device                *mdd_child;
         struct obd_device               *mdd_obd_dev;
         struct lu_fid                    mdd_root_fid;
@@ -139,6 +140,7 @@ struct mdd_device {
         struct mdd_dot_lustre_objs       mdd_dot_lustre_objs;
 	struct md_lfsck			 mdd_lfsck;
 	unsigned int			 mdd_sync_permission;
+	int				 mdd_connects;
 };
 
 enum mod_flags {
@@ -271,11 +273,6 @@ int mdd_object_kill(const struct lu_env *env, struct mdd_object *obj,
                     struct md_attr *ma, struct thandle *handle);
 int mdd_iattr_get(const struct lu_env *env, struct mdd_object *mdd_obj,
                   struct md_attr *ma);
-int mdd_attr_get_internal(const struct lu_env *env, struct mdd_object *mdd_obj,
-                          struct md_attr *ma);
-int mdd_attr_get_internal_locked(const struct lu_env *env,
-                                 struct mdd_object *mdd_obj,
-                                 struct md_attr *ma);
 int mdd_object_create_internal(const struct lu_env *env, struct mdd_object *p,
 			       struct mdd_object *c, struct lu_attr *attr,
 			       struct thandle *handle,
@@ -511,8 +508,6 @@ static inline int mdd_capable(struct md_ucred *uc, cfs_cap_t cap)
         return 0;
 }
 
-int mdd_def_acl_get(const struct lu_env *env, struct mdd_object *mdd_obj,
-                    struct md_attr *ma);
 int mdd_acl_chmod(const struct lu_env *env, struct mdd_object *o, __u32 mode,
                   struct thandle *handle);
 int __mdd_declare_acl_init(const struct lu_env *env, struct mdd_object *obj,
@@ -580,7 +575,7 @@ static inline struct dt_object* mdd_object_child(struct mdd_object *o)
 
 static inline struct obd_device *mdd2obd_dev(struct mdd_device *mdd)
 {
-        return mdd->mdd_obd_dev;
+        return (mdd->mdd_md_dev.md_lu_dev.ld_obd);
 }
 
 static inline struct mdd_device *mdd_obj2mdd_dev(struct mdd_object *obj)

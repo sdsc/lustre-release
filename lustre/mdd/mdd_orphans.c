@@ -159,9 +159,12 @@ int orph_declare_index_insert(const struct lu_env *env,
                               struct thandle *th)
 {
         struct mdd_device *mdd = mdo2mdd(&obj->mod_obj);
+	struct dt_key	  *key;
         int                rc;
 
-        rc = dt_declare_insert(env, mdd->mdd_orphans, NULL, NULL, th);
+	key = orph_key_fill(env, mdo2fid(obj), ORPH_OP_UNLINK);
+
+	rc = dt_declare_insert(env, mdd->mdd_orphans, NULL, key, th);
         if (rc)
                 return rc;
 
@@ -240,50 +243,18 @@ out:
         RETURN(rc);
 }
 
-/**
- * Destroy OSD object on MDD and associated OST objects.
- *
- * \param obj orphan object
- * \param mdd used for sending llog msg to osts
- *
- * \retval  0   success
- * \retval -ve  error
- */
-static int orphan_object_kill(const struct lu_env *env,
-                              struct mdd_object *obj,
-                              struct mdd_device *mdd,
-                              struct thandle *th)
-{
-        struct lu_attr *la = &mdd_env_info(env)->mti_la;
-        int rc = 0;
-        ENTRY;
-
-        /* No need to lock this object as its recovery phase, and
-         * no other thread can access it. But we need to lock it
-         * as its precondition for osd api we using. */
-
-        mdo_ref_del(env, obj, th);
-        if (S_ISDIR(mdd_object_type(obj))) {
-                mdo_ref_del(env, obj, th);
-                mdd_orphan_ref_del(env, mdd, th);
-        } else {
-                /* regular file , cleanup linked ost objects */
-                rc = mdd_la_get(env, obj, la, BYPASS_CAPA);
-                if (rc == 0)
-                        rc = mdd_lov_destroy(env, mdd, obj, la);
-        }
-        mdo_destroy(env, obj, th);
-        RETURN(rc);
-}
-
 int orph_declare_index_delete(const struct lu_env *env,
                               struct mdd_object *obj,
+
                               struct thandle *th)
 {
         struct mdd_device *mdd = mdo2mdd(&obj->mod_obj);
+	struct dt_key	  *key;
         int                rc;
 
-        rc = dt_declare_delete(env, mdd->mdd_orphans, NULL, th);
+	key = orph_key_fill(env, mdo2fid(obj), ORPH_OP_UNLINK);
+
+	rc = dt_declare_delete(env, mdd->mdd_orphans, key, th);
         if (rc)
                 return rc;
 
@@ -353,17 +324,8 @@ static int orphan_object_destroy(const struct lu_env *env,
 {
         struct thandle *th = NULL;
         struct mdd_device *mdd = mdo2mdd(&obj->mod_obj);
-        struct md_attr *ma = &mdd_env_info(env)->mti_ma;
         int rc = 0;
         ENTRY;
-
-        /* init ma */
-        ma->ma_lmm_size = mdd_lov_mdsize(env, mdd);
-        ma->ma_lmm = mdd_max_lmm_get(env, mdd);
-        ma->ma_cookie_size = mdd_lov_cookiesize(env, mdd);
-        ma->ma_cookie = mdd_max_cookie_get(env, mdd);
-        ma->ma_need = MA_INODE | MA_LOV | MA_COOKIE;
-        ma->ma_valid = 0;
 
         th = mdd_trans_create(env, mdd);
         if (IS_ERR(th)) {
@@ -374,7 +336,7 @@ static int orphan_object_destroy(const struct lu_env *env,
         if (rc)
                 GOTO(stop, rc);
 
-        rc = mdd_declare_object_kill(env, obj, ma, th);
+        rc = mdo_declare_destroy(env, obj, th);
         if (rc)
                 GOTO(stop, rc);
 
@@ -386,9 +348,14 @@ static int orphan_object_destroy(const struct lu_env *env,
         if (likely(obj->mod_count == 0)) {
                 mdd_orphan_write_lock(env, mdd);
                 rc = mdd_orphan_delete_obj(env, mdd, key, th);
-                if (rc == 0)
-                        orphan_object_kill(env, obj, mdd, th);
-                else
+		if (rc == 0) {
+			mdo_ref_del(env, obj, th);
+			if (S_ISDIR(mdd_object_type(obj))) {
+				mdo_ref_del(env, obj, th);
+				mdd_orphan_ref_del(env, mdd, th);
+			}
+			rc = mdo_destroy(env, obj, th);
+		} else
                         CERROR("could not delete object: rc = %d\n",rc);
                 mdd_orphan_write_unlock(env, mdd);
         }
@@ -469,6 +436,8 @@ static int orph_index_iterate(const struct lu_env *env,
         int               rc;
         __u64             cookie;
         ENTRY;
+
+	LASSERT(dor);
 
         /* In recovery phase, do not need for any lock here */
         iops = &dor->do_index_ops->dio_it;

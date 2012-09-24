@@ -664,6 +664,7 @@ static int mds_quota_setup(struct obd_device *obd)
                 CWARN("try to reinitialize quota context!\n");
                 RETURN(0);
         }
+	RETURN(0);
 
         cfs_init_rwsem(&obt->obt_rwsem);
         obt->obt_qfmt = LUSTRE_QUOTA_V2;

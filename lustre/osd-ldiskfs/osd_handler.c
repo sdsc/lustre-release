@@ -789,7 +789,7 @@ int osd_trans_start(const struct lu_env *env, struct dt_device *d,
                  *      data (ofd) and reverse ordering for metadata
                  *      (mdd). then at some point we'll fix the latter
                  */
-		if (dev->od_is_md) {
+		if (0 && dev->od_is_md) {
                         LASSERT(oti->oti_r_locks == 0);
                         LASSERT(oti->oti_w_locks == 0);
                 }
@@ -846,7 +846,7 @@ static int osd_trans_stop(const struct lu_env *env, struct thandle *th)
                  *      data (ofd) and reverse ordering for metadata
                  *      (mdd). then at some point we'll fix the latter
                  */
-		if (osd_dt_dev(th->th_dev)->od_is_md) {
+		if (0 && osd_dt_dev(th->th_dev)->od_is_md) {
                         LASSERT(oti->oti_r_locks == 0);
                         LASSERT(oti->oti_w_locks == 0);
                 }
@@ -4836,7 +4836,8 @@ static int osd_prepare(const struct lu_env *env, struct lu_device *pdev,
 	 * LOD is landed since LOD is of DT type.
 	 * This code should be removed once the orion MDT changes (LOD/OSP, ...)
 	 * have been landed */
-	osd->od_is_md = lu_device_is_md(pdev);
+	if (dev->ld_site && dev->ld_site->ls_top_dev)
+		osd->od_is_md = lu_device_is_md(dev->ld_site->ls_top_dev);
 #else
 #warning "all is_md checks must be removed from osd-ldiskfs"
 #endif
