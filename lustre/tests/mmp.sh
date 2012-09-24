@@ -402,19 +402,6 @@ mount_after_reboot() {
     return 0
 }
 
-# Run e2fsck on the Lustre server target.
-run_e2fsck() {
-	local facet=$1
-	shift
-	local device=$1
-	shift
-	local opts="$@"
-
-	echo "Running e2fsck on the device $device on $facet..."
-	do_facet $facet "$E2FSCK $opts $device"
-	return ${PIPESTATUS[0]}
-}
-
 # Check whether there are failover pairs for MDS and OSS servers.
 check_failover_pair() {
     [ "$MMP_MDS" = "$MMP_MDS_FAILOVER" -o "$MMP_OSS" = "$MMP_OSS_FAILOVER" ] \
@@ -553,7 +540,7 @@ test_8() {
 	saved_interval=$(get_mmp_update_interval $MMP_MDS $MMP_MDSDEV)
 	set_mmp_update_interval $MMP_MDS $MMP_MDSDEV $new_interval
 
-	run_e2fsck $MMP_MDS $MMP_MDSDEV "-fy" &
+	facet_fsck_ldiskfs $MMP_MDS $MMP_MDSDEV "-fy" &
 	e2fsck_pid=$!
 	sleep 5
 
@@ -573,7 +560,7 @@ test_8() {
 	saved_interval=$(get_mmp_update_interval $MMP_OSS $MMP_OSTDEV)
 	set_mmp_update_interval $MMP_OSS $MMP_OSTDEV $new_interval
 
-	run_e2fsck $MMP_OSS $MMP_OSTDEV "-fy" &
+	facet_fsck_ldiskfs $MMP_OSS $MMP_OSTDEV "-fy" &
 	e2fsck_pid=$!
 	sleep 5
 
@@ -628,39 +615,39 @@ run_test 9 "mount after aborted e2fsck"
 
 # Test 10 - e2fsck with mounted filesystem.
 test_10() {
-    local rc=0
+	local rc=0
 
-    log "Mounting $MMP_MDSDEV on $MMP_MDS..."
-    start $MMP_MDS $MMP_MDSDEV $MDS_MOUNT_OPTS || return ${PIPESTATUS[0]}
+	log "Mounting $MMP_MDSDEV on $MMP_MDS..."
+	start $MMP_MDS $MMP_MDSDEV $MDS_MOUNT_OPTS || return ${PIPESTATUS[0]}
 
-    run_e2fsck $MMP_MDS_FAILOVER $MMP_MDSDEV "-fn"
-    rc=${PIPESTATUS[0]}
+	facet_fsck_ldiskfs $MMP_MDS_FAILOVER $MMP_MDSDEV "-fn"
+	rc=${PIPESTATUS[0]}
 
-    # e2fsck is called with -n option (Open the filesystem read-only), so
-    # 0 (No errors) and 4 (File system errors left uncorrected) are the only
-    # acceptable exit codes in this case
-    if [ $rc -ne 0 ] && [ $rc -ne 4 ]; then
-        error_noexit "e2fsck $MMP_MDSDEV on $MMP_MDS_FAILOVER returned $rc"
-        stop $MMP_MDS || return ${PIPESTATUS[0]}
-        return $rc
-    fi
+	# e2fsck is called with -n option (Open the filesystem read-only), so
+	# 0 (No errors) and 4 (File system errors left uncorrected) are the only
+	# acceptable exit codes in this case
+	if [ $rc -ne 0 ] && [ $rc -ne 4 ]; then
+		error_noexit "fsck $MMP_MDS_FAILOVER:$MMP_MDSDEV failed: $rc"
+		stop $MMP_MDS || return ${PIPESTATUS[0]}
+		return $rc
+	fi
 
-    log "Mounting $MMP_OSTDEV on $MMP_OSS..."
-    start $MMP_OSS $MMP_OSTDEV $OST_MOUNT_OPTS
-    rc=${PIPESTATUS[0]}
-    if [ $rc -ne 0 ]; then
-        stop $MMP_MDS || return ${PIPESTATUS[0]}
-        return $rc
-    fi
+	log "Mounting $MMP_OSTDEV on $MMP_OSS..."
+	start $MMP_OSS $MMP_OSTDEV $OST_MOUNT_OPTS
+	rc=${PIPESTATUS[0]}
+	if [ $rc -ne 0 ]; then
+		stop $MMP_MDS || return ${PIPESTATUS[0]}
+		return $rc
+	fi
 
-    run_e2fsck $MMP_OSS_FAILOVER $MMP_OSTDEV "-fn"
-    rc=${PIPESTATUS[0]}
-    if [ $rc -ne 0 ] && [ $rc -ne 4 ]; then
-        error_noexit "e2fsck $MMP_OSTDEV on $MMP_OSS_FAILOVER returned $rc"
-    fi
+	facet_fsck_ldiskfs $MMP_OSS_FAILOVER $MMP_OSTDEV "-fn"
+	rc=${PIPESTATUS[0]}
+	if [ $rc -ne 0 ] && [ $rc -ne 4 ]; then
+		error_noexit "fsck $MMP_OSS_FAILOVER:$MMP_OSTDEV failed: $rc"
+	fi
 
-    stop_services primary || return ${PIPESTATUS[0]}
-    return 0
+	stop_services primary || return ${PIPESTATUS[0]}
+	return 0
 }
 run_test 10 "e2fsck with mounted filesystem"
 

@@ -591,12 +591,11 @@ test_17m() {
 	mds_index=$($LFS getstripe -M $WDIR)
 	mds_index=$((mds_index+1))
 	devname=$(mdsdevname $mds_index)
-	cmd="$E2FSCK -fnvd $devname"
 
-	echo "stop and checking mds${mds_index}: $cmd"
-	# e2fsck should not return error
+	echo "stop and checking mds${mds_index}"
 	stop mds${mds_index} -f
-	do_facet mds${mds_index} $cmd || rc=$?
+	# e2fsck should not return error
+	facet_fsck mds${mds_index} "-fnvd" || rc=$?
 
 	start mds${mds_index} $devname $MDS_MOUNT_OPTS
 	df $MOUNT > /dev/null 2>&1

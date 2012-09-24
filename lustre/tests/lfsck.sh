@@ -262,7 +262,10 @@ fi
 # Test 1a - check and repair the filesystem
 # lfsck will return 1 if the filesystem had errors fixed
 # run e2fsck to generate databases used for lfsck
-generate_db
+run_fsck_all
+rc=$?
+[ $rc -ne 0 -a $rc -ne $FSCK_MAX_ERR ] &&
+	error "first fsck run failed: $rc" && return $rc
 
 # remount filesystem
 ORIG_REFORMAT=$REFORMAT
@@ -271,22 +274,23 @@ check_and_setup_lustre
 REFORMAT=$ORIG_REFORMAT
 
 # run lfsck
-rc=0
-run_lfsck || rc=$?
+run_lfsck
+rc=$?
 if [ $rc -eq 0 ]; then
-    echo "clean after the first check"
+	echo "clean after the first check"
 else
-    # run e2fsck again to generate databases used for lfsck
-    generate_db
+	# run e2fsck again to generate databases used for lfsck
+	run_fsck_all -lfsck
+	rc=$?
+	[ $rc -ne 0 ] && error "second fsck run reported error: $rc"
 
-    # run lfsck again
-    rc=0
-    run_lfsck || rc=$?
-    if [ $rc -eq 0 ]; then
-        echo "clean after the second check"
-    else
-        error "lfsck test 2 - finished with rc=$rc"
-    fi
+	# run lfsck again
+	run_lfsck || rc=$?
+	if [ $rc -eq 0 ]; then
+		echo "clean after the second check"
+	else
+		error "second lfsck run reported error: $rc"
+	fi
 fi
 
 complete $SECONDS
