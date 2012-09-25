@@ -149,6 +149,8 @@ static int lov_init_sub(const struct lu_env *env, struct lov_object *lov,
                oinfo->loi_id, oinfo->loi_seq,
                oinfo->loi_ost_idx, oinfo->loi_ost_gen);
 
+	LASSERT(parent == NULL);
+
         if (parent == NULL) {
                 subhdr->coh_parent = hdr;
                 subhdr->coh_nesting = hdr->coh_nesting + 1;
