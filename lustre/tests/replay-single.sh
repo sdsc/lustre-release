@@ -898,7 +898,7 @@ test_44a() { # was test_44
 
     mdcdev=`lctl get_param -n devices | awk '/MDT0000-mdc-/ {print $1}'`
     [ "$mdcdev" ] || return 2
-    [ $(echo $mdcdev | wc -w) -eq 1 ] || { echo $mdcdev=$mdcdev && return 3; }
+    [ $(echo $mdcdev | wc -w) -eq 1 ] || { echo $mdcdev && return 3; }
 
     # adaptive timeouts slow this way down
     if at_is_enabled; then
