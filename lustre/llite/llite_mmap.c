@@ -526,6 +526,8 @@ struct page *ll_nopage(struct vm_area_struct *vma, unsigned long address,
 {
         struct lustre_handle lockh = { 0 };
         int save_fags = 0;
+        struct file *file = vma->vm_file;
+        struct ll_file_data *fd = NULL;
         unsigned long pgoff;
         struct page *page;
         ENTRY;
@@ -533,6 +535,20 @@ struct page *ll_nopage(struct vm_area_struct *vma, unsigned long address,
         pgoff = ((address - vma->vm_start) >> CFS_PAGE_SHIFT) + vma->vm_pgoff;
         if(!ll_get_extent_lock(vma, pgoff, &save_fags, &lockh))
                 RETURN(NOPAGE_SIGBUS);
+
+        if (file != NULL) 
+                fd = LUSTRE_FPRIVATE(file);
+
+        if (fd != NULL) {
+                struct ll_readahead_state *ras = &fd->fd_ras;
+       
+                /* If readahead window len is still zero, we
+                 * should reset the request index for mmap,
+                 * so window len can be increased, once there
+                 * are sequential read */
+                if (ras->ras_window_len == 0)
+                        ras->ras_request_index = 0;
+        }
 
         page = filemap_nopage(vma, address, type);
         if (page != NOPAGE_SIGBUS && page != NOPAGE_OOM)
@@ -563,12 +579,28 @@ struct page *ll_nopage(struct vm_area_struct *vma, unsigned long address,
 int ll_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
         struct lustre_handle lockh = { 0 };
+        struct file *file = vma->vm_file;
+        struct ll_file_data *fd = NULL;
         int save_fags = 0;
         int rc;
         ENTRY;
 
         if(!ll_get_extent_lock(vma, vmf->pgoff, &save_fags, &lockh))
                RETURN(VM_FAULT_SIGBUS);
+
+        if (file != NULL) 
+                fd = LUSTRE_FPRIVATE(file);
+
+        if (fd != NULL) {
+                struct ll_readahead_state *ras = &fd->fd_ras;
+       
+                /* If readahead window len is still zero, we
+                 * should reset the request index for mmap,
+                 * so window len can be increased, once there
+                 * are sequential read */
+                if (ras->ras_window_len == 0)
+                        ras->ras_request_index = 0;
+        }
 
         rc = filemap_fault(vma, vmf);
         if (vmf->page)
