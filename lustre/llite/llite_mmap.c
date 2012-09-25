@@ -526,13 +526,26 @@ struct page *ll_nopage(struct vm_area_struct *vma, unsigned long address,
 {
         struct lustre_handle lockh = { 0 };
         int save_fags = 0;
+        struct file *file = vma->vm_file;
+        struct ll_file_data *fd = NULL;
         unsigned long pgoff;
         struct page *page;
+        struct ll_ra_read bead;
+        int ra = 0;
         ENTRY;
 
         pgoff = ((address - vma->vm_start) >> CFS_PAGE_SHIFT) + vma->vm_pgoff;
         if(!ll_get_extent_lock(vma, pgoff, &save_fags, &lockh))
                 RETURN(NOPAGE_SIGBUS);
+
+        if (file != NULL) 
+                fd = LUSTRE_FPRIVATE(file);
+
+	if (fd != NULL) {
+		ll_ra_read_init(file, &bead, pgoff << CFS_PAGE_SHIFT,
+				CFS_PAGE_SIZE);
+		ra = 1;
+	}
 
         page = filemap_nopage(vma, address, type);
         if (page != NOPAGE_SIGBUS && page != NOPAGE_OOM)
@@ -543,8 +556,11 @@ struct page *ll_nopage(struct vm_area_struct *vma, unsigned long address,
                                (long)type);
 
         ll_put_extent_lock(vma, save_fags, &lockh);
+        
+	if (ra != 0)
+		ll_ra_read_ex(file, &bead);
 
-        RETURN(page);
+	RETURN(page);
 }
 
 #else
@@ -563,12 +579,25 @@ struct page *ll_nopage(struct vm_area_struct *vma, unsigned long address,
 int ll_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
         struct lustre_handle lockh = { 0 };
+        struct file *file = vma->vm_file;
+        struct ll_file_data *fd = NULL;
         int save_fags = 0;
+	struct ll_ra_read bead;
+	int ra = 0;
         int rc;
         ENTRY;
 
         if(!ll_get_extent_lock(vma, vmf->pgoff, &save_fags, &lockh))
                RETURN(VM_FAULT_SIGBUS);
+
+        if (file != NULL) 
+                fd = LUSTRE_FPRIVATE(file);
+
+	if (fd != NULL) {
+		ll_ra_read_init(file, &bead, vmf->pgoff << CFS_PAGE_SHIFT,
+				CFS_PAGE_SIZE);
+		ra = 1;
+	}
 
         rc = filemap_fault(vma, vmf);
         if (vmf->page)
@@ -580,7 +609,10 @@ int ll_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 
         ll_put_extent_lock(vma, save_fags, &lockh);
 
-        RETURN(rc);
+	if (ra != 0)
+		ll_ra_read_ex(file, &bead);
+        
+	RETURN(rc);
 }
 #endif
 
