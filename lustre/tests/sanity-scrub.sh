@@ -122,7 +122,7 @@ test_1b() {
 
 		local FLAGS=$($SHOW_SCRUB | awk '/^flags/ { print $2 }')
 		[ "$FLAGS" == "recreated" ] ||
-			error "(3) Expect 'recreated', but got '$STATUS'"
+			error "(3) Expect 'recreated', but got '$FLAGS'"
 
 		$START_SCRUB || error "(4) Fail to start OI scrub!"
 		sleep 3
@@ -698,8 +698,11 @@ test_11() {
 
 	# OI scrub should skip the new created objects for the first accessing
 	local SKIPPED=$($SHOW_SCRUB | awk '/^noscrub/ { print $2 }')
-	[ $SKIPPED -eq 101 ] ||
-		error "(5) Expect 101 objects skipped, but got $SKIPPED"
+	# notice we're creating a new llog for every OST on every startup
+	# new features can make this even less stable
+	local EXPECTED=$((101 + OSTCOUNT))
+	[ $SKIPPED -eq $EXPECTED ] ||
+		error "(5) Expect $EXPECTED objects skipped, but got $SKIPPED"
 
 	# reset OI scrub start point by force
 	$START_SCRUB -r || error "(6) Fail to start OI scrub!"
