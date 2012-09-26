@@ -1843,7 +1843,7 @@ struct quota_body {
  * lock (IT_QUOTA_CONN) reply, qb_fid contains slave index file FID. */
 #define qb_slv_fid       qb_fid
 /* qb_usage is the current qunit (in kbytes/inodes) when quota_body is used in
- * acquire reply */
+ * quota reply */
 #define qb_qunit         qb_usage
 
 extern void lustre_swab_quota_body(struct quota_body *b);
@@ -2456,14 +2456,53 @@ typedef union {
 
 extern void lustre_swab_ldlm_policy_data (ldlm_wire_policy_data_t *d);
 
+/* Data structures associated with the quota locks */
+
+/* Glimpse descriptor used for the index & per-ID quota locks */
+struct ldlm_gl_quota_desc {
+	union lquota_id	gl_id;    /* quota ID subject to the glimpse */
+	__u64		gl_flags; /* flags defining the purpose of the GL AST */
+	__u64		gl_ver;   /* new index version */
+	__u64		gl_hardlimit; /* new hardlimit or qunit value */
+	__u64		gl_softlimit; /* new softlimit */
+	__u64		gl_pad1;
+	__u64		gl_pad2;
+};
+#define gl_qunit	gl_hardlimit
+
+/* quota glimpse descriptor flag */
+#define LDLM_GL_QUOTA_EDQUOT 0x1 /* user/group out of quota space on master */
+
+/* LVB used for the global index lock */
+struct quota_glb_lvb {
+	__u64	lvb_glb_ver; /* current version of the global index */
+};
+
+/* LVB used for the per-ID quota lock */
+struct quota_id_lvb {
+	__u64	lvb_id_may_rel; /* space that might be released later */
+	__u64	lvb_id_rel;     /* space released by the slave for this ID */
+};
+#define lvb_id_qunit lvb_id_may_rel /* current qunit value */
+#define lvb_id_flags lvb_id_rel     /* current flags, more particularly
+				     * LDLM_GL_QUOTA_EDQUOT */
+
 /* Similarly to ldlm_wire_policy_data_t, there is one common swabber for all
  * LVB types. As a result, any new LVB structure must match the fields of the
  * ost_lvb structure. */
 union ldlm_wire_lvb {
-        struct ost_lvb l_ost;
+	struct ost_lvb		l_ost;
+	struct quota_id_lvb	l_quota_id;
+	struct quota_glb_lvb	l_quota_glb;
 };
 
 extern void lustre_swab_lvb(union ldlm_wire_lvb *);
+
+union ldlm_gl_desc {
+	struct ldlm_gl_quota_desc	quota_desc;
+};
+
+extern void lustre_swab_gl_desc(union ldlm_gl_desc *);
 
 struct ldlm_intent {
         __u64 opc;

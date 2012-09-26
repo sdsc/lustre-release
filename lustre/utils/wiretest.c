@@ -3087,6 +3087,58 @@ void lustre_assert_wire_constants(void)
         LASSERTF((int)sizeof(((struct ost_lvb *)0)->lvb_blocks) == 8, "found %lld\n",
                  (long long)(int)sizeof(((struct ost_lvb *)0)->lvb_blocks));
 
+        /* Checks for struct quota_glb_lvb */
+        LASSERTF((int)sizeof(struct quota_glb_lvb) == 8, "found %lld\n",
+                 (long long)(int)sizeof(struct quota_glb_lvb));
+        LASSERTF((int)offsetof(struct quota_glb_lvb, lvb_glb_ver) == 0, "found %lld\n",
+                 (long long)(int)offsetof(struct quota_glb_lvb, lvb_glb_ver));
+        LASSERTF((int)sizeof(((struct quota_glb_lvb *)0)->lvb_glb_ver) == 8, "found %lld\n",
+                 (long long)(int)sizeof(((struct quota_glb_lvb *)0)->lvb_glb_ver));
+
+        /* Checks for struct quota_id_lvb */
+        LASSERTF((int)sizeof(struct quota_id_lvb) == 16, "found %lld\n",
+                 (long long)(int)sizeof(struct quota_id_lvb));
+        LASSERTF((int)offsetof(struct quota_id_lvb, lvb_id_may_rel) == 0, "found %lld\n",
+                 (long long)(int)offsetof(struct quota_id_lvb, lvb_id_may_rel));
+        LASSERTF((int)sizeof(((struct quota_id_lvb *)0)->lvb_id_may_rel) == 8, "found %lld\n",
+                 (long long)(int)sizeof(((struct quota_id_lvb *)0)->lvb_id_may_rel));
+        LASSERTF((int)offsetof(struct quota_id_lvb, lvb_id_rel) == 8, "found %lld\n",
+                 (long long)(int)offsetof(struct quota_id_lvb, lvb_id_rel));
+        LASSERTF((int)sizeof(((struct quota_id_lvb *)0)->lvb_id_rel) == 8, "found %lld\n",
+                 (long long)(int)sizeof(((struct quota_id_lvb *)0)->lvb_id_rel));
+
+        /* Checks for struct ldlm_gl_quota_desc */
+        LASSERTF((int)sizeof(struct ldlm_gl_quota_desc) == 64, "found %lld\n",
+                 (long long)(int)sizeof(struct ldlm_gl_quota_desc));
+        LASSERTF((int)offsetof(struct ldlm_gl_quota_desc, gl_id) == 0, "found %lld\n",
+                 (long long)(int)offsetof(struct ldlm_gl_quota_desc, gl_id));
+        LASSERTF((int)sizeof(((struct ldlm_gl_quota_desc *)0)->gl_id) == 16, "found %lld\n",
+                 (long long)(int)sizeof(((struct ldlm_gl_quota_desc *)0)->gl_id));
+        LASSERTF((int)offsetof(struct ldlm_gl_quota_desc, gl_flags) == 16, "found %lld\n",
+                 (long long)(int)offsetof(struct ldlm_gl_quota_desc, gl_flags));
+        LASSERTF((int)sizeof(((struct ldlm_gl_quota_desc *)0)->gl_flags) == 8, "found %lld\n",
+                 (long long)(int)sizeof(((struct ldlm_gl_quota_desc *)0)->gl_flags));
+        LASSERTF((int)offsetof(struct ldlm_gl_quota_desc, gl_ver) == 24, "found %lld\n",
+                 (long long)(int)offsetof(struct ldlm_gl_quota_desc, gl_ver));
+        LASSERTF((int)sizeof(((struct ldlm_gl_quota_desc *)0)->gl_ver) == 8, "found %lld\n",
+                 (long long)(int)sizeof(((struct ldlm_gl_quota_desc *)0)->gl_ver));
+        LASSERTF((int)offsetof(struct ldlm_gl_quota_desc, gl_hardlimit) == 32, "found %lld\n",
+                 (long long)(int)offsetof(struct ldlm_gl_quota_desc, gl_hardlimit));
+        LASSERTF((int)sizeof(((struct ldlm_gl_quota_desc *)0)->gl_hardlimit) == 8, "found %lld\n",
+                 (long long)(int)sizeof(((struct ldlm_gl_quota_desc *)0)->gl_hardlimit));
+        LASSERTF((int)offsetof(struct ldlm_gl_quota_desc, gl_softlimit) == 40, "found %lld\n",
+                 (long long)(int)offsetof(struct ldlm_gl_quota_desc, gl_softlimit));
+        LASSERTF((int)sizeof(((struct ldlm_gl_quota_desc *)0)->gl_softlimit) == 8, "found %lld\n",
+                 (long long)(int)sizeof(((struct ldlm_gl_quota_desc *)0)->gl_softlimit));
+        LASSERTF((int)offsetof(struct ldlm_gl_quota_desc, gl_pad1) == 48, "found %lld\n",
+                 (long long)(int)offsetof(struct ldlm_gl_quota_desc, gl_pad1));
+        LASSERTF((int)sizeof(((struct ldlm_gl_quota_desc *)0)->gl_pad1) == 8, "found %lld\n",
+                 (long long)(int)sizeof(((struct ldlm_gl_quota_desc *)0)->gl_pad1));
+        LASSERTF((int)offsetof(struct ldlm_gl_quota_desc, gl_pad2) == 56, "found %lld\n",
+                 (long long)(int)offsetof(struct ldlm_gl_quota_desc, gl_pad2));
+        LASSERTF((int)sizeof(((struct ldlm_gl_quota_desc *)0)->gl_pad2) == 8, "found %lld\n",
+                 (long long)(int)sizeof(((struct ldlm_gl_quota_desc *)0)->gl_pad2));
+
         /* Checks for struct mgs_send_param */
         LASSERTF((int)sizeof(struct mgs_send_param) == 1024, "found %lld\n",
                  (long long)(int)sizeof(struct mgs_send_param));

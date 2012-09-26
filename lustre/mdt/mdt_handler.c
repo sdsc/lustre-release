@@ -2363,7 +2363,7 @@ static int mdt_llog_prev_block(struct mdt_thread_info *info)
 static struct ldlm_callback_suite cbs = {
         .lcs_completion = ldlm_server_completion_ast,
         .lcs_blocking   = ldlm_server_blocking_ast,
-        .lcs_glimpse    = NULL
+        .lcs_glimpse    = ldlm_server_glimpse_ast
 };
 
 static int mdt_enqueue(struct mdt_thread_info *info)
