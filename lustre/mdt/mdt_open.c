@@ -1074,6 +1074,51 @@ int mdt_open_by_fid(struct mdt_thread_info* info,
         RETURN(rc);
 }
 
+/* lock object for open */
+static int mdt_object_open_lock(struct mdt_thread_info *info,
+				struct mdt_object *obj,
+				struct mdt_lock_handle *lhc)
+{
+	struct md_attr *ma = &info->mti_attr;
+	__u32 open_flags = info->mti_spec.sp_cr_flags;
+	ldlm_mode_t lm = LCK_CR;
+	__u64 ibits = 0;
+	bool has_locked = false;
+	int rc = 0;
+	ENTRY;
+
+	if (open_flags & MDS_OPEN_LOCK) {
+		if (open_flags & FMODE_WRITE)
+			lm = LCK_CW;
+		else if (open_flags & MDS_FMODE_EXEC)
+			lm = LCK_PR;
+		else
+			lm = LCK_CR;
+
+		ibits = MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN;
+	}
+
+	if (open_flags & (MDS_OPEN_HAS_EA | MDS_OPEN_HAS_OBJS)) {
+		/* TODO: enqueue EX mode layout lock, this type of lock
+		 * won't return to client. */
+	}
+
+	mdt_lock_handle_init(lhc);
+	mdt_lock_reg_init(lhc, lm);
+
+	if (!OBD_FAIL_CHECK(OBD_FAIL_MDS_NO_LL_OPEN) && ma->ma_need & MA_LOV) {
+		ibits |= MDS_INODELOCK_LAYOUT|MDS_INODELOCK_LOOKUP;
+		if (mdt_object_lock_try(info, obj, lhc, ibits, MDT_CROSS_LOCK))
+			has_locked = true;
+		else
+			ibits &= ~(MDS_INODELOCK_LAYOUT|MDS_INODELOCK_LOOKUP);
+	}
+	if (!has_locked && ibits != 0)
+		rc = mdt_object_lock(info, obj, lhc, ibits, MDT_CROSS_LOCK);
+
+	RETURN(rc);
+}
+
 int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
 			 struct mdt_lock_handle *lhc)
 {
@@ -1085,7 +1130,6 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
         struct mdt_object       *parent= NULL;
         struct mdt_object       *o;
         int                      rc;
-        ldlm_mode_t              lm;
         ENTRY;
 
 	if (md_should_create(flags) && !(flags & MDS_OPEN_HAS_EA)) {
@@ -1120,18 +1164,7 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
                                         DISP_LOOKUP_EXECD |
                                         DISP_LOOKUP_POS));
 
-        if (flags & FMODE_WRITE)
-                lm = LCK_CW;
-        else if (flags & MDS_FMODE_EXEC)
-                lm = LCK_PR;
-        else
-                lm = LCK_CR;
-
-        mdt_lock_handle_init(lhc);
-        mdt_lock_reg_init(lhc, lm);
-        rc = mdt_object_lock(info, o, lhc,
-                             MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN,
-                             MDT_CROSS_LOCK);
+	rc = mdt_object_open_lock(info, o, lhc);
         if (rc)
                 GOTO(out, rc);
 
@@ -1153,8 +1186,7 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
         if (flags & MDS_OPEN_LOCK)
                 mdt_set_disposition(info, rep, DISP_OPEN_LOCK);
         rc = mdt_finish_open(info, parent, o, flags, 0, rep);
-
-        if (!(flags & MDS_OPEN_LOCK) || rc)
+        if (rc)
                 mdt_object_unlock(info, o, lhc, 1);
 
         GOTO(out, rc);
@@ -1469,29 +1501,16 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 
         LASSERT(!lustre_handle_is_used(&lhc->mlh_reg_lh));
 
-        /* get openlock if this is not replay and if a client requested it */
-        if (!req_is_replay(req) && create_flags & MDS_OPEN_LOCK) {
-                ldlm_mode_t lm;
-
-                if (create_flags & FMODE_WRITE)
-                        lm = LCK_CW;
-                else if (create_flags & MDS_FMODE_EXEC)
-                        lm = LCK_PR;
-                else
-                        lm = LCK_CR;
-                mdt_lock_handle_init(lhc);
-                mdt_lock_reg_init(lhc, lm);
-                rc = mdt_object_lock(info, child, lhc,
-                                     MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN,
-                                     MDT_CROSS_LOCK);
-                if (rc) {
-                        result = rc;
-                        GOTO(out_child, result);
-                } else {
-                        result = -EREMOTE;
-                        mdt_set_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
-                }
-        }
+	/* get openlock if this is not replay and if a client requested it */
+	if (!req_is_replay(req)) {
+		rc = mdt_object_open_lock(info, child, lhc);
+		if (rc != 0) {
+			GOTO(out_child, result = rc);
+		} else if (create_flags & MDS_OPEN_LOCK) {
+			result = -EREMOTE;
+			mdt_set_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
+		}
+	}
 
         /* Try to open it now. */
         rc = mdt_finish_open(info, parent, child, create_flags,
