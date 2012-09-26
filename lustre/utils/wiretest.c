@@ -1091,6 +1091,8 @@ void lustre_assert_wire_constants(void)
                  OBD_CONNECT_EINPROGRESS);
         LASSERTF(OBD_CONNECT_GRANT_PARAM == 0x100000000000ULL, "found 0x%.16llxULL\n",
                  OBD_CONNECT_GRANT_PARAM);
+        LASSERTF(OBD_CONNECT_FLOCK_OWNER == 0x200000000000ULL, "found 0x%.16llxULL\n",
+                 OBD_CONNECT_FLOCK_OWNER);
         LASSERTF(OBD_CONNECT_LIGHTWEIGHT == 0x1000000000000ULL, "found 0x%.16llxULL\n",
                  OBD_CONNECT_LIGHTWEIGHT);
         LASSERTF(OBD_CKSUM_CRC32 == 0x00000001UL, "found 0x%.8xUL\n",
