@@ -539,14 +539,20 @@ static int lov_layout_change(const struct lu_env *env,
 	LASSERT(0 <= llt && llt < ARRAY_SIZE(lov_dispatch));
 	ENTRY;
 
+	if (lov->lo_lsm != NULL && cfs_atomic_read(&lov->lo_lsm->lsm_refc) > 1)
+		RETURN(-EBUSY);
+	/* from now on, nobody can hold extra refcount on this lsm as this is
+	 * called inside layout guard. */
+
 	cookie = cl_env_reenter();
 	nested = cl_env_get(&refcheck);
-	if (!IS_ERR(nested))
+	if (!IS_ERR(nested)) {
+		cl_env_put(nested, &refcheck);
+		cl_env_reexit(cookie);
 		cl_object_prune(nested, &lov->lo_cl);
-	else
-		result = PTR_ERR(nested);
-	cl_env_put(nested, &refcheck);
-	cl_env_reexit(cookie);
+	} else {
+		RETURN(PTR_ERR(nested));
+	}
 
 	old_ops = &lov_dispatch[lov->lo_type];
 	new_ops = &lov_dispatch[llt];
@@ -606,7 +612,7 @@ int lov_object_init(const struct lu_env *env, struct lu_object *obj,
 static int lov_conf_set(const struct lu_env *env, struct cl_object *obj,
                         const struct cl_object_conf *conf)
 {
-	struct lov_stripe_md *lsm = conf->u.coc_md->lsm;
+	struct lov_stripe_md *lsm = NULL;
 	struct lov_object *lov = cl2lov(obj);
 	int result = 0;
 	ENTRY;
@@ -632,6 +638,8 @@ static int lov_conf_set(const struct lu_env *env, struct cl_object *obj,
 		/* fall through to set up new layout */
 	}
 
+	if (conf->u.coc_md != NULL)
+		lsm = conf->u.coc_md->lsm;
 	switch (lov->lo_type) {
 	case LLT_EMPTY:
 		if (lsm != NULL)
@@ -695,15 +703,8 @@ struct cl_page *lov_page_init(const struct lu_env *env, struct cl_object *obj,
 int lov_io_init(const struct lu_env *env, struct cl_object *obj,
 		struct cl_io *io)
 {
-	struct lov_io *lio = lov_env_io(env);
-
 	CL_IO_SLICE_CLEAN(lov_env_io(env), lis_cl);
-
-	/* hold lsm before initializing because io relies on it */
-	lio->lis_lsm = lov_lsm_addref(cl2lov(obj));
-
-	/* No need to lock because we've taken one refcount of layout.  */
-	return LOV_2DISPATCH_NOLOCK(cl2lov(obj), llo_io_init, env, obj, io);
+	return LOV_2DISPATCH(cl2lov(obj), llo_io_init, env, obj, io);
 }
 
 /**
@@ -786,8 +787,9 @@ struct lov_stripe_md *lov_lsm_addref(struct lov_object *lov)
 	lov_conf_freeze(lov);
 	if (!lov->lo_lsm_invalid && lov->lo_lsm != NULL) {
 		lsm = lsm_addref(lov->lo_lsm);
-		CDEBUG(D_INODE, "lsm %p addref %d by %p.\n",
-			lsm, cfs_atomic_read(&lsm->lsm_refc), cfs_current());
+		CDEBUG(D_INODE, "lsm %p addref %d/%d by %p.\n",
+			lsm, cfs_atomic_read(&lsm->lsm_refc),
+			lov->lo_lsm_invalid, cfs_current());
 	}
 	lov_conf_thaw(lov);
 	return lsm;
