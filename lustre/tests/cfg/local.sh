@@ -102,7 +102,7 @@ DEBUG_SIZE=${DEBUG_SIZE:-$_debug_mb}
 ENABLE_QUOTA=${ENABLE_QUOTA:-""}
 QUOTA_TYPE="ug3"
 QUOTA_USERS=${QUOTA_USERS:-"quota_usr quota_2usr sanityusr sanityusr1"}
-LQUOTAOPTS=${LQUOTAOPTS:-"hash_lqs_cur_bits=3"}
+LQUOTAOPTS=${LQUOTAOPTS:-"hash_lqe_cur_bits=3"}
 
 #client
 MOUNT=${MOUNT:-/mnt/${FSNAME}}
