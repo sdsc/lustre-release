@@ -81,6 +81,7 @@ typedef enum {
         ELDLM_LOCK_ABORTED = 301,
         ELDLM_LOCK_REPLACED = 302,
         ELDLM_NO_LOCK_DATA = 303,
+        ELDLM_LOCK_WOULDBLOCK = 304,
 
         ELDLM_NAMESPACE_EXISTS = 400,
         ELDLM_BAD_NAMESPACE    = 401
