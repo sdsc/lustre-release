@@ -7018,7 +7018,7 @@ set_dir_limits () {
 	done
 }
 test_129() {
-	if [ "$(facet_type_fstype MDS)" != ldiskfs ]; then
+	if [ "$(facet_fstype MDS)" != ldiskfs ]; then
 		skip "Only applicable to ldiskfs-based MDTs"
 		return
 	fi
