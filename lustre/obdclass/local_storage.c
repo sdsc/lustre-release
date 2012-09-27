@@ -766,7 +766,7 @@ out_lock:
 	dt_write_unlock(env, o);
 out_los:
 	if (root)
-		lu_object_put_nocache(env, &root->do_lu);
+		lu_object_put(env, &root->do_lu);
 	if (rc) {
 		OBD_FREE_PTR(*los);
 		*los = NULL;
