@@ -288,13 +288,15 @@ static int lov_delete_raid0(const struct lu_env *env, struct lov_object *lov,
 {
 	struct lov_layout_raid0 *r0 = &state->raid0;
 	struct lov_stripe_md    *lsm = lov->lo_lsm;
+	struct l_wait_ifo	lwi = { 0 };
 	int i;
 
 	ENTRY;
 
 	dump_lsm(D_INODE, lsm);
-	if (lov->lo_lsm_invalid && cfs_atomic_read(&lsm->lsm_refc) > 1)
-		RETURN(-EBUSY);
+	/* wait until there is no extra users. */
+	l_wait_event(lov->lov_waitq,
+		     cfs_atomic_read(&lsm->lsm_refc) == 1, &lwi);
 
         if (r0->lo_sub != NULL) {
                 for (i = 0; i < r0->lo_nr; ++i) {
