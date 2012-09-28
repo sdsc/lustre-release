@@ -1,0 +1,23 @@
+Index: linux-stage/fs/ext4/ext4.h
+===================================================================
+--- linux-stage.orig/fs/ext4/ext4.h	2012-08-24 00:24:21.000000000 +0800
++++ linux-stage/fs/ext4/ext4.h	2012-09-28 14:12:36.000000000 +0800
+@@ -1471,6 +1471,8 @@
+ {
+ 	unsigned len = le16_to_cpu(dlen);
+ 
++	if (unlikely(len == 0))
++		BUG();
+ #if (PAGE_CACHE_SIZE >= 65536)
+ 	if (len == EXT4_MAX_REC_LEN || len == 0)
+ 		return blocksize;
+@@ -1482,7 +1484,8 @@
+ 
+ static inline __le16 ext4_rec_len_to_disk(unsigned len, unsigned blocksize)
+ {
+-	if ((len > blocksize) || (blocksize > (1 << 18)) || (len & 3))
++	if (unlikely((len > blocksize) || (blocksize > (1 << 18)) ||
++		     (len & 3) || (len == 0)))
+ 		BUG();
+ #if (PAGE_CACHE_SIZE >= 65536)
+ 	if (len < 65536)
