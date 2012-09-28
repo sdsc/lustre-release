@@ -319,3 +319,17 @@ out:
 	RETURN(qsd);
 }
 EXPORT_SYMBOL(qsd_init);
+
+/*
+ * Start a qsd instance. This will complete the last step of the reintegration
+ * procedure as soon as possible (provided that the master is reachable).
+ * This should be called when recovery has been completed and quota should now
+ * be enforced on every operations.
+ *
+ * \param env - the environment passed by the caller
+ * \param qsd - is the qsd instance associated with the osd device to start
+ */
+int qsd_start(const struct lu_env *env, struct qsd_instance *qsd)
+{
+	return 0;
+}
