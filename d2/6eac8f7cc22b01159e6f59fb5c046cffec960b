@@ -1,0 +1,9 @@
+Verified+1: Hudson
+Code-Review+1: Ian Colle <Ian.Colle@intel.com>
+Verified+1: Ian Colle <Ian.Colle@intel.com>
+Code-Review+2: Andreas Dilger <adilger@whamcloud.com>
+Submitted-by: Andreas Dilger <adilger@whamcloud.com>
+Submitted-at: Fri, 28 Sep 2012 18:46:59 -0400
+Reviewed-on: http://review.whamcloud.com/4128
+Project: fs/lustre-release
+Branch: refs/heads/master
