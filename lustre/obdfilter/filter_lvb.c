@@ -152,15 +152,36 @@ static int filter_lvbo_update(struct ldlm_resource *res,
 
         /* Update the LVB from the network message */
         if (r != NULL) {
-                struct ost_lvb *new;
+		struct ost_lvb *new;
+		struct ost_lvb tmp_lvb;
+		int lvb_type;
 
-                /* XXX update always from reply buffer */
-                new = req_capsule_server_get(&r->rq_pill, &RMF_DLM_LVB);
+		if (r->rq_import != NULL)
+			lvb_type = imp_connect_lvb_type(r->rq_import);
+		else
+			lvb_type = exp_connect_lvb_type(r->rq_export);
 
-                if (new == NULL) {
-                        CERROR("lustre_swab_buf failed\n");
-                        goto disk_update;
-                }
+		if (lvb_type == 0) {
+			struct ost_lvb_v1 *lvb_v1;
+
+			lvb_v1 = req_capsule_server_swab_get(&r->rq_pill,
+					&RMF_DLM_LVB, lustre_swab_lvb_v1);
+			if (lvb_v1 == NULL)
+				goto disk_update;
+
+			new = &tmp_lvb;
+			memcpy(new, lvb_v1, sizeof *lvb_v1);
+			new->lvb_mtime_ns = 0;
+			new->lvb_atime_ns = 0;
+			new->lvb_ctime_ns = 0;
+		} else {
+			new = req_capsule_server_swab_get(&r->rq_pill,
+							  &RMF_DLM_LVB,
+							  lustre_swab_lvb);
+			if (new == NULL)
+				goto disk_update;
+		}
+
                 if (new->lvb_size > lvb->lvb_size || !increase_only) {
                         CDEBUG(D_DLMTRACE, "res: "LPU64" updating lvb size: "
                                LPU64" -> "LPU64"\n", res->lr_name.name[0],
@@ -265,23 +286,25 @@ out:
         return rc;
 }
 
-static int filter_lvbo_size(struct ldlm_lock *unused)
+static int filter_lvbo_size(struct ldlm_lock *lock)
 {
-	return sizeof(struct ost_lvb);
+	if (lock->l_export != NULL && exp_connect_lvb_type(lock->l_export))
+		return sizeof(struct ost_lvb);
+	else
+		return sizeof(struct ost_lvb_v1);
 }
 
 static int filter_lvbo_fill(struct ldlm_lock *lock,
 			    void *buf, int buflen)
 {
 	struct ldlm_resource *res = lock->l_resource;
+	int lvb_len = min_t(int, res->lr_lvb_len, buflen);
 
 	lock_res(res);
-	LASSERTF(buflen >= res->lr_lvb_len,
-		 "actual %d, want %d\n", buflen, res->lr_lvb_len);
-	memcpy(buf, res->lr_lvb_data, res->lr_lvb_len);
+	memcpy(buf, res->lr_lvb_data, lvb_len);
 	unlock_res(res);
 
-	return res->lr_lvb_len;
+	return lvb_len;
 }
 
 struct ldlm_valblock_ops filter_lvbo = {

@@ -909,16 +909,13 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, int flags, void *data)
                                           lock->l_last_activity);
 
         req = ptlrpc_request_alloc(lock->l_export->exp_imp_reverse,
-                                    &RQF_LDLM_CP_CALLBACK);
-        if (req == NULL)
-                RETURN(-ENOMEM);
+				   &RQF_LDLM_CP_CALLBACK);
+	if (req == NULL)
+		RETURN(-ENOMEM);
 
 	/* server namespace, doesn't need lock */
 	lvb_len = ldlm_lvbo_size(lock);
-	if (lvb_len > 0)
-                 req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_CLIENT,
-                                      lvb_len);
-
+	req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_CLIENT, lvb_len);
         rc = ptlrpc_request_pack(req, LUSTRE_DLM_VERSION, LDLM_CP_CALLBACK);
         if (rc) {
                 ptlrpc_request_free(req);
@@ -1609,9 +1606,6 @@ static void ldlm_handle_cp_callback(struct ptlrpc_request *req,
 		if (lock->l_lvb_len > 0) {
 			/* for extent lock, lvb contains ost_lvb{}. */
 			LASSERT(lock->l_lvb_data != NULL);
-			LASSERTF(lock->l_lvb_len == lvb_len,
-				"preallocated %d, actual %d.\n",
-				lock->l_lvb_len, lvb_len);
 		} else { /* for layout lock, lvb has variable length */
 			void *lvb_data;
 
@@ -1683,15 +1677,22 @@ static void ldlm_handle_cp_callback(struct ptlrpc_request *req,
         }
 
         if (lock->l_lvb_len) {
-                if (req_capsule_get_size(&req->rq_pill, &RMF_DLM_LVB,
-                                         RCL_CLIENT) < lock->l_lvb_len) {
-                        LDLM_ERROR(lock, "completion AST did not contain "
-                                   "expected LVB!");
-                } else {
-                        void *lvb = req_capsule_client_get(&req->rq_pill,
-                                                           &RMF_DLM_LVB);
-                        memcpy(lock->l_lvb_data, lvb, lock->l_lvb_len);
-                }
+		void *lvb;
+
+		lvb_len = req_capsule_get_size(&req->rq_pill, &RMF_DLM_LVB,
+					       RCL_CLIENT);
+		if (lvb_len > lock->l_lvb_len)
+			lvb_len = lock->l_lvb_len;
+
+		if (exp_connect_lvb_type(req->rq_export))
+			lvb = req_capsule_client_swab_get(&req->rq_pill,
+							  &RMF_DLM_LVB,
+							  lustre_swab_lvb);
+		else
+			lvb = req_capsule_client_swab_get(&req->rq_pill,
+							  &RMF_DLM_LVB,
+							  lustre_swab_lvb_v1);
+		memcpy(lock->l_lvb_data, lvb, lvb_len);
         }
 
         ldlm_grant_lock(lock, &ast_list);

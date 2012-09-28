@@ -1003,9 +1003,9 @@ static const char *obd_connect_names[] = {
         "umask",
         "einprogress",
         "grant_param",
-	"nanoseconds_times",
-	"lvb_type",
 	"unknown",
+	"lvb_type",
+	"nanoseconds_times",
 	"lightweight_conn",
         NULL
 };
