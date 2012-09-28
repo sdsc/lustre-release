@@ -1,0 +1,10 @@
+Verified+1: Hudson
+Code-Review+1: wangdi <di.wang@whamcloud.com>
+Code-Review+2: Andreas Dilger <adilger@whamcloud.com>
+Code-Review+1: Mike Pershin <tappro@whamcloud.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Submitted-by: Andreas Dilger <adilger@whamcloud.com>
+Submitted-at: Fri, 28 Sep 2012 18:41:54 -0400
+Reviewed-on: http://review.whamcloud.com/4059
+Project: fs/lustre-release
+Branch: refs/heads/master
