@@ -315,53 +315,105 @@ static struct lu_object *osd_object_alloc(const struct lu_env *env,
                 return NULL;
 }
 
+static int osd_get_lma(struct inode *inode, struct dentry *dentry,
+		       struct lustre_mdt_attrs *lma)
+{
+	int rc;
+
+	dentry->d_inode = inode;
+	rc = inode->i_op->getxattr(dentry, XATTR_NAME_LMA, (void *)lma,
+				   sizeof(*lma));
+	if (rc > 0) {
+		/* Check LMA compatibility */
+		if (lma->lma_incompat & ~cpu_to_le32(LMA_INCOMPAT_SUPP)) {
+			CWARN("%.16s: unsupported incompat LMA feature(s) "
+			      "%lx/%#x\n",
+			      LDISKFS_SB(inode->i_sb)->s_es->s_volume_name,
+			      inode->i_ino, le32_to_cpu(lma->lma_incompat) &
+							~LMA_INCOMPAT_SUPP);
+			rc = -ENOSYS;
+		} else {
+			lustre_lma_swab(lma);
+			rc = 0;
+		}
+	} else if (rc == 0) {
+		rc = -ENODATA;
+	}
+
+	return rc;
+}
+
 /*
  * retrieve object from backend ext fs.
  **/
-static struct inode *osd_iget(struct osd_thread_info *info,
-                              struct osd_device *dev,
-                              const struct osd_inode_id *id)
+struct inode *osd_iget(struct osd_thread_info *info, struct osd_device *dev,
+		       struct osd_inode_id *id)
 {
-        struct inode *inode = NULL;
+	struct inode *inode = NULL;
 
-#ifdef HAVE_EXT4_LDISKFS
-        inode = ldiskfs_iget(osd_sb(dev), id->oii_ino);
-        if (IS_ERR(inode))
-        /* Newer kernels return an error instead of a NULL pointer */
-                inode = NULL;
-#else
-        inode = iget(osd_sb(dev), id->oii_ino);
-#endif
-        if (inode == NULL) {
-                CERROR("no inode\n");
-                inode = ERR_PTR(-EACCES);
-        } else if (id->oii_gen != OSD_OII_NOGEN &&
-                   inode->i_generation != id->oii_gen) {
-                iput(inode);
-                inode = ERR_PTR(-ESTALE);
-        } else if (inode->i_nlink == 0) {
-                /* due to parallel readdir and unlink,
-                * we can have dead inode here. */
-                CWARN("stale inode\n");
-                make_bad_inode(inode);
-                iput(inode);
-                inode = ERR_PTR(-ESTALE);
-        } else if (is_bad_inode(inode)) {
-                CERROR("bad inode %lx\n",inode->i_ino);
-                iput(inode);
-                inode = ERR_PTR(-ENOENT);
-        } else {
-                /* Do not update file c/mtime in ldiskfs.
-                 * NB: we don't have any lock to protect this because we don't
-                 * have reference on osd_object now, but contention with
-                 * another lookup + attr_set can't happen in the tiny window
-                 * between if (...) and set S_NOCMTIME. */
-                if (!(inode->i_flags & S_NOCMTIME))
-                        inode->i_flags |= S_NOCMTIME;
-        }
-        return inode;
+	inode = ldiskfs_iget(osd_sb(dev), id->oii_ino);
+	if (IS_ERR(inode)) {
+		CDEBUG(D_INODE, "no inode: ino = %u, rc = %ld\n",
+		       id->oii_ino, PTR_ERR(inode));
+	} else if (id->oii_gen != OSD_OII_NOGEN &&
+		   inode->i_generation != id->oii_gen) {
+		CDEBUG(D_INODE, "unmatched inode: ino = %u, gen0 = %u, "
+		       "gen1 = %u\n",
+		       id->oii_ino, id->oii_gen, inode->i_generation);
+		iput(inode);
+		inode = ERR_PTR(-ESTALE);
+	} else if (inode->i_nlink == 0) {
+		/* due to parallel readdir and unlink,
+		* we can have dead inode here. */
+		CDEBUG(D_INODE, "stale inode: ino = %u\n", id->oii_ino);
+		make_bad_inode(inode);
+		iput(inode);
+		inode = ERR_PTR(-ESTALE);
+	} else if (is_bad_inode(inode)) {
+		CWARN("%s: bad inode: ino = %u\n",
+		dev->od_dt_dev.dd_lu_dev.ld_obd->obd_name, id->oii_ino);
+		iput(inode);
+		inode = ERR_PTR(-ENOENT);
+	} else {
+		if (id->oii_gen == OSD_OII_NOGEN) {
+                        id->oii_ino = inode->i_ino;
+                        id->oii_gen = inode->i_generation;
+                }
+
+		/* Do not update file c/mtime in ldiskfs.
+		 * NB: we don't have any lock to protect this because we don't
+		 * have reference on osd_object now, but contention with
+		 * another lookup + attr_set can't happen in the tiny window
+		 * between if (...) and set S_NOCMTIME. */
+		if (!(inode->i_flags & S_NOCMTIME))
+			inode->i_flags |= S_NOCMTIME;
+	}
+	return inode;
 }
 
+struct inode *osd_iget_fid(struct osd_thread_info *info, struct osd_device *dev,
+			   struct osd_inode_id *id, struct lu_fid *fid)
+{
+	struct lustre_mdt_attrs *lma   = &info->oti_mdt_attrs;
+	struct inode		*inode;
+	int			 rc;
+ 
+	inode = osd_iget(info, dev, id);
+	if (IS_ERR(inode))
+		return inode;
+
+	rc = osd_get_lma(inode, &info->oti_obj_dentry, lma);
+	if (rc == 0) {
+		*fid = lma->lma_self_fid;
+	} else if (rc == -ENODATA) {
+		LU_IGIF_BUILD(fid, inode->i_ino, inode->i_generation);
+	} else {
+		iput(inode);
+		inode = ERR_PTR(rc);
+	}
+	return inode;
+}
+ 
 static int osd_fid_lookup(const struct lu_env *env,
                           struct osd_object *obj, const struct lu_fid *fid)
 {
@@ -1734,8 +1786,7 @@ static int __osd_oi_insert(const struct lu_env *env, struct osd_object *obj,
         LASSERT(obj->oo_inode != NULL);
         LASSERT(uc != NULL);
 
-        id->oii_ino = obj->oo_inode->i_ino;
-        id->oii_gen = obj->oo_inode->i_generation;
+        osd_id_gen(id, obj->oo_inode->i_ino, obj->oo_inode->i_generation);
 
         return osd_oi_insert(info, osd_fid2oi(osd, fid), fid, id, th,
                              uc->mu_cap & CFS_CAP_SYS_RESOURCE_MASK);
@@ -1822,15 +1873,6 @@ static int osd_ea_fid_set(const struct lu_env *env, struct dt_object *dt,
 }
 
 /**
- * Helper function to form igif
- */
-static inline void osd_igif_get(const struct lu_env *env, struct inode  *inode,
-                                struct lu_fid *fid)
-{
-        LU_IGIF_BUILD(fid, inode->i_ino, inode->i_generation);
-}
-
-/**
  * Helper function to pack the fid, ldiskfs stores fid in packed format.
  */
 void osd_fid_pack(struct osd_fid_pack *pack, const struct dt_rec *fid,
@@ -1885,54 +1927,21 @@ int osd_fid_unpack(struct lu_fid *fid, const struct osd_fid_pack *pack)
  * \retval 0 on success
  */
 static int osd_ea_fid_get(const struct lu_env *env, struct osd_object *obj,
-                          __u32 ino, struct lu_fid *fid)
+			  __u32 ino, struct lu_fid *fid)
 {
-        struct osd_thread_info  *info      = osd_oti_get(env);
-        struct lustre_mdt_attrs *mdt_attrs = &info->oti_mdt_attrs;
-        struct lu_device        *ldev   = obj->oo_dt.do_lu.lo_dev;
-        struct dentry           *dentry = &info->oti_child_dentry;
-        struct osd_inode_id     *id     = &info->oti_id;
-        struct osd_device       *dev;
-        struct inode            *inode;
-        int                      rc;
-
-        ENTRY;
-        dev  = osd_dev(ldev);
+	struct osd_thread_info  *info = osd_oti_get(env);
+	struct osd_inode_id     *id = &info->oti_id;
+	struct inode		*inode;
+	ENTRY;
 
         id->oii_ino = ino;
         id->oii_gen = OSD_OII_NOGEN;
+	inode = osd_iget_fid(info, osd_obj2dev(obj), id, fid);
+	if (IS_ERR(inode))
+		RETURN(PTR_ERR(inode));
 
-        inode = osd_iget(info, dev, id);
-        if (IS_ERR(inode)) {
-                rc = PTR_ERR(inode);
-                GOTO(out,rc);
-        }
-        dentry->d_inode = inode;
-
-        LASSERT(inode->i_op != NULL && inode->i_op->getxattr != NULL);
-        rc = inode->i_op->getxattr(dentry, XATTR_NAME_LMA, (void *)mdt_attrs,
-                                   sizeof *mdt_attrs);
-
-        /* Check LMA compatibility */
-        if (rc > 0 &&
-            (mdt_attrs->lma_incompat & ~cpu_to_le32(LMA_INCOMPAT_SUPP))) {
-                CWARN("Inode %lx: Unsupported incompat LMA feature(s) %#x\n",
-                      inode->i_ino, le32_to_cpu(mdt_attrs->lma_incompat) &
-                      ~LMA_INCOMPAT_SUPP);
-                return -ENOSYS;
-        }
-
-        if (rc > 0) {
-                lustre_lma_swab(mdt_attrs);
-                memcpy(fid, &mdt_attrs->lma_self_fid, sizeof(*fid));
-                rc = 0;
-        } else if (rc == -ENODATA) {
-                osd_igif_get(env, inode, fid);
-                rc = 0;
-        }
-        iput(inode);
-out:
-        RETURN(rc);
+	iput(inode);
+	RETURN(0);
 }
 
 /**
@@ -2539,7 +2548,7 @@ static int osd_ldiskfs_writelink(struct inode *inode, char *buffer, int buflen)
         return 0;
 }
 
-static int
+int
 osd_ldiskfs_write_record(struct inode *inode, void *buf, int bufsize,
                          int write_NUL, loff_t *offs, handle_t *handle)
 {
@@ -2878,7 +2887,7 @@ static int osd_index_iam_insert(const struct lu_env *env, struct dt_object *dt,
         LASSERT(th != NULL);
 
         if (osd_object_auth(env, dt, capa, CAPA_OPC_INDEX_INSERT))
-                return -EACCES;
+		RETURN(-EACCES);
 
         ipd = osd_idx_ipd_get(env, bag);
         if (unlikely(ipd == NULL))
@@ -3103,7 +3112,7 @@ struct osd_object *osd_object_find(const struct lu_env *env,
                         else
                                 LU_OBJECT_DEBUG(D_ERROR, env, luch,
                                                 "lu_object can't be located"
-                                                ""DFID"\n", PFID(fid));
+						DFID"\n", PFID(fid));
 
                         if (child == NULL) {
                                 lu_object_put(env, luch);
@@ -3114,6 +3123,7 @@ struct osd_object *osd_object_find(const struct lu_env *env,
                         LU_OBJECT_DEBUG(D_ERROR, env, luch,
                                         "lu_object does not exists "DFID"\n",
                                         PFID(fid));
+			lu_object_put(env, luch);
                         child = ERR_PTR(-ENOENT);
                 }
         } else

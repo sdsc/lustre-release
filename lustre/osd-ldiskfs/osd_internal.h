@@ -76,7 +76,6 @@
 
 struct inode;
 
-#define OSD_OII_NOGEN (0)
 #define OSD_COUNTERS (0)
 
 /** Enable thandle usage statistics */
@@ -224,7 +223,9 @@ struct osd_thread_info {
         struct dentry          oti_it_dentry;
 
         struct lu_fid          oti_fid;
+        struct lu_fid          oti_fid2;
         struct osd_inode_id    oti_id;
+        struct osd_inode_id    oti_id2;
         /*
          * XXX temporary: for ->i_op calls.
          */
@@ -374,6 +375,9 @@ osd_fid2oi(struct osd_device *osd, const struct lu_fid *fid)
         LASSERT(osd->od_oi_table != NULL && osd->od_oi_count >= 1);
         return &osd->od_oi_table[fid->f_seq % osd->od_oi_count];
 }
+
+struct inode *osd_iget_fid(struct osd_thread_info *info, struct osd_device *dev,
+                           struct osd_inode_id *id, struct lu_fid *fid);
 
 #endif /* __KERNEL__ */
 #endif /* _OSD_INTERNAL_H */
