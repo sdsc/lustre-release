@@ -2265,7 +2265,11 @@ test_89() {
         rm -f $DIR/$tdir/$tfile
         wait_mds_ost_sync
 	wait_delete_completed
+        wait_destroy_complete
+	blksz=`$DEBUGFS -c -R "stats" "$OSTDEVBASE"1|grep 'Block size:'|cut -f2 -d:`
+	cdsz1=`$DEBUGFS -c -R "blocks CONFIGS/${FSNAME}-OST0000" "$OSTDEVBASE"1| wc -w`
         BLOCKS1=$(df -P $MOUNT | tail -n 1 | awk '{ print $3 }')
+	BLOCKS1=$((BLOCKS1 - blksz * cdsz1 / 1024))
         $SETSTRIPE -i 0 -c 1 $DIR/$tdir/$tfile
         dd if=/dev/zero bs=1M count=10 of=$DIR/$tdir/$tfile
         sync
@@ -2278,8 +2282,10 @@ test_89() {
         client_up || return 1
         wait_mds_ost_sync
 	wait_delete_completed
+	cdsz2=`$DEBUGFS -c -R "blocks CONFIGS/${FSNAME}-OST0000" "$OSTDEVBASE"1| wc -w`
         BLOCKS2=$(df -P $MOUNT | tail -n 1 | awk '{ print $3 }')
-        [ "$BLOCKS1" == "$BLOCKS2" ] || error $((BLOCKS2 - BLOCKS1)) blocks leaked
+	BLOCKS2=$((BLOCKS2 - blksz * cdsz2 / 1024))
+        [ $BLOCKS1 == $BLOCKS2 ] || error $((BLOCKS2 - BLOCKS1)) blocks leaked
 }
 
 run_test 89 "no disk space leak on late ost connection"
