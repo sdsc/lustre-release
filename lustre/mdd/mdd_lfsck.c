@@ -347,3 +347,23 @@ void mdd_lfsck_cleanup(const struct lu_env *env, struct mdd_device *mdd)
 		lfsck->ml_bookmark_obj = NULL;
 	}
 }
+
+static int mdd_lfsck_namespace_dump(struct md_lfsck *lfsck, char *buf, int len)
+{
+	/* XXX: to be replaced when lfsck_namespace is implemented in kernel. */
+	return 0;
+}
+
+int mdd_lfsck_dump(struct md_lfsck *lfsck, enum lfsck_type type,
+		   char *buf, int len)
+{
+	switch (type) {
+	case LT_NAMESPACE:
+		return mdd_lfsck_namespace_dump(lfsck, buf, len);
+
+	/* XXX: will support dump for LT_LAYOUT and LT_DNE in the future. */
+
+	default:
+		return -EINVAL;
+	}
+}

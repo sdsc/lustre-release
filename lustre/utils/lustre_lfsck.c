@@ -67,7 +67,8 @@ struct lfsck_types_names {
 	__u16   type;
 };
 
-static struct lfsck_types_names lfsck_types_names[3] = {
+static struct lfsck_types_names lfsck_types_names[] = {
+	{ "namespace",	LT_NAMESPACE},
 	{ "layout",     LT_LAYOUT },
 	{ "DNE",	LT_DNE },
 	{ 0,		0 }
@@ -189,7 +190,8 @@ int jt_lfsck_start(int argc, char **argv)
 
 				c = *p;
 				*p = 0;
-				for (i = 0; i < 3; i++) {
+				i = 0;
+				while (lfsck_types_names[i].name != NULL) {
 					if (strcmp(str,
 						   lfsck_types_names[i].name)
 						   == 0) {
@@ -197,21 +199,23 @@ int jt_lfsck_start(int argc, char **argv)
 						    lfsck_types_names[i].type;
 						break;
 					}
+					i++;
 				}
 				*p = c;
 				str = p;
 
-				if (i >= 3 ) {
+				if (lfsck_types_names[i].name == NULL ) {
 					fprintf(stderr, "Invalid LFSCK type.\n"
 						"The valid value should be "
-						"'layout' or 'DNE'.\n");
+						"'namespace', 'layout' or "
+						"'DNE'.\n");
 					return -EINVAL;
 				}
 			}
 			if (start.ls_active == 0) {
 				fprintf(stderr, "Miss LFSCK type(s).\n"
 					"The valid value should be "
-					"'layout' or 'DNE'.\n");
+					"'namespace', 'layout' or 'DNE'.\n");
 				return -EINVAL;
 			}
 			break;
@@ -251,11 +255,13 @@ int jt_lfsck_start(int argc, char **argv)
 	if (start.ls_active == 0) {
 		printf(" noop");
 	} else {
-		for (i = 0; i < 2; i++) {
+		i = 0;
+		while (lfsck_types_names[i].name != NULL) {
 			if (start.ls_active & lfsck_types_names[i].type) {
 				printf(" %s", lfsck_types_names[i].name);
 				start.ls_active &= ~lfsck_types_names[i].type;
 			}
+			i++;
 		}
 		if (start.ls_active != 0)
 			printf(" unknown(0x%x)", start.ls_active);

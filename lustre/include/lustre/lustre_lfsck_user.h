@@ -45,11 +45,14 @@ enum lfsck_param_flags {
 };
 
 enum lfsck_type {
+	/* For FID-in-dirent and linkEA consistency check/repair. */
+	LT_NAMESPACE	= 0x0001,
+
 	/* For MDT-OST consistency check/repair. */
-	LT_LAYOUT	= 0x0001,
+	LT_LAYOUT	= 0x0002,
 
 	/* For MDT-MDT consistency check/repair. */
-	LT_DNE  	= 0x0002,
+	LT_DNE  	= 0x0004,
 };
 
 #define LFSCK_VERSION_V1	1

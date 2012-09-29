@@ -303,6 +303,16 @@ static int lprocfs_wr_lfsck_speed_limit(struct file *file, const char *buffer,
 	return count;
 }
 
+static int lprocfs_rd_lfsck_namespace(char *page, char **start, off_t off,
+				      int count, int *eof, void *data)
+{
+	struct mdd_device *mdd = data;
+
+	LASSERT(mdd != NULL);
+	*eof = 1;
+	return mdd_lfsck_dump(&mdd->mdd_lfsck, LT_NAMESPACE, page, count);
+}
+
 static struct lprocfs_vars lprocfs_mdd_obd_vars[] = {
         { "atime_diff",      lprocfs_rd_atime_diff, lprocfs_wr_atime_diff, 0 },
         { "changelog_mask",  lprocfs_rd_changelog_mask,
@@ -311,6 +321,7 @@ static struct lprocfs_vars lprocfs_mdd_obd_vars[] = {
         { "sync_permission", lprocfs_rd_sync_perm, lprocfs_wr_sync_perm, 0 },
 	{ "lfsck_speed_limit", lprocfs_rd_lfsck_speed_limit,
 			       lprocfs_wr_lfsck_speed_limit, 0 },
+	{ "lfsck_namespace", lprocfs_rd_lfsck_namespace, 0, 0 },
 	{ 0 }
 };
 

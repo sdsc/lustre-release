@@ -430,6 +430,8 @@ int mdd_lfsck_start(const struct lu_env *env, struct md_lfsck *lfsck,
 int mdd_lfsck_stop(const struct lu_env *env, struct md_lfsck *lfsck);
 int mdd_lfsck_setup(const struct lu_env *env, struct mdd_device *mdd);
 void mdd_lfsck_cleanup(const struct lu_env *env, struct mdd_device *mdd);
+int mdd_lfsck_dump(struct md_lfsck *lfsck, enum lfsck_type type,
+		   char *buf, int len);
 
 /* mdd_device.c */
 struct lu_object *mdd_object_alloc(const struct lu_env *env,
