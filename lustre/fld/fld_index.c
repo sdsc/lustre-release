@@ -72,7 +72,7 @@ static const struct lu_seq_range IGIF_FLD_RANGE = {
 };
 
 const struct dt_index_features fld_index_features = {
-        .dif_flags       = DT_IND_UPDATE,
+	.dif_flags	 = DT_IND_UPDATE | DT_IND_RANGE,
         .dif_keysize_min = sizeof(seqno_t),
         .dif_keysize_max = sizeof(seqno_t),
         .dif_recsize_min = sizeof(struct lu_seq_range),
@@ -109,52 +109,23 @@ static struct dt_rec *fld_rec(const struct lu_env *env,
         RETURN((void *)rec);
 }
 
-struct thandle *fld_trans_create(struct lu_server_fld *fld,
-                                const struct lu_env *env)
-{
-        struct dt_device *dt_dev;
-
-        dt_dev = lu2dt_dev(fld->lsf_obj->do_lu.lo_dev);
-
-        return dt_dev->dd_ops->dt_trans_create(env, dt_dev);
-}
-
-int fld_trans_start(struct lu_server_fld *fld,
-                                const struct lu_env *env, struct thandle *th)
-{
-        struct dt_device *dt_dev;
-
-        dt_dev = lu2dt_dev(fld->lsf_obj->do_lu.lo_dev);
-
-        return dt_dev->dd_ops->dt_trans_start(env, dt_dev, th);
-}
-
-void fld_trans_stop(struct lu_server_fld *fld,
-                    const struct lu_env *env, struct thandle* th)
-{
-        struct dt_device *dt_dev;
-
-        dt_dev = lu2dt_dev(fld->lsf_obj->do_lu.lo_dev);
-        dt_dev->dd_ops->dt_trans_stop(env, th);
-}
-
 int fld_declare_index_create(struct lu_server_fld *fld,
                              const struct lu_env *env,
                              const struct lu_seq_range *range,
                              struct thandle *th)
 {
-        struct dt_object *dt_obj = fld->lsf_obj;
-        seqno_t start;
         int rc;
-
         ENTRY;
 
-        start = range->lsr_start;
         LASSERT(range_is_sane(range));
 
-        rc = dt_obj->do_index_ops->dio_declare_insert(env, dt_obj,
-                                                      fld_rec(env, range),
-                                                      fld_key(env, start), th);
+	if (fld->lsf_no_range_lookup) {
+		/* Stub for underlying FS which can't lookup ranges */
+		return 0;
+	}
+
+	rc = dt_declare_insert(env, fld->lsf_obj, fld_rec(env, range),
+			       fld_key(env, range->lsr_start), th);
         RETURN(rc);
 }
 
@@ -174,20 +145,24 @@ int fld_index_create(struct lu_server_fld *fld,
                      const struct lu_seq_range *range,
                      struct thandle *th)
 {
-        struct dt_object *dt_obj = fld->lsf_obj;
-        seqno_t start;
         int rc;
-
         ENTRY;
 
-        start = range->lsr_start;
         LASSERT(range_is_sane(range));
 
-        rc = dt_obj->do_index_ops->dio_insert(env, dt_obj,
-                                              fld_rec(env, range),
-                                              fld_key(env, start),
-                                              th, BYPASS_CAPA, 1);
+	if (fld->lsf_no_range_lookup) {
+		/* Stub for underlying FS which can't lookup ranges */
+		if (range->lsr_index != 0) {
+			CERROR("%s: FLD backend does not support range"
+			       "lookups, so DNE and FIDs-on-OST are not"
+			       "supported in this configuration\n",
+			       fld->lsf_name);
+			return -EINVAL;
+		}
+	}
 
+	rc = dt_insert(env, fld->lsf_obj, fld_rec(env, range),
+		       fld_key(env, range->lsr_start), th, BYPASS_CAPA, 1);
         CDEBUG(D_INFO, "%s: insert given range : "DRANGE" rc = %d\n",
                fld->lsf_name, PRANGE(range), rc);
         RETURN(rc);
@@ -208,14 +183,14 @@ int fld_index_delete(struct lu_server_fld *fld,
                      struct lu_seq_range *range,
                      struct thandle   *th)
 {
-        struct dt_object *dt_obj = fld->lsf_obj;
-        seqno_t seq = range->lsr_start;
         int rc;
 
         ENTRY;
 
-        rc = dt_obj->do_index_ops->dio_delete(env, dt_obj, fld_key(env, seq),
-                                              th, BYPASS_CAPA);
+	LASSERT(fld->lsf_no_range_lookup == 0);
+
+	rc = dt_delete(env, fld->lsf_obj, fld_key(env, range->lsr_start), th,
+		       BYPASS_CAPA);
 
         CDEBUG(D_INFO, "%s: delete given range : "DRANGE" rc = %d\n",
                fld->lsf_name, PRANGE(range), rc);
@@ -251,9 +226,18 @@ int fld_index_lookup(struct lu_server_fld *fld,
         info = lu_context_key_get(&env->le_ctx, &fld_thread_key);
         fld_rec = &info->fti_rec;
 
-        rc = dt_obj->do_index_ops->dio_lookup(env, dt_obj,
-                                              (struct dt_rec*) fld_rec,
-                                              key, BYPASS_CAPA);
+	if (fld->lsf_no_range_lookup) {
+		/* Stub for underlying FS which can't lookup ranges */
+		range->lsr_start = 0;
+		range->lsr_end = ~0;
+		range->lsr_index = 0;
+		range->lsr_flags = LU_SEQ_RANGE_MDT;
+
+		range_cpu_to_be(range, range);
+		return 0;
+	}
+
+	rc = dt_lookup(env, dt_obj, (struct dt_rec*) fld_rec, key, BYPASS_CAPA);
 
         if (rc >= 0) {
                 range_be_to_cpu(fld_rec, fld_rec);
@@ -273,29 +257,29 @@ int fld_index_lookup(struct lu_server_fld *fld,
 static int fld_insert_igif_fld(struct lu_server_fld *fld,
                                const struct lu_env *env)
 {
+	struct dt_device *dev;
         struct thandle *th;
         int rc;
         ENTRY;
 
-        /* FLD_TXN_INDEX_INSERT_CREDITS */
-        th = fld_trans_create(fld, env);
+	dev = lu2dt_dev(fld->lsf_obj->do_lu.lo_dev);
+
+	th = dt_trans_create(env, dev);
         if (IS_ERR(th))
                 RETURN(PTR_ERR(th));
         rc = fld_declare_index_create(fld, env, &IGIF_FLD_RANGE, th);
-        if (rc) {
-                fld_trans_stop(fld, env, th);
-                RETURN(rc);
-        }
-        rc = fld_trans_start(fld, env, th);
-        if (rc) {
-                fld_trans_stop(fld, env, th);
-                RETURN(rc);
-        }
+	if (rc)
+		GOTO(out, rc);
+
+	rc = dt_trans_start_local(env, dev, th);
+	if (rc)
+		GOTO(out, rc);
 
         rc = fld_index_create(fld, env, &IGIF_FLD_RANGE, th);
-        fld_trans_stop(fld, env, th);
         if (rc == -EEXIST)
                 rc = 0;
+out:
+	dt_trans_stop(env, dev, th);
         RETURN(rc);
 }
 
@@ -322,11 +306,21 @@ int fld_index_init(struct lu_server_fld *fld,
                                 lu_object_put(env, &dt_obj->do_lu);
                                 fld->lsf_obj = NULL;
                         }
-                } else
-                        CERROR("%s: File \"%s\" is not an index!\n",
-                               fld->lsf_name, fld_index_name);
+		} else if (rc == -ERANGE) {
+			CWARN("%s: File \"%s\" doesn't support range lookup, "
+			      "using stub. DNE and FIDs on OST will not work "
+			      "with this backend\n",
+			      fld->lsf_name, fld_index_name);
 
-
+			LASSERT(dt_obj->do_index_ops == NULL);
+			fld->lsf_no_range_lookup = 1;
+			rc = 0;
+		} else {
+			CERROR("%s: File \"%s\" is not index, rc %d!\n",
+			       fld->lsf_name, fld_index_name, rc);
+			lu_object_put(env, &fld->lsf_obj->do_lu);
+			fld->lsf_obj = NULL;
+		}
         } else {
                 CERROR("%s: Can't find \"%s\" obj %d\n",
                        fld->lsf_name, fld_index_name, (int)PTR_ERR(dt_obj));

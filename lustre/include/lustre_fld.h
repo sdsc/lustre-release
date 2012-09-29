@@ -97,6 +97,11 @@ struct lu_server_fld {
         /**
          * Fld service name in form "fld-srv-lustre-MDTXXX" */
         char                     lsf_name[80];
+
+	/**
+	 * Underlying storage does not support range lookups
+	 * if set, FLD is running in a single MDS mode */
+	int			 lsf_no_range_lookup;
 };
 
 struct lu_client_fld {

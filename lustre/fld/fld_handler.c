@@ -117,16 +117,20 @@ int fld_declare_server_create(struct lu_server_fld *fld,
 
         ENTRY;
 
+	if (fld->lsf_no_range_lookup) {
+		/* Stub for underlying FS which can't lookup ranges */
+		return 0;
+	}
+
         /* for ldiskfs OSD it's enough to declare operation with any ops
          * with DMU we'll probably need to specify exact key/value */
-        rc = dt_obj->do_index_ops->dio_declare_delete(env, dt_obj, NULL, th);
+	rc = dt_declare_delete(env, dt_obj, NULL, th);
         if (rc)
                 GOTO(out, rc);
-        rc = dt_obj->do_index_ops->dio_declare_delete(env, dt_obj, NULL, th);
+	rc = dt_declare_delete(env, dt_obj, NULL, th);
         if (rc)
                 GOTO(out, rc);
-        rc = dt_obj->do_index_ops->dio_declare_insert(env, dt_obj,
-                                                      NULL, NULL, th);
+	rc = dt_declare_insert(env, dt_obj, NULL, NULL, th);
 out:
         RETURN(rc);
 }
