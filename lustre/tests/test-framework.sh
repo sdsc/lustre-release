@@ -249,6 +249,11 @@ init_test_env() {
 
     export SHUTDOWN_ATTEMPTS=${SHUTDOWN_ATTEMPTS:-3}
 
+    if [ "$FSTYPE" == "zfs" -o "$OSTFSYPTE" == "ZFS" ]; then
+	# obdfilter does not work with OSD API, so with ZFS
+	USE_OFD=yes
+    fi
+
     # command line
 
     while getopts "rvwf:" opt $*; do
@@ -454,6 +459,7 @@ load_modules_local() {
         grep -q -w jbd2 $SYMLIST || { modprobe jbd2 2>/dev/null || true; }
 		[ "$LQUOTA" != "no" ] && load_module quota/lquota $LQUOTAOPTS
 		if [[ $(node_fstypes $HOSTNAME) == *zfs* ]]; then
+			modprobe zfs
 			load_module osd-zfs/osd_zfs
 		fi
 		load_module mgs/mgs
