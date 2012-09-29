@@ -4860,6 +4860,8 @@ static int mdt_obd_llog_setup(struct obd_device *obd,
 {
         int     rc;
 
+	return 0;
+
         LASSERT(obd->obd_fsops == NULL);
 
 	obd->obd_fsops = fsfilt_get_ops(lsi->lsi_fstype);
@@ -4890,6 +4892,8 @@ static int mdt_obd_llog_setup(struct obd_device *obd,
 static void mdt_obd_llog_cleanup(struct obd_device *obd)
 {
         struct llog_ctxt *ctxt;
+
+	return;
 
         ctxt = llog_get_context(obd, LLOG_CONFIG_ORIG_CTXT);
         if (ctxt)
