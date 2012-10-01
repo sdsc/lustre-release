@@ -44,7 +44,7 @@ prepare_and_build_srpm() {
     pushd $TOPDIR >/dev/null
 
     # create the buildid
-    local buildid="_lustre${EXTRA_VERSION##*_lustre}"
+    local buildid="_lustre_debug"
 
     # edit the SPEC with our changes
     patch_spec
