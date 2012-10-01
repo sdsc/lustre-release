@@ -3409,6 +3409,7 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
         bh = osd_ldiskfs_find_entry(dir, dentry, &de, hlock);
         if (bh) {
 		struct osd_thread_info *oti = osd_oti_get(env);
+		struct osd_inode_id *id = &oti->oti_id;
 		struct osd_idmap_cache *oic = &oti->oti_cache;
 		struct osd_device *dev = osd_obj2dev(obj);
 		struct osd_scrub *scrub = &dev->od_scrub;
@@ -3420,14 +3421,15 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
 		/* done with de, release bh */
 		brelse(bh);
 		if (rc != 0)
-			rc = osd_ea_fid_get(env, obj, ino, fid, &oic->oic_lid);
+			rc = osd_ea_fid_get(env, obj, ino, fid, id);
 		else
-			osd_id_gen(&oic->oic_lid, ino, OSD_OII_NOGEN);
+			osd_id_gen(id, ino, OSD_OII_NOGEN);
 		if (rc != 0 || !fid_is_norm(fid)) {
 			fid_zero(&oic->oic_fid);
 			GOTO(out, rc);
 		}
 
+		oic->oic_lid = *id;
 		oic->oic_fid = *fid;
 		if ((scrub->os_pos_current <= ino) &&
 		    (sf->sf_flags & SF_INCONSISTENT ||
@@ -4121,6 +4123,7 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 	struct osd_scrub       *scrub = &dev->od_scrub;
 	struct scrub_file      *sf    = &scrub->os_file;
 	struct osd_thread_info *oti   = osd_oti_get(env);
+	struct osd_inode_id    *id    = &oti->oti_id;
 	struct osd_idmap_cache *oic   = &oti->oti_cache;
 	struct lu_fid	       *fid   = &it->oie_dirent->oied_fid;
 	struct lu_dirent       *lde   = (struct lu_dirent *)dtrec;
@@ -4129,11 +4132,11 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 	ENTRY;
 
 	if (!fid_is_sane(fid)) {
-		rc = osd_ea_fid_get(env, obj, ino, fid, &oic->oic_lid);
+		rc = osd_ea_fid_get(env, obj, ino, fid, id);
 		if (rc != 0)
 			RETURN(rc);
 	} else {
-		osd_id_gen(&oic->oic_lid, ino, OSD_OII_NOGEN);
+		osd_id_gen(id, ino, OSD_OII_NOGEN);
 	}
 
 	osd_it_pack_dirent(lde, fid, it->oie_dirent->oied_off,
@@ -4145,6 +4148,7 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 		RETURN(0);
 	}
 
+	oic->oic_lid = *id;
 	oic->oic_fid = *fid;
 	if ((scrub->os_pos_current <= ino) &&
 	    (sf->sf_flags & SF_INCONSISTENT ||

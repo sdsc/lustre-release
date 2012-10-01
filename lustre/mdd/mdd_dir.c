@@ -890,16 +890,15 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
         if (rc)
                 GOTO(out_unlock, rc);
 
-        rc = __mdd_index_insert_only(env, mdd_tobj, mdo2fid(mdd_sobj),
-                                     name, handle,
-                                     mdd_object_capa(env, mdd_tobj));
+	rc = mdo_ref_add(env, mdd_sobj, handle);
         if (rc)
                 GOTO(out_unlock, rc);
 
-	rc = mdo_ref_add(env, mdd_sobj, handle);
+        rc = __mdd_index_insert_only(env, mdd_tobj, mdo2fid(mdd_sobj),
+                                     name, handle,
+                                     mdd_object_capa(env, mdd_tobj));
 	if (rc != 0) {
-		__mdd_index_delete_only(env, mdd_tobj, name, handle,
-					mdd_object_capa(env, mdd_tobj));
+		mdo_ref_del(env, mdd_sobj, handle);
                 GOTO(out_unlock, rc);
 	}
 
@@ -1074,6 +1073,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
         struct mdd_device *mdd = mdo2mdd(pobj);
         struct dynlock_handle *dlh;
         struct thandle    *handle;
+	struct lu_attr *la_tmp = &mdd_env_info(env)->mti_la;
 #ifdef HAVE_QUOTA_SUPPORT
         struct obd_device *obd = mdd->mdd_obd_dev;
         struct mds_obd *mds = &obd->u.mds;
@@ -1115,6 +1115,17 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
         if (rc)
                 GOTO(cleanup, rc);
 
+	rc = mdd_la_get(env, mdd_cobj, la_tmp, BYPASS_CAPA);
+	if (rc == 0) {
+		if (la_tmp->la_nlink == 0) {
+			CERROR("FID "DFID" nlink is 0, valid "LPU64" mode %u"
+			       "name %s flags %x mod_flag %lx\n",
+			       PFID(mdo2fid(mdd_cobj)), la_tmp->la_valid,
+				la_tmp->la_mode, name, la_tmp->la_flags,
+				mdd_cobj->mod_flags);
+			LBUG();
+		}
+	}
 	rc = mdo_ref_del(env, mdd_cobj, handle);
 	if (rc != 0) {
 		__mdd_index_insert_only(env, mdd_pobj, mdo2fid(mdd_cobj),
