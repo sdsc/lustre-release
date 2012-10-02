@@ -215,7 +215,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                                   OBD_CONNECT_RMT_CLIENT | OBD_CONNECT_VBR    |
                                   OBD_CONNECT_FULL20   | OBD_CONNECT_64BITHASH|
 				  OBD_CONNECT_EINPROGRESS |
-				  OBD_CONNECT_JOBSTATS;
+				  OBD_CONNECT_JOBSTATS | OBD_CONNECT_LAYOUTLOCK;
 
         if (sbi->ll_flags & LL_SBI_SOM_PREVIEW)
                 data->ocd_connect_flags |= OBD_CONNECT_SOM;
@@ -1471,6 +1471,8 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
 	 * resides on the MDS, ie, this file has no objects. */
 	if (lsm != NULL)
 		attr->ia_valid &= ~ATTR_SIZE;
+	/* can't call ll_setattr_ost() while holding a refcount of lsm */
+	ccc_inode_lsm_put(inode, lsm);
 
         memcpy(&op_data->op_attr, attr, sizeof(*attr));
 
@@ -1484,10 +1486,8 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
                 GOTO(out, rc);
 
         ll_ioepoch_open(lli, op_data->op_ioepoch);
-	if (lsm == NULL || !S_ISREG(inode->i_mode)) {
-                CDEBUG(D_INODE, "no lsm: not setting attrs on OST\n");
+	if (!S_ISREG(inode->i_mode))
                 GOTO(out, rc = 0);
-        }
 
         if (ia_valid & ATTR_SIZE)
                 attr->ia_valid |= ATTR_SIZE;
@@ -1503,7 +1503,6 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
                 rc = ll_setattr_ost(inode, attr);
         EXIT;
 out:
-	ccc_inode_lsm_put(inode, lsm);
         if (op_data) {
                 if (op_data->op_ioepoch) {
                         rc1 = ll_setattr_done_writing(inode, op_data, mod);

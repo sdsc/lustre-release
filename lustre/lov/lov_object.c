@@ -233,6 +233,7 @@ static int lov_delete_empty(const struct lu_env *env, struct lov_object *lov,
 			    union lov_layout_state *state)
 {
 	LASSERT(lov->lo_type == LLT_EMPTY);
+	cl_object_prune(env, &lov->lo_cl);
 	return 0;
 }
 
@@ -300,12 +301,14 @@ static int lov_delete_raid0(const struct lu_env *env, struct lov_object *lov,
                 for (i = 0; i < r0->lo_nr; ++i) {
                         struct lovsub_object *los = r0->lo_sub[i];
 
-                        if (los != NULL)
+                        if (los != NULL) {
+				cl_locks_prune(env, &los->lso_cl, 1);
                                 /*
                                  * If top-level object is to be evicted from
                                  * the cache, so are its sub-objects.
                                  */
                                 lov_subobject_kill(env, lov, los, i);
+			}
                 }
         }
 	RETURN(0);
@@ -433,7 +436,7 @@ const static struct lov_layout_operations lov_dispatch[] = {
                 .llo_install   = lov_install_empty,
                 .llo_print     = lov_print_empty,
                 .llo_page_init = lov_page_init_empty,
-                .llo_lock_init = NULL,
+                .llo_lock_init = lov_lock_init_empty,
                 .llo_io_init   = lov_io_init_empty,
                 .llo_getattr   = lov_attr_get_empty
         },
@@ -517,11 +520,12 @@ static int lov_layout_wait(const struct lu_env *env, struct lov_object *lov)
 	if (!lov->lo_lsm_invalid || lsm == NULL)
 		RETURN(0);
 
+	LASSERT(cfs_atomic_read(&lsm->lsm_refc) > 0);
 	l_wait_event(lov->lo_waitq, cfs_atomic_read(&lsm->lsm_refc) == 1, &lwi);
 	RETURN(0);
 }
 
-static int lov_layout_change(const struct lu_env *env,
+static int lov_layout_change(const struct lu_env *unused,
                              struct lov_object *lov, enum lov_layout_type llt,
                              const struct cl_object_conf *conf)
 {
@@ -532,7 +536,7 @@ static int lov_layout_change(const struct lu_env *env,
 
 	struct cl_object_header *hdr = cl_object_header(&lov->lo_cl);
 	void *cookie;
-	struct lu_env *nested;
+	struct lu_env *env;
 	int refcheck;
 
 	LASSERT(0 <= lov->lo_type && lov->lo_type < ARRAY_SIZE(lov_dispatch));
@@ -540,13 +544,9 @@ static int lov_layout_change(const struct lu_env *env,
 	ENTRY;
 
 	cookie = cl_env_reenter();
-	nested = cl_env_get(&refcheck);
-	if (!IS_ERR(nested))
-		cl_object_prune(nested, &lov->lo_cl);
-	else
-		result = PTR_ERR(nested);
-	cl_env_put(nested, &refcheck);
-	cl_env_reexit(cookie);
+	env = cl_env_get(&refcheck);
+	if (IS_ERR(env))
+		RETURN(PTR_ERR(env));
 
 	old_ops = &lov_dispatch[lov->lo_type];
 	new_ops = &lov_dispatch[llt];
@@ -571,6 +571,9 @@ static int lov_layout_change(const struct lu_env *env,
 			/* this file becomes an EMPTY file. */
 		}
 	}
+
+	cl_env_put(env, &refcheck);
+	cl_env_reexit(cookie);
 	RETURN(result);
 }
 
@@ -606,7 +609,7 @@ int lov_object_init(const struct lu_env *env, struct lu_object *obj,
 static int lov_conf_set(const struct lu_env *env, struct cl_object *obj,
                         const struct cl_object_conf *conf)
 {
-	struct lov_stripe_md *lsm = conf->u.coc_md->lsm;
+	struct lov_stripe_md *lsm = NULL;
 	struct lov_object *lov = cl2lov(obj);
 	int result = 0;
 	ENTRY;
@@ -632,6 +635,8 @@ static int lov_conf_set(const struct lu_env *env, struct cl_object *obj,
 		/* fall through to set up new layout */
 	}
 
+	if (conf->u.coc_md != NULL)
+		lsm = conf->u.coc_md->lsm;
 	switch (lov->lo_type) {
 	case LLT_EMPTY:
 		if (lsm != NULL)
@@ -695,15 +700,8 @@ struct cl_page *lov_page_init(const struct lu_env *env, struct cl_object *obj,
 int lov_io_init(const struct lu_env *env, struct cl_object *obj,
 		struct cl_io *io)
 {
-	struct lov_io *lio = lov_env_io(env);
-
 	CL_IO_SLICE_CLEAN(lov_env_io(env), lis_cl);
-
-	/* hold lsm before initializing because io relies on it */
-	lio->lis_lsm = lov_lsm_addref(cl2lov(obj));
-
-	/* No need to lock because we've taken one refcount of layout.  */
-	return LOV_2DISPATCH_NOLOCK(cl2lov(obj), llo_io_init, env, obj, io);
+	return LOV_2DISPATCH(cl2lov(obj), llo_io_init, env, obj, io);
 }
 
 /**
@@ -784,10 +782,11 @@ struct lov_stripe_md *lov_lsm_addref(struct lov_object *lov)
 	struct lov_stripe_md *lsm = NULL;
 
 	lov_conf_freeze(lov);
-	if (!lov->lo_lsm_invalid && lov->lo_lsm != NULL) {
+	if (lov->lo_lsm != NULL) {
 		lsm = lsm_addref(lov->lo_lsm);
-		CDEBUG(D_INODE, "lsm %p addref %d by %p.\n",
-			lsm, cfs_atomic_read(&lsm->lsm_refc), cfs_current());
+		CDEBUG(D_INODE, "lsm %p addref %d/%d by %p.\n",
+			lsm, cfs_atomic_read(&lsm->lsm_refc),
+			lov->lo_lsm_invalid, cfs_current());
 	}
 	lov_conf_thaw(lov);
 	return lsm;
