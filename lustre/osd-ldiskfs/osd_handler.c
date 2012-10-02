@@ -3226,6 +3226,32 @@ static int osd_index_iam_insert(const struct lu_env *env, struct dt_object *dt,
         RETURN(rc);
 }
 
+static int osd_remote_fid(const struct lu_env *env, struct osd_device *osd,
+			  struct lu_fid *fid)
+{
+	struct lu_seq_range	*range = &osd_oti_get(env)->oti_seq_range;
+	struct seq_server_site	*ss = osd_seq_site(osd);
+	int			rc;
+	ENTRY;
+
+	if (!fid_is_norm(fid))
+		RETURN(0);
+
+	rc = osd_fld_lookup(env, osd, fid, range);
+	if (rc != 0) {
+		CERROR("%s: Can not lookup fld for "DFID"\n",
+		       osd_name(osd), PFID(fid));
+		RETURN(rc);
+	}
+
+	/* Only check remote for MDT object */
+	if ((range->lsr_flags == LU_SEQ_RANGE_MDT) ||
+	    (ss->ss_node_id == range->lsr_index))
+		RETURN(0);
+
+	RETURN(1);
+}
+
 /**
  * Calls ldiskfs_add_entry() to add directory entry
  * into the directory. This is required for
@@ -3465,6 +3491,7 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
         bh = osd_ldiskfs_find_entry(dir, dentry, &de, hlock);
         if (bh) {
 		struct osd_thread_info *oti = osd_oti_get(env);
+		struct osd_inode_id *id = &oti->oti_id;
 		struct osd_idmap_cache *oic = &oti->oti_cache;
 		struct osd_device *dev = osd_obj2dev(obj);
 		struct osd_scrub *scrub = &dev->od_scrub;
@@ -3476,14 +3503,15 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
 		/* done with de, release bh */
 		brelse(bh);
 		if (rc != 0)
-			rc = osd_ea_fid_get(env, obj, ino, fid, &oic->oic_lid);
+			rc = osd_ea_fid_get(env, obj, ino, fid, id);
 		else
-			osd_id_gen(&oic->oic_lid, ino, OSD_OII_NOGEN);
-		if (rc != 0) {
+			osd_id_gen(id, ino, OSD_OII_NOGEN);
+		if (rc != 0 || osd_remote_fid(env, dev, fid)) {
 			fid_zero(&oic->oic_fid);
 			GOTO(out, rc);
 		}
 
+		oic->oic_lid = *id;
 		oic->oic_fid = *fid;
 		if ((scrub->os_pos_current <= ino) &&
 		    (sf->sf_flags & SF_INCONSISTENT ||
@@ -4214,6 +4242,7 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 	struct osd_scrub       *scrub = &dev->od_scrub;
 	struct scrub_file      *sf    = &scrub->os_file;
 	struct osd_thread_info *oti   = osd_oti_get(env);
+	struct osd_inode_id    *id    = &oti->oti_id;
 	struct osd_idmap_cache *oic   = &oti->oti_cache;
 	struct lu_fid	       *fid   = &it->oie_dirent->oied_fid;
 	struct lu_dirent       *lde   = (struct lu_dirent *)dtrec;
@@ -4222,19 +4251,24 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 	ENTRY;
 
 	if (!fid_is_sane(fid)) {
-		rc = osd_ea_fid_get(env, obj, ino, fid, &oic->oic_lid);
+		rc = osd_ea_fid_get(env, obj, ino, fid, id);
 		if (rc != 0) {
 			fid_zero(&oic->oic_fid);
 			RETURN(rc);
 		}
 	} else {
-		osd_id_gen(&oic->oic_lid, ino, OSD_OII_NOGEN);
+		osd_id_gen(id, ino, OSD_OII_NOGEN);
 	}
 
 	osd_it_pack_dirent(lde, fid, it->oie_dirent->oied_off,
 			   it->oie_dirent->oied_name,
 			   it->oie_dirent->oied_namelen,
 			   it->oie_dirent->oied_type, attr);
+
+	if (osd_remote_fid(env, dev, fid))
+		RETURN(0);
+
+	oic->oic_lid = *id;
 	oic->oic_fid = *fid;
 	if ((scrub->os_pos_current <= ino) &&
 	    (sf->sf_flags & SF_INCONSISTENT ||
