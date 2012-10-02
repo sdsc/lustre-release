@@ -671,6 +671,7 @@ static int mgs_modify(const struct lu_env *env, struct mgs_device *mgs,
         struct llog_ctxt *ctxt;
         struct mgs_modify_lookup *mml;
 	int rc;
+	int cplen = 0;
 
         ENTRY;
 
@@ -697,8 +698,14 @@ static int mgs_modify(const struct lu_env *env, struct mgs_device *mgs,
         OBD_ALLOC_PTR(mml);
         if (!mml)
                 GOTO(out_close, rc = -ENOMEM);
-        strcpy(mml->mml_marker.cm_comment, comment);
-        strcpy(mml->mml_marker.cm_tgtname, devname);
+	cplen = strlcpy(mml->mml_marker.cm_comment, comment,
+			sizeof(mml->mml_marker.cm_comment));
+	if (cplen >= sizeof(mml->mml_marker.cm_comment))
+		GOTO(out_close, rc = -E2BIG);
+	cplen = strlcpy(mml->mml_marker.cm_tgtname, devname,
+			sizeof(mml->mml_marker.cm_tgtname));
+	if (cplen >= sizeof(mml->mml_marker.cm_tgtname))
+		GOTO(out_close, rc = -E2BIG);
         /* Modify mostly means cancel */
         mml->mml_marker.cm_flags = flags;
         mml->mml_marker.cm_canceltime = flags ? cfs_time_current_sec() : 0;
