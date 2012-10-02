@@ -437,13 +437,14 @@ static struct ptlrpc_request *mdc_intent_getattr_pack(struct obd_export *exp,
         RETURN(req);
 }
 
-static struct ptlrpc_request *ldlm_enqueue_pack(struct obd_export *exp)
+static struct ptlrpc_request *ldlm_enqueue_pack(struct obd_export *exp,
+						int lvb_size)
 {
         struct ptlrpc_request *req;
         int rc;
         ENTRY;
 
-        req = ptlrpc_request_alloc(class_exp2cliimp(exp), &RQF_LDLM_ENQUEUE);
+        req = ptlrpc_request_alloc(class_exp2cliimp(exp), &RQF_LDLM_ENQUEUE_LVB);
         if (req == NULL)
                 RETURN(ERR_PTR(-ENOMEM));
 
@@ -453,6 +454,7 @@ static struct ptlrpc_request *ldlm_enqueue_pack(struct obd_export *exp)
                 RETURN(ERR_PTR(rc));
         }
 
+	req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER, lvb_size);
         ptlrpc_request_set_replen(req);
         RETURN(req);
 }
@@ -493,6 +495,12 @@ static int mdc_finish_enqueue(struct obd_export *exp,
                         ldlm_lock_decref(lockh, einfo->ei_mode);
                         einfo->ei_mode = lock->l_req_mode;
                 }
+
+		if (lock->l_resource->lr_type == LDLM_IBITS &&
+		    lock->l_policy_data.l_inodebits.bits & MDS_INODELOCK_LAYOUT)
+			LDLM_DEBUG(lock, "intent lock returned: %s\n",
+				   ldlm_it2str(it->it_op));
+
 		LDLM_LOCK_PUT(lock);
 	}
 
@@ -548,7 +556,7 @@ static int mdc_finish_enqueue(struct obd_export *exp,
                 if ((body->valid & (OBD_MD_FLDIREA | OBD_MD_FLEASIZE)) != 0) {
                         void *eadata;
 
-                         mdc_update_max_ea_from_body(exp, body);
+			mdc_update_max_ea_from_body(exp, body);
 
                         /*
                          * The eadata is opaque; just check that it is there.
@@ -633,8 +641,8 @@ static int mdc_finish_enqueue(struct obd_export *exp,
 				void *lvb;
 				void *lmm;
 
-				lvb = req_capsule_server_get(pill,
-							     &RMF_DLM_LVB);
+				lvb = req_capsule_server_sized_get(pill,
+							&RMF_DLM_LVB, lvb_len);
 				if (lvb == NULL) {
 					LDLM_LOCK_PUT(lock);
 					RETURN(-EPROTO);
@@ -721,12 +729,12 @@ resend:
                 req = mdc_intent_unlink_pack(exp, it, op_data);
 	else if (it->it_op & (IT_GETATTR | IT_LOOKUP))
 		req = mdc_intent_getattr_pack(exp, it, op_data);
-	else if (it->it_op & (IT_READDIR | IT_LAYOUT))
-		req = ldlm_enqueue_pack(exp);
-	else {
+	else if (it->it_op & IT_READDIR)
+		req = ldlm_enqueue_pack(exp, 0);
+	else if (it->it_op & IT_LAYOUT)
+		req = ldlm_enqueue_pack(exp, obddev->u.cli.cl_max_mds_easize);
+	else
                 LBUG();
-                RETURN(-EINVAL);
-        }
 
         if (IS_ERR(req))
                 RETURN(PTR_ERR(req));
@@ -1011,7 +1019,7 @@ int mdc_intent_lock(struct obd_export *exp, struct md_op_data *op_data,
 
         lockh.cookie = 0;
         if (fid_is_sane(&op_data->op_fid2) &&
-            (it->it_op & (IT_LOOKUP | IT_GETATTR | IT_LAYOUT))) {
+            (it->it_op & (IT_LOOKUP | IT_GETATTR))) {
                 /* We could just return 1 immediately, but since we should only
                  * be called in revalidate_it if we already have a lock, let's
                  * verify that. */
