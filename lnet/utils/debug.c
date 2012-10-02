@@ -600,11 +600,12 @@ int jt_dbg_debug_kernel(int argc, char **argv)
         /* If we are dumping raw (which means no conversion step to ASCII)
          * then dump directly to any supplied filename, otherwise this is
          * just a temp file and we dump to the real file at convert time. */
-        if (argc > 1 && raw)
-                strcpy(filename, argv[1]);
-        else
-                sprintf(filename, "%s"CFS_TIME_T".%u",
-			LIBCFS_DEBUG_FILE_PATH_DEFAULT, time(NULL), getpid());
+	if (argc > 1 && raw) {
+		strncpy(filename, argv[1], sizeof(filename) - 1);
+		filename[sizeof(filename) - 1] = '\0';
+	} else
+		snprintf(filename, sizeof(filename), "%s"CFS_TIME_T".%u",
+			 LIBCFS_DEBUG_FILE_PATH_DEFAULT, time(NULL), getpid());
 
         if (stat(filename, &st) == 0 && S_ISREG(st.st_mode))
                 unlink(filename);
