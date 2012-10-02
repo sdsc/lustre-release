@@ -441,6 +441,7 @@ int main(int argc, char **argv)
         int c;
         char command[COMM_LEN] = "";
         char llstat_file[100] = "";
+	int cplen = 0;
 
         /* Checking for root*/
         if (getuid()) {
@@ -453,8 +454,9 @@ int main(int argc, char **argv)
         while ((c = getopt(argc, argv, "l:g:c:i:a:h")) != 1)
                 switch (c) {
                         case 'l':
-                                strcpy(llstat_file, optarg);
-                                if (strlen(llstat_file) > LEN_OUT) {
+				cplen = strlcpy(llstat_file, optarg,
+						sizeof(llstat_file));
+				if (cplen >= sizeof(llstat_file)) {
                                         fprintf(stderr, "length of outfile file"
                                                 " is too long\n");
                                         exit(1);
@@ -467,7 +469,10 @@ int main(int argc, char **argv)
                          * write_track_xid writes given <gid> in vfs_track_gid
                          * here. */
                         case 'g':
-                                strcpy(gid_string, optarg);
+				cplen = strlcpy(gid_string, optarg,
+						sizeof(gid_string));
+				if (cplen >= sizeof(gid_string))
+					return -E2BIG;
                                 get_command_from_argv(optind, argc, argv, "",
                                                       command);
                                 gid = atoi(gid_string);

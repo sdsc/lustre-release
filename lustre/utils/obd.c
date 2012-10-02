@@ -3235,6 +3235,7 @@ static int check_and_complete_ostname(char *fsname, char *ostname)
         char *ptr;
         char real_ostname[MAX_OBD_NAME + 1];
         char i;
+	int  cplen = 0;
 
         /* if OST name does not start with fsname, we add it */
         /* if not check if the fsname is the right one */
@@ -3246,7 +3247,9 @@ static int check_and_complete_ostname(char *fsname, char *ostname)
                         ostname, fsname);
                 return -EINVAL;
         } else {
-             strcpy(real_ostname, ostname);
+		cplen = strlcpy(real_ostname, ostname, sizeof(real_ostname));
+		if (cplen >= sizeof(real_ostname))
+			return -E2BIG;
         }
         /* real_ostname is fsname-????? */
         ptr = real_ostname + strlen(fsname) + 1;
@@ -3695,6 +3698,7 @@ int jt_changelog_register(int argc, char **argv)
         struct obd_ioctl_data data;
         char devname[30];
         int rc;
+	int cplen = 0;
 
         if (argc > 2)
                 return CMD_HELP;
@@ -3726,10 +3730,15 @@ int jt_changelog_register(int argc, char **argv)
                 return EPROTO;
         }
 
-        if (lcfg_get_devname() != NULL)
-                strcpy(devname, lcfg_get_devname());
-        else
-                sprintf(devname, "dev %d", cur_device);
+	if (lcfg_get_devname() != NULL)
+		cplen = strlcpy(devname, lcfg_get_devname(), sizeof(devname));
+	else
+		cplen = snprintf(devname, sizeof(devname), "dev %d",
+				 cur_device);
+	if (cplen >= sizeof(devname)) {
+		fprintf(stderr, "Dev name too long\n");
+		return E2BIG;
+	}
 
         if (argc == 2)
                 /* -n means bare name */
@@ -3746,6 +3755,7 @@ int jt_changelog_deregister(int argc, char **argv)
         struct obd_ioctl_data data;
         char devname[30];
         int id, rc;
+	int cplen = 0;
 
         if (argc != 2 || cur_device < 0)
                 return CMD_HELP;
@@ -3784,10 +3794,15 @@ int jt_changelog_deregister(int argc, char **argv)
                 return ENOENT;
         }
 
-        if (lcfg_get_devname() != NULL)
-                strcpy(devname, lcfg_get_devname());
-        else
-                sprintf(devname, "dev %d", cur_device);
+	if (lcfg_get_devname() != NULL)
+		cplen = strlcpy(devname, lcfg_get_devname(), sizeof(devname));
+	else
+		cplen = snprintf(devname, sizeof(devname), "dev %d",
+				 cur_device);
+	if (cplen >= sizeof(devname)) {
+		fprintf(stderr, "Dev name too long\n");
+		return E2BIG;
+	}
 
         printf("%s: Deregistered changelog user '"CHANGELOG_USER_PREFIX"%d'\n",
                devname, data.ioc_u32_1);
