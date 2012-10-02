@@ -434,7 +434,8 @@ static int get_param_obdvar(const char *fsname, const char *file_path,
                         tmp += strlen(obd_type) + 1;
                         if (strcmp(tmp, fs))
                                 continue;
-                        strcpy(dev, tmp);
+			strncpy(dev, tmp, sizeof(dev) - 1);
+			dev[sizeof(dev) - 1] = '\0';
                         tmp = strchr(dev, ' ');
                         *tmp = '\0';
                         break;
@@ -991,7 +992,8 @@ int llapi_get_poollist(const char *name, char **poollist, int list_size,
                 strcpy(fsname, rname);
         } else {
                 /* name is FSNAME */
-                strcpy(fsname, name);
+		strncpy(fsname, name, sizeof(fsname) - 1);
+		fsname[sizeof(fsname) - 1] = '\0';
                 rc = poolpath(fsname, NULL, pathname);
         }
         if (rc != 0) {

@@ -1042,9 +1042,10 @@ static char *absolute_path(char *devname)
 			return NULL;
 		}
 		strcat(buf, "/");
-		strcat(buf, devname);
+		strncat(buf, devname, sizeof(buf) - strlen(buf) - 1);
 	} else {
-		strcpy(buf, devname);
+		strncpy(buf, devname, sizeof(buf) - 1);
+		buf[sizeof(buf) - 1] = '\0';
 	}
 	/* truncate filename before calling realpath */
 	ptr = strrchr(buf, '/');
