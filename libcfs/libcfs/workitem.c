@@ -438,7 +438,12 @@ cfs_wi_sched_create(char *name, struct cfs_cpt_table *cptab,
 	if (sched == NULL)
 		return -ENOMEM;
 
-	strncpy(sched->ws_name, name, CFS_WS_NAME_LEN);
+	if (strlcpy(sched->ws_name, name, sizeof(sched->ws_name))
+	    >= sizeof(sched->ws_name)) {
+		LIBCFS_FREE(sched, sizeof(*sched));
+		return -E2BIG;
+	}
+
 	sched->ws_cptab = cptab;
 	sched->ws_cpt = cpt;
 

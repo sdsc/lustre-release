@@ -58,7 +58,7 @@ lustre_rsync_LDADD :=  liblustreapi.a $(LIBPTLCTL) $(PTHREAD_LIBS) $(LIBREADLINE
 lustre_rsync_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.a
 
 ll_recover_lost_found_objs_SOURCES = ll_recover_lost_found_objs.c
-ll_recover_lost_found_objs_LDADD := $(LIBPTLCTL)
+ll_recover_lost_found_objs_LDADD := $(LIBPTLCTL) $(PTHREAD_LIBS)
 ll_recover_lost_found_objs_DEPENDENCIES := $(LIBPTLCTL)
 
 lshowmount_SOURCES = lshowmount.c nidlist.c nidlist.h
@@ -118,14 +118,14 @@ obdbarrier_SOURCES = obdbarrier.c obdiolib.c obdiolib.h
 req_layout_SOURCES = req-layout.c
 
 llog_reader_SOURCES = llog_reader.c
-llog_reader_LDADD := $(LIBPTLCTL)
+llog_reader_LDADD := $(LIBPTLCTL) $(PTHREAD_LIBS)
 llog_reader_DEPENDENCIES := $(LIBPTLCTL)
 
 lr_reader_SOURCES = lr_reader.c
 
 mount_lustre_SOURCES = mount_lustre.c mount_utils.c mount_utils.h
 mount_lustre_CPPFLAGS = $(AM_CPPFLAGS)
-mount_lustre_LDADD := $(LIBPTLCTL)
+mount_lustre_LDADD := $(LIBPTLCTL) $(PTHREAD_LIBS)
 mount_lustre_DEPENDENCIES := $(LIBPTLCTL)
 if LDISKFS_ENABLED
 mount_lustre_SOURCES += mount_utils_ldiskfs.c
@@ -139,7 +139,7 @@ endif
 
 mkfs_lustre_SOURCES = mkfs_lustre.c mount_utils.c mount_utils.h
 mkfs_lustre_CPPFLAGS = -UTUNEFS $(AM_CPPFLAGS)
-mkfs_lustre_LDADD := $(LIBPTLCTL)
+mkfs_lustre_LDADD := $(LIBPTLCTL) $(PTHREAD_LIBS)
 mkfs_lustre_DEPENDENCIES := $(LIBPTLCTL)
 if LDISKFS_ENABLED
 mkfs_lustre_SOURCES += mount_utils_ldiskfs.c
@@ -168,10 +168,12 @@ tunefs_lustre_LDFLAGS = -pthread -rdynamic -ldl
 endif
 
 l_getidentity_SOURCES = l_getidentity.c
-l_getidentity_LDADD := $(LIBPTLCTL)
+l_getidentity_LDADD := $(LIBPTLCTL) $(PTHREAD_LIBS)
 l_getidentity_DEPENDENCIES := $(LIBPTLCTL)
 
 ltrack_stats_SOURCES = ltrack_stats.c
+ltrack_stats_LDADD := $(LIBPTLCTL) $(PTHREAD_LIBS)
+ltrack_stats_DEPENDENCIES := $(LIBPTLCTL)
 
 EXTRA_DIST = $(sbin_scripts) $(bin_scripts)
 

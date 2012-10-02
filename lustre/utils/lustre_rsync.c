@@ -629,13 +629,20 @@ int lr_mkfile(struct lr_info *info)
 int lr_add_pc(const char *pfid, const char *tfid, const char *name)
 {
         struct lr_parent_child_list *p;
+	int cplen = 0;
 
         p = calloc(1, sizeof(*p));
         if (!p)
                 return -ENOMEM;
-        strcpy(p->pc_log.pcl_pfid, pfid);
-        strcpy(p->pc_log.pcl_tfid, tfid);
-        strcpy(p->pc_log.pcl_name, name);
+	cplen = strlcpy(p->pc_log.pcl_pfid, pfid, sizeof(p->pc_log.pcl_pfid));
+	if (cplen >= sizeof(p->pc_log.pcl_pfid))
+		return -E2BIG;
+	cplen = strlcpy(p->pc_log.pcl_tfid, tfid, sizeof(p->pc_log.pcl_tfid));
+	if (cplen >= sizeof(p->pc_log.pcl_tfid))
+		return -E2BIG;
+	cplen = strlcpy(p->pc_log.pcl_name, name, sizeof(p->pc_log.pcl_name));
+	if (cplen >= sizeof(p->pc_log.pcl_name))
+		return -E2BIG;
 
         p->pc_next = parents;
         parents = p;
