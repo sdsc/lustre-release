@@ -647,6 +647,7 @@ static int lfs_find(int argc, char **argv)
         int *xsign;
         int isoption;
         char *endptr;
+	int cplen = 0;
 
         time(&t);
 
@@ -830,20 +831,24 @@ static int lfs_find(int argc, char **argv)
                                 param.obduuid = tmp;
                         }
                         for (token = buf; token && *token; token = next) {
-                                char *uuid;
-                                if (c == 'm')
-                                        uuid =
-                                          param.mdtuuid[param.num_mdts++].uuid;
-                                else
-                                        uuid =
-                                          param.obduuid[param.num_obds++].uuid;
+				struct obd_uuid *puuid;
+				if (c == 'm') {
+					puuid =
+					  &param.mdtuuid[param.num_mdts++];
+				} else {
+					puuid =
+					  &param.obduuid[param.num_obds++];
+				}
                                 p = strchr(token, ',');
                                 next = 0;
                                 if (p) {
                                         *p = 0;
                                         next = p+1;
                                 }
-                                strcpy((char *)uuid, token);
+				cplen = strlcpy((char *)(puuid->uuid), token,
+						sizeof(puuid->uuid));
+				if (cplen >= sizeof(puuid->uuid))
+					GOTO(err_free, ret = -E2BIG);
                         }
 err_free:
                         if (buf)

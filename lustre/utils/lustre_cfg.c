@@ -838,7 +838,8 @@ static int getparam_display(struct param_opts *popt, char *pattern)
                 /* As listparam_display is used to show param name (with type),
                  * here "if (only_path)" is ignored.*/
                 if (popt->show_path) {
-                        strcpy(filename, glob_info.gl_pathv[i]);
+			strlcpy(filename, glob_info.gl_pathv[i],
+				sizeof(filename));
                         valuename = display_name(filename, 0);
                 }
 
@@ -959,7 +960,8 @@ static int setparam_display(struct param_opts *popt, char *pattern, char *value)
                 char *valuename = NULL;
 
                 if (popt->show_path) {
-                        strcpy(filename, glob_info.gl_pathv[i]);
+			strlcpy(filename, glob_info.gl_pathv[i],
+				sizeof(filename));
                         valuename = display_name(filename, 0);
                         if (valuename)
                                 printf("%s=%s\n", valuename, value);
