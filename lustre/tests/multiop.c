@@ -195,6 +195,7 @@ int main(int argc, char **argv)
         int save_errno;
         int verbose = 0;
         int gid = 0;
+	struct timespec ts;
 
         if (argc < 3) {
                 fprintf(stderr, usage, argv[0]);
@@ -216,7 +217,12 @@ int main(int argc, char **argv)
                                 printf("PAUSING\n");
                                 fflush(stdout);
                         }
-                        while (sem_wait(&sem) == -1 && errno == EINTR);
+			len = atoi(commands+1);
+			if (len <= 0)
+				len = 3600; /* 1 hour */
+			ts.tv_sec = time(NULL) + len;
+			ts.tv_nsec = 0;
+                        while (sem_timedwait(&sem, &ts) < 0 && errno == EINTR);
                         break;
                 case 'c':
                         if (close(fd) == -1) {
