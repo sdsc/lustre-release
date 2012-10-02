@@ -416,7 +416,8 @@ static int get_param_obdvar(const char *fsname, const char *file_path,
                         return rc;
                 }
         } else if (fsname) {
-                strcpy(fs, fsname);
+		if (strlcpy(fs, fsname, sizeof(fs)) >= sizeof(fs))
+			return -E2BIG;
         }
 
         if (fp == NULL) {
@@ -436,7 +437,8 @@ static int get_param_obdvar(const char *fsname, const char *file_path,
                         tmp += strlen(obd_type) + 1;
                         if (strcmp(tmp, fs))
                                 continue;
-                        strcpy(dev, tmp);
+			if (strlcpy(dev, tmp, sizeof(dev)) >= sizeof(dev))
+				return -E2BIG;
                         tmp = strchr(dev, ' ');
                         *tmp = '\0';
                         break;
@@ -1187,10 +1189,12 @@ int llapi_get_poollist(const char *name, char **poollist, int list_size,
                                     " a Lustre filesystem", name);
                         return rc;
                 }
-                strcpy(fsname, rname);
+		if (strlcpy(fsname, rname, sizeof(fsname)) >= sizeof(fsname))
+			return -E2BIG;
         } else {
                 /* name is FSNAME */
-                strcpy(fsname, name);
+		if (strlcpy(fsname, name, sizeof(fsname)) >= sizeof(fsname))
+			return -E2BIG;
                 rc = poolpath(fsname, NULL, pathname);
         }
         if (rc != 0) {

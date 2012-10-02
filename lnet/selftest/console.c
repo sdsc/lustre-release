@@ -212,7 +212,9 @@ lstcon_group_alloc(char *name, lstcon_group_t **grpp)
 
         grp->grp_ref = 1;
         if (name != NULL)
-                strcpy(grp->grp_name, name);
+		if (strlcpy(grp->grp_name, name, sizeof(grp->grp_name))
+		    >= sizeof(grp->grp_name))
+			return -E2BIG;
 
         CFS_INIT_LIST_HEAD(&grp->grp_link);
         CFS_INIT_LIST_HEAD(&grp->grp_ndl_list);
@@ -891,7 +893,9 @@ lstcon_batch_add(char *name)
                 return -ENOMEM;
         }
 
-        strcpy(bat->bat_name, name);
+	if (strlcpy(bat->bat_name, name, sizeof(bat->bat_name))
+	    >= sizeof(bat->bat_name))
+		return -E2BIG;
         bat->bat_hdr.tsb_index = 0;
         bat->bat_hdr.tsb_id.bat_id = ++console_session.ses_id_cookie;
 
@@ -1689,6 +1693,7 @@ lstcon_session_new(char *name, int key, unsigned feats,
 {
         int     rc = 0;
         int     i;
+	int     cplen = 0;
 
         if (console_session.ses_state != LST_SESSION_NONE) {
                 /* session exists */
@@ -1723,7 +1728,10 @@ lstcon_session_new(char *name, int key, unsigned feats,
 	console_session.ses_feats_updated = 0;
 	console_session.ses_timeout = (timeout <= 0) ?
 				      LST_CONSOLE_TIMEOUT : timeout;
-	strcpy(console_session.ses_name, name);
+	cplen = strlcpy(console_session.ses_name, name,
+			sizeof(console_session.ses_name));
+	if (cplen >= sizeof(console_session.ses_name))
+		return -E2BIG;
 
         rc = lstcon_batch_add(LST_DEFAULT_BATCH);
         if (rc != 0)

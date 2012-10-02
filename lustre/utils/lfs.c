@@ -398,7 +398,10 @@ static int lfs_migrate(char *name, unsigned long long stripe_size,
 	}
 
 	/* search for file directory pathname */
-	strcpy(parent, name);
+	if (strlcpy(parent, name, sizeof(parent)) >= sizeof(parent)) {
+		rc = -E2BIG;
+		goto free;
+	}
 	ptr = strrchr(parent, '/');
 	if (ptr == NULL) {
 		if (getcwd(parent, sizeof(parent)) == NULL) {
@@ -895,6 +898,7 @@ static int lfs_find(int argc, char **argv)
         int *xsign;
         int isoption;
         char *endptr;
+	int cplen = 0;
 
         time(&t);
 
@@ -1078,20 +1082,24 @@ static int lfs_find(int argc, char **argv)
                                 param.obduuid = tmp;
                         }
                         for (token = buf; token && *token; token = next) {
-                                char *uuid;
-                                if (c == 'm')
-                                        uuid =
-                                          param.mdtuuid[param.num_mdts++].uuid;
-                                else
-                                        uuid =
-                                          param.obduuid[param.num_obds++].uuid;
+				struct obd_uuid *puuid;
+				if (c == 'm') {
+					puuid =
+					  &param.mdtuuid[param.num_mdts++];
+				} else {
+					puuid =
+					  &param.obduuid[param.num_obds++];
+				}
                                 p = strchr(token, ',');
                                 next = 0;
                                 if (p) {
                                         *p = 0;
                                         next = p+1;
                                 }
-                                strcpy((char *)uuid, token);
+				cplen = strlcpy((char *)(puuid->uuid), token,
+						sizeof(puuid->uuid));
+				if (cplen >= sizeof(puuid->uuid))
+					GOTO(err_free, ret = -E2BIG);
                         }
 err_free:
                         if (buf)
@@ -3442,7 +3450,9 @@ static int lfs_hsm_request(int argc, char **argv, int action)
 
 	/* All remaining args are files, add them */
 	if (nbfile != 0)
-		strcpy(some_file, argv[optind]);
+		if (strlcpy(some_file, argv[optind], sizeof(some_file))
+		    >= sizeof(some_file))
+			return E2BIG;
 
 	for (i = 0; i < nbfile; i++) {
 		hur->hur_user_item[i].hui_extent.length = -1;
