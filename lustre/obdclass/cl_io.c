@@ -112,7 +112,7 @@ void cl_io_fini(const struct lu_env *env, struct cl_io *io)
         ENTRY;
 
         while (!cfs_list_empty(&io->ci_layers)) {
-                slice = container_of(io->ci_layers.next, struct cl_io_slice,
+                slice = container_of(io->ci_layers.prev, struct cl_io_slice,
                                      cis_linkage);
                 cfs_list_del_init(&slice->cis_linkage);
                 if (slice->cis_iop->op[io->ci_type].cio_fini != NULL)

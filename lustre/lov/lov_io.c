@@ -308,7 +308,8 @@ static void lov_io_slice_init(struct lov_io *lio,
 	io->ci_result = 0;
 	lio->lis_object = obj;
 
-	LASSERT(lio->lis_lsm != NULL);
+	LASSERT(obj->lo_lsm != NULL);
+	lio->lis_lsm = lsm_addref(obj->lo_lsm);
         lio->lis_stripe_count = lio->lis_lsm->lsm_stripe_count;
 
         switch (io->ci_type) {

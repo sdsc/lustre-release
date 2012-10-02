@@ -173,6 +173,7 @@ int cl_glimpse_lock(const struct lu_env *env, struct cl_io *io,
                         cl_lock_release(env, lock, "glimpse", cfs_current());
                 } else {
                         CDEBUG(D_DLMTRACE, "No objects for inode\n");
+			cl_merge_lvb(inode);
                 }
         }
 
