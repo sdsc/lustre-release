@@ -66,7 +66,7 @@ EXPORT_SYMBOL(_lprocfs_lock);
 int lprocfs_seq_release(struct inode *inode, struct file *file)
 {
         LPROCFS_EXIT();
-        return seq_release(inode, file);
+        return single_release(inode, file);
 }
 EXPORT_SYMBOL(lprocfs_seq_release);
 
