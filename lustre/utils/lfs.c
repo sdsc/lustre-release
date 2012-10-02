@@ -784,7 +784,7 @@ static int lfs_find(int argc, char **argv)
                                         *p = 0;
                                         next = p+1;
                                 }
-                                strcpy((char *)uuid, token);
+				strlcpy((char *)uuid, token, sizeof(uuid));
                         }
 err_free:
                         if (buf)

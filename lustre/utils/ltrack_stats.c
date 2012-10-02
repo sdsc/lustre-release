@@ -453,7 +453,9 @@ int main(int argc, char **argv)
         while ((c = getopt(argc, argv, "l:g:c:i:a:h")) != 1)
                 switch (c) {
                         case 'l':
-                                strcpy(llstat_file, optarg);
+				strncpy(llstat_file, optarg,
+					sizeof(llstat_file) - 1);
+				llstat_file[sizeof(llstat_file) - 1] = '\0';
                                 if (strlen(llstat_file) > LEN_OUT) {
                                         fprintf(stderr, "length of outfile file"
                                                 " is too long\n");
@@ -467,7 +469,9 @@ int main(int argc, char **argv)
                          * write_track_xid writes given <gid> in vfs_track_gid
                          * here. */
                         case 'g':
-                                strcpy(gid_string, optarg);
+				strncpy(gid_string, optarg,
+					sizeof(gid_string) - 1);
+				gid_string[sizeof(gid_string) - 1] = '\0';
                                 get_command_from_argv(optind, argc, argv, "",
                                                       command);
                                 gid = atoi(gid_string);
