@@ -105,7 +105,7 @@ libcfs_ipif_query (char *name, int *up, __u32 *ip, __u32 *mask)
 
         CLASSERT (sizeof(ifr.ifr_name) >= IFNAMSIZ);
 
-        strcpy(ifr.ifr_name, name);
+	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
         rc = libcfs_sock_ioctl(SIOCGIFFLAGS, (unsigned long)&ifr);
 
         if (rc != 0) {
@@ -122,7 +122,7 @@ libcfs_ipif_query (char *name, int *up, __u32 *ip, __u32 *mask)
 
         *up = 1;
 
-        strcpy(ifr.ifr_name, name);
+	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
         ifr.ifr_addr.sa_family = AF_INET;
         rc = libcfs_sock_ioctl(SIOCGIFADDR, (unsigned long)&ifr);
 
@@ -134,7 +134,7 @@ libcfs_ipif_query (char *name, int *up, __u32 *ip, __u32 *mask)
         val = ((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr.s_addr;
         *ip = ntohl(val);
 
-        strcpy(ifr.ifr_name, name);
+	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
         ifr.ifr_addr.sa_family = AF_INET;
         rc = libcfs_sock_ioctl(SIOCGIFNETMASK, (unsigned long)&ifr);
 

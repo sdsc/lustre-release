@@ -65,10 +65,10 @@
 #include <limits.h>
 #include <ctype.h>
 
-#ifdef __linux__
 /* libcfs.h is not really needed here, but on SLES10/PPC, fs.h includes idr.h
  * which requires BITS_PER_LONG to be defined */
 #include <libcfs/libcfs.h>
+#ifdef __linux__
 #ifndef BLKGETSIZE64
 #include <linux/fs.h> /* for BLKGETSIZE64 */
 #endif
@@ -1042,9 +1042,9 @@ static char *absolute_path(char *devname)
 			return NULL;
 		}
 		strcat(buf, "/");
-		strcat(buf, devname);
+		strlcat(buf, devname, sizeof(buf));
 	} else {
-		strcpy(buf, devname);
+		strlcpy(buf, devname, sizeof(buf));
 	}
 	/* truncate filename before calling realpath */
 	ptr = strrchr(buf, '/');
