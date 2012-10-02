@@ -88,14 +88,16 @@ static void vvp_io_fini(const struct lu_env *env, const struct cl_io_slice *ios)
 	struct cl_io     *io  = ios->cis_io;
 	struct cl_object *obj = io->ci_obj;
 	struct ccc_io    *cio = cl2ccc_io(env, ios);
-	__u32 gen;
 
         CLOBINVRNT(env, obj, ccc_object_invariant(obj));
 
-	/* check layout version */
-	ll_layout_refresh(ccc_object_inode(obj), &gen);
-	if (cio->cui_layout_gen > 0)
+	if (cio->cui_layout_gen > 0) {
+		__u32 gen = 0;
+
+		/* check layout version */
+		ll_layout_refresh(ccc_object_inode(obj), &gen);
 		io->ci_need_restart = cio->cui_layout_gen == gen;
+	}
 }
 
 static void vvp_io_fault_fini(const struct lu_env *env,
@@ -1141,6 +1143,19 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
 	} else if (io->ci_type == CIT_SETATTR) {
 		if (!cl_io_is_trunc(io))
 			io->ci_lockreq = CILR_MANDATORY;
+	}
+
+	/* We tend to combine LAYOUT and LOOKUP lock in getattr RPC to save
+	 * RPCs. This produces a tricky issue about layout changing for
+	 * open-unlinked file.  For an open-unlinked file, the client will
+	 * lose both LAYOUT and LOOKUP lock when the file is deleted, so that
+	 * the attempt to refresh layout will fail because it won't find this
+	 * object on the mdt. Therefore, it ignores layout changing here if
+	 * it doesn't have a caching LOOKUP lock. */
+	if (!io->ci_ignore_layout) {
+		__u64 ibits = MDS_INODELOCK_LOOKUP;
+		if (!ll_have_md_lock(inode, &ibits, LCK_MINMODE))
+			io->ci_ignore_layout = 1;
 	}
 
 	/* Enqueue layout lock and get layout version. We need to do this
