@@ -45,7 +45,9 @@
 #include <signal.h>
 #include <string.h>
 #include <stdlib.h>
+#include <errno.h>
 
+#include <libcfs/libcfs.h>
 
 #define TRACK_BY_GID 0
 #define TRACK_BY_PPID 1
@@ -66,14 +68,10 @@
 #define LEN_CLIENT 1024
 
 /* size of output of llstat command we read at a time */
-#define MAX 1024
-
-/* max strlen of outfile we get on command line */
-#define LEN_OUT 1024
+#define LLSTAT_READ_SIZE 1024
 
 /* Length of command given on command line */
 #define COMM_LEN 4096
-pid_t llstat[1024];
 
 /* print usage */
 void print_usage()
@@ -204,9 +202,9 @@ pid_t fork_llstat_command(char* llstat_file,char* stats_path)
         char llstat_command[LEN_LLSTAT];
         pid_t pid_llstat_command;
         FILE *fp_popen, *fp_out;
-        char buffer[MAX];
+	char buffer[LLSTAT_READ_SIZE];
         int ret;
-        
+
         /* Truncating llstat output file as it will be opened in while
          * loop to append output */
         sprintf(truncate_command,"> %s",llstat_file);
@@ -236,7 +234,7 @@ pid_t fork_llstat_command(char* llstat_file,char* stats_path)
                                 "\"%s\"n", llstat_command);
                         exit(1);
                 }
-                while (fgets(buffer, 1024, fp_popen) != NULL) {
+		while (fgets(buffer, LLSTAT_READ_SIZE, fp_popen) != NULL) {
                         /* Following code should be in while loop as llstat 
                          * will keep on sending output each second and will
                          * not exit on itself. It will be killed when we finsh
@@ -441,6 +439,7 @@ int main(int argc, char **argv)
         int c;
         char command[COMM_LEN] = "";
         char llstat_file[100] = "";
+	int cplen = 0;
 
         /* Checking for root*/
         if (getuid()) {
@@ -453,8 +452,9 @@ int main(int argc, char **argv)
         while ((c = getopt(argc, argv, "l:g:c:i:a:h")) != 1)
                 switch (c) {
                         case 'l':
-                                strcpy(llstat_file, optarg);
-                                if (strlen(llstat_file) > LEN_OUT) {
+				cplen = strlcpy(llstat_file, optarg,
+						sizeof(llstat_file));
+				if (cplen >= sizeof(llstat_file)) {
                                         fprintf(stderr, "length of outfile file"
                                                 " is too long\n");
                                         exit(1);
@@ -467,7 +467,10 @@ int main(int argc, char **argv)
                          * write_track_xid writes given <gid> in vfs_track_gid
                          * here. */
                         case 'g':
-                                strcpy(gid_string, optarg);
+				cplen = strlcpy(gid_string, optarg,
+						sizeof(gid_string));
+				if (cplen >= sizeof(gid_string))
+					return -E2BIG;
                                 get_command_from_argv(optind, argc, argv, "",
                                                       command);
                                 gid = atoi(gid_string);

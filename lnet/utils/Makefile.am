@@ -70,17 +70,17 @@ endif
 wirecheck_SOURCES = wirecheck.c
 
 ptlctl_SOURCES = ptlctl.c
-ptlctl_LDADD =  -L. -lptlctl $(LIBCFSUTIL) $(LIBCFS) $(LIBREADLINE) $(LIBEFENCE)
+ptlctl_LDADD =  -L. -lptlctl $(LIBCFSUTIL) $(LIBCFS) $(LIBREADLINE) $(LIBEFENCE) $(PTHREAD_LIBS)
 ptlctl_DEPENDENCIES = libptlctl.a
 
 routerstat_SOURCES = routerstat.c
 
 debugctl_SOURCES = debugctl.c
-debugctl_LDADD = -L. -lptlctl $(LIBCFSUTIL) $(LIBREADLINE) $(LIBEFENCE)
+debugctl_LDADD = -L. -lptlctl $(LIBCFSUTIL) $(LIBCFS) $(LIBREADLINE) $(LIBEFENCE) $(PTHREAD_LIBS)
 debugctl_DEPENDENCIES = libptlctl.a
 
 lst_SOURCES = lst.c
-lst_LDADD = -L. -lptlctl $(LIBCFSUTIL) $(LIBCFS) $(LIBREADLINE) $(LIBEFENCE)
+lst_LDADD = -L. -lptlctl $(LIBCFSUTIL) $(LIBCFS) $(LIBREADLINE) $(LIBEFENCE) $(PTHREAD_LIBS)
 lst_DEPENDENCIES = libptlctl.a
 
 LND_LIBS =
