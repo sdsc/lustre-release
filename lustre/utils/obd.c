@@ -3235,7 +3235,10 @@ static int check_and_complete_ostname(char *fsname, char *ostname)
                         ostname, fsname);
                 return -EINVAL;
         } else {
-             strcpy(real_ostname, ostname);
+		if (strlen(ostname) > sizeof(real_ostname)-1)
+			return -E2BIG;
+		strncpy(real_ostname, ostname, sizeof(real_ostname)-1);
+		real_ostname[sizeof(real_ostname)-1] = '\0';
         }
         /* real_ostname is fsname-????? */
         ptr = real_ostname + strlen(fsname) + 1;
@@ -3715,10 +3718,20 @@ int jt_changelog_register(int argc, char **argv)
                 return EPROTO;
         }
 
-        if (lcfg_get_devname() != NULL)
-                strcpy(devname, lcfg_get_devname());
-        else
-                sprintf(devname, "dev %d", cur_device);
+	if (lcfg_get_devname() != NULL) {
+		if (strlen(lcfg_get_devname()) > sizeof(devname)-1) {
+			fprintf(stderr, "Dev name too long\n");
+			return E2BIG;
+		}
+		strncpy(devname, lcfg_get_devname(), sizeof(devname)-1);
+		devname[sizeof(devname)-1] = '\0';
+	} else {
+		if (snprintf(devname, sizeof(devname), "dev %d", cur_device) >=
+		    sizeof(devname)) {
+			fprintf(stderr, "Dev name too long\n");
+			return E2BIG;
+		}
+	}
 
         if (argc == 2)
                 /* -n means bare name */
@@ -3773,10 +3786,20 @@ int jt_changelog_deregister(int argc, char **argv)
                 return ENOENT;
         }
 
-        if (lcfg_get_devname() != NULL)
-                strcpy(devname, lcfg_get_devname());
-        else
-                sprintf(devname, "dev %d", cur_device);
+	if (lcfg_get_devname() != NULL) {
+		if (strlen(lcfg_get_devname()) > sizeof(devname)-1) {
+			fprintf(stderr, "Dev name too long\n");
+			return E2BIG;
+		}
+		strncpy(devname, lcfg_get_devname(), sizeof(devname)-1);
+		devname[sizeof(devname)-1] = '\0';
+	} else {
+		if (snprintf(devname, sizeof(devname), "dev %d", cur_device) >=
+		    sizeof(devname)) {
+			fprintf(stderr, "Dev name too long\n");
+			return E2BIG;
+		}
+	}
 
         printf("%s: Deregistered changelog user '"CHANGELOG_USER_PREFIX"%d'\n",
                devname, data.ioc_u32_1);

@@ -633,9 +633,18 @@ int lr_add_pc(const char *pfid, const char *tfid, const char *name)
         p = calloc(1, sizeof(*p));
         if (!p)
                 return -ENOMEM;
-        strcpy(p->pc_log.pcl_pfid, pfid);
-        strcpy(p->pc_log.pcl_tfid, tfid);
-        strcpy(p->pc_log.pcl_name, name);
+	if (strlen(pfid) > sizeof(p->pc_log.pcl_pfid)-1)
+		return -E2BIG;
+	strncpy(p->pc_log.pcl_pfid, pfid, sizeof(p->pc_log.pcl_pfid)-1);
+	p->pc_log.pcl_pfid[sizeof(p->pc_log.pcl_pfid)-1] = '\0';
+	if (strlen(tfid) > sizeof(p->pc_log.pcl_tfid)-1)
+		return -E2BIG;
+	strncpy(p->pc_log.pcl_tfid, tfid, sizeof(p->pc_log.pcl_tfid)-1);
+	p->pc_log.pcl_tfid[sizeof(p->pc_log.pcl_tfid)-1] = '\0';
+	if (strlen(name) > sizeof(p->pc_log.pcl_name)-1)
+		return -E2BIG;
+	strncpy(p->pc_log.pcl_name, name, sizeof(p->pc_log.pcl_name)-1);
+	p->pc_log.pcl_name[sizeof(p->pc_log.pcl_name)-1] = '\0';
 
         p->pc_next = parents;
         parents = p;
