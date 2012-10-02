@@ -3184,7 +3184,7 @@ static int check_and_complete_ostname(char *fsname, char *ostname)
                         ostname, fsname);
                 return -EINVAL;
         } else {
-             strcpy(real_ostname, ostname);
+		strlcpy(real_ostname, ostname, sizeof(real_ostname));
         }
         /* real_ostname is fsname-????? */
         ptr = real_ostname + strlen(fsname) + 1;
@@ -3645,10 +3645,10 @@ int jt_changelog_register(int argc, char **argv)
                 return EPROTO;
         }
 
-        if (lcfg_get_devname() != NULL)
-                strcpy(devname, lcfg_get_devname());
-        else
-                sprintf(devname, "dev %d", cur_device);
+	if (lcfg_get_devname() != NULL)
+		strlcpy(devname, lcfg_get_devname(), sizeof(devname));
+	else
+		snprintf(devname, sizeof(devname), "dev %d", cur_device);
 
         if (argc == 2)
                 /* -n means bare name */
@@ -3703,10 +3703,10 @@ int jt_changelog_deregister(int argc, char **argv)
                 return ENOENT;
         }
 
-        if (lcfg_get_devname() != NULL)
-                strcpy(devname, lcfg_get_devname());
-        else
-                sprintf(devname, "dev %d", cur_device);
+	if (lcfg_get_devname() != NULL)
+		strlcpy(devname, lcfg_get_devname(), sizeof(devname));
+	else
+		snprintf(devname, sizeof(devname), "dev %d", cur_device);
 
         printf("%s: Deregistered changelog user '"CHANGELOG_USER_PREFIX"%d'\n",
                devname, data.ioc_u32_1);
