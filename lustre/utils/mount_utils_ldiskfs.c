@@ -1120,6 +1120,7 @@ static char *absolute_path(char *devname)
 	char  buf[PATH_MAX + 1];
 	char *path;
 	char *ptr;
+	int   buflen = 0;
 
 	path = malloc(PATH_MAX + 1);
 	if (path == NULL)
@@ -1131,9 +1132,22 @@ static char *absolute_path(char *devname)
 			return NULL;
 		}
 		strcat(buf, "/");
-		strcat(buf, devname);
+		if (strlen(devname) > sizeof(buf)-strlen(buf)-1) {
+			free(path);
+			return NULL;
+		}
+		strncat(buf, devname, sizeof(buf)-strlen(buf)-1);
 	} else {
-		strcpy(buf, devname);
+		if (strlen(devname) > sizeof(buf)-1) {
+			free(path);
+			return NULL;
+		}
+		strncpy(buf, devname, sizeof(buf)-1);
+		buf[sizeof(buf)-1] = '\0';
+	}
+	if (buflen >= sizeof(buf)) {
+		free(path);
+		return NULL;
 	}
 	/* truncate filename before calling realpath */
 	ptr = strrchr(buf, '/');
