@@ -253,7 +253,16 @@ void ll_intent_drop_lock(struct lookup_intent *it)
         struct lustre_handle *handle;
 
         if (it->it_op && it->d.lustre.it_lock_mode) {
-                handle = (struct lustre_handle *)&it->d.lustre.it_lock_handle;
+		struct ldlm_lock *lock;
+
+		handle = (struct lustre_handle *)&it->d.lustre.it_lock_handle;
+		lock = ldlm_handle2lock(handle);
+		if (lock != NULL) {
+			if (it->d.lustre.it_lock_bits & MDS_INODELOCK_LAYOUT)
+				ldlm_lock_allow_match(lock);
+			LDLM_LOCK_PUT(lock);
+		}
+
                 CDEBUG(D_DLMTRACE, "releasing lock with cookie "LPX64
                        " from it %p\n", handle->cookie, it);
                 ldlm_lock_decref(handle, it->d.lustre.it_lock_mode);
