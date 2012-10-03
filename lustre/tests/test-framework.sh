@@ -348,18 +348,38 @@ check_cpt_number() {
 	fi
 }
 
+# Return a numeric version code based on a version string.  The version
+# code is useful for comparison two version strings to see which is newer.
 version_code() {
-    # split arguments like "1.8.6-wc3" into "1", "8", "6", "wc3"
-    eval set -- $(tr "[:punct:]" " " <<< $*)
+	# split arguments like "1.8.6-wc3" into "1", "8", "6", "wc3"
+	eval set -- $(tr "[:punct:]" " " <<< $*)
 
-    echo -n "$((($1 << 16) | ($2 << 8) | $3))"
+	echo -n "$((($1 << 16) | ($2 << 8) | $3))"
 }
 
 export LINUX_VERSION=$(uname -r | sed -e "s/[-.]/ /3" -e "s/ .*//")
 export LINUX_VERSION_CODE=$(version_code ${LINUX_VERSION//\./ })
 
+# Report the Lustre build version string (e.g. 1.8.7.3 or 2.4.1).
+# "lctl get_param" doesn't work without modules, use "lctl version" instead.
+lustre_build_version() {
+	local facet=${1:-client}
+
+	local VER=$(do_facet $facet $LCTL get_param version 2> /dev/null |
+		    awk '/lustre: / { print $2 }')
+	[ -z "$VER" ] &&
+		VER=$(do_facet $facet $LCTL lustre_build_version 2>/dev/null |
+		    awk '/ version: / { print $3; exit; }')
+	sed -e 's/^v//' -e 's/-.*//' <<<$VER
+}
+
+# Report the Lustre numeric build version code for the supplied facet.
+lustre_version_code() {
+	version_code $(lustre_build_version $1)
+}
+
 module_loaded () {
-   /sbin/lsmod | grep -q "^\<$1\>"
+	/sbin/lsmod | grep -q "^\<$1\>"
 }
 
 # Load a module on the system where this is running.
@@ -375,12 +395,12 @@ load_module() {
     EXT=".ko"
     module=$1
     shift
-    BASE=`basename $module $EXT`
+    BASE=$(basename $module $EXT)
 
     module_loaded ${BASE} && return
 
-    # If no module arguments were passed, get them from $MODOPTS_<MODULE>, else from
-    # modprobe.conf
+    # If no module arguments were passed, get them from $MODOPTS_<MODULE>,
+    # else from modprobe.conf
     if [ $# -eq 0 ]; then
         # $MODOPTS_<MODULE>; we could use associative arrays, but that's not in
         # Bash until 4.x, so we resort to eval.
@@ -2670,13 +2690,7 @@ facet_active() {
 }
 
 facet_active_host() {
-    local facet=$1
-    local active=`facet_active $facet`
-    if [ "$facet" == client ]; then
-        echo $HOSTNAME
-    else
-        echo `facet_host $active`
-    fi
+	facet_host $(facet_active $1)
 }
 
 # Get the passive failover partner host of facet.
@@ -2851,11 +2865,11 @@ do_nodes() {
 }
 
 do_facet() {
-    local facet=$1
-    shift
-    local HOST=`facet_active_host $facet`
-    [ -z $HOST ] && echo No host defined for facet ${facet} && exit 1
-    do_node $HOST "$@"
+	local facet=$1
+	shift
+	local HOST=$(facet_active_host $facet)
+	[ -z $HOST ] && echo "No host defined for facet ${facet}" && exit 1
+	do_node $HOST "$@"
 }
 
 # Function: do_facet_random_file $FACET $FILE $SIZE
@@ -4636,8 +4650,8 @@ run_test() {
 }
 
 log() {
-    echo "$*"
-    module_loaded lnet || load_modules
+	echo "$*"
+	load_module ../libcfs/libcfs/libcfs
 
     local MSG="$*"
     # Get rid of '
@@ -5505,17 +5519,7 @@ convert_facet2label() {
 }
 
 get_clientosc_proc_path() {
-    echo "${1}-osc-*"
-}
-
-get_lustre_version () {
-    local facet=${1:-"$SINGLEMDS"}    
-    do_facet $facet $LCTL get_param -n version | awk '/^lustre:/ {print $2}'
-}
-
-lustre_version_code() {
-    local facet=${1:-"$SINGLEMDS"}
-    version_code $(get_lustre_version $1)
+	echo "${1}-osc-*"
 }
 
 # If the 2.0 MDS was mounted on 1.8 device, then the OSC and LOV names
