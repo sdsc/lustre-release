@@ -77,17 +77,6 @@ setup() {
 	echo "done"
 }
 
-check_kernel_version() {
-	WANT_VER=$1
-	GOT_VER=$(lctl get_param -n version | awk '/kernel:/ {print $2}')
-	case $GOT_VER in
-	patchless|patchless_client) return 0;;
-	*) [ $GOT_VER -ge $WANT_VER ] && return 0 ;;
-	esac
-	log "test needs at least kernel version $WANT_VER, running $GOT_VER"
-	return 1
-}
-
 if [ "$ONLY" == "cleanup" ]; then
        sh llmountcleanup.sh
        exit 0
@@ -777,7 +766,6 @@ test_24n() {
 run_test 24n "Statting the old file after renaming (Posix rename 2)"
 
 test_24o() {
-	check_kernel_version 37 || return 0
 	mkdir -p $DIR/d24o
 	rename_many -s random -v -n 10 $DIR/d24o
 }
@@ -1629,7 +1617,6 @@ test_31d() {
 run_test 31d "remove of open directory ========================="
 
 test_31e() { # bug 2904
-	check_kernel_version 34 || return 0
 	openfilleddirunlink $DIR/d31e || error
 }
 run_test 31e "remove of open non-empty directory ==============="
@@ -3007,17 +2994,14 @@ run_test 46 "dirtying a previously written page ================"
 # test_47 is removed "Device nodes check" is moved to test_28
 
 test_48a() { # bug 2399
-	check_kernel_version 34 || return 0
 	mkdir -p $DIR/d48a
 	cd $DIR/d48a
 	mv $DIR/d48a $DIR/d48.new || error "move directory failed"
 	mkdir $DIR/d48a || error "recreate directory failed"
 	touch foo || error "'touch foo' failed after recreating cwd"
 	mkdir bar || error "'mkdir foo' failed after recreating cwd"
-	if check_kernel_version 44; then
-		touch .foo || error "'touch .foo' failed after recreating cwd"
-		mkdir .bar || error "'mkdir .foo' failed after recreating cwd"
-	fi
+	touch .foo || error "'touch .foo' failed after recreating cwd"
+	mkdir .bar || error "'mkdir .foo' failed after recreating cwd"
 	ls . > /dev/null || error "'ls .' failed after recreating cwd"
 	ls .. > /dev/null || error "'ls ..' failed after removing cwd"
 	cd . || error "'cd .' failed after recreating cwd"
@@ -3029,16 +3013,13 @@ test_48a() { # bug 2399
 run_test 48a "Access renamed working dir (should return errors)="
 
 test_48b() { # bug 2399
-	check_kernel_version 34 || return 0
 	mkdir -p $DIR/d48b
 	cd $DIR/d48b
 	rmdir $DIR/d48b || error "remove cwd $DIR/d48b failed"
 	touch foo && error "'touch foo' worked after removing cwd"
 	mkdir foo && error "'mkdir foo' worked after removing cwd"
-	if check_kernel_version 44; then
-		touch .foo && error "'touch .foo' worked after removing cwd"
-		mkdir .foo && error "'mkdir .foo' worked after removing cwd"
-	fi
+	touch .foo && error "'touch .foo' worked after removing cwd"
+	mkdir .foo && error "'mkdir .foo' worked after removing cwd"
 	ls . > /dev/null && error "'ls .' worked after removing cwd"
 	ls .. > /dev/null || error "'ls ..' failed after removing cwd"
 	is_patchless || ( cd . && error "'cd .' worked after removing cwd" )
@@ -3050,7 +3031,6 @@ test_48b() { # bug 2399
 run_test 48b "Access removed working dir (should return errors)="
 
 test_48c() { # bug 2350
-	check_kernel_version 36 || return 0
 	#lctl set_param debug=-1
 	#set -vx
 	mkdir -p $DIR/d48c/dir
@@ -3058,10 +3038,8 @@ test_48c() { # bug 2350
 	$TRACE rmdir $DIR/d48c/dir || error "remove cwd $DIR/d48c/dir failed"
 	$TRACE touch foo && error "'touch foo' worked after removing cwd"
 	$TRACE mkdir foo && error "'mkdir foo' worked after removing cwd"
-	if check_kernel_version 44; then
-		touch .foo && error "'touch .foo' worked after removing cwd"
-		mkdir .foo && error "'mkdir .foo' worked after removing cwd"
-	fi
+	touch .foo && error "'touch .foo' worked after removing cwd"
+	mkdir .foo && error "'mkdir .foo' worked after removing cwd"
 	$TRACE ls . && error "'ls .' worked after removing cwd"
 	$TRACE ls .. || error "'ls ..' failed after removing cwd"
 	is_patchless || ( $TRACE cd . && error "'cd .' worked after removing cwd" )
@@ -3073,7 +3051,6 @@ test_48c() { # bug 2350
 run_test 48c "Access removed working subdir (should return errors)"
 
 test_48d() { # bug 2350
-	check_kernel_version 36 || return 0
 	#lctl set_param debug=-1
 	#set -vx
 	mkdir -p $DIR/d48d/dir
@@ -3082,10 +3059,8 @@ test_48d() { # bug 2350
 	$TRACE rmdir $DIR/d48d || error "remove parent $DIR/d48d failed"
 	$TRACE touch foo && error "'touch foo' worked after removing parent"
 	$TRACE mkdir foo && error "'mkdir foo' worked after removing parent"
-	if check_kernel_version 44; then
-		touch .foo && error "'touch .foo' worked after removing parent"
-		mkdir .foo && error "'mkdir .foo' worked after removing parent"
-	fi
+	touch .foo && error "'touch .foo' worked after removing parent"
+	mkdir .foo && error "'mkdir .foo' worked after removing parent"
 	$TRACE ls . && error "'ls .' worked after removing parent"
 	$TRACE ls .. && error "'ls ..' worked after removing parent"
 	is_patchless || ( $TRACE cd . && error "'cd .' worked after recreate parent" )
@@ -3097,7 +3072,6 @@ test_48d() { # bug 2350
 run_test 48d "Access removed parent subdir (should return errors)"
 
 test_48e() { # bug 4134
-	check_kernel_version 41 || return 0
 	#lctl set_param debug=-1
 	#set -vx
 	mkdir -p $DIR/d48e/dir
@@ -3437,7 +3411,6 @@ test_54d() {
 run_test 54d "fifo device works in lustre ======================"
 
 test_54e() {
-	check_kernel_version 46 || return 0
 	f="$DIR/f54e"
 	string="aaaaaa"
 	cp -aL /dev/console $f
@@ -4524,8 +4497,8 @@ test_71() {
 run_test 71 "Running dbench on lustre (don't segment fault) ===="
 
 test_72a() { # bug 5695 - Test that on 2.6 remove_suid works properly
-	check_kernel_version 43 || return 0
-	[ "$RUNAS_ID" = "$UID" ] && skip_env "RUNAS_ID = UID = $UID -- skipping" && return
+	[ "$RUNAS_ID" = "$UID" ] &&
+		skip_env "RUNAS_ID = UID = $UID -- skipping" && return
 
         # Check that testing environment is properly set up. Skip if not
         FAIL_ON_ERROR=false check_runas_id_ret $RUNAS_ID $RUNAS_GID $RUNAS || {
@@ -6802,12 +6775,13 @@ test_123b () { # statahead(bug 15027)
 run_test 123b "not panic with network error in statahead enqueue (bug 15027)"
 
 test_124a() {
-	[ -z "`lctl get_param -n mdc.*.connect_flags | grep lru_resize`" ] && \
-               skip "no lru resize on server" && return 0
-        local NR=2000
-        mkdir -p $DIR/$tdir || error "failed to create $DIR/$tdir"
+	[ -z "`lctl get_param -n mdc.*.connect_flags | grep lru_resize`" ] &&
+		skip "no lru resize on server" && return 0
 
-        log "create $NR files at $DIR/$tdir"
+	local NR=2000
+	mkdir -p $DIR/$tdir || error "failed to create $DIR/$tdir"
+
+	echo "create $NR files at $DIR/$tdir"
         createmany -o $DIR/$tdir/f $NR ||
                 error "failed to create $NR files in $DIR/$tdir"
 
@@ -6820,10 +6794,10 @@ test_124a() {
                 local PARAM=`echo ${VALUE[0]} | cut -d "=" -f1`
                 LRU_SIZE=$(lctl get_param -n $PARAM)
                 if [ $LRU_SIZE -gt $(default_lru_size) ]; then
-                        NSDIR=$(echo $PARAM | cut -d "." -f1-3)
-						log "NSDIR=$NSDIR"
-                        log "NS=$(basename $NSDIR)"
-                        break
+			NSDIR=$(echo $PARAM | cut -d "." -f1-3)
+			echo "NSDIR=$NSDIR"
+			echo "NS=$(basename $NSDIR)"
+			break
                 fi
         done
 
@@ -6831,7 +6805,7 @@ test_124a() {
                 skip "Not enough cached locks created!"
                 return 0
         fi
-        log "LRU=$LRU_SIZE"
+	echo "LRU=$LRU_SIZE"
 
         local SLEEP=30
 
@@ -6839,7 +6813,7 @@ test_124a() {
         # for 10h. After that locks begin to be killed by client.
         local MAX_HRS=10
         local LIMIT=`lctl get_param -n $NSDIR.pool.limit`
-		log "LIMIT=$LIMIT"
+	echo "LIMIT=$LIMIT"
 
         # Make LVF so higher that sleeping for $SLEEP is enough to _start_
         # killing locks. Some time was spent for creating locks. This means
@@ -6852,15 +6826,15 @@ test_124a() {
         # Use $LRU_SIZE_B here to take into account real number of locks
         # created in the case of CMD, LRU_SIZE_B != $NR in most of cases
         local LRU_SIZE_B=$LRU_SIZE
-        log "LVF=$LVF"
-        local OLD_LVF=`lctl get_param -n $NSDIR.pool.lock_volume_factor`
-		log "OLD_LVF=$OLD_LVF"
+	echo "LVF=$LVF"
+	local OLD_LVF=`lctl get_param -n $NSDIR.pool.lock_volume_factor`
+	echo "OLD_LVF=$OLD_LVF"
         lctl set_param -n $NSDIR.pool.lock_volume_factor $LVF
 
         # Let's make sure that we really have some margin. Client checks
         # cached locks every 10 sec.
         SLEEP=$((SLEEP+20))
-        log "Sleep ${SLEEP} sec"
+	echo "Sleep ${SLEEP} sec"
         local SEC=0
         while ((SEC<$SLEEP)); do
                 echo -n "..."
@@ -6879,9 +6853,9 @@ test_124a() {
                 return
         }
 
-        log "Dropped "$((LRU_SIZE_B-LRU_SIZE_A))" locks in ${SLEEP}s"
-        log "unlink $NR files at $DIR/$tdir"
-        unlinkmany $DIR/$tdir/f $NR
+	echo "Dropped "$((LRU_SIZE_B-LRU_SIZE_A))" locks in ${SLEEP}s"
+	echo "unlink $NR files at $DIR/$tdir"
+	unlinkmany $DIR/$tdir/f $NR
 }
 run_test 124a "lru resize ======================================="
 
