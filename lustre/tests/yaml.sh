@@ -89,7 +89,7 @@ release() {
 
 yml_build_info() {
     TEST_DISTRO=$(release)
-    LUSTRE_VERSION=$(lctl lustre_build_version | awk '/Lustre version:/ {print $3}')
+    LUSTRE_VERSION=$(lustre_build_version)
     LUSTRE_BUILD=${LUSTRE_BUILD_SOURCE:-$(sed 's/-.*//' <<<$LUSTRE_VERSION)}
 
 cat <<EOF
