@@ -336,14 +336,31 @@ check_cpt_number() {
 }
 
 version_code() {
-    # split arguments like "1.8.6-wc3" into "1", "8", "6", "wc3"
-    eval set -- $(tr "[:punct:]" " " <<< $*)
+	# split arguments like "1.8.6-wc3" into "1", "8", "6", "wc3"
+	eval set -- $(tr "[:punct:]" " " <<< $*)
 
-    echo -n "$((($1 << 16) | ($2 << 8) | $3))"
+	echo -n "$((($1 << 16) | ($2 << 8) | $3))"
 }
 
 export LINUX_VERSION=$(uname -r | sed -e "s/[-.]/ /3" -e "s/ .*//")
 export LINUX_VERSION_CODE=$(version_code ${LINUX_VERSION//\./ })
+
+lustre_build_version() {
+	local facet=${1:-client}
+
+	local VER=$(do_facet $facet $LCTL get_param version 2> /dev/null |
+		    awk '/lustre: / { print $2 }')
+	[ -z "$VER" ] &&
+		VER=$(do_facet $facet $LCTL lustre_build_version 2>/dev/null |
+		    awk '/ version: / { print $3; exit; }')
+	sed -e 's/^v//' -e 's/-.*//' <<<$VER
+}
+
+lustre_version_code() {
+#	get_param doesn't work without modules, use lctl version instead
+#	do_facet $1 $LCTL get_param -n version | awk '/^lustre:/ {print $2}'
+	version_code $(lustre_build_version $1)
+}
 
 module_loaded () {
    /sbin/lsmod | grep -q "^\<$1\>"
@@ -2393,13 +2410,7 @@ facet_active() {
 }
 
 facet_active_host() {
-    local facet=$1
-    local active=`facet_active $facet`
-    if [ "$facet" == client ]; then
-        echo $HOSTNAME
-    else
-        echo `facet_host $active`
-    fi
+	facet_host $(facet_active $1)
 }
 
 change_active() {
@@ -2556,11 +2567,11 @@ do_nodes() {
 }
 
 do_facet() {
-    local facet=$1
-    shift
-    local HOST=`facet_active_host $facet`
-    [ -z $HOST ] && echo No host defined for facet ${facet} && exit 1
-    do_node $HOST "$@"
+	local facet=$1
+	shift
+	local HOST=$(facet_active_host $facet)
+	[ -z $HOST ] && echo "No host defined for facet ${facet}" && exit 1
+	do_node $HOST "$@"
 }
 
 # Function: do_facet_random_file $FACET $FILE $SIZE
@@ -4130,7 +4141,7 @@ run_test() {
 
 log() {
     echo "$*"
-    module_loaded lnet || load_modules
+    module_loaded libcfs || load_module ../../libcfs
 
     local MSG="$*"
     # Get rid of '
@@ -4908,16 +4919,6 @@ convert_facet2label() {
 
 get_clientosc_proc_path() {
     echo "${1}-osc-[^M]*"
-}
-
-get_lustre_version () {
-    local facet=${1:-"$SINGLEMDS"}    
-    do_facet $facet $LCTL get_param -n version | awk '/^lustre:/ {print $2}'
-}
-
-lustre_version_code() {
-    local facet=${1:-"$SINGLEMDS"}
-    version_code $(get_lustre_version $1)
 }
 
 # If the 2.0 MDS was mounted on 1.8 device, then the OSC and LOV names

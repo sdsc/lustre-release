@@ -79,17 +79,6 @@ setup() {
 	echo "done"
 }
 
-check_kernel_version() {
-	WANT_VER=$1
-	GOT_VER=$(lctl get_param -n version | awk '/kernel:/ {print $2}')
-	case $GOT_VER in
-	patchless|patchless_client) return 0;;
-	*) [ $GOT_VER -ge $WANT_VER ] && return 0 ;;
-	esac
-	log "test needs at least kernel version $WANT_VER, running $GOT_VER"
-	return 1
-}
-
 if [ "$ONLY" == "cleanup" ]; then
        sh llmountcleanup.sh
        exit 0
@@ -893,7 +882,6 @@ test_24n() {
 run_test 24n "Statting the old file after renaming (Posix rename 2)"
 
 test_24o() {
-	check_kernel_version 37 || return 0
 	test_mkdir -p $DIR/d24o
 	rename_many -s random -v -n 10 $DIR/d24o
 }
@@ -1884,7 +1872,6 @@ test_31d() {
 run_test 31d "remove of open directory ========================="
 
 test_31e() { # bug 2904
-	check_kernel_version 34 || return 0
 	openfilleddirunlink $DIR/d31e || error
 }
 run_test 31e "remove of open non-empty directory ==============="
@@ -3330,7 +3317,6 @@ run_test 46 "dirtying a previously written page ================"
 # test_47 is removed "Device nodes check" is moved to test_28
 
 test_48a() { # bug 2399
-	check_kernel_version 34 || return 0
 	test_mkdir -p $DIR/$tdir
 	cd $DIR/$tdir
 	mv $DIR/$tdir $DIR/d48.new || error "move directory failed"
@@ -3338,11 +3324,9 @@ test_48a() { # bug 2399
 	touch foo || error "'touch foo' failed after recreating cwd"
 	test_mkdir $DIR/$tdir/bar ||
 		     error "'mkdir foo' failed after recreating cwd"
-	if check_kernel_version 44; then
-		touch .foo || error "'touch .foo' failed after recreating cwd"
-		test_mkdir $DIR/$tdir/.bar ||
-			      error "'mkdir .foo' failed after recreating cwd"
-	fi
+	touch .foo || error "'touch .foo' failed after recreating cwd"
+	test_mkdir $DIR/$tdir/.bar ||
+			error "'mkdir .foo' failed after recreating cwd"
 	ls . > /dev/null || error "'ls .' failed after recreating cwd"
 	ls .. > /dev/null || error "'ls ..' failed after removing cwd"
 	cd . || error "'cd .' failed after recreating cwd"
@@ -3354,7 +3338,6 @@ test_48a() { # bug 2399
 run_test 48a "Access renamed working dir (should return errors)="
 
 test_48b() { # bug 2399
-	check_kernel_version 34 || return 0
 	rm -rf $DIR/$tdir
 	test_mkdir -p $DIR/$tdir
 	cd $DIR/$tdir
@@ -3362,11 +3345,16 @@ test_48b() { # bug 2399
 	touch foo && error "'touch foo' worked after removing cwd"
 	test_mkdir $DIR/$tdir/foo &&
 		     error "'mkdir foo' worked after removing cwd"
-	if check_kernel_version 44; then
-		touch .foo && error "'touch .foo' worked after removing cwd"
-		test_mkdir $DIR/$tdir/.foo &&
-			      error "'mkdir .foo' worked after removing cwd"
-	fi
+	touch .foo && error "'touch .foo' worked after removing cwd"
+	test_mkdir $DIR/$tdir/.foo &&
+		      error "'mkdir .foo' worked after removing cwd"
+	mkdir -p $DIR/d48b
+	cd $DIR/d48b
+	rmdir $DIR/d48b || error "remove cwd $DIR/d48b failed"
+	touch foo && error "'touch foo' worked after removing cwd"
+	mkdir foo && error "'mkdir foo' worked after removing cwd"
+	touch .foo && error "'touch .foo' worked after removing cwd"
+	mkdir .foo && error "'mkdir .foo' worked after removing cwd"
 	ls . > /dev/null && error "'ls .' worked after removing cwd"
 	ls .. > /dev/null || error "'ls ..' failed after removing cwd"
 	is_patchless || ( cd . && error "'cd .' worked after removing cwd" )
@@ -3378,7 +3366,6 @@ test_48b() { # bug 2399
 run_test 48b "Access removed working dir (should return errors)="
 
 test_48c() { # bug 2350
-	check_kernel_version 36 || return 0
 	#lctl set_param debug=-1
 	#set -vx
 	rm -rf $DIR/$tdir
@@ -3387,10 +3374,8 @@ test_48c() { # bug 2350
 	$TRACE rmdir $DIR/$tdir/dir || error "remove cwd $DIR/$tdir/dir failed"
 	$TRACE touch foo && error "touch foo worked after removing cwd"
 	$TRACE test_mkdir foo && error "'mkdir foo' worked after removing cwd"
-	if check_kernel_version 44; then
-		touch .foo && error "touch .foo worked after removing cwd"
-		test_mkdir .foo && error "mkdir .foo worked after removing cwd"
-	fi
+	touch .foo && error "touch .foo worked after removing cwd"
+	test_mkdir .foo && error "mkdir .foo worked after removing cwd"
 	$TRACE ls . && error "'ls .' worked after removing cwd"
 	$TRACE ls .. || error "'ls ..' failed after removing cwd"
 	is_patchless || ( $TRACE cd . &&
@@ -3403,7 +3388,6 @@ test_48c() { # bug 2350
 run_test 48c "Access removed working subdir (should return errors)"
 
 test_48d() { # bug 2350
-	check_kernel_version 36 || return 0
 	#lctl set_param debug=-1
 	#set -vx
 	rm -rf $DIR/$tdir
@@ -3413,11 +3397,8 @@ test_48d() { # bug 2350
 	$TRACE rmdir $DIR/$tdir || error "remove parent $DIR/$tdir failed"
 	$TRACE touch foo && error "'touch foo' worked after removing parent"
 	$TRACE test_mkdir foo && error "mkdir foo worked after removing parent"
-	if check_kernel_version 44; then
-		touch .foo && error "'touch .foo' worked after removing parent"
-		test_mkdir .foo &&
-			      error "mkdir .foo worked after removing parent"
-	fi
+	touch .foo && error "'touch .foo' worked after removing parent"
+	test_mkdir .foo && error "mkdir .foo worked after removing parent"
 	$TRACE ls . && error "'ls .' worked after removing parent"
 	$TRACE ls .. && error "'ls ..' worked after removing parent"
 	is_patchless || ( $TRACE cd . &&
@@ -3431,7 +3412,6 @@ test_48d() { # bug 2350
 run_test 48d "Access removed parent subdir (should return errors)"
 
 test_48e() { # bug 4134
-	check_kernel_version 41 || return 0
 	#lctl set_param debug=-1
 	#set -vx
 	rm -rf $DIR/$tdir
@@ -3735,7 +3715,6 @@ test_54d() {
 run_test 54d "fifo device works in lustre ======================"
 
 test_54e() {
-	check_kernel_version 46 || return 0
 	f="$DIR/f54e"
 	string="aaaaaa"
 	cp -aL /dev/console $f
@@ -4871,8 +4850,8 @@ run_test 71 "Running dbench on lustre (don't segment fault) ===="
 
 test_72a() { # bug 5695 - Test that on 2.6 remove_suid works properly
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-	check_kernel_version 43 || return 0
-	[ "$RUNAS_ID" = "$UID" ] && skip_env "RUNAS_ID = UID = $UID -- skipping" && return
+	[ "$RUNAS_ID" = "$UID" ] &&
+		skip_env "RUNAS_ID = UID = $UID -- skipping" && return
 
         # Check that testing environment is properly set up. Skip if not
         FAIL_ON_ERROR=false check_runas_id_ret $RUNAS_ID $RUNAS_GID $RUNAS || {
@@ -7237,10 +7216,10 @@ test_124a() {
                 local PARAM=`echo ${VALUE[0]} | cut -d "=" -f1`
                 LRU_SIZE=$(lctl get_param -n $PARAM)
                 if [ $LRU_SIZE -gt $(default_lru_size) ]; then
-                        NSDIR=$(echo $PARAM | cut -d "." -f1-3)
-						log "NSDIR=$NSDIR"
-                        log "NS=$(basename $NSDIR)"
-                        break
+			NSDIR=$(echo $PARAM | cut -d "." -f1-3)
+			echo "NSDIR=$NSDIR"
+			echo "NS=$(basename $NSDIR)"
+			break
                 fi
         done
 
