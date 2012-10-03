@@ -1239,12 +1239,15 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
 
 existing_lock:
 
-        if (flags & LDLM_FL_HAS_INTENT) {
-                /* In this case, the reply buffer is allocated deep in
-                 * local_lock_enqueue by the policy function. */
-                cookie = req;
-        } else {
-                /* based on the assumption that lvb size never changes during
+	if (flags & LDLM_FL_HAS_INTENT)
+		/* In this case, the reply buffer is allocated deep in
+		 * local_lock_enqueue by the policy function. */
+		cookie = req;
+
+	if ((flags & LDLM_FL_HAS_INTENT) == 0 || ldlm_lvbo_size(lock) != 0) {
+		/* Unlike intent on inodebit locks, a LVB is returned on quota
+		 * intent requests (see RQF_LDLM_INTENT_QUOTA).
+                 * Based on the assumption that lvb size never changes during
                  * resource life time otherwise it need resource->lr_lock's
                  * protection */
 		req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB,
