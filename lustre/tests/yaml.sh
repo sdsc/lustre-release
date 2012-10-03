@@ -89,7 +89,7 @@ release() {
 
 yml_build_info() {
     local TEST_DISTRO=$(release)
-    local LUSTRE_VERSION=$(lctl lustre_build_version | awk '/Lustre version:/ {print $3}')
+    local LUSTRE_VERSION=$(lustre_build_version)
     local LUSTRE_BUILD=${LUSTRE_BUILD_SOURCE:-$(sed 's/-.*//' <<<$LUSTRE_VERSION)}
     local FILE_SYSTEM=$(node_fstypes $(hostname -s))
 

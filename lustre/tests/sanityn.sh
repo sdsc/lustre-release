@@ -2341,8 +2341,9 @@ test_51c() {
 run_test 51c "layout lock: IT_LAYOUT blocked and correct layout can be returned"
 
 test_60() {
-	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
-	{ skip "Need MDS version at least 2.3.0"; return; }
+	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.3.0) ]] &&
+		skip "MDS version $(lustre_build_version) must be >= 2.3.0" &&
+		return
 	# Create a file
 	test_mkdir -p $DIR1/$tdir
 	file1=$DIR1/$tdir/file
