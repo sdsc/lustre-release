@@ -235,6 +235,9 @@ init_test_env() {
             IDENTITY_UPCALL=false
             ;;
     esac
+    USE_OFD=${USE_OFD:-yes}
+    [ "$USE_OFD" = "yes" ] && LOAD_MODULES_REMOTE=true
+
     export LOAD_MODULES_REMOTE=${LOAD_MODULES_REMOTE:-false}
 
     # Paths on remote nodes, if different
