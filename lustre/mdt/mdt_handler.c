@@ -5090,8 +5090,6 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 
         mdt_procfs_fini(m);
 
-	mdt_quota_fini(env, m);
-
         lut_fini(env, &m->mdt_lut);
         mdt_fs_cleanup(env, m);
         upcall_cache_cleanup(m->mdt_identity_cache);
@@ -5102,6 +5100,8 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
                                     d->ld_obd->obd_force);
                 d->ld_obd->obd_namespace = m->mdt_namespace = NULL;
         }
+
+	mdt_quota_fini(env, m);
 
         cfs_free_nidlist(&m->mdt_nosquash_nids);
         if (m->mdt_nosquash_str) {
