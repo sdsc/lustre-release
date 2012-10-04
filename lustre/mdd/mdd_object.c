@@ -1771,6 +1771,133 @@ stop:
         RETURN(rc);
 }
 
+/**
+ * swap layouts between 2 lustre objects
+ */
+static int mdd_swap_layouts(const struct lu_env *env, struct md_object *obj1,
+			    struct md_object *obj2, __u64 flags)
+{
+	struct mdd_object *o1, *o2;
+	const struct lu_fid *fid1, *fid2;
+	struct lu_buf *lmm1_buf = NULL, *lmm2_buf = NULL;
+	struct thandle *handle;
+	struct mdd_device *mdd = mdo2mdd(obj1);
+	int sz, rc, rc1;
+	ENTRY;
+
+	/* first we have to sort the 2 obj, so locking will always
+	 * be in the same order, even in case of 2 concurent swaps */
+	rc = lu_fid_cmp(mdo2fid(md2mdd_obj(obj1)),
+		       mdo2fid(md2mdd_obj(obj2)));
+	/* same fid ? */
+	if (rc)
+		RETURN(-EPERM);
+
+	if (rc > 0) {
+		o1 = md2mdd_obj(obj1);
+		o2 = md2mdd_obj(obj2);
+	} else {
+		o1 = md2mdd_obj(obj2);
+		o2 = md2mdd_obj(obj1);
+	}
+	fid1 = mdo2fid(o1);
+	fid2 = mdo2fid(o2);
+
+	if (!fid_is_norm(fid1) || !fid_is_norm(fid2) ||
+	    (mdd_object_type(o1) != mdd_object_type(o2)))
+		RETURN(-EPERM);
+
+	sz = mdd_lov_mdsize(env, mdd);
+	OBD_ALLOC_PTR(lmm1_buf);
+	if (!lmm1_buf)
+		GOTO(out, rc = -ENOMEM);
+	OBD_ALLOC(lmm1_buf->lb_buf, sz);
+	if (!lmm1_buf->lb_buf)
+		GOTO(out, rc = -ENOMEM);
+	lmm1_buf->lb_len = sz;
+
+	OBD_ALLOC_PTR(lmm2_buf);
+	if (!lmm2_buf)
+		GOTO(out, rc = -ENOMEM);
+	OBD_ALLOC(lmm2_buf->lb_buf, sz);
+	if (!lmm2_buf->lb_buf)
+		GOTO(out, rc = -ENOMEM);
+	lmm2_buf->lb_len = sz;
+
+	handle = mdd_trans_create(env, mdd);
+	if (IS_ERR(handle))
+		GOTO(out, rc = PTR_ERR(handle));
+
+	/* we need to sort obj always in the same order */
+	mdd_write_lock(env, o1, MOR_TGT_CHILD);
+	mdd_write_lock(env, o2, MOR_TGT_CHILD);
+
+	rc = mdo_xattr_get(env, o1, lmm1_buf, XATTR_NAME_LOV,
+	                   mdd_object_capa(env, o1));
+	if (rc < 0)
+		GOTO(stop, rc);
+
+	rc = mdo_xattr_get(env, o2, lmm2_buf, XATTR_NAME_LOV,
+	                   mdd_object_capa(env, o2));
+	if (rc < 0)
+		GOTO(stop, rc);
+
+	rc = mdd_declare_xattr_set(env, mdd, o1, lmm2_buf, XATTR_NAME_LOV,
+				   handle);
+	if (rc)
+		GOTO(stop, rc);
+
+	rc = mdd_declare_xattr_set(env, mdd, o2, lmm1_buf, XATTR_NAME_LOV,
+				   handle);
+	if (rc)
+		GOTO(stop, rc);
+
+	rc = mdd_trans_start(env, mdd, handle);
+	if (rc)
+		GOTO(stop, rc);
+
+	rc = mdo_xattr_set(env, o1, lmm2_buf, XATTR_NAME_LOV, 0,handle,
+			   mdd_object_capa(env, o1));
+	if (rc)
+		GOTO(stop, rc);
+
+	rc = mdo_xattr_set(env, o2, lmm1_buf, XATTR_NAME_LOV, 0,handle,
+			   mdd_object_capa(env, o2));
+	if (rc) {
+		/* failure on o2, but o1 was done, so we have to rollback o1 */
+		rc1 = mdo_xattr_set(env, o1, lmm1_buf, XATTR_NAME_LOV, 0,handle,
+			            mdd_object_capa(env, o1));
+		if (rc1) {
+			/* very bad day */
+			CERROR("Unable to rollback after swap layouts failure "
+			       "between "DFID" and "DFID
+			       " (rc: 1st=%d 2nd=%d)\n",
+			       PFID(fid1), PFID(fid2), rc, rc1);
+		}
+		GOTO(stop, rc);
+	}
+
+	EXIT;
+
+stop:
+	mdd_write_unlock(env, o2);
+	mdd_write_unlock(env, o1);
+	mdd_trans_stop(env, mdd, rc, handle);
+
+out:
+	if (lmm1_buf && lmm1_buf->lb_buf)
+		OBD_FREE(lmm1_buf->lb_buf, sz);
+	if (lmm1_buf)
+		OBD_FREE_PTR(lmm1_buf);
+
+	if (lmm2_buf && lmm2_buf->lb_buf)
+		OBD_FREE(lmm2_buf->lb_buf, sz);
+	if (lmm2_buf)
+		OBD_FREE_PTR(lmm2_buf);
+
+	return rc;
+}
+
 void mdd_object_make_hint(const struct lu_env *env, struct mdd_object *parent,
 		struct mdd_object *child, struct lu_attr *attr)
 {
@@ -2259,19 +2386,20 @@ static int mdd_object_sync(const struct lu_env *env, struct md_object *obj)
 }
 
 const struct md_object_operations mdd_obj_ops = {
-        .moo_permission    = mdd_permission,
-        .moo_attr_get      = mdd_attr_get,
-        .moo_attr_set      = mdd_attr_set,
-        .moo_xattr_get     = mdd_xattr_get,
-        .moo_xattr_set     = mdd_xattr_set,
-        .moo_xattr_list    = mdd_xattr_list,
-        .moo_xattr_del     = mdd_xattr_del,
-        .moo_open          = mdd_open,
-        .moo_close         = mdd_close,
-        .moo_readpage      = mdd_readpage,
-        .moo_readlink      = mdd_readlink,
-        .moo_changelog     = mdd_changelog,
-        .moo_capa_get      = mdd_capa_get,
-        .moo_object_sync   = mdd_object_sync,
-        .moo_path          = mdd_path,
+	.moo_permission		= mdd_permission,
+	.moo_attr_get		= mdd_attr_get,
+	.moo_attr_set		= mdd_attr_set,
+	.moo_xattr_get		= mdd_xattr_get,
+	.moo_xattr_set		= mdd_xattr_set,
+	.moo_xattr_list		= mdd_xattr_list,
+	.moo_xattr_del		= mdd_xattr_del,
+	.moo_swap_layouts	= mdd_swap_layouts,
+	.moo_open		= mdd_open,
+	.moo_close		= mdd_close,
+	.moo_readpage		= mdd_readpage,
+	.moo_readlink		= mdd_readlink,
+	.moo_changelog		= mdd_changelog,
+	.moo_capa_get		= mdd_capa_get,
+	.moo_object_sync	= mdd_object_sync,
+	.moo_path		= mdd_path,
 };
