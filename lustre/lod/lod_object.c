@@ -509,9 +509,10 @@ static int lod_xattr_set(const struct lu_env *env,
 			 const char *name, int fl, struct thandle *th,
 			 struct lustre_capa *capa)
 {
-	struct dt_object *next = dt_object_child(dt);
-	__u32		  attr;
-	int		  rc;
+	struct lod_thread_info	*info = lod_env_info(env);
+	struct dt_object	*next = dt_object_child(dt);
+	__u32			 attr;
+	int			 rc;
 	ENTRY;
 
 	attr = dt->do_lu.lo_header->loh_attr & S_IFMT;
@@ -523,12 +524,41 @@ static int lod_xattr_set(const struct lu_env *env,
 			rc = dt_xattr_set(env, next, buf, name, fl, th, capa);
 
 	} else if (S_ISREG(attr) && !strcmp(name, XATTR_NAME_LOV)) {
-		/*
-		 * XXX: check striping match what we already have
-		 * during req replay, declare_xattr_set() defines striping,
-		 * then create() does the work
-		 */
-		rc = lod_striping_create(env, dt, NULL, NULL, th);
+		/* in case of lov EA swap, just set it
+		 * if not, it is a replay so check striping match what we
+		 * already have during req replay, declare_xattr_set()
+		 * defines striping, then create() does the work
+		*/
+		struct lod_object	*lo = lod_dt_obj(dt);
+		struct lov_mds_md_v1	*v1;
+		struct lov_mds_md_v3	*v3;
+		__u64			obj_id;
+		const struct lu_fid	*fid;
+		bool			 same = true;
+
+		/* reviewer: is there better way to find replay ?
+		 * is no lmm as arg enough ? */
+		v1 = (struct lov_mds_md_v1 *)buf->lb_buf;
+		v3 = (struct lov_mds_md_v3 *)buf->lb_buf;
+		if (v1) {
+			if (v1->lmm_magic == LOV_MAGIC_V3)
+				obj_id = v1->lmm_objects[0].l_object_id;
+			else
+				obj_id = v3->lmm_objects[0].l_object_id;
+
+			if (v1->lmm_stripe_count != lo->ldo_stripenr) {
+				same = false;
+			} else {
+				fid = lu_object_fid(&lo->ldo_stripe[0]->do_lu);
+				fid_ostid_pack(fid, &info->lti_ostid);
+				if (obj_id != info->lti_ostid.oi_id)
+					same = false;
+			}
+		}
+		if (!same)
+			rc = dt_xattr_set(env, next, buf, name, fl, th, capa);
+		else
+			rc = lod_striping_create(env, dt, NULL, NULL, th);
 		RETURN(rc);
 	} else {
 		/*
