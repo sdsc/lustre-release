@@ -317,6 +317,18 @@ static int cml_xattr_del(const struct lu_env *env, struct md_object *mo,
         RETURN(rc);
 }
 
+/** Call mdo_swap_layouts() on next layer. All objects are local. */
+static int cml_swap_layouts(const struct lu_env *env, struct md_object *mo1,
+			    struct md_object *mo2, __u64 flags)
+{
+	int rc;
+	ENTRY;
+
+	rc = mo_swap_layouts(env, md_object_next(mo1), md_object_next(mo2),
+			     flags);
+	RETURN(rc);
+}
+
 static int cml_ref_add(const struct lu_env *env, struct md_object *mo,
                        const struct md_attr *ma)
 {
@@ -408,26 +420,27 @@ static int cml_object_sync(const struct lu_env *env, struct md_object *mo)
 }
 
 static const struct md_object_operations cml_mo_ops = {
-        .moo_permission    = cml_permission,
-        .moo_attr_get      = cml_attr_get,
-        .moo_attr_set      = cml_attr_set,
-        .moo_xattr_get     = cml_xattr_get,
-        .moo_xattr_list    = cml_xattr_list,
-        .moo_xattr_set     = cml_xattr_set,
-        .moo_xattr_del     = cml_xattr_del,
-        .moo_object_create = cml_object_create,
-        .moo_ref_add       = cml_ref_add,
-        .moo_ref_del       = cml_ref_del,
-        .moo_open          = cml_open,
-        .moo_close         = cml_close,
-        .moo_readpage      = cml_readpage,
-        .moo_readlink      = cml_readlink,
-        .moo_changelog     = cml_changelog,
-        .moo_capa_get      = cml_capa_get,
-        .moo_object_sync   = cml_object_sync,
-        .moo_path          = cml_path,
-        .moo_file_lock     = cml_file_lock,
-        .moo_file_unlock   = cml_file_unlock,
+	.moo_permission		= cml_permission,
+	.moo_attr_get		= cml_attr_get,
+	.moo_attr_set		= cml_attr_set,
+	.moo_xattr_get		= cml_xattr_get,
+	.moo_xattr_list		= cml_xattr_list,
+	.moo_xattr_set		= cml_xattr_set,
+	.moo_xattr_del		= cml_xattr_del,
+	.moo_swap_layouts	= cml_swap_layouts,
+	.moo_object_create	= cml_object_create,
+	.moo_ref_add		= cml_ref_add,
+	.moo_ref_del		= cml_ref_del,
+	.moo_open		= cml_open,
+	.moo_close		= cml_close,
+	.moo_readpage		= cml_readpage,
+	.moo_readlink		= cml_readlink,
+	.moo_changelog		= cml_changelog,
+	.moo_capa_get		= cml_capa_get,
+	.moo_object_sync	= cml_object_sync,
+	.moo_path		= cml_path,
+	.moo_file_lock		= cml_file_lock,
+	.moo_file_unlock	= cml_file_unlock,
 };
 /** @} */
 
@@ -1074,6 +1087,14 @@ static int cmr_xattr_del(const struct lu_env *env, struct md_object *mo,
         return -EFAULT;
 }
 
+static int cmr_swap_layouts(const struct lu_env *env, struct md_object *mo1,
+			    struct md_object *mo2, __u64 flags)
+{
+	ENTRY;
+	RETURN(-EREMOTE);
+}
+
+
 static int cmr_ref_add(const struct lu_env *env, struct md_object *mo,
                        const struct md_attr *ma)
 {
@@ -1142,26 +1163,27 @@ static int cmr_lum_lmm_cmp(const struct lu_env *env, struct md_object *mo_c,
 
 /** Set of md_object_operations for cmr. */
 static const struct md_object_operations cmr_mo_ops = {
-        .moo_permission    = cmr_permission,
-        .moo_attr_get      = cmr_attr_get,
-        .moo_attr_set      = cmr_attr_set,
-        .moo_xattr_get     = cmr_xattr_get,
-        .moo_xattr_set     = cmr_xattr_set,
-        .moo_xattr_list    = cmr_xattr_list,
-        .moo_xattr_del     = cmr_xattr_del,
-        .moo_object_create = cmr_object_create,
-        .moo_ref_add       = cmr_ref_add,
-        .moo_ref_del       = cmr_ref_del,
-        .moo_open          = cmr_open,
-        .moo_close         = cmr_close,
-        .moo_readpage      = cmr_readpage,
-        .moo_readlink      = cmr_readlink,
-        .moo_changelog     = cmr_changelog,
-        .moo_capa_get      = cmr_capa_get,
-        .moo_object_sync   = cmr_object_sync,
-        .moo_path          = cmr_path,
-        .moo_file_lock     = cmr_file_lock,
-        .moo_file_unlock   = cmr_file_unlock,
+	.moo_permission		= cmr_permission,
+	.moo_attr_get		= cmr_attr_get,
+	.moo_attr_set		= cmr_attr_set,
+	.moo_xattr_get		= cmr_xattr_get,
+	.moo_xattr_set		= cmr_xattr_set,
+	.moo_xattr_list		= cmr_xattr_list,
+	.moo_xattr_del		= cmr_xattr_del,
+	.moo_swap_layouts	= cmr_swap_layouts,
+	.moo_object_create	= cmr_object_create,
+	.moo_ref_add		= cmr_ref_add,
+	.moo_ref_del		= cmr_ref_del,
+	.moo_open		= cmr_open,
+	.moo_close		= cmr_close,
+	.moo_readpage		= cmr_readpage,
+	.moo_readlink		= cmr_readlink,
+	.moo_changelog		= cmr_changelog,
+	.moo_capa_get		= cmr_capa_get,
+	.moo_object_sync	= cmr_object_sync,
+	.moo_path		= cmr_path,
+	.moo_file_lock		= cmr_file_lock,
+	.moo_file_unlock	= cmr_file_unlock,
 };
 /** @} */
 
