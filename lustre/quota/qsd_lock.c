@@ -227,10 +227,10 @@ static int qsd_glb_glimpse_ast(struct ldlm_lock *lock, void *data)
 		/* valid race */
 		GOTO(out, rc = -ELDLM_NO_LOCK_DATA);
 
-	LCONSOLE_INFO("%s: glimpse on glb quota locks, id:"LPU64" ver:"LPU64
-		      " hard:" LPU64" soft:"LPU64"\n", qqi->qqi_qsd->qsd_svname,
-		      desc->gl_id.qid_uid, desc->gl_ver, desc->gl_hardlimit,
-		      desc->gl_softlimit);
+	CDEBUG(D_QUOTA, "%s: glimpse on glb quota locks, id:"LPU64" ver:"LPU64
+	       " hard:" LPU64" soft:"LPU64"\n", qqi->qqi_qsd->qsd_svname,
+	       desc->gl_id.qid_uid, desc->gl_ver, desc->gl_hardlimit,
+	       desc->gl_softlimit);
 
 	if (desc->gl_ver == 0) {
 		CERROR("%s: invalid global index version "LPU64"\n",
