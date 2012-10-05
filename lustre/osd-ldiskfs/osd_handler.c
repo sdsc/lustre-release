@@ -380,7 +380,7 @@ osd_iget_verify(struct osd_thread_info *info, struct osd_device *dev,
 		CDEBUG(D_LFSCK, "inconsistent obj: "DFID", %lu, "DFID"\n",
 		       PFID(&lma->lma_self_fid), inode->i_ino, PFID(fid));
 		iput(inode);
-		return ERR_PTR(EREMCHG);
+		return ERR_PTR(-EREMCHG);
 	}
 	return inode;
 }
@@ -416,7 +416,7 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 	if (OBD_FAIL_CHECK(OBD_FAIL_OST_ENOENT))
 		RETURN(-ENOENT);
 
-	if (fid_is_norm(fid)) {
+	if (0) { // if (fid_is_norm(fid)) {
 		/* Search order: 1. per-thread cache. */
 		if (lu_fid_eq(fid, &oic->oic_fid)) {
 			goto iget;
@@ -2340,7 +2340,8 @@ static int osd_object_ref_del(const struct lu_env *env, struct dt_object *dt,
         OSD_EXEC_OP(th, ref_del);
 
         cfs_spin_lock(&obj->oo_guard);
-        LASSERT(inode->i_nlink > 0);
+        LASSERTF(inode->i_nlink > 0, "inode: %lu, isdir: %d\n",
+		 inode->i_ino, S_ISDIR(inode->i_mode));
         inode->i_nlink--;
         /* If this is/was a many-subdir directory (nlink > LDISKFS_LINK_MAX)
          * then the nlink count is 1. Don't let it be set to 0 or the directory
@@ -3213,6 +3214,13 @@ static int __osd_ea_add_rec(struct osd_thread_info *info,
                 child->d_fsdata = NULL;
         }
         rc = osd_ldiskfs_add_entry(oth->ot_handle, child, cinode, hlock);
+	if (rc == -EIO) {
+		CERROR("ldiskfs add entry failed : parent (%p: %p) FID "
+		       DFID", ino: %lu, lock %p\n",
+		       pobj, pobj->oo_hl_head,
+		       PFID(lu_object_fid(&pobj->oo_dt.do_lu)),
+		       pobj->oo_inode->i_ino, hlock);
+	}
 
         RETURN(rc);
 }
@@ -4121,6 +4129,7 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 	struct osd_scrub       *scrub = &dev->od_scrub;
 	struct scrub_file      *sf    = &scrub->os_file;
 	struct osd_thread_info *oti   = osd_oti_get(env);
+	struct osd_inode_id    *id    = &oti->oti_id;
 	struct osd_idmap_cache *oic   = &oti->oti_cache;
 	struct lu_fid	       *fid   = &it->oie_dirent->oied_fid;
 	struct lu_dirent       *lde   = (struct lu_dirent *)dtrec;
@@ -4129,11 +4138,11 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 	ENTRY;
 
 	if (!fid_is_sane(fid)) {
-		rc = osd_ea_fid_get(env, obj, ino, fid, &oic->oic_lid);
+		rc = osd_ea_fid_get(env, obj, ino, fid, id);
 		if (rc != 0)
 			RETURN(rc);
 	} else {
-		osd_id_gen(&oic->oic_lid, ino, OSD_OII_NOGEN);
+		osd_id_gen(id, ino, OSD_OII_NOGEN);
 	}
 
 	osd_it_pack_dirent(lde, fid, it->oie_dirent->oied_off,
@@ -4145,6 +4154,7 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 		RETURN(0);
 	}
 
+	oic->oic_lid = *id;
 	oic->oic_fid = *fid;
 	if ((scrub->os_pos_current <= ino) &&
 	    (sf->sf_flags & SF_INCONSISTENT ||
