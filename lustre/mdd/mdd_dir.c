@@ -2077,6 +2077,7 @@ static int mdd_rename(const struct lu_env *env,
         const struct lu_fid *tpobj_fid = mdo2fid(mdd_tpobj);
         const struct lu_fid *spobj_fid = mdo2fid(mdd_spobj);
         int is_dir;
+	int tobj_ref = 0;
 	unsigned cl_flags = 0;
         int rc, rc2;
         ENTRY;
@@ -2213,31 +2214,42 @@ static int mdd_rename(const struct lu_env *env,
                 /* Remove dot reference. */
 		if (S_ISDIR(tg_attr->la_mode))
                         mdo_ref_del(env, mdd_tobj, handle);
+		tobj_ref = 1;
 
 		/* fetch updated nlink */
 		rc = mdd_la_get(env, mdd_tobj, tg_attr,
 				mdd_object_capa(env, mdd_tobj));
-		if (rc)
+		if (rc != 0) {
+			mdd_write_unlock(env, mdd_tobj);
+			CERROR("Failed to get nlink for tobj: %d\n", rc);
 			GOTO(fixup_tpobj, rc);
+		}
 
-                la->la_valid = LA_CTIME;
-                rc = mdd_attr_check_set_internal(env, mdd_tobj, la, handle, 0);
-                if (rc)
-                        GOTO(fixup_tpobj, rc);
+		la->la_valid = LA_CTIME;
+		rc = mdd_attr_check_set_internal(env, mdd_tobj, la, handle, 0);
+		if (rc != 0) {
+			mdd_write_unlock(env, mdd_tobj);
+			CERROR("Failed to set ctime for tobj: %d\n", rc);
+			GOTO(fixup_tpobj, rc);
+		}
 
 		/* XXX: this transfer to ma will be removed with LOD/OSP */
 		ma->ma_attr = *tg_attr;
 		ma->ma_valid |= MA_INODE;
-                rc = mdd_finish_unlink(env, mdd_tobj, ma, handle);
-                mdd_write_unlock(env, mdd_tobj);
-                if (rc)
-                        GOTO(fixup_tpobj, rc);
+		rc = mdd_finish_unlink(env, mdd_tobj, ma, handle);
+		mdd_write_unlock(env, mdd_tobj);
+		if (rc != 0) {
+			CERROR("Failed to unlink tobj: %d\n", rc);
+			GOTO(fixup_tpobj, rc);
+		}
 
 		/* fetch updated nlink */
 		rc = mdd_la_get(env, mdd_tobj, tg_attr,
 				mdd_object_capa(env, mdd_tobj));
-		if (rc)
+		if (rc != 0) {
+			CERROR("Failed to get nlink for tobj: %d\n", rc);
 			GOTO(fixup_tpobj, rc);
+		}
 		/* XXX: this transfer to ma will be removed with LOD/OSP */
 		ma->ma_attr = *tg_attr;
 		ma->ma_valid |= MA_INODE;
@@ -2282,6 +2294,14 @@ fixup_tpobj:
 
                 if (mdd_tobj && mdd_object_exists(mdd_tobj) &&
                     !mdd_is_dead_obj(mdd_tobj)) {
+			if (tobj_ref) {
+				mdd_write_lock(env, mdd_tobj, MOR_TGT_CHILD);
+				mdo_ref_add(env, mdd_tobj, handle);
+				if (is_dir)
+					mdo_ref_add(env, mdd_tobj, handle);
+				mdd_write_unlock(env, mdd_tobj);
+			}
+
                         rc2 = __mdd_index_insert(env, mdd_tpobj,
                                          mdo2fid(mdd_tobj), tname,
                                          is_dir, handle,
