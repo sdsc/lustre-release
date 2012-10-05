@@ -366,12 +366,10 @@ osd_iget_verify(struct osd_thread_info *info, struct osd_device *dev,
 		return inode;
 
 	rc = osd_get_lma(inode, &info->oti_obj_dentry, lma);
+	if (rc == -ENODATA)
+		return inode;
+
 	if (rc != 0) {
-		if (rc == -ENODATA) {
-			CDEBUG(D_LFSCK, "inconsistent obj: NULL, %lu, "DFID"\n",
-			       inode->i_ino, PFID(fid));
-			rc = -EREMCHG;
-		}
 		iput(inode);
 		return ERR_PTR(rc);
 	}
@@ -380,7 +378,7 @@ osd_iget_verify(struct osd_thread_info *info, struct osd_device *dev,
 		CDEBUG(D_LFSCK, "inconsistent obj: "DFID", %lu, "DFID"\n",
 		       PFID(&lma->lma_self_fid), inode->i_ino, PFID(fid));
 		iput(inode);
-		return ERR_PTR(EREMCHG);
+		return ERR_PTR(-EREMCHG);
 	}
 	return inode;
 }
@@ -411,25 +409,26 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 	info = osd_oti_get(env);
 	LASSERT(info);
 	oic = &info->oti_cache;
-	id  = &oic->oic_lid;
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_OST_ENOENT))
 		RETURN(-ENOENT);
 
-	if (fid_is_norm(fid)) {
-		/* Search order: 1. per-thread cache. */
-		if (lu_fid_eq(fid, &oic->oic_fid)) {
-			goto iget;
-		} else if (!cfs_list_empty(&scrub->os_inconsistent_items)) {
-			/* Search order: 2. OI scrub pending list. */
-			result = osd_oii_lookup(dev, fid, id);
-			if (result == 0)
-				goto iget;
-		}
-
-		if (sf->sf_flags & SF_INCONSISTENT)
-			verify = 1;
+	/* Search order: 1. per-thread cache. */
+	if (lu_fid_eq(fid, &oic->oic_fid)) {
+		id = &oic->oic_lid;
+		goto iget;
 	}
+
+	id = &info->oti_id;
+	if (!cfs_list_empty(&scrub->os_inconsistent_items)) {
+		/* Search order: 2. OI scrub pending list. */
+		result = osd_oii_lookup(dev, fid, id);
+		if (result == 0)
+			goto iget;
+	}
+
+	if (sf->sf_flags & SF_INCONSISTENT)
+		verify = 1;
 
 	/*
 	 * Objects are created as locking anchors or place holders for objects
@@ -470,7 +469,7 @@ iget:
 trigger:
 			if (thread_is_running(&scrub->os_thread)) {
 				result = -EINPROGRESS;
-			} else if (!scrub->os_no_scrub) {
+			} else if (!dev->od_noscrub) {
 				result = osd_scrub_start(dev);
 				LCONSOLE_ERROR("%.16s: trigger OI scrub by RPC "
 					       "for "DFID", rc = %d [1]\n",
@@ -2340,7 +2339,8 @@ static int osd_object_ref_del(const struct lu_env *env, struct dt_object *dt,
         OSD_EXEC_OP(th, ref_del);
 
         cfs_spin_lock(&obj->oo_guard);
-        LASSERT(inode->i_nlink > 0);
+        LASSERTF(inode->i_nlink > 0, "inode: %lu, isdir: %d\n",
+		 inode->i_ino, S_ISDIR(inode->i_mode));
         inode->i_nlink--;
         /* If this is/was a many-subdir directory (nlink > LDISKFS_LINK_MAX)
          * then the nlink count is 1. Don't let it be set to 0 or the directory
@@ -3213,6 +3213,13 @@ static int __osd_ea_add_rec(struct osd_thread_info *info,
                 child->d_fsdata = NULL;
         }
         rc = osd_ldiskfs_add_entry(oth->ot_handle, child, cinode, hlock);
+	if (rc == -EIO) {
+		CERROR("ldiskfs add entry failed : parent (%p: %p) FID "
+		       DFID", ino: %lu, lock %p\n",
+		       pobj, pobj->oo_hl_head,
+		       PFID(lu_object_fid(&pobj->oo_dt.do_lu)),
+		       pobj->oo_inode->i_ino, hlock);
+	}
 
         RETURN(rc);
 }
@@ -3338,6 +3345,9 @@ osd_consistency_check(struct osd_thread_info *oti, struct osd_device *dev,
 	int		     rc;
 	ENTRY;
 
+	if (!fid_is_norm(fid) && !fid_is_igif(fid))
+		RETURN(0);
+
 again:
 	rc = osd_oi_lookup(oti, dev, fid, id);
 	if (rc != 0 && rc != -ENOENT)
@@ -3358,7 +3368,7 @@ again:
 		RETURN(rc);
 	}
 
-	if (!scrub->os_no_scrub && ++once == 1) {
+	if (!dev->od_noscrub && ++once == 1) {
 		CDEBUG(D_LFSCK, "Trigger OI scrub by RPC for "DFID"\n",
 		       PFID(fid));
 		rc = osd_scrub_start(dev);
@@ -3370,7 +3380,7 @@ again:
 			goto again;
 	}
 
-	RETURN(rc = -EREMCHG);
+	RETURN(0);
 }
 
 /**
@@ -3423,7 +3433,7 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
 			rc = osd_ea_fid_get(env, obj, ino, fid, &oic->oic_lid);
 		else
 			osd_id_gen(&oic->oic_lid, ino, OSD_OII_NOGEN);
-		if (rc != 0 || !fid_is_norm(fid)) {
+		if (rc != 0) {
 			fid_zero(&oic->oic_fid);
 			GOTO(out, rc);
 		}
@@ -3433,7 +3443,7 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
 		    (sf->sf_flags & SF_INCONSISTENT ||
 		     ldiskfs_test_bit(osd_oi_fid2idx(dev, fid),
 				      sf->sf_oi_bitmap)))
-			rc = osd_consistency_check(oti, dev, oic);
+			osd_consistency_check(oti, dev, oic);
 	} else {
 		rc = -ENOENT;
 	}
@@ -4121,6 +4131,7 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 	struct osd_scrub       *scrub = &dev->od_scrub;
 	struct scrub_file      *sf    = &scrub->os_file;
 	struct osd_thread_info *oti   = osd_oti_get(env);
+	struct osd_inode_id    *id    = &oti->oti_id;
 	struct osd_idmap_cache *oic   = &oti->oti_cache;
 	struct lu_fid	       *fid   = &it->oie_dirent->oied_fid;
 	struct lu_dirent       *lde   = (struct lu_dirent *)dtrec;
@@ -4129,27 +4140,24 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 	ENTRY;
 
 	if (!fid_is_sane(fid)) {
-		rc = osd_ea_fid_get(env, obj, ino, fid, &oic->oic_lid);
+		rc = osd_ea_fid_get(env, obj, ino, fid, id);
 		if (rc != 0)
 			RETURN(rc);
 	} else {
-		osd_id_gen(&oic->oic_lid, ino, OSD_OII_NOGEN);
+		osd_id_gen(id, ino, OSD_OII_NOGEN);
 	}
 
 	osd_it_pack_dirent(lde, fid, it->oie_dirent->oied_off,
 			   it->oie_dirent->oied_name,
 			   it->oie_dirent->oied_namelen,
 			   it->oie_dirent->oied_type, attr);
-	if (!fid_is_norm(fid)) {
-		fid_zero(&oic->oic_fid);
-		RETURN(0);
-	}
 
+	oic->oic_lid = *id;
 	oic->oic_fid = *fid;
 	if ((scrub->os_pos_current <= ino) &&
 	    (sf->sf_flags & SF_INCONSISTENT ||
 	     ldiskfs_test_bit(osd_oi_fid2idx(dev, fid), sf->sf_oi_bitmap)))
-		rc = osd_consistency_check(oti, dev, oic);
+		osd_consistency_check(oti, dev, oic);
 
 	RETURN(rc);
 }
@@ -4219,7 +4227,6 @@ static int osd_index_ea_lookup(const struct lu_env *env, struct dt_object *dt,
                 return -EACCES;
 
         rc = osd_ea_lookup_rec(env, obj, rec, key);
-
         if (rc == 0)
                 rc = +1;
         RETURN(rc);
@@ -4374,6 +4381,9 @@ static int osd_mount(const struct lu_env *env,
 
         lsi = s2lsi(lmi->lmi_sb);
         ldd = lsi->lsi_ldd;
+
+	if (get_mount_flags(lmi->lmi_sb) & LMD_FLG_NOSCRUB)
+		o->od_noscrub = 1;
 
         if (ldd->ldd_flags & LDD_F_IAM_DIR) {
                 o->od_iop_mode = 0;
