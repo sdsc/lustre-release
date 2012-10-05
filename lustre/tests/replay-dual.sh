@@ -576,7 +576,7 @@ run_test 21b "commit on sharing, two clients"
 
 # end commit on sharing tests 
 
-complete $(basename $0) $SECONDS
+complete $SECONDS
 SLEEP=$((`date +%s` - $NOW))
 [ $SLEEP -lt $TIMEOUT ] && sleep $SLEEP
 [ "$MOUNTED2" = yes ] && zconf_umount $HOSTNAME $MOUNT2 || true
