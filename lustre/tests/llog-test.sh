@@ -103,4 +103,4 @@ run_test 3 "Remove testset"
 
 equals_msg test complete, cleaning up
 FORCE=--force $CLEANUP
-echo "$0: completed"
+echo "$TESTSUITE: completed"
