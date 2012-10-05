@@ -809,9 +809,9 @@ static int ost_brw_read(struct ptlrpc_request *req, struct obd_trans_info *oti)
                 nob += page_rc;
                 if (page_rc != 0) {             /* some data! */
                         LASSERT (local_nb[i].page != NULL);
-                        ptlrpc_prep_bulk_page(desc, local_nb[i].page,
-					      local_nb[i].lnb_page_offset,
-                                              page_rc);
+			ptlrpc_prep_bulk_page_nopin(desc, local_nb[i].page,
+						    local_nb[i].lnb_page_offset,
+						    page_rc);
                 }
 
                 if (page_rc != local_nb[i].len) { /* short read */
@@ -859,7 +859,7 @@ out_tls:
         ost_tls_put(req);
 out_bulk:
         if (desc && !CFS_FAIL_PRECHECK(OBD_FAIL_PTLRPC_CLIENT_BULK_CB2))
-                ptlrpc_free_bulk(desc);
+		ptlrpc_free_bulk_nopin(desc);
 out:
         LASSERT(rc <= 0);
         if (rc == 0) {
@@ -1043,9 +1043,9 @@ static int ost_brw_write(struct ptlrpc_request *req, struct obd_trans_info *oti)
         /* NB Having prepped, we must commit... */
 
         for (i = 0; i < npages; i++)
-                ptlrpc_prep_bulk_page(desc, local_nb[i].page,
-				      local_nb[i].lnb_page_offset,
-                                      local_nb[i].len);
+		ptlrpc_prep_bulk_page_nopin(desc, local_nb[i].page,
+					    local_nb[i].lnb_page_offset,
+					    local_nb[i].len);
 
         rc = sptlrpc_svc_prep_bulk(req, desc);
         if (rc != 0)
@@ -1168,7 +1168,7 @@ out_tls:
         ost_tls_put(req);
 out_bulk:
         if (desc)
-                ptlrpc_free_bulk(desc);
+		ptlrpc_free_bulk_nopin(desc);
 out:
         if (rc == 0) {
                 oti_to_request(oti, req);
