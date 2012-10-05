@@ -1074,6 +1074,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
         struct mdd_device *mdd = mdo2mdd(pobj);
         struct dynlock_handle *dlh;
         struct thandle    *handle;
+        struct lu_attr *la_tmp = &mdd_env_info(env)->mti_la;
 #ifdef HAVE_QUOTA_SUPPORT
         struct obd_device *obd = mdd->mdd_obd_dev;
         struct mds_obd *mds = &obd->u.mds;
@@ -1115,6 +1116,17 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
         if (rc)
                 GOTO(cleanup, rc);
 
+       rc = mdd_la_get(env, mdd_cobj, la_tmp, BYPASS_CAPA);
+       if (rc == 0) {
+               if (la_tmp->la_nlink == 0) {
+                       CERROR("FID "DFID" nlink is 0, valid "LPU64" mode %u"
+                              "name %s flags %x mod_flag %lx\n",
+                              PFID(mdo2fid(mdd_cobj)), la_tmp->la_valid,
+                               la_tmp->la_mode, name, la_tmp->la_flags,
+                               mdd_cobj->mod_flags);
+                       LBUG();
+               }
+       }
 	rc = mdo_ref_del(env, mdd_cobj, handle);
 	if (rc != 0) {
 		__mdd_index_insert_only(env, mdd_pobj, mdo2fid(mdd_cobj),
@@ -2532,6 +2544,7 @@ static int mdd_rename(const struct lu_env *env,
         const struct lu_fid *tpobj_fid = mdo2fid(mdd_tpobj);
         const struct lu_fid *spobj_fid = mdo2fid(mdd_spobj);
         int is_dir;
+	int tobj_ref = 0;
 	unsigned cl_flags = 0;
         int rc, rc2;
 
@@ -2695,16 +2708,17 @@ static int mdd_rename(const struct lu_env *env,
                 /* Remove dot reference. */
                 if (is_dir)
                         mdo_ref_del(env, mdd_tobj, handle);
+		tobj_ref = 1;
 
-                la->la_valid = LA_CTIME;
-                rc = mdd_attr_check_set_internal(env, mdd_tobj, la, handle, 0);
-                if (rc)
-                        GOTO(fixup_tpobj, rc);
+		la->la_valid = LA_CTIME;
+		rc = mdd_attr_check_set_internal(env, mdd_tobj, la, handle, 0);
+		if (rc == 0)
+			rc = mdd_finish_unlink(env, mdd_tobj, ma, handle);
 
-                rc = mdd_finish_unlink(env, mdd_tobj, ma, handle);
-                mdd_write_unlock(env, mdd_tobj);
-                if (rc)
-                        GOTO(fixup_tpobj, rc);
+		mdd_write_unlock(env, mdd_tobj);
+
+		if (rc != 0)
+			GOTO(fixup_tpobj, rc);
 
 		if (ma->ma_valid & MA_INODE && ma->ma_attr.la_nlink == 0) {
 			cl_flags |= CLF_RENAME_LAST;
@@ -2753,6 +2767,14 @@ fixup_tpobj:
 
                 if (mdd_tobj && mdd_object_exists(mdd_tobj) &&
                     !mdd_is_dead_obj(mdd_tobj)) {
+			if (tobj_ref) {
+				mdd_write_lock(env, mdd_tobj, MOR_TGT_CHILD);
+				mdo_ref_add(env, mdd_tobj, handle);
+				if (is_dir)
+					mdo_ref_add(env, mdd_tobj, handle);
+				mdd_write_unlock(env, mdd_tobj);
+			}
+
                         rc2 = __mdd_index_insert(env, mdd_tpobj,
                                          mdo2fid(mdd_tobj), tname,
                                          is_dir, handle,
