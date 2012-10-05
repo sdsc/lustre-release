@@ -2983,5 +2983,5 @@ fi
 
 cleanup_gss
 
-complete $(basename $0) $SECONDS
+complete $TESTSUITE $SECONDS
 exit_status

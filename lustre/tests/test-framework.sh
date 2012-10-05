@@ -1693,15 +1693,16 @@ cleanup_check() {
 
     check_mem_leak || exit 204
 
-    [ "`lctl dl 2> /dev/null | wc -l`" -gt 0 ] && lctl dl && \
-        echo "$0: lustre didn't clean up..." 1>&2 && return 202 || true
+	[ "`lctl dl 2> /dev/null | wc -l`" -gt 0 ] && lctl dl &&
+		echo "$TESTSUITE: lustre didn't clean up..." 1>&2 &&
+		return 202 || true
 
-    if module_loaded lnet || module_loaded libcfs; then
-        echo "$0: modules still loaded..." 1>&2
-        /sbin/lsmod 1>&2
-        return 203
-    fi
-    return 0
+	if module_loaded lnet || module_loaded libcfs; then
+		echo "$TESTSUITE: modules still loaded..." 1>&2
+		/sbin/lsmod 1>&2
+		return 203
+	fi
+	return 0
 }
 
 wait_update () {
@@ -3795,9 +3796,10 @@ error_noexit() {
         gather_logs $(comma_list $(nodes_list))
     fi
 
-    debugrestore
-    [ "$TESTSUITELOG" ] && echo "$0: ${TYPE}: $TESTNAME $@" >> $TESTSUITELOG
-    echo "$@" > $LOGDIR/err
+	debugrestore
+	[ "$TESTSUITELOG" ] &&
+		echo "$TESTSUITE: $TYPE: $TESTNAME $@" >> $TESTSUITELOG
+	echo "$@" > $LOGDIR/err
 }
 
 exit_status () {

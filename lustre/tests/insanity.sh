@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Test multiple failures, AKA Test 17
 
 set -e
@@ -14,11 +14,11 @@ init_logging
 ALWAYS_EXCEPT="10  $INSANITY_EXCEPT"
 
 if [ "$FAILURE_MODE" = "HARD" ]; then
-        skip_env "$0: is not functional with FAILURE_MODE = HARD, please use recovery-double-scale, bz20407"
-        exit 0
+	skip_env "$TESTSUITE: is not functional with FAILURE_MODE = HARD, " \
+		"please use recovery-double-scale, bz20407"
+	exit 0
 fi
 
-#
 [ "$SLOW" = "no" ] && EXCEPT_SLOW=""
 
 SETUP=${SETUP:-""}
@@ -41,7 +41,7 @@ require_dsh_ost || exit 0
 FAIL_CLIENTS=$(echo " $FAIL_CLIENTS " | sed -re "s/\s+$LIVE_CLIENT\s+/ /g")
 
 DIR=${DIR:-$MOUNT}
-TESTDIR=$DIR/d0.$(basename $0 .sh)
+TESTDIR=$DIR/d0.$TESTSUITE
 
 #####
 # fail clients round robin
@@ -61,12 +61,12 @@ set_fail_client() {
 }
 
 fail_clients() {
-    num=$1
+	num=$1
 
-    log "Request clients to fail: ${num}. Num of clients to fail: ${FAIL_NUM}, already failed: $DOWN_NUM"
-    if [ -z "$num"  ] || [ "$num" -gt $((FAIL_NUM - DOWN_NUM)) ]; then
-	num=$((FAIL_NUM - DOWN_NUM)) 
-    fi
+	log "Fail clients: $num, left: $FAIL_NUM, already failed: $DOWN_NUM"
+	if [ -z "$num"  ] || [ "$num" -gt $((FAIL_NUM - DOWN_NUM)) ]; then
+		num=$((FAIL_NUM - DOWN_NUM))
+	fi
     
     if [ -z "$num" ] || [ "$num" -le 0 ]; then
         log "No clients failed!"
@@ -85,55 +85,56 @@ fail_clients() {
     echo "down clients: $DOWN_CLIENTS"
 
     for client in $DOWN_CLIENTS; do
-	boot_node $client
+		boot_node $client
     done
     DOWN_NUM=`echo $DOWN_CLIENTS | wc -w`
     client_rmdirs
 }
 
 reintegrate_clients() {
-    for client in $DOWN_CLIENTS; do
-	wait_for_host $client
-	echo "Restarting $client"
-	zconf_mount $client $MOUNT || return 1
-    done
-    DOWN_CLIENTS=""
-    DOWN_NUM=0
+	for client in $DOWN_CLIENTS; do
+		wait_for_host $client
+		echo "Restarting $client"
+		zconf_mount $client $MOUNT || return 1
+	done
+
+	DOWN_CLIENTS=""
+	DOWN_NUM=0
 }
 
 start_ost() {
-    start ost$1 `ostdevname $1` $OST_MOUNT_OPTS
+	start ost$1 `ostdevname $1` $OST_MOUNT_OPTS
 }
 
 trap exit INT
 
 client_touch() {
-    file=$1
-    for c in $LIVE_CLIENT $FAIL_CLIENTS;  do
-	if echo $DOWN_CLIENTS | grep -q $c; then continue; fi
-	$PDSH $c touch $TESTDIR/${c}_$file || return 1
-    done
+	file=$1
+	for c in $LIVE_CLIENT $FAIL_CLIENTS; do
+		echo $DOWN_CLIENTS | grep -q $c && continue
+		$PDSH $c touch $TESTDIR/${c}_$file || return 1
+	done
 }
 
 client_rm() {
-    file=$1
-    for c in $LIVE_CLIENT $FAIL_CLIENTS;  do
-	$PDSH $c rm $TESTDIR/${c}_$file
-    done
+	file=$1
+	for c in $LIVE_CLIENT $FAIL_CLIENTS; do
+		$PDSH $c rm $TESTDIR/${c}_$file
+	done
 }
 
 client_mkdirs() {
-    for c in $LIVE_CLIENT $FAIL_CLIENTS;  do
-	echo "$c mkdir $TESTDIR/$c"
-	$PDSH $c "mkdir $TESTDIR/$c && ls -l $TESTDIR/$c"
-    done
+	for c in $LIVE_CLIENT $FAIL_CLIENTS; do
+		echo "$c mkdir $TESTDIR/$c"
+		$PDSH $c "mkdir $TESTDIR/$c && ls -l $TESTDIR/$c"
+	done
 }
 
 client_rmdirs() {
-    for c in $LIVE_CLIENT $FAIL_CLIENTS;  do
-	echo "rmdir $TESTDIR/$c"
-	$PDSH $LIVE_CLIENT "rmdir $TESTDIR/$c"
-    done
+	for c in $LIVE_CLIENT $FAIL_CLIENTS; do
+		echo "rmdir $TESTDIR/$c"
+		$PDSH $LIVE_CLIENT "rmdir $TESTDIR/$c"
+	done
 }
 
 clients_recover_osts() {
@@ -557,6 +558,6 @@ test_10() {
 }
 run_test 10 "Running Availability for 6 hours..."
 
-complete $(basename $0) $SECONDS
+complete $TESTSUITE $SECONDS
 check_and_cleanup_lustre
 exit_status
