@@ -1,0 +1,9 @@
+Verified+1: Hudson
+Code-Review+1: Ian Colle <Ian.Colle@intel.com>
+Code-Review+2: Oleg Drokin <green@whamcloud.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Submitted-by: Oleg Drokin <green@whamcloud.com>
+Submitted-at: Fri, 05 Oct 2012 22:43:08 -0400
+Reviewed-on: http://review.whamcloud.com/4190
+Project: fs/lustre-release
+Branch: refs/heads/master
