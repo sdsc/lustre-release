@@ -288,7 +288,7 @@ osd_iget_verify(struct osd_thread_info *info, struct osd_device *dev,
 		CDEBUG(D_LFSCK, "inconsistent obj: "DFID", %lu, "DFID"\n",
 		       PFID(&lma->lma_self_fid), inode->i_ino, PFID(fid));
 		iput(inode);
-		return ERR_PTR(EREMCHG);
+		return ERR_PTR(-EREMCHG);
 	}
 
 	return inode;
@@ -320,15 +320,18 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 	info = osd_oti_get(env);
 	LASSERT(info);
 	oic = &info->oti_cache;
-	id  = &oic->oic_lid;
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_OST_ENOENT))
 		RETURN(-ENOENT);
 
 	/* Search order: 1. per-thread cache. */
 	if (lu_fid_eq(fid, &oic->oic_fid)) {
+		id = &oic->oic_lid;
 		goto iget;
-	} else if (!cfs_list_empty(&scrub->os_inconsistent_items)) {
+	}
+
+	id = &info->oti_id;
+	if (!cfs_list_empty(&scrub->os_inconsistent_items)) {
 		/* Search order: 2. OI scrub pending list. */
 		result = osd_oii_lookup(dev, fid, id);
 		if (result == 0)
