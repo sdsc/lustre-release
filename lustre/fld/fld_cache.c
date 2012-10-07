@@ -57,8 +57,6 @@
 #include <obd_support.h>
 #include <lprocfs_status.h>
 
-#include <dt_object.h>
-#include <md_object.h>
 #include <lustre_req_layout.h>
 #include <lustre_fld.h>
 #include "fld_internal.h"
@@ -274,9 +272,9 @@ void fld_cache_flush(struct fld_cache *cache)
  * entry accordingly.
  */
 
-void fld_cache_punch_hole(struct fld_cache *cache,
-                          struct fld_cache_entry *f_curr,
-                          struct fld_cache_entry *f_new)
+static void fld_cache_punch_hole(struct fld_cache *cache,
+				 struct fld_cache_entry *f_curr,
+				 struct fld_cache_entry *f_new)
 {
         const struct lu_seq_range *range = &f_new->fce_range;
         const seqno_t new_start  = range->lsr_start;
@@ -316,9 +314,9 @@ void fld_cache_punch_hole(struct fld_cache *cache,
 /**
  * handle range overlap in fld cache.
  */
-void fld_cache_overlap_handle(struct fld_cache *cache,
-                              struct fld_cache_entry *f_curr,
-                              struct fld_cache_entry *f_new)
+static void fld_cache_overlap_handle(struct fld_cache *cache,
+				     struct fld_cache_entry *f_curr,
+				     struct fld_cache_entry *f_new)
 {
         const struct lu_seq_range *range = &f_new->fce_range;
         const seqno_t new_start  = range->lsr_start;

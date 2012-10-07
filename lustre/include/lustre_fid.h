@@ -300,6 +300,43 @@ int fid_is_local(const struct lu_env *env,
 #define LUSTRE_SEQ_SRV_NAME "seq_srv"
 #define LUSTRE_SEQ_CTL_NAME "seq_ctl"
 
+/* Range common stuff */
+static inline void range_cpu_to_le(struct lu_seq_range *dst,
+				   const struct lu_seq_range *src)
+{
+	dst->lsr_start = cpu_to_le64(src->lsr_start);
+	dst->lsr_end = cpu_to_le64(src->lsr_end);
+	dst->lsr_index = cpu_to_le32(src->lsr_index);
+	dst->lsr_flags = cpu_to_le32(src->lsr_flags);
+}
+
+static inline void range_le_to_cpu(struct lu_seq_range *dst,
+				   const struct lu_seq_range *src)
+{
+	dst->lsr_start = le64_to_cpu(src->lsr_start);
+	dst->lsr_end = le64_to_cpu(src->lsr_end);
+	dst->lsr_index = le32_to_cpu(src->lsr_index);
+	dst->lsr_flags = le32_to_cpu(src->lsr_flags);
+}
+
+static inline void range_cpu_to_be(struct lu_seq_range *dst,
+				   const struct lu_seq_range *src)
+{
+	dst->lsr_start = cpu_to_be64(src->lsr_start);
+	dst->lsr_end = cpu_to_be64(src->lsr_end);
+	dst->lsr_index = cpu_to_be32(src->lsr_index);
+	dst->lsr_flags = cpu_to_be32(src->lsr_flags);
+}
+
+static inline void range_be_to_cpu(struct lu_seq_range *dst,
+				   const struct lu_seq_range *src)
+{
+	dst->lsr_start = be64_to_cpu(src->lsr_start);
+	dst->lsr_end = be64_to_cpu(src->lsr_end);
+	dst->lsr_index = be32_to_cpu(src->lsr_index);
+	dst->lsr_flags = be32_to_cpu(src->lsr_flags);
+}
+
 #endif /* HAVE_SERVER_SUPPORT */
 
 /* Client methods */
@@ -450,39 +487,6 @@ static inline __u32 fid_flatten32(const struct lu_fid *fid)
                (fid_oid(fid) & 0xff000fff) + ((fid_oid(fid) & 0x00fff000) << 8);
 
         RETURN(ino ? ino : fid_oid(fid));
-}
-
-/* Range common stuff */
-static inline void range_cpu_to_le(struct lu_seq_range *dst, const struct lu_seq_range *src)
-{
-        dst->lsr_start = cpu_to_le64(src->lsr_start);
-        dst->lsr_end = cpu_to_le64(src->lsr_end);
-        dst->lsr_index = cpu_to_le32(src->lsr_index);
-        dst->lsr_flags = cpu_to_le32(src->lsr_flags);
-}
-
-static inline void range_le_to_cpu(struct lu_seq_range *dst, const struct lu_seq_range *src)
-{
-        dst->lsr_start = le64_to_cpu(src->lsr_start);
-        dst->lsr_end = le64_to_cpu(src->lsr_end);
-        dst->lsr_index = le32_to_cpu(src->lsr_index);
-        dst->lsr_flags = le32_to_cpu(src->lsr_flags);
-}
-
-static inline void range_cpu_to_be(struct lu_seq_range *dst, const struct lu_seq_range *src)
-{
-        dst->lsr_start = cpu_to_be64(src->lsr_start);
-        dst->lsr_end = cpu_to_be64(src->lsr_end);
-        dst->lsr_index = cpu_to_be32(src->lsr_index);
-        dst->lsr_flags = cpu_to_be32(src->lsr_flags);
-}
-
-static inline void range_be_to_cpu(struct lu_seq_range *dst, const struct lu_seq_range *src)
-{
-        dst->lsr_start = be64_to_cpu(src->lsr_start);
-        dst->lsr_end = be64_to_cpu(src->lsr_end);
-        dst->lsr_index = be32_to_cpu(src->lsr_index);
-        dst->lsr_flags = be32_to_cpu(src->lsr_flags);
 }
 
 /** @} fid */

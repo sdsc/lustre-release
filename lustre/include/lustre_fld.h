@@ -34,8 +34,8 @@
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
-#ifndef __LINUX_FLD_H
-#define __LINUX_FLD_H
+#ifndef __LUSTRE_FLD_H
+#define __LUSTRE_FLD_H
 
 /** \defgroup fld fld
  *
@@ -43,18 +43,16 @@
  */
 
 #include <lustre/lustre_idl.h>
-#include <lustre_mdt.h>
-#include <dt_object.h>
-
+#ifdef HAVE_SERVER_SUPPORT
+# include <lustre_mdt.h>
+# include <dt_object.h>
+#endif
 #include <libcfs/libcfs.h>
 
 struct lu_client_fld;
 struct lu_server_fld;
 struct lu_fld_hash;
 struct fld_cache;
-
-extern const struct dt_index_features fld_index_features;
-extern const char fld_index_name[];
 
 /*
  * FLD (Fid Location Database) interface.
@@ -70,38 +68,6 @@ struct lu_fld_target {
         struct obd_export       *ft_exp;
         struct lu_server_fld    *ft_srv;
         __u64                    ft_idx;
-};
-
-struct lu_server_fld {
-        /**
-         * Fld dir proc entry. */
-        cfs_proc_dir_entry_t    *lsf_proc_dir;
-
-        /**
-         * /fld file object device */
-        struct dt_object        *lsf_obj;
-
-        /**
-         * super sequence controller export, needed to forward fld
-         * lookup  request. */
-        struct obd_export       *lsf_control_exp;
-
-        /**
-         * Client FLD cache. */
-        struct fld_cache        *lsf_cache;
-
-        /**
-         * Protect index modifications */
-        cfs_mutex_t              lsf_lock;
-
-        /**
-         * Fld service name in form "fld-srv-lustre-MDTXXX" */
-        char                     lsf_name[80];
-
-	/**
-	 * Backend does not support range lookups,
-	 * indexes other that 0 will be prohibited */
-	int			 lsf_no_range_lookup;
 };
 
 struct lu_client_fld {
@@ -136,6 +102,42 @@ struct lu_client_fld {
         const struct lu_context *lcf_ctx;
 
         int                      lcf_flags;
+};
+
+#ifdef HAVE_SERVER_SUPPORT
+extern const struct dt_index_features fld_index_features;
+extern const char fld_index_name[];
+
+struct lu_server_fld {
+	/**
+	 * Fld dir proc entry. */
+	cfs_proc_dir_entry_t    *lsf_proc_dir;
+
+	/**
+	 * /fld file object device */
+	struct dt_object        *lsf_obj;
+
+	/**
+	 * super sequence controller export, needed to forward fld
+	 * lookup  request. */
+	struct obd_export       *lsf_control_exp;
+
+	/**
+	 * Client FLD cache. */
+	struct fld_cache        *lsf_cache;
+
+	/**
+	 * Protect index modifications */
+	cfs_mutex_t              lsf_lock;
+
+	/**
+	 * Fld service name in form "fld-srv-lustre-MDTXXX" */
+	char                     lsf_name[80];
+
+	/**
+	 * Backend does not support range lookups,
+	 * indexes other that 0 will be prohibited */
+	int			 lsf_no_range_lookup;
 };
 
 /**
@@ -176,6 +178,7 @@ int fld_server_delete(struct lu_server_fld *fld,
 int fld_server_lookup(struct lu_server_fld *fld,
                       const struct lu_env *env,
                       seqno_t seq, struct lu_seq_range *range);
+#endif /* HAVE_SERVER_SUPPORT */
 
 /* Client methods */
 int fld_client_init(struct lu_client_fld *fld,
@@ -206,4 +209,4 @@ void fld_client_proc_fini(struct lu_client_fld *fld);
 
 /** @} fld */
 
-#endif
+#endif /* __LUSTRE_FLD_H */

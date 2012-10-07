@@ -52,8 +52,6 @@
 
 #include <obd.h>
 #include <obd_class.h>
-#include <dt_object.h>
-#include <md_object.h>
 #include <obd_support.h>
 #include <lustre_req_layout.h>
 #include <lustre_fld.h>
@@ -155,6 +153,13 @@ fld_proc_write_cache_flush(struct file *file, const char *buffer,
         RETURN(count);
 }
 
+struct lprocfs_vars fld_client_proc_list[] = {
+	{ "targets",     fld_proc_read_targets, NULL, NULL },
+	{ "hash",        fld_proc_read_hash, fld_proc_write_hash, NULL },
+	{ "cache_flush", NULL, fld_proc_write_cache_flush, NULL },
+	{ NULL } };
+
+#ifdef HAVE_SERVER_SUPPORT
 struct fld_seq_param {
 	struct lu_env  fsp_env;
 	struct dt_it  *fsp_it;
@@ -301,12 +306,6 @@ static int fldb_seq_open(struct inode *inode, struct file *file)
 struct lprocfs_vars fld_server_proc_list[] = {
 	{ NULL }};
 
-struct lprocfs_vars fld_client_proc_list[] = {
-	{ "targets",     fld_proc_read_targets, NULL, NULL },
-	{ "hash",        fld_proc_read_hash, fld_proc_write_hash, NULL },
-	{ "cache_flush", NULL, fld_proc_write_cache_flush, NULL },
-	{ NULL }};
-
 struct file_operations fld_proc_seq_fops = {
 	.owner   = THIS_MODULE,
 	.open    = fldb_seq_open,
@@ -314,5 +313,6 @@ struct file_operations fld_proc_seq_fops = {
 	.llseek  = seq_lseek,
 	.release = lprocfs_seq_release,
 };
+#endif /* HAVE_SERVER_SUPPORT */
 
-#endif
+#endif /* LPROCFS */
