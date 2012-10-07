@@ -1685,11 +1685,12 @@ EXPORT_SYMBOL(cl_req_attr_set);
  */
 void cl_sync_io_init(struct cl_sync_io *anchor, int nrpages)
 {
-        ENTRY;
-        cfs_waitq_init(&anchor->csi_waitq);
-        cfs_atomic_set(&anchor->csi_sync_nr, nrpages);
-        anchor->csi_sync_rc  = 0;
-        EXIT;
+	ENTRY;
+	cfs_waitq_init(&anchor->csi_waitq);
+	cfs_atomic_set(&anchor->csi_sync_nr, nrpages);
+	cfs_atomic_set(&anchor->csi_barrier, nrpages > 0);
+	anchor->csi_sync_rc  = 0;
+	EXIT;
 }
 EXPORT_SYMBOL(cl_sync_io_init);
 
@@ -1727,6 +1728,11 @@ int cl_sync_io_wait(const struct lu_env *env, struct cl_io *io,
         }
         LASSERT(cfs_atomic_read(&anchor->csi_sync_nr) == 0);
         cl_page_list_assume(env, io, queue);
+
+	/* wait until cl_sync_io_note() has done wakeup */
+	while (unlikely(cfs_atomic_read(&anchor->csi_barrier) != 0))
+		cpu_relax();
+
         POISON(anchor, 0x5a, sizeof *anchor);
         RETURN(rc);
 }
@@ -1746,8 +1752,11 @@ void cl_sync_io_note(struct cl_sync_io *anchor, int ioret)
          * IO.
          */
         LASSERT(cfs_atomic_read(&anchor->csi_sync_nr) > 0);
-        if (cfs_atomic_dec_and_test(&anchor->csi_sync_nr))
-                cfs_waitq_broadcast(&anchor->csi_waitq);
-        EXIT;
+	if (cfs_atomic_dec_and_test(&anchor->csi_sync_nr)) {
+		cfs_waitq_broadcast(&anchor->csi_waitq);
+		/* it's safe to nuke or reuse anchor now */
+		cfs_atomic_set(&anchor->csi_barrier, 0);
+	}
+	EXIT;
 }
 EXPORT_SYMBOL(cl_sync_io_note);

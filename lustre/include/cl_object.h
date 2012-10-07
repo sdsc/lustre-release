@@ -3152,6 +3152,8 @@ void cl_req_completion(const struct lu_env *env, struct cl_req *req, int ioret);
 struct cl_sync_io {
         /** number of pages yet to be transferred. */
         cfs_atomic_t          csi_sync_nr;
+	/** barrier of destroy this structure */
+	cfs_atomic_t          csi_barrier;
         /** completion to be signaled when transfer is complete. */
         cfs_waitq_t          csi_waitq;
         /** error code. */
