@@ -288,7 +288,7 @@ osd_iget_verify(struct osd_thread_info *info, struct osd_device *dev,
 		CDEBUG(D_LFSCK, "inconsistent obj: "DFID", %lu, "DFID"\n",
 		       PFID(&lma->lma_self_fid), inode->i_ino, PFID(fid));
 		iput(inode);
-		return ERR_PTR(EREMCHG);
+		return ERR_PTR(-EREMCHG);
 	}
 
 	return inode;
@@ -320,15 +320,18 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 	info = osd_oti_get(env);
 	LASSERT(info);
 	oic = &info->oti_cache;
-	id  = &oic->oic_lid;
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_OST_ENOENT))
 		RETURN(-ENOENT);
 
 	/* Search order: 1. per-thread cache. */
 	if (lu_fid_eq(fid, &oic->oic_fid)) {
+		id = &oic->oic_lid;
 		goto iget;
-	} else if (!cfs_list_empty(&scrub->os_inconsistent_items)) {
+	}
+
+	id = &info->oti_id;
+	if (!cfs_list_empty(&scrub->os_inconsistent_items)) {
 		/* Search order: 2. OI scrub pending list. */
 		result = osd_oii_lookup(dev, fid, id);
 		if (result == 0)
@@ -3323,7 +3326,7 @@ static int osd_ea_add_rec(const struct lu_env *env, struct osd_object *pobj,
         return rc;
 }
 
-static int
+static void
 osd_consistency_check(struct osd_thread_info *oti, struct osd_device *dev,
 		      struct osd_idmap_cache *oic)
 {
@@ -3335,15 +3338,15 @@ osd_consistency_check(struct osd_thread_info *oti, struct osd_device *dev,
 	ENTRY;
 
 	if (!fid_is_norm(fid) && !fid_is_igif(fid))
-		RETURN(0);
+		RETURN_EXIT;
 
 again:
 	rc = osd_oi_lookup(oti, dev, fid, id);
 	if (rc != 0 && rc != -ENOENT)
-		RETURN(rc);
+		RETURN_EXIT;
 
 	if (rc == 0 && osd_id_eq(id, &oic->oic_lid))
-		RETURN(0);
+		RETURN_EXIT;
 
 	if (thread_is_running(&scrub->os_thread)) {
 		rc = osd_oii_insert(dev, oic, rc == -ENOENT);
@@ -3354,7 +3357,7 @@ again:
 		if (unlikely(rc == -EAGAIN))
 			goto again;
 
-		RETURN(rc);
+		RETURN_EXIT;
 	}
 
 	if (!dev->od_noscrub && ++once == 1) {
@@ -3369,7 +3372,7 @@ again:
 			goto again;
 	}
 
-	RETURN(0);
+	EXIT;
 }
 
 /**
@@ -4154,8 +4157,10 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 
 	if (!fid_is_sane(fid)) {
 		rc = osd_ea_fid_get(env, obj, ino, fid, &oic->oic_lid);
-		if (rc != 0)
+		if (rc != 0) {
+			fid_zero(&oic->oic_fid);
 			RETURN(rc);
+		}
 	} else {
 		osd_id_gen(&oic->oic_lid, ino, OSD_OII_NOGEN);
 	}
