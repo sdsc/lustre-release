@@ -1,0 +1,11 @@
+Verified+1: Hudson
+Code-Review+2: Johann Lombardi <johann.lombardi@intel.com>
+Code-Review+1: Andreas Dilger <adilger@whamcloud.com>
+Code-Review+1: James Simmons <uja.ornl@gmail.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Liang Zhen <liang@whamcloud.com>
+Submitted-by: Oleg Drokin <green@whamcloud.com>
+Submitted-at: Mon, 08 Oct 2012 17:40:25 -0400
+Reviewed-on: http://review.whamcloud.com/4218
+Project: fs/lustre-release
+Branch: refs/heads/b2_3
