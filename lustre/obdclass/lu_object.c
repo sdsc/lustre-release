@@ -1930,11 +1930,13 @@ void cl_global_fini(void);
 int  lu_ref_global_init(void);
 void lu_ref_global_fini(void);
 
+#ifdef HAVE_SERVER_SUPPORT
 int dt_global_init(void);
 void dt_global_fini(void);
 
 int llo_global_init(void);
 void llo_global_fini(void);
+#endif
 
 /**
  * Initialization of global lu_* data.
@@ -1977,7 +1979,7 @@ int lu_global_init(void)
         if (result)
                 GOTO(out, result);
 
-#ifdef __KERNEL__
+#if defined (__KERNEL__) && defined (HAVE_SERVER_SUPPORT)
         result = dt_global_init();
         if (result)
                 GOTO(out, result);
@@ -1998,7 +2000,7 @@ out:
 void lu_global_fini(void)
 {
         cl_global_fini();
-#ifdef __KERNEL__
+#if defined (__KERNEL__) && defined (HAVE_SERVER_SUPPORT)
         llo_global_fini();
         dt_global_fini();
 #endif

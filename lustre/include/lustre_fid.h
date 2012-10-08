@@ -89,74 +89,6 @@ enum {
         LUSTRE_SEQ_SUPER_WIDTH = ((1ULL << 30ULL) * LUSTRE_SEQ_META_WIDTH)
 };
 
-enum {
-        /** 2^6 FIDs for OI containers */
-        OSD_OI_FID_OID_BITS     = 6,
-        /** reserve enough FIDs in case we want more in the future */
-        OSD_OI_FID_OID_BITS_MAX = 10,
-};
-
-/** special OID for local objects */
-enum local_oid {
-        /** \see fld_mod_init */
-        FLD_INDEX_OID           = 3UL,
-        /** \see fid_mod_init */
-        FID_SEQ_CTL_OID         = 4UL,
-        FID_SEQ_SRV_OID         = 5UL,
-        /** \see mdd_mod_init */
-        MDD_ROOT_INDEX_OID      = 6UL,
-        MDD_ORPHAN_OID          = 7UL,
-        MDD_LOV_OBJ_OID         = 8UL,
-        MDD_CAPA_KEYS_OID       = 9UL,
-        /** \see mdt_mod_init */
-        MDT_LAST_RECV_OID       = 11UL,
-        OSD_FS_ROOT_OID         = 13UL,
-        ACCT_USER_OID           = 15UL,
-        ACCT_GROUP_OID          = 16UL,
-	LFSCK_BOOKMARK_OID	= 17UL,
-	OTABLE_IT_OID		= 18UL,
-        OFD_LAST_RECV_OID       = 19UL,
-        OFD_GROUP0_LAST_OID     = 20UL,
-        OFD_GROUP4K_LAST_OID    = 20UL+4096,
-        OFD_LAST_GROUP_OID      = 4117UL,
-        LLOG_CATALOGS_OID       = 4118UL,
-        MGS_CONFIGS_OID         = 4119UL,
-        OFD_HEALTH_CHECK_OID    = 4120UL,
-};
-
-static inline void lu_local_obj_fid(struct lu_fid *fid, __u32 oid)
-{
-        fid->f_seq = FID_SEQ_LOCAL_FILE;
-        fid->f_oid = oid;
-        fid->f_ver = 0;
-}
-
-static inline void lu_local_name_obj_fid(struct lu_fid *fid, __u32 oid)
-{
-        fid->f_seq = FID_SEQ_LOCAL_NAME;
-        fid->f_oid = oid;
-        fid->f_ver = 0;
-}
-
-static inline int fid_is_otable_it(const struct lu_fid *fid)
-{
-	return unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE &&
-			fid_oid(fid) == OTABLE_IT_OID);
-}
-
-static inline int fid_is_acct(const struct lu_fid *fid)
-{
-        return fid_seq(fid) == FID_SEQ_LOCAL_FILE &&
-               (fid_oid(fid) == ACCT_USER_OID ||
-                fid_oid(fid) == ACCT_GROUP_OID);
-}
-
-static inline int fid_is_quota(const struct lu_fid *fid)
-{
-	return fid_seq(fid) == FID_SEQ_QUOTA ||
-	       fid_seq(fid) == FID_SEQ_QUOTA_GLB;
-}
-
 enum lu_cli_type {
         LUSTRE_SEQ_METADATA,
         LUSTRE_SEQ_DATA
@@ -207,6 +139,74 @@ struct lu_client_seq {
 };
 
 #ifdef HAVE_SERVER_SUPPORT
+enum {
+	/** 2^6 FIDs for OI containers */
+	OSD_OI_FID_OID_BITS     = 6,
+	/** reserve enough FIDs in case we want more in the future */
+	OSD_OI_FID_OID_BITS_MAX = 10,
+};
+
+/** special OID for local objects */
+enum local_oid {
+	/** \see fld_mod_init */
+	FLD_INDEX_OID           = 3UL,
+	/** \see fid_mod_init */
+	FID_SEQ_CTL_OID         = 4UL,
+	FID_SEQ_SRV_OID         = 5UL,
+	/** \see mdd_mod_init */
+	MDD_ROOT_INDEX_OID      = 6UL,
+	MDD_ORPHAN_OID          = 7UL,
+	MDD_LOV_OBJ_OID         = 8UL,
+	MDD_CAPA_KEYS_OID       = 9UL,
+	/** \see mdt_mod_init */
+	MDT_LAST_RECV_OID       = 11UL,
+	OSD_FS_ROOT_OID         = 13UL,
+	ACCT_USER_OID           = 15UL,
+	ACCT_GROUP_OID          = 16UL,
+	LFSCK_BOOKMARK_OID	= 17UL,
+	OTABLE_IT_OID		= 18UL,
+	OFD_LAST_RECV_OID       = 19UL,
+	OFD_GROUP0_LAST_OID     = 20UL,
+	OFD_GROUP4K_LAST_OID    = 20UL+4096,
+	OFD_LAST_GROUP_OID      = 4117UL,
+	LLOG_CATALOGS_OID       = 4118UL,
+	MGS_CONFIGS_OID         = 4119UL,
+	OFD_HEALTH_CHECK_OID    = 4120UL,
+};
+
+static inline void lu_local_obj_fid(struct lu_fid *fid, __u32 oid)
+{
+	fid->f_seq = FID_SEQ_LOCAL_FILE;
+	fid->f_oid = oid;
+	fid->f_ver = 0;
+}
+
+static inline void lu_local_name_obj_fid(struct lu_fid *fid, __u32 oid)
+{
+	fid->f_seq = FID_SEQ_LOCAL_NAME;
+	fid->f_oid = oid;
+	fid->f_ver = 0;
+}
+
+static inline int fid_is_otable_it(const struct lu_fid *fid)
+{
+	return unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE &&
+			fid_oid(fid) == OTABLE_IT_OID);
+}
+
+static inline int fid_is_acct(const struct lu_fid *fid)
+{
+	return fid_seq(fid) == FID_SEQ_LOCAL_FILE &&
+	       (fid_oid(fid) == ACCT_USER_OID ||
+		fid_oid(fid) == ACCT_GROUP_OID);
+}
+
+static inline int fid_is_quota(const struct lu_fid *fid)
+{
+	return fid_seq(fid) == FID_SEQ_QUOTA ||
+	       fid_seq(fid) == FID_SEQ_QUOTA_GLB;
+}
+
 enum lu_mgr_type {
 	LUSTRE_SEQ_SERVER,
 	LUSTRE_SEQ_CONTROLLER
