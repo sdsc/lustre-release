@@ -1124,13 +1124,13 @@ void osd_scrub_cleanup(const struct lu_env *env, struct osd_device *dev)
 {
 	struct osd_scrub *scrub = &dev->od_scrub;
 
-	LASSERT(dev->od_otable_it == NULL);
-
 	if (scrub->os_inode != NULL) {
 		osd_scrub_stop(dev);
 		iput(scrub->os_inode);
 		scrub->os_inode = NULL;
 	}
+	LASSERT(dev->od_otable_it == NULL);
+
 	if (dev->od_oi_table != NULL)
 		osd_oi_fini(osd_oti_get(env), dev);
 }
