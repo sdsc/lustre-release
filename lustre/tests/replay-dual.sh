@@ -7,17 +7,12 @@ set -e
 # bug number:  LU-2012 10124
 ALWAYS_EXCEPT="14b     15c   $REPLAY_DUAL_EXCEPT"
 
-SAVE_PWD=$PWD
 PTLDEBUG=${PTLDEBUG:--1}
-LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
-SETUP=${SETUP:-""}
-CLEANUP=${CLEANUP:-""}
 MOUNT_2=${MOUNT_2:-"yes"}
-export MULTIOP=${MULTIOP:-multiop}
-. $LUSTRE/tests/test-framework.sh
 
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
+. $LUSTRE/tests/test-framework.sh
 init_test_env $@
-. ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 
 remote_mds_nodsh && skip "remote MDS with nodsh" && exit 0

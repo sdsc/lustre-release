@@ -3,13 +3,10 @@
 #set -vx
 
 NFSVERSION=${1:-"3"}
-LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
-# only call init_test_env if this script is called directly
-if [[ -z "$TESTSUITE" || "$TESTSUITE" = "$(basename $0 .sh)" ]]; then
-    init_test_env $@
-fi
-. ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
+init_test_env $@
 init_logging
 
 . $LUSTRE/tests/setup-nfs.sh

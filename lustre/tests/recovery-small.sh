@@ -5,12 +5,11 @@ set -e
 #         bug  5493  LU2034
 ALWAYS_EXCEPT="52    60      $RECOVERY_SMALL_EXCEPT"
 
-export MULTIOP=${MULTIOP:-multiop}
 PTLDEBUG=${PTLDEBUG:--1}
-LUSTRE=${LUSTRE:-`dirname $0`/..}
+
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
-. ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 
 require_dsh_mds || exit 0

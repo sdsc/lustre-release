@@ -2,10 +2,9 @@
 #
 # This test was used in a set of CMD3 tests (cmd3-4 test).
 
-LUSTRE=${LUSTRE:-`dirname $0`/..}
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
-. ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 
 assert_env CLIENTS MDSRATE SINGLECLIENT MPIRUN
 

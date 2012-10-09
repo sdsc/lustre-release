@@ -222,12 +222,13 @@ init_test_env() {
     fi
     export RSYNC_RSH=${RSYNC_RSH:-rsh}
 
-    export LCTL=${LCTL:-"$LUSTRE/utils/lctl"}
-    [ ! -f "$LCTL" ] && export LCTL=$(which lctl)
-    export LFS=${LFS:-"$LUSTRE/utils/lfs"}
-    [ ! -f "$LFS" ] && export LFS=$(which lfs)
-    SETSTRIPE=${SETSTRIPE:-"$LFS setstripe"}
-    GETSTRIPE=${GETSTRIPE:-"$LFS getstripe"}
+	export LCTL=${LCTL:-"$LUSTRE/utils/lctl"}
+	[ ! -f "$LCTL" ] && export LCTL=$(which lctl)
+	export LFS=${LFS:-"$LUSTRE/utils/lfs"}
+	[ ! -f "$LFS" ] && export LFS=$(which lfs)
+	SETSTRIPE=${SETSTRIPE:-"$LFS setstripe"}
+	GETSTRIPE=${GETSTRIPE:-"$LFS getstripe"}
+	export MULTIOP=${MULTIOP:-multiop}
 
     export L_GETIDENTITY=${L_GETIDENTITY:-"$LUSTRE/utils/l_getidentity"}
     if [ ! -f "$L_GETIDENTITY" ]; then
@@ -319,6 +320,8 @@ init_test_env() {
 	if ! $RPC_MODE; then
 		rm -f $TMP/*active
 	fi
+
+	. ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 }
 
 check_cpt_number() {

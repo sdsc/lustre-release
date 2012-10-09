@@ -42,23 +42,17 @@ fi
 # a tool to create lustre filesystem images
 ALWAYS_EXCEPT="32newtarball $ALWAYS_EXCEPT"
 
-SRCDIR=`dirname $0`
-PATH=$PWD/$SRCDIR:$SRCDIR:$SRCDIR/../utils:$PATH
-
+SRCDIR=$(dirname $0)
 PTLDEBUG=${PTLDEBUG:--1}
-SAVE_PWD=$PWD
-LUSTRE=${LUSTRE:-`dirname $0`/..}
-RLUSTRE=${RLUSTRE:-$LUSTRE}
-export MULTIOP=${MULTIOP:-multiop}
-
-. $LUSTRE/tests/test-framework.sh
-init_test_env $@
 
 # use small MDS + OST size to speed formatting time
 # do not use too small MDSSIZE/OSTSIZE, which affect the default jouranl size
 MDSSIZE=200000
 OSTSIZE=200000
-. ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
+
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
+. $LUSTRE/tests/test-framework.sh
+init_test_env $@
 
 if ! combined_mgs_mds; then
     # bug number for skipped test:    23954

@@ -22,21 +22,12 @@ CPU=`awk '/model/ {print $4}' /proc/cpuinfo`
 #                                    buffer i/o errs             sock spc runas
 [ "$CPU" = "UML" ] && EXCEPT="$EXCEPT 27m 27n 27o 27p 27q 27r 31d 54a  64b 99a 99b 99c 99d 99e 99f 101a"
 
-SRCDIR=$(cd $(dirname $0); echo $PWD)
-export PATH=$PATH:/sbin
-
-TMP=${TMP:-/tmp}
-
-CHECKSTAT=${CHECKSTAT:-"checkstat -v"}
 CREATETEST=${CREATETEST:-createtest}
-LFS=${LFS:-lfs}
 LFIND=${LFIND:-"$LFS find"}
 LVERIFY=${LVERIFY:-ll_dirstripe_verify}
-LCTL=${LCTL:-lctl}
 MCREATE=${MCREATE:-mcreate}
 OPENFILE=${OPENFILE:-openfile}
 OPENUNLINK=${OPENUNLINK:-openunlink}
-export MULTIOP=${MULTIOP:-multiop}
 READS=${READS:-"reads"}
 MUNLINK=${MUNLINK:-munlink}
 SOCKETSERVER=${SOCKETSERVER:-socketserver}
@@ -50,17 +41,11 @@ CHECK_GRANT=${CHECK_GRANT:-"yes"}
 GRANT_CHECK_LIST=${GRANT_CHECK_LIST:-""}
 export PARALLEL=${PARALLEL:-"no"}
 
-export NAME=${NAME:-local}
-
-SAVE_PWD=$PWD
-
-CLEANUP=${CLEANUP:-:}
-SETUP=${SETUP:-:}
 TRACE=${TRACE:-""}
-LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
-. ${CONFIG:=$LUSTRE/tests/cfg/${NAME}.sh}
 init_logging
 
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 24v 27m 36f 36g 36h 51b 60c 63 64b 68 71 73 77f 78 101a 103 115 120g 124b"
@@ -4673,7 +4658,7 @@ test_65j() { # bug6367
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	sync; sleep 1
 	# if we aren't already remounting for each test, do so for this test
-	if [ "$CLEANUP" = ":" -a "$I_MOUNTED" = "yes" ]; then
+	if [ "$I_MOUNTED" = "yes" ]; then
 		cleanup || error "failed to unmount"
 		setup
 	fi

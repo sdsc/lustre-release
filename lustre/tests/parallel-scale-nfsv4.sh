@@ -2,8 +2,5 @@
 #
 #set -vx
 
-LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
-. $LUSTRE/tests/test-framework.sh
-init_test_env $@
-
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 sh $LUSTRE/tests/parallel-scale-nfs.sh 4
