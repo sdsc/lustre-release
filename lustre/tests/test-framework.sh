@@ -3405,7 +3405,7 @@ check_and_setup_lustre() {
     # 1.
     # both MOUNT and MOUNT2 are not mounted
     if ! is_mounted $MOUNT && ! is_mounted $MOUNT2; then
-        [ "$REFORMAT" ] && formatall
+        [ -n "$REFORMAT" ] && formatall
         # setupall mounts both MOUNT and MOUNT2 (if MOUNT_2 is set)
         setupall
         is_mounted $MOUNT || error "NAME=$NAME not mounted"
