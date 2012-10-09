@@ -10,7 +10,7 @@
 # will be run from a single node for #1 and from all nodes for #2
 # aggregate test to measure stat performance.
 
-LUSTRE=${LUSTRE:-`dirname $0`/..}
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}

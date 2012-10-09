@@ -8,13 +8,15 @@ set -e
 #
 SAVE_PWD=$PWD
 export MULTIOP=${MULTIOP:-multiop}
-LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
 SETUP=${SETUP:-}
 CLEANUP=${CLEANUP:-}
+
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
+
 CHECK_GRANT=${CHECK_GRANT:-"yes"}
 GRANT_CHECK_LIST=${GRANT_CHECK_LIST:-""}
 

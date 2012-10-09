@@ -1,12 +1,10 @@
-#!/bin/sh
+#!/bin/bash
 
 set -e
 
-LUSTRE=${LUSTRE:-`dirname $0`/..}
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
-
 init_test_env $@
-
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 
 ostfailover_HOST=${ostfailover_HOST:-$ost_HOST}

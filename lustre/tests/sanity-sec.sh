@@ -14,11 +14,7 @@ ALWAYS_EXCEPT="                2     5     6    $SANITY_SEC_EXCEPT"
 [ "$ALWAYS_EXCEPT$EXCEPT" ] && \
     echo "Skipping tests: $ALWAYS_EXCEPT $EXCEPT"
 
-SRCDIR=`dirname $0`
-export PATH=$PWD/$SRCDIR:$SRCDIR:$PWD/$SRCDIR/../utils:$PATH:/sbin
-export NAME=${NAME:-local}
-
-LUSTRE=${LUSTRE:-`dirname $0`/..} 
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}

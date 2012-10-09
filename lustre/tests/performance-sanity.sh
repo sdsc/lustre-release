@@ -3,13 +3,11 @@
 set -e
 
 TESTNAME=`basename $0 .sh`
-TMP=${TMP:-/tmp}
 LOG=${LOG:-"$TMP/${TESTNAME}.log"}
 
-LUSTRE=${LUSTRE:-`dirname $0`/..}
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
-
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 

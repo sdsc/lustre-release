@@ -64,7 +64,7 @@ if [ -z "$MY_KDC_DISTRO" -o -z "$MY_KDCNODE" -o -z "$MY_MDSNODES" -o \
     exit 1
 fi
 
-LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
 init_test_env
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}

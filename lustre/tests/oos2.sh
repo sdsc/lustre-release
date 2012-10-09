@@ -2,20 +2,17 @@
 
 set -e
 
-LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
+init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/${NAME}.sh}
 
-export PATH=$LUSTRE/utils:$PATH
-LFS=${LFS:-lfs}
-LCTL=${LCTL:-lctl}
 MOUNT=${MOUNT:-$1}
 MOUNT=${MOUNT:-/mnt/lustre}
 MOUNT2=${MOUNT2:-$2}
 MOUNT2=${MOUNT2:-${MOUNT}2}
 OOS=$MOUNT/oosfile
 OOS2=$MOUNT2/oosfile2
-TMP=${TMP:-/tmp}
 LOG=$TMP/$(basename $0 .sh).log
 LOG2=${LOG}2
 

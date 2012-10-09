@@ -9,13 +9,13 @@ ALWAYS_EXCEPT="15c   $REPLAY_DUAL_EXCEPT"
 
 SAVE_PWD=$PWD
 PTLDEBUG=${PTLDEBUG:--1}
-LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
 SETUP=${SETUP:-""}
 CLEANUP=${CLEANUP:-""}
 MOUNT_2=${MOUNT_2:-"yes"}
 export MULTIOP=${MULTIOP:-multiop}
-. $LUSTRE/tests/test-framework.sh
 
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
+. $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging

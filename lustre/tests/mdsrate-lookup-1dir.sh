@@ -9,10 +9,11 @@
 # perform lookups for 10 minutes. This test can be run from a single node for
 # #1 and from all nodes for #2 aggregate test to measure lookup performance.
 
-LUSTRE=${LUSTRE:-`dirname $0`/..}
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
+
 assert_env CLIENTS MDSRATE SINGLECLIENT MPIRUN
 
 MACHINEFILE=${MACHINEFILE:-$TMP/$(basename $0 .sh).machines}

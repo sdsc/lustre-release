@@ -7,9 +7,6 @@
 #
 # Run test by setting NOSETUP=true when ltest has setup env for us
 
-SRCDIR=$(dirname $0)
-export PATH=$PWD/$SRCDIR:$SRCDIR:$PWD/$SRCDIR/../utils:$PATH:/sbin
-
 ONLY=${ONLY:-"$*"}
 ALWAYS_EXCEPT="$OST_POOLS_EXCEPT"
 # bug number for skipped test: -
@@ -18,10 +15,9 @@ ALWAYS_EXCEPT="$OST_POOLS_EXCEPT"
 [ "$ALWAYS_EXCEPT$EXCEPT" ] &&
     echo "Skipping tests: $(echo $ALWAYS_EXCEPT $EXCEPT)"
 
-TMP=${TMP:-/tmp}
 ORIG_PWD=${PWD}
 
-LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}

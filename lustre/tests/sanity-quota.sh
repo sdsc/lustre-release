@@ -6,17 +6,12 @@
 # Run test by setting NOSETUP=true when ltest has setup env for us
 set -e
 
-SRCDIR=`dirname $0`
-export PATH=$PWD/$SRCDIR:$SRCDIR:$PWD/$SRCDIR/../utils:$PATH:/sbin
-
 ONLY=${ONLY:-"$*"}
 ALWAYS_EXCEPT="$SANITY_QUOTA_EXCEPT"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
 [ "$ALWAYS_EXCEPT$EXCEPT" ] &&
 	echo "Skipping tests: `echo $ALWAYS_EXCEPT $EXCEPT`"
-
-TMP=${TMP:-/tmp}
 
 ORIG_PWD=${PWD}
 TSTID=${TSTID:-60000}
@@ -27,11 +22,12 @@ BLK_SZ=1024
 MAX_DQ_TIME=604800
 MAX_IQ_TIME=604800
 
-LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
+
 DIRECTIO=${DIRECTIO:-$LUSTRE/tests/directio}
 
 [ $MDSCOUNT -gt 1 ] && skip "CMD case" && exit 0

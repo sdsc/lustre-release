@@ -21,17 +21,10 @@ CPU=`awk '/model/ {print $4}' /proc/cpuinfo`
 #                                    buffer i/o errs             sock spc runas
 [ "$CPU" = "UML" ] && EXCEPT="$EXCEPT 27m 27n 27o 27p 27q 27r 31d 54a  64b 99a 99b 99c 99d 99e 99f 101a"
 
-SRCDIR=$(cd $(dirname $0); echo $PWD)
-export PATH=$PATH:/sbin
-
-TMP=${TMP:-/tmp}
-
 CHECKSTAT=${CHECKSTAT:-"checkstat -v"}
 CREATETEST=${CREATETEST:-createtest}
-LFS=${LFS:-lfs}
 LFIND=${LFIND:-"$LFS find"}
 LVERIFY=${LVERIFY:-ll_dirstripe_verify}
-LCTL=${LCTL:-lctl}
 MCREATE=${MCREATE:-mcreate}
 OPENFILE=${OPENFILE:-openfile}
 OPENUNLINK=${OPENUNLINK:-openunlink}
@@ -48,14 +41,13 @@ STRIPES_PER_OBJ=-1
 CHECK_GRANT=${CHECK_GRANT:-"yes"}
 GRANT_CHECK_LIST=${GRANT_CHECK_LIST:-""}
 
-export NAME=${NAME:-local}
-
 SAVE_PWD=$PWD
 
 CLEANUP=${CLEANUP:-:}
 SETUP=${SETUP:-:}
 TRACE=${TRACE:-""}
-LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/${NAME}.sh}

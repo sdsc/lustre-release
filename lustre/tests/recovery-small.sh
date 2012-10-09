@@ -7,7 +7,8 @@ ALWAYS_EXCEPT="24   52    60      $RECOVERY_SMALL_EXCEPT"
 
 export MULTIOP=${MULTIOP:-multiop}
 PTLDEBUG=${PTLDEBUG:--1}
-LUSTRE=${LUSTRE:-`dirname $0`/..}
+
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}

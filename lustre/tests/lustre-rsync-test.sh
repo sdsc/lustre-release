@@ -8,9 +8,6 @@
 # Run test by setting NOSETUP=true when ltest has setup env for us
 set -e
 
-SRCDIR=`dirname $0`
-export PATH=$PWD/$SRCDIR:$SRCDIR:$PWD/$SRCDIR/../utils:$PATH:/sbin
-
 ONLY=${ONLY:-"$*"}
 [ -n "$ONLY" ] && SLOW=yes
 ALWAYS_EXCEPT="$LRSYNC_EXCEPT"
@@ -22,11 +19,10 @@ ALWAYS_EXCEPT="$LRSYNC_EXCEPT"
 
 KILL=/bin/kill
 
-TMP=${TMP:-/tmp}
 LREPL_LOG=$TMP/lustre_rsync.log
 ORIG_PWD=${PWD}
 
-LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}

@@ -8,11 +8,12 @@ set -e
 ALWAYS_EXCEPT="12a   $REPLAY_VBR_EXCEPT"
 
 SAVE_PWD=$PWD
-LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
 SETUP=${SETUP:-}
 CLEANUP=${CLEANUP:-}
 MOUNT_2=${MOUNT_2:-"yes"}
 export MULTIOP=${MULTIOP:-multiop}
+
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}

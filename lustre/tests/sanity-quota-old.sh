@@ -6,9 +6,6 @@
 # Run test by setting NOSETUP=true when ltest has setup env for us
 set -e
 
-SRCDIR=`dirname $0`
-export PATH=$PWD/$SRCDIR:$SRCDIR:$PWD/$SRCDIR/../utils:$PATH:/sbin
-
 ONLY=${ONLY:-"$*"}
 # test_11 has been used to protect a kernel bug(bz10912), now it isn't
 # useful any more. Then add it to ALWAYS_EXCEPT. b=19835
@@ -40,7 +37,8 @@ SANITY_QUOTA_USERS="quota15_1 quota15_2 quota15_3 quota15_4 quota15_5 quota15_6 
 
 export MULTIOP=${MULTIOP:-multiop}
 TRACE=${TRACE:-""}
-LUSTRE=${LUSTRE:-`dirname $0`/..}
+
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 DIRECTIO=${DIRECTIO:-$LUSTRE/tests/directio}

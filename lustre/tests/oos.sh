@@ -3,17 +3,14 @@
 set -e
 #set -vx
 
-LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
+init_test_env
 . ${CONFIG:=$LUSTRE/tests/cfg/${NAME}.sh}
 
-export PATH=`dirname $0`/../utils:$PATH
-LFS=${LFS:-lfs}
-LCTL=${LCTL:-lctl}
 MOUNT=${MOUNT:-$1}
 MOUNT=${MOUNT:-/mnt/lustre}
 OOS=$MOUNT/oosfile
-TMP=${TMP:-/tmp}
 LOG=$TMP/$(basename $0 .sh).log
 
 SUCCESS=1

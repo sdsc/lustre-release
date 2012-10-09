@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # This test was used in a set of CMD3 tests (cmd3-8 test).
 
@@ -10,7 +10,7 @@
 # run from a single node for #1 and from all nodes for #2 aggregate test to
 # measure stat performance.  
 
-LUSTRE=${LUSTRE:-`dirname $0`/..}
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}

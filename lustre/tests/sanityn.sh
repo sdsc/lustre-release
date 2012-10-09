@@ -11,14 +11,8 @@ ALWAYS_EXCEPT="                14b  18c     19         22    28   29          35
 grep -q 'Enterprise Server 10' /etc/SuSE-release 2> /dev/null &&
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11    14" || true
 
-# Tests that fail on uml
-[ "$UML" = "true" ] && EXCEPT="$EXCEPT 7"
-
 # It will be ported soon.
 EXCEPT="$EXCEPT 22"
-
-SRCDIR=`dirname $0`
-PATH=$PWD/$SRCDIR:$SRCDIR:$SRCDIR/../utils:$PATH
 
 SIZE=${SIZE:-40960}
 CHECKSTAT=${CHECKSTAT:-"checkstat -v"}
@@ -33,12 +27,11 @@ GRANT_CHECK_LIST=${GRANT_CHECK_LIST:-""}
 
 SAVE_PWD=$PWD
 
-export NAME=${NAME:-local}
-
-LUSTRE=${LUSTRE:-`dirname $0`/..}
-. $LUSTRE/tests/test-framework.sh
 CLEANUP=${CLEANUP:-:}
 SETUP=${SETUP:-:}
+
+LUSTRE=${LUSTRE:-$(dirname $0)/..}
+. $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
