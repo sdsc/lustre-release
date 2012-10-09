@@ -3932,24 +3932,24 @@ is_empty_fs() {
 }
 
 check_and_setup_lustre() {
-    nfs_client_mode && return
+	nfs_client_mode && return
 	cifs_client_mode && return
 
-    local MOUNTED=$(mounted_lustre_filesystems)
+	local MOUNTED=$(mounted_lustre_filesystems)
 
-    local do_check=true
-    # 1.
-    # both MOUNT and MOUNT2 are not mounted
-    if ! is_mounted $MOUNT && ! is_mounted $MOUNT2; then
-        [ "$REFORMAT" ] && formatall
-        # setupall mounts both MOUNT and MOUNT2 (if MOUNT_2 is set)
-        setupall
-        is_mounted $MOUNT || error "NAME=$NAME not mounted"
-        export I_MOUNTED=yes
-        do_check=false
-    # 2.
-    # MOUNT2 is mounted
-    elif is_mounted $MOUNT2; then
+	local do_check=true
+	# 1.
+	# both MOUNT and MOUNT2 are not mounted
+	if ! is_mounted $MOUNT && ! is_mounted $MOUNT2; then
+		[ -n "$REFORMAT" ] && formatall
+		# setupall mounts both MOUNT and MOUNT2 (if MOUNT_2 is set)
+		setupall
+		is_mounted $MOUNT || error "NAME=$NAME not mounted"
+		export I_MOUNTED=yes
+		do_check=false
+	# 2.
+	# MOUNT2 is mounted
+	elif is_mounted $MOUNT2; then
             # 3.
             # MOUNT2 is mounted, while MOUNT_2 is not set
             if ! [ "$MOUNT_2" ]; then

@@ -1,6 +1,5 @@
 #!/bin/bash
 #
-#
 # auster - drive lustre tests
 # TODO
 #  1. --time-limt <seconds>  add per test time limit, kill test if it runs to long
