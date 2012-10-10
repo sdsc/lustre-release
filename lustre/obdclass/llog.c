@@ -318,6 +318,7 @@ repeat:
                 for (rec = (struct llog_rec_hdr *)buf;
                      (char *)rec < buf + LLOG_CHUNK_SIZE;
                      rec = (struct llog_rec_hdr *)((char *)rec + rec->lrh_len)){
+			struct llog_rec_tail	*tail;
 
                         CDEBUG(D_OTHER, "processing rec 0x%p type %#x\n",
                                rec, rec->lrh_type);
@@ -341,6 +342,14 @@ repeat:
                                       rec->lrh_index, index);
                                 GOTO(out, rc = -EINVAL);
                         }
+
+			tail = (struct llog_rec_tail *)((char *)rec +
+				rec->lrh_len - sizeof(struct llog_rec_tail));
+			LASSERTF(rec->lrh_index == tail->lrt_index,
+			 "Rec idx %d, tail idx %d in llog #"LPX64"#"LPX64
+			 "#%08x len %d/%d\n", rec->lrh_index, tail->lrt_index,
+			 loghandle->lgh_id.lgl_oid, loghandle->lgh_id.lgl_oseq,
+			 loghandle->lgh_id.lgl_ogen, rec->lrh_len, tail->lrt_len);
 
                         if (rec->lrh_index < index) {
                                 CDEBUG(D_OTHER, "skipping lrh_index %d\n",

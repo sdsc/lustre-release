@@ -310,7 +310,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	struct llog_rec_tail	*lrt;
 	struct dt_object	*o;
 	size_t			 left;
-
+	loff_t			 pad_offset = 0;
 	ENTRY;
 
 	LASSERT(env);
@@ -411,6 +411,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		if (rc)
 			RETURN(rc);
 		loghandle->lgh_last_idx++; /*for pad rec*/
+		pad_offset = lgi->lgi_off;
 	}
 	/* if it's the last idx in log file, then return -ENOSPC */
 	if (loghandle->lgh_last_idx >= LLOG_BITMAP_SIZE(llh) - 1)
@@ -452,6 +453,9 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
 	lgi->lgi_off = lgi->lgi_attr.la_size;
 
+	LASSERTF(ergo(pad_offset > 0, lgi->lgi_off == pad_offset),
+		 "off "LPU64", pad "LPU64"\n", lgi->lgi_off, pad_offset);
+
 	rc = llog_osd_write_blob(env, o, rec, buf, &lgi->lgi_off, th);
 	if (rc)
 		RETURN(rc);
@@ -485,6 +489,26 @@ static void llog_skip_over(__u64 *off, int curr, int goal)
 		return;
 	*off = (*off + (goal - curr - 1) * LLOG_MIN_REC_SIZE) &
 		~(LLOG_CHUNK_SIZE - 1);
+}
+
+int dump_records(void *buf, int len)
+{
+	struct llog_rec_hdr *rec;
+	struct llog_rec_tail *tail;
+
+	for (rec = buf; (char *)rec < (char *)buf + len;
+	     rec = (struct llog_rec_hdr *)((char *)rec + rec->lrh_len)) {
+		if (LLOG_REC_HDR_NEEDS_SWABBING(rec))
+			lustre_swab_llog_rec(rec);
+
+		tail = (struct llog_rec_tail *)((char *)rec +
+			    rec->lrh_len - sizeof(struct llog_rec_tail));
+
+		CERROR("[index]: %05d/%05d  [type]: %02x  [len]: %04d/%04d "
+		       "@%p\n", rec->lrh_index, tail->lrt_index, rec->lrh_type,
+		       rec->lrh_len, tail->lrt_len, rec);
+	}
+	return 0;
 }
 
 /* sets:
@@ -576,8 +600,17 @@ static int llog_osd_next_block(const struct lu_env *env,
 
 		if (LLOG_REC_HDR_NEEDS_SWABBING(last_rec))
 			lustre_swab_llog_rec(last_rec);
-		LASSERT(last_rec->lrh_index == tail->lrt_index);
-
+		if (last_rec->lrh_index != tail->lrt_index) {
+			CERROR("Rec idx %d, tail idx %d in llog #"LPX64"#"
+			       LPX64"#%08x offset "LPU64", len %d, buf %p\n",
+			       last_rec->lrh_index, tail->lrt_index,
+			       loghandle->lgh_id.lgl_oid,
+			       loghandle->lgh_id.lgl_oseq,
+			       loghandle->lgh_id.lgl_ogen,
+			       *cur_offset, rc, buf);
+			dump_records(buf, rc);
+			LBUG();
+		}
 		*cur_idx = tail->lrt_index;
 
 		/* this shouldn't happen */
