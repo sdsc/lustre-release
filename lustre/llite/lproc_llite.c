@@ -714,6 +714,23 @@ static int ll_rd_maxea_size(char *page, char **start, off_t off,
         return snprintf(page, count, "%u\n", ealen);
 }
 
+static int ll_rd_unstable_stats(char *page, char **start, off_t off,
+			      int count, int *eof, void *data)
+{
+	struct super_block	*sb    = data;
+	struct ll_sb_info	*sbi   = ll_s2sbi(sb);
+	struct cl_client_cache	*cache = &sbi->ll_cache;
+	int pages, mb, rc;
+
+	pages = cfs_atomic_read(&cache->ccc_unstable_nr);
+	mb    = (pages * CFS_PAGE_SIZE) >> 20;
+
+	rc = snprintf(page, count, "unstable_pages: %8d\n"
+				   "unstable_mb:    %8d\n", pages, mb);
+
+	return rc;
+}
+
 static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
         { "uuid",         ll_rd_sb_uuid,          0, 0 },
         //{ "mntpt_path",   ll_rd_path,             0, 0 },
@@ -744,6 +761,7 @@ static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
         { "statahead_stats",  ll_rd_statahead_stats, 0, 0 },
         { "lazystatfs",       ll_rd_lazystatfs, ll_wr_lazystatfs, 0 },
         { "max_easize",       ll_rd_maxea_size, 0, 0 },
+	{ "unstable_stats",   ll_rd_unstable_stats, 0, 0},
         { 0 }
 };
 
