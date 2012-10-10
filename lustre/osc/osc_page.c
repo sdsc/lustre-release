@@ -512,9 +512,12 @@ struct cl_page *osc_page_init(const struct lu_env *env,
                               struct cl_object *obj,
                               struct cl_page *page, cfs_page_t *vmpage)
 {
-        struct osc_object *osc = cl2osc(obj);
-        struct osc_page   *opg;
-        int result;
+	struct osc_object	*osc   = cl2osc(obj);
+	struct client_obd	*cli   = osc_cli(osc);
+	struct cl_client_cache	*cache = cli->cl_cache;
+	struct l_wait_info	 lwi   = LWI_INTR(LWI_ON_SIGNAL_NOOP, NULL);
+	struct osc_page		*opg;
+	int			 result;
 
         OBD_SLAB_ALLOC_PTR_GFP(opg, osc_page_kmem, CFS_ALLOC_IO);
         if (opg != NULL) {
@@ -540,13 +543,48 @@ struct cl_page *osc_page_init(const struct lu_env *env,
 		 * hurt to initialize it twice :-) */
                 CFS_INIT_LIST_HEAD(&opg->ops_inflight);
 		CFS_INIT_LIST_HEAD(&opg->ops_lru);
-	} else
+	} else {
 		result = -ENOMEM;
+		goto out;
+	}
 
 	/* reserve an LRU space for this page */
 	if (page->cp_type == CPT_CACHEABLE && result == 0)
 		result = osc_lru_reserve(env, osc, opg);
 
+	/* Skip unstable page tracking on these conditions: LRU reserve
+	 * error, no tracking structure, or the page is direct IO */
+	if (result != 0 || cache == NULL || page->cp_type != CPT_CACHEABLE)
+		goto out;
+
+	/* Unless this is true, we are over our limit of unstable pages.
+	 * We must wait until pages are committed. */
+	while (cfs_atomic_read(&cache->ccc_unstable_nr) >=
+	       cfs_atomic_read(&cache->ccc_unstable_max)) {
+
+		/* ccu_max of 0 is a "magic" value which
+		 * disables the unstable limit. No need to undo
+		 * osc_lru_reserve like below, result == 0 here. */
+		if (cfs_atomic_read(&cache->ccc_unstable_max) == 0)
+			break;
+
+		cfs_atomic_inc(&cache->ccc_unstable_waiters);
+		result = l_wait_event(cache->ccc_unstable_waitq,
+			cfs_atomic_read(&cache->ccc_unstable_nr) == 0 ||
+			cfs_atomic_read(&cache->ccc_unstable_nr) <
+			cfs_atomic_read(&cache->ccc_unstable_max),
+			&lwi);
+		cfs_atomic_dec(&cache->ccc_unstable_waiters);
+
+		/* The wait event must have been interrupted, ensure the
+		 * osc_lru_reserve call is undone */
+		if (result != 0) {
+			cfs_atomic_dec(&cli->cl_lru_busy);
+			break;
+		}
+	}
+
+out:
 	return ERR_PTR(result);
 }
 
