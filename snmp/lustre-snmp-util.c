@@ -765,3 +765,12 @@ extern int mds_stats_values(char * name_value, unsigned long long * nb_sample, u
   
   return SUCCESS;
 }
+
+void convert_ul(counter64 *c64, unsigned long ul, size_t *var_len)
+{
+        *var_len  = sizeof(c64);
+        c64->low  = (unsigned long) (0x0ffffffff & ul);
+        ul >>= 32;
+        c64->high = (unsigned long) (0x0ffffffff & ul);
+}
+
