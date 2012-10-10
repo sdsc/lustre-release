@@ -510,6 +510,10 @@ struct client_obd {
         struct obd_histogram     cl_read_offset_hist;
         struct obd_histogram     cl_write_offset_hist;
 
+
+	/* Back pointer to ll_unstable in ll_sb_info */
+	struct cl_client_unstable *cl_unstable;
+
         /* number of in flight destroy rpcs is limited to max_rpcs_in_flight */
         cfs_atomic_t             cl_destroy_in_flight;
         cfs_waitq_t              cl_destroy_waitq;
@@ -762,6 +766,9 @@ struct lov_obd {
         cfs_list_t              lov_pool_list; /* used for sequential access */
         cfs_proc_dir_entry_t   *lov_pool_proc_entry;
         enum lustre_sec_part    lov_sp_me;
+
+	/* Back pointer to ll_unstable field in ll_sb_info */
+	struct cl_client_unstable *lov_unstable;
 };
 
 struct lmv_tgt_desc {
@@ -1246,6 +1253,8 @@ enum obd_cleanup_stage {
 #define KEY_SPTLRPC_CONF        "sptlrpc_conf"
 #define KEY_CONNECT_FLAG        "connect_flags"
 #define KEY_SYNC_LOCK_CANCEL    "sync_lock_cancel"
+
+#define KEY_UNSTABLE_SET	"unstable_set"
 
 struct lu_context;
 
