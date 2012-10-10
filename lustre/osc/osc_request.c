@@ -832,13 +832,15 @@ static void osc_announce_cached(struct client_obd *cli, struct obdo *oa,
 		CERROR("dirty %lu - %lu > dirty_max %lu\n",
 		       cli->cl_dirty, cli->cl_dirty_transit, cli->cl_dirty_max);
 		oa->o_undirty = 0;
-	} else if (unlikely(cfs_atomic_read(&obd_dirty_pages) -
+	} else if (unlikely(cfs_atomic_read(&obd_unstable_pages) +
+			    cfs_atomic_read(&obd_dirty_pages) -
 			    cfs_atomic_read(&obd_dirty_transit_pages) >
 			    (long)(obd_max_pinned_pages + 1))) {
 		/* The cfs_atomic_read() allowing the cfs_atomic_inc() are
 		 * not covered by a lock thus they may safely race and trip
 		 * this CERROR() unless we add in a small fudge factor (+1). */
-		CERROR("dirty %d - %d > system pinned_max %d\n",
+		CERROR("pinned %d + %d - %d > system pinned_max %d\n",
+		       cfs_atomic_read(&obd_unstable_pages),
 		       cfs_atomic_read(&obd_dirty_pages),
 		       cfs_atomic_read(&obd_dirty_transit_pages),
 		       obd_max_pinned_pages);
@@ -1236,6 +1238,72 @@ static obd_count osc_checksum_bulk(int nob, obd_count pg_count,
 	return cksum;
 }
 
+/* Performs "unstable" page accounting. This function balances the
+ * increment operations performed in osc_inc_unstable_pages. It is
+ * registered as the RPC request callback, and is executed when the
+ * bulk RPC is committed on the server. Thus at this point, the pages
+ * involved in the bulk transfer are no longer considered unstable. */
+void osc_dec_unstable_pages(struct ptlrpc_request *req)
+{
+	struct ptlrpc_bulk_desc *desc       = req->rq_bulk;
+	struct client_obd       *cli        = &req->rq_import->imp_obd->u.cli;
+	obd_count                page_count = desc->bd_iov_count;
+	int i;
+
+	/* No unstable page tracking */
+	if (cli->cl_cache == NULL)
+		return;
+
+	LASSERT(page_count >= 0);
+
+	spin_lock(&req->rq_lock);
+	LASSERT(req->rq_unstable == 1);
+	req->rq_unstable = 0;
+	spin_unlock(&req->rq_lock);
+
+	for (i = 0; i < page_count; i++)
+		dec_zone_page_state(desc->bd_iov[i].kiov_page, NR_UNSTABLE_NFS);
+
+	cfs_atomic_sub(page_count, &cli->cl_cache->ccc_unstable_nr);
+	LASSERT(cfs_atomic_read(&cli->cl_cache->ccc_unstable_nr) >= 0);
+
+	cfs_atomic_sub(page_count, &obd_unstable_pages);
+	LASSERT(cfs_atomic_read(&obd_unstable_pages) >= 0);
+
+	cfs_waitq_broadcast(&cli->cl_cache->ccc_unstable_waitq);
+}
+
+/* "unstable" page accounting. See: osc_dec_unstable_pages. */
+void osc_inc_unstable_pages(struct ptlrpc_request *req)
+{
+	struct ptlrpc_bulk_desc *desc = req->rq_bulk;
+	struct client_obd       *cli  = &req->rq_import->imp_obd->u.cli;
+	obd_count                page_count = desc->bd_iov_count;
+	int i;
+
+	/* No unstable page tracking */
+	if (cli->cl_cache == NULL)
+		return;
+
+	LASSERT(page_count >= 0);
+
+	spin_lock(&req->rq_lock);
+	LASSERT(req->rq_unstable == 0);
+	req->rq_unstable = 1;
+	spin_unlock(&req->rq_lock);
+
+	req->rq_commit_cb = osc_dec_unstable_pages;
+
+	for (i = 0; i < page_count; i++)
+		inc_zone_page_state(desc->bd_iov[i].kiov_page, NR_UNSTABLE_NFS);
+
+	LASSERT(cfs_atomic_read(&cli->cl_cache->ccc_unstable_nr) >= 0);
+	cfs_atomic_add(page_count, &cli->cl_cache->ccc_unstable_nr);
+
+	LASSERT(cfs_atomic_read(&obd_unstable_pages) >= 0);
+	cfs_atomic_add(page_count, &obd_unstable_pages);
+}
+
 static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
                                 struct lov_stripe_md *lsm, obd_count page_count,
                                 struct brw_page **pga,
@@ -1362,6 +1430,9 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
                 }
                 pg_prev = pg;
         }
+
+	if (opc == OST_WRITE)
+		osc_inc_unstable_pages(req);
 
         LASSERTF((void *)(niobuf - niocount) ==
                 req_capsule_client_get(&req->rq_pill, &RMF_NIOBUF_REMOTE),

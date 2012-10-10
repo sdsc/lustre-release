@@ -1310,10 +1310,12 @@ static int osc_completion(const struct lu_env *env, struct osc_async_page *oap,
 #define OSC_DUMP_GRANT(cli, fmt, args...) do {				      \
 	struct client_obd *__tmp = (cli);				      \
 	CDEBUG(D_CACHE, "%s: { dirty: %ld/%ld dirty_pages: %d/%d "	      \
-	       "dropped: %ld avail: %ld, reserved: %ld, flight: %d } " fmt,   \
+	       "unstable_pages: %d/%d dropped: %ld avail: %ld, "	      \
+	       "reserved: %ld, flight: %d } " fmt,			      \
 	       __tmp->cl_import->imp_obd->obd_name,			      \
 	       __tmp->cl_dirty, __tmp->cl_dirty_max,			      \
 	       cfs_atomic_read(&obd_dirty_pages), obd_max_pinned_pages,	      \
+	       cfs_atomic_read(&obd_unstable_pages), obd_max_pinned_pages,    \
 	       __tmp->cl_lost_grant, __tmp->cl_avail_grant,		      \
 	       __tmp->cl_reserved_grant, __tmp->cl_w_in_flight, ##args);      \
 } while (0)
@@ -1454,7 +1456,7 @@ static int osc_enter_cache_try(struct client_obd *cli,
 			       struct osc_async_page *oap,
 			       int bytes, int transient)
 {
-	int rc;
+	int rc, dirty, unstable;
 
 	OSC_DUMP_GRANT(cli, "need:%d.\n", bytes);
 
@@ -1462,8 +1464,11 @@ static int osc_enter_cache_try(struct client_obd *cli,
 	if (rc < 0)
 		return 0;
 
+	dirty    = cfs_atomic_read(&obd_dirty_pages);
+	unstable = cfs_atomic_read(&obd_unstable_pages);
+
 	if (cli->cl_dirty + CFS_PAGE_SIZE <= cli->cl_dirty_max &&
-	    cfs_atomic_read(&obd_dirty_pages) + 1 <= obd_max_pinned_pages) {
+	    dirty + unstable + 1 <= obd_max_pinned_pages) {
 		osc_consume_write_grant(cli, &oap->oap_brw_page);
 		if (transient) {
 			cli->cl_dirty_transit += CFS_PAGE_SIZE;
@@ -1575,13 +1580,16 @@ void osc_wake_cache_waiters(struct client_obd *cli)
 {
 	cfs_list_t *l, *tmp;
 	struct osc_cache_waiter *ocw;
+	int dirty, unstable;
 
 	ENTRY;
 	cfs_list_for_each_safe(l, tmp, &cli->cl_cache_waiters) {
+		dirty    = cfs_atomic_read(&obd_dirty_pages);
+		unstable = cfs_atomic_read(&obd_unstable_pages);
+
 		/* if we can't dirty more, we must wait until some is written */
 		if ((cli->cl_dirty + CFS_PAGE_SIZE > cli->cl_dirty_max) ||
-		    (cfs_atomic_read(&obd_dirty_pages) + 1 >
-		     obd_max_pinned_pages)) {
+		    (dirty + unstable + 1 > obd_max_pinned_pages)) {
 			CDEBUG(D_CACHE, "no dirty room: dirty: %ld "
 			       "osc max %ld, sys max %d\n", cli->cl_dirty,
 			       cli->cl_dirty_max, obd_max_pinned_pages);
@@ -1770,6 +1778,15 @@ static void osc_ap_completion(const struct lu_env *env, struct client_obd *cli,
 
 	ENTRY;
 	if (oap->oap_request != NULL) {
+		/* The request hasn't been committed (i.e. the commit
+		 * callback hasn't run) and an error has occurred (i.e.
+		 * the commit callback will not run). In this case we
+		 * must manually decrement the unstable pages in order
+		 * to match and balance the previous osc_brw_prep_request
+		 * call for this request. */
+		if (oap->oap_request->rq_unstable == 1 && rc < 0)
+			osc_dec_unstable_pages(oap->oap_request);
+
 		xid = ptlrpc_req_xid(oap->oap_request);
 		ptlrpc_req_finished(oap->oap_request);
 		oap->oap_request = NULL;
