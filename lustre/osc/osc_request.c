@@ -1197,6 +1197,30 @@ static obd_count osc_checksum_bulk(int nob, obd_count pg_count,
 	return cksum;
 }
 
+/* Performs "unstable" page accounting. This function balances the
+ * increment operations performed in osc_brw_prep_request. It is
+ * registered as the RPC request callback, and is executed when the
+ * bulk RPC is committed on the server. Thus at this point, the pages
+ * involved in the bulk transfer are no longer considered unstable. */
+void osc_commit_cb(struct ptlrpc_request *req)
+{
+	int i;
+	struct ptlrpc_bulk_desc *desc = req->rq_bulk;
+	struct client_obd *cli = &req->rq_import->imp_obd->u.cli;
+
+	/* No unstable page tracking */
+	if (cli->cl_unstable == NULL)
+		return;
+
+	for (i = 0; i < desc->bd_iov_count; i++) {
+		LASSERT(cfs_atomic_read(&cli->cl_unstable->ccu_count) > 0);
+		cfs_atomic_dec(&cli->cl_unstable->ccu_count);
+		dec_zone_page_state(desc->bd_iov[i].kiov_page, NR_UNSTABLE_NFS);
+	}
+
+	cfs_waitq_broadcast(&cli->cl_unstable->ccu_waitq);
+}
+
 static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
                                 struct lov_stripe_md *lsm, obd_count page_count,
                                 struct brw_page **pga,
@@ -1231,6 +1255,8 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
         }
         if (req == NULL)
                 RETURN(-ENOMEM);
+
+	req->rq_commit_cb = osc_commit_cb;
 
         for (niocount = i = 1; i < page_count; i++) {
                 if (!can_merge_pages(pga[i - 1], pga[i]))
@@ -1305,6 +1331,12 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
 #endif
                 LASSERT((pga[0]->flag & OBD_BRW_SRVLOCK) ==
                         (pg->flag & OBD_BRW_SRVLOCK));
+
+		/* "unstable" page accounting. See: osc_commit_cb. */
+		if (cli->cl_unstable != NULL) {
+			inc_zone_page_state(pg->pg, NR_UNSTABLE_NFS);
+			cfs_atomic_inc(&cli->cl_unstable->ccu_count);
+		}
 
 		ptlrpc_prep_bulk_page_pin(desc, pg->pg, poff, pg->count);
                 requested_nob += pg->count;
@@ -3223,6 +3255,11 @@ static int osc_set_info_async(const struct lu_env *env, struct obd_export *exp,
 
 		nr = osc_lru_shrink(cli, min(nr, target));
 		*(int *)val -= nr;
+		RETURN(0);
+	}
+
+	if (KEY_IS(KEY_UNSTABLE_SET)) {
+		obd->u.cli.cl_unstable = (struct cl_client_unstable *)val;
 		RETURN(0);
 	}
 

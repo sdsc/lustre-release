@@ -434,4 +434,13 @@ struct cl_client_lru {
 	unsigned int	ccl_reclaim_count; /* statistics */
 };
 
+/* Used by ll_sb_info to track "unstable" pages on client. For example:
+ * uncommitted pages pinned by ptlrpc for recovery purposes */
+struct cl_client_unstable {
+	cfs_atomic_t	ccu_count;   /* Current number of unstable pages */
+	cfs_atomic_t	ccu_max;     /* Max number of unstable pages */
+	cfs_waitq_t	ccu_waitq;   /* Wait queue to signal on BRW commit */
+	cfs_atomic_t	ccu_waiters; /* Current number waiting on ccu_waitq */
+};
+
 #endif /*LCLIENT_H */

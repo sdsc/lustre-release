@@ -110,6 +110,12 @@ static struct ll_sb_info *ll_init_sbi(void)
 	cfs_spin_lock_init(&sbi->ll_lru.ccl_lock);
 	CFS_INIT_LIST_HEAD(&sbi->ll_lru.ccl_list);
 
+	/* Disable unstable page limit by default */
+	cfs_atomic_set(&sbi->ll_unstable.ccu_max, 0);
+	cfs_atomic_set(&sbi->ll_unstable.ccu_count, 0);
+	cfs_atomic_set(&sbi->ll_unstable.ccu_waiters, 0);
+	cfs_waitq_init(&sbi->ll_unstable.ccu_waitq);
+
         sbi->ll_ra_info.ra_max_pages_per_file = min(pages / 32,
                                            SBI_DEFAULT_READAHEAD_MAX);
         sbi->ll_ra_info.ra_max_pages = sbi->ll_ra_info.ra_max_pages_per_file;
@@ -550,6 +556,12 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                                  KEY_CHECKSUM, sizeof(checksum), &checksum,
                                  NULL);
         cl_sb_init(sb);
+
+	err = obd_set_info_async(NULL, sbi->ll_dt_exp, sizeof(KEY_UNSTABLE_SET),
+				 KEY_UNSTABLE_SET, sizeof(sbi->ll_unstable),
+				 &sbi->ll_unstable, NULL);
+	if (err)
+		CERROR("failed to set LOV unstable parameter");
 
 	err = obd_set_info_async(NULL, sbi->ll_dt_exp, sizeof(KEY_LRU_SET),
 				 KEY_LRU_SET, sizeof(sbi->ll_lru),
@@ -1061,7 +1073,8 @@ void ll_put_super(struct super_block *sb)
         struct lustre_sb_info *lsi = s2lsi(sb);
         struct ll_sb_info *sbi = ll_s2sbi(sb);
         char *profilenm = get_profile_name(sb);
-        int force = 1, next;
+	struct l_wait_info lwi = LWI_INTR(LWI_ON_SIGNAL_NOOP, NULL);
+	int ccu_count, ccu_waiters, next, force = 1, rc = 0;
         ENTRY;
 
         CDEBUG(D_VFSTRACE, "VFS Op: sb %p - %s\n", sb, profilenm);
@@ -1076,6 +1089,21 @@ void ll_put_super(struct super_block *sb)
                 if (obd)
                         force = obd->obd_force;
         }
+
+	/* Wait for unstable pages to be committed to stable storage */
+	while (rc == 0 && cfs_atomic_read(&sbi->ll_unstable.ccu_count) > 0) {
+		cfs_atomic_inc(&sbi->ll_unstable.ccu_waiters);
+		rc = l_wait_event(sbi->ll_unstable.ccu_waitq,
+			cfs_atomic_read(&sbi->ll_unstable.ccu_count) == 0,
+			&lwi);
+		cfs_atomic_dec(&sbi->ll_unstable.ccu_waiters);
+	}
+
+	ccu_count   = cfs_atomic_read(&sbi->ll_unstable.ccu_count);
+	ccu_waiters = cfs_atomic_read(&sbi->ll_unstable.ccu_waiters);
+	LASSERTF(ccu_count   == 0, "count: %i\n",   ccu_count);
+	LASSERTF(ccu_waiters == 0, "waiters: %i\n", ccu_waiters);
+
 
         /* We need to set force before the lov_disconnect in
            lustre_common_put_super, since l_d cleans up osc's as well. */
