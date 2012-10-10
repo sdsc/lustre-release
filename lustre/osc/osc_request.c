@@ -832,13 +832,15 @@ static void osc_announce_cached(struct client_obd *cli, struct obdo *oa,
 		CERROR("dirty %lu - %lu > dirty_max %lu\n",
 		       cli->cl_dirty, cli->cl_dirty_transit, cli->cl_dirty_max);
 		oa->o_undirty = 0;
-	} else if (unlikely(cfs_atomic_read(&obd_dirty_pages) -
+	} else if (unlikely(cfs_atomic_read(&obd_unstable_pages) +
+			    cfs_atomic_read(&obd_dirty_pages) -
 			    cfs_atomic_read(&obd_dirty_transit_pages) >
 			    (long)(obd_max_pinned_pages + 1))) {
 		/* The cfs_atomic_read() allowing the cfs_atomic_inc() are
 		 * not covered by a lock thus they may safely race and trip
 		 * this CERROR() unless we add in a small fudge factor (+1). */
-		CERROR("dirty %d - %d > system pinned_max %d\n",
+		CERROR("pinned %d + %d - %d > system pinned_max %d\n",
+		       cfs_atomic_read(&obd_unstable_pages),
 		       cfs_atomic_read(&obd_dirty_pages),
 		       cfs_atomic_read(&obd_dirty_transit_pages),
 		       obd_max_pinned_pages);
@@ -2049,6 +2051,20 @@ static int brw_interpret(const struct lu_env *env,
 	RETURN(rc);
 }
 
+static void brw_commit(struct ptlrpc_request *req)
+{
+	spin_lock(&req->rq_lock);
+	/* If osc_inc_unstable_pages (via osc_extent_finish) races with
+	 * this called via the rq_commit_cb, I need to ensure
+	 * osc_dec_unstable_pages is still called. Otherwise unstable
+	 * pages may be leaked. */
+	if (req->rq_unstable)
+		osc_dec_unstable_pages(req);
+	else
+		req->rq_committed = 1;
+	spin_unlock(&req->rq_lock);
+}
+
 /**
  * Build an RPC by the list of extent @ext_list. The caller must ensure
  * that the total pages in this list are NOT over max pages per RPC.
@@ -2154,7 +2170,9 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 		GOTO(out, rc);
 	}
 
+	req->rq_commit_cb = brw_commit;
 	req->rq_interpret_reply = brw_interpret;
+
 	if (mem_tight != 0)
                 req->rq_memalloc = 1;
 
