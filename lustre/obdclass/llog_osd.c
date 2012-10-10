@@ -310,7 +310,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	struct llog_rec_tail	*lrt;
 	struct dt_object	*o;
 	size_t			 left;
-
+	loff_t			 pad_offset = 0;
 	ENTRY;
 
 	LASSERT(env);
@@ -411,6 +411,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		if (rc)
 			RETURN(rc);
 		loghandle->lgh_last_idx++; /*for pad rec*/
+		pad_offset = lgi->lgi_off;
 	}
 	/* if it's the last idx in log file, then return -ENOSPC */
 	if (loghandle->lgh_last_idx >= LLOG_BITMAP_SIZE(llh) - 1)
@@ -451,6 +452,9 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		RETURN(rc);
 	LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
 	lgi->lgi_off = lgi->lgi_attr.la_size;
+
+	LASSERTF(ergo(pad_offset > 0, lgi->lgi_off == pad_offset),
+		 "off "LPU64", pad "LPU64"\n", lgi->lgi_off, pad_offset);
 
 	rc = llog_osd_write_blob(env, o, rec, buf, &lgi->lgi_off, th);
 	if (rc)
@@ -576,7 +580,12 @@ static int llog_osd_next_block(const struct lu_env *env,
 
 		if (LLOG_REC_HDR_NEEDS_SWABBING(last_rec))
 			lustre_swab_llog_rec(last_rec);
-		LASSERT(last_rec->lrh_index == tail->lrt_index);
+		LASSERTF(last_rec->lrh_index == tail->lrt_index,
+			 "Rec idx %d, tail idx %d in llog #"LPX64"#"LPX64
+			 "#%08x offset "LPU64", len %d\n",
+			 last_rec->lrh_index, tail->lrt_index,
+			 loghandle->lgh_id.lgl_oid, loghandle->lgh_id.lgl_oseq,
+			 loghandle->lgh_id.lgl_ogen, *cur_offset, rc);
 
 		*cur_idx = tail->lrt_index;
 
