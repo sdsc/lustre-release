@@ -6048,6 +6048,20 @@ test_116() {
 }
 run_test 116 "stripe QOS: free space balance ==================="
 
+test_116a() { # LU-2093
+#define OBD_FAIL_MDS_OSC_CREATE_FAIL     0x147
+	local old_rr
+	old_rr=$(do_facet $SINGLEMDS lctl get_param -n lov.*mdtlov*.qos_threshold_rr)
+	do_facet $SINGLEMDS lctl set_param lov.*mdtlov*.qos_threshold_rr 0
+	mkdir -p $DIR/$tdir
+	do_facet $SINGLEMDS lctl set_param fail_loc=0x147
+	createmany -o $DIR/$tdir/f- 20 || error "can't create"
+	do_facet $SINGLEMDS lctl set_param fail_loc=0
+	rm -rf $DIR/$tdir
+	do_facet $SINGLEMDS lctl set_param lov.*mdtlov*.qos_threshold_rr $old_rr
+}
+run_test 116a "QoS shouldn't LBUG if not enough OSTs found on the 2nd pass"
+
 test_117() # bug 10891
 {
         dd if=/dev/zero of=$DIR/$tfile bs=1M count=1
