@@ -319,19 +319,8 @@ static int osp_statfs(const struct lu_env *env, struct dt_device *dev,
 
 	ENTRY;
 
-	if (unlikely(d->opd_imp_active == 0)) {
-		/*
-		 * in case of inactive OST we return nulls
-		 * so that caller can understand this device
-		 * is unusable for new objects
-		 *
-		 * XXX: shouldn't we take normal statfs and fill
-		 * just few specific fields with zeroes?
-		 */
-		memset(sfs, 0, sizeof(*sfs));
-		sfs->os_bsize = 4096;
-		RETURN(0);
-	}
+	if (unlikely(d->opd_imp_active == 0))
+		RETURN(-ENOTCONN);
 
 	/* return recently updated data */
 	*sfs = d->opd_statfs;
