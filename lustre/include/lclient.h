@@ -422,4 +422,13 @@ int lov_read_and_clear_async_rc(struct cl_object *clob);
 struct lov_stripe_md *ccc_inode_lsm_get(struct inode *inode);
 void ccc_inode_lsm_put(struct inode *inode, struct lov_stripe_md *lsm);
 
+/* LU-2139: Used by ll_sb_info to track "unstable" pages on client
+ * (i.e. uncommitted pages pinned by ptlrpc for recovery purposes) */
+struct cl_client_unstable {
+	cfs_atomic_t	ccu_count;   /* Current number of unstable pages */
+	cfs_atomic_t	ccu_max;     /* Max number of unstable pages */
+	cfs_waitq_t	ccu_waitq;   /* Wait queue to signal on BRW commit */
+	cfs_atomic_t	ccu_waiters; /* Current number waiting on ccu_waitq */
+};
+
 #endif /*LCLIENT_H */

@@ -650,6 +650,51 @@ static int ll_rd_maxea_size(char *page, char **start, off_t off,
         return snprintf(page, count, "%u\n", ealen);
 }
 
+static int ll_wr_max_unstable_mb(struct file *file, const char *buffer,
+				 unsigned long count, void *data)
+{
+	struct super_block		*sb  = data;
+	struct ll_sb_info		*sbi = ll_s2sbi(sb);
+	struct cl_client_unstable	*cli = &sbi->ll_unstable;
+	int val, mult, rc;
+
+	mult = 1 << (20 - CFS_PAGE_SHIFT);
+	rc = lprocfs_write_frac_helper(buffer, count, &val, mult);
+	if (rc)
+		return rc;
+
+	if (val < 0 || val > cfs_num_physpages)
+		return -ERANGE;
+
+	cfs_atomic_set(&cli->ccu_max, val);
+	cfs_waitq_broadcast(&cli->ccu_waitq);
+
+	return count;
+}
+
+static int ll_rd_max_unstable_mb(char *page, char **start, off_t off,
+			         int count, int *eof, void *data)
+{
+	struct super_block		*sb = data;
+	struct ll_sb_info		*sbi = ll_s2sbi(sb);
+	struct cl_client_unstable	*cli = &sbi->ll_unstable;
+	long unsigned ccu_count, ccu_max;
+
+	ccu_count = cfs_atomic_read(&cli->ccu_count);
+	ccu_max   = cfs_atomic_read(&cli->ccu_max);
+
+	return snprintf(page, count,
+		        "count:   %8lu Pages\n"
+		        "max:     %8lu Pages\n"
+		        "count:   %6lu MB\n"
+		        "max:     %6lu MB\n"
+		        "waiters: %4d Threads\n",
+		        ccu_count, ccu_max,
+		        (ccu_count * CFS_PAGE_SIZE) >> 20,
+		        (ccu_max   * CFS_PAGE_SIZE) >> 20,
+		        cfs_atomic_read(&cli->ccu_waiters));
+}
+
 static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
         { "uuid",         ll_rd_sb_uuid,          0, 0 },
         //{ "mntpt_path",   ll_rd_path,             0, 0 },
@@ -680,6 +725,7 @@ static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
         { "statahead_stats",  ll_rd_statahead_stats, 0, 0 },
         { "lazystatfs",       ll_rd_lazystatfs, ll_wr_lazystatfs, 0 },
         { "max_easize",       ll_rd_maxea_size, 0, 0 },
+	{ "max_unstable_mb",  ll_rd_max_unstable_mb, ll_wr_max_unstable_mb, 0},
         { 0 }
 };
 
