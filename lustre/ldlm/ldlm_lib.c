@@ -370,6 +370,8 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
 	CFS_INIT_LIST_HEAD(&cli->cl_lru_list);
 	client_obd_list_lock_init(&cli->cl_lru_list_lock);
 
+	cli->cl_unstable = NULL;
+
         cfs_waitq_init(&cli->cl_destroy_waitq);
         cfs_atomic_set(&cli->cl_destroy_in_flight, 0);
 #ifdef ENABLE_CHECKSUM

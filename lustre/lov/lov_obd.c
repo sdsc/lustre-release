@@ -61,7 +61,7 @@
 #include <lprocfs_status.h>
 #include <lustre_param.h>
 #include <cl_object.h>
-#include <lclient.h> /* for cl_client_lru */
+#include <lclient.h>
 #include <lustre/ll_fiemap.h>
 #include <lustre_log.h>
 
@@ -642,6 +642,15 @@ static int lov_add_target(struct obd_device *obd, struct obd_uuid *uuidp,
 				sizeof(KEY_LRU_SET), KEY_LRU_SET,
 				sizeof(struct cl_client_lru), lov->lov_lru,
 				NULL);
+		if (rc < 0)
+			GOTO(out, rc);
+	}
+
+	if (lov->lov_unstable != NULL) {
+		rc = obd_set_info_async(NULL, tgt->ltd_exp,
+				sizeof(KEY_UNSTABLE_SET), KEY_UNSTABLE_SET,
+				sizeof(struct cl_client_unstable),
+				lov->lov_unstable, NULL);
 		if (rc < 0)
 			GOTO(out, rc);
 	}
@@ -2721,6 +2730,9 @@ static int lov_set_info_async(const struct lu_env *env, struct obd_export *exp,
 		LASSERT(lov->lov_lru == NULL);
 		lov->lov_lru = val;
 		do_inactive = 1;
+	} else if (KEY_IS(KEY_UNSTABLE_SET)) {
+		LASSERT(lov->lov_unstable == NULL);
+		lov->lov_unstable = (struct cl_client_unstable *)val;
 	}
 
         for (i = 0; i < count; i++, val = (char *)val + incr) {
