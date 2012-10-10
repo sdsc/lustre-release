@@ -61,6 +61,11 @@ CFS_LIST_HEAD(ldlm_srv_namespace_list);
 cfs_mutex_t ldlm_cli_namespace_lock;
 CFS_LIST_HEAD(ldlm_cli_namespace_list);
 
+cfs_atomic_t ldlm_cli_all_ns_unused = CFS_ATOMIC_INIT(0);
+cfs_atomic_t ldlm_srv_all_pl_granted = CFS_ATOMIC_INIT(0);
+
+cfs_semaphore_t ldlm_pool_shrink_lock;
+
 cfs_proc_dir_entry_t *ldlm_type_proc_dir = NULL;
 cfs_proc_dir_entry_t *ldlm_ns_proc_dir = NULL;
 cfs_proc_dir_entry_t *ldlm_svc_proc_dir = NULL;

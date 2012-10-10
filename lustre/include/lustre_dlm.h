@@ -471,6 +471,11 @@ struct ldlm_namespace {
          */
         cfs_list_t             ns_list_chain;
 
+	/**
+	 * list of shrinking ns
+	 */
+	cfs_list_t	       ns_shrink_chain;
+
         /**
          * All root resources in namespace.
          */

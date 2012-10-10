@@ -2866,12 +2866,13 @@ static int ldlm_cleanup(void)
 
 int ldlm_init(void)
 {
-        cfs_mutex_init(&ldlm_ref_mutex);
-        cfs_mutex_init(ldlm_namespace_lock(LDLM_NAMESPACE_SERVER));
-        cfs_mutex_init(ldlm_namespace_lock(LDLM_NAMESPACE_CLIENT));
-        ldlm_resource_slab = cfs_mem_cache_create("ldlm_resources",
-                                               sizeof(struct ldlm_resource), 0,
-                                               CFS_SLAB_HWCACHE_ALIGN);
+	cfs_mutex_init(&ldlm_ref_mutex);
+	cfs_mutex_init(ldlm_namespace_lock(LDLM_NAMESPACE_SERVER));
+	cfs_mutex_init(ldlm_namespace_lock(LDLM_NAMESPACE_CLIENT));
+	cfs_sema_init(&ldlm_pool_shrink_lock, LDLM_POOL_SHRINK_THREAD_LIMIT);
+	ldlm_resource_slab = cfs_mem_cache_create("ldlm_resources",
+						  sizeof(struct ldlm_resource),
+						  0, CFS_SLAB_HWCACHE_ALIGN);
         if (ldlm_resource_slab == NULL)
                 return -ENOMEM;
 
