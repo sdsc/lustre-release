@@ -4979,30 +4979,29 @@ static int mdt_connect_internal(struct obd_export *exp,
                         }
                 }
 
-                cfs_spin_lock(&exp->exp_lock);
-                exp->exp_connect_flags = data->ocd_connect_flags;
-                cfs_spin_unlock(&exp->exp_lock);
+                /* Important! We do not update exp_connect flags here,
+                   it's done in mdt_init_sec_level. LU-1623 */
                 data->ocd_version = LUSTRE_VERSION_CODE;
                 exp->exp_mdt_data.med_ibits_known = data->ocd_ibits_known;
         }
 
 #if 0
         if (mdt->mdt_opts.mo_acl &&
-            ((exp->exp_connect_flags & OBD_CONNECT_ACL) == 0)) {
+            ((data->ocd_connect_flags & OBD_CONNECT_ACL) == 0)) {
                 CWARN("%s: MDS requires ACL support but client does not\n",
                       mdt->mdt_md_dev.md_lu_dev.ld_obd->obd_name);
                 return -EBADE;
         }
 #endif
 
-        if ((exp->exp_connect_flags & OBD_CONNECT_FID) == 0) {
+        if ((data->ocd_connect_flags & OBD_CONNECT_FID) == 0) {
                 CWARN("%s: MDS requires FID support, but client not\n",
                       mdt->mdt_md_dev.md_lu_dev.ld_obd->obd_name);
                 return -EBADE;
         }
 
-        if (mdt->mdt_som_conf && !exp_connect_som(exp) &&
-            !(exp->exp_connect_flags & OBD_CONNECT_MDS_MDS)) {
+        if (mdt->mdt_som_conf && 
+            !(data->ocd_connect_flags & (OBD_CONNECT_MDS_MDS|OBD_CONNECT_SOM))){
                 CWARN("%s: MDS has SOM enabled, but client does not support "
                       "it\n", mdt->mdt_md_dev.md_lu_dev.ld_obd->obd_name);
                 return -EBADE;
