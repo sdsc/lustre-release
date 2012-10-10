@@ -513,6 +513,9 @@ struct client_obd {
 	cfs_list_t		 cl_lru_list; /* lru page list */
 	client_obd_lock_t	 cl_lru_list_lock; /* page list protector */
 
+	/* Back pointer to ll_unstable in ll_sb_info */
+	struct cl_client_unstable *cl_unstable;
+
         /* number of in flight destroy rpcs is limited to max_rpcs_in_flight */
         cfs_atomic_t             cl_destroy_in_flight;
         cfs_waitq_t              cl_destroy_waitq;
@@ -768,6 +771,9 @@ struct lov_obd {
 
 	/* cached LRU data from upper layer */
 	void		       *lov_lru;
+
+	/* Back pointer to ll_unstable field in ll_sb_info */
+	struct cl_client_unstable *lov_unstable;
 };
 
 struct lmv_tgt_desc {
@@ -1255,6 +1261,8 @@ enum obd_cleanup_stage {
 
 #define KEY_LRU_SET		"lru_set"
 #define KEY_LRU_SHRINK		"lru_shrink"
+
+#define KEY_UNSTABLE_SET	"unstable_set"
 
 struct lu_context;
 

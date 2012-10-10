@@ -452,6 +452,11 @@ struct ll_sb_info {
 
 	struct cl_client_lru      ll_lru;
 
+	/* Used to track "unstable" pages on a client. An "unstable" page
+	 * being defined as any page which is sent to a server as part of
+	 * a bulk request, but is uncommitted to stable storage. */
+	struct cl_client_unstable ll_unstable;
+
         struct lprocfs_stats     *ll_ra_stats;
 
         struct ll_ra_info         ll_ra_info;

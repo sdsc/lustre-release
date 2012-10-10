@@ -110,6 +110,12 @@ static struct ll_sb_info *ll_init_sbi(void)
 	cfs_spin_lock_init(&sbi->ll_lru.ccl_lock);
 	CFS_INIT_LIST_HEAD(&sbi->ll_lru.ccl_list);
 
+	/* Disable unstable page limit by default */
+	cfs_atomic_set(&sbi->ll_unstable.ccu_max, 0);
+	cfs_atomic_set(&sbi->ll_unstable.ccu_count, 0);
+	cfs_atomic_set(&sbi->ll_unstable.ccu_waiters, 0);
+	cfs_waitq_init(&sbi->ll_unstable.ccu_waitq);
+
         sbi->ll_ra_info.ra_max_pages_per_file = min(pages / 32,
                                            SBI_DEFAULT_READAHEAD_MAX);
         sbi->ll_ra_info.ra_max_pages = sbi->ll_ra_info.ra_max_pages_per_file;
@@ -158,6 +164,9 @@ void ll_free_sbi(struct super_block *sb)
         ENTRY;
 
         if (sbi != NULL) {
+		LASSERT(cfs_atomic_read(&sbi->ll_unstable.ccu_count)   == 0);
+		LASSERT(cfs_atomic_read(&sbi->ll_unstable.ccu_waiters) == 0);
+
                 cfs_spin_lock(&ll_sb_lock);
                 cfs_list_del(&sbi->ll_list);
                 cfs_spin_unlock(&ll_sb_lock);
@@ -550,6 +559,12 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                                  KEY_CHECKSUM, sizeof(checksum), &checksum,
                                  NULL);
         cl_sb_init(sb);
+
+	err = obd_set_info_async(NULL, sbi->ll_dt_exp, sizeof(KEY_UNSTABLE_SET),
+				 KEY_UNSTABLE_SET, sizeof(sbi->ll_unstable),
+				 &sbi->ll_unstable, NULL);
+	if (err)
+		CERROR("failed to set LOV unstable parameter");
 
 	err = obd_set_info_async(NULL, sbi->ll_dt_exp, sizeof(KEY_LRU_SET),
 				 KEY_LRU_SET, sizeof(sbi->ll_lru),
