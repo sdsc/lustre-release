@@ -1459,6 +1459,7 @@ static int osc_enter_cache_try(struct client_obd *cli,
 			       struct osc_async_page *oap,
 			       int bytes, int transient)
 {
+	struct cl_client_cache *cache = cli->cl_cache;
 	int rc;
 
 	OSC_DUMP_GRANT(cli, "need:%d.\n", bytes);
@@ -1467,8 +1468,13 @@ static int osc_enter_cache_try(struct client_obd *cli,
 	if (rc < 0)
 		return 0;
 
+	/* Enforce the dirty limits and the unstable page limit. If
+	 * ccc_unstable_max is 0, unstable page limiting is disabled. */
 	if (cli->cl_dirty + CFS_PAGE_SIZE <= cli->cl_dirty_max &&
-	    cfs_atomic_read(&obd_dirty_pages) + 1 <= obd_max_dirty_pages) {
+	    cfs_atomic_read(&obd_dirty_pages) + 1 <= obd_max_dirty_pages &&
+	    (cfs_atomic_read(&cache->ccc_unstable_max) == 0 ||
+	     cfs_atomic_read(&cache->ccc_unstable_nr) + 1 <=
+	     cfs_atomic_read(&cache->ccc_unstable_max))) {
 		osc_consume_write_grant(cli, &oap->oap_brw_page);
 		if (transient) {
 			cli->cl_dirty_transit += CFS_PAGE_SIZE;
@@ -1758,6 +1764,15 @@ static void osc_ap_completion(const struct lu_env *env, struct client_obd *cli,
 
 	ENTRY;
 	if (oap->oap_request != NULL) {
+		/* The request hasn't been committed (i.e. the commit
+		 * callback hasn't run) and an error has occurred (i.e.
+		 * the commit callback will not run). In this case we
+		 * must manually decrement the unstable pages in order
+		 * to match and balance the previous osc_brw_prep_request
+		 * call for this request. */
+		if (oap->oap_request->rq_unstable == 1 && rc < 0)
+			osc_dec_unstable_pages(oap->oap_request);
+
 		xid = ptlrpc_req_xid(oap->oap_request);
 		ptlrpc_req_finished(oap->oap_request);
 		oap->oap_request = NULL;
