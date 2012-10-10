@@ -513,6 +513,9 @@ struct client_obd {
 	cfs_list_t		 cl_lru_list; /* lru page list */
 	client_obd_lock_t	 cl_lru_list_lock; /* page list protector */
 
+	/* Back pointer to ll_unstable in ll_sb_info */
+	struct cl_client_unstable *cl_unstable;
+
         /* number of in flight destroy rpcs is limited to max_rpcs_in_flight */
         cfs_atomic_t             cl_destroy_in_flight;
         cfs_waitq_t              cl_destroy_waitq;
@@ -766,8 +769,11 @@ struct lov_obd {
         cfs_proc_dir_entry_t   *lov_pool_proc_entry;
         enum lustre_sec_part    lov_sp_me;
 
-	/* Cached LRU pages from upper layer */
+	/* Cached LRU and unstable data from upper layer */
 	void		       *lov_cache;
+
+	/* Back pointer to ll_unstable field in ll_sb_info */
+	struct cl_client_unstable *lov_unstable;
 };
 
 struct lmv_tgt_desc {
