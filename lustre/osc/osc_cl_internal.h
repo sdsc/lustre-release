@@ -56,6 +56,7 @@
 /* osc_build_res_name() */
 #include <obd_ost.h>
 #include <cl_object.h>
+#include <lclient.h>
 #include "osc_internal.h"
 
 /** \defgroup osc osc

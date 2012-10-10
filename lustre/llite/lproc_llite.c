@@ -650,6 +650,65 @@ static int ll_rd_maxea_size(char *page, char **start, off_t off,
         return snprintf(page, count, "%u\n", ealen);
 }
 
+static int ll_wr_max_unstable_mb(struct file *file, const char *buffer,
+				 unsigned long count, void *data)
+{
+	struct super_block		*sb  = data;
+	struct ll_sb_info		*sbi = ll_s2sbi(sb);
+	struct cl_client_unstable	*cli = &sbi->ll_unstable;
+	int pages_number, mult, rc;
+
+	mult = 1 << (20 - CFS_PAGE_SHIFT);
+	rc = lprocfs_write_frac_helper(buffer, count, &pages_number, mult);
+	if (rc)
+		return rc;
+
+	if (pages_number < 0 || pages_number > cfs_num_physpages)
+		return -ERANGE;
+
+	cfs_atomic_set(&cli->ccu_max, pages_number);
+	cfs_waitq_broadcast(&cli->ccu_waitq);
+
+	return count;
+}
+
+static int ll_rd_max_unstable_mb(char *page, char **start, off_t off,
+			         int count, int *eof, void *data)
+{
+	struct super_block		*sb = data;
+	struct ll_sb_info		*sbi = ll_s2sbi(sb);
+	struct cl_client_unstable	*cli = &sbi->ll_unstable;
+	int pages_number, mult;
+
+	pages_number = cfs_atomic_read(&cli->ccu_max);
+	mult = 1 << (20 - CFS_PAGE_SHIFT);
+
+	return lprocfs_read_frac_helper(page, count, pages_number, mult);
+}
+
+static int ll_rd_unstable_stats(char *page, char **start, off_t off,
+			        int count, int *eof, void *data)
+{
+	struct super_block		*sb = data;
+	struct ll_sb_info		*sbi = ll_s2sbi(sb);
+	struct cl_client_unstable	*cli = &sbi->ll_unstable;
+	long unsigned ccu_count, ccu_max;
+
+	ccu_count = cfs_atomic_read(&cli->ccu_count);
+	ccu_max   = cfs_atomic_read(&cli->ccu_max);
+
+	return snprintf(page, count,
+		        "count:   %8lu Pages\n"
+		        "max:     %8lu Pages\n"
+		        "count:   %6lu MB\n"
+		        "max:     %6lu MB\n"
+		        "waiters: %4d Threads\n",
+		        ccu_count, ccu_max,
+		        (ccu_count * CFS_PAGE_SIZE) >> 20,
+		        (ccu_max   * CFS_PAGE_SIZE) >> 20,
+		        cfs_atomic_read(&cli->ccu_waiters));
+}
+
 static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
         { "uuid",         ll_rd_sb_uuid,          0, 0 },
         //{ "mntpt_path",   ll_rd_path,             0, 0 },
@@ -680,6 +739,8 @@ static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
         { "statahead_stats",  ll_rd_statahead_stats, 0, 0 },
         { "lazystatfs",       ll_rd_lazystatfs, ll_wr_lazystatfs, 0 },
         { "max_easize",       ll_rd_maxea_size, 0, 0 },
+	{ "max_unstable_mb",  ll_rd_max_unstable_mb, ll_wr_max_unstable_mb, 0},
+	{ "unstable_stats",   ll_rd_unstable_stats, 0, 0},
         { 0 }
 };
 
