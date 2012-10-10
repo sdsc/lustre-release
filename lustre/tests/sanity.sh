@@ -9855,6 +9855,21 @@ test_228c() {
 }
 run_test 228c "NOT shrink the last entry in OI index node to recycle idle leaf"
 
+
+test_229() {
+    flock_deadlock $DIR/$tfile
+    local RC=$?
+    case $RC in
+          0)
+          ;;
+        124) error "process hangs on a deadlock"
+          ;;
+          *) error "error executing flock_deadlock $DIR/$tfile"
+          ;;
+    esac
+}
+run_test 229 "LU-1715: flock deadlock detection does not work properly"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
