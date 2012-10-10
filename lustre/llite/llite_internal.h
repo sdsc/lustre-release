@@ -453,6 +453,8 @@ struct ll_sb_info {
         unsigned long             ll_async_page_max;
         unsigned long             ll_async_page_count;
 
+	struct cl_client_unstable ll_unstable;
+
         struct lprocfs_stats     *ll_ra_stats;
 
         struct ll_ra_info         ll_ra_info;

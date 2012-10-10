@@ -484,9 +484,11 @@ struct cl_page *osc_page_init(const struct lu_env *env,
                               struct cl_object *obj,
                               struct cl_page *page, cfs_page_t *vmpage)
 {
-        struct osc_object *osc = cl2osc(obj);
-        struct osc_page   *opg;
-        int result;
+	struct osc_object  *osc = cl2osc(obj);
+	struct client_obd  *cli = osc_cli(osc);
+	struct l_wait_info  lwi = LWI_INTR(LWI_ON_SIGNAL_NOOP, NULL);
+	struct osc_page    *opg;
+	int result;
 
         OBD_SLAB_ALLOC_PTR_GFP(opg, osc_page_kmem, CFS_ALLOC_IO);
         if (opg != NULL) {
@@ -509,8 +511,24 @@ struct cl_page *osc_page_init(const struct lu_env *env,
                 opg->ops_temp = !osc_page_protected(env, opg, CLM_READ, 1);
 #endif
                 CFS_INIT_LIST_HEAD(&opg->ops_inflight);
-        } else
-                result = -ENOMEM;
+	} else {
+		return ERR_PTR(-ENOMEM);
+	}
+
+	/* LU-2139: Unless this is true, we are over our limit of
+	 * unstable pages. We must wait until pages are committed.
+	 */
+	while (cfs_atomic_read(&cli->cl_unstable->ccu_count) >=
+				cli->cl_unstable->ccu_max) {
+		cfs_cond_resched();
+		cfs_atomic_inc(&cli->cl_unstable->ccu_waiters);
+		l_wait_event(cli->cl_unstable->ccu_waitq,
+			cfs_atomic_read(&cli->cl_unstable->ccu_count) <
+					 cli->cl_unstable->ccu_max,
+			&lwi);
+		cfs_atomic_dec(&cli->cl_unstable->ccu_waiters);
+	}
+
         return ERR_PTR(result);
 }
 

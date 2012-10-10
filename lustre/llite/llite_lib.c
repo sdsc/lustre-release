@@ -102,6 +102,15 @@ static struct ll_sb_info *ll_init_sbi(void)
                 sbi->ll_async_page_max = (pages / 4) * 3;
         }
 
+	/* LU-2139: Limit unstable pages to 1/4 of RAM. This value was
+	 * picked out of thin air, and can probably be improved upon,
+	 * but it appears to work "well enough" for our purposes.
+	 */
+	sbi->ll_unstable.ccu_max = pages / 4;
+	cfs_atomic_set(&sbi->ll_unstable.ccu_count, 0);
+	cfs_atomic_set(&sbi->ll_unstable.ccu_waiters, 0);
+	cfs_waitq_init(&sbi->ll_unstable.ccu_waitq);
+
         sbi->ll_ra_info.ra_max_pages_per_file = min(pages / 32,
                                            SBI_DEFAULT_READAHEAD_MAX);
         sbi->ll_ra_info.ra_max_pages = sbi->ll_ra_info.ra_max_pages_per_file;
@@ -542,6 +551,11 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                                  KEY_CHECKSUM, sizeof(checksum), &checksum,
                                  NULL);
         cl_sb_init(sb);
+
+	/* XXX: Check (and report) previous error code */
+	err = obd_set_info_async(NULL, sbi->ll_dt_exp, sizeof(KEY_UNSTABLE_SET),
+				 KEY_UNSTABLE_SET, sizeof(sbi->ll_unstable),
+				 &sbi->ll_unstable, NULL);
 
         sb->s_root = d_alloc_root(root);
 #ifdef HAVE_DCACHE_LOCK

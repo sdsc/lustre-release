@@ -422,4 +422,12 @@ int lov_read_and_clear_async_rc(struct cl_object *clob);
 struct lov_stripe_md *ccc_inode_lsm_get(struct inode *inode);
 void ccc_inode_lsm_put(struct inode *inode, struct lov_stripe_md *lsm);
 
+
+struct cl_client_unstable {
+	cfs_atomic_t	ccu_count;   /* Current number of unstable pages */
+	unsigned long	ccu_max;     /* Max number of unstable pages */
+	cfs_waitq_t	ccu_waitq;   /* Wait queue to signal on BRW commit */
+	cfs_atomic_t	ccu_waiters; /* Current number waitering on ccu_waitq */
+};
+
 #endif /*LCLIENT_H */
