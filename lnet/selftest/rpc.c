@@ -1652,12 +1652,12 @@ srpc_startup (void)
         srpc_data.rpc_state = SRPC_STATE_NONE;
 
 #ifdef __KERNEL__
-        rc = LNetNIInit(LUSTRE_SRV_LNET_PID);
+	rc = LNetNIInit(LUSTRE_SRV_LNET_PID, 0);
 #else
-        if (the_lnet.ln_server_mode_flag)
-                rc = LNetNIInit(LUSTRE_SRV_LNET_PID);
-        else
-                rc = LNetNIInit(getpid() | LNET_PID_USERFLAG);
+	if (the_lnet.ln_server_mode_flag)
+		rc = LNetNIInit(LUSTRE_SRV_LNET_PID, 0);
+	else
+		rc = LNetNIInit(getpid() | LNET_PID_USERFLAG, 0);
 #endif
         if (rc < 0) {
                 CERROR ("LNetNIInit() has failed: %d\n", rc);

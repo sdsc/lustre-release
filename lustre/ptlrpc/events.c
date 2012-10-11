@@ -602,7 +602,7 @@ int ptlrpc_ni_init(void)
         CDEBUG(D_NET, "My pid is: %x\n", pid);
 
         /* We're not passing any limits yet... */
-        rc = LNetNIInit(pid);
+	rc = LNetNIInit(pid, 0);
         if (rc < 0) {
                 CDEBUG (D_NET, "Can't init network interface: %d\n", rc);
                 return (-ENOENT);

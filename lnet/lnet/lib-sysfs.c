@@ -45,23 +45,19 @@ static char *lnet_sysfs_read_ni;
 static char lnet_sysfs_route_pid[LNET_SYSFS_MAX_PID];
 static char lnet_sysfs_ni_pid[LNET_SYSFS_MAX_PID];
 
-/* This routine will be used for parsing out the command arguments.  ifdef'ing
-   it out now to prevent compilations errors. */
-#if 0
 static int
 line2args(char *line, char **argv, int maxargs)
 {
 	char *arg;
 	int i = 0;
 
-	while ((arg = strsep(&line, " \t")) &&
+	while ((arg = strsep(&line, " \t,")) &&
 	       (i <= maxargs)) {
 		argv[i] = arg;
 		i++;
 	}
 	return i;
 }
-#endif
 
 static ssize_t
 lnet_sysfs_route_write(struct device *dev, struct device_attribute *attr,
@@ -99,23 +95,157 @@ static ssize_t
 lnet_sysfs_ni_write(struct device *dev, struct device_attribute *attr,
 		    const char *buf, size_t count)
 {
-	int i;
+	int		i;
+	char		*argv[MAXARGS];
+	int		num_args;
+	int		rc;
+	char		*tmpstr;
+	__u32		net = 0;
+	int		cmd_start;
 
 	/* Parse out the pid from the beginning of message. */
-	for (i = 0; (i < sizeof(lnet_sysfs_ni_pid)) && (i < count) &&
-	     (buf[i] != ':'); i++)
-		lnet_sysfs_ni_pid[i] = buf[i];
-	if ((i >= sizeof(lnet_sysfs_ni_pid)) || (buf[i] != ':')) {
+	for (cmd_start = 0; (cmd_start < sizeof(lnet_sysfs_ni_pid)) &&
+	     (cmd_start < count) && (buf[cmd_start] != ':'); cmd_start++)
+		lnet_sysfs_ni_pid[cmd_start] = buf[cmd_start];
+	if ((cmd_start >= sizeof(lnet_sysfs_ni_pid)) ||
+	    (buf[cmd_start] != ':')) {
 		/* We did not hit a colon.  Message not formatted properly. */
 		strcpy(lnet_sysfs_read_ni, "Fail: Bad message format\n");
 		strcpy(lnet_sysfs_ni_pid, "0");
 		return count;
 	}
-	lnet_sysfs_ni_pid[i] = '\0';
-	i++;
+	lnet_sysfs_ni_pid[cmd_start] = '\0';
+	cmd_start++;
 
-	/* Here is where processing of ni commands will go. */
+	/* Get a local copy of the buffer we can alter. */
+	LIBCFS_ALLOC(tmpstr, count - cmd_start + 1);
+	if (tmpstr == NULL)
+		return -ENOMEM;
+	memcpy(tmpstr, buf + cmd_start, count - cmd_start);
+	tmpstr[count - cmd_start] = '\0';
 
+	/* Parse out the parameters */
+	num_args = line2args(tmpstr, argv, MAXARGS);
+	if (num_args < 0) {
+		scnprintf(lnet_sysfs_read_ni, LNET_SYSFS_MAX_BUF,
+			  "Fail: Unable to parse arguments\n");
+		CERROR(lnet_sysfs_read_ni);
+		goto net_failure;
+	}
+	if (tmpstr[0] != 'L') {
+		if (num_args >= 2) {
+			net = libcfs_str2net(argv[1]);
+			if (net == LNET_NIDNET(LNET_NID_ANY)) {
+				scnprintf(lnet_sysfs_read_ni,
+					  LNET_SYSFS_MAX_BUF,
+					  "Fail: Invalid net parameter: %s\n",
+					  argv[1]);
+				CERROR(lnet_sysfs_read_ni);
+				goto net_failure;
+			}
+		} else {
+			scnprintf(lnet_sysfs_read_ni, LNET_SYSFS_MAX_BUF,
+				  "Fail: Missing <net> argument\n");
+			CERROR(lnet_sysfs_read_ni);
+			goto net_failure;
+		}
+	}
+
+	switch (tmpstr[0]) {
+	case 'A':
+		/* Temporary: as long as we still support the networks module
+		   parameter, we want to re-use the parsing for that.  In the
+		   future, if that module support is removed, this can all be
+		   simplified. */
+		/* Form a typical network config string by putting the
+		   interface (if present) in brackets after the network. */
+		if (num_args >= 3) {
+			char		tmp_buffer[256];
+			char		*lnd_params[MAXARGS];
+			unsigned int	num_lnd_params = 0;
+
+			scnprintf(tmp_buffer, sizeof(tmp_buffer), "%s(%s)",
+				  argv[1], argv[2]);
+			tmp_buffer[sizeof(tmp_buffer) - 1] = '\0';
+			for (i = 3; i < num_args; i++) {
+				if (argv[i][0] == '[') {
+					/* This must be SMP parameters.  Just
+					   append to the buffer. */
+					strlcat(tmp_buffer, argv[i],
+						sizeof(tmp_buffer));
+				} else {
+					/* This must be an LND tunable
+					   parameter. */
+					lnd_params[num_lnd_params] = argv[i];
+					num_lnd_params++;
+				}
+			}
+			rc = lnet_startup_lndni(tmp_buffer, 0, lnd_params,
+						num_lnd_params);
+		} else {
+			rc = lnet_startup_lndni(argv[1], 0, NULL, 0);
+		}
+		if (rc < 0) {
+			scnprintf(lnet_sysfs_read_ni,
+				  LNET_SYSFS_MAX_BUF,
+				  "Fail: Unable to startup net.  "
+				  "Check logs for reason.\n");
+		} else
+			strlcpy(lnet_sysfs_read_ni, "Success: Network up\n",
+				LNET_SYSFS_MAX_BUF);
+		break;
+	case 'D':
+		rc = lnet_shutdown_lndni(net);
+		if (rc) {
+			scnprintf(lnet_sysfs_read_ni,
+				  LNET_SYSFS_MAX_BUF,
+				  "Fail: Unable to shutdown net: errno = %d\n",
+				  rc);
+			CERROR(lnet_sysfs_read_ni);
+		} else
+			strlcpy(lnet_sysfs_read_ni, "Success: Network down\n",
+				LNET_SYSFS_MAX_BUF);
+		break;
+	case 'S':
+		if (the_lnet.ln_refcount == 0) {
+			scnprintf(lnet_sysfs_read_ni, LNET_SYSFS_MAX_BUF,
+				 "Fail: No networks configured\n");
+			break;
+		}
+		rc = lnet_show_lndni(net, lnet_sysfs_read_ni,
+				     LNET_SYSFS_MAX_BUF);
+		if (rc) {
+			scnprintf(lnet_sysfs_read_ni,
+				  LNET_SYSFS_MAX_BUF,
+				  "Fail: Unable to show net: errno = %d\n",
+				  rc);
+			CERROR(lnet_sysfs_read_ni);
+		}
+		break;
+	case 'L':
+		if (the_lnet.ln_refcount == 0) {
+			scnprintf(lnet_sysfs_read_ni, LNET_SYSFS_MAX_BUF,
+				 "Fail: No networks configured\n");
+			break;
+		}
+		rc = lnet_list_lndni(lnet_sysfs_read_ni, LNET_SYSFS_MAX_BUF);
+		if (rc) {
+			scnprintf(lnet_sysfs_read_ni,
+				  LNET_SYSFS_MAX_BUF,
+				  "Fail: Unable to list nets: errno = %d\n",
+				  rc);
+			CERROR(lnet_sysfs_read_ni);
+		}
+		break;
+	default:
+		scnprintf(lnet_sysfs_read_ni, LNET_SYSFS_MAX_BUF,
+			  "Fail: Invalid command letter: %c\n", tmpstr[0]);
+		CERROR(lnet_sysfs_read_ni);
+		break;
+	}
+
+net_failure:
+	LIBCFS_FREE(tmpstr, count - cmd_start + 1);
 	return count;
 }
 

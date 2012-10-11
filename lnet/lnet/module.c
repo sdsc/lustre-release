@@ -52,7 +52,7 @@ lnet_configure (void *arg)
         LNET_MUTEX_LOCK(&lnet_config_mutex);
 
         if (!the_lnet.ln_niinit_self) {
-                rc = LNetNIInit(LUSTRE_SRV_LNET_PID);
+		rc = LNetNIInit(LUSTRE_SRV_LNET_PID, 0);
                 if (rc >= 0) {
                         the_lnet.ln_niinit_self = 1;
                         rc = 0;
@@ -99,7 +99,7 @@ lnet_ioctl(unsigned int cmd, struct libcfs_ioctl_data *data)
                 /* Passing LNET_PID_ANY only gives me a ref if the net is up
                  * already; I'll need it to ensure the net can't go down while
                  * I'm called into it */
-                rc = LNetNIInit(LNET_PID_ANY);
+		rc = LNetNIInit(LNET_PID_ANY, 0);
                 if (rc >= 0) {
                         rc = LNetCtl(cmd, data);
                         LNetNIFini();
