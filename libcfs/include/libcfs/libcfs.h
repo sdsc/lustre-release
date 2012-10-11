@@ -235,6 +235,7 @@ cfs_sigset_t cfs_block_sigsinv(unsigned long sigs);
 void cfs_restore_sigs(cfs_sigset_t);
 int cfs_signal_pending(void);
 void cfs_clear_sigpending(void);
+cfs_psdev_t *cfs_get_device(void);
 
 /*
  * XXX Liang:

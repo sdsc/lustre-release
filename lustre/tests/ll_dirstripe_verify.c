@@ -27,7 +27,7 @@
  * Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  *
- * Copyright (c) 2011, Intel Corporation.
+ * Copyright (c) 2011, 2012, Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -55,6 +55,7 @@
 #include <obd.h>
 #include <lustre_lib.h>
 #include <lustre/lustreapi.h>
+#include <libcfs/libcfsutil.h>
 #include <obd_lov.h>
 
 #include <lnet/lnetctl.h>
@@ -80,19 +81,20 @@ int read_proc_entry(char *proc_path, char *buf, int len)
 
         fd = open(proc_path, O_RDONLY);
         if (fd == -1) {
-                llapi_error(LLAPI_MSG_ERROR, -errno, "open('%s') failed: %s\n",
-                            proc_path);
+		cfs_error(CFS_MSG_ERROR, -errno,
+			  "open('%s') failed: %s\n",
+			  proc_path);
                 return -2;
         }
 
         rc = read(fd, buf, len - 1);
         if (rc < 0) {
-                llapi_error(LLAPI_MSG_ERROR, -errno,
-                            "read('%s') failed: %s\n", proc_path);
+		cfs_error(CFS_MSG_ERROR, -errno,
+			  "read('%s') failed: %s\n", proc_path);
                 rc = -3;
         } else if (rc == 0) {
-                llapi_err_noerrno(LLAPI_MSG_ERROR,
-                                  "read('%s') zero bytes\n", proc_path);
+		cfs_err_noerrno(CFS_MSG_ERROR,
+				"read('%s') zero bytes\n", proc_path);
                 rc = -4;
         } else if (/* rc > 0 && */ buf[rc - 1] == '\n') {
                 buf[rc - 1] = '\0'; /* Remove trailing newline */
@@ -117,13 +119,13 @@ int compare(struct lov_user_md *lum_dir, struct lov_user_md *lum_file1,
 
         fp = popen("\\ls -d  /proc/fs/lustre/lov/*clilov* | head -1", "r");
         if (!fp) {
-                llapi_error(LLAPI_MSG_ERROR, -errno,
-                            "open(lustre/lov/*clilov*) failed: %s\n");
+		cfs_error(CFS_MSG_ERROR, -errno,
+			  "open(lustre/lov/*clilov*) failed: %s\n");
                 return 2;
         }
         if (fscanf(fp, "%s", lov_path) < 1) {
-                llapi_error(LLAPI_MSG_ERROR, -EINVAL,
-                            "read(lustre/lov/*clilov*) failed: %s\n");
+		cfs_error(CFS_MSG_ERROR, -EINVAL,
+			  "read(lustre/lov/*clilov*) failed: %s\n");
                 pclose(fp);
                 return 3;
         }
@@ -164,17 +166,17 @@ int compare(struct lov_user_md *lum_dir, struct lov_user_md *lum_file1,
 
         if (lum_file1->lmm_stripe_count != stripe_count ||
             lum_file1->lmm_stripe_count < min_stripe_count) {
-                llapi_err_noerrno(LLAPI_MSG_ERROR,
-                                  "file1 stripe count %d != dir %d\n",
-                                  lum_file1->lmm_stripe_count, stripe_count);
+		cfs_err_noerrno(CFS_MSG_ERROR,
+				"file1 stripe count %d != dir %d\n",
+				lum_file1->lmm_stripe_count, stripe_count);
                 return 7;
         }
 
         if (lum_file1->lmm_stripe_count < stripe_count)
-                llapi_err_noerrno(LLAPI_MSG_WARN,
-                                  "warning: file1 used fewer stripes"
-                                  " %d < dir %d (likely due to bug 4900)\n",
-                                  lum_file1->lmm_stripe_count, stripe_count);
+		cfs_err_noerrno(CFS_MSG_WARN,
+				"warning: file1 used fewer stripes"
+				" %d < dir %d (likely due to bug 4900)\n",
+				lum_file1->lmm_stripe_count, stripe_count);
 
         if (lum_dir != NULL)
                 stripe_size = (int)lum_dir->lmm_stripe_size;
@@ -188,9 +190,9 @@ int compare(struct lov_user_md *lum_dir, struct lov_user_md *lum_file1,
         }
 
         if (lum_file1->lmm_stripe_size != stripe_size) {
-                llapi_err_noerrno(LLAPI_MSG_ERROR,
-                                  "file1 stripe size %d != dir %d\n",
-                                  lum_file1->lmm_stripe_size, stripe_size);
+		cfs_err_noerrno(CFS_MSG_ERROR,
+				"file1 stripe size %d != dir %d\n",
+				lum_file1->lmm_stripe_size, stripe_size);
                 return 8;
         }
 
@@ -200,11 +202,11 @@ int compare(struct lov_user_md *lum_dir, struct lov_user_md *lum_file1,
                 for (i = 0; i < stripe_count; i++)
                         if (lum_file1->lmm_objects[i].l_ost_idx !=
                             (stripe_offset + i) % ost_count) {
-                                llapi_err_noerrno(LLAPI_MSG_WARN,
-                                          "warning: file1 non-sequential "
-                                          "stripe[%d] %d != %d\n", i,
-                                          lum_file1->lmm_objects[i].l_ost_idx,
-                                          (stripe_offset + i) % ost_count);
+				cfs_err_noerrno(CFS_MSG_WARN,
+					  "warning: file1 non-sequential "
+					  "stripe[%d] %d != %d\n", i,
+					  lum_file1->lmm_objects[i].l_ost_idx,
+					  (stripe_offset + i) % ost_count);
                         }
         } else if (lum_file2 != NULL) {
                 int next, idx, stripe = stripe_count - 1;
@@ -212,11 +214,12 @@ int compare(struct lov_user_md *lum_dir, struct lov_user_md *lum_file1,
                        ost_count;
                 idx = lum_file2->lmm_objects[0].l_ost_idx;
                 if (idx != next) {
-                        llapi_err_noerrno(LLAPI_MSG_WARN,
-                                  "warning: non-sequential "
-                                  "file1 stripe[%d] %d != file2 stripe[0] %d\n",
-                                  stripe, lum_file1->lmm_objects[stripe].l_ost_idx,
-                                  idx);
+			cfs_err_noerrno(CFS_MSG_WARN,
+				  "warning: non-sequential "
+				  "file1 stripe[%d] %d != file2 stripe[0] %d\n",
+				  stripe,
+				  lum_file1->lmm_objects[stripe].l_ost_idx,
+				  idx);
                 }
         }
 
@@ -231,26 +234,26 @@ int main(int argc, char **argv)
         int lum_size;
 
         if (argc < 3) {
-                llapi_err_noerrno(LLAPI_MSG_ERROR,
-                                "Usage: %s <dirname> <filename1> [filename2]\n",
-                                argv[0]);
+		cfs_err_noerrno(CFS_MSG_ERROR,
+				"Usage: %s <dirname> <filename1> [filename2]\n",
+				argv[0]);
                 return 1;
         }
 
         dir = opendir(argv[1]);
         if (dir == NULL) {
                 rc = -errno;
-                llapi_error(LLAPI_MSG_ERROR, rc,
-                            "error: %s opendir failed\n", argv[1]);
+		cfs_error(CFS_MSG_ERROR, rc,
+			  "error: %s opendir failed\n", argv[1]);
                 return rc;
         }
 
         lum_size = lov_mds_md_size(MAX_LOV_UUID_COUNT, LOV_MAGIC);
         if ((lum_dir = (struct lov_user_md *)malloc(lum_size)) == NULL) {
                 rc = -ENOMEM;
-                llapi_error(LLAPI_MSG_ERROR, rc,
-                            "error: can't allocate %d bytes "
-                            "for dir EA", lum_size);
+		cfs_error(CFS_MSG_ERROR, rc,
+			  "error: can't allocate %d bytes "
+			  "for dir EA", lum_size);
                 goto cleanup;
         }
 
@@ -260,8 +263,8 @@ int main(int argc, char **argv)
                         free(lum_dir);
                         lum_dir = NULL;
                 } else {
-                        llapi_error(LLAPI_MSG_ERROR, rc,
-                                    "error: can't get EA for %s\n", argv[1]);
+			cfs_error(CFS_MSG_ERROR, rc,
+				  "error: can't get EA for %s\n", argv[1]);
                         goto cleanup;
                 }
         }
@@ -269,24 +272,24 @@ int main(int argc, char **argv)
         /* XXX should be llapi_lov_getname() */
         rc = llapi_file_get_lov_uuid(argv[1], &lov_uuid);
         if (rc) {
-                llapi_error(LLAPI_MSG_ERROR, rc,
-                            "error: can't get lov name for %s\n",
-                            argv[1]);
+		cfs_error(CFS_MSG_ERROR, rc,
+			  "error: can't get lov name for %s\n",
+			  argv[1]);
                 return rc;
         }
 
         if ((lum_file1 = (struct lov_user_md *)malloc(lum_size)) == NULL) {
                 rc = -ENOMEM;
-                llapi_error(LLAPI_MSG_ERROR, rc,
-                            "error: can't allocate %d bytes for EA\n",
-                            lum_size);
+		cfs_error(CFS_MSG_ERROR, rc,
+			  "error: can't allocate %d bytes for EA\n",
+			  lum_size);
                 goto cleanup;
         }
 
         rc = llapi_file_get_stripe(argv[2], lum_file1);
         if (rc) {
-                llapi_error(LLAPI_MSG_ERROR, rc,
-                            "error: unable to get EA for %s\n", argv[2]);
+		cfs_error(CFS_MSG_ERROR, rc,
+			  "error: unable to get EA for %s\n", argv[2]);
                 goto cleanup;
         }
 
@@ -294,16 +297,16 @@ int main(int argc, char **argv)
                 lum_file2 = (struct lov_user_md *)malloc(lum_size);
                 if (lum_file2 == NULL) {
                         rc = -ENOMEM;
-                        llapi_error(LLAPI_MSG_ERROR, rc,
-                                    "error: can't allocate %d "
-                                    "bytes for file2 EA\n", lum_size);
+			cfs_error(CFS_MSG_ERROR, rc,
+				  "error: can't allocate %d "
+				  "bytes for file2 EA\n", lum_size);
                         goto cleanup;
                 }
 
                 rc = llapi_file_get_stripe(argv[3], lum_file2);
                 if (rc) {
-                        llapi_error(LLAPI_MSG_ERROR, rc,
-                                    "error: can't get EA for %s\n", argv[3]);
+			cfs_error(CFS_MSG_ERROR, rc,
+				  "error: can't get EA for %s\n", argv[3]);
                         goto cleanup;
                 }
         }

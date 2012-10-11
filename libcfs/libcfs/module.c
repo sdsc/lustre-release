@@ -185,6 +185,15 @@ static int libcfs_psdev_release(unsigned long flags, void *args)
         RETURN(0);
 }
 
+extern cfs_psdev_t libcfs_dev;
+
+/* Used by other modules to get access to our device structure. */
+cfs_psdev_t *cfs_get_device(void)
+{
+	return &libcfs_dev;
+}
+EXPORT_SYMBOL(cfs_get_device);
+
 static struct rw_semaphore ioctl_list_sem;
 static cfs_list_t ioctl_list;
 
@@ -366,7 +375,6 @@ MODULE_AUTHOR("Peter J. Braam <braam@clusterfs.com>");
 MODULE_DESCRIPTION("Portals v3.1");
 MODULE_LICENSE("GPL");
 
-extern cfs_psdev_t libcfs_dev;
 extern struct rw_semaphore cfs_tracefile_sem;
 extern struct mutex cfs_trace_thread_mutex;
 extern struct cfs_wi_sched *cfs_sched_rehash;
