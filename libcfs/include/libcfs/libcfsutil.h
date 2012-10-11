@@ -79,8 +79,8 @@ extern void cfs_error(int level, int _rc, char *fmt, ...);
 extern void cfs_printf(int level, char *fmt, ...);
 extern int cfs_first_match(char *pattern, char *buffer);
 extern int cfs_get_param(const char *param_path, char *result,
-			    unsigned int result_size);
+			 unsigned int result_size, int use_concatentation);
 extern int cfs_set_param(const char *param_path, char *buffer,
-			    unsigned int buffer_size);
+			 unsigned int buffer_size);
 
 #endif	/* __LIBCFSUTIL_H__ */
