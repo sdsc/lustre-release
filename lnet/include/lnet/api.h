@@ -55,7 +55,7 @@
 int LNetInit(void);
 void LNetFini(void);
 
-int LNetNIInit(lnet_pid_t requested_pid);
+int LNetNIInit(lnet_pid_t requested_pid, int manual_config);
 int LNetNIFini(void);
 /** @} lnet_init_fini */
 

@@ -694,11 +694,13 @@ int LL_PROC_PROTO(proc_lnet_nis)
 			if (ni->ni_lnd->lnd_type == LOLND)
 				last_alive = 0;
 
+			LNET_MUTEX_LOCK(&the_lnet.ln_ping_info_mutex);
 			lnet_ni_lock(ni);
 			LASSERT(ni->ni_status != NULL);
 			stat = (ni->ni_status->ns_status ==
 				LNET_NI_STATUS_UP) ? "up" : "down";
 			lnet_ni_unlock(ni);
+			LNET_MUTEX_UNLOCK(&the_lnet.ln_ping_info_mutex);
 
 			/* we actually output credits information for
 			 * TX queue of each partition */

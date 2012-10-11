@@ -32,9 +32,11 @@
 
 #define SYSFS_MESSAGE_FORMAT "%d:%s"
 
-/* For now, turn these routines off until they are used to stop
-   the "very fussy" ubuntu build from failing. */
-#if 0
+#define SYSFS_NI_QUERY "L"
+#define SYSFS_NI_SHOW_CMD "S %s"
+#define SYSFS_NI_ADD_CMD "A %s"
+#define SYSFS_NI_DEL_CMD "D %s"
+
 static void
 lnet_print_usage(char *cmd)
 {
@@ -55,14 +57,14 @@ lnet_sysfs_take_action(char *filename, char *buffer)
 		 getpid(), buffer);
 	local_buf[sizeof(local_buf) - 1] = '\0';
 
-	rc = libcfs_set_param(filename, local_buf, strlen(local_buf));
+	rc = cfs_set_param(filename, local_buf, strlen(local_buf));
 	if (rc) {
 		cfs_error(CFS_MSG_ERROR, rc,
 			  "Error writing to sysfs file\n");
 		return rc;
 	}
 	local_buf[0] = '\0';
-	rc = libcfs_get_param(filename, local_buf, sizeof(local_buf));
+	rc = cfs_get_param(filename, local_buf, sizeof(local_buf));
 	if (rc != 0)  {
 		cfs_error(CFS_MSG_ERROR, rc,
 			  "Error reading from sysfs file\n");
@@ -89,7 +91,6 @@ lnet_sysfs_take_action(char *filename, char *buffer)
 	}
 	return 0;
 }
-#endif
 
 static int
 jt_lnet_route(int argc, char **argv)
@@ -117,16 +118,61 @@ jt_lnet_router_buffers(int argc, char **argv)
 static int
 jt_lnet_ni(int argc, char **argv)
 {
-	cfs_printf(CFS_MSG_WARN, "net command not implemented yet\n");
-	return 0;
+	char *net_arg = NULL;
+	char *cmd_arg = "show";
+	char buffer[SYSFS_MAX_BUFFER_SIZE];
+
+	/* There needs to be 1 argument in all net commands. */
+	if (argc < 2) {
+		cfs_err_noerrno(CFS_MSG_ERROR,
+			"Wrong number of arguments to net command, got %d, "
+			"expected >= 2\n",
+			argc - 1);
+		lnet_print_usage(argv[0]);
+		return -1;
+	}
+
+	/* First argument is <net>. */
+	net_arg = argv[1];
+
+	/* If present, the second argument is the command.  If it is not
+	   present, assume a "show" command. */
+	if (argc > 2)
+		cmd_arg = argv[2];
+
+	if (strcasecmp(cmd_arg, "up") == 0) {
+		int i;
+
+		snprintf(buffer, sizeof(buffer), SYSFS_NI_ADD_CMD,
+			 net_arg);
+		buffer[sizeof(buffer) - 1] = '\0';
+
+		/* Just append all parameters as given. */
+		for (i = 3; i < argc; i++) {
+			strlcat(buffer, " ", sizeof(buffer));
+			strlcat(buffer, argv[i], sizeof(buffer));
+		}
+	} else if (strcasecmp(cmd_arg, "down") == 0) {
+		snprintf(buffer, sizeof(buffer), SYSFS_NI_DEL_CMD,
+			 net_arg);
+	} else if (strcasecmp(cmd_arg, "show") == 0) {
+		snprintf(buffer, sizeof(buffer), SYSFS_NI_SHOW_CMD,
+			 net_arg);
+	} else {
+		cfs_err_noerrno(CFS_MSG_ERROR,
+				"Unknown net command: %s",
+				argv[2]);
+		lnet_print_usage(argv[0]);
+		return -1;
+	}
+	buffer[sizeof(buffer) - 1] = '\0';
+	return lnet_sysfs_take_action("ni", buffer);
 }
 
 static int
 jt_lnet_ni_list(int argc, char **argv)
 {
-	cfs_printf(CFS_MSG_WARN,
-		   "net_list command not implemented yet\n");
-	return 0;
+	return lnet_sysfs_take_action("ni", SYSFS_NI_QUERY);
 }
 
 command_t list[] = {
@@ -138,7 +184,7 @@ command_t list[] = {
 	 "Usage: lnet router_buffers <tiny_size> <small_size> <large_size>"},
 	{"net", jt_lnet_ni, NULL,
 	 "Usage: lnet net <net> up | down | show [<interfaces> "
-	 "[<net parameters>] [<SMP parameters>]]"},
+	 "[<net parameters>] [[SMP Settings]]]"},
 	{"net_list", jt_lnet_ni_list, NULL,
 	 "Usage: lnet net_list"},
 	{"help", Parser_help, NULL, "help"},
