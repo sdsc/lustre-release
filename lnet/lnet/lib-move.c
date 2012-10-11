@@ -1057,6 +1057,22 @@ lnet_return_tx_credits_locked(lnet_msg_t *msg)
 }
 
 void
+lnet_schedule_blocked_locked(lnet_rtrbufpool_t *rbp)
+{
+#ifdef __KERNEL__
+	lnet_msg_t	*msg;
+
+	if ((rbp == NULL) || cfs_list_empty(&rbp->rbp_msgs))
+		return;
+	msg = cfs_list_entry(rbp->rbp_msgs.next,
+			     lnet_msg_t, msg_list);
+	cfs_list_del(&msg->msg_list);
+
+	(void) lnet_post_routed_recv_locked(msg, 1);
+#endif
+}
+
+void
 lnet_return_rx_credits_locked(lnet_msg_t *msg)
 {
 	lnet_peer_t	*rxpeer = msg->msg_rxpeer;
@@ -1075,6 +1091,13 @@ lnet_return_rx_credits_locked(lnet_msg_t *msg)
 
                 rb = cfs_list_entry(msg->msg_kiov, lnet_rtrbuf_t, rb_kiov[0]);
                 rbp = rb->rb_pool;
+
+		/* If routing is now turned off, we just drop this buffer and
+		   don't bother trying to return credits. */
+		if (!the_lnet.ln_routing) {
+			lnet_destroy_rtrbuf(rb, rbp->rbp_npages);
+			goto routing_off;
+		}
                 LASSERT (rbp == lnet_msg2bufpool(msg));
 
                 msg->msg_kiov = NULL;
@@ -1085,17 +1108,21 @@ lnet_return_rx_credits_locked(lnet_msg_t *msg)
                 LASSERT((rbp->rbp_credits > 0) ==
                         !cfs_list_empty(&rbp->rbp_bufs));
 
-                cfs_list_add(&rb->rb_list, &rbp->rbp_bufs);
-                rbp->rbp_credits++;
-                if (rbp->rbp_credits <= 0) {
-                        msg2 = cfs_list_entry(rbp->rbp_msgs.next,
-                                              lnet_msg_t, msg_list);
-                        cfs_list_del(&msg2->msg_list);
-
-                        (void) lnet_post_routed_recv_locked(msg2, 1);
+		/* It is possible that a user has lowered the desired number of
+		   buffers in this pool.  Make sure we never put back
+		   more buffers than the stated number. */
+		if (rbp->rbp_credits >= rbp->rbp_nbuffers) {
+			/* Discard this buffer so we don't have too many. */
+			lnet_destroy_rtrbuf(rb, rbp->rbp_npages);
+		} else {
+			cfs_list_add(&rb->rb_list, &rbp->rbp_bufs);
+			rbp->rbp_credits++;
+			if (rbp->rbp_credits <= 0)
+				lnet_schedule_blocked_locked(rbp);
                 }
         }
 
+routing_off:
         if (msg->msg_peerrtrcredit) {
                 /* give back peer router credits */
                 msg->msg_peerrtrcredit = 0;

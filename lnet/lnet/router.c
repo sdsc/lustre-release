@@ -1295,7 +1295,8 @@ lnet_new_rtrbuf(lnet_rtrbufpool_t *rbp, int cpt)
 
 	for (i = 0; i < npages; i++) {
 		page = cfs_page_cpt_alloc(lnet_cpt_table(), cpt,
-					  CFS_ALLOC_ZERO | CFS_ALLOC_STD);
+					  CFS_ALLOC_ZERO | CFS_ALLOC_STD |
+					  CFS_ALLOC_NORETRY);
                 if (page == NULL) {
                         while (--i >= 0)
                                 cfs_free_page(rb->rb_kiov[i].kiov_page);
@@ -1316,62 +1317,69 @@ void
 lnet_rtrpool_free_bufs(lnet_rtrbufpool_t *rbp)
 {
 	int		npages = rbp->rbp_npages;
-	int		nbuffers = 0;
 	lnet_rtrbuf_t	*rb;
+	lnet_msg_t	*msg;
 
 	if (rbp->rbp_nbuffers == 0) /* not initialized or already freed */
 		return;
 
-        LASSERT (cfs_list_empty(&rbp->rbp_msgs));
-        LASSERT (rbp->rbp_credits == rbp->rbp_nbuffers);
+	/* Free buffered messages (if any). */
+	while (!cfs_list_empty(&rbp->rbp_msgs)) {
+		msg = cfs_list_entry(rbp->rbp_msgs.next,
+				     lnet_msg_t, msg_list);
+		cfs_list_del(&msg->msg_list);
+		lnet_msg_free_locked(msg);
+	}
 
-        while (!cfs_list_empty(&rbp->rbp_bufs)) {
-                LASSERT (rbp->rbp_credits > 0);
+	/* Free buffers on the free list. */
+	while (!cfs_list_empty(&rbp->rbp_bufs)) {
+		rb = cfs_list_entry(rbp->rbp_bufs.next,
+				    lnet_rtrbuf_t, rb_list);
+		cfs_list_del(&rb->rb_list);
+		lnet_destroy_rtrbuf(rb, npages);
+	}
 
-                rb = cfs_list_entry(rbp->rbp_bufs.next,
-                                    lnet_rtrbuf_t, rb_list);
-                cfs_list_del(&rb->rb_list);
-                lnet_destroy_rtrbuf(rb, npages);
-                nbuffers++;
-        }
-
-        LASSERT (rbp->rbp_nbuffers == nbuffers);
-        LASSERT (rbp->rbp_credits == nbuffers);
-
-        rbp->rbp_nbuffers = rbp->rbp_credits = 0;
+	rbp->rbp_nbuffers = rbp->rbp_credits = 0;
+	rbp->rbp_mincredits = 0;
 }
 
-int
-lnet_rtrpool_alloc_bufs(lnet_rtrbufpool_t *rbp, int nbufs, int cpt)
+static int
+lnet_rtrpool_adjust_bufs(lnet_rtrbufpool_t *rbp, int nbufs, int cpt)
 {
-        lnet_rtrbuf_t *rb;
-        int            i;
+	lnet_net_lock(cpt);
 
-        if (rbp->rbp_nbuffers != 0) {
-                LASSERT (rbp->rbp_nbuffers == nbufs);
-                return 0;
-        }
+	/*  If we are called for less buffers than already in the pool, we
+	    just lower the nbuffers number and excess buffers will be
+	    thrown away as they are returned to the free list.  Credits
+	    then get adjusted as well. */
+	if (nbufs < rbp->rbp_nbuffers)
+		rbp->rbp_nbuffers = nbufs;
 
-        for (i = 0; i < nbufs; i++) {
+	/* Add any extra buffers needed. */
+	while (rbp->rbp_nbuffers < nbufs) {
+		lnet_rtrbuf_t *rb;
+
 		rb = lnet_new_rtrbuf(rbp, cpt);
 
                 if (rb == NULL) {
-                        CERROR("Failed to allocate %d router bufs of %d pages\n",
+			lnet_net_unlock(cpt);
+			CERROR("Failed to allocate %d route bufs of %d pages\n",
                                nbufs, rbp->rbp_npages);
                         return -ENOMEM;
                 }
 
-                rbp->rbp_nbuffers++;
-                rbp->rbp_credits++;
-                rbp->rbp_mincredits++;
-                cfs_list_add(&rb->rb_list, &rbp->rbp_bufs);
-
-                /* No allocation "under fire" */
-                /* Otherwise we'd need code to schedule blocked msgs etc */
-                LASSERT (!the_lnet.ln_routing);
+		cfs_list_add(&rb->rb_list, &rbp->rbp_bufs);
+		rbp->rbp_nbuffers++;
+		if (rbp->rbp_mincredits == rbp->rbp_credits)
+			rbp->rbp_mincredits++;
+		rbp->rbp_credits++;
+		if (rbp->rbp_credits <= 0)
+			/* We need to schedule blocked msg using the newly
+			   added buffer. */
+			lnet_schedule_blocked_locked(rbp);
         }
 
-        LASSERT (rbp->rbp_credits == nbufs);
+	lnet_net_unlock(cpt);
         return 0;
 }
 
@@ -1387,7 +1395,7 @@ lnet_rtrpool_init(lnet_rtrbufpool_t *rbp, int npages)
 }
 
 void
-lnet_rtrpools_free(void)
+lnet_rtrpools_free(int keep_pools)
 {
 	lnet_rtrbufpool_t *rtrp;
 	int		  i;
@@ -1401,8 +1409,10 @@ lnet_rtrpools_free(void)
 		lnet_rtrpool_free_bufs(&rtrp[2]);
 	}
 
-	cfs_percpt_free(the_lnet.ln_rtrpools);
-	the_lnet.ln_rtrpools = NULL;
+	if (!keep_pools) {
+		cfs_percpt_free(the_lnet.ln_rtrpools);
+		the_lnet.ln_rtrpools = NULL;
+	}
 }
 
 static int
@@ -1512,17 +1522,17 @@ lnet_rtrpools_alloc(int im_a_router)
 
 	cfs_percpt_for_each(rtrp, i, the_lnet.ln_rtrpools) {
 		lnet_rtrpool_init(&rtrp[0], 0);
-		rc = lnet_rtrpool_alloc_bufs(&rtrp[0], nrb_tiny, i);
+		rc = lnet_rtrpool_adjust_bufs(&rtrp[0], nrb_tiny, i);
 		if (rc != 0)
 			goto failed;
 
 		lnet_rtrpool_init(&rtrp[1], small_pages);
-		rc = lnet_rtrpool_alloc_bufs(&rtrp[1], nrb_small, i);
+		rc = lnet_rtrpool_adjust_bufs(&rtrp[1], nrb_small, i);
 		if (rc != 0)
 			goto failed;
 
 		lnet_rtrpool_init(&rtrp[2], large_pages);
-		rc = lnet_rtrpool_alloc_bufs(&rtrp[2], nrb_large, i);
+		rc = lnet_rtrpool_adjust_bufs(&rtrp[2], nrb_large, i);
 		if (rc != 0)
 			goto failed;
 	}
@@ -1534,8 +1544,103 @@ lnet_rtrpools_alloc(int im_a_router)
 	return 0;
 
  failed:
-	lnet_rtrpools_free();
+	lnet_rtrpools_free(0);
 	return rc;
+}
+
+int
+lnet_adjust_rtrpools(int tiny, int small, int large)
+{
+	int	large_pages = (LNET_MTU + CFS_PAGE_SIZE - 1) >> CFS_PAGE_SHIFT;
+	int	small_pages = 1;
+
+	/* If all three numbers are zero, caller wants to turn off forwarding */
+	if (tiny == 0 && small == 0 && large == 0) {
+		if (the_lnet.ln_routing) {
+			/* Turn off routing/forwarding. */
+			lnet_net_lock(LNET_LOCK_EX);
+			the_lnet.ln_routing = 0;
+			tiny_router_buffers = 0;
+			small_router_buffers = 0;
+			large_router_buffers = 0;
+			lnet_rtrpools_free(1);
+			lnet_net_unlock(LNET_LOCK_EX);
+		}
+		return 0;
+	}
+
+	/* If routing is turned off, and we have never initialized the pools
+	   before, just call the standard buffer pool allocation routine as
+	   if we are just configuring this for the first time. */
+	if ((!the_lnet.ln_routing) && (the_lnet.ln_rtrpools == NULL)) {
+		tiny_router_buffers = (tiny < 0) ? 0 : tiny;
+		small_router_buffers = (small < 0) ? 0 : small;
+		large_router_buffers = (large < 0) ? 0 : large;
+		return lnet_rtrpools_alloc(1);
+	}
+
+	/* If the provided values for each buffer pool are different than the
+	   configured values, we need to take action. */
+	if ((tiny != tiny_router_buffers) &&
+	    (tiny >= 0)) {
+		int nrb_tiny;
+		int i;
+		int rc;
+		lnet_rtrbufpool_t *rtrp;
+
+		tiny_router_buffers = tiny;
+		nrb_tiny = lnet_nrb_tiny_calculate(0);
+		if (nrb_tiny < 0)
+			return -EINVAL;
+		cfs_percpt_for_each(rtrp, i, the_lnet.ln_rtrpools) {
+			rc = lnet_rtrpool_adjust_bufs(&rtrp[0], nrb_tiny, i);
+			if (rc != 0)
+				return rc;
+		}
+	}
+	if ((small != small_router_buffers) &&
+	    (small >= 0)) {
+		int nrb_small;
+		int i;
+		int rc;
+		lnet_rtrbufpool_t *rtrp;
+
+		small_router_buffers = small;
+		nrb_small = lnet_nrb_small_calculate(small_pages);
+		if (nrb_small < 0)
+			return -EINVAL;
+		cfs_percpt_for_each(rtrp, i, the_lnet.ln_rtrpools) {
+			rc = lnet_rtrpool_adjust_bufs(&rtrp[1], nrb_small, i);
+			if (rc != 0)
+				return rc;
+		}
+	}
+	if ((large != large_router_buffers) &&
+	    (large >= 0)) {
+		int nrb_large;
+		int i;
+		int rc;
+		lnet_rtrbufpool_t *rtrp;
+
+		large_router_buffers = large;
+		nrb_large = lnet_nrb_large_calculate(large_pages);
+		if (nrb_large < 0)
+			return -EINVAL;
+		cfs_percpt_for_each(rtrp, i, the_lnet.ln_rtrpools) {
+			rc = lnet_rtrpool_adjust_bufs(&rtrp[2], nrb_large, i);
+			if (rc != 0)
+				return rc;
+		}
+	}
+
+	/* If routing was off, turn it on now. */
+	if (!the_lnet.ln_routing) {
+		lnet_net_lock(LNET_LOCK_EX);
+		the_lnet.ln_routing = 1;
+		lnet_net_unlock(LNET_LOCK_EX);
+	}
+
+	return 0;
 }
 
 int
@@ -1727,7 +1832,7 @@ lnet_get_tunables (void)
 }
 
 void
-lnet_rtrpools_free(void)
+lnet_rtrpools_free(int keep_pools)
 {
 }
 

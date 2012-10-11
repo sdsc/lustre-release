@@ -810,7 +810,7 @@ lnet_unprepare (void)
 
 	lnet_msg_containers_destroy();
 	lnet_peer_tables_destroy();
-	lnet_rtrpools_free();
+	lnet_rtrpools_free(0);
 
 	if (the_lnet.ln_counters != NULL) {
 		cfs_percpt_free(the_lnet.ln_counters);
