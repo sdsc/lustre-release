@@ -30,11 +30,21 @@
 
 #define SYSFS_MAX_BUFFER_SIZE 4096
 
-#define SYSFS_MESSAGE_FORMAT "%d:%s"
+#define SYSFS_ROUTE_FILE		"route"
 
-/* For now, turn these routines off until they are used to stop
-   the "very fussy" ubuntu build from failing. */
-#if 0
+#define SYSFS_ROUTE_ADD_CMD		"add"
+#define SYSFS_ROUTE_DEL_CMD		"del"
+#define SYSFS_ROUTE_SHOW_CMD		"show"
+
+#define SYSFS_ROUTE_ADD_FMT		"A %s %s %d"
+#define SYSFS_ROUTE_DEL_FMT		"D %s %s"
+#define SYSFS_ROUTE_SHOW_FMT		"S %s %s"
+#define SYSFS_ROUTE_LIST_FMT		"L"
+#define SYSFS_ROUTE_BUFFERS_FMT		"B %d %d %d"
+#define SYSFS_ROUTE_BUFFERS_QUERY	"B"
+
+#define SYSFS_MESSAGE_FORMAT		"%d:%s"
+
 static void
 lnet_print_usage(char *cmd)
 {
@@ -59,14 +69,14 @@ lnet_sysfs_take_action(char *filename, char *buffer)
 		return -EINVAL;
 	}
 
-	rc = libcfs_set_param(filename, local_buf, strlen(local_buf));
+	rc = cfs_set_param(filename, local_buf, strlen(local_buf));
 	if (rc) {
 		cfs_error(CFS_MSG_ERROR, rc,
 			  "Error writing to sysfs file\n");
 		return rc;
 	}
 	local_buf[0] = '\0';
-	rc = libcfs_get_param(filename, local_buf, sizeof(local_buf), 1);
+	rc = cfs_get_param(filename, local_buf, sizeof(local_buf), 1);
 	if (rc != 0)  {
 		cfs_error(CFS_MSG_ERROR, rc,
 			  "Error reading from sysfs file\n");
@@ -99,21 +109,63 @@ lnet_sysfs_take_action(char *filename, char *buffer)
 	}
 	return rc;
 }
-#endif
 
 static int
 jt_lnet_route(int argc, char **argv)
 {
-	cfs_printf(CFS_MSG_WARN, "route command not implemented yet\n");
-	return 0;
+	char	*net_arg = NULL;
+	char	*gateway_arg = NULL;
+	int	hops = -1;
+	char	buffer[SYSFS_MAX_BUFFER_SIZE];
+	int	rc;
+
+	/* There needs to be 3 arguments in all route commands:
+	 * 1st = <net>
+	 * 2nd = <sub-command>
+	 * 3rd = <gateway>
+	 * 4th = <hops> (only for "add" sub-command) */
+	if (argc < 4) {
+		cfs_err_noerrno(CFS_MSG_ERROR,
+			"Wrong number of arguments to route command, got %d, "
+			"expected >= 3\n",
+			argc - 1);
+		lnet_print_usage(argv[0]);
+		return -1;
+	}
+
+	net_arg = argv[1];
+	gateway_arg = argv[3];
+	if (argc > 4)
+		hops = atoi(argv[4]);
+
+	if (strcasecmp(argv[2], SYSFS_ROUTE_ADD_CMD) == 0) {
+		rc = snprintf(buffer, sizeof(buffer), SYSFS_ROUTE_ADD_FMT,
+			      net_arg, gateway_arg, hops);
+	} else if (strcasecmp(argv[2], SYSFS_ROUTE_DEL_CMD) == 0) {
+		rc = snprintf(buffer, sizeof(buffer), SYSFS_ROUTE_DEL_FMT,
+			      net_arg, gateway_arg);
+	} else if (strcasecmp(argv[2], SYSFS_ROUTE_SHOW_CMD) == 0) {
+		rc = snprintf(buffer, sizeof(buffer), SYSFS_ROUTE_SHOW_FMT,
+			      net_arg, gateway_arg);
+	} else {
+		cfs_err_noerrno(CFS_MSG_ERROR,
+				"Unknown route command: %s",
+				argv[2]);
+		lnet_print_usage(argv[0]);
+		return -EINVAL;
+	}
+	if ((rc < 0) || (rc >= sizeof(buffer))) {
+		cfs_err_noerrno(CFS_MSG_ERROR,
+				"Received buffer too big: %d\n", rc);
+		return -EINVAL;
+	}
+	return lnet_sysfs_take_action(SYSFS_ROUTE_FILE, buffer);
 }
 
 static int
 jt_lnet_route_list(int argc, char **argv)
 {
-	cfs_printf(CFS_MSG_WARN,
-		   "route_list command not implemented yet\n");
-	return 0;
+	return lnet_sysfs_take_action(SYSFS_ROUTE_FILE, SYSFS_ROUTE_LIST_FMT);
 }
 
 static int
