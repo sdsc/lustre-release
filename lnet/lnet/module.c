@@ -127,6 +127,8 @@ init_lnet(void)
         rc = libcfs_register_ioctl(&lnet_ioctl_handler);
         LASSERT (rc == 0);
 
+	lnet_sysfs_init();
+
         if (config_on_load) {
                 /* Have to schedule a separate thread to avoid deadlocking
                  * in modload */
@@ -140,6 +142,8 @@ void
 fini_lnet(void)
 {
         int rc;
+
+	lnet_sysfs_fini();
 
         rc = libcfs_deregister_ioctl(&lnet_ioctl_handler);
         LASSERT (rc == 0);
