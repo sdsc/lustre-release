@@ -370,7 +370,7 @@ int llog_ioctl(const struct lu_env *env, struct llog_ctxt *ctxt, int cmd,
 			GOTO(out_close, rc = -EINVAL);
 
 		if (handle->lgh_hdr->llh_flags & LLOG_F_IS_PLAIN) {
-			rc = llog_cancel_rec(NULL, handle, cookie.lgc_index);
+			rc = llog_cancel_rec(env, handle, cookie.lgc_index);
 			GOTO(out_close, rc);
 		} else if (!(handle->lgh_hdr->llh_flags & LLOG_F_IS_CAT)) {
 			GOTO(out_close, rc = -EINVAL);
@@ -430,26 +430,31 @@ out_close:
 }
 EXPORT_SYMBOL(llog_ioctl);
 
-#ifdef HAVE_LDISKFS_OSD
-int llog_catalog_list(struct obd_device *obd, int count,
-                      struct obd_ioctl_data *data)
+int llog_catalog_list(const struct lu_env *env, struct dt_device *d,
+		      int count, struct obd_ioctl_data *data)
 {
-        int size, i;
-        struct llog_catid *idarray;
-        struct llog_logid *id;
-        char name[32] = CATLIST;
-        char *out;
-        int l, remains, rc = 0;
+	int			 size, i;
+	struct llog_catid	*idarray;
+	struct llog_logid	*id;
+	char			*out;
+	int			 l, remains, rc = 0;
 
-        ENTRY;
+	ENTRY;
+
+	if (count == 0) { /* get total number of logs */
+		rc = llog_osd_get_cat_list(env, d, 0, 0, NULL);
+		if (rc < 0)
+			RETURN(rc);
+		count = rc;
+	}
+
         size = sizeof(*idarray) * count;
 
         OBD_ALLOC_LARGE(idarray, size);
         if (!idarray)
                 RETURN(-ENOMEM);
 
-        cfs_mutex_lock(&obd->obd_olg.olg_cat_processing);
-        rc = llog_get_cat_list(obd, name, 0, count, idarray);
+	rc = llog_osd_get_cat_list(env, d, 0, count, idarray);
         if (rc)
                 GOTO(out, rc);
 
@@ -468,12 +473,7 @@ int llog_catalog_list(struct obd_device *obd, int count,
                 }
         }
 out:
-        /* release semaphore */
-        cfs_mutex_unlock(&obd->obd_olg.olg_cat_processing);
-
         OBD_FREE_LARGE(idarray, size);
         RETURN(rc);
-
 }
 EXPORT_SYMBOL(llog_catalog_list);
-#endif

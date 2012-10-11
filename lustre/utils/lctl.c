@@ -389,7 +389,7 @@ command_t cmdlist[] = {
          "cancel one record in log.\n"
          "usage: llog_cancel <catalog id|catalog name> <log id> <index>"},
         {"llog_remove", jt_llog_remove, 0,
-         "remove one log from catalog, erase it from disk.\n"
+	 "remove one log from catalog or plain log, erase it from disk.\n"
          "usage: llog_remove <catalog id|catalog name> <log id>"},
         /* network operations */
         {"add_interface", jt_ptl_add_interface, 0, "add interface entry\n"

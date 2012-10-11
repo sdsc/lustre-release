@@ -2661,17 +2661,22 @@ int jt_llog_cancel(int argc, char **argv)
         char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf;
         int rc;
 
-        if (argc != 4)
+	if (argc != 4 && argc != 3)
                 return CMD_HELP;
 
         memset(&data, 0, sizeof(data));
         data.ioc_dev = cur_device;
         data.ioc_inllen1 = strlen(argv[1]) + 1;
         data.ioc_inlbuf1 = argv[1];
-        data.ioc_inllen2 = strlen(argv[2]) + 1;
-        data.ioc_inlbuf2 = argv[2];
-        data.ioc_inllen3 = strlen(argv[3]) + 1;
-        data.ioc_inlbuf3 = argv[3];
+	if (argc == 4) {
+		data.ioc_inllen2 = strlen(argv[2]) + 1;
+		data.ioc_inlbuf2 = argv[2];
+		data.ioc_inllen3 = strlen(argv[3]) + 1;
+		data.ioc_inlbuf3 = argv[3];
+	} else {
+		data.ioc_inllen3 = strlen(argv[2]) + 1;
+		data.ioc_inlbuf3 = argv[2];
+	}
         memset(buf, 0, sizeof(rawbuf));
         rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
         if (rc) {
@@ -2682,7 +2687,8 @@ int jt_llog_cancel(int argc, char **argv)
 
         rc = l_ioctl(OBD_DEV_ID, OBD_IOC_LLOG_CANCEL, buf);
         if (rc == 0)
-                fprintf(stdout, "index %s be canceled.\n", argv[3]);
+		fprintf(stdout, "index %s was canceled.\n",
+			argc == 4 ? argv[3] : argv[2]);
         else
                 fprintf(stderr, "OBD_IOC_LLOG_CANCEL failed: %s\n",
                         strerror(errno));
@@ -2763,10 +2769,10 @@ int jt_llog_remove(int argc, char **argv)
 
         rc = l_ioctl(OBD_DEV_ID, OBD_IOC_LLOG_REMOVE, buf);
         if (rc == 0) {
-                if (argc == 3)
-                        fprintf(stdout, "log %s are removed.\n", argv[2]);
-                else
-                        fprintf(stdout, "the log in catalog %s are removed. \n", argv[1]);
+                if (argc == 2)
+			fprintf(stdout, "log %s is removed.\n", argv[1]);
+		else
+			fprintf(stdout, "the log in catalog %s is removed. \n", argv[1]);
         } else
                 fprintf(stderr, "OBD_IOC_LLOG_REMOVE failed: %s\n",
                         strerror(errno));
