@@ -78,12 +78,15 @@ lnet_sysfs_route_write(struct device *dev, struct device_attribute *attr,
 	int		rc;
 	char		*tmpstr;
 	char		*pos;
+	int		tiny;
+	int		small;
+	int		large;
 
 	LNET_MUTEX_LOCK(&lnet_sysfs_mutex);
 
 	/* If we have not added a NI yet, we cannot do anything with routes.
-	   Doing so will freeze the kernel as some link lists have not been
-	   initialized yet. */
+	 * Doing so will freeze the kernel as some link lists have not been
+	 * initialized yet. */
 	if (the_lnet.ln_refcount == 0) {
 		scnprintf(lnet_sysfs_read_route, LNET_SYSFS_MAX_BUF,
 			 "Fail: Configure a NI before playing with routes.\n");
@@ -124,30 +127,33 @@ lnet_sysfs_route_write(struct device *dev, struct device_attribute *attr,
 		rc = -EPROTO;
 		goto failure;
 	}
-	if (num_args >= 2) {
-		net = libcfs_str2net(argv[1]);
-		if (net == LNET_NIDNET(LNET_NID_ANY)) {
-			scnprintf(lnet_sysfs_read_route, LNET_SYSFS_MAX_BUF,
-				  "Fail: Invalid net parameter: %s\n",
-				  argv[1]);
-			CERROR(lnet_sysfs_read_route);
-			goto early_out;
+
+	if (tmpstr[0] != 'B') {
+		if (num_args >= 2) {
+			net = libcfs_str2net(argv[1]);
+			if (net == LNET_NIDNET(LNET_NID_ANY)) {
+				scnprintf(lnet_sysfs_read_route, LNET_SYSFS_MAX_BUF,
+					  "Fail: Invalid net parameter: %s\n",
+					  argv[1]);
+				CERROR(lnet_sysfs_read_route);
+				goto early_out;
+			}
 		}
-	}
-	if (num_args >= 3) {
-		nid = libcfs_str2nid(argv[2]);
-		if (nid == LNET_NID_ANY) {
-			scnprintf(lnet_sysfs_read_route, LNET_SYSFS_MAX_BUF,
-				  "Fail: Invalid NID parameter: %s\n",
-				  argv[2]);
-			CERROR(lnet_sysfs_read_route);
-			goto early_out;
+		if (num_args >= 3) {
+			nid = libcfs_str2nid(argv[2]);
+			if (nid == LNET_NID_ANY) {
+				scnprintf(lnet_sysfs_read_route, LNET_SYSFS_MAX_BUF,
+					  "Fail: Invalid NID parameter: %s\n",
+					  argv[2]);
+				CERROR(lnet_sysfs_read_route);
+				goto early_out;
+			}
 		}
-	}
-	if (num_args >= 4) {
-		hops = simple_strtol(argv[3], NULL, 10);
-		if (hops < 1)
-			hops = 1;
+		if (num_args >= 4) {
+			hops = simple_strtol(argv[3], NULL, 10);
+			if (hops < 1)
+				hops = 1;
+		}
 	}
 
 	/* Act on the command. */
@@ -229,6 +235,68 @@ lnet_sysfs_route_write(struct device *dev, struct device_attribute *attr,
 					libcfs_net2str(net),
 					libcfs_nid2str(nid), get_hops, alive ?
 					"up" : "down");
+		}
+		break;
+	case 'B':
+		/* Show or change router buffers. */
+		if ((num_args < 4) && (num_args != 1)) {
+			scnprintf(lnet_sysfs_read_route, LNET_SYSFS_MAX_BUF,
+				  "Fail: Not 4 or 1 args to route sysfs: %d\n",
+				  num_args);
+			CERROR(lnet_sysfs_read_route);
+			break;
+		}
+		if (num_args == 1) {
+			int idx;
+
+			/* Just querying the route buffer info. */
+			pos = lnet_sysfs_read_route;
+			*pos = '\0';
+			pos += scnprintf(pos, lnet_sysfs_read_route +
+					 LNET_SYSFS_MAX_BUF - pos,
+					 "%5s %5s %7s %7s\n",
+					 "pages", "count", "credits", "min");
+			if (the_lnet.ln_rtrpools == NULL)
+				break;
+			for (idx = 0; idx < LNET_NRBPOOLS; idx++) {
+				lnet_rtrbufpool_t *rbp;
+
+				lnet_net_lock(LNET_LOCK_EX);
+				cfs_percpt_for_each(rbp, i,
+						    the_lnet.ln_rtrpools) {
+					pos += scnprintf(pos,
+						lnet_sysfs_read_route +
+						LNET_SYSFS_MAX_BUF -  pos,
+						"%5d %5d %7d %7d\n",
+						rbp[idx].rbp_npages,
+						rbp[idx].rbp_nbuffers,
+						rbp[idx].rbp_credits,
+						rbp[idx].rbp_mincredits);
+				}
+				lnet_net_unlock(LNET_LOCK_EX);
+			}
+		} else {
+			tiny = simple_strtoul(argv[1], NULL, 10);
+			if (tiny < 0)
+				tiny = 0;
+			small = simple_strtoul(argv[2], NULL, 10);
+			if (small < 0)
+				small = 0;
+			large = simple_strtoul(argv[3], NULL, 10);
+			if (large < 0)
+				large = 0;
+			rc = lnet_adjust_rtrpools(tiny, small, large);
+			if (rc) {
+				scnprintf(lnet_sysfs_read_route,
+				 LNET_SYSFS_MAX_BUF,
+				 "Fail: Unable to change buffers: errno = %d\n",
+				 rc);
+				CERROR(lnet_sysfs_read_route);
+			} else {
+				strncpy(lnet_sysfs_read_route,
+					"Success: Routing buffers changed\n",
+					LNET_SYSFS_MAX_BUF);
+			}
 		}
 		break;
 	default:
