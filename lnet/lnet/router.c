@@ -299,7 +299,8 @@ lnet_add_route_to_rnet (lnet_remotenet_t *rnet, lnet_route_t *route)
 }
 
 int
-lnet_add_route (__u32 net, unsigned int hops, lnet_nid_t gateway)
+lnet_add_route(__u32 net, unsigned int hops, lnet_nid_t gateway,
+	       int ignore_failure)
 {
         cfs_list_t          *e;
         lnet_remotenet_t    *rnet;
@@ -320,8 +321,8 @@ lnet_add_route (__u32 net, unsigned int hops, lnet_nid_t gateway)
             hops < 1 || hops > 255)
                 return (-EINVAL);
 
-        if (lnet_islocalnet(net))               /* it's a local network */
-                return 0;                       /* ignore the route entry */
+	if (lnet_islocalnet(net))		/* it's a local network */
+		return ignore_failure ? 0 : -EINVAL;
 
         /* Assume net, route, all new */
         LIBCFS_ALLOC(route, sizeof(*route));
@@ -350,13 +351,13 @@ lnet_add_route (__u32 net, unsigned int hops, lnet_nid_t gateway)
 		LIBCFS_FREE(route, sizeof(*route));
 		LIBCFS_FREE(rnet, sizeof(*rnet));
 
-		if (rc == -EHOSTUNREACH) { /* gateway is not on a local net */
+		if ((rc == -EHOSTUNREACH) &&
+		    (ignore_failure))	/* gateway is not on a local net */
 			return 0;	/* ignore the route entry */
-		} else {
-			CERROR("Error %d creating route %s %d %s\n", rc,
-			       libcfs_net2str(net), hops,
-			       libcfs_nid2str(gateway));
-		}
+
+		CERROR("Error %d creating route %s %d %s\n", rc,
+		       libcfs_net2str(net), hops,
+		       libcfs_nid2str(gateway));
                 return rc;
         }
 
