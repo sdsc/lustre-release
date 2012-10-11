@@ -731,7 +731,7 @@ lnet_parse_route (char *str, int *im_a_router)
                                 continue;
                         }
                         
-                        rc = lnet_add_route (net, hops, nid);
+			rc = lnet_add_route(net, hops, nid, 0);
                         if (rc != 0) {
                                 CERROR("Can't create route "
                                        "to %s via %s\n",

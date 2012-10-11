@@ -338,7 +338,7 @@ static int get_param_obdvar(const char *fsname, const char *file_path,
                 snprintf(dev, PATH_MAX, "%s-*", fs);
         snprintf(devices, PATH_MAX, "%s/%s/%s", obd_type, dev, param_name);
         fclose(fp);
-	return cfs_get_param(devices, value, val_len);
+	return cfs_get_param(devices, value, val_len, 0);
 }
 
 static int get_mds_md_size(char *path)

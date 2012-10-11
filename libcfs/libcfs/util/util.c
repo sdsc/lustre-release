@@ -137,7 +137,7 @@ cfs_first_match(char *pattern, char *buffer)
 
 int
 cfs_get_param(const char *param_path, char *result,
-	      unsigned int result_size)
+	      unsigned int result_size, int use_concatentation)
 {
 	char file[PATH_MAX];
 	char pattern[PATH_MAX];
@@ -165,7 +165,10 @@ cfs_get_param(const char *param_path, char *result,
 	fp = fopen(file, "r");
 	if (fp != NULL) {
 		while (fgets(buf, result_size, fp) != NULL)
-			strncpy(result, buf, result_size);
+			if (use_concatentation)
+				strncat(result, buf, result_size);
+			else
+				strncpy(result, buf, result_size);
 		result[result_size - 1] = '\0';
 		fclose(fp);
 	} else {
