@@ -26,6 +26,8 @@
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2012, Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -35,11 +37,176 @@
  *
  */
 
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdarg.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <fcntl.h>
+#include <glob.h>
+
 #include <libcfs/libcfsutil.h>
 #include "../tracefile.h"
+
+/* message level */
+static int libcfs_msg_level = LIBCFS_MSG_MAX;
 
 int
 libcfs_tcd_type_max(void)
 {
-        return CFS_TCD_TYPE_MAX;
+	return CFS_TCD_TYPE_MAX;
+}
+
+void
+libcfs_msg_set_level(int level)
+{
+	/* ensure level is in the good range */
+	if (level < LIBCFS_MSG_OFF)
+		libcfs_msg_level = LIBCFS_MSG_OFF;
+	else if (level > LIBCFS_MSG_MAX)
+		libcfs_msg_level = LIBCFS_MSG_MAX;
+	else
+		libcfs_msg_level = level;
+}
+
+/* libcfs_error will preserve errno */
+void
+libcfs_error(int level, int _rc, char *fmt, ...)
+{
+	va_list args;
+	int tmp_errno = errno;
+	/* to protect using errno as _rc argument */
+	int rc = abs(_rc);
+
+	if ((level & LIBCFS_MSG_MASK) > libcfs_msg_level)
+		return;
+
+	va_start(args, fmt);
+	vfprintf(stderr, fmt, args);
+	va_end(args);
+
+	if (level & LIBCFS_MSG_NO_ERRNO)
+		fprintf(stderr, "\n");
+	else
+		fprintf(stderr, ": %s (%d)\n", strerror(rc), rc);
+	errno = tmp_errno;
+}
+
+/* libcfs_printf will preserve errno */
+void
+libcfs_printf(int level, char *fmt, ...)
+{
+	va_list args;
+	int tmp_errno = errno;
+
+	if ((level & LIBCFS_MSG_MASK) > libcfs_msg_level)
+		return;
+
+	va_start(args, fmt);
+	vfprintf(stdout, fmt, args);
+	va_end(args);
+	errno = tmp_errno;
+}
+
+/* return the first file matching this pattern */
+int
+libcfs_first_match(char *pattern, char *buffer)
+{
+	glob_t glob_info;
+
+	if (glob(pattern, GLOB_BRACE, NULL, &glob_info))
+		return -ENOENT;
+
+	if (glob_info.gl_pathc < 1) {
+		globfree(&glob_info);
+		return -ENOENT;
+	}
+
+	/* Note: the caller must make buffer of PATH_MAX or bigger. */
+	strncpy(buffer, glob_info.gl_pathv[0], PATH_MAX);
+	buffer[PATH_MAX - 1] = '\0';
+
+	globfree(&glob_info);
+	return 0;
+}
+
+int
+libcfs_get_param(const char *param_path, char *result,
+		 unsigned int result_size)
+{
+	char file[PATH_MAX];
+	char pattern[PATH_MAX];
+	char buf[result_size];
+	FILE *fp = NULL;
+	int rc = 0;
+
+	/* First see if this is in sysfs. */
+	snprintf(pattern, sizeof(pattern), "/sys/class/misc/lnet/%s",
+		 param_path);
+	pattern[sizeof(pattern) - 1] = '\0';
+	rc = libcfs_first_match(pattern, file);
+
+	/* If not in sysfs, check procfs. */
+	if (rc) {
+		snprintf(pattern, sizeof(pattern),
+			 "/proc/{fs,sys}/{lnet,lustre}/%s",
+			 param_path);
+		pattern[sizeof(pattern) - 1] = '\0';
+		rc = libcfs_first_match(pattern, file);
+		if (rc)
+			return rc;
+	}
+
+	fp = fopen(file, "r");
+	if (fp != NULL) {
+		while (fgets(buf, result_size, fp) != NULL)
+			strncpy(result, buf, result_size);
+		result[result_size - 1] = '\0';
+		fclose(fp);
+	} else {
+		rc = -errno;
+	}
+	return rc;
+}
+
+int
+libcfs_set_param(const char *param_path, char *buffer,
+		 unsigned int buffer_size)
+{
+	char file[PATH_MAX];
+	char pattern[PATH_MAX];
+	int rc = 0;
+	int fd;
+
+	/* First see if this is in sysfs. */
+	snprintf(pattern, sizeof(pattern), "/sys/class/misc/lnet/%s",
+		 param_path);
+	pattern[sizeof(pattern) - 1] = '\0';
+	rc = libcfs_first_match(pattern, file);
+
+	/* If not in sysfs, check procfs. */
+	if (rc) {
+		snprintf(pattern, sizeof(pattern),
+			 "/proc/{fs,sys}/{lnet,lustre}/%s",
+			 param_path);
+		pattern[sizeof(pattern) - 1] = '\0';
+		rc = libcfs_first_match(pattern, file);
+		if (rc)
+			return rc;
+	}
+
+	fd = open(file, O_WRONLY);
+	if (fd < 0)
+		return -errno;
+
+	rc = write(fd, buffer, buffer_size);
+	if (rc < 0)
+		rc = -errno;
+	close(fd);
+
+	if (rc == buffer_size)
+		return 0;
+	return rc;
 }

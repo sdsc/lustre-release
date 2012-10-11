@@ -27,7 +27,7 @@
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  *
- * Copyright (c) 2011, Whamcloud, Inc.
+ * Copyright (c) 2011, 2012, Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -322,6 +322,7 @@ void cfs_get_random_bytes(void *buf, int size);
 #include <libcfs/libcfs_fail.h>
 #include <libcfs/params_tree.h>
 #include <libcfs/libcfs_crypto.h>
+#include <libcfs/libcfs_sysfs.h>
 
 /* container_of depends on "likely" which is defined in libcfs_private.h */
 static inline void *__container_of(void *ptr, unsigned long shift)
