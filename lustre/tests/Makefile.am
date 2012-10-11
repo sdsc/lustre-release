@@ -77,13 +77,14 @@ endif # TESTS
 mmap_sanity_SOURCES= mmap_sanity.c
 
 LIBLUSTREAPI := $(top_builddir)/lustre/utils/liblustreapi.a
-multiop_LDADD=$(LIBLUSTREAPI) -lrt $(PTHREAD_LIBS) $(LIBCFS)
-copytool_LDADD=$(LIBLUSTREAPI) $(LIBCFS)
+LIBCFSUTIL= $(top_builddir)/libcfs/libcfs/libcfsutil.a
+multiop_LDADD= $(LIBLUSTREAPI) $(LIBCFSUTIL) -lrt $(PTHREAD_LIBS) $(LIBCFS)
+copytool_LDADD= $(LIBLUSTREAPI) $(LIBCFSUTIL) $(LIBCFS)
 it_test_LDADD=$(LIBCFS)
 rwv_LDADD=$(LIBCFS)
 
 ll_dirstripe_verify_SOURCES= ll_dirstripe_verify.c
-ll_dirstripe_verify_LDADD= -L$(top_builddir)/lustre/utils -llustreapi $(LIBCFS)
+ll_dirstripe_verify_LDADD= -L$(top_builddir)/lustre/utils -L$(top_builddir)/libcfs/libcfs -llustreapi -lcfsutil $(LIBCFS)
 
 flocks_test_SOURCES=flocks_test.c
 flocks_test_LDADD=-lpthread
