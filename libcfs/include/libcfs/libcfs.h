@@ -27,7 +27,7 @@
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  *
- * Copyright (c) 2011, Whamcloud, Inc.
+ * Copyright (c) 2011, 2012, Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -235,6 +235,7 @@ cfs_sigset_t cfs_block_sigsinv(unsigned long sigs);
 void cfs_restore_sigs(cfs_sigset_t);
 int cfs_signal_pending(void);
 void cfs_clear_sigpending(void);
+cfs_psdev_t *cfs_get_device(void);
 
 /*
  * XXX Liang:
