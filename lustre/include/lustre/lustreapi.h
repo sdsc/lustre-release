@@ -46,27 +46,6 @@
 
 typedef void (*llapi_cb_t)(char *obd_type_name, char *obd_name, char *obd_uuid, void *args);
 
-/* lustreapi message severity level */
-enum llapi_message_level {
-        LLAPI_MSG_OFF    = 0,
-        LLAPI_MSG_FATAL  = 1,
-        LLAPI_MSG_ERROR  = 2,
-        LLAPI_MSG_WARN   = 3,
-        LLAPI_MSG_NORMAL = 4,
-        LLAPI_MSG_INFO   = 5,
-        LLAPI_MSG_DEBUG  = 6,
-        LLAPI_MSG_MAX
-};
-
-/* the bottom three bits reserved for llapi_message_level */
-#define LLAPI_MSG_MASK          0x00000007
-#define LLAPI_MSG_NO_ERRNO      0x00000010
-
-extern void llapi_msg_set_level(int level);
-extern void llapi_error(int level, int rc, char *fmt, ...);
-#define llapi_err_noerrno(level, fmt, a...)                             \
-	llapi_error((level) | LLAPI_MSG_NO_ERRNO, 0, fmt, ## a)
-extern void llapi_printf(int level, char *fmt, ...);
 extern int llapi_file_create(const char *name, unsigned long long stripe_size,
                              int stripe_offset, int stripe_count,
                              int stripe_pattern);

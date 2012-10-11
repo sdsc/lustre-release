@@ -61,7 +61,7 @@ endif
 libptlctl_a_SOURCES = portals.c debug.c
 
 if UTILS
-sbin_PROGRAMS += ptlctl routerstat wirecheck lst
+sbin_PROGRAMS += lnet routerstat wirecheck lst
 if LIBLUSTRE
 sbin_PROGRAMS += lstclient
 endif
@@ -69,9 +69,8 @@ endif
 
 wirecheck_SOURCES = wirecheck.c
 
-ptlctl_SOURCES = ptlctl.c
-ptlctl_LDADD =  -L. -lptlctl $(LIBCFSUTIL) $(LIBCFS) $(LIBREADLINE) $(LIBEFENCE)
-ptlctl_DEPENDENCIES = libptlctl.a
+lnet_SOURCES = lnet.c
+lnet_LDADD =  -L. $(LIBCFSUTIL) $(LIBCFS) $(LIBREADLINE) $(LIBEFENCE) -lpthread
 
 routerstat_SOURCES = routerstat.c
 
