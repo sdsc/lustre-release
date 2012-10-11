@@ -102,6 +102,100 @@ lnet_peer_tables_destroy(void)
 }
 
 void
+lnet_peer_ni_cleanup(lnet_ni_t *ni)
+{
+	struct lnet_peer_table	*ptable;
+	int			i;
+	int			j;
+
+	/* Start off by finding all peers using the given NI and lose the hash
+	   table's reference.  This will start those peer entries to be moved
+	   to deathrow. */
+	cfs_percpt_for_each(ptable, i, the_lnet.ln_peer_tables) {
+		lnet_net_lock(i);
+
+		for (j = 0; j < LNET_PEER_HASH_SIZE; j++) {
+			cfs_list_t	*peers = &ptable->pt_hash[j];
+			lnet_peer_t	*lp;
+			lnet_peer_t	*tmp;
+
+			cfs_list_for_each_entry_safe(lp, tmp, peers,
+						     lp_hashlist) {
+				if (ni == lp->lp_ni) {
+					/* First check if this peer is a
+					   gateway. */
+					if (lp->lp_rtr_refcount) {
+						/* It is.  We must delete the
+						   corresponding routes to get
+						   rid of the ref counts. */
+						lnet_net_unlock(i);
+						lnet_del_route(
+						      LNET_NIDNET(LNET_NID_ANY),
+						      lp->lp_nid);
+						lnet_net_lock(i);
+					}
+					cfs_list_del_init(&lp->lp_hashlist);
+					/* lose hash table's ref */
+					lnet_peer_decref_locked(lp);
+				}
+			}
+		}
+		lnet_net_unlock(i);
+	}
+
+	/* Go through the peers again looking for any entries which are still
+	   marked as using the given NI.  When one is found, wait for it to
+	   be moved to deathrow (its lp_ni entry will be NULL'ed). */
+	cfs_percpt_for_each(ptable, i, the_lnet.ln_peer_tables) {
+		lnet_net_lock(i);
+
+		for (j = 0; j < LNET_PEER_HASH_SIZE; j++) {
+			cfs_list_t *peers = &ptable->pt_hash[j];
+			lnet_peer_t	*lp;
+			lnet_peer_t	*tmp;
+
+			cfs_list_for_each_entry_safe(lp, tmp, peers,
+						     lp_hashlist) {
+				if (ni == lp->lp_ni) {
+					int k;
+
+					for (k = 3; ni == lp->lp_ni; k++) {
+						lnet_net_unlock(i);
+
+						if ((k & (k - 1)) == 0) {
+							CDEBUG(D_WARNING,
+							       "Waiting for a "
+							       "peer\n");
+						}
+						cfs_pause(cfs_time_seconds(1)
+							  / 2);
+						lnet_net_lock(i);
+					}
+				}
+			}
+		}
+		lnet_net_unlock(i);
+	}
+
+	/* Finally, collect up all the deathrow peer entries and free them. */
+	cfs_percpt_for_each(ptable, i, the_lnet.ln_peer_tables) {
+		CFS_LIST_HEAD(deathrow);
+		lnet_peer_t	*lp;
+
+		lnet_net_lock(i);
+		cfs_list_splice_init(&ptable->pt_deathrow, &deathrow);
+		lnet_net_unlock(i);
+
+		while (!cfs_list_empty(&deathrow)) {
+			lp = cfs_list_entry(deathrow.next,
+					    lnet_peer_t, lp_hashlist);
+			cfs_list_del(&lp->lp_hashlist);
+			LIBCFS_FREE(lp, sizeof(*lp));
+		}
+	}
+}
+
+void
 lnet_peer_tables_cleanup(void)
 {
 	struct lnet_peer_table	*ptable;

@@ -1829,9 +1829,11 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 
 		/* NB: so far here is the only place to set NI status to "up */
 		ni->ni_last_alive = cfs_time_current_sec();
+		LNET_MUTEX_LOCK(&the_lnet.ln_ping_info_mutex);
 		if (ni->ni_status != NULL &&
 		    ni->ni_status->ns_status == LNET_NI_STATUS_DOWN)
 			ni->ni_status->ns_status = LNET_NI_STATUS_UP;
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_ping_info_mutex);
 		lnet_ni_unlock(ni);
         }
 

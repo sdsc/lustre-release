@@ -781,6 +781,7 @@ lnet_update_ni_status_locked(void)
 			continue;
 		}
 
+		LNET_MUTEX_LOCK(&the_lnet.ln_ping_info_mutex);
 		LASSERT(ni->ni_status != NULL);
 
 		if (ni->ni_status->ns_status != LNET_NI_STATUS_DOWN) {
@@ -790,6 +791,7 @@ lnet_update_ni_status_locked(void)
 			 * NI status to "down" */
 			ni->ni_status->ns_status = LNET_NI_STATUS_DOWN;
 		}
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_ping_info_mutex);
 		lnet_ni_unlock(ni);
 	}
 }

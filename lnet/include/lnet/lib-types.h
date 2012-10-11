@@ -777,13 +777,16 @@ typedef struct
 
 	struct mutex			ln_api_mutex;
 	struct mutex			ln_lnd_mutex;
+	struct mutex			ln_ping_info_mutex;
 #else
 # ifndef HAVE_LIBPTHREAD
 	int				ln_api_mutex;
 	int				ln_lnd_mutex;
+	int				ln_ping_info_mutex;
 # else
 	pthread_mutex_t			ln_api_mutex;
 	pthread_mutex_t			ln_lnd_mutex;
+	pthread_mutex_t			ln_ping_info_mutex;
 # endif
 #endif
 	int				ln_init;	/* LNetInit() called? */

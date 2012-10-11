@@ -909,6 +909,11 @@ void lnet_connect_console_error(int rc, lnet_nid_t peer_nid,
 int lnet_count_acceptor_nis(void);
 int lnet_acceptor_timeout(void);
 int lnet_acceptor_port(void);
+int lnet_show_lndni(__u32 net, char *buffer, unsigned int buffer_size);
+int lnet_list_lndni(char *buffer, unsigned int buffer_size);
+int lnet_startup_lndni(char *net, int from_mod_params, char *lnd_tunables[],
+		       unsigned int num_tunables);
+int lnet_shutdown_lndni(__u32 net);
 #else
 void lnet_router_checker(void);
 #endif
@@ -937,10 +942,12 @@ int lnet_ping(lnet_process_id_t id, int timeout_ms,
 int lnet_parse_ip2nets (char **networksp, char *ip2nets);
 int lnet_parse_routes (char *route_str, int *im_a_router);
 int lnet_parse_networks (cfs_list_t *nilist, char *networks);
+int lnet_net_unique(__u32 net, cfs_list_t *nilist);
 
 int lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid, int cpt);
 lnet_peer_t *lnet_find_peer_locked(struct lnet_peer_table *ptable,
 				   lnet_nid_t nid);
+void lnet_peer_ni_cleanup(lnet_ni_t *ni);
 void lnet_peer_tables_cleanup(void);
 void lnet_peer_tables_destroy(void);
 int lnet_peer_tables_create(void);

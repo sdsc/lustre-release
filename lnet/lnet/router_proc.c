@@ -695,9 +695,11 @@ int LL_PROC_PROTO(proc_lnet_nis)
 				last_alive = 0;
 
 			lnet_ni_lock(ni);
+			LNET_MUTEX_LOCK(&the_lnet.ln_ping_info_mutex);
 			LASSERT(ni->ni_status != NULL);
 			stat = (ni->ni_status->ns_status ==
 				LNET_NI_STATUS_UP) ? "up" : "down";
+			LNET_MUTEX_UNLOCK(&the_lnet.ln_ping_info_mutex);
 			lnet_ni_unlock(ni);
 
 			/* we actually output credits information for
