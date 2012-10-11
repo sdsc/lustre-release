@@ -730,7 +730,9 @@ void lnet_proc_fini(void);
 void lnet_sysfs_init(void);
 void lnet_sysfs_fini(void);
 int  lnet_rtrpools_alloc(int im_a_router);
-void lnet_rtrpools_free(void);
+void lnet_destroy_rtrbuf(lnet_rtrbuf_t *rb, int npages);
+int  lnet_adjust_rtrpools(int tiny, int small, int large);
+void lnet_rtrpools_free(int keep_pools);
 lnet_remotenet_t *lnet_find_net_locked (__u32 net);
 
 int lnet_islocalnid(lnet_nid_t nid);
@@ -750,6 +752,7 @@ void lnet_prep_send(lnet_msg_t *msg, int type, lnet_process_id_t target,
 int lnet_send(lnet_nid_t nid, lnet_msg_t *msg, lnet_nid_t rtr_nid);
 void lnet_return_tx_credits_locked(lnet_msg_t *msg);
 void lnet_return_rx_credits_locked(lnet_msg_t *msg);
+void lnet_schedule_blocked_locked(lnet_rtrbufpool_t *rbp);
 
 /* portals functions */
 /* portals attributes */

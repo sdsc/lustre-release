@@ -151,9 +151,32 @@ jt_lnet_route_list(int argc, char **argv)
 static int
 jt_lnet_route_buffers(int argc, char **argv)
 {
-	cfs_printf(CFS_MSG_WARN,
-		   "route_buffers command not implemented yet\n");
-	return 0;
+	char buffer[SYSFS_MAX_BUFFER_SIZE];
+	int tiny;
+	int small;
+	int large;
+
+	/* There needs to be 3 or no arguments to route_buffers cmd. */
+	if ((argc < 4) && (argc != 1)) {
+		cfs_err_noerrno(CFS_MSG_ERROR,
+		    "Wrong number of arguments to route_buffers, got %d, "
+		    "expected 3 or none\n",
+		    argc - 1);
+		lnet_print_usage(argv[0]);
+		return -1;
+	}
+	if (argc == 1) {
+		snprintf(buffer, sizeof(buffer),
+			 SYSFS_ROUTE_BUFFERS_QUERY);
+	} else {
+		tiny = atoi(argv[1]);
+		small = atoi(argv[2]);
+		large = atoi(argv[3]);
+		snprintf(buffer, sizeof(buffer), SYSFS_ROUTE_BUFFERS_CMD,
+			 tiny, small, large);
+	}
+	buffer[sizeof(buffer)-1] = '\0';
+	return lnet_sysfs_take_action("route", buffer);
 }
 
 static int
@@ -177,7 +200,7 @@ command_t list[] = {
 	{"route_list", jt_lnet_route_list, NULL,
 	 "Usage: lnet route_list"},
 	{"route_buffers", jt_lnet_route_buffers, NULL,
-	 "Usage: lnet route_buffers <tiny_size> <small_size> <large_size>"},
+	 "Usage: lnet route_buffers [<tiny_size> <small_size> <large_size>]"},
 	{"net", jt_lnet_ni, NULL,
 	 "Usage: lnet net <net> up | down | show [<interfaces> "
 	 "[<net parameters>] [<SMP parameters>]]"},
