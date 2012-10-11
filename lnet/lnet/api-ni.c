@@ -27,7 +27,7 @@
  * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  *
- * Copyright (c) 2011, Whamcloud, Inc.
+ * Copyright (c) 2011, 2012, Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -1340,6 +1340,8 @@ LNetInit(void)
 		return -1;
 	}
 
+	lnet_sysfs_init();
+
 	the_lnet.ln_refcount = 0;
 	the_lnet.ln_init = 1;
 	LNetInvalidateHandle(&the_lnet.ln_rc_eqh);
@@ -1382,6 +1384,8 @@ LNetFini(void)
 		lnet_unregister_lnd(cfs_list_entry(the_lnet.ln_lnds.next,
 						   lnd_t, lnd_list));
 	lnet_destroy_locks();
+
+	lnet_sysfs_fini();
 
 	the_lnet.ln_init = 0;
 }
