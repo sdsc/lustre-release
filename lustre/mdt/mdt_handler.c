@@ -5035,7 +5035,7 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 
         mdt_procfs_fini(m);
 
-        lut_fini(env, &m->mdt_lut);
+        tgt_fini(env, &m->mdt_lut);
         mdt_fs_cleanup(env, m);
         upcall_cache_cleanup(m->mdt_identity_cache);
         m->mdt_identity_cache = NULL;
@@ -5215,7 +5215,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
                 }
         }
 
-        rc = lut_init(env, &m->mdt_lut, obd, m->mdt_bottom);
+        rc = tgt_init(env, &m->mdt_lut, obd, m->mdt_bottom);
         if (rc)
                 GOTO(err_fini_stack, rc);
 
@@ -5328,7 +5328,7 @@ err_free_ns:
 err_fini_seq:
         mdt_seq_fini(env, m);
         mdt_fld_fini(env, m);
-        lut_fini(env, &m->mdt_lut);
+        tgt_fini(env, &m->mdt_lut);
 err_fini_stack:
         mdt_stack_fini(env, m, md2lu_dev(m->mdt_child));
 err_lmi:
@@ -5753,7 +5753,7 @@ static int mdt_obd_connect(const struct lu_env *env,
                 LASSERT(lcd);
 		info->mti_exp = lexp;
 		memcpy(lcd->lcd_uuid, cluuid, sizeof lcd->lcd_uuid);
-		rc = lut_client_new(env, lexp);
+		rc = tgt_client_new(env, lexp);
                 if (rc == 0)
                         mdt_export_stats_init(obd, lexp, localdata);
         }
@@ -5855,7 +5855,7 @@ static int mdt_export_cleanup(struct obd_export *exp)
         /* cleanup client slot early */
         /* Do not erase record for recoverable client. */
         if (!(exp->exp_flags & OBD_OPT_FAILOVER) || exp->exp_failed)
-		lut_client_del(&env, exp);
+		tgt_client_del(&env, exp);
         lu_env_fini(&env);
 
         RETURN(rc);
@@ -5898,7 +5898,7 @@ static int mdt_init_export(struct obd_export *exp)
                                      &exp->exp_client_uuid)))
                 RETURN(0);
 
-        rc = lut_client_alloc(exp);
+        rc = tgt_client_alloc(exp);
         if (rc)
 		GOTO(err, rc);
 
@@ -5909,7 +5909,7 @@ static int mdt_init_export(struct obd_export *exp)
         RETURN(rc);
 
 err_free:
-	lut_client_free(exp);
+	tgt_client_free(exp);
 err:
 	CERROR("%s: Failed to initialize export: rc = %d\n",
 	       exp->exp_obd->obd_name, rc);
@@ -5931,7 +5931,7 @@ static int mdt_destroy_export(struct obd_export *exp)
                 RETURN(0);
 
         ldlm_destroy_export(exp);
-        lut_client_free(exp);
+        tgt_client_free(exp);
 
         LASSERT(cfs_list_empty(&exp->exp_outstanding_replies));
         LASSERT(cfs_list_empty(&exp->exp_mdt_data.med_open_head));
