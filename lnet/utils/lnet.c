@@ -171,9 +171,40 @@ jt_lnet_route_list(int argc, char **argv)
 static int
 jt_lnet_router_buffers(int argc, char **argv)
 {
-	cfs_printf(CFS_MSG_WARN,
-		   "router_buffers command not implemented yet\n");
-	return 0;
+	char buffer[SYSFS_MAX_BUFFER_SIZE];
+	int tiny;
+	int small;
+	int large;
+	int rc;
+
+	/* There needs to be 3 or no arguments to router_buffers cmd:
+	 * 1st = <tiny buffer size>
+	 * 2nd = <small buffer size>
+	 * 3rd = <large buffer size> */
+	if ((argc < 4) && (argc != 1)) {
+		cfs_err_noerrno(CFS_MSG_ERROR,
+		    "Wrong number of arguments to router_buffers, got %d, "
+		    "expected 3 or none\n",
+		    argc - 1);
+		lnet_print_usage(argv[0]);
+		return -1;
+	}
+	if (argc == 1) {
+		rc = snprintf(buffer, sizeof(buffer),
+			      SYSFS_ROUTE_BUFFERS_QUERY);
+	} else {
+		tiny = atoi(argv[1]);
+		small = atoi(argv[2]);
+		large = atoi(argv[3]);
+		rc = snprintf(buffer, sizeof(buffer), SYSFS_ROUTE_BUFFERS_FMT,
+			      tiny, small, large);
+	}
+	if ((rc < 0) || (rc >= sizeof(buffer))) {
+		cfs_err_noerrno(CFS_MSG_ERROR,
+				"Received buffer too big: %d\n", rc);
+		return -EINVAL;
+	}
+	return lnet_sysfs_take_action("route", buffer);
 }
 
 static int

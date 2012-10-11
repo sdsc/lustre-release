@@ -84,8 +84,8 @@ extern void cfs_printf(int level, const char *fmt, ...)
 	__attribute__((format(printf, 2, 3)));
 extern int cfs_first_match(char *pattern, char *buffer);
 extern int cfs_get_param(const char *param_path, char *result,
-			    unsigned int result_size, int use_concatentation);
+			 unsigned int result_size, int use_concatentation);
 extern int cfs_set_param(const char *param_path, char *buffer,
-			    unsigned int buffer_size);
+			 unsigned int buffer_size);
 
 #endif	/* __LIBCFSUTIL_H__ */
