@@ -1563,8 +1563,8 @@ LNetCtl(unsigned int cmd, void *arg)
                 return lnet_fail_nid(data->ioc_nid, data->ioc_count);
 
         case IOC_LIBCFS_ADD_ROUTE:
-                rc = lnet_add_route(data->ioc_net, data->ioc_count,
-                                    data->ioc_nid);
+		rc = lnet_add_route(data->ioc_net, data->ioc_count,
+				    data->ioc_nid, 1);
                 return (rc != 0) ? rc : lnet_check_routes();
 
         case IOC_LIBCFS_DEL_ROUTE:

@@ -45,9 +45,6 @@ static char *lnet_sysfs_read_ni;
 static char lnet_sysfs_route_pid[LNET_SYSFS_MAX_PID];
 static char lnet_sysfs_ni_pid[LNET_SYSFS_MAX_PID];
 
-/* This routine will be used for parsing out the command arguments.  ifdef'ing
-   it out now to prevent compilations errors. */
-#if 0
 static int
 line2args(char *line, char **argv, int maxargs)
 {
@@ -61,29 +58,176 @@ line2args(char *line, char **argv, int maxargs)
 	}
 	return i;
 }
-#endif
 
 static ssize_t
 lnet_sysfs_route_write(struct device *dev, struct device_attribute *attr,
 		       const char *buf, size_t count)
 {
-	int i;
+	lnet_nid_t	nid;
+	lnet_nid_t	hold_nid = 0;
+	__u32		net = 0;
+	__u32		hold_net = 0;
+	__u32		get_hops = 0;
+	unsigned long	hops = 1;
+	int		alive;
+	int		i;
+	int		cmd_start;
+	char		*argv[MAXARGS];
+	int		num_args;
+	int		rc;
+	char		*tmpstr;
+	char		*pos;
 
 	/* Parse out the pid from the beginning of message. */
-	for (i = 0; (i < sizeof(lnet_sysfs_route_pid)) && (i < count) &&
-	     (buf[i] != ':'); i++)
-		lnet_sysfs_route_pid[i] = buf[i];
-	if ((i >= sizeof(lnet_sysfs_route_pid)) || (buf[i] != ':')) {
+	for (cmd_start = 0; (cmd_start < sizeof(lnet_sysfs_route_pid)) &&
+	     (cmd_start < count) && (buf[cmd_start] != ':'); cmd_start++)
+		lnet_sysfs_route_pid[cmd_start] = buf[cmd_start];
+	if ((cmd_start >= sizeof(lnet_sysfs_route_pid)) ||
+	    (buf[cmd_start] != ':')) {
 		/* We did not hit a colon.  Message not formatted properly. */
 		strcpy(lnet_sysfs_read_route, "Fail: Bad message format\n");
 		strcpy(lnet_sysfs_route_pid, "0");
 		return count;
 	}
-	lnet_sysfs_route_pid[i] = '\0';
-	i++;
+	lnet_sysfs_route_pid[cmd_start] = '\0';
+	cmd_start++;
 
-	/* Here is where processing of route commands will go. */
+	/* If we have not added a NI yet, we cannot do anything with routes.
+	   Doing so will freeze the kernel as some link lists have not been
+	   initialized yet. */
+	if (the_lnet.ln_refcount == 0) {
+		scnprintf(lnet_sysfs_read_route, LNET_SYSFS_MAX_BUF,
+			 "Fail: Configure a NI before playing with routes.\n");
+		return count;
+	}
 
+	/* Get a local copy of the buffer we can alter. */
+	LIBCFS_ALLOC(tmpstr, count - cmd_start + 1);
+	if (tmpstr == NULL)
+		return -ENOMEM;
+	memcpy(tmpstr, buf + cmd_start, count - cmd_start);
+	tmpstr[count - cmd_start] = '\0';
+
+	/* Parse out the parameters */
+	num_args = line2args(tmpstr, argv, MAXARGS);
+	if (num_args < 0) {
+		scnprintf(lnet_sysfs_read_route, LNET_SYSFS_MAX_BUF,
+			  "Fail: Unable to parse arguments\n");
+		CERROR(lnet_sysfs_read_route);
+		goto failure;
+	}
+	if (num_args >= 2) {
+		net = libcfs_str2net(argv[1]);
+		if (net == LNET_NIDNET(LNET_NID_ANY)) {
+			scnprintf(lnet_sysfs_read_route, LNET_SYSFS_MAX_BUF,
+				  "Fail: Invalid net parameter: %s\n",
+				  argv[1]);
+			CERROR(lnet_sysfs_read_route);
+			goto failure;
+		}
+	}
+	if (num_args >= 3) {
+		nid = libcfs_str2nid(argv[2]);
+		if (nid == LNET_NID_ANY) {
+			scnprintf(lnet_sysfs_read_route, LNET_SYSFS_MAX_BUF,
+				  "Fail: Invalid NID parameter: %s\n",
+				  argv[2]);
+			CERROR(lnet_sysfs_read_route);
+			goto failure;
+		}
+	}
+	if (num_args >= 4) {
+		hops = simple_strtoul(argv[3], NULL, 10);
+		if (hops < 1)
+			hops = 1;
+	}
+
+	/* Act on the command. */
+	switch (tmpstr[0]) {
+	case 'A':
+		if (num_args < 3) {
+			scnprintf(lnet_sysfs_read_route, LNET_SYSFS_MAX_BUF,
+				  "Fail: Less than 3 args to route sysfs: %d\n",
+				  num_args);
+			CERROR(lnet_sysfs_read_route);
+			break;
+		}
+		rc = lnet_add_route(net, (unsigned int)hops, nid, 0);
+		if (rc) {
+			scnprintf(lnet_sysfs_read_route,
+				  LNET_SYSFS_MAX_BUF,
+				  "Fail: Unable to add route: errno = %d\n",
+				  rc);
+			CERROR(lnet_sysfs_read_route);
+		} else {
+			strncpy(lnet_sysfs_read_route, "Success: Route added\n",
+				LNET_SYSFS_MAX_BUF);
+		}
+		break;
+	case 'D':
+		if (num_args < 3) {
+			scnprintf(lnet_sysfs_read_route, LNET_SYSFS_MAX_BUF,
+				  "Fail: Less than 3 args to route sysfs: %d\n",
+				  num_args);
+			CERROR(lnet_sysfs_read_route);
+			break;
+		}
+		rc = lnet_del_route(net, nid);
+		if (rc) {
+			scnprintf(lnet_sysfs_read_route,
+				  LNET_SYSFS_MAX_BUF,
+				  "Fail: Unable to delete route: errno = %d\n",
+				  rc);
+			CERROR(lnet_sysfs_read_route);
+		} else {
+			strncpy(lnet_sysfs_read_route,
+				"Success: Route deleted\n",
+				LNET_SYSFS_MAX_BUF);
+		}
+		break;
+	case 'S':
+		if (num_args < 2) {
+			scnprintf(lnet_sysfs_read_route, LNET_SYSFS_MAX_BUF,
+				  "Fail: Less than 2 args to route sysfs: %d\n",
+				  num_args);
+			CERROR(lnet_sysfs_read_route);
+			break;
+		}
+		hold_net = net;
+		hold_nid = nid;
+	case 'L':
+		pos = lnet_sysfs_read_route;
+		*pos = '\0';
+		for (i = 0; ; i++) {
+			rc = lnet_get_route(i, &net, &get_hops, &nid, &alive);
+			if (rc != 0)
+				break;
+			if (tmpstr[0] == 'L')
+				pos += scnprintf(pos, lnet_sysfs_read_route +
+					LNET_SYSFS_MAX_BUF - pos,
+					"%18s %32s %s\n", libcfs_net2str(net),
+					libcfs_nid2str(nid), alive ?
+					"up" : "down");
+			else if ((net == hold_net) &&
+				   ((num_args < 3) ||
+				    ((num_args >= 3) && (nid == hold_nid))))
+				pos += scnprintf(pos, lnet_sysfs_read_route +
+					LNET_SYSFS_MAX_BUF - pos,
+					"Net: %s\nGw: %s\nHops: %u\nState: %s\n\n",
+					libcfs_net2str(net),
+					libcfs_nid2str(nid), get_hops, alive ?
+					"up" : "down");
+		}
+		break;
+	default:
+		scnprintf(lnet_sysfs_read_route, LNET_SYSFS_MAX_BUF,
+			  "Fail: Invalid command letter: %c\n", tmpstr[0]);
+		CERROR(lnet_sysfs_read_route);
+		break;
+	}
+
+failure:
+	LIBCFS_FREE(tmpstr, count - cmd_start + 1);
 	return count;
 }
 
