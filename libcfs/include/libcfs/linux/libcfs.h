@@ -26,6 +26,8 @@
 /*
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2011, 2012, Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -55,6 +57,7 @@
 #include <libcfs/linux/linux-bitops.h>
 #include <libcfs/linux/linux-types.h>
 #include <libcfs/linux/kp30.h>
+#include <libcfs/linux/linux-sysfs.h>
 
 #ifdef HAVE_ASM_TYPES_H
 #include <asm/types.h>
