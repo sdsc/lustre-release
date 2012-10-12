@@ -1098,7 +1098,7 @@ ldlm_resource_get(struct ldlm_namespace *ns, struct ldlm_resource *parent,
 
                 OBD_FAIL_TIMEOUT(OBD_FAIL_LDLM_CREATE_RESOURCE, 2);
                 rc = ns->ns_lvbo->lvbo_init(res);
-                if (rc)
+		if (rc && rc != -ENOENT)
                         CERROR("lvbo_init failed for resource "
                                LPU64": rc %d\n", name->name[0], rc);
                 /* we create resource with locked lr_lvb_mutex */
