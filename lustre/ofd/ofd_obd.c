@@ -1187,6 +1187,12 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 			}
 		}
 
+		if (diff > OST_MAX_PRECREATE) {
+			CERROR("%s: requested %d - too many to precreate\n",
+			       ofd_obd(ofd)->obd_name, (int) diff);
+			GOTO(out, rc = -EINVAL);
+		}
+
 		while (diff > 0) {
 			next_id = ofd_last_id(ofd, oa->o_seq) + 1;
 			count = ofd_precreate_batch(ofd, diff);
@@ -1202,13 +1208,23 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 					      created, diff + created,
 					      created / DISK_TIMEOUT);
 				break;
-		}
+			}
 
 			rc = ofd_precreate_objects(env, ofd, next_id,
 						   oa->o_seq, count);
 			if (rc > 0) {
 				created += rc;
 				diff -= rc;
+			} else if (rc == -ENOSPC && count > 2) {
+				/* no objects were created and we got ENOSPC:
+				 * it might be because of too large transaction
+				 * lets try to decrease size of the batch */
+				CERROR("%s: decrease batch size to %d\n",
+				       ofd_obd(ofd)->obd_name,
+				       (int) ofd->ofd_precreate_batch >> 1);
+				cfs_spin_lock(&ofd->ofd_objid_lock);
+				ofd->ofd_precreate_batch >>= 1;
+				cfs_spin_unlock(&ofd->ofd_objid_lock);
 			} else if (rc < 0) {
 				break;
 			}

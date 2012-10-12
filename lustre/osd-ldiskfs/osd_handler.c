@@ -694,13 +694,6 @@ int osd_trans_start(const struct lu_env *env, struct dt_device *d,
 		      LDISKFS_SB(osd_sb(dev))->s_es->s_volume_name,
 		      oh->ot_credits,
 		      osd_journal(dev)->j_max_transaction_buffers);
-                /* XXX Limit the credits to 'max_transaction_buffers', and
-                 *     let the underlying filesystem to catch the error if
-                 *     we really need so many credits.
-                 *
-                 *     This should be removed when we can calculate the
-                 *     credits precisely. */
-                oh->ot_credits = osd_journal(dev)->j_max_transaction_buffers;
 #ifdef OSD_TRACK_DECLARES
                 CERROR("  attr_set: %d, punch: %d, xattr_set: %d,\n",
                        oh->ot_declare_attr_set, oh->ot_declare_punch,
@@ -712,6 +705,8 @@ int osd_trans_start(const struct lu_env *env, struct dt_device *d,
                        oh->ot_declare_insert, oh->ot_declare_delete,
                        oh->ot_declare_destroy);
 #endif
+		/* let the caller adjust she's appetite */
+		RETURN(-ENOSPC);
         }
 
         /*
