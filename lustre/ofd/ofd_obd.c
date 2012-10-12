@@ -516,6 +516,8 @@ static int ofd_set_info_async(const struct lu_env *env, struct obd_export *exp,
 
 		/** handle grant shrink, similar to a read request */
 		ofd_grant_prepare_read(env, exp, &body->oa);
+	} else if (KEY_IS(KEY_REVIMP_UPD)) {
+		/* we don't need to update reverse import any more */
 	} else {
 		CERROR("%s: Unsupported key %s\n",
 		       exp->exp_obd->obd_name, (char*)key);
