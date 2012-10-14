@@ -1306,13 +1306,99 @@ out:
 }
 EXPORT_SYMBOL(ldlm_revalidate_lock_handle);
 
+int ldlm_fill_lvb(struct ldlm_lock *lock, struct req_capsule *pill,
+		  enum req_location loc, int size, void *data, int len,
+		  enum lvb_type type)
+{
+	void *lvb;
+	ENTRY;
+
+	LASSERT(data != NULL);
+	LASSERT(len > 0);
+
+	switch (type) {
+	case LVB_T_OST:
+		LASSERT(len == sizeof(struct ost_lvb));
+
+		if (size == sizeof(struct ost_lvb)) {
+			if (loc == RCL_CLIENT)
+				lvb = req_capsule_client_swab_get(pill,
+						&RMF_DLM_LVB,
+						lustre_swab_ost_lvb);
+			else
+				lvb = req_capsule_server_swab_get(pill,
+						&RMF_DLM_LVB,
+						lustre_swab_ost_lvb);
+			memcpy(data, lvb, size);
+		} else if (size == sizeof(struct ost_lvb_v1)) {
+			struct ost_lvb *olvb = data;
+
+			if (loc == RCL_CLIENT)
+				lvb = req_capsule_client_swab_get(pill,
+						&RMF_DLM_LVB,
+						lustre_swab_ost_lvb_v1);
+			else
+				lvb = req_capsule_server_sized_swab_get(pill,
+						&RMF_DLM_LVB, size,
+						lustre_swab_ost_lvb_v1);
+			memcpy(data, lvb, size);
+			olvb->lvb_mtime_ns = 0;
+			olvb->lvb_atime_ns = 0;
+			olvb->lvb_ctime_ns = 0;
+		} else {
+			LDLM_ERROR(lock, "Replied unexpected ost LVB, "
+				   "expected = %d, replied = %d", len, size);
+			RETURN(-EINVAL);
+		}
+		break;
+	case LVB_T_LQUOTA:
+		LASSERT(len == sizeof(struct lquota_lvb));
+
+		if (size == sizeof(struct lquota_lvb)) {
+			if (loc == RCL_CLIENT)
+				lvb = req_capsule_client_swab_get(pill,
+						&RMF_DLM_LVB,
+						lustre_swab_lquota_lvb);
+			else
+				lvb = req_capsule_server_swab_get(pill,
+						&RMF_DLM_LVB,
+						lustre_swab_lquota_lvb);
+			memcpy(data, lvb, size);
+		} else {
+			LDLM_ERROR(lock, "Replied unexpected lquota LVB, "
+				   "expected = %d, replied = %d", len, size);
+			RETURN(-EINVAL);
+		}
+		break;
+	case LVB_T_LAYOUT:
+		if (unlikely(size <= 0 || size > len)) {
+			LDLM_ERROR(lock, "Replied unexpected layout LVB, "
+				   "expected = %d, replied = %d", len, size);
+			RETURN(-EINVAL);
+		}
+
+		if (loc == RCL_CLIENT)
+			lvb = req_capsule_client_get(pill, &RMF_DLM_LVB);
+		else
+			lvb = req_capsule_server_get(pill, &RMF_DLM_LVB);
+		memcpy(data, lvb, size);
+		break;
+	default:
+		LDLM_ERROR(lock, "Unexpected LVB type, type = %d", type);
+		RETURN(-EINVAL);
+	}
+
+	RETURN(0);
+}
+
 /* Returns a referenced lock */
 struct ldlm_lock *ldlm_lock_create(struct ldlm_namespace *ns,
                                    const struct ldlm_res_id *res_id,
                                    ldlm_type_t type,
                                    ldlm_mode_t mode,
                                    const struct ldlm_callback_suite *cbs,
-                                   void *data, __u32 lvb_len)
+				   void *data, __u32 lvb_len,
+				   enum lvb_type lvb_type)
 {
         struct ldlm_lock *lock;
         struct ldlm_resource *res;
@@ -1352,6 +1438,7 @@ struct ldlm_lock *ldlm_lock_create(struct ldlm_namespace *ns,
                         GOTO(out, 0);
         }
 
+	lock->l_lvb_type = lvb_type;
         if (OBD_FAIL_CHECK(OBD_FAIL_LDLM_NEW_LOCK))
                 GOTO(out, 0);
 

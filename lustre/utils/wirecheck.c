@@ -496,6 +496,7 @@ check_obd_connect_data(void)
         CHECK_DEFINE_64X(OBD_CONNECT_UMASK);
         CHECK_DEFINE_64X(OBD_CONNECT_EINPROGRESS);
         CHECK_DEFINE_64X(OBD_CONNECT_GRANT_PARAM);
+	CHECK_DEFINE_64X(OBD_CONNECT_LVB_TYPE);
         CHECK_DEFINE_64X(OBD_CONNECT_LIGHTWEIGHT);
 	CHECK_DEFINE_64X(OBD_CONNECT_SHORTIO);
 
@@ -1308,15 +1309,31 @@ check_ldlm_reply(void)
 }
 
 static void
+check_ldlm_ost_lvb_v1(void)
+{
+	BLANK_LINE();
+	CHECK_STRUCT(ost_lvb_v1);
+	CHECK_MEMBER(ost_lvb_v1, lvb_size);
+	CHECK_MEMBER(ost_lvb_v1, lvb_mtime);
+	CHECK_MEMBER(ost_lvb_v1, lvb_atime);
+	CHECK_MEMBER(ost_lvb_v1, lvb_ctime);
+	CHECK_MEMBER(ost_lvb_v1, lvb_blocks);
+}
+
+static void
 check_ldlm_ost_lvb(void)
 {
-        BLANK_LINE();
-        CHECK_STRUCT(ost_lvb);
-        CHECK_MEMBER(ost_lvb, lvb_size);
-        CHECK_MEMBER(ost_lvb, lvb_mtime);
-        CHECK_MEMBER(ost_lvb, lvb_atime);
-        CHECK_MEMBER(ost_lvb, lvb_ctime);
-        CHECK_MEMBER(ost_lvb, lvb_blocks);
+	BLANK_LINE();
+	CHECK_STRUCT(ost_lvb);
+	CHECK_MEMBER(ost_lvb, lvb_size);
+	CHECK_MEMBER(ost_lvb, lvb_mtime);
+	CHECK_MEMBER(ost_lvb, lvb_atime);
+	CHECK_MEMBER(ost_lvb, lvb_ctime);
+	CHECK_MEMBER(ost_lvb, lvb_blocks);
+	CHECK_MEMBER(ost_lvb, lvb_mtime_ns);
+	CHECK_MEMBER(ost_lvb, lvb_atime_ns);
+	CHECK_MEMBER(ost_lvb, lvb_ctime_ns);
+	CHECK_MEMBER(ost_lvb, lvb_padding);
 }
 
 static void
@@ -2148,6 +2165,7 @@ main(int argc, char **argv)
         check_ldlm_lock_desc();
         check_ldlm_request();
         check_ldlm_reply();
+	check_ldlm_ost_lvb_v1();
         check_ldlm_ost_lvb();
         check_ldlm_lquota_lvb();
         check_ldlm_gl_lquota_desc();
