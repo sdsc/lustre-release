@@ -2290,10 +2290,12 @@ extern int (*ptlrpc_put_connection_superhack)(struct ptlrpc_connection *c);
 
 /* obd_mount.c */
 int server_name2fsname(char *svname, char *fsname, char **endptr);
+#ifdef HAVE_SERVER_SUPPORT
 int lustre_register_osp_item(char *ospname, struct obd_export **exp,
 			     register_osp_cb cb_func, void *cb_data);
 void lustre_deregister_osp_item(struct obd_export **exp);
 int tgt_name2ospname(char *ost_name, char *osp_name);
+#endif
 
 /* sysctl.c */
 extern void obd_sysctl_init (void);
