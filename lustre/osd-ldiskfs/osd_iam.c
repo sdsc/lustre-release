@@ -1202,17 +1202,6 @@ int iam_it_get(struct iam_iterator *it, const struct iam_key *k)
 EXPORT_SYMBOL(iam_it_get);
 
 /*
- * Attach iterator by index key.
- */
-static int iam_it_iget(struct iam_iterator *it, const struct iam_ikey *k)
-{
-        assert_corr(it_state(it) == IAM_IT_DETACHED);
-
-        it->ii_path.ip_ikey_target = k;
-        return __iam_it_get(it, 1) & ~IAM_LOOKUP_LAST;
-}
-
-/*
  * Attach iterator, and assure it points to the record (not skewed).
  *
  * Return value: 0: positioned on existing record,
@@ -2518,7 +2507,7 @@ int iam_it_load(struct iam_iterator *it, iam_pos_t pos)
         assert_corr(it_state(it) == IAM_IT_DETACHED &&
                     it->ii_flags&IAM_IT_MOVE);
         assert_corr(iam_it_container(it)->ic_descr->id_ikey_size <= sizeof pos);
-        return iam_it_iget(it, (struct iam_ikey *)&pos);
+	return iam_it_get(it, (struct iam_key *)&pos);
 }
 EXPORT_SYMBOL(iam_it_load);
 
