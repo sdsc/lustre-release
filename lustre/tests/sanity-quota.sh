@@ -1039,6 +1039,42 @@ test_7c() {
 }
 run_test 7c "Quota reintegration (restart mds during reintegration)"
 
+# Quota reintegration (Transfer index in multiple bulks)
+test_7d(){
+	local TESTFILE=$DIR/$tdir/$tfile
+	local TESTFILE1="$DIR/$tdir/$tfile"-1
+	local limit=20 #20M
+
+	setup_quota_test
+	trap cleanup_quota_test EXIT
+
+	set_ost_qtype "none" || error "disable ost quota failed"
+	$LFS setquota -u $TSTUSR -B ${limit}M $DIR
+	$LFS setquota -u $TSTUSR2 -B ${limit}M $DIR
+
+	#define OBD_FAIL_OBD_IDX_READ_BREAK 0x608
+	lustre_fail mds 0x608 0
+
+	# enable quota to tirgger reintegration
+	set_ost_qtype "u" || error "enable ost quota failed"
+	wait_ost_reint "u" || error "reintegration failed"
+
+	lustre_fail mds 0
+
+	# hardlimit should have been fetched by slave during global
+	# reintegration, write will exceed quota
+	$RUNAS $DD of=$TESTFILE count=$((limit + 1)) oflag=sync &&
+		quota_error u $TSTUSR "$TSTUSR write success, expect EDQUOT"
+
+	$RUNAS2 $DD of=$TESTFILE1 count=$((limit + 1)) oflag=sync &&
+		quota_error u $TSTUSR2 "$TSTUSR2 write success, expect EDQUOT"
+
+	cleanup_quota_test
+	resetquota -u $TSTUSR
+	resetquota -u $TSTUSR2
+}
+run_test 7d "Quota reintegration (Transfer index in multiple bulks)"
+
 # run dbench with quota enabled
 test_8() {
 	local BLK_LIMIT="100g" #100G
