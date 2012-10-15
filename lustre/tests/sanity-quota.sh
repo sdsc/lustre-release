@@ -99,11 +99,14 @@ lustre_fail() {
 
 RUNAS="runas -u $TSTID -g $TSTID"
 RUNAS2="runas -u $TSTID2 -g $TSTID2"
-FAIL_ON_ERROR=true check_runas_id $TSTID $TSTID $RUNAS
-FAIL_ON_ERROR=true check_runas_id $TSTID2 $TSTID2 $RUNAS2
 DD="dd if=/dev/zero bs=1M"
 
 FAIL_ON_ERROR=false
+
+check_runas_id_ret $TSTID $TSTID $RUNAS ||
+	error "Please create user $TSTUSR($TSTID) and group $TSTUSR($TSTID)"
+check_runas_id_ret $TSTID2 $TSTID2 $RUNAS2 ||
+	error "Please create user $TSTUSR2($TSTID2) and group $TSTUSR2($TSTID2)"
 
 # clear quota limits for a user or a group
 # usage: resetquota -u username
