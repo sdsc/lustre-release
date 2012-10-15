@@ -310,6 +310,7 @@ static inline int fsfilt_commit_wait(struct obd_device *obd,
         return rc;
 }
 
+#ifdef HAVE_SERVER_SUPPORT
 static inline int fsfilt_setattr(struct obd_device *obd, struct dentry *dentry,
                                  void *handle, struct iattr *iattr,int do_trunc)
 {
@@ -411,6 +412,7 @@ static inline int fsfilt_map_inode_pages(struct obd_device *obd,
         return obd->obd_fsops->fs_map_inode_pages(inode, page, pages, blocks,
                                                   created, create, mutex);
 }
+#endif /* HAVE_SERVER_SUPPORT */
 
 static inline int fsfilt_read_record(struct obd_device *obd, struct file *file,
                                      void *buf, loff_t size, loff_t *offs)
