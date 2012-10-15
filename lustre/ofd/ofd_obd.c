@@ -1187,6 +1187,12 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 			}
 		}
 
+		if (diff > OST_MAX_PRECREATE) {
+			CERROR("%s: requested %d - too many to precreate\n",
+			       ofd_obd(ofd)->obd_name, (int) diff);
+			GOTO(out, rc = -EINVAL);
+		}
+
 		while (diff > 0) {
 			next_id = ofd_last_id(ofd, oa->o_seq) + 1;
 			count = ofd_precreate_batch(ofd, diff);
