@@ -2563,7 +2563,7 @@ int osc_cache_truncate_start(const struct lu_env *env, struct osc_io *oio,
 	ENTRY;
 
 	/* pages with index greater or equal to index will be truncated. */
-	index = cl_index(osc2cl(obj), size + CFS_PAGE_SIZE - 1);
+	index = cl_index(osc2cl(obj), size);
 
 again:
 	osc_object_lock(obj);
