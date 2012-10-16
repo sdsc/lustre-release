@@ -884,7 +884,8 @@ static int osc_extent_wait(const struct lu_env *env, struct osc_extent *ext,
  * Discard pages with index greater than @size. If @ext is overlapped with
  * @size, then partial truncate happens.
  */
-static int osc_extent_truncate(struct osc_extent *ext, pgoff_t trunc_index)
+static int osc_extent_truncate(struct osc_extent *ext, pgoff_t trunc_index,
+				bool partial)
 {
 	struct cl_env_nest     nest;
 	struct lu_env         *env;
@@ -925,7 +926,8 @@ static int osc_extent_truncate(struct osc_extent *ext, pgoff_t trunc_index)
 
 		/* only discard the pages with their index greater than
 		 * trunc_index, and ... */
-		if (sub->cp_index < trunc_index) {
+		if (sub->cp_index < trunc_index ||
+		    (sub->cp_index == trunc_index && partial)) {
 			/* accounting how many pages remaining in the chunk
 			 * so that we can calculate grants correctly. */
 			if (sub->cp_index >> ppc_bits == trunc_chunk)
@@ -2560,10 +2562,12 @@ int osc_cache_truncate_start(const struct lu_env *env, struct osc_io *oio,
 	pgoff_t index;
 	CFS_LIST_HEAD(list);
 	int result = 0;
+	bool partial;
 	ENTRY;
 
 	/* pages with index greater or equal to index will be truncated. */
-	index = cl_index(osc2cl(obj), size + CFS_PAGE_SIZE - 1);
+	index = cl_index(osc2cl(obj), size);
+	partial = size > cl_offset(osc2cl(obj), index);
 
 again:
 	osc_object_lock(obj);
@@ -2621,7 +2625,7 @@ again:
 		if (ext->oe_state != OES_TRUNC)
 			osc_extent_wait(env, ext, OES_TRUNC);
 
-		rc = osc_extent_truncate(ext, index);
+		rc = osc_extent_truncate(ext, index, partial);
 		if (rc < 0) {
 			if (result == 0)
 				result = rc;
@@ -2638,6 +2642,7 @@ again:
 				 "trunc index = %lu.\n", index);
 			/* fix index to skip this partially truncated extent */
 			index = ext->oe_end + 1;
+			partial = false;
 
 			/* we need to hold this extent in OES_TRUNC state so
 			 * that no writeback will happen. This is to avoid
