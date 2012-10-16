@@ -456,12 +456,15 @@ int qsd_dqacq(const struct lu_env *env, struct lquota_entry *lqe,
 	 *
 	 * If the previous reintegration failed for some reason, we'll
 	 * re-trigger it here as well. */
+	cfs_read_lock(&qsd->qsd_lock);
 	if (!qqi->qqi_glb_uptodate || !qqi->qqi_slv_uptodate) {
+		cfs_read_unlock(&qsd->qsd_lock);
 		LQUOTA_DEBUG(lqe, "Not up-to-date, dropping request and kicking"
 			     " off reintegration");
 		qsd_start_reint_thread(qqi);
 		RETURN(-EINPROGRESS);
 	}
+	cfs_read_unlock(&qsd->qsd_lock);
 
 	LQUOTA_DEBUG(lqe, "DQACQ starts op=%u", op);
 
@@ -665,6 +668,17 @@ static int qsd_op_begin0(const struct lu_env *env, struct qsd_qtype_info *qqi,
 
 	if (rc == 0) {
 		qid->lqi_space += space;
+	} else if (rc == -ESRCH) {
+		lqe_write_lock(lqe);
+		lqe->lqe_waiting_write -= space;
+		lqe_write_unlock(lqe);
+
+		rc = 0;
+		LQUOTA_ERROR(lqe, "ID isn't enforced on master, it probably "
+			     "due to a legeal race, if this message is showing "
+			     "up constantly, there could be some inconsistence "
+			     "between master & slave, and quota reintegration "
+			     "needs be re-triggered.");
 	} else {
 		LQUOTA_DEBUG(lqe, "Acquire quota failed:%d", rc);
 
