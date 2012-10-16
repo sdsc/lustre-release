@@ -478,6 +478,8 @@ int seq_server_init(struct lu_server_seq *seq,
 
         LASSERT(dev != NULL);
         LASSERT(prefix != NULL);
+	LASSERT(ms);
+	LASSERT(ms->ms_lu);
 
         seq->lss_cli = NULL;
         seq->lss_type = type;
