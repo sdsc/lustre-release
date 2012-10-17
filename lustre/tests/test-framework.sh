@@ -237,11 +237,11 @@ init_test_env() {
         fi
     fi
     export LL_DECODE_FILTER_FID=${LL_DECODE_FILTER_FID:-"$LUSTRE/utils/ll_decode_filter_fid"}
-    [ ! -f "$LL_DECODE_FILTER_FID" ] && export LL_DECODE_FILTER_FID="ll_decode_filter_fid"
+    [ ! -f "$LL_DECODE_FILTER_FID" ] && export LL_DECODE_FILTER_FID=ll_decode_filter_fid
     export MKFS=${MKFS:-"$LUSTRE/utils/mkfs.lustre"}
-    [ ! -f "$MKFS" ] && export MKFS="mkfs.lustre"
+    [ ! -f "$MKFS" ] && export MKFS=mkfs.lustre
     export TUNEFS=${TUNEFS:-"$LUSTRE/utils/tunefs.lustre"}
-    [ ! -f "$TUNEFS" ] && export TUNEFS="tunefs.lustre"
+    [ ! -f "$TUNEFS" ] && export TUNEFS=tunefs.lustre
     export CHECKSTAT="${CHECKSTAT:-"checkstat -v"} "
     export LUSTRE_RMMOD=${LUSTRE_RMMOD:-$LUSTRE/scripts/lustre_rmmod}
     [ ! -f "$LUSTRE_RMMOD" ] &&
@@ -296,7 +296,6 @@ init_test_env() {
         ! -f `dirname $0`/../mds/mds.ko ]; then
         export CLIENTMODSONLY=yes
     fi
-
     export SHUTDOWN_ATTEMPTS=${SHUTDOWN_ATTEMPTS:-3}
 
     # command line
