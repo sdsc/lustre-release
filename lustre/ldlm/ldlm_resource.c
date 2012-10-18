@@ -422,6 +422,21 @@ static void cleanup_resource(struct ldlm_resource *res, struct list_head *q,
                 /* first, we look for non-cleaned-yet lock
                  * all cleaned locks are marked by CLEANED flag */
                 lock_res(res);
+                if (res->lr_type == LDLM_FLOCK) {
+                        list_for_each(tmp, q) {
+                                lock = list_entry(tmp, struct ldlm_lock,
+                                                  l_res_link);
+                                if (lock->l_flags & LDLM_FL_CLEANED)
+                                        continue;
+                                lock->l_flags |= LDLM_FL_CBPENDING;
+                                lock->l_flags |= LDLM_FL_FAILED;
+                                lock->l_flags |= flags;
+                                if (local_only)
+                                        lock->l_flags |= LDLM_FL_LOCAL_ONLY;
+                        }
+                }
+                lock = NULL;
+
                 list_for_each(tmp, q) {
                         lock = list_entry(tmp, struct ldlm_lock, l_res_link);
                         if (lock->l_flags & LDLM_FL_CLEANED) {
@@ -440,15 +455,26 @@ static void cleanup_resource(struct ldlm_resource *res, struct list_head *q,
 
                 /* Set CBPENDING so nothing in the cancellation path
                  * can match this lock */
-                lock->l_flags |= LDLM_FL_CBPENDING;
-                lock->l_flags |= LDLM_FL_FAILED;
-                lock->l_flags |= flags;
+                if (res->lr_type != LDLM_FLOCK) {
+                        lock->l_flags |= LDLM_FL_CBPENDING;
+                        lock->l_flags |= LDLM_FL_FAILED;
+                        lock->l_flags |= flags;
 
-                /* ... without sending a CANCEL message for local_only. */
-                if (local_only)
-                        lock->l_flags |= LDLM_FL_LOCAL_ONLY;
+                        /* ... without sending a CANCEL message for
+                         * local_only. */
+                        if (local_only)
+                                lock->l_flags |= LDLM_FL_LOCAL_ONLY;
+                }
 
                 if (local_only && (lock->l_readers || lock->l_writers)) {
+                        /* To avoid a race between the completions called
+                         * via ll_file_flock and the completion here */
+                        if ((res->lr_type == LDLM_FLOCK) &&
+                            (lock->l_flags & LDLM_FL_LOCAL_ONLY) &&
+                            (lock->l_req_mode == lock->l_granted_mode) &&
+                            (lock->l_granted_mode != LCK_NL))
+                                lock->l_flags |= LDLM_FL_DECREF_FLK;
+
                         /* This is a little bit gross, but much better than the
                          * alternative: pretend that we got a blocking AST from
                          * the server, so that when the lock is decref'd, it
