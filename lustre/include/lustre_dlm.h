@@ -200,6 +200,10 @@ typedef enum {
  * handled this lock and decided to skip it */
 #define LDLM_FL_SKIPPED        0x200000000ULL
 
+/* Used for avoiding a race between cleanup_resource() and 
+ * ldlm_flock_completion_ast() */
+#define LDLM_FL_DECREF_FLK     0x400000000ULL
+
 /* The blocking callback is overloaded to perform two functions.  These flags
  * indicate which operation should be performed. */
 #define LDLM_CB_BLOCKING    1
