@@ -40,8 +40,8 @@
  * Author: Robert Read <rread@sun.com>
  */
 
-#ifndef __LIBCFS_LINUX_KP30_H__
-#define __LIBCFS_LINUX_KP30_H__
+#ifndef __LUSTRE_POSIX_WORDSIZE_H__
+#define __LUSTRE_POSIX_WORDSIZE_H__
 
 
 

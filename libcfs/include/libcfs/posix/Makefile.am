@@ -1,7 +1,7 @@
 libcfsposixdir = $(includedir)/libcfs/posix
 
 if UTILS
-libcfsposix_HEADERS = posix-types.h
+libcfsposix_HEADERS = posix-types.h posix-wordsize.h
 endif
 
 EXTRA_DIST = libcfs.h posix-wordsize.h posix-types.h posix-crypto.h

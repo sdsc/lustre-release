@@ -48,6 +48,7 @@
 
 #ifndef __KERNEL__
 #include <libcfs/posix/posix-types.h>
+#include <libcfs/posix/posix-wordsize.h>
 #endif
 #include <lustre/ll_fiemap.h>
 #if defined(__linux__)

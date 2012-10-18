@@ -91,12 +91,12 @@
 #ifndef _LUSTRE_IDL_H_
 #define _LUSTRE_IDL_H_
 
+/* Defn's shared with user-space. */
+#include <lustre/lustre_user.h>
+
 #if !defined(LASSERT) && !defined(LPU64)
 #include <libcfs/libcfs.h> /* for LASSERT, LPUX64, etc */
 #endif
-
-/* Defn's shared with user-space. */
-#include <lustre/lustre_user.h>
 
 /*
  *  GENERAL STUFF
