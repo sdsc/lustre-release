@@ -41,11 +41,13 @@
 #define __FID_INTERNAL_H
 
 #include <lustre/lustre_idl.h>
-#include <dt_object.h>
-
+#ifdef HAVE_SERVER_SUPPORT
+# include <dt_object.h>
+#endif
 #include <libcfs/libcfs.h>
 
 #ifdef __KERNEL__
+# ifdef HAVE_SERVER_SUPPORT
 struct seq_thread_info {
         struct req_capsule     *sti_pill;
         struct lu_seq_range     sti_space;
@@ -57,10 +59,6 @@ enum {
 };
 
 extern struct lu_context_key seq_thread_key;
-
-/* Functions used internally in module. */
-int seq_client_alloc_super(struct lu_client_seq *seq,
-                           const struct lu_env *env);
 
 /* Store API functions. */
 int seq_store_init(struct lu_server_seq *seq,
@@ -76,12 +74,24 @@ int seq_store_read(struct lu_server_seq *seq,
 int seq_store_update(const struct lu_env *env, struct lu_server_seq *seq,
                      struct lu_seq_range *out, int sync);
 
-#ifdef LPROCFS
-extern struct lprocfs_vars seq_server_proc_list[];
-extern struct lprocfs_vars seq_client_proc_list[];
-#endif
+void fid_mod_init_sever(void);
 
-#endif
+void fid_mod_exit_server(void);
+
+#  ifdef LPROCFS
+extern struct lprocfs_vars seq_server_proc_list[];
+#  endif
+# endif /* HAVE_SERVER_SUPPORT */
+
+/* Functions used internally in module. */
+int seq_client_alloc_super(struct lu_client_seq *seq,
+                           const struct lu_env *env);
+
+# ifdef LPROCFS
+extern struct lprocfs_vars seq_client_proc_list[];
+# endif
+
+#endif /* __KERNEL__ */
 
 extern cfs_proc_dir_entry_t *seq_type_proc_dir;
 
