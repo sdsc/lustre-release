@@ -582,8 +582,20 @@ ldlm_flock_completion_ast(struct ldlm_lock *lock, int flags, void *data)
             (LDLM_FL_FAILED|LDLM_FL_LOCAL_ONLY)) {
                 if (lock->l_req_mode == lock->l_granted_mode &&
                     lock->l_granted_mode != LCK_NL &&
-                    NULL == data)
-                        ldlm_lock_decref_internal(lock, lock->l_req_mode);
+		    NULL == data) {
+			/* Without checking LDLM_FL_DECREF_FLK there is
+			 * a case of calling ldlm_lock_decref_internal
+			 * twice but unnecessarily if client eviction is
+			 * running */
+			lock_res_and_lock(lock);
+			if (lock->l_flags & LDLM_FL_DECREF_FLK) {
+				lock->l_flags &= ~LDLM_FL_DECREF_FLK;
+				unlock_res_and_lock(lock);
+				ldlm_lock_decref_internal(lock,
+							  lock->l_req_mode);
+			} else
+				unlock_res_and_lock(lock);
+		}
 
                 /* Need to wake up the waiter if we were evicted */
                 cfs_waitq_signal(&lock->l_waitq);
@@ -650,6 +662,31 @@ granted:
         LDLM_DEBUG(lock, "client-side enqueue granted");
 
 	lock_res_and_lock(lock);
+
+	if (lock->l_flags & LDLM_FL_FAILED) {
+		/* There could be the case that cleanup_resouce() is
+		 * just before calling ldlm_flock_completion_ast()
+		 * because cleanup_resouce()  has released a res lock
+		 * already.
+		 * Which is why we need to check LDLML_FL_DECREF_FLK
+		 * here */
+		if ((lock->l_flags &
+			(LDLM_FL_LOCAL_ONLY|LDLM_FL_DECREF_FLK)) &&
+		    (lock->l_req_mode == lock->l_granted_mode) &&
+		    (lock->l_granted_mode != LCK_NL) &&
+		    (NULL == data)) {
+			lock->l_flags &= ~LDLM_FL_DECREF_FLK;
+			unlock_res_and_lock(lock);
+			ldlm_lock_decref_internal(lock, lock->l_req_mode);
+			cfs_waitq_signal(&lock->l_waitq);
+			RETURN(0);
+		} else {
+			unlock_res_and_lock(lock);
+			LDLM_DEBUG(lock,
+				   "client-side enqueue waking up: failed");
+			RETURN(-EIO);
+		}
+	}
 
 	/* take lock off the deadlock detection hash list. */
         ldlm_flock_blocking_unlink(lock);
