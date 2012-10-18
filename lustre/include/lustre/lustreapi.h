@@ -43,6 +43,14 @@
  */
 
 #include <lustre/lustre_user.h>
+/* We do NOT want to assert a normal user space application from the
+ * within the Lustre api library.  Therefore, these empty definitions
+ * must happen before including lustre_idl.h. */
+#ifndef __KERNEL__
+#define LASSERT(cond) do {;} while (0)
+#define CLASSERT(cond) do {;} while (0)
+#define LASSERTF(cond, fmt, ...) do {;} while (0)
+#endif
 #include <lustre/lustre_idl.h>
 
 typedef void (*llapi_cb_t)(char *obd_type_name, char *obd_name, char *obd_uuid, void *args);
