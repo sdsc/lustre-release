@@ -29,7 +29,7 @@
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
- * lustre/osp/osp_sync.c
+ * lustre/osp/osp_precreate.c
  *
  * Lustre OST Proxy Device
  *
@@ -168,7 +168,7 @@ out:
  *
  * \param[in] d		OSP device
  */
-static int osp_statfs_update(struct osp_device *d)
+static int osp_statfs_update(const struct lu_env *env, struct osp_device *d)
 {
 	struct ptlrpc_request	*req;
 	struct obd_import	*imp;
@@ -208,6 +208,25 @@ static int osp_statfs_update(struct osp_device *d)
 
 	ptlrpcd_add_req(req);
 
+	if (atomic_read(&d->opd_syn_changes)) {
+		struct thandle *th;
+		printk("%s: periodic commit cb\n", d->opd_obd->obd_name);
+		th = dt_trans_create(env, d->opd_storage);
+		if (IS_ERR(th)) {
+			CERROR("%s: can't sync\n", d->opd_obd->obd_name);
+			GOTO(out, rc);
+		}
+		rc = dt_trans_start_local(env, d->opd_storage, th);
+		if (rc == 0) {
+			CDEBUG(D_OTHER, "%s: sync forced, %d changes\n",
+					d->opd_obd->obd_name,
+					atomic_read(&d->opd_syn_changes));
+			rc = osp_sync_add_commit_cb(env, d, th);
+			dt_trans_stop(env, d->opd_storage, th);
+		}
+	}
+
+out:
 	RETURN(0);
 }
 
@@ -1161,7 +1180,7 @@ static int osp_precreate_thread(void *_arg)
 			continue;
 		}
 
-		if (osp_statfs_update(d)) {
+		if (osp_statfs_update(&env, d)) {
 			l_wait_event(d->opd_pre_waitq,
 				     !osp_precreate_running(d), &lwi2);
 			continue;
@@ -1192,7 +1211,7 @@ static int osp_precreate_thread(void *_arg)
 				break;
 
 			if (osp_statfs_need_update(d))
-				if (osp_statfs_update(d))
+				if (osp_statfs_update(&env, d))
 					break;
 
 			/* To avoid handling different seq in precreate/orphan
@@ -1325,7 +1344,7 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 {
 	struct l_wait_info	 lwi;
 	cfs_time_t		 expire = cfs_time_shift(obd_timeout);
-	int			 precreated, rc;
+	int			 precreated, rc, synced = 0;
 
 	ENTRY;
 
@@ -1384,9 +1403,10 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 		 * wait till that is done - some space might be released
 		 */
 		if (unlikely(rc == -ENOSPC)) {
-			if (atomic_read(&d->opd_syn_changes)) {
+			if (atomic_read(&d->opd_syn_changes) && synced == 0) {
 				/* force local commit to release space */
-				dt_commit_async(env, d->opd_storage);
+				osp_sync_force(env, d);
+				synced = 1;
 			}
 			if (atomic_read(&d->opd_syn_rpc_in_progress)) {
 				/* just wait till destroys are done */
