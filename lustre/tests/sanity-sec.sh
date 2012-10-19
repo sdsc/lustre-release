@@ -1087,6 +1087,7 @@ do_fops_quota_test() {
 	sync; sync_all_data || true
 
 	local qused_new=$(nodemap_check_quota "$run_u")
+	echo "! new $qused_new orig $qused_orig low $qused_low high $qused_high"
 	[ $((qused_new)) -lt $((qused_low + 1024)) -o \
 	  $((qused_new)) -gt $((qused_high + 1024)) ] &&
 		error "$qused_new != $qused_orig + 1M after write, " \

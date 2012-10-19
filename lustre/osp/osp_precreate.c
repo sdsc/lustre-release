@@ -33,7 +33,7 @@
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
- * lustre/osp/osp_sync.c
+ * lustre/osp/osp_precreate.c
  *
  * Lustre OST Proxy Device
  *
@@ -1309,7 +1309,7 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 {
 	struct l_wait_info	 lwi;
 	cfs_time_t		 expire = cfs_time_shift(obd_timeout);
-	int			 precreated, rc;
+	int			 precreated, rc, synced = 0;
 
 	ENTRY;
 
@@ -1368,9 +1368,10 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 		 * wait till that is done - some space might be released
 		 */
 		if (unlikely(rc == -ENOSPC)) {
-			if (atomic_read(&d->opd_syn_changes)) {
+			if (atomic_read(&d->opd_syn_changes) && synced == 0) {
 				/* force local commit to release space */
-				dt_commit_async(env, d->opd_storage);
+				osp_sync_force(env, d);
+				synced = 1;
 			}
 			if (atomic_read(&d->opd_syn_rpc_in_progress)) {
 				/* just wait till destroys are done */
