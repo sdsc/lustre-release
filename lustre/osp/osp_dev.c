@@ -344,9 +344,7 @@ static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 {
 	ENTRY;
 
-	/*
-	 * XXX: wake up sync thread, command it to start flushing asap?
-	 */
+	osp_sync_force(env, dt2osp_dev(dev));
 
 	RETURN(0);
 }
