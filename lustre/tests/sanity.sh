@@ -5297,7 +5297,7 @@ test_101d() {
     local ra_MB=${READAHEAD_MB:-40}
 
     local space=$(df -P $DIR | tail -n 1 | awk '{ print $4 }')
-    [ $space -gt $((size / 1024)) ] ||
+    [ $space -gt $((size * 1024)) ] ||
         { skip "Need free space ${size}M, have $space" && return; }
 
     echo Creating ${size}M test file $file
