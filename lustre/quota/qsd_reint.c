@@ -363,7 +363,7 @@ static int qsd_reconciliation(const struct lu_env *env,
 			GOTO(out, rc);
 		}
 
-		rc = qsd_dqacq(env, lqe, QSD_REP);
+		rc = qsd_adjust(env, lqe);
 		lqe_putref(lqe);
 
 		if (rc) {

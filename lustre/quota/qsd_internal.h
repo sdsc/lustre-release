@@ -217,14 +217,6 @@ static inline void qqi_putref(struct qsd_qtype_info *qqi)
 	cfs_atomic_dec(&qqi->qqi_ref);
 }
 
-/* all kind of operations supported by qsd_dqacq() */
-enum qsd_ops {
-	QSD_ADJ, /* adjust quota space based on current qunit */
-	QSD_ACQ, /* acquire space for requests */
-	QSD_REL, /* release all space quota space uncondionnally */
-	QSD_REP, /* report space usage during reintegration */
-};
-
 #define QSD_RES_TYPE(qsd) ((qsd)->qsd_is_md ? LQUOTA_RES_MD : LQUOTA_RES_DT)
 
 /* udpate record for slave & global index copy */
@@ -366,8 +358,7 @@ void qsd_put_fsinfo(struct qsd_fsinfo *);
 int qsd_process_config(struct lustre_cfg *);
 
 /* qsd_handler.c */
-int qsd_dqacq(const struct lu_env *, struct lquota_entry *, enum qsd_ops);
-__u64 qsd_calc_grants(struct lquota_entry *, __u64, __u32);
+int qsd_adjust(const struct lu_env *, struct lquota_entry *);
 
 /* qsd_writeback.c */
 void qsd_upd_schedule(struct qsd_qtype_info *, struct lquota_entry *,
