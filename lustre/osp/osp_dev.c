@@ -781,19 +781,24 @@ static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 	struct osp_device *d = dt2osp_dev(dev);
 	cfs_time_t	   expire;
 	struct l_wait_info lwi = { 0 };
-	unsigned long	   id, old;
 	int		   rc = 0;
 	unsigned long	   start = cfs_time_current();
+	__u64		   old;
+	int		   recs;
 	ENTRY;
 
 	/* No Sync between MDTs yet. */
 	if (d->opd_connect_mdt)
 		RETURN(0);
 
+	recs = atomic_read(&d->opd_syn_changes);
+	old = atomic64_read(&d->opd_syn_processed_recs);
+
+	osp_sync_force(env, dt2osp_dev(dev));
+
 	if (unlikely(d->opd_imp_active == 0))
 		RETURN(-ENOTCONN);
 
-	id = d->opd_syn_last_used_id;
 	down_write(&d->opd_async_updates_rwsem);
 
 	CDEBUG(D_OTHER, "%s: async updates %d\n", d->opd_obd->obd_name,
@@ -809,26 +814,25 @@ static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 	if (rc != 0)
 		GOTO(out, rc);
 
-	CDEBUG(D_CACHE, "%s: id: used %lu, processed %llu\n",
-	       d->opd_obd->obd_name, id, d->opd_syn_last_processed_id);
+	CDEBUG(D_CACHE, "%s: processed %lu\n", d->opd_obd->obd_name,
+	       atomic64_read(&d->opd_syn_processed_recs));
 
 	/* wait till all-in-line are processed */
-	while (d->opd_syn_last_processed_id < id) {
-
-		old = d->opd_syn_last_processed_id;
+	while (atomic64_read(&d->opd_syn_processed_recs) < old + recs) {
+		__u64 last = atomic64_read(&d->opd_syn_processed_recs);
 
 		/* make sure the connection is fine */
 		expire = cfs_time_shift(obd_timeout);
 		lwi = LWI_TIMEOUT(expire - cfs_time_current(),
 				  osp_sync_timeout, d);
 		l_wait_event(d->opd_syn_barrier_waitq,
-			     d->opd_syn_last_processed_id >= id,
-			     &lwi);
+			     atomic64_read(&d->opd_syn_processed_recs)
+			     >= old + recs, &lwi);
 
-		if (d->opd_syn_last_processed_id >= id)
+		if (atomic64_read(&d->opd_syn_processed_recs) >= old + recs)
 			break;
 
-		if (d->opd_syn_last_processed_id != old) {
+		if (atomic64_read(&d->opd_syn_processed_recs) != last) {
 			/* some progress have been made,
 			 * keep trying... */
 			continue;
@@ -1853,7 +1857,7 @@ struct lu_context_key osp_thread_key = {
 LU_KEY_INIT_FINI(osp_txn, struct osp_txn_info);
 
 struct lu_context_key osp_txn_key = {
-	.lct_tags = LCT_OSP_THREAD | LCT_TX_HANDLE,
+	.lct_tags = LCT_OSP_THREAD,
 	.lct_init = osp_txn_key_init,
 	.lct_fini = osp_txn_key_fini
 };
