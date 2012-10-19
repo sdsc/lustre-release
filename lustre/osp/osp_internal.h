@@ -46,24 +46,6 @@
 #include <dt_object.h>
 #include <lustre_fid.h>
 
-/*
- * Infrastructure to support tracking of last committed llog record
- */
-struct osp_id_tracker {
-	cfs_spinlock_t		 otr_lock;
-	__u32			 otr_next_id;
-	__u32			 otr_committed_id;
-	/* callback is register once per diskfs -- that's the whole point */
-	struct dt_txn_callback	 otr_tx_cb;
-	/* single node can run many clusters */
-	cfs_list_t		 otr_wakeup_list;
-	cfs_list_t		 otr_list;
-	/* underlying shared device */
-	struct dt_device	*otr_dev;
-	/* how many users of this tracker */
-	cfs_atomic_t		 otr_refcount;
-};
-
 struct osp_device {
 	struct dt_device		 opd_dt_dev;
 	/* corresponded OST index */
@@ -156,8 +138,8 @@ struct osp_device {
 	unsigned long			 opd_syn_last_committed_id;
 	/* last processed (taken from llog) id */
 	unsigned long			 opd_syn_last_processed_id;
-	struct osp_id_tracker		*opd_syn_tracker;
-	cfs_list_t			 opd_syn_ontrack;
+	/* last generated id */
+	cfs_time_t			 opd_syn_next_commit_cb;
 
 	/*
 	 * statfs related fields: OSP maintains it on its own
