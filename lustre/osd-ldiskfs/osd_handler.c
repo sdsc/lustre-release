@@ -659,7 +659,6 @@ static struct thandle *osd_trans_create(const struct lu_env *env,
                 th = &oh->ot_super;
                 th->th_dev = d;
                 th->th_result = 0;
-                th->th_tags = LCT_TX_HANDLE;
                 oh->ot_credits = 0;
                 oti->oti_dev = osd_dt_dev(d);
                 CFS_INIT_LIST_HEAD(&oh->ot_dcb_list);
@@ -726,7 +725,7 @@ int osd_trans_start(const struct lu_env *env, struct dt_device *d,
         if (!IS_ERR(jh)) {
                 oh->ot_handle = jh;
                 LASSERT(oti->oti_txns == 0);
-                lu_context_init(&th->th_ctx, th->th_tags);
+		lu_context_init(&th->th_ctx, LCT_TX_HANDLE);
                 lu_context_enter(&th->th_ctx);
 
                 lu_device_get(&d->dd_lu_dev);
