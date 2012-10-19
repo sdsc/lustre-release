@@ -270,7 +270,7 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
          * obd_type and just use the values from there. */
 	if (!strcmp(name, LUSTRE_OSC_NAME) ||
 	    (!strcmp(name, LUSTRE_OSP_NAME) &&
-	     !is_osp_on_ost(lustre_cfg_buf(lcfg, 0)))) {
+	     !is_osp_for_connection(lustre_cfg_buf(lcfg, 0)))) {
                 rq_portal = OST_REQUEST_PORTAL;
                 rp_portal = OSC_REPLY_PORTAL;
                 connect_op = OST_CONNECT;
@@ -280,7 +280,7 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
 
 	} else if (!strcmp(name, LUSTRE_MDC_NAME) ||
 		   (!strcmp(name, LUSTRE_OSP_NAME) &&
-		    is_osp_on_ost(lustre_cfg_buf(lcfg, 0)))) {
+		    is_osp_for_connection(lustre_cfg_buf(lcfg, 0)))) {
                 rq_portal = MDS_REQUEST_PORTAL;
                 rp_portal = MDC_REPLY_PORTAL;
                 connect_op = MDS_CONNECT;

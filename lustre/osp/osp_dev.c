@@ -226,7 +226,7 @@ static int osp_shutdown(const struct lu_env *env, struct osp_device *d)
 	int			 rc = 0;
 	ENTRY;
 
-	if (is_osp_on_ost(d->opd_obd->obd_name)) {
+	if (is_osp_for_connection(d->opd_obd->obd_name)) {
 		rc = osp_disconnect(d);
 		RETURN(rc);
 	}
@@ -257,7 +257,7 @@ static int osp_process_config(const struct lu_env *env,
 
 	switch (lcfg->lcfg_command) {
 	case LCFG_CLEANUP:
-		if (!is_osp_on_ost(d->opd_obd->obd_name))
+		if (!is_osp_for_connection(d->opd_obd->obd_name))
 			lu_dev_del_linkage(dev->ld_site, dev);
 		rc = osp_shutdown(env, d);
 		break;
@@ -597,7 +597,7 @@ static struct lu_device *osp_device_alloc(const struct lu_env *env,
 
 		l = osp2lu_dev(m);
 		dt_device_init(&m->opd_dt_dev, t);
-		if (is_osp_on_ost(lustre_cfg_string(lcfg, 0)))
+		if (is_osp_for_connection(lustre_cfg_string(lcfg, 0)))
 			rc = osp_init_for_ost(env, m, t, lcfg);
 		else
 			rc = osp_init0(env, m, t, lcfg);
@@ -621,7 +621,7 @@ static struct lu_device *osp_device_fini(const struct lu_env *env,
 	if (m->opd_storage_exp)
 		obd_disconnect(m->opd_storage_exp);
 
-	if (is_osp_on_ost(m->opd_obd->obd_name))
+	if (is_osp_for_connection(m->opd_obd->obd_name))
 		osp_fini_for_ost(m);
 
 	imp = m->opd_obd->u.cli.cl_import;
@@ -679,7 +679,7 @@ static int osp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 		RETURN(rc);
 
 	*exp = class_conn2export(&conn);
-	if (is_osp_on_ost(obd->obd_name))
+	if (is_osp_for_connection(obd->obd_name))
 		osp->opd_exp = *exp;
 
 	/* Why should there ever be more than 1 connect? */
@@ -703,7 +703,7 @@ static int osp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 				 OBD_CONNECT_VERSION |
 				 OBD_CONNECT_FID;
 
-	if (is_osp_on_ost(osp->opd_obd->obd_name))
+	if (is_osp_for_connection(osp->opd_obd->obd_name))
 		ocd->ocd_connect_flags |= OBD_CONNECT_LIGHTWEIGHT;
 
 	ocd->ocd_version = LUSTRE_VERSION_CODE;
@@ -746,7 +746,7 @@ static int osp_obd_disconnect(struct obd_export *exp)
 	}
 
 	/* destroy the device */
-	if (!is_osp_on_ost(obd->obd_name))
+	if (!is_osp_for_connection(obd->obd_name))
 		class_manual_cleanup(obd);
 
 	RETURN(rc);
@@ -827,7 +827,7 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 	case IMP_EVENT_DISCON:
 		d->opd_got_disconnected = 1;
 		d->opd_imp_connected = 0;
-		if (is_osp_on_ost(d->opd_obd->obd_name))
+		if (is_osp_for_connection(d->opd_obd->obd_name))
 			break;
 		osp_pre_update_status(d, -ENODEV);
 		cfs_waitq_signal(&d->opd_pre_waitq);
@@ -835,7 +835,7 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 		break;
 	case IMP_EVENT_INACTIVE:
 		d->opd_imp_active = 0;
-		if (is_osp_on_ost(d->opd_obd->obd_name))
+		if (is_osp_for_connection(d->opd_obd->obd_name))
 			break;
 		osp_pre_update_status(d, -ENODEV);
 		cfs_waitq_signal(&d->opd_pre_waitq);
@@ -847,7 +847,7 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 			d->opd_new_connection = 1;
 		d->opd_imp_connected = 1;
 		d->opd_imp_seen_connected = 1;
-		if (is_osp_on_ost(d->opd_obd->obd_name))
+		if (is_osp_for_connection(d->opd_obd->obd_name))
 			break;
 		cfs_waitq_signal(&d->opd_pre_waitq);
 		__osp_sync_check_for_work(d);
