@@ -1,0 +1,9 @@
+Verified+1: Hudson
+Code-Review+1: Niu Yawei <niu@whamcloud.com>
+Code-Review+2: Oleg Drokin <green@whamcloud.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Submitted-by: Oleg Drokin <green@whamcloud.com>
+Submitted-at: Fri, 19 Oct 2012 10:24:56 -0400
+Reviewed-on: http://review.whamcloud.com/4295
+Project: fs/lustre-release
+Branch: refs/heads/b2_3
