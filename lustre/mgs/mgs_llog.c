@@ -2306,7 +2306,7 @@ static int mgs_write_log_quota(const struct lu_env *env, struct mgs_device *mgs,
 				      mti->mti_fsname, quota, 1);
 	*ptr = sep;
 	lustre_cfg_free(lcfg);
-	return rc;
+	return rc < 0 ? rc : 0;
 }
 
 static int mgs_srpc_set_param_disk(const struct lu_env *env,

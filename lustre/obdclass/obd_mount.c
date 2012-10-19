@@ -1323,6 +1323,18 @@ static int lustre_disconnect_osp(struct super_block *sb)
 	ENTRY;
 
 	LASSERT(IS_OST(lsi) || IS_MDT(lsi));
+	if (IS_MDT(lsi)) {
+		int	index;
+
+		/* Only disconnect MDT0-osp-MDT0 here, other osp on MDT
+		 * will be disconnect during MDT stack cleanup.
+		 * FIXME: remove later when quota on DNE is finished */
+		rc = server_name2index(lsi->lsi_svname, &index, NULL);
+		if (rc < 0)
+			RETURN(rc);
+		if (index != 0)
+			RETURN(0);
+	}
 	OBD_ALLOC(logname, MTI_NAME_MAXLEN);
 	if (logname == NULL)
 		RETURN(-ENOMEM);

@@ -47,7 +47,7 @@ static int osp_name2fsname(char *ospname, char *fsname)
 
 	LASSERT(ospname != NULL);
 	LASSERT(fsname != NULL);
-	if (!is_osp_on_ost(ospname))
+	if (!is_osp_for_connection(ospname))
 		return -EINVAL;
 
 	sprintf(fsname, "-%s-", LUSTRE_OSP_NAME);
