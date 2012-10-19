@@ -459,6 +459,10 @@ static int enable_default_ext4_features(struct mkfs_opts *mop, char *anchor,
 	    is_e2fsprogs_feature_supp("-O 64bit") == 0)
 		append_unique(anchor, ",", "64bit", NULL, maxbuflen);
 
+	if (IS_MDT(&mop->mo_ldd) &&
+	    is_e2fsprogs_feature_supp("-O large_xattr") == 0)
+		append_unique(anchor, ",", "large_xattr", NULL, maxbuflen);
+
 	/* Cluster inode/block bitmaps and inode table for more efficient IO.
 	 * Align the flex groups on a 1MB boundary for better performance. */
 	/* This -O feature needs to go last, since it adds the "-G" option. */
