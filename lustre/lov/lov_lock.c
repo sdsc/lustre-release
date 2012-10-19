@@ -633,37 +633,45 @@ static int lov_lock_enqueue(const struct lu_env *env,
                 }
                 sublock = sub->lss_cl.cls_lock;
                 rc = lov_sublock_lock(env, lck, lls, closure, &subenv);
-                if (rc == 0) {
-                        lov_sublock_hold(env, lck, i);
-                        rc = lov_lock_enqueue_one(subenv->lse_env, lck, sublock,
-                                                  subenv->lse_io, enqflags,
-                                                  i == lck->lls_nr - 1);
-                        minstate = min(minstate, sublock->cll_state);
-                        if (rc == CLO_WAIT) {
-                                switch (sublock->cll_state) {
-                                case CLS_QUEUING:
-                                        /* take recursive mutex, the lock is
-                                         * released in lov_lock_enqueue_wait.
-                                         */
-                                        cl_lock_mutex_get(env, sublock);
-                                        lov_sublock_unlock(env, sub, closure,
-                                                           subenv);
-                                        rc = lov_lock_enqueue_wait(env, lck,
-                                                                   sublock);
-                                        break;
-                                case CLS_CACHED:
-                                        rc = lov_sublock_release(env, lck, i,
-                                                                 1, rc);
-                                default:
-                                        lov_sublock_unlock(env, sub, closure,
-                                                           subenv);
-                                        break;
-                                }
-                        } else {
-                                LASSERT(sublock->cll_conflict == NULL);
-                                lov_sublock_unlock(env, sub, closure, subenv);
-                        }
-                }
+		if (rc != 0)
+			goto endloop_check;
+
+		lov_sublock_hold(env, lck, i);
+		rc = lov_lock_enqueue_one(subenv->lse_env, lck, sublock,
+					  subenv->lse_io, enqflags,
+					  i == lck->lls_nr - 1);
+		minstate = min(minstate, sublock->cll_state);
+		if (rc == CLO_WAIT) {
+			switch (sublock->cll_state) {
+			case CLS_QUEUING:
+				/*
+				 * Take recursive mutex, the lock is released in
+				 * lov_lock_enqueue_wait.
+				 *
+				 * Note: we shouldn't get lock mutexes from top
+				 * to bottom directly.
+				 */
+				if (cl_lock_mutex_try(env, sublock) != 0) {
+					cl_lock_mutex_put(env, lock);
+					cfs_schedule();
+					/* from bottom to top */
+					cl_lock_mutex_get(env, sublock);
+					cl_lock_mutex_get(env, lock);
+				}
+				lov_sublock_unlock(env, sub, closure, subenv);
+				rc = lov_lock_enqueue_wait(env, lck, sublock);
+				break;
+			case CLS_CACHED:
+				rc = lov_sublock_release(env, lck, i, 1, rc);
+			default:
+				lov_sublock_unlock(env, sub, closure, subenv);
+				break;
+			}
+		} else {
+			LASSERT(sublock->cll_conflict == NULL);
+			lov_sublock_unlock(env, sub, closure, subenv);
+		}
+endloop_check:
                 result = lov_subresult(result, rc);
                 if (result != 0)
                         break;
