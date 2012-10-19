@@ -221,11 +221,11 @@ struct osp_device {
 	__u64				 opd_syn_last_committed_id;
 	/* last processed (taken from llog) id */
 	volatile __u64			 opd_syn_last_processed_id;
-	struct osp_id_tracker		*opd_syn_tracker;
-	struct list_head		 opd_syn_ontrack;
 	/* stop processing new requests until barrier=0 */
 	atomic_t			 opd_syn_barrier;
 	wait_queue_head_t		 opd_syn_barrier_waitq;
+	/* last generated id */
+	cfs_time_t			 opd_syn_next_commit_cb;
 
 	/*
 	 * statfs related fields: OSP maintains it on its own
@@ -792,6 +792,9 @@ int osp_sync_add(const struct lu_env *env, struct osp_object *o,
 int osp_sync_init(const struct lu_env *env, struct osp_device *d);
 int osp_sync_fini(struct osp_device *d);
 void __osp_sync_check_for_work(struct osp_device *d);
+void osp_sync_force(const struct lu_env *env, struct osp_device *d);
+int osp_sync_add_commit_cb(const struct lu_env *env, struct osp_device *d,
+			   struct thandle *th, __u64 transno);
 
 /* lwp_dev.c */
 extern struct obd_ops lwp_obd_device_ops;
