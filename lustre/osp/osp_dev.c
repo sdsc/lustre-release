@@ -792,6 +792,8 @@ static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 	if (d->opd_connect_mdt)
 		RETURN(0);
 
+	osp_sync_force(env, dt2osp_dev(dev));
+
 	if (unlikely(d->opd_imp_active == 0))
 		RETURN(-ENOTCONN);
 
