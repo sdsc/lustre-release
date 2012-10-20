@@ -79,41 +79,44 @@
  */
 static void ll_invalidatepage(struct page *vmpage, unsigned long offset)
 {
-        struct inode     *inode;
-        struct lu_env    *env;
-        struct cl_page   *page;
-        struct cl_object *obj;
+	struct inode     *inode;
+	struct lu_env    *env;
+	struct cl_page   *page;
+	struct cl_object *obj;
 
-        int refcheck;
+	int refcheck;
 
-        LASSERT(PageLocked(vmpage));
-        LASSERT(!PageWriteback(vmpage));
+	LASSERT(PageLocked(vmpage));
+	LASSERT(!PageWriteback(vmpage));
 
-        /*
-         * It is safe to not check anything in invalidatepage/releasepage
-         * below because they are run with page locked and all our io is
-         * happening with locked page too
-         */
-        if (offset == 0) {
-                env = cl_env_get(&refcheck);
-                if (!IS_ERR(env)) {
-                        inode = vmpage->mapping->host;
-                        obj = ll_i2info(inode)->lli_clob;
-                        if (obj != NULL) {
-                                page = cl_vmpage_page(vmpage, obj);
-                                if (page != NULL) {
-                                        lu_ref_add(&page->cp_reference,
-                                                   "delete", vmpage);
-                                        cl_page_delete(env, page);
-                                        lu_ref_del(&page->cp_reference,
-                                                   "delete", vmpage);
-                                        cl_page_put(env, page);
-                                }
-                        } else
-                                LASSERT(vmpage->private == 0);
-                        cl_env_put(env, &refcheck);
-                }
-        }
+	/*
+	 * It is safe to not check anything in invalidatepage/releasepage
+	 * below because they are run with page locked and all our io is
+	 * happening with locked page too
+	 */
+	if (offset == 0) {
+		if (PageDirty(vmpage))
+			ll_dirty_page_discard_warn(vmpage, 0);
+
+		env = cl_env_get(&refcheck);
+		if (!IS_ERR(env)) {
+			inode = vmpage->mapping->host;
+			obj = ll_i2info(inode)->lli_clob;
+			if (obj != NULL) {
+				page = cl_vmpage_page(vmpage, obj);
+				if (page != NULL) {
+					lu_ref_add(&page->cp_reference,
+						   "delete", vmpage);
+					cl_page_delete(env, page);
+					lu_ref_del(&page->cp_reference,
+						   "delete", vmpage);
+					cl_page_put(env, page);
+				}
+			} else
+				LASSERT(vmpage->private == 0);
+			cl_env_put(env, &refcheck);
+		}
+	}
 }
 
 #ifdef HAVE_RELEASEPAGE_WITH_INT
