@@ -3480,11 +3480,11 @@ enum mdt_it_code {
 static int mdt_intent_getattr(enum mdt_it_code opcode,
                               struct mdt_thread_info *info,
                               struct ldlm_lock **,
-                              int);
+			      __u64);
 static int mdt_intent_reint(enum mdt_it_code opcode,
                             struct mdt_thread_info *info,
                             struct ldlm_lock **,
-                            int);
+			    __u64);
 
 static struct mdt_it_flavor {
         const struct req_format *it_fmt;
@@ -3492,7 +3492,7 @@ static struct mdt_it_flavor {
         int                    (*it_act)(enum mdt_it_code ,
                                          struct mdt_thread_info *,
                                          struct ldlm_lock **,
-                                         int);
+					 __u64);
         long                     it_reint;
 } mdt_it_flavor[] = {
         [MDT_IT_OPEN]     = {
@@ -3556,7 +3556,7 @@ int mdt_intent_lock_replace(struct mdt_thread_info *info,
                             struct ldlm_lock **lockp,
                             struct ldlm_lock *new_lock,
                             struct mdt_lock_handle *lh,
-                            int flags)
+			    __u64 flags)
 {
         struct ptlrpc_request  *req = mdt_info_req(info);
         struct ldlm_lock       *lock = *lockp;
@@ -3697,7 +3697,7 @@ static void mdt_intent_fixup_resent(struct mdt_thread_info *info,
 static int mdt_intent_getattr(enum mdt_it_code opcode,
                               struct mdt_thread_info *info,
                               struct ldlm_lock **lockp,
-                              int flags)
+			      __u64 flags)
 {
         struct mdt_lock_handle *lhc = &info->mti_lh[MDT_LH_RMT];
         struct ldlm_lock       *new_lock = NULL;
@@ -3779,7 +3779,7 @@ out_shrink:
 static int mdt_intent_reint(enum mdt_it_code opcode,
                             struct mdt_thread_info *info,
                             struct ldlm_lock **lockp,
-                            int flags)
+			    __u64 flags)
 {
         struct mdt_lock_handle *lhc = &info->mti_lh[MDT_LH_RMT];
         struct ldlm_reply      *rep = NULL;
@@ -3911,7 +3911,7 @@ static int mdt_intent_code(long itcode)
 }
 
 static int mdt_intent_opc(long itopc, struct mdt_thread_info *info,
-                          struct ldlm_lock **lockp, int flags)
+			  struct ldlm_lock **lockp, __u64 flags)
 {
         struct req_capsule   *pill;
         struct mdt_it_flavor *flv;
@@ -3960,7 +3960,7 @@ static int mdt_intent_opc(long itopc, struct mdt_thread_info *info,
 
 static int mdt_intent_policy(struct ldlm_namespace *ns,
                              struct ldlm_lock **lockp, void *req_cookie,
-                             ldlm_mode_t mode, int flags, void *data)
+			     ldlm_mode_t mode, __u64 flags, void *data)
 {
         struct mdt_thread_info *info;
         struct ptlrpc_request  *req  =  req_cookie;
