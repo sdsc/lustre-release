@@ -578,6 +578,24 @@ out:
 	return ERR_PTR(result);
 }
 
+int osc_over_unstable_soft_limit(struct client_obd *cli)
+{
+	long fs_ulimit, fs_upages, osc_upages;
+
+	/* XXX: We may want to consider dirty thresholds as well */
+
+	/* If the unstable limit is zero, meaning disabled, simulate a
+	 * limit by using 1/4 of physical memory. */
+	fs_ulimit = cfs_atomic_read(&cli->cl_unstable->ccu_max) != 0 ?
+		    cfs_atomic_read(&cli->cl_unstable->ccu_max) :
+		    cfs_num_physpages / 4;
+
+	fs_upages  = cfs_atomic_read(&cli->cl_unstable->ccu_count);
+	osc_upages = cfs_atomic_read(&cli->cl_unstable_count);
+
+	return osc_upages != 0 && fs_upages >= fs_ulimit / 2;
+}
+
 /**
  * Helper function called by osc_io_submit() for every page in an immediate
  * transfer (i.e., transferred synchronously).
@@ -587,6 +605,7 @@ void osc_page_submit(const struct lu_env *env, struct osc_page *opg,
 {
 	struct osc_async_page *oap = &opg->ops_oap;
 	struct osc_object     *obj = oap->oap_obj;
+	struct client_obd     *cli = oap->oap_cli;
 
 	LINVRNT(osc_page_protected(env, opg,
 				   crt == CRT_WRITE ? CLM_WRITE : CLM_READ, 1));
@@ -600,6 +619,9 @@ void osc_page_submit(const struct lu_env *env, struct osc_page *opg,
 	oap->oap_page_off  = opg->ops_from;
 	oap->oap_count     = opg->ops_to - opg->ops_from;
 	oap->oap_brw_flags = OBD_BRW_SYNC | brw_flags;
+
+	if (osc_over_unstable_soft_limit(cli))
+		oap->oap_brw_flags |= OBD_BRW_SOFT_SYNC;
 
 	if (!client_is_remote(osc_export(obj)) &&
 			cfs_capable(CFS_CAP_SYS_RESOURCE)) {
