@@ -5742,6 +5742,7 @@ mds_backup_restore() {
 	local metaea=${TMP}/backup_restore.ea
 	local metadata=${TMP}/backup_restore.tgz
 	local opts=${MDS_MOUNT_OPTS}
+	local svc=${SINGLEMDS}_svc
 
 	if ! ${rcmd} test -b ${devname}; then
 		opts=$(csa_add "$opts" -o loop)
@@ -5785,6 +5786,8 @@ mds_backup_restore() {
 	${rcmd} umount -d $mntpt || return 10
 	# step 14: cleanup tmp backup
 	${rcmd} rm -f $metaea $metadata
+	# step 15: reset device label - it's not virgin on
+	${rcmd} e2label $devname ${!svc}
 }
 
 # remove OI files
