@@ -369,6 +369,7 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
 	client_obd_list_lock_init(&cli->cl_lru_list_lock);
 
 	cli->cl_unstable = NULL;
+	cfs_atomic_set(&cli->cl_unstable_count, 0);
 
         cfs_waitq_init(&cli->cl_destroy_waitq);
         cfs_atomic_set(&cli->cl_destroy_in_flight, 0);
@@ -469,7 +470,10 @@ err:
 
 int client_obd_cleanup(struct obd_device *obddev)
 {
+	struct client_obd *cli = &obddev->u.cli;
         ENTRY;
+
+	LASSERT(cfs_atomic_read(cli->cl_unstable_count) == 0);
 
         ldlm_namespace_free_post(obddev->obd_namespace);
         obddev->obd_namespace = NULL;
