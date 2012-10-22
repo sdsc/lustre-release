@@ -688,6 +688,7 @@ static void lod_ah_init(const struct lu_env *env,
 		nextc->do_ops->do_ah_init(env, ah, nextp, nextc, child_mode);
 
 	if (S_ISDIR(child_mode)) {
+		LASSERT(lp != NULL);
 		if (lp->ldo_striping_cached == 0) {
 			/* we haven't tried to get default striping for
 			 * the directory yet, let's cache it in the object */
@@ -720,6 +721,7 @@ static void lod_ah_init(const struct lu_env *env,
 	 * try from the parent
 	 */
 	if (likely(parent)) {
+		LASSERT(lp != NULL);
 		if (lp->ldo_striping_cached == 0) {
 			/* we haven't tried to get default striping for
 			 * the directory yet, let's cache it in the object */

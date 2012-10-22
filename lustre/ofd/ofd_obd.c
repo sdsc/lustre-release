@@ -301,7 +301,11 @@ static int ofd_obd_connect(const struct lu_env *env, struct obd_export **_exp,
 	if (rc)
 		GOTO(out, rc);
 
-	group = data->ocd_group;
+	if (data)
+		group = data->ocd_group;
+	else
+		group = 0;
+
 	if (obd->obd_replayable) {
 		struct tg_export_data *ted = &exp->exp_target_data;
 

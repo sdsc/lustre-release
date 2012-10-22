@@ -430,6 +430,7 @@ static void interval_erase_color(struct interval_node *node,
         ENTRY;
 
         while (node_is_black_or_0(node) && node != *root) {
+		LASSERT(parent != NULL);
                 if (parent->in_left == node) {
                         tmp = parent->in_right;
                         if (node_is_red(tmp)) {
