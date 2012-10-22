@@ -90,13 +90,18 @@ struct ec_export_data { /* echo client */
 struct filter_export_data {
 	struct tg_export_data	fed_ted;
 	spinlock_t		fed_lock;	/**< protects fed_mod_list */
-        long                       fed_dirty;    /* in bytes */
-        long                       fed_grant;    /* in bytes */
-        cfs_list_t                 fed_mod_list; /* files being modified */
-        int                        fed_mod_count;/* items in fed_writing list */
-        long                       fed_pending;  /* bytes just being written */
-        __u32                      fed_group;
-	__u8                       fed_pagesize; /* log2 of client page size */
+        long			fed_dirty;    /* in bytes */
+        long			fed_grant;    /* in bytes */
+        cfs_list_t		fed_mod_list; /* files being modified */
+        int			fed_mod_count;/* items in fed_writing list */
+        long			fed_pending;  /* bytes just being written */
+        __u32			fed_group;
+	__u8			fed_pagesize; /* log2 of client page size */
+	/* count of SOFT_SYNC RPCs, which will be reset after
+	 * ofd_soft_sync_limit number of RPCs, and the first SOFT_SYNC RPC will
+	 * trigger a sync. */
+	__u8			fed_soft_sync_count;
+							
 };
 
 struct mgs_export_data {

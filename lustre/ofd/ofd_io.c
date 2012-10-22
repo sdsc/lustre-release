@@ -107,7 +107,9 @@ static int ofd_preprw_write(const struct lu_env *env, struct obd_export *exp,
 			    struct niobuf_local *lnb, char *jobid)
 {
 	struct ofd_object	*fo;
-	int			 i, j, k, rc = 0, tot_bytes = 0;
+	int			 i, j, k, rc = 0, tot_bytes = 0, soft_sync = 0;
+	__u32			 flags;
+	struct filter_export_data *fed = &exp->exp_filter_data;
 
 	ENTRY;
 	LASSERT(env != NULL);
@@ -163,9 +165,33 @@ static int ofd_preprw_write(const struct lu_env *env, struct obd_export *exp,
 		LASSERT(rc <= PTLRPC_MAX_BRW_PAGES);
 		/* correct index for local buffers to continue with */
 		for (k = 0; k < rc; k++) {
-			lnb[j+k].lnb_flags = rnb[i].rnb_flags;
+			/* clear OBD_BRW_SOFT_SYNC from rnb_flags if we don't
+			 * want to do a soft sync in ofd_commitrw_write(). */
+			flags = rnb[i].rnb_flags;
+			if (flags & OBD_BRW_SOFT_SYNC) {
+				if (!soft_sync) {
+					/* reset fed_soft_sync_count when it
+					 * reaches limit, and soft sync only
+					 * for the first SOFT_SYNC RPC */
+					spin_lock(&fed->fed_lock);
+					fed->fed_soft_sync_count++;
+					if (fed->fed_soft_sync_count ==
+					    ofd->ofd_soft_sync_limit)
+						fed->fed_soft_sync_count = 0;
+					else if (fed->fed_soft_sync_count != 1)
+						flags &= ~OBD_BRW_SOFT_SYNC;
+					spin_unlock(&fed->fed_lock);
+
+					soft_sync = true;
+				} else {
+					flags &= ~OBD_BRW_SOFT_SYNC;
+				}
+			}
+
+			lnb[j+k].lnb_flags = flags;
 			if (!(rnb[i].rnb_flags & OBD_BRW_GRANTED))
 				lnb[j+k].lnb_rc = -ENOSPC;
+
 			/* remote client can't break through quota */
 			if (exp_connect_rmtclient(exp))
 				lnb[j+k].lnb_flags &= ~OBD_BRW_NOQUOTA;
@@ -176,6 +202,13 @@ static int ofd_preprw_write(const struct lu_env *env, struct obd_export *exp,
 		tot_bytes += rnb[i].rnb_len;
 	}
 	LASSERT(*nr_local > 0 && *nr_local <= PTLRPC_MAX_BRW_PAGES);
+
+	/* reset fed_soft_sync_count upon non-SOFT_SYNC RPC */
+	if (!soft_sync && fed->fed_soft_sync_count != 0) {
+		spin_lock(&fed->fed_lock);
+		fed->fed_soft_sync_count = 0;
+		spin_unlock(&fed->fed_lock);
+	}
 
 	rc = dt_write_prep(env, ofd_object_child(fo), lnb, *nr_local);
 	if (unlikely(rc != 0))
@@ -408,6 +441,7 @@ ofd_commitrw_write(const struct lu_env *env, struct ofd_device *ofd,
 	int			 rc = 0;
 	int			 retries = 0;
 	int			 i;
+	bool			 soft_sync = false;
 
 	ENTRY;
 
@@ -447,6 +481,8 @@ retry:
 				th->th_sync = 1;
 				break;
 			}
+			if (lnb[i].lnb_flags & OBD_BRW_SOFT_SYNC)
+				soft_sync = true;
 		}
 	}
 
@@ -493,6 +529,9 @@ out_stop:
 		       retries);
 		goto retry;
 	}
+
+	if (!th->th_sync && soft_sync)
+		dt_commit_async(env, ofd->ofd_osd);
 
 out:
 	dt_bufs_put(env, o, lnb, niocount);
