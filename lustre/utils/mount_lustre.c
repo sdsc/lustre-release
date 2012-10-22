@@ -500,6 +500,10 @@ int main(int argc, char *const argv[])
 
 	set_defaults(&mop);
 
+	/* LU-2212: need to load crc32c module before mount */
+	(void)system("/sbin/modprobe crc32c 2>&1 /dev/null");
+	(void)system("/sbin/modprobe libcrc32c 2>&1 /dev/null");
+
 	rc = osd_init();
 	if (rc)
 		return rc;
