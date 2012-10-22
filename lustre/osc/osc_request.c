@@ -1214,7 +1214,10 @@ void osc_commit_cb(struct ptlrpc_request *req)
 
 	for (i = 0; i < desc->bd_iov_count; i++) {
 		LASSERT(cfs_atomic_read(&cli->cl_unstable->ccu_count) > 0);
+		LASSERT(cfs_atomic_read(&cli->cl_unstable_count)      > 0);
+
 		cfs_atomic_dec(&cli->cl_unstable->ccu_count);
+		cfs_atomic_dec(&cli->cl_unstable_count);
 		dec_zone_page_state(desc->bd_iov[i].kiov_page, NR_UNSTABLE_NFS);
 	}
 
@@ -1336,6 +1339,7 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
 		if (cli->cl_unstable != NULL) {
 			inc_zone_page_state(pg->pg, NR_UNSTABLE_NFS);
 			cfs_atomic_inc(&cli->cl_unstable->ccu_count);
+			cfs_atomic_inc(&cli->cl_unstable_count);
 		}
 
 		ptlrpc_prep_bulk_page_pin(desc, pg->pg, poff, pg->count);
