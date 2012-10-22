@@ -707,6 +707,7 @@ static int osp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 		ocd->ocd_connect_flags |= OBD_CONNECT_LIGHTWEIGHT;
 
 	ocd->ocd_version = LUSTRE_VERSION_CODE;
+	LASSERT(data != NULL);
 	LASSERT(data->ocd_connect_flags & OBD_CONNECT_INDEX);
 	ocd->ocd_index = data->ocd_index;
 	imp->imp_connect_flags_orig = ocd->ocd_connect_flags;

@@ -212,32 +212,33 @@ void mdc_open_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
         rec->cr_fsuid   = cfs_curproc_fsuid();
         rec->cr_fsgid   = cfs_curproc_fsgid();
         rec->cr_cap      = cfs_curproc_cap_pack();
+	rec->cr_mode     = mode;
+	cr_flags = mds_pack_open_flags(flags, mode);
+	rec->cr_rdev     = rdev;
         if (op_data != NULL) {
                 rec->cr_fid1 = op_data->op_fid1;
                 rec->cr_fid2 = op_data->op_fid2;
-        }
-        rec->cr_mode     = mode;
-        cr_flags = mds_pack_open_flags(flags, mode);
-        rec->cr_rdev     = rdev;
-        rec->cr_time     = op_data->op_mod_time;
-        rec->cr_suppgid1 = op_data->op_suppgids[0];
-        rec->cr_suppgid2 = op_data->op_suppgids[1];
-        rec->cr_bias     = op_data->op_bias;
+		rec->cr_time     = op_data->op_mod_time;
+		rec->cr_suppgid1 = op_data->op_suppgids[0];
+		rec->cr_suppgid2 = op_data->op_suppgids[1];
+		rec->cr_bias     = op_data->op_bias;
 
-        mdc_pack_capa(req, &RMF_CAPA1, op_data->op_capa1);
-        /* the next buffer is child capa, which is used for replay,
-         * will be packed from the data in reply message. */
+		mdc_pack_capa(req, &RMF_CAPA1, op_data->op_capa1);
+		/* the next buffer is child capa, which is used for replay,
+		 * will be packed from the data in reply message. */
 
-        if (op_data->op_name) {
-                tmp = req_capsule_client_get(&req->rq_pill, &RMF_NAME);
-                LOGL0(op_data->op_name, op_data->op_namelen, tmp);
+		if (op_data->op_name) {
+			tmp = req_capsule_client_get(&req->rq_pill, &RMF_NAME);
+			LOGL0(op_data->op_name, op_data->op_namelen, tmp);
+		}
         }
 
         if (lmm) {
                 cr_flags |= MDS_OPEN_HAS_EA;
 #ifndef __KERNEL__
                 /*XXX a hack for liblustre to set EA (LL_IOC_LOV_SETSTRIPE) */
-                rec->cr_fid2 = op_data->op_fid2;
+		if (op_data != NULL)
+			rec->cr_fid2 = op_data->op_fid2;
 #endif
                 tmp = req_capsule_client_get(&req->rq_pill, &RMF_EADATA);
                 memcpy (tmp, lmm, lmmlen);

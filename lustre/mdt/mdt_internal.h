@@ -430,6 +430,7 @@ static inline struct md_object *mdt_object_child(struct mdt_object *o)
 
 static inline struct ptlrpc_request *mdt_info_req(struct mdt_thread_info *info)
 {
+	LASSERT(info != NULL);
          return info->mti_pill ? info->mti_pill->rc_req : NULL;
 }
 

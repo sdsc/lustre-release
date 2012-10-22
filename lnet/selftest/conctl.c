@@ -699,7 +699,8 @@ lst_stat_query_ioctl(lstio_stat_args_t *args)
         if (name == NULL)
                 return -ENOMEM;
 
-        if (cfs_copy_from_user(name, args->lstio_sta_namep,
+	if (args->lstio_sta_namep == NULL ||
+	    cfs_copy_from_user(name, args->lstio_sta_namep,
                                args->lstio_sta_nmlen)) {
                 LIBCFS_FREE(name, args->lstio_sta_nmlen + 1);
                 return -EFAULT;
