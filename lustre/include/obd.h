@@ -515,6 +515,7 @@ struct client_obd {
 
 	/* Back pointer to ll_unstable in ll_sb_info */
 	struct cl_client_unstable *cl_unstable;
+	cfs_atomic_t		   cl_unstable_count;
 
         /* number of in flight destroy rpcs is limited to max_rpcs_in_flight */
         cfs_atomic_t             cl_destroy_in_flight;
