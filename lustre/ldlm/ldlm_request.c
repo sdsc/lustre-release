@@ -834,10 +834,10 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
                                         MDS_INODELOCK_UPDATE;
                         else
                                 lock->l_policy_data = *policy;
-                }
 
-                if (einfo->ei_type == LDLM_EXTENT)
-                        lock->l_req_extent = policy->l_extent;
+			if (einfo->ei_type == LDLM_EXTENT)
+				lock->l_req_extent = policy->l_extent;
+		}
                 LDLM_DEBUG(lock, "client-side enqueue START");
         }
 

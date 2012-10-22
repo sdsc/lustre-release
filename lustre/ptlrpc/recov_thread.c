@@ -376,9 +376,8 @@ static int llcd_push(struct llog_ctxt *ctxt)
          */
         llcd = llcd_detach(ctxt);
         if (!llcd) {
-                CERROR("Invalid detached llcd found %p\n", llcd);
-                llcd_print(llcd, __FUNCTION__, __LINE__);
-                LBUG();
+		CERROR("Invalid detached llcd found\n");
+		LBUG();
         }
 
         rc = llcd_send(llcd);

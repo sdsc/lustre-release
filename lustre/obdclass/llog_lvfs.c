@@ -670,7 +670,7 @@ static int llog_lvfs_open(const struct lu_env *env,  struct llog_handle *handle,
 	RETURN(0);
 out_name:
 	if (handle->lgh_name != NULL)
-		OBD_FREE(handle->lgh_name, strlen(name) + 1);
+		OBD_FREE(handle->lgh_name, strlen(handle->lgh_name) + 1);
 out:
 	RETURN(rc);
 }

@@ -814,7 +814,7 @@ out_put:
 	lu_object_put(env, &o->do_lu);
 out_name:
 	if (handle->lgh_name != NULL)
-		OBD_FREE(handle->lgh_name, strlen(name) + 1);
+		OBD_FREE(handle->lgh_name, strlen(handle->lgh_name) + 1);
 out:
 	dt_los_put(los);
 	RETURN(rc);

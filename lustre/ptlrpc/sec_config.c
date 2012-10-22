@@ -755,7 +755,8 @@ void sptlrpc_conf_log_update_begin(const char *logname)
                 LASSERT(conf->sc_updated == 0);
                 sptlrpc_conf_free_rsets(conf);
         }
-        conf->sc_modified = 0;
+	if (conf)
+		conf->sc_modified = 0;
 
         cfs_mutex_unlock(&sptlrpc_conf_lock);
 }
