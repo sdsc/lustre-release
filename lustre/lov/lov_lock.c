@@ -593,22 +593,21 @@ static int lov_lock_enqueue(const struct lu_env *env,
                             const struct cl_lock_slice *slice,
                             struct cl_io *io, __u32 enqflags)
 {
-        struct cl_lock         *lock    = slice->cls_lock;
-        struct lov_lock        *lck     = cl2lov_lock(slice);
-        struct cl_lock_closure *closure = lov_closure_get(env, lock);
-        int i;
-        int result;
-        enum cl_lock_state minstate;
+	struct cl_lock         *lock    = slice->cls_lock;
+	struct lov_lock        *lck     = cl2lov_lock(slice);
+	struct cl_lock_closure *closure = lov_closure_get(env, lock);
+	int i;
+	int result;
+	enum cl_lock_state minstate;
+	int rc;
+	struct lovsub_lock     *sub;
+	struct lov_lock_sub    *lls;
+	struct cl_lock         *sublock;
+	struct lov_sublock_env *subenv;
 
-        ENTRY;
+	ENTRY;
 
         for (result = 0, minstate = CLS_FREEING, i = 0; i < lck->lls_nr; ++i) {
-                int rc;
-                struct lovsub_lock     *sub;
-                struct lov_lock_sub    *lls;
-                struct cl_lock         *sublock;
-                struct lov_sublock_env *subenv;
-
                 if (lock->cll_state != CLS_QUEUING) {
                         /*
                          * Lock might have left QUEUING state if previous
@@ -668,6 +667,35 @@ static int lov_lock_enqueue(const struct lu_env *env,
                 if (result != 0)
                         break;
         }
+        cl_lock_closure_fini(closure);
+	if (result || minstate >= CLS_HELD)
+		RETURN(result);
+
+	if (lck->lls_nr == 1)
+        	RETURN(minstate >= CLS_ENQUEUED ? 0 : CLO_WAIT);
+
+	/*
+	 * if there are locks held while waiting some other locks to be
+	 * acquired, drop the r/w references and wait for the next loop.
+ 	 */
+        for (result = 0, i = 0; i < lck->lls_nr; ++i) {
+                lls = &lck->lls_sub[i];
+                sub = lls->sub_lock;
+		if (sub == NULL)
+			continue;
+
+                sublock = sub->lss_cl.cls_lock;
+                rc = lov_sublock_lock(env, lck, lls, closure, &subenv);
+                if (rc == 0) {
+                        if (sublock->cll_state == CLS_HELD) {
+                                cl_unuse_try(subenv->lse_env, sublock);
+                                lov_sublock_release(env, lck, i, 0, rc);
+			}
+
+                        lov_sublock_unlock(env, sub, closure, subenv);
+                }
+        }
+		
         cl_lock_closure_fini(closure);
         RETURN(result ?: minstate >= CLS_ENQUEUED ? 0 : CLO_WAIT);
 }
