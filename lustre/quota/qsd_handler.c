@@ -134,7 +134,7 @@ static void qsd_dqacq_completion(const struct lu_env *env,
 				 struct quota_body *reqbody,
 				 struct quota_body *repbody,
 				 struct lustre_handle *lockh,
-				 union ldlm_wire_lvb *lvb,
+				 struct lquota_lvb *lvb,
 				 void *arg, int ret)
 {
 	struct lquota_entry	*lqe = (struct lquota_entry *)arg;
@@ -217,9 +217,9 @@ static void qsd_dqacq_completion(const struct lu_env *env,
 
 	/* extract information from lvb */
 	if (ret == 0 && lvb != 0) {
-		if (lvb->l_lquota.lvb_id_qunit != 0)
-			qsd_set_qunit(lqe, lvb->l_lquota.lvb_id_qunit);
-		if (lvb->l_lquota.lvb_flags & LQUOTA_FL_EDQUOT)
+		if (lvb->lvb_id_qunit != 0)
+			qsd_set_qunit(lqe, lvb->lvb_id_qunit);
+		if (lvb->lvb_flags & LQUOTA_FL_EDQUOT)
 			lqe->lqe_edquot = true;
 		else
 			lqe->lqe_edquot = false;
@@ -561,7 +561,7 @@ int qsd_dqacq(const struct lu_env *env, struct lquota_entry *lqe,
 				    qsd_dqacq_completion, qqi, &qti->qti_lockh,
 				    lqe);
         } else {
-		union ldlm_wire_lvb *lvb;
+		struct lquota_lvb *lvb;
 
 		OBD_ALLOC_PTR(lvb);
 		if (lvb == NULL)
