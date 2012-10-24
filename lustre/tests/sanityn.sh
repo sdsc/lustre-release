@@ -553,12 +553,12 @@ run_test 26b "sync mtime between ost and mds"
 test_27() {
 	cancel_lru_locks osc
 	lctl clear
-	dd if=/dev/zero of=$DIR2/$tfile bs=$((4096+4))k conv=notrunc count=4 seek=3 &
+	fast_dd if=/dev/zero of=$DIR2/$tfile bs=$((4096+4))k conv=notrunc count=4 seek=3 &
 	DD2_PID=$!
 	usleep 50
 	log "dd 1 started"
 	
-	dd if=/dev/zero of=$DIR1/$tfile bs=$((16384-1024))k conv=notrunc count=1 seek=4 &
+	fast_dd if=/dev/zero of=$DIR1/$tfile bs=$((16384-1024))k conv=notrunc count=1 seek=4 &
 	DD1_PID=$!
 	log "dd 2 started"
 	
@@ -577,7 +577,7 @@ test_28() { # bug 9977
 
 	$LFS setstripe $DIR1/$tfile -S 1048576 -i 0 -c 2
 	tOBJID=`$LFS getstripe $DIR1/$tfile | awk '$1 == 1 {print $2}'`
-	dd if=/dev/zero of=$DIR1/$tfile bs=1024k count=2
+	fast_dd if=/dev/zero of=$DIR1/$tfile bs=1024k count=2
 
 	$LCTL <<-EOF
 		newdev
@@ -600,11 +600,11 @@ test_28() { # bug 9977
 	dd if=$DIR2/$tfile of=/dev/null bs=1024k count=1 skip=1 && error
 
 	# now, recreating test file
-	dd if=/dev/zero of=$DIR1/$tfile bs=1024k count=2 || error
+	fast_dd if=/dev/zero of=$DIR1/$tfile bs=1024k count=2 || error
 	# reading of 1st stripe should pass
-	dd if=$DIR2/$tfile of=/dev/null bs=1024k count=1 || error
+	fast_dd if=$DIR2/$tfile of=/dev/null bs=1024k count=1 || error
 	# reading of 2nd stripe should pass
-	dd if=$DIR2/$tfile of=/dev/null bs=1024k count=1 skip=1 || error
+	fast_dd if=$DIR2/$tfile of=/dev/null bs=1024k count=1 skip=1 || error
 }
 run_test 28 "read/write/truncate file with lost stripes"
 
@@ -948,7 +948,7 @@ test_36() { #bug 16417
 		lctl mark "start test"
 		local before=$($LFS df | awk '{ if ($1 ~/^filesystem/) \
 					      { print $5; exit} }')
-		dd if=/dev/zero of=$DIR1/$tdir/$tfile bs=1M count=$SIZE ||
+		fast_dd if=/dev/zero of=$DIR1/$tdir/$tfile bs=1M count=$SIZE ||
 			error "dd $DIR1/$tdir/$tfile ${SIZE}MB failed"
 		sync          # sync data from client cache
 		sync_all_data # sync data from server cache (delayed allocation)

@@ -1060,7 +1060,7 @@ test_27m() {
 	fi
 	mkdir -p $DIR/d27
 	$SETSTRIPE -i 0 -c 1 $DIR/d27/f27m_1
-	dd if=/dev/zero of=$DIR/d27/f27m_1 bs=1024 count=$MAXFREE &&
+	fast_dd if=/dev/zero of=$DIR/d27/f27m_1 bs=1024 count=$MAXFREE &&
 		error "dd should fill OST0"
 	i=2
 	while $SETSTRIPE -i 0 -c 1 $DIR/d27/f27m_$i; do
@@ -1098,7 +1098,7 @@ reset_enospc() {
 	sleep_maxage
 }
 
-exhaust_precreations() {
+__exhaust_precreations() {
 	local OSTIDX=$1
 	local FAILLOC=$2
 	local FAILIDX=${3:-$OSTIDX}
@@ -1130,14 +1130,19 @@ exhaust_precreations() {
 	createmany -o $DIR/$tdir/${OST}/f $next_id $((last_id - next_id + 2))
 	do_facet mds${MDSIDX} lctl get_param osc.$mdtosc_proc2.prealloc*
 	do_facet ost$((OSTIDX + 1)) lctl set_param fail_loc=$FAILLOC
+}
+
+exhaust_precreations() {
+	__exhaust_precreations $1 $2 $3
 	sleep_maxage
 }
 
 exhaust_all_precreations() {
 	local i
 	for (( i=0; i < OSTCOUNT; i++ )) ; do
-		exhaust_precreations $i $1 -1
+		__exhaust_precreations $i $1 -1
 	done
+	sleep_maxage
 }
 
 test_27n() {
@@ -1484,11 +1489,11 @@ test_27z() {
         # We need to send a write to every object to get parent FID info set.
         # This _should_ also work for setattr, but does not currently.
         # touch $DIR/$tdir/$tfile-1 ||
-        dd if=/dev/zero of=$DIR/$tdir/$tfile-1 bs=1M count=1 ||
+        fast_dd if=/dev/zero of=$DIR/$tdir/$tfile-1 bs=1M count=1 ||
                 { error "dd $tfile-1 failed"; return 2; }
         $SETSTRIPE -c -1 -i $((OSTCOUNT - 1)) -S 1M $DIR/$tdir/$tfile-2 ||
                 { error "setstripe -c -1 failed"; return 3; }
-        dd if=/dev/zero of=$DIR/$tdir/$tfile-2 bs=1M count=$OSTCOUNT ||
+        fast_dd if=/dev/zero of=$DIR/$tdir/$tfile-2 bs=1M count=$OSTCOUNT ||
                 { error "dd $tfile-2 failed"; return 4; }
 
         # make sure write RPCs have been sent to OSTs
@@ -2126,7 +2131,7 @@ test_34h() {
 	local gid=10
 	local sz=1000
 
-	dd if=/dev/zero of=$DIR/$tfile bs=1M count=10 || error
+	fast_dd if=/dev/zero of=$DIR/$tfile bs=1M count=10 || error
 	$MULTIOP $DIR/$tfile OG${gid}T${sz}g${gid}c &
 	MULTIPID=$!
 	sleep 2
@@ -2707,7 +2712,7 @@ test_42a() {
 	sync; sleep 1; sync # just to be safe
 	BEFOREWRITES=`count_ost_writes`
         lctl get_param -n osc.*[oO][sS][cC][_-]*.cur_grant_bytes | grep "[0-9]"
-        dd if=/dev/zero of=$DIR/f42a bs=1024 count=100
+        fast_dd if=/dev/zero of=$DIR/f42a bs=1024 count=100
 	AFTERWRITES=`count_ost_writes`
 	[ $BEFOREWRITES -eq $AFTERWRITES ] || \
 		error "$BEFOREWRITES < $AFTERWRITES"
@@ -2720,7 +2725,7 @@ test_42b() {
 	cancel_lru_locks osc
 	stop_writeback
         sync
-        dd if=/dev/zero of=$DIR/f42b bs=1024 count=100
+        fast_dd if=/dev/zero of=$DIR/f42b bs=1024 count=100
         BEFOREWRITES=`count_ost_writes`
         $MUNLINK $DIR/f42b || error "$MUNLINK $DIR/f42b: $?"
         AFTERWRITES=`count_ost_writes`
@@ -2763,7 +2768,7 @@ trunc_test() {
         $TRUNCATE $file 0
         sync; sync
 	# now the real test..
-        dd if=/dev/zero of=$file bs=1024 count=100
+        fast_dd if=/dev/zero of=$file bs=1024 count=100
         BEFOREWRITES=`count_ost_writes`
         $TRUNCATE $file $offset
         cancel_lru_locks osc
@@ -2812,7 +2817,7 @@ test_42e() { # bug22074
 	for ((i=0; i<$warmup_files; i++)); do
 		idx=$($GETSTRIPE -i $TDIR/w$i)
 		[ $idx -ne 0 ] && continue
-		dd if=/dev/zero of=$TDIR/w$i bs="$max_dirty_mb"M count=1
+		fast_dd if=/dev/zero of=$TDIR/w$i bs="$max_dirty_mb"M count=1
 		break
 	done
 	[ $i -gt $warmup_files ] && error "OST0 is still cold"
@@ -2826,7 +2831,7 @@ test_42e() { # bug22074
 	for ((i=0; i<$warmup_files; i++)); do
 		idx=$($GETSTRIPE -i $TDIR/w$i)
 		[ $idx -ne 0 ] && continue
-		dd if=/dev/zero of=$TDIR/w$i bs=1M count=1 2>/dev/null
+		fast_dd if=/dev/zero of=$TDIR/w$i bs=1M count=1 2>/dev/null
 	done
 	$LCTL get_param $proc_osc0/cur_dirty_bytes
 	$LCTL get_param $proc_osc0/cur_grant_bytes
@@ -2835,7 +2840,7 @@ test_42e() { # bug22074
 	$LCTL set_param $proc_osc0/rpc_stats 0
 	for ((;i<$files; i++)); do
 		[ $($GETSTRIPE -i $TDIR/f$i) -eq 0 ] || continue
-		dd if=/dev/zero of=$TDIR/f$i bs=$pagesz count=$pages 2>/dev/null
+		fast_dd if=/dev/zero of=$TDIR/f$i bs=$pagesz count=$pages 2>/dev/null
 	done
 	sync
 	$LCTL get_param $proc_osc0/rpc_stats
@@ -3121,7 +3126,7 @@ test_49() { # LU-1030
 	[ $ost1_size -gt 819200 ] && ost1_size=819200
 
 	lfs setstripe -c 1 -i 0 $DIR/$tfile
-	dd if=/dev/zero of=$DIR/$tfile bs=4k count=$((ost1_size >> 2)) &
+	fast_dd if=/dev/zero of=$DIR/$tfile bs=4k count=$((ost1_size >> 2)) &
 	local dd_pid=$!
 
 	# change max_pages_per_rpc while writing the file
@@ -4441,7 +4446,7 @@ test_68a() {
 	fi
 
 	LLOOP=$TMP/lloop.`date +%s`.`date +%N`
-	dd if=/dev/zero of=$DIR/f68a bs=4k count=1024
+	fast_dd if=/dev/zero of=$DIR/f68a bs=4k count=1024
 	$LCTL blockdev_attach $DIR/f68a $LLOOP || error "attach failed"
 
 	directio rdwr $LLOOP 0 1024 4096 || error "direct write failed"
@@ -4469,7 +4474,7 @@ test_68b() {  # was test_68
 	[[ $NR_BLOCKS -le 2048 ]] && NR_BLOCKS=2048
 
 	LLOOP=$TMP/lloop.`date +%s`.`date +%N`
-	dd if=/dev/zero of=$DIR/f68b bs=64k seek=$NR_BLOCKS count=1
+	fast_dd if=/dev/zero of=$DIR/f68b bs=64k seek=$NR_BLOCKS count=1
 	mkswap $DIR/f68b
 
 	$LCTL blockdev_attach $DIR/f68b $LLOOP || error "attach failed"
@@ -4714,7 +4719,7 @@ set_checksum_type()
 F77_TMP=$TMP/f77-temp
 F77SZ=8
 setup_f77() {
-	dd if=/dev/urandom of=$F77_TMP bs=1M count=$F77SZ || \
+	fast_dd if=/dev/urandom of=$F77_TMP bs=1M count=$F77SZ || \
 		error "error writing to $F77_TMP"
 }
 
@@ -4722,7 +4727,7 @@ test_77a() { # bug 10889
 	$GSS && skip "could not run with gss" && return
 	[ ! -f $F77_TMP ] && setup_f77
 	set_checksums 1
-	dd if=$F77_TMP of=$DIR/$tfile bs=1M count=$F77SZ || error "dd error"
+	fast_dd if=$F77_TMP of=$DIR/$tfile bs=1M count=$F77SZ || error "dd error"
 	set_checksums 0
 	rm -f $DIR/$tfile
 }
@@ -4734,7 +4739,7 @@ test_77b() { # bug 10889
 	#define OBD_FAIL_OSC_CHECKSUM_SEND       0x409
 	lctl set_param fail_loc=0x80000409
 	set_checksums 1
-	dd if=$F77_TMP of=$DIR/f77b bs=1M count=$F77SZ conv=sync || \
+	fast_dd if=$F77_TMP of=$DIR/f77b bs=1M count=$F77SZ conv=sync || \
 		error "dd error: $?"
 	lctl set_param fail_loc=0
 	set_checksums 0
@@ -4812,7 +4817,7 @@ test_77g() { # bug 10889
 	#define OBD_FAIL_OST_CHECKSUM_RECEIVE       0x21a
 	do_facet ost1 lctl set_param fail_loc=0x8000021a
 	set_checksums 1
-	dd if=$F77_TMP of=$DIR/f77g bs=1M count=$F77SZ || \
+	fast_dd if=$F77_TMP of=$DIR/f77g bs=1M count=$F77SZ || \
 		error "write error: rc=$?"
 	do_facet ost1 lctl set_param fail_loc=0
 	set_checksums 0
@@ -4952,7 +4957,7 @@ test_80() { # bug 10718
                 do_nodes $hosts lctl set_param $soc=never
         fi
 
-        dd if=/dev/zero of=$DIR/$tfile bs=1M count=1 seek=1M
+        fast_dd if=/dev/zero of=$DIR/$tfile bs=1M count=1 seek=1M
         sync; sleep 1; sync
         local BEFORE=`date +%s`
         cancel_lru_locks osc
@@ -5003,7 +5008,7 @@ test_81b() { # LU-456
 run_test 81b "OST should return -ENOSPC when retry still fails ======="
 
 test_82() { # LU-1031
-	dd if=/dev/zero of=$DIR/$tfile bs=1M count=10
+	fast_dd if=/dev/zero of=$DIR/$tfile bs=1M count=10
 	local gid1=14091995
 	local gid2=16022000
 
@@ -5183,7 +5188,7 @@ setup_test101bc() {
 	# prepare the read-ahead file
 	$SETSTRIPE -S $STRIPE_SIZE -i $STRIPE_OFFSET -c $OSTCOUNT $DIR/$tfile
 
-	dd if=/dev/zero of=$DIR/$tfile bs=1024k count=100 2> /dev/null
+	fast_dd if=/dev/zero of=$DIR/$tfile bs=1024k count=100 2> /dev/null
 }
 
 cleanup_test101bc() {
@@ -5301,7 +5306,7 @@ test_101d() {
         { skip "Need free space ${size}M, have $space" && return; }
 
     echo Creating ${size}M test file $file
-    dd if=/dev/zero of=$file bs=1M count=$size || error "dd failed"
+    fast_dd if=/dev/zero of=$file bs=1M count=$size || error "dd failed"
     echo Cancel LRU locks on lustre client to flush the client cache
     cancel_lru_locks osc
 
@@ -5345,7 +5350,7 @@ test_101e() {
 
     echo Creating $count ${size}K test files
     for ((i = 0; i < $count; i++)); do
-        dd if=/dev/zero of=${file}_${i} bs=$blksize count=$size 2>/dev/null
+        fast_dd if=/dev/zero of=${file}_${i} bs=$blksize count=$size 2>/dev/null
     done
 
     echo Cancel LRU locks on lustre client to flush the client cache
@@ -5382,7 +5387,7 @@ test_101f() {
 
     MAX_WHOLE_MB=$($LCTL get_param -n llite.*.max_read_ahead_whole_mb)
     $LCTL set_param -n llite.*.max_read_ahead_whole_mb 2
-    dd if=/dev/zero of=${file} bs=2097152 count=1 2>/dev/null
+    fast_dd if=/dev/zero of=${file} bs=2097152 count=1 2>/dev/null
     trap cleanup_test101f EXIT
 
     echo Cancel LRU locks on lustre client to flush the client cache
@@ -5982,7 +5987,7 @@ test_116a() { # was previously test_116()
 	i=0
 	while [ $FILL -gt 0 ]; do
 	    i=$(($i + 1))
-	    dd if=/dev/zero of=$DIR/$tdir/OST${MINI}/$tfile-$i bs=2M count=1 2>/dev/null
+	    fast_dd if=/dev/zero of=$DIR/$tdir/OST${MINI}/$tfile-$i bs=2M count=1 2>/dev/null
 	    FILL=$(($FILL - 2048))
 	    echo -n .
 	done
@@ -6011,7 +6016,7 @@ test_116a() { # was previously test_116()
 	i=0
 	while [ $FILL -gt 0 ]; do
 	    i=$(($i + 1))
-	    dd if=/dev/zero of=$DIR/$tdir/$tfile-$i bs=1024 count=200 2>/dev/null
+	    fast_dd if=/dev/zero of=$DIR/$tdir/$tfile-$i bs=1024 count=200 2>/dev/null
 	    FILL=$(($FILL - 200))
 	    echo -n .
 	done
@@ -6064,7 +6069,7 @@ run_test 116b "QoS shouldn't LBUG if not enough OSTs found on the 2nd pass"
 
 test_117() # bug 10891
 {
-        dd if=/dev/zero of=$DIR/$tfile bs=1M count=1
+        fast_dd if=/dev/zero of=$DIR/$tfile bs=1M count=1
         #define OBD_FAIL_OST_SETATTR_CREDITS 0x21e
         lctl set_param fail_loc=0x21e
         > $DIR/$tfile || error "truncate failed"
@@ -6421,7 +6426,7 @@ test_118k()
 	mkdir -p $DIR/$tdir
 
 	for ((i=0;i<10;i++)); do
-		(dd if=/dev/zero of=$DIR/$tdir/$tfile-$i bs=1M count=10 || \
+		(fast_dd if=/dev/zero of=$DIR/$tdir/$tfile-$i bs=1M count=10 || \
 			error "dd to $DIR/$tdir/$tfile-$i failed" )&
 		SLEEPPID=$!
 		sleep 0.500s
@@ -6466,7 +6471,7 @@ test_119b() # bug 11737
         [ "$OSTCOUNT" -lt "2" ] && skip_env "skipping 2-stripe test" && return
 
         $SETSTRIPE -c 2 $DIR/$tfile || error "setstripe failed"
-        dd if=/dev/zero of=$DIR/$tfile bs=1M count=1 seek=1 || error "dd failed"
+        fast_dd if=/dev/zero of=$DIR/$tfile bs=1M count=1 seek=1 || error "dd failed"
         sync
         $MULTIOP $DIR/$tfile oO_RDONLY:O_DIRECT:r$((2048 * 1024)) || \
                 error "direct read failed"
@@ -7199,7 +7204,7 @@ test_130b() {
 	[ "$(facet_fstype ost$(($($GETSTRIPE -i $fm_file) + 1)))" = "zfs" ] &&
 		skip "ORI-366/LU-1941: FIEMAP unimplemented on ZFS" && return
 
-	dd if=/dev/zero of=$fm_file bs=1M count=2 ||
+	fast_dd if=/dev/zero of=$fm_file bs=1M count=2 ||
 		error "dd failed on $fm_file"
 
 	filefrag -ves $fm_file || error "filefrag $fm_file failed"
@@ -7255,7 +7260,7 @@ test_130c() {
 	[ "$(facet_fstype ost$(($($GETSTRIPE -i $fm_file) + 1)))" = "zfs" ] &&
 		skip "ORI-366/LU-1941: FIEMAP unimplemented on ZFS" && return
 
-	dd if=/dev/zero of=$fm_file seek=1 bs=1M count=1 || error "dd failed on $fm_file"
+	fast_dd if=/dev/zero of=$fm_file seek=1 bs=1M count=1 || error "dd failed on $fm_file"
 
 	filefrag -ves $fm_file || error "filefrag $fm_file failed"
 	filefrag_op=`filefrag -ve $fm_file | grep -A 100 "ext:" | grep -v "ext:" | grep -v "found"`
@@ -7312,7 +7317,7 @@ test_130d() {
 	$SETSTRIPE -S 65536 -c $OSTCOUNT $fm_file||error "setstripe on $fm_file"
 	[ "$(facet_fstype ost$(($($GETSTRIPE -i $fm_file) + 1)))" = "zfs" ] &&
 		skip "ORI-366/LU-1941: FIEMAP unimplemented on ZFS" && return
-	dd if=/dev/zero of=$fm_file bs=1M count=$OSTCOUNT || error "dd failed on $fm_file"
+	fast_dd if=/dev/zero of=$fm_file bs=1M count=$OSTCOUNT || error "dd failed on $fm_file"
 
 	filefrag -ves $fm_file || error "filefrag $fm_file failed"
 	filefrag_op=`filefrag -ve $fm_file | grep -A 100 "ext:" | grep -v "ext:" | grep -v "found"`
@@ -8084,7 +8089,7 @@ test_155_big_load() {
 
     $SETSTRIPE $file -c 1 -i $MAXI || error "$SETSTRIPE $file failed"
 
-    dd if=/dev/urandom of=$temp bs=$large_file_size count=1k || \
+    fast_dd if=/dev/urandom of=$temp bs=$large_file_size count=1k || \
         error "dd of=$temp bs=$large_file_size count=1k failed"
     cp $temp $file
     ls -lh $temp $file
