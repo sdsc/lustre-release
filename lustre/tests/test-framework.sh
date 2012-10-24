@@ -5830,3 +5830,22 @@ generate_logname() {
 
 	echo "$TESTLOG_PREFIX.$TESTNAME.$logname.$(hostname -s).log"
 }
+
+fast_dd() {
+	local i
+	local rc
+
+	for i in `seq $OSTCOUNT`; do
+#define OBD_FAIL_OST_SKIP_BIO		 0x232
+		do_facet ost$i lctl set_param fail_loc=0x232 >/dev/null
+	done
+
+	dd $1 $2 $3 $4 $5
+	rc=$?
+
+	for i in `seq $OSTCOUNT`; do
+		do_facet ost$i lctl set_param fail_loc=0 >/dev/null
+	done
+
+	return $rc
+}
