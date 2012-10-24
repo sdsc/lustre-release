@@ -1347,7 +1347,7 @@ static int llu_file_flock(struct inode *ino,
 
                 if (lmv->tgts[0].ltd_exp != NULL)
                         rc = ldlm_cli_enqueue(lmv->tgts[0].ltd_exp, NULL, &einfo, &res_id,
-                                              &flock, &flags, NULL, 0, &lockh, 0);
+					      &flock, &flags, NULL, 0, 0, &lockh, 0);
                 else
                         rc = -ENODEV;
         }
@@ -1924,7 +1924,8 @@ llu_fsswop_mount(const char *source,
 
         ocd.ocd_connect_flags = OBD_CONNECT_IBITS | OBD_CONNECT_VERSION |
                                 OBD_CONNECT_FID | OBD_CONNECT_AT |
-                                OBD_CONNECT_VBR | OBD_CONNECT_FULL20;
+				OBD_CONNECT_VBR | OBD_CONNECT_FULL20 |
+				OBD_CONNECT_LVB_TYPE;
 
 #ifdef LIBLUSTRE_POSIX_ACL
         ocd.ocd_connect_flags |= OBD_CONNECT_ACL;
@@ -1962,7 +1963,8 @@ llu_fsswop_mount(const char *source,
         ocd.ocd_connect_flags = OBD_CONNECT_SRVLOCK | OBD_CONNECT_REQPORTAL |
                                 OBD_CONNECT_VERSION | OBD_CONNECT_TRUNCLOCK |
                                 OBD_CONNECT_FID | OBD_CONNECT_AT |
-                                OBD_CONNECT_FULL20 | OBD_CONNECT_EINPROGRESS;
+				OBD_CONNECT_FULL20 | OBD_CONNECT_EINPROGRESS |
+				OBD_CONNECT_LVB_TYPE;
 
         ocd.ocd_version = LUSTRE_VERSION_CODE;
         err = obd_connect(NULL, &sbi->ll_dt_exp, obd, &sbi->ll_sb_uuid, &ocd, NULL);
