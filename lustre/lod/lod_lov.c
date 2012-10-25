@@ -442,7 +442,10 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 		objs = &lmm->lmm_objects[0];
 	} else {
 		struct lov_mds_md_v3 *v3 = (struct lov_mds_md_v3 *) lmm;
-		strncpy(v3->lmm_pool_name, lo->ldo_pool, LOV_MAXPOOLNAME);
+		if (strlcpy(v3->lmm_pool_name, lo->ldo_pool,
+			    sizeof(v3->lmm_pool_name))
+		    > sizeof(v3->lmm_pool_name))
+			RETURN(-E2BIG);
 		objs = &v3->lmm_objects[0];
 	}
 
@@ -550,7 +553,10 @@ int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
 	v3->lmm_stripe_count = cpu_to_le16(lo->ldo_def_stripenr);
 	v3->lmm_stripe_offset = cpu_to_le16(lo->ldo_def_stripe_offset);
 	if (lo->ldo_pool)
-		strncpy(v3->lmm_pool_name, lo->ldo_pool, LOV_MAXPOOLNAME);
+		if (strlcpy(v3->lmm_pool_name, lo->ldo_pool,
+			    sizeof(v3->lmm_pool_name))
+		    > sizeof(v3->lmm_pool_name))
+			RETURN(-E2BIG);
 
 	info->lti_buf.lb_buf = v3;
 	info->lti_buf.lb_len = sizeof(*v3);
