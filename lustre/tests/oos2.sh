@@ -39,9 +39,9 @@ export LANG=C LC_LANG=C # for "No space left on device" message
 # make sure we stripe over all OSTs to avoid OOS on only a subset of OSTs
 $LFS setstripe $OOS -c $STRIPECOUNT
 $LFS setstripe $OOS2 -c $STRIPECOUNT
-dd if=/dev/zero of=$OOS count=$((3 * $ORIGFREE / 4 + 100)) bs=1k 2>> $LOG &
+fast_dd if=/dev/zero of=$OOS count=$((3 * $ORIGFREE / 4 + 100)) bs=1k 2>> $LOG &
 DDPID=$!
-if dd if=/dev/zero of=$OOS2 count=$((3*$ORIGFREE/4 + 100)) bs=1k 2>> $LOG2; then
+if fast_dd if=/dev/zero of=$OOS2 count=$((3*$ORIGFREE/4 + 100)) bs=1k 2>> $LOG2; then
 	echo "ERROR: dd2 did not fail"
 	SUCCESS=0
 fi

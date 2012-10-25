@@ -5830,3 +5830,28 @@ generate_logname() {
 
 	echo "$TESTLOG_PREFIX.$TESTNAME.$logname.$(hostname -s).log"
 }
+
+fast_dd() {
+	local i
+	local rc
+	local OLDDEBUG
+
+	for i in `seq $OSTCOUNT`; do
+#define OBD_FAIL_OST_SKIP_BIO		 0x232
+		do_facet ost$i lctl set_param fail_loc=0x232 >/dev/null
+	done
+
+	OLDDEBUG="`lctl get_param -n debug 2> /dev/null`"
+	# decrease logging at the client a bit (-trace,-dlmtrace)
+	# otherwise it's very slow
+	lctl set_param debug=0xfffefffe
+	dd $1 $2 $3 $4 $5
+	rc=$?
+	lctl set_param debug="$OLDDEBUG" 2> /dev/null || true
+
+	for i in `seq $OSTCOUNT`; do
+		do_facet ost$i lctl set_param fail_loc=0 >/dev/null
+	done
+
+	return $rc
+}

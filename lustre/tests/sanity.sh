@@ -1060,7 +1060,7 @@ test_27m() {
 	fi
 	mkdir -p $DIR/d27
 	$SETSTRIPE -i 0 -c 1 $DIR/d27/f27m_1
-	dd if=/dev/zero of=$DIR/d27/f27m_1 bs=1024 count=$MAXFREE &&
+	fast_dd if=/dev/zero of=$DIR/d27/f27m_1 bs=1024 count=$MAXFREE &&
 		error "dd should fill OST0"
 	i=2
 	while $SETSTRIPE -i 0 -c 1 $DIR/d27/f27m_$i; do
@@ -5320,7 +5320,7 @@ test_101d() {
         { skip "Need free space ${size}M, have $space" && return; }
 
     echo Creating ${size}M test file $file
-    dd if=/dev/zero of=$file bs=1M count=$size || error "dd failed"
+    fast_dd if=/dev/zero of=$file bs=1M count=$size || error "dd failed"
     echo Cancel LRU locks on lustre client to flush the client cache
     cancel_lru_locks osc
 

@@ -948,7 +948,7 @@ test_36() { #bug 16417
 		lctl mark "start test"
 		local before=$($LFS df | awk '{ if ($1 ~/^filesystem/) \
 					      { print $5; exit} }')
-		dd if=/dev/zero of=$DIR1/$tdir/$tfile bs=1M count=$SIZE ||
+		fast_dd if=/dev/zero of=$DIR1/$tdir/$tfile bs=1M count=$SIZE ||
 			error "dd $DIR1/$tdir/$tfile ${SIZE}MB failed"
 		sync          # sync data from client cache
 		sync_all_data # sync data from server cache (delayed allocation)
