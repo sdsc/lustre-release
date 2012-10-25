@@ -38,6 +38,7 @@
 
 extern unsigned long cfs_fail_loc;
 extern unsigned int cfs_fail_val;
+extern unsigned int cfs_fail_intr;
 
 extern cfs_waitq_t cfs_race_waitq;
 extern int cfs_race_state;
