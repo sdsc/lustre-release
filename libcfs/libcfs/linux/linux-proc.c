@@ -102,6 +102,7 @@ enum {
         PSDEV_LNET_FORCE_LBUG,    /* hook to force an LBUG */
         PSDEV_LNET_FAIL_LOC,      /* control test failures instrumentation */
         PSDEV_LNET_FAIL_VAL,      /* userdata for fail loc */
+	PSDEV_LNET_FAIL_INTR,     /* userdata for fail interrupt */
 };
 #else
 #define CTL_LNET                        CTL_UNNUMBERED
@@ -127,6 +128,7 @@ enum {
 #define PSDEV_LNET_FORCE_LBUG           CTL_UNNUMBERED
 #define PSDEV_LNET_FAIL_LOC             CTL_UNNUMBERED
 #define PSDEV_LNET_FAIL_VAL             CTL_UNNUMBERED
+#define PSDEV_LNET_FAIL_INTR		CTL_UNNUMBERED
 #endif
 
 int
@@ -566,6 +568,14 @@ static cfs_sysctl_table_t lnet_table[] = {
                 .mode     = 0644,
                 .proc_handler = &proc_dointvec
         },
+	{
+		INIT_CTL_NAME(PSDEV_LNET_FAIL_INTR)
+		.procname = "fail_intr",
+		.data     = &cfs_fail_intr,
+		.maxlen   = sizeof(int),
+		.mode     = 0644,
+		.proc_handler = &proc_dointvec
+	},
         {
                 INIT_CTL_NAME(0)
         }
