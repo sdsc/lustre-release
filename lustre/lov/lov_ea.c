@@ -297,7 +297,9 @@ int lsm_unpackmd_v3(struct lov_obd *lov, struct lov_stripe_md *lsm,
         lmm = (struct lov_mds_md_v3 *)lmmv1;
 
         lsm_unpackmd_common(lsm, (struct lov_mds_md_v1 *)lmm);
-        strncpy(lsm->lsm_pool_name, lmm->lmm_pool_name, LOV_MAXPOOLNAME);
+	if (strlcpy(lsm->lsm_pool_name, lmm->lmm_pool_name,
+		    sizeof(lsm->lsm_pool_name)) >= sizeof(lsm->lsm_pool_name))
+		return -E2BIG;
 
         for (i = 0; i < lsm->lsm_stripe_count; i++) {
                 /* XXX LOV STACKING call down to osc_unpackmd() */

@@ -287,7 +287,7 @@ sfw_init_session(sfw_session_t *sn, lst_sid_t sid,
         cfs_atomic_set(&sn->sn_refcount, 1);        /* +1 for caller */
         cfs_atomic_set(&sn->sn_brw_errors, 0);
         cfs_atomic_set(&sn->sn_ping_errors, 0);
-        strncpy(&sn->sn_name[0], name, LST_NAME_SIZE);
+	strlcpy(&sn->sn_name[0], name, sizeof(sn->sn_name));
 
         sn->sn_timer_active = 0;
         sn->sn_id           = sid;
@@ -458,7 +458,10 @@ sfw_make_session(srpc_mksn_reqst_t *request, srpc_mksn_reply_t *reply)
 
                 if (!request->mksn_force) {
                         reply->mksn_status = EBUSY;
-                        strncpy(&reply->mksn_name[0], &sn->sn_name[0], LST_NAME_SIZE);
+			if (strlcpy(&reply->mksn_name[0], &sn->sn_name[0],
+				    sizeof(reply->mksn_name))
+			    >= sizeof(reply->mksn_name))
+				return -E2BIG;
                         return 0;
                 }
         }
@@ -544,7 +547,9 @@ sfw_debug_session (srpc_debug_reqst_t *request, srpc_debug_reply_t *reply)
         reply->dbg_status  = 0;
         reply->dbg_sid     = sn->sn_id;      
         reply->dbg_timeout = sn->sn_timeout;
-        strncpy(reply->dbg_name, &sn->sn_name[0], LST_NAME_SIZE);
+	if (strlcpy(reply->dbg_name, &sn->sn_name[0], sizeof(reply->dbg_name))
+	    >= sizeof(reply->dbg_name))
+		return -E2BIG;
 
         return 0;
 }

@@ -191,6 +191,7 @@ int llog_cat_id2handle(const struct lu_env *env, struct llog_handle *cathandle,
 	rc = llog_init_handle(env, loghandle, LLOG_F_IS_PLAIN, NULL);
 	if (rc < 0) {
 		llog_close(env, loghandle);
+		loghandle = NULL;
 		GOTO(out, rc);
 	}
 
@@ -820,8 +821,7 @@ int cat_cancel_cb(const struct lu_env *env, struct llog_handle *cathandle,
 	ENTRY;
 
 	if (rec->lrh_type != LLOG_LOGID_MAGIC) {
-		CERROR("%s: invalid record in catalog\n",
-		       loghandle->lgh_ctxt->loc_obd->obd_name);
+		CERROR("invalid record in catalog\n");
 		RETURN(-EINVAL);
 	}
 	CDEBUG(D_HA, "processing log "LPX64":%x at index %u of catalog "
