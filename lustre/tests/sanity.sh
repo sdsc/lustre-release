@@ -1089,16 +1089,30 @@ sleep_maxage() {
 # if the OST isn't full anymore.
 reset_enospc() {
 	local OSTIDX=${1:-""}
+	local DELAY
+	local ready
 
 	local list=$(comma_list $(osts_nodes))
 	[ "$OSTIDX" ] && list=$(facet_host ost$((OSTIDX + 1)))
 
 	do_nodes $list lctl set_param fail_loc=0
-	sync	# initiate all OST_DESTROYs from MDS to OST
-	sleep_maxage
+	wait_delete_completed	# initiate all OST_DESTROYs from MDS to OST
+	DELAY=$(do_facet $SINGLEMDS lctl get_param -n lov.*.qos_maxage | head -n 1 | awk '{print $1 * 2}')
+	echo "*** wait upto $DELAY"
+	while [ $DELAY -gt 0 ]; do
+		ready=$(do_facet $SINGLEMDS lctl get_param -n osc.*MDT*.prealloc_status |
+			grep -v "^0$")
+		if [ -z "$ready" ]; then
+			echo "*** ready ($ready $DELAY) to allocate objects again"
+			return
+		fi
+		let "DELAY=DELAY-1"
+		sleep 1
+	done
+	echo "*** NOT ready to allocate objects"
 }
 
-exhaust_precreations() {
+__exhaust_precreations() {
 	local OSTIDX=$1
 	local FAILLOC=$2
 	local FAILIDX=${3:-$OSTIDX}
@@ -1130,14 +1144,19 @@ exhaust_precreations() {
 	createmany -o $DIR/$tdir/${OST}/f $next_id $((last_id - next_id + 2))
 	do_facet mds${MDSIDX} lctl get_param osc.$mdtosc_proc2.prealloc*
 	do_facet ost$((OSTIDX + 1)) lctl set_param fail_loc=$FAILLOC
+}
+
+exhaust_precreations() {
+	__exhaust_precreations $1 $2 $3
 	sleep_maxage
 }
 
 exhaust_all_precreations() {
 	local i
 	for (( i=0; i < OSTCOUNT; i++ )) ; do
-		exhaust_precreations $i $1 -1
+		__exhaust_precreations $i $1 -1
 	done
+	sleep_maxage
 }
 
 test_27n() {
