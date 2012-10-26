@@ -1029,8 +1029,8 @@ dont_check_exports:
         cfs_spin_lock(&export->exp_lock);
         if (export->exp_conn_cnt >= lustre_msg_get_conn_cnt(req->rq_reqmsg)) {
                 cfs_spin_unlock(&export->exp_lock);
-                CDEBUG(D_RPCTRACE, "%s: %s already connected at higher "
-                       "conn_cnt: %d > %d\n",
+                CDEBUG(D_RPCTRACE, "%s: %s already connected at greater "
+                       "or equal conn_cnt: %d >= %d\n",
                        cluuid.uuid, libcfs_nid2str(req->rq_peer.nid),
                        export->exp_conn_cnt,
                        lustre_msg_get_conn_cnt(req->rq_reqmsg));
