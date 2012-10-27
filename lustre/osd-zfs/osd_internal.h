@@ -411,11 +411,11 @@ int osd_fid_lookup(const struct lu_env *env,
 uint64_t osd_get_name_n_idx(const struct lu_env *env, struct osd_device *osd,
 			    const struct lu_fid *fid, char *buf);
 int osd_options_init(void);
-
+int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
+		   const struct lu_fid *fid, struct lu_seq_range *range);
 /* osd_index.c */
 int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 		  const struct dt_index_features *feat);
-
 
 /* osd_xattr.c */
 int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
