@@ -200,6 +200,9 @@ int osd_oi_lookup(struct osd_thread_info *info, struct osd_oi *oi,
         struct lu_fid *oi_fid = &info->oti_fid;
         int rc;
 
+	if (fid_seq(fid) == FID_SEQ_LOCAL_FILE)
+		return -ENOENT;
+
         if (osd_fid_is_igif(fid)) {
                 lu_igif_to_id(fid, id);
                 rc = 0;
@@ -235,6 +238,9 @@ int osd_oi_insert(struct osd_thread_info *info, struct osd_oi *oi,
         struct osd_inode_id *id;
         const struct dt_key *key;
 
+	if (fid_seq(fid) == FID_SEQ_LOCAL_FILE)
+		return 0;
+
         if (osd_fid_is_igif(fid))
                 return 0;
 
@@ -261,6 +267,9 @@ int osd_oi_delete(struct osd_thread_info *info,
         struct lu_fid *oi_fid = &info->oti_fid;
         struct dt_object    *idx;
         const struct dt_key *key;
+
+	if (fid_seq(fid) == FID_SEQ_LOCAL_FILE)
+		return 0;
 
         if (osd_fid_is_igif(fid))
                 return 0;
