@@ -146,6 +146,49 @@ void lov_set_add_req(struct lov_request *req, struct lov_request_set *set)
         req->rq_rqset = set;
 }
 
+static int lov_check_set(struct lov_obd *lov, int idx)
+{
+	if (lov->lov_tgts[idx] == NULL ||
+	    class_exp2cliimp(lov->lov_tgts[idx]->ltd_exp)->imp_connect_tryed ||
+	    lov->lov_tgts[idx]->ltd_active)
+		return 1;
+
+	return 0;
+}
+
+/* Check if the OSC connection exists and is active.
+ * If the OSC has not yet had a chance to connect to the OST the first time,
+ * wait once for it to connect instead of returning an error.
+ */
+int lov_check_and_wait_active(struct lov_obd *lov, int ost_idx)
+{
+        cfs_waitq_t waitq;
+        struct l_wait_info lwi;
+        struct lov_tgt_desc *tgt;
+        int rc = 0;
+
+	tgt = lov->lov_tgts[ost_idx];
+
+	if (unlikely(tgt == NULL))
+		return 0;
+
+	if (likely(tgt->ltd_active))
+		return 1;
+
+	if (class_exp2cliimp(tgt->ltd_exp)->imp_connect_tryed)
+		return 0;
+
+	cfs_waitq_init(&waitq);
+	lwi = LWI_TIMEOUT_INTERVAL(cfs_time_seconds(obd_timeout),
+				   cfs_time_seconds(1), NULL, NULL);
+
+	rc = l_wait_event(waitq, lov_check_set(lov, ost_idx), &lwi);
+	if (rc == 0 && tgt != NULL && tgt->ltd_active)
+                return 1;
+
+        return 0;
+}
+
 extern void osc_update_enqueue(struct lustre_handle *lov_lockhp,
                                struct lov_oinfo *loi, int flags,
                                struct ost_lvb *lvb, __u32 mode, int rc);
@@ -341,11 +384,10 @@ int lov_prep_enqueue_set(struct obd_export *exp, struct obd_info *oinfo,
                                            &start, &end))
                         continue;
 
-                if (!lov->lov_tgts[loi->loi_ost_idx] ||
-                    !lov->lov_tgts[loi->loi_ost_idx]->ltd_active) {
-                        CDEBUG(D_HA, "lov idx %d inactive\n", loi->loi_ost_idx);
-                        continue;
-                }
+		if (!lov_check_and_wait_active(lov, loi->loi_ost_idx)) {
+			CDEBUG(D_HA, "lov idx %d inactive\n", loi->loi_ost_idx);
+			continue;
+		}
 
                 OBD_ALLOC(req, sizeof(*req));
                 if (req == NULL)
@@ -450,11 +492,10 @@ int lov_prep_match_set(struct obd_export *exp, struct obd_info *oinfo,
                         continue;
 
                 /* FIXME raid1 should grace this error */
-                if (!lov->lov_tgts[loi->loi_ost_idx] ||
-                    !lov->lov_tgts[loi->loi_ost_idx]->ltd_active) {
-                        CDEBUG(D_HA, "lov idx %d inactive\n", loi->loi_ost_idx);
-                        GOTO(out_set, rc = -EIO);
-                }
+		if (!lov_check_and_wait_active(lov, loi->loi_ost_idx)) {
+			CDEBUG(D_HA, "lov idx %d inactive\n", loi->loi_ost_idx);
+			GOTO(out_set, rc = -EIO);
+		}
 
                 OBD_ALLOC(req, sizeof(*req));
                 if (req == NULL)
@@ -927,11 +968,10 @@ int lov_prep_brw_set(struct obd_export *exp, struct obd_info *oinfo,
                         continue;
 
                 loi = oinfo->oi_md->lsm_oinfo[i];
-                if (!lov->lov_tgts[loi->loi_ost_idx] ||
-                    !lov->lov_tgts[loi->loi_ost_idx]->ltd_active) {
-                        CDEBUG(D_HA, "lov idx %d inactive\n", loi->loi_ost_idx);
-                        GOTO(out, rc = -EIO);
-                }
+		if (!lov_check_and_wait_active(lov, loi->loi_ost_idx)) {
+			CDEBUG(D_HA, "lov idx %d inactive\n", loi->loi_ost_idx);
+			GOTO(out, rc = -EIO);
+		}
 
                 OBD_ALLOC(req, sizeof(*req));
                 if (req == NULL)
@@ -1046,18 +1086,17 @@ int lov_prep_getattr_set(struct obd_export *exp, struct obd_info *oinfo,
         set->set_oi = oinfo;
 
         for (i = 0; i < oinfo->oi_md->lsm_stripe_count; i++) {
-                struct lov_oinfo *loi;
-                struct lov_request *req;
+		struct lov_oinfo *loi;
+		struct lov_request *req;
 
-                loi = oinfo->oi_md->lsm_oinfo[i];
-                if (!lov->lov_tgts[loi->loi_ost_idx] ||
-                    !lov->lov_tgts[loi->loi_ost_idx]->ltd_active) {
-                        CDEBUG(D_HA, "lov idx %d inactive\n", loi->loi_ost_idx);
-                        if (oinfo->oi_oa->o_valid & OBD_MD_FLEPOCH)
-                                /* SOM requires all the OSTs to be active. */
-                                GOTO(out_set, rc = -EIO);
-                        continue;
-                }
+		loi = oinfo->oi_md->lsm_oinfo[i];
+		if (!lov_check_and_wait_active(lov, loi->loi_ost_idx)) {
+			CDEBUG(D_HA, "lov idx %d inactive\n", loi->loi_ost_idx);
+			if (oinfo->oi_oa->o_valid & OBD_MD_FLEPOCH)
+				/* SOM requires all the OSTs to be active. */
+				GOTO(out_set, rc = -EIO);
+			continue;
+		}
 
                 OBD_ALLOC(req, sizeof(*req));
                 if (req == NULL)
@@ -1129,15 +1168,14 @@ int lov_prep_destroy_set(struct obd_export *exp, struct obd_info *oinfo,
                 set->set_cookies = oti->oti_logcookies;
 
         for (i = 0; i < lsm->lsm_stripe_count; i++) {
-                struct lov_oinfo *loi;
-                struct lov_request *req;
+		struct lov_oinfo *loi;
+		struct lov_request *req;
 
-                loi = lsm->lsm_oinfo[i];
-                if (!lov->lov_tgts[loi->loi_ost_idx] ||
-                    !lov->lov_tgts[loi->loi_ost_idx]->ltd_active) {
-                        CDEBUG(D_HA, "lov idx %d inactive\n", loi->loi_ost_idx);
-                        continue;
-                }
+		loi = lsm->lsm_oinfo[i];
+		if (!lov_check_and_wait_active(lov, loi->loi_ost_idx)) {
+			CDEBUG(D_HA, "lov idx %d inactive\n", loi->loi_ost_idx);
+			continue;
+		}
 
                 OBD_ALLOC(req, sizeof(*req));
                 if (req == NULL)
@@ -1242,14 +1280,13 @@ int lov_prep_setattr_set(struct obd_export *exp, struct obd_info *oinfo,
                 set->set_cookies = oti->oti_logcookies;
 
         for (i = 0; i < oinfo->oi_md->lsm_stripe_count; i++) {
-                struct lov_oinfo *loi = oinfo->oi_md->lsm_oinfo[i];
-                struct lov_request *req;
+		struct lov_oinfo *loi = oinfo->oi_md->lsm_oinfo[i];
+		struct lov_request *req;
 
-                if (!lov->lov_tgts[loi->loi_ost_idx] ||
-                    !lov->lov_tgts[loi->loi_ost_idx]->ltd_active) {
-                        CDEBUG(D_HA, "lov idx %d inactive\n", loi->loi_ost_idx);
-                        continue;
-                }
+		if (!lov_check_and_wait_active(lov, loi->loi_ost_idx)) {
+			CDEBUG(D_HA, "lov idx %d inactive\n", loi->loi_ost_idx);
+			continue;
+		}
 
                 OBD_ALLOC(req, sizeof(*req));
                 if (req == NULL)
@@ -1377,11 +1414,10 @@ int lov_prep_punch_set(struct obd_export *exp, struct obd_info *oinfo,
                                            &rs, &re))
                         continue;
 
-                if (!lov->lov_tgts[loi->loi_ost_idx] ||
-                    !lov->lov_tgts[loi->loi_ost_idx]->ltd_active) {
-                        CDEBUG(D_HA, "lov idx %d inactive\n", loi->loi_ost_idx);
-                        GOTO(out_set, rc = -EIO);
-                }
+		if (!lov_check_and_wait_active(lov, loi->loi_ost_idx)) {
+			CDEBUG(D_HA, "lov idx %d inactive\n", loi->loi_ost_idx);
+			GOTO(out_set, rc = -EIO);
+		}
 
                 OBD_ALLOC(req, sizeof(*req));
                 if (req == NULL)
@@ -1468,15 +1504,14 @@ int lov_prep_sync_set(struct obd_export *exp, struct obd_info *oinfo,
         set->set_oi = oinfo;
 
         for (i = 0; i < oinfo->oi_md->lsm_stripe_count; i++) {
-                struct lov_oinfo *loi = oinfo->oi_md->lsm_oinfo[i];
-                struct lov_request *req;
-                obd_off rs, re;
+		struct lov_oinfo *loi = oinfo->oi_md->lsm_oinfo[i];
+		struct lov_request *req;
+		obd_off rs, re;
 
-                if (!lov->lov_tgts[loi->loi_ost_idx] ||
-                    !lov->lov_tgts[loi->loi_ost_idx]->ltd_active) {
-                        CDEBUG(D_HA, "lov idx %d inactive\n", loi->loi_ost_idx);
-                        continue;
-                }
+		if (!lov_check_and_wait_active(lov, loi->loi_ost_idx)) {
+			CDEBUG(D_HA, "lov idx %d inactive\n", loi->loi_ost_idx);
+			continue;
+		}
 
                 if (!lov_stripe_intersects(oinfo->oi_md, i, start, end, &rs,
                                            &re))
@@ -1703,13 +1738,14 @@ int lov_prep_statfs_set(struct obd_device *obd, struct obd_info *oinfo,
 
         /* We only get block data from the OBD */
         for (i = 0; i < lov->desc.ld_tgt_count; i++) {
-                struct lov_request *req;
+		struct lov_request *req;
 
-                if (!lov->lov_tgts[i] || (!lov->lov_tgts[i]->ltd_active
-                                          && (oinfo->oi_flags & OBD_STATFS_NODELAY))) {
-                        CDEBUG(D_HA, "lov idx %d inactive\n", i);
-                        continue;
-                }
+		if (lov->lov_tgts[i] == NULL ||
+		    (!lov_check_and_wait_active(lov, i) &&
+		     (oinfo->oi_flags & OBD_STATFS_NODELAY))) {
+			CDEBUG(D_HA, "lov idx %d inactive\n", i);
+			continue;
+		}
 
                 /* skip targets that have been explicitely disabled by the
                  * administrator */

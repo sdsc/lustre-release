@@ -1183,6 +1183,7 @@ out:
                        (char *)imp->imp_connection->c_remote_uuid.uuid, rc);
         }
 
+	imp->imp_connect_tryed = 1;
         cfs_waitq_broadcast(&imp->imp_recovery_waitq);
         RETURN(rc);
 }

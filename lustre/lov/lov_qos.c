@@ -1019,28 +1019,27 @@ int qos_prep_create(struct obd_export *exp, struct lov_request_set *set)
                 /* If the MDS file was truncated up to some size, stripe over
                  * enough OSTs to allow the file to be created at that size.
                  * This may mean we use more than the default # of stripes. */
-                if (src_oa->o_valid & OBD_MD_FLSIZE) {
-                        obd_size min_bavail = LUSTRE_STRIPE_MAXBYTES;
+		if (src_oa->o_valid & OBD_MD_FLSIZE) {
+			obd_size min_bavail = LUSTRE_STRIPE_MAXBYTES;
 
-                        /* Find a small number of stripes we can use
-                           (up to # of active osts). */
-                        stripes = 1;
-                        for (i = 0; i < lov->desc.ld_tgt_count; i++) {
-                                if (!lov->lov_tgts[i] ||
-                                    !lov->lov_tgts[i]->ltd_active)
-                                        continue;
-                                min_bavail = min(min_bavail, TGT_BAVAIL(i));
-                                if (min_bavail * stripes > src_oa->o_size)
-                                        break;
-                                stripes++;
-                        }
+			/* Find a small number of stripes we can use
+			   (up to # of active osts). */
+			stripes = 1;
+			for (i = 0; i < lov->desc.ld_tgt_count; i++) {
+				if (!lov_check_and_wait_active(lov, i))
+					continue;
+				min_bavail = min(min_bavail, TGT_BAVAIL(i));
+				if (min_bavail * stripes > src_oa->o_size)
+					break;
+				stripes++;
+			}
 
-                        if (stripes < stripes_def)
-                                stripes = stripes_def;
-                } else {
-                        flag = LOV_USES_DEFAULT_STRIPE;
-                        stripes = stripes_def;
-                }
+			if (stripes < stripes_def)
+				stripes = stripes_def;
+		} else {
+			flag = LOV_USES_DEFAULT_STRIPE;
+			stripes = stripes_def;
+		}
 
                 rc = lov_alloc_memmd(&set->set_oi->oi_md, stripes,
                                      lov->desc.ld_pattern ?
