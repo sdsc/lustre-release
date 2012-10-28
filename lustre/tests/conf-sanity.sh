@@ -2754,6 +2754,32 @@ test_60() { # LU-471
 }
 run_test 60 "check mkfs.lustre --mkfsoptions -E -O options setting"
 
+test_61() { # LU-2237
+	local devname=$(mdsdevname ${SINGLEMDS//mds/})
+	local brpt=$(facet_mntpt brpt)
+	local opts=""
+
+	if ! do_facet $SINGLEMDS "test -b ${devname}"; then
+		opts="-o loop"
+	fi
+
+	# to guarantee the "last_rcvd" file is there
+	reformat
+	start_mds || error "fail to  restart MDS(1)"
+	stop_mds
+
+	# remove the "last_rcvd" file
+	do_facet $SINGLEMDS "mkdir -p ${brpt}"
+	do_facet $SINGLEMDS "mount -t ldiskfs ${opts} ${devname} ${brpt}"
+	do_facet $SINGLEMDS "rm -f ${brpt}/last_rcvd"
+	do_facet $SINGLEMDS "umount ${brpt}"
+
+	# restart MDS, the "last_rcvd" file should be recreated.
+	start_mds || error "fail to  restart MDS(2)"
+	stop_mds
+}
+run_test 61 "re-create the lost last_rcvd file when server mount"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
