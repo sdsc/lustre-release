@@ -30,6 +30,20 @@ for d in ${RACERDIRS}; do
 #	lfs setstripe $d/racer -c -1
 done
 
+reset_counter() {
+	lctl set_param -n ${1}.*.stats 0
+}
+
+count_counter() {
+	lctl get_param -n ${1}.*.stats |
+		awk -vsum=0 "/$2/ { sum += \$2 } END { print sum; }"
+}
+
+count_sum() {
+	lctl get_param -n ${1}.*.stats |
+		awk -vsum=0 "/$2/ { sum += \$7 } END { print sum; }"
+}
+
 # run racer
 test_1() {
     local rrc=0
@@ -38,6 +52,9 @@ test_1() {
 
     check_progs_installed $clients $racer || \
         { skip_env "$racer not found" && return 0; }
+
+	reset_counter osc
+	reset_counter mdc
 
     local rpids=""
     for rdir in $RDIRS; do
@@ -56,7 +73,18 @@ test_1() {
         fi
     done
 
-    return $rrc
+	local read=`count_counter osc ost_read`
+	local rmb=`count_sum osc read_bytes`
+	local write=`count_counter osc ost_write`
+	local wmb=`count_sum osc write_bytes`
+	local close=`count_counter mdc mds_close`
+	local getattr=`count_counter mdc mds_getattr`
+	local readpage=`count_counter mdc mds_readpage`
+	echo "$close opens, $getattr getattrs, $readpage readdirs, "\
+		"$((rmb/1024/1024))MB in $read reads, "\
+		"$((wmb/1024/1024))MB in $write writes"
+
+	return $rrc
 }
 run_test 1 "racer on clients: ${CLIENTS:-$(hostname)} DURATION=$DURATION"
 
