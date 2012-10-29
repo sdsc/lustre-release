@@ -56,6 +56,11 @@ test_1() {
         fi
     done
 
+    grep "^ost_" /proc/fs/lustre/osc/lustre-OST0000-osc-[^M]*/stats
+    cat /proc/fs/lustre/osc/lustre-OST0000-osc-[^M]*/stats \
+	/proc/fs/lustre/mdc/lustre-MDT0000-mdc-*/stats | \
+	egrep -v "(snapshot|^req_)"
+
     return $rrc
 }
 run_test 1 "racer on clients: ${CLIENTS:-$(hostname)} DURATION=$DURATION"
