@@ -1103,49 +1103,6 @@ skip_transfer:
          */
         repbody->oa.o_valid &= ~(OBD_MD_FLMTIME | OBD_MD_FLATIME);
 
-        if (unlikely(client_cksum != server_cksum && rc == 0 && !mmap)) {
-                int  new_cksum = ost_checksum_bulk(desc, OST_WRITE, cksum_type);
-                char *msg;
-                char *via;
-                char *router;
-
-                if (new_cksum == server_cksum)
-                        msg = "changed in transit before arrival at OST";
-                else if (new_cksum == client_cksum)
-                        msg = "initial checksum before message complete";
-                else
-                        msg = "changed in transit AND after initial checksum";
-
-                if (req->rq_peer.nid == desc->bd_sender) {
-                        via = router = "";
-                } else {
-                        via = " via ";
-                        router = libcfs_nid2str(desc->bd_sender);
-                }
-
-                LCONSOLE_ERROR_MSG(0x168, "%s: BAD WRITE CHECKSUM: %s from "
-                                   "%s%s%s inode "DFID" object "
-                                   LPU64"/"LPU64" extent ["LPU64"-"LPU64"]\n",
-                                   exp->exp_obd->obd_name, msg,
-                                   libcfs_id2str(req->rq_peer),
-                                   via, router,
-                                   body->oa.o_valid & OBD_MD_FLFID ?
-                                                body->oa.o_parent_seq : (__u64)0,
-                                   body->oa.o_valid & OBD_MD_FLFID ?
-                                                body->oa.o_parent_oid : 0,
-                                   body->oa.o_valid & OBD_MD_FLFID ?
-                                                body->oa.o_parent_ver : 0,
-                                   body->oa.o_id,
-                                   body->oa.o_valid & OBD_MD_FLGROUP ?
-                                                body->oa.o_seq : (__u64)0,
-				   local_nb[0].lnb_file_offset,
-				   local_nb[npages-1].lnb_file_offset +
-                                   local_nb[npages-1].len - 1 );
-                CERROR("client csum %x, original server csum %x, "
-                       "server csum now %x\n",
-                       client_cksum, server_cksum, new_cksum);
-        }
-
         if (rc == 0) {
                 int nob = 0;
 
