@@ -2328,7 +2328,7 @@ ldlm_mode_t ll_take_md_lock(struct inode *inode, __u64 bits,
 static int ll_inode_revalidate_fini(struct inode *inode, int rc) {
         if (rc == -ENOENT) { /* Already unlinked. Just update nlink
                               * and return success */
-                inode->i_nlink = 0;
+		clear_nlink(inode);
                 /* This path cannot be hit for regular files unless in
                  * case of obscure races, so no need to to validate
                  * size. */
