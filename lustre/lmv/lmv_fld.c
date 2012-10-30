@@ -62,7 +62,13 @@ int lmv_fld_lookup(struct lmv_obd *lmv,
         int rc;
         ENTRY;
 
-        LASSERT(fid_is_sane(fid));
+	LASSERTF(fid_is_sane(fid), DFID" is insane!\n", PFID(fid));
+	if (fid_seq(fid) == FID_SEQ_DOT_LUSTRE) {
+		/* dot lustre FID, only on MDT0 now */
+		*mds = 0;
+		RETURN(0);
+	}
+
         rc = fld_client_lookup(&lmv->lmv_fld, fid_seq(fid), mds,
                                LU_SEQ_RANGE_MDT, NULL);
         if (rc) {
