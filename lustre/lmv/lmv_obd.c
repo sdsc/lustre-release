@@ -413,7 +413,7 @@ int lmv_connect_mdc(struct obd_device *obd, struct lmv_tgt_desc *tgt)
         /*
          * Init fid sequence client for this mdc and add new fld target.
          */
-        rc = obd_fid_init(mdc_exp);
+	rc = obd_fid_init(mdc_exp, LUSTRE_SEQ_METADATA);
         if (rc)
                 RETURN(rc);
 
@@ -820,7 +820,17 @@ static int lmv_iocontrol(unsigned int cmd, struct obd_export *exp,
                 rc = obd_iocontrol(cmd, lmv->tgts[0].ltd_exp, len, karg, uarg);
                 break;
         }
+	case OBD_IOC_FID2PATH: {
+		struct getinfo_fid2path *gf;
+		struct lmv_tgt_desc     *tgt;
 
+		gf = (struct getinfo_fid2path *)karg;
+		tgt = lmv_find_target(lmv, &gf->gf_fid);
+		if (IS_ERR(tgt))
+			RETURN(PTR_ERR(tgt));
+		rc = obd_iocontrol(cmd, tgt->ltd_exp, len, karg, uarg);
+		break;
+	}
         default : {
                 for (i = 0; i < count; i++) {
                         int err;
@@ -855,49 +865,6 @@ static int lmv_iocontrol(unsigned int cmd, struct obd_export *exp,
         RETURN(rc);
 }
 
-static int lmv_all_chars_policy(int count, const char *name,
-                                int len)
-{
-        unsigned int c = 0;
-
-        while (len > 0)
-                c += name[--len];
-        c = c % count;
-        return c;
-}
-
-static int lmv_nid_policy(struct lmv_obd *lmv)
-{
-        struct obd_import *imp;
-        __u32              id;
-
-        /*
-         * XXX: To get nid we assume that underlying obd device is mdc.
-         */
-        imp = class_exp2cliimp(lmv->tgts[0].ltd_exp);
-        id = imp->imp_connection->c_self ^ (imp->imp_connection->c_self >> 32);
-        return id % lmv->desc.ld_tgt_count;
-}
-
-static int lmv_choose_mds(struct lmv_obd *lmv, struct md_op_data *op_data,
-                          placement_policy_t placement)
-{
-        switch (placement) {
-        case PLACEMENT_CHAR_POLICY:
-                return lmv_all_chars_policy(lmv->desc.ld_tgt_count,
-                                            op_data->op_name,
-                                            op_data->op_namelen);
-        case PLACEMENT_NID_POLICY:
-                return lmv_nid_policy(lmv);
-
-        default:
-                break;
-        }
-
-        CERROR("Unsupported placement policy %x\n", placement);
-        return -EINVAL;
-}
-
 /**
  * This is _inode_ placement policy function (not name).
  */
@@ -906,8 +873,6 @@ static int lmv_placement_policy(struct obd_device *obd,
                                 mdsno_t *mds)
 {
         struct lmv_obd          *lmv = &obd->u.lmv;
-        struct lmv_object       *obj;
-        int                      rc;
         ENTRY;
 
         LASSERT(mds != NULL);
@@ -917,55 +882,31 @@ static int lmv_placement_policy(struct obd_device *obd,
                 RETURN(0);
         }
 
+	/**
+	 * If stripe_offset is provided during setdirstripe
+	 * (setdirstripe -i xx), xx MDS will be choosen.
+	 */
+	if (op_data->op_bias & MDS_SET_MEA) {
+		struct lmv_user_md *lum;
+
+		lum = (struct lmv_user_md *)op_data->op_data;
+		if (lum->lum_type == LMV_STRIPE_TYPE &&
+		    lum->lum_stripe_offset != -1) {
+			if (lum->lum_stripe_offset >= lmv->tgts_size) {
+				CERROR("Stripe_offset %d > MDT count %d\n",
+				       lum->lum_stripe_offset, lmv->tgts_size);
+				RETURN(-ERANGE);
+			}
+			*mds = lum->lum_stripe_offset;
+			RETURN(0);
+		}
+	}
         /*
          * Allocate new fid on target according to operation type and parent
          * home mds.
          */
-        obj = lmv_object_find(obd, &op_data->op_fid1);
-        if (obj != NULL || op_data->op_name == NULL ||
-            op_data->op_opc != LUSTRE_OPC_MKDIR) {
-                /*
-                 * Allocate fid for non-dir or for null name or for case parent
-                 * dir is split.
-                 */
-                if (obj) {
-                        lmv_object_put(obj);
-
-                        /*
-                         * If we have this flag turned on, and we see that
-                         * parent dir is split, this means, that caller did not
-                         * notice split yet. This is race and we would like to
-                         * let caller know that.
-                         */
-                        if (op_data->op_bias & MDS_CHECK_SPLIT)
-                                RETURN(-ERESTART);
-                }
-
-                /*
-                 * Allocate new fid on same mds where parent fid is located and
-                 * where operation will be sent. In case of split dir, ->op_fid1
-                 * and ->op_mds here will contain fid and mds of slave directory
-                 * object (assigned by caller).
-                 */
-                *mds = op_data->op_mds;
-                rc = 0;
-        } else {
-                /*
-                 * Parent directory is not split and we want to create a
-                 * directory in it. Let's calculate where to place it according
-                 * to operation data @op_data.
-                 */
-                *mds = lmv_choose_mds(lmv, op_data, lmv->lmv_placement);
-                rc = 0;
-        }
-
-        if (rc) {
-                CERROR("Can't choose MDS, err = %d\n", rc);
-        } else {
-                LASSERT(*mds < lmv->desc.ld_tgt_count);
-        }
-
-        RETURN(rc);
+	*mds = op_data->op_mds;
+	RETURN(0);
 }
 
 int __lmv_fid_alloc(struct lmv_obd *lmv, struct lu_fid *fid,
@@ -1191,8 +1132,17 @@ static int lmv_statfs(const struct lu_env *env, struct obd_export *exp,
                                rc);
                         GOTO(out_free_temp, rc);
                 }
-                if (i == 0) {
+
+		if (i == 0) {
                         *osfs = *temp;
+			/* If the statfs is from mount, it will needs
+			 * retrieve necessary information from MDT0.
+			 * i.e. mount does not need the merged osfs
+			 * from all of MDT.
+			 * And also clients can be mounted as long as
+			 * MDT0 is in service*/
+			if (flags & OBD_STATFS_FROM_MOUNT)
+				GOTO(out_free_temp, rc);
                 } else {
                         osfs->os_bavail += temp->os_bavail;
                         osfs->os_blocks += temp->os_blocks;
@@ -2533,6 +2483,52 @@ cleanup:
         return rc;
 }
 
+static int lmv_unlink_remote(struct obd_export *exp,
+			     struct ptlrpc_request **reqp,
+			     struct md_op_data *op_data)
+{
+	struct obd_device      *obd = exp->exp_obd;
+	struct lmv_obd	 *lmv = &obd->u.lmv;
+	struct ptlrpc_request  *req = NULL;
+	struct lmv_tgt_desc    *tgt;
+	struct mdt_body	*body;
+	int		     rc = 0;
+	ENTRY;
+
+	LASSERT(reqp != NULL && *reqp != NULL);
+
+	body = req_capsule_server_get(&(*reqp)->rq_pill, &RMF_MDT_BODY);
+	if (body == NULL)
+		RETURN(-EPROTO);
+	/*
+	 * Not cross-ref case, just get out of here.
+	 */
+	if (!(body->valid & OBD_MD_MDS))
+		RETURN(0);
+
+	LASSERT(fid_is_sane(&body->fid1));
+	tgt = lmv_find_target(lmv, &body->fid1);
+	if (IS_ERR(tgt))
+		RETURN(PTR_ERR(tgt));
+
+	op_data->op_fid2 = body->fid1;
+	op_data->op_bias = MDS_CROSS_REF;
+	CDEBUG(D_INODE, "REMOTE_unlink with fid="DFID" -> mds #%d\n",
+	       PFID(&body->fid1), tgt->ltd_idx);
+
+	rc = md_unlink(tgt->ltd_exp, op_data, &req);
+	if (rc != 0)
+		CERROR("%s: dir "DFID":"DFID" %*s: failed mdt#%d : rc = %d\n",
+			exp->exp_obd->obd_name, PFID(&op_data->op_fid1),
+			PFID(&op_data->op_fid2), op_data->op_namelen,
+			op_data->op_name, tgt->ltd_idx, rc);
+
+	ptlrpc_req_finished(*reqp);
+	*reqp = req;
+
+	RETURN(rc);
+}
+
 static int lmv_unlink(struct obd_export *exp, struct md_op_data *op_data,
                       struct ptlrpc_request **request)
 {
@@ -2614,7 +2610,26 @@ repeat:
                 if (rc == 0)
                         goto repeat;
         }
-        RETURN(rc);
+
+	if (rc != 0 && rc != -EREMOTE) {
+		CERROR("%s: dir "DFID"%*s: unlink failed: rc = %d\n",
+			exp->exp_obd->obd_name, PFID(&op_data->op_fid1),
+			op_data->op_namelen, op_data->op_name, rc);
+		RETURN(rc);
+	}
+
+	/*
+	 * Okay, MDS has returned success. Probably name has been resolved in
+	 * remote inode.
+	 */
+	rc = lmv_unlink_remote(exp, request, op_data);
+	if (rc != 0)
+		CDEBUG(D_INODE, "%s: Can't handle remote unlink: dir "DFID
+		       "%*s: %d\n", exp->exp_obd->obd_name,
+		       PFID(&op_data->op_fid1), op_data->op_namelen,
+		       op_data->op_name, rc);
+
+	RETURN(rc);
 }
 
 static int lmv_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)

@@ -68,6 +68,7 @@
                                          * interpret routine to be called.
                                          * lov_statfs_fini() must thus be called
                                          * by the request interpret routine */
+#define OBD_STATFS_FROM_MOUNT   0x0008  /* the statfs from mount */
 
 #define OBD_FL_PUNCH    0x00000001      /* To indicate it is punch operation */
 
@@ -1039,7 +1040,7 @@ static inline int obd_disconnect(struct obd_export *exp)
         RETURN(rc);
 }
 
-static inline int obd_fid_init(struct obd_export *exp)
+static inline int obd_fid_init(struct obd_export *exp, enum lu_cli_type type)
 {
         int rc;
         ENTRY;
@@ -1047,7 +1048,7 @@ static inline int obd_fid_init(struct obd_export *exp)
         OBD_CHECK_DT_OP(exp->exp_obd, fid_init, 0);
         EXP_COUNTER_INCREMENT(exp, fid_init);
 
-        rc = OBP(exp->exp_obd, fid_init)(exp);
+	rc = OBP(exp->exp_obd, fid_init)(exp, type);
         RETURN(rc);
 }
 

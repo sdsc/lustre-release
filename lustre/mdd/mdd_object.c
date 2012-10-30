@@ -215,8 +215,11 @@ static int mdd_object_init(const struct lu_env *env, struct lu_object *o,
         under = &d->mdd_child->dd_lu_dev;
         below = under->ld_ops->ldo_object_alloc(env, o->lo_header, under);
         mdd_pdlock_init(mdd_obj);
-        if (below == NULL)
+	if (below == NULL || IS_ERR(below)) {
+		if (IS_ERR(below))
+			RETURN(PTR_ERR(below));
                 RETURN(-ENOMEM);
+	}
 
         lu_object_add(o, below);
 
@@ -225,7 +228,7 @@ static int mdd_object_init(const struct lu_env *env, struct lu_object *o,
 
 static int mdd_object_start(const struct lu_env *env, struct lu_object *o)
 {
-        if (lu_object_exists(o))
+	if (lu_object_exists(o) > 0)
                 return mdd_get_flags(env, lu2mdd_obj(o));
         else
                 return 0;
@@ -281,8 +284,8 @@ static int mdd_path2fid(const struct lu_env *env, struct mdd_device *mdd,
 
         lname->ln_name = name = buf->lb_buf;
         lname->ln_namelen = 0;
-        *f = mdd->mdd_root_fid;
 
+	lu_root_fid(f, 0);
         while(1) {
                 while (*path == '/')
                         path++;
@@ -337,6 +340,16 @@ struct path_lookup_info {
         int                  pli_fidcount;     /**< number of \a pli_fids */
 };
 
+static inline int mdd_is_fs_root(const struct lu_env *env,
+				 const struct lu_fid *fid)
+{
+	struct lu_fid *root_fid = &mdd_env_info(env)->mti_fid;
+
+	lu_root_fid(root_fid, 0);
+	return fid_seq(root_fid) == fid_seq(fid) &&
+		fid_oid(root_fid) == fid_oid(fid);
+}
+
 static int mdd_path_current(const struct lu_env *env,
                             struct path_lookup_info *pli)
 {
@@ -358,7 +371,7 @@ static int mdd_path_current(const struct lu_env *env,
         pli->pli_fidcount = 0;
         pli->pli_fids[0] = *(struct lu_fid *)mdd_object_fid(pli->pli_mdd_obj);
 
-        while (!mdd_is_root(mdd, &pli->pli_fids[pli->pli_fidcount])) {
+	while (!mdd_is_fs_root(env, &pli->pli_fids[pli->pli_fidcount])) {
                 mdd_obj = mdd_object_find(env, mdd,
                                           &pli->pli_fids[pli->pli_fidcount]);
                 if (mdd_obj == NULL)
@@ -366,13 +379,9 @@ static int mdd_path_current(const struct lu_env *env,
                 if (IS_ERR(mdd_obj))
                         GOTO(out, rc = PTR_ERR(mdd_obj));
                 rc = lu_object_exists(&mdd_obj->mod_obj.mo_lu);
-                if (rc <= 0) {
+		if (rc == 0) {
                         mdd_object_put(env, mdd_obj);
-                        if (rc == -1)
-                                rc = -EREMOTE;
-                        else if (rc == 0)
-                                /* Do I need to error out here? */
-                                rc = -ENOENT;
+			rc = -ENOENT;
                         GOTO(out, rc);
                 }
 
@@ -463,7 +472,7 @@ static int mdd_path(const struct lu_env *env, struct md_object *obj,
         if (pathlen < 3)
                 RETURN(-EOVERFLOW);
 
-        if (mdd_is_root(mdo2mdd(obj), mdd_object_fid(md2mdd_obj(obj)))) {
+	if (mdd_is_fs_root(env, mdd_object_fid(md2mdd_obj(obj)))) {
                 path[0] = '\0';
                 RETURN(0);
         }
@@ -609,6 +618,7 @@ int mdd_declare_object_create_internal(const struct lu_env *env,
 				       const struct md_op_spec *spec)
 {
         struct dt_object_format *dof = &mdd_env_info(env)->mti_dof;
+	struct dt_allocation_hint *hint = &mdd_env_info(env)->mti_hint;
         const struct dt_index_features *feat = spec->sp_feat;
         int rc;
         ENTRY;
@@ -627,10 +637,12 @@ int mdd_declare_object_create_internal(const struct lu_env *env,
 			/* is this replay? */
 			if (spec->no_create)
 				dof->u.dof_reg.striped = 0;
+		} else if (dof->dof_type == DFT_DIR) {
+			dof->u.dof_dir.recreate = spec->sp_cr_recreate;
 		}
 	}
 
-	rc = mdo_declare_create_obj(env, c, attr, NULL, dof, handle);
+	rc = mdo_declare_create_obj(env, c, attr, hint, dof, handle);
 
         RETURN(rc);
 }
@@ -645,7 +657,7 @@ int mdd_object_create_internal(const struct lu_env *env, struct mdd_object *p,
         int rc;
         ENTRY;
 
-	LASSERT(!mdd_object_exists(c));
+	LASSERT(mdd_object_exists(c) <= 0);
 
 	rc = mdo_create_obj(env, c, attr, hint, dof, handle);
 
@@ -1795,6 +1807,18 @@ static int mdd_object_sync(const struct lu_env *env, struct md_object *obj)
         return dt_object_sync(env, mdd_object_child(mdd_obj));
 }
 
+static int mdd_object_lock(const struct lu_env *env,
+			   struct md_object *obj,
+			   struct lustre_handle *lh,
+			   struct ldlm_enqueue_info *einfo,
+			   void *policy)
+{
+	struct mdd_object *mdd_obj = md2mdd_obj(obj);
+	LASSERT(mdd_object_exists(mdd_obj));
+	return dt_object_lock(env, mdd_object_child(mdd_obj), lh,
+			      einfo, policy);
+}
+
 const struct md_object_operations mdd_obj_ops = {
         .moo_permission    = mdd_permission,
         .moo_attr_get      = mdd_attr_get,
@@ -1811,4 +1835,5 @@ const struct md_object_operations mdd_obj_ops = {
         .moo_capa_get      = mdd_capa_get,
         .moo_object_sync   = mdd_object_sync,
         .moo_path          = mdd_path,
+	.moo_object_lock   = mdd_object_lock,
 };

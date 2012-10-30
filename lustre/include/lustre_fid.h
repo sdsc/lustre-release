@@ -67,9 +67,14 @@ extern const struct lu_fid LU_DOT_LUSTRE_FID;
 
 enum {
         /*
-         * This is how may FIDs may be allocated in one sequence(128k)
+	 * This is how may metadata FIDs may be allocated in one sequence(128k)
          */
-        LUSTRE_SEQ_MAX_WIDTH = 0x0000000000020000ULL,
+	LUSTRE_METADATA_SEQ_MAX_WIDTH = 0x0000000000020000ULL,
+
+	/*
+	 * This is how many data FIDs could be allocated in one sequence(4B - 1)
+	 */
+	LUSTRE_DATA_SEQ_MAX_WIDTH = 0x00000000FFFFFFFFULL,
 
         /*
          * How many sequences to allocate to a client at once.
@@ -121,6 +126,7 @@ enum local_oid {
         LLOG_CATALOGS_OID       = 4118UL,
         MGS_CONFIGS_OID         = 4119UL,
         OFD_HEALTH_CHECK_OID    = 4120UL,
+	MDD_LOV_OBJ_OSEQ	= 4121UL,
 };
 
 static inline void lu_local_obj_fid(struct lu_fid *fid, __u32 oid)
@@ -156,15 +162,24 @@ static inline int fid_is_quota(const struct lu_fid *fid)
 	       fid_seq(fid) == FID_SEQ_QUOTA_GLB;
 }
 
+static inline void lu_last_id_fid(struct lu_fid *fid, __u64 seq)
+{
+	if (fid_seq_is_mdt0(seq)) {
+		fid->f_seq = fid_idif_seq(0, 0);
+	} else {
+		LASSERTF(fid_seq_is_norm(seq) || fid_seq_is_echo(seq) ||
+			 fid_seq_is_idif(seq), LPX64"\n", seq);
+		fid->f_seq = seq;
+	}
+	fid->f_oid = 0;
+	fid->f_ver = 0;
+}
+
 enum lu_mgr_type {
         LUSTRE_SEQ_SERVER,
         LUSTRE_SEQ_CONTROLLER
 };
 
-enum lu_cli_type {
-        LUSTRE_SEQ_METADATA,
-        LUSTRE_SEQ_DATA
-};
 
 struct lu_server_seq;
 
@@ -267,6 +282,7 @@ struct lu_server_seq {
 };
 
 int seq_query(struct com_thread_info *info);
+int seq_handle(struct ptlrpc_request *req);
 
 /* Server methods */
 int seq_server_init(struct lu_server_seq *seq,
@@ -306,10 +322,16 @@ int seq_client_alloc_fid(const struct lu_env *env, struct lu_client_seq *seq,
                          struct lu_fid *fid);
 int seq_client_get_seq(const struct lu_env *env, struct lu_client_seq *seq,
                        seqno_t *seqnr);
+struct lu_fid *seq_client_get_current_fid(struct lu_client_seq *seq);
+void seq_client_set_fid(struct lu_client_seq *seq, struct lu_fid *fid);
 
+int ms_seq_fini(const struct lu_env *env, struct md_site *ms);
 /* Fids common stuff */
 int fid_is_local(const struct lu_env *env,
                  struct lu_site *site, const struct lu_fid *fid);
+
+int client_fid_init(struct obd_export *exp, enum lu_cli_type type);
+int client_fid_fini(struct obd_export *exp);
 
 /* fid locking */
 
