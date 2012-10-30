@@ -281,17 +281,14 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                 GOTO(out, err);
         }
 
-        err = obd_fid_init(sbi->ll_md_exp);
-        if (err) {
-                CERROR("Can't init metadata layer FID infrastructure, "
-                       "rc %d\n", err);
-                GOTO(out_md, err);
-        }
-
-        err = obd_statfs(NULL, sbi->ll_md_exp, osfs,
-                         cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS), 0);
-        if (err)
-                GOTO(out_md_fid, err);
+	/* For mount, we only need fs info from MDT0, and also in DNE, it
+	 * can make sure the client can be mounted as long as MDT0 is
+	 * avaible */
+	err = obd_statfs(NULL, sbi->ll_md_exp, osfs,
+			cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
+			OBD_STATFS_FOR_MDT0);
+	if (err)
+		GOTO(out_md, err);
 
         /* This needs to be after statfs to ensure connect has finished.
          * Note that "data" does NOT contain the valid connect reply.
