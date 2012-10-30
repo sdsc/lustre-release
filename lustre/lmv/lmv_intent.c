@@ -206,7 +206,11 @@ repeat:
                        PFID(&rpid), tgt->ltd_idx);
         } else {
                 sop_data->op_bias |= MDS_CHECK_SPLIT;
-                tgt = lmv_find_target(lmv, &rpid);
+		if ((it->it_flags & MDS_OPEN_BY_FID) &&
+			fid_is_sane(&op_data->op_fid2))
+			tgt = lmv_find_target(lmv, &op_data->op_fid2);
+		else
+			tgt = lmv_find_target(lmv, &rpid);
                 sop_data->op_mds = tgt->ltd_idx;
         }
         if (IS_ERR(tgt))
