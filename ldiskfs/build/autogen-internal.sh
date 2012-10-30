@@ -62,31 +62,16 @@ check_version() {
 }
 
 echo "Checking for a complete tree..."
-if [ -d kernel_patches ] ; then
-    # This is ldiskfs
-    REQUIRED_DIRS="build"
-    CONFIGURE_DIRS=""
-else
-    REQUIRED_DIRS="build libcfs lnet lustre"
-    OPTIONAL_DIRS="snmp portals"
-    CONFIGURE_DIRS="libsysio lustre-iokit ldiskfs"
-fi
+REQUIRED_DIRS="build"
 
 for dir in $REQUIRED_DIRS ; do
     if [ ! -d "$dir" ] ; then
 	cat >&2 <<EOF
 Your tree seems to be missing $dir.
-Please read README.lustrecvs for details.
 EOF
 	exit 1
     fi
     ACLOCAL_FLAGS="$ACLOCAL_FLAGS -I $PWD/$dir/autoconf"
-done
-# optional directories for Lustre
-for dir in $OPTIONAL_DIRS; do
-    if [ -d "$dir" ] ; then
-	ACLOCAL_FLAGS="$ACLOCAL_FLAGS -I $PWD/$dir/autoconf"
-    fi
 done
 
 found=false
@@ -128,13 +113,3 @@ run_cmd "$ACLOCAL $ACLOCAL_FLAGS"
 run_cmd "autoheader"
 run_cmd "$AUTOMAKE -a -c $AMOPT"
 run_cmd autoconf
-
-# Run autogen.sh in these directories
-for dir in $CONFIGURE_DIRS; do
-    if [ -d $dir ] ; then
-        pushd $dir >/dev/null
-        echo "Running autogen for $dir..."
-        run_cmd "sh autogen.sh"
-        popd >/dev/null
-    fi
-done

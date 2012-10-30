@@ -5,5 +5,6 @@ for HOOK in commit-msg prepare-commit-msg; do
 	[ -e .git/hooks/$HOOK ] || ln -sf ../build/$HOOK .git/hooks/
 done
 
-exec bash build/autogen.sh $@ 
+# autogen-internal.sh contains bash-isms
+exec bash build/autogen-internal.sh $@
 
