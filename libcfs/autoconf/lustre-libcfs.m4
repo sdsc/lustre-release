@@ -217,6 +217,7 @@ LB_LINUX_TRY_COMPILE([
 	AC_MSG_CHECKING([whether have cpumask_of_node])
 	LB_LINUX_TRY_COMPILE([
 		#include <linux/topology.h>
+		#include <linux/cpumask.h>
 	],[
 		cpumask_t *mask = cpumask_of_node(0);
 	],[
