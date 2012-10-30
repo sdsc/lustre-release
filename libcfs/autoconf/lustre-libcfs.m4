@@ -215,8 +215,15 @@ LB_LINUX_TRY_COMPILE([
 	])
 
 	AC_MSG_CHECKING([whether have cpumask_of_node])
+	# Some OFED has cpumask_of_node backports defined in
+	# its private include/linux/cpumask.h.
+	tmp_flags="$EXTRA_KCFLAGS"
+	if test -f $OFED_BACKPORT_PATH/linux/cpumask.h; then
+		EXTRA_KCFLAGS="-IOFED_BACKPORT_PATH $EXTRA_KCFLAGS"
+	fi
 	LB_LINUX_TRY_COMPILE([
 		#include <linux/topology.h>
+		#include <linux/cpumask.h>
 	],[
 		cpumask_t *mask = cpumask_of_node(0);
 	],[
@@ -225,6 +232,7 @@ LB_LINUX_TRY_COMPILE([
 	],[
 		AC_MSG_RESULT(no)
 	])
+	EXTRA_KCFLAGS="$tmp_flags"
 
 	AC_MSG_CHECKING([whether have node_to_cpumask])
 	LB_LINUX_TRY_COMPILE([
