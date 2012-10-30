@@ -138,7 +138,7 @@ fi
 #
 # LB_LDISKFS_EXT_DIR
 #
-# Determine the location of the ext3/ext4 source code.  It it required
+# Determine the location of the ext4 source code.  It it required
 # for several configure tests and to build ldiskfs.
 #
 AC_DEFUN([LB_LDISKFS_EXT_DIR],
@@ -424,34 +424,4 @@ AC_SUBST([E2LABEL], [$E2LABEL])
 AC_SUBST([DUMPE2FS], [$DUMPE2FS])
 AC_SUBST([E2FSCK], [$E2FSCK])
 AC_SUBST([PFSCK], [$PFSCK])
-])
-
-AC_DEFUN([LB_LDISKFS_SERIES],
-[
-if $1; then
-	AC_MSG_CHECKING([which ldiskfs series to use])
-	case $LINUXRELEASE in
-	2.6.18*)
-		if test x$RHEL_KERNEL = xyes; then
-			LDISKFS_SERIES="2.6-rhel5-ext4.series"
-		fi
-		;;
-	2.6.32*)
-		if test x$RHEL_KERNEL = xyes; then
-			LDISKFS_SERIES="2.6-rhel6.series"
-		fi
-		if test x$SUSE_KERNEL = xyes; then
-			LDISKFS_SERIES="2.6-sles11.series"
-		fi
-		;;
-	*)
-		AC_MSG_WARN([Unknown kernel version $LINUXRELEASE])
-		LDISKFS_SERIES=
-		;;
-	esac
-	AC_MSG_RESULT([$LDISKFS_SERIES])
-else
-	LDISKFS_SERIES=
-fi
-AC_SUBST(LDISKFS_SERIES)
 ])
