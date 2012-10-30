@@ -1761,26 +1761,66 @@ int jt_obd_test_setattr(int argc, char **argv)
 
 int jt_obd_destroy(int argc, char **argv)
 {
-        struct obd_ioctl_data data;
-        struct timeval next_time;
-        char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf;
-        __u64 count = 1, next_count;
-        int verbose = 1;
-        __u64 id;
-        char *end;
-        int rc = 0, i;
+	struct obd_ioctl_data data;
+	struct timeval next_time;
+	char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf;
+	__u64 count = 1, next_count;
+	int verbose = 1;
+	char *end;
+	__u64 id;
+	struct lu_fid fid;
+	int rc = 0, i;
 
-        memset(&data, 0, sizeof(data));
-        data.ioc_dev = cur_device;
-        if (argc < 2 || argc > 4)
-                return CMD_HELP;
+	memset(&data, 0, sizeof(data));
+	data.ioc_dev = cur_device;
+	if (argc < 2 || argc > 4)
+		return CMD_HELP;
 
-        id = strtoull(argv[1], &end, 0);
-        if (*end || id == 0 || errno != 0) {
-                fprintf(stderr, "error: %s: invalid objid '%s'\n",
-                        jt_cmdname(argv[0]), argv[1]);
-                return CMD_HELP;
-        }
+	/* check for fid "0xSEQ:0xOID:0xVER" first, if it's not a fid,
+	 * try for single objid. */
+	fid_zero(&fid);
+	if (strchr(argv[1], ':')) {
+		char *fidstr = argv[1];
+
+		while (*fidstr == '[')
+			fidstr++;
+
+		sscanf(fidstr, SFID, RFID(&fid));
+
+		/* if seq is 0, the objid could be 64bit which doesn't fit
+		 * into SFID */
+		if (fid_seq(&fid) == 0) {
+			sscanf(fidstr, "0x"LPX64i":0x"LPX64i":0x%x",
+			       &fid.f_seq, &id, &fid.f_ver);
+		} else if (!fid_is_sane(&fid)) {
+			fprintf(stderr, "error: %s: invalid fid '%s'\n",
+				jt_cmdname(argv[0]), argv[1]);
+			return CMD_HELP;
+		} else if (fid_seq(&fid) != FID_SEQ_ECHO &&
+			   fid_seq(&fid) < FID_SEQ_NORMAL) {
+			fprintf(stderr, "error: %s: only support seq 0, echo "
+				"seq("LPX64") and normal seq(> "LPX64")\n",
+				jt_cmdname(argv[0]), (long long)FID_SEQ_ECHO,
+				(long long)FID_SEQ_NORMAL);
+			return CMD_HELP;
+		} else {
+			id = fid_oid(&fid);
+		}
+
+		if (id == 0) {
+			fprintf(stderr, "error: %s: invalid objid '0'\n",
+				jt_cmdname(argv[0]));
+			return CMD_HELP;
+		}
+	} else {
+		id = strtoull(argv[1], &end, 0);
+		if (*end || id == 0 || errno != 0) {
+			fprintf(stderr, "error: %s: invalid objid '%s'\n",
+				jt_cmdname(argv[0]), argv[1]);
+			return CMD_HELP;
+		}
+	}
+
         if (argc > 2) {
                 count = strtoull(argv[2], &end, 0);
                 if (*end) {
@@ -1805,6 +1845,10 @@ int jt_obd_destroy(int argc, char **argv)
                 data.ioc_obdo1.o_id = id;
                 data.ioc_obdo1.o_mode = S_IFREG | 0644;
                 data.ioc_obdo1.o_valid = OBD_MD_FLID | OBD_MD_FLMODE;
+		if (!fid_is_zero(&fid)) {
+			data.ioc_obdo1.o_seq = fid_seq(&fid);
+			data.ioc_obdo1.o_valid |= OBD_MD_FLGROUP;
+		}
 
                 memset(buf, 0, sizeof(rawbuf));
                 rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
