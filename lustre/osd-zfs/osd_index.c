@@ -498,6 +498,76 @@ static inline void osd_object_put(const struct lu_env *env,
 	lu_object_put(env, &obj->oo_dt.do_lu);
 }
 
+int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
+		   const struct lu_fid *fid, struct lu_seq_range *range)
+{
+	struct md_site	*ms = osd_md_site(osd);
+	int		rc;
+
+	if (fid_is_igif(fid)) {
+		range->lsr_flags = LU_SEQ_RANGE_MDT;
+		range->lsr_index = 0;
+		return 0;
+	}
+
+	if (fid_is_root(fid)) {
+		range->lsr_flags = LU_SEQ_RANGE_MDT;
+		range->lsr_start = FID_SEQ_SPECIAL;
+		range->lsr_end = FID_SEQ_SPECIAL + 1;
+		range->lsr_index = fid_index_get_by_rootfid(fid);
+		return 0;
+	}
+
+	if (fid_is_idif(fid)) {
+		range->lsr_flags = LU_SEQ_RANGE_OST;
+		range->lsr_index = fid_idif_ost_idx(fid);
+		return 0;
+	}
+
+	if (!fid_is_norm(fid)) {
+		range->lsr_flags = LU_SEQ_RANGE_MDT;
+		if (ms != NULL)
+			/* FIXME: If ms is NULL, it suppose not get lsr_index
+			 * at all */
+			range->lsr_index = ms->ms_node_id;
+		return 0;
+	}
+
+	LASSERT(ms != NULL);
+	range->lsr_flags = -1;
+	rc = fld_server_lookup(ms->ms_server_fld, env, fid_seq(fid), range);
+	if (rc != 0)
+		CERROR("%s can not find "DFID": rc = %d\n",
+		       osd_name(osd), PFID(fid), rc);
+	return rc;
+}
+
+static int osd_remote_fid(const struct lu_env *env, struct osd_device *osd,
+			  struct lu_fid *fid)
+{
+	struct lu_seq_range	*range = &osd_oti_get(env)->oti_seq_range;
+	struct md_site		*ms = osd_md_site(osd);
+	int			rc;
+	ENTRY;
+
+	if (!fid_is_norm(fid) && !fid_is_root(fid))
+		RETURN(0);
+
+	rc = osd_fld_lookup(env, osd, fid, range);
+	if (rc != 0) {
+		CERROR("%s: Can not lookup fld for "DFID"\n",
+		       osd_name(osd), PFID(fid));
+		RETURN(rc);
+	}
+
+	LASSERT(range->lsr_flags == LU_SEQ_RANGE_MDT);
+	LASSERT(ms != NULL);
+	if (ms->ms_node_id == range->lsr_index)
+		RETURN(0);
+
+	RETURN(1);
+}
+
 /**
  *      Inserts (key, value) pair in \a directory object.
  *
@@ -521,7 +591,7 @@ static int osd_dir_insert(const struct lu_env *env, struct dt_object *dt,
 	struct osd_device   *osd = osd_obj2dev(parent);
 	struct lu_fid       *fid = (struct lu_fid *)rec;
 	struct osd_thandle  *oh;
-	struct osd_object   *child;
+	struct osd_object   *child = NULL;
 	__u32                attr;
 	int                  rc;
 	ENTRY;
@@ -529,39 +599,53 @@ static int osd_dir_insert(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(parent->oo_db);
 	LASSERT(udmu_object_is_zap(parent->oo_db));
 
-	LASSERT(dt_object_exists(dt));
-	LASSERT(osd_invariant(parent));
+	LASSERT(th != NULL);
+	oh = container_of0(th, struct osd_thandle, ot_super);
 
-	/*
-	 * zfs_readdir() generates ./.. on fly, but
-	 * we want own entries (.. at least) with a fid
-	 */
+	rc = osd_remote_fid(env, osd, fid);
+	if (rc < 0) {
+		CERROR("Can not find object "DFID" rc %d\n",
+			PFID(fid), rc);
+		RETURN(rc);
+	}
+
+	if (rc == 1) {
+		/* Insert remote entry */
+		memset(&oti->oti_zde.lzd_reg, 0, sizeof(oti->oti_zde.lzd_reg));
+		oti->oti_zde.lzd_reg.zde_type = IFTODT(S_IFDIR & S_IFMT);
+	} else {
+		LASSERT(dt_object_exists(dt));
+		LASSERT(osd_invariant(parent));
+
+		/*
+		 * zfs_readdir() generates ./.. on fly, but
+		 * we want own entries (.. at least) with a fid
+		 */
 #if LUSTRE_VERSION_CODE >= OBD_OCD_VERSION(2, 3, 55, 0)
 #warning "fix '.' and '..' handling"
 #endif
 
-	LASSERT(th != NULL);
-	oh = container_of0(th, struct osd_thandle, ot_super);
+		/* Insert local entry */
+		child = osd_object_find(env, dt, fid);
+		if (IS_ERR(child))
+			RETURN(PTR_ERR(child));
 
-	child = osd_object_find(env, dt, fid);
-	if (IS_ERR(child))
-		RETURN(PTR_ERR(child));
+		LASSERT(child->oo_db);
 
-	LASSERT(child->oo_db);
-
-	CLASSERT(sizeof(oti->oti_zde.lzd_reg) == 8);
-	CLASSERT(sizeof(oti->oti_zde) % 8 == 0);
-	attr = child->oo_dt.do_lu.lo_header ->loh_attr;
-	oti->oti_zde.lzd_reg.zde_type = IFTODT(attr & S_IFMT);
-	oti->oti_zde.lzd_reg.zde_dnode = child->oo_db->db_object;
+		CLASSERT(sizeof(oti->oti_zde.lzd_reg) == 8);
+		CLASSERT(sizeof(oti->oti_zde) % 8 == 0);
+		attr = child->oo_dt.do_lu.lo_header->loh_attr;
+		oti->oti_zde.lzd_reg.zde_type = IFTODT(attr & S_IFMT);
+		oti->oti_zde.lzd_reg.zde_dnode = child->oo_db->db_object;
+	}
 	oti->oti_zde.lzd_fid = *fid;
-
 	/* Insert (key,oid) into ZAP */
 	rc = -zap_add(osd->od_objset.os, parent->oo_db->db_object,
 		      (char *)key, 8, sizeof(oti->oti_zde) / 8,
 		      (void *)&oti->oti_zde, oh->ot_tx);
 
-	osd_object_put(env, child);
+	if (child != NULL)
+		osd_object_put(env, child);
 
 	RETURN(rc);
 }
@@ -896,6 +980,300 @@ static struct dt_index_operations osd_index_ops = {
 	}
 };
 
+static inline int range_key_cmp(struct dt_key *key1, struct dt_key *key2,
+				int key_size)
+{
+	return memcmp(key1, key2, key_size);
+}
+
+static int osd_index_range_insert_list(const struct lu_env *env,
+				  struct osd_range_root *root,
+				  struct osd_range *new)
+{
+	struct osd_range	*range;
+	int			rc = 0;
+	ENTRY;
+
+	cfs_write_lock(&root->orr_list_lock);
+	cfs_list_for_each_entry_reverse(range, &root->orr_list, or_list) {
+		if (range_key_cmp(range->or_key, new->or_key,
+				 root->orr_key_size) < 0) {
+			cfs_list_add(&new->or_list, &range->or_list);
+			GOTO(unlock, rc = 0);
+		} else if (range_key_cmp(range->or_key, new->or_key,
+				 root->orr_key_size) ==  0) {
+			GOTO(unlock, rc = -EEXIST);
+		}
+	}
+	cfs_list_add(&new->or_list, &root->orr_list);
+unlock:
+	cfs_write_unlock(&root->orr_list_lock);
+	RETURN(rc);
+}
+
+static void osd_index_range_delete_list(const struct lu_env *env,
+					struct osd_range_root *root,
+					struct dt_key *key)
+{
+	struct osd_range *range, *tmp;
+
+	cfs_write_lock(&root->orr_list_lock);
+	cfs_list_for_each_entry_safe(range, tmp, &root->orr_list, or_list) {
+		if (range_key_cmp(range->or_key, key,
+				 root->orr_key_size) == 0) {
+			cfs_list_del(&range->or_list);
+			OBD_FREE(range->or_rec, root->orr_rec_size);
+			OBD_FREE(range->or_key, root->orr_key_size);
+			OBD_FREE_PTR(range);
+			goto unlock;
+		}
+	}
+unlock:
+	cfs_write_unlock(&root->orr_list_lock);
+}
+
+int osd_fini_index_range(const struct lu_env *env, struct dt_object *dt)
+{
+	struct osd_object	*obj = osd_dt_obj(dt);
+	struct osd_range_root	*root = obj->oo_range_root;
+	struct osd_range	*range, *tmp;
+	ENTRY;
+
+	if (root == NULL)
+		RETURN(0);
+
+	cfs_write_lock(&root->orr_list_lock);
+	cfs_list_for_each_entry_safe(range, tmp, &root->orr_list, or_list) {
+		cfs_list_del(&range->or_list);
+		OBD_FREE(range->or_rec, root->orr_rec_size);
+		OBD_FREE(range->or_key, root->orr_key_size);
+		OBD_FREE_PTR(range);
+	}
+	cfs_write_unlock(&root->orr_list_lock);
+
+	OBD_FREE_PTR(root);
+	obj->oo_range_root = NULL;
+	RETURN(0);
+}
+
+static int osd_init_index_range(const struct lu_env *env,
+				struct dt_object *dt,
+				const struct dt_index_features *feat)
+{
+	struct osd_object	*obj = osd_dt_obj(dt);
+	struct osd_range_root	*root;
+	const struct dt_it_ops	*iops;
+	struct dt_it		*it;
+	int			rc;
+	ENTRY;
+
+	if (obj->oo_range_root != NULL)
+		RETURN(0);
+
+	OBD_ALLOC(root, sizeof(struct osd_range_root));
+	if (root == NULL)
+		RETURN(-ENOENT);
+
+	obj->oo_range_root = root;
+	CFS_INIT_LIST_HEAD(&root->orr_list);
+	cfs_rwlock_init(&root->orr_list_lock);
+	root->orr_key_size = feat->dif_keysize_max;
+	root->orr_rec_size = feat->dif_recsize_max;
+
+	iops = &dt->do_index_ops->dio_it;
+	it = iops->init(env, dt, 0, NULL);
+	if (IS_ERR(it))
+		GOTO(out, rc = PTR_ERR(it));
+
+	rc = iops->load(env, it, 0);
+	if (rc == 0) {
+		rc = iops->next(env, it);
+		if (rc > 0)
+			GOTO(out_it_fini, rc = 0);
+	} else {
+		/* if rc > 0, means the end of index file, i.e.
+		 * empty index file */
+		if (rc > 0)
+			rc = 0;
+		else
+			GOTO(out_it_fini, rc);
+	}
+
+	do {
+		struct osd_range	*range;
+		struct dt_key		*key;
+		int			key_sz;
+
+		key_sz = iops->key_size(env, it);
+		if (key_sz == 0) {
+			CERROR("key invalid key_sz: %d != %d\n", key_sz,
+				root->orr_key_size);
+			GOTO(out_it_fini, rc = 0);
+		}
+
+		if (key_sz != root->orr_key_size) {
+			CERROR("key invalid key_sz: %d != %d\n", key_sz,
+				root->orr_key_size);
+			GOTO(out_it_fini, rc = -EINVAL);
+		}
+
+		key = iops->key(env, it);
+		if (IS_ERR(key)) {
+			rc = PTR_ERR(key);
+			CERROR("key failed to get key: rc = %d\n", rc);
+			GOTO(out_it_fini, rc);
+		}
+
+		OBD_ALLOC_PTR(range);
+		if (range == NULL)
+			GOTO(out_it_fini, rc = -ENOMEM);
+
+		OBD_ALLOC(range->or_rec, root->orr_rec_size);
+		if (range->or_rec == NULL) {
+			OBD_FREE_PTR(range);
+			GOTO(out_it_fini, rc = -ENOMEM);
+		}
+
+		OBD_ALLOC(range->or_key, key_sz);
+		if (range->or_rec == NULL) {
+			OBD_FREE_PTR(range);
+			OBD_FREE(range->or_rec, root->orr_rec_size);
+			GOTO(out_it_fini, rc = -ENOMEM);
+		}
+
+		memcpy(range->or_key, key, key_sz);
+		rc = iops->rec(env, it, (struct dt_rec *)range->or_rec, 0);
+		if (rc != 0)
+			GOTO(out_it_fini, rc);
+
+		rc = osd_index_range_insert_list(env, root, range);
+		if (rc != 0)
+			GOTO(out_it_fini, rc);
+
+		rc = iops->next(env, it);
+	} while (rc == 0);
+
+	if (rc == 1)
+		rc = 0;
+out_it_fini:
+	iops->fini(env, it);
+out:
+	if (rc != 0)
+		osd_fini_index_range(env, dt);
+
+	RETURN(rc);
+}
+
+static int osd_index_range_lookup(const struct lu_env *env,
+				  struct dt_object *dt,
+				  struct dt_rec *rec,
+				  const struct dt_key *key,
+				  struct lustre_capa *capa)
+{
+	struct osd_object       *obj = osd_dt_obj(dt);
+	struct osd_range_root   *root = obj->oo_range_root;
+	struct osd_range	*range;
+	ENTRY;
+
+	LASSERT(root != NULL);
+	cfs_read_lock(&root->orr_list_lock);
+	cfs_list_for_each_entry_reverse(range, &root->orr_list, or_list) {
+		if (range_key_cmp(range->or_key, (struct dt_key *)key,
+				  root->orr_key_size) < 0) {
+			memcpy(rec, range->or_rec, root->orr_rec_size);
+			cfs_read_unlock(&root->orr_list_lock);
+			RETURN(0);
+		}
+	}
+	cfs_read_unlock(&root->orr_list_lock);
+	RETURN(-ENOENT);
+}
+
+static int osd_index_range_insert(const struct lu_env *env,
+				  struct dt_object *dt,
+				  const struct dt_rec *rec,
+				  const struct dt_key *key,
+				  struct thandle *th,
+				  struct lustre_capa *capa,
+				  int ignore_quota)
+{
+	struct osd_object	*obj = osd_dt_obj(dt);
+	struct osd_range	*range = NULL;
+	struct osd_range_root	*root = obj->oo_range_root;
+	int			rc;
+	ENTRY;
+
+	rc = osd_index_insert(env, dt, rec, key, th, capa, ignore_quota);
+	if (rc != 0)
+		RETURN(rc);
+
+	LASSERT(root != NULL);
+	OBD_ALLOC_PTR(range);
+	if (range == NULL)
+		GOTO(out_free,  rc = -ENOMEM);
+
+	OBD_ALLOC(range->or_rec, root->orr_rec_size);
+	if (range->or_rec == NULL)
+		GOTO(out_free,  rc = -ENOMEM);
+
+	OBD_ALLOC(range->or_key, root->orr_key_size);
+	if (range->or_key == NULL)
+		GOTO(out_free,  rc = -ENOMEM);
+
+	memcpy(range->or_key, key, root->orr_key_size);
+	memcpy(range->or_rec, rec, root->orr_rec_size);
+	rc = osd_index_range_insert_list(env, root, range);
+
+out_free:
+	if (rc != 0 && range != NULL) {
+		if (range->or_rec != NULL)
+			OBD_FREE(range->or_rec, root->orr_rec_size);
+		if (range->or_key != NULL)
+			OBD_FREE(range->or_key, root->orr_key_size);
+		OBD_FREE_PTR(range);
+	}
+
+	RETURN(rc);
+}
+
+static int osd_index_range_delete(const struct lu_env *env,
+				  struct dt_object *dt,
+				  const struct dt_key *key,
+				  struct thandle *th,
+				  struct lustre_capa *capa)
+{
+	struct osd_object	*obj = osd_dt_obj(dt);
+	struct osd_range_root	*root = obj->oo_range_root;
+	int			rc;
+	ENTRY;
+
+	osd_index_range_delete_list(env, root, (struct dt_key *)key);
+
+	rc = osd_index_delete(env, dt, key, th, capa);
+
+	RETURN(rc);
+}
+
+static struct dt_index_operations osd_index_range_ops = {
+	.dio_lookup	 = osd_index_range_lookup,
+	.dio_declare_insert = osd_declare_index_insert,
+	.dio_insert	 = osd_index_range_insert,
+	.dio_declare_delete = osd_declare_index_delete,
+	.dio_delete	 = osd_index_range_delete,
+	.dio_it     = {
+		.init     = osd_zap_it_init,
+		.fini     = osd_zap_it_fini,
+		.get      = osd_index_it_get,
+		.put      = osd_zap_it_put,
+		.next     = osd_index_it_next,
+		.key      = osd_index_it_key,
+		.key_size = osd_index_it_key_size,
+		.rec      = osd_index_it_rec,
+		.store    = osd_index_it_store,
+		.load     = osd_index_it_load
+	}
+};
+
 int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 		const struct dt_index_features *feat)
 {
@@ -904,10 +1282,15 @@ int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 
 	LASSERT(dt_object_exists(dt));
 
-	/*
-	 * XXX: implement support for fixed-size keys sorted with natural
-	 *      numerical way (not using internal hash value)
-	 */
+	if (feat->dif_flags & DT_IND_RANGE) {
+		int rc;
+
+		dt->do_index_ops = &osd_index_range_ops;
+		obj->oo_recsize = feat->dif_recsize_max / sizeof(__u64);
+		rc = osd_init_index_range(env, dt, feat);
+		RETURN(rc);
+	}
+
 	if (feat->dif_flags & DT_IND_RANGE)
 		RETURN(-ERANGE);
 
