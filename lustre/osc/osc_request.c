@@ -1112,7 +1112,8 @@ static int check_write_rcs(struct ptlrpc_request *req,
                 }
         }
 
-        if (req->rq_bulk->bd_nob_transferred != requested_nob) {
+	if (req->rq_bulk != NULL &&
+	    req->rq_bulk->bd_nob_transferred != requested_nob) {
                 CERROR("Unexpected # bytes transferred: %d (requested %d)\n",
                        req->rq_bulk->bd_nob_transferred, requested_nob);
                 return(-EPROTO);
@@ -1209,10 +1210,11 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
         struct ost_body         *body;
         struct obd_ioobj        *ioobj;
         struct niobuf_remote    *niobuf;
-        int niocount, i, requested_nob, opc, rc;
+	int niocount, i, requested_nob, opc, rc, short_io_size;
         struct osc_brw_async_args *aa;
         struct req_capsule      *pill;
         struct brw_page *pg_prev;
+	unsigned char *short_io_buf;
 
         ENTRY;
         if (OBD_FAIL_CHECK(OBD_FAIL_OSC_BRW_PREP_REQ))
@@ -1244,6 +1246,23 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
                              niocount * sizeof(*niobuf));
         osc_set_capa_size(req, &RMF_CAPA1, ocapa);
 
+	if (page_count <= OBD_SHORT_IO_NUM_PAGES && niocount == 1 &&
+	    (cli->cl_import->imp_connect_data.ocd_connect_flags &
+	     OBD_CONNECT_SHORTIO)) {
+		short_io_size = 0;
+		for (i = 0; i < page_count; i++)
+			short_io_size += pga[i]->count;
+	} else {
+		short_io_size = 0;
+	}
+
+	req_capsule_set_size(pill, &RMF_SHORT_IO, RCL_CLIENT,
+			     opc == OST_READ ? 0 : short_io_size);
+	if (opc == OST_READ)
+		req_capsule_set_size(pill, &RMF_SHORT_IO, RCL_SERVER,
+				     short_io_size);
+
+
         rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, opc);
         if (rc) {
                 ptlrpc_request_free(req);
@@ -1251,9 +1270,17 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
         }
         req->rq_request_portal = OST_IO_PORTAL; /* bug 7198 */
         ptlrpc_at_set_req_timeout(req);
+
 	/* ask ptlrpc not to resend on EINPROGRESS since BRWs have their own
 	 * retry logic */
 	req->rq_no_retry_einprogress = 1;
+
+	if (short_io_size != 0) {
+		desc = NULL;
+		short_io_buf = NULL;
+		goto no_bulk;
+	}
+
 
         if (opc == OST_WRITE)
                 desc = ptlrpc_prep_bulk_imp(req, page_count,
@@ -1265,7 +1292,7 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
         if (desc == NULL)
                 GOTO(out, rc = -ENOMEM);
         /* NB request now owns desc and will free it when it gets freed */
-
+no_bulk:
         body = req_capsule_client_get(pill, &RMF_OST_BODY);
         ioobj = req_capsule_client_get(pill, &RMF_OBD_IOOBJ);
         niobuf = req_capsule_client_get(pill, &RMF_NIOBUF_REMOTE);
@@ -1276,6 +1303,22 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
         obdo_to_ioobj(oa, ioobj);
         ioobj->ioo_bufcnt = niocount;
         osc_pack_capa(req, body, ocapa);
+
+	if (short_io_size != 0) {
+		if ((body->oa.o_valid & OBD_MD_FLFLAGS) == 0) {
+			body->oa.o_valid |= OBD_MD_FLFLAGS;
+			body->oa.o_flags = 0;
+		}
+		body->oa.o_flags |= OBD_FL_SHORT_IO;
+		CDEBUG(D_INFO, "Using short io for data transfer, size = %d\n",
+		       short_io_size);
+		if (opc == OST_WRITE) {
+			short_io_buf = req_capsule_client_get(pill,
+							      &RMF_SHORT_IO);
+			LASSERT(short_io_buf != NULL);
+		}
+	}
+
         LASSERT (page_count > 0);
         pg_prev = pga[0];
         for (requested_nob = i = 0; i < page_count; i++, niobuf++) {
@@ -1306,7 +1349,18 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
                 LASSERT((pga[0]->flag & OBD_BRW_SRVLOCK) ==
                         (pg->flag & OBD_BRW_SRVLOCK));
 
-		ptlrpc_prep_bulk_page_pin(desc, pg->pg, poff, pg->count);
+		if (short_io_size != 0 && opc == OST_WRITE) {
+			unsigned char *ptr = cfs_kmap_atomic(pg->pg);
+
+			LASSERT(short_io_size >= requested_nob + pg->count);
+			memcpy(short_io_buf + requested_nob,
+			       ptr + poff,
+			       pg->count);
+			cfs_kunmap_atomic(pg->pg, ptr);
+		} else if (short_io_size == 0) {
+			ptlrpc_prep_bulk_page_pin(desc, pg->pg, poff, pg->count);
+		}
+
                 requested_nob += pg->count;
 
                 if (i > 0 && can_merge_pages(pg_prev, pg)) {
@@ -1495,9 +1549,9 @@ static int osc_brw_fini_request(struct ptlrpc_request *req, int rc)
                         CERROR("Unexpected +ve rc %d\n", rc);
                         RETURN(-EPROTO);
                 }
-                LASSERT(req->rq_bulk->bd_nob == aa->aa_requested_nob);
 
-                if (sptlrpc_cli_unwrap_bulk_write(req, req->rq_bulk))
+		if (req->rq_bulk != NULL &&
+		    sptlrpc_cli_unwrap_bulk_write(req, req->rq_bulk))
                         RETURN(-EAGAIN);
 
                 if ((aa->aa_oa->o_valid & OBD_MD_FLCKSUM) && client_cksum &&
@@ -1513,9 +1567,14 @@ static int osc_brw_fini_request(struct ptlrpc_request *req, int rc)
         }
 
         /* The rest of this function executes only for OST_READs */
-
-        /* if unwrap_bulk failed, return -EAGAIN to retry */
-        rc = sptlrpc_cli_unwrap_bulk_read(req, req->rq_bulk, rc);
+	if (req->rq_bulk == NULL) {
+		rc = req_capsule_get_size(&req->rq_pill, &RMF_SHORT_IO,
+					  RCL_SERVER);
+		LASSERT(rc == req->rq_status);
+	} else {
+		/* if unwrap_bulk failed, return -EAGAIN to retry */
+		rc = sptlrpc_cli_unwrap_bulk_read(req, req->rq_bulk, rc);
+	}
         if (rc < 0)
                 GOTO(out, rc = -EAGAIN);
 
@@ -1525,11 +1584,40 @@ static int osc_brw_fini_request(struct ptlrpc_request *req, int rc)
                 RETURN(-EPROTO);
         }
 
-        if (rc != req->rq_bulk->bd_nob_transferred) {
+	if (req->rq_bulk != NULL && rc != req->rq_bulk->bd_nob_transferred) {
                 CERROR ("Unexpected rc %d (%d transferred)\n",
                         rc, req->rq_bulk->bd_nob_transferred);
                 return (-EPROTO);
         }
+
+	if (req->rq_bulk == NULL) {
+		/* short io */
+		int nob, pg_count, i = 0;
+		unsigned char *buf;
+
+		CDEBUG(D_INFO, "Using short io read, size %d\n", rc);
+		pg_count = aa->aa_page_count;
+		buf = req_capsule_server_sized_get(&req->rq_pill, &RMF_SHORT_IO,
+						   rc);
+		nob = rc;
+		while (nob > 0 && pg_count > 0) {
+			unsigned char *ptr;
+			int count = aa->aa_ppga[i]->count > nob ?
+				    nob : aa->aa_ppga[i]->count;
+
+			CDEBUG(D_PAGE, "page %p count %d\n", aa->aa_ppga[i]->pg,
+			       count);
+			ptr = cfs_kmap_atomic(aa->aa_ppga[i]->pg);
+			memcpy(ptr + (aa->aa_ppga[i]->off & ~CFS_PAGE_MASK),
+			       buf, count);
+			cfs_kunmap_atomic(aa->aa_ppga[i]->pg, (void *) ptr);
+
+			buf += count;
+			nob -= count;
+			i++;
+			pg_count--;
+		}
+	}
 
         if (rc < aa->aa_requested_nob)
                 handle_short_read(rc, aa->aa_page_count, aa->aa_ppga);
@@ -1547,7 +1635,8 @@ static int osc_brw_fini_request(struct ptlrpc_request *req, int rc)
                                                  aa->aa_ppga, OST_READ,
                                                  cksum_type);
 
-                if (peer->nid == req->rq_bulk->bd_sender) {
+		if (req->rq_bulk == NULL ||
+		    peer->nid == req->rq_bulk->bd_sender) {
                         via = router = "";
                 } else {
                         via = " via ";
@@ -1908,6 +1997,7 @@ static int brw_interpret(const struct lu_env *env,
 	struct osc_extent *tmp;
 	struct cl_object  *obj = NULL;
 	struct client_obd *cli = aa->aa_cli;
+	unsigned long	   transferred = 0;
         ENTRY;
 
         rc = osc_brw_fini_request(req, rc);
@@ -1985,10 +2075,13 @@ static int brw_interpret(const struct lu_env *env,
 	}
 	OBDO_FREE(aa->aa_oa);
 
-	cl_req_completion(env, aa->aa_clerq, rc < 0 ? rc :
-			  req->rq_bulk->bd_nob_transferred);
+	transferred = (req->rq_bulk == NULL ? /* short io */
+		       aa->aa_requested_nob :
+		       req->rq_bulk->bd_nob_transferred);
+
+	cl_req_completion(env, aa->aa_clerq, rc < 0 ? rc : transferred);
 	osc_release_ppga(aa->aa_ppga, aa->aa_page_count);
-	ptlrpc_lprocfs_brw(req, req->rq_bulk->bd_nob_transferred);
+	ptlrpc_lprocfs_brw(req, transferred);
 
 	client_obd_list_lock(&cli->cl_loi_list_lock);
 	/* We need to decrement before osc_ap_completion->osc_wake_cache_waiters
