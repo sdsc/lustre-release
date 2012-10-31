@@ -221,7 +221,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                                   OBD_CONNECT_RMT_CLIENT | OBD_CONNECT_VBR    |
                                   OBD_CONNECT_FULL20   | OBD_CONNECT_64BITHASH|
 				  OBD_CONNECT_EINPROGRESS |
-				  OBD_CONNECT_JOBSTATS;
+				  OBD_CONNECT_JOBSTATS | OBD_CONNECT_LAYOUTLOCK;
 
         if (sbi->ll_flags & LL_SBI_SOM_PREVIEW)
                 data->ocd_connect_flags |= OBD_CONNECT_SOM;
@@ -1681,12 +1681,7 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
 		LASSERT(S_ISREG(inode->i_mode));
 		CDEBUG(D_INODE, "adding lsm %p to inode %lu/%u(%p)\n",
 				lsm, inode->i_ino, inode->i_generation, inode);
-		/* cl_file_inode_init must go before lli_has_smd or a race
-		 * is possible where client thinks the file has stripes,
-		 * but lov raid0 is not setup yet and parallel e.g.
-		 * glimpse would try to use uninitialized lov */
-		if (cl_file_inode_init(inode, md) == 0)
-			lli->lli_has_smd = true;
+		cl_file_inode_init(inode, md);
 
 		lli->lli_maxbytes = lsm->lsm_maxbytes;
 		if (lli->lli_maxbytes > MAX_LFS_FILESIZE)
