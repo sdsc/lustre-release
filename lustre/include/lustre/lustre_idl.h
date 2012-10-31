@@ -1221,7 +1221,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                 OBD_CONNECT_MDS | OBD_CONNECT_SKIP_ORPHAN | \
                                 OBD_CONNECT_GRANT_SHRINK | OBD_CONNECT_FULL20 | \
                                 OBD_CONNECT_64BITHASH | OBD_CONNECT_MAXBYTES | \
-                                OBD_CONNECT_MAX_EASIZE | \
+				OBD_CONNECT_MAX_EASIZE | OBD_CONNECT_SHORTIO | \
 				OBD_CONNECT_EINPROGRESS | \
 				OBD_CONNECT_JOBSTATS | OBD_CONNECT_LIGHTWEIGHT)
 #define ECHO_CONNECT_SUPPORTED (0)
@@ -1375,6 +1375,7 @@ enum obdo_flags {
                                            * clients prior than 2.2 */
         OBD_FL_RECOV_RESEND = 0x00080000, /* recoverable resent */
         OBD_FL_NOSPC_BLK    = 0x00100000, /* no more block space on OST */
+	OBD_FL_SHORT_IO	    = 0x00200000, /* short io request */
 
         /* Note that while these checksum values are currently separate bits,
          * in 2.x we can actually allow all values from 1-31 if we wanted. */
@@ -1555,6 +1556,8 @@ extern void lustre_swab_obd_statfs (struct obd_statfs *os);
 #define OBD_BRW_OVER_GRPQUOTA 0x2000 /* Running out of group quota */
 
 #define OBD_OBJECT_EOF 0xffffffffffffffffULL
+#define OBD_SHORT_IO_NUM_PAGES	1    /* Number of pages when short io happend,
+				      * should base on OST_MAXREQSIZE */
 
 #define OST_MIN_PRECREATE 32
 #define OST_MAX_PRECREATE 20000
