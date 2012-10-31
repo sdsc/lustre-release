@@ -452,13 +452,18 @@ test_17f() {
 }
 run_test 17f "symlinks: long and very long symlink name ========================"
 
+# Long symlinks and LU-2241
 test_17g() {
-        mkdir -p $DIR/$tdir
-        LONGSYMLINK="$(dd if=/dev/zero bs=4095 count=1 | tr '\0' 'x')"
-        ln -s $LONGSYMLINK $DIR/$tdir/$tfile
-        ls -l $DIR/$tdir
+	mkdir -p $DIR/$tdir
+
+	for i in 59 60 61 4093 4094 4095; do
+		local SYMNAME=$(dd if=/dev/zero bs=$i count=1 | tr '\0' 'x')
+		echo $i > $DIR/$tdir/$SYMNAME || error "failed $i-char file"
+		ln -s $SYMNAME $DIR/$tdir/f$i || error "failed $i-char symlink"
+		readlink $DIR/$tdir/f$i || error "failed $i-char readlink"
+	done
 }
-run_test 17g "symlinks: really long symlink name ==============================="
+run_test 17g "symlinks: really long symlink name and inode boundaries ========="
 
 test_17h() { #bug 17378
         remote_mds_nodsh && skip "remote MDS with nodsh" && return
