@@ -553,6 +553,25 @@ test_17m() {
 }
 run_test 17m "run e2fsck against MDT which contains short/long symlink"
 
+# LU-2241
+test_17n() {
+    mkdir -p $DIR/$tdir
+    # Create files surrounding byte size of inode to test boundries of simlink size
+    echo 59 > $DIR/$tdir/12345678901234567890123456789012345678901234567890123456789
+    echo 60 > $DIR/$tdir/123456789012345678901234567890123456789012345678901234567890
+    echo 61 > $DIR/$tdir/1234567890123456789012345678901234567890123456789012345678901
+
+    # Create links to test
+    ln -s 12345678901234567890123456789012345678901234567890123456789   $DIR/$tdir/59 
+    ln -s 123456789012345678901234567890123456789012345678901234567890  $DIR/$tdir/60 
+    ln -s 1234567890123456789012345678901234567890123456789012345678901 $DIR/$tdir/61 
+
+    for i in 59 60 61; do
+	readlink $DIR/$tdir/$i || error "Failed to read symlink of size $i"
+    done
+}
+run_test 17n "symlinks: read symlinks on and around boundry of inode size"
+
 test_18() {
 	touch $DIR/f
 	ls $DIR || error
