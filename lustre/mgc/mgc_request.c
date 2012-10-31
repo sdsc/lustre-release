@@ -927,6 +927,8 @@ static int mgc_enqueue(struct obd_export *exp, struct lov_stripe_md *lsm,
                                         LDLM_ENQUEUE);
         if (req == NULL)
                 RETURN(-ENOMEM);
+
+	req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER, 0);
         ptlrpc_request_set_replen(req);
 
         /* check if this is server or client */

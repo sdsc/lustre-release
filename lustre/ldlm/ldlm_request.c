@@ -879,12 +879,13 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 
         /* Continue as normal. */
         if (!req_passed_in) {
-                if (lvb_len > 0) {
+                if (lvb_len > 0)
                         req_capsule_extend(&req->rq_pill,
                                            &RQF_LDLM_ENQUEUE_LVB);
-                        req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB,
-                                             RCL_SERVER, lvb_len);
-                }
+		if (req_capsule_has_field(&req->rq_pill, &RMF_DLM_LVB,
+					RCL_SERVER))
+			req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB,
+					RCL_SERVER, lvb_len);
                 ptlrpc_request_set_replen(req);
         }
 
