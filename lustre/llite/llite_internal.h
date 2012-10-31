@@ -272,6 +272,8 @@ struct ll_inode_info {
 
 	/* mutex to request for layout lock exclusively. */
 	cfs_mutex_t		        lli_layout_mutex;
+	/* valid only inside LYAOUT ibits lock, protected by lli_layout_mutex */
+	__u32				lli_layout_gen;
 };
 
 /*
@@ -706,7 +708,7 @@ extern int ll_inode_revalidate_it(struct dentry *, struct lookup_intent *,
 extern int ll_have_md_lock(struct inode *inode, __u64 *bits,
                            ldlm_mode_t l_req_mode);
 extern ldlm_mode_t ll_take_md_lock(struct inode *inode, __u64 bits,
-                                   struct lustre_handle *lockh);
+                                   struct lustre_handle *lockh, int flags);
 int __ll_inode_revalidate_it(struct dentry *, struct lookup_intent *,
                              __u64 bits);
 int ll_revalidate_nd(struct dentry *dentry, struct nameidata *nd);
