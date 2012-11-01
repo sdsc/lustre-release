@@ -2946,6 +2946,9 @@ kiblnd_base_startup(void)
         cfs_waitq_init(&kiblnd_data.kib_connd_waitq);
 	cfs_waitq_init(&kiblnd_data.kib_failover_waitq);
 
+	for (i = 0; i < KH_LAST; i++)
+		cfs_spin_lock_init(&kiblnd_data.kib_hist[i].kh_lock);
+
 	kiblnd_data.kib_scheds = cfs_percpt_alloc(lnet_cpt_table(),
 						  sizeof(*sched));
 	if (kiblnd_data.kib_scheds == NULL)
@@ -3199,8 +3202,9 @@ failed:
 void __exit
 kiblnd_module_fini (void)
 {
-        lnet_unregister_lnd(&the_o2iblnd);
-        kiblnd_tunables_fini();
+	lnet_unregister_lnd(&the_o2iblnd);
+	kiblnd_proc_fini();
+	kiblnd_tunables_fini();
 }
 
 int __init
@@ -3217,6 +3221,10 @@ kiblnd_module_init (void)
         rc = kiblnd_tunables_init();
         if (rc != 0)
                 return rc;
+
+	rc = kiblnd_proc_init();
+	if (rc != 0)
+		return rc;
 
         lnet_register_lnd(&the_o2iblnd);
 
