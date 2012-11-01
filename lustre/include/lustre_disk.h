@@ -308,6 +308,8 @@ struct lustre_mount_data {
 #define OBD_INCOMPAT_LMM_VER    0x00000100
 /** multiple OI files for MDT */
 #define OBD_INCOMPAT_MULTI_OI   0x00000200
+/** flat fld files for FLDB */
+#define OBD_INCOMPAT_FLAT_FLD   0x00000400
 
 /* Data stored per server at the head of the last_rcvd file.  In le32 order.
    This should be common to filter_internal.h, lustre_mds.h */

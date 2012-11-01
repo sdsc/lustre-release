@@ -500,6 +500,7 @@ static const struct named_oid oids[] = {
 	{ LLOG_CATALOGS_OID,    "CATALOGS" },
 	{ MGS_CONFIGS_OID,      "" /* MOUNT_CONFIGS_DIR */ },
 	{ OFD_HEALTH_CHECK_OID, HEALTH_CHECK },
+	{ FLD_INDEX_FLAT_OID,   "fld_flat" },
 	{ 0,                    NULL }
 };
 
