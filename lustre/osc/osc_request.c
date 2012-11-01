@@ -2866,7 +2866,7 @@ out:
 	RETURN(rc);
 }
 
-static void /*__exit*/ osc_exit(void)
+static void __exit osc_exit(void)
 {
 	class_unregister_type(LUSTRE_OSC_NAME);
 	lu_kmem_fini(osc_caches);

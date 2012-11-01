@@ -2903,7 +2903,7 @@ static int echo_client_init(void)
 	return rc;
 }
 
-static void echo_client_exit(void)
+static void __exit echo_client_exit(void)
 {
         class_unregister_type(LUSTRE_ECHO_CLIENT_NAME);
         lu_kmem_fini(echo_caches);
@@ -2943,18 +2943,18 @@ failed_0:
         RETURN(rc);
 }
 
-static void /*__exit*/ obdecho_exit(void)
+static void __exit obdecho_exit(void)
 {
-        echo_client_exit();
+	echo_client_exit();
 
-# ifdef HAVE_SERVER_SUPPORT
-        class_unregister_type(LUSTRE_ECHO_NAME);
-        echo_persistent_pages_fini();
-# endif
+#ifdef HAVE_SERVER_SUPPORT
+	class_unregister_type(LUSTRE_ECHO_NAME);
+	echo_persistent_pages_fini();
+#endif
 }
 
 MODULE_AUTHOR("OpenSFS, Inc. <http://www.lustre.org/>");
-MODULE_DESCRIPTION("Lustre Testing Echo OBD driver");
+MODULE_DESCRIPTION("Lustre Echo Client test driver");
 MODULE_VERSION(LUSTRE_VERSION_STRING);
 MODULE_LICENSE("GPL");
 

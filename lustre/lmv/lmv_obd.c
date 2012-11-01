@@ -3403,13 +3403,13 @@ int __init lmv_init(void)
 				   LUSTRE_LMV_NAME, NULL);
 }
 
-static void lmv_exit(void)
+static void __exit lmv_exit(void)
 {
-        class_unregister_type(LUSTRE_LMV_NAME);
+	class_unregister_type(LUSTRE_LMV_NAME);
 }
 
 MODULE_AUTHOR("OpenSFS, Inc. <http://www.lustre.org/>");
-MODULE_DESCRIPTION("Lustre Logical Metadata Volume OBD driver");
+MODULE_DESCRIPTION("Lustre Logical Metadata Volume");
 MODULE_VERSION(LUSTRE_VERSION_STRING);
 MODULE_LICENSE("GPL");
 
