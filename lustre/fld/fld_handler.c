@@ -102,9 +102,8 @@ int fld_declare_server_create(struct lu_server_fld *fld,
                               const struct lu_env *env,
                               struct thandle *th)
 {
-        int rc;
-
-        ENTRY;
+	int rc;
+	ENTRY;
 
 	if (fld->lsf_no_range_lookup) {
 		/* Stub for underlying FS which can't lookup ranges */
@@ -113,13 +112,20 @@ int fld_declare_server_create(struct lu_server_fld *fld,
 
         /* for ldiskfs OSD it's enough to declare operation with any ops
          * with DMU we'll probably need to specify exact key/value */
-	rc = dt_declare_delete(env, fld->lsf_obj, NULL, th);
+	rc = dt_declare_record_write(env, fld->lsf_obj,
+				     sizeof(struct lu_seq_range), 0, th);
 	if (rc)
 		GOTO(out, rc);
-	rc = dt_declare_delete(env, fld->lsf_obj, NULL, th);
+
+	rc = dt_declare_record_write(env, fld->lsf_obj,
+				     sizeof(struct lu_seq_range), 0, th);
 	if (rc)
 		GOTO(out, rc);
-	rc = dt_declare_insert(env, fld->lsf_obj, NULL, NULL, th);
+
+	rc = dt_declare_record_write(env, fld->lsf_obj,
+				     sizeof(struct lu_seq_range), 0, th);
+	if (rc)
+		GOTO(out, rc);
 out:
 	RETURN(rc);
 }
@@ -247,9 +253,6 @@ int fld_server_create(struct lu_server_fld *fld,
 
         LASSERT(rc != -EEXIST);
 out:
-        if (rc == 0)
-                fld_cache_insert(fld->lsf_cache, new);
-
         cfs_mutex_unlock(&fld->lsf_lock);
 
         CDEBUG((rc != 0 ? D_ERROR : D_INFO),
@@ -295,16 +298,12 @@ int fld_server_lookup(struct lu_server_fld *fld,
         }
 
         if (fld->lsf_obj) {
-                rc = fld_index_lookup(fld, env, seq, erange);
-                if (rc == 0) {
-                        if (unlikely(erange->lsr_flags != range->lsr_flags)) {
-                                CERROR("FLD found a range "DRANGE" doesn't "
-                                       "match the requested flag %x\n",
-                                       PRANGE(erange), range->lsr_flags);
-                                RETURN(-EIO);
-                        }
-                        *range = *erange;
-                }
+		/* On server side, all entries should be in cache.
+		 * If we can not find it in cache, just return error */
+		CERROR("%s: Can not found the seq "LPX64"\n",
+			fld->lsf_name, seq);
+		fld_dump_cache_entries(fld->lsf_cache);
+		RETURN(-EIO);
         } else {
                 LASSERT(fld->lsf_control_exp);
                 /* send request to mdt0 i.e. super seq. controller.
@@ -313,11 +312,9 @@ int fld_server_lookup(struct lu_server_fld *fld,
                  */
                 rc = fld_client_rpc(fld->lsf_control_exp,
                                     range, FLD_LOOKUP);
+		if (rc == 0)
+			fld_cache_insert(fld->lsf_cache, range, 0);
         }
-
-        if (rc == 0)
-                fld_cache_insert(fld->lsf_cache, range);
-
         RETURN(rc);
 }
 EXPORT_SYMBOL(fld_server_lookup);
@@ -562,7 +559,7 @@ int fld_server_init(struct lu_server_fld *fld, struct dt_device *dt,
         range.lsr_end = FID_SEQ_DOT_LUSTRE + 1;
         range.lsr_index = 0;
         range.lsr_flags = LU_SEQ_RANGE_MDT;
-        fld_cache_insert(fld->lsf_cache, &range);
+	fld_cache_insert(fld->lsf_cache, &range, 0);
 
         EXIT;
 out:
