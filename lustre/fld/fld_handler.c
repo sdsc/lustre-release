@@ -98,29 +98,79 @@ static void __exit fld_mod_exit(void)
         }
 }
 
-int fld_declare_server_create(struct lu_server_fld *fld,
-                              const struct lu_env *env,
-                              struct thandle *th)
+int fld_declare_server_create(const struct lu_env *env,
+			      struct lu_server_fld *fld,
+			      struct lu_seq_range *new,
+			      struct thandle *th)
 {
-        int rc;
+	struct lu_seq_range *range;
+	struct fld_thread_info *info;
+	int rc = 0;
 
-        ENTRY;
+	ENTRY;
 
-	if (fld->lsf_no_range_lookup) {
-		/* Stub for underlying FS which can't lookup ranges */
-		return 0;
+	info = lu_context_key_get(&env->le_ctx, &fld_thread_key);
+	cfs_mutex_lock(&fld->lsf_lock);
+
+	range = &info->fti_lrange;
+	memset(range, 0, sizeof(*range));
+
+	rc = fld_index_lookup(fld, env, new->lsr_start, range);
+	if (rc == 0) {
+		/* In case of duplicate entry, the location must be same */
+		LASSERT((range_compare_loc(new, range) == 0));
+		CERROR("%s: "DRANGE" exists!\n", fld->lsf_name, PRANGE(new));
+		GOTO(out, rc = -EEXIST);
 	}
 
-        /* for ldiskfs OSD it's enough to declare operation with any ops
-         * with DMU we'll probably need to specify exact key/value */
-	rc = dt_declare_delete(env, fld->lsf_obj, NULL, th);
-	if (rc)
+	if (rc != -ENOENT) {
+		CERROR("%s: lookup range "DRANGE" error: rc = %d\n",
+			fld->lsf_name, PRANGE(range), rc);
 		GOTO(out, rc);
-	rc = dt_declare_delete(env, fld->lsf_obj, NULL, th);
-	if (rc)
-		GOTO(out, rc);
-	rc = dt_declare_insert(env, fld->lsf_obj, NULL, NULL, th);
+	}
+
+	/* Check for merge case, since the fld entry can only be increamental,
+	 * so we will only check whether it can be merged from the left. */
+	if (new->lsr_start == range->lsr_end && range->lsr_end != 0 &&
+	    range_compare_loc(new, range) == 0) {
+		struct fld_cache_entry *flde;
+
+		flde = fld_cache_entry_lookup(fld->lsf_cache, range);
+		LASSERTF(flde != NULL, "can not find range "DRANGE"\n",
+			PRANGE(range));
+
+		rc = dt_declare_record_write(env, fld->lsf_obj,
+					     sizeof(struct lu_seq_range),
+					     flde->fce_off, th);
+		if (rc) {
+			CERROR("declare record "DRANGE" failed: rc = %d\n",
+				PRANGE(&flde->fce_range), rc);
+			GOTO(out, rc);
+		}
+	} else {
+		/* Insert the range to the end of the file */
+		struct lu_attr *attr;
+
+		OBD_ALLOC_PTR(attr);
+		if (attr == NULL)
+			GOTO(out, rc = -ENOMEM);
+
+		rc = dt_attr_get(env, fld->lsf_obj, attr, BYPASS_CAPA);
+		if (rc != 0) {
+			CERROR("%s: can not get attr"DRANGE": rc = %d\n",
+				fld->lsf_name, PRANGE(new), rc);
+			OBD_FREE_PTR(attr);
+			GOTO(out, rc);
+		}
+
+		rc = dt_declare_record_write(env, fld->lsf_obj,
+					     sizeof(struct lu_seq_range),
+					     attr->la_size, th);
+		OBD_FREE_PTR(attr);
+	}
 out:
+	cfs_mutex_unlock(&fld->lsf_lock);
+
 	RETURN(rc);
 }
 EXPORT_SYMBOL(fld_declare_server_create);
@@ -128,134 +178,79 @@ EXPORT_SYMBOL(fld_declare_server_create);
 /**
  * Insert FLD index entry and update FLD cache.
  *
- * First it try to merge given range with existing range then update
- * FLD index and FLD cache accordingly. FLD index consistency is maintained
- * by this function.
  * This function is called from the sequence allocator when a super-sequence
  * is granted to a server.
  */
-
-int fld_server_create(struct lu_server_fld *fld,
-                      const struct lu_env *env,
-                      struct lu_seq_range *add_range,
-                      struct thandle *th)
+int fld_server_create(struct lu_server_fld *fld, const struct lu_env *env,
+		      struct lu_seq_range *new, struct thandle *th)
 {
-        struct lu_seq_range *erange;
-        struct lu_seq_range *new;
-        struct fld_thread_info *info;
-        int rc = 0;
-        int do_merge=0;
-
+	struct lu_seq_range	*range;
+	struct fld_thread_info	*info;
+	struct fld_cache_entry	*flde;
+	int rc = 0;
         ENTRY;
 
         info = lu_context_key_get(&env->le_ctx, &fld_thread_key);
-        cfs_mutex_lock(&fld->lsf_lock);
 
-        erange = &info->fti_lrange;
-        new = &info->fti_irange;
-        *new = *add_range;
+	cfs_mutex_lock(&fld->lsf_lock);
 
-        /* STEP 1: try to merge with previous range */
-        rc = fld_index_lookup(fld, env, new->lsr_start, erange);
-        if (rc == 0) {
-                /* in case of range overlap, the location must be same */
-                if (range_compare_loc(new, erange) != 0) {
-                        CERROR("the start of given range "DRANGE" conflict to"
-                               "an existing range "DRANGE"\n",
-                               PRANGE(new), PRANGE(erange));
-                        GOTO(out, rc = -EIO);
-                }
+	range = &info->fti_lrange;
+	memset(range, 0, sizeof(*range));
+	/* Note: the whole fld index insertion is protected by
+	 * seq->lss_mutex (see seq_server_alloc_super), i.e. only
+	 * 1 thread will access fldb, so we do not need worry
+	 * the fld file and cache will being changed between
+	 * declare and create */
+	rc = fld_index_lookup(fld, env, new->lsr_start, range);
+	/* Declare phase already make sure the entry does not exist
+	 * in the cache */
+	LASSERTF(rc == -ENOENT, "%s: lookup range "DRANGE" error: rc = %d\n",
+		fld->lsf_name, PRANGE(range), rc);
 
-                if (new->lsr_end < erange->lsr_end)
-                        GOTO(out, rc);
-                do_merge = 1;
-        } else if (rc == -ENOENT) {
-                /* check for merge case: optimizes for single mds lustre.
-                 * As entry does not exist, returned entry must be left side
-                 * entry compared to start of new range (ref dio_lookup()).
-                 * So try to merge from left.
-                 */
-                if (new->lsr_start == erange->lsr_end &&
-                    range_compare_loc(new, erange) == 0)
-                        do_merge = 1;
-        } else {
-                /* no overlap allowed in fld, so failure in lookup is error */
-                GOTO(out, rc);
-        }
+	/* Check for merge case, since the fld entry can only be increamental,
+	 * so we will only check whether it can be merged from the left. */
+	if (new->lsr_start == range->lsr_end && range->lsr_end != 0 &&
+	    range_compare_loc(new, range) == 0) {
+		cfs_spin_lock(&fld->lsf_cache->fci_lock);
+		flde = fld_cache_entry_lookup_nolock(fld->lsf_cache, range);
+		LASSERTF(flde->fce_range.lsr_end == new->lsr_start &&
+			 flde->fce_range.lsr_start < new->lsr_start,
+			DRANGE" : "DRANGE" are not continguous!\n",
+			PRANGE(&flde->fce_range), PRANGE(new));
+		flde->fce_range.lsr_end = new->lsr_end;
+		cfs_spin_unlock(&fld->lsf_cache->fci_lock);
+	} else {
+		/* Insert the range to the end of the file */
+		struct lu_attr *attr = NULL;
 
-        if (do_merge) {
-                /* new range will be merged with the existing one.
-                 * delete this range at first. */
-                rc = fld_index_delete(fld, env, erange, th);
-                if (rc != 0)
-                        GOTO(out, rc);
+		OBD_ALLOC_PTR(attr);
+		if (attr == NULL)
+			GOTO(out, rc = -ENOMEM);
 
-                new->lsr_start = min(erange->lsr_start, new->lsr_start);
-                new->lsr_end = max(erange->lsr_end, new->lsr_end);
-                do_merge = 0;
-        }
+		rc = dt_attr_get(env, fld->lsf_obj, attr, BYPASS_CAPA);
+		if (rc != 0) {
+			CERROR("%s: can not get attr"DRANGE": rc = %d\n",
+				fld->lsf_name, PRANGE(range), rc);
+			OBD_FREE_PTR(attr);
+			GOTO(out, rc);
+		}
 
-        /* STEP 2: try to merge with next range */
-        rc = fld_index_lookup(fld, env, new->lsr_end, erange);
-        if (rc == 0) {
-                /* found a matched range, meaning we're either
-                 * overlapping or ajacent, must merge with it. */
-                do_merge = 1;
-        } else if (rc == -ENOENT) {
-                /* this range is left of new range end point */
-                LASSERT(erange->lsr_end <= new->lsr_end);
-                /*
-                 * the found left range must be either:
-                 *  1. withing new range.
-                 *  2. left of new range (no overlapping).
-                 * because if they're partly overlapping, the STEP 1 must have
-                 * been removed this range.
-                 */
-                LASSERTF(erange->lsr_start > new->lsr_start ||
-                         erange->lsr_end < new->lsr_start ||
-                         (erange->lsr_end == new->lsr_start &&
-                          range_compare_loc(new, erange) != 0),
-                         "left "DRANGE", new "DRANGE"\n",
-                         PRANGE(erange), PRANGE(new));
+		flde = fld_cache_entry_create(new, attr->la_size);
+		OBD_FREE_PTR(attr);
+		if (IS_ERR(flde))
+			GOTO(out, rc = PTR_ERR(flde));
 
-                /* if it's within the new range, merge it */
-                if (erange->lsr_start > new->lsr_start)
-                        do_merge = 1;
-        } else {
-               GOTO(out, rc);
-        }
+		rc = fld_cache_entry_insert(fld->lsf_cache, flde);
+		if (rc != 0) {
+			OBD_FREE_PTR(flde);
+			GOTO(out, rc);
+		}
+	}
 
-        if (do_merge) {
-                if (range_compare_loc(new, erange) != 0) {
-                        CERROR("the end of given range "DRANGE" overlaps "
-                               "with an existing range "DRANGE"\n",
-                               PRANGE(new), PRANGE(erange));
-                        GOTO(out, rc = -EIO);
-                }
-
-                /* merge with next range */
-                rc = fld_index_delete(fld, env, erange, th);
-                if (rc != 0)
-                        GOTO(out, rc);
-
-                new->lsr_start = min(erange->lsr_start, new->lsr_start);
-                new->lsr_end = max(erange->lsr_end, new->lsr_end);
-        }
-
-        /* now update fld entry. */
-        rc = fld_index_create(fld, env, new, th);
-
-        LASSERT(rc != -EEXIST);
+	rc = fld_write_range(env, fld->lsf_obj, &flde->fce_range,
+			     flde->fce_off, th);
 out:
-        if (rc == 0)
-                fld_cache_insert(fld->lsf_cache, new);
-
         cfs_mutex_unlock(&fld->lsf_lock);
-
-        CDEBUG((rc != 0 ? D_ERROR : D_INFO),
-               "%s: FLD create: given range : "DRANGE
-               "after merge "DRANGE" rc = %d \n", fld->lsf_name,
-                PRANGE(add_range), PRANGE(new), rc);
 
         RETURN(rc);
 }
@@ -295,16 +290,12 @@ int fld_server_lookup(struct lu_server_fld *fld,
         }
 
         if (fld->lsf_obj) {
-                rc = fld_index_lookup(fld, env, seq, erange);
-                if (rc == 0) {
-                        if (unlikely(erange->lsr_flags != range->lsr_flags)) {
-                                CERROR("FLD found a range "DRANGE" doesn't "
-                                       "match the requested flag %x\n",
-                                       PRANGE(erange), range->lsr_flags);
-                                RETURN(-EIO);
-                        }
-                        *range = *erange;
-                }
+		/* On server side, all entries should be in cache.
+		 * If we can not find it in cache, just return error */
+		CERROR("%s: Can not found the seq "LPX64"\n",
+			fld->lsf_name, seq);
+		fld_dump_cache_entries(fld->lsf_cache);
+		RETURN(-EIO);
         } else {
                 LASSERT(fld->lsf_control_exp);
                 /* send request to mdt0 i.e. super seq. controller.
@@ -313,11 +304,9 @@ int fld_server_lookup(struct lu_server_fld *fld,
                  */
                 rc = fld_client_rpc(fld->lsf_control_exp,
                                     range, FLD_LOOKUP);
+		if (rc == 0)
+			fld_cache_insert(fld->lsf_cache, range, 0);
         }
-
-        if (rc == 0)
-                fld_cache_insert(fld->lsf_cache, range);
-
         RETURN(rc);
 }
 EXPORT_SYMBOL(fld_server_lookup);
@@ -562,7 +551,7 @@ int fld_server_init(struct lu_server_fld *fld, struct dt_device *dt,
         range.lsr_end = FID_SEQ_DOT_LUSTRE + 1;
         range.lsr_index = 0;
         range.lsr_flags = LU_SEQ_RANGE_MDT;
-        fld_cache_insert(fld->lsf_cache, &range);
+	fld_cache_insert(fld->lsf_cache, &range, 0);
 
         EXIT;
 out:

@@ -100,6 +100,7 @@ static const struct named_oid oids[] = {
 	{ MDD_LOV_OBJ_OID,		LOV_OBJID },
 	{ MDT_LAST_RECV_OID,		LAST_RCVD },
 	{ OFD_HEALTH_CHECK_OID,		HEALTH_CHECK },
+	{ FLD_INDEX_FLAT_OID,		"fld_flat" },
 	{ OFD_GROUP0_LAST_OID,		"LAST_ID" },
 	{ ACCT_USER_OID,		"acct_usr_inode" },
 	{ ACCT_GROUP_OID,		"acct_grp_inode" },
