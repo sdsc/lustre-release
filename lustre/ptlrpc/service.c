@@ -85,8 +85,11 @@ ptlrpc_alloc_rqbd(struct ptlrpc_service_part *svcpt)
 	rqbd->rqbd_cbid.cbid_fn = request_in_callback;
 	rqbd->rqbd_cbid.cbid_arg = rqbd;
 	CFS_INIT_LIST_HEAD(&rqbd->rqbd_reqs);
-	OBD_CPT_ALLOC_LARGE(rqbd->rqbd_buffer, svc->srv_cptable,
-			    svcpt->scp_cpt, svc->srv_buf_size);
+
+	rqbd->rqbd_buffer = cfs_mem_cache_alloc(svc->srv_cache,
+						CFS_ALLOC_KERNEL);
+	memset(rqbd->rqbd_buffer, 0, svc->srv_buf_size);
+
 	if (rqbd->rqbd_buffer == NULL) {
 		OBD_FREE_PTR(rqbd);
 		return NULL;
@@ -103,7 +106,8 @@ ptlrpc_alloc_rqbd(struct ptlrpc_service_part *svcpt)
 void
 ptlrpc_free_rqbd(struct ptlrpc_request_buffer_desc *rqbd)
 {
-	struct ptlrpc_service_part *svcpt = rqbd->rqbd_svcpt;
+	struct ptlrpc_service_part	*svcpt = rqbd->rqbd_svcpt;
+	struct ptlrpc_service		*svc   = svcpt->scp_service;
 
 	LASSERT(rqbd->rqbd_refcount == 0);
 	LASSERT(cfs_list_empty(&rqbd->rqbd_reqs));
@@ -113,7 +117,8 @@ ptlrpc_free_rqbd(struct ptlrpc_request_buffer_desc *rqbd)
 	svcpt->scp_nrqbds_total--;
 	cfs_spin_unlock(&svcpt->scp_lock);
 
-	OBD_FREE_LARGE(rqbd->rqbd_buffer, svcpt->scp_service->srv_buf_size);
+	cfs_mem_cache_free(svc->srv_cache, rqbd->rqbd_buffer);
+
 	OBD_FREE_PTR(rqbd);
 }
 
@@ -697,6 +702,7 @@ ptlrpc_register_service(struct ptlrpc_service_conf *conf,
 	int				cpt;
 	int				rc;
 	int				i;
+	const char                      *cache_prefix = "ptlrpc";
 	ENTRY;
 
 	LASSERT(conf->psc_buf.bc_nbufs > 0);
@@ -778,6 +784,23 @@ ptlrpc_register_service(struct ptlrpc_service_conf *conf,
 	service->srv_ctx_tags		= conf->psc_thr.tc_ctx_tags;
 	service->srv_hpreq_ratio	= PTLRPC_SVC_HP_RATIO;
 	service->srv_ops		= conf->psc_ops;
+
+	/* Plus two for seperator and null terminator characters */
+	service->srv_cache_name_len = strlen(cache_prefix) +
+				      strlen(service->srv_name) + 2;
+
+	OBD_ALLOC(service->srv_cache_name, service->srv_cache_name_len);
+
+	if (service->srv_cache_name == NULL)
+		GOTO(failed, rc = -ENOMEM);
+
+	snprintf(service->srv_cache_name, service->srv_cache_name_len,
+		 "%s-%s", cache_prefix, service->srv_name);
+
+	service->srv_cache = cfs_mem_cache_create(service->srv_cache_name,
+						  service->srv_buf_size, 0, 0);
+	if (service->srv_cache == NULL)
+		GOTO(failed, rc = -ENOMEM);
 
 	for (i = 0; i < ncpts; i++) {
 		if (!conf->psc_thr.tc_cpu_affinity)
@@ -3125,6 +3148,16 @@ ptlrpc_service_free(struct ptlrpc_service *svc)
 
 	ptlrpc_service_for_each_part(svcpt, i, svc)
 		OBD_FREE_PTR(svcpt);
+
+	if (svc->srv_cache != NULL) {
+		cfs_mem_cache_destroy(svc->srv_cache);
+		svc->srv_cache = NULL;
+	}
+
+	if (svc->srv_cache_name != NULL) {
+		OBD_FREE(svc->srv_cache_name, svc->srv_cache_name_len);
+		svc->srv_cache_name = NULL;
+	}
 
 	if (svc->srv_cpts != NULL)
 		cfs_expr_list_values_free(svc->srv_cpts, svc->srv_ncpts);

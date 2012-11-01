@@ -1366,6 +1366,13 @@ struct ptlrpc_service {
         /** under unregister_service */
         unsigned                        srv_is_stopping:1;
 
+	/** request buffer descriptor cache name */
+	char                           *srv_cache_name;
+	/** request buffer descriptor cache name length */
+	int                             srv_cache_name_len;
+	/** request buffer descriptor cache */
+	cfs_mem_cache_t                *srv_cache;
+
 	/** max # request buffers in history per partition */
 	int				srv_hist_nrqbds_cpt_max;
 	/** number of CPTs this service bound on */
