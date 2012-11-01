@@ -862,6 +862,7 @@ kiblnd_post_tx_locked (kib_conn_t *conn, kib_tx_t *tx, int credit)
          * tx_sending is non-zero if we've not done the tx_complete()
          * from the first send; hence the ++ rather than = below. */
         tx->tx_sending++;
+	tx->tx_active_q_time = cfs_time_current();
         cfs_list_add(&tx->tx_list, &conn->ibc_active_txs);
 
         /* I'm still holding ibc_lock! */
@@ -1035,8 +1036,12 @@ kiblnd_tx_complete (kib_tx_t *tx, int status)
 
         cfs_spin_unlock(&conn->ibc_lock);
 
-        if (idle)
-                kiblnd_tx_done(conn->ibc_peer->ibp_ni, tx);
+	if (idle) {
+		kh_tally_log2(&kiblnd_data.kib_hist[KH_TX_HIST],
+			      cfs_time_sub(cfs_time_current(),
+					   tx->tx_active_q_time));
+		kiblnd_tx_done(conn->ibc_peer->ibp_ni, tx);
+	}
 
         kiblnd_check_sends(conn);
 
@@ -3302,6 +3307,7 @@ kiblnd_cq_completion(struct ib_cq *cq, void *arg)
 	     conn->ibc_nsends_posted > 0)) {
 		kiblnd_conn_addref(conn); /* +1 ref for sched_conns */
 		conn->ibc_scheduled = 1;
+		conn->ibc_sched_list_time = cfs_time_current();
 		cfs_list_add_tail(&conn->ibc_sched_list, &sched->ibs_conns);
 
 		if (cfs_waitq_active(&sched->ibs_waitq))
@@ -3372,6 +3378,9 @@ kiblnd_scheduler(void *arg)
 			/* take over kib_sched_conns' ref on conn... */
 			LASSERT(conn->ibc_scheduled);
 			cfs_list_del(&conn->ibc_sched_list);
+			kh_tally_log2(&kiblnd_data.kib_hist[KH_CONN_SCHED_HIST],
+				      cfs_time_sub(cfs_time_current(),
+						   conn->ibc_sched_list_time));
 			conn->ibc_ready = 0;
 
 			cfs_spin_unlock_irqrestore(&sched->ibs_lock, flags);
@@ -3413,6 +3422,7 @@ kiblnd_scheduler(void *arg)
 				 * this one... */
 				/* +1 ref for sched_conns */
 				kiblnd_conn_addref(conn);
+				conn->ibc_sched_list_time = cfs_time_current();
 				cfs_list_add_tail(&conn->ibc_sched_list,
 						  &sched->ibs_conns);
 				if (cfs_waitq_active(&sched->ibs_waitq))
