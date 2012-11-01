@@ -82,52 +82,29 @@ const struct dt_index_features fld_index_features = {
 
 extern struct lu_context_key fld_thread_key;
 
-static struct dt_key *fld_key(const struct lu_env *env, const seqno_t seq)
+static int fld_write_range(const struct lu_env *env, struct dt_object *dt,
+			   const struct lu_seq_range *range, loff_t pos,
+			   struct thandle *th)
 {
-        struct fld_thread_info *info;
-        ENTRY;
+	struct fld_thread_info	*info;
+	struct lu_seq_range	*range_written = NULL;
+	struct lu_buf		buf;
+	int			rc;
 
-        info = lu_context_key_get(&env->le_ctx, &fld_thread_key);
-        LASSERT(info != NULL);
+	info = lu_context_key_get(&env->le_ctx, &fld_thread_key);
+	LASSERT(info != NULL);
 
-        info->fti_key = cpu_to_be64(seq);
-        RETURN((void *)&info->fti_key);
-}
+	range_written = &info->fti_lrange;
+	LASSERT(range != NULL);
+	range_cpu_to_be(range_written, range);
+	buf.lb_buf = range_written;
+	buf.lb_len = sizeof(struct lu_seq_range);
+	rc = dt_record_write(env, dt, &buf, &pos, th);
+	if (rc != 0)
+		CERROR("Write seq range "DRANGE" error: rc = %d\n",
+			PRANGE(range), rc);
 
-static struct dt_rec *fld_rec(const struct lu_env *env,
-                              const struct lu_seq_range *range)
-{
-        struct fld_thread_info *info;
-        struct lu_seq_range *rec;
-        ENTRY;
-
-        info = lu_context_key_get(&env->le_ctx, &fld_thread_key);
-        LASSERT(info != NULL);
-        rec = &info->fti_rec;
-
-        range_cpu_to_be(rec, range);
-        RETURN((void *)rec);
-}
-
-int fld_declare_index_create(struct lu_server_fld *fld,
-                             const struct lu_env *env,
-                             const struct lu_seq_range *range,
-                             struct thandle *th)
-{
-        int rc;
-
-        ENTRY;
-
-	if (fld->lsf_no_range_lookup) {
-		/* Stub for underlying FS which can't lookup ranges */
-		return 0;
-	}
-
-        LASSERT(range_is_sane(range));
-
-	rc = dt_declare_insert(env, fld->lsf_obj, fld_rec(env, range),
-			      fld_key(env, range->lsr_start), th);
-        RETURN(rc);
+	return rc;
 }
 
 /**
@@ -145,9 +122,12 @@ int fld_index_create(struct lu_server_fld *fld,
                      const struct lu_seq_range *range,
                      struct thandle *th)
 {
-        int rc;
+	int			rc;
+	loff_t			pos;
+	struct fld_thread_info  *info;
+	struct lu_attr		*attr;
 
-        ENTRY;
+	ENTRY;
 
 	if (fld->lsf_no_range_lookup) {
 		/* Stub for underlying FS which can't lookup ranges */
@@ -160,13 +140,36 @@ int fld_index_create(struct lu_server_fld *fld,
 		}
 	}
 
-        LASSERT(range_is_sane(range));
+	LASSERT(range_is_sane(range));
 
-	rc = dt_insert(env, fld->lsf_obj, fld_rec(env, range),
-		       fld_key(env, range->lsr_start), th, BYPASS_CAPA, 1);
-        CDEBUG(D_INFO, "%s: insert given range : "DRANGE" rc = %d\n",
-               fld->lsf_name, PRANGE(range), rc);
-        RETURN(rc);
+	LASSERT_MUTEX_LOCKED(&fld->lsf_lock);
+
+	info = lu_context_key_get(&env->le_ctx, &fld_thread_key);
+	LASSERT(info != NULL);
+	attr = &info->fti_attr;
+
+	rc = dt_attr_get(env, fld->lsf_obj, attr, BYPASS_CAPA);
+	if (rc != 0) {
+		CERROR("%s: can not get attr"DRANGE": rc = %d\n",
+			fld->lsf_name, PRANGE(range), rc);
+		RETURN(rc);
+	}
+
+	pos = attr->la_size;
+	rc = fld_write_range(env, fld->lsf_obj, range, pos, th);
+	if (rc) {
+		CERROR("%s: can not insert entry "DRANGE": rc = %d\n",
+		       fld->lsf_name, PRANGE(range), rc);
+		RETURN(rc);
+	}
+
+	/* Always add the entry to the end of the file */
+	rc = fld_cache_insert(fld->lsf_cache, range, pos);
+
+	CDEBUG(D_INFO, "%s: insert given range : "DRANGE" rc = %d pos"LPU64"\n",
+		fld->lsf_name, PRANGE(range), rc, pos);
+
+	RETURN(rc);
 }
 
 /**
@@ -183,15 +186,31 @@ int fld_index_delete(struct lu_server_fld *fld,
                      struct lu_seq_range *range,
                      struct thandle   *th)
 {
-        int rc;
+	struct fld_cache_entry	*flde;
+	struct lu_seq_range     *fld_rec;
+	struct fld_thread_info  *info;
+	int			rc;
 
-        ENTRY;
+	ENTRY;
 
-	rc = dt_delete(env, fld->lsf_obj, fld_key(env, range->lsr_start), th,
-		       BYPASS_CAPA);
-        CDEBUG(D_INFO, "%s: delete given range : "DRANGE" rc = %d\n",
-               fld->lsf_name, PRANGE(range), rc);
-        RETURN(rc);
+	LASSERT_MUTEX_LOCKED(&fld->lsf_lock);
+	flde = fld_cache_entry_lookup(fld->lsf_cache, range);
+	if (flde == NULL)
+		RETURN(-ENOENT);
+
+	info = lu_context_key_get(&env->le_ctx, &fld_thread_key);
+	fld_rec = &info->fti_rec;
+	LASSERTF(flde->fce_off != 0, "No offset for "DRANGE"\n",
+		 PRANGE(&flde->fce_range));
+
+	memset(fld_rec, 0, sizeof(*fld_rec));
+	fld_rec->lsr_flags = LU_SEQ_RANGE_EMPTY;
+	rc = fld_write_range(env, fld->lsf_obj, fld_rec, flde->fce_off, th);
+	if (rc != 0)
+		RETURN(rc);
+
+	fld_cache_entry_delete(fld->lsf_cache, flde);
+	RETURN(rc);
 }
 
 /**
@@ -205,15 +224,12 @@ int fld_index_delete(struct lu_server_fld *fld,
  * \retval -ENOENT      not found, \a range is the left-side range;
  * \retval  -ve         other error;
  */
-
 int fld_index_lookup(struct lu_server_fld *fld,
                      const struct lu_env *env,
                      seqno_t seq,
                      struct lu_seq_range *range)
 {
-        struct dt_object        *dt_obj = fld->lsf_obj;
         struct lu_seq_range     *fld_rec;
-        struct dt_key           *key = fld_key(env, seq);
         struct fld_thread_info  *info;
         int rc;
 
@@ -233,12 +249,8 @@ int fld_index_lookup(struct lu_server_fld *fld,
         info = lu_context_key_get(&env->le_ctx, &fld_thread_key);
         fld_rec = &info->fti_rec;
 
-        rc = dt_obj->do_index_ops->dio_lookup(env, dt_obj,
-                                              (struct dt_rec*) fld_rec,
-                                              key, BYPASS_CAPA);
-
-        if (rc >= 0) {
-                range_be_to_cpu(fld_rec, fld_rec);
+	rc = fld_cache_lookup(fld->lsf_cache, seq, fld_rec);
+	if (rc == 0) {
                 *range = *fld_rec;
                 if (range_within(range, seq))
                         rc = 0;
@@ -252,30 +264,201 @@ int fld_index_lookup(struct lu_server_fld *fld,
         RETURN(rc);
 }
 
-static int fld_insert_igif_fld(struct lu_server_fld *fld,
-                               const struct lu_env *env)
+static int fld_load_old_index(const struct lu_env *env,
+			      struct dt_device *dt,
+			      struct dt_object *dt_obj,
+			      struct dt_object *old_obj,
+			      loff_t pos,
+			      struct thandle *th,
+			      struct fld_cache *cache)
 {
-        struct thandle *th;
-        int rc;
-        ENTRY;
+	const struct dt_it_ops	*iops;
+	struct dt_it		*it;
+	struct fld_thread_info	*info;
+	struct lu_seq_range	*range;
+	int			rc;
+	ENTRY;
 
-	th = dt_trans_create(env, lu2dt_dev(fld->lsf_obj->do_lu.lo_dev));
+	info = lu_context_key_get(&env->le_ctx, &fld_thread_key);
+	LASSERT(info != NULL);
+	range = &info->fti_lrange;
+
+	iops = &old_obj->do_index_ops->dio_it;
+	it = iops->init(env, old_obj, 0, NULL);
+	if (IS_ERR(it))
+		RETURN(PTR_ERR(it));
+
+	rc = iops->load(env, it, 0);
+	if (rc == 0) {
+		rc = iops->next(env, it);
+		if (rc > 0)
+			GOTO(out_it_fini, rc = 0);
+	} else {
+		if (rc > 0)
+			rc = 0;
+		else
+			GOTO(out_it_fini, rc);
+	}
+
+	do {
+		rc = iops->rec(env, it, (struct dt_rec *)range, 0);
+		if (rc != 0)
+			GOTO(out_it_fini, rc);
+
+		LASSERT(range != NULL);
+		range_be_to_cpu(range, range);
+		rc = fld_write_range(env, dt_obj, range, pos, th);
+		if (rc != 0)
+			GOTO(out_it_fini, rc);
+
+		rc = fld_cache_insert(cache, range, pos);
+		if (rc != 0)
+			GOTO(out_it_fini, rc);
+
+		pos += sizeof(struct lu_seq_range);
+
+		rc = iops->next(env, it);
+
+	} while (rc == 0);
+
+	rc = 0;
+
+out_it_fini:
+	iops->fini(env, it);
+	RETURN(rc);
+}
+
+static int fld_declare_load_old_index(const struct lu_env *env,
+				      struct dt_device *dt,
+				      struct dt_object *dt_obj,
+				      struct dt_object **old_objp,
+				      struct thandle *th)
+{
+	struct lu_fid		fid;
+	struct dt_object	*old_obj;
+	const struct dt_it_ops	*iops;
+	struct dt_it		*it;
+	int			rc;
+	ENTRY;
+
+	lu_local_obj_fid(&fid, FLD_INDEX_OID);
+	old_obj = dt_locate(env, dt, &fid);
+	if (IS_ERR(old_obj))
+		RETURN(0);
+
+	LASSERT(old_obj != NULL);
+	if (!dt_object_exists(old_obj)) {
+		lu_object_put(env, &old_obj->do_lu);
+		RETURN(0);
+	}
+
+	*old_objp = old_obj;
+	iops = &old_obj->do_index_ops->dio_it;
+	it = iops->init(env, old_obj, 0, NULL);
+	if (IS_ERR(it))
+		GOTO(out, rc = PTR_ERR(it));
+
+	rc = iops->load(env, it, 0);
+	if (rc == 0) {
+		rc = iops->next(env, it);
+		if (rc > 0)
+			GOTO(out_it_fini, rc = 0);
+	} else {
+		if (rc > 0)
+			rc = 0;
+		else
+			GOTO(out_it_fini, rc);
+	}
+
+	do {
+		rc = dt_declare_record_write(env, dt_obj,
+				     sizeof(struct lu_seq_range),
+				     0, th);
+		if (rc != 0)
+			GOTO(out_it_fini, rc);
+
+		rc = iops->next(env, it);
+	} while (rc == 0);
+
+	rc = 0;
+out_it_fini:
+	iops->fini(env, it);
+out:
+	if (rc != 0) {
+		lu_object_put(env, &old_obj->do_lu);
+		*old_objp = NULL;
+	}
+
+	RETURN(rc);
+}
+
+/**
+ * Index initialization, Insert the hearder and some initial index
+ **/
+static int fld_index_init_internal(const struct lu_env *env,
+				   struct dt_device *dt,
+				   struct dt_object *dt_obj,
+				   struct fld_cache *cache)
+{
+	struct fld_index_header fih = {0};
+	struct thandle		*th;
+	loff_t			pos = 0;
+	struct lu_buf		buf;
+	int			rc;
+	struct dt_object	*old_dt = NULL;
+	ENTRY;
+
+	th = dt_trans_create(env, dt);
 	if (IS_ERR(th))
 		RETURN(PTR_ERR(th));
-	rc = fld_declare_index_create(fld, env, &IGIF_FLD_RANGE, th);
-	if (rc)
-		GOTO(out, rc);
 
-	rc = dt_trans_start_local(env, lu2dt_dev(fld->lsf_obj->do_lu.lo_dev),
-				  th);
+	rc = dt_declare_record_write(env, dt_obj,
+				     sizeof(struct fld_index_header),
+				     pos, th);
 	if (rc)
-		GOTO(out, rc);
+		GOTO(out_trans, rc);
 
-	rc = fld_index_create(fld, env, &IGIF_FLD_RANGE, th);
-	if (rc == -EEXIST)
-		rc = 0;
-out:
-	dt_trans_stop(env, lu2dt_dev(fld->lsf_obj->do_lu.lo_dev), th);
+	pos += sizeof(struct fld_index_header);
+	rc = dt_declare_record_write(env, dt_obj,
+				     sizeof(struct fld_index_header),
+				     pos, th);
+	if (rc)
+		GOTO(out_trans, rc);
+
+	rc = fld_declare_load_old_index(env, dt, dt_obj, &old_dt, th);
+	if (rc != 0)
+		GOTO(out_trans, rc);
+
+	rc = dt_trans_start_local(env, dt, th);
+	if (rc)
+		GOTO(out_trans, rc);
+
+	pos = 0;
+	fih.fih_magic = cpu_to_be32(FIH_MAGIC_HEADER_V1);
+	buf.lb_buf = &fih;
+	buf.lb_len = sizeof(fih);
+	rc = dt_record_write(env, dt_obj, &buf, &pos, th);
+	if (rc != 0) {
+		CERROR("write error: rc = %d\n", rc);
+		GOTO(out_trans, rc);
+	}
+
+	if (old_dt != NULL) {
+		rc = fld_load_old_index(env, dt, dt_obj, old_dt, pos, th,
+					cache);
+		if (rc != 0)
+			GOTO(out_trans, rc);
+		lu_object_put(env, &old_dt->do_lu);
+	} else {
+		rc = fld_write_range(env, dt_obj, &IGIF_FLD_RANGE, pos, th);
+		if (rc != 0)
+			GOTO(out_trans, rc);
+
+		rc = fld_cache_insert(cache, &IGIF_FLD_RANGE, pos);
+	}
+
+out_trans:
+	dt_trans_stop(env, dt, th);
 	RETURN(rc);
 }
 
@@ -283,59 +466,144 @@ int fld_index_init(struct lu_server_fld *fld,
                    const struct lu_env *env,
                    struct dt_device *dt)
 {
-        struct dt_object *dt_obj;
-        struct lu_fid fid;
-	struct lu_attr attr;
-	struct dt_object_format dof;
-        int rc;
-        ENTRY;
+	struct dt_object	*dt_obj;
+	struct lu_fid		fid;
+	struct lu_attr		*attr = NULL;
+	struct fld_thread_info	*info;
+	struct dt_object_format	dof;
+	struct fld_index_header *fih;
+	struct lu_buf		buf = {0};
+	int			rc;
+	char			*ptr;
+	char			*end;
+	loff_t			pos = 0;
+	int			len;
+	loff_t			offset;
+	ENTRY;
 
-	lu_local_obj_fid(&fid, FLD_INDEX_OID);
+	lu_local_obj_fid(&fid, FLD_INDEX_FLAT_OID);
+	info = lu_context_key_get(&env->le_ctx, &fld_thread_key);
+	LASSERT(info != NULL);
 
-	memset(&attr, 0, sizeof(attr));
-	attr.la_valid = LA_MODE;
-	attr.la_mode = S_IFREG | 0666;
-	dof.dof_type = DFT_INDEX;
-	dof.u.dof_idx.di_feat = &fld_index_features;
+	attr = &info->fti_attr;
+	/* Find or create index object */
+	attr->la_valid = LA_MODE;
+	attr->la_mode = S_IFREG | 0666;
+	dof.dof_type = DFT_REGULAR;
+	dt_obj = dt_find_or_create(env, dt, &fid, &dof, attr);
+	if (IS_ERR(dt_obj)) {
+		CERROR("%s: Can't find \"%s\" obj: rc = %d\n",
+			fld->lsf_name, fld_index_name, (int)PTR_ERR(dt_obj));
+		dt_obj = NULL;
+		RETURN(PTR_ERR(dt_obj));
+	}
 
-	dt_obj = dt_find_or_create(env, dt, &fid, &dof, &attr);
-        if (!IS_ERR(dt_obj)) {
-                fld->lsf_obj = dt_obj;
-                rc = dt_obj->do_ops->do_index_try(env, dt_obj,
-                                                  &fld_index_features);
-                if (rc == 0) {
-                        LASSERT(dt_obj->do_index_ops != NULL);
-                        rc = fld_insert_igif_fld(fld, env);
+	rc = dt_attr_get(env, dt_obj, attr, BYPASS_CAPA);
+	if (rc != 0)
+		GOTO(out_put, rc);
 
-                        if (rc != 0) {
-                                CERROR("insert igif in fld! = %d\n", rc);
-                                lu_object_put(env, &dt_obj->do_lu);
-                                fld->lsf_obj = NULL;
-                        }
-		} else if (rc == -ERANGE) {
-			CWARN("%s: File \"%s\" doesn't support range lookup, "
-			      "using stub. DNE and FIDs on OST will not work "
-			      "with this backend\n",
-			      fld->lsf_name, fld_index_name);
+	fld->lsf_obj = dt_obj;
+	fld->lsf_cache->fci_no_shrink = 1;
+	if (attr->la_size == 0) {
+		rc = fld_index_init_internal(env, dt, dt_obj, fld->lsf_cache);
+		if (rc != 0)
+			CERROR("%s: fld index init error: rc = %d\n",
+			       fld->lsf_name, rc);
+		GOTO(out_put, rc);
+	}
 
-			LASSERT(dt_obj->do_index_ops == NULL);
-			fld->lsf_no_range_lookup = 1;
-			rc = 0;
-		} else {
-			CERROR("%s: File \"%s\" is not index, rc %d!\n",
-			       fld->lsf_name, fld_index_name, rc);
-			lu_object_put(env, &fld->lsf_obj->do_lu);
-			fld->lsf_obj = NULL;
+	/* Load the entries to cache */
+	if (attr->la_size > OBD_ALLOC_BIG)
+		buf.lb_len = sizeof(struct lu_seq_range) *
+				FLD_READ_ENTRIES_COUNT;
+	else
+		buf.lb_len = attr->la_size;
+
+	OBD_ALLOC_LARGE(buf.lb_buf, buf.lb_len);
+	if (buf.lb_buf == NULL)
+		GOTO(out_put, rc = -ENOMEM);
+
+	len = dt_read(env, dt_obj, &buf, &pos);
+	if (len < 0)
+		GOTO(out, rc = len);
+
+	if (len != buf.lb_len) {
+		CERROR("%s: got different size %d != %d\n",
+			fld->lsf_name, rc, (int)buf.lb_len);
+		GOTO(out, rc = -EINVAL);
+	}
+
+	/* Check the header of the fldb */
+	fih = (struct fld_index_header *)buf.lb_buf;
+	if (be32_to_cpu(fih->fih_magic) != FIH_MAGIC_HEADER_V1) {
+		CERROR("%s: Corrupted index header %x\n",
+			fld->lsf_name, be32_to_cpu(fih->fih_magic));
+		GOTO(out, rc = -EINVAL);
+	}
+
+	/* skip head */
+	offset = sizeof(*fih);
+	ptr = buf.lb_buf + offset;
+	end = buf.lb_buf + len;
+
+	LASSERT(fld->lsf_cache != NULL);
+	while (len > 0) {
+		/* Load fld entries to cache one by one */
+		while (ptr != end) {
+			struct lu_seq_range *range;
+
+			CERROR("range %p\n", ptr);
+			range = (struct lu_seq_range *)ptr;
+			range_be_to_cpu(range, range);
+
+			if (range->lsr_flags == LU_SEQ_RANGE_EMPTY)
+				continue;
+
+			if (range->lsr_flags != LU_SEQ_RANGE_MDT &&
+			    range->lsr_flags != LU_SEQ_RANGE_OST) {
+				CERROR("%s: invalid entry "DRANGE"\n",
+					fld->lsf_name, PRANGE(range));
+				fld_cache_fini(fld->lsf_cache);
+				GOTO(out, rc = -EINVAL);
+			}
+
+			rc = fld_cache_insert(fld->lsf_cache, range, offset);
+			if (rc != 0) {
+				CERROR("%s: cache insert error: rc = %d\n",
+					fld->lsf_name, rc);
+				fld_cache_fini(fld->lsf_cache);
+				GOTO(out, rc = -EINVAL);
+			}
+			LASSERT(end - ptr >= sizeof(struct lu_seq_range));
+			ptr += sizeof(struct lu_seq_range);
+			offset += sizeof(struct lu_seq_range);
 		}
 
+		/* continue read */
+		len = dt_read(env, dt_obj, &buf, &pos);
+		if (len <= 0) {
+			if (len < 0) {
+				CERROR("%s: read error: rc = %d\n",
+					fld->lsf_name, len);
+				fld_cache_fini(fld->lsf_cache);
+			}
+			GOTO(out, rc = len);
+			break;
+		}
+		ptr = buf.lb_buf;
+		end = buf.lb_buf + len;
+	}
 
-        } else {
-                CERROR("%s: Can't find \"%s\" obj %d\n",
-                       fld->lsf_name, fld_index_name, (int)PTR_ERR(dt_obj));
-                rc = PTR_ERR(dt_obj);
-        }
+out:
+	if (buf.lb_buf != NULL)
+		OBD_FREE_LARGE(buf.lb_buf, buf.lb_len);
+out_put:
+	if (rc < 0 && dt_obj != NULL) {
+		lu_object_put(env, &dt_obj->do_lu);
+		fld->lsf_obj = NULL;
+	}
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 void fld_index_fini(struct lu_server_fld *fld,
