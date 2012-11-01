@@ -121,15 +121,6 @@ STARTTIME=`date +%s`
 . $LUSTRE/tests/test-framework.sh
 init_test_env
 
-print_summary () {
-    trap 0
-    local form="%-13s %-17s %s\n"
-    printf "$form" "status" "script" "skipped tests E(xcluded) S(low)"
-    echo "------------------------------------------------------------------------------------"
-    echo "Done!"
-}
-
-
 setup_if_needed() {
     nfs_client_mode && return
     auster_cleanup=false

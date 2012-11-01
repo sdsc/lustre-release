@@ -3234,14 +3234,14 @@ failed:
 }
 
 void __exit
-kiblnd_module_fini (void)
+ko2iblnd_module_fini (void)
 {
         lnet_unregister_lnd(&the_o2iblnd);
         kiblnd_tunables_fini();
 }
 
 int __init
-kiblnd_module_init (void)
+ko2iblnd_module_init (void)
 {
         int    rc;
 
@@ -3261,8 +3261,8 @@ kiblnd_module_init (void)
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
-MODULE_DESCRIPTION("Kernel OpenIB gen2 LND v2.00");
+MODULE_DESCRIPTION("Kernel OpenIB gen2 LND");
 MODULE_LICENSE("GPL");
 
-module_init(kiblnd_module_init);
-module_exit(kiblnd_module_fini);
+cfs_module(ko2iblnd, LUSTRE_VERSION_STRING,
+	   ko2iblnd_module_init, ko2iblnd_module_fini);

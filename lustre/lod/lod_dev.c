@@ -937,6 +937,4 @@ MODULE_AUTHOR("Whamcloud, Inc. <http://www.whamcloud.com/>");
 MODULE_DESCRIPTION("Lustre Logical Object Device ("LUSTRE_LOD_NAME")");
 MODULE_LICENSE("GPL");
 
-module_init(lod_mod_init);
-module_exit(lod_mod_exit);
-
+cfs_module(lod, LUSTRE_VERSION_STRING, lod_mod_init, lod_mod_exit);

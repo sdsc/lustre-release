@@ -441,8 +441,8 @@ __private_extern__ kern_return_t name##_start(kmod_info_t *ki, void *data); \
 __private_extern__ kern_return_t name##_stop(kmod_info_t *ki, void *data); \
 									\
 kmod_info_t KMOD_INFO_NAME = { 0, KMOD_INFO_VERSION, -1,		\
-                               { "com.clusterfs.lustre." #name }, { version }, \
-                               -1, 0, 0, 0, 0, name##_start, name##_stop }; \
+				{ "org.lustre." #name }, { version },	\
+				-1, 0, 0, 0, 0, name##_start, name##_stop }; \
 									\
 __private_extern__ kmod_start_func_t *_realmain = name##_start;		\
 __private_extern__ kmod_stop_func_t *_antimain = name##_stop;		\
@@ -482,7 +482,6 @@ static inline int request_module(const char *name, ...)
 #define MODULE_AUTHOR(s)
 #define MODULE_DESCRIPTION(s)
 #define MODULE_LICENSE(s)
-#define MODULE_PARM(a, b)
 #define MODULE_PARM_DESC(a, b)
 
 #define NR_IRQS				512

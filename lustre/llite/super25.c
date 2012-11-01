@@ -117,7 +117,7 @@ struct super_operations lustre_super_operations =
 
 void lustre_register_client_process_config(int (*cpc)(struct lustre_cfg *lcfg));
 
-static int __init init_lustre_lite(void)
+static int __init lustre_vfs_init(void)
 {
 	int i, rc, seed[2];
 	struct timeval tv;
@@ -205,7 +205,7 @@ static int __init init_lustre_lite(void)
         return rc;
 }
 
-static void __exit exit_lustre_lite(void)
+static void __exit lustre_vfs_exit(void)
 {
 	ll_xattr_fini();
         vvp_global_fini();
@@ -237,5 +237,4 @@ MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Lite Client File System");
 MODULE_LICENSE("GPL");
 
-module_init(init_lustre_lite);
-module_exit(exit_lustre_lite);
+cfs_module(lustre_vfs, LUSTRE_VERSION_STRING, lustre_vfs_init, lustre_vfs_exit);

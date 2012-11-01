@@ -1736,8 +1736,7 @@ kranal_module_init (void)
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
-MODULE_DESCRIPTION("Kernel RapidArray LND v0.01");
+MODULE_DESCRIPTION("Kernel RapidArray LND");
 MODULE_LICENSE("GPL");
 
-module_init(kranal_module_init);
-module_exit(kranal_module_fini);
+cfs_module(kranal, "0.01", kranal_module_init, kranal_module_fini);

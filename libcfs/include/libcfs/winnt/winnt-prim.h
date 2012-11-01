@@ -707,7 +707,6 @@ extern struct module libcfs_global_module;
 #define MODULE_AUTHOR(s)
 #define MODULE_DESCRIPTION(s)
 #define MODULE_LICENSE(s)
-#define MODULE_PARM(a, b)
 #define MODULE_PARM_DESC(a, b)
 
 #define module_init(X) int  __init module_##X() {return X();}

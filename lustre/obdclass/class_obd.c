@@ -739,7 +739,7 @@ static void cleanup_obdclass(void)
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
-MODULE_DESCRIPTION("Lustre Class Driver Build Version: " BUILD_VERSION);
+MODULE_DESCRIPTION("Lustre Class Driver Build");
 MODULE_LICENSE("GPL");
 
 cfs_module(obdclass, LUSTRE_VERSION_STRING, init_obdclass, cleanup_obdclass);

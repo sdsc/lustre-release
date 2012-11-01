@@ -2040,6 +2040,5 @@ MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Management Client");
 MODULE_LICENSE("GPL");
 
-module_init(mgc_init);
-module_exit(mgc_exit);
+cfs_module(mgc, LUSTRE_VERSION_STRING, mgc_init, mgc_exit);
 #endif

@@ -2411,5 +2411,4 @@ MODULE_AUTHOR("Whamcloud, Inc. <http://www.whamcloud.com/>");
 MODULE_DESCRIPTION("Lustre Object Filtering Device");
 MODULE_LICENSE("GPL");
 
-module_init(ofd_init);
-module_exit(ofd_exit);
+cfs_module(ofd, LUSTRE_VERSION_STRING, ofd_mod_init, ofd_mod_exit);

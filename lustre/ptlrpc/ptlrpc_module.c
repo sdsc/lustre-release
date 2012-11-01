@@ -149,8 +149,8 @@ static void __exit ptlrpc_exit(void)
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
-MODULE_DESCRIPTION("Lustre Request Processor and Lock Management");
+MODULE_DESCRIPTION("Lustre Request Processor");
 MODULE_LICENSE("GPL");
 
-cfs_module(ptlrpc, "1.0.0", ptlrpc_init, ptlrpc_exit);
+cfs_module(ptlrpc, LUSTRE_VERSION_STRING, ptlrpc_init, ptlrpc_exit);
 #endif

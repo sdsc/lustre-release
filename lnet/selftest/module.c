@@ -166,14 +166,7 @@ error:
 	return rc;
 }
 
-#ifdef __KERNEL__
-
-MODULE_DESCRIPTION("LNet Selftest");
-MODULE_LICENSE("GPL");
-
-cfs_module(lnet, "0.9.0", lnet_selftest_init, lnet_selftest_fini);
-
-#else
+#ifndef __KERNEL__
 
 int
 selftest_wait_events (void)
@@ -200,3 +193,8 @@ selftest_wait_events (void)
 }
 
 #endif
+
+MODULE_DESCRIPTION("LNet Selftest");
+MODULE_LICENSE("GPL");
+
+cfs_module(lst, LUSTRE_VERSION_STRING, lnet_selftest_init, lnet_selftest_fini);

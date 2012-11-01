@@ -53,7 +53,7 @@
 # include "ioctl.h"
 #endif
 
-# define CFS_MODULE_PARM(name, t, type, perm, desc)
+#define CFS_MODULE_PARM(name, t, type, perm, desc)
 #define symbol_get(x) inter_module_get(#x)
 #define symbol_put(x) inter_module_put(#x)
 

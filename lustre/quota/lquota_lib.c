@@ -332,7 +332,7 @@ const struct dt_index_features *glb_idx_feature(struct lu_fid *fid)
 #warning "remove old quota compatibility code"
 #endif
 
-static int __init init_lquota(void)
+static int __init lquota_init(void)
 {
 	int	rc;
 	ENTRY;
@@ -370,7 +370,7 @@ out_key:
 	return rc;
 }
 
-static void exit_lquota(void)
+static void lquota_exit(void)
 {
 	qsd_glb_fini();
 	qmt_glb_fini();
@@ -382,4 +382,4 @@ MODULE_AUTHOR("Intel Corporation <http://www.intel.com/>");
 MODULE_DESCRIPTION("Lustre Quota");
 MODULE_LICENSE("GPL");
 
-cfs_module(lquota, "2.4.0", init_lquota, exit_lquota);
+cfs_module(lquota, LUSTRE_VERSION_STRING, lquota_init, lquota_exit);

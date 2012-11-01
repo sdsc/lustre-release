@@ -169,8 +169,10 @@ static inline void __add_wait_queue_exclusive(wait_queue_head_t *q,
         } while(0)
 
 /* Module interfaces */
-#define cfs_module(name, version, init, fini) \
-        module_init(init);                    \
-        module_exit(fini)
+#define cfs_module(name, version, init, fini)	\
+	MODULE_VERSION(version);		\
+	module_init(init);			\
+	module_exit(fini)
+#define cfs_request_module              request_module
 
 #endif

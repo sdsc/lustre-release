@@ -705,10 +705,9 @@ static void mxlnd_exit(void)
         return;
 }
 
-module_init(mxlnd_init);
-module_exit(mxlnd_exit);
-
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Myricom, Inc. - help@myri.com");
 MODULE_DESCRIPTION("Kernel MyrinetExpress LND");
-MODULE_VERSION("0.6.0");
+
+cfs_module_init(mxlnd, "0.6.0", mxlnd_init, mxlnd_exit);
+

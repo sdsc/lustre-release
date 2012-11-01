@@ -46,12 +46,12 @@
 
 
 /* libcfs module init/exit routines */
-DECLARE_INIT(init_libcfs_module);
-DECLARE_EXIT(exit_libcfs_module);
+DECLARE_INIT(libcfs_module_init);
+DECLARE_EXIT(libcfs_module_exit);
 
 /* portal module init/exit routines */
-DECLARE_INIT(init_lnet);
-DECLARE_EXIT(fini_lnet);
+DECLARE_INIT(lnet_init);
+DECLARE_EXIT(lnet_fini);
 
 /* tdinal module init/exit routines */
 DECLARE_INIT(ksocknal_module_init);

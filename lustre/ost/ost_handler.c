@@ -447,8 +447,7 @@ static void /*__exit*/ ost_exit(void)
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
-MODULE_DESCRIPTION("Lustre Object Storage Target (OST) v0.01");
+MODULE_DESCRIPTION("Lustre Object Storage Target ("LUSTRE_OST_NAME")");
 MODULE_LICENSE("GPL");
 
-module_init(ost_init);
-module_exit(ost_exit);
+cfs_module(ost, LUSTRE_VERSION_STRING, ost_init, ost_exit);

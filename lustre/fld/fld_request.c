@@ -554,7 +554,7 @@ static void __exit fld_mod_exit(void)
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
-MODULE_DESCRIPTION("Lustre FLD");
+MODULE_DESCRIPTION("Lustre FID Location Database");
 MODULE_LICENSE("GPL");
 
 cfs_module(mdd, LUSTRE_VERSION_STRING, fld_mod_init, fld_mod_exit);

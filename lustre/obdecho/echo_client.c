@@ -3080,7 +3080,7 @@ static void /*__exit*/ obdecho_exit(void)
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
-MODULE_DESCRIPTION("Lustre Testing Echo OBD driver");
+MODULE_DESCRIPTION("Lustre Echo Client OBD test driver");
 MODULE_LICENSE("GPL");
 
 cfs_module(obdecho, LUSTRE_VERSION_STRING, obdecho_init, obdecho_exit);

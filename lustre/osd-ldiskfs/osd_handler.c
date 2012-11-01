@@ -6144,4 +6144,4 @@ MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Object Storage Device ("LUSTRE_OSD_LDISKFS_NAME")");
 MODULE_LICENSE("GPL");
 
-cfs_module(osd, "0.1.0", osd_mod_init, osd_mod_exit);
+cfs_module(osd, LUSTRE_VERSION_STRING, osd_mod_init, osd_mod_exit);

@@ -1604,4 +1604,4 @@ MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Meta-data Device Prototype ("LUSTRE_MDD_NAME")");
 MODULE_LICENSE("GPL");
 
-cfs_module(mdd, "0.1.0", mdd_mod_init, mdd_mod_exit);
+cfs_module(mdd, LUSTRE_VERSION_STRING, mdd_mod_init, mdd_mod_exit);

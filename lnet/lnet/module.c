@@ -111,7 +111,7 @@ lnet_ioctl(unsigned int cmd, struct libcfs_ioctl_data *data)
 DECLARE_IOCTL_HANDLER(lnet_ioctl_handler, lnet_ioctl);
 
 int
-init_lnet(void)
+lnet_init(void)
 {
         int                  rc;
         ENTRY;
@@ -137,7 +137,7 @@ init_lnet(void)
 }
 
 void
-fini_lnet(void)
+lnet_fini(void)
 {
         int rc;
 
@@ -148,7 +148,7 @@ fini_lnet(void)
 }
 
 MODULE_AUTHOR("Peter J. Braam <braam@clusterfs.com>");
-MODULE_DESCRIPTION("Portals v3.1");
+MODULE_DESCRIPTION("Lustre Networking layer");
 MODULE_LICENSE("GPL");
 
-cfs_module(lnet, "1.0.0", init_lnet, fini_lnet);
+cfs_module(lnet, LUSTRE_VERSION_STRING, lnet_init, lnet_fini);

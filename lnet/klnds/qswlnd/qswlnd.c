@@ -551,7 +551,7 @@ static int __init
 kqswnal_initialise (void)
 {
 	int   rc = kqswnal_tunables_init();
-	
+
 	if (rc != 0)
 		return rc;
 
@@ -560,8 +560,8 @@ kqswnal_initialise (void)
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
-MODULE_DESCRIPTION("Kernel Quadrics/Elan LND v1.01");
+MODULE_DESCRIPTION("Kernel Quadrics/Elan LND");
 MODULE_LICENSE("GPL");
 
-module_init (kqswnal_initialise);
-module_exit (kqswnal_finalise);
+cfs_module(kqswnal, LUSTRE_VERSION_STRING,
+	   kqswnal_initialise, kqswnal_finalise);

@@ -1304,7 +1304,7 @@ static void __exit osp_mod_exit(void)
 	lu_kmem_fini(osp_caches);
 }
 
-MODULE_AUTHOR("Intel, Inc. <http://www.intel.com/>");
+MODULE_AUTHOR("Intel Corporation <http://www.intel.com/>");
 MODULE_DESCRIPTION("Lustre OST Proxy Device ("LUSTRE_OSP_NAME")");
 MODULE_LICENSE("GPL");
 

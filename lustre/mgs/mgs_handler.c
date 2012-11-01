@@ -1538,8 +1538,7 @@ static void /*__exit*/ mgs_exit(void)
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
-MODULE_DESCRIPTION("Lustre  Management Server (MGS)");
+MODULE_DESCRIPTION("Lustre Management Server (MGS)");
 MODULE_LICENSE("GPL");
 
-module_init(mgs_init);
-module_exit(mgs_exit);
+cfs_module(mgs, LUSTRE_VERSION_STRING, mgs_mod_init, mgs_mod_exit);

@@ -2950,5 +2950,4 @@ MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("GSS security policy for Lustre");
 MODULE_LICENSE("GPL");
 
-module_init(sptlrpc_gss_init);
-module_exit(sptlrpc_gss_exit);
+cfs_module(sptlrpc, LUSTRE_VERSION_STRING, sptlrpc_gss_init, sptlrpc_gss_exit);

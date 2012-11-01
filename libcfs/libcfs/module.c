@@ -327,9 +327,6 @@ struct cfs_psdev_ops libcfs_psdev_ops = {
 
 extern int insert_proc(void);
 extern void remove_proc(void);
-MODULE_AUTHOR("Peter J. Braam <braam@clusterfs.com>");
-MODULE_DESCRIPTION("Portals v3.1");
-MODULE_LICENSE("GPL");
 
 extern struct miscdevice libcfs_dev;
 extern struct rw_semaphore cfs_tracefile_sem;
@@ -340,7 +337,7 @@ extern void libcfs_init_nidstrings(void);
 extern int libcfs_arch_init(void);
 extern void libcfs_arch_cleanup(void);
 
-static int init_libcfs_module(void)
+static int libcfs_module_init(void)
 {
 	int rc;
 
@@ -411,7 +408,7 @@ cleanup_debug:
 	return rc;
 }
 
-static void exit_libcfs_module(void)
+static void libcfs_module_exit(void)
 {
 	int rc;
 
@@ -449,4 +446,9 @@ static void exit_libcfs_module(void)
 	libcfs_arch_cleanup();
 }
 
-cfs_module(libcfs, "1.0.0", init_libcfs_module, exit_libcfs_module);
+MODULE_AUTHOR("Peter J. Braam <braam@clusterfs.com>");
+MODULE_DESCRIPTION("Lustre portability library");
+MODULE_LICENSE("GPL");
+
+cfs_module(libcfs, LUSTRE_VERSION_STRING,
+	   libcfs_module_init, libcfs_module_exit);
