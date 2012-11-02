@@ -2406,6 +2406,9 @@ ksocknal_base_startup(void)
         cfs_spin_lock_init (&ksocknal_data.ksnd_tx_lock);
         CFS_INIT_LIST_HEAD (&ksocknal_data.ksnd_idle_noop_txs);
 
+	for (i = 0; i < KSOCKNAL_HIST_LAST; i++)
+		cfs_spin_lock_init(&ksocknal_data.ksnd_hist[i].kh_lock);
+
 	/* NB memset above zeros whole of ksocknal_data */
 
 	/* flag lists/ptrs/locks initialised */
@@ -2855,8 +2858,9 @@ ksocknal_startup (lnet_ni_t *ni)
 void __exit
 ksocknal_module_fini (void)
 {
-        lnet_unregister_lnd(&the_ksocklnd);
-        ksocknal_tunables_fini();
+	lnet_unregister_lnd(&the_ksocklnd);
+	ksocknal_proc_fini();
+	ksocknal_tunables_fini();
 }
 
 int __init
@@ -2882,6 +2886,10 @@ ksocknal_module_init (void)
         rc = ksocknal_tunables_init();
         if (rc != 0)
                 return rc;
+
+	rc = ksocknal_proc_init();
+	if (rc != 0)
+		return rc;
 
         lnet_register_lnd(&the_ksocklnd);
 
