@@ -1389,6 +1389,16 @@ int obd_export_evict_by_nid(struct obd_device *obd, const char *nid)
 
         lnet_nid_t nid_key = libcfs_str2nid((char *)nid);
 
+	cfs_spin_lock(&obd->obd_dev_lock);
+	/* umount has run already, so evict thread should leave
+	 * its task to umount thread now */
+	if (obd->obd_stopping || obd->obd_evict_client_frozen) {
+		cfs_spin_unlock(&obd->obd_dev_lock);
+		return exports_evicted;
+	}
+	cfs_atomic_inc(&obd->obd_evict_inprogress);
+	cfs_spin_unlock(&obd->obd_dev_lock);
+
         do {
                 doomed_exp = cfs_hash_lookup(obd->obd_nid_hash, &nid_key);
                 if (doomed_exp == NULL)
@@ -1408,6 +1418,8 @@ int obd_export_evict_by_nid(struct obd_device *obd, const char *nid)
                 class_export_put(doomed_exp);
         } while (1);
 
+	cfs_atomic_dec(&obd->obd_evict_inprogress);
+
         if (!exports_evicted)
                 CDEBUG(D_HA,"%s: can't disconnect NID '%s': no exports found\n",
                        obd->obd_name, nid);
@@ -1421,8 +1433,19 @@ int obd_export_evict_by_uuid(struct obd_device *obd, const char *uuid)
         struct obd_uuid doomed_uuid;
         int exports_evicted = 0;
 
+	cfs_spin_lock(&obd->obd_dev_lock);
+	/* umount has run already, so evict thread should leave
+	 * its task to umount thread now */
+	if (obd->obd_stopping || obd->obd_evict_client_frozen) {
+		cfs_spin_unlock(&obd->obd_dev_lock);
+		return exports_evicted;
+	}
+	cfs_atomic_inc(&obd->obd_evict_inprogress);
+	cfs_spin_unlock(&obd->obd_dev_lock);
+
         obd_str2uuid(&doomed_uuid, uuid);
         if (obd_uuid_equals(&doomed_uuid, &obd->obd_uuid)) {
+		cfs_atomic_dec(&obd->obd_evict_inprogress);
                 CERROR("%s: can't evict myself\n", obd->obd_name);
                 return exports_evicted;
         }
@@ -1439,6 +1462,8 @@ int obd_export_evict_by_uuid(struct obd_device *obd, const char *uuid)
                 class_export_put(doomed_exp);
                 exports_evicted++;
         }
+
+	cfs_atomic_dec(&obd->obd_evict_inprogress);
 
         return exports_evicted;
 }

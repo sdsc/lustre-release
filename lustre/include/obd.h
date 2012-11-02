@@ -1190,6 +1190,7 @@ struct obd_device {
         cfs_atomic_t           obd_evict_inprogress;
         cfs_waitq_t            obd_evict_inprogress_waitq;
         cfs_list_t             obd_evict_list; /* protected with pet_lock */
+	int		       obd_evict_client_frozen;
 
         /**
          * Ldlm pool part. Save last calculated SLV and Limit.

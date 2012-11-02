@@ -2084,6 +2084,53 @@ static int lsi_prepare(struct lustre_sb_info *lsi)
 
 /*************** server mount ******************/
 
+static int server_wait_for_evict_client(struct lustre_sb_info *lsi)
+{
+	int rc = 0, waited = 0;
+	struct obd_device *obd;
+	cfs_sigset_t blocked;
+	ENTRY;
+
+	cfs_mutex_lock(&server_start_lock);
+	obd = class_name2obd(lsi->lsi_svname);
+	if (!obd) {
+		cfs_mutex_unlock(&server_start_lock);
+		RETURN(rc);
+	}
+
+	if (!obd->obd_set_up || obd->obd_stopping ||
+	    obd->obd_evict_client_frozen) {
+		cfs_mutex_unlock(&server_start_lock);
+		RETURN(rc);
+	}
+
+	/* prohibits eviction from now on */
+	obd->obd_evict_client_frozen = 1;
+
+	while (unlikely(cfs_atomic_read(&obd->obd_evict_inprogress))) {
+		if (waited && (waited % 30 == 0))
+			CERROR("evict client is still ongoing:%d\n",
+				cfs_atomic_read(&obd->obd_evict_inprogress));
+
+			waited += 3;
+			blocked = cfs_block_sigsinv(sigmask(SIGKILL));
+			cfs_waitq_wait_event_interruptible_timeout(
+			     obd->obd_evict_inprogress_waitq,
+			     (cfs_atomic_read(&obd->obd_evict_inprogress) == 0),
+			     cfs_time_seconds(3), rc);
+			cfs_restore_sigs(blocked);
+			if (rc < 0) {
+				CERROR("Danger: interrupted umount while evict"
+				       "process is still ongoing\n");
+				break;
+			}
+	}
+	cfs_mutex_unlock(&server_start_lock);
+
+	RETURN(rc);
+}
+
+
 /** Start the shutdown of servers at umount.
  */
 static void server_put_super(struct super_block *sb)
@@ -2101,6 +2148,9 @@ static void server_put_super(struct super_block *sb)
         OBD_ALLOC(tmpname, tmpname_sz);
 	memcpy(tmpname, lsi->lsi_svname, tmpname_sz);
         CDEBUG(D_MOUNT, "server put_super %s\n", tmpname);
+
+	server_wait_for_evict_client(lsi);
+
 	if (IS_MDT(lsi) && (lsi->lsi_lmd->lmd_flags & LMD_FLG_NOSVC))
                 snprintf(tmpname, tmpname_sz, "MGS");
 

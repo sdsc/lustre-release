@@ -630,7 +630,8 @@ int class_cleanup(struct obd_device *obd, struct lustre_cfg *lcfg)
         obd->obd_stopping = 1;
 
 	/* wait for already-arrived-connections to finish. */
-	while (obd->obd_conn_inprogress > 0) {
+	while ((obd->obd_conn_inprogress > 0) ||
+	       (cfs_atomic_read(&obd->obd_evict_inprogress) > 0)) {
 		cfs_spin_unlock(&obd->obd_dev_lock);
 
 		cfs_cond_resched();

@@ -844,6 +844,10 @@ int lprocfs_wr_evict_client(struct file *file, const char *buffer,
         char              *kbuf;
         char              *tmpbuf;
 
+	/* umount has already run */
+	if (obd->obd_evict_client_frozen)
+		return count;
+
         OBD_ALLOC(kbuf, BUFLEN);
         if (kbuf == NULL)
                 return -ENOMEM;
@@ -866,7 +870,6 @@ int lprocfs_wr_evict_client(struct file *file, const char *buffer,
          * the proc entries under the being destroyed export{}, so I have
          * to drop the lock at first here.
          * - jay, jxiong@clusterfs.com */
-        class_incref(obd, __FUNCTION__, cfs_current());
         LPROCFS_EXIT();
 
         if (strncmp(tmpbuf, "nid:", 4) == 0)
@@ -877,7 +880,6 @@ int lprocfs_wr_evict_client(struct file *file, const char *buffer,
                 obd_export_evict_by_uuid(obd, tmpbuf);
 
         LPROCFS_ENTRY();
-        class_decref(obd, __FUNCTION__, cfs_current());
 
 out:
         OBD_FREE(kbuf, BUFLEN);
