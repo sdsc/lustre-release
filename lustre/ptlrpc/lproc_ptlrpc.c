@@ -749,8 +749,8 @@ int lprocfs_wr_evict_client(struct file *file, const char *buffer,
          * the proc entries under the being destroyed export{}, so I have
          * to drop the lock at first here.
          * - jay, jxiong@clusterfs.com */
-        class_incref(obd);
         LPROCFS_EXIT();
+        class_incref(obd);
 
         sscanf(buffer, "%40s", tmpbuf);
         if (strncmp(tmpbuf, "nid:", 4) == 0)
@@ -760,8 +760,8 @@ int lprocfs_wr_evict_client(struct file *file, const char *buffer,
         else
                 obd_export_evict_by_uuid(obd, tmpbuf);
 
-        LPROCFS_ENTRY();
         class_decref(obd);
+        LPROCFS_ENTRY();
 
         return count;
 }

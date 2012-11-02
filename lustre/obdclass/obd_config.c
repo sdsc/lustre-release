@@ -452,6 +452,12 @@ int class_cleanup(struct obd_device *obd, struct lustre_cfg *lcfg)
         }
         /* Leave this on forever */
         obd->obd_stopping = 1;
+
+        while (atomic_read(&obd->obd_evict_inprogress) > 0) {
+                spin_unlock(&obd->obd_dev_lock);
+                cfs_cond_resched();
+                spin_lock(&obd->obd_dev_lock);
+        }
         spin_unlock(&obd->obd_dev_lock);
 
         if (lcfg->lcfg_bufcount >= 2 && LUSTRE_CFG_BUFLEN(lcfg, 1) > 0) {
@@ -504,14 +510,23 @@ int class_cleanup(struct obd_device *obd, struct lustre_cfg *lcfg)
 
         LASSERT(obd->obd_self_export);
 
-        /* destroy an uuid-export hash body */
-        lustre_hash_exit(obd->obd_uuid_hash);
+        /* destroy an uuid-expiort hash body */
+        if (obd->obd_uuid_hash) {
+                lustre_hash_exit(obd->obd_uuid_hash);
+                obd->obd_uuid_hash = NULL;
+        }
 
         /* destroy a nid-export hash body */
-        lustre_hash_exit(obd->obd_nid_hash);
+        if (obd->obd_nid_hash) {
+                lustre_hash_exit(obd->obd_nid_hash);
+                obd->obd_nid_hash = NULL;
+        }
 
         /* destroy a nid-stats hash body */
-        lustre_hash_exit(obd->obd_nid_stats_hash);
+        if (obd->obd_nid_stats_hash) {
+                lustre_hash_exit(obd->obd_nid_stats_hash);
+                obd->obd_nid_stats_hash = NULL;
+        }
 
         /* Precleanup stage 1, we must make sure all exports (other than the
            self-export) get destroyed. */
