@@ -250,7 +250,7 @@ check_cur_qunit(struct obd_device *obd,
         int ret = 0;
         ENTRY;
 
-        if (!ll_sb_any_quota_active(sb))
+        if (!ll_sb_has_quota_active(sb, QDATA_IS_GRP(qdata)))
                 RETURN(0);
 
         cfs_spin_lock(&qctxt->lqc_lock);
@@ -379,9 +379,6 @@ int compute_remquota(struct obd_device *obd, struct lustre_quota_ctxt *qctxt,
         struct obd_quotactl *qctl;
         int ret = QUOTA_RET_OK;
         ENTRY;
-
-        if (!ll_sb_any_quota_active(sb))
-                RETURN(QUOTA_RET_NOQUOTA);
 
         /* ignore root user */
         if (qdata->qd_id == 0 && QDATA_IS_GRP(qdata) == USRQUOTA)
@@ -1228,8 +1225,31 @@ qctxt_adjust_qunit(struct obd_device *obd, struct lustre_quota_ctxt *qctxt,
         struct qunit_data qdata[MAXQUOTAS];
         ENTRY;
 
-        if (quota_is_set(obd, id, isblk ? QB_SET : QI_SET) == 0)
-                RETURN(0);
+	/* XXX In quota_chk_acq_common(), we do something like:
+	 *
+	 *     while (quota_check_common() & QUOTA_RET_ACQUOTA) {
+	 *            rc = qctxt_adjust_qunit();
+	 *     }
+	 *
+	 *     to make sure the slave acquired enough quota from master.
+	 *
+	 *     Unfortunately, qctxt_adjust_qunit() checks QB/QI_SET to
+	 *     decide if do real DQACQ or not, but quota_check_common()
+	 *     doesn't check QB/QI_SET flags. This inconsistence could
+	 *     lead into an infinite loop.
+	 *
+	 *     We can't fix it by simply adding QB/QI_SET checking in the
+	 *     quota_check_common(), since we must guarantee that the
+	 *     paried quota_pending_commit() has same QB/QI_SET, but the
+	 *     flags can be actually cleared at any time...
+	 *
+	 *     A quick non-intrusive solution is to just skip the
+	 *     QB/QI_SET checking here when the @wait is non-zero.
+	 *     (If the @wait is non-zero, the caller must have already
+	 *     checked the QB/QI_SET).
+	 */
+	if (!wait && quota_is_set(obd, id, isblk ? QB_SET : QI_SET) == 0)
+		RETURN(0);
 
         for (i = 0; i < MAXQUOTAS; i++) {
                 qdata[i].qd_id = id[i];
