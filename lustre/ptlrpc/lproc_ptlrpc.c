@@ -742,6 +742,10 @@ int lprocfs_wr_evict_client(struct file *file, const char *buffer,
         struct obd_device *obd = data;
         char tmpbuf[sizeof(struct obd_uuid)];
 
+        /* umount has already run */
+        if (obd->obd_evict_client_frozen)
+                return count;
+
         /* Kludge code(deadlock situation): the lprocfs lock has been held
          * since the client is evicted by writting client's
          * uuid/nid to procfs "evict_client" entry. However,
@@ -749,7 +753,6 @@ int lprocfs_wr_evict_client(struct file *file, const char *buffer,
          * the proc entries under the being destroyed export{}, so I have
          * to drop the lock at first here.
          * - jay, jxiong@clusterfs.com */
-        class_incref(obd);
         LPROCFS_EXIT();
 
         sscanf(buffer, "%40s", tmpbuf);
@@ -761,7 +764,6 @@ int lprocfs_wr_evict_client(struct file *file, const char *buffer,
                 obd_export_evict_by_uuid(obd, tmpbuf);
 
         LPROCFS_ENTRY();
-        class_decref(obd);
 
         return count;
 }
