@@ -90,6 +90,9 @@ static struct lu_kmem_descr cl_page_caches[] = {
         ((void)sizeof(env), (void)sizeof(page), (void)sizeof !!(exp))
 #endif /* !INVARIANT_CHECK */
 
+#define CS_PAGE_INC(s, item) lprocfs_counter_incr((s)->cs_pages, CS_##item)
+#define CS_PAGE_DEC(s, item) lprocfs_counter_decr((s)->cs_pages, CS_##item)
+
 /**
  * Internal version of cl_page_top, it should be called with page referenced,
  * or cp_lock held.
@@ -118,7 +121,7 @@ static void cl_page_get_trust(struct cl_page *page)
          * Checkless version for trusted users.
          */
         if (cfs_atomic_inc_return(&page->cp_ref) == 1)
-                cfs_atomic_inc(&cl_object_site(page->cp_obj)->cs_pages.cs_busy);
+		CS_PAGE_INC(cl_object_site(page->cp_obj), busy);
 }
 
 /**
@@ -298,8 +301,7 @@ static void cl_page_free(const struct lu_env *env, struct cl_page *page)
                 cfs_list_del_init(page->cp_layers.next);
                 slice->cpl_ops->cpo_fini(env, slice);
         }
-        cfs_atomic_dec(&site->cs_pages.cs_total);
-
+	CS_PAGE_DEC(site, total);
 #ifdef LUSTRE_PAGESTATE_TRACKING
         cfs_atomic_dec(&site->cs_pages_state[page->cp_state]);
 #endif
@@ -364,13 +366,12 @@ static int cl_page_alloc(const struct lu_env *env, struct cl_object *o,
                         }
                 }
                 if (err == NULL) {
-                        cfs_atomic_inc(&site->cs_pages.cs_busy);
-                        cfs_atomic_inc(&site->cs_pages.cs_total);
-
+			CS_PAGE_INC(site, busy);
+			CS_PAGE_INC(site, total);
+			CS_PAGE_INC(site, create);
 #ifdef LUSTRE_PAGESTATE_TRACKING
                         cfs_atomic_inc(&site->cs_pages_state[CPS_CACHED]);
 #endif
-                        cfs_atomic_inc(&site->cs_pages.cs_created);
                         result = 0;
                 }
         } else
@@ -408,7 +409,7 @@ static struct cl_page *cl_page_find0(const struct lu_env *env,
         ENTRY;
 
         hdr = cl_object_header(o);
-        cfs_atomic_inc(&site->cs_pages.cs_lookup);
+	CS_PAGE_INC(site, lookup);
 
         CDEBUG(D_PAGE, "%lu@"DFID" %p %lx %d\n",
                idx, PFID(&hdr->coh_lu.loh_fid), vmpage, vmpage->private, type);
@@ -437,7 +438,7 @@ static struct cl_page *cl_page_find0(const struct lu_env *env,
         }
 
         if (page != NULL) {
-                cfs_atomic_inc(&site->cs_pages.cs_hit);
+		CS_PAGE_INC(site, hit);
                 RETURN(page);
         }
 
@@ -490,7 +491,7 @@ static struct cl_page *cl_page_find0(const struct lu_env *env,
         cfs_spin_unlock(&hdr->coh_page_guard);
 
         if (unlikely(ghost != NULL)) {
-                cfs_atomic_dec(&site->cs_pages.cs_busy);
+		CS_PAGE_DEC(site, busy);
                 cl_page_delete0(env, ghost, 0);
                 cl_page_free(env, ghost);
         }
@@ -660,7 +661,7 @@ void cl_page_put(const struct lu_env *env, struct cl_page *page)
                        cfs_atomic_read(&page->cp_ref));
 
         if (cfs_atomic_dec_and_lock(&page->cp_ref, &page->cp_lock)) {
-                cfs_atomic_dec(&site->cs_pages.cs_busy);
+		CS_PAGE_DEC(site, busy);
                 /* We're going to access the page w/o a reference, but it's
                  * ok because we have grabbed the lock cp_lock, which
                  * means nobody is able to free this page behind us.

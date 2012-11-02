@@ -2554,22 +2554,29 @@ struct cl_req_slice {
 
 /* @} cl_req */
 
+enum cache_stats_item {
+	/** how many cache lookups were performed */
+	CS_lookup = 0,
+	/** how many times cache lookup resulted in a hit */
+	CS_hit,
+	/** how many entities are in the cache right now */
+	CS_total,
+	/** how many entities in the cache are actively used (and cannot be
+	 * evicted) right now */
+	CS_busy,
+	/** how many entities were created at all */
+	CS_create,
+	CS_NR
+};
+
+#define CS_NAMES { "lookup", "hit", "total", "busy", "create" }
+
 /**
  * Stats for a generic cache (similar to inode, lu_object, etc. caches).
  */
 struct cache_stats {
         const char    *cs_name;
-        /** how many entities were created at all */
-        cfs_atomic_t   cs_created;
-        /** how many cache lookups were performed */
-        cfs_atomic_t   cs_lookup;
-        /** how many times cache lookup resulted in a hit */
-        cfs_atomic_t   cs_hit;
-        /** how many entities are in the cache right now */
-        cfs_atomic_t   cs_total;
-        /** how many entities in the cache are actively used (and cannot be
-         * evicted) right now */
-        cfs_atomic_t   cs_busy;
+        cfs_atomic_t   cs_stats[CS_NR];
 };
 
 /** These are not exported so far */
@@ -2593,8 +2600,8 @@ struct cl_site {
          * When interpreting keep in mind that both sub-locks (and sub-pages)
          * and top-locks (and top-pages) are accounted here.
          */
-        struct cache_stats    cs_pages;
         struct cache_stats    cs_locks;
+        struct lprocfs_stats *cs_pages;
         cfs_atomic_t          cs_pages_state[CPS_NR];
         cfs_atomic_t          cs_locks_state[CLS_NR];
 };
