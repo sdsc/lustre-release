@@ -65,6 +65,9 @@ static struct lu_kmem_descr cl_lock_caches[] = {
         }
 };
 
+#define CS_LOCK_INC(s, item) cfs_atomic_inc(&(s)->cs_locks.cs_stats[CS_##item])
+#define CS_LOCK_DEC(s, item) cfs_atomic_dec(&(s)->cs_locks.cs_stats[CS_##item])
+
 /**
  * Basic lock invariant that is maintained at all times. Caller either has a
  * reference to \a lock, or somehow assures that \a lock cannot be freed.
@@ -269,7 +272,7 @@ static void cl_lock_free(const struct lu_env *env, struct cl_lock *lock)
                 cfs_list_del_init(lock->cll_layers.next);
                 slice->cls_ops->clo_fini(env, slice);
         }
-        cfs_atomic_dec(&cl_object_site(obj)->cs_locks.cs_total);
+	CS_LOCK_DEC(cl_object_site(obj), total);
         cfs_atomic_dec(&cl_object_site(obj)->cs_locks_state[lock->cll_state]);
         lu_object_ref_del_at(&obj->co_lu, lock->cll_obj_ref, "cl_lock", lock);
         cl_object_put(env, obj);
@@ -308,7 +311,7 @@ void cl_lock_put(const struct lu_env *env, struct cl_lock *lock)
                         LASSERT(cfs_list_empty(&lock->cll_linkage));
                         cl_lock_free(env, lock);
                 }
-                cfs_atomic_dec(&site->cs_locks.cs_busy);
+		CS_LOCK_DEC(site, busy);
         }
         EXIT;
 }
@@ -347,7 +350,7 @@ void cl_lock_get_trust(struct cl_lock *lock)
         CDEBUG(D_TRACE, "acquiring trusted reference: %d %p %lu\n",
                cfs_atomic_read(&lock->cll_ref), lock, RETIP);
         if (cfs_atomic_inc_return(&lock->cll_ref) == 1)
-                cfs_atomic_inc(&site->cs_locks.cs_busy);
+		CS_LOCK_INC(site, busy);
 }
 EXPORT_SYMBOL(cl_lock_get_trust);
 
@@ -394,8 +397,8 @@ static struct cl_lock *cl_lock_alloc(const struct lu_env *env,
                 cfs_waitq_init(&lock->cll_wq);
                 head = obj->co_lu.lo_header;
                 cfs_atomic_inc(&site->cs_locks_state[CLS_NEW]);
-                cfs_atomic_inc(&site->cs_locks.cs_total);
-                cfs_atomic_inc(&site->cs_locks.cs_created);
+		CS_LOCK_INC(site, total);
+		CS_LOCK_INC(site, create);
                 cl_lock_lockdep_init(lock);
                 cfs_list_for_each_entry(obj, &head->loh_layers,
                                         co_lu.lo_linkage) {
@@ -500,7 +503,7 @@ static struct cl_lock *cl_lock_lookup(const struct lu_env *env,
         head = cl_object_header(obj);
         site = cl_object_site(obj);
         LINVRNT_SPIN_LOCKED(&head->coh_lock_guard);
-        cfs_atomic_inc(&site->cs_locks.cs_lookup);
+	CS_LOCK_INC(site, lookup);
         cfs_list_for_each_entry(lock, &head->coh_locks, cll_linkage) {
                 int matched;
 
@@ -514,7 +517,7 @@ static struct cl_lock *cl_lock_lookup(const struct lu_env *env,
                        matched);
                 if (matched) {
                         cl_lock_get_trust(lock);
-                        cfs_atomic_inc(&cl_object_site(obj)->cs_locks.cs_hit);
+			CS_LOCK_INC(cl_object_site(obj), hit);
                         RETURN(lock);
                 }
         }
@@ -561,7 +564,7 @@ static struct cl_lock *cl_lock_find(const struct lu_env *env,
                                 cfs_list_add_tail(&lock->cll_linkage,
                                                   &head->coh_locks);
                                 cfs_spin_unlock(&head->coh_lock_guard);
-                                cfs_atomic_inc(&site->cs_locks.cs_busy);
+				CS_LOCK_INC(site, busy);
                         } else {
                                 cfs_spin_unlock(&head->coh_lock_guard);
                                 /*
