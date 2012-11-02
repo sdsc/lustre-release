@@ -977,6 +977,54 @@ allowed:
         RETURN(0);
 }
 
+
+static int server_wait_for_evict_client(struct lustre_sb_info *lsi)
+{
+        int rc = 0, waited = 0;
+        struct obd_device *obd;
+        cfs_sigset_t blocked;
+        ENTRY;
+
+        mutex_down(&server_start_lock);
+        obd = class_name2obd(lsi->lsi_ldd->ldd_svname);
+        if (!obd)
+                RETURN(rc);
+
+        class_incref(obd);
+        if (!obd->obd_set_up || obd->obd_stopping ||
+            obd->obd_evict_client_frozen) {
+                class_decref(obd);
+                mutex_up(&server_start_lock);
+                RETURN(rc);
+        }
+
+        /* prohibits eviction */
+        obd->obd_evict_client_frozen = 1;
+
+        while (unlikely(cfs_atomic_read(&obd->obd_evict_inprogress))) {
+                if (waited && (waited % 30 == 0))
+                        CERROR("evict_client is still opened\n");
+
+                waited += 3;
+                blocked = l_w_e_set_sigs(sigmask(SIGKILL));
+                rc = cfs_waitq_wait_event_interruptible_timeout(
+                        obd->obd_evict_inprogress_waitq,
+                        (cfs_atomic_read(&obd->obd_evict_inprogress) == 0),
+                        cfs_time_seconds(3));
+                cfs_block_sigs(blocked);
+                if (rc < 0) {
+                        CERROR("Danger: interrupted umount while a evict "
+                               "process is still ongoing\n");
+                        break;
+                }
+        }
+        class_decref(obd);
+        mutex_up(&server_start_lock);
+
+        RETURN(rc);
+}
+
+
 /* Register an old or new target with the MGS. If needed MGS will construct
    startup logs and assign index */
 int server_register_target(struct super_block *sb)
@@ -1420,6 +1468,9 @@ static void server_put_super(struct super_block *sb)
         OBD_ALLOC(tmpname, tmpname_sz);
         memcpy(tmpname, lsi->lsi_ldd->ldd_svname, tmpname_sz);
         CDEBUG(D_MOUNT, "server put_super %s\n", tmpname);
+
+        server_wait_for_evict_client(lsi);
+
         if (IS_MDT(lsi->lsi_ldd) && (lsi->lsi_lmd->lmd_flags & LMD_FLG_NOSVC))
                 snprintf(tmpname, tmpname_sz, "MGS");
 
