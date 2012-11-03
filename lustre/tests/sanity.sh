@@ -526,7 +526,7 @@ test_17m() {
 	echo "erase them"
 	rm -f $WDIR/*
 	sync
-	sleep 2
+	wait_delete_completed
 
 	echo "recreate the 512 symlink files with a shorter string"
 	for ((i = 0; i < 512; ++i)); do
@@ -843,20 +843,28 @@ page_size() {
 	getconf PAGE_SIZE
 }
 
+cleanup_24() {
+	trap 0
+	rm -rf -rf $DIR/$tdir
+	wait_delete_completed
+}
+
 test_24v() {
 	local NRFILES=100000
 	local FREE_INODES=`lfs df -i|grep "filesystem summary" | awk '{print $5}'`
 	[ $FREE_INODES -lt $NRFILES ] && \
-		skip "not enough free inodes $FREE_INODES required $NRFILES" && \
+		skip "not enough free inodes $FREE_INODES required $NRFILES" &&
 		return
 
-	mkdir -p $DIR/d24v
-	createmany -m $DIR/d24v/$tfile $NRFILES
+	trap cleanup_24 EXIT
+
+	mkdir -p $DIR/$tdir
+	createmany -m $DIR/$tdir/$tfile $NRFILES
 
 	cancel_lru_locks mdc
 	lctl set_param mdc.*.stats clear
 
-	ls $DIR/d24v >/dev/null || error "error in listing large dir"
+	ls $DIR/$tdir >/dev/null || error "error in listing large dir"
 
 	# LU-5 large readdir
 	# DIRENT_SIZE = 32 bytes for sizeof(struct lu_dirent) +
@@ -872,7 +880,7 @@ test_24v() {
 	[ $mds_readpage -gt $RPC_NUM ] && \
 		error "large readdir doesn't take effect"
 
-	rm $DIR/d24v -rf
+	cleanup_24
 }
 run_test 24v "list directory with large files (handle hash collision, bug: 17560)"
 
@@ -1052,31 +1060,37 @@ test_27l() {
 }
 run_test 27l "check setstripe permissions (should return error)"
 
+cleanup_27() {
+	trap 0
+	rm -r $DIR/$tdir
+	wait_delete_completed
+}
+
 test_27m() {
 	[ "$OSTCOUNT" -lt "2" ] && skip_env "$OSTCOUNT < 2 OSTs -- skipping" && return
 	if [ $ORIGFREE -gt $MAXFREE ]; then
 		skip "$ORIGFREE > $MAXFREE skipping out-of-space test on OST0"
 		return
 	fi
-	mkdir -p $DIR/d27
-	$SETSTRIPE -i 0 -c 1 $DIR/d27/f27m_1
-	dd if=/dev/zero of=$DIR/d27/f27m_1 bs=1024 count=$MAXFREE &&
+	trap cleanup_27 EXIT
+	mkdir -p $DIR/$tdir
+	$SETSTRIPE -i 0 -c 1 $DIR/$tdir/f27m_1
+	dd if=/dev/zero of=$DIR/$tdir/f27m_1 bs=1024 count=$MAXFREE &&
 		error "dd should fill OST0"
 	i=2
-	while $SETSTRIPE -i 0 -c 1 $DIR/d27/f27m_$i; do
+	while $SETSTRIPE -i 0 -c 1 $DIR/$tdir/f27m_$i; do
 		i=`expr $i + 1`
 		[ $i -gt 256 ] && break
 	done
 	i=`expr $i + 1`
-	touch $DIR/d27/f27m_$i
-	[ `$GETSTRIPE $DIR/d27/f27m_$i | grep -A 10 obdidx | awk '{print $1}'| grep -w "0"` ] && \
+	touch $DIR/$tdir/f27m_$i
+	[ `$GETSTRIPE $DIR/$tdir/f27m_$i | grep -A 10 obdidx | awk '{print $1}'| grep -w "0"` ] &&
 		error "OST0 was full but new created file still use it"
 	i=`expr $i + 1`
-	touch $DIR/d27/f27m_$i
-	[ `$GETSTRIPE $DIR/d27/f27m_$i | grep -A 10 obdidx | awk '{print $1}'| grep -w "0"` ] && \
+	touch $DIR/$tdir/f27m_$i
+	[ `$GETSTRIPE $DIR/d27/f27m_$i | grep -A 10 obdidx | awk '{print $1}'| grep -w "0"` ] &&
 		error "OST0 was full but new created file still use it"
-	rm -r $DIR/d27
-	sleep 15
+	cleanup_27
 }
 run_test 27m "create file while OST0 was full =================="
 
@@ -1831,42 +1845,50 @@ run_test 32h "open d32h/symlink->tmp/symlink->lustre-subdir/${tdir}2"
 
 test_32i() {
 	[ -e $DIR/d32i ] && rm -fr $DIR/d32i
+	trap "$UMOUNT $DIR/d32i/ext2-mountpoint ; trap 0" EXIT
 	mkdir -p $DIR/d32i/ext2-mountpoint
 	mount -t ext2 -o loop $EXT2_DEV $DIR/d32i/ext2-mountpoint || error
 	touch $DIR/d32i/test_file
 	$CHECKSTAT -t file $DIR/d32i/ext2-mountpoint/../test_file || error
+	trap 0
 	$UMOUNT $DIR/d32i/ext2-mountpoint || error
 }
 run_test 32i "stat d32i/ext2-mountpoint/../test_file ==========="
 
 test_32j() {
 	[ -e $DIR/d32j ] && rm -fr $DIR/d32j
+	trap "$UMOUNT $DIR/d32j/ext2-mountpoint ; trap 0" EXIT
 	mkdir -p $DIR/d32j/ext2-mountpoint
 	mount -t ext2 -o loop $EXT2_DEV $DIR/d32j/ext2-mountpoint || error
 	touch $DIR/d32j/test_file
 	cat $DIR/d32j/ext2-mountpoint/../test_file || error
+	trap 0
 	$UMOUNT $DIR/d32j/ext2-mountpoint || error
 }
 run_test 32j "open d32j/ext2-mountpoint/../test_file ==========="
 
 test_32k() {
 	rm -fr $DIR/d32k
+	trap "$UMOUNT $DIR/d32k/ext2-mountpoint ; trap 0" EXIT
 	mkdir -p $DIR/d32k/ext2-mountpoint
 	mount -t ext2 -o loop $EXT2_DEV $DIR/d32k/ext2-mountpoint
 	mkdir -p $DIR/d32k/d2
 	touch $DIR/d32k/d2/test_file || error
 	$CHECKSTAT -t file $DIR/d32k/ext2-mountpoint/../d2/test_file || error
+	trap 0
 	$UMOUNT $DIR/d32k/ext2-mountpoint || error
 }
 run_test 32k "stat d32k/ext2-mountpoint/../d2/test_file ========"
 
 test_32l() {
 	rm -fr $DIR/d32l
+	trap "$UMOUNT $DIR/d32l/ext2-mountpoint ; trap 0" EXIT
 	mkdir -p $DIR/d32l/ext2-mountpoint
 	mount -t ext2 -o loop $EXT2_DEV $DIR/d32l/ext2-mountpoint || error
 	mkdir -p $DIR/d32l/d2
 	touch $DIR/d32l/d2/test_file
 	cat  $DIR/d32l/ext2-mountpoint/../d2/test_file || error
+	trap 0
 	$UMOUNT $DIR/d32l/ext2-mountpoint || error
 }
 run_test 32l "open d32l/ext2-mountpoint/../d2/test_file ========"
@@ -4102,8 +4124,8 @@ test_59() {
 	echo "rm 130 files"
 	unlinkmany $DIR/f59- 130
 	sync
-	sleep 2
         # wait for commitment of removal
+	wait_delete_completed
 }
 run_test 59 "verify cancellation of llog records async ========="
 
@@ -4543,7 +4565,6 @@ test_72a() { # bug 5695 - Test that on 2.6 remove_suid works properly
 	# Now test that MDS is updated too
 	cancel_lru_locks mdc
 	test -u $DIR/f72 -o -g $DIR/f72 && error "S/gid is not dropped on MDS"
-	true
 	rm -f $DIR/f72
 }
 run_test 72a "Test that remove suid works properly (bug5695) ===="
@@ -4964,7 +4985,6 @@ test_80() { # bug 10718
 
         [ -n "$hosts" ] && do_nodes $hosts lctl set_param $soc=$soc_old
 
-        true
         rm -f $DIR/$tfile
 }
 run_test 80 "Page eviction is equally fast at high offsets too  ===="
@@ -5905,14 +5925,14 @@ test_107() {
 run_test 107 "Coredump on SIG"
 
 test_110() {
-	mkdir -p $DIR/d110
-	mkdir $DIR/d110/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa || error "mkdir with 255 char fail"
-	mkdir $DIR/d110/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb && error "mkdir with 256 char should fail, but not"
-	touch $DIR/d110/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx || error "create with 255 char fail"
-	touch $DIR/d110/yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy && error ""create with 256 char should fail, but not
+	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir/`head -c 255 < /dev/zero | tr '\0' 'a'` || error "mkdir with 255 char failed"
+	mkdir $DIR/$tdir/`head -c 256 < /dev/zero | tr '\0' 'b'` && error "mkdir with 256 char should fail, but did not"
+	touch $DIR/$tdir/`head -c 255 < /dev/zero | tr '\0' 'x'` || error "create with 255 char failed"
+	touch $DIR/$tdir/`head -c 256 < /dev/zero | tr '\0' 'y'` && error "create with 256 char should fail, but did not"
 
-	ls -l $DIR/d110
-    rm -fr $DIR/d110
+	ls -l $DIR/$tdir
+    rm -fr $DIR/$tdir
 }
 run_test 110 "filename length checking"
 
