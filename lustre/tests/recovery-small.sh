@@ -153,6 +153,7 @@ test_10() {
     #sleep $(($TIMEOUT*2))
     do_facet client touch $DIR/$tfile || echo "touch failed, evicted"
     do_facet client checkstat -v -p 0777 $DIR/$tfile  || return 3
+    client_reconnect
     do_facet client "munlink $DIR/$tfile"
 }
 run_test 10 "finish request on server after client eviction (bug 1521)"
