@@ -623,7 +623,7 @@ test_block_soft() {
 # block soft limit
 test_3() {
 	local LIMIT=1  # 1MB
-	local GRACE=10 # 10s
+	local GRACE=20 # 20s
 	local TESTFILE=$DIR/$tdir/$tfile-0
 
 	set_ost_qtype "ug" || error "enable ost quota failed"
@@ -919,7 +919,7 @@ test_6() {
 	local count=0
 	while [ true ]; do
 		if ! ps -p ${DDPID} > /dev/null 2>&1; then break; fi
-		if [ $count -ge 120 ]; then
+		if [ $count -ge 240 ]; then
 			quota_error u $TSTUSR "dd not finished in $count secs"
 		fi
 		count=$((count + 1))
