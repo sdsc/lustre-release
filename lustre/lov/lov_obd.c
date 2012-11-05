@@ -180,13 +180,6 @@ int lov_connect_obd(struct obd_device *obd, __u32 index, int activate,
                 RETURN(rc);
         }
 
-
-        if (imp->imp_invalid) {
-                CDEBUG(D_CONFIG, "not connecting OSC %s; administratively "
-                       "disabled\n", obd_uuid2str(tgt_uuid));
-                RETURN(0);
-        }
-
         rc = obd_connect(NULL, &lov->lov_tgts[index]->ltd_exp, tgt_obd,
                          &lov_osc_uuid, data, NULL);
         if (rc || !lov->lov_tgts[index]->ltd_exp) {
