@@ -896,7 +896,6 @@ void lprocfs_stats_collect(struct lprocfs_stats *stats, int idx,
 	unsigned int		num_entry;
 	struct lprocfs_counter	t;
 	struct lprocfs_counter *percpu_cntr;
-	int			centry;
 	int			i;
 	unsigned long		flags = 0;
 
@@ -917,18 +916,12 @@ void lprocfs_stats_collect(struct lprocfs_stats *stats, int idx,
 			continue;
 		percpu_cntr = &(stats->ls_percpu[i])->lp_cntr[idx];
 
-                do {
-                        centry = cfs_atomic_read(&percpu_cntr-> \
-                                                 lc_cntl.la_entry);
-                        t.lc_count = percpu_cntr->lc_count;
-                        t.lc_sum = percpu_cntr->lc_sum;
-                        t.lc_min = percpu_cntr->lc_min;
-                        t.lc_max = percpu_cntr->lc_max;
-                        t.lc_sumsquare = percpu_cntr->lc_sumsquare;
-                } while (centry != cfs_atomic_read(&percpu_cntr->lc_cntl. \
-                                                   la_entry) &&
-                         centry != cfs_atomic_read(&percpu_cntr->lc_cntl. \
-                                                   la_exit));
+		t.lc_count = percpu_cntr->lc_count;
+		t.lc_sum = percpu_cntr->lc_sum;
+		t.lc_min = percpu_cntr->lc_min;
+		t.lc_max = percpu_cntr->lc_max;
+		t.lc_sumsquare = percpu_cntr->lc_sumsquare;
+
                 cnt->lc_count += t.lc_count;
                 cnt->lc_sum += t.lc_sum;
                 if (t.lc_min < cnt->lc_min)
@@ -1481,13 +1474,11 @@ void lprocfs_clear_stats(struct lprocfs_stats *stats)
 			continue;
 		for (j = 0; j < stats->ls_num; j++) {
 			percpu_cntr = &(stats->ls_percpu[i])->lp_cntr[j];
-			cfs_atomic_inc(&percpu_cntr->lc_cntl.la_entry);
 			percpu_cntr->lc_count = 0;
 			percpu_cntr->lc_sum = 0;
 			percpu_cntr->lc_min = LC_MIN_INIT;
 			percpu_cntr->lc_max = 0;
 			percpu_cntr->lc_sumsquare = 0;
-			cfs_atomic_inc(&percpu_cntr->lc_cntl.la_exit);
 		}
 	}
 
