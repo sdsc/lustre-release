@@ -44,12 +44,57 @@
 #define DEBUG_SUBSYSTEM S_MDS
 
 #include <obd_class.h>
+#include <lustre_fid.h>
 #include <lustre_param.h>
 
 #include "lod_internal.h"
+/**
+ * Lookup MDS number \a mds by FID \a fid.
+ *
+ * \param fid FID of object to find MDS
+ * \param mds mds number to return.
+ **/
+int lod_fld_lookup(struct lod_device *lod, const struct lu_fid *fid,
+		   mdsno_t *tgt, const struct lu_env *env, int flags)
+{
+	struct lu_seq_range   range;
+	struct lu_server_fld *server_fld;
+	int rc = 0;
+	ENTRY;
+
+	LASSERT(fid_is_sane(fid));
+	if (!lod->lod_initialized || (!fid_is_norm(fid) && !fid_is_root(fid))) {
+		LASSERT(lu_site2md(lod2lu_dev(lod)->ld_site) != NULL);
+		*tgt = lu_site2md(lod2lu_dev(lod)->ld_site)->ms_node_id;
+		RETURN(rc);
+	}
+
+	if (fid_is_root(fid)) {
+		*tgt = fid_index_get_by_rootfid(fid);
+		RETURN(0);
+	}
+
+	server_fld = lu_site2md(lod2lu_dev(lod)->ld_site)->ms_server_fld;
+	range.lsr_flags = flags;
+	rc = fld_server_lookup(server_fld, env, fid_seq(fid), &range);
+	if (rc) {
+		CERROR("Can't find tgt by seq "LPX64", rc %d\n",
+		       fid_seq(fid), rc);
+		RETURN(rc);
+	}
+
+	*tgt = range.lsr_index;
+
+	CDEBUG(D_INFO, "LOD: got tgt %x for sequence: "
+	       LPX64"\n", *tgt, fid_seq(fid));
+
+	RETURN(rc);
+}
 
 extern struct lu_object_operations lod_lu_obj_ops;
+extern struct lu_object_operations lod_lu_robj_ops;
 extern struct dt_object_operations lod_obj_ops;
+extern struct dt_lock_operations   lod_lock_ops;
 
 /* Slab for OSD object allocation */
 cfs_mem_cache_t *lod_object_kmem;
@@ -72,21 +117,217 @@ struct lu_object *lod_object_alloc(const struct lu_env *env,
 				   const struct lu_object_header *hdr,
 				   struct lu_device *dev)
 {
-	struct lu_object  *lu_obj;
-	struct lod_object *lo;
+	struct lod_object	*lod_obj;
+	struct lu_object	*lu_obj;
+	const struct lu_fid	*fid = &hdr->loh_fid;
+	mdsno_t			mds;
+	int			rc = 0;
+	ENTRY;
 
-	OBD_SLAB_ALLOC_PTR_GFP(lo, lod_object_kmem, CFS_ALLOC_IO);
-	if (lo == NULL)
-		return NULL;
+	OBD_SLAB_ALLOC_PTR_GFP(lod_obj, lod_object_kmem, CFS_ALLOC_IO);
+	if (lod_obj == NULL)
+		RETURN(ERR_PTR(-ENOMEM));
 
-	lu_obj = lod2lu_obj(lo);
-	dt_object_init(&lo->ldo_obj, NULL, dev);
-	lo->ldo_obj.do_ops = &lod_obj_ops;
-	lu_obj->lo_ops = &lod_lu_obj_ops;
+	rc = lod_fld_lookup(lu2lod_dev(dev), fid, &mds, env,
+			    LU_SEQ_RANGE_MDT);
+	if (rc) {
+		OBD_SLAB_FREE_PTR(lod_obj, lod_object_kmem);
+		RETURN(ERR_PTR(rc));
+	}
 
-	return lu_obj;
+	lod_obj->ldo_mds_num = mds;
+	lu_obj = lod2lu_obj(lod_obj);
+	dt_object_init(&lod_obj->ldo_obj, NULL, dev);
+	lod_obj->ldo_obj.do_ops = &lod_obj_ops;
+	lod_obj->ldo_obj.do_lock_ops = &lod_lock_ops;
+	if (mds == lu_site2md(dev->ld_site)->ms_node_id)
+		lu_obj->lo_ops = &lod_lu_obj_ops;
+	else
+		lu_obj->lo_ops = &lod_lu_robj_ops;
+	RETURN(lu_obj);
 }
 
+static int lod_cleanup_desc_tgts(const struct lu_env *env,
+				 struct lod_device *lod,
+				 struct lod_tgt_descs *ltd,
+				 struct lustre_cfg *lcfg)
+{
+	struct lu_device  *next;
+	int rc = 0;
+	int i;
+
+	lod_getref(ltd);
+	if (ltd->ltd_tgts_size <= 0) {
+		lod_putref(lod, ltd);
+		return rc;
+	}
+	cfs_foreach_bit(ltd->ltd_tgt_bitmap, i) {
+		struct lod_tgt_desc *tgt;
+		int rc1;
+
+		tgt = LTD_TGT(ltd, i);
+		LASSERT(tgt && tgt->ltd_tgt);
+		next = &tgt->ltd_tgt->dd_lu_dev;
+		rc1 = next->ld_ops->ldo_process_config(env, next, lcfg);
+		if (rc1) {
+			CERROR("can't process i:%d %u: %d\n",
+				i, lcfg->lcfg_command, rc1);
+			rc = rc1;
+		}
+	}
+	lod_putref(lod, ltd);
+	return rc;
+}
+
+static int lodname2mdt_index(char *lodname, int *index)
+{
+	char *ptr, *tmp;
+
+	/* The lodname suppose to be fsname-MDTxxxx-mdtlov */
+	ptr = strrchr(lodname, '-');
+	if (ptr == NULL) {
+		CERROR("invalid MDT index in '%s'\n", lodname);
+		return -EINVAL;
+	}
+
+	if (strncmp(ptr, "-mdtlov", 7) != 0) {
+		CERROR("invalid MDT index in '%s'\n", lodname);
+		return -EINVAL;
+	}
+
+	if ((unsigned long)ptr - (unsigned long)lodname <= 8) {
+		CERROR("invalid MDT index in '%s'\n", lodname);
+		return -EINVAL;
+	}
+
+	if (strncmp(ptr - 8, "-MDT", 4) != 0) {
+		CERROR("invalid MDT index in '%s'\n", lodname);
+		return -EINVAL;
+	}
+
+	*index = simple_strtol(ptr - 4, &tmp, 16);
+	if (*tmp != '-' || *index > INT_MAX || *index < 0) {
+		CERROR("invalid MDT index in '%s'\n", lodname);
+		return -EINVAL;
+	}
+	return 0;
+}
+
+/*
+ * Init client sequence manager which is used by local MDS to talk to sequence
+ * controller on remote node.
+ */
+static int lod_seq_init_cli(const struct lu_env *env,
+			    struct lod_device *lod,
+			    char *tgtuuid, int index)
+{
+	struct md_site	  *ms;
+	struct obd_device       *osp;
+	int		      rc;
+	char		    *prefix;
+	struct obd_uuid	  obd_uuid;
+	ENTRY;
+
+	ms = lod->lod_dt_dev.dd_lu_dev.ld_site->ld_md_site;
+	LASSERT(ms != NULL);
+
+	/* check if this is adding the first MDC and controller is not yet
+	 * initialized. */
+	if (index != 0 || ms->ms_client_seq)
+		RETURN(0);
+
+	obd_str2uuid(&obd_uuid, tgtuuid);
+	osp = class_find_client_obd(&obd_uuid, LUSTRE_OSP_NAME,
+				   &lod->lod_dt_dev.dd_lu_dev.ld_obd->obd_uuid);
+	if (osp == NULL) {
+		CERROR("%s: can't find %s device\n",
+			lod->lod_dt_dev.dd_lu_dev.ld_obd->obd_name,
+			tgtuuid);
+		RETURN(-EINVAL);
+	}
+
+	if (!osp->obd_set_up) {
+		CERROR("target %s not set up\n", osp->obd_name);
+		rc = -EINVAL;
+	}
+
+	LASSERT(ms->ms_control_exp);
+	OBD_ALLOC_PTR(ms->ms_client_seq);
+	if (ms->ms_client_seq == NULL)
+		RETURN(-ENOMEM);
+
+	OBD_ALLOC(prefix, MAX_OBD_NAME + 5);
+	if (!prefix) {
+		OBD_FREE_PTR(ms->ms_client_seq);
+		ms->ms_client_seq = NULL;
+		RETURN(-ENOMEM);
+	}
+
+	snprintf(prefix, MAX_OBD_NAME + 5, "ctl-%s", osp->obd_name);
+	rc = seq_client_init(ms->ms_client_seq, ms->ms_control_exp,
+			     LUSTRE_SEQ_METADATA, prefix, NULL);
+	OBD_FREE(prefix, MAX_OBD_NAME + 5);
+	if (rc) {
+		OBD_FREE_PTR(ms->ms_client_seq);
+		ms->ms_client_seq = NULL;
+		RETURN(rc);
+	}
+
+	LASSERT(ms->ms_server_seq != NULL);
+	rc = seq_server_set_cli(ms->ms_server_seq, ms->ms_client_seq,
+				env);
+
+	RETURN(rc);
+}
+
+static void lod_seq_fini_cli(struct lod_device *lod)
+{
+	struct md_site *ms;
+
+	ENTRY;
+
+	ms = lod->lod_dt_dev.dd_lu_dev.ld_site->ld_md_site;
+
+	if (ms == NULL) {
+		EXIT;
+		return;
+	}
+
+	if (ms->ms_server_seq)
+		seq_server_set_cli(ms->ms_server_seq,
+			   NULL, NULL);
+
+	if (ms->ms_control_exp) {
+		class_export_put(ms->ms_control_exp);
+		ms->ms_control_exp = NULL;
+	}
+
+	EXIT;
+	return;
+}
+
+/**
+ * Procss config log on LOD
+ * \param env environment info
+ * \param dev lod device
+ * \param lcfg config log
+ *
+ * Add osc config log,
+ * marker  20 (flags=0x01, v2.2.49.56) lustre-OST0001  'add osc'
+ * add_uuid  nid=192.168.122.162@tcp(0x20000c0a87aa2)  0:  1:nidxxx
+ * attach    0:lustre-OST0001-osc-MDT0001  1:osc  2:lustre-MDT0001-mdtlov_UUID
+ * setup     0:lustre-OST0001-osc-MDT0001  1:lustre-OST0001_UUID  2:nid
+ * lov_modify_tgts add 0:lustre-MDT0001-mdtlov  1:lustre-OST0001_UUID  2:1  3:1
+ * marker  20 (flags=0x02, v2.2.49.56) lustre-OST0001  'add osc'
+ *
+ * Add mdc config log
+ * marker  10 (flags=0x01, v2.2.49.56) lustre-MDT0000  'add osp'
+ * add_uuid  nid=192.168.122.162@tcp(0x20000c0a87aa2)  0:  1:nid
+ * attach 0:lustre-MDT0000-osp-MDT0001  1:osp  2:lustre-MDT0001-mdtlov_UUID
+ * setup     0:lustre-MDT0000-osp-MDT0001  1:lustre-MDT0000_UUID  2:nid
+ * modify_mdc_tgts add 0:lustre-MDT0001  1:lustre-MDT0000_UUID  2:0  3:1
+ * marker  10 (flags=0x02, v2.2.49.56) lustre-MDT0000_UUID  'add osp'
+ **/
 static int lod_process_config(const struct lu_env *env,
 			      struct lu_device *dev,
 			      struct lustre_cfg *lcfg)
@@ -94,34 +335,58 @@ static int lod_process_config(const struct lu_env *env,
 	struct lod_device *lod = lu2lod_dev(dev);
 	struct lu_device  *next = &lod->lod_child->dd_lu_dev;
 	char		  *arg1;
-	int		   rc, i;
+	int		   rc = 0;
 	ENTRY;
 
 	switch(lcfg->lcfg_command) {
-
 	case LCFG_LOV_DEL_OBD:
 	case LCFG_LOV_ADD_INA:
-	case LCFG_LOV_ADD_OBD: {
+	case LCFG_LOV_ADD_OBD:
+	case LCFG_ADD_MDC: {
 		__u32 index;
+		__u32 mdt_index;
 		int gen;
-		/* lov_modify_tgts add  0:lov_mdsA  1:osp  2:0  3:1 */
+		/* lov_modify_tgts add  0:lov_mdsA  1:osp  2:0  3:1
+		 * modify_mdc_tgts add  0:lustre-MDT0001
+		 *		      1:lustre-MDT0001-mdc0002
+		 *		      2:2  3:1*/
 		arg1 = lustre_cfg_string(lcfg, 1);
-
 		if (sscanf(lustre_cfg_buf(lcfg, 2), "%d", &index) != 1)
 			GOTO(out, rc = -EINVAL);
 		if (sscanf(lustre_cfg_buf(lcfg, 3), "%d", &gen) != 1)
 			GOTO(out, rc = -EINVAL);
-
-		if (lcfg->lcfg_command == LCFG_LOV_ADD_OBD)
-			rc = lod_add_device(env, lod, arg1, index, gen, 1);
-		else if (lcfg->lcfg_command == LCFG_LOV_ADD_INA)
-			rc = lod_add_device(env, lod, arg1, index, gen, 0);
-		else
-			rc = lod_del_device(env, lod, arg1, index, gen);
-
+		if (lcfg->lcfg_command == LCFG_LOV_ADD_OBD) {
+			char *mdt;
+			mdt = strstr(lustre_cfg_string(lcfg, 0), "-MDT");
+			if (mdt == NULL) { /* 1.8 configs don't have "-MDT0000" at the end */
+				mdt_index = 0;
+			} else {
+				rc = lodname2mdt_index(
+					lustre_cfg_string(lcfg, 0), &mdt_index);
+				if (rc != 0)
+					GOTO(out, rc);
+			}
+			rc = lod_add_device(env, lod, arg1, index, gen,
+					    mdt_index, LUSTRE_OSC_NAME, 1);
+		} else if (lcfg->lcfg_command == LCFG_ADD_MDC) {
+			mdt_index = index;
+			rc = lod_add_device(env, lod, arg1, index, gen,
+					    mdt_index, LUSTRE_MDC_NAME, 1);
+			if (rc == 0)
+				rc = lod_seq_init_cli(env, lod, arg1,
+						      mdt_index);
+		} else if (lcfg->lcfg_command == LCFG_LOV_ADD_INA) {
+			/*FIXME: Add mdt_index for LCFG_LOV_ADD_INA*/
+			mdt_index = 0;
+			rc = lod_add_device(env, lod, arg1, index, gen,
+					    mdt_index, LUSTRE_OSC_NAME, 0);
+		} else {
+			rc = lod_del_device(env, lod,
+					    &lod->lod_ost_descs,
+					    arg1, index, gen);
+		}
 		break;
 	}
-
 	case LCFG_PARAM: {
 		struct lprocfs_static_vars  v = { 0 };
 		struct obd_device	  *obd = lod2obd(lod);
@@ -132,24 +397,24 @@ static int lod_process_config(const struct lu_env *env,
 		if (rc > 0)
 			rc = 0;
 		GOTO(out, rc);
-	 }
-
+	}
 	case LCFG_CLEANUP:
+	case LCFG_PRE_CLEANUP: {
 		lu_dev_del_linkage(dev->ld_site, dev);
-		lod_getref(lod);
-		lod_foreach_ost(lod, i) {
-			struct lod_ost_desc *ost;
-			ost = OST_TGT(lod, i);
-			LASSERT(ost && ost->ltd_ost);
-			next = &ost->ltd_ost->dd_lu_dev;
-			rc = next->ld_ops->ldo_process_config(env, next, lcfg);
-			if (rc)
-				CERROR("%s: can't process %u: %d\n",
-				       lod2obd(lod)->obd_name,
-				       lcfg->lcfg_command, rc);
-		}
-		lod_putref(lod);
+		rc = lod_cleanup_desc_tgts(env, lod, &lod->lod_mdt_descs, lcfg);
+		if (rc)
+			CERROR("%s: cleanup mdt desc error %d\n",
+				lod->lod_dt_dev.dd_lu_dev.ld_obd->obd_name, rc);
 
+		rc = lod_cleanup_desc_tgts(env, lod, &lod->lod_ost_descs, lcfg);
+		if (rc)
+			CERROR("%s: cleanup ost desc error %d\n",
+			       lod->lod_dt_dev.dd_lu_dev.ld_obd->obd_name, rc);
+
+		if (lcfg->lcfg_command == LCFG_PRE_CLEANUP)
+			break;
+
+		lod_seq_fini_cli(lod);
 		/*
 		 * do cleanup on underlying storage only when
 		 * all OSPs are cleaned up, as they use that OSD as well
@@ -164,7 +429,7 @@ static int lod_process_config(const struct lu_env *env,
 		if (rc)
 			CERROR("error in disconnect from storage: %d\n", rc);
 		break;
-
+	}
 	default:
 	       CERROR("%s: unknown command %u\n", lod2obd(lod)->obd_name,
 		      lcfg->lcfg_command);
@@ -181,7 +446,6 @@ static int lod_recovery_complete(const struct lu_env *env,
 {
 	struct lod_device   *lod = lu2lod_dev(dev);
 	struct lu_device    *next = &lod->lod_child->dd_lu_dev;
-	struct lod_ost_desc *ost;
 	int		     i, rc;
 	ENTRY;
 
@@ -190,18 +454,20 @@ static int lod_recovery_complete(const struct lu_env *env,
 
 	rc = next->ld_ops->ldo_recovery_complete(env, next);
 
-	lod_getref(lod);
-	lod_foreach_ost(lod, i) {
-		ost = OST_TGT(lod, i);
-		LASSERT(ost && ost->ltd_ost);
-		next = &ost->ltd_ost->dd_lu_dev;
-		rc = next->ld_ops->ldo_recovery_complete(env, next);
-		if (rc)
-			CERROR("%s: can't complete recovery on #%d: %d\n",
-			       lod2obd(lod)->obd_name, i, rc);
+	lod_getref(&lod->lod_ost_descs);
+	if (lod->lod_osts_size > 0) {
+		cfs_foreach_bit(lod->lod_ost_bitmap, i) {
+			struct lod_tgt_desc *tgt;
+			tgt = OST_TGT(lod, i);
+			LASSERT(tgt && tgt->ltd_tgt);
+			next = &tgt->ltd_ost->dd_lu_dev;
+			rc = next->ld_ops->ldo_recovery_complete(env, next);
+			if (rc)
+				CERROR("%s: can't complete recovery on #%d:"
+					"%d\n", lod2obd(lod)->obd_name, i, rc);
+		}
 	}
-	lod_putref(lod);
-
+	lod_putref(lod, &lod->lod_ost_descs);
 	RETURN(rc);
 }
 
@@ -240,13 +506,102 @@ static int lod_statfs(const struct lu_env *env,
 static struct thandle *lod_trans_create(const struct lu_env *env,
 					struct dt_device *dev)
 {
-	return dt_trans_create(env, dt2lod_dev(dev)->lod_child);
+	struct thandle *th;
+
+	th = dt_trans_create(env, dt2lod_dev(dev)->lod_child);
+	if (IS_ERR(th))
+		return th;
+
+	CFS_INIT_LIST_HEAD(&th->th_remote_update_list);
+	return th;
+}
+
+static void lod_sync_set_init(struct lod_sync_set *lss)
+{
+	lss->lss_completes = 0;
+	lss->lss_async_count = 0;
+	cfs_waitq_init(&lss->lss_waitq);
+}
+
+static int lod_sync_callback(void *data)
+{
+	struct lod_sync_set *lss = (struct lod_sync_set *)data;
+
+	lss->lss_completes++;
+	CDEBUG(D_INFO, "check set %d/%d\n", lss->lss_completes,
+	       lss->lss_async_count);
+	cfs_waitq_signal(&lss->lss_waitq);
+	return 0;
+}
+
+static int lod_sync_complete(struct lod_sync_set *lss)
+{
+	CDEBUG(D_INFO, "check set %d/%d\n", lss->lss_completes,
+	       lss->lss_async_count);
+	return lss->lss_completes == lss->lss_async_count;
+}
+
+static int lod_remote_sync(const struct lu_env *env, struct dt_device *dev,
+			   struct thandle *th)
+{
+	struct update_request *update;
+	struct update_request *tmp;
+	struct l_wait_info  lwi = { 0 };
+	struct lod_sync_set *lss = &lod_env_info(env)->lti_sync_set;
+	int    rc = 0;
+	ENTRY;
+
+	if (cfs_list_empty(&th->th_remote_update_list))
+		RETURN(0);
+
+	/*FIXME: Two phase commit later */
+	lod_sync_set_init(lss);
+	lss->lss_update = th;
+	th->th_sync_cb = lod_sync_callback;
+	th->th_sync_data = (void *)lss;
+	cfs_list_for_each_entry(update, &th->th_remote_update_list,
+				ur_list) {
+		rc = dt_trans_start(env, update->ur_dt, th);
+		if (rc == 0) {
+			lss->lss_async_count++;
+		} else {
+			/* FIXME how to revert the partial results
+			 * once error happened ? Resolved by 2 Phase commit*/
+			update->ur_rc = rc;
+			break;
+		}
+	}
+
+	l_wait_event(lss->lss_waitq, lod_sync_complete(lss), &lwi);
+
+	cfs_list_for_each_entry_safe(update, tmp,
+				     &th->th_remote_update_list,
+				     ur_list) {
+		if (update->ur_rc) {
+			CERROR("%s: update on dt %p is wrong %d\n",
+			       dev->dd_lu_dev.ld_obd->obd_name,
+			       update->ur_dt, update->ur_rc);
+			rc = update->ur_rc != 0 ? rc : update->ur_rc;
+		}
+		cfs_list_del(&update->ur_list);
+		OBD_FREE_PTR(update);
+	}
+	RETURN(rc);
 }
 
 static int lod_trans_start(const struct lu_env *env, struct dt_device *dev,
 			   struct thandle *th)
 {
-	return dt_trans_start(env, dt2lod_dev(dev)->lod_child, th);
+	struct lod_device *lod = dt2lod_dev((struct dt_device *) dev);
+	int rc;
+
+	rc = lod_remote_sync(env, dev, th);
+	if (rc) {
+		CERROR("%s: remote sync error %d\n",
+			lod2obd(lod)->obd_name, rc);
+		return rc;
+	}
+	return dt_trans_start(env, lod->lod_child, th);
 }
 
 static int lod_trans_stop(const struct lu_env *env, struct thandle *th)
@@ -269,7 +624,7 @@ static int lod_sync(const struct lu_env *env, struct dt_device *dev)
 	int                  rc = 0, i;
 	ENTRY;
 
-	lod_getref(lod);
+	lod_getref(&lod->lod_ost_descs);
 	lod_foreach_ost(lod, i) {
 		ost = OST_TGT(lod, i);
 		LASSERT(ost && ost->ltd_ost);
@@ -280,7 +635,7 @@ static int lod_sync(const struct lu_env *env, struct dt_device *dev)
 			break;
 		}
 	}
-	lod_putref(lod);
+	lod_putref(lod, &lod->lod_ost_descs);
 	if (rc == 0)
 		rc = dt_sync(env, lod->lod_child);
 
@@ -402,6 +757,23 @@ out:
 	RETURN(rc);
 }
 
+static int lod_tgt_desc_init(struct lod_tgt_descs *ltd)
+{
+	cfs_mutex_init(&ltd->ltd_mutex);
+	cfs_init_rwsem(&ltd->ltd_rw_sem);
+
+	/* the OST array and bitmap are allocated/grown dynamically as OSTs are
+	 * added to the LOD, see lod_add_device() */
+
+	ltd->ltd_tgt_bitmap = NULL;
+	ltd->ltd_tgts_size  = 0;
+	ltd->ltd_tgtnr      = 0;
+
+	ltd->ltd_death_row = 0;
+	ltd->ltd_refcount  = 0;
+	return 0;
+}
+
 static int lod_init0(const struct lu_env *env, struct lod_device *lod,
 		     struct lu_device_type *ldt, struct lustre_cfg *cfg)
 {
@@ -453,9 +825,10 @@ static int lod_init0(const struct lu_env *env, struct lod_device *lod,
 		}
 	}
 
-	cfs_mutex_init(&lod->lod_mutex);
-	cfs_init_rwsem(&lod->lod_rw_sem);
 	cfs_spin_lock_init(&lod->lod_desc_lock);
+	cfs_spin_lock_init(&lod->lod_connects_lock);
+	lod_tgt_desc_init(&lod->lod_mdt_descs);
+	lod_tgt_desc_init(&lod->lod_ost_descs);
 
 	RETURN(0);
 
@@ -506,12 +879,23 @@ static struct lu_device *lod_device_fini(const struct lu_env *env,
 					 struct lu_device *d)
 {
 	struct lod_device *lod = lu2lod_dev(d);
+	int		   rc;
 	ENTRY;
 
 	if (lod->lod_symlink)
 		lprocfs_remove(&lod->lod_symlink);
 
 	lod_pools_fini(lod);
+
+	rc = lod_fini_tgt(lod, &lod->lod_ost_descs);
+	if (rc)
+		CERROR("%s:can not fini ost descs %d\n",
+			lod2obd(lod)->obd_name, rc);
+
+	rc = lod_fini_tgt(lod, &lod->lod_mdt_descs);
+	if (rc)
+		CERROR("%s:can not fini mdt descs %d\n",
+			lod2obd(lod)->obd_name, rc);
 
 	RETURN(NULL);
 }
@@ -536,11 +920,11 @@ static int lod_obd_connect(const struct lu_env *env, struct obd_export **exp,
 
 	*exp = class_conn2export(&conn);
 
-	cfs_mutex_lock(&lod->lod_mutex);
+	cfs_spin_lock(&lod->lod_connects_lock);
 	lod->lod_connects++;
 	/* at the moment we expect the only user */
 	LASSERT(lod->lod_connects == 1);
-	cfs_mutex_unlock(&lod->lod_mutex);
+	cfs_spin_unlock(&lod->lod_connects_lock);
 
 	RETURN(0);
 }
@@ -557,16 +941,16 @@ static int lod_obd_disconnect(struct obd_export *exp)
 	ENTRY;
 
 	/* Only disconnect the underlying layers on the final disconnect. */
-	cfs_mutex_lock(&lod->lod_mutex);
+	cfs_spin_lock(&lod->lod_connects_lock);
 	lod->lod_connects--;
 	if (lod->lod_connects != 0) {
 		/* why should there be more than 1 connect? */
-		cfs_mutex_unlock(&lod->lod_mutex);
+		cfs_spin_unlock(&lod->lod_connects_lock);
 		CERROR("%s: disconnect #%d\n", exp->exp_obd->obd_name,
 		       lod->lod_connects);
 		goto out;
 	}
-	cfs_mutex_unlock(&lod->lod_mutex);
+	cfs_spin_unlock(&lod->lod_connects_lock);
 
 	/* the last user of lod has gone, let's release the device */
 	release = 1;
@@ -631,7 +1015,7 @@ static int lod_obd_health_check(const struct lu_env *env,
 	ENTRY;
 
 	LASSERT(d);
-	lod_getref(d);
+	lod_getref(&d->lod_ost_descs);
 	lod_foreach_ost(d, i) {
 		ost = OST_TGT(d, i);
 		LASSERT(ost && ost->ltd_ost);
@@ -640,7 +1024,7 @@ static int lod_obd_health_check(const struct lu_env *env,
 		if (rc == 0)
 			break;
 	}
-	lod_putref(d);
+	lod_putref(d, &d->lod_ost_descs);
 	RETURN(rc);
 }
 

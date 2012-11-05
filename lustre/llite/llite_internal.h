@@ -679,6 +679,7 @@ struct lookup_intent *ll_convert_intent(struct open_intent *oit,
 int ll_lookup_it_finish(struct ptlrpc_request *request,
                         struct lookup_intent *it, void *data);
 struct dentry *ll_splice_alias(struct inode *inode, struct dentry *de);
+int ll_rmdir_entry(struct inode *dir, char *name, int namelen);
 
 /* llite/rw.c */
 int ll_prepare_write(struct file *, struct page *, unsigned from, unsigned to);
@@ -759,7 +760,7 @@ int ll_lov_getstripe_ea_info(struct inode *inode, const char *filename,
                              struct ptlrpc_request **request);
 int ll_dir_setstripe(struct inode *inode, struct lov_user_md *lump,
                      int set_default);
-int ll_dir_getstripe(struct inode *inode, struct lov_mds_md **lmm,
+int ll_dir_getstripe(struct inode *inode, struct lov_mds_md **lmmp,
                      int *lmm_size, struct ptlrpc_request **request);
 #ifdef HAVE_FILE_FSYNC_4ARGS
 int ll_fsync(struct file *file, loff_t start, loff_t end, int data);
@@ -1459,7 +1460,25 @@ static inline int ll_file_nolock(const struct file *file)
 static inline void ll_set_lock_data(struct obd_export *exp, struct inode *inode,
                                     struct lookup_intent *it, __u64 *bits)
 {
-        if (!it->d.lustre.it_lock_set) {
+	if (!it->d.lustre.it_lock_set) {
+		if (it->d.lustre.it_remote_lock) {
+			struct lustre_handle 	lockh;
+			ldlm_policy_data_t 	policy;
+			int			rc;
+			ldlm_mode_t		mode = LCK_PR;
+
+			memset(&policy, 0, sizeof(policy));
+			policy.l_inodebits.bits = MDS_INODELOCK_UPDATE;
+			rc = md_lock_match(exp, LDLM_FL_BLOCK_GRANTED,
+					   ll_inode2fid(inode), LDLM_IBITS,
+					   &policy, mode, &lockh);
+			if (rc) {
+				md_set_lock_data(exp, &lockh.cookie, inode,
+						 NULL);
+				ldlm_lock_decref(&lockh, mode);
+			}
+		}
+
                 CDEBUG(D_DLMTRACE, "setting l_data to inode %p (%lu/%u)\n",
                        inode, inode->i_ino, inode->i_generation);
                 md_set_lock_data(exp, &it->d.lustre.it_lock_handle,

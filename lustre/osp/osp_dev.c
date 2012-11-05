@@ -39,6 +39,7 @@
  *
  * Author: Alex Zhuravlev <alexey.zhuravlev@intel.com>
  * Author: Mikhail Pershin <mike.pershin@intel.com>
+ * Author: Di Wang <di.wang@intel.com>
  */
 
 #ifndef EXPORT_SYMTAB
@@ -48,7 +49,8 @@
 
 #include <obd_class.h>
 #include <lustre_param.h>
-
+#include <lustre_log.h>
+#include <lustre_mdc.h>
 #include "osp_internal.h"
 
 /* Slab for OSP object allocation */
@@ -69,20 +71,23 @@ struct lu_object *osp_object_alloc(const struct lu_env *env,
 				   const struct lu_object_header *hdr,
 				   struct lu_device *d)
 {
-	struct lu_object_header	*h;
+	struct lu_object_header	*h = NULL;
 	struct osp_object	*o;
 	struct lu_object	*l;
-
-	LASSERT(hdr == NULL);
 
 	OBD_SLAB_ALLOC_PTR_GFP(o, osp_object_kmem, CFS_ALLOC_IO);
 	if (o != NULL) {
 		l = &o->opo_obj.do_lu;
-		h = &o->opo_header;
-
-		lu_object_header_init(h);
-		dt_object_init(&o->opo_obj, h, d);
-		lu_object_add_top(h, l);
+		if (hdr == NULL) {
+			/*object for OST*/
+			h = &o->opo_header;
+			lu_object_header_init(h);
+			dt_object_init(&o->opo_obj, h, d);
+			lu_object_add_top(h, l);
+		} else {
+			dt_object_init(&o->opo_obj, h, d);
+		}
+		cfs_init_rwsem(&o->opo_sem);
 
 		l->lo_ops = &osp_lu_obj_ops;
 
@@ -92,100 +97,208 @@ struct lu_object *osp_object_alloc(const struct lu_env *env,
 	}
 }
 
-/* Update opd_last_used_id along with checking for gap in objid sequence */
-void osp_update_last_id(struct osp_device *d, obd_id objid)
+static struct dt_object
+*osp_find_or_create(const struct lu_env *env, struct osp_device *osp,
+		    struct lu_attr *attr, __u32 reg_id)
 {
-	/*
-	 * we might have lost precreated objects due to VBR and precreate
-	 * orphans, the gap in objid can be calculated properly only here
-	 */
-	if (objid > le64_to_cpu(d->opd_last_used_id)) {
-		if (objid - le64_to_cpu(d->opd_last_used_id) > 1) {
-			d->opd_gap_start = le64_to_cpu(d->opd_last_used_id) + 1;
-			d->opd_gap_count = objid - d->opd_gap_start;
-			CDEBUG(D_HA, "Gap in objids: %d, start = %llu\n",
-			       d->opd_gap_count, d->opd_gap_start);
-		}
-		d->opd_last_used_id = cpu_to_le64(objid);
-	}
-}
-
-static int osp_last_used_init(const struct lu_env *env, struct osp_device *m)
-{
-	struct osp_thread_info	*osi = osp_env_info(env);
-	struct dt_object_format	 dof = { 0 };
-	struct dt_object	*o;
-	int			 rc;
-
+	struct osp_thread_info *osi = osp_env_info(env);
+	struct dt_object_format dof = { 0 };
+	struct dt_object       *dto;
+	int		     rc;
 	ENTRY;
 
+	lu_local_obj_fid(&osi->osi_fid, reg_id);
 	osi->osi_attr.la_valid = LA_MODE;
-	osi->osi_attr.la_mode = S_IFREG | 0644;
-	lu_local_obj_fid(&osi->osi_fid, MDD_LOV_OBJ_OID);
+	osi->osi_attr.la_mode = S_IFREG | 0666;
 	dof.dof_type = DFT_REGULAR;
-	o = dt_find_or_create(env, m->opd_storage, &osi->osi_fid, &dof,
-			      &osi->osi_attr);
-	if (IS_ERR(o))
-		RETURN(PTR_ERR(o));
+	dto = dt_find_or_create(env, osp->opd_storage, &osi->osi_fid,
+				&dof, attr);
+	if (IS_ERR(dto))
+		RETURN(dto);
 
-	rc = dt_attr_get(env, o, &osi->osi_attr, NULL);
+	rc = dt_attr_get(env, dto, &osi->osi_attr, NULL);
+	if (rc) {
+		CERROR("%s: can't initialize %d\n", osp->opd_obd->obd_name, rc);
+		lu_object_put(env, &dto->do_lu);
+		RETURN(ERR_PTR(rc));
+	}
+	RETURN(dto);
+}
+
+static int osp_write_local_file(const struct lu_env *env,
+				struct osp_device *osp,
+				struct dt_object *dt_obj,
+				struct lu_buf *buf,
+				loff_t offset)
+{
+	struct thandle *th;
+	int rc;
+
+	th = dt_trans_create(env, osp->opd_storage);
+	if (IS_ERR(th))
+		RETURN(PTR_ERR(th));
+
+	rc = dt_declare_record_write(env, dt_obj, buf->lb_len, offset, th);
+	if (rc)
+		GOTO(out, rc);
+	rc = dt_trans_start_local(env, osp->opd_storage, th);
 	if (rc)
 		GOTO(out, rc);
 
-	/* object will be released in device cleanup path */
-	m->opd_last_used_file = o;
+	rc = dt_record_write(env, dt_obj, buf, &offset, th);
+out:
+	dt_trans_stop(env, osp->opd_storage, th);
+	RETURN(rc);
+}
 
-	if (osi->osi_attr.la_size >= sizeof(osi->osi_id) *
-				     (m->opd_index + 1)) {
-		osp_objid_buf_prep(osi, m, m->opd_index);
-		rc = dt_record_read(env, o, &osi->osi_lb, &osi->osi_off);
+static int osp_init_last_objid(const struct lu_env *env, struct osp_device *osp)
+{
+	struct osp_thread_info *osi = osp_env_info(env);
+	struct lu_fid	  *fid = &osp->opd_last_used_fid;
+	struct dt_object       *dto;
+	int		     rc;
+	ENTRY;
+
+	dto = osp_find_or_create(env, osp, &osi->osi_attr, MDD_LOV_OBJ_OID);
+	if (IS_ERR(dto))
+		RETURN(PTR_ERR(dto));
+	/* object will be released in device cleanup path */
+	if (osi->osi_attr.la_size >=
+				sizeof(osi->osi_id) * (osp->opd_index + 1)) {
+		osp_objid_buf_prep(osi, osp->opd_index);
+		rc = dt_record_read(env, dto, &osi->osi_lb, &osi->osi_off);
 		if (rc != 0)
 			GOTO(out, rc);
+		fid->f_oid = le64_to_cpu(osi->osi_id);
 	} else {
-		/* reset value to 0, just to make sure and change file's size */
-		struct thandle *th;
-
-		m->opd_last_used_id = 0;
-		osp_objid_buf_prep(osi, m, m->opd_index);
-
-		th = dt_trans_create(env, m->opd_storage);
-		if (IS_ERR(th))
-			GOTO(out, rc = PTR_ERR(th));
-
-		rc = dt_declare_record_write(env, m->opd_last_used_file,
-					     osi->osi_lb.lb_len, osi->osi_off,
-					     th);
-		if (rc) {
-			dt_trans_stop(env, m->opd_storage, th);
-			GOTO(out, rc);
-		}
-
-		rc = dt_trans_start_local(env, m->opd_storage, th);
-		if (rc) {
-			dt_trans_stop(env, m->opd_storage, th);
-			GOTO(out, rc);
-		}
-
-		rc = dt_record_write(env, m->opd_last_used_file, &osi->osi_lb,
-				     &osi->osi_off, th);
-		dt_trans_stop(env, m->opd_storage, th);
-		if (rc)
-			GOTO(out, rc);
+		osi->osi_id = fid->f_oid = 0;
+		osp_objid_buf_prep(osi, osp->opd_index);
+		rc = osp_write_local_file(env, osp, dto, &osi->osi_lb,
+					  osi->osi_off);
 	}
+	osp->opd_last_used_oid_file = dto;
 	RETURN(0);
 out:
-	CERROR("%s: can't initialize lov_objid: %d\n",
-	       m->opd_obd->obd_name, rc);
-	lu_object_put(env, &o->do_lu);
-	m->opd_last_used_file = NULL;
-	return rc;
+	/* object will be released in device cleanup path */
+	CERROR("%s: can't initialize lov_objid: rc = %d\n",
+		osp->opd_obd->obd_name, rc);
+	lu_object_put(env, &dto->do_lu);
+	osp->opd_last_used_oid_file = NULL;
+	RETURN(rc);
+}
+
+static int osp_init_last_seq(const struct lu_env *env, struct osp_device *osp)
+{
+	struct osp_thread_info *osi = osp_env_info(env);
+	struct lu_fid	  *fid = &osp->opd_last_used_fid;
+	struct dt_object       *dto;
+	int		     rc;
+	ENTRY;
+
+	dto = osp_find_or_create(env, osp, &osi->osi_attr, MDD_LOV_OBJ_OSEQ);
+	if (IS_ERR(dto))
+		RETURN(PTR_ERR(dto));
+
+	/* object will be released in device cleanup path */
+	if (osi->osi_attr.la_size >=
+				sizeof(osi->osi_id) * (osp->opd_index + 1)) {
+		osp_objid_buf_prep(osi, osp->opd_index);
+		rc = dt_record_read(env, dto, &osi->osi_lb, &osi->osi_off);
+		if (rc != 0)
+			GOTO(out, rc);
+		fid->f_seq = le64_to_cpu(osi->osi_id);
+	} else {
+		osi->osi_id = fid->f_seq = 0;
+		osp_objid_buf_prep(osi, osp->opd_index);
+		rc = osp_write_local_file(env, osp, dto, &osi->osi_lb,
+					  osi->osi_off);
+	}
+	osp->opd_last_used_seq_file = dto;
+	RETURN(0);
+out:
+	/* object will be released in device cleanup path */
+	CERROR("%s: can't initialize lov_seq: rc = %d\n",
+		osp->opd_obd->obd_name, rc);
+	lu_object_put(env, &dto->do_lu);
+	osp->opd_last_used_seq_file = NULL;
+	RETURN(rc);
+}
+
+static int osp_last_used_init(const struct lu_env *env, struct osp_device *osp)
+{
+	struct osp_thread_info *osi = osp_env_info(env);
+	int		     rc;
+	ENTRY;
+
+	fid_zero(&osp->opd_last_used_fid);
+	rc = osp_init_last_objid(env, osp);
+	if (rc < 0) {
+		CERROR("%s: Can not get ids %d from old objid!\n",
+		      osp->opd_obd->obd_name, rc);
+		RETURN(rc);
+	}
+
+	rc = osp_init_last_seq(env, osp);
+	if (rc < 0) {
+		CERROR("%s: Can not get ids %d from old objid!\n",
+		      osp->opd_obd->obd_name, rc);
+		if (osp->opd_last_used_oid_file != NULL) {
+			lu_object_put(env, &osp->opd_last_used_oid_file->do_lu);
+			osp->opd_last_used_oid_file = NULL;
+		}
+		RETURN(rc);
+	}
+
+	if (fid_oid(&osp->opd_last_used_fid) != 0 &&
+	    fid_seq(&osp->opd_last_used_fid) == 0) {
+		/* Just upgrade from the old version,
+		 * set the seq to be IDIF */
+		osp->opd_last_used_fid.f_seq =
+		   fid_idif_seq(fid_oid(&osp->opd_last_used_fid),
+				osp->opd_index);
+		osi->osi_id = fid_seq(&osp->opd_last_used_fid);
+		osp_objid_buf_prep(osi, osp->opd_index);
+		rc = osp_write_local_file(env, osp, osp->opd_last_used_seq_file,
+					  &osi->osi_lb, osi->osi_off);
+		if (rc) {
+			CERROR("%s : Can not write seq file: rc = %d\n",
+			       osp->opd_obd->obd_name, rc);
+			GOTO(out, rc);
+		}
+	}
+
+	LASSERTF(fid_is_zero(&osp->opd_last_used_fid) ||
+		 fid_is_sane(&osp->opd_last_used_fid), "invalid FID "DFID"\n",
+		 PFID(&osp->opd_last_used_fid));
+
+	CDEBUG(D_INFO, "%s: Init last used fid "DFID"\n",
+	       osp->opd_obd->obd_name, PFID(&osp->opd_last_used_fid));
+out:
+	if (rc != 0) {
+		if (osp->opd_last_used_oid_file != NULL) {
+			lu_object_put(env, &osp->opd_last_used_oid_file->do_lu);
+			osp->opd_last_used_oid_file = NULL;
+		}
+		if (osp->opd_last_used_seq_file != NULL) {
+			lu_object_put(env, &osp->opd_last_used_seq_file->do_lu);
+			osp->opd_last_used_seq_file = NULL;
+		}
+	}
+
+	RETURN(rc);
 }
 
 static void osp_last_used_fini(const struct lu_env *env, struct osp_device *d)
 {
-	if (d->opd_last_used_file != NULL) {
-		lu_object_put(env, &d->opd_last_used_file->do_lu);
-		d->opd_last_used_file = NULL;
+	/* release last_used file */
+	if (d->opd_last_used_oid_file != NULL) {
+		lu_object_put(env, &d->opd_last_used_oid_file->do_lu);
+		d->opd_last_used_oid_file = NULL;
+	}
+
+	if (d->opd_last_used_seq_file != NULL) {
+		lu_object_put(env, &d->opd_last_used_seq_file->do_lu);
+		d->opd_last_used_seq_file = NULL;
 	}
 }
 
@@ -226,22 +339,25 @@ static int osp_shutdown(const struct lu_env *env, struct osp_device *d)
 	int			 rc = 0;
 	ENTRY;
 
-	if (is_osp_on_ost(d->opd_obd->obd_name)) {
+	if (is_osp_for_connection(d->opd_obd->obd_name)) {
 		rc = osp_disconnect(d);
 		RETURN(rc);
 	}
 
 	LASSERT(env);
 	/* release last_used file */
-	osp_last_used_fini(env, d);
+	if (!d->opd_connect_mdt)
+		osp_last_used_fini(env, d);
 
 	rc = osp_disconnect(d);
 
-	/* stop precreate thread */
-	osp_precreate_fini(d);
+	if (!d->opd_connect_mdt) {
+		/* stop precreate thread */
+		osp_precreate_fini(d);
 
-	/* stop sync thread */
-	osp_sync_fini(d);
+		/* stop sync thread */
+		osp_sync_fini(d);
+	}
 
 	RETURN(rc);
 }
@@ -256,8 +372,11 @@ static int osp_process_config(const struct lu_env *env,
 	ENTRY;
 
 	switch (lcfg->lcfg_command) {
+	case LCFG_PRE_CLEANUP:
+		rc = osp_disconnect(d);
+		break;
 	case LCFG_CLEANUP:
-		if (!is_osp_on_ost(d->opd_obd->obd_name))
+		if (!is_osp_for_connection(d->opd_obd->obd_name))
 			lu_dev_del_linkage(dev->ld_site, dev);
 		rc = osp_shutdown(env, d);
 		break;
@@ -298,7 +417,8 @@ static int osp_recovery_complete(const struct lu_env *env,
 
 	ENTRY;
 	osp->opd_recovery_completed = 1;
-	cfs_waitq_signal(&osp->opd_pre_waitq);
+	if (!osp->opd_connect_mdt)
+		cfs_waitq_signal(&osp->opd_pre_waitq);
 	RETURN(rc);
 }
 
@@ -329,8 +449,15 @@ static int osp_statfs(const struct lu_env *env, struct dt_device *dev,
 	 * layer above osp (usually lod) can use ffree to estimate
 	 * how many objects are available for immediate creation
 	 */
+
 	cfs_spin_lock(&d->opd_pre_lock);
-	sfs->os_fprecreated = d->opd_pre_last_created - d->opd_pre_used_id;
+	LASSERTF(fid_seq(&d->opd_pre_last_created_fid) ==
+		fid_seq(&d->opd_pre_used_fid),
+		"last_created "DFID", next_fid "DFID"\n",
+		PFID(&d->opd_pre_last_created_fid),
+		PFID(&d->opd_pre_used_fid));
+	sfs->os_fprecreated = fid_oid(&d->opd_pre_last_created_fid) -
+				fid_oid(&d->opd_pre_used_fid);
 	sfs->os_fprecreated -= d->opd_pre_reserved;
 	cfs_spin_unlock(&d->opd_pre_lock);
 
@@ -357,6 +484,7 @@ static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 const struct dt_device_operations osp_dt_ops = {
 	.dt_statfs	= osp_statfs,
 	.dt_sync	= osp_sync,
+	.dt_trans_start	= osp_trans_start,
 };
 
 static int osp_connect_to_osd(const struct lu_env *env, struct osp_device *m,
@@ -405,7 +533,7 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 	struct obd_device		*obd;
 	struct obd_import		*imp;
 	class_uuid_t			 uuid;
-	char				*src, *ost, *mdt, *osdname = NULL;
+	char				*src, *tgt, *mdt, *osdname = NULL;
 	int				 rc, idx;
 
 	ENTRY;
@@ -432,27 +560,75 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 	if (src == NULL)
 		RETURN(-EINVAL);
 
-	ost = strstr(src, "-OST");
-	if (ost == NULL)
+	tgt = strrchr(src, '-');
+	if (tgt == NULL) {
+		CERROR("%s: invalid target name %s\n",
+		       m->opd_obd->obd_name, lustre_cfg_string(cfg, 0));
 		RETURN(-EINVAL);
-
-	idx = simple_strtol(ost + 4, &mdt, 16);
-	if (mdt[0] != '-' || idx > INT_MAX || idx < 0) {
-		CERROR("%s: invalid OST index in '%s'\n", obd->obd_name, src);
-		GOTO(out_fini, rc = -EINVAL);
 	}
-	m->opd_index = idx;
 
-	idx = ost - src;
+	if (strncmp(tgt, "-osc", 4) == 0) {
+		/* Old OSC name fsname-OSTXXXX-osc */
+		for (tgt--; tgt > src && *tgt != '-'; tgt--)
+			;
+		if (tgt == src) {
+			CERROR("%s: invalid target name %s\n",
+			       m->opd_obd->obd_name, lustre_cfg_string(cfg, 0));
+			RETURN(-EINVAL);
+		}
+
+		if (strncmp(tgt, "-OST", 4) != 0) {
+			CERROR("%s: invalid target name %s\n",
+				m->opd_obd->obd_name, lustre_cfg_string(cfg, 0));
+			RETURN(-EINVAL);
+		}
+
+		idx = simple_strtol(tgt + 4, &mdt, 16);
+		if (mdt[0] != '-' || idx > INT_MAX || idx < 0) {
+			CERROR("%s: invalid OST index in '%s'\n",
+			       m->opd_obd->obd_name, src);
+			RETURN(-EINVAL);
+		}
+		m->opd_index = idx; 
+		idx = tgt - src;
+	} else {
+		/* New OSC name fsname-OSTXXXX-osc-MDTXXXX */
+		if (strncmp(tgt, "-MDT", 4) != 0 &&
+			 strncmp(tgt, "-OST", 4) != 0) {
+			CERROR("%s: invalid target name %s\n",
+			       m->opd_obd->obd_name, lustre_cfg_string(cfg, 0));
+			RETURN(-EINVAL);
+		}
+
+		if (tgt - src <= 12) {
+			CERROR("%s: invalid target name %s\n",
+			       m->opd_obd->obd_name, lustre_cfg_string(cfg, 0));
+			RETURN(-EINVAL);
+		}
+
+		if (strncmp(tgt - 12, "-MDT", 4) == 0)
+			m->opd_connect_mdt = 1;
+
+		idx = simple_strtol(tgt - 8, &mdt, 16);
+		if (mdt[0] != '-' || idx > INT_MAX || idx < 0) {
+			CERROR("%s: invalid OST index in '%s'\n",
+			       m->opd_obd->obd_name, src);
+			RETURN(-EINVAL);
+		}
+	
+		m->opd_index = idx;
+		idx = tgt - src - 12;
+	}
 	/* check the fsname length, and after this everything else will fit */
 	if (idx > MTI_NAME_MAXLEN) {
-		CERROR("%s: fsname too long in '%s'\n", obd->obd_name, src);
-		GOTO(out_fini, rc = -EINVAL);
+		CERROR("%s: fsname too long in '%s'\n",
+		       m->opd_obd->obd_name, src);
+		RETURN(-EINVAL);
 	}
 
 	OBD_ALLOC(osdname, MAX_OBD_NAME);
 	if (osdname == NULL)
-		GOTO(out_fini, rc = -ENOMEM);
+		RETURN(-ENOMEM);
 
 	memcpy(osdname, src, idx); /* copy just the fsname part */
 	osdname[idx] = '\0';
@@ -464,6 +640,15 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 		strcat(osdname, mdt);
 	strcat(osdname, "-osd");
 	CDEBUG(D_HA, "%s: connect to %s (%s)\n", obd->obd_name, osdname, src);
+
+	if (m->opd_connect_mdt) {
+		struct client_obd *cli = &m->opd_obd->u.cli;
+
+		OBD_ALLOC(cli->cl_rpc_lock, sizeof(*cli->cl_rpc_lock));
+		if (!cli->cl_rpc_lock)
+			RETURN(-ENOMEM);
+		osp_init_rpc_lock(cli->cl_rpc_lock);
+	}
 
 	m->opd_dt_dev.dd_lu_dev.ld_ops = &osp_lu_ops;
 	m->opd_dt_dev.dd_ops = &osp_dt_ops;
@@ -485,28 +670,26 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 
 	osp_lprocfs_init(m);
 
-	/*
-	 * Initialize last id from the storage - will be used in orphan cleanup
-	 */
-	rc = osp_last_used_init(env, m);
-	if (rc)
-		GOTO(out_proc, rc);
-
-	/*
-	 * Initialize precreation thread, it handles new connections as well
-	 */
-	rc = osp_init_precreate(m);
-	if (rc)
-		GOTO(out_last_used, rc);
-
-	/*
-	 * Initialize synhronization mechanism taking care of propogating
-	 * changes to OST in near transactional manner
-	 */
-	rc = osp_sync_init(env, m);
-	if (rc)
-		GOTO(out_precreat, rc);
-
+	if (!m->opd_connect_mdt) {
+		/* Initialize last id from the storage - will be
+		 * used in orphan cleanup. */
+		rc = osp_last_used_init(env, m);
+		if (rc)
+			GOTO(out_proc, rc);
+		/* Initialize precreation thread, it handles new
+		 * connections as well. */
+		rc = osp_init_precreate(m);
+		if (rc)
+			GOTO(out_last_used, rc);
+		/*
+		 * Initialize synhronization mechanism taking
+		 * care of propogating changes to OST in near
+		 * transactional manner.
+		 */
+		rc = osp_sync_init(env, m);
+		if (rc)
+			GOTO(out_precreat, rc);
+	}
 	/*
 	 * Initiate connect to OST
 	 */
@@ -523,21 +706,33 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 	RETURN(0);
 
 out:
-	/* stop sync thread */
-	osp_sync_fini(m);
+	if (!m->opd_connect_mdt)
+		/* stop sync thread */
+		osp_sync_fini(m);
 out_precreat:
 	/* stop precreate thread */
-	osp_precreate_fini(m);
+	if (!m->opd_connect_mdt)
+		osp_precreate_fini(m);
 out_last_used:
-	osp_last_used_fini(env, m);
+	if (!m->opd_connect_mdt)
+		osp_last_used_fini(env, m);
 out_proc:
 	ptlrpc_lprocfs_unregister_obd(obd);
 	lprocfs_obd_cleanup(obd);
 	class_destroy_import(obd->u.cli.cl_import);
+	if (m->opd_symlink)
+		lprocfs_remove(&m->opd_symlink);
 	client_obd_cleanup(obd);
 out_ref:
 	ptlrpcd_decref();
 out_disconnect:
+	if (m->opd_connect_mdt) {
+		struct client_obd *cli = &m->opd_obd->u.cli;
+		if (cli->cl_rpc_lock != NULL) {
+			OBD_FREE_PTR(cli->cl_rpc_lock);
+			cli->cl_rpc_lock = NULL;
+		}
+	}
 	obd_disconnect(m->opd_storage_exp);
 out_fini:
 	if (osdname)
@@ -576,7 +771,7 @@ static struct lu_device *osp_device_alloc(const struct lu_env *env,
 
 		l = osp2lu_dev(m);
 		dt_device_init(&m->opd_dt_dev, t);
-		if (is_osp_on_ost(lustre_cfg_string(lcfg, 0)))
+		if (is_osp_for_connection(lustre_cfg_string(lcfg, 0)))
 			rc = osp_init_for_ost(env, m, t, lcfg);
 		else
 			rc = osp_init0(env, m, t, lcfg);
@@ -600,7 +795,7 @@ static struct lu_device *osp_device_fini(const struct lu_env *env,
 	if (m->opd_storage_exp)
 		obd_disconnect(m->opd_storage_exp);
 
-	if (is_osp_on_ost(m->opd_obd->obd_name))
+	if (is_osp_for_connection(m->opd_obd->obd_name))
 		osp_fini_for_ost(m);
 
 	imp = m->opd_obd->u.cli.cl_import;
@@ -618,6 +813,14 @@ static struct lu_device *osp_device_fini(const struct lu_env *env,
 	LASSERT(m->opd_obd);
 	ptlrpc_lprocfs_unregister_obd(m->opd_obd);
 	lprocfs_obd_cleanup(m->opd_obd);
+
+        if (m->opd_connect_mdt) {
+                struct client_obd *cli = &m->opd_obd->u.cli;
+                if (cli->cl_rpc_lock != NULL) {
+                        OBD_FREE_PTR(cli->cl_rpc_lock);
+                        cli->cl_rpc_lock = NULL;
+                }
+        }
 
 	rc = client_obd_cleanup(m->opd_obd);
 	LASSERTF(rc == 0, "error %d\n", rc);
@@ -658,35 +861,29 @@ static int osp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 		RETURN(rc);
 
 	*exp = class_conn2export(&conn);
-	if (is_osp_on_ost(obd->obd_name))
+	if (is_osp_for_connection(obd->obd_name))
 		osp->opd_exp = *exp;
 
 	/* Why should there ever be more than 1 connect? */
 	osp->opd_connects++;
 	LASSERT(osp->opd_connects == 1);
 
+	osp->opd_exp = *exp;
+
 	imp = osp->opd_obd->u.cli.cl_import;
 	imp->imp_dlm_handle = conn;
 
+	LASSERT(data != NULL);
+	LASSERT(data->ocd_connect_flags & OBD_CONNECT_INDEX);
 	ocd = &imp->imp_connect_data;
-	ocd->ocd_connect_flags = OBD_CONNECT_AT |
-				 OBD_CONNECT_FULL20 |
-				 OBD_CONNECT_INDEX |
-#ifdef HAVE_LRU_RESIZE_SUPPORT
-				 OBD_CONNECT_LRU_RESIZE |
-#endif
-				 OBD_CONNECT_MDS |
-				 OBD_CONNECT_OSS_CAPA |
-				 OBD_CONNECT_REQPORTAL |
-				 OBD_CONNECT_SKIP_ORPHAN |
-				 OBD_CONNECT_VERSION |
-				 OBD_CONNECT_FID;
+	*ocd = *data;
 
-	if (is_osp_on_ost(osp->opd_obd->obd_name))
+	if (is_osp_for_connection(osp->opd_obd->obd_name))
 		ocd->ocd_connect_flags |= OBD_CONNECT_LIGHTWEIGHT;
 
+	imp->imp_connect_flags_orig = ocd->ocd_connect_flags;
+
 	ocd->ocd_version = LUSTRE_VERSION_CODE;
-	LASSERT(data->ocd_connect_flags & OBD_CONNECT_INDEX);
 	ocd->ocd_index = data->ocd_index;
 	imp->imp_connect_flags_orig = ocd->ocd_connect_flags;
 
@@ -725,7 +922,7 @@ static int osp_obd_disconnect(struct obd_export *exp)
 	}
 
 	/* destroy the device */
-	if (!is_osp_on_ost(obd->obd_name))
+	if (!is_osp_for_connection(obd->obd_name))
 		class_manual_cleanup(obd);
 
 	RETURN(rc);
@@ -806,7 +1003,7 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 	case IMP_EVENT_DISCON:
 		d->opd_got_disconnected = 1;
 		d->opd_imp_connected = 0;
-		if (is_osp_on_ost(d->opd_obd->obd_name))
+		if (d->opd_connect_mdt)
 			break;
 		osp_pre_update_status(d, -ENODEV);
 		cfs_waitq_signal(&d->opd_pre_waitq);
@@ -814,7 +1011,7 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 		break;
 	case IMP_EVENT_INACTIVE:
 		d->opd_imp_active = 0;
-		if (is_osp_on_ost(d->opd_obd->obd_name))
+		if (d->opd_connect_mdt)
 			break;
 		osp_pre_update_status(d, -ENODEV);
 		cfs_waitq_signal(&d->opd_pre_waitq);
@@ -826,7 +1023,7 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 			d->opd_new_connection = 1;
 		d->opd_imp_connected = 1;
 		d->opd_imp_seen_connected = 1;
-		if (is_osp_on_ost(d->opd_obd->obd_name))
+		if (d->opd_connect_mdt)
 			break;
 		cfs_waitq_signal(&d->opd_pre_waitq);
 		__osp_sync_check_for_work(d);
@@ -951,6 +1148,16 @@ static struct lu_device_type osp_device_type = {
 	.ldt_ctx_tags = LCT_MD_THREAD
 };
 
+static int osp_init_export(struct obd_export *exp)
+{
+	  return 0;
+}
+
+static int osp_destroy_export(struct obd_export *exp)
+{
+	return 0;
+}
+
 static struct obd_ops osp_obd_device_ops = {
 	.o_owner	= THIS_MODULE,
 	.o_add_conn	= client_import_add_conn,
@@ -962,6 +1169,10 @@ static struct obd_ops osp_obd_device_ops = {
 	.o_import_event	= osp_import_event,
 	.o_iocontrol	= osp_iocontrol,
 	.o_statfs	= osp_obd_statfs,
+        .o_fid_init	= client_fid_init,
+        .o_fid_fini	= client_fid_fini,
+	.o_init_export	= osp_init_export,
+	.o_destroy_export	= osp_destroy_export,
 };
 
 static int __init osp_mod_init(void)

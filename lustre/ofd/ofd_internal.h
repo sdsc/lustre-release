@@ -48,7 +48,6 @@
 #define OFD_ROCOMPAT_SUPP (0)
 #define OFD_INCOMPAT_SUPP (OBD_INCOMPAT_GROUPS | OBD_INCOMPAT_OST | \
 			   OBD_INCOMPAT_COMMON_LR)
-#define OFD_MAX_GROUPS	256
 #define OFD_PRECREATE_BATCH_DEFAULT (FILTER_SUBDIR_COUNT * 4)
 
 /* Limit the returned fields marked valid to those that we actually might set */
@@ -91,6 +90,17 @@ static inline void ofd_counter_incr(struct obd_export *exp, int opcode,
 		lprocfs_job_stats_log(exp->exp_obd, jobid, opcode, amount);
 }
 
+struct ofd_seq {
+	cfs_list_t		os_list;
+	obd_id			os_last_oid;
+	obd_seq			os_seq;
+	cfs_spinlock_t		os_last_oid_lock;
+	cfs_mutex_t		os_create_lock;
+	cfs_atomic_t		os_refc;
+	struct dt_object	*os_lastid_obj;
+	unsigned long		os_destroys_in_progress:1;
+};
+
 struct ofd_device {
 	struct dt_device	 ofd_dt_dev;
 	struct dt_device	*ofd_osd;
@@ -104,18 +114,15 @@ struct ofd_device {
 
 	/* last_rcvd file */
 	struct lu_target	 ofd_lut;
-	struct dt_object	*ofd_last_group_file;
 	struct dt_object	*ofd_health_check_file;
 
 	int			 ofd_subdir_count;
 
-	int			 ofd_max_group;
-	obd_id			 ofd_last_objids[OFD_MAX_GROUPS];
-	cfs_mutex_t		 ofd_create_locks[OFD_MAX_GROUPS];
-	struct dt_object	*ofd_lastid_obj[OFD_MAX_GROUPS];
-	cfs_spinlock_t		 ofd_objid_lock;
-	unsigned long		 ofd_destroys_in_progress;
-	int			 ofd_precreate_batch;
+	cfs_list_t		ofd_seq_list;
+	cfs_rwlock_t		ofd_seq_list_lock;
+	int			ofd_seq_count;
+	int			ofd_precreate_batch;
+	cfs_spinlock_t		ofd_batch_lock;
 
 	/* protect all statfs-related counters */
 	cfs_spinlock_t		 ofd_osfs_lock;
@@ -163,6 +170,7 @@ struct ofd_device {
 				 /* shall we grant space to clients not
 				  * supporting OBD_CONNECT_GRANT_PARAM? */
 				 ofd_grant_compat_disable:1;
+	struct md_site		 ofd_site;
 };
 
 static inline struct ofd_device *ofd_dev(struct lu_device *d)
@@ -272,7 +280,8 @@ struct ofd_thread_info {
 	__u64				 fti_transno;
 	__u64				 fti_pre_version;
 	__u32				 fti_has_trans:1, /* has txn already */
-					 fti_mult_trans:1;
+					 fti_mult_trans:1,
+					 fti_sync_trans:1;
 
 	struct lu_fid			 fti_fid;
 	struct lu_attr			 fti_attr;
@@ -317,15 +326,21 @@ int ofd_statfs_internal(const struct lu_env *env, struct ofd_device *ofd,
 			int *from_cache);
 
 /* ofd_fs.c */
-obd_id ofd_last_id(struct ofd_device *ofd, obd_seq seq);
-void ofd_last_id_set(struct ofd_device *ofd, obd_id id, obd_seq seq);
-int ofd_last_id_write(const struct lu_env *env, struct ofd_device *ofd,
-		      obd_seq seq);
-int ofd_group_load(const struct lu_env *env, struct ofd_device *ofd, int);
+obd_id ofd_seq_last_oid(struct ofd_seq *oseq);
+void ofd_seq_last_oid_set(struct ofd_seq *oseq, obd_id id);
+int ofd_seq_last_oid_write(const struct lu_env *env, struct ofd_device *ofd,
+			   struct ofd_seq *oseq);
+int ofd_seqs_init(const struct lu_env *env, struct ofd_device *ofd);
+struct ofd_seq *ofd_seq_get(struct ofd_device *ofd, obd_seq seq);
+void ofd_seq_put(const struct lu_env *env, struct ofd_seq *oseq);
+
 int ofd_fs_setup(const struct lu_env *env, struct ofd_device *ofd,
 		 struct obd_device *obd);
 void ofd_fs_cleanup(const struct lu_env *env, struct ofd_device *ofd);
 int ofd_precreate_batch(struct ofd_device *ofd, int batch);
+struct ofd_seq *ofd_seq_load(const struct lu_env *env, struct ofd_device *ofd,
+			     obd_seq seq);
+void ofd_seqs_fini(const struct lu_env *env, struct ofd_device *ofd);
 
 /* ofd_io.c */
 int ofd_preprw(const struct lu_env *env,int cmd, struct obd_export *exp,
@@ -375,7 +390,7 @@ struct ofd_object *ofd_object_find_or_create(const struct lu_env *env,
 					     struct lu_attr *attr);
 int ofd_object_ff_check(const struct lu_env *env, struct ofd_object *fo);
 int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
-			  obd_id id, obd_seq group, int nr);
+			  obd_id id, struct ofd_seq *oseq, int nr);
 
 void ofd_object_put(const struct lu_env *env, struct ofd_object *fo);
 int ofd_attr_set(const struct lu_env *env, struct ofd_object *fo,
@@ -459,6 +474,10 @@ void ofd_fmd_drop(struct obd_export *exp, struct lu_fid *fid);
 #define ofd_fmd_drop(exp, fid) do {} while (0)
 #endif
 
+/* ofd_dev.c */
+int ofd_fid_init(const struct lu_env *env, struct ofd_device *ofd);
+int ofd_fid_fini(const struct lu_env *env, struct ofd_device *ofd);
+
 /* ofd_lvb.c */
 extern struct ldlm_valblock_ops ofd_lvbo;
 
@@ -494,9 +513,16 @@ static inline struct ofd_thread_info * ofd_info_init(const struct lu_env *env,
 	info->fti_pre_version = 0;
 	info->fti_transno = 0;
 	info->fti_has_trans = 0;
+	info->fti_sync_trans = 0;
 	return info;
 }
 
+/*ofd_dev.c*/
+int ofd_fid_set_index(const struct lu_env *env, struct ofd_device *ofd,
+		      int index);
+
+int ofd_fid_init(const struct lu_env *env, struct ofd_device *ofd);
+int ofd_fid_fini(const struct lu_env *env, struct ofd_device *ofd);
 /* The same as osc_build_res_name() */
 static inline void ofd_build_resid(const struct lu_fid *fid,
 				   struct ldlm_res_id *resname)
