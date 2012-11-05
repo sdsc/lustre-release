@@ -1890,6 +1890,24 @@ AC_DEFUN([LC_HAVE_MIGRATE_HEADER],
 ])
 ])
 
+#
+# 3.3 kernel introduced d_make_root() replace d_alloc_root().
+#
+AC_DEFUN([LC_HAVE_D_MAKE_ROOT],
+[AC_MSG_CHECKING([d_make_root exist in kernel])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/dcache.h>
+],[
+        d_make_root(NULL);
+],[
+        AC_DEFINE(HAVE_D_MAKE_ROOT, 1,
+                [d_make_root exist in kernel])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
 AC_DEFUN([LC_MIGRATEPAGE_4ARGS],
 [AC_MSG_CHECKING([if address_space_operations.migratepage has 4 args])
 LB_LINUX_TRY_COMPILE([
@@ -2064,6 +2082,7 @@ AC_DEFUN([LC_PROG_LINUX],
 
 	 # 3.3
 	 LC_HAVE_MIGRATE_HEADER
+	 LC_HAVE_D_MAKE_ROOT
 	 LC_MIGRATEPAGE_4ARGS
 
          #

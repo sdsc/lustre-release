@@ -706,4 +706,14 @@ static inline int ll_namei_to_lookup_intent_flag(int flag)
 	return flag;
 }
 
+#ifndef HAVE_D_MAKE_ROOT
+static inline struct inode *d_make_root(struct inode *root)
+{
+	struct inode *res = d_alloc_root(root);
+	if (res == NULL）
+		iput(root);
+	return res;
+}
+#endif
+
 #endif /* _COMPAT25_H */
