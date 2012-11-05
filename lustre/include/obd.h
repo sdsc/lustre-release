@@ -639,6 +639,7 @@ struct ost_obd {
         struct ptlrpc_service *ost_service;
         struct ptlrpc_service *ost_create_service;
         struct ptlrpc_service *ost_io_service;
+	struct ptlrpc_service *ost_seq_service;
         cfs_mutex_t            ost_health_mutex;
 };
 
@@ -860,10 +861,7 @@ struct niobuf_local {
 #define LUSTRE_MGS_OBDNAME "MGS"
 #define LUSTRE_MGC_OBDNAME "MGC"
 
-/* Don't conflict with on-wire flags OBD_BRW_WRITE, etc */
-#define N_LOCAL_TEMP_PAGE 0x10000000
-
-static inline int is_osp_on_ost(char *name)
+static inline int is_osp_on_mdt(char *name)
 {
 	char   *ptr;
 
@@ -873,8 +871,54 @@ static inline int is_osp_on_ost(char *name)
 		return 0;
 	}
 
+	if (strncmp(ptr + 1, "MDT", 3) != 0)
+		return 0;
+
+	while (*(--ptr) != '-' && ptr != name);
+
+	if (ptr == name)
+		return 0;
+
+	if (strncmp(ptr + 1, LUSTRE_OSP_NAME, strlen(LUSTRE_OSP_NAME)) != 0 &&
+	    strncmp(ptr + 1, LUSTRE_OSC_NAME, strlen(LUSTRE_OSC_NAME)) != 0)
+		return 0;
+
+	return 1;
+}
+
+/* Don't conflict with on-wire flags OBD_BRW_WRITE, etc */
+#define N_LOCAL_TEMP_PAGE 0x10000000
+
+/* Currently the connection osp is only for connecting MDT0, the
+ * name would either be
+ * fsname-MDT0000-osp-OSTxxxx or fsname-MDT0000-osp-MDT0000 */
+static inline int is_osp_for_connection(char *name)
+{
+	char	*ptr;
+	int	osp_on_mdt0 = 0;
+	char	*endptr;
+
+	ptr = strrchr(name, '-');
+	if (ptr == NULL) {
+		CERROR("%s is not a obdname\n", name);
+		return 0;
+	}
+
 	if (strncmp(ptr + 1, "OST", 3) != 0 && strncmp(ptr + 1, "MDT", 3) != 0)
 		return 0;
+
+	if (strncmp(ptr + 1, "MDT", 3) == 0) {
+		int index;
+
+#ifdef __KERNEL__
+		index = simple_strtoul(ptr+4, &endptr, 16);
+#else
+		index = strtoul(ptr+4, &endptr, 16);
+#endif
+		if (index != 0)
+			return 0;
+		osp_on_mdt0 = 1;
+	}
 
 	/* match the "-osp" */
 	if (ptr - name < strlen(LUSTRE_OSP_NAME) + 1)
@@ -887,6 +931,25 @@ static inline int is_osp_on_ost(char *name)
 	if (strncmp(ptr + 1, LUSTRE_OSP_NAME, strlen(LUSTRE_OSP_NAME)) != 0)
 		return 0;
 
+	if (osp_on_mdt0) {
+		int index = 0;
+		while (*(--ptr) != '-' && ptr != name);
+
+		if (ptr == name) {
+			CERROR("%s is not a valid osp name\n", name);
+			return 0;
+		}
+
+		if (strncmp(ptr + 1, "MDT", 3) != 0)
+			return 0;
+#ifdef __KERNEL__
+		index = simple_strtoul(ptr+4, &endptr, 16);
+#else
+		index = strtoul(ptr+4, &endptr, 16);
+#endif
+		if (index != 0)
+			return 0;
+	}
 	return 1;
 }
 
@@ -1236,6 +1299,7 @@ enum obd_cleanup_stage {
 #define KEY_INIT_RECOV          "initial_recov"
 #define KEY_INTERMDS            "inter_mds"
 #define KEY_LAST_ID             "last_id"
+#define KEY_LAST_FID		"last_fid"
 #define KEY_LOCK_TO_STRIPE      "lock_to_stripe"
 #define KEY_LOVDESC             "lovdesc"
 #define KEY_LOV_IDX             "lov_idx"
@@ -1387,7 +1451,7 @@ struct obd_ops {
         int (*o_disconnect)(struct obd_export *exp);
 
         /* Initialize/finalize fids infrastructure. */
-        int (*o_fid_init)(struct obd_export *exp);
+	int (*o_fid_init)(struct obd_export *exp, enum lu_cli_type type);
         int (*o_fid_fini)(struct obd_export *exp);
 
         /* Allocate new fid according to passed @hint. */

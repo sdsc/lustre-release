@@ -191,6 +191,7 @@ typedef __u32 obd_count;
 
 #define LU_SEQ_RANGE_MDT        0x0
 #define LU_SEQ_RANGE_OST        0x1
+#define LU_SEQ_RANGE_EMPTY	0x2
 
 struct lu_seq_range {
         __u64 lsr_start;
@@ -262,6 +263,14 @@ static inline int range_compare_loc(const struct lu_seq_range *r1,
 
 /** \defgroup lu_fid lu_fid
  * @{ */
+
+struct lu_fid_range {
+	struct lu_fid lfr_fid;
+	__u32	 lfr_count;
+	__u32	 lfr_padding;
+};
+
+extern void lustre_swab_fid_range(struct lu_fid_range *range);
 
 /**
  * Flags for lustre_mdt_attrs::lma_compat and lustre_mdt_attrs::lma_incompat.
@@ -354,13 +363,6 @@ static inline void lustre_lma_swab(struct lustre_mdt_attrs *lma)
         }
 };
 
-/* This is the maximum number of MDTs allowed in CMD testing until such
- * a time that FID-on-OST is implemented.  This is due to the limitations
- * of packing non-0-MDT numbers into the FID SEQ namespace.  Once FID-on-OST
- * is implemented this limit will be virtually unlimited. */
-#define MAX_MDT_COUNT 8
-
-
 /**
  * fid constants
  */
@@ -439,9 +441,12 @@ enum fid_seq {
 #define IDIF_OID_MASK               ((1ULL << IDIF_OID_MAX_BITS) - 1)
 
 /** OID for FID_SEQ_SPECIAL */
+#define MAX_MDT_INDEX	       4096
 enum special_oid {
         /* Big Filesystem Lock to serialize rename operations */
         FID_OID_SPECIAL_BFL     = 1UL,
+	FID_OID_SPECIAL_ROOT_START = 2UL,
+	FID_OID_SPECIAL_ROOT_END   = 2UL + MAX_MDT_INDEX,
 };
 
 /** OID for FID_SEQ_DOT_LUSTRE */
@@ -449,6 +454,36 @@ enum dot_lustre_oid {
         FID_OID_DOT_LUSTRE  = 1UL,
         FID_OID_DOT_LUSTRE_OBF = 2UL,
 };
+
+static inline int fid_is_root(const struct lu_fid *fid)
+{
+	return fid_seq(fid) == FID_SEQ_SPECIAL &&
+		fid_oid(fid) >= FID_OID_SPECIAL_ROOT_START &&
+		fid_oid(fid) < FID_OID_SPECIAL_ROOT_END;
+}
+
+static inline int fid_index_get_by_rootfid(const struct lu_fid *fid)
+{
+	LASSERT(fid_is_root(fid));
+
+	return fid_oid(fid) - FID_OID_SPECIAL_ROOT_START;
+}
+
+static inline void lu_root_fid(struct lu_fid *fid, __u32 index)
+{
+	fid->f_seq = FID_SEQ_SPECIAL;
+	LASSERTF(index < MAX_MDT_INDEX, "index %u is larger than 4096\n",
+		 index);
+	fid->f_oid = FID_OID_SPECIAL_ROOT_START + index;
+	fid->f_ver = 0;
+}
+
+#define FID_IS_LOCAL(fid) (fid_seq(fid) == FID_SEQ_LOCAL_FILE || \
+			   fid_seq(fid) == FID_SEQ_LLOG       || \
+			   fid_seq(fid) == FID_SEQ_DOT_LUSTRE || \
+			   fid_seq(fid) == FID_SEQ_LOCAL_NAME || \
+			   fid_seq(fid) == FID_SEQ_QUOTA || 	 \
+			   fid_seq(fid) == FID_SEQ_QUOTA_GLB)
 
 static inline int fid_seq_is_mdt0(obd_seq seq)
 {
@@ -462,9 +497,28 @@ static inline int fid_seq_is_cmd(const __u64 seq)
 
 static inline int fid_seq_is_mdt(const __u64 seq)
 {
-        return seq == FID_SEQ_OST_MDT0 ||
-               (seq >= FID_SEQ_OST_MDT1 && seq <= FID_SEQ_OST_MAX);
+	return seq == FID_SEQ_OST_MDT0 || seq >= FID_SEQ_OST_MDT1;
 };
+
+static inline int fid_seq_is_echo(obd_seq seq)
+{
+	return (seq == FID_SEQ_ECHO);
+}
+
+static inline int fid_is_echo(const struct lu_fid *fid)
+{
+	return fid_seq_is_echo(fid_seq(fid));
+}
+
+static inline int fid_seq_is_llog(obd_seq seq)
+{
+	return (seq == FID_SEQ_LLOG);
+}
+
+static inline int fid_is_llog(const struct lu_fid *fid)
+{
+	return fid_seq_is_llog(fid_seq(fid));
+}
 
 static inline int fid_seq_is_rsvd(const __u64 seq)
 {
@@ -679,6 +733,13 @@ static inline obd_id ostid_id(struct ost_id *ostid)
         return ostid->oi_id;
 }
 
+/* Check whether the fid is for LAST_ID */
+static inline int fid_is_last_obj(const struct lu_fid *fid)
+{
+	return (fid_is_idif(fid) || fid_is_norm(fid) || fid_is_echo(fid)) &&
+		fid_oid(fid) == 0;
+}
+
 /**
  * Get inode number from a igif.
  * \param fid a igif to get inode number from.
@@ -770,9 +831,9 @@ static inline int fid_is_sane(const struct lu_fid *fid)
 {
         return
                 fid != NULL &&
-                ((fid_seq(fid) >= FID_SEQ_START && fid_oid(fid) != 0
-                                                && fid_ver(fid) == 0) ||
-                fid_is_igif(fid) || fid_seq_is_rsvd(fid_seq(fid)));
+		((fid_seq(fid) >= FID_SEQ_START && fid_ver(fid) == 0) ||
+		fid_is_igif(fid) || fid_is_idif(fid) ||
+		fid_seq_is_rsvd(fid_seq(fid)));
 }
 
 static inline int fid_is_zero(const struct lu_fid *fid)
@@ -794,6 +855,18 @@ static inline int lu_fid_eq(const struct lu_fid *f0,
         LASSERTF((fid_is_igif(f1) || fid_is_idif(f1)) ||
                  fid_ver(f1) == 0, DFID, PFID(f1));
         return memcmp(f0, f1, sizeof *f0) == 0;
+}
+
+static inline int lu_fid_diff(struct lu_fid *fid1, struct lu_fid *fid2)
+{
+	LASSERTF(fid_seq(fid1) == fid_seq(fid2), "fid1:"DFID", fid2:"DFID"\n",
+		 PFID(fid1), PFID(fid2));
+
+	if (fid_is_idif(fid1) && fid_is_idif(fid2))
+		return fid_idif_id(fid1->f_seq, fid1->f_oid, fid1->f_ver) -
+		       fid_idif_id(fid2->f_seq, fid2->f_oid, fid2->f_ver);
+
+	return fid_oid(fid1) - fid_oid(fid2);
 }
 
 #define __diff_normalize(val0, val1)                            \
@@ -1223,7 +1296,8 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                 OBD_CONNECT_64BITHASH | OBD_CONNECT_MAXBYTES | \
                                 OBD_CONNECT_MAX_EASIZE | \
 				OBD_CONNECT_EINPROGRESS | \
-				OBD_CONNECT_JOBSTATS | OBD_CONNECT_LIGHTWEIGHT)
+				OBD_CONNECT_JOBSTATS | \
+				OBD_CONNECT_LIGHTWEIGHT | OBD_CONNECT_FID)
 #define ECHO_CONNECT_SUPPORTED (0)
 #define MGS_CONNECT_SUPPORTED  (OBD_CONNECT_VERSION | OBD_CONNECT_AT | \
 				OBD_CONNECT_FULL20 | OBD_CONNECT_IMP_RECOV | \
@@ -1801,6 +1875,7 @@ typedef enum {
         MDS_WRITEPAGE    = 51,
         MDS_IS_SUBDIR    = 52,
         MDS_GET_INFO     = 53,
+	MDS_OBJ_UPDATE   = 54,
         MDS_LAST_OPC
 } mds_cmd_t;
 
@@ -1842,11 +1917,12 @@ extern void lustre_swab_generic_32s (__u32 *val);
 #define MDS_INODELOCK_UPDATE 0x000002       /* size, links, timestamps */
 #define MDS_INODELOCK_OPEN   0x000004       /* For opened files */
 #define MDS_INODELOCK_LAYOUT 0x000008       /* for layout */
+#define MDS_INODELOCK_PERM   0x000010       /* for permission */
 
 /* Do not forget to increase MDS_INODELOCK_MAXSHIFT when adding new bits
  * XXX: MDS_INODELOCK_MAXSHIFT should be increased to 3 once the layout lock is
  * supported */
-#define MDS_INODELOCK_MAXSHIFT 2
+#define MDS_INODELOCK_MAXSHIFT 4
 /* This FULL lock is useful to take on unlink sort of operations */
 #define MDS_INODELOCK_FULL ((1<<(MDS_INODELOCK_MAXSHIFT+1))-1)
 
@@ -2118,6 +2194,8 @@ enum {
         MDS_CLOSE_CLEANUP = 1 << 6,
         MDS_KEEP_ORPHAN   = 1 << 7,
         MDS_RECOV_OPEN    = 1 << 8,
+	MDS_SET_MEA       = 1 << 9,
+	MDS_RM_ENTRY	  = 1 << 10,
 };
 
 /* instance of mdt_reint_rec */

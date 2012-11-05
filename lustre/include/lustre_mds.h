@@ -84,7 +84,6 @@ int mds_log_op_unlink(struct obd_device *, struct lov_mds_md *, int,
 
 #define MDD_OBD_NAME     "mdd_obd"
 #define MDD_OBD_UUID     "mdd_obd_uuid"
-#define MDD_OBD_TYPE     "mds"
 
 static inline int md_should_create(__u64 flags)
 {
