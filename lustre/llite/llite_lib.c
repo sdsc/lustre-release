@@ -555,7 +555,10 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 				 KEY_LRU_SET, sizeof(sbi->ll_lru),
 				 &sbi->ll_lru, NULL);
 
-	sb->s_root = d_alloc_root(root);
+	sb->s_root = d_make_root(root);
+	if (sb->s_root == NULL) {
+		GOTO(out_lock_cn_cb, err = -ENOMEM);
+	}
 #ifdef HAVE_DCACHE_LOCK
 	sb->s_root->d_op = &ll_d_root_ops;
 #else
