@@ -832,10 +832,19 @@ get_ost_lock_timeouts() {
     echo $locks
 }
 
+cleanup_34() {
+	trap 0
+	for j in `seq $OSTCOUNT`; do
+		do_facet ost$j lctl set_param fail_loc=0
+	done
+	wait_osc_import_state client FULL
+}
+
 test_34() { #16129
         local OPER
         local lock_in
         local lock_out
+	trap cleanup_34 EXIT RETURN
         for OPER in notimeout timeout ; do
                 rm $DIR1/$tfile 2>/dev/null
                 lock_in=$(get_ost_lock_timeouts)
@@ -874,6 +883,7 @@ test_34() { #16129
                         fi
                 fi
         done
+	cleanup_34
 }
 run_test 34 "no lock timeout under IO"
 
