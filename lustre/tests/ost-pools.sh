@@ -1249,12 +1249,13 @@ test_23b() {
     add_pool $POOL "$FSNAME-OST[$TGT_FIRST-$TGT_MAX/3]" "$TGT"
     create_dir $dir $POOL
 
-    AVAIL=$($LFS df -p $POOL $dir | awk '/summary/ { print $4 }')
-    [ $AVAIL -gt $MAXFREE ] &&
-        skip_env "Filesystem space $AVAIL is larger than $MAXFREE limit" &&
-            return 0
-    log "OSTCOUNT=$OSTCOUNT, OSTSIZE=$OSTSIZE"
-    log "MAXFREE=$MAXFREE, AVAIL=$AVAIL, SLOW=$SLOW"
+	AVAIL=$($LFS df -p $POOL $dir | awk '/summary/ { print $5 }')
+	[ $AVAIL -gt $MAXFREE ] &&
+		skip_env "Filesystem space $AVAIL is larger than " \
+			"$MAXFREE limit" && return 0
+
+	log "OSTCOUNT=$OSTCOUNT, OSTSIZE=$OSTSIZE"
+	log "MAXFREE=$MAXFREE, AVAIL=$AVAIL, SLOW=$SLOW"
 
 	# XXX remove the interoperability code once we drop the old server
 	#     ( < 2.3.50) support.
@@ -1265,28 +1266,35 @@ test_23b() {
 		sleep 5
 	fi
 
-    chown $RUNAS_ID.$RUNAS_ID $dir
-    i=0
-    RC=0
-    while [ $RC -eq 0 ]; do
-        i=$((i + 1))
-        stat=$(LOCALE=C $RUNAS2 dd if=/dev/zero of=${file}$i bs=1M \
-               count=$((LIMIT * 4)) 2>&1)
-        RC=$?
+	chown $RUNAS_ID.$RUNAS_ID $dir
+	i=0
+	RC=0
+	local TOTAL=0
+	while [ $RC -eq 0 ]; do
+		i=$((i + 1))
+		stat=$(LOCALE=C $RUNAS2 dd if=/dev/zero of=${file}$i bs=1M \
+			count=$((LIMIT * 4)) 2>&1)
+		RC=$?
+		TOTAL=$((TOTAL + LIMIT * 4 * 1024))
 		echo "$i: $stat"
-        if [ $RC -eq 1 ]; then
-            echo $stat | grep -q "Disk quota exceeded"
-            [[ $? -eq 0 ]] && error "dd failed with EDQUOT with quota off"
+		echo "written: $TOTAL"
+		$GETSTRIPE -v ${file}$i
 
-            echo $stat | grep -q "No space left on device"
-            [[ $? -ne 0 ]] &&
-                error "dd did not fail with ENOSPC"
-        fi
-    done
+		if [ $RC -eq 1 ]; then
+			echo $stat | grep -q "Disk quota exceeded"
+			[[ $? -eq 0 ]] &&
+				error "dd failed with EDQUOT with quota off"
 
-    df -h
+			echo $stat | grep -q "No space left on device"
+			[[ $? -ne 0 ]] &&
+				error "dd did not fail with ENOSPC"
+		elif [ $TOTAL -gt $AVAIL ]; then
+			error "dd didn't fail with ENOSPC ($TOTAL > $AVAIL)"
+		fi
+	done
 
-    rm -rf $POOL_ROOT
+	df -h
+	rm -rf $POOL_ROOT
 }
 run_test 23b "OST pools and OOS"
 
