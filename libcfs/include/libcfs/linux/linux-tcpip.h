@@ -50,6 +50,7 @@
 #endif
 
 #include <net/sock.h>
+#include <libcfs/linux/portals_compat25.h>
 
 #ifndef HIPQUAD
 // XXX Should just kill all users
@@ -68,7 +69,6 @@
 
 typedef struct socket   cfs_socket_t;
 
-#define SOCK_SNDBUF(so)         ((so)->sk->sk_sndbuf)
 #define SOCK_TEST_NOSPACE(so)   test_bit(SOCK_NOSPACE, &(so)->flags)
 
 static inline int
@@ -83,18 +83,5 @@ libcfs_sock_wmem_queued(struct socket *sock)
         return sock->sk->sk_wmem_queued;
 }
 
-#ifndef HAVE_SK_SLEEP
-static inline wait_queue_head_t *sk_sleep(struct sock *sk)
-{
-        return sk->sk_sleep;
-}
-#endif
-
-#ifdef HAVE_INIT_NET
-#define DEFAULT_NET	(&init_net)
-#else
-/* some broken backports */
-#define DEFAULT_NET	(NULL)
-#endif
 
 #endif

@@ -93,7 +93,6 @@ typedef unsigned long long cycles_t;
 #else
 # define THREAD_SIZE 8192
 #endif
-#define LUSTRE_TRACE_SIZE (THREAD_SIZE >> 5)
 
 #define CHECK_STACK(msgdata, mask, cdls) do {} while(0)
 #define CDEBUG_STACK() (0L)

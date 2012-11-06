@@ -35,6 +35,8 @@
 #ifndef __LIBCFS_LINUX_PORTALS_COMPAT_H__
 #define __LIBCFS_LINUX_PORTALS_COMPAT_H__
 
+#include <net/sock.h>
+
 // XXX BUG 1511 -- remove this stanza and all callers when bug 1511 is resolved
 #if defined(SPINLOCK_DEBUG) && SPINLOCK_DEBUG
 #  define SIGNAL_MASK_ASSERT() \
@@ -183,5 +185,44 @@ static inline void sg_set_page(struct scatterlist *sg, struct page *page,
 # define INIT_CTL_NAME(a)
 # define INIT_STRATEGY(a)
 #endif
+
+#ifndef HAVE_SK_SLEEP
+static inline wait_queue_head_t *sk_sleep(struct sock *sk)
+{
+	return sk->sk_sleep;
+}
+#endif
+
+#ifdef HAVE_INIT_NET
+# define DEFAULT_NET	(&init_net)
+#else
+/* some broken backports */
+# define DEFAULT_NET	(NULL)
+#endif
+
+#ifndef HAVE_STRUCT_CRED
+# define current_cred() (current)
+# define current_cred_xxx(xxx)                    \
+({                                                \
+	current->xxx;                             \
+})
+# ifndef HAVE_CRED_WRAPPERS
+#  define current_uid()           (current_cred_xxx(uid))
+#  define current_gid()           (current_cred_xxx(gid))
+#  define current_euid()          (current_cred_xxx(euid))
+#  define current_egid()          (current_cred_xxx(egid))
+#  define current_suid()          (current_cred_xxx(suid))
+#  define current_sgid()          (current_cred_xxx(sgid))
+#  define current_fsuid()         (current_cred_xxx(fsuid))
+#  define current_fsgid()         (current_cred_xxx(fsgid))
+#  define current_cap()           (current_cred_xxx(cap_effective))
+# endif /* HAVE_CRED_WRAPPERS */
+# define current_user()          (current_cred_xxx(user))
+# define current_user_ns()       (current_cred_xxx(user)->user_ns)
+# define current_security()      (current_cred_xxx(security))
+# define cred task_struct
+# define prepare_creds() (current)
+# define commit_creds(a)
+#endif /* HAVE_STRUCT_CRED */
 
 #endif /* _PORTALS_COMPAT_H */

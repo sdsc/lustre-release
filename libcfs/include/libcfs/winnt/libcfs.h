@@ -94,8 +94,6 @@ static inline __u32 query_stack_size()
 # define CFS_THREAD_SIZE query_stack_size()
 #endif
 
-#define LUSTRE_TRACE_SIZE (CFS_THREAD_SIZE >> 5)
-
 #ifdef __KERNEL__
 #define CDEBUG_STACK() (CFS_THREAD_SIZE - (__u32)IoGetRemainingStackSize())
 #define CFS_CHECK_STACK(msgdata, mask, cdls) do {} while(0)

@@ -197,8 +197,6 @@ typedef unsigned long long cfs_cycles_t;
 #  define CFS_THREAD_SIZE THREAD_SIZE
 # endif
 
-#define LUSTRE_TRACE_SIZE (CFS_THREAD_SIZE >> 5)
-
 #define CFS_CHECK_STACK(msgdata, mask, cdls) do {} while(0)
 #define CDEBUG_STACK() (0L)
 
