@@ -90,7 +90,7 @@ for dir in $OPTIONAL_DIRS; do
 done
 
 found=false
-for AMVER in 1.9 1.10 1.11; do
+for AMVER in 1.9 1.10 1.11 1.12; do
     if which automake-$AMVER 2> /dev/null; then
         found=true
         break
