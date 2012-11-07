@@ -386,6 +386,14 @@ static int config_log_end(char *logname, struct config_llog_instance *cfg)
 
         cld_recover = cld->cld_recover;
         cld->cld_recover = NULL;
+
+	/* kicks this cld out of config_log_list */
+	if (cld->cld_lostlock) {
+		cld->cld_lostlock = 0;
+		cfs_mutex_unlock(&cld->cld_lock);
+		config_log_put(cld);
+		cfs_mutex_lock(&cld->cld_lock);
+	}
         cfs_mutex_unlock(&cld->cld_lock);
 
         if (cld_recover) {
@@ -525,8 +533,22 @@ static int mgc_requeue_thread(void *data)
                                         cld_list_chain) {
                         if (!cld->cld_lostlock)
                                 continue;
-
+			config_log_get(cld);
                         cfs_spin_unlock(&config_list_lock);
+
+			/* we need to check this cld here again
+			 * because there is a possibility of running
+			 * config_log_end() via umount at any time */
+			cfs_mutex_lock(&cld->cld_lock);
+			if (!cld->cld_lostlock) {
+				cfs_mutex_unlock(&cld->cld_lock);
+				config_log_put(cld);
+				cfs_spin_lock(&config_list_lock);
+				continue;
+			}
+			cld->cld_lostlock = 0;
+			cfs_mutex_unlock(&cld->cld_lock);
+			config_log_put(cld);
 
                         LASSERT(cfs_atomic_read(&cld->cld_refcount) > 0);
 
@@ -536,7 +558,6 @@ static int mgc_requeue_thread(void *data)
                                 config_log_put(cld_prev);
                         cld_prev = cld;
 
-                        cld->cld_lostlock = 0;
                         if (likely(!stopped))
                                 do_requeue(cld);
 
@@ -593,9 +614,15 @@ static void mgc_requeue_add(struct config_llog_data *cld)
         /* Hold lock for rq_state */
         cfs_spin_lock(&config_list_lock);
         if (rq_state & RQ_STOP) {
-                cfs_spin_unlock(&config_list_lock);
-                cld->cld_lostlock = 0;
-                config_log_put(cld);
+		cfs_spin_unlock(&config_list_lock);
+		cfs_mutex_lock(&cld->cld_lock);
+		if (cld->cld_lostlock) {
+			cld->cld_lostlock = 0;
+			cfs_mutex_unlock(&cld->cld_lock);
+			config_log_put(cld);
+			cfs_mutex_lock(&cld->cld_lock);
+		}
+		cfs_mutex_unlock(&cld->cld_lock);
         } else {
                 rq_state |= RQ_NOW;
                 cfs_spin_unlock(&config_list_lock);
