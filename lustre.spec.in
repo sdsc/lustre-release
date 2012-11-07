@@ -288,8 +288,21 @@ fi
 %endif
 
 pushd $RPM_BUILD_ROOT >/dev/null
-> $RPM_BUILD_DIR/lustre-%{version}/lustre-modules.files
-find lib/modules/%{kversion}/updates -type f | awk "!/(ZZZZZZZZZZ$modules_excludes)/ {print \"%attr(-, root, root) /\"\$0}" >>$RPM_BUILD_DIR/lustre-%{version}/lustre-modules.files
+find lib/modules/%{kversion}/updates -type f | \
+awk "!/(ZZZZZZZZZZ$modules_excludes)/" | \
+while read file; do 
+	echo "%attr(-, root, root)" /$file
+	if build_id=$(/usr/lib/rpm/debugedit -i $file 2>/dev/null); then
+		link_dir=/usr/lib/debug/.build-id/${build_id:0:2}
+		link=$link_dir/${build_id:2}
+
+		mkdir -p $RPM_BUILD_ROOT/$link_dir
+		ln -s ../../../../../$file $RPM_BUILD_ROOT/$link
+		ln -s ../../../../../$file $RPM_BUILD_ROOT/$link.debug
+		echo "%attr(-, root, root)" $link
+		echo "%attr(-, root, root)" $link.debug
+	fi
+done > $RPM_BUILD_DIR/lustre-%{version}/lustre-modules.files
 popd >/dev/null
 
 %files -f lustre.files
