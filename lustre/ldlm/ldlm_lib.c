@@ -436,20 +436,30 @@ int client_obd_cleanup(struct obd_device *obddev)
         RETURN(0);
 }
 
-/* ->o_connect() method for client side (OSC and MDC and MGC) */
+/*
+ * ->o_connect() method for client side (OSC and MDC and MGC)
+ *
+ * Note: Currently @localdata is only used to indicate that called has
+ * down_read the client's import semaphore.
+ */
 int client_connect_import(const struct lu_env *env,
                           struct obd_export **exp,
                           struct obd_device *obd, struct obd_uuid *cluuid,
                           struct obd_connect_data *data, void *localdata)
 {
-        struct client_obd *cli = &obd->u.cli;
-        struct obd_import *imp = cli->cl_import;
+        struct client_obd       *cli    = &obd->u.cli;
+        struct obd_import       *imp    = cli->cl_import;
         struct obd_connect_data *ocd;
-        struct lustre_handle conn = { 0 };
-        int rc;
+        struct lustre_handle    conn    = { 0 };
+        int                     *upread = localdata;
+        int                     rc;
         ENTRY;
 
         *exp = NULL;
+
+        if (upread != NULL && *upread == 1)
+                cfs_up_read(&cli->cl_sem);
+
         cfs_down_write(&cli->cl_sem);
         if (cli->cl_conn_count > 0 )
                 GOTO(out_sem, rc = -EALREADY);
@@ -501,6 +511,8 @@ out_ldlm:
 out_sem:
         cfs_up_write(&cli->cl_sem);
 
+        if (upread != NULL && *upread == 1)
+                cfs_down_read(&cli->cl_sem);
         return rc;
 }
 
