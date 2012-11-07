@@ -146,19 +146,30 @@ void sptlrpc_conf_fini(void);
 int  sptlrpc_init(void);
 void sptlrpc_fini(void);
 
-/* recov_thread.c */
-int llog_recov_init(void);
-void llog_recov_fini(void);
-
 static inline int ll_rpc_recoverable_error(int rc)
 {
         return (rc == -ENOTCONN || rc == -ENODEV);
 }
 
 #ifdef HAVE_SERVER_SUPPORT
+/* recov_thread.c */
+int llog_recov_init(void);
+void llog_recov_fini(void);
+
+/* target.c */
 int tgt_mod_init(void);
 void tgt_mod_exit(void);
 #else
+static inline int llog_recov_init(void)
+{
+	return 0;
+}
+
+static inline void llog_recov_fini(void)
+{
+	return;
+}
+
 static inline int tgt_mod_init(void)
 {
 	return 0;
