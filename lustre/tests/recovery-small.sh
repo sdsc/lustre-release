@@ -826,18 +826,19 @@ test_27() {
 	sleep 1
 	local save_FAILURE_MODE=$FAILURE_MODE
 	FAILURE_MODE="SOFT"
-	facet_failover $SINGLEMDS
 #define OBD_FAIL_OSC_SHUTDOWN            0x407
 	do_facet $SINGLEMDS lctl set_param fail_loc=0x80000407
+	facet_failover $SINGLEMDS
 	# need to wait for reconnect
 	echo waiting for fail_loc
-	wait_update_facet $SINGLEMDS "lctl get_param -n fail_loc" "-2147482617"
+	wait_update_facet $SINGLEMDS "lctl get_param -n fail_loc" "3221226503"||
+		error "MDS did not reconnect to OST in reasonable time"
 	facet_failover $SINGLEMDS
 	#no crashes allowed!
         kill -USR1 $CLIENT_PID
-	wait $CLIENT_PID 
-	true
+	wait $CLIENT_PID
 	FAILURE_MODE=$save_FAILURE_MODE
+	true
 }
 run_test 27 "fail LOV while using OSC's"
 
