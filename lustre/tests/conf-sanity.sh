@@ -2336,6 +2336,43 @@ test_50g() {
 }
 run_test 50g "deactivated OST should not cause panic====================="
 
+# LU-642
+test_50h() {
+	# prepare MDT/OST, make OSC inactive for OST1
+	[ "$OSTCOUNT" -lt "2" ] && skip_env "$OSTCOUNT < 2, skipping" && return
+	do_facet ost1 "$TUNEFS --param osc.active=0 `ostdevname 1`" ||
+		error "tunefs OST1 failed"
+	start_mds  || error "Unable to start MDT"
+	start_ost  || error "Unable to start OST1"
+	start_ost2 || error "Unable to start OST2"
+	mount_client $MOUNT || error "client start failed"
+
+	# create some file
+	mkdir -p $DIR/$tdir
+	createmany -o $DIR/$tdir/$tfile-%d 100
+
+	# activatate OSC for OST1
+	local TEST="$LCTL get_param -n osc.${FSNAME}-OST0000-osc-[!M]*.active"
+	set_and_check client "$TEST" "${FSNAME}-OST0000.osc.active" 1 ||
+		error "Unable to activate OST1"
+
+	mkdir -p $DIR/$tdir/2
+	$LFS setstripe -c -1 $DIR/$tdir/2
+	sleep 1 && echo "create some file after OST1 is activated"
+	# create some file
+	createmany -o $DIR/$tdir/2/$tfile-%d 100
+
+	# check OSC import is working
+	stat $DIR/$tdir/2/* >/dev/null 2>&1 ||
+		error "some OSC imports are still not connected"
+
+	# cleanup
+	umount_client $MOUNT || error "Unable to umount client"
+	stop_ost2 || error "Unable to stop OST2"
+	cleanup_nocli
+}
+run_test 50h "LU-642: activate deactivated OST  ==="
+
 test_51() {
 	local LOCAL_TIMEOUT=20
 

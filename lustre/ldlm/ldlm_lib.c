@@ -442,14 +442,15 @@ int client_connect_import(const struct lu_env *env,
                           struct obd_device *obd, struct obd_uuid *cluuid,
                           struct obd_connect_data *data, void *localdata)
 {
-        struct client_obd *cli = &obd->u.cli;
-        struct obd_import *imp = cli->cl_import;
+        struct client_obd       *cli    = &obd->u.cli;
+        struct obd_import       *imp    = cli->cl_import;
         struct obd_connect_data *ocd;
-        struct lustre_handle conn = { 0 };
-        int rc;
+        struct lustre_handle    conn    = { 0 };
+        int                     rc;
         ENTRY;
 
         *exp = NULL;
+
         cfs_down_write(&cli->cl_sem);
         if (cli->cl_conn_count > 0 )
                 GOTO(out_sem, rc = -EALREADY);
