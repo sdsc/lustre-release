@@ -574,6 +574,12 @@ int main(int argc, char *const argv[])
         progname = strrchr(argv[0], '/');
         progname = progname ? progname + 1 : argv[0];
 
+        /*
+         * LU-1279. When LNET modules have not loaded, and mounting multiple
+         * targets at the same time could fail.
+         */
+        rc = system("/sbin/modprobe ptlrpc >/dev/null 2>&1");
+
         while ((opt = getopt_long(argc, argv, "fhno:v",
                                   long_opt, NULL)) != EOF){
                 switch (opt) {
