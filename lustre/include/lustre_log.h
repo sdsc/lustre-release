@@ -243,6 +243,7 @@ int llog_origin_connect(struct llog_ctxt *ctxt,
                         struct obd_uuid *uuid);
 int llog_handle_connect(struct ptlrpc_request *req);
 
+#ifdef HAVE_SERVER_SUPPORT
 /* recov_thread.c */
 int llog_obd_repl_cancel(const struct lu_env *env, struct llog_ctxt *ctxt,
 			 struct lov_stripe_md *lsm, int count,
@@ -250,8 +251,15 @@ int llog_obd_repl_cancel(const struct lu_env *env, struct llog_ctxt *ctxt,
 int llog_obd_repl_sync(struct llog_ctxt *ctxt, struct obd_export *exp,
 		       int flags);
 int llog_obd_repl_connect(struct llog_ctxt *ctxt,
-                          struct llog_logid *logid, struct llog_gen *gen,
-                          struct obd_uuid *uuid);
+			  struct llog_logid *logid, struct llog_gen *gen,
+			  struct obd_uuid *uuid);
+extern struct llog_commit_master *llog_recov_thread_init(char *name);
+extern void llog_recov_thread_fini(struct llog_commit_master *lcm,
+				   int force);
+extern int llog_recov_thread_start(struct llog_commit_master *lcm);
+extern void llog_recov_thread_stop(struct llog_commit_master *lcm,
+				   int force);
+#endif
 
 struct llog_operations {
 	int (*lop_destroy)(const struct lu_env *env,
@@ -471,14 +479,6 @@ struct llog_canceld_ctxt {
          */
         struct llog_cookie         llcd_cookies[0];
 };
-
-/* ptlrpc/recov_thread.c */
-extern struct llog_commit_master *llog_recov_thread_init(char *name);
-extern void llog_recov_thread_fini(struct llog_commit_master *lcm,
-                                   int force);
-extern int llog_recov_thread_start(struct llog_commit_master *lcm);
-extern void llog_recov_thread_stop(struct llog_commit_master *lcm,
-                                    int force);
 
 static inline void llog_gen_init(struct llog_ctxt *ctxt)
 {
