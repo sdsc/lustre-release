@@ -87,7 +87,16 @@ EXPORT_SYMBOL(obd_timeout_set);
 unsigned int ldlm_timeout_set;
 EXPORT_SYMBOL(ldlm_timeout_set);
 /* Adaptive timeout defs here instead of ptlrpc module for /proc/sys/ access */
+#if defined(CONFIG_CRAY_GEMINI) || defined(CONFIG_CRAY_ARIES)
+/*
+ * For Gemini, a minimum of 70s to handle a gnilnd timeout of 60s. The gnilnd
+ * timeout can creep up to 65s depending on system load and how often the
+ * reaper thread runs, so 70s should give us some head room.
+ */
+unsigned int at_min = 70;
+#else
 unsigned int at_min = 0;
+#endif
 EXPORT_SYMBOL(at_min);
 unsigned int at_max = 600;
 EXPORT_SYMBOL(at_max);
