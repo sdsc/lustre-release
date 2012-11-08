@@ -1349,6 +1349,13 @@ zconf_umount_clients() {
     [ "$3" ] && force=-f
 
     echo "Stopping clients: $clients $mnt (opts:$force)"
+
+    for num in `seq $OSTCOUNT`; do
+        do_facet ost$num "hostname; uptime"
+    done
+
+    do_facet client "hostname; $LCTL get_param llite.*.unstable_stats"
+
     do_nodes $clients "running=\\\$(grep -c $mnt' ' /proc/mounts);
 if [ \\\$running -ne 0 ] ; then
 echo Stopping client \\\$(hostname) $mnt opts:$force;
