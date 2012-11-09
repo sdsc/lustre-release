@@ -435,6 +435,16 @@ fid_build_reg_res_name(const struct lu_fid *f,
         return name;
 }
 
+static inline struct lu_fid *fid_extract_resid(const struct ldlm_res_id *res,
+					       struct lu_fid *fid)
+{
+	fid->f_seq = res->name[LUSTRE_RES_ID_SEQ_OFF];
+	fid->f_oid = (__u32)res->name[LUSTRE_RES_ID_VER_OID_OFF];
+	fid->f_ver = (__u32)(res->name[LUSTRE_RES_ID_VER_OID_OFF] >> 32);
+
+	return fid;
+}
+
 /*
  * Build (DLM) resource identifier from global quota FID and quota ID.
  */
@@ -451,14 +461,11 @@ fid_build_quota_resid(const struct lu_fid *glb_fid, union lquota_id *qid,
 /*
  * Extract global FID and quota ID from resource name
  */
-static inline void fid_extract_quota_resid(struct ldlm_res_id *res,
+static inline void fid_extract_quota_resid(const struct ldlm_res_id *res,
 					   struct lu_fid *glb_fid,
 					   union lquota_id *qid)
 {
-	glb_fid->f_seq = res->name[LUSTRE_RES_ID_SEQ_OFF];
-	glb_fid->f_oid = (__u32)res->name[LUSTRE_RES_ID_VER_OID_OFF];
-	glb_fid->f_ver = (__u32)(res->name[LUSTRE_RES_ID_VER_OID_OFF] >> 32);
-
+	fid_extract_resid(res, glb_fid);
 	qid->qid_fid.f_seq = res->name[LUSTRE_RES_ID_QUOTA_SEQ_OFF];
 	qid->qid_fid.f_oid = (__u32)res->name[LUSTRE_RES_ID_QUOTA_VER_OID_OFF];
 	qid->qid_fid.f_ver =

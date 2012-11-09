@@ -1130,15 +1130,16 @@ ldlm_resource_get(struct ldlm_namespace *ns, struct ldlm_resource *parent,
         if (cfs_hash_bd_count_get(&bd) == 1)
                 ldlm_namespace_get(ns);
 
-        cfs_hash_bd_unlock(ns->ns_rs_hash, &bd, 1);
-        if (ns->ns_lvbo && ns->ns_lvbo->lvbo_init) {
-                int rc;
+	cfs_hash_bd_unlock(ns->ns_rs_hash, &bd, 1);
+	if (ns->ns_lvbo && ns->ns_lvbo->lvbo_init) {
+		int rc;
 
-                OBD_FAIL_TIMEOUT(OBD_FAIL_LDLM_CREATE_RESOURCE, 2);
-                rc = ns->ns_lvbo->lvbo_init(res);
-                if (rc)
-                        CERROR("lvbo_init failed for resource "
-                               LPU64": rc %d\n", name->name[0], rc);
+		OBD_FAIL_TIMEOUT(OBD_FAIL_LDLM_CREATE_RESOURCE, 2);
+		rc = ns->ns_lvbo->lvbo_init(res);
+		if (rc)
+			CERROR("%s: lvbo_init failed for resource "LPX64":"
+			       LPX64": rc = %d\n", ns->ns_obd->obd_name,
+			       name->name[0], name->name[1], rc);
 	}
 
 	/* we create resource with locked lr_lvb_mutex */
