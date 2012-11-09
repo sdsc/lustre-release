@@ -1149,11 +1149,11 @@ int class_process_config(struct lustre_cfg *lcfg)
                                               PARAM_SYS, &tmp) == 0)) {
                         /* Global param settings */
 			err = class_set_global(tmp, lcfg->lcfg_num, lcfg);
-                        /* Note that since LCFG_PARAM is LCFG_REQUIRED, new
-                           unknown globals would cause config to fail */
-                        if (err)
-                                CWARN("Ignoring unknown param %s\n", tmp);
-                        GOTO(out, 0);
+			/* Note that since LCFG_PARAM is LCFG_REQUIRED, new
+			   unknown globals would cause config to fail */
+			if (err)
+				CERROR("unknown config param %s\n", tmp);
+			GOTO(out, err);
 		} else if ((class_match_param(lustre_cfg_string(lcfg, 1),
 					      PARAM_QUOTA, &tmp) == 0) &&
 			   quota_process_config) {
