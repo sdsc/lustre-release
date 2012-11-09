@@ -913,7 +913,6 @@ void class_unlink_export(struct obd_export *exp)
         cfs_list_del_init(&exp->exp_obd_chain_timed);
         exp->exp_obd->obd_num_exports--;
         cfs_spin_unlock(&exp->exp_obd->obd_dev_lock);
-        class_export_put(exp);
 }
 EXPORT_SYMBOL(class_unlink_export);
 
@@ -1192,6 +1191,7 @@ int class_disconnect(struct obd_export *export)
 
         class_export_recovery_cleanup(export);
         class_unlink_export(export);
+	class_export_put(export);
 no_disconn:
         class_export_put(export);
         RETURN(0);
