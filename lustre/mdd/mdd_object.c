@@ -1162,23 +1162,28 @@ stop:
 static int mdd_xattr_sanity_check(const struct lu_env *env,
                                   struct mdd_object *obj)
 {
-        struct lu_attr  *tmp_la = &mdd_env_info(env)->mti_la;
-        struct md_ucred *uc     = md_ucred(env);
-        int rc;
-        ENTRY;
+	struct lu_attr  *tmp_la = &mdd_env_info(env)->mti_la;
+	struct md_ucred *uc     = NULL;
+	int rc;
+	ENTRY;
 
-        if (mdd_is_immutable(obj) || mdd_is_append(obj))
-                RETURN(-EPERM);
+	if (mdd_is_immutable(obj) || mdd_is_append(obj))
+		RETURN(-EPERM);
 
-        rc = mdd_la_get(env, obj, tmp_la, BYPASS_CAPA);
-        if (rc)
-                RETURN(rc);
+	if (env->le_no_session)
+		RETURN(0);
 
-        if ((uc->mu_fsuid != tmp_la->la_uid) &&
-            !mdd_capable(uc, CFS_CAP_FOWNER))
-                RETURN(-EPERM);
+	uc = md_ucred(env);
 
-        RETURN(rc);
+	rc = mdd_la_get(env, obj, tmp_la, BYPASS_CAPA);
+	if (rc)
+		RETURN(rc);
+
+	if ((uc->mu_fsuid != tmp_la->la_uid) &&
+	    !mdd_capable(uc, CFS_CAP_FOWNER))
+		RETURN(-EPERM);
+
+	RETURN(rc);
 }
 
 static int mdd_declare_xattr_set(const struct lu_env *env,

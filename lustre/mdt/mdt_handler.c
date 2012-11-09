@@ -5641,6 +5641,9 @@ static int mdt_export_cleanup(struct obd_export *exp)
         if (rc)
                 RETURN(rc);
 
+	/* there is no request! */
+	env.le_no_session = 1;
+
         info = lu_context_key_get(&env.le_ctx, &mdt_thread_key);
         LASSERT(info != NULL);
         memset(info, 0, sizeof *info);

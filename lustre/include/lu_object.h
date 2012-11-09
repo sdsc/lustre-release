@@ -1263,14 +1263,17 @@ void lu_session_tags_clear(__u32 tags);
  * Environment.
  */
 struct lu_env {
-        /**
-         * "Local" context, used to store data instead of stack.
-         */
-        struct lu_context  le_ctx;
-        /**
-         * "Session" context for per-request data.
-         */
-        struct lu_context *le_ses;
+	/**
+	 * "Local" context, used to store data instead of stack.
+	 */
+	struct lu_context  le_ctx;
+	/**
+	 * "Session" context for per-request data.
+	 */
+	struct lu_context *le_ses;
+
+	/** various flags */
+	unsigned long	   le_no_session:1; /* Local, no relate to request */
 };
 
 int  lu_env_init  (struct lu_env *env, __u32 tags);
