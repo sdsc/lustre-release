@@ -14,7 +14,7 @@ source ${0%/*}/lbuild-rhel
 
 SPEC_NAME="kernel.spec"
 DEVEL_PATH_ARCH_DELIMETER="."
-USE_KABI=true
+USE_KABI=false
 
 patch_spec() {
     local buildid="$1"
