@@ -621,6 +621,68 @@ int mdt_attr_get_lov(struct mdt_thread_info *info,
 	return rc;
 }
 
+int mdt_attr_get_pfid(struct mdt_thread_info *info,
+		      struct mdt_object *o, struct lu_fid *pfid)
+{
+	struct lu_buf		*buf = &info->mti_buf;
+	struct link_ea_header	*leh;
+	struct link_ea_entry	*lee;
+	char			*bigbuf = NULL;
+	int			 rc, size;
+	ENTRY;
+
+	buf->lb_len = sizeof(info->mti_xattr_buf);
+	buf->lb_buf = info->mti_xattr_buf;
+	rc = mo_xattr_get(info->mti_env, mdt_object_child(o),
+			  buf, XATTR_NAME_LINK);
+	/* ignore errors, MA_PFID won't be set and it is
+	 * up to the caller to treat this as an error */
+	if (rc == -ERANGE) {
+		size = mo_xattr_get(info->mti_env, mdt_object_child(o),
+				    &LU_BUF_NULL, XATTR_NAME_LINK);
+		if (rc < 0)
+			GOTO(out, rc);
+		LASSERT(size > sizeof(info->mti_xattr_buf));
+
+		OBD_ALLOC(bigbuf, size);
+		if (bigbuf == NULL)
+			GOTO(out, rc = -ENOMEM);
+
+		buf->lb_buf = bigbuf;
+		buf->lb_len = size;
+		rc = mo_xattr_get(info->mti_env, mdt_object_child(o),
+				  buf, XATTR_NAME_LINK);
+	}
+
+	if (rc < 0)
+		return rc;
+	if (rc < sizeof(*leh)) {
+		CERROR("short LinkEA on "DFID": rc = %d\n",
+		       PFID(mdt_object_fid(o)), rc);
+		GOTO(out, rc = -ENODATA);
+	}
+
+	leh = (struct link_ea_header *) buf->lb_buf;
+	lee = (struct link_ea_entry *)(leh + 1);
+	if (leh->leh_magic == __swab32(LINK_EA_MAGIC)) {
+		leh->leh_magic = LINK_EA_MAGIC;
+		leh->leh_reccount = __swab32(leh->leh_reccount);
+		leh->leh_len = __swab64(leh->leh_len);
+	}
+	if (leh->leh_magic != LINK_EA_MAGIC)
+		GOTO(out, rc = -EINVAL);
+	if (leh->leh_reccount == 0)
+		GOTO(out, rc = -ENODATA);
+
+	memcpy(pfid, &lee->lee_parent_fid, sizeof(*pfid));
+	fid_be_to_cpu(pfid, pfid);
+
+out:
+	if (bigbuf)
+		OBD_FREE(bigbuf, size);
+	RETURN(rc);
+}
+
 int mdt_attr_get_complex(struct mdt_thread_info *info,
 			 struct mdt_object *o, struct md_attr *ma)
 {
@@ -643,6 +705,14 @@ int mdt_attr_get_complex(struct mdt_thread_info *info,
 		if (rc)
 			GOTO(out, rc);
 		ma->ma_valid |= MA_INODE;
+	}
+
+	if (need & MA_PFID) {
+		rc = mdt_attr_get_pfid(info, o, &ma->ma_pfid);
+		if (rc == 0)
+			ma->ma_valid |= MA_PFID;
+		/* ignore this error, parent fid is not mandatory */
+		rc = 0;
 	}
 
 	if (need & MA_LOV && (S_ISREG(mode) || S_ISDIR(mode))) {
