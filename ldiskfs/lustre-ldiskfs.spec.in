@@ -80,6 +80,10 @@ make -j $RPM_BUILD_NCPUS -s
 %install
 make install DESTDIR=$RPM_BUILD_ROOT
 
+# mark modules executable for find-debuginfo.sh
+find $RPM_BUILD_ROOT/lib/modules/%{kversion}/updates -name "*.ko" -type f | \
+	xargs --no-run-if-empty chmod u+x
+
 %files
 %attr(-, root, root) /lib/modules/%{kversion}/updates/kernel/fs/lustre-ldiskfs
 
