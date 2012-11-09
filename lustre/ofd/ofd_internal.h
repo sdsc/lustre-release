@@ -560,9 +560,7 @@ static inline void ofd_fid_from_resid(struct lu_fid *fid,
 		ostid.oi_seq = name->name[LUSTRE_RES_ID_VER_OID_OFF];
 		fid_ostid_unpack(fid, &ostid, 0);
 	} else {
-		fid->f_seq = name->name[LUSTRE_RES_ID_SEQ_OFF];
-		fid->f_oid = (__u32)name->name[LUSTRE_RES_ID_VER_OID_OFF];
-		fid->f_ver = name->name[LUSTRE_RES_ID_VER_OID_OFF] >> 32;
+		fid_extract_from_res_name(fid, name);
 	}
 }
 
