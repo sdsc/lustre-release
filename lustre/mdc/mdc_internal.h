@@ -52,11 +52,14 @@ static inline void lprocfs_mdc_init_vars(struct lprocfs_static_vars *lvars)
 void mdc_pack_body(struct ptlrpc_request *req, const struct lu_fid *fid,
                    struct obd_capa *oc, __u64 valid, int ea_size,
                    __u32 suppgid, int flags);
-void mdc_pack_capa(struct ptlrpc_request *req, const struct req_msg_field *field,
-                   struct obd_capa *oc);
+void mdc_pack_capa(struct ptlrpc_request *req,
+		   const struct req_msg_field *field, struct obd_capa *oc);
 int mdc_pack_req(struct ptlrpc_request *req, int version, int opc);
 void mdc_is_subdir_pack(struct ptlrpc_request *req, const struct lu_fid *pfid,
                         const struct lu_fid *cfid, int flags);
+void mdc_swap_layouts_pack(struct ptlrpc_request *req,
+			   const struct lu_fid *fid1,
+			   const struct lu_fid *fid2);
 void mdc_readdir_pack(struct ptlrpc_request *req, __u64 pgoff, __u32 size,
                       const struct lu_fid *fid, struct obd_capa *oc);
 void mdc_getattr_pack(struct ptlrpc_request *req, __u64 valid, int flags,

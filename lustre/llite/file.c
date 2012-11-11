@@ -1819,9 +1819,9 @@ static int ll_data_version(struct inode *inode, __u64 *data_version,
 
 long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-        struct inode *inode = file->f_dentry->d_inode;
-        struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
-        int flags;
+        struct inode		*inode = file->f_dentry->d_inode;
+        struct ll_file_data	*fd = LUSTRE_FPRIVATE(file);
+        int			 flags, rc;
 
         ENTRY;
 
@@ -1863,6 +1863,38 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 RETURN(ll_lov_setstripe(inode, file, arg));
         case LL_IOC_LOV_SETEA:
                 RETURN(ll_lov_setea(inode, file, arg));
+        case LL_IOC_LOV_SWAP_LAYOUTS: {
+                struct file			*file2;
+                struct lustre_swap_layouts	 lsl;
+                struct mdc_swap_layouts		 msl;
+		struct md_op_data		*op_data;
+
+                if (cfs_copy_from_user(&lsl, (char *)arg,
+				       sizeof(struct lustre_swap_layouts)))
+                        RETURN(-EFAULT);
+
+                msl.msl_flags = lsl.sl_flags;
+
+                file2 = cfs_get_fd(lsl.sl_fd);
+		/* struct md_op_data is used to send the swap args to the mdt
+		 * only flags is missing, so we use struct mdc_swap_layouts
+		 * through the md_op_data->op_data */
+		/* fill op_data with fid1, fid2 and msl */
+		op_data = ll_prep_md_op_data(NULL, inode,
+					     file2->f_dentry->d_inode,
+					     NULL, 0, 0,
+					     LUSTRE_OPC_ANY, &msl);
+		if (op_data == NULL)
+			RETURN(-ENOMEM);
+
+                rc = obd_iocontrol(cmd, ll_i2mdexp(inode),
+                                   sizeof(*op_data), op_data, NULL);
+
+                cfs_put_file(file2);
+
+		ll_finish_md_op_data(op_data);
+                RETURN(rc);
+        }
         case LL_IOC_LOV_GETSTRIPE:
                 RETURN(ll_lov_getstripe(inode, arg));
         case LL_IOC_RECREATE_OBJ:
@@ -1903,7 +1935,6 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		RETURN(ll_fid2path(inode, (void *)arg));
         case LL_IOC_DATA_VERSION: {
                 struct ioc_data_version idv;
-                int rc;
 
                 if (cfs_copy_from_user(&idv, (char *)arg, sizeof(idv)))
                         RETURN(-EFAULT);

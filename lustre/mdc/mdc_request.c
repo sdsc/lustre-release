@@ -1442,6 +1442,57 @@ static int mdc_quotactl(struct obd_device *unused, struct obd_export *exp,
         RETURN(rc);
 }
 
+static int mdc_ioc_swap_layouts(struct obd_export *exp,
+				struct md_op_data *op_data)
+{
+	struct ptlrpc_request	*req;
+	int			 rc;
+	struct mdc_swap_layouts *msl, *payload;
+	ENTRY;
+
+	msl = op_data->op_data;
+	req = ptlrpc_request_alloc(class_exp2cliimp(exp),
+				   &RQF_MDS_SWAP_LAYOUTS);
+
+	if (req == NULL)
+		RETURN(-ENOMEM);
+
+	mdc_set_capa_size(req, &RMF_CAPA1, op_data->op_capa1);
+	mdc_set_capa_size(req, &RMF_CAPA2, op_data->op_capa2);
+
+	rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_SWAP_LAYOUTS);
+	if (rc) {
+		ptlrpc_request_free(req);
+		RETURN(rc);
+	}
+
+	mdc_swap_layouts_pack(req, &op_data->op_fid1, &op_data->op_fid2);
+	mdc_pack_capa(req, &RMF_CAPA1, op_data->op_capa1);
+	mdc_pack_capa(req, &RMF_CAPA2, op_data->op_capa2);
+
+
+	payload = req_capsule_client_get(&req->rq_pill, &RMF_SWAP_LAYOUTS);
+	LASSERT(payload);
+
+	*payload = *msl;
+
+	ptlrpc_request_set_replen(req);
+
+	rc = ptlrpc_queue_wait(req);
+	if (rc) {
+		struct obd_import	*imp = class_exp2cliimp(exp);
+
+		if (imp->imp_connect_error)
+			rc = imp->imp_connect_error;
+		GOTO(out, rc);
+	}
+	EXIT;
+
+out:
+	ptlrpc_req_finished(req);
+	return rc;
+}
+
 static int mdc_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                          void *karg, void *uarg)
 {
@@ -1563,6 +1614,10 @@ static int mdc_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                 else
                         GOTO(out, rc = 0);
         }
+	case LL_IOC_LOV_SWAP_LAYOUTS: {
+		rc = mdc_ioc_swap_layouts(exp, karg);
+		GOTO(out, rc);
+	}
         default:
                 CERROR("mdc_ioctl(): unrecognised ioctl %#x\n", cmd);
                 GOTO(out, rc = -ENOTTY);

@@ -104,6 +104,7 @@ static int lfs_changelog_clear(int argc, char **argv);
 static int lfs_fid2path(int argc, char **argv);
 static int lfs_path2fid(int argc, char **argv);
 static int lfs_data_version(int argc, char **argv);
+static int lfs_swap_layouts(int argc, char **argv);
 
 /* all avaialable commands */
 command_t cmdlist[] = {
@@ -238,6 +239,8 @@ command_t cmdlist[] = {
          "usage: path2fid <path>"},
         {"data_version", lfs_data_version, 0, "Display file data version for "
          "a given path.\n" "usage: data_version [-n] <path>"},
+	{"swap_layouts", lfs_swap_layouts, 0, "Swap layouts between 2 files.\n"
+	 "usage: swap_layouts <path1> <path2>"},
         {"help", Parser_help, 0, "help"},
         {"exit", Parser_quit, 0, "quit"},
         {"quit", Parser_quit, 0, "quit"},
@@ -2706,6 +2709,21 @@ static int lfs_data_version(int argc, char **argv)
 		printf(LPU64 "\n", data_version);
 
 	close(fd);
+
+	return rc;
+}
+
+static int lfs_swap_layouts(int argc, char **argv)
+{
+	int	 rc;
+
+	if (argc != 3)
+		return CMD_HELP;
+
+	rc = llapi_swap_layouts(argv[1], argv[2]);
+        if (rc)
+                fprintf(stderr, "can't swap layouts between %s and %s (%s)\n",
+			argv[1], argv[2], strerror(errno = -rc));
 
 	return rc;
 }

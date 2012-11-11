@@ -8781,6 +8781,59 @@ test_182() {
 }
 run_test 182 "Disable MDC RPCs semaphore wouldn't crash client ================"
 
+test_183a() {
+	mkdir -p $DIR/$tdir || error "creating dir $DIR/$tdir"
+	file1=$DIR/$tdir/f1
+	file2=$DIR/$tdir/f2
+	dir1=$DIR/$tdir/d1
+	dir2=$DIR/$tdir/d2
+	mkdir $dir1 $dir2
+	$SETSTRIPE -c1 $file1
+	$SETSTRIPE -c2 $file2
+	gen1=$($GETSTRIPE -g $file1)
+	gen2=$($GETSTRIPE -g $file2)
+
+	err=0
+	$LFS swap_layouts $dir1 $dir2 && error_noexit "swap of directories layouts should fail"
+	$LFS swap_layouts $dir1 $file1 && error_noexit "swap of directory and file layouts should fail"
+	$RUNAS $LFS swap_layouts $file1 $file2 && error_noexit "swap of file we cannot write should fail"
+	$LFS swap_layouts $file1 $file2 || error_noexit "swap of file layout failed"
+	gen=$($GETSTRIPE -g $file1)
+	[[ $gen1 != $gen ]] error_noexit "Layout generation on $file1 does not change"
+	gen=$($GETSTRIPE -g $file2)
+	[[ $gen2 != $gen ]] error_noexit "Layout generation on $file2 does not change"
+	# must check objects are swaped between file1 and file2
+
+}
+run_test 183a "Basic layout swap ===================="
+
+test_183b() {
+	mkdir -p $DIR/$tdir || error "creating dir $DIR/$tdir"
+	ref1=$DIR/$tdir/f1
+	ref2=/etc/passwd
+	file1=$DIR/$tdir/f2
+	file2=$DIR/$tdir/f3
+	# create a file large enough for the concurent test
+	dd if=/dev/urandom of=$ref1 bs=1M &
+	DD_PID=$?
+	sleep 10
+	kill $DD_PID
+	cp $ref2 $file2
+
+	dd if=$ref1 of=$file1 bs=1M &
+	DD_PID=$?
+	sleep 0.5
+	kill -STOP $DD_PID
+	lfs swap_layouts $file1 $file2
+	kill -CONT $DD_PID
+	sleep 1
+
+	cmp $ref1 $file2 || error "compare failed"
+	cmp $ref2 $file1 || error "compare failed"
+
+}
+run_test 183b "concurrent write and layout swap ===================="
+
 # OST pools tests
 check_file_in_pool()
 {
