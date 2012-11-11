@@ -2522,3 +2522,11 @@ void lustre_swab_layout_intent(struct layout_intent *li)
 	__swab64s(&li->li_end);
 }
 EXPORT_SYMBOL(lustre_swab_layout_intent);
+
+void lustre_swab_swap_layouts(struct mdc_swap_layouts *msl)
+{
+	__swab64s(&msl->msl_flags);
+}
+EXPORT_SYMBOL(lustre_swab_swap_layouts);
+
+
