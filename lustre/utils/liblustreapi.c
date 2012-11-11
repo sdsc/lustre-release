@@ -3994,3 +3994,93 @@ int llapi_get_data_version(int fd, __u64 *data_version, __u64 flags)
 
         return rc;
 }
+
+/**
+ * Swap the layouts between 2 file descriptors
+ * the 2 files must be open in write
+ * first fd received the ioctl, second fd is passed as arg
+ * this is assymetric but avoid use of root path for ioctl
+*/
+int llapi_fswap_layouts(int fd1, int fd2)
+{
+	struct lustre_swap_layouts lsl;
+	struct lu_fid fid1, fid2;
+	unsigned long gid;
+	int rc;
+
+	/* before swapping layout, we need to flush caching pages for this
+	 * object. grouplock is a good candidate for this purpose. */
+	rc = ioctl(fd1, LL_IOC_PATH2FID, &fid1) | ioctl(fd2, LL_IOC_PATH2FID, &fid2);
+	if (rc)
+		return -errno;
+
+	rc = lu_fid_cmp(&fid1, &fid2);
+	if (rc == 0) {
+		return -EINVAL;
+	} else if (rc < 0) {
+		/* sequentialize fids to avoid deadlock */
+		rc = fd1;
+		fd1 = fd2;
+		fd2 = rc;
+	}
+
+	srandom(time(NULL));
+	gid = random();
+	rc = ioctl(fd1, LL_IOC_GROUP_LOCK, &gid);
+	if (rc)
+		return -errno;
+
+	rc = ioctl(fd2, LL_IOC_GROUP_LOCK, &gid);
+	if (rc) {
+		rc = -errno;
+		(void)ioctl(fd1, LL_IOC_GROUP_UNLOCK, &gid);
+		return rc;
+	}
+
+	lsl.sl_fd = fd2;
+	lsl.sl_flags = 0;
+	rc = ioctl(fd1, LL_IOC_LOV_SWAP_LAYOUTS, &lsl);
+	if (rc)
+		rc = -errno;
+
+	(void)ioctl(fd2, LL_IOC_GROUP_UNLOCK, &gid);
+	(void)ioctl(fd1, LL_IOC_GROUP_UNLOCK, &gid);
+	return rc;
+}
+
+/**
+ * Swap the layouts between 2 files
+ * the 2 files are open in write
+*/
+int llapi_swap_layouts(const char *path1, const char *path2)
+{
+	int	fd1, fd2, rc;
+
+	fd1 = open(path1, O_WRONLY);
+	if (fd1 < 0) {
+		llapi_error(LLAPI_MSG_ERROR, -errno,
+			    "error: cannot open for write %s",
+			    path1);
+		return -errno;
+	}
+
+	fd2 = open(path2, O_WRONLY);
+	if (fd2 < 0) {
+		llapi_error(LLAPI_MSG_ERROR, -errno,
+			    "error: cannot open for write %s",
+			    path2);
+		close(fd1);
+		return -errno;
+	}
+
+	rc = llapi_fswap_layouts(fd1, fd2);
+	if (rc < 0)
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "error: cannot swap layouts between %s and %s\n",
+			    path1, path2);
+
+	close(fd1);
+	close(fd2);
+	return rc;
+}
+

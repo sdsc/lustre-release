@@ -1012,6 +1012,79 @@ int mdt_is_subdir(struct mdt_thread_info *info)
         RETURN(rc);
 }
 
+int mdt_swap_layouts(struct mdt_thread_info *info)
+{
+	struct ptlrpc_request	*req = mdt_info_req(info);
+	struct obd_export	*exp = req->rq_export;
+	struct mdt_object	*o1, *o2, *o;
+	struct mdt_lock_handle	*lh1, *lh2;
+	struct lu_fid		 fid1, fid2;
+	struct mdc_swap_layouts *msl;
+	int			 rc;
+	ENTRY;
+
+	/* client does not support layout lock, so layout swaping
+	 * is disabled */
+	if (!(exp->exp_connect_flags & OBD_CONNECT_LAYOUTLOCK))
+		RETURN(-EOPNOTSUPP);
+
+	if (req_capsule_get_size(info->mti_pill, &RMF_CAPA1, RCL_CLIENT))
+		mdt_set_capainfo(info, 0, &info->mti_body->fid1,
+				 req_capsule_client_get(info->mti_pill,
+							&RMF_CAPA1));
+
+	if (req_capsule_get_size(info->mti_pill, &RMF_CAPA2, RCL_CLIENT))
+		mdt_set_capainfo(info, 1, &info->mti_body->fid2,
+				 req_capsule_client_get(info->mti_pill,
+							&RMF_CAPA2));
+
+	if (lu_fid_cmp(&info->mti_body->fid1, &info->mti_body->fid2) > 0) {
+		fid1 = info->mti_body->fid1;
+		o1 = info->mti_object;
+		fid2 = info->mti_body->fid2;
+		o2 = mdt_object_find(info->mti_env, info->mti_mdt, &fid2);
+		o = o2;
+	} else {
+		fid2 = info->mti_body->fid1;
+		o2 = info->mti_object;
+		fid1 = info->mti_body->fid2;
+		o1 = mdt_object_find(info->mti_env, info->mti_mdt, &fid1);
+		o = o1;
+	}
+	if (IS_ERR(o))
+		GOTO(out, rc = PTR_ERR(o));
+
+	msl = req_capsule_client_get(info->mti_pill, &RMF_SWAP_LAYOUTS);
+	LASSERT(msl);
+
+	lh1 = &info->mti_lh[MDT_LH_NEW];
+	mdt_lock_reg_init(lh1, LCK_EX);
+	lh2 = &info->mti_lh[MDT_LH_OLD];
+	mdt_lock_reg_init(lh2, LCK_EX);
+
+	rc = mdt_object_lock(info, o1, lh1, MDS_INODELOCK_LAYOUT,
+			     MDT_LOCAL_LOCK);
+	if (rc)
+		GOTO(put, rc);
+
+	rc = mdt_object_lock(info, o2, lh2, MDS_INODELOCK_LAYOUT,
+			     MDT_LOCAL_LOCK);
+	if (rc)
+		GOTO(unlock1, rc);
+
+	rc = mo_swap_layouts(info->mti_env, mdt_object_child(o1),
+			     mdt_object_child(o2), msl->msl_flags);
+	GOTO(unlock2, rc);
+unlock2:
+	mdt_object_unlock(info, o2, lh2, rc);
+unlock1:
+	mdt_object_unlock(info, o1, lh1, rc);
+put:
+	mdt_object_put(info->mti_env, o);
+out:
+	RETURN(rc);
+}
+
 static int mdt_raw_lookup(struct mdt_thread_info *info,
                           struct mdt_object *parent,
                           const struct lu_name *lname,
@@ -3102,6 +3175,7 @@ static int mdt_msg_check_version(struct lustre_msg *msg)
         case MDS_GET_INFO:
         case MDS_QUOTACHECK:
         case MDS_QUOTACTL:
+	case MDS_SWAP_LAYOUTS:
         case QUOTA_DQACQ:
         case QUOTA_DQREL:
         case SEQ_QUERY:
