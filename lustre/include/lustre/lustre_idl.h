@@ -1806,28 +1806,29 @@ typedef enum {
 
 /* opcodes */
 typedef enum {
-        MDS_GETATTR      = 33,
-        MDS_GETATTR_NAME = 34,
-        MDS_CLOSE        = 35,
-        MDS_REINT        = 36,
-        MDS_READPAGE     = 37,
-        MDS_CONNECT      = 38,
-        MDS_DISCONNECT   = 39,
-        MDS_GETSTATUS    = 40,
-        MDS_STATFS       = 41,
-        MDS_PIN          = 42,
-        MDS_UNPIN        = 43,
-        MDS_SYNC         = 44,
-        MDS_DONE_WRITING = 45,
-        MDS_SET_INFO     = 46,
-        MDS_QUOTACHECK   = 47,
-        MDS_QUOTACTL     = 48,
-        MDS_GETXATTR     = 49,
-        MDS_SETXATTR     = 50, /* obsolete, now it's MDS_REINT op */
-        MDS_WRITEPAGE    = 51,
-        MDS_IS_SUBDIR    = 52,
-        MDS_GET_INFO     = 53,
-        MDS_LAST_OPC
+	MDS_GETATTR		= 33,
+	MDS_GETATTR_NAME	= 34,
+	MDS_CLOSE		= 35,
+	MDS_REINT		= 36,
+	MDS_READPAGE		= 37,
+	MDS_CONNECT		= 38,
+	MDS_DISCONNECT		= 39,
+	MDS_GETSTATUS		= 40,
+	MDS_STATFS		= 41,
+	MDS_PIN			= 42,
+	MDS_UNPIN		= 43,
+	MDS_SYNC		= 44,
+	MDS_DONE_WRITING	= 45,
+	MDS_SET_INFO		= 46,
+	MDS_QUOTACHECK		= 47,
+	MDS_QUOTACTL		= 48,
+	MDS_GETXATTR		= 49,
+	MDS_SETXATTR		= 50, /* obsolete, now it's MDS_REINT op */
+	MDS_WRITEPAGE		= 51,
+	MDS_IS_SUBDIR		= 52,
+	MDS_GET_INFO		= 53,
+	MDS_SWAP_LAYOUTS	= 54,
+	MDS_LAST_OPC
 } mds_cmd_t;
 
 #define MDS_FIRST_OPC    MDS_GETATTR
@@ -3265,6 +3266,15 @@ struct layout_intent {
 };
 
 void lustre_swab_layout_intent(struct layout_intent *li);
+
+/** layout swap request structure
+ * fid1 and fid2 are in mdt_body
+ */
+struct mdc_swap_layouts {
+	__u64		msl_flags;
+} __packed;
+
+void lustre_swab_swap_layouts(struct mdc_swap_layouts *msl);
 
 #endif
 /** @} lustreidl */

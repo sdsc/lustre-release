@@ -157,6 +157,10 @@ struct obd_statfs {
 
 #define LL_IOC_DATA_VERSION             _IOR ('f', 218, struct ioc_data_version)
 
+#define LL_IOC_LOV_SWAP_LAYOUTS		_IOW('f', 219, \
+						struct lustre_swap_layouts)
+/* see <lustre_lib.h> for ioctl numbers 220-232 */
+
 #define LL_STATFS_LMV           1
 #define LL_STATFS_LOV           2
 #define LL_STATFS_NODELAY	4
@@ -510,6 +514,11 @@ struct if_quotactl {
         struct obd_dqblk        qc_dqblk;
         char                    obd_type[16];
         struct obd_uuid         obd_uuid;
+};
+
+struct lustre_swap_layouts {
+	int	sl_fd;
+	__u64	sl_flags;
 };
 
 
