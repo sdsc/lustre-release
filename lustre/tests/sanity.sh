@@ -9252,6 +9252,111 @@ test_183() { # LU-2275
 }
 run_test 183 "No crash or request leak in case of strange dispositions ========"
 
+check_swap_layouts_support()
+{
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.3.56) ] &&
+		skip "MDS does not support layout swap"
+}
+
+# test suite 184 is for LU-2016, LU-2017
+test_184a() { 
+	check_swap_layouts_support && return 0
+
+	dir0=$DIR/$tdir/$testnum
+	mkdir -p $dir0 || error "creating dir $dir0"
+	ref1=/etc/passwd
+	ref2=/etc/group
+	file1=$dir0/f1
+	file2=$dir0/f2
+	$SETSTRIPE -c1 $file1
+	cp $ref1 $file1
+	$SETSTRIPE -c2 $file2
+	cp $ref2 $file2
+	gen1=$($GETSTRIPE -g $file1)
+	gen2=$($GETSTRIPE -g $file2)
+
+	$LFS swap_layouts $file1 $file2 || error "swap of file layout failed"
+	gen=$($GETSTRIPE -g $file1)
+	[[ $gen1 != $gen ]] ||
+		"Layout generation on $file1 does not change"
+	gen=$($GETSTRIPE -g $file2)
+	[[ $gen2 != $gen ]] ||
+		"Layout generation on $file2 does not change"
+
+	cmp $ref1 $file2 || error "content compare failed ($ref1 != $file2)"
+	cmp $ref2 $file1 || error "content compare failed ($ref2 != $file1)"
+}
+
+run_test 184a "Basic layout swap"
+
+test_184b() {
+	check_swap_layouts_support && return 0
+
+	dir0=$DIR/$tdir/$testnum
+	mkdir -p $dir0 || error "creating dir $dir0"
+	file1=$dir0/f1
+	file2=$dir0/f2
+	file3=$dir0/f3
+	dir1=$dir0/d1
+	dir2=$dir0/d2
+	mkdir $dir1 $dir2
+	$SETSTRIPE -c1 $file1
+	$SETSTRIPE -c2 $file2
+	$SETSTRIPE -c1 $file3
+	chown $RUNAS_ID $file3
+	gen1=$($GETSTRIPE -g $file1)
+	gen2=$($GETSTRIPE -g $file2)
+
+	$LFS swap_layouts $dir1 $dir2 &&
+		error "swap of directories layouts should fail"
+	$LFS swap_layouts $dir1 $file1 &&
+		error "swap of directory and file layouts should fail"
+	$RUNAS $LFS swap_layouts $file1 $file2 &&
+		error "swap of file we cannot write should fail"
+	$LFS swap_layouts $file1 $file3 &&
+		error "swap of file with different owner should fail"
+	/bin/true # to clear error code
+}
+run_test 184b "Forbidden layout swap (will generate errors)"
+
+test_184c() {
+	check_swap_layouts_support && return 0
+
+	dir0=$DIR/$tdir/$testnum
+	dir0=$DIR/$tdir/$testnum
+	mkdir -p $dir0 || error "creating dir $dir0"
+	ref1=$dir0/f1
+	ref2=$dir0/f2
+	file1=$dir0/f3
+	file2=$dir0/f4
+	# create a file large enough for the concurent test
+	dd if=/dev/urandom of=$ref1 bs=1M &
+	DD_PID=$!
+	sleep 10
+	kill $DD_PID
+	wait $DD_PID
+	cp /etc/passwd $ref2
+	cp $ref2 $file2
+
+	dd if=$ref1 of=$file1 bs=1M &
+	DD_PID=$!
+	sleep 0.5
+	kill -STOP $DD_PID || error "dd is too fast"
+	lfs swap_layouts $file1 $file2
+	rc=$?
+	kill -CONT $DD_PID
+	wait $DD_PID
+	[[ $? == 0 ]] || error "concurrent write on $file1 failed"
+	[[ $rc == 0 ]] || error "swap of $file1 and $file2 failed"
+
+	cmp $ref1 $file2 || error "content compare failed ($ref1 != $file2)"
+	cmp $ref2 $file1 || error "content compare failed ($ref2 != $file1)"
+
+	# cleaning
+	rm -f $ref1 $ref2 $file1 $file2
+}
+run_test 184c "Concurrent write and layout swap"
+
 # OST pools tests
 check_file_in_pool()
 {
