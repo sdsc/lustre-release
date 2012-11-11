@@ -8784,6 +8784,83 @@ test_182() {
 }
 run_test 182 "Disable MDC RPCs semaphore wouldn't crash client ================"
 
+test_183a() {
+	dir0=$DIR/$tdir/$testnum
+	mkdir -p $dir0 || error "creating dir $dir0"
+	file1=$dir0/f1
+	file2=$dir0/f2
+	$SETSTRIPE -c1 $file1
+	$SETSTRIPE -c2 $file2
+	gen1=$($GETSTRIPE -g $file1)
+	gen2=$($GETSTRIPE -g $file2)
+
+	$LFS swap_layouts $file1 $file2 || error "swap of file layout failed"
+	gen=$($GETSTRIPE -g $file1)
+	[[ $gen1 != $gen ]] ||
+		"Layout generation on $file1 does not change"
+	gen=$($GETSTRIPE -g $file2)
+	[[ $gen2 != $gen ]] ||
+		"Layout generation on $file2 does not change"
+}
+
+run_test 183a "Basic layout swap ===================="
+
+test_183b() {
+	dir0=$DIR/$tdir/$testnum
+	mkdir -p $dir0 || error "creating dir $dir0"
+	file1=$dir0/f1
+	file2=$dir0/f2
+	file3=$dir0/f3
+	dir1=$dir0/d1
+	dir2=$dir0/d2
+	mkdir $dir1 $dir2
+	$SETSTRIPE -c1 $file1
+	$SETSTRIPE -c2 $file2
+	$SETSTRIPE -c1 $file3
+	chown $RUNAS_ID $file3
+	gen1=$($GETSTRIPE -g $file1)
+	gen2=$($GETSTRIPE -g $file2)
+
+	$LFS swap_layouts $dir1 $dir2 &&
+		error "swap of directories layouts should fail"
+	$LFS swap_layouts $dir1 $file1 &&
+		error "swap of directory and file layouts should fail"
+	$RUNAS $LFS swap_layouts $file1 $file2 &&
+		error "swap of file we cannot write should fail"
+	$LFS swap_layouts $file1 $file3 &&
+		error "swap of file with different owner should fail"
+	/bin/true # to clear error code
+}
+run_test 183b "Forbidden layout swap will generate erros) ========="
+
+test_183c() {
+	dir0=$DIR/$tdir/$testnum
+	mkdir -p $dir0 || error "creating dir $dir0"
+	ref1=$dir0/f1
+	ref2=/etc/passwd
+	file1=$dir0/f2
+	file2=$dir0/f3
+	# create a file large enough for the concurent test
+	dd if=/dev/urandom of=$ref1 bs=1M &
+	DD_PID=$?
+	sleep 10
+	kill $DD_PID
+	cp $ref2 $file2
+
+	dd if=$ref1 of=$file1 bs=1M &
+	DD_PID=$?
+	sleep 0.5
+	kill -STOP $DD_PID
+	lfs swap_layouts $file1 $file2
+	kill -CONT $DD_PID
+	sleep 1
+
+	cmp $ref1 $file2 || error "compare failed"
+	cmp $ref2 $file1 || error "compare failed"
+
+}
+run_test 183c "Concurrent write and layout swap ===================="
+
 # OST pools tests
 check_file_in_pool()
 {

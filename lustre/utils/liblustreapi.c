@@ -3994,3 +3994,47 @@ int llapi_get_data_version(int fd, __u64 *data_version, __u64 flags)
 
         return rc;
 }
+
+/**
+ * Swap the layouts beteween 2 files
+ * the 2 files are open in write
+ * first fd received the ioctl, second fd is passed as arg
+ * this is assymetric but avoid use of root path for ioctl
+*/
+int llapi_swap_layouts(const char *path1, const char *path2)
+{
+	struct lustre_swap_layouts	lsl;
+	int				fd, rc;
+
+	fd = open(path2, O_WRONLY);
+	if (fd < 0) {
+		llapi_error(LLAPI_MSG_ERROR, -errno,
+			    "error: cannot open for write %s",
+			    path2);
+		return -errno;
+	}
+	lsl.sl_fd = fd;
+
+	fd = open(path1, O_WRONLY);
+	if (fd < 0) {
+		llapi_error(LLAPI_MSG_ERROR, -errno,
+			    "error: cannot open for write %s",
+			    path1);
+		close(lsl.sl_fd);
+		return -errno;
+	}
+
+	lsl.sl_flags = 0;
+
+	rc = ioctl(fd, LL_IOC_LOV_SWAP_LAYOUTS, &lsl);
+	if (rc) {
+		llapi_error(LLAPI_MSG_ERROR, -errno,
+			    "error: cannot swap layouts between %s and %s",
+			    path1, path2);
+		rc = -errno;
+	}
+	close(fd);
+	close(lsl.sl_fd);
+	return rc;
+}
+
