@@ -135,9 +135,12 @@ int lmv_intent_remote(struct obd_export *exp, void *lmm,
                                  it->d.lustre.it_lock_mode);
                 it->d.lustre.it_lock_mode = 0;
         }
+	/* Release the remote lock in the following set_lock_mode */
+
         it->d.lustre.it_lock_handle = plock.cookie;
         it->d.lustre.it_lock_mode = pmode;
 
+	it->d.lustre.it_remote_lock = 1;
         EXIT;
 out_free_op_data:
         OBD_FREE_PTR(op_data);
@@ -206,7 +209,11 @@ repeat:
                        PFID(&rpid), tgt->ltd_idx);
         } else {
                 sop_data->op_bias |= MDS_CHECK_SPLIT;
-                tgt = lmv_find_target(lmv, &rpid);
+		if ((it->it_flags & MDS_OPEN_BY_FID) &&
+			fid_is_sane(&op_data->op_fid2))
+			tgt = lmv_find_target(lmv, &op_data->op_fid2);
+		else
+			tgt = lmv_find_target(lmv, &rpid);
                 sop_data->op_mds = tgt->ltd_idx;
         }
         if (IS_ERR(tgt))

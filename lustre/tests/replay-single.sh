@@ -1704,14 +1704,17 @@ test_66b() #bug 3055
     remote_ost_nodsh && skip "remote OST with nodsh" && return 0
 
     at_start || return 0
-    ORIG=$(lctl get_param -n mdc.${FSNAME}-*.timeouts | awk '/network/ {print $4}')
+    ORIG=$(lctl get_param -n mdc.${FSNAME}-*.timeouts |
+		awk '/network/ {print $4}' | head -1)
     $LCTL set_param fail_val=$(($ORIG + 5))
 #define OBD_FAIL_PTLRPC_PAUSE_REP      0x50c
     $LCTL set_param fail_loc=0x50c
     ls $DIR/$tfile > /dev/null 2>&1
     $LCTL set_param fail_loc=0
-    CUR=$(lctl get_param -n mdc.${FSNAME}-*.timeouts | awk '/network/ {print $4}')
-    WORST=$(lctl get_param -n mdc.${FSNAME}-*.timeouts | awk '/network/ {print $6}')
+    CUR=$(lctl get_param -n mdc.${FSNAME}-*.timeouts |
+		awk '/network/ {print $4}' | head -1 )
+    WORST=$(lctl get_param -n mdc.${FSNAME}-*.timeouts |
+		awk '/network/ {print $6}' | head -1 )
     echo "network timeout orig $ORIG, cur $CUR, worst $WORST"
     [ $WORST -gt $ORIG ] || error "Worst $WORST should be worse than orig $ORIG"
 }
@@ -1975,70 +1978,450 @@ run_test 74 "Ensure applications don't fail waiting for OST recovery"
 
 test_80a() {
     [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
-
+    local MDTIDX=1
+    local remote_dir=remote_dir
+ 
     mkdir -p $DIR/$tdir
-    replay_barrier mds2
-    $CHECKSTAT -t dir $DIR/$tdir || error "$CHECKSTAT -t dir $DIR/$tdir failed"
-    rmdir $DIR/$tdir || error "rmdir $DIR/$tdir failed"
-    fail mds2
-    stat $DIR/$tdir 2&>/dev/null && error "$DIR/$tdir still exist after recovery!"
-    return 0
+    
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x188
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/$remote_dir &
+    CLIENT_PID=$!
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0
+
+    fail mds$((MDTIDX + 1)) 
+
+    wait $CLIENT_PID || return 1 
+
+    local diridx=$($GETSTRIPE -M $DIR/$tdir/$remote_dir)
+
+    [ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
+
+    createmany -o $DIR/$tdir/$remote_dir/f-%d 20 || return 2 
+
+    local fileidx=$($GETSTRIPE -M $DIR/$tdir/$remote_dir/f-1) 
+    [ $fileidx -eq $MDTIDX ] || error "$fileidx != $MDTIDX"
+
+    rm -rf $DIR/$tdir || return 3 
+
+    return 0 
 }
-run_test 80a "CMD: unlink cross-node dir (fail mds with inode)"
+run_test 80a "DNE: create remote dir, drop slave MDT update rep, then fail slave MDT"
 
 test_80b() {
     [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+    local remote_dir=remote_dir
+ 
+    mkdir -p $DIR/$tdir
+
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x188
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/$remote_dir &
+    CLIENT_PID=$!
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0
+
+    fail mds${MDTIDX}
+
+    wait $CLIENT_PID || return 1
+
+    local diridx=$($GETSTRIPE -M $DIR/$tdir/$remote_dir)
+
+    [ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
+
+    createmany -o $DIR/$tdir/$remote_dir/f-%d 20 || return 2 
+
+    local fileidx=$($GETSTRIPE -M $DIR/$tdir/$remote_dir/f-1) 
+    [ $fileidx -eq $MDTIDX ] || error "$fileidx != $MDTIDX"
+
+    rm -rf $DIR/$tdir || return 3 
+
+    return 0 
+}
+run_test 80b "DNE: create remote dir, drop slave MDT update rep, fail Master MDT"
+
+test_80c() {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+    local remote_dir=remote_dir
+ 
+    mkdir -p $DIR/$tdir
+
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x188
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/$remote_dir &
+    CLIENT_PID=$!
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0
+
+    fail mds${MDTIDX}
+    fail mds$((MDTIDX + 1)) 
+
+    wait $CLIENT_PID || return 1 
+
+    local diridx=$($GETSTRIPE -M $DIR/$tdir/$remote_dir)
+
+    [ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
+
+    createmany -o $DIR/$tdir/$remote_dir/f-%d 20 || return 2 
+
+    local fileidx=$($GETSTRIPE -M $DIR/$tdir/$remote_dir/f-1) 
+    [ $fileidx -eq $MDTIDX ] || error "$fileidx != $MDTIDX"
+
+    rm -rf $DIR/$tdir || return 3 
+
+    return 0 
+}
+run_test 80c "DNE: create remote dir, drop slave MDT update rep, fail Master/slave MDT"
+
+test_80d() {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+    local remote_dir=remote_dir
+ 
+    mkdir -p $DIR/$tdir
+
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x188
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/$remote_dir &
+    CLIENT_PID=$!
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0
+
+    fail mds${MDTIDX},mds$((MDTIDX + 1)) 
+
+    wait $CLIENT_PID || return 1 
+
+    local diridx=$($GETSTRIPE -M $DIR/$tdir/$remote_dir)
+
+    [ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
+
+    createmany -o $DIR/$tdir/$remote_dir/f-%d 20 || return 2 
+
+    local fileidx=$($GETSTRIPE -M $DIR/$tdir/$remote_dir/f-1) 
+    [ $fileidx -eq $MDTIDX ] || error "$fileidx != $MDTIDX"
+
+    rm -rf $DIR/$tdir || return 4
+
+    return $rc 
+}
+run_test 80d "DNE: create remote dir, drop slave MDT update rep, fail 2 MDTs"
+
+test_80e() {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+    local remote_dir=remote_dir
+ 
+    mkdir -p $DIR/$tdir
+
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/$remote_dir &
+    CLIENT_PID=$!
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0
+
+    fail mds${MDTIDX}
+
+    wait $CLIENT_PID || return 1 
+
+    local diridx=$($GETSTRIPE -M $DIR/$tdir/$remote_dir)
+
+    [ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
+
+    createmany -o $DIR/$tdir/$remote_dir/f-%d 20 || return 2 
+
+    local fileidx=$($GETSTRIPE -M $DIR/$tdir/$remote_dir/f-1) 
+    [ $fileidx -eq $MDTIDX ] || error "$fileidx != $MDTIDX"
+
+    rm -rf $DIR/$tdir || return 3 
+
+    return 0 
+}
+run_test 80e "DNE: create remote dir, drop master MDT rep, fail Master MDT"
+
+test_80f() {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+    local remote_dir=remote_dir
+ 
+    mkdir -p $DIR/$tdir
+
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/$remote_dir &
+    CLIENT_PID=$!
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0
+
+    fail mds$((MDTIDX + 1))
+
+    wait $CLIENT_PID || return 1 
+
+    local diridx=$($GETSTRIPE -M $DIR/$tdir/$remote_dir)
+
+    [ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
+
+    createmany -o $DIR/$tdir/$remote_dir/f-%d 20 || return 2 
+
+    local fileidx=$($GETSTRIPE -M $DIR/$tdir/$remote_dir/f-1) 
+    [ $fileidx -eq $MDTIDX ] || error "$fileidx != $MDTIDX"
+
+    rm -rf $DIR/$tdir || return 3 
+
+    return 0 
+}
+run_test 80f "DNE: create remote dir, drop master MDT rep, fail slave MDT"
+
+test_80g() {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+    local remote_dir=remote_dir
+ 
+    mkdir -p $DIR/$tdir
+
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/$remote_dir &
+    CLIENT_PID=$!
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0
+
+    fail mds${MDTIDX}
+    fail mds$((MDTIDX + 1)) 
+
+    wait $CLIENT_PID || return 1
+
+    local diridx=$($GETSTRIPE -M $DIR/$tdir/$remote_dir)
+
+    [ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
+
+    createmany -o $DIR/$tdir/$remote_dir/f-%d 20 || return 2 
+
+    local fileidx=$($GETSTRIPE -M $DIR/$tdir/$remote_dir/f-1) 
+    [ $fileidx -eq $MDTIDX ] || error "$fileidx != $MDTIDX"
+
+    rm -rf $DIR/$tdir || return 3 
+
+    return $rc 
+}
+run_test 80g "DNE: create remote dir, drop master MDT rep, fail Master, then slave MDT"
+
+test_80h() {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+    local remote_dir=remote_dir
+ 
+    mkdir -p $DIR/$tdir
+
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/$remote_dir &
+    CLIENT_PID=$!
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0
+
+    fail mds${MDTIDX},mds$((MDTIDX + 1)) 
+
+    wait $CLIENT_PID || return 1
+
+    local diridx=$($GETSTRIPE -M $DIR/$tdir/$remote_dir)
+
+    [ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
+
+    createmany -o $DIR/$tdir/$remote_dir/f-%d 20 || return 2 
+
+    local fileidx=$($GETSTRIPE -M $DIR/$tdir/$remote_dir/f-1) 
+    [ $fileidx -eq $MDTIDX ] || error "$fileidx != $MDTIDX"
+
+    rm -rf $DIR/$tdir || return 3 
+
+    return 0 
+}
+run_test 80h "DNE: create remote dir, drop master MDT rep, fail 2 MDTs"
+
+test_80i() {
+     [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+    local remote_dir=remote_dir
+ 
+    mkdir -p $DIR/$tdir
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/$remote_dir
+
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0x188
+    rmdir $DIR/$tdir/$remote_dir &
+    CLIENT_PID=$!
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0
+
+    fail mds$((MDTIDX + 1)) 
+
+    wait $CLIENT_PID || return 1
+
+    stat $DIR/$tdir/$remote_dir 2&>/dev/null && error "$DIR/$tdir still exist after recovery!"
+    
+    rm -rf $DIR/$tdir || return 2 
+    
+    return 0 
+}
+run_test 80i "DNE: unlink remote dir, drop master MDT update reply,  fail slave MDT"
+
+test_80j() {
+     [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+    local remote_dir=remote_dir
+ 
+    mkdir -p $DIR/$tdir
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/$remote_dir
+
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0x188
+    rmdir $DIR/$tdir/$remote_dir &
+    CLIENT_PID=$!
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0
+
+    fail mds${MDTIDX} 
+
+    wait $CLIENT_PID || return 1
+
+    stat $DIR/$tdir/$remote_dir 2&>/dev/null && error "$DIR/$tdir still exist after recovery!"
+    
+    rm -rf $DIR/$tdir || return 2 
+    
+    return 0 
+}
+run_test 80j "DNE: unlink remote dir, drop master MDT update reply,  fail master MDT"
+
+test_80k() {
+     [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+    local remote_dir=remote_dir
+ 
+    mkdir -p $DIR/$tdir
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/$remote_dir
+
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0x188
+    rmdir $DIR/$tdir/$remote_dir &
+    CLIENT_PID=$!
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0
+
+    fail mds${MDTIDX}
+    fail mds$((MDTIDX + 1))
+
+    wait $CLIENT_PID || return 1 
+
+    stat $DIR/$tdir/$remote_dir 2&>/dev/null && error "$DIR/$tdir still exist after recovery!"
+    
+    rm -rf $DIR/$tdir || return 2 
+    
+    return 0 
+}
+run_test 80k "DNE: unlink remote dir, drop master MDT update reply,  fail Master, then slave MDT"
+
+test_80l() {
+     [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local MDTIDX=1
+    local remote_dir=remote_dir
+ 
+    mkdir -p $DIR/$tdir
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/$remote_dir
+
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0x188
+    rmdir $DIR/$tdir/$remote_dir &
+    CLIENT_PID=$!
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0
+
+    fail mds${MDTIDX},mds$((MDTIDX + 1))
+
+    wait $CLIENT_PID || return 1
+
+    stat $DIR/$tdir/$remote_dir 2&>/dev/null && error "$DIR/$tdir still exist after recovery!"
+    
+    rm -rf $DIR/$tdir || return 2 
+    
+    return 0 
+}
+run_test 80l "DNE: unlink remote dir, drop master MDT update reply,  fail 2 MDTs"
+
+test_80m() {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local remote_dir=remote_dir   
+    local MDTIDX=1
 
     mkdir -p $DIR/$tdir
-    replay_barrier $SINGLEMDS
-    $CHECKSTAT -t dir $DIR/$tdir || error "$CHECKSTAT -t dir $DIR/$tdir failed"
-    rmdir $DIR/$tdir || error "rmdir $DIR/$tdir failed"
-    fail $SINGLEMDS
-    stat $DIR/$tdir 2&>/dev/null && error "$DIR/$tdir still exist after recovery!"
-    return 0
-}
-run_test 80b "CMD: unlink cross-node dir (fail mds with name)"
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/$remote_dir || return 1
 
-test_81a() {
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x119
+    rmdir $DIR/$tdir/$remote_dir &
+    CLIENT_PID=$!
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0
+
+    fail mds${MDTIDX} 
+
+    wait $CLIENT_PID || return 1 
+
+    stat $DIR/$tdir/$remote_dir 2&>/dev/null && error "$DIR/$tdir still exist after recovery!"
+    rm -rf $DIR/$tdir || return 2 
+
+    return 0 
+}
+run_test 80m "DNE: unlink remote dir, drop request reply, fail Master MDT"
+
+test_80n() {
     [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local remote_dir=remote_dir   
+    local MDTIDX=1
 
     mkdir -p $DIR/$tdir
-    createmany -o $DIR/$tdir/f 3000 || error "createmany failed"
-    sleep 10
-    $CHECKSTAT -t dir $DIR/$tdir || error "$CHECKSTAT -t dir failed"
-    $CHECKSTAT -t file $DIR/$tdir/f1002 || error "$CHECKSTAT -t file failed"
-    replay_barrier $SINGLEMDS
-    rm $DIR/$tdir/f1002 || error "rm $DIR/$tdir/f1002 failed"
-    fail $SINGLEMDS
-    stat $DIR/$tdir/f1002
-}
-run_test 81a "CMD: unlink cross-node file (fail mds with name)"
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/$remote_dir || return 1
 
-test_82a() {
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x119
+    rmdir $DIR/$tdir/$remote_dir &
+    CLIENT_PID=$!
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0
+
+    fail mds$((MDTIDX + 1)) 
+
+    wait $CLIENT_PID || return 1 
+
+    stat $DIR/$tdir/$remote_dir 2&>/dev/null && error "$DIR/$tdir still exist after recovery!"
+    
+    rm -rf $DIR/$tdir || return 2 
+
+    return 0 
+}
+run_test 80n "DNE: unlink remote dir, drop request reply, fail slave MDT"
+
+test_80o() {
     [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local remote_dir=remote_dir   
+    local MDTIDX=1
 
-    local dir=$DIR/d82a
-    replay_barrier mds2
-    mkdir $dir || error "mkdir $dir failed"
-    log "FAILOVER mds2"
-    fail mds2
-    stat $DIR
-    $CHECKSTAT -t dir $dir || error "$CHECKSTAT -t dir $dir failed"
+    mkdir -p $DIR/$tdir
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/$remote_dir || return 1
+
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x119
+    rmdir $DIR/$tdir/$remote_dir &
+    CLIENT_PID=$!
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0
+
+    fail mds${MDTIDX}
+    fail mds$((MDTIDX + 1))
+
+    wait $CLIENT_PID || return 1 
+
+    stat $DIR/$tdir/$remote_dir 2&>/dev/null && error "$DIR/$tdir still exist after recovery!"
+    rm -rf $DIR/$tdir || return 2 
+    return 0 
 }
-run_test 82a "CMD: mkdir cross-node dir (fail mds with inode)"
+run_test 80o "DNE: unlink remote dir, drop request reply, fail Master, then slave MDT"
 
-test_82b() {
+test_80p() {
     [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+    local remote_dir=remote_dir   
+    local MDTIDX=1
 
-    local dir=$DIR/d82b
-    replay_barrier $SINGLEMDS
-    mkdir $dir || error "mkdir $dir failed"
-    log "FAILOVER mds1"
-    fail $SINGLEMDS
-    stat $DIR
-    $CHECKSTAT -t dir $dir || error "$CHECKSTAT -t dir $dir failed"
+    mkdir -p $DIR/$tdir
+    $LFS setdirstripe -i $MDTIDX $DIR/$tdir/$remote_dir || return 1
+
+    do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x119
+    rmdir $DIR/$tdir/$remote_dir &
+    CLIENT_PID=$!
+    do_facet mds${MDTIDX} lctl set_param fail_loc=0
+
+    fail mds${MDTIDX},mds$((MDTIDX + 1))
+
+    wait $CLIENT_PID || return 1
+
+    stat $DIR/$tdir/$remote_dir 2&>/dev/null && error "$DIR/$tdir still exist after recovery!"
+    rm -rf $DIR/$tdir || return 2 
+    return 0 
 }
-run_test 82b "CMD: mkdir cross-node dir (fail mds with name)"
+run_test 80p "DNE: unlink remote dir, drop request reply, fail 2 MDTs"
 
 test_83a() {
     mkdir -p $DIR/$tdir
