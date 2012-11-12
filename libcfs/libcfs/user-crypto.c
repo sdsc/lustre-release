@@ -101,6 +101,29 @@ static int crc32_pclmul_wrapper(void *ctx, const unsigned char *p,
 	*(unsigned int *)ctx = cksum;
 	return 0;
 }
+
+#ifndef bit_PCLMUL
+#define bit_PCLMUL		(1 << 1)
+#endif
+
+static int cfs_crypto_has_pclmul(void)
+{
+	unsigned int eax, ebx, ecx, edx, level;
+
+	eax = ebx = ecx = edx = 0;
+	level = 1;
+	/* get cpuid */
+	__asm__ ("xchg{l}\t{%%}ebx, %1\n\t"			     \
+		 "cpuid\n\t"					     \
+		 "xchg{l}\t{%%}ebx, %1\n\t"			     \
+		 : "=a" (eax), "=r" (ebx), "=c" (ecx), "=d" (edx)    \
+		 : "0" (level));
+
+	if (ecx & bit_PCLMUL)
+		return 0;
+
+	return -ENODEV;
+}
 #endif
 
 static int start_generic(void *ctx, unsigned char *key,
@@ -161,7 +184,7 @@ static struct __hash_alg crypto_hash[] = {
 					  {.ha_id = CFS_HASH_ALG_CRC32,
 					   .ha_ctx_size = sizeof(unsigned int),
 					   .ha_priority = 100,
-					   .init = crc32_pclmul_init,
+					   .init = cfs_crypto_has_pclmul,
 					   .update = crc32_pclmul_wrapper,
 					   .start = start_generic,
 					   .final = final_generic,
@@ -385,6 +408,13 @@ static int cfs_crypto_test_hashes(void)
 	return 0;
 }
 
+static __u16 (*internal_crct10dif)(const unsigned char *buf, size_t buf_len);
+
+__u16 cfs_crypto_hash_crc_t10dif(const unsigned char *buf, size_t buf_len)
+{
+	return internal_crct10dif(buf, buf_len);
+}
+
 /**
  *      Register crypto hash algorithms
  */
@@ -401,6 +431,12 @@ int cfs_crypto_register(void)
 			      cfs_crypto_hash_name(crypto_hash[i].ha_id), err);
 		}
 	}
+#if (defined i386) || (defined __amd64__)
+	if (cfs_crypto_has_pclmul() == 0) /*check pclmulqdq support */
+		internal_crct10dif = crc16_T10DIF_64x;
+	else
+#endif
+		internal_crct10dif = crc_t10dif;
 
 	cfs_crypto_test_hashes();
 	return 0;

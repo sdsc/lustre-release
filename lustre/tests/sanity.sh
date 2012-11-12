@@ -9953,6 +9953,18 @@ test_228c() {
 }
 run_test 228c "NOT shrink the last entry in OI index node to recycle idle leaf"
 
+test_230() {
+	local rc
+	log "test 230 t10crc test - from kernel mode"
+	grep -q t10crc_test /proc/modules && rmmod t10crc_test
+	modprobe t10crc_test 2>&1
+	rc=$?
+	[ $rc -e 1 ] &&	{ insmod $LUSTRE/tests/kernel/t10crc_test.ko; rc=$?; }
+	[ $rc -ne 0 ] && error "error: t10crc test failed"
+	rmmod t10crc_test
+}
+run_test 230 "t10crc sanity tests run from kernel module =========="
+
 #
 # tests that do cleanup/setup should be run at the end
 #

@@ -6,7 +6,7 @@ AM_CFLAGS = $(LLCFLAGS)
 # LDADD = -lldap
 # LDADD = -lreadline -ltermcap # -lefence
 
-DIST_SUBDIRS = mpi
+DIST_SUBDIRS = mpi kernel
 
 noinst_DATA = disk1_8-ldiskfs.tar.bz2 disk2_1-ldiskfs.tar.bz2
 noinst_DATA += admin_quotafile_v2.usr admin_quotafile_v2.grp

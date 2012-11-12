@@ -198,4 +198,6 @@ void cfs_crypto_unregister(void);
  *      identifier. If test was unsuccessfull -1 would be return.
  */
 int cfs_crypto_hash_speed(unsigned char hash_alg);
+
+__u16 cfs_crypto_hash_crc_t10dif(const unsigned char *buf, size_t buf_len);
 #endif
