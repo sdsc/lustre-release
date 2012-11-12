@@ -45,6 +45,10 @@
 
 #define DEBUG_SUBSYSTEM S_LOG
 
+#ifdef __KERNEL__
+#include <linux/bitops.h>
+#endif
+
 #ifndef __KERNEL__
 #include <liblustre.h>
 #endif
@@ -156,6 +160,27 @@ out_err:
 }
 EXPORT_SYMBOL(llog_cancel_rec);
 
+#ifdef __KERNEL__
+static void llog_check_header(struct llog_log_hdr *llh)
+{
+	unsigned long  n = 0;
+	unsigned long *w = (unsigned long *) &llh->llh_bitmap[0];
+	int	       i;
+
+	for (i = 0; i < sizeof llh->llh_bitmap * 8 / BITS_PER_LONG; i++) {
+		n += hweight_long(*w);
+		w++;
+	}
+
+	LASSERTF(n == llh->llh_count, "bitmap: %lu llh_count: %u\n", n,
+		 llh->llh_count);
+}
+#else
+static void llog_check_header(struct llog_log_hdr *llh)
+{
+}
+#endif
+
 static int llog_read_header(const struct lu_env *env,
 			    struct llog_handle *handle,
 			    struct obd_uuid *uuid)
@@ -187,6 +212,7 @@ static int llog_read_header(const struct lu_env *env,
 		ext2_set_bit(0, llh->llh_bitmap);
 		rc = 0;
 	}
+	llog_check_header(handle->lgh_hdr);
 	return rc;
 }
 
