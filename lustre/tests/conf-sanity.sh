@@ -882,11 +882,12 @@ test_24a() {
 
 	# test 8-char fsname as well
 	local FSNAME2=test1234
-	add fs2mds $(mkfs_opts mds1) --nomgs --mgsnode=$MGSNID \
+
+	add fs2mds $(mkfs_opts mds1 ${fs2mdsdev} ) --nomgs --mgsnode=$MGSNID \
 		--fsname=${FSNAME2} --reformat $fs2mdsdev $fs2mdsvdev || exit 10
 
-	add fs2ost $(mkfs_opts ost1) --fsname=${FSNAME2} --reformat \
-		$fs2ostdev $fs2ostvdev || exit 10
+	add fs2ost $(mkfs_opts ost1 ${fs2ostdev}) --fsname=${FSNAME2} \
+		--reformat $fs2ostdev $fs2ostvdev || exit 10
 
 	setup
 	start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS && trap cleanup_24a EXIT INT
@@ -932,8 +933,8 @@ test_24b() {
 	local fs2mdsdev=$(mdsdevname 1_2)
 	local fs2mdsvdev=$(mdsvdevname 1_2)
 
-	add fs2mds $(mkfs_opts mds1) --mgs --fsname=${FSNAME}2 --reformat \
-		$fs2mdsdev $fs2mdsvdev || exit 10
+	add fs2mds $(mkfs_opts mds1 ${fs2mdsdev} ) --mgs --fsname=${FSNAME}2 \
+		--reformat $fs2mdsdev $fs2mdsvdev || exit 10
 	setup
 	start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS && return 2
 	cleanup || return 6
@@ -1614,10 +1615,11 @@ test_33a() { # bug 12333, was test_33
 		mkfsoptions="--mkfsoptions=\\\"-J size=8\\\"" # See bug 17931.
 	fi
 
-	add fs2mds $(mkfs_opts mds1) --fsname=${FSNAME2} --reformat \
-		$mkfsoptions $fs2mdsdev $fs2mdsvdev || exit 10
-	add fs2ost $(mkfs_opts ost1) --mgsnode=$MGSNID --fsname=${FSNAME2} \
-		--index=8191 --reformat $fs2ostdev $fs2ostvdev || exit 10
+	add fs2mds $(mkfs_opts mds1 ${fs2mdsdev}) --mgs --fsname=${FSNAME2} \
+		--reformat $mkfsoptions $fs2mdsdev $fs2mdsvdev || exit 10
+	add fs2ost $(mkfs_opts ost1 ${fs2ostdev}) --mgsnode=$MGSNID \
+		--fsname=${FSNAME2} --index=8191 --reformat $fs2ostdev \
+		$fs2ostvdev || exit 10
 
         start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS && trap cleanup_24a EXIT INT
         start fs2ost $fs2ostdev $OST_MOUNT_OPTS
@@ -1852,14 +1854,14 @@ test_36() { # 12743
 	local fs2ostvdev=$(ostvdevname 1_2)
 	local fs3ostvdev=$(ostvdevname 2_2)
 
-	add fs2mds $(mkfs_opts mds1) --fsname=${FSNAME2} --reformat \
-		$fs2mdsdev $fs2mdsvdev || exit 10
+	add fs2mds $(mkfs_opts mds1 ${fs2mdsdev}) --mgs --fsname=${FSNAME2} \
+		--reformat $fs2mdsdev $fs2mdsvdev || exit 10
 	# XXX after we support non 4K disk blocksize in ldiskfs, specify a
 	#     different one than the default value here.
-	add fs2ost $(mkfs_opts ost1) --mgsnode=$MGSNID --fsname=${FSNAME2} \
-		--reformat $fs2ostdev $fs2ostvdev || exit 10
-	add fs3ost $(mkfs_opts ost1) --mgsnode=$MGSNID --fsname=${FSNAME2} \
-		--reformat $fs3ostdev $fs3ostvdev || exit 10
+	add fs2ost $(mkfs_opts ost1 ${fs2ostdev}) --mgsnode=$MGSNID \
+		--fsname=${FSNAME2} --reformat $fs2ostdev $fs2ostvdev || exit 10
+	add fs3ost $(mkfs_opts ost1 ${fs3ostdev}) --mgsnode=$MGSNID \
+		--fsname=${FSNAME2} --reformat $fs3ostdev $fs3ostvdev || exit 10
 
         start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS
         start fs2ost $fs2ostdev $OST_MOUNT_OPTS
@@ -2952,10 +2954,10 @@ test_55() {
 
 	for i in 1023 2048
 	do
-		add mds1 $(mkfs_opts mds1) --reformat $mdsdev $mdsvdev ||
-			exit 10
-		add ost1 $(mkfs_opts ost1) --index=$i --reformat \
-			$(ostdevname 1) $(ostvdevname 1)
+		add mds1 $(mkfs_opts mds1 ${mdsdev}) --reformat $mdsdev \
+			$mdsvdev || exit 10
+		add ost1 $(mkfs_opts ost1 $(ostdevname 1)) --index=$i \
+			--reformat $(ostdevname 1) $(ostvdevname 1)
 		setup_noconfig
 		stopall
 		setup_noconfig
@@ -2979,10 +2981,14 @@ test_56() {
 	local mds_journal_size_orig=$MDSJOURNALSIZE
 
 	MDSJOURNALSIZE=16
-	add mds1 $(mkfs_opts mds1) --reformat $(mdsdevname 1) $(mdsvdevname 1)
-	add ost1 $(mkfs_opts ost1) --index=1000 --reformat \
+
+   	for num in $(seq 1 $MDSCOUNT); do
+		add mds${num} $(mkfs_opts mds${num} $(mdsdevname $num)) \
+			--reformat $(mdsdevname $num) $(mdsvdevname $num)
+	done
+	add ost1 $(mkfs_opts ost1 $(ostdevname 1)) --index=1000 --reformat \
 		$(ostdevname 1) $(ostvdevname 1)
-	add ost2 $(mkfs_opts ost2) --index=10000 --reformat \
+	add ost2 $(mkfs_opts ost2 $(ostdevname 2)) --index=10000 --reformat \
 		$(ostdevname 2) $(ostvdevname 2)
 
 	start_mgsmds
@@ -3084,9 +3090,12 @@ test_60() { # LU-471
 		return
 	fi
 
-	add mds1 $(mkfs_opts mds1) \
-		--mkfsoptions='\" -E stride=64 -O ^uninit_bg\"' --reformat \
-		$(mdsdevname 1) $(mdsvdevname 1) || exit 10
+	for num in $(seq 1 $MDSCOUNT); do
+		add mds${num} $(mkfs_opts mds${num} $(mdsdevname $num)) \
+			--mkfsoptions='\" -E stride=64 -O ^uninit_bg\"' \
+			--reformat $(mdsdevname $num) $(mdsvdevname $num) ||
+			exit 10
+	done
 
 	dump=$(do_facet $SINGLEMDS dumpe2fs $(mdsdevname 1))
 	rc=${PIPESTATUS[0]}
@@ -3113,8 +3122,14 @@ test_61() { # LU-80
 		reformat=true
 		local mds_dev=$(mdsdevname ${SINGLEMDS//mds/})
 		LDISKFS_MKFS_OPTS+=" -O large_xattr"
-		add $SINGLEMDS $(mkfs_opts $SINGLEMDS) --reformat $mds_dev ||
-			error "reformatting $mds_dev failed"
+
+		for num in $(seq 1 $MDSCOUNT); do
+		    add mds${num} $(mkfs_opts mds${num} $(mdsdevname ${num})) \
+			--reformat $(mdsdevname $num) $(mdsvdevname $num) ||
+			exit 1
+		done
+		add ost1 $(mkfs_opts ost1 $(ostdevname 1)) \
+			--reformat $(ostdevname 1) $(ostvdevname 1) || exit 2
 	fi
 
     setup_noconfig || error "setting up the filesystem failed"
