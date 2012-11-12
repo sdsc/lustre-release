@@ -4123,6 +4123,7 @@ run_one() {
     umask 0022
 
     banner "test $testnum: $message"
+    reset_fail_loc
     test_${testnum} || error "test_$testnum failed with $?"
     cd $SAVE_PWD
     reset_fail_loc
