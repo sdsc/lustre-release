@@ -102,7 +102,9 @@ assert_DIR
 MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid | \
     awk '{gsub(/_UUID/,""); print $1}' | head -1)
 LOVNAME=$($LCTL get_param -n llite.*.lov.common_name | tail -n 1)
+LMVNAME=$($LCTL get_param -n llite.*.lmv.common_name | tail -n 1)
 OSTCOUNT=$($LCTL get_param -n lov.$LOVNAME.numobd)
+MDTCOUNT=$($LCTL get_param -n lmv.$LMVNAME.numobd 2> /dev/null || echo 1)
 STRIPECOUNT=$($LCTL get_param -n lov.$LOVNAME.stripecount)
 STRIPESIZE=$($LCTL get_param -n lov.$LOVNAME.stripesize)
 ORIGFREE=$($LCTL get_param -n lov.$LOVNAME.kbytesavail)
@@ -1390,35 +1392,46 @@ test_27y() {
 
         MDS_OSCS=`do_facet $SINGLEMDS lctl dl | awk '/[oO][sS][cC].*md[ts]/ { print $4 }'`
         OFFSET=$(($OSTCOUNT-1))
-        OST=-1
-        for OSC in $MDS_OSCS; do
-                if [ $OST == -1 ]; then {
-                        OST=`osc_to_ost $OSC`
-                } else {
-                        echo $OSC "is Deactivate:"
-                        do_facet $SINGLEMDS lctl --device  %$OSC deactivate
-                } fi
-        done
+	OST_DEACTIVE_IDX=-1
+	for OSC in $MDS_OSCS; do
+		OST=$(osc_to_ost $OSC)
+		OSTIDX=$(index_from_ostuuid $OST)
+		if [ $OST_DEACTIVE_IDX == -1 ]; then
+			OST_DEACTIVE_IDX=$OSTIDX
+		fi
+		if [ $OSTIDX != $OST_DEACTIVE_IDX ]; then
+			echo $OSC "is Deactivate:"
+			do_facet $SINGLEMDS lctl --device  %$OSC deactivate
+		fi
+	done
 
-        OSTIDX=$(index_from_ostuuid $OST)
-        mkdir -p $DIR/$tdir
-        $SETSTRIPE -c 1 $DIR/$tdir      # 1 stripe / file
+	OSTIDX=$(index_from_ostuuid $OST)
+	mkdir -p $DIR/$tdir
+	$SETSTRIPE -c 1 $DIR/$tdir      # 1 stripe / file
 
-        do_facet ost$((OSTIDX+1)) lctl set_param -n obdfilter.$OST.degraded 1
-        sleep_maxage
-        createmany -o $DIR/$tdir/$tfile $fcount
-        do_facet ost$((OSTIDX+1)) lctl set_param -n obdfilter.$OST.degraded 0
+	for OSC in $MDS_OSCS; do
+		OST=$(osc_to_ost $OSC)
+		OSTIDX=$(index_from_ostuuid $OST)
+		if [ $OSTIDX == $OST_DEACTIVE_IDX ]; then
+			echo $OST "is degraded:"
+			do_facet ost$((OSTIDX+1)) lctl set_param -n \
+						obdfilter.$OST.degraded=1
+		fi
+	done
 
-        for i in `seq 0 $OFFSET`; do
-                [ `$GETSTRIPE $DIR/$tdir/$tfile$i | grep -A 10 obdidx | awk '{print $1}'| grep -w "$OSTIDX"` ] || \
-                      error "files created on deactivated OSTs instead of degraded OST"
-        done
-        for OSC in $MDS_OSCS; do
-                [ `osc_to_ost $OSC` != $OST  ] && {
-                        echo $OSC "is activate"
-                        do_facet $SINGLEMDS lctl --device %$OSC activate
-                }
-        done
+	sleep_maxage
+	createmany -o $DIR/$tdir/$tfile $fcount
+
+	for OSC in $MDS_OSCS; do
+		OST=$(osc_to_ost $OSC)
+		OSTIDX=$(index_from_ostuuid $OST)
+		if [ $OSTIDX == $OST_DEACTIVE_IDX ]; then
+			echo $OST "is recovered from degraded:"
+			do_facet ost$((OSTIDX+1)) lctl set_param -n \
+						obdfilter.$OST.degraded=0
+			do_facet $SINGLEMDS lctl --device %$OSC activate
+		fi
+	done
 }
 run_test 27y "create files while OST0 is degraded and the rest inactive"
 
@@ -2602,7 +2615,8 @@ is_sles11()						# LU-1783
 test_39l() {
 	is_sles11 && skip "SLES 11 SP1" && return	# LU-1783
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return
-	local atime_diff=$(do_facet $SINGLEMDS lctl get_param -n mdd.*.atime_diff)
+	local atime_diff=$(do_facet $SINGLEMDS lctl get_param -n \
+						mdd.*MDT0000*.atime_diff)
 
 	mkdir -p $DIR/$tdir
 
@@ -2622,7 +2636,7 @@ test_39l() {
 	[ "$atime" -ge "$d1" -a "$atime" -le "$d2" ] || \
 		error "atime is not updated from future: $atime, should be $d1<atime<$d2"
 
-	do_facet $SINGLEMDS lctl set_param -n mdd.*.atime_diff=2
+	do_facet $SINGLEMDS lctl set_param -n mdd.*MDT0000*.atime_diff=2
 	sleep 3
 
 	# test setting directory atime when now > dir atime + atime_diff
@@ -2634,7 +2648,7 @@ test_39l() {
 	[ "$atime" -ge "$d1" -a "$atime" -le "$d2" ] || \
 		error "atime is not updated  : $atime, should be $d2"
 
-	do_facet $SINGLEMDS lctl set_param -n mdd.*.atime_diff=60
+	do_facet $SINGLEMDS lctl set_param -n mdd.*MDT0000*.atime_diff=60
 	sleep 3
 
 	# test not setting directory atime when now < dir atime + atime_diff
@@ -2644,7 +2658,8 @@ test_39l() {
 	[ "$atime" -ge "$d1" -a "$atime" -le "$d2" ] || \
 		error "atime is updated to $atime, should remain $d1<atime<$d2"
 
-	do_facet $SINGLEMDS lctl set_param -n mdd.*.atime_diff=$atime_diff
+	do_facet $SINGLEMDS lctl set_param -n \
+			mdd.*MDT0000*.atime_diff=$atime_diff
 }
 run_test 39l "directory atime update ==========================="
 
@@ -3272,7 +3287,7 @@ test_51ba() { # LU-993
 run_test 51ba "verify nlink for many subdirectory cleanup"
 
 test_51bb() {
-	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	[ $MDTCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 
 	local ndirs=${TEST51BB_NDIRS:-10}
 	local nfiles=${TEST51BB_NFILES:-100}
@@ -3316,10 +3331,10 @@ test_51bb() {
 
 	lctl set_param -n lmv.*.placement=$savePOLICY
 
-	[ $rc -ne $MDSCOUNT ] || \
+	[ $rc -ne $MDTCOUNT ] || \
 		error "Objects/inodes are not distributed over all mds servers"
 }
-run_test 51bb "mkdir createmany CMD $MDSCOUNT  ===================="
+run_test 51bb "mkdir createmany CMD $MDTCOUNT  ===================="
 
 test_51d() {
         [  "$OSTCOUNT" -lt "3" ] && skip_env "skipping test with few OSTs" && return
@@ -5776,7 +5791,7 @@ test_103 () {
 
     declare -a identity_old
 
-    for num in `seq $MDSCOUNT`; do
+    for num in `seq $MDTCOUNT`; do
         switch_identity $num true || identity_old[$num]=$?
     done
 
@@ -5805,7 +5820,7 @@ test_103 () {
     cd $SAVE_PWD
     umask $SAVE_UMASK
 
-    for num in `seq $MDSCOUNT`; do
+    for num in `seq $MDTCOUNT`; do
 	if [ "${identity_old[$num]}" = 1 ]; then
             switch_identity $num false || identity_old[$num]=$?
 	fi
@@ -7125,8 +7140,9 @@ set_dir_limits () {
 	local node
 
 	local LDPROC=/proc/fs/ldiskfs
+	local facets=$(get_facets MDS)
 
-	for facet in $(get_facets MDS); do
+	for facet in ${facets//,/ }; do
 		canondev=$(ldiskfs_canon *.$(convert_facet2label $facet).mntdev $facet)
 		do_facet $facet "test -e $LDPROC/$canondev/max_dir_size" || LDPROC=/sys/fs/ldiskfs
 		do_facet $facet "echo $1 >$LDPROC/$canondev/max_dir_size"
@@ -7143,12 +7159,11 @@ test_129() {
 	MAX=16384
 
 	set_dir_limits $MAX
-
 	mkdir -p $DIR/$tdir
 
 	I=0
 	J=0
-	while [ ! $I -gt $((MAX * MDSCOUNT)) ]; do
+	while [ ! $I -gt $((MAX * MDTCOUNT)) ]; do
 		$MULTIOP $DIR/$tdir/$J Oc
 		rc=$?
 		if [ $rc -eq $EFBIG ]; then
@@ -7164,7 +7179,7 @@ test_129() {
 	done
 
 	set_dir_limits 0
-	error "exceeded dir size limit $MAX x $MDSCOUNT $((MAX * MDSCOUNT)) : $I bytes"
+	error "exceeded limit $MAX x $MDTCOUNT $((MAX * MDTCOUNT)) : $I bytes"
 }
 run_test 129 "test directory size limit ========================"
 
@@ -8341,7 +8356,7 @@ run_test 156 "Verification of tunables ============================"
 
 #Changelogs
 err17935 () {
-    if [ $MDSCOUNT -gt 1 ]; then
+    if [ $MDTCOUNT -gt 1 ]; then
 	error_ignore 17935 $*
     else
 	error $*
@@ -9931,8 +9946,8 @@ test_900() {
         for ls in /proc/fs/lustre/ldlm/namespaces/MGC*/lru_size; do
                 echo "clear" > $ls
         done
-        FAIL_ON_ERROR=true cleanup
-        FAIL_ON_ERROR=true setup
+	MDSCOUNT=$MDTCOUNT FAIL_ON_ERROR=true cleanup
+	MDSCOUNT=$MDTCOUNT FAIL_ON_ERROR=true setup
 }
 run_test 900 "umount should not race with any mgc requeue thread"
 
