@@ -1079,6 +1079,8 @@ test_7d(){
 	trap cleanup_quota_test EXIT
 
 	set_ost_qtype "none" || error "disable ost quota failed"
+	do_nodes $(comma_list $(nodes_list)) "lctl set_param debug=+trace"
+	do_nodes $(comma_list $(nodes_list)) "lctl set_param debug=+quota"
 	$LFS setquota -u $TSTUSR -B ${limit}M $DIR
 	$LFS setquota -u $TSTUSR2 -B ${limit}M $DIR
 
