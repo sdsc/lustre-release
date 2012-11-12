@@ -1079,8 +1079,12 @@ test_7d(){
 	trap cleanup_quota_test EXIT
 
 	set_ost_qtype "none" || error "disable ost quota failed"
+	# LU-2284. Enable trace for debug log.
+	do_nodes $(comma_list $(nodes_list)) "lctl set_param debug=+trace"
+	do_nodes $(comma_list $(nodes_list)) "lctl set_param debug=+quota"
 	$LFS setquota -u $TSTUSR -B ${limit}M $DIR
 	$LFS setquota -u $TSTUSR2 -B ${limit}M $DIR
+	do_nodes $(comma_list $(nodes_list)) "lctl set_param debug=-trace"
 
 	#define OBD_FAIL_OBD_IDX_READ_BREAK 0x608
 	lustre_fail mds 0x608 0
