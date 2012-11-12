@@ -682,6 +682,8 @@ int class_cleanup(struct obd_device *obd, struct lustre_cfg *lcfg)
                 CERROR("Precleanup %s returned %d\n",
                        obd->obd_name, err);
 
+	class_cleanup_self_export(obd);
+
         /* destroy an uuid-export hash body */
         if (obd->obd_uuid_hash) {
                 cfs_hash_putref(obd->obd_uuid_hash);
@@ -710,6 +712,10 @@ EXPORT_SYMBOL(class_cleanup);
 struct obd_device *class_incref(struct obd_device *obd,
                                 const char *scope, const void *source)
 {
+	/* If obd_refcount has reached zero only once,
+	   that obd device should have been released already */
+	LASSERT(cfs_atomic_read(&obd->obd_refcount) > 0);
+
         lu_ref_add_atomic(&obd->obd_reference, scope, source);
         cfs_atomic_inc(&obd->obd_refcount);
         CDEBUG(D_INFO, "incref %s (%p) now %d\n", obd->obd_name, obd,
@@ -727,25 +733,12 @@ void class_decref(struct obd_device *obd, const char *scope, const void *source)
         cfs_spin_lock(&obd->obd_dev_lock);
         cfs_atomic_dec(&obd->obd_refcount);
         refs = cfs_atomic_read(&obd->obd_refcount);
-        cfs_spin_unlock(&obd->obd_dev_lock);
-        lu_ref_del(&obd->obd_reference, scope, source);
 
-        CDEBUG(D_INFO, "Decref %s (%p) now %d\n", obd->obd_name, obd, refs);
+	if (refs == 0 && !obd->obd_set_up) {
+		cfs_spin_unlock(&obd->obd_dev_lock);
+		lu_ref_del(&obd->obd_reference, scope, source);
 
-        if ((refs == 1) && obd->obd_stopping) {
-                /* All exports have been destroyed; there should
-                   be no more in-progress ops by this point.*/
-
-                cfs_spin_lock(&obd->obd_self_export->exp_lock);
-                obd->obd_self_export->exp_flags |= exp_flags_from_obd(obd);
-                cfs_spin_unlock(&obd->obd_self_export->exp_lock);
-
-                /* note that we'll recurse into class_decref again */
-                class_unlink_export(obd->obd_self_export);
-                return;
-        }
-
-        if (refs == 0) {
+		CDEBUG(D_INFO, "Decref %s (%p) now 0\n", obd->obd_name, obd);
                 CDEBUG(D_CONFIG, "finishing cleanup of obd %s (%s)\n",
                        obd->obd_name, obd->obd_uuid.uuid);
                 LASSERT(!obd->obd_attached);
@@ -762,7 +755,16 @@ void class_decref(struct obd_device *obd, const char *scope, const void *source)
                                 CERROR("Detach returned %d\n", err);
                 }
                 class_release_dev(obd);
-        }
+	} else {
+		cfs_spin_unlock(&obd->obd_dev_lock);
+		CDEBUG(D_INFO, "Decref %s (%p) now %d\n", obd->obd_name,
+		       obd, refs);
+		if (unlikely(refs <= 0)) {
+			CERROR("Decref %s (%p) now %d\n", obd->obd_name,
+			       obd, refs);
+			LBUG();
+		}
+	}
 }
 EXPORT_SYMBOL(class_decref);
 
