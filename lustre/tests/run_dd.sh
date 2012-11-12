@@ -1,6 +1,7 @@
 #!/bin/bash
 
 TMP=${TMP:-/tmp}
+LFS=${LFS:-lfs}
 
 TESTLOG_PREFIX=${TESTLOG_PREFIX:-$TMP/recovery-mds-scale}
 TESTNAME=${TESTNAME:-""}
@@ -33,7 +34,11 @@ while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
     cd $TESTDIR
     # suppress dd xfer stat to workaround buggy coreutils/gettext
     # combination in RHEL5 and OEL5, see BZ 21264
-    dd bs=4k count=1000000 status=noxfer if=/dev/zero of=$TESTDIR/dd-file 1>$LOG &
+
+    # use 90% free disk space
+    FREE_SPACE=`lfs df $TESTDIR|grep "filesystem summary" | awk '{print $5}'`
+    BLKS=$((FREE_SPACE * 10 / 36))
+    dd bs=4k count=$BLKS status=noxfer if=/dev/zero of=$TESTDIR/dd-file 1>$LOG &
     load_pid=$!
     wait $load_pid
 
