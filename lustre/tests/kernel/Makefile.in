@@ -1,0 +1,10 @@
+MODULES := t10crc_test
+
+default: all
+
+sources:
+t10crc_test-objs := t10crc_ut.o
+
+EXTRA_DIST = $(t10crc_test-objs:.o=.c) t10crc_ut.c
+
+@INCLUDE_RULES@
