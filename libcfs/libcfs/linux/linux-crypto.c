@@ -27,8 +27,13 @@
 
 #include <linux/crypto.h>
 #include <linux/scatterlist.h>
+#include <linux/crc-t10dif.h>
 #include <libcfs/libcfs.h>
 #include <libcfs/linux/linux-crypto.h>
+#ifdef CONFIG_X86
+#include <asm/i387.h>
+#endif
+
 /**
  *  Array of  hash algorithm speed in MByte per second
  */
@@ -340,11 +345,46 @@ static int cfs_crypto_test_hashes(void)
 	return 0;
 }
 
-static int crc32, adler32;
+static __u16 (*internal_crct10dif)(const unsigned char *buf, size_t buf_len);
+
+__u16 cfs_crypto_hash_crc_t10dif(const unsigned char *buf, size_t buf_len)
+{
+	unsigned short	crc;
+
+	/* Check if pclmulqdq implementation is used */
+	if (internal_crct10dif != crc_t10dif)
+		kernel_fpu_begin();
+
+	crc = internal_crct10dif(buf, buf_len);
+
+	if (internal_crct10dif != crc_t10dif)
+		kernel_fpu_end();
+
+	return crc;
+}
+EXPORT_SYMBOL(cfs_crypto_hash_crc_t10dif);
 
 #ifdef CONFIG_X86
-static int crc32pclmul;
+#ifndef X86_FEATURE_PCLMULQDQ
+#define X86_FEATURE_PCLMULQDQ	(4 * 32 + 1)	/* PCLMULQDQ instruction */
 #endif
+
+static int cfs_crypto_has_pclmul(void)
+{
+	if (!boot_cpu_has(X86_FEATURE_PCLMULQDQ)) {
+		CDEBUG(D_INFO, "PCLMULQDQ-NI instructions are not "
+		       "detected.\n");
+		return -ENODEV;
+	}
+	return 0;
+}
+
+
+static int crc32pclmul;
+extern __u16 crc16_T10DIF_64x(const unsigned char *buf, size_t buf_len);
+#endif
+
+static int crc32, adler32;
 
 int cfs_crypto_register(void)
 {
@@ -352,8 +392,13 @@ int cfs_crypto_register(void)
 	adler32 = cfs_crypto_adler32_register();
 
 #ifdef CONFIG_X86
-	crc32pclmul = cfs_crypto_crc32_pclmul_register();
+	crc32pclmul = cfs_crypto_has_pclmul();
+	if (crc32pclmul == 0) {
+		crc32pclmul = cfs_crypto_crc32_pclmul_register();
+		internal_crct10dif = crc16_T10DIF_64x;
+	} else
 #endif
+		internal_crct10dif = crc_t10dif;
 
 	/* check all algorithms and do perfermance test */
 	cfs_crypto_test_hashes();

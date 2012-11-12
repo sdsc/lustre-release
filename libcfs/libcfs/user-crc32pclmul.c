@@ -67,25 +67,4 @@ unsigned int crc32_pclmul_le(unsigned int crc, unsigned char const *p,
 
 	return crc;
 }
-#ifndef bit_PCLMUL
-#define bit_PCLMUL		(1 << 1)
-#endif
 
-int crc32_pclmul_init(void)
-{
-	unsigned int eax, ebx, ecx, edx, level;
-
-	eax = ebx = ecx = edx = 0;
-	level = 1;
-	/* get cpuid */
-	__asm__ ("xchg{l}\t{%%}ebx, %1\n\t"			     \
-		 "cpuid\n\t"					     \
-		 "xchg{l}\t{%%}ebx, %1\n\t"			     \
-		 : "=a" (eax), "=r" (ebx), "=c" (ecx), "=d" (edx)    \
-		 : "0" (level));
-
-	if (ecx & bit_PCLMUL)
-		return 1;
-
-	return -1;
-}
