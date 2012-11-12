@@ -2044,32 +2044,55 @@ affected_facets () {
 }
 
 facet_failover() {
-    local facet=$1
-    local sleep_time=$2
-    local host=$(facet_active_host $facet)
+	local facets=$1
+	local sleep_time=$2
+	local affecteds
+	local facet
+	local index=0
 
-    echo "Failing $facet on node $host"
+	#Because it will only get up facets, we need get affected
+	#facets before shutdown
+	for facet in $(echo $facets | sed -e "s/,/ /g"); do
+		affecteds[$index]=$(affected_facets $facet)
+		index=$((index+1))
+	done
 
-    local affected=$(affected_facets $facet)
+	for facet in $(echo $facets | sed -e "s/,/ /g"); do
+		local host=$(facet_active_host $facet)
 
-    shutdown_facet $facet
+		echo "Failing $facet on node $host"
+		# Make sure the client data is synced to disk. LU-924
+		#
+		# We don't write client data synchrnously (to avoid flooding
+		# sync writes, when there are many clients connecting), so if
+		# the server reboots before the client data reachs disk, the
+		# client data will be lost and the client will be evicted after
+		# recovery, which is not what we expected.
+		do_facet $facet "sync; sync; sync"
 
-    echo affected facets: $affected
+		shutdown_facet $facet
+	done
 
-    [ -n "$sleep_time" ] && sleep $sleep_time
+	index=0
+	for facet in $(echo $facets | sed -e "s/,/ /g"); do
+		echo reboot facets: $facet
+		echo affected facets: ${affecteds[$index]}
 
-    reboot_facet $facet
+		reboot_facet $facet
 
-    change_active $affected
+		change_active ${affecteds[$index]}
 
-    wait_for_facet $affected
-    # start mgs first if it is affected
-    if ! combined_mgs_mds && list_member $affected mgs; then
-        mount_facet mgs || error "Restart of mgs failed"
-    fi
-    # FIXME; has to be changed to mount all facets concurrently
-    affected=$(exclude_items_from_list $affected mgs)
-    mount_facets $affected
+		wait_for_facet ${affecteds[$index]}
+		# start mgs first if it is affected
+		if ! combined_mgs_mds && list_member $affected mgs; then
+			mount_facet mgs || error "Restart of mgs failed"
+		fi
+		# FIXME; has to be changed to mount all facets concurrently
+		affected=$(exclude_items_from_list $affected mgs)
+		echo mount facets: ${affecteds[$index]}
+		mount_facets ${affecteds[$index]}
+		index=$((index+1))
+	done
 }
 
 obd_name() {
@@ -2628,6 +2651,7 @@ mdsvdevname() {
 
 mgsdevname() {
 	DEVNAME=MGSDEV
+	local MDSDEV1=$(mdsdevname 1)
 
 	local fstype=$(facet_fstype mds$num)
 
@@ -2746,6 +2770,7 @@ upper() {
 
 mkfs_opts() {
 	local facet=$1
+	local dev=$2
 	local type=$(facet_type $facet)
 	local index=$(($(facet_number $facet) - 1))
 	local fstype=$(facet_fstype $facet)
@@ -2757,7 +2782,8 @@ mkfs_opts() {
 		return 1
 	fi
 
-	if [ $type == MGS ] || ( [ $type == MDS ] && combined_mgs_mds ); then
+	if [ $type == MGS ] || ( [ $type == MDS ] &&
+                                 [ "$dev" == $(mgsdevname) ] ); then
 		opts="--mgs"
 	else
 		opts="--mgsnode=$MGSNID"
@@ -2834,23 +2860,25 @@ formatall() {
 	echo Formatting mgs, mds, osts
 	if ! combined_mgs_mds ; then
 		echo "Format mgs: $(mgsdevname)"
-		add mgs $(mkfs_opts mgs) --reformat $(mgsdevname) \
-			$(mgsvdevname) ${quiet:+>/dev/null} || exit 10
-		fi
+		add mgs $(mkfs_opts mgs $(mgsdevname)) --reformat \
+		   $(mgsdevname) $(mgsvdevname) ${quiet:+>/dev/null} || exit 10
+	fi
 
-		for num in `seq $MDSCOUNT`; do
-			echo "Format mds$num: $(mdsdevname $num)"
-			add mds$num $(mkfs_opts mds$num) --reformat \
-			$(mdsdevname $num) $(mdsvdevname $num) \
-			${quiet:+>/dev/null} || exit 10
-		done
+	for num in `seq $MDSCOUNT`; do
+		echo "Format mds$num: $(mdsdevname $num)"
+		index=$((num-1))
+		add mds$num $(mkfs_opts mds$num $(mdsdevname ${num})) \
+		--index $index --reformat $(mdsdevname $num) \
+		$(mdsvdevname $num) ${quiet:+>/dev/null} || exit 10
+	done
 
-		for num in `seq $OSTCOUNT`; do
-			echo "Format ost$num: $(ostdevname $num)"
-			add ost$num $(mkfs_opts ost$num) --reformat \
-			$(ostdevname $num) $(ostvdevname ${num}) \
-			${quiet:+>/dev/null} || exit 10
-		done
+	for num in `seq $OSTCOUNT`; do
+		echo "Format ost$num: $(ostdevname $num)"
+		index=$((num-1))
+		add ost$num $(mkfs_opts ost$num $(ostdevname ${num})) \
+		--index $index --reformat $(ostdevname $num) \
+		$(ostvdevname ${num}) ${quiet:+>/dev/null} || exit 10
+	done
 }
 
 mount_client() {
