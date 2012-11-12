@@ -768,9 +768,8 @@ static int ll_statahead_thread(void *arg)
         CDEBUG(D_READA, "start doing statahead for %s\n", parent->d_name.name);
 
         sai->sai_pid = cfs_curproc_pid();
-        lli->lli_sa_pos = 0;
         ll_dir_chain_init(&chain);
-        page = ll_get_dir_page(NULL, dir, pos, 0, &chain);
+        page = ll_get_dir_page(dir, pos, 0, &chain);
 
         while (1) {
                 struct l_wait_info lwi = { 0 };
@@ -885,8 +884,7 @@ keep_de:
                          * chain is exhausted.
                          * Normal case: continue to the next page.
                          */
-                        lli->lli_sa_pos = pos;
-                        page = ll_get_dir_page(NULL, dir, pos, 1, &chain);
+                        page = ll_get_dir_page(dir, pos, 1, &chain);
                 } else {
                         /*
                          * go into overflow page.
@@ -967,14 +965,13 @@ enum {
          */
         LS_FIRST_DE,
         /**
-         * the first hidden dirent, that is "." 
+         * the first hidden dirent, that is "."
          */
         LS_FIRST_DOT_DE
 };
 
 static int is_first_dirent(struct inode *dir, struct dentry *dentry)
 {
-        struct ll_inode_info *lli = ll_i2info(dir);
         struct ll_dir_chain chain;
         struct qstr        *target = &dentry->d_name;
         struct page        *page;
@@ -983,9 +980,8 @@ static int is_first_dirent(struct inode *dir, struct dentry *dentry)
         int                 rc = LS_NONE_FIRST_DE;
         ENTRY;
 
-        lli->lli_sa_pos = 0;
         ll_dir_chain_init(&chain);
-        page = ll_get_dir_page(NULL, dir, pos, 0, &chain);
+        page = ll_get_dir_page(dir, pos, 0, &chain);
 
         while (1) {
                 struct lu_dirpage *dp;
@@ -1063,8 +1059,7 @@ static int is_first_dirent(struct inode *dir, struct dentry *dentry)
                          * chain is exhausted
                          * Normal case: continue to the next page.
                          */
-                        lli->lli_sa_pos = pos;
-                        page = ll_get_dir_page(NULL, dir, pos, 1, &chain);
+                        page = ll_get_dir_page(dir, pos, 1, &chain);
                 } else {
                         /*
                          * go into overflow page.
