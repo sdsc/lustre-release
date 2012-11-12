@@ -33,5 +33,6 @@ unsigned int crc32_pclmul_le_16(unsigned char const *buffer, size_t len,
 unsigned int crc32_pclmul_le(unsigned int crc, unsigned char const *p,
 			     size_t len);
 
-int crc32_pclmul_init(void);
+unsigned short crc16_T10DIF_64x(const unsigned char  *p, size_t len)
+			       __attribute__((regparm(3)));
 #endif
