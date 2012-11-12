@@ -42,3 +42,8 @@ unsigned int crc32_le(unsigned int crc, unsigned char const *p, size_t len);
 unsigned long zlib_adler32(unsigned long adler,
 			   const unsigned char *buf,
 			   unsigned int len);
+
+/**
+ *	crc t10dif
+ */
+__u16 crc_t10dif(const unsigned char *buf, size_t len);

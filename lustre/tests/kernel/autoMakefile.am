@@ -1,0 +1,13 @@
+
+if MODULES
+
+if LINUX
+noinst_DATA = t10crc_test$(KMODEXT)
+endif
+
+endif
+
+EXTRA_DIST = $(t10crc_test-objs:.o=.c) t10crc_ut.c
+
+
+MOSTLYCLEANFILES := @MOSTLYCLEANFILES@
