@@ -2245,45 +2245,49 @@ static int osd_declare_object_ref_add(const struct lu_env *env,
  * Concurrency: @dt is write locked.
  */
 static int osd_object_ref_add(const struct lu_env *env,
-                              struct dt_object *dt, struct thandle *th)
+			      struct dt_object *dt, struct thandle *th)
 {
-        struct osd_object *obj = osd_dt_obj(dt);
-        struct inode      *inode = obj->oo_inode;
+	struct osd_object *obj = osd_dt_obj(dt);
+	struct inode      *inode = obj->oo_inode;
+	int		   rc = 0;
 
-        LINVRNT(osd_invariant(obj));
-        LASSERT(dt_object_exists(dt));
-        LASSERT(osd_write_locked(env, obj));
-        LASSERT(th != NULL);
+	LINVRNT(osd_invariant(obj));
+	LASSERT(dt_object_exists(dt));
+	LASSERT(osd_write_locked(env, obj));
+	LASSERT(th != NULL);
 
-        OSD_EXEC_OP(th, ref_add);
+	OSD_EXEC_OP(th, ref_add);
 
-	/*
-	 * DIR_NLINK feature is set for compatibility reasons if:
-	 * 1) nlinks > LDISKFS_LINK_MAX, or
-	 * 2) nlinks == 2, since this indicates i_nlink was previously 1.
+	/* This based on ldiskfs_inc_count(), which is not exported.
 	 *
-	 * It is easier to always set this flag (rather than check and set),
-	 * since it has less overhead, and the superblock will be dirtied
-	 * at some point. Both e2fsprogs and any Lustre-supported ldiskfs
-	 * do not actually care whether this flag is set or not.
-	 */
+	 * The DIR_NLINK feature allows directories to exceed LDISKFS_LINK_MAX
+	 * (65000) subdirectories by storing "1" in i_nlink if the link count
+	 * would otherwise overflow.  Directory traversal tools understand
+	 * that (st_nlink == 1) indicates that the filesystem does not track
+	 * hard links count on the directory, and will not abort subdirectory
+	 * scanning early once (st_link - 2) subdirs have been found.
+	 *
+	 * This also has to properly handle the case of inodes with nlink == 0
+	 * in case they are being linked into the PENDING directory. */
 	cfs_spin_lock(&obj->oo_guard);
-	/* inc_nlink from 0 may cause WARN_ON */
-	if(inode->i_nlink == 0)
+	if (unlikely(!S_ISDIR(inode->i_mode) &&
+		     inode->i_nlink >= LDISKFS_LINK_MAX))
+		/* MDD should have checked this, but good to be safe */
+		rc = -EMLINK;
+	else if (inode->i_nlink == 0 || /* inc_nlink from 0 may cause WARN_ON */
+		 S_ISDIR(inode->i_mode) && inode->i_nlink >= LDISKFS_LINK_MAX)
 		set_nlink(inode, 1);
-	else
+	else if (!S_ISDIR(inode->i_mode) ||
+		  S_ISDIR(inode->i_mode) && inode->i_nlink > 1)
 		inc_nlink(inode);
-	if (S_ISDIR(inode->i_mode) && inode->i_nlink > 1) {
-		if (inode->i_nlink >= LDISKFS_LINK_MAX ||
-		    inode->i_nlink == 2)
-			set_nlink(inode, 1);
-	}
+	} /* else (S_ISDIR(inode->i_mode) && inode->i_nlink == 1) { ; } */
+
 	LASSERT(inode->i_nlink <= LDISKFS_LINK_MAX);
 	cfs_spin_unlock(&obj->oo_guard);
 	inode->i_sb->s_op->dirty_inode(inode);
 	LINVRNT(osd_invariant(obj));
 
-	return 0;
+	return rc;
 }
 
 static int osd_declare_object_ref_del(const struct lu_env *env,
@@ -2309,24 +2313,27 @@ static int osd_declare_object_ref_del(const struct lu_env *env,
 static int osd_object_ref_del(const struct lu_env *env, struct dt_object *dt,
                               struct thandle *th)
 {
-        struct osd_object *obj = osd_dt_obj(dt);
-        struct inode      *inode = obj->oo_inode;
+	struct osd_object *obj = osd_dt_obj(dt);
+	struct inode      *inode = obj->oo_inode;
 
-        LINVRNT(osd_invariant(obj));
-        LASSERT(dt_object_exists(dt));
-        LASSERT(osd_write_locked(env, obj));
-        LASSERT(th != NULL);
+	LINVRNT(osd_invariant(obj));
+	LASSERT(dt_object_exists(dt));
+	LASSERT(osd_write_locked(env, obj));
+	LASSERT(th != NULL);
 
-        OSD_EXEC_OP(th, ref_del);
+	OSD_EXEC_OP(th, ref_del);
 
 	cfs_spin_lock(&obj->oo_guard);
 	LASSERT(inode->i_nlink > 0);
-	drop_nlink(inode);
-	/* If this is/was a many-subdir directory (nlink > LDISKFS_LINK_MAX)
-	 * then the nlink count is 1. Don't let it be set to 0 or the directory
-	 * inode will be deleted incorrectly. */
-	if (S_ISDIR(inode->i_mode) && inode->i_nlink == 0)
-		set_nlink(inode, 1);
+	/* This based on ldiskfs_dec_count(), which is not exported.
+	 *
+	 * If a directory already has nlink == 1, then do not drop the nlink
+	 * count to 0, even temporarily, to avoid race conditions with other
+	 * threads not holding oo_guard seeing i_nlink == 0 in rare cases.
+	 *
+	 * nlink == 1 means the directory has/had > EXT4_LINK_MAX subdirs. */
+	if (!S_ISDIR(inode->i_mode) || inode->i_nlink > 1)
+		drop_nlink(inode);
 	cfs_spin_unlock(&obj->oo_guard);
 	inode->i_sb->s_op->dirty_inode(inode);
 	LINVRNT(osd_invariant(obj));
