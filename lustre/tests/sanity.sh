@@ -9567,6 +9567,8 @@ test_220() { #LU-325
 			osc.$mdtosc_proc1.prealloc_last_id)
 	local next_id=$(do_facet $SINGLEMDS lctl get_param -n \
 			osc.$mdtosc_proc1.prealloc_next_id)
+	local reserved=$(do_facet $SINGLEMDS lctl get_param -n \
+			osc.$mdtosc_proc1.prealloc_reserved)
 
 	$LFS df -i
 
@@ -9578,8 +9580,9 @@ test_220() { #LU-325
 
 	$SETSTRIPE $DIR/$tdir -i $OSTIDX -c 1 -p $FSNAME.$TESTNAME
 
-	MDSOBJS=$((last_id - next_id))
-	echo "preallocated objects on MDS is $MDSOBJS" "($last_id - $next_id)"
+	MDSOBJS=$((last_id - next_id - reserved))
+	echo -n "preallocated objects on MDS is $MDSOBJS"
+	echo "($last_id - $next_id - $reserved)"
 
 	blocks=$($LFS df $MOUNT | awk '($1 == '$OSTIDX') { print $4 }')
 	echo "OST still has $count kbytes free"
