@@ -402,7 +402,7 @@ static int llog_process_thread_daemonize(void *arg)
 	cfs_daemonize_ctxt("llog_process_thread");
 
 	/* client env has no keys, tags is just 0 */
-	rc = lu_env_init(&env, LCT_LOCAL);
+	rc = lu_env_init(&env, LCT_LOCAL | LCT_MG_THREAD);
 	if (rc)
 		goto out;
 	lpi->lpi_env = &env;

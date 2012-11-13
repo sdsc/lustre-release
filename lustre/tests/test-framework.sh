@@ -1514,6 +1514,7 @@ node_var_name() {
 start_client_load() {
     local client=$1
     local load=$2
+    local nodenum=$3
     local var=$(node_var_name $client)_load
     eval export ${var}=$load
 
@@ -1525,6 +1526,9 @@ TESTLOG_PREFIX=$TESTLOG_PREFIX \
 TESTNAME=$TESTNAME \
 DBENCH_LIB=$DBENCH_LIB \
 DBENCH_SRC=$DBENCH_SRC \
+MDTCOUNT=$MDSCOUNT \
+LFS=$LFS \
+NODENUM=$nodenum \
 run_${load}.sh" &
     local ppid=$!
     log "Started client load: ${load} on $client"
@@ -1542,7 +1546,7 @@ start_client_loads () {
 
     for ((nodenum=0; nodenum < ${#clients[@]}; nodenum++ )); do
         testnum=$((nodenum % numloads))
-        start_client_load ${clients[nodenum]} ${CLIENT_LOADS[testnum]}
+        start_client_load ${clients[nodenum]} ${CLIENT_LOADS[testnum]} $nodenum
     done
     # bug 22169: wait the background threads to start
     sleep 2
@@ -1617,16 +1621,19 @@ check_client_loads () {
 
 restart_client_loads () {
     local clients=${1//,/ }
-    local expectedfail=${2:-""}
+    local nodes=$2 
+    local expectedfail=${3:-""}
     local client=
+    local client_index=
     local rc=0
 
     for client in $clients; do
+        client_index=$(get_entry_index $client $nodes)
         check_client_load $client
         rc=${PIPESTATUS[0]}
         if [ "$rc" != 0 -a "$expectedfail" ]; then
             local var=$(node_var_name $client)_load
-            start_client_load $client ${!var}
+            start_client_load $client ${!var} $client_index
             echo "Restarted client load ${!var}: on $client. Checking ..."
             check_client_load $client
             rc=${PIPESTATUS[0]}
@@ -2044,32 +2051,54 @@ affected_facets () {
 }
 
 facet_failover() {
-    local facet=$1
+    local facets=$1
     local sleep_time=$2
-    local host=$(facet_active_host $facet)
+    local affecteds
+    local facet
+    local index=0
+    
+    #Because it will only get up facets, we need get affected
+    #facets before shutdown
+    for facet in $(echo $facets | sed -e "s/,/ /g"); do
+        affecteds[$index]=$(affected_facets $facet)
+        index=$((index+1))
+    done
 
-    echo "Failing $facet on node $host"
+    for facet in $(echo $facets | sed -e "s/,/ /g"); do
+        local host=$(facet_active_host $facet)
 
-    local affected=$(affected_facets $facet)
+        echo "Failing $facet on node $host"
+        # Make sure the client data is synced to disk. LU-924
+        #
+        # We don't write client data synchrnously (to avoid flooding sync writes
+        # when there are many clients connecting), so if the server reboots before
+        # the client data reachs disk, the client data will be lost and the client
+        # will be evicted after recovery, which is not what we expected.
+        do_facet $facet "sync; sync; sync"
+ 
+        shutdown_facet $facet
+    done
 
-    shutdown_facet $facet
+    index=0
+    for facet in $(echo $facets | sed -e "s/,/ /g"); do
+        echo reboot facets: $facet
+        echo affected facets: ${affecteds[$index]}
 
-    echo affected facets: $affected
+        reboot_facet $facet
 
-    [ -n "$sleep_time" ] && sleep $sleep_time
+        change_active ${affecteds[$index]}
 
-    reboot_facet $facet
-
-    change_active $affected
-
-    wait_for_facet $affected
-    # start mgs first if it is affected
-    if ! combined_mgs_mds && list_member $affected mgs; then
-        mount_facet mgs || error "Restart of mgs failed"
-    fi
-    # FIXME; has to be changed to mount all facets concurrently
-    affected=$(exclude_items_from_list $affected mgs)
-    mount_facets $affected
+        wait_for_facet ${affecteds[$index]}
+        # start mgs first if it is affected
+        if ! combined_mgs_mds && list_member $affected mgs; then
+            mount_facet mgs || error "Restart of mgs failed"
+        fi
+        # FIXME; has to be changed to mount all facets concurrently
+        affected=$(exclude_items_from_list $affected mgs)
+        echo mount facets: ${affecteds[$index]}
+        mount_facets ${affecteds[$index]}
+        index=$((index+1))
+    done
 }
 
 obd_name() {
@@ -2078,7 +2107,6 @@ obd_name() {
 
 replay_barrier() {
     local facet=$1
-    do_facet $facet "sync; sync; sync"
     df $MOUNT
 
     # make sure there will be no seq change
@@ -2086,6 +2114,8 @@ replay_barrier() {
     local f=fsa-\\\$\(hostname\)
     do_nodes $clients "mcreate $MOUNT/$f; rm $MOUNT/$f"
     do_nodes $clients "if [ -d $MOUNT2 ]; then mcreate $MOUNT2/$f; rm $MOUNT2/$f; fi"
+
+    do_facet $facet "sync; sync; sync"
 
     local svc=${facet}_svc
     do_facet $facet $LCTL --device %${!svc} notransno
@@ -2628,6 +2658,7 @@ mdsvdevname() {
 
 mgsdevname() {
 	DEVNAME=MGSDEV
+	local MDSDEV1=$(mdsdevname 1)
 
 	local fstype=$(facet_fstype mds$num)
 
@@ -2746,9 +2777,11 @@ upper() {
 
 mkfs_opts() {
 	local facet=$1
+	local dev=$2
 	local type=$(facet_type $facet)
 	local index=$(($(facet_number $facet) - 1))
 	local fstype=$(facet_fstype $facet)
+	local fsname=${fsname:-"$FSNAME"}
 	local opts
 	local fs_mkfs_opts
 	local var
@@ -2757,14 +2790,15 @@ mkfs_opts() {
 		return 1
 	fi
 
-	if [ $type == MGS ] || ( [ $type == MDS ] && combined_mgs_mds ); then
+	if [ $type == MGS ] || ( [ $type == MDS ] &&
+                                 [ "$dev" == $(mgsdevname) ] ); then
 		opts="--mgs"
 	else
 		opts="--mgsnode=$MGSNID"
 	fi
 
 	if [ $type != MGS ]; then
-		opts+=" --fsname=$FSNAME --$(lower ${type/MDS/MDT}) --index=$index"
+		opts+=" --fsname=$fsname --$(lower ${type/MDS/MDT}) --index=$index"
 	fi
 
 	var=${facet}failover_HOST
@@ -2834,23 +2868,25 @@ formatall() {
 	echo Formatting mgs, mds, osts
 	if ! combined_mgs_mds ; then
 		echo "Format mgs: $(mgsdevname)"
-		add mgs $(mkfs_opts mgs) --reformat $(mgsdevname) \
-			$(mgsvdevname) ${quiet:+>/dev/null} || exit 10
-		fi
+		add mgs $(mkfs_opts mgs $(mgsdevname)) --reformat \
+		   $(mgsdevname) $(mgsvdevname) ${quiet:+>/dev/null} || exit 10
+	fi
 
-		for num in `seq $MDSCOUNT`; do
-			echo "Format mds$num: $(mdsdevname $num)"
-			add mds$num $(mkfs_opts mds$num) --reformat \
-			$(mdsdevname $num) $(mdsvdevname $num) \
-			${quiet:+>/dev/null} || exit 10
-		done
+	for num in `seq $MDSCOUNT`; do
+		echo "Format mds$num: $(mdsdevname $num)"
+		index=$((num-1))
+		add mds$num $(mkfs_opts mds$num $(mdsdevname ${num})) \
+		--index $index --reformat $(mdsdevname $num) \
+		$(mdsvdevname $num) ${quiet:+>/dev/null} || exit 10
+	done
 
-		for num in `seq $OSTCOUNT`; do
-			echo "Format ost$num: $(ostdevname $num)"
-			add ost$num $(mkfs_opts ost$num) --reformat \
-			$(ostdevname $num) $(ostvdevname ${num}) \
-			${quiet:+>/dev/null} || exit 10
-		done
+	for num in `seq $OSTCOUNT`; do
+		echo "Format ost$num: $(ostdevname $num)"
+		index=$((num-1))
+		add ost$num $(mkfs_opts ost$num $(ostdevname ${num})) \
+		--index $index --reformat $(ostdevname $num) \
+		$(ostvdevname ${num}) ${quiet:+>/dev/null} || exit 10
+	done
 }
 
 mount_client() {
@@ -3708,6 +3744,17 @@ drop_reint_reply() {
     return $RC
 }
 
+drop_update_reply() {
+# OBD_FAIL_MDS_OBJ_UPDATE_NET
+    local index=$1
+    shift 1 
+    RC=0
+    do_facet mds${index} lctl set_param fail_loc=0x188
+    do_facet client "$@" || RC=$?
+    do_facet mds${index} lctl set_param fail_loc=0
+    return $RC
+}
+
 pause_bulk() {
 #define OBD_FAIL_OST_BRW_PAUSE_BULK      0x214
     RC=0
@@ -4419,6 +4466,23 @@ get_random_entry () {
     local i=$((RANDOM * num * 2 / 65536))
 
     echo ${nodes[i]}
+}
+
+get_entry_index () {
+    local node=$1
+    local rnodes=$2
+    local i
+
+    rnodes=${rnodes//,/ }
+
+    local -a nodes=($rnodes)
+
+    for ((i=0; $i<${#nodes[@]}; i++)); do
+        if [ "$node" == "${nodes[i]}" ]; then
+            break;
+        fi
+    done
+    echo $i
 }
 
 client_only () {
@@ -5830,4 +5894,87 @@ generate_logname() {
 	local logname=${1:-"default_logname"}
 
 	echo "$TESTLOG_PREFIX.$TESTNAME.$logname.$(hostname -s).log"
+}
+
+# mkdir directory on different MDTs
+test_mkdir() {
+    local option
+    local parent
+    local child
+    local path
+    local dir
+    local rc=0
+
+    if [ $# -eq 2 ]; then
+        option=$1
+        path=$2
+    else
+        path=$1
+    fi
+
+    child=${path##*/}
+    parent=${path%/*}
+
+    if [ x"$parent" == x"$child" ]; then
+        parent=$(pwd)
+    fi
+
+    if [ x"$option" == "x-p" -a -d ${parent}/${child} ]; then
+        return $rc
+    fi
+
+    # it needs to check whether there is further / in child
+    dir=$(echo $child | awk -F '/' '{print $2}')
+    if [ ! -z "$dir" ]; then
+        local subparent=$(echo $child | awk -F '/' '{print $1}')
+        parent=${parent}"/"${subparent}
+        child=$dir
+    fi
+
+    if [ ! -d ${parent} ]; then
+        if [ x"$option" == "x-p" ]; then
+            mkdir -p ${parent}
+        else
+            return 1
+        fi
+    fi
+
+    if [ $MDTCOUNT -le 1 ]; then
+        mkdir $option ${parent}/${child} || rc=$?
+    else
+        local mdt_idx=$($LFS getstripe -M $parent)
+
+        if [ "$mdt_idx" -ne 0 ]; then
+            mkdir $option ${parent}/${child} || rc=$?
+            return $rc
+        fi
+
+        local test_num=$(echo $testnum | sed -e 's/[^0-9]*//g')
+        local mdt_idx=$((test_num % MDTCOUNT))
+        echo "mkdir $mdt_idx for ${parent}/${child}"
+        $LFS setdirstripe -i $mdt_idx ${parent}/${child} || rc=$?
+    fi
+    return $rc
+}
+
+# create remote directory 
+create_remote_dir()
+{
+    local index=1
+    local remote_dir=$2
+
+    if [ $# -eq 2 ]; then
+        index=$1
+        remote_dir=$2
+    else
+        remote_dir=$1
+    fi
+
+    if [ $MDTCOUNT -le 1 ]; then
+	mkdir -p $remote_dir || rc=$?
+    else
+        $LFS setdirstripe -i $index $remote_dir || rc=$? 
+    fi
+ 
+    return $rc
 }
