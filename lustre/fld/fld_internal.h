@@ -76,6 +76,7 @@ struct fld_cache_entry {
         /**
          * fld cache entries are sorted on range->lsr_start field. */
         struct lu_seq_range      fce_range;
+	loff_t			 fce_off;
 };
 
 struct fld_cache {
@@ -112,6 +113,7 @@ struct fld_cache {
         /**
          * Cache name used for debug and messages. */
         char                     fci_name[80];
+	int			fci_no_shrink:1;
 };
 
 enum fld_op {
@@ -135,6 +137,23 @@ enum {
         /* Cache threshold is 10 percent of size. */
         FLD_CLIENT_CACHE_THRESHOLD = 10
 };
+
+#define FIH_MAGIC_HEADER_V1 0x0BD00BD0
+/* fld_index_header should have the same size with
+ * lu_seq_range, so to save some trouble to read out
+ * index from fldb file */
+struct fld_index_header {
+	__u32	fih_magic;
+	__u32	fih_pad1;
+	__u32	fih_pad2;
+	__u32	fih_pad3;
+	__u32	fih_pad4;
+	__u32	fih_pad5;
+};
+
+#define FLD_READ_ENTRIES_COUNT				\
+((OBD_ALLOC_BIG - sizeof(struct fld_index_header)) /	\
+				sizeof(struct lu_seq_range))
 
 extern struct lu_fld_hash fld_hash[];
 
@@ -188,14 +207,20 @@ void fld_cache_fini(struct fld_cache *cache);
 
 void fld_cache_flush(struct fld_cache *cache);
 
-void fld_cache_insert(struct fld_cache *cache,
-                      const struct lu_seq_range *range);
+int fld_cache_insert(struct fld_cache *cache,
+		     const struct lu_seq_range *range, loff_t offset);
 
 void fld_cache_delete(struct fld_cache *cache,
                       const struct lu_seq_range *range);
 
 int fld_cache_lookup(struct fld_cache *cache,
                      const seqno_t seq, struct lu_seq_range *range);
+
+struct fld_cache_entry*
+fld_cache_entry_lookup(struct fld_cache *cache, struct lu_seq_range *range);
+void fld_cache_entry_delete(struct fld_cache *cache,
+			    struct fld_cache_entry *node);
+void fld_dump_cache_entries(struct fld_cache *cache);
 
 static inline const char *
 fld_target_name(struct lu_fld_target *tar)

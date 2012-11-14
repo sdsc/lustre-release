@@ -479,6 +479,32 @@ static int osd_oi_iam_lookup(struct osd_thread_info *oti,
         RETURN(rc);
 }
 
+int fid_is_on_ost(struct osd_thread_info *info, struct osd_device *osd,
+		  const struct lu_fid *fid)
+{
+	struct lu_seq_range *range = &info->oti_seq_range;
+	int rc;
+	ENTRY;
+
+	if (fid_is_idif(fid) || fid_is_last_obj(fid))
+		RETURN(1);
+
+	rc = osd_fld_lookup(info->oti_env, osd, fid, range);
+	if (rc != 0) {
+		CERROR("%s: Can not lookup fld for "DFID"\n",
+		       osd2lu_dev(osd)->ld_obd->obd_name, PFID(fid));
+		RETURN(rc);
+	}
+
+	CDEBUG(D_INFO, "fid "DFID" range "DRANGE"\n", PFID(fid),
+	       PRANGE(range));
+
+	if (range->lsr_flags == LU_SEQ_RANGE_OST)
+		RETURN(1);
+
+	RETURN(0);
+}
+
 int __osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
 		    const struct lu_fid *fid, struct osd_inode_id *id)
 {
@@ -502,9 +528,11 @@ int osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
 {
         int                  rc = 0;
 
-        if (fid_is_idif(fid) || fid_seq(fid) == FID_SEQ_LLOG) {
+	if ((!fid_is_last_obj(fid) && fid_is_on_ost(info, osd, fid)) ||
+	     fid_is_llog(fid)) {
                 /* old OSD obj id */
-                rc = osd_compat_objid_lookup(info, osd, fid, id);
+		/* FIXME: actually for all of the OST object */
+		rc = osd_obj_map_lookup(info, osd, fid, id);
         } else if (fid_is_igif(fid)) {
                 lu_igif_to_id(fid, id);
         } else if (fid_is_fs_root(fid)) {
@@ -513,9 +541,9 @@ int osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
 	} else {
 		if (unlikely(fid_is_acct(fid)))
 			return osd_acct_obj_lookup(info, osd, fid, id);
-
-		if (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE))
-			return osd_compat_spec_lookup(info, osd, fid, id);
+		else if (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE) ||
+			 fid_is_last_obj(fid) || fid_is_root(fid))
+			return osd_obj_spec_lookup(info, osd, fid, id);
 
 		rc = __osd_oi_lookup(info, osd, fid, id);
         }
@@ -567,12 +595,14 @@ int osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
 	if (fid_is_igif(fid) || unlikely(fid_seq(fid) == FID_SEQ_DOT_LUSTRE))
 		return 0;
 
-	if (fid_is_idif(fid) || fid_seq(fid) == FID_SEQ_LLOG)
-		return osd_compat_objid_insert(info, osd, fid, id, th);
+	if ((fid_is_on_ost(info, osd, fid) || fid_seq(fid) == FID_SEQ_LLOG) &&
+	     !fid_is_last_obj(fid))
+		return osd_obj_map_insert(info, osd, fid, id, th);
 
 	/* Server mount should not depends on OI files */
-	if (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE))
-		return osd_compat_spec_insert(info, osd, fid, id, th);
+	if (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE) ||
+	    fid_is_last_obj(fid))
+		return osd_obj_spec_insert(info, osd, fid, id, th);
 
 	fid_cpu_to_be(oi_fid, fid);
 	osd_id_pack(oi_id, id);
@@ -615,13 +645,14 @@ int osd_oi_delete(struct osd_thread_info *info,
 {
 	struct lu_fid *oi_fid = &info->oti_fid2;
 
-	if (fid_is_igif(fid))
+	if (fid_is_igif(fid) || fid_is_last_obj(fid))
 		return 0;
 
 	LASSERT(fid_seq(fid) != FID_SEQ_LOCAL_FILE);
 
-	if (fid_is_idif(fid) || fid_seq(fid) == FID_SEQ_LLOG)
-		return osd_compat_objid_delete(info, osd, fid, th);
+	if ((fid_is_on_ost(info, osd, fid) || fid_seq(fid) == FID_SEQ_LLOG) &&
+	    !fid_is_last_obj(fid))
+		return osd_obj_map_delete(info, osd, fid, th);
 
 	fid_cpu_to_be(oi_fid, fid);
 	return osd_oi_iam_delete(info, osd_fid2oi(osd, fid),

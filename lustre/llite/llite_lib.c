@@ -281,17 +281,14 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                 GOTO(out, err);
         }
 
-        err = obd_fid_init(sbi->ll_md_exp);
-        if (err) {
-                CERROR("Can't init metadata layer FID infrastructure, "
-                       "rc %d\n", err);
-                GOTO(out_md, err);
-        }
-
-        err = obd_statfs(NULL, sbi->ll_md_exp, osfs,
-                         cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS), 0);
-        if (err)
-                GOTO(out_md_fid, err);
+	/* For mount, we only need fs info from MDT0, and also in DNE, it
+	 * can make sure the client can be mounted as long as MDT0 is
+	 * avaible */
+	err = obd_statfs(NULL, sbi->ll_md_exp, osfs,
+			cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
+			OBD_STATFS_FOR_MDT0);
+	if (err)
+		GOTO(out_md, err);
 
         /* This needs to be after statfs to ensure connect has finished.
          * Note that "data" does NOT contain the valid connect reply.
@@ -392,7 +389,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         obd = class_name2obd(dt);
         if (!obd) {
                 CERROR("DT %s: not setup or attached\n", dt);
-                GOTO(out_md_fid, err = -ENODEV);
+		GOTO(out_md, err = -ENODEV);
         }
 
         data->ocd_connect_flags = OBD_CONNECT_GRANT     | OBD_CONNECT_VERSION  |
@@ -443,17 +440,10 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                                    "recovery, of which this client is not a "
                                    "part.  Please wait for recovery to "
                                    "complete, abort, or time out.\n", dt);
-                GOTO(out_md_fid, err);
+		GOTO(out_md, err);
         } else if (err) {
                 CERROR("Cannot connect to %s: rc = %d\n", dt, err);
-                GOTO(out_md_fid, err);
-        }
-
-        err = obd_fid_init(sbi->ll_dt_exp);
-        if (err) {
-                CERROR("Can't init data layer FID infrastructure, "
-                       "rc %d\n", err);
-                GOTO(out_dt, err);
+		GOTO(out_md, err);
         }
 
         cfs_mutex_lock(&sbi->ll_lco.lco_lock);
@@ -466,11 +456,11 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         err = md_getstatus(sbi->ll_md_exp, &sbi->ll_root_fid, &oc);
         if (err) {
                 CERROR("cannot mds_connect: rc = %d\n", err);
-                GOTO(out_lock_cn_cb, err);
+		GOTO(out_dt, err);
         }
         if (!fid_is_sane(&sbi->ll_root_fid)) {
                 CERROR("Invalid root fid during mount\n");
-                GOTO(out_lock_cn_cb, err = -EINVAL);
+		GOTO(out_dt, err = -EINVAL);
         }
         CDEBUG(D_SUPER, "rootfid "DFID"\n", PFID(&sbi->ll_root_fid));
 
@@ -489,7 +479,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 
         OBD_ALLOC_PTR(op_data);
         if (op_data == NULL)
-                GOTO(out_lock_cn_cb, err = -ENOMEM);
+		GOTO(out_dt, err = -ENOMEM);
 
         op_data->op_fid1 = sbi->ll_root_fid;
         op_data->op_mode = 0;
@@ -502,14 +492,14 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         OBD_FREE_PTR(op_data);
         if (err) {
                 CERROR("md_getattr failed for root: rc = %d\n", err);
-                GOTO(out_lock_cn_cb, err);
+		GOTO(out_dt, err);
         }
         err = md_get_lustre_md(sbi->ll_md_exp, request, sbi->ll_dt_exp,
                                sbi->ll_md_exp, &lmd);
         if (err) {
                 CERROR("failed to understand root inode md: rc = %d\n", err);
                 ptlrpc_req_finished (request);
-                GOTO(out_lock_cn_cb, err);
+		GOTO(out_dt, err);
         }
 
         LASSERT(fid_is_sane(&sbi->ll_root_fid));
@@ -584,13 +574,9 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 out_root:
         if (root)
                 iput(root);
-out_lock_cn_cb:
-        obd_fid_fini(sbi->ll_dt_exp);
 out_dt:
         obd_disconnect(sbi->ll_dt_exp);
         sbi->ll_dt_exp = NULL;
-out_md_fid:
-        obd_fid_fini(sbi->ll_md_exp);
 out_md:
         obd_disconnect(sbi->ll_md_exp);
         sbi->ll_md_exp = NULL;
@@ -1481,6 +1467,8 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
 	 * resides on the MDS, ie, this file has no objects. */
 	if (lsm != NULL)
 		attr->ia_valid &= ~ATTR_SIZE;
+	/* can't call ll_setattr_ost() while holding a refcount of lsm */
+	ccc_inode_lsm_put(inode, lsm);
 
         memcpy(&op_data->op_attr, attr, sizeof(*attr));
 
@@ -1494,10 +1482,8 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
                 GOTO(out, rc);
 
         ll_ioepoch_open(lli, op_data->op_ioepoch);
-	if (lsm == NULL || !S_ISREG(inode->i_mode)) {
-                CDEBUG(D_INODE, "no lsm: not setting attrs on OST\n");
+	if (!S_ISREG(inode->i_mode))
                 GOTO(out, rc = 0);
-        }
 
         if (ia_valid & ATTR_SIZE)
                 attr->ia_valid |= ATTR_SIZE;
@@ -1513,7 +1499,6 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
                 rc = ll_setattr_ost(inode, attr);
         EXIT;
 out:
-	ccc_inode_lsm_put(inode, lsm);
         if (op_data) {
                 if (op_data->op_ioepoch) {
                         rc1 = ll_setattr_done_writing(inode, op_data, mod);
@@ -1680,7 +1665,6 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
 	LASSERT ((lsm != NULL) == ((body->valid & OBD_MD_FLEASIZE) != 0));
 	if (lsm != NULL) {
 		LASSERT(S_ISREG(inode->i_mode));
-		cfs_mutex_lock(&lli->lli_och_mutex);
 		CDEBUG(D_INODE, "adding lsm %p to inode %lu/%u(%p)\n",
 				lsm, inode->i_ino, inode->i_generation, inode);
 		/* cl_file_inode_init must go before lli_has_smd or a race
@@ -1689,7 +1673,6 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
 		 * glimpse would try to use uninitialized lov */
 		if (cl_file_inode_init(inode, md) == 0)
 			lli->lli_has_smd = true;
-		cfs_mutex_unlock(&lli->lli_och_mutex);
 
 		lli->lli_maxbytes = lsm->lsm_maxbytes;
 		if (lli->lli_maxbytes > MAX_LFS_FILESIZE)
@@ -1779,7 +1762,7 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
                          * lock on the client and set LLIF_MDS_SIZE_LOCK holding
                          * it. */
                         mode = ll_take_md_lock(inode, MDS_INODELOCK_UPDATE,
-                                               &lockh);
+                                               &lockh, LDLM_FL_CBPENDING);
                         if (mode) {
                                 if (lli->lli_flags & (LLIF_DONE_WRITING |
                                                       LLIF_EPOCH_PENDING |
