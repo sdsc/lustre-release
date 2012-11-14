@@ -893,9 +893,7 @@ out:
 	RETURN(0);
 }
 
-static struct llog_operations osp_mds_ost_orig_logops;
-
-static int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d)
+int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d)
 {
 	struct osp_thread_info *osi = osp_env_info(env);
 	struct llog_handle     *lgh;
@@ -913,8 +911,8 @@ static int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d)
 	OBD_SET_CTXT_MAGIC(&obd->obd_lvfs_ctxt);
 	obd->obd_lvfs_ctxt.dt = d->opd_storage;
 
-	rc = llog_osd_get_cat_list(env, d->opd_storage, d->opd_index, 1,
-				   &osi->osi_cid);
+	rc = llog_osd_get_cat_list(env, d->opd_storage, d->opd_index,
+				   d->opd_group, 1, &osi->osi_cid);
 	if (rc) {
 		CERROR("%s: can't get id from catalogs: rc = %d\n",
 		       obd->obd_name, rc);
@@ -926,7 +924,6 @@ static int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d)
 	       osi->osi_cid.lci_logid.lgl_oseq,
 	       osi->osi_cid.lci_logid.lgl_ogen);
 
-	osp_mds_ost_orig_logops = llog_osd_ops;
 	rc = llog_setup(env, obd, &obd->obd_olg, LLOG_MDS_OST_ORIG_CTXT, obd,
 			&osp_mds_ost_orig_logops);
 	if (rc)
@@ -952,16 +949,19 @@ static int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d)
 		osi->osi_cid.lci_logid = lgh->lgh_id;
 	}
 
+	CDEBUG(D_INFO, "%s: ctxt lops %p after init for %d/%d - catid "LPX64"/"LPX64
+	       ":%x lgh %p\n", obd->obd_name, ctxt->loc_logops, d->opd_index, d->opd_group,
+		osi->osi_cid.lci_logid.lgl_oid, osi->osi_cid.lci_logid.lgl_oseq,
+		osi->osi_cid.lci_logid.lgl_ogen, lgh);
+
 	ctxt->loc_handle = lgh;
-	lgh->lgh_logops->lop_add = llog_cat_add_rec;
-	lgh->lgh_logops->lop_declare_add = llog_cat_declare_add_rec;
 
 	rc = llog_cat_init_and_process(env, lgh);
 	if (rc)
 		GOTO(out_close, rc);
 
-	rc = llog_osd_put_cat_list(env, d->opd_storage, d->opd_index, 1,
-				   &osi->osi_cid);
+	rc = llog_osd_put_cat_list(env, d->opd_storage, d->opd_index,
+				   d->opd_group, 1, &osi->osi_cid);
 	if (rc)
 		GOTO(out_close, rc);
 
@@ -991,7 +991,7 @@ out_cleanup:
 	RETURN(rc);
 }
 
-static void osp_sync_llog_fini(const struct lu_env *env, struct osp_device *d)
+void osp_sync_llog_fini(const struct lu_env *env, struct osp_device *d)
 {
 	struct llog_ctxt *ctxt;
 
