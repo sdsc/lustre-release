@@ -411,6 +411,9 @@ static int osp_precreate_cleanup_orphans(struct osp_device *d)
 
 	body->oa.o_id = d->opd_last_used_id;
 
+	OBD_RACE_RESET(OBD_FAIL_OSP_ORPHAN_CLEANUP,
+		       OBD_FAIL_OSP_ORPHAN_CLEANUP | CFS_FAIL_ONCE);
+
 	ptlrpc_request_set_replen(req);
 
 	/* Don't resend the delorphan req */
@@ -423,6 +426,8 @@ static int osp_precreate_cleanup_orphans(struct osp_device *d)
 	body = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
 	if (body == NULL)
 		GOTO(out, rc = -EPROTO);
+
+	OBD_FAIL_TIMEOUT(OBD_FAIL_OSP_ORPHAN_CLEANUP, 10);
 
 	/*
 	 * OST provides us with id new pool starts from in body->oa.o_id
@@ -684,6 +689,9 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 	int			 count = 0;
 
 	ENTRY;
+
+	OBD_RACE_RESET(OBD_FAIL_OSP_ORPHAN_CLEANUP,
+		       OBD_FAIL_OSP_ORPHAN_CLEANUP | CFS_FAIL_ONCE);
 
 	LASSERT(d->opd_pre_last_created >= d->opd_pre_used_id);
 
