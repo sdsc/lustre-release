@@ -109,6 +109,41 @@ struct obd_statfs {
         __u32           os_spare9;
 };
 
+/**
+ * File IDentifier.
+ *
+ * FID is a cluster-wide unique identifier of a file or an object (stripe).
+ * FIDs are never reused.
+ **/
+struct lu_fid {
+       /**
+	* FID sequence. Sequence is a unit of migration: all files (objects)
+	* with FIDs from a given sequence are stored on the same server.
+	* Lustre should support 2^64 objects, so even if each sequence
+	* has only a single object we can still enumerate 2^64 objects.
+	**/
+	__u64 f_seq;
+	/* FID number within sequence. */
+	__u32 f_oid;
+	/**
+	 * FID version, used to distinguish different versions (in the sense
+	 * of snapshots, etc.) of the same file system object. Not currently
+	 * used.
+	 **/
+	__u32 f_ver;
+};
+
+struct filter_fid {
+	struct lu_fid   ff_parent;  /* ff_parent.f_ver == file stripe number */
+	__u64	   ff_objid;
+	__u64	   ff_seq;
+};
+
+/* Userspace should treat lu_fid as opaque, and only use the following methods
+ * to print or parse them.  Other functions (e.g. compare, swab) could be moved
+ * here from lustre_idl.h if needed. */
+typedef struct lu_fid lustre_fid;
+
 
 /*
  * The ioctl naming rules:
@@ -154,6 +189,9 @@ struct obd_statfs {
 #define LL_IOC_GET_MDTIDX               _IOR ('f', 175, int)
 #define LL_IOC_HSM_CT_START             _IOW ('f', 176,struct lustre_kernelcomm)
 /* see <lustre_lib.h> for ioctl numbers 177-210 */
+#define LL_IOC_LMV_SETSTRIPE	    _IOWR('f', 177, struct lmv_user_md *)
+#define LL_IOC_LMV_GETSTRIPE	    _IOWR('f', 178, struct lmv_user_md *)
+#define LL_IOC_REMOVE_ENTRY	     _IOWR('f', 179, __u64 *)
 
 #define LL_IOC_DATA_VERSION             _IOR ('f', 218, struct ioc_data_version)
 
@@ -193,6 +231,9 @@ struct obd_statfs {
 #define LOV_USER_MAGIC    LOV_USER_MAGIC_V1
 #define LOV_USER_MAGIC_JOIN_V1 0x0BD20BD0
 #define LOV_USER_MAGIC_V3 0x0BD30BD0
+
+#define LMV_MAGIC_V1      0x0CD10CD0    /*normal stripe lmv magic */
+#define LMV_USER_MAGIC    0x0CD20CD0    /*default lmv magic*/
 
 #define LOV_PATTERN_RAID0 0x001
 #define LOV_PATTERN_RAID1 0x002
@@ -276,6 +317,48 @@ struct lov_user_mds_data_v3 {
 } __attribute__((packed));
 #endif
 
+enum {
+	LMV_HASH_SANDWICH  = 0,
+	LMV_HASH_TEA       = 1,
+	LMV_HASH_PREFIX    = 2,
+	LMV_HASH_LAST_CHAR = 3,
+	LMV_HASH_ALL_CHARS = 4,
+	LMV_HASH_MAX
+};
+
+struct lmv_user_mds_data {
+	struct lu_fid	lum_fid;
+	int		lum_mds;
+};
+
+/* lum_type */
+enum {
+	LMV_STRIPE_TYPE = 0,
+	LMV_DEFAULT_TYPE = 1,
+};
+
+#define lmv_user_md lmv_user_md_v1
+struct lmv_user_md_v1 {
+	__u32	 lum_magic;	 /* must be the first field */
+	__u32	 lum_stripe_count;  /* dirstripe count */
+	__u32	 lum_stripe_offset; /* MDT idx for default dirstripe */
+	__u32	 lum_hash_type;     /* Dir stripe policy */
+	__u32	 lum_type;	  /* LMV type: default or normal */
+	__u32	 lum_padding1;
+	__u32	 lum_padding2;
+	__u32	 lum_padding3;
+	char	  lum_pool_name[LOV_MAXPOOLNAME];
+	struct  lmv_user_mds_data  lum_objects[0];
+};
+
+static inline int lmv_user_md_size(int stripes, int lmm_magic)
+{
+	return sizeof(struct lmv_user_md) +
+		      stripes * sizeof(struct lmv_user_mds_data);
+}
+
+extern void lustre_swab_lmv_user_md(struct lmv_user_md *lum);
+
 struct ll_recreate_obj {
         __u64 lrc_id;
         __u32 lrc_ost_idx;
@@ -338,40 +421,10 @@ static inline void obd_uuid2fsname(char *buf, char *uuid, int buflen)
            *p = '\0';
 }
 
-/**
- * File IDentifier.
- *
- * FID is a cluster-wide unique identifier of a file or an object (stripe).
- * FIDs are never reused.
- */
-struct lu_fid {
-        /**
-         * FID sequence. Sequence is a unit of migration: all files (objects)
-         * with FIDs from a given sequence are stored on the same server.
-         * Lustre should support 2^64 objects, so even if each sequence
-         * has only a single object we can still enumerate 2^64 objects.
-         */
-        __u64 f_seq;
-        /** FID number within sequence. */
-        __u32 f_oid;
-        /**
-         * FID version, used to distinguish different versions (in the sense
-         * of snapshots, etc.) of the same file system object. Not currently
-         * used.
-         */
-        __u32 f_ver;
+enum lu_cli_type {
+	LUSTRE_SEQ_METADATA,
+	LUSTRE_SEQ_DATA
 };
-
-struct filter_fid {
-        struct lu_fid   ff_parent;  /* ff_parent.f_ver == file stripe number */
-        __u64           ff_objid;
-        __u64           ff_seq;
-};
-
-/* Userspace should treat lu_fid as opaque, and only use the following methods
-   to print or parse them.  Other functions (e.g. compare, swab) could be moved
-   here from lustre_idl.h if needed. */
-typedef struct lu_fid lustre_fid;
 
 /* printf display format
    e.g. printf("file FID is "DFID"\n", PFID(fid)); */

@@ -895,7 +895,7 @@ out:
 
 static struct llog_operations osp_mds_ost_orig_logops;
 
-static int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d)
+int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d)
 {
 	struct osp_thread_info *osi = osp_env_info(env);
 	struct llog_handle     *lgh;
@@ -913,8 +913,8 @@ static int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d)
 	OBD_SET_CTXT_MAGIC(&obd->obd_lvfs_ctxt);
 	obd->obd_lvfs_ctxt.dt = d->opd_storage;
 
-	rc = llog_osd_get_cat_list(env, d->opd_storage, d->opd_index, 1,
-				   &osi->osi_cid);
+	rc = llog_osd_get_cat_list(env, d->opd_storage, d->opd_index,
+				   d->opd_group, 1, &osi->osi_cid);
 	if (rc) {
 		CERROR("%s: can't get id from catalogs: rc = %d\n",
 		       obd->obd_name, rc);
@@ -960,8 +960,8 @@ static int osp_sync_llog_init(const struct lu_env *env, struct osp_device *d)
 	if (rc)
 		GOTO(out_close, rc);
 
-	rc = llog_osd_put_cat_list(env, d->opd_storage, d->opd_index, 1,
-				   &osi->osi_cid);
+	rc = llog_osd_put_cat_list(env, d->opd_storage, d->opd_index,
+				   d->opd_group, 1, &osi->osi_cid);
 	if (rc)
 		GOTO(out_close, rc);
 
@@ -991,7 +991,7 @@ out_cleanup:
 	RETURN(rc);
 }
 
-static void osp_sync_llog_fini(const struct lu_env *env, struct osp_device *d)
+void osp_sync_llog_fini(const struct lu_env *env, struct osp_device *d)
 {
 	struct llog_ctxt *ctxt;
 

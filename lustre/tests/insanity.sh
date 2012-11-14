@@ -33,7 +33,7 @@ SINGLECLIENT=${SINGLECLIENT:-$HOSTNAME}
 LIVE_CLIENT=${LIVE_CLIENT:-$SINGLECLIENT}
 FAIL_CLIENTS=${FAIL_CLIENTS:-$RCLIENTS}
 
-assert_env mds_HOST
+assert_env mds_HOST MDSCOUNT
 assert_env ost_HOST OSTCOUNT
 assert_env LIVE_CLIENT FSNAME
 
@@ -109,6 +109,10 @@ start_ost() {
 	start ost$1 `ostdevname $1` $OST_MOUNT_OPTS
 }
 
+start_mdt() {
+    start mds$1 $(mdsdevname $1) $MDS_MOUNT_OPTS
+}
+
 trap exit INT
 
 client_touch() {
@@ -154,7 +158,9 @@ mkdir -p $TESTDIR
 echo "Starting Test 17 at `date`"
 
 test_0() {
-    fail $SINGLEMDS
+    for i in $(seq $MDSCOUNT) ; do
+        fail mds$i
+    done
 
     for i in $(seq $OSTCOUNT) ; do
         fail ost$i
@@ -165,8 +171,36 @@ run_test 0 "Fail all nodes, independently"
 
 ############### First Failure Mode ###############
 test_1() {
-echo "Don't do a MDS - MDS Failure Case"
-echo "This makes no sense"
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+ 
+    clients_up
+
+    shutdown_facet mds1 
+    reboot_facet mds1 
+
+    # prepare for MDS failover
+    change_active mds1 
+    reboot_facet mds1 
+
+    clients_up &
+    DFPID=$!
+    sleep 5
+
+    shutdown_facet mds2 
+
+    echo "Reintegrating MDS2"
+    reboot_facet mds2 
+    wait_for_facet mds2 
+    start_mdt 2 || return 2
+
+    wait_for_facet mds1 
+    start_mdt 1 || return $?
+
+    #Check FS
+    wait $DFPID
+    echo "Verify reintegration"
+    clients_up || return 1
+
 }
 run_test 1 "MDS/MDS failure"
 ###################################################
@@ -181,12 +215,14 @@ test_2() {
 
     clients_up
 
-    shutdown_facet $SINGLEMDS
-    reboot_facet $SINGLEMDS
+    for i in $(seq $MDSCOUNT) ; do
+    	shutdown_facet mds$i 
+    	reboot_facet mds$i
 
-    # prepare for MDS failover
-    change_active $SINGLEMDS
-    reboot_facet $SINGLEMDS
+    	# prepare for MDS failover
+    	change_active mds$i 
+    	reboot_facet mds$i 
+    done
 
     clients_up &
     DFPID=$!
@@ -199,8 +235,10 @@ test_2() {
     wait_for_facet ost1
     start_ost 1 || return 2
 
-    wait_for_facet $SINGLEMDS
-    start $SINGLEMDS `mdsdevname 1` $MDS_MOUNT_OPTS || return $?
+    for i in $(seq $MDSCOUNT) ; do
+    	wait_for_facet mds$i 
+        start_mdt $i || return $?
+    done
 
     #Check FS
     wait $DFPID
@@ -212,7 +250,6 @@ test_2() {
 run_test 2 "Second Failure Mode: MDS/OST `date`"
 ###################################################
 
-
 ############### Third Failure Mode ###############
 test_3() {
     #Create files
@@ -220,7 +257,9 @@ test_3() {
     [ -z "$(mounted_lustre_filesystems)" ] && error "Lustre is not running"
     
     #MDS Portion
-    fail $SINGLEMDS
+    for i in $(seq $MDSCOUNT) ; do
+         fail mds$i 
+    done
     #Check FS
 
     echo "Test Lustre stability after MDS failover"
@@ -260,13 +299,14 @@ test_4() {
     DFPIDA=$!
     sleep 5
 
-    #MDS Portion
-    shutdown_facet $SINGLEMDS
-    reboot_facet $SINGLEMDS
+    for i in $(seq $MDSCOUNT) ; do
+    	shutdown_facet mds$i 
+    	reboot_facet mds$i
 
-    # prepare for MDS failover
-    change_active $SINGLEMDS
-    reboot_facet $SINGLEMDS
+    	# prepare for MDS failover
+    	change_active mds$i 
+    	reboot_facet mds$i 
+    done
 
     clients_up &
     DFPIDB=$!
@@ -278,8 +318,10 @@ test_4() {
     wait_for_facet ost1
     start_ost 1
 
-    wait_for_facet $SINGLEMDS
-    start $SINGLEMDS `mdsdevname 1` $MDS_MOUNT_OPTS
+    for i in $(seq $MDSCOUNT) ; do
+    	wait_for_facet mds$i 
+        start_mdt $i || return $?
+    done
     #Check FS
     
     wait $DFPIDA
@@ -426,7 +468,9 @@ test_7() {
     client_rm testfile
 
     #MDS Portion
-    fail $SINGLEMDS
+    for i in $(seq $MDSCOUNT) ; do
+         fail mds$i 
+    done
 
     $PDSH $LIVE_CLIENT "ls -l $TESTDIR"
     $PDSH $LIVE_CLIENT "rm -f $TESTDIR/*_testfile"
@@ -559,13 +603,90 @@ test_9() {
 run_test 9 "Ninth Failure Mode: CLIENT/CLIENT `date`"
 ###################################################
 
+############### Tenth Failure Mode ###############
 test_10() {
+    [ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+    
+    shutdown_facet mds1 
+    reboot_facet mds1
+
+    # prepare for MDS failover
+    change_active mds1 
+    reboot_facet mds1 
+
+    clients_up &
+    DFPID=$!
+    sleep 5
+
+    shutdown_facet ost1
+
+    echo "Reintegrating OST"
+    reboot_facet ost1
+    wait_for_facet ost1
+    start_ost 1 || return 2
+
+    shutdown_facet mds2 
+    reboot_facet mds2
+
+    # prepare for MDS failover
+    change_active mds2 
+    reboot_facet mds2 
+
+    wait_for_facet mds1 
+    start_mdt 1 || return $?
+
+    wait_for_facet mds2 
+    start_mdt 2 || return $?
+
+    #Check FS
+    wait $DFPID
+    clients_recover_osts ost1
+    echo "Verify reintegration"
+    clients_up || return 1
+}
+run_test 10 "Tenth Failure Mode: MDT0/OST/MDT1 `date`"
+###################################################
+
+############### Seventh Failure Mode ###############
+test_11() {
+
+    echo "Verify Lustre filesystem is up and running"
+    [ -z "$(mounted_lustre_filesystems)" ] && error "Lustre is not running"
+    
+    #MDS Portion
+    fail mds1 
+    #Check FS
+
+    echo "Test Lustre stability after MDS failover"
+    clients_up
+
+    #CLIENT Portion
+    echo "Failing 2 CLIENTS"
+    fail_clients 2
+    
+    #Check FS
+    echo "Test Lustre stability after CLIENT failure"
+    clients_up
+    
+    #Reintegration
+    echo "Reintegrating CLIENTS"
+    reintegrate_clients || return 1
+
+    fail mds2 
+    
+    clients_up || return 3
+    sleep 2 # give it a little time for fully recovered before next test
+}
+run_test 11 "Eleventh Failure Mode: MDS0/CLIENT/MDS1 `date`"
+###################################################
+
+test_12() {
     #Run availability after all failures
     DURATION=${DURATION:-$((2 * 60 * 60))} # 6 hours default
     LOADTEST=${LOADTEST:-metadata-load.py}
     $PWD/availability.sh $CONFIG $DURATION $CLIENTS || return 1
 }
-run_test 10 "Running Availability for 6 hours..."
+run_test 12 "Running Availability for 6 hours..."
 
 complete $SECONDS
 check_and_cleanup_lustre
