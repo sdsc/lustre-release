@@ -148,7 +148,7 @@ static inline int cfs_fail_timeout_set(__u32 id, __u32 value, int ms, int set)
  * first thread that calls this with a matching fail_loc is put to
  * sleep. The next thread that calls with the same fail_loc wakes up
  * the first and continues. */
-static inline void cfs_race(__u32 id)
+static inline void cfs_race(__u32 id, __u32 id_new)
 {
 
         if (CFS_FAIL_PRECHECK(id)) {
@@ -161,15 +161,17 @@ static inline void cfs_race(__u32 id)
                         CERROR("cfs_fail_race id %x awake, rc=%d\n", id, rc);
                 } else {
                         CERROR("cfs_fail_race id %x waking\n", id);
+			if (id_new != 0)
+				cfs_fail_loc = id_new;
                         cfs_race_state = 1;
                         cfs_waitq_signal(&cfs_race_waitq);
                 }
         }
 }
-#define CFS_RACE(id) cfs_race(id)
+#define CFS_RACE(id, id_new) cfs_race(id, id_new)
 #else
 /* sigh.  an expedient fix until CFS_RACE is fixed up */
-#define CFS_RACE(foo) do {} while(0)
+#define CFS_RACE(foo, bar) do {} while(0)
 #endif
 
 #endif /* _LIBCFS_FAIL_H */
