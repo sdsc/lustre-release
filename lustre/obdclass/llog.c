@@ -402,7 +402,7 @@ static int llog_process_thread_daemonize(void *arg)
 	cfs_daemonize_ctxt("llog_process_thread");
 
 	/* client env has no keys, tags is just 0 */
-	rc = lu_env_init(&env, LCT_LOCAL);
+	rc = lu_env_init(&env, LCT_LOCAL | LCT_MG_THREAD);
 	if (rc)
 		goto out;
 	lpi->lpi_env = &env;
@@ -719,8 +719,10 @@ int llog_add(const struct lu_env *env, struct llog_handle *lgh,
 
 	ENTRY;
 
-	if (lgh->lgh_logops->lop_add == NULL)
+	if (lgh->lgh_logops->lop_add == NULL) {
+		LBUG();
 		RETURN(-EOPNOTSUPP);
+	}
 
 	raised = cfs_cap_raised(CFS_CAP_SYS_RESOURCE);
 	if (!raised)
@@ -739,8 +741,10 @@ int llog_declare_add(const struct lu_env *env, struct llog_handle *lgh,
 
 	ENTRY;
 
-	if (lgh->lgh_logops->lop_declare_add == NULL)
+	if (lgh->lgh_logops->lop_declare_add == NULL) {
+		LBUG();
 		RETURN(-EOPNOTSUPP);
+	}
 
 	raised = cfs_cap_raised(CFS_CAP_SYS_RESOURCE);
 	if (!raised)

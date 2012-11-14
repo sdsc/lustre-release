@@ -437,26 +437,6 @@ static struct ptlrpc_request *mdc_intent_getattr_pack(struct obd_export *exp,
         RETURN(req);
 }
 
-static struct ptlrpc_request *ldlm_enqueue_pack(struct obd_export *exp)
-{
-        struct ptlrpc_request *req;
-        int rc;
-        ENTRY;
-
-        req = ptlrpc_request_alloc(class_exp2cliimp(exp), &RQF_LDLM_ENQUEUE);
-        if (req == NULL)
-                RETURN(ERR_PTR(-ENOMEM));
-
-        rc = ldlm_prep_enqueue_req(exp, req, NULL, 0);
-        if (rc) {
-                ptlrpc_request_free(req);
-                RETURN(ERR_PTR(rc));
-        }
-
-        ptlrpc_request_set_replen(req);
-        RETURN(req);
-}
-
 static int mdc_finish_enqueue(struct obd_export *exp,
                               struct ptlrpc_request *req,
                               struct ldlm_enqueue_info *einfo,
@@ -675,7 +655,7 @@ int mdc_enqueue(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
         int                    rc;
         struct ldlm_res_id res_id;
         static const ldlm_policy_data_t lookup_policy =
-                            { .l_inodebits = { MDS_INODELOCK_LOOKUP } };
+			    { .l_inodebits = { MDS_INODELOCK_LOOKUP} };
         static const ldlm_policy_data_t update_policy =
                             { .l_inodebits = { MDS_INODELOCK_UPDATE } };
 	static const ldlm_policy_data_t layout_policy =

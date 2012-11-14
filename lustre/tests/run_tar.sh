@@ -16,8 +16,11 @@ exec 2>$DEBUGLOG
 set -x
 
 . $(dirname $0)/functions.sh
+. $(dirname $0)/test-framework.sh
 
-assert_env MOUNT END_RUN_FILE LOAD_PID_FILE
+assert_env MOUNT END_RUN_FILE LOAD_PID_FILE NODENUM MDTCOUNT LFS
+
+MDT_IDX=$((NODENUM % MDTCOUNT))
 
 trap signaled TERM
 
@@ -25,6 +28,7 @@ trap signaled TERM
 echo $$ >$LOAD_PID_FILE
 
 TESTDIR=$MOUNT/d0.tar-$(hostname)
+rm -rf $TESTDIR
 
 do_tar() {
     tar cf - /etc | tar xf - >$LOG 2>&1
@@ -34,7 +38,7 @@ do_tar() {
 CONTINUE=true
 while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
     echoerr "$(date +'%F %H:%M:%S'): tar run starting"
-    mkdir -p $TESTDIR
+    create_remote_dir $MDT_IDX $TESTDIR
     cd $TESTDIR
     do_tar &
     wait $!
