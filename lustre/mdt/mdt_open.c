@@ -1156,8 +1156,10 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
                                     DISP_LOOKUP_NEG));
                 GOTO(out, rc = -ENOENT);
         } else if (rc < 0) {
-                CERROR("NFS remote open shouldn't happen.\n");
-                GOTO(out, rc);
+		CDEBUG(D_INFO, "%s: "DFID" is on remote MDT.\n",
+		       info->mti_mdt->mdt_md_dev.md_lu_dev.ld_obd->obd_name,
+		       PFID(rr->rr_fid2));
+		GOTO(out, rc = -EREMOTE);
         }
         mdt_set_disposition(info, rep, (DISP_IT_EXECD |
                                         DISP_LOOKUP_EXECD |
@@ -1344,7 +1346,8 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 	} else if ((rr->rr_namelen == 0 && create_flags & MDS_OPEN_LOCK) ||
 		   (create_flags & MDS_OPEN_BY_FID)) {
 		result = mdt_open_by_fid_lock(info, ldlm_rep, lhc);
-		if (result != -ENOENT && !(create_flags & MDS_OPEN_CREAT))
+		if ((result != -ENOENT && !(create_flags & MDS_OPEN_CREAT)) &&
+		     result != -EREMOTE)
 			GOTO(out, result);
 		if (unlikely(rr->rr_namelen == 0))
 			GOTO(out, result = -EINVAL);
