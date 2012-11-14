@@ -445,6 +445,9 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 #define OBD_FAIL_LOCK_STATE_WAIT_INTR               0x1402
 #define OBD_FAIL_LOV_INIT			    0x1403
 
+#define OBD_FAIL_OSP				    0x1500
+#define OBD_FAIL_OSP_ORPHAN_CLEANUP		    0x1501
+
 /* Assign references to moved code to reduce code changes */
 #define OBD_FAIL_PRECHECK(id)                   CFS_FAIL_PRECHECK(id)
 #define OBD_FAIL_CHECK(id)                      CFS_FAIL_CHECK(id)
@@ -455,7 +458,8 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 #define OBD_FAIL_TIMEOUT(id, secs)              CFS_FAIL_TIMEOUT(id, secs)
 #define OBD_FAIL_TIMEOUT_MS(id, ms)             CFS_FAIL_TIMEOUT_MS(id, ms)
 #define OBD_FAIL_TIMEOUT_ORSET(id, value, secs) CFS_FAIL_TIMEOUT_ORSET(id, value, secs)
-#define OBD_RACE(id)                            CFS_RACE(id)
+#define OBD_RACE(id)				CFS_RACE(id, 0)
+#define OBD_RACE_RESET(id, id_new)		CFS_RACE(id, id_new)
 #define OBD_FAIL_ONCE                           CFS_FAIL_ONCE
 #define OBD_FAILED                              CFS_FAILED
 
