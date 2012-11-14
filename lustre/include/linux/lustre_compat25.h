@@ -666,6 +666,27 @@ static inline int ll_quota_off(struct super_block *sb, int off, int remount)
 # define NO_QUOTA (-EDQUOT)
 #endif
 
+#ifndef SEEK_DATA
+#define SEEK_DATA      3       /* seek to the next data */
+#endif
+#ifndef SEEK_HOLE
+#define SEEK_HOLE      4       /* seek to the next hole */
+#endif
+
+#ifndef FMODE_UNSIGNED_OFFSET
+#define FMODE_UNSIGNED_OFFSET	((__force fmode_t)0x2000)
+#endif
+
+#ifdef HAVE_FILE_F_LOCK
+#define ll_file_seek_lock(file)		spin_lock(&file->f_lock)
+#define ll_file_seek_unlock(file)	spin_unlock(&file->f_lock)
+#else
+#define ll_file_seek_lock(file)		\
+	mutex_lock(&file->f_dentry->d_inode->i_mutex)
+#define ll_file_seek_unlock(file)	\
+	mutex_unlock(&file->f_dentry->d_inode->i_mutex)
+#endif
+
 #if !defined(_ASM_GENERIC_BITOPS_EXT2_NON_ATOMIC_H_) && !defined(ext2_set_bit)
 # define ext2_set_bit             __test_and_set_bit_le
 # define ext2_clear_bit           __test_and_clear_bit_le

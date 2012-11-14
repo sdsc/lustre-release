@@ -1239,6 +1239,26 @@ AC_DEFUN([LC_EXPORT_CPUMASK_OF_NODE],
                                              the kernel])]) # x86_64
          ])
 
+# 2.6.30 introduced file->f_lock to protect file->f_flags when replacing BKL.
+# In newer kernels, f_lock is used to protect f_pos in SEEK_CUR as well.
+# see kernel commit db1dd4d3 and ef3d0fd27.
+AC_DEFUN([LC_STRUCT_FILE_HAVE_F_LOCK],
+[AC_MSG_CHECKING([if struct file has f_lock field])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/fs.h>
+],[
+	struct file file;
+
+	spin_lock(&file.f_lock);
+],[
+	AC_MSG_RESULT(yes)
+	AC_DEFINE(HAVE_FILE_F_LOCK, 1,
+		[struct file has f_lock field])
+],[
+	AC_MSG_RESULT(no)
+])
+])
+
 # 2.6.31 replaces blk_queue_hardsect_size by blk_queue_logical_block_size function
 AC_DEFUN([LC_BLK_QUEUE_LOG_BLK_SIZE],
 [AC_MSG_CHECKING([if blk_queue_logical_block_size is defined])
@@ -2032,8 +2052,9 @@ AC_DEFUN([LC_PROG_LINUX],
          # 2.6.29
          LC_SB_ANY_QUOTA_LOADED
 
-         # 2.6.30
-         LC_EXPORT_CPUMASK_OF_NODE
+	 # 2.6.30
+	 LC_EXPORT_CPUMASK_OF_NODE
+	 LC_STRUCT_FILE_HAVE_F_LOCK
 
          # 2.6.31
          LC_BLK_QUEUE_LOG_BLK_SIZE
