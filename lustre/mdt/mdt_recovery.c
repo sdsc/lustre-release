@@ -216,9 +216,10 @@ static int mdt_server_data_init(const struct lu_env *env,
                 lsd->lsd_client_size = LR_CLIENT_SIZE;
                 lsd->lsd_feature_compat = OBD_COMPAT_MDT;
                 lsd->lsd_feature_rocompat = OBD_ROCOMPAT_LOVOBJID;
-                lsd->lsd_feature_incompat = OBD_INCOMPAT_MDT |
-                                            OBD_INCOMPAT_COMMON_LR |
-                                            OBD_INCOMPAT_MULTI_OI;
+		lsd->lsd_feature_incompat = OBD_INCOMPAT_MDT |
+					    OBD_INCOMPAT_COMMON_LR |
+					    OBD_INCOMPAT_MULTI_OI |
+					    OBD_INCOMPAT_FLAT_FLD;
         } else {
                 LCONSOLE_WARN("%s: used disk, loading\n", obd->obd_name);
 		rc = tgt_server_data_read(env, &mdt->mdt_lut);
@@ -480,7 +481,7 @@ static int mdt_txn_start_cb(const struct lu_env *env,
 	if (rc)
 		return rc;
 
-	if (mti->mti_mos != NULL)
+	if (mti->mti_mos != NULL && mdt_object_exists(mti->mti_mos) > 0)
 		rc = dt_declare_version_set(env, mdt_obj2dt(mti->mti_mos), th);
 
 	return rc;
@@ -528,7 +529,9 @@ static int mdt_txn_stop_cb(const struct lu_env *env,
         LASSERT(req != NULL && req->rq_repmsg != NULL);
 
         /** VBR: set new versions */
-        if (txn->th_result == 0 && mti->mti_mos != NULL) {
+	if (txn->th_result == 0 && mti->mti_mos != NULL &&
+	    mdt_object_exists(mti->mti_mos) > 0) {
+
                 dt_version_set(env, mdt_obj2dt(mti->mti_mos),
                                mti->mti_transno, txn);
                 mti->mti_mos = NULL;

@@ -60,6 +60,7 @@
 #define MOUNT_DATA_FILE    MOUNT_CONFIGS_DIR"/"CONFIGS_FILE
 #define LAST_RCVD         "last_rcvd"
 #define LOV_OBJID         "lov_objid"
+#define LOV_OBJSEQ	"lov_objseq"
 #define HEALTH_CHECK      "health_check"
 #define CAPA_KEYS         "capa_keys"
 #define CHANGELOG_USERS   "changelog_users"
@@ -308,6 +309,8 @@ struct lustre_mount_data {
 #define OBD_INCOMPAT_LMM_VER    0x00000100
 /** multiple OI files for MDT */
 #define OBD_INCOMPAT_MULTI_OI   0x00000200
+/** flat fld files for FLDB */
+#define OBD_INCOMPAT_FLAT_FLD   0x00000400
 
 /* Data stored per server at the head of the last_rcvd file.  In le32 order.
    This should be common to filter_internal.h, lustre_mds.h */
