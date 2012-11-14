@@ -9,8 +9,10 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 
+LMVNAME=$($LCTL get_param -n llite.*.lmv.common_name | tail -n 1)
+MDTCOUNT=$($LCTL get_param -n lmv.$LMVNAME.numobd)
 racer=$LUSTRE/tests/racer/racer.sh
-echo racer: $racer
+echo racer: $racer with $MDTCOUNT mdt
 
 DURATION=${DURATION:-900}
 [ "$SLOW" = "no" ] && DURATION=300
@@ -41,7 +43,7 @@ test_1() {
 
     local rpids=""
     for rdir in $RDIRS; do
-        do_nodes $clients "DURATION=$DURATION $racer $rdir $NUM_RACER_THREADS" &
+        do_nodes $clients "DURATION=$DURATION MDTCOUNT=$MDTCOUNT LFS=$LFS $racer $rdir $NUM_RACER_THREADS" &
         pid=$!
         rpids="$rpids $pid"
     done
@@ -59,6 +61,47 @@ test_1() {
     return $rrc
 }
 run_test 1 "racer on clients: ${CLIENTS:-$(hostname)} DURATION=$DURATION"
+
+test_2() {
+    local rrc=0
+    local rc=0
+    local clients=${CLIENTS:-$(hostname)}
+    local mdt_idx=1
+
+    [ $MDTCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+    rm -rf $d/racer
+    for d in ${RACERDIRS}; do
+        is_mounted $d || continue
+
+	RDIRS="$RDIRS $d/racer"
+	mkdir -p $d
+        $LFS setdirstripe -i $mdt_idx $d/racer
+    done
+
+    check_progs_installed $clients $racer || \
+        { skip_env "$racer not found" && return 0; }
+
+    local rpids=""
+    for rdir in $RDIRS; do
+        do_nodes $clients "DURATION=$DURATION MDTCOUNT=$MDTCOUNT LFS=$LFS $racer $rdir $NUM_RACER_THREADS" &
+        pid=$!
+        rpids="$rpids $pid"
+    done
+
+    echo racers pids: $rpids
+    for pid in $rpids; do
+        wait $pid
+        rc=$?
+        echo "pid=$pid rc=$rc"
+        if [ $rc != 0 ]; then
+            rrc=$((rrc + 1))
+        fi
+    done
+
+    return $rrc
+}
+run_test 2 "racer under remote dir clients: ${CLIENTS:-$(hostname)} DURATION=$DURATION"
 
 complete $SECONDS
 check_and_cleanup_lustre
