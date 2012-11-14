@@ -1098,6 +1098,10 @@ int mdt_open_by_fid(struct mdt_thread_info* info,
         } else  {
                 /* the child object was created on remote server */
                 struct mdt_body *repbody;
+
+		mdt_set_disposition(info, rep, (DISP_IT_EXECD |
+						DISP_LOOKUP_EXECD |
+						DISP_LOOKUP_POS));
                 repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
                 repbody->fid1 = *rr->rr_fid2;
                 repbody->valid |= (OBD_MD_FLID | OBD_MD_MDS);
@@ -1147,8 +1151,10 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
                                     DISP_LOOKUP_NEG));
                 GOTO(out, rc = -ENOENT);
         } else if (rc < 0) {
-                CERROR("NFS remote open shouldn't happen.\n");
-                GOTO(out, rc);
+		CDEBUG(D_INFO, "%s: "DFID" is on remote MDT.\n",
+		       info->mti_mdt->mdt_md_dev.md_lu_dev.ld_obd->obd_name,
+		       PFID(rr->rr_fid2));
+		GOTO(out, rc = -EREMOTE);
         }
         mdt_set_disposition(info, rep, (DISP_IT_EXECD |
                                         DISP_LOOKUP_EXECD |
@@ -1305,8 +1311,15 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                PFID(rr->rr_fid1), rr->rr_name,
                PFID(rr->rr_fid2), create_flags,
                ma->ma_attr.la_mode, msg_flags);
-
-	if (req_is_replay(req) ||
+	if (info->mti_cross_ref) {
+		/* This is cross-ref open */
+		mdt_set_disposition(info, ldlm_rep,
+			    (DISP_IT_EXECD | DISP_LOOKUP_EXECD |
+			     DISP_LOOKUP_POS));
+		result = mdt_cross_open(info, rr->rr_fid1, ldlm_rep,
+					create_flags);
+		GOTO(out, result);
+	} else if (req_is_replay(req) ||
 	    (req->rq_export->exp_libclient && create_flags & MDS_OPEN_HAS_EA)) {
 		/* This is a replay request or from liblustre with ea. */
 		result = mdt_open_by_fid(info, ldlm_rep);
@@ -1325,11 +1338,11 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 			GOTO(out, result = -EFAULT);
 		}
 		CDEBUG(D_INFO, "No object(1), continue as regular open.\n");
-	} else if ((rr->rr_namelen == 0 && !info->mti_cross_ref &&
-		    create_flags & MDS_OPEN_LOCK) ||
+	} else if ((rr->rr_namelen == 0 && create_flags & MDS_OPEN_LOCK) ||
 		   (create_flags & MDS_OPEN_BY_FID)) {
 		result = mdt_open_by_fid_lock(info, ldlm_rep, lhc);
-		if (result != -ENOENT && !(create_flags & MDS_OPEN_CREAT))
+		if ((result != -ENOENT && !(create_flags & MDS_OPEN_CREAT)) &&
+		     result != -EREMOTE)
 			GOTO(out, result);
 		if (unlikely(rr->rr_namelen == 0))
 			GOTO(out, result = -EINVAL);
@@ -1341,14 +1354,6 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 
         mdt_set_disposition(info, ldlm_rep,
                             (DISP_IT_EXECD | DISP_LOOKUP_EXECD));
-
-        if (info->mti_cross_ref) {
-                /* This is cross-ref open */
-                mdt_set_disposition(info, ldlm_rep, DISP_LOOKUP_POS);
-                result = mdt_cross_open(info, rr->rr_fid1, ldlm_rep,
-                                        create_flags);
-                GOTO(out, result);
-        }
 
         lh = &info->mti_lh[MDT_LH_PARENT];
         mdt_lock_pdo_init(lh, (create_flags & MDS_OPEN_CREAT) ?
@@ -1457,12 +1462,10 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                 }
                 created = 1;
         } else {
-                /* We have to get attr & lov ea for this object */
-		result = mdt_attr_get_complex(info, child, ma);
                 /*
                  * The object is on remote node, return its FID for remote open.
                  */
-                if (result == -EREMOTE) {
+		if (mdt_object_exists(child) < 0) {
                         /*
                          * Check if this lock already was sent to client and
                          * this is resent case. For resent case do not take lock
@@ -1498,6 +1501,12 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                         if (rc != 0)
                                 result = rc;
                         GOTO(out_child, result);
+		} else if (mdt_object_exists(child) > 0) {
+			/* We have to get attr & lov ea for this object */
+			result = mdt_attr_get_complex(info, child, ma);
+		} else {
+			/*object non-exist!!!*/
+			LBUG();
                 }
         }
 

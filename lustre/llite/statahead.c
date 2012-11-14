@@ -138,10 +138,7 @@ ll_sa_entry_unhash(struct ll_statahead_info *sai, struct ll_sa_entry *entry)
 static inline int agl_should_run(struct ll_statahead_info *sai,
                                  struct inode *inode)
 {
-	if (inode != NULL && S_ISREG(inode->i_mode) &&
-	    ll_i2info(inode)->lli_has_smd && sai->sai_agl_valid)
-		return 1;
-	return 0;
+	return (inode != NULL && S_ISREG(inode->i_mode) && sai->sai_agl_valid);
 }
 
 static inline struct ll_sa_entry *
@@ -691,7 +688,7 @@ static void do_statahead_interpret(struct ll_statahead_info *sai,
         }
 
         it->d.lustre.it_lock_handle = entry->se_handle;
-        rc = md_revalidate_lock(ll_i2mdexp(dir), it, NULL, NULL);
+	rc = md_revalidate_lock(ll_i2mdexp(dir), it, ll_inode2fid(dir), NULL);
         if (rc != 1)
                 GOTO(out, rc = -EAGAIN);
 

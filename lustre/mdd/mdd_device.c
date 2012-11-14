@@ -130,6 +130,7 @@ static int mdd_init0(const struct lu_env *env, struct mdd_device *mdd,
 	mdd->mdd_atime_diff = MAX_ATIME_DIFF;
         /* sync permission changes */
         mdd->mdd_sync_permission = 1;
+	mdd->mdd_remote_dir = 0;
 
 	dt_conf_get(env, mdd->mdd_child, &mdd->mdd_dt_conf);
 
@@ -1165,32 +1166,94 @@ static int mdd_recovery_complete(const struct lu_env *env,
         RETURN(rc);
 }
 
+static struct dt_object *mdd_find_or_create_root(const struct lu_env *env,
+						 struct mdd_device *mdd)
+{
+	struct dt_object	*root;
+	struct dt_object	*lroot;
+	struct lu_fid		pfid;
+	struct lu_fid		fid;
+	int			rc;
+	ENTRY;
+
+	/* Setup ROOT dir, while it is named object but its FID should be
+	 * constant so OSD is able to recognize it */
+	rc = dt_root_get(env, mdd->mdd_child, &pfid);
+	if (rc)
+		RETURN(ERR_PTR(rc));
+
+	root = dt_locate(env, mdd->mdd_child, &pfid);
+	if (unlikely(IS_ERR(root)))
+		RETURN(root);
+
+	/* Setup ROOT dir, while it is named object but its FID should be
+	 * constant so OSD is able to recognize it */
+	LASSERT(mdd_md_site(mdd) != NULL);
+	lu_root_fid(&fid, mdd_md_site(mdd)->ms_node_id);
+
+	rc = dt_lookup_dir(env, root, "ROOT", &pfid);
+	if (rc == 0) {
+		/* name is found, get the object */
+		if (!lu_fid_eq(&fid, &pfid)) {
+			if(!fid_is_igif(&pfid)) {
+				CERROR("%s: Got a strange FID "DFID"\n",
+					mdd->mdd_md_dev.md_lu_dev.ld_obd->obd_name,
+					PFID(&pfid));
+				GOTO(out_put, rc = -EINVAL);
+			}
+		}
+		lroot = dt_locate(env, mdd->mdd_bottom, &fid);
+	} else if (rc == -ENOENT) {
+		lroot = local_file_find_or_create_with_fid(env, mdd->mdd_bottom,
+							   &fid, root, "ROOT",
+							   S_IFDIR | S_IRUGO |
+							   S_IWUSR | S_IXUGO);
+		if (IS_ERR(lroot))
+			GOTO(out_put, rc = PTR_ERR(lroot));
+		rc = 0;
+	}
+out_put:
+	lu_object_put(env, &root->do_lu);
+	if (rc != 0)
+		lroot = ERR_PTR(rc);
+
+	RETURN(lroot);
+}
+
 static int mdd_prepare(const struct lu_env *env,
                        struct lu_device *pdev,
                        struct lu_device *cdev)
 {
-        struct mdd_device *mdd = lu2mdd_dev(cdev);
-        struct lu_device *next = &mdd->mdd_child->dd_lu_dev;
-        struct dt_object *root;
-        struct lu_fid     fid;
-        int rc;
+	struct mdd_device	*mdd = lu2mdd_dev(cdev);
+	struct lu_device	*next = &mdd->mdd_child->dd_lu_dev;
+	struct dt_object	*root;
+	struct lu_fid		fid;
+	int			rc;
 
         ENTRY;
         rc = next->ld_ops->ldo_prepare(env, cdev, next);
-        if (rc)
+        if (rc) {
+                CERROR("%s: prepare bottom error: rc = %d\n",
+			mdd->mdd_md_dev.md_lu_dev.ld_obd->obd_name, rc);
                 GOTO(out, rc);
+	}
 
-        root = dt_store_open(env, mdd->mdd_child, "", mdd_root_dir_name,
-                             &mdd->mdd_root_fid);
-        if (!IS_ERR(root)) {
-                LASSERT(root != NULL);
-                lu_object_put(env, &root->do_lu);
-                rc = orph_index_init(env, mdd);
-        } else {
-                rc = PTR_ERR(root);
-        }
-        if (rc)
+	root = mdd_find_or_create_root(env, mdd);
+	if (!IS_ERR(root)) {
+		LASSERT(root != NULL);
+		memcpy(&mdd->mdd_root_fid, lu_object_fid(&root->do_lu),
+			sizeof(mdd->mdd_root_fid));
+		lu_object_put(env, &root->do_lu);
+		rc = orph_index_init(env, mdd);
+	} else {
+		rc = PTR_ERR(root);
+	}
+
+        if (rc) {
+                CERROR("%s: create root fid error. rc = %d\n",
+			mdd->mdd_md_dev.md_lu_dev.ld_obd->obd_name, rc);
                 GOTO(out, rc);
+	}
 
         rc = mdd_dot_lustre_setup(env, mdd);
         if (rc) {
@@ -1749,12 +1812,14 @@ static struct lu_local_obj_desc llod_mdd_orphan = {
         .llod_feat      = &dt_directory_features,
 };
 
+#if 0
 static struct lu_local_obj_desc llod_mdd_root = {
         .llod_name      = mdd_root_dir_name,
         .llod_oid       = MDD_ROOT_INDEX_OID,
         .llod_is_index  = 1,
         .llod_feat      = &dt_directory_features,
 };
+#endif
 
 static struct lu_local_obj_desc llod_lfsck_bookmark = {
 	.llod_name      = lfsck_bookmark_name,
@@ -1775,7 +1840,7 @@ static int __init mdd_mod_init(void)
 
 	llo_local_obj_register(&llod_capa_key);
 	llo_local_obj_register(&llod_mdd_orphan);
-	llo_local_obj_register(&llod_mdd_root);
+	//llo_local_obj_register(&llod_mdd_root);
 	llo_local_obj_register(&llod_lfsck_bookmark);
 
 	rc = class_register_type(&mdd_obd_device_ops, NULL, lvars.module_vars,
@@ -1789,7 +1854,7 @@ static void __exit mdd_mod_exit(void)
 {
 	llo_local_obj_unregister(&llod_capa_key);
 	llo_local_obj_unregister(&llod_mdd_orphan);
-	llo_local_obj_unregister(&llod_mdd_root);
+	//llo_local_obj_unregister(&llod_mdd_root);
 	llo_local_obj_unregister(&llod_lfsck_bookmark);
 
 	class_unregister_type(LUSTRE_MDD_NAME);
