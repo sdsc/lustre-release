@@ -59,6 +59,35 @@ test_0b() {
 }
 run_test 0b "empty replay"
 
+test_0c() {
+	local last_id=$(do_facet $SINGLEMDS lctl get_param -n \
+					osc.$FSNAME-OST0000-osc-MDT0000.prealloc_last_id)
+	local next_id=$(do_facet $SINGLEMDS lctl get_param -n \
+					osc.$FSNAME-OST0000-osc-MDT0000.prealloc_next_id)
+	local ncreate=0
+
+	if ((last_id - next_id <= 1)); then
+		# Make sure the file creation below will have a pre-created object.
+		touch $TDIR/$tfile-tmp && rm $TDIR/$tfile-tmp
+	fi
+	#define OBD_FAIL_OSP_ORPHAN_CLEANUP	0x1501
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0x80001501"
+	fail ost1
+	cp /etc/profile $TDIR/$tfile || error "create $TDIR/$tfile"
+	# Wait for the orphan cleanup to finish.
+	until ((ncreate > 0)); do
+		sleep 1
+		ncreate=$(do_facet ost1 lctl get_param -n \
+				  obdfilter.$FSNAME-OST0000.stats | grep create |
+				  awk '{print $2}')
+	done
+	zconf_umount $HOSTNAME $MOUNT
+	zconf_mount $HOSTNAME $MOUNT && df $MOUNT
+	diff /etc/profile $TDIR/$tfile || error "verify $TDIR/$tfile"
+	rm -f $TDIR/$tfile
+}
+run_test 0c "consuming pre-created objects during orphan cleanups"
+
 test_1() {
     date > $TDIR/$tfile || error "error creating $TDIR/$tfile"
     fail ost1
