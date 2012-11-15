@@ -750,8 +750,11 @@ node_fstypes() {
 	local facets=$(get_facets)
 	local facet
 
+echo call to node_fstypes $node is $facets >>/root/node_fstypes
+
 	for facet in ${facets//,/ }; do
 		if [ $node == $(facet_host $facet) ] ||
+echo Checking $node == $(facet_host $facet)  >>/root/node_fstypes
 		   [ $node == "$(facet_failover_host $facet)" ]; then
 			fstype=$(facet_fstype $facet)
 			if [[ $fstypes != *$fstype* ]]; then
@@ -759,6 +762,7 @@ node_fstypes() {
 			fi
 		fi
 	done
+echo call to node_fstypes result $fstypes >>/root/node_fstypes
 	echo -n $fstypes
 }
 
