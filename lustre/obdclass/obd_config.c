@@ -598,6 +598,8 @@ int class_detach(struct obd_device *obd, struct lustre_cfg *lcfg)
         CDEBUG(D_IOCTL, "detach on obd %s (uuid %s)\n",
                obd->obd_name, obd->obd_uuid.uuid);
 
+	class_cleanup_self_export(obd);
+
         class_decref(obd, "attach", obd);
         RETURN(0);
 }
@@ -710,6 +712,10 @@ EXPORT_SYMBOL(class_cleanup);
 struct obd_device *class_incref(struct obd_device *obd,
                                 const char *scope, const void *source)
 {
+	/* If obd_refcount has reached zero even only once,
+	   that obd device should have been released already */
+	LASSERT(cfs_atomic_read(&obd->obd_refcount) > 0);
+
         lu_ref_add_atomic(&obd->obd_reference, scope, source);
         cfs_atomic_inc(&obd->obd_refcount);
         CDEBUG(D_INFO, "incref %s (%p) now %d\n", obd->obd_name, obd,
@@ -722,33 +728,19 @@ EXPORT_SYMBOL(class_incref);
 void class_decref(struct obd_device *obd, const char *scope, const void *source)
 {
         int err;
-        int refs;
+	int refs = cfs_atomic_read(&obd->obd_refcount);
 
-        cfs_spin_lock(&obd->obd_dev_lock);
-        cfs_atomic_dec(&obd->obd_refcount);
-        refs = cfs_atomic_read(&obd->obd_refcount);
-        cfs_spin_unlock(&obd->obd_dev_lock);
-        lu_ref_del(&obd->obd_reference, scope, source);
+	LASSERT(refs > 0);
 
-        CDEBUG(D_INFO, "Decref %s (%p) now %d\n", obd->obd_name, obd, refs);
+	CDEBUG(D_INFO, "Decref %s (%p) now %d\n", obd->obd_name, obd, refs-1);
+	lu_ref_del(&obd->obd_reference, scope, source);
 
-        if ((refs == 1) && obd->obd_stopping) {
-                /* All exports have been destroyed; there should
-                   be no more in-progress ops by this point.*/
-
-                cfs_spin_lock(&obd->obd_self_export->exp_lock);
-                obd->obd_self_export->exp_flags |= exp_flags_from_obd(obd);
-                cfs_spin_unlock(&obd->obd_self_export->exp_lock);
-
-                /* note that we'll recurse into class_decref again */
-                class_unlink_export(obd->obd_self_export);
-                return;
-        }
-
-        if (refs == 0) {
+	if (cfs_atomic_dec_and_test(&obd->obd_refcount)) {
                 CDEBUG(D_CONFIG, "finishing cleanup of obd %s (%s)\n",
                        obd->obd_name, obd->obd_uuid.uuid);
                 LASSERT(!obd->obd_attached);
+		LASSERT(!obd->obd_set_up);
+
                 if (obd->obd_stopping) {
                         /* If we're not stopping, we were never set up */
                         err = obd_cleanup(obd);
