@@ -92,6 +92,9 @@ yml_build_info() {
     LUSTRE_VERSION=$(lctl lustre_build_version | awk '/Lustre version:/ {print $3}')
     LUSTRE_BUILD=${LUSTRE_BUILD_SOURCE:-$(sed 's/-.*//' <<<$LUSTRE_VERSION)}
 
+echo going to call to node_fstypes HOSTNAME $(node_fstypes $HOSTNAME) >>/root/node_fstypes
+echo going to call to node_fstypes hostname $(node_fstypes $(hostname -s) ) >>/root/node_fstypes
+
 cat <<EOF
     lbats_build_id: $LBATS_ID
     lbats_build_name: $LBATS_NAME
@@ -101,6 +104,7 @@ cat <<EOF
     lustre_version: $LUSTRE_VERSION
     lustre_build: $LUSTRE_BUILD
     kernel_version: $(uname -r)
+    file_system: $(node_fstypes $HOSTNAME)
 EOF
 }
 
