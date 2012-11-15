@@ -101,6 +101,7 @@ cat <<EOF
     lustre_version: $LUSTRE_VERSION
     lustre_build: $LUSTRE_BUILD
     kernel_version: $(uname -r)
+    file_system: $(node_fstypes $HOSTNAME)
 EOF
 }
 
