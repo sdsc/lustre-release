@@ -437,6 +437,10 @@ static int osp_precreate_cleanup_orphans(struct osp_device *d)
 		d->opd_pre_grow_count = OST_MIN_PRECREATE;
 		d->opd_pre_last_created = body->oa.o_id;
 	}
+	/*
+	 * This empties the pre-creation pool and effectively blocks any new
+	 * reservations.
+	 */
 	d->opd_pre_used_id = d->opd_pre_last_created;
 	d->opd_pre_grow_slow = 0;
 	cfs_spin_unlock(&d->opd_pre_lock);
@@ -562,33 +566,58 @@ static int osp_precreate_thread(void *_arg)
 		 * orphans are all objects since "last used" (assigned), but
 		 * there might be objects reserved and in some cases they won't
 		 * be used. we can't cleanup them till we're sure they won't be
-		 * used. so we block new reservations and wait till all reserved
-		 * objects either user or released.
+		 * used. also can't we allow new reservations because they may
+		 * end up getting orphans being cleaned up below. so we block
+		 * new reservations and wait till all reserved objects either
+		 * user or released.
 		 */
-		l_wait_event(d->opd_pre_waitq, (!d->opd_pre_reserved &&
-						d->opd_recovery_completed) ||
-			     !osp_precreate_running(d) ||
-			     d->opd_got_disconnected, &lwi);
-
-		if (osp_precreate_running(d) && !d->opd_got_disconnected) {
-			rc = osp_precreate_cleanup_orphans(d);
-			if (rc) {
-				CERROR("%s: cannot cleanup orphans: rc = %d\n",
-				       d->opd_obd->obd_name,  rc);
-				/* we can't proceed from here, OST seem to
-				 * be in a bad shape, better to wait for
-				 * a new instance of the server and repeat
-				 * from the beginning. notify possible waiters
-				 * this OSP isn't quite functional yet */
-				osp_pre_update_status(d, rc);
-				cfs_waitq_signal(&d->opd_pre_user_waitq);
-				l_wait_event(d->opd_pre_waitq,
-					     !osp_precreate_running(d) ||
-					     d->opd_new_connection, &lwi);
+		cfs_spin_lock(&d->opd_pre_lock);
+		d->opd_pre_recovering = 1;
+		cfs_spin_unlock(&d->opd_pre_lock);
+		/*
+		 * The locking above makes sure the opd_pre_reserved check
+		 * below will catch all osp_precreate_reserve() calls who find
+		 * "!opd_pre_recovering".
+		 */
+		do {
+			l_wait_event(d->opd_pre_waitq,
+				     (!d->opd_pre_reserved &&
+				      d->opd_recovery_completed) ||
+				     !osp_precreate_running(d) ||
+				     d->opd_got_disconnected, &lwi);
+			if (!osp_precreate_running(d))
+				break;
+			if (d->opd_got_disconnected)
+				/*
+				 * opd_pre_recovering is not cleared because
+				 * osp_precreate_reserve() will likely be
+				 * blocked by a -ENODEV opd_pre_status anyway.
+				 * Waking the herd up would have little value.
+				 */
 				continue;
+		} while (d->opd_pre_reserved != 0 ||
+			 !d->opd_recovery_completed);
 
-			}
+		rc = osp_precreate_cleanup_orphans(d);
+		if (rc) {
+			CERROR("%s: cannot cleanup orphans: rc = %d\n",
+					d->opd_obd->obd_name,  rc);
+			/* we can't proceed from here, OST seem to
+			 * be in a bad shape, better to wait for
+			 * a new instance of the server and repeat
+			 * from the beginning. notify possible waiters
+			 * this OSP isn't quite functional yet */
+			osp_pre_update_status(d, rc);
+			cfs_waitq_signal(&d->opd_pre_user_waitq);
+			continue;
 		}
+
+		/*
+		 * Since the pre-creation window is now empty, there is no
+		 * point in waking up the herd here.  Instead, we rely on
+		 * osp_precreate_send() to do so.
+		 */
+		d->opd_pre_recovering = 0;
 
 		/*
 		 * connected, can handle precreates now
@@ -634,6 +663,9 @@ static int osp_precreate_thread(void *_arg)
 static int osp_precreate_ready_condition(struct osp_device *d)
 {
 	__u64 next;
+
+	if (d->opd_pre_recovering)
+		return 0;
 
 	/* ready if got enough precreated objects */
 	/* we need to wait for others (opd_pre_reserved) and our object (+1) */
@@ -724,7 +756,8 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 
 		cfs_spin_lock(&d->opd_pre_lock);
 		precreated = d->opd_pre_last_created - d->opd_pre_used_id;
-		if (precreated > d->opd_pre_reserved) {
+		if (precreated > d->opd_pre_reserved &&
+		    !d->opd_pre_recovering) {
 			d->opd_pre_reserved++;
 			cfs_spin_unlock(&d->opd_pre_lock);
 			rc = 0;
