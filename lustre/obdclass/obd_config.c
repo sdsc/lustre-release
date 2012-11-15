@@ -1137,33 +1137,37 @@ int class_process_config(struct lustre_cfg *lcfg)
                        marker->cm_flags, marker->cm_tgtname, marker->cm_comment);
                 GOTO(out, err = 0);
         }
-        case LCFG_PARAM: {
-                char *tmp;
-                /* llite has no obd */
-                if ((class_match_param(lustre_cfg_string(lcfg, 1),
-                                       PARAM_LLITE, 0) == 0) &&
-                    client_process_config) {
-                        err = (*client_process_config)(lcfg);
-                        GOTO(out, err);
-                } else if ((class_match_param(lustre_cfg_string(lcfg, 1),
-                                              PARAM_SYS, &tmp) == 0)) {
-                        /* Global param settings */
+	case LCFG_PARAM: {
+		char *tmp = NULL;
+		/* llite has no obd */
+		if (class_match_param(lustre_cfg_string(lcfg, 1),
+				      PARAM_LLITE, &tmp) == 0) {
+			if (client_process_config == NULL)
+				err = -EINVAL;
+			else
+				err = (*client_process_config)(lcfg);
+		} else if (class_match_param(lustre_cfg_string(lcfg, 1),
+					     PARAM_SYS, &tmp) == 0) {
+			/* Global param settings */
 			err = class_set_global(tmp, lcfg->lcfg_num, lcfg);
-                        /* Note that since LCFG_PARAM is LCFG_REQUIRED, new
-                           unknown globals would cause config to fail */
-                        if (err)
-                                CWARN("Ignoring unknown param %s\n", tmp);
-                        GOTO(out, 0);
-		} else if ((class_match_param(lustre_cfg_string(lcfg, 1),
-					      PARAM_QUOTA, &tmp) == 0) &&
-			   quota_process_config) {
-			err = (*quota_process_config)(lcfg);
-			GOTO(out, err);
+		} else if (class_match_param(lustre_cfg_string(lcfg, 1),
+					     PARAM_QUOTA, &tmp) == 0) {
+			if (quota_process_config == NULL)
+				err = -EINVAL;
+			else
+				err = (*quota_process_config)(lcfg);
+		} else {
+			break; /* Fall through */
 		}
-                /* Fall through */
-                break;
-        }
-        }
+
+		if (err == -EINVAL || err == -ENOSYS) {
+			CWARN("ignoring unknown param %s, err %d\n",
+			      tmp == NULL ? "NONE" : tmp, err);
+			err = 0;
+		}
+		GOTO(out, err);
+	}
+	}
 
         /* Commands that require a device */
         obd = class_name2obd(lustre_cfg_string(lcfg, 0));

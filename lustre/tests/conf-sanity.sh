@@ -3225,6 +3225,17 @@ test_64() {
 }
 run_test 64 "check lfs df --lazy "
 
+test_65() { # LU-2308
+	setup
+	check_mount || return 2
+	do_facet mgs $LCTL conf_param lustre.sys.test_conf_sanity=1
+	umount_client $MOUNT
+	mount_client $MOUNT || return 1
+	cleanup
+	return 0
+}
+run_test 65 "invalid global param should not prevent client from mounting"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
