@@ -123,6 +123,7 @@ struct osp_device {
 	int				 opd_pre_max_grow_count;
 	/* whether to grow precreation window next time or not */
 	int				 opd_pre_grow_slow;
+	int				 opd_pre_ready;
 
 	/*
 	 * OST synchronization
