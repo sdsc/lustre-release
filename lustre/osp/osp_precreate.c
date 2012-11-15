@@ -573,6 +573,8 @@ static int osp_precreate_thread(void *_arg)
 				continue;
 
 			}
+			d->opd_pre_ready = 1;
+			cfs_waitq_signal(&d->opd_pre_user_waitq);
 		}
 
 		/*
@@ -619,6 +621,9 @@ static int osp_precreate_thread(void *_arg)
 static int osp_precreate_ready_condition(struct osp_device *d)
 {
 	__u64 next;
+
+	if (!d->opd_pre_ready)
+		return 0;
 
 	/* ready if got enough precreated objects */
 	/* we need to wait for others (opd_pre_reserved) and our object (+1) */
@@ -694,6 +699,9 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 		}
 #endif
 
+		if (!d->opd_pre_ready)
+			goto wait;
+
 		/*
 		 * increase number of precreations
 		 */
@@ -750,6 +758,7 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 		/* XXX: don't wake up if precreation is in progress */
 		cfs_waitq_signal(&d->opd_pre_waitq);
 
+wait:
 		l_wait_event(d->opd_pre_user_waitq,
 			     osp_precreate_ready_condition(d), &lwi);
 	}
