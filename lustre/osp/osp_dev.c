@@ -813,6 +813,7 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 		if (is_osp_on_ost(d->opd_obd->obd_name))
 			break;
 		osp_pre_update_status(d, -ENODEV);
+		d->opd_pre_ready = 0;
 		cfs_waitq_signal(&d->opd_pre_waitq);
 		CDEBUG(D_HA, "got disconnected\n");
 		break;
@@ -821,6 +822,7 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 		if (is_osp_on_ost(d->opd_obd->obd_name))
 			break;
 		osp_pre_update_status(d, -ENODEV);
+		d->opd_pre_ready = 0;
 		cfs_waitq_signal(&d->opd_pre_waitq);
 		CDEBUG(D_HA, "got inactive\n");
 		break;
