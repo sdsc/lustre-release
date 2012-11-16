@@ -917,6 +917,19 @@ void class_unlink_export(struct obd_export *exp)
 }
 EXPORT_SYMBOL(class_unlink_export);
 
+void class_unlink_self_export(struct obd_device *obd)
+{
+	if (!obd->obd_self_export)
+		return;
+
+	cfs_spin_lock(&obd->obd_self_export->exp_lock);
+	obd->obd_self_export->exp_flags |= exp_flags_from_obd(obd);
+	cfs_spin_unlock(&obd->obd_self_export->exp_lock);
+
+	class_unlink_export(obd->obd_self_export);
+}
+EXPORT_SYMBOL(class_unlink_self_export);
+
 /* Import management functions */
 void class_import_destroy(struct obd_import *imp)
 {
