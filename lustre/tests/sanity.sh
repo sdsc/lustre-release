@@ -6187,6 +6187,8 @@ test_118b()
 }
 run_test 118b "Reclaim dirty pages on fatal error =========="
 
+# for 118c, restore the original resend count, LU-1940
+[ "$SLOW" = "no" ] && [ -n "$OLD_RESENDCOUNT" ] && set_resend_count $OLD_RESENDCOUNT
 test_118c()
 {
 	remote_ost_nodsh && skip "remote OST with nodsh" && return
@@ -6230,6 +6232,8 @@ test_118c()
 	return 0
 }
 run_test 118c "Fsync blocks on EROFS until dirty pages are flushed =========="
+
+[ "$SLOW" = "no" ] && set_resend_count 4 # for reduce test_118* time (bug 14842)
 
 test_118d()
 {
