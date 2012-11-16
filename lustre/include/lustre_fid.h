@@ -230,6 +230,8 @@ enum local_oid {
         MGS_CONFIGS_OID         = 4119UL,
         OFD_HEALTH_CHECK_OID    = 4120UL,
 	MDD_LOV_OBJ_OSEQ	= 4121UL,
+	LLOG_GROUP1_CATALOGS_OID = 4122UL,
+	LLOG_GROUP4k_CATALOGS_OID = 4122UL + 4095,
 };
 
 static inline void lu_local_obj_fid(struct lu_fid *fid, __u32 oid)
@@ -263,6 +265,14 @@ static inline int fid_is_quota(const struct lu_fid *fid)
 {
 	return fid_seq(fid) == FID_SEQ_QUOTA ||
 	       fid_seq(fid) == FID_SEQ_QUOTA_GLB;
+}
+
+static inline int fid_is_catalogs(const struct lu_fid *fid)
+{
+	return (fid_seq(fid) == FID_SEQ_LOCAL_FILE &&
+		(fid_oid(fid) == LLOG_CATALOGS_OID ||
+		(fid_oid(fid) >= LLOG_GROUP1_CATALOGS_OID &&
+		 fid_oid(fid) <= LLOG_GROUP4k_CATALOGS_OID)));
 }
 
 static inline void lu_last_id_fid(struct lu_fid *fid, __u64 seq)

@@ -68,6 +68,8 @@ struct osp_device {
 	struct dt_device		 opd_dt_dev;
 	/* corresponded OST index */
 	int				 opd_index;
+	/* corrsponded MDT index */
+	int				 opd_group;
 	/* device used to store persistent state (llogs, last ids) */
 	struct obd_export		*opd_storage_exp;
 	struct dt_device		*opd_storage;
