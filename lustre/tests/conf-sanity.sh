@@ -1253,6 +1253,11 @@ t32_check() {
 		exit 0
 	fi
 
+	if [ -n "$($LCTL list_nids | grep -v '\(tcp\|lo\)[[:digit:]]*$')" ]; then
+		skip "LU-2200: Test cannot run over Infiniband"
+		exit 0
+	fi
+
 	local IMGTYPE=$FSTYPE
 
 	[ ! -z "$MDSFSTYPE" ] && IMGTYPE=$MDSFSTYPE
