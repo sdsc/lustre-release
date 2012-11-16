@@ -49,6 +49,7 @@
 
 #include <obd_class.h>
 #include <lustre_param.h>
+#include <lustre_log.h>
 #include <lustre_mdc.h>
 
 #include "osp_internal.h"
@@ -1158,6 +1159,8 @@ static struct obd_ops osp_obd_device_ops = {
 	.o_fid_fini	= client_fid_fini,
 };
 
+struct llog_operations osp_mds_ost_orig_logops;
+
 static int __init osp_mod_init(void)
 {
 	struct lprocfs_static_vars	 lvars;
@@ -1188,6 +1191,10 @@ static int __init osp_mod_init(void)
 		lu_kmem_fini(osp_caches);
 		return rc;
 	}
+
+	osp_mds_ost_orig_logops = llog_osd_ops;
+	osp_mds_ost_orig_logops.lop_add = llog_cat_add_rec;
+	osp_mds_ost_orig_logops.lop_declare_add = llog_cat_declare_add_rec;
 
 	osc_proc_dir = lprocfs_srch(proc_lustre_root, "osc");
 	if (osc_proc_dir == NULL) {
