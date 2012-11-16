@@ -1204,7 +1204,7 @@ static obd_count osc_checksum_bulk(int nob, obd_count pg_count,
  * involved in the bulk transfer are no longer considered unstable. */
 void osc_commit_cb(struct ptlrpc_request *req)
 {
-	int i, page_count;
+	int i, page_count, ccc_count, ccc_waiters;
 	struct ptlrpc_bulk_desc *desc = req->rq_bulk;
 	struct client_obd       *cli  = &req->rq_import->imp_obd->u.cli;
 
@@ -1218,10 +1218,23 @@ void osc_commit_cb(struct ptlrpc_request *req)
 	for (i = 0; i < page_count; i++)
 		dec_zone_page_state(desc->bd_iov[i].kiov_page, NR_UNSTABLE_NFS);
 
+	ccc_count   = cfs_atomic_read(&cli->cl_cache->ccc_unstable_nr);
+	ccc_waiters = cfs_atomic_read(&cli->cl_cache->ccc_unstable_waiters);
+
+	CERROR("LU-2139: %i threads waiting to flush %i pages\n",
+	       ccc_waiters, ccc_count);
+
 	cfs_atomic_add(-1 * page_count, &cli->cl_cache->ccc_unstable_nr);
 	LASSERT(cfs_atomic_read(&cli->cl_cache->ccc_unstable_nr) >= 0);
 
 	cfs_waitq_broadcast(&cli->cl_cache->ccc_unstable_waitq);
+
+	ccc_count   = cfs_atomic_read(&cli->cl_cache->ccc_unstable_nr);
+	ccc_waiters = cfs_atomic_read(&cli->cl_cache->ccc_unstable_waiters);
+
+	CERROR("LU-2139: %i threads waiting to flush %i pages\n",
+	       ccc_waiters, ccc_count);
+
 }
 
 static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
@@ -1240,6 +1253,7 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
         struct osc_brw_async_args *aa;
         struct req_capsule      *pill;
         struct brw_page *pg_prev;
+	int ccc_count, ccc_waiters;
 
         ENTRY;
         if (OBD_FAIL_CHECK(OBD_FAIL_OSC_BRW_PREP_REQ))
@@ -1355,9 +1369,21 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
                 pg_prev = pg;
         }
 
+	ccc_count   = cfs_atomic_read(&cli->cl_cache->ccc_unstable_nr);
+	ccc_waiters = cfs_atomic_read(&cli->cl_cache->ccc_unstable_waiters);
+
+	CERROR("LU-2139: %i threads waiting to flush %i pages\n",
+	       ccc_waiters, ccc_count);
+
 	/* "unstable" page accounting. See: osc_commit_cb. */
 	if (opc == OST_WRITE && cli->cl_cache != NULL)
 		cfs_atomic_add(page_count, &cli->cl_cache->ccc_unstable_nr);
+
+	ccc_count   = cfs_atomic_read(&cli->cl_cache->ccc_unstable_nr);
+	ccc_waiters = cfs_atomic_read(&cli->cl_cache->ccc_unstable_waiters);
+
+	CERROR("LU-2139: %i threads waiting to flush %i pages\n",
+	       ccc_waiters, ccc_count);
 
         LASSERTF((void *)(niobuf - niocount) ==
                 req_capsule_client_get(&req->rq_pill, &RMF_NIOBUF_REMOTE),

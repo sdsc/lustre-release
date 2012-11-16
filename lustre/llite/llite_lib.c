@@ -1088,6 +1088,13 @@ void ll_put_super(struct super_block *sb)
 	while (force == 0 && rc == 0 &&
 	       cfs_atomic_read(&sbi->ll_cache.ccc_unstable_nr) > 0) {
 		cfs_atomic_inc(&sbi->ll_cache.ccc_unstable_waiters);
+
+		ccc_count   = cfs_atomic_read(&sbi->ll_cache.ccc_unstable_nr);
+		ccc_waiters = cfs_atomic_read(&sbi->ll_cache.ccc_unstable_waiters);
+
+		CERROR("LU-2139: %i threads waiting to flush %i pages\n",
+		       ccc_waiters, ccc_count);
+
 		rc = l_wait_event(sbi->ll_cache.ccc_unstable_waitq,
 			cfs_atomic_read(&sbi->ll_cache.ccc_unstable_nr) == 0,
 			&lwi);

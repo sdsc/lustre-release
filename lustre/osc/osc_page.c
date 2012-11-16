@@ -517,7 +517,7 @@ struct cl_page *osc_page_init(const struct lu_env *env,
 	struct cl_client_cache	*cache = cli->cl_cache;
 	struct l_wait_info	 lwi   = LWI_INTR(LWI_ON_SIGNAL_NOOP, NULL);
 	struct osc_page		*opg;
-	int			 result;
+	int			 result, ccc_count, ccc_waiters;
 
         OBD_SLAB_ALLOC_PTR_GFP(opg, osc_page_kmem, CFS_ALLOC_IO);
         if (opg != NULL) {
@@ -567,6 +567,13 @@ struct cl_page *osc_page_init(const struct lu_env *env,
 			break;
 
 		cfs_atomic_inc(&cache->ccc_unstable_waiters);
+
+		ccc_count   = cfs_atomic_read(&cache->ccc_unstable_nr);
+		ccc_waiters = cfs_atomic_read(&cache->ccc_unstable_waiters);
+
+		CERROR("LU-2139: %i threads waiting to flush %i pages\n",
+		       ccc_waiters, ccc_count);
+
 		result = l_wait_event(cache->ccc_unstable_waitq,
 			cfs_atomic_read(&cache->ccc_unstable_nr) == 0 ||
 			cfs_atomic_read(&cache->ccc_unstable_nr) <
