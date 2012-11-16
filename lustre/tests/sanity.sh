@@ -2591,7 +2591,7 @@ is_sles11()						# LU-1783
 		local vers=`grep VERSION /etc/SuSE-release | awk '{print $3}'`
 		local patchlev=`grep PATCHLEVEL /etc/SuSE-release \
 			| awk '{print $3}'`
-		if [ $vers -eq 11 ] && [ $patchlev -eq 1 ]
+		if [ $vers -eq 11 ] && [ $patchlev -ge 1 ]
 		then
 			return 0
 		fi
