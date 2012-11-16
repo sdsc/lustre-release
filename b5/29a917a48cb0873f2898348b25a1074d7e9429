@@ -1,0 +1,8 @@
+Verified+1: Hudson
+Code-Review+2: Johann Lombardi <johann.lombardi@intel.com>
+Code-Review+1: Richard Henwood <richard.henwood@intel.com>
+Submitted-by: Andreas Dilger <adilger@whamcloud.com>
+Submitted-at: Fri, 16 Nov 2012 16:51:07 -0500
+Reviewed-on: http://review.whamcloud.com/4480
+Project: fs/lustre-release
+Branch: refs/heads/master
