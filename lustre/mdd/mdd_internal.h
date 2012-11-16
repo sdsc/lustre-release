@@ -464,6 +464,7 @@ struct lu_object *mdd_object_alloc(const struct lu_env *env,
                                    const struct lu_object_header *hdr,
                                    struct lu_device *d);
 
+extern struct llog_operations changelog_orig_logops;
 /* mdd_permission.c */
 #define mdd_cap_t(x) (x)
 
