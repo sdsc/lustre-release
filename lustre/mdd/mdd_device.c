@@ -284,7 +284,6 @@ static int llog_changelog_cancel(const struct lu_env *env,
 	RETURN(rc);
 }
 
-static struct llog_operations changelog_orig_logops;
 
 int mdd_changelog_on(const struct lu_env *env, struct mdd_device *mdd, int on);
 
@@ -302,8 +301,6 @@ static int mdd_changelog_llog_init(const struct lu_env *env,
 	if (rc)
 		RETURN(-ENODEV);
 
-	changelog_orig_logops = llog_osd_ops;
-	changelog_orig_logops.lop_cancel = llog_changelog_cancel;
 	rc = llog_setup(env, obd, &obd->obd_olg, LLOG_CHANGELOG_ORIG_CTXT,
 			obd, &changelog_orig_logops);
 	if (rc) {
@@ -319,10 +316,6 @@ static int mdd_changelog_llog_init(const struct lu_env *env,
 			      CHANGELOG_CATALOG);
 	if (rc)
 		GOTO(out_cleanup, rc);
-
-	ctxt->loc_handle->lgh_logops->lop_add = llog_cat_add_rec;
-	ctxt->loc_handle->lgh_logops->lop_declare_add =
-					llog_cat_declare_add_rec;
 
 	rc = llog_cat_init_and_process(env, ctxt->loc_handle);
 	if (rc)
@@ -1814,6 +1807,8 @@ static struct lu_local_obj_desc llod_lfsck_bookmark = {
 	.llod_is_index  = 0,
 };
 
+struct llog_operations changelog_orig_logops;
+
 static int __init mdd_mod_init(void)
 {
 	struct lprocfs_static_vars lvars;
@@ -1824,6 +1819,11 @@ static int __init mdd_mod_init(void)
 	rc = lu_kmem_init(mdd_caches);
 	if (rc)
 		return rc;
+
+	changelog_orig_logops = llog_osd_ops;
+	changelog_orig_logops.lop_cancel = llog_changelog_cancel;
+	changelog_orig_logops.lop_add = llog_cat_add_rec;
+	changelog_orig_logops.lop_declare_add = llog_cat_declare_add_rec;
 
 	llo_local_obj_register(&llod_capa_key);
 	llo_local_obj_register(&llod_mdd_orphan);

@@ -378,6 +378,7 @@ static inline int osp_is_fid_client(struct osp_device *osp)
 
 /* osp_dev.c */
 void osp_update_last_id(struct osp_device *d, obd_id objid);
+extern struct llog_operations osp_mds_ost_orig_logops;
 
 /* osp_md_object.c */
 int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
