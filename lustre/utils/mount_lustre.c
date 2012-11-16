@@ -53,6 +53,7 @@
 #include <lustre_ver.h>
 #include <ctype.h>
 #include <limits.h>
+#include <linux/fs.h>
 
 #define MAXOPT 4096
 #define MAX_RETRIES 99
