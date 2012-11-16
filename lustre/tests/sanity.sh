@@ -2591,7 +2591,7 @@ is_sles11()						# LU-1783
 		local vers=`grep VERSION /etc/SuSE-release | awk '{print $3}'`
 		local patchlev=`grep PATCHLEVEL /etc/SuSE-release \
 			| awk '{print $3}'`
-		if [ $vers -eq 11 ] && [ $patchlev -eq 1 ]
+		if [ $vers -eq 11 ] && [ $patchlev -ge 1 ]
 		then
 			return 0
 		fi
@@ -2600,7 +2600,7 @@ is_sles11()						# LU-1783
 }
 
 test_39l() {
-	is_sles11 && skip "SLES 11 SP1" && return	# LU-1783
+	is_sles11 && skip "SLES 11 SP" && return	# LU-1783
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	local atime_diff=$(do_facet $SINGLEMDS lctl get_param -n mdd.*.atime_diff)
 
