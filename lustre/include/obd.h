@@ -1094,12 +1094,6 @@ enum obd_cleanup_stage {
 /* Precleanup stage 1, we must make sure all exports (other than the
    self-export) get destroyed. */
         OBD_CLEANUP_EXPORTS,
-/* Precleanup stage 2,  do other type-specific cleanup requiring the
-   self-export. */
-        OBD_CLEANUP_SELF_EXP,
-/* FIXME we should eliminate the "precleanup" function and make them stages
-   of the "cleanup" function. */
-        OBD_CLEANUP_OBD,
 };
 
 /* get/set_info keys */

@@ -255,12 +255,8 @@ static int mgs_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
         switch (stage) {
         case OBD_CLEANUP_EARLY:
         case OBD_CLEANUP_EXPORTS:
-                break;
-        case OBD_CLEANUP_SELF_EXP:
                 llog_cleanup(llog_get_context(obd, LLOG_CONFIG_ORIG_CTXT));
                 rc = obd_llog_finish(obd, 0);
-                break;
-        case OBD_CLEANUP_OBD:
                 break;
         }
         RETURN(rc);

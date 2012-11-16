@@ -504,6 +504,16 @@ int class_cleanup(struct obd_device *obd, struct lustre_cfg *lcfg)
 
         LASSERT(obd->obd_self_export);
 
+        /* Precleanup stage 1, we must make sure all exports (other than the
+           self-export) get destroyed. */
+        err = obd_precleanup(obd, OBD_CLEANUP_EXPORTS);
+        if (err)
+                CERROR("Precleanup %s returned %d\n",
+                       obd->obd_name, err);
+
+        /* unlink self export here */
+        class_unlink_self_export(obd);
+
         /* destroy an uuid-export hash body */
         lustre_hash_exit(obd->obd_uuid_hash);
 
@@ -513,12 +523,10 @@ int class_cleanup(struct obd_device *obd, struct lustre_cfg *lcfg)
         /* destroy a nid-stats hash body */
         lustre_hash_exit(obd->obd_nid_stats_hash);
 
-        /* Precleanup stage 1, we must make sure all exports (other than the
-           self-export) get destroyed. */
-        err = obd_precleanup(obd, OBD_CLEANUP_EXPORTS);
-        if (err)
-                CERROR("Precleanup %s returned %d\n",
-                       obd->obd_name, err);
+        /* To make sure that all exports have been culled, and this lets
+           class_detach() put the last refcount in class_detach() */
+        obd_zombie_barrier();
+
         class_decref(obd);
         obd->obd_set_up = 0;
 
@@ -527,6 +535,10 @@ int class_cleanup(struct obd_device *obd, struct lustre_cfg *lcfg)
 
 struct obd_device *class_incref(struct obd_device *obd)
 {
+        /* If obd_refcount has reached zero even only once,
+           that obd device should have been released already */
+        LASSERT(atomic_read(&obd->obd_refcount) > 0);
+
         atomic_inc(&obd->obd_refcount);
         CDEBUG(D_INFO, "incref %s (%p) now %d\n", obd->obd_name, obd,
                atomic_read(&obd->obd_refcount));
@@ -537,40 +549,19 @@ struct obd_device *class_incref(struct obd_device *obd)
 void class_decref(struct obd_device *obd)
 {
         int err;
-        int refs;
+        int refs = atomic_read(&obd->obd_refcount);
 
-        spin_lock(&obd->obd_dev_lock);
-        atomic_dec(&obd->obd_refcount);
-        refs = atomic_read(&obd->obd_refcount);
-        spin_unlock(&obd->obd_dev_lock);
+        LASSERT(refs > 0);
+        CDEBUG(D_INFO, "Decref %s (%p) now %d\n", obd->obd_name, obd, refs-1);
 
-        CDEBUG(D_INFO, "Decref %s (%p) now %d\n", obd->obd_name, obd, refs);
+        if (atomic_dec_and_test(&obd->obd_refcount)) {
+                spin_unlock(&obd->obd_dev_lock);
 
-        if ((refs == 1) && obd->obd_stopping) {
-                /* All exports (other than the self-export) have been
-                   destroyed; there should be no more in-progress ops
-                   by this point.*/
-                /* if we're not stopping, we didn't finish setup */
-                /* Precleanup stage 2,  do other type-specific
-                   cleanup requiring the self-export. */
-                err = obd_precleanup(obd, OBD_CLEANUP_SELF_EXP);
-                if (err)
-                        CERROR("Precleanup %s returned %d\n",
-                               obd->obd_name, err);
-
-                spin_lock(&obd->obd_self_export->exp_lock);
-                obd->obd_self_export->exp_flags |= exp_flags_from_obd(obd);
-                spin_unlock(&obd->obd_self_export->exp_lock);
-
-                /* note that we'll recurse into class_decref again */
-                class_unlink_export(obd->obd_self_export);
-                return;
-        }
-
-        if (refs == 0) {
                 CDEBUG(D_CONFIG, "finishing cleanup of obd %s (%s)\n",
                        obd->obd_name, obd->obd_uuid.uuid);
                 LASSERT(!obd->obd_attached);
+                LASSERT(!obd->obd_set_up);
+
                 if (obd->obd_stopping) {
                         /* If we're not stopping, we were never set up */
                         err = obd_cleanup(obd);

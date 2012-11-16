@@ -4569,10 +4569,6 @@ static int osc_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
                         CERROR("failed to cleanup llogging subsystems\n");
                 break;
         }
-        case OBD_CLEANUP_SELF_EXP:
-                break;
-        case OBD_CLEANUP_OBD:
-                break;
         }
         RETURN(rc);
 }

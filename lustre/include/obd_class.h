@@ -210,6 +210,7 @@ void __class_export_put(struct obd_export *);
 struct obd_export *class_new_export(struct obd_device *obddev,
                                     struct obd_uuid *cluuid);
 void class_unlink_export(struct obd_export *exp);
+void class_unlink_self_export(struct obd_device *obd);
 
 struct obd_import *class_import_get(struct obd_import *);
 void class_import_put(struct obd_import *);

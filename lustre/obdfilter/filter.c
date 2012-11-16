@@ -2259,10 +2259,6 @@ static int filter_precleanup(struct obd_device *obd,
                 target_cleanup_recovery(obd);
                 rc = filter_llog_finish(obd, 0);
                 break;
-        case OBD_CLEANUP_SELF_EXP:
-                break;
-        case OBD_CLEANUP_OBD:
-                break;
         }
         RETURN(rc);
 }

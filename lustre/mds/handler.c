@@ -2243,15 +2243,11 @@ static int mds_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
         case OBD_CLEANUP_EXPORTS:
                 target_cleanup_recovery(obd);
                 mds_lov_early_clean(obd);
-                break;
-        case OBD_CLEANUP_SELF_EXP:
                 mds_lov_disconnect(obd);
                 mds_lov_clean(obd);
                 llog_cleanup(llog_get_context(obd, LLOG_CONFIG_ORIG_CTXT));
                 llog_cleanup(llog_get_context(obd, LLOG_LOVEA_ORIG_CTXT));
                 rc = obd_llog_finish(obd, 0);
-                break;
-        case OBD_CLEANUP_OBD:
                 break;
         }
         RETURN(rc);
