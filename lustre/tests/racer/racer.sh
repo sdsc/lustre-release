@@ -5,6 +5,8 @@ MAX_FILES=${MAX_FILES:-20}
 DIR=${DIR:-$1}
 DIR=${DIR:-"/mnt/lustre/racer"}
 DURATION=${DURATION:-$((60*5))}
+MDSCOUNT=${MDSCOUNT:-1}
+LFS=${LFS:-lfs}
 
 NUM_THREADS=${NUM_THREADS:-$2}
 NUM_THREADS=${NUM_THREADS:-3}
@@ -13,6 +15,10 @@ mkdir -p $DIR
 
 RACER_PROGS="file_create dir_create file_rm file_rename file_link file_symlink \
 file_list file_concat file_exec"
+
+if [ $MDSCOUNT -gt 1 ]; then
+	RACER_PROGS="${RACER_PROGS} dir_remote"
+fi
 
 racer_cleanup()
 {
@@ -61,7 +67,7 @@ trap "
 cd `dirname $0`
 for N in `seq 1 $NUM_THREADS`; do
 	for P in $RACER_PROGS; do
-		./$P.sh $DIR $MAX_FILES &
+		LFS=$LFS ./$P.sh $DIR $MAX_FILES $MDSCOUNT &
 	done
 done
 
