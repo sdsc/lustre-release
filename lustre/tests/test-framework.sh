@@ -5894,3 +5894,25 @@ test_mkdir() {
 	fi
 	return $rc
 }
+
+# create remote directory
+create_remote_dir()
+{
+	local index=1
+	local remote_dir=$2
+
+	if [ $# -eq 2 ]; then
+		index=$1
+		remote_dir=$2
+	else
+		remote_dir=$1
+	fi
+
+	if [ $MDTCOUNT -le 1 ]; then
+		mkdir -p $remote_dir || rc=$?
+	else
+		$LFS mkdir -i $index $remote_dir || rc=$?
+	fi
+
+	return $rc
+}
