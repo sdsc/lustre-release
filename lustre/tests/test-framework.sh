@@ -2790,6 +2790,7 @@ mkfs_opts() {
 	local index=$(($(facet_number $facet) - 1))
 	local fstype=$(facet_fstype $facet)
 	local host=$(facet_host $facet)
+	local fsname=${fsname:-"$FSNAME"}
 	local opts
 	local fs_mkfs_opts
 	local var
@@ -2807,7 +2808,7 @@ mkfs_opts() {
 	fi
 
 	if [ $type != MGS ]; then
-		opts+=" --fsname=$FSNAME --$(lower ${type/MDS/MDT}) --index=$index"
+		opts+=" --fsname=$fsname --$(lower ${type/MDS/MDT}) --index=$index"
 	fi
 
 	var=${facet}failover_HOST
@@ -2941,11 +2942,36 @@ remount_client()
         zconf_mount `hostname` $1 || error "mount failed"
 }
 
-writeconf_facet () {
-    local facet=$1
-    local dev=$2
+gen_config() {
+	# The MGS must be started before the OSTs for a new fs, so start
+	# and stop to generate the startup logs.
+	start_mds
+	start_ost
+        wait_osc_import_state mds ost FULL
+	stop_ost
+	stop_mds
+}
 
-    do_facet $facet "$TUNEFS --writeconf $dev"
+reformat_and_config() {
+	reformat
+	if ! combined_mgs_mds ; then
+		start_mgs
+	fi
+	gen_config
+}
+
+writeconf_facet() {
+	local facet=$1
+	local dev=$2
+
+	stop ${facet} -f
+	rm -f ${facet}active
+	# who knows if/where $TUNEFS is installed?
+	# Better reformat if it fails...
+	do_facet ${facet} "$TUNEFS --quiet --writeconf $dev" ||
+		{ echo "tunefs failed, reformatting instead" &&
+		  reformat_and_config && return 1; }
+	return 0
 }
 
 writeconf_all () {
