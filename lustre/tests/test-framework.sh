@@ -2837,6 +2837,7 @@ mkfs_opts() {
 	local index=$(($(facet_number $facet) - 1))
 	local fstype=$(facet_fstype $facet)
 	local host=$(facet_host $facet)
+	local fsname=${fsname:-"$FSNAME"}
 	local opts
 	local fs_mkfs_opts
 	local var
@@ -2854,7 +2855,7 @@ mkfs_opts() {
 	fi
 
 	if [ $type != MGS ]; then
-		opts+=" --fsname=$FSNAME --$(lower ${type/MDS/MDT}) --index=$index"
+		opts+=" --fsname=$fsname --$(lower ${type/MDS/MDT}) --index=$index"
 	fi
 
 	var=${facet}failover_HOST
