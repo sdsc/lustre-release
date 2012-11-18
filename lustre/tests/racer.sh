@@ -10,7 +10,7 @@ init_test_env $@
 init_logging
 
 racer=$LUSTRE/tests/racer/racer.sh
-echo racer: $racer
+echo racer: $racer with $MDSCOUNT MDTs
 
 DURATION=${DURATION:-900}
 [ "$SLOW" = "no" ] && DURATION=300
@@ -22,29 +22,34 @@ check_and_setup_lustre
 CLIENTS=${CLIENTS:-$HOSTNAME}
 RACERDIRS=${RACERDIRS:-"$DIR $DIR2"}
 echo RACERDIRS=$RACERDIRS
-for d in ${RACERDIRS}; do
-        is_mounted $d || continue
 
-	RDIRS="$RDIRS $d/racer"
-	mkdir -p $d/racer
-#	lfs setstripe $d/racer -c -1
-done
+
+check_progs_installed $clients $racer || \
+	{ skip_env "$racer not found" && return 0; }
+
 
 # run racer
 test_1() {
     local rrc=0
     local rc=0
     local clients=${CLIENTS:-$(hostname)}
+	local RDIRS
 
-    check_progs_installed $clients $racer || \
-        { skip_env "$racer not found" && return 0; }
+	for d in ${RACERDIRS}; do
+		is_mounted $d || continue
+
+		RDIRS="$RDIRS $d/racer"
+		mkdir -p $d/racer
+	#	lfs setstripe $d/racer -c -1
+	done
 
     local rpids=""
-    for rdir in $RDIRS; do
-        do_nodes $clients "DURATION=$DURATION $racer $rdir $NUM_RACER_THREADS" &
-        pid=$!
-        rpids="$rpids $pid"
-    done
+	for rdir in $RDIRS; do
+		do_nodes $clients "DURATION=$DURATION MDSCOUNT=$MDSCOUNT \
+				   LFS=$LFS $racer $rdir $NUM_RACER_THREADS" &
+		pid=$!
+		rpids="$rpids $pid"
+	done
 
     echo racers pids: $rpids
     for pid in $rpids; do
@@ -59,6 +64,47 @@ test_1() {
     return $rrc
 }
 run_test 1 "racer on clients: ${CLIENTS:-$(hostname)} DURATION=$DURATION"
+
+test_2() {
+	local rrc=0
+	local rc=0
+	local clients=${CLIENTS:-$HOSTNAME}
+	local mdt_idx=1
+	local RDIRS
+	local rdir
+	local pid
+
+	[ $MDTCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	for d in ${RACERDIRS}; do
+		is_mounted $d || continue
+
+		rm -rf $d/racer
+		mkdir -p $d
+		RDIRS="$RDIRS $d/racer"
+		$LFS mkdir -i $mdt_idx $d/racer
+	done
+	local rpids=""
+	for rdir in $RDIRS; do
+		do_nodes $clients "DURATION=$DURATION MDTCOUNT=$MDTCOUNT \
+			LFS=$LFS $racer $rdir $NUM_RACER_THREADS" &
+		pid=$!
+		rpids="$rpids $pid"
+	done
+
+	echo racers pids: $rpids
+	for pid in $rpids; do
+		wait $pid
+		rc=$?
+		echo "pid=$pid rc=$rc"
+		if [ $rc != 0 ]; then
+			rrc=$((rrc + 1))
+		fi
+	done
+
+	return $rrc
+}
+run_test 2 "racer in remote dir cli: ${CLIENTS:-$HOSTNAME} DURATION=$DURATION"
 
 complete $SECONDS
 check_and_cleanup_lustre
