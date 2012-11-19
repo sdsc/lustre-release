@@ -498,6 +498,76 @@ static inline void osd_object_put(const struct lu_env *env,
 	lu_object_put(env, &obj->oo_dt.do_lu);
 }
 
+int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
+		   const struct lu_fid *fid, struct lu_seq_range *range)
+{
+	struct md_site	*ms = osd_md_site(osd);
+	int		rc;
+
+	if (fid_is_igif(fid)) {
+		range->lsr_flags = LU_SEQ_RANGE_MDT;
+		range->lsr_index = 0;
+		return 0;
+	}
+
+	if (fid_is_root(fid)) {
+		range->lsr_flags = LU_SEQ_RANGE_MDT;
+		range->lsr_start = FID_SEQ_SPECIAL;
+		range->lsr_end = FID_SEQ_SPECIAL + 1;
+		range->lsr_index = fid_index_get_by_rootfid(fid);
+		return 0;
+	}
+
+	if (fid_is_idif(fid)) {
+		range->lsr_flags = LU_SEQ_RANGE_OST;
+		range->lsr_index = fid_idif_ost_idx(fid);
+		return 0;
+	}
+
+	if (!fid_is_norm(fid)) {
+		range->lsr_flags = LU_SEQ_RANGE_MDT;
+		if (ms != NULL)
+			/* FIXME: If ms is NULL, it suppose not get lsr_index
+			 * at all */
+			range->lsr_index = ms->ms_node_id;
+		return 0;
+	}
+
+	LASSERT(ms != NULL);
+	range->lsr_flags = -1;
+	rc = fld_server_lookup(ms->ms_server_fld, env, fid_seq(fid), range);
+	if (rc != 0)
+		CERROR("%s can not find "DFID": rc = %d\n",
+		       osd_name(osd), PFID(fid), rc);
+	return rc;
+}
+
+static int osd_remote_fid(const struct lu_env *env, struct osd_device *osd,
+			  struct lu_fid *fid)
+{
+	struct lu_seq_range	*range = &osd_oti_get(env)->oti_seq_range;
+	struct md_site		*ms = osd_md_site(osd);
+	int			rc;
+	ENTRY;
+
+	if (!fid_is_norm(fid) && !fid_is_root(fid))
+		RETURN(0);
+
+	rc = osd_fld_lookup(env, osd, fid, range);
+	if (rc != 0) {
+		CERROR("%s: Can not lookup fld for "DFID"\n",
+		       osd_name(osd), PFID(fid));
+		RETURN(rc);
+	}
+
+	LASSERT(range->lsr_flags == LU_SEQ_RANGE_MDT);
+	LASSERT(ms != NULL);
+	if (ms->ms_node_id == range->lsr_index)
+		RETURN(0);
+
+	RETURN(1);
+}
+
 /**
  *      Inserts (key, value) pair in \a directory object.
  *
@@ -521,7 +591,7 @@ static int osd_dir_insert(const struct lu_env *env, struct dt_object *dt,
 	struct osd_device   *osd = osd_obj2dev(parent);
 	struct lu_fid       *fid = (struct lu_fid *)rec;
 	struct osd_thandle  *oh;
-	struct osd_object   *child;
+	struct osd_object   *child = NULL;
 	__u32                attr;
 	int                  rc;
 	ENTRY;
@@ -529,39 +599,57 @@ static int osd_dir_insert(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(parent->oo_db);
 	LASSERT(udmu_object_is_zap(parent->oo_db));
 
-	LASSERT(dt_object_exists(dt));
-	LASSERT(osd_invariant(parent));
+	LASSERT(th != NULL);
+	oh = container_of0(th, struct osd_thandle, ot_super);
 
 	/*
 	 * zfs_readdir() generates ./.. on fly, but
 	 * we want own entries (.. at least) with a fid
 	 */
+	rc = osd_remote_fid(env, osd, fid);
+	if (rc < 0) {
+		CERROR("Can not find object "DFID" rc %d\n",
+			PFID(fid), rc);
+		RETURN(rc);
+	}
+
+	if (rc == 1) {
+		/* Insert remote entry */
+		memset(&oti->oti_zde.lzd_reg, 0, sizeof(oti->oti_zde.lzd_reg));
+		oti->oti_zde.lzd_reg.zde_type = IFTODT(S_IFDIR & S_IFMT);
+	} else {
+		LASSERT(dt_object_exists(dt));
+		LASSERT(osd_invariant(parent));
+
+		/*
+		 * zfs_readdir() generates ./.. on fly, but
+		 * we want own entries (.. at least) with a fid
+		 */
 #if LUSTRE_VERSION_CODE >= OBD_OCD_VERSION(2, 3, 57, 0)
 #warning "fix '.' and '..' handling"
 #endif
 
-	LASSERT(th != NULL);
-	oh = container_of0(th, struct osd_thandle, ot_super);
+		/* Insert local entry */
+		child = osd_object_find(env, dt, fid);
+		if (IS_ERR(child))
+			RETURN(PTR_ERR(child));
 
-	child = osd_object_find(env, dt, fid);
-	if (IS_ERR(child))
-		RETURN(PTR_ERR(child));
+		LASSERT(child->oo_db);
 
-	LASSERT(child->oo_db);
-
-	CLASSERT(sizeof(oti->oti_zde.lzd_reg) == 8);
-	CLASSERT(sizeof(oti->oti_zde) % 8 == 0);
-	attr = child->oo_dt.do_lu.lo_header ->loh_attr;
-	oti->oti_zde.lzd_reg.zde_type = IFTODT(attr & S_IFMT);
-	oti->oti_zde.lzd_reg.zde_dnode = child->oo_db->db_object;
+		CLASSERT(sizeof(oti->oti_zde.lzd_reg) == 8);
+		CLASSERT(sizeof(oti->oti_zde) % 8 == 0);
+		attr = child->oo_dt.do_lu.lo_header->loh_attr;
+		oti->oti_zde.lzd_reg.zde_type = IFTODT(attr & S_IFMT);
+		oti->oti_zde.lzd_reg.zde_dnode = child->oo_db->db_object;
+	}
 	oti->oti_zde.lzd_fid = *fid;
-
 	/* Insert (key,oid) into ZAP */
 	rc = -zap_add(osd->od_objset.os, parent->oo_db->db_object,
 		      (char *)key, 8, sizeof(oti->oti_zde) / 8,
 		      (void *)&oti->oti_zde, oh->ot_tx);
 
-	osd_object_put(env, child);
+	if (child != NULL)
+		osd_object_put(env, child);
 
 	RETURN(rc);
 }

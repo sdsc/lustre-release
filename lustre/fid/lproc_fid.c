@@ -264,6 +264,7 @@ seq_client_proc_write_width(struct file *file, const char *buffer,
                             unsigned long count, void *data)
 {
         struct lu_client_seq *seq = (struct lu_client_seq *)data;
+	__u64  max;
 	int rc, val;
 	ENTRY;
 
@@ -277,7 +278,12 @@ seq_client_proc_write_width(struct file *file, const char *buffer,
                 RETURN(rc);
         }
 
-        if (val <= LUSTRE_SEQ_MAX_WIDTH && val > 0) {
+	if (seq->lcs_type == LUSTRE_SEQ_DATA)
+		max = LUSTRE_DATA_SEQ_MAX_WIDTH;
+	else
+		max = LUSTRE_METADATA_SEQ_MAX_WIDTH;
+
+	if (val <= max && val > 0) {
                 seq->lcs_width = val;
 
                 if (rc == 0) {

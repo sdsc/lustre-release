@@ -1137,7 +1137,8 @@ EXPORT_SYMBOL(llog_osd_ops);
 
 /* reads the catalog list */
 int llog_osd_get_cat_list(const struct lu_env *env, struct dt_device *d,
-			  int idx, int count, struct llog_catid *idarray)
+			  int idx, int group, int count,
+			  struct llog_catid *idarray)
 {
 	struct llog_thread_info	*lgi = llog_info(env);
 	struct dt_object	*o = NULL;
@@ -1151,7 +1152,13 @@ int llog_osd_get_cat_list(const struct lu_env *env, struct dt_device *d,
 	size = sizeof(*idarray) * count;
 	lgi->lgi_off = idx *  sizeof(*idarray);
 
-	lu_local_obj_fid(&lgi->lgi_fid, LLOG_CATALOGS_OID);
+	LASSERTF(group >= 0 && group < MAX_MDT_INDEX, "invalid group %d\n",
+		 group);
+	if (group == 0)
+		lu_local_obj_fid(&lgi->lgi_fid, LLOG_CATALOGS_OID);
+	else
+		lu_local_obj_fid(&lgi->lgi_fid,
+				 LLOG_GROUP1_CATALOGS_OID + group - 1);
 	o = dt_locate(env, d, &lgi->lgi_fid);
 	if (IS_ERR(o))
 		RETURN(PTR_ERR(o));
@@ -1230,7 +1237,8 @@ EXPORT_SYMBOL(llog_osd_get_cat_list);
 
 /* writes the cat list */
 int llog_osd_put_cat_list(const struct lu_env *env, struct dt_device *d,
-			  int idx, int count, struct llog_catid *idarray)
+			  int idx, int group, int count,
+			  struct llog_catid *idarray)
 {
 	struct llog_thread_info	*lgi = llog_info(env);
 	struct dt_object	*o = NULL;
@@ -1245,7 +1253,14 @@ int llog_osd_put_cat_list(const struct lu_env *env, struct dt_device *d,
 	size = sizeof(*idarray) * count;
 	lgi->lgi_off = idx * sizeof(*idarray);
 
-	lu_local_obj_fid(&lgi->lgi_fid, LLOG_CATALOGS_OID);
+	LASSERTF(group >= 0 && group < MAX_MDT_INDEX, "invalid group %d\n",
+		 group);
+
+	if (group == 0)
+		lu_local_obj_fid(&lgi->lgi_fid, LLOG_CATALOGS_OID);
+	else
+		lu_local_obj_fid(&lgi->lgi_fid,
+				 LLOG_GROUP1_CATALOGS_OID + group - 1);
 	o = dt_locate(env, d, &lgi->lgi_fid);
 	if (IS_ERR(o))
 		RETURN(PTR_ERR(o));

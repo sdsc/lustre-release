@@ -155,122 +155,58 @@ fld_proc_write_cache_flush(struct file *file, const char *buffer,
         RETURN(count);
 }
 
-struct fld_seq_param {
-	struct lu_env  fsp_env;
-	struct dt_it  *fsp_it;
-};
-
-static void *fldb_seq_start(struct seq_file *p, loff_t *pos)
+static void *fldb_seq_start(struct seq_file *seq, loff_t *pos)
 {
-	struct lu_server_fld	*fld = p->private;
-	struct dt_object	*obj;
-	const struct dt_it_ops	*iops;
-	struct fld_seq_param	*param;
+	struct lu_server_fld    *fld = (struct lu_server_fld *)seq->private;
+	struct fld_cache	*cache = fld->lsf_cache;
+	struct fld_cache_entry  *next;
 
-	if (fld->lsf_obj == NULL)
-		return NULL;
-
-	obj = fld->lsf_obj;
-	iops = &obj->do_index_ops->dio_it;
-
-	OBD_ALLOC_PTR(param);
-	if (param == NULL)
-		return ERR_PTR(-ENOMEM);
-
-	lu_env_init(&param->fsp_env, LCT_MD_THREAD);
-	param->fsp_it = iops->init(&param->fsp_env, obj, 0, NULL);
-
-	iops->load(&param->fsp_env, param->fsp_it, *pos);
-
-	return param;
+	cfs_spin_lock(&cache->fci_lock);
+	if (!cfs_list_empty(&cache->fci_entries_head) &&
+		(*pos < cache->fci_cache_count)) {
+		cfs_list_t *head;
+		head = &cache->fci_entries_head;
+		next = cfs_list_entry((head)->next, struct fld_cache_entry,
+				      fce_list);
+		(*pos)++;
+	} else {
+		next = NULL;
+	}
+	cfs_spin_unlock(&cache->fci_lock);
+	return next;
 }
 
-static void fldb_seq_stop(struct seq_file *p, void *v)
+static void fldb_seq_stop(struct seq_file *seq, void *v)
 {
-	struct lu_server_fld	*fld = p->private;
-	struct dt_object	*obj;
-	const struct dt_it_ops	*iops;
-	struct fld_seq_param	*param = (struct fld_seq_param *)v;
-
-	if (fld->lsf_obj == NULL)
-		return;
-
-	obj = fld->lsf_obj;
-	iops = &obj->do_index_ops->dio_it;
-	if (IS_ERR(param) || param == NULL)
-		return;
-
-	iops->put(&param->fsp_env, param->fsp_it);
-	iops->fini(&param->fsp_env, param->fsp_it);
-	lu_env_fini(&param->fsp_env);
-	OBD_FREE_PTR(param);
-
 	return;
 }
 
-static void *fldb_seq_next(struct seq_file *p, void *v, loff_t *pos)
+static void *fldb_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 {
-	struct lu_server_fld	*fld = p->private;
-	struct dt_object	*obj;
-	const struct dt_it_ops	*iops;
-	struct fld_seq_param	*param = (struct fld_seq_param *)v;
-	int			rc;
+	struct lu_server_fld    *fld = (struct lu_server_fld *)seq->private;
+	struct fld_cache_entry	*entry = (struct fld_cache_entry *)v;
+	struct fld_cache	*cache = fld->lsf_cache;
 
-	if (fld->lsf_obj == NULL)
-		return NULL;
-
-	obj = fld->lsf_obj;
-	iops = &obj->do_index_ops->dio_it;
-
-	iops->get(&param->fsp_env, param->fsp_it,
-		  (const struct dt_key *)pos);
-
-	rc = iops->next(&param->fsp_env, param->fsp_it);
-	if (rc > 0) {
-		iops->put(&param->fsp_env, param->fsp_it);
-		iops->fini(&param->fsp_env, param->fsp_it);
-		lu_env_fini(&param->fsp_env);
-		OBD_FREE_PTR(param);
-		return NULL;
+	cfs_spin_lock(&cache->fci_lock);
+	if (*pos < cache->fci_cache_count) {
+		entry = cfs_list_entry(entry->fce_list.next,
+				       struct fld_cache_entry, fce_list);
+		(*pos)++;
+	} else {
+		entry = NULL;
 	}
-
-	*pos = *(loff_t *)iops->key(&param->fsp_env, param->fsp_it);
-
-	return param;
+	cfs_spin_unlock(&cache->fci_lock);
+	return entry;
 }
 
-static int fldb_seq_show(struct seq_file *p, void *v)
+static int fldb_seq_show(struct seq_file *seq, void *v)
 {
-	struct lu_server_fld	*fld = p->private;
-	struct dt_object	*obj = fld->lsf_obj;
-	struct fld_seq_param	*param = (struct fld_seq_param *)v;
-	const struct dt_it_ops	*iops;
-	struct fld_thread_info	*info;
-	struct lu_seq_range	*fld_rec;
-	int			rc;
+	struct fld_cache_entry	*entry = (struct fld_cache_entry *)v;
 
-	if (fld->lsf_obj == NULL)
-		return 0;
+	if (entry->fce_range.lsr_start != 0)
+		return seq_printf(seq, DRANGE"\n", PRANGE(&entry->fce_range));
 
-	obj = fld->lsf_obj;
-	iops = &obj->do_index_ops->dio_it;
-
-	info = lu_context_key_get(&param->fsp_env.le_ctx,
-				  &fld_thread_key);
-	fld_rec = &info->fti_rec;
-	rc = iops->rec(&param->fsp_env, param->fsp_it,
-		       (struct dt_rec *)fld_rec, 0);
-	if (rc != 0) {
-		CERROR("%s:read record error: rc %d\n",
-		       fld->lsf_name, rc);
-	} else if (fld_rec->lsr_start != 0) {
-		range_be_to_cpu(fld_rec, fld_rec);
-		rc = seq_printf(p, DRANGE"\n", PRANGE(fld_rec));
-	}
-
-	iops->put(&param->fsp_env, param->fsp_it);
-
-	return rc;
+	return 0;
 }
 
 struct seq_operations fldb_sops = {
@@ -282,8 +218,9 @@ struct seq_operations fldb_sops = {
 
 static int fldb_seq_open(struct inode *inode, struct file *file)
 {
-	struct proc_dir_entry *dp = PDE(inode);
-	struct seq_file *seq;
+	struct proc_dir_entry	*dp = PDE(inode);
+	struct seq_file		*seq;
+	struct lu_server_fld	*fld;
 	int rc;
 
 	LPROCFS_ENTRY_AND_CHECK(dp);
@@ -292,10 +229,32 @@ static int fldb_seq_open(struct inode *inode, struct file *file)
 		LPROCFS_EXIT();
 		return rc;
 	}
-
 	seq = file->private_data;
 	seq->private = dp->data;
+	fld = (struct lu_server_fld *)dp->data;
+
+	/* Shrink is not permitted during this time, i.e.
+	 * cache entries can not be deleted during the
+	 * process, so save some trouble to walk through
+	 * the cache entries, Since MDT0 already set
+	 * no_shrink flage, we only need do this on other MDTs */
+	if (fld->lsf_obj == NULL)
+		fld->lsf_cache->fci_no_shrink = 1;
+
 	return 0;
+}
+
+int fldb_seq_release(struct inode *inode, struct file *file)
+{
+	struct proc_dir_entry	*dp = PDE(inode);
+	struct lu_server_fld	*fld;
+
+	fld = (struct lu_server_fld *)dp->data;
+
+	if (fld->lsf_obj == NULL)
+		fld->lsf_cache->fci_no_shrink = 0;
+
+	return lprocfs_seq_release(inode, file);
 }
 
 struct lprocfs_vars fld_server_proc_list[] = {
@@ -312,7 +271,7 @@ struct file_operations fld_proc_seq_fops = {
 	.open    = fldb_seq_open,
 	.read    = seq_read,
 	.llseek  = seq_lseek,
-	.release = lprocfs_seq_release,
+	.release = fldb_seq_release,
 };
 
 #endif

@@ -209,8 +209,9 @@ struct md_op_spec {
         __u64      sp_cr_flags;
 
         /** Should mdd do lookup sanity check or not. */
-        int        sp_cr_lookup;
-
+	int	sp_cr_lookup:1,
+		sp_rm_entry:1,    /* only remove name entry */
+		sp_cr_recreate:1; /* create from a resend req */
         /** Current lock mode for parent dir where create is performing. */
         mdl_mode_t sp_cr_mode;
 
@@ -219,7 +220,7 @@ struct md_op_spec {
 };
 
 /**
- * Operations implemented for each md object (both directory and leaf).
+ * Operations implemented for each md object by(both directory and leaf).
  */
 struct md_object_operations {
         int (*moo_permission)(const struct lu_env *env,
@@ -286,6 +287,10 @@ struct md_object_operations {
         int (*moo_file_unlock)(const struct lu_env *env, struct md_object *obj,
                                struct lov_mds_md *lmm,
                                struct lustre_handle *lockh);
+	int (*moo_object_lock)(const struct lu_env *env, struct md_object *obj,
+			       struct lustre_handle *lh,
+			       struct ldlm_enqueue_info *einfo,
+			       void *policy);
 };
 
 /**
@@ -703,6 +708,16 @@ static inline int mo_file_unlock(const struct lu_env *env, struct md_object *m,
         return m->mo_ops->moo_file_unlock(env, m, lmm, lockh);
 }
 
+static inline int mo_object_lock(const struct lu_env *env,
+				 struct md_object *m,
+				 struct lustre_handle *lh,
+				 struct ldlm_enqueue_info *einfo,
+				 void *policy)
+{
+	LASSERT(m->mo_ops->moo_object_lock);
+	return m->mo_ops->moo_object_lock(env, m, lh, einfo, policy);
+}
+
 static inline int mdo_lookup(const struct lu_env *env,
                              struct md_object *p,
                              const struct lu_name *lname,
@@ -782,8 +797,8 @@ static inline int mdo_unlink(const struct lu_env *env,
                              const struct lu_name *lname,
                              struct md_attr *ma)
 {
-        LASSERT(c->mo_dir_ops->mdo_unlink);
-        return c->mo_dir_ops->mdo_unlink(env, p, c, lname, ma);
+	LASSERT(p->mo_dir_ops->mdo_unlink);
+	return p->mo_dir_ops->mdo_unlink(env, p, c, lname, ma);
 }
 
 static inline int mdo_lum_lmm_cmp(const struct lu_env *env,
