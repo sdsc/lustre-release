@@ -29,7 +29,7 @@ CLEANUP=${CLEANUP:-""}
 check_and_setup_lustre
 
 assert_DIR
-rm -rf $DIR/[df][0-9]*
+rm -rf $DIR/d[0-9]* $DIR/f.${TESTSUITE}*
 
 test_1() {
 	local f1="$DIR/$tfile"
@@ -154,6 +154,8 @@ test_10() {
     do_facet client touch $DIR/$tfile || echo "touch failed, evicted"
     do_facet client checkstat -v -p 0777 $DIR/$tfile  || return 3
     do_facet client "munlink $DIR/$tfile"
+    # allow recovery to complete
+    client_up || client_up || sleep $TIMEOUT
 }
 run_test 10 "finish request on server after client eviction (bug 1521)"
 
@@ -169,6 +171,8 @@ test_11(){
     drop_bl_callback $MULTIOP $DIR/$tfile Ow || echo "evicted as expected"
 
     do_facet client munlink $DIR/$tfile  || return 4
+    # allow recovery to complete
+    client_up || client_up || sleep $TIMEOUT
 }
 run_test 11 "wake up a thread waiting for completion after eviction (b=2460)"
 
@@ -184,13 +188,15 @@ test_12(){
     echo "waiting for multiop $PID"
     wait $PID || return 2
     do_facet client munlink $DIR/$tfile  || return 3
+    # allow recovery to complete
+    client_up || client_up || sleep $TIMEOUT
 }
 run_test 12 "recover from timed out resend in ptlrpcd (b=2494)"
 
 # Bug 113, check that readdir lost recv timeout works.
 test_13() {
     mkdir -p $DIR/$tdir || return 1
-    touch $DIR/$tdir/newentry || return
+    touch $DIR/$tdir/newentry || return 2
 # OBD_FAIL_MDS_READPAGE_NET|OBD_FAIL_ONCE
     do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000104"
     ls $DIR/$tdir || return 3
@@ -913,10 +919,11 @@ test_51() {
 	SEQ="1 5 10 $(seq $TIMEOUT 5 $(($TIMEOUT+10)))"
         echo will failover at $SEQ
         for i in $SEQ
-          do
-          echo failover in $i sec
-          sleep $i
-          facet_failover $SINGLEMDS
+        do
+		#echo failover in $i sec
+		log "test_$testnum: failover in $i sec"
+		sleep $i
+		facet_failover $SINGLEMDS
         done
 	# client process should see no problems even though MDS went down
 	# and recovery was interrupted
