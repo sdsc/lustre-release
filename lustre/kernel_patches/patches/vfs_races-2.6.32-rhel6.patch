@@ -1,3 +1,10 @@
+This patch is only needed for the client, but is included for server
+kernels in case the client and server are using the same kernel.  It
+fixes a race condition in the dcache when looking up entries that
+were immediately invalidated by the DLM and incorrectly returned as
+stale.  This is no longer needed with Lustre 2.4 and later, but is
+kept so older versions of Lustre can share the same kernel.
+
 Index: linux-2.6.32-71.18.1.el6/fs/dcache.c
 ===================================================================
 --- linux-2.6.32-71.18.1.el6.orig/fs/dcache.c
