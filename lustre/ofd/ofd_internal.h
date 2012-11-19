@@ -168,6 +168,8 @@ struct ofd_device {
 				 /* shall we grant space to clients not
 				  * supporting OBD_CONNECT_GRANT_PARAM? */
 				 ofd_grant_compat_disable:1;
+	/** symlink to this device in "ost" directory */
+	struct proc_dir_entry	*ofd_symlink;
 };
 
 static inline struct ofd_device *ofd_dev(struct lu_device *d)

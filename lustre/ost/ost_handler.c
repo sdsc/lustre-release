@@ -2440,6 +2440,7 @@ static int ost_io_thread_init(struct ptlrpc_thread *thread)
 #define OST_WATCHDOG_TIMEOUT (obd_timeout * 1000)
 
 static struct cfs_cpt_table	*ost_io_cptable;
+static struct proc_dir_entry	*oss_symlink;
 
 /* Sigh - really, this is an OSS, the _server_, not the _target_ */
 static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
@@ -2605,6 +2606,12 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 		GOTO(out_create, rc);
         }
 
+	/* For forward compatibility symlink "oss" to "ost/OSS" in procfs, so
+	 * that apps could begin getting OSS stats from "oss" as is correct.
+	 * This should be reversed when the "ost" module is renamed to "oss"
+	 * (as it should be), and eventually removed in the distant future. */
+	oss_symlink = lprocfs_add_symlink("oss", proc_lustre_root, "ost/OSS");
+
         ping_evictor_start();
 
         RETURN(0);
@@ -2626,6 +2633,7 @@ static int ost_cleanup(struct obd_device *obd)
         int err = 0;
         ENTRY;
 
+	lprocfs_remove(&oss_symlink);
         ping_evictor_stop();
 
         /* there is no recovery for OST OBD, all recovery is controlled by
