@@ -438,13 +438,6 @@ struct lprocfs_vars lprocfs_lod_obd_vars[] = {
 	{ "stripetype",   lod_rd_stripetype,      lod_wr_stripetype, 0 },
 	{ "numobd",       lod_rd_numobd,          0, 0 },
 	{ "activeobd",    lod_rd_activeobd,       0, 0 },
-	{ "filestotal",   lprocfs_rd_filestotal,  0, 0 },
-	{ "filesfree",    lprocfs_rd_filesfree,   0, 0 },
-	/*{ "filegroups", lprocfs_rd_filegroups,  0, 0 },*/
-	{ "blocksize",    lprocfs_rd_blksize,     0, 0 },
-	{ "kbytestotal",  lprocfs_rd_kbytestotal, 0, 0 },
-	{ "kbytesfree",   lprocfs_rd_kbytesfree,  0, 0 },
-	{ "kbytesavail",  lprocfs_rd_kbytesavail, 0, 0 },
 	{ "desc_uuid",    lod_rd_desc_uuid,       0, 0 },
 	{ "qos_prio_free",lod_rd_qos_priofree,    lod_wr_qos_priofree, 0 },
 	{ "qos_threshold_rr",  lod_rd_qos_thresholdrr, lod_wr_qos_thresholdrr, 0 },
