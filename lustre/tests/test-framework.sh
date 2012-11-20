@@ -4912,14 +4912,26 @@ wait_osc_import_state() {
     local expected=$3
     local ost=$(get_osc_import_name $facet $ost_facet)
 
-    local param="osc.${ost}.ost_server_uuid"
+	local param="osc.${ost}.ost_server_uuid"
+	local i=0
 
     # 1. wait the deadline of client 1st request (it could be skipped)
     # 2. wait the deadline of client 2nd request
     local maxtime=$(( 2 * $(request_timeout $facet)))
 
+	local params=$($LCTL list_param $param 2> /dev/null || true)
+	while [ -z "$params" ]; do
+		if [ $i -ge $maxtime ]; then
+			error "can't get $param after $i secs"
+			return 1
+		fi
+		sleep 1
+		i=$(($i + 1))
+		params=$($LCTL list_param $param 2>/dev/null || true)
+	done
+
 	if ! do_rpc_nodes "$(facet_host $facet)" \
-			_wait_import_state $expected $param $maxtime; then
+			wait_import_state $expected "$params" $maxtime; then
 		error "import is not in ${expected} state"
 		return 1
 	fi
