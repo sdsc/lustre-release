@@ -1310,7 +1310,7 @@ void class_disconnect_stale_exports(struct obd_device *obd,
 			continue;
 
 		cfs_spin_lock(&exp->exp_lock);
-		if (test_export(exp)) {
+		if (test_export(exp) || exp->exp_failed) {
 			cfs_spin_unlock(&exp->exp_lock);
 			continue;
 		}
