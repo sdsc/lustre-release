@@ -1310,7 +1310,7 @@ void class_disconnect_stale_exports(struct obd_device *obd,
 			continue;
 
 		cfs_spin_lock(&exp->exp_lock);
-		if (test_export(exp)) {
+		if (exp->exp_failed || test_export(exp)) {
 			cfs_spin_unlock(&exp->exp_lock);
 			continue;
 		}
@@ -1325,13 +1325,13 @@ void class_disconnect_stale_exports(struct obd_device *obd,
                        libcfs_nid2str(exp->exp_connection->c_peer.nid));
                 print_export_data(exp, "EVICTING", 0);
         }
-        cfs_spin_unlock(&obd->obd_dev_lock);
 
         if (evicted) {
                 LCONSOLE_WARN("%s: disconnecting %d stale clients\n",
                               obd->obd_name, evicted);
                 obd->obd_stale_clients += evicted;
         }
+	cfs_spin_unlock(&obd->obd_dev_lock);
         class_disconnect_export_list(&work_list, exp_flags_from_obd(obd) |
                                                  OBD_OPT_ABORT_RECOV);
         EXIT;
@@ -1358,6 +1358,14 @@ void class_fail_export(struct obd_export *exp)
 
         if (obd_dump_on_timeout)
                 libcfs_debug_dumplog();
+
+	/* if called during recovery then should keep obd_stale_clients
+	 * consistent */
+	if (exp->exp_obd->obd_recovering) {
+		cfs_spin_lock(&obd->obd_dev_lock);
+		exp->exp_obd->obd_stale_clients++;
+		cfs_spin_unlock(&obd->obd_dev_lock);
+	}
 
 	/* need for safe call CDEBUG after obd_disconnect */
 	class_export_get(exp);
