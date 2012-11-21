@@ -648,6 +648,13 @@ static inline int ll_quota_off(struct super_block *sb, int off, int remount)
 #define HAVE_NODE_TO_CPUMASK
 #endif
 
+#ifndef QUOTA_OK
+# define QUOTA_OK 0
+#endif
+#ifndef NO_QUOTA
+# define NO_QUOTA (-EDQUOT)
+#endif
+
 #if !defined(_ASM_GENERIC_BITOPS_EXT2_NON_ATOMIC_H_) && !defined(ext2_set_bit)
 # define ext2_set_bit             __test_and_set_bit_le
 # define ext2_clear_bit           __test_and_clear_bit_le
