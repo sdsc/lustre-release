@@ -309,13 +309,14 @@ static int vvp_io_setattr_lock(const struct lu_env *env,
 {
         struct ccc_io      *cio       = ccc_env_io(env);
         struct cl_io       *io        = ios->cis_io;
-        size_t              new_size;
+        __u64               new_size;
         __u32               enqflags = 0;
 
         if (cl_io_is_trunc(io)) {
                 new_size = io->u.ci_setattr.sa_attr.lvb_size;
                 if (new_size == 0)
                         enqflags = CEF_DISCARD_DATA;
+		CDEBUG(D_VFSTRACE, "trunc to size %llu\n", new_size);
         } else {
                 if ((io->u.ci_setattr.sa_attr.lvb_mtime >=
                      io->u.ci_setattr.sa_attr.lvb_ctime) ||
