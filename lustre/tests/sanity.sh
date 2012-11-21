@@ -6120,6 +6120,7 @@ test_117() # bug 10891
 }
 run_test 117 "verify fsfilt_extend =========="
 
+NO_SLOW_RESENDCOUNT=4
 export OLD_RESENDCOUNT=""
 set_resend_count () {
 	local PROC_RESENDCOUNT="osc.${FSNAME}-OST*-osc-*.resend_count"
@@ -6128,7 +6129,8 @@ set_resend_count () {
 	echo resend_count is set to $(lctl get_param -n $PROC_RESENDCOUNT)
 }
 
-[ "$SLOW" = "no" ] && set_resend_count 4 # for reduce test_118* time (bug 14842)
+# for reduce test_118* time (b=14842)
+[ "$SLOW" = "no" ] && set_resend_count $NO_SLOW_RESENDCOUNT
 
 # Reset async IO behavior after error case
 reset_async() {
@@ -6195,6 +6197,8 @@ run_test 118b "Reclaim dirty pages on fatal error =========="
 
 test_118c()
 {
+	# for 118c, restore the original resend count, LU-1940
+	[ "$SLOW" = "no" ] && [ -n "$OLD_RESENDCOUNT" ] && set_resend_count $OLD_RESENDCOUNT
 	remote_ost_nodsh && skip "remote OST with nodsh" && return
 
 	reset_async
@@ -6236,6 +6240,9 @@ test_118c()
 	return 0
 }
 run_test 118c "Fsync blocks on EROFS until dirty pages are flushed =========="
+
+# continue to use small resend count to reduce test_118* time (b=14842)
+[ "$SLOW" = "no" ] && set_resend_count $NO_SLOW_RESENDCOUNT
 
 test_118d()
 {
