@@ -860,7 +860,8 @@ int target_handle_connect(struct ptlrpc_request *req)
                 class_export_put(export);
                 export = NULL;
                 rc = -EALREADY;
-        } else if (mds_conn && export->exp_connection) {
+        } else if (mds_conn && export->exp_connection &&
+		   !target->obd_recovering) {
 		cfs_spin_unlock(&export->exp_lock);
                 if (req->rq_peer.nid != export->exp_connection->c_peer.nid)
                         /* mds reconnected after failover */
