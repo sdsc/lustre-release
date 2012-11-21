@@ -757,6 +757,8 @@ check_and_start_recovery_timer(struct obd_device *obd,
 }
 #endif
 
+extern struct ptlrpc_client srv_ldlm_client;
+
 int target_handle_connect(struct ptlrpc_request *req)
 {
 	struct obd_device *target = NULL, *targref = NULL;
@@ -1232,7 +1234,7 @@ dont_check_exports:
 	cfs_spin_unlock(&export->exp_lock);
 
         revimp->imp_connection = ptlrpc_connection_addref(export->exp_connection);
-        revimp->imp_client = &export->exp_obd->obd_ldlm_client;
+	revimp->imp_client = &srv_ldlm_client;
         revimp->imp_remote_handle = conn;
         revimp->imp_dlm_fake = 1;
         revimp->imp_state = LUSTRE_IMP_FULL;

@@ -2906,7 +2906,13 @@ test_53a() {
 run_test 53a "check OSS thread count params"
 
 test_53b() {
-	thread_sanity MDT $SINGLEMDS 'mdt.*.*.' 'mdt_num_threads' '16'
+	$LCTL get_param -N server.*.threads_max
+	if [ $? -eq 0 ]; then
+		thread_sanity ptlrpc $SINGLEMDS 'server.*.' 'mds_num_threads' 16
+	else
+		#running this on an old MDT
+		thread_sanity MDT $SINGLEMDS 'mdt.*.*' 'mdt_num_threads' 16
+	fi
 }
 run_test 53b "check MDT thread count params"
 

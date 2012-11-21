@@ -66,4 +66,10 @@ static inline struct tgt_thread_info *tgt_th_info(const struct lu_env *env)
 	return tti;
 }
 
+struct srv_opcodes_slice {
+	cfs_atomic_t		 ts_ref;
+	struct tgt_opc_slice	*ts_slice;
+	tgt_handler_t		 ts_handler;
+};
+
 #endif /* _TG_INTERNAL_H */

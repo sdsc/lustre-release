@@ -59,6 +59,32 @@ struct lu_target {
         unsigned long           *lut_client_bitmap;
 };
 
+struct tgt_handler {
+	/* The name of this handler. */
+	const char		*th_name;
+	/* Fail id, check at the beginning */
+	int			 th_fail_id;
+	/* Operation code */
+	__u32			 th_opc;
+	/* Flags in enum lut_handler_flags */
+	__u32			 th_flags;
+	/* Internal target handler function */
+	void			*th_act;
+	/* Request format for this request */
+	const struct req_format	*th_fmt;
+};
+
+struct tgt_opc_slice {
+	__u32			 tos_opc_start; /* First op code */
+	int			 tos_opc_end; /* Last op code */
+	struct tgt_handler	*tos_hs; /* Registered handler */
+};
+
+typedef int (*tgt_handler_t)(struct ptlrpc_request *req);
+
+int tgt_register_slice(struct tgt_opc_slice *slice, tgt_handler_t handle);
+void tgt_degister_slice(struct tgt_opc_slice *slice);
+
 typedef void (*tgt_cb_t)(struct lu_target *lut, __u64 transno,
                          void *data, int err);
 struct tgt_commit_cb {
