@@ -261,6 +261,12 @@ int local_object_create(const struct lu_env *env,
 	if (rc)
 		RETURN(rc);
 
+	/* If adding a field to lustre_mdt_attrs, zero it in lustre_lma_init()
+	 * and swab it in lustre_lma_swab() and change the CLASSERT() below. */
+	CLASSERT(sizeof(*lma) ==
+		 (offsetof(struct lustre_mdt_attrs, lma_som_mountid) +
+		  sizeof(lma->lma_som_mountid)));
+
 	if (los == NULL)
 		RETURN(rc);
 

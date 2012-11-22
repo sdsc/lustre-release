@@ -186,6 +186,29 @@ static inline struct osc_device *obd2osc_dev(const struct obd_device *d)
         return container_of0(d->obd_lu_dev, struct osc_device, od_cl.cd_lu_dev);
 }
 
+static inline void osc_get_wire_obdo(struct obdo *lobdo, struct obdo *wobdo)
+{
+	obd_flag local_flags = 0;
+
+	if (lobdo->o_valid & OBD_MD_FLFLAGS)
+		local_flags = lobdo->o_flags & OBD_FL_LOCAL_MASK;
+
+	LASSERT(!(wobdo->o_flags & OBD_FL_LOCAL_MASK));
+
+	memcpy(lobdo, wobdo, sizeof(*lobdo));
+	if (local_flags != 0) {
+		lobdo->o_valid |= OBD_MD_FLFLAGS;
+		lobdo->o_flags &= ~OBD_FL_LOCAL_MASK;
+		lobdo->o_flags |= local_flags;
+	}
+}
+
+static inline void osc_set_wire_obdo(struct obdo *wobdo, struct obdo *lobdo)
+{
+	memcpy(wobdo, lobdo, sizeof(*lobdo));
+	wobdo->o_flags &= ~OBD_FL_LOCAL_MASK;
+}
+
 int osc_dlm_lock_pageref(struct ldlm_lock *dlm);
 
 extern cfs_mem_cache_t *osc_quota_kmem;
