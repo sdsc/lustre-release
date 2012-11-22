@@ -2099,6 +2099,17 @@ test_42() { #bug 14693
 }
 run_test 42 "invalid config param should not prevent client from mounting"
 
+test_42b() { # LU-2308
+	setup
+	check_mount || return 2
+	do_facet mgs $LCTL conf_param lustre.sys.test_conf_sanity=1
+	umount_client $MOUNT
+	mount_client $MOUNT || return 1
+	cleanup
+	return 0
+}
+run_test 42b "invalid global param should not prevent client from mounting"
+
 test_43() {
 	[ $UID -ne 0 -o $RUNAS_ID -eq 0 ] && skip_env "run as root"
 	setup

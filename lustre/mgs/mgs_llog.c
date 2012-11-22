@@ -2228,7 +2228,8 @@ static int mgs_write_log_sys(const struct lu_env *env,
 		(class_match_param(ptr, PARAM_AT_MAX, &tmp) == 0) ||
 		(class_match_param(ptr, PARAM_AT_EXTRA, &tmp) == 0) ||
 		(class_match_param(ptr, PARAM_AT_EARLY_MARGIN, &tmp) == 0) ||
-		(class_match_param(ptr, PARAM_AT_HISTORY, &tmp) == 0)) {
+		(class_match_param(ptr, PARAM_AT_HISTORY, &tmp) == 0) ||
+		(class_match_param(ptr, PARAM_TEST_CONF_SANITY, &tmp) == 0)) {
 		cmd = LCFG_PARAM;
 	} else if (class_match_param(ptr, PARAM_JOBID_VAR, &tmp) == 0) {
 		convert = 0; /* Don't convert string value to integer */
