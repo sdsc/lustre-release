@@ -8164,92 +8164,84 @@ run_test 123b "not panic with network error in statahead enqueue (bug 15027)"
 
 test_124a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-	[ -z "$($LCTL get_param -n mdc.*.connect_flags | grep lru_resize)" ] &&
+	[ -z "$(lctl get_param -n mdc.*.connect_flags | grep lru_resize)" ] &&
 		skip "no lru resize on server" && return 0
-        local NR=2000
-        test_mkdir -p $DIR/$tdir || error "failed to create $DIR/$tdir"
+	local nr=2000
+	test_mkdir -p $DIR/$tdir || error "failed to create $DIR/$tdir"
 
-        log "create $NR files at $DIR/$tdir"
-        createmany -o $DIR/$tdir/f $NR ||
-                error "failed to create $NR files in $DIR/$tdir"
+	echo "create $nr files at $DIR/$tdir"
+	createmany -o $DIR/$tdir/f $nr ||
+		error "failed to create $nr files in $DIR/$tdir"
 
-        cancel_lru_locks mdc
-        ls -l $DIR/$tdir > /dev/null
+	cancel_lru_locks mdc
+	ls -l $DIR/$tdir > /dev/null
 
-        local NSDIR=""
-        local LRU_SIZE=0
-	for VALUE in $($LCTL get_param ldlm.namespaces.*mdc-*.lru_size); do
-		local PARAM=$(echo ${VALUE[0]} | cut -d "=" -f1)
-		LRU_SIZE=$($LCTL get_param -n $PARAM)
-		if [[ $LRU_SIZE -gt $(default_lru_size) ]]; then
-			NSDIR=$(echo $PARAM | cut -d "." -f1-3)
-			log "NSDIR=$NSDIR"
-                        log "NS=$(basename $NSDIR)"
-                        break
-                fi
-        done
+	local nsdir=""
+	local lru_size=0
+	local param
+	lctl get_param -N ldlm.namespaces.*mdc-*.lru_size | tr '=' ' ' |
+		while read param lru_size; do
+		if [ $lru_size -gt $(default_lru_size) ]; then
+			nsdir=$(echo $param | cut -d "." -f1-3)
+			echo "nsdir=$nsdir, NS=$(basename $nsdir)"
+			break
+		fi
+	done
 
-	if [[ -z "$NSDIR" || $LRU_SIZE -lt $(default_lru_size) ]]; then
-                skip "Not enough cached locks created!"
-                return 0
-        fi
-        log "LRU=$LRU_SIZE"
+	[[ -z "$nsdir" || $LRU_SIZE -lt $(default_lru_size) ]] &&
+		skip "Not enough cached locks created!" && return 0
+	echo "LRU=$lru_size"
 
-        local SLEEP=30
+	# We know that LRU resize allows one client to hold $limit locks
+	# for 10h. After that locks begin to be killed by client.
+	local max_hrs=10
+	local limit=$(lctl get_param -n $nsdir.pool.limit)
+	echo "limit=$limit"
 
-        # We know that lru resize allows one client to hold $LIMIT locks
-        # for 10h. After that locks begin to be killed by client.
-        local MAX_HRS=10
-	local LIMIT=$($LCTL get_param -n $NSDIR.pool.limit)
-	log "LIMIT=$LIMIT"
-	if [ $LIMIT -lt $LRU_SIZE ]; then
-	    skip "Limit is too small $LIMIT"
-	    return 0
-	fi
+	# Make LVF so high that sleeping for $sleep is enough to _start_
+	# killing locks. Some time was spent for creating locks. This means
+	# that up to the moment of sleep finish we must have killed some of
+	# them (10-100 locks). This depends on how fast they were created.
+	# Many of them were touched in almost the same moment and thus will
+	# be killed in groups.
+	local sleep=30
+	local lvf=$((max_hrs * 60 * 60 / sleep * limit / lru_size))
 
-        # Make LVF so higher that sleeping for $SLEEP is enough to _start_
-        # killing locks. Some time was spent for creating locks. This means
-        # that up to the moment of sleep finish we must have killed some of
-        # them (10-100 locks). This depends on how fast ther were created.
-        # Many of them were touched in almost the same moment and thus will
-        # be killed in groups.
-        local LVF=$(($MAX_HRS * 60 * 60 / $SLEEP * $LIMIT / $LRU_SIZE))
+	# Use $lru_size_B here to take into account real number of locks
+	# created in the case of CMD, lru_size_B != $nr in most of cases
+	local lru_size_B=$lru_size
+	echo "lvf=$lvf"
+	local old_lvf=$(lctl get_param -n $nsdir.pool.lock_volume_factor)
+	echo "old_lvf=$old_lvf"
+	lctl set_param -n $nsdir.pool.lock_volume_factor $lvf
 
-        # Use $LRU_SIZE_B here to take into account real number of locks
-        # created in the case of CMD, LRU_SIZE_B != $NR in most of cases
-        local LRU_SIZE_B=$LRU_SIZE
-        log "LVF=$LVF"
-	local OLD_LVF=$($LCTL get_param -n $NSDIR.pool.lock_volume_factor)
-	log "OLD_LVF=$OLD_LVF"
-	$LCTL set_param -n $NSDIR.pool.lock_volume_factor $LVF
+	# Let's make sure that we really have some margin. Client checks
+	# cached locks every 10 sec.
+	sleep=$((sleep + 20))
+	echo "Sleep $sleep sec"
+	local sec=0
+	while ((sec < sleep)); do
+		echo -n "."
+		sleep 5
+		sec=$((sec + 5))
+		lru_size=$(lctl get_param -n $nsdir/lru_size)
+		echo -n "$lru_size"
+	done
+	echo ""
+	lctl set_param -n $nsdir.pool.lock_volume_factor $old_lvf
+	local lru_size_A=$(lctl get_param -n $nsdir.lru_size)
 
-        # Let's make sure that we really have some margin. Client checks
-        # cached locks every 10 sec.
-        SLEEP=$((SLEEP+20))
-        log "Sleep ${SLEEP} sec"
-        local SEC=0
-        while ((SEC<$SLEEP)); do
-                echo -n "..."
-                sleep 5
-                SEC=$((SEC+5))
-		LRU_SIZE=$($LCTL get_param -n $NSDIR/lru_size)
-                echo -n "$LRU_SIZE"
-        done
-        echo ""
-	$LCTL set_param -n $NSDIR.pool.lock_volume_factor $OLD_LVF
-	local LRU_SIZE_A=$($LCTL get_param -n $NSDIR.lru_size)
+	[ $lru_size_B -gt $lru_size_A ] || {
+		error "No locks dropped in ${sleep}s. LRU size: $lru_size_A"
+		unlinkmany $DIR/$tdir/f $nr
+		return
+	}
 
-	[[ $LRU_SIZE_B -gt $LRU_SIZE_A ]] || {
-                error "No locks dropped in ${SLEEP}s. LRU size: $LRU_SIZE_A"
-                unlinkmany $DIR/$tdir/f $NR
-                return
-        }
-
-        log "Dropped "$((LRU_SIZE_B-LRU_SIZE_A))" locks in ${SLEEP}s"
-        log "unlink $NR files at $DIR/$tdir"
-        unlinkmany $DIR/$tdir/f $NR
+	echo "Dropped "$((lru_size_B-lru_size_A))" locks in ${sleep}s"
+	echo "unlink $nr files at $DIR/$tdir"
+	unlinkmany $DIR/$tdir/f $nr
 }
-run_test 124a "lru resize ======================================="
+run_test 124a "lru resize"
 
 get_max_pool_limit()
 {
