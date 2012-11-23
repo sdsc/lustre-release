@@ -153,17 +153,21 @@ typedef enum {
 } mdl_type_t;
 
 struct md_hsm {
-        __u32  mh_flags;
-        __u32  mh_archive_number;
+	__u32	mh_compat;
+	__u32	mh_flags;
+	__u64	mh_arch_id;
+	__u64	mh_arch_ver;
 };
 
 #define IOEPOCH_INVAL 0
 
 struct md_som_data {
-        __u64 msd_ioepoch;
-        __u64 msd_size;
-        __u64 msd_blocks;
-        __u64 msd_mountid;
+	__u32	msd_compat;
+	__u32	msd_incompat;
+	__u64	msd_ioepoch;
+	__u64	msd_size;
+	__u64	msd_blocks;
+	__u64	msd_mountid;
 };
 
 struct md_attr {
@@ -879,5 +883,7 @@ int llo_local_objects_setup(const struct lu_env *env,
                              struct md_device * md,
                              struct dt_device * dt);
 
+int lustre_buf2som(void *buf, int rc, struct md_som_data *msd);
+int lustre_buf2hsm(void *buf, int rc, struct md_hsm *mh);
 /** @} md */
 #endif /* _LINUX_MD_OBJECT_H */
