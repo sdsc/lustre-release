@@ -879,5 +879,10 @@ int llo_local_objects_setup(const struct lu_env *env,
                              struct md_device * md,
                              struct dt_device * dt);
 
+/* LMA manipulation */
+int lustre_lma_get(const struct lu_env *env, struct md_object *obj,
+		   struct lustre_mdt_attrs *lma, struct md_attr *ma);
+int lustre_lma_set(const struct lu_env *env, struct md_object *obj,
+		   struct lustre_mdt_attrs *lma);
 /** @} md */
 #endif /* _LINUX_MD_OBJECT_H */

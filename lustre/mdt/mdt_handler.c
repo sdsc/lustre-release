@@ -672,33 +672,9 @@ int mdt_attr_get_complex(struct mdt_thread_info *info,
 		lma = (struct lustre_mdt_attrs *)info->mti_xattr_buf;
 		CLASSERT(sizeof(*lma) <= sizeof(info->mti_xattr_buf));
 
-		buf->lb_buf = lma;
-		buf->lb_len = sizeof(info->mti_xattr_buf);
-		rc = mo_xattr_get(env, next, buf, XATTR_NAME_LMA);
-		if (rc > 0) {
-			lustre_lma_swab(lma);
-			/* Swab and copy LMA */
-			if (need & MA_HSM) {
-				if (lma->lma_compat & LMAC_HSM)
-					ma->ma_hsm.mh_flags =
-						lma->lma_flags & HSM_FLAGS_MASK;
-				else
-					ma->ma_hsm.mh_flags = 0;
-				ma->ma_valid |= MA_HSM;
-			}
-			/* Copy SOM */
-			if (need & MA_SOM && lma->lma_compat & LMAC_SOM) {
-				LASSERT(ma->ma_som != NULL);
-				ma->ma_som->msd_ioepoch = lma->lma_ioepoch;
-				ma->ma_som->msd_size    = lma->lma_som_size;
-				ma->ma_som->msd_blocks  = lma->lma_som_blocks;
-				ma->ma_som->msd_mountid = lma->lma_som_mountid;
-				ma->ma_valid |= MA_SOM;
-			}
+		rc = lustre_lma_get(env, next, lma, ma);
+		if (rc == -ENODATA)
 			rc = 0;
-		} else if (rc == -ENODATA) {
-			rc = 0;
-		}
 	}
 
 #ifdef CONFIG_FS_POSIX_ACL

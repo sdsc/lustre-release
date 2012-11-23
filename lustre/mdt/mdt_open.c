@@ -225,7 +225,6 @@ static int mdt_som_attr_set(struct mdt_thread_info *info,
 {
 	struct lustre_mdt_attrs	*lma;
 	struct md_attr		*ma = &info->mti_attr;
-	struct lu_buf		*buf = &info->mti_buf;
 	struct md_object	*next = mdt_object_child(obj);
 	struct mdt_device	*mdt = info->mti_mdt;
 	struct lu_attr		*la = &ma->ma_attr;
@@ -239,19 +238,11 @@ static int mdt_som_attr_set(struct mdt_thread_info *info,
 	lma = (struct lustre_mdt_attrs *) info->mti_xattr_buf;
 	CLASSERT(sizeof(info->mti_xattr_buf) >= sizeof(*lma));
 
-	buf->lb_buf = lma;
-	buf->lb_len = sizeof(info->mti_xattr_buf);
-	rc = mo_xattr_get(info->mti_env, next, buf, XATTR_NAME_LMA);
-	if (rc > 0) {
-		lustre_lma_swab(lma);
-	} else if (rc == -ENODATA) {
-		memset(lma, 0, sizeof(*lma));
-	} else {
+	rc = lustre_lma_get(info->mti_env, next, lma, NULL);
+	if (rc == -ENODATA)
+		lustre_lma_init(lma, mdt_object_fid(obj));
+	else if (rc < 0)
 		RETURN(rc);
-	}
-
-	/* Copy FID */
-	memcpy(&lma->lma_self_fid, mdt_object_fid(obj), sizeof(lma->lma_self_fid));
 
 	/* Copy SOM data */
 	lma->lma_ioepoch     = ioepoch;
@@ -263,7 +254,7 @@ static int mdt_som_attr_set(struct mdt_thread_info *info,
 	else
 		lma->lma_compat &= ~LMAC_SOM;
 
-	rc = mo_xattr_set(info->mti_env, next, buf, XATTR_NAME_LMA, 0);
+	rc = lustre_lma_set(info->mti_env, next, lma);
 
         RETURN(rc);
 }
