@@ -49,6 +49,7 @@
 struct seq_thread_info {
         struct req_capsule     *sti_pill;
         struct lu_seq_range     sti_space;
+	struct lu_seq_range	sti_space1;
         struct lu_buf           sti_buf;
 };
 

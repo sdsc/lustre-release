@@ -160,9 +160,10 @@ int fld_server_init(struct lu_server_fld *fld,
 void fld_server_fini(struct lu_server_fld *fld,
                      const struct lu_env *env);
 
-int fld_declare_server_create(struct lu_server_fld *fld,
-                              const struct lu_env *env,
-                              struct thandle *th);
+int fld_declare_server_create(const struct lu_env *env,
+			      struct lu_server_fld *fld,
+			      struct lu_seq_range *new,
+			      struct thandle *th);
 
 int fld_server_create(struct lu_server_fld *fld,
                       const struct lu_env *env,
