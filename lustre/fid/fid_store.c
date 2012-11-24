@@ -136,11 +136,12 @@ int seq_store_update(const struct lu_env *env, struct lu_server_seq *seq,
                 GOTO(exit, rc);
 
         if (out != NULL) {
-                rc = fld_declare_server_create(seq->lss_site->ms_server_fld,
-                                               env, th);
-                if (rc)
-                        GOTO(exit, rc);
-        }
+		rc = fld_declare_server_create(env,
+					       seq->lss_site->ms_server_fld,
+					       out, th);
+		if (rc)
+			GOTO(exit, rc);
+	}
 
 	rc = dt_trans_start_local(env, dt_dev, th);
         if (rc)
@@ -155,13 +156,13 @@ int seq_store_update(const struct lu_env *env, struct lu_server_seq *seq,
                        seq->lss_name, rc);
 		GOTO(exit, rc);
         } else if (out != NULL) {
-                rc = fld_server_create(seq->lss_site->ms_server_fld,
-                                       env, out, th);
-                if (rc) {
-                        CERROR("%s: Can't Update fld database, rc %d\n",
-                               seq->lss_name, rc);
+		rc = fld_server_create(env, seq->lss_site->ms_server_fld, out,
+				       th);
+		if (rc) {
+			CERROR("%s: Can't Update fld database, rc %d\n",
+				seq->lss_name, rc);
 			GOTO(exit, rc);
-                }
+		}
         }
         /* next sequence update will need sync until this update is committed
          * in case of sync operation this is not needed obviously */
