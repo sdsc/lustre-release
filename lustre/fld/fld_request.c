@@ -504,7 +504,7 @@ int fld_client_lookup(struct lu_client_fld *fld, seqno_t seq, mdsno_t *mds,
         if (rc == 0) {
                 *mds = res.lsr_index;
 
-                fld_cache_insert(fld->lcf_cache, &res);
+		fld_cache_insert(fld->lcf_cache, &res);
         }
         RETURN(rc);
 }
