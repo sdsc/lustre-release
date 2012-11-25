@@ -501,9 +501,10 @@ int mdt_som_au_close(struct mdt_thread_info *info, struct mdt_object *o)
                 ioepoch =  info->mti_ioepoch ?
                         info->mti_ioepoch->ioepoch : o->mot_ioepoch;
 
-                if (!(lustre_msg_get_flags(req->rq_reqmsg) & MSG_REPLAY))
-                        rc = mdt_som_attr_set(info, o, ioepoch, act);
-                mdt_object_som_enable(o, ioepoch);
+		if (req == NULL ||
+		    !(lustre_msg_get_flags(req->rq_reqmsg) & MSG_REPLAY))
+			rc = mdt_som_attr_set(info, o, ioepoch, act);
+		mdt_object_som_enable(o, ioepoch);
         }
 	mutex_unlock(&o->mot_ioepoch_mutex);
         RETURN(rc);
@@ -1616,8 +1617,9 @@ int mdt_mfd_close(struct mdt_thread_info *info, struct mdt_file_data *mfd)
         if (!MFD_CLOSED(mode))
                 rc = mo_close(info->mti_env, next, ma, mode);
 
-        if (ret == MDT_IOEPOCH_GETATTR || ret == MDT_IOEPOCH_OPENED) {
-                struct mdt_export_data *med;
+	if (!lu_object_is_dying(&o->mot_header) &&
+	    (ret == MDT_IOEPOCH_GETATTR || ret == MDT_IOEPOCH_OPENED)) {
+		struct mdt_export_data *med;
 
                 /* The IOepoch is still opened or SOM update is needed.
                  * Put mfd back into the list. */
