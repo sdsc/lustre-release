@@ -497,16 +497,17 @@ int mdt_som_au_close(struct mdt_thread_info *info, struct mdt_object *o)
         if (act == MDT_SOM_DISABLE)
                 o->mot_flags |= MOF_SOM_RECOV;
 
-        if (!mdt_ioepoch_opened(o)) {
-                ioepoch =  info->mti_ioepoch ?
-                        info->mti_ioepoch->ioepoch : o->mot_ioepoch;
+	if (!mdt_ioepoch_opened(o)) {
+		ioepoch =  info->mti_ioepoch ?
+			   info->mti_ioepoch->ioepoch : o->mot_ioepoch;
 
-                if (!(lustre_msg_get_flags(req->rq_reqmsg) & MSG_REPLAY))
-                        rc = mdt_som_attr_set(info, o, ioepoch, act);
-                mdt_object_som_enable(o, ioepoch);
-        }
-        cfs_mutex_unlock(&o->mot_ioepoch_mutex);
-        RETURN(rc);
+		if (req == NULL ||
+		    !(lustre_msg_get_flags(req->rq_reqmsg) & MSG_REPLAY))
+			rc = mdt_som_attr_set(info, o, ioepoch, act);
+		mdt_object_som_enable(o, ioepoch);
+	}
+	cfs_mutex_unlock(&o->mot_ioepoch_mutex);
+	RETURN(rc);
 }
 
 int mdt_write_read(struct mdt_object *o)
@@ -1622,13 +1623,14 @@ int mdt_mfd_close(struct mdt_thread_info *info, struct mdt_file_data *mfd)
                 class_handle_hash_back(&mfd->mfd_handle);
                 cfs_spin_unlock(&med->med_open_lock);
 
-                if (ret == MDT_IOEPOCH_OPENED) {
-                        ret = 0;
-                } else {
-                        ret = -EAGAIN;
-                        CDEBUG(D_INODE, "Size-on-MDS attribute update is "
-                               "needed on "DFID"\n", PFID(mdt_object_fid(o)));
-                }
+		if (ret == MDT_IOEPOCH_OPENED ||
+		    lu_object_is_dying(&o->mot_header)) {
+			ret = 0;
+		} else {
+			ret = -EAGAIN;
+			CDEBUG(D_INODE, "Size-on-MDS attribute update is "
+			       "needed on "DFID"\n", PFID(mdt_object_fid(o)));
+		}
         } else {
                 mdt_mfd_free(mfd);
                 mdt_object_put(info->mti_env, o);
