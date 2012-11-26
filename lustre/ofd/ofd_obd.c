@@ -1069,6 +1069,8 @@ static int ofd_orphans_destroy(const struct lu_env *env,
 	LCONSOLE_INFO("%s: deleting orphan objects from "LPU64" to "LPU64"\n",
 		      ofd_obd(ofd)->obd_name, oa->o_id + 1, last);
 
+	OBD_FAIL_TIMEOUT(OBD_FAIL_OSP_ORPHAN_CLEANUP, 10);
+
 	for (oi.oi_id = last; oi.oi_id > oa->o_id; oi.oi_id--) {
 		fid_ostid_unpack(&info->fti_fid, &oi, 0);
 		rc = ofd_destroy_by_fid(env, ofd, &info->fti_fid, 1);
