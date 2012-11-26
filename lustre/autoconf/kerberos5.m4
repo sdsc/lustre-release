@@ -50,6 +50,9 @@ AC_DEFUN([AC_KERBEROS_V5],[
          if test $K5VERS -le 131; then
            AC_DEFINE(USE_GSS_KRB5_CCACHE_NAME, 1, [Define this if the private function, gss_krb5_cache_name, must be used to tell the Kerberos library which credentials cache to use. Otherwise, this is done by setting the KRB5CCNAME environment variable])
          fi
+	 if test $K5VERS -gt 172; then
+	   AC_DEFINE(HAVE_STRUCT_KRB5_KEY, 1, [Define this to switch between the new krb5int_derive_key and the former function krb5_derive_key which requires different parameters])
+         fi
          gssapi_lib=gssapi_krb5
          break
       dnl The following ugly hack brought on by the split installation
