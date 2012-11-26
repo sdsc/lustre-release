@@ -59,6 +59,68 @@ test_0b() {
 }
 run_test 0b "empty replay"
 
+test_0c() {
+	local next_id
+	local last_id
+	local ncreate=0
+	local slept=0
+
+	# Make sure opd_last_used_id is greater than 0.  See the
+	# osp_get_lastid_from_ost() call in osp_precreate_cleanup_orphans().
+	touch $TDIR/$tfile-tmp-{1,2} && rm $TDIR/$tfile-tmp-{1,2} || error "tmp"
+
+	# Make sure the file creation below will have a pre-created object.
+	next_id=$(do_facet $SINGLEMDS lctl get_param -n \
+			  osc.$FSNAME-OST0000-osc-MDT0000.prealloc_next_id)
+	last_id=$(do_facet $SINGLEMDS lctl get_param -n \
+			  osc.$FSNAME-OST0000-osc-MDT0000.prealloc_last_id)
+	echo "next_id $next_id last_id $last_id"
+	if ((next_id > last_id)); then
+		touch $TDIR/$tfile-pre && rm $TDIR/$tfile-pre || error "pre"
+	fi
+
+	stop ost1 || error "stop ost1"
+	#define OBD_FAIL_OSP_ORPHAN_CLEANUP	0x1501
+	do_facet ost1 "lctl set_param fail_loc=0x80001501" || error "fail_loc"
+	mount_facet ost1 || error "start ost1"
+
+	# Wait for the orphan cleanup to start.
+	until ((ncreate == 1)); do
+		sleep 1
+		slept=$((slept + 1))
+		if ((slept >= 10)); then
+			error "orphan cleanup start timed out"
+		fi
+		ncreate=$(do_facet ost1 lctl get_param -n \
+				  obdfilter.$FSNAME-OST0000.stats | grep create |
+				  awk '{print $2}')
+		echo "$slept: ncreate $ncreate"
+	done
+
+	cp /etc/profile $TDIR/$tfile || error "create $TDIR/$tfile"
+
+	# Wait for a pre-creation to start, which indicates the orphan cleanup
+	# has finished.
+	slept=0
+	until ((ncreate == 2)); do
+		sleep 1
+		slept=$((slept + 1))
+		if ((slept >= 20)); then
+			error "orphan cleanup finish timed out"
+		fi
+		ncreate=$(do_facet ost1 lctl get_param -n \
+				  obdfilter.$FSNAME-OST0000.stats | grep create |
+				  awk '{print $2}')
+		echo "$slept: ncreate $ncreate"
+	done
+
+	zconf_umount $HOSTNAME $MOUNT
+	zconf_mount $HOSTNAME $MOUNT && df $MOUNT
+	diff /etc/profile $TDIR/$tfile || error "verify $TDIR/$tfile"
+	rm -f $TDIR/$tfile
+}
+run_test 0c "consuming pre-created objects during orphan cleanups"
+
 test_1() {
     date > $TDIR/$tfile || error "error creating $TDIR/$tfile"
     fail ost1
