@@ -210,6 +210,19 @@ extern void krb5int_enc_aes128;
 extern void krb5int_enc_aes256;
 extern int krb5_derive_key();
 
+#ifdef HAVE_STRUCT_KRB5_KEY
+extern int krb5int_derive_key();
+extern int krb5_k_create_key();
+/* Taken from crypto_int.h */
+enum deriv_alg {
+    DERIVE_RFC3961              /* RFC 3961 section 5.1 */
+#ifdef CAMELLIA
+    ,                           /* C90 doesn't let enum list end w/comma */
+    DERIVE_SP800_108_CMAC       /* NIST SP 800-108 with CMAC as PRF */
+#endif
+};
+#endif
+
 static void
 key_lucid_to_krb5(const gss_krb5_lucid_key_t *lin, krb5_keyblock *kout)
 {
@@ -257,8 +270,12 @@ derive_key_lucid(const gss_krb5_lucid_key_t *in, gss_krb5_lucid_key_t *out,
 	int keylength;
 	void *enc;
 	krb5_keyblock kin, kout;  /* must send krb5_keyblock, not lucid! */
-#ifdef HAVE_HEIMDAL
 	krb5_context kcontext;
+#ifdef HAVE_STRUCT_KRB5_KEY
+	krb5_key key_in, key_out;
+#endif
+
+#ifdef HAVE_HEIMDAL
 	krb5_keyblock *outkey;
 #endif
 
@@ -316,7 +333,31 @@ derive_key_lucid(const gss_krb5_lucid_key_t *in, gss_krb5_lucid_key_t *out,
 	((char *)(datain.data))[4] = (char) extra;
 
 #ifdef HAVE_KRB5
+
+#ifdef HAVE_STRUCT_KRB5_KEY
+	code = krb5_init_context(&kcontext);
+	if (code) {
+	        free(out->data);
+		out->data = NULL;
+		goto out;
+	}
+	code = krb5_k_create_key(kcontext, &kin, &key_in);
+	if (code) {
+	        free(out->data);
+		out->data = NULL;
+		goto out;
+	}    
+	code = krb5_k_create_key(kcontext, &kout, &key_out);
+	if (code) {
+	        free(out->data);
+		out->data = NULL;
+		goto out;
+	}
+	code = krb5int_derive_key(enc, key_in, &key_out, &datain, DERIVE_RFC3961);
+#else
 	code = krb5_derive_key(enc, &kin, &kout, &datain);
+#endif
+
 #else
 	if ((code = krb5_init_context(&kcontext))) {
 	}
@@ -329,6 +370,9 @@ derive_key_lucid(const gss_krb5_lucid_key_t *in, gss_krb5_lucid_key_t *out,
 	}
 #ifdef HAVE_KRB5
 	key_krb5_to_lucid(&kout, out);
+#ifdef HAVE_STRUCT_KRB5_KEY
+	krb5_free_context(kcontext);
+#endif
 #else
 	key_krb5_to_lucid(outkey, out);
 	krb5_free_keyblock(kcontext, outkey);
