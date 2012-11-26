@@ -172,7 +172,7 @@ static void mdd_device_shutdown(const struct lu_env *env,
                 mdd_object_put(env, m->mdd_dot_lustre_objs.mdd_obf);
         if (m->mdd_dot_lustre)
                 mdd_object_put(env, m->mdd_dot_lustre);
-        orph_index_fini(env, m);
+	mdd_orphan_index_fini(env, m);
         if (m->mdd_capa != NULL) {
                 lu_object_put(env, &m->mdd_capa->do_lu);
                 m->mdd_capa = NULL;
@@ -1151,18 +1151,18 @@ out:
 static int mdd_recovery_complete(const struct lu_env *env,
                                  struct lu_device *d)
 {
-        struct mdd_device *mdd = lu2mdd_dev(d);
-        struct lu_device *next = &mdd->mdd_child->dd_lu_dev;
-        int rc;
-        ENTRY;
+	struct mdd_device *mdd = lu2mdd_dev(d);
+	struct lu_device *next = &mdd->mdd_child->dd_lu_dev;
+	int rc;
+	ENTRY;
 
-        LASSERT(mdd != NULL);
+	LASSERT(mdd != NULL);
 
-        /* XXX: orphans handling. */
-        __mdd_orphan_cleanup(env, mdd);
-        rc = next->ld_ops->ldo_recovery_complete(env, next);
+	/* XXX: orphans handling. */
+	mdd_orphan_cleanup(env, mdd);
+	rc = next->ld_ops->ldo_recovery_complete(env, next);
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 static int mdd_prepare(const struct lu_env *env,
@@ -1185,7 +1185,7 @@ static int mdd_prepare(const struct lu_env *env,
         if (!IS_ERR(root)) {
                 LASSERT(root != NULL);
                 lu_object_put(env, &root->do_lu);
-                rc = orph_index_init(env, mdd);
+		rc = mdd_orphan_index_init(env, mdd);
         } else {
                 rc = PTR_ERR(root);
         }
@@ -1743,17 +1743,17 @@ static struct lu_local_obj_desc llod_capa_key = {
 };
 
 static struct lu_local_obj_desc llod_mdd_orphan = {
-        .llod_name      = orph_index_name,
-        .llod_oid       = MDD_ORPHAN_OID,
-        .llod_is_index  = 1,
-        .llod_feat      = &dt_directory_features,
+	.llod_name      = mdd_orphan_index_name,
+	.llod_oid       = MDD_ORPHAN_OID,
+	.llod_is_index  = 1,
+	.llod_feat      = &dt_directory_features,
 };
 
 static struct lu_local_obj_desc llod_mdd_root = {
-        .llod_name      = mdd_root_dir_name,
-        .llod_oid       = MDD_ROOT_INDEX_OID,
-        .llod_is_index  = 1,
-        .llod_feat      = &dt_directory_features,
+	.llod_name      = mdd_root_dir_name,
+	.llod_oid       = MDD_ROOT_INDEX_OID,
+	.llod_is_index  = 1,
+	.llod_feat      = &dt_directory_features,
 };
 
 static struct lu_local_obj_desc llod_lfsck_bookmark = {

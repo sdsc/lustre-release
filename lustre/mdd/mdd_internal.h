@@ -196,9 +196,7 @@ struct mdd_thread_info {
         struct obd_quotactl       mti_oqctl;
 };
 
-extern const char orph_index_name[];
-
-extern const struct dt_index_features orph_index_features;
+extern const char mdd_orphan_index_name[];
 
 struct lov_mds_md *mdd_max_lmm_buffer(const struct lu_env *env, int size);
 struct lov_mds_md *mdd_max_lmm_get(const struct lu_env *env,
@@ -354,17 +352,17 @@ struct lu_buf *mdd_buf_get(const struct lu_env *env, void *area, ssize_t len);
 const struct lu_buf *mdd_buf_get_const(const struct lu_env *env,
                                        const void *area, ssize_t len);
 
-int __mdd_orphan_cleanup(const struct lu_env *env, struct mdd_device *d);
-int __mdd_orphan_add(const struct lu_env *, struct mdd_object *,
-                     struct thandle *);
-int __mdd_orphan_del(const struct lu_env *, struct mdd_object *,
-                     struct thandle *);
-int orph_index_init(const struct lu_env *env, struct mdd_device *mdd);
-void orph_index_fini(const struct lu_env *env, struct mdd_device *mdd);
-int orph_declare_index_insert(const struct lu_env *, struct mdd_object *,
-                              struct thandle *);
-int orph_declare_index_delete(const struct lu_env *, struct mdd_object *,
-                              struct thandle *);
+int mdd_orphan_cleanup(const struct lu_env *env, struct mdd_device *d);
+int mdd_orphan_add(const struct lu_env *env, struct mdd_object *obj,
+		   struct thandle *th);
+int mdd_orphan_del(const struct lu_env *env, struct mdd_object *obj,
+		   struct thandle *th);
+int mdd_orphan_index_init(const struct lu_env *env, struct mdd_device *mdd);
+void mdd_orphan_index_fini(const struct lu_env *env, struct mdd_device *mdd);
+int mdd_orphan_declare_index_insert(const struct lu_env *env,
+				    struct mdd_object *obj, struct thandle *th);
+int mdd_orphan_declare_index_delete(const struct lu_env *env,
+				    struct mdd_object *obj, struct thandle *th);
 
 /* mdd_lproc.c */
 void lprocfs_mdd_init_vars(struct lprocfs_static_vars *lvars);

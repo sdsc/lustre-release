@@ -1469,16 +1469,14 @@ int mdd_object_kill(const struct lu_env *env, struct mdd_object *obj,
         RETURN(rc);
 }
 
-static int mdd_declare_close(const struct lu_env *env,
-                             struct mdd_object *obj,
-                             struct md_attr *ma,
-                             struct thandle *handle)
+static int mdd_declare_close(const struct lu_env *env, struct mdd_object *obj,
+			     struct md_attr *ma, struct thandle *handle)
 {
-        int rc;
+	int rc;
 
-        rc = orph_declare_index_delete(env, obj, handle);
-        if (rc)
-                return rc;
+	rc = mdd_orphan_declare_index_delete(env, obj, handle);
+	if (rc)
+		return rc;
 
 	return mdo_declare_destroy(env, obj, handle);
 }
@@ -1538,7 +1536,7 @@ static int mdd_close(const struct lu_env *env, struct md_object *obj,
         if (mdd_obj->mod_count == 0 && mdd_obj->mod_flags & ORPHAN_OBJ) {
                 /* remove link to object from orphan index */
                 LASSERT(handle != NULL);
-                rc = __mdd_orphan_del(env, mdd_obj, handle);
+		rc = mdd_orphan_del(env, mdd_obj, handle);
                 if (rc == 0) {
                         CDEBUG(D_HA, "Object "DFID" is deleted from orphan "
                                "list, OSS objects to be destroyed.\n",

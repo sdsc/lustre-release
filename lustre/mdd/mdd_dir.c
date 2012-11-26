@@ -1012,37 +1012,33 @@ out_pending:
         return rc;
 }
 
-int mdd_declare_finish_unlink(const struct lu_env *env,
-                              struct mdd_object *obj,
-                              struct md_attr *ma,
-                              struct thandle *handle)
+int mdd_declare_finish_unlink(const struct lu_env *env, struct mdd_object *obj,
+			      struct md_attr *ma, struct thandle *handle)
 {
-        int rc;
+	int rc;
 
-        rc = orph_declare_index_insert(env, obj, handle);
-        if (rc)
-                return rc;
+	rc = mdd_orphan_declare_index_insert(env, obj, handle);
+	if (rc)
+		return rc;
 
 	return mdo_declare_destroy(env, obj, handle);
 }
 
 /* caller should take a lock before calling */
 int mdd_finish_unlink(const struct lu_env *env,
-                      struct mdd_object *obj, struct md_attr *ma,
-                      struct thandle *th)
+		      struct mdd_object *obj, struct md_attr *ma,
+		      struct thandle *th)
 {
-	int rc = 0;
-        int is_dir = S_ISDIR(ma->ma_attr.la_mode);
-        ENTRY;
+	ENTRY;
 
-        LASSERT(mdd_write_locked(env, obj) != 0);
+	LASSERT(mdd_write_locked(env, obj) != 0);
 
-	if (rc == 0 && (ma->ma_attr.la_nlink == 0 || is_dir)) {
+	if (ma->ma_attr.la_nlink == 0 || S_ISDIR(ma->ma_attr.la_mode)) {
                 obj->mod_flags |= DEAD_OBJ;
                 /* add new orphan and the object
                  * will be deleted during mdd_close() */
                 if (obj->mod_count) {
-                        rc = __mdd_orphan_add(env, obj, th);
+			rc = mdd_orphan_add(env, obj, th);
                         if (rc == 0)
                                 CDEBUG(D_HA, "Object "DFID" is inserted into "
                                         "orphan list, open count = %d\n",
@@ -1059,7 +1055,7 @@ int mdd_finish_unlink(const struct lu_env *env,
                 }
         }
 
-        RETURN(rc);
+	RETURN(0);
 }
 
 /*
