@@ -214,5 +214,6 @@ Index: linux-stage/fs/ext4/mballoc.c
 +		else
 +			kfree(sbi->s_group_info);
  	}
+	kfree(sbi->s_mb_prealloc_table);
  	kfree(sbi->s_mb_offsets);
  	kfree(sbi->s_mb_maxs);
