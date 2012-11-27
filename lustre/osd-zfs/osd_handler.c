@@ -234,6 +234,7 @@ static int osd_trans_stop(const struct lu_env *env, struct thandle *th)
 	struct osd_thandle	*oh;
 	uint64_t		 txg;
 	int			 rc;
+	int			 sync;
 	ENTRY;
 
 	oh = container_of0(th, struct osd_thandle, ot_super);
@@ -259,6 +260,7 @@ static int osd_trans_stop(const struct lu_env *env, struct thandle *th)
 			!osd->od_quota_iused_est)
 		qsd_op_end(env, osd->od_quota_slave, &oh->ot_quota_trans);
 
+	sync = th->th_sync;
 	rc = dt_txn_hook_stop(env, th);
 	if (rc != 0)
 		CDEBUG(D_OTHER, "%s: transaction hook failed: rc = %d\n",
@@ -270,7 +272,7 @@ static int osd_trans_stop(const struct lu_env *env, struct thandle *th)
 	osd_object_sa_dirty_rele(oh);
 	dmu_tx_commit(oh->ot_tx);
 
-	if (th->th_sync)
+	if (sync || th->th_sync)
 		txg_wait_synced(dmu_objset_pool(osd->od_objset.os), txg);
 
 	RETURN(rc);
