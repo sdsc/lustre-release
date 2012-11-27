@@ -564,7 +564,9 @@ int osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
 	struct lu_fid	    *oi_fid = &info->oti_fid2;
 	struct osd_inode_id *oi_id = &info->oti_id2;
 
-	if (fid_is_igif(fid) || unlikely(fid_seq(fid) == FID_SEQ_DOT_LUSTRE))
+	if (fid_is_igif(fid) ||
+	    unlikely(fid_seq(fid) == FID_SEQ_DOT_LUSTRE) ||
+	    unlikely(fid_seq(fid) == FID_SEQ_LOCAL_NAME))
 		return 0;
 
 	if (fid_is_idif(fid) || fid_seq(fid) == FID_SEQ_LLOG)
@@ -626,6 +628,92 @@ int osd_oi_delete(struct osd_thread_info *info,
 	fid_cpu_to_be(oi_fid, fid);
 	return osd_oi_iam_delete(info, osd_fid2oi(osd, fid),
 				 (const struct dt_key *)oi_fid, th);
+}
+
+/*
+ * This function is currently only used to fix MDD root OI records.  There
+ * should be no concurrent modifications to them.
+ */
+static int osd_oi_iam_verify_and_fix(struct osd_thread_info *oti,
+				     struct osd_oi *oi,
+				     const struct dt_rec *rec,
+				     const struct dt_key *key,
+				     const struct dt_rec *rec_buf, size_t size,
+				     struct thandle *th)
+{
+	struct iam_container	*bag = &oi->oi_dir.od_container;
+	struct iam_path_descr	*ipd;
+	handle_t		*h;
+	int			 rc;
+
+	ENTRY;
+
+	ipd = osd_idx_ipd_get(oti->oti_env, bag);
+	if (unlikely(ipd == NULL))
+		RETURN(-ENOMEM);
+
+	rc = iam_lookup(bag, (const struct iam_key *)key,
+			(struct iam_rec *)rec_buf, ipd);
+	if ((rc == 0 && memcmp(rec_buf, rec, size) == 0) ||
+	    (rc < 0 && rc != -ENOENT))
+		GOTO(out_ipd, rc);
+
+	if (th == NULL) {
+		int op;
+
+		if (rc == -ENOENT)
+			op = DTO_INDEX_INSERT;
+		else
+			op = DTO_INDEX_UPDATE;
+		h = ldiskfs_journal_start(oi->oi_inode,
+					  osd_dto_credits_noquota[op]);
+		if (IS_ERR(h))
+			GOTO(out_ipd, rc = PTR_ERR(h));
+	} else {
+		struct osd_thandle *oh;
+
+		oh = container_of0(th, struct osd_thandle, ot_super);
+		h = oh->ot_handle;
+		LASSERT(h != NULL);
+		LASSERT(h->h_transaction != NULL);
+	}
+
+	if (rc == -ENOENT)
+		rc = iam_insert(h, bag, (const struct iam_key *)key,
+				(const struct iam_rec *)rec, ipd);
+	else
+		rc = iam_update(h, bag, (const struct iam_key *)key,
+				(const struct iam_rec *)rec, ipd);
+	if (th == NULL)
+		ldiskfs_journal_stop(h);
+	if (rc < 0)
+		GOTO(out_ipd, rc);
+
+	EXIT;
+out_ipd:
+	osd_ipd_put(oti->oti_env, bag, ipd);
+	return rc;
+}
+
+int osd_oi_verify_and_fix(struct osd_thread_info *info, struct osd_device *osd,
+			  const struct lu_fid *fid,
+			  const struct osd_inode_id *id,
+			  struct thandle *th)
+{
+	struct lu_fid		*oi_fid = &info->oti_fid2;
+	struct osd_inode_id	*oi_id = &info->oti_id2;
+	struct osd_inode_id	*oi_id_buf = &info->oti_id3;
+
+	if (!fid_is_norm(fid) && fid_seq(fid) != FID_SEQ_SPECIAL)
+		return 0;
+
+	fid_cpu_to_be(oi_fid, fid);
+	osd_id_pack(oi_id, id);
+	return osd_oi_iam_verify_and_fix(info, osd_fid2oi(osd, fid),
+					 (const struct dt_rec *)oi_id,
+					 (const struct dt_key *)oi_fid,
+					 (const struct dt_rec *)oi_id_buf,
+					 sizeof(*oi_id_buf), th);
 }
 
 int osd_oi_mod_init(void)

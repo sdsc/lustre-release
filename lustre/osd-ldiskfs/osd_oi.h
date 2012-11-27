@@ -89,6 +89,14 @@ struct osd_idmap_cache {
 	struct osd_inode_id	oic_lid;
 };
 
+/* FID is supposed to have name idmap able */
+static inline int fid_has_name(const struct lu_fid *fid)
+{
+	return (fid_is_norm(fid) || fid_is_root(fid) ||
+		FID_SEQ_LOCAL_NAME == fid_seq(fid) ||
+		FID_SEQ_DOT_LUSTRE == fid_seq(fid));
+}
+
 static inline void osd_id_pack(struct osd_inode_id *tgt,
 			       const struct osd_inode_id *src)
 {
@@ -138,6 +146,10 @@ int  osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
 int  osd_oi_delete(struct osd_thread_info *info,
 		   struct osd_device *osd, const struct lu_fid *fid,
 		   struct thandle *th);
+int osd_oi_verify_and_fix(struct osd_thread_info *info, struct osd_device *osd,
+			  const struct lu_fid *fid,
+			  const struct osd_inode_id *id,
+			  struct thandle *th);
 
 #endif /* __KERNEL__ */
 #endif /* _OSD_OI_H */

@@ -86,6 +86,11 @@ const struct lu_fid LUSTRE_BFL_FID = { .f_seq = FID_SEQ_SPECIAL,
                                        .f_ver = 0x0000000000000000 };
 EXPORT_SYMBOL(LUSTRE_BFL_FID);
 
+const struct lu_fid LU_ROOT_FID = { .f_seq = FID_SEQ_SPECIAL,
+				    .f_oid = FID_OID_SPECIAL_ROOT,
+				    .f_ver = 0x0000000000000000 };
+EXPORT_SYMBOL(LU_ROOT_FID);
+
 /** Special fid for ".lustre" directory */
 const struct lu_fid LU_DOT_LUSTRE_FID = { .f_seq = FID_SEQ_DOT_LUSTRE,
                                           .f_oid = FID_OID_DOT_LUSTRE,
