@@ -440,8 +440,10 @@ enum fid_seq {
 
 /** OID for FID_SEQ_SPECIAL */
 enum special_oid {
-        /* Big Filesystem Lock to serialize rename operations */
-        FID_OID_SPECIAL_BFL     = 1UL,
+	/* Big Filesystem Lock to serialize rename operations */
+	FID_OID_SPECIAL_BFL	= 1UL,
+	/* New MDD "ROOT"s */
+	FID_OID_SPECIAL_ROOT	= 2UL,
 };
 
 /** OID for FID_SEQ_DOT_LUSTRE */
@@ -519,6 +521,12 @@ static inline int fid_seq_is_norm(const __u64 seq)
 static inline int fid_is_norm(const struct lu_fid *fid)
 {
         return fid_seq_is_norm(fid_seq(fid));
+}
+
+static inline int fid_is_root(const struct lu_fid *fid)
+{
+	return (FID_SEQ_SPECIAL == fid_seq(fid) &&
+		FID_OID_SPECIAL_ROOT == fid_oid(fid));
 }
 
 /* convert an OST objid into an IDIF FID SEQ number */

@@ -564,6 +564,13 @@ int fld_server_init(struct lu_server_fld *fld, struct dt_device *dt,
         range.lsr_flags = LU_SEQ_RANGE_MDT;
         fld_cache_insert(fld->lsf_cache, &range);
 
+	/* Insert reserved sequence number of "ROOT" into fld cache. */
+	range.lsr_start = FID_SEQ_SPECIAL;
+	range.lsr_end = FID_SEQ_SPECIAL + 1;
+	range.lsr_index = 0;
+	range.lsr_flags = LU_SEQ_RANGE_MDT;
+	fld_cache_insert(fld->lsf_cache, &range);
+
         EXIT;
 out:
         if (rc)

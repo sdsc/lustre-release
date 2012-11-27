@@ -540,6 +540,7 @@ struct osd_thread_info {
 	struct lu_fid	       oti_fid2;
 	struct osd_inode_id    oti_id;
 	struct osd_inode_id    oti_id2;
+	struct osd_inode_id    oti_id3;
         struct ost_id          oti_ostid;
 
         /*

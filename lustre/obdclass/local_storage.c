@@ -450,11 +450,7 @@ struct dt_object *local_file_find_or_create_with_fid(const struct lu_env *env,
 
 	rc = dt_lookup_dir(env, parent, name, &dti->dti_fid);
 	if (rc == 0) {
-		/* name is found, get the object */
-		if (!lu_fid_eq(fid, &dti->dti_fid))
-			dto = ERR_PTR(-EINVAL);
-		else
-			dto = dt_locate(env, dt, fid);
+		dto = dt_locate(env, dt, &dti->dti_fid);
 	} else if (rc != -ENOENT) {
 		dto = ERR_PTR(rc);
 	} else {
