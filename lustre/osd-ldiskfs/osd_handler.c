@@ -1929,7 +1929,8 @@ static int osd_declare_object_create(const struct lu_env *env,
 	OSD_DECLARE_OP(oh, create, osd_dto_credits_noquota[DTO_OBJECT_CREATE]);
 	/* XXX: So far, only normal fid needs be inserted into the oi,
 	 *      things could be changed later. Revise following code then. */
-	if (fid_is_norm(lu_object_fid(&dt->do_lu))) {
+	if (fid_is_norm(lu_object_fid(&dt->do_lu)) ||
+	    fid_is_root(lu_object_fid(&dt->do_lu))) {
 		/* Reuse idle OI block may cause additional one OI block
 		 * to be changed. */
 		OSD_DECLARE_OP(oh, insert,
@@ -2007,13 +2008,15 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 	LASSERT(oh->ot_handle == NULL);
 	LASSERT(inode);
 
-	OSD_DECLARE_OP(oh, delete, osd_dto_credits_noquota[DTO_OBJECT_DELETE]);
+	OSD_DECLARE_OP(oh, destroy, osd_dto_credits_noquota[DTO_OBJECT_DELETE]);
 	/* XXX: So far, only normal fid needs to be inserted into the OI,
 	 *      so only normal fid needs to be removed from the OI also.
 	 * Recycle idle OI leaf may cause additional three OI blocks
 	 * to be changed. */
-	OSD_DECLARE_OP(oh, destroy, fid_is_norm(lu_object_fid(&dt->do_lu)) ?
-			osd_dto_credits_noquota[DTO_INDEX_DELETE] + 3 : 0);
+	if (fid_is_norm(lu_object_fid(&dt->do_lu)) ||
+	    fid_is_root(lu_object_fid(&dt->do_lu)))
+		OSD_DECLARE_OP(oh, delete,
+			       osd_dto_credits_noquota[DTO_INDEX_DELETE] + 3);
 
 	/* one less inode */
 	rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid, -1, oh,
@@ -2205,8 +2208,10 @@ static int osd_object_ea_create(const struct lu_env *env, struct dt_object *dt,
 
         result = __osd_object_create(info, obj, attr, hint, dof, th);
         /* objects under osd root shld have igif fid, so dont add fid EA */
-        if (result == 0 && fid_seq(fid) >= FID_SEQ_NORMAL)
-                result = osd_ea_fid_set(env, dt, fid);
+	if (result == 0) {
+		LASSERTF(!fid_is_igif(fid), DFID, PFID(fid));
+		result = osd_ea_fid_set(env, dt, fid);
+	}
 
         if (result == 0)
                 result = __osd_oi_insert(env, obj, fid, th);
@@ -3185,13 +3190,7 @@ static int __osd_ea_add_rec(struct osd_thread_info *info,
 
         child = osd_child_dentry_get(info->oti_env, pobj, name, strlen(name));
 
-        /* XXX: remove fid_is_igif() check here.
-         * IGIF check is just to handle insertion of .. when it is 'ROOT',
-         * it is IGIF now but needs FID in dir entry as well for readdir
-         * to work.
-         * LU-838 should fix that and remove fid_is_igif() check */
-        if (fid_is_igif((struct lu_fid *)fid) ||
-            fid_is_norm((struct lu_fid *)fid)) {
+	if (fid_is_norm((struct lu_fid *)fid)) {
                 ldp = (struct ldiskfs_dentry_param *)info->oti_ldp;
                 osd_get_ldiskfs_dirent_param(ldp, fid);
                 child->d_fsdata = (void *)ldp;
@@ -3414,6 +3413,7 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
 			rc = osd_ea_fid_get(env, obj, ino, fid, &oic->oic_lid);
 		else
 			osd_id_gen(&oic->oic_lid, ino, OSD_OII_NOGEN);
+
 		if (rc != 0) {
 			fid_zero(&oic->oic_fid);
 			GOTO(out, rc);

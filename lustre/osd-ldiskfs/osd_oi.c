@@ -564,7 +564,9 @@ int osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
 	struct lu_fid	    *oi_fid = &info->oti_fid2;
 	struct osd_inode_id *oi_id = &info->oti_id2;
 
-	if (fid_is_igif(fid) || unlikely(fid_seq(fid) == FID_SEQ_DOT_LUSTRE))
+	if (fid_is_igif(fid) ||
+	    unlikely(fid_seq(fid) == FID_SEQ_DOT_LUSTRE) ||
+	    unlikely(fid_seq(fid) == FID_SEQ_LOCAL_NAME))
 		return 0;
 
 	if (fid_is_idif(fid) || fid_seq(fid) == FID_SEQ_LLOG)
