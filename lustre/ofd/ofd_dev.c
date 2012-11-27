@@ -422,12 +422,6 @@ static int ofd_procfs_init(struct ofd_device *ofd)
 	lprocfs_counter_init(obd->obd_stats, LPROC_OFD_WRITE_BYTES,
 			     LPROCFS_CNTR_AVGMINMAX, "write_bytes", "bytes");
 
-	rc = lproc_ofd_attach_seqstat(obd);
-	if (rc) {
-		CERROR("%s: create seqstat failed: %d.\n", obd->obd_name, rc);
-		GOTO(free_obd_stats, rc);
-	}
-
 	entry = lprocfs_register("exports", obd->obd_proc_entry, NULL, NULL);
 	if (IS_ERR(entry)) {
 		rc = PTR_ERR(entry);
@@ -461,10 +455,32 @@ obd_cleanup:
 	return rc;
 }
 
+static void ofd_procfs_add_brw_stats_symlink(struct ofd_device *ofd)
+{
+	struct obd_device	*obd = ofd_obd(ofd);
+	struct obd_device	*osd_obd = ofd->ofd_osd_exp->exp_obd;
+	cfs_proc_dir_entry_t	*osd_root = osd_obd->obd_type->typ_procroot;
+	cfs_proc_dir_entry_t	*osd_dir;
+
+	/* OSDs are too cool to use obd_name for their proc entries or
+	 * to store them in obd_proc_entry. */
+	osd_dir = lprocfs_srch(osd_root, obd->obd_name);
+	if (osd_dir == NULL)
+		return;
+
+	if (lprocfs_srch(osd_dir, "brw_stats") == NULL)
+		return;
+
+	lprocfs_add_symlink("brw_stats", obd->obd_proc_entry,
+			    "../../%s/%s/brw_stats",
+			    osd_root->name, osd_dir->name);
+}
+
 static int ofd_procfs_fini(struct ofd_device *ofd)
 {
 	struct obd_device *obd = ofd_obd(ofd);
 
+	lprocfs_remove_proc_entry("brw_stats", obd->obd_proc_entry);
 	lprocfs_job_stats_fini(obd);
 	lprocfs_remove_proc_entry("clear", obd->obd_proc_exports_entry);
 	lprocfs_free_per_client_stats(obd);
@@ -562,6 +578,8 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 		CERROR("Can't init device stack, rc %d\n", rc);
 		GOTO(err_fini_proc, rc);
 	}
+
+	ofd_procfs_add_brw_stats_symlink(m);
 
 	/* populate cached statfs data */
 	osfs = &ofd_info(env)->fti_u.osfs;
