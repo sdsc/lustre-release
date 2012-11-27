@@ -385,7 +385,6 @@ int fld_server_init(const struct lu_env *env, struct lu_server_fld *fld,
 		    __u32 lsr_flags)
 {
         int cache_size, cache_threshold;
-        struct lu_seq_range range;
         int rc;
         ENTRY;
 
@@ -407,7 +406,7 @@ int fld_server_init(const struct lu_env *env, struct lu_server_fld *fld,
                 GOTO(out, rc);
         }
 
-	if (!mds_node_id && lsr_flags == LU_SEQ_RANGE_MDT) {
+	if (mds_node_id == 0 && lsr_flags == LU_SEQ_RANGE_MDT) {
 		rc = fld_index_init(env, fld, dt);
                 if (rc)
                         GOTO(out, rc);
@@ -420,15 +419,6 @@ int fld_server_init(const struct lu_env *env, struct lu_server_fld *fld,
 
         fld->lsf_control_exp = NULL;
 
-	if (lsr_flags == LU_SEQ_RANGE_MDT) {
-		/* Insert reserved sequence of "ROOT" and ".lustre"
-		 * into fld cache. */
-		range.lsr_start = FID_SEQ_LOCAL_FILE;
-		range.lsr_end = FID_SEQ_DOT_LUSTRE + 1;
-		range.lsr_index = 0;
-		range.lsr_flags = lsr_flags;
-		fld_cache_insert(fld->lsf_cache, &range);
-	}
         EXIT;
 out:
 	if (rc)
