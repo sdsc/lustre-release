@@ -261,13 +261,6 @@ int local_object_create(const struct lu_env *env,
 	if (rc)
 		RETURN(rc);
 
-	lustre_lma_init(&dti->dti_lma, lu_object_fid(&o->do_lu));
-	lustre_lma_swab(&dti->dti_lma);
-	dti->dti_lb.lb_buf = &dti->dti_lma;
-	dti->dti_lb.lb_len = sizeof(dti->dti_lma);
-	rc = dt_xattr_set(env, o, &dti->dti_lb, XATTR_NAME_LMA, 0, th,
-			  BYPASS_CAPA);
-
 	if (los == NULL)
 		RETURN(rc);
 
@@ -339,6 +332,7 @@ struct dt_object *__local_file_create(const struct lu_env *env,
 	if (rc)
 		GOTO(trans_stop, rc);
 
+	dt_write_lock(env, parent, 0);
 	dt_write_lock(env, dto, 0);
 	if (dt_object_exists(dto))
 		GOTO(unlock, rc = 0);
@@ -365,12 +359,10 @@ struct dt_object *__local_file_create(const struct lu_env *env,
 			GOTO(destroy, rc);
 	}
 
-	dt_write_lock(env, parent, 0);
 	rc = dt_insert(env, parent, (const struct dt_rec *)fid,
 		       (const struct dt_key *)name, th, BYPASS_CAPA, 1);
 	if (dti->dti_dof.dof_type == DFT_DIR)
 		dt_ref_add(env, parent, th);
-	dt_write_unlock(env, parent);
 	if (rc)
 		GOTO(destroy, rc);
 destroy:
@@ -378,6 +370,7 @@ destroy:
 		dt_destroy(env, dto, th);
 unlock:
 	dt_write_unlock(env, dto);
+	dt_write_unlock(env, parent);
 trans_stop:
 	dt_trans_stop(env, ls->ls_osd, th);
 out:
@@ -450,11 +443,7 @@ struct dt_object *local_file_find_or_create_with_fid(const struct lu_env *env,
 
 	rc = dt_lookup_dir(env, parent, name, &dti->dti_fid);
 	if (rc == 0) {
-		/* name is found, get the object */
-		if (!lu_fid_eq(fid, &dti->dti_fid))
-			dto = ERR_PTR(-EINVAL);
-		else
-			dto = dt_locate(env, dt, fid);
+		dto = dt_locate(env, dt, &dti->dti_fid);
 	} else if (rc != -ENOENT) {
 		dto = ERR_PTR(rc);
 	} else {
@@ -662,22 +651,20 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 	if (IS_ERR(root))
 		GOTO(out_los, rc = PTR_ERR(root));
 
+	/* initialize data allowing to generate new fids,
+	 * literally we need a sequence */
 	snprintf(dti->dti_buf, sizeof(dti->dti_buf), "seq-%Lx-lastid",
 		 fid_seq(first_fid));
 	rc = dt_lookup_dir(env, root, dti->dti_buf, &dti->dti_fid);
-	if (rc != 0 && rc != -ENOENT)
+	if (rc == -ENOENT)
+		dti->dti_fid = *first_fid;
+	else if (rc < 0)
 		GOTO(out_los, rc);
 
-	/* initialize data allowing to generate new fids,
-	 * literally we need a sequence */
-	if (rc == 0)
-		o = ls_locate(env, ls, &dti->dti_fid);
-	else
-		o = ls_locate(env, ls, first_fid);
+	o = ls_locate(env, ls, &dti->dti_fid);
 	if (IS_ERR(o))
 		GOTO(out_los, rc = PTR_ERR(o));
-
-	dt_write_lock(env, o, 0);
+	LASSERT(fid_seq(&dti->dti_fid) == fid_seq(first_fid));
 	if (!dt_object_exists(o)) {
 		LASSERT(rc == -ENOENT);
 
@@ -695,16 +682,9 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 			GOTO(out_trans, rc);
 
 		rc = dt_declare_insert(env, root,
-				       (const struct dt_rec *)lu_object_fid(&o->do_lu),
+				       (const struct dt_rec *)&dti->dti_fid,
 				       (const struct dt_key *)dti->dti_buf,
 				       th);
-		if (rc)
-			GOTO(out_trans, rc);
-
-		dti->dti_lb.lb_buf = NULL;
-		dti->dti_lb.lb_len = sizeof(dti->dti_lma);
-		rc = dt_declare_xattr_set(env, o, &dti->dti_lb, XATTR_NAME_LMA,
-					  0, th);
 		if (rc)
 			GOTO(out_trans, rc);
 
@@ -716,20 +696,15 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 		if (rc)
 			GOTO(out_trans, rc);
 
-		LASSERT(!dt_object_exists(o));
-		rc = dt_create(env, o, &dti->dti_attr, NULL, &dti->dti_dof, th);
-		if (rc)
-			GOTO(out_trans, rc);
-		LASSERT(dt_object_exists(o));
+		dt_write_lock(env, root, 0);
+		dt_write_lock(env, o, 0);
+		if (dt_object_exists(o))
+			GOTO(out_lock, rc = 0);
 
-		lustre_lma_init(&dti->dti_lma, lu_object_fid(&o->do_lu));
-		lustre_lma_swab(&dti->dti_lma);
-		dti->dti_lb.lb_buf = &dti->dti_lma;
-		dti->dti_lb.lb_len = sizeof(dti->dti_lma);
-		rc = dt_xattr_set(env, o, &dti->dti_lb, XATTR_NAME_LMA, 0,
-				  th, BYPASS_CAPA);
+		rc = dt_create(env, o, &dti->dti_attr, NULL, &dti->dti_dof,
+			       th);
 		if (rc)
-			GOTO(out_trans, rc);
+			GOTO(out_lock, rc);
 
 		losd.lso_magic = cpu_to_le32(LOS_MAGIC);
 		losd.lso_next_oid = cpu_to_le32(fid_oid(first_fid) + 1);
@@ -739,7 +714,7 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 		dti->dti_lb.lb_len = sizeof(losd);
 		rc = dt_record_write(env, o, &dti->dti_lb, &dti->dti_off, th);
 		if (rc)
-			GOTO(out_trans, rc);
+			GOTO(out_lock, rc);
 #if LUSTRE_VERSION_CODE >= OBD_OCD_VERSION(2, 3, 90, 0)
 #error "fix this before release"
 #endif
@@ -748,29 +723,32 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 		 * proper hanlding of named vs no-name objects.
 		 * Llog objects have name always as they are placed in O/d/...
 		 */
-		if (fid_seq(lu_object_fid(&o->do_lu)) != FID_SEQ_LLOG) {
+		if (fid_seq(&dti->dti_fid) != FID_SEQ_LLOG) {
 			rc = dt_insert(env, root,
-				       (const struct dt_rec *)first_fid,
+				       (const struct dt_rec *)&dti->dti_fid,
 				       (const struct dt_key *)dti->dti_buf,
 				       th, BYPASS_CAPA, 1);
 			if (rc)
-				GOTO(out_trans, rc);
+				GOTO(out_lock, rc);
 		}
+out_lock:
+		dt_write_unlock(env, o);
+		dt_write_unlock(env, root);
 out_trans:
 		dt_trans_stop(env, dev, th);
 	} else {
 		dti->dti_off = 0;
 		dti->dti_lb.lb_buf = &losd;
 		dti->dti_lb.lb_len = sizeof(losd);
+		dt_read_lock(env, o, 0);
 		rc = dt_record_read(env, o, &dti->dti_lb, &dti->dti_off);
+		dt_read_unlock(env, o);
 		if (rc == 0 && le32_to_cpu(losd.lso_magic) != LOS_MAGIC) {
 			CERROR("local storage file "DFID" is corrupted\n",
 			       PFID(first_fid));
 			rc = -EINVAL;
 		}
 	}
-out_lock:
-	dt_write_unlock(env, o);
 out_los:
 	if (root != NULL && !IS_ERR(root))
 		lu_object_put_nocache(env, &root->do_lu);
