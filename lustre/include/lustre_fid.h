@@ -167,6 +167,7 @@ extern const struct lu_seq_range LUSTRE_SEQ_ZERO_RANGE;
 extern const struct lu_fid LUSTRE_BFL_FID;
 extern const struct lu_fid LU_OBF_FID;
 extern const struct lu_fid LU_DOT_LUSTRE_FID;
+extern const struct lu_fid LU_ROOT_FID;
 
 enum {
         /*
@@ -206,7 +207,7 @@ enum local_oid {
         FID_SEQ_CTL_OID         = 4UL,
         FID_SEQ_SRV_OID         = 5UL,
         /** \see mdd_mod_init */
-        MDD_ROOT_INDEX_OID      = 6UL,
+        /* MDD_ROOT_INDEX_OID      = 6UL, deprecated  in 2.4 */
         MDD_ORPHAN_OID          = 7UL,
         MDD_LOV_OBJ_OID         = 8UL,
         MDD_CAPA_KEYS_OID       = 9UL,
