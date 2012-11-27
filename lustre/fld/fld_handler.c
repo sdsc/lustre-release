@@ -406,7 +406,7 @@ int fld_server_init(const struct lu_env *env, struct lu_server_fld *fld,
                 GOTO(out, rc);
         }
 
-	if (!mds_node_id && lsr_flags == LU_SEQ_RANGE_MDT) {
+	if (mds_node_id == 0 && lsr_flags == LU_SEQ_RANGE_MDT) {
 		rc = fld_index_init(env, fld, dt);
                 if (rc)
                         GOTO(out, rc);
@@ -419,8 +419,7 @@ int fld_server_init(const struct lu_env *env, struct lu_server_fld *fld,
 
         fld->lsf_control_exp = NULL;
 
-	GOTO(out, rc);
-
+	EXIT;
 out:
 	if (rc)
 		fld_server_fini(env, fld);
