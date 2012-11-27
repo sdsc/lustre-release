@@ -440,8 +440,10 @@ enum fid_seq {
 
 /** OID for FID_SEQ_SPECIAL */
 enum special_oid {
-        /* Big Filesystem Lock to serialize rename operations */
-        FID_OID_SPECIAL_BFL     = 1UL,
+	/* Big Filesystem Lock to serialize rename operations */
+	FID_OID_SPECIAL_BFL	= 1UL,
+	/* New MDD "ROOT"s */
+	FID_OID_SPECIAL_ROOT	= 2UL,
 };
 
 /** OID for FID_SEQ_DOT_LUSTRE */
