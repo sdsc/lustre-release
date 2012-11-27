@@ -3193,13 +3193,7 @@ static int __osd_ea_add_rec(struct osd_thread_info *info,
 
         child = osd_child_dentry_get(info->oti_env, pobj, name, strlen(name));
 
-        /* XXX: remove fid_is_igif() check here.
-         * IGIF check is just to handle insertion of .. when it is 'ROOT',
-         * it is IGIF now but needs FID in dir entry as well for readdir
-         * to work.
-         * LU-838 should fix that and remove fid_is_igif() check */
-        if (fid_is_igif((struct lu_fid *)fid) ||
-            fid_is_norm((struct lu_fid *)fid)) {
+	if (fid_has_name((struct lu_fid *)fid)) {
                 ldp = (struct ldiskfs_dentry_param *)info->oti_ldp;
                 osd_get_ldiskfs_dirent_param(ldp, fid);
                 child->d_fsdata = (void *)ldp;

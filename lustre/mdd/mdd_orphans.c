@@ -501,46 +501,6 @@ out:
 	return rc;
 }
 
-/**
- * open the PENDING directory for device \a mdd
- *
- * The PENDING directory persistently tracks files and directories that were
- * unlinked from the namespace (nlink == 0) but are still held open by clients.
- * Those inodes shouldn't be deleted if the MDS crashes, because the clients
- * would not be able to recover and reopen those files.  Instead, these inodes
- * are linked into the PENDING directory on disk, and only deleted if all
- * clients close them, or the MDS finishes client recovery without any client
- * reopening them (i.e. former clients didn't join recovery).
- *  \param d   mdd device being started.
- *
- *  \retval 0  success
- *  \retval  -ve index operation error.
- *
- */
-int orph_index_init(const struct lu_env *env, struct mdd_device *mdd)
-{
-        struct lu_fid fid;
-        struct dt_object *d;
-        int rc = 0;
-        ENTRY;
-
-        d = dt_store_open(env, mdd->mdd_child, "", orph_index_name, &fid);
-        if (!IS_ERR(d)) {
-                mdd->mdd_orphans = d;
-                if (!dt_try_as_dir(env, d)) {
-                        rc = -ENOTDIR;
-                        CERROR("\"%s\" is not an index! : rc = %d\n",
-                                        orph_index_name, rc);
-                }
-        } else {
-                CERROR("cannot find \"%s\" obj %d\n",
-                       orph_index_name, (int)PTR_ERR(d));
-                rc = PTR_ERR(d);
-        }
-
-        RETURN(rc);
-}
-
 void orph_index_fini(const struct lu_env *env, struct mdd_device *mdd)
 {
         ENTRY;
