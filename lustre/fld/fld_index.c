@@ -78,6 +78,13 @@ static const struct lu_seq_range ROOT_FLD_RANGE = {
 	.lsr_flags = LU_SEQ_RANGE_MDT
 };
 
+static const struct lu_seq_range DOT_LUSTRE_FLD_RANGE = {
+	.lsr_start = FID_SEQ_DOT_LUSTRE,
+	.lsr_end   = FID_SEQ_DOT_LUSTRE + 1,
+	.lsr_index = 0,
+	.lsr_flags = LU_SEQ_RANGE_MDT
+};
+
 const struct dt_index_features fld_index_features = {
 	.dif_flags       = DT_IND_UPDATE,
 	.dif_keysize_min = sizeof(seqno_t),
@@ -304,6 +311,12 @@ static int fld_insert_special_entries(const struct lu_env *env,
 		RETURN(rc);
 
 	rc = fld_insert_entry(env, fld, &ROOT_FLD_RANGE);
+	if (rc != 0)
+		RETURN(rc);
+
+	rc = fld_insert_entry(env, fld, &DOT_LUSTRE_FLD_RANGE);
+	if (rc != 0)
+		RETURN(rc);
 
 	RETURN(rc);
 }
