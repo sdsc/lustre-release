@@ -422,12 +422,6 @@ static int ofd_procfs_init(struct ofd_device *ofd)
 	lprocfs_counter_init(obd->obd_stats, LPROC_OFD_WRITE_BYTES,
 			     LPROCFS_CNTR_AVGMINMAX, "write_bytes", "bytes");
 
-	rc = lproc_ofd_attach_seqstat(obd);
-	if (rc) {
-		CERROR("%s: create seqstat failed: %d.\n", obd->obd_name, rc);
-		GOTO(free_obd_stats, rc);
-	}
-
 	entry = lprocfs_register("exports", obd->obd_proc_entry, NULL, NULL);
 	if (IS_ERR(entry)) {
 		rc = PTR_ERR(entry);
