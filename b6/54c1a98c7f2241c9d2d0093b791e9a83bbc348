@@ -1,0 +1,10 @@
+Verified+1: Hudson
+Code-Review+1: Fan Yong <yong.fan@whamcloud.com>
+Code-Review+2: Andreas Dilger <adilger@whamcloud.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Bob Glossman <bob.glossman@intel.com>
+Submitted-by: Andreas Dilger <adilger@whamcloud.com>
+Submitted-at: Wed, 28 Nov 2012 13:10:12 -0500
+Reviewed-on: http://review.whamcloud.com/4515
+Project: fs/lustre-release
+Branch: refs/heads/b2_1
