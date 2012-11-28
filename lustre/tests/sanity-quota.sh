@@ -968,6 +968,7 @@ test_7a() {
 
 	echo "Start ost1..."
 	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS
+	quota_init
 
 	wait_ost_reint "ug" || error "reintegration failed"
 
@@ -989,6 +990,7 @@ test_7a() {
 
 	echo "Start ost1..."
 	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS
+	quota_init
 
 	wait_ost_reint "ug" || error "reintegration failed"
 
@@ -1049,6 +1051,7 @@ test_7b() {
 	echo "Restart ost to trigger reintegration..."
 	stop ost1
 	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS
+	quota_init
 
 	wait_ost_reint "ug" || error "reintegration failed"
 
@@ -1092,6 +1095,7 @@ test_7c() {
 
 	echo "Start mds..."
 	start mds1 $(mdsdevname 1) $MDS_MOUNT_OPTS
+	quota_init
 
 	wait_ost_reint "ug" || error "reintegration failed"
 
@@ -1735,14 +1739,13 @@ test_22() {
 	stopall
 	mount
 	setupall
+	quota_init
 
 	echo "Verify if quota is disabled"
 	qtype=$(mdt_quota_type)
 	[ $qtype != "none" ] && error "mdt quota setting is lost"
 	qtype=$(ost_quota_type)
 	[ $qtype != "none" ] && error "ost quota setting is lost"
-
-	quota_init
 }
 run_test 22 "enable/disable quota by 'lctl conf_param'"
 
