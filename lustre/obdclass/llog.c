@@ -362,7 +362,8 @@ repeat:
 				rc = lpi->lpi_cb(lpi->lpi_env, loghandle, rec,
 						 lpi->lpi_cbdata);
 				last_called_index = index;
-				if (rc == LLOG_PROC_BREAK) {
+				if (rc == LLOG_PROC_BREAK ||
+				    rc == LLOG_PROC_BREAK_CURRENT) {
 					GOTO(out, rc);
 				} else if (rc == LLOG_DEL_RECORD) {
 					llog_cancel_rec(lpi->lpi_env,

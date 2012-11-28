@@ -500,8 +500,9 @@ static inline int llog_gen_lt(struct llog_gen a, struct llog_gen b)
         return(a.conn_cnt < b.conn_cnt ? 1 : 0);
 }
 
-#define LLOG_PROC_BREAK 0x0001
-#define LLOG_DEL_RECORD 0x0002
+#define LLOG_PROC_BREAK		0x0001
+#define LLOG_DEL_RECORD		0x0002
+#define LLOG_PROC_BREAK_CURRENT 0x0003
 
 static inline int llog_obd2ops(struct llog_ctxt *ctxt,
                                struct llog_operations **lop)

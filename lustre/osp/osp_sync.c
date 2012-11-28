@@ -766,12 +766,26 @@ static int osp_sync_process_queues(const struct lu_env *env,
 		/* if we there are changes to be processed and we have
 		 * resources for this ... do now */
 		if (osp_sync_can_process_new(d, rec)) {
-			if (llh == NULL) {
+			if (rec == NULL) {
 				/* ask llog for another record */
 				CDEBUG(D_HA, "%lu changes, %u in progress, %u in flight\n",
 				       d->opd_syn_changes,
 				       d->opd_syn_rpc_in_progress,
 				       d->opd_syn_rpc_in_flight);
+
+				/*
+				 * If the log has been destroyed during the
+				 * record cancellations above, close the log
+				 * handle and skip to next log.
+				 */
+				if (!llog_exist(llh)) {
+					CDEBUG(D_HA, "%s: Stop processing "
+					       "destroyed log\n",
+					       d->opd_obd->obd_name);
+					llog_close(env, llh);
+					return LLOG_PROC_BREAK_CURRENT;
+				}
+
 				return 0;
 			}
 
@@ -795,7 +809,6 @@ static int osp_sync_process_queues(const struct lu_env *env,
 				}
 			} while (rc != 0 && osp_sync_running(d));
 
-			llh = NULL;
 			rec = NULL;
 		}
 
