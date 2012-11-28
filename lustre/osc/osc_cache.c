@@ -1518,7 +1518,8 @@ static int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
 		ocw.ocw_rc = 0;
 		client_obd_list_unlock(&cli->cl_loi_list_lock);
 
-		osc_io_unplug(env, cli, osc, PDL_POLICY_ROUND);
+		/* unplug IO queue async to avoid stack overflow */
+		osc_io_unplug_async(env, cli, NULL);
 
 		CDEBUG(D_CACHE, "%s: sleeping for cache space @ %p for %p\n",
 		       cli->cl_import->imp_obd->obd_name, &ocw, oap);
