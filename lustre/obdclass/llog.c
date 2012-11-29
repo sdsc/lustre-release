@@ -387,6 +387,7 @@ out:
         if (cd != NULL)
                 cd->lpcd_last_idx = last_called_index;
 
+	loghandle->lgh_cur_idx = 0;
 	OBD_FREE(buf, LLOG_CHUNK_SIZE);
         lpi->lpi_rc = rc;
         return 0;
