@@ -4,9 +4,9 @@ AC_INIT([Lustre ldiskfs], 3.3.0, [http://bugs.whamcloud.com/])
 AC_CONFIG_SRCDIR([lustre-ldiskfs.spec.in])
 
 # Don't look for install-sh, etc. in ..
-AC_CONFIG_AUX_DIR([build/autoconf])
+AC_CONFIG_AUX_DIR([config])
 
-AC_CONFIG_MACRO_DIR([build/autoconf])
+AC_CONFIG_MACRO_DIR([config])
 
 AC_CANONICAL_SYSTEM
 
@@ -18,7 +18,6 @@ LB_DOWNSTREAM_RELEASE
 
 LB_BUILDID
 
-LB_INCLUDE_RULES
 LB_PROG_CC
 
 AC_ARG_ENABLE([dist],
@@ -30,32 +29,26 @@ if test x$enable_dist != xno; then
 	enable_modules='no'
 fi
 
-#
-# LC_TARGET_SUPPORTED
-#
-# is the target os supported?
-#
-AC_DEFUN([LC_TARGET_SUPPORTED],
-[case $target_os in
-	linux* | darwin*)
-$1
-		;;
-	*)
-$2
-		;;
-esac
-])
-
 AC_MSG_CHECKING([whether to build kernel modules])
 AC_ARG_ENABLE([modules],
 	      AC_HELP_STRING([--disable-modules],
 			     [disable building of Lustre kernel modules]),[],
-			     [LC_TARGET_SUPPORTED([enable_modules='yes'],
-			     [enable_modules='no'])])
+			     [enable_modules='yes'],
+			     [enable_modules='no'])
 AC_MSG_RESULT([$enable_modules])
 
 if test x$enable_modules = xyes ; then
-	LB_PROG_LINUX
+	LB_LINUX_PATH
+	LB_LINUX_SYMVERFILE
+	LB_LINUX_CONFIG([MODULES],[],[
+		AC_MSG_ERROR([module support is required to build ldiskfs kernel module.])
+	])
+	LB_LINUX_CONFIG([MODVERSIONS])
+	LB_LINUX_CONFIG([KALLSYMS],[],[
+		if test "x$ARCH_UM" = "x" ; then
+			AC_MSG_ERROR([ldiskfs requires that CONFIG_KALLSYMS is enabled in your kernel.])
+		fi
+	])
 	LB_LINUX_MODPOST
 fi
 
@@ -75,11 +68,6 @@ AC_ARG_ENABLE([server],
 AC_MSG_RESULT([$enable_server])
 
 LB_CONFIG_HEADERS
-
-# These allow Lustre Makefiles and autoMakefiles to be used unchanged.
-AM_CONDITIONAL(MODULES, true)
-AM_CONDITIONAL(LINUX, true)
-AM_CONDITIONAL(DARWIN, true)
 
 LDISKFSDIR="$PWD/ldiskfs"
 AC_SUBST(LDISKFSDIR)
@@ -115,8 +103,8 @@ AM_CONDITIONAL(LDISKFS_PDO, test x$with_ldiskfs_pdo = xyes)
 
 AC_SUBST(ac_configure_args)
 
-LB_CONFIG_FILES
-AC_CONFIG_FILES([ldiskfs/autoMakefile ldiskfs/Makefile])
+AC_CONFIG_FILES([Makefile ldiskfs/Makefile]
+		AC_PACKAGE_TARNAME[.spec])
 
 MOSTLYCLEANFILES='.*.cmd .*.flags *.o *.ko *.mod.c .depend .*.1.* Modules.symvers Module.symvers'
 AC_SUBST(MOSTLYCLEANFILES)

@@ -105,7 +105,7 @@ run_cmd()
 	echo
 }
 
-ACLOCAL_FLAGS="$ACLOCAL_FLAGS -I $PWD/build/autoconf"
+ACLOCAL_FLAGS="$ACLOCAL_FLAGS -I $PWD/config"
 
 export ACLOCAL="aclocal-$AMVER"
 export AUTOMAKE="automake-$AMVER"
