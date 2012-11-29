@@ -46,6 +46,9 @@
 #include <linux/crypto.h>
 #include <linux/key.h>
 #include <linux/keyctl.h>
+#ifdef HAVE_LINUX_KEYTYPE_H
+#include <linux/key-type.h>
+#endif
 #include <linux/mutex.h>
 #include <asm/atomic.h>
 #else
@@ -68,6 +71,16 @@ static struct ptlrpc_sec_policy gss_policy_keyring;
 static struct ptlrpc_ctx_ops gss_keyring_ctxops;
 static struct key_type gss_key_type;
 
+/* Mapping structure to provide backward compatibility for accessing
+ * the various keyrings. */
+struct _keyring_compat {
+	unsigned char		jit_keyring;
+	struct key		*process_keyring;
+	struct key		*session_keyring;
+	struct key		*thread_keyring;
+	struct user_struct	*user;
+};
+
 static int sec_install_rctx_kr(struct ptlrpc_sec *sec,
                                struct ptlrpc_svc_ctx *svc_ctx);
 
@@ -86,27 +99,27 @@ static int sec_install_rctx_kr(struct ptlrpc_sec *sec,
  * internal helpers                     *
  ****************************************/
 
-#define DUMP_PROCESS_KEYRINGS(tsk)                                      \
-{                                                                       \
-        CWARN("DUMP PK: %s[%u,%u/%u](<-%s[%u,%u/%u]): "                 \
-              "a %d, t %d, p %d, s %d, u %d, us %d, df %d\n",           \
-              tsk->comm, tsk->pid, tsk->uid, tsk->fsuid,                \
-              tsk->parent->comm, tsk->parent->pid,                      \
-              tsk->parent->uid, tsk->parent->fsuid,                     \
-              tsk->request_key_auth ?                                   \
-              tsk->request_key_auth->serial : 0,                        \
-              tsk->thread_keyring ?                                     \
-              tsk->thread_keyring->serial : 0,                          \
-              tsk->signal->process_keyring ?                            \
-              tsk->signal->process_keyring->serial : 0,                 \
-              tsk->signal->session_keyring ?                            \
-              tsk->signal->session_keyring->serial : 0,                 \
-              tsk->user->uid_keyring ?                                  \
-              tsk->user->uid_keyring->serial : 0,                       \
-              tsk->user->session_keyring ?                              \
-              tsk->user->session_keyring->serial : 0,                   \
-              tsk->jit_keyring                                          \
-             );                                                         \
+#define DUMP_PROCESS_KEYRINGS(cred)					\
+{									\
+	CWARN("DUMP PK: %s[%u,%u/%u](<-%s[%u,%u/%u]): "			\
+		"a %d, t %d, p %d, s %d, u %d, us %d, df %d\n",		\
+		cred->comm, cred->pid, cred->uid, cred->fsuid,		\
+		cred->parent->comm, cred->parent->pid,			\
+		cred->parent->uid, cred->parent->fsuid,			\
+		cred->request_key_auth ?				\
+		cred->request_key_auth->serial : 0,			\
+		cred->thread_keyring ?					\
+		cred->thread_keyring->serial : 0,			\
+		cred->process_keyring ?					\
+		cred->process_keyring->serial : 0,			\
+		cred->session_keyring ?					\
+		cred->session_keyring->serial : 0,			\
+		cred->user->uid_keyring ?				\
+		cred->user->uid_keyring->serial : 0,			\
+		cred->user->session_keyring ?				\
+		cred->user->session_keyring->serial : 0,		\
+		jit_keyring()						\
+	);								\
 }
 
 #define DUMP_KEY(key)                                                   \
@@ -118,6 +131,35 @@ static int sec_install_rctx_kr(struct ptlrpc_sec *sec,
              );                                                         \
 }
 
+/* Prime the keyring compatibility structure. */
+static void keyring_init(struct _keyring_compat *compat)
+{
+#if HAVE_STRUCT_CRED
+	const struct cred *cred = current_cred();
+
+	LASSERT(compat);
+	*compat = (struct _keyring_compat) {
+		.jit_keyring		= cred->jit_keyring,
+		.process_keyring	= cred->tgcred->process_keyring,
+		.session_keyring	= cred->tgcred->session_keyring,
+		.thread_keyring		= cred->thread_keyring,
+		.user			= cred->user,
+	};
+#else
+	const struct task_struct *tsk = cfs_current();
+
+	LASSERT(compat);
+	*compat = (struct _keyring_compat) {
+		.jit_keyring		= tsk->jit_keyring,
+		.process_keyring	= tsk->signal->process_keyring,
+		.session_keyring	= tsk->signal->session_keyring,
+		.thread_keyring		= tsk->thread_keyring,
+		.user			= tsk->user,
+	};
+#endif
+
+	return;
+}
 
 static inline void keyring_upcall_lock(struct gss_sec_keyring *gsec_kr)
 {
@@ -627,6 +669,7 @@ static inline int user_is_root(struct ptlrpc_sec *sec, struct vfs_cred *vcred)
                 return 0;
 }
 
+#ifndef HAVE_STRUCT_CRED
 /*
  * unlink request key from it's ring, which is linked during request_key().
  * sadly, we have to 'guess' which keyring it's linked to.
@@ -635,40 +678,91 @@ static inline int user_is_root(struct ptlrpc_sec *sec, struct vfs_cred *vcred)
  */
 static void request_key_unlink(struct key *key)
 {
-        struct task_struct *tsk = current;
-        struct key *ring;
+	struct _keyring_compat *cred;
+	struct key *ring;
 
-        switch (tsk->jit_keyring) {
-        case KEY_REQKEY_DEFL_DEFAULT:
-        case KEY_REQKEY_DEFL_THREAD_KEYRING:
-                ring = key_get(tsk->thread_keyring);
-                if (ring)
-                        break;
-        case KEY_REQKEY_DEFL_PROCESS_KEYRING:
-                ring = key_get(tsk->signal->process_keyring);
-                if (ring)
-                        break;
-        case KEY_REQKEY_DEFL_SESSION_KEYRING:
-                rcu_read_lock();
-                ring = key_get(rcu_dereference(tsk->signal->session_keyring));
-                rcu_read_unlock();
-                if (ring)
-                        break;
-        case KEY_REQKEY_DEFL_USER_SESSION_KEYRING:
-                ring = key_get(tsk->user->session_keyring);
-                break;
-        case KEY_REQKEY_DEFL_USER_KEYRING:
-                ring = key_get(tsk->user->uid_keyring);
-                break;
-        case KEY_REQKEY_DEFL_GROUP_KEYRING:
-        default:
-                LBUG();
-        }
+	OBD_ALLOC_PTR(cred);
+	keyring_init(cred);
+	switch (cred->jit_keyring) {
+	case KEY_REQKEY_DEFL_DEFAULT:
+	case KEY_REQKEY_DEFL_THREAD_KEYRING:
+		ring = key_get(cred->thread_keyring);
+		if (ring)
+			break;
+	case KEY_REQKEY_DEFL_PROCESS_KEYRING:
+		ring = key_get(cred->process_keyring);
+		if (ring)
+			break;
+	case KEY_REQKEY_DEFL_SESSION_KEYRING:
+		rcu_read_lock();
+		ring = key_get(rcu_dereference(cred->session_keyring));
+		rcu_read_unlock();
+		if (ring)
+			break;
+	case KEY_REQKEY_DEFL_USER_SESSION_KEYRING:
+		ring = key_get(cred->user->session_keyring);
+		break;
+	case KEY_REQKEY_DEFL_USER_KEYRING:
+		ring = key_get(cred->user->uid_keyring);
+		break;
+	case KEY_REQKEY_DEFL_GROUP_KEYRING:
+	default:
+		OBD_FREE_PTR(cred);
+		LBUG();
+	}
+
+	OBD_FREE_PTR(cred);
+	LASSERT(ring);
+	key_unlink(ring, key);
+	key_put(ring);
+}
+#else
+/* Since 2.6.29 keyring is (mostly) separated from task_struct,
+   and accessible via credential structure defined in cred.h. */
+static void request_key_unlink_cred(struct key *key)
+{
+	const struct cred *cred = current_cred();
+	struct key *ring;
+
+	switch (cred->jit_keyring) {
+	case KEY_REQKEY_DEFL_DEFAULT:
+	case KEY_REQKEY_DEFL_THREAD_KEYRING:
+		ring = key_get(cred->thread_keyring);
+		if (ring)
+			break;
+
+	case KEY_REQKEY_DEFL_PROCESS_KEYRING:
+		ring = key_get(cred->tgcred->process_keyring);
+		if (ring)
+			break;
+
+	case KEY_REQKEY_DEFL_SESSION_KEYRING:
+		rcu_read_lock();
+		ring = key_get(
+			rcu_dereference(cred->tgcred->session_keyring));
+		rcu_read_unlock();
+
+		if (ring)
+			break;
+
+	case KEY_REQKEY_DEFL_USER_SESSION_KEYRING:
+		ring = key_get(cred->user->session_keyring);
+		break;
+
+	case KEY_REQKEY_DEFL_USER_KEYRING:
+		ring = key_get(cred->user->uid_keyring);
+		break;
+
+	case KEY_REQKEY_DEFL_GROUP_KEYRING:
+	default:
+		LBUG();
+	}
 
         LASSERT(ring);
         key_unlink(ring, key);
         key_put(ring);
 }
+#endif
 
 static
 struct ptlrpc_cli_ctx * gss_sec_lookup_ctx_kr(struct ptlrpc_sec *sec,
@@ -816,7 +910,11 @@ struct ptlrpc_cli_ctx * gss_sec_lookup_ctx_kr(struct ptlrpc_sec *sec,
         up_write(&key->sem);
 
         if (is_root && create_new)
+#ifdef HAVE_STRUCT_CRED
+                request_key_unlink_cred(key);
+#else
                 request_key_unlink(key);
+#endif
 
         key_put(key);
 out:
@@ -1218,6 +1316,7 @@ static
 int gss_kt_instantiate(struct key *key, const void *data, size_t datalen)
 {
         int             rc;
+	struct _keyring_compat	*cred;
         ENTRY;
 
         if (data != NULL || datalen != 0) {
@@ -1240,20 +1339,24 @@ int gss_kt_instantiate(struct key *key, const void *data, size_t datalen)
          * the session keyring is created upon upcall, and don't change all
          * the way until upcall finished, so rcu lock is not needed here.
          */
-        LASSERT(cfs_current()->signal->session_keyring);
+	OBD_ALLOC_PTR(cred);
+	keyring_init(cred);
+	LASSERT(cred->session_keyring);
 
-        cfs_lockdep_off();
-        rc = key_link(cfs_current()->signal->session_keyring, key);
-        cfs_lockdep_on();
-        if (unlikely(rc)) {
-                CERROR("failed to link key %08x to keyring %08x: %d\n",
-                       key->serial,
-                       cfs_current()->signal->session_keyring->serial, rc);
-                RETURN(rc);
-        }
+	lockdep_off();
+	rc = key_link(cred->session_keyring, key);
+	lockdep_on();
+	if (unlikely(rc)) {
+		CERROR("failed to link key %08x to keyring %08x: %d\n",
+		       key->serial,
+		       cred->session_keyring->serial, rc);
+		OBD_FREE_PTR(cred);
+		RETURN(rc);
+	}
 
-        CDEBUG(D_SEC, "key %p instantiated, ctx %p\n", key, key->payload.data);
-        RETURN(0);
+	CDEBUG(D_SEC, "key %p instantiated, ctx %p\n", key, key->payload.data);
+	OBD_FREE_PTR(cred);
+	RETURN(0);
 }
 
 /*
