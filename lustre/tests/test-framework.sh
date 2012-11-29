@@ -4645,6 +4645,13 @@ inodes_available () {
     echo $IFree
 }
 
+# Handle the case when there is a space in the lfs df
+# "filesystem summary" line the same as when there is no space.
+# This will allow fixing the "lfs df" summary line in the future.
+lfs_df() {
+	$LFS df $* | sed -e 's/filesystem /filesystem_/'
+}
+
 mdsrate_inodes_available () {
     local min_inodes=$(inodes_available)
     echo $((min_inodes * 99 / 100))
