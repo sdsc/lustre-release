@@ -521,7 +521,8 @@ int llog_cat_cancel_records(const struct lu_env *env,
 			if (cathandle->u.chd.chd_current_log == loghandle)
 				cathandle->u.chd.chd_current_log = NULL;
 			cfs_up_write(&cathandle->lgh_lock);
-			llog_close(env, loghandle);
+			if (loghandle->lgh_cur_idx == 0)
+				llog_close(env, loghandle);
 
 			LASSERT(index);
 			llog_cat_set_first_idx(cathandle, index);
@@ -588,6 +589,9 @@ int llog_cat_process_cb(const struct lu_env *env, struct llog_handle *cat_llh,
 		rc = llog_process_or_fork(env, llh, d->lpd_cb, d->lpd_data,
 					  NULL, false);
         }
+
+	if (!llog_exist(llh))
+		llog_close(env, llh);
 
         RETURN(rc);
 }
