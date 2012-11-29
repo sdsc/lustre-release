@@ -1,0 +1,8 @@
+Verified+1: Hudson
+Code-Review+2: Andreas Dilger <adilger@whamcloud.com>
+Code-Review+1: Keith Mannthey <kemannthey@gmail.com>
+Submitted-by: Johann Lombardi <johann.lombardi@intel.com>
+Submitted-at: Thu, 29 Nov 2012 09:46:25 -0500
+Reviewed-on: http://review.whamcloud.com/2077
+Project: fs/lustre-release
+Branch: refs/heads/b1_8
