@@ -46,6 +46,9 @@
 #include <linux/crypto.h>
 #include <linux/key.h>
 #include <linux/keyctl.h>
+#ifdef HAVE_LINUX_KEYTYPE_H
+#include <linux/key-type.h>
+#endif
 #include <linux/mutex.h>
 #include <asm/atomic.h>
 #else
@@ -627,6 +630,7 @@ static inline int user_is_root(struct ptlrpc_sec *sec, struct vfs_cred *vcred)
                 return 0;
 }
 
+#ifndef HAVE_STRUCT_CRED
 /*
  * unlink request key from it's ring, which is linked during request_key().
  * sadly, we have to 'guess' which keyring it's linked to.
@@ -635,7 +639,7 @@ static inline int user_is_root(struct ptlrpc_sec *sec, struct vfs_cred *vcred)
  */
 static void request_key_unlink(struct key *key)
 {
-        struct task_struct *tsk = current;
+        const struct task_struct *tsk = current;
         struct key *ring;
 
         switch (tsk->jit_keyring) {
@@ -669,6 +673,53 @@ static void request_key_unlink(struct key *key)
         key_unlink(ring, key);
         key_put(ring);
 }
+#else
+/* Since 2.6.29 keyring is (mostly) separated from task_struct,
+   and accessible via credential structure defined in cred.h. */
+static void request_key_unlink_cred(struct key *key)
+{
+	const struct cred *cred = current_cred();
+	struct key *ring;
+
+	switch (cred->jit_keyring) {
+	case KEY_REQKEY_DEFL_DEFAULT:
+	case KEY_REQKEY_DEFL_THREAD_KEYRING:
+		ring = key_get(cred->thread_keyring);
+		if (ring)
+			break;
+
+	case KEY_REQKEY_DEFL_PROCESS_KEYRING:
+		ring = key_get(cred->tgcred->process_keyring);
+		if (ring)
+			break;
+
+	case KEY_REQKEY_DEFL_SESSION_KEYRING:
+		rcu_read_lock();
+		ring = key_get(
+			rcu_dereference(cred->tgcred->session_keyring));
+		rcu_read_unlock();
+
+		if (ring)
+			break;
+
+	case KEY_REQKEY_DEFL_USER_SESSION_KEYRING:
+		ring = key_get(cred->user->session_keyring);
+		break;
+
+	case KEY_REQKEY_DEFL_USER_KEYRING:
+		ring = key_get(cred->user->uid_keyring);
+		break;
+
+	case KEY_REQKEY_DEFL_GROUP_KEYRING:
+	default:
+		LBUG();
+	}
+
+        LASSERT(ring);
+        key_unlink(ring, key);
+        key_put(ring);
+}
+#endif
 
 static
 struct ptlrpc_cli_ctx * gss_sec_lookup_ctx_kr(struct ptlrpc_sec *sec,
@@ -816,7 +867,11 @@ struct ptlrpc_cli_ctx * gss_sec_lookup_ctx_kr(struct ptlrpc_sec *sec,
         up_write(&key->sem);
 
         if (is_root && create_new)
+#ifdef HAVE_STRUCT_CRED
+                request_key_unlink_cred(key);
+#else
                 request_key_unlink(key);
+#endif
 
         key_put(key);
 out:
@@ -1240,15 +1295,26 @@ int gss_kt_instantiate(struct key *key, const void *data, size_t datalen)
          * the session keyring is created upon upcall, and don't change all
          * the way until upcall finished, so rcu lock is not needed here.
          */
+#ifndef HAVE_STRUCT_CRED
         LASSERT(cfs_current()->signal->session_keyring);
-
+#else
+	LASSERT(current_cred()->tgcred->session_keyring);
+#endif
         cfs_lockdep_off();
-        rc = key_link(cfs_current()->signal->session_keyring, key);
+#ifndef HAVE_STRUCT_CRED
+	rc = key_link(cfs_current()->signal->session_keyring, key);
+#else
+	rc = key_link(current_cred()->tgcred->session_keyring, key);
+#endif
         cfs_lockdep_on();
         if (unlikely(rc)) {
                 CERROR("failed to link key %08x to keyring %08x: %d\n",
                        key->serial,
+#ifndef HAVE_STRUCT_CRED
                        cfs_current()->signal->session_keyring->serial, rc);
+#else
+                       current_cred()->tgcred->session_keyring->serial, rc);
+#endif
                 RETURN(rc);
         }
 
