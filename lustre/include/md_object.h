@@ -544,6 +544,7 @@ static inline int mo_permission(const struct lu_env *env,
                                 struct md_attr *at,
                                 int mask)
 {
+	LASSERT(c != NULL && c->mo_ops != NULL);
         LASSERT(c->mo_ops->moo_permission);
         return c->mo_ops->moo_permission(env, p, c, at, mask);
 }
@@ -552,6 +553,7 @@ static inline int mo_attr_get(const struct lu_env *env,
                               struct md_object *m,
                               struct md_attr *at)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         LASSERT(m->mo_ops->moo_attr_get);
         return m->mo_ops->moo_attr_get(env, m, at);
 }
@@ -560,6 +562,7 @@ static inline int mo_readlink(const struct lu_env *env,
                               struct md_object *m,
                               struct lu_buf *buf)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         LASSERT(m->mo_ops->moo_readlink);
         return m->mo_ops->moo_readlink(env, m, buf);
 }
@@ -568,6 +571,7 @@ static inline int mo_changelog(const struct lu_env *env,
                                enum changelog_rec_type type,
                                int flags, struct md_object *m)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         LASSERT(m->mo_ops->moo_changelog);
         return m->mo_ops->moo_changelog(env, type, flags, m);
 }
@@ -576,6 +580,7 @@ static inline int mo_attr_set(const struct lu_env *env,
                               struct md_object *m,
                               const struct md_attr *at)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         LASSERT(m->mo_ops->moo_attr_set);
         return m->mo_ops->moo_attr_set(env, m, at);
 }
@@ -585,6 +590,7 @@ static inline int mo_xattr_get(const struct lu_env *env,
                                struct lu_buf *buf,
                                const char *name)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         LASSERT(m->mo_ops->moo_xattr_get);
         return m->mo_ops->moo_xattr_get(env, m, buf, name);
 }
@@ -593,6 +599,7 @@ static inline int mo_xattr_del(const struct lu_env *env,
                                struct md_object *m,
                                const char *name)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         LASSERT(m->mo_ops->moo_xattr_del);
         return m->mo_ops->moo_xattr_del(env, m, name);
 }
@@ -603,6 +610,7 @@ static inline int mo_xattr_set(const struct lu_env *env,
                                const char *name,
                                int flags)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         LASSERT(m->mo_ops->moo_xattr_set);
         return m->mo_ops->moo_xattr_set(env, m, buf, name, flags);
 }
@@ -611,6 +619,7 @@ static inline int mo_xattr_list(const struct lu_env *env,
                                 struct md_object *m,
                                 struct lu_buf *buf)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         LASSERT(m->mo_ops->moo_xattr_list);
         return m->mo_ops->moo_xattr_list(env, m, buf);
 }
@@ -630,6 +639,7 @@ static inline int mo_open(const struct lu_env *env,
                           struct md_object *m,
                           int flags)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         LASSERT(m->mo_ops->moo_open);
         return m->mo_ops->moo_open(env, m, flags);
 }
@@ -639,6 +649,7 @@ static inline int mo_close(const struct lu_env *env,
                            struct md_attr *ma,
                            int mode)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         LASSERT(m->mo_ops->moo_close);
         return m->mo_ops->moo_close(env, m, ma, mode);
 }
@@ -647,6 +658,7 @@ static inline int mo_readpage(const struct lu_env *env,
                               struct md_object *m,
                               const struct lu_rdpg *rdpg)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         LASSERT(m->mo_ops->moo_readpage);
         return m->mo_ops->moo_readpage(env, m, rdpg);
 }
@@ -656,6 +668,7 @@ static inline int mo_object_create(const struct lu_env *env,
                                    const struct md_op_spec *spc,
                                    struct md_attr *at)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         LASSERT(m->mo_ops->moo_object_create);
         return m->mo_ops->moo_object_create(env, m, spc, at);
 }
@@ -664,6 +677,7 @@ static inline int mo_ref_add(const struct lu_env *env,
                              struct md_object *m,
                              const struct md_attr *ma)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         LASSERT(m->mo_ops->moo_ref_add);
         return m->mo_ops->moo_ref_add(env, m, ma);
 }
@@ -672,6 +686,7 @@ static inline int mo_ref_del(const struct lu_env *env,
                              struct md_object *m,
                              struct md_attr *ma)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         LASSERT(m->mo_ops->moo_ref_del);
         return m->mo_ops->moo_ref_del(env, m, ma);
 }
@@ -681,6 +696,7 @@ static inline int mo_capa_get(const struct lu_env *env,
                               struct lustre_capa *c,
                               int renewal)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         LASSERT(m->mo_ops->moo_capa_get);
         return m->mo_ops->moo_capa_get(env, m, c, renewal);
 }
@@ -688,6 +704,7 @@ static inline int mo_capa_get(const struct lu_env *env,
 static inline int mo_path(const struct lu_env *env, struct md_object *m,
                           char *path, int pathlen, __u64 *recno, int *linkno)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         if (m->mo_ops->moo_path == NULL)
                 return -ENOSYS;
         return m->mo_ops->moo_path(env, m, path, pathlen, recno, linkno);
@@ -695,6 +712,7 @@ static inline int mo_path(const struct lu_env *env, struct md_object *m,
 
 static inline int mo_object_sync(const struct lu_env *env, struct md_object *m)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         LASSERT(m->mo_ops->moo_object_sync);
         return m->mo_ops->moo_object_sync(env, m);
 }
@@ -704,6 +722,7 @@ static inline int mo_file_lock(const struct lu_env *env, struct md_object *m,
                                struct ldlm_extent *extent,
                                struct lustre_handle *lockh)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         LASSERT(m->mo_ops->moo_file_lock);
         return m->mo_ops->moo_file_lock(env, m, lmm, extent, lockh);
 }
@@ -712,6 +731,7 @@ static inline int mo_file_unlock(const struct lu_env *env, struct md_object *m,
                                  struct lov_mds_md *lmm,
                                  struct lustre_handle *lockh)
 {
+	LASSERT(m != NULL && m->mo_ops != NULL);
         LASSERT(m->mo_ops->moo_file_unlock);
         return m->mo_ops->moo_file_unlock(env, m, lmm, lockh);
 }
@@ -732,6 +752,7 @@ static inline int mdo_lookup(const struct lu_env *env,
                              struct lu_fid *f,
                              struct md_op_spec *spec)
 {
+	LASSERT(p != NULL && p->mo_dir_ops != NULL);
         LASSERT(p->mo_dir_ops->mdo_lookup);
         return p->mo_dir_ops->mdo_lookup(env, p, lname, f, spec);
 }
@@ -740,6 +761,7 @@ static inline mdl_mode_t mdo_lock_mode(const struct lu_env *env,
                                        struct md_object *mo,
                                        mdl_mode_t lm)
 {
+	LASSERT(mo != NULL && mo->mo_dir_ops != NULL);
         if (mo->mo_dir_ops->mdo_lock_mode == NULL)
                 return MDL_MINMODE;
         return mo->mo_dir_ops->mdo_lock_mode(env, mo, lm);
@@ -752,6 +774,7 @@ static inline int mdo_create(const struct lu_env *env,
                              struct md_op_spec *spc,
                              struct md_attr *at)
 {
+	LASSERT(p != NULL && p->mo_dir_ops != NULL);
 	LASSERT(p->mo_dir_ops->mdo_create);
 	return p->mo_dir_ops->mdo_create(env, p, lchild_name, c, spc, at);
 }
@@ -762,6 +785,7 @@ static inline int mdo_create_data(const struct lu_env *env,
                                   const struct md_op_spec *spec,
                                   struct md_attr *ma)
 {
+	LASSERT(c != NULL && c->mo_dir_ops != NULL);
         LASSERT(c->mo_dir_ops->mdo_create_data);
         return c->mo_dir_ops->mdo_create_data(env, p, c, spec, ma);
 }
@@ -775,6 +799,7 @@ static inline int mdo_rename(const struct lu_env *env,
                              const struct lu_name *ltname,
                              struct md_attr *ma)
 {
+	LASSERT(tp != NULL && tp->mo_dir_ops != NULL);
         LASSERT(tp->mo_dir_ops->mdo_rename);
         return tp->mo_dir_ops->mdo_rename(env, sp, tp, lf, lsname, t, ltname,
                                           ma);
@@ -785,6 +810,7 @@ static inline int mdo_is_subdir(const struct lu_env *env,
                                 const struct lu_fid *fid,
                                 struct lu_fid *sfid)
 {
+	LASSERT(mo != NULL && mo->mo_dir_ops != NULL);
         LASSERT(mo->mo_dir_ops->mdo_is_subdir);
         return mo->mo_dir_ops->mdo_is_subdir(env, mo, fid, sfid);
 }
@@ -795,6 +821,7 @@ static inline int mdo_link(const struct lu_env *env,
                            const struct lu_name *lname,
                            struct md_attr *ma)
 {
+	LASSERT(s != NULL && s->mo_dir_ops != NULL);
         LASSERT(s->mo_dir_ops->mdo_link);
         return s->mo_dir_ops->mdo_link(env, p, s, lname, ma);
 }
@@ -805,6 +832,7 @@ static inline int mdo_unlink(const struct lu_env *env,
                              const struct lu_name *lname,
                              struct md_attr *ma)
 {
+	LASSERT(p != NULL && p->mo_dir_ops != NULL);
 	LASSERT(p->mo_dir_ops->mdo_unlink);
 	return p->mo_dir_ops->mdo_unlink(env, p, c, lname, ma);
 }
@@ -814,6 +842,7 @@ static inline int mdo_lum_lmm_cmp(const struct lu_env *env,
                                   const struct md_op_spec *spec,
                                   struct md_attr *ma)
 {
+	LASSERT(c != NULL && c->mo_dir_ops != NULL);
         LASSERT(c->mo_dir_ops->mdo_lum_lmm_cmp);
         return c->mo_dir_ops->mdo_lum_lmm_cmp(env, c, spec, ma);
 }
@@ -824,6 +853,7 @@ static inline int mdo_name_insert(const struct lu_env *env,
                                   const struct lu_fid *f,
                                   const struct md_attr *ma)
 {
+	LASSERT(p != NULL && p->mo_dir_ops != NULL);
         LASSERT(p->mo_dir_ops->mdo_name_insert);
         return p->mo_dir_ops->mdo_name_insert(env, p, lname, f, ma);
 }
@@ -833,6 +863,7 @@ static inline int mdo_name_remove(const struct lu_env *env,
                                   const struct lu_name *lname,
                                   const struct md_attr *ma)
 {
+	LASSERT(p != NULL && p->mo_dir_ops != NULL);
         LASSERT(p->mo_dir_ops->mdo_name_remove);
         return p->mo_dir_ops->mdo_name_remove(env, p, lname, ma);
 }
@@ -845,9 +876,11 @@ static inline int mdo_rename_tgt(const struct lu_env *env,
                                  struct md_attr *ma)
 {
         if (t) {
+		LASSERT(t->mo_dir_ops != NULL);
                 LASSERT(t->mo_dir_ops->mdo_rename_tgt);
                 return t->mo_dir_ops->mdo_rename_tgt(env, p, t, lf, lname, ma);
         } else {
+		LASSERT(p != NULL && p->mo_dir_ops != NULL);
                 LASSERT(p->mo_dir_ops->mdo_rename_tgt);
                 return p->mo_dir_ops->mdo_rename_tgt(env, p, t, lf, lname, ma);
         }
