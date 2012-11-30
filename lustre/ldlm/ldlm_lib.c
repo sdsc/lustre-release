@@ -2653,9 +2653,14 @@ static inline char *bulk2type(struct ptlrpc_bulk_desc *desc)
 int target_bulk_io(struct obd_export *exp, struct ptlrpc_bulk_desc *desc,
                    struct l_wait_info *lwi)
 {
-        struct ptlrpc_request *req = desc->bd_req;
+	struct ptlrpc_request *req;
         int rc = 0;
         ENTRY;
+
+	LASSERT(desc != NULL);
+	req = desc->bd_req;
+	LASSERT(req != NULL);
+	LASSERT(exp != NULL);
 
 	/* If there is eviction in progress, wait for it to finish. */
         if (unlikely(cfs_atomic_read(&exp->exp_obd->obd_evict_inprogress))) {

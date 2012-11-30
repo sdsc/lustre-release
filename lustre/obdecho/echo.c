@@ -71,6 +71,7 @@ static int echo_connect(const struct lu_env *env,
         struct lustre_handle conn = { 0 };
         int rc;
 
+	LASSERT(data != NULL);
         data->ocd_connect_flags &= ECHO_CONNECT_SUPPORTED;
         rc = class_connect(&conn, obd, cluuid);
         if (rc) {
