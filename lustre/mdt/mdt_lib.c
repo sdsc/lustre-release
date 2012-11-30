@@ -305,18 +305,22 @@ out:
 int mdt_check_ucred(struct mdt_thread_info *info)
 {
         struct ptlrpc_request   *req = mdt_info_req(info);
-        struct mdt_device       *mdt = info->mti_mdt;
+	struct mdt_device       *mdt;
         struct ptlrpc_user_desc *pud = req->rq_user_desc;
         struct md_ucred         *ucred = mdt_ucred(info);
         struct md_identity      *identity = NULL;
         lnet_nid_t               peernid = req->rq_peer.nid;
         __u32                    perm = 0;
-        __u32                    remote = exp_connect_rmtclient(info->mti_exp);
+	__u32                    remote;
         int                      setuid;
         int                      setgid;
         int                      rc = 0;
 
         ENTRY;
+
+	LASSERT(info != NULL);
+	mdt = info->mti_mdt;
+	remote = exp_connect_rmtclient(info->mti_exp);
 
         if ((ucred->mu_valid == UCRED_OLD) || (ucred->mu_valid == UCRED_NEW))
                 RETURN(0);
@@ -409,10 +413,13 @@ static int old_init_ucred(struct mdt_thread_info *info,
                           struct mdt_body *body)
 {
         struct md_ucred *uc = mdt_ucred(info);
-        struct mdt_device  *mdt = info->mti_mdt;
+	struct mdt_device  *mdt;
         struct md_identity *identity = NULL;
 
         ENTRY;
+
+	LASSERT(info != NULL);
+	mdt = info->mti_mdt;
 
         uc->mu_valid = UCRED_INVALID;
         uc->mu_o_uid = uc->mu_uid = body->uid;
@@ -453,10 +460,13 @@ static int old_init_ucred(struct mdt_thread_info *info,
 static int old_init_ucred_reint(struct mdt_thread_info *info)
 {
         struct md_ucred *uc = mdt_ucred(info);
-        struct mdt_device  *mdt = info->mti_mdt;
+	struct mdt_device  *mdt;
         struct md_identity *identity = NULL;
 
         ENTRY;
+
+	LASSERT(info != NULL);
+	mdt = info->mti_mdt;
 
         uc->mu_valid = UCRED_INVALID;
         uc->mu_o_uid = uc->mu_o_fsuid = uc->mu_uid = uc->mu_fsuid;
@@ -547,12 +557,15 @@ void mdt_dump_lmm(int level, const struct lov_mds_md *lmm)
 /* Shrink and/or grow reply buffers */
 int mdt_fix_reply(struct mdt_thread_info *info)
 {
-        struct req_capsule *pill = info->mti_pill;
+	struct req_capsule *pill;
         struct mdt_body    *body;
         int                md_size, md_packed = 0;
         int                acl_size;
         int                rc = 0;
         ENTRY;
+
+	LASSERT(info != NULL);
+	pill = info->mti_pill;
 
         body = req_capsule_server_get(pill, &RMF_MDT_BODY);
         LASSERT(body != NULL);
@@ -664,6 +677,8 @@ int mdt_handle_last_unlink(struct mdt_thread_info *info, struct mdt_object *mo,
         const struct lu_attr *la = &ma->ma_attr;
         int rc;
         ENTRY;
+
+	LASSERT(info != NULL);
 
         repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
         LASSERT(repbody != NULL);
@@ -799,12 +814,18 @@ static __u64 mdt_attr_valid_xlate(__u64 in, struct mdt_reint_record *rr,
 static int mdt_setattr_unpack_rec(struct mdt_thread_info *info)
 {
         struct md_ucred         *uc  = mdt_ucred(info);
-        struct md_attr          *ma = &info->mti_attr;
-        struct lu_attr          *la = &ma->ma_attr;
-        struct req_capsule      *pill = info->mti_pill;
-        struct mdt_reint_record *rr = &info->mti_rr;
+	struct md_attr          *ma;
+	struct lu_attr          *la;
+	struct req_capsule      *pill;
+	struct mdt_reint_record *rr;
         struct mdt_rec_setattr  *rec;
         ENTRY;
+
+	LASSERT(info != NULL);
+	ma = &info->mti_attr;
+	la = &ma->ma_attr;
+	pill = info->mti_pill;
+	rr = &info->mti_rr;
 
         CLASSERT(sizeof(struct mdt_rec_setattr)== sizeof(struct mdt_rec_reint));
         rec = req_capsule_client_get(pill, &RMF_REC_REINT);
@@ -839,8 +860,11 @@ static int mdt_setattr_unpack_rec(struct mdt_thread_info *info)
 
 static int mdt_ioepoch_unpack(struct mdt_thread_info *info)
 {
-        struct req_capsule *pill = info->mti_pill;
+	struct req_capsule *pill;
         ENTRY;
+
+	LASSERT(info != NULL);
+	pill = info->mti_pill;
 
         if (req_capsule_get_size(pill, &RMF_MDT_EPOCH, RCL_CLIENT))
                 info->mti_ioepoch =
@@ -851,7 +875,10 @@ static int mdt_ioepoch_unpack(struct mdt_thread_info *info)
 }
 
 static inline int mdt_dlmreq_unpack(struct mdt_thread_info *info) {
-        struct req_capsule      *pill = info->mti_pill;
+	struct req_capsule      *pill;
+
+	LASSERT(info != NULL);
+	pill = info->mti_pill;
 
         if (req_capsule_get_size(pill, &RMF_DLM_REQ, RCL_CLIENT)) {
                 info->mti_dlm_req = req_capsule_client_get(pill, &RMF_DLM_REQ);
@@ -864,11 +891,16 @@ static inline int mdt_dlmreq_unpack(struct mdt_thread_info *info) {
 
 static int mdt_setattr_unpack(struct mdt_thread_info *info)
 {
-        struct mdt_reint_record *rr = &info->mti_rr;
-        struct md_attr          *ma = &info->mti_attr;
-        struct req_capsule      *pill = info->mti_pill;
+	struct mdt_reint_record *rr;
+	struct md_attr          *ma;
+	struct req_capsule      *pill;
         int rc;
         ENTRY;
+
+	LASSERT(info != NULL);
+	rr = &info->mti_rr;
+	ma = &info->mti_attr;
+	pill = info->mti_pill;
 
         rc = mdt_setattr_unpack_rec(info);
         if (rc)
@@ -908,12 +940,18 @@ static int mdt_create_unpack(struct mdt_thread_info *info)
 {
         struct md_ucred         *uc  = mdt_ucred(info);
         struct mdt_rec_create   *rec;
-        struct lu_attr          *attr = &info->mti_attr.ma_attr;
-        struct mdt_reint_record *rr = &info->mti_rr;
-        struct req_capsule      *pill = info->mti_pill;
-        struct md_op_spec       *sp = &info->mti_spec;
+	struct lu_attr          *attr;
+	struct mdt_reint_record *rr;
+	struct req_capsule      *pill;
+	struct md_op_spec       *sp;
         int rc;
         ENTRY;
+
+	LASSERT(info != NULL);
+	attr = &info->mti_attr.ma_attr;
+	rr = &info->mti_rr;
+	pill = info->mti_pill;
+	sp = &info->mti_spec;
 
         CLASSERT(sizeof(struct mdt_rec_create) == sizeof(struct mdt_rec_reint));
         rec = req_capsule_client_get(pill, &RMF_REC_REINT);
@@ -973,11 +1011,16 @@ static int mdt_link_unpack(struct mdt_thread_info *info)
 {
         struct md_ucred         *uc  = mdt_ucred(info);
         struct mdt_rec_link     *rec;
-        struct lu_attr          *attr = &info->mti_attr.ma_attr;
-        struct mdt_reint_record *rr = &info->mti_rr;
-        struct req_capsule      *pill = info->mti_pill;
+	struct lu_attr          *attr;
+	struct mdt_reint_record *rr;
+	struct req_capsule      *pill;
         int rc;
         ENTRY;
+
+	LASSERT(info != NULL);
+	attr = &info->mti_attr.ma_attr;
+	rr = &info->mti_rr;
+	pill = info->mti_pill;
 
         CLASSERT(sizeof(struct mdt_rec_link) == sizeof(struct mdt_rec_reint));
         rec = req_capsule_client_get(pill, &RMF_REC_REINT);
@@ -1020,12 +1063,18 @@ static int mdt_unlink_unpack(struct mdt_thread_info *info)
 {
         struct md_ucred         *uc  = mdt_ucred(info);
         struct mdt_rec_unlink   *rec;
-        struct md_attr          *ma = &info->mti_attr;
-        struct lu_attr          *attr = &info->mti_attr.ma_attr;
-        struct mdt_reint_record *rr = &info->mti_rr;
-        struct req_capsule      *pill = info->mti_pill;
+	struct md_attr          *ma;
+	struct lu_attr          *attr;
+	struct mdt_reint_record *rr;
+	struct req_capsule      *pill;
         int rc;
         ENTRY;
+
+	LASSERT(info != NULL);
+	ma = &info->mti_attr;
+	attr = &info->mti_attr.ma_attr;
+	rr = &info->mti_rr;
+	pill = info->mti_pill;
 
         CLASSERT(sizeof(struct mdt_rec_unlink) == sizeof(struct mdt_rec_reint));
         rec = req_capsule_client_get(pill, &RMF_REC_REINT);
@@ -1071,12 +1120,18 @@ static int mdt_rename_unpack(struct mdt_thread_info *info)
 {
         struct md_ucred         *uc = mdt_ucred(info);
         struct mdt_rec_rename   *rec;
-        struct md_attr          *ma = &info->mti_attr;
-        struct lu_attr          *attr = &info->mti_attr.ma_attr;
-        struct mdt_reint_record *rr = &info->mti_rr;
-        struct req_capsule      *pill = info->mti_pill;
+	struct md_attr          *ma;
+	struct lu_attr          *attr;
+	struct mdt_reint_record *rr;
+	struct req_capsule      *pill;
         int rc;
         ENTRY;
+
+	LASSERT(info != NULL);
+	ma = &info->mti_attr;
+	attr = &info->mti_attr.ma_attr;
+	rr = &info->mti_rr;
+	pill = info->mti_pill;
 
         CLASSERT(sizeof(struct mdt_rec_rename) == sizeof(struct mdt_rec_reint));
         rec = req_capsule_client_get(pill, &RMF_REC_REINT);
@@ -1130,8 +1185,11 @@ static int mdt_rename_unpack(struct mdt_thread_info *info)
  */
 static void mdt_fix_lov_magic(struct mdt_thread_info *info)
 {
-	struct mdt_reint_record *rr = &info->mti_rr;
+	struct mdt_reint_record *rr;
 	struct lov_user_md_v1   *v1;
+
+	LASSERT(info != NULL);
+	rr = &info->mti_rr;
 
 	v1 = (void *)rr->rr_eadata;
 	LASSERT(v1);
@@ -1153,12 +1211,19 @@ static int mdt_open_unpack(struct mdt_thread_info *info)
 {
         struct md_ucred         *uc = mdt_ucred(info);
         struct mdt_rec_create   *rec;
-        struct lu_attr          *attr = &info->mti_attr.ma_attr;
-        struct req_capsule      *pill = info->mti_pill;
-        struct mdt_reint_record *rr   = &info->mti_rr;
-        struct ptlrpc_request   *req  = mdt_info_req(info);
-        struct md_op_spec       *sp   = &info->mti_spec;
+	struct lu_attr          *attr;
+	struct req_capsule      *pill;
+	struct mdt_reint_record *rr;
+	struct ptlrpc_request   *req;
+	struct md_op_spec       *sp;
         ENTRY;
+
+	LASSERT(info != NULL);
+	attr = &info->mti_attr.ma_attr;
+	pill = info->mti_pill;
+	rr   = &info->mti_rr;
+	req  = mdt_info_req(info);
+	sp   = &info->mti_spec;
 
         CLASSERT(sizeof(struct mdt_rec_create) == sizeof(struct mdt_rec_reint));
         rec = req_capsule_client_get(pill, &RMF_REC_REINT);
@@ -1243,13 +1308,18 @@ static int mdt_open_unpack(struct mdt_thread_info *info)
 
 static int mdt_setxattr_unpack(struct mdt_thread_info *info)
 {
-        struct mdt_reint_record   *rr   = &info->mti_rr;
-        struct md_ucred           *uc   = mdt_ucred(info);
-        struct lu_attr            *attr = &info->mti_attr.ma_attr;
-        struct req_capsule        *pill = info->mti_pill;
+	struct mdt_reint_record   *rr;
+	struct md_ucred           *uc;
+	struct lu_attr            *attr;
+	struct req_capsule        *pill;
         struct mdt_rec_setxattr   *rec;
         ENTRY;
 
+	LASSERT(info != NULL);
+	rr   = &info->mti_rr;
+	uc   = mdt_ucred(info);
+	attr = &info->mti_attr.ma_attr;
+	pill = info->mti_pill;
 
         CLASSERT(sizeof(struct mdt_rec_setxattr) ==
                          sizeof(struct mdt_rec_reint));
@@ -1319,6 +1389,8 @@ int mdt_reint_unpack(struct mdt_thread_info *info, __u32 op)
 {
         int rc;
         ENTRY;
+
+	LASSERT(info != NULL);
 
         memset(&info->mti_rr, 0, sizeof(info->mti_rr));
         if (op < REINT_MAX && mdt_reint_unpackers[op] != NULL) {

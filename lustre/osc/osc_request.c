@@ -2514,6 +2514,7 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
                                einfo->ei_type, policy, mode, lockh, 0);
         if (mode) {
                 struct ldlm_lock *matched = ldlm_handle2lock(lockh);
+		LASSERT(matched != NULL);
 
                 if ((agl != 0) && !(matched->l_flags & LDLM_FL_LVB_READY)) {
                         /* For AGL, if enqueue RPC is sent but the lock is not

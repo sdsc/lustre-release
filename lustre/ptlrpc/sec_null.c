@@ -62,12 +62,14 @@ static struct ptlrpc_svc_ctx    null_svc_ctx;
 static inline
 void null_encode_sec_part(struct lustre_msg *msg, enum lustre_sec_part sp)
 {
+	LASSERT(msg != NULL);
         msg->lm_secflvr |= (((__u32) sp) & 0xFF) << 24;
 }
 
 static inline
 enum lustre_sec_part null_decode_sec_part(struct lustre_msg *msg)
 {
+	LASSERT(msg != NULL);
         return (msg->lm_secflvr >> 24) & 0xFF;
 }
 
@@ -81,10 +83,15 @@ static int null_ctx_refresh(struct ptlrpc_cli_ctx *ctx)
 static
 int null_ctx_sign(struct ptlrpc_cli_ctx *ctx, struct ptlrpc_request *req)
 {
+	LASSERT(req != NULL);
+	LASSERT(req->rq_reqbuf != NULL);
+	LASSERT(req->rq_import != NULL);
+
         req->rq_reqbuf->lm_secflvr = SPTLRPC_FLVR_NULL;
 
         if (!req->rq_import->imp_dlm_fake) {
                 struct obd_device *obd = req->rq_import->imp_obd;
+		LASSERT(obd != NULL);
                 null_encode_sec_part(req->rq_reqbuf,
                                      obd->u.cli.cl_sp_me);
         }
@@ -97,6 +104,7 @@ int null_ctx_verify(struct ptlrpc_cli_ctx *ctx, struct ptlrpc_request *req)
 {
         __u32   cksums, cksumc;
 
+	LASSERT(req != NULL);
         LASSERT(req->rq_repdata);
 
         req->rq_repmsg = req->rq_repdata;
@@ -130,6 +138,7 @@ struct ptlrpc_sec *null_create_sec(struct obd_import *imp,
                                    struct ptlrpc_svc_ctx *svc_ctx,
                                    struct sptlrpc_flavor *sf)
 {
+	LASSERT(sf != NULL);
         LASSERT(SPTLRPC_FLVR_POLICY(sf->sf_rpc) == SPTLRPC_POLICY_NULL);
 
         /* general layer has take a module reference for us, because we never
@@ -167,6 +176,8 @@ int null_alloc_reqbuf(struct ptlrpc_sec *sec,
                       struct ptlrpc_request *req,
                       int msgsize)
 {
+	LASSERT(req != NULL);
+
         if (!req->rq_reqbuf) {
                 int alloc_size = size_roundup_power2(msgsize);
 
@@ -190,6 +201,8 @@ static
 void null_free_reqbuf(struct ptlrpc_sec *sec,
                       struct ptlrpc_request *req)
 {
+	LASSERT(req != NULL);
+
         if (!req->rq_pool) {
                 LASSERTF(req->rq_reqmsg == req->rq_reqbuf,
                          "req %p: reqmsg %p is not reqbuf %p in null sec\n",
@@ -209,6 +222,8 @@ int null_alloc_repbuf(struct ptlrpc_sec *sec,
                       struct ptlrpc_request *req,
                       int msgsize)
 {
+	LASSERT(req != NULL);
+
         /* add space for early replied */
         msgsize += lustre_msg_early_size();
 
@@ -226,6 +241,7 @@ static
 void null_free_repbuf(struct ptlrpc_sec *sec,
                       struct ptlrpc_request *req)
 {
+	LASSERT(req != NULL);
         LASSERT(req->rq_repbuf);
 
         OBD_FREE_LARGE(req->rq_repbuf, req->rq_repbuf_len);
@@ -239,9 +255,11 @@ int null_enlarge_reqbuf(struct ptlrpc_sec *sec,
                         int segment, int newsize)
 {
         struct lustre_msg      *newbuf;
-        struct lustre_msg      *oldbuf = req->rq_reqmsg;
+	struct lustre_msg      *oldbuf;
         int                     oldsize, newmsg_size, alloc_size;
 
+	LASSERT(req != NULL);
+	oldbuf = req->rq_reqmsg;
         LASSERT(req->rq_reqbuf);
         LASSERT(req->rq_reqbuf == req->rq_reqmsg);
         LASSERT(req->rq_reqbuf_len >= req->rq_reqlen);
@@ -284,6 +302,7 @@ static struct ptlrpc_svc_ctx null_svc_ctx = {
 static
 int null_accept(struct ptlrpc_request *req)
 {
+	LASSERT(req != NULL);
         LASSERT(SPTLRPC_FLVR_POLICY(req->rq_flvr.sf_rpc) ==
                 SPTLRPC_POLICY_NULL);
 
@@ -311,6 +330,7 @@ int null_alloc_rs(struct ptlrpc_request *req, int msgsize)
 
         LASSERT(msgsize % 8 == 0);
 
+	LASSERT(req != NULL);
         rs = req->rq_reply_state;
 
         if (rs) {
@@ -338,6 +358,9 @@ int null_alloc_rs(struct ptlrpc_request *req, int msgsize)
 static
 void null_free_rs(struct ptlrpc_reply_state *rs)
 {
+	LASSERT(rs != NULL);
+	LASSERT(rs->rs_svc_ctx != NULL);
+
         LASSERT_ATOMIC_GT(&rs->rs_svc_ctx->sc_refcount, 1);
         cfs_atomic_dec(&rs->rs_svc_ctx->sc_refcount);
 
@@ -348,9 +371,12 @@ void null_free_rs(struct ptlrpc_reply_state *rs)
 static
 int null_authorize(struct ptlrpc_request *req)
 {
-        struct ptlrpc_reply_state *rs = req->rq_reply_state;
+	struct ptlrpc_reply_state *rs;
 
+	LASSERT(req != NULL);
+	rs = req->rq_reply_state;
         LASSERT(rs);
+	LASSERT(rs->rs_repbuf != NULL);
 
         rs->rs_repbuf->lm_secflvr = SPTLRPC_FLVR_NULL;
         rs->rs_repdata_len = req->rq_replen;

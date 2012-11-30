@@ -2567,6 +2567,7 @@ kiblnd_rejected (kib_conn_t *conn, int reason, void *priv, int priv_nob)
                                  * of OFED, so we still need to check version.
                                  * (define of IB_CM_REJ_PRIVATE_DATA_SIZE) */
                                 cp = &rej->ibr_cp;
+				LASSERT(cp != NULL);
 
                                 if (flip) {
                                         __swab64s(&rej->ibr_incarnation);
@@ -2611,12 +2612,14 @@ kiblnd_rejected (kib_conn_t *conn, int reason, void *priv, int priv_nob)
                                 break;
 
                         case IBLND_REJECT_MSG_QUEUE_SIZE:
+				LASSERT(cp != NULL);
                                 CERROR("%s rejected: incompatible message queue depth %d, %d\n",
                                        libcfs_nid2str(peer->ibp_nid), cp->ibcp_queue_depth,
                                        IBLND_MSG_QUEUE_SIZE(conn->ibc_version));
                                 break;
 
                         case IBLND_REJECT_RDMA_FRAGS:
+				LASSERT(cp != NULL);
                                 CERROR("%s rejected: incompatible # of RDMA fragments %d, %d\n",
                                        libcfs_nid2str(peer->ibp_nid), cp->ibcp_max_frags,
                                        IBLND_RDMA_FRAGS(conn->ibc_version));

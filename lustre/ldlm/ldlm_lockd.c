@@ -1843,6 +1843,8 @@ static inline void init_blwi(struct ldlm_bl_work_item *blwi,
                              struct ldlm_lock *lock,
                              int mode)
 {
+	LASSERT(blwi != NULL);
+
         cfs_init_completion(&blwi->blwi_comp);
         CFS_INIT_LIST_HEAD(&blwi->blwi_head);
 
@@ -1854,6 +1856,7 @@ static inline void init_blwi(struct ldlm_bl_work_item *blwi,
         if (ld != NULL)
                 blwi->blwi_ld = *ld;
         if (count) {
+		LASSERT(cancels != NULL);
                 cfs_list_add(&blwi->blwi_head, cancels);
                 cfs_list_del_init(cancels);
                 blwi->blwi_count = count;

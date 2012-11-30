@@ -79,6 +79,8 @@ struct llcd_async_args {
 static void llcd_print(struct llog_canceld_ctxt *llcd,
                        const char *func, int line)
 {
+	LASSERT(llcd != NULL);
+
         CDEBUG(D_RPCTRACE, "Llcd (%p) at %s:%d:\n", llcd, func, line);
         CDEBUG(D_RPCTRACE, "  size: %d\n", llcd->llcd_size);
         CDEBUG(D_RPCTRACE, "  ctxt: %p\n", llcd->llcd_ctxt);
@@ -376,7 +378,7 @@ static int llcd_push(struct llog_ctxt *ctxt)
          */
         llcd = llcd_detach(ctxt);
         if (!llcd) {
-                CERROR("Invalid detached llcd found %p\n", llcd);
+		CERROR("Invalid detached llcd found\n");
                 llcd_print(llcd, __FUNCTION__, __LINE__);
                 LBUG();
         }
