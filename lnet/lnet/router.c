@@ -109,6 +109,8 @@ lnet_peers_start_down(void)
 void
 lnet_notify_locked(lnet_peer_t *lp, int notifylnd, int alive, cfs_time_t when)
 {
+	LASSERT(lp != NULL);
+
         if (cfs_time_before(when, lp->lp_timestamp)) { /* out of date information */
                 CDEBUG(D_NET, "Out of date\n");
                 return;
@@ -141,6 +143,8 @@ lnet_ni_notify_locked(lnet_ni_t *ni, lnet_peer_t *lp)
         int        alive;
         int        notifylnd;
 
+	LASSERT(lp != NULL);
+
         /* Notify only in 1 thread at any time to ensure ordered notification.
          * NB individual events can be missed; the only guarantee is that you
          * always get the most recent news */
@@ -157,6 +161,7 @@ lnet_ni_notify_locked(lnet_ni_t *ni, lnet_peer_t *lp)
                 lp->lp_notifylnd = 0;
                 lp->lp_notify    = 0;
 
+		LASSERT(ni != NULL && ni->ni_lnd != NULL);
                 if (notifylnd && ni->ni_lnd->lnd_notify != NULL) {
 			lnet_net_unlock(lp->lp_cpt);
 
@@ -176,6 +181,7 @@ lnet_ni_notify_locked(lnet_ni_t *ni, lnet_peer_t *lp)
 static void
 lnet_rtr_addref_locked(lnet_peer_t *lp)
 {
+	LASSERT(lp != NULL);
 	LASSERT(lp->lp_refcount > 0);
 	LASSERT(lp->lp_rtr_refcount >= 0);
 
@@ -203,6 +209,7 @@ lnet_rtr_addref_locked(lnet_peer_t *lp)
 static void
 lnet_rtr_decref_locked(lnet_peer_t *lp)
 {
+	LASSERT(lp != NULL);
 	LASSERT(lp->lp_refcount > 0);
 	LASSERT(lp->lp_rtr_refcount > 0);
 

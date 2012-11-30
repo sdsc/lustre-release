@@ -2144,6 +2144,9 @@ static void print_lum (struct lov_user_md *lum)
 static void lustre_swab_lov_user_md_common(struct lov_user_md_v1 *lum)
 {
         ENTRY;
+
+	LASSERT(lum != NULL);
+
         __swab32s(&lum->lmm_magic);
         __swab32s(&lum->lmm_pattern);
         __swab64s(&lum->lmm_object_id);

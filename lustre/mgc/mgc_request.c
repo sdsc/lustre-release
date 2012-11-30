@@ -339,7 +339,9 @@ static int config_log_add(struct obd_device *obd, char *logname,
         LASSERT(lsi->lsi_lmd);
         if (!(lsi->lsi_lmd->lmd_flags & LMD_FLG_NOIR)) {
                 struct config_llog_data *recover_cld;
-                *strrchr(seclogname, '-') = 0;
+		ptr = strrchr(seclogname, '-');
+		if (ptr != NULL)
+			*ptr = 0;
                 recover_cld = config_recover_log_add(obd, seclogname, cfg, sb);
                 if (IS_ERR(recover_cld)) {
                         config_log_put(cld);
