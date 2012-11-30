@@ -37,6 +37,183 @@
 
 #include "tgt_internal.h"
 
+/* ptlrpc services on server */
+static struct ptlrpc_service *mgs_service;
+
+/* mutex to protect services setup/cleanup against health check */
+cfs_mutex_t srv_health_mutex;
+
+/* mutex to protect slices add/remove */
+CFS_DEFINE_MUTEX(srv_slices_mutex);
+
+static cfs_proc_dir_entry_t *srv_proc_entry;
+
+#define SRV_SLICES_LIMIT	8
+static struct srv_opcodes_slice srv_slices[SRV_SLICES_LIMIT];
+
+#define MDT_SERVICE_WATCHDOG_FACTOR	(2)
+
+static unsigned long mds_num_threads;
+CFS_MODULE_PARM(mds_num_threads, "ul", ulong, 0444,
+		"number of MDS service threads to start");
+static char *mds_num_cpts;
+CFS_MODULE_PARM(mds_num_cpts, "c", charp, 0444,
+		"CPU partitions MDS threads should run on");
+static unsigned long mds_rdpg_num_threads;
+CFS_MODULE_PARM(mds_rdpg_num_threads, "ul", ulong, 0444,
+		"number of MDS readpage service threads to start");
+static char *mds_rdpg_num_cpts;
+CFS_MODULE_PARM(mds_rdpg_num_cpts, "c", charp, 0444,
+		"CPU partitions MDS readpage threads should run on");
+
+int tgt_register_slice(struct tgt_opc_slice *slice, tgt_handler_t handler)
+{
+	int i, rc;
+
+	ENTRY;
+	cfs_mutex_lock(&srv_slices_mutex);
+	for (i = 0; i < SRV_SLICES_LIMIT; i++) {
+		if (srv_slices[i].ts_slice == slice) {
+			cfs_atomic_inc(&srv_slices[i].ts_ref);
+			LASSERT(srv_slices[i].ts_handler == handler);
+			GOTO(unlock, rc = 0);
+		}
+	}
+
+	/* new slice, get first empty slot */
+	for (i = 0; i < SRV_SLICES_LIMIT; i++) {
+		if (srv_slices[i].ts_slice == NULL) {
+			srv_slices[i].ts_slice = slice;
+			cfs_atomic_set(&srv_slices[i].ts_ref, 1);
+			srv_slices[i].ts_handler = handler;
+			GOTO(unlock, rc = 0);
+		}
+	}
+	rc = -ENOMEM;
+unlock:
+	cfs_mutex_unlock(&srv_slices_mutex);
+	return rc;
+}
+EXPORT_SYMBOL(tgt_register_slice);
+
+void tgt_degister_slice(struct tgt_opc_slice *slice)
+{
+	int i;
+
+	cfs_mutex_lock(&srv_slices_mutex);
+	for (i = 0; i < SRV_SLICES_LIMIT; i++) {
+		if (srv_slices[i].ts_slice == slice) {
+			if (cfs_atomic_dec_and_test(&srv_slices[i].ts_ref))
+				srv_slices[i].ts_slice = NULL;
+			break;
+		}
+	}
+	cfs_mutex_unlock(&srv_slices_mutex);
+}
+EXPORT_SYMBOL(tgt_degister_slice);
+
+static tgt_handler_t tgt_handler_find(__u32 opc)
+{
+	struct tgt_opc_slice	*s;
+	tgt_handler_t		 h;
+	int			 i;
+
+	h = NULL;
+	for (i = 0; i < SRV_SLICES_LIMIT; i++) {
+		if (srv_slices[i].ts_slice == NULL)
+			continue;
+		for (s = srv_slices[i].ts_slice; s->tos_hs != NULL; s++) {
+			if (s->tos_opc_start <= opc && opc < s->tos_opc_end) {
+				h = srv_slices[i].ts_handler;
+				break;
+			}
+		}
+	}
+	return h;
+}
+
+static int tgt_request_handle(struct ptlrpc_request *req)
+{
+	tgt_handler_t	 h;
+	int		 rc;
+
+	h = tgt_handler_find(lustre_msg_get_opc(req->rq_reqmsg));
+	if (likely(h != NULL)) {
+		rc = h(req);
+	} else {
+		CERROR("The unsupported opc: 0x%x\n",
+		       lustre_msg_get_opc(req->rq_reqmsg));
+		       req->rq_status = -ENOTSUPP;
+		       rc = ptlrpc_error(req);
+	}
+	return rc;
+}
+
+static void srv_stop_ptlrpc_services(void)
+{
+	ENTRY;
+
+	ping_evictor_stop();
+
+	cfs_mutex_lock(&srv_health_mutex);
+	if (mgs_service != NULL) {
+		ptlrpc_unregister_service(mgs_service);
+		mgs_service = NULL;
+	}
+	cfs_mutex_unlock(&srv_health_mutex);
+
+	EXIT;
+}
+
+static int srv_start_ptlrpc_services(void)
+{
+	struct ptlrpc_service_conf	 conf;
+	int				 rc = 0;
+
+	ENTRY;
+
+	cfs_mutex_init(&srv_health_mutex);
+
+	conf = (typeof(conf)) {
+		.psc_name		= LUSTRE_MGS_NAME,
+		.psc_watchdog_factor	= MDT_SERVICE_WATCHDOG_FACTOR,
+		.psc_buf		= {
+			.bc_nbufs		= MGS_NBUFS,
+			.bc_buf_size		= MGS_BUFSIZE,
+			.bc_req_max_size	= MGS_MAXREQSIZE,
+			.bc_rep_max_size	= MGS_MAXREPSIZE,
+			.bc_req_portal		= MGS_REQUEST_PORTAL,
+			.bc_rep_portal		= MGC_REPLY_PORTAL,
+		},
+		.psc_thr		= {
+			.tc_thr_name		= "ll_mgs",
+			.tc_nthrs_init		= MGS_NTHRS_INIT,
+			.tc_nthrs_max		= MGS_NTHRS_MAX,
+			.tc_ctx_tags		= LCT_MG_THREAD,
+		},
+		.psc_ops		= {
+			.so_req_handler		= tgt_request_handle,
+			.so_req_printer		= target_print_req,
+		},
+	};
+
+	mgs_service = ptlrpc_register_service(&conf, srv_proc_entry);
+	if (IS_ERR(mgs_service)) {
+		rc = PTR_ERR(mgs_service);
+		CERROR("failed to start mgs service: %d\n", rc);
+		mgs_service = NULL;
+		GOTO(err_svc, rc);
+	}
+
+	ping_evictor_start();
+
+	EXIT;
+err_svc:
+	if (rc)
+		srv_stop_ptlrpc_services();
+	return rc;
+}
+
 int tgt_init(const struct lu_env *env, struct lu_target *lut,
 	     struct obd_device *obd, struct dt_device *dt)
 {
@@ -108,15 +285,42 @@ EXPORT_SYMBOL(tgt_thread_key);
 
 LU_KEY_INIT_GENERIC(tg);
 
+struct lprocfs_vars lprocfs_srv_module_vars[] = {
+	{ 0 },
+};
+
 int tgt_mod_init(void)
 {
+	int rc;
+
+	ENTRY;
+
 	tg_key_init_generic(&tgt_thread_key, NULL);
 	lu_context_key_register_many(&tgt_thread_key, NULL);
-	return 0;
+
+	srv_proc_entry = lprocfs_register("server", proc_lustre_root,
+					  lprocfs_srv_module_vars, NULL);
+	if (IS_ERR(srv_proc_entry)) {
+		rc = PTR_ERR(srv_proc_entry);
+		srv_proc_entry = NULL;
+		GOTO(out_key, rc);
+	}
+
+	rc = srv_start_ptlrpc_services();
+	if (rc < 0)
+		GOTO(out_proc, rc);
+	RETURN(0);
+out_proc:
+	lprocfs_remove(&srv_proc_entry);
+out_key:
+	lu_context_key_degister(&tgt_thread_key);
+	return rc;
 }
 
 void tgt_mod_exit(void)
 {
+	srv_stop_ptlrpc_services();
+	lprocfs_remove(&srv_proc_entry);
 	lu_context_key_degister(&tgt_thread_key);
 }
 

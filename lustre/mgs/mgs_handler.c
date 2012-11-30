@@ -635,6 +635,12 @@ int mgs_handle(struct ptlrpc_request *req)
                 }
         }
 
+	rc = lu_env_refill((struct lu_env *)req->rq_svc_thread->t_env);
+	if (rc != 0) {
+		CERROR("Failed to refill session: rc = %d\n", rc);
+		RETURN(rc);
+	}
+
         switch (opc) {
         case MGS_CONNECT:
                 DEBUG_REQ(D_MGS, req, "connect");
@@ -1002,11 +1008,133 @@ out:
 	RETURN(rc);
 }
 
+/*
+ * Unified target generic handers macros and generic functions.
+ */
+#define DEFINE_RPC_HANDLER(base, flags, opc, fn, fmt)			\
+[opc - base] = {							\
+	.th_name	= #opc,						\
+	.th_fail_id	= OBD_FAIL_ ## opc ## _NET,			\
+	.th_opc		= opc,						\
+	.th_flags	= flags,					\
+	.th_act		= fn,						\
+	.th_fmt		= fmt						\
+}
+
+/* MDS request with a format known in advance */
+#define DEF_MGS_HDL(flags, name, fn)					\
+	DEFINE_RPC_HANDLER(MGS_FIRST_OPC, flags, name, fn, &RQF_ ## name)
+#define DEF_MGS_HDL_VAR(flags, name, fn)				\
+	DEFINE_RPC_HANDLER(LDLM_FIRST_OPC, flags, name, fn, NULL)
+
+/*
+ * OBD handler macros and generic functions.
+ */
+#define DEF_OBD_HDL(flags, name, fn)					\
+	DEFINE_RPC_HANDLER(OBD_FIRST_OPC, flags, name, fn, NULL)
+
+/*
+ * DLM handler macros and generic functions.
+ */
+#define DEF_DLM_HDL_VAR(flags, name, fn)				\
+	DEFINE_RPC_HANDLER(LDLM_FIRST_OPC, flags, name, fn, NULL)
+#define DEF_DLM_HDL(flags, name, fn)					\
+	DEFINE_RPC_HANDLER(LDLM_FIRST_OPC, flags, name, fn, &RQF_ ## name)
+
+/*
+ * LLOG handler macros and generic functions.
+ */
+#define DEF_LLOG_HDL(flags, name, fn)					\
+	DEFINE_RPC_HANDLER(LLOG_FIRST_OPC, flags, name, fn, NULL)
+
+/*
+ * Sec context handler macros and generic functions.
+ */
+#define DEF_SEC_HDL(flags, name, fn)					\
+	DEFINE_RPC_HANDLER(SEC_FIRST_OPC, flags, name, fn, NULL)
+
+/* Map one non-standard request format handler.  This should probably get
+ * a common OBD_SET_INFO RPC opcode instead of this mismatch. */
+#define RQF_MGS_CONNECT RQF_MDS_CONNECT
+#define RQF_MGS_DISCONNECT RQF_MDS_DISCONNECT
+
+static struct tgt_handler mgs_mgs_handlers[] = {
+DEF_MGS_HDL    (0,		MGS_CONNECT,		NULL /* mgs_connect */),
+DEF_MGS_HDL    (0,		MGS_DISCONNECT,		NULL /* mgs_disconnect */),
+DEF_MGS_HDL_VAR(0,		MGS_EXCEPTION,		NULL /* mgs_exception */),
+DEF_MGS_HDL    (HABEO_REFERO | MUTABOR,
+				MGS_SET_INFO,		NULL /* mgs_set_info */),
+DEF_MGS_HDL    (HABEO_REFERO | MUTABOR,
+				MGS_TARGET_REG,		NULL /* mgs_target_reg */),
+DEF_MGS_HDL_VAR(0,		MGS_TARGET_DEL,		NULL /* mgs_target_del */),
+DEF_MGS_HDL    (0,		MGS_CONFIG_READ,	NULL /* mgs_config_read */),
+};
+
+static struct tgt_handler mgs_obd_handlers[] = {
+DEF_OBD_HDL(0,		OBD_PING,		NULL /* lut_obd_ping */),
+DEF_OBD_HDL(0,		OBD_LOG_CANCEL,		NULL /* lut_obd_log_cancel */),
+DEF_OBD_HDL(0,		OBD_QC_CALLBACK,	NULL /* lut_obd_qc_callback */),
+};
+
+static struct tgt_handler mgs_dlm_handlers[] = {
+DEF_DLM_HDL    (HABEO_CLAVIS,	LDLM_ENQUEUE,		NULL /* lut_enqueue */),
+DEF_DLM_HDL_VAR(HABEO_CLAVIS,	LDLM_CONVERT,		NULL),
+DEF_DLM_HDL_VAR(0,		LDLM_BL_CALLBACK,	NULL),
+DEF_DLM_HDL_VAR(0,		LDLM_CP_CALLBACK,	NULL),
+};
+
+static struct tgt_handler mgs_llog_handlers[] = {
+DEF_LLOG_HDL(0,		LLOG_ORIGIN_HANDLE_CREATE,	NULL /* mgs_llog_open */),
+DEF_LLOG_HDL(0,		LLOG_ORIGIN_HANDLE_NEXT_BLOCK,	NULL /* lut_llog_next_block */),
+DEF_LLOG_HDL(0,		LLOG_ORIGIN_HANDLE_READ_HEADER,	NULL /* lut_llog_read_header */),
+DEF_LLOG_HDL(0,		LLOG_ORIGIN_HANDLE_WRITE_REC,	NULL),
+DEF_LLOG_HDL(0,		LLOG_ORIGIN_HANDLE_CLOSE,	NULL /* lut_llog_close */),
+DEF_LLOG_HDL(0,		LLOG_ORIGIN_CONNECT,		NULL),
+DEF_LLOG_HDL(0,		LLOG_CATINFO,			NULL /* lut_llog_catinfo */),
+DEF_LLOG_HDL(0,		LLOG_ORIGIN_HANDLE_PREV_BLOCK,	NULL /* lut_llog_prev_block */),
+DEF_LLOG_HDL(0,		LLOG_ORIGIN_HANDLE_DESTROY,	NULL /* lut_llog_destroy */),
+};
+
+static struct tgt_handler mgs_sec_ctx_handlers[] = {
+DEF_SEC_HDL(0,		SEC_CTX_INIT,		NULL /* mgs_sec_ctx_handle */),
+DEF_SEC_HDL(0,		SEC_CTX_INIT_CONT,	NULL /* mgs_sec_ctx_handle */),
+DEF_SEC_HDL(0,		SEC_CTX_FINI,		NULL /* mgs_sec_ctx_handle */),
+};
+
+static struct tgt_opc_slice mgs_common_slice[] = {
+	{
+		.tos_opc_start = MGS_FIRST_OPC,
+		.tos_opc_end   = MGS_LAST_OPC,
+		.tos_hs        = mgs_mgs_handlers
+	},
+	{
+		.tos_opc_start = OBD_FIRST_OPC,
+		.tos_opc_end   = OBD_LAST_OPC,
+		.tos_hs        = mgs_obd_handlers
+	},
+	{
+		.tos_opc_start = LDLM_FIRST_OPC,
+		.tos_opc_end   = LDLM_LAST_OPC,
+		.tos_hs        = mgs_dlm_handlers
+	},
+	{
+		.tos_opc_start = LLOG_FIRST_OPC,
+		.tos_opc_end   = LLOG_LAST_OPC,
+		.tos_hs        = mgs_llog_handlers
+	},
+	{
+		.tos_opc_start = SEC_FIRST_OPC,
+		.tos_opc_end   = SEC_LAST_OPC,
+		.tos_hs        = mgs_sec_ctx_handlers
+	},
+	{
+		.tos_hs        = NULL
+	}
+};
 
 static int mgs_init0(const struct lu_env *env, struct mgs_device *mgs,
 		     struct lu_device_type *ldt, struct lustre_cfg *lcfg)
 {
-	static struct ptlrpc_service_conf	 conf;
 	struct lprocfs_static_vars		 lvars = { 0 };
 	struct obd_device			*obd;
 	struct lustre_mount_info		*lmi;
@@ -1040,10 +1168,6 @@ static int mgs_init0(const struct lu_env *env, struct mgs_device *mgs,
 						LDLM_NS_TYPE_MGT);
 	if (obd->obd_namespace == NULL)
 		GOTO(err_ops, rc = -ENOMEM);
-
-	/* ldlm setup */
-	ptlrpc_init_client(LDLM_CB_REQUEST_PORTAL, LDLM_CB_REPLY_PORTAL,
-			   "mgs_ldlm_client", &obd->obd_ldlm_client);
 
 	rc = mgs_fs_setup(env, mgs);
 	if (rc) {
@@ -1082,37 +1206,11 @@ static int mgs_init0(const struct lu_env *env, struct mgs_device *mgs,
 			GOTO(err_llog, rc);
 	}
 
-	conf = (typeof(conf)) {
-		.psc_name		= LUSTRE_MGS_NAME,
-		.psc_watchdog_factor	= MGS_SERVICE_WATCHDOG_FACTOR,
-		.psc_buf		= {
-			.bc_nbufs		= MGS_NBUFS,
-			.bc_buf_size		= MGS_BUFSIZE,
-			.bc_req_max_size	= MGS_MAXREQSIZE,
-			.bc_rep_max_size	= MGS_MAXREPSIZE,
-			.bc_req_portal		= MGS_REQUEST_PORTAL,
-			.bc_rep_portal		= MGC_REPLY_PORTAL,
-		},
-		.psc_thr		= {
-			.tc_thr_name		= "ll_mgs",
-			.tc_nthrs_init		= MGS_NTHRS_INIT,
-			.tc_nthrs_max		= MGS_NTHRS_MAX,
-			.tc_ctx_tags		= LCT_MG_THREAD,
-		},
-		.psc_ops		= {
-			.so_req_handler		= mgs_handle,
-			.so_req_printer		= target_print_req,
-		},
-	};
-	/* Start the service threads */
-	mgs->mgs_service = ptlrpc_register_service(&conf, obd->obd_proc_entry);
-	if (IS_ERR(mgs->mgs_service)) {
-		rc = PTR_ERR(mgs->mgs_service);
-		CERROR("failed to start service: %d\n", rc);
+	ptlrpc_init_client(LDLM_CB_REQUEST_PORTAL, LDLM_CB_REPLY_PORTAL,
+			   "mgs_ldlm_client", &obd->obd_ldlm_client);
+	rc = tgt_register_slice(mgs_common_slice, mgs_handle);
+	if (rc)
 		GOTO(err_lproc, rc);
-	}
-
-	ping_evictor_start();
 
 	CDEBUG(D_INFO, "MGS %s started\n", obd->obd_name);
 
@@ -1279,9 +1377,7 @@ static struct lu_device *mgs_device_fini(const struct lu_env *env,
 
 	LASSERT(mgs->mgs_bottom);
 
-	ping_evictor_stop();
-
-	ptlrpc_unregister_service(mgs->mgs_service);
+	tgt_degister_slice(mgs_common_slice);
 
 	obd_exports_barrier(obd);
 	obd_zombie_barrier();
