@@ -39,6 +39,8 @@
 
 #include <dt_object.h>
 #include <lustre_disk.h>
+#include <lustre_dlm.h>
+#include <lustre_export.h>
 
 struct lu_target {
         struct obd_device       *lut_obd;
@@ -59,11 +61,70 @@ struct lu_target {
         unsigned long           *lut_client_bitmap;
 };
 
+/*
+ * Generic unified target support.
+ */
+enum tgt_handler_flags {
+	/*
+	 * struct *_body is passed in the incoming message, and object
+	 * identified by this fid exists on disk.
+	 *                            *
+	 * "habeo corpus" == "I have a body"
+	 */
+	HABEO_CORPUS = (1 << 0),
+	/*
+	 * struct ldlm_request is passed in the incoming message.
+	 *
+	 * "habeo clavis" == "I have a key"
+	 *                                     */
+	HABEO_CLAVIS = (1 << 1),
+	/*
+	 * this request has fixed reply format, so that reply message can be
+	 * packed by generic code.
+	 *
+	 * "habeo refero" == "I have a reply"
+	 */
+	HABEO_REFERO = (1 << 2),
+	/*
+	 * this request will modify something, so check whether the file system
+	 * is readonly or not, then return -EROFS to client asap if necessary.
+	 *
+	 * "mutabor" == "I shall modify"
+	 */
+	MUTABOR      = (1 << 3)
+};
+
+struct tgt_handler {
+	/* The name of this handler. */
+	const char		*th_name;
+	/* Fail id, check at the beginning */
+	int			 th_fail_id;
+	/* Operation code */
+	__u32			 th_opc;
+	/* Flags in enum lut_handler_flags */
+	__u32			 th_flags;
+	/* Handler function */
+	void			*th_act;
+	/* Request format for this request */
+	const struct req_format	*th_fmt;
+};
+
+struct tgt_opc_slice {
+	__u32			 tos_opc_start; /* First op code */
+	int			 tos_opc_end; /* Last op code */
+	struct tgt_handler	*tos_hs; /* Registered handler */
+};
+
+typedef int (*tgt_handler_t)(struct ptlrpc_request *req);
+
+int tgt_register_slice(struct tgt_opc_slice *slice, tgt_handler_t handle);
+void tgt_degister_slice(struct tgt_opc_slice *slice);
+
 typedef void (*tgt_cb_t)(struct lu_target *lut, __u64 transno,
                          void *data, int err);
 struct tgt_commit_cb {
-        tgt_cb_t  tgt_cb_func;
-        void     *tgt_cb_data;
+	tgt_cb_t	 tgt_cb_func;
+	void		*tgt_cb_data;
 };
 
 void tgt_boot_epoch_update(struct lu_target *lut);
