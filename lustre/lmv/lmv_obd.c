@@ -252,7 +252,7 @@ static int lmv_connect(const struct lu_env *env,
          * and MDC stuff will be called directly, for instance while reading
          * ../mdc/../kbytesfree procfs file, etc.
          */
-        if (data->ocd_connect_flags & OBD_CONNECT_REAL)
+	if (data && (data->ocd_connect_flags & OBD_CONNECT_REAL))
                 rc = lmv_check_connect(obd);
 
 #ifdef __KERNEL__
@@ -646,6 +646,7 @@ static int lmv_disconnect_mdc(struct obd_device *obd, struct lmv_tgt_desc *tgt)
         }
 
 #ifdef __KERNEL__
+	LASSERT(mdc_obd != NULL);
         lmv_proc_dir = lprocfs_srch(obd->obd_proc_entry, "target_obds");
         if (lmv_proc_dir) {
                 struct proc_dir_entry *mdc_symlink;
@@ -2121,7 +2122,9 @@ static int lmv_get_info(const struct lu_env *env, struct obd_export *exp,
 			/*
 			 * All tgts should be connected when this gets called.
 			 */
-			if (tgt == NULL || tgt->ltd_exp == NULL)
+			if (tgt == NULL)
+				break;
+			if (tgt->ltd_exp == NULL)
 				continue;
 
 			if (!obd_get_info(env, tgt->ltd_exp, keylen, key,
