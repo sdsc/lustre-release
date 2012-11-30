@@ -2156,7 +2156,7 @@ check_quota_hash_cur_bits() {
 check_lqs_hash() {
         # check distribution of all obdfilters
         for num in `seq $OSTCOUNT`; do
-	    do_facet ost$num "lctl get_param obdfilter.${FSNAME}-OST*.hash_stats | grep LQS_HASH" | while read line; do
+	    get_obdfilter_param $(facet_host ost$num) ost$num hash_stats | grep LQS_HASH | while read line; do
 		rehash_count=`echo $line | awk '{print $9}'`
 		if [ $rehash_count -eq 0 ]; then
 		    echo -e "ost$num:\n $line"
