@@ -144,9 +144,11 @@ static int lprocfs_ofd_rd_precreate_batch(char *page, char **start, off_t off,
 					  int count, int *eof, void *data)
 {
 	struct obd_device *obd = (struct obd_device *)data;
-	struct ofd_device *ofd = ofd_dev(obd->obd_lu_dev);
+	struct ofd_device *ofd;
 
 	LASSERT(obd != NULL);
+	ofd = ofd_dev(obd->obd_lu_dev);
+	LASSERT(ofd != NULL);
 	*eof = 1;
 	return snprintf(page, count, "%d\n", ofd->ofd_precreate_batch);
 }

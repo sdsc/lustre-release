@@ -659,6 +659,8 @@ lu_site_bkt_from_fid(struct lu_site *site, struct lu_fid *fid)
 {
         cfs_hash_bd_t bd;
 
+	LASSERT(site != NULL);
+
         cfs_hash_bd_get(site->ls_obj_hash, fid, &bd);
         return cfs_hash_bd_extra_get(site->ls_obj_hash, &bd);
 }
@@ -709,6 +711,7 @@ void lu_types_stop(void);
  */
 static inline void lu_object_get(struct lu_object *o)
 {
+	LASSERT(o != NULL && o->lo_header != NULL);
         LASSERT(cfs_atomic_read(&o->lo_header->loh_ref) > 0);
         cfs_atomic_inc(&o->lo_header->loh_ref);
 }
@@ -719,6 +722,7 @@ static inline void lu_object_get(struct lu_object *o)
  */
 static inline int lu_object_is_dying(const struct lu_object_header *h)
 {
+	LASSERT(h != NULL);
 	return test_bit(LU_OBJECT_HEARD_BANSHEE, &h->loh_flags);
 }
 
@@ -752,6 +756,7 @@ struct lu_object *lu_object_find_slice(const struct lu_env *env,
  */
 static inline struct lu_object *lu_object_top(struct lu_object_header *h)
 {
+	LASSERT(h != NULL);
         LASSERT(!cfs_list_empty(&h->loh_layers));
         return container_of0(h->loh_layers.next, struct lu_object, lo_linkage);
 }
@@ -761,6 +766,7 @@ static inline struct lu_object *lu_object_top(struct lu_object_header *h)
  */
 static inline struct lu_object *lu_object_next(const struct lu_object *o)
 {
+	LASSERT(o != NULL);
         return container_of0(o->lo_linkage.next, struct lu_object, lo_linkage);
 }
 
@@ -769,6 +775,7 @@ static inline struct lu_object *lu_object_next(const struct lu_object *o)
  */
 static inline const struct lu_fid *lu_object_fid(const struct lu_object *o)
 {
+	LASSERT(o != NULL && o->lo_header != NULL);
         return &o->lo_header->loh_fid;
 }
 
@@ -778,6 +785,7 @@ static inline const struct lu_fid *lu_object_fid(const struct lu_object *o)
 static const inline struct lu_device_operations *
 lu_object_ops(const struct lu_object *o)
 {
+	LASSERT(o != NULL && o->lo_dev != NULL);
         return o->lo_dev->ld_ops;
 }
 
@@ -843,6 +851,8 @@ static inline int lu_object_exists(const struct lu_object *o)
 {
         __u32 attr;
 
+	LASSERT(o != NULL && o->lo_header != NULL);
+
         attr = o->lo_header->loh_attr;
         if (attr & LOHA_REMOTE)
                 return -1;
@@ -868,6 +878,7 @@ static inline int lu_object_assert_not_exists(const struct lu_object *o)
 static inline __u32 lu_object_attr(const struct lu_object *o)
 {
         LASSERT(lu_object_exists(o) > 0);
+	LASSERT(o->lo_header != NULL);
         return o->lo_header->loh_attr;
 }
 
@@ -875,12 +886,16 @@ static inline struct lu_ref_link *lu_object_ref_add(struct lu_object *o,
                                                     const char *scope,
                                                     const void *source)
 {
+	LASSERT(o != NULL && o->lo_header != NULL);
+
         return lu_ref_add(&o->lo_header->loh_reference, scope, source);
 }
 
 static inline void lu_object_ref_del(struct lu_object *o,
                                      const char *scope, const void *source)
 {
+	LASSERT(o != NULL && o->lo_header != NULL);
+
         lu_ref_del(&o->lo_header->loh_reference, scope, source);
 }
 
@@ -888,6 +903,8 @@ static inline void lu_object_ref_del_at(struct lu_object *o,
                                         struct lu_ref_link *link,
                                         const char *scope, const void *source)
 {
+	LASSERT(o != NULL && o->lo_header != NULL);
+
         lu_ref_del_at(&o->lo_header->loh_reference, link, scope, source);
 }
 
