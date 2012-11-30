@@ -36,9 +36,7 @@
 #include "osd_oi.h"
 
 #define SCRUB_MAGIC_V1			0x4C5FD252
-#define SCRUB_CHECKPOINT_INTERVAL	60
 #define SCRUB_OI_BITMAP_SIZE		(OSD_OI_FID_NR_MAX >> 3)
-#define SCRUB_WINDOW_SIZE		1024
 
 enum scrub_status {
 	/* The scrub file is new created, for new MDT, upgrading from old disk,
@@ -71,8 +69,11 @@ enum scrub_flags {
 	/* OI files are invalid, should be rebuild ASAP */
 	SF_INCONSISTENT	= 0x0000000000000002ULL,
 
+	/* The device is upgraded from 1.8 format. */
+	SF_UPGRADED	= 0x0000000000000004ULL,
+
 	/* OI scrub is triggered automatically. */
-	SF_AUTO		= 0x0000000000000004ULL,
+	SF_AUTO		= 0x0000000000000008ULL,
 };
 
 enum scrub_param {

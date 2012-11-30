@@ -536,6 +536,8 @@ enum changelog_rec_type {
         CL_MTIME    = 17, /* Precedence: setattr > mtime > ctime > atime */
         CL_CTIME    = 18,
         CL_ATIME    = 19,
+	CL_NLINK    = 20, /* Currently, we have no better way to sync nlink,
+			   * but record it firstly. */
         CL_LAST
 };
 

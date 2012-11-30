@@ -1136,6 +1136,10 @@ static int mdd_process_config(const struct lu_env *env,
                 break;
         case LCFG_CLEANUP:
 		mdd_lfsck_cleanup(env, m);
+		if (m->mdd_local_root != NULL) {
+			mdd_object_put(env, m->mdd_local_root);
+			m->mdd_local_root = NULL;
+		}
 		rc = next->ld_ops->ldo_process_config(env, next, cfg);
 		lu_dev_del_linkage(d->ld_site, d);
                 mdd_device_shutdown(env, m, cfg);
@@ -1169,11 +1173,12 @@ static int mdd_prepare(const struct lu_env *env,
                        struct lu_device *pdev,
                        struct lu_device *cdev)
 {
-        struct mdd_device *mdd = lu2mdd_dev(cdev);
-        struct lu_device *next = &mdd->mdd_child->dd_lu_dev;
-        struct dt_object *root;
-        struct lu_fid     fid;
-        int rc;
+	struct mdd_device  *mdd = lu2mdd_dev(cdev);
+	struct lu_device  *next = &mdd->mdd_child->dd_lu_dev;
+	struct dt_object  *root;
+	struct mdd_object *lroot;
+	struct lu_fid      fid;
+	int rc;
 
         ENTRY;
         rc = next->ld_ops->ldo_prepare(env, cdev, next);
@@ -1206,6 +1211,15 @@ static int mdd_prepare(const struct lu_env *env,
 
 	mdd->mdd_capa = root;
 
+	rc = dt_root_get(env, mdd->mdd_bottom, &fid);
+	if (rc != 0)
+		GOTO(out, rc = -ENODEV);
+
+	lroot = mdd_object_find(env, mdd, &fid);
+	if (IS_ERR(lroot))
+		GOTO(out, rc = PTR_ERR(lroot));
+
+	mdd->mdd_local_root = lroot;
 	rc = mdd_lfsck_setup(env, mdd);
 	if (rc) {
 		CERROR("%s: failed to initialize lfsck: rc = %d\n",
@@ -1644,13 +1658,8 @@ static int mdd_iocontrol(const struct lu_env *env, struct md_device *m,
                 RETURN(0);
         }
 	case OBD_IOC_START_LFSCK: {
-		struct lfsck_start *start = karg;
-		struct md_lfsck *lfsck = &mdd->mdd_lfsck;
-
-		/* Return the kernel service version. */
-		/* XXX: version can be used for compatibility in the future. */
-		start->ls_version = lfsck->ml_version;
-		rc = mdd_lfsck_start(env, lfsck, start);
+		rc = mdd_lfsck_start(env, &mdd->mdd_lfsck,
+				     (struct lfsck_start *)karg);
 		RETURN(rc);
 	}
 	case OBD_IOC_STOP_LFSCK: {
@@ -1762,6 +1771,13 @@ static struct lu_local_obj_desc llod_lfsck_bookmark = {
 	.llod_is_index  = 0,
 };
 
+static struct lu_local_obj_desc llod_lfsck_namespace = {
+	.llod_name	= lfsck_namespace_name,
+	.llod_oid	= LFSCK_NAMESPACE_OID,
+	.llod_is_index	= 1,
+	.llod_feat	= &dt_lfsck_features,
+};
+
 static int __init mdd_mod_init(void)
 {
 	struct lprocfs_static_vars lvars;
@@ -1777,6 +1793,7 @@ static int __init mdd_mod_init(void)
 	llo_local_obj_register(&llod_mdd_orphan);
 	llo_local_obj_register(&llod_mdd_root);
 	llo_local_obj_register(&llod_lfsck_bookmark);
+	llo_local_obj_register(&llod_lfsck_namespace);
 
 	rc = class_register_type(&mdd_obd_device_ops, NULL, lvars.module_vars,
 				 LUSTRE_MDD_NAME, &mdd_device_type);
@@ -1791,6 +1808,7 @@ static void __exit mdd_mod_exit(void)
 	llo_local_obj_unregister(&llod_mdd_orphan);
 	llo_local_obj_unregister(&llod_mdd_root);
 	llo_local_obj_unregister(&llod_lfsck_bookmark);
+	llo_local_obj_unregister(&llod_lfsck_namespace);
 
 	class_unregister_type(LUSTRE_MDD_NAME);
 	lu_kmem_fini(mdd_caches);

@@ -261,13 +261,6 @@ int local_object_create(const struct lu_env *env,
 	if (rc)
 		RETURN(rc);
 
-	lustre_lma_init(&dti->dti_lma, lu_object_fid(&o->do_lu));
-	lustre_lma_swab(&dti->dti_lma);
-	dti->dti_lb.lb_buf = &dti->dti_lma;
-	dti->dti_lb.lb_len = sizeof(dti->dti_lma);
-	rc = dt_xattr_set(env, o, &dti->dti_lb, XATTR_NAME_LMA, 0, th,
-			  BYPASS_CAPA);
-
 	if (los == NULL)
 		RETURN(rc);
 
@@ -721,15 +714,6 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 		if (rc)
 			GOTO(out_trans, rc);
 		LASSERT(dt_object_exists(o));
-
-		lustre_lma_init(&dti->dti_lma, lu_object_fid(&o->do_lu));
-		lustre_lma_swab(&dti->dti_lma);
-		dti->dti_lb.lb_buf = &dti->dti_lma;
-		dti->dti_lb.lb_len = sizeof(dti->dti_lma);
-		rc = dt_xattr_set(env, o, &dti->dti_lb, XATTR_NAME_LMA, 0,
-				  th, BYPASS_CAPA);
-		if (rc)
-			GOTO(out_trans, rc);
 
 		losd.lso_magic = cpu_to_le32(LOS_MAGIC);
 		losd.lso_next_oid = cpu_to_le32(fid_oid(first_fid) + 1);
