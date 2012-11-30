@@ -533,6 +533,8 @@ typedef int (*osd_iit_exec_policy)(struct osd_thread_info *info,
 static inline int osd_scrub_has_window(struct osd_scrub *scrub,
 				       struct osd_otable_cache *ooc)
 {
+	LASSERT(scrub != NULL);
+	LASSERT(ooc != NULL);
 	return scrub->os_pos_current < ooc->ooc_pos_preload + SCRUB_WINDOW_SIZE;
 }
 
@@ -734,7 +736,7 @@ static int osd_scrub_exec(struct osd_thread_info *info, struct osd_device *dev,
 
 next:
 	scrub->os_pos_current = param->gbase + ++(param->offset);
-	if (it != NULL && it->ooi_waiting &&
+	if (it != NULL && it->ooi_waiting && ooc != NULL &&
 	    ooc->ooc_pos_preload < scrub->os_pos_current) {
 		it->ooi_waiting = 0;
 		cfs_waitq_broadcast(&thread->t_ctl_waitq);
