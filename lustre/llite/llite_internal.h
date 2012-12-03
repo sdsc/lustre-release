@@ -849,6 +849,8 @@ char *ll_get_fsname(struct super_block *sb, char *buf, int buflen);
 /* llite/llite_nfs.c */
 extern struct export_operations lustre_export_operations;
 __u32 get_uuid2int(const char *name, int len);
+struct inode *search_inode_for_lustre(struct super_block *sb,
+				      const struct lu_fid *fid);
 
 /* llite/special.c */
 extern struct inode_operations ll_special_inode_operations;
