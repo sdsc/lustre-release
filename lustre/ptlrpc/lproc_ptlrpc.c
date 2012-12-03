@@ -405,6 +405,169 @@ ptlrpc_lprocfs_wr_threads_max(struct file *file, const char *buffer,
 	return count;
 }
 
+static const char *
+ptlrpc_lprocfs_nrs_state2str(enum ptlrpc_nrs_pol_state state)
+{
+	switch (state) {
+	default:
+		return "unknown";
+	case NRS_POL_STATE_UNAVAIL:
+		return "unavail";
+	case NRS_POL_STATE_STOPPED:
+		return "stopped";
+	case NRS_POL_STATE_STOPPING:
+		return "stopping";
+	case NRS_POL_STATE_STARTING:
+		return "starting";
+	case NRS_POL_STATE_STARTED:
+		return "started";
+	}
+}
+
+static int
+ptlrpc_lprocfs_rd_nrs0(struct ptlrpc_service_part *svcpt,
+		       enum ptlrpc_nrs_queue_type queue,
+		       char *name, char *buf, int count)
+{
+	int				rc;
+	struct ptlrpc_nrs_pol_info	info;
+
+
+	rc = ptlrpc_nrs_policy_control(svcpt, queue,
+				       name, PTLRPC_NRS_CTL_GET_INFO,
+				       &info);
+	if (rc < 0)
+		return rc;
+
+	rc = snprintf(buf, count, "%s\t%s\t%s\t%-8d%-8d\n",
+		      info.pi_name,
+		      ptlrpc_lprocfs_nrs_state2str(info.pi_state),
+		      info.pi_fallback ? "   *" : " ",
+		      (int)info.pi_req_queued,
+		      (int)info.pi_req_started);
+
+	return rc;
+}
+
+static int
+ptlrpc_lprocfs_rd_nrs(char *page, char **start, off_t off,
+		      int count, int *eof, void *data)
+{
+	struct ptlrpc_service_part     *svcpt = data;
+	struct ptlrpc_nrs_policy       *policy;
+	int				rc;
+	int				rc2;
+
+
+	/** TODO: Merge these two? */
+	rc = snprintf(page, count,
+		      "\nREG:\nname\tstate\tfallbac\tqueued\tactive\n");
+
+	cfs_list_for_each_entry(policy, &svcpt->scp_nrs_reg.nrs_policy_list,
+				pol_list) {
+		rc2 = ptlrpc_lprocfs_rd_nrs0(svcpt, PTLRPC_NRS_QUEUE_REG,
+					     policy->pol_name, page + rc,
+					     count);
+		if (rc2 < 0)
+			RETURN(rc2);
+
+		rc += rc2;
+	}
+
+	rc += snprintf(page + rc, count, "\n");
+
+	if (!nrs_svcpt_has_hp(svcpt))
+		return rc;
+
+	rc += snprintf(page + rc, count,
+		       "HP:\nname\tstate\tfallbac\tqueued\tactive\n");
+
+	cfs_list_for_each_entry(policy, &svcpt->scp_nrs_hp->nrs_policy_list,
+				pol_list) {
+		rc2 = ptlrpc_lprocfs_rd_nrs0(svcpt, PTLRPC_NRS_QUEUE_HP,
+					     policy->pol_name, page + rc,
+					     count);
+		if (rc2 < 0)
+			RETURN(rc2);
+
+		rc += rc2;
+	}
+
+	rc += snprintf(page + rc, count, "\n");
+
+	return rc;
+}
+
+/* The longest valid command string is +4 for the " reg" substring */
+#define LPROCFS_NRS_WR_MAX_CMD	(NRS_POL_NAME_MAX + 4)
+
+/* Commands consist of the policy name, followed by an optional [reg|hp] token
+ * to control either of the heads independently; by default, the operation is
+ * performed on both heads, assuming the service has an HP head */
+static int
+ptlrpc_lprocfs_wr_nrs(struct file *file, const char *buffer,
+		      unsigned long count, void *data)
+{
+	struct ptlrpc_service_part     *svcpt = data;
+	enum ptlrpc_nrs_queue_type	queue = PTLRPC_NRS_QUEUE_BOTH;
+	char			       *cmd;
+	/* strsep modifies the address of its argument, so keep a copy */
+	char			       *cmd_copy = NULL;
+	char			       *token;
+	int				rc;
+
+	if (count > LPROCFS_NRS_WR_MAX_CMD)
+		GOTO(out, rc = -EINVAL);
+
+	OBD_ALLOC(cmd, LPROCFS_NRS_WR_MAX_CMD);
+	if (cmd == NULL)
+		GOTO(out, rc = -ENOMEM);
+	cmd_copy = cmd;
+
+	if (cfs_copy_from_user(cmd, buffer, count))
+		GOTO(out, rc = -EFAULT);
+
+	token = strsep(&cmd, " ");
+	/* XXX: token can't actually be NULL here; see strsep()
+	 * implementation */
+	if (token == NULL)
+		GOTO(out, rc = -EFAULT);
+
+	if (strlen(token) > NRS_POL_NAME_MAX)
+		GOTO(out, rc = -EINVAL);
+
+	/* No [reg|hp] token has been specified */
+	if (cmd == NULL)
+		goto default_queue;
+
+	/* The second token is either NULL, or an optional
+	 * [reg|hp] string */
+	if (!(strcmp(cmd, "reg")))
+		queue = PTLRPC_NRS_QUEUE_REG;
+	else if (!(strcmp(cmd, "hp")))
+		queue = PTLRPC_NRS_QUEUE_HP;
+	else
+		GOTO(out, rc = -EINVAL);
+
+default_queue:
+
+	if (queue == PTLRPC_NRS_QUEUE_HP &&
+	    !nrs_svcpt_has_hp(svcpt))
+		GOTO(out, rc = -ENODEV);
+
+	if (queue == PTLRPC_NRS_QUEUE_BOTH &&
+	    !nrs_svcpt_has_hp(svcpt))
+		queue = PTLRPC_NRS_QUEUE_REG;
+
+	rc = ptlrpc_nrs_policy_control(svcpt, queue, token,
+				       PTLRPC_NRS_CTL_START, NULL);
+
+out:
+	if (cmd_copy)
+		OBD_FREE(cmd_copy, LPROCFS_NRS_WR_MAX_CMD);
+	RETURN(rc < 0 ? rc : count);
+}
+
 struct ptlrpc_srh_iterator {
 	int			srhi_idx;
 	__u64			srhi_seq;
@@ -709,6 +872,43 @@ static int ptlrpc_lprocfs_wr_hp_ratio(struct file *file, const char *buffer,
 	return count;
 }
 
+static int
+ptlrpc_lprocfs_register_svc_parts(struct ptlrpc_service *svc)
+{
+	struct ptlrpc_service_part     *svcpt;
+	int				i;
+	char				cptidstr[4];
+	cfs_proc_dir_entry_t	       *srv_cpt_procroot;
+
+        struct lprocfs_vars		lproc_cpt_vars[] = {
+		{ .name       = "nrs_policies",
+		  .read_fptr  = ptlrpc_lprocfs_rd_nrs,
+		  .write_fptr = ptlrpc_lprocfs_wr_nrs },
+		{ NULL}
+	};
+
+	srv_cpt_procroot = lprocfs_register("cpt", svc->srv_procroot, NULL,
+					    NULL);
+	if (IS_ERR(srv_cpt_procroot))
+		return PTR_ERR(srv_cpt_procroot);
+
+	ptlrpc_service_for_each_part(svcpt, i, svc) {
+		snprintf(cptidstr, sizeof(cptidstr), "%d", svcpt->scp_cpt);
+                svcpt->scp_procroot = lprocfs_register(cptidstr,
+						       srv_cpt_procroot,
+						       NULL, NULL);
+                if (IS_ERR(svcpt->scp_procroot)) {
+			lprocfs_remove(&srv_cpt_procroot);
+			return PTR_ERR(svcpt->scp_procroot);
+		}
+
+		lproc_cpt_vars[0].data = svcpt;
+		lprocfs_add_vars(svcpt->scp_procroot, lproc_cpt_vars, NULL);
+	}
+
+	return 0;
+}
+
 void ptlrpc_lprocfs_register_service(struct proc_dir_entry *entry,
                                      struct ptlrpc_service *svc)
 {
@@ -738,7 +938,7 @@ void ptlrpc_lprocfs_register_service(struct proc_dir_entry *entry,
                 {.name       = "timeouts",
                  .read_fptr  = ptlrpc_lprocfs_rd_timeouts,
                  .data       = svc},
-                {NULL}
+		{NULL}
         };
         static struct file_operations req_history_fops = {
                 .owner       = THIS_MODULE,
@@ -763,6 +963,12 @@ void ptlrpc_lprocfs_register_service(struct proc_dir_entry *entry,
                                 0400, &req_history_fops, svc);
         if (rc)
                 CWARN("Error adding the req_history file\n");
+
+	rc = ptlrpc_lprocfs_register_svc_parts(svc);
+	if (rc)
+                CERROR("Failed to initalize lprocfs for %s service CPTs. Only "
+		       "the FIFO NRS policy will be available.\n",
+		       svc->srv_name);
 }
 
 void ptlrpc_lprocfs_register_obd(struct obd_device *obddev)
