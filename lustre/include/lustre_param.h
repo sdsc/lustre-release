@@ -83,6 +83,9 @@ int do_lcfg(char *cfgname, lnet_nid_t nid, int cmd,
 
 /* System global or special params not handled in obd's proc
  * See mgs_write_log_sys()
+ *
+ * NB: update lustre_params and lustre_param_prefixes in
+ * lustre/utils/mount_utils_zfs.c when you change below parameters or prefiexes.
  */
 #define PARAM_TIMEOUT              "timeout="          /* global */
 #define PARAM_LDLM_TIMEOUT         "ldlm_timeout="     /* global */
@@ -115,6 +118,9 @@ int do_lcfg(char *cfgname, lnet_nid_t nid, int cmd,
 #define PARAM_SRPC_UDESC           "srpc.udesc.cli2mdt"
 #define PARAM_SEC                  "security."
 #define PARAM_QUOTA                "quota."            /* global */
+
+#define PARAM_MAXNAMELEN	   256		       /* see ZAP_MAXNAMELEN */
+#define PARAM_MAXVALUELEN	   (1024 * 8)	       /* ZAP_MAXVALUELEN */
 
 /** @} param */
 
