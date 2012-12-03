@@ -34,6 +34,7 @@
 #include <dlfcn.h>
 
 /* Persistent mount data is stored in these user  attributes */
+#define LDD_PROP_PREFIX			"lustre:"
 #define LDD_VERSION_PROP                "lustre:version"
 #define LDD_FLAGS_PROP                  "lustre:flags"
 #define LDD_INDEX_PROP                  "lustre:index"
@@ -42,10 +43,6 @@
 #define LDD_UUID_PROP                   "lustre:uuid"
 #define LDD_USERDATA_PROP               "lustre:userdata"
 #define LDD_MOUNTOPTS_PROP              "lustre:mountopts"
-#define LDD_MGSNODE_PROP                "lustre:mgsnode"
-#define LDD_FAILNODE_PROP               "lustre:failnode"
-#define LDD_FAILMODE_PROP               "lustre:failmode"
-#define LDD_IDENTITY_UPCALL_PROP        "lustre:identity_upcall"
 
 /* indicate if the ZFS OSD has been successfully setup */
 static int osd_zfs_setup = 0;
@@ -152,18 +149,51 @@ static int zfs_set_prop_str(zfs_handle_t *zhp, char *prop, char *val)
 	return ret;
 }
 
-static int zfs_set_prop_param(zfs_handle_t *zhp, struct lustre_disk_data *ldd,
-			      char *param, char *prop)
+static int zfs_set_prop_params(zfs_handle_t *zhp, struct lustre_disk_data *ldd)
 {
-	char *str;
+	char *start = ldd->ldd_params, *end, *p;
+	char *param, *val;
 	int ret = 0;
 
-	if (get_param(ldd->ldd_params, param, &str) == 0) {
-		vprint("  %s=%s\n", prop, str);
-		ret = zfs_prop_set(zhp, prop, str);
-		free(str);
+	param = malloc(PARAM_MAXNAMELEN);
+	if (param == NULL)
+		return ENOMEM;
+	val = malloc(PARAM_MAXVALUELEN);
+	if (val == NULL) {
+		free(param);
+		return ENOMEM;
 	}
 
+	while (*start == ' ') start++;
+
+	while ((p = strchr(start, '=')) != NULL) {
+		memset(param, 0, PARAM_MAXNAMELEN);
+		memset(val, 0, PARAM_MAXVALUELEN);
+
+		snprintf(param, min(p - start + strlen(LDD_PROP_PREFIX) + 1,
+				    PARAM_MAXNAMELEN - strlen(LDD_PROP_PREFIX)),
+			 "%s%s", LDD_PROP_PREFIX, start);
+		if ((end = strchrnul(p, ' ')) == NULL) {
+			ret = EINVAL;
+			goto out;
+		}
+
+		snprintf(val, min(end - p, PARAM_MAXVALUELEN), "%s", p + 1);
+		if (strlen(param) == 0 || strlen(val) == 0) {
+			ret = EINVAL;
+			goto out;
+		}
+
+		vprint(" %s=%s\n", param, val);
+		ret = zfs_prop_set(zhp, param, val);
+		if (ret)
+			goto out;
+
+		start = end + 1;
+	}
+out:
+	free(val);
+	free(param);
 	return ret;
 }
 
@@ -229,20 +259,7 @@ int zfs_write_ldd(struct mkfs_opts *mop)
 	if (ret)
 		goto out_close;
 
-	ret = zfs_set_prop_param(zhp, ldd, PARAM_MGSNODE, LDD_MGSNODE_PROP);
-	if (ret)
-		goto out_close;
-
-	ret = zfs_set_prop_param(zhp, ldd, PARAM_FAILNODE, LDD_FAILNODE_PROP);
-	if (ret)
-		goto out_close;
-
-	ret = zfs_set_prop_param(zhp, ldd, PARAM_FAILMODE, LDD_FAILMODE_PROP);
-	if (ret)
-		goto out_close;
-
-	ret = zfs_set_prop_param(zhp, ldd, PARAM_MDT PARAM_ID_UPCALL,
-				 LDD_IDENTITY_UPCALL_PROP);
+	ret = zfs_set_prop_params(zhp, ldd);
 	if (ret)
 		goto out_close;
 
@@ -293,6 +310,44 @@ static int zfs_get_prop_str(zfs_handle_t *zhp, char *prop, char *val)
 	return ret;
 }
 
+static char *lustre_params[] = {
+	PARAM_TIMEOUT,
+	PARAM_LDLM_TIMEOUT,
+	PARAM_AT_MIN,
+	PARAM_AT_MAX,
+	PARAM_AT_EXTRA,
+	PARAM_AT_EARLY_MARGIN,
+	PARAM_AT_HISTORY,
+	PARAM_JOBID_VAR,
+	PARAM_MGSNODE,
+	PARAM_FAILNODE,
+	PARAM_FAILMODE,
+	PARAM_ACTIVE,
+	PARAM_NETWORK,
+	PARAM_ID_UPCALL,
+	NULL
+};
+
+static char *lustre_param_prefixes[] = {
+	PARAM_OST,
+	PARAM_OSC,
+	PARAM_MDT,
+	PARAM_MDD,
+	PARAM_MDC,
+	PARAM_LLITE,
+	PARAM_LOV,
+	PARAM_LOD,
+	PARAM_OSP,
+	PARAM_SYS,
+	PARAM_SRPC,
+	PARAM_SRPC_FLVR,
+	PARAM_SRPC_UDESC,
+	PARAM_SEC,
+	PARAM_QUOTA,
+	"",			/* some parameter doesn't have prefix. */
+	NULL
+};
+
 static int zfs_get_prop_param(zfs_handle_t *zhp, struct lustre_disk_data *ldd,
 		char *param, char *prop)
 {
@@ -312,6 +367,48 @@ static int zfs_get_prop_param(zfs_handle_t *zhp, struct lustre_disk_data *ldd,
 
 	return ret;
 }
+
+static int zfs_get_prop_params(zfs_handle_t *zhp, struct lustre_disk_data *ldd)
+{
+	char **pprefix, **pparam, *param, *prop;
+	int ret;
+
+	param = malloc(PARAM_MAXNAMELEN);
+	if (param == NULL)
+		return ENOMEM;
+
+	prop = malloc(PARAM_MAXNAMELEN);
+	if (prop == NULL) {
+		free(param);
+		return ENOMEM;
+	}
+
+	pprefix = lustre_param_prefixes;
+	while (*pprefix != NULL) {
+		pparam = lustre_params;
+		while (*pparam != NULL) {
+			memset(param, 0, PARAM_MAXNAMELEN);
+			memset(prop, 0, PARAM_MAXNAMELEN);
+			snprintf(prop, PARAM_MAXNAMELEN, "%s%s%s",
+				 LDD_PROP_PREFIX, *pprefix, *pparam);
+			prop[strlen(prop) - 1] = '\0'; /* remove padding '=' */
+			snprintf(param, PARAM_MAXNAMELEN, "%s%s",
+				 *pprefix, *pparam);
+
+			ret = zfs_get_prop_param(zhp, ldd, param, prop);
+			if (ret && (ret != ENOENT))
+				goto out;
+			pparam++;
+		}
+		pprefix++;
+	}
+	ret = 0;
+out:
+	free(prop);
+
+	return ret;
+}
+
 
 /*
  * Read the server config as properties associated with the dataset.
@@ -361,22 +458,10 @@ int zfs_read_ldd(char *ds,  struct lustre_disk_data *ldd)
 	if (ret && (ret != ENOENT))
 		goto out_close;
 
-	ret = zfs_get_prop_param(zhp, ldd, PARAM_MGSNODE, LDD_MGSNODE_PROP);
+	ret = zfs_get_prop_params(zhp, ldd);
 	if (ret && (ret != ENOENT))
 		goto out_close;
 
-	ret = zfs_get_prop_param(zhp, ldd, PARAM_FAILNODE, LDD_FAILNODE_PROP);
-	if (ret && (ret != ENOENT))
-		goto out_close;
-
-	ret = zfs_get_prop_param(zhp, ldd, PARAM_FAILMODE, LDD_FAILMODE_PROP);
-	if (ret && (ret != ENOENT))
-		goto out_close;
-
-	ret = zfs_get_prop_param(zhp, ldd, PARAM_MDT PARAM_ID_UPCALL,
-				 LDD_IDENTITY_UPCALL_PROP);
-	if (ret && (ret != ENOENT))
-		goto out_close;
 
 	ldd->ldd_mount_type = LDD_MT_ZFS;
 	ret = 0;
