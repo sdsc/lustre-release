@@ -1814,21 +1814,22 @@ check_link_ea_entry(void)
 static void
 check_hsm_user_item(void)
 {
-        BLANK_LINE();
-        CHECK_STRUCT(hsm_user_item);
-        CHECK_MEMBER(hsm_user_item, hui_fid);
-        CHECK_MEMBER(hsm_user_item, hui_extent);
+	BLANK_LINE();
+	CHECK_STRUCT(hsm_user_item);
+	CHECK_MEMBER(hsm_user_item, hui_fid);
+	CHECK_MEMBER(hsm_user_item, hui_extent);
 }
 
 static void
-check_hsm_user_request(void)
+check_hsm_request(void)
 {
-        BLANK_LINE();
-        CHECK_STRUCT(hsm_user_request);
-        CHECK_MEMBER(hsm_user_request, hur_action);
-        CHECK_MEMBER(hsm_user_request, hur_archive_num);
-        CHECK_MEMBER(hsm_user_request, hur_itemcount);
-        CHECK_MEMBER(hsm_user_request, hur_data_len);
+	BLANK_LINE();
+	CHECK_STRUCT(hsm_request);
+	CHECK_MEMBER(hsm_request, hr_action);
+	CHECK_MEMBER(hsm_request, hr_archive_num);
+	CHECK_MEMBER(hsm_request, hr_flags);
+	CHECK_MEMBER(hsm_request, hr_itemcount);
+	CHECK_MEMBER(hsm_request, hr_data_len);
 }
 
 static void
@@ -2191,8 +2192,8 @@ main(int argc, char **argv)
         printf("#endif\n");
         check_link_ea_header();
         check_link_ea_entry();
-        check_hsm_user_item();
-        check_hsm_user_request();
+	check_hsm_progress_kernel();
+	check_hsm_item();
         check_hsm_user_state();
 
         printf("}\n\n");

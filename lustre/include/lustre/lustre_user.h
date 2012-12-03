@@ -152,10 +152,17 @@ struct obd_statfs {
 #define LL_IOC_PATH2FID                 _IOR ('f', 173, long)
 #define LL_IOC_GET_CONNECT_FLAGS        _IOWR('f', 174, __u64 *)
 #define LL_IOC_GET_MDTIDX               _IOR ('f', 175, int)
-#define LL_IOC_HSM_CT_START             _IOW ('f', 176,struct lustre_kernelcomm)
+
 /* see <lustre_lib.h> for ioctl numbers 177-210 */
 
-#define LL_IOC_DATA_VERSION             _IOR ('f', 218, struct ioc_data_version)
+#define LL_IOC_HSM_STATE_GET		_IOR('f', 211, struct hsm_user_state)
+#define LL_IOC_HSM_STATE_SET		_IOW('f', 212, struct hsm_state_set)
+#define LL_IOC_HSM_CT_START		_IOW('f', 213, struct lustre_kernelcomm)
+#define LL_IOC_HSM_COPY_START		_IOW('f', 214, struct hsm_copy *)
+#define LL_IOC_HSM_COPY_END		_IOW('f', 215, struct hsm_copy *)
+#define LL_IOC_HSM_PROGRESS		_IOW('f', 216, struct hsm_user_request)
+#define LL_IOC_HSM_REQUEST		_IOW('f', 217, struct hsm_user_request)
+#define LL_IOC_DATA_VERSION		_IOR('f', 218, struct ioc_data_version)
 
 #define LL_STATFS_LMV           1
 #define LL_STATFS_LOV           2
@@ -823,6 +830,13 @@ static inline char *hsm_user_action2name(enum hsm_user_action  a)
         }
 }
 
+/*
+ * List of hr_flags (bit field)
+ */
+#define HSM_FORCE_ACTION 0x0001
+/* used by CT, connot be set by user */
+#define HSM_GHOST_COPY   0x0002
+
 struct hsm_user_item {
        lustre_fid        hui_fid;
        struct hsm_extent hui_extent;
@@ -886,6 +900,7 @@ struct hsm_action_item {
         __u32      hai_len;     /* valid size of this struct */
         __u32      hai_action;  /* hsm_copytool_action, but use known size */
         lustre_fid hai_fid;     /* Lustre FID to operated on */
+	lustre_fid hai_dfid;    /* fid used for data access */
         struct hsm_extent hai_extent;  /* byte range to operate on */
         __u64      hai_cookie;  /* action cookie from coordinator */
         __u64      hai_gid;     /* grouplock id */
@@ -926,14 +941,15 @@ static inline char *hai_dump_data_field(struct hsm_action_item *hai,
 #define HAL_VERSION 1
 #define HAL_MAXSIZE 4096 /* bytes, used in userspace only */
 struct hsm_action_list {
-        __u32 hal_version;
-        __u32 hal_count;       /* number of hai's to follow */
-        __u64 hal_compound_id; /* returned by coordinator */
-        __u32 hal_archive_num; /* which archive backend */
-        __u32 padding1;
-        char  hal_fsname[0];   /* null-terminated */
-        /* struct hsm_action_item[hal_count] follows, aligned on 8-byte
-           boundaries. See hai_zero */
+	__u32 hal_version;
+	__u32 hal_count;       /* number of hai's to follow */
+	__u64 hal_compound_id; /* returned by coordinator */
+	__u32 hal_archive_num; /* which archive backend */
+	__u64 hal_flags;
+	__u32 padding1;
+	char  hal_fsname[0];   /* null-terminated */
+	/* struct hsm_action_item[hal_count] follows, aligned on 8-byte
+	   boundaries. See hai_zero */
 } __attribute__((packed));
 
 #ifndef HAVE_CFS_SIZE_ROUND
@@ -978,11 +994,25 @@ static inline int hal_size(struct hsm_action_list *hal)
 #define HP_FLAG_RETRY     0x02
 
 struct hsm_progress {
-        lustre_fid        hp_fid;
-        __u64             hp_cookie;
-        struct hsm_extent hp_extent;
-        __u16             hp_flags;
-        __u16             hp_errval; /* positive val */
+	lustre_fid		hp_fid;
+	__u64			hp_cookie;
+	struct hsm_extent	hp_extent;
+	__u16			hp_flags;
+	__u16			hp_errval; /* positive val */
+} __attribute__((packed));
+
+/**
+ * Use by copytool during any hsm request they handled.
+ *
+ * This is an opaque structure that is initialized by llapi_hsm_copy_start().
+ *
+ * Store Lustre, internal use only, data.
+ */
+struct hsm_copy {
+	__u64			hc_data_version;
+	__u16			hc_flags;
+	__u16			hc_errval; /* positive val */
+	struct hsm_action_item	hc_hai;
 } __attribute__((packed));
 
 /** @} lustreuser */
