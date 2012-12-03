@@ -204,7 +204,7 @@ Index: linux-stage/fs/ext4/mballoc.c
  	if (sbi->s_proc) {
  		struct proc_dir_entry *p;
  		proc_create_data("mb_groups", S_IRUGO, sbi->s_proc,
-@@ -2639,7 +2656,10 @@ int ext4_mb_release(struct super_block *
+@@ -2639,8 +2656,12 @@ int ext4_mb_release(struct super_block *
  			EXT4_DESC_PER_BLOCK_BITS(sb);
  		for (i = 0; i < num_meta_group_infos; i++)
  			kfree(sbi->s_group_info[i]);
@@ -214,5 +214,7 @@ Index: linux-stage/fs/ext4/mballoc.c
 +		else
 +			kfree(sbi->s_group_info);
  	}
++	kfree(sbi->s_mb_prealloc_table);
  	kfree(sbi->s_mb_offsets);
  	kfree(sbi->s_mb_maxs);
+	if (sbi->s_buddy_cache)

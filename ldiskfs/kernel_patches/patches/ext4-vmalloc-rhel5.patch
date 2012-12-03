@@ -169,13 +169,14 @@ Index: linux-stage/fs/ext4/mballoc.c
  	spin_lock_init(&sbi->s_md_lock);
  	spin_lock_init(&sbi->s_bal_lock);
  
-@@ -2717,6 +2728,14 @@ int ext4_mb_init(struct super_block *sb,
+@@ -2717,6 +2728,15 @@ int ext4_mb_init(struct super_block *sb,
  		spin_lock_init(&lg->lg_prealloc_lock);
  	}
  
 +	/* init file for buddy data */
 +	ret = ext4_mb_init_backend(sb);
 +	if (ret != 0) {
++		kfree(sbi->s_mb_prealloc_table);
 +		kfree(sbi->s_mb_offsets);
 +		kfree(sbi->s_mb_maxs);
 +		return ret;
@@ -184,7 +185,7 @@ Index: linux-stage/fs/ext4/mballoc.c
  	ext4_mb_history_init(sb);
  
  	if (sbi->s_journal)
-@@ -2766,7 +2785,10 @@ int ext4_mb_release(struct super_block *
+@@ -2766,8 +2786,12 @@ int ext4_mb_release(struct super_block *
  			EXT4_DESC_PER_BLOCK_BITS(sb);
  		for (i = 0; i < num_meta_group_infos; i++)
  			kfree(sbi->s_group_info[i]);
@@ -194,5 +195,7 @@ Index: linux-stage/fs/ext4/mballoc.c
 +		else
 +			kfree(sbi->s_group_info);
  	}
++	kfree(sbi->s_mb_prealloc_table);
  	kfree(sbi->s_mb_offsets);
  	kfree(sbi->s_mb_maxs);
+	if (sbi->s_buddy_cache)
