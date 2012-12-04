@@ -378,6 +378,34 @@ static int ptlrpc_at_recv_early_reply(struct ptlrpc_request *req)
 	RETURN(rc);
 }
 
+cfs_mem_cache_t *request_cache;
+
+int ptlrpc_request_cache_init()
+{
+	request_cache = cfs_mem_cache_create("rpc_cache",
+					     sizeof(struct ptlrpc_request),
+					     0, CFS_SLAB_HWCACHE_ALIGN);
+	return request_cache == NULL ? -ENOMEM : 0;
+}
+
+int ptlrpc_request_cache_fini()
+{
+	return cfs_mem_cache_destroy(request_cache);
+}
+
+struct ptlrpc_request *ptlrpc_request_cache_alloc(int flags)
+{
+	struct ptlrpc_request *ret;
+
+	OBD_SLAB_ALLOC_PTR_GFP(ret, request_cache, flags);
+	return ret;
+}
+
+void ptlrpc_request_cache_free(struct ptlrpc_request *req)
+{
+	OBD_SLAB_FREE_PTR(req, request_cache);
+}
+
 /**
  * Wind down request pool \a pool.
  * Frees all requests from the pool too
@@ -396,7 +424,7 @@ void ptlrpc_free_rq_pool(struct ptlrpc_request_pool *pool)
 		LASSERT(req->rq_reqbuf);
 		LASSERT(req->rq_reqbuf_len == pool->prp_rq_size);
 		OBD_FREE_LARGE(req->rq_reqbuf, pool->prp_rq_size);
-		OBD_FREE(req, sizeof(*req));
+		ptlrpc_request_cache_free(req);
 	}
 	spin_unlock(&pool->prp_lock);
 	OBD_FREE(pool, sizeof(*pool));
@@ -426,12 +454,12 @@ void ptlrpc_add_rqs_to_pool(struct ptlrpc_request_pool *pool, int num_rq)
 		struct lustre_msg *msg;
 
 		spin_unlock(&pool->prp_lock);
-                OBD_ALLOC(req, sizeof(struct ptlrpc_request));
+		req = ptlrpc_request_cache_alloc(CFS_ALLOC_IO);
                 if (!req)
                         return;
                 OBD_ALLOC_LARGE(msg, size);
                 if (!msg) {
-                        OBD_FREE(req, sizeof(struct ptlrpc_request));
+			ptlrpc_request_cache_free(req);
                         return;
                 }
                 req->rq_reqbuf = msg;
@@ -668,7 +696,7 @@ struct ptlrpc_request *__ptlrpc_request_alloc(struct obd_import *imp,
                 request = ptlrpc_prep_req_from_pool(pool);
 
         if (!request)
-                OBD_ALLOC_PTR(request);
+		request = ptlrpc_request_cache_alloc(CFS_ALLOC_IO);
 
         if (request) {
                 LASSERTF((unsigned long)imp > 0x1000, "%p", imp);
@@ -739,7 +767,7 @@ void ptlrpc_request_free(struct ptlrpc_request *request)
         if (request->rq_pool)
                 __ptlrpc_free_req_to_pool(request);
         else
-                OBD_FREE_PTR(request);
+		ptlrpc_request_cache_free(request);
 }
 EXPORT_SYMBOL(ptlrpc_request_free);
 
@@ -2213,7 +2241,7 @@ static void __ptlrpc_free_req(struct ptlrpc_request *request, int locked)
         if (request->rq_pool)
                 __ptlrpc_free_req_to_pool(request);
         else
-                OBD_FREE(request, sizeof(*request));
+		ptlrpc_request_cache_free(request);
         EXIT;
 }
 

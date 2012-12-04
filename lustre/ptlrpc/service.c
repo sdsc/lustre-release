@@ -95,13 +95,14 @@ ptlrpc_alloc_rqbd(struct ptlrpc_service_part *svcpt)
 	spin_lock(&svcpt->scp_lock);
 	cfs_list_add(&rqbd->rqbd_list, &svcpt->scp_rqbd_idle);
 	svcpt->scp_nrqbds_total++;
+	svcpt->scp_nrqbds_idle++;
 	spin_unlock(&svcpt->scp_lock);
 
 	return rqbd;
 }
 
-void
-ptlrpc_free_rqbd(struct ptlrpc_request_buffer_desc *rqbd)
+static void
+ptlrpc_free_rqbd (struct ptlrpc_request_buffer_desc *rqbd)
 {
 	struct ptlrpc_service_part *svcpt = rqbd->rqbd_svcpt;
 
@@ -148,13 +149,12 @@ ptlrpc_grow_req_bufs(struct ptlrpc_service_part *svcpt, int post)
 			break;
 
 		rqbd = ptlrpc_alloc_rqbd(svcpt);
-
-                if (rqbd == NULL) {
-                        CERROR("%s: Can't allocate request buffer\n",
-                               svc->srv_name);
-                        rc = -ENOMEM;
-                        break;
-                }
+		if (rqbd == NULL) {
+			CERROR("%s: Can't allocate request buffer\n",
+			       svc->srv_name);
+			rc = -ENOMEM;
+			break;
+		}
 	}
 
 	spin_lock(&svcpt->scp_lock);
@@ -466,6 +466,7 @@ ptlrpc_server_post_idle_rqbds(struct ptlrpc_service_part *svcpt)
 				      struct ptlrpc_request_buffer_desc,
 				      rqbd_list);
 		cfs_list_del(&rqbd->rqbd_list);
+		svcpt->scp_nrqbds_idle--;
 
 		/* assume we will post successfully */
 		svcpt->scp_nrqbds_posted++;
@@ -485,6 +486,7 @@ ptlrpc_server_post_idle_rqbds(struct ptlrpc_service_part *svcpt)
 	svcpt->scp_nrqbds_posted--;
 	cfs_list_del(&rqbd->rqbd_list);
 	cfs_list_add_tail(&rqbd->rqbd_list, &svcpt->scp_rqbd_idle);
+	svcpt->scp_nrqbds_idle++;
 
 	/* Don't complain if no request buffers are posted right now; LNET
 	 * won't drop requests because we set the portal lazy! */
@@ -721,6 +723,7 @@ ptlrpc_register_service(struct ptlrpc_service_conf *conf,
 	int				cpt;
 	int				rc;
 	int				i;
+	__u32				nbufs_mem_max_mb;
 	ENTRY;
 
 	LASSERT(conf->psc_buf.bc_nbufs > 0);
@@ -789,6 +792,10 @@ ptlrpc_register_service(struct ptlrpc_service_conf *conf,
 	service->srv_max_req_size	= conf->psc_buf.bc_req_max_size +
 					  SPTLRPC_MAX_PAYLOAD;
 	service->srv_buf_size		= conf->psc_buf.bc_buf_size;
+	nbufs_mem_max_mb		= conf->psc_buf.bc_nbufs_mem_max ? :
+					  PTLRPC_NBUFS_MEM_MAX_DEFAULT_MB;
+	service->srv_nbuf_max		= nbufs_mem_max_mb * 1024 / ncpts /
+					  (conf->psc_buf.bc_buf_size / 1024);
 	service->srv_rep_portal		= conf->psc_buf.bc_rep_portal;
 	service->srv_req_portal		= conf->psc_buf.bc_req_portal;
 
@@ -869,7 +876,7 @@ static void ptlrpc_server_free_request(struct ptlrpc_request *req)
                 /* NB request buffers use an embedded
                  * req if the incoming req unlinked the
                  * MD; this isn't one of them! */
-                OBD_FREE(req, sizeof(*req));
+		ptlrpc_request_cache_free(req);
         }
 }
 
@@ -885,6 +892,7 @@ void ptlrpc_server_drop_request(struct ptlrpc_request *req)
         int                                refcount;
         cfs_list_t                        *tmp;
         cfs_list_t                        *nxt;
+	CFS_LIST_HEAD(tmp_list);
 
         if (!cfs_atomic_dec_and_test(&req->rq_refcount))
                 return;
@@ -925,7 +933,7 @@ void ptlrpc_server_drop_request(struct ptlrpc_request *req)
 					      struct ptlrpc_request_buffer_desc,
 					      rqbd_list);
 
-			cfs_list_del(&rqbd->rqbd_list);
+			cfs_list_del_init(&rqbd->rqbd_list);
 			svcpt->scp_hist_nrqbds--;
 
                         /* remove rqbd's reqs from svc's req history while
@@ -959,11 +967,26 @@ void ptlrpc_server_drop_request(struct ptlrpc_request *req)
 			 */
 			LASSERT(cfs_atomic_read(&rqbd->rqbd_req.rq_refcount) ==
 				0);
-			cfs_list_add_tail(&rqbd->rqbd_list,
-					  &svcpt->scp_rqbd_idle);
+			/* if we're over max (somebody changed it), free
+			   the rqbd instead of posting to idle */
+			if (svcpt->scp_nrqbds_posted >= svc->srv_nbuf_max)
+		                cfs_list_add(&rqbd->rqbd_list, &tmp_list);
+			else {
+				cfs_list_add_tail(&rqbd->rqbd_list,
+						  &svcpt->scp_rqbd_idle);
+				svcpt->scp_nrqbds_idle++;
+			}
 		}
 
 		spin_unlock(&svcpt->scp_lock);
+
+		cfs_list_for_each_safe(tmp, nxt, &tmp_list) {
+			rqbd = cfs_list_entry(tmp,
+					      struct ptlrpc_request_buffer_desc,
+					      rqbd_list);
+			ptlrpc_free_rqbd(rqbd);
+		}
+
 	} else if (req->rq_reply_state && req->rq_reply_state->rs_prealloc) {
 		/* If we are low on memory, we are not interested in history */
 		cfs_list_del(&req->rq_list);
@@ -1293,12 +1316,12 @@ static int ptlrpc_at_send_early_reply(struct ptlrpc_request *req)
 	}
 	newdl = cfs_time_current_sec() + at_get(&svcpt->scp_at_estimate);
 
-        OBD_ALLOC(reqcopy, sizeof *reqcopy);
+	reqcopy = ptlrpc_request_cache_alloc(CFS_ALLOC_IO);
         if (reqcopy == NULL)
                 RETURN(-ENOMEM);
         OBD_ALLOC_LARGE(reqmsg, req->rq_reqlen);
         if (!reqmsg) {
-                OBD_FREE(reqcopy, sizeof *reqcopy);
+		ptlrpc_request_cache_free(reqcopy);
                 RETURN(-ENOMEM);
         }
 
@@ -1357,7 +1380,7 @@ out_put:
 out:
         sptlrpc_svc_ctx_decref(reqcopy);
         OBD_FREE_LARGE(reqmsg, req->rq_reqlen);
-        OBD_FREE(reqcopy, sizeof *reqcopy);
+	ptlrpc_request_cache_free(reqcopy);
         RETURN(rc);
 }
 
@@ -2263,23 +2286,12 @@ liblustre_check_services (void *arg)
 static void
 ptlrpc_check_rqbd_pool(struct ptlrpc_service_part *svcpt)
 {
-	int avail = svcpt->scp_nrqbds_posted;
-	int low_water = test_req_buffer_pressure ? 0 :
-			svcpt->scp_service->srv_nbuf_per_group / 2;
-
-        /* NB I'm not locking; just looking. */
-
-        /* CAVEAT EMPTOR: We might be allocating buffers here because we've
-         * allowed the request history to grow out of control.  We could put a
-         * sanity check on that here and cull some history if we need the
-         * space. */
-
-        if (avail <= low_water)
-		ptlrpc_grow_req_bufs(svcpt, 1);
+	ptlrpc_grow_req_bufs(svcpt, 1);
 
 	if (svcpt->scp_service->srv_stats) {
 		lprocfs_counter_add(svcpt->scp_service->srv_stats,
-				    PTLRPC_REQBUF_AVAIL_CNTR, avail);
+				    PTLRPC_REQBUF_AVAIL_CNTR,
+				    svcpt->scp_nrqbds_posted);
 	}
 }
 
@@ -3105,6 +3117,7 @@ ptlrpc_service_purge_all(struct ptlrpc_service *svc)
 					      struct ptlrpc_request_buffer_desc,
 					      rqbd_list);
 			ptlrpc_free_rqbd(rqbd);
+			svcpt->scp_nrqbds_idle--;
 		}
 		ptlrpc_wait_replies(svcpt);
 

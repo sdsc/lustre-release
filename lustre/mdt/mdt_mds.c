@@ -102,6 +102,26 @@ static char *mds_attr_num_cpts;
 CFS_MODULE_PARM(mds_attr_num_cpts, "c", charp, 0444,
 		"CPU partitions MDS setattr threads should run on");
 
+static unsigned long mdt_regular_mem = 0;
+CFS_MODULE_PARM(mdt_regular_mem, "ul", ulong, 0444,
+		"maximum memory size for incomming requests of ldlm service");
+
+static unsigned long mdt_readpage_mem = 0;
+CFS_MODULE_PARM(mdt_readpage_mem, "ul", ulong, 0444,
+		"maximum memory size for incomming requests of mdt readpage "
+		"service");
+
+static unsigned long mdt_setattr_mem = 0;
+CFS_MODULE_PARM(mdt_setattr_mem, "ul", ulong, 0444,
+		"maximum memory size for incomming requests of mdt setattr "
+		"service");
+
+static unsigned long mdt_misc_mem = 0;
+CFS_MODULE_PARM(mdt_misc_mem, "ul", ulong, 0444,
+		"maximum memory size for incomming requests of "
+		"misc services");
+
+
 #define DEFINE_RPC_HANDLER(base, flags, opc, fn, fmt)			\
 [opc - base] = {							\
 	.mh_name	= #opc,						\
@@ -370,6 +390,7 @@ static int mds_start_ptlrpc_service(struct mds_device *m)
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
 			.bc_buf_size		= MDS_BUFSIZE,
+			.bc_nbufs_mem_max	= mdt_regular_mem,
 			.bc_req_max_size	= MDS_MAXREQSIZE,
 			.bc_rep_max_size	= MDS_MAXREPSIZE,
 			.bc_req_portal		= MDS_REQUEST_PORTAL,
@@ -418,6 +439,7 @@ static int mds_start_ptlrpc_service(struct mds_device *m)
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
 			.bc_buf_size		= MDS_BUFSIZE,
+			.bc_nbufs_mem_max	= mdt_readpage_mem,
 			.bc_req_max_size	= MDS_MAXREQSIZE,
 			.bc_rep_max_size	= MDS_MAXREPSIZE,
 			.bc_req_portal		= MDS_READPAGE_PORTAL,
@@ -464,6 +486,7 @@ static int mds_start_ptlrpc_service(struct mds_device *m)
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
 			.bc_buf_size		= MDS_BUFSIZE,
+			.bc_nbufs_mem_max	= mdt_setattr_mem,
 			.bc_req_max_size	= MDS_MAXREQSIZE,
 			.bc_rep_max_size	= MDS_MAXREPSIZE,
 			.bc_req_portal		= MDS_SETATTR_PORTAL,
@@ -507,6 +530,7 @@ static int mds_start_ptlrpc_service(struct mds_device *m)
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
 			.bc_buf_size		= MDS_BUFSIZE,
+			.bc_nbufs_mem_max	= mdt_misc_mem,
 			.bc_req_max_size	= SEQ_MAXREQSIZE,
 			.bc_rep_max_size	= SEQ_MAXREPSIZE,
 			.bc_req_portal		= SEQ_CONTROLLER_PORTAL,
@@ -543,6 +567,7 @@ static int mds_start_ptlrpc_service(struct mds_device *m)
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
 			.bc_buf_size		= MDS_BUFSIZE,
+			.bc_nbufs_mem_max	= mdt_misc_mem,
 			.bc_req_max_size	= SEQ_MAXREQSIZE,
 			.bc_rep_max_size	= SEQ_MAXREPSIZE,
 			.bc_req_portal		= SEQ_METADATA_PORTAL,
@@ -577,6 +602,7 @@ static int mds_start_ptlrpc_service(struct mds_device *m)
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
 			.bc_buf_size		= MDS_BUFSIZE,
+			.bc_nbufs_mem_max	= mdt_misc_mem,
 			.bc_req_max_size	= FLD_MAXREQSIZE,
 			.bc_rep_max_size	= FLD_MAXREPSIZE,
 			.bc_req_portal		= FLD_REQUEST_PORTAL,
