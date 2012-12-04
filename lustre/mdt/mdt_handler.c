@@ -124,6 +124,15 @@ static char *mds_attr_num_cpts;
 CFS_MODULE_PARM(mds_attr_num_cpts, "c", charp, 0444,
 		"CPU partitions MDS setattr threads should run on");
 
+static unsigned long mdt_regular_mem = 0;
+static unsigned long mdt_readpage_mem = 0;
+static unsigned long mdt_setattr_mem = 0;
+static unsigned long mdt_mdsc_mem = 0;
+static unsigned long mdt_mdss_mem = 0;
+static unsigned long mdt_dtss_mem = 0;
+static unsigned long mdt_fld_mem = 0;
+static unsigned long mdt_xmds_mem = 0;
+
 /* ptlrpc request handler for MDT. All handlers are
  * grouped into several slices - struct mdt_opc_slice,
  * and stored in an array - mdt_handlers[].
@@ -4215,6 +4224,7 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
 			.bc_buf_size		= MDS_BUFSIZE,
+			.bc_nbufs_mem_max	= mdt_regular_mem,
 			.bc_req_max_size	= MDS_MAXREQSIZE,
 			.bc_rep_max_size	= MDS_MAXREPSIZE,
 			.bc_req_portal		= MDS_REQUEST_PORTAL,
@@ -4263,6 +4273,7 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
 			.bc_buf_size		= MDS_BUFSIZE,
+			.bc_nbufs_mem_max	= mdt_readpage_mem,
 			.bc_req_max_size	= MDS_MAXREQSIZE,
 			.bc_rep_max_size	= MDS_MAXREPSIZE,
 			.bc_req_portal		= MDS_READPAGE_PORTAL,
@@ -4309,6 +4320,7 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
 			.bc_buf_size		= MDS_BUFSIZE,
+			.bc_nbufs_mem_max	= mdt_setattr_mem,
 			.bc_req_max_size	= MDS_MAXREQSIZE,
 			.bc_rep_max_size	= MDS_MAXREPSIZE,
 			.bc_req_portal		= MDS_SETATTR_PORTAL,
@@ -4351,6 +4363,7 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
 			.bc_buf_size		= MDS_BUFSIZE,
+			.bc_nbufs_mem_max	= mdt_mdsc_mem,
 			.bc_req_max_size	= SEQ_MAXREQSIZE,
 			.bc_rep_max_size	= SEQ_MAXREPSIZE,
 			.bc_req_portal		= SEQ_CONTROLLER_PORTAL,
@@ -4386,6 +4399,7 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
 			.bc_buf_size		= MDS_BUFSIZE,
+			.bc_nbufs_mem_max	= mdt_mdss_mem,
 			.bc_req_max_size	= SEQ_MAXREQSIZE,
 			.bc_rep_max_size	= SEQ_MAXREPSIZE,
 			.bc_req_portal		= SEQ_METADATA_PORTAL,
@@ -4423,6 +4437,7 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
 			.bc_buf_size		= MDS_BUFSIZE,
+			.bc_nbufs_mem_max	= mdt_dtss_mem,
 			.bc_req_max_size	= SEQ_MAXREQSIZE,
 			.bc_rep_max_size	= SEQ_MAXREPSIZE,
 			.bc_req_portal		= SEQ_DATA_PORTAL,
@@ -4456,6 +4471,7 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
 			.bc_buf_size		= MDS_BUFSIZE,
+			.bc_nbufs_mem_max	= mdt_fld_mem,
 			.bc_req_max_size	= FLD_MAXREQSIZE,
 			.bc_rep_max_size	= FLD_MAXREPSIZE,
 			.bc_req_portal		= FLD_REQUEST_PORTAL,
@@ -4492,6 +4508,7 @@ static int mdt_start_ptlrpc_service(struct mdt_device *m)
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
 			.bc_buf_size		= MDS_BUFSIZE,
+			.bc_nbufs_mem_max	= mdt_xmds_mem,
 			.bc_req_max_size	= MDS_MAXREQSIZE,
 			.bc_rep_max_size	= MDS_MAXREPSIZE,
 			.bc_req_portal		= MDS_MDS_PORTAL,
@@ -6561,5 +6578,27 @@ static struct mdt_opc_slice mdt_fld_handlers[] = {
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre Metadata Target ("LUSTRE_MDT_NAME")");
 MODULE_LICENSE("GPL");
+
+CFS_MODULE_PARM(mdt_regular_mem, "ul", ulong, 0444,
+		"maximum memory size for incomming requests of ldlm service");
+CFS_MODULE_PARM(mdt_readpage_mem, "ul", ulong, 0444,
+		"maximum memory size for incomming requests of mdt readpage "
+		"service");
+CFS_MODULE_PARM(mdt_setattr_mem, "ul", ulong, 0444,
+		"maximum memory size for incomming requests of mdt setattr "
+		"service");
+CFS_MODULE_PARM(mdt_mdsc_mem, "ul", ulong, 0444,
+		"maximum memory size for incomming requests of "
+		"sequence controller service");
+CFS_MODULE_PARM(mdt_mdss_mem, "ul", ulong, 0444,
+		"maximum memory size for incomming requests of metadata sequence"
+		" server service");
+CFS_MODULE_PARM(mdt_dtss_mem, "ul", ulong, 0444,
+		"maximum memory size for incomming requests of data sequence "
+		"server service");
+CFS_MODULE_PARM(mdt_fld_mem, "ul", ulong, 0444,
+		"maximum memory size for incomming requests of mdt fld service");
+CFS_MODULE_PARM(mdt_xmds_mem, "ul", ulong, 0444,
+		"maximum memory size for incomming requests of mds-mds  service");
 
 cfs_module(mdt, LUSTRE_VERSION_STRING, mdt_mod_init, mdt_mod_exit);

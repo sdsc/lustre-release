@@ -82,6 +82,18 @@ CFS_MODULE_PARM(oss_io_cpts, "s", charp, 0444,
  */
 static struct page *ost_page_to_corrupt = NULL;
 
+static unsigned long ost_mem = 0;
+CFS_MODULE_PARM(ost_mem, "ul", ulong, 0444,
+                "memory reserved for a requests in OST service");
+
+static unsigned long ost_create_mem = 0;
+CFS_MODULE_PARM(ost_create_mem, "ul", ulong, 0444,
+                "memory reserved for a requests in OST create service");
+
+static unsigned long ost_io_mem = 0;
+CFS_MODULE_PARM(ost_io_mem, "ul", ulong, 0444,
+                "memory reserved for a requests in OST IO service");
+
 /**
  * Do not return server-side uid/gid to remote client
  */
@@ -2464,6 +2476,7 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 		.psc_buf		= {
 			.bc_nbufs		= OST_NBUFS,
 			.bc_buf_size		= OST_BUFSIZE,
+			.bc_nbufs_mem_max	= ost_mem,
 			.bc_req_max_size	= OST_MAXREQSIZE,
 			.bc_rep_max_size	= OST_MAXREPSIZE,
 			.bc_req_portal		= OST_REQUEST_PORTAL,
@@ -2503,6 +2516,7 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 		.psc_buf		= {
 			.bc_nbufs		= OST_NBUFS,
 			.bc_buf_size		= OST_BUFSIZE,
+			.bc_nbufs_mem_max	= ost_create_mem,
 			.bc_req_max_size	= OST_MAXREQSIZE,
 			.bc_rep_max_size	= OST_MAXREPSIZE,
 			.bc_req_portal		= OST_CREATE_PORTAL,
@@ -2566,6 +2580,7 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 		.psc_buf		= {
 			.bc_nbufs		= OST_NBUFS,
 			.bc_buf_size		= OST_BUFSIZE,
+			.bc_nbufs_mem_max	= ost_io_mem,
 			.bc_req_max_size	= OST_MAXREQSIZE,
 			.bc_rep_max_size	= OST_MAXREPSIZE,
 			.bc_req_portal		= OST_IO_PORTAL,

@@ -52,6 +52,9 @@
 #include <libcfs/list.h>
 #include "ldlm_internal.h"
 
+static unsigned long ldlm_cb_mem = 0;
+static unsigned long ldlm_cn_mem = 0;
+
 static int ldlm_num_threads;
 CFS_MODULE_PARM(ldlm_num_threads, "i", int, 0444,
                 "number of DLM service threads to start");
@@ -59,6 +62,12 @@ CFS_MODULE_PARM(ldlm_num_threads, "i", int, 0444,
 static char *ldlm_cpts;
 CFS_MODULE_PARM(ldlm_cpts, "s", charp, 0444,
 		"CPU partitions ldlm threads should run on");
+CFS_MODULE_PARM(ldlm_cb_mem, "ul", ulong, 0444,
+		"maximum memory size for incomming requests of ldlm "
+		"callback service");
+CFS_MODULE_PARM(ldlm_cn_mem, "ul", ulong, 0444,
+		"maximum memory size for incomming requests of ldlm "
+		"cancel service");
 
 extern cfs_mem_cache_t *ldlm_resource_slab;
 extern cfs_mem_cache_t *ldlm_lock_slab;
@@ -2689,6 +2698,7 @@ static int ldlm_setup(void)
 		.psc_buf		= {
 			.bc_nbufs		= LDLM_NBUFS,
 			.bc_buf_size		= LDLM_BUFSIZE,
+			.bc_nbufs_mem_max	= ldlm_cb_mem,
 			.bc_req_max_size	= LDLM_MAXREQSIZE,
 			.bc_rep_max_size	= LDLM_MAXREPSIZE,
 			.bc_req_portal		= LDLM_CB_REQUEST_PORTAL,
@@ -2728,6 +2738,7 @@ static int ldlm_setup(void)
 		.psc_buf		= {
 			.bc_nbufs		= LDLM_NBUFS,
 			.bc_buf_size		= LDLM_BUFSIZE,
+			.bc_nbufs_mem_max	= ldlm_cn_mem,
 			.bc_req_max_size	= LDLM_MAXREQSIZE,
 			.bc_rep_max_size	= LDLM_MAXREPSIZE,
 			.bc_req_portal		= LDLM_CANCEL_REQUEST_PORTAL,
@@ -2767,6 +2778,7 @@ static int ldlm_setup(void)
 	OBD_ALLOC(blp, sizeof(*blp));
 	if (blp == NULL)
 		GOTO(out, rc = -ENOMEM);
+
         ldlm_state->ldlm_bl_pool = blp;
 
         cfs_spin_lock_init(&blp->blp_lock);
