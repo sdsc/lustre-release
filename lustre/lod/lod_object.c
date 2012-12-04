@@ -97,6 +97,26 @@ static int lod_index_delete(const struct lu_env *env,
 	return dt_delete(env, dt_object_child(dt), key, th, capa);
 }
 
+static int lod_declare_index_update(const struct lu_env *env,
+				    struct dt_object *dt,
+				    const struct dt_rec *rec,
+				    const struct dt_key *key,
+				    struct thandle *handle)
+{
+	return dt_declare_update(env, dt_object_child(dt), rec, key, handle);
+}
+
+static int lod_index_update(const struct lu_env *env,
+			    struct dt_object *dt,
+			    const struct dt_rec *rec,
+			    const struct dt_key *key,
+			    struct thandle *th,
+			    struct lustre_capa *capa,
+			    int ign)
+{
+	return dt_update(env, dt_object_child(dt), rec, key, th, capa, ign);
+}
+
 static struct dt_it *lod_it_init(const struct lu_env *env,
 				 struct dt_object *dt, __u32 attr,
 				 struct lustre_capa *capa)
@@ -223,6 +243,8 @@ static struct dt_index_operations lod_index_ops = {
 	.dio_insert		= lod_index_insert,
 	.dio_declare_delete	= lod_declare_index_delete,
 	.dio_delete		= lod_index_delete,
+	.dio_declare_update	= lod_declare_index_update,
+	.dio_update		= lod_index_update,
 	.dio_it	= {
 		.init		= lod_it_init,
 		.fini		= lod_it_fini,
@@ -1099,6 +1121,11 @@ struct dt_object_operations lod_obj_ops = {
 	.do_object_sync		= lod_object_sync,
 };
 
+struct dt_object_operations lod_obj_otable_it_ops = {
+	.do_attr_get		= lod_attr_get,
+	.do_index_try		= lod_index_try,
+};
+
 static ssize_t lod_read(const struct lu_env *env, struct dt_object *dt,
 			struct lu_buf *buf, loff_t *pos,
 			struct lustre_capa *capa)
@@ -1146,6 +1173,9 @@ static int lod_object_init(const struct lu_env *env, struct lu_object *o,
 	below = under->ld_ops->ldo_object_alloc(env, o->lo_header, under);
 	if (below == NULL)
 		RETURN(-ENOMEM);
+
+	if (fid_is_otable_it(&o->lo_header->loh_fid))
+		lu2lod_obj(o)->ldo_obj.do_ops = &lod_obj_otable_it_ops;
 
 	lu_object_add(o, below);
 

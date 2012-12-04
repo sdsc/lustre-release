@@ -521,6 +521,13 @@ static inline int fid_is_norm(const struct lu_fid *fid)
         return fid_seq_is_norm(fid_seq(fid));
 }
 
+static inline int fid_is_client_mdt_visible(const struct lu_fid *fid)
+{
+	const __u64 seq = fid_seq(fid);
+
+	return fid_seq_is_norm(seq) || fid_seq_is_igif(seq);
+}
+
 /* convert an OST objid into an IDIF FID SEQ number */
 static inline obd_seq fid_idif_seq(obd_id id, __u32 ost_idx)
 {
@@ -825,9 +832,19 @@ static inline int lu_fid_cmp(const struct lu_fid *f0,
  * enumeration.
  */
 enum lu_dirent_attrs {
-        LUDA_FID        = 0x0001,
-        LUDA_TYPE       = 0x0002,
-        LUDA_64BITHASH  = 0x0004,
+	LUDA_FID		= 0x0001,
+	LUDA_TYPE		= 0x0002,
+	LUDA_64BITHASH		= 0x0004,
+	/* Verify the dirent consistency */
+	LUDA_VERIFY		= 0x0008,
+	/* Only check but not repair the dirent inconsistency */
+	LUDA_VERIFY_DRYRUN	= 0x0010,
+	/* The dirent has beed repaired, or to be repaired (dryrun). */
+	LUDA_REPAIR		= 0x0020,
+	/* The system is upgraded, has beed or to be repaired (dryrun). */
+	LUDA_UPGRADE		= 0x0040,
+	/* Ignore this record, go to next directly. */
+	LUDA_IGNORE		= 0x0080,
 };
 
 /**
@@ -922,16 +939,21 @@ static inline struct lu_dirent *lu_dirent_next(struct lu_dirent *ent)
 
 static inline int lu_dirent_calc_size(int namelen, __u16 attr)
 {
-        int size;
+	int size;
+	int align;
 
-        if (attr & LUDA_TYPE) {
-                const unsigned align = sizeof(struct luda_type) - 1;
-                size = (sizeof(struct lu_dirent) + namelen + align) & ~align;
-                size += sizeof(struct luda_type);
-        } else
-                size = sizeof(struct lu_dirent) + namelen;
-
-        return (size + 7) & ~7;
+	if (attr & LUDA_TYPE) {
+		align = sizeof(struct luda_type) - 1;
+		size = (sizeof(struct lu_dirent) + namelen + align) & ~align;
+		size += sizeof(struct luda_type);
+	} else if (attr & LUDA_VERIFY) {
+		align = sizeof(__u64) - 1;
+		size = (sizeof(__u64) + namelen + align) & ~align;
+		size += sizeof(__u64);
+	} else {
+		size = sizeof(struct lu_dirent) + namelen;
+	}
+	return (size + 7) & ~7;
 }
 
 static inline int lu_dirent_size(struct lu_dirent *ent)
@@ -944,6 +966,7 @@ static inline int lu_dirent_size(struct lu_dirent *ent)
 }
 
 #define MDS_DIR_END_OFF 0xfffffffffffffffeULL
+#define MDS_DIR_DUMMY_START 0xffffffffffffffffULL
 
 /**
  * MDS_READPAGE page size
@@ -1451,6 +1474,8 @@ struct lov_mds_md_v1 {            /* LOV EA mds/wire data (little-endian) */
 #define XATTR_NAME_LINK         "trusted.link"
 #define XATTR_NAME_FID          "trusted.fid"
 #define XATTR_NAME_VERSION      "trusted.version"
+#define XATTR_NAME_CLUE  	"trusted.clue"
+#define XATTR_NAME_LFSCK_NAMESPACE "trusted.lfsck_namespace"
 
 
 struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
@@ -2142,6 +2167,7 @@ enum {
         MDS_CLOSE_CLEANUP = 1 << 6,
         MDS_KEEP_ORPHAN   = 1 << 7,
         MDS_RECOV_OPEN    = 1 << 8,
+	MDS_OWNEROVERRIDE = 1 << 9,
 };
 
 /* instance of mdt_reint_rec */
@@ -3158,23 +3184,24 @@ extern void lustre_swab_lustre_capa(struct lustre_capa *c);
 
 /** lustre_capa::lc_opc */
 enum {
-        CAPA_OPC_BODY_WRITE   = 1<<0,  /**< write object data */
-        CAPA_OPC_BODY_READ    = 1<<1,  /**< read object data */
-        CAPA_OPC_INDEX_LOOKUP = 1<<2,  /**< lookup object fid */
-        CAPA_OPC_INDEX_INSERT = 1<<3,  /**< insert object fid */
-        CAPA_OPC_INDEX_DELETE = 1<<4,  /**< delete object fid */
-        CAPA_OPC_OSS_WRITE    = 1<<5,  /**< write oss object data */
-        CAPA_OPC_OSS_READ     = 1<<6,  /**< read oss object data */
-        CAPA_OPC_OSS_TRUNC    = 1<<7,  /**< truncate oss object */
-        CAPA_OPC_OSS_DESTROY  = 1<<8,  /**< destroy oss object */
-        CAPA_OPC_META_WRITE   = 1<<9,  /**< write object meta data */
-        CAPA_OPC_META_READ    = 1<<10, /**< read object meta data */
+	CAPA_OPC_BODY_WRITE   = 1<<0,  /**< write object data */
+	CAPA_OPC_BODY_READ    = 1<<1,  /**< read object data */
+	CAPA_OPC_INDEX_LOOKUP = 1<<2,  /**< lookup object fid */
+	CAPA_OPC_INDEX_INSERT = 1<<3,  /**< insert object fid */
+	CAPA_OPC_INDEX_DELETE = 1<<4,  /**< delete object fid */
+	CAPA_OPC_INDEX_UPDATE = 1<<5,  /**< update index file */
+	CAPA_OPC_OSS_WRITE    = 1<<6,  /**< write oss object data */
+	CAPA_OPC_OSS_READ     = 1<<7,  /**< read oss object data */
+	CAPA_OPC_OSS_TRUNC    = 1<<8,  /**< truncate oss object */
+	CAPA_OPC_OSS_DESTROY  = 1<<9,  /**< destroy oss object */
+	CAPA_OPC_META_WRITE   = 1<<10, /**< write object meta data */
+	CAPA_OPC_META_READ    = 1<<11, /**< read object meta data */
 };
 
 #define CAPA_OPC_OSS_RW (CAPA_OPC_OSS_READ | CAPA_OPC_OSS_WRITE)
 #define CAPA_OPC_MDS_ONLY                                                   \
-        (CAPA_OPC_BODY_WRITE | CAPA_OPC_BODY_READ | CAPA_OPC_INDEX_LOOKUP | \
-         CAPA_OPC_INDEX_INSERT | CAPA_OPC_INDEX_DELETE)
+	(CAPA_OPC_BODY_WRITE | CAPA_OPC_BODY_READ | CAPA_OPC_INDEX_LOOKUP | \
+	 CAPA_OPC_INDEX_INSERT | CAPA_OPC_INDEX_DELETE | CAPA_OPC_INDEX_UPDATE)
 #define CAPA_OPC_OSS_ONLY                                                   \
         (CAPA_OPC_OSS_WRITE | CAPA_OPC_OSS_READ | CAPA_OPC_OSS_TRUNC |      \
          CAPA_OPC_OSS_DESTROY)

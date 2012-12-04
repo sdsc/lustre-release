@@ -83,11 +83,18 @@ struct inode;
 
 #define OSD_COUNTERS (0)
 
-/* Lustre special inode::i_state to indicate OI scrub skip this inode. */
+/* ldiskfs special inode::i_state_flags */
+
+/* OI scrub should skip this inode. */
 #define I_LUSTRE_NOSCRUB	(1 << 31)
+
+/* Do not add OI mapping for this inode. */
+#define I_LUSTRE_NOOI		(1 << 30)
 
 /** Enable thandle usage statistics */
 #define OSD_THANDLE_STATS (0)
+
+#define MAX_OBJID_GROUP (FID_SEQ_ECHO + 1)
 
 struct osd_directory {
         struct iam_container od_container;
@@ -223,9 +230,6 @@ struct osd_otable_it {
 	struct osd_device       *ooi_dev;
 	struct osd_otable_cache  ooi_cache;
 
-	/* For osd_otable_it_key. */
-	__u8			 ooi_key[16];
-
 	/* The following bits can be updated/checked w/o lock protection.
 	 * If more bits will be introduced in the future and need lock to
 	 * protect, please add comment. */
@@ -239,6 +243,23 @@ struct osd_otable_it {
 };
 
 extern const int osd_dto_credits_noquota[];
+
+struct osd_compat_objid_seq {
+	/* protects on-fly initialization */
+	struct semaphore	  dir_init_sem;
+	/* file storing last created objid */
+	struct osd_inode_id	  last_id;
+	struct dentry		 *groot; /* O/<seq> */
+	struct dentry		**dirs;  /* O/<seq>/d0-dXX */
+};
+
+struct osd_compat_objid {
+	int			     subdir_count;
+	struct dentry		    *root;
+	struct osd_inode_id	     last_rcvd_id;
+	struct osd_inode_id	     last_seq_id;
+	struct osd_compat_objid_seq  groups[MAX_OBJID_GROUP];
+};
 
 /*
  * osd device.
@@ -271,7 +292,9 @@ struct osd_device {
         struct obd_statfs         od_statfs;
 	spinlock_t		  od_osfs_lock;
 
-	unsigned int		  od_noscrub:1;
+	unsigned int		  od_noscrub:1,
+				  od_dirent_journal:1,
+				  od_handle_nolma:1;
 
 	struct fsfilt_operations *od_fsops;
 	int			  od_connects;
@@ -361,6 +384,7 @@ struct osd_thandle {
 	unsigned char		ot_declare_write;
 	unsigned char		ot_declare_insert;
 	unsigned char		ot_declare_delete;
+	unsigned char		ot_declare_update;
 	unsigned char		ot_declare_quota;
 
 	unsigned short		ot_declare_attr_set_cred;
@@ -373,6 +397,7 @@ struct osd_thandle {
 	unsigned short		ot_declare_write_cred;
 	unsigned short		ot_declare_insert_cred;
 	unsigned short		ot_declare_delete_cred;
+	unsigned short		ot_declare_update_cred;
 	unsigned short		ot_declare_quota_cred;
 #endif
 
@@ -471,6 +496,8 @@ struct osd_it_ea {
         struct osd_it_ea_dirent *oie_dirent;
         /** buffer to hold entries, size == OSD_IT_EA_BUFSIZE */
         void                *oie_buf;
+	/* Some flags for the iteration */
+	__u32		     oie_flags;
 };
 
 /**
@@ -642,9 +669,11 @@ int osd_statfs(const struct lu_env *env, struct dt_device *dev,
 int osd_object_auth(const struct lu_env *env, struct dt_object *dt,
                     struct lustre_capa *capa, __u64 opc);
 struct inode *osd_iget(struct osd_thread_info *info, struct osd_device *dev,
-		       struct osd_inode_id *id);
-struct inode *osd_iget_fid(struct osd_thread_info *info, struct osd_device *dev,
-			   struct osd_inode_id *id, struct lu_fid *fid);
+		       struct osd_inode_id *id, bool nlink);
+int __osd_ea_fid_set(struct osd_thread_info *info, struct osd_device *dev,
+		     struct inode *inode, const struct lu_fid *fid, bool init);
+int osd_get_lma(struct inode *inode, struct dentry *dentry,
+		struct lustre_mdt_attrs *lma);
 
 int osd_compat_init(struct osd_device *dev);
 void osd_compat_fini(struct osd_device *dev);
@@ -658,9 +687,6 @@ int osd_compat_objid_insert(struct osd_thread_info *info,
 int osd_compat_objid_delete(struct osd_thread_info *info,
                             struct osd_device *osd,
                             const struct lu_fid *fid, struct thandle *th);
-int osd_compat_spec_lookup(struct osd_thread_info *info,
-                           struct osd_device *osd,
-                           const struct lu_fid *fid, struct osd_inode_id *id);
 int osd_compat_spec_insert(struct osd_thread_info *info,
                            struct osd_device *osd,
                            const struct lu_fid *fid,
@@ -749,7 +775,6 @@ static inline struct osd_oi *osd_fid2oi(struct osd_device *osd,
                                         const struct lu_fid *fid)
 {
 	LASSERTF(!fid_is_idif(fid), DFID"\n", PFID(fid));
-	LASSERTF(!fid_is_igif(fid), DFID"\n", PFID(fid));
 	LASSERT(osd->od_oi_table != NULL && osd->od_oi_count >= 1);
 	/* It can work even od_oi_count equals to 1 although it's unexpected,
 	 * the only reason we set it to 1 is for performance measurement */

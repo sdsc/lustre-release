@@ -492,12 +492,6 @@ void mdt_pack_attr2body(struct mdt_thread_info *info, struct mdt_body *b,
         if (fid) {
                 b->fid1 = *fid;
                 b->valid |= OBD_MD_FLID;
-
-                /* FIXME: these should be fixed when new igif ready.*/
-                b->ino  =  fid_oid(fid);       /* 1.6 compatibility */
-                b->generation = fid_ver(fid);  /* 1.6 compatibility */
-                b->valid |= OBD_MD_FLGENER;    /* 1.6 compatibility */
-
                 CDEBUG(D_INODE, DFID": nlink=%d, mode=%o, size="LPU64"\n",
                                 PFID(fid), b->nlink, b->mode, b->size);
         }
@@ -5884,7 +5878,7 @@ static int mdt_fid2path(const struct lu_env *env, struct mdt_device *mdt,
 	if (!fid_is_sane(&fp->gf_fid))
 		RETURN(-EINVAL);
 
-	if (!fid_is_norm(&fp->gf_fid) && !fid_is_igif(&fp->gf_fid)) {
+	if (!fid_is_client_mdt_visible(&fp->gf_fid)) {
 		CWARN("%s: "DFID" is invalid, sequence should be "
 			">= "LPX64"\n", obd->obd_name,
 			PFID(&fp->gf_fid), (__u64)FID_SEQ_NORMAL);

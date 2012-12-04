@@ -1166,7 +1166,7 @@ static int cl_echo_object_put(struct echo_object *eco)
         if (eco->eo_deleted) {
                 struct lu_object_header *loh = obj->co_lu.lo_header;
                 LASSERT(&eco->eo_hdr == luh2coh(loh));
-		set_bit(LU_OBJECT_HEARD_BANSHEE, &loh->loh_flags);
+		lu_object_set_dying(loh);
         }
 
         cl_object_put(env, obj);
