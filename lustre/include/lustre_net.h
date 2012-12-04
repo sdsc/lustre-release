@@ -1349,9 +1349,11 @@ struct ptlrpc_service {
         /** biggest reply to send */
         int                             srv_max_reply_size;
         /** size of individual buffers */
-        int                             srv_buf_size;
+	__u32				srv_buf_size;
         /** # buffers to allocate in 1 group */
-        int                             srv_nbuf_per_group;
+	__u32				srv_nbuf_per_group;
+	/** maximum # buffers allowed to be created */
+	__u32				srv_nbuf_max;
         /** Local portal on which to receive requests */
         __u32                           srv_req_portal;
         /** Portal on the client to send replies to */
@@ -1364,7 +1366,9 @@ struct ptlrpc_service {
         /** soft watchdog timeout multiplier */
         int                             srv_watchdog_factor;
         /** under unregister_service */
-        unsigned                        srv_is_stopping:1;
+        unsigned                        srv_is_stopping:1,
+	/** grow bufferes started - protected srv_lock */
+					srv_grow_rqbd:1;
 
 	/** max # request buffers in history per partition */
 	int				srv_hist_nrqbds_cpt_max;
@@ -1426,6 +1430,8 @@ struct ptlrpc_service_part {
 	int				scp_nrqbds_total;
 	/** # posted request buffers for receiving */
 	int				scp_nrqbds_posted;
+	/** # idle request buffers */
+	int				scp_nrqbds_idle;
 	/** # incoming reqs */
 	int				scp_nreqs_incoming;
 	/** request buffers to be reposted */
@@ -1809,6 +1815,8 @@ struct ptlrpc_service_buf_conf {
 	unsigned int			bc_nbufs;
 	/* buffer size to post */
 	unsigned int			bc_buf_size;
+	/* maximum memory size mapped for incomming request for a service */
+	unsigned int			bc_nbufs_mem_max;
 	/* portal to listed for requests on */
 	unsigned int			bc_req_portal;
 	/* portal of where to send replies to */
@@ -1864,6 +1872,12 @@ struct ptlrpc_service_conf {
 	/* function table */
 	struct ptlrpc_service_ops	psc_ops;
 };
+
+/** Default # of buffers in rqbd queue.
+    Hopefully we won't use this much memory, but we must accept all waiting
+    reqs, in case some of them are e.g. lock cancels.   On the other hand,
+    we don't want to OOM.  */
+#define PTLRPC_NBUFS_MEM_MAX_DEFAULT ((cfs_num_physpages / 2) << CFS_PAGE_SHIFT)
 
 /* ptlrpc/service.c */
 /**
