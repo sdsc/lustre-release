@@ -60,6 +60,11 @@ static char *ldlm_cpts;
 CFS_MODULE_PARM(ldlm_cpts, "s", charp, 0444,
 		"CPU partitions ldlm threads should run on");
 
+static unsigned long ldlm_mem = 0;
+CFS_MODULE_PARM(ldlm_mem, "ul", ulong, 0444,
+		"maximum memory size for incomming requests of ldlm "
+		"services");
+
 extern cfs_mem_cache_t *ldlm_resource_slab;
 extern cfs_mem_cache_t *ldlm_lock_slab;
 static struct mutex	ldlm_ref_mutex;
@@ -2818,6 +2823,7 @@ static int ldlm_setup(void)
 		.psc_buf		= {
 			.bc_nbufs		= LDLM_NBUFS,
 			.bc_buf_size		= LDLM_BUFSIZE,
+			.bc_nbufs_mem_max	= ldlm_mem,
 			.bc_req_max_size	= LDLM_MAXREQSIZE,
 			.bc_rep_max_size	= LDLM_MAXREPSIZE,
 			.bc_req_portal		= LDLM_CB_REQUEST_PORTAL,
@@ -2857,6 +2863,7 @@ static int ldlm_setup(void)
 		.psc_buf		= {
 			.bc_nbufs		= LDLM_NBUFS,
 			.bc_buf_size		= LDLM_BUFSIZE,
+			.bc_nbufs_mem_max	= ldlm_mem,
 			.bc_req_max_size	= LDLM_MAXREQSIZE,
 			.bc_rep_max_size	= LDLM_MAXREPSIZE,
 			.bc_req_portal		= LDLM_CANCEL_REQUEST_PORTAL,
