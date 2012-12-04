@@ -48,6 +48,7 @@
 #include <lprocfs_status.h>
 #include <lustre_fsfilt.h>
 #include <lustre_log.h>
+#include <lustre_disk.h>
 #include <lustre/lustre_idl.h>
 #include <dt_object.h>
 
