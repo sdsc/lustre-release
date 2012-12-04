@@ -49,6 +49,14 @@
 
 #include "mgs_internal.h"
 
+static unsigned long mgs_mem = 0;
+
+#ifdef _KERNEL_
+CFS_MODULE_PARM(mgs_mem, "ul", ulong, 0444,
+		"maximum memory size for incomming requests of mgs "
+		"service");
+#endif
+
 /* Establish a connection to the MGS.*/
 static int mgs_connect(const struct lu_env *env,
                        struct obd_export **exp, struct obd_device *obd,
@@ -1088,6 +1096,7 @@ static int mgs_init0(const struct lu_env *env, struct mgs_device *mgs,
 		.psc_buf		= {
 			.bc_nbufs		= MGS_NBUFS,
 			.bc_buf_size		= MGS_BUFSIZE,
+			.bc_nbufs_mem_max	= mgs_mem,
 			.bc_req_max_size	= MGS_MAXREQSIZE,
 			.bc_rep_max_size	= MGS_MAXREPSIZE,
 			.bc_req_portal		= MGS_REQUEST_PORTAL,
