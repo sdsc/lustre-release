@@ -87,13 +87,13 @@ vnode_size(vnode_t vp, off_t *sizep, vfs_context_t ctx)
  * not so important to implement for MT.
  */
 int
-kern_file_size(struct cfs_kern_file *fp, off_t *psize) 
+kern_file_size(struct cfs_kern_file *fp, off_t *psize)
 {
         int     error;
         off_t   size;
 
         error = vnode_size(fp->f_vp, &size, fp->f_ctxt);
-        if (error) 
+	if (error)
                 return error;
 
         if (psize)
@@ -102,33 +102,29 @@ kern_file_size(struct cfs_kern_file *fp, off_t *psize)
 }
 
 struct cfs_kern_file *
-kern_file_open(const char * filename, int uflags, int mode, int *err)
+kern_file_open(const char *filename, int uflags, int mode)
 {
-        struct cfs_kern_file    *fp;
-        vnode_t         vp;
-        int             error;
+	struct cfs_kern_file    *fp;
+	vnode_t         vp;
+	int             error;
 
-        fp = (struct cfs_kern_file *)_MALLOC(sizeof(struct cfs_kern_file), M_TEMP, M_WAITOK);
-        if (fp == NULL) {
-                if (err != NULL)
-                        *err = -ENOMEM;
-                return NULL;
-        }
-        fp->f_flags = FFLAGS(uflags);
-        fp->f_ctxt = vfs_context_create(NULL);
+	fp = (struct cfs_kern_file *)_MALLOC(sizeof(struct cfs_kern_file),
+					     M_TEMP, M_WAITOK);
+	if (fp == NULL)
+		return ERR_PTR(-ENOMEM);
 
-        if ((error = vnode_open(filename, fp->f_flags, 
-                                mode, 0, &vp, fp->f_ctxt))){
-                if (err != NULL)
-                        *err = -error;
-                _FREE(fp, M_TEMP);
-        } else {
-                if (err != NULL)
-                        *err = 0;
-                fp->f_vp = vp;
-        }
+	fp->f_flags = FFLAGS(uflags);
+	fp->f_ctxt = vfs_context_create(NULL);
 
-        return fp;
+	if ((error = vnode_open(filename, fp->f_flags,
+				mode, 0, &vp, fp->f_ctxt))){
+		_FREE(fp, M_TEMP);
+		return ERR_PTR(-error);
+	} else {
+		fp->f_vp = vp;
+	}
+
+	return fp;
 }
 
 int
@@ -210,11 +206,11 @@ kern_file_size(struct file *fp, off_t *size)
         return 0;
 }
 
-cfs_file_t *
-kern_file_open(const char * filename, int flags, int mode, int *err)
+file_t *
+kern_file_open(const char *filename, int flags, int mode)
 {
 	struct nameidata nd;
-	cfs_file_t	*fp;
+	file_t	*fp;
 	register struct vnode	*vp;
 	int			rc;
 	extern struct fileops	vnops;
@@ -223,18 +219,16 @@ kern_file_open(const char * filename, int flags, int mode, int *err)
 
         CFS_CONE_IN;
 	nfiles++;
-	MALLOC_ZONE(fp, cfs_file_t *, sizeof(cfs_file_t), M_FILE, M_WAITOK|M_ZERO);
-	bzero(fp, sizeof(cfs_file_t));
+	MALLOC_ZONE(fp, file_t *, sizeof(file_t), M_FILE, M_WAITOK|M_ZERO);
+	bzero(fp, sizeof(file_t));
 	fp->f_count = 1;
         LIST_CIRCLE(fp, f_list);
 	NDINIT(&nd, LOOKUP, FOLLOW, UIO_SYSSPACE, (char *)filename, current_proc());
 	if ((rc = vn_open(&nd, flags, mode)) != 0){
-                printf("filp_open failed at (%d)\n", rc);
-                if (err != NULL)
-                        *err = rc;
-                FREE_ZONE(fp, sizeof *fp, M_FILE);
-                CFS_CONE_EX;
-		return NULL;
+		printf("filp_open failed at (%d)\n", rc);
+		FREE_ZONE(fp, sizeof *fp, M_FILE);
+		CFS_CONE_EX;
+		return ERR_PTR(rc);
 	}
 	vp = nd.ni_vp;
 	fp->f_flag = flags & FMASK;
@@ -257,7 +251,7 @@ kern_file_open(const char * filename, int flags, int mode, int *err)
 }
 
 static int
-frele_internal(cfs_file_t *fp)
+frele_internal(file_t *fp)
 {
 	if (fp->f_count == (short)0xffff)
 		panic("frele of lustre: stale");
@@ -267,7 +261,7 @@ frele_internal(cfs_file_t *fp)
 }
 
 int
-kern_file_close (cfs_file_t *fp)
+kern_file_close (file_t *fp)
 {
 	struct vnode	*vp;
         CFS_DECL_CONE_DATA;
@@ -309,7 +303,7 @@ extern void bwillwrite(void);
  * Write buffer to filp inside kernel
  */
 int
-kern_file_write (cfs_file_t *fp, void *buf, size_t nbyte, loff_t *pos)
+kern_file_write (file_t *fp, void *buf, size_t nbyte, loff_t *pos)
 {
 	struct uio auio;
 	struct iovec aiov;
@@ -365,7 +359,7 @@ kern_file_write (cfs_file_t *fp, void *buf, size_t nbyte, loff_t *pos)
  * Read from filp inside kernel
  */
 int
-kern_file_read (cfs_file_t *fp, void *buf, size_t nbyte, loff_t *pos)
+kern_file_read (file_t *fp, void *buf, size_t nbyte, loff_t *pos)
 {
 	struct uio auio;
 	struct iovec aiov;
@@ -409,7 +403,7 @@ kern_file_read (cfs_file_t *fp, void *buf, size_t nbyte, loff_t *pos)
 }
 
 int
-kern_file_sync (cfs_file_t *fp)
+kern_file_sync (file_t *fp)
 {
 	struct vnode *vp = (struct vnode *)fp->f_data;
 	struct proc *p = current_proc();

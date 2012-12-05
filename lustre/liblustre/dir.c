@@ -145,8 +145,8 @@ static int filldir(char *buf, int buflen,
                    const char *name, int namelen, loff_t offset,
                    ino_t ino, unsigned int d_type, int *filled)
 {
-        cfs_dirent_t *dirent = (cfs_dirent_t *) (buf + *filled);
-        cfs_dirent_t  holder;
+	dirent_t *dirent = (dirent_t *) (buf + *filled);
+	dirent_t  holder;
         int reclen = ROUND_UP64(NAME_OFFSET(dirent) + namelen + 1);
 
         /*

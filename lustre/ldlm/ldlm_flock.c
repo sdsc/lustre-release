@@ -563,7 +563,7 @@ ldlm_flock_interrupted_wait(void *data)
 int
 ldlm_flock_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
 {
-        cfs_flock_t                    *getlk = lock->l_ast_data;
+	flock_t                    *getlk = lock->l_ast_data;
         struct obd_device              *obd;
         struct obd_import              *imp = NULL;
         struct ldlm_flock_wait_data     fwd;
@@ -662,23 +662,23 @@ granted:
                 /* fcntl(F_GETLK) request */
                 /* The old mode was saved in getlk->fl_type so that if the mode
                  * in the lock changes we can decref the appropriate refcount.*/
-                ldlm_flock_destroy(lock, cfs_flock_type(getlk),
+		ldlm_flock_destroy(lock, flock_type(getlk),
                                    LDLM_FL_WAIT_NOREPROC);
                 switch (lock->l_granted_mode) {
                 case LCK_PR:
-                        cfs_flock_set_type(getlk, F_RDLCK);
+			flock_set_type(getlk, F_RDLCK);
                         break;
                 case LCK_PW:
-                        cfs_flock_set_type(getlk, F_WRLCK);
+			flock_set_type(getlk, F_WRLCK);
                         break;
                 default:
-                        cfs_flock_set_type(getlk, F_UNLCK);
+			flock_set_type(getlk, F_UNLCK);
                 }
-                cfs_flock_set_pid(getlk,
+		flock_set_pid(getlk,
                                   (pid_t)lock->l_policy_data.l_flock.pid);
-                cfs_flock_set_start(getlk,
+		flock_set_start(getlk,
                                     (loff_t)lock->l_policy_data.l_flock.start);
-                cfs_flock_set_end(getlk,
+		flock_set_end(getlk,
                                   (loff_t)lock->l_policy_data.l_flock.end);
         } else {
 		__u64 noreproc = LDLM_FL_WAIT_NOREPROC;

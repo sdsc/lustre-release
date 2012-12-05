@@ -125,18 +125,18 @@ struct file {
 
 };
 
-#define cfs_filp_size(f)               ((f)->f_size)
-#define cfs_filp_poff(f)                (&(f)->f_pos)
+#define filp_size(f)               ((f)->f_size)
+#define filp_poff(f)                (&(f)->f_pos)
 
-cfs_file_t *cfs_filp_open(const char *name, int flags, int mode, int *err);
-int cfs_filp_close(cfs_file_t *fp);
-int cfs_filp_read(cfs_file_t *fp, void *buf, size_t nbytes, loff_t *pos);
-int cfs_filp_write(cfs_file_t *fp, void *buf, size_t nbytes, loff_t *pos);
-int cfs_filp_fsync(cfs_file_t *fp);
-int cfs_get_file(cfs_file_t *fp);
-int cfs_put_file(cfs_file_t *fp);
-int cfs_file_count(cfs_file_t *fp);
-#define cfs_filp_unlink(x, y) (KdBreakPoint(),0) 
+file_t *filp_open(const char *name, int flags, int mode);
+int filp_close(file_t *fp, void *id);
+int filp_read(file_t *fp, void *buf, size_t nbytes, loff_t *pos);
+int filp_write(file_t *fp, void *buf, size_t nbytes, loff_t *pos);
+int filp_fsync(file_t *fp);
+int get_file(file_t *fp);
+int fput(file_t *fp);
+int file_count(file_t *fp);
+#define cfs_filp_unlink(x, y) (KdBreakPoint(), 0)
 /*
  * CFS_FLOCK routines
  */
@@ -147,19 +147,19 @@ typedef struct file_lock{
     size_t      fl_len;
     off_t       fl_start;
     off_t       fl_end;
-} cfs_flock_t; 
+} flock_t;
 
-#define CFS_INT_LIMIT(x)		(~((x)1 << (sizeof(x)*8 - 1)))
-#define CFS_OFFSET_MAX			CFS_INT_LIMIT(loff_t)
+#define INT_LIMIT(x)		(~((x)1 << (sizeof(x)*8 - 1)))
+#define OFFSET_MAX			INT_LIMIT(loff_t)
 
-#define cfs_flock_type(fl)                  ((fl)->fl_type)
-#define cfs_flock_set_type(fl, type)        do { (fl)->fl_type = (type); } while(0)
-#define cfs_flock_pid(fl)                   ((fl)->fl_pid)
-#define cfs_flock_set_pid(fl, pid)          do { (fl)->fl_pid = (pid); } while(0)
-#define cfs_flock_start(fl)                 ((fl)->fl_start)
-#define cfs_flock_set_start(fl, start)      do { (fl)->fl_start = (start); } while(0)
-#define cfs_flock_end(fl)                   ((fl)->fl_end)
-#define cfs_flock_set_end(fl, end)          do { (fl)->fl_end = (end); } while(0)
+#define flock_type(fl)                  ((fl)->fl_type)
+#define flock_set_type(fl, type)        do { (fl)->fl_type = (type); } while(0)
+#define flock_pid(fl)                   ((fl)->fl_pid)
+#define flock_set_pid(fl, pid)          do { (fl)->fl_pid = (pid); } while(0)
+#define flock_start(fl)                 ((fl)->fl_start)
+#define flock_set_start(fl, start)      do { (fl)->fl_start = (start); } while(0)
+#define flock_end(fl)                   ((fl)->fl_end)
+#define flock_set_end(fl, end)          do { (fl)->fl_end = (end); } while(0)
 
 #define ATTR_MODE       0x0001
 #define ATTR_UID        0x0002
@@ -286,7 +286,7 @@ typedef struct cfs_kstatfs {
         long    f_namelen;
         long    f_frsize;
         long    f_spare[5];
-} cfs_kstatfs_t;
+} kstatfs_t;
 
 struct super_block {
         void *  s_fs_info;
@@ -469,7 +469,7 @@ UnmapViewOfFile(
 
 typedef struct {
 	void	*d;
-} cfs_dentry_t;
+} dentry_t;
 
 /*
  *  misc

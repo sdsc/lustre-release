@@ -41,7 +41,7 @@ const CHAR *dos_file_prefix[] = {
             "\\SystemRoot\\", NULL};
 
 /*
- * cfs_filp_open
+ * filp_open
  *     To open or create a file in kernel mode
  *
  * Arguments:
@@ -51,18 +51,18 @@ const CHAR *dos_file_prefix[] = {
  *   err:   error code
  *
  * Return Value:
- *   the pointer to the cfs_file_t or NULL if it fails
+ *   the pointer to the file_t or NULL if it fails
  *
- * Notes: 
+ * Notes:
  *   N/A
  */
 
 #define is_drv_letter_valid(x) (((x) >= 0 && (x) <= 9) || \
                 ( ((x)|0x20) <= 'z' && ((x)|0x20) >= 'a'))
 
-cfs_file_t *cfs_filp_open(const char *name, int flags, int mode, int *err)
+file_t *filp_open(const char *name, int flags, int mode, int *err)
 {
-    cfs_file_t *        fp = NULL;
+    file_t *        fp = NULL;
 
     NTSTATUS            Status;
 
@@ -134,8 +134,7 @@ cfs_file_t *cfs_filp_open(const char *name, int flags, int mode, int *err)
     if (name[0] != '\\') {
         if (NameLength < 1 || name[1] != ':' || !is_drv_letter_valid(name[0])) {
             /* invalid file path name */
-            if (err) *err = -EINVAL;
-            return NULL;
+            return ERR_PTR(-EINVAL);
         }
         PrefixLength = (USHORT)strlen(dos_file_prefix[0]);
     } else {
@@ -147,24 +146,21 @@ cfs_file_t *cfs_filp_open(const char *name, int flags, int mode, int *err)
             }
         }
         if (i >= 3) {
-            if (err) *err = -EINVAL;
-            return NULL;
+		return ERR_PTR(-EINVAL);
         }
     }
 
     AnsiString = cfs_alloc( sizeof(CHAR) * (NameLength + PrefixLength + 1),
                             CFS_ALLOC_ZERO);
     if (NULL == AnsiString) {
-        if (err) *err = -ENOMEM;
-        return NULL;
+	return ERR_PTR(-ENOMEM);
     }
 
     UnicodeString = cfs_alloc( sizeof(WCHAR) * (NameLength + PrefixLength + 1),
                                CFS_ALLOC_ZERO);
     if (NULL == UnicodeString) {
-        if (err) *err = -ENOMEM;
         cfs_free(AnsiString);
-        return NULL;
+	return ERR_PTR(-ENOMEM);
     }
 
     if (PrefixLength) {
@@ -209,26 +205,20 @@ cfs_file_t *cfs_filp_open(const char *name, int flags, int mode, int *err)
 
     /* Check the returned status of IoStatus... */
     if (!NT_SUCCESS(IoStatus.Status)) {
-        if (err) {
-            *err = cfs_error_code(IoStatus.Status);
-        }
         cfs_free(UnicodeString);
         cfs_free(AnsiString);
-        return NULL;
+	return ERR_PTR(cfs_error_code(IoStatus.Status));
     }
 
-    /* Allocate the cfs_file_t: libcfs file object */
-    fp = cfs_alloc(sizeof(cfs_file_t) + NameLength, CFS_ALLOC_ZERO);
+    /* Allocate the file_t: libcfs file object */
+    fp = cfs_alloc(sizeof(file_t) + NameLength, CFS_ALLOC_ZERO);
 
     if (NULL == fp) {
         Status = ZwClose(FileHandle);
         ASSERT(NT_SUCCESS(Status));
-        if (err) {
-            *err = -ENOMEM;
-        }
         cfs_free(UnicodeString);
         cfs_free(AnsiString);
-        return NULL;
+	return ERR_PTR(-ENOMEM);
     }
 
     fp->f_handle = FileHandle;
@@ -236,9 +226,6 @@ cfs_file_t *cfs_filp_open(const char *name, int flags, int mode, int *err)
     fp->f_flags = flags;
     fp->f_mode  = (mode_t)mode;
     fp->f_count = 1;
-    if (err) {
-        *err = 0;
-    }
 
     /* free the memory of temporary name strings */
     cfs_free(UnicodeString);
@@ -249,21 +236,21 @@ cfs_file_t *cfs_filp_open(const char *name, int flags, int mode, int *err)
 
 
 /*
- * cfs_filp_close
+ * filp_close
  *     To close the opened file and release the filp structure
  *
  * Arguments:
- *   fp:   the pointer of the cfs_file_t strcture
+ *   fp:   the pointer of the file_t strcture
  *
  * Return Value:
  *   ZERO: on success
  *   Non-Zero: on failure
  *
- * Notes: 
+ * Notes:
  *   N/A
  */
 
-int cfs_filp_close(cfs_file_t *fp)
+int filp_close(file_t *fp, void *id)
 {
     NTSTATUS    Status;
 
@@ -439,11 +426,11 @@ errorout:
 }
 
 /*
- * cfs_filp_read
+ * filp_read
  *     To read data from the opened file
  *
  * Arguments:
- *   fp:   the pointer of the cfs_file_t strcture
+ *   fp:   the pointer of the file_t strcture
  *   buf:  pointer to the buffer to contain the data
  *   nbytes: size in bytes to be read from the file
  *   pos:  offset in file where reading starts, if pos
@@ -457,7 +444,7 @@ errorout:
  *   N/A
  */
 
-int cfs_filp_read(cfs_file_t *fp, void *buf, size_t nbytes, loff_t *pos)
+int filp_read(file_t *fp, void *buf, size_t nbytes, loff_t *pos)
 {
     LARGE_INTEGER   offset;
     NTSTATUS        status;
@@ -491,7 +478,7 @@ int cfs_filp_read(cfs_file_t *fp, void *buf, size_t nbytes, loff_t *pos)
  *     To write specified data to the opened file
  *
  * Arguments:
- *   fp:   the pointer of the cfs_file_t strcture
+ *   fp:   the pointer of the file_t strcture
  *   buf:  pointer to the buffer containing the data
  *   nbytes: size in bytes to be written to the file
  *   pos:  offset in file where writing starts, if pos
@@ -505,7 +492,7 @@ int cfs_filp_read(cfs_file_t *fp, void *buf, size_t nbytes, loff_t *pos)
  *   N/A
  */
 
-int cfs_filp_write(cfs_file_t *fp, void *buf, size_t nbytes, loff_t *pos)
+int filp_write(file_t *fp, void *buf, size_t nbytes, loff_t *pos)
 {
     LARGE_INTEGER   offset;
     NTSTATUS        status;
@@ -535,11 +522,11 @@ int cfs_filp_write(cfs_file_t *fp, void *buf, size_t nbytes, loff_t *pos)
 }
 
 /*
- * cfs_filp_fsync
+ * filp_fsync
  *     To sync the dirty data of the file to disk
  *
  * Arguments:
- *   fp: the pointer of the cfs_file_t strcture
+ *   fp: the pointer of the file_t strcture
  *
  * Return Value:
  *   Zero:  in success case
@@ -551,7 +538,7 @@ int cfs_filp_write(cfs_file_t *fp, void *buf, size_t nbytes, loff_t *pos)
  *   system driver.
  */
 
-int cfs_filp_fsync(cfs_file_t *fp)
+int filp_fsync(file_t *fp)
 {
 
     PFILE_OBJECT            FileObject;
@@ -621,11 +608,11 @@ int cfs_filp_fsync(cfs_file_t *fp)
 }
 
 /*
- * cfs_get_file
+ * get_file
  *     To increase the reference of the file object
  *
  * Arguments:
- *   fp:   the pointer of the cfs_file_t strcture
+ *   fp:   the pointer of the file_t strcture
  *
  * Return Value:
  *   Zero:  in success case
@@ -635,7 +622,7 @@ int cfs_filp_fsync(cfs_file_t *fp)
  *   N/A
  */
 
-int cfs_get_file(cfs_file_t *fp)
+int get_file(file_t *fp)
 {
     InterlockedIncrement(&(fp->f_count));
     return 0;
@@ -643,24 +630,24 @@ int cfs_get_file(cfs_file_t *fp)
 
 
 /*
- * cfs_put_file
+ * fput
  *     To decrease the reference of the file object
  *
  * Arguments:
- *   fp:   the pointer of the cfs_file_t strcture
+ *   fp:   the pointer of the file_t strcture
  *
  * Return Value:
  *   Zero:  in success case
  *   Non-Zero: in failure case
  *
- * Notes: 
+ * Notes:
  *   N/A
  */
 
-int cfs_put_file(cfs_file_t *fp)
+int fput(file_t *fp)
 {
     if (InterlockedDecrement(&(fp->f_count)) == 0) {
-        cfs_filp_close(fp);
+	filp_close(fp, NULL);
     }
 
     return 0;
@@ -668,11 +655,11 @@ int cfs_put_file(cfs_file_t *fp)
 
 
 /*
- * cfs_file_count
+ * file_count
  *   To query the reference count of the file object
  *
  * Arguments:
- *   fp:   the pointer of the cfs_file_t strcture
+ *   fp:   the pointer of the file_t strcture
  *
  * Return Value:
  *   the reference count of the file object
@@ -681,7 +668,7 @@ int cfs_put_file(cfs_file_t *fp)
  *   N/A
  */
 
-int cfs_file_count(cfs_file_t *fp)
+int file_count(file_t *fp)
 {
     return (int)(fp->f_count);
 }

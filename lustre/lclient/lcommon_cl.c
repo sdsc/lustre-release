@@ -1302,7 +1302,7 @@ __u16 ll_dirent_type_get(struct lu_dirent *ent)
                 len = le16_to_cpu(ent->lde_namelen);
                 len = (len + align) & ~align;
                 lt = (void *) ent->lde_name + len;
-                type = CFS_IFTODT(le16_to_cpu(lt->lt_type));
+		type = IFTODT(le16_to_cpu(lt->lt_type));
         }
         return type;
 }

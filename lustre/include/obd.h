@@ -304,7 +304,7 @@ enum llog_ctxt_id {
 #define FILTER_SUBDIR_COUNT      32            /* set to zero for no subdirs */
 
 struct filter_subdirs {
-       cfs_dentry_t *dentry[FILTER_SUBDIR_COUNT];
+       dentry_t *dentry[FILTER_SUBDIR_COUNT];
 };
 
 
@@ -319,8 +319,8 @@ struct filter_obd {
         const char          *fo_fstype;
 
         int                  fo_group_count;
-        cfs_dentry_t        *fo_dentry_O;
-        cfs_dentry_t       **fo_dentry_O_groups;
+	dentry_t        *fo_dentry_O;
+	dentry_t       **fo_dentry_O_groups;
         struct filter_subdirs   *fo_dentry_O_sub;
 	struct mutex		fo_init_lock;	/* group initialization lock*/
 	int			fo_committed_group;
@@ -754,7 +754,7 @@ struct niobuf_local {
         __u32 len;
         __u32 flags;
         cfs_page_t    *page;
-        cfs_dentry_t  *dentry;
+	dentry_t  *dentry;
         int lnb_grant_used;
         int rc;
 };

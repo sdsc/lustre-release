@@ -1216,7 +1216,7 @@ static struct kuc_hdr *changelog_kuc_hdr(char *buf, int len, int flags)
 struct changelog_show {
         __u64       cs_startrec;
         __u32       cs_flags;
-        cfs_file_t *cs_fp;
+	file_t *cs_fp;
         char       *cs_buf;
         struct obd_device *cs_obd;
 };
@@ -1312,7 +1312,7 @@ static int mdc_changelog_send_thread(void *csdata)
         }
 
 out:
-        cfs_put_file(cs->cs_fp);
+	fput(cs->cs_fp);
         if (llh)
 		llog_cat_close(NULL, llh);
         if (ctxt)
@@ -1338,8 +1338,8 @@ static int mdc_ioc_changelog_send(struct obd_device *obd,
 
         cs->cs_obd = obd;
         cs->cs_startrec = icc->icc_recno;
-        /* matching cfs_put_file in mdc_changelog_send_thread */
-        cs->cs_fp = cfs_get_fd(icc->icc_id);
+	/* matching fput in mdc_changelog_send_thread */
+	cs->cs_fp = fget(icc->icc_id);
         cs->cs_flags = icc->icc_flags;
 
         /* New thread because we should return to user app before
@@ -1672,11 +1672,11 @@ static int mdc_ioc_hsm_ct_start(struct obd_export *exp,
         if (lk->lk_flags & LK_FLG_STOP)
                 rc = libcfs_kkuc_group_rem(lk->lk_uid,lk->lk_group);
         else {
-                cfs_file_t *fp = cfs_get_fd(lk->lk_wfd);
+		file_t *fp = fget(lk->lk_wfd);
                 rc = libcfs_kkuc_group_add(fp, lk->lk_uid,lk->lk_group,
                                            lk->lk_data);
                 if (rc && fp)
-                        cfs_put_file(fp);
+			fput(fp);
         }
 
         /* lk_data is archive number mask */

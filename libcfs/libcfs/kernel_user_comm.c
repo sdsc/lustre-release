@@ -150,7 +150,7 @@ int libcfs_ukuc_msg_get(lustre_kernelcomm *link, char *buf, int maxsize,
  * @param payload Payload data.  First field of payload is always
  *   struct kuc_hdr
  */
-int libcfs_kkuc_msg_put(cfs_file_t *filp, void *payload)
+int libcfs_kkuc_msg_put(file_t *filp, void *payload)
 {
         struct kuc_hdr *kuch = (struct kuc_hdr *)payload;
         int rc = -ENOSYS;
@@ -166,7 +166,7 @@ int libcfs_kkuc_msg_put(cfs_file_t *filp, void *payload)
 #ifdef __KERNEL__
         {
                 loff_t offset = 0;
-                rc = cfs_user_write(filp, (char *)payload, kuch->kuc_msglen,
+		rc = user_write(filp, (char *)payload, kuch->kuc_msglen,
                                     &offset);
         }
 #endif
@@ -187,7 +187,7 @@ CFS_EXPORT_SYMBOL(libcfs_kkuc_msg_put);
 struct kkuc_reg {
         cfs_list_t  kr_chain;
         int         kr_uid;
-        cfs_file_t *kr_fp;
+	file_t *kr_fp;
         __u32       kr_data;
 };
 static cfs_list_t kkuc_groups[KUC_GRP_MAX+1] = {};
@@ -199,7 +199,7 @@ static DECLARE_RWSEM(kg_sem);
  * @param uid identidier for this receiver
  * @param group group number
  */
-int libcfs_kkuc_group_add(cfs_file_t *filp, int uid, int group, __u32 data)
+int libcfs_kkuc_group_add(file_t *filp, int uid, int group, __u32 data)
 {
         struct kkuc_reg *reg;
 
@@ -259,7 +259,7 @@ int libcfs_kkuc_group_rem(int uid, int group)
                         CDEBUG(D_KUC, "Removed uid=%d fp=%p from group %d\n",
                                reg->kr_uid, reg->kr_fp, group);
                         if (reg->kr_fp != NULL)
-                                cfs_put_file(reg->kr_fp);
+			        fput(reg->kr_fp);
                         cfs_free(reg);
                 }
         }
@@ -280,7 +280,7 @@ int libcfs_kkuc_group_put(int group, void *payload)
                 if (reg->kr_fp != NULL) {
                 rc = libcfs_kkuc_msg_put(reg->kr_fp, payload);
                         if (rc == -EPIPE) {
-                                cfs_put_file(reg->kr_fp);
+			        fput(reg->kr_fp);
                                 reg->kr_fp = NULL;
                         }
                 }

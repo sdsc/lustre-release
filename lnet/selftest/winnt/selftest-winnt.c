@@ -219,7 +219,7 @@ ProcCreate(
     PIO_STACK_LOCATION          IrpSp;
 
     FILE_FULL_EA_INFORMATION *  ea;
-    cfs_file_t *                fp;
+    file_t *                fp;
 
     IrpSp = IoGetCurrentIrpStackLocation(Irp);
     ea = (PFILE_FULL_EA_INFORMATION) Irp->AssociatedIrp.SystemBuffer;
@@ -251,10 +251,10 @@ ProcClose(
 {
     PIO_STACK_LOCATION          IrpSp;
 
-    cfs_file_t *                fp;
+    file_t *                fp;
 
     IrpSp = IoGetCurrentIrpStackLocation(Irp);
-    fp = (cfs_file_t *) IrpSp->FileObject->FsContext;
+    fp = (file_t *) IrpSp->FileObject->FsContext;
     ASSERT(fp != NULL);
     ASSERT(IrpSp->FileObject->FsContext2 == fp->private_data);
 
@@ -308,9 +308,9 @@ ProcDeviceControl(
         case IOCTL_LIBCFS_ENTRY:
         {
             int rc = 0;
-            cfs_file_t * fp;
+	    file_t * fp;
 
-            fp = (cfs_file_t *) IrpSp->FileObject->FsContext;
+	    fp = (file_t *) IrpSp->FileObject->FsContext;
 
             if (!fp) {
                 rc = -EINVAL;
@@ -337,7 +337,7 @@ ProcReadWrite (PDEVICE_OBJECT DeviceObject, PIRP Irp)
     PIO_STACK_LOCATION  IrpSp;
     NTSTATUS            Status;
 
-    cfs_file_t *        fp;
+    file_t *        fp;
     int                 rc;
     PCHAR               buf;
 
@@ -354,7 +354,7 @@ ProcReadWrite (PDEVICE_OBJECT DeviceObject, PIRP Irp)
         Status = STATUS_SUCCESS;
         rc = 0;
     } else {
-        fp = (cfs_file_t *) IrpSp->FileObject->FsContext;
+	fp = (file_t *) IrpSp->FileObject->FsContext;
 
         if (!fp) {
             Status = STATUS_INVALID_PARAMETER;

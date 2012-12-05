@@ -579,7 +579,7 @@ struct osd_thread_info {
         /** pre-allocated buffer used by oti_it_ea, size OSD_IT_EA_BUFSIZE */
         void                  *oti_it_ea_buf;
 
-        cfs_kstatfs_t          oti_ksfs;
+	kstatfs_t          oti_ksfs;
 
         /** IAM iterator for index operation. */
         struct iam_iterator    oti_idx_it;

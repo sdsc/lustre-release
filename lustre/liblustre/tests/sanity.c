@@ -394,7 +394,7 @@ int t14(char *name)
         char buf[1024];
         const int nfiles = 256;
         char *prefix = "test14_filename_long_prefix_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA___";
-        cfs_dirent_t *ent;
+	dirent_t *ent;
         int fd, i, rc, pos, index;
         loff_t base = 0;
         ENTER(">1 block(4k) directory readdir");
@@ -1367,7 +1367,7 @@ int t56(char *name)
         size_t nbytes;
         off_t basep = 0;
         long rc = 0;
-        cfs_dirent_t dir;
+	dirent_t dir;
 
         ENTER("getdirentries should fail if nbytes is too small");
 

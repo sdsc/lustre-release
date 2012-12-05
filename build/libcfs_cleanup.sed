@@ -4,14 +4,12 @@
 # Migrate libcfs to emulate Linux kernel APIs.
 # http://jira.whamcloud.com/browse/LU-1346
 
-# remove extra blank line
-# /^$/{N;/^\n$/D}
 
 ################################################################################
 # lock - spinlock, rw_semaphore, rwlock, completion, semaphore, mutex
 #      - lock_kernel, unlock_kernel, lockdep
 
-# spinlok
+# spinlock
 /typedef  *spinlock_t  *cfs_spinlock_t;/d
 s/\bcfs_spinlock_t\b/spinlock_t/g
 s/\bcfs_spin_lock_init\b/spin_lock_init/g
@@ -221,43 +219,43 @@ s/\bcfs_fls\b/fls/g
 ################################################################################
 # file operations
 
-#s/\bcfs_file_t\b/file_t/g
-#s/\bcfs_dentry_t\b/dentry_t/g
-#s/\bcfs_dirent_t\b/dirent_t/g
-#s/\bcfs_kstatfs_t\b/kstatfs_t/g
-#s/\bcfs_filp_size\b/filp_size/g
-#s/\bcfs_filp_poff\b/filp_poff/g
-#s/\bcfs_filp_open\b/filp_open/g
-#/#[ \t]*define[ \t]*\bfilp_open\b *( *\w* *, *\w* *, *\w* *)[ \t]*\bfilp_open\b *( *\w* *, *\w* *, *\w* *)/d
-#s/\bcfs_do_fsync\b/do_fsync/g
-#s/\bcfs_filp_close\b/filp_close/g
-#/#[ \t]*define[ \t]*\bfilp_close\b *( *\w* *, *\w* *)[ \t]*\bfilp_close\b *( *\w* *, *\w* *)/d
-#s/\bcfs_filp_read\b/filp_read/g
-#s/\bcfs_filp_write\b/filp_write/g
-#s/\bcfs_filp_fsync\b/filp_fsync/g
-#s/\bcfs_get_file\b/get_file/g
-#/#[ \t]*define[ \t]*\bget_file\b *( *\w* *)[ \t]*\bget_file\b *( *\w* *)/d
-#s/\bcfs_get_fd\b/fget/g
-#/#[ \t]*define[ \t]*\bfget\b *( *\w* *)[ \t]*\bfget\b *( *\w* *)/d
-#s/\bcfs_put_file\b/fput/g
-#/#[ \t]*define[ \t]*\bfput\b *( *\w* *)[ \t]*\bfput\b *( *\w* *)/d
-#s/\bcfs_file_count\b/file_count/g
-#/#[ \t]*define[ \t]*\bfile_count\b *( *\w* *)[ \t]*\bfile_count\b *( *\w* *)/d
-#s/\bCFS_INT_LIMIT\b/INT_LIMIT/g
-#s/\bCFS_OFFSET_MAX\b/OFFSET_MAX/g
-#s/\bcfs_flock_t\b/flock_t/g
-#s/\bcfs_flock_type\b/flock_type/g
-#s/\bcfs_flock_set_type\b/flock_set_type/g
-#s/\bcfs_flock_pid\b/flock_pid/g
-#s/\bcfs_flock_set_pid\b/flock_set_pid/g
-#s/\bcfs_flock_start\b/flock_start/g
-#s/\bcfs_flock_set_start\b/flock_set_start/g
-#s/\bcfs_flock_end\b/flock_end/g
-#s/\bcfs_flock_set_end\b/flock_set_end/g
-#s/\bcfs_user_write\b/user_write/g
-#s/\bCFS_IFSHIFT\b/IFSHIFT/g
-#s/\bCFS_IFTODT\b/IFTODT/g
-#s/\bCFS_DTTOIF\b/DTTOIF/g
+s/\bcfs_file_t\b/file_t/g
+s/\bcfs_dentry_t\b/dentry_t/g
+s/\bcfs_dirent_t\b/dirent_t/g
+s/\bcfs_kstatfs_t\b/kstatfs_t/g
+s/\bcfs_filp_size\b/filp_size/g
+s/\bcfs_filp_poff\b/filp_poff/g
+s/\bcfs_filp_open\b/filp_open/g
+/#[ \t]*define[ \t]*\bfilp_open\b *( *\w* *, *\w* *, *\w* *)[ \t]*\bfilp_open\b *( *\w* *, *\w* *, *\w* *)/d
+s/\bcfs_do_fsync\b/do_fsync/g
+s/\bcfs_filp_close\b/filp_close/g
+/#[ \t]*define[ \t]*\bfilp_close\b *( *\w* *, *\w* *)[ \t]*\bfilp_close\b *( *\w* *, *\w* *)/d
+s/\bcfs_filp_read\b/filp_read/g
+s/\bcfs_filp_write\b/filp_write/g
+s/\bcfs_filp_fsync\b/filp_fsync/g
+s/\bcfs_get_file\b/get_file/g
+/#[ \t]*define[ \t]*\bget_file\b *( *\w* *)[ \t]*\bget_file\b *( *\w* *)/d
+s/\bcfs_get_fd\b/fget/g
+/#[ \t]*define[ \t]*\bfget\b *( *\w* *)[ \t]*\bfget\b *( *\w* *)/d
+s/\bcfs_put_file\b/fput/g
+/#[ \t]*define[ \t]*\bfput\b *( *\w* *)[ \t]*\bfput\b *( *\w* *)/d
+s/\bcfs_file_count\b/file_count/g
+/#[ \t]*define[ \t]*\bfile_count\b *( *\w* *)[ \t]*\bfile_count\b *( *\w* *)/d
+s/\bCFS_INT_LIMIT\b/INT_LIMIT/g
+s/\bCFS_OFFSET_MAX\b/OFFSET_MAX/g
+s/\bcfs_flock_t\b/flock_t/g
+s/\bcfs_flock_type\b/flock_type/g
+s/\bcfs_flock_set_type\b/flock_set_type/g
+s/\bcfs_flock_pid\b/flock_pid/g
+s/\bcfs_flock_set_pid\b/flock_set_pid/g
+s/\bcfs_flock_start\b/flock_start/g
+s/\bcfs_flock_set_start\b/flock_set_start/g
+s/\bcfs_flock_end\b/flock_end/g
+s/\bcfs_flock_set_end\b/flock_set_end/g
+s/\bcfs_user_write\b/user_write/g
+s/\bCFS_IFSHIFT\b/IFSHIFT/g
+s/\bCFS_IFTODT\b/IFTODT/g
+s/\bCFS_DTTOIF\b/DTTOIF/g
 
 ################################################################################
 # memory operations
@@ -349,13 +347,3 @@ s/\bcfs_fls\b/fls/g
 #/#[ \t]*define[ \t]*\bremove_shrinker\b *( *\w* *)[ \t]*\bremove_shrinker\b *( *\w* *)/d
 #s/\bCFS_DEFAULT_SEEKS\b/DEFAULT_SEEKS/g
 #/#[ \t]*define[ \t]*\bDEFAULT_SEEKS\b[ \t]*\bDEFAULT_SEEKS\b/d
-
-
-#s/\bcfs_\b//g
-#s/\bCFS_\b//g
-#/typedef[ \t]*\b\b[ \t]*\b\b/d
-#/#[ \t]*define[ \t]*\b\b[ \t]*\b\b/d
-#/#[ \t]*define[ \t]*\b\b *( *)[ \t]*\b\b *( *)/d
-#/#[ \t]*define[ \t]*\b\b *( *\w* *)[ \t]*\b\b *( *\w* *)/d
-#/#[ \t]*define[ \t]*\b\b *( *\w* *, *\w* *)[ \t]*\b\b *( *\w* *, *\w* *)/d
-#/#[ \t]*define[ \t]*\b\b *( *\w* *, *\w* *, *\w* *)[ \t]*\b\b *( *\w* *, *\w* *, *\w* *)/d

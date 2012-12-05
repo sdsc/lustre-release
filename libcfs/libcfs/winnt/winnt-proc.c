@@ -1645,11 +1645,11 @@ void remove_proc(void)
  *  proc process routines of kernel space
  */
 
-cfs_file_t *
+file_t *
 lustre_open_file(char * filename)
 {
     int rc = 0;
-    cfs_file_t * fh = NULL;
+    file_t * fh = NULL;
     cfs_proc_entry_t * fp = NULL;
 
     fp = search_proc_entry(filename, cfs_proc_root);
@@ -1657,7 +1657,7 @@ lustre_open_file(char * filename)
         return NULL;
     }
 
-    fh = cfs_alloc(sizeof(cfs_file_t), CFS_ALLOC_ZERO);
+    fh = cfs_alloc(sizeof(file_t), CFS_ALLOC_ZERO);
     if (!fh) {
         return NULL;
     }
@@ -1687,7 +1687,7 @@ lustre_open_file(char * filename)
 }
 
 int
-lustre_close_file(cfs_file_t * fh)
+lustre_close_file(file_t * fh)
 {
     int rc = 0;
     cfs_proc_entry_t * fp = NULL;
@@ -1706,7 +1706,7 @@ lustre_close_file(cfs_file_t * fh)
 }
 
 int
-lustre_do_ioctl( cfs_file_t * fh,
+lustre_do_ioctl( file_t * fh,
                  unsigned long cmd,
                  ulong_ptr_t arg )
 {
@@ -1720,7 +1720,7 @@ lustre_do_ioctl( cfs_file_t * fh,
 }
     
 int
-lustre_ioctl_file(cfs_file_t * fh, PCFS_PROC_IOCTL devctl)
+lustre_ioctl_file(file_t * fh, PCFS_PROC_IOCTL devctl)
 {
     int         rc = 0;
     ulong_ptr_t data;
@@ -1766,7 +1766,7 @@ lustre_ioctl_file(cfs_file_t * fh, PCFS_PROC_IOCTL devctl)
 
 size_t
 lustre_read_file(
-    cfs_file_t *    fh,
+    file_t *    fh,
     loff_t          off,
     size_t          size,
     char *          buf
@@ -1792,7 +1792,7 @@ lustre_read_file(
 
 size_t
 lustre_write_file(
-    cfs_file_t *    fh,
+    file_t *    fh,
     loff_t          off,
     size_t          size,
     char *          buf
