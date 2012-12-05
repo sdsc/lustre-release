@@ -1252,7 +1252,14 @@ void osc_commit_cb(struct ptlrpc_request *req)
 	for (i = 0; i < page_count; i++)
 		dec_zone_page_state(desc->bd_iov[i].kiov_page, NR_UNSTABLE_NFS);
 
+	CERROR("LU-2139: %i unstable pages\n",
+	       cfs_atomic_read(&cli->cl_cache->ccc_unstable_nr));
+
 	cfs_atomic_sub(page_count, &cli->cl_cache->ccc_unstable_nr);
+
+	CERROR("LU-2139: %i unstable pages\n",
+	       cfs_atomic_read(&cli->cl_cache->ccc_unstable_nr));
+
 	LASSERT(cfs_atomic_read(&cli->cl_cache->ccc_unstable_nr) >= 0);
 
 	cfs_waitq_broadcast(&cli->cl_cache->ccc_unstable_waitq);
@@ -1389,9 +1396,15 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
                 pg_prev = pg;
         }
 
+	CERROR("LU-2139: %i unstable pages\n",
+	       cfs_atomic_read(&cli->cl_cache->ccc_unstable_nr));
+
 	/* "unstable" page accounting. See: osc_commit_cb. */
 	if (opc == OST_WRITE && cli->cl_cache != NULL)
 		cfs_atomic_add(page_count, &cli->cl_cache->ccc_unstable_nr);
+
+	CERROR("LU-2139: %i unstable pages\n",
+	       cfs_atomic_read(&cli->cl_cache->ccc_unstable_nr));
 
         LASSERTF((void *)(niobuf - niocount) ==
                 req_capsule_client_get(&req->rq_pill, &RMF_NIOBUF_REMOTE),

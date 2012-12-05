@@ -1067,7 +1067,8 @@ void ll_put_super(struct super_block *sb)
         struct lustre_sb_info *lsi = s2lsi(sb);
         struct ll_sb_info *sbi = ll_s2sbi(sb);
         char *profilenm = get_profile_name(sb);
-	struct l_wait_info lwi = LWI_INTR(LWI_ON_SIGNAL_NOOP, NULL);
+	struct l_wait_info lwi = LWI_TIMEOUT_INTR(cfs_time_seconds(obd_timeout),
+                                                NULL, LWI_ON_SIGNAL_NOOP, NULL);
 	int ccc_count, ccc_waiters, next, force = 1, rc = 0;
         ENTRY;
 
@@ -1092,6 +1093,15 @@ void ll_put_super(struct super_block *sb)
 			cfs_atomic_read(&sbi->ll_cache.ccc_unstable_nr) == 0,
 			&lwi);
 		cfs_atomic_dec(&sbi->ll_cache.ccc_unstable_waiters);
+
+		if (rc == -ETIMEDOUT) {
+			CERROR("Waiting for unstable pages to be "
+			       "committed. (%i pages remain)\n",
+			       cfs_atomic_read(&sbi->ll_cache.ccc_unstable_nr));
+
+			/* Prevent loop termination due to -ETIMEDOUT */
+			rc = 0;
+		}
 	}
 
 	ccc_count   = cfs_atomic_read(&sbi->ll_cache.ccc_unstable_nr);
