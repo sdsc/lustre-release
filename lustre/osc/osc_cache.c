@@ -1736,6 +1736,8 @@ static void osc_process_ar(struct osc_async_rc *ar, __u64 xid,
 		ar->ar_force_sync = 0;
 }
 
+void osc_commit_cb(struct ptlrpc_request *req);
+
 /* this must be called holding the loi list lock to give coverage to exit_cache,
  * async_flag maintenance, and oap_request */
 static void osc_ap_completion(const struct lu_env *env, struct client_obd *cli,
@@ -1747,6 +1749,9 @@ static void osc_ap_completion(const struct lu_env *env, struct client_obd *cli,
 
 	ENTRY;
 	if (oap->oap_request != NULL) {
+		if (oap->oap_request->rq_committed == 0 && rc < 0)
+			osc_commit_cb(oap->oap_request);
+
 		xid = ptlrpc_req_xid(oap->oap_request);
 		ptlrpc_req_finished(oap->oap_request);
 		oap->oap_request = NULL;
