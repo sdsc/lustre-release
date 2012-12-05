@@ -52,7 +52,8 @@ COMMON_SOURCES =  client.c recover.c connection.c niobuf.c pack_generic.c   \
     events.c ptlrpc_module.c service.c pinger.c recov_thread.c llog_net.c   \
     llog_client.c llog_server.c import.c ptlrpcd.c pers.c wiretest.c   	    \
     ptlrpc_internal.h layout.c sec.c sec_bulk.c sec_gc.c sec_config.c       \
-    sec_lproc.c sec_null.c sec_plain.c lproc_ptlrpc.c $(LDLM_COMM_SOURCES)
+    sec_lproc.c sec_null.c sec_plain.c lproc_ptlrpc.c nrs.c		    \
+    $(LDLM_COMM_SOURCES)
 
 if LIBLUSTRE
 
@@ -70,35 +71,37 @@ modulefs_DATA = ptlrpc$(KMODEXT)
 endif #LINUX
 
 if DARWIN
-macos_PROGRAMS = ptlrpc
 
-ptlrpc_SOURCES =	\
-	ptlrpc_module.c	\
-	client.c	\
-	connection.c	\
-	events.c	\
-	import.c	\
-	llog_client.c	\
-	llog_net.c	\
-	llog_server.c	\
-	lproc_ptlrpc.c	\
-	niobuf.c	\
-	pack_generic.c	\
-	pers.c		\
-	pinger.c	\
-	ptlrpcd.c	\
-	recover.c	\
-	recov_thread.c	\
-	service.c	\
-	wiretest.c	\
-	sec.c		\
-	sec_bulk.c	\
-	sec_gc.c	\
-	sec_config.c	\
-	sec_lproc.c	\
-	sec_null.c	\
-	sec_plain.c	\
-	$(LDLM_COMM_SOURCES)
+macos_PROGRAMS := ptlrpc
+
+ptlrpc_SOURCES := \
+        ptlrpc_module.c \
+        client.c \
+        connection.c \
+        events.c \
+        import.c \
+        llog_client.c \
+        llog_net.c \
+        llog_server.c \
+        lproc_ptlrpc.c \
+        niobuf.c \
+        pack_generic.c \
+        pers.c \
+        pinger.c \
+        ptlrpcd.c \
+        recover.c \
+        recov_thread.c \
+        service.c \
+        nrs.c \
+	wiretest.c \
+	sec.c \
+	sec_bulk.c \
+	sec_gc.c \
+	sec_config.c \
+	sec_lproc.c \
+	sec_null.c \
+	sec_plain.c \
+        $(LDLM_COMM_SOURCES)
 
 ptlrpc_CFLAGS := $(EXTRA_KCFLAGS)
 ptlrpc_LDFLAGS := $(EXTRA_KLDFLAGS)
