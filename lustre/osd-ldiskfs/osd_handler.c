@@ -3721,19 +3721,19 @@ static int osd_it_iam_key_size(const struct lu_env *env, const struct dt_it *di)
 static inline void osd_it_append_attrs(struct lu_dirent *ent, __u32 attr,
                                        int len, __u16 type)
 {
-        struct luda_type *lt;
-        const unsigned    align = sizeof(struct luda_type) - 1;
+	struct luda_type	*lt;
+	const unsigned		align = sizeof(*lt) - 1;
 
-        /* check if file type is required */
-        if (attr & LUDA_TYPE) {
-                        len = (len + align) & ~align;
+	/* check if file type is required */
+	if (attr & LUDA_TYPE) {
+		len = (len + align) & ~align;
 
-                        lt = (void *) ent->lde_name + len;
-                        lt->lt_type = cpu_to_le16(CFS_DTTOIF(type));
-                        ent->lde_attrs |= LUDA_TYPE;
-        }
+		lt = (void *) ent->lde_name + len;
+		lt->lt_type = cpu_to_le16(DTTOIF(type));
+		ent->lde_attrs |= LUDA_TYPE;
+	}
 
-        ent->lde_attrs = cpu_to_le32(ent->lde_attrs);
+	ent->lde_attrs = cpu_to_le32(ent->lde_attrs);
 }
 
 /**

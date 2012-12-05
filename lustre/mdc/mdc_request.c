@@ -1214,11 +1214,11 @@ static struct kuc_hdr *changelog_kuc_hdr(char *buf, int len, int flags)
 #define D_CHANGELOG 0
 
 struct changelog_show {
-        __u64       cs_startrec;
-        __u32       cs_flags;
-        cfs_file_t *cs_fp;
-        char       *cs_buf;
-        struct obd_device *cs_obd;
+	__u64		cs_startrec;
+	__u32		cs_flags;
+	struct file	*cs_fp;
+	char		*cs_buf;
+	struct obd_device *cs_obd;
 };
 
 static int changelog_show_cb(const struct lu_env *env, struct llog_handle *llh,
@@ -1312,8 +1312,8 @@ static int mdc_changelog_send_thread(void *csdata)
         }
 
 out:
-        cfs_put_file(cs->cs_fp);
-        if (llh)
+	fput(cs->cs_fp);
+	if (llh)
 		llog_cat_close(NULL, llh);
         if (ctxt)
                 llog_ctxt_put(ctxt);
@@ -1336,11 +1336,11 @@ static int mdc_ioc_changelog_send(struct obd_device *obd,
         if (!cs)
                 return -ENOMEM;
 
-        cs->cs_obd = obd;
-        cs->cs_startrec = icc->icc_recno;
-        /* matching cfs_put_file in mdc_changelog_send_thread */
-        cs->cs_fp = cfs_get_fd(icc->icc_id);
-        cs->cs_flags = icc->icc_flags;
+	cs->cs_obd = obd;
+	cs->cs_startrec = icc->icc_recno;
+	/* matching fput in mdc_changelog_send_thread */
+	cs->cs_fp = fget(icc->icc_id);
+	cs->cs_flags = icc->icc_flags;
 
         /* New thread because we should return to user app before
            writing into our pipe */
@@ -1669,21 +1669,21 @@ static int mdc_ioc_hsm_ct_start(struct obd_export *exp,
         CDEBUG(D_HSM, "CT start r%d w%d u%d g%d f%#x\n", lk->lk_rfd, lk->lk_wfd,
                lk->lk_uid, lk->lk_group, lk->lk_flags);
 
-        if (lk->lk_flags & LK_FLG_STOP)
-                rc = libcfs_kkuc_group_rem(lk->lk_uid,lk->lk_group);
-        else {
-                cfs_file_t *fp = cfs_get_fd(lk->lk_wfd);
-                rc = libcfs_kkuc_group_add(fp, lk->lk_uid,lk->lk_group,
-                                           lk->lk_data);
-                if (rc && fp)
-                        cfs_put_file(fp);
-        }
+	if (lk->lk_flags & LK_FLG_STOP) {
+		rc = libcfs_kkuc_group_rem(lk->lk_uid, lk->lk_group);
+	} else {
+		struct file *fp = fget(lk->lk_wfd);
+		rc = libcfs_kkuc_group_add(fp, lk->lk_uid, lk->lk_group,
+					   lk->lk_data);
+		if (rc && fp)
+			fput(fp);
+	}
 
-        /* lk_data is archive number mask */
-        /* TODO: register archive num with mdt so coordinator can choose
-           correct agent. */
+	/* lk_data is archive number mask */
+	/* TODO: register archive num with mdt so coordinator can choose
+	   correct agent. */
 
-        return rc;
+	return rc;
 }
 
 /**
