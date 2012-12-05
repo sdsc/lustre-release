@@ -253,6 +253,8 @@ checkstack-update:
 checkstack-clean:
 	rm -f ${CSTK} ${CSTKO}
 
+libcfs-cleanup:
+	sed -i -f build/libcfs_cleanup.sed $(find . -name "*.[ch]")
 module-dist-hook:
 	if [ -d CVS -o -d .git ]; then \
 		perl lustre/scripts/make_META.pl > $(distdir)/META; \

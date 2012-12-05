@@ -4081,12 +4081,12 @@ osd_it_append_attrs(struct lu_dirent *ent, int len, __u16 type)
 {
 	/* check if file type is required */
 	if (ent->lde_attrs & LUDA_TYPE) {
-		int align = sizeof(struct luda_type) - 1;
 		struct luda_type *lt;
+		int align = sizeof(*lt) - 1;
 
 		len = (len + align) & ~align;
 		lt = (struct luda_type *)(ent->lde_name + len);
-		lt->lt_type = cpu_to_le16(CFS_DTTOIF(type));
+		lt->lt_type = cpu_to_le16(DTTOIF(type));
 	}
 
 	ent->lde_attrs = cpu_to_le32(ent->lde_attrs);
