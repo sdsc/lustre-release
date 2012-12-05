@@ -3387,8 +3387,8 @@ test_53() {
                 param=`echo ${value[0]} | cut -d "=" -f1`
                 ostname=`echo $param | cut -d "." -f2 | cut -d - -f 1-2`
                 mds_last=$(do_facet $SINGLEMDS lctl get_param -n $param)
-                ostnum=$(echo $ostname | sed "s/${FSNAME}-OST//g" | awk '{print ($1+1)}' )
-                ost_last=$(do_facet ost$ostnum lctl get_param -n obdfilter.$ostname.last_id | head -n 1)
+		ostnum=$(index_from_ostuuid ${ostname}_UUID)
+		ost_last=$(do_facet ost$((ostnum+1)) lctl get_param -n obdfilter.$ostname.last_id | head -n 1)
                 echo "$ostname.last_id=$ost_last ; MDS.last_id=$mds_last"
                 if [ $ost_last != $mds_last ]; then
                     error "$ostname.last_id=$ost_last ; MDS.last_id=$mds_last"
@@ -5196,8 +5196,8 @@ setup_test101bc() {
 	STRIPE_OFFSET=0
 
 	local list=$(comma_list $(osts_nodes))
-	do_nodes $list $LCTL set_param -n obdfilter.*.read_cache_enable=0
-	do_nodes $list $LCTL set_param -n obdfilter.*.writethrough_cache_enable=0
+	set_obdfilter_param $list '' read_cache_enable 0
+	set_obdfilter_param $list '' writethrough_cache_enable 0
 
 	trap cleanup_test101bc EXIT
 	# prepare the read-ahead file
@@ -5212,8 +5212,8 @@ cleanup_test101bc() {
 	rm -f $DIR/$tfile
 
 	local list=$(comma_list $(osts_nodes))
-	do_nodes $list $LCTL set_param -n obdfilter.*.read_cache_enable=1
-	do_nodes $list $LCTL set_param -n obdfilter.*.writethrough_cache_enable=1
+	set_obdfilter_param $list '' read_cache_enable 1
+	set_obdfilter_param $list '' writethrough_cache_enable 1
 }
 
 calc_total() {
