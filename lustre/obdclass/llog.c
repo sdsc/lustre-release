@@ -68,29 +68,40 @@ struct llog_handle *llog_alloc_handle(void)
 	cfs_init_rwsem(&loghandle->lgh_lock);
 	cfs_spin_lock_init(&loghandle->lgh_hdr_lock);
 	CFS_INIT_LIST_HEAD(&loghandle->u.phd.phd_entry);
+	cfs_atomic_set(&loghandle->lgh_refcount, 1);
 
 	return loghandle;
 }
+
+void llog_handle_put(struct llog_handle *loghandle)
+{
+	LASSERT(cfs_atomic_read(&loghandle->lgh_refcount) > 0);
+	if (cfs_atomic_dec_and_test(&loghandle->lgh_refcount)) {
+		OBD_FREE(loghandle->lgh_hdr, LLOG_CHUNK_SIZE);
+		OBD_FREE_PTR(loghandle);
+	}
+}
+EXPORT_SYMBOL(llog_handle_put);
 
 /*
  * Free llog handle and header data if exists. Used in llog_close() only
  */
 void llog_free_handle(struct llog_handle *loghandle)
 {
-	if (!loghandle)
-		return;
+	LASSERT(loghandle != NULL);
 
-	if (!loghandle->lgh_hdr)
-		goto out;
+	/* failed llog_init_handle */
+	if (!loghandle->lgh_hdr) {
+		OBD_FREE_PTR(loghandle);
+		return;
+	}
+
 	if (loghandle->lgh_hdr->llh_flags & LLOG_F_IS_PLAIN)
 		cfs_list_del_init(&loghandle->u.phd.phd_entry);
 	if (loghandle->lgh_hdr->llh_flags & LLOG_F_IS_CAT)
 		LASSERT(cfs_list_empty(&loghandle->u.chd.chd_head));
 	LASSERT(sizeof(*(loghandle->lgh_hdr)) == LLOG_CHUNK_SIZE);
-	OBD_FREE(loghandle->lgh_hdr, LLOG_CHUNK_SIZE);
-
-out:
-	OBD_FREE_PTR(loghandle);
+	llog_handle_put(loghandle);
 }
 
 /* returns negative on error; 0 if success; 1 if success & log destroyed */
@@ -928,7 +939,7 @@ int llog_close(const struct lu_env *env, struct llog_handle *loghandle)
 	if (rc)
 		GOTO(out, rc);
 	if (lop->lop_close == NULL)
-		GOTO(out, -EOPNOTSUPP);
+		GOTO(out, rc = -EOPNOTSUPP);
 	rc = lop->lop_close(env, loghandle);
 out:
 	llog_free_handle(loghandle);

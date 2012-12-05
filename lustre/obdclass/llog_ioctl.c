@@ -116,9 +116,9 @@ static int llog_check_cb(const struct lu_env *env, struct llog_handle *handle,
 	if (to > 0 && cur_index > to)
 		RETURN(-LLOG_EEMPTY);
 
-        if (handle->lgh_hdr->llh_flags & LLOG_F_IS_CAT) {
-                struct llog_logid_rec *lir = (struct llog_logid_rec *)rec;
-                struct llog_handle *log_handle;
+	if (handle->lgh_hdr->llh_flags & LLOG_F_IS_CAT) {
+		struct llog_logid_rec	*lir = (struct llog_logid_rec *)rec;
+		struct llog_handle	*loghandle;
 
                 if (rec->lrh_type != LLOG_LOGID_MAGIC) {
                         l = snprintf(out, remains, "[index]: %05d  [type]: "
@@ -128,17 +128,18 @@ static int llog_check_cb(const struct lu_env *env, struct llog_handle *handle,
                 }
                 if (handle->lgh_ctxt == NULL)
                         RETURN(-EOPNOTSUPP);
-		rc = llog_cat_id2handle(env, handle, &log_handle, &lir->lid_id);
-                if (rc) {
-                        CDEBUG(D_IOCTL,
-                               "cannot find log #"LPX64"#"LPX64"#%08x\n",
-                               lir->lid_id.lgl_oid, lir->lid_id.lgl_oseq,
-                               lir->lid_id.lgl_ogen);
-                        RETURN(rc);
-                }
-		rc = llog_process(env, log_handle, llog_check_cb, NULL, NULL);
-		llog_close(env, log_handle);
-        } else {
+		rc = llog_cat_id2handle(env, handle, &loghandle, &lir->lid_id);
+		if (rc) {
+			CDEBUG(D_IOCTL,
+			       "cannot find log #"LPX64"#"LPX64"#%08x\n",
+			       lir->lid_id.lgl_oid, lir->lid_id.lgl_oseq,
+			       lir->lid_id.lgl_ogen);
+			RETURN(rc);
+		}
+		rc = llog_process(env, loghandle, llog_check_cb, NULL, NULL);
+		llog_handle_put(loghandle);
+		llog_close(env, loghandle);
+	} else {
 		bool ok;
 
                 switch (rec->lrh_type) {
@@ -244,11 +245,11 @@ static int llog_remove_log(const struct lu_env *env, struct llog_handle *cat,
         ENTRY;
 
 	rc = llog_cat_id2handle(env, cat, &log, logid);
-        if (rc) {
-                CDEBUG(D_IOCTL, "cannot find log #"LPX64"#"LPX64"#%08x\n",
-                       logid->lgl_oid, logid->lgl_oseq, logid->lgl_ogen);
-                GOTO(out, rc = -ENOENT);
-        }
+	if (rc) {
+		CDEBUG(D_IOCTL, "cannot find log #"LPX64"#"LPX64"#%08x\n",
+		       logid->lgl_oid, logid->lgl_oseq, logid->lgl_ogen);
+		RETURN(-ENOENT);
+	}
 
         index = log->u.phd.phd_cookie.lgc_index;
         LASSERT(index);
@@ -264,6 +265,7 @@ static int llog_remove_log(const struct lu_env *env, struct llog_handle *cat,
 	llog_cat_set_first_idx(cat, index);
 	rc = llog_cancel_rec(env, cat, index);
 out:
+	llog_handle_put(log);
 	llog_close(env, log);
 	RETURN(rc);
 

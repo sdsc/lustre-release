@@ -79,6 +79,8 @@ static inline struct llog_thread_info *llog_info(const struct lu_env *env)
 int llog_info_init(void);
 void llog_info_fini(void);
 
+void llog_handle_put(struct llog_handle *loghandle);
+
 int llog_cat_id2handle(const struct lu_env *env, struct llog_handle *cathandle,
 		       struct llog_handle **res, struct llog_logid *logid);
 int class_config_dump_handler(const struct lu_env *env,
