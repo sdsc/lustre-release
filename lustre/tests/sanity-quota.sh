@@ -346,6 +346,23 @@ quota_init() {
 }
 quota_init
 
+# LU-2284 verify limits of TSTUSR2
+verify_limits(){
+	$LFS quota -v -u $TSTUSR2 $DIR
+	$LFS quota -v -g $TSTUSR2 $DIR
+
+	local limit
+	for ug in 'u' 'g'; do
+		for hs in 'bhardlimit' 'bsoftlimit' 'ihardlimit' \
+			'isoftlimit'; do
+			limit=$(getquota -$ug $TSTUSR2 global $hs)
+			[ $limit -eq 0 ] ||
+				error "$hs of $TSTUSR2($ug) is non-zero"
+		done
+	done
+}
+verify_limits
+
 test_quota_performance() {
 	local TESTFILE="$DIR/$tdir/$tfile-0"
 	local size=$1 # in MB
@@ -385,6 +402,8 @@ test_0() {
 
 	cleanup_quota_test
 	resetquota -u $TSTUSR
+
+	verify_limits
 }
 run_test 0 "Test basic quota performance"
 
@@ -462,6 +481,8 @@ test_1() {
 		"group quota isn't released after deletion"
 
 	resetquota -g $TSTUSR
+
+	verify_limits
 }
 run_test 1 "Block hard limit (normal use and out of quota)"
 
@@ -539,6 +560,8 @@ test_2() {
 
 	cleanup_quota_test
 	resetquota -g $TSTUSR
+
+	verify_limits
 }
 run_test 2 "File hard limit (normal use and out of quota)"
 
@@ -658,6 +681,8 @@ test_3() {
 		$MAX_IQ_TIME $DIR || error "restore user grace time failed"
 	$LFS setquota -t -g --block-grace $MAX_DQ_TIME --inode-grace \
 		$MAX_IQ_TIME $DIR || error "restore group grace time failed"
+
+	verify_limits
 }
 run_test 3 "Block soft limit (start timer, timer goes off, stop timer)"
 
@@ -758,6 +783,8 @@ test_4a() {
 		$MAX_IQ_TIME $DIR || error "restore user grace time failed"
 	$LFS setquota -t -g --block-grace $MAX_DQ_TIME --inode-grace \
 		$MAX_IQ_TIME $DIR || error "restore group grace time failed"
+
+	verify_limits
 }
 run_test 4a "File soft limit (start timer, timer goes off, stop timer)"
 
@@ -790,6 +817,8 @@ test_4b() {
 		$MAX_IQ_TIME $DIR || error "restore user grace time failed"
 	$LFS setquota -t -g --block-grace $MAX_DQ_TIME --inode-grace \
 		$MAX_IQ_TIME $DIR || error "restore group grace time failed"
+
+	verify_limits
 }
 run_test 4b "Grace time strings handling"
 
@@ -838,6 +867,8 @@ test_5() {
 
 	resetquota -u $TSTUSR
 	resetquota -g $TSTUSR
+
+	verify_limits
 }
 run_test 5 "Chown & chgrp successfully even out of block/file quota"
 
@@ -927,6 +958,8 @@ test_6() {
 
 	cleanup_quota_test
 	resetquota -u $TSTUSR
+
+	verify_limits
 }
 run_test 6 "Test dropping acquire request on master"
 
@@ -1000,6 +1033,8 @@ test_7a() {
 
 	cleanup_quota_test
 	resetquota -u $TSTUSR
+
+	verify_limits
 }
 run_test 7a "Quota reintegration (global index)"
 
@@ -1061,6 +1096,8 @@ test_7b() {
 	cleanup_quota_test
 	resetquota -u $TSTUSR
 	$SHOW_QUOTA_USER
+
+	verify_limits
 }
 run_test 7b "Quota reintegration (slave index)"
 
@@ -1106,6 +1143,8 @@ test_7c() {
 
 	cleanup_quota_test
 	resetquota -u $TSTUSR
+
+	verify_limits
 }
 run_test 7c "Quota reintegration (restart mds during reintegration)"
 
@@ -1119,13 +1158,10 @@ test_7d(){
 	trap cleanup_quota_test EXIT
 
 	set_ost_qtype "none" || error "disable ost quota failed"
-	# LU-2284. Enable trace for debug log.
-	do_nodes $(comma_list $(nodes_list)) "lctl set_param debug=+trace"
 	$LFS setquota -u $TSTUSR -B ${limit}M $DIR ||
 		error "set quota for $TSTUSR failed"
 	$LFS setquota -u $TSTUSR2 -B ${limit}M $DIR ||
 		error "set quota for $TSTUSR2 failed"
-	do_nodes $(comma_list $(nodes_list)) "lctl set_param debug=-trace"
 
 	#define OBD_FAIL_OBD_IDX_READ_BREAK 0x608
 	lustre_fail mds 0x608 0
