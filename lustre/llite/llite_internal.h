@@ -827,7 +827,7 @@ int ll_show_options(struct seq_file *seq, struct vfsmount *vfs);
 #endif
 void ll_dirty_page_discard_warn(cfs_page_t *page, int ioret);
 int ll_prep_inode(struct inode **inode, struct ptlrpc_request *req,
-		  struct super_block *);
+		  struct super_block *, struct lookup_intent *);
 void lustre_dump_dentry(struct dentry *, int recur);
 void lustre_dump_inode(struct inode *);
 int ll_obd_statfs(struct inode *inode, void *arg);

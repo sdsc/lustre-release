@@ -437,6 +437,45 @@ static struct ptlrpc_request *mdc_intent_getattr_pack(struct obd_export *exp,
         RETURN(req);
 }
 
+static struct ptlrpc_request *mdc_intent_layout_pack(struct obd_export *exp,
+						     struct lookup_intent *it,
+						     struct md_op_data *unused)
+{
+	struct obd_device     *obd = class_exp2obd(exp);
+	struct ptlrpc_request *req;
+	struct ldlm_intent    *lit;
+	struct layout_intent  *layout;
+	int rc;
+	ENTRY;
+
+	req = ptlrpc_request_alloc(class_exp2cliimp(exp),
+				&RQF_LDLM_INTENT_LAYOUT);
+	if (req == NULL)
+		RETURN(ERR_PTR(-ENOMEM));
+
+	req_capsule_set_size(&req->rq_pill, &RMF_EADATA, RCL_CLIENT, 0);
+	rc = ldlm_prep_enqueue_req(exp, req, NULL, 0);
+	if (rc) {
+		ptlrpc_request_free(req);
+		RETURN(ERR_PTR(rc));
+	}
+
+	/* pack the intent */
+	lit = req_capsule_client_get(&req->rq_pill, &RMF_LDLM_INTENT);
+	lit->opc = (__u64)it->it_op;
+
+	/* pack the layout intent request */
+	layout = req_capsule_client_get(&req->rq_pill, &RMF_LAYOUT_INTENT);
+	/* LAYOUT_INTENT_ACCESS is generic, specific operation will be
+	 * set for replication */
+	layout->li_opc = LAYOUT_INTENT_ACCESS;
+
+	req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER,
+			obd->u.cli.cl_max_mds_easize);
+	ptlrpc_request_set_replen(req);
+	RETURN(req);
+}
+
 static struct ptlrpc_request *
 mdc_enqueue_pack(struct obd_export *exp, int lvb_len)
 {
@@ -495,6 +534,12 @@ static int mdc_finish_enqueue(struct obd_export *exp,
                         ldlm_lock_decref(lockh, einfo->ei_mode);
                         einfo->ei_mode = lock->l_req_mode;
                 }
+
+		if (lock->l_resource->lr_type == LDLM_IBITS &&
+		    lock->l_policy_data.l_inodebits.bits & MDS_INODELOCK_LAYOUT)
+			LDLM_DEBUG(lock, "intent lock returned: %s\n",
+				   ldlm_it2str(it->it_op));
+
 		LDLM_LOCK_PUT(lock);
 	}
 
@@ -547,12 +592,10 @@ static int mdc_finish_enqueue(struct obd_export *exp,
                         mdc_set_open_replay_data(NULL, NULL, req);
 		}
 
-		/* TODO: make sure LAYOUT lock must be granted along with EA */
-
                 if ((body->valid & (OBD_MD_FLDIREA | OBD_MD_FLEASIZE)) != 0) {
                         void *eadata;
 
-                         mdc_update_max_ea_from_body(exp, body);
+			mdc_update_max_ea_from_body(exp, body);
 
                         /*
                          * The eadata is opaque; just check that it is there.
@@ -732,7 +775,7 @@ resend:
 		if (!imp_connect_lvb_type(class_exp2cliimp(exp)))
 			RETURN(-EOPNOTSUPP);
 
-		req = mdc_enqueue_pack(exp, obddev->u.cli.cl_max_mds_easize);
+		req = mdc_intent_layout_pack(exp, it, op_data);
 		lvb_type = LVB_T_LAYOUT;
 	} else {
                 LBUG();
@@ -1022,7 +1065,7 @@ int mdc_intent_lock(struct obd_export *exp, struct md_op_data *op_data,
 
         lockh.cookie = 0;
         if (fid_is_sane(&op_data->op_fid2) &&
-            (it->it_op & (IT_LOOKUP | IT_GETATTR | IT_LAYOUT))) {
+            (it->it_op & (IT_LOOKUP | IT_GETATTR))) {
                 /* We could just return 1 immediately, but since we should only
                  * be called in revalidate_it if we already have a lock, let's
                  * verify that. */

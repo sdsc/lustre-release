@@ -437,7 +437,7 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 	lmm->lmm_object_seq = cpu_to_le64(fid_seq(fid));
 	lmm->lmm_stripe_size = cpu_to_le32(lo->ldo_stripe_size);
 	lmm->lmm_stripe_count = cpu_to_le16(lo->ldo_stripenr);
-	lmm->lmm_layout_gen = 0;
+	lmm->lmm_layout_gen = 1;
 	if (magic == LOV_MAGIC_V1) {
 		objs = &lmm->lmm_objects[0];
 	} else {

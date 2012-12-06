@@ -277,6 +277,10 @@ struct cl_object_conf {
          */
         struct inode             *coc_inode;
 	/**
+	 * Layout lock handle.
+	 */
+	struct ldlm_lock	 *coc_lock;
+	/**
 	 * Invalidate the current stripe configuration due to losing
 	 * layout lock.
 	 */

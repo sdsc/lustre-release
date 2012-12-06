@@ -397,7 +397,7 @@ static int ll_intent_file_open(struct file *file, void *lmm,
                 GOTO(out, rc);
         }
 
-        rc = ll_prep_inode(&file->f_dentry->d_inode, req, NULL);
+        rc = ll_prep_inode(&file->f_dentry->d_inode, req, NULL, itp);
         if (!rc && itp->d.lustre.it_lock_mode)
                 ll_set_lock_data(sbi->ll_md_exp, file->f_dentry->d_inode,
                                  itp, NULL);
@@ -1472,7 +1472,11 @@ static int ll_lov_setstripe(struct inode *inode, struct file *file,
         rc = ll_lov_setstripe_ea_info(inode, file, flags, lumv1, lum_size);
         if (rc == 0) {
 		struct lov_stripe_md *lsm;
+		__u32 gen;
+
 		put_user(0, &lumv1p->lmm_stripe_count);
+
+		ll_layout_refresh(inode, &gen);
 		lsm = ccc_inode_lsm_get(inode);
 		rc = obd_iocontrol(LL_IOC_LOV_GETSTRIPE, ll_i2dtexp(inode),
 				   0, lsm, (void *)arg);
@@ -2434,7 +2438,7 @@ int __ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
                         RETURN(rc);
                 }
 
-                rc = ll_prep_inode(&inode, req, NULL);
+                rc = ll_prep_inode(&inode, req, NULL, NULL);
         }
 out:
         ptlrpc_req_finished(req);
@@ -2828,6 +2832,7 @@ enum llioc_iter ll_iocontrol_call(struct inode *inode, struct file *file,
 int ll_layout_conf(struct inode *inode, const struct cl_object_conf *conf)
 {
 	struct ll_inode_info *lli = ll_i2info(inode);
+	struct ldlm_lock *lock;
 	struct cl_env_nest nest;
 	struct lu_env *env;
 	int result;
@@ -2842,6 +2847,22 @@ int ll_layout_conf(struct inode *inode, const struct cl_object_conf *conf)
 
 	result = cl_conf_set(env, lli->lli_clob, conf);
 	cl_env_nested_put(&nest, env);
+
+	lock = conf->coc_lock;
+	if (lock != NULL) {
+		LASSERT(lock->l_resource->lr_type == LDLM_IBITS);
+		LASSERT(lock->l_policy_data.l_inodebits.bits &
+			MDS_INODELOCK_LAYOUT);
+		if (result == 0) {
+			/* it can only be allowed to match after layout is
+			 * applied to inode otherwise false layout would be
+			 * seen. Applying layout shoud happen before dropping
+			 * the intent lock. */
+			ldlm_lock_allow_match(lock);
+		} else {
+			ldlm_lock_fail_match(lock);
+		}
+	}
 	RETURN(result);
 }
 
@@ -2953,14 +2974,16 @@ int ll_layout_refresh(struct inode *inode, __u32 *gen)
 					PFID(&lli->lli_fid), rc);
 			}
 		}
-		LDLM_LOCK_PUT(lock);
 
 		/* set layout to file. This may cause lock expiration as we
 		 * set layout inside layout ibits lock. */
 		memset(&conf, 0, sizeof conf);
 		conf.coc_inode = inode;
+		conf.coc_lock = lock;
 		conf.u.coc_md = &md;
 		ll_layout_conf(inode, &conf);
+		LDLM_LOCK_PUT(lock);
+
 		/* is this racy? */
 		lli->lli_has_smd = md.lsm != NULL;
 		if (md.lsm != NULL)

@@ -1678,4 +1678,12 @@ static inline const char *lu_dev_name(const struct lu_device *lu_dev)
         return lu_dev->ld_obd->obd_name;
 }
 
+enum {
+	LAYOUT_INTENT_ACCESS	= 0,
+	LAYOUT_INTENT_READ	= 1,
+	LAYOUT_INTENT_WRITE	= 2,
+	LAYOUT_INTENT_GLIMPSE	= 3,
+	LAYOUT_INTENT_TRUNC	= 4
+};
+
 #endif /* __OBD_H */
