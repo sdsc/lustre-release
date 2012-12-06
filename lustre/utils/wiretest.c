@@ -4135,5 +4135,25 @@ void lustre_assert_wire_constants(void)
                  (long long)(int)offsetof(struct hsm_user_state, hus_in_progress_location));
         LASSERTF((int)sizeof(((struct hsm_user_state *)0)->hus_in_progress_location) == 16, "found %lld\n",
                  (long long)(int)sizeof(((struct hsm_user_state *)0)->hus_in_progress_location));
+
+        /* Checks for struct layout_intent */
+        LASSERTF((int)sizeof(struct layout_intent) == 24, "found %lld\n",
+                 (long long)(int)sizeof(struct layout_intent));
+        LASSERTF((int)offsetof(struct layout_intent, li_opc) == 0, "found %lld\n",
+                 (long long)(int)offsetof(struct layout_intent, li_opc));
+        LASSERTF((int)sizeof(((struct layout_intent *)0)->li_opc) == 4, "found %lld\n",
+                 (long long)(int)sizeof(((struct layout_intent *)0)->li_opc));
+        LASSERTF((int)offsetof(struct layout_intent, li_flags) == 4, "found %lld\n",
+                 (long long)(int)offsetof(struct layout_intent, li_flags));
+        LASSERTF((int)sizeof(((struct layout_intent *)0)->li_flags) == 4, "found %lld\n",
+                 (long long)(int)sizeof(((struct layout_intent *)0)->li_flags));
+        LASSERTF((int)offsetof(struct layout_intent, li_start) == 8, "found %lld\n",
+                 (long long)(int)offsetof(struct layout_intent, li_start));
+        LASSERTF((int)sizeof(((struct layout_intent *)0)->li_start) == 8, "found %lld\n",
+                 (long long)(int)sizeof(((struct layout_intent *)0)->li_start));
+        LASSERTF((int)offsetof(struct layout_intent, li_end) == 16, "found %lld\n",
+                 (long long)(int)offsetof(struct layout_intent, li_end));
+        LASSERTF((int)sizeof(((struct layout_intent *)0)->li_end) == 8, "found %lld\n",
+                 (long long)(int)sizeof(((struct layout_intent *)0)->li_end));
 }
 

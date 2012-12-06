@@ -1858,6 +1858,16 @@ check_hsm_user_state(void)
         CHECK_MEMBER(hsm_user_state, hus_in_progress_location);
 }
 
+static void check_layout_intent(void)
+{
+        BLANK_LINE();
+        CHECK_STRUCT(layout_intent);
+        CHECK_MEMBER(layout_intent, li_opc);
+        CHECK_MEMBER(layout_intent, li_flags);
+        CHECK_MEMBER(layout_intent, li_start);
+        CHECK_MEMBER(layout_intent, li_end);
+}
+
 static void
 system_string (char *cmdline, char *str, int len)
 {
@@ -2210,6 +2220,7 @@ main(int argc, char **argv)
         check_hsm_user_item();
         check_hsm_user_request();
         check_hsm_user_state();
+	check_layout_intent();
 
         printf("}\n\n");
 
