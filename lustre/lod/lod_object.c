@@ -97,24 +97,44 @@ static int lod_index_delete(const struct lu_env *env,
 	return dt_delete(env, dt_object_child(dt), key, th, capa);
 }
 
+static int lod_declare_index_update(const struct lu_env *env,
+				    struct dt_object *dt,
+				    const struct dt_rec *rec,
+				    const struct dt_key *key,
+				    struct thandle *handle)
+{
+	return dt_declare_update(env, dt_object_child(dt), rec, key, handle);
+}
+
+static int lod_index_update(const struct lu_env *env,
+			    struct dt_object *dt,
+			    const struct dt_rec *rec,
+			    const struct dt_key *key,
+			    struct thandle *th,
+			    struct lustre_capa *capa,
+			    int ign)
+{
+	return dt_update(env, dt_object_child(dt), rec, key, th, capa, ign);
+}
+
 static struct dt_it *lod_it_init(const struct lu_env *env,
 				 struct dt_object *dt, __u32 attr,
 				 struct lustre_capa *capa)
 {
 	struct dt_object	*next = dt_object_child(dt);
-	struct lod_it		*it = &lod_env_info(env)->lti_it;
+	struct lod_it		*it;
 	struct dt_it		*it_next;
 
 
-	it_next = next->do_index_ops->dio_it.init(env, next, attr, capa);
-	if (IS_ERR(it_next))
-		return it_next;
+	OBD_ALLOC_PTR(it);
+	if (it == NULL)
+		return ERR_PTR(-ENOMEM);
 
-	/* currently we do not use more than one iterator per thread
-	 * so we store it in thread info. if at some point we need
-	 * more active iterators in a single thread, we can allocate
-	 * additional ones */
-	LASSERT(it->lit_obj == NULL);
+	it_next = next->do_index_ops->dio_it.init(env, next, attr, capa);
+	if (IS_ERR(it_next)) {
+		OBD_FREE_PTR(it);
+		return it_next;
+	}
 
 	it->lit_it = it_next;
 	it->lit_obj = next;
@@ -125,7 +145,6 @@ static struct dt_it *lod_it_init(const struct lu_env *env,
 #define LOD_CHECK_IT(env, it)					\
 {								\
 	/* IT is supposed to be in thread info always */	\
-	LASSERT((it) == &lod_env_info(env)->lti_it);		\
 	LASSERT((it)->lit_obj != NULL);				\
 	LASSERT((it)->lit_it != NULL);				\
 } while(0)
@@ -140,6 +159,8 @@ void lod_it_fini(const struct lu_env *env, struct dt_it *di)
 	/* the iterator not in use any more */
 	it->lit_obj = NULL;
 	it->lit_it = NULL;
+
+	OBD_FREE_PTR(it);
 }
 
 int lod_it_get(const struct lu_env *env, struct dt_it *di,
@@ -223,6 +244,8 @@ static struct dt_index_operations lod_index_ops = {
 	.dio_insert		= lod_index_insert,
 	.dio_declare_delete	= lod_declare_index_delete,
 	.dio_delete		= lod_index_delete,
+	.dio_declare_update	= lod_declare_index_update,
+	.dio_update		= lod_index_update,
 	.dio_it	= {
 		.init		= lod_it_init,
 		.fini		= lod_it_fini,
@@ -1104,6 +1127,11 @@ struct dt_object_operations lod_obj_ops = {
 	.do_object_sync		= lod_object_sync,
 };
 
+struct dt_object_operations lod_obj_otable_it_ops = {
+	.do_attr_get		= lod_attr_get,
+	.do_index_try		= lod_index_try,
+};
+
 static ssize_t lod_read(const struct lu_env *env, struct dt_object *dt,
 			struct lu_buf *buf, loff_t *pos,
 			struct lustre_capa *capa)
@@ -1152,6 +1180,9 @@ static int lod_object_init(const struct lu_env *env, struct lu_object *o,
 	if (below == NULL)
 		RETURN(-ENOMEM);
 
+	if (fid_is_otable_it(&o->lo_header->loh_fid))
+		lu2lod_obj(o)->ldo_obj.do_ops = &lod_obj_otable_it_ops;
+
 	lu_object_add(o, below);
 
 	RETURN(0);
@@ -1183,8 +1214,7 @@ void lod_object_free_striping(const struct lu_env *env, struct lod_object *lo)
  */
 static int lod_object_start(const struct lu_env *env, struct lu_object *o)
 {
-	if (S_ISLNK(o->lo_header->loh_attr & S_IFMT))
-		lu2lod_obj(o)->ldo_obj.do_body_ops = &lod_body_lnk_ops;
+	lu2lod_obj(o)->ldo_obj.do_body_ops = &lod_body_lnk_ops;
 	return 0;
 }
 

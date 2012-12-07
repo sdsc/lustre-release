@@ -1092,7 +1092,7 @@ static int llog_osd_setup(const struct lu_env *env, struct obd_device *obd,
 	rc = local_oid_storage_init(env, disk_obd->obd_lvfs_ctxt.dt,
 				    &lgi->lgi_fid, &los);
 	llog_ctxt_put(ctxt);
-	return rc;
+	RETURN(rc);
 }
 
 static int llog_osd_cleanup(const struct lu_env *env, struct llog_ctxt *ctxt)

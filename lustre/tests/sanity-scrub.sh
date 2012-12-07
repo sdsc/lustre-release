@@ -137,6 +137,46 @@ test_1b() {
 }
 run_test 1b "Auto detect kinds of OI file(s) removed/recreated cases"
 
+test_1c() {
+	scrub_prep 0
+	echo "start $SINGLEMDS without disabling OI scrub"
+	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_SCRUB > /dev/null ||
+		error "(1) Fail to start MDS!"
+
+	local STATUS=$($SHOW_SCRUB | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "init" ] ||
+		error "(2) Expect 'init', but got '$STATUS'"
+
+	local FLAGS=$($SHOW_SCRUB | awk '/^flags/ { print $2 }')
+	[ -z "$FLAGS" ] || error "(3) Expect empty flags, but got '$FLAGS'"
+
+	mount_client $MOUNT || error "(4) Fail to start client!"
+
+	#define OBD_FAIL_FID_MAPPING	0x1500
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1500
+	# update .lustre OI mapping
+	touch $MOUNT/.lustre/dummy
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	umount_client $MOUNT || error "(5) Fail to stop client!"
+
+	echo "stop $SINGLEMDS"
+	stop $SINGLEMDS > /dev/null || error "(6) Fail to stop MDS!"
+
+	echo "start $SINGLEMDS with disabling OI scrub"
+	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_NOSCRUB > /dev/null ||
+		error "(7) Fail to start MDS!"
+
+	local STATUS=$($SHOW_SCRUB | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "init" ] ||
+		error "(8) Expect 'init', but got '$STATUS'"
+
+	local FLAGS=$($SHOW_SCRUB | awk '/^flags/ { print $2 }')
+	[ "$FLAGS" == "inconsistent" ] ||
+		error "(9) Expect 'inconsistent', but got '$FLAGS'"
+}
+run_test 1c "Auto trigger initial OI scrub when server mounts"
+
 test_2() {
 	scrub_prep 0
 	mds_backup_restore || error "(1) Fail to backup/restore!"

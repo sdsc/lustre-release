@@ -573,7 +573,7 @@ int mdt_fix_reply(struct mdt_thread_info *info)
         acl_size = body->aclsize;
 
         /* this replay - not send info to client */
-        if (info->mti_spec.no_create == 1) {
+	if (info->mti_spec.no_create) {
                 md_size = 0;
                 acl_size = 0;
         }
@@ -787,7 +787,7 @@ static __u64 mdt_attr_valid_xlate(__u64 in, struct mdt_reint_record *rr,
                 out |= LA_KILL_SGID;
 
         if (in & MDS_OPEN_OWNEROVERRIDE)
-                ma->ma_attr_flags |= MDS_OPEN_OWNEROVERRIDE;
+                ma->ma_attr_flags |= MDS_OWNEROVERRIDE;
 
         if (in & ATTR_FORCE)
                 ma->ma_attr_flags |= MDS_PERM_BYPASS;

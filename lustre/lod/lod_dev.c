@@ -50,6 +50,7 @@
 
 extern struct lu_object_operations lod_lu_obj_ops;
 extern struct dt_object_operations lod_obj_ops;
+extern struct dt_object_operations lod_obj_otable_it_ops;
 
 /* Slab for OSD object allocation */
 cfs_mem_cache_t *lod_object_kmem;
