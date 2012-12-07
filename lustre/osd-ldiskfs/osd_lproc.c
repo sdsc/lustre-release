@@ -230,8 +230,8 @@ static int osd_stats_init(struct osd_device *osd)
                                      LPROCFS_CNTR_AVGMINMAX,
                                      "thandle closing", "usec");
 #endif
-                lprocfs_seq_create(osd->od_proc_entry, "brw_stats",
-                                   0444, &osd_brw_stats_fops, osd);
+		result = lprocfs_seq_create(osd->od_proc_entry, "brw_stats",
+					    0444, &osd_brw_stats_fops, osd);
         } else
                 result = -ENOMEM;
 

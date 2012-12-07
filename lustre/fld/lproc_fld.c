@@ -165,6 +165,7 @@ static void *fldb_seq_start(struct seq_file *p, loff_t *pos)
 	struct dt_object	*obj;
 	const struct dt_it_ops	*iops;
 	struct fld_seq_param	*param;
+	int                      rc;
 
 	if (fld->lsf_obj == NULL)
 		return NULL;
@@ -176,7 +177,12 @@ static void *fldb_seq_start(struct seq_file *p, loff_t *pos)
 	if (param == NULL)
 		return ERR_PTR(-ENOMEM);
 
-	lu_env_init(&param->fsp_env, LCT_MD_THREAD);
+	rc = lu_env_init(&param->fsp_env, LCT_MD_THREAD);
+	if (rc) {
+		CERROR("%s: error initializing procfs fld env: rc = %d\n",
+		       fld->lsf_name, rc);
+		return ERR_PTR(rc);
+	}
 	param->fsp_it = iops->init(&param->fsp_env, obj, 0, NULL);
 
 	iops->load(&param->fsp_env, param->fsp_it, *pos);

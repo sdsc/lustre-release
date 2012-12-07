@@ -444,7 +444,7 @@ retry:
 	}
 
 	/* get attr to return */
-	dt_attr_get(env, o, la, ofd_object_capa(env, fo));
+	rc = dt_attr_get(env, o, la, ofd_object_capa(env, fo));
 
 out_stop:
 	/* Force commit to make the just-deleted blocks
