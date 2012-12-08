@@ -261,13 +261,6 @@ int local_object_create(const struct lu_env *env,
 	if (rc)
 		RETURN(rc);
 
-	lustre_lma_init(&dti->dti_lma, lu_object_fid(&o->do_lu));
-	lustre_lma_swab(&dti->dti_lma);
-	dti->dti_lb.lb_buf = &dti->dti_lma;
-	dti->dti_lb.lb_len = sizeof(dti->dti_lma);
-	rc = dt_xattr_set(env, o, &dti->dti_lb, XATTR_NAME_LMA, 0, th,
-			  BYPASS_CAPA);
-
 	if (los == NULL)
 		RETURN(rc);
 
@@ -310,7 +303,8 @@ struct dt_object *__local_file_create(const struct lu_env *env,
 	struct thandle		*th;
 	int			 rc;
 
-	dto = ls_locate(env, ls, fid);
+	dti->dti_conf.loc_flags = LOC_F_NEW;
+	dto = ls_locate(env, ls, fid, &dti->dti_conf);
 	if (unlikely(IS_ERR(dto)))
 		RETURN(dto);
 
@@ -413,7 +407,8 @@ struct dt_object *local_file_find_or_create(const struct lu_env *env,
 	rc = dt_lookup_dir(env, parent, name, &dti->dti_fid);
 	if (rc == 0)
 		/* name is found, get the object */
-		dto = ls_locate(env, dt2ls_dev(los->los_dev), &dti->dti_fid);
+		dto = ls_locate(env, dt2ls_dev(los->los_dev), &dti->dti_fid,
+				NULL);
 	else if (rc != -ENOENT)
 		dto = ERR_PTR(rc);
 	else {
@@ -504,7 +499,8 @@ struct dt_object *local_index_find_or_create(const struct lu_env *env,
 	rc = dt_lookup_dir(env, parent, name, &dti->dti_fid);
 	if (rc == 0) {
 		/* name is found, get the object */
-		dto = ls_locate(env, dt2ls_dev(los->los_dev), &dti->dti_fid);
+		dto = ls_locate(env, dt2ls_dev(los->los_dev), &dti->dti_fid,
+				NULL);
 	} else if (rc != -ENOENT) {
 		dto = ERR_PTR(rc);
 	} else {
@@ -658,7 +654,7 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 	if (rc)
 		GOTO(out_los, rc);
 
-	root = ls_locate(env, ls, &dti->dti_fid);
+	root = ls_locate(env, ls, &dti->dti_fid, NULL);
 	if (IS_ERR(root))
 		GOTO(out_los, rc = PTR_ERR(root));
 
@@ -670,10 +666,12 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 
 	/* initialize data allowing to generate new fids,
 	 * literally we need a sequence */
-	if (rc == 0)
-		o = ls_locate(env, ls, &dti->dti_fid);
-	else
-		o = ls_locate(env, ls, first_fid);
+	if (rc == 0) {
+		o = ls_locate(env, ls, &dti->dti_fid, NULL);
+	} else {
+		dti->dti_conf.loc_flags = LOC_F_MAYCREATE;
+		o = ls_locate(env, ls, first_fid, &dti->dti_conf);
+	}
 	if (IS_ERR(o))
 		GOTO(out_los, rc = PTR_ERR(o));
 
@@ -721,15 +719,6 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 		if (rc)
 			GOTO(out_trans, rc);
 		LASSERT(dt_object_exists(o));
-
-		lustre_lma_init(&dti->dti_lma, lu_object_fid(&o->do_lu));
-		lustre_lma_swab(&dti->dti_lma);
-		dti->dti_lb.lb_buf = &dti->dti_lma;
-		dti->dti_lb.lb_len = sizeof(dti->dti_lma);
-		rc = dt_xattr_set(env, o, &dti->dti_lb, XATTR_NAME_LMA, 0,
-				  th, BYPASS_CAPA);
-		if (rc)
-			GOTO(out_trans, rc);
 
 		losd.lso_magic = cpu_to_le32(LOS_MAGIC);
 		losd.lso_next_oid = cpu_to_le32(fid_oid(first_fid) + 1);

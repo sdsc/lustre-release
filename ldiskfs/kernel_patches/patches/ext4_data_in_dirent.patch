@@ -395,62 +395,6 @@ Index: linux-stage/fs/ext4/namei.c
  
  	/* Initialize as for dx_probe */
  	hinfo.hash_version = dx_info->hash_version;
-@@ -1516,6 +1542,8 @@ static int ext4_update_dotdot(handle_t *
- 	struct buffer_head * dir_block;
- 	struct ext4_dir_entry_2 * de;
- 	int len, journal = 0, err = 0;
-+	int dlen = 0;
-+	char *data;
- 
- 	if (IS_ERR(handle))
- 		return PTR_ERR(handle);
-@@ -1531,19 +1559,24 @@ static int ext4_update_dotdot(handle_t *
- 	/* the first item must be "." */
- 	assert(de->name_len == 1 && de->name[0] == '.');
- 	len = le16_to_cpu(de->rec_len);
--	assert(len >= EXT4_DIR_REC_LEN(1));
--	if (len > EXT4_DIR_REC_LEN(1)) {
-+	assert(len >= __EXT4_DIR_REC_LEN(1));
-+	if (len > __EXT4_DIR_REC_LEN(1)) {
- 		BUFFER_TRACE(dir_block, "get_write_access");
- 		err = ext4_journal_get_write_access(handle, dir_block);
- 		if (err)
- 			goto out_journal;
- 
- 		journal = 1;
--		de->rec_len = cpu_to_le16(EXT4_DIR_REC_LEN(1));
-+		de->rec_len = cpu_to_le16(EXT4_DIR_REC_LEN(de));
- 	}
- 
--	len -= EXT4_DIR_REC_LEN(1);
--	assert(len == 0 || len >= EXT4_DIR_REC_LEN(2));
-+	len -= EXT4_DIR_REC_LEN(de);
-+	data = ext4_dentry_get_data(dir->i_sb,
-+			(struct ext4_dentry_param *) dentry->d_fsdata);
-+	if (data)
-+		dlen = *data + 1;
-+	assert(len == 0 || len >= __EXT4_DIR_REC_LEN(2 + dlen));
-+
- 	de = (struct ext4_dir_entry_2 *)
- 			((char *) de + le16_to_cpu(de->rec_len));
- 	if (!journal) {
-@@ -1557,10 +1590,15 @@ static int ext4_update_dotdot(handle_t *
- 	if (len > 0)
- 		de->rec_len = cpu_to_le16(len);
- 	else
--		assert(le16_to_cpu(de->rec_len) >= EXT4_DIR_REC_LEN(2));
-+		assert(le16_to_cpu(de->rec_len) >= __EXT4_DIR_REC_LEN(2));
- 	de->name_len = 2;
- 	strcpy (de->name, "..");
- 	ext4_set_de_type(dir->i_sb, de, S_IFDIR);
-+	if (data) {
-+		de->name[2] = 0;
-+		memcpy(&de->name[2 + 1], data, dlen);
-+		de->file_type |= EXT4_DIRENT_LUFID;
-+	}
- 
- out_journal:
- 	if (journal) {
 @@ -1982,12 +2020,13 @@ retry:
  /* Initialize @inode as a subdirectory of @dir, and add the
   * "." and ".." entries into the first directory block. */
