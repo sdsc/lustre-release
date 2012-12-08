@@ -212,6 +212,7 @@ enum dt_index_flags {
  */
 extern const struct dt_index_features dt_directory_features;
 extern const struct dt_index_features dt_otable_features;
+extern const struct dt_index_features dt_lfsck_features;
 
 /* index features supported by the accounting objects */
 extern const struct dt_index_features dt_acct_features;
@@ -572,6 +573,18 @@ struct dt_index_operations {
                           const struct dt_key *key, struct thandle *handle,
                           struct lustre_capa *capa);
         /**
+         * precondition: dt_object_exists(dt);
+         */
+	int (*dio_declare_update)(const struct lu_env *env,
+				  struct dt_object *dt,
+				  const struct dt_rec *rec,
+				  const struct dt_key *key,
+				  struct thandle *handle);
+	int (*dio_update)(const struct lu_env *env, struct dt_object *dt,
+			  const struct dt_rec *rec, const struct dt_key *key,
+			  struct thandle *handle, struct lustre_capa *capa,
+			  int ignore_quota);
+        /**
          * Iterator interface
          */
         struct dt_it_ops {
@@ -799,12 +812,14 @@ struct dt_object *dt_find_or_create(const struct lu_env *env,
 struct dt_object *dt_locate_at(const struct lu_env *env,
 			       struct dt_device *dev,
 			       const struct lu_fid *fid,
-			       struct lu_device *top_dev);
+			       struct lu_device *top_dev,
+			       const struct lu_object_conf *conf);
 static inline struct dt_object *
 dt_locate(const struct lu_env *env, struct dt_device *dev,
 	  const struct lu_fid *fid)
 {
-	return dt_locate_at(env, dev, fid, dev->dd_lu_dev.ld_site->ls_top_dev);
+	return dt_locate_at(env, dev, fid, dev->dd_lu_dev.ld_site->ls_top_dev,
+			    NULL);
 }
 
 
@@ -1360,6 +1375,33 @@ static inline int dt_delete(const struct lu_env *env,
         return dt->do_index_ops->dio_delete(env, dt, key, th, capa);
 }
 
+static inline int dt_declare_update(const struct lu_env *env,
+				    struct dt_object *dt,
+				    const struct dt_rec *rec,
+				    const struct dt_key *key,
+				    struct thandle *th)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_index_ops);
+	LASSERT(dt->do_index_ops->dio_declare_update);
+	return dt->do_index_ops->dio_declare_update(env, dt, rec, key, th);
+}
+
+static inline int dt_update(const struct lu_env *env,
+			    struct dt_object *dt,
+			    const struct dt_rec *rec,
+			    const struct dt_key *key,
+			    struct thandle *th,
+			    struct lustre_capa *capa,
+			    int noquota)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_index_ops);
+	LASSERT(dt->do_index_ops->dio_update);
+	return dt->do_index_ops->dio_update(env, dt, rec, key, th,
+					    capa, noquota);
+}
+
 static inline int dt_commit_async(const struct lu_env *env,
                                   struct dt_device *dev)
 {
@@ -1418,6 +1460,7 @@ struct dt_thread_info {
 	struct lustre_mdt_attrs  dti_lma;
 	struct lu_buf            dti_lb;
 	loff_t                   dti_off;
+	struct lu_object_conf	 dti_conf;
 };
 
 extern struct lu_context_key dt_key;
