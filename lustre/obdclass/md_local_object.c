@@ -365,6 +365,44 @@ struct md_object *llo_store_create(const struct lu_env *env,
 EXPORT_SYMBOL(llo_store_create);
 
 /**
+ * Unlink md object for local file in \a directory.
+ */
+int llo_store_unlink(const struct lu_env *env,
+		     struct md_device *md,
+		     struct dt_device *dt,
+		     const char *dirname,
+		     const char *objname)
+{
+	struct llo_thread_info *info = llo_env_info(env);
+	struct md_object *dir;
+	struct md_object *obj;
+	struct lu_fid *fid = &info->lti_fid;
+	struct lu_name *lname = &info->lti_lname;
+	struct md_attr *ma = &info->lti_ma;
+	int rc;
+
+	dir = llo_store_resolve(env, md, dt, dirname, fid);
+	if (IS_ERR(dir))
+		return PTR_ERR(dir);
+
+	obj = llo_reg_open(env, md, dir, objname, fid);
+	if (IS_ERR(obj)) {
+		lu_object_put(env, &dir->mo_lu);
+		return PTR_ERR(obj);
+	}
+
+	lname->ln_name = objname;
+	lname->ln_namelen = strlen(objname);
+	ma->ma_attr.la_ctime = cfs_time_current_sec();
+	ma->ma_attr.la_valid = LA_CTIME;
+	rc = mdo_unlink(env, dir, obj, lname, ma);
+	lu_object_put(env, &obj->mo_lu);
+	lu_object_put(env, &dir->mo_lu);
+	return rc;
+}
+EXPORT_SYMBOL(llo_store_unlink);
+
+/**
  * Register object for 'create on first mount' facility.
  * objects are created in order of registration.
  */

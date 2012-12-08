@@ -5807,6 +5807,7 @@ mds_backup_restore() {
 	local metadata=${TMP}/backup_restore.tgz
 	local opts=${MDS_MOUNT_OPTS}
 	local svc=${SINGLEMDS}_svc
+	local igif=$1
 
 	if ! ${rcmd} test -b ${devname}; then
 		opts=$(csa_add "$opts" -o loop)
@@ -5820,6 +5821,10 @@ mds_backup_restore() {
 	${rcmd} rm -f $metaea $metadata
 	# step 3: mount dev
 	${rcmd} mount -t ldiskfs $opts $devname $mntpt || return 1
+	if [ ! -z $igif ]; then
+		# step 3.5: rm .lustre
+		${rcmd} rm -f $mntpt/ROOT/.lustre || return 1
+	fi
 	# step 4: backup metaea
 	echo "backup EA"
 	${rcmd} "cd $mntpt && getfattr -R -d -m '.*' -P . > $metaea && cd -" ||
