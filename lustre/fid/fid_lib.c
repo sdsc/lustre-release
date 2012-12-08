@@ -92,8 +92,14 @@ const struct lu_fid LU_DOT_LUSTRE_FID = { .f_seq = FID_SEQ_DOT_LUSTRE,
                                           .f_ver = 0x0000000000000000 };
 EXPORT_SYMBOL(LU_DOT_LUSTRE_FID);
 
-/** Special fid for "fid" special object in .lustre */
-const struct lu_fid LU_OBF_FID = { .f_seq = FID_SEQ_DOT_LUSTRE,
-                                   .f_oid = FID_OID_DOT_LUSTRE_OBF,
-                                   .f_ver = 0x0000000000000000 };
+/** in-RAM fid for "fid" special object in .lustre */
+const struct lu_fid LU_OBF_FID = { .f_seq = FID_SEQ_RAM_ONLY,
+				   .f_oid = FID_OID_OBF,
+				   .f_ver = 0x0000000000000000 };
 EXPORT_SYMBOL(LU_OBF_FID);
+
+/** in-RAM fid for object-table based iteration. */
+const struct lu_fid LU_LFSCK_OIT_FID = { .f_seq = FID_SEQ_RAM_ONLY,
+					 .f_oid = FID_OID_LFSCK_OIT,
+					 .f_ver = 0x0000000000000000 };
+EXPORT_SYMBOL(LU_LFSCK_OIT_FID);
