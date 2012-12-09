@@ -205,6 +205,23 @@ struct cfs_stack_trace {
 #undef WITH_WATCHDOG
 #endif
 
+/*
+ * Portable API to access common characteristics of "current" UNIX process.
+ */
+uid_t  cfs_curproc_uid(void);
+gid_t  cfs_curproc_gid(void);
+uid_t  cfs_curproc_euid(void);
+gid_t  cfs_curproc_egid(void);
+uid_t  cfs_curproc_fsuid(void);
+gid_t  cfs_curproc_fsgid(void);
+pid_t  cfs_curproc_pid(void);
+int    cfs_curproc_is_in_groups(gid_t group);
+mode_t cfs_curproc_umask(void);
+char  *cfs_curproc_comm(void);
+
+/* check if task is running in compat mode.*/
+int cfs_curproc_is_32bit(void);
+
 #endif /* __KERNEL__ */
 
 #endif /* _XNU_LIBCFS_H */

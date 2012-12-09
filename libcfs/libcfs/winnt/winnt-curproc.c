@@ -82,18 +82,6 @@ pid_t cfs_curproc_pid(void)
     return cfs_current()->pid;
 }
 
-int cfs_curproc_groups_nr(void)
-{
-    return this_task.ngroups;
-}
-
-void cfs_curproc_groups_dump(gid_t *array, int size)
-{
-    LASSERT(size <= NGROUPS);
-    size = min_t(int, size, this_task.ngroups);
-    memcpy(array, this_task.groups, size * sizeof(__u32));
-}
-
 int cfs_curproc_is_in_groups(gid_t gid)
 {
     return in_group_p(gid);
@@ -497,8 +485,6 @@ EXPORT_SYMBOL(cfs_curproc_fsuid);
 EXPORT_SYMBOL(cfs_curproc_fsgid);
 EXPORT_SYMBOL(cfs_curproc_umask);
 EXPORT_SYMBOL(cfs_curproc_comm);
-EXPORT_SYMBOL(cfs_curproc_groups_nr);
-EXPORT_SYMBOL(cfs_curproc_groups_dump);
 EXPORT_SYMBOL(cfs_curproc_is_in_groups);
 EXPORT_SYMBOL(cfs_cap_raise);
 EXPORT_SYMBOL(cfs_cap_lower);

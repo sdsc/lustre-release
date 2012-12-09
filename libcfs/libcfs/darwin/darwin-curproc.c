@@ -95,12 +95,6 @@ pid_t  cfs_curproc_pid(void)
 #endif
 }
 
-int    cfs_curproc_groups_nr(void)
-{
-        LASSERT(curproc_ucred()->cr_ngroups > 0);
-        return curproc_ucred()->cr_ngroups - 1;
-}
-
 int    cfs_curproc_is_in_groups(gid_t gid)
 {
         int i;
@@ -114,18 +108,6 @@ int    cfs_curproc_is_in_groups(gid_t gid)
                         return 1;
         }
         return 0;
-}
-
-void   cfs_curproc_groups_dump(gid_t *array, int size)
-{
-        struct ucred *cr;
-
-        cr = curproc_ucred();
-        LASSERT(cr != NULL);
-        CLASSERT(sizeof array[0] == sizeof (__u32));
-
-        size = min_t(int, size, cr->cr_ngroups);
-        memcpy(array, &cr->cr_groups[1], size * sizeof(gid_t));
 }
 
 mode_t cfs_curproc_umask(void)
