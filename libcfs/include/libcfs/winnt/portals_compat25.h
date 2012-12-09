@@ -39,7 +39,6 @@
  * Signal
  */
 
-#define SIGNAL_MASK_ASSERT()                    do {} while(0)
 #define SIGNAL_MASK_LOCK(task, flags)           do {} while(0)
 #define SIGNAL_MASK_UNLOCK(task, flags)         do {} while(0)
 #define USERMODEHELPER(path, argv, envp)        do {} while(0)

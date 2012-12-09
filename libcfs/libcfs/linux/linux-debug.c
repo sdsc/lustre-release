@@ -255,10 +255,10 @@ static DUMP_TRACE_CONST struct stacktrace_ops print_trace_ops = {
 void libcfs_debug_dumpstack(struct task_struct *tsk)
 {
 #if defined(__arch_um__)
-        if (tsk != NULL)
-                CWARN("stack dump for pid %d (%d) requested; wake up gdb.\n",
-                      tsk->pid, UML_PID(tsk));
-        //asm("int $3");
+	if (tsk != NULL)
+		CWARN("stack dump for pid %d (%d) requested; wake up gdb.\n",
+		      tsk->pid, tsk->pid);
+	/* asm("int $3"); */
 #elif defined(HAVE_DUMP_TRACE)
         /* dump_stack() */
         /* show_trace() */
