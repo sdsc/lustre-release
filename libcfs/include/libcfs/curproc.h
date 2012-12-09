@@ -45,15 +45,27 @@ int cfs_get_environ(const char *key, char *value, int *val_len);
 
 typedef __u32 cfs_cap_t;
 
-#define CFS_CAP_CHOWN                   0
-#define CFS_CAP_DAC_OVERRIDE            1
-#define CFS_CAP_DAC_READ_SEARCH         2
-#define CFS_CAP_FOWNER                  3
-#define CFS_CAP_FSETID                  4
-#define CFS_CAP_LINUX_IMMUTABLE         9
-#define CFS_CAP_SYS_ADMIN              21
-#define CFS_CAP_SYS_BOOT               23
-#define CFS_CAP_SYS_RESOURCE           24
+#ifndef CAP_CHOWN
+# define CAP_CHOWN			0
+# define CAP_DAC_OVERRIDE		1
+# define CAP_DAC_READ_SEARCH		2
+# define CAP_FOWNER			3
+# define CAP_FSETID			4
+# define CAP_LINUX_IMMUTABLE		9
+# define CAP_SYS_ADMIN		       21
+# define CAP_SYS_BOOT		       22
+# define CAP_SYS_RESOURCE	       24
+#endif
+
+#define CFS_CAP_CHOWN                  CAP_CHOWN
+#define CFS_CAP_DAC_OVERRIDE           CAP_DAC_OVERRIDE
+#define CFS_CAP_DAC_READ_SEARCH        CAP_DAC_READ_SEARCH
+#define CFS_CAP_FOWNER                 CAP_FOWNER
+#define CFS_CAP_FSETID                 CAP_FSETID
+#define CFS_CAP_LINUX_IMMUTABLE        CAP_LINUX_IMMUTABLE
+#define CFS_CAP_SYS_ADMIN              CAP_SYS_ADMIN
+#define CFS_CAP_SYS_BOOT               CAP_SYS_BOOT
+#define CFS_CAP_SYS_RESOURCE           CAP_SYS_RESOURCE
 
 #define CFS_CAP_FS_MASK ((1 << CFS_CAP_CHOWN) |                 \
                          (1 << CFS_CAP_DAC_OVERRIDE) |          \
@@ -74,12 +86,3 @@ int cfs_capable(cfs_cap_t cap);
 
 /* __LIBCFS_CURPROC_H__ */
 #endif
-/*
- * Local variables:
- * c-indentation-style: "K&R"
- * c-basic-offset: 8
- * tab-width: 8
- * fill-column: 80
- * scroll-step: 1
- * End:
- */

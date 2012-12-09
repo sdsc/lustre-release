@@ -738,4 +738,25 @@ s/\bcfs_list_for_each_entry_safe_from_typed\b/list_for_each_entry_safe_from_type
 s/\bcfs_hlist_for_each_entry_typed\b/hlist_for_each_entry_typed/g
 s/\bcfs_hlist_for_each_entry_safe_typed\b/hlist_for_each_entry_safe_typed/g
 
+################################################################################
+# CFS_CAP_XXX
+s/\bCFS_CAP_CHOWN\b/CAP_CHOWN/g
+/#[ \t]*define[ \t]*\bCAP_CHOWN\b[ \t]*\bCAP_CHOWN\b/d
+s/\bCFS_CAP_DAC_OVERRIDE\b/CAP_DAC_OVERRIDE/g
+/#[ \t]*define[ \t]*\bCAP_DAC_OVERRIDE\b[ \t]*\bCAP_DAC_OVERRIDE\b/d
+s/\bCFS_CAP_DAC_READ_SEARCH\b/CAP_DAC_READ_SEARCH/g
+/#[ \t]*define[ \t]*\bCAP_DAC_READ_SEARCH\b[ \t]*\bCAP_DAC_READ_SEARCH\b/d
+s/\bCFS_CAP_FOWNER\b/CAP_FOWNER/g
+/#[ \t]*define[ \t]*\bCAP_FOWNER\b[ \t]*\bCAP_FOWNER\b/d
+s/\bCFS_CAP_FSETID\b/CAP_FSETID/g
+/#[ \t]*define[ \t]*\bCAP_FSETID\b[ \t]*\bCAP_FSETID\b/d
+s/\bCFS_CAP_LINUX_IMMUTABLE\b/CAP_LINUX_IMMUTABLE/g
+/#[ \t]*define[ \t]*\bCAP_LINUX_IMMUTABLE\b[ \t]*\bCAP_LINUX_IMMUTABLE\b/d
+s/\bCFS_CAP_SYS_ADMIN\b/CAP_SYS_ADMIN/g
+/#[ \t]*define[ \t]*\bCAP_SYS_ADMIN\b[ \t]*\bCAP_SYS_ADMIN\b/d
+s/\bCFS_CAP_SYS_BOOT\b/CAP_SYS_BOOT/g
+/#[ \t]*define[ \t]*\bCAP_SYS_BOOT\b[ \t]*\bCAP_SYS_BOOT\b/d
+s/\bCFS_CAP_SYS_RESOURCE\b/CAP_SYS_RESOURCE/g
+/#[ \t]*define[ \t]*\bCAP_SYS_RESOURCE\b[ \t]*\bCAP_SYS_RESOURCE\b/d
+
 
