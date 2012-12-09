@@ -110,5 +110,40 @@ int proc_call_handler(void *data, int write,
                       loff_t *ppos, void *buffer, size_t *lenp,
                       int (*handler)(void *data, int write,
                                      loff_t pos, void *buffer, int len));
+/*
+ * CPU
+ */
+#ifdef for_each_possible_cpu
+#define cfs_for_each_possible_cpu(cpu) for_each_possible_cpu(cpu)
+#elif defined(for_each_cpu)
+#define cfs_for_each_possible_cpu(cpu) for_each_cpu(cpu)
+#endif
+
+#ifdef NR_CPUS
+#define CFS_NR_CPUS     NR_CPUS
+#else
+#define CFS_NR_CPUS     1
+#endif
+
+#ifdef HAVE_SET_CPUS_ALLOWED
+#define cfs_set_cpus_allowed(t, mask)  set_cpus_allowed(t, mask)
+#else
+#define cfs_set_cpus_allowed(t, mask)  set_cpus_allowed_ptr(t, &(mask))
+#endif
+
+#ifdef HAVE_2ARGS_REGISTER_SYSCTL
+#define cfs_register_sysctl_table(t, a)	register_sysctl_table(t, a)
+#else
+#define cfs_register_sysctl_table(t, a) register_sysctl_table(t)
+#endif
+
+#ifndef HAVE___ADD_WAIT_QUEUE_EXCLUSIVE
+static inline void __add_wait_queue_exclusive(wait_queue_head_t *q,
+					      wait_queue_t *wait)
+{
+	wait->flags |= WQ_FLAG_EXCLUSIVE;
+	__add_wait_queue(q, wait);
+}
+#endif /* HAVE___ADD_WAIT_QUEUE_EXCLUSIVE */
 
 #endif /* _PORTALS_COMPAT_H */

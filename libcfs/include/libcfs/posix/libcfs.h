@@ -239,6 +239,7 @@ static inline void MODULE_AUTHOR(char *name)
 #define __exit
 
 #define EXPORT_SYMBOL(symbol)
+#define CFS_EXPORT_SYMBOL(s)            EXPORT_SYMBOL(s)
 
 static inline int cfs_request_module(const char *name, ...)
 {

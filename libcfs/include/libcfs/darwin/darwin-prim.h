@@ -485,6 +485,7 @@ static inline int request_module(const char *name, ...)
 #endif
 
 #define EXPORT_SYMBOL(s)
+#define CFS_EXPORT_SYMBOL(s)            EXPORT_SYMBOL(s)
 #define MODULE_AUTHOR(s)
 #define MODULE_DESCRIPTION(s)
 #define MODULE_LICENSE(s)

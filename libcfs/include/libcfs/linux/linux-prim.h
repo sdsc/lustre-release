@@ -77,27 +77,6 @@
 #define CFS_KERN_DEBUG   KERN_DEBUG
 
 /*
- * CPU
- */
-#ifdef for_each_possible_cpu
-#define cfs_for_each_possible_cpu(cpu) for_each_possible_cpu(cpu)
-#elif defined(for_each_cpu)
-#define cfs_for_each_possible_cpu(cpu) for_each_cpu(cpu)
-#endif
-
-#ifdef NR_CPUS
-#define CFS_NR_CPUS     NR_CPUS
-#else
-#define CFS_NR_CPUS     1
-#endif
-
-#ifdef HAVE_SET_CPUS_ALLOWED
-#define cfs_set_cpus_allowed(t, mask)  set_cpus_allowed(t, mask)
-#else
-#define cfs_set_cpus_allowed(t, mask)  set_cpus_allowed_ptr(t, &(mask))
-#endif
-
-/*
  * cache
  */
 #define CFS_L1_CACHE_ALIGN(x)           L1_CACHE_ALIGN(x)
@@ -122,11 +101,6 @@ typedef struct miscdevice		cfs_psdev_t;
 typedef struct ctl_table		cfs_sysctl_table_t;
 typedef struct ctl_table_header		cfs_sysctl_table_header_t;
 
-#ifdef HAVE_2ARGS_REGISTER_SYSCTL
-#define cfs_register_sysctl_table(t, a)	register_sysctl_table(t, a)
-#else
-#define cfs_register_sysctl_table(t, a) register_sysctl_table(t)
-#endif
 #define cfs_unregister_sysctl_table(t)	unregister_sysctl_table(t)
 
 #define DECLARE_PROC_HANDLER(name)                      \
@@ -143,10 +117,6 @@ LL_PROC_PROTO(name)                                     \
 /*
  * Symbol register
  */
-#define cfs_symbol_register(s, p)       do {} while(0)
-#define cfs_symbol_unregister(s)        do {} while(0)
-#define cfs_symbol_get(s)               symbol_get(s)
-#define cfs_symbol_put(s)               symbol_put(s)
 #define cfs_module_get()                try_module_get(THIS_MODULE)
 #define cfs_try_module_get(m)           try_module_get(m)
 #define __cfs_module_get(m)             __module_get(m)
@@ -180,6 +150,58 @@ typedef wait_queue_head_t		cfs_waitq_t;
 typedef long                            cfs_task_state_t;
 
 #define CFS_DECL_WAITQ(wq)		DECLARE_WAIT_QUEUE_HEAD(wq)
+
+#define LIBCFS_WQITQ_MACROS           1
+#define cfs_waitq_init(h)             init_waitqueue_head(h)
+#define cfs_waitlink_init(w)          init_waitqueue_entry(w, current)
+#define cfs_waitq_add(h, w)           add_wait_queue(h, w)
+#define cfs_waitq_add_exclusive(h, w) add_wait_queue_exclusive(h, w)
+#define cfs_waitq_del(h, w)           remove_wait_queue(h, w)
+#define cfs_waitq_active(h)           waitqueue_active(h)
+#define cfs_waitq_signal(h)           wake_up(h)
+#define cfs_waitq_signal_nr(h, nr)    wake_up_nr(h, nr)
+#define cfs_waitq_broadcast(h)        wake_up_all(h)
+#define cfs_waitq_wait(w, s)          schedule()
+#define cfs_waitq_timedwait(w, s, t)  schedule_timeout(t)
+#define cfs_schedule_timeout(t)       schedule_timeout(t)
+#define cfs_schedule()                schedule()
+#define cfs_need_resched()            need_resched()
+#define cfs_cond_resched()            cond_resched()
+
+/**
+ * wait_queue_t of Linux (version < 2.6.34) is a FIFO list for exclusively
+ * waiting threads, which is not always desirable because all threads will
+ * be waken up again and again, even user only needs a few of them to be
+ * active most time. This is not good for performance because cache can
+ * be polluted by different threads.
+ *
+ * LIFO list can resolve this problem because we always wakeup the most
+ * recent active thread by default.
+ *
+ * NB: please don't call non-exclusive & exclusive wait on the same
+ * waitq if cfs_waitq_add_exclusive_head is used.
+ */
+#define cfs_waitq_add_exclusive_head(waitq, link)			\
+{									\
+	unsigned long flags;						\
+									\
+	spin_lock_irqsave(&((waitq)->lock), flags);			\
+	__add_wait_queue_exclusive(waitq, link);			\
+	spin_unlock_irqrestore(&((waitq)->lock), flags);		\
+}
+
+#define cfs_schedule_timeout_and_set_state(state, timeout)		\
+{									\
+	set_current_state(state);					\
+	schedule_timeout(timeout);					\
+}
+
+/* deschedule for a bit... */
+#define cfs_pause(ticks)						\
+{									\
+	set_current_state(TASK_UNINTERRUPTIBLE);			\
+	schedule_timeout(ticks);					\
+}
 
 #define cfs_kthread_run(fn, data, fmt, arg...) kthread_run(fn, data, fmt, ##arg)
 
@@ -223,49 +245,6 @@ typedef sigset_t                        cfs_sigset_t;
 typedef struct timer_list cfs_timer_t;
 
 #define CFS_MAX_SCHEDULE_TIMEOUT MAX_SCHEDULE_TIMEOUT
-
-#ifndef wait_event_timeout /* Only for RHEL3 2.4.21 kernel */
-#define __wait_event_timeout(wq, condition, timeout, ret)        \
-do {                                                             \
-	int __ret = 0;                                           \
-	if (!(condition)) {                                      \
-		wait_queue_t __wait;                             \
-		unsigned long expire;                            \
-                                                                 \
-		init_waitqueue_entry(&__wait, current);          \
-		expire = timeout + jiffies;                      \
-		add_wait_queue(&wq, &__wait);                    \
-		for (;;) {                                       \
-			set_current_state(TASK_UNINTERRUPTIBLE); \
-			if (condition)                           \
-				break;                           \
-			if (jiffies > expire) {                  \
-				ret = jiffies - expire;          \
-				break;                           \
-			}                                        \
-			schedule_timeout(timeout);               \
-		}                                                \
-		current->state = TASK_RUNNING;                   \
-		remove_wait_queue(&wq, &__wait);                 \
-	}                                                        \
-} while (0)
-/*
-   retval == 0; condition met; we're good.
-   retval > 0; timed out.
-*/
-#define cfs_waitq_wait_event_timeout(wq, condition, timeout, ret)    \
-do {                                                                 \
-	ret = 0;                                                     \
-	if (!(condition))                                            \
-		__wait_event_timeout(wq, condition, timeout, ret);   \
-} while (0)
-#else
-#define cfs_waitq_wait_event_timeout(wq, condition, timeout, ret)    \
-        ret = wait_event_timeout(wq, condition, timeout)
-#endif
-
-#define cfs_waitq_wait_event_interruptible_timeout(wq, c, timeout, ret) \
-        ret = wait_event_interruptible_timeout(wq, c, timeout)
 
 /*
  * atomic

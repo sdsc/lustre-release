@@ -361,11 +361,10 @@ lstcon_rpc_trans_postwait(lstcon_rpc_trans_t *trans, int timeout)
 
 	mutex_unlock(&console_session.ses_mutex);
 
-        cfs_waitq_wait_event_interruptible_timeout(trans->tas_waitq,
-                                              lstcon_rpc_trans_check(trans),
-                                              cfs_time_seconds(timeout), rc);
-
-        rc = (rc > 0)? 0: ((rc < 0)? -EINTR: -ETIMEDOUT);
+	rc = wait_event_interruptible_timeout(trans->tas_waitq,
+					      lstcon_rpc_trans_check(trans),
+					      cfs_time_seconds(timeout));
+	rc = (rc > 0) ? 0 : ((rc < 0) ? -EINTR : -ETIMEDOUT);
 
 	mutex_lock(&console_session.ses_mutex);
 

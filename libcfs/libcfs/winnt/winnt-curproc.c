@@ -310,7 +310,7 @@ cleanup_task_manager()
 
 
 cfs_task_t *
-cfs_current()
+cfs_winnt_current()
 {
     HANDLE      Pid = PsGetCurrentProcessId();
     HANDLE      Tid = PsGetCurrentThreadId();

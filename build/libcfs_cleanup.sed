@@ -349,3 +349,205 @@ s/\bcfs_remove_shrinker\b/remove_shrinker/g
 /#[ \t]*define[ \t]*\bremove_shrinker\b *( *\w* *)[ \t]*\bremove_shrinker\b *( *\w* *)/d
 s/\bCFS_DEFAULT_SEEKS\b/DEFAULT_SEEKS/g
 /#[ \t]*define[ \t]*\bDEFAULT_SEEKS\b[ \t]*\bDEFAULT_SEEKS\b/d
+
+################################################################################
+# linux primitives (linux-prim.h)
+# debug level
+s/\bCFS_KERN_EMERG\b/KERN_EMERG/g
+/#[ \t]*define[ \t]*\bKERN_EMERG\b[ \t]*\bKERN_EMERG\b/d
+s/\bCFS_KERN_ALERT\b/KERN_ALERT/g
+/#[ \t]*define[ \t]*\bKERN_ALERT\b[ \t]*\bKERN_ALERT\b/d
+s/\bCFS_KERN_CRIT\b/KERN_CRIT/g
+/#[ \t]*define[ \t]*\bKERN_CRIT\b[ \t]*\bKERN_CRIT\b/d
+s/\bCFS_KERN_ERR\b/KERN_ERR/g
+/#[ \t]*define[ \t]*\bKERN_ERR\b[ \t]*\bKERN_ERR\b/d
+s/\bCFS_KERN_WARNING\b/KERN_WARNING/g
+/#[ \t]*define[ \t]*\bKERN_WARNING\b[ \t]*\bKERN_WARNING\b/d
+s/\bCFS_KERN_NOTICE\b/KERN_NOTICE/g
+/#[ \t]*define[ \t]*\bKERN_NOTICE\b[ \t]*\bKERN_NOTICE\b/d
+s/\bCFS_KERN_INFO\b/KERN_INFO/g
+/#[ \t]*define[ \t]*\bKERN_INFO\b[ \t]*\bKERN_INFO\b/d
+s/\bCFS_KERN_DEBUG\b/KERN_DEBUG/g
+/#[ \t]*define[ \t]*\bKERN_DEBUG\b[ \t]*\bKERN_DEBUG\b/d
+# cache
+s/\bCFS_L1_CACHE_ALIGN\b/L1_CACHE_ALIGN/g
+/#[ \t]*define[ \t]*\bL1_CACHE_ALIGN\b *( *\w* *)[ \t]*\bL1_CACHE_ALIGN\b *( *\w* *)/d
+# IRQs
+s/\bCFS_NR_IRQS\b/NR_IRQS/g
+/#[ \t]*define[ \t]*\bNR_IRQS\b[ \t]*\bNR_IRQS\b/d
+s/\bCFS_EXPORT_SYMBOL\b/EXPORT_SYMBOL/g
+/#[ \t]*define[ \t]*\bEXPORT_SYMBOL\b *( *\w* *)[ \t]*\bEXPORT_SYMBOL\b *( *\w* *)/d
+# Pseudo device register
+s/\bcfs_psdev_t\b/psdev_t/g
+s/\bcfs_psdev_register\b/misc_register/g
+/#[ \t]*define[ \t]*\bmisc_register\b *( *\w* *)[ \t]*\bmisc_register\b *( *\w* *)/d
+s/\bcfs_psdev_deregister\b/misc_deregister/g
+/#[ \t]*define[ \t]*\bmisc_deregister\b *( *\w* *)[ \t]*\bmisc_deregister\b *( *\w* *)/d
+# Sysctl register
+s/\bcfs_sysctl_table_t\b/ctl_table_t/g
+s/\bcfs_sysctl_table_header_t\b/ctl_table_header_t/g
+# TODO: cfs_register_sysctl_table
+# Symbol register
+s/\bcfs_unregister_sysctl_table\b/unregister_sysctl_table/g
+/#[ \t]*define[ \t]*\bunregister_sysctl_table\b *( *\w* *)[ \t]*\bunregister_sysctl_table\b *( *\w* *)/d
+s/\bPORTAL_SYMBOL_PUT\b/symbol_put/g
+/#[ \t]*define[ \t]*\bsymbol_put\b *( *\w* *)[ \t]*\bsymbol_put\b *( *\w* *)/d
+s/\bPORTAL_SYMBOL_GET\b/symbol_get/g
+/#[ \t]*define[ \t]*\bsymbol_get\b *( *\w* *)[ \t]*\bsymbol_get\b *( *\w* *)/d
+s/\bPORTAL_MODULE_USE\b/cfs_module_get()/g
+s/\bcfs_module_get()/try_module_get(THIS_MODULE)/g
+s/\bcfs_try_module_get\b/try_module_get/g
+/#[ \t]*define[ \t]*\btry_module_get\b.*\btry_module_get\b/d
+s/\bPORTAL_MODULE_UNUSE\b/cfs_module_put(THIS_MODULE)/g
+s/\bcfs_module_put\b/module_put/g
+/#[ \t]*define[ \t]*\bmodule_put\b *( *\w* *)[ \t]*\bmodule_put\b *( *\w* *)/d
+s/\b__cfs_module_get\b/__module_get/g
+/#[ \t]*define[ \t]*\b__module_get\b *( *\w* *)[ \t]*\b__module_get\b *( *\w* *)/d
+s/\bcfs_module_refcount\b/module_refcount/g
+/#[ \t]*define[ \t]*\bmodule_refcount\b *( *\w* *)[ \t]*\bmodule_refcount\b *( *\w* *)/d
+s/\bcfs_module_t\b/module_t/g
+# Proc file system APIs
+s/\bcfs_read_proc_t\b/read_proc_t/g
+/typedef[ \t]*\bread_proc_t\b[ \t]*\bread_proc_t\b/d
+s/\bcfs_write_proc_t\b/write_proc_t/g
+/typedef[ \t]*\bwrite_proc_t\b[ \t]*\bwrite_proc_t\b/d
+s/\bcfs_proc_dir_entry_t\b/proc_dir_entry_t/g
+s/\bcfs_free_proc_entry\b/free_proc_entry/g
+/#[ \t]*define[ \t]*\bfree_proc_entry\b *( *\w* *)[ \t]*\bfree_proc_entry\b *( *\w* *)/d
+s/\bcfs_create_proc_entry\b/create_proc_entry/g
+/#[ \t]*define[ \t]*\bcreate_proc_entry\b *( *\w* *, *\w* *, *\w* *)[ \t]*\bcreate_proc_entry\b *( *\w* *, *\w* *, *\w* *)/d
+s/\bcfs_remove_proc_entry\b/remove_proc_entry/g
+/#[ \t]*define[ \t]*\bremove_proc_entry\b *( *\w* *, *\w* *)[ \t]*\bremove_proc_entry\b *( *\w* *, *\w* *)/d
+# Wait Queue
+s/\bCFS_TASK_INTERRUPTIBLE\b/TASK_INTERRUPTIBLE/g
+/#[ \t]*define[ \t]*\bTASK_INTERRUPTIBLE\b[ \t]*\bTASK_INTERRUPTIBLE\b/d
+s/\bCFS_TASK_UNINT\b/TASK_UNINTERRUPTIBLE/g
+/#[ \t]*define[ \t]*\bTASK_UNINTERRUPTIBLE\b[ \t]*\bTASK_UNINTERRUPTIBLE\b/d
+s/\bCFS_TASK_RUNNING\b/TASK_RUNNING/g
+/#[ \t]*define[ \t]*\bTASK_RUNNING\b[ \t]*\bTASK_RUNNING\b/d
+s/\bcfs_set_current_state\b/set_current_state/g
+/#[ \t]*define[ \t]*\bset_current_state\b *( *\w* *)[ \t]*\bset_current_state\b *( *\w* *)/d
+s/\bcfs_wait_event\b/wait_event/g
+/#[ \t]*define[ \t]*\bwait_event\b *( *\w* *, *\w* *)[ \t]*\bwait_event\b *( *\w* *, *\w* *)/d
+s/\bcfs_waitlink_t\b/wait_queue_t/g
+/typedef[ \t]*\bwait_queue_t\b[ \t]*\bwait_queue_t\b/d
+s/\bcfs_waitq_t\b/wait_queue_head_t/g
+/typedef[ \t]*\bwait_queue_head_t\b[ \t]*\bwait_queue_head_t\b/d
+#s/\bcfs_task_state_t\b/task_state_t/g
+s/\bcfs_waitq_init\b/init_waitqueue_head/g
+/#[ \t]*define[ \t]*\binit_waitqueue_head\b *( *\w* *)[ \t]*\binit_waitqueue_head\b *( *\w* *)/d
+s/\bcfs_waitlink_init\b/init_waitqueue_entry_current/g
+s/\bcfs_waitq_add\b/add_wait_queue/g
+/#[ \t]*define[ \t]*\badd_wait_queue\b *( *\w* *, *\w* *)[ \t]*\badd_wait_queue\b *( *\w* *, *\w* *)/d
+s/\bcfs_waitq_add_exclusive\b/add_wait_queue_exclusive/g
+/#[ \t]*define[ \t]*\badd_wait_queue_exclusive\b *( *\w* *, *\w* *)[ \t]*\badd_wait_queue_exclusive\b *( *\w* *, *\w* *)/d
+s/\bcfs_waitq_del\b/remove_wait_queue/g
+/#[ \t]*define[ \t]*\bremove_wait_queue\b *( *\w* *, *\w* *)[ \t]*\bremove_wait_queue\b *( *\w* *, *\w* *)/d
+s/\bcfs_waitq_active\b/waitqueue_active/g
+/#[ \t]*define[ \t]*\bwaitqueue_active\b *( *\w* *)[ \t]*\bwaitqueue_active\b *( *\w* *)/d
+s/\bcfs_waitq_signal\b/wake_up/g
+/#[ \t]*define[ \t]*\bwake_up\b *( *\w* *)[ \t]*\bwake_up\b *( *\w* *)/d
+s/\bcfs_waitq_signal_nr\b/wake_up_nr/g
+/#[ \t]*define[ \t]*\bwake_up_nr\b *( *\w* *, *\w* *)[ \t]*\bwake_up_nr\b *( *\w* *, *\w* *)/d
+s/\bcfs_waitq_broadcast\b/wake_up_all/g
+/#[ \t]*define[ \t]*\bwake_up_all\b *( *\w* *)[ \t]*\bwake_up_all\b *( *\w* *)/d
+s/\bcfs_waitq_wait\b/waitq_wait/g
+s/\bcfs_waitq_timedwait\b/waitq_timedwait/g
+s/\bcfs_schedule_timeout\b/schedule_timeout/g
+/#[ \t]*define[ \t]*\bschedule_timeout\b *( *\w* *)[ \t]*\bschedule_timeout\b *( *\w* *)/d
+s/\bcfs_schedule\b/schedule/g
+/#[ \t]*define[ \t]*\bschedule\b *( *)[ \t]*\bschedule\b *( *)/d
+s/\bcfs_need_resched\b/need_resched/g
+/#[ \t]*define[ \t]*\bneed_resched\b *( *)[ \t]*\bneed_resched\b *( *)/d
+s/\bcfs_cond_resched\b/cond_resched/g
+/#[ \t]*define[ \t]*\bcond_resched\b *( *)[ \t]*\bcond_resched\b *( *)/d
+s/\bcfs_waitq_add_exclusive_head\b/add_wait_queue_exclusive_head/g
+s/\bcfs_schedule_timeout_and_set_state\b/schedule_timeout_and_set_state/g
+# Kernel thread
+s/\bcfs_kthread_run\b/kthread_run/g
+/#[ \t]*define[ \t]*\bkthread_run\b.*\bkthread_run\b/d
+#s/\bcfs_thread_t\b/thread_t/g
+s/\bCFS_DAEMON_FLAGS\b/DAEMON_FLAGS/g
+#s/\bcfs_create_thread\b/create_thread/g
+# Task struct
+s/\bcfs_task_t\b/task_t/g
+s/\bcfs_current()/current/g
+/#[ \t]*define[ \t]*\bcurrent\b[ \t]*\bcurrent\b/d
+s/\bcfs_task_lock\b/task_lock/g
+/#[ \t]*define[ \t]*\btask_lock\b *( *\w* *)[ \t]*\btask_lock\b *( *\w* *)/d
+s/\bcfs_task_unlock\b/task_unlock/g
+/#[ \t]*define[ \t]*\btask_unlock\b *( *\w* *)[ \t]*\btask_unlock\b *( *\w* *)/d
+s/\bCFS_DECL_JOURNAL_DATA\b/DECL_JOURNAL_DATA/g
+s/\bCFS_PUSH_JOURNAL\b/PUSH_JOURNAL/g
+s/\bCFS_POP_JOURNAL\b/POP_JOURNAL/g
+# Module interfaces
+# s/\bcfs_module\b/declare_module/g
+s/\bcfs_request_module\b/request_module/g
+/#[ \t]*define[ \t]*\brequest_module\b[ \t]*\brequest_module\b/d
+# Signal
+s/\bcfs_sigset_t\b/sigset_t/g
+/typedef[ \t]*\bsigset_t\b[ \t]*\bsigset_t\b/d
+# Timer
+s/\bcfs_timer_t\b/timer_list_t/g
+s/\bCFS_MAX_SCHEDULE_TIMEOUT\b/MAX_SCHEDULE_TIMEOUT/g
+/#[ \t]*define[ \t]*\bMAX_SCHEDULE_TIMEOUT\b[ \t]*\bMAX_SCHEDULE_TIMEOUT\b/d
+# atomic
+s/\bcfs_atomic_t\b/atomic_t/g
+/typedef[ \t]*\batomic_t\b[ \t]*\batomic_t\b/d
+s/\bcfs_atomic_read\b/atomic_read/g
+/#[ \t]*define[ \t]*\batomic_read\b *( *\w* *)[ \t]*\batomic_read\b *( *\w* *)/d
+s/\bcfs_atomic_inc\b/atomic_inc/g
+/#[ \t]*define[ \t]*\batomic_inc\b *( *\w* *)[ \t]*\batomic_inc\b *( *\w* *)/d
+s/\bcfs_atomic_inc_and_test\b/atomic_inc_and_test/g
+/#[ \t]*define[ \t]*\batomic_inc_and_test\b *( *\w* *)[ \t]*\batomic_inc_and_test\b *( *\w* *)/d
+s/\bcfs_atomic_inc_return\b/atomic_inc_return/g
+/#[ \t]*define[ \t]*\batomic_inc_return\b *( *\w* *)[ \t]*\batomic_inc_return\b *( *\w* *)/d
+s/\bcfs_atomic_inc_not_zero\b/atomic_inc_not_zero/g
+/#[ \t]*define[ \t]*\batomic_inc_not_zero\b *( *\w* *)[ \t]*\batomic_inc_not_zero\b *( *\w* *)/d
+s/\bcfs_atomic_dec\b/atomic_dec/g
+/#[ \t]*define[ \t]*\batomic_dec\b *( *\w* *)[ \t]*\batomic_dec\b *( *\w* *)/d
+s/\bcfs_atomic_dec_and_test\b/atomic_dec_and_test/g
+/#[ \t]*define[ \t]*\batomic_dec_and_test\b *( *\w* *)[ \t]*\batomic_dec_and_test\b *( *\w* *)/d
+s/\bcfs_atomic_dec_return\b/atomic_dec_return/g
+/#[ \t]*define[ \t]*\batomic_dec_return\b *( *\w* *)[ \t]*\batomic_dec_return\b *( *\w* *)/d
+s/\bcfs_atomic_dec_and_lock\b/atomic_dec_and_lock/g
+/#[ \t]*define[ \t]*\batomic_dec_and_lock\b *( *\w* *, *\w* *)[ \t]*\batomic_dec_and_lock\b *( *\w* *, *\w* *)/d
+s/\bcfs_atomic_set\b/atomic_set/g
+/#[ \t]*define[ \t]*\batomic_set\b *( *\w* *, *\w* *)[ \t]*\batomic_set\b *( *\w* *, *\w* *)/d
+s/\bcfs_atomic_add\b/atomic_add/g
+/#[ \t]*define[ \t]*\batomic_add\b *( *\w* *, *\w* *)[ \t]*\batomic_add\b *( *\w* *, *\w* *)/d
+s/\bcfs_atomic_add_return\b/atomic_add_return/g
+/#[ \t]*define[ \t]*\batomic_add_return\b *( *\w* *, *\w* *)[ \t]*\batomic_add_return\b *( *\w* *, *\w* *)/d
+s/\bcfs_atomic_sub\b/atomic_sub/g
+/#[ \t]*define[ \t]*\batomic_sub\b *( *\w* *, *\w* *)[ \t]*\batomic_sub\b *( *\w* *, *\w* *)/d
+s/\bcfs_atomic_sub_and_test\b/atomic_sub_and_test/g
+/#[ \t]*define[ \t]*\batomic_sub_and_test\b *( *\w* *, *\w* *)[ \t]*\batomic_sub_and_test\b *( *\w* *, *\w* *)/d
+s/\bcfs_atomic_sub_return\b/atomic_sub_return/g
+/#[ \t]*define[ \t]*\batomic_sub_return\b *( *\w* *, *\w* *)[ \t]*\batomic_sub_return\b *( *\w* *, *\w* *)/d
+s/\bCFS_ATOMIC_INIT\b/ATOMIC_INIT/g
+/#[ \t]*define[ \t]*\bATOMIC_INIT\b *( *\w* *)[ \t]*\bATOMIC_INIT\b *( *\w* *)/d
+# membar
+s/\bcfs_mb\b/mb/g
+/#[ \t]*define[ \t]*\bmb\b *( *)[ \t]*\bmb\b *( *)/d
+# interrupt
+s/\bcfs_in_interrupt\b/in_interrupt/g
+/#[ \t]*define[ \t]*\bin_interrupt\b *( *)[ \t]*\bin_interrupt\b *( *)/d
+# might_sleep
+s/\bcfs_might_sleep\b/might_sleep/g
+/#[ \t]*define[ \t]*\bmight_sleep\b *( *)[ \t]*\bmight_sleep\b *( *)/d
+# group_info
+s/\bcfs_group_info_t\b/group_info_t/g
+s/\bcfs_get_group_info\b/get_group_info/g
+/#[ \t]*define[ \t]*\bget_group_info\b *( *\w* *)[ \t]*\bget_group_info\b *( *\w* *)/d
+s/\bcfs_put_group_info\b/put_group_info/g
+/#[ \t]*define[ \t]*\bput_group_info\b *( *\w* *)[ \t]*\bput_group_info\b *( *\w* *)/d
+s/\bcfs_set_current_groups\b/set_current_groups/g
+/#[ \t]*define[ \t]*\bset_current_groups\b *( *\w* *)[ \t]*\bset_current_groups\b *( *\w* *)/d
+s/\bcfs_groups_free\b/groups_free/g
+/#[ \t]*define[ \t]*\bgroups_free\b *( *\w* *)[ \t]*\bgroups_free\b *( *\w* *)/d
+s/\bcfs_groups_alloc\b/groups_alloc/g
+/#[ \t]*define[ \t]*\bgroups_alloc\b *( *\w* *)[ \t]*\bgroups_alloc\b *( *\w* *)/d
+# Random bytes
+s/\bcfs_get_random_bytes_prim\b/get_random_bytes/g
+/#[ \t]*define[ \t]*\bget_random_bytes\b *( *\w* *, *\w* *)[ \t]*\bget_random_bytes\b *( *\w* *, *\w* *)/d
+

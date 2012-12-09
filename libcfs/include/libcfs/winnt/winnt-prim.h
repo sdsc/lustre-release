@@ -626,8 +626,8 @@ typedef struct _TASK_SLOT {
 
 } TASK_SLOT, *PTASK_SLOT;
 
-
-#define current                      cfs_current()
+cfs_task_t * cfs_winnt_current();
+#define cfs_current()                cfs_winnt_current()
 #define cfs_set_current_state(s)     do {;} while (0)
 #define cfs_set_current_state(state) cfs_set_current_state(state)
 
@@ -673,39 +673,18 @@ do {                                                            \
    retval > 0; timed out.
 */
 
-#define cfs_waitq_wait_event_interruptible_timeout(             \
-                        wq, condition, timeout, rc)             \
-do {                                                            \
-        cfs_waitlink_t __wait;                                  \
-                                                                \
-        rc = 0;                                                 \
-        cfs_waitlink_init(&__wait);	                        \
-        while (TRUE) {                                          \
-            cfs_waitq_add(&wq, &__wait);                        \
-            if (condition) {                                    \
-                break;                                          \
-            }                                                   \
-            if (cfs_waitq_timedwait(&__wait,                    \
-                CFS_TASK_INTERRUPTIBLE, timeout) == 0) {        \
-                rc = TRUE;                                      \
-                break;                                          \
-            }                                                   \
-            cfs_waitq_del(&wq, &__wait);	                \
-        }					                \
-        cfs_waitq_del(&wq, &__wait);		                \
-} while(0)
+#define wait_event_timeout wait_event_interruptible_timeout
 
-
-#define cfs_waitq_wait_event_timeout                            \
-        cfs_waitq_wait_event_interruptible_timeout
-
+int wait_event_interruptible_timeout(cfs_waitq_t wq,
+				     int condition,
+				     cfs_duration_t timeout);
 int     init_task_manager();
 void    cleanup_task_manager();
 cfs_task_t * cfs_current();
 int     wake_up_process(cfs_task_t * task);
 void sleep_on(cfs_waitq_t *waitq);
 #define cfs_might_sleep() do {} while(0)
-#define CFS_DECL_JOURNAL_DATA	
+#define CFS_DECL_JOURNAL_DATA
 #define CFS_PUSH_JOURNAL	    do {;} while(0)
 #define CFS_POP_JOURNAL		    do {;} while(0)
 
@@ -728,6 +707,7 @@ extern cfs_module_t libcfs_global_module;
 
 #define cfs_request_module(x, y) (0)
 #define EXPORT_SYMBOL(s)
+#define CFS_EXPORT_SYMBOL(s)            EXPORT_SYMBOL(s)
 #define MODULE_AUTHOR(s)
 #define MODULE_DESCRIPTION(s)
 #define MODULE_LICENSE(s)

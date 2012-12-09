@@ -831,6 +831,7 @@ errorout:
 
     return rc;
 }
+EXPORT_SYMBOL(libcfs_arch_init);
 
 void
 libcfs_arch_cleanup(void)
@@ -858,6 +859,28 @@ libcfs_arch_cleanup(void)
 
     return;
 }
-
-EXPORT_SYMBOL(libcfs_arch_init);
 EXPORT_SYMBOL(libcfs_arch_cleanup);
+
+int wait_event_interruptible_timeout(cfs_waitq_t wq,
+				     int condition,
+				     cfs_duration_t timeout)
+{
+	int rc = 0;
+	cfs_waitlink_t __wait;
+
+	cfs_waitlink_init(&__wait);
+	while (TRUE) {
+		cfs_waitq_add(&wq, &__wait);
+		if (condition)
+			break;
+		if (cfs_waitq_timedwait(&__wait, CFS_TASK_INTERRUPTIBLE,
+					timeout) == 0) {
+			rc = TRUE;
+			break;
+		}
+		cfs_waitq_del(&wq, &__wait);
+	}
+	cfs_waitq_del(&wq, &__wait);
+	return rc;
+}
+EXPORT_SYMBOL(wait_event_interruptible_timeout);

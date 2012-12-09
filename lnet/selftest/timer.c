@@ -186,14 +186,13 @@ stt_timer_main (void *arg)
         cfs_daemonize("st_timer");
         cfs_block_allsigs();
 
-        while (!stt_data.stt_shuttingdown) {
-                stt_check_timers(&stt_data.stt_prev_slot);
+	while (!stt_data.stt_shuttingdown) {
+		stt_check_timers(&stt_data.stt_prev_slot);
 
-                cfs_waitq_wait_event_timeout(stt_data.stt_waitq,
-                                   stt_data.stt_shuttingdown,
-                                   cfs_time_seconds(STTIMER_SLOTTIME),
-                                   rc);
-        }
+		rc = wait_event_timeout(stt_data.stt_waitq,
+					stt_data.stt_shuttingdown,
+					cfs_time_seconds(STTIMER_SLOTTIME));
+	}
 
 	spin_lock(&stt_data.stt_lock);
 	stt_data.stt_nthreads--;
