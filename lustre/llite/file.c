@@ -1947,37 +1947,66 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 loff_t ll_file_seek(struct file *file, loff_t offset, int origin)
 {
-        struct inode *inode = file->f_dentry->d_inode;
-        loff_t retval;
-        ENTRY;
-        retval = offset + ((origin == 2) ? i_size_read(inode) :
-                           (origin == 1) ? file->f_pos : 0);
-        CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p), to=%llu=%#llx(%s)\n",
-               inode->i_ino, inode->i_generation, inode, retval, retval,
-               origin == 2 ? "SEEK_END": origin == 1 ? "SEEK_CUR" : "SEEK_SET");
-        ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_LLSEEK, 1);
+	struct inode *inode = file->f_dentry->d_inode;
+	loff_t retval, eof = 0;
 
-        if (origin == 2) { /* SEEK_END */
-                int rc;
+	ENTRY;
+	retval = offset + ((origin == SEEK_END) ? i_size_read(inode) :
+			   (origin == SEEK_CUR) ? file->f_pos : 0);
+	CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p), to=%llu=%#llx(%d)\n",
+	       inode->i_ino, inode->i_generation, inode, retval, retval,
+	       origin);
+	ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_LLSEEK, 1);
 
-                rc = ll_glimpse_size(inode);
-                if (rc != 0)
-                        RETURN(rc);
+	if (origin == SEEK_END || origin == SEEK_HOLE || origin == SEEK_DATA) {
+		retval = ll_glimpse_size(inode);
+		if (retval != 0)
+			goto out;
+		eof = i_size_read(inode);
+	}
 
-                offset += i_size_read(inode);
-        } else if (origin == 1) { /* SEEK_CUR */
-                offset += file->f_pos;
-        }
+	retval = -ENXIO;
+	switch (origin) {
+	case SEEK_END:
+		offset += eof;
+		break;
+	case SEEK_CUR:
+		if (offset == 0) {
+			retval = file->f_pos;
+			goto out;
+		}
+		ll_file_seek_lock(file);
+		offset += file->f_pos;
+		break;
+	case SEEK_HOLE:
+		/* Assuming all data */
+		if (offset >= eof)
+			goto out;
+		offset = eof;
+		break;
+	case SEEK_DATA:
+		/* Assuming all data */
+		if (offset >= eof)
+			goto out;
+		break;
+	}
 
-        retval = -EINVAL;
-        if (offset >= 0 && offset <= ll_file_maxbytes(inode)) {
-                if (offset != file->f_pos) {
-                        file->f_pos = offset;
-                }
-                retval = offset;
-        }
+	retval = -EINVAL;
+	if (offset < 0 && !(file->f_mode & FMODE_UNSIGNED_OFFSET))
+		goto outlock;
+	if (offset > ll_file_maxbytes(inode))
+		goto outlock;
+	if (offset != file->f_pos) {
+		file->f_pos = offset;
+		file->f_version = 0;
+	}
+	retval = offset;
 
-        RETURN(retval);
+outlock:
+	if (origin == SEEK_CUR)
+		ll_file_seek_unlock(file);
+out:
+	RETURN(retval);
 }
 
 int ll_flush(struct file *file, fl_owner_t id)
