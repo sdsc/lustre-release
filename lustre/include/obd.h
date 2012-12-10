@@ -1004,6 +1004,8 @@ struct obd_llog_group {
 #define OBD_DEVICE_MAGIC        0XAB5CD6EF
 #define OBD_DEV_BY_DEVNAME      0xffffd0de
 
+struct ptlrpc_cli_stats;
+
 struct obd_device {
         struct obd_type        *obd_type;
         __u32                   obd_magic;
@@ -1122,6 +1124,7 @@ struct obd_device {
         cfs_proc_dir_entry_t  *obd_proc_exports_entry;
         cfs_proc_dir_entry_t  *obd_svc_procroot;
         struct lprocfs_stats  *obd_svc_stats;
+	struct ptlrpc_cli_stats **obd_cli_stats;
         cfs_atomic_t           obd_evict_inprogress;
         cfs_waitq_t            obd_evict_inprogress_waitq;
         cfs_list_t             obd_evict_list; /* protected with pet_lock */

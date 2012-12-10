@@ -2023,6 +2023,7 @@ static int brw_interpret(const struct lu_env *env,
 			  req->rq_bulk->bd_nob_transferred);
 	osc_release_ppga(aa->aa_ppga, aa->aa_page_count);
 	ptlrpc_lprocfs_brw(req, req->rq_bulk->bd_nob_transferred);
+	ptlrpc_cli_tally_brw(req, req->rq_bulk->bd_nob_transferred);
 
 	client_obd_list_lock(&cli->cl_loi_list_lock);
 	/* We need to decrement before osc_ap_completion->osc_wake_cache_waiters

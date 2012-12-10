@@ -2286,10 +2286,13 @@ const char* ll_opcode2str(__u32 opcode);
 void ptlrpc_lprocfs_register_obd(struct obd_device *obd);
 void ptlrpc_lprocfs_unregister_obd(struct obd_device *obd);
 void ptlrpc_lprocfs_brw(struct ptlrpc_request *req, int bytes);
+void ptlrpc_cli_tally_brw(struct ptlrpc_request *rq, long nr_bytes);
 #else
 static inline void ptlrpc_lprocfs_register_obd(struct obd_device *obd) {}
 static inline void ptlrpc_lprocfs_unregister_obd(struct obd_device *obd) {}
 static inline void ptlrpc_lprocfs_brw(struct ptlrpc_request *req, int bytes) {}
+static inline void ptlrpc_cli_tally_brw(struct ptlrpc_request *rq,
+					long nr_bytes) {}
 #endif
 /** @} */
 

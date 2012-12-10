@@ -1243,6 +1243,7 @@ static int after_reply(struct ptlrpc_request *req)
                                     timediff);
                 ptlrpc_lprocfs_rpc_sent(req, timediff);
         }
+	ptlrpc_cli_tally_reply(req, timediff);
 
         if (lustre_msg_get_type(req->rq_repmsg) != PTL_RPC_MSG_REPLY &&
             lustre_msg_get_type(req->rq_repmsg) != PTL_RPC_MSG_ERR) {

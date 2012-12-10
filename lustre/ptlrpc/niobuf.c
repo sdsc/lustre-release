@@ -724,6 +724,7 @@ int ptl_send_rpc(struct ptlrpc_request *request, int noreply)
         if (obd->obd_svc_stats != NULL)
                 lprocfs_counter_add(obd->obd_svc_stats, PTLRPC_REQACTIVE_CNTR,
                         cfs_atomic_read(&request->rq_import->imp_inflight));
+	ptlrpc_cli_tally_active(request);
 
         OBD_FAIL_TIMEOUT(OBD_FAIL_PTLRPC_DELAY_SEND, request->rq_timeout + 5);
 

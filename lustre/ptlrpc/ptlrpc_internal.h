@@ -77,11 +77,23 @@ void ptlrpc_lprocfs_unregister_service(struct ptlrpc_service *svc);
 void ptlrpc_lprocfs_rpc_sent(struct ptlrpc_request *req, long amount);
 void ptlrpc_lprocfs_do_request_stat (struct ptlrpc_request *req,
                                      long q_usec, long work_usec);
+
+void ptlrpc_cli_tally_active(struct ptlrpc_request *rq);
+void ptlrpc_cli_tally_reply(struct ptlrpc_request *rq, long wait);
+void ptlrpc_cli_stats_init(struct obd_device *obd);
+void ptlrpc_cli_stats_fini(struct obd_device *obd);
+
 #else
 #define ptlrpc_lprocfs_register_service(params...) do{}while(0)
 #define ptlrpc_lprocfs_unregister_service(params...) do{}while(0)
 #define ptlrpc_lprocfs_rpc_sent(params...) do{}while(0)
 #define ptlrpc_lprocfs_do_request_stat(params...) do{}while(0)
+
+static inline void ptlrpc_cli_tally_active(struct ptlrpc_request *rq) {}
+static inline void ptlrpc_cli_tally_reply(struct ptlrpc_request *rq, long wait)
+{}
+static inline void ptlrpc_cli_stats_init(struct obd_device *obd) {}
+static inline void ptlrpc_cli_stats_fini(struct obd_device *obd) {}
 #endif /* LPROCFS */
 
 /* recovd_thread.c */

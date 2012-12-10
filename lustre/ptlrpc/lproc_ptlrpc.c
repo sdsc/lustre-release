@@ -770,6 +770,8 @@ void ptlrpc_lprocfs_register_obd(struct obd_device *obddev)
         ptlrpc_lprocfs_register(obddev->obd_proc_entry, NULL, "stats",
                                 &obddev->obd_svc_procroot,
                                 &obddev->obd_svc_stats);
+
+	ptlrpc_cli_stats_init(obddev);
 }
 EXPORT_SYMBOL(ptlrpc_lprocfs_register_obd);
 
@@ -831,6 +833,8 @@ void ptlrpc_lprocfs_unregister_obd(struct obd_device *obd)
 
         if (obd->obd_svc_stats)
                 lprocfs_free_stats(&obd->obd_svc_stats);
+
+	ptlrpc_cli_stats_fini(obd);
 }
 EXPORT_SYMBOL(ptlrpc_lprocfs_unregister_obd);
 
@@ -1018,5 +1022,401 @@ int lprocfs_wr_pinger_recov(struct file *file, const char *buffer,
 
 }
 EXPORT_SYMBOL(lprocfs_wr_pinger_recov);
+
+/* TODO
+ * lustre/obdclass/lprocfs_status.c:lprocfs_rd_import()
+ * uses PTLRPC_REQWAIT_CNTR, BRW_{READ,WRITE}_BYTES, OST_{READ,WRITE}.
+ *	read_data_averages:
+ *		bytes_per_rpc: 1048576
+ *		usec_per_rpc: 66610
+ *		MB_per_sec: 15.74
+ */
+
+struct ptlrpc_stat {
+	long ps_count;
+	long ps_sum;
+	long ps_min;
+	long ps_max;
+	long ps_sum_sq;
+};
+
+static inline void ps_init(struct ptlrpc_stat *s)
+{
+	s->ps_count = 0;
+	s->ps_sum = 0;
+	s->ps_min = LONG_MAX;
+	s->ps_max = LONG_MIN;
+	s->ps_sum_sq = 0;
+}
+
+static inline void ps_tally(struct ptlrpc_stat *s, long amt)
+{
+	s->ps_count++;
+	s->ps_sum += amt;
+	s->ps_min = min(s->ps_min, amt);
+	s->ps_max = max(s->ps_max, amt);
+	s->ps_sum_sq += amt * amt;
+}
+
+static inline void ps_collect(struct ptlrpc_stat *d,
+			      const struct ptlrpc_stat *s)
+{
+	if (s->ps_count <= 0)
+		return;
+
+	d->ps_count += s->ps_count;
+	d->ps_sum += s->ps_sum;
+	d->ps_min = min(d->ps_min, s->ps_min);
+	d->ps_max = max(d->ps_max, s->ps_max);
+	d->ps_sum_sq += s->ps_sum_sq;
+}
+
+struct ptlrpc_opc_stat {
+	unsigned int		pos_opc;
+	unsigned int		pos_valid;
+	struct ptlrpc_stat	pos_stat;
+};
+
+enum {
+	PCS_REQ_WAIT,
+	PCS_REQ_ACTIVE,
+	PCS_RD_BYTES,
+	PCS_WR_BYTES,
+	NR_PCS_FIXED,
+};
+
+static const char *const pcs_fixed_name[] = {
+	[PCS_REQ_WAIT]		= "req_waittime",
+	[PCS_REQ_ACTIVE]	= "req_active",
+	[PCS_RD_BYTES]		= "read_bytes",
+	[PCS_WR_BYTES]		= "write_bytes",
+};
+
+static const char *const pcs_fixed_unit[] = {
+	[PCS_REQ_WAIT]		= "usec",
+	[PCS_REQ_ACTIVE]	= "reqs",
+	[PCS_RD_BYTES]		= "bytes",
+	[PCS_WR_BYTES]		= "bytes",
+};
+
+struct ptlrpc_cli_stats {
+	atomic_t		pcs_entry, pcs_exit;
+	struct ptlrpc_stat	pcs_fixed_stats[NR_PCS_FIXED];
+	struct ptlrpc_opc_stat	pcs_opc_stats[16];
+};
+
+static inline size_t pcs_nr_fixed(const struct ptlrpc_cli_stats *c)
+{
+	return sizeof(c->pcs_fixed_stats) / sizeof(c->pcs_fixed_stats[0]);
+}
+
+static inline size_t pcs_nr_opc(const struct ptlrpc_cli_stats *c)
+{
+	return sizeof(c->pcs_opc_stats) / sizeof(c->pcs_opc_stats[0]);
+}
+
+static inline void pcs_init(struct ptlrpc_cli_stats *c)
+{
+	int j;
+
+	atomic_set(&c->pcs_entry, 0);
+	atomic_set(&c->pcs_exit, 0);
+
+	for (j = 0; j < pcs_nr_fixed(c); j++)
+		ps_init(&c->pcs_fixed_stats[j]);
+
+	for (j = 0; j < pcs_nr_opc(c); j++)
+		ps_init(&c->pcs_opc_stats[j].pos_stat);
+}
+
+static struct ptlrpc_cli_stats *pcs_from_rq(struct ptlrpc_request *rq)
+{
+	int cpu = get_cpu();
+	struct ptlrpc_cli_stats **v, *c;
+
+	if (rq->rq_import == NULL)
+		return NULL;
+
+	v = rq->rq_import->imp_obd->obd_cli_stats;
+	if (v == NULL)
+		return NULL;
+
+	c = v[cpu];
+	if (c == NULL) {
+		OBD_ALLOC_PTR(c);
+		if (c != NULL)
+			pcs_init(c);
+		/* XXX wmb(); */
+		v[cpu] = c;
+	}
+
+	if (c != NULL)
+		atomic_inc(&c->pcs_entry);
+
+	return c;
+}
+
+static inline void pcs_put(struct ptlrpc_cli_stats *c)
+{
+	if (c != NULL)
+		atomic_inc(&c->pcs_exit);
+
+	put_cpu();
+}
+
+static struct ptlrpc_stat *pcs_search(struct ptlrpc_cli_stats *c, int opc)
+{
+	struct ptlrpc_opc_stat *pos;
+	unsigned int i, m;
+
+	/* Ensure that i -> 5 * i + 1 is effective. */
+	LASSERT(4096 % pcs_nr_opc(c) == 0);
+
+	i = m = opc % pcs_nr_opc(c);
+	do {
+		pos = &(c->pcs_opc_stats[i]);
+		if (pos->pos_valid) {
+			if (pos->pos_opc == opc)
+				return &pos->pos_stat;
+		} else {
+			pos->pos_opc = opc;
+			pos->pos_valid = 1;
+			return &pos->pos_stat;
+		}
+
+		i = (5 * i + 1) % pcs_nr_opc(c);
+	} while (i != m);
+
+	CERROR("ptlrpc client stats overflow, opc %d\n", opc);
+
+	return NULL;
+}
+
+void ptlrpc_cli_tally_reply(struct ptlrpc_request *rq, long wait)
+{
+	struct ptlrpc_cli_stats *c = pcs_from_rq(rq);
+	unsigned int opc = lustre_msg_get_opc(rq->rq_reqmsg);
+	struct ptlrpc_stat *s;
+
+	if (c == NULL)
+		goto out;
+
+	ps_tally(&c->pcs_fixed_stats[PCS_REQ_WAIT], wait);
+
+	/* XXX Skip opc LDLM_ENQUEUE and MDS_REINT? */
+
+	s = pcs_search(c, opc);
+	if (s != NULL)
+		ps_tally(s, wait);
+out:
+	pcs_put(c);
+}
+
+/*	from ptl_send_rpc()
+ *	if (obd->obd_svc_stats != NULL)
+ *		lprocfs_counter_add(obd->obd_svc_stats, PTLRPC_REQACTIVE_CNTR,
+ *			cfs_atomic_read(&request->rq_import->imp_inflight));
+ */
+
+void ptlrpc_cli_tally_active(struct ptlrpc_request *rq)
+{
+	struct ptlrpc_cli_stats *c = pcs_from_rq(rq);
+	long active = atomic_read(&rq->rq_import->imp_inflight);
+
+	if (c != NULL)
+		ps_tally(&c->pcs_fixed_stats[PCS_REQ_ACTIVE], active);
+
+	pcs_put(c);
+}
+
+/* osc_request.c:brw_interpret() ptlrpc_lprocfs_brw() */
+
+void ptlrpc_cli_tally_brw(struct ptlrpc_request *rq, long nr_bytes)
+{
+	struct ptlrpc_cli_stats *c = pcs_from_rq(rq);
+	int j;
+
+	switch (lustre_msg_get_opc(rq->rq_reqmsg)) {
+	case OST_READ:
+		j = PCS_RD_BYTES;
+		break;
+	case OST_WRITE:
+		j = PCS_WR_BYTES;
+		break;
+	default:
+		LBUG();
+	}
+
+	if (c != NULL)
+		ps_tally(&c->pcs_fixed_stats[j], nr_bytes);
+
+	pcs_put(c);
+}
+EXPORT_SYMBOL(ptlrpc_cli_tally_brw);
+
+static void pcs_clear(struct ptlrpc_cli_stats **v)
+{
+	struct ptlrpc_cli_stats *c;
+	int i, j;
+
+	if (v == NULL)
+		return;
+
+	for (i = 0; i < num_possible_cpus(); i++) {
+		c = v[i];
+		if (c == NULL)
+			continue;
+
+		atomic_inc(&c->pcs_entry);
+
+		for (j = 0; i < pcs_nr_fixed(c); i++)
+			ps_init(&c->pcs_fixed_stats[j]);
+
+		for (j = 0; i < pcs_nr_opc(c); i++)
+			ps_init(&c->pcs_opc_stats[j].pos_stat);
+
+		atomic_inc(&c->pcs_exit);
+	}
+}
+
+static void pcs_collect_1(struct ptlrpc_cli_stats *c,
+			  const struct ptlrpc_cli_stats *d)
+{
+	struct ptlrpc_opc_stat o;
+	struct ptlrpc_stat *s, t;
+	int j, e;
+
+	LASSERT(pcs_nr_fixed(c) == pcs_nr_fixed(d));
+	for (j = 0; j < pcs_nr_fixed(d); j++) {
+		do {
+			e = atomic_read(&d->pcs_entry);
+			t = d->pcs_fixed_stats[j];
+		} while (e != atomic_read(&d->pcs_entry) &&
+			 e != atomic_read(&d->pcs_exit));
+
+		ps_collect(&c->pcs_fixed_stats[j], &t);
+	}
+
+	for (j = 0; j < pcs_nr_opc(d); j++) {
+		do {
+			e = atomic_read(&d->pcs_entry);
+			o = d->pcs_opc_stats[j];
+		} while (e != atomic_read(&d->pcs_entry) &&
+			 e != atomic_read(&d->pcs_exit));
+
+		if (!o.pos_valid)
+			continue;
+
+		s = pcs_search(c, o.pos_opc);
+		if (s != NULL)
+			ps_collect(s, &o.pos_stat);
+	}
+}
+
+static int pcs_seq_show(struct seq_file *p, void *u)
+{
+	const struct ptlrpc_cli_stats **v = p->private;
+	struct ptlrpc_cli_stats *c = NULL;
+	struct ptlrpc_opc_stat *o;
+	struct ptlrpc_stat *s;
+	int i, j, rc = 0;
+
+	OBD_ALLOC_PTR(c);
+	if (c == NULL) {
+		rc = -ENOMEM;
+		goto out;
+	}
+	pcs_init(c);
+
+	/* XXX Snapshot time? */
+
+	for (i = 0; i < num_possible_cpus(); i++)
+		if (v[i] != NULL)
+			pcs_collect_1(c, v[i]);
+
+	for (j = 0; j < pcs_nr_fixed(c); j++) {
+		s = &c->pcs_fixed_stats[j];
+		if (s->ps_count <= 0)
+			continue;
+
+		rc = seq_printf(p, "%-25s %ld samples [%s] %ld %ld %ld %ld\n",
+				pcs_fixed_name[j], s->ps_count,
+				pcs_fixed_unit[j], s->ps_min, s->ps_max,
+				s->ps_sum, s->ps_sum_sq);
+		if (rc < 0)
+			goto out;
+	}
+
+	for (j = 0; j < pcs_nr_opc(c); j++) {
+		o = &c->pcs_opc_stats[j];
+		if (!o->pos_valid)
+			continue;
+
+		s = &o->pos_stat;
+		if (s->ps_count <= 0)
+			continue;
+
+		rc = seq_printf(p, "%-25s %ld samples [%s] %ld %ld %ld %ld\n",
+				ll_opcode2str(o->pos_opc), s->ps_count,
+				"usec", s->ps_min, s->ps_max,
+				s->ps_sum, s->ps_sum_sq);
+		if (rc < 0)
+			goto out;
+	}
+out:
+	if (c != NULL)
+		OBD_FREE_PTR(c);
+
+	return (rc < 0) ? rc : 0;
+}
+
+static ssize_t pcs_seq_write(struct file *file, const char *buf,
+			     size_t len, loff_t *off)
+{
+	struct seq_file *p = file->private_data;
+	struct ptlrpc_cli_stats **v = p->private;
+
+	pcs_clear(v);
+
+	return len;
+}
+LPROC_SEQ_FOPS(pcs);
+
+void ptlrpc_cli_stats_init(struct obd_device *obd)
+{
+	struct ptlrpc_cli_stats **v = NULL;
+
+	if (obd->obd_proc_entry == NULL)
+		return;
+
+	OBD_ALLOC(v, num_possible_cpus() * sizeof(v[0]));
+	if (v == NULL)
+		return;
+
+	if (lprocfs_seq_create(obd->obd_proc_entry, "ptlrpc_cli_stats", 0644,
+			       &pcs_fops, v) < 0) {
+		OBD_FREE(v, num_possible_cpus() * sizeof(v[0]));
+		return;
+	}
+
+	obd->obd_cli_stats = v;
+}
+
+void ptlrpc_cli_stats_fini(struct obd_device *obd)
+{
+	struct ptlrpc_cli_stats **v = obd->obd_cli_stats;
+	int i;
+
+	obd->obd_cli_stats = NULL;
+
+	if (v == NULL)
+		return;
+
+	for (i = 0; i < num_possible_cpus(); i++)
+		if (v[i] != NULL)
+			OBD_FREE_PTR(v[i]);
+
+	OBD_FREE(v, num_possible_cpus() * sizeof(v[0]));
+}
 
 #endif /* LPROCFS */
