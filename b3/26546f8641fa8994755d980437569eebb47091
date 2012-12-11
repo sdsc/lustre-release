@@ -1,0 +1,10 @@
+Verified+1: Hudson
+Code-Review+2: Johann Lombardi <johann.lombardi@intel.com>
+Code-Review+1: Jian Yu <jian.yu@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Jay J Lan <jay.j.lan@nasa.gov>
+Submitted-by: Johann Lombardi <johann.lombardi@intel.com>
+Submitted-at: Tue, 11 Dec 2012 10:21:25 -0500
+Reviewed-on: http://review.whamcloud.com/1540
+Project: fs/lustre-release
+Branch: refs/heads/b1_8
