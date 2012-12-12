@@ -827,6 +827,13 @@ int lod_declare_striped_object(const struct lu_env *env, struct dt_object *dt,
 		GOTO(out, rc = -ENOMEM);
 	}
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_MDS_RELEASED_LAYOUT)) {
+		/* create a released layout */
+		lo->ldo_stripenr = 0;
+		lo->ldo_stripes_allocated = 0;
+		GOTO(declare, rc = 0);
+	}
+
 	/* choose OST and generate appropriate objects */
 	rc = lod_qos_prep_create(env, lo, attr, lovea, th);
 	if (rc) {
@@ -836,6 +843,7 @@ int lod_declare_striped_object(const struct lu_env *env, struct dt_object *dt,
 		GOTO(out, rc);
 	}
 
+declare:
 	/*
 	 * declare storage for striping data
 	 */
@@ -920,8 +928,6 @@ int lod_striping_create(const struct lu_env *env, struct dt_object *dt,
 	int		   rc = 0, i;
 	ENTRY;
 
-	LASSERT(lo->ldo_stripe);
-	LASSERT(lo->ldo_stripe > 0);
 	LASSERT(lo->ldo_striping_cached == 0);
 
 	/* create all underlying objects */

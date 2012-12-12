@@ -1238,5 +1238,11 @@ static struct cl_lock_closure *lov_closure_get(const struct lu_env *env,
         return closure;
 }
 
+int lov_lock_init_released(const struct lu_env *env, struct cl_object *obj,
+			   struct cl_lock *lock, const struct cl_io *io)
+{
+	RETURN(-EINVAL);
+}
+
 
 /** @} lov */

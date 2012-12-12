@@ -134,6 +134,15 @@ struct lov_stripe_md {
 #define lsm_stripe_count lsm_wire.lw_stripe_count
 #define lsm_pool_name    lsm_wire.lw_pool_name
 
+static inline bool lsm_has_objects(struct lov_stripe_md *lsm)
+{
+	if (lsm == NULL)
+		return false;
+	if (lsm->lsm_stripe_count == 0)
+		return false;
+	return true;
+}
+
 struct obd_info;
 
 typedef int (*obd_enqueue_update_f)(void *cookie, int rc);
