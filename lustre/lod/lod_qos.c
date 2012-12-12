@@ -1374,6 +1374,14 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 		 * no striping has been created so far
 		 */
 		LASSERT(lo->ldo_stripenr > 0);
+
+		if (OBD_FAIL_CHECK(OBD_FAIL_MDS_RELEASED_LAYOUT)) {
+			/* create a released layout */
+			lo->ldo_stripenr = 0;
+			lo->ldo_stripes_allocated = 0;
+			GOTO(out, rc = 0);
+		}
+
 		lo->ldo_stripenr = lod_get_stripecnt(d, LOV_MAGIC,
 				lo->ldo_stripenr);
 		i = sizeof(struct dt_object *) * lo->ldo_stripenr;

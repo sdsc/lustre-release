@@ -772,7 +772,7 @@ int ll_merge_lvb(struct inode *inode)
 	lvb.lvb_atime = lli->lli_lvb.lvb_atime;
 	lvb.lvb_mtime = lli->lli_lvb.lvb_mtime;
 	lvb.lvb_ctime = lli->lli_lvb.lvb_ctime;
-	if (lsm != NULL) {
+	if (lsm_has_objects(lsm)) {
 		rc = obd_merge_lvb(sbi->ll_dt_exp, lsm, &lvb, 0);
 		cl_isize_write_nolock(inode, lvb.lvb_size);
 
@@ -1238,7 +1238,7 @@ static int ll_lov_recreate(struct inode *inode, obd_id id, obd_seq seq,
 		RETURN(-ENOMEM);
 
 	lsm = ccc_inode_lsm_get(inode);
-        if (lsm == NULL)
+	if (!lsm_has_objects(lsm))
                 GOTO(out, rc = -ENOENT);
 
         lsm_size = sizeof(*lsm) + (sizeof(struct lov_oinfo) *
@@ -1790,30 +1790,30 @@ static int ll_data_version(struct inode *inode, __u64 *data_version,
 
 	/* If no stripe, we consider version is 0. */
 	lsm = ccc_inode_lsm_get(inode);
-	if (lsm == NULL) {
-                *data_version = 0;
-                CDEBUG(D_INODE, "No object for inode\n");
-                RETURN(0);
-        }
-
-        OBD_ALLOC_PTR(obdo);
-	if (obdo == NULL) {
-		ccc_inode_lsm_put(inode, lsm);
-		RETURN(-ENOMEM);
+	if (!lsm_has_objects(lsm)) {
+		*data_version = 0;
+		CDEBUG(D_INODE, "No object for inode\n");
+		GOTO(out, rc = 0);
 	}
 
-        rc = ll_lsm_getattr(lsm, sbi->ll_dt_exp, NULL, obdo, 0, extent_lock);
-        if (!rc) {
-                if (!(obdo->o_valid & OBD_MD_FLDATAVERSION))
-                        rc = -EOPNOTSUPP;
-                else
-                        *data_version = obdo->o_data_version;
-        }
+	OBD_ALLOC_PTR(obdo);
+	if (obdo == NULL)
+		GOTO(out, rc = -ENOMEM);
 
-        OBD_FREE_PTR(obdo);
+	rc = ll_lsm_getattr(lsm, sbi->ll_dt_exp, NULL, obdo, 0, extent_lock);
+	if (rc)
+		GOTO(out, rc);
+
+	if ((obdo->o_valid & OBD_MD_FLDATAVERSION) == 0)
+		GOTO(out, rc = -EOPNOTSUPP);
+
+	*data_version = obdo->o_data_version;
+	EXIT;
+out:
+	if (obdo != NULL)
+		OBD_FREE_PTR(obdo);
 	ccc_inode_lsm_put(inode, lsm);
-
-	RETURN(rc);
+	return rc;
 }
 
 long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
@@ -3015,7 +3015,7 @@ int ll_layout_refresh(struct inode *inode, __u32 *gen)
 		conf.u.coc_md = &md;
 		ll_layout_conf(inode, &conf);
 		/* is this racy? */
-		lli->lli_has_smd = md.lsm != NULL;
+		lli->lli_has_smd = lsm_has_objects(md.lsm);
 		if (md.lsm != NULL)
 			obd_free_memmd(sbi->ll_dt_exp, &md.lsm);
 	}
