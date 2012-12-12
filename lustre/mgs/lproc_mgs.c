@@ -145,45 +145,57 @@ out:
 
 LPROC_SEQ_FOPS_RO(mgsself_srpc);
 
-int lproc_mgs_setup(struct mgs_device *mgs, char *osd_name)
+int lproc_mgs_setup(struct mgs_device *mgs, const char *osd_name)
 {
 	struct obd_device *obd = mgs->mgs_obd;
 	struct obd_device *osd_obd = mgs->mgs_bottom->dd_lu_dev.ld_obd;
-	int		   osd_suffix = strlen(osd_name) - strlen("-osd");
-	char		   c = osd_name[osd_suffix];
+	int		   osd_name_len = strlen(osd_name) - strlen("-osd");
 	int		   rc;
+	struct lprocfs_static_vars lvars;
 
-        rc = lprocfs_obd_seq_create(obd, "filesystems", 0444,
-                                    &mgs_fs_fops, obd);
-        rc = lprocfs_obd_seq_create(obd, "srpc_rules", 0600,
-                                    &mgsself_srpc_fops, obd);
+	lprocfs_mgs_init_vars(&lvars);
+	rc = lprocfs_obd_setup(obd, lvars.obd_vars);
+	if (rc != 0)
+		return rc;
 
-        mgs->mgs_proc_live = lprocfs_register("live", obd->obd_proc_entry,
-                                              NULL, NULL);
+	rc = lprocfs_obd_seq_create(obd, "filesystems", 0444,
+				    &mgs_fs_fops, obd);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	rc = lprocfs_obd_seq_create(obd, "srpc_rules", 0600,
+				    &mgsself_srpc_fops, obd);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	mgs->mgs_proc_live = lprocfs_register("live", obd->obd_proc_entry,
+					      NULL, NULL);
         if (IS_ERR(mgs->mgs_proc_live)) {
                 rc = PTR_ERR(mgs->mgs_proc_live);
-                CERROR("error %d setting up lprocfs for %s\n", rc, "live");
                 mgs->mgs_proc_live = NULL;
+		GOTO(out, rc);
         }
 
-        obd->obd_proc_exports_entry = lprocfs_register("exports",
-                                                       obd->obd_proc_entry,
+	obd->obd_proc_exports_entry = lprocfs_register("exports",
+						       obd->obd_proc_entry,
                                                        NULL, NULL);
-        if (IS_ERR(obd->obd_proc_exports_entry)) {
-                rc = PTR_ERR(obd->obd_proc_exports_entry);
-                CERROR("error %d setting up lprocfs for %s\n", rc, "exports");
-                obd->obd_proc_exports_entry = NULL;
+	if (IS_ERR(obd->obd_proc_exports_entry)) {
+		rc = PTR_ERR(obd->obd_proc_exports_entry);
+		obd->obd_proc_exports_entry = NULL;
+		GOTO(out, rc);
         }
 
-	osd_name[osd_suffix] = '\0'; /* Remove the "-osd" suffix. */
 	mgs->mgs_proc_mntdev = lprocfs_add_symlink("mntdev",
 						   obd->obd_proc_entry,
-						   "../../%s/%s/mntdev",
+						   "../../%s/%.*s/mntdev",
 						   osd_obd->obd_type->typ_name,
-						   osd_name);
-	osd_name[osd_suffix] = c;
+						   osd_name_len, osd_name);
 	if (mgs->mgs_proc_mntdev == NULL)
-		rc = -ENOMEM;
+		GOTO(out, rc = -ENOMEM);
+
+out:
+	if (rc != 0)
+		lproc_mgs_cleanup(mgs);
 
 	return rc;
 }
@@ -205,7 +217,6 @@ int lproc_mgs_cleanup(struct mgs_device *mgs)
         }
         lprocfs_free_per_client_stats(obd);
         lprocfs_free_obd_stats(obd);
-        lprocfs_free_md_stats(obd);
 
         return lprocfs_obd_cleanup(obd);
 }
