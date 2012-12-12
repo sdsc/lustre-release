@@ -421,7 +421,6 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 	ENTRY;
 
 	LASSERT(lo);
-	LASSERT(lo->ldo_stripenr > 0);
 
 	magic = lo->ldo_pool ? LOV_MAGIC_V3 : LOV_MAGIC_V1;
 	lmm_size = lov_mds_md_size(lo->ldo_stripenr, magic);
@@ -579,6 +578,10 @@ int lod_initialize_objects(const struct lu_env *env, struct lod_object *lo,
 	ENTRY;
 
 	LASSERT(lo);
+
+	if (lo->ldo_stripenr == 0)
+		RETURN(0);
+
 	LASSERT(lo->ldo_stripe == NULL);
 	LASSERT(lo->ldo_stripenr > 0);
 	LASSERT(lo->ldo_stripe_size > 0);

@@ -1406,7 +1406,6 @@ out_big:
  */
 int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
 {
-	struct lov_stripe_md *lsm;
         struct inode *inode = dentry->d_inode;
         struct ll_inode_info *lli = ll_i2info(inode);
         struct md_op_data *op_data = NULL;
@@ -1488,17 +1487,6 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
 		if (ia_valid & ATTR_SIZE)
 			inode_dio_wait(inode);
 	}
-
-	/* We need a steady stripe configuration for setattr to avoid
-	 * confusion. */
-	lsm = ccc_inode_lsm_get(inode);
-
-	/* NB: ATTR_SIZE will only be set after this point if the size
-	 * resides on the MDS, ie, this file has no objects. */
-	if (lsm != NULL)
-		attr->ia_valid &= ~ATTR_SIZE;
-	/* can't call ll_setattr_ost() while holding a refcount of lsm */
-	ccc_inode_lsm_put(inode, lsm);
 
         memcpy(&op_data->op_attr, attr, sizeof(*attr));
 
@@ -1981,8 +1969,10 @@ int ll_iocontrol(struct inode *inode, struct file *file,
 		inode->i_flags = ll_ext_to_inode_flags(flags);
 
 		lsm = ccc_inode_lsm_get(inode);
-		if (lsm == NULL)
+		if (!lsm_has_objects(lsm)) {
+			ccc_inode_lsm_put(inode, lsm);
 			RETURN(0);
+		}
 
 		OBDO_ALLOC(oinfo.oi_oa);
 		if (!oinfo.oi_oa) {

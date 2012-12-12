@@ -232,7 +232,7 @@ static int lov_init_raid0(const struct lu_env *env,
 static int lov_delete_empty(const struct lu_env *env, struct lov_object *lov,
 			    union lov_layout_state *state)
 {
-	LASSERT(lov->lo_type == LLT_EMPTY);
+	LASSERT(lov->lo_type == LLT_EMPTY || lov->lo_type == LLT_RELEASED);
 	cl_object_prune(env, &lov->lo_cl);
 	return 0;
 }
@@ -317,7 +317,7 @@ static int lov_delete_raid0(const struct lu_env *env, struct lov_object *lov,
 static void lov_fini_empty(const struct lu_env *env, struct lov_object *lov,
                            union lov_layout_state *state)
 {
-        LASSERT(lov->lo_type == LLT_EMPTY);
+	LASSERT(lov->lo_type == LLT_EMPTY || lov->lo_type == LLT_RELEASED);
 }
 
 static void lov_fini_raid0(const struct lu_env *env, struct lov_object *lov,
@@ -362,6 +362,13 @@ static int lov_print_raid0(const struct lu_env *env, void *cookie,
                         (*p)(env, cookie, "sub %d absent\n", i);
         }
         return 0;
+}
+
+static int lov_print_released(const struct lu_env *env, void *cookie,
+			      lu_printer_t p, const struct lu_object *o)
+{
+	(*p)(env, cookie, "released\n");
+	return 0;
 }
 
 /**
@@ -434,6 +441,20 @@ static int lov_attr_get_raid0(const struct lu_env *env, struct cl_object *obj,
         RETURN(result);
 }
 
+/**
+ * Implements cl_object_operations::coo_attr_get() method for a released object
+ * which has no stripes (LLT_RELEASED layout type).
+ *
+ * The only attributes this layer is authoritative in this case is
+ * cl_attr::cat_blocks---it's 0.
+ */
+static int lov_attr_get_released(const struct lu_env *env,
+				 struct cl_object *obj, struct cl_attr *attr)
+{
+	attr->cat_blocks = 0;
+	return 0;
+}
+
 const static struct lov_layout_operations lov_dispatch[] = {
         [LLT_EMPTY] = {
                 .llo_init      = lov_init_empty,
@@ -456,9 +477,19 @@ const static struct lov_layout_operations lov_dispatch[] = {
                 .llo_lock_init = lov_lock_init_raid0,
                 .llo_io_init   = lov_io_init_raid0,
                 .llo_getattr   = lov_attr_get_raid0
-        }
+	},
+	[LLT_RELEASED] = {
+		.llo_init      = lov_init_empty,
+		.llo_delete    = lov_delete_empty,
+		.llo_fini      = lov_fini_empty,
+		.llo_install   = lov_install_empty,
+		.llo_print     = lov_print_released,
+		.llo_page_init = lov_page_init_released,
+		.llo_lock_init = lov_lock_init_released,
+		.llo_io_init   = lov_io_init_released,
+		.llo_getattr   = lov_attr_get_released
+	},
 };
-
 
 /**
  * Performs a double-dispatch based on the layout type of an object.
@@ -472,6 +503,18 @@ const static struct lov_layout_operations lov_dispatch[] = {
         LASSERT(0 <= __llt && __llt < ARRAY_SIZE(lov_dispatch));        \
         lov_dispatch[__llt].op(__VA_ARGS__);                            \
 })
+
+/**
+ * Return lov_layout_type associated with a given lsm
+ */
+enum lov_layout_type lov_type(struct lov_stripe_md *lsm)
+{
+	if (lsm == NULL)
+		return LLT_EMPTY;
+	if (lsm->lsm_wire.lw_stripe_count == 0)
+		return LLT_RELEASED;
+	return LLT_RAID0;
+}
 
 static inline void lov_conf_freeze(struct lov_object *lov)
 {
@@ -550,57 +593,43 @@ static int lov_layout_wait(const struct lu_env *env, struct lov_object *lov)
 	RETURN(0);
 }
 
-static int lov_layout_change(const struct lu_env *unused,
+static int lov_layout_change(const struct lu_env *env,
                              struct lov_object *lov, enum lov_layout_type llt,
                              const struct cl_object_conf *conf)
 {
-	int result;
-	union lov_layout_state *state = &lov->u;
-	const struct lov_layout_operations *old_ops;
-	const struct lov_layout_operations *new_ops;
-
-	struct cl_object_header *hdr = cl_object_header(&lov->lo_cl);
-	void *cookie;
-	struct lu_env *env;
-	int refcheck;
+	union lov_layout_state			*state = &lov->u;
+	const struct lov_layout_operations	*old_ops, *new_ops;
+	struct cl_object_header			*hdr;
+	int					 result;
 
 	LASSERT(0 <= lov->lo_type && lov->lo_type < ARRAY_SIZE(lov_dispatch));
 	LASSERT(0 <= llt && llt < ARRAY_SIZE(lov_dispatch));
 	ENTRY;
 
-	cookie = cl_env_reenter();
-	env = cl_env_get(&refcheck);
-	if (IS_ERR(env)) {
-		cl_env_reexit(cookie);
-		RETURN(PTR_ERR(env));
-	}
-
 	old_ops = &lov_dispatch[lov->lo_type];
 	new_ops = &lov_dispatch[llt];
+	hdr = cl_object_header(&lov->lo_cl);
 
 	result = old_ops->llo_delete(env, lov, &lov->u);
-	if (result == 0) {
-		old_ops->llo_fini(env, lov, &lov->u);
-		LASSERT(cfs_list_empty(&hdr->coh_locks));
-		LASSERT(hdr->coh_tree.rnode == NULL);
-		LASSERT(hdr->coh_pages == 0);
+	if (result)
+		RETURN(result);
 
-		lov->lo_type = LLT_EMPTY;
-		result = new_ops->llo_init(env,
-					lu2lov_dev(lov->lo_cl.co_lu.lo_dev),
-					lov, conf, state);
-		if (result == 0) {
-			new_ops->llo_install(env, lov, state);
-			lov->lo_type = llt;
-		} else {
-			new_ops->llo_delete(env, lov, state);
-			new_ops->llo_fini(env, lov, state);
-			/* this file becomes an EMPTY file. */
-		}
+	LASSERT(cfs_list_empty(&hdr->coh_locks));
+	LASSERT(hdr->coh_tree.rnode == NULL);
+	LASSERT(hdr->coh_pages == 0);
+
+	lov->lo_type = LLT_EMPTY;
+	result = new_ops->llo_init(env, lu2lov_dev(lov->lo_cl.co_lu.lo_dev),
+				   lov, conf, state);
+	if (result == 0) {
+		new_ops->llo_install(env, lov, state);
+		lov->lo_type = llt;
+	} else {
+		new_ops->llo_delete(env, lov, state);
+		new_ops->llo_fini(env, lov, state);
+		/* this file becomes an EMPTY file. */
 	}
 
-	cl_env_put(env, &refcheck);
-	cl_env_reexit(cookie);
 	RETURN(result);
 }
 
@@ -609,7 +638,6 @@ static int lov_layout_change(const struct lu_env *unused,
  * Lov object operations.
  *
  */
-
 int lov_object_init(const struct lu_env *env, struct lu_object *obj,
                     const struct lu_object_conf *conf)
 {
@@ -625,7 +653,7 @@ int lov_object_init(const struct lu_env *env, struct lu_object *obj,
 	cfs_waitq_init(&lov->lo_waitq);
 
         /* no locking is necessary, as object is being created */
-        lov->lo_type = cconf->u.coc_md->lsm != NULL ? LLT_RAID0 : LLT_EMPTY;
+	lov->lo_type = lov_type(cconf->u.coc_md->lsm);
         ops = &lov_dispatch[lov->lo_type];
         result = ops->llo_init(env, dev, lov, cconf, set);
         if (result == 0)
@@ -636,9 +664,11 @@ int lov_object_init(const struct lu_env *env, struct lu_object *obj,
 static int lov_conf_set(const struct lu_env *env, struct cl_object *obj,
                         const struct cl_object_conf *conf)
 {
-	struct lov_stripe_md *lsm = NULL;
-	struct lov_object *lov = cl2lov(obj);
-	int result = 0;
+	struct lov_stripe_md	*lsm = NULL;
+	struct lov_object	*lov = cl2lov(obj);
+	enum lov_layout_type	 type;
+	int			 result;
+
 	ENTRY;
 
 	lov_conf_lock(lov);
@@ -659,27 +689,22 @@ static int lov_conf_set(const struct lu_env *env, struct cl_object *obj,
 
 	/* will change layout */
 	lov_layout_wait(env, lov);
+	type = lov_type(lsm);
 
 	/*
-	 * Only LLT_EMPTY <-> LLT_RAID0 transitions are supported.
+	 * LLT_EMPTY    -> LLT_RAID0    : layout creation
+	 * LLT_RAID0    -> LLT_RELEASED : release layout
+	 * LLT_RELEASED -> LLT_RAID0    : restore layout
 	 */
-	switch (lov->lo_type) {
-	case LLT_EMPTY:
-		if (lsm != NULL)
-			result = lov_layout_change(env, lov, LLT_RAID0, conf);
-		break;
-	case LLT_RAID0:
-		if (lsm == NULL)
-			result = lov_layout_change(env, lov, LLT_EMPTY, conf);
-		else if (lov_stripe_md_cmp(lov->lo_lsm, lsm))
-			result = -EOPNOTSUPP;
-		break;
-	default:
-		LBUG();
+	if ((lov->lo_type == LLT_EMPTY && type == LLT_RAID0) ||
+	    (lov->lo_type == LLT_RAID0 && type == LLT_RELEASED) ||
+	    (lov->lo_type == LLT_RELEASED && type == LLT_RAID0)) {
+		result = lov_layout_change(env, lov, type, conf);
+		lov->lo_lsm_invalid = result != 0;
+	} else {
+		result = -EOPNOTSUPP;
 	}
-	lov->lo_lsm_invalid = result != 0;
 	EXIT;
-
 out:
 	lov_conf_unlock(lov);
 	RETURN(result);
@@ -887,6 +912,7 @@ int lov_read_and_clear_async_rc(struct cl_object *clob)
 				loi->loi_ar.ar_rc = 0;
 			}
 		}
+		case LLT_RELEASED:
 		case LLT_EMPTY:
 			break;
 		default:

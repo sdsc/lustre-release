@@ -165,7 +165,7 @@ int lov_packmd(struct obd_export *exp, struct lov_mds_md **lmmp,
         if (lsm) {
                 /* If we are just sizing the EA, limit the stripe count
                  * to the actual number of OSTs in this filesystem. */
-                if (!lmmp) {
+		if (!lmmp && lsm_has_objects(lsm)) {
                         stripe_count = lov_get_stripecnt(lov, lmm_magic,
                                                          lsm->lsm_stripe_count);
                         lsm->lsm_stripe_count = stripe_count;
@@ -323,7 +323,8 @@ int lov_alloc_memmd(struct lov_stripe_md **lsmp, __u16 stripe_count,
         (*lsmp)->lsm_pattern = pattern;
         (*lsmp)->lsm_pool_name[0] = '\0';
         (*lsmp)->lsm_layout_gen = 0;
-        (*lsmp)->lsm_oinfo[0]->loi_ost_idx = ~0;
+	if (stripe_count > 0)
+		(*lsmp)->lsm_oinfo[0]->loi_ost_idx = ~0;
 
         for (i = 0; i < stripe_count; i++)
                 loi_init((*lsmp)->lsm_oinfo[i]);

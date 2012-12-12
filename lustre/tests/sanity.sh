@@ -10233,6 +10233,23 @@ test_230b() {
 }
 run_test 230b "nested remote directory should be failed"
 
+# XXX To be moved to sanity-hsm once this script is landed (see review 3035)
+test_240() {
+	#create a file with a release layout (stripe count = 0)
+#define OBD_FAIL_MDS_RELEASED_LAYOUT    0x149
+	do_facet $SINGLEMDS lctl set_param fail_loc=0x149
+	touch $DIR/$tfile || error "failed to create file w. released layout"
+	do_facet $SINGLEMDS lctl set_param fail_loc=0
+
+	$GETSTRIPE $DIR/$tfile || error "failed to getstripe released file"
+	stripe_count=$($GETSTRIPE -c $DIR/$tfile) || error "getstripe failed"
+	[ $stripe_count -eq 0 ] || error "stripe count not 0 ($stripe_count)"
+
+	stat $DIR/$tfile || error "failed to stat released file"
+	rm $DIR/$tfile || error "failed to remove released file"
+}
+run_test 240 "nested remote directory should be failed"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
