@@ -2464,6 +2464,13 @@ test_71() {
 }
 run_test 71 "correct file map just after write operation is finished"
 
+test_71() {
+	dd if=/dev/zero of=$DIR1/$tfile-1 bs=1K count=1
+	dd if=/dev/zero of=$DIR1/$tfile-2 bs=1K count=1
+	flocks_test 4 $DIR1/$tfile-1 $DIR2/$tfile-2
+}
+run_test 71 "flock deadlock: different mounts =============="
+
 log "cleanup: ======================================================"
 
 [ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2
