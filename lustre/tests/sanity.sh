@@ -7937,8 +7937,9 @@ check_stats() {
 	local res
 	local count
 	case $1 in
-	$SINGLEMDS) res=`do_facet $SINGLEMDS $LCTL get_param mdt.$FSNAME-MDT0000.md_stats | grep "$2"`
-		 ;;
+	$SINGLEMDS) res=$(do_facet $SINGLEMDS $LCTL get_param \
+			mdt.$FSNAME-MDT0000.stats | grep "$2")
+		;;
 	ost) res=`do_facet ost1 $LCTL get_param obdfilter.$FSNAME-OST0000.stats | grep "$2"`
 		 ;;
 	*) error "Wrong argument $1" ;;
@@ -7963,7 +7964,7 @@ test_133a() {
 	mkdir -p $DIR/${tdir}
 
 	# clear stats.
-	do_facet $SINGLEMDS $LCTL set_param mdt.*.md_stats=clear
+	do_facet $SINGLEMDS $LCTL set_param mdt.*.stats=clear
 	do_facet ost1 $LCTL set_param obdfilter.*.stats=clear
 
 	# verify mdt stats first.
@@ -8007,13 +8008,13 @@ test_133b() {
 	cancel_lru_locks mdc
 
 	# clear stats.
-	do_facet $SINGLEMDS $LCTL set_param mdt.*.md_stats=clear
+	do_facet $SINGLEMDS $LCTL set_param mdt.*.stats=clear
 	do_facet ost1 $LCTL set_param obdfilter.*.stats=clear
 
 	# extra mdt stats verification.
 	chmod 444 ${testdir}/${tfile} || error "chmod failed"
 	check_stats $SINGLEMDS "setattr" 1
-	do_facet $SINGLEMDS $LCTL set_param mdt.*.md_stats=clear
+	do_facet $SINGLEMDS $LCTL set_param mdt.*.stats=clear
 	if [ $(lustre_version_code $SINGLEMDS) -ne $(version_code 2.2.0) ]
 	then		# LU-1740
 		ls -l ${testdir}/${tfile} > /dev/null|| error "ls failed"
@@ -8040,7 +8041,7 @@ test_133c() {
 	wait_delete_completed
 
 	# clear stats.
-	do_facet $SINGLEMDS $LCTL set_param mdt.*.md_stats=clear
+	do_facet $SINGLEMDS $LCTL set_param mdt.*.stats=clear
 	do_facet ost1 $LCTL set_param obdfilter.*.stats=clear
 
 	dd if=/dev/zero of=${testdir}/${tfile} conv=notrunc bs=512k count=1 || error "dd failed"
