@@ -24,6 +24,8 @@
  * Copyright (c) 2012 Intel, Inc.
  * Use is subject to license terms.
  *
+ * Copyright (c) 2012, Intel Corporation.
+ *
  * lustre/osp/osp_ost.c
  *
  * OSP on OST for communicating with MDT0

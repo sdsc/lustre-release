@@ -24,6 +24,8 @@
  * Copyright (c) 2012, Intel, Inc.
  * Use is subject to license terms.
  *
+ * Copyright (c) 2012, Intel Corporation.
+ *
  * lustre/mdt/mdt_lvb.c
  *
  * Author: Jinshan Xiong <jinshan.xiong@intel.com>

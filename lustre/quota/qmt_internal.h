@@ -23,6 +23,8 @@
 /*
  * Copyright (c) 2012 Intel, Inc.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2012, Intel Corporation.
  */
 
 #include "lquota_internal.h"
