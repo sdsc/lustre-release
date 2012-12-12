@@ -169,6 +169,8 @@ enum lov_layout_type {
         LLT_EMPTY,
         /** striped file */
         LLT_RAID0,
+	/** released file */
+	LLT_RELEASED,
         LLT_NR
 };
 
@@ -253,6 +255,8 @@ struct lov_object {
                 } raid0;
                 struct lov_layout_state_empty {
                 } empty;
+		struct lov_layout_state_released {
+		} released;
         } u;
         /**
          * Thread that acquired lov_object::lo_type_guard in an exclusive
@@ -585,8 +589,12 @@ int   lov_lock_init_empty (const struct lu_env *env, struct cl_object *obj,
                            struct cl_lock *lock, const struct cl_io *io);
 int   lov_io_init_raid0   (const struct lu_env *env, struct cl_object *obj,
                            struct cl_io *io);
+int   lov_lock_init_released(const struct lu_env *env, struct cl_object *obj,
+			     struct cl_lock *lock, const struct cl_io *io);
 int   lov_io_init_empty   (const struct lu_env *env, struct cl_object *obj,
                            struct cl_io *io);
+int   lov_io_init_released(const struct lu_env *env, struct cl_object *obj,
+			   struct cl_io *io);
 void  lov_lock_unlink     (const struct lu_env *env, struct lov_lock_link *link,
                            struct lovsub_lock *sub);
 
@@ -609,6 +617,10 @@ struct cl_page   *lov_page_init_empty(const struct lu_env *env,
 struct cl_page   *lov_page_init_raid0(const struct lu_env *env,
                                       struct cl_object *obj,
                                       struct cl_page *page, cfs_page_t *vmpage);
+struct cl_page   *lov_page_init_released(const struct lu_env *env,
+					 struct cl_object *obj,
+					 struct cl_page *page,
+					 cfs_page_t *vmpage);
 struct lu_object *lov_object_alloc   (const struct lu_env *env,
                                       const struct lu_object_header *hdr,
                                       struct lu_device *dev);
