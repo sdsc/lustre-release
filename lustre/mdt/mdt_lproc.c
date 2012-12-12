@@ -237,11 +237,14 @@ int mdt_procfs_init(struct mdt_device *mdt, const char *name)
 
         lprocfs_mdt_init_vars(&lvars);
         rc = lprocfs_obd_setup(obd, lvars.obd_vars);
-        if (rc) {
-                CERROR("Can't init lprocfs, rc %d\n", rc);
-                return rc;
-        }
-        ptlrpc_lprocfs_register_obd(obd);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	rc = lprocfs_alloc_obd_stats(obd, LPROC_MDT_LAST);
+	if (rc != 0)
+		GOTO(out, rc);
+	mdt_stats_counter_init(obd->obd_stats);
+	lprocfs_add_symlink("md_stats", obd->obd_proc_entry, "stats");
 
         mdt->mdt_proc_entry = obd->obd_proc_entry;
         LASSERT(mdt->mdt_proc_entry != NULL);
@@ -262,20 +265,19 @@ int mdt_procfs_init(struct mdt_device *mdt, const char *name)
                 lprocfs_add_simple(obd->obd_proc_exports_entry,
                                    "clear", lprocfs_nid_stats_clear_read,
                                    lprocfs_nid_stats_clear_write, obd, NULL);
-        rc = lprocfs_alloc_md_stats(obd, LPROC_MDT_LAST);
-	if (rc)
-		return rc;
-	mdt_stats_counter_init(obd->md_stats);
 
 	rc = lprocfs_job_stats_init(obd, LPROC_MDT_LAST,
 				    mdt_stats_counter_init);
 
         rc = lproc_mdt_attach_rename_seqstat(mdt);
-        if (rc)
-                CERROR("%s: MDT can not create rename stats rc = %d\n",
-                       obd->obd_name, rc);
+	if (rc != 0)
+		GOTO(out, rc);
 
-        RETURN(rc);
+out:
+	if (rc != 0)
+		mdt_procfs_fini(mdt);
+
+	return rc;
 }
 
 int mdt_procfs_fini(struct mdt_device *mdt)
@@ -291,13 +293,11 @@ int mdt_procfs_fini(struct mdt_device *mdt)
         }
         lprocfs_free_per_client_stats(obd);
         lprocfs_obd_cleanup(obd);
-        ptlrpc_lprocfs_unregister_obd(obd);
         if (mdt->mdt_proc_entry) {
                 lu_time_fini(&ld->ld_site->ls_time_stats);
                 lu_time_fini(&mdt->mdt_stats);
                 mdt->mdt_proc_entry = NULL;
         }
-        lprocfs_free_md_stats(obd);
         lprocfs_free_obd_stats(obd);
 
         RETURN(0);
@@ -1038,8 +1038,8 @@ void mdt_counter_incr(struct ptlrpc_request *req, int opcode)
 {
 	struct obd_export *exp = req->rq_export;
 
-	if (exp->exp_obd && exp->exp_obd->md_stats)
-		lprocfs_counter_incr(exp->exp_obd->md_stats, opcode);
+	if (exp->exp_obd && exp->exp_obd->obd_stats)
+		lprocfs_counter_incr(exp->exp_obd->obd_stats, opcode);
 	if (exp->exp_nid_stats && exp->exp_nid_stats->nid_stats != NULL)
 		lprocfs_counter_incr(exp->exp_nid_stats->nid_stats, opcode);
 	if (exp->exp_obd && exp->exp_obd->u.obt.obt_jobstats.ojs_hash &&
