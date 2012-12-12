@@ -956,4 +956,37 @@ int lov_io_init_empty(const struct lu_env *env, struct cl_object *obj,
 	RETURN(result != 0);
 }
 
+int lov_io_init_released(const struct lu_env *env, struct cl_object *obj,
+			 struct cl_io *io)
+{
+	struct lov_io *lio = lov_env_io(env);
+	int result;
+	ENTRY;
+
+	lio->lis_lsm = NULL;
+	switch (io->ci_type) {
+	case CIT_FSYNC:
+	case CIT_SETATTR:
+		result = +1;
+		break;
+	case CIT_MISC:
+	case CIT_READ:
+	case CIT_WRITE:
+		result = -EBADF;
+		break;
+	case CIT_FAULT:
+		result = -EFAULT;
+		CERROR("Page fault on released file: "DFID"\n",
+		       PFID(lu_object_fid(&obj->co_lu)));
+		break;
+	default:
+		LBUG();
+		result = 0;
+		break;
+	}
+	if (result == 0)
+		cl_io_slice_add(io, &lio->lis_cl, obj, &lov_empty_io_ops);
+	io->ci_result = result < 0 ? result : 0;
+	RETURN(result != 0);
+}
 /** @} lov */
