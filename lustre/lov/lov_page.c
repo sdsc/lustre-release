@@ -231,6 +231,10 @@ int lov_page_init_empty(const struct lu_env *env, struct cl_object *obj,
         RETURN(0);
 }
 
+int lov_page_init_released(const struct lu_env *env, struct cl_object *obj,
+			   struct cl_page *page, cfs_page_t *vmpage)
+{
+	RETURN(-EINVAL);
+}
 
 /** @} lov */
-
