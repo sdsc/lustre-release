@@ -143,36 +143,6 @@ struct mdt_handler {
         const struct req_format *mh_fmt;
 };
 
-enum mdt_handler_flags {
-        /*
-         * struct mdt_body is passed in the incoming message, and object
-         * identified by this fid exists on disk.
-         *
-         * "habeo corpus" == "I have a body"
-         */
-        HABEO_CORPUS = (1 << 0),
-        /*
-         * struct ldlm_request is passed in the incoming message.
-         *
-         * "habeo clavis" == "I have a key"
-         */
-        HABEO_CLAVIS = (1 << 1),
-        /*
-         * this request has fixed reply format, so that reply message can be
-         * packed by generic code.
-         *
-         * "habeo refero" == "I have a reply"
-         */
-        HABEO_REFERO = (1 << 2),
-        /*
-         * this request will modify something, so check whether the filesystem
-         * is readonly or not, then return -EROFS to client asap if necessary.
-         *
-         * "mutabor" == "I shall modify"
-         */
-        MUTABOR      = (1 << 3)
-};
-
 struct mdt_opc_slice {
         __u32               mos_opc_start;
         int                 mos_opc_end;
