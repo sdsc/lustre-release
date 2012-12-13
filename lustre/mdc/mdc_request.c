@@ -2101,6 +2101,7 @@ static int mdc_setup(struct obd_device *obd, struct lustre_cfg *cfg)
                 GOTO(err_close_lock, rc);
         lprocfs_mdc_init_vars(&lvars);
         lprocfs_obd_setup(obd, lvars.obd_vars);
+	lprocfs_alloc_md_stats(obd, 0);
         sptlrpc_lprocfs_cliobd_attach(obd);
         ptlrpc_lprocfs_register_obd(obd);
 
@@ -2161,6 +2162,7 @@ static int mdc_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
                 obd_cleanup_client_import(obd);
                 ptlrpc_lprocfs_unregister_obd(obd);
                 lprocfs_obd_cleanup(obd);
+		lprocfs_free_md_stats(obd);
 
                 rc = obd_llog_finish(obd, 0);
                 if (rc != 0)
