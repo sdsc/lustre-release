@@ -159,115 +159,119 @@ struct fld_seq_param {
 	struct dt_it  *fsp_it;
 };
 
-static void *fldb_seq_start(struct seq_file *p, loff_t *pos)
-{
-	struct lu_server_fld	*fld = p->private;
-	struct dt_object	*obj;
-	const struct dt_it_ops	*iops;
-	struct fld_seq_param	*param;
-
-	if (fld->lsf_obj == NULL)
-		return NULL;
-
-	obj = fld->lsf_obj;
-	iops = &obj->do_index_ops->dio_it;
-
-	OBD_ALLOC_PTR(param);
-	if (param == NULL)
-		return ERR_PTR(-ENOMEM);
-
-	lu_env_init(&param->fsp_env, LCT_MD_THREAD);
-	param->fsp_it = iops->init(&param->fsp_env, obj, 0, NULL);
-
-	iops->load(&param->fsp_env, param->fsp_it, *pos);
-
-	return param;
-}
-
 static void fldb_seq_stop(struct seq_file *p, void *v)
 {
 	struct lu_server_fld	*fld = p->private;
-	struct dt_object	*obj;
+	struct dt_object	*obj = fld->lsf_obj;
 	const struct dt_it_ops	*iops;
-	struct fld_seq_param	*param = (struct fld_seq_param *)v;
+	struct fld_seq_param	*fsp = (struct fld_seq_param *) v;
 
-	if (fld->lsf_obj == NULL)
+	if (obj == NULL || fsp == NULL || IS_ERR(fsp))
 		return;
 
-	obj = fld->lsf_obj;
 	iops = &obj->do_index_ops->dio_it;
-	if (IS_ERR(param) || param == NULL)
-		return;
+	iops->put(&fsp->fsp_env, fsp->fsp_it);
+	iops->fini(&fsp->fsp_env, fsp->fsp_it);
+	lu_env_fini(&fsp->fsp_env);
+	OBD_FREE_PTR(fsp);
+}
 
-	iops->put(&param->fsp_env, param->fsp_it);
-	iops->fini(&param->fsp_env, param->fsp_it);
-	lu_env_fini(&param->fsp_env);
-	OBD_FREE_PTR(param);
+static void *fldb_seq_start(struct seq_file *p, loff_t *pos)
+{
+	struct lu_server_fld	*fld = p->private;
+	struct dt_object	*obj = fld->lsf_obj;
+	const struct dt_it_ops	*iops;
+	struct fld_seq_param	*fsp;
+	__u64			 key;
+	int			 rc;
 
-	return;
+	if (obj == NULL)
+		return NULL;
+
+	/* XXX zfs osd_index_it_get() will LASSERT() on non zero keys. */
+	if (*pos != 0)
+		return NULL;
+
+	OBD_ALLOC_PTR(fsp);
+	if (fsp == NULL)
+		return ERR_PTR(-ENOMEM);
+
+	rc = lu_env_init(&fsp->fsp_env, LCT_MD_THREAD);
+	if (rc != 0)
+		GOTO(out_fsp, rc);
+
+	iops = &obj->do_index_ops->dio_it;
+	fsp->fsp_it = iops->init(&fsp->fsp_env, obj, 0, NULL);
+	if (IS_ERR(fsp->fsp_it))
+		GOTO(out_env, rc = PTR_ERR(fsp->fsp_it));
+
+	key = cpu_to_be64(*pos);
+	rc = iops->get(&fsp->fsp_env, fsp->fsp_it, (struct dt_key *) &key);
+	if (rc > 0)
+		rc = 0;
+	else if (rc == 0)
+		rc = iops->next(&fsp->fsp_env, fsp->fsp_it);
+
+	if (rc != 0) {
+		fldb_seq_stop(p, fsp);
+		return rc < 0 ? ERR_PTR(rc) : NULL;
+	}
+
+	*pos = be64_to_cpu(*(__u64 *) iops->key(&fsp->fsp_env, fsp->fsp_it));
+
+	return fsp;
+out_env:
+	lu_env_fini(&fsp->fsp_env);
+out_fsp:
+	OBD_FREE_PTR(fsp);
+
+	return rc < 0 ? ERR_PTR(rc) : NULL;
 }
 
 static void *fldb_seq_next(struct seq_file *p, void *v, loff_t *pos)
 {
 	struct lu_server_fld	*fld = p->private;
-	struct dt_object	*obj;
+	struct dt_object	*obj = fld->lsf_obj;
 	const struct dt_it_ops	*iops;
-	struct fld_seq_param	*param = (struct fld_seq_param *)v;
-	int			rc;
+	struct fld_seq_param	*fsp = (struct fld_seq_param *) v;
+	int			 rc;
 
-	if (fld->lsf_obj == NULL)
+	if (obj == NULL)
 		return NULL;
 
-	obj = fld->lsf_obj;
 	iops = &obj->do_index_ops->dio_it;
-
-	iops->get(&param->fsp_env, param->fsp_it,
-		  (const struct dt_key *)pos);
-
-	rc = iops->next(&param->fsp_env, param->fsp_it);
-	if (rc > 0) {
-		iops->put(&param->fsp_env, param->fsp_it);
-		iops->fini(&param->fsp_env, param->fsp_it);
-		lu_env_fini(&param->fsp_env);
-		OBD_FREE_PTR(param);
-		return NULL;
+	rc = iops->next(&fsp->fsp_env, fsp->fsp_it);
+	if (rc != 0) {
+		fldb_seq_stop(p, fsp);
+		return rc < 0 ? ERR_PTR(rc) : NULL;
 	}
 
-	*pos = *(loff_t *)iops->key(&param->fsp_env, param->fsp_it);
+	*pos = be64_to_cpu(*(__u64 *) iops->key(&fsp->fsp_env, fsp->fsp_it));
 
-	return param;
+	return fsp;
 }
 
 static int fldb_seq_show(struct seq_file *p, void *v)
 {
 	struct lu_server_fld	*fld = p->private;
 	struct dt_object	*obj = fld->lsf_obj;
-	struct fld_seq_param	*param = (struct fld_seq_param *)v;
 	const struct dt_it_ops	*iops;
-	struct fld_thread_info	*info;
-	struct lu_seq_range	*fld_rec;
-	int			rc;
+	struct fld_seq_param	*fsp = (struct fld_seq_param *) v;
+	struct lu_seq_range	 lsr;
+	int			 rc;
 
-	if (fld->lsf_obj == NULL)
+	if (obj == NULL)
 		return 0;
 
-	obj = fld->lsf_obj;
 	iops = &obj->do_index_ops->dio_it;
-
-	info = lu_context_key_get(&param->fsp_env.le_ctx,
-				  &fld_thread_key);
-	fld_rec = &info->fti_rec;
-	rc = iops->rec(&param->fsp_env, param->fsp_it,
-		       (struct dt_rec *)fld_rec, 0);
+	rc = iops->rec(&fsp->fsp_env, fsp->fsp_it, (struct dt_rec *) &lsr, 0);
 	if (rc != 0) {
-		CERROR("%s:read record error: rc %d\n",
+		CERROR("%s: read record error: rc %d\n",
 		       fld->lsf_name, rc);
-	} else if (fld_rec->lsr_start != 0) {
-		range_be_to_cpu(fld_rec, fld_rec);
-		rc = seq_printf(p, DRANGE"\n", PRANGE(fld_rec));
+	} else if (lsr.lsr_start != 0) {
+		range_be_to_cpu(&lsr, &lsr);
+		rc = seq_printf(p, DRANGE"\n", PRANGE(&lsr));
 	}
-
-	iops->put(&param->fsp_env, param->fsp_it);
 
 	return rc;
 }
@@ -285,15 +289,19 @@ static int fldb_seq_open(struct inode *inode, struct file *file)
 	struct seq_file *seq;
 	int rc;
 
-	LPROCFS_ENTRY_AND_CHECK(dp);
+	rc = LPROCFS_ENTRY_AND_CHECK(dp);
+	if (rc != 0)
+		return rc;
+
 	rc = seq_open(file, &fldb_sops);
-	if (rc) {
+	if (rc != 0) {
 		LPROCFS_EXIT();
 		return rc;
 	}
 
 	seq = file->private_data;
 	seq->private = dp->data;
+
 	return 0;
 }
 
@@ -310,7 +318,7 @@ struct file_operations fld_proc_seq_fops = {
 	.owner   = THIS_MODULE,
 	.open    = fldb_seq_open,
 	.read    = seq_read,
-	.llseek  = seq_lseek,
+	.llseek  = no_llseek,
 	.release = lprocfs_seq_release,
 };
 
