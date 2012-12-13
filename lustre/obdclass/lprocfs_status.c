@@ -1620,6 +1620,8 @@ void lprocfs_init_ops_stats(int num_private_stats, struct lprocfs_stats *stats)
         LPROCFS_OBD_OP_INIT(num_private_stats, stats, pool_del);
         LPROCFS_OBD_OP_INIT(num_private_stats, stats, getref);
         LPROCFS_OBD_OP_INIT(num_private_stats, stats, putref);
+
+	CLASSERT(NUM_OBD_STATS == OBD_COUNTER_OFFSET(putref) + 1);
 }
 EXPORT_SYMBOL(lprocfs_init_ops_stats);
 
@@ -1633,8 +1635,7 @@ int lprocfs_alloc_obd_stats(struct obd_device *obd, unsigned num_private_stats)
         LASSERT(obd->obd_proc_entry != NULL);
         LASSERT(obd->obd_cntr_base == 0);
 
-        num_stats = ((int)sizeof(*obd->obd_type->typ_dt_ops) / sizeof(void *)) +
-                num_private_stats - 1 /* o_owner */;
+	num_stats = NUM_OBD_STATS + num_private_stats;
         stats = lprocfs_alloc_stats(num_stats, 0);
         if (stats == NULL)
                 return -ENOMEM;
@@ -1710,22 +1711,23 @@ void lprocfs_init_mps_stats(int num_private_stats, struct lprocfs_stats *stats)
         LPROCFS_MD_OP_INIT(num_private_stats, stats, get_remote_perm);
         LPROCFS_MD_OP_INIT(num_private_stats, stats, intent_getattr_async);
         LPROCFS_MD_OP_INIT(num_private_stats, stats, revalidate_lock);
+
+	CLASSERT(NUM_MD_STATS == MD_COUNTER_OFFSET(revalidate_lock) + 1);
 }
 EXPORT_SYMBOL(lprocfs_init_mps_stats);
 
 int lprocfs_alloc_md_stats(struct obd_device *obd,
-                           unsigned num_private_stats)
+			   unsigned int num_private_stats)
 {
-        struct lprocfs_stats *stats;
-        unsigned int num_stats;
-        int rc, i;
+	struct lprocfs_stats *stats;
+	unsigned int num_stats;
+	int rc, i;
 
-        LASSERT(obd->md_stats == NULL);
-        LASSERT(obd->obd_proc_entry != NULL);
-        LASSERT(obd->md_cntr_base == 0);
+	LASSERT(obd->obd_proc_entry != NULL);
+	LASSERT(obd->md_stats == NULL);
+	LASSERT(obd->md_cntr_base == 0);
 
-        num_stats = 1 + MD_COUNTER_OFFSET(revalidate_lock) +
-                    num_private_stats;
+	num_stats = NUM_MD_STATS + num_private_stats;
         stats = lprocfs_alloc_stats(num_stats, 0);
         if (stats == NULL)
                 return -ENOMEM;

@@ -960,35 +960,37 @@ struct obd_llog_group {
 #define OBD_DEV_BY_DEVNAME      0xffffd0de
 
 struct obd_device {
-        struct obd_type        *obd_type;
-        __u32                   obd_magic;
+	struct obd_type		*obd_type;
+	__u32			 obd_magic;
 
         /* common and UUID name of this device */
-        char                    obd_name[MAX_OBD_NAME];
-        struct obd_uuid         obd_uuid;
+	char			 obd_name[MAX_OBD_NAME];
+	struct obd_uuid		 obd_uuid;
+	int			 obd_minor;
+	struct lu_device	*obd_lu_dev;
 
-        struct lu_device       *obd_lu_dev;
+	/* bitfield modification is protected by obd_dev_lock */
+	unsigned long
+		obd_attached:1,      /* finished attach */
+		obd_set_up:1,        /* finished setup */
+		obd_recovering:1,    /* there are recoverable clients */
+		obd_abort_recovery:1,/* recovery expired */
+		obd_version_recov:1, /* obd uses version checking */
+		obd_replayable:1,    /* recovery is enabled; inform clients */
+		obd_no_transno:1,    /* no committed-transno notification */
+		obd_no_recov:1,      /* fail instead of retry messages */
+		obd_stopping:1,      /* started cleanup */
+		obd_starting:1,      /* started setup */
+		obd_force:1,         /* cleanup with > 0 obd refcount */
+		obd_fail:1,          /* cleanup with failover */
+		obd_async_recov:1,   /* allow asynchronous orphan cleanup */
+		obd_no_conn:1,       /* deny new connections */
+		obd_inactive:1,      /* device active/inactive
+				      * (for /proc/status only!!) */
+		obd_no_ir:1,         /* no imperative recovery. */
+		obd_process_conf:1,  /* device is processing mgs config */
+		obd_uses_nid_stats:1;/* maintain per-client OBD stats */
 
-        int                     obd_minor;
-        /* bitfield modification is protected by obd_dev_lock */
-        unsigned long obd_attached:1,      /* finished attach */
-                      obd_set_up:1,        /* finished setup */
-                      obd_recovering:1,    /* there are recoverable clients */
-                      obd_abort_recovery:1,/* recovery expired */
-                      obd_version_recov:1, /* obd uses version checking */
-                      obd_replayable:1,    /* recovery is enabled; inform clients */
-                      obd_no_transno:1,    /* no committed-transno notification */
-                      obd_no_recov:1,      /* fail instead of retry messages */
-                      obd_stopping:1,      /* started cleanup */
-                      obd_starting:1,      /* started setup */
-                      obd_force:1,         /* cleanup with > 0 obd refcount */
-                      obd_fail:1,          /* cleanup with failover */
-                      obd_async_recov:1,   /* allow asynchronous orphan cleanup */
-                      obd_no_conn:1,       /* deny new connections */
-                      obd_inactive:1,      /* device active/inactive
-                                           * (for /proc/status only!!) */
-                      obd_no_ir:1,         /* no imperative recovery. */
-                      obd_process_conf:1;  /* device is processing mgs config */
         /* use separate field as it is set in interrupt to don't mess with
          * protection of other bits using _bh lock */
         unsigned long obd_recovery_expired:1;
@@ -1000,7 +1002,6 @@ struct obd_device {
         cfs_hash_t             *obd_nid_stats_hash;
         cfs_list_t              obd_nid_stats;
         cfs_atomic_t            obd_refcount;
-        cfs_waitq_t             obd_refcount_waitq;
         cfs_list_t              obd_exports;
         cfs_list_t              obd_unlinked_exports;
         cfs_list_t              obd_delayed_exports;
@@ -1054,7 +1055,6 @@ struct obd_device {
         cfs_list_t                       obd_req_replay_queue;
         cfs_list_t                       obd_lock_replay_queue;
         cfs_list_t                       obd_final_req_queue;
-        int                              obd_recovery_stage;
 
         union {
                 struct obd_device_target obt;
