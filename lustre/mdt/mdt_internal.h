@@ -767,6 +767,7 @@ int mdt_version_get_check(struct mdt_thread_info *, struct mdt_object *, int);
 void mdt_version_get_save(struct mdt_thread_info *, struct mdt_object *, int);
 int mdt_version_get_check_save(struct mdt_thread_info *, struct mdt_object *,
                                int);
+int mdt_check_lma(struct mdt_thread_info *info, struct mdt_object *mdo);
 int mdt_handle_common(struct ptlrpc_request *req,
 		      struct mdt_opc_slice *supported);
 int mdt_connect(struct mdt_thread_info *info);

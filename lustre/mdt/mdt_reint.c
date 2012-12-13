@@ -213,6 +213,45 @@ int mdt_version_get_check_save(struct mdt_thread_info *info,
 }
 
 /**
+ * Check LMA compatibility.
+ */
+int mdt_check_lma(struct mdt_thread_info *info, struct mdt_object *mto)
+{
+	const struct lu_env	*env	= info->mti_env;
+	struct lu_buf		*buf	= &info->mti_buf;
+	const struct lu_fid	*fid	= lu_object_fid(&mto->mot_obj.mo_lu);
+	struct lustre_mdt_attrs	*lma;
+	int			rc;
+
+	/* skip objects under .lustre */
+	if (fid_seq_is_dot(fid_seq(fid)))
+		return 0;
+
+	lma = (struct lustre_mdt_attrs *)info->mti_xattr_buf;
+	buf->lb_buf = lma;
+	buf->lb_len = sizeof(*lma);
+
+	rc = mo_xattr_get(env, mdt_object_child(mto), buf, XATTR_NAME_LMA);
+	if (rc > 0) {
+		rc = 0;
+		if (unlikely(lma->lma_incompat &
+			     ~cpu_to_le32(LMA_INCOMPAT_SUPP))) {
+			CWARN("%s: unsupported incompat LMA feature(s) %#x "
+			      "for "DFID"\n",
+			      mdt2obd_dev(info->mti_mdt)->obd_name,
+			      le32_to_cpu(lma->lma_incompat) &
+			      ~LMA_INCOMPAT_SUPP, PFID(fid));
+			rc = -ENOSYS;
+		}
+	} else if (rc == 0) {
+		CWARN("%s: found no LMA xattr for "DFID"\n",
+		      mdt2obd_dev(info->mti_mdt)->obd_name, PFID(fid));
+		rc = -ENODATA;
+	}
+	return rc;
+}
+
+/**
  * Lookup with version checking.
  *
  * This checks version of 'name'. Many reint functions uses 'name' for child not
@@ -280,6 +319,10 @@ static int mdt_md_create(struct mdt_thread_info *info)
                                       MDS_INODELOCK_UPDATE);
         if (IS_ERR(parent))
                 RETURN(PTR_ERR(parent));
+
+	rc = mdt_check_lma(info, parent);
+	if (rc != 0)
+		GOTO(out_put_parent, rc);
 
         rc = mdt_version_get_check_save(info, parent, 0);
         if (rc)
@@ -832,6 +875,11 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 
         mdt_fail_write(info->mti_env, info->mti_mdt->mdt_bottom,
                        OBD_FAIL_MDS_REINT_UNLINK_WRITE);
+
+	rc = mdt_check_lma(info, mc);
+	if (rc != 0)
+		GOTO(unlock_child, rc);
+
         /* save version when object is locked */
         mdt_version_get_save(info, mc, 1);
         /*
@@ -926,6 +974,10 @@ static int mdt_reint_link(struct mdt_thread_info *info,
         if (IS_ERR(mp))
                 RETURN(PTR_ERR(mp));
 
+	rc = mdt_check_lma(info, mp);
+	if (rc != 0)
+		GOTO(out_unlock_parent, rc);
+
         rc = mdt_version_get_check_save(info, mp, 0);
         if (rc)
                 GOTO(out_unlock_parent, rc);
@@ -955,6 +1007,10 @@ static int mdt_reint_link(struct mdt_thread_info *info,
         /* step 3: link it */
         mdt_fail_write(info->mti_env, info->mti_mdt->mdt_bottom,
                        OBD_FAIL_MDS_REINT_LINK_WRITE);
+
+	rc = mdt_check_lma(info, ms);
+	if (rc != 0)
+		GOTO(out_unlock_child, rc);
 
         info->mti_mos = ms;
         rc = mdt_version_get_check_save(info, ms, 1);
@@ -1151,6 +1207,10 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
         if (IS_ERR(msrcdir))
                 GOTO(out_rename_lock, rc = PTR_ERR(msrcdir));
 
+	rc = mdt_check_lma(info, msrcdir);
+	if (rc != 0)
+		GOTO(out_unlock_source, rc);
+
         rc = mdt_version_get_check_save(info, msrcdir, 0);
         if (rc)
                 GOTO(out_unlock_source, rc);
@@ -1193,6 +1253,10 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
 						     MDT_LOCAL_LOCK);
 				if (rc != 0)
 					GOTO(out_put_target, rc);
+
+				rc = mdt_check_lma(info, mtgtdir);
+				if (rc != 0)
+					GOTO(out_unlock_target, rc);
 				/* get and save correct version after locking */
 				mdt_version_get_save(info, mtgtdir, 1);
 			} else {
@@ -1233,6 +1297,10 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
                 mdt_object_put(info->mti_env, mold);
                 GOTO(out_unlock_target, rc);
         }
+
+	rc = mdt_check_lma(info, mold);
+	if (rc != 0)
+		GOTO(out_unlock_old, rc);
 
         info->mti_mos = mold;
         /* save version after locking */
@@ -1275,6 +1343,11 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
                         mdt_object_put(info->mti_env, mnew);
                         GOTO(out_unlock_old, rc);
                 }
+
+		rc = mdt_check_lma(info, mnew);
+		if (rc != 0)
+			GOTO(out_unlock_new, rc);
+
                 /* get and save version after locking */
                 mdt_version_get_save(info, mnew, 3);
                 mdt_set_capainfo(info, 3, new_fid, BYPASS_CAPA);

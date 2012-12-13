@@ -349,6 +349,10 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
         if (IS_ERR(obj))
                 GOTO(out, rc =  PTR_ERR(obj));
 
+	rc = mdt_check_lma(info, obj);
+	if (rc != 0)
+		GOTO(out_unlock, rc);
+
         info->mti_mos = obj;
         rc = mdt_version_get_check_save(info, obj, 0);
         if (rc)

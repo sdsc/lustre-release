@@ -1531,6 +1531,10 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         if (IS_ERR(parent))
                 GOTO(out, result = PTR_ERR(parent));
 
+	result = mdt_check_lma(info, parent);
+	if (result != 0)
+		GOTO(out_parent, result);
+
         /* get and check version of parent */
         result = mdt_version_get_check(info, parent, 0);
         if (result)
@@ -1577,6 +1581,13 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 	}
         if (IS_ERR(child))
                 GOTO(out_parent, result = PTR_ERR(child));
+
+	if (result != -ENOENT) {
+		/* check existing child */
+		rc = mdt_check_lma(info, child);
+		if (rc != 0)
+			GOTO(out_child, result = rc);
+	}
 
         /** check version of child  */
         rc = mdt_version_get_check(info, child, 1);
