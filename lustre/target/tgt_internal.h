@@ -66,4 +66,28 @@ static inline struct tgt_thread_info *tgt_th_info(const struct lu_env *env)
 	return tti;
 }
 
+struct srv_opcodes_slice {
+	cfs_atomic_t		 ts_ref;
+	struct tgt_opc_slice	*ts_slice;
+	struct obd_type		*ts_obd_type;
+	__u32			 ts_reply_fail_id;
+	__u32			 ts_request_fail_id;
+};
+
+#define MGS_SERVICE_WATCHDOG_FACTOR      (2)
+
+struct tgt_opc_slice *tgt_slice_find(struct ptlrpc_request *req,
+				     int *request_fail_id, int *reply_fail_id);
+int tgt_request_handle(struct ptlrpc_request *req);
+
+/* check if request's xid is equal to last one or not*/
+static inline int req_xid_is_last(struct ptlrpc_request *req)
+{
+	struct lsd_client_data *lcd = req->rq_export->exp_target_data.ted_lcd;
+
+	LASSERT(lcd != NULL);
+	return (req->rq_xid == lcd->lcd_last_xid ||
+		req->rq_xid == lcd->lcd_last_close_xid);
+}
+
 #endif /* _TG_INTERNAL_H */
