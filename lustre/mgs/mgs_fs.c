@@ -66,8 +66,7 @@ int mgs_export_stats_init(struct obd_device *obd, struct obd_export *exp,
                 struct nid_stat *tmp = exp->exp_nid_stats;
                 int num_stats = 0;
 
-                num_stats = (sizeof(*obd->obd_type->typ_dt_ops) / sizeof(void *)) +
-                            LPROC_MGS_LAST - 1;
+		num_stats = NUM_OBD_STATS + LPROC_MGS_LAST;
                 tmp->nid_stats = lprocfs_alloc_stats(num_stats,
                                                      LPROCFS_STATS_FLAG_NOPERCPU);
                 if (tmp->nid_stats == NULL)

@@ -1067,6 +1067,7 @@ struct obd_device {
                 struct lmv_obd lmv;
         } u;
         /* Fields used by LProcFS */
+	int		       obd_uses_nid_stats;
         unsigned int           obd_cntr_base;
         struct lprocfs_stats  *obd_stats;
 

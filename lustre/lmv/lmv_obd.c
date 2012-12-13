@@ -1186,6 +1186,7 @@ static int lmv_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 	lprocfs_lmv_init_vars(&lvars);
 
 	lprocfs_obd_setup(obd, lvars.obd_vars);
+	lprocfs_alloc_md_stats(obd, 0);
 #ifdef LPROCFS
         {
                 rc = lprocfs_seq_create(obd->obd_proc_entry, "target_obd",
@@ -2169,6 +2170,7 @@ static int lmv_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
         case OBD_CLEANUP_EXPORTS:
                 fld_client_proc_fini(&lmv->lmv_fld);
                 lprocfs_obd_cleanup(obd);
+		lprocfs_free_md_stats(obd);
                 break;
         default:
                 break;
