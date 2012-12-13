@@ -299,6 +299,32 @@ static inline void osd_it_append_attrs(struct lu_dirent *ent, __u32 attr,
 	ent->lde_attrs = cpu_to_le32(ent->lde_attrs);
 }
 
+static int osd_check_lma(const struct lu_env *env, struct dt_object *dt)
+{
+	struct osd_thread_info	*oti	= osd_oti_get(env);
+	struct lustre_mdt_attrs	*lma	= &oti->oti_mdt_attrs;
+	struct lu_buf		buf;
+	int			rc	= 0;
+
+	buf.lb_buf = lma;
+	buf.lb_len = sizeof(*lma);
+	rc = dt_xattr_get(env, dt, &buf, XATTR_NAME_LMA, BYPASS_CAPA);
+	if (rc > 0) {
+		/* Check LMA compatibility */
+		if (lma->lma_incompat & ~cpu_to_le32(LMA_INCOMPAT_SUPP)) {
+			CWARN("%s: unsupported incompat LMA feature(s) %#x\n",
+			      osd_dev(dt->do_lu.lo_dev)->od_svname,
+			      le32_to_cpu(lma->lma_incompat) &
+			      ~LMA_INCOMPAT_SUPP);
+			rc = -ENOSYS;
+		}
+	} else if (rc == 0) {
+		rc = -ENODATA;
+	}
+
+	return rc;
+}
+
 static int osd_zap_it_rec(const struct lu_env *env, const struct dt_it *di,
 			  struct dt_rec *dtrec, __u32 attr)
 {
@@ -334,6 +360,10 @@ static int osd_zap_it_rec(const struct lu_env *env, const struct dt_it *di,
 	rc = -zap_lookup(it->ozi_zc->zc_objset, it->ozi_zc->zc_zapobj,
 			 za->za_name, za->za_integer_length, 3, zde);
 	if (rc)
+		GOTO(out, rc);
+
+	rc = osd_check_lma(env, &it->ozi_obj->oo_dt);
+	if (rc != 0)
 		GOTO(out, rc);
 
 	lde->lde_fid = zde->lzd_fid;
@@ -405,6 +435,8 @@ static int osd_dir_lookup(const struct lu_env *env, struct dt_object *dt,
 			 (void *)&oti->oti_zde);
 	memcpy(rec, &oti->oti_zde.lzd_fid, sizeof(struct lu_fid));
 
+	if (rc == 0)
+		rc = osd_check_lma(env, dt);
 	RETURN(rc == 0 ? 1 : rc);
 }
 
@@ -653,6 +685,8 @@ static int osd_index_lookup(const struct lu_env *env, struct dt_object *dt,
 	rc = -zap_lookup_uint64(osd->od_objset.os, obj->oo_db->db_object,
 				(const __u64 *)key, 1, 8, obj->oo_recsize,
 				(void *)rec);
+	if (rc == 0)
+		rc = osd_check_lma(env, dt);
 	RETURN(rc == 0 ? 1 : rc);
 }
 
@@ -836,6 +870,8 @@ static int osd_index_it_rec(const struct lu_env *env, const struct dt_it *di,
 	rc = -zap_lookup_uint64(osd->od_objset.os, obj->oo_db->db_object,
 				(const __u64 *)za->za_name, 1, 8,
 				obj->oo_recsize, (void *)rec);
+	if (rc == 0)
+		rc = osd_check_lma(env, &obj->oo_dt);
 	RETURN(rc);
 }
 
