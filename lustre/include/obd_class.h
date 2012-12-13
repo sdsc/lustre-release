@@ -396,32 +396,19 @@ do {                                                            \
           offsetof(struct md_ops, m_getstatus))                 \
          / sizeof(((struct md_ops *)(0))->m_getstatus))
 
-#define MD_COUNTER_INCREMENT(obdx, op)                           \
-        if ((obd)->md_stats != NULL) {                           \
-                unsigned int coffset;                            \
-                coffset = (unsigned int)((obdx)->md_cntr_base) + \
-                        MD_COUNTER_OFFSET(op);                   \
-                LASSERT(coffset < (obdx)->md_stats->ls_num);     \
-                lprocfs_counter_incr((obdx)->md_stats, coffset); \
-        }
-
-#define EXP_MD_COUNTER_INCREMENT(export, op)                                 \
-        if ((export)->exp_obd->obd_stats != NULL) {                          \
-                unsigned int coffset;                                        \
-                coffset = (unsigned int)((export)->exp_obd->md_cntr_base) +  \
-                        MD_COUNTER_OFFSET(op);                               \
-                LASSERT(coffset < (export)->exp_obd->md_stats->ls_num);      \
-                lprocfs_counter_incr((export)->exp_obd->md_stats, coffset);  \
-                if ((export)->exp_md_stats != NULL)                          \
-                        lprocfs_counter_incr(                                \
-                                (export)->exp_md_stats, coffset);            \
-        }
+#define EXP_MD_COUNTER_INCREMENT(exp, op)				\
+	do {								\
+		unsigned int _off;					\
+		_off = ((exp)->exp_obd->md_cntr_base) +			\
+			MD_COUNTER_OFFSET(op);				\
+		LASSERT(_off < (exp)->exp_obd->md_stats->ls_num);	\
+		lprocfs_counter_incr((exp)->exp_obd->md_stats, _off);	\
+	} while (0)
 
 #else
 #define OBD_COUNTER_OFFSET(op)
 #define OBD_COUNTER_INCREMENT(obd, op)
 #define EXP_COUNTER_INCREMENT(exp, op)
-#define MD_COUNTER_INCREMENT(obd, op)
 #define EXP_MD_COUNTER_INCREMENT(exp, op)
 #endif
 
@@ -438,16 +425,6 @@ static inline int lprocfs_nid_ldlm_stats_init(struct nid_stat* tmp)
         return lprocfs_register_stats(tmp->nid_proc, "ldlm_stats",
                                       tmp->nid_ldlm_stats);
 }
-
-#define OBD_CHECK_MD_OP(obd, op, err)                           \
-do {                                                            \
-        if (!OBT(obd) || !MDP((obd), op)) {                     \
-                if (err)                                        \
-                        CERROR("md_" #op ": dev %s/%d no operation\n", \
-                               obd->obd_name, obd->obd_minor);  \
-                RETURN(err);                                    \
-        }                                                       \
-} while (0)
 
 #define EXP_CHECK_MD_OP(exp, op)                                \
 do {                                                            \
