@@ -244,8 +244,13 @@ struct config_llog_data *do_config_log_add(struct obd_device *obd,
 
         if (cld_is_sptlrpc(cld)) {
                 rc = mgc_process_log(obd, cld);
-		if (rc && rc != -ENOENT)
-                        CERROR("failed processing sptlrpc log: %d\n", rc);
+		if (rc && rc != -ENOENT) {
+			/* For compatibility reasons the log may not exist,
+			 * this is not an error and shouldn't be logged.
+			 */
+			CERROR("%s: failed processing sptlrpc log: rc = %d\n",
+			       obd->obd_name, rc);
+		}
         }
 
         RETURN(cld);
