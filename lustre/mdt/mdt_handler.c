@@ -4786,13 +4786,9 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 		}
 	}
 
-        rc = tgt_init(env, &m->mdt_lut, obd, m->mdt_bottom);
-        if (rc)
-                GOTO(err_fini_stack, rc);
-
 	rc = mdt_fld_init(env, mdt_obd_name(m), m);
 	if (rc)
-		GOTO(err_lut, rc);
+		GOTO(err_fini_stack, rc);
 
 	rc = mdt_seq_init(env, mdt_obd_name(m), m);
 	if (rc)
@@ -4820,9 +4816,15 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         if (rc)
                 GOTO(err_free_ns, rc);
 
-        rc = mdt_fs_setup(env, m, obd, lsi);
-        if (rc)
-                GOTO(err_capa, rc);
+	rc = tgt_init(env, &m->mdt_lut, obd, m->mdt_bottom, NULL,
+		      OBD_FAIL_MDS_ALL_REQUEST_NET,
+		      OBD_FAIL_MDS_ALL_REPLY_NET);
+	if (rc)
+		GOTO(err_capa, rc);
+
+	rc = mdt_fs_setup(env, m, obd, lsi);
+	if (rc)
+		GOTO(err_tgt, rc);
 
         mdt_adapt_sptlrpc_conf(obd, 1);
 
@@ -4830,7 +4832,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         rc = next->md_ops->mdo_iocontrol(env, next, OBD_IOC_GET_MNTOPT, 0,
                                          &mntopts);
         if (rc)
-		GOTO(err_llog_cleanup, rc);
+		GOTO(err_fs_cleanup, rc);
 
         if (mntopts & MNTOPT_USERXATTR)
                 m->mdt_opts.mo_user_xattr = 1;
@@ -4853,7 +4855,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 	if (IS_ERR(m->mdt_identity_cache)) {
 		rc = PTR_ERR(m->mdt_identity_cache);
 		m->mdt_identity_cache = NULL;
-		GOTO(err_llog_cleanup, rc);
+		GOTO(err_fs_cleanup, rc);
 	}
 
         rc = mdt_procfs_init(m, dev);
@@ -4870,7 +4872,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 	ptlrpc_init_client(LDLM_CB_REQUEST_PORTAL, LDLM_CB_REPLY_PORTAL,
 			   "mdt_ldlm_client", m->mdt_ldlm_client);
 
-        ping_evictor_start();
+	ping_evictor_start();
 
 	/* recovery will be started upon mdt_prepare()
 	 * when the whole stack is complete and ready
@@ -4892,9 +4894,10 @@ err_recovery:
         target_recovery_fini(obd);
         upcall_cache_cleanup(m->mdt_identity_cache);
         m->mdt_identity_cache = NULL;
-err_llog_cleanup:
-        mdt_llog_ctxt_unclone(env, m, LLOG_CHANGELOG_ORIG_CTXT);
+err_fs_cleanup:
         mdt_fs_cleanup(env, m);
+err_tgt:
+	tgt_fini(env, &m->mdt_lut);
 err_capa:
         cfs_timer_disarm(&m->mdt_ck_timer);
         mdt_ck_thread_stop(m);
@@ -4905,8 +4908,6 @@ err_fini_seq:
 	mdt_seq_fini(env, m);
 err_fini_fld:
 	mdt_fld_fini(env, m);
-err_lut:
-	tgt_fini(env, &m->mdt_lut);
 err_fini_stack:
         mdt_stack_fini(env, m, md2lu_dev(m->mdt_child));
 err_lmi:
