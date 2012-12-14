@@ -5,7 +5,7 @@
 # File attribute retrieval rate for large file creation
 # 3300 ops/sec/OST for single node 28500 ops/sec/OST aggregate
 
-# In a dir containing 10 million striped files, the mdsrate Test Program will
+# In a dir containing half million striped files, the mdsrate Test Program will
 # perform directory ordered stat's (readdir) for 10 minutes. This test will be
 # run from a single node for #1 and from all nodes for #2 aggregate test to
 # measure stat performance.  
@@ -23,7 +23,7 @@ BASEDIR=$MOUNT/mdsrate
 TESTDIR=$MOUNT/stat
 
 # Requirements
-NUM_FILES=${NUM_FILES:-1000000}
+NUM_FILES=${NUM_FILES:-500000}
 TIME_PERIOD=${TIME_PERIOD:-600}                        # seconds
 
 LOG=${TESTSUITELOG:-$TMP/$(basename $0 .sh).log}

@@ -2,9 +2,9 @@
 #
 # This test was used in a set of CMD3 tests (cmd3-5 test).
 
-# Directory lookup retrieval rate single directory 10 million files
+# Directory lookup retrieval rate single directory half million files
 # 5900 random lookups/sec per client node 62,000 random lookups/sec aggregate
-# 
+#
 # In a dir containing 10 million non-striped files the mdsrate Test Program will
 # perform lookups for 10 minutes. This test can be run from a single node for
 # #1 and from all nodes for #2 aggregate test to measure lookup performance.
@@ -21,7 +21,7 @@ BASEDIR=$MOUNT/mdsrate
 TESTDIR=$BASEDIR/lookup
 
 # Requirements
-NUM_FILES=${NUM_FILES:-1000000}
+NUM_FILES=${NUM_FILES:-500000}
 TIME_PERIOD=${TIME_PERIOD:-600}                        # seconds
 
 LOG=${TESTSUITELOG:-$TMP/$(basename $0 .sh).log}
@@ -33,7 +33,7 @@ rm -f $LOG
 
 [ ! -x ${MDSRATE} ] && error "${MDSRATE} not built."
 
-log "===== $0 ====== " 
+log "===== $0 ====== "
 
 check_and_setup_lustre
 

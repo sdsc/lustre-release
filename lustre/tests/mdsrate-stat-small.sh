@@ -5,7 +5,7 @@
 # File attribute retrieval rate for small file creation
 # 3200 ops/sec for single node 29,000 ops/sec aggregate
 
-# In a dir containing 10 million non-striped files, the mdsrate Test Program
+# In a dir containing half million non-striped files, the mdsrate Test Program
 # will perform directory ordered stat's (readdir) for 10 minutes. This test
 # will be run from a single node for #1 and from all nodes for #2
 # aggregate test to measure stat performance.
@@ -23,7 +23,7 @@ BASEDIR=$MOUNT/mdsrate
 TESTDIR=$BASEDIR/stat
 
 # Requirements
-NUM_FILES=${NUM_FILES:-1000000}
+NUM_FILES=${NUM_FILES:-500000}
 TIME_PERIOD=${TIME_PERIOD:-600}                        # seconds
 
 LOG=${TESTSUITELOG:-$TMP/$(basename $0 .sh).log}
@@ -35,7 +35,7 @@ rm -f $LOG
 
 [ ! -x ${MDSRATE} ] && error "${MDSRATE} not built."
 
-log "===== $0 ====== " 
+log "===== $0 ====== "
 
 check_and_setup_lustre
 
