@@ -1128,7 +1128,7 @@ struct inode *ll_inode_from_lock(struct ldlm_lock *lock)
 {
         struct inode *inode = NULL;
         /* NOTE: we depend on atomic igrab() -bzzz */
-        lock_res_and_lock(lock);
+        lock_res_and_lock_read(lock);
         if (lock->l_ast_data) {
                 struct ll_inode_info *lli = ll_i2info(lock->l_ast_data);
                 if (lli->lli_inode_magic == LLI_INODE_MAGIC) {
@@ -1142,7 +1142,7 @@ struct inode *ll_inode_from_lock(struct ldlm_lock *lock)
                         inode = NULL;
                 }
         }
-        unlock_res_and_lock(lock);
+        unlock_res_and_lock_read(lock);
         return inode;
 }
 
