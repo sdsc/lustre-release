@@ -167,7 +167,6 @@ static void mdd_device_shutdown(const struct lu_env *env,
                                 struct mdd_device *m, struct lustre_cfg *cfg)
 {
         ENTRY;
-        mdd_changelog_fini(env, m);
         if (m->mdd_dot_lustre_objs.mdd_obf)
                 mdd_object_put(env, m->mdd_dot_lustre_objs.mdd_obf);
         if (m->mdd_dot_lustre)
@@ -609,6 +608,45 @@ static int dot_lustre_mdd_permission(const struct lu_env *env,
                 return 0;
 }
 
+static int
+dot_lustre_mdd_attr_set(const struct lu_env *env, struct md_object *obj,
+			const struct md_attr *ma)
+{
+	if (OBD_FAIL_CHECK(OBD_FAIL_FID_MAPPING)) {
+		struct mdd_device *mdd = mdo2mdd(obj);
+		struct dt_object *next = mdd_object_child(md2mdd_obj(obj));
+		const struct lu_fid *fid = lu_object_fid(&obj->mo_lu);
+		struct thandle *handle;
+		int rc;
+
+		rc = dt_try_as_dir(env, next);
+		if (rc == 0)
+			return -ENOTDIR;
+
+		handle = mdd_trans_create(env, mdd);
+		if (IS_ERR(handle))
+			return PTR_ERR(handle);
+
+		rc = dt_declare_update(env, next, NULL,
+				       (const struct dt_key *)fid, handle);
+		if (rc != 0)
+			goto out;
+
+		rc = mdd_trans_start(env, mdd, handle);
+		if (rc != 0)
+			goto out;
+
+		rc = dt_update(env, next, NULL, (const struct dt_key *)fid,
+			       handle, BYPASS_CAPA, 1);
+
+out:
+		mdd_trans_stop(env, mdd, rc, handle);
+		return rc;
+	}
+
+	return mdd_attr_set(env, obj, ma);
+}
+
 static int dot_lustre_mdd_xattr_get(const struct lu_env *env,
                                     struct md_object *obj, struct lu_buf *buf,
                                     const char *name)
@@ -725,7 +763,7 @@ static int dot_file_unlock(const struct lu_env *env, struct md_object *obj,
 static struct md_object_operations mdd_dot_lustre_obj_ops = {
 	.moo_permission		= dot_lustre_mdd_permission,
 	.moo_attr_get		= mdd_attr_get,
-	.moo_attr_set		= mdd_attr_set,
+	.moo_attr_set		= dot_lustre_mdd_attr_set,
 	.moo_xattr_get		= dot_lustre_mdd_xattr_get,
 	.moo_xattr_list		= dot_lustre_mdd_xattr_list,
 	.moo_xattr_set		= dot_lustre_mdd_xattr_set,
@@ -1145,6 +1183,7 @@ static int mdd_process_config(const struct lu_env *env,
                 break;
         case LCFG_CLEANUP:
 		mdd_lfsck_cleanup(env, m);
+		mdd_changelog_fini(env, m);
 		rc = next->ld_ops->ldo_process_config(env, next, cfg);
 		lu_dev_del_linkage(d->ld_site, d);
                 mdd_device_shutdown(env, m, cfg);
@@ -1215,13 +1254,14 @@ static int mdd_prepare(const struct lu_env *env,
 
 	mdd->mdd_capa = root;
 
+	rc = mdd_changelog_init(env, mdd);
+	if (rc != 0)
+		GOTO(out, rc);
+
 	rc = mdd_lfsck_setup(env, mdd);
-	if (rc) {
+	if (rc != 0)
 		CERROR("%s: failed to initialize lfsck: rc = %d\n",
 		       mdd2obd_dev(mdd)->obd_name, rc);
-		GOTO(out, rc);
-	}
-	rc = mdd_changelog_init(env, mdd);
 
 	GOTO(out, rc);
 

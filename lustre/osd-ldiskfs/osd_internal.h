@@ -296,7 +296,6 @@ struct osd_device {
 	spinlock_t		  od_osfs_lock;
 
 	unsigned int		  od_noscrub:1,
-				  od_init_scrub:1,
 				  od_handle_nolma:1;
 
 	struct fsfilt_operations *od_fsops;
@@ -697,9 +696,6 @@ int osd_compat_objid_insert(struct osd_thread_info *info,
 int osd_compat_objid_delete(struct osd_thread_info *info,
                             struct osd_device *osd,
                             const struct lu_fid *fid, struct thandle *th);
-int osd_compat_spec_lookup(struct osd_thread_info *info,
-                           struct osd_device *osd,
-                           const struct lu_fid *fid, struct osd_inode_id *id);
 int osd_compat_spec_insert(struct osd_thread_info *info,
                            struct osd_device *osd,
                            const struct lu_fid *fid,
