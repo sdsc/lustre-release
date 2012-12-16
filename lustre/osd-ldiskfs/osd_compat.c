@@ -396,7 +396,7 @@ int osd_compat_objid_lookup(struct osd_thread_info *info,
 	osd_id_gen(id, le32_to_cpu(de->inode), OSD_OII_NOGEN);
 	brelse(bh);
 
-	inode = osd_iget(info, dev, id);
+	inode = osd_iget(info, dev, id, true);
 	if (IS_ERR(inode))
 		RETURN(PTR_ERR(inode));
 
