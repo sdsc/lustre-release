@@ -291,14 +291,10 @@ static int mdd_changelog_llog_init(const struct lu_env *env,
 {
 	struct obd_device	*obd = mdd2obd_dev(mdd);
 	struct llog_ctxt	*ctxt = NULL, *uctxt = NULL;
-	struct lu_fid		 rfid;
 	int			 rc;
 
 	OBD_SET_CTXT_MAGIC(&obd->obd_lvfs_ctxt);
 	obd->obd_lvfs_ctxt.dt = mdd->mdd_bottom;
-	rc = dt_root_get(env, mdd->mdd_bottom, &rfid);
-	if (rc)
-		RETURN(-ENODEV);
 
 	changelog_orig_logops = llog_osd_ops;
 	changelog_orig_logops.lop_cancel = llog_changelog_cancel;
@@ -922,7 +918,6 @@ static int obf_xattr_get(const struct lu_env *env,
 {
 	struct mdd_device *mdd = mdo2mdd(obj);
 	struct mdd_object *root;
-	struct lu_fid      rootfid;
 	int rc = 0;
 
 	/*
@@ -930,10 +925,7 @@ static int obf_xattr_get(const struct lu_env *env,
 	 * in the root
 	 */
 	if (strcmp(name, XATTR_NAME_LOV) == 0) {
-		rc = dt_root_get(env, mdd->mdd_child, &rootfid);
-		if (rc)
-			return rc;
-		root = mdd_object_find(env, mdd, &rootfid);
+		root = mdd_object_find(env, mdd, &mdd->mdd_local_root_fid);
 		if (IS_ERR(root))
 			return PTR_ERR(root);
 		rc = mdo_xattr_get(env, root, buf, name,
@@ -1227,6 +1219,10 @@ static int mdd_prepare(const struct lu_env *env,
         rc = next->ld_ops->ldo_prepare(env, cdev, next);
         if (rc)
                 GOTO(out, rc);
+
+	rc = dt_root_get(env, mdd->mdd_child, &mdd->mdd_local_root_fid);
+	if (rc != 0)
+		GOTO(out, rc);
 
         root = dt_store_open(env, mdd->mdd_child, "", mdd_root_dir_name,
                              &mdd->mdd_root_fid);
@@ -1677,13 +1673,8 @@ static int mdd_iocontrol(const struct lu_env *env, struct md_device *m,
                 RETURN(0);
         }
 	case OBD_IOC_START_LFSCK: {
-		struct lfsck_start *start = karg;
-		struct md_lfsck *lfsck = &mdd->mdd_lfsck;
-
-		/* Return the kernel service version. */
-		/* XXX: version can be used for compatibility in the future. */
-		start->ls_version = lfsck->ml_version;
-		rc = mdd_lfsck_start(env, lfsck, start);
+		rc = mdd_lfsck_start(env, &mdd->mdd_lfsck,
+				     (struct lfsck_start *)karg);
 		RETURN(rc);
 	}
 	case OBD_IOC_STOP_LFSCK: {
