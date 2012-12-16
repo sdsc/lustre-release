@@ -1148,6 +1148,10 @@ static const struct osd_scrub_ls_map oslm_root[] = {
 	{ { FID_SEQ_LOCAL_FILE, OFD_HEALTH_CHECK_OID, 0 }, 0, 12, HEALTH_CHECK,
 		NULL, NULL },
 
+	/* lfsck_namespace */
+	{ { FID_SEQ_LOCAL_FILE, LFSCK_NAMESPACE_OID, 0 }, 0, 15,
+		"lfsck_namespace", NULL, NULL },
+
 	{ { 0, 0, 0 }, 0, 0, NULL, NULL, NULL }
 };
 
