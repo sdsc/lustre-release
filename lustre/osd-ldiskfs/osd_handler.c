@@ -2070,7 +2070,7 @@ static int osd_object_destroy(const struct lu_env *env,
         /* rc = ext3_orphan_add(handle_t *handle, struct inode *inode) */
 
         /* not needed in the cache anymore */
-        set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
+	lu_object_set_dying(dt->do_lu.lo_header);
 
         RETURN(0);
 }
