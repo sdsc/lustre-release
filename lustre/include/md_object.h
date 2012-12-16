@@ -188,14 +188,14 @@ struct md_op_spec {
                         int  eadatalen;
                 } sp_ea;
         } u;
-        /** don't create lov objects or llog cookie - this replay */
-        int no_create;
 
         /** Create flag from client: such as MDS_OPEN_CREAT, and others. */
         __u64      sp_cr_flags;
 
-        /** Should mdd do lookup sanity check or not. */
-        int        sp_cr_lookup;
+		     /** don't create lov objects or llog cookie - this replay */
+	unsigned int no_create:1,
+		     /** Should mdd do lookup sanity check or not. */
+		     sp_cr_lookup:1;
 
         /** Current lock mode for parent dir where create is performing. */
         mdl_mode_t sp_cr_mode;
@@ -873,6 +873,12 @@ struct md_object *llo_store_create(const struct lu_env *env,
                                    const char *dirname,
                                    const char *objname,
                                    const struct lu_fid *fid);
+
+int llo_store_unlink(const struct lu_env *env,
+		     struct md_device *md,
+		     struct dt_device *dt,
+		     const char *dirname,
+		     const char *objname);
 
 void llo_local_obj_register(struct lu_local_obj_desc *);
 void llo_local_obj_unregister(struct lu_local_obj_desc *);

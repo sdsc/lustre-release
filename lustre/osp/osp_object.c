@@ -220,8 +220,7 @@ static int osp_declare_object_create(const struct lu_env *env,
 					     th);
 	} else {
 		/* not needed in the cache anymore */
-		set_bit(LU_OBJECT_HEARD_BANSHEE,
-			    &dt->do_lu.lo_header->loh_flags);
+		lu_object_set_dying(dt->do_lu.lo_header);
 	}
 	RETURN(rc);
 }
@@ -325,7 +324,7 @@ static int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
 	rc = osp_sync_add(env, o, MDS_UNLINK64_REC, th, NULL);
 
 	/* not needed in cache any more */
-	set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
+	lu_object_set_dying(dt->do_lu.lo_header);
 
 	RETURN(rc);
 }
@@ -377,7 +376,7 @@ static void osp_object_release(const struct lu_env *env, struct lu_object *o)
 		spin_unlock(&d->opd_pre_lock);
 
 		/* not needed in cache any more */
-		set_bit(LU_OBJECT_HEARD_BANSHEE, &o->lo_header->loh_flags);
+		lu_object_set_dying(o->lo_header);
 	}
 	EXIT;
 }
