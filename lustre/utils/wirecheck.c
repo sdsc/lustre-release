@@ -270,8 +270,6 @@ check_ost_id(void)
         CHECK_VALUE_64X(FID_SEQ_LOV_DEFAULT);
 
         CHECK_VALUE_X(FID_OID_SPECIAL_BFL);
-        CHECK_VALUE_X(FID_OID_DOT_LUSTRE);
-        CHECK_VALUE_X(FID_OID_DOT_LUSTRE_OBF);
 }
 
 static void

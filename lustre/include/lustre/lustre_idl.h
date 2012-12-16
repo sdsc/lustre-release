@@ -427,6 +427,7 @@ enum fid_seq {
         FID_SEQ_SPECIAL    = 0x200000004ULL,
         FID_SEQ_QUOTA      = 0x200000005ULL,
         FID_SEQ_QUOTA_GLB  = 0x200000006ULL,
+	FID_SEQ_RAM_ONLY   = 0x200000007ULL,
         FID_SEQ_NORMAL     = 0x200000400ULL,
         FID_SEQ_LOV_DEFAULT= 0xffffffffffffffffULL
 };
@@ -442,12 +443,6 @@ enum fid_seq {
 enum special_oid {
         /* Big Filesystem Lock to serialize rename operations */
         FID_OID_SPECIAL_BFL     = 1UL,
-};
-
-/** OID for FID_SEQ_DOT_LUSTRE */
-enum dot_lustre_oid {
-        FID_OID_DOT_LUSTRE  = 1UL,
-        FID_OID_DOT_LUSTRE_OBF = 2UL,
 };
 
 static inline int fid_seq_is_mdt0(obd_seq seq)
@@ -692,16 +687,12 @@ static inline ino_t lu_igif_ino(const struct lu_fid *fid)
 /**
  * Build igif from the inode number/generation.
  */
-#define LU_IGIF_BUILD(fid, ino, gen)                    \
-do {                                                    \
-        fid->f_seq = ino;                               \
-        fid->f_oid = gen;                               \
-        fid->f_ver = 0;                                 \
-} while(0)
 static inline void lu_igif_build(struct lu_fid *fid, __u32 ino, __u32 gen)
 {
-        LU_IGIF_BUILD(fid, ino, gen);
-        LASSERT(fid_is_igif(fid));
+	fid->f_seq = ino;
+	fid->f_oid = gen;
+	fid->f_ver = 0;
+	LASSERTF(fid_is_igif(fid), "ino = %u, gen = %u", ino, gen);
 }
 
 /**
@@ -825,9 +816,19 @@ static inline int lu_fid_cmp(const struct lu_fid *f0,
  * enumeration.
  */
 enum lu_dirent_attrs {
-        LUDA_FID        = 0x0001,
-        LUDA_TYPE       = 0x0002,
-        LUDA_64BITHASH  = 0x0004,
+	LUDA_FID		= 0x0001,
+	LUDA_TYPE		= 0x0002,
+	LUDA_64BITHASH		= 0x0004,
+	/* Verify the dirent consistency */
+	LUDA_VERIFY		= 0x0008,
+	/* Only check but not repair the dirent inconsistency */
+	LUDA_VERIFY_DRYRUN	= 0x0010,
+	/* The dirent has beed repaired, or to be repaired (dryrun). */
+	LUDA_REPAIR		= 0x0020,
+	/* The system is upgraded, has beed or to be repaired (dryrun). */
+	LUDA_UPGRADE		= 0x0040,
+	/* Ignore this record, go to next directly. */
+	LUDA_IGNORE		= 0x0080,
 };
 
 /**
@@ -920,18 +921,23 @@ static inline struct lu_dirent *lu_dirent_next(struct lu_dirent *ent)
         return next;
 }
 
-static inline int lu_dirent_calc_size(int namelen, __u16 attr)
+static inline int lu_dirent_calc_size(int namelen, __u32 attr)
 {
-        int size;
+	int size;
+	int align;
 
-        if (attr & LUDA_TYPE) {
-                const unsigned align = sizeof(struct luda_type) - 1;
-                size = (sizeof(struct lu_dirent) + namelen + align) & ~align;
-                size += sizeof(struct luda_type);
-        } else
-                size = sizeof(struct lu_dirent) + namelen;
-
-        return (size + 7) & ~7;
+	if (attr & LUDA_TYPE) {
+		align = sizeof(struct luda_type) - 1;
+		size = (sizeof(struct lu_dirent) + namelen + align) & ~align;
+		size += sizeof(struct luda_type);
+	} else if (attr & LUDA_VERIFY) {
+		align = sizeof(__u64) - 1;
+		size = (sizeof(__u64) + namelen + align) & ~align;
+		size += sizeof(__u64);
+	} else {
+		size = sizeof(struct lu_dirent) + namelen;
+	}
+	return (size + 7) & ~7;
 }
 
 static inline int lu_dirent_size(struct lu_dirent *ent)
@@ -944,6 +950,7 @@ static inline int lu_dirent_size(struct lu_dirent *ent)
 }
 
 #define MDS_DIR_END_OFF 0xfffffffffffffffeULL
+#define MDS_DIR_DUMMY_START 0xffffffffffffffffULL
 
 /**
  * MDS_READPAGE page size
@@ -1453,6 +1460,8 @@ struct lov_mds_md_v1 {            /* LOV EA mds/wire data (little-endian) */
 #define XATTR_NAME_VERSION      "trusted.version"
 #define XATTR_NAME_SOM		"trusted.som"
 #define XATTR_NAME_HSM		"trusted.hsm"
+#define XATTR_NAME_CLUE 	"trusted.clue"
+#define XATTR_NAME_LFSCK_NAMESPACE "trusted.lfsck_namespace"
 
 
 struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
@@ -2144,6 +2153,7 @@ enum {
         MDS_CLOSE_CLEANUP = 1 << 6,
         MDS_KEEP_ORPHAN   = 1 << 7,
         MDS_RECOV_OPEN    = 1 << 8,
+	MDS_OWNEROVERRIDE = 1 << 9,
 };
 
 /* instance of mdt_reint_rec */
@@ -2810,7 +2820,7 @@ struct llog_size_change_rec {
 /** bits covering all \a changelog_rec_type's */
 #define CHANGELOG_ALLMASK 0XFFFFFFFF
 /** default \a changelog_rec_type mask */
-#define CHANGELOG_DEFMASK CHANGELOG_ALLMASK & ~(1 << CL_ATIME | 1 << CL_CLOSE)
+#define CHANGELOG_DEFMASK CHANGELOG_ALLMASK & ~(1 << CL_NLINK | 1 << CL_CLOSE)
 
 /* changelog llog name, needed by client replicators */
 #define CHANGELOG_CATALOG "changelog_catalog"
@@ -3160,23 +3170,24 @@ extern void lustre_swab_lustre_capa(struct lustre_capa *c);
 
 /** lustre_capa::lc_opc */
 enum {
-        CAPA_OPC_BODY_WRITE   = 1<<0,  /**< write object data */
-        CAPA_OPC_BODY_READ    = 1<<1,  /**< read object data */
-        CAPA_OPC_INDEX_LOOKUP = 1<<2,  /**< lookup object fid */
-        CAPA_OPC_INDEX_INSERT = 1<<3,  /**< insert object fid */
-        CAPA_OPC_INDEX_DELETE = 1<<4,  /**< delete object fid */
-        CAPA_OPC_OSS_WRITE    = 1<<5,  /**< write oss object data */
-        CAPA_OPC_OSS_READ     = 1<<6,  /**< read oss object data */
-        CAPA_OPC_OSS_TRUNC    = 1<<7,  /**< truncate oss object */
-        CAPA_OPC_OSS_DESTROY  = 1<<8,  /**< destroy oss object */
-        CAPA_OPC_META_WRITE   = 1<<9,  /**< write object meta data */
-        CAPA_OPC_META_READ    = 1<<10, /**< read object meta data */
+	CAPA_OPC_BODY_WRITE   = 1<<0,  /**< write object data */
+	CAPA_OPC_BODY_READ    = 1<<1,  /**< read object data */
+	CAPA_OPC_INDEX_LOOKUP = 1<<2,  /**< lookup object fid */
+	CAPA_OPC_INDEX_INSERT = 1<<3,  /**< insert object fid */
+	CAPA_OPC_INDEX_DELETE = 1<<4,  /**< delete object fid */
+	CAPA_OPC_INDEX_UPDATE = 1<<5,  /**< update index file */
+	CAPA_OPC_OSS_WRITE    = 1<<6,  /**< write oss object data */
+	CAPA_OPC_OSS_READ     = 1<<7,  /**< read oss object data */
+	CAPA_OPC_OSS_TRUNC    = 1<<8,  /**< truncate oss object */
+	CAPA_OPC_OSS_DESTROY  = 1<<9,  /**< destroy oss object */
+	CAPA_OPC_META_WRITE   = 1<<10, /**< write object meta data */
+	CAPA_OPC_META_READ    = 1<<11, /**< read object meta data */
 };
 
 #define CAPA_OPC_OSS_RW (CAPA_OPC_OSS_READ | CAPA_OPC_OSS_WRITE)
 #define CAPA_OPC_MDS_ONLY                                                   \
-        (CAPA_OPC_BODY_WRITE | CAPA_OPC_BODY_READ | CAPA_OPC_INDEX_LOOKUP | \
-         CAPA_OPC_INDEX_INSERT | CAPA_OPC_INDEX_DELETE)
+	(CAPA_OPC_BODY_WRITE | CAPA_OPC_BODY_READ | CAPA_OPC_INDEX_LOOKUP | \
+	 CAPA_OPC_INDEX_INSERT | CAPA_OPC_INDEX_DELETE | CAPA_OPC_INDEX_UPDATE)
 #define CAPA_OPC_OSS_ONLY                                                   \
         (CAPA_OPC_OSS_WRITE | CAPA_OPC_OSS_READ | CAPA_OPC_OSS_TRUNC |      \
          CAPA_OPC_OSS_DESTROY)
