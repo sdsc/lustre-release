@@ -310,11 +310,15 @@ do {									\
 	((oh)->ot_declare_ ##op ##_cred) += (credits);			\
 	(oh)->ot_credits += (credits);					\
 } while (0)
+
+/* The ot_declare_xxx may be not accurate as expected, because there may be
+ * rollback operations during the transaction. For example: ref_del will be
+ * called if fail to insert name for link operation. */
 #define OSD_EXEC_OP(handle, op)						\
 do {									\
 	struct osd_thandle *oh = container_of(handle, typeof(*oh), ot_super); \
-	LASSERT((oh)->ot_declare_ ##op > 0);				\
-	((oh)->ot_declare_ ##op)--;					\
+	if ((oh)->ot_declare_ ##op > 0)					\
+		((oh)->ot_declare_ ##op)--;				\
 } while (0)
 #else
 #define OSD_DECLARE_OP(oh, op, credits) (oh)->ot_credits += (credits)
@@ -361,6 +365,7 @@ struct osd_thandle {
 	unsigned char		ot_declare_write;
 	unsigned char		ot_declare_insert;
 	unsigned char		ot_declare_delete;
+	unsigned char		ot_declare_update;
 	unsigned char		ot_declare_quota;
 
 	unsigned short		ot_declare_attr_set_cred;
@@ -373,6 +378,7 @@ struct osd_thandle {
 	unsigned short		ot_declare_write_cred;
 	unsigned short		ot_declare_insert_cred;
 	unsigned short		ot_declare_delete_cred;
+	unsigned short		ot_declare_update_cred;
 	unsigned short		ot_declare_quota_cred;
 #endif
 

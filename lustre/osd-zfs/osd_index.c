@@ -616,12 +616,31 @@ static int osd_dir_delete(const struct lu_env *env, struct dt_object *dt,
 	RETURN(rc);
 }
 
+static int osd_declare_dir_update(const struct lu_env *env,
+				  struct dt_object *dt,
+				  const struct dt_rec *rec,
+				  const struct dt_key *key,
+				  struct thandle *th)
+{
+	return -EOPNOTSUPP;
+}
+
+static int osd_dir_update(const struct lu_env *env, struct dt_object *dt,
+			  const struct dt_rec *rec, const struct dt_key *key,
+			  struct thandle *th, struct lustre_capa *capa,
+			  int ignore_quota)
+{
+	return -EOPNOTSUPP;
+}
+
 static struct dt_index_operations osd_dir_ops = {
 	.dio_lookup         = osd_dir_lookup,
 	.dio_declare_insert = osd_declare_dir_insert,
 	.dio_insert         = osd_dir_insert,
 	.dio_declare_delete = osd_declare_dir_delete,
 	.dio_delete         = osd_dir_delete,
+	.dio_declare_update = osd_declare_dir_update,
+	.dio_update	    = osd_dir_update,
 	.dio_it     = {
 		.init     = osd_zap_it_init,
 		.fini     = osd_zap_it_fini,
@@ -744,6 +763,23 @@ static int osd_index_delete(const struct lu_env *env, struct dt_object *dt,
 	rc = -zap_remove_uint64(osd->od_objset.os, obj->oo_db->db_object,
 				(const __u64 *)key, 1, oh->ot_tx);
 	RETURN(rc);
+}
+
+static int osd_declare_index_update(const struct lu_env *env,
+				    struct dt_object *dt,
+				    const struct dt_rec *rec,
+				    const struct dt_key *key,
+				    struct thandle *th)
+{
+	return -EOPNOTSUPP;
+}
+
+static int osd_index_update(const struct lu_env *env, struct dt_object *dt,
+			    const struct dt_rec *rec, const struct dt_key *key,
+			    struct thandle *th, struct lustre_capa *capa,
+			    int ignore_quota)
+{
+	return -EOPNOTSUPP;
 }
 
 static int osd_index_it_get(const struct lu_env *env, struct dt_it *di,
@@ -882,6 +918,8 @@ static struct dt_index_operations osd_index_ops = {
 	.dio_insert		= osd_index_insert,
 	.dio_declare_delete	= osd_declare_index_delete,
 	.dio_delete		= osd_index_delete,
+	.dio_declare_update	= osd_declare_index_update,
+	.dio_update		= osd_index_update,
 	.dio_it	= {
 		.init		= osd_zap_it_init,
 		.fini		= osd_zap_it_fini,

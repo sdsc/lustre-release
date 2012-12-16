@@ -3160,23 +3160,24 @@ extern void lustre_swab_lustre_capa(struct lustre_capa *c);
 
 /** lustre_capa::lc_opc */
 enum {
-        CAPA_OPC_BODY_WRITE   = 1<<0,  /**< write object data */
-        CAPA_OPC_BODY_READ    = 1<<1,  /**< read object data */
-        CAPA_OPC_INDEX_LOOKUP = 1<<2,  /**< lookup object fid */
-        CAPA_OPC_INDEX_INSERT = 1<<3,  /**< insert object fid */
-        CAPA_OPC_INDEX_DELETE = 1<<4,  /**< delete object fid */
-        CAPA_OPC_OSS_WRITE    = 1<<5,  /**< write oss object data */
-        CAPA_OPC_OSS_READ     = 1<<6,  /**< read oss object data */
-        CAPA_OPC_OSS_TRUNC    = 1<<7,  /**< truncate oss object */
-        CAPA_OPC_OSS_DESTROY  = 1<<8,  /**< destroy oss object */
-        CAPA_OPC_META_WRITE   = 1<<9,  /**< write object meta data */
-        CAPA_OPC_META_READ    = 1<<10, /**< read object meta data */
+	CAPA_OPC_BODY_WRITE   = 1<<0,  /**< write object data */
+	CAPA_OPC_BODY_READ    = 1<<1,  /**< read object data */
+	CAPA_OPC_INDEX_LOOKUP = 1<<2,  /**< lookup object fid */
+	CAPA_OPC_INDEX_INSERT = 1<<3,  /**< insert object fid */
+	CAPA_OPC_INDEX_DELETE = 1<<4,  /**< delete object fid */
+	CAPA_OPC_INDEX_UPDATE = 1<<5,  /**< update index file */
+	CAPA_OPC_OSS_WRITE    = 1<<6,  /**< write oss object data */
+	CAPA_OPC_OSS_READ     = 1<<7,  /**< read oss object data */
+	CAPA_OPC_OSS_TRUNC    = 1<<8,  /**< truncate oss object */
+	CAPA_OPC_OSS_DESTROY  = 1<<9,  /**< destroy oss object */
+	CAPA_OPC_META_WRITE   = 1<<10, /**< write object meta data */
+	CAPA_OPC_META_READ    = 1<<11, /**< read object meta data */
 };
 
 #define CAPA_OPC_OSS_RW (CAPA_OPC_OSS_READ | CAPA_OPC_OSS_WRITE)
 #define CAPA_OPC_MDS_ONLY                                                   \
-        (CAPA_OPC_BODY_WRITE | CAPA_OPC_BODY_READ | CAPA_OPC_INDEX_LOOKUP | \
-         CAPA_OPC_INDEX_INSERT | CAPA_OPC_INDEX_DELETE)
+	(CAPA_OPC_BODY_WRITE | CAPA_OPC_BODY_READ | CAPA_OPC_INDEX_LOOKUP | \
+	 CAPA_OPC_INDEX_INSERT | CAPA_OPC_INDEX_DELETE | CAPA_OPC_INDEX_UPDATE)
 #define CAPA_OPC_OSS_ONLY                                                   \
         (CAPA_OPC_OSS_WRITE | CAPA_OPC_OSS_READ | CAPA_OPC_OSS_TRUNC |      \
          CAPA_OPC_OSS_DESTROY)

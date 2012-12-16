@@ -3847,12 +3847,96 @@ static int osd_it_iam_load(const struct lu_env *env,
         return iam_it_load(&it->oi_it, hash);
 }
 
+static int osd_index_declare_iam_update(const struct lu_env *env,
+					struct dt_object *dt,
+					const struct dt_rec *rec,
+					const struct dt_key *key,
+					struct thandle *handle)
+{
+	struct osd_thandle *oh;
+
+	LASSERT(dt_object_exists(dt));
+	LASSERT(handle != NULL);
+
+	oh = container_of0(handle, struct osd_thandle, ot_super);
+	LASSERT(oh->ot_handle == NULL);
+
+	OSD_DECLARE_OP(oh, update, osd_dto_credits_noquota[DTO_INDEX_UPDATE]);
+
+	return 0;
+}
+
+/**
+ *      Updates (key, value) pair in \a dt index object.
+ *
+ *      \param  dt      osd index object
+ *      \param  key     key for index
+ *      \param  rec     record reference
+ *      \param  th      transaction handler
+ *
+ *      \retval  0  success
+ *      \retval -ve failure
+ */
+static int osd_index_iam_update(const struct lu_env *env, struct dt_object *dt,
+				const struct dt_rec *rec,
+				const struct dt_key *key, struct thandle *th,
+				struct lustre_capa *capa, int ignore_quota)
+{
+	struct osd_object      *obj = osd_dt_obj(dt);
+	struct iam_path_descr  *ipd;
+	struct osd_thandle     *oh;
+	struct iam_container   *bag = &obj->oo_dir->od_container;
+	struct osd_thread_info *oti = osd_oti_get(env);
+	struct iam_rec	       *iam_rec;
+	int			rc;
+	ENTRY;
+
+	LINVRNT(osd_invariant(obj));
+	LASSERT(dt_object_exists(dt));
+	LASSERT(bag->ic_object == obj->oo_inode);
+	LASSERT(th != NULL);
+
+	if (osd_object_auth(env, dt, capa, CAPA_OPC_INDEX_UPDATE))
+		RETURN(-EACCES);
+
+	OSD_EXEC_OP(th, update);
+
+	ipd = osd_idx_ipd_get(env, bag);
+	if (unlikely(ipd == NULL))
+		RETURN(-ENOMEM);
+
+	oh = container_of0(th, struct osd_thandle, ot_super);
+	LASSERT(oh->ot_handle != NULL);
+	LASSERT(oh->ot_handle->h_transaction != NULL);
+	if (S_ISDIR(obj->oo_inode->i_mode)) {
+		iam_rec = (struct iam_rec *)oti->oti_ldp;
+		osd_fid_pack((struct osd_fid_pack *)iam_rec, rec, &oti->oti_fid);
+	} else if (fid_is_quota(lu_object_fid(&dt->do_lu))) {
+		/* pack quota uid/gid */
+		oti->oti_quota_id = cpu_to_le64(*((__u64 *)key));
+		key = (const struct dt_key *)&oti->oti_quota_id;
+		/* pack quota record */
+		rec = osd_quota_pack(obj, rec, &oti->oti_quota_rec);
+		iam_rec = (struct iam_rec *)rec;
+	} else {
+		iam_rec = (struct iam_rec *)rec;
+	}
+
+	rc = iam_update(oh->ot_handle, bag, (const struct iam_key *)key,
+			iam_rec, ipd);
+	osd_ipd_put(env, bag, ipd);
+	LINVRNT(osd_invariant(obj));
+	RETURN(rc > 0 ? 0 : rc);
+}
+
 static const struct dt_index_operations osd_index_iam_ops = {
         .dio_lookup         = osd_index_iam_lookup,
         .dio_declare_insert = osd_index_declare_iam_insert,
         .dio_insert         = osd_index_iam_insert,
         .dio_declare_delete = osd_index_declare_iam_delete,
         .dio_delete         = osd_index_iam_delete,
+	.dio_declare_update = osd_index_declare_iam_update,
+	.dio_update	    = osd_index_iam_update,
         .dio_it     = {
                 .init     = osd_it_iam_init,
                 .fini     = osd_it_iam_fini,
@@ -4246,6 +4330,23 @@ static int osd_index_ea_lookup(const struct lu_env *env, struct dt_object *dt,
         RETURN(rc);
 }
 
+static int osd_index_declare_ea_update(const struct lu_env *env,
+				       struct dt_object *dt,
+				       const struct dt_rec *rec,
+				       const struct dt_key *key,
+				       struct thandle *handle)
+{
+	return -EOPNOTSUPP;
+}
+
+static int osd_index_ea_update(const struct lu_env *env, struct dt_object *dt,
+			       const struct dt_rec *rec,
+			       const struct dt_key *key, struct thandle *th,
+			       struct lustre_capa *capa, int ignore_quota)
+{
+	return -EOPNOTSUPP;
+}
+
 /**
  * Index and Iterator operations for interoperability
  * mode (i.e. to run 2.0 mds on 1.8 disk) (b11826)
@@ -4256,6 +4357,8 @@ static const struct dt_index_operations osd_index_ea_ops = {
         .dio_insert         = osd_index_ea_insert,
         .dio_declare_delete = osd_index_declare_ea_delete,
         .dio_delete         = osd_index_ea_delete,
+	.dio_declare_update = osd_index_declare_ea_update,
+	.dio_update	    = osd_index_ea_update,
         .dio_it     = {
                 .init     = osd_it_ea_init,
                 .fini     = osd_it_ea_fini,
