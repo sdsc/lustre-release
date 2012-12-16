@@ -415,8 +415,8 @@ int fld_server_init(const struct lu_env *env, struct lu_server_fld *fld,
 
         fld->lsf_control_exp = NULL;
 
-        /* Insert reserved sequence number of ".lustre" into fld cache. */
-        range.lsr_start = FID_SEQ_DOT_LUSTRE;
+	/* Insert reserved sequence of "ROOT" &  ".lustre" into fld cache. */
+	range.lsr_start = FID_SEQ_LOCAL_FILE;
         range.lsr_end = FID_SEQ_DOT_LUSTRE + 1;
         range.lsr_index = 0;
         range.lsr_flags = LU_SEQ_RANGE_MDT;
