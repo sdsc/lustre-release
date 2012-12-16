@@ -1442,7 +1442,9 @@ static void osc_free_grant(struct client_obd *cli, unsigned int nr_pages,
  * writing starts.  Must be called with the loi lock held. */
 static void osc_exit_cache(struct client_obd *cli, struct osc_async_page *oap)
 {
+	client_obd_list_lock(&cli->cl_loi_list_lock);
 	osc_release_write_grant(cli, &oap->oap_brw_page);
+	client_obd_list_unlock(&cli->cl_loi_list_lock);
 }
 
 /**
