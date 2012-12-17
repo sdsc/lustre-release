@@ -329,11 +329,10 @@ static int lprocfs_osd_rd_mntdev(char *page, char **start, off_t off, int count,
 	if (unlikely(osd->od_mnt == NULL))
                 return -EINPROGRESS;
 
-	LASSERT(mnt_get_devname(osd->od_mnt));
+	LASSERT(get_mntdev_name(osd_sb(osd));
 	*eof = 1;
 
-	return snprintf(page, count, "%s\n",
-			mnt_get_devname(osd->od_mnt));
+	return snprintf(page, count, "%s\n", get_mntdev_name(osd_sb(osd));
 }
 
 static int lprocfs_osd_rd_cache(char *page, char **start, off_t off,
