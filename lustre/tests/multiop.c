@@ -49,6 +49,7 @@
 #include <unistd.h>
 #include <semaphore.h>
 
+#include <lustre/lustre_idl.h>
 #include <lustre/lustreapi.h>
 
 #define T1 "write data before unlink\n"
@@ -67,6 +68,7 @@ char usage[] =
 "        d  mkdir\n"
 "        D  open(O_DIRECTORY)\n"
 "        f  statfs\n"
+"	 F  print FID\n"
 "        G gid get grouplock\n"
 "        g gid put grouplock\n"
 "        L  link\n"
@@ -85,6 +87,7 @@ char usage[] =
 "        u  unlink\n"
 "        U  munmap\n"
 "        v  verbose\n"
+"	 V  open a volatile file\n"
 "        w[num] write optional length\n"
 "        W  write entire mmap-ed region\n"
 "        y  fsync\n"
@@ -185,17 +188,18 @@ int get_flags(char *data, int *rflags)
 
 int main(int argc, char **argv)
 {
-        char *fname, *commands;
-        const char *newfile;
-        struct stat st;
-        struct statfs stfs;
-        size_t mmap_len = 0, i;
-        unsigned char *mmap_ptr = NULL, junk = 0;
-        int rc, len, fd = -1;
-        int flags;
-        int save_errno;
-        int verbose = 0;
-        int gid = 0;
+        char		*fname, *commands;
+        const char	*newfile;
+        struct stat	 st;
+        struct statfs	 stfs;
+        size_t		 mmap_len = 0, i;
+        unsigned char	*mmap_ptr = NULL, junk = 0;
+        int		 rc, len, fd = -1;
+        int		 flags;
+        int		 save_errno;
+        int		 verbose = 0;
+        int		 gid = 0;
+	lustre_fid	 fid;
 
         if (argc < 3) {
                 fprintf(stderr, usage, argv[0]);
@@ -259,6 +263,18 @@ int main(int argc, char **argv)
                                 exit(save_errno);
                         }
                         break;
+		case 'F':
+			if (fd == -1)
+				rc = llapi_path2fid(fname, &fid);
+			else
+				rc = llapi_fd2fid(fd, &fid);
+			if (rc != 0)
+				fprintf(stderr,
+					"llapi_path/fd2fid() on %d, rc=%d\n",
+					fd, rc);
+			else
+				printf(DFID"\n", PFID(&fid));
+			break;
                 case 'G':
                         gid = atoi(commands+1);
                         if (ioctl(fd, LL_IOC_GROUP_LOCK, gid) == -1) {
@@ -432,6 +448,15 @@ int main(int argc, char **argv)
                 case 'v':
                         verbose++;
                         break;
+		case 'V':
+			len = get_flags(commands + 1, &flags);
+			commands += len;
+			fd = llapi_create_volatile(fname, flags);
+			if (fd < 0) {
+				perror("llapi_create_volatile");
+				exit(fd);
+			}
+			break;
                 case 'w':
                         len = atoi(commands+1);
                         if (len <= 0)

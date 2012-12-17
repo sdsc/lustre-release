@@ -156,6 +156,7 @@ static inline void mdd_orphan_ref_del(const struct lu_env *env,
 
 int orph_declare_index_insert(const struct lu_env *env,
                               struct mdd_object *obj,
+			      cfs_umode_t mode,
                               struct thandle *th)
 {
         struct mdd_device *mdd = mdo2mdd(&obj->mod_obj);
@@ -172,8 +173,8 @@ int orph_declare_index_insert(const struct lu_env *env,
         if (rc)
                 return rc;
 
-        if (!S_ISDIR(mdd_object_type(obj)))
-                return 0;
+	if (!S_ISDIR(mode))
+		return 0;
 
         rc = mdo_declare_ref_add(env, obj, th);
         if (rc)
@@ -206,7 +207,6 @@ static int orph_index_insert(const struct lu_env *env,
 
         LASSERT(mdd_write_locked(env, obj) != 0);
         LASSERT(!(obj->mod_flags & ORPHAN_OBJ));
-        LASSERT(obj->mod_count > 0);
 
         mdd_orphan_write_lock(env, mdd);
 
