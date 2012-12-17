@@ -2098,12 +2098,10 @@ static inline int __osd_xattr_set(struct osd_thread_info *info,
  *
  * FIXME: It is good to have/use ldiskfs_xattr_set_handle() here
  */
-static int osd_ea_fid_set(const struct lu_env *env, struct dt_object *dt,
-                          const struct lu_fid *fid)
+int osd_ea_fid_set(struct osd_thread_info *info, struct inode *inode,
+		   const struct lu_fid *fid, bool init)
 {
-	struct osd_thread_info  *info	= osd_oti_get(env);
-	struct inode		*inode	= osd_dt_obj(dt)->oo_inode;
-	struct lustre_mdt_attrs	*lma	= &info->oti_mdt_attrs;
+	struct lustre_mdt_attrs	*lma = &info->oti_mdt_attrs;
 	int			 rc;
 
 	lustre_lma_init(lma, fid);
@@ -2111,6 +2109,9 @@ static int osd_ea_fid_set(const struct lu_env *env, struct dt_object *dt,
 
 	rc = __osd_xattr_set(info, inode, XATTR_NAME_LMA, lma, sizeof(*lma),
 			     XATTR_CREATE);
+	/* Someone may created the EA by race. */
+	if (unlikely(rc == -EEXIST && !init))
+		rc = 0;
 	return rc;
 }
 
@@ -2198,7 +2199,7 @@ static int osd_object_ea_create(const struct lu_env *env, struct dt_object *dt,
         result = __osd_object_create(info, obj, attr, hint, dof, th);
         /* objects under osd root shld have igif fid, so dont add fid EA */
         if (result == 0 && fid_seq(fid) >= FID_SEQ_NORMAL)
-                result = osd_ea_fid_set(env, dt, fid);
+		result = osd_ea_fid_set(info, obj->oo_inode, fid, true);
 
         if (result == 0)
                 result = __osd_oi_insert(env, obj, fid, th);
@@ -4529,6 +4530,7 @@ static int osd_device_init0(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(out_mnt, rc);
 
+	CFS_INIT_LIST_HEAD(&o->od_scrub_ls_list);
 	/* setup scrub, including OI files initialization */
 	rc = osd_scrub_setup(env, o);
 	if (rc < 0)
