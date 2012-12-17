@@ -1382,11 +1382,10 @@ static void mdd_lfsck_unpack_ent(struct lu_dirent *ent, __u64 *clue)
 	ent->lde_namelen = le16_to_cpu(ent->lde_namelen);
 	ent->lde_attrs = le32_to_cpu(ent->lde_attrs);
 
-	/* XXX: will be changed as LASSERT() when low layer patch is ready. */
-	if (ent->lde_attrs & LUDA_VERIFY) {
-		p = (__u64 *)(ent->lde_name + len);
-		*clue = le64_to_cpu(*p);
-	}
+	LASSERT(ent->lde_attrs & LUDA_VERIFY);
+
+	p = (__u64 *)(ent->lde_name + len);
+	*clue = le64_to_cpu(*p);
 
 	/* Make sure the name is terminated with '0'.
 	 * The data after ent::lde_name is broken,
