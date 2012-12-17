@@ -200,7 +200,6 @@ extern int llapi_search_ost(char *fsname, char *poolname, char *ostname);
 extern int llapi_get_obd_count(char *mnt, int *count, int is_mdt);
 extern int parse_size(char *optarg, unsigned long long *size,
                       unsigned long long *size_units, int bytes_spec);
-extern int llapi_path2fid(const char *path, lustre_fid *fid);
 extern int llapi_search_mounts(const char *pathname, int index,
                                char *mntdir, char *fsname);
 extern int llapi_search_fsname(const char *pathname, char *fsname);
@@ -227,9 +226,12 @@ extern int llapi_ls(int argc, char *argv[]);
 extern int llapi_fid2path(const char *device, const char *fidstr, char *path,
                           int pathlen, long long *recno, int *linkno);
 extern int llapi_path2fid(const char *path, lustre_fid *fid);
+extern int llapi_fd2fid(const int fd, lustre_fid *fid);
 extern int llapi_get_version(char *buffer, int buffer_size, char **version);
 
 extern int llapi_get_data_version(int fd, __u64 *data_version, __u64 flags);
+extern int llapi_create_volatile_idx(char *directory, int idx, int mode);
+extern int llapi_create_volatile(char *directory, int mode);
 
 /* Changelog interface.  priv is private state, managed internally
    by these functions */

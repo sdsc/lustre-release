@@ -237,6 +237,11 @@ struct ll_inode_info {
 			 * accurate if the file is shared by different jobs.
 			 */
 			char                     f_jobid[JOBSTATS_JOBID_SIZE];
+			/* volatile file criteria is based on file name, this
+			 * flag is used to keep the test result, so the strcmp
+			 * is done only once
+			 */
+			bool				f_volatile;
                 } f;
 
 #define lli_size_sem            u.f.f_size_sem
@@ -251,6 +256,7 @@ struct ll_inode_info {
 #define lli_agl_index		u.f.f_agl_index
 #define lli_async_rc		u.f.f_async_rc
 #define lli_jobid		u.f.f_jobid
+#define lli_volatile		u.f.f_volatile
 
 	} u;
 

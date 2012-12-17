@@ -242,6 +242,7 @@ static int ll_dir_filler(void *_hash, struct page *page0)
         if (page_pool != &page0)
                 OBD_FREE(page_pool, sizeof(struct page *) * max_pages);
         EXIT;
+CERROR("rc=%d\n", rc); //CEA
         return rc;
 }
 
