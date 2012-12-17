@@ -1,0 +1,26 @@
+# vim:expandtab:shiftwidth=4:softtabstop=4:tabstop=4:
+
+source ${0%/*}/lbuild-fc
+
+# increment this if you have made a change that should force a new kernel
+# to build built
+BUILD_GEN+=".0"
+
+find_linux_rpm-fc18() {
+    local prefix="$1"
+    local wanted_kernel="$2"
+    local pathtorpms=${3:-"${KERNELRPMSBASE}/${lnxmaj}/${DISTRO}/${TARGET_ARCH}"}
+
+    rpm=kernel-devel-${wanted_kernel}.${TARGET_ARCH}.rpm
+    local curl=http://download.fedoraproject.org/pub/fedora/linux/releases/18/Fedora/${TARGET_ARCH}/os/Packages/k/
+    local olddir=$(pwd)
+    cd $pathtorpms
+    if ! wget -q $curl/$rpm > /dev/null; then
+        fatal 1 "failed to download $rpm from $curl."
+    fi
+    cd $olddir
+    echo "$rpm"
+
+    return 0
+
+}
