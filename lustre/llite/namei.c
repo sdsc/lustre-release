@@ -715,7 +715,10 @@ static int ll_create_it(struct inode *dir, struct dentry *dentry, int mode,
         if (IS_ERR(inode))
                 RETURN(PTR_ERR(inode));
 
-        d_instantiate(dentry, inode);
+	if (file_is_volatile(dentry->d_name.name, dentry->d_name.len, NULL))
+		ll_i2info(inode)->lli_volatile = true;
+
+	d_instantiate(dentry, inode);
         RETURN(0);
 }
 
