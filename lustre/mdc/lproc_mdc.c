@@ -154,8 +154,7 @@ static struct lprocfs_vars lprocfs_mdc_obd_vars[] = {
          * when CMD is enabled, and dir pages are managed in MDC layer.
          * Remember to enable proc write function.
          */
-        { "max_pages_per_rpc",  lprocfs_obd_rd_max_pages_per_rpc,
-                                /* lprocfs_obd_wr_max_pages_per_rpc */0, 0 },
+	{ "max_pages_per_rpc",  lprocfs_obd_rd_max_pages_per_rpc, 0, 0 },
         { "max_rpcs_in_flight", mdc_rd_max_rpcs_in_flight,
                                 mdc_wr_max_rpcs_in_flight, 0 },
         { "timeouts",        lprocfs_rd_timeouts,    0, 0 },
