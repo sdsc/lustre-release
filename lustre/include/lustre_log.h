@@ -479,7 +479,7 @@ extern void llog_recov_thread_fini(struct llog_commit_master *lcm,
 extern int llog_recov_thread_start(struct llog_commit_master *lcm);
 extern void llog_recov_thread_stop(struct llog_commit_master *lcm,
                                     int force);
-
+#ifdef HAVE_SERVER_SUPPORT
 static inline void llog_gen_init(struct llog_ctxt *ctxt)
 {
         struct obd_device *obd = ctxt->loc_exp->exp_obd;
@@ -490,6 +490,7 @@ static inline void llog_gen_init(struct llog_ctxt *ctxt)
         ctxt->loc_gen.mnt_cnt = obd->u.obt.obt_mount_count;
         ctxt->loc_gen.conn_cnt++;
 }
+#endif
 
 static inline int llog_gen_lt(struct llog_gen a, struct llog_gen b)
 {
