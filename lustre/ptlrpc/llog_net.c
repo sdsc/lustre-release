@@ -63,6 +63,7 @@ int llog_origin_connect(struct llog_ctxt *ctxt,
                         struct llog_logid *logid, struct llog_gen *gen,
                         struct obd_uuid *uuid)
 {
+# ifdef HAVE_SERVER_SUPPORT
         struct llog_gen_rec    *lgr;
         struct ptlrpc_request  *req;
         struct llogd_conn_body *req_body;
@@ -87,8 +88,8 @@ int llog_origin_connect(struct llog_ctxt *ctxt,
         lgr->lgr_hdr.lrh_len = lgr->lgr_tail.lrt_len = sizeof(*lgr);
         lgr->lgr_hdr.lrh_type = LLOG_GEN_REC;
 
-        handle = fsfilt_start_log(ctxt->loc_exp->exp_obd, inode, 
-                                  FSFILT_OP_CANCEL_UNLINK, NULL, 1);
+	handle = fsfilt_start_log(ctxt->loc_exp->exp_obd, inode,
+				  FSFILT_OP_CANCEL_UNLINK, NULL, 1);
         if (IS_ERR(handle)) {
                CERROR("fsfilt_start failed: %ld\n", PTR_ERR(handle));
                OBD_FREE(lgr, sizeof(*lgr));
@@ -127,6 +128,10 @@ int llog_origin_connect(struct llog_ctxt *ctxt,
         ptlrpc_req_finished(req);
 
         RETURN(rc);
+# else /* !HAVE_SERVER_SUPPORT */
+	CERROR("Un-supportted as this is client-side only module.\n");
+	RETURN(-EOPNOTSUPP);
+# endif
 }
 EXPORT_SYMBOL(llog_origin_connect);
 
