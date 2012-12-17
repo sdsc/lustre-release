@@ -5356,7 +5356,8 @@ function get_named_value()
     done
 }
 
-export CACHE_MAX=`$LCTL get_param -n llite.*.max_cached_mb | head -n 1`
+export CACHE_MAX=`$LCTL get_param -n llite.*.max_cached_mb | \
+		  awk '/^max_cached_mb/ { print $2 }'`
 cleanup_101a() {
 	$LCTL set_param -n llite.*.max_cached_mb $CACHE_MAX
 	trap 0
@@ -5403,8 +5404,10 @@ setup_test101bc() {
 	STRIPE_OFFSET=0
 
 	local list=$(comma_list $(osts_nodes))
-	do_nodes $list $LCTL set_param -n obdfilter.*.read_cache_enable=0
-	do_nodes $list $LCTL set_param -n obdfilter.*.writethrough_cache_enable=0
+	do_nodes $list \
+		$LCTL set_param -n osd-ldiskfs.*.read_cache_enable=0
+	do_nodes $list \
+		$LCTL set_param -n osd-ldiskfs.*.writethrough_cache_enable=0
 
 	trap cleanup_test101bc EXIT
 	# prepare the read-ahead file
@@ -5419,8 +5422,10 @@ cleanup_test101bc() {
 	rm -f $DIR/$tfile
 
 	local list=$(comma_list $(osts_nodes))
-	do_nodes $list $LCTL set_param -n obdfilter.*.read_cache_enable=1
-	do_nodes $list $LCTL set_param -n obdfilter.*.writethrough_cache_enable=1
+	do_nodes $list \
+		$LCTL set_param -n osd-ldiskfs.*.read_cache_enable=1
+	do_nodes $list \
+		$LCTL set_param -n osd-ldiskfs.*.writethrough_cache_enable=1
 }
 
 calc_total() {

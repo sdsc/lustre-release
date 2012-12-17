@@ -175,6 +175,10 @@ typedef enum {
 	/* This is a new object to be allocated, or the file
 	 * corresponding to the object does not exists. */
 	LOC_F_NEW	= 0x00000001,
+
+	/* We want to create the object if it does not exist, but we do not
+	 * know whether it exists or not, so need to lookup it firstly. */
+	LOC_F_MAYCREATE	= 0x00000002,
 } loc_flags_t;
 
 /**
@@ -501,12 +505,24 @@ struct lu_object {
 };
 
 enum lu_object_header_flags {
-        /**
-         * Don't keep this object in cache. Object will be destroyed as soon
-         * as last reference to it is released. This flag cannot be cleared
-         * once set.
-         */
-        LU_OBJECT_HEARD_BANSHEE = 0
+	/**
+	 * Don't keep this object in cache. Object will be destroyed as soon
+	 * as last reference to it is released. This flag cannot be cleared
+	 * once set.
+	 */
+	 LU_OBJECT_HEARD_BANSHEE = 0,
+
+	/**
+	 * The object is pinned in RAM for some purpose,
+	 * such as for lfsck processing.
+	 */
+	LU_OBJECT_HEARD_PINNED = 1,
+
+	/**
+	 * The object has ever been pinned in RAM for some purpose,
+	 * such as for lfsck processing. But now it can be unpinned.
+	 */
+	LU_OBJECT_HEARD_USED = 2,
 };
 
 enum lu_object_header_attr {
@@ -593,6 +609,18 @@ struct lu_site_bkt_data {
          * \see htable_lookup().
          */
         cfs_waitq_t               lsb_marche_funebre;
+
+	/**
+	 * Some objects are pinned in RAM for some purpose, such as for lfsck
+	 * processing. Unpin the objects may affect those applications.
+	 */
+	cfs_list_t		  lsb_pinned;
+
+	/**
+	 * Some objects have ever been pinned in RAM for some purpose, such as
+	 * for lfsck processing. But now they can be unpinned.
+	 */
+	cfs_list_t		  lsb_used;
 };
 
 enum {
@@ -652,6 +680,9 @@ struct lu_site {
 	 * XXX: a hack! fld has to find md_site via site, remove when possible
 	 */
 	struct md_site		*ld_md_site;
+	unsigned int		ls_allow_pinned:1; /* Allow object to be pinned
+						    * in RAM for some purpose,
+						    * such as LFSCK. */
 };
 
 static inline struct lu_site_bkt_data *
@@ -722,10 +753,45 @@ static inline int lu_object_is_dying(const struct lu_object_header *h)
 	return test_bit(LU_OBJECT_HEARD_BANSHEE, &h->loh_flags);
 }
 
+static inline void lu_object_set_dying(struct lu_object_header *h)
+{
+	set_bit(LU_OBJECT_HEARD_BANSHEE, &h->loh_flags);
+}
+
+static inline int lu_object_is_pinned(const struct lu_object_header *h)
+{
+	return test_bit(LU_OBJECT_HEARD_PINNED, &h->loh_flags);
+}
+
+static inline void lu_object_set_pinned(struct lu_object_header *h)
+{
+	set_bit(LU_OBJECT_HEARD_PINNED, &h->loh_flags);
+}
+
+static inline void lu_object_clear_pinned(struct lu_object_header *h)
+{
+	clear_bit(LU_OBJECT_HEARD_PINNED, &h->loh_flags);
+}
+static inline int lu_object_is_used(const struct lu_object_header *h)
+{
+	return test_bit(LU_OBJECT_HEARD_USED, &h->loh_flags);
+}
+
+static inline void lu_object_set_used(struct lu_object_header *h)
+{
+	set_bit(LU_OBJECT_HEARD_USED, &h->loh_flags);
+}
+
+static inline void lu_object_clear_used(struct lu_object_header *h)
+{
+	clear_bit(LU_OBJECT_HEARD_USED, &h->loh_flags);
+}
+
 void lu_object_put(const struct lu_env *env, struct lu_object *o);
 void lu_object_put_nocache(const struct lu_env *env, struct lu_object *o);
 
 int lu_site_purge(const struct lu_env *env, struct lu_site *s, int nr);
+void lu_site_purge_pinned(const struct lu_env *env, struct lu_site *s);
 
 void lu_site_print(const struct lu_env *env, struct lu_site *s, void *cookie,
                    lu_printer_t printer);
