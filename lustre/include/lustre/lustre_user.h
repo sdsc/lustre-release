@@ -466,6 +466,12 @@ enum {
 
 #endif /* !__KERNEL__ */
 
+/* lustre volatile file support */
+#define LUSTRE_VOLATILE_HDR	".LSTR:VOLATILE"
+#define LUSTRE_VOLATILE_HDR_LEN	14
+/* hdr + MDT index */
+#define LUSTRE_VOLATILE_IDX	LUSTRE_VOLATILE_HDR":%.4X:"
+
 typedef enum lustre_quota_version {
         LUSTRE_QUOTA_V2 = 1
 } lustre_quota_version_t;

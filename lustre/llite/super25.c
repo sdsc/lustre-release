@@ -115,6 +115,8 @@ static int __init init_lustre_lite(void)
         struct timeval tv;
         lnet_process_id_t lnet_id;
 
+	CLASSERT(strlen(LUSTRE_VOLATILE_HDR) == LUSTRE_VOLATILE_HDR_LEN);
+
         /* print an address of _any_ initialized kernel symbol from this
          * module, to allow debugging with gdb that doesn't support data
          * symbols from modules.*/

@@ -2057,7 +2057,7 @@ static int osd_object_destroy(const struct lu_env *env,
 		spin_unlock(&obj->oo_guard);
 		inode->i_sb->s_op->dirty_inode(inode);
 	} else {
-		LASSERT(osd_inode_unlinked(inode));
+		// CEA LASSERT(osd_inode_unlinked(inode));
 	}
 
         OSD_EXEC_OP(th, destroy);
