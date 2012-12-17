@@ -51,8 +51,6 @@
 
 #include <obd.h>
 #include <obd_class.h>
-#include <dt_object.h>
-#include <md_object.h>
 #include <obd_support.h>
 #include <lustre_req_layout.h>
 #include <lustre_fid.h>
@@ -151,20 +149,17 @@ int seq_client_alloc_super(struct lu_client_seq *seq,
 
 	mutex_lock(&seq->lcs_mutex);
 
-#ifdef __KERNEL__
-        if (seq->lcs_srv) {
-                LASSERT(env != NULL);
-                rc = seq_server_alloc_super(seq->lcs_srv, &seq->lcs_space,
-                                            env);
-        } else {
+#if defined(__KERNEL__) && defined(HAVE_SERVER_SUPPORT)
+	if (seq->lcs_srv) {
+		LASSERT(env != NULL);
+		rc = seq_server_alloc_super(seq->lcs_srv, &seq->lcs_space,
+					    env);
+	} else
 #endif
-                rc = seq_client_rpc(seq, &seq->lcs_space,
-                                    SEQ_ALLOC_SUPER, "super");
-#ifdef __KERNEL__
-        }
-#endif
+		rc = seq_client_rpc(seq, &seq->lcs_space,
+				    SEQ_ALLOC_SUPER, "super");
 	mutex_unlock(&seq->lcs_mutex);
-        RETURN(rc);
+	RETURN(rc);
 }
 
 /* Request sequence-controller node to allocate new meta-sequence. */
@@ -174,18 +169,15 @@ static int seq_client_alloc_meta(const struct lu_env *env,
         int rc;
         ENTRY;
 
-#ifdef __KERNEL__
-        if (seq->lcs_srv) {
-                LASSERT(env != NULL);
-                rc = seq_server_alloc_meta(seq->lcs_srv, &seq->lcs_space, env);
-        } else {
+#if defined(__KERNEL__) && defined(HAVE_SERVER_SUPPORT)
+	if (seq->lcs_srv) {
+		LASSERT(env != NULL);
+		rc = seq_server_alloc_meta(seq->lcs_srv, &seq->lcs_space, env);
+	} else
 #endif
-                rc = seq_client_rpc(seq, &seq->lcs_space,
-                                    SEQ_ALLOC_META, "meta");
-#ifdef __KERNEL__
-        }
-#endif
-        RETURN(rc);
+		rc = seq_client_rpc(seq, &seq->lcs_space,
+				    SEQ_ALLOC_META, "meta");
+	RETURN(rc);
 }
 
 /* Allocate new sequence for client. */
@@ -508,3 +500,40 @@ void seq_client_fini(struct lu_client_seq *seq)
         EXIT;
 }
 EXPORT_SYMBOL(seq_client_fini);
+
+#ifdef __KERNEL__
+cfs_proc_dir_entry_t *seq_type_proc_dir = NULL;
+
+static int __init fid_mod_init(void)
+{
+	seq_type_proc_dir = lprocfs_register(LUSTRE_SEQ_NAME,
+					     proc_lustre_root,
+					     NULL, NULL);
+	if (IS_ERR(seq_type_proc_dir))
+		return PTR_ERR(seq_type_proc_dir);
+
+# ifdef HAVE_SERVER_SUPPORT
+	fid_mod_init_sever();
+# endif
+
+	return 0;
+}
+
+static void __exit fid_mod_exit(void)
+{
+# ifdef HAVE_SERVER_SUPPORT
+	fid_mod_exit_server();
+# endif
+
+	if (seq_type_proc_dir != NULL && !IS_ERR(seq_type_proc_dir)) {
+		lprocfs_remove(&seq_type_proc_dir);
+		seq_type_proc_dir = NULL;
+	}
+}
+
+MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
+MODULE_DESCRIPTION("Lustre FID Module");
+MODULE_LICENSE("GPL");
+
+cfs_module(fid, LUSTRE_VERSION_STRING, fid_mod_init, fid_mod_exit);
+#endif /* __KERNEL__ */

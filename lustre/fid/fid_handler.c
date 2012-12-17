@@ -557,33 +557,14 @@ void seq_server_fini(struct lu_server_seq *seq,
 }
 EXPORT_SYMBOL(seq_server_fini);
 
-cfs_proc_dir_entry_t *seq_type_proc_dir = NULL;
-
-static int __init fid_mod_init(void)
+void fid_mod_init_sever(void)
 {
-        seq_type_proc_dir = lprocfs_register(LUSTRE_SEQ_NAME,
-                                             proc_lustre_root,
-                                             NULL, NULL);
-        if (IS_ERR(seq_type_proc_dir))
-                return PTR_ERR(seq_type_proc_dir);
-
-        LU_CONTEXT_KEY_INIT(&seq_thread_key);
-        lu_context_key_register(&seq_thread_key);
-        return 0;
+	LU_CONTEXT_KEY_INIT(&seq_thread_key);
+	lu_context_key_register(&seq_thread_key);
 }
 
-static void __exit fid_mod_exit(void)
+void fid_mod_exit_server(void)
 {
-        lu_context_key_degister(&seq_thread_key);
-        if (seq_type_proc_dir != NULL && !IS_ERR(seq_type_proc_dir)) {
-                lprocfs_remove(&seq_type_proc_dir);
-                seq_type_proc_dir = NULL;
-        }
+	lu_context_key_degister(&seq_thread_key);
 }
-
-MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
-MODULE_DESCRIPTION("Lustre FID Module");
-MODULE_LICENSE("GPL");
-
-cfs_module(fid, "0.1.0", fid_mod_init, fid_mod_exit);
 #endif
