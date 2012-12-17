@@ -166,25 +166,27 @@ static void mdd_changelog_fini(const struct lu_env *env,
 static void mdd_device_shutdown(const struct lu_env *env,
                                 struct mdd_device *m, struct lustre_cfg *cfg)
 {
-        ENTRY;
-        mdd_changelog_fini(env, m);
-        if (m->mdd_dot_lustre_objs.mdd_obf)
-                mdd_object_put(env, m->mdd_dot_lustre_objs.mdd_obf);
-        if (m->mdd_dot_lustre)
-                mdd_object_put(env, m->mdd_dot_lustre);
-        orph_index_fini(env, m);
-        if (m->mdd_capa != NULL) {
-                lu_object_put(env, &m->mdd_capa->do_lu);
-                m->mdd_capa = NULL;
-        }
+	ENTRY;
+
+	mdd_changelog_fini(env, m);
+	if (m->mdd_dot_lustre_objs.mdd_obf)
+		mdd_object_put(env, m->mdd_dot_lustre_objs.mdd_obf);
+	if (m->mdd_dot_lustre)
+		mdd_object_put(env, m->mdd_dot_lustre);
+	if (m->mdd_orphans)
+		mdd_object_put(env, m->mdd_orphans);
+	if (m->mdd_capa != NULL) {
+		lu_object_put(env, &m->mdd_capa->do_lu);
+		m->mdd_capa = NULL;
+	}
 	lu_site_purge(env, m->mdd_md_dev.md_lu_dev.ld_site, -1);
-        /* remove upcall device*/
-        md_upcall_fini(&m->mdd_md_dev);
+	/* remove upcall device*/
+	md_upcall_fini(&m->mdd_md_dev);
 
 	if (m->mdd_child_exp)
 		obd_disconnect(m->mdd_child_exp);
 
-        EXIT;
+	EXIT;
 }
 
 static int changelog_init_cb(const struct lu_env *env, struct llog_handle *llh,
@@ -1108,6 +1110,36 @@ out:
         RETURN(rc);
 }
 
+static int mdd_orphans_setup(const struct lu_env *env, struct mdd_device *m)
+{
+	struct lu_fid		 fid;
+	struct dt_object	*d;
+	int			 rc = 0;
+	ENTRY;
+
+	d = dt_store_open(env, m->mdd_child, "", orph_index_name, &fid);
+	if (IS_ERR(d)) {
+		CERROR("%s: cannot find \"%s\" obj %d\n",
+		       mdd2obd_dev(m)->obd_name, orph_index_name,
+		       (int)PTR_ERR(d));
+		rc = PTR_ERR(d);
+	} else {
+		if (!dt_try_as_dir(env, d)) {
+			rc = -ENOTDIR;
+			CERROR("%s: \"%s\" is not an index! : rc = %d\n",
+			       mdd2obd_dev(m)->obd_name, orph_index_name, rc);
+		}
+	}
+	if (rc)
+		RETURN(rc);
+
+	m->mdd_orphans = lu2mdd_obj(lu_object_locate(d->do_lu.lo_header,
+				    &mdd_device_type));
+	m->mdd_orphans->mod_obj.mo_dir_ops = &mdd_dir_ops;
+	m->mdd_orphans->mod_obj.mo_ops = &mdd_obj_ops;
+	RETURN(0);
+}
+
 static int mdd_process_config(const struct lu_env *env,
                               struct lu_device *d, struct lustre_cfg *cfg)
 {
@@ -1185,12 +1217,15 @@ static int mdd_prepare(const struct lu_env *env,
         if (!IS_ERR(root)) {
                 LASSERT(root != NULL);
                 lu_object_put(env, &root->do_lu);
-                rc = orph_index_init(env, mdd);
         } else {
                 rc = PTR_ERR(root);
         }
         if (rc)
                 GOTO(out, rc);
+
+	rc = mdd_orphans_setup(env, mdd);
+	if (rc)
+		GOTO(out, rc);
 
         rc = mdd_dot_lustre_setup(env, mdd);
         if (rc) {

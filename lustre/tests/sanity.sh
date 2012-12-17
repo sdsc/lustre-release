@@ -8799,6 +8799,18 @@ test_183() { # LU-2275
 }
 run_test 183 "No crash or request leak in case of strange dispositions ========"
 
+test_185() { # LU-2441
+	mkdir -p $DIR/$tdir || error "creating dir $DIR/$tdir"
+	mtime1=$(stat -c "%Y" $DIR/$tdir)
+	# 1 second delay, so if mtime change we will see it
+	sleep 1
+	$MULTIOP $DIR/$tdir Vw4096c ||
+		error "cannot create/write a volatile file"
+	mtime2=$(stat -c "%Y" $DIR/$tdir)
+	[[ $mtime1 == $mtime2 ]] || error "mtime has changed"
+}
+run_test 185 "Volatile file support ======================="
+
 # OST pools tests
 check_file_in_pool()
 {

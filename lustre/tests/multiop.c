@@ -85,6 +85,7 @@ char usage[] =
 "        u  unlink\n"
 "        U  munmap\n"
 "        v  verbose\n"
+"	 V  open a volatile file\n"
 "        w[num] write optional length\n"
 "        W  write entire mmap-ed region\n"
 "        y  fsync\n"
@@ -432,6 +433,15 @@ int main(int argc, char **argv)
                 case 'v':
                         verbose++;
                         break;
+		case 'V':
+			len = get_flags(commands + 1, &flags);
+			commands += len;
+			fd = llapi_create_volatile(fname, flags);
+			if (fd < 0) {
+				perror("llapi_create_volatile");
+				exit(fd);
+			}
+			break;
                 case 'w':
                         len = atoi(commands+1);
                         if (len <= 0)

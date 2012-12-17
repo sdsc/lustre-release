@@ -116,20 +116,20 @@ struct md_lfsck {
 };
 
 struct mdd_device {
-        struct md_device                 mdd_md_dev;
-	struct obd_export               *mdd_child_exp;
-        struct dt_device                *mdd_child;
+	struct md_device		 mdd_md_dev;
+	struct obd_export		*mdd_child_exp;
+	struct dt_device		*mdd_child;
 	struct dt_device		*mdd_bottom;
-        struct lu_fid                    mdd_root_fid;
-        struct dt_device_param           mdd_dt_conf;
-        struct dt_object                *mdd_orphans; /* PENDING directory */
-        struct dt_object                *mdd_capa;
-        cfs_proc_dir_entry_t            *mdd_proc_entry;
-        struct lprocfs_stats            *mdd_stats;
-        struct mdd_changelog             mdd_cl;
-        unsigned long                    mdd_atime_diff;
-        struct mdd_object               *mdd_dot_lustre;
-        struct mdd_dot_lustre_objs       mdd_dot_lustre_objs;
+	struct lu_fid			 mdd_root_fid;
+	struct dt_device_param		 mdd_dt_conf;
+	struct mdd_object		*mdd_orphans; /* PENDING directory */
+	struct dt_object		*mdd_capa;
+	cfs_proc_dir_entry_t		*mdd_proc_entry;
+	struct lprocfs_stats		*mdd_stats;
+	struct mdd_changelog		 mdd_cl;
+	unsigned long			 mdd_atime_diff;
+	struct mdd_object		*mdd_dot_lustre;
+	struct mdd_dot_lustre_objs       mdd_dot_lustre_objs;
 	struct md_lfsck			 mdd_lfsck;
 	unsigned int			 mdd_sync_permission;
 	int				 mdd_connects;
@@ -359,8 +359,6 @@ int __mdd_orphan_add(const struct lu_env *, struct mdd_object *,
                      struct thandle *);
 int __mdd_orphan_del(const struct lu_env *, struct mdd_object *,
                      struct thandle *);
-int orph_index_init(const struct lu_env *env, struct mdd_device *mdd);
-void orph_index_fini(const struct lu_env *env, struct mdd_device *mdd);
 int orph_declare_index_insert(const struct lu_env *, struct mdd_object *,
                               struct thandle *);
 int orph_declare_index_delete(const struct lu_env *, struct mdd_object *,

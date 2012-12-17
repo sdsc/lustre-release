@@ -1595,8 +1595,8 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
         if (rc)
                 GOTO(out, rc);
 
-        rc = mdo_declare_index_insert(env, p, mdo2fid(c),
-                                      name->ln_name, handle);
+	rc = mdo_declare_index_insert(env, p, mdo2fid(c),
+				      name->ln_name, handle);
         if (rc)
                 GOTO(out, rc);
 
@@ -1640,19 +1640,20 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 		      const struct lu_name *lname, struct md_object *child,
 		      struct md_op_spec *spec, struct md_attr* ma)
 {
-        struct mdd_thread_info *info = mdd_env_info(env);
-        struct lu_attr         *la = &info->mti_la_for_fix;
-        struct mdd_object      *mdd_pobj = md2mdd_obj(pobj);
-        struct mdd_object      *son = md2mdd_obj(child);
-        struct mdd_device      *mdd = mdo2mdd(pobj);
-        struct lu_attr         *attr = &ma->ma_attr;
-        struct thandle         *handle;
-	struct lu_attr         *pattr = &info->mti_pattr;
-        struct dynlock_handle  *dlh;
-        const char             *name = lname->ln_name;
-	int rc, created = 0, initialized = 0, inserted = 0;
-        int got_def_acl = 0;
-        ENTRY;
+	struct mdd_thread_info	*info = mdd_env_info(env);
+	struct lu_attr		*la = &info->mti_la_for_fix;
+	struct mdd_object	*mdd_pobj = md2mdd_obj(pobj);
+	struct mdd_object	*mdd_parent;
+	struct mdd_object	*son = md2mdd_obj(child);
+	struct mdd_device	*mdd = mdo2mdd(pobj);
+	struct lu_attr		*attr = &ma->ma_attr;
+	struct thandle		*handle;
+	struct lu_attr		*pattr = &info->mti_pattr;
+	struct dynlock_handle	*dlh;
+	const char		*name = lname->ln_name;
+	int			 rc, created = 0, initialized = 0, inserted = 0;
+	int			 got_def_acl = 0;
+	ENTRY;
 
         /*
          * Two operations have to be performed:
@@ -1690,6 +1691,11 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
          *     2. insert            (__mdd_index_insert(), lookup again)
          */
 
+	if (spec->sp_cr_flags & MDS_OPEN_VOLATILE)
+		mdd_parent = mdd->mdd_orphans;
+	else
+		mdd_parent = mdd_pobj;
+
 	rc = mdd_la_get(env, mdd_pobj, pattr, BYPASS_CAPA);
 	if (rc != 0)
 		RETURN(rc);
@@ -1723,7 +1729,7 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
         if (IS_ERR(handle))
                 GOTO(out_free, rc = PTR_ERR(handle));
 
-	rc = mdd_declare_create(env, mdd, mdd_pobj, son, lname, attr,
+	rc = mdd_declare_create(env, mdd, mdd_parent, son, lname, attr,
 				got_def_acl, handle, spec);
         if (rc)
                 GOTO(out_stop, rc);
@@ -1732,12 +1738,12 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
         if (rc)
                 GOTO(out_stop, rc);
 
-        dlh = mdd_pdo_write_lock(env, mdd_pobj, name, MOR_TGT_PARENT);
-        if (dlh == NULL)
-                GOTO(out_trans, rc = -ENOMEM);
+	dlh = mdd_pdo_write_lock(env, mdd_parent, name, MOR_TGT_PARENT);
+	if (dlh == NULL)
+		GOTO(out_trans, rc = -ENOMEM);
 
         mdd_write_lock(env, son, MOR_TGT_CHILD);
-	rc = mdd_object_create_internal(env, mdd_pobj, son, attr, handle, spec);
+	rc = mdd_object_create_internal(env, NULL, son, attr, handle, spec);
         if (rc) {
                 mdd_write_unlock(env, son);
                 GOTO(cleanup, rc);
@@ -1767,8 +1773,8 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 	 *      MDT calls this xattr_set(LOV) in a different transaction.
 	 *      probably this way we code can be made better.
 	 */
-	if (rc == 0 &&
-			(spec->no_create || (spec->sp_cr_flags & MDS_OPEN_HAS_EA))) {
+	if (rc == 0 && (spec->no_create ||
+			(spec->sp_cr_flags & MDS_OPEN_HAS_EA))) {
 		const struct lu_buf *buf;
 
 		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
@@ -1776,7 +1782,7 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 		rc = mdo_xattr_set(env, son, buf, XATTR_NAME_LOV, 0, handle,
 				BYPASS_CAPA);
 	}
-        mdd_write_unlock(env, son);
+	mdd_write_unlock(env, son);
         if (rc)
                 /*
                  * Object has no links, so it will be destroyed when last
@@ -1786,11 +1792,11 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 
         initialized = 1;
 
-        rc = __mdd_index_insert(env, mdd_pobj, mdo2fid(son),
-                                name, S_ISDIR(attr->la_mode), handle,
-                                mdd_object_capa(env, mdd_pobj));
-        if (rc)
-                GOTO(cleanup, rc);
+	rc = __mdd_index_insert(env, mdd_parent, mdo2fid(son),
+				name, S_ISDIR(attr->la_mode), handle,
+				mdd_object_capa(env, mdd_pobj));
+	if (rc)
+		GOTO(cleanup, rc);
 
         inserted = 1;
 
@@ -1814,11 +1820,16 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
                         GOTO(cleanup, rc = -EFAULT);
         }
 
+	/* volatile file does no update parent directory times */
+	if (spec->sp_cr_flags & MDS_OPEN_VOLATILE)
+		GOTO(cleanup, rc = 0);
+
+	/* update parent directory mtime/ctime */
 	*la = *attr;
-        la->la_valid = LA_CTIME | LA_MTIME;
+	la->la_valid = LA_CTIME | LA_MTIME;
 	rc = mdd_attr_check_set_internal(env, mdd_pobj, la, handle, 0);
-        if (rc)
-                GOTO(cleanup, rc);
+	if (rc)
+		GOTO(cleanup, rc);
 
         EXIT;
 cleanup:
@@ -1826,7 +1837,7 @@ cleanup:
 		int rc2;
 
 		if (inserted != 0) {
-			rc2 = __mdd_index_delete(env, mdd_pobj, name,
+			rc2 = __mdd_index_delete(env, mdd_parent, name,
 						 S_ISDIR(attr->la_mode),
 						 handle, BYPASS_CAPA);
 			if (rc2 != 0)
