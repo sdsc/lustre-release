@@ -1104,6 +1104,16 @@ struct dt_object_operations lod_obj_ops = {
 	.do_object_sync		= lod_object_sync,
 };
 
+struct dt_object_operations lod_obj_ram_only_ops = {
+	.do_read_lock		= lod_object_read_lock,
+	.do_write_lock		= lod_object_write_lock,
+	.do_read_unlock		= lod_object_read_unlock,
+	.do_write_unlock	= lod_object_write_unlock,
+	.do_write_locked	= lod_object_write_locked,
+	.do_attr_get		= lod_attr_get,
+	.do_index_try		= lod_index_try,
+};
+
 static ssize_t lod_read(const struct lu_env *env, struct dt_object *dt,
 			struct lu_buf *buf, loff_t *pos,
 			struct lustre_capa *capa)
@@ -1151,6 +1161,9 @@ static int lod_object_init(const struct lu_env *env, struct lu_object *o,
 	below = under->ld_ops->ldo_object_alloc(env, o->lo_header, under);
 	if (below == NULL)
 		RETURN(-ENOMEM);
+
+	if (fid_is_ram_only(&o->lo_header->loh_fid))
+		lu2lod_obj(o)->ldo_obj.do_ops = &lod_obj_ram_only_ops;
 
 	lu_object_add(o, below);
 

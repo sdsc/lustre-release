@@ -427,6 +427,7 @@ enum fid_seq {
         FID_SEQ_SPECIAL    = 0x200000004ULL,
         FID_SEQ_QUOTA      = 0x200000005ULL,
         FID_SEQ_QUOTA_GLB  = 0x200000006ULL,
+	FID_SEQ_RAM_ONLY   = 0x200000007ULL,
         FID_SEQ_NORMAL     = 0x200000400ULL,
         FID_SEQ_LOV_DEFAULT= 0xffffffffffffffffULL
 };
@@ -442,12 +443,6 @@ enum fid_seq {
 enum special_oid {
         /* Big Filesystem Lock to serialize rename operations */
         FID_OID_SPECIAL_BFL     = 1UL,
-};
-
-/** OID for FID_SEQ_DOT_LUSTRE */
-enum dot_lustre_oid {
-        FID_OID_DOT_LUSTRE  = 1UL,
-        FID_OID_DOT_LUSTRE_OBF = 2UL,
 };
 
 static inline int fid_seq_is_mdt0(obd_seq seq)
@@ -692,16 +687,12 @@ static inline ino_t lu_igif_ino(const struct lu_fid *fid)
 /**
  * Build igif from the inode number/generation.
  */
-#define LU_IGIF_BUILD(fid, ino, gen)                    \
-do {                                                    \
-        fid->f_seq = ino;                               \
-        fid->f_oid = gen;                               \
-        fid->f_ver = 0;                                 \
-} while(0)
 static inline void lu_igif_build(struct lu_fid *fid, __u32 ino, __u32 gen)
 {
-        LU_IGIF_BUILD(fid, ino, gen);
-        LASSERT(fid_is_igif(fid));
+	fid->f_seq = ino;
+	fid->f_oid = gen;
+	fid->f_ver = 0;
+	LASSERTF(fid_is_igif(fid), "ino = %u, gen = %u", ino, gen);
 }
 
 /**

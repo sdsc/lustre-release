@@ -288,10 +288,6 @@ int mdd_lfsck_stop(const struct lu_env *env, struct md_lfsck *lfsck)
 
 const char lfsck_bookmark_name[] = "lfsck_bookmark";
 
-static const struct lu_fid lfsck_it_fid = { .f_seq = FID_SEQ_LOCAL_FILE,
-					    .f_oid = OTABLE_IT_OID,
-					    .f_ver = 0 };
-
 int mdd_lfsck_setup(const struct lu_env *env, struct mdd_device *mdd)
 {
 	struct md_lfsck  *lfsck = &mdd->mdd_lfsck;
@@ -311,7 +307,7 @@ int mdd_lfsck_setup(const struct lu_env *env, struct mdd_device *mdd)
 
 	lfsck->ml_bookmark_obj = obj;
 
-	obj = dt_locate(env, mdd->mdd_child, &lfsck_it_fid);
+	obj = dt_locate(env, mdd->mdd_child, &LU_LFSCK_OIT_FID);
 	if (IS_ERR(obj))
 		return PTR_ERR(obj);
 
