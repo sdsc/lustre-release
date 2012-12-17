@@ -175,6 +175,10 @@ typedef enum {
 	/* This is a new object to be allocated, or the file
 	 * corresponding to the object does not exists. */
 	LOC_F_NEW	= 0x00000001,
+
+	/* We want to create the object if it does not exist, but we do not
+	 * know whether it exists or not, so need to lookup it firstly. */
+	LOC_F_MAYCREATE	= 0x00000002,
 } loc_flags_t;
 
 /**
