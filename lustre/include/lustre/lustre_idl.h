@@ -2094,6 +2094,8 @@ extern void lustre_swab_mdt_rec_setattr (struct mdt_rec_setattr *sa);
 #define MDS_OPEN_NORESTORE  0100000000000ULL /* Do not restore file at open */
 #define MDS_OPEN_NEWSTRIPE  0200000000000ULL /* New stripe needed (restripe or
                                               * hsm restore) */
+#define MDS_OPEN_VOLATILE   0400000000000ULL /* File is volatile = created
+						unlinked */
 
 /* permission for create non-directory file */
 #define MAY_CREATE      (1 << 7)
@@ -2113,15 +2115,16 @@ extern void lustre_swab_mdt_rec_setattr (struct mdt_rec_setattr *sa);
 #define MAY_RGETFACL    (1 << 14)
 
 enum {
-        MDS_CHECK_SPLIT   = 1 << 0,
-        MDS_CROSS_REF     = 1 << 1,
-        MDS_VTX_BYPASS    = 1 << 2,
-        MDS_PERM_BYPASS   = 1 << 3,
-        MDS_SOM           = 1 << 4,
-        MDS_QUOTA_IGNORE  = 1 << 5,
-        MDS_CLOSE_CLEANUP = 1 << 6,
-        MDS_KEEP_ORPHAN   = 1 << 7,
-        MDS_RECOV_OPEN    = 1 << 8,
+	MDS_CHECK_SPLIT		= 1 << 0,
+	MDS_CROSS_REF		= 1 << 1,
+	MDS_VTX_BYPASS		= 1 << 2,
+	MDS_PERM_BYPASS		= 1 << 3,
+	MDS_SOM			= 1 << 4,
+	MDS_QUOTA_IGNORE	= 1 << 5,
+	MDS_CLOSE_CLEANUP	= 1 << 6,
+	MDS_KEEP_ORPHAN		= 1 << 7,
+	MDS_RECOV_OPEN		= 1 << 8,
+	MDS_CREATE_VOLATILE	= 1 << 9,
 };
 
 /* instance of mdt_reint_rec */
@@ -3236,6 +3239,46 @@ struct getinfo_fid2path {
 
 void lustre_swab_fid2path (struct getinfo_fid2path *gf);
 
+static inline bool file_is_volatile(const char *name, int namelen, int *idx)
+{
+	const char	*start;
+	char		*end;
+
+	if (strncmp(name, LUSTRE_VOLATILE_HDR, LUSTRE_VOLATILE_HDR_LEN) != 0)
+		return false;
+
+	/* caller does not care of idx */
+	if (idx == NULL)
+		return true;
+
+	/* volatile file, the MDT can be set from name */
+	/* name format is LUSTRE_VOLATILE_HDR:[idx]: */
+	/* if no MDT is specified, use std way */
+	if (namelen < LUSTRE_VOLATILE_HDR_LEN + 2)
+		goto bad_format;
+	/* test for no MDT idx case */
+	if ((*(name + LUSTRE_VOLATILE_HDR_LEN) == ':') &&
+	    (*(name + LUSTRE_VOLATILE_HDR_LEN + 1) == ':')) {
+		*idx = -1;
+		return true;
+	}
+	/* we have an idx, read it */
+	start = name + LUSTRE_VOLATILE_HDR_LEN + 1;
+	*idx = strtoul(start, &end, 0);
+	/* error cases:
+	 * no digit, no trailing :, negative value
+	 */
+	if (((*idx == 0) && (end == start)) ||
+	    (*end != ':') || (*idx < 0))
+		goto bad_format;
+
+	return true;
+bad_format:
+	/* bad format of mdt idx, we cannot return an error
+	 * to caller so we use hash algo */
+	CERROR("Bad volatile file name format: %s\n", name);
+	return false;
+}
 
 #endif
 /** @} lustreidl */

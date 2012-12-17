@@ -132,8 +132,9 @@ void mdc_create_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
                      const void *data, int datalen, __u32 mode,
                      __u32 uid, __u32 gid, cfs_cap_t cap_effective, __u64 rdev)
 {
-        struct mdt_rec_create *rec;
-        char                  *tmp;
+	struct mdt_rec_create	*rec;
+	char			*tmp;
+	__u64			 flags;
 
         CLASSERT(sizeof(struct mdt_rec_reint) == sizeof(struct mdt_rec_create));
         rec = req_capsule_client_get(&req->rq_pill, &RMF_REC_REINT);
@@ -150,7 +151,10 @@ void mdc_create_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
         rec->cr_time     = op_data->op_mod_time;
         rec->cr_suppgid1 = op_data->op_suppgids[0];
         rec->cr_suppgid2 = op_data->op_suppgids[1];
-        set_mrc_cr_flags(rec, op_data->op_flags & MF_SOM_LOCAL_FLAGS);
+	flags = op_data->op_flags & MF_SOM_LOCAL_FLAGS;
+	if (op_data->op_bias & MDS_CREATE_VOLATILE)
+		flags |= MDS_OPEN_VOLATILE;
+	set_mrc_cr_flags(rec, flags);
         rec->cr_bias     = op_data->op_bias;
         rec->cr_umask    = cfs_curproc_umask();
 
@@ -230,10 +234,12 @@ void mdc_open_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
         /* the next buffer is child capa, which is used for replay,
          * will be packed from the data in reply message. */
 
-        if (op_data->op_name) {
-                tmp = req_capsule_client_get(&req->rq_pill, &RMF_NAME);
-                LOGL0(op_data->op_name, op_data->op_namelen, tmp);
-        }
+	if (op_data->op_name) {
+		tmp = req_capsule_client_get(&req->rq_pill, &RMF_NAME);
+		LOGL0(op_data->op_name, op_data->op_namelen, tmp);
+		if (op_data->op_bias & MDS_CREATE_VOLATILE)
+			cr_flags |= MDS_OPEN_VOLATILE;
+	}
 
         if (lmm) {
                 cr_flags |= MDS_OPEN_HAS_EA;
