@@ -971,17 +971,23 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
         if (rc)
                 GOTO(out_unlock, rc);
 
-	rc = mdo_ref_add(env, mdd_sobj, handle);
-	if (rc)
-		GOTO(out_unlock, rc);
+	if (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_NLINK_LESS)) {
+		rc = mdo_ref_add(env, mdd_sobj, handle);
+		if (rc)
+			GOTO(out_unlock, rc);
 
+		if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_NLINK_MORE))
+			mdo_ref_add(env, mdd_sobj, handle);
+	}
 
-	rc = __mdd_index_insert_only(env, mdd_tobj, mdo2fid(mdd_sobj),
-				     name, handle,
-				     mdd_object_capa(env, mdd_tobj));
-	if (rc != 0) {
-		mdo_ref_del(env, mdd_sobj, handle);
-		GOTO(out_unlock, rc);
+	if (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LINKEA_LESS)) {
+		rc = __mdd_index_insert_only(env, mdd_tobj, mdo2fid(mdd_sobj),
+					     name, handle,
+					     mdd_object_capa(env, mdd_tobj));
+		if (rc != 0) {
+			mdo_ref_del(env, mdd_sobj, handle);
+			GOTO(out_unlock, rc);
+		}
 	}
 
         LASSERT(ma->ma_attr.la_valid & LA_CTIME);
@@ -2614,6 +2620,8 @@ static int mdd_lee_pack(struct link_ea_entry *lee, const struct lu_name *lname,
         int             reclen;
 
         fid_cpu_to_be(&tmpfid, pfid);
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LINKEA_CRASH))
+		tmpfid.f_oid = 0;
         memcpy(&lee->lee_parent_fid, &tmpfid, sizeof(tmpfid));
         memcpy(lee->lee_name, lname->ln_name, lname->ln_namelen);
         reclen = sizeof(struct link_ea_entry) + lname->ln_namelen;
@@ -2761,6 +2769,14 @@ static int __mdd_links_add(const struct lu_env *env,
 			return rc;
 		if (rc == 0)
 			return -EEXIST;
+	}
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LINKEA_MORE)) {
+		struct lu_fid *tfid = &mdd_env_info(env)->mti_fid2;
+
+		*tfid = *pfid;
+		tfid->f_oid = 0;
+		mdd_links_add_buf(env, ldata, lname, tfid);
 	}
 
 	return mdd_links_add_buf(env, ldata, lname, pfid);
