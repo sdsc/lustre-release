@@ -2429,7 +2429,7 @@ test_52() {
 	touch $TMP/modified_first
 	[ $? -eq 0 ] || { error "Unable to create temporary file"; return 5; }
 	local mtime=$(stat -c %Y $TMP/modified_first)
-	do_node $ost1node "mkdir -p $ost1tmp && touch -m -d @$mtime $ost1tmp/modified_first"
+	do_node $ost1node "mkdir -p $ost1tmp $ost1mnt && touch -m -d @$mtime $ost1tmp/modified_first"
 
 	[ $? -eq 0 ] || { error "Unable to create temporary file"; return 6; }
 	sleep 1
