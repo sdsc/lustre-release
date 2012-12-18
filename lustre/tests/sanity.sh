@@ -1169,10 +1169,11 @@ test_27o() {
 	rm -f $DIR/$tdir/$tfile
 	exhaust_all_precreations 0x215
 
+	mkdir -p $DIR/$tdir
+	$SETSTRIPE -c -1 $DIR/$tdir
 	touch $DIR/$tdir/$tfile && error "able to create $DIR/$tdir/$tfile"
 
 	reset_enospc
-	rm -rf $DIR/$tdir/*
 }
 run_test 27o "create file with all full OSTs (should error) ===="
 
@@ -1364,7 +1365,7 @@ test_27y() {
                         OST=`osc_to_ost $OSC`
                 } else {
                         echo $OSC "is Deactivate:"
-                        do_facet $SINGLEMDS lctl --device  %$OSC deactivate
+                        do_facet $SINGLEMDS lctl --device $OSC deactivate
                 } fi
         done
 
@@ -1377,16 +1378,20 @@ test_27y() {
         createmany -o $DIR/$tdir/$tfile $fcount
         do_facet ost$((OSTIDX+1)) lctl set_param -n obdfilter.$OST.degraded 0
 
+		local haderror=""
         for i in `seq 0 $OFFSET`; do
-                [ `$GETSTRIPE $DIR/$tdir/$tfile$i | grep -A 10 obdidx | awk '{print $1}'| grep -w "$OSTIDX"` ] || \
-                      error "files created on deactivated OSTs instead of degraded OST"
+                [ `$GETSTRIPE $DIR/$tdir/$tfile$i | grep -A 10 obdidx | awk '{print $1}'| grep -w "$OSTIDX"` ] || ( haderror="$haderror $i"; break )
+                      
         done
         for OSC in $MDS_OSCS; do
                 [ `osc_to_ost $OSC` != $OST  ] && {
                         echo $OSC "is activate"
-                        do_facet $SINGLEMDS lctl --device %$OSC activate
+                        do_facet $SINGLEMDS lctl --device $OSC activate
                 }
         done
+		if [ -n "$haderror" ]; then
+			error "files created on deactivated OSTs instead of degraded OST: $haderror"
+		fi
 }
 run_test 27y "create files while OST0 is degraded and the rest inactive"
 
@@ -1417,14 +1422,14 @@ check_seq_oid()
                 local objid=${lmm[$((j+1))]}
                 local group=${lmm[$((j+3))]}
                 local dev=$(ostdevname $devnum)
-                local dir=${MOUNT%/*}/ost$devnum
+                #local dir=${MOUNT%/*}/ost$devnum
                 local mntpt=$(facet_mntpt ost$devnum)
 
                 stop ost$devnum
-                do_facet ost$devnum mount -t $FSTYPE $dev $dir $OST_MOUNT_OPTS ||
+                do_facet ost$devnum mount -t $FSTYPE $dev $mntpt $OST_MOUNT_OPTS ||
                         { error "mounting $dev as $FSTYPE failed"; return 3; }
 
-                obj_filename=$(do_facet ost$devnum find $dir/O/$group -name $objid)
+                obj_filename=$(do_facet ost$devnum find $mntpt/O/$group -name $objid)
                 local ff=$(do_facet ost$devnum $LL_DECODE_FILTER_FID $obj_filename)
                 IFS=$'/= [:]'
                 ff=($(echo $ff))
@@ -3906,12 +3911,12 @@ test_65k() { # bug11679
         MDS_OSCS=`do_facet $SINGLEMDS lctl dl | awk '/[oO][sS][cC].*md[ts]/ { print $4 }'`
         for OSC in $MDS_OSCS; do
                 echo $OSC "is activate"
-                do_facet $SINGLEMDS lctl --device %$OSC activate
+                do_facet $SINGLEMDS lctl --device $OSC activate
         done
         do_facet client mkdir -p $DIR/$tdir
         for INACTIVE_OSC in $MDS_OSCS; do
                 echo $INACTIVE_OSC "is Deactivate:"
-                do_facet $SINGLEMDS lctl --device  %$INACTIVE_OSC deactivate
+                do_facet $SINGLEMDS lctl --device  $INACTIVE_OSC deactivate
                 for STRIPE_OSC in $MDS_OSCS; do
                         STRIPE_OST=`osc_to_ost $STRIPE_OSC`
                         STRIPE_INDEX=`do_facet $SINGLEMDS lctl get_param -n lov.*md*.target_obd |
@@ -3925,7 +3930,7 @@ test_65k() { # bug11679
                 done
                 do_facet client rm -f $DIR/$tdir/*
                 echo $INACTIVE_OSC "is Activate."
-                do_facet $SINGLEMDS lctl --device  %$INACTIVE_OSC activate
+                do_facet $SINGLEMDS lctl --device $INACTIVE_OSC activate
         done
 }
 run_test 65k "validate manual striping works properly with deactivated OSCs"
@@ -5314,9 +5319,9 @@ test_104a() {
 	lfs df -ih $DIR/$tfile || error "lfs df -ih $DIR/$tfile failed"
 
 	OSC=`lctl get_param -n devices | awk '/-osc-/ {print $4}' | head -n 1`
-	lctl --device %$OSC deactivate
+	lctl --device $OSC deactivate
 	lfs df || error "lfs df with deactivated OSC failed"
-	lctl --device %$OSC recover
+	lctl --device $OSC recover
 	lfs df || error "lfs df with reactivated OSC failed"
 	rm -f $DIR/$tfile
 }
@@ -5558,12 +5563,12 @@ test_116() {
 	UUID=$(lctl get_param -n lov.${FSNAME}-clilov-*.target_obd |
                awk '/'$MINI1': / {print $2; exit}')
 	echo $UUID
-        MINC=$($GETSTRIPE --obd $UUID $DIR/$tdir | wc -l)
+	MINC=$($GETSTRIPE --obd $UUID $DIR/$tdir | wc -l)
 	echo "$MINC files created on smaller OST $MINI1"
 	UUID=$(lctl get_param -n lov.${FSNAME}-clilov-*.target_obd |
                awk '/'$MAXI1': / {print $2; exit}')
 	echo $UUID
-        MAXC=$($GETSTRIPE --obd $UUID $DIR/$tdir | wc -l)
+	MAXC=$($GETSTRIPE --obd $UUID $DIR/$tdir | wc -l)
 	echo "$MAXC files created on larger OST $MAXI1"
 	[ $MINC -gt 0 ] && echo "Wrote $(($MAXC * 100 / $MINC - 100))% more files to larger OST $MAXI1"
 	[ $MAXC -gt $MINC ] || error_ignore "stripe QOS didn't balance free space"
