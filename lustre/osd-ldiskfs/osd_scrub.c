@@ -354,7 +354,7 @@ static int osd_scrub_prep(struct osd_device *dev)
 		scrub->os_full_speed = 0;
 	}
 
-	if (sf->sf_flags & (SF_RECREATED | SF_INCONSISTENT))
+	if (sf->sf_flags & (SF_RECREATED | SF_INCONSISTENT | SF_UPGRADE))
 		scrub->os_full_speed = 1;
 
 	scrub->os_in_prior = 0;
@@ -444,9 +444,16 @@ iget:
 
 		ops = DTO_INDEX_INSERT;
 		idx = osd_oi_fid2idx(dev, fid);
-		sf->sf_flags |= SF_RECREATED | SF_INCONSISTENT;
-		if (unlikely(!ldiskfs_test_bit(idx, sf->sf_oi_bitmap)))
-			ldiskfs_set_bit(idx, sf->sf_oi_bitmap);
+		if (val == SCRUB_NEXT_NOLMA) {
+			sf->sf_flags |= SF_UPGRADE;
+			rc = osd_ea_fid_set(info, inode, fid, false);
+			if (rc != 0)
+				GOTO(out, rc);
+		} else {
+			sf->sf_flags |= SF_RECREATED | SF_INCONSISTENT;
+			if (unlikely(!ldiskfs_test_bit(idx, sf->sf_oi_bitmap)))
+				ldiskfs_set_bit(idx, sf->sf_oi_bitmap);
+		}
 	} else if (osd_id_eq(lid, lid2)) {
 		GOTO(out, rc = 0);
 	} else {
@@ -531,7 +538,8 @@ static void osd_scrub_post(struct osd_scrub *scrub, int result)
 	if (result > 0) {
 		sf->sf_status = SS_COMPLETED;
 		memset(sf->sf_oi_bitmap, 0, SCRUB_OI_BITMAP_SIZE);
-		sf->sf_flags &= ~(SF_RECREATED | SF_INCONSISTENT | SF_AUTO);
+		sf->sf_flags &= ~(SF_RECREATED | SF_INCONSISTENT |
+				  SF_UPGRADE | SF_AUTO);
 		sf->sf_time_last_complete = sf->sf_time_last_checkpoint;
 		sf->sf_success_count++;
 	} else if (result == 0) {
@@ -1001,6 +1009,504 @@ noenv:
 	return rc;
 }
 
+/* initial OI scrub */
+
+typedef int (*scandir_t)(struct osd_thread_info *, struct osd_device *,
+			 struct dentry *, filldir_t filldir);
+
+static int osd_scrub_varfid_fill(void *buf, const char *name, int namelen,
+				 loff_t offset, __u64 ino, unsigned d_type);
+static int
+osd_scrub_general_scan(struct osd_thread_info *info, struct osd_device *dev,
+		       struct dentry *dentry, filldir_t filldir);
+static int
+osd_scrub_O_scan(struct osd_thread_info *info, struct osd_device *dev,
+		 struct dentry *dentry, filldir_t filldir);
+static int
+osd_scrub_ROOT_scan(struct osd_thread_info *info, struct osd_device *dev,
+		    struct dentry *dentry, filldir_t filldir);
+
+enum osd_scrub_ls_flags {
+	OSLS_F_SUBDIR	= 0x0001,
+	OSLS_F_VARFID	= 0x0002,
+	OSLS_F_NOOI	= 0x0004,
+};
+
+struct osd_scrub_ls_map {
+	struct lu_fid	 fid;
+	__u16		 flags;
+	__u16		 namelen;
+	char		*name;
+	scandir_t	 scandir;
+	filldir_t	 filldir;
+};
+
+/* Add the new introduced local files in the list in the future. */
+static const struct osd_scrub_ls_map oslm_root[] = {
+	/* CATALOGS */
+	{ { FID_SEQ_LOCAL_FILE, LLOG_CATALOGS_OID, 0 }, 0, 8, CATLIST,
+		NULL, NULL },
+
+	/* CONFIGS */
+	{ { FID_SEQ_LOCAL_FILE, MGS_CONFIGS_OID, 0 },
+		OSLS_F_SUBDIR | OSLS_F_VARFID, 7, MOUNT_CONFIGS_DIR,
+		osd_scrub_general_scan, osd_scrub_varfid_fill },
+
+	/* NIDTBL_VERSIONS */
+	{ { 0, 0, 0 }, OSLS_F_SUBDIR | OSLS_F_VARFID, 15,
+		MGS_NIDTBL_DIR, osd_scrub_general_scan, osd_scrub_varfid_fill },
+
+	/* O */
+	{ { 0, 0, 0 }, OSLS_F_SUBDIR | OSLS_F_VARFID | OSLS_F_NOOI, 1, "O",
+		osd_scrub_O_scan, NULL },
+
+	/* PENDING */
+	{ { FID_SEQ_LOCAL_FILE, MDD_ORPHAN_OID, 0 }, 0, 7, "PENDING",
+		NULL, NULL },
+
+	/* ROOT */
+	{ { 0, 0, 0 }, OSLS_F_SUBDIR, 4, "ROOT", osd_scrub_ROOT_scan, NULL },
+
+	/* capa_keys */
+	{ { FID_SEQ_LOCAL_FILE, MDD_CAPA_KEYS_OID, 0 }, 0, 9, CAPA_KEYS,
+		NULL, NULL },
+
+	/* changelog_catalog */
+	{ { 0, 0, 0 }, OSLS_F_VARFID, 17, CHANGELOG_CATALOG,
+		NULL, NULL },
+
+	/* changelog_users */
+	{ { 0, 0, 0 }, OSLS_F_VARFID, 15, CHANGELOG_USERS,
+		NULL, NULL },
+
+	/* fld */
+	{ { FID_SEQ_LOCAL_FILE, FLD_INDEX_OID, 0 }, 0, 3, "fld",
+		NULL, NULL },
+
+	/* MDT device and OST device have the named file LAST_RCVD, but
+	 * with different FIDs, since they cannot exist on the same device,
+	 * just use MDT_LAST_RECV_OID for the default FID.
+	 *
+	 * If the LAST_RCVD on OST without FID-in-LMA, then it is upgraded
+	 * from old server. Under such case, assign the MDT_LAST_RECV_OID
+	 * to it is harmless. */
+
+	/* last_rcvd for MDT */
+	{ { FID_SEQ_LOCAL_FILE, MDT_LAST_RECV_OID, 0 }, 0, 9, LAST_RCVD,
+		NULL, NULL },
+
+#if 0
+	/* last_rcvd for OST */
+	{ { FID_SEQ_LOCAL_FILE, OFD_LAST_RECV_OID, 0 }, 0, 9, LAST_RCVD,
+		NULL, NULL },
+#endif
+
+	/* lfsck_bookmark */
+	{ { FID_SEQ_LOCAL_FILE, LFSCK_BOOKMARK_OID, 0 }, 0, 14,
+		"lfsck_bookmark", NULL, NULL },
+
+	/* lov_objid */
+	{ { FID_SEQ_LOCAL_FILE, MDD_LOV_OBJ_OID, 0 }, 0, 9, LOV_OBJID,
+		NULL, NULL },
+
+	/* quota_master */
+	{ { 0, 0, 0 }, OSLS_F_SUBDIR | OSLS_F_VARFID, 12, QMT_DIR,
+		osd_scrub_general_scan, osd_scrub_varfid_fill },
+
+	/* quota_slave */
+	{ { 0, 0, 0 }, OSLS_F_SUBDIR | OSLS_F_VARFID, 11, QSD_DIR,
+		osd_scrub_general_scan, osd_scrub_varfid_fill },
+
+	/* seq-200000003-lastid */
+	{ { 0, 0, 0 }, OSLS_F_VARFID, 20, "seq-200000003-lastid",
+		NULL, NULL },
+
+	/* seq_ctl */
+	{ { FID_SEQ_LOCAL_FILE, FID_SEQ_CTL_OID, 0 }, 0, 7, "seq_ctl",
+		NULL, NULL },
+
+	/* seq_srv */
+	{ { FID_SEQ_LOCAL_FILE, FID_SEQ_SRV_OID, 0 }, 0, 7, "seq_srv",
+		NULL, NULL },
+
+	/* LAST_GROUP */
+	{ { FID_SEQ_LOCAL_FILE, OFD_LAST_GROUP_OID, 0 }, 0, 10, "LAST_GROUP",
+		NULL, NULL },
+
+	/* health_check */
+	{ { FID_SEQ_LOCAL_FILE, OFD_HEALTH_CHECK_OID, 0 }, 0, 12, HEALTH_CHECK,
+		NULL, NULL },
+
+	{ { 0, 0, 0 }, 0, 0, NULL, NULL, NULL }
+};
+
+struct osd_scrub_ls_item {
+	cfs_list_t	 list;
+	struct dentry	*dentry;
+	scandir_t	 scandir;
+	filldir_t	 filldir;
+};
+
+struct osd_scrub_filldir_buf {
+	struct osd_thread_info *info;
+	struct osd_device *dev;
+	struct dentry *dentry;
+};
+
+static inline struct dentry *
+osd_scrub_lookup_one_len(const char *name, struct dentry *parent, int namelen)
+{
+	struct dentry *dentry;
+
+	dentry = ll_lookup_one_len(name, parent, namelen);
+	if (!IS_ERR(dentry) && dentry->d_inode == NULL) {
+		dput(dentry);
+		return ERR_PTR(-ENOENT);
+	}
+
+	return dentry;
+}
+
+static inline void
+osd_scrub_llog_name2fid(struct lu_fid *fid, const char *name, int namelen)
+{
+	obd_id id = 0;
+	int    i  = 0;
+
+	fid->f_seq = FID_SEQ_LLOG;
+	while (i < namelen)
+		id = id * 10 + name[i++] - '0';
+
+	fid->f_oid = id & 0x00000000ffffffffULL;
+	fid->f_ver = id >> 32;
+}
+
+static int
+osd_scrub_new_osli(struct osd_device *dev, struct dentry *dentry,
+		   scandir_t scandir, filldir_t filldir)
+{
+	struct osd_scrub_ls_item *item;
+
+	OBD_ALLOC_PTR(item);
+	if (item == NULL)
+		return -ENOMEM;
+
+	CFS_INIT_LIST_HEAD(&item->list);
+	item->dentry = dget(dentry);
+	item->scandir = scandir;
+	item->filldir = filldir;
+	cfs_list_add_tail(&item->list, &dev->od_scrub_ls_list);
+	return 0;
+}
+
+static int
+osd_scrub_scan_one(struct osd_thread_info *info, struct osd_device *dev,
+		   struct inode *inode, const struct lu_fid *fid)
+{
+	struct lustre_mdt_attrs	*lma	= &info->oti_mdt_attrs;
+	struct osd_inode_id	*id	= &info->oti_id;
+	struct osd_inode_id	*id2	= &info->oti_id2;
+	struct osd_scrub	*scrub  = &dev->od_scrub;
+	struct scrub_file	*sf     = &scrub->os_file;
+	struct lu_fid		 tfid;
+	int			 rc;
+	ENTRY;
+
+	rc = osd_get_lma(info, inode, &info->oti_obj_dentry, lma);
+	if (rc != 0 && rc != -ENODATA)
+		RETURN(rc);
+
+	osd_id_gen(id, inode->i_ino, inode->i_generation);
+	if (rc == -ENODATA) {
+		if (fid == NULL || fid_is_zero(fid))
+			lu_igif_build(&tfid, inode->i_ino, inode->i_generation);
+		else
+			tfid = *fid;
+		rc = osd_ea_fid_set(info, inode, &tfid, true);
+		if (rc != 0)
+			RETURN(rc);
+	} else {
+		tfid = lma->lma_self_fid;
+	}
+
+	rc = __osd_oi_lookup(info, dev, &tfid, id2);
+	if (rc != 0) {
+		if (rc != -ENOENT)
+			RETURN(rc);
+
+		rc = osd_scrub_refresh_mapping(info, dev, &tfid, id,
+					       DTO_INDEX_INSERT);
+		RETURN(rc);
+	}
+
+	if (osd_id_eq_strict(id, id2))
+		RETURN(0);
+
+	if (!(sf->sf_flags & SF_INCONSISTENT)) {
+		osd_scrub_file_reset(scrub,
+				     LDISKFS_SB(osd_sb(dev))->s_es->s_uuid,
+				     SF_INCONSISTENT);
+		rc = osd_scrub_file_store(scrub);
+		if (rc != 0)
+			RETURN(rc);
+	}
+
+	rc = osd_scrub_refresh_mapping(info, dev, &tfid, id, DTO_INDEX_UPDATE);
+
+	RETURN(rc);
+}
+
+static int osd_scrub_varfid_fill(void *buf, const char *name, int namelen,
+				 loff_t offset, __u64 ino, unsigned d_type)
+{
+	struct osd_scrub_filldir_buf *fill_buf = buf;
+	struct osd_thread_info	     *info     = fill_buf->info;
+	struct osd_device	     *dev      = fill_buf->dev;
+	struct dentry		     *child;
+	int			      rc;
+	ENTRY;
+
+	/* skip "." and ".." */
+	if (name[0] == '.') {
+		if (namelen == 1)
+			RETURN(0);
+
+		if (namelen == 2 && name[1] == '.')
+			RETURN(0);
+	}
+
+	child = osd_scrub_lookup_one_len(name, fill_buf->dentry, namelen);
+	if (IS_ERR(child))
+		RETURN(PTR_ERR(child));
+
+	rc = osd_scrub_scan_one(info, dev, child->d_inode, NULL);
+	if (rc == 0 && S_ISDIR(child->d_inode->i_mode))
+		rc = osd_scrub_new_osli(dev, child, osd_scrub_general_scan,
+					osd_scrub_varfid_fill);
+	dput(child);
+
+	RETURN(rc);
+}
+
+static int osd_scrub_root_fill(void *buf, const char *name, int namelen,
+			       loff_t offset, __u64 ino, unsigned d_type)
+{
+	struct osd_scrub_filldir_buf  *fill_buf = buf;
+	struct osd_thread_info	      *info	= fill_buf->info;
+	struct osd_device	      *dev	= fill_buf->dev;
+	const struct osd_scrub_ls_map *map;
+	struct dentry		      *child;
+	int			       rc	= 0;
+	ENTRY;
+
+	/* skip any '.' started names */
+	if (name[0] == '.')
+		RETURN(0);
+
+	for (map = &oslm_root[0]; map->namelen != 0; map++) {
+		if (map->namelen != namelen)
+			continue;
+
+		if (strncmp(map->name, name, namelen) == 0)
+			break;
+	}
+
+	if (map->namelen == 0)
+		RETURN(0);
+
+	child = osd_scrub_lookup_one_len(name, fill_buf->dentry, namelen);
+	if (IS_ERR(child))
+		RETURN(PTR_ERR(child));
+
+	if (!(map->flags & OSLS_F_NOOI))
+		rc = osd_scrub_scan_one(info, dev, child->d_inode, &map->fid);
+
+	if (rc == 0 && map->flags & OSLS_F_SUBDIR)
+		rc = osd_scrub_new_osli(dev, child, map->scandir, map->filldir);
+	dput(child);
+
+	RETURN(rc);
+}
+
+static int osd_scrub_llog_fill(void *buf, const char *name, int namelen,
+			       loff_t offset, __u64 ino, unsigned d_type)
+{
+	struct osd_scrub_filldir_buf  *fill_buf = buf;
+	struct osd_thread_info	      *info	= fill_buf->info;
+	struct osd_device	      *dev	= fill_buf->dev;
+	struct lu_fid		      *fid	= &info->oti_fid;
+	struct dentry		      *child;
+	int			       rc	= 0;
+	ENTRY;
+
+	/* skip any '.' started names */
+	if (name[0] == '.')
+		RETURN(0);
+
+	child = osd_scrub_lookup_one_len(name, fill_buf->dentry, namelen);
+	if (IS_ERR(child))
+		RETURN(PTR_ERR(child));
+
+	osd_scrub_llog_name2fid(fid, name, namelen);
+	rc = osd_scrub_scan_one(info, dev, child->d_inode, fid);
+	dput(child);
+
+	RETURN(rc);
+}
+
+static int
+osd_scrub_general_scan(struct osd_thread_info *info, struct osd_device *dev,
+		       struct dentry *dentry, filldir_t filldir)
+{
+	struct osd_scrub_filldir_buf  buf   = { info, dev, dentry };
+	struct file		     *filp  = &info->oti_it_ea.oie_file;
+	struct inode		     *inode = dentry->d_inode;
+	const struct file_operations *fops  = inode->i_fop;
+	int			      rc;
+	ENTRY;
+
+	LASSERT(filldir != NULL);
+
+	filp->f_pos = 0;
+	filp->f_dentry = dentry;
+	filp->f_mode = FMODE_64BITHASH;
+	filp->f_mapping = inode->i_mapping;
+	filp->f_op = fops;
+	filp->private_data = NULL;
+
+	rc = fops->readdir(filp, &buf, filldir);
+	fops->release(inode, filp);
+
+	RETURN(rc);
+}
+
+static int
+osd_scrub_O_scan(struct osd_thread_info *info, struct osd_device *dev,
+		 struct dentry *dentry, filldir_t filldir)
+{
+	struct lu_fid		*fid	= &info->oti_fid;
+	struct osd_compat_objid	*map	= dev->od_ost_map;
+	struct dentry		*parent;
+	struct dentry		*child;
+	int			 i;
+	int			 rc     = 0;
+	int			 rc1	= 0;
+	ENTRY;
+
+	for (i = 0; i < MAX_OBJID_GROUP && rc == 0; i++) {
+		lu_local_obj_fid(fid, i + OFD_GROUP0_LAST_OID);
+		parent = map->groups[i].groot;
+		child = osd_scrub_lookup_one_len("LAST_ID", parent,
+						 strlen("LAST_ID"));
+		if (IS_ERR(child)) {
+			rc = PTR_ERR(child);
+			if (rc == -ENOENT)
+				rc = 0;
+		} else {
+			rc = osd_scrub_scan_one(info, dev, child->d_inode, fid);
+			dput(child);
+			if (rc != 0)
+				rc1 = rc;
+		}
+	}
+
+	for (i = 0; i < dev->od_ost_map->subdir_count; i++) {
+		rc = osd_scrub_new_osli(dev, map->groups[FID_SEQ_LLOG].dirs[i],
+					osd_scrub_general_scan,
+					osd_scrub_llog_fill);
+		if (rc != 0)
+			rc1 = rc;
+	}
+
+	RETURN(rc1);
+}
+
+static int
+osd_scrub_ROOT_scan(struct osd_thread_info *info, struct osd_device *dev,
+		    struct dentry *dentry, filldir_t filldir)
+{
+	struct osd_scrub	*scrub  = &dev->od_scrub;
+	struct scrub_file	*sf     = &scrub->os_file;
+	struct dentry		*child;
+	int			 rc;
+	ENTRY;
+
+	/* It is existing MDT device. */
+	dev->od_handle_nolma = 1;
+	child = osd_scrub_lookup_one_len(dot_lustre_name, dentry,
+					 strlen(dot_lustre_name));
+	if (IS_ERR(child)) {
+		rc = PTR_ERR(child);
+		if (rc == -ENOENT) {
+			/* It is 1.8 MDT device. */
+			if (!(sf->sf_flags & SF_UPGRADE)) {
+				osd_scrub_file_reset(scrub,
+					LDISKFS_SB(osd_sb(dev))->s_es->s_uuid,
+					SF_UPGRADE);
+				rc = osd_scrub_file_store(scrub);
+			} else {
+				rc = 0;
+			}
+		}
+	} else {
+		rc = osd_scrub_scan_one(info, dev, child->d_inode, NULL);
+		dput(child);
+	}
+
+	RETURN(rc);
+}
+
+static int osd_scrub_init_scan(struct osd_thread_info *info,
+			       struct osd_device *dev)
+{
+	struct osd_scrub_ls_item *item    = NULL;
+	scandir_t		  scandir = osd_scrub_general_scan;
+	filldir_t		  filldir = osd_scrub_root_fill;
+	struct dentry		 *dentry  = osd_sb(dev)->s_root;
+	int			  rc;
+	ENTRY;
+
+	/* XXX: This is a temporary flag to disable initial OI scrub until
+	 *	the patcp for handling special FIDs in the OI files ready.
+	 *	We do not want to merge the two patches together, because
+	 *	it makes the patch too large to be reviewed. */
+	if (!dev->od_init_scrub)
+		RETURN(0);
+
+	while (1) {
+		rc = scandir(info, dev, dentry, filldir);
+		if (item != NULL) {
+			dput(item->dentry);
+			OBD_FREE_PTR(item);
+		}
+
+		if (rc != 0)
+			break;
+
+		if (cfs_list_empty(&dev->od_scrub_ls_list))
+			break;
+
+		item = cfs_list_entry(dev->od_scrub_ls_list.next,
+				      struct osd_scrub_ls_item, list);
+		cfs_list_del_init(&item->list);
+
+		LASSERT(item->scandir != NULL);
+		scandir = item->scandir;
+		filldir = item->filldir;
+		dentry = item->dentry;
+	}
+
+	while (!cfs_list_empty(&dev->od_scrub_ls_list)) {
+		item = cfs_list_entry(dev->od_scrub_ls_list.next,
+				      struct osd_scrub_ls_item, list);
+		cfs_list_del_init(&item->list);
+		dput(item->dentry);
+		OBD_FREE_PTR(item);
+	}
+
+	RETURN(rc);
+}
+
 /* OI scrub start/stop */
 
 static int do_osd_scrub_start(struct osd_device *dev, __u32 flags)
@@ -1098,14 +1604,11 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
 	struct osd_scrub	   *scrub  = &dev->od_scrub;
 	struct lvfs_run_ctxt	   *ctxt   = &scrub->os_ctxt;
 	struct scrub_file	   *sf     = &scrub->os_file;
-	struct osd_inode_id	   *id     = &scrub->os_oic.oic_lid;
 	struct super_block	   *sb     = osd_sb(dev);
 	struct ldiskfs_super_block *es     = LDISKFS_SB(sb)->s_es;
-	struct inode		   *inode;
 	struct lvfs_run_ctxt	    saved;
 	struct file		   *filp;
 	int			    dirty  = 0;
-	int			    init   = 0;
 	int			    rc     = 0;
 	ENTRY;
 
@@ -1134,7 +1637,6 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
 	if (rc == -ENOENT) {
 		osd_scrub_file_init(scrub, es->s_uuid);
 		dirty = 1;
-		init = 1;
 	} else if (rc != 0) {
 		RETURN(rc);
 	} else {
@@ -1163,32 +1665,14 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
 	if (rc < 0)
 		RETURN(rc);
 
-	if (init != 0) {
-		rc = __osd_oi_lookup(info, dev, &LU_DOT_LUSTRE_FID, id);
-		if (rc == 0) {
-			inode = osd_iget(info, dev, id);
-			if (IS_ERR(inode)) {
-				rc = PTR_ERR(inode);
-				/* It is restored from old 2.x backup. */
-				if (rc == -ENOENT || rc == -ESTALE) {
-					osd_scrub_file_reset(scrub, es->s_uuid,
-							     SF_INCONSISTENT);
-					rc = osd_scrub_file_store(scrub);
-				}
-			} else {
-				iput(inode);
-			}
-		} else if (rc == -ENOENT) {
-			rc = 0;
-		}
-	}
-
+	rc = osd_scrub_init_scan(info, dev);
 	if (rc == 0 && !dev->od_noscrub &&
 	    ((sf->sf_status == SS_PAUSED) ||
 	     (sf->sf_status == SS_CRASHED &&
-	      sf->sf_flags & (SF_RECREATED | SF_INCONSISTENT | SF_AUTO)) ||
+	      sf->sf_flags & (SF_RECREATED | SF_INCONSISTENT | SF_UPGRADE |
+			      SF_AUTO)) ||
 	     (sf->sf_status == SS_INIT &&
-	      sf->sf_flags & (SF_RECREATED | SF_INCONSISTENT))))
+	      sf->sf_flags & (SF_RECREATED | SF_INCONSISTENT | SF_UPGRADE))))
 		rc = osd_scrub_start(dev);
 
 	RETURN(rc);
@@ -1512,6 +1996,7 @@ static const char *scrub_flags_names[] = {
 	"recreated",
 	"inconsistent",
 	"auto",
+	"upgrade",
 	NULL
 };
 
