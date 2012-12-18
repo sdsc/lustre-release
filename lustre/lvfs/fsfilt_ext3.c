@@ -472,11 +472,6 @@ int fsfilt_ext3_map_inode_pages(struct inode *inode, struct page **page,
         return rc;
 }
 
-static int ll_decode_fh_accept(void *context, struct dentry *de)
-{
-        return 1;
-}
-
 static struct fsfilt_operations fsfilt_ext3_ops = {
         .fs_type                = "ext3",
         .fs_owner               = THIS_MODULE,
