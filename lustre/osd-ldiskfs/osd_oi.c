@@ -237,6 +237,7 @@ static int osd_oi_open(struct osd_thread_info *info, struct osd_device *osd,
         if (IS_ERR(inode))
                 RETURN(PTR_ERR(inode));
 
+	LDISKFS_I(inode)->i_state_flags |= I_LUSTRE_NOOI;
         OBD_ALLOC_PTR(oi);
         if (oi == NULL)
                 GOTO(out_inode, rc = -ENOMEM);
@@ -441,7 +442,6 @@ static int osd_oi_iam_lookup(struct osd_thread_info *oti,
 {
         struct iam_container  *bag;
         struct iam_iterator   *it = &oti->oti_idx_it;
-        struct iam_rec        *iam_rec;
         struct iam_path_descr *ipd;
         int                    rc;
         ENTRY;
@@ -458,17 +458,8 @@ static int osd_oi_iam_lookup(struct osd_thread_info *oti,
         iam_it_init(it, bag, 0, ipd);
 
         rc = iam_it_get(it, (struct iam_key *)key);
-        if (rc >= 0) {
-                if (S_ISDIR(oi->oi_inode->i_mode))
-                        iam_rec = (struct iam_rec *)oti->oti_ldp;
-                else
-                        iam_rec = (struct iam_rec *)rec;
-
-                iam_reccpy(&it->ii_path.ip_leaf, (struct iam_rec *)iam_rec);
-                if (S_ISDIR(oi->oi_inode->i_mode))
-                        osd_fid_unpack((struct lu_fid *)rec,
-                                       (struct osd_fid_pack *)iam_rec);
-        }
+	if (rc > 0)
+		iam_reccpy(&it->ii_path.ip_leaf, (struct iam_rec *)rec);
         iam_it_put(it);
         iam_it_fini(it);
         osd_ipd_put(oti->oti_env, bag, ipd);
