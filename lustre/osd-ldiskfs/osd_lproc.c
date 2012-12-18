@@ -324,16 +324,17 @@ static int lprocfs_osd_rd_mntdev(char *page, char **start, off_t off, int count,
                                  int *eof, void *data)
 {
         struct osd_device *osd = osd_dt_dev(data);
+	const char *mntdev_name;
 
         LASSERT(osd != NULL);
 	if (unlikely(osd->od_mnt == NULL))
                 return -EINPROGRESS;
 
-	LASSERT(mnt_get_devname(osd->od_mnt));
+	mntdev_name = get_mntdev_name(osd_sb(osd));
+	LASSERT(mntdev_name != NULL);
 	*eof = 1;
 
-	return snprintf(page, count, "%s\n",
-			mnt_get_devname(osd->od_mnt));
+	return snprintf(page, count, "%s\n", mntdev_name);
 }
 
 static int lprocfs_osd_rd_cache(char *page, char **start, off_t off,
