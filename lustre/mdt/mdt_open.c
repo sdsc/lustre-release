@@ -718,6 +718,13 @@ static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
         } else
                 GOTO(err_out, rc = -ENOMEM);
 
+        if (req_is_replay(req)) {
+                if (flags & FMODE_WRITE)
+                        mdt_write_put(o);
+                else if (flags & FMODE_EXEC)
+                        mdt_write_allow(o);
+        }
+
         RETURN(rc);
 
 err_out:
