@@ -1113,9 +1113,13 @@ static int mdd_declare_unlink(const struct lu_env *env, struct mdd_device *mdd,
         if (rc)
                 return rc;
 
-        rc = mdd_declare_links_add(env, c, handle);
-        if (rc)
-                return rc;
+	/* For directory, the linkEA will be removed together with the object. */
+	if (!S_ISDIR(mdd_object_type(c)) &&
+	    fid_is_client_mdt_visible(&mdd2lu_obj(c)->lo_header->loh_fid)) {
+		rc = mdd_declare_links_add(env, c, handle);
+		if (rc)
+			return rc;
+	}
 
         rc = mdd_declare_changelog_store(env, mdd, name, handle);
 
@@ -1218,7 +1222,8 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 		rc = mdd_la_get(env, mdd_cobj, cattr,
 				mdd_object_capa(env, mdd_cobj));
 
-        if (!is_dir)
+	if (!is_dir &&
+	    fid_is_client_mdt_visible(&cobj->mo_lu.lo_header->loh_fid))
 		/* old files may not have link ea; ignore errors */
 		mdd_links_del(env, mdd_cobj, mdo2fid(mdd_pobj), lname, handle);
 
@@ -1227,11 +1232,14 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 		ma->ma_attr = *cattr;
 		ma->ma_valid |= MA_INODE;
 	}
+
         EXIT;
+
 cleanup:
         mdd_write_unlock(env, mdd_cobj);
         mdd_pdo_write_unlock(env, mdd_pobj, dlh);
-        if (rc == 0) {
+	if (rc == 0 &&
+	    fid_is_client_mdt_visible(&cobj->mo_lu.lo_header->loh_fid)) {
                 int cl_flags;
 
 		cl_flags = (cattr->la_nlink == 0) ? CLF_UNLINK_LAST : 0;
@@ -1857,7 +1865,8 @@ cleanup:
 
         mdd_pdo_write_unlock(env, mdd_pobj, dlh);
 out_trans:
-        if (rc == 0)
+	if (rc == 0 &&
+	    fid_is_client_mdt_visible(&child->mo_lu.lo_header->loh_fid))
 		rc = mdd_changelog_ns_store(env, mdd,
 			S_ISDIR(attr->la_mode) ? CL_MKDIR :
 			S_ISREG(attr->la_mode) ? CL_CREATE :
