@@ -874,6 +874,12 @@ struct md_object *llo_store_create(const struct lu_env *env,
                                    const char *objname,
                                    const struct lu_fid *fid);
 
+int llo_store_unlink(const struct lu_env *env,
+		     struct md_device *md,
+		     struct dt_device *dt,
+		     const char *dirname,
+		     const char *objname);
+
 void llo_local_obj_register(struct lu_local_obj_desc *);
 void llo_local_obj_unregister(struct lu_local_obj_desc *);
 

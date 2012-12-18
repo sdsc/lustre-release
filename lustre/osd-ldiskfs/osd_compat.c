@@ -484,6 +484,7 @@ static const struct named_oid oids[] = {
 	{ LLOG_CATALOGS_OID,    "CATALOGS" },
 	{ MGS_CONFIGS_OID,      "" /* MOUNT_CONFIGS_DIR */ },
 	{ OFD_HEALTH_CHECK_OID, HEALTH_CHECK },
+	{ LFSCK_NAMESPACE_OID,  "" /* "lfsck_namespace" */ },
 	{ 0,                    NULL }
 };
 
