@@ -2588,9 +2588,10 @@ add() {
     do_facet ${facet} $MKFS $*
 }
 
+# Device formatted as ost
 ostdevname() {
-    num=$1
-    DEVNAME=OSTDEV$num
+	num=$1
+	DEVNAME=OSTDEV$num
 
 	local fstype=$(facet_fstype ost$num)
 
@@ -2599,8 +2600,8 @@ ostdevname() {
 			#if $OSTDEVn isn't defined, default is $OSTDEVBASE + num
 			eval DEVPTR=${!DEVNAME:=${OSTDEVBASE}${num}};;
 		zfs )
-			#dataset name is independent of vdev device names
-			eval DEVPTR=${FSNAME}-ost${num}/ost${num};;
+			#try $OSTDEVn - independent of vdev
+			eval DEVPTR=${!DEVNAME:=${FSNAME}-ost${num}/ost${num}};;
 		* )
 			error "unknown fstype!";;
 	esac
@@ -2608,9 +2609,10 @@ ostdevname() {
     echo -n $DEVPTR
 }
 
+# Physical device location of data
 ostvdevname() {
 	num=$1
-	DEVNAME=OSTDEV$num
+	DEVNAME=OSTVDEV$num
 
 	local fstype=$(facet_fstype ost$num)
 
@@ -2619,7 +2621,8 @@ ostvdevname() {
 			# vdevs are not supported by ldiskfs
 			eval VDEVPTR="";;
 		zfs )
-			#if $OSTDEVn isn't defined, default is $OSTDEVBASE + num
+			#if $OSTVDEVn isn't defined, default is $OSTDEVBASE{n}
+			# Device formated by zfs
 			eval VDEVPTR=${!DEVNAME:=${OSTDEVBASE}${num}};;
 		* )
 			error "unknown fstype!";;
@@ -2628,19 +2631,20 @@ ostvdevname() {
 	echo -n $VDEVPTR
 }
 
+# Logical device formated for lustre
 mdsdevname() {
-    num=$1
-    DEVNAME=MDSDEV$num
+	num=$1
+	DEVNAME=MDSDEV$num
 
 	local fstype=$(facet_fstype mds$num)
 
 	case $fstype in
 		ldiskfs )
-			#if $MDSDEVn isn't defined, default is $MDSDEVBASE + num
+			#if $MDSDEVn isn't defined, default is $MDSDEVBASE{n}
 			eval DEVPTR=${!DEVNAME:=${MDSDEVBASE}${num}};;
 		zfs )
-			#dataset name is independent of vdev device names
-			eval DEVPTR=${FSNAME}-mdt${num}/mdt${num};;
+			# try $MDSDEVn - independent of vdev
+			eval DEVPTR=${!DEVNAME:=${FSNAME}-mdt${num}/mdt${num}};;
 		* )
 			error "unknown fstype!";;
 	esac
@@ -2648,9 +2652,10 @@ mdsdevname() {
 	echo -n $DEVPTR
 }
 
+# Physical location of data
 mdsvdevname() {
 	num=$1
-	DEVNAME=MDSDEV$num
+	DEVNAME=MDSVDEV$num
 
 	local fstype=$(facet_fstype mds$num)
 
@@ -2659,7 +2664,8 @@ mdsvdevname() {
 			# vdevs are not supported by ldiskfs
 			eval VDEVPTR="";;
 		zfs )
-			#if $MDSDEVn isn't defined, default is $MDSDEVBASE + num
+			# if $MDSVDEVn isn't defined, default is $MDSDEVBASE{n}
+			# Device formated by ZFS
 			eval VDEVPTR=${!DEVNAME:=${MDSDEVBASE}${num}};;
 		* )
 			error "unknown fstype!";;
@@ -2687,7 +2693,8 @@ mgsdevname() {
 }
 
 mgsvdevname() {
-	DEVNAME=MGSDEV
+	DEVNAME=MGSVDEV
+	local MDSVDEV1=$(mdsvdevname 1)
 
 	local fstype=$(facet_fstype mds1)
 
@@ -2696,8 +2703,8 @@ mgsvdevname() {
 			# vdevs are not supported by ldiskfs
 			eval VDEVPTR="";;
 		zfs )
-			#if $MGSDEV isn't defined, default is $MGSDEV1
-			eval VDEVPTR=${!DEVNAME:=${MDSDEV1}};;
+			#if $MGSVDEV isn't defined, default is $MGSVDEV1
+			eval VDEVPTR=${!DEVNAME:=${MDSVDEV1}};;
 		* )
 			error "unknown fstype!";;
 	esac

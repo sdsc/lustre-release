@@ -120,7 +120,7 @@ reformat() {
 
 start_mgs () {
 	echo "start mgs"
-	start mgs $MGSDEV $MGS_MOUNT_OPTS
+	start mgs $(mgsdevname) $MGS_MOUNT_OPTS
 }
 
 start_mdt() {
