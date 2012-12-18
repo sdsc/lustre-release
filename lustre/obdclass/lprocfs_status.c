@@ -48,6 +48,7 @@
 #include <lprocfs_status.h>
 #include <lustre_fsfilt.h>
 #include <lustre_log.h>
+#include <lustre_disk.h>
 #include <lustre/lustre_idl.h>
 #include <dt_object.h>
 
@@ -2638,12 +2639,13 @@ int lprocfs_obd_rd_mntdev(char *page, char **start, off_t off,
                           int count, int *eof, void *data)
 {
 	struct obd_device *obd = (struct obd_device *)data;
+	struct lustre_mount_info *lmi = server_get_mount_2(obd->obd_name);
 
 	LASSERT(obd != NULL);
-	LASSERT(mnt_get_devname(obd->u.obt.obt_vfsmnt));
+	LASSERT(get_mntdev_name(lmi->lmi_sb));
 	*eof = 1;
-	return snprintf(page, count, "%s\n",
-			mnt_get_devname(obd->u.obt.obt_vfsmnt));
+	server_put_mount_2(obd->obd_name, lmi->lmi_mnt);
+	return snprintf(page, count, "%s\n", get_mntdev_name(lmi->lmi_sb));
 }
 EXPORT_SYMBOL(lprocfs_obd_rd_mntdev);
 
