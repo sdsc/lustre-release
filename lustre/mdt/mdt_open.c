@@ -635,17 +635,19 @@ static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
                         repbody->valid |= OBD_MD_FLEASIZE;
         }
 
-        if (flags & FMODE_WRITE) {
-                rc = mdt_write_get(o);
-                if (rc == 0) {
-                        mdt_ioepoch_open(info, o, created);
-                        repbody->ioepoch = o->mot_ioepoch;
+        if (!req_is_replay(req)) {
+                if (flags & FMODE_WRITE) {
+                        rc = mdt_write_get(o);
+                        if (rc == 0) {
+                                mdt_ioepoch_open(info, o, created);
+                                repbody->ioepoch = o->mot_ioepoch;
+                        }
+                } else if (flags & MDS_FMODE_EXEC) {
+                        rc = mdt_write_deny(o);
                 }
-        } else if (flags & MDS_FMODE_EXEC) {
-                rc = mdt_write_deny(o);
+                if (rc)
+                        RETURN(rc);
         }
-        if (rc)
-                RETURN(rc);
 
         rc = mo_open(info->mti_env, mdt_object_child(o),
                      created ? flags | MDS_OPEN_CREATED : flags);
