@@ -82,7 +82,10 @@
 
 #define MAX_HW_SECTORS_KB_PATH	"queue/max_hw_sectors_kb"
 #define MAX_SECTORS_KB_PATH	"queue/max_sectors_kb"
+#define SCHEDULER_PATH		"queue/scheduler"
 #define STRIPE_CACHE_SIZE	"md/stripe_cache_size"
+
+#define DEFAULT_SCHEDULER	"deadline"
 
 extern char *progname;
 
@@ -967,6 +970,18 @@ set_params:
 			 * error for some device. */
 			rc = 0;
 		}
+	}
+
+	snprintf(real_path, sizeof(real_path), "%s/%s", path, SCHEDULER_PATH);
+	rc = write_file(real_path, DEFAULT_SCHEDULER);
+	if (rc) {
+		if (verbose)
+			fprintf(stderr, "warning: writing to %s: %s\n",
+				real_path, strerror(errno));
+		/* Purposely mask errors when writing to SCHEDULER_PATH.
+		 * The worst that will happen is a device with an
+		 * "incorrect" scheduler. */
+		rc = 0;
 	}
 
 	if (fan_out) {
