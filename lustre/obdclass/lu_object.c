@@ -127,12 +127,23 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
                         o->lo_ops->loo_object_release(env, o);
         }
 
-        if (!lu_object_is_dying(top)) {
-                LASSERT(cfs_list_empty(&top->loh_lru));
-                cfs_list_add_tail(&top->loh_lru, &bkt->lsb_lru);
+	if (!lu_object_is_dying(top)) {
+		LASSERT(cfs_list_empty(&top->loh_lru));
+		if (!site->ls_allow_pinned) {
+			cfs_list_add_tail(&top->loh_lru, &bkt->lsb_lru);
+			cfs_hash_bd_unlock(site->ls_obj_hash, &bd, 1);
+			return;
+		}
+
+		if (lu_object_is_pinned(top))
+			cfs_list_add_tail(&top->loh_lru, &bkt->lsb_pinned);
+		else if (lu_object_is_used(top))
+			cfs_list_add_tail(&top->loh_lru, &bkt->lsb_used);
+		else
+			cfs_list_add_tail(&top->loh_lru, &bkt->lsb_lru);
                 cfs_hash_bd_unlock(site->ls_obj_hash, &bd, 1);
                 return;
-        }
+	}
 
         /*
          * If object is dying (will not be cached), removed it
@@ -161,8 +172,7 @@ EXPORT_SYMBOL(lu_object_put);
  */
 void lu_object_put_nocache(const struct lu_env *env, struct lu_object *o)
 {
-	set_bit(LU_OBJECT_HEARD_BANSHEE,
-		    &o->lo_header->loh_flags);
+	lu_object_set_dying(o->lo_header);
 	return lu_object_put(env, o);
 }
 EXPORT_SYMBOL(lu_object_put_nocache);
@@ -284,81 +294,215 @@ static void lu_object_free(const struct lu_env *env, struct lu_object *o)
  */
 int lu_site_purge(const struct lu_env *env, struct lu_site *s, int nr)
 {
-        struct lu_object_header *h;
-        struct lu_object_header *temp;
-        struct lu_site_bkt_data *bkt;
-        cfs_hash_bd_t            bd;
-        cfs_hash_bd_t            bd2;
-        cfs_list_t               dispose;
-        int                      did_sth;
-        int                      start;
-        int                      count;
-        int                      bnr;
-        int                      i;
+	struct lu_object_header *h;
+	struct lu_object_header *temp;
+	struct lu_site_bkt_data *bkt;
+	cfs_hash_bd_t		 bd;
+	cfs_hash_bd_t		 bd2;
+	cfs_list_t		 dispose;
+	int			 start;
+	int			 count;
+	int			 bnr;
+	int			 i;
+	bool			 did_sth;
 
-        CFS_INIT_LIST_HEAD(&dispose);
-        /*
-         * Under LRU list lock, scan LRU list and move unreferenced objects to
-         * the dispose list, removing them from LRU and hash table.
-         */
-        start = s->ls_purge_start;
-        bnr = (nr == ~0) ? -1 : nr / CFS_HASH_NBKT(s->ls_obj_hash) + 1;
- again:
-        did_sth = 0;
-        cfs_hash_for_each_bucket(s->ls_obj_hash, &bd, i) {
-                if (i < start)
-                        continue;
-                count = bnr;
-                cfs_hash_bd_lock(s->ls_obj_hash, &bd, 1);
-                bkt = cfs_hash_bd_extra_get(s->ls_obj_hash, &bd);
+	CFS_INIT_LIST_HEAD(&dispose);
+	/*
+	 * Under LRU list lock, scan LRU list and move unreferenced objects to
+	 * the dispose list, removing them from LRU and hash table.
+	 */
+	start = s->ls_purge_start;
+	bnr = (nr == -1) ? -1 : nr / CFS_HASH_NBKT(s->ls_obj_hash) + 1;
 
-                cfs_list_for_each_entry_safe(h, temp, &bkt->lsb_lru, loh_lru) {
-                        LASSERT(cfs_atomic_read(&h->loh_ref) == 0);
+again:
+	did_sth = false;
+	cfs_hash_for_each_bucket(s->ls_obj_hash, &bd, i) {
+		if (i < start)
+			continue;
 
-                        cfs_hash_bd_get(s->ls_obj_hash, &h->loh_fid, &bd2);
-                        LASSERT(bd.bd_bucket == bd2.bd_bucket);
+		count = bnr;
+		cfs_hash_bd_lock(s->ls_obj_hash, &bd, 1);
+		bkt = cfs_hash_bd_extra_get(s->ls_obj_hash, &bd);
+		cfs_list_for_each_entry_safe(h, temp, &bkt->lsb_lru, loh_lru) {
+			LASSERT(cfs_atomic_read(&h->loh_ref) == 0);
+			cfs_hash_bd_get(s->ls_obj_hash, &h->loh_fid, &bd2);
+			LASSERT(bd.bd_bucket == bd2.bd_bucket);
+			cfs_hash_bd_del_locked(s->ls_obj_hash,
+					       &bd2, &h->loh_hash);
+			cfs_list_move(&h->loh_lru, &dispose);
+			did_sth = true;
 
-                        cfs_hash_bd_del_locked(s->ls_obj_hash,
-                                               &bd2, &h->loh_hash);
-                        cfs_list_move(&h->loh_lru, &dispose);
-                        if (did_sth == 0)
-                                did_sth = 1;
+			if (nr != -1 && --nr == 0)
+				break;
 
-                        if (nr != ~0 && --nr == 0)
-                                break;
+			if (count > 0 && --count == 0)
+				break;
+		}
+		cfs_hash_bd_unlock(s->ls_obj_hash, &bd, 1);
+		cfs_cond_resched();
 
-                        if (count > 0 && --count == 0)
-                                break;
+		if (nr == 0)
+			goto drop;
 
-                }
-                cfs_hash_bd_unlock(s->ls_obj_hash, &bd, 1);
-                cfs_cond_resched();
-                /*
-                 * Free everything on the dispose list. This is safe against
-                 * races due to the reasons described in lu_object_put().
-                 */
-                while (!cfs_list_empty(&dispose)) {
-                        h = container_of0(dispose.next,
-                                          struct lu_object_header, loh_lru);
-                        cfs_list_del_init(&h->loh_lru);
-                        lu_object_free(env, lu_object_top(h));
-                        lprocfs_counter_incr(s->ls_stats, LU_SS_LRU_PURGED);
-                }
+		cfs_hash_bd_lock(s->ls_obj_hash, &bd, 1);
+		bkt = cfs_hash_bd_extra_get(s->ls_obj_hash, &bd);
+		cfs_list_for_each_entry_safe(h, temp, &bkt->lsb_used, loh_lru) {
+			LASSERT(cfs_atomic_read(&h->loh_ref) == 0);
+			cfs_hash_bd_get(s->ls_obj_hash, &h->loh_fid, &bd2);
+			LASSERT(bd.bd_bucket == bd2.bd_bucket);
 
-                if (nr == 0)
-                        break;
-        }
+			cfs_hash_bd_del_locked(s->ls_obj_hash,
+					       &bd2, &h->loh_hash);
+			cfs_list_move(&h->loh_lru, &dispose);
+			did_sth = true;
 
-        if (nr != 0 && did_sth && start != 0) {
-                start = 0; /* restart from the first bucket */
-                goto again;
-        }
-        /* race on s->ls_purge_start, but nobody cares */
-        s->ls_purge_start = i % CFS_HASH_NBKT(s->ls_obj_hash);
+			if (nr != -1 && --nr == 0)
+				break;
+		}
+		cfs_hash_bd_unlock(s->ls_obj_hash, &bd, 1);
+		cfs_cond_resched();
 
-        return nr;
+		if (nr != -1)
+			goto drop;
+
+		cfs_hash_bd_lock(s->ls_obj_hash, &bd, 1);
+		bkt = cfs_hash_bd_extra_get(s->ls_obj_hash, &bd);
+		cfs_list_for_each_entry_safe(h, temp, &bkt->lsb_pinned,
+					     loh_lru) {
+			LASSERT(cfs_atomic_read(&h->loh_ref) == 0);
+			cfs_hash_bd_get(s->ls_obj_hash, &h->loh_fid, &bd2);
+			LASSERT(bd.bd_bucket == bd2.bd_bucket);
+
+			cfs_hash_bd_del_locked(s->ls_obj_hash,
+					       &bd2, &h->loh_hash);
+			cfs_list_move(&h->loh_lru, &dispose);
+			did_sth = true;
+		}
+		cfs_hash_bd_unlock(s->ls_obj_hash, &bd, 1);
+		cfs_cond_resched();
+
+drop:
+		/*
+		 * Free everything on the dispose list. This is safe against
+		 * races due to the reasons described in lu_object_put().
+		 */
+		while (!cfs_list_empty(&dispose)) {
+			h = container_of0(dispose.next,
+					  struct lu_object_header, loh_lru);
+			cfs_list_del_init(&h->loh_lru);
+			lu_object_free(env, lu_object_top(h));
+			lprocfs_counter_incr(s->ls_stats, LU_SS_LRU_PURGED);
+		}
+
+		if (nr == 0)
+			break;
+	}
+
+	if (nr != 0 && did_sth && start != 0) {
+		start = 0; /* restart from the first bucket */
+		goto again;
+	}
+	/* race on s->ls_purge_start, but nobody cares */
+	s->ls_purge_start = i % CFS_HASH_NBKT(s->ls_obj_hash);
+
+	if (nr == -1 || nr == 0)
+		return nr;
+
+	/* If there is still memory pressure, unpin some pinned objects. */
+	cfs_hash_for_each_bucket(s->ls_obj_hash, &bd, i) {
+		count = bnr;
+		cfs_hash_bd_lock(s->ls_obj_hash, &bd, 1);
+		bkt = cfs_hash_bd_extra_get(s->ls_obj_hash, &bd);
+		cfs_list_for_each_entry_safe(h, temp, &bkt->lsb_pinned,
+					     loh_lru) {
+			LASSERT(cfs_atomic_read(&h->loh_ref) == 0);
+			cfs_hash_bd_get(s->ls_obj_hash, &h->loh_fid, &bd2);
+			LASSERT(bd.bd_bucket == bd2.bd_bucket);
+
+			cfs_hash_bd_del_locked(s->ls_obj_hash,
+					       &bd2, &h->loh_hash);
+			cfs_list_move(&h->loh_lru, &dispose);
+			if (--nr == 0)
+				break;
+
+			if (--count == 0)
+				break;
+		}
+		cfs_hash_bd_unlock(s->ls_obj_hash, &bd, 1);
+		cfs_cond_resched();
+
+		while (!cfs_list_empty(&dispose)) {
+			h = container_of0(dispose.next,
+					  struct lu_object_header, loh_lru);
+			cfs_list_del_init(&h->loh_lru);
+			lu_object_free(env, lu_object_top(h));
+			lprocfs_counter_incr(s->ls_stats, LU_SS_LRU_PURGED);
+		}
+
+		if (nr == 0)
+			break;
+	}
+	return nr;
 }
 EXPORT_SYMBOL(lu_site_purge);
+
+/**
+ * Free all the objects on the lsb_pinned, and on lsb_used.
+ */
+void lu_site_purge_pinned(const struct lu_env *env, struct lu_site *s)
+{
+	struct lu_object_header *h;
+	struct lu_object_header *temp;
+	struct lu_site_bkt_data *bkt;
+	cfs_hash_bd_t		 bd;
+	cfs_hash_bd_t		 bd2;
+	cfs_list_t		 dispose;
+	int			 i;
+
+	CFS_INIT_LIST_HEAD(&dispose);
+
+	cfs_hash_for_each_bucket(s->ls_obj_hash, &bd, i) {
+		cfs_hash_bd_lock(s->ls_obj_hash, &bd, 1);
+		bkt = cfs_hash_bd_extra_get(s->ls_obj_hash, &bd);
+
+		cfs_list_for_each_entry_safe(h, temp, &bkt->lsb_used, loh_lru) {
+			LASSERT(cfs_atomic_read(&h->loh_ref) == 0);
+			cfs_hash_bd_get(s->ls_obj_hash, &h->loh_fid, &bd2);
+			LASSERT(bd.bd_bucket == bd2.bd_bucket);
+
+			cfs_hash_bd_del_locked(s->ls_obj_hash,
+					       &bd2, &h->loh_hash);
+			cfs_list_move(&h->loh_lru, &dispose);
+		}
+		cfs_hash_bd_unlock(s->ls_obj_hash, &bd, 1);
+		cfs_cond_resched();
+
+		cfs_hash_bd_lock(s->ls_obj_hash, &bd, 1);
+		bkt = cfs_hash_bd_extra_get(s->ls_obj_hash, &bd);
+
+		cfs_list_for_each_entry_safe(h, temp, &bkt->lsb_pinned,
+					     loh_lru) {
+			LASSERT(cfs_atomic_read(&h->loh_ref) == 0);
+			cfs_hash_bd_get(s->ls_obj_hash, &h->loh_fid, &bd2);
+			LASSERT(bd.bd_bucket == bd2.bd_bucket);
+
+			cfs_hash_bd_del_locked(s->ls_obj_hash,
+					       &bd2, &h->loh_hash);
+			cfs_list_move(&h->loh_lru, &dispose);
+		}
+		cfs_hash_bd_unlock(s->ls_obj_hash, &bd, 1);
+		cfs_cond_resched();
+
+		while (!cfs_list_empty(&dispose)) {
+			h = container_of0(dispose.next,
+					  struct lu_object_header, loh_lru);
+			cfs_list_del_init(&h->loh_lru);
+			lu_object_free(env, lu_object_top(h));
+			lprocfs_counter_incr(s->ls_stats, LU_SS_LRU_PURGED);
+		}
+	}
+}
+EXPORT_SYMBOL(lu_site_purge_pinned);
 
 /*
  * Object printing.
@@ -982,6 +1126,8 @@ int lu_site_init(struct lu_site *s, struct lu_device *top)
         cfs_hash_for_each_bucket(s->ls_obj_hash, &bd, i) {
                 bkt = cfs_hash_bd_extra_get(s->ls_obj_hash, &bd);
                 CFS_INIT_LIST_HEAD(&bkt->lsb_lru);
+		CFS_INIT_LIST_HEAD(&bkt->lsb_pinned);
+		CFS_INIT_LIST_HEAD(&bkt->lsb_used);
                 cfs_waitq_init(&bkt->lsb_marche_funebre);
         }
 

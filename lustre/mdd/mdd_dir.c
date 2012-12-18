@@ -1877,8 +1877,7 @@ out_stop:
 out_free:
         /* The child object shouldn't be cached anymore */
         if (rc)
-		set_bit(LU_OBJECT_HEARD_BANSHEE,
-                            &child->mo_lu.lo_header->loh_flags);
+		lu_object_set_dying(child->mo_lu.lo_header);
         return rc;
 }
 
