@@ -722,8 +722,8 @@ static inline int lu_object_is_dying(const struct lu_object_header *h)
 	return test_bit(LU_OBJECT_HEARD_BANSHEE, &h->loh_flags);
 }
 
-void lu_object_put(const struct lu_env *env, struct lu_object *o);
-void lu_object_put_nocache(const struct lu_env *env, struct lu_object *o);
+int lu_object_put(const struct lu_env *env, struct lu_object *o);
+int lu_object_put_nocache(const struct lu_env *env, struct lu_object *o);
 
 int lu_site_purge(const struct lu_env *env, struct lu_site *s, int nr);
 
