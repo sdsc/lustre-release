@@ -106,12 +106,18 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
 
         if (!cfs_hash_bd_dec_and_lock(site->ls_obj_hash, &bd, &top->loh_ref)) {
                 if (lu_object_is_dying(top)) {
-
-                        /*
-                         * somebody may be waiting for this, currently only
-                         * used for cl_object, see cl_object_put_last().
-                         */
-                        cfs_waitq_broadcast(&bkt->lsb_marche_funebre);
+			/*
+			 * somebody may be waiting for this, currently only
+			 * used for cl_object, see cl_object_put_last().
+			 *
+			 * Without bucket lock, thread calling htable_lookup()
+			 * can be added to the bucket waiting queue and misses
+			 * this waking up signal and keeps waiting forever.
+			 * LU-1640/LU-2492
+			 */
+			cfs_hash_bd_lock(site->ls_obj_hash, &bd, 1);
+			cfs_waitq_broadcast(&bkt->lsb_marche_funebre);
+			cfs_hash_bd_unlock(site->ls_obj_hash, &bd, 1);
                 }
                 return;
         }
