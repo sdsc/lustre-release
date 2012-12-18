@@ -124,7 +124,7 @@ reformat() {
 
 start_mgs () {
 	echo "start mgs"
-	start mgs $MGSDEV $MGS_MOUNT_OPTS
+	start mgs $(mgsdevname) $MGS_MOUNT_OPTS
 }
 
 start_mdt() {
@@ -612,7 +612,8 @@ test_17() {
                 stop mgs
         fi
 
-        do_facet mgs "$DEBUGFS -w -R 'unlink CONFIGS/$FSNAME-MDT0000' $MGSDEV || return \$?" || return $?
+        do_facet mgs "$DEBUGFS -w -R 'unlink CONFIGS/$FSNAME-MDT0000' \
+		$(mgsdevname) || return \$?" || return $?
 
         if ! combined_mgs_mds ; then
                 start_mgs
@@ -3239,6 +3240,7 @@ test_58() { # bug 22658
 		skip "Only applicable to ldiskfs-based MDTs"
 		return
 	fi
+
 	setup_noconfig
 	mkdir -p $DIR/$tdir
 	createmany -o $DIR/$tdir/$tfile-%d 100
@@ -3249,7 +3251,7 @@ test_58() { # bug 22658
 	stop mds
 	local MNTDIR=$(facet_mntpt mds)
 	# remove all files from the OBJECTS dir
-	do_facet mds "mount -t ldiskfs $MDSDEV $MNTDIR"
+	do_facet mds "mount -t ldiskfs $(mdsdevname ${SINGLEMDS//mds/}) $MNTDIR"
 	do_facet mds "find $MNTDIR/OBJECTS -type f -delete"
 	do_facet mds "umount $MNTDIR"
 	# restart MDS with missing llog files
