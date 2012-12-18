@@ -67,8 +67,10 @@ static void lu_object_free(const struct lu_env *env, struct lu_object *o);
  * Decrease reference counter on object. If last reference is freed, return
  * object to the cache, unless lu_object_is_dying(o) holds. In the latter
  * case, free object immediately.
+ *
+ * Return 1 if the object is freed, 0 otherwise.
  */
-void lu_object_put(const struct lu_env *env, struct lu_object *o)
+int lu_object_put(const struct lu_env *env, struct lu_object *o)
 {
         struct lu_site_bkt_data *bkt;
         struct lu_object_header *top;
@@ -92,13 +94,13 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
 			&& top->loh_hash.pprev == NULL);
 		LASSERT(cfs_list_empty(&top->loh_lru));
 		if (!cfs_atomic_dec_and_test(&top->loh_ref))
-			return;
+			return 0;
 		cfs_list_for_each_entry_reverse(o, &top->loh_layers, lo_linkage) {
 			if (o->lo_ops->loo_object_release != NULL)
 				o->lo_ops->loo_object_release(env, o);
 		}
 		lu_object_free(env, orig);
-		return;
+		return 1;
 	}
 
         cfs_hash_bd_get(site->ls_obj_hash, &top->loh_fid, &bd);
@@ -113,7 +115,7 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
                          */
                         cfs_waitq_broadcast(&bkt->lsb_marche_funebre);
                 }
-                return;
+		return 0;
         }
 
         LASSERT(bkt->lsb_busy > 0);
@@ -131,7 +133,7 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
                 LASSERT(cfs_list_empty(&top->loh_lru));
                 cfs_list_add_tail(&top->loh_lru, &bkt->lsb_lru);
                 cfs_hash_bd_unlock(site->ls_obj_hash, &bd, 1);
-                return;
+		return 0;
         }
 
         /*
@@ -152,6 +154,7 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
          * kill it.
          */
         lu_object_free(env, orig);
+	return 1;
 }
 EXPORT_SYMBOL(lu_object_put);
 
@@ -159,7 +162,7 @@ EXPORT_SYMBOL(lu_object_put);
  * Put object and don't keep in cache. This is temporary solution for
  * multi-site objects when its layering is not constant.
  */
-void lu_object_put_nocache(const struct lu_env *env, struct lu_object *o)
+int lu_object_put_nocache(const struct lu_env *env, struct lu_object *o)
 {
 	set_bit(LU_OBJECT_HEARD_BANSHEE,
 		    &o->lo_header->loh_flags);
@@ -503,11 +506,12 @@ int lu_object_invariant(const struct lu_object *o)
 }
 EXPORT_SYMBOL(lu_object_invariant);
 
-static struct lu_object *htable_lookup(struct lu_site *s,
-                                       cfs_hash_bd_t *bd,
-                                       const struct lu_fid *f,
-                                       cfs_waitlink_t *waiter,
-                                       __u64 *version)
+static struct lu_object *htable_lookup(const struct lu_env *env,
+				       struct lu_site *s,
+				       cfs_hash_bd_t *bd,
+				       const struct lu_fid *f,
+				       cfs_waitlink_t *waiter,
+				       __u64 *version)
 {
         struct lu_site_bkt_data *bkt;
         struct lu_object_header *h;
@@ -538,14 +542,26 @@ static struct lu_object *htable_lookup(struct lu_site *s,
          * Lookup found an object being destroyed this object cannot be
          * returned (to assure that references to dying objects are eventually
          * drained), and moreover, lookup has to wait until object is freed.
-         */
-        cfs_atomic_dec(&h->loh_ref);
+	 *
+	 * LU-2492: the lookup adds a refcount to the top object, and could
+	 * mess the last object put process. In this case, we'd do the unhash
+	 * and free process.
+	 */
+	cfs_waitlink_init(waiter);
+	cfs_waitq_add(&bkt->lsb_marche_funebre, waiter);
+	cfs_set_current_state(CFS_TASK_UNINT);
+	lprocfs_counter_incr(s->ls_stats, LU_SS_CACHE_DEATH_RACE);
 
-        cfs_waitlink_init(waiter);
-        cfs_waitq_add(&bkt->lsb_marche_funebre, waiter);
-        cfs_set_current_state(CFS_TASK_UNINT);
-        lprocfs_counter_incr(s->ls_stats, LU_SS_CACHE_DEATH_RACE);
-        return ERR_PTR(-EAGAIN);
+	cfs_hash_bd_unlock(s->ls_obj_hash, bd, 1);
+	if (lu_object_put(env, lu_object_top(h))) {
+		cfs_hash_bd_lock(s->ls_obj_hash, bd, 1);
+		cfs_waitq_del(&bkt->lsb_marche_funebre, waiter);
+		cfs_set_current_state(CFS_TASK_RUNNING);
+		return NULL;
+	}
+	cfs_hash_bd_lock(s->ls_obj_hash, bd, 1);
+
+	return ERR_PTR(-EAGAIN);
 }
 
 /**
@@ -626,7 +642,7 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
         s  = dev->ld_site;
         hs = s->ls_obj_hash;
         cfs_hash_bd_get_and_lock(hs, (void *)f, &bd, 1);
-        o = htable_lookup(s, &bd, f, waiter, &version);
+	o = htable_lookup(env, s, &bd, f, waiter, &version);
         cfs_hash_bd_unlock(hs, &bd, 1);
         if (o != NULL)
                 return o;
@@ -643,7 +659,7 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
 
         cfs_hash_bd_lock(hs, &bd, 1);
 
-        shadow = htable_lookup(s, &bd, f, waiter, &version);
+	shadow = htable_lookup(env, s, &bd, f, waiter, &version);
         if (likely(shadow == NULL)) {
                 struct lu_site_bkt_data *bkt;
 
@@ -2187,7 +2203,7 @@ void lu_object_assign_fid(const struct lu_env *env, struct lu_object *o,
 
 	hs = s->ls_obj_hash;
 	cfs_hash_bd_get_and_lock(hs, (void *)fid, &bd, 1);
-	shadow = htable_lookup(s, &bd, fid, &waiter, &version);
+	shadow = htable_lookup(env, s, &bd, fid, &waiter, &version);
 	/* supposed to be unique */
 	LASSERT(shadow == NULL);
 	*old = *fid;
