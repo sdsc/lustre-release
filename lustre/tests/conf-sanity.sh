@@ -120,7 +120,7 @@ reformat() {
 
 start_mgs () {
 	echo "start mgs"
-	start mgs $MGSDEV $MGS_MOUNT_OPTS
+	start mgs $(mgsdevname) $MGS_MOUNT_OPTS
 }
 
 start_mdt() {
@@ -608,7 +608,8 @@ test_17() {
                 stop mgs
         fi
 
-        do_facet mgs "$DEBUGFS -w -R 'unlink CONFIGS/$FSNAME-MDT0000' $MGSDEV || return \$?" || return $?
+        do_facet mgs "$DEBUGFS -w -R 'unlink CONFIGS/$FSNAME-MDT0000' \
+		$(mgsdevname mgs) || return \$?" || return $?
 
         if ! combined_mgs_mds ; then
                 start_mgs
@@ -1220,6 +1221,7 @@ test_32newtarball() {
 	local dst=.
 	local src=/etc/rc.d
 	local tmp=$TMP/t32_image_create
+	local MDSDEV=$(mdsdevname ${SINGLEMDS//mds/})
 
 	if [ $FSNAME != t32fs -o $MDSCOUNT -ne 1 -o								\
 		 \( -z "$MDSDEV" -a -z "$MDSDEV1" \) -o $OSTCOUNT -ne 1 -o			\
@@ -3190,6 +3192,8 @@ test_58() { # bug 22658
 		skip "Only applicable to ldiskfs-based MDTs"
 		return
 	fi
+	local MDSDEV=$(mdsdevname ${SINGLEMDS//mds/})
+
 	setup_noconfig
 	mkdir -p $DIR/$tdir
 	createmany -o $DIR/$tdir/$tfile-%d 100
