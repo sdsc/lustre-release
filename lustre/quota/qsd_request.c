@@ -21,7 +21,7 @@
  * GPL HEADER END
  */
 /*
- * Copyright (c) 2012 Intel, Inc.
+ * Copyright (c) 2012 Intel Corporation.
  * Use is subject to license terms.
  *
  * Author: Johann Lombardi <johann.lombardi@intel.com>
@@ -400,7 +400,10 @@ int qsd_fetch_index(const struct lu_env *env, struct obd_export *exp,
 					  req->rq_bulk->bd_nob_transferred);
 	if (rc < 0)
 		GOTO(out, rc);
-	rc = 0;
+	else
+		/* sptlrpc_cli_unwrap_bulk_read() returns the number of bytes
+		 * transferred*/
+		rc = 0;
 
 	req_ii = req_capsule_server_get(&req->rq_pill, &RMF_IDX_INFO);
 	*ii = *req_ii;
