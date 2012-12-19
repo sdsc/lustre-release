@@ -929,18 +929,23 @@ static inline struct lu_dirent *lu_dirent_next(struct lu_dirent *ent)
         return next;
 }
 
-static inline int lu_dirent_calc_size(int namelen, __u16 attr)
+static inline int lu_dirent_calc_size(int namelen, __u32 attr)
 {
-        int size;
+	int size;
+	int align;
 
-        if (attr & LUDA_TYPE) {
-                const unsigned align = sizeof(struct luda_type) - 1;
-                size = (sizeof(struct lu_dirent) + namelen + align) & ~align;
-                size += sizeof(struct luda_type);
-        } else
-                size = sizeof(struct lu_dirent) + namelen;
-
-        return (size + 7) & ~7;
+	if (attr & LUDA_TYPE) {
+		align = sizeof(struct luda_type) - 1;
+		size = (sizeof(struct lu_dirent) + namelen + align) & ~align;
+		size += sizeof(struct luda_type);
+	} else if (attr & LUDA_VERIFY) {
+		align = sizeof(__u64) - 1;
+		size = (sizeof(__u64) + namelen + align) & ~align;
+		size += sizeof(__u64);
+	} else {
+		size = sizeof(struct lu_dirent) + namelen;
+	}
+	return (size + 7) & ~7;
 }
 
 static inline int lu_dirent_size(struct lu_dirent *ent)
