@@ -166,6 +166,7 @@ extern const struct lu_seq_range LUSTRE_SEQ_SPACE_RANGE;
 extern const struct lu_seq_range LUSTRE_SEQ_ZERO_RANGE;
 extern const struct lu_fid LUSTRE_BFL_FID;
 extern const struct lu_fid LU_OBF_FID;
+extern const struct lu_fid LU_LFSCK_OIT_FID;
 extern const struct lu_fid LU_DOT_LUSTRE_FID;
 
 enum {
@@ -216,7 +217,6 @@ enum local_oid {
         ACCT_USER_OID           = 15UL,
         ACCT_GROUP_OID          = 16UL,
 	LFSCK_BOOKMARK_OID	= 17UL,
-	OTABLE_IT_OID		= 18UL,
         OFD_LAST_RECV_OID       = 19UL,
         OFD_GROUP0_LAST_OID     = 20UL,
         OFD_GROUP4K_LAST_OID    = 20UL+4096,
@@ -224,6 +224,11 @@ enum local_oid {
         LLOG_CATALOGS_OID       = 4118UL,
         MGS_CONFIGS_OID         = 4119UL,
         OFD_HEALTH_CHECK_OID    = 4120UL,
+	LFSCK_NAMESPACE_OID	= 4121UL,
+};
+
+enum ram_only_oid {
+	FID_OID_LFSCK_OIT	= 1UL,
 };
 
 static inline void lu_local_obj_fid(struct lu_fid *fid, __u32 oid)
@@ -240,10 +245,24 @@ static inline void lu_local_name_obj_fid(struct lu_fid *fid, __u32 oid)
         fid->f_ver = 0;
 }
 
-static inline int fid_is_otable_it(const struct lu_fid *fid)
+static inline int fid_is_dot_lustre(const struct lu_fid *fid)
+{
+	return unlikely(fid_seq(fid) == FID_SEQ_DOT_LUSTRE &&
+			fid_oid(fid) == FID_OID_DOT_LUSTRE);
+}
+
+static inline int fid_is_ROOT(const struct lu_fid *fid)
 {
 	return unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE &&
-			fid_oid(fid) == OTABLE_IT_OID);
+			fid_oid(fid) == MDD_ROOT_INDEX_OID);
+}
+
+static inline int fid_is_ram_only(const struct lu_fid *fid)
+{
+	/* For be compatible with old client, LU_OBF_FID is still under the
+	 * FID_SEQ_DOT_LUSTRE. */
+	return unlikely(fid_seq(fid) == FID_SEQ_RAM_ONLY ||
+			lu_fid_eq(fid, &LU_OBF_FID));
 }
 
 static inline int fid_is_acct(const struct lu_fid *fid)
@@ -257,6 +276,20 @@ static inline int fid_is_quota(const struct lu_fid *fid)
 {
 	return fid_seq(fid) == FID_SEQ_QUOTA ||
 	       fid_seq(fid) == FID_SEQ_QUOTA_GLB;
+}
+
+static inline int fid_is_client_mdt_visible(const struct lu_fid *fid)
+{
+	const __u64 seq = fid_seq(fid);
+
+	return fid_seq_is_norm(seq) || fid_seq_is_igif(seq) ||
+	       fid_is_ROOT(fid) || fid_is_dot_lustre(fid) ||
+	       fid_is_ram_only(fid);
+}
+
+static inline int fid_is_client_visible(const struct lu_fid *fid)
+{
+	return fid_is_client_mdt_visible(fid) || fid_is_idif(fid);
 }
 
 enum lu_mgr_type {

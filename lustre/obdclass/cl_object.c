@@ -347,7 +347,7 @@ void cl_object_kill(const struct lu_env *env, struct cl_object *obj)
         LASSERT(hdr->coh_tree.rnode == NULL);
         LASSERT(hdr->coh_pages == 0);
 
-	set_bit(LU_OBJECT_HEARD_BANSHEE, &hdr->coh_lu.loh_flags);
+	lu_object_set_dying(&hdr->coh_lu);
         /*
          * Destroy all locks. Object destruction (including cl_inode_fini())
          * cannot cancel the locks, because in the case of a local client,

@@ -102,19 +102,19 @@ static struct dt_it *lod_it_init(const struct lu_env *env,
 				 struct lustre_capa *capa)
 {
 	struct dt_object	*next = dt_object_child(dt);
-	struct lod_it		*it = &lod_env_info(env)->lti_it;
+	struct lod_it		*it;
 	struct dt_it		*it_next;
 
 
-	it_next = next->do_index_ops->dio_it.init(env, next, attr, capa);
-	if (IS_ERR(it_next))
-		return it_next;
+	OBD_ALLOC_PTR(it);
+	if (it == NULL)
+		return ERR_PTR(-ENOMEM);
 
-	/* currently we do not use more than one iterator per thread
-	 * so we store it in thread info. if at some point we need
-	 * more active iterators in a single thread, we can allocate
-	 * additional ones */
-	LASSERT(it->lit_obj == NULL);
+	it_next = next->do_index_ops->dio_it.init(env, next, attr, capa);
+	if (IS_ERR(it_next)) {
+		OBD_FREE_PTR(it);
+		return it_next;
+	}
 
 	it->lit_it = it_next;
 	it->lit_obj = next;
@@ -125,7 +125,6 @@ static struct dt_it *lod_it_init(const struct lu_env *env,
 #define LOD_CHECK_IT(env, it)					\
 {								\
 	/* IT is supposed to be in thread info always */	\
-	LASSERT((it) == &lod_env_info(env)->lti_it);		\
 	LASSERT((it)->lit_obj != NULL);				\
 	LASSERT((it)->lit_it != NULL);				\
 } while(0)
@@ -140,6 +139,8 @@ void lod_it_fini(const struct lu_env *env, struct dt_it *di)
 	/* the iterator not in use any more */
 	it->lit_obj = NULL;
 	it->lit_it = NULL;
+
+	OBD_FREE_PTR(it);
 }
 
 int lod_it_get(const struct lu_env *env, struct dt_it *di,
@@ -1104,6 +1105,16 @@ struct dt_object_operations lod_obj_ops = {
 	.do_object_sync		= lod_object_sync,
 };
 
+struct dt_object_operations lod_obj_ram_only_ops = {
+	.do_read_lock		= lod_object_read_lock,
+	.do_write_lock		= lod_object_write_lock,
+	.do_read_unlock		= lod_object_read_unlock,
+	.do_write_unlock	= lod_object_write_unlock,
+	.do_write_locked	= lod_object_write_locked,
+	.do_attr_get		= lod_attr_get,
+	.do_index_try		= lod_index_try,
+};
+
 static ssize_t lod_read(const struct lu_env *env, struct dt_object *dt,
 			struct lu_buf *buf, loff_t *pos,
 			struct lustre_capa *capa)
@@ -1152,6 +1163,9 @@ static int lod_object_init(const struct lu_env *env, struct lu_object *o,
 	if (below == NULL)
 		RETURN(-ENOMEM);
 
+	if (fid_is_ram_only(&o->lo_header->loh_fid))
+		lu2lod_obj(o)->ldo_obj.do_ops = &lod_obj_ram_only_ops;
+
 	lu_object_add(o, below);
 
 	RETURN(0);
@@ -1183,8 +1197,7 @@ void lod_object_free_striping(const struct lu_env *env, struct lod_object *lo)
  */
 static int lod_object_start(const struct lu_env *env, struct lu_object *o)
 {
-	if (S_ISLNK(o->lo_header->loh_attr & S_IFMT))
-		lu2lod_obj(o)->ldo_obj.do_body_ops = &lod_body_lnk_ops;
+	lu2lod_obj(o)->ldo_obj.do_body_ops = &lod_body_lnk_ops;
 	return 0;
 }
 
