@@ -24,6 +24,8 @@
  * Copyright (c) 2012 Intel Corporation
  * Use is subject to license terms.
  *
+ * Copyright (c) 2012, Intel Corporation.
+ *
  * Author: Johann Lombardi <johann.lombardi@intel.com>
  */
 

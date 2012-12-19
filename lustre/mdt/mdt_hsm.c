@@ -23,6 +23,8 @@
 /*
  * Copyright (c) 2012 Intel Corporation
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2012, Intel Corporation.
  */
 
 #define DEBUG_SUBSYSTEM S_MDS
