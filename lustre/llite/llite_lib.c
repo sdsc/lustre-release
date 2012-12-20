@@ -267,7 +267,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         if (sbi->ll_flags & LL_SBI_RMT_CLIENT)
                 data->ocd_connect_flags |= OBD_CONNECT_RMT_CLIENT_FORCE;
 
-        data->ocd_brw_size = PTLRPC_MAX_BRW_SIZE;
+	data->ocd_brw_size = MD_MAX_BRW_SIZE;
 
         err = obd_connect(NULL, &sbi->ll_md_exp, obd, &sbi->ll_sb_uuid, data, NULL);
         if (err == -EBUSY) {
@@ -281,6 +281,8 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                 GOTO(out, err);
         }
 
+	sbi->ll_md_exp->exp_connect_data = *data;
+
         err = obd_fid_init(sbi->ll_md_exp);
         if (err) {
                 CERROR("Can't init metadata layer FID infrastructure, "
@@ -293,16 +295,16 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         if (err)
                 GOTO(out_md_fid, err);
 
-        /* This needs to be after statfs to ensure connect has finished.
-         * Note that "data" does NOT contain the valid connect reply.
-         * If connecting to a 1.8 server there will be no LMV device, so
-         * we can access the MDC export directly and exp_connect_flags will
-         * be non-zero, but if accessing an upgraded 2.1 server it will
-         * have the correct flags filled in.
-         * XXX: fill in the LMV exp_connect_flags from MDC(s). */
-        valid = sbi->ll_md_exp->exp_connect_flags & CLIENT_CONNECT_MDT_REQD;
-        if (sbi->ll_md_exp->exp_connect_flags != 0 &&
-            valid != CLIENT_CONNECT_MDT_REQD) {
+	/* This needs to be after statfs to ensure connect has finished.
+	 * Note that "data" does NOT contain the valid connect reply.
+	 * If connecting to a 1.8 server there will be no LMV device, so
+	 * we can access the MDC export directly and
+	 * exp_connect_data.ocd_connect_flags will be non-zero, but if accessing
+	 * an upgraded 2.1 server it will have the correct flags filled in.
+	 * XXX:fill in the LMV exp_connect_data.ocd_connect_flags from MDC(s).*/
+	valid = exp_connect_flags(sbi->ll_md_exp) & CLIENT_CONNECT_MDT_REQD;
+	if (exp_connect_flags(sbi->ll_md_exp) &&
+	    valid != CLIENT_CONNECT_MDT_REQD) {
                 char *buf;
 
                 OBD_ALLOC_WAIT(buf, CFS_PAGE_SIZE);
@@ -379,10 +381,10 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         if (data->ocd_connect_flags & OBD_CONNECT_64BITHASH)
                 sbi->ll_flags |= LL_SBI_64BIT_HASH;
 
-        if (data->ocd_connect_flags & OBD_CONNECT_BRW_SIZE)
-                sbi->ll_md_brw_size = data->ocd_brw_size;
-        else
-                sbi->ll_md_brw_size = CFS_PAGE_SIZE;
+	if (data->ocd_connect_flags & OBD_CONNECT_BRW_SIZE)
+		sbi->ll_md_brw_size = data->ocd_brw_size;
+	else
+		sbi->ll_md_brw_size = CFS_PAGE_SIZE;
 
 	if (data->ocd_connect_flags & OBD_CONNECT_LAYOUTLOCK) {
 		LCONSOLE_INFO("Layout lock feature supported.\n");
@@ -435,7 +437,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         obd->obd_upcall.onu_owner = &sbi->ll_lco;
         obd->obd_upcall.onu_upcall = cl_ocd_update;
 
-        data->ocd_brw_size = PTLRPC_MAX_BRW_SIZE;
+	data->ocd_brw_size = DT_MAX_BRW_SIZE;
 
         err = obd_connect(NULL, &sbi->ll_dt_exp, obd, &sbi->ll_sb_uuid, data, NULL);
         if (err == -EBUSY) {
@@ -448,6 +450,8 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                 CERROR("Cannot connect to %s: rc = %d\n", dt, err);
                 GOTO(out_md_fid, err);
         }
+
+	sbi->ll_dt_exp->exp_connect_data = *data;
 
         err = obd_fid_init(sbi->ll_dt_exp);
         if (err) {
