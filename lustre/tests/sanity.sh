@@ -3515,6 +3515,7 @@ test_53() {
 	local mds_last
 	local ost_last
 	local ostnum
+	local node
 
 	# only test MDT0000
         local mdtosc=$(get_mdtosc_proc_path $SINGLEMDS)
@@ -3522,8 +3523,9 @@ test_53() {
                 param=`echo ${value[0]} | cut -d "=" -f1`
                 ostname=`echo $param | cut -d "." -f2 | cut -d - -f 1-2`
                 mds_last=$(do_facet $SINGLEMDS lctl get_param -n $param)
-                ostnum=$(echo $ostname | sed "s/${FSNAME}-OST//g" | awk '{print ($1+1)}' )
-                ost_last=$(do_facet ost$ostnum lctl get_param -n obdfilter.$ostname.last_id | head -n 1)
+		ostnum=$(index_from_ostuuid ${ostname}_UUID)
+		node=$(facet_host ost$((ostnum+1)))
+		ost_last=$(do_facet ost$((ostnum+1)) lctl get_param -n obdfilter.$ostname.last_id | head -n 1)
                 echo "$ostname.last_id=$ost_last ; MDS.last_id=$mds_last"
                 if [ $ost_last != $mds_last ]; then
                     error "$ostname.last_id=$ost_last ; MDS.last_id=$mds_last"
@@ -5336,8 +5338,8 @@ setup_test101bc() {
 	STRIPE_OFFSET=0
 
 	local list=$(comma_list $(osts_nodes))
-	do_nodes $list $LCTL set_param -n obdfilter.*.read_cache_enable=0
-	do_nodes $list $LCTL set_param -n obdfilter.*.writethrough_cache_enable=0
+	set_ofd_param $list '' read_cache_enable 0
+	set_ofd_param $list '' writethrough_cache_enable 0
 
 	trap cleanup_test101bc EXIT
 	# prepare the read-ahead file
@@ -5352,8 +5354,8 @@ cleanup_test101bc() {
 	rm -f $DIR/$tfile
 
 	local list=$(comma_list $(osts_nodes))
-	do_nodes $list $LCTL set_param -n obdfilter.*.read_cache_enable=1
-	do_nodes $list $LCTL set_param -n obdfilter.*.writethrough_cache_enable=1
+	set_ofd_param $list '' read_cache_enable 1
+	set_ofd_param $list '' writethrough_cache_enable 1
 }
 
 calc_total() {
@@ -8015,7 +8017,7 @@ run_test 150 "truncate/append tests"
 function roc_hit() {
 	local list=$(comma_list $(osts_nodes))
 
-	echo $(get_obdfilter_param $list '' stats |
+	echo $(get_ofd_param $list '' stats |
 	       awk '/'cache_hit'/ {sum+=$2} END {print sum}')
 }
 
@@ -8026,7 +8028,7 @@ function set_cache() {
 		on=0;
 	fi
 	local list=$(comma_list $(osts_nodes))
-	set_obdfilter_param $list '' $1_cache_enable $on
+	set_ofd_param $list '' $1_cache_enable $on
 
 	cancel_lru_locks osc
 }
@@ -8038,18 +8040,18 @@ test_151() {
 	local list=$(comma_list $(osts_nodes))
 
 	# check whether obdfilter is cache capable at all
-	if ! get_obdfilter_param $list '' read_cache_enable >/dev/null; then
+	if ! get_ofd_param $list '' read_cache_enable >/dev/null; then
 		echo "not cache-capable obdfilter"
 		return 0
 	fi
 
 	# check cache is enabled on all obdfilters
-	if get_obdfilter_param $list '' read_cache_enable | grep 0; then
+	if get_ofd_param $list '' read_cache_enable | grep 0; then
 		echo "oss cache is disabled"
 		return 0
 	fi
 
-	set_obdfilter_param $list '' writethrough_cache_enable 1
+	set_ofd_param $list '' writethrough_cache_enable 1
 
         # pages should be in the case right after write
         dd if=/dev/urandom of=$DIR/$tfile bs=4k count=$CPAGES || error "dd failed"
@@ -8063,7 +8065,7 @@ test_151() {
 
         # the following read invalidates the cache
         cancel_lru_locks osc
-	set_obdfilter_param $list '' read_cache_enable 0
+	set_ofd_param $list '' read_cache_enable 0
         cat $DIR/$tfile >/dev/null
 
         # now data shouldn't be found in the cache
@@ -8075,7 +8077,7 @@ test_151() {
                 error "IN CACHE: before: $BEFORE, after: $AFTER"
         fi
 
-	set_obdfilter_param $list '' read_cache_enable 1
+	set_ofd_param $list '' read_cache_enable 1
         rm -f $DIR/$tfile
 }
 run_test 151 "test cache on oss and controls ==============================="
