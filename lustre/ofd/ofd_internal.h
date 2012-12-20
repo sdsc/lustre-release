@@ -87,7 +87,7 @@ static inline void ofd_counter_incr(struct obd_export *exp, int opcode,
 				    char *jobid, long amount)
 {
 	if (exp->exp_obd && exp->exp_obd->u.obt.obt_jobstats.ojs_hash &&
-	    (exp->exp_connect_flags & OBD_CONNECT_JOBSTATS))
+	    (exp->exp_connect_data.ocd_connect_flags & OBD_CONNECT_JOBSTATS))
 		lprocfs_job_stats_log(exp->exp_obd, jobid, opcode, amount);
 }
 
@@ -404,7 +404,8 @@ static inline int ofd_grant_ratio_conv(int percentage)
 
 static inline int ofd_grant_param_supp(struct obd_export *exp)
 {
-	return !!(exp->exp_connect_flags & OBD_CONNECT_GRANT_PARAM);
+	return !!(exp->exp_connect_data.ocd_connect_flags &
+		  OBD_CONNECT_GRANT_PARAM);
 }
 
 /* Blocksize used for client not supporting OBD_CONNECT_GRANT_PARAM.
