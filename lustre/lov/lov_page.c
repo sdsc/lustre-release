@@ -66,7 +66,6 @@ static int lov_page_invariant(const struct cl_page_slice *slice)
 static void lov_page_fini(const struct lu_env *env,
                           struct cl_page_slice *slice)
 {
-        struct lov_page *lp  = cl2lov_page(slice);
         struct cl_page  *sub = lov_sub_page(slice);
 
         LINVRNT(lov_page_invariant(slice));
@@ -79,7 +78,6 @@ static void lov_page_fini(const struct lu_env *env,
                 slice->cpl_page->cp_child = NULL;
                 cl_page_put(env, sub);
         }
-        OBD_SLAB_FREE_PTR(lp, lov_page_kmem);
         EXIT;
 }
 
@@ -157,12 +155,7 @@ static const struct cl_page_operations lov_page_ops = {
 static void lov_empty_page_fini(const struct lu_env *env,
                                 struct cl_page_slice *slice)
 {
-        struct lov_page *lp  = cl2lov_page(slice);
-
         LASSERT(slice->cpl_page->cp_child == NULL);
-        ENTRY;
-        OBD_SLAB_FREE_PTR(lp, lov_page_kmem);
-        EXIT;
 }
 
 struct cl_page *lov_page_init_raid0(const struct lu_env *env,
@@ -175,7 +168,7 @@ struct cl_page *lov_page_init_raid0(const struct lu_env *env,
         struct cl_page    *subpage;
         struct cl_object  *subobj;
         struct lov_io_sub *sub;
-        struct lov_page   *lpg;
+        struct lov_page   *lpg = cl_object_page_slice(obj, page);
         struct cl_page    *result;
         loff_t             offset;
         obd_off            suboff;
@@ -189,10 +182,6 @@ struct cl_page *lov_page_init_raid0(const struct lu_env *env,
 	rc = lov_stripe_offset(loo->lo_lsm, offset, stripe,
                                    &suboff);
         LASSERT(rc == 0);
-
-        OBD_SLAB_ALLOC_PTR_GFP(lpg, lov_page_kmem, CFS_ALLOC_IO);
-        if (lpg == NULL)
-                GOTO(out, result = ERR_PTR(-ENOMEM));
 
         lpg->lps_invalid = 1;
         cl_page_slice_add(page, &lpg->lps_cl, obj, &lov_page_ops);
@@ -233,22 +222,16 @@ struct cl_page *lov_page_init_empty(const struct lu_env *env,
                                     struct cl_object *obj, struct cl_page *page,
                                     cfs_page_t *vmpage)
 {
-        struct lov_page   *lpg;
-        int result = -ENOMEM;
+        struct lov_page *lpg = cl_object_page_slice(obj, page);
+	void *addr;
         ENTRY;
 
-        OBD_SLAB_ALLOC_PTR_GFP(lpg, lov_page_kmem, CFS_ALLOC_IO);
-        if (lpg != NULL) {
-                void *addr;
-                cl_page_slice_add(page, &lpg->lps_cl,
-                                  obj, &lov_empty_page_ops);
-                addr = cfs_kmap(vmpage);
-                memset(addr, 0, cl_page_size(obj));
-                cfs_kunmap(vmpage);
-                cl_page_export(env, page, 1);
-                result = 0;
-        }
-        RETURN(ERR_PTR(result));
+	cl_page_slice_add(page, &lpg->lps_cl, obj, &lov_empty_page_ops);
+	addr = cfs_kmap(vmpage);
+	memset(addr, 0, cl_page_size(obj));
+	cfs_kunmap(vmpage);
+	cl_page_export(env, page, 1);
+        RETURN(ERR_PTR(0));
 }
 
 

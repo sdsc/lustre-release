@@ -403,7 +403,6 @@ struct osc_page {
         struct cl_lock       *ops_lock;
 };
 
-extern cfs_mem_cache_t *osc_page_kmem;
 extern cfs_mem_cache_t *osc_lock_kmem;
 extern cfs_mem_cache_t *osc_object_kmem;
 extern cfs_mem_cache_t *osc_thread_kmem;
