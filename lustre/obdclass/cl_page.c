@@ -51,19 +51,6 @@
 static void cl_page_delete0(const struct lu_env *env, struct cl_page *pg,
                             int radix);
 
-static cfs_mem_cache_t      *cl_page_kmem = NULL;
-
-static struct lu_kmem_descr cl_page_caches[] = {
-        {
-                .ckd_cache = &cl_page_kmem,
-                .ckd_name  = "cl_page_kmem",
-                .ckd_size  = sizeof (struct cl_page)
-        },
-        {
-                .ckd_cache = NULL
-        }
-};
-
 #ifdef LIBCFS_DEBUG
 # define PASSERT(env, page, expr)                                       \
   do {                                                                    \
@@ -289,6 +276,7 @@ EXPORT_SYMBOL(cl_page_gang_lookup);
 static void cl_page_free(const struct lu_env *env, struct cl_page *page)
 {
         struct cl_object *obj  = page->cp_obj;
+	int pagesize = cl_object_header(obj)->coh_page_bufsize;
 
         PASSERT(env, page, cfs_list_empty(&page->cp_batch));
         PASSERT(env, page, page->cp_owner == NULL);
@@ -311,7 +299,7 @@ static void cl_page_free(const struct lu_env *env, struct cl_page *page)
         lu_object_ref_del_at(&obj->co_lu, page->cp_obj_ref, "cl_page", page);
         cl_object_put(env, obj);
         lu_ref_fini(&page->cp_reference);
-        OBD_SLAB_FREE_PTR(page, cl_page_kmem);
+        OBD_FREE(page, pagesize);
         EXIT;
 }
 
@@ -337,7 +325,8 @@ static int cl_page_alloc(const struct lu_env *env, struct cl_object *o,
 
         ENTRY;
         result = +1;
-        OBD_SLAB_ALLOC_PTR_GFP(page, cl_page_kmem, CFS_ALLOC_IO);
+	OBD_ALLOC_GFP(page, cl_object_header(o)->coh_page_bufsize,
+			CFS_ALLOC_IO);
         if (page != NULL) {
                 cfs_atomic_set(&page->cp_ref, 1);
 		if (type == CPT_CACHEABLE) /* for radix tree */
@@ -1620,10 +1609,9 @@ EXPORT_SYMBOL(cl_page_slice_add);
 
 int  cl_page_init(void)
 {
-        return lu_kmem_init(cl_page_caches);
+        return 0;
 }
 
 void cl_page_fini(void)
 {
-        lu_kmem_fini(cl_page_caches);
 }
