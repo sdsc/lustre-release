@@ -552,14 +552,12 @@ extern struct lu_device_type lovsub_device_type;
 extern struct lu_context_key lov_key;
 extern struct lu_context_key lov_session_key;
 
-extern cfs_mem_cache_t *lov_page_kmem;
 extern cfs_mem_cache_t *lov_lock_kmem;
 extern cfs_mem_cache_t *lov_object_kmem;
 extern cfs_mem_cache_t *lov_thread_kmem;
 extern cfs_mem_cache_t *lov_session_kmem;
 extern cfs_mem_cache_t *lov_req_kmem;
 
-extern cfs_mem_cache_t *lovsub_page_kmem;
 extern cfs_mem_cache_t *lovsub_lock_kmem;
 extern cfs_mem_cache_t *lovsub_object_kmem;
 extern cfs_mem_cache_t *lovsub_req_kmem;

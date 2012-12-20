@@ -60,7 +60,6 @@ struct lu_object *vvp_object_alloc(const struct lu_env *env,
 
 struct ccc_object *cl_inode2ccc(struct inode *inode);
 
-extern cfs_mem_cache_t *vvp_page_kmem;
 extern cfs_mem_cache_t *vvp_thread_kmem;
 
 #endif /* VVP_INTERNAL_H */

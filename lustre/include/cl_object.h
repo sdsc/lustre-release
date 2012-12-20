@@ -251,6 +251,8 @@ struct cl_object {
         struct lu_object                   co_lu;
         /** per-object-layer operations */
         const struct cl_object_operations *co_ops;
+	/** offset of page slice in cl_page */
+	int				   co_offset;
 };
 
 /**
@@ -420,6 +422,10 @@ struct cl_object_header {
 	 * sub-object, etc.
 	 */
 	unsigned                 coh_nesting;
+	/**
+	 * Size of cl_page
+	 */
+	unsigned		 coh_pagesize;
 };
 
 /**
@@ -2739,6 +2745,18 @@ int  cl_object_has_locks  (struct cl_object *obj);
 static inline int cl_object_same(struct cl_object *o0, struct cl_object *o1)
 {
         return cl_object_header(o0) == cl_object_header(o1);
+}
+
+static inline void cl_object_page_init(struct cl_object *clob, int size)
+{
+	clob->co_offset = cl_object_header(clob)->coh_pagesize;
+	cl_object_header(clob)->coh_pagesize += size;
+}
+
+static inline void *cl_object_page_slice(struct cl_object *clob,
+					 struct cl_page *page)
+{
+	return (void *)((char *)page + clob->co_offset);
 }
 
 /** @} cl_object */

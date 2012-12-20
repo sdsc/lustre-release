@@ -624,6 +624,8 @@ int lov_object_init(const struct lu_env *env, struct lu_object *obj,
 	init_rwsem(&lov->lo_type_guard);
 	cfs_waitq_init(&lov->lo_waitq);
 
+	cl_object_page_init(lu2cl(obj), sizeof(struct lov_page));
+
         /* no locking is necessary, as object is being created */
         lov->lo_type = cconf->u.coc_md->lsm != NULL ? LLT_RAID0 : LLT_EMPTY;
         ops = &lov_dispatch[lov->lo_type];
