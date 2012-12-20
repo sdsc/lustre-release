@@ -881,8 +881,8 @@ int mgs_fsc_attach(const struct lu_env *env, struct obd_export *exp,
         CFS_INIT_LIST_HEAD(&new_fsc->mfc_fsdb_list);
         new_fsc->mfc_fsdb       = fsdb;
         new_fsc->mfc_export     = class_export_get(exp);
-        new_fsc->mfc_ir_capable =
-                        !!(exp->exp_connect_flags & OBD_CONNECT_IMP_RECOV);
+	new_fsc->mfc_ir_capable = !!(exp->exp_connect_data.ocd_connect_flags &
+				     OBD_CONNECT_IMP_RECOV);
 
         rc = -EEXIST;
 	mutex_lock(&fsdb->fsdb_mutex);

@@ -122,7 +122,8 @@ static int ofd_last_rcvd_update(struct ofd_thread_info *info,
 	LASSERT(ofd);
 	LASSERT(info->fti_exp);
 
-	if ((info->fti_exp->exp_connect_flags & OBD_CONNECT_LIGHTWEIGHT) != 0)
+	if ((info->fti_exp->exp_connect_data.ocd_connect_flags &
+	     OBD_CONNECT_LIGHTWEIGHT) != 0)
 		lw_client = true;
 
 	fed = &info->fti_exp->exp_filter_data;
