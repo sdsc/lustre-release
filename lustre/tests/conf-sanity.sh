@@ -29,7 +29,7 @@ is_sles11()						# LU-2181
 }
 
 if is_sles11; then					# LU-2181
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 23a 34b"
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 23a 34b 45"
 fi
 
 if [ "$FAILURE_MODE" = "HARD" ]; then
