@@ -1896,7 +1896,7 @@ wait_mds_ost_sync () {
     local WAIT=0
     while [ $WAIT -lt $MAX ]; do
         local -a sync=($(do_nodes $(comma_list $(osts_nodes)) \
-            "$LCTL get_param -n obdfilter.*.mds_sync"))
+            "$LCTL get_param -n osp.*osp*.old_sync_processed"))
         local con=1
         local i
         for ((i=0; i<${#sync[@]}; i++)); do
