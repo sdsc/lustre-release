@@ -845,6 +845,8 @@ static int mds_finish_open(struct ptlrpc_request *req, struct dentry *dchild,
                                   body, acl_off);
                 if (rc)
                         RETURN(rc);
+                if (S_ISDIR(dchild->d_inode->i_mode))
+                        body->valid |= OBD_MD_FLDIREA;
         }
 
         if ((rc = mds_lov_prepare_objids(obd,lmm)) != 0)
