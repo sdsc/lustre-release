@@ -5770,14 +5770,27 @@ test_124b() {
 }
 run_test 124b "lru resize (performance test) ======================="
 
-test_125() { # 13358
+test_125a() { # 13358
 	[ -z "$(lctl get_param -n mdc.*-mdc-*.connect_flags | grep acl)" ] && skip "must have acl enabled" && return
 	mkdir -p $DIR/d125 || error "mkdir failed"
 	$SETSTRIPE $DIR/d125 -s 65536 -c -1 || error "setstripe failed"
 	setfacl -R -m u:bin:rwx $DIR/d125 || error "setfacl $DIR/d125 failes"
 	ls -ld $DIR/d125 || error "cannot access $DIR/d125"
+	ls -l $DIR/d125 || error "cannot access $DIR/d125"
 }
-run_test 125 "don't return EPROTO when a dir has a non-default striping and ACLs"
+run_test 125a "don't return EPROTO if a dir has a non-default striping and ACLs"
+
+test_125b() { #LU-2518
+	mkfifo $DIR/p125 || error "mkfifo $DIR/p125 failed"
+	touch $DIR/f125	|| error "touch $DIR/f125 failed"
+	setfacl -m u:bin:rwx $DIR/p125 || error "setfacl failed"
+	setfacl -m u:bin:rwx $DIR/f125 || error "setfacl failed"
+	stat $DIR/p125 || error "cannot access $DIR/p125"
+	stat $DIR/f125 || error "cannot access $DIR/f125"
+	rm -f $DIR/p125
+	rm -f $DIR/f125
+}
+run_test 125b "access named pipes and regular file with ACL"
 
 test_126() { # bug 12829/13455
 	[ "$UID" != 0 ] && skip_env "skipping $TESTNAME (must run as root)" && return
