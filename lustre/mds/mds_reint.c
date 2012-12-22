@@ -1891,7 +1891,7 @@ static void mds_shrink_reply(struct ptlrpc_request *req,
         CDEBUG(D_INFO, "Shrink %d/%d to md_size %d cookie_size %d \n",
                have_md, have_acl, md_size, cookie_size);
 
-        if (likely(have_md))
+        if (likely(have_md) && (md_size > 0))
                 lustre_shrink_reply(req, reply_mdoff, md_size, 1);
 
         if (likely(have_acl))
@@ -1916,8 +1916,8 @@ void mds_shrink_body_reply(struct ptlrpc_request *req,
         /* this check is need for avoid hit asset in case
          * OBD_MDS_FLFLAGS */
         mds_shrink_reply(req, reply_mdoff,
-                         rq_body->valid & have_md,
-                         rq_body->valid & have_acl);
+                         !!(rq_body->valid & have_md),
+                         !!(rq_body->valid & have_acl));
 }
 
 void mds_shrink_intent_reply(struct ptlrpc_request *req,
