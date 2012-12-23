@@ -689,6 +689,311 @@ static int mdd_lfsck_namespace_init(const struct lu_env *env,
 	return rc;
 }
 
+static int mdd_lfsck_namespace_lookup(const struct lu_env *env,
+				      struct lfsck_component *com,
+				      const struct lu_fid *fid,
+				      __u8 *flags)
+{
+	struct lu_fid *key = &mdd_env_info(env)->mti_fid;
+	int	       rc;
+
+	fid_cpu_to_be(key, fid);
+	rc = dt_lookup(env, com->lc_obj, (struct dt_rec *)flags,
+		       (const struct dt_key *)key, BYPASS_CAPA);
+	if (rc > 0)
+		rc = 0;
+	else if (rc == 0)
+		rc = -ENOENT;
+	return rc;
+}
+
+static int mdd_lfsck_namespace_delete(const struct lu_env *env,
+				      struct lfsck_component *com,
+				      const struct lu_fid *fid)
+{
+	struct mdd_device *mdd    = mdd_lfsck2mdd(com->lc_lfsck);
+	struct lu_fid	  *key    = &mdd_env_info(env)->mti_fid;
+	struct thandle    *handle;
+	struct dt_object *obj     = com->lc_obj;
+	int		  rc;
+	ENTRY;
+
+	handle = mdd_trans_create(env, mdd);
+	if (IS_ERR(handle))
+		RETURN(PTR_ERR(handle));
+
+	rc = dt_declare_delete(env, obj, (const struct dt_key *)fid, handle);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	rc = mdd_trans_start(env, mdd, handle);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	fid_cpu_to_be(key, fid);
+	rc = dt_delete(env, obj, (const struct dt_key *)key, handle,
+		       BYPASS_CAPA);
+
+	GOTO(out, rc);
+
+out:
+	mdd_trans_stop(env, mdd, rc, handle);
+	return rc;
+}
+
+static int mdd_lfsck_namespace_update(const struct lu_env *env,
+				      struct lfsck_component *com,
+				      const struct lu_fid *fid,
+				      __u8 *flags, bool force)
+{
+	struct mdd_device *mdd    = mdd_lfsck2mdd(com->lc_lfsck);
+	struct lu_fid	  *key    = &mdd_env_info(env)->mti_fid;
+	struct thandle    *handle;
+	struct dt_object *obj     = com->lc_obj;
+	int		  rc;
+	bool		  exist   = false;
+	__u8		  tf;
+	ENTRY;
+
+	rc = mdd_lfsck_namespace_lookup(env, com, fid, &tf);
+	if (rc != 0 && rc != -ENOENT)
+		RETURN(rc);
+
+	if (rc == 0) {
+		if (!force)
+			*flags = tf;
+
+		*flags | LLF_RECORD_ONDISK;
+		if ((*flags & ~LLF_RECORD_ONDISK) == (tf & ~LLF_RECORD_ONDISK))
+			RETURN(0);
+
+		exist = true;
+		handle = mdd_trans_create(env, mdd);
+		if (IS_ERR(handle))
+			RETURN(PTR_ERR(handle));
+
+		rc = dt_declare_delete(env, obj, (const struct dt_key *)fid,
+				       handle);
+		if (rc != 0)
+			GOTO(out, rc);
+	} else {
+		handle = mdd_trans_create(env, mdd);
+		if (IS_ERR(handle))
+			RETURN(PTR_ERR(handle));
+	}
+
+	rc = dt_declare_insert(env, obj, (const struct dt_rec *)flags,
+			       (const struct dt_key *)fid, handle);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	rc = mdd_trans_start(env, mdd, handle);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	fid_cpu_to_be(key, fid);
+	if (exist) {
+		rc = dt_delete(env, obj, (const struct dt_key *)key, handle,
+			       BYPASS_CAPA);
+		if (rc != 0) {
+			CERROR("%s: fail to insert "DFID", rc = %d\n",
+			       mdd_lfsck2name(com->lc_lfsck), PFID(fid), rc);
+			GOTO(out, rc);
+		}
+	}
+
+	*flags &= ~LLF_RECORD_ONDISK;
+	rc = dt_insert(env, obj, (const struct dt_rec *)flags,
+		       (const struct dt_key *)key, handle, BYPASS_CAPA, 1);
+	if (rc == 0)
+		*flags |= LLF_RECORD_ONDISK;
+
+	GOTO(out, rc);
+
+out:
+	mdd_trans_stop(env, mdd, rc, handle);
+	return rc;
+}
+
+static struct lfsck_linkea_entry *
+mdd_lfsck_linkea_find(struct mdd_object *obj, const struct lu_fid *pfid,
+		      const struct lu_name *cname)
+{
+	struct lfsck_linkea_entry *lle;
+
+	cfs_list_for_each_entry(lle, &obj->mod_llh.llh_list, lle_link) {
+		if (!lu_fid_eq(pfid, &lle->lle_fid))
+			continue;
+
+		if (cname->ln_namelen != lle->lle_namelen)
+			continue;
+
+		if (!strncmp(cname->ln_name, lle->lle_name, lle->lle_namelen))
+			return lle;
+	}
+	return NULL;
+}
+
+static int mdd_lfsck_linkea_pin(struct mdd_object *obj,
+				const struct lu_fid *pfid,
+				const struct lu_name *cname)
+{
+	struct lfsck_linkea_header *llh  = &obj->mod_llh;
+	struct lfsck_linkea_entry  *lle;
+	int			    size = sizeof(*lle) + cname->ln_namelen;
+
+	OBD_ALLOC(lle, size);
+	if (lle == NULL) {
+		CWARN("Not enough memory when mdd_lfsck_linkea_add() for: "
+		      "parent "DFID", child %.*s, size %d\n",
+		      PFID(pfid), cname->ln_namelen, cname->ln_name, size);
+		return -ENOMEM;
+	}
+
+	CFS_INIT_LIST_HEAD(&lle->lle_link);
+	lle->lle_fid = *pfid;
+	lle->lle_namelen = cname->ln_namelen;
+	memcpy(lle->lle_name, cname->ln_name, cname->ln_namelen);
+
+	cfs_list_add_tail(&lle->lle_link, &llh->llh_list);
+	llh->llh_count++;
+	lu_object_pin(mdd2lu_obj(obj));
+	return 0;
+}
+
+static void mdd_lfsck_linkea_unpin(struct mdd_object *obj,
+				   struct lfsck_linkea_entry *lle)
+{
+	struct lfsck_linkea_header *llh  = &obj->mod_llh;
+	int			    size = sizeof(*lle) + lle->lle_namelen;
+
+	cfs_list_del(&lle->lle_link);
+	OBD_FREE(lle, size);
+	llh->llh_count--;
+}
+
+static void
+mdd_lfsck_linkea_unpin_all(const struct lu_env *env, struct mdd_object *obj)
+{
+	struct lfsck_linkea_header *llh  = &obj->mod_llh;
+	struct lfsck_linkea_entry  *lle;
+	struct lfsck_linkea_entry  *next;
+	int			    size;
+
+	cfs_list_for_each_entry_safe(lle, next, &llh->llh_list, lle_link) {
+		cfs_list_del(&lle->lle_link);
+		size = sizeof(*lle) + lle->lle_namelen;
+		OBD_FREE(lle, size);
+	}
+	llh->llh_count = 0;
+	lu_object_unpin(env, mdd2lu_obj(obj));
+}
+
+static int mdd_lfsck_linkea_destroy(const struct lu_env *env,
+				    struct mdd_object *obj)
+{
+	struct mdd_device *mdd    = mdd_obj2mdd_dev(obj);
+	struct thandle    *handle;
+	int		  rc;
+
+	handle = mdd_trans_create(env, mdd);
+	if (IS_ERR(handle))
+		return PTR_ERR(handle);
+
+	rc = mdo_declare_xattr_del(env, obj, XATTR_NAME_LINK, handle);
+	if (rc != 0)
+		goto out;
+
+	rc = mdd_trans_start(env, mdd, handle);
+	if (rc != 0)
+		goto out;
+
+	rc = mdo_xattr_del(env, obj, XATTR_NAME_LINK, handle, BYPASS_CAPA);
+
+out:
+	mdd_trans_stop(env, mdd, rc, handle);
+	return rc;
+}
+
+static int mdd_lfsck_store_links(const struct lu_env *env,
+				 struct mdd_object *obj,
+				 struct mdd_link_data *ldata)
+{
+	struct mdd_device *mdd    = mdd_obj2mdd_dev(obj);
+	struct thandle    *handle;
+	int		  rc;
+
+	handle = mdd_trans_create(env, mdd);
+	if (IS_ERR(handle))
+		RETURN(PTR_ERR(handle));
+
+	rc = mdd_declare_links_add(env, obj, handle);
+	if (rc != 0)
+		goto out;
+
+	rc = mdd_trans_start(env, mdd, handle);
+	if (rc != 0)
+		goto out;
+
+	rc = mdd_links_write(env, obj, ldata, handle);
+
+out:
+	mdd_trans_stop(env, mdd, rc, handle);
+	return rc;
+}
+
+static int mdd_lfsck_add_links(const struct lu_env *env, struct mdd_object *obj,
+			       struct mdd_link_data *ldata,
+			       const struct lu_fid *pfid,
+			       const struct lu_name *cname)
+{
+	int rc;
+
+	rc = mdd_links_add_buf(env, ldata, cname, pfid);
+	if (rc != 0)
+		return rc;
+
+	return mdd_lfsck_store_links(env, obj, ldata);
+}
+
+static int mdd_lfsck_update_nlink(const struct lu_env *env,
+				  struct mdd_object *obj, int nlink)
+{
+	struct lu_attr	  *la     = &mdd_env_info(env)->mti_cattr;
+	struct mdd_device *mdd    = mdd_obj2mdd_dev(obj);
+	struct thandle    *handle;
+	int		  rc;
+	ENTRY;
+
+	CDEBUG(D_LFSCK, "Update obj["DFID"] nlinks from %d to %d\n",
+	       PFID(mdo2fid(obj)), la->la_nlink, nlink);
+	la->la_valid = LA_NLINK;
+	la->la_nlink = nlink;
+	handle = mdd_trans_create(env, mdd);
+	if (IS_ERR(handle))
+		RETURN(PTR_ERR(handle));
+
+	rc = mdd_declare_attr_set(env, mdd, obj, la, handle);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	rc = mdd_trans_start(env, mdd, handle);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	rc = mdd_attr_set_internal(env, obj, la, handle, 0);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	rc = mdd_attr_set_changelog(env, &obj->mod_obj, handle, LA_NLINK);
+
+	GOTO(out, rc);
+
+out:
+	mdd_trans_stop(env, mdd, rc, handle);
+	return rc;
+}
+
 /* namespace APIs */
 
 static int mdd_lfsck_namespace_reset(const struct lu_env *env,
@@ -887,17 +1192,29 @@ static int mdd_lfsck_namespace_exec_oit(const struct lu_env *env,
 	return 0;
 }
 
-/* XXX: to be implemented in other patch.  */
 static int mdd_lfsck_namespace_exec_dir(const struct lu_env *env,
 					struct lfsck_component *com,
 					struct mdd_object *parent,
 					struct mdd_object *child,
 					struct lu_dirent *ent)
 {
+	struct mdd_thread_info	   *info     = mdd_env_info(env);
+	struct lu_attr		   *la	     = &info->mti_la;
+	struct md_lfsck		   *lfsck    = com->lc_lfsck;
+	struct lfsck_bookmark	   *bk	     = &lfsck->ml_bookmark_ram;
 	struct lfsck_namespace	   *ns	     =
 				(struct lfsck_namespace *)com->lc_file_ram;
+	struct lfsck_linkea_header *llh	     = &child->mod_llh;
+	struct lfsck_linkea_entry  *lle;
+	struct mdd_link_data	    ldata    = { 0 };
+	const struct lu_fid	   *pfid     = mdo2fid(parent);
+	const struct lu_fid	   *cfid     = mdo2fid(child);
 	const struct lu_name	   *cname;
 	int			    repaired = 0;
+	int			    count    = 0;
+	int			    rc;
+	bool			    changed  = false;
+	ENTRY;
 
 	cname = mdd_name_get_const(env, ent->lde_name, ent->lde_namelen);
 	down_write(&com->lc_sem);
@@ -917,9 +1234,175 @@ static int mdd_lfsck_namespace_exec_dir(const struct lu_env *env,
 		repaired = 1;
 	}
 
-	ns->ln_items_repaired += repaired;
+	if (ent->lde_name[0] == '.' &&
+	    (ent->lde_namelen == 1 ||
+	     (ent->lde_namelen == 2 && ent->lde_name[1] == '.')))
+		GOTO(unlock, rc = 0);
+
+	lle = mdd_lfsck_linkea_find(child, pfid, cname);
+	if (lle != NULL)
+		GOTO(unlock, rc = 0);
+
+	rc = mdd_la_get(env, child, la, BYPASS_CAPA);
+	if (rc != 0)
+		GOTO(unlock, rc);
+
+	rc = mdd_links_read(env, child, &ldata);
+	if (rc == 0) {
+		count = ldata.ml_leh->leh_reccount;
+		rc = mdd_links_find(env, child, &ldata, cname, pfid);
+		if (rc == 0) {
+			/* For dir, if there are more than one linkea entries,
+			 * then remove all the other redundant linkea entries.*/
+			if (unlikely(count > 1 &&
+				     S_ISDIR(mdd_object_type(child))))
+				goto unmatch;
+
+			goto record;
+		} else {
+
+unmatch:
+			ns->ln_flags |= LF_INCONSISTENT;
+			if (bk->lb_param & LPF_DRYRUN) {
+				repaired = 1;
+				goto record;
+			}
+
+			/*For dir, remove the unmatched linkea entry directly.*/
+			if (S_ISDIR(mdd_object_type(child))) {
+				rc = mdd_lfsck_linkea_destroy(env, child);
+				if (rc != 0)
+					GOTO(unlock, rc);
+
+				goto nodata;
+			} else {
+				goto add;
+			}
+		}
+	} else if (unlikely(rc == -EINVAL)) {
+		ns->ln_flags |= LF_INCONSISTENT;
+		if (bk->lb_param & LPF_DRYRUN) {
+			count = 1;
+			repaired = 1;
+			goto record;
+		}
+
+		/* The magic crashed, we are not sure whether there are more
+		 * corrupt data in the linkea, so remove all linkea entries. */
+		rc = mdd_lfsck_linkea_destroy(env, child);
+		if (rc != 0)
+			GOTO(unlock, rc);
+
+		goto nodata;
+	} else if (rc == -ENODATA) {
+		ns->ln_flags |= LF_UPGRADE;
+		if (bk->lb_param & LPF_DRYRUN) {
+			count = 1;
+			repaired = 1;
+			goto record;
+		}
+
+nodata:
+		rc = mdd_links_new(env, &ldata);
+		if (rc != 0)
+			GOTO(unlock, rc);
+
+add:
+		rc = mdd_lfsck_add_links(env, child, &ldata, pfid, cname);
+		if (rc != 0)
+			GOTO(unlock, rc);
+
+		count = ldata.ml_leh->leh_reccount;
+		repaired = 1;
+	} else {
+		GOTO(unlock, rc);
+	}
+
+record:
+	LASSERT(count > 0);
+	LASSERT(count >= llh->llh_count);
+
+	if (count == 1) {
+		/* Usually, it is for single linked object or dir, do nothing.*/
+		if (la->la_nlink == 1 ||
+		    S_ISDIR(mdd_object_type(child)))
+			GOTO(unlock, rc = 0);
+
+		ns->ln_mlinked_checked++;
+		llh->llh_flags = LLF_VERIFIED | LLF_UNMATCH_NLINKS;
+		rc = mdd_lfsck_namespace_update(env, com, cfid, &llh->llh_flags,
+						true);
+		if (rc != 0)
+			GOTO(unlock, rc);
+
+		goto pin;
+	}
+
+	if (count == llh->llh_count + 1 &&
+	    !(llh->llh_flags & LLF_VERIFIED)) {
+		llh->llh_flags |= LLF_VERIFIED;
+		changed = true;
+	}
+
+	if (llh->llh_flags & LLF_VERIFIED) {
+		if (count > la->la_nlink) {
+			rc = mdd_lfsck_update_nlink(env, child, count);
+			if (rc != 0)
+				GOTO(unlock, rc);
+
+			ns->ln_objs_nlink_repaired++;
+			la->la_nlink = count;
+			repaired = 1;
+		}
+
+		if (count == la->la_nlink) {
+			mdd_lfsck_linkea_unpin_all(env, child);
+			mdd_lfsck_namespace_delete(env, com, cfid);
+			llh->llh_flags &= ~LLF_UNMATCH_NLINKS;
+			GOTO(unlock, rc = 0);
+		}
+
+		if (!(llh->llh_flags & LLF_UNMATCH_NLINKS)) {
+			llh->llh_flags |= LLF_UNMATCH_NLINKS;
+			changed = true;
+		}
+
+		if (changed) {
+			rc = mdd_lfsck_namespace_update(env, com, cfid,
+							&llh->llh_flags, true);
+			if (rc != 0)
+				GOTO(unlock, rc);
+		}
+
+		goto pin;
+	}
+
+	if (!(llh->llh_flags & LLF_RECORD_ONDISK)) {
+		if (count != la->la_nlink)
+			llh->llh_flags = LLF_UNMATCH_NLINKS;
+
+		rc = mdd_lfsck_namespace_update(env, com, cfid, &llh->llh_flags,
+						false);
+		if (rc != 0)
+			GOTO(unlock, rc);
+
+		if (la->la_nlink > 1 && S_ISREG(mdd_object_type(child)))
+			ns->ln_mlinked_checked++;
+	}
+
+pin:
+	rc = mdd_lfsck_linkea_pin(child, pfid, cname);
+
+unlock:
+	if (rc != 0) {
+		ns->ln_items_failed++;
+		if (!(bk->lb_param & LPF_FAILOUT))
+			rc = 0;
+	} else {
+		ns->ln_items_repaired += repaired;
+	}
 	up_write(&com->lc_sem);
-	return 0;
+	return rc;
 }
 
 static int mdd_lfsck_namespace_post(const struct lu_env *env,
@@ -1802,8 +2285,12 @@ static int mdd_lfsck_dir_engine(const struct lu_env *env,
 				goto unlock;
 			}
 
-			if (!lu_fid_eq(fid, &ent->lde_fid))
+			if (!lu_fid_eq(fid, &ent->lde_fid)) {
+				CDEBUG(D_LFSCK, "Re-created %s, [old: "DFID
+				       "], [new: "DFID"]\n", ent->lde_name,
+				       PFID(&ent->lde_fid), PFID(fid));
 				goto unlock;
+			}
 		}
 
 		rc = mdd_lfsck_exec_dir(env, lfsck, parent, child, ent);
@@ -1966,6 +2453,7 @@ static int mdd_lfsck_main(void *args)
 		GOTO(fini_env, rc);
 	}
 
+	mdd->mdd_lfsck_namespace = 1;
 	spin_lock(&lfsck->ml_lock);
 	lfsck->ml_di_oit = oit_di;
 	spin_unlock(&lfsck->ml_lock);
@@ -2011,6 +2499,7 @@ fini_oit:
 	spin_lock(&lfsck->ml_lock);
 	lfsck->ml_di_oit = NULL;
 	spin_unlock(&lfsck->ml_lock);
+	mdd->mdd_lfsck_namespace = 0;
 
 	oit_iops->fini(&env, oit_di);
 	if (rc == 1) {
@@ -2034,6 +2523,34 @@ noenv:
 }
 
 /* external interfaces */
+
+void mdd_lfsck_linkea_add(const struct lu_env *env,
+			  struct mdd_object *obj,
+			  const struct lu_fid *pfid,
+			  const struct lu_name *cname)
+{
+	struct lfsck_linkea_entry *lle;
+
+	lle = mdd_lfsck_linkea_find(obj, pfid, cname);
+	if (lle != NULL)
+		return;
+
+	mdd_lfsck_linkea_pin(obj, pfid, cname);
+}
+
+void mdd_lfsck_linkea_del(const struct lu_env *env,
+			  struct mdd_object *obj,
+			  const struct lu_fid *pfid,
+			  const struct lu_name *cname)
+{
+	struct lfsck_linkea_entry *lle;
+
+	lle = mdd_lfsck_linkea_find(obj, pfid, cname);
+	if (lle == NULL)
+		return;
+
+	mdd_lfsck_linkea_unpin(obj, lle);
+}
 
 int mdd_lfsck_set_speed(const struct lu_env *env, struct md_lfsck *lfsck,
 			__u32 limit)
