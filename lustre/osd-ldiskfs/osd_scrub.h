@@ -73,6 +73,9 @@ enum scrub_flags {
 
 	/* OI scrub is triggered automatically. */
 	SF_AUTO		= 0x0000000000000004ULL,
+
+	/* The device is upgraded from 1.8 format. */
+	SF_UPGRADE	= 0x0000000000000008ULL,
 };
 
 enum scrub_param {
@@ -140,7 +143,7 @@ struct scrub_file {
 	/* How many prior objects have been updated during scanning. */
 	__u64   sf_items_updated_prior;
 
-	/* How many objects marked as I_LUSTRE_NOSCRUB. */
+	/* How many objects marked as LDISKFS_STATE_LUSTRE_NOSCRUB. */
 	__u64   sf_items_noscrub;
 
 	/* How many IGIF objects. */

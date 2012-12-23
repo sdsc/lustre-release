@@ -511,6 +511,11 @@ struct ost_id {
         obd_seq                oi_seq;
 };
 
+static inline int fid_seq_is_dot_lustre(const __u64 seq)
+{
+	return unlikely(seq == FID_SEQ_DOT_LUSTRE);
+}
+
 static inline int fid_seq_is_norm(const __u64 seq)
 {
         return (seq >= FID_SEQ_NORMAL);
@@ -692,16 +697,12 @@ static inline ino_t lu_igif_ino(const struct lu_fid *fid)
 /**
  * Build igif from the inode number/generation.
  */
-#define LU_IGIF_BUILD(fid, ino, gen)                    \
-do {                                                    \
-        fid->f_seq = ino;                               \
-        fid->f_oid = gen;                               \
-        fid->f_ver = 0;                                 \
-} while(0)
 static inline void lu_igif_build(struct lu_fid *fid, __u32 ino, __u32 gen)
 {
-        LU_IGIF_BUILD(fid, ino, gen);
-        LASSERT(fid_is_igif(fid));
+	fid->f_seq = ino;
+	fid->f_oid = gen;
+	fid->f_ver = 0;
+	LASSERTF(fid_is_igif(fid), "ino = %u, gen = %u", ino, gen);
 }
 
 /**
@@ -720,50 +721,46 @@ static inline __u32 lu_igif_gen(const struct lu_fid *fid)
  */
 static inline void fid_cpu_to_le(struct lu_fid *dst, const struct lu_fid *src)
 {
-        /* check that all fields are converted */
-        CLASSERT(sizeof *src ==
-                 sizeof fid_seq(src) +
-                 sizeof fid_oid(src) + sizeof fid_ver(src));
-        LASSERTF(fid_is_igif(src) || fid_ver(src) == 0, DFID"\n", PFID(src));
-        dst->f_seq = cpu_to_le64(fid_seq(src));
-        dst->f_oid = cpu_to_le32(fid_oid(src));
-        dst->f_ver = cpu_to_le32(fid_ver(src));
+	/* check that all fields are converted */
+	CLASSERT(sizeof *src ==
+		 sizeof fid_seq(src) +
+		 sizeof fid_oid(src) + sizeof fid_ver(src));
+	dst->f_seq = cpu_to_le64(fid_seq(src));
+	dst->f_oid = cpu_to_le32(fid_oid(src));
+	dst->f_ver = cpu_to_le32(fid_ver(src));
 }
 
 static inline void fid_le_to_cpu(struct lu_fid *dst, const struct lu_fid *src)
 {
-        /* check that all fields are converted */
-        CLASSERT(sizeof *src ==
-                 sizeof fid_seq(src) +
-                 sizeof fid_oid(src) + sizeof fid_ver(src));
-        dst->f_seq = le64_to_cpu(fid_seq(src));
-        dst->f_oid = le32_to_cpu(fid_oid(src));
-        dst->f_ver = le32_to_cpu(fid_ver(src));
-        LASSERTF(fid_is_igif(dst) || fid_ver(dst) == 0, DFID"\n", PFID(dst));
+	/* check that all fields are converted */
+	CLASSERT(sizeof *src ==
+		 sizeof fid_seq(src) +
+		 sizeof fid_oid(src) + sizeof fid_ver(src));
+	dst->f_seq = le64_to_cpu(fid_seq(src));
+	dst->f_oid = le32_to_cpu(fid_oid(src));
+	dst->f_ver = le32_to_cpu(fid_ver(src));
 }
 
 static inline void fid_cpu_to_be(struct lu_fid *dst, const struct lu_fid *src)
 {
-        /* check that all fields are converted */
-        CLASSERT(sizeof *src ==
-                 sizeof fid_seq(src) +
-                 sizeof fid_oid(src) + sizeof fid_ver(src));
-        LASSERTF(fid_is_igif(src) || fid_ver(src) == 0, DFID"\n", PFID(src));
-        dst->f_seq = cpu_to_be64(fid_seq(src));
-        dst->f_oid = cpu_to_be32(fid_oid(src));
-        dst->f_ver = cpu_to_be32(fid_ver(src));
+	/* check that all fields are converted */
+	CLASSERT(sizeof *src ==
+		 sizeof fid_seq(src) +
+		 sizeof fid_oid(src) + sizeof fid_ver(src));
+	dst->f_seq = cpu_to_be64(fid_seq(src));
+	dst->f_oid = cpu_to_be32(fid_oid(src));
+	dst->f_ver = cpu_to_be32(fid_ver(src));
 }
 
 static inline void fid_be_to_cpu(struct lu_fid *dst, const struct lu_fid *src)
 {
-        /* check that all fields are converted */
-        CLASSERT(sizeof *src ==
-                 sizeof fid_seq(src) +
-                 sizeof fid_oid(src) + sizeof fid_ver(src));
-        dst->f_seq = be64_to_cpu(fid_seq(src));
-        dst->f_oid = be32_to_cpu(fid_oid(src));
-        dst->f_ver = be32_to_cpu(fid_ver(src));
-        LASSERTF(fid_is_igif(dst) || fid_ver(dst) == 0, DFID"\n", PFID(dst));
+	/* check that all fields are converted */
+	CLASSERT(sizeof *src ==
+		 sizeof fid_seq(src) +
+		 sizeof fid_oid(src) + sizeof fid_ver(src));
+	dst->f_seq = be64_to_cpu(fid_seq(src));
+	dst->f_oid = be32_to_cpu(fid_oid(src));
+	dst->f_ver = be32_to_cpu(fid_ver(src));
 }
 
 static inline int fid_is_sane(const struct lu_fid *fid)
@@ -786,14 +783,10 @@ extern void lustre_swab_lu_seq_range(struct lu_seq_range *range);
 static inline int lu_fid_eq(const struct lu_fid *f0,
                             const struct lu_fid *f1)
 {
-        /* Check that there is no alignment padding. */
-        CLASSERT(sizeof *f0 ==
-                 sizeof f0->f_seq + sizeof f0->f_oid + sizeof f0->f_ver);
-        LASSERTF((fid_is_igif(f0) || fid_is_idif(f0)) ||
-                 fid_ver(f0) == 0, DFID, PFID(f0));
-        LASSERTF((fid_is_igif(f1) || fid_is_idif(f1)) ||
-                 fid_ver(f1) == 0, DFID, PFID(f1));
-        return memcmp(f0, f1, sizeof *f0) == 0;
+	/* Check that there is no alignment padding. */
+	CLASSERT(sizeof *f0 ==
+		 sizeof f0->f_seq + sizeof f0->f_oid + sizeof f0->f_ver);
+	return memcmp(f0, f1, sizeof *f0) == 0;
 }
 
 #define __diff_normalize(val0, val1)                            \
@@ -825,9 +818,21 @@ static inline int lu_fid_cmp(const struct lu_fid *f0,
  * enumeration.
  */
 enum lu_dirent_attrs {
-        LUDA_FID        = 0x0001,
-        LUDA_TYPE       = 0x0002,
-        LUDA_64BITHASH  = 0x0004,
+	LUDA_FID		= 0x0001,
+	LUDA_TYPE		= 0x0002,
+	LUDA_64BITHASH		= 0x0004,
+	/* Verify the dirent consistency */
+	LUDA_VERIFY		= 0x0008,
+	/* Only check but not repair the dirent inconsistency */
+	LUDA_VERIFY_DRYRUN	= 0x0010,
+	/* The dirent has beed repaired, or to be repaired (dryrun). */
+	LUDA_REPAIR		= 0x0020,
+	/* The system is upgraded, has beed or to be repaired (dryrun). */
+	LUDA_UPGRADE		= 0x0040,
+	/* Ignore this record, go to next directly. */
+	LUDA_IGNORE		= 0x0080,
+	/* The object was lost before, but found back now. */
+	LUDA_LOST_FOUND		= 0x0100,
 };
 
 /**
@@ -920,18 +925,23 @@ static inline struct lu_dirent *lu_dirent_next(struct lu_dirent *ent)
         return next;
 }
 
-static inline int lu_dirent_calc_size(int namelen, __u16 attr)
+static inline int lu_dirent_calc_size(int namelen, __u32 attr)
 {
-        int size;
+	int size;
+	int align;
 
-        if (attr & LUDA_TYPE) {
-                const unsigned align = sizeof(struct luda_type) - 1;
-                size = (sizeof(struct lu_dirent) + namelen + align) & ~align;
-                size += sizeof(struct luda_type);
-        } else
-                size = sizeof(struct lu_dirent) + namelen;
-
-        return (size + 7) & ~7;
+	if (attr & LUDA_TYPE) {
+		align = sizeof(struct luda_type) - 1;
+		size = (sizeof(struct lu_dirent) + namelen + align) & ~align;
+		size += sizeof(struct luda_type);
+	} else if (attr & LUDA_VERIFY) {
+		align = sizeof(__u64) - 1;
+		size = (sizeof(__u64) + namelen + align) & ~align;
+		size += sizeof(__u64);
+	} else {
+		size = sizeof(struct lu_dirent) + namelen;
+	}
+	return (size + 7) & ~7;
 }
 
 static inline int lu_dirent_size(struct lu_dirent *ent)
@@ -944,6 +954,7 @@ static inline int lu_dirent_size(struct lu_dirent *ent)
 }
 
 #define MDS_DIR_END_OFF 0xfffffffffffffffeULL
+#define MDS_DIR_DUMMY_START 0xffffffffffffffffULL
 
 /**
  * MDS_READPAGE page size
@@ -1453,6 +1464,8 @@ struct lov_mds_md_v1 {            /* LOV EA mds/wire data (little-endian) */
 #define XATTR_NAME_VERSION      "trusted.version"
 #define XATTR_NAME_SOM		"trusted.som"
 #define XATTR_NAME_HSM		"trusted.hsm"
+#define XATTR_NAME_CLUE 	"trusted.clue"
+#define XATTR_NAME_LFSCK_NAMESPACE "trusted.lfsck_namespace"
 
 
 struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
@@ -1963,7 +1976,7 @@ struct mdt_body {
        obd_time        ctime;
         __u64          blocks; /* XID, in the case of MDS_READPAGE */
         __u64          ioepoch;
-        __u64          ino;
+	__u64	       unused1; /* was "ino" until 2.4.0 */
         __u32          fsuid;
         __u32          fsgid;
         __u32          capability;
@@ -1973,7 +1986,7 @@ struct mdt_body {
         __u32          flags; /* from vfs for pin/unpin, LUSTRE_BFLAG close */
         __u32          rdev;
         __u32          nlink; /* #bytes to read in the case of MDS_READPAGE */
-        __u32          generation;
+	__u32	       unused2; /* was "generation" until 2.4.0 */
         __u32          suppgid;
         __u32          eadatasize;
         __u32          aclsize;
@@ -2144,6 +2157,7 @@ enum {
         MDS_CLOSE_CLEANUP = 1 << 6,
         MDS_KEEP_ORPHAN   = 1 << 7,
         MDS_RECOV_OPEN    = 1 << 8,
+	MDS_OWNEROVERRIDE = 1 << 9,
 };
 
 /* instance of mdt_reint_rec */
@@ -2810,7 +2824,7 @@ struct llog_size_change_rec {
 /** bits covering all \a changelog_rec_type's */
 #define CHANGELOG_ALLMASK 0XFFFFFFFF
 /** default \a changelog_rec_type mask */
-#define CHANGELOG_DEFMASK CHANGELOG_ALLMASK & ~(1 << CL_ATIME | 1 << CL_CLOSE)
+#define CHANGELOG_DEFMASK CHANGELOG_ALLMASK & ~(1 << CL_NLINK | 1 << CL_CLOSE)
 
 /* changelog llog name, needed by client replicators */
 #define CHANGELOG_CATALOG "changelog_catalog"
