@@ -63,12 +63,9 @@
 #include <obd_support.h>
 /* struct ptlrpc_thread */
 #include <lustre_net.h>
-
-/* fid_is_local() */
 #include <lustre_fid.h>
 
 #include "osd_internal.h"
-#include "osd_igif.h"
 
 /* llo_* api support */
 #include <md_object.h>
@@ -89,7 +86,7 @@ static const char remote_obj_dir[] = "REM_OBJ_DIR";
 static const struct lu_object_operations      osd_lu_obj_ops;
 static const struct dt_object_operations      osd_obj_ops;
 static const struct dt_object_operations      osd_obj_ea_ops;
-static const struct dt_object_operations      osd_obj_otable_it_ops;
+static const struct dt_object_operations      osd_obj_ram_only_ops;
 static const struct dt_index_operations       osd_index_iam_ops;
 static const struct dt_index_operations       osd_index_ea_ops;
 
@@ -258,7 +255,10 @@ struct inode *osd_iget_fid(struct osd_thread_info *info, struct osd_device *dev,
 	if (rc == 0) {
 		*fid = lma->lma_self_fid;
 	} else if (rc == -ENODATA) {
-		LU_IGIF_BUILD(fid, inode->i_ino, inode->i_generation);
+		if (unlikely(inode == osd_sb(dev)->s_root->d_inode))
+			lu_local_obj_fid(fid, OSD_FS_ROOT_OID);
+		else
+			lu_igif_build(fid, inode->i_ino, inode->i_generation);
 	} else {
 		iput(inode);
 		inode = ERR_PTR(rc);
@@ -445,17 +445,17 @@ static int osd_object_init(const struct lu_env *env, struct lu_object *l,
 
 	LINVRNT(osd_invariant(obj));
 
+	if (fid_is_ram_only(&l->lo_header->loh_fid)) {
+		obj->oo_dt.do_ops = &osd_obj_ram_only_ops;
+		l->lo_header->loh_attr |= LOHA_EXISTS;
+		return 0;
+	}
+
 	result = osd_fid_lookup(env, obj, lu_object_fid(l), conf);
 	obj->oo_dt.do_body_ops = &osd_body_ops_new;
-	if (result == 0) {
-		if (obj->oo_inode != NULL) {
-			osd_object_init0(obj);
-		} else if (fid_is_otable_it(&l->lo_header->loh_fid)) {
-			obj->oo_dt.do_ops = &osd_obj_otable_it_ops;
-			/* LFSCK iterator object is special without inode */
-			l->lo_header->loh_attr |= LOHA_EXISTS;
-		}
-	}
+	if (result == 0 && obj->oo_inode != NULL)
+		osd_object_init0(obj);
+
 	LINVRNT(osd_invariant(obj));
 	return result;
 }
@@ -2144,9 +2144,14 @@ static int osd_ea_fid_set(const struct lu_env *env, struct dt_object *dt,
  * \ldiskfs_dentry_param is used only to pass fid from osd to ldiskfs.
  * its inmemory API.
  */
-void osd_get_ldiskfs_dirent_param(struct ldiskfs_dentry_param *param,
-                                  const struct dt_rec *fid)
+static void osd_get_ldiskfs_dirent_param(struct ldiskfs_dentry_param *param,
+					 const struct dt_rec *fid)
 {
+	if (!fid_is_client_mdt_visible((const struct lu_fid *)fid)) {
+		param->edp_magic = 0;
+		return;
+	}
+
         param->edp_magic = LDISKFS_LUFID_MAGIC;
         param->edp_len =  sizeof(struct lu_fid) + 1;
 
@@ -2710,7 +2715,7 @@ static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 	} else if (unlikely(feat == &dt_otable_features)) {
 		dt->do_index_ops = &osd_otable_ops;
 		return 0;
-	} else if (feat == &dt_acct_features) {
+	} else if (unlikely(feat == &dt_acct_features)) {
 		dt->do_index_ops = &osd_acct_index_ops;
 		result = 0;
 		skip_iam = 1;
@@ -2761,7 +2766,7 @@ static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
         return result;
 }
 
-static int osd_otable_it_attr_get(const struct lu_env *env,
+static int osd_ram_only_attr_get(const struct lu_env *env,
 				 struct dt_object *dt,
 				 struct lu_attr *attr,
 				 struct lustre_capa *capa)
@@ -2834,9 +2839,14 @@ static const struct dt_object_operations osd_obj_ea_ops = {
         .do_data_get          = osd_data_get,
 };
 
-static const struct dt_object_operations osd_obj_otable_it_ops = {
-	.do_attr_get	= osd_otable_it_attr_get,
-	.do_index_try	= osd_index_try,
+static const struct dt_object_operations osd_obj_ram_only_ops = {
+	.do_read_lock	      = osd_object_read_lock,
+	.do_write_lock	      = osd_object_write_lock,
+	.do_read_unlock	      = osd_object_read_unlock,
+	.do_write_unlock      = osd_object_write_unlock,
+	.do_write_locked      = osd_object_write_locked,
+	.do_attr_get	      = osd_ram_only_attr_get,
+	.do_index_try	      = osd_index_try,
 };
 
 static int osd_index_declare_iam_delete(const struct lu_env *env,
@@ -3335,7 +3345,7 @@ osd_consistency_check(struct osd_thread_info *oti, struct osd_device *dev,
 	int		     rc;
 	ENTRY;
 
-	if (!fid_is_norm(fid) && !fid_is_igif(fid))
+	if (!fid_is_client_visible(fid) || fid_is_idif(fid))
 		RETURN_EXIT;
 
 again:
@@ -3392,6 +3402,7 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
         struct htree_lock          *hlock = NULL;
         int                         ino;
         int                         rc;
+	ENTRY;
 
         LASSERT(dir->i_op != NULL && dir->i_op->lookup != NULL);
 
