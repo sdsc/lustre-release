@@ -57,25 +57,6 @@
 #include "osd_internal.h"
 #include "osd_oi.h"
 
-struct osd_compat_objid_seq {
-        /* protects on-fly initialization */
-	struct semaphore	dir_init_sem;
-        /* file storing last created objid */
-        struct osd_inode_id    last_id;
-        struct dentry         *groot; /* O/<seq> */
-        struct dentry        **dirs;  /* O/<seq>/d0-dXX */
-};
-
-#define MAX_OBJID_GROUP (FID_SEQ_ECHO + 1)
-
-struct osd_compat_objid {
-        int                          subdir_count;
-        struct dentry               *root;
-        struct osd_inode_id          last_rcvd_id;
-        struct osd_inode_id          last_seq_id;
-        struct osd_compat_objid_seq  groups[MAX_OBJID_GROUP];
-};
-
 static void osd_push_ctxt(const struct osd_device *dev,
                           struct lvfs_run_ctxt *newctxt,
                           struct lvfs_run_ctxt *save)
@@ -150,6 +131,7 @@ int osd_compat_seq_init(struct osd_device *osd, int seq)
                 GOTO(out, rc = -ENOMEM);
         }
 
+	ldiskfs_set_inode_state(d->d_inode, LDISKFS_STATE_LUSTRE_NOOI);
         grp->groot = d;
         for (i = 0; i < map->subdir_count; i++) {
                 sprintf(name, "d%d", i);
@@ -163,6 +145,7 @@ int osd_compat_seq_init(struct osd_device *osd, int seq)
                         break;
                 }
 
+		ldiskfs_set_inode_state(d->d_inode, LDISKFS_STATE_LUSTRE_NOOI);
                 grp->dirs[i] = d;
         }
 
@@ -275,6 +258,7 @@ int osd_compat_init(struct osd_device *dev)
                 RETURN(PTR_ERR(d));
         }
 
+	ldiskfs_set_inode_state(d->d_inode, LDISKFS_STATE_LUSTRE_NOOI);
         dev->od_ost_map->root = d;
 
         /* Initialize all groups */
@@ -412,7 +396,7 @@ int osd_compat_objid_lookup(struct osd_thread_info *info,
 	osd_id_gen(id, le32_to_cpu(de->inode), OSD_OII_NOGEN);
 	brelse(bh);
 
-	inode = osd_iget(info, dev, id);
+	inode = osd_iget(info, dev, id, true);
 	if (IS_ERR(inode))
 		RETURN(PTR_ERR(inode));
 
@@ -501,6 +485,7 @@ static const struct named_oid oids[] = {
 	{ LLOG_CATALOGS_OID,    "CATALOGS" },
 	{ MGS_CONFIGS_OID,      "" /* MOUNT_CONFIGS_DIR */ },
 	{ OFD_HEALTH_CHECK_OID, HEALTH_CHECK },
+	{ LFSCK_NAMESPACE_OID,  "" /* "lfsck_namespace" */ },
 	{ 0,                    NULL }
 };
 
@@ -546,54 +531,4 @@ int osd_compat_spec_insert(struct osd_thread_info *info,
         }
 
         RETURN(rc);
-}
-
-int osd_compat_spec_lookup(struct osd_thread_info *info,
-			   struct osd_device *osd, const struct lu_fid *fid,
-			   struct osd_inode_id *id)
-{
-	struct dentry	*root;
-	struct dentry *dentry;
-	struct inode  *inode;
-	char	      *name;
-	int	       rc = -ENOENT;
-	ENTRY;
-
-	if (fid_oid(fid) >= OFD_GROUP0_LAST_OID &&
-	    fid_oid(fid) < OFD_GROUP4K_LAST_OID) {
-		struct osd_compat_objid	*map = osd->od_ost_map;
-		int			 seq;
-
-		LASSERT(map);
-		seq = fid_oid(fid) - OFD_GROUP0_LAST_OID;
-		LASSERT(seq < MAX_OBJID_GROUP);
-		LASSERT(map->groups[seq].groot);
-		root = map->groups[seq].groot;
-		name = "LAST_ID";
-	} else {
-		root = osd_sb(osd)->s_root;
-		name = oid2name(fid_oid(fid));
-		if (name == NULL || strlen(name) == 0)
-			RETURN(-ENOENT);
-	}
-
-	dentry = ll_lookup_one_len(name, root, strlen(name));
-	if (!IS_ERR(dentry)) {
-		inode = dentry->d_inode;
-		if (inode) {
-			if (is_bad_inode(inode)) {
-				rc = -EIO;
-			} else {
-				osd_id_gen(id, inode->i_ino,
-					   inode->i_generation);
-				rc = 0;
-			}
-		}
-		/* if dentry is accessible after osd_compat_spec_insert it
-		 * will still contain NULL inode, so don't keep it in cache */
-		d_invalidate(dentry);
-		dput(dentry);
-	}
-
-	RETURN(rc);
 }

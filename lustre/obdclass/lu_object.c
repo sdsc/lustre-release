@@ -360,6 +360,44 @@ int lu_site_purge(const struct lu_env *env, struct lu_site *s, int nr)
 }
 EXPORT_SYMBOL(lu_site_purge);
 
+#define SCHEDULE_INTERVAL	32
+
+int lu_site_purge_pinned(const struct lu_env *env, struct lu_site *s, int nr)
+{
+	struct lu_object_header *h;
+	int			 count;
+	int			 purged = 0;
+
+	LASSERT(nr != 0);
+
+	count = (nr > 0 ? min(SCHEDULE_INTERVAL, nr) : SCHEDULE_INTERVAL);
+	while (!cfs_list_empty(&s->ls_pin) && count > 0) {
+		spin_lock(&s->ls_ld_lock);
+		if (unlikely(cfs_list_empty(&s->ls_pin))) {
+			spin_unlock(&s->ls_ld_lock);
+			return purged;
+		}
+
+		h = cfs_list_entry(s->ls_pin.next, struct lu_object_header,
+				   loh_pin);
+		cfs_list_del_init(&h->loh_pin);
+		spin_unlock(&s->ls_ld_lock);
+		lu_object_put(env, lu_object_top(h));
+
+		purged++;
+		if (--count == 0) {
+			if (nr != ~0)
+				nr -= count;
+			count = (nr >= 0 ? min(SCHEDULE_INTERVAL, nr) :
+				SCHEDULE_INTERVAL);
+			cfs_cond_resched();
+		}
+	}
+
+	return purged;
+}
+EXPORT_SYMBOL(lu_site_purge_pinned);
+
 /*
  * Object printing.
  *
@@ -1006,6 +1044,7 @@ int lu_site_init(struct lu_site *s, struct lu_device *top)
                              0, "lru_purged", "lru_purged");
 
         CFS_INIT_LIST_HEAD(&s->ls_linkage);
+        CFS_INIT_LIST_HEAD(&s->ls_pin);
         s->ls_top_dev = top;
         top->ld_site = s;
         lu_device_get(top);
@@ -1027,6 +1066,7 @@ void lu_site_fini(struct lu_site *s)
 {
 	mutex_lock(&lu_sites_guard);
         cfs_list_del_init(&s->ls_linkage);
+	LASSERT(cfs_list_empty(&s->ls_pin));
 	mutex_unlock(&lu_sites_guard);
 
         if (s->ls_obj_hash != NULL) {
@@ -1188,6 +1228,7 @@ int lu_object_header_init(struct lu_object_header *h)
         CFS_INIT_LIST_HEAD(&h->loh_lru);
         CFS_INIT_LIST_HEAD(&h->loh_layers);
         lu_ref_init(&h->loh_reference);
+        CFS_INIT_LIST_HEAD(&h->loh_pin);
         return 0;
 }
 EXPORT_SYMBOL(lu_object_header_init);
@@ -1197,6 +1238,7 @@ EXPORT_SYMBOL(lu_object_header_init);
  */
 void lu_object_header_fini(struct lu_object_header *h)
 {
+        LASSERT(cfs_list_empty(&h->loh_pin));
         LASSERT(cfs_list_empty(&h->loh_layers));
         LASSERT(cfs_list_empty(&h->loh_lru));
         LASSERT(cfs_hlist_unhashed(&h->loh_hash));
@@ -1845,6 +1887,7 @@ static int lu_cache_shrink(SHRINKER_ARGS(sc, nr_to_scan, gfp_mask))
 	CDEBUG(D_INODE, "Shrink %d objects\n", remain);
 
 	mutex_lock(&lu_sites_guard);
+again:
         cfs_list_for_each_entry_safe(s, tmp, &lu_sites, ls_linkage) {
                 if (shrink_param(sc, nr_to_scan) != 0) {
                         remain = lu_site_purge(&lu_shrink_env, s, remain);
@@ -1862,6 +1905,14 @@ static int lu_cache_shrink(SHRINKER_ARGS(sc, nr_to_scan, gfp_mask))
                         break;
         }
         cfs_list_splice(&splice, lu_sites.prev);
+	/* There is memory pressure, purge some pinned objects. */
+	if (remain > 0) {
+		int rc;
+
+		rc = lu_site_purge_pinned(&lu_shrink_env, s, remain);
+		if (rc > 0)
+			goto again;
+	}
 	mutex_unlock(&lu_sites_guard);
 
         cached = (cached / 100) * sysctl_vfs_cache_pressure;
