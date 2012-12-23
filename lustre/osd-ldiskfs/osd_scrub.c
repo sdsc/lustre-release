@@ -1449,13 +1449,6 @@ static int osd_scrub_init_scan(struct osd_thread_info *info,
 	int			  rc;
 	ENTRY;
 
-	/* XXX: This is a temporary flag to disable initial OI scrub until
-	 *	the patcp for handling special FIDs in the OI files ready.
-	 *	We do not want to merge the two patches together, because
-	 *	it makes the patch too large to be reviewed. */
-	if (!dev->od_init_scrub)
-		RETURN(0);
-
 	while (1) {
 		rc = scandir(info, dev, dentry, filldir);
 		if (item != NULL) {
