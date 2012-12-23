@@ -83,11 +83,19 @@ struct inode;
 
 #define OSD_COUNTERS (0)
 
-/* Lustre special inode::i_state to indicate OI scrub skip this inode. */
-#define I_LUSTRE_NOSCRUB	(1 << 31)
+/* ldiskfs special inode::i_state_flags need to be accessed with
+ * ldiskfs_{set,clear,test}_inode_state() only */
+
+/* OI scrub should skip this inode. */
+#define LDISKFS_STATE_LUSTRE_NOSCRUB	31
+
+/* Do not add OI mapping for this inode. */
+#define LDISKFS_STATE_LUSTRE_NOOI	30
 
 /** Enable thandle usage statistics */
 #define OSD_THANDLE_STATS (0)
+
+#define MAX_OBJID_GROUP (FID_SEQ_ECHO + 1)
 
 struct osd_directory {
         struct iam_container od_container;
@@ -240,6 +248,23 @@ struct osd_otable_it {
 
 extern const int osd_dto_credits_noquota[];
 
+struct osd_compat_objid_seq {
+	/* protects on-fly initialization */
+	struct semaphore	  dir_init_sem;
+	/* file storing last created objid */
+	struct osd_inode_id	  last_id;
+	struct dentry		 *groot; /* O/<seq> */
+	struct dentry		**dirs;  /* O/<seq>/d0-dXX */
+};
+
+struct osd_compat_objid {
+	int			     subdir_count;
+	struct dentry		    *root;
+	struct osd_inode_id	     last_rcvd_id;
+	struct osd_inode_id	     last_seq_id;
+	struct osd_compat_objid_seq  groups[MAX_OBJID_GROUP];
+};
+
 /*
  * osd device.
  */
@@ -271,7 +296,8 @@ struct osd_device {
         struct obd_statfs         od_statfs;
 	spinlock_t		  od_osfs_lock;
 
-	unsigned int		  od_noscrub:1;
+	unsigned int		  od_noscrub:1,
+				  od_handle_nolma:1;
 
 	struct fsfilt_operations *od_fsops;
 	int			  od_connects;
@@ -648,8 +674,8 @@ int osd_object_auth(const struct lu_env *env, struct dt_object *dt,
                     struct lustre_capa *capa, __u64 opc);
 struct inode *osd_iget(struct osd_thread_info *info, struct osd_device *dev,
 		       struct osd_inode_id *id);
-struct inode *osd_iget_fid(struct osd_thread_info *info, struct osd_device *dev,
-			   struct osd_inode_id *id, struct lu_fid *fid);
+int osd_get_lma(struct osd_thread_info *info, struct inode *inode,
+		struct dentry *dentry, struct lustre_mdt_attrs *lma);
 
 int osd_compat_init(struct osd_device *dev);
 void osd_compat_fini(struct osd_device *dev);
