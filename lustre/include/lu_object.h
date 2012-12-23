@@ -570,6 +570,10 @@ struct lu_object_header {
          * A list of references to this object, for debugging.
          */
         struct lu_ref          loh_reference;
+	/**
+	 *  Linkage into per-site pin list. Protected by lu_site::ls_ld_lock.
+	 */
+	cfs_list_t	       loh_pin;
 };
 
 struct fld;
@@ -656,6 +660,10 @@ struct lu_site {
 	 * XXX: a hack! fld has to find md_site via site, remove when possible
 	 */
 	struct md_site		*ld_md_site;
+	/**
+	 * For the object pinned in RAM.
+	 */
+	cfs_list_t		ls_pin;
 };
 
 static inline struct lu_site_bkt_data *
@@ -730,6 +738,7 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o);
 void lu_object_put_nocache(const struct lu_env *env, struct lu_object *o);
 
 int lu_site_purge(const struct lu_env *env, struct lu_site *s, int nr);
+int lu_site_purge_pinned(const struct lu_env *env, struct lu_site *s, int nr);
 
 void lu_site_print(const struct lu_env *env, struct lu_site *s, void *cookie,
                    lu_printer_t printer);
