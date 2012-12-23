@@ -897,11 +897,17 @@ static int mdd_lfsck_namespace_exec_dir(const struct lu_env *env,
 	struct lfsck_namespace	   *ns	     =
 				(struct lfsck_namespace *)com->lc_file_ram;
 	const struct lu_name	   *cname;
-	int			    repaired;
+	int			    repaired = 0;
 
 	cname = mdd_name_get_const(env, ent->lde_name, ent->lde_namelen);
 	down_write(&com->lc_sem);
 	com->lc_new_checked++;
+
+	if (ent->lde_attrs & LUDA_LOST_FOUND) {
+		ns->ln_flags |= LF_INCONSISTENT;
+		ns->ln_objs_lost_found++;
+		repaired = 1;
+	}
 
 	if (ent->lde_attrs & LUDA_UPGRADE) {
 		ns->ln_flags |= LF_UPGRADE;
@@ -909,8 +915,6 @@ static int mdd_lfsck_namespace_exec_dir(const struct lu_env *env,
 	} else if (ent->lde_attrs & LUDA_REPAIR) {
 		ns->ln_flags |= LF_INCONSISTENT;
 		repaired = 1;
-	} else {
-		repaired = 0;
 	}
 
 	ns->ln_items_repaired += repaired;
@@ -1415,11 +1419,10 @@ static void mdd_lfsck_unpack_ent(struct lu_dirent *ent, __u64 *clue)
 	ent->lde_namelen = le16_to_cpu(ent->lde_namelen);
 	ent->lde_attrs = le32_to_cpu(ent->lde_attrs);
 
-	/* XXX: will be changed as LASSERT() when low layer patch is ready. */
-	if (ent->lde_attrs & LUDA_VERIFY) {
-		p = (__u64 *)(ent->lde_name + len);
-		*clue = le64_to_cpu(*p);
-	}
+	LASSERT(ent->lde_attrs & LUDA_VERIFY);
+
+	p = (__u64 *)(ent->lde_name + len);
+	*clue = le64_to_cpu(*p);
 
 	/* Make sure the name is terminated with '0'.
 	 * The data after ent::lde_name is broken,
