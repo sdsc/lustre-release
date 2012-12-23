@@ -1078,6 +1078,20 @@ int mdd_unlink_sanity_check(const struct lu_env *env, struct mdd_object *pobj,
         RETURN(rc);
 }
 
+static inline int mdd_declare_links_del(const struct lu_env *env,
+					struct mdd_object *c,
+					struct thandle *handle)
+{
+	int rc = 0;
+
+	/* For directory, the linkEA will be removed together with the object. */
+	if (!S_ISDIR(mdd_object_type(c)) &&
+	    fid_is_client_mdt_visible(mdo2fid(c)))
+		rc = mdd_declare_links_add(env, c, handle);
+
+	return rc;
+}
+
 static int mdd_declare_unlink(const struct lu_env *env, struct mdd_device *mdd,
                               struct mdd_object *p, struct mdd_object *c,
                               const struct lu_name *name, struct md_attr *ma,
@@ -1113,13 +1127,13 @@ static int mdd_declare_unlink(const struct lu_env *env, struct mdd_device *mdd,
         if (rc)
                 return rc;
 
-        rc = mdd_declare_links_add(env, c, handle);
-        if (rc)
-                return rc;
+	rc = mdd_declare_links_del(env, c, handle);
+	if (rc != 0)
+		return rc;
 
-        rc = mdd_declare_changelog_store(env, mdd, name, handle);
+	rc = mdd_declare_changelog_store(env, mdd, name, handle);
 
-        return rc;
+	return rc;
 }
 
 static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
@@ -1218,7 +1232,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 		rc = mdd_la_get(env, mdd_cobj, cattr,
 				mdd_object_capa(env, mdd_cobj));
 
-        if (!is_dir)
+	if (!is_dir && fid_is_client_mdt_visible(mdo2fid(mdd_cobj)))
 		/* old files may not have link ea; ignore errors */
 		mdd_links_del(env, mdd_cobj, mdo2fid(mdd_pobj), lname, handle);
 
@@ -1227,12 +1241,14 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 		ma->ma_attr = *cattr;
 		ma->ma_valid |= MA_INODE;
 	}
-        EXIT;
+
+	EXIT;
+
 cleanup:
-        mdd_write_unlock(env, mdd_cobj);
-        mdd_pdo_write_unlock(env, mdd_pobj, dlh);
-        if (rc == 0) {
-                int cl_flags;
+	mdd_write_unlock(env, mdd_cobj);
+	mdd_pdo_write_unlock(env, mdd_pobj, dlh);
+	if (rc == 0 && fid_is_client_mdt_visible(mdo2fid(mdd_cobj))) {
+		int cl_flags;
 
 		cl_flags = (cattr->la_nlink == 0) ? CLF_UNLINK_LAST : 0;
                 if ((ma->ma_valid & MA_HSM) &&
@@ -1853,11 +1869,11 @@ cleanup:
 
 		mdo_destroy(env, son, handle);
 		mdd_write_unlock(env, son);
-        }
+	}
 
-        mdd_pdo_write_unlock(env, mdd_pobj, dlh);
+	mdd_pdo_write_unlock(env, mdd_pobj, dlh);
 out_trans:
-        if (rc == 0)
+	if (rc == 0 && fid_is_client_mdt_visible(mdo2fid(son)))
 		rc = mdd_changelog_ns_store(env, mdd,
 			S_ISDIR(attr->la_mode) ? CL_MKDIR :
 			S_ISREG(attr->la_mode) ? CL_CREATE :
