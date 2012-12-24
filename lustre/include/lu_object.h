@@ -175,6 +175,10 @@ typedef enum {
 	/* This is a new object to be allocated, or the file
 	 * corresponding to the object does not exists. */
 	LOC_F_NEW	= 0x00000001,
+
+	/* We want to create the object if it does not exist, but we do not
+	 * know whether it exists or not, so need to lookup it firstly. */
+	LOC_F_MAYCREATE	= 0x00000002,
 } loc_flags_t;
 
 /**
@@ -566,6 +570,10 @@ struct lu_object_header {
          * A list of references to this object, for debugging.
          */
         struct lu_ref          loh_reference;
+	/**
+	 *  Linkage into per-site pin list. Protected by lu_site::ls_ld_lock.
+	 */
+	cfs_list_t	       loh_pin;
 };
 
 struct fld;
@@ -652,6 +660,10 @@ struct lu_site {
 	 * XXX: a hack! fld has to find md_site via site, remove when possible
 	 */
 	struct md_site		*ld_md_site;
+	/**
+	 * For the object pinned in RAM.
+	 */
+	cfs_list_t		ls_pin;
 };
 
 static inline struct lu_site_bkt_data *
@@ -726,6 +738,7 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o);
 void lu_object_put_nocache(const struct lu_env *env, struct lu_object *o);
 
 int lu_site_purge(const struct lu_env *env, struct lu_site *s, int nr);
+int lu_site_purge_pinned(const struct lu_env *env, struct lu_site *s, int nr);
 
 void lu_site_print(const struct lu_env *env, struct lu_site *s, void *cookie,
                    lu_printer_t printer);
@@ -740,6 +753,43 @@ struct lu_object *lu_object_find_slice(const struct lu_env *env,
                                        struct lu_device *dev,
                                        const struct lu_fid *f,
                                        const struct lu_object_conf *conf);
+
+static inline void lu_object_pin(struct lu_object *o)
+{
+	struct lu_object_header	*h = o->lo_header;
+	struct lu_site		*s = o->lo_dev->ld_site;
+
+	if (!cfs_list_empty(&h->loh_pin))
+		return;
+
+	spin_lock(&s->ls_ld_lock);
+	if (likely(cfs_list_empty(&h->loh_pin))) {
+		lu_object_get(o);
+		cfs_list_add_tail(&h->loh_pin, &s->ls_pin);
+	}
+	spin_unlock(&s->ls_ld_lock);
+}
+
+static inline void lu_object_unpin(const struct lu_env *env, struct lu_object *o)
+{
+	struct lu_object_header	*h   = o->lo_header;
+	struct lu_site		*s   = o->lo_dev->ld_site;
+	bool			 put = false;
+
+	if (cfs_list_empty(&h->loh_pin))
+		return;
+
+	spin_lock(&s->ls_ld_lock);
+	if (likely(!cfs_list_empty(&h->loh_pin))) {
+		cfs_list_del_init(&h->loh_pin);
+		put = true;
+	}
+	spin_unlock(&s->ls_ld_lock);
+
+	if (put)
+		lu_object_put(env, o);
+}
+
 /** @} caching */
 
 /** \name helpers

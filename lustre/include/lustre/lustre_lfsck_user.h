@@ -50,12 +50,17 @@ enum lfsck_type {
 
 	/* For MDT-MDT consistency check/repair. */
 	LT_DNE  	= 0x0002,
+
+	/* For FID-in-dirent and linkEA consistency check/repair. */
+	LT_NAMESPACE	= 0x0004,
 };
 
 #define LFSCK_VERSION_V1	1
+#define LFSCK_VERSION_V2	2
 
 #define LFSCK_TYPES_ALL 	((__u16)(~0))
 #define LFSCK_TYPES_DEF 	((__u16)0)
+#define LFSCK_TYPES_SUPPORTED	LT_NAMESPACE
 
 #define LFSCK_SPEED_NO_LIMIT	0
 #define LFSCK_SPEED_LIMIT_DEF	LFSCK_SPEED_NO_LIMIT

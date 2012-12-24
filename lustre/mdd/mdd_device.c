@@ -167,7 +167,6 @@ static void mdd_device_shutdown(const struct lu_env *env,
                                 struct mdd_device *m, struct lustre_cfg *cfg)
 {
         ENTRY;
-        mdd_changelog_fini(env, m);
         if (m->mdd_dot_lustre_objs.mdd_obf)
                 mdd_object_put(env, m->mdd_dot_lustre_objs.mdd_obf);
         if (m->mdd_dot_lustre)
@@ -292,14 +291,10 @@ static int mdd_changelog_llog_init(const struct lu_env *env,
 {
 	struct obd_device	*obd = mdd2obd_dev(mdd);
 	struct llog_ctxt	*ctxt = NULL, *uctxt = NULL;
-	struct lu_fid		 rfid;
 	int			 rc;
 
 	OBD_SET_CTXT_MAGIC(&obd->obd_lvfs_ctxt);
 	obd->obd_lvfs_ctxt.dt = mdd->mdd_bottom;
-	rc = dt_root_get(env, mdd->mdd_bottom, &rfid);
-	if (rc)
-		RETURN(-ENODEV);
 
 	changelog_orig_logops = llog_osd_ops;
 	changelog_orig_logops.lop_cancel = llog_changelog_cancel;
@@ -750,12 +745,12 @@ static int dot_lustre_mdd_lookup(const struct lu_env *env, struct md_object *p,
                                  const struct lu_name *lname, struct lu_fid *f,
                                  struct md_op_spec *spec)
 {
-        if (strcmp(lname->ln_name, mdd_obf_dir_name) == 0)
-                *f = LU_OBF_FID;
-        else
-                return -ENOENT;
+	if (strcmp(lname->ln_name, mdd_obf_dir_name) == 0) {
+		*f = LU_OBF_FID;
+		return 0;
+	}
 
-        return 0;
+	return -ENOENT;
 }
 
 static mdl_mode_t dot_lustre_mdd_lock_mode(const struct lu_env *env,
@@ -884,7 +879,6 @@ static int obf_xattr_get(const struct lu_env *env,
 {
 	struct mdd_device *mdd = mdo2mdd(obj);
 	struct mdd_object *root;
-	struct lu_fid      rootfid;
 	int rc = 0;
 
 	/*
@@ -892,10 +886,7 @@ static int obf_xattr_get(const struct lu_env *env,
 	 * in the root
 	 */
 	if (strcmp(name, XATTR_NAME_LOV) == 0) {
-		rc = dt_root_get(env, mdd->mdd_child, &rootfid);
-		if (rc)
-			return rc;
-		root = mdd_object_find(env, mdd, &rootfid);
+		root = mdd_object_find(env, mdd, &mdd->mdd_local_root_fid);
 		if (IS_ERR(root))
 			return PTR_ERR(root);
 		rc = mdo_xattr_get(env, root, buf, name,
@@ -1061,12 +1052,14 @@ static struct md_dir_operations mdd_obf_dir_ops = {
  */
 static int mdd_obf_setup(const struct lu_env *env, struct mdd_device *m)
 {
-        struct mdd_object *mdd_obf;
-        struct lu_object *obf_lu_obj;
-        int rc = 0;
+	struct lu_object_conf	*conf	    = &mdd_env_info(env)->mti_conf;
+	struct mdd_object	*mdd_obf;
+	struct lu_object	*obf_lu_obj;
+	int			 rc	    = 0;
 
-        m->mdd_dot_lustre_objs.mdd_obf = mdd_object_find(env, m,
-                                                         &LU_OBF_FID);
+	conf->loc_flags = LOC_F_NEW;
+	m->mdd_dot_lustre_objs.mdd_obf =
+		mdd_object_find_conf(env, m, &LU_OBF_FID, conf);
         if (m->mdd_dot_lustre_objs.mdd_obf == NULL ||
             IS_ERR(m->mdd_dot_lustre_objs.mdd_obf))
                 GOTO(out, rc = -ENOENT);
@@ -1145,6 +1138,7 @@ static int mdd_process_config(const struct lu_env *env,
                 break;
         case LCFG_CLEANUP:
 		mdd_lfsck_cleanup(env, m);
+		mdd_changelog_fini(env, m);
 		rc = next->ld_ops->ldo_process_config(env, next, cfg);
 		lu_dev_del_linkage(d->ld_site, d);
                 mdd_device_shutdown(env, m, cfg);
@@ -1189,6 +1183,10 @@ static int mdd_prepare(const struct lu_env *env,
         if (rc)
                 GOTO(out, rc);
 
+	rc = dt_root_get(env, mdd->mdd_child, &mdd->mdd_local_root_fid);
+	if (rc != 0)
+		GOTO(out, rc);
+
         root = dt_store_open(env, mdd->mdd_child, "", mdd_root_dir_name,
                              &mdd->mdd_root_fid);
         if (!IS_ERR(root)) {
@@ -1215,13 +1213,14 @@ static int mdd_prepare(const struct lu_env *env,
 
 	mdd->mdd_capa = root;
 
+	rc = mdd_changelog_init(env, mdd);
+	if (rc != 0)
+		GOTO(out, rc);
+
 	rc = mdd_lfsck_setup(env, mdd);
-	if (rc) {
+	if (rc != 0)
 		CERROR("%s: failed to initialize lfsck: rc = %d\n",
 		       mdd2obd_dev(mdd)->obd_name, rc);
-		GOTO(out, rc);
-	}
-	rc = mdd_changelog_init(env, mdd);
 
 	GOTO(out, rc);
 
@@ -1637,13 +1636,8 @@ static int mdd_iocontrol(const struct lu_env *env, struct md_device *m,
                 RETURN(0);
         }
 	case OBD_IOC_START_LFSCK: {
-		struct lfsck_start *start = karg;
-		struct md_lfsck *lfsck = &mdd->mdd_lfsck;
-
-		/* Return the kernel service version. */
-		/* XXX: version can be used for compatibility in the future. */
-		start->ls_version = lfsck->ml_version;
-		rc = mdd_lfsck_start(env, lfsck, start);
+		rc = mdd_lfsck_start(env, &mdd->mdd_lfsck,
+				     (struct lfsck_start *)karg);
 		RETURN(rc);
 	}
 	case OBD_IOC_STOP_LFSCK: {
@@ -1755,6 +1749,13 @@ static struct lu_local_obj_desc llod_lfsck_bookmark = {
 	.llod_is_index  = 0,
 };
 
+static struct lu_local_obj_desc llod_lfsck_namespace = {
+	.llod_name	= lfsck_namespace_name,
+	.llod_oid	= LFSCK_NAMESPACE_OID,
+	.llod_is_index	= 1,
+	.llod_feat	= &dt_lfsck_features,
+};
+
 static int __init mdd_mod_init(void)
 {
 	struct lprocfs_static_vars lvars;
@@ -1770,6 +1771,7 @@ static int __init mdd_mod_init(void)
 	llo_local_obj_register(&llod_mdd_orphan);
 	llo_local_obj_register(&llod_mdd_root);
 	llo_local_obj_register(&llod_lfsck_bookmark);
+	llo_local_obj_register(&llod_lfsck_namespace);
 
 	rc = class_register_type(&mdd_obd_device_ops, NULL, lvars.module_vars,
 				 LUSTRE_MDD_NAME, &mdd_device_type);
@@ -1784,6 +1786,7 @@ static void __exit mdd_mod_exit(void)
 	llo_local_obj_unregister(&llod_mdd_orphan);
 	llo_local_obj_unregister(&llod_mdd_root);
 	llo_local_obj_unregister(&llod_lfsck_bookmark);
+	llo_local_obj_unregister(&llod_lfsck_namespace);
 
 	class_unregister_type(LUSTRE_MDD_NAME);
 	lu_kmem_fini(mdd_caches);

@@ -188,14 +188,14 @@ struct md_op_spec {
                         int  eadatalen;
                 } sp_ea;
         } u;
-        /** don't create lov objects or llog cookie - this replay */
-        int no_create;
 
         /** Create flag from client: such as MDS_OPEN_CREAT, and others. */
         __u64      sp_cr_flags;
 
-        /** Should mdd do lookup sanity check or not. */
-        int        sp_cr_lookup;
+		     /** don't create lov objects or llog cookie - this replay */
+	unsigned int no_create:1,
+		     /** Should mdd do lookup sanity check or not. */
+		     sp_cr_lookup:1;
 
         /** Current lock mode for parent dir where create is performing. */
         mdl_mode_t sp_cr_mode;
@@ -518,11 +518,11 @@ static inline void md_device_fini(struct md_device *md)
         lu_device_fini(&md->md_lu_dev);
 }
 
-static inline struct md_object *md_object_find_slice(const struct lu_env *env,
-                                                     struct md_device *md,
-                                                     const struct lu_fid *f)
+static inline struct md_object *
+md_object_find_slice(const struct lu_env *env, struct md_device *md,
+		     const struct lu_fid *f, const struct lu_object_conf *conf)
 {
-        return lu2md(lu_object_find_slice(env, md2lu_dev(md), f, NULL));
+	return lu2md(lu_object_find_slice(env, md2lu_dev(md), f, conf));
 }
 
 
