@@ -57,25 +57,6 @@
 #include "osd_internal.h"
 #include "osd_oi.h"
 
-struct osd_compat_objid_seq {
-        /* protects on-fly initialization */
-	struct semaphore	dir_init_sem;
-        /* file storing last created objid */
-        struct osd_inode_id    last_id;
-        struct dentry         *groot; /* O/<seq> */
-        struct dentry        **dirs;  /* O/<seq>/d0-dXX */
-};
-
-#define MAX_OBJID_GROUP (FID_SEQ_ECHO + 1)
-
-struct osd_compat_objid {
-        int                          subdir_count;
-        struct dentry               *root;
-        struct osd_inode_id          last_rcvd_id;
-        struct osd_inode_id          last_seq_id;
-        struct osd_compat_objid_seq  groups[MAX_OBJID_GROUP];
-};
-
 static void osd_push_ctxt(const struct osd_device *dev,
                           struct lvfs_run_ctxt *newctxt,
                           struct lvfs_run_ctxt *save)
@@ -150,6 +131,7 @@ int osd_compat_seq_init(struct osd_device *osd, int seq)
                 GOTO(out, rc = -ENOMEM);
         }
 
+	ldiskfs_set_inode_state(d->d_inode, LDISKFS_STATE_LUSTRE_NOOI);
         grp->groot = d;
         for (i = 0; i < map->subdir_count; i++) {
                 sprintf(name, "d%d", i);
@@ -163,6 +145,7 @@ int osd_compat_seq_init(struct osd_device *osd, int seq)
                         break;
                 }
 
+		ldiskfs_set_inode_state(d->d_inode, LDISKFS_STATE_LUSTRE_NOOI);
                 grp->dirs[i] = d;
         }
 
@@ -275,6 +258,7 @@ int osd_compat_init(struct osd_device *dev)
                 RETURN(PTR_ERR(d));
         }
 
+	ldiskfs_set_inode_state(d->d_inode, LDISKFS_STATE_LUSTRE_NOOI);
         dev->od_ost_map->root = d;
 
         /* Initialize all groups */
