@@ -817,7 +817,9 @@ static int llog_osd_open(const struct lu_env *env, struct llog_handle *handle,
 			GOTO(out, rc);
 	}
 
-	o = ls_locate(env, ls, &lgi->lgi_fid);
+	lgi->lgi_conf.loc_flags =
+		(open_param == LLOG_OPEN_NEW ? LOC_F_MAYCREATE : 0);
+	o = ls_locate_conf(env, ls, &lgi->lgi_fid, &lgi->lgi_conf);
 	if (IS_ERR(o))
 		GOTO(out_name, rc = PTR_ERR(o));
 
@@ -1092,7 +1094,7 @@ static int llog_osd_setup(const struct lu_env *env, struct obd_device *obd,
 	rc = local_oid_storage_init(env, disk_obd->obd_lvfs_ctxt.dt,
 				    &lgi->lgi_fid, &los);
 	llog_ctxt_put(ctxt);
-	return rc;
+	RETURN(rc);
 }
 
 static int llog_osd_cleanup(const struct lu_env *env, struct llog_ctxt *ctxt)
