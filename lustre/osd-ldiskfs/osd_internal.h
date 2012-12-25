@@ -297,6 +297,7 @@ struct osd_device {
 	spinlock_t		  od_osfs_lock;
 
 	unsigned int		  od_noscrub:1,
+				  od_init_scrub:1,
 				  od_handle_nolma:1;
 
 	struct fsfilt_operations *od_fsops;
@@ -319,6 +320,7 @@ struct osd_device {
 	struct mutex		  od_otable_mutex;
 	struct osd_otable_it	 *od_otable_it;
 	struct osd_scrub	  od_scrub;
+	cfs_list_t		  od_scrub_ls_list;
 
 	/* service name associated with the osd device */
 	char                      od_svname[MAX_OBD_NAME];
@@ -674,6 +676,8 @@ int osd_object_auth(const struct lu_env *env, struct dt_object *dt,
                     struct lustre_capa *capa, __u64 opc);
 struct inode *osd_iget(struct osd_thread_info *info, struct osd_device *dev,
 		       struct osd_inode_id *id);
+int osd_ea_fid_set(struct osd_thread_info *info, struct inode *inode,
+		   const struct lu_fid *fid, bool init);
 int osd_get_lma(struct osd_thread_info *info, struct inode *inode,
 		struct dentry *dentry, struct lustre_mdt_attrs *lma);
 
