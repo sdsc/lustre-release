@@ -1454,6 +1454,7 @@ struct lov_mds_md_v1 {            /* LOV EA mds/wire data (little-endian) */
 #define XATTR_NAME_VERSION      "trusted.version"
 #define XATTR_NAME_SOM		"trusted.som"
 #define XATTR_NAME_HSM		"trusted.hsm"
+#define XATTR_NAME_CLUE 	"trusted.clue"
 
 
 struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
@@ -2812,7 +2813,7 @@ struct llog_size_change_rec {
 /** bits covering all \a changelog_rec_type's */
 #define CHANGELOG_ALLMASK 0XFFFFFFFF
 /** default \a changelog_rec_type mask */
-#define CHANGELOG_DEFMASK CHANGELOG_ALLMASK & ~(1 << CL_ATIME | 1 << CL_CLOSE)
+#define CHANGELOG_DEFMASK CHANGELOG_ALLMASK & ~(1 << CL_NLINK | 1 << CL_CLOSE)
 
 /* changelog llog name, needed by client replicators */
 #define CHANGELOG_CATALOG "changelog_catalog"
