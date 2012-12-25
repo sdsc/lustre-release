@@ -52,6 +52,8 @@
 #include <lprocfs_status.h>
 #include <lustre_log.h>
 
+#include "mdd_lfsck.h"
+
 /* PDO lock is unnecessary for current MDT stack because operations
  * are already protected by ldlm lock */
 #define MDD_DISABLE_PDO_LOCK    1
@@ -93,28 +95,6 @@ struct mdd_dot_lustre_objs {
 
 extern const char lfsck_bookmark_name[];
 
-struct md_lfsck {
-	struct mutex	      ml_mutex;
-	spinlock_t	      ml_lock;
-	struct ptlrpc_thread  ml_thread;
-	struct dt_object     *ml_bookmark_obj;
-	struct dt_object     *ml_it_obj;
-	__u32		      ml_new_scanned;
-	/* Arguments for low layer iteration. */
-	__u32		      ml_args;
-
-	/* Raw value for LFSCK speed limit. */
-	__u32		      ml_speed_limit;
-
-	/* Schedule for every N objects. */
-	__u32		      ml_sleep_rate;
-
-	/* Sleep N jiffies for each schedule. */
-	__u32		      ml_sleep_jif;
-	__u16		      ml_version;
-	unsigned int	      ml_paused:1; /* The lfsck is paused. */
-};
-
 struct mdd_device {
         struct md_device                 mdd_md_dev;
 	struct obd_export               *mdd_child_exp;
@@ -151,21 +131,6 @@ enum mdd_object_role {
         MOR_TGT_PARENT,
         MOR_TGT_CHILD,
         MOR_TGT_ORPHAN
-};
-
-struct lfsck_linkea_header {
-	cfs_list_t	llh_list;
-
-	/* How many linkea entries have been verified. */
-	int		llh_count;
-	__u8		llh_flags;
-};
-
-struct lfsck_linkea_entry {
-	cfs_list_t	lle_link;
-	struct lu_fid	lle_fid;
-	unsigned short	lle_namelen;
-	char		lle_name[0];
 };
 
 struct mdd_object {
@@ -532,7 +497,8 @@ int mdd_txn_start_cb(const struct lu_env *env, struct thandle *,
                      void *cookie);
 
 /* mdd_lfsck.c */
-void mdd_lfsck_set_speed(struct md_lfsck *lfsck, __u32 limit);
+int mdd_lfsck_set_speed(const struct lu_env *env, struct md_lfsck *lfsck,
+			__u32 limit);
 int mdd_lfsck_start(const struct lu_env *env, struct md_lfsck *lfsck,
 		    struct lfsck_start *start);
 int mdd_lfsck_stop(const struct lu_env *env, struct md_lfsck *lfsck);
