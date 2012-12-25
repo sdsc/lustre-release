@@ -20,7 +20,6 @@ ext4-pdir-fix-rhel6.patch
 ext4-osd-iop-common-rhel6.patch
 ext4-osd-iam-exports-rhel6.patch
 ext4-dynlocks-common-rhel6.patch
-ext4-hash-indexed-dir-dotdot-update-rhel5.patch
 ext4-kill-dx_root-rhel6.patch
 ext4-extents-mount-option-rhel6.patch
 ext4-fiemap-2.6-rhel6.patch
@@ -38,4 +37,5 @@ ext4-quota-force-block-alloc-quotaoff.patch
 ext4-quota-dont-update-cmtime.patch
 ext4-quota-first-class.patch
 ext4-inode_info_reorganize.patch
-ext4-fix-mbgroups-access.patch 
+ext4-fix-mbgroups-access.patch
+ext4-dir-dotdot-update.patch
