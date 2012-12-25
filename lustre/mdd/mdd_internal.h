@@ -498,6 +498,14 @@ int mdd_txn_start_cb(const struct lu_env *env, struct thandle *,
                      void *cookie);
 
 /* mdd_lfsck.c */
+void mdd_lfsck_linkea_add(const struct lu_env *env,
+			  struct mdd_object *obj,
+			  const struct lu_fid *pfid,
+			  const struct lu_name *cname);
+void mdd_lfsck_linkea_del(const struct lu_env *env,
+			  struct mdd_object *obj,
+			  const struct lu_fid *pfid,
+			  const struct lu_name *cname);
 int mdd_lfsck_set_speed(const struct lu_env *env, struct md_lfsck *lfsck,
 			__u32 limit);
 int mdd_lfsck_start(const struct lu_env *env, struct md_lfsck *lfsck,
