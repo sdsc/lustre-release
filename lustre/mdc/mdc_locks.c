@@ -815,6 +815,81 @@ resend:
         RETURN(rc);
 }
 
+static int mdc_enqueue_async_interpret(const struct lu_env *env,
+				       struct ptlrpc_request *req,
+				       void *args, int rc)
+{
+	struct mdc_enqueue_args	*mea = args;
+	struct obd_export	*exp = mea->mea_exp;
+	struct lustre_handle	*lockh = &mea->mea_lockh;
+	struct ldlm_lock	*lock = mea->mea_lock;
+	ENTRY;
+
+	CDEBUG(D_INFO, "req=%p rc=%d\n", req, rc);
+
+	rc = ldlm_cli_enqueue_fini(exp, req, LDLM_FLOCK, 1, mea->mea_mode,
+				   &mea->mea_flags, NULL, 0, lockh, rc);
+        if (rc == -ENOLCK)
+                LDLM_LOCK_RELEASE(lock);
+
+	if (rc) {
+		CERROR("ldlm_cli_enqueue_fini: %d req=%p lock=%p mode=%d\n",
+		       rc, req, lock, mea->mea_mode);
+		ldlm_flock_run_flock_cb(lock, rc);
+	}
+	LDLM_LOCK_PUT(lock);
+
+	RETURN(rc);
+}
+
+int mdc_enqueue_async(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
+		      struct flock_args *args,
+		      struct md_op_data *op_data, void *lmm, __u64 flags)
+{
+	struct mdc_enqueue_args *mea;
+	struct ptlrpc_request *req = NULL;
+	int                    rc;
+	struct ldlm_res_id res_id;
+	ldlm_policy_data_t const *policy;
+	struct lustre_handle lockh;
+	ENTRY;
+
+	fid_build_reg_res_name(&op_data->op_fid1, &res_id);
+
+	/* The only way right now is FLOCK, in this case we hide flock
+	   policy as lmm, but lmmsize is 0 */
+	LASSERT(lmm);
+	LASSERTF(einfo->ei_type == LDLM_FLOCK, "lock type %d\n",
+		 einfo->ei_type);
+	policy = (ldlm_policy_data_t *)lmm;
+	res_id.name[3] = LDLM_FLOCK;
+
+	rc = ldlm_cli_enqueue(exp, &req, einfo, &res_id, policy, &flags, NULL,
+			      0, LVB_T_NONE, &lockh, 1);
+
+	if (rc) {
+		CERROR("ldlm_cli_enqueue: %d\n", rc);
+		ptlrpc_req_finished(req);
+		RETURN(rc);
+	}
+
+	CLASSERT(sizeof(*mea) <= sizeof(req->rq_async_args));
+	mea = ptlrpc_req_async_args(req);
+	mea->mea_exp = exp;
+	mea->mea_lockh = lockh;
+	mea->mea_lock = ldlm_handle2lock(&lockh);
+	LASSERT(mea->mea_lock != NULL);
+
+	mea->mea_fa = args;
+	mea->mea_mode = einfo->ei_mode;
+	mea->mea_flags = flags;
+
+	req->rq_interpret_reply = mdc_enqueue_async_interpret;
+	ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
+
+	RETURN(0);
+}
+
 static int mdc_finish_intent_lock(struct obd_export *exp,
                                   struct ptlrpc_request *request,
                                   struct md_op_data *op_data,

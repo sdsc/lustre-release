@@ -823,6 +823,28 @@ int ldlm_prep_enqueue_req(struct obd_export *exp, struct ptlrpc_request *req,
 }
 EXPORT_SYMBOL(ldlm_prep_enqueue_req);
 
+int ldlm_res_enqueue(struct ldlm_lock *lock, struct ldlm_namespace *ns,
+		      const struct ldlm_res_id *res_id)
+{
+	struct ldlm_resource *res;
+	ENTRY;
+
+	res = ldlm_resource_get(ns, NULL, res_id, LDLM_FLOCK, 0);
+	if (res == NULL) {
+		CDEBUG(D_INFO, "No resource "LPU64"\n", res_id->name[0]);
+		RETURN(-1);
+	}
+	LDLM_RESOURCE_ADDREF(res);
+	lock_res(res);
+	ldlm_resource_add_lock(res, &res->lr_enqueuing, lock);
+	unlock_res(res);
+
+	LDLM_RESOURCE_DELREF(res);
+	ldlm_resource_putref(res);
+
+	RETURN(0);
+}
+
 /**
  * Client-side lock enqueue.
  *
@@ -890,6 +912,8 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 
                 if (einfo->ei_type == LDLM_EXTENT)
                         lock->l_req_extent = policy->l_extent;
+		if (einfo->ei_type == LDLM_FLOCK)
+			ldlm_res_enqueue(lock, ns, res_id);
                 LDLM_DEBUG(lock, "client-side enqueue START, flags %llx\n",
 			   *flags);
         }

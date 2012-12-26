@@ -279,6 +279,38 @@ ldlm_process_flock_lock(struct ldlm_lock *req, __u64 *flags, int first_enq,
         }
 
 reprocess:
+	if (*flags != LDLM_FL_WAIT_NOREPROC && mode == LCK_NL) {
+		cfs_list_for_each(tmp, &res->lr_waiting) {
+			lock = cfs_list_entry(tmp, struct ldlm_lock,
+					      l_res_link);
+			if (!ldlm_same_flock_owner(lock, req))
+				continue;
+			if (req->l_policy_data.l_flock.start ==
+			    lock->l_policy_data.l_flock.start &&
+			    req->l_policy_data.l_flock.end ==
+			    lock->l_policy_data.l_flock.end) {
+				int rc;
+				CFS_LIST_HEAD(rpc_list);
+
+				LASSERT(lock->l_completion_ast);
+				LASSERT((lock->l_flags & LDLM_FL_AST_SENT) == 0);
+				LASSERT(lock->l_granted_mode == 0);
+				lock->l_flags |= LDLM_FL_AST_SENT |
+						 LDLM_FL_CANCEL_ON_BLOCK;
+				ldlm_flock_blocking_unlink(lock);
+				ldlm_resource_unlink_lock(lock);
+				ldlm_add_ast_work_item(lock, NULL, &rpc_list);
+restart2:
+				unlock_res_and_lock(req);
+				rc = ldlm_run_ast_work(ns, &rpc_list,
+						       LDLM_WORK_CP_AST);
+				lock_res_and_lock(req);
+				if (rc == -ERESTART)
+					GOTO(restart2, -ERESTART);
+				break;
+			}
+		}
+	}
         if ((*flags == LDLM_FL_WAIT_NOREPROC) || (mode == LCK_NL)) {
                 /* This loop determines where this processes locks start
                  * in the resource lr_granted list. */
@@ -372,6 +404,8 @@ reprocess:
         list_for_remaining_safe(ownlocks, tmp, &res->lr_granted) {
                 lock = cfs_list_entry(ownlocks, struct ldlm_lock, l_res_link);
 
+                if (lock->l_granted_mode == 0)
+			continue;
                 if (!ldlm_same_flock_owner(lock, new))
                         break;
 
@@ -593,6 +627,44 @@ ldlm_flock_interrupted_wait(void *data)
         EXIT;
 }
 
+static int ldlm_flock_compare(struct ldlm_lock *l1, struct ldlm_lock *l2)
+{
+	return 	ldlm_same_flock_owner(l1, l2) &&
+		(l1->l_policy_data.l_flock.start ==
+		 l2->l_policy_data.l_flock.start) &&
+		(l1->l_policy_data.l_flock.end ==
+		 l2->l_policy_data.l_flock.end);
+}
+
+static void ldlm_flock_mark_canceled(struct ldlm_lock *req)
+{
+	struct flock_args *args;
+	cfs_list_t *tmp;
+	struct ldlm_lock *lock = NULL;
+	struct ldlm_resource *res = req->l_resource;
+	ENTRY;
+
+	cfs_list_for_each(tmp, &res->lr_enqueuing) {
+		lock = cfs_list_entry(tmp, struct ldlm_lock, l_res_link);
+		if (ldlm_flock_compare(lock, req)) {
+			args = lock->l_ast_data;
+			LASSERT(args != NULL);
+			args->fa_flags |= FA_FL_CANCELED;
+			LDLM_DEBUG(lock, "mark canceled enqueueing lock");
+		}
+	}
+	cfs_list_for_each(tmp, &res->lr_waiting) {
+		lock = cfs_list_entry(tmp, struct ldlm_lock, l_res_link);
+		if (ldlm_flock_compare(lock, req)) {
+			args = lock->l_ast_data;
+			LASSERT(args != NULL);
+			args->fa_flags |= FA_FL_CANCELED;
+			LDLM_DEBUG(lock, "mark canceled waiting lock");
+		}
+	}
+	EXIT;
+}
+
 /**
  * Flock completion callback function.
  *
@@ -606,7 +678,8 @@ ldlm_flock_interrupted_wait(void *data)
 int
 ldlm_flock_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
 {
-        cfs_flock_t                    *getlk = lock->l_ast_data;
+	struct flock_args              *args = lock->l_ast_data;
+	cfs_flock_t                    *getlk = args->fa_file_lock;
         struct obd_device              *obd;
         struct obd_import              *imp = NULL;
         struct ldlm_flock_wait_data     fwd;
@@ -618,6 +691,7 @@ ldlm_flock_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
 	CDEBUG(D_DLMTRACE, "flags: 0x%llx data: %p getlk: %p\n",
                flags, data, getlk);
 
+	LASSERT(args != NULL);
         /* Import invalidation. We need to actually release the lock
          * references being held, so that it can go away. No point in
          * holding the lock even if app still believes it has it, since
@@ -680,6 +754,11 @@ granted:
                 RETURN(0);
         }
 
+	if (lock->l_granted_mode == 0) {
+		LDLM_DEBUG(lock, "client-side enqueue waking up: canceled lock");
+		LBUG();
+	}
+
         if (lock->l_flags & LDLM_FL_FAILED) {
                 LDLM_DEBUG(lock, "client-side enqueue waking up: failed");
                 RETURN(-EIO);
@@ -694,6 +773,11 @@ granted:
         LDLM_DEBUG(lock, "client-side enqueue granted");
 
 	lock_res_and_lock(lock);
+
+	if (args->fa_flags & FA_FL_CANCEL_RQST) {
+		LDLM_DEBUG(lock, "client-side granted cancel lock");
+		ldlm_flock_mark_canceled(lock);
+	}
 
 	/* take lock off the deadlock detection hash list. */
         ldlm_flock_blocking_unlink(lock);
@@ -734,6 +818,128 @@ granted:
         RETURN(0);
 }
 EXPORT_SYMBOL(ldlm_flock_completion_ast);
+
+void ldlm_flock_run_flock_cb(struct ldlm_lock *lock, int rc)
+{
+	struct flock_args *args;
+
+	lock_res_and_lock(lock);
+	args = lock->l_ast_data;
+	lock->l_ast_data = NULL;
+	unlock_res_and_lock(lock);
+	if (args) {
+		(args->fa_cb)(args, rc);
+	}
+}
+EXPORT_SYMBOL(ldlm_flock_run_flock_cb);
+
+int
+ldlm_flock_completion_ast_async(struct ldlm_lock *lock, __u64 flags, void *data)
+{
+	__u64 noreproc = LDLM_FL_WAIT_NOREPROC;
+	struct flock_args *args;
+	ldlm_error_t err;
+	ENTRY;
+
+	CDEBUG(D_DLMTRACE, "lock=%p flags: 0x%llx data: %p l_ast_data: %p\n",
+	       lock, flags, data, lock->l_ast_data);
+
+	/* Import invalidation. We need to actually release the lock
+	 * references being held, so that it can go away. No point in
+	 * holding the lock even if app still believes it has it, since
+	 * server already dropped it anyway. Only for granted locks too. */
+	if ((lock->l_flags & (LDLM_FL_FAILED|LDLM_FL_LOCAL_ONLY)) ==
+	    (LDLM_FL_FAILED|LDLM_FL_LOCAL_ONLY)) {
+		if (lock->l_req_mode == lock->l_granted_mode &&
+		    lock->l_granted_mode != LCK_NL &&
+		    NULL == data)
+			ldlm_lock_decref_internal(lock, lock->l_req_mode);
+
+		/* Need to wake up the waiter if we were evicted */
+		LDLM_DEBUG(lock, "client-side failed lock");
+		ldlm_flock_run_flock_cb(lock, -EIO);
+		RETURN(-EIO);
+	}
+
+	LASSERT(flags != LDLM_FL_WAIT_NOREPROC);
+
+	if (flags & (LDLM_FL_BLOCK_WAIT | LDLM_FL_BLOCK_GRANTED |
+		     LDLM_FL_BLOCK_CONV)) {
+		LDLM_DEBUG(lock, "client-side enqueue returned a blocked lock");
+		RETURN(0);
+	}
+
+	if (data == NULL && lock->l_granted_mode == 0) {
+		LDLM_DEBUG(lock, "client-side enqueue waking up: canceled lock");
+
+		ldlm_flock_run_flock_cb(lock, -EIO);
+		RETURN(-EIO);
+	}
+
+	if (data != NULL) {
+		/* CP AST RPC: lock get granted, wake it up */
+		LDLM_DEBUG(lock, "client-side granted a blocked lock");
+	}
+
+	if (lock->l_granted_mode == 0) {
+		CDEBUG(D_EMERG, "client-side granted blocked: canceled lock\n");
+		LDLM_DEBUG(lock, "client-side granted blocked: canceled lock");
+		LASSERT(lock->l_granted_mode == 0);
+
+		lock_res_and_lock(lock);
+		args = lock->l_ast_data;
+		LASSERT(args != NULL);
+		/* take lock off the deadlock detection hash list. */
+		ldlm_flock_blocking_unlink(lock);
+		ldlm_resource_unlink_lock(lock);
+		ldlm_flock_destroy(lock, args->fa_mode,
+				   LDLM_FL_WAIT_NOREPROC);
+
+		unlock_res_and_lock(lock);
+		ldlm_flock_run_flock_cb(lock, -EIO);
+
+		RETURN(0);
+	}
+
+	LDLM_DEBUG(lock, "client-side enqueue granted");
+
+	lock_res_and_lock(lock);
+
+	if (lock->l_destroyed) {
+		unlock_res_and_lock(lock);
+		LDLM_DEBUG(lock, "client-side enqueue waking up: destroyed");
+		RETURN(0);
+	}
+
+	if (lock->l_flags & LDLM_FL_FAILED) {
+		unlock_res_and_lock(lock);
+		LDLM_DEBUG(lock, "client-side enqueue waking up: failed");
+		ldlm_flock_run_flock_cb(lock, -EIO);
+		RETURN(-EIO);
+	}
+
+	/* take lock off the deadlock detection hash list. */
+	ldlm_flock_blocking_unlink(lock);
+
+	/* ldlm_lock_enqueue() has already placed lock on the granted list. */
+	cfs_list_del_init(&lock->l_res_link);
+
+	/* We need to reprocess the lock to do merges or splits
+	 * with existing locks owned by this process. */
+	ldlm_process_flock_lock(lock, &noreproc, 1, &err, NULL);
+
+	args = lock->l_ast_data;
+
+	unlock_res_and_lock(lock);
+
+	if (args && (args->fa_flags & FA_FL_CANCELED))
+		LDLM_DEBUG(lock, "client-side granted canceled lock");
+
+	ldlm_flock_run_flock_cb(lock, 0);
+
+	RETURN(0);
+}
+EXPORT_SYMBOL(ldlm_flock_completion_ast_async);
 
 int ldlm_flock_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
                             void *data, int flag)

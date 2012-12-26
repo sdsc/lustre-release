@@ -1050,6 +1050,7 @@ static struct ldlm_resource *ldlm_resource_new(void)
         CFS_INIT_LIST_HEAD(&res->lr_granted);
         CFS_INIT_LIST_HEAD(&res->lr_converting);
         CFS_INIT_LIST_HEAD(&res->lr_waiting);
+	CFS_INIT_LIST_HEAD(&res->lr_enqueuing);
 
 	/* Initialize interval trees for each lock mode. */
         for (idx = 0; idx < LCK_MODE_NUM; idx++) {
@@ -1193,6 +1194,11 @@ static void __ldlm_resource_putref_final(cfs_hash_bd_t *bd,
                 ldlm_resource_dump(D_ERROR, res);
                 LBUG();
         }
+
+	if (!cfs_list_empty(&res->lr_enqueuing)) {
+		ldlm_resource_dump(D_ERROR, res);
+		LBUG();
+	}
 
         cfs_hash_bd_del_locked(nsb->nsb_namespace->ns_rs_hash,
                                bd, &res->lr_hash);

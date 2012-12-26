@@ -1691,6 +1691,10 @@ ldlm_error_t ldlm_lock_enqueue(struct ldlm_namespace *ns,
         if (!local && (*flags & LDLM_FL_REPLAY) && res->lr_type == LDLM_EXTENT)
                 OBD_SLAB_ALLOC_PTR_GFP(node, ldlm_interval_slab, CFS_ALLOC_IO);
 
+	if (res->lr_type == LDLM_FLOCK && lock->l_req_mode != LCK_NL) {
+		OBD_FAIL_TIMEOUT(OBD_FAIL_LDLM_PAUSE_FLOCK_LOCK, 1);
+	}
+
         lock_res_and_lock(lock);
         if (local && lock->l_req_mode == lock->l_granted_mode) {
                 /* The server returned a blocked lock, but it was granted

@@ -1118,6 +1118,7 @@ struct ldlm_resource {
 	 * List of locks that could not be granted due to conflicts and
 	 * that are waiting for conflicts to go away */
 	cfs_list_t		lr_waiting;
+	cfs_list_t		lr_enqueuing;
 	/** @} */
 
 	/* XXX No longer needed? Remove ASAP */
@@ -1237,6 +1238,29 @@ struct ldlm_enqueue_info {
 	void *ei_cbdata; /** Data to be passed into callbacks. */
 };
 
+#define FA_FL_CANCEL_RQST	1
+#define FA_FL_CANCELED		2
+
+struct flock_args {
+	struct file *fa_file;
+	struct file_lock *fa_file_lock;
+	struct file_lock fa_flc;
+	int fa_flags;
+	int fa_mode;
+	struct inode *fa_inode;
+	int (*fa_notify)(struct file_lock *, struct file_lock *, int);
+	void (*fa_cb)(struct flock_args *args, int rc);
+};
+
+struct mdc_enqueue_args {
+	struct lustre_handle mea_lockh;
+	struct ldlm_lock *mea_lock;
+	struct obd_export *mea_exp;
+	struct flock_args *mea_fa;
+	ldlm_mode_t mea_mode;
+	__u64 mea_flags;
+};
+
 extern struct obd_ops ldlm_obd_ops;
 
 extern char *ldlm_lockname[];
@@ -1329,6 +1353,8 @@ int ldlm_replay_locks(struct obd_import *imp);
 
 /* ldlm_flock.c */
 int ldlm_flock_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data);
+int ldlm_flock_completion_ast_async(struct ldlm_lock *lock, __u64 flags, void *data);
+void ldlm_flock_run_flock_cb(struct ldlm_lock *lock, int rc);
 
 /* ldlm_extent.c */
 __u64 ldlm_extent_shift_kms(struct ldlm_lock *lock, __u64 old_kms);
