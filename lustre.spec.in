@@ -247,6 +247,7 @@ cat >lustre.files <<EOF
 %attr(-, root, root) %{_libexecdir}/lustre/haconfig
 %attr(-, root, root) %{_sysconfdir}/ha.d/resource.d/Lustre.ha_v2
 %attr(-, root, root) %{_sysconfdir}/ha.d/resource.d/Lustre
+%config %{_sysconfdir}/ldev.conf
 EOF
 
 if [ -f $RPM_BUILD_ROOT%{_libdir}/libcfsutil.a ] ; then
