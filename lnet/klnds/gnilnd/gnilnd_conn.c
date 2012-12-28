@@ -1159,6 +1159,7 @@ kgnilnd_post_dgram(kgn_device_t *dev, lnet_nid_t dstnid, kgn_connreq_type_t type
 		   int data_rc)
 {
 	int              rc = 0;
+	int		 cpt;
 	kgn_dgram_t     *dgram = NULL;
 	kgn_dgram_t     *tmpdgram;
 	kgn_dgram_type_t dgtype;
@@ -1182,13 +1183,24 @@ kgnilnd_post_dgram(kgn_device_t *dev, lnet_nid_t dstnid, kgn_connreq_type_t type
 		LBUG();
 	}
 
+	/* If we are posting wildcards post using a net of 0, otherwise we'll use the
+	 * net of the destination node.
+	 */
+	if (dstnid == LNET_NID_ANY) {
+		srcnid = LNET_MKNID(LNET_MKNET(GNILND, 0), dev->gnd_nid);
+	} else {
+		srcnid = LNET_MKNID(LNET_NIDNET(dstnid), dev->gnd_nid);
+	}
+
+	cpt = lnet_cpt_of_nid(srcnid);
+
 	rc = kgnilnd_alloc_dgram(&dgram, dev, dgtype);
 	if (rc < 0) {
 		rc = -ENOMEM;
 		GOTO(post_failed, rc);
 	}
 
-	rc = kgnilnd_create_conn(&dgram->gndg_conn, dev);
+	rc = kgnilnd_create_conn(&dgram->gndg_conn, cpt, dev);
 	if (rc) {
 		GOTO(post_failed, rc);
 	}
@@ -1221,16 +1233,6 @@ kgnilnd_post_dgram(kgn_device_t *dev, lnet_nid_t dstnid, kgn_connreq_type_t type
 			GOTO(post_failed, rc);
 		}
 
-	}
-
-	/* If we are posting wildcards post using a net of 0, otherwise we'll use the
-	 * net of the destination node.
-	 */
-
-	if (dstnid == LNET_NID_ANY) {
-		srcnid = LNET_MKNID(LNET_MKNET(GNILND, 0), dev->gnd_nid);
-	} else {
-		srcnid = LNET_MKNID(LNET_NIDNET(dstnid), dev->gnd_nid);
 	}
 
 	rc = kgnilnd_pack_connreq(&dgram->gndg_conn_out, dgram->gndg_conn,
@@ -1335,7 +1337,6 @@ kgnilnd_release_dgram(kgn_device_t *dev, kgn_dgram_t *dgram)
 		kgnilnd_free_dgram(dev, dgram);
 	}
 }
-
 
 int
 kgnilnd_probe_for_dgram(kgn_device_t *dev, kgn_dgram_t **dgramp)
@@ -2322,6 +2323,7 @@ kgnilnd_dgram_mover(void *arg)
 	snprintf(name, sizeof(name), "kgnilnd_dg_%02d", dev->gnd_id);
 	cfs_daemonize(name);
 	cfs_block_allsigs();
+
 	/* all gnilnd threads need to run fairly urgently */
 	set_user_nice(current, *kgnilnd_tunables.kgn_nice);
 

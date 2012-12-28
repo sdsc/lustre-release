@@ -107,7 +107,7 @@ kgnilnd_quiesce_wait(char *reason)
 		for (i = 0; i < kgnilnd_data.kgn_ndevs; i++) {
 			kgn_device_t *dev = &kgnilnd_data.kgn_devices[i];
 
-			wake_up_all(&dev->gnd_waitq);
+			wake_up_all(&dev->kgn_waitq);
 			wake_up_all(&dev->gnd_dgram_waitq);
 			wake_up_all(&dev->gnd_dgping_waitq);
 		}

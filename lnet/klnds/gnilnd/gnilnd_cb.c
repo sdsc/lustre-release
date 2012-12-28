@@ -77,7 +77,7 @@ kgnilnd_schedule_device(kgn_device_t *dev)
 	already_live = cmpxchg(&dev->gnd_ready, GNILND_DEV_IDLE, GNILND_DEV_IRQ);
 
 	if (!already_live) {
-		wake_up_all(&dev->gnd_waitq);
+		wake_up_all(&dev->kgn_waitq);
 	}
 	return;
 }
@@ -221,14 +221,17 @@ kgnilnd_free_tx(kgn_tx_t *tx)
 }
 
 kgn_tx_t *
-kgnilnd_alloc_tx(void)
+kgnilnd_alloc_tx(lnet_nid_t nid)
 {
-	kgn_tx_t      *tx = NULL;
+	int		cpt = lnet_cpt_of_nid(nid);
+	kgn_tx_t	*tx = NULL;
 
 	if (CFS_FAIL_CHECK(CFS_FAIL_GNI_ALLOC_TX))
 		return tx;
 
-	tx = cfs_mem_cache_alloc(kgnilnd_data.kgn_tx_cache, CFS_ALLOC_ATOMIC);
+	tx = cfs_mem_cache_cpt_alloc(kgnilnd_data.kgn_tx_cache,
+				     lnet_cpt_table(), cpt,
+				     CFS_ALLOC_ATOMIC);
 	if (tx == NULL) {
 		CERROR("failed to allocate tx\n");
 		return NULL;
@@ -304,10 +307,10 @@ kgnilnd_cksum_kiov(unsigned int nkiov, lnet_kiov_t *kiov,
 	odd = (unsigned long) (kiov[0].kiov_len - offset) & 1;
 
 	if ((odd || *kgnilnd_tunables.kgn_vmap_cksum) && nkiov > 1) {
-		struct page **pages = kgnilnd_data.kgn_cksum_map_pages[get_cpu()];
+		struct page **pages = kgnilnd_data.kgn_cksum_map_pages[lnet_cpt_current()];
 
 		LASSERTF(pages != NULL, "NULL pages for cpu %d map_pages 0x%p\n",
-			 get_cpu(), kgnilnd_data.kgn_cksum_map_pages);
+			 lnet_cpt_current(), kgnilnd_data.kgn_cksum_map_pages);
 
 		CDEBUG(D_BUFFS, "odd %d len %u offset %u nob %u\n",
 		       odd, kiov[0].kiov_len, offset, nob);
@@ -403,7 +406,7 @@ kgnilnd_init_msg(kgn_msg_t *msg, int type, lnet_nid_t source)
 kgn_tx_t *
 kgnilnd_new_tx_msg(int type, lnet_nid_t source)
 {
-	kgn_tx_t *tx = kgnilnd_alloc_tx();
+	kgn_tx_t *tx = kgnilnd_alloc_tx(source);
 
 	if (tx != NULL) {
 		kgnilnd_init_msg(&tx->tx_msg, type, source);
@@ -4245,17 +4248,27 @@ kgnilnd_process_conns(kgn_device_t *dev)
 int
 kgnilnd_scheduler(void *arg)
 {
-	int               threadno = (long)arg;
-	kgn_device_t     *dev;
-	char              name[16];
-	int               busy_loops = 0;
+	long			id = (long)arg;
+	struct kgn_sched_info	*sched;
+	kgn_device_t		*dev;
+	char			name[16];
+	int			busy_loops = 0;
+	int			rc;
 	DEFINE_WAIT(wait);
 
-	dev = &kgnilnd_data.kgn_devices[(threadno + 1) % kgnilnd_data.kgn_ndevs];
-
-	snprintf(name, sizeof(name), "kgnilnd_sd_%02d", threadno);
+	snprintf(name, sizeof(name), "kgnilnd_sd_%02ld_%02ld",
+		 KGN_THREAD_CPT(id), KGN_THREAD_TID(id));
 	cfs_daemonize(name);
 	cfs_block_allsigs();
+
+	sched = kgnilnd_data.kgn_scheds[KGN_THREAD_CPT(id)];
+	dev = sched->kgn_dev;
+
+	rc = cfs_cpt_bind(lnet_cpt_table(), sched->kgn_cpt);
+	if (rc != 0) {
+		CERROR("Can't set CPT affinity for %s to %d: %d\n",
+		       name, sched->kgn_cpt, rc);
+	}
 
 	/* all gnilnd threads need to run fairly urgently */
 	set_user_nice(current, *kgnilnd_tunables.kgn_nice);
@@ -4322,7 +4335,7 @@ kgnilnd_scheduler(void *arg)
 		 * need to take a break. We'll clear gnd_ready but we'll check
 		 * one last time if there is an IRQ that needs processing */
 
-		prepare_to_wait(&dev->gnd_waitq, &wait, TASK_INTERRUPTIBLE);
+		prepare_to_wait(&dev->kgn_waitq, &wait, TASK_INTERRUPTIBLE);
 
 		/* the first time this will go LOOP -> IDLE and let us do one final check
 		 * during which we might get an IRQ, then IDLE->IDLE and schedule()
@@ -4358,7 +4371,7 @@ kgnilnd_scheduler(void *arg)
 			schedule();
 			CDEBUG(D_INFO, "awake after schedule\n");
 		}
-		finish_wait(&dev->gnd_waitq, &wait);
+		finish_wait(&dev->kgn_waitq, &wait);
 	}
 
 	kgnilnd_thread_fini();
