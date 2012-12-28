@@ -12,6 +12,10 @@
 
 %define buildid %(if [ -n "@BUILDID@" ]; then echo "_@BUILDID@"; fi)
 
+%define build_osd_ldiskfs %(bash -c "if [ '@LDISKFS_ENABLED_TRUE@' != '#' ]; then echo -n true; else echo -n false; fi")
+
+%define build_osd_zfs %(bash -c "if [ '@ZFS_ENABLED_TRUE@' != '#' ]; then echo -n true; else echo -n false; fi")
+
 %{!?myrelease: %global myrelease %(if [ -n "%downstream_release" ]; then echo -n "%{downstream_release}_"; fi; echo %kversion | tr '-' '_')}
 
 # always append the buildid, even when the caller defines %release
@@ -88,6 +92,22 @@ Group: Development/Kernel
 
 %description modules
 Lustre file system, server and network drivers for Linux %{kversion}.
+
+%package osd-ldiskfs
+Summary: osd-ldiskfs is the mandatory glue for LDISKFS support in Lustre.
+Requires: lustre-modules = %{version}, lustre-ldiskfs
+Group: Development/Kernel
+
+%description osd-ldiskfs
+Lustre %{version} <-> LDISKFS binding module.
+
+%package osd-zfs
+Summary: osd-zfs is the mandatory glue for ZFS support in Lustre.
+Requires: lustre-modules = %{version}, zfs-modules
+Group: Development/Kernel
+
+%description osd-zfs
+Lustre %{version} <-> ZFS binding module.
 
 %package source
 Summary: Object-Based Disk storage driver source
@@ -199,6 +219,14 @@ make install DESTDIR=$RPM_BUILD_ROOT
 rm -f $RPM_BUILD_ROOT%{_libdir}/libsysio.a
 # Remove ldiskfs module(s) - they are packaged by the ldiskfs .spec.
 rm -rf $RPM_BUILD_ROOT/lib/modules/%{kversion}/updates/kernel/fs/lustre-ldiskfs
+# Exclude osd_ldiskfs module - it is now packaged by the osd-ldiskfs sub-package.
+%if %{build_osd_ldiskfs}=="true"
+modules_excludes="$modules_excludes|osd_ldiskfs"
+%endif
+# Exclude osd_zfs module - it is now packaged by the osd-zfs sub-package.
+%if %{build_osd_zfs}=="true"
+modules_excludes="$modules_excludes|osd_zfs"
+%endif
 
 # hack to include the llog_test module in lustre-tests
 llog_base=$RPM_BUILD_DIR/lustre-%{version}/lustre/obdclass/llog_test
@@ -281,7 +309,7 @@ fi
 %if %{build_lustre_tests}
 echo '%attr(-, root, root) %{_libdir}/lustre/tests/*' >lustre-tests.files
 echo '%attr(-, root, root) /lib/modules/%{kversion}/updates/kernel/fs/lustre/llog_test.*' >>lustre-tests.files
-modules_excludes="|llog_test"
+modules_excludes="$modules_excludes|llog_test"
 if [ -d $RPM_BUILD_ROOT%{_libdir}/lustre/liblustre/tests ] ; then
   echo '%attr(-, root, root) %{_libdir}/lustre/liblustre/tests/*' >>lustre-tests.files
 fi
@@ -298,6 +326,16 @@ popd >/dev/null
 %attr(-, root, root) %doc COPYING
 %attr(-, root, root) %doc ChangeLog-lustre
 %attr(-, root, root) %doc ChangeLog-lnet
+
+%if %{build_osd_ldiskfs}=="true"
+%files osd-ldiskfs
+%attr(-, root, root) /lib/modules/%{kversion}/updates/kernel/fs/lustre/osd_ldiskfs.ko
+%endif
+
+%if %{build_osd_zfs}=="true"
+%files osd-zfs
+%attr(-, root, root) /lib/modules/%{kversion}/updates/kernel/fs/lustre/osd_zfs.ko
+%endif
 
 %files source
 %attr(-, root, root) /usr/src/lustre-%{version}
@@ -345,9 +383,87 @@ if sysctl kernel.unsupported >/dev/null 2>&1 &&
      into /etc/modprobe.d/unsupported_modules"
 fi
 
+%post osd-ldiskfs
+if [ -f /boot/System.map-%{kversion} ]; then
+	depmod -ae -F /boot/System.map-%{kversion} %{kversion} || exit 0
+else
+	depmod -ae %{kversion} || exit 0
+fi
+
+OSD_LDISKFS_RPM_NAME=$(rpm -q %{name}-osd-ldiskfs | grep "%{version}-%{release}")
+# "weak modules" support
+# Suse
+if [ -x /usr/lib/module-init-tools/weak-modules ]; then
+    rpm -ql $OSD_LDISKFS_RPM_NAME | grep '\.ko$' |
+        /usr/lib/module-init-tools/weak-modules --add-modules
+fi
+# RedHat
+if [ -x /sbin/weak-modules ]; then
+    rpm -ql $OSD_LDISKFS_RPM_NAME | grep '\.ko$' |
+        /sbin/weak-modules --add-modules
+fi
+
+# If the kernel was built to reject unsupported modules (e.g. not a Lustre
+# kernel), and this hasn't been overridden in /etc/modprobe.d yet, then
+# print a warning so that users are aware of this issue.
+if sysctl kernel.unsupported >/dev/null 2>&1 &&
+   [ "$(sysctl -n kernel.unsupported 2>/dev/null)" = "0" ] &&
+    ! modprobe -c | grep -q "^allow_unsupported_modules[ \t]1" ; then
+     echo "
+     warning: the Lustre modules are not supported by Novell. To use Lustre
+              on this system, you should put
+
+     allow_unsupported_modules 1
+
+     into /etc/modprobe.d/unsupported_modules"
+fi
+
+%post osd-zfs
+if [ -f /boot/System.map-%{kversion} ]; then
+	depmod -ae -F /boot/System.map-%{kversion} %{kversion} || exit 0
+else
+	depmod -ae %{kversion} || exit 0
+fi
+
+OSD_ZFS_RPM_NAME=$(rpm -q %{name}-osd-zfs | grep "%{version}-%{release}")
+# "weak modules" support
+# Suse
+if [ -x /usr/lib/module-init-tools/weak-modules ]; then
+    rpm -ql $OSD_ZFS_RPM_NAME | grep '\.ko$' |
+        /usr/lib/module-init-tools/weak-modules --add-modules
+fi
+# RedHat
+if [ -x /sbin/weak-modules ]; then
+    rpm -ql $OSD_ZFS_RPM_NAME | grep '\.ko$' |
+        /sbin/weak-modules --add-modules
+fi
+
+# If the kernel was built to reject unsupported modules (e.g. not a Lustre
+# kernel), and this hasn't been overridden in /etc/modprobe.d yet, then
+# print a warning so that users are aware of this issue.
+if sysctl kernel.unsupported >/dev/null 2>&1 &&
+   [ "$(sysctl -n kernel.unsupported 2>/dev/null)" = "0" ] &&
+    ! modprobe -c | grep -q "^allow_unsupported_modules[ \t]1" ; then
+     echo "
+     warning: the Lustre modules are not supported by Novell. To use Lustre
+              on this system, you should put
+
+     allow_unsupported_modules 1
+
+     into /etc/modprobe.d/unsupported_modules"
+fi
+
 %preun modules
 MODULES_RPM_NAME=$(rpm -q %{name}-modules | grep "%{version}-%{release}")
 rpm -ql $MODULES_RPM_NAME | grep '\.ko$' > /var/run/%{name}-modules || true
+
+%preun osd-ldiskfs
+OSD_LDISKFS_RPM_NAME=$(rpm -q %{name}-osd-ldiskfs | grep "%{version}-%{release}")
+rpm -ql $OSD_LDISKFS_RPM_NAME | grep '\.ko$' > /var/run/%{name}-osd-ldiskfs || true
+
+%preun osd-zfs
+OSD_ZFS_RPM_NAME=$(rpm -q %{name}-osd-zfs | grep "%{version}-%{release}")
+rpm -ql $OSD_ZFS_RPM_NAME | grep '\.ko$' > /var/run/%{name}-osd-zfs || true
 
 %postun modules
 if [ -f /boot/System.map-%{kversion} ]; then
@@ -368,6 +484,46 @@ if [ -x /sbin/weak-modules ]; then
         /sbin/weak-modules --remove-modules
 fi
 rm /var/run/%{name}-modules
+
+%postun osd-ldiskfs
+if [ -f /boot/System.map-%{kversion} ]; then
+	depmod -ae -F /boot/System.map-%{kversion} %{kversion} || exit 0
+else
+	depmod -ae %{kversion} || exit 0
+fi
+
+# "weak modules" support
+# Suse
+if [ -x /usr/lib/module-init-tools/weak-modules ]; then
+    cat /var/run/%{name}-osd-ldiskfs |
+        /usr/lib/module-init-tools/weak-modules --remove-modules
+fi
+# RedHat
+if [ -x /sbin/weak-modules ]; then
+    cat /var/run/%{name}-osd-ldiskfs |
+        /sbin/weak-modules --remove-modules
+fi
+rm /var/run/%{name}-osd-ldiskfs
+
+%postun osd-zfs
+if [ -f /boot/System.map-%{kversion} ]; then
+	depmod -ae -F /boot/System.map-%{kversion} %{kversion} || exit 0
+else
+	depmod -ae %{kversion} || exit 0
+fi
+
+# "weak modules" support
+# Suse
+if [ -x /usr/lib/module-init-tools/weak-modules ]; then
+    cat /var/run/%{name}-osd-zfs |
+        /usr/lib/module-init-tools/weak-modules --remove-modules
+fi
+# RedHat
+if [ -x /sbin/weak-modules ]; then
+    cat /var/run/%{name}-osd-zfs |
+        /sbin/weak-modules --remove-modules
+fi
+rm /var/run/%{name}-osd-zfs
 
 %if %{build_lustre_tests}
 %post tests
