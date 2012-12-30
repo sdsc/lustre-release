@@ -518,11 +518,11 @@ static inline void md_device_fini(struct md_device *md)
         lu_device_fini(&md->md_lu_dev);
 }
 
-static inline struct md_object *md_object_find_slice(const struct lu_env *env,
-                                                     struct md_device *md,
-                                                     const struct lu_fid *f)
+static inline struct md_object *
+md_object_find_slice(const struct lu_env *env, struct md_device *md,
+		     const struct lu_fid *f, const struct lu_object_conf *conf)
 {
-        return lu2md(lu_object_find_slice(env, md2lu_dev(md), f, NULL));
+	return lu2md(lu_object_find_slice(env, md2lu_dev(md), f, conf));
 }
 
 
