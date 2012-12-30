@@ -246,10 +246,8 @@ struct osd_otable_cache {
 
 struct osd_otable_it {
 	struct osd_device       *ooi_dev;
+	pid_t			 ooi_pid;
 	struct osd_otable_cache  ooi_cache;
-
-	/* For osd_otable_it_key. */
-	__u8			 ooi_key[16];
 
 	/* The following bits can be updated/checked w/o lock protection.
 	 * If more bits will be introduced in the future and need lock to
@@ -260,7 +258,9 @@ struct osd_otable_it {
 						    * filled into cache. */
 				 ooi_user_ready:1, /* The user out of OSD is
 						    * ready to iterate. */
-				 ooi_waiting:1; /* it::next is waiting. */
+				 ooi_waiting:1, /* it::next is waiting. */
+				 ooi_stopping:1; /* Someone is stopping
+						  * the iteration. */
 };
 
 extern const int osd_dto_credits_noquota[];
@@ -335,11 +335,15 @@ do {									\
 	((oh)->ot_declare_ ##op ##_cred) += (credits);			\
 	(oh)->ot_credits += (credits);					\
 } while (0)
+
+/* The ot_declare_xxx may be not accurate as expected, because there may be
+ * rollback operations during the transaction. For example: ref_del will be
+ * called if fail to insert name for link operation. */
 #define OSD_EXEC_OP(handle, op)						\
 do {									\
 	struct osd_thandle *oh = container_of(handle, typeof(*oh), ot_super); \
-	LASSERT((oh)->ot_declare_ ##op > 0);				\
-	((oh)->ot_declare_ ##op)--;					\
+	if ((oh)->ot_declare_ ##op > 0)					\
+		((oh)->ot_declare_ ##op)--;				\
 } while (0)
 #else
 #define OSD_DECLARE_OP(oh, op, credits) (oh)->ot_credits += (credits)

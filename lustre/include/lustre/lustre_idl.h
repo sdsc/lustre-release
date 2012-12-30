@@ -2180,6 +2180,7 @@ enum {
         MDS_CLOSE_CLEANUP = 1 << 6,
         MDS_KEEP_ORPHAN   = 1 << 7,
         MDS_RECOV_OPEN    = 1 << 8,
+	MDS_OWNEROVERRIDE = 1 << 9,
 };
 
 /* instance of mdt_reint_rec */
