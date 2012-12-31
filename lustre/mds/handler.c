@@ -733,11 +733,13 @@ static int mds_getattr_internal(struct obd_device *obd, struct dentry *dentry,
 
                 /* If we have LOV EA data, the OST holds size, atime, mtime */
                 if (!(body->valid & OBD_MD_FLEASIZE) &&
-                    !(body->valid & OBD_MD_FLDIREA))
+                    !(body->valid & OBD_MD_FLDIREA)) {
                         body->valid |= (OBD_MD_FLSIZE | OBD_MD_FLBLOCKS |
                                         OBD_MD_FLATIME | OBD_MD_FLMTIME);
-
-                reply_off++;
+                } else {
+                        /* mds_shrink_reply only packs non-zero-sized eadata */
+                        reply_off++;
+                }
         } else if (S_ISLNK(inode->i_mode) &&
                    (reqbody->valid & OBD_MD_LINKNAME) != 0) {
                 char *symname = lustre_msg_buf(req->rq_repmsg, reply_off, 0);
