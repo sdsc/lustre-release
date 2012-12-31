@@ -429,3 +429,22 @@ Now, chmod should change the group_obj entry
 	> 
 
 	$ rmdir d
+
+ACLs for fifo
+	$ mkfifo pipe
+	$ getfacl --omit-header pipe
+	> user::rw-
+	> group::rw-
+	> other::r--
+	> 
+
+	$ setfacl -m u:bin:rwx pipe
+
+	$ getfacl --omit-header pipe
+	> user::rw-
+	> user:bin:rwx
+	> group::rw-
+	> mask::rwx
+	> other::r--
+	> 
+	$ rm -f pipe
