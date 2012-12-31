@@ -5776,8 +5776,9 @@ test_125() { # 13358
 	$SETSTRIPE $DIR/d125 -s 65536 -c -1 || error "setstripe failed"
 	setfacl -R -m u:bin:rwx $DIR/d125 || error "setfacl $DIR/d125 failes"
 	ls -ld $DIR/d125 || error "cannot access $DIR/d125"
+	ls -l $DIR/d125 || error "cannot access $DIR/d125"
 }
-run_test 125 "don't return EPROTO when a dir has a non-default striping and ACLs"
+run_test 125 "don't return EPROTO if a dir has a non-default striping and ACLs"
 
 test_126() { # bug 12829/13455
 	[ "$UID" != 0 ] && skip_env "skipping $TESTNAME (must run as root)" && return
