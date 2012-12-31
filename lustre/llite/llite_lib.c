@@ -1490,10 +1490,10 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
 
         memcpy(&op_data->op_attr, attr, sizeof(*attr));
 
-        /* Open epoch for truncate. */
-        if (exp_connect_som(ll_i2mdexp(inode)) &&
-            (ia_valid & (ATTR_SIZE | ATTR_MTIME | ATTR_MTIME_SET)))
-                op_data->op_flags = MF_EPOCH_OPEN;
+	/* Open epoch for truncate. */
+	if (S_ISREG(inode->i_mode) && exp_connect_som(ll_i2mdexp(inode)) &&
+	    (ia_valid & (ATTR_SIZE | ATTR_MTIME | ATTR_MTIME_SET)))
+		op_data->op_flags = MF_EPOCH_OPEN;
 
         rc = ll_md_setattr(dentry, op_data, &mod);
         if (rc)

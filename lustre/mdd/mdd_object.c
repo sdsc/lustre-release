@@ -1162,12 +1162,15 @@ static int mdd_xattr_sanity_check(const struct lu_env *env,
 				  struct mdd_object *obj)
 {
 	struct lu_attr  *tmp_la = &mdd_env_info(env)->mti_la;
-	struct lu_ucred *uc     = lu_ucred_assert(env);
+	struct lu_ucred *uc     = lu_ucred_check(env);
 	int rc;
 	ENTRY;
 
 	if (mdd_is_immutable(obj) || mdd_is_append(obj))
 		RETURN(-EPERM);
+
+	if (uc == NULL)
+		RETURN(0);
 
 	rc = mdd_la_get(env, obj, tmp_la, BYPASS_CAPA);
 	if (rc)
