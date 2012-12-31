@@ -227,6 +227,11 @@ int ll_som_update(struct inode *inode, struct md_op_data *op_data)
         int rc;
         ENTRY;
 
+	if (!lli->lli_has_smd) {
+		CDEBUG(D_INODE, "no LSM on "DFID"\n", PFID(&lli->lli_fid));
+		RETURN(0);
+	}
+
         LASSERT(op_data != NULL);
         if (lli->lli_flags & LLIF_MDS_SIZE_LOCK)
                 CERROR("ino %lu/%u(flags %u) som valid it just after "

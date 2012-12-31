@@ -473,10 +473,13 @@ int mdt_som_au_close(struct mdt_thread_info *info, struct mdt_object *o)
         int rc = 0;
         ENTRY;
 
-        LASSERT(!req || info->mti_ioepoch);
-        if (!(mdt_conn_flags(info) & OBD_CONNECT_SOM) ||
-            !S_ISREG(lu_object_attr(&o->mot_obj.mo_lu)))
-                RETURN(0);
+	LASSERT(!req || info->mti_ioepoch);
+	if (lu_object_is_dying(&o->mot_header))
+		RETURN(-ESTALE);
+
+	if (!(mdt_conn_flags(info) & OBD_CONNECT_SOM) ||
+	    !S_ISREG(lu_object_attr(&o->mot_obj.mo_lu)))
+		RETURN(0);
 
         /* No size whereas MF_SOM_CHANGE is set means client failed to
          * obtain ost attributes, drop the SOM cache on disk if so. */
@@ -496,9 +499,10 @@ int mdt_som_au_close(struct mdt_thread_info *info, struct mdt_object *o)
                 ioepoch =  info->mti_ioepoch ?
                         info->mti_ioepoch->ioepoch : o->mot_ioepoch;
 
-                if (!(lustre_msg_get_flags(req->rq_reqmsg) & MSG_REPLAY))
-                        rc = mdt_som_attr_set(info, o, ioepoch, act);
-                mdt_object_som_enable(o, ioepoch);
+		if (req == NULL ||
+		    !(lustre_msg_get_flags(req->rq_reqmsg) & MSG_REPLAY))
+			rc = mdt_som_attr_set(info, o, ioepoch, act);
+		mdt_object_som_enable(o, ioepoch);
         }
 	mutex_unlock(&o->mot_ioepoch_mutex);
         RETURN(rc);
