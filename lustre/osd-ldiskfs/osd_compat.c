@@ -517,7 +517,7 @@ int osd_obj_map_lookup(struct osd_thread_info *info, struct osd_device *dev,
 	osd_id_gen(id, le32_to_cpu(de->inode), OSD_OII_NOGEN);
 	brelse(bh);
 
-	inode = osd_iget(info, dev, id);
+	inode = osd_iget(info, dev, id, true);
 	if (IS_ERR(inode))
 		RETURN(PTR_ERR(inode));
 
