@@ -1089,6 +1089,247 @@ out:
 	return rc;
 }
 
+/**
+ * \retval +ve	inserted
+ * \retval 0	no need to insert
+ * \retval -ve	error cases
+ */
+static int mdd_lfsck_insert_name(const struct lu_env *env,
+				 struct mdd_object *parent,
+				 struct mdd_object *child,
+				 const struct lu_name *cname)
+{
+	struct mdd_device   *mdd    = mdd_obj2mdd_dev(parent);
+	const struct lu_fid *cfid   = mdo2fid(child);
+	struct thandle	    *handle;
+	int		     rc;
+	ENTRY;
+
+	handle = mdd_trans_create(env, mdd);
+	if (IS_ERR(handle))
+		RETURN(PTR_ERR(handle));
+
+	rc = mdo_declare_index_insert(env, parent, cfid, cname->ln_name,
+				      handle);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	rc = mdd_declare_changelog_store(env, mdd, cname, handle);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	rc = mdd_trans_start(env, mdd, handle);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	mdd_write_lock(env, parent, MOR_TGT_CHILD);
+	if (unlikely(mdd_is_dead_obj(parent)))
+		GOTO(unlock, rc = 0);
+
+	rc = dt_insert(env, mdd_object_child(parent),
+		       (const struct dt_rec*)cfid,
+		       (const struct dt_key *)cname->ln_name,
+		       handle, BYPASS_CAPA, 1);
+	if (rc != 0)
+		GOTO(unlock, rc);
+
+	rc = mdd_changelog_ns_store(env, mdd, CL_HARDLINK, 0, child, parent,
+				    cname, handle);
+
+	GOTO(unlock, rc = (rc == 0 ? 1 : rc));
+
+unlock:
+	mdd_write_unlock(env, parent);
+out:
+	mdd_trans_stop(env, mdd, rc, handle);
+	return rc;
+}
+
+/**
+ * \retval +ve	repaired
+ * \retval 0	no need to repair
+ * \retval -ve	error cases
+ */
+static int mdd_lfsck_namespace_double_scan_one(const struct lu_env *env,
+					       struct lfsck_component *com,
+					       struct mdd_object *child,
+					       __u8 flags)
+{
+	struct mdd_thread_info	*info	  = mdd_env_info(env);
+	struct lu_attr		*la	  = &info->mti_la;
+	struct lu_name		*cname	  = &info->mti_name;
+	struct lu_fid		*pfid	  = &info->mti_fid;
+	struct lu_fid		*cfid	  = &info->mti_fid2;
+	struct md_lfsck		*lfsck	  = com->lc_lfsck;
+	struct mdd_device	*mdd	  = mdd_lfsck2mdd(lfsck);
+	struct lfsck_bookmark	*bk	  = &lfsck->ml_bookmark_ram;
+	struct lfsck_namespace	*ns	  =
+				(struct lfsck_namespace *)com->lc_file_ram;
+	struct mdd_link_data	 ldata	  = { 0 };
+	bool			 update	  = false;
+	int			 repaired = 0;
+	int			 count;
+	int			 rc;
+	ENTRY;
+
+	rc = mdd_links_read(env, child, &ldata);
+	if (rc != 0) {
+		if ((bk->lb_param & LPF_DRYRUN) && (flags & LLF_VERIFIED) &&
+		    (rc == -EINVAL || rc == -ENODATA))
+			rc = 1;
+
+		RETURN(rc);
+	}
+
+	rc = mdd_la_get(env, child, la, BYPASS_CAPA);
+	if (rc != 0)
+		RETURN(rc);
+
+	ldata.ml_lee = (struct link_ea_entry *)(ldata.ml_leh + 1);
+	count = ldata.ml_leh->leh_reccount;
+	while (count-- > 0) {
+		struct lfsck_linkea_entry *lle;
+		struct mdd_object *parent = NULL;
+		struct dt_object *dir;
+
+		mdd_lee_unpack(ldata.ml_lee, &ldata.ml_reclen, cname, pfid);
+		if (!fid_is_sane(pfid))
+			goto shrink;
+
+		lle = mdd_lfsck_linkea_find(child, pfid, cname);
+		if (lle != NULL) {
+			ldata.ml_lee = (struct link_ea_entry *)
+				       ((char *)ldata.ml_lee + ldata.ml_reclen);
+			continue;
+		}
+
+		parent = mdd_object_find(env, mdd, pfid);
+		if (parent == NULL)
+			goto shrink;
+		else if (IS_ERR(parent))
+			RETURN(PTR_ERR(parent));
+
+		rc = mdd_object_exists(parent);
+		if (rc == 0)
+			goto shrink;
+
+		/* XXX: need more processing for remote object in the future. */
+		if (mdd_object_exists(parent) < 0) {
+			mdd_object_put(env, parent);
+			ldata.ml_lee = (struct link_ea_entry *)
+				       ((char *)ldata.ml_lee + ldata.ml_reclen);
+			continue;
+		}
+
+		mdd_read_lock(env, parent, MOR_TGT_CHILD);
+		if (unlikely(mdd_is_dead_obj(parent)))
+			goto unlock;
+
+		if (!S_ISDIR(mdd_object_type(parent)))
+			goto unlock;
+
+		dir = mdd_object_child(parent);
+		rc = dt_try_as_dir(env, dir);
+		if (rc == 0) {
+			mdd_read_unlock(env, parent);
+			mdd_object_put(env, parent);
+			RETURN(-ENOTDIR);
+		}
+
+		/* To guarantee the 'name' is terminated with '0'. */
+		memcpy(info->mti_key, cname->ln_name, cname->ln_namelen);
+		info->mti_key[cname->ln_namelen] = 0;
+		cname->ln_name = info->mti_key;
+		rc = dt_lookup(env, dir, (struct dt_rec *)cfid,
+			       (const struct dt_key *)cname->ln_name,
+			       BYPASS_CAPA);
+		mdd_read_unlock(env, parent);
+		if (rc == 0) {
+			if (lu_fid_eq(cfid, mdo2fid(child))) {
+				mdd_object_put(env, parent);
+				ldata.ml_lee = (struct link_ea_entry *)
+				       ((char *)ldata.ml_lee + ldata.ml_reclen);
+				continue;
+			}
+
+			goto shrink;
+		}
+
+		if (rc != -ENOENT) {
+			mdd_object_put(env, parent);
+			RETURN(rc);
+		}
+
+		if (ldata.ml_leh->leh_reccount > la->la_nlink)
+			goto shrink;
+
+		if (bk->lb_param & LPF_DRYRUN) {
+			mdd_object_put(env, parent);
+			ns->ln_ents_added++;
+			RETURN(1);
+		}
+
+		/* For the case of there is linkea entry, but without name entry
+		 * pointing to the object, and the object links count isn't less
+		 * than the count of name entries, then add the name entry back
+		 * to namespace. */
+		rc = mdd_lfsck_insert_name(env, parent, child, cname);
+		mdd_object_put(env, parent);
+		parent = NULL;
+		if (rc == 1) {
+			ldata.ml_lee = (struct link_ea_entry *)
+			       ((char *)ldata.ml_lee + ldata.ml_reclen);
+			ns->ln_ents_added++;
+			repaired = 1;
+			continue;
+		}
+
+		if (unlikely(rc == 0 || rc == -EEXIST))
+			goto shrink;
+
+		RETURN(rc);
+
+unlock:
+		mdd_read_unlock(env, parent);
+
+shrink:
+		if (parent != NULL)
+			mdd_object_put(env, parent);
+		if (bk->lb_param & LPF_DRYRUN)
+			RETURN(1);
+
+		CDEBUG(D_LFSCK, "Remove linkEA: "DFID"[%.*s], "DFID"\n",
+		       PFID(mdo2fid(child)), cname->ln_namelen, cname->ln_name,
+		       PFID(pfid));
+		mdd_links_del_buf(env, &ldata, cname);
+		update = true;
+	}
+
+	if (update) {
+		rc = mdd_lfsck_store_links(env, child, &ldata);
+		if (rc != 0)
+			RETURN(rc);
+
+		repaired = 1;
+	}
+
+	if (ldata.ml_leh->leh_reccount == la->la_nlink)
+		RETURN(repaired);
+
+	if (bk->lb_param & LPF_DRYRUN) {
+		ns->ln_objs_nlink_repaired++;
+		RETURN(1);
+	}
+
+	rc = mdd_lfsck_update_nlink(env, child, ldata.ml_leh->leh_reccount);
+	if (rc == 0) {
+		ns->ln_objs_nlink_repaired++;
+		rc = 1;
+	}
+
+	RETURN(rc);
+}
+
 /* namespace APIs */
 
 static int mdd_lfsck_namespace_reset(const struct lu_env *env,
@@ -1415,7 +1656,8 @@ add:
 
 record:
 	LASSERT(count > 0);
-	LASSERT(count >= llh->llh_count);
+	LASSERTF(count >= llh->llh_count, "count = %d, llh->llh_count = %d\n",
+		 count, llh->llh_count);
 
 	if (count == 1) {
 		/* Usually, it is for single linked object or dir, do nothing.*/
@@ -1789,32 +2031,178 @@ out:
 	return ret;
 }
 
-/* XXX: to be implemented in other patch.  */
 static int mdd_lfsck_namespace_double_scan(const struct lu_env *env,
 					   struct lfsck_component *com)
 {
 	struct md_lfsck		*lfsck	= com->lc_lfsck;
+	struct ptlrpc_thread	*thread = &lfsck->ml_thread;
+	struct mdd_device	*mdd	= mdd_lfsck2mdd(lfsck);
 	struct lfsck_bookmark	*bk	= &lfsck->ml_bookmark_ram;
 	struct lfsck_namespace	*ns	=
 				(struct lfsck_namespace *)com->lc_file_ram;
+	struct dt_object	*obj	= com->lc_obj;
+	const struct dt_it_ops	*iops	= &obj->do_index_ops->dio_it;
+	struct mdd_object	*target;
+	struct dt_it		*di;
+	struct dt_key		*key;
+	struct lu_fid		 fid;
 	int			 rc;
+	__u8			 flags;
+	ENTRY;
 
+	lfsck->ml_new_scanned = 0;
+	lfsck->ml_time_last_checkpoint = cfs_time_current();
+	lfsck->ml_time_next_checkpoint = lfsck->ml_time_last_checkpoint +
+				cfs_time_seconds(LFSCK_CHECKPOINT_INTERVAL);
+
+	di = iops->init(env, obj, 0, BYPASS_CAPA);
+	if (IS_ERR(di))
+		RETURN(PTR_ERR(di));
+
+	fid_cpu_to_be(&fid, &ns->ln_fid_latest_scanned_phase2);
+	rc = iops->get(env, di, (const struct dt_key *)&fid);
+	if (rc < 0)
+		GOTO(fini, rc);
+
+	/* Skip the start one, which either has been processed or non-exist. */
+	rc = iops->next(env, di);
+	if (rc != 0)
+		GOTO(put, rc);
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_NO_DOUBLESCAN))
+		GOTO(put, rc = 0);
+
+	do {
+		if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_DELAY3) &&
+		    cfs_fail_val > 0) {
+			struct l_wait_info lwi;
+
+			lwi = LWI_TIMEOUT(cfs_time_seconds(cfs_fail_val),
+					  NULL, NULL);
+			l_wait_event(thread->t_ctl_waitq,
+				     !thread_is_running(thread),
+				     &lwi);
+		}
+
+		key = iops->key(env, di);
+		fid_be_to_cpu(&fid, (const struct lu_fid *)key);
+		target = mdd_object_find(env, mdd, &fid);
+		if (target == NULL) {
+			rc = 0;
+			goto checkpoint;
+		} else if (IS_ERR(target)) {
+			rc = PTR_ERR(target);
+			goto checkpoint;
+		}
+
+		/* XXX: need more processing for remote object in the future. */
+		if (mdd_object_exists(target) <= 0)
+			goto obj_put;
+
+		down_write(&target->mod_lfsck_rwsem);
+		if (unlikely(mdd_is_dead_obj(target)))
+			goto unlock;
+
+		rc = iops->rec(env, di, (struct dt_rec *)&flags, 0);
+		if (rc != 0)
+			goto unlock;
+
+		rc = mdd_lfsck_namespace_double_scan_one(env, com, target,
+							 flags);
+		mdd_lfsck_linkea_unpin_all(env, target);
+
+unlock:
+		up_write(&target->mod_lfsck_rwsem);
+
+obj_put:
+		mdd_object_put(env, target);
+
+checkpoint:
+		down_write(&com->lc_sem);
+		lfsck->ml_new_scanned++;
+		com->lc_new_checked++;
+		ns->ln_fid_latest_scanned_phase2 = fid;
+		if (rc > 0)
+			ns->ln_objs_repaired_phase2++;
+		else if (rc < 0)
+			ns->ln_objs_failed_phase2++;
+		up_write(&com->lc_sem);
+
+		if ((rc == 0) || ((rc > 0) && !(bk->lb_param & LPF_DRYRUN))) {
+			mdd_lfsck_namespace_delete(env, com, &fid);
+		} else if (rc < 0) {
+			flags |= LLF_REPAIR_FAILED;
+			mdd_lfsck_namespace_update(env, com, &fid, &flags, true);
+		}
+
+		if (rc < 0 && bk->lb_param & LPF_FAILOUT)
+			GOTO(put, rc);
+
+		if (likely(cfs_time_beforeq(cfs_time_current(),
+					    lfsck->ml_time_next_checkpoint)) ||
+		    com->lc_new_checked == 0)
+			goto speed;
+
+		down_write(&com->lc_sem);
+		ns->ln_run_time_phase2 += cfs_duration_sec(cfs_time_current() +
+				HALF_SEC - lfsck->ml_time_last_checkpoint);
+		ns->ln_time_last_checkpoint = cfs_time_current_sec();
+		ns->ln_objs_checked_phase2 += com->lc_new_checked;
+		com->lc_new_checked = 0;
+		rc = mdd_lfsck_namespace_store(env, com, false);
+		up_write(&com->lc_sem);
+		if (rc != 0)
+			GOTO(put, rc);
+
+		lfsck->ml_time_last_checkpoint = cfs_time_current();
+		lfsck->ml_time_next_checkpoint = lfsck->ml_time_last_checkpoint +
+				cfs_time_seconds(LFSCK_CHECKPOINT_INTERVAL);
+
+speed:
+		mdd_lfsck_control_speed(lfsck);
+		if (unlikely(!thread_is_running(thread)))
+			GOTO(put, rc = 0);
+
+		rc = iops->next(env, di);
+	} while (rc == 0);
+
+	GOTO(put, rc);
+
+put:
+	iops->put(env, di);
+
+fini:
+	iops->fini(env, di);
 	down_write(&com->lc_sem);
 
+	ns->ln_run_time_phase2 += cfs_duration_sec(cfs_time_current() +
+				HALF_SEC - lfsck->ml_time_last_checkpoint);
 	ns->ln_time_last_checkpoint = cfs_time_current_sec();
+	ns->ln_objs_checked_phase2 += com->lc_new_checked;
 	com->lc_new_checked = 0;
 
-	ns->ln_status = LS_COMPLETED;
-	if (!(bk->lb_param & LPF_DRYRUN))
-		ns->ln_flags &=
-		~(LF_SCANNED_ONCE | LF_INCONSISTENT | LF_UPGRADE);
-	ns->ln_time_last_complete = ns->ln_time_last_checkpoint;
-	ns->ln_success_count++;
+	if (rc > 0) {
+		ns->ln_status = LS_COMPLETED;
+		if (!(bk->lb_param & LPF_DRYRUN))
+			ns->ln_flags &=
+			~(LF_SCANNED_ONCE | LF_INCONSISTENT | LF_UPGRADE);
+		ns->ln_time_last_complete = ns->ln_time_last_checkpoint;
+		ns->ln_success_count++;
+	} else if (rc == 0) {
+		if (lfsck->ml_paused)
+			ns->ln_status = LS_PAUSED;
+		else
+			ns->ln_status = LS_STOPPED;
+	} else {
+		ns->ln_status = LS_FAILED;
+	}
 
-	spin_lock(&lfsck->ml_lock);
-	cfs_list_del_init(&com->lc_link);
-	cfs_list_add_tail(&com->lc_link, &lfsck->ml_list_idle);
-	spin_unlock(&lfsck->ml_lock);
+	if (ns->ln_status != LS_PAUSED) {
+		spin_lock(&lfsck->ml_lock);
+		cfs_list_del_init(&com->lc_link);
+		cfs_list_add_tail(&com->lc_link, &lfsck->ml_list_idle);
+		spin_unlock(&lfsck->ml_lock);
+	}
 
 	rc = mdd_lfsck_namespace_store(env, com, false);
 
@@ -2460,6 +2848,9 @@ static int mdd_lfsck_oit_engine(const struct lu_env *env,
 				     &lwi);
 		}
 
+		if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_CRASH))
+			RETURN(0);
+
 		lfsck->ml_new_scanned++;
 		rc = iops->rec(env, di, (struct dt_rec *)fid, 0);
 		if (rc != 0) {
@@ -2585,7 +2976,8 @@ static int mdd_lfsck_main(void *args)
 	if (lfsck->ml_paused && cfs_list_empty(&lfsck->ml_list_scan))
 		oit_iops->put(&env, oit_di);
 
-	rc = mdd_lfsck_post(&env, lfsck, rc);
+	if (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_CRASH))
+		rc = mdd_lfsck_post(&env, lfsck, rc);
 	if (lfsck->ml_di_dir != NULL)
 		mdd_lfsck_close_dir(&env, lfsck);
 
@@ -2693,7 +3085,9 @@ int mdd_lfsck_start(const struct lu_env *env, struct md_lfsck *lfsck,
 		RETURN(-ENOTSUPP);
 
 	/* start == NULL means auto trigger paused LFSCK. */
-	if (start == NULL && cfs_list_empty(&lfsck->ml_list_scan))
+	if ((start == NULL) &&
+	    (cfs_list_empty(&lfsck->ml_list_scan) ||
+	     OBD_FAIL_CHECK(OBD_FAIL_LFSCK_NO_AUTO)))
 		RETURN(0);
 
 	mutex_lock(&lfsck->ml_mutex);
