@@ -294,9 +294,10 @@ static const struct lu_fid lfsck_it_fid = { .f_seq = FID_SEQ_LOCAL_FILE,
 
 int mdd_lfsck_setup(const struct lu_env *env, struct mdd_device *mdd)
 {
-	struct md_lfsck  *lfsck = &mdd->mdd_lfsck;
-	struct dt_object *obj;
-	int		  rc;
+	struct lu_object_conf	*conf  = &mdd_env_info(env)->mti_conf;
+	struct md_lfsck		*lfsck = &mdd->mdd_lfsck;
+	struct dt_object	*obj;
+	int			 rc;
 
 	memset(lfsck, 0, sizeof(*lfsck));
 	lfsck->ml_version = LFSCK_VERSION_V1;
@@ -311,7 +312,8 @@ int mdd_lfsck_setup(const struct lu_env *env, struct mdd_device *mdd)
 
 	lfsck->ml_bookmark_obj = obj;
 
-	obj = dt_locate(env, mdd->mdd_child, &lfsck_it_fid);
+	conf->loc_flags = LOC_F_NEW;
+	obj = dt_locate_conf(env, mdd->mdd_child, &lfsck_it_fid, conf);
 	if (IS_ERR(obj))
 		return PTR_ERR(obj);
 
