@@ -1478,7 +1478,6 @@ static int mdd_create_sanity_check(const struct lu_env *env,
         struct lu_fid     *fid       = &info->mti_fid;
         struct mdd_object *obj       = md2mdd_obj(pobj);
         struct mdd_device *m         = mdo2mdd(pobj);
-        int lookup                   = spec->sp_cr_lookup;
         int rc;
         ENTRY;
 
@@ -1491,7 +1490,7 @@ static int mdd_create_sanity_check(const struct lu_env *env,
          * exists or not because MDT performs lookup for it.
          * name length check is done in lookup.
          */
-        if (lookup) {
+	if (spec->sp_cr_lookup) {
                 /*
                  * Check if the name already exist, though it will be checked in
                  * _index_insert also, for avoiding rolling back if exists
@@ -1768,8 +1767,8 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 	 *      MDT calls this xattr_set(LOV) in a different transaction.
 	 *      probably this way we code can be made better.
 	 */
-	if (rc == 0 &&
-			(spec->no_create || (spec->sp_cr_flags & MDS_OPEN_HAS_EA))) {
+	if ((rc == 0) &&
+	    (spec->no_create || (spec->sp_cr_flags & MDS_OPEN_HAS_EA))) {
 		const struct lu_buf *buf;
 
 		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,

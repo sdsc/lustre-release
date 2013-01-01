@@ -355,7 +355,7 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 		GOTO(out, result = 0);
 
 	/* Search order: 3. OI files. */
-	result = osd_oi_lookup(info, dev, fid, id);
+	result = osd_oi_lookup(info, dev, fid, id, true);
 	if (result == -ENOENT) {
 		if (!fid_is_norm(fid) ||
 		    !ldiskfs_test_bit(osd_oi_fid2idx(dev,fid),
@@ -3395,7 +3395,7 @@ osd_consistency_check(struct osd_thread_info *oti, struct osd_device *dev,
 		RETURN_EXIT;
 
 again:
-	rc = osd_oi_lookup(oti, dev, fid, id);
+	rc = osd_oi_lookup(oti, dev, fid, id, true);
 	if (rc != 0 && rc != -ENOENT)
 		RETURN_EXIT;
 

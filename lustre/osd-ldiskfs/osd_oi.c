@@ -524,12 +524,14 @@ int __osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
 }
 
 int osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
-                  const struct lu_fid *fid, struct osd_inode_id *id)
+		  const struct lu_fid *fid, struct osd_inode_id *id,
+		  bool check_fld)
 {
         int                  rc = 0;
 
-	if ((!fid_is_last_id(fid) && fid_is_on_ost(info, osd, fid)) ||
-	     fid_is_llog(fid)) {
+	if ((!fid_is_last_id(fid) && check_fld &&
+	     fid_is_on_ost(info, osd, fid)) ||
+	    fid_is_llog(fid)) {
                 /* old OSD obj id */
 		/* FIXME: actually for all of the OST object */
 		rc = osd_obj_map_lookup(info, osd, fid, id);

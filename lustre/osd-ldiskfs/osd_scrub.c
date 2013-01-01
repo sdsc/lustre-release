@@ -332,7 +332,7 @@ osd_scrub_check_update(struct osd_thread_info *info, struct osd_device *dev,
 	if (oii != NULL && oii->oii_insert)
 		goto iget;
 
-	rc = osd_oi_lookup(info, dev, fid, lid2);
+	rc = osd_oi_lookup(info, dev, fid, lid2, false);
 	if (rc != 0) {
 		if (rc != -ENOENT)
 			GOTO(out, rc);

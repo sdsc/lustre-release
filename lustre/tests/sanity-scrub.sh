@@ -704,7 +704,7 @@ test_11() {
 	# that the number of skipped files is less than 1.5x the number of files
 	local MAXIMUM=$((CREATED * 3 / 2))
 	local MINIMUM=$((CREATED + 1)) # files + directory
-	[ $SKIPPED -ge $MAXIMUM -o $SKIPPED -lt $MINIMUM] &&
+	[ $SKIPPED -ge $MAXIMUM -o $SKIPPED -lt $MINIMUM ] &&
 	error "(5) Expect [ $MINIMUM , $MAXIMUM ) objects skipped, got $SKIPPED"
 
 	# reset OI scrub start point by force
