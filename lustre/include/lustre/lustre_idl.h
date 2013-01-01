@@ -525,6 +525,11 @@ struct ost_id {
         obd_seq                oi_seq;
 };
 
+static inline int fid_seq_is_dot_lustre(const __u64 seq)
+{
+	return unlikely(seq == FID_SEQ_DOT_LUSTRE);
+}
+
 static inline int fid_seq_is_norm(const __u64 seq)
 {
         return (seq >= FID_SEQ_NORMAL);
@@ -711,21 +716,6 @@ static inline ino_t lu_igif_ino(const struct lu_fid *fid)
 }
 
 /**
- * Build igif from the inode number/generation.
- */
-#define LU_IGIF_BUILD(fid, ino, gen)                    \
-do {                                                    \
-        fid->f_seq = ino;                               \
-        fid->f_oid = gen;                               \
-        fid->f_ver = 0;                                 \
-} while(0)
-static inline void lu_igif_build(struct lu_fid *fid, __u32 ino, __u32 gen)
-{
-        LU_IGIF_BUILD(fid, ino, gen);
-        LASSERT(fid_is_igif(fid));
-}
-
-/**
  * Get inode generation from a igif.
  * \param fid a igif to get inode generation from.
  * \return inode generation for the igif.
@@ -733,6 +723,17 @@ static inline void lu_igif_build(struct lu_fid *fid, __u32 ino, __u32 gen)
 static inline __u32 lu_igif_gen(const struct lu_fid *fid)
 {
         return fid_oid(fid);
+}
+
+/**
+ * Build igif from the inode number/generation.
+ */
+static inline void lu_igif_build(struct lu_fid *fid, __u32 ino, __u32 gen)
+{
+	fid->f_seq = ino;
+	fid->f_oid = gen;
+	fid->f_ver = 0;
+	LASSERTF(fid_is_igif(fid), "ino = %u, gen = %u", ino, gen);
 }
 
 /*
@@ -1998,7 +1999,7 @@ struct mdt_body {
        obd_time        ctime;
         __u64          blocks; /* XID, in the case of MDS_READPAGE */
         __u64          ioepoch;
-        __u64          ino;
+	__u64	       unused1; /* was "ino" until 2.4.0 */
         __u32          fsuid;
         __u32          fsgid;
         __u32          capability;
@@ -2008,7 +2009,7 @@ struct mdt_body {
         __u32          flags; /* from vfs for pin/unpin, LUSTRE_BFLAG close */
         __u32          rdev;
         __u32          nlink; /* #bytes to read in the case of MDS_READPAGE */
-        __u32          generation;
+	__u32	       unused2; /* was "generation" until 2.4.0 */
         __u32          suppgid;
         __u32          eadatasize;
         __u32          aclsize;
