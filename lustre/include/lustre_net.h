@@ -308,8 +308,23 @@
 #define MDS_MAXREPSIZE  max(10 * 1024, 362 + LOV_MAX_STRIPE_COUNT * 56)
 #define MDS_MAXREQSIZE  MDS_MAXREPSIZE
 
-/** MDS_BUFSIZE = max_reqsize + max sptlrpc payload size */
-#define MDS_BUFSIZE     (MDS_MAXREQSIZE + 1024)
+/**
+ * MDS_BUFSIZE should be at least (max_reqsize + max sptlrpc payload size
+ * which is (MDS_MAXREQSIZE + 1024)), however, we need to define a much
+ * larger number for it because LNet requires each MD(rqbd) has at least
+ * MDS_MAXREQSIZE bytes left to avoid dropping of maximum-sized incoming
+ * request. So if MDS_BUFSIZE is only a little larger than MDS_MAXREQSIZE,
+ * then it can only fit in one request even there are 110K bytes left in
+ * a rqbd, and memory utilization is very low.
+ *
+ * In the meanwhile, size of rqbd can't be too large, because rqbd can't be
+ * reused until all requests fit in it have been processed and released,
+ * which means one long blocked request can prevent the rqbd be reused.
+ * Now we give extra 256K to buffer size, so even each rqbd is unlinked
+ * from LNet with unused 110K, buffer utilization will be about 70%.
+ * Please check LU-2432 for details.
+ */
+#define MDS_BUFSIZE     ((MDS_MAXREQSIZE + 1024) + (1 << 18))
 
 /** FLD_MAXREQSIZE == lustre_msg + __u32 padding + ptlrpc_body + opc */
 #define FLD_MAXREQSIZE  (160)
