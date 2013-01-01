@@ -369,9 +369,9 @@ static int mds_start_ptlrpc_service(struct mds_device *m)
 		.psc_watchdog_factor	= MDT_SERVICE_WATCHDOG_FACTOR,
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
-			.bc_buf_size		= MDS_BUFSIZE,
-			.bc_req_max_size	= MDS_MAXREQSIZE,
-			.bc_rep_max_size	= MDS_MAXREPSIZE,
+			.bc_buf_size		= MDS_LOV_BUFSIZE,
+			.bc_req_max_size	= MDS_LOV_MAXREQSIZE,
+			.bc_rep_max_size	= MDS_LOV_MAXREPSIZE,
 			.bc_req_portal		= MDS_REQUEST_PORTAL,
 			.bc_rep_portal		= MDC_REPLY_PORTAL,
 		},
@@ -463,9 +463,9 @@ static int mds_start_ptlrpc_service(struct mds_device *m)
 		.psc_watchdog_factor	= MDT_SERVICE_WATCHDOG_FACTOR,
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
-			.bc_buf_size		= MDS_BUFSIZE,
-			.bc_req_max_size	= MDS_MAXREQSIZE,
-			.bc_rep_max_size	= MDS_MAXREPSIZE,
+			.bc_buf_size		= MDS_LOV_BUFSIZE,
+			.bc_req_max_size	= MDS_LOV_MAXREQSIZE,
+			.bc_rep_max_size	= MDS_LOV_MAXREPSIZE,
 			.bc_req_portal		= MDS_SETATTR_PORTAL,
 			.bc_rep_portal		= MDC_REPLY_PORTAL,
 		},
@@ -506,7 +506,7 @@ static int mds_start_ptlrpc_service(struct mds_device *m)
 		.psc_watchdog_factor	= MDT_SERVICE_WATCHDOG_FACTOR,
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
-			.bc_buf_size		= MDS_BUFSIZE,
+			.bc_buf_size		= SEQ_BUFSIZE,
 			.bc_req_max_size	= SEQ_MAXREQSIZE,
 			.bc_rep_max_size	= SEQ_MAXREPSIZE,
 			.bc_req_portal		= SEQ_CONTROLLER_PORTAL,
@@ -542,7 +542,7 @@ static int mds_start_ptlrpc_service(struct mds_device *m)
 		.psc_watchdog_factor	= MDT_SERVICE_WATCHDOG_FACTOR,
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
-			.bc_buf_size		= MDS_BUFSIZE,
+			.bc_buf_size		= SEQ_BUFSIZE,
 			.bc_req_max_size	= SEQ_MAXREQSIZE,
 			.bc_rep_max_size	= SEQ_MAXREPSIZE,
 			.bc_req_portal		= SEQ_METADATA_PORTAL,
@@ -576,7 +576,7 @@ static int mds_start_ptlrpc_service(struct mds_device *m)
 		.psc_watchdog_factor = MDT_SERVICE_WATCHDOG_FACTOR,
 		.psc_buf		= {
 			.bc_nbufs		= MDS_NBUFS,
-			.bc_buf_size		= MDS_BUFSIZE,
+			.bc_buf_size		= FLD_BUFSIZE,
 			.bc_req_max_size	= FLD_MAXREQSIZE,
 			.bc_rep_max_size	= FLD_MAXREPSIZE,
 			.bc_req_portal		= FLD_REQUEST_PORTAL,

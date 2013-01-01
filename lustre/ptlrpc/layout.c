@@ -281,6 +281,9 @@ static const struct req_msg_field *mds_reint_setattr_client[] = {
         &RMF_CAPA1,
         &RMF_MDT_EPOCH,
         &RMF_EADATA,
+	/* RMF_LOGCOOKIES is reserved for CMD and nobody is using it now,
+	 * that's the reason MDS_MAXREPSIZE is changed to MDS_LOV_MAXREPSIZE
+	 * and MDS_LOV_MAXREQSIZE */
         &RMF_LOGCOOKIES,
         &RMF_DLM_REQ
 };
