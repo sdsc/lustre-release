@@ -859,9 +859,21 @@ static inline int lu_fid_cmp(const struct lu_fid *f0,
  * enumeration.
  */
 enum lu_dirent_attrs {
-        LUDA_FID        = 0x0001,
-        LUDA_TYPE       = 0x0002,
-        LUDA_64BITHASH  = 0x0004,
+	LUDA_FID		= 0x0001,
+	LUDA_TYPE		= 0x0002,
+	LUDA_64BITHASH		= 0x0004,
+	/* Verify the dirent consistency */
+	LUDA_VERIFY		= 0x0008,
+	/* Only check but not repair the dirent inconsistency */
+	LUDA_VERIFY_DRYRUN	= 0x0010,
+	/* The dirent has beed repaired, or to be repaired (dryrun). */
+	LUDA_REPAIR		= 0x0020,
+	/* The system is upgraded, has beed or to be repaired (dryrun). */
+	LUDA_UPGRADE		= 0x0040,
+	/* Ignore this record, go to next directly. */
+	LUDA_IGNORE		= 0x0080,
+	/* The object was lost before, but found back now. */
+	LUDA_LOST_FOUND		= 0x0100,
 };
 
 /**
