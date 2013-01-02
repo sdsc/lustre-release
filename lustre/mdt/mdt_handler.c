@@ -4457,6 +4457,8 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
                 m->mdt_nosquash_strlen = 0;
         }
 
+	next->md_ops->mdo_iocontrol(env, next, OBD_IOC_PAUSE_LFSCK,
+				    0, NULL);
         mdt_seq_fini(env, m);
         mdt_seq_fini_cli(m);
         mdt_fld_fini(env, m);
@@ -4924,6 +4926,12 @@ static int mdt_prepare(const struct lu_env *env,
 	rc = mdt_seq_init(env, obd->obd_name, mdt);
 	if (rc)
 		RETURN(rc);
+
+	rc = mdt->mdt_child->md_ops->mdo_iocontrol(env, mdt->mdt_child,
+						   OBD_IOC_START_LFSCK,
+						   0, NULL);
+	if (rc != 0)
+		CWARN("Fail to auto trigger paused LFSCK.\n");
 
 	rc = mdt->mdt_child->md_ops->mdo_root_get(env, mdt->mdt_child,
 						  &mdt->mdt_md_root_fid);
