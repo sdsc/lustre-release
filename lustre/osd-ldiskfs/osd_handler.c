@@ -358,13 +358,13 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 	 * unexpected reason, we should be able to detect it later by calling
 	 * do_create->osd_oi_insert()
 	 */
-	if (conf != NULL && (conf->loc_flags & LOC_F_NEW) != 0)
+	if (conf != NULL && conf->loc_flags & LOC_F_NEW)
 		GOTO(out, result = 0);
 
 	/* Search order: 3. OI files. */
 	result = osd_oi_lookup(info, dev, fid, id, true);
 	if (result == -ENOENT) {
-		if (!fid_is_norm(fid) ||
+		if (!fid_is_norm(fid) || fid_is_on_ost(info, dev, fid) ||
 		    !ldiskfs_test_bit(osd_oi_fid2idx(dev,fid),
 				      sf->sf_oi_bitmap))
 			GOTO(out, result = 0);
@@ -1602,6 +1602,31 @@ static int osd_attr_set(const struct lu_env *env,
 
         OSD_EXEC_OP(handle, attr_set);
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_FID_MAPPING)) {
+		struct osd_thread_info	*oti  = osd_oti_get(env);
+		const struct lu_fid	*fid0 = lu_object_fid(&dt->do_lu);
+		struct lu_fid		*fid1 = &oti->oti_fid;
+		struct osd_inode_id	*id   = &oti->oti_id;
+		struct iam_path_descr	*ipd;
+		struct iam_container	*bag;
+		struct osd_thandle	*oh;
+		int			 rc;
+
+		fid_cpu_to_be(fid1, fid0);
+		memset(id, 1, sizeof(*id));
+		bag = &osd_fid2oi(osd_dev(dt->do_lu.lo_dev),
+				  fid0)->oi_dir.od_container;
+		ipd = osd_idx_ipd_get(env, bag);
+		if (unlikely(ipd == NULL))
+			RETURN(-ENOMEM);
+
+		oh = container_of0(handle, struct osd_thandle, ot_super);
+		rc = iam_update(oh->ot_handle, bag, (const struct iam_key *)fid1,
+				(const struct iam_rec *)id, ipd);
+		osd_ipd_put(env, bag, ipd);
+		return(rc > 0 ? 0 : rc);
+	}
+
         inode = obj->oo_inode;
 	ll_vfs_dq_init(inode);
 
@@ -1972,10 +1997,7 @@ static int osd_declare_object_create(const struct lu_env *env,
 	LASSERT(oh->ot_handle == NULL);
 
 	OSD_DECLARE_OP(oh, create, osd_dto_credits_noquota[DTO_OBJECT_CREATE]);
-	/* XXX: So far, only normal fid needs be inserted into the oi,
-	 *      things could be changed later. Revise following code then. */
-	if (fid_is_norm(lu_object_fid(&dt->do_lu)) &&
-	    !fid_is_on_ost(osd_oti_get(env), osd_dt_dev(handle->th_dev),
+	if (!fid_is_on_ost(osd_oti_get(env), osd_dt_dev(handle->th_dev),
 			   lu_object_fid(&dt->do_lu))) {
 		/* Reuse idle OI block may cause additional one OI block
 		 * to be changed. */
@@ -2068,12 +2090,10 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 	LASSERT(inode);
 
 	OSD_DECLARE_OP(oh, delete, osd_dto_credits_noquota[DTO_OBJECT_DELETE]);
-	/* XXX: So far, only normal fid needs to be inserted into the OI,
-	 *      so only normal fid needs to be removed from the OI also.
-	 * Recycle idle OI leaf may cause additional three OI blocks
+	/* Recycle idle OI leaf may cause additional three OI blocks
 	 * to be changed. */
-	OSD_DECLARE_OP(oh, destroy, fid_is_norm(lu_object_fid(&dt->do_lu)) ?
-			osd_dto_credits_noquota[DTO_INDEX_DELETE] + 3 : 0);
+	OSD_DECLARE_OP(oh, destroy,
+		       osd_dto_credits_noquota[DTO_INDEX_DELETE] + 3);
 
 	/* one less inode */
 	rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid, -1, oh,
@@ -2196,8 +2216,7 @@ static void osd_get_ldiskfs_dirent_param(struct ldiskfs_dentry_param *param,
 }
 
 /**
- * Try to read the fid from inode ea into dt_rec, if return value
- * i.e. rc is +ve, then we got fid, otherwise we will have to form igif
+ * Try to read the fid from inode ea into dt_rec.
  *
  * \param fid object fid.
  *
@@ -2254,10 +2273,9 @@ static int osd_object_ea_create(const struct lu_env *env, struct dt_object *dt,
         OSD_EXEC_OP(th, create);
 
         result = __osd_object_create(info, obj, attr, hint, dof, th);
-        /* objects under osd root shld have igif fid, so dont add fid EA */
-	/* For ost object, the fid will be stored during first write */
-	if (result == 0 && fid_seq(fid) >= FID_SEQ_NORMAL &&
-	    !fid_is_on_ost(info, osd_dt_dev(th->th_dev), fid))
+	if ((result == 0) &&
+	    (fid_is_last_id(fid) ||
+	     !fid_is_on_ost(info, osd_dt_dev(th->th_dev), fid)))
 		result = osd_ea_fid_set(info, obj->oo_inode, fid, true);
 
         if (result == 0)
@@ -3485,7 +3503,8 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
 
 		oic->oic_fid = *fid;
 		if ((scrub->os_pos_current <= ino) &&
-		    (sf->sf_flags & SF_INCONSISTENT ||
+		    ((sf->sf_flags & SF_INCONSISTENT) ||
+		     (sf->sf_flags & SF_UPGRADE && fid_is_igif(fid)) ||
 		     ldiskfs_test_bit(osd_oi_fid2idx(dev, fid),
 				      sf->sf_oi_bitmap)))
 			osd_consistency_check(oti, dev, oic);
@@ -4247,7 +4266,8 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 			   it->oie_dirent->oied_type, attr);
 	oic->oic_fid = *fid;
 	if ((scrub->os_pos_current <= ino) &&
-	    (sf->sf_flags & SF_INCONSISTENT ||
+	    ((sf->sf_flags & SF_INCONSISTENT) ||
+	     (sf->sf_flags & SF_UPGRADE && fid_is_igif(fid)) ||
 	     ldiskfs_test_bit(osd_oi_fid2idx(dev, fid), sf->sf_oi_bitmap)))
 		osd_consistency_check(oti, dev, oic);
 
