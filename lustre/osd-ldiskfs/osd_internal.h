@@ -326,26 +326,6 @@ struct osd_device {
 	struct qsd_instance      *od_quota_slave;
 };
 
-#define OSD_TRACK_DECLARES
-#ifdef OSD_TRACK_DECLARES
-#define OSD_DECLARE_OP(oh, op, credits)					\
-do {									\
-	LASSERT((oh)->ot_handle == NULL);				\
-	((oh)->ot_declare_ ##op)++;					\
-	((oh)->ot_declare_ ##op ##_cred) += (credits);			\
-	(oh)->ot_credits += (credits);					\
-} while (0)
-#define OSD_EXEC_OP(handle, op)						\
-do {									\
-	struct osd_thandle *oh = container_of(handle, typeof(*oh), ot_super); \
-	LASSERT((oh)->ot_declare_ ##op > 0);				\
-	((oh)->ot_declare_ ##op)--;					\
-} while (0)
-#else
-#define OSD_DECLARE_OP(oh, op, credits) (oh)->ot_credits += (credits)
-#define OSD_EXEC_OP(oh, op)
-#endif
-
 /* There are at most 10 uid/gids are affected in a transaction, and
  * that's rename case:
  * - 2 for source parent uid & gid;
@@ -358,6 +338,23 @@ do {									\
  * the id type of each id in the ot_id_array.
  */
 #define OSD_MAX_UGID_CNT        10
+
+enum {
+	OSD_OT_ATTR_SET		= 0,
+	OSD_OT_PUNCH		= 1,
+	OSD_OT_XATTR_SET	= 2,
+	OSD_OT_CREATE		= 3,
+	OSD_OT_DESTROY		= 4,
+	OSD_OT_REF_ADD		= 5,
+	OSD_OT_REF_DEL		= 6,
+	OSD_OT_WRITE		= 7,
+	OSD_OT_INSERT		= 8,
+	OSD_OT_DELETE		= 9,
+	OSD_OT_QUOTA		= 10,
+	OSD_OT_MAX		= 11
+};
+
+#define OSD_TRACK_DECLARES
 
 struct osd_thandle {
         struct thandle          ot_super;
@@ -376,29 +373,9 @@ struct osd_thandle {
 	/* Tracking for transaction credits, to allow debugging and optimizing
 	 * cases where a large number of credits are being allocated for
 	 * single transaction. */
-	unsigned char		ot_declare_attr_set;
-	unsigned char		ot_declare_punch;
-	unsigned char		ot_declare_xattr_set;
-	unsigned char		ot_declare_create;
-	unsigned char		ot_declare_destroy;
-	unsigned char		ot_declare_ref_add;
-	unsigned char		ot_declare_ref_del;
-	unsigned char		ot_declare_write;
-	unsigned char		ot_declare_insert;
-	unsigned char		ot_declare_delete;
-	unsigned char		ot_declare_quota;
-
-	unsigned short		ot_declare_attr_set_cred;
-	unsigned short		ot_declare_punch_cred;
-	unsigned short		ot_declare_xattr_set_cred;
-	unsigned short		ot_declare_create_cred;
-	unsigned short		ot_declare_destroy_cred;
-	unsigned short		ot_declare_ref_add_cred;
-	unsigned short		ot_declare_ref_del_cred;
-	unsigned short		ot_declare_write_cred;
-	unsigned short		ot_declare_insert_cred;
-	unsigned short		ot_declare_delete_cred;
-	unsigned short		ot_declare_quota_cred;
+	unsigned char		ot_declare_ops[OSD_OT_MAX];
+	unsigned char		ot_declare_ops_rb[OSD_OT_MAX];
+	unsigned short		ot_declare_ops_cred[OSD_OT_MAX];
 #endif
 
 #if OSD_THANDLE_STATS
@@ -409,6 +386,46 @@ struct osd_thandle {
         cfs_time_t oth_started;
 #endif
 };
+
+#ifdef OSD_TRACK_DECLARES
+extern int OSD_DECLARE_OP2RB[];
+
+static inline void
+OSD_DECLARE_OP(struct osd_thandle *oh, unsigned int op, int credits)
+{
+	unsigned int rb;
+
+	LASSERT(oh->ot_handle == NULL);
+	LASSERT(op < OSD_OT_MAX);
+
+	oh->ot_declare_ops[op]++;
+	rb = OSD_DECLARE_OP2RB[op];
+	if (rb < OSD_OT_MAX)
+		oh->ot_declare_ops_rb[rb]++;
+	oh->ot_declare_ops_cred[op] += credits;
+	oh->ot_credits += credits;
+}
+
+static inline void
+OSD_EXEC_OP(struct thandle *th, unsigned int op)
+{
+	struct osd_thandle *oh = container_of(th, struct osd_thandle, ot_super);
+
+	LASSERT(oh->ot_handle != NULL);
+	LASSERT(op < OSD_OT_MAX);
+
+	if (oh->ot_declare_ops[op] > 0) {
+		oh->ot_declare_ops[op]--;
+	} else {
+		LASSERT(oh->ot_declare_ops_rb[op] > 0);
+
+		oh->ot_declare_ops_rb[op]--;
+	}
+}
+#else
+#define OSD_DECLARE_OP(oh, op, credits) (oh)->ot_credits += (credits)
+#define OSD_EXEC_OP(th, op)
+#endif
 
 /**
  * Basic transaction credit op
