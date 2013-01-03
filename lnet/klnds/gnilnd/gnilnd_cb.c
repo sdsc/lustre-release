@@ -221,14 +221,17 @@ kgnilnd_free_tx(kgn_tx_t *tx)
 }
 
 kgn_tx_t *
-kgnilnd_alloc_tx(void)
+kgnilnd_alloc_tx(lnet_nid_t nid)
 {
-	kgn_tx_t      *tx = NULL;
+	int		cpt = lnet_cpt_of_nid(nid);
+	kgn_tx_t	*tx = NULL;
 
 	if (CFS_FAIL_CHECK(CFS_FAIL_GNI_ALLOC_TX))
 		return tx;
 
-	tx = cfs_mem_cache_alloc(kgnilnd_data.kgn_tx_cache, CFS_ALLOC_ATOMIC);
+	tx = cfs_mem_cache_cpt_alloc(kgnilnd_data.kgn_tx_cache,
+				     lnet_cpt_table(), cpt,
+				     CFS_ALLOC_ATOMIC);
 	if (tx == NULL) {
 		CERROR("failed to allocate tx\n");
 		return NULL;
@@ -304,10 +307,10 @@ kgnilnd_cksum_kiov(unsigned int nkiov, lnet_kiov_t *kiov,
 	odd = (unsigned long) (kiov[0].kiov_len - offset) & 1;
 
 	if ((odd || *kgnilnd_tunables.kgn_vmap_cksum) && nkiov > 1) {
-		struct page **pages = kgnilnd_data.kgn_cksum_map_pages[get_cpu()];
+		struct page **pages = kgnilnd_data.kgn_cksum_map_pages[lnet_cpt_current()];
 
 		LASSERTF(pages != NULL, "NULL pages for cpu %d map_pages 0x%p\n",
-			 get_cpu(), kgnilnd_data.kgn_cksum_map_pages);
+			 lnet_cpt_current(), kgnilnd_data.kgn_cksum_map_pages);
 
 		CDEBUG(D_BUFFS, "odd %d len %u offset %u nob %u\n",
 		       odd, kiov[0].kiov_len, offset, nob);
@@ -403,7 +406,7 @@ kgnilnd_init_msg(kgn_msg_t *msg, int type, lnet_nid_t source)
 kgn_tx_t *
 kgnilnd_new_tx_msg(int type, lnet_nid_t source)
 {
-	kgn_tx_t *tx = kgnilnd_alloc_tx();
+	kgn_tx_t *tx = kgnilnd_alloc_tx(source);
 
 	if (tx != NULL) {
 		kgnilnd_init_msg(&tx->tx_msg, type, source);
@@ -576,9 +579,10 @@ int
 kgnilnd_setup_phys_buffer(kgn_tx_t *tx, int nkiov, lnet_kiov_t *kiov,
 			  unsigned int offset, unsigned int nob)
 {
+	int		cpt = lnet_cpt_of_nid(tx->tx_msg.gnm_srcnid);		
+	int		rc = 0;
+	unsigned int	fraglen;
 	gni_mem_segment_t *phys;
-	int                rc = 0;
-	unsigned int       fraglen;
 
 	GNIDBG_TX(D_NET, tx, "niov %d kiov 0x%p offset %u nob %u", nkiov, kiov, offset, nob);
 
@@ -587,8 +591,9 @@ kgnilnd_setup_phys_buffer(kgn_tx_t *tx, int nkiov, lnet_kiov_t *kiov,
 	LASSERT(tx->tx_buftype == GNILND_BUF_NONE);
 
 	/* only allocate this if we are going to use it */
-	tx->tx_phys = cfs_mem_cache_alloc(kgnilnd_data.kgn_tx_phys_cache,
-					  CFS_ALLOC_ATOMIC);
+	tx->tx_phys = cfs_mem_cache_cpt_alloc(kgnilnd_data.kgn_tx_phys_cache,
+					      lnet_cpt_table(), cpt,
+					      CFS_ALLOC_ATOMIC);
 	if (tx->tx_phys == NULL) {
 		CERROR("failed to allocate tx_phys\n");
 		rc = -ENOMEM;
@@ -1001,10 +1006,11 @@ kgnilnd_map_buffer(kgn_tx_t *tx)
 void
 kgnilnd_add_purgatory_tx(kgn_tx_t *tx)
 {
-	kgn_conn_t                  *conn = tx->tx_conn;
-	kgn_mdd_purgatory_t         *gmp;
+	kgn_conn_t		*conn = tx->tx_conn;
+	kgn_mdd_purgatory_t	*gmp;
+	int			cpt = conn->sched->kgn_cpt;
 
-	LIBCFS_ALLOC(gmp, sizeof(*gmp));
+	LIBCFS_CPT_ALLOC(gmp, lnet_cpt_table(), cpt, sizeof(*gmp));
 	LASSERTF(gmp != NULL, "couldn't allocate MDD purgatory member;"
 		" asserting to avoid data corruption\n");
 
@@ -1821,11 +1827,14 @@ kgnilnd_rdma(kgn_tx_t *tx, int type,
 }
 
 kgn_rx_t *
-kgnilnd_alloc_rx(void)
+kgnilnd_alloc_rx(lnet_nid_t nid)
 {
-	kgn_rx_t        *rx;
+	int		cpt = lnet_cpt_of_nid(nid);
+	kgn_rx_t	*rx;
 
-	rx = cfs_mem_cache_alloc(kgnilnd_data.kgn_rx_cache, CFS_ALLOC_ATOMIC);
+	rx = cfs_mem_cache_cpt_alloc(kgnilnd_data.kgn_rx_cache,
+				     lnet_cpt_table(), cpt,
+				     CFS_ALLOC_ATOMIC);
 	if (rx == NULL) {
 		CERROR("failed to allocate rx\n");
 		return NULL;
@@ -2097,6 +2106,7 @@ kgnilnd_eager_recv(lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg,
 	kgn_conn_t      *conn = rx->grx_conn;
 	kgn_msg_t       *rxmsg = rx->grx_msg;
 	kgn_msg_t       *eagermsg = NULL;
+	int		cpt = conn->sched->kgn_cpt;
 
 	GNIDBG_MSG(D_NET, rxmsg, "eager recv for conn %p, rxmsg %p, lntmsg %p",
 		conn, rxmsg, lntmsg);
@@ -2109,7 +2119,8 @@ kgnilnd_eager_recv(lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg,
 
 	/* we have no credits or buffers for this message, so copy it
 	 * somewhere for a later kgnilnd_recv */
-	LIBCFS_ALLOC(eagermsg, sizeof(*eagermsg) + *kgnilnd_tunables.kgn_max_immediate);
+	LIBCFS_CPT_ALLOC(eagermsg, lnet_cpt_table(), cpt,
+			 sizeof(*eagermsg) + *kgnilnd_tunables.kgn_max_immediate);
 	if (eagermsg == NULL) {
 		CERROR("couldn't allocate eager rx message for conn %p to %s\n",
 			conn, libcfs_nid2str(conn->gnc_peer->gnp_nid));
@@ -3539,6 +3550,7 @@ kgnilnd_check_fma_rx(kgn_conn_t *conn)
 	int           repost = 1, saw_complete;
 	unsigned long timestamp, newest_last_rx, timeout;
 	int           last_seq;
+	int	      cpt = conn->sched->kgn_cpt;
 	void         *memory = NULL;
 	ENTRY;
 
@@ -3593,7 +3605,8 @@ kgnilnd_check_fma_rx(kgn_conn_t *conn)
 	}
 
 	if (rrc == GNI_RC_INVALID_STATE) {
-		LIBCFS_ALLOC(memory, conn->gnpr_smsg_attr.buff_size);
+		LIBCFS_CPT_ALLOC(memory, lnet_cpt_table(), cpt,
+				 conn->gnpr_smsg_attr.buff_size);
 		if (memory == NULL) {
 			memory = (void *)0xdeadbeef;
 		} else {
@@ -3607,7 +3620,7 @@ kgnilnd_check_fma_rx(kgn_conn_t *conn)
 
 	msg = (kgn_msg_t *)prefix;
 
-	rx = kgnilnd_alloc_rx();
+	rx = kgnilnd_alloc_rx(peer->gnp_nid);
 	if (rx == NULL) {
 		mutex_unlock(&conn->gnc_device->gnd_cq_mutex);
 		kgnilnd_release_msg(conn);
@@ -4245,17 +4258,27 @@ kgnilnd_process_conns(kgn_device_t *dev)
 int
 kgnilnd_scheduler(void *arg)
 {
-	int               threadno = (long)arg;
-	kgn_device_t     *dev;
-	char              name[16];
-	int               busy_loops = 0;
+	long			id = (long)arg;
+	struct kgn_sched_info	*sched;
+	kgn_device_t		*dev;
+	char			name[16];
+	int			busy_loops = 0;
+	int			rc;
 	DEFINE_WAIT(wait);
 
-	dev = &kgnilnd_data.kgn_devices[(threadno + 1) % kgnilnd_data.kgn_ndevs];
-
-	snprintf(name, sizeof(name), "kgnilnd_sd_%02d", threadno);
+	snprintf(name, sizeof(name), "kgnilnd_sd_%02ld_%02ld",
+		 KGN_THREAD_CPT(id), KGN_THREAD_TID(id));
 	cfs_daemonize(name);
 	cfs_block_allsigs();
+
+	sched = kgnilnd_data.kgn_scheds[KGN_THREAD_CPT(id)];
+	dev = sched->kgn_dev;
+
+	rc = cfs_cpt_bind(lnet_cpt_table(), sched->kgn_cpt);
+	if (rc != 0) {
+		CERROR("Can't set CPT affinity for %s to %d: %d\n",
+		       name, sched->kgn_cpt, rc);
+	}
 
 	/* all gnilnd threads need to run fairly urgently */
 	set_user_nice(current, *kgnilnd_tunables.kgn_nice);

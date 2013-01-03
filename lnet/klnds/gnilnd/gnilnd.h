@@ -596,6 +596,7 @@ typedef struct kgn_tx {                         /* message descriptor */
 
 typedef struct kgn_conn {
 	kgn_device_t       *gnc_device;         /* which device */
+	struct kgn_sched_info *sched;		/* SMP thread info */
 	struct kgn_peer    *gnc_peer;           /* owning peer */
 	struct list_head    gnc_list;           /* stash on peer's conn list - or pending purgatory lists as we clear them */
 	struct list_head    gnc_hashlist;       /* stash in connection hash table */
@@ -682,6 +683,17 @@ typedef struct kgn_rx {
 	struct timespec          grx_received;  /* time this msg received */
 } kgn_rx_t;
 
+#define KGN_THREAD_SHIFT		16
+#define KGN_THREAD_ID(cpt, tid)		((cpt) << KGN_THREAD_SHIFT | (tid))
+#define KGN_THREAD_CPT(id)		((id) >> KGN_THREAD_SHIFT)
+#define KGN_THREAD_TID(id)		((id) & ((1UL << KGN_THREAD_SHIFT) - 1))
+
+struct kgn_sched_info {
+	kgn_device_t		*kgn_dev;
+	int			kgn_nthread_max;
+	int			kgn_cpt;
+};
+
 typedef struct kgn_data {
 	int                     kgn_init;             /* initialisation state */
 	int                     kgn_shutdown;         /* shut down? */
@@ -747,7 +759,7 @@ typedef struct kgn_data {
 	atomic_t                kgn_npending_unlink;  /* # of peers pending unlink */
 	atomic_t                kgn_npending_conns;   /* # of conns with pending closes */
 	atomic_t                kgn_npending_detach;  /* # of conns with a pending detach */
-
+	struct kgn_sched_info	**kgn_scheds;	      /* percpt data for schedulers */
 } kgn_data_t;
 
 extern kgn_data_t         kgnilnd_data;
@@ -1609,7 +1621,7 @@ int kgnilnd_reaper(void *arg);
 int kgnilnd_scheduler(void *arg);
 int kgnilnd_dgram_mover(void *arg);
 
-int kgnilnd_create_conn(kgn_conn_t **connp, kgn_device_t *dev);
+int kgnilnd_create_conn(kgn_conn_t **connp, int cpt, kgn_device_t *dev);
 int kgnilnd_conn_isdup_locked(kgn_peer_t *peer, kgn_conn_t *newconn);
 kgn_conn_t *kgnilnd_find_conn_locked(kgn_peer_t *peer);
 int kgnilnd_get_conn(kgn_conn_t **connp, kgn_peer_t);
