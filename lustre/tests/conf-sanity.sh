@@ -49,6 +49,8 @@ PTLDEBUG=${PTLDEBUG:--1}
 SAVE_PWD=$PWD
 LUSTRE=${LUSTRE:-`dirname $0`/..}
 RLUSTRE=${RLUSTRE:-$LUSTRE}
+LUSTRE_TESTS_API_DIR=${LUSTRE_TESTS_API_DIR:-${LUSTRE}/tests/clientapi}
+
 export MULTIOP=${MULTIOP:-multiop}
 
 . $LUSTRE/tests/test-framework.sh
@@ -3672,6 +3674,14 @@ test_71e() {
 
 }
 run_test 71e "start OST0, MDT1, OST1, MDT0"
+
+test_72() { # LU-1606
+	gcc -Wall -Werror $LUSTRE_TESTS_API_DIR/simple_test.c -llustreapi ||
+			error "client api broken"
+	cleanup || return $?
+}
+run_test 72 "Lustre client api program can compile and link"
+
 
 if ! combined_mgs_mds ; then
 	stop mgs
