@@ -42,8 +42,9 @@
 #define __FLD_INTERNAL_H
 
 #include <lustre/lustre_idl.h>
-#include <dt_object.h>
-
+#ifdef HAVE_SERVER_SUPPORT
+# include <dt_object.h>
+#endif
 #include <libcfs/libcfs.h>
 #include <lustre_req_layout.h>
 #include <lustre_fld.h>
@@ -140,7 +141,7 @@ enum {
 extern struct lu_fld_hash fld_hash[];
 
 #ifdef __KERNEL__
-
+# ifdef HAVE_SERVER_SUPPORT
 struct fld_thread_info {
         struct req_capsule *fti_pill;
         __u64               fti_key;
@@ -166,16 +167,27 @@ int fld_index_create(const struct lu_env *env, struct lu_server_fld *fld,
 
 int fld_index_lookup(const struct lu_env *env, struct lu_server_fld *fld,
 		     seqno_t seq, struct lu_seq_range *range);
+int fld_write_range(const struct lu_env *env, struct dt_object *dt,
+		    const struct lu_seq_range *range, struct thandle *th);
+
+void fld_mod_init_server(void);
+
+void fld_mod_exit_server(void);
+
+#  ifdef LPROCFS
+extern struct lprocfs_vars fld_server_proc_list[];
+extern struct file_operations fld_proc_seq_fops;
+#  endif
+# endif /* HAVE_SERVER_SUPPORT */
 
 int fld_client_rpc(struct obd_export *exp,
                    struct lu_seq_range *range, __u32 fld_op);
 
-#ifdef LPROCFS
-extern struct lprocfs_vars fld_server_proc_list[];
+# ifdef LPROCFS
 extern struct lprocfs_vars fld_client_proc_list[];
-#endif
+# endif
 
-#endif
+#endif /* __KERNEL__ */
 
 struct fld_cache *fld_cache_init(const char *name,
                                  int cache_size, int cache_threshold);
@@ -208,18 +220,17 @@ void fld_dump_cache_entries(struct fld_cache *cache);
 struct fld_cache_entry
 *fld_cache_entry_lookup_nolock(struct fld_cache *cache,
 			      struct lu_seq_range *range);
-int fld_write_range(const struct lu_env *env, struct dt_object *dt,
-		    const struct lu_seq_range *range, struct thandle *th);
 
 static inline const char *
 fld_target_name(struct lu_fld_target *tar)
 {
+#ifdef HAVE_SERVER_SUPPORT
         if (tar->ft_srv != NULL)
                 return tar->ft_srv->lsf_name;
+#endif
 
         return (const char *)tar->ft_exp->exp_obd->obd_name;
 }
 
 extern cfs_proc_dir_entry_t *fld_type_proc_dir;
-extern struct file_operations fld_proc_seq_fops;
 #endif /* __FLD_INTERNAL_H */
