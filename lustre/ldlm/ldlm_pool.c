@@ -1073,8 +1073,7 @@ static struct completion ldlm_pools_comp;
  * cached locks after shrink is finished. All namespaces are asked to
  * cancel approximately equal amount of locks to keep balancing.
  */
-static int ldlm_pools_shrink(ldlm_side_t client, int nr,
-                             unsigned int gfp_mask)
+static int ldlm_pools_shrink(ldlm_side_t client, int nr, unsigned int gfp_mask)
 {
         int total = 0, cached = 0, nr_ns;
         struct ldlm_namespace *ns;

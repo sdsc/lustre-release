@@ -1958,28 +1958,16 @@ static int ldlm_bl_to_thread(struct ldlm_namespace *ns,
                              struct ldlm_lock_desc *ld, struct ldlm_lock *lock,
                              cfs_list_t *cancels, int count, int mode)
 {
+	/* could be triggered from kernel shrinker */
+	struct ldlm_bl_work_item blwi;
         ENTRY;
 
         if (cancels && count == 0)
                 RETURN(0);
 
-        if (mode == LDLM_SYNC) {
-                /* if it is synchronous call do minimum mem alloc, as it could
-                 * be triggered from kernel shrinker
-                 */
-                struct ldlm_bl_work_item blwi;
-                memset(&blwi, 0, sizeof(blwi));
-                init_blwi(&blwi, ns, ld, cancels, count, lock, LDLM_SYNC);
-                RETURN(__ldlm_bl_to_thread(&blwi, LDLM_SYNC));
-        } else {
-                struct ldlm_bl_work_item *blwi;
-                OBD_ALLOC(blwi, sizeof(*blwi));
-                if (blwi == NULL)
-                        RETURN(-ENOMEM);
-                init_blwi(blwi, ns, ld, cancels, count, lock, LDLM_ASYNC);
-
-                RETURN(__ldlm_bl_to_thread(blwi, LDLM_ASYNC));
-        }
+	memset(&blwi, 0, sizeof(blwi));
+	init_blwi(&blwi, ns, ld, cancels, count, lock, mode);
+	RETURN(__ldlm_bl_to_thread(&blwi, mode));
 }
 
 #endif
