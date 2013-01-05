@@ -511,7 +511,7 @@ int osd_declare_qid(const struct lu_env *env, struct osd_thandle *oh,
 			RETURN(-EOVERFLOW);
 		}
 
-		OSD_DECLARE_OP(oh, quota,
+		OSD_DECLARE_OP(oh, OSD_OT_QUOTA,
 			       (allocated || qi->lqi_id.qid_uid == 0) ?
 			       1 : LDISKFS_QUOTA_INIT_BLOCKS(osd_sb(dev)));
 

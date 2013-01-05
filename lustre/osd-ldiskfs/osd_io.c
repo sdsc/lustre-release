@@ -1012,7 +1012,7 @@ static ssize_t osd_declare_write(const struct lu_env *env, struct dt_object *dt,
         else
                 credits = osd_dto_credits_noquota[DTO_WRITE_BLOCK];
 
-	OSD_DECLARE_OP(oh, write, credits);
+	OSD_DECLARE_OP(oh, OSD_OT_WRITE, credits);
 
 	inode = osd_dt_obj(dt)->oo_inode;
 
@@ -1140,7 +1140,7 @@ static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
 	ll_vfs_dq_init(inode);
 
         /* XXX: don't check: one declared chunk can be used many times */
-        /* OSD_EXEC_OP(handle, write); */
+        /* OSD_EXEC_OP(handle, OSD_OT_WRITE); */
 
         oh = container_of(handle, struct osd_thandle, ot_super);
         LASSERT(oh->ot_handle->h_transaction != NULL);
@@ -1180,7 +1180,7 @@ static int osd_declare_punch(const struct lu_env *env, struct dt_object *dt,
          * orphan list. if needed truncate will extend or restart
          * transaction
          */
-	OSD_DECLARE_OP(oh, punch,
+	OSD_DECLARE_OP(oh, OSD_OT_PUNCH,
 		       osd_dto_credits_noquota[DTO_ATTR_SET_BASE] + 3);
 
 	inode = osd_dt_obj(dt)->oo_inode;
@@ -1213,7 +1213,7 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
         oh = container_of(th, struct osd_thandle, ot_super);
         LASSERT(oh->ot_handle->h_transaction != NULL);
 
-        OSD_EXEC_OP(th, punch);
+	OSD_EXEC_OP(th, OSD_OT_PUNCH);
 
         tid = oh->ot_handle->h_transaction->t_tid;
 
