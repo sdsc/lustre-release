@@ -929,7 +929,6 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
         struct inode *inode = ext3_ext_base2inode(base);
         struct ext3_extent nex;
         unsigned long pblock;
-        unsigned long tgen;
         int err, i;
         unsigned long count;
         handle_t *handle;
@@ -958,19 +957,19 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
                 return EXT_CONTINUE;
         }
 
-	tgen = EXT_GENERATION(base);
+	down_write((&EXT4_I(inode)->i_data_sem));
+	/* verify if the path is valid */
+	if (EXT_GENERATION(base) != path[0].p_generation) {
+		up_write(&EXT4_I(inode)->i_data_sem);
+		return EXT_REPEAT;
+	}
 	count = ext3_ext_calc_credits_for_insert(base, path);
+	up_write(&EXT4_I(inode)->i_data_sem);
 
 	handle = ext3_journal_start(inode, count+EXT3_ALLOC_NEEDED+1);
 	if (IS_ERR(handle)) {
 		return PTR_ERR(handle);
 	}
-
-        if (tgen != EXT_GENERATION(base)) {
-                /* the tree has changed. so path can be invalid at moment */
-                ext3_journal_stop(handle);
-                return EXT_REPEAT;
-        }
 
         /* In 2.6.32 kernel, ext4_ext_walk_space()'s callback func is not
          * protected by i_data_sem as whole. so we patch it to store
