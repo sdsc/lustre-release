@@ -4075,6 +4075,16 @@ pause_bulk() {
     return $RC
 }
 
+pause_bulk_long() {
+#define OBD_FAIL_OST_HOLD_WRITE_RPC      0x21f
+    RC=0
+    do_facet ost1 lctl set_param fail_loc=0x21f
+    do_facet client "$1" || RC=$?
+    do_facet client "sync"
+    do_facet ost1 lctl set_param fail_loc=0
+    return $RC
+}
+
 drop_ldlm_cancel() {
 #define OBD_FAIL_LDLM_CANCEL_NET			0x304
 	local RC=0
