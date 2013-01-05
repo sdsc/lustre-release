@@ -1458,31 +1458,44 @@ static int ptlrpc_server_hpreq_init(struct ptlrpc_service *svc,
                 if (rc)
                         RETURN(rc);
         }
-        if (req->rq_export && req->rq_ops) {
-                /* Perform request specific check. We should do this check
-                 * before the request is added into exp_hp_rpcs list otherwise
-                 * it may hit swab race at LU-1044. */
-                if (req->rq_ops->hpreq_check)
-                        rc = req->rq_ops->hpreq_check(req);
+	if (req->rq_export) {
+		if (req->rq_ops) {
+			/* Perform request specific check. We should do this
+			 * check before the request is added into exp_hp_rpcs
+			 * list otherwise it may hit swab race at LU-1044. */
+			if (req->rq_ops->hpreq_check)
+				rc = req->rq_ops->hpreq_check(req);
 
-		spin_lock_bh(&req->rq_export->exp_rpc_lock);
-		cfs_list_add(&req->rq_exp_list,
-			     &req->rq_export->exp_hp_rpcs);
-		spin_unlock_bh(&req->rq_export->exp_rpc_lock);
+			spin_lock_bh(&req->rq_export->exp_rpc_lock);
+			cfs_list_add(&req->rq_exp_list,
+					&req->rq_export->exp_hp_rpcs);
+			spin_unlock_bh(&req->rq_export->exp_rpc_lock);
+		} else {
+			/*
+			 * Add in-process RPCs into a special list and remember
+			 * max seen xid for duplicate xid processing detection
+			 */
+			spin_lock_bh(&req->rq_export->exp_rpc_lock);
+			cfs_list_add(&req->rq_exp_list,
+				     &req->rq_export->exp_reg_rpcs);
+			if (req->rq_export->exp_max_xid_seen < req->rq_xid)
+				req->rq_export->exp_max_xid_seen = req->rq_xid;
+			spin_unlock_bh(&req->rq_export->exp_rpc_lock);
+
+		}
 	}
-
 	RETURN(rc);
 }
 
 /** Remove the request from the export list. */
 static void ptlrpc_server_hpreq_fini(struct ptlrpc_request *req)
 {
-        ENTRY;
-        if (req->rq_export && req->rq_ops) {
-                /* refresh lock timeout again so that client has more
-                 * room to send lock cancel RPC. */
-                if (req->rq_ops->hpreq_fini)
-                        req->rq_ops->hpreq_fini(req);
+	ENTRY;
+	if (req->rq_export) {
+		/* refresh lock timeout again so that client has more
+		 * room to send lock cancel RPC. */
+		if (req->rq_ops && req->rq_ops->hpreq_fini)
+			req->rq_ops->hpreq_fini(req);
 
 		spin_lock_bh(&req->rq_export->exp_rpc_lock);
 		cfs_list_del_init(&req->rq_exp_list);
@@ -1713,6 +1726,48 @@ ptlrpc_server_request_get(struct ptlrpc_service_part *svcpt, int force)
 	RETURN(NULL);
 }
 
+/* Check if we are already handling earlier incarnation of this request */
+int ptlrpc_server_check_resend_in_progress(struct ptlrpc_request *req)
+{
+	struct ptlrpc_request	*tmp = NULL;
+
+	if (!(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT) ||
+	    (cfs_atomic_read(&req->rq_export->exp_rpc_count) == 1) ||
+	    (req->rq_xid > req->rq_export->exp_max_xid_seen))
+		return 0;
+
+	spin_lock_bh(&req->rq_export->exp_rpc_lock);
+	/* This list should not be longer than max_requests in
+	 * flights on the client, so it is not all that long.
+	 * Also we only hit this codepath in case of a resent
+	 * request which makes it even more rarely hit */
+	cfs_list_for_each_entry(tmp, &req->rq_export->exp_reg_rpcs,
+				rq_exp_list) {
+		/* Found duplicate one */
+		if (tmp->rq_xid == req->rq_xid) {
+			spin_unlock_bh(&req->rq_export->exp_rpc_lock);
+			goto found;
+		}
+	}
+	cfs_list_for_each_entry(tmp, &req->rq_export->exp_hp_rpcs,
+				rq_exp_list) {
+		/* Found duplicate one */
+		if (tmp->rq_xid == req->rq_xid) {
+			spin_unlock_bh(&req->rq_export->exp_rpc_lock);
+			goto found;
+		}
+	}
+	spin_unlock_bh(&req->rq_export->exp_rpc_lock);
+	return 0;
+
+found:
+	DEBUG_REQ(D_HA, req, "Found duplicate req in processing\n");
+	DEBUG_REQ(D_HA, tmp, "Request being processed\n");
+	/* TODO: next step is to use new request for reply and don't reply
+	 * on old one */
+	return -EBUSY;
+}
+
 /**
  * Handle freshly incoming reqs, add to timed early reply list,
  * pass on to regular request queue.
@@ -1811,6 +1866,11 @@ ptlrpc_server_handle_req_in(struct ptlrpc_service_part *svcpt)
                 lustre_msg_get_handle(req->rq_reqmsg));
         if (req->rq_export) {
 		class_export_rpc_get(req->rq_export);
+
+		rc = ptlrpc_server_check_resend_in_progress(req);
+		if (rc < 0)
+			goto err_req;
+
                 rc = ptlrpc_check_req(req);
                 if (rc == 0) {
                         rc = sptlrpc_target_export_check(req->rq_export, req);
@@ -1845,10 +1905,8 @@ ptlrpc_server_handle_req_in(struct ptlrpc_service_part *svcpt)
 
         /* Move it over to the request processing queue */
 	rc = ptlrpc_server_request_add(svcpt, req);
-	if (rc) {
-		ptlrpc_server_hpreq_fini(req);
+	if (rc)
 		GOTO(err_req, rc);
-	}
 	cfs_waitq_signal(&svcpt->scp_waitq);
 	RETURN(1);
 
@@ -3059,7 +3117,6 @@ ptlrpc_service_purge_all(struct ptlrpc_service *svc)
 			req = ptlrpc_server_request_get(svcpt, 1);
 			cfs_list_del(&req->rq_list);
 			svcpt->scp_nreqs_active++;
-			ptlrpc_server_hpreq_fini(req);
 
 			if (req->rq_export != NULL)
 				class_export_rpc_put(req->rq_export);

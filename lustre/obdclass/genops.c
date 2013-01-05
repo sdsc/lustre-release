@@ -824,6 +824,7 @@ struct obd_export *class_new_export(struct obd_device *obd,
         export->exp_conn_cnt = 0;
         export->exp_lock_hash = NULL;
 	export->exp_flock_hash = NULL;
+	export->exp_max_xid_seen = 0;
         cfs_atomic_set(&export->exp_refcount, 2);
         cfs_atomic_set(&export->exp_rpc_count, 0);
         cfs_atomic_set(&export->exp_cb_count, 0);
@@ -840,6 +841,7 @@ struct obd_export *class_new_export(struct obd_device *obd,
 	CFS_INIT_LIST_HEAD(&export->exp_req_replay_queue);
 	CFS_INIT_LIST_HEAD(&export->exp_handle.h_link);
 	CFS_INIT_LIST_HEAD(&export->exp_hp_rpcs);
+	CFS_INIT_LIST_HEAD(&export->exp_reg_rpcs);
 	class_handle_hash(&export->exp_handle, &export_handle_ops);
 	export->exp_last_request_time = cfs_time_current_sec();
 	spin_lock_init(&export->exp_lock);
