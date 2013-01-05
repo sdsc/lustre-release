@@ -454,6 +454,11 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 #define OBD_FAIL_GLIMPSE_DELAY			    0x1404
 
 #define OBD_FAIL_FID_MAPPING	0x1500
+#define OBD_FAIL_FID_INDIR	0x1501
+#define OBD_FAIL_FID_INLMA	0x1502
+#define OBD_FAIL_FID_NLINK	0x1503
+#define OBD_FAIL_FID_LOOKUP	0x1505
+#define OBD_FAIL_FID_NOLMA	0x1506
 
 /* LFSCK */
 #define OBD_FAIL_LFSCK_DELAY1		0x1600
