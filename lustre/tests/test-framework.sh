@@ -405,6 +405,34 @@ unload_modules() {
     return 0
 }
 
+#
+# This and set_obdfilter_param() shall be used to access OSD parameters
+# once existed under "obdfilter":
+#
+#   mntdev
+#   stats
+#   read_cache_enable
+#   writethrough_cache_enable
+#
+get_obdfilter_param() {
+    local nodes=$1
+    local device=${2:-$FSNAME-OST*}
+    local name=$3
+
+    do_nodes $nodes "$LCTL get_param -n obdfilter.$device.$name \
+        osd-*.$device.$name 2>&1" | grep -v 'Found no match'
+}
+
+set_obdfilter_param() {
+    local nodes=$1
+    local device=${2:-$FSNAME-OST*}
+    local name=$3
+    local value=$4
+
+    do_nodes $nodes "$LCTL set_param -n obdfilter.$device.$name=$value \
+        osd-*.$device.$name=$value 2>&1" | grep -v 'Found no match'
+}
+
 set_debug_size () {
     local dz=${1:-$DEBUG_SIZE}
     local cpus=$(getconf _NPROCESSORS_CONF)
@@ -2365,17 +2393,15 @@ cleanup_and_setup_lustre() {
 get_mnt_devs() {
     local node=$1
     local type=$2
-    local obd_type
     local devs
     local dev
 
-    case $type in
-    mdt) obd_type="osd" ;;
-    ost) obd_type="obdfilter" ;; # needs to be fixed when OST also uses an OSD
-    *) echo "invalid server type" && return 1 ;;
-    esac
-
-    devs=$(do_node $node "lctl get_param -n $obd_type.*.mntdev")
+    if [ "$type" == ost ]; then
+        devs=$(get_obdfilter_param $node "" mntdev)
+    else
+        devs=$(do_node $node \
+            "lctl get_param -n osd-*.$FSNAME-M*.mntdev")
+    fi
     for dev in $devs; do
         case $dev in
         *loop*) do_node $node "losetup $dev" | \
@@ -2384,7 +2410,6 @@ get_mnt_devs() {
         esac
     done
 }
-
 # Get all of the server target devices.
 get_svr_devs() {
     local i
