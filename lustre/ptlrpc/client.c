@@ -158,7 +158,10 @@ struct ptlrpc_bulk_desc *ptlrpc_prep_bulk_imp(struct ptlrpc_request *req,
         /* This makes req own desc, and free it when she frees herself */
         req->rq_bulk = desc;
 
-        return desc;
+	/* save original XID in reqmsg for server use, LU-793 */
+	lustre_msg_set_last_xid(req->rq_reqmsg, req->rq_xid);
+
+	return desc;
 }
 EXPORT_SYMBOL(ptlrpc_prep_bulk_imp);
 
