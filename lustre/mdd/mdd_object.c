@@ -256,10 +256,18 @@ static const struct lu_object_operations mdd_lu_obj_ops = {
 };
 
 struct mdd_object *mdd_object_find(const struct lu_env *env,
-                                   struct mdd_device *d,
-                                   const struct lu_fid *f)
+				   struct mdd_device *d,
+				   const struct lu_fid *f)
 {
-        return md2mdd_obj(md_object_find_slice(env, &d->mdd_md_dev, f));
+	return md2mdd_obj(md_object_find_slice(env, &d->mdd_md_dev, f, NULL));
+}
+
+struct mdd_object *mdd_object_find_conf(const struct lu_env *env,
+					struct mdd_device *d,
+					const struct lu_fid *f,
+					const struct lu_object_conf *conf)
+{
+        return md2mdd_obj(md_object_find_slice(env, &d->mdd_md_dev, f, conf));
 }
 
 static int mdd_path2fid(const struct lu_env *env, struct mdd_device *mdd,
