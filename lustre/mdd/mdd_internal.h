@@ -494,6 +494,14 @@ int mdd_txn_start_cb(const struct lu_env *env, struct thandle *,
                      void *cookie);
 
 /* mdd_lfsck.c */
+void mdd_lfsck_linkea_add(const struct lu_env *env,
+			  struct mdd_object *obj,
+			  const struct lu_fid *pfid,
+			  const struct lu_name *cname);
+void mdd_lfsck_linkea_del(const struct lu_env *env,
+			  struct mdd_object *obj,
+			  const struct lu_fid *pfid,
+			  const struct lu_name *cname);
 int mdd_lfsck_set_speed(const struct lu_env *env, struct md_lfsck *lfsck,
 			__u32 limit);
 int mdd_lfsck_start(const struct lu_env *env, struct md_lfsck *lfsck,
@@ -959,6 +967,17 @@ static inline struct obd_capa *mdo_capa_get(const struct lu_env *env,
                 return ERR_PTR(-ENOENT);
         }
         return next->do_ops->do_capa_get(env, next, old, opc);
+}
+
+static inline void mdd_object_pin(struct mdd_object *obj)
+{
+	/* XXX: to be implemented. */
+}
+
+static inline void mdd_object_unpin(const struct lu_env *env,
+				    struct mdd_object *obj)
+{
+	/* XXX: to be implemented. */
 }
 
 #endif
