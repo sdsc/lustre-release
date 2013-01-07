@@ -171,9 +171,8 @@ int osd_object_sa_update(struct osd_object *obj, sa_attr_type_t type,
 /*
  * Bulk update the SA and add the object to the dirty list.
  */
-static int
-osd_object_sa_bulk_update(struct osd_object *obj, sa_bulk_attr_t *attrs,
-			  int count, struct osd_thandle *oh)
+int osd_object_sa_bulk_update(struct osd_object *obj, sa_bulk_attr_t *attrs,
+			      int count, struct osd_thandle *oh)
 {
 	int rc;
 
