@@ -340,13 +340,13 @@ LB_LINUX_TRY_COMPILE([
 ],[
         AC_MSG_RESULT(yes)
         AC_DEFINE(HAVE_SCATTERLIST_SETPAGE, 1,
-                  [struct scatterlist has page member])
+                  [struct scatterlist has no page member])
 ],[
         AC_MSG_RESULT(NO)
 ])
 ])
 
-# 2.6.24 
+# 2.6.24
 AC_DEFUN([LIBCFS_NETWORK_NAMESPACE],
 [AC_MSG_CHECKING([for network stack has namespaces])
 LB_LINUX_TRY_COMPILE([
