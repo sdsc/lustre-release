@@ -56,6 +56,7 @@
 #include <lustre/lustre_idl.h>
 
 #include "mdd_internal.h"
+#include "mdd_lfsck.h"
 
 static const struct lu_object_operations mdd_lu_obj_ops;
 extern cfs_mem_cache_t *mdd_object_kmem;
