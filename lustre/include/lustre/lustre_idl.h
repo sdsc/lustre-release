@@ -988,6 +988,7 @@ static inline int lu_dirent_size(struct lu_dirent *ent)
 }
 
 #define MDS_DIR_END_OFF 0xfffffffffffffffeULL
+#define MDS_DIR_DUMMY_START 0xffffffffffffffffULL
 
 /**
  * MDS_READPAGE page size
