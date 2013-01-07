@@ -2161,6 +2161,26 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 3.0 dirty_inode() has a flag parameter
+# see kernel commit 5a7bbad27a410350e64a2d7f5ec18fc73836c14f
+#
+AC_DEFUN([LC_DIRTY_INODE_WITH_FLAG],
+[AC_MSG_CHECKING([if dirty_inode super_operation takes flag])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/fs.h>
+],[
+	struct inode *inode;
+	inode->i_sb->s_op->dirty_inode(NULL, 0);
+],[
+	AC_DEFINE(HAVE_DIRTY_INODE_HAS_FLAG, 1,
+		  [dirty_inode super_operation takes flag])
+	AC_MSG_RESULT([yes])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
+#
 # LC_PROG_LINUX
 #
 # Lustre linux kernel checks
@@ -2300,6 +2320,9 @@ AC_DEFUN([LC_PROG_LINUX],
          # 2.6.39
          LC_REQUEST_QUEUE_UNPLUG_FN
 	 LC_HAVE_FSTYPE_MOUNT
+
+	 # 3.0
+	 LC_DIRTY_INODE_WITH_FLAG
 
 	 # 3.1
 	 LC_LM_XXX_LOCK_MANAGER_OPS
