@@ -934,7 +934,12 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
         unsigned long count;
         handle_t *handle;
 
-        if (cex->ec_type == EXT3_EXT_CACHE_EXTENT) {
+#ifdef EXT3_EXT_CACHE_EXTENT
+        if (cex->ec_type == EXT3_EXT_CACHE_EXTENT)
+#else
+        if (!cex->ec_len && !cex->ec_start)
+#endif
+					           {
                 err = EXT_CONTINUE;
                 goto map;
         }
@@ -1028,10 +1033,16 @@ map:
                         CERROR("hmm. why do we find this extent?\n");
                         CERROR("initial space: %lu:%u\n",
                                 bp->start, bp->init_num);
+#ifdef EXT4_EXT_CACHE_EXTENT
                         CERROR("current extent: %u/%u/%llu %d\n",
                                 cex->ec_block, cex->ec_len,
                                 (unsigned long long)cex->ec_start,
                                 cex->ec_type);
+#else
+                        CERROR("current extent: %u/%u/%llu\n",
+                                cex->ec_block, cex->ec_len,
+                                (unsigned long long)cex->ec_start);
+#endif
                 }
                 i = 0;
                 if (cex->ec_block < bp->start)
@@ -1041,7 +1052,12 @@ map:
                                         i, cex->ec_len);
                 for (; i < cex->ec_len && bp->num; i++) {
                         *(bp->blocks) = cex->ec_start + i;
-                        if (cex->ec_type == EXT3_EXT_CACHE_EXTENT) {
+#ifdef EXT4_EXT_CACHE_EXTENT
+                        if (cex->ec_type == EXT3_EXT_CACHE_EXTENT)
+#else
+                        if (!cex->ec_len && !cex->ec_start)
+#endif
+								   {
                                 *(bp->created) = 0;
                         } else {
                                 *(bp->created) = 1;
