@@ -121,6 +121,7 @@ struct mdd_device {
         struct dt_device                *mdd_child;
 	struct dt_device		*mdd_bottom;
         struct lu_fid                    mdd_root_fid;
+	struct lu_fid			 mdd_local_root_fid;
         struct dt_device_param           mdd_dt_conf;
         struct dt_object                *mdd_orphans; /* PENDING directory */
         struct dt_object                *mdd_capa;
@@ -130,8 +131,9 @@ struct mdd_device {
         struct mdd_object               *mdd_dot_lustre;
         struct mdd_dot_lustre_objs       mdd_dot_lustre_objs;
 	struct md_lfsck			 mdd_lfsck;
-	unsigned int			 mdd_sync_permission;
 	int				 mdd_connects;
+	unsigned int			 mdd_sync_permission:1,
+					 mdd_lfsck_namespace:1;
 };
 
 enum mod_flags {
@@ -150,6 +152,21 @@ enum mdd_object_role {
         MOR_TGT_ORPHAN
 };
 
+struct lfsck_linkea_header {
+	cfs_list_t	llh_list;
+
+	/* How many linkea entries have been verified. */
+	int		llh_count;
+	__u8		llh_flags;
+};
+
+struct lfsck_linkea_entry {
+	cfs_list_t	lle_link;
+	struct lu_fid	lle_fid;
+	unsigned short	lle_namelen;
+	char		lle_name[0];
+};
+
 struct mdd_object {
         struct md_object   mod_obj;
         /* open count */
@@ -164,6 +181,20 @@ struct mdd_object {
         /* "dep_map" name is assumed by lockdep.h macros. */
         struct lockdep_map dep_map;
 #endif
+	/* We need this rw semaphore to avoid the deadlock between trans start
+	 * and mdd_{read,write}_lock. For normal namespace update operations,
+	 * the RPC service thread will start trans firstly, then acquire the
+	 * mdd_{read,write}_lock. But for LFSCK processing, it is inefficient
+	 * to start trans before mdd_{read,write}_lock, and revert order may
+	 * cause deadlock between RPC service thread and the LFSCK thread.
+	 *
+	 * With mdd_lfsck_rwsem introduced, for the normal namespace update
+	 * operations, which may race with the LFSCK processing, the RPC
+	 * service thread needs to hold read semaphore against the target
+	 * object before trans start; for LFSCK processing, it needs to hold
+	 * write semaphore before trans start. */
+	struct rw_semaphore	   mod_lfsck_rwsem;
+	struct lfsck_linkea_header mod_llh;
 };
 
 struct mdd_thread_info {
@@ -175,10 +206,10 @@ struct mdd_thread_info {
 	struct lu_attr            mti_cattr;
         struct md_attr            mti_ma;
         struct obd_info           mti_oi;
-	/* mti_orph_ent and mti_orph_key must be conjoint,
-	 * then mti_orph_ent::lde_name will be mti_orph_key. */
-	struct lu_dirent	  mti_orph_ent;
-        char                      mti_orph_key[NAME_MAX + 1];
+	/* mti_ent and mti_key must be conjoint,
+	 * then mti_ent::lde_name will be mti_key. */
+	struct lu_dirent	  mti_ent;
+	char			  mti_key[NAME_MAX + 16];
         struct obd_trans_info     mti_oti;
         struct lu_buf             mti_buf;
         struct lu_buf             mti_big_buf; /* biggish persistent buf */
@@ -194,6 +225,22 @@ struct mdd_thread_info {
         struct dt_object_format   mti_dof;
         struct obd_quotactl       mti_oqctl;
 	struct lu_object_conf     mti_conf;
+};
+
+/**
+ * The data that link search is done on.
+ */
+struct mdd_link_data {
+	/**
+	 * Buffer to keep link EA body.
+	 */
+	struct lu_buf		*ml_buf;
+	/**
+	 * The matched header, entry and its lenght in the EA
+	 */
+	struct link_ea_header	*ml_leh;
+	struct link_ea_entry	*ml_lee;
+	int			 ml_reclen;
 };
 
 extern const char orph_index_name[];
@@ -250,6 +297,11 @@ int mdd_attr_get(const struct lu_env *env, struct md_object *obj,
 		 struct md_attr *ma);
 int mdd_attr_set(const struct lu_env *env, struct md_object *obj,
 		 const struct md_attr *ma);
+int mdd_attr_set_changelog(const struct lu_env *env, struct md_object *obj,
+			   struct thandle *handle, __u64 valid);
+int mdd_declare_attr_set(const struct lu_env *env, struct mdd_device *mdd,
+			 struct mdd_object *obj, const struct lu_attr *attr,
+			 struct thandle *handle);
 int mdd_attr_set_internal(const struct lu_env *env,
                           struct mdd_object *obj,
                           struct lu_attr *attr,
@@ -298,6 +350,11 @@ void mdd_pdo_write_unlock(const struct lu_env *env, struct mdd_object *obj,
 void mdd_pdo_read_unlock(const struct lu_env *env, struct mdd_object *obj,
                          void *dlh);
 /* mdd_dir.c */
+int
+__mdd_lookup_locked(const struct lu_env *env, struct md_object *pobj,
+		    const struct lu_name *lname, struct lu_fid* fid, int mask);
+int mdd_parent_fid(const struct lu_env *env, struct mdd_object *obj,
+		   struct lu_fid *fid);
 int mdd_is_subdir(const struct lu_env *env, struct md_object *mo,
                   const struct lu_fid *fid, struct lu_fid *sfid);
 int mdd_may_create(const struct lu_env *env, struct mdd_object *pobj,
@@ -309,6 +366,9 @@ int mdd_may_delete(const struct lu_env *env, struct mdd_object *pobj,
 		   struct lu_attr *src_attr, int check_perm, int check_empty);
 int mdd_unlink_sanity_check(const struct lu_env *env, struct mdd_object *pobj,
 			    struct mdd_object *cobj, struct lu_attr *cattr);
+int mdd_declare_finish_unlink(const struct lu_env *env,
+			      struct mdd_object *obj,
+			      struct thandle *handle);
 int mdd_finish_unlink(const struct lu_env *env, struct mdd_object *obj,
                       struct md_attr *ma, struct thandle *th);
 int mdd_object_initialize(const struct lu_env *env, const struct lu_fid *pfid,
@@ -321,10 +381,31 @@ int mdd_is_root(struct mdd_device *mdd, const struct lu_fid *fid);
 int mdd_lookup(const struct lu_env *env,
                struct md_object *pobj, const struct lu_name *lname,
                struct lu_fid* fid, struct md_op_spec *spec);
+int mdd_links_read(const struct lu_env *env, struct mdd_object *mdd_obj,
+		   struct mdd_link_data *ldata);
+int mdd_links_find(const struct lu_env *env, struct mdd_object *mdd_obj,
+		   struct mdd_link_data *ldata, const struct lu_name *lname,
+		   const struct lu_fid  *pfid);
+int mdd_links_new(const struct lu_env *env, struct mdd_link_data *ldata);
+int mdd_links_add_buf(const struct lu_env *env, struct mdd_link_data *ldata,
+		      const struct lu_name *lname, const struct lu_fid *pfid);
+void mdd_links_del_buf(const struct lu_env *env, struct mdd_link_data *ldata,
+		       const struct lu_name *lname);
+int mdd_declare_links_add(const struct lu_env *env,
+			  struct mdd_object *mdd_obj,
+			  struct thandle *handle);
+int mdd_links_write(const struct lu_env *env, struct mdd_object *mdd_obj,
+		    struct mdd_link_data *ldata, struct thandle *handle);
 struct lu_buf *mdd_links_get(const struct lu_env *env,
                              struct mdd_object *mdd_obj);
 void mdd_lee_unpack(const struct link_ea_entry *lee, int *reclen,
                     struct lu_name *lname, struct lu_fid *pfid);
+int __mdd_index_delete_only(const struct lu_env *env, struct mdd_object *pobj,
+			    const char *name, struct thandle *handle,
+			    struct lustre_capa *capa);
+int __mdd_index_insert_only(const struct lu_env *env, struct mdd_object *pobj,
+			    const struct lu_fid *lf, const char *name,
+			    struct thandle *handle, struct lustre_capa *capa);
 
 /* mdd_lov.c */
 int mdd_declare_unlink_log(const struct lu_env *env, struct mdd_object *obj,
@@ -350,6 +431,8 @@ int mdd_lovobj_unlink(const struct lu_env *env, struct mdd_device *mdd,
 
 struct mdd_thread_info *mdd_env_info(const struct lu_env *env);
 
+const struct lu_name *mdd_name_get_const(const struct lu_env *env,
+					 const void *area, ssize_t len);
 struct lu_buf *mdd_buf_get(const struct lu_env *env, void *area, ssize_t len);
 const struct lu_buf *mdd_buf_get_const(const struct lu_env *env,
                                        const void *area, ssize_t len);
@@ -372,6 +455,8 @@ int mdd_procfs_init(struct mdd_device *mdd, const char *name);
 int mdd_procfs_fini(struct mdd_device *mdd);
 
 /* mdd_object.c */
+int mdd_close(const struct lu_env *env, struct md_object *obj,
+	      struct md_attr *ma, int mode);
 int mdd_get_flags(const struct lu_env *env, struct mdd_object *obj);
 struct lu_buf *mdd_buf_alloc(const struct lu_env *env, ssize_t len);
 int mdd_buf_grow(const struct lu_env *env, ssize_t len);
@@ -402,6 +487,10 @@ int mdd_declare_changelog_store(const struct lu_env *env,
 				struct thandle *handle);
 int mdd_changelog_store(const struct lu_env *env, struct mdd_device *mdd,
 			struct llog_changelog_rec *rec, struct thandle *th);
+int mdd_changelog_ns_store(const struct lu_env *env, struct mdd_device *mdd,
+			   enum changelog_rec_type type, unsigned flags,
+			   struct mdd_object *target, struct mdd_object *parent,
+			   const struct lu_name *tname, struct thandle *handle);
 int mdd_declare_object_create_internal(const struct lu_env *env,
 				       struct mdd_object *p,
 				       struct mdd_object *c,
@@ -415,6 +504,11 @@ int mdd_lov_destroy(const struct lu_env *env, struct mdd_device *mdd,
 
 void mdd_object_make_hint(const struct lu_env *env, struct mdd_object *parent,
 			  struct mdd_object *child, struct lu_attr *attr);
+
+static inline void mdd_object_get(struct mdd_object *o)
+{
+	lu_object_get(&o->mod_obj.mo_lu);
+}
 
 static inline void mdd_object_put(const struct lu_env *env,
                                   struct mdd_object *o)
@@ -855,12 +949,14 @@ int mdo_create_obj(const struct lu_env *env, struct mdd_object *o,
 	 *  LU-974 enforce client umask in creation.
 	 * TODO: CMD needs to handle this for remote object.
 	 */
-	saved = xchg(&current->fs->umask, uc->uc_umask & S_IRWXUGO);
+	if (likely(uc != NULL))
+		saved = xchg(&current->fs->umask, uc->uc_umask & S_IRWXUGO);
 
 	rc = next->do_ops->do_create(env, next, attr, hint, dof, handle);
 
 	/* restore previous umask value */
-	current->fs->umask = saved;
+	if (likely(uc != NULL))
+		current->fs->umask = saved;
 
 	return rc;
 }
