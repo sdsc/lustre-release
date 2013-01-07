@@ -741,50 +741,46 @@ static inline void lu_igif_build(struct lu_fid *fid, __u32 ino, __u32 gen)
  */
 static inline void fid_cpu_to_le(struct lu_fid *dst, const struct lu_fid *src)
 {
-        /* check that all fields are converted */
-        CLASSERT(sizeof *src ==
-                 sizeof fid_seq(src) +
-                 sizeof fid_oid(src) + sizeof fid_ver(src));
-        LASSERTF(fid_is_igif(src) || fid_ver(src) == 0, DFID"\n", PFID(src));
-        dst->f_seq = cpu_to_le64(fid_seq(src));
-        dst->f_oid = cpu_to_le32(fid_oid(src));
-        dst->f_ver = cpu_to_le32(fid_ver(src));
+	/* check that all fields are converted */
+	CLASSERT(sizeof *src ==
+		 sizeof fid_seq(src) +
+		 sizeof fid_oid(src) + sizeof fid_ver(src));
+	dst->f_seq = cpu_to_le64(fid_seq(src));
+	dst->f_oid = cpu_to_le32(fid_oid(src));
+	dst->f_ver = cpu_to_le32(fid_ver(src));
 }
 
 static inline void fid_le_to_cpu(struct lu_fid *dst, const struct lu_fid *src)
 {
-        /* check that all fields are converted */
-        CLASSERT(sizeof *src ==
-                 sizeof fid_seq(src) +
-                 sizeof fid_oid(src) + sizeof fid_ver(src));
-        dst->f_seq = le64_to_cpu(fid_seq(src));
-        dst->f_oid = le32_to_cpu(fid_oid(src));
-        dst->f_ver = le32_to_cpu(fid_ver(src));
-        LASSERTF(fid_is_igif(dst) || fid_ver(dst) == 0, DFID"\n", PFID(dst));
+	/* check that all fields are converted */
+	CLASSERT(sizeof *src ==
+		 sizeof fid_seq(src) +
+		 sizeof fid_oid(src) + sizeof fid_ver(src));
+	dst->f_seq = le64_to_cpu(fid_seq(src));
+	dst->f_oid = le32_to_cpu(fid_oid(src));
+	dst->f_ver = le32_to_cpu(fid_ver(src));
 }
 
 static inline void fid_cpu_to_be(struct lu_fid *dst, const struct lu_fid *src)
 {
-        /* check that all fields are converted */
-        CLASSERT(sizeof *src ==
-                 sizeof fid_seq(src) +
-                 sizeof fid_oid(src) + sizeof fid_ver(src));
-        LASSERTF(fid_is_igif(src) || fid_ver(src) == 0, DFID"\n", PFID(src));
-        dst->f_seq = cpu_to_be64(fid_seq(src));
-        dst->f_oid = cpu_to_be32(fid_oid(src));
-        dst->f_ver = cpu_to_be32(fid_ver(src));
+	/* check that all fields are converted */
+	CLASSERT(sizeof *src ==
+		 sizeof fid_seq(src) +
+		 sizeof fid_oid(src) + sizeof fid_ver(src));
+	dst->f_seq = cpu_to_be64(fid_seq(src));
+	dst->f_oid = cpu_to_be32(fid_oid(src));
+	dst->f_ver = cpu_to_be32(fid_ver(src));
 }
 
 static inline void fid_be_to_cpu(struct lu_fid *dst, const struct lu_fid *src)
 {
-        /* check that all fields are converted */
-        CLASSERT(sizeof *src ==
-                 sizeof fid_seq(src) +
-                 sizeof fid_oid(src) + sizeof fid_ver(src));
-        dst->f_seq = be64_to_cpu(fid_seq(src));
-        dst->f_oid = be32_to_cpu(fid_oid(src));
-        dst->f_ver = be32_to_cpu(fid_ver(src));
-        LASSERTF(fid_is_igif(dst) || fid_ver(dst) == 0, DFID"\n", PFID(dst));
+	/* check that all fields are converted */
+	CLASSERT(sizeof *src ==
+		 sizeof fid_seq(src) +
+		 sizeof fid_oid(src) + sizeof fid_ver(src));
+	dst->f_seq = be64_to_cpu(fid_seq(src));
+	dst->f_oid = be32_to_cpu(fid_oid(src));
+	dst->f_ver = be32_to_cpu(fid_ver(src));
 }
 
 static inline int fid_is_sane(const struct lu_fid *fid)
@@ -804,16 +800,12 @@ extern void lustre_swab_lu_fid(struct lu_fid *fid);
 extern void lustre_swab_lu_seq_range(struct lu_seq_range *range);
 
 static inline int lu_fid_eq(const struct lu_fid *f0,
-                            const struct lu_fid *f1)
+			    const struct lu_fid *f1)
 {
-        /* Check that there is no alignment padding. */
-        CLASSERT(sizeof *f0 ==
-                 sizeof f0->f_seq + sizeof f0->f_oid + sizeof f0->f_ver);
-        LASSERTF((fid_is_igif(f0) || fid_is_idif(f0)) ||
-                 fid_ver(f0) == 0, DFID, PFID(f0));
-        LASSERTF((fid_is_igif(f1) || fid_is_idif(f1)) ||
-                 fid_ver(f1) == 0, DFID, PFID(f1));
-        return memcmp(f0, f1, sizeof *f0) == 0;
+	/* Check that there is no alignment padding. */
+	CLASSERT(sizeof *f0 ==
+		 sizeof f0->f_seq + sizeof f0->f_oid + sizeof f0->f_ver);
+	return memcmp(f0, f1, sizeof *f0) == 0;
 }
 
 static inline int lu_fid_diff(struct lu_fid *fid1, struct lu_fid *fid2)
@@ -964,18 +956,23 @@ static inline struct lu_dirent *lu_dirent_next(struct lu_dirent *ent)
         return next;
 }
 
-static inline int lu_dirent_calc_size(int namelen, __u16 attr)
+static inline int lu_dirent_calc_size(int namelen, __u32 attr)
 {
-        int size;
+	int size;
+	int align;
 
-        if (attr & LUDA_TYPE) {
-                const unsigned align = sizeof(struct luda_type) - 1;
-                size = (sizeof(struct lu_dirent) + namelen + align) & ~align;
-                size += sizeof(struct luda_type);
-        } else
-                size = sizeof(struct lu_dirent) + namelen;
-
-        return (size + 7) & ~7;
+	if (attr & LUDA_TYPE) {
+		align = sizeof(struct luda_type) - 1;
+		size = (sizeof(struct lu_dirent) + namelen + align) & ~align;
+		size += sizeof(struct luda_type);
+	} else if (attr & LUDA_VERIFY) {
+		align = sizeof(__u64) - 1;
+		size = (sizeof(__u64) + namelen + align) & ~align;
+		size += sizeof(__u64);
+	} else {
+		size = sizeof(struct lu_dirent) + namelen;
+	}
+	return (size + 7) & ~7;
 }
 
 static inline int lu_dirent_size(struct lu_dirent *ent)
