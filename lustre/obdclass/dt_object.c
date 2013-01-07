@@ -565,6 +565,17 @@ EXPORT_SYMBOL(dt_directory_features);
 const struct dt_index_features dt_otable_features;
 EXPORT_SYMBOL(dt_otable_features);
 
+/* lfsck */
+const struct dt_index_features dt_lfsck_features = {
+	.dif_flags		= DT_IND_UPDATE,
+	.dif_keysize_min	= sizeof(struct lu_fid),
+	.dif_keysize_max	= sizeof(struct lu_fid),
+	.dif_recsize_min	= sizeof(__u8),
+	.dif_recsize_max	= sizeof(__u8),
+	.dif_ptrsize		= 4
+};
+EXPORT_SYMBOL(dt_lfsck_features);
+
 /* accounting indexes */
 const struct dt_index_features dt_acct_features = {
 	.dif_flags		= DT_IND_UPDATE,
