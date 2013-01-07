@@ -423,7 +423,7 @@ Index: linux-stage/fs/ext4/namei.c
  	de->name_len = 2;
  	strcpy (de->name, "..");
  	ext4_set_de_type(dir->i_sb, de, S_IFDIR);
-+	if (data) {
++	if (data && EXT4_DIR_REC_LEN(de) >= dlen) {
 +		de->name[2] = 0;
 +		memcpy(&de->name[2 + 1], data, dlen);
 +		de->file_type |= EXT4_DIRENT_LUFID;
