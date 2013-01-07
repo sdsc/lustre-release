@@ -743,4 +743,10 @@ static inline struct dentry *d_make_root(struct inode *root)
 }
 #endif
 
+#ifdef HAVE_DIRTY_INODE_HAS_FLAG
+# define ll_dirty_inode(inode)	(inode)->i_sb->s_op->dirty_inode((inode), 0)
+#else
+# define ll_dirty_inode(inode)	(inode)->i_sb->s_op->dirty_inode((inode))
+#endif
+
 #endif /* _COMPAT25_H */
