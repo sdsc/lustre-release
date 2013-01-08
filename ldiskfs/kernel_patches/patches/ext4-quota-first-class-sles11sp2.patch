@@ -1,0 +1,345 @@
+diff -ru linux-stage.orig/fs/ext4/ext4.h linux-stage/fs/ext4/ext4.h
+--- linux-stage.orig/fs/ext4/ext4.h	2013-01-02 11:23:25.000000000 -0500
++++ linux-stage/fs/ext4/ext4.h	2013-01-02 11:23:54.000000000 -0500
+@@ -1085,7 +1085,9 @@
+ 	__u8	s_last_error_func[32];	/* function where the error happened */
+ #define EXT4_S_ERR_END offsetof(struct ext4_super_block, s_mount_opts)
+ 	__u8	s_mount_opts[64];
+-	__le32	s_reserved[112];        /* Padding to the end of the block */
++	__le32	s_usr_quota_inum;	/* inode for tracking user quota */
++	__le32	s_grp_quota_inum;	/* inode for tracking group quota */
++	__le32	s_reserved[110];        /* Padding to the end of the block */
+ };
+ 
+ #define EXT4_S_ERR_LEN (EXT4_S_ERR_END - EXT4_S_ERR_START)
+@@ -1161,6 +1163,7 @@
+ #ifdef CONFIG_QUOTA
+ 	char *s_qf_names[MAXQUOTAS];		/* Names of quota files with journalled quota */
+ 	int s_jquota_fmt;			/* Format of quota to use */
++	unsigned long s_qf_inums[MAXQUOTAS];    /* Quota file inodes */
+ #endif
+ 	unsigned int s_want_extra_isize; /* New inodes should reserve # bytes */
+ 	struct rb_root system_blks;
+@@ -1262,6 +1265,8 @@
+ static inline int ext4_valid_inum(struct super_block *sb, unsigned long ino)
+ {
+ 	return ino == EXT4_ROOT_INO ||
++		ino == EXT4_USR_QUOTA_INO ||
++		ino == EXT4_GRP_QUOTA_INO ||
+ 		ino == EXT4_JOURNAL_INO ||
+ 		ino == EXT4_RESIZE_INO ||
+ 		(ino >= EXT4_FIRST_INO(sb) &&
+@@ -1430,7 +1435,8 @@
+ 					 EXT4_FEATURE_RO_COMPAT_DIR_NLINK | \
+ 					 EXT4_FEATURE_RO_COMPAT_EXTRA_ISIZE | \
+ 					 EXT4_FEATURE_RO_COMPAT_BTREE_DIR |\
+-					 EXT4_FEATURE_RO_COMPAT_HUGE_FILE)
++					 EXT4_FEATURE_RO_COMPAT_HUGE_FILE| \
++					 EXT4_FEATURE_RO_COMPAT_QUOTA)
+ 
+ /*
+  * Default values for user and/or group using reserved blocks
+diff -ru linux-stage.orig/fs/ext4/ext4_jbd2.h linux-stage/fs/ext4/ext4_jbd2.h
+--- linux-stage.orig/fs/ext4/ext4_jbd2.h	2013-01-02 11:23:25.000000000 -0500
++++ linux-stage/fs/ext4/ext4_jbd2.h	2013-01-02 11:23:54.000000000 -0500
+@@ -89,14 +89,20 @@
+ #ifdef CONFIG_QUOTA
+ /* Amount of blocks needed for quota update - we know that the structure was
+  * allocated so we need to update only data block */
+-#define EXT4_QUOTA_TRANS_BLOCKS(sb) (test_opt(sb, QUOTA) ? 1 : 0)
++#define EXT4_QUOTA_TRANS_BLOCKS(sb) ((test_opt(sb, QUOTA) ||\
++		EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA)) ?\
++		1 : 0)
+ /* Amount of blocks needed for quota insert/delete - we do some block writes
+  * but inode, sb and group updates are done only once */
+-#define EXT4_QUOTA_INIT_BLOCKS(sb) (test_opt(sb, QUOTA) ? (DQUOT_INIT_ALLOC*\
+-		(EXT4_SINGLEDATA_TRANS_BLOCKS(sb)-3)+3+DQUOT_INIT_REWRITE) : 0)
++#define EXT4_QUOTA_INIT_BLOCKS(sb) ((test_opt(sb, QUOTA) ||\
++		EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA)) ?\
++		(DQUOT_INIT_ALLOC*(EXT4_SINGLEDATA_TRANS_BLOCKS(sb)-3)\
++		 +3+DQUOT_INIT_REWRITE) : 0)
+ 
+-#define EXT4_QUOTA_DEL_BLOCKS(sb) (test_opt(sb, QUOTA) ? (DQUOT_DEL_ALLOC*\
+-		(EXT4_SINGLEDATA_TRANS_BLOCKS(sb)-3)+3+DQUOT_DEL_REWRITE) : 0)
++#define EXT4_QUOTA_DEL_BLOCKS(sb) ((test_opt(sb, QUOTA) ||\
++		EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA)) ?\
++		(DQUOT_DEL_ALLOC*(EXT4_SINGLEDATA_TRANS_BLOCKS(sb)-3)\
++		 +3+DQUOT_DEL_REWRITE) : 0)
+ #else
+ #define EXT4_QUOTA_TRANS_BLOCKS(sb) 0
+ #define EXT4_QUOTA_INIT_BLOCKS(sb) 0
+diff -ru linux-stage.orig/fs/ext4/super.c linux-stage/fs/ext4/super.c
+--- linux-stage.orig/fs/ext4/super.c	2013-01-02 11:23:25.000000000 -0500
++++ linux-stage/fs/ext4/super.c	2013-01-02 11:58:14.000000000 -0500
+@@ -114,6 +114,11 @@
+ 
+ static int bigendian_extents;
+ 
++#ifdef CONFIG_QUOTA
++static int ext4_acct_on(struct super_block *sb);
++static int ext4_acct_off(struct super_block *sb);
++#endif
++
+ ext4_fsblk_t ext4_block_bitmap(struct super_block *sb,
+ 			       struct ext4_group_desc *bg)
+ {
+@@ -783,6 +788,12 @@
+ 	ext4_unregister_li_request(sb);
+ 	dquot_disable(sb, -1, DQUOT_USAGE_ENABLED | DQUOT_LIMITS_ENABLED);
+ 
++#ifdef CONFIG_QUOTA
++	/* disable usage tracking which was enabled at mount time */
++	if (EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA))
++		ext4_acct_off(sb);
++#endif
++
+ 	flush_workqueue(sbi->dio_unwritten_wq);
+ 	destroy_workqueue(sbi->dio_unwritten_wq);
+ 
+@@ -2262,14 +2273,22 @@
+ #ifdef CONFIG_QUOTA
+ 	/* Needed for iput() to work correctly and not trash data */
+ 	sb->s_flags |= MS_ACTIVE;
+-	/* Turn on quotas so that they are updated correctly */
+-	for (i = 0; i < MAXQUOTAS; i++) {
+-		if (EXT4_SB(sb)->s_qf_names[i]) {
+-			int ret = ext4_quota_on_mount(sb, i);
+-			if (ret < 0)
+-				ext4_msg(sb, KERN_ERR,
+-					"Cannot turn on journaled "
+-					"quota: error %d", ret);
++	if (EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA)) {
++		int ret;
++		ret = ext4_acct_on(sb);
++		if (ret)
++			ext4_msg(sb, KERN_ERR, "Failed to turn on usage "
++				 "tracking for quota: error %d", ret);
++	} else {
++		/* Turn on quotas so that they are updated correctly */
++		for (i = 0; i < MAXQUOTAS; i++) {
++			if (EXT4_SB(sb)->s_qf_names[i]) {
++				int ret = ext4_quota_on_mount(sb, i);
++				if (ret < 0)
++					ext4_msg(sb, KERN_ERR,
++						"Cannot turn on journaled "
++						"quota: error %d", ret);
++			}
+ 		}
+ 	}
+ #endif
+@@ -2314,9 +2333,13 @@
+ 		       PLURAL(nr_truncates));
+ #ifdef CONFIG_QUOTA
+ 	/* Turn quotas off */
+-	for (i = 0; i < MAXQUOTAS; i++) {
+-		if (sb_dqopt(sb)->files[i])
+-			dquot_quota_off(sb, i);
++	if (EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA)) {
++		ext4_acct_off(sb);
++	} else {
++		for (i = 0; i < MAXQUOTAS; i++) {
++			if (sb_dqopt(sb)->files[i])
++				dquot_quota_off(sb, i);
++		}
+ 	}
+ #endif
+ 	sb->s_flags = s_flags; /* Restore MS_RDONLY status */
+@@ -3615,6 +3638,15 @@
+ #ifdef CONFIG_QUOTA
+ 	sb->s_qcop = &ext4_qctl_operations;
+ 	sb->dq_op = &ext4_quota_operations;
++
++	if (EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA)) {
++		/* Use new qctl operations with quota on function that does not
++		 * require user specified quota file path. */
++		sb->s_qcop = &ext4_qctl_operations;
++
++		sbi->s_qf_inums[USRQUOTA] = es->s_usr_quota_inum;
++		sbi->s_qf_inums[GRPQUOTA] = es->s_grp_quota_inum;
++	}
+ #endif
+ 	memcpy(sb->s_uuid, es->s_uuid, sizeof(es->s_uuid));
+ 
+@@ -3846,8 +3878,30 @@
+ 	} else
+ 		descr = "out journal";
+ 
+-	ext4_msg(sb, KERN_INFO, "mounted filesystem with%s. "
+-		 "Opts: %s%s%s", descr, sbi->s_es->s_mount_opts,
++#ifdef CONFIG_QUOTA
++	/* Enable space tracking during mount, enforcement can be enabled/disable
++	 * later with quota_on/off */
++	if (EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA) &&
++	    !(sb->s_flags & MS_RDONLY)) {
++		ret = ext4_acct_on(sb);
++		if (ret) {
++			ext4_msg(sb, KERN_ERR, "Can't enable usage tracking on "
++			       "a filesystem with the QUOTA feature set");
++			goto failed_mount4;
++		}
++	}
++#else
++	if (EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA) &&
++	    !(sb->s_flags & MS_RDONLY))
++		ext4_msg(sb, KERN_WARNING, "Mounting a filesystem with the "
++			"QUOTA feature set whereas the kernel does not "
++			"support quota, e2fsck will be required to fix usage "
++			"information");
++#endif  /* CONFIG_QUOTA */
++ 
++	ext4_msg(sb, KERN_INFO, "mounted filesystem with%s. quota=%s. "
++		 "Opts: %s%s%s", descr, sb_any_quota_loaded(sb) ? "on" : "off",
++		 sbi->s_es->s_mount_opts,
+ 		 *sbi->s_es->s_mount_opts ? "; " : "", orig_data);
+ 
+ 	if (es->s_error_count)
+@@ -4218,6 +4272,12 @@
+ 		cpu_to_le32(percpu_counter_sum_positive(
+ 				&EXT4_SB(sb)->s_freeinodes_counter));
+ 	sb->s_dirt = 0;
++#ifdef CONFIG_QUOTA
++	if (EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA)) {
++		es->s_usr_quota_inum = EXT4_SB(sb)->s_qf_inums[USRQUOTA];
++		es->s_grp_quota_inum = EXT4_SB(sb)->s_qf_inums[GRPQUOTA];
++	}
++#endif
+ 	BUFFER_TRACE(sbh, "marking dirty");
+ 	mark_buffer_dirty(sbh);
+ 	if (sync) {
+@@ -4808,6 +4868,22 @@
+ {
+ 	int err;
+ 
++	/* When QUOTA feature is set, quota on enables enforcement, accounting
++	 * being already enabled at mount time */
++	if (EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA)) {
++		struct inode *qf_inode;
++
++	        if (!EXT4_SB(sb)->s_qf_inums[type])
++			return -EINVAL;
++		qf_inode = ext4_iget(sb, EXT4_SB(sb)->s_qf_inums[type]);
++		if (IS_ERR(qf_inode))
++			return PTR_ERR(qf_inode);
++		err = dquot_enable(qf_inode, type, QFMT_VFS_V1,
++		                       DQUOT_LIMITS_ENABLED);
++		iput(qf_inode);
++		return err;
++	}
++
+ 	if (!test_opt(sb, QUOTA))
+ 		return -EINVAL;
+ 
+@@ -4865,10 +4941,113 @@
+ 	ext4_mark_inode_dirty(handle, inode);
+ 	ext4_journal_stop(handle);
+ 
++	/* When QUOTA feature is set, quota off just disables enforcement but
++	* leaves accounting on */
++	if (EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA))
++		return dquot_disable(sb, type, DQUOT_LIMITS_ENABLED);
++
+ out:
+ 	return dquot_quota_off(sb, type);
+ }
+ 
++/*
++ * New quota_on function that is used to turn accounting on when QUOTA
++ * feature is set.
++ */
++static int ext4_acct_on(struct super_block *sb)
++{
++	struct inode *qf_inode[MAXQUOTAS];
++	int           rc;
++
++	if (!EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA) ||
++	    !EXT4_SB(sb)->s_qf_inums[USRQUOTA] ||
++	    !EXT4_SB(sb)->s_qf_inums[GRPQUOTA])
++		return -EINVAL;
++
++	qf_inode[USRQUOTA] = ext4_iget(sb, EXT4_SB(sb)->s_qf_inums[USRQUOTA]);
++	if (IS_ERR(qf_inode[USRQUOTA])) {
++		EXT4_SB(sb)->s_qf_inums[USRQUOTA] = 0;
++		return PTR_ERR(qf_inode[USRQUOTA]);
++	}
++	qf_inode[GRPQUOTA] = ext4_iget(sb, EXT4_SB(sb)->s_qf_inums[GRPQUOTA]);
++	if (IS_ERR(qf_inode[GRPQUOTA])) {
++		iput(qf_inode[USRQUOTA]);
++		EXT4_SB(sb)->s_qf_inums[GRPQUOTA] = 0;
++		return PTR_ERR(qf_inode[GRPQUOTA]);
++	}
++
++	/*
++	 * When we journal data on quota file, we have to flush journal to see
++	 * all updates to the file when we bypass pagecache...
++	 */
++	if (EXT4_SB(sb)->s_journal) {
++		/*
++		 * We don't need to lock updates but journal_flush() could
++		 * otherwise be livelocked...
++		 */
++		jbd2_journal_lock_updates(EXT4_SB(sb)->s_journal);
++		rc = jbd2_journal_flush(EXT4_SB(sb)->s_journal);
++		jbd2_journal_unlock_updates(EXT4_SB(sb)->s_journal);
++		if (rc) {
++			iput(qf_inode[USRQUOTA]);
++			iput(qf_inode[GRPQUOTA]);
++			return rc;
++		}
++	}
++
++	/* only enable quota accounting by default */
++	rc = dquot_enable(qf_inode[USRQUOTA], USRQUOTA, QFMT_VFS_V1,
++		              DQUOT_USAGE_ENABLED);
++	iput(qf_inode[USRQUOTA]);
++	if (rc) {
++		iput(qf_inode[GRPQUOTA]);
++		return rc;
++	}
++	rc = dquot_enable(qf_inode[GRPQUOTA], GRPQUOTA, QFMT_VFS_V1,
++			      DQUOT_USAGE_ENABLED);
++	iput(qf_inode[GRPQUOTA]);
++	return rc;
++}
++
++/*
++ * New quota_on function that is used to turn off accounting when QUOTA feature
++ * is set.
++ */
++static int ext4_acct_off(struct super_block *sb)
++{
++	int type, rc = 0;
++
++	if (!EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA))
++		return -EINVAL;
++
++	for (type = 0; type < MAXQUOTAS; type++) {
++		struct inode *inode = sb_dqopt(sb)->files[type];
++		handle_t     *handle;
++
++		if (!inode)
++			continue;
++		/* Update modification times of quota files when userspace can
++		 * start looking at them */
++		handle = ext4_journal_start(inode, 1);
++		if (IS_ERR(handle))
++			goto out;
++
++		inode->i_mtime = inode->i_ctime = CURRENT_TIME;
++		ext4_mark_inode_dirty(handle, inode);
++		ext4_journal_stop(handle);
++	}
++
++out:
++	for (type = 0; type < MAXQUOTAS; type++) {
++		int ret;
++		ret = dquot_disable(sb, type,
++				    DQUOT_USAGE_ENABLED | DQUOT_LIMITS_ENABLED);
++		if (!rc && ret)
++			rc = ret;
++	}
++	return rc;
++}
++
+ /* Read data from quotafile - avoid pagecache and such because we cannot afford
+  * acquiring the locks... As quota files are never truncated and quota code
+  * itself serializes the operations (and no one else should touch the files)
