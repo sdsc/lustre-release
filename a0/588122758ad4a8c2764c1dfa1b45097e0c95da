@@ -1,0 +1,11 @@
+Verified+1: Hudson
+Code-Review+2: Oleg Drokin <green@whamcloud.com>
+Code-Review+1: Brian J. Murrell <brian.murrell@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Keith Mannthey <keith.mannthey@intel.com>
+Code-Review+1: Keith Mannthey <kemannthey@gmail.com>
+Submitted-by: Oleg Drokin <green@whamcloud.com>
+Submitted-at: Tue, 08 Jan 2013 00:10:12 -0500
+Reviewed-on: http://review.whamcloud.com/4491
+Project: fs/lustre-release
+Branch: refs/heads/master
