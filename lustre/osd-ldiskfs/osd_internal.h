@@ -301,6 +301,7 @@ struct osd_device {
 	spinlock_t		  od_osfs_lock;
 
 	unsigned int		  od_noscrub:1,
+				  od_dirent_journal:1,
 				  od_handle_nolma:1;
 
 	struct fsfilt_operations *od_fsops;
@@ -726,7 +727,7 @@ int osd_statfs(const struct lu_env *env, struct dt_device *dev,
 int osd_object_auth(const struct lu_env *env, struct dt_object *dt,
                     struct lustre_capa *capa, __u64 opc);
 struct inode *osd_iget(struct osd_thread_info *info, struct osd_device *dev,
-		       struct osd_inode_id *id);
+		       struct osd_inode_id *id, bool nlink);
 int osd_ea_fid_set(struct osd_thread_info *info, struct inode *inode,
 		   const struct lu_fid *fid, bool init);
 int osd_get_lma(struct osd_thread_info *info, struct inode *inode,
