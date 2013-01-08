@@ -630,6 +630,12 @@ case $LINUXRELEASE in
 		AC_DEFINE(HAVE_LDISKFS_PDO, 1, [have ldiskfs PDO patch])
 	fi
 	;;
+3.0.*)
+	if test x$SUSE_KERNEL = xyes; then
+		with_ldiskfs_pdo=yes
+		AC_DEFINE(HAVE_LDISKFS_PDO, 1, [have ldiskfs PDO patch])
+	fi
+	;;
 esac
 LB_LDISKFS_JBD2_JOURNAL_CALLBACK_SET
 
@@ -745,6 +751,11 @@ if $1; then
 		fi
 		if test x$SUSE_KERNEL = xyes; then
 			LDISKFS_SERIES="2.6-sles11.series"
+		fi
+		;;
+	3.0.*)
+		if test x$SUSE_KERNEL = xyes; then
+			LDISKFS_SERIES="3.0-sles11.series"
 		fi
 		;;
 	*)
