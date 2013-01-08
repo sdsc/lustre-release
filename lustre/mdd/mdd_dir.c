@@ -992,6 +992,9 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
         if (rc == 0) {
                 mdd_links_add(env, mdd_sobj,
                               mdo2fid(mdd_tobj), lname, handle, 0);
+		if (mdd->mdd_lfsck_namespace)
+			mdd_lfsck_linkea_add(env, mdd_sobj, mdo2fid(mdd_tobj),
+					     lname);
         }
 
         EXIT;
@@ -1035,6 +1038,7 @@ int mdd_finish_unlink(const struct lu_env *env,
 
 	if (rc == 0 && (ma->ma_attr.la_nlink == 0 || is_dir)) {
                 obj->mod_flags |= DEAD_OBJ;
+		mdd_object_unpin(env, obj);
                 /* add new orphan and the object
                  * will be deleted during mdd_close() */
                 if (obj->mod_count) {
@@ -1261,6 +1265,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 		rc = mdo_xattr_set(env, mdd_cobj,
 				   mdd_buf_get(env, &clue, sizeof(__u64)),
 				   XATTR_NAME_CLUE, fl, handle, BYPASS_CAPA);
+		mdd_lfsck_linkea_del(env, mdd_cobj, mdo2fid(mdd_pobj), lname);
 	}
 
         EXIT;
@@ -2361,6 +2366,7 @@ static int mdd_rename(const struct lu_env *env,
 			rc = mdo_xattr_set(env, mdd_tobj,
 				mdd_buf_get(env, &clue, sizeof(__u64)),
 				XATTR_NAME_CLUE, fl, handle, BYPASS_CAPA);
+			mdd_lfsck_linkea_del(env, mdd_tobj, tpobj_fid, ltname);
 			if (rc != 0)
 				GOTO(fixup_tpobj, rc);
 		}
@@ -2411,6 +2417,8 @@ static int mdd_rename(const struct lu_env *env,
 		rc = mdo_xattr_set(env, mdd_sobj,
 				   mdd_buf_get(env, &clue, sizeof(__u64)),
 				   XATTR_NAME_CLUE, fl, handle, BYPASS_CAPA);
+		mdd_lfsck_linkea_del(env, mdd_sobj, spobj_fid, lsname);
+		mdd_lfsck_linkea_add(env, mdd_sobj, tpobj_fid, ltname);
 	}
 
         EXIT;
@@ -2788,6 +2796,9 @@ static int mdd_links_rename(const struct lu_env *env,
 	int rc2 = 0;
 	int rc = 0;
 	ENTRY;
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_FID_IGIF))
+		return 0;
 
 	LASSERT(oldpfid != NULL || newpfid != NULL);
 
