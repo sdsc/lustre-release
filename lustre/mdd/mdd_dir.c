@@ -913,6 +913,12 @@ static int mdd_declare_link(const struct lu_env *env,
         if (rc)
                 return rc;
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_NLINK_MORE)) {
+		rc = mdo_declare_ref_add(env, c, handle);
+		if (rc)
+			return rc;
+	}
+
         rc = mdo_declare_attr_set(env, p, NULL, handle);
         if (rc)
                 return rc;
@@ -966,17 +972,23 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
         if (rc)
                 GOTO(out_unlock, rc);
 
-	rc = mdo_ref_add(env, mdd_sobj, handle);
-	if (rc)
-		GOTO(out_unlock, rc);
+	if (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_NLINK_LESS)) {
+		rc = mdo_ref_add(env, mdd_sobj, handle);
+		if (rc)
+			GOTO(out_unlock, rc);
 
+		if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_NLINK_MORE))
+			mdo_ref_add(env, mdd_sobj, handle);
+	}
 
-	rc = __mdd_index_insert_only(env, mdd_tobj, mdo2fid(mdd_sobj),
-				     name, handle,
-				     mdd_object_capa(env, mdd_tobj));
-	if (rc != 0) {
-		mdo_ref_del(env, mdd_sobj, handle);
-		GOTO(out_unlock, rc);
+	if (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LINKEA_LESS)) {
+		rc = __mdd_index_insert_only(env, mdd_tobj, mdo2fid(mdd_sobj),
+					     name, handle,
+					     mdd_object_capa(env, mdd_tobj));
+		if (rc != 0) {
+			mdo_ref_del(env, mdd_sobj, handle);
+			GOTO(out_unlock, rc);
+		}
 	}
 
         LASSERT(ma->ma_attr.la_valid & LA_CTIME);
@@ -2608,6 +2620,8 @@ static int mdd_lee_pack(struct link_ea_entry *lee, const struct lu_name *lname,
         int             reclen;
 
         fid_cpu_to_be(&tmpfid, pfid);
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LINKEA_CRASH))
+		tmpfid.f_ver = ~0;
         memcpy(&lee->lee_parent_fid, &tmpfid, sizeof(tmpfid));
         memcpy(lee->lee_name, lname->ln_name, lname->ln_namelen);
         reclen = sizeof(struct link_ea_entry) + lname->ln_namelen;
@@ -2631,14 +2645,19 @@ int mdd_declare_links_add(const struct lu_env *env,
 			  struct mdd_object *mdd_obj,
 			  struct thandle *handle)
 {
-        int rc;
+	int rc;
 
-        /* XXX: max size? */
-        rc = mdo_declare_xattr_set(env, mdd_obj,
-                             mdd_buf_get_const(env, NULL, 4096),
-                             XATTR_NAME_LINK, 0, handle);
+	/* XXX: max size? */
+	rc = mdo_declare_xattr_set(env, mdd_obj,
+				   mdd_buf_get_const(env, NULL, 4096),
+				   XATTR_NAME_LINK, 0, handle);
 
-        return rc;
+	if (rc == 0 && OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LINKEA_MORE))
+		rc = mdo_declare_xattr_set(env, mdd_obj,
+					   mdd_buf_get_const(env, NULL, 4096),
+					   XATTR_NAME_LINK, 0, handle);
+
+	return rc;
 }
 
 /** Add a record to the end of link ea buf */
@@ -2755,6 +2774,14 @@ static int __mdd_links_add(const struct lu_env *env,
 			return rc;
 		if (rc == 0)
 			return -EEXIST;
+	}
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LINKEA_MORE)) {
+		struct lu_fid *tfid = &mdd_env_info(env)->mti_fid2;
+
+		*tfid = *pfid;
+		tfid->f_ver = ~0;
+		mdd_links_add_buf(env, ldata, lname, tfid);
 	}
 
 	return mdd_links_add_buf(env, ldata, lname, pfid);
