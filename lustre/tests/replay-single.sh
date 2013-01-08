@@ -1874,7 +1874,8 @@ test_70b () {
 	zconf_mount_clients $clients $MOUNT
 
 	local duration=300
-	[ "$SLOW" = "no" ] && duration=60
+	# dbench has been seen exiting before test finishes at 60s
+	[ "$SLOW" = "no" ] && duration=120
 	# set duration to 900 because it takes some time to boot node
 	[ "$FAILURE_MODE" = HARD ] && duration=900
 
