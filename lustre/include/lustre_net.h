@@ -665,6 +665,18 @@ enum ptlrpc_nrs_ctl {
 };
 
 /**
+ * ORR policy operations
+ */
+enum nrs_ctl_orr {
+	NRS_CTL_ORR_RD_QUANTUM = PTLRPC_NRS_CTL_1ST_POL_SPEC,
+	NRS_CTL_ORR_WR_QUANTUM,
+	NRS_CTL_ORR_RD_OFF_TYPE,
+	NRS_CTL_ORR_WR_OFF_TYPE,
+	NRS_CTL_ORR_RD_SUPP_REQ,
+	NRS_CTL_ORR_WR_SUPP_REQ,
+};
+
+/**
  * NRS policy operations.
  *
  * These determine the behaviour of a policy, and are called in response to
@@ -1290,6 +1302,137 @@ enum nrs_ctl_crr {
 /** @} CRR-N */
 
 /**
+ * \name ORR/TRR
+ *
+ * ORR/TRR (Object Round Robin/Target Round Robin) NRS policies
+ * @{
+ */
+
+#define NRS_POL_NAME_ORR	"orr"
+#define NRS_POL_NAME_TRR	"trr"
+
+/**
+ * Upper and lower offsets of a brw RPC
+ */
+struct nrs_orr_req_range {
+	__u64		or_start;
+	__u64		or_end;
+};
+
+/**
+ * RPC types supported by NRS ORR
+ */
+enum nrs_orr_supp {
+	NOS_OST_READ  = (1 << 0),
+	NOS_OST_WRITE = (1 << 1),
+	NOS_OST_RW    = (1 << 2),
+	/**
+	 * Default value for policies.
+	 */
+	NOS_DFLT      = NOS_OST_READ
+};
+
+/**
+ * For unique keys for the objects, we can use OST index + object ID; later,
+ * maybe this can be replaced by OST FID
+ */
+struct nrs_orr_key {
+	/* Object ID */
+	obd_id		ok_id;
+	/* OST index */
+	__u32		ok_idx;
+};
+
+/**
+ * The largest base string for unique hash/slab object names is
+ * "nrs_orr_reg_", so 13 characters. We add 3 to this to be used for the CPT
+ * id number, so this _should_ be more than enough for the maximum number of
+ * CPTs on any system. If it does happen that this statement is incorrect,
+ * nrs_orr_genobjname() will inevitably yield a non-unique name and cause
+ * cfs_mem_cache_create() to complain (on Linux), so the erroneous situation
+ * will hopefully not go unnoticed.
+ */
+#define NRS_ORR_OBJ_NAME_MAX	(sizeof("nrs_orr_reg_") + 3)
+
+/**
+ * private data structure for ORR and TRR NRS
+ */
+struct nrs_orr_data {
+	struct ptlrpc_nrs_resource	od_res;
+	cfs_binheap_t		       *od_binheap;
+	cfs_hash_t		       *od_obj_hash;
+	cfs_mem_cache_t		       *od_cache;
+	/**
+	 * Back pointer to policy instance.
+	 */
+	struct ptlrpc_nrs_policy       *od_policy;
+	__u64				od_round;
+	enum nrs_orr_supp		od_supp;
+	__u16				od_quantum;
+	/**
+	 * Whether to use physical disk offsets or logical file offsets.
+	 */
+	bool				od_physical;
+	/**
+	 * XXX: We need to provide a persistently allocated string to hold
+	 * unique object names for this policy, since in currently supported
+	 * versions of Linux by Lustre, kmem_cache_create() just sets a pointer
+	 * to the name string provided. kstrdup() is used in the version of
+	 * kmeme_cache_create() in current Linux mainline, so we may be able to
+	 * remove this in the future.
+	 */
+	char				od_objname[NRS_ORR_OBJ_NAME_MAX];
+};
+
+/**
+ * target object for ORR and TRR NRS which is embedded in object structure
+ */
+struct nrs_orr_object {
+	struct ptlrpc_nrs_resource	oo_res;
+	cfs_hlist_node_t		oo_hnode;
+	__u64				oo_round;
+	struct nrs_orr_key		oo_key;
+	cfs_atomic_t			oo_ref;
+	__u16				oo_quantum;
+	__u16				oo_active;
+	bool				oo_finished;
+};
+
+/**
+ * ORR/TRR NRS request definition
+ */
+struct nrs_orr_req {
+	struct nrs_orr_req_range	or_range;
+	__u64				or_round;
+	/**
+	 * For debugging purposes.
+	 */
+	struct nrs_orr_key		or_key;
+	/**
+	 * An ORR policy instance has filled in request information while
+	 * enqueueing the request on the service partition's regular NRS head.
+	 */
+	unsigned int			or_orr_set:1;
+	/**
+	 * A TRR policy instance has filled in request information while
+	 * enqueueing the request on the service partition's regular NRS head.
+	 */
+	unsigned int			or_trr_set:1;
+	/**
+	 * Request offset ranges have been filled in with logical offset
+	 * values.
+	 */
+	unsigned int			or_logical_set:1;
+	/**
+	 * Request offset ranges have been filled in with physical offset
+	 * values.
+	 */
+	unsigned int			or_physical_set:1;
+};
+
+/** @} ORR/TRR */
+
+/**
  * NRS request
  *
  * Instances of this object exist embedded within ptlrpc_request; the main
@@ -1329,6 +1472,8 @@ struct ptlrpc_nrs_request {
 		 * CRR-N request defintion
 		 */
 		struct nrs_crrn_req	crr;
+		/** ORR and TRR share the same request definition */
+		struct nrs_orr_req	orr;
 	} nr_u;
 	/**
 	 * Externally-registering policies may want to use this to allocate

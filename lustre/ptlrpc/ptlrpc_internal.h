@@ -207,9 +207,17 @@ nrs_request_policy(struct ptlrpc_nrs_request *nrq)
 #ifdef LPROCFS
 int nrs_crrn_lprocfs_init(struct ptlrpc_service *svc);
 void nrs_crrn_lprocfs_fini(struct ptlrpc_service *svc);
+int nrs_orr_lprocfs_init(struct ptlrpc_service *svc);
+void nrs_orr_lprocfs_fini(struct ptlrpc_service *svc);
+int nrs_trr_lprocfs_init(struct ptlrpc_service *svc);
+void nrs_trr_lprocfs_fini(struct ptlrpc_service *svc);
 #else
 #define nrs_crrn_lprocfs_init	NULL
 #define nrs_crrn_lprocfs_fini	NULL
+#define nrs_orr_lprocfs_init	NULL
+#define nrs_orr_lprocfs_fini	NULL
+#define nrs_trr_lprocfs_init	NULL
+#define nrs_trr_lprocfs_fini	NULL
 #endif
 
 /* recovd_thread.c */
