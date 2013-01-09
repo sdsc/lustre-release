@@ -704,6 +704,8 @@ struct lov_obd {
 
 	/* Cached LRU pages from upper layer */
 	void		       *lov_cache;
+
+	struct rw_semaphore     lov_notify_lock;
 };
 
 struct lmv_tgt_desc {
