@@ -703,6 +703,266 @@ out:
 	RETURN(rc < 0 ? rc : count);
 }
 
+/**
+ * \name CRR-N policy
+ *
+ * Client Round-Robin scheduling over client NIDs
+ *
+ * @{
+ *
+ * Retrieves the value of the Round Robin quantum (i.e. the maximum batch size)
+ * for CRR-N policy instances on both the regular and high-priority NRS head
+ * of a service, as long as a policy instance is not in the
+ * ptlrpc_nrs_pol_state::NRS_POL_STATE_STOPPED state; policy instances in this
+ * state are skipped later by nrs_crrn_ctl().
+ */
+static int
+ptlrpc_lprocfs_rd_nrs_crrn_quantum(char *page, char **start, off_t off,
+				   int count, int *eof, void *data)
+{
+	struct ptlrpc_service	    *svc = data;
+	__u16			     vals[PTLRPC_NRS_QUEUE_BOTH];
+	bool			     reg_started = false;
+	bool			     hp_started = false;
+	int			     rc;
+
+	/**
+	 * Perform two separate calls to this as only one of the NRS heads'
+	 * policies may be in the ptlrpc_nrs_pol_state::NRS_POL_STATE_STARTED
+	 * state.
+	 */
+	rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_REG,
+				       NRS_POL_CRRN_NAME,
+				       NRS_CTL_CRRN_RD_QUANTUM,
+				       true, &vals[PTLRPC_NRS_QUEUE_REG]);
+
+	if (rc == 0) {
+		reg_started = true;
+		/**
+		 * Ignore -ENODEV as the regular NRS head's policy may be in the
+		 * ptlrpc_nrs_pol_state::NRS_POL_STATE_STOPPED state.
+		 */
+	} else if (rc != 0 && rc != -ENODEV) {
+		RETURN(rc);
+	}
+
+	if (!nrs_svc_has_hp(svc))
+		goto no_hp;
+
+	rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_HP,
+				       NRS_POL_CRRN_NAME,
+				       NRS_CTL_CRRN_RD_QUANTUM,
+				       true, &vals[PTLRPC_NRS_QUEUE_HP]);
+	if (rc == 0)
+		hp_started = true;
+	else if (!reg_started)
+		RETURN(rc);
+
+no_hp:
+
+	/**
+	 * Quantum values are in # of RPCs, and output is in YAML format.
+	 *
+	 * For example:
+	 *
+	 *	Regular requests:
+	 *
+	 *	  - RR quantum size (# of RPCs): 8
+	 *
+	 *	High-priority requests:
+	 *
+	 *	  - RR quantum size (# of RPCs): 4
+	 */
+	rc = snprintf(page, count, "\n");
+
+	if (reg_started)
+		rc += snprintf(page + rc, count - rc,
+			       "Regular requests:\n\n"
+			       "  - RR quantum size (# of RPCs): %-5d\n\n",
+			       vals[PTLRPC_NRS_QUEUE_REG]);
+
+	if (hp_started)
+		rc += snprintf(page + rc, count - rc,
+			       "High-priority requests:\n\n"
+			       "  - RR quantum size (# of RPCs): %-5d\n\n",
+			       vals[PTLRPC_NRS_QUEUE_HP]);
+
+	RETURN(rc);
+}
+
+/**
+ * Newer kernels define USHRT_MAX instead of USHORT_MAX.
+ */
+#ifndef USHORT_MAX
+# ifdef USHRT_MAX
+#  define USHORT_MAX USHRT_MAX
+# else
+#  define USHORT_MAX ((u16)(~0U))
+# endif
+#endif
+
+/**
+ * Max valid comand string is "65535 both", so 11; 65535 because
+ * nrs_crrn_client::cc_quantum is a __u16.
+ */
+#define LPROCFS_NRS_WR_QUANTUM_MAX_CMD	11
+
+/**
+ * Sets the value of the Round Robin quantum (i.e. the maximum batch size)
+ * for CRR-N policy instances of a service. By default, the operation is
+ * carried out only on teh regular NRS head's policy instance. Command strings
+ * are of the format "<value> [both|hp]"; in case where the optional [both|hp]
+ * token is specified, the operation is carried out on either both NRS heads or
+ * the high-priority NRS head respectively.
+ *
+ * For example:
+ *
+ * lclt set_param *.*,*.nrs_crrn_quantum="32 both"
+ *
+ * policy instances in the ptlrpc_nrs_pol_state::NRS_POL_STATE_STOPPED state are
+ * are skipped later by nrs_crrn_ctl().
+ */
+static int
+ptlrpc_lprocfs_wr_nrs_crrn_quantum(struct file *file, const char *buffer,
+				   unsigned long count, void *data)
+{
+	struct ptlrpc_service	    *svc = data;
+	enum ptlrpc_nrs_queue_type   queue = PTLRPC_NRS_QUEUE_REG;
+	char			    *cmd;
+	char			    *cmd_copy = NULL;
+	char			    *token;
+	long			     quantum;
+	int			     rc;
+
+	if (count > LPROCFS_NRS_WR_QUANTUM_MAX_CMD)
+		GOTO(out, rc = -EINVAL);
+
+	OBD_ALLOC(cmd, LPROCFS_NRS_WR_QUANTUM_MAX_CMD);
+	if (cmd == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	/**
+	 * strsep() modifies its argument, so keep a copy.
+	 */
+	cmd_copy = cmd;
+
+	if (cfs_copy_from_user(cmd, buffer, count))
+		GOTO(out, rc = -EFAULT);
+
+	token = strsep(&cmd, " ");
+	if (token == NULL)
+		GOTO(out, rc = -EFAULT);
+
+	quantum = simple_strtol(token, NULL, 10);
+
+	/**
+	 * USHORT_MAX so that it is in line with __u16 of
+	 * nrs_crrn_client::cn_quantum.
+	 */
+	if (quantum > USHORT_MAX || quantum <= 0)
+		GOTO(out, rc = -EINVAL);
+
+	/**
+	 * No [both|hp] token has been specified.
+	 */
+	if (cmd == NULL)
+		goto dflt_queue;
+
+	/**
+	 * The second token is either NULL, or an optional
+	 * [both|hp] string
+	 */
+	if (strcmp(cmd, "both") == 0)
+		queue = PTLRPC_NRS_QUEUE_BOTH;
+	else if (strcmp(cmd, "hp") == 0)
+		queue = PTLRPC_NRS_QUEUE_HP;
+	else
+		GOTO(out, rc = -EINVAL);
+
+dflt_queue:
+
+	if (queue == PTLRPC_NRS_QUEUE_HP && !nrs_svc_has_hp(svc))
+		GOTO(out, rc = -ENODEV);
+	else if (queue == PTLRPC_NRS_QUEUE_BOTH && !nrs_svc_has_hp(svc))
+		queue = PTLRPC_NRS_QUEUE_REG;
+
+	/**
+	 * We change the values on regular and HP NRS heads separately, so that
+	 * we do not exit early from ptlrpc_nrs_policy_control() with an error
+	 * returned by ptlrpc_nrs_pol_ops::op_policy_ctl(), in cases where the
+	 * user has not started the policy on either the regular or HP NRS
+	 * heads; i.e. we are ignoring -ENODEV within
+	 * ptlrpc_nrs_pol_ops::op_policy_ctl().
+	 */
+	if (queue == PTLRPC_NRS_QUEUE_REG || queue == PTLRPC_NRS_QUEUE_BOTH) {
+		rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_REG,
+					       NRS_POL_CRRN_NAME,
+					       NRS_CTL_CRRN_WR_QUANTUM,
+					       false, &quantum);
+		if (rc < 0 && rc != -ENODEV)
+			GOTO(out, rc);
+	}
+
+	if (queue == PTLRPC_NRS_QUEUE_HP || queue == PTLRPC_NRS_QUEUE_BOTH) {
+		rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_HP,
+					       NRS_POL_CRRN_NAME,
+					       NRS_CTL_CRRN_WR_QUANTUM,
+					       false, &quantum);
+		if (rc == -ENODEV)
+			rc = 0;
+	}
+
+out:
+	if (cmd_copy)
+		OBD_FREE(cmd_copy, LPROCFS_NRS_WR_QUANTUM_MAX_CMD);
+	RETURN(rc < 0 ? rc : count);
+}
+
+/**
+ * Initializes a CRR-N policy's lprocfs interface forservice \a svc
+ *
+ * \param[in] svc The service
+ *
+ * \retval 0	success
+ * \retval != 0	error
+ */
+int
+nrs_crrn_lprocfs_init(struct ptlrpc_service *svc)
+{
+	int	rc;
+
+	struct lprocfs_vars nrs_crrn_lprocfs_vars[] = {
+		{ .name		= "nrs_crrn_quantum",
+		  .read_fptr	= ptlrpc_lprocfs_rd_nrs_crrn_quantum,
+		  .write_fptr	= ptlrpc_lprocfs_wr_nrs_crrn_quantum,
+		  .data = svc },
+		{ NULL }
+	};
+
+	if (svc->srv_procroot == NULL)
+		return 0;
+
+	rc = lprocfs_add_vars(svc->srv_procroot, nrs_crrn_lprocfs_vars, NULL);
+
+	return rc;
+}
+
+/**
+ * Cleans up a CRR-N policy's lprocfs interface for service \a svc
+ *
+ * \param[in] svc The service
+ */
+void
+nrs_crrn_lprocfs_fini(struct ptlrpc_service *svc)
+{
+	if (svc->srv_procroot == NULL)
+		return;
+
+	lprocfs_remove_proc_entry("nrs_crrn_quantum", svc->srv_procroot);
+}
+
+/** @} CRR-N policy */
+
 /** @} nrs */
 
 struct ptlrpc_srh_iterator {

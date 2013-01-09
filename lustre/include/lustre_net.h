@@ -1238,6 +1238,63 @@ struct nrs_fifo_req {
 /** @} fifo */
 
 /**
+ * \name CRR-N
+ *
+ * CRR-N, Client Round Robin over NIDs
+ * @{
+ */
+
+#define NRS_POL_CRRN_NAME	"crrn"
+
+/*
+ * private data structure for CRR-N NRS
+ */
+struct nrs_crrn_net {
+	struct ptlrpc_nrs_resource	cn_res;
+	cfs_binheap_t		       *cn_binheap;
+	cfs_hash_t		       *cn_cli_hash;
+	__u64				cn_round;
+	__u16				cn_quantum;
+};
+
+/**
+ * Object representing a client in CRR-N, as identified by its NID
+ */
+struct nrs_crrn_client {
+	struct ptlrpc_nrs_resource	cc_res;
+	cfs_hlist_node_t		cc_hnode;
+	cfs_atomic_t			cc_ref;
+	lnet_nid_t			cc_nid;
+	__u64				cc_round;
+	__u16				cc_quantum;
+	__u16				cc_active;
+	bool				cc_finished;
+};
+
+/**
+ * CRR-N NRS request definition
+ */
+struct nrs_crrn_req {
+	__u64			cr_round;
+};
+
+/**
+ * CRR-N policy operations.
+ */
+enum nrs_ctl_crr {
+	/**
+	 * Read the RR quantum size of a CRR-N policy.
+	 */
+	NRS_CTL_CRRN_RD_QUANTUM = PTLRPC_NRS_CTL_1ST_POL_SPEC,
+	/**
+	 * Write the RR quantum size of a CRR-N policy.
+	 */
+	NRS_CTL_CRRN_WR_QUANTUM,
+};
+
+/** @} CRR-N */
+
+/**
  * NRS request
  *
  * Instances of this object exist embedded within ptlrpc_request; the main
@@ -1275,6 +1332,10 @@ struct ptlrpc_nrs_request {
 		 * Fields for the FIFO policy
 		 */
 		struct nrs_fifo_req	fifo;
+		/**
+		 * CRR-N request defintion
+		 */
+		struct nrs_crrn_req	crr;
 		/**
 		 * Externally registered policies may need to use this to
 		 * allocate their own request properties.
