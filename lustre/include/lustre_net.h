@@ -665,6 +665,18 @@ enum ptlrpc_nrs_ctl {
 };
 
 /**
+ * ORR policy operations
+ */
+enum nrs_ctl_orr {
+	NRS_CTL_ORR_RD_QUANTUM = PTLRPC_NRS_CTL_1ST_POL_SPEC,
+	NRS_CTL_ORR_WR_QUANTUM,
+	NRS_CTL_ORR_RD_OFF_TYPE,
+	NRS_CTL_ORR_WR_OFF_TYPE,
+	NRS_CTL_ORR_RD_SUPP_REQ,
+	NRS_CTL_ORR_WR_SUPP_REQ,
+};
+
+/**
  * NRS policy operations.
  *
  * These determine the behaviour of a policy, and are called in response to
@@ -1277,6 +1289,101 @@ struct nrs_crrn_req {
 /** @} CRR-N */
 
 /**
+ * \name ORR/TRR
+ *
+ * ORR/TRR (Object Round Robin/Target Round Robin) NRS policies
+ * @{
+ */
+/**
+ * Upper and lower offsets of a brw RPC
+ */
+struct nrs_orr_req_range {
+	__u64		or_start;
+	__u64		or_end;
+};
+
+/**
+ * RPC types supported by NRS ORR
+ */
+enum nrs_orr_supp {
+	NOS_OST_READ  = (1 << 0),
+	NOS_OST_WRITE = (1 << 1),
+	NOS_OST_RW    = (1 << 2),
+	/**
+	 * Default value for policies.
+	 */
+	NOS_DFLT      = NOS_OST_READ
+};
+
+/**
+ * For unique keys for the objects, we can use OST index + object ID; later,
+ * this can be replaced by OST FID
+ */
+struct nrs_orr_key {
+	/* Object ID */
+	obd_id		ok_id;
+	/* OST index */
+	__u32		ok_idx;
+};
+
+/**
+ * private data structure for ORR and TRR NRS
+ */
+struct nrs_orr_data {
+	__u64				od_round;
+	cfs_binheap_t		       *od_binheap;
+	cfs_hash_t		       *od_obj_hash;
+	cfs_mem_cache_t		       *od_cache;
+	struct ptlrpc_nrs_resource	od_res;
+	enum nrs_orr_supp		od_supp;
+	__u16				od_quantum;
+	/* Protects policy parameters, supp, quantum, physical */
+	/* XXX: We don't care for the effects of race conditions in most of
+	 * these cases. */
+	rwlock_t			od_lock;
+	/**
+	 * Whether to use physical disk offsets or logical file offsets.
+	 */
+	bool				od_physical;
+	char				od_objname[20];
+};
+
+/**
+ * target object for ORR and TRR NRS which is embedded in object structure
+ */
+struct nrs_orr_object {
+	struct ptlrpc_nrs_resource	oo_res;
+	__u64				oo_round;
+	cfs_atomic_t			oo_ref;
+	cfs_hlist_node_t		oo_hnode;
+	struct nrs_orr_key		oo_key;
+	__u16				oo_quantum;
+	__u16				oo_active;
+	bool				oo_started;
+};
+
+/**
+ * embed it to ptlrpc request for ORR binheap NRS
+ */
+struct nrs_orr_req {
+	struct nrs_orr_req_range	or_range;
+	__u64				or_round;
+	/** For debugging purposes */
+	struct nrs_orr_key		or_key;
+	/* Set for OST_WRITE requests */
+	bool				or_write;
+};
+
+struct nrs_orr_info {
+	enum nrs_orr_supp	oi_supp_req;
+	__u16			oi_quantum;
+	/* Is the offset type physical or logical */
+	__u8			oi_physical;
+};
+
+/** @} ORR/TRR */
+
+/**
  * NRS request
  *
  * Instances of this object exist embedded within ptlrpc_request; the main
@@ -1318,6 +1425,8 @@ struct ptlrpc_nrs_request {
 		 * CRR-N request defintion
 		 */
 		struct nrs_crrn_req	crr;
+		/** ORR and TRR share the same request definition */
+		struct nrs_orr_req	orr;
 		/**
 		 * Externally registered policies may need to use this to
 		 * allocate their own request properties.
