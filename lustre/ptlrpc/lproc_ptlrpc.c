@@ -812,7 +812,8 @@ no_hp:
 
 /**
  * Max valid command string is the size of the labels, plus " 65535" twice, plus
- * a separating ' '; 65535 because nrs_crrn_client::cc_quantum is a __u16.
+ * a separating ' '; 65535 because nrs_crrn_client::cc_quantum and
+ * nrs_orr_data::od_quantum are of type __u16.
  */
 #define LPROCFS_NRS_WR_QUANTUM_MAX_CMD			\
 	sizeof(NRS_LPROCFS_QUANTUM_NAME_REG" 65535 "	\
@@ -1000,6 +1001,856 @@ nrs_crrn_lprocfs_fini(struct ptlrpc_service *svc)
 }
 
 /** @} CRR-N policy */
+
+/**
+ * \name ORR/TRR
+ *
+ * ORR/TRR (Object Round Robin/Target Round Robin) NRS policies
+ * @{
+ */
+/**
+ * This allows to bundle the policy name into the lprocfs_vars::data pointer
+ * so that lprocfs read/write functions can be used by both the ORR and TRR
+ * policies.
+ */
+struct nrs_lprocfs_orr_data {
+	struct ptlrpc_service	*svc;
+	char			name[4];
+};
+
+static struct nrs_lprocfs_orr_data *orr_data = NULL;
+static struct nrs_lprocfs_orr_data *trr_data = NULL;
+
+/**
+ * Retrieves the value of the Round Robin quantum (i.e. the maximum batch size)
+ * for ORR/TRR policy instances on both the regular and high-priority NRS head
+ * of a service, as long as a policy instance is not in the
+ * ptlrpc_nrs_pol_state::NRS_POL_STATE_STOPPED state; policy instances in this
+ * state are skipped later by nrs_orr_ctl().
+ *
+ * XXX: the CRR-N version of this, ptlrpc_lprocfs_rd_nrs_crrn_quantum() is
+ * almost identical; it can be reworked and then be reused for ORR/TRR.
+ */
+static int
+ptlrpc_lprocfs_rd_nrs_orr_quantum(char *page, char **start, off_t off,
+				  int count, int *eof, void *data)
+{
+	struct nrs_lprocfs_orr_data *orr_data = data;
+	struct ptlrpc_service	    *svc = orr_data->svc;
+	__u16			     vals[PTLRPC_NRS_QUEUE_BOTH];
+	bool			     reg_started = false;
+	bool			     hp_started = false;
+	int			     rc;
+
+	/**
+	 * Perform two separate calls to this as only one of the NRS heads'
+	 * policies may be in the ptlrpc_nrs_pol_state::NRS_POL_STATE_STARTED
+	 * state.
+	 */
+	rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_REG,
+				       orr_data->name,
+				       NRS_CTL_ORR_RD_QUANTUM,
+				       true, &vals[PTLRPC_NRS_QUEUE_REG]);
+
+	if (rc == 0) {
+		reg_started = true;
+		/**
+		 * Ignore -ENODEV as the regular NRS head's policy may be in the
+		 * ptlrpc_nrs_pol_state::NRS_POL_STATE_STOPPED state.
+		 */
+	} else if (rc != -ENODEV) {
+		RETURN(rc);
+	}
+
+
+	/**
+	 * We know the ost_io service which is the only one ORR/TRR policies are
+	 * compatible with do have an HP NRS head, but it may be best to guard
+	 * against future unforseen changes that would have us perform a ctl
+	 * operation on an HP NRS head that does not exist, and hitting an
+	 * assertion, or maybe otherwise crashing if other changes take place.
+	 */
+	if (!nrs_svc_has_hp(svc))
+		goto no_hp;
+
+	rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_HP,
+				       orr_data->name, NRS_CTL_ORR_RD_QUANTUM,
+				       true, &vals[PTLRPC_NRS_QUEUE_HP]);
+	if (rc == 0)
+		hp_started = true;
+	else if (!reg_started)
+		RETURN(rc);
+
+no_hp:
+
+	/**
+	 * Quantum values are in # of RPCs, and output is in YAML format.
+	 *
+	 * For example:
+	 *
+	 *	reqular_quantum_size: 256
+	 *	high_priority_quantum_size: 8
+	 */
+	*eof = 1;
+	rc = 0;
+
+	if (reg_started)
+		rc = snprintf(page, count,
+			      NRS_LPROCFS_QUANTUM_NAME_REG" %-5d\n",
+			      vals[PTLRPC_NRS_QUEUE_REG]);
+
+	if (hp_started)
+		rc += snprintf(page + rc, count - rc,
+			       NRS_LPROCFS_QUANTUM_NAME_HP" %-5d\n",
+			       vals[PTLRPC_NRS_QUEUE_HP]);
+
+	RETURN(rc);
+}
+
+/**
+ * Sets the value of the Round Robin quantum (i.e. the maximum batch size)
+ * for ORR/TRR policy instances of a service. The user can set the quantum size
+ * for the regular and high priority NRS head separately by specifying each
+ * value, or both together in a single invocation.
+ *
+ * For example:
+ *
+ * lctl set_param ost.OSS.ost_io.nrs_orr_quantum="regular_quantum_size: 64", to
+ * set the request quantum size of the ORR policy instance on the regular NRS
+ * head of the ost_io service to 64
+ * *
+ * lctl set_param ost.OSS.ost_io.nrs_trr_quantum="high_priority_quantum_size: 8"
+ * to set the request quantum size of the TRR policy instance on the high
+ * priority NRS head of the ost_io service to 8
+ *
+ * lctl set_param ost.OSS.ost_io.nrs_orr_quantum=32, to set both the request
+ * quantum size of the ORR policy instance on both the regular and the high
+ * priority NRS head of the ost_io service to 32
+ *
+ * policy instances in the ptlrpc_nrs_pol_state::NRS_POL_STATE_STOPPED state
+ * are skipped later by nrs_orr_ctl().
+ *
+ * XXX: the CRR-N version of this, ptlrpc_lprocfs_wr_nrs_crrn_quantum() is
+ * almost identical; it can be reworked and then be reused for ORR/TRR.
+ */
+static int
+ptlrpc_lprocfs_wr_nrs_orr_quantum(struct file *file, const char *buffer,
+				  unsigned long count, void *data)
+{
+	struct nrs_lprocfs_orr_data *orr_data = data;
+	struct ptlrpc_service	    *svc = orr_data->svc;
+	enum ptlrpc_nrs_queue_type   queue = -1;
+	char			     kernbuf[LPROCFS_NRS_WR_QUANTUM_MAX_CMD];
+	char			    *val;
+	long			     quantum_reg;
+	long			     quantum_hp;
+	/** lprocfs_find_named_value() modifies its argument, so keep a copy */
+	unsigned long		     count_copy;
+	int			     rc;
+
+        if (count > (sizeof(kernbuf) - 1))
+                return -EINVAL;
+
+	if (cfs_copy_from_user(kernbuf, buffer, count))
+		return -EFAULT;
+
+        kernbuf[count] = '\0';
+
+	count_copy = count;
+
+	/**
+	 * Check if the regular quantum value has been specified
+	 */
+	val = lprocfs_find_named_value(kernbuf, NRS_LPROCFS_QUANTUM_NAME_REG,
+				       &count_copy);
+
+	if (val != kernbuf) {
+		quantum_reg = simple_strtol(val, NULL, 10);
+
+		/**
+		 * (__u16)(~0U) so that it is in line with __u16 of
+		 * nrs_orr_data::od_quantum.
+		 */
+		if (quantum_reg > (__u16)(~0U) || quantum_reg <= 0)
+			return -EINVAL;
+
+		queue = PTLRPC_NRS_QUEUE_REG;
+	}
+
+	count_copy = count;
+
+	/**
+	 * Check if the high priority quantum value has been specified
+	 */
+	val = lprocfs_find_named_value(kernbuf, NRS_LPROCFS_QUANTUM_NAME_HP,
+				       &count_copy);
+
+	if (val != kernbuf) {
+		quantum_hp = simple_strtol(val, NULL, 10);
+
+		if (quantum_hp > (__u16)(~0U) || quantum_hp <= 0)
+			return -EINVAL;
+
+		if (queue == PTLRPC_NRS_QUEUE_REG) {
+			if (nrs_svc_has_hp(svc))
+				queue = PTLRPC_NRS_QUEUE_BOTH;
+		} else if (nrs_svc_has_hp(svc)) {
+			queue = PTLRPC_NRS_QUEUE_HP;
+		} else {
+			return -ENODEV;
+		}
+	}
+
+	/**
+	 * If none of the queues has been specified, look for a valid numerical
+	 * value
+	 */
+	if (queue == -1) {
+		u8	i = 0;
+
+		while (!isdigit(kernbuf[i]))
+			i++;
+
+		quantum_reg = simple_strtol(&kernbuf[i], NULL, 10);
+
+		if (quantum_reg > (__u16)(~0U) || quantum_reg <= 0)
+			return -EINVAL;
+
+		if (!nrs_svc_has_hp(svc)) {
+			queue = PTLRPC_NRS_QUEUE_REG;
+		} else {
+			queue = PTLRPC_NRS_QUEUE_BOTH;
+			quantum_hp = quantum_reg;
+		}
+	}
+
+	/**
+	 * We change the values on regular and HP NRS heads separately, so that
+	 * we do not exit early from ptlrpc_nrs_policy_control() with an error
+	 * returned by ptlrpc_nrs_pol_ops::op_policy_ctl(), in cases where the
+	 * user has not started the policy on either the regular or HP NRS
+	 * heads; i.e. we are ignoring -ENODEV within
+	 * ptlrpc_nrs_pol_ops::op_policy_ctl().
+	 */
+	if (queue == PTLRPC_NRS_QUEUE_REG || queue == PTLRPC_NRS_QUEUE_BOTH) {
+		rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_REG,
+					       orr_data->name,
+					       NRS_CTL_ORR_WR_QUANTUM,
+					       false, &quantum_reg);
+		if (rc < 0 && rc != -ENODEV)
+			return rc;
+	}
+
+	if (queue == PTLRPC_NRS_QUEUE_HP || queue == PTLRPC_NRS_QUEUE_BOTH) {
+		rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_HP,
+					       orr_data->name,
+					       NRS_CTL_ORR_WR_QUANTUM,
+					       false, &quantum_hp);
+		if (rc < 0 && rc != -ENODEV)
+			return rc;
+	}
+
+	return count;
+}
+
+#define NRS_LPROCFS_OFF_TYPE_NAME_REG "regular_offset_type:"
+#define NRS_LPROCFS_OFF_TYPE_NAME_HP "high_priority_offset_type:"
+
+/**
+ * Retrieves the offset type used by ORR/TRR policy instances on both the
+ * regular and high-priority NRS head of a service, as long as a policy
+ * instance is not in the ptlrpc_nrs_pol_state::NRS_POL_STATE_STOPPED state;
+ * policy instances in this state are skipped later by nrs_orr_ctl().
+ */
+static int
+ptlrpc_lprocfs_rd_nrs_orr_offset_type(char *page, char **start, off_t off,
+				      int count, int *eof, void *data)
+{
+	struct nrs_lprocfs_orr_data *orr_data = data;
+	struct ptlrpc_service	    *svc = orr_data->svc;
+	bool			     physical[PTLRPC_NRS_QUEUE_BOTH];
+	bool			     reg_started = false;
+	bool			     hp_started = false;
+	int			     rc;
+
+	/**
+	 * Perform two separate calls to this as only one of the NRS heads'
+	 * policies may be in the ptlrpc_nrs_pol_state::NRS_POL_STATE_STARTED
+	 * state.
+	 */
+	rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_REG,
+				       orr_data->name, NRS_CTL_ORR_RD_OFF_TYPE,
+				       true, &physical[PTLRPC_NRS_QUEUE_REG]);
+
+	if (rc == 0) {
+		reg_started = true;
+		/**
+		 * Ignore -ENODEV as the regular NRS head's policy may be in the
+		 * ptlrpc_nrs_pol_state::NRS_POL_STATE_STOPPED state.
+		 */
+	} else if (rc != -ENODEV) {
+		return rc;
+	}
+
+	/**
+	 * We know the ost_io service which is the only one ORR/TRR policies are
+	 * compatible with do have an HP NRS head, but probably best to guard
+	 * against future unforseen changes that would have us perform a ctl
+	 * operation on an HP NRS head that does not exist, and hitting an
+	 * assertion, or maybe crashing if other changes take place.
+	 */
+	if (!nrs_svc_has_hp(svc))
+		goto no_hp;
+
+	rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_HP,
+				       orr_data->name, NRS_CTL_ORR_RD_OFF_TYPE,
+				       true, &physical[PTLRPC_NRS_QUEUE_HP]);
+	if (rc == 0)
+		hp_started = true;
+	else if (!reg_started)
+		return rc;
+
+no_hp:
+
+	/**
+	 * Offset type information is a [physical|logical] string, and output is
+	 * in YAML format.
+	 *
+	 * For example:
+	 *
+	 *	regular_offset_type: physical
+	 *	high_priority_offset_type: logical
+	 */
+	*eof = 1;
+	rc = 0;
+
+	if (reg_started)
+		rc = snprintf(page, count,
+			       NRS_LPROCFS_OFF_TYPE_NAME_REG" %s\n",
+			       physical[PTLRPC_NRS_QUEUE_REG] ?
+			       "physical" : "logical");
+
+	if (hp_started)
+		rc += snprintf(page + rc, count - rc,
+			       NRS_LPROCFS_OFF_TYPE_NAME_HP" %s\n",
+			       physical[PTLRPC_NRS_QUEUE_HP] ?
+			       "physical" : "logical");
+
+	return rc;
+}
+
+/**
+ * Max valid command string is the size of the labels, plus " physical" twice.
+ * plus a separating ' '
+ */
+#define LPROCFS_NRS_WR_OFF_TYPE_MAX_CMD				\
+	sizeof(NRS_LPROCFS_OFF_TYPE_NAME_REG" physical "	\
+	       NRS_LPROCFS_OFF_TYPE_NAME_HP" physical")
+
+/**
+ * Sets the type of offsets used to order RPCs in ORR/TRR policy instances. The
+ * user can set offset type for the regular or high priority NRS head
+ * separately by specifying each value, or both together in a single invocation.
+ *
+ * For example:
+ *
+ * lctl set_param ost.OSS.ost_io.nrs_orr_offset_type=
+ * "regular_offset_type: logical", to enable the ORR policy instance on the
+ * regular NRS head of the ost_io service to use physical disk offset ordering
+ *
+ * lctl set_param ost.OSS.ost_io.nrs_trr_offset_type=logical, to enable the TRR
+ * policy instances on both the regular ang high priority NRS heads of the
+ * ost_io service to use logical file offset ordering.
+ *
+ * policy instances in the ptlrpc_nrs_pol_state::NRS_POL_STATE_STOPPED state are
+ * are skipped later by nrs_orr_ctl().
+ */
+static int
+ptlrpc_lprocfs_wr_nrs_orr_offset_type(struct file *file, const char *buffer,
+				      unsigned long count, void *data)
+{
+	struct nrs_lprocfs_orr_data *orr_data = data;
+	struct ptlrpc_service	    *svc = orr_data->svc;
+	enum ptlrpc_nrs_queue_type   queue = -1;
+	char			     kernbuf[LPROCFS_NRS_WR_OFF_TYPE_MAX_CMD];
+	char			    *val;
+	bool			     physical_reg;
+	bool			     physical_hp;
+	unsigned long		     count_copy;
+	int			     rc = 0;
+
+        if (count > (sizeof(kernbuf) - 1))
+                return -EINVAL;
+
+	if (cfs_copy_from_user(kernbuf, buffer, count))
+		return -EFAULT;
+
+        kernbuf[count] = '\0';
+
+	count_copy = count;
+
+	/**
+	 * Check if the regular offset type has been specified
+	 */
+	val = lprocfs_find_named_value(kernbuf, NRS_LPROCFS_OFF_TYPE_NAME_REG,
+				       &count_copy);
+
+	if (val != kernbuf) {
+		/** The substrings are not always null-terminated */
+		if (strncmp(val, "physical", sizeof("physical") - 1) == 0)
+			physical_reg = true;
+		else if (strncmp(val, "logical", sizeof("logical") - 1) == 0)
+			physical_reg = false;
+		else
+			return -EINVAL;
+
+		queue = PTLRPC_NRS_QUEUE_REG;
+	}
+
+	count_copy = count;
+
+	/**
+	 * Check if the high priority offset type has been specified
+	 */
+	val = lprocfs_find_named_value(kernbuf, NRS_LPROCFS_OFF_TYPE_NAME_HP,
+				       &count_copy);
+
+	if (val != kernbuf) {
+		if (strncmp(val, "physical", sizeof("physical") - 1) == 0)
+			physical_hp = true;
+		else if (strncmp(val, "logical", sizeof("logical") - 1) == 0)
+			physical_hp = false;
+		else
+			return -EINVAL;
+
+		if (queue == PTLRPC_NRS_QUEUE_REG) {
+			if (nrs_svc_has_hp(svc))
+				queue = PTLRPC_NRS_QUEUE_BOTH;
+		} else if (nrs_svc_has_hp(svc)) {
+			queue = PTLRPC_NRS_QUEUE_HP;
+		} else {
+			return -ENODEV;
+		}
+	}
+
+	/**
+	 * If none of the queues has been specified, look for a valid command
+	 * string
+	 */
+	if (queue == -1) {
+		u8	i = 0;
+
+		while (!isalpha(kernbuf[i]))
+			i++;
+
+		if (strncmp(&kernbuf[i], "physical",
+			    sizeof("physical") - 1) == 0)
+			physical_reg = true;
+		else if (strncmp(&kernbuf[i], "logical",
+				 sizeof("logical") - 1) == 0)
+			physical_reg = false;
+		else
+			return -EINVAL;
+
+		if (!nrs_svc_has_hp(svc)) {
+			queue = PTLRPC_NRS_QUEUE_REG;
+		} else {
+			queue = PTLRPC_NRS_QUEUE_BOTH;
+			physical_hp = physical_reg;
+		}
+	}
+
+	/**
+	 * We change the values on regular and HP NRS heads separately, so that
+	 * we do not exit early from ptlrpc_nrs_policy_control() with an error
+	 * returned by ptlrpc_nrs_pol_ops::op_policy_ctl(), in cases where the
+	 * user has not started the policy on either the regular or HP NRS
+	 * heads; i.e. we are ignoring -ENODEV within
+	 * ptlrpc_nrs_pol_ops::op_policy_ctl().
+	 */
+	if (queue == PTLRPC_NRS_QUEUE_REG || queue == PTLRPC_NRS_QUEUE_BOTH) {
+		rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_REG,
+					       orr_data->name,
+					       NRS_CTL_ORR_WR_OFF_TYPE, false,
+					       &physical_reg);
+		if (rc < 0 && rc != -ENODEV)
+			return rc;
+	}
+
+	if (queue == PTLRPC_NRS_QUEUE_HP || queue == PTLRPC_NRS_QUEUE_BOTH) {
+		rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_HP,
+					       orr_data->name,
+					       NRS_CTL_ORR_WR_OFF_TYPE, false,
+					       &physical_hp);
+		if (rc < 0 && rc != -ENODEV)
+			return rc;
+	}
+
+	return rc;
+}
+
+/**
+ * Translates enum nrs_orr_supp values to a corresponding string.
+ */
+static const char *
+nrs_orr_supp2str(enum nrs_orr_supp supp)
+{
+	switch(supp) {
+	default:
+		LBUG();
+	case NOS_OST_READ:
+		return "reads";
+	case NOS_OST_WRITE:
+		return "writes";
+	case NOS_OST_RW:
+		return "reads_and_writes";
+	}
+}
+
+/**
+ * Translates strings to the corresponding enum nrs_orr_supp value
+ */
+static enum nrs_orr_supp
+nrs_orr_str2supp(const char *val)
+{
+	if (strncmp(val, "reads_and_writes",
+		    sizeof("reads_and_writes") - 1) == 0)
+		return NOS_OST_RW;
+	else if (strncmp(val, "reads", sizeof("reads") - 1) == 0)
+		return NOS_OST_READ;
+	else if (strncmp(val, "writes", sizeof("writes") - 1) == 0)
+		return NOS_OST_WRITE;
+	else
+		return -EINVAL;
+}
+
+#define NRS_LPROCFS_REQ_SUPP_NAME_REG "regular_supported_requests:"
+#define NRS_LPROCFS_REQ_SUPP_NAME_HP "high_priority_supported_requests:"
+
+/**
+ * Retrieves the type of RPCs handled at the point of invocation by ORR/TRR
+ * policy instances on both the regular and high-priority NRS head of a service,
+ * as long as a policy instance is not in the
+ * ptlrpc_nrs_pol_state::NRS_POL_STATE_STOPPED state; policy instances in this
+ * state are skipped later by nrs_orr_ctl().
+ */
+static int
+ptlrpc_lprocfs_rd_nrs_orr_supported(char *page, char **start, off_t off,
+				    int count, int *eof, void *data)
+{
+	struct nrs_lprocfs_orr_data *orr_data = data;
+	struct ptlrpc_service	    *svc = orr_data->svc;
+	enum nrs_orr_supp	     support[PTLRPC_NRS_QUEUE_BOTH];
+	bool			     reg_started = false;
+	bool			     hp_started = false;
+	int			     rc;
+
+	/**
+	 * Perform two separate calls to this as only one of the NRS heads'
+	 * policies may be in the ptlrpc_nrs_pol_state::NRS_POL_STATE_STARTED
+	 * state.
+	 */
+	rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_REG,
+				       orr_data->name, NRS_CTL_ORR_RD_SUPP_REQ,
+				       true, &support[PTLRPC_NRS_QUEUE_REG]);
+
+	if (rc == 0) {
+		reg_started = true;
+		/**
+		 * Ignore -ENODEV as the regular NRS head's policy may be in the
+		 * ptlrpc_nrs_pol_state::NRS_POL_STATE_STOPPED state.
+		 */
+	} else if (rc != -ENODEV) {
+		return rc;
+	}
+
+	/**
+	 * We know the ost_io service which is the only one ORR/TRR policies are
+	 * compatible with do have an HP NRS head, but probably best to guard
+	 * against future unforseen changes that would have us perform a ctl
+	 * operation on an HP NRS head that does not exist, and hitting an
+	 * assertion, or maybe crashing if other changes take place.
+	 */
+	if (!nrs_svc_has_hp(svc))
+		goto no_hp;
+
+	rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_HP,
+				       orr_data->name, NRS_CTL_ORR_RD_SUPP_REQ,
+				       true, &support[PTLRPC_NRS_QUEUE_HP]);
+	if (rc == 0)
+		hp_started = true;
+	else if (!reg_started)
+		return rc;
+
+no_hp:
+
+	/**
+	 * Supported RPC type information is a reads|writes|reads_and_writes string, and
+	 * output is in YAML format.
+	 *
+	 * For example:
+	 *
+	 *	regular_supported_requests: reads
+	 *	high_priority_supported_requests: reads_and_writes
+	 */
+	*eof = 1;
+	rc = 0;
+
+	if (reg_started)
+		rc = snprintf(page, count,
+			       NRS_LPROCFS_REQ_SUPP_NAME_REG" %s\n",
+			       nrs_orr_supp2str(support[PTLRPC_NRS_QUEUE_REG]));
+
+	if (hp_started)
+		rc += snprintf(page + rc, count - rc,
+			       NRS_LPROCFS_REQ_SUPP_NAME_HP" %s\n",
+			       nrs_orr_supp2str(support[PTLRPC_NRS_QUEUE_HP]));
+
+	return rc;
+}
+
+/**
+ * Max valid command string is the size of the labels, plus " reads_and_writes"
+ * twice, plus a separating ' '
+ */
+#define LPROCFS_NRS_WR_REQ_SUPP_MAX_CMD					\
+	sizeof(NRS_LPROCFS_REQ_SUPP_NAME_REG" reads_and_writes "	\
+	       NRS_LPROCFS_REQ_SUPP_NAME_HP" reads_and_writes")
+
+/**
+ * Sets the type of RPCs handled by ORR/TRR policy instances. The user can
+ * modify this setting for the regular or high priority NRS heads separately, or
+ * both together in a single invocation.
+ *
+ * For example:
+ *
+ * lctl set_param ost.OSS.ost_io.nrs_orr_supported=
+ * "regular_supported_requests: writes", to enable the ORR policy instance
+ * on the regular NRS head of the ost_io service to handle OST_READ RPCs
+ *
+ * lctl set_param ost.OSS.ost_io.nrs_trr_supported=reads_and_writes, to enable
+ * the TRR policy instances on both the regular ang high priority NRS heads of
+ * the ost_io service to use handle OST_READ and OST_WRITE RPCs
+ *
+ * policy instances in the ptlrpc_nrs_pol_state::NRS_POL_STATE_STOPPED state are
+ * are skipped later by nrs_orr_ctl().
+ */
+static int
+ptlrpc_lprocfs_wr_nrs_orr_supported(struct file *file, const char *buffer,
+				    unsigned long count, void *data)
+{
+	struct nrs_lprocfs_orr_data *orr_data = data;
+	struct ptlrpc_service	    *svc = orr_data->svc;
+	enum ptlrpc_nrs_queue_type   queue = -1;
+	char			     kernbuf[LPROCFS_NRS_WR_REQ_SUPP_MAX_CMD];
+	char			    *val;
+	enum nrs_orr_supp	     supp_reg;
+	enum nrs_orr_supp	     supp_hp;
+	unsigned long		     count_copy;
+	int			     rc = 0;
+
+        if (count > (sizeof(kernbuf) - 1))
+                return -EINVAL;
+
+	if (cfs_copy_from_user(kernbuf, buffer, count))
+		return -EFAULT;
+
+        kernbuf[count] = '\0';
+
+	count_copy = count;
+
+	/**
+	 * Check if the regular supported requests setting has been specified
+	 */
+	val = lprocfs_find_named_value(kernbuf, NRS_LPROCFS_REQ_SUPP_NAME_REG,
+				       &count_copy);
+
+	if (val != kernbuf) {
+		supp_reg = nrs_orr_str2supp(val);
+		if (supp_reg == -EINVAL)
+			return -EINVAL;
+
+		queue = PTLRPC_NRS_QUEUE_REG;
+	}
+
+	count_copy = count;
+
+	/**
+	 * Check if the high priority supported requests setting has been
+	 * specified
+	 */
+	val = lprocfs_find_named_value(kernbuf, NRS_LPROCFS_REQ_SUPP_NAME_HP,
+				       &count_copy);
+
+	if (val != kernbuf) {
+		supp_hp = nrs_orr_str2supp(val);
+		if (supp_hp == -EINVAL)
+			return -EINVAL;
+
+		if (queue == PTLRPC_NRS_QUEUE_REG) {
+			if (nrs_svc_has_hp(svc))
+				queue = PTLRPC_NRS_QUEUE_BOTH;
+		} else if (nrs_svc_has_hp(svc)) {
+			queue = PTLRPC_NRS_QUEUE_HP;
+		} else {
+			return -ENODEV;
+		}
+	}
+
+	/**
+	 * If none of the queues has been specified, look for a valid command
+	 * string
+	 */
+	if (queue == -1) {
+		u8	i = 0;
+
+		while (!isalpha(kernbuf[i]))
+			i++;
+
+		supp_reg = nrs_orr_str2supp(&kernbuf[i]);
+		if (supp_reg == -EINVAL)
+			return -EINVAL;
+
+		if (!nrs_svc_has_hp(svc)) {
+			queue = PTLRPC_NRS_QUEUE_REG;
+		} else {
+			queue = PTLRPC_NRS_QUEUE_BOTH;
+			supp_hp = supp_reg;
+		}
+	}
+
+	/**
+	 * We change the values on regular and HP NRS heads separately, so that
+	 * we do not exit early from ptlrpc_nrs_policy_control() with an error
+	 * returned by ptlrpc_nrs_pol_ops::op_policy_ctl(), in cases where the
+	 * user has not started the policy on either the regular or HP NRS
+	 * heads; i.e. we are ignoring -ENODEV within
+	 * ptlrpc_nrs_pol_ops::op_policy_ctl().
+	 */
+	if (queue == PTLRPC_NRS_QUEUE_REG || queue == PTLRPC_NRS_QUEUE_BOTH) {
+		rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_REG,
+					       orr_data->name,
+					       NRS_CTL_ORR_WR_SUPP_REQ, false,
+					       &supp_reg);
+		if (rc < 0 && rc != -ENODEV)
+			return rc;
+	}
+
+	if (queue == PTLRPC_NRS_QUEUE_HP || queue == PTLRPC_NRS_QUEUE_BOTH) {
+		rc = ptlrpc_nrs_policy_control(svc, PTLRPC_NRS_QUEUE_HP,
+					       orr_data->name,
+					       NRS_CTL_ORR_WR_SUPP_REQ, false,
+					       &supp_hp);
+		if (rc < 0 && rc != -ENODEV)
+			return rc;
+	}
+
+	return rc;
+}
+
+int
+nrs_orr_lprocfs_init(struct ptlrpc_service *svc)
+{
+	int	rc;
+	int	i;
+
+	struct lprocfs_vars nrs_orr_lprocfs_vars[] = {
+		{ .name		= "nrs_orr_quantum",
+		  .read_fptr	= ptlrpc_lprocfs_rd_nrs_orr_quantum,
+		  .write_fptr	= ptlrpc_lprocfs_wr_nrs_orr_quantum },
+		{ .name		= "nrs_orr_offset_type",
+		  .read_fptr	= ptlrpc_lprocfs_rd_nrs_orr_offset_type,
+		  .write_fptr	= ptlrpc_lprocfs_wr_nrs_orr_offset_type },
+		{ .name		= "nrs_orr_supported",
+		  .read_fptr	= ptlrpc_lprocfs_rd_nrs_orr_supported,
+		  .write_fptr	= ptlrpc_lprocfs_wr_nrs_orr_supported },
+		{ NULL }
+	};
+
+	OBD_ALLOC_PTR(orr_data);
+	if (orr_data == NULL)
+		return -ENOMEM;
+
+	orr_data->svc = svc;
+	strcpy(orr_data->name, NRS_POL_NAME_ORR);
+
+	for (i = 0; i < ARRAY_SIZE(nrs_orr_lprocfs_vars); i++)
+		nrs_orr_lprocfs_vars[i].data = orr_data;
+
+	if (svc->srv_procroot == NULL)
+		return 0;
+
+	rc = lprocfs_add_vars(svc->srv_procroot, nrs_orr_lprocfs_vars, NULL);
+
+	return rc;
+}
+
+void
+nrs_orr_lprocfs_fini(struct ptlrpc_service *svc)
+{
+	if (svc->srv_procroot == NULL)
+		return;
+
+	lprocfs_remove_proc_entry("nrs_orr_quantum", svc->srv_procroot);
+	lprocfs_remove_proc_entry("nrs_orr_offset_type", svc->srv_procroot);
+	lprocfs_remove_proc_entry("nrs_orr_supported", svc->srv_procroot);
+
+	if (orr_data != NULL)
+		OBD_FREE_PTR(orr_data);
+}
+
+int
+nrs_trr_lprocfs_init(struct ptlrpc_service *svc)
+{
+	int	rc;
+	int	i;
+
+	struct lprocfs_vars nrs_trr_lprocfs_vars[] = {
+		{ .name		= "nrs_trr_quantum",
+		  .read_fptr	= ptlrpc_lprocfs_rd_nrs_orr_quantum,
+		  .write_fptr	= ptlrpc_lprocfs_wr_nrs_orr_quantum },
+		{ .name		= "nrs_trr_offset_type",
+		  .read_fptr	= ptlrpc_lprocfs_rd_nrs_orr_offset_type,
+		  .write_fptr	= ptlrpc_lprocfs_wr_nrs_orr_offset_type },
+		{ .name		= "nrs_trr_supported",
+		  .read_fptr	= ptlrpc_lprocfs_rd_nrs_orr_supported,
+		  .write_fptr	= ptlrpc_lprocfs_wr_nrs_orr_supported },
+		{ NULL }
+	};
+
+	OBD_ALLOC_PTR(trr_data);
+	if (trr_data == NULL)
+		return -ENOMEM;
+
+	trr_data->svc = svc;
+	strcpy(trr_data->name, NRS_POL_NAME_TRR);
+
+	for (i = 0; i < ARRAY_SIZE(nrs_trr_lprocfs_vars); i++)
+		nrs_trr_lprocfs_vars[i].data = trr_data;
+
+	if (svc->srv_procroot == NULL)
+		return 0;
+
+	rc = lprocfs_add_vars(svc->srv_procroot, nrs_trr_lprocfs_vars, NULL);
+
+	return rc;
+}
+
+void
+nrs_trr_lprocfs_fini(struct ptlrpc_service *svc)
+{
+	if (svc->srv_procroot == NULL)
+		return;
+
+	lprocfs_remove_proc_entry("nrs_trr_quantum", svc->srv_procroot);
+	lprocfs_remove_proc_entry("nrs_trr_offset_type", svc->srv_procroot);
+	lprocfs_remove_proc_entry("nrs_trr_supported", svc->srv_procroot);
+
+	if (trr_data != NULL)
+		OBD_FREE_PTR(trr_data);
+}
+
+/** @} ORR/TRR */
 
 /** @} nrs */
 
