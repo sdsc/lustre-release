@@ -203,6 +203,14 @@ nrs_request_policy(struct ptlrpc_nrs_request *nrq)
 	return nrs_request_resource(nrq)->res_policy;
 }
 
+#ifdef LPROCFS
+int nrs_crrn_lprocfs_init(struct ptlrpc_service *svc);
+void nrs_crrn_lprocfs_fini(struct ptlrpc_service *svc);
+#else
+#define nrs_crrn_lprocfs_init	NULL
+#define nrs_crrn_lprocfs_fini	NULL
+#endif
+
 /* recovd_thread.c */
 
 int ptlrpc_expire_one_request(struct ptlrpc_request *req, int async_unlink);
