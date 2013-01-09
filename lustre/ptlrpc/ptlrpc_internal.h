@@ -112,6 +112,16 @@ struct nrs_core {
 
 };
 
+/**
+ * This allows to bundle the policy name into the lprocfs_vars::data pointer
+ * so that lprocfs read/write functions can be used by both the ORR and TRR
+ * policies.
+ */
+struct nrs_lprocfs_orr_data {
+	struct ptlrpc_service	*svc;
+	char			 name[4];
+};
+
 int ptlrpc_service_nrs_setup(struct ptlrpc_service *svc);
 void ptlrpc_service_nrs_cleanup(struct ptlrpc_service *svc);
 
@@ -197,9 +207,17 @@ struct ptlrpc_nrs_policy * nrs_request_policy(struct ptlrpc_nrs_request *nrq)
 #ifdef LPROCFS
 int nrs_crrn_lprocfs_init(struct ptlrpc_service *svc);
 void nrs_crrn_lprocfs_fini(struct ptlrpc_service *svc);
+int nrs_orr_lprocfs_init(struct ptlrpc_service *svc);
+void nrs_orr_lprocfs_fini(struct ptlrpc_service *svc);
+int nrs_trr_lprocfs_init(struct ptlrpc_service *svc);
+void nrs_trr_lprocfs_fini(struct ptlrpc_service *svc);
 #else
 #define nrs_crrn_lprocfs_init	NULL
 #define nrs_crrn_lprocfs_fini	NULL
+#define nrs_orr_lprocfs_init	NULL
+#define nrs_orr_lprocfs_fini	NULL
+#define nrs_trr_lprocfs_init	NULL
+#define nrs_trr_lprocfs_fini	NULL
 #endif
 
 /* recovd_thread.c */
