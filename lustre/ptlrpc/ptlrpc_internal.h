@@ -202,6 +202,7 @@ nrs_request_policy(struct ptlrpc_nrs_request *nrq)
 	return nrs_request_resource(nrq)->res_policy;
 }
 
+
 /* recovd_thread.c */
 
 int ptlrpc_expire_one_request(struct ptlrpc_request *req, int async_unlink);
