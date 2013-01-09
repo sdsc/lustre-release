@@ -895,6 +895,8 @@ ptlrpc_nrs_hpreq_add_nolock(struct ptlrpc_request *req)
 
 /* ptlrpc/nrs_fifo.c */
 extern struct ptlrpc_nrs_pol_desc ptlrpc_nrs_fifo_desc;
+/* ptlrpc/nrs_crr.c */
+extern struct ptlrpc_nrs_pol_desc ptlrpc_nrs_crrn_desc;
 
 /**
  * Array of policies that ship alongside NRS core; i.e. ones that do not
@@ -902,6 +904,7 @@ extern struct ptlrpc_nrs_pol_desc ptlrpc_nrs_fifo_desc;
  */
 static struct ptlrpc_nrs_pol_desc *nrs_pols_builtin[] = {
 	&ptlrpc_nrs_fifo_desc,
+	&ptlrpc_nrs_crrn_desc,
 };
 
 /**
