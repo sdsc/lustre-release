@@ -216,12 +216,13 @@ EXPORT_SYMBOL(dt_lookup_dir);
  * but not one from lu_site */
 struct dt_object *dt_locate_at(const struct lu_env *env,
 			       struct dt_device *dev, const struct lu_fid *fid,
-			       struct lu_device *top_dev)
+			       struct lu_device *top_dev,
+			       const struct lu_object_conf *conf)
 {
 	struct lu_object *lo, *n;
 	ENTRY;
 
-	lo = lu_object_find_at(env, top_dev, fid, NULL);
+	lo = lu_object_find_at(env, top_dev, fid, conf);
 	if (IS_ERR(lo))
 		return (void *)lo;
 

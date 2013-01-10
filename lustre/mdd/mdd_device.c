@@ -167,7 +167,6 @@ static void mdd_device_shutdown(const struct lu_env *env,
                                 struct mdd_device *m, struct lustre_cfg *cfg)
 {
         ENTRY;
-        mdd_changelog_fini(env, m);
         if (m->mdd_dot_lustre_objs.mdd_obf)
                 mdd_object_put(env, m->mdd_dot_lustre_objs.mdd_obf);
         if (m->mdd_dot_lustre)
@@ -1055,12 +1054,14 @@ static struct md_dir_operations mdd_obf_dir_ops = {
  */
 static int mdd_obf_setup(const struct lu_env *env, struct mdd_device *m)
 {
-        struct mdd_object *mdd_obf;
-        struct lu_object *obf_lu_obj;
-        int rc = 0;
+	struct lu_object_conf	*conf	    = &mdd_env_info(env)->mti_conf;
+	struct mdd_object	*mdd_obf;
+	struct lu_object	*obf_lu_obj;
+	int			 rc	    = 0;
 
-        m->mdd_dot_lustre_objs.mdd_obf = mdd_object_find(env, m,
-                                                         &LU_OBF_FID);
+	conf->loc_flags = LOC_F_NEW;
+	m->mdd_dot_lustre_objs.mdd_obf =
+		mdd_object_find_conf(env, m, &LU_OBF_FID, conf);
         if (m->mdd_dot_lustre_objs.mdd_obf == NULL ||
             IS_ERR(m->mdd_dot_lustre_objs.mdd_obf))
                 GOTO(out, rc = -ENOENT);
@@ -1140,6 +1141,7 @@ static int mdd_process_config(const struct lu_env *env,
                 break;
         case LCFG_CLEANUP:
 		mdd_lfsck_cleanup(env, m);
+		mdd_changelog_fini(env, m);
 		rc = next->ld_ops->ldo_process_config(env, next, cfg);
 		lu_dev_del_linkage(d->ld_site, d);
                 mdd_device_shutdown(env, m, cfg);
@@ -1211,13 +1213,14 @@ static int mdd_prepare(const struct lu_env *env,
 
 	mdd->mdd_capa = root;
 
+	rc = mdd_changelog_init(env, mdd);
+	if (rc != 0)
+		GOTO(out, rc);
+
 	rc = mdd_lfsck_setup(env, mdd);
-	if (rc) {
+	if (rc != 0)
 		CERROR("%s: failed to initialize lfsck: rc = %d\n",
 		       mdd2obd_dev(mdd)->obd_name, rc);
-		GOTO(out, rc);
-	}
-	rc = mdd_changelog_init(env, mdd);
 
 	GOTO(out, rc);
 

@@ -193,6 +193,7 @@ struct mdd_thread_info {
         int                       mti_max_cookie_size;
         struct dt_object_format   mti_dof;
         struct obd_quotactl       mti_oqctl;
+	struct lu_object_conf     mti_conf;
 };
 
 extern const char orph_index_name[];
@@ -386,6 +387,10 @@ extern const struct lu_device_operations mdd_lu_ops;
 struct mdd_object *mdd_object_find(const struct lu_env *env,
                                    struct mdd_device *d,
                                    const struct lu_fid *f);
+struct mdd_object *mdd_object_find_conf(const struct lu_env *env,
+					struct mdd_device *d,
+					const struct lu_fid *f,
+					const struct lu_object_conf *conf);
 int mdd_get_default_md(struct mdd_object *mdd_obj, struct lov_mds_md *lmm);
 int mdd_readpage(const struct lu_env *env, struct md_object *obj,
                  const struct lu_rdpg *rdpg);
