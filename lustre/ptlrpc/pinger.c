@@ -48,9 +48,14 @@
 #include <obd_class.h>
 #include "ptlrpc_internal.h"
 
+int suppress_pings;
+EXPORT_SYMBOL(suppress_pings);
+CFS_MODULE_PARM(suppress_pings, "i", int, 0644, "Suppress pings");
+
 struct mutex pinger_mutex;
 static CFS_LIST_HEAD(pinger_imports);
 static cfs_list_t timeout_list = CFS_LIST_HEAD_INIT(timeout_list);
+
 struct ptlrpc_request *
 ptlrpc_prep_ping(struct obd_import *imp)
 {
@@ -234,10 +239,11 @@ static void ptlrpc_pinger_process_import(struct obd_import *imp,
 		imp->imp_force_verify = 0;
 	spin_unlock(&imp->imp_lock);
 
-        CDEBUG(level == LUSTRE_IMP_FULL ? D_INFO : D_HA,
-               "level %s/%u force %u deactive %u pingable %u\n",
-               ptlrpc_import_state_name(level), level,
-               force, imp->imp_deactive, imp->imp_pingable);
+	CDEBUG(level == LUSTRE_IMP_FULL ? D_INFO : D_HA,
+	       "%s->%s: level %s/%u force %u deactive %u pingable %u\n",
+	       imp->imp_obd->obd_uuid.uuid, obd2cli_tgt(imp->imp_obd),
+	       ptlrpc_import_state_name(level), level,
+	       force, imp->imp_deactive, imp->imp_pingable);
 
         if (cfs_time_aftereq(imp->imp_next_ping - 5 * CFS_TICK,
                              this_ping) && force == 0)
@@ -251,18 +257,24 @@ static void ptlrpc_pinger_process_import(struct obd_import *imp,
         } else if (level != LUSTRE_IMP_FULL ||
                    imp->imp_obd->obd_no_recov ||
                    imp_is_deactive(imp)) {
-                CDEBUG(D_HA, "not pinging %s (in recovery "
-                       " or recovery disabled: %s)\n",
-                       obd2cli_tgt(imp->imp_obd),
-                       ptlrpc_import_state_name(level));
-        } else if (imp->imp_pingable || force) {
-                ptlrpc_ping(imp);
-        }
+		CDEBUG(D_HA, "%s->%s: not pinging (in recovery "
+		       "or recovery disabled: %s)\n",
+		       imp->imp_obd->obd_uuid.uuid, obd2cli_tgt(imp->imp_obd),
+		       ptlrpc_import_state_name(level));
+	} else if (imp->imp_pingable || force) {
+		if (imp->imp_suppress_pings) {
+			list_del_init(&imp->imp_pinger_chain);
+			CDEBUG(D_INFO, "%s->%s: Temporarily removed from "
+			       "pinger_imports\n", imp->imp_obd->obd_uuid.uuid,
+			       obd2cli_tgt(imp->imp_obd));
+		}
+		ptlrpc_ping(imp);
+	}
 }
 
 static int ptlrpc_pinger_main(void *arg)
 {
-        struct ptlrpc_thread *thread = (struct ptlrpc_thread *)arg;
+	struct ptlrpc_thread *thread = (struct ptlrpc_thread *)arg;
 	ENTRY;
 
         cfs_daemonize(thread->t_name);
@@ -278,12 +290,13 @@ static int ptlrpc_pinger_main(void *arg)
                 cfs_duration_t time_to_next_wake;
                 struct timeout_item *item;
                 cfs_list_t *iter;
+		cfs_list_t *next;
 
 		mutex_lock(&pinger_mutex);
-                cfs_list_for_each_entry(item, &timeout_list, ti_chain) {
-                        item->ti_cb(item, item->ti_cb_data);
-                }
-                cfs_list_for_each(iter, &pinger_imports) {
+		cfs_list_for_each_entry(item, &timeout_list, ti_chain) {
+			item->ti_cb(item, item->ti_cb_data);
+		}
+		cfs_list_for_each_safe(iter, next, &pinger_imports) {
                         struct obd_import *imp =
                                 cfs_list_entry(iter, struct obd_import,
                                                imp_pinger_chain);
@@ -372,7 +385,14 @@ int ptlrpc_start_pinger(void)
         l_wait_event(pinger_thread->t_ctl_waitq,
                      thread_is_running(pinger_thread), &lwi);
 
-        RETURN(0);
+	if (suppress_pings)
+		CWARN("Pings will be suppressed at the request of the "
+		      "administrator.  The configuration shall meet the "
+		      "additional requirements described in the manual.  "
+		      "(Search for the \"suppress_pings\" kernel module "
+		      "parameter.)\n");
+
+	RETURN(0);
 }
 
 int ptlrpc_pinger_remove_timeouts(void);
@@ -405,19 +425,34 @@ int ptlrpc_stop_pinger(void)
 
 void ptlrpc_pinger_sending_on_import(struct obd_import *imp)
 {
-        ptlrpc_update_next_ping(imp, 0);
+	if (!imp->imp_suppress_pings)
+		ptlrpc_update_next_ping(imp, 0);
 }
 EXPORT_SYMBOL(ptlrpc_pinger_sending_on_import);
 
 void ptlrpc_pinger_commit_expected(struct obd_import *imp)
 {
-        ptlrpc_update_next_ping(imp, 1);
+	ptlrpc_update_next_ping(imp, 1);
+
+	if (imp->imp_suppress_pings && imp->imp_added_to_pinger &&
+	    list_empty(&imp->imp_pinger_chain)) {
+		mutex_lock(&pinger_mutex);
+		if (imp->imp_added_to_pinger &&
+		    list_empty(&imp->imp_pinger_chain)) {
+			list_add_tail(&imp->imp_pinger_chain, &pinger_imports);
+			CDEBUG(D_INFO, "%s->%s: Temporarily added to "
+			       "pinger_imports\n", imp->imp_obd->obd_uuid.uuid,
+			       obd2cli_tgt(imp->imp_obd));
+		}
+		mutex_unlock(&pinger_mutex);
+	}
 }
 
 int ptlrpc_pinger_add_import(struct obd_import *imp)
 {
-        ENTRY;
-        if (!cfs_list_empty(&imp->imp_pinger_chain))
+	ENTRY;
+
+	if (imp->imp_added_to_pinger)
                 RETURN(-EALREADY);
 
 	mutex_lock(&pinger_mutex);
@@ -429,29 +464,33 @@ int ptlrpc_pinger_add_import(struct obd_import *imp)
         /* XXX sort, blah blah */
         cfs_list_add_tail(&imp->imp_pinger_chain, &pinger_imports);
         class_import_get(imp);
+	imp->imp_added_to_pinger = 1;
 
-        ptlrpc_pinger_wake_up();
+	ptlrpc_pinger_wake_up(NULL);
 	mutex_unlock(&pinger_mutex);
 
-        RETURN(0);
+	RETURN(0);
 }
 EXPORT_SYMBOL(ptlrpc_pinger_add_import);
 
 int ptlrpc_pinger_del_import(struct obd_import *imp)
 {
-        ENTRY;
-        if (cfs_list_empty(&imp->imp_pinger_chain))
+	ENTRY;
+
+	if (!imp->imp_added_to_pinger)
                 RETURN(-ENOENT);
 
 	mutex_lock(&pinger_mutex);
-        cfs_list_del_init(&imp->imp_pinger_chain);
         CDEBUG(D_HA, "removing pingable import %s->%s\n",
                imp->imp_obd->obd_uuid.uuid, obd2cli_tgt(imp->imp_obd));
         /* if we remove from pinger we don't want recovery on this import */
         imp->imp_obd->obd_no_recov = 1;
-        class_import_put(imp);
+	if (!cfs_list_empty(&imp->imp_pinger_chain))
+		cfs_list_del_init(&imp->imp_pinger_chain);
+	imp->imp_added_to_pinger = 0;
+	class_import_put(imp);
 	mutex_unlock(&pinger_mutex);
-        RETURN(0);
+	RETURN(0);
 }
 EXPORT_SYMBOL(ptlrpc_pinger_del_import);
 
@@ -572,11 +611,24 @@ int ptlrpc_pinger_remove_timeouts(void)
         return 0;
 }
 
-void ptlrpc_pinger_wake_up()
+void ptlrpc_pinger_wake_up(struct obd_import *imp)
 {
 #ifdef ENABLE_PINGER
-        thread_add_flags(pinger_thread, SVC_EVENT);
-        cfs_waitq_signal(&pinger_thread->t_ctl_waitq);
+	if (imp != NULL && imp->imp_suppress_pings &&
+	    imp->imp_added_to_pinger && list_empty(&imp->imp_pinger_chain)) {
+		mutex_lock(&pinger_mutex);
+		if (imp->imp_added_to_pinger &&
+		    list_empty(&imp->imp_pinger_chain)) {
+			list_add_tail(&imp->imp_pinger_chain, &pinger_imports);
+			CDEBUG(D_HA, "%s->%s: Temporarily added to "
+			       "pinger_imports\n", imp->imp_obd->obd_uuid.uuid,
+			       obd2cli_tgt(imp->imp_obd));
+		}
+		mutex_unlock(&pinger_mutex);
+	}
+
+	thread_add_flags(pinger_thread, SVC_EVENT);
+	cfs_waitq_signal(&pinger_thread->t_ctl_waitq);
 #endif
 }
 
@@ -983,7 +1035,7 @@ int ptlrpc_pinger_del_import(struct obd_import *imp)
         RETURN(0);
 }
 
-void ptlrpc_pinger_wake_up()
+void ptlrpc_pinger_wake_up(struct obd_import *unused)
 {
 #ifdef ENABLE_PINGER
         /* XXX force pinger to run, if needed */

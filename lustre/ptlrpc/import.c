@@ -111,6 +111,10 @@ int ptlrpc_init_import(struct obd_import *imp)
 	imp->imp_generation++;
 	imp->imp_state =  LUSTRE_IMP_NEW;
 
+	if (suppress_pings &&
+	    strcmp(imp->imp_obd->obd_type->typ_name, LUSTRE_MGC_NAME) != 0)
+		imp->imp_suppress_pings = 1;
+
 	spin_unlock(&imp->imp_lock);
 
 	return 0;
@@ -418,7 +422,7 @@ void ptlrpc_fail_import(struct obd_import *imp, __u32 conn_cnt)
 		imp->imp_force_verify = 1;
 		spin_unlock(&imp->imp_lock);
 
-		ptlrpc_pinger_wake_up();
+		ptlrpc_pinger_wake_up(imp);
 	}
 	EXIT;
 }
@@ -736,10 +740,10 @@ static void ptlrpc_maybe_ping_import_soon(struct obd_import *imp)
 	spin_unlock(&imp->imp_lock);
 
 	if (force_verify)
-		ptlrpc_pinger_wake_up();
+		ptlrpc_pinger_wake_up(imp);
 #else
-        /* liblustre has no pinger thread, so we wakeup pinger anyway */
-	ptlrpc_pinger_wake_up();
+	/* liblustre has no pinger thread, so we wakeup pinger anyway */
+	ptlrpc_pinger_wake_up(NULL);
 #endif
 }
 

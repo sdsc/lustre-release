@@ -5030,6 +5030,12 @@ static int mdt_connect_internal(struct obd_export *exp,
 		return -EBADE;
 	}
 
+	if (suppress_pings) {
+		spin_lock(&exp->exp_obd->obd_dev_lock);
+		list_del_init(&exp->exp_obd_chain_timed);
+		spin_unlock(&exp->exp_obd->obd_dev_lock);
+	}
+
 	return 0;
 }
 
