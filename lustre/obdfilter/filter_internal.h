@@ -131,10 +131,13 @@ extern void target_recovery_init(struct lu_target *lut,
 void f_dput(struct dentry *);
 struct dentry *filter_fid2dentry(struct obd_device *, struct dentry *dir,
                                  obd_seq seq, obd_id id);
-struct dentry *__filter_oa2dentry(struct obd_device *obd, struct ost_id *ostid,
-                                  const char *what, int quiet);
-#define filter_oa2dentry(obd, ostid) __filter_oa2dentry(obd, ostid,     \
-                                                        __func__, 0)
+struct dentry *__filter_oa2dentry(struct obd_export *exp, struct obdo *oa,
+				  struct ost_id *ostid,
+				  struct obd_trans_info *oti, const char *what,
+				  int quiet);
+#define filter_oa2dentry(exp, oa, ostid, oti) __filter_oa2dentry(exp, oa,    \
+								 ostid, oti, \
+								 __func__, 0)
 
 int filter_finish_transno(struct obd_export *, struct inode *,
                           struct obd_trans_info *, int rc, int force_sync);

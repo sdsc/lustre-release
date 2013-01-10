@@ -2812,9 +2812,10 @@ struct ost_body {
 
 /* Key for FIEMAP to be used in get_info calls */
 struct ll_fiemap_info_key {
-        char    name[8];
-        struct  obdo oa;
-        struct  ll_user_fiemap fiemap;
+	char    name[8];
+	struct  obdo oa;
+	struct  ll_user_fiemap fiemap;
+	struct  obd_trans_info *oti;
 };
 
 extern void lustre_swab_ost_body (struct ost_body *b);
