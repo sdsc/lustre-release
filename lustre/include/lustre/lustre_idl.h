@@ -1976,7 +1976,7 @@ struct mdt_body {
        obd_time        ctime;
         __u64          blocks; /* XID, in the case of MDS_READPAGE */
         __u64          ioepoch;
-        __u64          ino;
+	__u64	       unused1; /* was "ino" until 2.4.0 */
         __u32          fsuid;
         __u32          fsgid;
         __u32          capability;
@@ -1986,7 +1986,7 @@ struct mdt_body {
         __u32          flags; /* from vfs for pin/unpin, LUSTRE_BFLAG close */
         __u32          rdev;
         __u32          nlink; /* #bytes to read in the case of MDS_READPAGE */
-        __u32          generation;
+	__u32	       unused2; /* was "generation" until 2.4.0 */
         __u32          suppgid;
         __u32          eadatasize;
         __u32          aclsize;
@@ -2158,6 +2158,7 @@ enum {
         MDS_KEEP_ORPHAN   = 1 << 7,
         MDS_RECOV_OPEN    = 1 << 8,
 	MDS_DATA_MODIFIED = 1 << 9,
+	MDS_OWNEROVERRIDE = 1 << 10,
 };
 
 /* instance of mdt_reint_rec */
