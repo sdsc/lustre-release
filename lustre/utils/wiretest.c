@@ -1128,6 +1128,8 @@ void lustre_assert_wire_constants(void)
                  (unsigned)OBD_CKSUM_ADLER);
         LASSERTF(OBD_CKSUM_CRC32C == 0x00000004UL, "found 0x%.8xUL\n",
                  (unsigned)OBD_CKSUM_CRC32C);
+	LASSERTF(OBD_CONNECT_MULTIBULK == 0x4000000000000ULL,
+		 "found 0x%.16llxULL\n", OBD_CONNECT_MULTIBULK);
 
         /* Checks for struct obdo */
         LASSERTF((int)sizeof(struct obdo) == 208, "found %lld\n",

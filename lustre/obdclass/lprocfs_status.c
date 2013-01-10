@@ -974,6 +974,7 @@ static const char *obd_connect_names[] = {
 	"lightweight_conn",
 	"short_io",
 	"unknown",
+	"multibulk",
         NULL
 };
 
