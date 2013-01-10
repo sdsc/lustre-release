@@ -230,6 +230,10 @@ struct obd_import {
          * skip looking for requests to remove from replay list as optimisation
          */
         __u64                     imp_last_transno_checked;
+	/**
+	 * \see ptlrpc_free_committed remembers its last return code here.
+	 */
+	int			  imp_last_uncommitted_status_returned;
         /**
          * Remote export handle. This is how remote side knows what export
          * we are talking to. Filled from response to connect request
@@ -265,7 +269,9 @@ struct obd_import {
                                   imp_resend_replay:1,    /* resend for replay */
                                   imp_no_pinger_recover:1,/* disable normal recovery, for test only. */
 				  imp_need_mne_swab:1,	  /* need IR MNE swab */
-                                  imp_force_reconnect:1;  /* import must be reconnected instead of chouse new connection */
+				  imp_force_reconnect:1,  /* import must be reconnected instead of chouse new connection */
+				  imp_added_to_pinger:1,  /* added to pinger */
+				  imp_suppress_pings:1;	  /* suppress pings */
         __u32                     imp_connect_op;
         struct obd_connect_data   imp_connect_data;
         __u64                     imp_connect_flags_orig;

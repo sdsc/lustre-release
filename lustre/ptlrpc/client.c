@@ -1300,6 +1300,8 @@ static int after_reply(struct ptlrpc_request *req)
         }
 
         if (imp->imp_replayable) {
+		int has_uncommitted;
+
 		spin_lock(&imp->imp_lock);
                 /*
                  * No point in adding already-committed requests to the replay
@@ -1325,12 +1327,13 @@ static int after_reply(struct ptlrpc_request *req)
                         imp->imp_peer_committed_transno =
                                 lustre_msg_get_last_committed(req->rq_repmsg);
                 }
-                ptlrpc_free_committed(imp);
 
-                if (req->rq_transno > imp->imp_peer_committed_transno)
-                        ptlrpc_pinger_commit_expected(imp);
+		has_uncommitted = ptlrpc_free_committed(imp);
 
 		spin_unlock(&imp->imp_lock);
+
+		if (has_uncommitted)
+			ptlrpc_pinger_commit_expected(imp);
 	}
 
 	RETURN(rc);
@@ -2362,10 +2365,11 @@ EXPORT_SYMBOL(ptlrpc_unregister_reply);
  * all requests have transno smaller than last_committed for the
  * import and don't have rq_replay set.
  * Since requests are sorted in transno order, stops when meetign first
- * transno bigger than last_committed.
+ * transno bigger than last_committed and returns 1.  If the end of the list is
+ * reached, 0 will be returned.
  * caller must hold imp->imp_lock
  */
-void ptlrpc_free_committed(struct obd_import *imp)
+int ptlrpc_free_committed(struct obd_import *imp)
 {
         cfs_list_t *tmp, *saved;
         struct ptlrpc_request *req;
@@ -2376,13 +2380,12 @@ void ptlrpc_free_committed(struct obd_import *imp)
 
         LASSERT_SPIN_LOCKED(&imp->imp_lock);
 
-
-        if (imp->imp_peer_committed_transno == imp->imp_last_transno_checked &&
-            imp->imp_generation == imp->imp_last_generation_checked) {
-                CDEBUG(D_INFO, "%s: skip recheck: last_committed "LPU64"\n",
-                       imp->imp_obd->obd_name, imp->imp_peer_committed_transno);
-                EXIT;
-                return;
+	if (imp->imp_last_transno_checked != 0 &&
+	    imp->imp_peer_committed_transno == imp->imp_last_transno_checked &&
+	    imp->imp_generation == imp->imp_last_generation_checked) {
+		CDEBUG(D_INFO, "%s: skip recheck: last_committed "LPU64"\n",
+		       imp->imp_obd->obd_name, imp->imp_peer_committed_transno);
+		RETURN(imp->imp_last_uncommitted_status_returned);
         }
         CDEBUG(D_RPCTRACE, "%s: committing for last_committed "LPU64" gen %d\n",
                imp->imp_obd->obd_name, imp->imp_peer_committed_transno,
@@ -2415,7 +2418,8 @@ void ptlrpc_free_committed(struct obd_import *imp)
                 /* not yet committed */
                 if (req->rq_transno > imp->imp_peer_committed_transno) {
                         DEBUG_REQ(D_RPCTRACE, req, "stopping search");
-                        break;
+			imp->imp_last_uncommitted_status_returned = 1;
+			RETURN(1);
                 }
 
                 DEBUG_REQ(D_INFO, req, "commit (last_committed "LPU64")",
@@ -2430,8 +2434,8 @@ free_req:
                 __ptlrpc_req_finished(req, 1);
         }
 
-        EXIT;
-        return;
+	imp->imp_last_uncommitted_status_returned = 0;
+	RETURN(0);
 }
 
 void ptlrpc_cleanup_client(struct obd_import *imp)

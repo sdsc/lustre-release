@@ -355,8 +355,10 @@ test_18b() {
     do_facet client cp $TMP/$tfile $f
     sync
     ost_evict_client
-    # allow recovery to complete
-    sleep $((TIMEOUT + 2))
+    # force reconnect
+    sleep 1
+    df $MOUNT > /dev/null 2>&1
+    sleep 2
     # my understanding is that there should be nothing in the page
     # cache after the client reconnects?     
     rc=0

@@ -99,11 +99,13 @@ lustre_get_emerg_rs(struct ptlrpc_service_part *svcpt);
 void lustre_put_emerg_rs(struct ptlrpc_reply_state *rs);
 
 /* pinger.c */
+extern int suppress_pings;
 int ptlrpc_start_pinger(void);
 int ptlrpc_stop_pinger(void);
 void ptlrpc_pinger_sending_on_import(struct obd_import *imp);
 void ptlrpc_pinger_commit_expected(struct obd_import *imp);
-void ptlrpc_pinger_wake_up(void);
+void ptlrpc_pinger_starting_recovery(struct obd_import *imp);
+void ptlrpc_pinger_wake_up(struct obd_import *imp);
 void ptlrpc_ping_import_soon(struct obd_import *imp);
 #ifdef __KERNEL__
 int ping_evictor_wake(struct obd_export *exp);

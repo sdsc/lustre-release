@@ -1013,6 +1013,7 @@ struct obd_import *class_new_import(struct obd_device *obd)
         if (imp == NULL)
                 return NULL;
 
+	CFS_INIT_LIST_HEAD(&imp->imp_pinger_chain);
         CFS_INIT_LIST_HEAD(&imp->imp_zombie_chain);
         CFS_INIT_LIST_HEAD(&imp->imp_replay_list);
         CFS_INIT_LIST_HEAD(&imp->imp_sending_list);
@@ -1662,6 +1663,9 @@ static void obd_zombie_export_add(struct obd_export *exp) {
 static void obd_zombie_import_add(struct obd_import *imp) {
 	LASSERT(imp->imp_sec == NULL);
 	LASSERT(imp->imp_rq_pool == NULL);
+	LASSERT(!imp->imp_added_to_pinger);
+	LASSERT(cfs_list_empty(&imp->imp_pinger_chain));
+
 	spin_lock(&obd_zombie_impexp_lock);
 	LASSERT(cfs_list_empty(&imp->imp_zombie_chain));
 	zombies_count++;
