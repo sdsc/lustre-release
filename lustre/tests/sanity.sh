@@ -10188,6 +10188,98 @@ test_230b() {
 }
 run_test 230b "nested remote directory should be failed"
 
+test_231a ()
+{
+    mkdir -p $DIR/$tdir
+
+    local ost_list=$($LFS osts | grep OST | awk '{print $2}' | \
+		sed -e 's/_UUID$//')
+
+    # clear the brw_stats files
+    local num=0
+    for ost in $ost_list; do
+        f="/proc/fs/lustre/osd-ldiskfs/${ost}/brw_stats"
+        do_facet ost${num} "echo > $f"
+        num=$((num+1))
+    done
+
+    # Client writes 4MB - there must be 1 rpc with 1K of pages.
+    # We don't know to which OST this write will go, so we iterate
+    # over all of their brw_stats, stopping after the first match.
+    local found=false
+    dd if=/dev/zero of=$DIR/$tdir/$tfile bs=4M count=1 oflag=direct \
+		&>/dev/null || error "dd failed"
+    num=0
+    for ost in $ost_list; do
+        f="/proc/fs/lustre/osd-ldiskfs/${ost}/brw_stats"
+        # the "pages per bulk r/w" statistics starts with line 5.
+        local line=$(do_facet ost${num} "sed -n '5 p' $f")
+        if [[ $line =~ [^[:space:]] ]]; then
+            local npages=`echo $line | awk '{print $1}'` # num of pages
+            local nrpcs=`echo $line | awk '{print $6}'`  # num of write brw rpcs
+            if [ $npages == "1K:" -a $nrpcs -eq 1 ];
+            then
+                found=true
+                break
+            fi
+        fi
+        num=$((num+1))
+    done
+
+    if ! $found ; then
+        error "write"
+    fi
+
+    # Drop the VM cache on the client, otherwise we will read from the
+    # client's cache.
+    cancel_lru_locks osc
+    echo 3 > /proc/sys/vm/drop_caches
+
+    # clear the brw_stats files
+    num=0
+    for ost in $ost_list; do
+        f="/proc/fs/lustre/osd-ldiskfs/${ost}/brw_stats"
+        do_facet ost${num} "echo > $f"
+        num=$((num+1))
+    done
+
+    # Client reads 4MB.
+    found=false
+    dd of=/dev/zero if=$DIR/$tdir/$tfile bs=4M count=1 iflag=direct \
+		&>/dev/null || error "dd failed"
+    num=0
+    for ost in $ost_list; do
+        f="/proc/fs/lustre/osd-ldiskfs/${ost}/brw_stats"
+        line=$(do_facet ost${num} "sed -n '5 p' $f")
+        if [[ $line =~ [^[:space:]] ]]; then
+            npages=`echo $line | awk '{print $1}'` # num of pages
+            nrpcs=`echo $line | awk '{print $2}'`  # num of read brw rpcs
+            if [ $npages == "1K:" -a $nrpcs -eq 1 ]; then
+                found=true
+                break
+            fi
+        fi
+        num=$((num+1))
+    done
+
+    if ! $found ; then
+        error "read"
+    fi
+}
+run_test 231a "checking that reading/writing of 4MB results in one BRW RPC"
+
+test_231b() {
+	mkdir -p $DIR/$tdir
+	local i
+	for i in {0..1023}; do
+		dd if=/dev/zero of=$DIR/$tdir/$tfile conv=notrunc \
+			seek=$((2*i)) bs=4096 count=1 &>/dev/null \
+			|| error "dd failed"
+	done
+	sync
+}
+run_test 231b "must not assert on fully utilized OST request buffer"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
