@@ -281,6 +281,12 @@ static inline __u64 exp_connect_flags(struct obd_export *exp)
 	return *exp_connect_flags_ptr(exp);
 }
 
+static inline int exp_connect_multibulk(struct obd_export *exp)
+{
+	LASSERT(exp != NULL);
+	return !!(exp_connect_flags(exp) & OBD_CONNECT_MULTIBULK);
+}
+
 static inline int exp_brw_size(struct obd_export *exp)
 {
 	LASSERT(exp != NULL);

@@ -103,21 +103,24 @@ EXPORT_SYMBOL(ptlrpc_uuid_to_connection);
  */
 struct ptlrpc_bulk_desc *new_bulk(int npages, int type, int portal)
 {
-        struct ptlrpc_bulk_desc *desc;
+	struct ptlrpc_bulk_desc *desc;
+	int i;
 
-        OBD_ALLOC(desc, offsetof (struct ptlrpc_bulk_desc, bd_iov[npages]));
-        if (!desc)
-                return NULL;
+	OBD_ALLOC(desc, offsetof(struct ptlrpc_bulk_desc, bd_iov[npages]));
+	if (!desc)
+		return NULL;
 
 	spin_lock_init(&desc->bd_lock);
-        cfs_waitq_init(&desc->bd_waitq);
-        desc->bd_max_iov = npages;
-        desc->bd_iov_count = 0;
-        LNetInvalidateHandle(&desc->bd_md_h);
-        desc->bd_portal = portal;
-        desc->bd_type = type;
+	cfs_waitq_init(&desc->bd_waitq);
+	desc->bd_max_iov = npages;
+	desc->bd_iov_count = 0;
+	desc->bd_portal = portal;
+	desc->bd_type = type;
+	desc->bd_md_count = 0;
+	for (i = 0; i < PTLRPC_BULK_OPS_SIZE; i++)
+		LNetInvalidateHandle(&desc->bd_mds[i]);
 
-        return desc;
+	return desc;
 }
 
 /**
@@ -182,29 +185,29 @@ EXPORT_SYMBOL(__ptlrpc_prep_bulk_page);
  */
 void __ptlrpc_free_bulk(struct ptlrpc_bulk_desc *desc, int unpin)
 {
-        int i;
-        ENTRY;
+	int i;
+	ENTRY;
 
-        LASSERT(desc != NULL);
-        LASSERT(desc->bd_iov_count != LI_POISON); /* not freed already */
-        LASSERT(!desc->bd_network_rw);         /* network hands off or */
-        LASSERT((desc->bd_export != NULL) ^ (desc->bd_import != NULL));
+	LASSERT(desc != NULL);
+	LASSERT(desc->bd_iov_count != LI_POISON); /* not freed already */
+	LASSERT(desc->bd_md_count == 0);         /* network hands off */
+	LASSERT((desc->bd_export != NULL) ^ (desc->bd_import != NULL));
 
-        sptlrpc_enc_pool_put_pages(desc);
+	sptlrpc_enc_pool_put_pages(desc);
 
-        if (desc->bd_export)
-                class_export_put(desc->bd_export);
-        else
-                class_import_put(desc->bd_import);
+	if (desc->bd_export)
+		class_export_put(desc->bd_export);
+	else
+		class_import_put(desc->bd_import);
 
 	if (unpin) {
 		for (i = 0; i < desc->bd_iov_count ; i++)
 			cfs_page_unpin(desc->bd_iov[i].kiov_page);
 	}
 
-        OBD_FREE(desc, offsetof(struct ptlrpc_bulk_desc,
-                                bd_iov[desc->bd_max_iov]));
-        EXIT;
+	OBD_FREE(desc, offsetof(struct ptlrpc_bulk_desc,
+				bd_iov[desc->bd_max_iov]));
+	EXIT;
 }
 EXPORT_SYMBOL(__ptlrpc_free_bulk);
 
@@ -1731,14 +1734,14 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
                 if (ptlrpc_client_bulk_active(req))
                         continue;
 
-                if (!req->rq_bulk->bd_success) {
-                        /* The RPC reply arrived OK, but the bulk screwed
-                         * up!  Dead weird since the server told us the RPC
-                         * was good after getting the REPLY for her GET or
-                         * the ACK for her PUT. */
-                        DEBUG_REQ(D_ERROR, req, "bulk transfer failed");
-                        req->rq_status = -EIO;
-                }
+		if (req->rq_bulk->bd_failure) {
+			/* The RPC reply arrived OK, but the bulk screwed
+			 * up!  Dead weird since the server told us the RPC
+			 * was good after getting the REPLY for her GET or
+			 * the ACK for her PUT. */
+			DEBUG_REQ(D_ERROR, req, "bulk transfer failed");
+			req->rq_status = -EIO;
+		}
 
                 ptlrpc_rqphase_move(req, RQ_PHASE_INTERPRET);
 
@@ -2854,7 +2857,8 @@ __u64 ptlrpc_next_xid(void)
 {
 	__u64 tmp;
 	spin_lock(&ptlrpc_last_xid_lock);
-	tmp = ++ptlrpc_last_xid;
+	ptlrpc_last_xid += PTLRPC_BULK_OPS_SIZE;
+	tmp = ptlrpc_last_xid;
 	spin_unlock(&ptlrpc_last_xid_lock);
 	return tmp;
 }
@@ -2870,7 +2874,7 @@ __u64 ptlrpc_sample_next_xid(void)
 	/* need to avoid possible word tearing on 32-bit systems */
 	__u64 tmp;
 	spin_lock(&ptlrpc_last_xid_lock);
-	tmp = ptlrpc_last_xid + 1;
+	tmp = ptlrpc_last_xid + PTLRPC_BULK_OPS_SIZE;
 	spin_unlock(&ptlrpc_last_xid_lock);
 	return tmp;
 #else
