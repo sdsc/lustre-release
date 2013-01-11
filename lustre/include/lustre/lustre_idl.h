@@ -110,9 +110,9 @@
 //#define OSC_REQUEST_PORTAL            3
 #define OSC_REPLY_PORTAL                4
 //#define OSC_BULK_PORTAL               5
-#define OST_IO_PORTAL                   6
-#define OST_CREATE_PORTAL               7
-#define OST_BULK_PORTAL                 8
+#define OSS_IO_PORTAL			6
+#define OSS_CREATE_PORTAL		7
+#define OSS_BULK_PORTAL			8
 //#define MDC_REQUEST_PORTAL            9
 #define MDC_REPLY_PORTAL               10
 //#define MDC_BULK_PORTAL              11
@@ -132,7 +132,7 @@
 #define MGC_REPLY_PORTAL               25
 #define MGS_REQUEST_PORTAL             26
 #define MGS_REPLY_PORTAL               27
-#define OST_REQUEST_PORTAL             28
+#define OSS_REQUEST_PORTAL		28
 #define FLD_REQUEST_PORTAL             29
 #define SEQ_METADATA_PORTAL            30
 #define SEQ_DATA_PORTAL                31
@@ -155,14 +155,14 @@
 
 #define LUSTRE_MSG_MAGIC LUSTRE_MSG_MAGIC_V2
 
-#define PTLRPC_MSG_VERSION  0x00000003
-#define LUSTRE_VERSION_MASK 0xffff0000
-#define LUSTRE_OBD_VERSION  0x00010000
-#define LUSTRE_MDS_VERSION  0x00020000
-#define LUSTRE_OST_VERSION  0x00030000
-#define LUSTRE_DLM_VERSION  0x00040000
-#define LUSTRE_LOG_VERSION  0x00050000
-#define LUSTRE_MGS_VERSION  0x00060000
+#define PTLRPC_MSG_VERSION	0x00000003
+#define LUSTRE_VERSION_MASK	0xffff0000
+#define LUSTRE_OBD_VERSION	0x00010000
+#define LUSTRE_MDS_VERSION	0x00020000
+#define LUSTRE_OSS_VERSION	0x00030000
+#define LUSTRE_DLM_VERSION	0x00040000
+#define LUSTRE_LOG_VERSION	0x00050000
+#define LUSTRE_MGS_VERSION	0x00060000
 
 /**
  * Describes a range of sequence, lsr_start is included but lsr_end is
@@ -1265,7 +1265,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 #define MSG_LOCK_REPLAY_DONE      0x0080
 
 /*
- * Flags for all connect opcodes (MDS_CONNECT, OST_CONNECT)
+ * Flags for all connect opcodes (MDS_CONNECT, OSS_CONNECT)
  */
 
 #define MSG_CONNECT_RECOVERING  0x00000001
@@ -1488,33 +1488,32 @@ typedef enum {
 } cksum_type_t;
 
 /*
- *   OST requests: OBDO & OBD request records
+ *   OSS requests: OBDO & OBD request records
  */
 
-/* opcodes */
-typedef enum {
-        OST_REPLY      =  0,       /* reply ? */
-        OST_GETATTR    =  1,
-        OST_SETATTR    =  2,
-        OST_READ       =  3,
-        OST_WRITE      =  4,
-        OST_CREATE     =  5,
-        OST_DESTROY    =  6,
-        OST_GET_INFO   =  7,
-        OST_CONNECT    =  8,
-        OST_DISCONNECT =  9,
-        OST_PUNCH      = 10,
-        OST_OPEN       = 11,
-        OST_CLOSE      = 12,
-        OST_STATFS     = 13,
-        OST_SYNC       = 16,
-        OST_SET_INFO   = 17,
-        OST_QUOTACHECK = 18,
-        OST_QUOTACTL   = 19,
-	OST_QUOTA_ADJUST_QUNIT = 20, /* not used since 2.4 */
-        OST_LAST_OPC
-} ost_cmd_t;
-#define OST_FIRST_OPC  OST_REPLY
+/* OSS opcodes */
+enum oss_rpc_opc {
+	OSS_GETATTR		=  1,
+	OSS_SETATTR		=  2,
+	OSS_READ		=  3,
+	OSS_WRITE		=  4,
+	OSS_CREATE		=  5,
+	OSS_DESTROY		=  6,
+	OSS_GET_INFO		=  7,
+	OSS_CONNECT		=  8,
+	OSS_DISCONNECT		=  9,
+	OSS_PUNCH		= 10,
+/*	OSS_OPEN		= 11,	obsolete since 1.0 */
+/*	OSS_CLOSE		= 12,	obsolete since 1.0 */
+	OSS_STATFS		= 13,
+	OSS_SYNC		= 16,
+	OSS_SET_INFO		= 17,
+	OSS_QUOTACHECK		= 18,
+	OSS_QUOTACTL		= 19,
+/*	OSS_QUOTA_ADJUST_QUNIT	= 20,	obsolete since 2.4 */
+	OSS_LAST_OPC,		/* do not exceed 32 - MDS_GETATTR = 33 */
+	OSS_FIRST_OPC		= OSS_GETATTR
+};
 
 enum obdo_flags {
         OBD_FL_INLINEDATA   = 0x00000001,
@@ -2100,20 +2099,12 @@ extern void lustre_swab_lquota_lvb(struct lquota_lvb *lvb);
 /* LVB used with global quota lock */
 #define lvb_glb_ver  lvb_id_may_rel /* current version of the global index */
 
-/* op codes */
-typedef enum {
-	QUOTA_DQACQ	= 601,
-	QUOTA_DQREL	= 602,
-	QUOTA_LAST_OPC
-} quota_cmd_t;
-#define QUOTA_FIRST_OPC	QUOTA_DQACQ
-
 /*
  *   MDS REQ RECORDS
  */
 
-/* opcodes */
-typedef enum {
+/* MDT opcodes */
+enum mds_rpc_opc {
 	MDS_GETATTR		= 33,
 	MDS_GETATTR_NAME	= 34,
 	MDS_CLOSE		= 35,
@@ -2131,7 +2122,7 @@ typedef enum {
 	MDS_QUOTACHECK		= 47,
 	MDS_QUOTACTL		= 48,
 	MDS_GETXATTR		= 49,
-	MDS_SETXATTR		= 50, /* obsolete, now it's MDS_REINT op */
+	MDS_SETXATTR		= 50, /* obsolete in 2.0, now an MDS_REINT op */
 	MDS_WRITEPAGE		= 51,
 	MDS_IS_SUBDIR		= 52, /* obsolete, never used in a release */
 	MDS_GET_INFO		= 53,
@@ -2143,25 +2134,14 @@ typedef enum {
 	MDS_HSM_CT_REGISTER	= 59,
 	MDS_HSM_CT_UNREGISTER	= 60,
 	MDS_SWAP_LAYOUTS	= 61,
-	MDS_LAST_OPC
-} mds_cmd_t;
-
-#define MDS_FIRST_OPC    MDS_GETATTR
-
-
-/* opcodes for object update */
-typedef enum {
-	OUT_UPDATE	= 1000,
-	OUT_UPDATE_LAST_OPC
-} update_cmd_t;
-
-#define OUT_UPDATE_FIRST_OPC    OUT_UPDATE
+	MDS_LAST_OPC,		/* do not exceed 99 */
+	MDS_FIRST_OPC		= MDS_GETATTR
+};
 
 /*
  * Do not exceed 63
  */
-
-typedef enum {
+enum mdt_reint_op {
 	REINT_SETATTR  = 1,
 	REINT_CREATE   = 2,
 	REINT_LINK     = 3,
@@ -2171,8 +2151,8 @@ typedef enum {
 	REINT_SETXATTR = 7,
 	REINT_RMENTRY  = 8,
 	REINT_MIGRATE  = 9,
-        REINT_MAX
-} mds_reint_t, mdt_reint_t;
+	REINT_MAX
+};
 
 extern void lustre_swab_generic_32s (__u32 *val);
 
@@ -2833,38 +2813,6 @@ static inline int lmv_mds_md_stripe_count_set(union lmv_mds_md *lmm,
 	return 0;
 }
 
-enum fld_rpc_opc {
-	FLD_QUERY	= 900,
-	FLD_READ	= 901,
-	FLD_LAST_OPC,
-	FLD_FIRST_OPC   = FLD_QUERY
-};
-
-enum seq_rpc_opc {
-        SEQ_QUERY                       = 700,
-        SEQ_LAST_OPC,
-        SEQ_FIRST_OPC                   = SEQ_QUERY
-};
-
-enum seq_op {
-        SEQ_ALLOC_SUPER = 0,
-        SEQ_ALLOC_META = 1
-};
-
-enum fld_op {
-	FLD_CREATE = 0,
-	FLD_DELETE = 1,
-	FLD_LOOKUP = 2,
-};
-
-/* LFSCK opcodes */
-typedef enum {
-	LFSCK_NOTIFY		= 1101,
-	LFSCK_QUERY		= 1102,
-	LFSCK_LAST_OPC,
-	LFSCK_FIRST_OPC 	= LFSCK_NOTIFY
-} lfsck_cmd_t;
-
 /*
  *  LOV data structures
  */
@@ -2901,17 +2849,17 @@ extern void lustre_swab_lov_desc (struct lov_desc *ld);
  *   LDLM requests:
  */
 /* opcodes -- MUST be distinct from OST/MDS opcodes */
-typedef enum {
-        LDLM_ENQUEUE     = 101,
-        LDLM_CONVERT     = 102,
-        LDLM_CANCEL      = 103,
-        LDLM_BL_CALLBACK = 104,
-        LDLM_CP_CALLBACK = 105,
-        LDLM_GL_CALLBACK = 106,
-        LDLM_SET_INFO    = 107,
-        LDLM_LAST_OPC
-} ldlm_cmd_t;
-#define LDLM_FIRST_OPC LDLM_ENQUEUE
+enum ldlm_rpc_opc {
+	LDLM_ENQUEUE		= 101,
+	LDLM_CONVERT		= 102,
+	LDLM_CANCEL		= 103,
+	LDLM_BL_CALLBACK	= 104,
+	LDLM_CP_CALLBACK	= 105,
+	LDLM_GL_CALLBACK	= 106,
+	LDLM_SET_INFO		= 107,
+	LDLM_LAST_OPC,
+	LDLM_FIRST_OPC		= LDLM_ENQUEUE
+};
 
 #define RES_NAME_SIZE 4
 struct ldlm_res_id {
@@ -3070,17 +3018,17 @@ extern void lustre_swab_ldlm_reply (struct ldlm_reply *r);
 /*
  * Opcodes for mountconf (mgs and mgc)
  */
-typedef enum {
-        MGS_CONNECT = 250,
-        MGS_DISCONNECT,
-        MGS_EXCEPTION,         /* node died, etc. */
-        MGS_TARGET_REG,        /* whenever target starts up */
-        MGS_TARGET_DEL,
-        MGS_SET_INFO,
-        MGS_CONFIG_READ,
-        MGS_LAST_OPC
-} mgs_cmd_t;
-#define MGS_FIRST_OPC MGS_CONNECT
+enum mgs_rpc_opc {
+	MGS_CONNECT		= 250,
+	MGS_DISCONNECT		= 251,
+	MGS_EXCEPTION		= 252,	/* node died, etc. */
+	MGS_TARGET_REG		= 253,	/* whenever target starts up */
+	MGS_TARGET_DEL		= 254,
+	MGS_SET_INFO		= 255,
+	MGS_CONFIG_READ		= 256,
+	MGS_LAST_OPC,
+	MGS_FIRST_OPC		= MGS_CONNECT
+};
 
 #define MGS_PARAM_MAXLEN 1024
 #define KEY_SET_INFO "set_info"
@@ -3165,14 +3113,14 @@ extern void lustre_swab_cfg_marker(struct cfg_marker *marker,
  * Opcodes for multiple servers.
  */
 
-typedef enum {
-        OBD_PING = 400,
-        OBD_LOG_CANCEL,
-        OBD_QC_CALLBACK,
-	OBD_IDX_READ,
-        OBD_LAST_OPC
-} obd_cmd_t;
-#define OBD_FIRST_OPC OBD_PING
+enum obd_rpc_opc {
+	OBD_PING		= 400,
+	OBD_LOG_CANCEL		= 401,
+	OBD_QC_CALLBACK		= 402,
+	OBD_IDX_READ		= 403,
+	OBD_LAST_OPC,
+	OBD_FIRST_OPC		= OBD_PING
+};
 
 /**
  * llog contexts indices.
@@ -3774,14 +3722,56 @@ union lu_page {
 	char			lp_array[LU_PAGE_SIZE];
 };
 
+/* quota opcodes */
+enum quota_rpc_opc {
+	QUOTA_DQACQ		= 601,
+	QUOTA_DQREL		= 602,
+	QUOTA_LAST_OPC,
+	QUOTA_FIRST_OPC		= QUOTA_DQACQ
+};
+
+/* FID sequence server opcodes */
+enum seq_rpc_opc {
+	SEQ_QUERY		= 700,
+	SEQ_LAST_OPC,
+	SEQ_FIRST_OPC		= SEQ_QUERY
+};
+
+enum seq_op {
+	SEQ_ALLOC_SUPER		= 0,
+	SEQ_ALLOC_META		= 1
+};
+
 /* security opcodes */
-typedef enum {
-        SEC_CTX_INIT            = 801,
-        SEC_CTX_INIT_CONT       = 802,
-        SEC_CTX_FINI            = 803,
-        SEC_LAST_OPC,
-        SEC_FIRST_OPC           = SEC_CTX_INIT
-} sec_cmd_t;
+enum sec_rpc_opc {
+	SEC_CTX_INIT		= 801,
+	SEC_CTX_INIT_CONT	= 802,
+	SEC_CTX_FINI		= 803,
+	SEC_LAST_OPC,
+	SEC_FIRST_OPC		= SEC_CTX_INIT
+};
+
+/* FID location database opcodes */
+enum fld_rpc_opc {
+	FLD_QUERY		= 900,
+	FLD_READ		= 901,
+	FLD_LAST_OPC,
+	FLD_FIRST_OPC		= FLD_QUERY
+};
+
+enum fld_op {
+	FLD_CREATE = 0,
+	FLD_DELETE = 1,
+	FLD_LOOKUP = 2,
+};
+
+/* LFSCK opcodes */
+enum lfsck_rpc_opc {
+	LFSCK_NOTIFY		= 1101,
+	LFSCK_QUERY		= 1102,
+	LFSCK_LAST_OPC,
+	LFSCK_FIRST_OPC		= LFSCK_NOTIFY
+};
 
 /*
  * capa related definitions
@@ -3989,6 +3979,13 @@ extern void lustre_swab_hsm_request(struct hsm_request *hr);
  * ur_count must be less than or equal to UPDATE_PER_RPC_MAX and should usually
  * be equal to ub_count.
  */
+
+/* opcodes for object update */
+enum out_rpc_opc {
+	OUT_UPDATE		= 1000,
+	OUT_UPDATE_LAST_OPC,
+	OUT_UPDATE_FIRST_OPC	= OUT_UPDATE
+};
 
 /**
  * Type of each update

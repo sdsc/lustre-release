@@ -897,7 +897,7 @@ test_43() { # bug 2530
 
     replay_barrier $SINGLEMDS
 
-    # OBD_FAIL_OST_CREATE_NET 0x204
+    # OBD_FAIL_OSS_CREATE_NET 0x204
     do_facet ost1 "lctl set_param fail_loc=0x80000204"
     fail $SINGLEMDS
     sleep 10
@@ -1020,7 +1020,7 @@ test_47() { # bug 2824
     # OSTs. (just in case this test is run independently)
     createmany -o $DIR/$tfile 20  || return 1
 
-    # OBD_FAIL_OST_CREATE_NET 0x204
+    # OBD_FAIL_OSS_CREATE_NET 0x204
     fail ost1
     do_facet ost1 "lctl set_param fail_loc=0x80000204"
     client_up || return 2

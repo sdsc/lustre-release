@@ -745,50 +745,53 @@ static struct req_format *req_formats[] = {
 	&RQF_MDS_SWAP_LAYOUTS,
 	&RQF_OUT_UPDATE,
 	&RQF_QC_CALLBACK,
-        &RQF_OST_CONNECT,
-        &RQF_OST_DISCONNECT,
-        &RQF_OST_QUOTACHECK,
-        &RQF_OST_QUOTACTL,
-        &RQF_OST_GETATTR,
-        &RQF_OST_SETATTR,
-        &RQF_OST_CREATE,
-        &RQF_OST_PUNCH,
-        &RQF_OST_SYNC,
-        &RQF_OST_DESTROY,
-        &RQF_OST_BRW_READ,
-        &RQF_OST_BRW_WRITE,
-        &RQF_OST_STATFS,
-        &RQF_OST_SET_GRANT_INFO,
-	&RQF_OST_GET_INFO,
-        &RQF_OST_GET_INFO_LAST_ID,
-	&RQF_OST_GET_INFO_LAST_FID,
-	&RQF_OST_SET_INFO_LAST_FID,
-        &RQF_OST_GET_INFO_FIEMAP,
-        &RQF_LDLM_ENQUEUE,
-        &RQF_LDLM_ENQUEUE_LVB,
-        &RQF_LDLM_CONVERT,
-        &RQF_LDLM_CANCEL,
-        &RQF_LDLM_CALLBACK,
-        &RQF_LDLM_CP_CALLBACK,
-        &RQF_LDLM_BL_CALLBACK,
-        &RQF_LDLM_GL_CALLBACK,
+	&RQF_OSS_CONNECT,
+	&RQF_OSS_DISCONNECT,
+	&RQF_OSS_QUOTACHECK,
+	&RQF_OSS_QUOTACTL,
+	&RQF_OSS_GETATTR,
+	&RQF_OSS_SETATTR,
+	&RQF_OSS_CREATE,
+	&RQF_OSS_PUNCH,
+	&RQF_OSS_SYNC,
+	&RQF_OSS_DESTROY,
+	&RQF_OSS_BRW_READ,
+	&RQF_OSS_BRW_WRITE,
+	&RQF_OSS_STATFS,
+	&RQF_OSS_SET_GRANT_INFO,
+	&RQF_OSS_GET_INFO,
+	&RQF_OSS_GET_INFO_LAST_ID,
+	&RQF_OSS_GET_INFO_LAST_FID,
+	&RQF_OSS_SET_INFO_LAST_FID,
+	&RQF_OSS_GET_INFO_FIEMAP,
+
+	&RQF_LDLM_ENQUEUE,
+	&RQF_LDLM_ENQUEUE_LVB,
+	&RQF_LDLM_CONVERT,
+	&RQF_LDLM_CANCEL,
+	&RQF_LDLM_CALLBACK,
+	&RQF_LDLM_CP_CALLBACK,
+	&RQF_LDLM_BL_CALLBACK,
+	&RQF_LDLM_GL_CALLBACK,
 	&RQF_LDLM_GL_DESC_CALLBACK,
-        &RQF_LDLM_INTENT,
+	&RQF_LDLM_INTENT,
 	&RQF_LDLM_INTENT_BASIC,
-        &RQF_LDLM_INTENT_LAYOUT,
-        &RQF_LDLM_INTENT_GETATTR,
-        &RQF_LDLM_INTENT_OPEN,
-        &RQF_LDLM_INTENT_CREATE,
-        &RQF_LDLM_INTENT_UNLINK,
+	&RQF_LDLM_INTENT_LAYOUT,
+	&RQF_LDLM_INTENT_GETATTR,
+	&RQF_LDLM_INTENT_OPEN,
+	&RQF_LDLM_INTENT_CREATE,
+	&RQF_LDLM_INTENT_UNLINK,
 	&RQF_LDLM_INTENT_GETXATTR,
 	&RQF_LDLM_INTENT_QUOTA,
+
 	&RQF_QUOTA_DQACQ,
-        &RQF_LOG_CANCEL,
-        &RQF_LLOG_ORIGIN_HANDLE_CREATE,
-        &RQF_LLOG_ORIGIN_HANDLE_DESTROY,
-        &RQF_LLOG_ORIGIN_HANDLE_NEXT_BLOCK,
-        &RQF_LLOG_ORIGIN_HANDLE_PREV_BLOCK,
-        &RQF_LLOG_ORIGIN_HANDLE_READ_HEADER,
+
+	&RQF_LOG_CANCEL,
+	&RQF_LLOG_ORIGIN_HANDLE_CREATE,
+	&RQF_LLOG_ORIGIN_HANDLE_DESTROY,
+	&RQF_LLOG_ORIGIN_HANDLE_NEXT_BLOCK,
+	&RQF_LLOG_ORIGIN_HANDLE_PREV_BLOCK,
+	&RQF_LLOG_ORIGIN_HANDLE_READ_HEADER,
 	&RQF_LLOG_ORIGIN_CONNECT,
 	&RQF_CONNECT,
 	&RQF_LFSCK_NOTIFY,
@@ -1276,17 +1279,17 @@ struct req_format RQF_MDS_QUOTACHECK =
         DEFINE_REQ_FMT0("MDS_QUOTACHECK", quotactl_only, empty);
 EXPORT_SYMBOL(RQF_MDS_QUOTACHECK);
 
-struct req_format RQF_OST_QUOTACHECK =
-        DEFINE_REQ_FMT0("OST_QUOTACHECK", quotactl_only, empty);
-EXPORT_SYMBOL(RQF_OST_QUOTACHECK);
+struct req_format RQF_OSS_QUOTACHECK =
+	DEFINE_REQ_FMT0("OSS_QUOTACHECK", quotactl_only, empty);
+EXPORT_SYMBOL(RQF_OSS_QUOTACHECK);
 
 struct req_format RQF_MDS_QUOTACTL =
-        DEFINE_REQ_FMT0("MDS_QUOTACTL", quotactl_only, quotactl_only);
+	DEFINE_REQ_FMT0("MDS_QUOTACTL", quotactl_only, quotactl_only);
 EXPORT_SYMBOL(RQF_MDS_QUOTACTL);
 
-struct req_format RQF_OST_QUOTACTL =
-        DEFINE_REQ_FMT0("OST_QUOTACTL", quotactl_only, quotactl_only);
-EXPORT_SYMBOL(RQF_OST_QUOTACTL);
+struct req_format RQF_OSS_QUOTACTL =
+	DEFINE_REQ_FMT0("OSS_QUOTACTL", quotactl_only, quotactl_only);
+EXPORT_SYMBOL(RQF_OSS_QUOTACTL);
 
 struct req_format RQF_QC_CALLBACK =
         DEFINE_REQ_FMT0("QC_CALLBACK", quotactl_only, empty);
@@ -1570,80 +1573,79 @@ struct req_format RQF_CONNECT =
 	DEFINE_REQ_FMT0("CONNECT", obd_connect_client, obd_connect_server);
 EXPORT_SYMBOL(RQF_CONNECT);
 
-struct req_format RQF_OST_CONNECT =
-        DEFINE_REQ_FMT0("OST_CONNECT",
-                        obd_connect_client, obd_connect_server);
-EXPORT_SYMBOL(RQF_OST_CONNECT);
+struct req_format RQF_OSS_CONNECT =
+	DEFINE_REQ_FMT0("OSS_CONNECT",
+EXPORT_SYMBOL(RQF_OSS_CONNECT);
 
-struct req_format RQF_OST_DISCONNECT =
-        DEFINE_REQ_FMT0("OST_DISCONNECT", empty, empty);
-EXPORT_SYMBOL(RQF_OST_DISCONNECT);
+struct req_format RQF_OSS_DISCONNECT =
+	DEFINE_REQ_FMT0("OSS_DISCONNECT", empty, empty);
+EXPORT_SYMBOL(RQF_OSS_DISCONNECT);
 
-struct req_format RQF_OST_GETATTR =
-        DEFINE_REQ_FMT0("OST_GETATTR", ost_body_capa, ost_body_only);
-EXPORT_SYMBOL(RQF_OST_GETATTR);
+struct req_format RQF_OSS_GETATTR =
+	DEFINE_REQ_FMT0("OSS_GETATTR", ost_body_capa, ost_body_only);
+EXPORT_SYMBOL(RQF_OSS_GETATTR);
 
-struct req_format RQF_OST_SETATTR =
-        DEFINE_REQ_FMT0("OST_SETATTR", ost_body_capa, ost_body_only);
-EXPORT_SYMBOL(RQF_OST_SETATTR);
+struct req_format RQF_OSS_SETATTR =
+	DEFINE_REQ_FMT0("OSS_SETATTR", ost_body_capa, ost_body_only);
+EXPORT_SYMBOL(RQF_OSS_SETATTR);
 
-struct req_format RQF_OST_CREATE =
-        DEFINE_REQ_FMT0("OST_CREATE", ost_body_only, ost_body_only);
-EXPORT_SYMBOL(RQF_OST_CREATE);
+struct req_format RQF_OSS_CREATE =
+	DEFINE_REQ_FMT0("OSS_CREATE", ost_body_only, ost_body_only);
+EXPORT_SYMBOL(RQF_OSS_CREATE);
 
-struct req_format RQF_OST_PUNCH =
-        DEFINE_REQ_FMT0("OST_PUNCH", ost_body_capa, ost_body_only);
-EXPORT_SYMBOL(RQF_OST_PUNCH);
+struct req_format RQF_OSS_PUNCH =
+	DEFINE_REQ_FMT0("OSS_PUNCH", ost_body_capa, ost_body_only);
+EXPORT_SYMBOL(RQF_OSS_PUNCH);
 
-struct req_format RQF_OST_SYNC =
-        DEFINE_REQ_FMT0("OST_SYNC", ost_body_capa, ost_body_only);
-EXPORT_SYMBOL(RQF_OST_SYNC);
+struct req_format RQF_OSS_SYNC =
+	DEFINE_REQ_FMT0("OSS_SYNC", ost_body_capa, ost_body_only);
+EXPORT_SYMBOL(RQF_OSS_SYNC);
 
-struct req_format RQF_OST_DESTROY =
-        DEFINE_REQ_FMT0("OST_DESTROY", ost_destroy_client, ost_body_only);
-EXPORT_SYMBOL(RQF_OST_DESTROY);
+struct req_format RQF_OSS_DESTROY =
+	DEFINE_REQ_FMT0("OSS_DESTROY", ost_destroy_client, ost_body_only);
+EXPORT_SYMBOL(RQF_OSS_DESTROY);
 
-struct req_format RQF_OST_BRW_READ =
-        DEFINE_REQ_FMT0("OST_BRW_READ", ost_brw_client, ost_brw_read_server);
-EXPORT_SYMBOL(RQF_OST_BRW_READ);
+struct req_format RQF_OSS_BRW_READ =
+	DEFINE_REQ_FMT0("OSS_BRW_READ", ost_brw_client, ost_brw_read_server);
+EXPORT_SYMBOL(RQF_OSS_BRW_READ);
 
-struct req_format RQF_OST_BRW_WRITE =
-        DEFINE_REQ_FMT0("OST_BRW_WRITE", ost_brw_client, ost_brw_write_server);
-EXPORT_SYMBOL(RQF_OST_BRW_WRITE);
+struct req_format RQF_OSS_BRW_WRITE =
+	DEFINE_REQ_FMT0("OSS_BRW_WRITE", ost_brw_client, ost_brw_write_server);
+EXPORT_SYMBOL(RQF_OSS_BRW_WRITE);
 
-struct req_format RQF_OST_STATFS =
-        DEFINE_REQ_FMT0("OST_STATFS", empty, obd_statfs_server);
-EXPORT_SYMBOL(RQF_OST_STATFS);
+struct req_format RQF_OSS_STATFS =
+	DEFINE_REQ_FMT0("OSS_STATFS", empty, obd_statfs_server);
+EXPORT_SYMBOL(RQF_OSS_STATFS);
 
-struct req_format RQF_OST_SET_GRANT_INFO =
-        DEFINE_REQ_FMT0("OST_SET_GRANT_INFO", ost_grant_shrink_client,
-                         ost_body_only);
-EXPORT_SYMBOL(RQF_OST_SET_GRANT_INFO);
+struct req_format RQF_OSS_SET_GRANT_INFO =
+	DEFINE_REQ_FMT0("OSS_SET_GRANT_INFO", ost_grant_shrink_client,
+					      ost_body_only);
+EXPORT_SYMBOL(RQF_OSS_SET_GRANT_INFO);
 
-struct req_format RQF_OST_GET_INFO =
-        DEFINE_REQ_FMT0("OST_GET_INFO", ost_get_info_generic_client,
-                                        ost_get_info_generic_server);
-EXPORT_SYMBOL(RQF_OST_GET_INFO);
+struct req_format RQF_OSS_GET_INFO =
+	DEFINE_REQ_FMT0("OSS_GET_INFO", ost_get_info_generic_client,
+					ost_get_info_generic_server);
+EXPORT_SYMBOL(RQF_OSS_GET_INFO);
 
-struct req_format RQF_OST_GET_INFO_LAST_ID =
-        DEFINE_REQ_FMT0("OST_GET_INFO_LAST_ID", ost_get_info_generic_client,
-                                                ost_get_last_id_server);
-EXPORT_SYMBOL(RQF_OST_GET_INFO_LAST_ID);
+struct req_format RQF_OSS_GET_INFO_LAST_ID =
+	DEFINE_REQ_FMT0("OSS_GET_INFO_LAST_ID", ost_get_info_generic_client,
+						ost_get_last_id_server);
+EXPORT_SYMBOL(RQF_OSS_GET_INFO_LAST_ID);
 
-struct req_format RQF_OST_GET_INFO_LAST_FID =
-	DEFINE_REQ_FMT0("OST_GET_INFO_LAST_FID", ost_get_last_fid_client,
+struct req_format RQF_OSS_GET_INFO_LAST_FID =
+	DEFINE_REQ_FMT0("OSS_GET_INFO_LAST_FID", ost_get_last_fid_client,
 						 ost_get_last_fid_server);
-EXPORT_SYMBOL(RQF_OST_GET_INFO_LAST_FID);
+EXPORT_SYMBOL(RQF_OSS_GET_INFO_LAST_FID);
 
-struct req_format RQF_OST_SET_INFO_LAST_FID =
-	DEFINE_REQ_FMT0("OST_SET_INFO_LAST_FID", obd_set_info_client,
+struct req_format RQF_OSS_SET_INFO_LAST_FID =
+	DEFINE_REQ_FMT0("OSS_SET_INFO_LAST_FID", obd_set_info_client,
 						 empty);
-EXPORT_SYMBOL(RQF_OST_SET_INFO_LAST_FID);
+EXPORT_SYMBOL(RQF_OSS_SET_INFO_LAST_FID);
 
-struct req_format RQF_OST_GET_INFO_FIEMAP =
-        DEFINE_REQ_FMT0("OST_GET_INFO_FIEMAP", ost_get_fiemap_client,
-                                               ost_get_fiemap_server);
-EXPORT_SYMBOL(RQF_OST_GET_INFO_FIEMAP);
+struct req_format RQF_OSS_GET_INFO_FIEMAP =
+	DEFINE_REQ_FMT0("OSS_GET_INFO_FIEMAP", ost_get_fiemap_client,
+					       ost_get_fiemap_server);
+EXPORT_SYMBOL(RQF_OSS_GET_INFO_FIEMAP);
 
 struct req_format RQF_LFSCK_NOTIFY =
 	DEFINE_REQ_FMT0("LFSCK_NOTIFY", obd_lfsck_request, empty);

@@ -302,7 +302,7 @@ static int osc_object_fiemap(const struct lu_env *env, struct cl_object *obj,
 
 skip_locking:
 	req = ptlrpc_request_alloc(class_exp2cliimp(exp),
-				   &RQF_OST_GET_INFO_FIEMAP);
+				   &RQF_OSS_GET_INFO_FIEMAP);
 	if (req == NULL)
 		GOTO(drop_lock, rc = -ENOMEM);
 
@@ -313,7 +313,7 @@ skip_locking:
 	req_capsule_set_size(&req->rq_pill, &RMF_FIEMAP_VAL, RCL_SERVER,
 			     *buflen);
 
-	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_GET_INFO);
+	rc = ptlrpc_request_pack(req, LUSTRE_OSS_VERSION, OSS_GET_INFO);
 	if (rc != 0) {
 		ptlrpc_request_free(req);
 		GOTO(drop_lock, rc);
@@ -352,12 +352,12 @@ static int osc_object_obd_info_get(const struct lu_env *env,
 	ENTRY;
 
 	req = ptlrpc_request_alloc(class_exp2cliimp(osc_export(cl2osc(obj))),
-				   &RQF_OST_GETATTR);
+				   &RQF_OSS_GETATTR);
 	if (req == NULL)
 		RETURN(-ENOMEM);
 
 	osc_set_capa_size(req, &RMF_CAPA1, oinfo->oi_capa);
-	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_GETATTR);
+	rc = ptlrpc_request_pack(req, LUSTRE_OSS_VERSION, OSS_GETATTR);
 	if (rc != 0) {
 		ptlrpc_request_free(req);
 		RETURN(rc);

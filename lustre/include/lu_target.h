@@ -395,11 +395,11 @@ static inline void tgt_drop_id(struct obd_export *exp, struct obdo *oa)
 
 /* OST Request with a format known in advance */
 #define TGT_OST_HDL(flags, name, fn)					\
-	TGT_RPC_HANDLER(OST_FIRST_OPC, flags, name, fn, &RQF_ ## name,	\
-			LUSTRE_OST_VERSION)
+	TGT_RPC_HANDLER(OSS_FIRST_OPC, flags, name, fn, &RQF_ ## name,	\
+			LUSTRE_OSS_VERSION)
 #define TGT_OST_HDL_HP(flags, name, fn, hp)				\
-	TGT_RPC_HANDLER_HP(OST_FIRST_OPC, flags, name, fn, hp,		\
-			   &RQF_ ## name, LUSTRE_OST_VERSION)
+	TGT_RPC_HANDLER_HP(OSS_FIRST_OPC, flags, name, fn, hp,		\
+			   &RQF_ ## name, LUSTRE_OSS_VERSION)
 
 /* MGS request with a format known in advance */
 #define TGT_MGS_HDL(flags, name, fn)					\

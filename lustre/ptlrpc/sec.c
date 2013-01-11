@@ -839,16 +839,16 @@ void sptlrpc_req_set_flavor(struct ptlrpc_request *req, int opcode)
         LASSERT(req->rq_cli_ctx->cc_sec);
         LASSERT(req->rq_bulk_read == 0 || req->rq_bulk_write == 0);
 
-        /* special security flags accoding to opcode */
-        switch (opcode) {
-        case OST_READ:
-        case MDS_READPAGE:
-        case MGS_CONFIG_READ:
+	/* special security flags accoding to opcode */
+	switch (opcode) {
+	case OSS_READ:
+	case MDS_READPAGE:
+	case MGS_CONFIG_READ:
 	case OBD_IDX_READ:
-                req->rq_bulk_read = 1;
-                break;
-        case OST_WRITE:
-        case MDS_WRITEPAGE:
+		req->rq_bulk_read = 1;
+		break;
+	case OSS_WRITE:
+	case MDS_WRITEPAGE:
                 req->rq_bulk_write = 1;
                 break;
         case SEC_CTX_INIT:

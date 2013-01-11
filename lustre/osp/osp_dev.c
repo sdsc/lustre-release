@@ -1387,20 +1387,20 @@ static int osp_obd_statfs(const struct lu_env *env, struct obd_export *exp,
 	if (!imp)
 		RETURN(-ENODEV);
 
-	req = ptlrpc_request_alloc(imp, &RQF_OST_STATFS);
+	req = ptlrpc_request_alloc(imp, &RQF_OSS_STATFS);
 
 	class_import_put(imp);
 
 	if (req == NULL)
 		RETURN(-ENOMEM);
 
-	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_STATFS);
+	rc = ptlrpc_request_pack(req, LUSTRE_OSS_VERSION, OSS_STATFS);
 	if (rc) {
 		ptlrpc_request_free(req);
 		RETURN(rc);
 	}
 	ptlrpc_request_set_replen(req);
-	req->rq_request_portal = OST_CREATE_PORTAL;
+	req->rq_request_portal = OSS_CREATE_PORTAL;
 	ptlrpc_at_set_req_timeout(req);
 
 	if (flags & OBD_STATFS_NODELAY) {

@@ -175,9 +175,9 @@ static const value_string portal_indices[] = {
 	{ 3 , "OSC_REQUEST_PORTAL(obsolete)"},
 	{ 4 , "OSC_REPLY_PORTAL"},
 	{ 5 , "OSC_BULK_PORTAL(obsolete)"},
-	{ 6 , "OST_IO_PORTAL"},
-	{ 7 , "OST_CREATE_PORTAL"},
-	{ 8 , "OST_BULK_PORTAL"},
+	{ 6 , "OSS_IO_PORTAL"},
+	{ 7 , "OSS_CREATE_PORTAL"},
+	{ 8 , "OSS_BULK_PORTAL"},
 	{ 9 , "MDC_REQUEST_PORTAL(obsolete)"},
 	{ 10 , "MDC_REPLY_PORTAL"},
 	{ 11 , "MDC_BULK_PORTAL(obsolete)"},
@@ -197,7 +197,7 @@ static const value_string portal_indices[] = {
 	{ 25 , "MGC_REPLY_PORTAL"},
 	{ 26 , "MGS_REQUEST_PORTAL"},
 	{ 27 , "MGS_REPLY_PORTAL"},
-	{ 28 , "OST_REQUEST_PORTAL"},
+	{ 28 , "OSS_REQUEST_PORTAL"},
 	{ 29 , "FLD_REQUEST_PORTAL"},
 	{ 30 , "SEQ_METADATA_PORTAL"},
 	{ 31 , "SEQ_DATA_PORTAL"},
@@ -205,15 +205,15 @@ static const value_string portal_indices[] = {
 	{ 33 , "MGS_BULK_PORTAL"},
 	{ 50 , "SRPC_REQUEST_PORTAL"},
 	{ 51 , "SRPC_FRAMEWORK_REQUEST_PORTAL"},
-	{ 52 , "SRPC_RDMA_PORTAL"}
+	{ 52 , "SRPC_RDMA_PORTAL"},
 };
 
 /* SOCKLND constants. */
-#define KSOCK_MSG_NOOP          0xc0            /* ksm_u empty */ 
+#define KSOCK_MSG_NOOP          0xc0            /* ksm_u empty */
 #define KSOCK_MSG_LNET          0xc1            /* lnet msg */
 
 static const value_string ksm_type_t[] = {
-	{0xc0, "KSOCK_MSG_NOOP"},/* ksm_u empty */ 
+	{0xc0, "KSOCK_MSG_NOOP"},/* ksm_u empty */
 	{0xc1, "KSOCK_MSG_LNET"} /* lnet msg */
 };
 

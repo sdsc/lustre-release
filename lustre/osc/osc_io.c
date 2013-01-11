@@ -703,7 +703,7 @@ static int osc_io_fsync_start(const struct lu_env *env,
 		int rc;
 
 		/* we have to wait for writeback to finish before we can
-		 * send OST_SYNC RPC. This is bad because it causes extents
+		 * send OSS_SYNC RPC. This is bad because it causes extents
 		 * to be written osc by osc. However, we usually start
 		 * writeback before CL_FSYNC_ALL so this won't have any real
 		 * problem. */

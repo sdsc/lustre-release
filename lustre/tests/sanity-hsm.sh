@@ -1602,7 +1602,7 @@ test_21() {
 	# LU-4388/LU-4389 - ZFS does not report full number of blocks
 	# used until file is flushed to disk
 	if [  $(facet_fstype ost1) == "zfs" ]; then
-	    # this causes an OST_SYNC rpc to be sent
+	    # this causes an OSS_SYNC rpc to be sent
 	    dd if=/dev/zero of=$f bs=512 count=1 oflag=sync conv=notrunc,fsync
 	    # clear locks to reread file data
 	    cancel_lru_locks osc

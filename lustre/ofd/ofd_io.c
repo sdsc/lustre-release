@@ -871,7 +871,7 @@ ofd_write_attr_set(const struct lu_env *env, struct ofd_device *ofd,
 	}
 
 	/* We don't need a transno for this operation which will be re-executed
-	 * anyway when the OST_WRITE (with a transno assigned) is replayed */
+	 * anyway when the OSS_WRITE (with a transno assigned) is replayed */
 	rc = dt_trans_start_local(env, ofd->ofd_osd , th);
 	if (rc)
 		GOTO(out_tx, rc);

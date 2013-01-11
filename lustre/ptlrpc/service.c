@@ -1654,7 +1654,7 @@ int ptlrpc_hpreq_handler(struct ptlrpc_request *req)
 	/* Check for export to let only reconnects for not yet evicted
 	 * export to become a HP rpc. */
 	if ((req->rq_export != NULL) &&
-	    (opc == OBD_PING || opc == MDS_CONNECT || opc == OST_CONNECT))
+	    (opc == OBD_PING || opc == MDS_CONNECT || opc == OSS_CONNECT))
 		req->rq_ops = &ptlrpc_hpreq_common;
 
 	return 0;
@@ -1911,17 +1911,17 @@ ptlrpc_server_handle_req_in(struct ptlrpc_service_part *svcpt,
                 goto err_req;
         }
 
-        switch(lustre_msg_get_opc(req->rq_reqmsg)) {
-        case MDS_WRITEPAGE:
-        case OST_WRITE:
-                req->rq_bulk_write = 1;
-                break;
-        case MDS_READPAGE:
-        case OST_READ:
-        case MGS_CONFIG_READ:
-                req->rq_bulk_read = 1;
-                break;
-        }
+	switch(lustre_msg_get_opc(req->rq_reqmsg)) {
+	case MDS_WRITEPAGE:
+	case OSS_WRITE:
+		req->rq_bulk_write = 1;
+		break;
+	case MDS_READPAGE:
+	case OSS_READ:
+	case MGS_CONFIG_READ:
+		req->rq_bulk_read = 1;
+		break;
+	}
 
         CDEBUG(D_RPCTRACE, "got req x"LPU64"\n", req->rq_xid);
 
