@@ -24,7 +24,7 @@ diff -ur linux-stage.orig/fs/ext4/ext4.h linux-stage/fs/ext4/ext4.h
 diff -ur linux-stage.orig/fs/ext4/ext4_extents.h linux-stage/fs/ext4/ext4_extents.h
 --- linux-stage.orig/fs/ext4/ext4_extents.h	2013-01-03 13:45:22.000000000 -0500
 +++ linux-stage/fs/ext4/ext4_extents.h	2013-01-08 11:40:58.000000000 -0500
-@@ -58,6 +58,12 @@
+@@ -58,6 +58,13 @@
   */
  #define EXT_STATS_
  
@@ -34,6 +34,7 @@ diff -ur linux-stage.orig/fs/ext4/ext4_extents.h linux-stage/fs/ext4/ext4_extent
 + */
 +#define EXT4_ALLOC_NEEDED 0
 +#define HAVE_EXT_PREPARE_CB_EXTENT
++#define HAVE_EXT4_EXT_PBLOCK
  
  /*
   * ext4_inode has i_block array (60 bytes total).
