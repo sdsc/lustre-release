@@ -49,15 +49,15 @@
 
 static int oss_num_threads;
 CFS_MODULE_PARM(oss_num_threads, "i", int, 0444,
-                "number of OSS service threads to start");
+		"number of OSS service threads to start");
 
 static int ost_num_threads;
 CFS_MODULE_PARM(ost_num_threads, "i", int, 0444,
-                "number of OST service threads to start (deprecated)");
+		"number of OSS service threads to start (deprecated)");
 
 static int oss_num_create_threads;
 CFS_MODULE_PARM(oss_num_create_threads, "i", int, 0444,
-                "number of OSS create threads to start");
+		"number of OSS create threads to start");
 
 static char *oss_cpts;
 CFS_MODULE_PARM(oss_cpts, "s", charp, 0444,
@@ -100,11 +100,11 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 		.psc_name		= LUSTRE_OSS_NAME,
 		.psc_watchdog_factor	= OSS_SERVICE_WATCHDOG_FACTOR,
 		.psc_buf		= {
-			.bc_nbufs		= OST_NBUFS,
-			.bc_buf_size		= OST_BUFSIZE,
-			.bc_req_max_size	= OST_MAXREQSIZE,
-			.bc_rep_max_size	= OST_MAXREPSIZE,
-			.bc_req_portal		= OST_REQUEST_PORTAL,
+			.bc_nbufs		= OSS_NBUFS,
+			.bc_buf_size		= OSS_BUFSIZE,
+			.bc_req_max_size	= OSS_MAXREQSIZE,
+			.bc_rep_max_size	= OSS_MAXREPSIZE,
+			.bc_req_portal		= OSS_REQUEST_PORTAL,
 			.bc_rep_portal		= OSC_REPLY_PORTAL,
 		},
 		.psc_thr		= {
@@ -132,18 +132,18 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 		rc = PTR_ERR(ost->ost_service);
 		CERROR("failed to start service: %d\n", rc);
 		GOTO(out_lprocfs, rc);
-        }
+	}
 
 	memset(&svc_conf, 0, sizeof(svc_conf));
 	svc_conf = (typeof(svc_conf)) {
 		.psc_name		= "ost_create",
 		.psc_watchdog_factor	= OSS_SERVICE_WATCHDOG_FACTOR,
 		.psc_buf		= {
-			.bc_nbufs		= OST_NBUFS,
-			.bc_buf_size		= OST_BUFSIZE,
-			.bc_req_max_size	= OST_MAXREQSIZE,
-			.bc_rep_max_size	= OST_MAXREPSIZE,
-			.bc_req_portal		= OST_CREATE_PORTAL,
+			.bc_nbufs		= OSS_NBUFS,
+			.bc_buf_size		= OSS_BUFSIZE,
+			.bc_req_max_size	= OSS_MAXREQSIZE,
+			.bc_rep_max_size	= OSS_MAXREPSIZE,
+			.bc_req_portal		= OSS_CREATE_PORTAL,
 			.bc_rep_portal		= OSC_REPLY_PORTAL,
 		},
 		.psc_thr		= {
@@ -168,7 +168,7 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 							  obd->obd_proc_entry);
 	if (IS_ERR(ost->ost_create_service)) {
 		rc = PTR_ERR(ost->ost_create_service);
-		CERROR("failed to start OST create service: %d\n", rc);
+		CERROR("failed to start OSS create service: %d\n", rc);
 		GOTO(out_service, rc);
         }
 
@@ -202,11 +202,11 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 		.psc_name		= "ost_io",
 		.psc_watchdog_factor	= OSS_SERVICE_WATCHDOG_FACTOR,
 		.psc_buf		= {
-			.bc_nbufs		= OST_NBUFS,
-			.bc_buf_size		= OST_IO_BUFSIZE,
-			.bc_req_max_size	= OST_IO_MAXREQSIZE,
-			.bc_rep_max_size	= OST_IO_MAXREPSIZE,
-			.bc_req_portal		= OST_IO_PORTAL,
+			.bc_nbufs		= OSS_NBUFS,
+			.bc_buf_size		= OSS_IO_BUFSIZE,
+			.bc_req_max_size	= OSS_IO_MAXREQSIZE,
+			.bc_rep_max_size	= OSS_IO_MAXREPSIZE,
+			.bc_req_portal		= OSS_IO_PORTAL,
 			.bc_rep_portal		= OSC_REPLY_PORTAL,
 		},
 		.psc_thr		= {
@@ -236,7 +236,7 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 						      obd->obd_proc_entry);
 	if (IS_ERR(ost->ost_io_service)) {
 		rc = PTR_ERR(ost->ost_io_service);
-		CERROR("failed to start OST I/O service: %d\n", rc);
+		CERROR("failed to start OSS I/O service: %d\n", rc);
 		ost->ost_io_service = NULL;
 		GOTO(out_create, rc);
         }
@@ -246,10 +246,10 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 		.psc_name		= "ost_seq",
 		.psc_watchdog_factor	= OSS_SERVICE_WATCHDOG_FACTOR,
 		.psc_buf		= {
-			.bc_nbufs		= OST_NBUFS,
-			.bc_buf_size		= OST_BUFSIZE,
-			.bc_req_max_size	= OST_MAXREQSIZE,
-			.bc_rep_max_size	= OST_MAXREPSIZE,
+			.bc_nbufs		= OSS_NBUFS,
+			.bc_buf_size		= OSS_BUFSIZE,
+			.bc_req_max_size	= OSS_MAXREQSIZE,
+			.bc_rep_max_size	= OSS_MAXREPSIZE,
 			.bc_req_portal		= SEQ_DATA_PORTAL,
 			.bc_rep_portal		= OSC_REPLY_PORTAL,
 		},
@@ -288,7 +288,7 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 		.psc_name		= "ost_out",
 		.psc_watchdog_factor	= OSS_SERVICE_WATCHDOG_FACTOR,
 		.psc_buf		= {
-			.bc_nbufs		= OST_NBUFS,
+			.bc_nbufs		= OSS_NBUFS,
 			.bc_buf_size		= OUT_BUFSIZE,
 			.bc_req_max_size	= OUT_MAXREQSIZE,
 			.bc_rep_max_size	= OUT_MAXREPSIZE,

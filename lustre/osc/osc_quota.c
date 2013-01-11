@@ -246,18 +246,18 @@ int osc_quota_cleanup(struct obd_device *obd)
 }
 
 int osc_quotactl(struct obd_device *unused, struct obd_export *exp,
-                 struct obd_quotactl *oqctl)
+		 struct obd_quotactl *oqctl)
 {
-        struct ptlrpc_request *req;
-        struct obd_quotactl   *oqc;
-        int                    rc;
-        ENTRY;
+	struct ptlrpc_request *req;
+	struct obd_quotactl   *oqc;
+	int                    rc;
+	ENTRY;
 
-        req = ptlrpc_request_alloc_pack(class_exp2cliimp(exp),
-                                        &RQF_OST_QUOTACTL, LUSTRE_OST_VERSION,
-                                        OST_QUOTACTL);
-        if (req == NULL)
-                RETURN(-ENOMEM);
+	req = ptlrpc_request_alloc_pack(class_exp2cliimp(exp),
+					&RQF_OSS_QUOTACTL, LUSTRE_OSS_VERSION,
+					OSS_QUOTACTL);
+	if (req == NULL)
+		RETURN(-ENOMEM);
 
         oqc = req_capsule_client_get(&req->rq_pill, &RMF_OBD_QUOTACTL);
         *oqc = *oqctl;
