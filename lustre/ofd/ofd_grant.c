@@ -538,7 +538,7 @@ static void ofd_grant_check(const struct lu_env *env, struct obd_export *exp,
 				 rnb[i].rnb_flags |= OBD_BRW_GRANTED;
 				 continue;
 			} else {
-				CERROR("%s: cli %s is replaying OST_WRITE "
+				CERROR("%s: cli %s is replaying OSS_WRITE "
 				       "while one rnb hasn't OBD_BRW_FROM_GRANT"
 				       " set (0x%x)\n", exp->exp_obd->obd_name,
 					exp->exp_client_uuid.uuid,

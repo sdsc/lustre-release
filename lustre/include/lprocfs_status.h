@@ -202,81 +202,81 @@ struct lprocfs_stats {
 
 /* Pack all opcodes down into a single monotonically increasing index */
 static inline int opcode_offset(__u32 opc) {
-        if (opc < OST_LAST_OPC) {
-                 /* OST opcode */
-                return (opc - OST_FIRST_OPC);
-        } else if (opc < MDS_LAST_OPC) {
-                /* MDS opcode */
-                return (opc - MDS_FIRST_OPC +
-                        OPC_RANGE(OST));
-        } else if (opc < LDLM_LAST_OPC) {
-                /* LDLM Opcode */
-                return (opc - LDLM_FIRST_OPC +
-                        OPC_RANGE(MDS) +
-                        OPC_RANGE(OST));
-        } else if (opc < MGS_LAST_OPC) {
-                /* MGS Opcode */
-                return (opc - MGS_FIRST_OPC +
-                        OPC_RANGE(LDLM) +
-                        OPC_RANGE(MDS) +
-                        OPC_RANGE(OST));
-        } else if (opc < OBD_LAST_OPC) {
-                /* OBD Ping */
-                return (opc - OBD_FIRST_OPC +
-                        OPC_RANGE(MGS) +
-                        OPC_RANGE(LDLM) +
-                        OPC_RANGE(MDS) +
-                        OPC_RANGE(OST));
-        } else if (opc < LLOG_LAST_OPC) {
-                /* LLOG Opcode */
-                return (opc - LLOG_FIRST_OPC +
-                        OPC_RANGE(OBD) +
-                        OPC_RANGE(MGS) +
-                        OPC_RANGE(LDLM) +
-                        OPC_RANGE(MDS) +
-                        OPC_RANGE(OST));
-        } else if (opc < QUOTA_LAST_OPC) {
-                /* LQUOTA Opcode */
-                return (opc - QUOTA_FIRST_OPC +
-                        OPC_RANGE(LLOG) +
-                        OPC_RANGE(OBD) +
-                        OPC_RANGE(MGS) +
-                        OPC_RANGE(LDLM) +
-                        OPC_RANGE(MDS) +
-                        OPC_RANGE(OST));
-        } else if (opc < SEQ_LAST_OPC) {
-                /* SEQ opcode */
-                return (opc - SEQ_FIRST_OPC +
-                        OPC_RANGE(QUOTA) +
-                        OPC_RANGE(LLOG) +
-                        OPC_RANGE(OBD) +
-                        OPC_RANGE(MGS) +
-                        OPC_RANGE(LDLM) +
-                        OPC_RANGE(MDS) +
-                        OPC_RANGE(OST));
-        } else if (opc < SEC_LAST_OPC) {
-                /* SEC opcode */
-                return (opc - SEC_FIRST_OPC +
-                        OPC_RANGE(SEQ) +
-                        OPC_RANGE(QUOTA) +
-                        OPC_RANGE(LLOG) +
-                        OPC_RANGE(OBD) +
-                        OPC_RANGE(MGS) +
-                        OPC_RANGE(LDLM) +
-                        OPC_RANGE(MDS) +
-                        OPC_RANGE(OST));
-        } else if (opc < FLD_LAST_OPC) {
-                /* FLD opcode */
-                 return (opc - FLD_FIRST_OPC +
-                        OPC_RANGE(SEC) +
-                        OPC_RANGE(SEQ) +
-                        OPC_RANGE(QUOTA) +
-                        OPC_RANGE(LLOG) +
-                        OPC_RANGE(OBD) +
-                        OPC_RANGE(MGS) +
-                        OPC_RANGE(LDLM) +
-                        OPC_RANGE(MDS) +
-                        OPC_RANGE(OST));
+	if (opc < OSS_LAST_OPC) {
+		/* OSS opcode */
+		return (opc - OSS_FIRST_OPC);
+	} else if (opc < MDS_LAST_OPC) {
+		/* MDS opcode */
+		return (opc - MDS_FIRST_OPC +
+			OPC_RANGE(OSS));
+	} else if (opc < LDLM_LAST_OPC) {
+		/* LDLM Opcode */
+		return (opc - LDLM_FIRST_OPC +
+			OPC_RANGE(MDS) +
+			OPC_RANGE(OSS));
+	} else if (opc < MGS_LAST_OPC) {
+		/* MGS Opcode */
+		return (opc - MGS_FIRST_OPC +
+			OPC_RANGE(LDLM) +
+			OPC_RANGE(MDS) +
+			OPC_RANGE(OSS));
+	} else if (opc < OBD_LAST_OPC) {
+		/* OBD Ping */
+		return (opc - OBD_FIRST_OPC +
+			OPC_RANGE(MGS) +
+			OPC_RANGE(LDLM) +
+			OPC_RANGE(MDS) +
+			OPC_RANGE(OSS));
+	} else if (opc < LLOG_LAST_OPC) {
+		/* LLOG Opcode */
+		return (opc - LLOG_FIRST_OPC +
+			OPC_RANGE(OBD) +
+			OPC_RANGE(MGS) +
+			OPC_RANGE(LDLM) +
+			OPC_RANGE(MDS) +
+			OPC_RANGE(OSS));
+	} else if (opc < QUOTA_LAST_OPC) {
+		/* LQUOTA Opcode */
+		return (opc - QUOTA_FIRST_OPC +
+			OPC_RANGE(LLOG) +
+			OPC_RANGE(OBD) +
+			OPC_RANGE(MGS) +
+			OPC_RANGE(LDLM) +
+			OPC_RANGE(MDS) +
+			OPC_RANGE(OSS));
+	} else if (opc < SEQ_LAST_OPC) {
+		/* SEQ opcode */
+		return (opc - SEQ_FIRST_OPC +
+			OPC_RANGE(QUOTA) +
+			OPC_RANGE(LLOG) +
+			OPC_RANGE(OBD) +
+			OPC_RANGE(MGS) +
+			OPC_RANGE(LDLM) +
+			OPC_RANGE(MDS) +
+			OPC_RANGE(OSS));
+	} else if (opc < SEC_LAST_OPC) {
+		/* SEC opcode */
+		return (opc - SEC_FIRST_OPC +
+			OPC_RANGE(SEQ) +
+			OPC_RANGE(QUOTA) +
+			OPC_RANGE(LLOG) +
+			OPC_RANGE(OBD) +
+			OPC_RANGE(MGS) +
+			OPC_RANGE(LDLM) +
+			OPC_RANGE(MDS) +
+			OPC_RANGE(OSS));
+	} else if (opc < FLD_LAST_OPC) {
+		/* FLD opcode */
+		return (opc - FLD_FIRST_OPC +
+			OPC_RANGE(SEC) +
+			OPC_RANGE(SEQ) +
+			OPC_RANGE(QUOTA) +
+			OPC_RANGE(LLOG) +
+			OPC_RANGE(OBD) +
+			OPC_RANGE(MGS) +
+			OPC_RANGE(LDLM) +
+			OPC_RANGE(MDS) +
+			OPC_RANGE(OSS));
 	} else if (opc < OUT_UPDATE_LAST_OPC) {
 		/* update opcode */
 		return (opc - OUT_UPDATE_FIRST_OPC +
@@ -289,7 +289,7 @@ static inline int opcode_offset(__u32 opc) {
 			OPC_RANGE(MGS) +
 			OPC_RANGE(LDLM) +
 			OPC_RANGE(MDS) +
-			OPC_RANGE(OST));
+			OPC_RANGE(OSS));
 	} else if (opc < LFSCK_LAST_OPC) {
 		/* LFSCK opcode */
 		return (opc - LFSCK_FIRST_OPC +
@@ -303,7 +303,7 @@ static inline int opcode_offset(__u32 opc) {
 			OPC_RANGE(MGS) +
 			OPC_RANGE(LDLM) +
 			OPC_RANGE(MDS) +
-			OPC_RANGE(OST));
+			OPC_RANGE(OSS));
 	} else {
 		/* Unknown Opcode */
 		return -1;
@@ -311,7 +311,7 @@ static inline int opcode_offset(__u32 opc) {
 }
 
 
-#define LUSTRE_MAX_OPCODES (OPC_RANGE(OST)  + \
+#define LUSTRE_MAX_OPCODES (OPC_RANGE(OSS)  + \
                             OPC_RANGE(MDS)  + \
                             OPC_RANGE(LDLM) + \
                             OPC_RANGE(MGS)  + \

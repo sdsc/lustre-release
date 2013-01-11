@@ -72,13 +72,13 @@ const true_false_string lnet_flags_set_truth = { "Set", "Unset" };
 
 
 #define LUSTRE_PTLRPC_MSG_VERSION  0x00000003
-#define LUSTRE_VERSION_MASK 0xffff0000
-#define LUSTRE_OBD_VERSION  0x00010000
-#define LUSTRE_MDS_VERSION  0x00020000
-#define LUSTRE_OST_VERSION  0x00030000
-#define LUSTRE_DLM_VERSION  0x00040000
-#define LUSTRE_LOG_VERSION  0x00050000
-#define LUSTRE_MGS_VERSION  0x00060000
+#define LUSTRE_VERSION_MASK	0xffff0000
+#define LUSTRE_OBD_VERSION	0x00010000
+#define LUSTRE_MDS_VERSION	0x00020000
+#define LUSTRE_OSS_VERSION	0x00030000
+#define LUSTRE_DLM_VERSION	0x00040000
+#define LUSTRE_LOG_VERSION	0x00050000
+#define LUSTRE_MGS_VERSION	0x00060000
 
 
 
@@ -93,9 +93,9 @@ typedef enum {
 	OSC_REQUEST_PORTAL = 3,
 	OSC_REPLY_PORTAL = 4,
 	OSC_BULK_PORTAL = 5,
-	OST_IO_PORTAL = 6,
-	OST_CREATE_PORTAL = 7,
-	OST_BULK_PORTAL = 8,
+	OSS_IO_PORTAL = 6,
+	OSS_CREATE_PORTAL = 7,
+	OSS_BULK_PORTAL = 8,
 	MDC_REQUEST_PORTAL = 9,
 	MDC_REPLY_PORTAL = 10,
 	MDC_BULK_PORTAL = 11,
@@ -115,7 +115,7 @@ typedef enum {
 	MGC_REPLY_PORTAL = 25,
 	MGS_REQUEST_PORTAL = 26,
 	MGS_REPLY_PORTAL = 27,
-	OST_REQUEST_PORTAL = 28,
+	OSS_REQUEST_PORTAL = 28,
 	FLD_REQUEST_PORTAL = 29,
 	SEQ_METADATA_PORTAL = 30,
 	SEQ_DATA_PORTAL = 31,
@@ -129,9 +129,9 @@ static const value_string portal_indices[] = {
 	{ OSC_REQUEST_PORTAL , "OSC_REQUEST_PORTAL(obsolete)"},
 	{ OSC_REPLY_PORTAL , "OSC_REPLY_PORTAL"},
 	{ OSC_BULK_PORTAL , "OSC_BULK_PORTAL(obsolete)"},
-	{ OST_IO_PORTAL , "OST_IO_PORTAL"},
-	{ OST_CREATE_PORTAL , "OST_CREATE_PORTAL"},
-	{ OST_BULK_PORTAL , "OST_BULK_PORTAL"},
+	{ OSS_IO_PORTAL , "OSS_IO_PORTAL"},
+	{ OSS_CREATE_PORTAL , "OSS_CREATE_PORTAL"},
+	{ OSS_BULK_PORTAL , "OSS_BULK_PORTAL"},
 	{ MDC_REQUEST_PORTAL , "MDC_REQUEST_PORTAL(obsolete)"},
 	{ MDC_REPLY_PORTAL , "MDC_REPLY_PORTAL"},
 	{ MDC_BULK_PORTAL , "MDC_BULK_PORTAL(obsolete)"},
@@ -151,7 +151,7 @@ static const value_string portal_indices[] = {
 	{ MGC_REPLY_PORTAL , "MGC_REPLY_PORTAL"},
 	{ MGS_REQUEST_PORTAL , "MGS_REQUEST_PORTAL"},
 	{ MGS_REPLY_PORTAL , "MGS_REPLY_PORTAL"},
-	{ OST_REQUEST_PORTAL , "OST_REQUEST_PORTAL"},
+	{ OSS_REQUEST_PORTAL , "OSS_REQUEST_PORTAL"},
 	{ FLD_REQUEST_PORTAL , "FLD_REQUEST_PORTAL"},
 	{ SEQ_METADATA_PORTAL, "SEQ_METADATA_PORTAL"},
 	{ SEQ_DATA_PORTAL, "SEQ_DATA_PORTAL"},
@@ -159,39 +159,34 @@ static const value_string portal_indices[] = {
 	{ MGS_BULK_PORTAL, "MGS_BULK_PORTAL"}
 };
 
-typedef enum {
-  OST_REPLY      =  0,       /* reply ? */
-  OST_GETATTR    =  1,
-  OST_SETATTR    =  2,
-  OST_READ       =  3,
-  OST_WRITE      =  4,
-  OST_CREATE     =  5,
-  OST_DESTROY    =  6,
-  OST_GET_INFO   =  7,
-  OST_CONNECT    =  8,
-  OST_DISCONNECT =  9,
-  OST_PUNCH      = 10,
-  OST_OPEN       = 11,
-  OST_CLOSE      = 12,
-  OST_STATFS     = 13,
-  /*      OST_SAN_READ   = 14,    deprecated */
-  /*      OST_SAN_WRITE  = 15,    deprecated */
-  OST_SYNC       = 16,
-  OST_SET_INFO   = 17,
-  OST_QUOTACHECK = 18,
-  OST_QUOTACTL   = 19,
-  OST_QUOTA_ADJUST_QUNIT = 20,
-  OST_LAST_OPC
-} ost_cmd_t ;
+enum oss_rpc_opc {
+  OSS_GETATTR		=  1,
+  OSS_SETATTR		=  2,
+  OSS_READ		=  3,
+  OSS_WRITE		=  4,
+  OSS_CREATE		=  5,
+  OSS_DESTROY		=  6,
+  OSS_GET_INFO		=  7,
+  OSS_CONNECT		=  8,
+  OSS_DISCONNECT	=  9,
+  OSS_PUNCH		= 10,
+  OSS_STATFS		= 13,
+  OSS_SYNC		= 16,
+  OSS_SET_INFO		= 17,
+  OSS_QUOTACHECK	= 18,
+  OSS_QUOTACTL		= 19,
+  OSS_QUOTA_ADJUST_QUNIT	= 20,
+  OSS_LAST_OPC,
+  OSS_FIRST_OPC		= OSS_GETATTR
+};
 
-
-typedef enum {
-  OBD_PING = 400,
-  OBD_LOG_CANCEL,
-  OBD_QC_CALLBACK,
-  OBD_LAST_OPC
-} obd_cmd_t;
-#define OBD_FIRST_OPC OBD_PING
+enum obd_rpc_opc {
+  OBD_PING		= 400,
+  OBD_LOG_CANCEL	= 401,
+  OBD_QC_CALLBACK	= 402,
+  OBD_LAST_OPC,
+  OBD_FIRST_OPC		= OBD_PING
+};
 
 /* must be coherent with same declaration
  * in lustre/include/lustre/lustre_idl.h
@@ -226,8 +221,9 @@ typedef enum {
 	MDS_HSM_CT_REGISTER	= 59,
 	MDS_HSM_CT_UNREGISTER	= 60,
 	MDS_SWAP_LAYOUTS	= 61,
-	MDS_LAST_OPC
-} mds_cmd_t;
+	MDS_LAST_OPC,
+	MDS_FIRST_OPC		= MDS_GETATTR
+};
 
 #define IT_OPEN     0x0001
 #define IT_CREAT    0x0002
@@ -241,10 +237,7 @@ typedef enum {
 
 
 
-#define MDS_FIRST_OPC MDS_GETATTR
-#define LDLM_FIRST_OPC LDLM_ENQUEUE
-
-typedef enum {
+enum mds_reint {
   REINT_SETATTR  = 1,
   REINT_CREATE   = 2,
   REINT_LINK     = 3,
@@ -255,18 +248,18 @@ typedef enum {
   //      REINT_CLOSE    = 8,
   //      REINT_WRITE    = 9,
   REINT_MAX
-} mds_reint_t;
+};
 
-typedef enum {
-  LDLM_ENQUEUE     = 101,
-  LDLM_CONVERT     = 102,
-  LDLM_CANCEL      = 103,
-  LDLM_BL_CALLBACK = 104,
-  LDLM_CP_CALLBACK = 105,
-  LDLM_GL_CALLBACK = 106,
-  LDLM_LAST_OPC
-} ldlm_cmd_t;
-#define LDLM_FIRST_OPC LDLM_ENQUEUE
+enum ldlm_rpc_opc {
+  LDLM_ENQUEUE		= 101,
+  LDLM_CONVERT		= 102,
+  LDLM_CANCEL		= 103,
+  LDLM_BL_CALLBACK	= 104,
+  LDLM_CP_CALLBACK	= 105,
+  LDLM_GL_CALLBACK	= 106,
+  LDLM_LAST_OPC,
+  LDLM_FIRST_OPC	= LDLM_ENQUEUE
+};
 
 enum seq_rpc_opc {
   SEQ_QUERY        = 700,
@@ -304,33 +297,33 @@ enum fld_rpc_opc {
 /*
  * Opcodes for mountconf (mgs and mgc)
  */
-typedef enum {
-  MGS_CONNECT = 250,
-  MGS_DISCONNECT,
-  MGS_EXCEPTION,         /* node died, etc. */
-  MGS_TARGET_REG,        /* whenever target starts up */
-  MGS_TARGET_DEL,
-  MGS_SET_INFO,
-  MGS_CONFIG_READ,
-  MGS_LAST_OPC
-} mgs_cmd_t;
-#define MGS_FIRST_OPC MGS_CONNECT
+enum mgs_rpc_opc {
+  MGS_CONNECT		= 250,
+  MGS_DISCONNECT	= 251,
+  MGS_EXCEPTION		= 252,	/* node died, etc. */
+  MGS_TARGET_REG	= 253,	/* whenever target starts up */
+  MGS_TARGET_DEL	= 254,
+  MGS_SET_INFO		= 255,
+  MGS_CONFIG_READ	= 256,
+  MGS_LAST_OPC,
+  MGS_FIRST_OPC		= MGS_CONNECT
+};
 
 /* llog protocol */
-typedef enum {
-  LLOG_ORIGIN_HANDLE_CREATE       = 501,
-  LLOG_ORIGIN_HANDLE_NEXT_BLOCK   = 502,
-  LLOG_ORIGIN_HANDLE_READ_HEADER  = 503,
-  LLOG_ORIGIN_HANDLE_WRITE_REC    = 504,
-  LLOG_ORIGIN_HANDLE_CLOSE        = 505,
-  LLOG_ORIGIN_CONNECT             = 506,
-  LLOG_CATINFO                    = 507,  /* for lfs catinfo */
-  LLOG_ORIGIN_HANDLE_PREV_BLOCK   = 508,
-  LLOG_ORIGIN_HANDLE_DESTROY      = 509,  /* for destroy llog object*/
-  LLOG_LAST_OPC
-} llog_cmd_t;
+enum llog_rpc_opc {
+  LLOG_ORIGIN_HANDLE_CREATE		= 501,
+  LLOG_ORIGIN_HANDLE_NEXT_BLOCK		= 502,
+  LLOG_ORIGIN_HANDLE_READ_HEADER	= 503,
+  LLOG_ORIGIN_HANDLE_WRITE_REC		= 504,
+  LLOG_ORIGIN_HANDLE_CLOSE		= 505,
+  LLOG_ORIGIN_CONNECT			= 506,
+  LLOG_CATINFO				= 507,	/* for lfs catinfo */
+  LLOG_ORIGIN_HANDLE_PREV_BLOCK		= 508,
+  LLOG_ORIGIN_HANDLE_DESTROY		= 509,	/* for destroy llog object*/
+  LLOG_LAST_OPC,
+  LLOG_FIRST_OPC		= LLOG_ORIGIN_HANDLE_CREATE
+};
 
-#define LLOG_FIRST_OPC LLOG_ORIGIN_HANDLE_CREATE
 /*flag for the LLOG*/
 #define LLOG_OP_MAGIC 0x10600000
 #define LLOG_OP_MASK  0xfff00000
@@ -1121,97 +1114,92 @@ const value_string lustre_mds_reint_t_vals[] = {
   { 0, NULL }
 };
 const value_string lustre_op_codes[] = {
-  /*OST Opcodes*/
-  {0 , "OST_REPLY"},
-  {1 , "OST_GETATTR"},
-  {2 , "OST_SETATTR"},
-  {3 , "OST_READ"},
-  {4 , "OST_WRITE"},
-  {5 , "OST_CREATE"},
-  {6 , "OST_DESTROY"},
-  {7 , "OST_GET_INFO"},
-  {8 , "OST_CONNECT"},
-  {9 , "OST_DISCONNECT"},
-  {10 , "OST_PUNCH"},
-  {11 , "OST_OPEN"},
-  {12 , "OST_CLOSE"},
-  {13 , "OST_STATFS"},
-  {14 , "OST_SAN_READ(deprecated)"},
-  {15 , "OST_SAN_WRITE(deprecated)"},
-  {16 , "OST_SYNC"},
-  {17 , "OST_SET_INFO"},
-  {18 , "OST_QUOTACHECK"},
-  {19 , "OST_QUOTACTL"},
-  {20 , "OST_LAST_OPC"},
-  /*MDS Opcodes*/
-  {33 , "MDS_GETATTR"},
-  {34 , "MDS_GETATTR_NAME"},
-  {35 , "MDS_CLOSE"},
-  {36 , "MDS_REINT"},
-  {37 , "MDS_READPAGE"},
-  {38 , "MDS_CONNECT"},
-  {39 , "MDS_DISCONNECT"},
-  {40 , "MDS_GETSTATUS"},
-  {41 , "MDS_STATFS"},
-  {42 , "MDS_PIN"},
-  {43 , "MDS_UNPIN"},
-  {44 , "MDS_SYNC"},
-  {45 , "MDS_DONE_WRITING"},
-  {46 , "MDS_SET_INFO"},
-  {47 , "MDS_QUOTACHECK"},
-  {48 , "MDS_QUOTACTL"},
-  {49 , "MDS_GETXATTR"},
-  {50 , "MDS_SETXATTR"},
-  {51 , "MDS_WRITEPAGE"},
-  {52 , "MDS_IS_SUBDIR"},
-  {53 , "MDS_GET_INFO"},
-  {54 , "MDS_HSM_STATE_GET"},
-  {55 , "MDS_HSM_STATE_SET"},
-  {56 , "MDS_HSM_ACTION"},
-  {57 , "MDS_HSM_PROGRESS"},
-  {58 , "MDS_HSM_REQUEST"},
-  {59 , "MDS_HSM_CT_REGISTER"},
-  {60 , "MDS_HSM_CT_UNREGISTER"},
-  {61 , "MDS_SWAP_LAYOUTS"},
-  {62 , "MDS_LAST_OPC"},
-  /*LDLM Opcodes*/
-  {101 , "LDLM_ENQUEUE"},
-  {102 , "LDLM_CONVERT"},
-  {103 , "LDLM_CANCEL"},
-  {104 , "LDLM_BL_CALLBACK"},
-  {105 , "LDLM_CP_CALLBACK"},
-  {106 , "LDLM_GL_CALLBACK"},
-  {107 , "LDLM_LAST_OPC"},
-  /*MGS Opcodes*/
-  {250 , "MGS_CONNECT"},
-  {251 , "MGS_DISCONNECT"},
-  {252 , "MGS_EXCEPTION"},
-  {253 , "MGS_TARGET_REG"},
-  {254 , "MGS_TARGET_DEL"},
-  {255 , "MGS_SET_INFO"},
-  {256 , "MGS_CONFIG_READ"},
-  {257 , "MGS_LAST_OPC"},
-  /*OBD Opcodes*/
-  {400 , "OBD_PING"},
-  {401 , "OBD_LOG_CANCEL"},
-  {402 , "OBD_QC_CALLBACK"},
-  {403 , "OBD_LAST_OPC"},
+  /* OSS Opcodes*/
+  { OSS_GETATTR, "OSS_GETATTR" },
+  { OSS_SETATTR, "OSS_SETATTR" },
+  { OSS_READ, "OSS_READ" },
+  { OSS_WRITE, "OSS_WRITE" },
+  { OSS_CREATE, "OSS_CREATE" },
+  { OSS_DESTROY, "OSS_DESTROY" },
+  { OSS_GET_INFO, "OSS_GET_INFO" },
+  { OSS_CONNECT, "OSS_CONNECT" },
+  { OSS_DISCONNECT, "OSS_DISCONNECT" },
+  { OSS_PUNCH, "OSS_PUNCH" },
+  { OSS_STATFS, "OSS_STATFS" },
+  { OSS_SYNC, "OSS_SYNC" },
+  { OSS_SET_INFO, "OSS_SET_INFO" },
+  { OSS_QUOTACHECK, "OSS_QUOTACHECK" },
+  { OSS_QUOTACTL, "OSS_QUOTACTL" },
+  { OSS_LAST_OPC, "OSS_LAST_OPC" },
+  /* MDS Opcodes*/
+  { MDS_GETATTR, "MDS_GETATTR" },
+  { MDS_GETATTR_NAME, "MDS_GETATTR_NAME" },
+  { MDS_CLOSE, "MDS_CLOSE" },
+  { MDS_REINT, "MDS_REINT" },
+  { MDS_READPAGE, "MDS_READPAGE" },
+  { MDS_CONNECT, "MDS_CONNECT" },
+  { MDS_DISCONNECT, "MDS_DISCONNECT" },
+  { MDS_GETSTATUS, "MDS_GETSTATUS" },
+  { MDS_STATFS, "MDS_STATFS" },
+  { MDS_PIN, "MDS_PIN" },
+  { MDS_UNPIN, "MDS_UNPIN" },
+  { MDS_SYNC, "MDS_SYNC" },
+  { MDS_DONE_WRITING, "MDS_DONE_WRITING" },
+  { MDS_SET_INFO, "MDS_SET_INFO" },
+  { MDS_QUOTACHECK, "MDS_QUOTACHECK" },
+  { MDS_QUOTACTL, "MDS_QUOTACTL" },
+  { MDS_GETXATTR, "MDS_GETXATTR" },
+  { MDS_SETXATTR, "MDS_SETXATTR" },
+  { MDS_WRITEPAGE , "MDS_WRITEPAGE"},
+  { MDS_IS_SUBDIR , "MDS_IS_SUBDIR"},
+  { MDS_GET_INFO , "MDS_GET_INFO"},
+  { MDS_HSM_STATE_GET , "MDS_HSM_STATE_GET"},
+  { MDS_HSM_STATE_SET , "MDS_HSM_STATE_SET"},
+  { MDS_HSM_ACTION , "MDS_HSM_ACTION"},
+  { MDS_HSM_PROGRESS , "MDS_HSM_PROGRESS"},
+  { MDS_HSM_REQUEST , "MDS_HSM_REQUEST"},
+  { MDS_HSM_CT_REGISTER , "MDS_HSM_CT_REGISTER"},
+  { MDS_HSM_CT_UNREGISTER , "MDS_HSM_CT_UNREGISTER"},
+  { MDS_SWAP_LAYOUTS , "MDS_SWAP_LAYOUTS"},
+  { MDS_LAST_OPC, "MDS_LAST_OPC" },
+  /* LDLM Opcodes*/
+  { LDLM_ENQUEUE, "LDLM_ENQUEUE" },
+  { LDLM_CONVERT, "LDLM_CONVERT" },
+  { LDLM_CANCEL, "LDLM_CANCEL" },
+  { LDLM_BL_CALLBACK, "LDLM_BL_CALLBACK" },
+  { LDLM_CP_CALLBACK, "LDLM_CP_CALLBACK" },
+  { LDLM_GL_CALLBACK, "LDLM_GL_CALLBACK" },
+  { LDLM_LAST_OPC, "LDLM_LAST_OPC" },
+  /* MGS Opcodes*/
+  { MGS_CONNECT, "MGS_CONNECT" },
+  { MGS_DISCONNECT, "MGS_DISCONNECT" },
+  { MGS_EXCEPTION, "MGS_EXCEPTION" },
+  { MGS_TARGET_REG, "MGS_TARGET_REG" },
+  { MGS_TARGET_DEL, "MGS_TARGET_DEL" },
+  { MGS_SET_INFO, "MGS_SET_INFO" },
+  { MGS_CONFIG_READ, "MGS_CONFIG_READ" },
+  { MGS_LAST_OPC, "MGS_LAST_OPC" },
+  /* OBD Opcodes*/
+  { OBD_PING, "OBD_PING" },
+  { OBD_LOG_CANCEL, "OBD_LOG_CANCEL" },
+  { OBD_QC_CALLBACK, "OBD_QC_CALLBACK" },
+  { OBD_LAST_OPC, "OBD_LAST_OPC" },
   /* LLOG opcodes */
-  { 501, "LLOG_ORIGIN_HANDLE_CREATE"},
-  { 502, "LLOG_ORIGIN_HANDLE_NEXT_BLOCK"},
-  { 503, "LLOG_ORIGIN_HANDLE_READ_HEADER"},
-  { 504, "LLOG_ORIGIN_HANDLE_WRITE_REC"},
-  { 505, "LLOG_ORIGIN_HANDLE_CLOSE"},
-  { 506, "LLOG_ORIGIN_CONNECT"},
-  { 507, "LLOG_CATINFO"},
-  { 508, "LLOG_ORIGIN_HANDLE_PREV_BLOCK"},
-  { 509, "LLOG_ORIGIN_HANDLE_DESTROY"},
+  { LLOG_ORIGIN_HANDLE_CREATE, "LLOG_ORIGIN_HANDLE_CREATE" },
+  { LLOG_ORIGIN_HANDLE_NEXT_BLOCK, "LLOG_ORIGIN_HANDLE_NEXT_BLOCK" },
+  { LLOG_ORIGIN_HANDLE_READ_HEADER, "LLOG_ORIGIN_HANDLE_READ_HEADER" },
+  { LLOG_ORIGIN_HANDLE_WRITE_REC, "LLOG_ORIGIN_HANDLE_WRITE_REC" },
+  { LLOG_ORIGIN_HANDLE_CLOSE, "LLOG_ORIGIN_HANDLE_CLOSE" },
+  { LLOG_ORIGIN_CONNECT, "LLOG_ORIGIN_CONNECT" },
+  { LLOG_CATINFO, "LLOG_CATINFO" },
+  { LLOG_ORIGIN_HANDLE_PREV_BLOCK, "LLOG_ORIGIN_HANDLE_PREV_BLOCK" },
+  { LLOG_ORIGIN_HANDLE_DESTROY, "LLOG_ORIGIN_HANDLE_DESTROY" },
   /* SEQ RPC opcodes */
-  { 700, "SEQ_QUERY"},
-  { 701, "SEQ_LAST_OPC"},
+  { SEQ_QUERY, "SEQ_QUERY" },
+  { SEQ_LAST_OPC, "SEQ_LAST_OPC" },
   /* FLD RPC opcodes */
-  { 900, "FLD_QUERY"},
-  { 901, "FLD_LAST_OPC"},
+  { FLD_QUERY, "FLD_QUERY" },
+  { FLD_LAST_OPC, "FLD_LAST_OPC" },
   { 0, NULL }
 };
 /*const value_string lustre_ldlm_mode_t_vals[] = {*/
@@ -8384,26 +8372,26 @@ lustre_ost_opcode_process(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo 
   guint32 i ;
 
   switch (opc){
-    case OST_REPLY: /* obsolete so nothing */
+    case OSS_REPLY: /* obsolete so nothing */
       break;
-    case OST_GETATTR:
+    case OSS_GETATTR:
       offset=lustre_dissect_struct_ost_body(tvb, offset, pinfo, tree, hf_lustre_ost_body) ;
       if (pb_type == PTL_RPC_MSG_REQUEST)
 	  offset=lustre_dissect_struct_capa(tvb,offset,pinfo,tree, hf_lustre_capa, LUSTRE_REQ_REC_OFF+1);
       break;
-    case OST_SETATTR:
+    case OSS_SETATTR:
       offset=lustre_dissect_struct_ost_body(tvb, offset, pinfo, tree, hf_lustre_ost_body) ;
       if (pb_type == PTL_RPC_MSG_REQUEST)
 	  offset=lustre_dissect_struct_capa(tvb,offset,pinfo,tree, hf_lustre_capa, LUSTRE_REQ_REC_OFF+1);
       break;
-    case OST_READ: /* [OST_BODY][obd_ioobj][niobuf_remote] for request, [OST_BODY] for reply */
+    case OSS_READ: /* [ost_body][obd_ioobj][niobuf_remote] for request, [ost_body] for reply */
       offset=lustre_dissect_struct_ost_body(tvb, offset, pinfo, tree, hf_lustre_ost_body) ;
       if(pb_type==PTL_RPC_MSG_REQUEST){
         offset=lustre_dissect_struct_obd_ioobj(tvb, offset, pinfo, tree,   hf_lustre_obd_ioobj);
         offset=lustre_dissect_struct_niobuf_remote(tvb,offset,pinfo, tree, hf_lustre_niobuf_remote);
       }
       break;
-    case OST_WRITE:
+    case OSS_WRITE:
       offset=lustre_dissect_struct_ost_body(tvb, offset, pinfo, tree,
 					    hf_lustre_ost_body);
       if(pb_type==PTL_RPC_MSG_REQUEST) {
@@ -8418,12 +8406,12 @@ lustre_ost_opcode_process(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo 
 	offset=add_extra_padding(tvb, offset, pinfo, tree);
       }
       break;
-    case OST_CREATE:
+    case OSS_CREATE:
       offset=lustre_dissect_struct_ost_body(tvb, offset, pinfo, tree, hf_lustre_ost_body) ;
       if (pb_type == PTL_RPC_MSG_REQUEST)
 	  offset=lustre_dissect_struct_capa(tvb,offset,pinfo,tree, hf_lustre_capa, LUSTRE_REQ_REC_OFF+1);
       break;
-    case OST_DESTROY:
+    case OSS_DESTROY:
       offset=lustre_dissect_struct_ost_body(tvb, offset, pinfo, tree, hf_lustre_ost_body) ;
       if(pb_type==PTL_RPC_MSG_REQUEST) {/* [ost_body][ldlm_req][capa] */
         if ( LUSTRE_BUFFER_LEN(LUSTRE_REQ_REC_OFF +1) != 0)
@@ -8431,40 +8419,36 @@ lustre_ost_opcode_process(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo 
 	offset=lustre_dissect_struct_capa(tvb,offset,pinfo,tree, hf_lustre_capa, LUSTRE_REPLY_REC_OFF+2);
       }
       break;
-    case OST_GET_INFO:
+    case OSS_GET_INFO:
       if(pb_type==PTL_RPC_MSG_REQUEST) /* [key] */
         offset=lustre_dissect_element_string(tvb, offset, pinfo, tree, hf_lustre_ost_key, LUSTRE_REQ_REC_OFF);
       if (pb_type==PTL_RPC_MSG_REPLY)
         offset=lustre_dissect_element_string(tvb, offset, pinfo, tree, hf_lustre_ost_val, LUSTRE_REQ_REC_OFF); /* val */
       break;
-    case OST_CONNECT:
+    case OSS_CONNECT:
       if (pb_type==PTL_RPC_MSG_REQUEST) /* [targetuuid][clientuuid][lustre_handle][obd_connect_data] */
         offset=lustre_dissect_generic_connect(tvb,offset,pinfo,tree);
       if (pb_type==PTL_RPC_MSG_REPLY)
         offset=lustre_dissect_struct_obd_connect_data(tvb,offset,pinfo,tree,hf_lustre_obd_connect_data);
       break;
-    case OST_DISCONNECT: /* [nothing] */
+    case OSS_DISCONNECT: /* [nothing] */
       break;
-    case OST_PUNCH: /* [ost_body] */
+    case OSS_PUNCH: /* [ost_body] */
       offset=lustre_dissect_struct_ost_body(tvb, offset, pinfo, tree, hf_lustre_ost_body) ;
       if (pb_type == PTL_RPC_MSG_REQUEST)
 	  offset=lustre_dissect_struct_capa(tvb,offset,pinfo,tree, hf_lustre_capa, LUSTRE_REQ_REC_OFF+1);
       break;
-    case OST_OPEN: /* [nothing] in the code maybee obsolete */
-      break;
-    case OST_CLOSE: /* [nothing] in the code maybee obsolete */
-      break;
-    case OST_STATFS: /* [obd_statfs] */
+    case OSS_STATFS: /* [obd_statfs] */
       if (pb_type==PTL_RPC_MSG_REPLY)
 	  offset=lustre_dissect_struct_obd_statfs(tvb, offset, pinfo, tree, hf_lustre_obd_statfs) ;
       break;
-    case OST_SYNC:
+    case OSS_SYNC:
       /*[ost_body] in both case */
       offset=lustre_dissect_struct_ost_body(tvb, offset, pinfo, tree, hf_lustre_ost_body) ;
       if (pb_type == PTL_RPC_MSG_REQUEST)
 	  offset=lustre_dissect_struct_capa(tvb,offset,pinfo,tree, hf_lustre_capa, LUSTRE_REQ_REC_OFF+1);
       break;
-    case OST_SET_INFO:
+    case OSS_SET_INFO:
       if(pb_type==PTL_RPC_MSG_REQUEST)
       {
         offset=lustre_dissect_element_string(tvb, offset, pinfo, tree, hf_lustre_ost_key, LUSTRE_REQ_REC_OFF); /* key  */
@@ -8472,15 +8456,15 @@ lustre_ost_opcode_process(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo 
       }
       /* if Key = "evict_by_nid" --> need to be process.. TODO */
       break;
-    case OST_QUOTACHECK:
+    case OSS_QUOTACHECK:
       if(pb_type==PTL_RPC_MSG_REQUEST)
         offset=lustre_dissect_struct_obd_quotactl(tvb, offset, pinfo, tree, hf_lustre_obd_quotactl) ;
       /* nothing in reply */
       break;
-    case OST_QUOTACTL:
+    case OSS_QUOTACTL:
       /*[obd_quotactl in both case]*/
       offset=lustre_dissect_struct_obd_quotactl(tvb, offset, pinfo, tree, hf_lustre_obd_quotactl) ;
-    case OST_QUOTA_ADJUST_QUNIT:
+    case OSS_QUOTA_ADJUST_QUNIT:
       /* [quota_adjust_qunit] in both case ? */
       offset=lustre_dissect_struct_quota_adjust_qunit(tvb, offset, pinfo, tree, hf_lustre_quota_adjust_qunit) ;
   };
@@ -8934,7 +8918,7 @@ lustre_opcode_process(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo _U_,
   if (LUSTRE_BUFCOUNT == 1)
     return offset;
 
-  if (opc <= OST_LAST_OPC) /* OST opcodes */
+  if (opc <= OSS_LAST_OPC) /* OST opcodes */
     offset=lustre_ost_opcode_process( tvb , offset ,pinfo ,  tree , opc , pb_type) ;
 
   if ( (opc >= MDS_FIRST_OPC) &&  (opc < MDS_LAST_OPC )) /* MDS opcodes */
@@ -11045,26 +11029,26 @@ void proto_reg_handoff_lustre(void)
   lustre_handle=create_dissector_handle(dissect_lustre, proto_lustre);
   /* we use Lustre only if we get ptl_index = One of this code (we have removed the bulk code) */
   /* in LNET we test if the message is a put or not before adding an lnet.ptl_index value */
-  dissector_add_uint("lnet.ptl_index", MDC_REPLY_PORTAL          , lustre_handle);
-  dissector_add_uint("lnet.ptl_index", CONNMGR_REQUEST_PORTAL    , lustre_handle);
-  dissector_add_uint("lnet.ptl_index", CONNMGR_REPLY_PORTAL      , lustre_handle);
-  dissector_add_uint("lnet.ptl_index", OSC_REPLY_PORTAL          , lustre_handle);
-  dissector_add_uint("lnet.ptl_index", OST_IO_PORTAL             , lustre_handle);
-  dissector_add_uint("lnet.ptl_index", OST_CREATE_PORTAL         , lustre_handle);
-  dissector_add_uint("lnet.ptl_index", MDC_REPLY_PORTAL          , lustre_handle);
-  dissector_add_uint("lnet.ptl_index", MDS_REQUEST_PORTAL        , lustre_handle);
-  dissector_add_uint("lnet.ptl_index", LDLM_CB_REQUEST_PORTAL    , lustre_handle);
-  dissector_add_uint("lnet.ptl_index", LDLM_CB_REPLY_PORTAL      , lustre_handle);
-  dissector_add_uint("lnet.ptl_index", LDLM_CANCEL_REQUEST_PORTAL, lustre_handle);
-  dissector_add_uint("lnet.ptl_index", LDLM_CANCEL_REPLY_PORTAL  , lustre_handle);
-  dissector_add_uint("lnet.ptl_index", MDS_SETATTR_PORTAL        , lustre_handle);
-  dissector_add_uint("lnet.ptl_index", MDS_READPAGE_PORTAL       , lustre_handle);
-  dissector_add_uint("lnet.ptl_index", MGC_REPLY_PORTAL          , lustre_handle);
-  dissector_add_uint("lnet.ptl_index", MGS_REQUEST_PORTAL        , lustre_handle);
-  dissector_add_uint("lnet.ptl_index", MGS_REPLY_PORTAL          , lustre_handle);
-  dissector_add_uint("lnet.ptl_index", OST_REQUEST_PORTAL        , lustre_handle);
-  dissector_add_uint("lnet.ptl_index", FLD_REQUEST_PORTAL, lustre_handle);
-  dissector_add_uint("lnet.ptl_index", SEQ_METADATA_PORTAL, lustre_handle);
-  dissector_add_uint("lnet.ptl_index", SEQ_DATA_PORTAL, lustre_handle);
-  dissector_add_uint("lnet.ptl_index", SEQ_CONTROLLER_PORTAL, lustre_handle);
+  dissector_add_uint("lnet.ptl_index", MDC_REPLY_PORTAL,           lustre_handle);
+  dissector_add_uint("lnet.ptl_index", CONNMGR_REQUEST_PORTAL,     lustre_handle);
+  dissector_add_uint("lnet.ptl_index", CONNMGR_REPLY_PORTAL,       lustre_handle);
+  dissector_add_uint("lnet.ptl_index", OSC_REPLY_PORTAL,           lustre_handle);
+  dissector_add_uint("lnet.ptl_index", OSS_IO_PORTAL,              lustre_handle);
+  dissector_add_uint("lnet.ptl_index", OSS_CREATE_PORTAL,          lustre_handle);
+  dissector_add_uint("lnet.ptl_index", MDC_REPLY_PORTAL,           lustre_handle);
+  dissector_add_uint("lnet.ptl_index", MDS_REQUEST_PORTAL,         lustre_handle);
+  dissector_add_uint("lnet.ptl_index", LDLM_CB_REQUEST_PORTAL,     lustre_handle);
+  dissector_add_uint("lnet.ptl_index", LDLM_CB_REPLY_PORTAL,       lustre_handle);
+  dissector_add_uint("lnet.ptl_index", LDLM_CANCEL_REQUEST_PORTAL  lustre_handle);
+  dissector_add_uint("lnet.ptl_index", LDLM_CANCEL_REPLY_PORTAL,   lustre_handle);
+  dissector_add_uint("lnet.ptl_index", MDS_SETATTR_PORTAL,         lustre_handle);
+  dissector_add_uint("lnet.ptl_index", MDS_READPAGE_PORTAL,        lustre_handle);
+  dissector_add_uint("lnet.ptl_index", MGC_REPLY_PORTAL,           lustre_handle);
+  dissector_add_uint("lnet.ptl_index", MGS_REQUEST_PORTAL,         lustre_handle);
+  dissector_add_uint("lnet.ptl_index", MGS_REPLY_PORTAL,           lustre_handle);
+  dissector_add_uint("lnet.ptl_index", OSS_REQUEST_PORTAL,         lustre_handle);
+  dissector_add_uint("lnet.ptl_index", FLD_REQUEST_PORTAL,         lustre_handle);
+  dissector_add_uint("lnet.ptl_index", SEQ_METADATA_PORTAL,        lustre_handle);
+  dissector_add_uint("lnet.ptl_index", SEQ_DATA_PORTAL,            lustre_handle);
+  dissector_add_uint("lnet.ptl_index", SEQ_CONTROLLER_PORTAL,      lustre_handle);
 }
