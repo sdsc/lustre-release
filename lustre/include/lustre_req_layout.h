@@ -194,26 +194,26 @@ extern struct req_format RQF_MDS_HSM_PROGRESS;
 extern struct req_format RQF_MDS_HSM_CT_REGISTER;
 extern struct req_format RQF_MDS_HSM_CT_UNREGISTER;
 extern struct req_format RQF_MDS_HSM_REQUEST;
-/* OST req_format */
-extern struct req_format RQF_OST_CONNECT;
-extern struct req_format RQF_OST_DISCONNECT;
-extern struct req_format RQF_OST_QUOTACTL;
-extern struct req_format RQF_OST_GETATTR;
-extern struct req_format RQF_OST_SETATTR;
-extern struct req_format RQF_OST_CREATE;
-extern struct req_format RQF_OST_PUNCH;
-extern struct req_format RQF_OST_SYNC;
-extern struct req_format RQF_OST_DESTROY;
-extern struct req_format RQF_OST_BRW_READ;
-extern struct req_format RQF_OST_BRW_WRITE;
-extern struct req_format RQF_OST_STATFS;
-extern struct req_format RQF_OST_SET_GRANT_INFO;
-extern struct req_format RQF_OST_GET_INFO;
-extern struct req_format RQF_OST_GET_INFO_LAST_ID;
-extern struct req_format RQF_OST_GET_INFO_LAST_FID;
-extern struct req_format RQF_OST_SET_INFO_LAST_FID;
-extern struct req_format RQF_OST_GET_INFO_FIEMAP;
-extern struct req_format RQF_OST_LADVISE;
+/* OSS req_format */
+extern struct req_format RQF_OSS_CONNECT;
+extern struct req_format RQF_OSS_DISCONNECT;
+extern struct req_format RQF_OSS_QUOTACTL;
+extern struct req_format RQF_OSS_GETATTR;
+extern struct req_format RQF_OSS_SETATTR;
+extern struct req_format RQF_OSS_CREATE;
+extern struct req_format RQF_OSS_PUNCH;
+extern struct req_format RQF_OSS_SYNC;
+extern struct req_format RQF_OSS_DESTROY;
+extern struct req_format RQF_OSS_BRW_READ;
+extern struct req_format RQF_OSS_BRW_WRITE;
+extern struct req_format RQF_OSS_STATFS;
+extern struct req_format RQF_OSS_SET_GRANT_INFO;
+extern struct req_format RQF_OSS_GET_INFO;
+extern struct req_format RQF_OSS_GET_INFO_LAST_ID;
+extern struct req_format RQF_OSS_GET_INFO_LAST_FID;
+extern struct req_format RQF_OSS_SET_INFO_LAST_FID;
+extern struct req_format RQF_OSS_GET_INFO_FIEMAP;
+extern struct req_format RQF_OSS_LADVISE;
 
 /* LDLM req_format */
 extern struct req_format RQF_LDLM_ENQUEUE;
@@ -328,6 +328,9 @@ extern struct req_msg_field RMF_FIEMAP_KEY;
 extern struct req_msg_field RMF_FIEMAP_VAL;
 extern struct req_msg_field RMF_OST_ID;
 
+extern struct req_msg_field RMF_OST_LADVISE_HDR;
+extern struct req_msg_field RMF_OST_LADVISE;
+
 /* MGS config read message format */
 extern struct req_msg_field RMF_MGS_CONFIG_BODY;
 extern struct req_msg_field RMF_MGS_CONFIG_RES;
@@ -344,9 +347,6 @@ extern struct req_msg_field RMF_OUT_UPDATE_BUF;
 /* LFSCK format */
 extern struct req_msg_field RMF_LFSCK_REQUEST;
 extern struct req_msg_field RMF_LFSCK_REPLY;
-
-extern struct req_msg_field RMF_OST_LADVISE_HDR;
-extern struct req_msg_field RMF_OST_LADVISE;
 /** @} req_layout */
 
 #endif /* _LUSTRE_REQ_LAYOUT_H__ */

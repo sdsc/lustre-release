@@ -861,14 +861,14 @@ void sptlrpc_req_set_flavor(struct ptlrpc_request *req, int opcode)
 
 	/* special security flags according to opcode */
         switch (opcode) {
-        case OST_READ:
+        case OSS_READ:
         case MDS_READPAGE:
         case MGS_CONFIG_READ:
 	case OBD_IDX_READ:
-                req->rq_bulk_read = 1;
-                break;
-        case OST_WRITE:
-        case MDS_WRITEPAGE:
+		req->rq_bulk_read = 1;
+		break;
+	case OSS_WRITE:
+	case MDS_WRITEPAGE:
                 req->rq_bulk_write = 1;
                 break;
         case SEC_CTX_INIT:

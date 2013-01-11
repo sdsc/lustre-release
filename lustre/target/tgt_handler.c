@@ -476,7 +476,7 @@ static int tgt_filter_recovery_request(struct ptlrpc_request *req,
 {
 	switch (lustre_msg_get_opc(req->rq_reqmsg)) {
 	case MDS_DISCONNECT:
-	case OST_DISCONNECT:
+	case OSS_DISCONNECT:
 	case OBD_IDX_READ:
 		*process = 1;
 		RETURN(0);
@@ -489,15 +489,12 @@ static int tgt_filter_recovery_request(struct ptlrpc_request *req,
 	case FLD_QUERY:
 	case FLD_READ:
 	case LDLM_ENQUEUE:
-	case OST_CREATE:
+	case OSS_CREATE:
 	case OST_DESTROY:
-	case OST_PUNCH:
-	case OST_SETATTR:
-	case OST_SYNC:
-	case OST_WRITE:
-	case MDS_HSM_PROGRESS:
-	case MDS_HSM_STATE_SET:
-	case MDS_HSM_REQUEST:
+	case OSS_PUNCH:
+	case OSS_SETATTR:
+	case OSS_SYNC:
+	case OSS_WRITE:
 		*process = target_queue_recovery_request(req, obd);
 		RETURN(0);
 
@@ -520,7 +517,7 @@ static int tgt_handle_recovery(struct ptlrpc_request *req, int reply_fail_id)
 
 	switch (lustre_msg_get_opc(req->rq_reqmsg)) {
 	case MDS_CONNECT:
-	case OST_CONNECT:
+	case OSS_CONNECT:
 	case MGS_CONNECT:
 	case SEC_CTX_INIT:
 	case SEC_CTX_INIT_CONT:
@@ -676,7 +673,7 @@ int tgt_request_handle(struct ptlrpc_request *req)
 
 	/* if request has export then get handlers slice from corresponding
 	 * target, otherwise that should be connect operation */
-	if (opc == MDS_CONNECT || opc == OST_CONNECT ||
+	if (opc == MDS_CONNECT || opc == OSS_CONNECT ||
 	    opc == MGS_CONNECT) {
 		is_connect = true;
 		req_capsule_set(&req->rq_pill, &RQF_CONNECT);
@@ -686,7 +683,7 @@ int tgt_request_handle(struct ptlrpc_request *req)
 			GOTO(out, rc);
 		}
 		/* recovery-small test 18c asks to drop connect reply */
-		if (unlikely(opc == OST_CONNECT &&
+		if (unlikely(opc == OSS_CONNECT &&
 			     OBD_FAIL_CHECK(OBD_FAIL_OST_CONNECT_NET2)))
 			GOTO(out, rc = 0);
 	}
@@ -1659,7 +1656,7 @@ static __u32 tgt_checksum_bulk(struct lu_target *tgt,
 	for (i = 0; i < desc->bd_iov_count; i++) {
 		/* corrupt the data before we compute the checksum, to
 		 * simulate a client->OST data error */
-		if (i == 0 && opc == OST_WRITE &&
+		if (i == 0 && opc == OSS_WRITE &&
 		    OBD_FAIL_CHECK(OBD_FAIL_OST_CHECKSUM_RECEIVE)) {
 			int off = BD_GET_KIOV(desc, i).kiov_offset &
 				~PAGE_MASK;
@@ -1687,7 +1684,7 @@ static __u32 tgt_checksum_bulk(struct lu_target *tgt,
 
 		 /* corrupt the data after we compute the checksum, to
 		 * simulate an OST->client data error */
-		if (i == 0 && opc == OST_READ &&
+		if (i == 0 && opc == OSS_READ &&
 		    OBD_FAIL_CHECK(OBD_FAIL_OST_CHECKSUM_SEND)) {
 			int off = BD_GET_KIOV(desc, i).kiov_offset
 			  & ~PAGE_MASK;
@@ -1732,7 +1729,7 @@ int tgt_brw_read(struct tgt_session_info *tsi)
 
 	ENTRY;
 
-	if (ptlrpc_req2svc(req)->srv_req_portal != OST_IO_PORTAL) {
+	if (ptlrpc_req2svc(req)->srv_req_portal != OSS_IO_PORTAL) {
 		CERROR("%s: deny read request from %s to portal %u\n",
 		       tgt_name(tsi->tsi_tgt),
 		       obd_export_nid2str(req->rq_export),
@@ -1807,7 +1804,7 @@ int tgt_brw_read(struct tgt_session_info *tsi)
 	desc = ptlrpc_prep_bulk_exp(req, npages, ioobj_max_brw_get(ioo),
 				    PTLRPC_BULK_PUT_SOURCE |
 					PTLRPC_BULK_BUF_KIOV,
-				    OST_BULK_PORTAL,
+				    OSS_BULK_PORTAL,
 				    &ptlrpc_bulk_kiov_nopin_ops);
 	if (desc == NULL)
 		GOTO(out_commitrw, rc = -ENOMEM);
@@ -1848,7 +1845,7 @@ int tgt_brw_read(struct tgt_session_info *tsi)
 		repbody->oa.o_flags = cksum_type_pack(cksum_type);
 		repbody->oa.o_valid = OBD_MD_FLCKSUM | OBD_MD_FLFLAGS;
 		repbody->oa.o_cksum = tgt_checksum_bulk(tsi->tsi_tgt, desc,
-							OST_READ, cksum_type);
+							OSS_READ, cksum_type);
 		CDEBUG(D_PAGE, "checksum at read origin: %x\n",
 		       repbody->oa.o_cksum);
 	} else {
@@ -1971,7 +1968,7 @@ int tgt_brw_write(struct tgt_session_info *tsi)
 
 	ENTRY;
 
-	if (ptlrpc_req2svc(req)->srv_req_portal != OST_IO_PORTAL) {
+	if (ptlrpc_req2svc(req)->srv_req_portal != OSS_IO_PORTAL) {
 		CERROR("%s: deny write request from %s to portal %u\n",
 		       tgt_name(tsi->tsi_tgt),
 		       obd_export_nid2str(req->rq_export),
@@ -2077,7 +2074,7 @@ int tgt_brw_write(struct tgt_session_info *tsi)
 
 	desc = ptlrpc_prep_bulk_exp(req, npages, ioobj_max_brw_get(ioo),
 				    PTLRPC_BULK_GET_SINK | PTLRPC_BULK_BUF_KIOV,
-				    OST_BULK_PORTAL,
+				    OSS_BULK_PORTAL,
 				    &ptlrpc_bulk_kiov_nopin_ops);
 	if (desc == NULL)
 		GOTO(skip_transfer, rc = -ENOMEM);
@@ -2107,7 +2104,7 @@ skip_transfer:
 		repbody->oa.o_flags &= ~OBD_FL_CKSUM_ALL;
 		repbody->oa.o_flags |= cksum_type_pack(cksum_type);
 		repbody->oa.o_cksum = tgt_checksum_bulk(tsi->tsi_tgt, desc,
-							OST_WRITE, cksum_type);
+							OSS_WRITE, cksum_type);
 		cksum_counter++;
 
 		if (unlikely(body->oa.o_cksum != repbody->oa.o_cksum)) {

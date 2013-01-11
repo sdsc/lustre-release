@@ -1722,7 +1722,7 @@ enum cl_fsync_mode {
 	/** discard all of dirty pages in a specific file range */
 	CL_FSYNC_DISCARD = 2,
 	/** start writeback and make sure they have reached storage before
-	 * return. OST_SYNC RPC must be issued and finished */
+	 * return. OSS_SYNC RPC must be issued and finished */
 	CL_FSYNC_ALL   = 3
 };
 

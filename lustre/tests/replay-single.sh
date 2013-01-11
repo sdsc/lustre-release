@@ -974,10 +974,18 @@ test_43() { # bug 2530
 
 	replay_barrier $SINGLEMDS
 
+<<<<<<< HEAD
 	# OBD_FAIL_OST_CREATE_NET 0x204
 	do_facet ost1 "lctl set_param fail_loc=0x80000204"
 	fail $SINGLEMDS
 	sleep 10
+=======
+    # OBD_FAIL_OSS_CREATE_NET 0x204
+    do_facet ost1 "lctl set_param fail_loc=0x80000204"
+    fail $SINGLEMDS
+    sleep 10
+    do_facet ost1 "lctl set_param fail_loc=0"
+>>>>>>> LU-3496 oss: rename OST_* RPC opcodes to OSS_*
 
 	return 0
 }
@@ -1104,10 +1112,17 @@ test_47() { # bug 2824
 	createmany -o $DIR/$tfile 20  ||
 		error "createmany create $DIR/$tfile failed"
 
+<<<<<<< HEAD
 	# OBD_FAIL_OST_CREATE_NET 0x204
 	fail ost1
 	do_facet ost1 "lctl set_param fail_loc=0x80000204"
 	client_up || error "client_up failed"
+=======
+    # OBD_FAIL_OSS_CREATE_NET 0x204
+    fail ost1
+    do_facet ost1 "lctl set_param fail_loc=0x80000204"
+    client_up || return 2
+>>>>>>> LU-3496 oss: rename OST_* RPC opcodes to OSS_*
 
 	# let the MDS discover the OST failure, attempt to recover, fail
 	# and recover again.

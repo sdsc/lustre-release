@@ -101,11 +101,11 @@ static bool nrs_orr_req_supported(struct nrs_orr_data *orrd,
 	 * XXX: nrs_orr_data::od_supp accessed unlocked.
 	 */
 	switch (opc) {
-	case OST_READ:
-		rc = orrd->od_supp & NOS_OST_READ;
+	case OSS_READ:
+		rc = orrd->od_supp & NOS_OSS_READ;
 		break;
-	case OST_WRITE:
-		rc = orrd->od_supp & NOS_OST_WRITE;
+	case OSS_WRITE:
+		rc = orrd->od_supp & NOS_OSS_WRITE;
 		break;
 	}
 
@@ -166,7 +166,7 @@ static int nrs_orr_key_fill(struct nrs_orr_data *orrd,
 	if (is_orr) {
 		int	rc;
 		/**
-		 * The request pill for OST_READ and OST_WRITE requests is
+		 * The request pill for OSS_READ and OSS_WRITE requests is
 		 * initialized in the ost_io service's
 		 * ptlrpc_service_ops::so_hpreq_handler, ost_io_hpreq_handler(),
 		 * so no need to redo it here.
@@ -332,14 +332,14 @@ static int nrs_orr_range_fill(struct ptlrpc_nrs_request *nrq,
 	nrs_orr_range_fill_logical(nb, niocount, &range);
 
 	/**
-	 * Obtain physical offsets if selected, and this is an OST_READ RPC
+	 * Obtain physical offsets if selected, and this is an OSS_READ RPC
 	 * RPC. We do not enter this block if moving_req is set which indicates
 	 * that the request is being moved to the high-priority NRS head by
 	 * ldlm_lock_reorder_req(), as that function calls in here while holding
 	 * a spinlock, and nrs_orr_range_physical() can sleep, so we just use
 	 * logical file offsets for the range values for such requests.
 	 */
-	if (orrd->od_physical && opc == OST_READ && !moving_req) {
+	if (orrd->od_physical && opc == OSS_READ && !moving_req) {
 		body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
 		if (body == NULL)
 			GOTO(out, rc = -EFAULT);
@@ -794,7 +794,7 @@ static int nrs_orr_ctl(struct ptlrpc_nrs_policy *policy,
 		struct nrs_orr_data	*orrd = policy->pol_private;
 
 		orrd->od_supp = *(enum nrs_orr_supp *)arg;
-		LASSERT((orrd->od_supp & NOS_OST_RW) != 0);
+		LASSERT((orrd->od_supp & NOS_OSS_RW) != 0);
 		}
 		break;
 	}
@@ -1625,11 +1625,11 @@ static const char *nrs_orr_supp2str(enum nrs_orr_supp supp)
 	switch(supp) {
 	default:
 		LBUG();
-	case NOS_OST_READ:
+	case NOS_OSS_READ:
 		return LPROCFS_NRS_SUPP_NAME_READS;
-	case NOS_OST_WRITE:
+	case NOS_OSS_WRITE:
 		return LPROCFS_NRS_SUPP_NAME_WRITES;
-	case NOS_OST_RW:
+	case NOS_OSS_RW:
 		return LPROCFS_NRS_SUPP_NAME_READWRITES;
 	}
 }
@@ -1641,13 +1641,13 @@ static enum nrs_orr_supp nrs_orr_str2supp(const char *val)
 {
 	if (strncmp(val, LPROCFS_NRS_SUPP_NAME_READWRITES,
 		    sizeof(LPROCFS_NRS_SUPP_NAME_READWRITES) - 1) == 0)
-		return NOS_OST_RW;
+		return NOS_OSS_RW;
 	else if (strncmp(val, LPROCFS_NRS_SUPP_NAME_READS,
 			 sizeof(LPROCFS_NRS_SUPP_NAME_READS) - 1) == 0)
-		return NOS_OST_READ;
+		return NOS_OSS_READ;
 	else if (strncmp(val, LPROCFS_NRS_SUPP_NAME_WRITES,
 			 sizeof(LPROCFS_NRS_SUPP_NAME_WRITES) - 1) == 0)
-		return NOS_OST_WRITE;
+		return NOS_OSS_WRITE;
 	else
 		return -EINVAL;
 }
@@ -1742,11 +1742,11 @@ no_hp:
  *
  * lctl set_param ost.OSS.ost_io.nrs_orr_supported=
  * "reg_supported:reads", to enable the ORR policy instance on the regular NRS
- * head of the ost_io service to handle OST_READ RPCs.
+ * head of the ost_io service to handle OSS_READ RPCs.
  *
  * lctl set_param ost.OSS.ost_io.nrs_trr_supported=reads_and_writes, to enable
  * the TRR policy instances on both the regular ang high priority NRS heads of
- * the ost_io service to use handle OST_READ and OST_WRITE RPCs.
+ * the ost_io service to use handle OSS_READ and OSS_WRITE RPCs.
  *
  * policy instances in the ptlrpc_nrs_pol_state::NRS_POL_STATE_STOPPED state are
  * are skipped later by nrs_orr_ctl().

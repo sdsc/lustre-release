@@ -655,7 +655,7 @@ static void osp_sync_send_new_rpc(struct osp_device *d,
 static struct ptlrpc_request *osp_sync_new_job(struct osp_device *d,
 					       struct llog_handle *llh,
 					       struct llog_rec_hdr *h,
-					       ost_cmd_t op,
+					       enum oss_rpc_opc op,
 					       const struct req_format *format)
 {
 	struct ptlrpc_request	*req;
@@ -674,7 +674,7 @@ static struct ptlrpc_request *osp_sync_new_job(struct osp_device *d,
 	if (req == NULL)
 		RETURN(ERR_PTR(-ENOMEM));
 
-	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, op);
+	rc = ptlrpc_request_pack(req, LUSTRE_OSS_VERSION, op);
 	if (rc) {
 		ptlrpc_req_finished(req);
 		return ERR_PTR(rc);
@@ -737,7 +737,7 @@ static int osp_sync_new_setattr_job(struct osp_device *d,
 		RETURN(1);
 	}
 
-	req = osp_sync_new_job(d, llh, h, OST_SETATTR, &RQF_OST_SETATTR);
+	req = osp_sync_new_job(d, llh, h, OSS_SETATTR, &RQF_OSS_SETATTR);
 	if (IS_ERR(req))
 		RETURN(PTR_ERR(req));
 
@@ -784,7 +784,7 @@ static int osp_sync_new_unlink_job(struct osp_device *d,
 	ENTRY;
 	LASSERT(h->lrh_type == MDS_UNLINK_REC);
 
-	req = osp_sync_new_job(d, llh, h, OST_DESTROY, &RQF_OST_DESTROY);
+	req = osp_sync_new_job(d, llh, h, OSS_DESTROY, &RQF_OSS_DESTROY);
 	if (IS_ERR(req))
 		RETURN(PTR_ERR(req));
 

@@ -1631,7 +1631,7 @@ int ptlrpc_hpreq_handler(struct ptlrpc_request *req)
 	/* Check for export to let only reconnects for not yet evicted
 	 * export to become a HP rpc. */
 	if ((req->rq_export != NULL) &&
-	    (opc == OBD_PING || opc == MDS_CONNECT || opc == OST_CONNECT))
+	    (opc == OBD_PING || opc == MDS_CONNECT || opc == OSS_CONNECT))
 		req->rq_ops = &ptlrpc_hpreq_common;
 
 	return 0;
@@ -1915,12 +1915,12 @@ ptlrpc_server_handle_req_in(struct ptlrpc_service_part *svcpt,
 
 	switch (lustre_msg_get_opc(req->rq_reqmsg)) {
 	case MDS_WRITEPAGE:
-	case OST_WRITE:
+	case OSS_WRITE:
 	case OUT_UPDATE:
 		req->rq_bulk_write = 1;
 		break;
 	case MDS_READPAGE:
-	case OST_READ:
+	case OSS_READ:
 	case MGS_CONFIG_READ:
 		req->rq_bulk_read = 1;
 		break;

@@ -66,48 +66,38 @@ void lustre_assert_wire_constants(void)
 	LASSERTF(DEAD_HANDLE_MAGIC == 0xdeadbeefcafebabeULL, "found 0x%.16llxULL\n",
 		 DEAD_HANDLE_MAGIC);
 	CLASSERT(MTI_NAME_MAXLEN == 64);
-	LASSERTF(OST_REPLY == 0, "found %lld\n",
-		 (long long)OST_REPLY);
-	LASSERTF(OST_GETATTR == 1, "found %lld\n",
-		 (long long)OST_GETATTR);
-	LASSERTF(OST_SETATTR == 2, "found %lld\n",
-		 (long long)OST_SETATTR);
-	LASSERTF(OST_READ == 3, "found %lld\n",
-		 (long long)OST_READ);
-	LASSERTF(OST_WRITE == 4, "found %lld\n",
-		 (long long)OST_WRITE);
-	LASSERTF(OST_CREATE == 5, "found %lld\n",
-		 (long long)OST_CREATE);
-	LASSERTF(OST_DESTROY == 6, "found %lld\n",
-		 (long long)OST_DESTROY);
-	LASSERTF(OST_GET_INFO == 7, "found %lld\n",
-		 (long long)OST_GET_INFO);
-	LASSERTF(OST_CONNECT == 8, "found %lld\n",
-		 (long long)OST_CONNECT);
-	LASSERTF(OST_DISCONNECT == 9, "found %lld\n",
-		 (long long)OST_DISCONNECT);
-	LASSERTF(OST_PUNCH == 10, "found %lld\n",
-		 (long long)OST_PUNCH);
-	LASSERTF(OST_OPEN == 11, "found %lld\n",
-		 (long long)OST_OPEN);
-	LASSERTF(OST_CLOSE == 12, "found %lld\n",
-		 (long long)OST_CLOSE);
-	LASSERTF(OST_STATFS == 13, "found %lld\n",
-		 (long long)OST_STATFS);
-	LASSERTF(OST_SYNC == 16, "found %lld\n",
-		 (long long)OST_SYNC);
-	LASSERTF(OST_SET_INFO == 17, "found %lld\n",
-		 (long long)OST_SET_INFO);
-	LASSERTF(OST_QUOTACHECK == 18, "found %lld\n",
-		 (long long)OST_QUOTACHECK);
-	LASSERTF(OST_QUOTACTL == 19, "found %lld\n",
-		 (long long)OST_QUOTACTL);
-	LASSERTF(OST_QUOTA_ADJUST_QUNIT == 20, "found %lld\n",
-		 (long long)OST_QUOTA_ADJUST_QUNIT);
-	LASSERTF(OST_LADVISE == 21, "found %lld\n",
-		 (long long)OST_LADVISE);
-	LASSERTF(OST_LAST_OPC == 22, "found %lld\n",
-		 (long long)OST_LAST_OPC);
+	LASSERTF(OSS_GETATTR == 1, "found %lld\n",
+		 (long long)OSS_GETATTR);
+	LASSERTF(OSS_SETATTR == 2, "found %lld\n",
+		 (long long)OSS_SETATTR);
+	LASSERTF(OSS_READ == 3, "found %lld\n",
+		 (long long)OSS_READ);
+	LASSERTF(OSS_WRITE == 4, "found %lld\n",
+		 (long long)OSS_WRITE);
+	LASSERTF(OSS_CREATE == 5, "found %lld\n",
+		 (long long)OSS_CREATE);
+	LASSERTF(OSS_DESTROY == 6, "found %lld\n",
+		 (long long)OSS_DESTROY);
+	LASSERTF(OSS_GET_INFO == 7, "found %lld\n",
+		 (long long)OSS_GET_INFO);
+	LASSERTF(OSS_CONNECT == 8, "found %lld\n",
+		 (long long)OSS_CONNECT);
+	LASSERTF(OSS_DISCONNECT == 9, "found %lld\n",
+		 (long long)OSS_DISCONNECT);
+	LASSERTF(OSS_PUNCH == 10, "found %lld\n",
+		 (long long)OSS_PUNCH);
+	LASSERTF(OSS_STATFS == 13, "found %lld\n",
+		 (long long)OSS_STATFS);
+	LASSERTF(OSS_SYNC == 16, "found %lld\n",
+		 (long long)OSS_SYNC);
+	LASSERTF(OSS_SET_INFO == 17, "found %lld\n",
+		 (long long)OSS_SET_INFO);
+	LASSERTF(OSS_QUOTACTL == 19, "found %lld\n",
+		 (long long)OSS_QUOTACTL);
+	LASSERTF(OSS_LAST_OPC == 20, "found %lld\n",
+		 (long long)OSS_LAST_OPC);
+	LASSERTF(OSS_LADVISE == 21, "found %lld\n",
+		 (long long)OSS_LADVISE);
 	LASSERTF(OBD_OBJECT_EOF == 0xffffffffffffffffULL, "found 0x%.16llxULL\n",
 		 OBD_OBJECT_EOF);
 	LASSERTF(OST_MIN_PRECREATE == 32, "found %lld\n",
@@ -342,8 +332,6 @@ void lustre_assert_wire_constants(void)
 		 (long long)OBD_PING);
 	LASSERTF(OBD_LOG_CANCEL == 401, "found %lld\n",
 		 (long long)OBD_LOG_CANCEL);
-	LASSERTF(OBD_QC_CALLBACK == 402, "found %lld\n",
-		 (long long)OBD_QC_CALLBACK);
 	LASSERTF(OBD_IDX_READ == 403, "found %lld\n",
 		 (long long)OBD_IDX_READ);
 	LASSERTF(OBD_LAST_OPC == 404, "found %lld\n",
@@ -898,8 +886,8 @@ void lustre_assert_wire_constants(void)
 		LUSTRE_OBD_VERSION);
 	LASSERTF(LUSTRE_MDS_VERSION == 0x00020000, "found 0x%.8x\n",
 		LUSTRE_MDS_VERSION);
-	LASSERTF(LUSTRE_OST_VERSION == 0x00030000, "found 0x%.8x\n",
-		LUSTRE_OST_VERSION);
+	LASSERTF(LUSTRE_OSS_VERSION == 0x00030000, "found 0x%.8x\n",
+		LUSTRE_OSS_VERSION);
 	LASSERTF(LUSTRE_DLM_VERSION == 0x00040000, "found 0x%.8x\n",
 		LUSTRE_DLM_VERSION);
 	LASSERTF(LUSTRE_LOG_VERSION == 0x00050000, "found 0x%.8x\n",

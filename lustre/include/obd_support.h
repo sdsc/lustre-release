@@ -279,22 +279,20 @@ extern char obd_jobid_var[];
 #define OBD_FAIL_OSD_OST_EA_FID_SET			0x197
 
 #define OBD_FAIL_OST                     0x200
-#define OBD_FAIL_OST_CONNECT_NET         0x201
-#define OBD_FAIL_OST_DISCONNECT_NET      0x202
-#define OBD_FAIL_OST_GET_INFO_NET        0x203
-#define OBD_FAIL_OST_CREATE_NET          0x204
-#define OBD_FAIL_OST_DESTROY_NET         0x205
-#define OBD_FAIL_OST_GETATTR_NET         0x206
-#define OBD_FAIL_OST_SETATTR_NET         0x207
-#define OBD_FAIL_OST_OPEN_NET            0x208
-#define OBD_FAIL_OST_CLOSE_NET           0x209
-#define OBD_FAIL_OST_BRW_NET             0x20a
-#define OBD_FAIL_OST_PUNCH_NET           0x20b
-#define OBD_FAIL_OST_STATFS_NET          0x20c
+#define OBD_FAIL_OSS_CONNECT_NET         0x201
+#define OBD_FAIL_OSS_DISCONNECT_NET      0x202
+#define OBD_FAIL_OSS_GET_INFO_NET        0x203
+#define OBD_FAIL_OSS_CREATE_NET          0x204
+#define OBD_FAIL_OSS_DESTROY_NET         0x205
+#define OBD_FAIL_OSS_GETATTR_NET         0x206
+#define OBD_FAIL_OSS_SETATTR_NET         0x207
+#define OBD_FAIL_OSS_BRW_NET             0x20a
+#define OBD_FAIL_OSS_PUNCH_NET           0x20b
+#define OBD_FAIL_OSS_STATFS_NET          0x20c
 #define OBD_FAIL_OST_HANDLE_UNPACK       0x20d
 #define OBD_FAIL_OST_BRW_WRITE_BULK      0x20e
 #define OBD_FAIL_OST_BRW_READ_BULK       0x20f
-#define OBD_FAIL_OST_SYNC_NET            0x210
+#define OBD_FAIL_OSS_SYNC_NET            0x210
 #define OBD_FAIL_OST_ALL_REPLY_NET       0x211
 #define OBD_FAIL_OST_ALL_REQUEST_NET     0x212
 #define OBD_FAIL_OST_LDLM_REPLY_NET      0x213
@@ -303,7 +301,7 @@ extern char obd_jobid_var[];
 #define OBD_FAIL_OST_EROFS               0x216
 #define OBD_FAIL_SRV_ENOENT              0x217
 /*	OBD_FAIL_OST_QUOTACHECK_NET      0x218 obsolete since 2.4 */
-#define OBD_FAIL_OST_QUOTACTL_NET        0x219
+#define OBD_FAIL_OSS_QUOTACTL_NET        0x219
 #define OBD_FAIL_OST_CHECKSUM_RECEIVE    0x21a
 #define OBD_FAIL_OST_CHECKSUM_SEND       0x21b
 #define OBD_FAIL_OST_BRW_SIZE            0x21c
@@ -321,8 +319,8 @@ extern char obd_jobid_var[];
 #define OBD_FAIL_OST_MAPBLK_ENOSPC       0x228
 #define OBD_FAIL_OST_ENOINO              0x229
 #define OBD_FAIL_OST_DQACQ_NET           0x230
-#define OBD_FAIL_OST_STATFS_EINPROGRESS  0x231
-#define OBD_FAIL_OST_SET_INFO_NET        0x232
+#define OBD_FAIL_OSS_STATFS_EINPROGRESS  0x231
+#define OBD_FAIL_OSS_SET_INFO_NET        0x232
 #define OBD_FAIL_OST_NODESTROY		 0x233
 #define OBD_FAIL_OST_READ_SIZE		 0x234
 #define OBD_FAIL_OST_LADVISE_NET	 0x235

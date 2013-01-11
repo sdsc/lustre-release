@@ -885,7 +885,7 @@ out_name:
 }
 
 /**
- * OFD request handler for OST_SET_INFO RPC.
+ * OFD request handler for OSS_SET_INFO RPC.
  *
  * This is OFD-specific part of request handling
  *
@@ -924,7 +924,7 @@ static int ofd_set_info_hdl(struct tgt_session_info *tsi)
 	if (is_grant_shrink)
 		/* In this case the value is actually an RMF_OST_BODY, so we
 		 * transmutate the type of this PTLRPC */
-		req_capsule_extend(tsi->tsi_pill, &RQF_OST_SET_GRANT_INFO);
+		req_capsule_extend(tsi->tsi_pill, &RQF_OSS_SET_GRANT_INFO);
 
 	rc = req_capsule_server_pack(tsi->tsi_pill);
 	if (rc < 0)
@@ -1116,7 +1116,7 @@ unlock_zero_regions(struct ldlm_namespace *ns, struct list_head *locked)
 }
 
 /**
- * OFD request handler for OST_GET_INFO RPC.
+ * OFD request handler for OSS_GET_INFO RPC.
  *
  * This is OFD-specific part of request handling. The OFD-specific keys are:
  * - KEY_LAST_ID (obsolete)
@@ -1157,7 +1157,7 @@ static int ofd_get_info_hdl(struct tgt_session_info *tsi)
 		u64		*last_id;
 		struct ofd_seq	*oseq;
 
-		req_capsule_extend(tsi->tsi_pill, &RQF_OST_GET_INFO_LAST_ID);
+		req_capsule_extend(tsi->tsi_pill, &RQF_OSS_GET_INFO_LAST_ID);
 		rc = req_capsule_server_pack(tsi->tsi_pill);
 		if (rc)
 			RETURN(err_serious(rc));
@@ -1176,7 +1176,7 @@ static int ofd_get_info_hdl(struct tgt_session_info *tsi)
 		struct fiemap			*fiemap;
 		struct lu_fid			*fid;
 
-		req_capsule_extend(tsi->tsi_pill, &RQF_OST_GET_INFO_FIEMAP);
+		req_capsule_extend(tsi->tsi_pill, &RQF_OSS_GET_INFO_FIEMAP);
 
 		fm_key = req_capsule_client_get(tsi->tsi_pill, &RMF_FIEMAP_KEY);
 		rc = tgt_validate_obdo(tsi, &fm_key->lfik_oa);
@@ -1227,7 +1227,7 @@ static int ofd_get_info_hdl(struct tgt_session_info *tsi)
 		struct lu_fid		*fid;
 		int			 rc;
 
-		req_capsule_extend(tsi->tsi_pill, &RQF_OST_GET_INFO_LAST_FID);
+		req_capsule_extend(tsi->tsi_pill, &RQF_OSS_GET_INFO_LAST_FID);
 		rc = req_capsule_server_pack(tsi->tsi_pill);
 		if (rc)
 			RETURN(err_serious(rc));
@@ -1268,7 +1268,7 @@ out_put:
 }
 
 /**
- * OFD request handler for OST_GETATTR RPC.
+ * OFD request handler for OSS_GETATTR RPC.
  *
  * This is OFD-specific part of request handling. It finds the OFD object
  * by its FID, gets attributes from storage and packs result to the reply.
@@ -1349,7 +1349,7 @@ out:
 }
 
 /**
- * OFD request handler for OST_SETATTR RPC.
+ * OFD request handler for OSS_SETATTR RPC.
  *
  * This is OFD-specific part of request handling. It finds the OFD object
  * by its FID, sets attributes from request and packs result to the reply.
@@ -1445,7 +1445,7 @@ out:
 /**
  * Destroy OST orphans.
  *
- * This is part of OST_CREATE RPC handling. If there is flag OBD_FL_DELORPHAN
+ * This is part of OSS_CREATE RPC handling. If there is flag OBD_FL_DELORPHAN
  * set then we must destroy possible orphaned objects.
  *
  * \param[in] env	execution environment
@@ -1538,7 +1538,7 @@ out_put:
 }
 
 /**
- * OFD request handler for OST_CREATE RPC.
+ * OFD request handler for OSS_CREATE RPC.
  *
  * This is OFD-specific part of request handling. Its main purpose is to
  * create new data objects on OST, but it also used to destroy orphans.
@@ -1810,7 +1810,7 @@ out_sem:
 }
 
 /**
- * OFD request handler for OST_DESTROY RPC.
+ * OFD request handler for OSS_DESTROY RPC.
  *
  * This is OFD-specific part of request handling. It destroys data objects
  * related to destroyed object on MDT.
@@ -1898,7 +1898,7 @@ out:
 }
 
 /**
- * OFD request handler for OST_STATFS RPC.
+ * OFD request handler for OSS_STATFS RPC.
  *
  * This function gets statfs data from storage as part of request
  * processing.
@@ -1923,7 +1923,7 @@ static int ofd_statfs_hdl(struct tgt_session_info *tsi)
 		CERROR("%s: statfs failed: rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), rc);
 
-	if (OBD_FAIL_CHECK(OBD_FAIL_OST_STATFS_EINPROGRESS))
+	if (OBD_FAIL_CHECK(OBD_FAIL_OSS_STATFS_EINPROGRESS))
 		rc = -EINPROGRESS;
 
 	ofd_counter_incr(tsi->tsi_exp, LPROC_OFD_STATS_STATFS,
@@ -1933,7 +1933,7 @@ static int ofd_statfs_hdl(struct tgt_session_info *tsi)
 }
 
 /**
- * OFD request handler for OST_SYNC RPC.
+ * OFD request handler for OSS_SYNC RPC.
  *
  * Sync object data or all filesystem data to the disk and pack the
  * result in reply.
@@ -1992,7 +1992,7 @@ put:
 }
 
 /**
- * OFD request handler for OST_PUNCH RPC.
+ * OFD request handler for OSS_PUNCH RPC.
  *
  * This is part of request processing. Validate request fields,
  * punch (truncate) the given OFD object and pack reply.
@@ -2165,7 +2165,7 @@ out_unlock:
 }
 
 /**
- * OFD request handler for OST_LADVISE RPC.
+ * OFD request handler for OSS_LADVISE RPC.
  *
  * Tune cache or perfetch policies according to advices.
  *
@@ -2283,7 +2283,7 @@ static int ofd_ladvise_hdl(struct tgt_session_info *tsi)
 }
 
 /**
- * OFD request handler for OST_QUOTACTL RPC.
+ * OFD request handler for OSS_QUOTACTL RPC.
  *
  * This is part of request processing to validate incoming request fields,
  * get the requested data from OSD and pack reply.
@@ -2470,11 +2470,9 @@ static int ofd_rw_hpreq_lock_match(struct ptlrpc_request *req,
 	if (!ostid_res_name_eq(&ioo->ioo_oid, &lock->l_resource->lr_name))
 		RETURN(0);
 
-	/* a bulk write can only hold a reference on a PW extent lock
-	 * or GROUP lock.
-	 */
+	/* bulk write can only hold a reference on a PW extent or GROUP lock */
 	mode = LCK_PW | LCK_GROUP;
-	if (opc == OST_READ)
+	if (opc == OSS_READ)
 		/* whereas a bulk read can be protected by either a PR or PW
 		 * extent lock */
 		mode |= LCK_PR;
@@ -2564,7 +2562,7 @@ static void ofd_rw_hpreq_fini(struct ptlrpc_request *req)
 }
 
 /**
- * Implementation of ptlrpc_hpreq_ops::hpreq_lock_match for OST_PUNCH request.
+ * Implementation of ptlrpc_hpreq_ops::hpreq_lock_match for OSS_PUNCH request.
  *
  * This function checks if the given lock is the same by its resname, mode
  * and extent as one taken from the request.
@@ -2614,7 +2612,7 @@ static int ofd_punch_hpreq_lock_match(struct ptlrpc_request *req,
 }
 
 /**
- * Implementation of ptlrpc_hpreq_ops::hpreq_lock_check for OST_PUNCH request.
+ * Implementation of ptlrpc_hpreq_ops::hpreq_lock_check for OSS_PUNCH request.
  *
  * High-priority queue request check for whether the given punch request
  * (\a req) is blocking an LDLM lock cancel. Also checks whether the request is
@@ -2666,7 +2664,7 @@ static int ofd_punch_hpreq_check(struct ptlrpc_request *req)
 }
 
 /**
- * Implementation of ptlrpc_hpreq_ops::hpreq_lock_fini for OST_PUNCH request.
+ * Implementation of ptlrpc_hpreq_ops::hpreq_lock_fini for OSS_PUNCH request.
  *
  * Called after the request has been handled. It refreshes lock timeout again
  * so that client has more time to send lock cancel RPC.
@@ -2742,10 +2740,10 @@ static void ofd_hp_punch(struct tgt_session_info *tsi)
 	tgt_ses_req(tsi)->rq_ops = &ofd_hpreq_punch;
 }
 
-#define OBD_FAIL_OST_READ_NET	OBD_FAIL_OST_BRW_NET
-#define OBD_FAIL_OST_WRITE_NET	OBD_FAIL_OST_BRW_NET
-#define OST_BRW_READ	OST_READ
-#define OST_BRW_WRITE	OST_WRITE
+#define OBD_FAIL_OSS_READ_NET	OBD_FAIL_OSS_BRW_NET
+#define OBD_FAIL_OSS_WRITE_NET	OBD_FAIL_OSS_BRW_NET
+#define OSS_BRW_READ	OSS_READ
+#define OSS_BRW_WRITE	OSS_WRITE
 
 /**
  * Table of OFD-specific request handlers
@@ -2756,42 +2754,42 @@ static void ofd_hp_punch(struct tgt_session_info *tsi)
  * requests.
  */
 static struct tgt_handler ofd_tgt_handlers[] = {
-TGT_RPC_HANDLER(OST_FIRST_OPC,
-		0,			OST_CONNECT,	tgt_connect,
+TGT_RPC_HANDLER(OSS_FIRST_OPC,
+		0,			OSS_CONNECT,	tgt_connect,
 		&RQF_CONNECT, LUSTRE_OBD_VERSION),
-TGT_RPC_HANDLER(OST_FIRST_OPC,
-		0,			OST_DISCONNECT,	tgt_disconnect,
-		&RQF_OST_DISCONNECT, LUSTRE_OBD_VERSION),
-TGT_RPC_HANDLER(OST_FIRST_OPC,
-		0,			OST_SET_INFO,	ofd_set_info_hdl,
-		&RQF_OBD_SET_INFO, LUSTRE_OST_VERSION),
-TGT_OST_HDL(0,				OST_GET_INFO,	ofd_get_info_hdl),
-TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO,	OST_GETATTR,	ofd_getattr_hdl),
+TGT_RPC_HANDLER(OSS_FIRST_OPC,
+		0,			OSS_DISCONNECT,	tgt_disconnect,
+		&RQF_OSS_DISCONNECT, LUSTRE_OBD_VERSION),
+TGT_RPC_HANDLER(OSS_FIRST_OPC,
+		0,			OSS_SET_INFO,	ofd_set_info_hdl,
+		&RQF_OBD_SET_INFO, LUSTRE_OSS_VERSION),
+TGT_OST_HDL(0,				OSS_GET_INFO,	ofd_get_info_hdl),
+TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO,	OSS_GETATTR,	ofd_getattr_hdl),
 TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO | MUTABOR,
-					OST_SETATTR,	ofd_setattr_hdl),
+					OSS_SETATTR,	ofd_setattr_hdl),
 TGT_OST_HDL(0		| HABEO_REFERO | MUTABOR,
-					OST_CREATE,	ofd_create_hdl),
+					OSS_CREATE,	ofd_create_hdl),
 TGT_OST_HDL(0		| HABEO_REFERO | MUTABOR,
-					OST_DESTROY,	ofd_destroy_hdl),
-TGT_OST_HDL(0		| HABEO_REFERO,	OST_STATFS,	ofd_statfs_hdl),
+					OSS_DESTROY,	ofd_destroy_hdl),
+TGT_OST_HDL(0		| HABEO_REFERO,	OSS_STATFS,	ofd_statfs_hdl),
 TGT_OST_HDL_HP(HABEO_CORPUS| HABEO_REFERO,
-					OST_BRW_READ,	tgt_brw_read,
+					OSS_BRW_READ,	tgt_brw_read,
 							ofd_hp_brw),
 /* don't set CORPUS flag for brw_write because -ENOENT may be valid case */
-TGT_OST_HDL_HP(HABEO_CORPUS| MUTABOR,	OST_BRW_WRITE,	tgt_brw_write,
+TGT_OST_HDL_HP(HABEO_CORPUS| MUTABOR,	OSS_BRW_WRITE,	tgt_brw_write,
 							ofd_hp_brw),
 TGT_OST_HDL_HP(HABEO_CORPUS| HABEO_REFERO | MUTABOR,
-					OST_PUNCH,	ofd_punch_hdl,
+					OSS_PUNCH,	ofd_punch_hdl,
 							ofd_hp_punch),
-TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO,	OST_SYNC,	ofd_sync_hdl),
-TGT_OST_HDL(0		| HABEO_REFERO,	OST_QUOTACTL,	ofd_quotactl),
-TGT_OST_HDL(HABEO_CORPUS | HABEO_REFERO, OST_LADVISE,	ofd_ladvise_hdl),
+TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO,	OSS_SYNC,	ofd_sync_hdl),
+TGT_OST_HDL(0		| HABEO_REFERO,	OSS_QUOTACTL,	ofd_quotactl),
+TGT_OST_HDL(HABEO_CORPUS | HABEO_REFERO, OSS_LADVISE,	ofd_ladvise_hdl),
 };
 
 static struct tgt_opc_slice ofd_common_slice[] = {
 	{
-		.tos_opc_start	= OST_FIRST_OPC,
-		.tos_opc_end	= OST_LAST_OPC,
+		.tos_opc_start	= OSS_FIRST_OPC,
+		.tos_opc_end	= OSS_LAST_OPC,
 		.tos_hs		= ofd_tgt_handlers
 	},
 	{

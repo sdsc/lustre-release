@@ -2865,7 +2865,7 @@ static int ll_flush(struct file *file, fl_owner_t id)
 
 /**
  * Called to make sure a portion of file has been written out.
- * if @mode is not CL_FSYNC_LOCAL, it will send OST_SYNC RPCs to OST.
+ * if @mode is not CL_FSYNC_LOCAL, it will send OSS_SYNC RPCs to OST.
  *
  * Return how many pages have been written.
  */

@@ -918,7 +918,7 @@ int lprocfs_import_seq_show(struct seq_file *m, void *data)
 				   ret.lc_sum);
 		}
 		k = (int)ret.lc_sum;
-		j = opcode_offset(OST_READ + rw) + EXTRA_MAX_OPCODES;
+		j = opcode_offset(OSS_READ + rw) + EXTRA_MAX_OPCODES;
 		header = &obd->obd_svc_stats->ls_cnt_header[j];
 		lprocfs_stats_collect(obd->obd_svc_stats, j, &ret);
 		if (ret.lc_sum > 0 && ret.lc_count != 0) {

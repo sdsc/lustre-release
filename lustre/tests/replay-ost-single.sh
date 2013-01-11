@@ -380,7 +380,7 @@ test_8e() {
 	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
 		{ skip "Need MDS version at least 2.3.0"; return; }
 	sleep 1 # ensure we have a fresh statfs
-	#define OBD_FAIL_OST_STATFS_EINPROGRESS 0x231
+	#define OBD_FAIL_OSS_STATFS_EINPROGRESS 0x231
 	do_facet ost1 "lctl set_param fail_loc=0x231"
 	$LFS df $MOUNT &
 	dfpid=$!

@@ -1476,7 +1476,7 @@ reset_enospc() {
 	[ "$OSTIDX" ] && list=$(facet_host ost$((OSTIDX + 1)))
 
 	do_nodes $list lctl set_param fail_loc=0
-	sync	# initiate all OST_DESTROYs from MDS to OST
+	sync	# initiate all OSS_DESTROYs from MDS to OSS
 	sleep_maxage
 }
 

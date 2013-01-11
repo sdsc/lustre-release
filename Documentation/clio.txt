@@ -728,7 +728,7 @@ lock's extent as parameters. To find the pages covered by a LDLM lock,
 LDLM lock stores a pointer to osc_object in its l_ast_data.
 
 In osc_cache_writeback_range(), it will check if there exist dirty pages for
-the extent of this lock. If that is the case, an OST_WRITE RPC will be issued
+the extent of this lock. If that is the case, an OSS_WRITE RPC will be issued
 to write the dirty pages back.
 
 Once all pages are written, they are removed from radix-trees and destroyed.
