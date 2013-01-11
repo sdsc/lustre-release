@@ -46,30 +46,30 @@
 
 
 static struct ll_rpc_opcode {
-     __u32       opcode;
-     const char *opname;
+	__u32       opcode;
+	const char *opname;
 } ll_rpc_opcode_table[LUSTRE_MAX_OPCODES] = {
-        { OST_REPLY,        "ost_reply" },
-        { OST_GETATTR,      "ost_getattr" },
-        { OST_SETATTR,      "ost_setattr" },
-        { OST_READ,         "ost_read" },
-        { OST_WRITE,        "ost_write" },
-        { OST_CREATE ,      "ost_create" },
-        { OST_DESTROY,      "ost_destroy" },
-        { OST_GET_INFO,     "ost_get_info" },
-        { OST_CONNECT,      "ost_connect" },
-        { OST_DISCONNECT,   "ost_disconnect" },
-        { OST_PUNCH,        "ost_punch" },
-        { OST_OPEN,         "ost_open" },
-        { OST_CLOSE,        "ost_close" },
-        { OST_STATFS,       "ost_statfs" },
-        { 14,                NULL },    /* formerly OST_SAN_READ */
-        { 15,                NULL },    /* formerly OST_SAN_WRITE */
-        { OST_SYNC,         "ost_sync" },
-        { OST_SET_INFO,     "ost_set_info" },
-        { OST_QUOTACHECK,   "ost_quotacheck" },
-        { OST_QUOTACTL,     "ost_quotactl" },
-        { OST_QUOTA_ADJUST_QUNIT, "ost_quota_adjust_qunit" },
+	{ OSS_REPLY,			"oss_reply" },
+	{ OSS_GETATTR,			"oss_getattr" },
+	{ OSS_SETATTR,			"oss_setattr" },
+	{ OSS_READ,			"oss_read" },
+	{ OSS_WRITE,			"oss_write" },
+	{ OSS_CREATE,			"oss_create" },
+	{ OSS_DESTROY,			"oss_destroy" },
+	{ OSS_GET_INFO,			"oss_get_info" },
+	{ OSS_CONNECT,			"oss_connect" },
+	{ OSS_DISCONNECT,		"oss_disconnect" },
+	{ OSS_PUNCH,			"oss_punch" },
+	{ OSS_OPEN,			"oss_open" },
+	{ OSS_CLOSE,			"oss_close" },
+	{ OSS_STATFS,			"oss_statfs" },
+	{ 14, /* was OSS_SAN_READ */	NULL },
+	{ 15, /* was OSS_SAN_WRITE */	NULL },
+	{ OSS_SYNC,			"oss_sync" },
+	{ OSS_SET_INFO,			"oss_set_info" },
+	{ OSS_QUOTACHECK,		"oss_quotacheck" },
+	{ OSS_QUOTACTL,			"oss_quotactl" },
+	{ OSS_QUOTA_ADJUST_QUNIT,	"oss_quota_adjust_qunit" },
         { MDS_GETATTR,      "mds_getattr" },
         { MDS_GETATTR_NAME, "mds_getattr_lock" },
         { MDS_CLOSE,        "mds_close" },
@@ -1148,12 +1148,12 @@ void ptlrpc_lprocfs_brw(struct ptlrpc_request *req, int bytes)
                 return;
         idx = lustre_msg_get_opc(req->rq_reqmsg);
         switch (idx) {
-        case OST_READ:
-                idx = BRW_READ_BYTES + PTLRPC_LAST_CNTR;
-                break;
-        case OST_WRITE:
-                idx = BRW_WRITE_BYTES + PTLRPC_LAST_CNTR;
-                break;
+	case OSS_READ:
+		idx = BRW_READ_BYTES + PTLRPC_LAST_CNTR;
+		break;
+	case OSS_WRITE:
+		idx = BRW_WRITE_BYTES + PTLRPC_LAST_CNTR;
+		break;
         default:
                 LASSERTF(0, "unsupported opcode %u\n", idx);
                 break;

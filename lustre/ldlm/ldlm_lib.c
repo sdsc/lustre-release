@@ -271,9 +271,9 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
         /* In a more perfect world, we would hang a ptlrpc_client off of
          * obd_type and just use the values from there. */
 	if (!strcmp(name, LUSTRE_OSC_NAME)) {
-		rq_portal = OST_REQUEST_PORTAL;
+		rq_portal = OSS_REQUEST_PORTAL;
 		rp_portal = OSC_REPLY_PORTAL;
-		connect_op = OST_CONNECT;
+		connect_op = OSS_CONNECT;
 		cli->cl_sp_me = LUSTRE_SP_CLI;
 		cli->cl_sp_to = LUSTRE_SP_OST;
 		ns_type = LDLM_NS_TYPE_OSC;
@@ -294,10 +294,10 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
 			rq_portal = OUT_PORTAL;
 		} else {
 			/* OSP on MDT for OST */
-			connect_op = OST_CONNECT;
+			connect_op = OSS_CONNECT;
 			cli->cl_sp_to = LUSTRE_SP_OST;
 			ns_type = LDLM_NS_TYPE_OSC;
-			rq_portal = OST_REQUEST_PORTAL;
+			rq_portal = OSS_REQUEST_PORTAL;
 		}
 		rp_portal = OSC_REPLY_PORTAL;
 		cli->cl_sp_me = LUSTRE_SP_CLI;

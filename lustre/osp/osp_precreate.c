@@ -182,17 +182,17 @@ static int osp_statfs_update(struct osp_device *d)
 	imp = d->opd_obd->u.cli.cl_import;
 	LASSERT(imp);
 
-	req = ptlrpc_request_alloc(imp, &RQF_OST_STATFS);
+	req = ptlrpc_request_alloc(imp, &RQF_OSS_STATFS);
 	if (req == NULL)
 		RETURN(-ENOMEM);
 
-	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_STATFS);
+	rc = ptlrpc_request_pack(req, LUSTRE_OSS_VERSION, OSS_STATFS);
 	if (rc) {
 		ptlrpc_request_free(req);
 		RETURN(rc);
 	}
 	ptlrpc_request_set_replen(req);
-	req->rq_request_portal = OST_CREATE_PORTAL;
+	req->rq_request_portal = OSS_CREATE_PORTAL;
 	ptlrpc_at_set_req_timeout(req);
 
 	req->rq_interpret_reply = (ptlrpc_interpterer_t)osp_statfs_interpret;
@@ -559,15 +559,15 @@ static int osp_precreate_send(const struct lu_env *env, struct osp_device *d)
 	imp = d->opd_obd->u.cli.cl_import;
 	LASSERT(imp);
 
-	req = ptlrpc_request_alloc(imp, &RQF_OST_CREATE);
+	req = ptlrpc_request_alloc(imp, &RQF_OSS_CREATE);
 	if (req == NULL)
 		RETURN(-ENOMEM);
-	req->rq_request_portal = OST_CREATE_PORTAL;
+	req->rq_request_portal = OSS_CREATE_PORTAL;
 	/* we should not resend create request - anyway we will have delorphan
 	 * and kill these objects */
 	req->rq_no_delay = req->rq_no_resend = 1;
 
-	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_CREATE);
+	rc = ptlrpc_request_pack(req, LUSTRE_OSS_VERSION, OSS_CREATE);
 	if (rc) {
 		ptlrpc_request_free(req);
 		RETURN(rc);
@@ -686,14 +686,14 @@ static int osp_get_lastfid_from_ost(const struct lu_env *env,
 	imp = d->opd_obd->u.cli.cl_import;
 	LASSERT(imp);
 
-	req = ptlrpc_request_alloc(imp, &RQF_OST_GET_INFO_LAST_FID);
+	req = ptlrpc_request_alloc(imp, &RQF_OSS_GET_INFO_LAST_FID);
 	if (req == NULL)
 		RETURN(-ENOMEM);
 
 	req_capsule_set_size(&req->rq_pill, &RMF_GETINFO_KEY, RCL_CLIENT,
 			     sizeof(KEY_LAST_FID));
 
-	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_GET_INFO);
+	rc = ptlrpc_request_pack(req, LUSTRE_OSS_VERSION, OSS_GET_INFO);
 	if (rc) {
 		ptlrpc_request_free(req);
 		RETURN(rc);
@@ -817,11 +817,11 @@ static int osp_precreate_cleanup_orphans(struct lu_env *env,
 	imp = d->opd_obd->u.cli.cl_import;
 	LASSERT(imp);
 
-	req = ptlrpc_request_alloc(imp, &RQF_OST_CREATE);
+	req = ptlrpc_request_alloc(imp, &RQF_OSS_CREATE);
 	if (req == NULL)
 		GOTO(out, rc = -ENOMEM);
 
-	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_CREATE);
+	rc = ptlrpc_request_pack(req, LUSTRE_OSS_VERSION, OSS_CREATE);
 	if (rc) {
 		ptlrpc_request_free(req);
 		req = NULL;
@@ -1462,13 +1462,13 @@ int osp_object_truncate(const struct lu_env *env, struct dt_object *dt,
 	imp = d->opd_obd->u.cli.cl_import;
 	LASSERT(imp);
 
-	req = ptlrpc_request_alloc(imp, &RQF_OST_PUNCH);
+	req = ptlrpc_request_alloc(imp, &RQF_OSS_PUNCH);
 	if (req == NULL)
 		RETURN(-ENOMEM);
 
 	/* XXX: capa support? */
 	/* osc_set_capa_size(req, &RMF_CAPA1, capa); */
-	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_PUNCH);
+	rc = ptlrpc_request_pack(req, LUSTRE_OSS_VERSION, OSS_PUNCH);
 	if (rc) {
 		ptlrpc_request_free(req);
 		RETURN(rc);
@@ -1481,7 +1481,7 @@ int osp_object_truncate(const struct lu_env *env, struct dt_object *dt,
 	 */
 	req->rq_no_resend = req->rq_no_delay = 1;
 
-	req->rq_request_portal = OST_IO_PORTAL; /* bug 7198 */
+	req->rq_request_portal = OSS_IO_PORTAL; /* bug 7198 */
 	ptlrpc_at_set_req_timeout(req);
 
 	OBD_ALLOC_PTR(oa);
