@@ -1433,7 +1433,7 @@ zconf_mount() {
     local mnt=$2
     local OPTIONS=${3:-$MOUNTOPT}
 
-    local device=$MGSNID:/$FSNAME
+    local device=$MGSNID:/$FSNAME$FILESET
     if [ -z "$mnt" -o -z "$FSNAME" ]; then
         echo Bad zconf mount command: opt=$OPTIONS dev=$device mnt=$mnt
         exit 1
@@ -1539,7 +1539,7 @@ zconf_mount_clients() {
     local mnt=$2
     local OPTIONS=${3:-$MOUNTOPT}
 
-    local device=$MGSNID:/$FSNAME
+    local device=$MGSNID:/$FSNAME$FILESET
     if [ -z "$mnt" -o -z "$FSNAME" ]; then
         echo Bad zconf mount command: opt=$OPTIONS dev=$device mnt=$mnt
         exit 1

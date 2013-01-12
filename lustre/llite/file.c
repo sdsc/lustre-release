@@ -1871,6 +1871,7 @@ out:
 int ll_fid2path(struct inode *inode, void *arg)
 {
 	struct obd_export	*exp = ll_i2mdexp(inode);
+	struct ll_sb_info	*sbi = ll_i2sbi(inode);
 	struct getinfo_fid2path	*gfout, *gfin;
 	int			 outsize, rc;
 	ENTRY;
@@ -1895,6 +1896,10 @@ int ll_fid2path(struct inode *inode, void *arg)
 		RETURN(-ENOMEM);
 	}
 	memcpy(gfout, gfin, sizeof(*gfout));
+	/* append root fid after gfout to let MDT know the root fid so that it
+	 * can lookup the correct path, this is mainly for fileset.
+	 * old server without fileset mount support will ignore this. */
+	memcpy(gfout->gf_root_fid, &sbi->ll_root_fid, sizeof(sbi->ll_root_fid));
 	OBD_FREE_PTR(gfin);
 
 	/* Call mdc_iocontrol */

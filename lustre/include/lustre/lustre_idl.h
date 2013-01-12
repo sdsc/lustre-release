@@ -3855,6 +3855,8 @@ struct getinfo_fid2path {
         char            gf_path[0];
 } __attribute__((packed));
 
+#define gf_root_fid gf_path
+
 void lustre_swab_fid2path (struct getinfo_fid2path *gf);
 
 enum {

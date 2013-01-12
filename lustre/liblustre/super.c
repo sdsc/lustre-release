@@ -1947,17 +1947,17 @@ llu_fsswop_mount(const char *source,
         sbi->ll_lco.lco_md_exp = sbi->ll_md_exp;
         sbi->ll_lco.lco_dt_exp = sbi->ll_dt_exp;
 
-        fid_zero(&sbi->ll_root_fid);
-        err = md_getstatus(sbi->ll_md_exp, &sbi->ll_root_fid, NULL);
-        if (err) {
-                CERROR("cannot mds_connect: rc = %d\n", err);
-                GOTO(out_lock_cn_cb, err);
-        }
-        if (!fid_is_sane(&sbi->ll_root_fid)) {
-                CERROR("Invalid root fid during mount\n");
-                GOTO(out_lock_cn_cb, err = -EINVAL);
-        }
-        CDEBUG(D_SUPER, "rootfid "DFID"\n", PFID(&sbi->ll_root_fid));
+	fid_zero(&sbi->ll_root_fid);
+	err = md_getstatus(sbi->ll_md_exp, NULL, &sbi->ll_root_fid, NULL);
+	if (err) {
+		CERROR("cannot mds_connect: rc = %d\n", err);
+		GOTO(out_lock_cn_cb, err);
+	}
+	if (!fid_is_sane(&sbi->ll_root_fid)) {
+		CERROR("Invalid root fid during mount\n");
+		GOTO(out_lock_cn_cb, err = -EINVAL);
+	}
+	CDEBUG(D_SUPER, "rootfid "DFID"\n", PFID(&sbi->ll_root_fid));
 
         op_data.op_fid1 = sbi->ll_root_fid;
         op_data.op_valid = OBD_MD_FLGETATTR | OBD_MD_FLBLOCKS;

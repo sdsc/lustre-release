@@ -12246,6 +12246,22 @@ test_237() {
 }
 run_test 237 "Verify name_to_handle_at/open_by_handle_at syscalls"
 
+test_238() {
+	[ "$FILESET" ] && skip "mount subdir" && return
+
+	submount=${MOUNT}_d231
+
+	mkdir $MOUNT/d231
+	mkdir -p $submount || "mkdir $submount failed"
+	FILESET="/d231" mount_client $submount
+	echo foo > $submount/$tfile || error "write $submount/$tfile failed"
+	[ "`cat $MOUNT/d231/$tfile`" = "foo" ] ||
+		error "read $MOUNT/d231/$tfile failed"
+	zconf_umount_clients $(hostname) $submount || true
+	rm -rf $submount
+}
+run_test 238 "mount subdir as fileset ============================="
+
 test_striped_dir() {
 	local mdt_index=$1
 	local stripe_count
