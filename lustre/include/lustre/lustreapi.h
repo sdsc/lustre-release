@@ -205,6 +205,7 @@ extern int llapi_search_mounts(const char *pathname, int index,
                                char *mntdir, char *fsname);
 extern int llapi_search_fsname(const char *pathname, char *fsname);
 extern int llapi_getname(const char *path, char *buf, size_t size);
+extern int llapi_search_mount_subdir(const char *pathname, char *subdir);
 
 extern void llapi_ping_target(char *obd_type, char *obd_name,
                               char *obd_uuid, void *args);

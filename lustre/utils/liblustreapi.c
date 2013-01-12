@@ -655,8 +655,9 @@ int llapi_file_create_pool(const char *name, unsigned long long stripe_size,
 #define WANT_FD     0x4
 #define WANT_INDEX  0x8
 #define WANT_ERROR  0x10
+#define WANT_SUBDIR 0x20
 static int get_root_path(int want, char *fsname, int *outfd, char *path,
-                         int index)
+                         int index, char *subdir)
 {
         struct mntent mnt;
         char buf[PATH_MAX], mntdir[PATH_MAX];
@@ -684,7 +685,7 @@ static int get_root_path(int want, char *fsname, int *outfd, char *path,
                         continue;
 
                 mntlen = strlen(mnt.mnt_dir);
-                ptr = strrchr(mnt.mnt_fsname, '/');
+                ptr = strchr(mnt.mnt_fsname, '/');
                 if (!ptr && !len) {
                         rc = -EINVAL;
                         break;
@@ -693,14 +694,31 @@ static int get_root_path(int want, char *fsname, int *outfd, char *path,
 
                 /* Check the fsname for a match, if given */
                 if (!(want & WANT_FSNAME) && fsname != NULL &&
-                    (strlen(fsname) > 0) && (strcmp(ptr, fsname) != 0))
-                        continue;
+                    strlen(fsname) > 0) {
+                        if (strcmp(ptr, fsname) == 0) {
+                                /* found match */
+                        } else if (strlen(ptr) > strlen(fsname) &&
+                                   strncmp(ptr, fsname, strlen(fsname)) == 0 &&
+                                   ptr[strlen(fsname)] == '/') {
+                                /* also match, with subdir specified */
+                        } else {
+                                continue;
+                        }
+                }
 
                 /* If the path isn't set return the first one we find */
                 if (path == NULL || strlen(path) == 0) {
                         strcpy(mntdir, mnt.mnt_dir);
-                        if ((want & WANT_FSNAME) && fsname != NULL)
-                                strcpy(fsname, ptr);
+                        if (want & (WANT_FSNAME | WANT_SUBDIR)) {
+                                char *end = ptr;
+
+                                while (*end != '/' && *end != '\0') end++;
+                                if ((want & WANT_FSNAME) && fsname != NULL)
+                                        strncpy(fsname, ptr, end - ptr);
+                                if ((want & WANT_SUBDIR) && *end == '/' &&
+                                    subdir != NULL)
+                                        strcpy(subdir, end + 1);
+                        }
                         rc = 0;
                         break;
                 /* Otherwise find the longest matching path */
@@ -708,8 +726,16 @@ static int get_root_path(int want, char *fsname, int *outfd, char *path,
                            (strncmp(mnt.mnt_dir, path, mntlen) == 0)) {
                         strcpy(mntdir, mnt.mnt_dir);
                         len = mntlen;
-                        if ((want & WANT_FSNAME) && fsname != NULL)
-                                strcpy(fsname, ptr);
+                        if (want & (WANT_FSNAME | WANT_SUBDIR)) {
+                                char *end = ptr;
+
+                                while (*end != '/' && *end != '\0') end++;
+                                if ((want & WANT_FSNAME) && fsname != NULL)
+                                        strncpy(fsname, ptr, end - ptr);
+                                if ((want & WANT_SUBDIR) && *end == '/' &&
+                                    subdir != NULL)
+                                        strcpy(subdir, end + 1);
+                        }
                         rc = 0;
                 }
         }
@@ -762,17 +788,13 @@ int llapi_search_mounts(const char *pathname, int index, char *mntdir,
 
         if (fsname)
                 want |= WANT_FSNAME;
-        return get_root_path(want, fsname, NULL, mntdir, idx);
+        return get_root_path(want, fsname, NULL, mntdir, idx, NULL);
 }
 
-/* Given a path, find the corresponding Lustre fsname */
-int llapi_search_fsname(const char *pathname, char *fsname)
+static int get_real_path(const char *pathname, char **path)
 {
-        char *path;
-        int rc;
-
-        path = realpath(pathname, NULL);
-        if (path == NULL) {
+        *path = realpath(pathname, NULL);
+        if (*path == NULL) {
                 char buf[PATH_MAX + 1], *ptr;
 
                 buf[0] = 0;
@@ -786,24 +808,58 @@ int llapi_search_fsname(const char *pathname, char *fsname)
                         strcat(buf, "/");
                 }
                 strncat(buf, pathname, sizeof(buf) - strlen(buf));
-                path = realpath(buf, NULL);
-                if (path == NULL) {
+                *path = realpath(buf, NULL);
+                if (*path == NULL) {
                         ptr = strrchr(buf, '/');
                         if (ptr == NULL)
                                 return -ENOENT;
                         *ptr = '\0';
-                        path = realpath(buf, NULL);
-                        if (path == NULL) {
-                                rc = -errno;
-                                llapi_error(LLAPI_MSG_ERROR, rc,
-                                            "pathname '%s' cannot expand",
-                                            pathname);
-                                return rc;
+                        *path = realpath(buf, NULL);
+                        if (*path == NULL) {
+                                llapi_error(LLAPI_MSG_ERROR, -errno,
+                                          "pathname '%s' cannot expand",
+                                          pathname);
+                                return -errno;
                         }
                 }
         }
-        rc = get_root_path(WANT_FSNAME | WANT_ERROR, fsname, NULL, path, -1);
+        return 0;
+}
+
+/* Given a path, find the corresponding Lustre fsname */
+int llapi_search_fsname(const char *pathname, char *fsname)
+{
+        char *path = NULL;
+        int rc;
+
+        rc = get_real_path(pathname, &path);
+        if (rc)
+                return rc;
+
+        rc = get_root_path(WANT_FSNAME | WANT_ERROR, fsname, NULL, path, -1,
+                           NULL);
         free(path);
+        return rc;
+}
+
+/* Given a path, find the corresponding Lustre mounting subdirectory */
+int llapi_search_mount_subdir(const char *pathname, char *subdir)
+{
+        char *path = NULL;
+        int rc;
+
+        if (pathname[0] == '/') {
+                rc = get_real_path(pathname, &path);
+                if (rc)
+                        return rc;
+
+                rc = get_root_path(WANT_SUBDIR | WANT_ERROR, NULL, NULL, path,
+                                   -1, subdir);
+                free(path);
+        } else {
+                rc = get_root_path(WANT_SUBDIR | WANT_ERROR, (char *)pathname,
+                                   NULL, NULL, -1, subdir);
+        }
         return rc;
 }
 
@@ -3429,14 +3485,15 @@ static int root_ioctl(const char *mdtname, int opc, void *data, int *mdtidxp,
         if (mdtname[0] == '/') {
                 index = 0;
                 rc = get_root_path(WANT_FD | want_error, NULL, &fd,
-                                   (char *)mdtname, -1);
+                                   (char *)mdtname, -1, NULL);
         } else {
                 if (get_mdtname((char *)mdtname, "%s%s", fsname) < 0)
                         return -EINVAL;
                 ptr = fsname + strlen(fsname) - 8;
                 *ptr = '\0';
                 index = strtol(ptr + 4, NULL, 10);
-                rc = get_root_path(WANT_FD | want_error, fsname, &fd, NULL, -1);
+                rc = get_root_path(WANT_FD | want_error, fsname, &fd, NULL, -1,
+                                   NULL);
         }
         if (rc < 0) {
                 if (want_error)

@@ -1962,6 +1962,9 @@ static int lustre_free_lsi(struct super_block *sb)
                 if (lsi->lsi_lmd->lmd_profile != NULL)
                         OBD_FREE(lsi->lsi_lmd->lmd_profile,
                                  strlen(lsi->lsi_lmd->lmd_profile) + 1);
+                if (lsi->lsi_lmd->lmd_subdir != NULL)
+                        OBD_FREE(lsi->lsi_lmd->lmd_subdir,
+                                 strlen(lsi->lsi_lmd->lmd_subdir) + 1);
                 if (lsi->lsi_lmd->lmd_mgssec != NULL)
                         OBD_FREE(lsi->lsi_lmd->lmd_mgssec,
                                  strlen(lsi->lsi_lmd->lmd_mgssec) + 1);
@@ -2874,11 +2877,29 @@ static int lmd_parse(char *options, struct lustre_mount_data *lmd)
                 lmd->lmd_flags |= LMD_FLG_CLIENT;
                 /* Remove leading /s from fsname */
                 while (*++s1 == '/') ;
+                s2 = s1;
+                while (*s2 != '/' && *s2 != '\0') s2++;
                 /* Freed in lustre_free_lsi */
-                OBD_ALLOC(lmd->lmd_profile, strlen(s1) + 8);
+                OBD_ALLOC(lmd->lmd_profile, s2 - s1 + 8);
                 if (!lmd->lmd_profile)
                         RETURN(-ENOMEM);
-                sprintf(lmd->lmd_profile, "%s-client", s1);
+
+                strncat(lmd->lmd_profile, s1, s2 - s1);
+                strncat(lmd->lmd_profile, "-client", 7);
+
+                s1 = s2;
+                s2 = s1 + strlen(s1) - 1;
+                /* Remove padding /s from subdir */
+                while (*s2 == '/') s2--;
+                if (s2 > s1) {
+                        OBD_ALLOC(lmd->lmd_subdir, s2 - s1 + 2);
+                        if (!lmd->lmd_subdir) {
+                                OBD_FREE(lmd->lmd_profile,
+                                         strlen(lmd->lmd_profile) + 1);
+                                RETURN(-ENOMEM);
+                        }
+                        strncat(lmd->lmd_subdir, s1, s2 - s1 + 1);
+                }
         }
 
         /* Freed in lustre_free_lsi */
@@ -2952,7 +2973,8 @@ int lustre_fill_super(struct super_block *sb, void *data, int silent)
         }
 
         if (lmd_is_client(lmd)) {
-                CDEBUG(D_MOUNT, "Mounting client %s\n", lmd->lmd_profile);
+                CDEBUG(D_MOUNT, "Mounting client %s%s\n",
+                       lmd->lmd_profile, lmd->lmd_subdir);
                 if (!client_fill_super) {
                         LCONSOLE_ERROR_MSG(0x165, "Nothing registered for "
                                            "client mount! Is the 'lustre' "

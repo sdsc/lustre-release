@@ -184,6 +184,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         struct obd_uuid *uuid;
         struct md_op_data *op_data;
         struct lustre_md lmd;
+        char *subdir = get_mount_subdir(sb);
         obd_valid valid;
         int size, err, checksum;
         ENTRY;
@@ -470,6 +471,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         }
         if (!fid_is_sane(&sbi->ll_root_fid)) {
                 CERROR("Invalid root fid during mount\n");
+                capa_put(oc);
                 GOTO(out_lock_cn_cb, err = -EINVAL);
         }
         CDEBUG(D_SUPER, "rootfid "DFID"\n", PFID(&sbi->ll_root_fid));
@@ -479,27 +481,73 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
         sb->s_export_op = &lustre_export_operations;
 #endif
 
+        OBD_ALLOC_PTR(op_data);
+        if (op_data == NULL) {
+                capa_put(oc);
+                GOTO(out_lock_cn_cb, err = -ENOMEM);
+        }
+
+        op_data->op_fid1 = sbi->ll_root_fid;
+        op_data->op_capa1 = oc;
+        op_data->op_valid = OBD_MD_FLID | OBD_MD_FLMDSCAPA;
+        op_data->op_mode = 0;
+
+        while (subdir && *subdir != '\0') {
+                char *s1 = subdir;
+                char *s2;
+
+                LASSERT(*s1 == '/');
+                while (*++s1 == '/') ;
+                s2 = s1;
+                while (*s2 != '/' && *s2 != '\0') s2++;
+
+                LASSERT(s2 > s1); /* padding '/' has been removed */
+
+                subdir = s2;
+
+                op_data->op_name = s1;
+                op_data->op_namelen = s2 - s1;
+
+                CDEBUG(D_SUPER, "lookup %.*s\n",
+                       op_data->op_namelen, op_data->op_name);
+
+                err = md_getattr_name(sbi->ll_md_exp, op_data, &request);
+                capa_put(op_data->op_capa1);
+                if (err < 0) {
+                        CERROR("md_getattr_name %.*s failed: %d\n",
+                               op_data->op_namelen, op_data->op_name, err);
+                        OBD_FREE_PTR(op_data);
+                        GOTO(out_lock_cn_cb, err);
+                }
+
+                memset(&lmd, 0, sizeof(lmd));
+                err = md_get_lustre_md(sbi->ll_md_exp, request, sbi->ll_dt_exp,
+                                       sbi->ll_md_exp, &lmd);
+                if (err) {
+                        OBD_FREE_PTR(op_data);
+                        ptlrpc_req_finished (request);
+                        GOTO(out_lock_cn_cb, err);
+                }
+                LASSERT(lmd.body->valid & OBD_MD_FLID);
+                op_data->op_fid1 = lmd.body->fid1;
+                op_data->op_capa1 = lmd.mds_capa;
+                md_free_lustre_md(sbi->ll_md_exp, &lmd);
+                ptlrpc_req_finished(request);
+        }
+
         /* make root inode
          * XXX: move this to after cbd setup? */
+        sbi->ll_root_fid = op_data->op_fid1;
         valid = OBD_MD_FLGETATTR | OBD_MD_FLBLOCKS | OBD_MD_FLMDSCAPA;
         if (sbi->ll_flags & LL_SBI_RMT_CLIENT)
                 valid |= OBD_MD_FLRMTPERM;
         else if (sbi->ll_flags & LL_SBI_ACL)
                 valid |= OBD_MD_FLACL;
 
-        OBD_ALLOC_PTR(op_data);
-        if (op_data == NULL)
-                GOTO(out_lock_cn_cb, err = -ENOMEM);
-
-        op_data->op_fid1 = sbi->ll_root_fid;
-        op_data->op_mode = 0;
-        op_data->op_capa1 = oc;
         op_data->op_valid = valid;
 
         err = md_getattr(sbi->ll_md_exp, op_data, &request);
-        if (oc)
-                capa_put(oc);
-        OBD_FREE_PTR(op_data);
+        ll_finish_md_op_data(op_data);
         if (err) {
                 CERROR("md_getattr failed for root: rc = %d\n", err);
                 GOTO(out_lock_cn_cb, err);
