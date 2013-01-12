@@ -2610,8 +2610,10 @@ static int lfs_fid2path(int argc, char **argv)
 
         lnktmp = (linkno >= 0) ? linkno : 0;
         while (1) {
+                char subdir[PATH_MAX + 1] = "";
                 int oldtmp = lnktmp;
                 long long rectmp = recno;
+
                 rc = llapi_fid2path(device, fid, path, PATH_MAX, &rectmp,
                                     &lnktmp);
                 if (rc < 0) {
@@ -2629,7 +2631,12 @@ static int lfs_fid2path(int argc, char **argv)
                 } else if (path[0] == '\0') {
                         fprintf(stdout, "/");
                 }
-                fprintf(stdout, "%s\n", path);
+
+                rc = llapi_search_mount_subdir(device, subdir);
+                if (subdir[0] != '\0' && strstr(path, subdir))
+                        fprintf(stdout, "%s\n", path + strlen(subdir) + 1);
+                else
+                        fprintf(stdout, "%s\n", path);
 
                 if (linkno >= 0)
                         /* specified linkno */

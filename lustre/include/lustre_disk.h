@@ -221,6 +221,7 @@ struct lustre_mount_data {
         int        lmd_recovery_time_hard;
         char      *lmd_dev;           /* device name */
         char      *lmd_profile;       /* client only */
+        char      *lmd_subdir;        /* mount subdir, client only */
         char      *lmd_mgssec;        /* sptlrpc flavor to mgs */
         char      *lmd_opts;          /* lustre mount options (as opposed to
                                          _device_ mount options) */
@@ -511,6 +512,7 @@ struct lustre_sb_info {
 #define     get_profile_name(sb)   (s2lsi(sb)->lsi_lmd->lmd_profile)
 #define	    get_mount_flags(sb)	   (s2lsi(sb)->lsi_lmd->lmd_flags)
 #define	    get_mntdev_name(sb)	   (s2lsi(sb)->lsi_lmd->lmd_dev)
+#define     get_mount_subdir(sb)   (s2lsi(sb)->lsi_lmd->lmd_subdir)
 
 #endif /* __KERNEL__ */
 

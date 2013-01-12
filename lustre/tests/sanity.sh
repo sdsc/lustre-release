@@ -8225,6 +8225,7 @@ test_154() {
 	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.2.51) ]] ||
 		{ skip "Need MDS version at least 2.2.51"; return 0; }
 
+	[ "$FSSUBDIR" ] && skip "mount subdir" && return
 	cp /etc/hosts $DIR/$tfile
 
 	fid=$($LFS path2fid $DIR/$tfile)
@@ -10232,6 +10233,22 @@ test_230b() {
 	rm -r $DIR/$tdir || error "unlink remote directory failed"
 }
 run_test 230b "nested remote directory should be failed"
+
+test_231() {
+	[ "$FSSUBDIR" ] && skip "mount subdir" && return
+
+	submount=${MOUNT}_d231
+
+	mkdir $MOUNT/d231
+	mkdir -p $submount || "mkdir $submount failed"
+	FSSUBDIR="/d231" mount_client $submount
+	echo foo > $submount/$tfile || error "write $submount/$tfile failed"
+	[ "`cat $MOUNT/d231/$tfile`" = "foo" ] ||
+		error "read $MOUNT/d231/$tfile failed"
+	zconf_umount_clients $(hostname) $submount || true
+	rm -rf $submount
+}
+run_test 231 "mount subdir ============================="
 
 #
 # tests that do cleanup/setup should be run at the end
