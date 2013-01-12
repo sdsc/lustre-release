@@ -609,15 +609,15 @@ fi
 ])
 
 #
-# LB_LDISKFS_DEFINE_OPTIONS
+# LDISKFS_DEFINE_KERNEL_OPTIONS
 #
-# Enable config options related to ldiskfs.  These are used by ldiskfs,
-# lvfs, and the osd-ldiskfs code (which includes ldiskfs headers.)
+# Set defines that come from the ext4 code in the kernel.
+# These are applied after the s/ext4/ldiskfs conversion,
+# so they begin with "CONFIG_LDISKFS", but in original
+# kernel source they all begin with "CONFIG_EXT4".
 #
-AC_DEFUN([LB_LDISKFS_DEFINE_OPTIONS],
+AC_DEFUN([LDISKFS_DEFINE_KERNEL_OPTIONS],
 [
-LB_LDISKFS_JBD2_JOURNAL_CALLBACK_SET
-
 AC_DEFINE(CONFIG_LDISKFS_FS_XATTR, 1,
 	[enable extended attributes for ldiskfs])
 AC_DEFINE(CONFIG_LDISKFS_FS_POSIX_ACL, 1,
@@ -631,20 +631,6 @@ AC_DEFINE(CONFIG_LDISKFSDEV_FS_XATTR, 1,
 AC_DEFINE(CONFIG_LDISKFSDEV_FS_SECURITY, 1,
 	[enable fs security for ldiskfs])
 ])
-
-#
-# Check for jbd2_journal_callback_set(), which is needed for commit
-# callbacks.  When LU-433 lands jbd2_journal_callback_set() will only
-# remain for legacy reasons and AC_MSG_ERROR can be removed.
-#
-AC_DEFUN([LB_LDISKFS_JBD2_JOURNAL_CALLBACK_SET],
-[
-	LB_CHECK_SYMBOL_EXPORT([jbd2_journal_callback_set],
-		[fs/jbd2/journal.c],
-		[AC_DEFINE(HAVE_JBD2_JOURNAL_CALLBACK_SET, 1,
-			[kernel exports jbd2_journal_callback_set])])
-])
-
 
 AC_DEFUN([LB_LDISKFS_SYMVERS],
 [

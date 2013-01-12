@@ -105,7 +105,8 @@ if test x$with_ldiskfs = xyes; then
 	LB_LDISKFS_RELEASE
 	LB_LDISKFS_EXT_DIR
 	LB_LDISKFS_BUILD
-	LB_LDISKFS_DEFINE_OPTIONS
+	AC_DEFINE(HAVE_LDISKFS_OSD, 1, Enable ldiskfs osd)
+	LB_LDISKFS_JBD2_JOURNAL_CALLBACK_SET
 fi
 
 #
@@ -206,32 +207,6 @@ and kernel-debuginfo-common-<arch> packages are installed.
 ])
 
 fi
-])
-
-#
-# LB_LDISKFS_DEFINE_OPTIONS
-#
-# Enable config options related to ldiskfs.  These are used by ldiskfs,
-# lvfs, and the osd-ldiskfs code (which includes ldiskfs headers.)
-#
-AC_DEFUN([LB_LDISKFS_DEFINE_OPTIONS],
-[
-AC_DEFINE(HAVE_LDISKFS_OSD, 1, Enable ldiskfs osd)
-
-LB_LDISKFS_JBD2_JOURNAL_CALLBACK_SET
-
-AC_DEFINE(CONFIG_LDISKFS_FS_XATTR, 1,
-	[enable extended attributes for ldiskfs])
-AC_DEFINE(CONFIG_LDISKFS_FS_POSIX_ACL, 1,
-	[enable posix acls for ldiskfs])
-AC_DEFINE(CONFIG_LDISKFS_FS_SECURITY, 1,
-	[enable fs security for ldiskfs])
-AC_DEFINE(CONFIG_LDISKFSDEV_FS_POSIX_ACL, 1,
-	[enable posix acls for ldiskfs])
-AC_DEFINE(CONFIG_LDISKFSDEV_FS_XATTR, 1,
-	[enable extented attributes for ldiskfs])
-AC_DEFINE(CONFIG_LDISKFSDEV_FS_SECURITY, 1,
-	[enable fs security for ldiskfs])
 ])
 
 #
