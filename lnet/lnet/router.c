@@ -229,10 +229,12 @@ lnet_find_net_locked (__u32 net)
 {
         lnet_remotenet_t *rnet;
         cfs_list_t       *tmp;
+	cfs_list_t	 *rn_list;
 
         LASSERT (!the_lnet.ln_shutdown);
 
-        cfs_list_for_each (tmp, &the_lnet.ln_remote_nets) {
+	rn_list = &the_lnet.ln_remote_nets_hash[lnet_net2remotehash(net)];
+	cfs_list_for_each(tmp, rn_list) {
                 rnet = cfs_list_entry(tmp, lnet_remotenet_t, lrn_list);
 
                 if (rnet->lrn_net == net)
@@ -365,7 +367,8 @@ lnet_add_route (__u32 net, unsigned int hops, lnet_nid_t gateway)
         rnet2 = lnet_find_net_locked(net);
         if (rnet2 == NULL) {
                 /* new network */
-                cfs_list_add_tail(&rnet->lrn_list, &the_lnet.ln_remote_nets);
+		cfs_list_add_tail(&rnet->lrn_list,
+		       &the_lnet.ln_remote_nets_hash[lnet_net2remotehash(net)]);
                 rnet2 = rnet;
         }
 
@@ -419,39 +422,49 @@ lnet_check_routes(void)
 	cfs_list_t		*e1;
 	cfs_list_t		*e2;
 	int			cpt;
+	cfs_list_t		*rn_list;
+	int			i;
 
 	cpt = lnet_net_lock_current();
 
-	cfs_list_for_each(e1, &the_lnet.ln_remote_nets) {
-		rnet = cfs_list_entry(e1, lnet_remotenet_t, lrn_list);
+	for (i = 0; i < LNET_REMOTE_NETS_HASH_SIZE; i++) {
+		if (cfs_list_empty(&the_lnet.ln_remote_nets_hash[i]))
+			continue;
+		rn_list = &the_lnet.ln_remote_nets_hash[i];
+		cfs_list_for_each(e1, rn_list) {
+			rnet = cfs_list_entry(e1, lnet_remotenet_t, lrn_list);
 
-		route2 = NULL;
-		cfs_list_for_each(e2, &rnet->lrn_routes) {
-			lnet_nid_t	nid1;
-			lnet_nid_t	nid2;
-			int		net;
+			route2 = NULL;
+			cfs_list_for_each(e2, &rnet->lrn_routes) {
+				lnet_nid_t	nid1;
+				lnet_nid_t	nid2;
+				int		net;
 
-			route = cfs_list_entry(e2, lnet_route_t, lr_list);
+				route = cfs_list_entry(e2, lnet_route_t,
+						       lr_list);
 
-			if (route2 == NULL) {
-				route2 = route;
-				continue;
+				if (route2 == NULL) {
+					route2 = route;
+					continue;
+				}
+
+				if (route->lr_gateway->lp_ni ==
+				    route2->lr_gateway->lp_ni)
+					continue;
+
+				nid1 = route->lr_gateway->lp_nid;
+				nid2 = route2->lr_gateway->lp_nid;
+				net = rnet->lrn_net;
+
+				lnet_net_unlock(cpt);
+
+				CERROR("Routes to %s via %s and %s not "
+				       "supported\n",
+				       libcfs_net2str(net),
+				       libcfs_nid2str(nid1),
+				       libcfs_nid2str(nid2));
+				return -EINVAL;
 			}
-
-			if (route->lr_gateway->lp_ni ==
-			    route2->lr_gateway->lp_ni)
-				continue;
-
-			nid1 = route->lr_gateway->lp_nid;
-			nid2 = route2->lr_gateway->lp_nid;
-			net = rnet->lrn_net;
-
-			lnet_net_unlock(cpt);
-
-			CERROR("Routes to %s via %s and %s not supported\n",
-			       libcfs_net2str(net), libcfs_nid2str(nid1),
-			       libcfs_nid2str(nid2));
-			return -EINVAL;
 		}
 	}
 
@@ -468,6 +481,8 @@ lnet_del_route(__u32 net, lnet_nid_t gw_nid)
         cfs_list_t          *e1;
         cfs_list_t          *e2;
         int                  rc = -ENOENT;
+	cfs_list_t	    *rn_list;
+	int		     idx = 0;
 
         CDEBUG(D_NET, "Del route: net %s : gw %s\n",
                libcfs_net2str(net), libcfs_nid2str(gw_nid));
@@ -478,7 +493,12 @@ lnet_del_route(__u32 net, lnet_nid_t gw_nid)
  again:
 	lnet_net_lock(LNET_LOCK_EX);
 
-        cfs_list_for_each (e1, &the_lnet.ln_remote_nets) {
+	if (net == LNET_NIDNET(LNET_NID_ANY))
+		rn_list = &the_lnet.ln_remote_nets_hash[idx];
+	else
+		rn_list = &the_lnet.ln_remote_nets_hash[lnet_net2remotehash(net)];
+
+	cfs_list_for_each(e1, rn_list) {
                 rnet = cfs_list_entry(e1, lnet_remotenet_t, lrn_list);
 
                 if (!(net == LNET_NIDNET(LNET_NID_ANY) ||
@@ -518,6 +538,12 @@ lnet_del_route(__u32 net, lnet_nid_t gw_nid)
         }
 
 	lnet_net_unlock(LNET_LOCK_EX);
+
+	if (net == LNET_NIDNET(LNET_NID_ANY) &&
+	    ++idx < LNET_REMOTE_NETS_HASH_SIZE) {
+		goto again;
+	}
+
 	return rc;
 }
 
@@ -536,22 +562,30 @@ lnet_get_route(int idx, __u32 *net, __u32 *hops,
 	lnet_remotenet_t	*rnet;
 	lnet_route_t		*route;
 	int			cpt;
+	int			i;
+	cfs_list_t		*rn_list;
 
 	cpt = lnet_net_lock_current();
 
-        cfs_list_for_each (e1, &the_lnet.ln_remote_nets) {
-                rnet = cfs_list_entry(e1, lnet_remotenet_t, lrn_list);
+	for (i = 0; i < LNET_REMOTE_NETS_HASH_SIZE; i++) {
+		if (cfs_list_empty(&the_lnet.ln_remote_nets_hash[i]))
+			continue;
+		rn_list = &the_lnet.ln_remote_nets_hash[i];
+		cfs_list_for_each(e1, rn_list) {
+			rnet = cfs_list_entry(e1, lnet_remotenet_t, lrn_list);
 
-                cfs_list_for_each (e2, &rnet->lrn_routes) {
-                        route = cfs_list_entry(e2, lnet_route_t, lr_list);
+			cfs_list_for_each(e2, &rnet->lrn_routes) {
+				route = cfs_list_entry(e2, lnet_route_t,
+						       lr_list);
 
-                        if (idx-- == 0) {
-                                *net     = rnet->lrn_net;
-                                *hops    = route->lr_hops;
-                                *gateway = route->lr_gateway->lp_nid;
-                                *alive   = route->lr_gateway->lp_alive;
-				lnet_net_unlock(cpt);
-				return 0;
+				if (idx-- == 0) {
+					*net     = rnet->lrn_net;
+					*hops    = route->lr_hops;
+					*gateway = route->lr_gateway->lp_nid;
+					*alive   = route->lr_gateway->lp_alive;
+					lnet_net_unlock(cpt);
+					return 0;
+				}
 			}
 		}
 	}

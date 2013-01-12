@@ -67,6 +67,7 @@
 #include <linux/hash.h>
 
 #define cfs_hash_long(val, bits)    hash_long(val, bits)
+#define cfs_hash_u32(val, bits)     hash_32(val, bits)
 #else
 /* Fast hashing routine for a long.
    (C) 2002 William Lee Irwin III, IBM */
@@ -108,6 +109,16 @@ static inline unsigned long cfs_hash_long(unsigned long val, unsigned int bits)
 	/* High bits are more random, so use them. */
 	return hash >> (BITS_PER_LONG - bits);
 }
+
+static inline int cfs_hash_u32(__u32 val, unsigned int bits)
+{
+	/* On some cpus multiply is faster, on others gcc will do shifts */
+	__u32 hash = val * CFS_GOLDEN_RATIO_PRIME_32;
+
+	/* High bits are more random, so use them. */
+	return hash >> (32 - bits);
+}
+
 #if 0
 static inline unsigned long hash_ptr(void *ptr, unsigned int bits)
 {

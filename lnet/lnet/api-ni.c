@@ -60,6 +60,42 @@ static char *routes = "";
 CFS_MODULE_PARM(routes, "s", charp, 0444,
                 "routes to non-local networks");
 
+static int
+lnet_create_remote_nets_table(void)
+{
+	int		i;
+	cfs_list_t	*hash;
+
+	LASSERT(the_lnet.ln_remote_nets_hash == NULL);
+	LIBCFS_ALLOC(hash, LNET_REMOTE_NETS_HASH_SIZE * sizeof(*hash));
+	if (hash == NULL) {
+		CERROR("Failed to create remote nets hash table\n");
+		return -ENOMEM;
+	}
+
+	for (i = 0; i < LNET_REMOTE_NETS_HASH_SIZE; i++)
+		CFS_INIT_LIST_HEAD(&hash[i]);
+	the_lnet.ln_remote_nets_hash = hash;
+	return 0;
+}
+
+static void
+lnet_destroy_remote_nets_table(void)
+{
+	int		i;
+	cfs_list_t	*hash;
+
+	if (the_lnet.ln_remote_nets_hash == NULL)
+		return;
+
+	for (i = 0; i < LNET_REMOTE_NETS_HASH_SIZE; i++)
+		LASSERT(cfs_list_empty(&the_lnet.ln_remote_nets_hash[i]));
+
+	LIBCFS_FREE(the_lnet.ln_remote_nets_hash,
+		    LNET_REMOTE_NETS_HASH_SIZE * sizeof(*hash));
+	the_lnet.ln_remote_nets_hash = NULL;
+}
+
 char *
 lnet_get_routes(void)
 {
@@ -104,6 +140,18 @@ lnet_fini_locks(void)
 }
 
 #else
+
+static int
+lnet_create_remote_nets_table(void)
+{
+	return -1;
+}
+
+static void
+lnet_destroy_remote_nets_table(void)
+{
+	return;
+}
 
 char *
 lnet_get_routes(void)
@@ -724,8 +772,11 @@ lnet_prepare(lnet_pid_t requested_pid)
 	CFS_INIT_LIST_HEAD(&the_lnet.ln_nis);
 	CFS_INIT_LIST_HEAD(&the_lnet.ln_nis_cpt);
 	CFS_INIT_LIST_HEAD(&the_lnet.ln_nis_zombie);
-	CFS_INIT_LIST_HEAD(&the_lnet.ln_remote_nets);
 	CFS_INIT_LIST_HEAD(&the_lnet.ln_routers);
+
+	rc = lnet_create_remote_nets_table();
+	if (rc != 0)
+		goto failed;
 
 	the_lnet.ln_interface_cookie = lnet_create_interface_cookie();
 
@@ -816,6 +867,7 @@ lnet_unprepare (void)
 		cfs_percpt_free(the_lnet.ln_counters);
 		the_lnet.ln_counters = NULL;
 	}
+	lnet_destroy_remote_nets_table();
 
 	return 0;
 }
@@ -1022,7 +1074,6 @@ lnet_shutdown_lndnis (void)
 	LASSERT(!the_lnet.ln_shutdown);
 	LASSERT(the_lnet.ln_refcount == 0);
 	LASSERT(cfs_list_empty(&the_lnet.ln_nis_zombie));
-	LASSERT(cfs_list_empty(&the_lnet.ln_remote_nets));
 
 	lnet_net_lock(LNET_LOCK_EX);
 	the_lnet.ln_shutdown = 1;	/* flag shutdown */

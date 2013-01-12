@@ -2413,6 +2413,7 @@ LNetDist(lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
 	int			hops;
 	int			cpt;
 	__u32			order = 2;
+	cfs_list_t		*rn_list;
 
         /* if !local_nid_dist_zero, I don't return a distance of 0 ever
          * (when lustre sees a distance of 0, it substitutes 0@lo), so I
@@ -2453,7 +2454,8 @@ LNetDist(lnet_nid_t dstnid, lnet_nid_t *srcnidp, __u32 *orderp)
                 order++;
         }
 
-        cfs_list_for_each (e, &the_lnet.ln_remote_nets) {
+	rn_list = &the_lnet.ln_remote_nets_hash[lnet_net2remotehash(dstnet)];
+	cfs_list_for_each(e, rn_list) {
                 rnet = cfs_list_entry(e, lnet_remotenet_t, lrn_list);
 
                 if (rnet->lrn_net == dstnet) {
