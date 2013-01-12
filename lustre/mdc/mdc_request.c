@@ -107,22 +107,37 @@ static inline int mdc_queue_wait(struct ptlrpc_request *req)
 
 /* Helper that implements most of mdc_getstatus and signal_completed_replay. */
 /* XXX this should become mdc_get_info("key"), sending MDS_GET_INFO RPC */
-static int send_getstatus(struct obd_import *imp, struct lu_fid *rootfid,
-                          struct obd_capa **pc, int level, int msg_flags)
+static int send_getstatus(struct obd_import *imp, const char *fileset,
+			  struct lu_fid *rootfid, struct obd_capa **pc,
+			  int level, int msg_flags)
 {
-        struct ptlrpc_request *req;
-        struct mdt_body       *body;
-        int                    rc;
-        ENTRY;
+	struct ptlrpc_request *req;
+	struct mdt_body *body;
+	int rc;
+	ENTRY;
 
-        req = ptlrpc_request_alloc_pack(imp, &RQF_MDS_GETSTATUS,
-                                        LUSTRE_MDS_VERSION, MDS_GETSTATUS);
-        if (req == NULL)
-                RETURN(-ENOMEM);
+	req = ptlrpc_request_alloc(imp, &RQF_MDS_GETSTATUS);
+	if (req == NULL)
+		RETURN(-ENOMEM);
 
-        mdc_pack_body(req, NULL, NULL, 0, 0, -1, 0);
-        lustre_msg_add_flags(req->rq_reqmsg, msg_flags);
-        req->rq_send_state = level;
+	if (fileset != NULL)
+		req_capsule_set_size(&req->rq_pill, &RMF_NAME, RCL_CLIENT,
+				     strlen(fileset) + 1);
+
+	rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_GETSTATUS);
+	if (rc) {
+		ptlrpc_request_free(req);
+		RETURN(rc);
+	}
+
+	mdc_pack_body(req, NULL, NULL, 0, 0, -1, 0);
+	if (fileset != NULL) {
+		char *name = req_capsule_client_get(&req->rq_pill, &RMF_NAME);
+
+		memcpy(name, fileset, strlen(fileset));
+	}
+	lustre_msg_add_flags(req->rq_reqmsg, msg_flags);
+	req->rq_send_state = level;
 
         ptlrpc_request_set_replen(req);
 
@@ -150,10 +165,10 @@ out:
 }
 
 /* This should be mdc_get_info("rootfid") */
-static int mdc_getstatus(struct obd_export *exp, struct lu_fid *rootfid,
-			 struct obd_capa **pc)
+int mdc_getstatus(struct obd_export *exp, const char *fileset,
+		  struct lu_fid *rootfid, struct obd_capa **pc)
 {
-        return send_getstatus(class_exp2cliimp(exp), rootfid, pc,
+        return send_getstatus(class_exp2cliimp(exp), fileset, rootfid, pc,
                               LUSTRE_IMP_FULL, 0);
 }
 
@@ -1630,22 +1645,25 @@ output:
 
 static int mdc_ioc_fid2path(struct obd_export *exp, struct getinfo_fid2path *gf)
 {
-        __u32 keylen, vallen;
-        void *key;
-        int rc;
+	__u32 keylen, vallen;
+	void *key;
+	int rc;
 
-        if (gf->gf_pathlen > PATH_MAX)
-                RETURN(-ENAMETOOLONG);
-        if (gf->gf_pathlen < 2)
-                RETURN(-EOVERFLOW);
+	if (gf->gf_pathlen > PATH_MAX)
+		RETURN(-ENAMETOOLONG);
+	if (gf->gf_pathlen < 2)
+		RETURN(-EOVERFLOW);
 
-        /* Key is KEY_FID2PATH + getinfo_fid2path description */
-        keylen = cfs_size_round(sizeof(KEY_FID2PATH)) + sizeof(*gf);
-        OBD_ALLOC(key, keylen);
-        if (key == NULL)
-                RETURN(-ENOMEM);
-        memcpy(key, KEY_FID2PATH, sizeof(KEY_FID2PATH));
-        memcpy(key + cfs_size_round(sizeof(KEY_FID2PATH)), gf, sizeof(*gf));
+	/* Key is KEY_FID2PATH + getinfo_fid2path description */
+	keylen = cfs_size_round(sizeof(KEY_FID2PATH)) + sizeof(*gf) +
+		 sizeof(struct lu_fid);
+	OBD_ALLOC(key, keylen);
+	if (key == NULL)
+		RETURN(-ENOMEM);
+	memcpy(key, KEY_FID2PATH, sizeof(KEY_FID2PATH));
+	memcpy(key + cfs_size_round(sizeof(KEY_FID2PATH)), gf, sizeof(*gf));
+	memcpy(key + cfs_size_round(sizeof(KEY_FID2PATH)) + sizeof(*gf),
+		gf->gf_root_fid, sizeof(struct lu_fid));
 
         CDEBUG(D_IOCTL, "path get "DFID" from "LPU64" #%d\n",
                PFID(&gf->gf_fid), gf->gf_recno, gf->gf_linkno);

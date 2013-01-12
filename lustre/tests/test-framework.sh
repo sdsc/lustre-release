@@ -1476,7 +1476,7 @@ zconf_mount() {
     opts=${opts:+-o $opts}
     local flags=${4:-$MOUNT_FLAGS}
 
-    local device=$MGSNID:/$FSNAME
+    local device=$MGSNID:/$FSNAME$FILESET
     if [ -z "$mnt" -o -z "$FSNAME" ]; then
         echo Bad zconf mount command: opt=$flags $opts dev=$device mnt=$mnt
         exit 1
@@ -1584,7 +1584,7 @@ zconf_mount_clients() {
     opts=${opts:+-o $opts}
     local flags=${4:-$MOUNT_FLAGS}
 
-    local device=$MGSNID:/$FSNAME
+    local device=$MGSNID:/$FSNAME$FILESET
     if [ -z "$mnt" -o -z "$FSNAME" ]; then
         echo Bad zconf mount command: opt=$flags $opts dev=$device mnt=$mnt
         exit 1

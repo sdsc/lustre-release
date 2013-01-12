@@ -12877,6 +12877,22 @@ test_243()
 }
 run_test 243 "various group lock tests"
 
+test_244() {
+	[ "$FILESET" ] && skip "mount subdir" && return
+
+	submount=${MOUNT}_d231
+
+	mkdir $MOUNT/d231
+	mkdir -p $submount || "mkdir $submount failed"
+	FILESET="/d231" mount_client $submount
+	echo foo > $submount/$tfile || error "write $submount/$tfile failed"
+	[ "`cat $MOUNT/d231/$tfile`" = "foo" ] ||
+		error "read $MOUNT/d231/$tfile failed"
+	zconf_umount_clients $(hostname) $submount || true
+	rm -rf $submount
+}
+run_test 244 "mount subdir as fileset ============================="
+
 cleanup_test_300() {
 	trap 0
 	umask $SAVE_UMASK
