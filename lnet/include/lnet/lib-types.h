@@ -44,6 +44,9 @@
 
 #if defined(__linux__)
 #include <lnet/linux/lib-types.h>
+#ifdef __KERNEL__
+#include <linux/log2.h>
+#endif
 #elif defined(__APPLE__)
 #include <lnet/darwin/lib-types.h>
 #elif defined(__WINNT__)
@@ -532,8 +535,18 @@ typedef struct {
 	unsigned int		lr_hops;	/* how far I am */
 } lnet_route_t;
 
+#ifdef __KERNEL__
+/* The hash table size is the number of bits it takes to express the set
+ * ln_num_routes, minus 1 (better to under estimate than over so we don't
+ * waste memory). */
+#define LNET_REMOTE_NETS_HASH_BITS (order_base_2(the_lnet.ln_num_routes) - 1)
+#else
+#define LNET_REMOTE_NETS_HASH_BITS 8
+#endif
+#define LNET_REMOTE_NETS_HASH_SIZE (1 << LNET_REMOTE_NETS_HASH_BITS)
+
 typedef struct {
-        cfs_list_t              lrn_list;       /* chain on ln_remote_nets */
+        cfs_list_t              lrn_list;       /* chain on ln_remote_nets_hash */
         cfs_list_t              lrn_routes;     /* routes to me */
         __u32                   lrn_net;        /* my net number */
 } lnet_remotenet_t;
@@ -732,6 +745,8 @@ typedef struct
 	pthread_mutex_t			ln_eq_wait_lock;
 # endif
 #endif
+	unsigned int			ln_num_routes;
+
 	/* protect NI, peer table, credits, routers, rtrbuf... */
 	struct cfs_percpt_lock		*ln_net_lock;
 	/* percpt message containers for active/finalizing/freed message */
@@ -751,7 +766,7 @@ typedef struct
 	lnet_ni_t			*ln_eq_waitni;
 
 	/* remote networks with routes to them */
-	cfs_list_t			ln_remote_nets;
+	cfs_list_t			*ln_remote_nets_hash;
 	/* validity stamp */
 	__u64				ln_remote_nets_version;
 	/* list of all known routers */
