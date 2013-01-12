@@ -909,6 +909,9 @@ ll_file_io_generic(const struct lu_env *env, struct vvp_io_args *args,
 out:
         cl_io_fini(env, io);
 
+	if (result == 0 && io->ci_need_restart) /* need to restart whole IO */
+		result = -ERESTARTSYS;
+
         if (iot == CIT_READ) {
                 if (result >= 0)
                         ll_stats_ops_tally(ll_i2sbi(file->f_dentry->d_inode),
@@ -918,7 +921,7 @@ out:
                         ll_stats_ops_tally(ll_i2sbi(file->f_dentry->d_inode),
                                            LPROC_LL_WRITE_BYTES, result);
 			fd->fd_write_failed = false;
-		} else {
+		} else if (result != -ERESTARTSYS) {
 			fd->fd_write_failed = true;
 		}
 	}
@@ -1881,6 +1884,7 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 RETURN(ll_lov_setea(inode, file, arg));
 	case LL_IOC_LOV_SWAP_LAYOUTS: {
 		struct file			*file2;
+		struct inode			*inode2;
 		struct lustre_swap_layouts	 lsl;
 		struct mdc_swap_layouts		 msl;
 		struct md_op_data		*op_data;
@@ -1892,23 +1896,37 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		msl.msl_flags = lsl.sl_flags;
 
 		file2 = cfs_get_fd(lsl.sl_fd);
+		if (file2 == NULL)
+			RETURN(-EBADF);
+
+		inode2 = file2->f_dentry->d_inode;
+		if (!S_ISREG(inode2->i_mode)) {
+			cfs_put_file(file2);
+			RETURN(-EINVAL);
+		}
+
+		if (inode2->i_sb != inode->i_sb) {
+			cfs_put_file(file2);
+			RETURN(-EXDEV);
+		}
+
 		/* struct md_op_data is used to send the swap args to the mdt
 		 * only flags is missing, so we use struct mdc_swap_layouts
 		 * through the md_op_data->op_data */
 		/* fill op_data with fid1, fid2 and msl */
-		op_data = ll_prep_md_op_data(NULL, inode,
-					     file2->f_dentry->d_inode,
-					     NULL, 0, 0,
+		op_data = ll_prep_md_op_data(NULL, inode, inode2, NULL, 0, 0,
 					     LUSTRE_OPC_ANY, &msl);
-		if (op_data == NULL)
+		if (op_data == NULL) {
+			cfs_put_file(file2);
 			RETURN(-ENOMEM);
+		}
 
 		rc = obd_iocontrol(cmd, ll_i2mdexp(inode),
 				   sizeof(*op_data), op_data, NULL);
 
-		cfs_put_file(file2);
-
 		ll_finish_md_op_data(op_data);
+
+		cfs_put_file(file2);
 		RETURN(rc);
 	}
         case LL_IOC_LOV_GETSTRIPE:

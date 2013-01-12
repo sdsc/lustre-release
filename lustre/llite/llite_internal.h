@@ -1573,7 +1573,11 @@ struct if_quotactl_18 {
 #warning "remove old LL_IOC_QUOTACTL_18 compatibility code"
 #endif /* LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 7, 50, 0) */
 
-#define LL_LAYOUT_GEN_ZERO	((__u32)-1)
+enum {
+	LL_LAYOUT_GEN_INVALID = ((__u32)-2),	/* layout lock was cancelled */
+	LL_LAYOUT_GEN_ZERO = ((__u32)-1) 	/* for empty layout */
+};
+
 int ll_layout_conf(struct inode *inode, const struct cl_object_conf *conf);
 int ll_layout_refresh(struct inode *inode, __u32 *gen);
 

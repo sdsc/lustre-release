@@ -4001,22 +4001,50 @@ int llapi_get_data_version(int fd, __u64 *data_version, __u64 flags)
  * first fd received the ioctl, second fd is passed as arg
  * this is assymetric but avoid use of root path for ioctl
 */
-int llapi_fswap_layouts(const int fd1, const int fd2)
+int llapi_fswap_layouts(int fd1, int fd2)
 {
-	struct lustre_swap_layouts	lsl;
-	int				rc;
+	struct lustre_swap_layouts lsl;
+	struct lu_fid fid1, fid2;
+	unsigned long gid;
+	int rc;
+
+	/* before swapping layout, we need to flush caching pages for this
+	 * object. grouplock is a good candidate for this purpose. */
+	rc = ioctl(fd1, LL_IOC_PATH2FID, &fid1) | ioctl(fd2, LL_IOC_PATH2FID, &fid2);
+	if (rc)
+		return -errno;
+
+	rc = lu_fid_cmp(&fid1, &fid2);
+	if (rc == 0) {
+		return -EINVAL;
+	} else if (rc < 0) {
+		/* sequentialize fids to avoid deadlock */
+		rc = fd1;
+		fd1 = fd2;
+		fd2 = rc;
+	}
+
+	srandom(time(NULL));
+	gid = random();
+	rc = ioctl(fd1, LL_IOC_GROUP_LOCK, &gid);
+	if (rc)
+		return -errno;
+
+	rc = ioctl(fd2, LL_IOC_GROUP_LOCK, &gid);
+	if (rc) {
+		rc = -errno;
+		(void)ioctl(fd1, LL_IOC_GROUP_UNLOCK, &gid);
+		return rc;
+	}
 
 	lsl.sl_fd = fd2;
 	lsl.sl_flags = 0;
-
 	rc = ioctl(fd1, LL_IOC_LOV_SWAP_LAYOUTS, &lsl);
-	if (rc) {
-		llapi_error(LLAPI_MSG_ERROR, -errno,
-			    "error: cannot swap layouts between %d and %d",
-			    fd1, fd2);
+	if (rc)
 		rc = -errno;
-	}
 
+	(void)ioctl(fd2, LL_IOC_GROUP_UNLOCK, &gid);
+	(void)ioctl(fd1, LL_IOC_GROUP_UNLOCK, &gid);
 	return rc;
 }
 

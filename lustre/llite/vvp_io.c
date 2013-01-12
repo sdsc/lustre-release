@@ -65,6 +65,36 @@ int cl_is_normalio(const struct lu_env *env, const struct cl_io *io)
         return vio->cui_io_subtype == IO_NORMAL;
 }
 
+/**
+ * For swapping layout. The file's layout may have changed.
+ * To avoid populating pages to a wrong stripe, we have to verify the
+ * correctness of layout. It works because swapping layout processes
+ * have to acquire group lock.
+ */
+static bool can_populate_pages(struct cl_io *io, struct ll_inode_info *lli)
+{
+	bool rc = true;
+
+	switch (io->ci_type) {
+	case CIT_READ:
+	case CIT_WRITE:
+		/* don't need lock here to check lli_layout_gen as we have held
+		 * extent lock and GROUP lock has to hold to swap layout */
+		if (lli->lli_layout_gen == LL_LAYOUT_GEN_INVALID) {
+			io->ci_need_restart = 1;
+			/* this will return application a short read/write */
+			io->ci_continue = 0;
+			rc = false;
+		}
+	case CIT_FAULT:
+		/* fault is okay because we've already had a page. */
+	default:
+		break;
+	}
+
+	return rc;
+}
+
 /*****************************************************************************
  *
  * io operations.
@@ -470,6 +500,7 @@ static int vvp_io_read_start(const struct lu_env *env,
         struct inode      *inode = ccc_object_inode(obj);
         struct ll_ra_read *bead  = &vio->cui_bead;
         struct file       *file  = cio->cui_fd->fd_file;
+	struct ll_inode_info *lli = ll_i2info(inode);
 
         int     result;
         loff_t  pos = io->u.ci_rd.rd.crw_pos;
@@ -480,6 +511,9 @@ static int vvp_io_read_start(const struct lu_env *env,
         CLOBINVRNT(env, obj, ccc_object_invariant(obj));
 
         CDEBUG(D_VFSTRACE, "read: -> [%lli, %lli)\n", pos, pos + cnt);
+
+	if (!can_populate_pages(io, lli))
+		return 0;
 
         result = ccc_prep_size(env, obj, io, pos, tot, &exceed);
         if (result != 0)
@@ -565,11 +599,15 @@ static int vvp_io_write_start(const struct lu_env *env,
         struct cl_object   *obj   = io->ci_obj;
         struct inode       *inode = ccc_object_inode(obj);
         struct file        *file  = cio->cui_fd->fd_file;
+	struct ll_inode_info *lli = ll_i2info(inode);
         ssize_t result = 0;
         loff_t pos = io->u.ci_wr.wr.crw_pos;
         size_t cnt = io->u.ci_wr.wr.crw_count;
 
         ENTRY;
+
+	if (!can_populate_pages(io, lli))
+		return 0;
 
         if (cl_io_is_append(io)) {
                 /*
