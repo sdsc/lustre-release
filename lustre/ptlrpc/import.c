@@ -770,6 +770,10 @@ static int ptlrpc_connect_interpret(const struct lu_env *env,
 	ENTRY;
 
 	spin_lock(&imp->imp_lock);
+	/* once the interpret is called, the import has been tried to connect
+ 	 * to target anyway. */
+	imp->imp_connect_tried = 1;
+
 	if (imp->imp_state == LUSTRE_IMP_CLOSED) {
 		spin_unlock(&imp->imp_lock);
 		RETURN(0);
