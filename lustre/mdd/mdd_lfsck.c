@@ -979,11 +979,17 @@ static int mdd_lfsck_namespace_exec_dir(const struct lu_env *env,
 	struct lfsck_namespace	   *ns	     =
 				(struct lfsck_namespace *)com->lc_file_ram;
 	const struct lu_name	   *cname;
-	int			    repaired;
+	int			    repaired = 0;
 
 	cname = mdd_name_get_const(env, ent->lde_name, ent->lde_namelen);
 	down_write(&com->lc_sem);
 	com->lc_new_checked++;
+
+	if (ent->lde_attrs & LUDA_LOST_FOUND) {
+		ns->ln_flags |= LF_INCONSISTENT;
+		ns->ln_objs_lost_found++;
+		repaired = 1;
+	}
 
 	if (ent->lde_attrs & LUDA_UPGRADE) {
 		ns->ln_flags |= LF_UPGRADE;
@@ -991,8 +997,6 @@ static int mdd_lfsck_namespace_exec_dir(const struct lu_env *env,
 	} else if (ent->lde_attrs & LUDA_REPAIR) {
 		ns->ln_flags |= LF_INCONSISTENT;
 		repaired = 1;
-	} else {
-		repaired = 0;
 	}
 
 	ns->ln_items_repaired += repaired;
