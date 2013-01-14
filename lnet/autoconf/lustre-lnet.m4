@@ -380,6 +380,11 @@ AC_ARG_WITH([o2ib],
 		O2IBPATHS="$LINUX $LINUX/drivers/infiniband"
 		ENABLEO2IB=1
 	])
+
+# Workaround to make TT-1019 work (builds break: see LU-2847)
+O2IBPATHS="$LINUX $LINUX/drivers/infiniband"
+ENABLEO2IB=1
+
 if test $ENABLEO2IB -eq 0; then
 	AC_MSG_RESULT([disabled])
 else
