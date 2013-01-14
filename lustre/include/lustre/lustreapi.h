@@ -232,6 +232,9 @@ extern int llapi_path2fid(const char *path, lustre_fid *fid);
 extern int llapi_get_version(char *buffer, int buffer_size, char **version);
 
 extern int llapi_get_data_version(int fd, __u64 *data_version, __u64 flags);
+extern int llapi_hsm_state_get(const char *path, struct hsm_user_state *hus);
+extern int llapi_hsm_state_set(const char *path, __u64 setmask, __u64 clearmask,
+			       __u32 archive_id);
 
 /* Changelog interface.  priv is private state, managed internally
    by these functions */
