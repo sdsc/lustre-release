@@ -1895,13 +1895,31 @@ wait_mds_ost_sync () {
     # MAX value includes time needed for MDS-OST reconnection
     local MAX=$(( TIMEOUT * 2 ))
     local WAIT=0
+    if [ $(do_facet $SINGLEMDS \
+	   "$LCTL list_param osp.*osc*.old_sync_processed 2> /dev/null") ]
+    then
+	local new_wait=true
+    else
+	local new_wait=false
+    fi
     while [ $WAIT -lt $MAX ]; do
-        local -a sync=($(do_nodes $(comma_list $(mdts_nodes)) \
-            "$LCTL get_param -n osp.*osc*.old_sync_processed"))
+	if [ x$new_wait = xtrue ]; then
+	    # new way, use old_sync_processed
+	    local -a sync=($(do_nodes $(comma_list $(mdts_nodes)) \
+		"$LCTL get_param -n osp.*osc*.old_sync_processed"))
+	else
+	    # old way, use mds_sync
+	    local -a sync=($(do_nodes $(comma_list $(osts_nodes)) \
+		"$LCTL get_param -n obdfilter.*.mds_sync"))
+	fi
         local con=1
         local i
         for ((i=0; i<${#sync[@]}; i++)); do
-            [ ${sync[$i]} -eq 1 ] && continue
+	    if [ x$new_wait = xtrue ]; then
+		[ ${sync[$i]} -eq 1 ] && continue
+	    else
+		[ ${sync[$i]} -eq 0 ] && continue
+	    fi
             # there is a not finished MDS-OST synchronization
             con=0
             break;
