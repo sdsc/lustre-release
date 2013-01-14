@@ -527,8 +527,10 @@ struct client_obd {
         cfs_atomic_t             cl_mgc_refcount;
         struct obd_export       *cl_mgc_mgsexp;
 
-        /* checksumming for data sent over the network */
-        unsigned int             cl_checksum:1; /* 0 = disabled, 1 = enabled */
+	/* checksumming for data sent over the network */
+	unsigned int             cl_checksum:1, /* 0 = disabled, 1 = enabled */
+	/* request for grant is sent, protected by loi lock */
+				 cl_grant_req:1;
         /* supported checksum types that are worked out at connect time */
         __u32                    cl_supp_cksum_types;
         /* checksum algorithm to be used */
