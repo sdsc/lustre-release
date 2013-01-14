@@ -463,10 +463,12 @@ int mdd_txn_start_cb(const struct lu_env *env, struct thandle *,
                      void *cookie);
 
 /* mdd_lfsck.c */
-void mdd_lfsck_set_speed(struct md_lfsck *lfsck, __u32 limit);
+int mdd_lfsck_set_speed(const struct lu_env *env, struct md_lfsck *lfsck,
+			__u32 limit);
 int mdd_lfsck_start(const struct lu_env *env, struct md_lfsck *lfsck,
 		    struct lfsck_start *start);
-int mdd_lfsck_stop(const struct lu_env *env, struct md_lfsck *lfsck);
+int mdd_lfsck_stop(const struct lu_env *env, struct md_lfsck *lfsck,
+		   bool pause);
 int mdd_lfsck_setup(const struct lu_env *env, struct mdd_device *mdd);
 void mdd_lfsck_cleanup(const struct lu_env *env, struct mdd_device *mdd);
 

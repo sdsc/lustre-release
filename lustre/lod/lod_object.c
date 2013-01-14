@@ -1210,8 +1210,7 @@ void lod_object_free_striping(const struct lu_env *env, struct lod_object *lo)
  */
 static int lod_object_start(const struct lu_env *env, struct lu_object *o)
 {
-	if (S_ISLNK(o->lo_header->loh_attr & S_IFMT))
-		lu2lod_obj(o)->ldo_obj.do_body_ops = &lod_body_lnk_ops;
+	lu2lod_obj(o)->ldo_obj.do_body_ops = &lod_body_lnk_ops;
 	return 0;
 }
 
