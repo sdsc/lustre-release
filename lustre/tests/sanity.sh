@@ -156,8 +156,8 @@ test_0c() {
 run_test 0c "check import proc ============================="
 
 test_1a() {
-	test_mkdir -p $DIR/$tdir
-	test_mkdir -p $DIR/$tdir/d2
+	test_mkdir $DIR/$tdir
+	test_mkdir $DIR/$tdir/d2
 	test_mkdir $DIR/$tdir/d2 && error "we expect EEXIST, but not returned"
 	$CHECKSTAT -t dir $DIR/$tdir/d2 || error
 }
@@ -184,7 +184,7 @@ test_2b() {
 run_test 2b "rm -r .../d2; checkstat .../d2/f ======================"
 
 test_3a() {
-	test_mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir
 	$CHECKSTAT -t dir $DIR/$tdir || error
 }
 run_test 3a "mkdir .../d3 ======================================"
@@ -205,7 +205,7 @@ test_3c() {
 run_test 3c "rm -r .../d3 ======================================"
 
 test_4a() {
-	test_mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir
 	$CHECKSTAT -t dir $DIR/$tdir || error
 }
 run_test 4a "mkdir .../d4 ======================================"
@@ -399,7 +399,7 @@ test_16() {
 run_test 16 "touch .../d16/f; rm -rf .../d16/f ================="
 
 test_17a() {
-	test_mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir
 	touch $DIR/$tdir/$tfile
 	ln -s $DIR/$tdir/$tfile $DIR/$tdir/l-exist
 	ls -l $DIR/$tdir
@@ -411,7 +411,7 @@ test_17a() {
 run_test 17a "symlinks: create, remove (real) =================="
 
 test_17b() {
-	test_mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir
 	ln -s no-such-file $DIR/$tdir/l-dangle
 	ls -l $DIR/$tdir
 	$CHECKSTAT -l no-such-file $DIR/$tdir/l-dangle || error
@@ -422,21 +422,21 @@ test_17b() {
 run_test 17b "symlinks: create, remove (dangling) =============="
 
 test_17c() { # bug 3440 - don't save failed open RPC for replay
-	test_mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir
 	ln -s foo $DIR/$tdir/$tfile
 	cat $DIR/$tdir/$tfile && error "opened non-existent symlink" || true
 }
 run_test 17c "symlinks: open dangling (should return error) ===="
 
 test_17d() {
-	test_mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir
 	ln -s foo $DIR/$tdir/$tfile
 	touch $DIR/$tdir/$tfile || error "creating to new symlink"
 }
 run_test 17d "symlinks: create dangling ========================"
 
 test_17e() {
-	test_mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir
 	local foo=$DIR/$tdir/$tfile
 	ln -s $foo $foo || error "create symlink failed"
 	ls -l $foo || error "ls -l failed"
@@ -445,14 +445,14 @@ test_17e() {
 run_test 17e "symlinks: create recursive symlink (should return error) ===="
 
 test_17f() {
-	test_mkdir -p $DIR/d17f
-	ln -s 1234567890/2234567890/3234567890/4234567890 $DIR/d17f/111
-	ln -s 1234567890/2234567890/3234567890/4234567890/5234567890/6234567890 $DIR/d17f/222
-	ln -s 1234567890/2234567890/3234567890/4234567890/5234567890/6234567890/7234567890/8234567890 $DIR/d17f/333
-	ln -s 1234567890/2234567890/3234567890/4234567890/5234567890/6234567890/7234567890/8234567890/9234567890/a234567890/b234567890 $DIR/d17f/444
-	ln -s 1234567890/2234567890/3234567890/4234567890/5234567890/6234567890/7234567890/8234567890/9234567890/a234567890/b234567890/c234567890/d234567890/f234567890 $DIR/d17f/555
-	ln -s 1234567890/2234567890/3234567890/4234567890/5234567890/6234567890/7234567890/8234567890/9234567890/a234567890/b234567890/c234567890/d234567890/f234567890/aaaaaaaaaa/bbbbbbbbbb/cccccccccc/dddddddddd/eeeeeeeeee/ffffffffff/ $DIR/d17f/666
-	ls -l  $DIR/d17f
+	test_mkdir $DIR/$tdir
+	ln -s 1234567890/2234567890/3234567890/4234567890 $DIR/$tdir/111
+	ln -s 1234567890/2234567890/3234567890/4234567890/5234567890/6234567890 $DIR/$tdir/222
+	ln -s 1234567890/2234567890/3234567890/4234567890/5234567890/6234567890/7234567890/8234567890 $DIR/$tdir/333
+	ln -s 1234567890/2234567890/3234567890/4234567890/5234567890/6234567890/7234567890/8234567890/9234567890/a234567890/b234567890 $DIR/$tdir/444
+	ln -s 1234567890/2234567890/3234567890/4234567890/5234567890/6234567890/7234567890/8234567890/9234567890/a234567890/b234567890/c234567890/d234567890/f234567890 $DIR/$tdir/555
+	ln -s 1234567890/2234567890/3234567890/4234567890/5234567890/6234567890/7234567890/8234567890/9234567890/a234567890/b234567890/c234567890/d234567890/f234567890/aaaaaaaaaa/bbbbbbbbbb/cccccccccc/dddddddddd/eeeeeeeeee/ffffffffff/ $DIR/$tdir/666
+	ls -l  $DIR/$tdir
 }
 run_test 17f "symlinks: long and very long symlink name ========================"
 
@@ -469,7 +469,7 @@ str_repeat() {
 
 # Long symlinks and LU-2241
 test_17g() {
-        test_mkdir -p $DIR/$tdir
+        test_mkdir $DIR/$tdir
 	local TESTS="59 60 61 4094 4095"
 
 	for i in $TESTS; do
@@ -484,7 +484,7 @@ test_17h() { #bug 17378
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	local mdt_idx
-        test_mkdir -p $DIR/$tdir
+        test_mkdir $DIR/$tdir
 	if [ $MDSCOUNT -gt 1 ]; then
 		mdt_idx=$($LFS getdirstripe -i $DIR/$tdir)
 	else
@@ -500,7 +500,7 @@ run_test 17h "create objects: lov_free_memmd() doesn't lbug"
 test_17i() { #bug 20018
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-	test_mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir
 	local foo=$DIR/$tdir/$tfile
 	local mdt_idx
 	if [ $MDSCOUNT -gt 1 ]; then
@@ -517,20 +517,20 @@ test_17i() { #bug 20018
 run_test 17i "don't panic on short symlink"
 
 test_17k() { #bug 22301
-        rsync --help | grep -q xattr ||
-                skip_env "$(rsync --version| head -1) does not support xattrs"
+	rsync --help | grep -q xattr ||
+		skip_env "$(rsync --version| head -1) does not support xattrs"
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-        test_mkdir -p $DIR/$tdir
-	test_mkdir -p $DIR/$tdir.new
-        touch $DIR/$tdir/$tfile
-        ln -s $DIR/$tdir/$tfile $DIR/$tdir/$tfile.lnk
-        rsync -av -X $DIR/$tdir/ $DIR/$tdir.new ||
-                error "rsync failed with xattrs enabled"
+	test_mkdir $DIR/$tdir
+	test_mkdir $DIR/$tdir.new
+	touch $DIR/$tdir/$tfile
+	ln -s $DIR/$tdir/$tfile $DIR/$tdir/$tfile.lnk
+	rsync -av -X $DIR/$tdir/ $DIR/$tdir.new ||
+		error "rsync failed with xattrs enabled"
 }
 run_test 17k "symlinks: rsync with xattrs enabled ========================="
 
 test_17l() { # LU-279
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir
 	touch $DIR/$tdir/$tfile
 	ln -s $DIR/$tdir/$tfile $DIR/$tdir/$tfile.lnk
 	for path in "$DIR/$tdir" "$DIR/$tdir/$tfile" "$DIR/$tdir/$tfile.lnk"; do
@@ -719,7 +719,7 @@ run_test 21 "write to dangling link ============================"
 
 test_22() {
 	WDIR=$DIR/$tdir
-	test_mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir
 	chown $RUNAS_ID:$RUNAS_GID $WDIR
 	(cd $WDIR || error "cd $WDIR failed";
 	$RUNAS tar cf - /etc/hosts /etc/sysconfig/network | \
@@ -732,7 +732,7 @@ run_test 22 "unpack tar archive as non-root user ==============="
 
 # was test_23
 test_23a() {
-	test_mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir
 	local file=$DIR/$tdir/$tfile
 
 	openfile -f O_CREAT:O_EXCL $file || error "$file create failed"
@@ -742,7 +742,7 @@ test_23a() {
 run_test 23a "O_CREAT|O_EXCL in subdir =========================="
 
 test_23b() { # bug 18988
-	test_mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir
 	local file=$DIR/$tdir/$tfile
 
         rm -f $file
@@ -1156,17 +1156,17 @@ run_test 26e "unlink multiple component recursive symlink ======"
 
 # recursive symlinks (bug 7022)
 test_26f() {
-	test_mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir
 	test_mkdir $DIR/$tdir/$tfile   || error "mkdir $DIR/$tdir/$tfile failed"
 	cd $DIR/$tdir/$tfile           || error "cd $DIR/$tdir/$tfile failed"
-	test_mkdir -p lndir bar1      || error "mkdir lndir/bar1 failed"
+	test_mkdir -p lndir/bar1      || error "mkdir lndir/bar1 failed"
 	test_mkdir $DIR/$tdir/$tfile/$tfile   || error "mkdir $tfile failed"
 	cd $tfile                || error "cd $tfile failed"
 	ln -s .. dotdot          || error "ln dotdot failed"
 	ln -s dotdot/lndir lndir || error "ln lndir failed"
 	cd $DIR/$tdir                 || error "cd $DIR/$tdir failed"
-	output=`ls $tfile/$tfile/lndir/bar1`
-	[ "$output" = bar1 ] && error "unexpected output"
+	output=$(ls $tfile/$tfile/lndir)
+	[ "$output" = bar1 ] || error "unexpected output"
 	rm -r $tfile             || error "rm $tfile failed"
 	$CHECKSTAT -a $DIR/$tfile || error "$tfile not gone"
 }
@@ -1174,82 +1174,82 @@ run_test 26f "rm -r of a directory which has recursive symlink ="
 
 test_27a() {
 	echo '== stripe sanity =============================================='
-	test_mkdir -p $DIR/d27 || error "mkdir failed"
-	$GETSTRIPE $DIR/d27
-	$SETSTRIPE -c 1 $DIR/d27/f0 || error "setstripe failed"
-	$CHECKSTAT -t file $DIR/d27/f0 || error "checkstat failed"
+	test_mkdir -p $DIR/$tdir || error "mkdir failed"
+	$GETSTRIPE $DIR/$tdir
+	$SETSTRIPE -c 1 $DIR/$tdir/f0 || error "setstripe failed"
+	$CHECKSTAT -t file $DIR/$tdir/f0 || error "checkstat failed"
 	pass
 	log "== test_27a: write to one stripe file ========================="
-	cp /etc/hosts $DIR/d27/f0 || error
+	cp /etc/hosts $DIR/$tdir/f0 || error
 }
 run_test 27a "one stripe file =================================="
 
 test_27b() {
 	[ "$OSTCOUNT" -lt "2" ] && skip_env "skipping 2-stripe test" && return
-	test_mkdir -p $DIR/d27
-	$SETSTRIPE -c 2 $DIR/d27/f01 || error "setstripe failed"
-	$GETSTRIPE -c $DIR/d27/f01
-	[ $($GETSTRIPE -c $DIR/d27/f01) -eq 2 ] ||
+	test_mkdir -p $DIR/$tdir
+	$SETSTRIPE -c 2 $DIR/$tdir/f01 || error "setstripe failed"
+	$GETSTRIPE -c $DIR/$tdir/f01
+	[ $($GETSTRIPE -c $DIR/$tdir/f01) -eq 2 ] ||
 		error "two-stripe file doesn't have two stripes"
 }
 run_test 27b "create two stripe file"
 
 test_27c() {
-	[ -f $DIR/d27/f01 ] || skip "test_27b not run" && return
+	[ -f $DIR/$tdir/f01 ] || skip "test_27b not run" && return
 
-	dd if=/dev/zero of=$DIR/d27/f01 bs=4k count=4 || error "dd failed"
+	dd if=/dev/zero of=$DIR/$tdir/f01 bs=4k count=4 || error "dd failed"
 }
 run_test 27c "write to two stripe file"
 
 test_27d() {
-	test_mkdir -p $DIR/d27
-	$SETSTRIPE -c 0 -i -1 -S 0 $DIR/d27/fdef || error "setstripe failed"
-	$CHECKSTAT -t file $DIR/d27/fdef || error "checkstat failed"
-	dd if=/dev/zero of=$DIR/d27/fdef bs=4k count=4 || error
+	test_mkdir -p $DIR/$tdir
+	$SETSTRIPE -c 0 -i -1 -S 0 $DIR/$tdir/fdef || error "setstripe failed"
+	$CHECKSTAT -t file $DIR/$tdir/fdef || error "checkstat failed"
+	dd if=/dev/zero of=$DIR/$tdir/fdef bs=4k count=4 || error
 }
 run_test 27d "create file with default settings ================"
 
 test_27e() {
-	test_mkdir -p $DIR/d27
-	$SETSTRIPE -c 2 $DIR/d27/f12 || error "setstripe failed"
-	$SETSTRIPE -c 2 $DIR/d27/f12 && error "setstripe succeeded twice"
-	$CHECKSTAT -t file $DIR/d27/f12 || error "checkstat failed"
+	test_mkdir -p $DIR/$tdir
+	$SETSTRIPE -c 2 $DIR/$tdir/f12 || error "setstripe failed"
+	$SETSTRIPE -c 2 $DIR/$tdir/f12 && error "setstripe succeeded twice"
+	$CHECKSTAT -t file $DIR/$tdir/f12 || error "checkstat failed"
 }
 run_test 27e "setstripe existing file (should return error) ======"
 
 test_27f() {
-	test_mkdir -p $DIR/d27
-	$SETSTRIPE -S 100 -i 0 -c 1 $DIR/d27/fbad && error "setstripe failed"
-	dd if=/dev/zero of=$DIR/d27/f12 bs=4k count=4 || error "dd failed"
-	$GETSTRIPE $DIR/d27/fbad || error "$GETSTRIPE failed"
+	test_mkdir -p $DIR/$tdir
+	$SETSTRIPE -S 100 -i 0 -c 1 $DIR/$tdir/fbad && error "setstripe failed"
+	dd if=/dev/zero of=$DIR/$tdir/f12 bs=4k count=4 || error "dd failed"
+	$GETSTRIPE $DIR/$tdir/fbad || error "$GETSTRIPE failed"
 }
 run_test 27f "setstripe with bad stripe size (should return error)"
 
 test_27g() {
-	test_mkdir -p $DIR/d27
-	$MCREATE $DIR/d27/fnone || error "mcreate failed"
-	$GETSTRIPE $DIR/d27/fnone 2>&1 | grep "no stripe info" ||
-		error "$DIR/d27/fnone has object"
+	test_mkdir -p $DIR/$tdir
+	$MCREATE $DIR/$tdir/$tfile || error "mcreate failed"
+	$GETSTRIPE $DIR/$tdir/$tfile 2>&1 | grep "no stripe info" ||
+		error "$DIR/$tdir/$tfile has object"
 }
 run_test 27g "$GETSTRIPE with no objects"
 
 test_27i() {
-	touch $DIR/d27/fsome || error "touch failed"
-	[ $($GETSTRIPE -c $DIR/d27/fsome) -gt 0 ] || error "missing objects"
+	test_mkdir $DIR/$tdir
+	touch $DIR/$tdir/fsome || error "touch failed"
+	[ $($GETSTRIPE -c $DIR/$tdir/fsome) -gt 0 ] || error "missing objects"
 }
 run_test 27i "$GETSTRIPE with some objects"
 
 test_27j() {
-	test_mkdir -p $DIR/d27
-	$SETSTRIPE -i $OSTCOUNT $DIR/d27/f27j && error "setstripe failed"||true
+	test_mkdir -p $DIR/$tdir
+	$SETSTRIPE -i $OSTCOUNT $DIR/$tdir/$tfile && error "setstripe failed"||true
 }
 run_test 27j "setstripe with bad stripe offset (should return error)"
 
 test_27k() { # bug 2844
-	test_mkdir -p $DIR/d27
-	FILE=$DIR/d27/f27k
+	test_mkdir -p $DIR/$tdir
+	FILE=$DIR/$tdir/$tfile
 	LL_MAX_BLKSIZE=$((4 * 1024 * 1024))
-	[ ! -d $DIR/d27 ] && test_mkdir -p $DIR d27
 	$SETSTRIPE -S 67108864 $FILE || error "setstripe failed"
 	BLKSIZE=`stat $FILE | awk '/IO Block:/ { print $7 }'`
 	[ $BLKSIZE -le $LL_MAX_BLKSIZE ] || error "$BLKSIZE > $LL_MAX_BLKSIZE"
@@ -1260,9 +1260,9 @@ test_27k() { # bug 2844
 run_test 27k "limit i_blksize for broken user apps ============="
 
 test_27l() {
-	test_mkdir -p $DIR/d27
-	mcreate $DIR/f27l || error "creating file"
-	$RUNAS $SETSTRIPE -c 1 $DIR/f27l && \
+	test_mkdir -p $DIR/$tdir
+	mcreate $DIR/$tfile || error "creating file"
+	$RUNAS $SETSTRIPE -c 1 $DIR/$tfile && \
 		error "setstripe should have failed" || true
 }
 run_test 27l "check setstripe permissions (should return error)"
