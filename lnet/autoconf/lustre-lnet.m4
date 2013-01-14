@@ -380,6 +380,7 @@ AC_ARG_WITH([o2ib],
 		O2IBPATHS="$LINUX $LINUX/drivers/infiniband"
 		ENABLEO2IB=1
 	])
+
 if test $ENABLEO2IB -eq 0; then
 	AC_MSG_RESULT([disabled])
 else
@@ -416,7 +417,9 @@ else
 		LB_LINUX_TRY_COMPILE([
 		        #include <linux/version.h>
 		        #include <linux/pci.h>
-			#include <linux/gfp.h>
+			    #include <linux/gfp.h>
+                #include <linux/rtnetlink.h>
+                #include <linux/compat-3.2.h>
 		        #include <rdma/rdma_cm.h>
 		        #include <rdma/ib_cm.h>
 		        #include <rdma/ib_verbs.h>
