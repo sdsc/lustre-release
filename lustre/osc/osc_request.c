@@ -820,8 +820,9 @@ static int osc_destroy(const struct lu_env *env, struct obd_export *exp,
 }
 
 static void osc_announce_cached(struct client_obd *cli, struct obdo *oa,
-                                long writing_bytes)
+				long writing_bytes)
 {
+	__u64 grants;
         obd_flag bits = OBD_MD_FLBLOCKS|OBD_MD_FLGRANT;
 
         LASSERT(!(oa->o_valid & bits));
@@ -829,6 +830,7 @@ static void osc_announce_cached(struct client_obd *cli, struct obdo *oa,
         oa->o_valid |= bits;
         client_obd_list_lock(&cli->cl_loi_list_lock);
         oa->o_dirty = cli->cl_dirty;
+	grants = cli->cl_reserved_grant + cli->cl_avail_grant;
 	if (unlikely(cli->cl_dirty - cli->cl_dirty_transit >
 		     cli->cl_dirty_max)) {
 		CERROR("dirty %lu - %lu > dirty_max %lu\n",
@@ -850,18 +852,23 @@ static void osc_announce_cached(struct client_obd *cli, struct obdo *oa,
 		       cli->cl_dirty, cli->cl_dirty_max);
 		oa->o_undirty = 0;
 	} else {
-		long max_in_flight = (cli->cl_max_pages_per_rpc <<
-				      CFS_PAGE_SHIFT)*
-				     (cli->cl_max_rpcs_in_flight + 1);
-                oa->o_undirty = max(cli->cl_dirty_max, max_in_flight);
-        }
-	oa->o_grant = cli->cl_avail_grant + cli->cl_reserved_grant;
-        oa->o_dropped = cli->cl_lost_grant;
-        cli->cl_lost_grant = 0;
-        client_obd_list_unlock(&cli->cl_loi_list_lock);
-        CDEBUG(D_CACHE,"dirty: "LPU64" undirty: %u dropped %u grant: "LPU64"\n",
-               oa->o_dirty, oa->o_undirty, oa->o_dropped, oa->o_grant);
-
+		if (cli->cl_dirty_max > grants)
+			/* we will be sleep if dirty cache size exceed or
+			 * don't have enough grants */
+			oa->o_undirty = cli->cl_dirty_max;
+		else
+			oa->o_undirty = 0;
+	}
+	/* o_grant treated as total grants on system, but not as available to
+	 * use, otherwise we have eats more grants then dirty cache
+	 * but it's unused due dirty cache limitation */
+	oa->o_grant = grants - writing_bytes;
+	oa->o_dropped = cli->cl_lost_grant;
+	cli->cl_lost_grant = 0;
+	client_obd_list_unlock(&cli->cl_loi_list_lock);
+	CDEBUG(D_CACHE, "dirty: "LPU64" undirty: %u dropped %u grant: "
+			LPU64"\n", oa->o_dirty, oa->o_undirty, oa->o_dropped,
+			oa->o_grant);
 }
 
 void osc_update_next_shrink(struct client_obd *cli)
@@ -930,45 +937,33 @@ static void osc_shrink_grant_local(struct client_obd *cli, struct obdo *oa)
  * full set of in-flight RPCs, or if we have already shrunk to that limit
  * then to enough for a single RPC.  This avoids keeping more grant than
  * needed, and avoids shrinking the grant piecemeal. */
-static int osc_shrink_grant(struct client_obd *cli)
+int osc_shrink_grant_to_target(struct client_obd *cli, __u64 target)
 {
-        long target = (cli->cl_max_rpcs_in_flight + 1) *
-                      cli->cl_max_pages_per_rpc;
+	int		rc = 0;
+	struct ost_body	*body;
+	ENTRY;
 
-        client_obd_list_lock(&cli->cl_loi_list_lock);
-        if (cli->cl_avail_grant <= target)
-                target = cli->cl_max_pages_per_rpc;
-        client_obd_list_unlock(&cli->cl_loi_list_lock);
+	OBD_ALLOC_PTR(body);
+	if (!body)
+		RETURN(-ENOMEM);
 
-        return osc_shrink_grant_to_target(cli, target);
-}
+	client_obd_list_lock(&cli->cl_loi_list_lock);
+	if (target == 0)
+		target = (cli->cl_max_pages_per_rpc << CFS_PAGE_SHIFT)*
+			 (cli->cl_max_rpcs_in_flight + 1);
 
-int osc_shrink_grant_to_target(struct client_obd *cli, long target)
-{
-        int    rc = 0;
-        struct ost_body     *body;
-        ENTRY;
+	if (target < cli->cl_max_pages_per_rpc << CFS_PAGE_SHIFT)
+		target = cli->cl_max_pages_per_rpc << CFS_PAGE_SHIFT;
 
-        client_obd_list_lock(&cli->cl_loi_list_lock);
-        /* Don't shrink if we are already above or below the desired limit
-         * We don't want to shrink below a single RPC, as that will negatively
-         * impact block allocation and long-term performance. */
-        if (target < cli->cl_max_pages_per_rpc)
-                target = cli->cl_max_pages_per_rpc;
-
-        if (target >= cli->cl_avail_grant) {
-                client_obd_list_unlock(&cli->cl_loi_list_lock);
-                RETURN(0);
-        }
-        client_obd_list_unlock(&cli->cl_loi_list_lock);
-
-        OBD_ALLOC_PTR(body);
-        if (!body)
-                RETURN(-ENOMEM);
-
-        osc_announce_cached(cli, &body->oa, 0);
-
-        client_obd_list_lock(&cli->cl_loi_list_lock);
+	/* Don't shrink if we are already above or below the desired limit
+	 * We don't want to shrink below a single RPC, as that will negatively
+	 * impact block allocation and long-term performance. */
+	if (target > cli->cl_avail_grant) {
+		client_obd_list_unlock(&cli->cl_loi_list_lock);
+		OBD_FREE_PTR(body);
+		/* we don't need a realease something */
+		RETURN(0);
+	}
         body->oa.o_grant = cli->cl_avail_grant - target;
         cli->cl_avail_grant = target;
         client_obd_list_unlock(&cli->cl_loi_list_lock);
@@ -1019,7 +1014,7 @@ static int osc_grant_shrink_grant_cb(struct timeout_item *item, void *data)
         cfs_list_for_each_entry(client, &item->ti_obd_list,
                                 cl_grant_shrink_list) {
                 if (osc_should_shrink_grant(client))
-                        osc_shrink_grant(client);
+			osc_shrink_grant_to_target(client, 0);
         }
         return 0;
 }
