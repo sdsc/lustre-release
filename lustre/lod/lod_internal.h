@@ -169,6 +169,7 @@ struct lod_object {
 struct lod_it {
 	struct dt_object	*lit_obj; /* object from the layer below */
 	struct dt_it		*lit_it;  /* iterator from the layer below */
+	unsigned int		 lit_dynamic:1; /* dynamically allocated. */
 };
 
 struct lod_thread_info {

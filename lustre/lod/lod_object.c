@@ -105,16 +105,20 @@ static struct dt_it *lod_it_init(const struct lu_env *env,
 	struct lod_it		*it = &lod_env_info(env)->lti_it;
 	struct dt_it		*it_next;
 
+	if (it->lit_obj != NULL) {
+		OBD_ALLOC_PTR(it);
+		if (it == NULL)
+			return ERR_PTR(-ENOMEM);
+
+		it->lit_dynamic = 1;
+	}
 
 	it_next = next->do_index_ops->dio_it.init(env, next, attr, capa);
-	if (IS_ERR(it_next))
+	if (IS_ERR(it_next)) {
+		if (it->lit_dynamic)
+			OBD_FREE_PTR(it);
 		return it_next;
-
-	/* currently we do not use more than one iterator per thread
-	 * so we store it in thread info. if at some point we need
-	 * more active iterators in a single thread, we can allocate
-	 * additional ones */
-	LASSERT(it->lit_obj == NULL);
+	}
 
 	it->lit_it = it_next;
 	it->lit_obj = next;
@@ -124,8 +128,6 @@ static struct dt_it *lod_it_init(const struct lu_env *env,
 
 #define LOD_CHECK_IT(env, it)					\
 {								\
-	/* IT is supposed to be in thread info always */	\
-	LASSERT((it) == &lod_env_info(env)->lti_it);		\
 	LASSERT((it)->lit_obj != NULL);				\
 	LASSERT((it)->lit_it != NULL);				\
 } while(0)
@@ -140,6 +142,9 @@ void lod_it_fini(const struct lu_env *env, struct dt_it *di)
 	/* the iterator not in use any more */
 	it->lit_obj = NULL;
 	it->lit_it = NULL;
+
+	if (it->lit_dynamic)
+		OBD_FREE_PTR(it);
 }
 
 int lod_it_get(const struct lu_env *env, struct dt_it *di,
