@@ -2862,7 +2862,8 @@ struct llog_size_change_rec {
 /** bits covering all \a changelog_rec_type's */
 #define CHANGELOG_ALLMASK 0XFFFFFFFF
 /** default \a changelog_rec_type mask */
-#define CHANGELOG_DEFMASK CHANGELOG_ALLMASK & ~(1 << CL_ATIME | 1 << CL_CLOSE)
+#define CHANGELOG_DEFMASK \
+	CHANGELOG_ALLMASK & ~(1 << CL_NLINK | 1 << CL_ATIME | 1 << CL_CLOSE)
 
 /* changelog llog name, needed by client replicators */
 #define CHANGELOG_CATALOG "changelog_catalog"

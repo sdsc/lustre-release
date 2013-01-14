@@ -107,6 +107,17 @@ struct mdd_thread_info *mdd_env_info(const struct lu_env *env)
         return info;
 }
 
+const struct lu_name *mdd_name_get_const(const struct lu_env *env,
+					 const void *area, ssize_t len)
+{
+	struct lu_name *lname;
+
+	lname = &mdd_env_info(env)->mti_name;
+	lname->ln_name = area;
+	lname->ln_namelen = len;
+	return lname;
+}
+
 struct lu_buf *mdd_buf_get(const struct lu_env *env, void *area, ssize_t len)
 {
         struct lu_buf *buf;
@@ -1034,9 +1045,8 @@ stop:
  * attributes change: setattr > mtime > ctime > atime
  * (ctime changes when mtime does, plus chmod/chown.
  * atime and ctime are independent.) */
-static int mdd_attr_set_changelog(const struct lu_env *env,
-                                  struct md_object *obj, struct thandle *handle,
-                                  __u64 valid)
+int mdd_attr_set_changelog(const struct lu_env *env, struct md_object *obj,
+			   struct thandle *handle, __u64 valid)
 {
         struct mdd_device *mdd = mdo2mdd(obj);
         int bits, type = 0;
@@ -1045,6 +1055,7 @@ static int mdd_attr_set_changelog(const struct lu_env *env,
         bits |= (valid & LA_MTIME) ? 1 << CL_MTIME : 0;
         bits |= (valid & LA_CTIME) ? 1 << CL_CTIME : 0;
         bits |= (valid & LA_ATIME) ? 1 << CL_ATIME : 0;
+	bits |= (valid & LA_NLINK) ? 1 << CL_NLINK : 0;
         bits = bits & mdd->mdd_cl.mc_mask;
         if (bits == 0)
                 return 0;
@@ -1060,11 +1071,9 @@ static int mdd_attr_set_changelog(const struct lu_env *env,
                                         md2mdd_obj(obj), handle);
 }
 
-static int mdd_declare_attr_set(const struct lu_env *env,
-                                struct mdd_device *mdd,
-                                struct mdd_object *obj,
-				const struct lu_attr *attr,
-                                struct thandle *handle)
+int mdd_declare_attr_set(const struct lu_env *env, struct mdd_device *mdd,
+			 struct mdd_object *obj, const struct lu_attr *attr,
+			 struct thandle *handle)
 {
 	int rc;
 
