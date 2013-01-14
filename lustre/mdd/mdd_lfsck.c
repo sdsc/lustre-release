@@ -42,6 +42,7 @@
 #include <lustre_fid.h>
 
 #include "mdd_internal.h"
+#include "mdd_lfsck.h"
 
 static inline char *mdd_lfsck2name(struct md_lfsck *lfsck)
 {

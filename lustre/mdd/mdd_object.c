@@ -56,6 +56,7 @@
 #include <lustre/lustre_idl.h>
 
 #include "mdd_internal.h"
+#include "mdd_lfsck.h"
 
 static const struct lu_object_operations mdd_lu_obj_ops;
 extern cfs_mem_cache_t *mdd_object_kmem;
@@ -105,6 +106,17 @@ struct mdd_thread_info *mdd_env_info(const struct lu_env *env)
         info = lu_context_key_get(&env->le_ctx, &mdd_thread_key);
         LASSERT(info != NULL);
         return info;
+}
+
+const struct lu_name *mdd_name_get_const(const struct lu_env *env,
+					 const void *area, ssize_t len)
+{
+	struct lu_name *lname;
+
+	lname = &mdd_env_info(env)->mti_name;
+	lname->ln_name = area;
+	lname->ln_namelen = len;
+	return lname;
 }
 
 struct lu_buf *mdd_buf_get(const struct lu_env *env, void *area, ssize_t len)
@@ -204,22 +216,26 @@ struct lu_object *mdd_object_alloc(const struct lu_env *env,
 static int mdd_object_init(const struct lu_env *env, struct lu_object *o,
                            const struct lu_object_conf *unused)
 {
-        struct mdd_device *d = lu2mdd_dev(o->lo_dev);
-        struct mdd_object *mdd_obj = lu2mdd_obj(o);
-        struct lu_object  *below;
-        struct lu_device  *under;
-        ENTRY;
+	struct mdd_device	   *d       = lu2mdd_dev(o->lo_dev);
+	struct mdd_object	   *mdd_obj = lu2mdd_obj(o);
+	struct lfsck_linkea_header *llh     = &mdd_obj->mod_llh;
+	struct lu_object	   *below;
+	struct lu_device	   *under;
+	ENTRY;
 
-        mdd_obj->mod_cltime = 0;
-        under = &d->mdd_child->dd_lu_dev;
-        below = under->ld_ops->ldo_object_alloc(env, o->lo_header, under);
-        mdd_pdlock_init(mdd_obj);
+	mdd_obj->mod_cltime = 0;
+	CFS_INIT_LIST_HEAD(&llh->llh_list);
+	llh->llh_count = 0;
+	llh->llh_flags = 0;
+	under = &d->mdd_child->dd_lu_dev;
+	below = under->ld_ops->ldo_object_alloc(env, o->lo_header, under);
+	mdd_pdlock_init(mdd_obj);
 	if (IS_ERR(below))
 		RETURN(PTR_ERR(below));
 
-        lu_object_add(o, below);
+	lu_object_add(o, below);
 
-        RETURN(0);
+	RETURN(0);
 }
 
 static int mdd_object_start(const struct lu_env *env, struct lu_object *o)
@@ -232,9 +248,17 @@ static int mdd_object_start(const struct lu_env *env, struct lu_object *o)
 
 static void mdd_object_free(const struct lu_env *env, struct lu_object *o)
 {
-        struct mdd_object *mdd = lu2mdd_obj(o);
+	struct mdd_object	   *mdd = lu2mdd_obj(o);
+	struct lfsck_linkea_header *llh = &mdd->mod_llh;
+	struct lfsck_linkea_entry  *lle;
+	struct lfsck_linkea_entry  *next;
 
-        lu_object_fini(o);
+	cfs_list_for_each_entry_safe(lle, next, &llh->llh_list, lle_link) {
+		cfs_list_del(&lle->lle_link);
+		OBD_FREE(lle, sizeof(*lle) + lle->lle_namelen);
+	}
+
+	lu_object_fini(o);
 	OBD_SLAB_FREE_PTR(mdd, mdd_object_kmem);
 }
 
@@ -1034,9 +1058,8 @@ stop:
  * attributes change: setattr > mtime > ctime > atime
  * (ctime changes when mtime does, plus chmod/chown.
  * atime and ctime are independent.) */
-static int mdd_attr_set_changelog(const struct lu_env *env,
-                                  struct md_object *obj, struct thandle *handle,
-                                  __u64 valid)
+int mdd_attr_set_changelog(const struct lu_env *env, struct md_object *obj,
+			   struct thandle *handle, __u64 valid)
 {
         struct mdd_device *mdd = mdo2mdd(obj);
         int bits, type = 0;
@@ -1045,6 +1068,7 @@ static int mdd_attr_set_changelog(const struct lu_env *env,
         bits |= (valid & LA_MTIME) ? 1 << CL_MTIME : 0;
         bits |= (valid & LA_CTIME) ? 1 << CL_CTIME : 0;
         bits |= (valid & LA_ATIME) ? 1 << CL_ATIME : 0;
+	bits |= (valid & LA_NLINK) ? 1 << CL_NLINK : 0;
         bits = bits & mdd->mdd_cl.mc_mask;
         if (bits == 0)
                 return 0;
@@ -1060,11 +1084,9 @@ static int mdd_attr_set_changelog(const struct lu_env *env,
                                         md2mdd_obj(obj), handle);
 }
 
-static int mdd_declare_attr_set(const struct lu_env *env,
-                                struct mdd_device *mdd,
-                                struct mdd_object *obj,
-				const struct lu_attr *attr,
-                                struct thandle *handle)
+int mdd_declare_attr_set(const struct lu_env *env, struct mdd_device *mdd,
+			 struct mdd_object *obj, const struct lu_attr *attr,
+			 struct thandle *handle)
 {
 	int rc;
 
@@ -1847,7 +1869,6 @@ int mdd_object_kill(const struct lu_env *env, struct mdd_object *obj,
 
 static int mdd_declare_close(const struct lu_env *env,
                              struct mdd_object *obj,
-                             struct md_attr *ma,
                              struct thandle *handle)
 {
         int rc;
@@ -1894,7 +1915,7 @@ again:
                 if (IS_ERR(handle))
                         RETURN(PTR_ERR(handle));
 
-                rc = mdd_declare_close(env, mdd_obj, ma, handle);
+		rc = mdd_declare_close(env, mdd_obj, handle);
                 if (rc)
                         GOTO(stop, rc);
 
