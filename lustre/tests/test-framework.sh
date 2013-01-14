@@ -4193,7 +4193,7 @@ run_one() {
     local testnum=$1
     local message=$2
     tfile=f.${TESTSUITE}.${testnum}
-    export tdir=d0.${TESTSUITE}/d${base}
+    export tdir=d0.${TESTSUITE}.${base}
     export TESTNAME=test_$testnum
     local SAVE_UMASK=`umask`
     umask 0022
