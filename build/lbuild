@@ -535,6 +535,16 @@ download_ofed() {
         return 0
     fi
 
+    # Mellanox OFED stack supporting SR-IOV virtualisation should be used
+    if [ -n "$OFED_VM" ] ; then
+	cp $VM_OFED_STACK $KERNELTREE
+	if [ $? -ne 0 ] ; then
+	    fatal 1 "Can't copy $VM_OFED_STACK to $KERNELTREE OFED"
+	else 
+	    return 0
+	fi
+    fi
+
     local OFED_BASE_VERSION=$OFED_VERSION
     if [[ $OFED_VERSION = *.*.*.* ]]; then
         OFED_BASE_VERSION=${OFED_VERSION%.*}
@@ -1046,6 +1056,33 @@ unpack_linux_devel_rpm() {
 
 build_kernel_ib() {
     local linux="$1"
+
+    if [ -n "$OFED_VM" ] ; then
+
+        # Set list Module list of OFED modules that need to be compiled for guest
+        local OFED_VM_CORE=' --with-core-mod --with-ipoib-mod --with-user_mad-mod --with-user_access-mod --with-addr_trans-mod'
+        local OFED_VM_HARDWARE='--with-mlx4-mod --with-mlx4_en-mod'
+        local OFED_VM_ISCSI='--with-srp-mod'
+        SOURCE_VM="${TOPDIR}/OFED/SRPMS/ofa_kernel-*.src.rpm"
+
+        rpm --define "_topdir ${TOPDIR}" -ivh $SOURCE_VM
+
+        local linuxrelease=$(find_linux_release "$linux")
+        # Compile OFED using the source RPM
+        if ! $RPMBUILD $BUILD_TYPE --rebuild --nodeps --define 'build_kernel_ib 1' --define 'build_kernel_ib_devel 1' \
+                      --define "_topdir ${TOPDIR}" --target ${TARGET_ARCH} \
+                      --define "KVERSION ${linuxrelease}" \
+                      --define "K_SRC ${linux}" \
+                      --define "LIB_MOD_DIR /lib/modules/${linuxrelease}/updates" \
+                      ${OFA_KERNEL_RELEASE:+--define "_release $OFA_KERNEL_RELEASE"} \
+                      --define "configure_options --without-quilt $OFED_CORE $OFED_HARDWARE $OFED_ISCSI" \
+                      --define "network-dir /etc/sysconfig/network-scripts" \
+                      ${SOURCE_VM} 2>&1 ; then
+            fatal 1 "Error building kernel-ib"
+            return 1
+        fi
+        return 0
+    fi 
 
     # build kernel-ib{,-devel}
     local K_SRC="K_SRC"
@@ -1669,7 +1706,7 @@ set -E
 
 [ -r ~/.lbuildrc ] && . ~/.lbuildrc
 
-options=$(getopt -o d:D:h -l kerneltree:,distro:,kernelrpm:,reusebuild:,patchless,ldiskfs,ccache,reuse:,norpm,disable-datestamp,external-patches:,timestamp:,extraversion:,kerneldir:,linux:,lustre:,nodownload,nosrc,ofed-version:,publish,release,set-value:,src,stage:,tag:,target:,target-archs:,with-linux:,xen -- "$@")
+options=$(getopt -o d:D:h -l kerneltree:,distro:,kernelrpm:,reusebuild:,patchless,ldiskfs,ccache,reuse:,norpm,disable-datestamp,external-patches:,timestamp:,extraversion:,kerneldir:,linux:,lustre:,nodownload,nosrc,ofed-version:,ofed-vm,publish,release,set-value:,src,stage:,tag:,target:,target-archs:,with-linux:,xen -- "$@")
 
 if [ $? != 0 ]; then
     usage 1
@@ -1778,6 +1815,11 @@ while [ "$1" ]; do
         --ofed-version)
             OFED_VERSION="$2"
             shift 2
+            ;;
+        --ofed-vm)
+            OFED_VM="true"
+	    VM_OFED_STACK='/scratch/repos/mellanox/el6/OFED-3.3.0.tgz'
+            shift 1
             ;;
         --publish)
             shift
