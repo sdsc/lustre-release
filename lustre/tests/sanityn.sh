@@ -256,11 +256,11 @@ test_10b() {
 run_test 10b "write of file with sub-page size on multiple mounts "
 
 test_11() {
-	test_mkdir $DIR1/d11
-	multiop_bg_pause $DIR1/d11/f O_c || return 1
+	test_mkdir $DIR1/$tdir
+	multiop_bg_pause $DIR1/$tdir/f O_c || return 1
 	MULTIPID=$!
-	cp -p /bin/ls $DIR1/d11/f
-	$DIR2/d11/f
+	cp -p /bin/ls $DIR1/$tdir/f
+	$DIR2/$tdir/f
 	RC=$?
 	kill -USR1 $MULTIPID
 	wait $MULTIPID || error
@@ -274,23 +274,23 @@ test_12() {
 run_test 12 "test lock ordering (link, stat, unlink) ==========="
 
 test_13() {	# bug 2451 - directory coherency
-	test_mkdir $DIR1/d13 || error
-       cd $DIR1/d13 || error
-       ls
-       ( touch $DIR1/d13/f13 ) # needs to be a separate shell
-       ls
-       rm -f $DIR2/d13/f13 || error
-       ls 2>&1 | grep f13 && error "f13 shouldn't return an error (1)" || true
-       # need to run it twice
-       ( touch $DIR1/d13/f13 ) # needs to be a separate shell
-       ls
-       rm -f $DIR2/d13/f13 || error
-       ls 2>&1 | grep f13 && error "f13 shouldn't return an error (2)" || true
+	test_mkdir $DIR1/$tdir || error
+	cd $DIR1/$tdir || error
+	ls
+	( touch $DIR1/$tdir/f13 ) # needs to be a separate shell
+	ls
+	rm -f $DIR2/$tdir/f13 || error
+	ls 2>&1 | grep f13 && error "f13 shouldn't return an error (1)" || true
+	# need to run it twice
+	( touch $DIR1/$tdir/f13 ) # needs to be a separate shell
+	ls
+	rm -f $DIR2/$tdir/f13 || error
+	ls 2>&1 | grep f13 && error "f13 shouldn't return an error (2)" || true
 }
 run_test 13 "test directory page revocation ===================="
 
 test_14() {
-	test_mkdir -p $DIR1/$tdir
+	test_mkdir $DIR1/$tdir
 	cp -p /bin/ls $DIR1/$tdir/$tfile
 	multiop_bg_pause $DIR1/$tdir/$tfile Ow_c || return 1
 	MULTIPID=$!
@@ -302,55 +302,59 @@ test_14() {
 run_test 14 "execution of file open for write returns -ETXTBSY ="
 
 test_14a() {
-	test_mkdir -p $DIR1/d14
-	cp -p `which multiop` $DIR1/d14/multiop || error "cp failed"
-        MULTIOP_PROG=$DIR1/d14/multiop multiop_bg_pause $TMP/test14.junk O_c || return 1
-        MULTIOP_PID=$!
-        $MULTIOP $DIR2/d14/multiop Oc && error "expected error, got success"
-        kill -USR1 $MULTIOP_PID || return 2
-        wait $MULTIOP_PID || return 3
-        rm $TMP/test14.junk $DIR1/d14/multiop || error "removing multiop"
+	test_mkdir $DIR1/$tdir
+	cp -p `which multiop` $DIR1/$tdir/multiop || error "cp failed"
+	MULTIOP_PROG=$DIR1/$tdir/multiop \
+		multiop_bg_pause $TMP/$tfile.junk O_c || return 1
+	MULTIOP_PID=$!
+	$MULTIOP $DIR2/$tdir/multiop Oc && error "expected error, got success"
+	kill -USR1 $MULTIOP_PID || return 2
+	wait $MULTIOP_PID || return 3
+	rm $TMP/$tfile.junk $DIR1/$tdir/multiop || error "removing multiop"
 }
 run_test 14a "open(RDWR) of executing file returns -ETXTBSY ===="
 
 test_14b() { # bug 3192, 7040
-	test_mkdir -p $DIR1/d14
-	cp -p `which multiop` $DIR1/d14/multiop || error "cp failed"
-        MULTIOP_PROG=$DIR1/d14/multiop multiop_bg_pause $TMP/test14.junk O_c || return 1
-        MULTIOP_PID=$!
-        $TRUNCATE $DIR2/d14/multiop 0 && kill -9 $MULTIOP_PID && \
-		error "expected truncate error, got success"
-        kill -USR1 $MULTIOP_PID || return 2
-        wait $MULTIOP_PID || return 3
-	cmp `which multiop` $DIR1/d14/multiop || error "binary changed"
-	rm $TMP/test14.junk $DIR1/d14/multiop || error "removing multiop"
+	test_mkdir $DIR1/$tdir
+	cp -p `which multiop` $DIR1/$tdir/multiop || error "cp failed"
+	MULTIOP_PROG=$DIR1/$tdir/multiop \
+		multiop_bg_pause $TMP/$tfile.junk O_c || return 1
+	MULTIOP_PID=$!
+	$TRUNCATE $DIR2/$tdir/multiop 0 && kill -9 $MULTIOP_PID && \
+	error "expected truncate error, got success"
+	kill -USR1 $MULTIOP_PID || return 2
+	wait $MULTIOP_PID || return 3
+	cmp `which multiop` $DIR1/$tdir/multiop || error "binary changed"
+	rm $TMP/$tfile.junk $DIR1/$tdir/multiop || error "removing multiop"
 }
 run_test 14b "truncate of executing file returns -ETXTBSY ======"
 
 test_14c() { # bug 3430, 7040
-	test_mkdir -p $DIR1/d14
-	cp -p `which multiop` $DIR1/d14/multiop || error "cp failed"
-	MULTIOP_PROG=$DIR1/d14/multiop multiop_bg_pause $TMP/test14.junk O_c || return 1
-        MULTIOP_PID=$!
-	cp /etc/hosts $DIR2/d14/multiop && error "expected error, got success"
+	test_mkdir $DIR1/$tdir
+	cp -p `which multiop` $DIR1/$tdir/multiop || error "cp failed"
+	MULTIOP_PROG=$DIR1/$tdir/multiop \
+		multiop_bg_pause $TMP/$tfile.junk O_c || return 1
+	MULTIOP_PID=$!
+	cp /etc/hosts $DIR2/$tdir/multiop && error "expected error, got success"
 	kill -USR1 $MULTIOP_PID || return 2
 	wait $MULTIOP_PID || return 3
-	cmp `which multiop` $DIR1/d14/multiop || error "binary changed"
-	rm $TMP/test14.junk $DIR1/d14/multiop || error "removing multiop"
+	cmp `which multiop` $DIR1/$tdir/multiop || error "binary changed"
+	rm $TMP/$tfile.junk $DIR1/$tdir/multiop || error "removing multiop"
 }
 run_test 14c "open(O_TRUNC) of executing file return -ETXTBSY =="
 
 test_14d() { # bug 10921
-	test_mkdir -p $DIR1/d14
-	cp -p `which multiop` $DIR1/d14/multiop || error "cp failed"
-	MULTIOP_PROG=$DIR1/d14/multiop multiop_bg_pause $TMP/test14.junk O_c || return 1
-        MULTIOP_PID=$!
+	test_mkdir $DIR1/$tdir
+	cp -p `which multiop` $DIR1/$tdir/multiop || error "cp failed"
+	MULTIOP_PROG=$DIR1/$tdir/multiop \
+		multiop_bg_pause $TMP/$tfile.junk O_c || return 1
+	MULTIOP_PID=$!
 	log chmod
-	chmod 600 $DIR1/d14/multiop || error "chmod failed"
+	chmod 600 $DIR1/$tdir/multiop || error "chmod failed"
 	kill -USR1 $MULTIOP_PID || return 2
 	wait $MULTIOP_PID || return 3
-	cmp `which multiop` $DIR1/d14/multiop || error "binary changed"
-	rm $TMP/test14.junk $DIR1/d14/multiop || error "removing multiop"
+	cmp `which multiop` $DIR1/$tdir/multiop || error "binary changed"
+	rm $TMP/$tfile.junk $DIR1/$tdir/multiop || error "removing multiop"
 }
 run_test 14d "chmod of executing file is still possible ========"
 
@@ -471,18 +475,18 @@ run_test 20 "test extra readahead page left in cache ===="
 
 cleanup_21() {
 	trap 0
-	umount $DIR1/d21
+	umount $DIR1/$tdir
 }
 
 test_21() { # Bug 5907
-	test_mkdir $DIR1/d21
-	mount /etc $DIR1/d21 --bind || error "mount failed" # Poor man's mount.
+	test_mkdir $DIR1/$tdir
+	mount /etc $DIR1/$tdir --bind || error "mount failed" # Poor man's mount.
 	trap cleanup_21 EXIT
-	rmdir -v $DIR1/d21 && error "Removed mounted directory"
-	rmdir -v $DIR2/d21 && echo "Removed mounted directory from another mountpoint, needs to be fixed"
-	test -d $DIR1/d21 || error "Mounted directory disappeared"
+	rmdir -v $DIR1/$tdir && error "Removed mounted directory"
+	rmdir -v $DIR2/$tdir && echo "Removed mounted directory from another mountpoint, needs to be fixed"
+	test -d $DIR1/$tdir || error "Mounted directory disappeared"
 	cleanup_21
-	test -d $DIR2/d21 || test -d $DIR1/d21 && error "Removed dir still visible after umount"
+	test -d $DIR2/$tdir || test -d $DIR1/$tdir && error "Removed dir still visible after umount"
 	true
 }
 run_test 21 " Try to remove mountpoint on another dir ===="
@@ -687,7 +691,7 @@ test_29() { # bug 10999
 run_test 29 "lock put race between glimpse and enqueue ========="
 
 test_30() { #bug #11110
-	test_mkdir -p $DIR1/$tdir
+	test_mkdir $DIR1/$tdir
 	cp -f /bin/bash $DIR1/$tdir/bash
 	/bin/sh -c 'sleep 1; rm -f $DIR2/$tdir/bash;
 		    cp /bin/bash $DIR2/$tdir' &
@@ -702,7 +706,7 @@ test_30() { #bug #11110
 run_test 30 "recreate file race"
 
 test_31a() {
-	test_mkdir -p $DIR1/$tdir || error "Creating dir $DIR1/$tdir"
+	test_mkdir $DIR1/$tdir || error "Creating dir $DIR1/$tdir"
 	local writes=$(LANG=C dd if=/dev/zero of=$DIR/$tdir/$tfile \
 		       count=1 2>&1 | awk 'BEGIN { FS="+" } /out/ {print $1}')
 	#define OBD_FAIL_LDLM_CANCEL_BL_CB_RACE   0x314
@@ -710,8 +714,9 @@ test_31a() {
 	local reads=$(LANG=C dd if=$DIR2/$tdir/$tfile of=/dev/null 2>&1 |
 		      awk 'BEGIN { FS="+" } /in/ {print $1}')
 	[ $reads -eq $writes ] || error "read" $reads "blocks, must be" $writes
+	rm -r $DIR1/$tdir
 }
-run_test 31a "voluntary cancel / blocking ast race=============="
+run_test 31a "voluntary cancel / blocking ast race"
 
 test_31b() {
 	remote_ost || { skip "local OST" && return 0; }
@@ -721,21 +726,22 @@ test_31b() {
 	wait_mds_ost_sync || error "wait_mds_ost_sync()"
 	wait_delete_completed || error "wait_delete_completed()"
 
-	test_mkdir -p $DIR1/$tdir || error "Creating dir $DIR1/$tdir"
-        lfs setstripe $DIR/$tdir/$tfile -i 0 -c 1
-        cp /etc/hosts $DIR/$tdir/$tfile
-        #define OBD_FAIL_LDLM_CANCEL_BL_CB_RACE   0x314
-        lctl set_param fail_loc=0x314
-        #define OBD_FAIL_LDLM_OST_FAIL_RACE      0x316
-        do_facet ost1 lctl set_param fail_loc=0x316
-        # Don't crash kernel
-        cat $DIR2/$tdir/$tfile > /dev/null 2>&1
-        lctl set_param fail_loc=0
-        do_facet ost1 lctl set_param fail_loc=0
-        # cleanup: reconnect the client back
-        df $DIR2
+	test_mkdir $DIR1/$tdir || error "Creating dir $DIR1/$tdir"
+	lfs setstripe $DIR/$tdir/$tfile -i 0 -c 1
+	cp /etc/hosts $DIR/$tdir/$tfile
+	#define OBD_FAIL_LDLM_CANCEL_BL_CB_RACE   0x314
+	lctl set_param fail_loc=0x314
+	#define OBD_FAIL_LDLM_OST_FAIL_RACE      0x316
+	do_facet ost1 lctl set_param fail_loc=0x316
+	# Don't crash kernel
+	cat $DIR2/$tdir/$tfile > /dev/null 2>&1
+	lctl set_param fail_loc=0
+	do_facet ost1 lctl set_param fail_loc=0
+	# cleanup: reconnect the client back
+	df $DIR2
+	rm -r $DIR1/$tdir
 }
-run_test 31b "voluntary OST cancel / blocking ast race=============="
+run_test 31b "voluntary OST cancel / blocking ast race"
 
 # enable/disable lockless truncate feature, depending on the arg 0/1
 enable_lockless_truncate() {
@@ -1066,7 +1072,7 @@ test_36() { #bug 16417
 	local SIZE_B
 	local i
 
-	test_mkdir -p $DIR1/$tdir
+	test_mkdir $DIR1/$tdir
 	$LFS setstripe -c -1 $DIR1/$tdir
 	i=0
 	SIZE=50
@@ -1104,7 +1110,7 @@ test_36() { #bug 16417
 run_test 36 "handle ESTALE/open-unlink correctly"
 
 test_37() { # bug 18695
-	test_mkdir -p $DIR1/$tdir
+	test_mkdir $DIR1/$tdir
 	multiop_bg_pause $DIR1/$tdir D_c || return 1
 	MULTIPID=$!
 	# create large directory (32kB seems enough from e2fsck, ~= 1000 files)
@@ -2337,7 +2343,7 @@ test_60() {
 	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
 	{ skip "Need MDS version at least 2.3.0"; return; }
 	# Create a file
-	test_mkdir -p $DIR1/$tdir
+	test_mkdir $DIR1/$tdir
 	file1=$DIR1/$tdir/file
 	file2=$DIR2/$tdir/file
 
