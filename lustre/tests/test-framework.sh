@@ -4190,28 +4190,28 @@ banner() {
 # exit() without stopping the whole script.
 #
 run_one() {
-    local testnum=$1
-    local message=$2
-    tfile=f.${TESTSUITE}.${testnum}
-    export tdir=d0.${TESTSUITE}/d${base}
-    export TESTNAME=test_$testnum
-    local SAVE_UMASK=`umask`
-    umask 0022
+	local testnum=$1
+	local message=$2
+	tfile=f0.${TESTSUITE}.${testnum}
+	export tdir=d0.${TESTSUITE}.${base}
+	export TESTNAME=test_$testnum
+	local SAVE_UMASK=`umask`
+	umask 0022
 
-    banner "test $testnum: $message"
-    test_${testnum} || error "test_$testnum failed with $?"
-    cd $SAVE_PWD
-    reset_fail_loc
-    check_grant ${testnum} || error "check_grant $testnum failed with $?"
-    check_catastrophe || error "LBUG/LASSERT detected"
+	banner "test $testnum: $message"
+	test_${testnum} || error "test_$testnum failed with $?"
+	cd $SAVE_PWD
+	reset_fail_loc
+	check_grant ${testnum} || error "check_grant $testnum failed with $?"
+	check_catastrophe || error "LBUG/LASSERT detected"
 	if [ "$PARALLEL" != "yes" ]; then
 		ps auxww | grep -v grep | grep -q multiop &&
-					error "multiop still running"
+			error "multiop still running"
 	fi
-    unset TESTNAME
-    unset tdir
-    umask $SAVE_UMASK
-    return 0
+	unset TESTNAME
+	unset tdir
+	umask $SAVE_UMASK
+	return 0
 }
 
 #
