@@ -380,6 +380,7 @@ AC_ARG_WITH([o2ib],
 		O2IBPATHS="$LINUX $LINUX/drivers/infiniband"
 		ENABLEO2IB=1
 	])
+
 if test $ENABLEO2IB -eq 0; then
 	AC_MSG_RESULT([disabled])
 else
@@ -413,10 +414,13 @@ else
 		EXTRA_KCFLAGS="$EXTRA_KCFLAGS $O2IBCPPFLAGS"
 		EXTRA_LNET_INCLUDE="$EXTRA_LNET_INCLUDE $O2IBCPPFLAGS"
 
+		if test $SRIOV_ENABLED_OFED -eq 1  ; then
 		LB_LINUX_TRY_COMPILE([
 		        #include <linux/version.h>
 		        #include <linux/pci.h>
-			#include <linux/gfp.h>
+		        #include <linux/gfp.h>
+		        #include <linux/rtnetlink.h>
+		        #include <linux/compat-3.2.h>
 		        #include <rdma/rdma_cm.h>
 		        #include <rdma/ib_cm.h>
 		        #include <rdma/ib_verbs.h>
@@ -444,6 +448,39 @@ else
 		        O2IBLND=""
 		        O2IBCPPFLAGS=""
 		])
+		else
+		LB_LINUX_TRY_COMPILE([
+		        #include <linux/version.h>
+		        #include <linux/pci.h>
+		        #include <linux/gfp.h>
+		        #include <rdma/rdma_cm.h>
+		        #include <rdma/ib_cm.h>
+		        #include <rdma/ib_verbs.h>
+		        #include <rdma/ib_fmr_pool.h>
+		],[
+		        struct rdma_cm_id      *cm_idi __attribute__ ((unused));
+		        struct rdma_conn_param  conn_param __attribute__ ((unused));
+		        struct ib_device_attr   device_attr __attribute__ ((unused));
+		        struct ib_qp_attr       qp_attr __attribute__ ((unused));
+		        struct ib_pool_fmr      pool_fmr __attribute__ ((unused));
+		        enum   ib_cm_rej_reason rej_reason __attribute__ ((unused));
+
+			rdma_destroy_id(NULL);
+		],[
+		        AC_MSG_RESULT([yes])
+		        O2IBLND="o2iblnd"
+		],[
+		        AC_MSG_RESULT([no])
+		        case $ENABLEO2IB in
+		        1) ;;
+		        2) AC_MSG_ERROR([can't compile with kernel OpenIB gen2 headers]);;
+		        3) AC_MSG_ERROR([can't compile with OpenIB gen2 headers under $O2IBPATH]);;
+		        *) AC_MSG_ERROR([internal error]);;
+		        esac
+		        O2IBLND=""
+		        O2IBCPPFLAGS=""
+		])
+		fi
 		# we know at this point that the found OFED source is good
 		O2IB_SYMVER=""
 		if test $ENABLEO2IB -eq 3 ; then
@@ -481,17 +518,34 @@ AC_SUBST(O2IBLND)
 # In RHEL 6.2, rdma_create_id() takes the queue-pair type as a fourth argument
 if test $ENABLEO2IB -ne 0; then
 	AC_MSG_CHECKING([if rdma_create_id wants four args])
-	LB_LINUX_TRY_COMPILE([
-		#include <rdma/rdma_cm.h>
-	],[
-		rdma_create_id(NULL, NULL, 0, 0);
-	],[
-		AC_MSG_RESULT([yes])
-		AC_DEFINE(HAVE_RDMA_CREATE_ID_4ARG, 1,
-			[rdma_create_id wants 4 args])
-	],[
-		AC_MSG_RESULT([no])
-	])
+# SR-IOV capable OFED need additional include files
+	if test $SRIOV_ENABLED_OFED -eq 1 ; then
+		LB_LINUX_TRY_COMPILE([
+			#include <linux/compat-3.2.h>
+			#include <linux/rtnetlink.h>
+			#include <rdma/rdma_cm.h>
+		],[
+			rdma_create_id(NULL, NULL, 0, 0);
+		],[
+			AC_MSG_RESULT([yes])
+			AC_DEFINE(HAVE_RDMA_CREATE_ID_4ARG, 1,
+				[rdma_create_id wants 4 args])
+		],[
+			AC_MSG_RESULT([no])
+		])
+	else
+		LB_LINUX_TRY_COMPILE([
+			#include <rdma/rdma_cm.h>
+		],[
+			rdma_create_id(NULL, NULL, 0, 0);
+		],[
+			AC_MSG_RESULT([yes])
+			AC_DEFINE(HAVE_RDMA_CREATE_ID_4ARG, 1,
+				[rdma_create_id wants 4 args])
+		],[
+			AC_MSG_RESULT([no])
+		])
+	fi
 fi
 ])
 
@@ -672,6 +726,7 @@ EXTRA_KCFLAGS="$tmp_flags"
 AC_DEFUN([LN_PROG_LINUX],
 [
 LN_FUNC_DEV_GET_BY_NAME_2ARG
+LN_CONFIG_SRIOV_OFED
 LN_CONFIG_AFFINITY
 LN_CONFIG_BACKOFF
 LN_CONFIG_QUADRICS
@@ -808,6 +863,31 @@ fi
 LN_CONFIG_MAX_PAYLOAD
 LN_CONFIG_UPTLLND
 LN_CONFIG_USOCKLND
+])
+
+#
+# LN_CONFIG_SRIOV_OFED
+#
+# configure support for SR-IOV enabled OFED
+#
+AC_DEFUN([LN_CONFIG_SRIOV_OFED],
+[AC_MSG_CHECKING([if to build against SR-IOV capable OFED])
+AC_ARG_ENABLE([sriov-ofed],
+	AC_HELP_STRING([--enable-sriov-ofed],
+                      [enable ofed with SR-IOV capability]),
+       [enable_sriovofed='yes'],[enable_sriovofed='no'])
+
+SRIOV_ENABLED_OFED=0
+if test "x$enable_sriovofed" = 'xno'; then
+	SRIOV_ENABLED_OFED=0
+	AC_MSG_RESULT([no])
+elif test "x$enable_sriovofed" = 'xyes'; then
+	SRIOV_ENABLED_OFED=1
+	AC_MSG_RESULT([yes])
+else
+	AC_MSG_RESULT([no])
+fi
+AC_SUBST(SRIOV_ENABLED_OFED)
 ])
 
 #
