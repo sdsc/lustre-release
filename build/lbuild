@@ -232,6 +232,10 @@ Usage: ${0##*/} [OPTION]... [-- <lustre configure options>]
   --xen
     Builds a Xen domX kernel.
 
+  --mellanox-ofed-vm=FULL_PATHNAME_MELLANOX_OFED
+    Absolute path name of the tarball containing the Mellanox SR-IOV 
+    enabled OFED software.
+
   --set-value
     Set's a variable to a given value.
 
@@ -533,6 +537,18 @@ download_ofed() {
 
     if [ -z "$OFED_VERSION" -o "$OFED_VERSION" = "inkernel" ]; then
         return 0
+    fi
+
+    # Mellanox OFED stack supporting SR-IOV virtualisation should be used
+    # instead of OFED provided by openfabrics. Mellanox OFED has been 
+    # repackaged to be aligned with the file/diretory structure of the openfabrics OFED.
+    if [ -n "$MELLANOX_OFED_VM" ] ; then
+        cp $MELLANOX_OFED_VM $KERNELTREE
+        if [ $? -ne 0 ] ; then
+            fatal 1 "Can't copy $MELLANOX_OFED_VM to $KERNELTREE OFED"
+        else
+            return 0
+        fi
     fi
 
     local OFED_BASE_VERSION=$OFED_VERSION
@@ -1170,6 +1186,39 @@ unpack_linux_devel_rpm() {
 build_kernel_ib() {
     local linux="$1"
 
+    if [ -n "$MELLANOX_OFED_VM" ] ; then
+
+        # Set list Module list of OFED modules that need to be compiled for guest
+        local OFED_VM_CORE=' --with-core-mod --with-ipoib-mod --with-user_mad-mod --with-user_access-mod --with-addr_trans-mod'
+        local OFED_VM_HARDWARE='--with-mlx4-mod --with-mlx4_en-mod'
+        local OFED_VM_ISCSI='--with-srp-mod'
+        # Select Mellannox SR-IOV enabled alhpa driver for RHEL6.2
+        SOURCE_VM="${TOPDIR}/OFED/SRPMS/ofa_kernel-*.src.rpm"
+
+        # Select Mellannox SR-IOV enabled alhpa driver for RHEL6.3
+        if [ "$OFED_VERSION" = '2.0.0' -a "$DISTRO" = 'rhel6' ] ; then
+            SOURCE_VM="${TOPDIR}/OFED/SRPMS/mlnx-ofa_kernel-*.src.rpm"
+        fi
+
+        rpm --define "_topdir ${TOPDIR}" -ivh $SOURCE_VM
+
+        local linuxrelease=$(find_linux_release "$linux")
+        # Compile OFED using the source RPM
+        if ! $RPMBUILD $BUILD_TYPE --rebuild --nodeps --define 'build_kernel_ib 1' --define 'build_kernel_ib_devel 1' \
+                      --define "_topdir ${TOPDIR}" --target ${TARGET_ARCH} \
+                      --define "KVERSION ${linuxrelease}" \
+                      --define "K_SRC ${linux}" \
+                      --define "LIB_MOD_DIR /lib/modules/${linuxrelease}/updates" \
+                      ${OFA_KERNEL_RELEASE:+--define "_release $OFA_KERNEL_RELEASE"} \
+                      --define "configure_options --without-quilt $OFED_VM_CORE $OFED_VM_HARDWARE $OFED_VM_ISCSI" \
+                      --define "network-dir /etc/sysconfig/network-scripts" \
+                      ${SOURCE_VM} 2>&1 ; then
+            fatal 1 "Error building kernel-ib"
+            return 1
+        fi
+        return 0
+    fi
+
     # build kernel-ib{,-devel}
     local K_SRC="K_SRC"
     # ofed 1.3 had a bug in the rpm spec
@@ -1474,6 +1523,15 @@ build_ofed() {
     local linux="$1"
     local ofed_version="$2"
 
+    # file globbing pattern needed to find the RPM
+    # containing the ofa_kernel sources
+    local ofa_sources_glob="kernel-ib-devel-${ofed_version}-${linuxrelease//-/_}.*.rpm"
+    # Change search pattern if SR-IOV enabled OFED is used accordingly to naming convention 
+    # in package
+    if [ -n "$MELLANOX_OFED_VM" ] ; then
+        ofa_sources_glob="mlnx-ofa_kernel-devel*${ofed_version}*.rpm"
+    fi
+
     # if an ofed version is given, then it means use OFED proper,
     # not any vendor specific "inkernel" version
     if [ -z "$ofed_version" ]; then
@@ -1557,7 +1615,7 @@ build_ofed() {
     local linuxrelease=$(find_linux_release "$linux")
     ofed_version=$(echo $ofed_version |
                    sed -re 's/-(20[0-9]{6,6}-[0-9]{4,4}|rc[0-9]*)$//')
-    local rpm=$(ls $TOPDIR/RPMS/*/kernel-ib-devel-${ofed_version}-${linuxrelease//-/_}.*.rpm)
+    local rpm=$(ls $TOPDIR/RPMS/*/${ofa_sources_glob})
     if ! rpm2cpio < $rpm | cpio -id; then
         fatal 1 "could not unpack the kernel-ib-devel rpm."
     fi
@@ -1793,7 +1851,7 @@ set -E
 
 [ -r ~/.lbuildrc ] && . ~/.lbuildrc
 
-options=$(getopt -o d:D:h -l kerneltree:,distro:,kernelrpm:,reusebuild:,patchless,ldiskfs,ccache,reuse:,norpm,disable-datestamp,external-patches:,timestamp:,extraversion:,kerneldir:,linux:,lustre:,nodownload,nosrc,ofed-version:,publish,release,set-value:,src,stage:,tag:,target:,target-archs:,with-linux:,xen -- "$@")
+options=$(getopt -o d:D:h -l kerneltree:,distro:,kernelrpm:,reusebuild:,patchless,ldiskfs,ccache,reuse:,norpm,disable-datestamp,external-patches:,timestamp:,extraversion:,kerneldir:,linux:,lustre:,nodownload,nosrc,ofed-version:,mellanox-ofed-vm:,publish,release,set-value:,src,stage:,tag:,target:,target-archs:,with-linux:,xen -- "$@")
 
 if [ $? != 0 ]; then
     usage 1
@@ -1901,6 +1959,10 @@ while [ "$1" ]; do
             ;;
         --ofed-version)
             OFED_VERSION="$2"
+            shift 2
+            ;;
+        --mellanox-ofed-vm)
+            MELLANOX_OFED_VM="$2"
             shift 2
             ;;
         --publish)
