@@ -69,6 +69,9 @@
 #include <lnet/lib-lnet.h>
 #include <lnet/lnet-sysctl.h>
 
+#ifdef HAVE_COMPAT_32_HEADERS
+#include <linux/compat-3.2.h>
+#endif
 #include <rdma/rdma_cm.h>
 #include <rdma/ib_cm.h>
 #include <rdma/ib_verbs.h>
