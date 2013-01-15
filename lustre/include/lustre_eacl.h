@@ -34,7 +34,7 @@
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
- * lustre/lustre/include/lustre_idmap.h
+ * lustre/lustre/include/lustre_eacl.h
  *
  * MDS data structures.
  * See also lustre_idl.h for wire formats of requests.
@@ -52,8 +52,10 @@
 
 #include <linux/posix_acl_xattr.h>
 
-#include <lustre_idmap.h>
-#include <md_object.h>
+#ifdef HAVE_SERVER_SUPPORT
+# include <lustre_idmap.h>
+# include <md_object.h>
+#endif
 #include <lu_object.h>
 
 typedef struct {
@@ -74,6 +76,7 @@ typedef struct {
 #define CFS_ACL_XATTR_COUNT(size, prefix) \
         (((size) - sizeof(prefix ## _header)) / sizeof(prefix ## _entry))
 
+#ifdef HAVE_SERVER_SUPPORT
 extern int lustre_posix_acl_permission(struct lu_ucred *mu, struct lu_attr *la,
 				       int want, posix_acl_xattr_entry *entry,
 				       int count);
@@ -83,32 +86,33 @@ extern int lustre_posix_acl_create_masq(posix_acl_xattr_entry *entry,
                                         __u32 *pmode, int count);
 extern int lustre_posix_acl_equiv_mode(posix_acl_xattr_entry *entry, mode_t *mode_p,
 				       int count);
-
-extern ext_acl_xattr_header *
-lustre_posix_acl_xattr_2ext(posix_acl_xattr_header *header, int size);
-extern int
-lustre_posix_acl_xattr_filter(posix_acl_xattr_header *header, int size,
-                              posix_acl_xattr_header **out);
 extern int
 lustre_posix_acl_xattr_id2client(struct lu_ucred *mu,
 				 struct lustre_idmap_table *t,
 				 posix_acl_xattr_header *header,
 				 int size, int flags);
-extern void
-lustre_posix_acl_xattr_free(posix_acl_xattr_header *header, int size);
 extern int
 lustre_ext_acl_xattr_id2server(struct lu_ucred *mu,
 			       struct lustre_idmap_table *t,
 			       ext_acl_xattr_header *header);
+#endif /* HAVE_SERVER_SUPPORT */
+
+extern ext_acl_xattr_header *
+lustre_posix_acl_xattr_2ext(posix_acl_xattr_header *header, int size);
+extern int
+lustre_posix_acl_xattr_filter(posix_acl_xattr_header *header, int size,
+			      posix_acl_xattr_header **out);
+extern void
+lustre_posix_acl_xattr_free(posix_acl_xattr_header *header, int size);
 extern void
 lustre_ext_acl_xattr_free(ext_acl_xattr_header *header);
 extern int
 lustre_acl_xattr_merge2posix(posix_acl_xattr_header *posix_header, int size,
-                             ext_acl_xattr_header *ext_header,
-                             posix_acl_xattr_header **out);
+			     ext_acl_xattr_header *ext_header,
+			     posix_acl_xattr_header **out);
 extern ext_acl_xattr_header *
 lustre_acl_xattr_merge2ext(posix_acl_xattr_header *posix_header, int size,
-                           ext_acl_xattr_header *ext_header);
+			   ext_acl_xattr_header *ext_header);
 
 #endif /* CONFIG_FS_POSIX_ACL */
 
