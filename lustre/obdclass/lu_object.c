@@ -1938,6 +1938,7 @@ void dt_global_fini(void);
 int llo_global_init(void);
 void llo_global_fini(void);
 
+#ifdef HAVE_SERVER_SUPPORT
 /* context key constructor/destructor: lu_ucred_key_init, lu_ucred_key_fini */
 LU_KEY_INIT_FINI(lu_ucred, struct lu_ucred);
 
@@ -1983,6 +1984,7 @@ struct lu_ucred *lu_ucred_assert(const struct lu_env *env)
 	return uc;
 }
 EXPORT_SYMBOL(lu_ucred_assert);
+#endif /* HAVE_SERVER_SUPPORT */
 
 /**
  * Initialization of global lu_* data.
@@ -2002,11 +2004,12 @@ int lu_global_init(void)
         if (result != 0)
                 return result;
 
+#ifdef HAVE_SERVER_SUPPORT
 	LU_CONTEXT_KEY_INIT(&lu_ucred_key);
 	result = lu_context_key_register(&lu_ucred_key);
 	if (result != 0)
 		return result;
-
+#endif
         /*
          * At this level, we don't know what tags are needed, so allocate them
          * conservatively. This should not be too bad, because this
@@ -2062,8 +2065,10 @@ void lu_global_fini(void)
                 lu_site_shrinker = NULL;
         }
 
-        lu_context_key_degister(&lu_global_key);
+	lu_context_key_degister(&lu_global_key);
+#ifdef HAVE_SERVER_SUPPORT
 	lu_context_key_degister(&lu_ucred_key);
+#endif
 
         /*
          * Tear shrinker environment down _after_ de-registering
