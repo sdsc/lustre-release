@@ -132,8 +132,8 @@ run_compilebench() {
 #        required space       680MB * cbench_IDIRS = ~7 Gb
 
     cbench_DIR=${cbench_DIR:-""}
-    cbench_IDIRS=${cbench_IDIRS:-4}
-    cbench_RUNS=${cbench_RUNS:-4}
+    cbench_IDIRS=${cbench_IDIRS:-2}
+    cbench_RUNS=${cbench_RUNS:-2}
 
     print_opts cbench_DIR cbench_IDIRS cbench_RUNS
 
