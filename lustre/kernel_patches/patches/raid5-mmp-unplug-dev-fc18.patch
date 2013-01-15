@@ -1,0 +1,22 @@
+diff -urp linux-3.6.6-3.fc18.el6.x86_64.orig/drivers/md/raid5.c linux-3.6.6-3.fc18.el6.x86_64/drivers/md/raid5.c
+--- linux-3.6.6-3.fc18.el6.x86_64.orig/drivers/md/raid5.c	2012-09-30 19:47:46.000000000 -0400
++++ linux-3.6.6-3.fc18.el6.x86_64/drivers/md/raid5.c	2013-01-15 14:12:18.930191306 -0500
+@@ -2394,6 +2394,8 @@ static int add_stripe_bio(struct stripe_
+ 		bi->bi_next = *bip;
+ 	*bip = bi;
+ 	raid5_inc_bi_active_stripes(bi);
++	if ((bi->bi_rw & REQ_SYNC) && !forwrite)
++		clear_bit(R5_UPTODATE, &sh->dev[dd_idx].flags);	/* force to read from disk. */
+ 
+ 	if (forwrite) {
+ 		/* check if page is covered */
+@@ -4217,6 +4219,9 @@ static void make_request(struct mddev *m
+ 
+ 		bio_endio(bi, 0);
+ 	}
++
++	if (bi->bi_rw & REQ_SYNC)
++		md_wakeup_thread(mddev->thread);
+ }
+ 
+ static sector_t raid5_size(struct mddev *mddev, sector_t sectors, int raid_disks);
