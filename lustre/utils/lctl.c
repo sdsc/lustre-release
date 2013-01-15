@@ -287,6 +287,7 @@ command_t cmdlist[] = {
          "usage: fail nid|_all_ [count]"},
 
         /*Test commands for echo client*/
+#ifdef HAVE_SERVER_SUPPORT
         {"test_create", jt_obd_test_create, 0,
          "create files on MDT by echo client\n"
          "usage: test_create [-d parent_basedir] <-D parent_count> "
@@ -315,6 +316,7 @@ command_t cmdlist[] = {
          "getattr files on MDT by echo client\n"
          "usage: test_md_getattr [-d parent_basedir] <-D parent_count>"
          "[-b child_base_id] [-n count] <-t time>\n"},
+#endif /* HAVE_SERVER_SUPPORT */
         {"getattr", jt_obd_getattr, 0,
          "get attribute for OST object <objid>\n"
          "usage: getattr <objid>"},
