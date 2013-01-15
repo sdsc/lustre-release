@@ -58,53 +58,6 @@
 #include <lustre_fid.h>
 #include "fid_internal.h"
 
-int client_fid_init(struct obd_export *exp, enum lu_cli_type type)
-{
-	struct client_obd *cli = &exp->exp_obd->u.cli;
-	char *prefix;
-	int rc;
-	ENTRY;
-
-	OBD_ALLOC_PTR(cli->cl_seq);
-	if (cli->cl_seq == NULL)
-		RETURN(-ENOMEM);
-
-	OBD_ALLOC(prefix, MAX_OBD_NAME + 5);
-	if (prefix == NULL)
-		GOTO(out_free_seq, rc = -ENOMEM);
-
-	snprintf(prefix, MAX_OBD_NAME + 5, "cli-%s",
-		 exp->exp_obd->obd_name);
-
-	/* Init client side sequence-manager */
-	rc = seq_client_init(cli->cl_seq, exp, type, prefix, NULL);
-	OBD_FREE(prefix, MAX_OBD_NAME + 5);
-	if (rc)
-		GOTO(out_free_seq, rc);
-
-	RETURN(rc);
-out_free_seq:
-	OBD_FREE_PTR(cli->cl_seq);
-	cli->cl_seq = NULL;
-	return rc;
-}
-EXPORT_SYMBOL(client_fid_init);
-
-int client_fid_fini(struct obd_export *exp)
-{
-	struct client_obd *cli = &exp->exp_obd->u.cli;
-	ENTRY;
-
-	if (cli->cl_seq != NULL) {
-		seq_client_fini(cli->cl_seq);
-		OBD_FREE_PTR(cli->cl_seq);
-		cli->cl_seq = NULL;
-	}
-
-	RETURN(0);
-}
-EXPORT_SYMBOL(client_fid_fini);
-
 #ifdef __KERNEL__
 static void seq_server_proc_fini(struct lu_server_seq *seq);
 
@@ -634,33 +587,14 @@ int seq_site_fini(const struct lu_env *env, struct seq_server_site *ss)
 }
 EXPORT_SYMBOL(seq_site_fini);
 
-cfs_proc_dir_entry_t *seq_type_proc_dir = NULL;
-
-static int __init fid_mod_init(void)
+void fid_mod_init_sever(void)
 {
-        seq_type_proc_dir = lprocfs_register(LUSTRE_SEQ_NAME,
-                                             proc_lustre_root,
-                                             NULL, NULL);
-        if (IS_ERR(seq_type_proc_dir))
-                return PTR_ERR(seq_type_proc_dir);
-
-        LU_CONTEXT_KEY_INIT(&seq_thread_key);
-        lu_context_key_register(&seq_thread_key);
-        return 0;
+	LU_CONTEXT_KEY_INIT(&seq_thread_key);
+	lu_context_key_register(&seq_thread_key);
 }
 
-static void __exit fid_mod_exit(void)
+void fid_mod_exit_server(void)
 {
-        lu_context_key_degister(&seq_thread_key);
-        if (seq_type_proc_dir != NULL && !IS_ERR(seq_type_proc_dir)) {
-                lprocfs_remove(&seq_type_proc_dir);
-                seq_type_proc_dir = NULL;
-        }
+	lu_context_key_degister(&seq_thread_key);
 }
-
-MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
-MODULE_DESCRIPTION("Lustre FID Module");
-MODULE_LICENSE("GPL");
-
-cfs_module(fid, "0.1.0", fid_mod_init, fid_mod_exit);
 #endif
