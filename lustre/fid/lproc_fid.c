@@ -51,8 +51,10 @@
 
 #include <obd.h>
 #include <obd_class.h>
-#include <dt_object.h>
-#include <md_object.h>
+#ifdef HAVE_SERVER_SUPPORT
+# include <dt_object.h>
+# include <md_object.h>
+#endif
 #include <obd_support.h>
 #include <lustre_req_layout.h>
 #include <lustre_fid.h>
@@ -97,6 +99,7 @@ seq_proc_read_common(char *page, char **start, off_t off,
 	RETURN(rc);
 }
 
+# ifdef HAVE_SERVER_SUPPORT
 /*
  * Server side procfs stuff.
  */
@@ -213,6 +216,15 @@ seq_server_proc_read_width(char *page, char **start, off_t off,
 
 	RETURN(rc);
 }
+
+struct lprocfs_vars seq_server_proc_list[] = {
+	{ "space",    seq_server_proc_read_space,
+	   seq_server_proc_write_space, NULL },
+	{ "width",    seq_server_proc_read_width,
+	   seq_server_proc_write_width, NULL },
+	{ "server",   seq_server_proc_read_server, NULL, NULL },
+	{ NULL } };
+# endif /* HAVE_SERVER_SUPPORT */
 
 /* Client side procfs stuff */
 static int
@@ -344,16 +356,15 @@ seq_client_proc_read_server(char *page, char **start, off_t off,
                 cli = &seq->lcs_exp->exp_obd->u.cli;
                 rc = snprintf(page, count, "%s\n", cli->cl_target_uuid.uuid);
         } else {
-                rc = snprintf(page, count, "%s\n", seq->lcs_srv->lss_name);
-        }
-	RETURN(rc);
+# ifdef HAVE_SERVER_SUPPORT
+		rc = snprintf(page, count, "%s\n", seq->lcs_srv->lss_name);
+# else
+		rc = snprintf(page, count, "NULL\n");
+		CERROR("Client's seq-controller export should not be NULL.\n");
+# endif
 }
-
-struct lprocfs_vars seq_server_proc_list[] = {
-	{ "space",    seq_server_proc_read_space, seq_server_proc_write_space, NULL },
-	{ "width",    seq_server_proc_read_width, seq_server_proc_write_width, NULL },
-	{ "server",   seq_server_proc_read_server, NULL, NULL },
-	{ NULL }};
+RETURN(rc);
+}
 
 struct lprocfs_vars seq_client_proc_list[] = {
 	{ "space",    seq_client_proc_read_space, seq_client_proc_write_space, NULL },
@@ -361,4 +372,4 @@ struct lprocfs_vars seq_client_proc_list[] = {
 	{ "server",   seq_client_proc_read_server, NULL, NULL },
 	{ "fid",      seq_client_proc_read_fid, NULL, NULL },
 	{ NULL }};
-#endif
+#endif /* LPROCFS */
