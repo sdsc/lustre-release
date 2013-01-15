@@ -340,9 +340,12 @@ int class_handle_ioctl(unsigned int cmd, unsigned long arg)
                         GOTO(out, err = -EINVAL);
                 }
 
+		read_lock(&obd_dev_lock);
                 obd = class_num2obd(index);
-                if (!obd)
+		if (!obd) {
+			read_unlock(&obd_dev_lock);
                         GOTO(out, err = -ENOENT);
+		}
 
                 if (obd->obd_stopping)
                         status = "ST";
@@ -357,6 +360,8 @@ int class_handle_ioctl(unsigned int cmd, unsigned long arg)
                          (int)index, status, obd->obd_type->typ_name,
                          obd->obd_name, obd->obd_uuid.uuid,
                          cfs_atomic_read(&obd->obd_refcount));
+		read_unlock(&obd_dev_lock);
+
                 err = obd_ioctl_popdata((void *)arg, data, len);
 
                 GOTO(out, err = 0);
@@ -365,12 +370,22 @@ int class_handle_ioctl(unsigned int cmd, unsigned long arg)
         }
 
         if (data->ioc_dev == OBD_DEV_BY_DEVNAME) {
+		int index;
+
                 if (data->ioc_inllen4 <= 0 || data->ioc_inlbuf4 == NULL)
                         GOTO(out, err = -EINVAL);
                 if (strnlen(data->ioc_inlbuf4, MAX_OBD_NAME) >= MAX_OBD_NAME)
                         GOTO(out, err = -EINVAL);
-                obd = class_name2obd(data->ioc_inlbuf4);
+		index = class_name2dev(data->ioc_inlbuf4);
+
+		read_lock(&obd_dev_lock);
+		if (index < 0 || index > class_devno_max())
+			obd = NULL;
+		else
+			obd = class_num2obd(index);
+
         } else if (data->ioc_dev < class_devno_max()) {
+		read_lock(&obd_dev_lock);
                 obd = class_num2obd(data->ioc_dev);
         } else {
                 CERROR("OBD ioctl: No device\n");
@@ -378,30 +393,42 @@ int class_handle_ioctl(unsigned int cmd, unsigned long arg)
         }
 
         if (obd == NULL) {
+		read_unlock(&obd_dev_lock);
                 CERROR("OBD ioctl : No Device %d\n", data->ioc_dev);
                 GOTO(out, err = -EINVAL);
         }
         LASSERT(obd->obd_magic == OBD_DEVICE_MAGIC);
 
+	spin_lock(&obd->obd_dev_lock);
         if (!obd->obd_set_up || obd->obd_stopping) {
+		spin_unlock(&obd->obd_dev_lock);
+		read_unlock(&obd_dev_lock);
                 CERROR("OBD ioctl: device not setup %d \n", data->ioc_dev);
                 GOTO(out, err = -EINVAL);
         }
 
         switch(cmd) {
         case OBD_IOC_NO_TRANSNO: {
-                if (!obd->obd_attached) {
-                        CERROR("Device %d not attached\n", obd->obd_minor);
-                        GOTO(out, err = -ENODEV);
-                }
                 CDEBUG(D_HA, "%s: disabling committed-transno notification\n",
                        obd->obd_name);
                 obd->obd_no_transno = 1;
+
+		spin_unlock(&obd->obd_dev_lock);
+		read_unlock(&obd_dev_lock);
+
                 GOTO(out, err = 0);
         }
 
         default: {
+		cfs_atomic_inc(&obd->obd_ioctl_inprogress);
+		spin_unlock(&obd->obd_dev_lock);
+		read_unlock(&obd_dev_lock);
+
                 err = obd_iocontrol(cmd, obd->obd_self_export, len, data, NULL);
+
+		cfs_atomic_dec(&obd->obd_ioctl_inprogress);
+		complete(&obd->obd_ioctl_completion);
+
                 if (err)
                         GOTO(out, err);
 

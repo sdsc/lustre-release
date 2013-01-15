@@ -1140,6 +1140,9 @@ struct obd_device {
         struct lu_ref          obd_reference;
 
 	int		       obd_conn_inprogress;
+
+	cfs_atomic_t	       obd_ioctl_inprogress;
+	struct completion      obd_ioctl_completion;
 };
 
 #define OBD_LLOG_FL_SENDNOW     0x0001

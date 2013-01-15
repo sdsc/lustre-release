@@ -437,6 +437,9 @@ int class_attach(struct lustre_cfg *lcfg)
         lu_ref_init(&obd->obd_reference);
         lu_ref_add(&obd->obd_reference, "attach", obd);
 
+	cfs_atomic_set(&obd->obd_ioctl_inprogress, 0);
+	init_completion(&obd->obd_ioctl_completion);
+
         obd->obd_attached = 1;
         CDEBUG(D_IOCTL, "OBD: dev %d attached type %s with refcount %d\n",
                obd->obd_minor, typename, cfs_atomic_read(&obd->obd_refcount));
@@ -638,6 +641,9 @@ int class_cleanup(struct obd_device *obd, struct lustre_cfg *lcfg)
 		spin_lock(&obd->obd_dev_lock);
 	}
 	spin_unlock(&obd->obd_dev_lock);
+
+	while (cfs_atomic_read(&obd->obd_ioctl_inprogress) > 0)
+		wait_for_completion(&obd->obd_ioctl_completion);
 
         if (lcfg->lcfg_bufcount >= 2 && LUSTRE_CFG_BUFLEN(lcfg, 1) > 0) {
                 for (flag = lustre_cfg_string(lcfg, 1); *flag != 0; flag++)
