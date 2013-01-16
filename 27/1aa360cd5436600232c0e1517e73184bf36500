@@ -1,0 +1,10 @@
+Verified+1: Hudson
+Code-Review+1: Fan Yong <fan.yong@intel.com>
+Code-Review+1: Jinshan Xiong <jinshan.xiong@intel.com>
+Code-Review+2: Johann Lombardi <johann.lombardi@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Submitted-by: Johann Lombardi <johann.lombardi@intel.com>
+Submitted-at: Wed, 16 Jan 2013 01:25:15 -0500
+Reviewed-on: http://review.whamcloud.com/5013
+Project: fs/lustre-release
+Branch: refs/heads/b1_8
