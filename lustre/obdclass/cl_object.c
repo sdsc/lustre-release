@@ -922,26 +922,33 @@ static void cl_env_exit(struct cl_env *cle)
  * Finalizes and frees a given number of cached environments. This is done to
  * (1) free some memory (not currently hooked into VM), or (2) release
  * references to modules.
+ * Return how many caching cl_env stil left.
  */
 unsigned cl_env_cache_purge(unsigned nr)
 {
+	CFS_LIST_HEAD(dying);
 	struct cl_env *cle;
-
 	ENTRY;
-	spin_lock(&cl_envs_guard);
-	for (; !cfs_list_empty(&cl_envs) && nr > 0; --nr) {
-		cle = container_of(cl_envs.next, struct cl_env, ce_linkage);
-		cfs_list_del_init(&cle->ce_linkage);
-		LASSERT(cl_envs_cached_nr > 0);
-		cl_envs_cached_nr--;
-		spin_unlock(&cl_envs_guard);
 
-		cl_env_fini(cle);
-		spin_lock(&cl_envs_guard);
+	spin_lock(&cl_envs_guard);
+	if (cl_envs_cached_nr <= nr) {
+		cl_envs_cached_nr = 0;
+		cfs_list_splice_init(&cl_envs, &dying);
+	} else {
+		cl_envs_cached_nr -= nr;
+		while (nr-- > 0)
+			cfs_list_move(cl_envs.next, &dying);
 	}
 	LASSERT(equi(cl_envs_cached_nr == 0, cfs_list_empty(&cl_envs)));
 	spin_unlock(&cl_envs_guard);
-	RETURN(nr);
+
+	while (!cfs_list_empty(&dying)) {
+		cle = container_of(dying.next, struct cl_env, ce_linkage);
+		cfs_list_del_init(&cle->ce_linkage);
+		cl_env_fini(cle);
+	}
+
+	RETURN(cl_envs_cached_nr);
 }
 EXPORT_SYMBOL(cl_env_cache_purge);
 
