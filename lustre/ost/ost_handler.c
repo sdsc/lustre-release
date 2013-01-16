@@ -247,7 +247,8 @@ static void ost_lock_put(struct obd_export *exp,
         EXIT;
 }
 
-static int ost_getattr(struct obd_export *exp, struct ptlrpc_request *req)
+static int ost_getattr(struct obd_export *exp, struct ptlrpc_request *req,
+		       struct obd_trans_info *oti)
 {
         struct ost_body *body, *repbody;
         struct obd_info *oinfo;
@@ -283,11 +284,12 @@ static int ost_getattr(struct obd_export *exp, struct ptlrpc_request *req)
         if (rc)
                 RETURN(rc);
 
-        OBD_ALLOC_PTR(oinfo);
-        if (!oinfo)
-                GOTO(unlock, rc = -ENOMEM);
-        oinfo->oi_oa = &repbody->oa;
-        oinfo->oi_capa = capa;
+	OBD_ALLOC_PTR(oinfo);
+	if (!oinfo)
+		GOTO(unlock, rc = -ENOMEM);
+	oinfo->oi_oa = &repbody->oa;
+	oinfo->oi_capa = capa;
+	oinfo->oi_oti = oti;
 
         req->rq_status = obd_getattr(exp, oinfo);
 
@@ -429,7 +431,8 @@ unlock:
         RETURN(rc);
 }
 
-static int ost_sync(struct obd_export *exp, struct ptlrpc_request *req)
+static int ost_sync(struct obd_export *exp, struct ptlrpc_request *req,
+		    struct obd_trans_info *oti)
 {
         struct ost_body *body, *repbody;
         struct obd_info *oinfo;
@@ -464,9 +467,10 @@ static int ost_sync(struct obd_export *exp, struct ptlrpc_request *req)
         if (!oinfo)
                 RETURN(-ENOMEM);
 
-        oinfo->oi_oa = &repbody->oa;
-        oinfo->oi_capa = capa;
-        req->rq_status = obd_sync(exp, oinfo, repbody->oa.o_size,
+	oinfo->oi_oa = &repbody->oa;
+	oinfo->oi_capa = capa;
+	oinfo->oi_oti = oti;
+	req->rq_status = obd_sync(exp, oinfo, repbody->oa.o_size,
                                   repbody->oa.o_blocks, NULL);
         OBD_FREE_PTR(oinfo);
 
@@ -1215,7 +1219,8 @@ out:
         RETURN(rc);
 }
 
-static int ost_get_info(struct obd_export *exp, struct ptlrpc_request *req)
+static int ost_get_info(struct obd_export *exp, struct ptlrpc_request *req,
+			struct obd_trans_info *oti)
 {
         void *key, *reply;
         int keylen, replylen, rc = 0;
@@ -1230,14 +1235,16 @@ static int ost_get_info(struct obd_export *exp, struct ptlrpc_request *req)
         }
         keylen = req_capsule_get_size(pill, &RMF_SETINFO_KEY, RCL_CLIENT);
 
-        if (KEY_IS(KEY_FIEMAP)) {
-                struct ll_fiemap_info_key *fm_key = key;
-                int rc;
+	if (KEY_IS(KEY_FIEMAP)) {
+		struct ll_fiemap_info_key *fm_key = key;
+		int rc;
 
-                rc = ost_validate_obdo(exp, &fm_key->oa, NULL);
-                if (rc)
-                        RETURN(rc);
-        }
+		fm_key->oti = oti;
+
+		rc = ost_validate_obdo(exp, &fm_key->oa, NULL);
+		if (rc)
+			RETURN(rc);
+	}
 
         rc = obd_get_info(exp, keylen, key, &replylen, NULL, NULL);
         if (rc)
@@ -2155,7 +2162,7 @@ int ost_handle(struct ptlrpc_request *req)
                 req_capsule_set(&req->rq_pill, &RQF_OST_GETATTR);
                 if (OBD_FAIL_CHECK(OBD_FAIL_OST_GETATTR_NET))
                         RETURN(0);
-                rc = ost_getattr(req->rq_export, req);
+                rc = ost_getattr(req->rq_export, req, oti);
                 break;
         case OST_SETATTR:
                 CDEBUG(D_INODE, "setattr\n");
@@ -2223,7 +2230,7 @@ int ost_handle(struct ptlrpc_request *req)
                 req_capsule_set(&req->rq_pill, &RQF_OST_SYNC);
                 if (OBD_FAIL_CHECK(OBD_FAIL_OST_SYNC_NET))
                         RETURN(0);
-                rc = ost_sync(req->rq_export, req);
+                rc = ost_sync(req->rq_export, req, oti);
                 break;
         case OST_SET_INFO:
                 DEBUG_REQ(D_INODE, req, "set_info");
@@ -2233,7 +2240,7 @@ int ost_handle(struct ptlrpc_request *req)
         case OST_GET_INFO:
                 DEBUG_REQ(D_INODE, req, "get_info");
                 req_capsule_set(&req->rq_pill, &RQF_OST_GET_INFO_GENERIC);
-                rc = ost_get_info(req->rq_export, req);
+                rc = ost_get_info(req->rq_export, req, oti);
                 break;
 #ifdef HAVE_QUOTA_SUPPORT
         case OST_QUOTACHECK:
