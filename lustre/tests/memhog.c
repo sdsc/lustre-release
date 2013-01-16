@@ -22,41 +22,77 @@
  * have any questions.
  *
  * GPL HEADER END
- */
-/*
+ *
  * Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
- */
-/*
+ *
+ * Copyright (c) 2013, Intel Corporation.
+ *
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
+#include <sys/mman.h>
+#include <sys/sysinfo.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-#define CHUNK (128 * 1024)
+#define CHUNK (32768 * 1024)   /*bytes 32mb or so */
+#define CHUNK_KB (CHUNK/1024)
+
+/*MINSPACE should consider the the size of CHUNK */
+#define MINSPACE (160 * 1024) /* 160mb or so */
+
+struct data {
+	struct data *next;
+	int *chunk;
+};
+
+struct data head;
+
+/* Return size of free ram and swap space */
+long unsigned freespace(void)
+{
+	struct sysinfo si;
+	sysinfo(&si);
+	return ((si.freeswap + si.freeram) * si.mem_unit)/1024;
+}
+
+long unsigned totalspace(void)
+{
+	struct sysinfo si;
+	sysinfo(&si);
+	return ((si.totalswap + si.totalram) * si.mem_unit)/1024;
+}
 
 void usage(const char *prog, FILE *out)
 {
-	fprintf(out, "usage: %s allocsize\n", prog);
+	fprintf(out, "usage: %s [-a] [allocsize]\n", prog);
+	fprintf(out, " -a consume all of memory to 100mb in a loop,");
+	fprintf(out, " allocsize is ignored\n");
 	fprintf(out, " allocsize is kbytes, or number[KMGP] (P = pages)\n");
 	exit(out == stderr);
 }
 
 int main(int argc, char *argv[])
 {
-	long long kbtotal = 0, kballoc;
-	int i, j, k, numchunk, alloc, sum, rc = 0;
-	char **mem, *tmp;
+	long long int i, kbtotal = 0, kballoc = 0;
+	int status, automode = 0;
+	struct data *current;
+	pid_t pid;
 
 	if (argc == 2) {
 		char *end = NULL;
 		kbtotal = strtoull(argv[1], &end, 0);
 
 		switch(*end) {
+		case '-':
+			if (*(end+1) == 'a') {
+				automode = 1;
+				break;
+			}
 		case 'g':
 		case 'G':
 			kbtotal *= 1024;
@@ -77,66 +113,97 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (argc != 2 || kbtotal == 0)
+	if (automode) {
+		unsigned long freemem;
+		printf("Starting automatic mode\n");
+		kbtotal = totalspace();
+	}
+
+	if (kbtotal == 0)
 		usage(argv[0], stderr);
 
-	numchunk = (kbtotal + CHUNK - 1) / CHUNK;
-	mem = calloc(numchunk, sizeof(*mem));
-	if (mem == NULL) {
-		fprintf(stderr, "error allocating initial chunk array\n");
-		exit(-1);
-	}
-
-	alloc = CHUNK;
+alloc_start:
 	printf("[%d] allocating %lld kbytes in %u kbyte chunks\n",
-	       getpid(), kbtotal, alloc);
-	for (i = kballoc = 0; i < numchunk && alloc > 0; i++, kballoc += alloc){
-		if (kbtotal - kballoc < alloc)
-			alloc = kbtotal - kballoc;
+					getpid(), kbtotal, CHUNK/1024);
 
-		while (alloc > 0 && (mem[i] = malloc(alloc * 1024)) == NULL) {
-			fprintf(stderr, "malloc(%u) failed (%lld/%lld)\n",
-				alloc * 1024, kballoc, kbtotal);
-			alloc /= 2;
+	current = &head;
+	do {
+		current->next = (struct data *) malloc(sizeof(struct data));
+		if (current == NULL) {
+			fprintf(stderr, "malloc(%lu) failed (%lld/%lld)\n",
+				sizeof(struct data), kballoc, kbtotal);
+			break;
 		}
-		if (alloc == 0)
+
+		current->chunk = (int *) malloc(CHUNK);
+		if (current == NULL) {
+			fprintf(stderr, "malloc(%u) failed (%lld/%lld)\n",
+				CHUNK, kballoc, kbtotal);
+			break;
+		}
+
+		madvise(current->chunk, CHUNK, MADV_DONTFORK);
+		madvise(current, sizeof(struct data), MADV_DONTFORK);
+
+		printf("touching %p ([%lld-%lld]/%lld)\n", current, kballoc,
+					kballoc + CHUNK_KB - 1, kbtotal);
+
+		for (i = 0; i < CHUNK/sizeof(int); i++)
+			current->chunk[i] = 0xdeadbeef;
+
+		kballoc += CHUNK_KB;
+		if (!automode && kballoc >= kbtotal)
 			break;
 
-		printf("touching %p ([%lld-%lld]/%lld)\n", mem[i], kballoc,
-		       kballoc + alloc - 1, kbtotal);
-		for (j = 0, tmp = mem[i]; j < alloc; j += 4) {
-			for (k = 0, sum = 0; k < 4095; k++, tmp++)
-				sum += *tmp;
-			*tmp = sum;
-		}
-	}
-	if (kballoc == 0)
-		exit(-2);
+		current = current->next;
+		current->next = NULL;
 
-	kbtotal = kballoc;
+	} while (freespace() > MINSPACE);
+
 	printf("touched %lld kbytes\n", kballoc);
 
-	alloc = CHUNK;
-	printf("verifying %lld kbytes in %u kbyte chunks\n", kbtotal, alloc);
-	for (i = kballoc = 0; i < numchunk; i++, kballoc += alloc) {
-		if (kbtotal - kballoc < alloc)
-			alloc = kbtotal - kballoc;
-
-		tmp = mem[i];
-		if (tmp != NULL) {
-			printf("verifying %p (%lld/%lld)\n",
-			       tmp, kballoc, kbtotal);
-			for (j = 0; j < alloc; j += 4) {
-				for (k = 0, sum = 0; k < 4095; k++, tmp++)
-					sum += *tmp;
-				if (*tmp != sum) {
-					fprintf(stderr, "sum %x != %x at %p\n",
-						*tmp, sum, tmp - 4092);
-					rc++;
-				}
-			}
+	/* In some situations a single process may not be able to consume all
+	 * of memory.  Fork a child to help.
+	 */
+	if (automode && (freespace() > MINSPACE)) {
+		pid = fork();
+		if (pid == -1) {
+			fprintf(stderr, "fork failed\n");
+			exit(-1);
+		}
+		if (pid == 0) { /*CHILD */
+			goto alloc_start;
+			/*We never get here */
+		} else { /*PARENT */
+			wait(&status);
 		}
 	}
-	printf("verified %lld kbytes\n", kballoc);
-	return rc;
+
+	/* Memhog will verify the data.  Don't do this for automode as you
+	 * don't want to hold the system to that tight of memory for much time.
+	 */
+	if (!automode) {
+		printf("verifying %lld kbytes in %u kbyte chunks\n",
+							kbtotal, CHUNK/1024);
+		current = &head;
+		kballoc = 0;
+		do {
+			kballoc += CHUNK_KB;
+			printf("verifying %p (%lld/%lld)\n", current,
+							kballoc, kbtotal);
+
+			for (i = 0; i < CHUNK/sizeof(int); i++)
+				if (current->chunk[i] != 0xdeadbeef)
+					fprintf(stderr, "verify failed %x !="
+						"%x at %p\n",
+						current->chunk[i],
+						0xdeadbeef,
+						current);
+			current = current->next;
+		} while (current->next != NULL);
+
+		printf("verified %lld kbytes\n", kballoc);
+	}
+
+	return 0;
 }
