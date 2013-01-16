@@ -79,7 +79,7 @@ check_version() {
 }
 
 echo "Checking for a complete tree..."
-REQUIRED_DIRS="build libcfs lnet lustre"
+REQUIRED_DIRS="libcfs lnet lustre"
 OPTIONAL_DIRS="snmp portals"
 CONFIGURE_DIRS="libsysio lustre-iokit ldiskfs"
 
@@ -135,7 +135,7 @@ run_cmd()
 export ACLOCAL="aclocal-$AMVER"
 export AUTOMAKE="automake-$AMVER"
 
-run_cmd "$ACLOCAL $ACLOCAL_FLAGS"
+run_cmd "$ACLOCAL -I $PWD/config $ACLOCAL_FLAGS"
 run_cmd "autoheader"
 run_cmd "$AUTOMAKE -a -c $AMOPT"
 run_cmd autoconf
