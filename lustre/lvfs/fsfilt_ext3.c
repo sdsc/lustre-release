@@ -85,25 +85,14 @@ extern int ext3_xattr_set_handle(handle_t *, struct inode *, int, const char *, 
 #define fsfilt_log_start_commit(journal, tid) jbd2_log_start_commit(journal, tid)
 #define fsfilt_log_wait_commit(journal, tid) jbd2_log_wait_commit(journal, tid)
 
-#ifdef HAVE_EXT4_JOURNAL_CALLBACK_ADD
-# define journal_callback ext4_journal_cb_entry
-# define fsfilt_journal_callback_set(handle, func, jcb) \
-         ext4_journal_callback_add(handle, func, jcb)
-#elif defined(HAVE_JBD2_JOURNAL_CALLBACK_SET)
-# define fsfilt_journal_callback_set(handle, func, jcb) \
-         jbd2_journal_callback_set(handle, func, jcb)
-#else
-# error missing journal commit callback
-#endif /* HAVE_EXT4_JOURNAL_CALLBACK_ADD */
-
 static cfs_mem_cache_t *fcb_cache;
 
 struct fsfilt_cb_data {
-        struct journal_callback cb_jcb; /* jbd private data - MUST BE FIRST */
-        fsfilt_cb_t cb_func;            /* MDS/OBD completion function */
-        struct obd_device *cb_obd;      /* MDS/OBD completion device */
-        __u64 cb_last_rcvd;             /* MDS/OST last committed operation */
-        void *cb_data;                  /* MDS/OST completion function data */
+	struct ext4_journal_cb_entry cb_jcb; /* private data - MUST BE FIRST */
+	fsfilt_cb_t cb_func;            /* MDS/OBD completion function */
+	struct obd_device *cb_obd;      /* MDS/OBD completion device */
+	__u64 cb_last_rcvd;             /* MDS/OST last committed operation */
+	void *cb_data;                  /* MDS/OST completion function data */
 };
 
 #ifndef ext3_find_next_bit
@@ -762,12 +751,8 @@ static ssize_t fsfilt_ext3_readpage(struct file *file, char *buf, size_t count,
         return rc;
 }
 
-#ifdef HAVE_EXT4_JOURNAL_CALLBACK_ADD
 static void fsfilt_ext3_cb_func(struct super_block *sb,
-                                struct journal_callback *jcb, int error)
-#else
-static void fsfilt_ext3_cb_func(struct journal_callback *jcb, int error)
-#endif
+                                struct ext4_journal_cb_entry *jcb, int error)
 {
         struct fsfilt_cb_data *fcb = container_of(jcb, typeof(*fcb), cb_jcb);
 
@@ -780,21 +765,21 @@ static int fsfilt_ext3_add_journal_cb(struct obd_device *obd, __u64 last_rcvd,
                                       void *handle, fsfilt_cb_t cb_func,
                                       void *cb_data)
 {
-        struct fsfilt_cb_data *fcb;
+	struct fsfilt_cb_data *fcb;
 
-        OBD_SLAB_ALLOC_PTR_GFP(fcb, fcb_cache, CFS_ALLOC_IO);
-        if (fcb == NULL)
-                RETURN(-ENOMEM);
+	OBD_SLAB_ALLOC_PTR_GFP(fcb, fcb_cache, CFS_ALLOC_IO);
+	if (fcb == NULL)
+		RETURN(-ENOMEM);
 
-        fcb->cb_func = cb_func;
-        fcb->cb_obd = obd;
-        fcb->cb_last_rcvd = last_rcvd;
-        fcb->cb_data = cb_data;
+	fcb->cb_func = cb_func;
+	fcb->cb_obd = obd;
+	fcb->cb_last_rcvd = last_rcvd;
+	fcb->cb_data = cb_data;
 
-        CDEBUG(D_EXT2, "set callback for last_rcvd: "LPD64"\n", last_rcvd);
-        fsfilt_journal_callback_set(handle, fsfilt_ext3_cb_func, &fcb->cb_jcb);
+	CDEBUG(D_EXT2, "set callback for last_rcvd: "LPD64"\n", last_rcvd);
+	ext4_journal_callback_add(handle, fsfilt_ext3_cb_func, &fcb->cb_jcb);
 
-        return 0;
+	return 0;
 }
 
 static int fsfilt_ext3_statfs(struct super_block *sb, struct obd_statfs *osfs)
