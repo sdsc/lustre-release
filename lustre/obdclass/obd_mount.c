@@ -1998,6 +1998,9 @@ static int lustre_put_lsi(struct super_block *sb)
         CDEBUG(D_MOUNT, "put %p %d\n", sb, cfs_atomic_read(&lsi->lsi_mounts));
         if (cfs_atomic_dec_and_test(&lsi->lsi_mounts)) {
 		if (IS_SERVER(lsi) && lsi->lsi_osd_exp) {
+			lu_device_put(&lsi->lsi_dt_dev->dd_lu_dev);
+			lsi->lsi_osd_exp->exp_obd->obd_lvfs_ctxt.dt = NULL;
+			lsi->lsi_dt_dev = NULL;
 			obd_disconnect(lsi->lsi_osd_exp);
 			/* wait till OSD is gone */
 			obd_zombie_barrier();
@@ -2323,13 +2326,17 @@ static int osd_start(struct lustre_sb_info *lsi, unsigned long mflags)
 		obd->obd_force = 1;
 		class_manual_cleanup(obd);
 		lsi->lsi_dt_dev = NULL;
+		RETURN(rc);
 	}
 
-	/* XXX: to keep support old components relying on lsi_srv_mnt
-	 *	we get this info from OSD just started */
 	LASSERT(obd->obd_lu_dev);
+	lu_device_get(obd->obd_lu_dev);
 	lsi->lsi_dt_dev = lu2dt_dev(obd->obd_lu_dev);
 	LASSERT(lsi->lsi_dt_dev);
+
+	/* set disk context for llog usage */
+	OBD_SET_CTXT_MAGIC(&obd->obd_lvfs_ctxt);
+	obd->obd_lvfs_ctxt.dt = lsi->lsi_dt_dev;
 
 	dt_conf_get(NULL, lsi->lsi_dt_dev, &p);
 
