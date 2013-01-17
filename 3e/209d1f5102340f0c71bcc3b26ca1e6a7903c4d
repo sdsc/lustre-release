@@ -1,0 +1,11 @@
+Verified+1: Hudson
+Code-Review+1: wangdi <di.wang@intel.com>
+Code-Review+1: Niu Yawei <yawei.niu@intel.com>
+Code-Review+2: Andreas Dilger <andreas.dilger@intel.com>
+Code-Review+1: Li Wei <wei.g.li@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Submitted-by: Johann Lombardi <johann.lombardi@intel.com>
+Submitted-at: Thu, 17 Jan 2013 10:27:09 -0500
+Reviewed-on: http://review.whamcloud.com/4986
+Project: fs/lustre-release
+Branch: refs/heads/b1_8
