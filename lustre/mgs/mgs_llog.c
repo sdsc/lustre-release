@@ -957,30 +957,15 @@ static int record_end_log(const struct lu_env *env, struct llog_handle **llh)
 static int mgs_log_is_empty(const struct lu_env *env,
 			    struct mgs_device *mgs, char *name)
 {
-        struct llog_handle *llh;
-        struct llog_ctxt *ctxt;
-        int rc = 0;
+	struct llog_ctxt	*ctxt;
+	int			 rc;
 
 	ctxt = llog_get_context(mgs->mgs_obd, LLOG_CONFIG_ORIG_CTXT);
-        LASSERT(ctxt != NULL);
-	rc = llog_open(env, ctxt, &llh, NULL, name, LLOG_OPEN_EXISTS);
-	if (rc < 0) {
-		if (rc == -ENOENT)
-			rc = 0;
-		GOTO(out_ctxt, rc);
-	}
+	LASSERT(ctxt != NULL);
 
-	llog_init_handle(env, llh, LLOG_F_IS_PLAIN, NULL);
-	if (rc)
-		GOTO(out_close, rc);
-	rc = llog_get_size(llh);
-
-out_close:
-	llog_close(env, llh);
-out_ctxt:
+	rc = llog_is_empty(env, ctxt, name);
 	llog_ctxt_put(ctxt);
-	/* header is record 1 */
-	return (rc <= 1);
+	return rc;
 }
 
 /******************** config "macros" *********************/
@@ -3474,64 +3459,3 @@ out_label:
 	OBD_FREE(label, label_sz);
         return rc;
 }
-
-#if 0
-/******************** unused *********************/
-static int mgs_backup_llog(struct obd_device *obd, char* fsname)
-{
-        struct file *filp, *bak_filp;
-        struct lvfs_run_ctxt saved;
-        char *logname, *buf;
-        loff_t soff = 0 , doff = 0;
-        int count = 4096, len;
-        int rc = 0;
-
-        OBD_ALLOC(logname, PATH_MAX);
-        if (logname == NULL)
-                return -ENOMEM;
-
-        OBD_ALLOC(buf, count);
-        if (!buf)
-                GOTO(out , rc = -ENOMEM);
-
-        len = snprintf(logname, PATH_MAX, "%s/%s.bak",
-                       MOUNT_CONFIGS_DIR, fsname);
-
-        if (len >= PATH_MAX - 1) {
-                GOTO(out, -ENAMETOOLONG);
-        }
-
-        push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
-
-        bak_filp = l_filp_open(logname, O_RDWR|O_CREAT|O_TRUNC, 0660);
-        if (IS_ERR(bak_filp)) {
-                rc = PTR_ERR(bak_filp);
-                CERROR("backup logfile open %s: %d\n", logname, rc);
-                GOTO(pop, rc);
-        }
-        sprintf(logname, "%s/%s", MOUNT_CONFIGS_DIR, fsname);
-        filp = l_filp_open(logname, O_RDONLY, 0);
-        if (IS_ERR(filp)) {
-                rc = PTR_ERR(filp);
-                CERROR("logfile open %s: %d\n", logname, rc);
-                GOTO(close1f, rc);
-        }
-
-        while ((rc = lustre_fread(filp, buf, count, &soff)) > 0) {
-                rc = lustre_fwrite(bak_filp, buf, count, &doff);
-                break;
-        }
-
-        filp_close(filp, 0);
-close1f:
-        filp_close(bak_filp, 0);
-pop:
-        pop_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
-out:
-        if (buf)
-                OBD_FREE(buf, count);
-        OBD_FREE(logname, PATH_MAX);
-        return rc;
-}
-
-#endif
