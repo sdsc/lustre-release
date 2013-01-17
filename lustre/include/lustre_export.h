@@ -241,6 +241,7 @@ struct obd_export {
 				  /* if to swap nidtbl entries for 2.2 clients.
 				   * Only used by the MGS to fix LU-1644. */
 				  exp_need_mne_swab:1;
+	__u64                     exp_max_xid_seen;
         /* also protected by exp_lock */
         enum lustre_sec_part      exp_sp_peer;
         struct sptlrpc_flavor     exp_flvr;             /* current */
@@ -250,6 +251,10 @@ struct obd_export {
         /** protects exp_hp_rpcs */
 	spinlock_t		  exp_rpc_lock;
 	cfs_list_t		  exp_hp_rpcs;	/* (potential) HP RPCs */
+
+	/* RPC being handled */
+	spinlock_t		  exp_rpcs_in_progress_lock;
+	cfs_list_t		  exp_rpcs_in_progress;
 
         /** blocking dlm lock list, protected by exp_bl_list_lock */
         cfs_list_t                exp_bl_list;

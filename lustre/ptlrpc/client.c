@@ -590,6 +590,7 @@ static int __ptlrpc_request_bufs_pack(struct ptlrpc_request *request,
         CFS_INIT_LIST_HEAD(&request->rq_set_chain);
         CFS_INIT_LIST_HEAD(&request->rq_history_list);
         CFS_INIT_LIST_HEAD(&request->rq_exp_list);
+	CFS_INIT_LIST_HEAD(&request->rq_exp_list_in_progress);
         cfs_waitq_init(&request->rq_reply_waitq);
         cfs_waitq_init(&request->rq_set_waitq);
         request->rq_xid = ptlrpc_next_xid();
@@ -2159,6 +2160,7 @@ EXPORT_SYMBOL(ptlrpc_set_wait);
  */
 static void __ptlrpc_free_req(struct ptlrpc_request *request, int locked)
 {
+	struct obd_export *exp = request->rq_export;
         ENTRY;
         if (request == NULL) {
                 EXIT;
@@ -2170,6 +2172,8 @@ static void __ptlrpc_free_req(struct ptlrpc_request *request, int locked)
         LASSERTF(cfs_list_empty(&request->rq_list), "req %p\n", request);
         LASSERTF(cfs_list_empty(&request->rq_set_chain), "req %p\n", request);
         LASSERTF(cfs_list_empty(&request->rq_exp_list), "req %p\n", request);
+	LASSERTF(cfs_list_empty(&request->rq_exp_list_in_progress), "req %p\n",
+		 request);
         LASSERTF(!request->rq_replay, "req %p\n", request);
 
         req_capsule_fini(&request->rq_pill);
@@ -2193,10 +2197,13 @@ static void __ptlrpc_free_req(struct ptlrpc_request *request, int locked)
 
         if (request->rq_repbuf != NULL)
                 sptlrpc_cli_free_repbuf(request);
-        if (request->rq_export != NULL) {
-                class_export_put(request->rq_export);
-                request->rq_export = NULL;
-        }
+	if (exp != NULL) {
+		spin_lock(&exp->exp_rpcs_in_progress_lock);
+		cfs_list_del_init(&request->rq_exp_list_in_progress);
+		spin_unlock(&exp->exp_rpcs_in_progress_lock);
+		class_export_put(exp);
+		request->rq_export = NULL;
+	}
         if (request->rq_import != NULL) {
                 class_import_put(request->rq_import);
                 request->rq_import = NULL;
