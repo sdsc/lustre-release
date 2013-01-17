@@ -1,0 +1,9 @@
+Verified+1: Hudson
+Code-Review+2: Johann Lombardi <johann.lombardi@intel.com>
+Code-Review+1: Jian Yu <jian.yu@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Submitted-by: Oleg Drokin <green@whamcloud.com>
+Submitted-at: Thu, 17 Jan 2013 12:12:12 -0500
+Reviewed-on: http://review.whamcloud.com/4952
+Project: fs/lustre-release
+Branch: refs/heads/master
