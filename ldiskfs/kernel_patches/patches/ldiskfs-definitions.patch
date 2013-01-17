@@ -1,0 +1,48 @@
+Index: linux-stage/fs/ext4/acl.h
+===================================================================
+--- linux-stage.orig/fs/ext4/acl.h
++++ linux-stage/fs/ext4/acl.h
+@@ -4,6 +4,7 @@
+   (C) 2001 Andreas Gruenbacher, <a.gruenbacher@computer.org>
+ */
+ 
++#include <ldiskfs/ldiskfs_definitions.h>
+ #include <linux/posix_acl_xattr.h>
+ 
+ #define EXT4_ACL_VERSION	0x0001
+Index: linux-stage/fs/ext4/ext4.h
+===================================================================
+--- linux-stage.orig/fs/ext4/ext4.h
++++ linux-stage/fs/ext4/ext4.h
+@@ -16,6 +16,7 @@
+ #ifndef _EXT4_H
+ #define _EXT4_H
+ 
++#include <ldiskfs/ldiskfs_definitions.h>
+ #include <linux/types.h>
+ #include <linux/blkdev.h>
+ #include <linux/magic.h>
+Index: linux-stage/fs/ext4/mballoc.h
+===================================================================
+--- linux-stage.orig/fs/ext4/mballoc.h
++++ linux-stage/fs/ext4/mballoc.h
+@@ -7,6 +7,7 @@
+ #ifndef _EXT4_MBALLOC_H
+ #define _EXT4_MBALLOC_H
+ 
++#include <ldiskfs/ldiskfs_definitions.h>
+ #include <linux/time.h>
+ #include <linux/fs.h>
+ #include <linux/namei.h>
+Index: linux-stage/fs/ext4/xattr.h
+===================================================================
+--- linux-stage.orig/fs/ext4/xattr.h
++++ linux-stage/fs/ext4/xattr.h
+@@ -6,6 +6,7 @@
+   (C) 2001 Andreas Gruenbacher, <a.gruenbacher@computer.org>
+ */
+ 
++#include <ldiskfs/ldiskfs_definitions.h>
+ #include <linux/xattr.h>
+ 
+ /* Magic value in attribute blocks */

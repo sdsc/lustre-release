@@ -78,13 +78,13 @@ LDISKFS_AC_PATCH_PROGRAM
 if test x$enable_server$enable_dist = xyesno ; then
 LB_LDISKFS_EXT_DIR
 LB_LDISKFS_EXT_SOURCE
-LB_LDISKFS_DEFINE_OPTIONS
 fi
 
 AC_SUBST(ac_configure_args)
 
-AC_CONFIG_FILES([Makefile ldiskfs/Makefile]
-		AC_PACKAGE_TARNAME[.spec])
+AC_CONFIG_FILES([Makefile ldiskfs/Makefile])
+AC_CONFIG_FILES([ldiskfs/ldiskfs_definitions.h])
+AC_CONFIG_FILES(AC_PACKAGE_TARNAME[.spec])
 
 MOSTLYCLEANFILES='.*.cmd .*.flags *.o *.ko *.mod.c .depend .*.1.* Modules.symvers Module.symvers'
 AC_SUBST(MOSTLYCLEANFILES)

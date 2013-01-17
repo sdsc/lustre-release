@@ -27,8 +27,6 @@ ldiskfs_patched_sources := $(notdir $(backfs_sources) $(backfs_headers)) $(new_s
 ldiskfs_sources := $(ldiskfs_patched_sources)
 ldiskfs_obj := $(filter %.o,$(ldiskfs_sources:.c=.o))
 
-#--- autoMakefile cut-and-paste start
-
 ldiskfs_linux_headers := $(addprefix linux/,$(subst ext4,ldiskfs,$(notdir $(linux_headers))))
 
 $(filter %.c,$(ldiskfs_patched_sources)): sources $(ldiskfs_linux_headers) $(filter %.h,$(ldiskfs_patched_sources))
@@ -68,6 +66,11 @@ patches := @top_srcdir@/kernel_patches/patches
 
 EXTRA_CFLAGS += -I@LINUX@/fs -I@LDISKFSDIR@
 EXTRA_CFLAGS += -include @abs_top_builddir@/config.h
+# This last include of .. is so that we can include <ldiskfs/ldiskfs_definitions.h>
+# in the ldiskfs code, so external things (e.g. lustre) can find the header, but
+# also allow the ldiskfs/ prefix to work here now when building ldiskfs.  This
+# assumes that ldiskfs_definitions.h lives in . and that . is named ldiskfs.
+EXTRA_CFLAGS += -I@LDISKFSDIR@/..
 
 obj-m := ldiskfs.o
 ldiskfs-objs := $(ldiskfs_obj)
@@ -167,5 +170,3 @@ foo-check:
 
 MOSTLYCLEANFILES := @MOSTLYCLEANFILES@
 CLEANFILES = sources $(notdir $(linux_new_headers) $(linux_headers) $(backfs_headers) $(backfs_sources) $(new_sources) $(new_headers) $(trace_headers))
-
-#--- autoMakefile cut-and-paste end
