@@ -2336,6 +2336,10 @@ static int osd_start(struct lustre_sb_info *lsi, unsigned long mflags)
 	lsi->lsi_dt_dev = lu2dt_dev(obd->obd_lu_dev);
 	LASSERT(lsi->lsi_dt_dev);
 
+	/* set disk context for llog usage */
+	OBD_SET_CTXT_MAGIC(&obd->obd_lvfs_ctxt);
+	obd->obd_lvfs_ctxt.dt = lsi->lsi_dt_dev;
+
 	dt_conf_get(NULL, lsi->lsi_dt_dev, &p);
 
 	lsi->lsi_srv_mnt = p.ddp_mnt;
