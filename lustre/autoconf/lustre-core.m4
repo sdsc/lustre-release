@@ -1822,6 +1822,25 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 2.6.35 renamed ext_pblock to ext4_ext_pblock(ex)
+#
+AC_DEFUN([LC_EXT_PBLOCK],
+[AC_MSG_CHECKING([if kernel has ext_pblocks])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/fs.h>
+	#include "$LINUX/fs/ext4/ext4_extents.h"
+],[
+	ext_pblock(NULL);
+],[
+	AC_MSG_RESULT([yes])
+	AC_DEFINE(HAVE_EXT_PBLOCK, 1,
+		[kernel has ext_pblocks])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
+#
 # 3.1.1 has ext4_blocks_for_truncate
 #
 AC_DEFUN([LC_BLOCKS_FOR_TRUNCATE],
@@ -2279,6 +2298,7 @@ AC_DEFUN([LC_PROG_LINUX],
 	 LC_VFS_INODE_NEWSIZE_OK
 
          # 2.6.35, 3.0.0
+         LC_EXT_PBLOCK
          LC_FILE_FSYNC
          LC_EXPORT_SIMPLE_SETATTR
 
