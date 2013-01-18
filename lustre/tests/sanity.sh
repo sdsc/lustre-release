@@ -21,6 +21,7 @@ CPU=`awk '/model/ {print $4}' /proc/cpuinfo`
 case `uname -r` in
 2.4*) FSTYPE=${FSTYPE:-ext3} ;;
 2.6*) FSTYPE=${FSTYPE:-ldiskfs} ;;
+3.*) FSTYPE=${FSTYPE:-ldiskfs} ;;
 *) error "unsupported kernel" ;;
 esac
 
