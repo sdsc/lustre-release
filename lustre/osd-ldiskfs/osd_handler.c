@@ -1620,7 +1620,7 @@ static int osd_attr_set(const struct lu_env *env,
 	spin_unlock(&obj->oo_guard);
 
         if (!rc)
-                inode->i_sb->s_op->dirty_inode(inode);
+		cfs_dirty_inode(inode, I_DIRTY);
         return rc;
 }
 
@@ -1869,7 +1869,7 @@ static void osd_attr_init(struct osd_thread_info *info, struct osd_object *obj,
                  * enabled on ldiskfs (lquota takes care of it).
                  */
                 LASSERTF(result == 0, "%d", result);
-                inode->i_sb->s_op->dirty_inode(inode);
+                cfs_dirty_inode(inode, I_DIRTY);
         }
 
         attr->la_valid = valid;
@@ -2064,7 +2064,7 @@ static int osd_object_destroy(const struct lu_env *env,
 		spin_lock(&obj->oo_guard);
 		clear_nlink(inode);
 		spin_unlock(&obj->oo_guard);
-		inode->i_sb->s_op->dirty_inode(inode);
+		cfs_dirty_inode(inode, I_DIRTY);
 	} else {
 		LASSERT(osd_inode_unlinked(inode));
 	}
@@ -2281,7 +2281,7 @@ static int osd_object_ref_add(const struct lu_env *env,
 	}
 	LASSERT(inode->i_nlink <= LDISKFS_LINK_MAX);
 	spin_unlock(&obj->oo_guard);
-	inode->i_sb->s_op->dirty_inode(inode);
+	cfs_dirty_inode(inode, I_DIRTY);
 	LINVRNT(osd_invariant(obj));
 
 	return 0;
@@ -2329,7 +2329,7 @@ static int osd_object_ref_del(const struct lu_env *env, struct dt_object *dt,
 	if (S_ISDIR(inode->i_mode) && inode->i_nlink == 0)
 		set_nlink(inode, 1);
 	spin_unlock(&obj->oo_guard);
-	inode->i_sb->s_op->dirty_inode(inode);
+	cfs_dirty_inode(inode, I_DIRTY);
 	LINVRNT(osd_invariant(obj));
 
 	return 0;
@@ -2415,7 +2415,7 @@ static void osd_object_version_set(const struct lu_env *env,
         LDISKFS_I(inode)->i_fs_version = *new_version;
         /** Version is set after all inode operations are finished,
          *  so we should mark it dirty here */
-        inode->i_sb->s_op->dirty_inode(inode);
+        cfs_dirty_inode(inode, I_DIRTY);
 }
 
 /*
@@ -4461,7 +4461,7 @@ static struct lu_device *osd_device_fini(const struct lu_env *env,
 
 	rc = osd_shutdown(env, osd_dev(d));
 
-	osd_obj_map_fini(osd_dev(d));
+        osd_compat_fini(osd_dev(d));
 
         shrink_dcache_sb(osd_sb(osd_dev(d)));
         osd_sync(env, lu2dt_dev(d));
@@ -4522,7 +4522,7 @@ static int osd_device_init0(const struct lu_env *env,
 	strncpy(o->od_svname, lustre_cfg_string(cfg, 4),
 			sizeof(o->od_svname) - 1);
 
-	rc = osd_obj_map_init(o);
+	rc = osd_compat_init(o);
 	if (rc != 0)
 		GOTO(out_scrub, rc);
 
@@ -4559,7 +4559,7 @@ out_procfs:
 out_site:
 	lu_site_fini(&o->od_site);
 out_compat:
-	osd_obj_map_fini(o);
+	osd_compat_fini(o);
 out_scrub:
 	osd_scrub_cleanup(env, o);
 out_mnt:

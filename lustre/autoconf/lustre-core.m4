@@ -1729,6 +1729,26 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 2.6.39 (aa385729) added a flags argument to super_operations->dirty_inode()
+#
+AC_DEFUN([LC_HAVE_DIRTY_INODE_2ARGS],
+[AC_MSG_CHECKING([if super_operations.dirty_inode has 2 args])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/fs.h>
+],[
+	struct super_operations sops;
+
+	sops.dirty_inode(NULL, 0);
+],[
+	AC_DEFINE(HAVE_DIRTY_INODE_2ARGS, 1,
+		[super_operations.dirty_inode has 2 args])
+	AC_MSG_RESULT([yes])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
+#
 # 2.6.38 generic_permission taken 4 parameters.
 # in fact, it means rcu-walk aware permission bring.
 #
@@ -2300,6 +2320,7 @@ AC_DEFUN([LC_PROG_LINUX],
          # 2.6.39
          LC_REQUEST_QUEUE_UNPLUG_FN
 	 LC_HAVE_FSTYPE_MOUNT
+	 LC_HAVE_DIRTY_INODE_2ARGS
 
 	 # 3.1
 	 LC_LM_XXX_LOCK_MANAGER_OPS
