@@ -636,6 +636,9 @@ struct osd_thread_info {
 	union {
 		struct if_dqblk		oti_dqblk;
 		struct if_dqinfo	oti_dqinfo;
+#ifdef HAVE_DQUOT_FS_DISK_QUOTA
+		struct fs_disk_quota    oti_fdq;
+#endif
 	};
 	struct lquota_id_info	oti_qi;
 	struct lquota_trans	oti_quota_trans;
