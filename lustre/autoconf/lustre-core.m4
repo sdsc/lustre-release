@@ -2616,6 +2616,25 @@ EXTRA_KCFLAGS="$tmp_flags"
 ])
 
 #
+# 2.6.38 (7eaceacc) removed address_space_operations.sync_page
+#
+AC_DEFUN([LC_HAVE_AOPS_SYNC_PAGE],
+[AC_MSG_CHECKING([if address_space_operations.sync_page exists])
+LB_LINUX_TRY_COMPILE([
+       #include <linux/fs.h>
+],[
+       struct address_space_operations aops;
+       aops.sync_page = NULL;
+],[
+       AC_DEFINE(HAVE_AOPS_SYNC_PAGE, 1,
+               [address_space_operations.sync_page exists])
+       AC_MSG_RESULT([yes])
+],[
+       AC_MSG_RESULT([no])
+])
+])
+
+#
 # 2.6.39 remove unplug_fn from request_queue.
 #
 AC_DEFUN([LC_REQUEST_QUEUE_UNPLUG_FN],
@@ -2907,6 +2926,7 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_DCACHE_LOCK
          LC_D_COMPARE_7ARGS
          LC_D_DELETE_CONST
+         LC_HAVE_AOPS_SYNC_PAGE
 
 	 # 2.6.39
 	 LC_REQUEST_QUEUE_UNPLUG_FN
