@@ -133,6 +133,10 @@ static int osd_oi_index_create_one(struct osd_thread_info *info,
 		brelse(bh);
 		inode = osd_iget(info, osd, id);
 		if (!IS_ERR(inode)) {
+			if (inode->i_state & I_NEW) {
+				make_bad_inode(inode);
+				unlock_new_inode(inode);
+			}
 			iput(inode);
 			inode = ERR_PTR(-EEXIST);
 		}
@@ -157,8 +161,17 @@ static int osd_oi_index_create_one(struct osd_thread_info *info,
 		rc = iam_lfix_create(inode, feat->dif_keysize_max,
 				     feat->dif_ptrsize, feat->dif_recsize_max,
 				     jh);
+	if (rc)
+		goto out;
+
 	dentry = osd_child_dentry_by_inode(env, dir, name, strlen(name));
 	rc = osd_ldiskfs_add_entry(jh, dentry, inode, NULL);
+out:
+	if (rc) {
+		inode->i_nlink = 0;
+		mark_inode_dirty(inode);
+	}
+	unlock_new_inode(inode);
 	ldiskfs_journal_stop(jh);
 	iput(inode);
 	return rc;
