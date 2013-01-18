@@ -78,6 +78,14 @@ cfs_file_t *cfs_filp_open (const char *name, int flags, int mode, int *err);
 #define cfs_filp_write(fp, buf, size, pos)  (fp)->f_op->write((fp), (buf), (size), pos)
 #define cfs_filp_fsync(fp)                  cfs_do_fsync(fp, 1)
 
+#ifdef HAVE_DIRTY_INODE_2ARGS
+#define cfs_dirty_inode(inode, flag) \
+			((inode)->i_sb->s_op->dirty_inode((inode), flag))
+#else
+#define cfs_dirty_inode(inode, flag) \
+			((inode)->i_sb->s_op->dirty_inode((inode)))
+#endif
+
 #define cfs_get_file(f)                     get_file(f)
 #define cfs_get_fd(x)                       fget(x)
 #define cfs_put_file(f)                     fput(f)
