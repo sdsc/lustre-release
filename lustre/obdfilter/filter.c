@@ -4328,7 +4328,12 @@ static int filter_sync(struct obd_export *exp, struct obd_info *oinfo,
         struct lvfs_run_ctxt saved;
         struct obd_device_target *obt;
         struct dentry *dentry;
-        int rc, rc2;
+        int rc;
+#ifdef HAVE_FILE_FSYNC_4ARGS
+	const struct file_operations *fops;
+#else
+	int rc2;
+#endif
         ENTRY;
 
         rc = filter_auth_capa(exp, NULL, oinfo->oi_oa->o_seq,
@@ -4353,8 +4358,8 @@ static int filter_sync(struct obd_export *exp, struct obd_info *oinfo,
 
         push_ctxt(&saved, &exp->exp_obd->obd_lvfs_ctxt, NULL);
 
+#ifndef HAVE_FILE_FSYNC_4ARGS
         LOCK_INODE_MUTEX(dentry->d_inode);
-
         rc = filemap_fdatawrite(dentry->d_inode->i_mapping);
         if (rc == 0) {
                 /* just any file to grab fsync method - "file" arg unused */
@@ -4368,6 +4373,28 @@ static int filter_sync(struct obd_export *exp, struct obd_info *oinfo,
                         rc = rc2;
         }
         UNLOCK_INODE_MUTEX(dentry->d_inode);
+#else
+	fops = dentry->d_inode->i_fop;
+	if (fops && fops->fsync) {
+		/*
+		* 208 bytes, don't want it on the stack;
+		* using get_empty_filp counts against open files
+		*/
+		struct file *fp = kzalloc(sizeof(*fp), GFP_NOFS);
+		rc = -ENOMEM;
+		if (fp) {
+			/* Used in ext4_sync_file */
+			fp->f_mapping = dentry->d_inode->i_mapping;
+
+			/* Used in trace_ext4_sync_file_enter */
+			fp->f_path.dentry = dentry;
+
+			rc = fops->fsync(fp, 0, LLONG_MAX, 1);
+
+			kfree(fp);
+		}
+	}
+#endif
 
         oinfo->oi_oa->o_valid = OBD_MD_FLID;
         obdo_from_inode(oinfo->oi_oa, dentry->d_inode, NULL,
