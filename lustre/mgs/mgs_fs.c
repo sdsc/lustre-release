@@ -142,8 +142,10 @@ int mgs_fs_setup(const struct lu_env *env, struct mgs_device *mgs)
 
 	root = dt_locate_at(env, mgs->mgs_bottom, &rfid,
 			    &mgs->mgs_dt_dev.dd_lu_dev);
-	if (unlikely(IS_ERR(root)))
-		GOTO(out_los, PTR_ERR(root));
+	if (unlikely(IS_ERR(root))) {
+		rc = PTR_ERR(root);
+		GOTO(out_los, rc);
+	}
 
 	o = local_file_find_or_create(env, mgs->mgs_los, root,
 				      MOUNT_CONFIGS_DIR,
