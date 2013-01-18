@@ -2484,6 +2484,28 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 2.6.37 (b05e6ae5) removed ext4_ext_cache->ec_type
+#
+AC_DEFUN([LC_HAVE_EXT_CACHE_EC_TYPE],
+[AC_MSG_CHECKING([if struct ext4_ext_cache has ec_type member])
+tmp_flags="$EXTRA_KCFLAGS"
+EXTRA_KCFLAGS="-Ifs"
+LB_LINUX_TRY_COMPILE([
+        #include <ext4/ext4.h>
+],[
+        struct ext4_ext_cache ext;
+        ext.ec_type = 0;
+],[
+        AC_MSG_RESULT([yes])
+        AC_DEFINE(HAVE_EXT_CACHE_EC_TYPE, 1,
+                [struct ext4_ext_cache has ec_type member])
+],[
+        AC_MSG_RESULT([no])
+])
+EXTRA_KCFLAGS="$tmp_flags"
+])
+
+#
 # 2.6.38 export blkdev_get_by_dev
 #
 AC_DEFUN([LC_BLKDEV_GET_BY_DEV],
@@ -2832,6 +2854,7 @@ AC_DEFUN([LC_PROG_LINUX],
 
          # 2.6.37
          LC_KERNEL_LOCKED
+         LC_HAVE_EXT_CACHE_EC_TYPE
 
          # 2.6.38
          LC_ATOMIC_MNT_COUNT
