@@ -1500,6 +1500,29 @@ AC_DEFUN([LC_EXPORT_ACCESS_PROCESS_VM],
         ]
 )
 
+# 2.6.32 has ext4_free_blocks with 6 args, 3rd param is buffer_head
+AC_DEFUN([LC_EXT4_FREE_BLOCKS_6ARGS],
+[AC_MSG_CHECKING([ext4_free_blocks takes 6 args])
+tmp_flags="$EXTRA_KCFLAGS"
+EXTRA_KCFLAGS="-Ifs -Werror"
+LB_LINUX_TRY_COMPILE([
+	#include <linux/fs.h>
+        #include <ext4/ext4.h>
+],[
+	/* Ensure that the added argument is the one we actually want */
+	struct buffer_head *bh = NULL;
+	ext4_free_blocks(NULL, NULL, bh, 0, 0, 0);
+],[
+        AC_MSG_RESULT([yes])
+        AC_DEFINE(HAVE_FREE_BLOCKS_6ARGS, 1,
+                [ext4_free_blocks takes 6 args])
+],[
+        AC_MSG_RESULT([no])
+])
+EXTRA_KCFLAGS="$tmp_flags"
+])
+
+
 #
 # 2.6.36 fs_struct.lock use spinlock instead of rwlock.
 #
@@ -2320,6 +2343,7 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_SELINUX_IS_ENABLED
          LC_EXPORT_ACCESS_PROCESS_VM
 	 LC_VFS_INODE_NEWSIZE_OK
+	 LC_EXT4_FREE_BLOCKS_6ARGS
 
          # 2.6.35, 3.0.0
          LC_FILE_FSYNC

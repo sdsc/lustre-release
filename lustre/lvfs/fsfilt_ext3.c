@@ -1020,8 +1020,12 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
 #ifdef EXT3_MB_HINT_GROUP_ALLOC
                 ext3_mb_discard_inode_preallocations(inode);
 #endif
-                ext3_free_blocks(handle, inode, ext_pblock(&nex),
-                                 cpu_to_le16(nex.ee_len), 0);
+                ext3_free_blocks(handle, inode,
+#ifdef HAVE_FREE_BLOCKS_6ARGS
+				 NULL,
+#endif
+				 ext_pblock(&nex),
+				 cpu_to_le16(nex.ee_len), 0);
                 goto out;
         }
 
