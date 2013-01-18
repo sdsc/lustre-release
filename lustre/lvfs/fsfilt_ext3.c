@@ -828,6 +828,23 @@ static int fsfilt_ext3_sync(struct super_block *sb)
 #define fsfilt_ext3_ext_walk_space(inode, block, num, cb, cbdata) \
                         ext3_ext_walk_space(inode, block, num, cb, cbdata);
 
+#ifdef HAVE_EXT_CACHE_EC_TYPE
+#define cached_extent_type(cex)	((cex)->ec_type)
+#else
+#define EXT4_EXT_CACHE_NO      0
+#define EXT4_EXT_CACHE_GAP     1
+#define EXT4_EXT_CACHE_EXTENT  2
+
+static inline int cached_extent_type(struct ext3_ext_cache *cex)
+{
+	if (cex->ec_len == 0)
+		return EXT4_EXT_CACHE_NO;
+	else if(cex->ec_start == 0)
+		return EXT4_EXT_CACHE_GAP;
+	return EXT4_EXT_CACHE_EXTENT;
+}
+#endif
+
 struct bpointers {
         unsigned long *blocks;
         int *created;
@@ -934,7 +951,7 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
         unsigned long count;
         handle_t *handle;
 
-        if (cex->ec_type == EXT3_EXT_CACHE_EXTENT) {
+        if (cached_extent_type(cex) == EXT3_EXT_CACHE_EXTENT) {
                 err = EXT_CONTINUE;
                 goto map;
         }
@@ -1031,7 +1048,7 @@ map:
                         CERROR("current extent: %u/%u/%llu %d\n",
                                 cex->ec_block, cex->ec_len,
                                 (unsigned long long)cex->ec_start,
-                                cex->ec_type);
+                                cached_extent_type(cex));
                 }
                 i = 0;
                 if (cex->ec_block < bp->start)
@@ -1041,7 +1058,7 @@ map:
                                         i, cex->ec_len);
                 for (; i < cex->ec_len && bp->num; i++) {
                         *(bp->blocks) = cex->ec_start + i;
-                        if (cex->ec_type == EXT3_EXT_CACHE_EXTENT) {
+                        if (cached_extent_type(cex) == EXT3_EXT_CACHE_EXTENT) {
                                 *(bp->created) = 0;
                         } else {
                                 *(bp->created) = 1;
