@@ -896,11 +896,17 @@ EXTRA_KCFLAGS="$tmp_flags"
 # LC_EXPORT_SYNCHRONIZE_RCU
 # after 2.6.12 synchronize_rcu is preferred over synchronize_kernel
 AC_DEFUN([LC_EXPORT_SYNCHRONIZE_RCU],
-[LB_CHECK_SYMBOL_EXPORT([synchronize_rcu],
-[kernel/rcupdate.c],[
+[AC_MSG_CHECKING([if synchronize_rcu is used])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/rcupdate.h>
+],[
+	synchronize_rcu();
+],[
+        AC_MSG_RESULT(yes)
         AC_DEFINE(HAVE_SYNCHRONIZE_RCU, 1,
                 [in 2.6.12 synchronize_rcu preferred over synchronize_kernel])
 ],[
+        AC_MSG_RESULT(no)
 ])
 ])
 
