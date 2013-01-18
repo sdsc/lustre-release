@@ -2449,6 +2449,24 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 2.6.35 BIO_RW -> __REQ_WRITE
+#
+AC_DEFUN([LC_HAVE___REQ_WRITE],
+[AC_MSG_CHECKING([if __REQ_WRITE is defined])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/blk_types.h>
+],[
+        int x = __REQ_WRITE;
+],[
+        AC_MSG_RESULT([yes])
+        AC_DEFINE(HAVE___REQ_WRITE, 1,
+                [if __REQ_WRITE is defined])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+#
 # 2.6.37 remove kernel_locked
 #
 AC_DEFUN([LC_KERNEL_LOCKED],
@@ -2930,6 +2948,7 @@ AC_DEFUN([LC_PROG_LINUX],
          # 2.6.35, 3.0.0
          LC_FILE_FSYNC
          LC_EXPORT_SIMPLE_SETATTR
+         LC_HAVE___REQ_WRITE
 
          # 2.6.36
          LC_FS_STRUCT_RWLOCK
