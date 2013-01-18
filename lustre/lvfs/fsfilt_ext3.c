@@ -1538,6 +1538,77 @@ do {                                            \
         Q_COPY(out, in, dqb_valid);             \
 } while (0)
 
+#ifdef HAVE_DQUOT_FS_DISK_QUOTA
+static void copy_from_if_dqblk(struct fs_disk_quota *dst, struct if_dqblk *src)
+{
+	dst->d_blk_hardlimit = src->dqb_bhardlimit;
+	dst->d_blk_softlimit  = src->dqb_bsoftlimit;
+	dst->d_bcount = src->dqb_curspace;
+	dst->d_ino_hardlimit = src->dqb_ihardlimit;
+	dst->d_ino_softlimit = src->dqb_isoftlimit;
+	dst->d_icount = src->dqb_curinodes;
+	dst->d_btimer = src->dqb_btime;
+	dst->d_itimer = src->dqb_itime;
+
+	dst->d_fieldmask = 0;
+	if (src->dqb_valid & QIF_BLIMITS)
+		dst->d_fieldmask |= FS_DQ_BSOFT | FS_DQ_BHARD;
+	if (src->dqb_valid & QIF_SPACE)
+		dst->d_fieldmask |= FS_DQ_BCOUNT;
+	if (src->dqb_valid & QIF_ILIMITS)
+		dst->d_fieldmask |= FS_DQ_ISOFT | FS_DQ_IHARD;
+	if (src->dqb_valid & QIF_INODES)
+		dst->d_fieldmask |= FS_DQ_ICOUNT;
+	if (src->dqb_valid & QIF_BTIME)
+		dst->d_fieldmask |= FS_DQ_BTIMER;
+	if (src->dqb_valid & QIF_ITIME)
+		dst->d_fieldmask |= FS_DQ_ITIMER;
+}
+
+static void copy_to_if_dqblk(struct if_dqblk *dst, struct fs_disk_quota *src)
+{
+	dst->dqb_bhardlimit = src->d_blk_hardlimit;
+	dst->dqb_bsoftlimit = src->d_blk_softlimit;
+	dst->dqb_curspace = src->d_bcount;
+	dst->dqb_ihardlimit = src->d_ino_hardlimit;
+	dst->dqb_isoftlimit = src->d_ino_softlimit;
+	dst->dqb_curinodes = src->d_icount;
+	dst->dqb_btime = src->d_btimer;
+	dst->dqb_itime = src->d_itimer;
+	dst->dqb_valid = QIF_ALL;
+}
+#endif
+
+static int fsfilt_set_dqblk(struct super_block *sb, int type, qid_t id,
+			    struct if_dqblk *dqblk)
+{
+	int rc;
+        const struct quotactl_ops *qcop = sb->s_qcop;
+#ifdef HAVE_DQUOT_FS_DISK_QUOTA
+	struct fs_disk_quota fdq;
+	copy_from_if_dqblk(&fdq, dqblk);
+	rc = qcop->set_dqblk(sb, type, id, &fdq);
+#else
+	rc = qcop->set_dqblk(sb, type, id, dqblk);
+#endif
+	return rc;
+}
+
+static int fsfilt_get_dqblk(struct super_block *sb, int type, qid_t id,
+			    struct if_dqblk *dqblk)
+{
+	int rc;
+        const struct quotactl_ops *qcop = sb->s_qcop;
+#ifdef HAVE_DQUOT_FS_DISK_QUOTA
+	struct fs_disk_quota fdq;
+	rc = qcop->get_dqblk(sb, type, id, &fdq);
+	copy_to_if_dqblk(dqblk, &fdq);
+#else
+	rc = qcop->get_dqblk(sb, type, id, dqblk);
+#endif
+	return rc;
+}
+
 static int fsfilt_ext3_quotactl(struct super_block *sb,
                                 struct obd_quotactl *oqc)
 {
@@ -1598,20 +1669,24 @@ static int fsfilt_ext3_quotactl(struct super_block *sb,
         case Q_INITQUOTA:
                 if (!qcop->set_dqblk)
                         GOTO(out, rc = -ENOSYS);
-                rc = qcop->set_dqblk(sb, oqc->qc_type, oqc->qc_id, dqblk);
+                rc = fsfilt_set_dqblk(sb, oqc->qc_type, oqc->qc_id, dqblk);
                 break;
         case Q_GETOQUOTA:
         case Q_GETQUOTA:
                 if (!qcop->get_dqblk)
                         GOTO(out, rc = -ENOSYS);
-                rc = qcop->get_dqblk(sb, oqc->qc_type, oqc->qc_id, dqblk);
+                rc = fsfilt_get_dqblk(sb, oqc->qc_type, oqc->qc_id, dqblk);
                 if (!rc)
                         dqblk->dqb_valid = QIF_LIMITS | QIF_USAGE;
                 break;
         case Q_SYNC:
                 if (!sb->s_qcop->quota_sync)
                         GOTO(out, rc = -ENOSYS);
+#ifdef HAVE_QUOTA_SYNC_3ARGS
+                qcop->quota_sync(sb, oqc->qc_type, 1);
+#else
                 qcop->quota_sync(sb, oqc->qc_type);
+#endif
                 break;
         case Q_FINVALIDATE:
                 CDEBUG(D_WARNING, "invalidating operational quota files\n");
@@ -1725,7 +1800,7 @@ cqget(struct super_block *sb, cfs_hlist_head_t *hash,
                 return NULL;
 
         if (!first_check) {
-                rc = sb->s_qcop->get_dqblk(sb, type, id, &dqb);
+                rc = fsfilt_get_dqblk(sb, type, id, &dqb);
                 if (rc) {
                         CERROR("get_dqblk of id %u, type %d failed: %d\n",
                                id, type, rc);
