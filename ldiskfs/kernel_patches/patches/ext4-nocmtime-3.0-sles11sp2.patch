@@ -1,0 +1,28 @@
+---
+ fs/ext4/namei.c |    3 ++-
+ fs/ext4/xattr.c |    2 +-
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+--- a/fs/ext4/namei.c
++++ b/fs/ext4/namei.c
+@@ -1403,7 +1403,8 @@ static int add_dirent_to_buf(handle_t *h
+ 	 * happen is that the times are slightly out of date
+ 	 * and/or different from the directory change time.
+ 	 */
+-	dir->i_mtime = dir->i_ctime = ext4_current_time(dir);
++	if (!IS_NOCMTIME(dir))
++		dir->i_mtime = dir->i_ctime = ext4_current_time(dir);
+ 	ext4_update_dx_flag(dir);
+ 	dir->i_version++;
+ 	ext4_mark_inode_dirty(handle, dir);
+--- a/fs/ext4/xattr.c
++++ b/fs/ext4/xattr.c
+@@ -1360,7 +1360,7 @@ ext4_xattr_set_handle(handle_t *handle,
+ 	}
+ 	if (!error) {
+ 		ext4_xattr_update_super_block(handle, inode->i_sb);
+-		if (!(flags & XATTR_NO_CTIME))
++		if (!IS_NOCMTIME(inode) && !(flags & XATTR_NO_CTIME))
+ 			inode->i_ctime = ext4_current_time(inode);
+ 		if (!value)
+ 			ext4_clear_inode_state(inode, EXT4_STATE_NO_EXPAND);
