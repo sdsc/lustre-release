@@ -224,6 +224,30 @@ int parse_size(char *optarg, unsigned long long *size,
         return 0;
 }
 
+
+/* Helper functions for testing validity of stripe attributes. */
+static inline int llapi_stripe_size_validity(unsigned long long stripe_size)
+{
+	return (stripe_size < 0 || (stripe_size & (LOV_MIN_STRIPE_SIZE - 1)))
+		? EINVAL : 0;
+}
+
+static inline int llapi_stripe_size_excess(unsigned long long stripe_size)
+{
+	return (stripe_size >= (1ULL << 32)) ? EINVAL : 0;
+}
+
+static inline int llapi_stripe_count_validity(int stripe_count)
+{
+	return (stripe_count < -1 || stripe_count > LOV_MAX_STRIPE_COUNT)
+		? EINVAL : 0;
+}
+static inline int llapi_stripe_offset_validity(int stripe_offset)
+{
+	return (stripe_offset < -1 || stripe_offset > MAX_OBD_DEVICES)
+		? EINVAL : 0;
+}
+
 /* XXX: llapi_xxx() functions return negative values upon failure */
 
 int llapi_stripe_limit_check(unsigned long long stripe_size, int stripe_offset,
@@ -241,14 +265,14 @@ int llapi_stripe_limit_check(unsigned long long stripe_size, int stripe_offset,
 				"larger than expected (%u)", page_size,
 				LOV_MIN_STRIPE_SIZE);
 	}
-	if (stripe_size < 0 || (stripe_size & (LOV_MIN_STRIPE_SIZE - 1))) {
+	if (llapi_stripe_size_validity(stripe_size) != 0) {
 		rc = -EINVAL;
 		llapi_error(LLAPI_MSG_ERROR, rc, "error: bad stripe_size %lu, "
 				"must be an even multiple of %d bytes",
 				stripe_size, page_size);
 		return rc;
 	}
-	if (stripe_offset < -1 || stripe_offset > MAX_OBD_DEVICES) {
+	if (llapi_stripe_offset_validity(stripe_offset) != 0) {
 		rc = -EINVAL;
 		llapi_error(LLAPI_MSG_ERROR, rc, "error: bad stripe offset %d",
 				stripe_offset);
@@ -260,7 +284,7 @@ int llapi_stripe_limit_check(unsigned long long stripe_size, int stripe_offset,
 				stripe_count);
 		return rc;
 	}
-	if (stripe_size >= (1ULL << 32)) {
+	if (llapi_stripe_size_excess(stripe_size) != 0) {
 		rc = -EINVAL;
 		llapi_error(LLAPI_MSG_ERROR, rc,
 				"warning: stripe size 4G or larger "
@@ -4193,4 +4217,357 @@ int llapi_swap_layouts(const char *path1, const char *path2)
 	close(fd1);
 	close(fd2);
 	return rc;
+}
+
+/**
+ * lustre_layout - an opaque data type abstracting the layout of a
+ * Lustre file.
+ *
+ * Duplicate the fields we care about from struct lov_user_md_v3.
+ * Deal with v1 versus v3 format issues only when we read or write
+ * files.  Default to v3 format for new files.
+ */
+struct lustre_layout {
+	__u32 llot_pattern;
+	__u32 llot_stripe_size;
+	__u16 llot_stripe_count;
+	__u16 llot_stripe_offset;
+	/** Indicates if llot_objects array has been initialized. */
+	int	llot_objects_validity;
+	char	llot_pool_name[LOV_MAXPOOLNAME + 1];
+	struct	lov_user_ost_data_v1 llot_objects[0];
+};
+
+#define XATTR_LUSTRE_LOV	"lustre.lov"
+
+/* Private helper to allocate storage for a lustre_layout given a
+ * number of stripes. */
+static lustre_layout_t *__llapi_layout_alloc(int num_stripes)
+{
+	lustre_layout_t *layout;
+	size_t size = sizeof(lustre_layout_t) +
+		(num_stripes * sizeof(struct lov_user_ost_data_v1));
+
+	layout = malloc(size);
+	if (layout != NULL)
+		bzero(layout, size);
+	return layout;
+}
+
+/* Private helper to copy the data from a lov_user_md_v* to a
+ * lustre_layout. */
+static lustre_layout_t *
+__llapi_layout_from_lum(const struct lov_user_md_v3 *lum)
+{
+	lustre_layout_t *layout;
+	struct lov_user_md_v1 *lum_v1 = (struct lov_user_md_v1 *)lum;
+	int objects_sz = lum->lmm_stripe_count * sizeof(struct lov_ost_data_v1);
+
+	layout = __llapi_layout_alloc(lum->lmm_stripe_count);
+	if (layout == NULL)
+		return NULL;
+
+	layout->llot_pattern		= lum->lmm_pattern;
+	layout->llot_stripe_size	= lum->lmm_stripe_size;
+	layout->llot_stripe_count	= lum->lmm_stripe_count;
+	/* Don't copy lmm_stripe_offset: it contains the layout
+	 * generation number when reading attributes. */
+
+	if (lum->lmm_magic == LOV_USER_MAGIC_V3) {
+		strncpy(layout->llot_pool_name, lum->lmm_pool_name,
+			sizeof(layout->llot_pool_name));
+		memcpy(layout->llot_objects, lum->lmm_objects, objects_sz);
+	} else {
+		memcpy(layout->llot_objects, lum_v1->lmm_objects, objects_sz);
+	}
+	layout->llot_objects_validity = 1;
+
+	return layout;
+}
+
+/* Private helper to copy the data from a lustre_layout to a
+ * lov_user_md_v3. */
+static struct lov_user_md_v3 *
+__llapi_layout_to_lum(const lustre_layout_t *layout)
+{
+	struct lov_user_md_v3 *lum;
+
+	if (layout == NULL)
+		return NULL;
+
+	lum = malloc(sizeof(*lum));
+	if (lum == NULL)
+		return NULL;
+
+	lum->lmm_magic		= LOV_USER_MAGIC_V3;
+	lum->lmm_pattern	= layout->llot_pattern;
+	lum->lmm_stripe_size	= layout->llot_stripe_size;
+	lum->lmm_stripe_count	= layout->llot_stripe_count;
+	lum->lmm_stripe_offset	= layout->llot_stripe_offset;
+
+	strncpy(lum->lmm_pool_name, layout->llot_pool_name,
+		sizeof(lum->lmm_pool_name));
+
+	return lum;
+}
+
+/** Allocate and initialize a new layout. */
+lustre_layout_t *llapi_layout_alloc()
+{
+	lustre_layout_t *layout;
+
+	layout = __llapi_layout_alloc(0);
+	if (layout == NULL)
+		return layout;
+
+	/* Set defaults. */
+	layout->llot_pattern = 0; /* Only RAID0 is supported for now. */
+	layout->llot_stripe_size = 0;
+	layout->llot_stripe_count = 0;
+	layout->llot_stripe_offset = -1;
+	layout->llot_objects_validity = 0;
+	layout->llot_pool_name[0] = '\0';
+
+	return layout;
+}
+
+/**
+ *  Populate an opaque data type containing layout for the file referenced by
+ *  open file descriptor \a fd.
+ */
+lustre_layout_t *llapi_layout_lookup_byfd(int fd)
+{
+	int rc;
+	int i = 0;
+	int max_tries = 10;
+	ssize_t lum_len = 0;
+	struct lov_user_md_v3 *lum = NULL;
+	lustre_layout_t *layout = NULL;
+
+	/* Retry fgetxattr() a finite number of times on ERANGE in case
+	 * attribute size increases after we checked it. */
+	do {
+		/* Pass zero-sized buffer to guess initial buffer size. */
+		lum_len = fgetxattr(fd, XATTR_LUSTRE_LOV, lum, 0);
+		if (lum_len <= 0) {
+			rc = errno;
+			goto out;
+		}
+
+		free(lum);
+		lum = malloc(lum_len * ++i);
+		if (lum == NULL) {
+			rc = ENOMEM;
+			goto out;
+		}
+		rc = fgetxattr(fd, XATTR_LUSTRE_LOV, lum, lum_len * i);
+	} while (rc == -1 && errno == ERANGE && i < max_tries);
+
+	rc = (rc < 0) ? errno : 0;
+	if (rc == 0)
+		layout = __llapi_layout_from_lum(lum);
+out:
+	free(lum);
+	errno = rc;
+	return layout;
+}
+
+/**
+ *  Populate an opaque data type containing layout for the file at \a path.
+ */
+lustre_layout_t *llapi_layout_lookup_bypath(const char *path)
+{
+	int fd;
+	lustre_layout_t *layout = NULL;
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0 && errno == EISDIR) {
+		fd = open(path, O_DIRECTORY | O_RDONLY);
+	}
+	if (fd >= 0) {
+		layout = llapi_layout_lookup_byfd(fd);
+		close (fd);
+	}
+	return layout;
+}
+
+/** Free memory allocated for \a layout */
+void llapi_layout_free(lustre_layout_t *layout)
+{
+	if (layout != NULL)
+		free(layout);
+}
+
+/** Read stripe count of \a layout. */
+int llapi_layout_stripe_count(const lustre_layout_t *layout)
+{
+	if (layout != NULL) {
+		/* Distinguish valid -1 return value (meaning use all
+		 * available OSTs) from an error. */
+		if (layout->llot_stripe_count == -1)
+			errno = 0;
+		return layout->llot_stripe_count;
+	}
+	errno = EINVAL;
+	return -1;
+}
+
+/** Modify stripe count of \a layout. */
+int llapi_layout_stripe_count_set(lustre_layout_t *layout, int stripe_count)
+{
+	if (layout == NULL || llapi_stripe_count_validity(stripe_count) != 0) {
+		errno = EINVAL;
+		return -1;
+	}
+	layout->llot_stripe_count = stripe_count;
+	return 0;
+}
+
+/** Read the size of each stripe in \a layout. */
+unsigned long long llapi_layout_stripe_size(const lustre_layout_t *layout)
+{
+	if (layout != NULL)
+		return layout->llot_stripe_size;
+	errno = EINVAL;
+	return -1;
+}
+
+/** Modify the size of each stripe in \a layout. */
+int llapi_layout_stripe_size_set(lustre_layout_t *layout,
+				 unsigned long long stripe_size)
+{
+	if (layout == NULL || llapi_stripe_size_validity(stripe_size) != 0 ||
+	    llapi_stripe_size_excess(stripe_size) != 0) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	layout->llot_stripe_size = stripe_size;
+	return 0;
+}
+
+/** Read stripe pattern of \a layout. */
+int llapi_layout_pattern(const lustre_layout_t *layout)
+{
+	if (layout != NULL)
+		return layout->llot_pattern;
+	errno = EINVAL;
+	return -1;
+}
+
+/** Modify stripe count of \a layout. */
+int llapi_layout_pattern_set(lustre_layout_t *layout, int pattern)
+{
+	if (layout == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	if (pattern != 0) {
+		errno = EOPNOTSUPP;
+		return -1;
+	}
+	layout->llot_pattern = pattern;
+	return 0;
+}
+
+
+/* Set the OST index for the specified file stripe.
+ * NB: this only works for stripe_number=0 today. */
+int llapi_layout_ost_index_set(lustre_layout_t *layout, int stripe_number,
+			       int ost_index)
+{
+	if (layout == NULL || llapi_stripe_offset_validity(ost_index) != 0) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	if (stripe_number != 0) {
+		errno = EOPNOTSUPP;
+		return -1;
+	}
+
+	layout->llot_stripe_offset = ost_index;
+	return 0;
+}
+
+/** Return the OST idex associated with stripe \a n. */
+int llapi_layout_ost_index(const lustre_layout_t *layout, int n)
+{
+	if (layout == NULL || n >= layout->llot_stripe_count ||
+	    layout->llot_objects_validity == 0) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	return layout->llot_objects[n].l_ost_idx;
+}
+
+/** Return the object identifier associated with stripe \a n. */
+int llapi_layout_obj_id(const lustre_layout_t *layout, int n)
+{
+	if (layout == NULL || n >= layout->llot_stripe_count ||
+	    layout->llot_objects_validity == 0) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	return layout->llot_objects[n].l_object_id;
+}
+
+/* Return the pool of OSTs from which file objects will be allocated */
+const char *llapi_layout_pool_name(const lustre_layout_t *layout)
+{
+	if (layout == NULL) {
+		errno = EINVAL;
+		return NULL;
+	}
+	return layout->llot_pool_name;
+}
+
+/* Set the pool of OSTs from which file objects will be allocated */
+int llapi_layout_pool_name_set(lustre_layout_t *layout, const char *pool_name)
+{
+	if (layout == NULL || pool_name == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	strncpy(layout->llot_pool_name, pool_name,
+		sizeof(layout->llot_pool_name));
+	return 0;
+}
+
+/* Create a file with the specified \a layout and return an open file
+ * descriptor.  Return -1 on failure with errno set to an appropriate
+ * error code. */
+int llapi_layout_file_create(const lustre_layout_t *layout, char *path,
+			     int mode, int flags)
+{
+	int fd;
+	struct lov_user_md_v3 *lum;
+
+	if (layout == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	fd = open(path, flags | O_LOV_DELAY_CREATE | O_CREAT | O_EXCL, mode);
+
+	if (fd < 0)
+		return -1;
+
+	lum = __llapi_layout_to_lum(layout);
+	if (lum == NULL) {
+		errno = ENOMEM;
+		close(fd);
+		fd = -1;
+	}
+
+	if (fd != -1) {
+		if (fsetxattr(fd, XATTR_LUSTRE_LOV, (void *)lum, sizeof(*lum),
+			      XATTR_CREATE) < 0)  {
+			close(fd);
+			fd = -1;
+		}
+	}
+	return fd;
 }
