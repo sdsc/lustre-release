@@ -24,6 +24,7 @@
 /ll_getstripe_info
 /ll_sparseness_verify
 /ll_sparseness_write
+/llapi_layout_test
 /llverdev
 /llverfs
 /logs
