@@ -2290,9 +2290,10 @@ static void osc_ap_completion(struct client_obd *cli, struct obdo *oa,
 
 static int brw_interpret(struct ptlrpc_request *request, void *data, int rc)
 {
-        struct osc_brw_async_args *aa = data;
-        struct client_obd *cli;
-        ENTRY;
+	struct osc_brw_async_args *aa = data;
+	struct client_obd *cli;
+	int index = 0;
+	ENTRY;
 
         rc = osc_brw_fini_request(request, rc);
         CDEBUG(D_INODE, "request %p aa %p rc %d\n", request, aa, rc);
@@ -2342,13 +2343,23 @@ static int brw_interpret(struct ptlrpc_request *request, void *data, int rc)
                 else
                         cli->cl_r_in_flight--;
 
-                /* the caller may re-use the oap after the completion call so
-                 * we need to clean it up a little */
-                list_for_each_entry_safe(oap, tmp, &aa->aa_oaps, oap_rpc_item) {
-                        list_del_init(&oap->oap_rpc_item);
-                        osc_ap_completion(cli, aa->aa_oa, oap, 1, rc);
-                }
-                OBDO_FREE(aa->aa_oa);
+		/* the caller may re-use the oap after the completion call so
+		 * we need to clean it up a little */
+		LASSERT(!(aa->aa_oa->o_valid & OBD_MD_FLHANDLE));
+		list_for_each_entry_safe(oap, tmp, &aa->aa_oaps, oap_rpc_item) {
+			list_del_init(&oap->oap_rpc_item);
+
+			aa->aa_oa->o_flags &= ~OBD_FL_HAVE_LOCK;
+			osc_ap_completion(cli, aa->aa_oa, oap, 1, rc);
+			if (aa->aa_oa->o_flags & OBD_FL_HAVE_LOCK) {
+				struct brw_page *pga = aa->aa_ppga[index++];
+
+				LASSERT((index <= aa->aa_page_count) && pga);
+				pga->flag |= ASYNC_LOCK_HELD;
+				pga->handle =  aa->aa_oa->o_handle;
+			}
+		}
+		OBDO_FREE(aa->aa_oa);
         } else { /* from async_internal() */
                 obd_count i;
                 for (i = 0; i < aa->aa_page_count; i++)
@@ -2367,9 +2378,17 @@ static int brw_interpret(struct ptlrpc_request *request, void *data, int rc)
         osc_check_rpcs(cli);
         client_obd_list_unlock(&cli->cl_loi_list_lock);
 
-        osc_release_ppga(aa->aa_ppga, aa->aa_page_count);
+	if (index > 0) {
+		obd_count i;
+		for (i = 0; i < index; i++) {
+			LASSERT(aa->aa_ppga[i]->flag & ASYNC_LOCK_HELD);
+			ldlm_lock_decref(&aa->aa_ppga[i]->handle, LCK_PR);
+		}
+	}
 
-        RETURN(rc);
+	osc_release_ppga(aa->aa_ppga, aa->aa_page_count);
+
+	RETURN(rc);
 }
 
 static struct ptlrpc_request *osc_build_req(struct client_obd *cli,
