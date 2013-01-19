@@ -881,7 +881,6 @@ struct ioc_data_version {
 
 #define dot_lustre_name ".lustre"
 
-
 /********* HSM **********/
 
 /** HSM per-file state
