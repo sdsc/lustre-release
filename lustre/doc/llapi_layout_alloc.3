@@ -1,0 +1,51 @@
+.TH llapi_layout_alloc 3 "2013 Oct 31" "Lustre User API"
+.SH NAME
+llapi_layout_alloc, llapi_layout_free \- allocate and destroy
+.B llapi_layout_t
+objects.
+.SH SYNOPSIS
+.nf
+.B #include <lustre/lustreapi.h>
+.sp
+.BI "llapi_layout_t *llapi_layout_alloc(void);"
+.sp
+.BI "void llapi_layout_free(llapi_layout_t *"layout );
+.sp
+.fi
+.SH DESCRIPTION
+.LP
+.B llapi_layout_alloc()
+returns a pointer to a newly-allocated
+.BR llapi_layout_t .
+The pointer should be freed with
+.B llapi_layout_free()
+when it is no longer needed.  This pointer can be used as a handle to set layout
+attributes and create a file with
+.BR llapi_layout_file_create() .
+The returned
+.B llapi_layout_t
+object is initialized with default attribute values that will effect the
+standard Lustre behavior for assigning layouts to newly-created files.
+.sp
+.B llapi_layout_free()
+frees the memory associated with
+.IR layout .
+.SH RETURN VALUES
+.LP
+.B llapi_layout_alloc()
+returns a valid pointer on success or
+.B NULL
+on failure with
+.B errno
+set to an approporiate error code.
+.sp
+.B llapi_layout_free()
+returns no value.
+.SH ERRORS
+.TP 15
+.SM ENOMEM
+Insufficient storage space is available.
+.SH "SEE ALSO"
+.BR llapi_layout_file_open (3),
+.BR llapi_layout (7),
+.BR liblustreapi (7)
