@@ -66,6 +66,7 @@ struct osc_async_page {
         void                    *oap_caller_data;
         struct list_head         oap_page_list;
         struct ldlm_lock        *oap_ldlm_lock;
+	struct lustre_handle	 oap_handle;
         spinlock_t               oap_lock;
 };
 

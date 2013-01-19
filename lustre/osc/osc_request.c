@@ -2290,9 +2290,11 @@ static void osc_ap_completion(struct client_obd *cli, struct obdo *oa,
 
 static int brw_interpret(struct ptlrpc_request *request, void *data, int rc)
 {
-        struct osc_brw_async_args *aa = data;
-        struct client_obd *cli;
-        ENTRY;
+	struct osc_brw_async_args *aa = data;
+	struct client_obd *cli;
+	struct osc_async_page *oap, *tmp;
+	CFS_LIST_HEAD(lock_list);
+	ENTRY;
 
         rc = osc_brw_fini_request(request, rc);
         CDEBUG(D_INODE, "request %p aa %p rc %d\n", request, aa, rc);
@@ -2332,8 +2334,6 @@ static int brw_interpret(struct ptlrpc_request *request, void *data, int rc)
         cli = aa->aa_cli;
         client_obd_list_lock(&cli->cl_loi_list_lock);
         if (!list_empty(&aa->aa_oaps)) { /* from osc_send_oap_rpc() */
-                struct osc_async_page *oap, *tmp;
-
                 /* We need to decrement before osc_ap_completion->osc_wake_cache_waiters
                  * is called so we know whether to go to sync BRWs or wait for more
                  * RPCs to complete */
@@ -2342,13 +2342,20 @@ static int brw_interpret(struct ptlrpc_request *request, void *data, int rc)
                 else
                         cli->cl_r_in_flight--;
 
-                /* the caller may re-use the oap after the completion call so
-                 * we need to clean it up a little */
-                list_for_each_entry_safe(oap, tmp, &aa->aa_oaps, oap_rpc_item) {
-                        list_del_init(&oap->oap_rpc_item);
-                        osc_ap_completion(cli, aa->aa_oa, oap, 1, rc);
-                }
-                OBDO_FREE(aa->aa_oa);
+		/* the caller may re-use the oap after the completion call so
+		 * we need to clean it up a little */
+		LASSERT(!(aa->aa_oa->o_valid & OBD_MD_FLHANDLE));
+		list_for_each_entry_safe(oap, tmp, &aa->aa_oaps, oap_rpc_item) {
+			list_del_init(&oap->oap_rpc_item);
+
+			aa->aa_oa->o_flags &= ~OBD_FL_HAVE_LOCK;
+			osc_ap_completion(cli, aa->aa_oa, oap, 1, rc);
+			if (aa->aa_oa->o_flags & OBD_FL_HAVE_LOCK) {
+				oap->oap_handle = aa->aa_oa->o_handle;
+				list_add(&oap->oap_rpc_item, &lock_list);
+			}
+		}
+		OBDO_FREE(aa->aa_oa);
         } else { /* from async_internal() */
                 obd_count i;
                 for (i = 0; i < aa->aa_page_count; i++)
@@ -2368,6 +2375,11 @@ static int brw_interpret(struct ptlrpc_request *request, void *data, int rc)
         client_obd_list_unlock(&cli->cl_loi_list_lock);
 
         osc_release_ppga(aa->aa_ppga, aa->aa_page_count);
+
+	if (!list_empty(&lock_list)) {
+		list_for_each_entry_safe(oap, tmp, &lock_list, oap_rpc_item)
+                	ldlm_lock_decref(&oap->oap_handle, LCK_PR);
+	}
 
         RETURN(rc);
 }
