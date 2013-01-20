@@ -55,6 +55,10 @@
 #include <stdarg.h>
 #include <mntent.h>
 
+#ifdef HAVE_SELINUX
+#include <selinux/selinux.h>
+#endif
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/mount.h>
