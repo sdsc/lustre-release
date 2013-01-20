@@ -3742,6 +3742,46 @@ test_71e() {
 }
 run_test 71e "start OST0, MDT1, OST1, MDT0"
 
+test_72() { #LU-2634
+	#format MDT with extents enabled
+	local mdsdev=$(mdsdevname 1)
+	local ostdev=$(ostdevname 1)
+	add ${SINGLEMDS} \
+		$(mkfs_opts ${SINGLEMDS} ${mdsdev}) --reformat $mdsdev ||
+			error "start mds failed"
+	$TUNE2FS -O extents $mdsdev
+	add ost1 $(mkfs_opts ost1 ${ostdev}) --reformat ${ostdev} ||
+			error "start ost failed"
+	start_mgsmds || error "MDT start fail"
+	start_ost || error "OST0 start fail"
+	mount_client $MOUNT || error "Unable to mount client"
+
+	#create some short symlinks
+	local fn=3
+	mkdir -p $DIR/$tdir
+	createmany -o $DIR/$tdir/$tfile-%d $fn || error "create files failed"
+	echo "create $fn short symlinks"
+	for i in $(seq -w 1 $fn); do
+		ln -s $DIR/$tdir/$tfile-$i $MOUNT/$tfile-$i
+	done
+	ls -al $MOUNT
+
+	#umount
+	umount_client $MOUNT || error "umount client failed"
+	stop_mds || error "stop mds failed"
+	stop_ost || error "stop ost failed"
+
+	#run e2fsck
+	local cmd="$E2FSCK -fnvd $mdsdev"
+	local rc=0
+	do_facet ${SINGLEMDS} $cmd || rc=$?
+	echo "$cmd return $rc"
+	[ $rc -gt 0 ] && error "e2fsck $rc errors found"
+
+	return $rc
+}
+run_test 72 "test fast symlink with extents flag enabled"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi

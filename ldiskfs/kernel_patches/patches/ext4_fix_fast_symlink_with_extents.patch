@@ -1,0 +1,76 @@
+Index: linux-stage/fs/ext4/ext4.h
+===================================================================
+--- linux-stage.orig/fs/ext4/ext4.h
++++ linux-stage/fs/ext4/ext4.h
+@@ -1881,6 +1881,7 @@ struct buffer_head *ext4_bread(handle_t 
+ 						ext4_lblk_t, int, int *);
+ int ext4_get_block(struct inode *inode, sector_t iblock,
+ 				struct buffer_head *bh_result, int create);
++int ext4_inode_is_fast_symlink(struct inode *inode);
+ 
+ extern struct inode *ext4_iget(struct super_block *, unsigned long);
+ extern int  ext4_write_inode(struct inode *, struct writeback_control *);
+Index: linux-stage/fs/ext4/ialloc.c
+===================================================================
+--- linux-stage.orig/fs/ext4/ialloc.c
++++ linux-stage/fs/ext4/ialloc.c
+@@ -1066,7 +1066,12 @@ got:
+ 	if (test_opt(sb, EXTENTS)) {
+ 		/* set extent flag only for directory, file and normal symlink*/
+ 		if (S_ISDIR(mode) || S_ISREG(mode) || S_ISLNK(mode)) {
+-			ext4_set_inode_flag(inode, EXT4_INODE_EXTENTS);
++			/*
++			 * LU-2634, to avoid e2fsck error, don't set extent flag
++			 * if an inode is a fast symlink.
++			 */
++			if (!ext4_inode_is_fast_symlink(inode))
++				ext4_set_inode_flag(inode, EXT4_INODE_EXTENTS);
+ 			ext4_ext_tree_init(handle, inode);
+ 		}
+ 	}
+Index: linux-stage/fs/ext4/inode.c
+===================================================================
+--- linux-stage.orig/fs/ext4/inode.c
++++ linux-stage/fs/ext4/inode.c
+@@ -63,7 +63,7 @@ static int ext4_writepage(struct page *p
+ /*
+  * Test whether an inode is a fast symlink.
+  */
+-static int ext4_inode_is_fast_symlink(struct inode *inode)
++int ext4_inode_is_fast_symlink(struct inode *inode)
+ {
+ 	int ea_blocks = EXT4_I(inode)->i_file_acl ?
+ 		(inode->i_sb->s_blocksize >> 9) : 0;
+@@ -5250,6 +5250,32 @@ struct inode *ext4_iget(struct super_blo
+ 			inode->i_op = &ext4_fast_symlink_inode_operations;
+ 			nd_terminate_link(ei->i_data, inode->i_size,
+ 				sizeof(ei->i_data) - 1);
++			/*
++			 * LU-2634, to avoid e2fsck error, if an inode is a
++			 * fast symlink with extent flag, we will clear that
++			 * flag and write back to disk.
++			 */
++			if (ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS)) {
++				handle_t *handle;
++				int error = 0;
++
++				/* Clear EXT4_INODE_EXTENTS flag */
++				ext4_clear_inode_flag(inode,
++						      EXT4_INODE_EXTENTS);
++				/* Write back to disk */
++				handle = ext4_journal_start(inode, 1);
++				if (IS_ERR(handle)) {
++					error = PTR_ERR(handle);
++				} else {
++					error = ext4_mark_inode_dirty(handle,
++							 	      inode);
++					ext4_journal_stop(handle);
++				}
++				if (error)
++					printk(KERN_WARNING
++					       "Fail to clear ino=%lu extents "
++					       "flag\n", ino);
++			}
+ 		} else {
+ 			inode->i_op = &ext4_symlink_inode_operations;
+ 			ext4_set_aops(inode);
