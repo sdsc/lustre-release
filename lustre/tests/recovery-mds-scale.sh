@@ -35,7 +35,7 @@ fi
 ERRORS_OK=""    # No application failures should occur during this test.
 
 if [ "$SLOW" = "no" ]; then
-    DURATION=${DURATION:-$((60 * 30))}
+    DURATION=${DURATION:-$((60 * 60 * 12))}
 else
     DURATION=${DURATION:-$((60 * 60 * 24))}
 fi
