@@ -409,20 +409,25 @@ test_19a() {
 	local BEFORE=`date +%s`
 	local EVICT
 
-	mount_client $DIR2
+	mount_client $DIR2 || error "failed to mount $DIR2"
 
-	do_facet client mcreate $DIR/$tfile        || return 1
-	drop_ldlm_cancel "chmod 0777 $DIR2"
+	do_facet client mcreate $DIR/$tfile ||
+		error "failed to mcreate $DIR/$tfile: $?"
+	drop_ldlm_cancel "chmod 0777 $DIR2" ||
+		error "failed to chmod $DIR2/$tfile: $?"
 
-	umount_client $DIR2
-	do_facet client "munlink $DIR/$tfile"
+	umount_client $DIR2 || error "failed to umount $DIR: $?"
+	do_facet client "munlink $DIR/$tfile" ||
+		error "failed to unlink $DIR/$tfile: $?"
 
 	# let the client reconnect
 	client_reconnect
 	EVICT=$(do_facet client $LCTL get_param mdc.$FSNAME-MDT*.state | \
 	    awk -F"[ [,]" '/EVICTED]$/ { if (mx<$4) {mx=$4;} } END { print mx }')
 
-	[ ! -z "$EVICT" ] && [[ $EVICT -gt $BEFORE ]] || error "no eviction"
+	[ ! -z "$EVICT" ] && [[ $EVICT -gt $BEFORE ]] ||
+		(do_facet client $LCTL get_param mdc.$FSNAME-MDT*.state;
+		    error "no eviction: $EVICT before:$BEFORE")
 }
 run_test 19a "test expired_lock_main on mds (2867)"
 
@@ -430,19 +435,25 @@ test_19b() {
 	local BEFORE=`date +%s`
 	local EVICT
 
-	mount_client $DIR2
+	mount_client $DIR2 || error "failed to mount $DIR2: $?"
 
-	do_facet client $MULTIOP $DIR/$tfile Ow  || return 1
-	drop_ldlm_cancel $MULTIOP $DIR2/$tfile Ow
-	umount_client $DIR2
-	do_facet client munlink $DIR/$tfile
+	do_facet client $MULTIOP $DIR/$tfile Ow ||
+		error "failed to run multiop: $?"
+	drop_ldlm_cancel $MULTIOP $DIR2/$tfile Ow ||
+		error "failed to ldlm_cancel: $?"
+
+	umount_client $DIR2 || error "failed to unmount $DIR2: $?"
+	do_facet client munlink $DIR/$tfile ||
+		error "failed to unlink $DIR/$tfile: $?"
 
 	# let the client reconnect
 	client_reconnect
 	EVICT=$(do_facet client $LCTL get_param osc.$FSNAME-OST*.state | \
 	    awk -F"[ [,]" '/EVICTED]$/ { if (mx<$4) {mx=$4;} } END { print mx }')
 
-	[ ! -z "$EVICT" ] && [[ $EVICT -gt $BEFORE ]] || error "no eviction"
+	[ ! -z "$EVICT" ] && [[ $EVICT -gt $BEFORE ]] ||
+		(do_facet client $LCTL get_param osc.$FSNAME-OST*.state;
+		    error "no eviction: $EVICT before:$BEFORE")
 }
 run_test 19b "test expired_lock_main on ost (2867)"
 
