@@ -3524,10 +3524,37 @@ generate_db() {
 
 run_lfsck() {
     local cmd="$LFSCK_BIN -c -l --mdsdb $MDSDB --ostdb $OSTDB_LIST $MOUNT"
-    echo $cmd
     local rc=0
-    eval $cmd || rc=$?
-    [ $rc -le $FSCK_MAX_ERR ] || \
+
+    echo $cmd
+    if which $LFSCK_BIN > /dev/null 2>&1; then
+        eval $cmd || rc=$?
+    else #LU-2571
+        local device=$MGSNID:/$FSNAME
+        local mounted=true
+
+        echo "lfsck not found on client, let's try MDS node"
+
+        #check if lustre is already mounted
+        do_facet $SINGLEMDS "mount | grep "$MOUNT" ||
+                             "No $MOUNT found" > /dev/null 2>&1" ||
+            mounted=false
+        if ! ${mounted}; then
+            echo "Mount lustre on $SINGLEMDS"
+            do_facet $SINGLEMDS "mount -t lustre $OPTIONS $device $MOUNT" ||
+                error "Mount lustre on $SINGLEMDS failed"
+        fi
+        #run lfsck on MDS
+        do_facet $SINGLEMDS $cmd || rc=$?
+        #umount if necessary
+        if ! ${mounted}; then
+            echo "Umount lustre on $SINGLEMDS"
+            do_facet $SINGLEMDS "umount $MOUNT" ||
+                error "Umount lustre on $SINGLEMDS failed"
+        fi
+    fi
+
+    [ $rc -le $FSCK_MAX_ERR ] ||
         error "$cmd returned $rc, should be <= $FSCK_MAX_ERR"
     echo "lfsck finished with rc=$rc"
 
