@@ -345,7 +345,24 @@ void lut_cb_last_committed(struct lu_target *lut, __u64 transno,
 
         LASSERT(exp);
         if (transno > exp->exp_last_committed) {
-                exp->exp_last_committed = transno;
+                LASSERTF(transno <= lut->lut_last_transno,
+                         "transno:"LPU64", last_transno:"LPU64"\n",
+                         transno, lut->lut_last_transno);
+
+                /* If it's the last real transaction, it'll be safe to bump
+                 * the last_committed to current last_transno, because we
+                 * know for sure that all the transactions greater than the
+                 * last_uncommitted are fake transactions. */
+                if (lut->lut_last_uncommitted == transno) {
+                        exp->exp_last_committed = lut->lut_last_transno;
+                        lut->lut_last_uncommitted = 0;
+                } else {
+                        LASSERTF(transno < lut->lut_last_uncommitted ||
+                                 lut->lut_last_uncommitted == 0,
+                                 "uncommitted:"LPU64", transno:"LPU64"\n",
+                                 lut->lut_last_uncommitted, transno);
+                        exp->exp_last_committed = transno;
+                }
                 cfs_spin_unlock(&lut->lut_translock);
                 ptlrpc_commit_replies(exp);
         } else {

@@ -438,6 +438,7 @@ static int mdt_server_data_init(const struct lu_env *env,
 
         cfs_spin_lock(&mdt->mdt_lut.lut_translock);
         mdt->mdt_lut.lut_last_transno = lsd->lsd_last_transno;
+        mdt->mdt_lut.lut_last_uncommitted = 0;
         cfs_spin_unlock(&mdt->mdt_lut.lut_translock);
 
         CDEBUG(D_INODE, "========BEGIN DUMPING LAST_RCVD========\n");
@@ -879,10 +880,16 @@ static int mdt_txn_stop_cb(const struct lu_env *env,
                 }
         } else if (mti->mti_transno == 0) {
                 mti->mti_transno = ++ mdt->mdt_lut.lut_last_transno;
+                LASSERTF(mdt->mdt_lut.lut_last_uncommitted < mti->mti_transno,
+                         "last_uncommitted:"LPU64", transo:"LPU64"\n",
+                         mdt->mdt_lut.lut_last_uncommitted, mti->mti_transno);
+                mdt->mdt_lut.lut_last_uncommitted = mti->mti_transno;
         } else {
                 /* should be replay */
-                if (mti->mti_transno > mdt->mdt_lut.lut_last_transno)
+                if (mti->mti_transno > mdt->mdt_lut.lut_last_transno) {
                         mdt->mdt_lut.lut_last_transno = mti->mti_transno;
+                        mdt->mdt_lut.lut_last_uncommitted = mti->mti_transno;
+                }
         }
         cfs_spin_unlock(&mdt->mdt_lut.lut_translock);
         /* sometimes the reply message has not been successfully packed */

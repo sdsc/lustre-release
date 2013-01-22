@@ -566,10 +566,18 @@ static void mdt_empty_transno(struct mdt_thread_info* info)
         cfs_spin_lock(&mdt->mdt_lut.lut_translock);
         if (info->mti_transno == 0) {
                 info->mti_transno = ++ mdt->mdt_lut.lut_last_transno;
+                /* If there isn't any uncommitted real transaction, then we
+                 * can safely bump the last_committed to this fake one */
+                if (mdt->mdt_lut.lut_last_uncommitted == 0)
+                        req->rq_export->exp_last_committed = info->mti_transno;
         } else {
                 /* should be replay */
-                if (info->mti_transno > mdt->mdt_lut.lut_last_transno)
+                if (info->mti_transno > mdt->mdt_lut.lut_last_transno) {
                         mdt->mdt_lut.lut_last_transno = info->mti_transno;
+                        if (mdt->mdt_lut.lut_last_uncommitted == 0)
+                                req->rq_export->exp_last_committed =
+                                        info->mti_transno;
+                }
         }
         cfs_spin_unlock(&mdt->mdt_lut.lut_translock);
 

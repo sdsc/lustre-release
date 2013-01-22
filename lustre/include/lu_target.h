@@ -51,7 +51,9 @@ struct lu_target {
         struct lr_server_data    lut_lsd;
         /** Server last transaction number */
         __u64                    lut_last_transno;
-        /** Lock protecting last transaction number */
+        /** Server last uncommitted transaction */
+        __u64                    lut_last_uncommitted;
+        /** Lock protecting above transaction numbers */
         cfs_spinlock_t           lut_translock;
         /** Lock protecting client bitmap */
         cfs_spinlock_t           lut_client_bitmap_lock;
