@@ -552,16 +552,39 @@ static void mdt_write_allow(struct mdt_object *o)
         EXIT;
 }
 
+/* Fake transaction (read-only open, close) doesn't update disk and
+ * the last_committed isn't bumped as well, so client have to retain
+ * the open request even if close is done. When a system is running
+ * many read-only open, close but without any update operation,
+ * client memory could be exhausted by the retained requests.
+ *
+ * We trigger a disk update every MAX_FAKE_TRANS_CNT fake trans to
+ * help client release the open request more promptly.
+ */
+#define MAX_FAKE_TRANS_CNT    1000
+
 /* there can be no real transaction so prepare the fake one */
 static void mdt_empty_transno(struct mdt_thread_info* info)
 {
         struct mdt_device *mdt = info->mti_mdt;
         struct ptlrpc_request *req = mdt_info_req(info);
-
+        const struct lu_env *env = info->mti_env;
+        struct thandle *th;
         ENTRY;
+
         /* transaction has occurred already */
         if (lustre_msg_get_transno(req->rq_repmsg) != 0)
                 RETURN_EXIT;
+
+        if (info->mti_transno == 0 && mdt->mdt_lut.lut_last_transno >
+            mdt->mdt_lut.lut_obd->obd_last_committed + MAX_FAKE_TRANS_CNT) {
+                mdt_trans_credit_init(env, mdt, MDT_TXN_LAST_RCVD_WRITE_OP);
+                th = mdt_trans_start(env, mdt);
+                if (!IS_ERR(th)) {
+                        mdt_trans_stop(env, mdt, th);
+                        RETURN_EXIT;
+                }
+        }
 
         cfs_spin_lock(&mdt->mdt_lut.lut_translock);
         if (info->mti_transno == 0) {
