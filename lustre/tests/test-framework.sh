@@ -3522,17 +3522,51 @@ generate_db() {
     done
 }
 
-run_lfsck() {
-    local cmd="$LFSCK_BIN -c -l --mdsdb $MDSDB --ostdb $OSTDB_LIST $MOUNT"
-    echo $cmd
-    local rc=0
-    eval $cmd || rc=$?
-    [ $rc -le $FSCK_MAX_ERR ] || \
-        error "$cmd returned $rc, should be <= $FSCK_MAX_ERR"
-    echo "lfsck finished with rc=$rc"
+# Run lfsck on server node if lfsck can't be found on client (LU-2571)
+run_lfsck_remote() {
+	local cmd="$LFSCK_BIN -c -l --mdsdb $MDSDB --ostdb $OSTDB_LIST $MOUNT"
+	local device=$MGSNID:/$FSNAME
+	local mounted=true
+	local facet=$1
+	local rc=0
 
-    rm -rvf $MDSDB* $OSTDB* || true
-    return 0
+	#Check if lfsck can be found
+	echo "Check lfsck on $1"
+	do_facet $facet "which $LFSCK_BIN > /dev/null" || return 127
+	#Check if lustre is already mounted
+	do_facet $facet "mount | grep "$MOUNT" ||
+			 "No $MOUNT found" > /dev/null 2>&1" ||
+		mounted=false
+	if ! ${mounted}; then
+		echo "Mount lustre on $facet"
+		do_facet $facet "mount -t lustre $OPTIONS $device $MOUNT" ||
+			error "Mount lustre on $facet failed"
+	fi
+	#Run lfsck
+	echo $cmd
+	do_facet $facet $cmd || rc=$?
+	#Umount if necessary
+	if ! ${mounted}; then
+		echo "Umount lustre on $facet"
+		do_facet $facet "umount $MOUNT" ||
+			error "Umount lustre on $facet failed"
+	fi
+
+	[ $rc -le $FSCK_MAX_ERR ] ||
+		error "$cmd returned $rc, should be <= $FSCK_MAX_ERR"
+	echo "lfsck finished with rc=$rc"
+
+	return 0
+}
+
+run_lfsck() {
+	local rc=0
+
+	run_lfsck_remote "client" || rc=$i
+	[ $rc -gt 0 ] && run_lfsck_remote $SINGLEMDS
+
+	rm -rvf $MDSDB* $OSTDB* || true
+	return 0
 }
 
 check_and_cleanup_lustre() {
