@@ -434,7 +434,8 @@ static int get_param_obdvar(const char *fsname, const char *file_path,
                         tmp += strlen(obd_type) + 1;
                         if (strcmp(tmp, fs))
                                 continue;
-                        strcpy(dev, tmp);
+			strlcpy(dev, tmp, 2);
+			strcpy(dev, tmp);
                         tmp = strchr(dev, ' ');
                         *tmp = '\0';
                         break;
