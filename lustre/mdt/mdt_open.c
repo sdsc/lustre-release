@@ -578,7 +578,10 @@ static void mdt_empty_transno(struct mdt_thread_info *info, int rc)
 			RETURN_EXIT;
 		}
 	} else if (info->mti_transno == 0) {
-                info->mti_transno = ++ mdt->mdt_lut.lut_last_transno;
+		/* always set the last_committed as the transno of read-only
+		 * open & close, so the retained open requests on client can
+		 * be freed promptly. LU-2613. */
+		info->mti_transno = req->rq_export->exp_last_committed;
         } else {
                 /* should be replay */
                 if (info->mti_transno > mdt->mdt_lut.lut_last_transno)

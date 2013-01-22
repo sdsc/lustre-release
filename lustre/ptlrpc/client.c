@@ -2499,12 +2499,8 @@ void ptlrpc_retain_replayable_request(struct ptlrpc_request *req,
                         cfs_list_entry(tmp, struct ptlrpc_request,
                                        rq_replay_list);
 
-                /* We may have duplicate transnos if we create and then
-                 * open a file, or for closes retained if to match creating
-                 * opens, so use req->rq_xid as a secondary key.
-                 * (See bugs 684, 685, and 428.)
-                 * XXX no longer needed, but all opens need transnos!
-                 */
+                /* We may have duplicate transnos for the close &
+                 * read-only open requests. LU-2613 */
                 if (iter->rq_transno > req->rq_transno)
                         continue;
 
