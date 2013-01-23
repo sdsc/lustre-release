@@ -1590,7 +1590,18 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
 		rc = mdo_declare_ref_add(env, p, handle);
 		if (rc)
 			GOTO(out, rc);
-        }
+		rc = mdo_declare_ref_del(env, p, handle);
+		if (rc)
+			GOTO(out, rc);
+	 }
+
+	rc = mdo_declare_ref_del(env, p, handle);
+	if (rc)
+		GOTO(out, rc);
+
+	rc = mdo_declare_destroy(env, p, handle);
+	if (rc)
+		GOTO(out, rc);
 
 	rc = mdd_declare_object_initialize(env, c, attr, handle);
         if (rc)
