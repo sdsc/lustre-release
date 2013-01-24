@@ -1293,6 +1293,17 @@ struct lu_ucred *lu_ucred(const struct lu_env *env);
 struct lu_ucred *lu_ucred_check(const struct lu_env *env);
 struct lu_ucred *lu_ucred_assert(const struct lu_env *env);
 
+static inline
+int lustre_posix_computed_mode(const struct lu_env *env, mode_t mode)
+{
+	struct lu_ucred *uc = lu_ucred(env);
+
+	if (!S_ISLNK(mode) && uc != NULL)
+		mode &= ~(uc->uc_umask & S_IRWXUGO);
+
+	return mode;
+}
+
 /**
  * Output site statistical counters into a buffer. Suitable for
  * ll_rd_*()-style functions.

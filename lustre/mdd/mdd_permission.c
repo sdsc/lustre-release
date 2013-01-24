@@ -206,7 +206,7 @@ int __mdd_acl_init(const struct lu_env *env, struct mdd_object *obj,
                 RETURN(rc);
 
 	/* part of ACL went into i_mode */
-	if (*mode != old) {
+	if (*mode != old || *mode != lustre_posix_computed_mode(env, old)) {
 		struct mdd_thread_info	*info = mdd_env_info(env);
 		struct lu_attr		*pattr = &info->mti_pattr;
 
