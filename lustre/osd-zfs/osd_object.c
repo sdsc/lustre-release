@@ -1123,7 +1123,7 @@ int __osd_attr_init(const struct lu_env *env, udmu_objset_t *uos,
 	osa->atime[0] = la->la_atime;
 	osa->ctime[0] = la->la_ctime;
 	osa->mtime[0] = la->la_mtime;
-	osa->mode = la->la_mode;
+	osa->mode = lustre_posix_computed_mode(env, la->la_mode);
 	osa->uid = la->la_uid;
 	osa->gid = la->la_gid;
 	osa->rdev = la->la_rdev;
