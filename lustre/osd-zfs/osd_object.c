@@ -968,6 +968,7 @@ static int osd_attr_set(const struct lu_env *env, struct dt_object *dt,
 		obj->oo_attr.la_mode = (obj->oo_attr.la_mode & S_IFMT) |
 			(la->la_mode & ~S_IFMT);
 		osa->mode = obj->oo_attr.la_mode;
+		CDEBUG(D_INODE, "Setting mode %llo\n", osa->mode);
 		SA_ADD_BULK_ATTR(bulk, cnt, SA_ZPL_MODE(uos), NULL,
 				 &osa->mode, 8);
 	}
@@ -1122,7 +1123,7 @@ int __osd_attr_init(const struct lu_env *env, udmu_objset_t *uos,
 	osa->atime[0] = la->la_atime;
 	osa->ctime[0] = la->la_ctime;
 	osa->mtime[0] = la->la_mtime;
-	osa->mode = la->la_mode;
+	osa->mode = lustre_posix_computed_mode(env, la->la_mode);
 	osa->uid = la->la_uid;
 	osa->gid = la->la_gid;
 	osa->rdev = la->la_rdev;
@@ -1150,6 +1151,7 @@ int __osd_attr_init(const struct lu_env *env, udmu_objset_t *uos,
 	 * We define attributes in the same order as SA_*_OFFSET in order to
 	 * work around the problem. See ORI-610.
 	 */
+	CDEBUG(D_INODE, "Setting mode %llo\n", osa->mode);
 	cnt = 0;
 	SA_ADD_BULK_ATTR(bulk, cnt, SA_ZPL_MODE(uos), NULL, &osa->mode, 8);
 	SA_ADD_BULK_ATTR(bulk, cnt, SA_ZPL_SIZE(uos), NULL, &osa->size, 8);
