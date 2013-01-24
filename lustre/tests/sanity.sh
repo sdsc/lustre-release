@@ -10487,6 +10487,98 @@ test_230b() {
 }
 run_test 230b "nested remote directory should be failed"
 
+test_231a()
+{
+	# For simplicity this test assumes that max_pages_per_rpc
+	# is the same across all OSCs
+	local max_pages=$($LCTL get_param -n osc.*.max_pages_per_rpc | head -1)
+
+	[ $max_pages -le 256 ] && skip "max_pages_per_rpc is 256 or less" &&
+		return
+
+	local bulk_size=$(($max_pages * 4096))
+
+	# In brw_stats, if number of pages is >= 1024, it's shown as (N/1024)K
+	if [ $max_pages -lt 1024 ]; then
+		np="$max_pages:"
+	else
+		np="$(($max_pages / 1024))K:"
+	fi
+
+	mkdir -p $DIR/$tdir
+
+	local ost_list=$($LFS osts | grep OST | awk '{print $2}' |
+			 sed -e 's/_UUID$//')
+
+	# clear the brw_stats files
+	do_nodes $(comma_list $(osts_nodes)) \
+			lctl set_param *.*.brw_stats=0 2>&1 > /dev/null
+
+	# Client writes $bulk_size - there must be 1 rpc for $max_pages.
+	dd if=/dev/zero of=$DIR/$tdir/$tfile bs=$bulk_size count=1 \
+		oflag=direct &>/dev/null || error "dd failed"
+
+	# Single brw rpc will go to one OST (we don't know which one), so the
+	# following command must be executed on all OSTs but only a single line
+	# should be returned.
+	local found=false
+	local line=$(do_nodes $(comma_list $(osts_nodes)) lctl get_param -n \
+		     *.*.brw_stats | grep $np)
+	if [[ $line =~ [^[:space:]] ]]; then
+		local nrpcs=$(echo $line | awk '{print $6}')
+		if [ $nrpcs -eq 1 ]; then
+			found=true
+			break
+		fi
+	fi
+
+	if ! $found ; then
+		error "write"
+	fi
+
+	# Drop the VM cache on the client, otherwise we will read from the
+	# client's cache.
+	cancel_lru_locks osc
+	echo 3 > /proc/sys/vm/drop_caches
+
+	# clear the brw_stats files
+	do_nodes $(comma_list $(osts_nodes)) \
+			lctl set_param *.*.brw_stats=0 2>&1 > /dev/null
+
+	# Client reads $bulk_size.
+	found=false
+	dd if=$DIR/$tdir/$tfile of=/dev/null bs=$bulk_size count=1 \
+		iflag=direct &>/dev/null || error "dd failed"
+
+	found=false
+	line=$(do_nodes $(comma_list $(osts_nodes)) lctl get_param -n \
+	       *.*.brw_stats | grep $np)
+	if [[ $line =~ [^[:space:]] ]]; then
+		local nrpcs=$(echo $line | awk '{print $2}')
+		if [ $nrpcs -eq 1 ]; then
+			found=true
+			break
+		fi
+	fi
+
+	if ! $found ; then
+		error "read"
+	fi
+}
+run_test 231a "checking that reading/writing of 4MB results in one BRW RPC"
+
+test_231b() {
+	mkdir -p $DIR/$tdir
+	local i
+	for i in {0..1023}; do
+		dd if=/dev/zero of=$DIR/$tdir/$tfile conv=notrunc \
+			seek=$((2*i)) bs=4096 count=1 &>/dev/null ||
+			error "dd failed"
+	done
+	sync
+}
+run_test 231b "must not assert on fully utilized OST request buffer"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
