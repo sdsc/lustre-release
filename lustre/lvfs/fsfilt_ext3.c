@@ -391,8 +391,13 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
                 /* not a good idea to call discard here directly,
                  * but otherwise we'd need to call it every free() */
 		ext3_mb_discard_inode_preallocations(inode);
+#ifdef EXT4_FREE_BLOCKS_METADATA
+		ext3_free_blocks(handle, inode, NULL, ext3_ext_pblock(&nex),
+				 cpu_to_le16(nex.ee_len), 0);
+#else
 		ext3_free_blocks(handle, inode, ext3_ext_pblock(&nex),
 				 cpu_to_le16(nex.ee_len), 0);
+#endif
                 goto out;
         }
 
