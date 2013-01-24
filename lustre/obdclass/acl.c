@@ -243,6 +243,8 @@ lustre_posix_acl_equiv_mode(posix_acl_xattr_entry *entry, mode_t *mode_p,
 				return -EINVAL;
 		}
 	}
+	CDEBUG(D_OTHER, "mode:%llo not_equiv:%d\n", (uint64_t)mode, not_equiv);
+
 	if (mode_p)
 		*mode_p = (*mode_p & ~S_IRWXUGO) | mode;
 	return not_equiv;
@@ -303,6 +305,7 @@ int lustre_posix_acl_create_masq(posix_acl_xattr_entry *entry, __u32 *pmode,
                 group_obj->e_perm = cpu_to_le16(ae.e_perm);
 	}
 
+	CDEBUG(D_OTHER, "mode:%llo not_equiv:%d\n", (uint64_t)mode, not_equiv);
 	*pmode = (*pmode & ~S_IRWXUGO) | mode;
         return not_equiv;
 }
