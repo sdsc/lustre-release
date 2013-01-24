@@ -425,6 +425,38 @@ ofd_commitrw_write(const struct lu_env *env, struct ofd_device *ofd,
 	if (old_rc)
 		GOTO(out, rc = old_rc);
 
+	/* do fake write, to simulate the write case for performance testing */
+	if (CFS_FAIL_CHECK_QUIET(OBD_FAIL_OST_FAKE_WRITE)) {
+		struct niobuf_local *last = &lnb[niocount - 1];
+		__u64 file_size = last->lnb_file_offset + last->len;
+		__u64 valid = la->la_valid;
+
+		la->la_valid = LA_SIZE;
+		la->la_size = 0;
+		rc = dt_attr_get(env, o, la, ofd_object_capa(env, fo));
+		if (rc < 0 && rc != -ENOENT)
+			GOTO(out, rc);
+
+		if (file_size < la->la_size)
+			file_size = la->la_size;
+
+		/* ofd_attr_set will take ofd_write_lock() */
+		ofd_read_unlock(env, fo);
+
+		/* set the new size */
+		la->la_valid = valid | LA_SIZE;
+		la->la_size = file_size;
+		rc = ofd_attr_set(env, fo, la, ff);
+		if (rc == 0) {
+			la->la_valid &= LA_ATIME | LA_MTIME | LA_CTIME;
+			/* get attr to return */
+			rc = dt_attr_get(env, o, la, ofd_object_capa(env, fo));
+		}
+
+		ofd_read_lock(env, fo);
+		GOTO(out, rc);
+	}
+
 	/*
 	 * The first write to each object must set some attributes.  It is
 	 * important to set the uid/gid before calling
