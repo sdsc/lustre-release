@@ -731,11 +731,11 @@ struct thandle {
          * this value is used in recovery */
         __s32             th_result;
 
-        /** whether we need sync commit */
-        int               th_sync:1;
+	/** whether we need sync commit */
+	unsigned int	  th_sync:1;
 
-        /* local transation, no need to inform other layers */
-        int               th_local:1;
+	/* local transation, no need to inform other layers */
+	unsigned int	  th_local:1;
 };
 
 /**
