@@ -47,7 +47,6 @@
  * Functions to get network interfaces info
  */
 
-int libcfs_sock_ioctl(int cmd, unsigned long arg);
 int libcfs_ipif_query (char *name, int *up, __u32 *ip);
 void libcfs_ipif_free_enumeration (char **names, int n);
 int libcfs_ipif_enumerate (char ***namesp);

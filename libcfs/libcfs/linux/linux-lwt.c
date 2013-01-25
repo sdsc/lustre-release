@@ -44,8 +44,9 @@
 #else
 #include <linux/mm.h>
 #endif
+#include <libcfs/libcfs.h>
 
-int oom_get_adj(struct task_struct *task, int scope)
+static int oom_get_adj(struct task_struct *task, int scope)
 {
 	int oom_adj;
 #ifdef HAVE_OOMADJ_IN_SIG

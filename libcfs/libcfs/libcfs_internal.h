@@ -24,31 +24,24 @@
  * GPL HEADER END
  */
 /*
- * Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2013, Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
-#ifndef __LIBCFS_LINUX_TRACEFILE_H__
-#define __LIBCFS_LINUX_TRACEFILE_H__
+#ifndef __LIBCFS_INTERNAL_H__
+#define __LIBCFS_INTERNAL_H__
+#include <libcfs/libcfs.h>
 
-/**
- * three types of trace_data in linux
- */
-typedef enum {
-	CFS_TCD_TYPE_PROC = 0,
-	CFS_TCD_TYPE_SOFTIRQ,
-	CFS_TCD_TYPE_IRQ,
-	CFS_TCD_TYPE_MAX
-} cfs_trace_buf_type_t;
-
-extern char lnet_upcall[1024];
-/**
- * The path of debug log dump upcall script.
- */
-extern char lnet_debug_log_upcall[1024];
+int insert_proc(void);
+void remove_proc(void);
+extern cfs_psdev_t libcfs_dev;
+extern struct cfs_psdev_ops libcfs_psdev_ops;
+extern struct cfs_wi_sched *cfs_sched_rehash;
+void libcfs_init_nidstrings(void);
+int libcfs_arch_init(void);
+void libcfs_arch_cleanup(void);
 
 #endif

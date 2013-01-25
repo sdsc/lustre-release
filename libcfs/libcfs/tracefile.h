@@ -52,6 +52,8 @@
 #define TRACEFILE_NAME_SIZE 1024
 extern char      cfs_tracefile[TRACEFILE_NAME_SIZE];
 extern long long cfs_tracefile_size;
+extern struct rw_semaphore cfs_tracefile_sem;
+extern struct mutex cfs_trace_thread_mutex;
 
 extern void libcfs_run_debug_log_upcall(char *file);
 

@@ -41,6 +41,7 @@
 #include <linux/sched.h>
 
 #include <libcfs/libcfs.h>
+#include "libcfs_internal.h"
 
 #if defined(CONFIG_KGDB)
 #include <asm/kgdb.h>
@@ -260,6 +261,7 @@ void cfs_enter_debugger(void)
         /* nothing */
 #endif
 }
+EXPORT_SYMBOL(cfs_enter_debugger);
 
 void cfs_daemonize(char *str) {
         unsigned long flags;
@@ -270,6 +272,7 @@ void cfs_daemonize(char *str) {
         RECALC_SIGPENDING;
         SIGNAL_MASK_UNLOCK(current, flags);
 }
+EXPORT_SYMBOL(cfs_daemonize);
 
 int cfs_daemonize_ctxt(char *str) {
 
@@ -289,6 +292,7 @@ int cfs_daemonize_ctxt(char *str) {
 #endif
         return 0;
 }
+EXPORT_SYMBOL(cfs_daemonize_ctxt);
 
 sigset_t
 cfs_block_allsigs(void)
@@ -304,6 +308,7 @@ cfs_block_allsigs(void)
 
         return old;
 }
+EXPORT_SYMBOL(cfs_block_allsigs);
 
 sigset_t cfs_block_sigs(unsigned long sigs)
 {
@@ -317,6 +322,7 @@ sigset_t cfs_block_sigs(unsigned long sigs)
 	SIGNAL_MASK_UNLOCK(current, flags);
 	return old;
 }
+EXPORT_SYMBOL(cfs_block_sigs);
 
 /* Block all signals except for the @sigs */
 sigset_t cfs_block_sigsinv(unsigned long sigs)
@@ -332,6 +338,7 @@ sigset_t cfs_block_sigsinv(unsigned long sigs)
 
 	return old;
 }
+EXPORT_SYMBOL(cfs_block_sigsinv);
 
 void
 cfs_restore_sigs (cfs_sigset_t old)
@@ -343,12 +350,14 @@ cfs_restore_sigs (cfs_sigset_t old)
         RECALC_SIGPENDING;
         SIGNAL_MASK_UNLOCK(current, flags);
 }
+EXPORT_SYMBOL(cfs_restore_sigs);
 
 int
 cfs_signal_pending(void)
 {
         return signal_pending(current);
 }
+EXPORT_SYMBOL(cfs_signal_pending);
 
 void
 cfs_clear_sigpending(void)
@@ -359,27 +368,17 @@ cfs_clear_sigpending(void)
         CLEAR_SIGPENDING;
         SIGNAL_MASK_UNLOCK(current, flags);
 }
+EXPORT_SYMBOL(cfs_clear_sigpending);
 
 int
 libcfs_arch_init(void)
 {
         return 0;
 }
+EXPORT_SYMBOL(libcfs_arch_init);
 
 void
 libcfs_arch_cleanup(void)
 {
-        return;
 }
-
-EXPORT_SYMBOL(libcfs_arch_init);
 EXPORT_SYMBOL(libcfs_arch_cleanup);
-EXPORT_SYMBOL(cfs_enter_debugger);
-EXPORT_SYMBOL(cfs_daemonize);
-EXPORT_SYMBOL(cfs_daemonize_ctxt);
-EXPORT_SYMBOL(cfs_block_allsigs);
-EXPORT_SYMBOL(cfs_block_sigs);
-EXPORT_SYMBOL(cfs_block_sigsinv);
-EXPORT_SYMBOL(cfs_restore_sigs);
-EXPORT_SYMBOL(cfs_signal_pending);
-EXPORT_SYMBOL(cfs_clear_sigpending);

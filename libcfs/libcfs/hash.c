@@ -108,6 +108,7 @@
  */
 
 #include <libcfs/libcfs.h>
+#include "libcfs_internal.h"
 
 #if CFS_HASH_DEBUG_LEVEL >= CFS_HASH_DEBUG_1
 static unsigned int warn_on_depth = 8;

@@ -47,6 +47,7 @@
 # include <netdb.h>
 #endif
 #endif
+#include "libcfs_internal.h"
 
 /* CAVEAT VENDITOR! Keep the canonical string representation of nets/nids
  * consistent in all conversion functions.  Some code fragments are copied
@@ -211,16 +212,18 @@ static struct netstrfns  libcfs_netstrfns[] = {
         {/* .nf_type      */  -1},
 };
 
-const int libcfs_nnetstrfns = sizeof(libcfs_netstrfns)/sizeof(libcfs_netstrfns[0]);
+enum {
+	libcfs_nnetstrfns = ARRAY_SIZE(libcfs_netstrfns),
+};
 
-int
+static int
 libcfs_lo_str2addr(const char *str, int nob, __u32 *addr)
 {
         *addr = 0;
         return 1;
 }
 
-void
+static void
 libcfs_ip_addr2str(__u32 addr, char *str)
 {
 #if 0   /* never lookup */
@@ -246,7 +249,7 @@ libcfs_ip_addr2str(__u32 addr, char *str)
  * fine, if it doesn't, then the scan ended at the end of the string, which is
  * fine too :) */
 
-int
+static int
 libcfs_ip_str2addr(const char *str, int nob, __u32 *addr)
 {
         int   a;
@@ -293,19 +296,19 @@ libcfs_ip_str2addr(const char *str, int nob, __u32 *addr)
         return 0;
 }
 
-void
+static void
 libcfs_decnum_addr2str(__u32 addr, char *str)
 {
         snprintf(str, LNET_NIDSTR_SIZE, "%u", addr);
 }
 
-void
+static void
 libcfs_hexnum_addr2str(__u32 addr, char *str)
 {
         snprintf(str, LNET_NIDSTR_SIZE, "0x%x", addr);
 }
 
-int
+static int
 libcfs_num_str2addr(const char *str, int nob, __u32 *addr)
 {
         int     n;
@@ -325,7 +328,7 @@ libcfs_num_str2addr(const char *str, int nob, __u32 *addr)
         return 0;
 }
 
-struct netstrfns *
+static struct netstrfns *
 libcfs_lnd2netstrfns(int lnd)
 {
         int    i;
@@ -338,7 +341,7 @@ libcfs_lnd2netstrfns(int lnd)
         return NULL;
 }
 
-struct netstrfns *
+static struct netstrfns *
 libcfs_namenum2netstrfns(const char *name)
 {
         struct netstrfns *nf;
@@ -353,7 +356,7 @@ libcfs_namenum2netstrfns(const char *name)
         return NULL;
 }
 
-struct netstrfns *
+static struct netstrfns *
 libcfs_name2netstrfns(const char *name)
 {
         int    i;

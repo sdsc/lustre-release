@@ -289,12 +289,6 @@ void libcfs_debug_dumpstack(struct task_struct *tsk)
 #endif
 }
 
-cfs_task_t *libcfs_current(void)
-{
-        CWARN("current task struct is %p\n", current);
-        return current;
-}
-
 static int panic_notifier(struct notifier_block *self, unsigned long unused1,
                          void *unused2)
 {
@@ -322,9 +316,9 @@ static int panic_notifier(struct notifier_block *self, unsigned long unused1,
 }
 
 static struct notifier_block libcfs_panic_notifier = {
-        notifier_call :     panic_notifier,
-        next :              NULL,
-        priority :          10000
+	.notifier_call	= panic_notifier,
+	.next		= NULL,
+	.priority	= 10000,
 };
 
 void libcfs_register_panic_notifier(void)
@@ -338,7 +332,6 @@ void libcfs_unregister_panic_notifier(void)
 }
 
 EXPORT_SYMBOL(libcfs_debug_dumpstack);
-EXPORT_SYMBOL(libcfs_current);
 
 #endif /* __KERNEL__ */
 

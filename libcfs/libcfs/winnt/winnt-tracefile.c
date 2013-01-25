@@ -50,7 +50,7 @@ char *cfs_trace_console_buffers[CFS_NR_CPUS][CFS_TCD_TYPE_MAX];
 
 struct rw_semaphore cfs_tracefile_sem;
 
-int cfs_tracefile_init_arch()
+int cfs_tracefile_init_arch(void)
 {
 	int    i;
 	int    j;
@@ -94,7 +94,7 @@ out:
 
 }
 
-void cfs_tracefile_fini_arch()
+void cfs_tracefile_fini_arch(void)
 {
 	int    i;
 	int    j;
@@ -116,27 +116,27 @@ void cfs_tracefile_fini_arch()
 	fini_rwsem(&cfs_tracefile_sem);
 }
 
-void cfs_tracefile_read_lock()
+void cfs_tracefile_read_lock(void)
 {
 	down_read(&cfs_tracefile_sem);
 }
 
-void cfs_tracefile_read_unlock()
+void cfs_tracefile_read_unlock(void)
 {
 	up_read(&cfs_tracefile_sem);
 }
 
-void cfs_tracefile_write_lock()
+void cfs_tracefile_write_lock(void)
 {
 	down_write(&cfs_tracefile_sem);
 }
 
-void cfs_tracefile_write_unlock()
+void cfs_tracefile_write_unlock(void)
 {
 	up_write(&cfs_tracefile_sem);
 }
 
-cfs_trace_buf_type_t cfs_trace_buf_idx_get()
+cfs_trace_buf_type_t cfs_trace_buf_idx_get(void)
 {
         if (KeGetCurrentIrql() >= DISPATCH_LEVEL)
                 return CFS_TCD_TYPE_DISPATCH;

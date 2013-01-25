@@ -40,10 +40,11 @@
 #include <libcfs/libcfs_crypto.h>
 #include <lnet/lib-lnet.h>
 #include <lnet/lnet.h>
+#include "libcfs_internal.h"
 #include "tracefile.h"
 
-void
-kportal_memhog_free (struct libcfs_device_userstate *ldu)
+static void
+kportal_memhog_free(struct libcfs_device_userstate *ldu)
 {
         cfs_page_t **level0p = &ldu->ldu_memhog_root_page;
         cfs_page_t **level1p;
@@ -86,8 +87,9 @@ kportal_memhog_free (struct libcfs_device_userstate *ldu)
         LASSERT (ldu->ldu_memhog_pages == 0);
 }
 
-int
-kportal_memhog_alloc (struct libcfs_device_userstate *ldu, int npages, int flags)
+static int
+kportal_memhog_alloc(struct libcfs_device_userstate *ldu,
+		     int npages, int flags)
 {
         cfs_page_t **level0p;
         cfs_page_t **level1p;
@@ -287,23 +289,6 @@ static int libcfs_ioctl_int(struct cfs_psdev_file *pfile,unsigned long cmd,
                 }
                 break;
 
-        case IOC_LIBCFS_PING_TEST: {
-                extern void (kping_client)(struct libcfs_ioctl_data *);
-                void (*ping)(struct libcfs_ioctl_data *);
-
-                CDEBUG(D_IOCTL, "doing %d pings to nid %s (%s)\n",
-                       data->ioc_count, libcfs_nid2str(data->ioc_nid),
-                       libcfs_nid2str(data->ioc_nid));
-                ping = PORTAL_SYMBOL_GET(kping_client);
-                if (!ping)
-                        CERROR("PORTAL_SYMBOL_GET failed\n");
-                else {
-                        ping(data);
-                        PORTAL_SYMBOL_PUT(kping_client);
-                }
-                RETURN(0);
-        }
-
         default: {
                 struct libcfs_ioctl_handler *hand;
                 err = -EINVAL;
@@ -351,29 +336,13 @@ out:
         RETURN(err);
 }
 
-
 struct cfs_psdev_ops libcfs_psdev_ops = {
-        libcfs_psdev_open,
-        libcfs_psdev_release,
-        NULL,
-        NULL,
-        libcfs_ioctl
+	.p_open		= libcfs_psdev_open,
+	.p_close	= libcfs_psdev_release,
+	.p_read		= NULL,
+	.p_write	= NULL,
+	.p_ioctl	= libcfs_ioctl,
 };
-
-extern int insert_proc(void);
-extern void remove_proc(void);
-MODULE_AUTHOR("Peter J. Braam <braam@clusterfs.com>");
-MODULE_DESCRIPTION("Portals v3.1");
-MODULE_LICENSE("GPL");
-
-extern cfs_psdev_t libcfs_dev;
-extern struct rw_semaphore cfs_tracefile_sem;
-extern struct mutex cfs_trace_thread_mutex;
-extern struct cfs_wi_sched *cfs_sched_rehash;
-
-extern void libcfs_init_nidstrings(void);
-extern int libcfs_arch_init(void);
-extern void libcfs_arch_cleanup(void);
 
 static int init_libcfs_module(void)
 {
@@ -497,3 +466,6 @@ static void exit_libcfs_module(void)
 }
 
 cfs_module(libcfs, "1.0.0", init_libcfs_module, exit_libcfs_module);
+MODULE_AUTHOR("Peter J. Braam <braam@clusterfs.com>");
+MODULE_DESCRIPTION("Portals v3.1");
+MODULE_LICENSE("GPL");

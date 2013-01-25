@@ -38,6 +38,7 @@
 #include <asm/cpufeature.h>
 #include <asm/i387.h>
 #include <libcfs/libcfs.h>
+#include <libcfs/linux/linux-crypto.h>
 
 #define CHKSUM_BLOCK_SIZE	1
 #define CHKSUM_DIGEST_SIZE	4

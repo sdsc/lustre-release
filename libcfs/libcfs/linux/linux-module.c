@@ -37,6 +37,7 @@
 #define DEBUG_SUBSYSTEM S_LNET
 
 #include <libcfs/libcfs.h>
+#include "libcfs_internal.h"
 
 #define LNET_MINOR 240
 
@@ -95,8 +96,6 @@ int libcfs_ioctl_popdata(void *arg, void *data, int size)
 		return -EFAULT;
 	return 0;
 }
-
-extern struct cfs_psdev_ops          libcfs_psdev_ops;
 
 static int
 libcfs_psdev_open(struct inode * inode, struct file * file)
@@ -171,13 +170,13 @@ static long libcfs_ioctl(struct file *file,
 }
 
 static struct file_operations libcfs_fops = {
-	unlocked_ioctl: libcfs_ioctl,
-	open :          libcfs_psdev_open,
-	release :       libcfs_psdev_release
+	.unlocked_ioctl	= libcfs_ioctl,
+	.open		= libcfs_psdev_open,
+	.release	= libcfs_psdev_release,
 };
 
 cfs_psdev_t libcfs_dev = {
-	LNET_MINOR,
-	"lnet",
-	&libcfs_fops
+	.minor	= LNET_MINOR,
+	.name	= "lnet",
+	.fops	= &libcfs_fops,
 };

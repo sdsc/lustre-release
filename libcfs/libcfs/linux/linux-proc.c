@@ -65,16 +65,12 @@
 
 #include <libcfs/libcfs.h>
 #include <asm/div64.h>
+#include "libcfs_internal.h"
 #include "tracefile.h"
 
 #ifdef CONFIG_SYSCTL
 static cfs_sysctl_table_header_t *lnet_table_header = NULL;
 #endif
-extern char lnet_upcall[1024];
-/**
- * The path of debug log dump upcall script.
- */
-extern char lnet_debug_log_upcall[1024];
 
 #ifndef HAVE_SYSCTL_UNNUMBERED
 #define CTL_LNET        (0x100)
@@ -244,7 +240,7 @@ static int __proc_debug_mb(void *data, int write,
 
 DECLARE_PROC_HANDLER(proc_debug_mb)
 
-int LL_PROC_PROTO(proc_console_max_delay_cs)
+static int LL_PROC_PROTO(proc_console_max_delay_cs)
 {
         int rc, max_delay_cs;
         cfs_sysctl_table_t dummy = *table;
@@ -275,7 +271,7 @@ int LL_PROC_PROTO(proc_console_max_delay_cs)
         return rc;
 }
 
-int LL_PROC_PROTO(proc_console_min_delay_cs)
+static int LL_PROC_PROTO(proc_console_min_delay_cs)
 {
         int rc, min_delay_cs;
         cfs_sysctl_table_t dummy = *table;
@@ -306,7 +302,7 @@ int LL_PROC_PROTO(proc_console_min_delay_cs)
         return rc;
 }
 
-int LL_PROC_PROTO(proc_console_backoff)
+static int LL_PROC_PROTO(proc_console_backoff)
 {
         int rc, backoff;
         cfs_sysctl_table_t dummy = *table;
@@ -333,14 +329,14 @@ int LL_PROC_PROTO(proc_console_backoff)
         return rc;
 }
 
-int LL_PROC_PROTO(libcfs_force_lbug)
+static int LL_PROC_PROTO(libcfs_force_lbug)
 {
         if (write)
                 LBUG();
         return 0;
 }
 
-int LL_PROC_PROTO(proc_fail_loc)
+static int LL_PROC_PROTO(proc_fail_loc)
 {
         int rc;
         long old_fail_loc = cfs_fail_loc;
@@ -584,9 +580,11 @@ static cfs_sysctl_table_t top_table[] = {
                 INIT_CTL_NAME(0)
         }
 };
+#endif
 
 int insert_proc(void)
 {
+#ifdef CONFIG_SYSCTL
         if (lnet_table_header == NULL)
                 lnet_table_header = cfs_register_sysctl_table(top_table, 0);
 #endif

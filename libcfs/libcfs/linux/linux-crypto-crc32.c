@@ -36,6 +36,7 @@
 #else
 #include <linux/crypto.h>
 #endif
+#include <libcfs/linux/linux-crypto.h>
 
 #define CHKSUM_BLOCK_SIZE	1
 #define CHKSUM_DIGEST_SIZE	4
