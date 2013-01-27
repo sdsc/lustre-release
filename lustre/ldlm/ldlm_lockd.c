@@ -1414,18 +1414,17 @@ existing_lock:
                            "(err=%d, rc=%d)", err, rc);
 
                 if (rc == 0) {
+			int buflen = ldlm_lvbo_size(lock);
+			void *buf;
+
 			if (req_capsule_has_field(&req->rq_pill, &RMF_DLM_LVB,
 						  RCL_SERVER) &&
-			    ldlm_lvbo_size(lock) > 0) {
-				void *buf;
-				int buflen;
-
+			    buflen > 0) {
 				buf = req_capsule_server_get(&req->rq_pill,
 							     &RMF_DLM_LVB);
 				LASSERTF(buf != NULL, "req %p, lock %p\n",
 					 req, lock);
-				buflen = req_capsule_get_size(&req->rq_pill,
-						&RMF_DLM_LVB, RCL_SERVER);
+
 				buflen = ldlm_lvbo_fill(lock, buf, buflen);
 				req_capsule_shrink(&req->rq_pill, &RMF_DLM_LVB,
 						   buflen, RCL_SERVER);
