@@ -3463,7 +3463,9 @@ static int rmtacl_notify(int ops)
 		close(fd);
                 if (rc < 0) {
                         rc = -errno;
-                        llapi_error(LLAPI_MSG_ERROR, rc, "ioctl %d\n", fd);
+			llapi_error(LLAPI_MSG_ERROR, rc,
+				    "ioctl RMTACL on '%s' err %d\n",
+				    mnt->mnt_dir, rc);
 			goto out;
                 }
 
