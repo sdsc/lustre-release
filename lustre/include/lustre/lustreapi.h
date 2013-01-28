@@ -231,6 +231,9 @@ extern int llapi_get_version(char *buffer, int buffer_size, char **version);
 
 extern int llapi_get_data_version(int fd, __u64 *data_version, __u64 flags);
 
+extern int llapi_fswap_layouts(const int fd1, const int fd2);
+extern int llapi_swap_layouts(const char *path1, const char *path2);
+
 /* Changelog interface.  priv is private state, managed internally
    by these functions */
 #define CHANGELOG_FLAG_FOLLOW 0x01   /* Not yet implemented */
