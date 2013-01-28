@@ -33,7 +33,7 @@
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  *
- * lustre/lvfs/fsfilt_ext3.c
+ * lustre/lvfs/fsfilt_ldiskfs.c
  *
  * Author: Andreas Dilger <adilger@clusterfs.com>
  */
@@ -45,8 +45,8 @@
 #include <linux/fs.h>
 #include <linux/slab.h>
 #include <linux/pagemap.h>
-#include <ext4/ext4.h>
-#include <ext4/ext4_jbd2.h>
+#include <ldiskfs/ldiskfs.h>
+#include <ldiskfs/ldiskfs_jbd2.h>
 #include <linux/version.h>
 #include <linux/bitops.h>
 #include <linux/quota.h>
@@ -57,30 +57,30 @@
 #include <linux/lustre_compat25.h>
 #include <linux/lprocfs_status.h>
 
-#include <ext4/ext4_extents.h>
+#include <ldiskfs/ldiskfs_extents.h>
 
 /* for kernels 2.6.18 and later */
-#define FSFILT_SINGLEDATA_TRANS_BLOCKS(sb) EXT3_SINGLEDATA_TRANS_BLOCKS(sb)
+#define FSFILT_SINGLEDATA_TRANS_BLOCKS(sb) LDISKFS_SINGLEDATA_TRANS_BLOCKS(sb)
 
-#define fsfilt_ext3_ext_insert_extent(handle, inode, path, newext, flag) \
-               ext3_ext_insert_extent(handle, inode, path, newext, flag)
+#define fsfilt_ldiskfs_ext_insert_extent(handle, inode, path, newext, flag) \
+               ldiskfs_ext_insert_extent(handle, inode, path, newext, flag)
 
-#define ext3_mb_discard_inode_preallocations(inode) \
-                 ext3_discard_preallocations(inode)
+#define ldiskfs_mb_discard_inode_preallocations(inode) \
+                 ldiskfs_discard_preallocations(inode)
 
 #define fsfilt_log_start_commit(journal, tid) jbd2_log_start_commit(journal, tid)
 #define fsfilt_log_wait_commit(journal, tid) jbd2_log_wait_commit(journal, tid)
 
-#ifdef HAVE_EXT4_JOURNAL_CALLBACK_ADD
-# define journal_callback ext4_journal_cb_entry
+#ifdef HAVE_LDISKFS_JOURNAL_CALLBACK_ADD
+# define journal_callback ldiskfs_journal_cb_entry
 # define fsfilt_journal_callback_set(handle, func, jcb) \
-         ext4_journal_callback_add(handle, func, jcb)
+         ldiskfs_journal_callback_add(handle, func, jcb)
 #elif defined(HAVE_JBD2_JOURNAL_CALLBACK_SET)
 # define fsfilt_journal_callback_set(handle, func, jcb) \
          jbd2_journal_callback_set(handle, func, jcb)
 #else
 # error missing journal commit callback
-#endif /* HAVE_EXT4_JOURNAL_CALLBACK_ADD */
+#endif /* HAVE_LDISKFS_JOURNAL_CALLBACK_ADD */
 
 static cfs_mem_cache_t *fcb_cache;
 
@@ -92,25 +92,25 @@ struct fsfilt_cb_data {
         void *cb_data;                  /* MDS/OST completion function data */
 };
 
-static char *fsfilt_ext3_get_label(struct super_block *sb)
+static char *fsfilt_ldiskfs_get_label(struct super_block *sb)
 {
-        return EXT3_SB(sb)->s_es->s_volume_name;
+        return LDISKFS_SB(sb)->s_es->s_volume_name;
 }
 
-/* kernel has ext4_blocks_for_truncate since linux-3.1.1 */
+/* kernel has ldiskfs_blocks_for_truncate since linux-3.1.1 */
 #ifdef HAVE_BLOCKS_FOR_TRUNCATE
-# include <ext4/truncate.h>
+# include <ldiskfs/truncate.h>
 #else
-static inline unsigned long ext4_blocks_for_truncate(struct inode *inode)
+static inline unsigned long ldiskfs_blocks_for_truncate(struct inode *inode)
 {
-	ext4_lblk_t needed;
+	ldiskfs_lblk_t needed;
 
 	needed = inode->i_blocks >> (inode->i_sb->s_blocksize_bits - 9);
 	if (needed < 2)
 		needed = 2;
-	if (needed > EXT4_MAX_TRANS_DATA)
-		needed = EXT4_MAX_TRANS_DATA;
-	return EXT4_DATA_TRANS_BLOCKS(inode->i_sb) + needed;
+	if (needed > LDISKFS_MAX_TRANS_DATA)
+		needed = LDISKFS_MAX_TRANS_DATA;
+	return LDISKFS_DATA_TRANS_BLOCKS(inode->i_sb) + needed;
 }
 #endif
 
@@ -120,7 +120,7 @@ static inline unsigned long ext4_blocks_for_truncate(struct inode *inode)
  * the inode (which we will be changing anyways as part of this
  * transaction).
  */
-static void *fsfilt_ext3_start(struct inode *inode, int op, void *desc_private,
+static void *fsfilt_ldiskfs_start(struct inode *inode, int op, void *desc_private,
                                int logs)
 {
         /* For updates to the last received file */
@@ -138,8 +138,8 @@ static void *fsfilt_ext3_start(struct inode *inode, int op, void *desc_private,
         case FSFILT_OP_RMDIR:
         case FSFILT_OP_UNLINK:
 		/* delete one file + create/update logs for each stripe */
-		nblocks += EXT3_DELETE_TRANS_BLOCKS(inode->i_sb);
-		nblocks += (EXT3_INDEX_EXTRA_TRANS_BLOCKS +
+		nblocks += LDISKFS_DELETE_TRANS_BLOCKS(inode->i_sb);
+		nblocks += (LDISKFS_INDEX_EXTRA_TRANS_BLOCKS +
 			    FSFILT_SINGLEDATA_TRANS_BLOCKS(inode->i_sb)) * logs;
 		break;
         case FSFILT_OP_RENAME:
@@ -160,19 +160,19 @@ static void *fsfilt_ext3_start(struct inode *inode, int op, void *desc_private,
                 /* no break */
         case FSFILT_OP_LINK:
                 /* modify parent directory */
-		nblocks += EXT3_INDEX_EXTRA_TRANS_BLOCKS +
-			   EXT3_DATA_TRANS_BLOCKS(inode->i_sb);
+		nblocks += LDISKFS_INDEX_EXTRA_TRANS_BLOCKS +
+			   LDISKFS_DATA_TRANS_BLOCKS(inode->i_sb);
                 /* create/update logs for each stripe */
-                nblocks += (EXT3_INDEX_EXTRA_TRANS_BLOCKS +
+                nblocks += (LDISKFS_INDEX_EXTRA_TRANS_BLOCKS +
                             FSFILT_SINGLEDATA_TRANS_BLOCKS(inode->i_sb)) * logs;
                 break;
         case FSFILT_OP_SETATTR:
                 /* Setattr on inode */
 		nblocks += 1;
-		nblocks += EXT3_INDEX_EXTRA_TRANS_BLOCKS +
-			   EXT3_DATA_TRANS_BLOCKS(inode->i_sb);
+		nblocks += LDISKFS_INDEX_EXTRA_TRANS_BLOCKS +
+			   LDISKFS_DATA_TRANS_BLOCKS(inode->i_sb);
                 /* quota chown log for each stripe */
-                nblocks += (EXT3_INDEX_EXTRA_TRANS_BLOCKS +
+                nblocks += (LDISKFS_INDEX_EXTRA_TRANS_BLOCKS +
                             FSFILT_SINGLEDATA_TRANS_BLOCKS(inode->i_sb)) * logs;
                 break;
         case FSFILT_OP_CANCEL_UNLINK:
@@ -182,15 +182,15 @@ static void *fsfilt_ext3_start(struct inode *inode, int op, void *desc_private,
 		 * blocks for catalog header bitmap update + unlink of logs +
 		 * blocks for delete the inode (include blocks truncating). */
 		nblocks = (LLOG_CHUNK_SIZE >> inode->i_blkbits) +
-			  EXT3_DELETE_TRANS_BLOCKS(inode->i_sb) +
-			  ext4_blocks_for_truncate(inode) + 3;
+			  LDISKFS_DELETE_TRANS_BLOCKS(inode->i_sb) +
+			  ldiskfs_blocks_for_truncate(inode) + 3;
 		break;
         default: CERROR("unknown transaction start op %d\n", op);
                 LBUG();
         }
 
         LASSERT(current->journal_info == desc_private);
-        journal = EXT3_SB(inode->i_sb)->s_journal;
+        journal = LDISKFS_SB(inode->i_sb)->s_journal;
         if (nblocks > journal->j_max_transaction_buffers) {
                 CWARN("too many credits %d for op %ux%u using %d instead\n",
                        nblocks, op, logs, journal->j_max_transaction_buffers);
@@ -199,7 +199,7 @@ static void *fsfilt_ext3_start(struct inode *inode, int op, void *desc_private,
 
  journal_start:
         LASSERTF(nblocks > 0, "can't start %d credit transaction\n", nblocks);
-        handle = ext3_journal_start(inode, nblocks);
+        handle = ldiskfs_journal_start(inode, nblocks);
 
         if (!IS_ERR(handle))
                 LASSERT(current->journal_info == handle);
@@ -209,7 +209,7 @@ static void *fsfilt_ext3_start(struct inode *inode, int op, void *desc_private,
         return handle;
 }
 
-static int fsfilt_ext3_commit(struct inode *inode, void *h, int force_sync)
+static int fsfilt_ldiskfs_commit(struct inode *inode, void *h, int force_sync)
 {
         int rc;
         handle_t *handle = h;
@@ -218,25 +218,25 @@ static int fsfilt_ext3_commit(struct inode *inode, void *h, int force_sync)
         if (force_sync)
                 handle->h_sync = 1; /* recovery likes this */
 
-        rc = ext3_journal_stop(handle);
+        rc = ldiskfs_journal_stop(handle);
 
         return rc;
 }
 
-#ifndef EXT3_EXTENTS_FL
-#define EXT3_EXTENTS_FL                 0x00080000 /* Inode uses extents */
+#ifndef LDISKFS_EXTENTS_FL
+#define LDISKFS_EXTENTS_FL                 0x00080000 /* Inode uses extents */
 #endif
 
 #ifndef EXT_ASSERT
 #define EXT_ASSERT(cond)  BUG_ON(!(cond))
 #endif
 
-#define EXT_GENERATION(inode)           (EXT4_I(inode)->i_ext_generation)
-#define ext3_ext_base                   inode
-#define ext3_ext_base2inode(inode)      (inode)
+#define EXT_GENERATION(inode)           (LDISKFS_I(inode)->i_ext_generation)
+#define ldiskfs_ext_base                   inode
+#define ldiskfs_ext_base2inode(inode)      (inode)
 #define EXT_DEPTH(inode)                ext_depth(inode)
-#define fsfilt_ext3_ext_walk_space(inode, block, num, cb, cbdata) \
-                        ext3_ext_walk_space(inode, block, num, cb, cbdata);
+#define fsfilt_ldiskfs_ext_walk_space(inode, block, num, cb, cbdata) \
+                        ldiskfs_ext_walk_space(inode, block, num, cb, cbdata);
 
 struct bpointers {
         unsigned long *blocks;
@@ -247,16 +247,16 @@ struct bpointers {
         int create;
 };
 
-static long ext3_ext_find_goal(struct inode *inode, struct ext3_ext_path *path,
+static long ldiskfs_ext_find_goal(struct inode *inode, struct ldiskfs_ext_path *path,
                                unsigned long block, int *aflags)
 {
-        struct ext3_inode_info *ei = EXT3_I(inode);
+        struct ldiskfs_inode_info *ei = LDISKFS_I(inode);
         unsigned long bg_start;
         unsigned long colour;
         int depth;
 
         if (path) {
-                struct ext3_extent *ex;
+                struct ldiskfs_extent *ex;
                 depth = path->p_depth;
 
                 /* try to predict block placement */
@@ -270,81 +270,81 @@ static long ext3_ext_find_goal(struct inode *inode, struct ext3_ext_path *path,
         }
 
         /* OK. use inode's group */
-        bg_start = (ei->i_block_group * EXT3_BLOCKS_PER_GROUP(inode->i_sb)) +
-                le32_to_cpu(EXT3_SB(inode->i_sb)->s_es->s_first_data_block);
+        bg_start = (ei->i_block_group * LDISKFS_BLOCKS_PER_GROUP(inode->i_sb)) +
+                le32_to_cpu(LDISKFS_SB(inode->i_sb)->s_es->s_first_data_block);
         colour = (current->pid % 16) *
-                (EXT3_BLOCKS_PER_GROUP(inode->i_sb) / 16);
+                (LDISKFS_BLOCKS_PER_GROUP(inode->i_sb) / 16);
         return bg_start + colour + block;
 }
 
 #define ll_unmap_underlying_metadata(sb, blocknr) \
         unmap_underlying_metadata((sb)->s_bdev, blocknr)
 
-#ifndef EXT3_MB_HINT_GROUP_ALLOC
-static unsigned long new_blocks(handle_t *handle, struct ext3_ext_base *base,
-                                struct ext3_ext_path *path, unsigned long block,
+#ifndef LDISKFS_MB_HINT_GROUP_ALLOC
+static unsigned long new_blocks(handle_t *handle, struct ldiskfs_ext_base *base,
+                                struct ldiskfs_ext_path *path, unsigned long block,
                                 unsigned long *count, int *err)
 {
         unsigned long pblock, goal;
         int aflags = 0;
-        struct inode *inode = ext3_ext_base2inode(base);
+        struct inode *inode = ldiskfs_ext_base2inode(base);
 
-        goal = ext3_ext_find_goal(inode, path, block, &aflags);
+        goal = ldiskfs_ext_find_goal(inode, path, block, &aflags);
         aflags |= 2; /* block have been already reserved */
-        pblock = ext3_mb_new_blocks(handle, inode, goal, count, aflags, err);
+        pblock = ldiskfs_mb_new_blocks(handle, inode, goal, count, aflags, err);
         return pblock;
 
 }
 #else
-static unsigned long new_blocks(handle_t *handle, struct ext3_ext_base *base,
-                                struct ext3_ext_path *path, unsigned long block,
+static unsigned long new_blocks(handle_t *handle, struct ldiskfs_ext_base *base,
+                                struct ldiskfs_ext_path *path, unsigned long block,
                                 unsigned long *count, int *err)
 {
-        struct inode *inode = ext3_ext_base2inode(base);
-        struct ext3_allocation_request ar;
+        struct inode *inode = ldiskfs_ext_base2inode(base);
+        struct ldiskfs_allocation_request ar;
         unsigned long pblock;
         int aflags;
 
         /* find neighbour allocated blocks */
         ar.lleft = block;
-        *err = ext3_ext_search_left(base, path, &ar.lleft, &ar.pleft);
+        *err = ldiskfs_ext_search_left(base, path, &ar.lleft, &ar.pleft);
         if (*err)
                 return 0;
         ar.lright = block;
-        *err = ext3_ext_search_right(base, path, &ar.lright, &ar.pright);
+        *err = ldiskfs_ext_search_right(base, path, &ar.lright, &ar.pright);
         if (*err)
                 return 0;
 
         /* allocate new block */
-        ar.goal = ext3_ext_find_goal(inode, path, block, &aflags);
+        ar.goal = ldiskfs_ext_find_goal(inode, path, block, &aflags);
         ar.inode = inode;
         ar.logical = block;
         ar.len = *count;
-        ar.flags = EXT3_MB_HINT_DATA;
-        pblock = ext3_mb_new_blocks(handle, &ar, err);
+        ar.flags = LDISKFS_MB_HINT_DATA;
+        pblock = ldiskfs_mb_new_blocks(handle, &ar, err);
         *count = ar.len;
         return pblock;
 }
 #endif
 
-static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
-                                  struct ext3_ext_path *path,
-                                  struct ext3_ext_cache *cex,
+static int ldiskfs_ext_new_extent_cb(struct ldiskfs_ext_base *base,
+                                  struct ldiskfs_ext_path *path,
+                                  struct ldiskfs_ext_cache *cex,
 #ifdef HAVE_EXT_PREPARE_CB_EXTENT
-                                   struct ext3_extent *ex,
+                                   struct ldiskfs_extent *ex,
 #endif
                                   void *cbdata)
 {
         struct bpointers *bp = cbdata;
-        struct inode *inode = ext3_ext_base2inode(base);
-        struct ext3_extent nex;
+        struct inode *inode = ldiskfs_ext_base2inode(base);
+        struct ldiskfs_extent nex;
         unsigned long pblock;
         unsigned long tgen;
         int err, i;
         unsigned long count;
         handle_t *handle;
 
-        if (cex->ec_type == EXT3_EXT_CACHE_EXTENT) {
+        if (cex->ec_type == LDISKFS_EXT_CACHE_EXTENT) {
                 err = EXT_CONTINUE;
                 goto map;
         }
@@ -369,29 +369,29 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
         }
 
 	tgen = EXT_GENERATION(base);
-	count = ext3_ext_calc_credits_for_insert(base, path);
+	count = ldiskfs_ext_calc_credits_for_insert(base, path);
 
-	handle = ext3_journal_start(inode, count+EXT3_ALLOC_NEEDED+1);
+	handle = ldiskfs_journal_start(inode, count+LDISKFS_ALLOC_NEEDED+1);
 	if (IS_ERR(handle)) {
 		return PTR_ERR(handle);
 	}
 
         if (tgen != EXT_GENERATION(base)) {
                 /* the tree has changed. so path can be invalid at moment */
-                ext3_journal_stop(handle);
+                ldiskfs_journal_stop(handle);
                 return EXT_REPEAT;
         }
 
-        /* In 2.6.32 kernel, ext4_ext_walk_space()'s callback func is not
+        /* In 2.6.32 kernel, ldiskfs_ext_walk_space()'s callback func is not
          * protected by i_data_sem as whole. so we patch it to store
 	 * generation to path and now verify the tree hasn't changed */
-        down_write((&EXT4_I(inode)->i_data_sem));
+        down_write((&LDISKFS_I(inode)->i_data_sem));
 
         /* validate extent, make sure the extent tree does not changed */
 	if (EXT_GENERATION(base) != path[0].p_generation) {
                 /* cex is invalid, try again */
-                up_write(&EXT4_I(inode)->i_data_sem);
-                ext3_journal_stop(handle);
+                up_write(&LDISKFS_I(inode)->i_data_sem);
+                ldiskfs_journal_stop(handle);
                 return EXT_REPEAT;
         }
 
@@ -403,24 +403,24 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
 
         /* insert new extent */
         nex.ee_block = cpu_to_le32(cex->ec_block);
-        ext3_ext_store_pblock(&nex, pblock);
+        ldiskfs_ext_store_pblock(&nex, pblock);
         nex.ee_len = cpu_to_le16(count);
-        err = fsfilt_ext3_ext_insert_extent(handle, base, path, &nex, 0);
+        err = fsfilt_ldiskfs_ext_insert_extent(handle, base, path, &nex, 0);
         if (err) {
                 /* free data blocks we just allocated */
                 /* not a good idea to call discard here directly,
                  * but otherwise we'd need to call it every free() */
-#ifdef EXT3_MB_HINT_GROUP_ALLOC
-                ext3_mb_discard_inode_preallocations(inode);
+#ifdef LDISKFS_MB_HINT_GROUP_ALLOC
+                ldiskfs_mb_discard_inode_preallocations(inode);
 #endif
-                ext3_free_blocks(handle, inode, ext_pblock(&nex),
+                ldiskfs_free_blocks(handle, inode, ext_pblock(&nex),
                                  cpu_to_le16(nex.ee_len), 0);
                 goto out;
         }
 
         /*
          * Putting len of the actual extent we just inserted,
-         * we are asking ext3_ext_walk_space() to continue
+         * we are asking ldiskfs_ext_walk_space() to continue
          * scaning after that block
          */
         cex->ec_len = le16_to_cpu(nex.ee_len);
@@ -429,8 +429,8 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
         BUG_ON(le32_to_cpu(nex.ee_block) != cex->ec_block);
 
 out:
-        up_write((&EXT4_I(inode)->i_data_sem));
-        ext3_journal_stop(handle);
+        up_write((&LDISKFS_I(inode)->i_data_sem));
+        ldiskfs_journal_stop(handle);
 map:
         if (err >= 0) {
                 /* map blocks */
@@ -451,7 +451,7 @@ map:
                                         i, cex->ec_len);
                 for (; i < cex->ec_len && bp->num; i++) {
                         *(bp->blocks) = cex->ec_start + i;
-                        if (cex->ec_type == EXT3_EXT_CACHE_EXTENT) {
+                        if (cex->ec_type == LDISKFS_EXT_CACHE_EXTENT) {
                                 *(bp->created) = 0;
                         } else {
                                 *(bp->created) = 1;
@@ -473,7 +473,7 @@ int fsfilt_map_nblocks(struct inode *inode, unsigned long block,
                        unsigned long num, unsigned long *blocks,
                        int *created, int create)
 {
-        struct ext3_ext_base *base = inode;
+        struct ldiskfs_ext_base *base = inode;
         struct bpointers bp;
         int err;
 
@@ -486,14 +486,14 @@ int fsfilt_map_nblocks(struct inode *inode, unsigned long block,
         bp.init_num = bp.num = num;
         bp.create = create;
 
-	err = fsfilt_ext3_ext_walk_space(base, block, num,
-					 ext3_ext_new_extent_cb, &bp);
-	ext3_ext_invalidate_cache(base);
+	err = fsfilt_ldiskfs_ext_walk_space(base, block, num,
+					 ldiskfs_ext_new_extent_cb, &bp);
+	ldiskfs_ext_invalidate_cache(base);
 
         return err;
 }
 
-int fsfilt_ext3_map_ext_inode_pages(struct inode *inode, struct page **page,
+int fsfilt_ldiskfs_map_ext_inode_pages(struct inode *inode, struct page **page,
                                     int pages, unsigned long *blocks,
                                     int *created, int create)
 {
@@ -543,9 +543,9 @@ cleanup:
         return rc;
 }
 
-extern int ext3_map_inode_page(struct inode *inode, struct page *page,
+extern int ldiskfs_map_inode_page(struct inode *inode, struct page *page,
                                unsigned long *blocks, int *created, int create);
-int fsfilt_ext3_map_bm_inode_pages(struct inode *inode, struct page **page,
+int fsfilt_ldiskfs_map_bm_inode_pages(struct inode *inode, struct page **page,
                                    int pages, unsigned long *blocks,
                                    int *created, int create)
 {
@@ -554,7 +554,7 @@ int fsfilt_ext3_map_bm_inode_pages(struct inode *inode, struct page **page,
         int rc = 0, i, *cr;
 
         for (i = 0, cr = created, b = blocks; i < pages; i++, page++) {
-                rc = ext3_map_inode_page(inode, *page, b, cr, create);
+                rc = ldiskfs_map_inode_page(inode, *page, b, cr, create);
                 if (rc) {
                         CERROR("ino %lu, blk %lu cr %u create %d: rc %d\n",
                                inode->i_ino, *b, *cr, create, rc);
@@ -567,21 +567,21 @@ int fsfilt_ext3_map_bm_inode_pages(struct inode *inode, struct page **page,
         return rc;
 }
 
-int fsfilt_ext3_map_inode_pages(struct inode *inode, struct page **page,
+int fsfilt_ldiskfs_map_inode_pages(struct inode *inode, struct page **page,
                                 int pages, unsigned long *blocks,
                                 int *created, int create,
 				struct mutex *optional_mutex)
 {
         int rc;
 
-        if (EXT3_I(inode)->i_flags & EXT3_EXTENTS_FL) {
-                rc = fsfilt_ext3_map_ext_inode_pages(inode, page, pages,
+        if (LDISKFS_I(inode)->i_flags & LDISKFS_EXTENTS_FL) {
+                rc = fsfilt_ldiskfs_map_ext_inode_pages(inode, page, pages,
                                                      blocks, created, create);
                 return rc;
         }
         if (optional_mutex != NULL)
 		mutex_lock(optional_mutex);
-        rc = fsfilt_ext3_map_bm_inode_pages(inode, page, pages, blocks,
+        rc = fsfilt_ldiskfs_map_bm_inode_pages(inode, page, pages, blocks,
                                             created, create);
         if (optional_mutex != NULL)
 		mutex_unlock(optional_mutex);
@@ -589,7 +589,7 @@ int fsfilt_ext3_map_inode_pages(struct inode *inode, struct page **page,
         return rc;
 }
 
-int fsfilt_ext3_read(struct inode *inode, void *buf, int size, loff_t *offs)
+int fsfilt_ldiskfs_read(struct inode *inode, void *buf, int size, loff_t *offs)
 {
         unsigned long block;
         struct buffer_head *bh;
@@ -617,7 +617,7 @@ int fsfilt_ext3_read(struct inode *inode, void *buf, int size, loff_t *offs)
                 block = *offs >> inode->i_blkbits;
                 boffs = *offs & (blocksize - 1);
                 csize = min(blocksize - boffs, size);
-                bh = ext3_bread(NULL, inode, block, 0, &err);
+                bh = ldiskfs_bread(NULL, inode, block, 0, &err);
                 if (!bh) {
                         CERROR("can't read block: %d\n", err);
                         return err;
@@ -632,19 +632,19 @@ int fsfilt_ext3_read(struct inode *inode, void *buf, int size, loff_t *offs)
         }
         return osize;
 }
-EXPORT_SYMBOL(fsfilt_ext3_read);
+EXPORT_SYMBOL(fsfilt_ldiskfs_read);
 
-static int fsfilt_ext3_read_record(struct file * file, void *buf,
+static int fsfilt_ldiskfs_read_record(struct file * file, void *buf,
                                    int size, loff_t *offs)
 {
         int rc;
-        rc = fsfilt_ext3_read(file->f_dentry->d_inode, buf, size, offs);
+        rc = fsfilt_ldiskfs_read(file->f_dentry->d_inode, buf, size, offs);
         if (rc > 0)
                 rc = 0;
         return rc;
 }
 
-int fsfilt_ext3_write_handle(struct inode *inode, void *buf, int bufsize,
+int fsfilt_ldiskfs_write_handle(struct inode *inode, void *buf, int bufsize,
                                 loff_t *offs, handle_t *handle)
 {
         struct buffer_head *bh = NULL;
@@ -660,13 +660,13 @@ int fsfilt_ext3_write_handle(struct inode *inode, void *buf, int bufsize,
                 block = offset >> inode->i_blkbits;
                 boffs = offset & (blocksize - 1);
                 size = min(blocksize - boffs, bufsize);
-                bh = ext3_bread(handle, inode, block, 1, &err);
+                bh = ldiskfs_bread(handle, inode, block, 1, &err);
                 if (!bh) {
                         CERROR("can't read/create block: %d\n", err);
                         break;
                 }
 
-                err = ext3_journal_get_write_access(handle, bh);
+                err = ldiskfs_journal_get_write_access(handle, bh);
                 if (err) {
                         CERROR("journal_get_write_access() returned error %d\n",
                                err);
@@ -674,7 +674,7 @@ int fsfilt_ext3_write_handle(struct inode *inode, void *buf, int bufsize,
                 }
                 LASSERT(bh->b_data + boffs + size <= bh->b_data + bh->b_size);
                 memcpy(bh->b_data + boffs, buf, size);
-                err = ext3_journal_dirty_metadata(handle, bh);
+                err = ldiskfs_journal_dirty_metadata(handle, bh);
                 if (err) {
                         CERROR("journal_dirty_metadata() returned error %d\n",
                                err);
@@ -694,8 +694,8 @@ int fsfilt_ext3_write_handle(struct inode *inode, void *buf, int bufsize,
 		spin_lock(&inode->i_lock);
 		if (new_size > i_size_read(inode))
 			i_size_write(inode, new_size);
-		if (i_size_read(inode) > EXT3_I(inode)->i_disksize)
-			EXT3_I(inode)->i_disksize = i_size_read(inode);
+		if (i_size_read(inode) > LDISKFS_I(inode)->i_disksize)
+			LDISKFS_I(inode)->i_disksize = i_size_read(inode);
 		if (i_size_read(inode) > old_size) {
 			spin_unlock(&inode->i_lock);
 			mark_inode_dirty(inode);
@@ -708,9 +708,9 @@ int fsfilt_ext3_write_handle(struct inode *inode, void *buf, int bufsize,
                 *offs = offset;
         return err;
 }
-EXPORT_SYMBOL(fsfilt_ext3_write_handle);
+EXPORT_SYMBOL(fsfilt_ldiskfs_write_handle);
 
-static int fsfilt_ext3_write_record(struct file *file, void *buf, int bufsize,
+static int fsfilt_ldiskfs_write_record(struct file *file, void *buf, int bufsize,
                                     loff_t *offs, int force_sync)
 {
         struct inode *inode = file->f_dentry->d_inode;
@@ -722,66 +722,66 @@ static int fsfilt_ext3_write_record(struct file *file, void *buf, int bufsize,
         block_count = (*offs & (blocksize - 1)) + bufsize;
         block_count = (block_count + blocksize - 1) >> inode->i_blkbits;
 
-	handle = ext3_journal_start(inode,
-			block_count * EXT3_DATA_TRANS_BLOCKS(inode->i_sb) + 2);
+	handle = ldiskfs_journal_start(inode,
+			block_count * LDISKFS_DATA_TRANS_BLOCKS(inode->i_sb) + 2);
 	if (IS_ERR(handle)) {
 		CERROR("can't start transaction for %d blocks (%d bytes)\n",
-		       block_count * EXT3_DATA_TRANS_BLOCKS(inode->i_sb) + 2,
+		       block_count * LDISKFS_DATA_TRANS_BLOCKS(inode->i_sb) + 2,
 		       bufsize);
 		return PTR_ERR(handle);
 	}
 
-        err = fsfilt_ext3_write_handle(inode, buf, bufsize, offs, handle);
+        err = fsfilt_ldiskfs_write_handle(inode, buf, bufsize, offs, handle);
 
         if (!err && force_sync)
                 handle->h_sync = 1; /* recovery likes this */
 
-        ext3_journal_stop(handle);
+        ldiskfs_journal_stop(handle);
 
         return err;
 }
 
-static int fsfilt_ext3_setup(struct super_block *sb)
+static int fsfilt_ldiskfs_setup(struct super_block *sb)
 {
-        if (!EXT3_HAS_COMPAT_FEATURE(sb,
-                                EXT3_FEATURE_COMPAT_HAS_JOURNAL)) {
-                CERROR("ext3 mounted without journal\n");
+        if (!LDISKFS_HAS_COMPAT_FEATURE(sb,
+                                LDISKFS_FEATURE_COMPAT_HAS_JOURNAL)) {
+                CERROR("ldiskfs mounted without journal\n");
                 return -EINVAL;
         }
 
 #ifdef S_PDIROPS
         CWARN("Enabling PDIROPS\n");
-        set_opt(EXT3_SB(sb)->s_mount_opt, PDIROPS);
+        set_opt(LDISKFS_SB(sb)->s_mount_opt, PDIROPS);
         sb->s_flags |= S_PDIROPS;
 #endif
-        if (!EXT3_HAS_COMPAT_FEATURE(sb, EXT3_FEATURE_COMPAT_DIR_INDEX))
+        if (!LDISKFS_HAS_COMPAT_FEATURE(sb, LDISKFS_FEATURE_COMPAT_DIR_INDEX))
                 CWARN("filesystem doesn't have dir_index feature enabled\n");
         return 0;
 }
-static struct fsfilt_operations fsfilt_ext3_ops = {
-        .fs_type                = "ext3",
+static struct fsfilt_operations fsfilt_ldiskfs_ops = {
+        .fs_type                = "ldiskfs",
         .fs_owner               = THIS_MODULE,
-        .fs_getlabel            = fsfilt_ext3_get_label,
-        .fs_start               = fsfilt_ext3_start,
-        .fs_commit              = fsfilt_ext3_commit,
-        .fs_map_inode_pages     = fsfilt_ext3_map_inode_pages,
-        .fs_write_record        = fsfilt_ext3_write_record,
-        .fs_read_record         = fsfilt_ext3_read_record,
-        .fs_setup               = fsfilt_ext3_setup,
+        .fs_getlabel            = fsfilt_ldiskfs_get_label,
+        .fs_start               = fsfilt_ldiskfs_start,
+        .fs_commit              = fsfilt_ldiskfs_commit,
+        .fs_map_inode_pages     = fsfilt_ldiskfs_map_inode_pages,
+        .fs_write_record        = fsfilt_ldiskfs_write_record,
+        .fs_read_record         = fsfilt_ldiskfs_read_record,
+        .fs_setup               = fsfilt_ldiskfs_setup,
 };
 
-static int __init fsfilt_ext3_init(void)
+static int __init fsfilt_ldiskfs_init(void)
 {
         int rc;
 
-        fcb_cache = cfs_mem_cache_create("fsfilt_ext3_fcb",
+        fcb_cache = cfs_mem_cache_create("fsfilt_ldiskfs_fcb",
                                          sizeof(struct fsfilt_cb_data), 0, 0);
         if (!fcb_cache) {
                 CERROR("error allocating fsfilt journal callback cache\n");
                 GOTO(out, rc = -ENOMEM);
         }
 
-        rc = fsfilt_register_ops(&fsfilt_ext3_ops);
+        rc = fsfilt_register_ops(&fsfilt_ldiskfs_ops);
 
         if (rc) {
                 int err = cfs_mem_cache_destroy(fcb_cache);
@@ -791,18 +791,18 @@ out:
         return rc;
 }
 
-static void __exit fsfilt_ext3_exit(void)
+static void __exit fsfilt_ldiskfs_exit(void)
 {
         int rc;
 
-        fsfilt_unregister_ops(&fsfilt_ext3_ops);
+        fsfilt_unregister_ops(&fsfilt_ldiskfs_ops);
         rc = cfs_mem_cache_destroy(fcb_cache);
         LASSERTF(rc == 0, "couldn't destroy fcb_cache slab\n");
 }
 
-module_init(fsfilt_ext3_init);
-module_exit(fsfilt_ext3_exit);
+module_init(fsfilt_ldiskfs_init);
+module_exit(fsfilt_ldiskfs_exit);
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
-MODULE_DESCRIPTION("Lustre ext3 Filesystem Helper v0.1");
+MODULE_DESCRIPTION("Lustre ldiskfs Filesystem Helper v0.1");
 MODULE_LICENSE("GPL");
