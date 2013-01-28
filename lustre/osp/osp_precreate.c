@@ -578,7 +578,7 @@ static int osp_precreate_thread(void *_arg)
 
 	ENTRY;
 
-	sprintf(pname, "osp-pre-%u\n", d->opd_index);
+	sprintf(pname, "osp-pre-%u", d->opd_index);
 	cfs_daemonize(pname);
 
 	spin_lock(&d->opd_pre_lock);
