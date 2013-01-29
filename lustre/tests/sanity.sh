@@ -1749,7 +1749,7 @@ test_27A() { # b=19102
         local default_size=$($GETSTRIPE -S $MOUNT)
         local default_count=$($GETSTRIPE -c $MOUNT)
         local default_offset=$($GETSTRIPE -i $MOUNT)
-        local dsize=$((1024 * 1024))
+        local dsize=$((32 * 1024 * 1024))
         [ $default_size -eq $dsize ] ||
                 error "stripe size $default_size != $dsize"
         [ $default_count -eq 1 ] || error "stripe count $default_count != 1"
@@ -10489,6 +10489,58 @@ test_230b() {
 	rm -r $DIR/$tdir || error "unlink remote directory failed"
 }
 run_test 230b "nested remote directory should be failed"
+
+test_231a()
+{
+	# For simplicity this test assumes that max_pages_per_rpc
+	# is the same across all OSCs
+	local max_pages=$($LCTL get_param -n osc.*.max_pages_per_rpc | head -1)
+	local bulk_size=$((max_pages * 4096))
+
+	mkdir -p $DIR/$tdir
+
+	# clear the OSC stats
+	$LCTL set_param osc.*.stats=0 &>/dev/null
+
+	# Client writes $bulk_size - there must be 1 rpc for $max_pages.
+	dd if=/dev/zero of=$DIR/$tdir/$tfile bs=$bulk_size count=1 \
+		oflag=direct &>/dev/null || error "dd failed"
+
+	local nrpcs=$($LCTL get_param osc.*.stats | grep ost_write | \
+		      awk '{print $2}')
+	if [ x$nrpcs != "x1" ]; then
+		error "write"
+	fi
+
+	# Drop the OSC cache, otherwise we will read from it
+	cancel_lru_locks osc
+
+	# clear the OSC stats
+	$LCTL set_param osc.*.stats=0 &>/dev/null
+
+	# Client reads $bulk_size.
+	dd if=$DIR/$tdir/$tfile of=/dev/null bs=$bulk_size count=1 \
+		iflag=direct &>/dev/null || error "dd failed"
+
+	nrpcs=$($LCTL get_param osc.*.stats | grep ost_read |
+		awk '{print $2}')
+	if [ x$nrpcs != "x1" ]; then
+		error "read"
+	fi
+}
+run_test 231a "checking that reading/writing of BRW RPC size results in one RPC"
+
+test_231b() {
+	mkdir -p $DIR/$tdir
+	local i
+	for i in {0..1023}; do
+		dd if=/dev/zero of=$DIR/$tdir/$tfile conv=notrunc \
+			seek=$((2*i)) bs=4096 count=1 &>/dev/null ||
+			error "dd failed"
+	done
+	sync
+}
+run_test 231b "must not assert on fully utilized OST request buffer"
 
 #
 # tests that do cleanup/setup should be run at the end
