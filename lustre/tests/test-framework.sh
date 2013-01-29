@@ -4840,9 +4840,15 @@ check_catastrophe() {
 
 	[ -z "$rnodes" ] && return 0
 
-	do_nodes "$rnodes" "rc=\\\$([ -f $C ] && echo \\\$(< $C) || echo 0);
+	local data=$(do_nodes "$rnodes" "rc=\\\$([ -f $C ] &&
+		echo \\\$(< $C) || echo 0);
 		if [ \\\$rc -ne 0 ]; then echo \\\$(hostname): \\\$rc; fi
-		exit \\\$rc;"
+		exit \\\$rc;")
+	local rc=$?
+	if [ -n "$data" ]; then
+	    echo $data
+	    return $rc
+	fi
 }
 
 # CMD: determine mds index where directory inode presents
