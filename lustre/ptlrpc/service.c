@@ -2347,6 +2347,46 @@ ptlrpc_wait_event(struct ptlrpc_service_part *svcpt,
 	return 0;
 }
 
+
+struct lu_env* ptlrpc_lookup_thread_env()
+{
+	struct lu_env		*env = NULL;
+	struct ptlrpc_service	*svc;
+	struct ptlrpc_thread	*thread;
+	struct ptlrpc_service_part *svcpt;
+	pid_t	pid = cfs_curproc_pid();
+	int	i;
+
+	mutex_lock(&ptlrpc_all_services_mutex);
+	cfs_list_for_each_entry(svc, &ptlrpc_all_services, srv_list) {
+		for (i = 0; i < svc->srv_ncpts; i++) {
+			svcpt = svc->srv_parts[i];
+
+			/* no runnig thread */
+			if (svcpt->scp_nthrs_running == 0)
+				continue;
+
+			spin_lock(&svcpt->scp_lock);
+			cfs_list_for_each_entry(thread, &svcpt->scp_threads,
+						t_link) {
+				if (thread->t_pid == pid) {
+					env = thread->t_env;
+					break;
+				}
+			}
+			spin_unlock(&svcpt->scp_lock);
+
+			if (env != NULL)
+				goto out;
+		}
+	}
+
+out:
+	mutex_unlock(&ptlrpc_all_services_mutex);
+	return env;
+}
+EXPORT_SYMBOL(ptlrpc_lookup_thread_env);
+
 /**
  * Main thread body for service threads.
  * Waits in a loop waiting for new requests to process to appear.
