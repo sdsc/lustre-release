@@ -535,11 +535,11 @@ EXPORT_SYMBOL(cl_site_stats_print);
  * bz20044, bz22683.
  */
 
-static CFS_LIST_HEAD(cl_envs);
-static unsigned cl_envs_cached_nr  = 0;
-static unsigned cl_envs_cached_max = 128; /* XXX: prototype: arbitrary limit
-                                           * for now. */
-static DEFINE_SPINLOCK(cl_envs_guard);
+static struct cl_env_cache {
+	unsigned int cl_env_cache_nr;
+	unsigned int cl_env_cache_max;
+	cfs_list_t   cl_env_cache_list;
+} cl_env_caches[CFS_NR_CPUS];
 
 struct cl_env {
         void             *ce_magic;
@@ -797,19 +797,25 @@ static void cl_env_fini(struct cl_env *cle)
 
 static struct lu_env *cl_env_obtain(void *debug)
 {
-	struct cl_env *cle;
-	struct lu_env *env;
+	struct cl_env_cache *clc;
+	struct cl_env       *cle;
+	struct lu_env       *env;
+	cfs_list_t          *list;
+	int cpu, rc;
 
 	ENTRY;
-	spin_lock(&cl_envs_guard);
-	LASSERT(equi(cl_envs_cached_nr == 0, cfs_list_empty(&cl_envs)));
-	if (cl_envs_cached_nr > 0) {
-		int rc;
 
-		cle = container_of(cl_envs.next, struct cl_env, ce_linkage);
+	cpu  = cfs_get_cpu();
+	clc  = &cl_env_caches[cpu];
+	list = &clc->cl_env_cache_list;
+
+	LASSERT(equi(clc->cl_env_cache_nr == 0, cfs_list_empty(list)));
+
+	if (clc->cl_env_cache_nr > 0) {
+		cle = container_of(list->next, struct cl_env, ce_linkage);
 		cfs_list_del_init(&cle->ce_linkage);
-		cl_envs_cached_nr--;
-		spin_unlock(&cl_envs_guard);
+		clc->cl_env_cache_nr--;
+		cfs_put_cpu();
 
                 env = &cle->ce_lu;
                 rc = lu_env_refill(env);
@@ -822,10 +828,11 @@ static struct lu_env *cl_env_obtain(void *debug)
                         env = ERR_PTR(rc);
                 }
         } else {
-		spin_unlock(&cl_envs_guard);
+		cfs_put_cpu();
 		env = cl_env_new(lu_context_tags_default,
 				 lu_session_tags_default, debug);
 	}
+
 	RETURN(env);
 }
 
@@ -919,28 +926,23 @@ static void cl_env_exit(struct cl_env *cle)
 }
 
 /**
- * Finalizes and frees a given number of cached environments. This is done to
- * (1) free some memory (not currently hooked into VM), or (2) release
- * references to modules.
- * Return how many caching cl_env stil left.
+ * Finalizes and frees all cached environments. This can be done to
+ * (1) free memory (although it's not currently hooked into VM), or
+ * (2) release references to modules.
  */
-unsigned cl_env_cache_purge(unsigned nr)
+unsigned cl_env_cache_purge(void)
 {
 	CFS_LIST_HEAD(dying);
-	struct cl_env *cle;
+	struct cl_env_cache *clc;
+	struct cl_env       *cle;
+	int cpu;
 	ENTRY;
 
-	spin_lock(&cl_envs_guard);
-	if (cl_envs_cached_nr <= nr) {
-		cl_envs_cached_nr = 0;
-		cfs_list_splice_init(&cl_envs, &dying);
-	} else {
-		cl_envs_cached_nr -= nr;
-		while (nr-- > 0)
-			cfs_list_move(cl_envs.next, &dying);
-	}
-	LASSERT(equi(cl_envs_cached_nr == 0, cfs_list_empty(&cl_envs)));
-	spin_unlock(&cl_envs_guard);
+	cpu  = cfs_get_cpu();
+	clc  = &cl_env_caches[cpu];
+	cfs_list_splice_init(&clc->cl_env_cache_list, &dying);
+	clc->cl_env_cache_nr = 0;
+	cfs_put_cpu();
 
 	while (!cfs_list_empty(&dying)) {
 		cle = container_of(dying.next, struct cl_env, ce_linkage);
@@ -948,9 +950,18 @@ unsigned cl_env_cache_purge(unsigned nr)
 		cl_env_fini(cle);
 	}
 
-	RETURN(cl_envs_cached_nr);
+	RETURN(0);
 }
-EXPORT_SYMBOL(cl_env_cache_purge);
+
+unsigned cl_env_cache_purge_all(void)
+{
+	ENTRY;
+
+	/* TODO: Execute cl_env_cache_purge on every CPU */
+
+	RETURN(0);
+}
+EXPORT_SYMBOL(cl_env_cache_purge_all);
 
 /**
  * Release an environment.
@@ -961,7 +972,10 @@ EXPORT_SYMBOL(cl_env_cache_purge);
  */
 void cl_env_put(struct lu_env *env, int *refcheck)
 {
-        struct cl_env *cle;
+	struct cl_env_cache *clc;
+	struct cl_env       *cle;
+	cfs_list_t          *list;
+	int cpu;
 
         cle = cl_env_container(env);
 
@@ -974,20 +988,30 @@ void cl_env_put(struct lu_env *env, int *refcheck)
                 cl_env_detach(cle);
                 cle->ce_debug = NULL;
                 cl_env_exit(cle);
-                /*
-                 * Don't bother to take a lock here.
-                 *
-                 * Return environment to the cache only when it was allocated
-                 * with the standard tags.
-                 */
-                if (cl_envs_cached_nr < cl_envs_cached_max &&
-                    (env->le_ctx.lc_tags & ~LCT_HAS_EXIT) == LCT_CL_THREAD &&
-                    (env->le_ses->lc_tags & ~LCT_HAS_EXIT) == LCT_SESSION) {
-			spin_lock(&cl_envs_guard);
-			cfs_list_add(&cle->ce_linkage, &cl_envs);
-			cl_envs_cached_nr++;
-			spin_unlock(&cl_envs_guard);
-		} else
+
+		/* Return environment to the cache only when it was allocated
+		 * with the standard tags. */
+		if ((env->le_ctx.lc_tags & ~LCT_HAS_EXIT) == LCT_CL_THREAD &&
+		    (env->le_ses->lc_tags & ~LCT_HAS_EXIT) == LCT_SESSION) {
+
+			cpu  = cfs_get_cpu();
+			clc  = &cl_env_caches[cpu];
+			list = &clc->cl_env_cache_list;
+
+			/* Insert into cache if there's space, otherwise call
+			 * cl_env_fini on the cl_env structure (i.e. cle) */
+			if (clc->cl_env_cache_nr < clc->cl_env_cache_max) {
+				cfs_list_add(&cle->ce_linkage, list);
+				clc->cl_env_cache_nr++;
+
+				/* This prevents cl_env_fini below */
+				cle = NULL;
+			}
+
+			cfs_put_cpu();
+		}
+
+		if (cle != NULL)
 			cl_env_fini(cle);
 	}
 }
@@ -1247,7 +1271,13 @@ static struct lu_kmem_descr cl_object_caches[] = {
  */
 int cl_global_init(void)
 {
-        int result;
+        int result, i;
+
+	cfs_for_each_possible_cpu(i) {
+		cl_env_caches[i].cl_env_cache_nr  = 0;
+		cl_env_caches[i].cl_env_cache_max = 8;
+		CFS_INIT_LIST_HEAD(&cl_env_caches[i].cl_env_cache_list);
+	}
 
         result = cl_env_store_init();
         if (result)

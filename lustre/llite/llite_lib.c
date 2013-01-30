@@ -1112,7 +1112,7 @@ void ll_put_super(struct super_block *sb)
 
         lustre_common_put_super(sb);
 
-        cl_env_cache_purge(~0);
+        cl_env_cache_purge_all();
 
         cfs_module_put(THIS_MODULE);
 
