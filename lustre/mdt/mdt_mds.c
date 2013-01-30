@@ -147,6 +147,7 @@ DEF_MDT_HDL(0		| HABEO_REFERO, MDS_HSM_CT_REGISTER,
 						mdt_hsm_ct_register),
 DEF_MDT_HDL(0		| HABEO_REFERO, MDS_HSM_CT_UNREGISTER,
 						mdt_hsm_ct_unregister),
+DEF_MDT_HDL(HABEO_CORPUS|HABEO_REFERO,	MDS_SWAP_LAYOUTS, mdt_swap_layouts)
 };
 
 #define DEF_OBD_HDL(flags, name, fn)					\
