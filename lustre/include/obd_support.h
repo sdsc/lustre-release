@@ -239,6 +239,7 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 #define OBD_FAIL_MDS_HSM_REQUEST_NET		0x14c
 #define OBD_FAIL_MDS_HSM_CT_REGISTER_NET	0x14d
 #define OBD_FAIL_MDS_HSM_CT_UNREGISTER_NET	0x14e
+#define OBD_FAIL_MDS_SWAP_LAYOUTS_NET	 0x14f
 
 /* layout lock */
 #define OBD_FAIL_MDS_NO_LL_GETATTR	 0x170

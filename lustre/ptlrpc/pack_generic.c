@@ -2518,3 +2518,8 @@ void lustre_swab_hsm_progress_kernel(struct hsm_progress_kernel *hpk)
 }
 EXPORT_SYMBOL(lustre_swab_hsm_progress_kernel);
 
+void lustre_swab_swap_layouts(struct mdc_swap_layouts *msl)
+{
+	__swab64s(&msl->msl_flags);
+}
+EXPORT_SYMBOL(lustre_swab_swap_layouts);
