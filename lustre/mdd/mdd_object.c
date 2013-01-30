@@ -1671,6 +1671,7 @@ static int mdd_swap_layouts(const struct lu_env *env, struct md_object *obj1,
 	if (rc) {
 		int	rc2;
 
+		handle->th_rollback = 1;
 		/* failure on second file, but first was done, so we have
 		 * to roll back first */
 		/* restore object_id, object_seq and generation number

@@ -595,7 +595,6 @@ struct osd_thread_info {
 	unsigned char		oti_declare_ops[OSD_OT_MAX];
 	unsigned char		oti_declare_ops_rb[OSD_OT_MAX];
 	unsigned short		oti_declare_ops_cred[OSD_OT_MAX];
-	bool			oti_rollback;
 #endif
 
 	char			oti_name[48];
@@ -896,15 +895,17 @@ static inline void osd_trans_exec_op(const struct lu_env *env,
 	LASSERT(oh->ot_handle != NULL);
 	LASSERT(op < OSD_OT_MAX);
 
-	if (likely(!oti->oti_rollback && oti->oti_declare_ops[op] > 0)) {
+	if (likely(!th->th_rollback)) {
+		LASSERTF(oti->oti_declare_ops[op] > 0,
+			 "op = %u, may miss to set rollback flag!\n", op);
+
 		oti->oti_declare_ops[op]--;
 		oti->oti_declare_ops_rb[op]++;
 	} else {
-		/* all future updates are considered rollback */
-		oti->oti_rollback = true;
 		rb = osd_trans_declare_op2rb[op];
 		LASSERTF(rb < OSD_OT_MAX, "op = %u\n", op);
 		LASSERTF(oti->oti_declare_ops_rb[rb] > 0, "rb = %u\n", rb);
+
 		oti->oti_declare_ops_rb[rb]--;
 	}
 }

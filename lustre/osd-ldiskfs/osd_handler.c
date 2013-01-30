@@ -683,7 +683,6 @@ static struct thandle *osd_trans_create(const struct lu_env *env,
 		memset(oti->oti_declare_ops, 0, OSD_OT_MAX);
 		memset(oti->oti_declare_ops_rb, 0, OSD_OT_MAX);
 		memset(oti->oti_declare_ops_cred, 0, OSD_OT_MAX);
-		oti->oti_rollback = false;
         }
         RETURN(th);
 }

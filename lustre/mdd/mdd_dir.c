@@ -990,6 +990,7 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
 				     name, handle,
 				     mdd_object_capa(env, mdd_tobj));
 	if (rc != 0) {
+		handle->th_rollback = 1;
 		mdo_ref_del(env, mdd_sobj, handle);
 		GOTO(out_unlock, rc);
 	}
@@ -1219,6 +1220,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 	if (likely(mdd_cobj != NULL)) {
 		rc = mdo_ref_del(env, mdd_cobj, handle);
 		if (rc != 0) {
+			handle->th_rollback = 1;
 			__mdd_index_insert_only(env, mdd_pobj,
 						mdo2fid(mdd_cobj),
 						name, handle,
@@ -1516,8 +1518,10 @@ int mdd_object_initialize(const struct lu_env *env, const struct lu_fid *pfid,
                         rc = __mdd_index_insert_only(env, child, pfid,
                                                      dotdot, handle,
                                                      BYPASS_CAPA);
-                if (rc != 0)
-                        mdo_ref_del(env, child, handle);
+                if (rc != 0) {
+			handle->th_rollback = 1;
+			mdo_ref_del(env, child, handle);
+		}
         }
 
 	if (rc == 0 && (fid_is_norm(mdo2fid(child)) ||
@@ -1901,6 +1905,7 @@ cleanup:
 	if (rc != 0 && created != 0) {
 		int rc2;
 
+		handle->th_rollback = 1;
 		if (inserted != 0) {
 			if (spec->sp_cr_flags & MDS_OPEN_VOLATILE)
 				rc2 = __mdd_orphan_del(env, son, handle);
@@ -2388,6 +2393,7 @@ static int mdd_rename(const struct lu_env *env,
 
 fixup_tpobj:
         if (rc) {
+		handle->th_rollback = 1;
                 rc2 = __mdd_index_delete(env, mdd_tpobj, tname, is_dir, handle,
                                          BYPASS_CAPA);
                 if (rc2)
@@ -2413,6 +2419,7 @@ fixup_tpobj:
 
 fixup_spobj:
         if (rc && is_dir && mdd_sobj) {
+		handle->th_rollback = 1;
                 rc2 = __mdd_index_delete_only(env, mdd_sobj, dotdot, handle,
                                               BYPASS_CAPA);
 
@@ -2428,6 +2435,7 @@ fixup_spobj:
 
 fixup_spobj2:
         if (rc) {
+		handle->th_rollback = 1;
                 rc2 = __mdd_index_insert(env, mdd_spobj,
                                          lf, sname, is_dir, handle, BYPASS_CAPA);
                 if (rc2)

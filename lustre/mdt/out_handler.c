@@ -134,6 +134,7 @@ int out_tx_end(struct mdt_thread_info *info, struct thandle_exec_args *th)
 			       " %s:%d: rc = %d\n", i, th->ta_args[i].file,
 			       th->ta_args[i].line, rc);
 			while (--i >= 0) {
+				th->ta_handle->th_rollback = 1;
 				LASSERTF(th->ta_args[i].undo_fn != NULL,
 				    "can't undo changes, hope for failover!\n");
 				th->ta_args[i].undo_fn(info, th->ta_handle,
