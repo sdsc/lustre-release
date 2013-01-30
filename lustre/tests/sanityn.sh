@@ -2,6 +2,10 @@
 
 set -e
 
+. tf-suite
+
+tf_prelude() {
+
 ONLY=${ONLY:-"$*"}
 # bug number for skipped test: 3192 LU-1205 15528/3811 16929 9977 15528/11549 18080
 ALWAYS_EXCEPT="                14b  18c     19         22    28   29          35    $SANITYN_EXCEPT"
@@ -35,11 +39,14 @@ SAVE_PWD=$PWD
 
 export NAME=${NAME:-local}
 
-LUSTRE=${LUSTRE:-`dirname $0`/..}
-. $LUSTRE/tests/test-framework.sh
-CLEANUP=${CLEANUP:-:}
-SETUP=${SETUP:-:}
-init_test_env $@
+#LUSTRE=${LUSTRE:-`dirname $0`/..}
+#. $LUSTRE/tests/test-framework.sh
+
+#CLEANUP=${CLEANUP:-:}
+#SETUP=${SETUP:-:}
+#init_test_env $@
+
+
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 
@@ -70,6 +77,8 @@ build_test_filter
 
 mkdir -p $MOUNT2
 mount_client $MOUNT2
+
+}
 
 test_1a() {
 	touch $DIR1/f1
@@ -1118,11 +1127,11 @@ test_37() { # bug 18695
 }
 run_test 37 "check i_size is not updated for directory on close (bug 18695) =============="
 
-# this should be set to past
-TEST_39_MTIME=`date -d "1 year ago" +%s`
-
 # bug 11063
 test_39a() {
+	# this should be set to past
+	local TEST_39_MTIME=`date -d "1 year ago" +%s`
+
 	local client1=${CLIENT1:-`hostname`}
 	local client2=${CLIENT2:-`hostname`}
 
@@ -1155,6 +1164,9 @@ test_39a() {
 run_test 39a "test from 11063 =================================="
 
 test_39b() {
+	# this should be set to past
+	local TEST_39_MTIME=`date -d "1 year ago" +%s`
+	
 	local client1=${CLIENT1:-`hostname`}
 	local client2=${CLIENT2:-`hostname`}
 
@@ -2400,10 +2412,11 @@ test_70() {
 }
 run_test 70 "cd directory && rm directory"
 
-log "cleanup: ======================================================"
+tf_finale () {
+	log "cleanup: ======================================================"
 
-[ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2
+	[ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2
+}
 
-complete $SECONDS
-check_and_cleanup_lustre
-exit_status
+tf_dance $@
+

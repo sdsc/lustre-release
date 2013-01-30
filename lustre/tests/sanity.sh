@@ -7,6 +7,10 @@
 # e.g. ONLY="22 23" or ONLY="`seq 32 39`" or EXCEPT="31"
 set -e
 
+. tf-suite
+
+tf_prelude() {
+
 ONLY=${ONLY:-"$*"}
 # bug number for skipped test: 13297 2108 9789 3637 9789 3561 12622 5188
 ALWAYS_EXCEPT="                27u   42a  42b  42c  42d  45   51d   68b   $SANITY_EXCEPT"
@@ -57,9 +61,11 @@ SAVE_PWD=$PWD
 CLEANUP=${CLEANUP:-:}
 SETUP=${SETUP:-:}
 TRACE=${TRACE:-""}
-LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
-. $LUSTRE/tests/test-framework.sh
-init_test_env $@
+
+#LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+#. $LUSTRE/tests/test-framework.sh
+#init_test_env $@
+
 . ${CONFIG:=$LUSTRE/tests/cfg/${NAME}.sh}
 init_logging
 
@@ -135,6 +141,8 @@ umask 077
 
 OLDDEBUG="`lctl get_param -n debug 2> /dev/null`"
 lctl set_param debug=-1 2> /dev/null || true
+}
+
 test_0() {
 	touch $DIR/$tfile
 	$CHECKSTAT -t file $DIR/$tfile || error
@@ -2586,6 +2594,13 @@ test_38() {
 }
 run_test 38 "open a regular file with O_DIRECTORY should return -ENOTDIR ==="
 
+tf_prelude_39 {
+	# this should be set to past
+	export TEST_39_MTIME=`date -d "1 year ago" +%s`
+	# this should be set to future
+	export TEST_39_ATIME=`date -d "1 year" +%s`
+}
+
 test_39() {
 	touch $DIR/$tfile
 	touch $DIR/${tfile}2
@@ -2646,9 +2661,6 @@ test_39b() {
 	done
 }
 run_test 39b "mtime change on open, link, unlink, rename  ======"
-
-# this should be set to past
-TEST_39_MTIME=`date -d "1 year ago" +%s`
 
 # bug 11063
 test_39c() {
@@ -2864,9 +2876,6 @@ test_39k() {
 	done
 }
 run_test 39k "write, utime, close, stat ========================"
-
-# this should be set to future
-TEST_39_ATIME=`date -d "1 year" +%s`
 
 test_39l() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
@@ -5039,7 +5048,17 @@ test_76() { # Now for bug 20433, added originally in bug 1443
 run_test 76 "confirm clients recycle inodes properly ===="
 
 
-export ORIG_CSUM=""
+tf_prelude_f77() {
+	export ORIG_CSUM=""
+	export ORIG_CSUM_TYPE="`lctl get_param -n osc.*osc-[^mM]*.checksum_type |
+							sed 's/.*\[\(.*\)\].*/\1/g' | head -n1`"
+	CKSUM_TYPES=${CKSUM_TYPES:-"crc32 adler"}
+	[ "$ORIG_CSUM_TYPE" = "crc32c" ] && CKSUM_TYPES="$CKSUM_TYPES crc32c"
+
+	F77_TMP=$TMP/f77-temp
+	F77SZ=8
+}
+
 set_checksums()
 {
 	# Note: in sptlrpc modes which enable its own bulk checksum, the
@@ -5050,22 +5069,17 @@ set_checksums()
 	# bulk checksum will be enabled all through the test.
 
 	[ "$ORIG_CSUM" ] || ORIG_CSUM=`lctl get_param -n osc.*.checksums | head -n1`
-        lctl set_param -n osc.*.checksums $1
+	lctl set_param -n osc.*.checksums $1
 	return 0
 }
 
-export ORIG_CSUM_TYPE="`lctl get_param -n osc.*osc-[^mM]*.checksum_type |
-                        sed 's/.*\[\(.*\)\].*/\1/g' | head -n1`"
-CKSUM_TYPES=${CKSUM_TYPES:-"crc32 adler"}
-[ "$ORIG_CSUM_TYPE" = "crc32c" ] && CKSUM_TYPES="$CKSUM_TYPES crc32c"
 set_checksum_type()
 {
 	lctl set_param -n osc.*osc-[^mM]*.checksum_type $1
 	log "set checksum type to $1"
 	return 0
 }
-F77_TMP=$TMP/f77-temp
-F77SZ=8
+
 setup_f77() {
 	dd if=/dev/urandom of=$F77_TMP bs=1M count=$F77SZ || \
 		error "error writing to $F77_TMP"
@@ -5228,9 +5242,11 @@ test_77j() { # bug 13805
 }
 run_test 77j "client only supporting ADLER32 ===================="
 
-[ "$ORIG_CSUM" ] && set_checksums $ORIG_CSUM || true
-rm -f $F77_TMP
-unset F77_TMP
+tf_finale_77 () {
+	[ "$ORIG_CSUM" ] && set_checksums $ORIG_CSUM || true
+	rm -f $F77_TMP
+	unset F77_TMP
+}
 
 test_78() { # bug 10901
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
@@ -5497,9 +5513,6 @@ function get_named_value()
     done
 }
 
-export CACHE_MAX=$($LCTL get_param -n llite.*.max_cached_mb |
-		   awk '/^max_cached_mb/ { print $2 }')
-
 cleanup_101a() {
 	$LCTL set_param -n llite.*.max_cached_mb $CACHE_MAX
 	trap 0
@@ -5512,6 +5525,9 @@ test_101a() {
 	local nreads=10000
 	[ "$CPU" = "UML" ] && nreads=1000
 	local cache_limit=32
+
+	export CACHE_MAX=$($LCTL get_param -n llite.*.max_cached_mb |
+		awk '/^max_cached_mb/ { print $2 }')
 
 	$LCTL set_param -n osc.*-osc*.rpc_stats 0
 	trap cleanup_101a EXIT
@@ -10559,9 +10575,15 @@ test_900() {
 }
 run_test 900 "umount should not race with any mgc requeue thread"
 
-complete $SECONDS
-check_and_cleanup_lustre
+#complete $SECONDS
+#check_and_cleanup_lustre
+tf_finale() {
 if [ "$I_MOUNTED" != "yes" ]; then
 	lctl set_param debug="$OLDDEBUG" 2> /dev/null || true
 fi
-exit_status
+
+}
+
+tf_dance $@
+
+#exit_status
