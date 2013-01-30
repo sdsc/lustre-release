@@ -1118,11 +1118,11 @@ test_37() { # bug 18695
 }
 run_test 37 "check i_size is not updated for directory on close (bug 18695) =============="
 
-# this should be set to past
-TEST_39_MTIME=`date -d "1 year ago" +%s`
-
 # bug 11063
 test_39a() {
+	# this should be set to past
+	local TEST_39_MTIME=`date -d "1 year ago" +%s`
+
 	local client1=${CLIENT1:-`hostname`}
 	local client2=${CLIENT2:-`hostname`}
 
@@ -1155,6 +1155,9 @@ test_39a() {
 run_test 39a "test from 11063 =================================="
 
 test_39b() {
+	# this should be set to past
+	local TEST_39_MTIME=`date -d "1 year ago" +%s`
+	
 	local client1=${CLIENT1:-`hostname`}
 	local client2=${CLIENT2:-`hostname`}
 

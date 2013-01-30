@@ -108,6 +108,11 @@ STRIPECOUNT=$($LCTL get_param -n lov.$LOVNAME.stripecount)
 STRIPESIZE=$($LCTL get_param -n lov.$LOVNAME.stripesize)
 ORIGFREE=$($LCTL get_param -n lov.$LOVNAME.kbytesavail)
 MAXFREE=${MAXFREE:-$((200000 * $OSTCOUNT))}
+# this should be set to past
+TEST_39_MTIME=`date -d "1 year ago" +%s`
+# this should be set to future
+TEST_39_ATIME=`date -d "1 year" +%s`
+
 
 [ -f $DIR/d52a/foo ] && chattr -a $DIR/d52a/foo
 [ -f $DIR/d52b/foo ] && chattr -i $DIR/d52b/foo
@@ -2647,11 +2652,9 @@ test_39b() {
 }
 run_test 39b "mtime change on open, link, unlink, rename  ======"
 
-# this should be set to past
-TEST_39_MTIME=`date -d "1 year ago" +%s`
-
 # bug 11063
 test_39c() {
+
 	touch $DIR1/$tfile
 	sleep 2
 	local mtime0=`stat -c %Y $DIR1/$tfile`
@@ -2864,9 +2867,6 @@ test_39k() {
 	done
 }
 run_test 39k "write, utime, close, stat ========================"
-
-# this should be set to future
-TEST_39_ATIME=`date -d "1 year" +%s`
 
 test_39l() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
