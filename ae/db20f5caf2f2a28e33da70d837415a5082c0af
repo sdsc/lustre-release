@@ -1,0 +1,11 @@
+Verified+1: Hudson
+Code-Review+2: Oleg Drokin <green@whamcloud.com>
+Code-Review+1: Mike Pershin <mike.pershin@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review-1: Isaac Huang <he.huang@intel.com>
+Code-Review+1: Liang Zhen <liang.zhen@intel.com>
+Submitted-by: Oleg Drokin <green@whamcloud.com>
+Submitted-at: Wed, 30 Jan 2013 12:45:21 -0500
+Reviewed-on: http://review.whamcloud.com/4411
+Project: fs/lustre-release
+Branch: refs/heads/master
