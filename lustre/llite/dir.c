@@ -1120,6 +1120,9 @@ out_free:
 
                 RETURN(rc);
         }
+	case LL_IOC_LOV_SWAP_LAYOUTS: {
+		RETURN(-EPERM);
+	}
         case LL_IOC_OBD_STATFS:
                 RETURN(ll_obd_statfs(inode, (void *)arg));
         case LL_IOC_LOV_GETSTRIPE:
