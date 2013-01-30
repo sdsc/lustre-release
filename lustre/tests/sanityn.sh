@@ -2,12 +2,14 @@
 
 set -e
 
-ONLY=${ONLY:-"$*"}
+. tf-suite
+
+tf_setup(){
 # bug number for skipped test: 3192 LU-1205 15528/3811 9977 15528/11549 18080
 ALWAYS_EXCEPT="                14b  18c     19         28   29          35    $SANITYN_EXCEPT"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
-SRCDIR=$(dirname $0)
+SRCDIR=$LUSTRE
 PATH=$PWD/$SRCDIR:$SRCDIR:$SRCDIR/../utils:$PATH
 
 SIZE=${SIZE:-40960}
@@ -21,16 +23,6 @@ CHECK_GRANT=${CHECK_GRANT:-"yes"}
 GRANT_CHECK_LIST=${GRANT_CHECK_LIST:-""}
 
 SAVE_PWD=$PWD
-
-export NAME=${NAME:-local}
-
-LUSTRE=${LUSTRE:-`dirname $0`/..}
-. $LUSTRE/tests/test-framework.sh
-CLEANUP=${CLEANUP:-:}
-SETUP=${SETUP:-:}
-init_test_env $@
-. ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
-init_logging
 
 if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
 # bug number for skipped test:        LU-2189 LU-2776
@@ -46,26 +38,20 @@ FAIL_ON_ERROR=false
 SETUP=${SETUP:-:}
 TRACE=${TRACE:-""}
 
-check_and_setup_lustre
-
 LOVNAME=$($LCTL get_param -n llite.*.lov.common_name | tail -n 1)
 OSTCOUNT=$($LCTL get_param -n lov.$LOVNAME.numobd)
 
-assert_DIR
 rm -rf $DIR1/[df][0-9]* $DIR1/lnk $DIR/[df].${TESTSUITE}*
 
-SAMPLE_FILE=$TMP/$(basename $0 .sh).junk
-dd if=/dev/urandom of=$SAMPLE_FILE bs=1M count=1
-
 # $RUNAS_ID may get set incorrectly somewhere else
-[ $UID -eq 0 -a $RUNAS_ID -eq 0 ] && error "\$RUNAS_ID set to 0, but \$UID is also 0!"
+	[ $UID -eq 0 -a $RUNAS_ID -eq 0 ] &&
+		error "\$RUNAS_ID set to 0, but \$UID is also 0!"
 
 check_runas_id $RUNAS_ID $RUNAS_GID $RUNAS
 
-build_test_filter
-
 mkdir -p $MOUNT2
 mount_client $MOUNT2
+}
 
 test_1a() {
 	touch $DIR1/f1
@@ -400,6 +386,15 @@ test_16() {
 	fsx -c 50 -p $FSXP -N $FSXNUM -l $((SIZE * 256)) -S 0 $file1 $file2
 }
 run_test 16 "$FSXNUM iterations of dual-mount fsx"
+
+test_17_setup() {
+	SAMPLE_FILE=$TMP/$tfile.junk
+	dd if=/dev/urandom of=$SAMPLE_FILE bs=1M count=1
+}
+
+test_17_cleanup() {
+	unlink $SAMPLE_FILE
+}
 
 test_17() { # bug 3513, 3667
 	remote_ost_nodsh && skip "remote OST with nodsh" && return
@@ -1150,8 +1145,10 @@ test_37() { # bug 18695
 }
 run_test 37 "check i_size is not updated for directory on close (bug 18695) =============="
 
-# this should be set to past
-TEST_39_MTIME=`date -d "1 year ago" +%s`
+test_39_setup() {
+	# this should be set to past
+	TEST_39_MTIME=$(date -d "1 year ago" +%s)
+}
 
 # bug 11063
 test_39a() {
@@ -3435,11 +3432,12 @@ test_91() {
 }
 run_test 91 "chmod and unlink striped directory"
 
-log "cleanup: ======================================================"
+tf_cleanup () {
+	log "cleanup: ======================================================"
+	[ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2
+	rm -f $SAMPLE_FILE
+}
 
-[ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2
+tf_run $@
 
-complete $SECONDS
-rm -f $SAMPLE_FILE
-check_and_cleanup_lustre
-exit_status
+

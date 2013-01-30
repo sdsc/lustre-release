@@ -1,0 +1,6 @@
+#!/bin/bash
+LUSTRE=${LUSTRE:-$(cd $(dirname $BASH_SOURCE)/..; echo $PWD)}
+export PATH=$LUSTRE/tests:$PATH
+suite=$1
+shift
+bash $LUSTRE/tests/$suite.sh $*

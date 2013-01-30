@@ -181,14 +181,14 @@ title() {
 }
 
 doit() {
-    if $dry_run; then
-        printf "Would have run: %s\n" "$*"
-        return 0
-    fi
-    if $verbose; then
-        printf "Running: %s\n" "$*"
-    fi
-    "$@"
+	if $dry_run; then
+		printf "Would have run: %s\n" "$*"
+		return 0
+	fi
+	if $verbose; then
+		printf "Running: %s\n" "$*"
+	fi
+	PATH=$LUSTRE/tests:$PATH "$@"
 }
 
 
