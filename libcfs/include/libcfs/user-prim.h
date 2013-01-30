@@ -78,6 +78,32 @@ typedef struct proc_dir_entry           cfs_proc_dir_entry_t;
 #else
 # define cfs_num_present_cpus() num_present_cpus()
 #endif
+#ifndef get_cpu
+# define cfs_get_cpu() 0
+#else
+# define cfs_get_cpu() get_cpu()
+#endif
+#ifndef put_cpu
+# define cfs_put_cpu() do {} while (0)
+#else
+# define cfs_put_cpu() put_cpu()
+#endif
+#ifndef NR_CPUS
+# define CFS_NR_CPUS 1
+#else
+# define CFS_NR_CPUS NR_CPUS
+#endif
+#ifndef for_each_possible_cpu
+# define cfs_for_each_possible_cpu(cpu) for ((cpu) = 0; (cpu) < 1; (cpu)++)
+#else
+# define cfs_for_each_possible_cpu(cpu) for_each_possible_cpu(cpu)
+#endif
+#ifndef on_each_cpu
+# define cfs_on_each_cpu(func,info,wait) ({ func(info); 0; })
+#else
+# define cfs_on_each_cpu(func,info,wait) on_each_cpu((func),(info),(wait))
+#endif
+
 /*
  * Wait Queue.
  */
