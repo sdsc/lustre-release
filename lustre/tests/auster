@@ -188,7 +188,7 @@ doit() {
     if $verbose; then
         printf "Running: %s\n" "$*"
     fi
-    "$@"
+    PATH=$LUSTRE/tests:$PATH "$@"
 }
 
 
