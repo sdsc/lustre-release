@@ -340,6 +340,7 @@ static inline void sg_set_page(struct scatterlist *sg, struct page *page,
 #endif
 
 #define cfs_smp_processor_id()  smp_processor_id()
+#define cfs_on_each_cpu(func,info,wait) on_each_cpu((func),(info),(wait))
 
 #ifndef get_cpu
 # ifdef CONFIG_PREEMPT

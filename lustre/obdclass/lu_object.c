@@ -1467,13 +1467,13 @@ static CFS_LIST_HEAD(lu_context_remembered);
 void lu_context_key_quiesce(struct lu_context_key *key)
 {
         struct lu_context *ctx;
-        extern unsigned cl_env_cache_purge(unsigned nr);
+        extern void cl_env_cache_purge_all(void);
 
         if (!(key->lct_tags & LCT_QUIESCENT)) {
                 /*
                  * XXX layering violation.
                  */
-                cl_env_cache_purge(~0);
+                cl_env_cache_purge_all();
                 key->lct_tags |= LCT_QUIESCENT;
                 /*
                  * XXX memory barrier has to go here.
