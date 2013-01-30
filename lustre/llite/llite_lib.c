@@ -145,6 +145,14 @@ static struct ll_sb_info *ll_init_sbi(void)
         atomic_set(&sbi->ll_sa_total, 0);
         atomic_set(&sbi->ll_sa_wrong, 0);
 
+	/* root squash */
+	sbi->ll_squash_uid = 0;
+	sbi->ll_squash_gid = 0;
+	CFS_INIT_LIST_HEAD(&sbi->ll_nosquash_nids);
+	sbi->ll_nosquash_str = NULL;
+	sbi->ll_nosquash_strlen = 0;
+	init_rwsem(&sbi->ll_squash_sem);
+
         RETURN(sbi);
 }
 

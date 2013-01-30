@@ -49,6 +49,8 @@
 #include <lustre_mdc.h>
 #include <linux/pagemap.h>
 #include <linux/file.h>
+#include <linux/cred.h>
+#include <linux/capability.h>
 #include "llite_internal.h"
 #include <lustre/ll_fiemap.h>
 
@@ -2441,6 +2443,68 @@ int lustre_check_acl(struct inode *inode, int mask)
 #endif
 }
 
+static int match_nosquash_list(cfs_rw_semaphore_t *sem,
+			       cfs_list_t *nidlist,
+			       lnet_nid_t nid)
+{
+	int rc;
+	ENTRY;
+	cfs_down_read(sem);
+	rc = cfs_match_nid(nid, nidlist);
+	cfs_up_read(sem);
+	RETURN(rc);
+}
+
+
+/* process root_squash from llite configuration */
+static int ll_root_squash(struct ll_sb_info *sbi)
+{
+	struct cred *new;
+	lnet_nid_t nid = LNET_NID_ANY;
+	ENTRY;
+
+	if (!sbi->ll_squash_uid || cfs_curproc_fsuid())
+		RETURN(0);
+
+	if (sbi->ll_md_exp && sbi->ll_md_exp->exp_connection)
+		nid = sbi->ll_md_exp->exp_connection->c_self;
+
+	if (nid != LNET_NID_ANY &&
+	    match_nosquash_list(&sbi->ll_squash_sem,
+				&sbi->ll_nosquash_nids,
+				nid)) {
+		CDEBUG(D_OTHER, "%s is in nosquash_nids list\n",
+		       libcfs_nid2str(nid));
+		RETURN(0);
+	}
+
+	CDEBUG(D_OTHER, "squash req from %s, (%d:%d)=>(%d:%d)\n",
+	       libcfs_nid2str(nid),
+	       cfs_curproc_fsuid(), cfs_curproc_fsgid(),
+	       sbi->ll_squash_uid, sbi->ll_squash_gid);
+
+	validate_process_creds();
+
+	/* discard any old override before preparing the new set */
+	revert_creds(get_cred(current->real_cred));
+
+	/* copy current process's credentials */
+	new = prepare_creds();
+	if (!new)
+		RETURN(-ENOMEM);
+
+	new->fsuid = sbi->ll_squash_uid;
+	new->fsgid = sbi->ll_squash_gid;
+	new->cap_effective = cap_drop_nfsd_set(new->cap_effective);
+
+	/* override current process's subjective credentials */
+	put_cred(override_creds(new));
+	put_cred(new);
+	validate_process_creds();
+
+	RETURN(0);
+}
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,10))
 #ifndef HAVE_INODE_PERMISION_2ARGS
 int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd)
@@ -2465,6 +2529,10 @@ int ll_inode_permission(struct inode *inode, int mask)
 
         CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p), inode mode %x mask %o\n",
                inode->i_ino, inode->i_generation, inode, inode->i_mode, mask);
+
+	rc = ll_root_squash(ll_i2sbi(inode));
+	if (rc)
+		RETURN(rc);
 
         if (ll_i2sbi(inode)->ll_flags & LL_SBI_RMT_CLIENT)
                 return lustre_check_remote_perm(inode, mask);
