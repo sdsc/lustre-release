@@ -9,6 +9,7 @@ export EJOURNAL=${EJOURNAL:-""}
 export REFORMAT=${REFORMAT:-""}
 export WRITECONF=${WRITECONF:-""}
 export VERBOSE=${VERBOSE:-false}
+export ENLIST=${ENLIST:-false}
 export CATASTROPHE=${CATASTROPHE:-/proc/sys/lnet/catastrophe}
 export GSS=false
 export GSS_KRB5=false
@@ -300,8 +301,9 @@ init_test_env() {
 
     # command line
 
-    while getopts "rvwf:" opt $*; do
+    while getopts "rvwlf:" opt $*; do
         case $opt in
+            l) export ENLIST=true;;
             f) CONFIG=$OPTARG;;
             r) REFORMAT=--reformat;;
             v) VERBOSE=true;;
@@ -346,6 +348,7 @@ export LINUX_VERSION=$(uname -r | sed -e "s/[-.]/ /3" -e "s/ .*//")
 export LINUX_VERSION_CODE=$(version_code ${LINUX_VERSION//\./ })
 
 module_loaded () {
+	log_trace_dump
    /sbin/lsmod | grep -q "^\<$1\>"
 }
 
@@ -4067,6 +4070,69 @@ export ALWAYS_SKIPPED=
 # run or not run.  These need to be documented...
 #
 run_test() {
+	# This is workarround to allow old fasion script to execute.
+	# Should be removed after refactoring of all scripts
+	if [[ "$TF_VERSION" == "2" ]] ; then
+		tf_add "$1" "$2"
+	else
+		$ENLIST && { echo $1 ; return; }
+		_tf_run "$1" "$2"
+	fi
+}
+
+tf_add() {
+	export PLAYLIST="$PLAYLIST
+$1:$2"
+}
+
+_tf_play() {
+	local name=${1%%:*}
+	local desc=${1#*:}
+
+	_tf_run "$name" "$desc"
+}
+
+
+_tf_init() {
+	init_test_env $@
+	
+	return
+}
+
+_tf_print_list() {
+	local list
+	local IFS=$'\n'
+	for i in $PLAYLIST; do
+		local name="${i%%:*}"
+		list="$list $name"
+	done
+	echo ${list# }
+}
+
+tf_dance() {
+	_tf_init $@
+
+	if $ENLIST; then
+		_tf_print_list
+		return
+	fi
+
+	[[ "$(type -t tf_prelude)" == "function" ]] && tf_prelude
+
+	# Test selection logic can be different
+	local IFS=$'\n'
+	for $t in $PLAYLIST; do
+		_tf_play $t
+	done
+
+	[[ "$(type -t tf_finale)" == "function" ]] && tf_finale
+
+	complete $SECONDS
+	check_and_cleanup_lustre
+	exit_status
+}
+
+_tf_run() {
     assert_DIR
 
     export base=`basetest $1`
@@ -4220,7 +4286,21 @@ run_one() {
     umask 0022
 
     banner "test $testnum: $message"
-    test_${testnum} || error "test_$testnum failed with $?"
+
+	[[ "$(type -t tf_prelude_${base})" == "function" ]] && \
+		tf_prelude_${base}
+
+	[[ "$(type -t tf_prelude_${testnum})" == "function" ]] && \
+		tf_prelude_${testnum}
+
+	test_${testnum} || error "test_$testnum failed with $?"
+
+	[[ "$(type -t tf_finale_${testnum})" == "function" ]] && \
+		tf_finale_${testnum}
+
+	[[ "$(type -t tf_finale_${base})" == "function" ]] && \
+		tf_finale_${base}
+
     cd $SAVE_PWD
     reset_fail_loc
     check_grant ${testnum} || error "check_grant $testnum failed with $?"
@@ -5638,7 +5718,6 @@ init_logging() {
     export YAML_LOG=${LOGDIR}/results.yml
     mkdir -p $LOGDIR
     init_clients_lists
-
     if [ ! -f $YAML_LOG ]; then       # If the yaml log already exists then we will just append to it
       if check_shared_dir $LOGDIR; then
           touch $LOGDIR/shared
