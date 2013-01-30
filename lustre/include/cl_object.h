@@ -3263,7 +3263,11 @@ void          *cl_env_reenter    (void);
 void           cl_env_reexit     (void *cookie);
 void           cl_env_implant    (struct lu_env *env, int *refcheck);
 void           cl_env_unplant    (struct lu_env *env, int *refcheck);
-unsigned       cl_env_cache_purge(unsigned nr);
+struct lu_env *cl_env_percpu_get (int *cpu);
+void           cl_env_percpu_put (struct lu_env *env, int cpu);
+struct lu_env *cl_env_percpu_nested_get(struct cl_env_nest *nest, int *cpu);
+void           cl_env_percpu_nested_put(struct cl_env_nest *nest,
+					struct lu_env *env, int cpu);
 
 /** @} cl_env */
 
