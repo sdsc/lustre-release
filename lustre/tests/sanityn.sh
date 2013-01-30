@@ -2,7 +2,9 @@
 
 set -e
 
-ONLY=${ONLY:-"$*"}
+. tf-suite
+
+tf_setup(){
 # bug number for skipped test: 3192 LU-1205 15528/3811 16929 9977 15528/11549 18080
 ALWAYS_EXCEPT="                14b  18c     19         22    28   29          35    $SANITYN_EXCEPT"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
@@ -30,16 +32,6 @@ GRANT_CHECK_LIST=${GRANT_CHECK_LIST:-""}
 
 SAVE_PWD=$PWD
 
-export NAME=${NAME:-local}
-
-LUSTRE=${LUSTRE:-`dirname $0`/..}
-. $LUSTRE/tests/test-framework.sh
-CLEANUP=${CLEANUP:-:}
-SETUP=${SETUP:-:}
-init_test_env $@
-. ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
-init_logging
-
 [ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
 # bug number for skipped test:        LU-2840 LU-2189 LU-2776
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 21      36      51a"
@@ -51,26 +43,20 @@ FAIL_ON_ERROR=false
 SETUP=${SETUP:-:}
 TRACE=${TRACE:-""}
 
-check_and_setup_lustre
-
 LOVNAME=$($LCTL get_param -n llite.*.lov.common_name | tail -n 1)
 OSTCOUNT=$($LCTL get_param -n lov.$LOVNAME.numobd)
 
-assert_DIR
 rm -rf $DIR1/[df][0-9]* $DIR1/lnk $DIR/[df].${TESTSUITE}*
 
-SAMPLE_FILE=$TMP/$(basename $0 .sh).junk
-dd if=/dev/urandom of=$SAMPLE_FILE bs=1M count=1
-
 # $RUNAS_ID may get set incorrectly somewhere else
-[ $UID -eq 0 -a $RUNAS_ID -eq 0 ] && error "\$RUNAS_ID set to 0, but \$UID is also 0!"
+	[ $UID -eq 0 -a $RUNAS_ID -eq 0 ] &&
+		error "\$RUNAS_ID set to 0, but \$UID is also 0!"
 
 check_runas_id $RUNAS_ID $RUNAS_GID $RUNAS
 
-build_test_filter
-
 mkdir -p $MOUNT2
 mount_client $MOUNT2
+}
 
 test_1a() {
 	touch $DIR1/f1
@@ -393,6 +379,15 @@ test_16() {
 	fsx -c 50 -p $FSXP -N $FSXNUM -l $((SIZE * 256)) -S 0 $file1 $file2
 }
 run_test 16 "$FSXNUM iterations of dual-mount fsx"
+
+test_17_setup() {
+	SAMPLE_FILE=$TMP/$tfile.junk
+	dd if=/dev/urandom of=$SAMPLE_FILE bs=1M count=1
+}
+
+test_17_cleanup() {
+	unlink $SAMPLE_FILE
+}
 
 test_17() { # bug 3513, 3667
 	remote_ost_nodsh && skip "remote OST with nodsh" && return
@@ -791,7 +786,7 @@ test_32b() { # bug 11270
 		"ldlm.namespaces.filter-*.contended_locks" >> $p
 	save_lustre_params $facets \
 		"ldlm.namespaces.filter-*.contention_seconds" >> $p
-	clear_osc_stats
+        clear_osc_stats
 
         # agressive lockless i/o settings
         for node in $(osts_nodes); do
@@ -907,7 +902,7 @@ test_33b() {
 	local param_file=$TMP/$tfile-params
 
 	save_lustre_params $(get_facets MDS) \
-		"mdt.*.commit_on_sharing" > $param_file
+				"mdt.*.commit_on_sharing" > $param_file
 
 	local COS
 	local jbdold
@@ -1130,11 +1125,11 @@ test_37() { # bug 18695
 }
 run_test 37 "check i_size is not updated for directory on close (bug 18695) =============="
 
-# this should be set to past
-TEST_39_MTIME=`date -d "1 year ago" +%s`
-
 # bug 11063
 test_39a() {
+	# this should be set to past
+	local TEST_39_MTIME=`date -d "1 year ago" +%s`
+
 	local client1=${CLIENT1:-`hostname`}
 	local client2=${CLIENT2:-`hostname`}
 
@@ -1167,6 +1162,9 @@ test_39a() {
 run_test 39a "test from 11063 =================================="
 
 test_39b() {
+	# this should be set to past
+	local TEST_39_MTIME=`date -d "1 year ago" +%s`
+
 	local client1=${CLIENT1:-`hostname`}
 	local client2=${CLIENT2:-`hostname`}
 
@@ -2464,10 +2462,10 @@ test_71() {
 }
 run_test 71 "correct file map just after write operation is finished"
 
-log "cleanup: ======================================================"
+tf_cleanup () {
+	log "cleanup: ======================================================"
+	[ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2
+}
 
-[ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2
+tf_run $@
 
-complete $SECONDS
-check_and_cleanup_lustre
-exit_status
