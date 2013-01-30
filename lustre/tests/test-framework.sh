@@ -9,6 +9,7 @@ export EJOURNAL=${EJOURNAL:-""}
 export REFORMAT=${REFORMAT:-""}
 export WRITECONF=${WRITECONF:-""}
 export VERBOSE=${VERBOSE:-false}
+export DISPLAYTESTLIST=${DISPLAYTESTLIST:-false}
 export CATASTROPHE=${CATASTROPHE:-/proc/sys/lnet/catastrophe}
 export GSS=false
 export GSS_KRB5=false
@@ -300,8 +301,9 @@ init_test_env() {
 
     # command line
 
-    while getopts "rvwf:" opt $*; do
+    while getopts "rvwlf:" opt $*; do
         case $opt in
+            l) export DISPLAYTESTLIST=true;;
             f) CONFIG=$OPTARG;;
             r) REFORMAT=--reformat;;
             v) VERBOSE=true;;
@@ -4067,6 +4069,95 @@ export ALWAYS_SKIPPED=
 # run or not run.  These need to be documented...
 #
 run_test() {
+	# This is workarround to allow old fasion script to execute.
+	# Should be removed after refactoring of all scripts
+	if [[ "$TF_VERSION" == "2" ]] ; then
+		tf_add "$1" "$2"
+	else
+		$DISPLAYTESTLIST && { echo $1 ; return; }
+		_tf_run "$1" "$2"
+	fi
+}
+
+tf_add() {
+	export TF_TESTLIST="$TF_TESTLIST
+$1:$2"
+}
+
+_tf_print_list() {
+	local list
+	local IFS=$'\n'
+	for i in $TF_TESTLIST; do
+		local name="${i%%:*}"
+		list="$list $name"
+	done
+	echo ${list# }
+}
+
+_tf_load_config() {
+	export NAME=${NAME:-local}
+	. ${CONFIG:=$LUSTRE/tests/cfg/${NAME}.sh}
+	# Todo: refactor following code to _tf_validate_parameters
+	DIR=${DIR:-$MOUNT}
+
+	# kyr: probably it is better move this to special parameter validation
+	#      function, believe this have to be checked after config loaded
+	assert_DIR
+}
+
+tf_run() {
+	init_test_env $@
+
+	if $DISPLAYTESTLIST; then
+		_tf_print_list
+		return
+	fi
+
+	_tf_load_config
+	
+	# kyr: This rudiment came from sanity.
+	#      I'm not sure why this is required, so I just bring it here
+	#      (Cleanup should go after configuration loaded)
+	if [ "$ONLY" == "cleanup" ]; then
+		# sh llmountcleanup.sh
+		cleanupall -f
+		exit 0
+	fi
+
+	init_logging
+
+	check_and_setup_lustre
+
+	# kyr: This rudiment came from sanity.
+	#      I'm not sure why this is required, so I just bring it here
+	if [ "${ONLY}" = "MOUNT" ] ; then
+		echo "Lustre is up, please go on"
+		exit
+	fi
+
+	[[ "$(type -t tf_setup)" == "function" ]] && tf_setup
+
+	# kyr: filters requires EXCEPT lists to be defined previously
+	build_test_filter
+
+	# Test selection logic can be different
+	local BIFS=$IFS
+	local IFS=$'\n'
+	for t in $TF_TESTLIST; do
+		local IFS=$BIFS
+		local name=${t%%:*}
+		local desc=${t#*:}
+		_tf_run "$name" "$desc"
+	done
+
+	[[ "$(type -t tf_cleanup)" == "function" ]] && tf_cleanup
+
+	complete $SECONDS
+	check_and_cleanup_lustre
+	exit_status
+}
+
+_tf_run() {
     assert_DIR
 
     export base=`basetest $1`
@@ -4220,7 +4311,23 @@ run_one() {
     umask 0022
 
     banner "test $testnum: $message"
-    test_${testnum} || error "test_$testnum failed with $?"
+
+	[[ "$(type -t test_${base}_setup)" == "function" ]] && \
+		test_${base}_setup
+
+	[[ "$testnum" != "$base" && \
+	   "$(type -t test_${testnum}_setup)" == "function" ]] && \
+			test_${testnum}_setup
+
+	test_${testnum} || error "test_$testnum failed with $?"
+
+	[[ "$testnum" != "$base" && \
+	   "$(type -t test_${testnum}_cleanup)" == "function" ]] && \
+		test_${testnum}_cleanup
+
+	[[ "$(type -t test_${base}_cleanup)" == "function" ]] && \
+		test_${base}_cleanup
+
     cd $SAVE_PWD
     reset_fail_loc
     check_grant ${testnum} || error "check_grant $testnum failed with $?"
@@ -5638,7 +5745,6 @@ init_logging() {
     export YAML_LOG=${LOGDIR}/results.yml
     mkdir -p $LOGDIR
     init_clients_lists
-
     if [ ! -f $YAML_LOG ]; then       # If the yaml log already exists then we will just append to it
       if check_shared_dir $LOGDIR; then
           touch $LOGDIR/shared
