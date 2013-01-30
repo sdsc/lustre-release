@@ -1864,6 +1864,7 @@ typedef enum {
 	MDS_HSM_REQUEST		= 58,
 	MDS_HSM_CT_REGISTER	= 59,
 	MDS_HSM_CT_UNREGISTER	= 60,
+	MDS_SWAP_LAYOUTS	= 61,
 	MDS_LAST_OPC
 } mds_cmd_t;
 
@@ -3339,5 +3340,15 @@ extern void lustre_swab_hsm_progress_kernel(struct hsm_progress_kernel *hpk);
 extern void lustre_swab_hsm_user_state(struct hsm_user_state *hus);
 extern void lustre_swab_hsm_user_item(struct hsm_user_item *hui);
 extern void lustre_swab_hsm_request(struct hsm_request *hr);
+
+/** layout swap request structure
+ * fid1 and fid2 are in mdt_body
+ */
+struct mdc_swap_layouts {
+	__u64		msl_flags;
+} __packed;
+
+void lustre_swab_swap_layouts(struct mdc_swap_layouts *msl);
+
 #endif
 /** @} lustreidl */

@@ -293,6 +293,15 @@ static const struct req_msg_field *mds_reint_setxattr_client[] = {
         &RMF_EADATA
 };
 
+static const struct req_msg_field *mdt_swap_layouts[] = {
+	&RMF_PTLRPC_BODY,
+	&RMF_MDT_BODY,
+	&RMF_SWAP_LAYOUTS,
+	&RMF_CAPA1,
+	&RMF_CAPA2,
+	&RMF_DLM_REQ
+};
+
 static const struct req_msg_field *obd_connect_client[] = {
         &RMF_PTLRPC_BODY,
         &RMF_TGTUUID,
@@ -667,6 +676,7 @@ static struct req_format *req_formats[] = {
 	&RQF_MDS_HSM_STATE_SET,
 	&RQF_MDS_HSM_ACTION,
 	&RQF_MDS_HSM_REQUEST,
+	&RQF_MDS_SWAP_LAYOUTS,
         &RQF_QC_CALLBACK,
         &RQF_OST_CONNECT,
         &RQF_OST_DISCONNECT,
@@ -1081,6 +1091,10 @@ struct req_msg_field RMF_MDS_HSM_REQUEST =
 		    lustre_swab_hsm_request, NULL);
 EXPORT_SYMBOL(RMF_MDS_HSM_REQUEST);
 
+struct req_msg_field RMF_SWAP_LAYOUTS =
+	DEFINE_MSGF("swap_layouts", 0, sizeof(struct  mdc_swap_layouts),
+		    lustre_swab_swap_layouts, NULL);
+EXPORT_SYMBOL(RMF_SWAP_LAYOUTS);
 /*
  * Request formats.
  */
@@ -1408,6 +1422,11 @@ EXPORT_SYMBOL(RQF_MDS_HSM_STATE_SET);
 struct req_format RQF_MDS_HSM_REQUEST =
 	DEFINE_REQ_FMT0("MDS_HSM_REQUEST", mdt_hsm_request, empty);
 EXPORT_SYMBOL(RQF_MDS_HSM_REQUEST);
+
+struct req_format RQF_MDS_SWAP_LAYOUTS =
+	DEFINE_REQ_FMT0("MDS_SWAP_LAYOUTS",
+			mdt_swap_layouts, empty);
+EXPORT_SYMBOL(RQF_MDS_SWAP_LAYOUTS);
 
 /* This is for split */
 struct req_format RQF_MDS_WRITEPAGE =

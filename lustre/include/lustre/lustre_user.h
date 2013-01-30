@@ -163,7 +163,8 @@ struct obd_statfs {
 #define LL_IOC_HSM_PROGRESS		_IOW('f', 216, struct hsm_user_request)
 #define LL_IOC_HSM_REQUEST		_IOW('f', 217, struct hsm_user_request)
 #define LL_IOC_DATA_VERSION		_IOR('f', 218, struct ioc_data_version)
-/*	219 is reserved for swap layouts */
+#define LL_IOC_LOV_SWAP_LAYOUTS		_IOW('f', 219, \
+						struct lustre_swap_layouts)
 #define LL_IOC_HSM_ACTION		_IOR('f', 220, \
 						struct hsm_current_action)
 /* see <lustre_lib.h> for ioctl numbers 221-232 */
@@ -529,6 +530,12 @@ struct if_quotactl {
         struct obd_dqblk        qc_dqblk;
         char                    obd_type[16];
         struct obd_uuid         obd_uuid;
+};
+
+struct lustre_swap_layouts {
+	__u64	sl_flags;
+	__u32	sl_fd;
+	__u32	sl_padding;
 };
 
 
