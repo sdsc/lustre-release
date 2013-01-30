@@ -261,11 +261,13 @@ struct obd_import {
                                   imp_no_lock_replay:1,   /* VBR: if gap was found then no lock replays */
                                   imp_vbr_failed:1,       /* recovery by versions was failed */
                                   imp_force_verify:1,     /* force an immidiate ping */
-                                  imp_pingable:1,         /* pingable */
-                                  imp_resend_replay:1,    /* resend for replay */
-                                  imp_no_pinger_recover:1,/* disable normal recovery, for test only. */
+				  imp_force_next_verify:1,/* force a scheduled ping */
+				  imp_pingable:1,	  /* pingable */
+				  imp_resend_replay:1,	  /* resend for replay */
+				  imp_no_pinger_recover:1,/* disable normal recovery, for test only. */
 				  imp_need_mne_swab:1,	  /* need IR MNE swab */
-                                  imp_force_reconnect:1;  /* import must be reconnected instead of chouse new connection */
+				  imp_force_reconnect:1,  /* import must be reconnected instead of chouse new connection */
+				  imp_suppress_pings:1;	  /* suppress keep-alive pings */
         __u32                     imp_connect_op;
         struct obd_connect_data   imp_connect_data;
         __u64                     imp_connect_flags_orig;

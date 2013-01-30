@@ -111,6 +111,10 @@ int ptlrpc_init_import(struct obd_import *imp)
 	imp->imp_generation++;
 	imp->imp_state =  LUSTRE_IMP_NEW;
 
+	if (suppress_pings &&
+	    strcmp(imp->imp_obd->obd_type->typ_name, LUSTRE_MGC_NAME) != 0)
+		imp->imp_suppress_pings = 1;
+
 	spin_unlock(&imp->imp_lock);
 
 	return 0;
