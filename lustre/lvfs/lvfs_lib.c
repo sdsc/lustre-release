@@ -81,9 +81,6 @@ void lprocfs_counter_add(struct lprocfs_stats *stats, int idx, long amount)
 	if (stats == NULL)
 		return;
 
-	LASSERT(ergo((stats->ls_flags & LPROCFS_STATS_FLAG_IRQ_SAFE) == 0,
-		     !cfs_in_interrupt()));
-
 	/* With per-client stats, statistics are allocated only for
 	 * single CPU area, so the smp_id should be 0 always. */
 	smp_id = lprocfs_stats_lock(stats, LPROCFS_GET_SMP_ID, &flags);
@@ -126,9 +123,6 @@ void lprocfs_counter_sub(struct lprocfs_stats *stats, int idx, long amount)
 
 	if (stats == NULL)
 		return;
-
-	LASSERT(ergo((stats->ls_flags & LPROCFS_STATS_FLAG_IRQ_SAFE) == 0,
-		     !cfs_in_interrupt()));
 
 	/* With per-client stats, statistics are allocated only for
 	 * single CPU area, so the smp_id should be 0 always. */
