@@ -10650,6 +10650,21 @@ test_230b() {
 }
 run_test 230b "nested remote directory should be failed"
 
+test_231() { # LU-2482
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+
+	#create a file with a release layout (stripe count = 0)
+	$MULTIOP $DIR/$tfile C0 || error "failed to create file w. released layout"
+
+	$GETSTRIPE $DIR/$tfile || error "failed to getstripe released file"
+	stripe_count=$($GETSTRIPE -c $DIR/$tfile) || error "getstripe failed"
+	[ $stripe_count -eq 0 ] || error "stripe count not 0 ($stripe_count)"
+
+	stat $DIR/$tfile || error "failed to stat released file"
+	rm $DIR/$tfile || error "failed to remove released file"
+}
+run_test 231 "getstripe/stat/rm work on released files (stripe count = 0)"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
