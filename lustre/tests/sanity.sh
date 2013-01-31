@@ -8244,6 +8244,26 @@ test_133e() {
 }
 run_test 133e "Verifying OST {read,write}_bytes nid stats ================="
 
+test_133f() {
+	# FIXME Remove fldb from excluded names.
+	# FIXME Remove req_history from excluded names.
+
+	# First without trusting modes.
+	find /proc/{fs/lustre,sys/{lnet,lustre}}/ \
+		\! -name fldb \
+		\! -name req_history \
+		\( -exec cat {} \; -o -true \) &> /dev/null
+
+	# Second verifying readability.
+	find /proc/{fs/lustre,sys/{lnet,lustre}}/ \
+		\! -name fldb \
+		\! -name req_history \
+		-type f \
+		-readable \
+		-exec cat {} \; > /dev/null || error "proc file read failed"
+}
+run_test 133f "Check for LBUGs/Oopses/unreadable files in /proc"
+
 test_140() { #bug-17379
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
         test_mkdir -p $DIR/$tdir || error "Creating dir $DIR/$tdir"
