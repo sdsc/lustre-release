@@ -595,6 +595,7 @@ struct cl_lock *cl_lock_peek(const struct lu_env *env, const struct cl_io *io,
         struct cl_object_header *head;
         struct cl_object        *obj;
         struct cl_lock          *lock;
+	int result;
 
         obj  = need->cld_obj;
         head = cl_object_header(obj);
@@ -619,8 +620,11 @@ struct cl_lock *cl_lock_peek(const struct lu_env *env, const struct cl_io *io,
 
 	cl_lock_hold_add(env, lock, scope, source);
 	cl_lock_user_add(env, lock);
-	if (lock->cll_state == CLS_CACHED)
-		cl_use_try(env, lock, 1);
+
+	if (lock->cll_state == CLS_CACHED) do {
+		result = cl_use_try(env, lock, 1);
+	} while (result == CLO_REPEAT);
+
 	if (lock->cll_state == CLS_HELD) {
 		cl_lock_mutex_put(env, lock);
 		cl_lock_lockdep_acquire(env, lock, 0);
