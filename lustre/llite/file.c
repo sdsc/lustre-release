@@ -2146,8 +2146,16 @@ loff_t ll_file_seek(struct file *file, loff_t offset, int origin)
 		eof = i_size_read(inode);
 	}
 
+#ifndef HAVE_FILE_LLSEEK_SIZE
 	retval = generic_file_llseek_size(file, offset, origin,
 					  ll_file_maxbytes(inode), eof);
+#elif defined(HAVE_FILE_LLSEEK_SIZE_5ARGS)
+	retval = generic_file_llseek_size(file, offset, origin,
+					  ll_file_maxbytes(inode), eof);
+#else
+	retval = generic_file_llseek_size(file, offset, origin,
+					  ll_file_maxbytes(inode));
+#endif
 	RETURN(retval);
 }
 
