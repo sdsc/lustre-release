@@ -83,6 +83,7 @@ static struct ll_sb_info *ll_init_sbi(void)
         struct sysinfo si;
         class_uuid_t uuid;
         int i;
+	lnet_process_id_t id;
         ENTRY;
 
         OBD_ALLOC(sbi, sizeof(*sbi));
@@ -144,6 +145,24 @@ static struct ll_sb_info *ll_init_sbi(void)
         /* sbi->ll_sa_max = LL_SA_RPC_DEF; */
         atomic_set(&sbi->ll_sa_total, 0);
         atomic_set(&sbi->ll_sa_wrong, 0);
+
+	/* root squash */
+	sbi->ll_squash_uid = 0;
+	sbi->ll_squash_gid = 0;
+	CFS_INIT_LIST_HEAD(&sbi->ll_nosquash_nids);
+	sbi->ll_nosquash_str = NULL;
+	sbi->ll_nosquash_strlen = 0;
+	init_rwsem(&sbi->ll_squash_sem);
+	sbi->ll_self_nid = LNET_NID_ANY;
+
+	/* get one of our nids */
+	i = 0;
+	while (LNetGetId(i++, &id) != -ENOENT) {
+		if (LNET_NETTYP(LNET_NIDNET(id.nid)) == LOLND)
+			continue;
+		sbi->ll_self_nid = id.nid;
+		break;
+	}
 
         RETURN(sbi);
 }
