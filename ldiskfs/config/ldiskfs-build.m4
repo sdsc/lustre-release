@@ -15,7 +15,7 @@ AC_DEFUN([LDISKFS_AC_LINUX_VERSION], [
 	AS_IF([test "${utsrelease}"], [
 		kernsrcver=$((echo "#include <$utsrelease>";
 		             echo "kernsrcver=UTS_RELEASE") |
-		             cpp -I ${LINUX_OBJ}/include |
+		             ${CPP} -I ${LINUX_OBJ}/include |
 		             grep "^kernsrcver=" | cut -d \" -f 2)
 
 		AS_IF([test -z "$kernsrcver"], [

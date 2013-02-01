@@ -64,7 +64,7 @@
  */
 #warn remove kernel include
 #else
-#include <linux/fs.h>
+//#include <linux/fs.h>
 #endif
 
 #define MAXOPT 4096
