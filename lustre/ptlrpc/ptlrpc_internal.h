@@ -94,26 +94,19 @@ void ptlrpc_lprocfs_do_request_stat (struct ptlrpc_request *req,
  */
 struct nrs_core {
 	/**
-	 * Protects nrs_core::nrs_heads, nrs_core::nrs_policies, serializes
-	 * external policy registration/unregistration, and NRS core lprocfs
-	 * operations.
+	 * Protects nrs_core::nrs_policies, serializes external policy
+	 * registration/unregistration, and NRS core lprocfs operations.
 	 */
 	struct mutex nrs_mutex;
 	/* XXX: This is just for liblustre. Remove the #if defined directive
 	 * when the * "cfs_" prefix is dropped from cfs_list_head. */
 #if defined (__linux__) && defined(__KERNEL__)
 	/**
-	 * List of all NRS heads on all service partitions of all services;
-	 * protected by nrs_core::nrs_mutex.
-	 */
-	struct list_head nrs_heads;
-	/**
 	 * List of all policy descriptors registered with NRS core; protected
 	 * by nrs_core::nrs_mutex.
 	 */
 	struct list_head nrs_policies;
 #else
-	struct cfs_list_head nrs_heads;
 	struct cfs_list_head nrs_policies;
 #endif
 
