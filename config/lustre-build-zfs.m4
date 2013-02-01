@@ -126,7 +126,7 @@ AC_DEFUN([LB_SPL], [
 		AS_IF([fgrep -q SPL_META_VERSION $splobj/spl_config.h], [
 			splver=$((echo "#include <spl_config.h>";
 			    echo "splver=SPL_META_VERSION-SPL_META_RELEASE") |
-			    cpp -I $splobj |
+			    ${CPP} -I $splobj |
 			    grep "^splver=" | tr -d \" | cut -d= -f2)
 		], [
 			splver="[Not found]"
@@ -232,7 +232,7 @@ AC_DEFUN([LB_ZFS], [
 		AS_IF([fgrep -q ZFS_META_VERSION $zfsobj/zfs_config.h], [
 			zfsver=$((echo "#include <zfs_config.h>";
 			    echo "zfsver=ZFS_META_VERSION-ZFS_META_RELEASE") |
-			    cpp -I $zfsobj |
+			    ${CPP} -I $zfsobj |
 			    grep "^zfsver=" | tr -d \" | cut -d= -f2)
 		],[
 			zfsver="[Not found]"
