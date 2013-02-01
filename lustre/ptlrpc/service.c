@@ -1691,12 +1691,14 @@ ptlrpc_server_request_get(struct ptlrpc_service_part *svcpt, int force)
 
 	if (ptlrpc_server_high_pending(svcpt, force)) {
 		req = ptlrpc_nrs_req_poll_nolock(svcpt, true);
+		LASSERT(req != NULL);
 		svcpt->scp_hreq_count++;
 		RETURN(req);
 	}
 
 	if (ptlrpc_server_normal_pending(svcpt, force)) {
 		req = ptlrpc_nrs_req_poll_nolock(svcpt, false);
+		LASSERT(req != NULL);
 		svcpt->scp_hreq_count = 0;
 		RETURN(req);
 	}
@@ -3159,7 +3161,7 @@ EXPORT_SYMBOL(ptlrpc_unregister_service);
  * to be shot, so it's intentionally non-aggressive. */
 int ptlrpc_svcpt_health_check(struct ptlrpc_service_part *svcpt)
 {
-	struct ptlrpc_request		*request;
+	struct ptlrpc_request		*request = NULL;
 	struct timeval			right_now;
 	long				timediff;
 
@@ -3172,9 +3174,11 @@ int ptlrpc_svcpt_health_check(struct ptlrpc_service_part *svcpt)
 	}
 
         /* How long has the next entry been waiting? */
-	request = ptlrpc_nrs_req_poll_nolock(svcpt, true);
+	if (nrs_svcpt_has_hp(svcpt))
+		request = ptlrpc_nrs_req_poll_nolock(svcpt, true);
 	if (request == NULL)
 		request = ptlrpc_nrs_req_poll_nolock(svcpt, false);
+	LASSERT(request != NULL);
 
 	timediff = cfs_timeval_sub(&right_now, &request->rq_arrival_time, NULL);
 	spin_unlock(&svcpt->scp_req_lock);
