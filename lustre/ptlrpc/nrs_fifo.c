@@ -77,8 +77,7 @@
  * \see nrs_policy_register()
  * \see nrs_policy_ctl()
  */
-static int
-nrs_fifo_start(struct ptlrpc_nrs_policy *policy)
+static int nrs_fifo_start(struct ptlrpc_nrs_policy *policy)
 {
 	struct nrs_fifo_head *head;
 
@@ -100,8 +99,7 @@ nrs_fifo_start(struct ptlrpc_nrs_policy *policy)
  *
  * \see nrs_policy_stop0()
  */
-static void
-nrs_fifo_stop(struct ptlrpc_nrs_policy *policy)
+static void nrs_fifo_stop(struct ptlrpc_nrs_policy *policy)
 {
 	struct nrs_fifo_head *head = policy->pol_private;
 
@@ -129,11 +127,10 @@ nrs_fifo_stop(struct ptlrpc_nrs_policy *policy)
  *
  * \see nrs_resource_get_safe()
  */
-static int
-nrs_fifo_res_get(struct ptlrpc_nrs_policy *policy,
-		 struct ptlrpc_nrs_request *nrq,
-		 struct ptlrpc_nrs_resource *parent,
-		 struct ptlrpc_nrs_resource **resp, bool moving_req)
+static int nrs_fifo_res_get(struct ptlrpc_nrs_policy *policy,
+			    struct ptlrpc_nrs_request *nrq,
+			    const struct ptlrpc_nrs_resource *parent,
+			    struct ptlrpc_nrs_resource **resp, bool moving_req)
 {
 	/**
 	 * Just return the resource embedded inside nrs_fifo_head, and end this
@@ -152,8 +149,8 @@ nrs_fifo_res_get(struct ptlrpc_nrs_policy *policy,
  *	   queue
  * \see ptlrpc_nrs_req_poll_nolock()
  */
-static struct ptlrpc_nrs_request *
-nrs_fifo_req_poll(struct ptlrpc_nrs_policy *policy)
+static
+struct ptlrpc_nrs_request * nrs_fifo_req_poll(struct ptlrpc_nrs_policy *policy)
 {
 	struct nrs_fifo_head *head = policy->pol_private;
 
@@ -173,9 +170,8 @@ nrs_fifo_req_poll(struct ptlrpc_nrs_policy *policy)
  * \retval 0 success; nrs_request_enqueue() assumes this function will always
  *		      succeed
  */
-static int
-nrs_fifo_req_add(struct ptlrpc_nrs_policy *policy,
-		 struct ptlrpc_nrs_request *nrq)
+static int nrs_fifo_req_add(struct ptlrpc_nrs_policy *policy,
+			    struct ptlrpc_nrs_request *nrq)
 {
 	struct nrs_fifo_head *head;
 
@@ -196,9 +192,8 @@ nrs_fifo_req_add(struct ptlrpc_nrs_policy *policy,
  * \param[in] policy The policy
  * \param[in] nrq    The request to remove
  */
-static void
-nrs_fifo_req_del(struct ptlrpc_nrs_policy *policy,
-		 struct ptlrpc_nrs_request *nrq)
+static void nrs_fifo_req_del(struct ptlrpc_nrs_policy *policy,
+			     struct ptlrpc_nrs_request *nrq)
 {
 	LASSERT(!cfs_list_empty(&nrq->nr_u.fifo.fr_list));
 	cfs_list_del_init(&nrq->nr_u.fifo.fr_list);
@@ -211,16 +206,15 @@ nrs_fifo_req_del(struct ptlrpc_nrs_policy *policy,
  * \param[in] policy The policy handling the request
  * \param[in] nrq    The request being handled
  */
-static void
-nrs_fifo_req_start(struct ptlrpc_nrs_policy *policy,
-		   struct ptlrpc_nrs_request *nrq)
+static void nrs_fifo_req_start(struct ptlrpc_nrs_policy *policy,
+			       struct ptlrpc_nrs_request *nrq)
 {
 	struct ptlrpc_request *req = container_of(nrq, struct ptlrpc_request,
 						  rq_nrq);
 
 	CDEBUG(D_RPCTRACE, "NRS start %s request from %s, seq: "LPU64"\n",
-	       nrs_request_policy(nrq)->pol_name, libcfs_id2str(req->rq_peer),
-	       nrq->nr_u.fifo.fr_sequence);
+	       nrs_request_policy(nrq)->pol_desc->pd_name,
+	       libcfs_id2str(req->rq_peer), nrq->nr_u.fifo.fr_sequence);
 }
 
 /**
@@ -233,16 +227,15 @@ nrs_fifo_req_start(struct ptlrpc_nrs_policy *policy,
  * \see ptlrpc_server_finish_request()
  * \see ptlrpc_nrs_req_stop_nolock()
  */
-static void
-nrs_fifo_req_stop(struct ptlrpc_nrs_policy *policy,
-		  struct ptlrpc_nrs_request *nrq)
+static void nrs_fifo_req_stop(struct ptlrpc_nrs_policy *policy,
+			      struct ptlrpc_nrs_request *nrq)
 {
 	struct ptlrpc_request *req = container_of(nrq, struct ptlrpc_request,
 						  rq_nrq);
 
 	CDEBUG(D_RPCTRACE, "NRS stop %s request from %s, seq: "LPU64"\n",
-	       nrs_request_policy(nrq)->pol_name, libcfs_id2str(req->rq_peer),
-	       nrq->nr_u.fifo.fr_sequence);
+	       nrs_request_policy(nrq)->pol_desc->pd_name,
+	       libcfs_id2str(req->rq_peer), nrq->nr_u.fifo.fr_sequence);
 }
 
 /**
