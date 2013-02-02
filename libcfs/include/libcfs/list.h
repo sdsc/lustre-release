@@ -572,6 +572,22 @@ static inline void cfs_hlist_add_after(cfs_hlist_node_t *n,
 	     pos = cfs_list_entry(pos->member.prev, typeof(*pos), member))
 #endif /* cfs_list_for_each_entry_reverse */
 
+#ifndef cfs_list_for_each_entry_safe_reverse
+/**
+ * Iterate backwards over a list of given type.
+ * \param pos        the type * to use as a loop counter.
+ * \param n          another type * to use as temporary storage
+ * \param head       the head for your list.
+ * \param member     the name of the list_struct within the struct.
+ */
+
+#define cfs_list_for_each_entry_safe_reverse(pos, n, head, member)	    \
+	for (pos = cfs_list_entry((head)->prev, typeof(*pos), member),	    \
+	     n = cfs_list_entry(pos->member.prev, typeof(*pos), member);    \
+	     &pos->member != (head);					    \
+	     pos = n, n = cfs_list_entry(n->member.prev, typeof(*n), member))
+#endif /* cfs_list_for_each_entry_safe_reverse */
+
 #ifndef cfs_list_for_each_entry_safe
 /**
  * Iterate over a list of given type safe against removal of list entry

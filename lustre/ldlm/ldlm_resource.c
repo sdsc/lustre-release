@@ -1388,7 +1388,7 @@ EXPORT_SYMBOL(ldlm_namespace_dump);
  */
 void ldlm_resource_dump(int level, struct ldlm_resource *res)
 {
-        struct ldlm_lock *lock;
+        struct ldlm_lock *lock, *tmp;
         unsigned int granted = 0;
 
         CLASSERT(RES_NAME_SIZE == 4);
@@ -1403,8 +1403,8 @@ void ldlm_resource_dump(int level, struct ldlm_resource *res)
 
         if (!cfs_list_empty(&res->lr_granted)) {
                 CDEBUG(level, "Granted locks (in reverse order):\n");
-                cfs_list_for_each_entry_reverse(lock, &res->lr_granted,
-                                                l_res_link) {
+		cfs_list_for_each_entry_safe_reverse(lock, tmp,&res->lr_granted,
+						     l_res_link) {
                         LDLM_DEBUG_LIMIT(level, lock, "###");
                         if (!(level & D_CANTMASK) &&
                             ++granted > ldlm_dump_granted_max) {
@@ -1416,12 +1416,14 @@ void ldlm_resource_dump(int level, struct ldlm_resource *res)
         }
         if (!cfs_list_empty(&res->lr_converting)) {
                 CDEBUG(level, "Converting locks:\n");
-                cfs_list_for_each_entry(lock, &res->lr_converting, l_res_link)
+		cfs_list_for_each_entry_safe(lock, tmp, &res->lr_converting,
+					     l_res_link)
                         LDLM_DEBUG_LIMIT(level, lock, "###");
         }
         if (!cfs_list_empty(&res->lr_waiting)) {
                 CDEBUG(level, "Waiting locks:\n");
-                cfs_list_for_each_entry(lock, &res->lr_waiting, l_res_link)
+		cfs_list_for_each_entry_safe(lock, tmp, &res->lr_waiting,
+					     l_res_link)
                         LDLM_DEBUG_LIMIT(level, lock, "###");
         }
 }
