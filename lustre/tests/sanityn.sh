@@ -2274,13 +2274,13 @@ test_51a() {
 	local filesize
 	local origfile=/etc/hosts
 
-	filesize=`stat -c %s $origfile`
+	filesize=$(stat -c %s $origfile)
 
 	# create an empty file
-	$MCREATE $DIR1/$tfile
+	$MCREATE $DIR1/$tfile || error "can't create $DIR1/$tfile"
 	# cache layout lock on both mount point
-	stat $DIR1/$tfile > /dev/null
-	stat $DIR2/$tfile > /dev/null
+	stat $DIR1/$tfile > /dev/null || error "stat $DIR1/$tfile failed"
+	stat $DIR2/$tfile > /dev/null || error "stat $DIR2/$tfile failed"
 
 	# open and sleep 2 seconds then read
 	$MULTIOP $DIR2/$tfile o_2r${filesize}c &
@@ -2288,11 +2288,12 @@ test_51a() {
 	sleep 1
 
 	# create the layout of testing file
-	dd if=$origfile of=$DIR1/$tfile conv=notrunc > /dev/null
+	dd if=$origfile of=$DIR1/$tfile conv=notrunc > /dev/null ||
+		error "dd $DIR1/$tfile failed"
 
 	# MULTIOP proc should be able to read enough bytes and exit
 	sleep 2
-	kill -0 $pid && error "multiop is still there"
+	kill -0 $pid 2> /dev/null && error "multiop is still there"
 	cmp $origfile $DIR2/$tfile || error "$MCREATE and $DIR2/$tfile differs"
 
 	rm -f $DIR1/$tfile
@@ -2306,7 +2307,7 @@ test_51b() {
 	local tmpfile=`mktemp`
 
 	# create an empty file
-	$MCREATE $DIR1/$tfile
+	$MCREATE $DIR1/$tfile || error "mcreate $DIR1/$tfile failed"
 
 	# delay glimpse so that layout has changed when glimpse finish
 #define OBD_FAIL_GLIMPSE_DELAY 0x1404
@@ -2316,10 +2317,11 @@ test_51b() {
 	sleep 1
 
 	# create layout of testing file
-	dd if=/dev/zero of=$DIR1/$tfile bs=1k count=1 conv=notrunc > /dev/null
+	dd if=/dev/zero of=$DIR1/$tfile count=1 conv=notrunc > /dev/null ||
+		error "dd $DIR1/$tfile failed"
 
 	wait $pid
-	local fsize=`cat $tmpfile`
+	local fsize=$(cat $tmpfile)
 
 	[ x$fsize = x1024 ] || error "file size is $fsize, should be 1024"
 
@@ -2329,7 +2331,7 @@ run_test 51b "layout lock: glimpse should be able to restart if layout changed"
 
 test_51c() {
 	# create an empty file
-	$MCREATE $DIR1/$tfile
+	$MCREATE $DIR1/$tfile || error "mcreate $DIR1/$tfile failed"
 
 #define OBD_FAIL_MDS_LL_BLOCK 0x172
 	$LCTL set_param fail_loc=0x172
@@ -2341,7 +2343,7 @@ test_51c() {
 	sleep 1
 
 	# get layout of this file should wait until dd is finished
-	local stripecnt=`$LFS getstripe -c $DIR2/$tfile`
+	local stripecnt=$($LFS getstripe -c $DIR2/$tfile)
 	[ $stripecnt -eq $OSTCOUNT ] || error "layout wrong"
 
 	rm -f $DIR1/$tfile
