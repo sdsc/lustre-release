@@ -2275,13 +2275,13 @@ test_51a() {
 	local filesize
 	local origfile=/etc/hosts
 
-	filesize=`stat -c %s $origfile`
+	filesize=$(stat -c %s $origfile)
 
 	# create an empty file
-	$MCREATE $DIR1/$tfile
+	$MCREATE $DIR1/$tfile || error "can't create $DIR1/$tfile"
 	# cache layout lock on both mount point
-	stat $DIR1/$tfile > /dev/null
-	stat $DIR2/$tfile > /dev/null
+	stat $DIR1/$tfile > /dev/null || error "stat $DIR1/$tfile failed"
+	stat $DIR2/$tfile > /dev/null || error "stat $DIR2/$tfile failed"
 
 	# open and sleep 2 seconds then read
 	$MULTIOP $DIR2/$tfile o_2r${filesize}c &
@@ -2289,11 +2289,12 @@ test_51a() {
 	sleep 1
 
 	# create the layout of testing file
-	dd if=$origfile of=$DIR1/$tfile conv=notrunc > /dev/null
+	dd if=$origfile of=$DIR1/$tfile conv=notrunc > /dev/null ||
+		error "dd $DIR1/$tfile failed"
 
 	# MULTIOP proc should be able to read enough bytes and exit
 	sleep 2
-	kill -0 $pid && error "multiop is still there"
+	kill -0 $pid 2> /dev/null && error "multiop is still there"
 	cmp $origfile $DIR2/$tfile || error "$MCREATE and $DIR2/$tfile differs"
 
 	rm -f $DIR1/$tfile
@@ -2307,7 +2308,7 @@ test_51b() {
 	local tmpfile=`mktemp`
 
 	# create an empty file
-	$MCREATE $DIR1/$tfile
+	$MCREATE $DIR1/$tfile || error "mcreate $DIR1/$tfile failed"
 
 	# delay glimpse so that layout has changed when glimpse finish
 #define OBD_FAIL_GLIMPSE_DELAY 0x1404
@@ -2317,10 +2318,11 @@ test_51b() {
 	sleep 1
 
 	# create layout of testing file
-	dd if=/dev/zero of=$DIR1/$tfile bs=1k count=1 conv=notrunc > /dev/null
+	dd if=/dev/zero of=$DIR1/$tfile bs=1k count=1 conv=notrunc >/dev/null ||
+		error "dd $DIR1/$tfile failed"
 
 	wait $pid
-	local fsize=`cat $tmpfile`
+	local fsize=$(cat $tmpfile)
 
 	[ x$fsize = x1024 ] || error "file size is $fsize, should be 1024"
 
@@ -2332,11 +2334,11 @@ test_51c() {
 	[ $OSTCOUNT -ge 2 ] || { skip "need at least 2 osts"; return; }
 
 	# set default layout to have 1 stripe
-	mkdir -p $DIR1/$tdir
+	mkdir $DIR1/$tdir
 	$LFS setstripe -c 1 $DIR1/$tdir
 
 	# create a file with empty layout
-	$MCREATE $DIR1/$tdir/$tfile
+	$MCREATE $DIR1/$tdir/$tfile || error "mcreate $DIR1/$tdir/$tfile failed"
 
 #define OBD_FAIL_MDS_LL_BLOCK 0x172
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x172
@@ -2349,8 +2351,9 @@ test_51c() {
 
 	# write something to the file, it should be blocked on fetching layout
 	dd if=/dev/zero of=$DIR2/$tdir/$tfile bs=1k count=1 conv=notrunc
-	local cnt=$($LFS getstripe -c $DIR2/$tdir/$tfile)
-	[ $cnt -eq $OSTCOUNT ] || error "have $cnt stripes, expected $OSTCOUNT"
+	local stripecnt=$($LFS getstripe -c $DIR2/$tfile)
+	[ $stripecnt -ge $((OSTCOUNT - $OSTCOUNT / 4)) ] ||
+		error "layout wrong: getstripe -c $stripecnt != $OSTCOUNT"
 
 	rm -fr $DIR1/$tdir
 }
