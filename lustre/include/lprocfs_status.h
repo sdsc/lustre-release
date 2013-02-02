@@ -547,55 +547,36 @@ extern struct rw_semaphore _lprocfs_lock;
  * isn't necessary anymore for lprocfs_generic_fops(e.g. lprocfs_fops_read).
  * see bug19706 for detailed information.
  */
-#ifndef HAVE_PROCFS_USERS
-
-#define LPROCFS_ENTRY()           do {  \
-        down_read(&_lprocfs_lock);      \
-} while(0)
-#define LPROCFS_EXIT()            do {  \
-        up_read(&_lprocfs_lock);        \
-} while(0)
-
-#else
-
+#ifdef HAVE_PROCFS_USERS /* added in 2.6.23 */
 #define LPROCFS_ENTRY()
 #define LPROCFS_EXIT()
-#endif
-
-#ifdef HAVE_PROCFS_DELETED
-
-#define LPROCFS_ENTRY_AND_CHECK(dp) do {        \
-        typecheck(struct proc_dir_entry *, dp); \
-        LPROCFS_ENTRY();                        \
-        if ((dp)->deleted) {                    \
-                LPROCFS_EXIT();                 \
-                return -ENODEV;                 \
-        }                                       \
-} while(0)
-#define LPROCFS_CHECK_DELETED(dp) ((dp)->deleted)
-
-#elif defined HAVE_PROCFS_USERS
-
-#define LPROCFS_CHECK_DELETED(dp) ({            \
-        int deleted = 0;                        \
-        spin_lock(&(dp)->pde_unload_lock);      \
-        if (dp->proc_fops == NULL)              \
-                deleted = 1;                    \
-        spin_unlock(&(dp)->pde_unload_lock);    \
-        deleted;                                \
-})
-
-#define LPROCFS_ENTRY_AND_CHECK(dp) do {        \
-        if (LPROCFS_CHECK_DELETED(dp))          \
-                return -ENODEV;                 \
-} while(0)
-
 #else
-
-#define LPROCFS_ENTRY_AND_CHECK(dp) \
-        LPROCFS_ENTRY();
-#define LPROCFS_CHECK_DELETED(dp) (0)
+#define LPROCFS_ENTRY() down_read(&_lprocfs_lock)
+#define LPROCFS_EXIT()  up_read(&_lprocfs_lock)
 #endif
+
+static inline int LPROCFS_ENTRY_AND_CHECK(struct proc_dir_entry *dp)
+{
+        int deleted = 0;
+
+#ifdef HAVE_PROCFS_USERS
+        spin_lock(&dp->pde_unload_lock);
+#endif
+        if (unlikely(dp->proc_fops == NULL))
+                deleted = 1;
+#ifdef HAVE_PROCFS_USERS
+        spin_unlock(&dp->pde_unload_lock);
+#endif
+        LPROCFS_ENTRY();
+        OBD_FAIL_TIMEOUT(OBD_FAIL_LPROC_REMOVE, 10);
+#if defined(HAVE_PROCFS_DELETED)
+        if (unlikely(dp->deleted)) {
+                LPROCFS_EXIT();
+                deleted = 1;
+        }
+#endif
+        return deleted;
+}
 
 #define LPROCFS_SRCH_ENTRY()      do {  \
         down_read(&_lprocfs_lock);      \
