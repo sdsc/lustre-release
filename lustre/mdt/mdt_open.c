@@ -577,7 +577,7 @@ static void mdt_empty_transno(struct mdt_thread_info *info, int rc)
 			struct obd_export *exp = req->rq_export;
 
 			CERROR("%s: replay trans "LPU64" NID %s: rc = %d\n",
-				mdt->mdt_md_dev.md_lu_dev.ld_obd->obd_name,
+				mdt_obd_name(mdt),
 				info->mti_transno,
 				libcfs_nid2str(exp->exp_connection->c_peer.nid),
 				rc);
@@ -612,7 +612,7 @@ static void mdt_empty_transno(struct mdt_thread_info *info, int rc)
 		 * be checked correctly by xid */
 		mutex_unlock(&ted->ted_lcd_lock);
 		CDEBUG(D_HA, "%s: transno = "LPU64" < last_transno = "LPU64"\n",
-			mdt->mdt_md_dev.md_lu_dev.ld_obd->obd_name,
+			mdt_obd_name(mdt),
 			info->mti_transno, lcd->lcd_last_transno);
 		RETURN_EXIT;
 	}
@@ -1280,7 +1280,7 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
 
 	if (mdt_object_remote(o)) {
 		CDEBUG(D_INFO, "%s: "DFID" is on remote MDT.\n",
-		       info->mti_mdt->mdt_md_dev.md_lu_dev.ld_obd->obd_name,
+		       mdt_obd_name(info->mti_mdt),
 		       PFID(rr->rr_fid2));
 		GOTO(out, rc = -EREMOTE);
 	} else if (!mdt_object_exists(o)) {
