@@ -535,6 +535,7 @@ out_write:
 	/* Update global index, no version bump needed */
 	ret = qmt_glb_write(env, th, lqe, 0, NULL);
 	if (ret) {
+		th->th_rollback = 1;
 		rc = ret;
 		/* restore initial quota settings */
 		qmt_restore(lqe, &qti->qti_restore);

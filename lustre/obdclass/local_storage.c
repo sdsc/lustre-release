@@ -367,8 +367,10 @@ struct dt_object *__local_file_create(const struct lu_env *env,
 	if (rc)
 		GOTO(destroy, rc);
 destroy:
-	if (rc)
+	if (rc != 0) {
+		th->th_rollback = 1;
 		dt_destroy(env, dto, th);
+	}
 unlock:
 	dt_write_unlock(env, dto);
 trans_stop:

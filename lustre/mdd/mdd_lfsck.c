@@ -747,6 +747,7 @@ static int mdd_lfsck_namespace_unlink(const struct lu_env *env,
 
 	rc = child->do_ops->do_ref_del(env, child, handle);
 	if (rc != 0) {
+		handle->th_rollback = 1;
 		lu_local_obj_fid(fid, LFSCK_NAMESPACE_OID);
 		rc = dt_insert(env, parent,
 			       (const struct dt_rec*)fid,
