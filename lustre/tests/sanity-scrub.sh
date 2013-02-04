@@ -17,10 +17,6 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 
-[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
-	skip "test OI scrub only for ldiskfs" && exit 0
-[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.2.90) ]] &&
-	skip "Need MDS version at least 2.2.90" && exit 0
 require_dsh_mds || exit 0
 
 SAVED_MDSSIZE=${MDSSIZE}
@@ -31,6 +27,14 @@ MDSSIZE=100000
 OSTSIZE=100000
 
 check_and_setup_lustre
+
+[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
+	skip "test OI scrub only for ldiskfs" && check_and_cleanup_lustre &&
+	exit 0
+[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.2.90) ]] &&
+	skip "Need MDS version at least 2.2.90" && check_and_cleanup_lustre &&
+	exit 0
+
 build_test_filter
 
 MDT_DEV="${FSNAME}-MDT0000"
@@ -567,8 +571,9 @@ test_9() {
 	# So the max speed may be (1024 + 100 * 10) / 10.
 	# And there may be time error, so the max speed may be more large.
 	local SPEED=$($SHOW_SCRUB | awk '/^average_speed/ { print $2 }')
-	[ $SPEED -gt 220 ] &&
-		error "(10) Unexpected speed $SPEED, should not more than 220"
+	# (1024 + 100 * (10 + 2)) / 10 * 1.1 = 244
+	[ $SPEED -gt 244 ] &&
+		error "(10) Unexpected speed $SPEED, should not more than 244"
 
 	# adjust speed limit
 	do_facet $SINGLEMDS \
@@ -576,11 +581,13 @@ test_9() {
 	sleep 10
 
 	SPEED=$($SHOW_SCRUB | awk '/^average_speed/ { print $2 }')
-	[ $SPEED -lt 220 ] &&
-		error "(11) Unexpected speed $SPEED, should not less than 220"
+	# (1024 + 100 * (10 - 2) + 300 * (10 - 2)) / 20 * 0.9 = 190
+	[ $SPEED -lt 190 ] &&
+		error "(11) Unexpected speed $SPEED, should not less than 190"
 
-	[ $SPEED -gt 300 ] &&
-		error "(12) Unexpected speed $SPEED, should not more than 300"
+	# (1024 + 100 * (10 + 2) + 300 * (10 + 2)) / 20 * 1.1 = 320
+	[ $SPEED -gt 320 ] &&
+		error "(12) Unexpected speed $SPEED, should not more than 320"
 
 	do_facet $SINGLEMDS \
 		$LCTL set_param -n mdd.${MDT_DEV}.lfsck_speed_limit 0
