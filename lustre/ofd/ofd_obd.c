@@ -567,7 +567,7 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 		ofd_info_init(env, exp);
 		oseq = ofd_seq_load(env, ofd,
 				    (obd_seq)exp->exp_filter_data.fed_group);
-		LASSERT(oseq != NULL);
+		LASSERT(oseq != NULL && !IS_ERR(oseq));
 		if (last_id) {
 			if (*vallen < sizeof(*last_id)) {
 				ofd_seq_put(env, oseq);
@@ -642,6 +642,8 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 		oseq = ofd_seq_load(&env, ofd, fid_seq(last_fid));
 		if (IS_ERR(oseq))
 			GOTO(out_fid, rc = PTR_ERR(oseq));
+		if (oseq == NULL)
+			GOTO(out_fid, rc = -ENOENT);
 
 		last_fid->f_seq = oseq->os_seq;
 		last_fid->f_oid = oseq->os_last_oid;
@@ -1173,8 +1175,8 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 	       seq, oa->o_id);
 
 	oseq = ofd_seq_load(env, ofd, seq);
-	if (oseq == NULL) {
-		CERROR("%s: Can't find oseq "LPX64"\n", ofd_name(ofd), seq);
+	if (oseq == NULL || IS_ERR(oseq)) {
+		CERROR("%s: Can't find oseq "LPX64": %ld\n", ofd_name(ofd), seq, PTR_ERR(oseq));
 		RETURN(-EINVAL);
 	}
 
