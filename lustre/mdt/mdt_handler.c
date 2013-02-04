@@ -4207,7 +4207,7 @@ static int mdt_connect_to_next(const struct lu_env *env, struct mdt_device *m,
 	obd = class_name2obd(next);
 	if (obd == NULL) {
 		CERROR("%s: can't locate next device: %s\n",
-		       m->mdt_md_dev.md_lu_dev.ld_obd->obd_name, next);
+		       mdt_obd_name(m), next);
 		GOTO(out, rc = -ENOTCONN);
 	}
 
@@ -4217,7 +4217,7 @@ static int mdt_connect_to_next(const struct lu_env *env, struct mdt_device *m,
 	rc = obd_connect(NULL, exp, obd, &obd->obd_uuid, data, NULL);
 	if (rc) {
 		CERROR("%s: cannot connect to next dev %s (%d)\n",
-		       m->mdt_md_dev.md_lu_dev.ld_obd->obd_name, next, rc);
+		       mdt_obd_name(m), next, rc);
 		GOTO(out, rc);
 	}
 
@@ -4333,7 +4333,7 @@ static int mdt_stack_init(const struct lu_env *env, struct mdt_device *mdt,
 
 	site = mdt->mdt_child_exp->exp_obd->obd_lu_dev->ld_site;
 	LASSERT(site);
-	LASSERT(mdt->mdt_md_dev.md_lu_dev.ld_site == NULL);
+	LASSERT(mdt_lu_site(mdt) == NULL);
 	mdt->mdt_md_dev.md_lu_dev.ld_site = site;
 	site->ls_top_dev = &mdt->mdt_md_dev.md_lu_dev;
 	mdt->mdt_child = lu2md_dev(mdt->mdt_child_exp->exp_obd->obd_lu_dev);
@@ -4567,16 +4567,16 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
         cfs_timer_disarm(&m->mdt_ck_timer);
         mdt_ck_thread_stop(m);
 
-        /*
-         * Finish the stack
-         */
-        mdt_stack_fini(env, m, md2lu_dev(m->mdt_child));
+	/*
+	 * Finish the stack
+	 */
+	mdt_stack_fini(env, m, md2lu_dev(m->mdt_child));
 
-        LASSERT(cfs_atomic_read(&d->ld_ref) == 0);
+	LASSERT(cfs_atomic_read(&d->ld_ref) == 0);
 
-	server_put_mount(mdt2obd_dev(m)->obd_name, NULL);
+	server_put_mount(mdt_obd_name(m), NULL);
 
-        EXIT;
+	EXIT;
 }
 
 static int mdt_adapt_sptlrpc_conf(struct obd_device *obd, int initial)
@@ -4691,7 +4691,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 		GOTO(err_lmi, rc);
 	}
 
-	s = m->mdt_md_dev.md_lu_dev.ld_site;
+	s = mdt_lu_site(m);
 	ss_site = &m->mdt_seq_site;
 	s->ld_seq_site = ss_site;
 	ss_site->ss_lu = s;
@@ -5156,7 +5156,7 @@ static int mdt_connect_internal(struct obd_export *exp,
 
 	if ((data->ocd_connect_flags & OBD_CONNECT_FID) == 0) {
 		CWARN("%s: MDS requires FID support, but client not\n",
-		      mdt->mdt_md_dev.md_lu_dev.ld_obd->obd_name);
+		      mdt_obd_name(mdt));
 		return -EBADE;
 	}
 
@@ -5165,7 +5165,7 @@ static int mdt_connect_internal(struct obd_export *exp,
 					 OBD_CONNECT_MDS_MDS |
 					 OBD_CONNECT_SOM))) {
 		CWARN("%s: MDS has SOM enabled, but client does not support "
-		      "it\n", mdt->mdt_md_dev.md_lu_dev.ld_obd->obd_name);
+		      "it\n", mdt_obd_name(mdt));
 		return -EBADE;
 	}
 
