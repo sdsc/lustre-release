@@ -2472,7 +2472,9 @@ void target_send_reply(struct ptlrpc_request *req, int rc, int fail_id)
         exp = class_export_get (req->rq_export);
 
         /* disable reply scheduling while I'm setting up */
+	spin_lock(&rs->rs_lock);
         rs->rs_scheduled = 1;
+	spin_unlock(&rs->rs_lock);
         rs->rs_on_net    = 1;
         rs->rs_xid       = req->rq_xid;
         rs->rs_transno   = req->rq_transno;
