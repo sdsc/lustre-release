@@ -3038,13 +3038,17 @@ ptlrpc_service_purge_all(struct ptlrpc_service *svc)
 
 			cfs_list_del(&req->rq_list);
 			svcpt->scp_nreqs_incoming--;
+			spin_lock(&svcpt->scp_req_lock);
 			svcpt->scp_nreqs_active++;
+			spin_unlock(&svcpt->scp_req_lock);
 			ptlrpc_server_finish_request(svcpt, req);
 		}
 
 		while (ptlrpc_server_request_pending(svcpt, true)) {
 			req = ptlrpc_server_request_get(svcpt, true);
+			spin_lock(&svcpt->scp_req_lock);
 			svcpt->scp_nreqs_active++;
+			spin_unlock(&svcpt->scp_req_lock);
 			ptlrpc_server_hpreq_fini(req);
 
 			if (req->rq_export != NULL)

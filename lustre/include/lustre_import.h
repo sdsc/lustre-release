@@ -318,7 +318,9 @@ static inline unsigned int at_timeout2est(unsigned int val)
 }
 
 static inline void at_reset(struct adaptive_timeout *at, int val) {
+	spin_lock(&at->at_lock);
         at->at_current = val;
+	spin_unlock(&at->at_lock);
         at->at_worst_ever = val;
         at->at_worst_time = cfs_time_current_sec();
 }
