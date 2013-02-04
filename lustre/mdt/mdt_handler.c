@@ -4117,7 +4117,7 @@ static int mdt_connect_to_next(const struct lu_env *env, struct mdt_device *m,
 	obd = class_name2obd(next);
 	if (obd == NULL) {
 		CERROR("%s: can't locate next device: %s\n",
-		       m->mdt_md_dev.md_lu_dev.ld_obd->obd_name, next);
+		       mdt_obd_name(m), next);
 		GOTO(out, rc = -ENOTCONN);
 	}
 
@@ -4127,7 +4127,7 @@ static int mdt_connect_to_next(const struct lu_env *env, struct mdt_device *m,
 	rc = obd_connect(NULL, exp, obd, &obd->obd_uuid, data, NULL);
 	if (rc) {
 		CERROR("%s: cannot connect to next dev %s (%d)\n",
-		       m->mdt_md_dev.md_lu_dev.ld_obd->obd_name, next, rc);
+		       mdt_obd_name(m), next, rc);
 		GOTO(out, rc);
 	}
 
@@ -5058,7 +5058,7 @@ static int mdt_connect_internal(struct obd_export *exp,
 
 	if ((data->ocd_connect_flags & OBD_CONNECT_FID) == 0) {
 		CWARN("%s: MDS requires FID support, but client not\n",
-		      mdt->mdt_md_dev.md_lu_dev.ld_obd->obd_name);
+		      mdt_obd_name(mdt));
 		return -EBADE;
 	}
 
@@ -5067,7 +5067,7 @@ static int mdt_connect_internal(struct obd_export *exp,
 					 OBD_CONNECT_MDS_MDS |
 					 OBD_CONNECT_SOM))) {
 		CWARN("%s: MDS has SOM enabled, but client does not support "
-		      "it\n", mdt->mdt_md_dev.md_lu_dev.ld_obd->obd_name);
+		      "it\n", mdt_obd_name(mdt));
 		return -EBADE;
 	}
 

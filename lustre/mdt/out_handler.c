@@ -74,7 +74,7 @@ static int out_tx_start(const struct lu_env *env, struct mdt_device *mdt,
 	th->ta_handle = dt_trans_create(env, dt);
 	if (IS_ERR(th->ta_handle)) {
 		CERROR("%s: start handle error: rc = %ld\n",
-		       mdt2obd_dev(mdt)->obd_name, PTR_ERR(th->ta_handle));
+		       mdt_obd_name(mdt), PTR_ERR(th->ta_handle));
 		return PTR_ERR(th->ta_handle);
 	}
 	th->ta_dev = dt;
