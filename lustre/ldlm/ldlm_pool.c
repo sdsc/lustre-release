@@ -518,8 +518,8 @@ static int ldlm_cli_pool_recalc(struct ldlm_pool *pl)
          * It may be called when SLV has changed much, this is why we do not
          * take into account pl->pl_recalc_time here.
          */
-        RETURN(ldlm_cancel_lru(ldlm_pl2ns(pl), 0, LDLM_SYNC, 
-                               LDLM_CANCEL_LRUR));
+	RETURN(ldlm_cancel_lru(ldlm_pl2ns(pl), 0, LCF_ASYNC,
+			       LDLM_CANCEL_LRUR));
 }
 
 /**
@@ -551,7 +551,7 @@ static int ldlm_cli_pool_shrink(struct ldlm_pool *pl,
 	spin_unlock(&ns->ns_lock);
 
         if (nr) {
-                canceled = ldlm_cancel_lru(ns, nr, LDLM_ASYNC,
+                canceled = ldlm_cancel_lru(ns, nr, LCF_ASYNC,
                                            LDLM_CANCEL_SHRINK);
         }
 #ifdef __KERNEL__
