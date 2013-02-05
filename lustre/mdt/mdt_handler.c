@@ -4770,10 +4770,11 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 {
 	struct md_device  *next;
 	struct lu_device  *d;
-        struct obd_device *obd = mdt2obd_dev(m);
+	struct obd_device *obd;
         ENTRY;
 
 	LASSERT(m != NULL);
+	obd = mdt2obd_dev(m);
 	next = m->mdt_child;
 	d = &m->mdt_md_dev.md_lu_dev;
 

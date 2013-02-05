@@ -87,10 +87,10 @@ struct mdt_file_data *mdt_handle2mfd(struct mdt_thread_info *info,
         LASSERT(handle != NULL);
         mfd = class_handle2object(handle->cookie);
         /* during dw/setattr replay the mfd can be found by old handle */
+	LASSERT(req != NULL);
         if (mfd == NULL && req_is_replay(req)) {
 		struct mdt_export_data *med;
 
-		LASSERT(req != NULL);
 		LASSERT(req->rq_export != NULL);
 		med = &req->rq_export->exp_mdt_data;
 		LASSERT(med != NULL);

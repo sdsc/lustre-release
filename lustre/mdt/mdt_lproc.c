@@ -1067,7 +1067,11 @@ struct lprocfs_vars lprocfs_mds_module_vars[] = {
 
 void mdt_counter_incr(struct ptlrpc_request *req, int opcode)
 {
-	struct obd_export *exp = req->rq_export;
+	struct obd_export *exp;
+
+	LASSERT(req != NULL);
+	exp = req->rq_export;
+	LASSERT(exp != NULL);
 
 	if (exp->exp_obd && exp->exp_obd->md_stats)
 		lprocfs_counter_incr(exp->exp_obd->md_stats, opcode);

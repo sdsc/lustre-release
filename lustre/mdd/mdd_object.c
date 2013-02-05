@@ -1341,14 +1341,13 @@ static int mdd_swap_layouts(const struct lu_env *env, struct md_object *obj1,
 	if (old_fst_lmm == NULL)
 		GOTO(unlock, rc = -ENOMEM);
 
-	memcpy(old_fst_lmm, fst_lmm, sizeof(*old_fst_lmm));
-
 	/* increase the generation layout numbers */
 	snd_gen++;
 	fst_gen++;
 
 	/* set the file specific informations in lmm */
 	if (fst_lmm) {
+		memcpy(old_fst_lmm, fst_lmm, sizeof(*old_fst_lmm));
 		fst_lmm->lmm_layout_gen = cpu_to_le16(snd_gen);
 		fst_lmm->lmm_object_seq = snd_lmm->lmm_object_seq;
 		fst_lmm->lmm_object_id = snd_lmm->lmm_object_id;
