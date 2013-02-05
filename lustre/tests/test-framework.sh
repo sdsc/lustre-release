@@ -3522,17 +3522,59 @@ generate_db() {
     done
 }
 
-run_lfsck() {
-    local cmd="$LFSCK_BIN -c -l --mdsdb $MDSDB --ostdb $OSTDB_LIST $MOUNT"
-    echo $cmd
-    local rc=0
-    eval $cmd || rc=$?
-    [ $rc -le $FSCK_MAX_ERR ] || \
-        error "$cmd returned $rc, should be <= $FSCK_MAX_ERR"
-    echo "lfsck finished with rc=$rc"
+# Run lfsck on server node if lfsck can't be found on client (LU-2571)
+# It will
+#   return 0, if the filesystem has no error
+#   return 1, if the filesystem has errors fixed
+#   return else <= $FSCK_MAX_ERR, if the filesystem has few errors unfixed
+run_lfsck_remote() {
+	local cmd="$LFSCK_BIN -c -l --mdsdb $MDSDB --ostdb $OSTDB_LIST $MOUNT"
+	local client=$1
+	local mounted=true
+	local rc=0
 
-    rm -rvf $MDSDB* $OSTDB* || true
-    return 0
+	#Check if lustre is already mounted
+	do_rpc_nodes $client is_mounted $MOUNT || mounted=false
+	if ! $mounted; then
+		zconf_mount $client $MOUNT ||
+			error "failed to mount Lustre on $client"
+	fi
+	#Run lfsck
+	echo $cmd
+	do_node $node $cmd || rc=$?
+	#Umount if necessary
+	if ! $mounted; then
+		zconf_umount $client $MOUNT ||
+			error "failed to unmount Lustre on $client"
+	fi
+
+	[ $rc -le $FSCK_MAX_ERR ] ||
+		error "$cmd returned $rc, should be <= $FSCK_MAX_ERR"
+	echo "lfsck finished with rc=$rc"
+
+	return $rc
+}
+
+run_lfsck() {
+	local facets="client $SINGLEMDS"
+	local notfound=$((FSCK_MAX_ERR + 1))
+	local facet
+	local node
+	local rc
+
+	for facet in $facets; do
+		rc=0
+		node=$(facet_active_host $facet)
+		if ! check_progs_installed $node $LFSCK_BIN; then
+			rc=$notfound
+			continue
+		fi
+		run_lfsck_remote $node || rc=$?
+	done
+	[ $rc -eq $notfound ] && error "None of \"$facets\" supports lfsck"
+
+	rm -rvf $MDSDB* $OSTDB* || true
+	return $rc
 }
 
 check_and_cleanup_lustre() {
