@@ -611,10 +611,14 @@ void mdt_fs_cleanup(const struct lu_env *env, struct mdt_device *mdt)
 static void mdt_steal_ack_locks(struct ptlrpc_request *req)
 {
 	struct ptlrpc_service_part *svcpt;
-        struct obd_export         *exp = req->rq_export;
+	struct obd_export         *exp;
         cfs_list_t                *tmp;
         struct ptlrpc_reply_state *oldrep;
         int                        i;
+
+	LASSERT(req != NULL);
+	exp = req->rq_export;
+	LASSERT(exp != NULL);
 
         /* CAVEAT EMPTOR: spinlock order */
 	spin_lock(&exp->exp_lock);
