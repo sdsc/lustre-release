@@ -1683,7 +1683,7 @@ int ldlm_bl_to_thread_lock(struct ldlm_namespace *ns, struct ldlm_lock_desc *ld,
                            struct ldlm_lock *lock)
 {
 #ifdef __KERNEL__
-        RETURN(ldlm_bl_to_thread(ns, ld, lock, NULL, 0, LDLM_ASYNC));
+        RETURN(ldlm_bl_to_thread(ns, ld, lock, NULL, 0, LDLM_SYNC));
 #else
         RETURN(-ENOSYS);
 #endif
