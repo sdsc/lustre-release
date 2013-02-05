@@ -2274,8 +2274,10 @@ static void osc_ap_completion(struct client_obd *cli, struct obdo *oa,
                 return;
         }
 
+        client_obd_list_unlock(&cli->cl_loi_list_lock);
         rc = oap->oap_caller_ops->ap_completion(oap->oap_caller_data,
                                                 oap->oap_cmd, oa, rc);
+        client_obd_list_lock(&cli->cl_loi_list_lock);
 
         /* ll_ap_completion (from llite) drops PG_locked. so, a new
          * I/O on the page could start, but OSC calls it under lock
