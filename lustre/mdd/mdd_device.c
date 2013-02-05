@@ -1099,6 +1099,7 @@ static int mdd_dot_lustre_setup(const struct lu_env *env, struct mdd_device *m)
         /* references are released in mdd_device_shutdown() */
         m->mdd_dot_lustre = lu2mdd_obj(lu_object_locate(dt_dot_lustre->do_lu.lo_header,
                                                         &mdd_device_type));
+	LASSERT(m->mdd_dot_lustre != NULL);
 
         m->mdd_dot_lustre->mod_obj.mo_dir_ops = &mdd_dot_lustre_dir_ops;
         m->mdd_dot_lustre->mod_obj.mo_ops = &mdd_dot_lustre_obj_ops;

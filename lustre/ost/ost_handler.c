@@ -317,7 +317,7 @@ static int ost_getattr(struct obd_export *exp, struct ptlrpc_request *req)
         oinfo->oi_oa = &repbody->oa;
         oinfo->oi_capa = capa;
 
-	LASSERT(req != NULL && req->rq_svc_thread != NULL);
+	LASSERT(req->rq_svc_thread != NULL);
         req->rq_status = obd_getattr(req->rq_svc_thread->t_env, exp, oinfo);
 
         OBD_FREE_PTR(oinfo);

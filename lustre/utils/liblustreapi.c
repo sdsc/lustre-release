@@ -807,7 +807,8 @@ int get_root_path(int want, char *fsname, int *outfd, char *path, int index)
                         rc = -EINVAL;
                         break;
                 }
-                ptr++;
+		if (ptr != NULL)
+			ptr++;
 
                 /* Check the fsname for a match, if given */
                 if (!(want & WANT_FSNAME) && fsname != NULL &&

@@ -2621,6 +2621,7 @@ static int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	int			fs_flags = 0;
 
         LASSERT(handle != NULL);
+	LASSERT(buf != NULL);
 
         /* version set is not real XATTR */
         if (strcmp(name, XATTR_NAME_VERSION) == 0) {
