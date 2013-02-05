@@ -807,6 +807,10 @@ int get_root_path(int want, char *fsname, int *outfd, char *path, int index)
                         rc = -EINVAL;
                         break;
                 }
+		/* thanks to the call to llapi_is_lustre_mnt() above,
+		 * we are sure that mnt.mnt_fsname contains ":/",
+		 * so ptr cannot be NULL */
+		/* coverity[dereference] */
                 ptr++;
 
                 /* Check the fsname for a match, if given */
