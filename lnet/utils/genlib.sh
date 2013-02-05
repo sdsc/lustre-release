@@ -2,9 +2,9 @@
 #set -xv
 set -e
 
-AR=/usr/bin/ar
-LD=/usr/bin/ld
-RANLIB=/usr/bin/ranlib
+AR=${CROSS_COMPILE:=/usr/bin/}ar
+LD=${CROSS_COMPILE:=/usr/bin/}ld
+RANLIB=${CROSS_COMPILE:=/usr/bin/}ranlib
 
 CWD=`pwd`
 

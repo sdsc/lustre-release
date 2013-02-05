@@ -11,15 +11,16 @@ set -e
 # FIXME: How to do this cleanly use makefile?
 #
 
-AR=/usr/bin/ar
+CC=${CROSS_COMPILE}gcc
+AR=${CROSS_COMPILE:=/usr/bin/}ar
 # see http://osdir.com/ml/gmane.comp.gnu.binutils.bugs/2006-01/msg00016.php
 ppc64_CPU=`uname -p`
 if [ "x${ppc64_CPU}" = "xppc64" ]; then
-  LD="gcc -m64"
+  LD="${CROSS_COMPILE}gcc -m64"
 else
-  LD="gcc"
+  LD=${CROSS_COMPILE}gcc
 fi
-RANLIB=/usr/bin/ranlib
+RANLIB=${CROSS_COMPILE:=/usr/bin/}ranlib
 
 CWD=`pwd`
 
