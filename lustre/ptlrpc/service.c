@@ -213,6 +213,8 @@ struct ptlrpc_hr_thread {
 	spinlock_t			hrt_lock;
 	cfs_waitq_t			hrt_waitq;
 	cfs_list_t			hrt_queue;	/* RS queue */
+	pid_t				hrt_pid;
+	struct lu_env			*hrt_env;
 	struct ptlrpc_hr_partition	*hrt_partition;
 };
 
@@ -2346,6 +2348,58 @@ ptlrpc_wait_event(struct ptlrpc_service_part *svcpt,
 	return 0;
 }
 
+
+struct lu_env* ptlrpc_lookup_thread_env()
+{
+	struct lu_env		*env = NULL;
+	struct ptlrpc_service	*svc;
+	struct ptlrpc_thread	*thread;
+	struct ptlrpc_service_part *svcpt;
+	struct ptlrpc_hr_partition *hrp;
+	pid_t	pid = cfs_curproc_pid();
+	int	i, j;
+
+	cfs_percpt_for_each(hrp, i, ptlrpc_hr.hr_partitions) {
+		/* uninitialized */
+		if (hrp->hrp_thrs == NULL)
+			continue;
+
+		for (j = 0; j < hrp->hrp_nthrs; j++) {
+			if (hrp->hrp_thrs[j].hrt_pid == pid)
+				return hrp->hrp_thrs[i].hrt_env;
+		}
+	}
+
+	mutex_lock(&ptlrpc_all_services_mutex);
+	cfs_list_for_each_entry(svc, &ptlrpc_all_services, srv_list) {
+		for (i = 0; i < svc->srv_ncpts; i++) {
+			svcpt = svc->srv_parts[i];
+
+			/* no runnig thread */
+			if (svcpt->scp_nthrs_running == 0)
+				continue;
+
+			spin_lock(&svcpt->scp_lock);
+			cfs_list_for_each_entry(thread, &svcpt->scp_threads,
+						t_link) {
+				if (thread->t_pid == pid) {
+					env = thread->t_env;
+					break;
+				}
+			}
+			spin_unlock(&svcpt->scp_lock);
+
+			if (env != NULL)
+				goto out;
+		}
+	}
+
+out:
+	mutex_unlock(&ptlrpc_all_services_mutex);
+	return env;
+}
+EXPORT_SYMBOL(ptlrpc_lookup_thread_env);
+
 /**
  * Main thread body for service threads.
  * Waits in a loop waiting for new requests to process to appear.
@@ -2556,12 +2610,29 @@ static int ptlrpc_hr_main(void *arg)
 	struct ptlrpc_hr_thread		*hrt = (struct ptlrpc_hr_thread *)arg;
 	struct ptlrpc_hr_partition	*hrp = hrt->hrt_partition;
 	CFS_LIST_HEAD			(replies);
+	struct lu_env			*env;
 	char				threadname[20];
 	int				rc;
 
 	snprintf(threadname, sizeof(threadname), "ptlrpc_hr%02d_%03d",
 		 hrp->hrp_cpt, hrt->hrt_id);
 	cfs_daemonize_ctxt(threadname);
+
+	hrt->hrt_pid = cfs_curproc_pid();
+
+	OBD_ALLOC_PTR(env);
+	if (env == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+        rc = lu_context_init(&env->le_ctx,
+			     LCT_MD_THREAD | LCT_REMEMBER |LCT_NOREF);
+
+	if (rc)
+		GOTO(out, rc);
+
+	hrt->hrt_env = env;
+	env->le_ctx.lc_thread = NULL;
+	env->le_ctx.lc_cookie = 0x7;
 
 	rc = cfs_cpt_bind(ptlrpc_hr.hr_cpt_table, hrp->hrp_cpt);
 	if (rc != 0) {
@@ -2584,6 +2655,12 @@ static int ptlrpc_hr_main(void *arg)
                         cfs_list_del_init(&rs->rs_list);
                         ptlrpc_handle_rs(rs);
                 }
+        }
+
+out:
+        if (env != NULL) {
+                lu_context_fini(&env->le_ctx);
+                OBD_FREE_PTR(env);
         }
 
 	cfs_atomic_inc(&hrp->hrp_nstopped);
