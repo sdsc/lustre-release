@@ -290,6 +290,11 @@ static inline int exp_brw_size(struct obd_export *exp)
 	return ONE_MB_BRW_SIZE;
 }
 
+static inline int exp_connect_multibulk(struct obd_export *exp)
+{
+	return exp_brw_size(exp) > ONE_MB_BRW_SIZE;
+}
+
 static inline int exp_expired(struct obd_export *exp, cfs_duration_t age)
 {
         LASSERT(exp->exp_delayed);
