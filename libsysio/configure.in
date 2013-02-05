@@ -3,13 +3,13 @@ AC_INIT(libsysio, 1.2)
 AC_CANONICAL_SYSTEM
 
 case "$host_os" in
-  aix*)
-  	;;
-  linux*)
-	;;
-  *)
-	AC_MSG_WARN('***' ${host_os}: Unsupported OS target)
-	;;
+    aix*)
+        ;;
+    linux*)
+        ;;
+    *)
+        AC_MSG_WARN('***' ${host_os}: Unsupported OS target)
+        ;;
 esac
 
 AM_INIT_AUTOMAKE([subdir-objects 1.9 tar-ustar])
@@ -21,6 +21,24 @@ AC_PROG_MAKE_SET
 AC_HEADER_STDC
 AC_HEADER_STAT
 AC_HEADER_TIME
+
+case $target_vendor in
+    k1om)
+        CROSS_COMPILE=${CROSS_TOOLCHAIN:=/usr/linux-k1om-4.7}/bin/x86_64-k1om-linux-
+        if test -x ${CROSS_COMPILE}gcc; then
+            CC=${CROSS_COMPILE}gcc
+            LD=${CROSS_COMPILE}ld
+            AR=${CROSS_COMPILE}ar
+            STRIP=${CROSS_COMPILE}strip
+            RANLIB=${CROSS_COMPILE}ranlib
+        else
+            AC_MSG_WARN([GNU cross toolchain for the Intel(R) Many Integrated Core PCIe card not found.])
+            AC_MSG_ERROR([Please, specify the correct path to it in CROSS_TOOLCHAIN=<PATH>.])
+        fi
+        ;;
+    *)
+        ;;
+esac
 
 if test ${target_cpu} == "powerpc64"; then
 	AC_MSG_WARN([set compiler with -m64])
@@ -556,4 +574,3 @@ fi
 AC_OUTPUT(
 	Makefile
 	tests/Makefile)
-
