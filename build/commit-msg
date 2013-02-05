@@ -97,7 +97,7 @@ export LINE=""
 export NUM=1
 
 IFS="" # don't eat whitespace, to preserve message formatting
-while read LINE; do
+while read -r LINE; do
 	WIDTH=$(($(echo $LINE | wc -c) - 1)) # -1 for end-of-line character
 
 	case "$LINE" in
