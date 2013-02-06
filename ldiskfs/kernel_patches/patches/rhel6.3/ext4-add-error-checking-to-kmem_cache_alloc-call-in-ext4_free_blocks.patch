@@ -1,0 +1,29 @@
+From b72143ab3ed566a12560fa4411a1f02c276dcc39 Mon Sep 17 00:00:00 2001
+From: Theodore Ts'o <tytso@mit.edu>
+Date: Mon, 20 Dec 2010 07:26:59 -0500
+Subject: ext4: Add error checking to kmem_cache_alloc() call in ext4_free_blocks()
+Git-commit: b72143ab, 02b78310
+Patch-mainline: v2.6.38-rc1
+
+Signed-off-by: "Theodore Ts'o" <tytso@mit.edu>
+Acked-by: Jeff Mahoney <jeffm@suse.com>
+---
+ fs/ext4/mballoc.c |    7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+--- a/fs/ext4/mballoc.c
++++ b/fs/ext4/mballoc.c
+@@ -4792,7 +4792,12 @@ do_more:
+ 		 * blocks being freed are metadata. these blocks shouldn't
+ 		 * be used until this transaction is committed
+ 		 */
+-		new_entry  = kmem_cache_alloc(ext4_free_ext_cachep, GFP_NOFS);
++		new_entry = kmem_cache_alloc(ext4_free_ext_cachep, GFP_NOFS);
++		if (!new_entry) {
++			ext4_mb_release_desc(&e4b);
++			err = -ENOMEM;
++			goto error_return;
++		}
+ 		new_entry->start_blk = bit;
+ 		new_entry->group  = block_group;
+ 		new_entry->count = count;
