@@ -2266,17 +2266,22 @@ struct mdt_object *mdt_object_find(const struct lu_env *env,
                                    struct mdt_device *d,
                                    const struct lu_fid *f)
 {
-        struct lu_object *o;
-        struct mdt_object *m;
-        ENTRY;
+	struct lu_object *o;
+	struct mdt_object *m;
+	ENTRY;
 
-        CDEBUG(D_INFO, "Find object for "DFID"\n", PFID(f));
-        o = lu_object_find(env, &d->mdt_md_dev.md_lu_dev, f, NULL);
-        if (unlikely(IS_ERR(o)))
-                m = (struct mdt_object *)o;
-        else
-                m = mdt_obj(o);
-        RETURN(m);
+	CDEBUG(D_INFO, "Find object for "DFID"\n", PFID(f));
+	o = lu_object_find(env, &d->mdt_md_dev.md_lu_dev, f, NULL);
+	if (unlikely(IS_ERR(o))) {
+		m = (struct mdt_object *)o;
+	} else if (!lu_device_is_mdt(o->lo_dev)) {
+		lu_object_put(env, o);
+		m = ERR_PTR(-ENOENT);
+	} else {
+		m = mdt_obj(o);
+	}
+
+	RETURN(m);
 }
 
 /**

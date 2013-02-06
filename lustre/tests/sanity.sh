@@ -10328,7 +10328,7 @@ mcreate_path2fid () {
 	echo "pass with $path and $fid"
 }
 
-test_226 () {
+test_226a() {
 	rm -rf $DIR/$tdir
 	mkdir -p $DIR/$tdir
 
@@ -10341,7 +10341,40 @@ test_226 () {
 	mcreate_path2fid 0120666 0 0 link "symbolic link"
 	mcreate_path2fid 0140666 0 0 sock "socket"
 }
-run_test 226 "call path2fid and fid2path on files of all type"
+run_test 226a "call path2fid and fid2path on files of all type"
+
+test_226b() {
+	local fid
+
+    rm -f $DIR/$tfile
+	echo 'BIGDATA!' > $DIR/$tfile
+
+	# # lfs getstripe file
+	# file
+	# lmm_stripe_count:   1
+	# lmm_stripe_size:    1048576
+	# lmm_layout_gen:     0
+	# lmm_stripe_offset:  0
+	#   obdidx  objid  objid        group
+	#	     0      2    0x2  0x200000401
+
+	fid=$($LFS getstripe $DIR/$tfile | awk '
+{
+	if ($1 == "obdidx") {
+		now = 1;
+	} else if (now) {
+		printf "[%s:%s:0x0]\n", $4, $3;
+		now = 0;
+	}
+}')
+
+	stat $DIR/.lustre/fid || error "cannot stat $DIR/.lustre/fid"
+	stat $DIR/.lustre/fid/$fid && error "stat of object by FID succeeded"
+	$LFS fid2path $DIR $fid && error "fid2path succeeded on object FID"
+
+	rm -f $DIR/$tfile
+}
+run_test 226b "try to access an object by FID"
 
 # LU-1299 Executing or running ldd on a truncated executable does not
 # cause an out-of-memory condition.
