@@ -1984,8 +1984,10 @@ int ll_iocontrol(struct inode *inode, struct file *file,
 		inode->i_flags = ll_ext_to_inode_flags(flags);
 
 		lsm = ccc_inode_lsm_get(inode);
-		if (lsm == NULL)
+		if (!lsm_has_objects(lsm)) {
+			ccc_inode_lsm_put(inode, lsm);
 			RETURN(0);
+		}
 
 		OBDO_ALLOC(oinfo.oi_oa);
 		if (!oinfo.oi_oa) {

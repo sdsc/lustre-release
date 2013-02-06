@@ -1299,8 +1299,7 @@ static int lod_qos_parse_config(const struct lu_env *env,
 	if (lo->ldo_stripe_size & (LOV_MIN_STRIPE_SIZE - 1))
 		lo->ldo_stripe_size = LOV_MIN_STRIPE_SIZE;
 
-	if (v1->lmm_stripe_count)
-		lo->ldo_stripenr = v1->lmm_stripe_count;
+	lo->ldo_stripenr = v1->lmm_stripe_count;
 
 	if ((v1->lmm_stripe_offset >= d->lod_desc.ld_tgt_count) &&
 	    (v1->lmm_stripe_offset != (typeof(v1->lmm_stripe_offset))(-1))) {
@@ -1382,6 +1381,10 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 	rc = lod_qos_parse_config(env, lo, buf);
 	if (rc)
 		GOTO(out, rc);
+
+	/* A released file is being created */
+	if (lo->ldo_stripenr == 0)
+		GOTO(out, rc = 0);
 
 	if (likely(lo->ldo_stripe == NULL)) {
 		/*
