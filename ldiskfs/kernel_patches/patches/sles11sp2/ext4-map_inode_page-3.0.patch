@@ -5,7 +5,7 @@
 
 --- a/fs/ext4/ext4.h
 +++ b/fs/ext4/ext4.h
-@@ -1838,6 +1838,9 @@ extern int ext4_page_mkwrite(struct vm_a
+@@ -1844,6 +1844,9 @@ extern int ext4_page_mkwrite(struct vm_a
  extern qsize_t *ext4_get_reserved_space(struct inode *inode);
  extern void ext4_da_update_reserve_space(struct inode *inode,
  					int used, int quota_claim);
