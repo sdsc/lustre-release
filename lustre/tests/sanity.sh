@@ -10947,6 +10947,29 @@ test_228c() {
 }
 run_test 228c "NOT shrink the last entry in OI index node to recycle idle leaf"
 
+test_229() { # LU-2482
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+
+	# Create a file with a release layout (stripe count = 0)
+	$MULTIOP $DIR/$tfile oO_CREAT:O_RDWR:O_LOV_DELAY_CREATE:Hc ||
+		error "failed to create file w. released layout"
+
+	$GETSTRIPE $DIR/$tfile || error "failed to getstripe released file"
+	stripe_count=$($GETSTRIPE -c $DIR/$tfile) || error "getstripe failed"
+	[ $stripe_count -eq 0 ] || error "stripe count not 0 ($stripe_count)"
+	stat $DIR/$tfile || error "failed to stat released file"
+
+	$TRUNCATE $DIR/$tfile 200000
+	$CHECKSTAT -s 200000 $DIR/$tfile || error
+
+	# Stripe count should be no change after truncate
+	stripe_count=$($GETSTRIPE -c $DIR/$tfile) || error "getstripe failed"
+	[ $stripe_count -eq 0 ] || error "stripe count not 0 ($stripe_count)"
+
+	rm $DIR/$tfile || error "failed to remove released file"
+}
+run_test 229 "getstripe/stat/rm work on released files (stripe count = 0)"
+
 test_230a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return

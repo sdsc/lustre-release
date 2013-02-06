@@ -296,9 +296,10 @@ struct ost_id {
 #define LMV_MAGIC_V1      0x0CD10CD0    /*normal stripe lmv magic */
 #define LMV_USER_MAGIC    0x0CD20CD0    /*default lmv magic*/
 
-#define LOV_PATTERN_RAID0 0x001
-#define LOV_PATTERN_RAID1 0x002
-#define LOV_PATTERN_FIRST 0x100
+#define LOV_PATTERN_RAID0	0x001
+#define LOV_PATTERN_RAID1	0x002
+#define LOV_PATTERN_RELEASED	0x003
+#define LOV_PATTERN_FIRST	0x100
 
 #define LOV_MAXPOOLNAME 16
 #define LOV_POOLNAMEF "%.16s"

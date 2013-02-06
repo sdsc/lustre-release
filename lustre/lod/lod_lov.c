@@ -504,9 +504,10 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 	ENTRY;
 
 	LASSERT(lo);
-	LASSERT(lo->ldo_stripenr > 0);
 
-	magic = lo->ldo_pool ? LOV_MAGIC_V3 : LOV_MAGIC_V1;
+	magic = lo->ldo_magic;
+	if (magic == 0) /* default striping */
+		magic = lo->ldo_pool != NULL ? LOV_MAGIC_V3 : LOV_MAGIC_V1;
 	lmm_size = lov_mds_md_size(lo->ldo_stripenr, magic);
 	if (info->lti_ea_store_size < lmm_size) {
 		rc = lod_ea_store_resize(info, lmm_size);
@@ -514,10 +515,14 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 			RETURN(rc);
 	}
 
+	lo->ldo_magic = magic;
+	if (lo->ldo_pattern == 0) /* default striping */
+		lo->ldo_pattern = LOV_PATTERN_RAID0;
+
 	lmm = info->lti_ea_store;
 
 	lmm->lmm_magic = cpu_to_le32(magic);
-	lmm->lmm_pattern = cpu_to_le32(LOV_PATTERN_RAID0);
+	lmm->lmm_pattern = cpu_to_le32(lo->ldo_pattern);
 	fid_to_lmm_oi(fid, &lmm->lmm_oi);
 	lmm_oi_cpu_to_le(&lmm->lmm_oi, &lmm->lmm_oi);
 	lmm->lmm_stripe_size = cpu_to_le32(lo->ldo_stripe_size);
@@ -679,6 +684,10 @@ int lod_initialize_objects(const struct lu_env *env, struct lod_object *lo,
 	ENTRY;
 
 	LASSERT(lo);
+
+	if (lo->ldo_stripenr == 0)
+		RETURN(0);
+
 	LASSERT(lo->ldo_stripe == NULL);
 	LASSERT(lo->ldo_stripenr > 0);
 	LASSERT(lo->ldo_stripe_size > 0);
@@ -746,6 +755,7 @@ int lod_parse_striping(const struct lu_env *env, struct lod_object *lo,
 	struct lov_mds_md_v1	*lmm;
 	struct lov_ost_data_v1	*objs;
 	__u32			 magic;
+	__u32			 pattern;
 	int			 rc = 0;
 	ENTRY;
 
@@ -755,12 +765,17 @@ int lod_parse_striping(const struct lu_env *env, struct lod_object *lo,
 
 	lmm = (struct lov_mds_md_v1 *) buf->lb_buf;
 	magic = le32_to_cpu(lmm->lmm_magic);
+	pattern = le32_to_cpu(lmm->lmm_pattern);
 
 	if (magic != LOV_MAGIC_V1 && magic != LOV_MAGIC_V3)
 		GOTO(out, rc = -EINVAL);
-	if (le32_to_cpu(lmm->lmm_pattern) != LOV_PATTERN_RAID0)
+	if (pattern != LOV_PATTERN_RAID0 && pattern != LOV_PATTERN_RELEASED)
+		GOTO(out, rc = -EINVAL);
+	if (pattern == LOV_PATTERN_RELEASED && lmm->lmm_stripe_count != 0)
 		GOTO(out, rc = -EINVAL);
 
+	lo->ldo_magic = magic;
+	lo->ldo_pattern = pattern;
 	lo->ldo_stripe_size = le32_to_cpu(lmm->lmm_stripe_size);
 	lo->ldo_stripenr = le16_to_cpu(lmm->lmm_stripe_count);
 	lo->ldo_layout_gen = le16_to_cpu(lmm->lmm_layout_gen);
@@ -838,6 +853,7 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 	struct lov_user_md_v3	*v3 = NULL;
 	struct pool_desc	*pool = NULL;
 	int			 rc;
+	__u32			 pattern;
 	ENTRY;
 
 	lum = buf->lb_buf;
@@ -851,10 +867,15 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 		RETURN(-EINVAL);
 	}
 
-	if ((specific && lum->lmm_pattern != LOV_PATTERN_RAID0) ||
-	    (specific == 0 && lum->lmm_pattern != 0)) {
-		CDEBUG(D_IOCTL, "bad userland stripe pattern: %#x\n",
-		       lum->lmm_pattern);
+	if (specific == 0) {
+		if (lum->lmm_pattern != 0)
+			RETURN(-EINVAL);
+		lum->lmm_pattern = LOV_PATTERN_RAID0;
+	}
+
+	pattern = lum->lmm_pattern;
+	if (pattern != LOV_PATTERN_RAID0 && pattern != LOV_PATTERN_RELEASED) {
+		CDEBUG(D_IOCTL, "bad userland stripe pattern: %#x\n", pattern);
 		RETURN(-EINVAL);
 	}
 

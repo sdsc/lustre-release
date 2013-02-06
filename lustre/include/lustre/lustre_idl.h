@@ -1545,8 +1545,9 @@ enum obdo_flags {
 #define LOV_MAGIC_V1_DEF  0x0CD10BD0
 #define LOV_MAGIC_V3_DEF  0x0CD30BD0
 
-#define LOV_PATTERN_RAID0 0x001   /* stripes are used round-robin */
-#define LOV_PATTERN_RAID1 0x002   /* stripes are mirrors of each other */
+#define LOV_PATTERN_RAID0	0x001   /* stripes are used round-robin */
+#define LOV_PATTERN_RAID1	0x002   /* stripes are mirrors of each other */
+#define LOV_PATTERN_RELEASED	0x003	/* HSM released file */
 #define LOV_PATTERN_FIRST 0x100   /* first stripe is not in round-robin */
 #define LOV_PATTERN_CMOBD 0x200
 

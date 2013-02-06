@@ -318,6 +318,18 @@ int main(int argc, char **argv)
                                 exit(save_errno);
                         }
                         break;
+		case 'H':
+			lum = (struct lov_user_md_v3) {
+				.lmm_magic = LOV_USER_MAGIC_V1,
+				.lmm_pattern = LOV_PATTERN_RELEASED,
+			};
+
+			if (ioctl(fd, LL_IOC_LOV_SETSTRIPE, &lum) < 0) {
+				save_errno = errno;
+				perror("LL_IOC_LOV_SETSTRIPE released file");
+				exit(save_errno);
+			}
+			break;
 		case 'K':
 			oldpath = POP_ARG();
 			if (oldpath == NULL)
