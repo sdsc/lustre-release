@@ -500,6 +500,8 @@ int obd_init_checks(void)
 extern spinlock_t obd_types_lock;
 extern int class_procfs_init(void);
 extern int class_procfs_clean(void);
+extern int class_dynlock_init(void);
+extern int class_dynlock_clean(void);
 
 #ifdef __KERNEL__
 static int __init init_obdclass(void)
@@ -571,6 +573,9 @@ int init_obdclass(void)
         err = class_procfs_init();
         if (err)
                 return err;
+	err = class_dynlock_init();
+	if (err)
+		return err;
 #endif
 
         err = lu_global_init();
@@ -617,6 +622,7 @@ static void cleanup_obdclass(void)
         obd_cleanup_caches();
         obd_sysctl_clean();
 
+	class_dynlock_clean();
         class_procfs_clean();
 
         class_handle_cleanup();
