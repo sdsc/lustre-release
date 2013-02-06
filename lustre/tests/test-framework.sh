@@ -496,6 +496,7 @@ load_modules_local() {
 			load_module osd-zfs/osd_zfs
 		fi
 		load_module mgs/mgs
+		load_module dynlocks/dynlocks
 		load_module mdd/mdd
 		if [[ $(node_fstypes $HOSTNAME) == *ldiskfs* ]]; then
 			#

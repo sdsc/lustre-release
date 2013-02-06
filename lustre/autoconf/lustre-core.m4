@@ -2796,6 +2796,7 @@ lustre/autoconf/Makefile
 lustre/conf/Makefile
 lustre/contrib/Makefile
 lustre/doc/Makefile
+lustre/dynlocks/Makefile
 lustre/include/Makefile
 lustre/include/lustre_ver.h
 lustre/include/linux/Makefile

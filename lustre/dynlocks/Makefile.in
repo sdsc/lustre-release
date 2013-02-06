@@ -1,0 +1,34 @@
+all: modules
+install: modules_install
+distdir:
+
+EXTRA_CFLAGS += -include @abs_top_builddir@/config.h
+
+sources := dynlocks.c dynlocks.h
+
+obj-m := dynlocks.o
+
+modules:
+	$(MAKE) -C @LINUX_OBJ@ M=$(shell pwd) $@
+
+clean:
+	$(MAKE) -C @LINUX_OBJ@ M=$(shell pwd) $@
+	$(RM) -f @LINUX_SYMBOLS@ Module.markers
+
+modules_install:
+	@# Install the kernel module
+	$(MAKE) -C @LINUX_OBJ@ M=$(shell pwd) \
+		INSTALL_MOD_PATH=$(DESTDIR) \
+		INSTALL_MOD_DIR=updates/kernel/lustre/dynlocks $@
+	@# Remove extraneous build products when packaging
+	if [ -n "$(DESTDIR)" ]; then \
+		find $(DESTDIR)/lib/modules/@LINUXRELEASE@ \
+			-name 'modules.*' | xargs $(RM); \
+	fi
+	sysmap=$(DESTDIR)/boot/System.map-@LINUXRELEASE@; \
+	if [ -f $$sysmap ]; then \
+		depmod -ae -F $$sysmap @LINUXRELEASE@; \
+	fi
+
+MOSTLYCLEANFILES := @MOSTLYCLEANFILES@
+CLEANFILES = $(sources)
