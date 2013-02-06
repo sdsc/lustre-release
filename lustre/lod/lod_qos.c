@@ -1240,6 +1240,7 @@ static int lod_use_defined_striping(const struct lu_env *env,
 	 */
 	LASSERT(d->lod_recovery_completed == 0);
 
+	mo->ldo_pattern = le32_to_cpu(v1->lmm_pattern);
 	mo->ldo_stripe_size = le32_to_cpu(v1->lmm_stripe_size);
 	mo->ldo_stripenr = le16_to_cpu(v1->lmm_stripe_count);
 	mo->ldo_layout_gen = le16_to_cpu(v1->lmm_layout_gen);
@@ -1289,7 +1290,12 @@ static int lod_qos_parse_config(const struct lu_env *env,
 		RETURN(-EINVAL);
 	}
 
-	if (v1->lmm_pattern != 0 && v1->lmm_pattern != LOV_PATTERN_RAID0) {
+	v1->lmm_magic = magic;
+	if (v1->lmm_pattern == 0)
+		v1->lmm_pattern = LOV_PATTERN_RAID0;
+
+	lo->ldo_pattern = v1->lmm_pattern;
+	if (lov_pattern(v1->lmm_pattern) != LOV_PATTERN_RAID0) {
 		CERROR("invalid pattern: %x\n", v1->lmm_pattern);
 		RETURN(-EINVAL);
 	}
@@ -1346,6 +1352,12 @@ static int lod_qos_parse_config(const struct lu_env *env,
 	} else
 		lod_object_set_pool(lo, NULL);
 
+	/* fixup for released file */
+	if (lo->ldo_pattern & LOV_PATTERN_F_RELEASED) {
+		lo->ldo_released_stripenr = lo->ldo_stripenr;
+		lo->ldo_stripenr = 0;
+	}
+
 	RETURN(0);
 }
 
@@ -1382,6 +1394,10 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 	rc = lod_qos_parse_config(env, lo, buf);
 	if (rc)
 		GOTO(out, rc);
+
+	/* A released file is being created */
+	if (lo->ldo_stripenr == 0)
+		GOTO(out, rc = 0);
 
 	if (likely(lo->ldo_stripe == NULL)) {
 		/*
