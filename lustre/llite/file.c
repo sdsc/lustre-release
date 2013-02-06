@@ -1273,7 +1273,7 @@ static int ll_lov_recreate(struct inode *inode, obd_id id, obd_seq seq,
 		RETURN(-ENOMEM);
 
 	lsm = ccc_inode_lsm_get(inode);
-        if (lsm == NULL)
+	if (!lsm_has_objects(lsm))
                 GOTO(out, rc = -ENOENT);
 
         lsm_size = sizeof(*lsm) + (sizeof(struct lov_oinfo) *
@@ -1827,20 +1827,18 @@ int ll_data_version(struct inode *inode, __u64 *data_version,
 
 	/* If no stripe, we consider version is 0. */
 	lsm = ccc_inode_lsm_get(inode);
-	if (lsm == NULL) {
+	if (!lsm_has_objects(lsm)) {
 		*data_version = 0;
 		CDEBUG(D_INODE, "No object for inode\n");
-		RETURN(0);
+		GOTO(out, rc = 0);
 	}
 
 	OBD_ALLOC_PTR(obdo);
-	if (obdo == NULL) {
-		ccc_inode_lsm_put(inode, lsm);
-		RETURN(-ENOMEM);
-	}
+	if (obdo == NULL)
+		GOTO(out, rc = -ENOMEM);
 
 	rc = ll_lsm_getattr(lsm, sbi->ll_dt_exp, NULL, obdo, 0, extent_lock);
-	if (!rc) {
+	if (rc == 0) {
 		if (!(obdo->o_valid & OBD_MD_FLDATAVERSION))
 			rc = -EOPNOTSUPP;
 		else
@@ -1848,8 +1846,9 @@ int ll_data_version(struct inode *inode, __u64 *data_version,
 	}
 
 	OBD_FREE_PTR(obdo);
+	EXIT;
+out:
 	ccc_inode_lsm_put(inode, lsm);
-
 	RETURN(rc);
 }
 

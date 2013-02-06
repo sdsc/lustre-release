@@ -62,7 +62,7 @@ static int lsm_lmm_verify_common(struct lov_mds_md *lmm, int lmm_bytes,
                                  __u16 stripe_count)
 {
 
-        if (stripe_count == 0 || stripe_count > LOV_V1_INSANE_STRIPE_COUNT) {
+        if (stripe_count > LOV_V1_INSANE_STRIPE_COUNT) {
                 CERROR("bad stripe count %d\n", stripe_count);
                 lov_dump_lmm(D_WARNING, lmm);
                 return -EINVAL;
@@ -244,9 +244,11 @@ int lsm_unpackmd_v1(struct lov_obd *lov, struct lov_stripe_md *lsm,
                                  &stripe_maxbytes);
         }
 
-        lsm->lsm_maxbytes = stripe_maxbytes * lsm->lsm_stripe_count;
+	lsm->lsm_maxbytes = stripe_maxbytes * lsm->lsm_stripe_count;
+	if (lsm->lsm_stripe_count == 0)
+		lsm->lsm_maxbytes = stripe_maxbytes * lov->desc.ld_tgt_count;
 
-        return 0;
+	return 0;
 }
 
 const struct lsm_operations lsm_v1_ops = {
@@ -323,9 +325,11 @@ int lsm_unpackmd_v3(struct lov_obd *lov, struct lov_stripe_md *lsm,
                                  &stripe_maxbytes);
         }
 
-        lsm->lsm_maxbytes = stripe_maxbytes * lsm->lsm_stripe_count;
+	lsm->lsm_maxbytes = stripe_maxbytes * lsm->lsm_stripe_count;
+	if (lsm->lsm_stripe_count == 0)
+		lsm->lsm_maxbytes = stripe_maxbytes * lov->desc.ld_tgt_count;
 
-        return 0;
+	return 0;
 }
 
 const struct lsm_operations lsm_v3_ops = {

@@ -828,13 +828,19 @@ int lod_declare_striped_object(const struct lu_env *env, struct dt_object *dt,
 		GOTO(out, rc = -ENOMEM);
 	}
 
-	/* choose OST and generate appropriate objects */
-	rc = lod_qos_prep_create(env, lo, attr, lovea, th);
-	if (rc) {
-		/* failed to create striping, let's reset
-		 * config so that others don't get confused */
-		lod_object_free_striping(env, lo);
-		GOTO(out, rc);
+	if (OBD_FAIL_CHECK(OBD_FAIL_MDS_RELEASED_LAYOUT)) {
+		/* create a released layout */
+		lo->ldo_stripenr = 0;
+		lo->ldo_stripes_allocated = 0;
+	} else {
+		/* choose OST and generate appropriate objects */
+		rc = lod_qos_prep_create(env, lo, attr, lovea, th);
+		if (rc) {
+			/* failed to create striping, let's reset
+			 * config so that others don't get confused */
+			lod_object_free_striping(env, lo);
+			GOTO(out, rc);
+		}
 	}
 
 	/*
@@ -944,8 +950,6 @@ int lod_striping_create(const struct lu_env *env, struct dt_object *dt,
 	int		   rc = 0, i;
 	ENTRY;
 
-	LASSERT(lo->ldo_stripe);
-	LASSERT(lo->ldo_stripenr > 0);
 	LASSERT(lo->ldo_striping_cached == 0);
 
 	/* create all underlying objects */
