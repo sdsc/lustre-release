@@ -1,0 +1,81 @@
+# Lustre-Client kernel modules dkms configuration file
+# modified by B.Faccini for RPM packaging
+
+# dkms bug means we need to run automake between builds.
+# See Ubuntu LP: #952817
+# MAKE="sh autogen.sh && ./configure --disable-server --disable-utils --with-linux=$kernel_source_dir && make"
+MAKE="./configure --disable-server --disable-utils --with-linux=$kernel_source_dir && make"
+CLEAN="make distclean || true"
+
+AUTOINSTALL=yes
+# PACKAGE_NAME=lustre-client-modules
+PACKAGE_NAME=@LUSTRE_NAME@-modules
+# PACKAGE_VERSION=@UPVERSION@
+PACKAGE_VERSION=@VERSION@
+
+#Restrict builds to the patchess client support matrix.
+BUILD_EXCLUSIVE_KERNEL="^2.6.(1[8-9]|2[0-9]|3[0-2])"
+STRIP="no"
+
+# Module names
+BUILT_MODULE_NAME[0]="libcfs"
+BUILT_MODULE_NAME[1]="ko2iblnd"
+BUILT_MODULE_NAME[2]="ksocklnd"
+BUILT_MODULE_NAME[3]="lnet"
+BUILT_MODULE_NAME[4]="lnet_selftest"
+BUILT_MODULE_NAME[5]="fld"
+BUILT_MODULE_NAME[6]="lvfs"
+BUILT_MODULE_NAME[7]="osc"
+BUILT_MODULE_NAME[8]="lov"
+BUILT_MODULE_NAME[9]="mgc"
+BUILT_MODULE_NAME[10]="llog_test"
+BUILT_MODULE_NAME[11]="obdclass"
+BUILT_MODULE_NAME[12]="mdc"
+BUILT_MODULE_NAME[13]="fid"
+BUILT_MODULE_NAME[14]="lmv"
+BUILT_MODULE_NAME[15]="ptlrpc"
+BUILT_MODULE_NAME[16]="obdecho"
+BUILT_MODULE_NAME[17]="lustre"
+BUILT_MODULE_NAME[18]="llite_lloop"
+
+# Location of the modules in the source tree after build
+BUILT_MODULE_LOCATION[0]="libcfs/libcfs"
+BUILT_MODULE_LOCATION[1]="lnet/klnds/o2iblnd"
+BUILT_MODULE_LOCATION[2]="lnet/klnds/socklnd"
+BUILT_MODULE_LOCATION[3]="lnet/lnet"
+BUILT_MODULE_LOCATION[4]="lnet/selftest"
+BUILT_MODULE_LOCATION[5]="lustre/fld"
+BUILT_MODULE_LOCATION[6]="lustre/lvfs"
+BUILT_MODULE_LOCATION[7]="lustre/osc"
+BUILT_MODULE_LOCATION[8]="lustre/lov"
+BUILT_MODULE_LOCATION[9]="lustre/mgc"
+BUILT_MODULE_LOCATION[10]="lustre/obdclass"
+BUILT_MODULE_LOCATION[11]="lustre/obdclass"
+BUILT_MODULE_LOCATION[12]="lustre/mdc"
+BUILT_MODULE_LOCATION[13]="lustre/fid"
+BUILT_MODULE_LOCATION[14]="lustre/lmv"
+BUILT_MODULE_LOCATION[15]="lustre/ptlrpc"
+BUILT_MODULE_LOCATION[16]="lustre/obdecho"
+BUILT_MODULE_LOCATION[17]="lustre/llite"
+BUILT_MODULE_LOCATION[18]="lustre/llite"
+
+# Final destination of the  modules under  /lib/modules/<kernel>/
+DEST_MODULE_LOCATION[0]="/updates/kernel/net/lustre"
+DEST_MODULE_LOCATION[1]="/updates/kernel/net/lustre"
+DEST_MODULE_LOCATION[2]="/updates/kernel/net/lustre"
+DEST_MODULE_LOCATION[3]="/updates/kernel/net/lustre"
+DEST_MODULE_LOCATION[4]="/updates/kernel/net/lustre"
+DEST_MODULE_LOCATION[5]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[6]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[7]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[8]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[9]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[10]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[11]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[12]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[13]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[14]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[15]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[16]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[17]="/updates/kernel/fs/lustre"
+DEST_MODULE_LOCATION[18]="/updates/kernel/fs/lustre"
