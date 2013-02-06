@@ -1,11 +1,21 @@
 ---
- fs/ext4/ext4.h  |   13 +++++
- fs/ext4/namei.c |  131 +++++++++++++++++++++++++++++++++++++-------------------
- 2 files changed, 101 insertions(+), 43 deletions(-)
+ fs/ext4/exports.c |    3 +
+ fs/ext4/ext4.h    |   13 +++++
+ fs/ext4/namei.c   |  128 +++++++++++++++++++++++++++++++++++-------------------
+ 3 files changed, 101 insertions(+), 43 deletions(-)
 
+--- a/fs/ext4/exports.c
++++ b/fs/ext4/exports.c
+@@ -27,3 +27,6 @@ EXPORT_SYMBOL(ext4_xattr_set_handle);
+ EXPORT_SYMBOL(ext4_bread);
+ EXPORT_SYMBOL(ext4_journal_start_sb);
+ EXPORT_SYMBOL(__ext4_journal_stop);
++EXPORT_SYMBOL(ext4_find_entry);
++EXPORT_SYMBOL(ext4_add_entry);
++EXPORT_SYMBOL(ext4_delete_entry);
 --- a/fs/ext4/ext4.h
 +++ b/fs/ext4/ext4.h
-@@ -1895,6 +1895,19 @@ extern int ext4_orphan_add(handle_t *, s
+@@ -1894,6 +1894,19 @@ extern int ext4_orphan_add(handle_t *, s
  extern int ext4_orphan_del(handle_t *, struct inode *);
  extern int ext4_htree_fill_tree(struct file *dir_file, __u32 start_hash,
  				__u32 start_minor_hash, __u32 *next_hash);
@@ -48,15 +58,7 @@
  {
  	struct super_block *sb;
  	struct buffer_head *bh_use[NAMEI_RA_SIZE];
-@@ -981,6 +982,7 @@ cleanup_and_exit:
- 		brelse(bh_use[ra_ptr]);
- 	return ret;
- }
-+EXPORT_SYMBOL(ext4_find_entry);
-
- static struct buffer_head * ext4_dx_find_entry(struct inode *dir, const struct qstr *d_name,
- 		       struct ext4_dir_entry_2 **res_dir, int *err)
-@@ -1503,8 +1505,8 @@ static int make_indexed_dir(handle_t *ha
+@@ -1503,8 +1504,8 @@ static int make_indexed_dir(handle_t *ha
   * may not sleep between calling this and putting something into
   * the entry, as someone else might have used it while you slept.
   */
@@ -67,15 +69,7 @@
  {
  	struct inode *dir = dentry->d_parent->d_inode;
  	struct buffer_head *bh;
-@@ -1555,6 +1557,7 @@ static int ext4_add_entry(handle_t *hand
- 		ext4_set_inode_state(inode, EXT4_STATE_NEWENTRY);
- 	return retval;
- }
-+EXPORT_SYMBOL(ext4_add_entry);
-
- /*
-  * Returns 0 for success, or a negative error value
-@@ -1698,10 +1701,10 @@ cleanup:
+@@ -1698,10 +1699,10 @@ cleanup:
   * ext4_delete_entry deletes a directory entry by merging it with the
   * previous entry
   */
@@ -90,16 +84,15 @@
  {
  	struct ext4_dir_entry_2 *de, *pde;
  	unsigned int blocksize = dir->i_sb->s_blocksize;
-@@ -1744,7 +1747,7 @@ static int ext4_delete_entry(handle_t *h
+@@ -1744,7 +1745,6 @@ static int ext4_delete_entry(handle_t *h
  	}
  	return -ENOENT;
  }
 -
-+EXPORT_SYMBOL(ext4_delete_entry);
  /*
   * DIR_NLINK feature is set if 1) nlinks > EXT4_LINK_MAX or 2) nlinks == 2,
   * since this indicates that nlinks count was previously 1.
-@@ -1808,6 +1811,28 @@ static unsigned ext4_dentry_goal(struct
+@@ -1808,6 +1808,28 @@ static unsigned ext4_dentry_goal(struct
  	return inum;
  }
 
@@ -128,7 +121,7 @@
  /*
   * By the time this is called, we already have created
   * the directory cache entry for the new file, but it
-@@ -1886,46 +1911,32 @@ retry:
+@@ -1886,46 +1908,32 @@ retry:
  	return err;
  }
 
@@ -183,7 +176,7 @@
  	de = (struct ext4_dir_entry_2 *) dir_block->b_data;
  	de->inode = cpu_to_le32(inode->i_ino);
  	de->name_len = 1;
-@@ -1944,18 +1955,47 @@ retry:
+@@ -1944,18 +1952,47 @@ retry:
  	BUFFER_TRACE(dir_block, "call ext4_handle_dirty_metadata");
  	err = ext4_handle_dirty_metadata(handle, inode, dir_block);
  	if (err)
@@ -241,7 +234,7 @@
  	ext4_inc_count(handle, dir);
  	ext4_update_dx_flag(dir);
  	err = ext4_mark_inode_dirty(handle, dir);
-@@ -1964,11 +2004,16 @@ out_clear_inode:
+@@ -1964,11 +2001,16 @@ out_clear_inode:
  	d_instantiate(dentry, inode);
  	unlock_new_inode(inode);
  out_stop:

@@ -28,9 +28,9 @@ Index: linux-stage/fs/ext4/super.c
  	{Opt_mballoc, "mballoc"},
  	{Opt_discard, "discard"},
  	{Opt_nodiscard, "nodiscard"},
-@@ -1996,6 +1999,9 @@
- 			break;
- 		case Opt_mballoc:
+@@ -1716,6 +1719,9 @@ set_qf_format:
+ 			else
+ 				set_opt(sbi->s_mount_opt,NO_AUTO_DA_ALLOC);
  			break;
 +		case Opt_bigendian_extents:
 +			bigendian_extents = 1;
@@ -38,7 +38,7 @@ Index: linux-stage/fs/ext4/super.c
  		case Opt_discard:
  			set_opt(sbi->s_mount_opt, DISCARD);
  			break;
-@@ -3073,6 +3079,16 @@
+@@ -3198,6 +3204,16 @@ static int ext4_fill_super(struct super_
  		goto failed_mount;
  	}
  
