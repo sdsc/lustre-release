@@ -944,8 +944,6 @@ int lod_striping_create(const struct lu_env *env, struct dt_object *dt,
 	int		   rc = 0, i;
 	ENTRY;
 
-	LASSERT(lo->ldo_stripe);
-	LASSERT(lo->ldo_stripe > 0);
 	LASSERT(lo->ldo_striping_cached == 0);
 
 	/* create all underlying objects */

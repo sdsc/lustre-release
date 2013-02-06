@@ -253,10 +253,25 @@ static int lov_init_raid0(const struct lu_env *env,
         RETURN(result);
 }
 
+static int lov_init_released(const struct lu_env *env,
+			struct lov_device *dev, struct lov_object *lov,
+			const struct cl_object_conf *conf,
+			union  lov_layout_state *state)
+{
+	struct lov_stripe_md *lsm = conf->u.coc_md->lsm;
+
+	LASSERT(lsm != NULL);
+	LASSERT(lsm->lsm_stripe_count == 0);
+	LASSERT(lov->lo_lsm == NULL);
+
+	lov->lo_lsm = lsm_addref(lsm);
+	return 0;
+}
+
 static int lov_delete_empty(const struct lu_env *env, struct lov_object *lov,
 			    union lov_layout_state *state)
 {
-	LASSERT(lov->lo_type == LLT_EMPTY);
+	LASSERT(lov->lo_type == LLT_EMPTY || lov->lo_type == LLT_RELEASED);
 	if (cfs_atomic_read(&lov->lo_active_ios) > 0)
 		RETURN(-EBUSY);
 
@@ -345,7 +360,7 @@ static int lov_delete_raid0(const struct lu_env *env, struct lov_object *lov,
 static void lov_fini_empty(const struct lu_env *env, struct lov_object *lov,
                            union lov_layout_state *state)
 {
-        LASSERT(lov->lo_type == LLT_EMPTY);
+	LASSERT(lov->lo_type == LLT_EMPTY || lov->lo_type == LLT_RELEASED);
 }
 
 static void lov_fini_raid0(const struct lu_env *env, struct lov_object *lov,
@@ -362,6 +377,15 @@ static void lov_fini_raid0(const struct lu_env *env, struct lov_object *lov,
 	dump_lsm(D_INODE, lov->lo_lsm);
 	lov_free_memmd(&lov->lo_lsm);
 
+	EXIT;
+}
+
+static void lov_fini_released(const struct lu_env *env, struct lov_object *lov,
+				union lov_layout_state *state)
+{
+	ENTRY;
+	dump_lsm(D_INODE, lov->lo_lsm);
+	lov_free_memmd(&lov->lo_lsm);
 	EXIT;
 }
 
@@ -394,6 +418,13 @@ static int lov_print_raid0(const struct lu_env *env, void *cookie,
                         (*p)(env, cookie, "sub %d absent\n", i);
         }
         return 0;
+}
+
+static int lov_print_released(const struct lu_env *env, void *cookie,
+				lu_printer_t p, const struct lu_object *o)
+{
+	(*p)(env, cookie, "released\n");
+	return 0;
 }
 
 /**
@@ -499,9 +530,19 @@ const static struct lov_layout_operations lov_dispatch[] = {
                 .llo_lock_init = lov_lock_init_raid0,
                 .llo_io_init   = lov_io_init_raid0,
                 .llo_getattr   = lov_attr_get_raid0
+	},
+        [LLT_RELEASED] = {
+                .llo_init      = lov_init_released,
+                .llo_delete    = lov_delete_empty,
+                .llo_fini      = lov_fini_released,
+                .llo_install   = lov_install_empty,
+                .llo_print     = lov_print_released,
+                .llo_page_init = lov_page_init_empty,
+                .llo_lock_init = lov_lock_init_empty,
+                .llo_io_init   = lov_io_init_released,
+                .llo_getattr   = lov_attr_get_empty
         }
 };
-
 
 /**
  * Performs a double-dispatch based on the layout type of an object.
@@ -515,6 +556,18 @@ const static struct lov_layout_operations lov_dispatch[] = {
         LASSERT(0 <= __llt && __llt < ARRAY_SIZE(lov_dispatch));        \
         lov_dispatch[__llt].op(__VA_ARGS__);                            \
 })
+
+/**
+ * Return lov_layout_type associated with a given lsm
+ */
+enum lov_layout_type lov_type(struct lov_stripe_md *lsm)
+{
+	if (lsm == NULL)
+		return LLT_EMPTY;
+	if (lsm->lsm_stripe_count == 0)
+		return LLT_RELEASED;
+	return LLT_RAID0;
+}
 
 static inline void lov_conf_freeze(struct lov_object *lov)
 {
@@ -614,8 +667,8 @@ static int lov_layout_change(const struct lu_env *unused,
 
 	LASSERT(0 <= lov->lo_type && lov->lo_type < ARRAY_SIZE(lov_dispatch));
 
-	if (conf->u.coc_md != NULL && conf->u.coc_md->lsm != NULL)
-		llt = LLT_RAID0; /* only raid0 is supported. */
+	if (conf->u.coc_md != NULL)
+		llt = lov_type(conf->u.coc_md->lsm);
 	LASSERT(0 <= llt && llt < ARRAY_SIZE(lov_dispatch));
 
 	cookie = cl_env_reenter();
@@ -660,7 +713,6 @@ static int lov_layout_change(const struct lu_env *unused,
  * Lov object operations.
  *
  */
-
 int lov_object_init(const struct lu_env *env, struct lu_object *obj,
                     const struct lu_object_conf *conf)
 {
@@ -679,7 +731,7 @@ int lov_object_init(const struct lu_env *env, struct lu_object *obj,
 	cl_object_page_init(lu2cl(obj), sizeof(struct lov_page));
 
         /* no locking is necessary, as object is being created */
-        lov->lo_type = cconf->u.coc_md->lsm != NULL ? LLT_RAID0 : LLT_EMPTY;
+	lov->lo_type = lov_type(cconf->u.coc_md->lsm);
         ops = &lov_dispatch[lov->lo_type];
         result = ops->llo_init(env, dev, lov, cconf, set);
         if (result == 0)
@@ -690,9 +742,9 @@ int lov_object_init(const struct lu_env *env, struct lu_object *obj,
 static int lov_conf_set(const struct lu_env *env, struct cl_object *obj,
                         const struct cl_object_conf *conf)
 {
-	struct lov_stripe_md *lsm = NULL;
-	struct lov_object *lov = cl2lov(obj);
-	int result = 0;
+	struct lov_stripe_md	*lsm = NULL;
+	struct lov_object	*lov = cl2lov(obj);
+	int			 result = 0;
 	ENTRY;
 
 	lov_conf_lock(lov);
@@ -925,6 +977,7 @@ int lov_read_and_clear_async_rc(struct cl_object *clob)
 				loi->loi_ar.ar_rc = 0;
 			}
 		}
+		case LLT_RELEASED:
 		case LLT_EMPTY:
 			break;
 		default:
