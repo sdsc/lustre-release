@@ -891,8 +891,7 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
                 const struct ldlm_callback_suite cbs = {
                         .lcs_completion = einfo->ei_cb_cp,
                         .lcs_blocking   = einfo->ei_cb_bl,
-                        .lcs_glimpse    = einfo->ei_cb_gl,
-                        .lcs_weigh      = einfo->ei_cb_wg
+                        .lcs_glimpse    = einfo->ei_cb_gl
                 };
                 lock = ldlm_lock_create(ns, res_id, einfo->ei_type,
                                         einfo->ei_mode, &cbs, einfo->ei_cbdata,
