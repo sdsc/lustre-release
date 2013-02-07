@@ -1622,7 +1622,6 @@ struct ldlm_lock *ldlm_lock_create(struct ldlm_namespace *ns,
                 lock->l_blocking_ast = cbs->lcs_blocking;
                 lock->l_completion_ast = cbs->lcs_completion;
                 lock->l_glimpse_ast = cbs->lcs_glimpse;
-                lock->l_weigh_ast = cbs->lcs_weigh;
         }
 
         lock->l_tree_node = NULL;
