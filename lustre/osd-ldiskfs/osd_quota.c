@@ -902,6 +902,16 @@ out_lock:
 out:
 	dt_trans_stop(env, &osd->od_dt_dev, th);
 	OBD_FREE_PTR(attr);
+
+	if (rc == 0) {
+		struct osd_object *obj = osd_dt_obj(dt);
+		struct iam_container *bag = &obj->oo_dir->od_container;
+
+		bag->ic_root_bh = NULL;
+		rc  = iam_container_setup(bag);
+		if (!rc)
+			iam_container_fini(bag);
+	}
 	RETURN(rc);
 }
 
@@ -1026,7 +1036,7 @@ int osd_quota_migration(const struct lu_env *env, struct dt_object *dt,
 	if (rc) {
 		CERROR("%s: Failed to truncate the quota index "DFID", rc:%d\n",
 		       osd->od_svname, PFID(lu_object_fid(&dt->do_lu)), rc);
-		RETURN(rc);
+		GOTO(out, rc);
 	}
 
 	/* set up indexing operations for the admin file */
