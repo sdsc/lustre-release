@@ -715,7 +715,7 @@ void ldlm_add_bl_work_item(struct ldlm_lock *lock, struct ldlm_lock *new,
                 lock->l_flags |= LDLM_FL_AST_SENT;
                 /* If the enqueuing client said so, tell the AST recipient to
                  * discard dirty data, rather than writing back. */
-                if (new->l_flags & LDLM_AST_DISCARD_DATA)
+                if (new->l_flags & LDLM_FL_AST_DISCARD_DATA)
                         lock->l_flags |= LDLM_FL_DISCARD_DATA;
                 LASSERT(cfs_list_empty(&lock->l_bl_ast));
                 cfs_list_add(&lock->l_bl_ast, work_list);
@@ -1622,7 +1622,6 @@ struct ldlm_lock *ldlm_lock_create(struct ldlm_namespace *ns,
                 lock->l_blocking_ast = cbs->lcs_blocking;
                 lock->l_completion_ast = cbs->lcs_completion;
                 lock->l_glimpse_ast = cbs->lcs_glimpse;
-                lock->l_weigh_ast = cbs->lcs_weigh;
         }
 
         lock->l_tree_node = NULL;
@@ -1730,7 +1729,7 @@ ldlm_error_t ldlm_lock_enqueue(struct ldlm_namespace *ns,
 
         /* Some flags from the enqueue want to make it into the AST, via the
          * lock's l_flags. */
-        lock->l_flags |= *flags & LDLM_AST_DISCARD_DATA;
+        lock->l_flags |= *flags & LDLM_FL_AST_DISCARD_DATA;
 
         /* This distinction between local lock trees is very important; a client
          * namespace only has information about locks taken by that client, and

@@ -403,7 +403,7 @@ static int ost_punch(struct obd_export *exp, struct ptlrpc_request *req,
         /* standard truncate optimization: if file body is completely
          * destroyed, don't send data back to the server. */
         if (body->oa.o_size == 0)
-                flags |= LDLM_AST_DISCARD_DATA;
+                flags |= LDLM_FL_AST_DISCARD_DATA;
 
         repbody = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
         repbody->oa = body->oa;
