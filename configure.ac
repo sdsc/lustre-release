@@ -1,6 +1,6 @@
 
 AC_INIT([Lustre], [LUSTRE_VERSION], [http://bugs.whamcloud.com/], [lustre])
-sinclude(lustre/autoconf/lustre-version.ac)
+LB_DECLARE_VERSION
 
 # Overridden by --without-ldiskfs/--with-zfs configure options
 AM_CONDITIONAL(LDISKFS_ENABLED, true)
