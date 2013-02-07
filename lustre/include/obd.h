@@ -232,10 +232,11 @@ struct obd_type {
 };
 
 struct brw_page {
-        obd_off  off;
-        cfs_page_t *pg;
-        int count;
-        obd_flag flag;
+	obd_off  off;
+	cfs_page_t *pg;
+	int count;
+	struct lustre_handle handle;
+	obd_flag flag;
 };
 
 enum async_flags {
@@ -249,7 +250,11 @@ enum async_flags {
                                     the page is accounted for in the
                                     obd_io_group given to
                                     obd_queue_group_io */
-        ASYNC_HP = 0x10,
+	ASYNC_HP = 0x10,
+
+	ASYNC_LOCK_HELD = 0x20,  /* the "handle" in brw_page holds a ldlm lock
+				  * which should be cancelled after
+				  * ap_completion was called. */
 };
 
 struct obd_async_page_ops {

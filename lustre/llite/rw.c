@@ -1190,8 +1190,6 @@ int ll_ap_completion(void *data, int cmd, struct obdo *oa, int rc)
 {
         struct ll_async_page *llap;
         struct page *page;
-        struct obd_export *exp;
-        obd_off end;
         int ret = 0;
         ENTRY;
 
@@ -1202,16 +1200,13 @@ int ll_ap_completion(void *data, int cmd, struct obdo *oa, int rc)
 
         LL_CDEBUG_PAGE(D_PAGE, page, "completing cmd %d with %d\n", cmd, rc);
 
-        if (cmd & OBD_BRW_READ && llap->llap_defer_uptodate) {
-                ll_ra_count_put(ll_i2sbi(page->mapping->host), 1);
- 
-                LASSERT(lustre_handle_is_used(&llap->llap_lockh_granted));
-                exp = ll_i2obdexp(page->mapping->host);
-                end = ((loff_t)page->index) << CFS_PAGE_SHIFT;
-                end += CFS_PAGE_SIZE - 1;
-                obd_cancel(exp, ll_i2info(page->mapping->host)->lli_smd, LCK_PR,
-                           &llap->llap_lockh_granted, OBD_FAST_LOCK, end);
-        }
+	if (cmd & OBD_BRW_READ && llap->llap_defer_uptodate) {
+		ll_ra_count_put(ll_i2sbi(page->mapping->host), 1);
+
+		LASSERT(lustre_handle_is_used(&llap->llap_lockh_granted));
+		oa->o_flags |= OBD_FL_HAVE_LOCK;
+		oa->o_handle = llap->llap_lockh_granted;
+	}
 
         if (rc == 0)  {
                 if (cmd & OBD_BRW_READ) {

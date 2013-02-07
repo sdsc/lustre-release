@@ -162,7 +162,7 @@ enum {
         LO_FLAGS_READ_ONLY       = 1,
 };
 
-#define MAX_LOOP_DEFAULT  16
+#define MAX_LOOP_DEFAULT  12
 static int lloop_major;
 static int max_loop = MAX_LOOP_DEFAULT;
 static struct lloop_device *loop_dev;
