@@ -136,6 +136,7 @@ static int llog_osd_write_blob(const struct lu_env *env, struct dt_object *o,
 	struct llog_thread_info	*lgi = llog_info(env);
 	int			 buflen = rec->lrh_len;
 	int			 rc;
+	struct lu_attr		 attr;
 
 	ENTRY;
 
@@ -148,6 +149,12 @@ static int llog_osd_write_blob(const struct lu_env *env, struct dt_object *o,
 	CDEBUG(D_OTHER, "write blob with type %x, buf %p/%u at off %llu\n",
 	       rec->lrh_type, buf, buflen, *off);
 
+	attr.la_valid = LA_SIZE;
+	attr.la_size = *off;
+
+	/* protect the following writes from concurrent read */
+	dt_write_lock(env, o, 0);
+
 	if (!buf) {
 		lgi->lgi_buf.lb_len = buflen;
 		lgi->lgi_buf.lb_buf = rec;
@@ -155,12 +162,11 @@ static int llog_osd_write_blob(const struct lu_env *env, struct dt_object *o,
 		if (rc)
 			CERROR("%s: error writing log record: rc = %d\n",
 			       o->do_lu.lo_dev->ld_obd->obd_name, rc);
-		RETURN(rc);
+
+		GOTO(out, rc);
 	}
 
 	/* the buf case */
-	/* protect the following 3 writes from concurrent read */
-	dt_write_lock(env, o, 0);
 	rec->lrh_len = sizeof(*rec) + buflen + sizeof(lgi->lgi_tail);
 	lgi->lgi_buf.lb_len = sizeof(*rec);
 	lgi->lgi_buf.lb_buf = rec;
@@ -189,6 +195,10 @@ static int llog_osd_write_blob(const struct lu_env *env, struct dt_object *o,
 		CERROR("%s: error writing log tail: rc = %d\n",
 		       o->do_lu.lo_dev->ld_obd->obd_name, rc);
 out:
+	/* cleanup the content written above */
+	if (rc == -ENOSPC)
+		dt_attr_set(env, o, &attr, th, BYPASS_CAPA);
+
 	dt_write_unlock(env, o);
 	RETURN(rc);
 }
@@ -449,17 +459,25 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	rc = llog_osd_write_blob(env, o, &llh->llh_hdr, NULL, &lgi->lgi_off,
 				 th);
 	if (rc)
-		RETURN(rc);
+		GOTO(out, rc);
 
 	rc = dt_attr_get(env, o, &lgi->lgi_attr, NULL);
 	if (rc)
-		RETURN(rc);
+		GOTO(out, rc);
+
 	LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
 	lgi->lgi_off = lgi->lgi_attr.la_size;
 
 	rc = llog_osd_write_blob(env, o, rec, buf, &lgi->lgi_off, th);
-	if (rc)
-		RETURN(rc);
+
+out:
+	/* cleanup llog for error case */
+	if (rc) {
+		spin_lock(&loghandle->lgh_hdr_lock);
+		ext2_clear_bit(index, llh->llh_bitmap);
+		llh->llh_count--;
+		spin_unlock(&loghandle->lgh_hdr_lock);
+	}
 
 	CDEBUG(D_RPCTRACE, "added record "LPX64": idx: %u, %u\n",
 	       loghandle->lgh_id.lgl_oid, index, rec->lrh_len);
