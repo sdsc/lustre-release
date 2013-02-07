@@ -345,28 +345,6 @@ struct md_object *llo_store_create_index(const struct lu_env *env,
 EXPORT_SYMBOL(llo_store_create_index);
 
 /**
- * Create md object for regular file in \a directory.
- *
- *       \param  md       device
- *       \param  dirname  parent directory
- *       \param  objname  file name
- *       \param  fid      object fid.
- */
-
-struct md_object *llo_store_create(const struct lu_env *env,
-                                   struct md_device *md,
-                                   struct dt_device *dt,
-                                   const char *dirname,
-                                   const char *objname,
-                                   const struct lu_fid *fid)
-{
-        return llo_store_create_index(env, md, dt, dirname,
-                                      objname, fid, NULL);
-}
-
-EXPORT_SYMBOL(llo_store_create);
-
-/**
  * Register object for 'create on first mount' facility.
  * objects are created in order of registration.
  */
@@ -394,48 +372,43 @@ EXPORT_SYMBOL(llo_local_obj_unregister);
  */
 
 int llo_local_objects_setup(const struct lu_env *env,
-                             struct md_device * md,
-                             struct dt_device *dt)
+			    struct md_device *md,
+			    struct dt_device *dt)
 {
-        struct llo_thread_info *info = llo_env_info(env);
-        struct lu_fid *fid;
-        struct lu_local_obj_desc *scan;
-        struct md_object *mdo;
-        const char *dir;
-        int rc = 0;
+	struct lu_local_obj_desc *scan;
+	struct md_object *mdo;
+	const char *dir;
+	int rc = 0;
 
-        fid = &info->lti_cfid;
 	mutex_lock(&llo_lock);
 
-        cfs_list_for_each_entry(scan, &llo_lobj_list, llod_linkage) {
-                lu_local_obj_fid(fid, scan->llod_oid);
-                dir = "";
-                if (scan->llod_dir)
-                        dir = scan->llod_dir;
+	cfs_list_for_each_entry(scan, &llo_lobj_list, llod_linkage) {
+		dir = "";
+		if (scan->llod_dir != NULL)
+			dir = scan->llod_dir;
 
-                if (scan->llod_is_index)
-                        mdo = llo_store_create_index(env, md, dt ,
-                                                     dir, scan->llod_name,
-                                                     fid,
-                                                     scan->llod_feat);
-                else
-                        mdo = llo_store_create(env, md, dt,
-                                               dir, scan->llod_name,
-                                               fid);
-                if (IS_ERR(mdo) && PTR_ERR(mdo) != -EEXIST) {
-                        rc = PTR_ERR(mdo);
-                        CERROR("creating obj [%s] fid = "DFID" rc = %d\n",
-                               scan->llod_name, PFID(fid), rc);
-                        goto out;
-                }
+		LASSERT(equi(scan->llod_is_index, scan->llod_feat != NULL));
 
-                if (!IS_ERR(mdo))
-                        lu_object_put(env, &mdo->mo_lu);
-        }
+		mdo = llo_store_create_index(env, md, dt, dir, scan->llod_name,
+					     &scan->llod_fid, scan->llod_feat);
+
+		if (IS_ERR(mdo) && PTR_ERR(mdo) != -EEXIST) {
+			rc = PTR_ERR(mdo);
+			CERROR("%s: cannot create '%s' with fid "DFID":"
+			       " rc = %d\n",
+			       lu_dev_name(md2lu_dev(md)), scan->llod_name,
+			       PFID(&scan->llod_fid), rc);
+			goto out;
+		}
+
+		if (!IS_ERR(mdo))
+			lu_object_put(env, &mdo->mo_lu);
+	}
 
 out:
 	mutex_unlock(&llo_lock);
-        return rc;
+
+	return rc;
 }
 
 EXPORT_SYMBOL(llo_local_objects_setup);

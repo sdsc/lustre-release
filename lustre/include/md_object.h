@@ -871,13 +871,20 @@ struct dt_device;
  * \pre llod_dir exist
  */
 struct lu_local_obj_desc {
-        const char                      *llod_dir;
-        const char                      *llod_name;
-        __u32                            llod_oid;
-        int                              llod_is_index;
-        const struct dt_index_features  *llod_feat;
-        cfs_list_t                       llod_linkage;
+	const char			*llod_dir;
+	const char			*llod_name;
+	struct lu_fid			 llod_fid;
+	int				 llod_is_index;
+	const struct dt_index_features	*llod_feat;
+	cfs_list_t			 llod_linkage;
 };
+
+#define LU_LOCAL_OBJ_FID(oid)			\
+	((struct lu_fid) {			\
+		.f_seq = FID_SEQ_LOCAL_FILE,	\
+		.f_oid = (oid),			\
+		.f_ver = 0,			\
+	})
 
 struct md_object *llo_store_resolve(const struct lu_env *env,
                                     struct md_device *md,
@@ -899,13 +906,6 @@ struct md_object *llo_store_create_index(const struct lu_env *env,
                                          const char *objname,
                                          const struct lu_fid *fid,
                                          const struct dt_index_features *feat);
-
-struct md_object *llo_store_create(const struct lu_env *env,
-                                   struct md_device *md,
-                                   struct dt_device *dt,
-                                   const char *dirname,
-                                   const char *objname,
-                                   const struct lu_fid *fid);
 
 void llo_local_obj_register(struct lu_local_obj_desc *);
 void llo_local_obj_unregister(struct lu_local_obj_desc *);
