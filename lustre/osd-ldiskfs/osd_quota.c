@@ -844,6 +844,12 @@ static int truncate_quota_index(const struct lu_env *env, struct dt_object *dt,
 	int			 rc;
 	ENTRY;
 
+	/* XXX The truncation will corrupt the IAM index somehow when
+	 *     upgrading from 1.8 (see LU-2548 & bug 11027). Let's skip
+	 *     the truncation for now.
+	 */
+	RETURN(0);
+
 	OBD_ALLOC_PTR(attr);
 	if (attr == NULL)
 		RETURN(-ENOMEM);
@@ -1026,7 +1032,7 @@ int osd_quota_migration(const struct lu_env *env, struct dt_object *dt,
 	if (rc) {
 		CERROR("%s: Failed to truncate the quota index "DFID", rc:%d\n",
 		       osd->od_svname, PFID(lu_object_fid(&dt->do_lu)), rc);
-		RETURN(rc);
+		GOTO(out, rc);
 	}
 
 	/* set up indexing operations for the admin file */
