@@ -386,6 +386,8 @@ typedef struct lu_fid lustre_fid;
 
 /* printf display format
    e.g. printf("file FID is "DFID"\n", PFID(fid)); */
+#define FID_NOBRACE_LEN 40
+#define FID_LEN 42
 #define DFID_NOBRACE LPX64":0x%x:0x%x"
 #define DFID "["DFID_NOBRACE"]"
 #define PFID(fid)     \
