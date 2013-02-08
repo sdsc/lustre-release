@@ -76,9 +76,16 @@ static int ofd_lvbo_init(struct ldlm_resource *res)
 	if (rc)
 		RETURN(rc);
 
-	OBD_ALLOC_PTR(lvb);
-	if (lvb == NULL)
+	if (OBD_FAIL_CHECK(OBD_FAIL_LDLM_OST_LVB)) {
+		lu_env_fini(&env);
 		RETURN(-ENOMEM);
+	}
+
+	OBD_ALLOC_PTR(lvb);
+	if (lvb == NULL) {
+		lu_env_fini(&env);
+		RETURN(-ENOMEM);
+	}
 
 	res->lr_lvb_data = lvb;
 	res->lr_lvb_len = sizeof(*lvb);
@@ -282,6 +289,10 @@ static int ofd_lvbo_fill(struct ldlm_lock *lock, void *buf, int buflen)
 {
 	struct ldlm_resource *res = lock->l_resource;
 	int lvb_len;
+
+	/* Former lvbo_init not allocate the "LVB". */
+	if (unlikely(!res->lr_lvb_len))
+		return 0;
 
 	lvb_len = ofd_lvbo_size(lock);
 	LASSERT(lvb_len <= res->lr_lvb_len);
