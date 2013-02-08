@@ -1149,7 +1149,7 @@ int osd_ldiskfs_write_record(struct inode *inode, void *buf, int bufsize,
 	if (write_NUL)
 		--new_size;
         /* correct in-core and on-disk sizes */
-        if (new_size > i_size_read(inode)) {
+        if (err == 0 && new_size > i_size_read(inode)) {
 		spin_lock(&inode->i_lock);
 		if (new_size > i_size_read(inode))
 			i_size_write(inode, new_size);
