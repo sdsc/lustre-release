@@ -116,7 +116,7 @@ rpms-real: @PACKAGE_TARNAME@.spec dist Makefile
 	if [ -n "@LINUX@" ]; then \
 		CONFIGURE_ARGS=$$(echo $$(eval echo $$CONFIGURE_ARGS) | \
 			sed -re 's/--with-linux=[^ ][^ ]*//'); \
-		RPMARGS="--define \"kdir @LINUX@\""; \
+		RPMARGS="-vvv --define \"kdir @LINUX@\""; \
 		CONFIGURE_ARGS=$$(echo $$(eval echo $$CONFIGURE_ARGS) | \
 			sed -re 's/--with-linux-obj=[^ ][^ ]*//'); \
 		if [ -n "@LINUX_OBJ@" -a "@LINUX_OBJ@" != "@LINUX@" ]; then \
