@@ -233,7 +233,7 @@ static int expired_lock_main(void *arg)
                                 continue;
                         }
 
-			if (lock->l_destroyed) {
+			if (lock->l_flags & LDLM_FL_DESTROYED) {
 				/* release the lock refcount where
 				 * waiting_locks_callback() founds */
 				LDLM_LOCK_RELEASE(lock);
@@ -324,7 +324,7 @@ static void waiting_locks_callback(unsigned long unused)
                                    libcfs_nid2str(lock->l_export->exp_connection->c_peer.nid));
 
                         cfs_list_del_init(&lock->l_pending_chain);
-			if (lock->l_destroyed) {
+			if (lock->l_flags & LDLM_FL_DESTROYED) {
 				/* relay the lock refcount decrease to
 				 * expired lock thread */
 				cfs_list_add(&lock->l_pending_chain,
@@ -347,7 +347,7 @@ static void waiting_locks_callback(unsigned long unused)
                                    libcfs_nid2str(lock->l_export->exp_connection->c_peer.nid));
 
                         cfs_list_del_init(&lock->l_pending_chain);
-			if (lock->l_destroyed) {
+			if (lock->l_flags & LDLM_FL_DESTROYED) {
 				/* relay the lock refcount decrease to
 				 * expired lock thread */
 				cfs_list_add(&lock->l_pending_chain,
@@ -468,13 +468,13 @@ static int ldlm_add_waiting_lock(struct ldlm_lock *lock)
 	int timeout = ldlm_get_enq_timeout(lock);
 
 	/* NB: must be called with hold of lock_res_and_lock() */
-	LASSERT(lock->l_res_locked);
-	lock->l_waited = 1;
+	LASSERT(lock->l_flags & LDLM_FL_RES_LOCKED);
+	lock->l_flags |= LDLM_FL_WAITED;
 
 	LASSERT(!(lock->l_flags & LDLM_FL_CANCEL_ON_BLOCK));
 
 	spin_lock_bh(&waiting_locks_spinlock);
-	if (lock->l_destroyed) {
+	if (lock->l_flags & LDLM_FL_DESTROYED) {
 		static cfs_time_t next;
 		spin_unlock_bh(&waiting_locks_spinlock);
                 LDLM_ERROR(lock, "not waiting on destroyed lock (bug 5653)");
@@ -619,8 +619,8 @@ int ldlm_refresh_waiting_lock(struct ldlm_lock *lock, int timeout)
 # ifdef HAVE_SERVER_SUPPORT
 static int ldlm_add_waiting_lock(struct ldlm_lock *lock)
 {
-	LASSERT(lock->l_res_locked);
-	LASSERT(!(lock->l_flags & LDLM_FL_CANCEL_ON_BLOCK));
+	LASSERT(lock->l_flags & (LDLM_FL_RES_LOCKED|LDLM_FL_CANCEL_ON_BLOCK)
+		== LDLM_FL_RES_LOCKED);
 	RETURN(1);
 }
 
@@ -878,7 +878,7 @@ int ldlm_server_blocking_ast(struct ldlm_lock *lock,
 		RETURN(0);
 	}
 
-	if (lock->l_destroyed) {
+	if (lock->l_flags & LDLM_FL_DESTROYED) {
 		/* What's the point? */
 		unlock_res_and_lock(lock);
 		ptlrpc_req_finished(req);
@@ -1717,7 +1717,7 @@ static void ldlm_handle_cp_callback(struct ptlrpc_request *req,
                         cfs_schedule_timeout_and_set_state(
                                 CFS_TASK_INTERRUPTIBLE, to);
                         if (lock->l_granted_mode == lock->l_req_mode ||
-                            lock->l_destroyed)
+			    lock->l_flags & LDLM_FL_DESTROYED)
                                 break;
                 }
         }
@@ -1757,7 +1757,7 @@ static void ldlm_handle_cp_callback(struct ptlrpc_request *req,
 	}
 
         lock_res_and_lock(lock);
-        if (lock->l_destroyed ||
+	if ((lock->l_flags & LDLM_FL_DESTROYED) ||
             lock->l_granted_mode == lock->l_req_mode) {
                 /* bug 11300: the lock has already been granted */
                 unlock_res_and_lock(lock);
