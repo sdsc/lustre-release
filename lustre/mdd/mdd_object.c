@@ -1771,8 +1771,8 @@ static int mdd_open_sanity_check(const struct lu_env *env,
         ENTRY;
 
         /* EEXIST check */
-        if (mdd_is_dead_obj(obj))
-                RETURN(-ENOENT);
+	if (!(flag & MDS_OPEN_BY_FID) && mdd_is_dead_obj(obj))
+		RETURN(-ENOENT);
 
         rc = mdd_la_get(env, obj, tmp_la, BYPASS_CAPA);
         if (rc)

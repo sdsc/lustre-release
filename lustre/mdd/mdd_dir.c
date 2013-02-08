@@ -1305,17 +1305,17 @@ stop:
 /*
  * The permission has been checked when obj created, no need check again.
  */
-static int mdd_cd_sanity_check(const struct lu_env *env,
-                               struct mdd_object *obj)
+static int mdd_create_data_sanity_check(const struct lu_env *env,
+					struct mdd_object *obj,
+					__u64 cr_flags)
 {
-        ENTRY;
+	ENTRY;
 
-        /* EEXIST check */
-        if (!obj || mdd_is_dead_obj(obj))
-                RETURN(-ENOENT);
+	if (obj == NULL ||
+	    (!(cr_flags & MDS_OPEN_BY_FID) && mdd_is_dead_obj(obj)))
+		RETURN(-ENOENT);
 
-        RETURN(0);
-
+	RETURN(0);
 }
 
 static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
@@ -1336,9 +1336,9 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
 	if (pobj && mdd_pobj->mod_flags & IMMUTE_OBJ)
 		RETURN(-ENOENT);
 
-        rc = mdd_cd_sanity_check(env, son);
-        if (rc)
-                RETURN(rc);
+	rc = mdd_create_data_sanity_check(env, son, spec->sp_cr_flags);
+	if (rc != 0)
+		RETURN(rc);
 
         if (!md_should_create(spec->sp_cr_flags))
                 RETURN(0);
