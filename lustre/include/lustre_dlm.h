@@ -104,159 +104,221 @@ typedef enum {
 } ldlm_side_t;
 
 /**
- * Declaration of flags sent through the wire.
+ * Definitions of ldlm_lock flags
  **/
-#define LDLM_FL_LOCK_CHANGED   0x000001 /* extent, mode, or resource changed */
+#define LDLM_FL_ALL_FLAGS_MASK       0x007FFFFFC08F132FULL
+#define LDLM_FL_AST_MASK             0x0000000080000000ULL
+#define LDLM_FL_BLOCKED_MASK         0x000000000000000EULL
+#define LDLM_FL_GONE_MASK            0x0006004000000000ULL
+#define LDLM_FL_INHERIT_MASK         0x0000000000800000ULL
+#define LDLM_FL_LOCAL_ONLY_MASK      0x007FFFFF00000000ULL
+#define LDLM_FL_ON_WIRE_MASK         0x00000000C08F132FULL
+
+/** extent, mode, or resource changed */
+#define LDLM_FL_LOCK_CHANGED         0x0000000000000001ULL // bit  0
 
 /**
- * If the server returns one of these flags, then the lock was put on that list.
- * If the client sends one of these flags (during recovery ONLY!), it wants the
- * lock added to the specified list, no questions asked.
+ * Server placed lock on granted list, or a recovering client wants the lock
+ * added to the granted list, no questions asked.
  */
-#define LDLM_FL_BLOCK_GRANTED  0x000002
-#define LDLM_FL_BLOCK_CONV     0x000004
-#define LDLM_FL_BLOCK_WAIT     0x000008
-
-/* Used to be LDLM_FL_CBPENDING 0x000010 moved to non-wire flags */
-
-#define LDLM_FL_AST_SENT       0x000020 /* blocking or cancel packet was
-                                         * queued for sending. */
-/* Used to be LDLM_FL_WAIT_NOREPROC 0x000040   moved to non-wire flags */
-/* Used to be LDLM_FL_CANCEL        0x000080   moved to non-wire flags */
+#define LDLM_FL_BLOCK_GRANTED        0x0000000000000002ULL // bit  1
 
 /**
- * Lock is being replayed.  This could probably be implied by the fact that one
- * of BLOCK_{GRANTED,CONV,WAIT} is set, but that is pretty dangerous.
+ * Server placed lock on conv list, or a recovering client wants the lock
+ * added to the conv list, no questions asked.
  */
-#define LDLM_FL_REPLAY         0x000100
+#define LDLM_FL_BLOCK_CONV           0x0000000000000004ULL // bit  2
 
-#define LDLM_FL_INTENT_ONLY    0x000200 /* Don't grant lock, just do intent. */
+/**
+ * Server placed lock on wait list, or a recovering client wants the lock
+ * added to the wait list, no questions asked.
+ */
+#define LDLM_FL_BLOCK_WAIT           0x0000000000000008ULL // bit  3
 
-/* Used to be LDLM_FL_LOCAL_ONLY 0x000400  moved to non-wire flags */
-/* Used to be LDLM_FL_FAILED     0x000800  moved to non-wire flags */
+/** blocking or cancel packet was queued for sending. */
+#define LDLM_FL_AST_SENT             0x0000000000000020ULL // bit  5
 
-#define LDLM_FL_HAS_INTENT     0x001000 /* lock request has intent */
+/**
+ * Lock is being replayed.  This could probably be implied by the fact that
+ * one of BLOCK_{GRANTED,CONV,WAIT} is set, but that is pretty dangerous.
+ */
+#define LDLM_FL_REPLAY               0x0000000000000100ULL // bit  8
 
-/* Used to be LDLM_FL_CANCELING  0x002000  moved to non-wire flags */
-/* Used to be LDLM_FL_LOCAL      0x004000  moved to non-wire flags */
+/** Don't grant lock, just do intent. */
+#define LDLM_FL_INTENT_ONLY          0x0000000000000200ULL // bit  9
 
-#define LDLM_FL_DISCARD_DATA   0x010000 /* discard (no writeback) on cancel */
+/** lock request has intent */
+#define LDLM_FL_HAS_INTENT           0x0000000000001000ULL // bit 12
 
-#define LDLM_FL_NO_TIMEOUT     0x020000 /* Blocked by group lock - wait
-                                         * indefinitely */
+/** discard (no writeback) on cancel */
+#define LDLM_FL_DISCARD_DATA         0x0000000000010000ULL // bit 16
 
-/** file & record locking */
-#define LDLM_FL_BLOCK_NOWAIT   0x040000 /* Server told not to wait if blocked.
-                                         * For AGL, OST will not send glimpse
-                                         * callback. */
-#define LDLM_FL_TEST_LOCK      0x080000 // return blocking lock
+/** Blocked by group lock - wait indefinitely */
+#define LDLM_FL_NO_TIMEOUT           0x0000000000020000ULL // bit 17
 
-/* Used to be LDLM_FL_LVB_READY  0x100000 moved to non-wire flags */
-/* Used to be LDLM_FL_KMS_IGNORE 0x200000 moved to non-wire flags */
-/* Used to be LDLM_FL_NO_LRU     0x400000 moved to non-wire flags */
+/**
+ * Server told not to wait if blocked. For AGL, OST will not send glimpse
+ * callback.
+ */
+#define LDLM_FL_BLOCK_NOWAIT         0x0000000000040000ULL // bit 18
 
-/* Immediatelly cancel such locks when they block some other locks. Send
+/** return blocking lock */
+#define LDLM_FL_TEST_LOCK            0x0000000000080000ULL // bit 19
+
+/**
+ * Immediatelly cancel such locks when they block some other locks. Send
  * cancel notification to original lock holder, but expect no reply. This is
  * for clients (like liblustre) that cannot be expected to reliably response
- * to blocking AST. */
-#define LDLM_FL_CANCEL_ON_BLOCK 0x800000
-
-/* Flags flags inherited from parent lock when doing intents. */
-#define LDLM_INHERIT_FLAGS     (LDLM_FL_CANCEL_ON_BLOCK)
-
-/* Used to be LDLM_FL_CP_REQD        0x1000000 moved to non-wire flags */
-/* Used to be LDLM_FL_CLEANED        0x2000000 moved to non-wire flags */
-/* Used to be LDLM_FL_ATOMIC_CB      0x4000000 moved to non-wire flags */
-/* Used to be LDLM_FL_BL_AST         0x10000000 moved to non-wire flags */
-/* Used to be LDLM_FL_BL_DONE        0x20000000 moved to non-wire flags */
-
-/* measure lock contention and return -EUSERS if locking contention is high */
-#define LDLM_FL_DENY_ON_CONTENTION 0x40000000
-
-/* These are flags that are mapped into the flags and ASTs of blocking locks */
-#define LDLM_AST_DISCARD_DATA  0x80000000 /* Add FL_DISCARD to blocking ASTs */
-
-/* Flags sent in AST lock_flags to be mapped into the receiving lock. */
-#define LDLM_AST_FLAGS         (LDLM_FL_DISCARD_DATA)
-
-/*
- * --------------------------------------------------------------------------
- * NOTE! Starting from this point, that is, LDLM_FL_* flags with values above
- * 0x80000000 will not be sent over the wire.
- * --------------------------------------------------------------------------
+ * to blocking AST.
  */
+#define LDLM_FL_CANCEL_ON_BLOCK      0x0000000000800000ULL // bit 23
 
 /**
- * Declaration of flags not sent through the wire.
- **/
+ * measure lock contention and return -EUSERS if locking contention is high
+ */
+#define LDLM_FL_DENY_ON_CONTENTION   0x0000000040000000ULL // bit 30
 
 /**
- * Used for marking lock as a target for -EINTR while cp_ast sleep
- * emulation + race with upcoming bl_ast.
+ * These are flags that are mapped into the flags and ASTs of blocking locks
+ * Add FL_DISCARD to blocking ASTs
  */
-#define LDLM_FL_FAIL_LOC       0x100000000ULL
+#define LDLM_FL_AST_DISCARD_DATA     0x0000000080000000ULL // bit 31
 
 /**
- * Used while processing the unused list to know that we have already
- * handled this lock and decided to skip it.
+ * Used for marking lock as a target for -EINTR while cp_ast sleep emulation +
+ * race with upcoming bl_ast.
  */
-#define LDLM_FL_SKIPPED        0x200000000ULL
-/* this lock is being destroyed */
-#define LDLM_FL_CBPENDING      0x400000000ULL
-/* not a real flag, not saved in lock */
-#define LDLM_FL_WAIT_NOREPROC  0x800000000ULL
-/* cancellation callback already run */
-#define LDLM_FL_CANCEL         0x1000000000ULL
-#define LDLM_FL_LOCAL_ONLY     0x2000000000ULL
-/* don't run the cancel callback under ldlm_cli_cancel_unused */
-#define LDLM_FL_FAILED         0x4000000000ULL
-/* lock cancel has already been sent */
-#define LDLM_FL_CANCELING      0x8000000000ULL
-/* local lock (ie, no srv/cli split) */
-#define LDLM_FL_LOCAL          0x10000000000ULL
-/* XXX FIXME: This is being added to b_size as a low-risk fix to the fact that
- * the LVB filling happens _after_ the lock has been granted, so another thread
- * can match it before the LVB has been updated.  As a dirty hack, we set
- * LDLM_FL_LVB_READY only after we've done the LVB poop.
- * this is only needed on LOV/OSC now, where LVB is actually used and callers
- * must set it in input flags.
+#define LDLM_FL_FAIL_LOC             0x0000000100000000ULL // bit 32
+
+/**
+ * Used while processing the unused list to know that we have already handled
+ * this lock and decided to skip it.
+ */
+#define LDLM_FL_SKIPPED              0x0000000200000000ULL // bit 33
+
+/** this lock is being destroyed */
+#define LDLM_FL_CBPENDING            0x0000000400000000ULL // bit 34
+
+/** not a real flag, not saved in lock */
+#define LDLM_FL_WAIT_NOREPROC        0x0000000800000000ULL // bit 35
+
+/** cancellation callback already run */
+#define LDLM_FL_CANCEL               0x0000001000000000ULL // bit 36
+
+/** whatever */
+#define LDLM_FL_LOCAL_ONLY           0x0000002000000000ULL // bit 37
+
+/** don't run the cancel callback under ldlm_cli_cancel_unused */
+#define LDLM_FL_FAILED               0x0000004000000000ULL // bit 38
+
+/** lock cancel has already been sent */
+#define LDLM_FL_CANCELING            0x0000008000000000ULL // bit 39
+
+/** local lock (ie, no srv/cli split) */
+#define LDLM_FL_LOCAL                0x0000010000000000ULL // bit 40
+
+/**
+ * XXX FIXME: This is being added to b_size as a low-risk fix to the fact
+ * that the LVB filling happens _after_ the lock has been granted, so another
+ * thread can match it before the LVB has been updated.  As a dirty hack,
+ * we set LDLM_FL_LVB_READY only after we've done the LVB poop.  this is
+ * only needed on LOV/OSC now, where LVB is actually used and callers must
+ * set it in input flags.
  *
- * The proper fix is to do the granting inside of the completion AST, which can
- * be replaced with a LVB-aware wrapping function for OSC locks.  That change is
- * pretty high-risk, though, and would need a lot more testing. */
-#define LDLM_FL_LVB_READY      0x20000000000ULL
-/* A lock contributes to the known minimum size (KMS) calculation until it has
- * finished the part of its cancelation that performs write back on its dirty
- * pages.  It can remain on the granted list during this whole time.  Threads
- * racing to update the KMS after performing their writeback need to know to
- * exclude each other's locks from the calculation as they walk the granted
- * list. */
-#define LDLM_FL_KMS_IGNORE     0x40000000000ULL
-/* completion AST to be executed */
-#define LDLM_FL_CP_REQD        0x80000000000ULL
-/* cleanup_resource has already handled the lock */
-#define LDLM_FL_CLEANED        0x100000000000ULL
-/* optimization hint: LDLM can run blocking callback from current context
- * w/o involving separate thread. in order to decrease cs rate */
-#define LDLM_FL_ATOMIC_CB      0x200000000000ULL
+ * The proper fix is to do the granting inside of the completion AST,
+ * which can be replaced with a LVB-aware wrapping function for OSC locks.
+ * That change is pretty high-risk, though, and would need a lot more testing.
+ */
+#define LDLM_FL_LVB_READY            0x0000020000000000ULL // bit 41
 
-/* It may happen that a client initiates two operations, e.g. unlink and
- * mkdir, such that the server sends a blocking AST for conflicting
- * locks to this client for the first operation, whereas the second
- * operation has canceled this lock and is waiting for rpc_lock which is
- * taken by the first operation. LDLM_FL_BL_AST is set by
- * ldlm_callback_handler() in the lock to prevent the Early Lock Cancel
- * (ELC) code from cancelling it.
+/**
+ * A lock contributes to the known minimum size (KMS) calculation until it
+ * has finished the part of its cancelation that performs write back on its
+ * dirty pages.  It can remain on the granted list during this whole time.
+ * Threads racing to update the KMS after performing their writeback need
+ * to know to exclude each other's locks from the calculation as they walk
+ * the granted list.
+ */
+#define LDLM_FL_KMS_IGNORE           0x0000040000000000ULL // bit 42
+
+/** completion AST to be executed */
+#define LDLM_FL_CP_REQD              0x0000080000000000ULL // bit 43
+
+/** cleanup_resource has already handled the lock */
+#define LDLM_FL_CLEANED              0x0000100000000000ULL // bit 44
+
+/**
+ * optimization hint: LDLM can run blocking callback from current context
+ * w/o involving separate thread. in order to decrease cs rate
+ */
+#define LDLM_FL_ATOMIC_CB            0x0000200000000000ULL // bit 45
+
+/**
+ * It may happen that a client initiates two operations, e.g. unlink and
+ * mkdir, such that the server sends a blocking AST for conflicting locks
+ * to this client for the first operation, whereas the second operation
+ * has canceled this lock and is waiting for rpc_lock which is taken by
+ * the first operation. LDLM_FL_BL_AST is set by ldlm_callback_handler()
+ * in the lock to prevent the Early Lock Cancel (ELC) code from cancelling it.
  *
- * LDLM_FL_BL_DONE is to be set by ldlm_cancel_callback() when lock
- * cache is dropped to let ldlm_callback_handler() return EINVAL to the
- * server. It is used when ELC RPC is already prepared and is waiting
- * for rpc_lock, too late to send a separate CANCEL RPC. */
-#define LDLM_FL_BL_AST          0x400000000000ULL
-#define LDLM_FL_BL_DONE         0x800000000000ULL
-/* Don't put lock into the LRU list, so that it is not canceled due to aging.
- * Used by MGC locks, they are cancelled only at unmount or by callback. */
-#define LDLM_FL_NO_LRU		0x1000000000000ULL
+ * LDLM_FL_BL_DONE is to be set by ldlm_cancel_callback() when lock cache is
+ * dropped to let ldlm_callback_handler() return EINVAL to the server. It
+ * is used when ELC RPC is already prepared and is waiting for rpc_lock,
+ * too late to send a separate CANCEL RPC.
+ */
+#define LDLM_FL_BL_AST               0x0000400000000000ULL // bit 46
+
+/** whatever */
+#define LDLM_FL_BL_DONE              0x0000800000000000ULL // bit 47
+
+/**
+ * Don't put lock into the LRU list, so that it is not canceled due to aging.
+ * Used by MGC locks, they are cancelled only at unmount or by callback.
+ */
+#define LDLM_FL_NO_LRU               0x0001000000000000ULL // bit 48
+
+/** Set for locks that were 
+
+Protected by lock and resource locks. */
+#define LDLM_FL_FAIL_NOTIFIED        0x0002000000000000ULL // bit 49
+
+/**
+ * Set for locks that were removed from class hash table and will
+ * be destroyed when last reference to them is released. Set by
+ * ldlm_lock_destroy_internal().
+ *
+ * Protected by lock and resource locks.
+ */
+#define LDLM_FL_DESTROYED            0x0004000000000000ULL // bit 50
+
+/** flag whether this is a server namespace lock */
+#define LDLM_FL_SERVER_LOCK          0x0008000000000000ULL // bit 51
+
+/**
+ * it's set in lock_res_and_lock() and unset in unlock_res_and_lock().
+ *
+ * NB: compared with check_res_locked(), checking this bit is cheaper.
+ * Also, spin_is_locked() is deprecated for kernel code; one reason is
+ * because it works only for SMP so user needs to add extra macros like
+ * LASSERT_SPIN_LOCKED for uniprocessor kernels.
+ */
+#define LDLM_FL_RES_LOCKED           0x0010000000000000ULL // bit 52
+
+/**
+ * It's set once we call ldlm_add_waiting_lock_res_locked() to start the
+ * lock-timeout timer and it will never be reset.
+ *
+ * Protected by lock_res_and_lock().
+ */
+#define LDLM_FL_WAITED               0x0020000000000000ULL // bit 53
+
+/** Flag whether this is a server namespace lock. */
+#define LDLM_FL_NS_SRV               0x0040000000000000ULL // bit 54
+
+/** Mask of flags inherited from parent lock when doing intents. */
+#define LDLM_INHERIT_FLAGS           LDLM_FL_INHERIT_MASK
+/** Mask of Flags sent in AST lock_flags to map into the receiving lock. */
+#define LDLM_AST_FLAGS               LDLM_FL_AST_MASK
 
 /**
  * The blocking callback is overloaded to perform two functions.  These flags
@@ -725,8 +787,6 @@ typedef int (*ldlm_completion_callback)(struct ldlm_lock *lock, __u64 flags,
 					void *data);
 /** Type for glimpse callback function of a lock. */
 typedef int (*ldlm_glimpse_callback)(struct ldlm_lock *lock, void *data);
-/** Type for weight callback function of a lock. */
-typedef unsigned long (*ldlm_weigh_callback)(struct ldlm_lock *lock);
 
 /** Work list for sending GL ASTs to multiple locks. */
 struct ldlm_glimpse_work {
@@ -895,9 +955,6 @@ struct ldlm_lock {
 	 */
 	ldlm_glimpse_callback	l_glimpse_ast;
 
-	/** XXX apparently unused "weight" handler. To be removed? */
-	ldlm_weigh_callback	l_weigh_ast;
-
 	/**
 	 * Lock export.
 	 * This is a pointer to actual client export for locks that were granted
@@ -929,6 +986,7 @@ struct ldlm_lock {
 	 * Protected by lr_lock.
 	 */
 	__u64			l_flags;
+
 	/**
 	 * Lock r/w usage counters.
 	 * Protected by lr_lock.
@@ -956,34 +1014,6 @@ struct ldlm_lock {
 
 	/** Originally requested extent for the extent lock. */
 	struct ldlm_extent	l_req_extent;
-
-	unsigned int		l_failed:1,
-	/**
-	 * Set for locks that were removed from class hash table and will be
-	 * destroyed when last reference to them is released. Set by
-	 * ldlm_lock_destroy_internal().
-	 *
-	 * Protected by lock and resource locks.
-	 */
-				l_destroyed:1,
-	/*
-	 * it's set in lock_res_and_lock() and unset in unlock_res_and_lock().
-	 *
-	 * NB: compared with check_res_locked(), checking this bit is cheaper.
-	 * Also, spin_is_locked() is deprecated for kernel code; one reason is
-	 * because it works only for SMP so user needs to add extra macros like
-	 * LASSERT_SPIN_LOCKED for uniprocessor kernels.
-	 */
-				l_res_locked:1,
-	/*
-	 * It's set once we call ldlm_add_waiting_lock_res_locked()
-	 * to start the lock-timeout timer and it will never be reset.
-	 *
-	 * Protected by lock_res_and_lock().
-	 */
-				l_waited:1,
-	/** Flag whether this is a server namespace lock. */
-				l_ns_srv:1;
 
 	/*
 	 * Client-side-only members.
@@ -1235,7 +1265,6 @@ struct ldlm_enqueue_info {
 	void *ei_cb_bl;  /** blocking lock callback */
 	void *ei_cb_cp;  /** lock completion callback */
 	void *ei_cb_gl;  /** lock glimpse callback */
-	void *ei_cb_wg;  /** lock weigh callback */
 	void *ei_cbdata; /** Data to be passed into callbacks. */
 };
 
@@ -1339,7 +1368,6 @@ struct ldlm_callback_suite {
         ldlm_completion_callback lcs_completion;
         ldlm_blocking_callback   lcs_blocking;
         ldlm_glimpse_callback    lcs_glimpse;
-        ldlm_weigh_callback      lcs_weigh;
 };
 
 /* ldlm_lockd.c */

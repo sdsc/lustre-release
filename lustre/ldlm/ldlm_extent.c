@@ -694,7 +694,7 @@ int ldlm_process_extent_lock(struct ldlm_lock *lock, __u64 *flags,
 
         LASSERT(cfs_list_empty(&res->lr_converting));
         LASSERT(!(*flags & LDLM_FL_DENY_ON_CONTENTION) ||
-                !(lock->l_flags & LDLM_AST_DISCARD_DATA));
+		!(lock->l_flags & LDLM_FL_AST_DISCARD_DATA));
         check_res_locked(res);
         *err = ELDLM_OK;
 
@@ -766,7 +766,7 @@ int ldlm_process_extent_lock(struct ldlm_lock *lock, __u64 *flags,
                          * in ldlm_lock_destroy. Anyway, this always happens
                          * when a client is being evicted. So it would be
                          * ok to return an error. -jay */
-                        if (lock->l_destroyed) {
+			if (lock->l_flags & LDLM_FL_DESTROYED) {
                                 *err = -EAGAIN;
                                 GOTO(out, rc = -EAGAIN);
                         }
@@ -779,8 +779,7 @@ int ldlm_process_extent_lock(struct ldlm_lock *lock, __u64 *flags,
                                  * called and it causes the interval node to be
                                  * freed. Then we will fail at
                                  * ldlm_extent_add_lock() */
-                                *flags &= ~(LDLM_FL_BLOCK_GRANTED | LDLM_FL_BLOCK_CONV |
-                                            LDLM_FL_BLOCK_WAIT);
+				*flags &= ~LDLM_FL_BLOCKED_MASK;
                                 GOTO(out, rc = 0);
                         }
 
@@ -796,7 +795,7 @@ int ldlm_process_extent_lock(struct ldlm_lock *lock, __u64 *flags,
         RETURN(0);
 out:
         if (!cfs_list_empty(&rpc_list)) {
-                LASSERT(!(lock->l_flags & LDLM_AST_DISCARD_DATA));
+		LASSERT(!(lock->l_flags & LDLM_FL_AST_DISCARD_DATA));
                 discard_bl_list(&rpc_list);
         }
         RETURN(rc);
