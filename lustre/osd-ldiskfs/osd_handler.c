@@ -4982,7 +4982,7 @@ static void *osd_key_init(const struct lu_context *ctx,
 {
         struct osd_thread_info *info;
 
-        OBD_ALLOC_PTR(info);
+        OBD_ALLOC_LARGE(info, sizeof(struct osd_thread_info));
         if (info == NULL)
                 return ERR_PTR(-ENOMEM);
 
@@ -5013,7 +5013,7 @@ static void osd_key_fini(const struct lu_context *ctx,
         if (info->oti_hlock != NULL)
                 ldiskfs_htree_lock_free(info->oti_hlock);
         OBD_FREE(info->oti_it_ea_buf, OSD_IT_EA_BUFSIZE);
-        OBD_FREE_PTR(info);
+        OBD_FREE_LARGE(info, sizeof(struct osd_thread_info));
 }
 
 static void osd_key_exit(const struct lu_context *ctx,
