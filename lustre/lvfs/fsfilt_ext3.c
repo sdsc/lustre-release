@@ -58,6 +58,7 @@
 #include <linux/lprocfs_status.h>
 
 #include <ext4/ext4_extents.h>
+#include <ext4/truncate.h>
 
 /* for kernels 2.6.18 and later */
 #define FSFILT_SINGLEDATA_TRANS_BLOCKS(sb) EXT3_SINGLEDATA_TRANS_BLOCKS(sb)
@@ -85,23 +86,6 @@ static char *fsfilt_ext3_get_label(struct super_block *sb)
 {
         return EXT3_SB(sb)->s_es->s_volume_name;
 }
-
-/* kernel has ext4_blocks_for_truncate since linux-3.1.1 */
-#ifdef HAVE_BLOCKS_FOR_TRUNCATE
-# include <ext4/truncate.h>
-#else
-static inline unsigned long ext4_blocks_for_truncate(struct inode *inode)
-{
-	ext4_lblk_t needed;
-
-	needed = inode->i_blocks >> (inode->i_sb->s_blocksize_bits - 9);
-	if (needed < 2)
-		needed = 2;
-	if (needed > EXT4_MAX_TRANS_DATA)
-		needed = EXT4_MAX_TRANS_DATA;
-	return EXT4_DATA_TRANS_BLOCKS(inode->i_sb) + needed;
-}
-#endif
 
 /*
  * We don't currently need any additional blocks for rmdir and
@@ -216,7 +200,7 @@ static long ext3_ext_find_goal(struct inode *inode, struct ext3_ext_path *path,
 
                 /* try to predict block placement */
                 if ((ex = path[depth].p_ext))
-                        return ext_pblock(ex) + (block - le32_to_cpu(ex->ee_block));
+                        return ext4_ext_pblock(ex) + (block - le32_to_cpu(ex->ee_block));
 
                 /* it looks index is empty
                  * try to find starting from index itself */
@@ -365,11 +349,9 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
                 /* free data blocks we just allocated */
                 /* not a good idea to call discard here directly,
                  * but otherwise we'd need to call it every free() */
-#ifdef EXT3_MB_HINT_GROUP_ALLOC
-                ext3_mb_discard_inode_preallocations(inode);
-#endif
+		ext3_mb_discard_inode_preallocations(inode);
 #ifdef EXT4_FREE_BLOCKS_METADATA
-		ext3_free_blocks(handle, inode, NULL, ext_pblock(&nex),
+		ext3_free_blocks(handle, inode, NULL, ext4_ext_pblock(&nex),
 				 cpu_to_le16(nex.ee_len), 0);
 #endif
                 goto out;
@@ -381,7 +363,7 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
          * scaning after that block
          */
         cex->ec_len = le16_to_cpu(nex.ee_len);
-        cex->ec_start = ext_pblock(&nex);
+        cex->ec_start = ext4_ext_pblock(&nex);
         BUG_ON(le16_to_cpu(nex.ee_len) == 0);
         BUG_ON(le32_to_cpu(nex.ee_block) != cex->ec_block);
 

@@ -17,7 +17,7 @@ ext3_new_sources := extents.c mballoc.c group.h dynlocks.c fiemap.h
 ext3_new_headers := ext3_extents.h
 
 ext4_new_sources := dynlocks.c fiemap.h mmp.c
-ext4_new_sources += htree_lock.c
+ext4_new_sources += htree_lock.c truncate.h
 ext4_new_headers :=
 
 new_sources := $(ext4_new_sources)

@@ -1858,26 +1858,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
-# 3.1.1 has ext4_blocks_for_truncate
-#
-AC_DEFUN([LC_BLOCKS_FOR_TRUNCATE],
-[AC_MSG_CHECKING([if kernel has ext4_blocks_for_truncate])
-LB_LINUX_TRY_COMPILE([
-	#include <linux/fs.h>
-	#include "$LINUX/fs/ext4/ext4_jbd2.h"
-	#include "$LINUX/fs/ext4/truncate.h"
-],[
-	ext4_blocks_for_truncate(NULL);
-],[
-	AC_MSG_RESULT([yes])
-	AC_DEFINE(HAVE_BLOCKS_FOR_TRUNCATE, 1,
-		  [kernel has ext4_blocks_for_truncate])
-],[
-	AC_MSG_RESULT([no])
-])
-])
-
-#
 # 3.1 introduced generic_file_llseek_size()
 #
 AC_DEFUN([LC_FILE_LLSEEK_SIZE],
@@ -2346,9 +2326,6 @@ AC_DEFUN([LC_PROG_LINUX],
 	 LC_INODE_DIO_WAIT
 	 LC_IOP_GET_ACL
 	 LC_FILE_LLSEEK_SIZE
-
-	 # 3.1.1
-	 LC_BLOCKS_FOR_TRUNCATE
 
 	 # 3.2
 	 LC_HAVE_VOID_MAKE_REQUEST_FN
