@@ -1,0 +1,347 @@
+diff -ur linux-stage.orig/fs/ext4/ext4_extents.h linux-stage/fs/ext4/ext4_extents.h
+--- linux-stage.orig/fs/ext4/ext4_extents.h	2013-02-11 14:58:21.000000000 -0500
++++ linux-stage/fs/ext4/ext4_extents.h	2013-02-11 14:59:38.000000000 -0500
+@@ -58,6 +58,13 @@
+  */
+ #define EXT_STATS_
+ 
++/*
++ * define EXT4_ALLOC_NEEDED to 0 since block bitmap, group desc. and sb
++ * are now accounted in ext4_ext_calc_credits_for_insert()
++ */
++#define EXT4_ALLOC_NEEDED 0
++#define HAVE_EXT_PREPARE_CB_EXTENT
++#define HAVE_EXT4_EXT_PBLOCK
+ 
+ /*
+  * ext4_inode has i_block array (60 bytes total).
+@@ -241,6 +248,7 @@
+ 	block |= ((ext4_fsblk_t) le16_to_cpu(ex->ee_start_hi) << 31) << 1;
+ 	return block;
+ }
++#define ext_pblock(ex) ext4_ext_pblock(ex)
+ 
+ /*
+  * ext4_idx_pblock:
+@@ -287,6 +295,8 @@
+ extern int ext4_ext_calc_credits_for_single_extent(struct inode *inode,
+ 						   int num,
+ 						   struct ext4_ext_path *path);
++extern int ext4_ext_calc_credits_for_insert(struct inode *,
++					    struct ext4_ext_path *);
+ extern int ext4_can_extents_be_merged(struct inode *inode,
+ 				      struct ext4_extent *ex1,
+ 				      struct ext4_extent *ex2);
+diff -ur linux-stage.orig/fs/ext4/ext4.h linux-stage/fs/ext4/ext4.h
+--- linux-stage.orig/fs/ext4/ext4.h	2013-02-11 14:58:21.000000000 -0500
++++ linux-stage/fs/ext4/ext4.h	2013-02-11 14:59:38.000000000 -0500
+@@ -1313,6 +1313,9 @@
+ 
+ #define NEXT_ORPHAN(inode) EXT4_I(inode)->i_dtime
+ 
++/* Has been moved to linux/magic.h but we need it for Lustre */
++#define EXT4_SUPER_MAGIC	0xEF53
++
+ /*
+  * Codes for operating systems
+  */
+@@ -1832,6 +1835,9 @@
+ 				ext4_fsblk_t block, unsigned long count);
+ extern int ext4_trim_fs(struct super_block *, struct fstrim_range *);
+ 
++extern void ext4_mb_discard_inode_preallocations(struct inode *);
++
++
+ /* inode.c */
+ struct buffer_head *ext4_getblk(handle_t *, struct inode *,
+ 						ext4_lblk_t, int, int *);
+diff -ur linux-stage.orig/fs/ext4/ext4_jbd2.h linux-stage/fs/ext4/ext4_jbd2.h
+--- linux-stage.orig/fs/ext4/ext4_jbd2.h	2013-02-11 14:58:21.000000000 -0500
++++ linux-stage/fs/ext4/ext4_jbd2.h	2013-02-11 14:59:38.000000000 -0500
+@@ -35,6 +35,8 @@
+ 	(EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_EXTENTS)   \
+ 	 ? 27U : 8U)
+ 
++#define ext4_journal_dirty_metadata(handle, bh)  \
++		ext4_handle_dirty_metadata(handle, NULL, bh)
+ /* Extended attribute operations touch at most two data buffers,
+  * two bitmap buffers, and two group summaries, in addition to the inode
+  * and the superblock, which are already accounted for. */
+@@ -181,6 +183,7 @@
+ 	list_del_init(&jce->jce_list);
+ 	spin_unlock(&sbi->s_md_lock);
+ }
++#define HAVE_EXT4_JOURNAL_CALLBACK_ADD
+ 
+ int
+ ext4_mark_iloc_dirty(handle_t *handle,
+diff -ur linux-stage.orig/fs/ext4/extents.c linux-stage/fs/ext4/extents.c
+--- linux-stage.orig/fs/ext4/extents.c	2013-02-11 14:58:21.000000000 -0500
++++ linux-stage/fs/ext4/extents.c	2013-02-11 14:59:38.000000000 -0500
+@@ -2219,6 +2219,56 @@
+ }
+ 
+ /*
++ * This routine returns max. credits extent tree can consume.
++ * It should be OK for low-performance paths like ->writepage()
++ * To allow many writing process to fit a single transaction,
++ * caller should calculate credits under truncate_mutex and
++ * pass actual path.
++ */
++int ext4_ext_calc_credits_for_insert(struct inode *inode,
++				     struct ext4_ext_path *path)
++{
++	int depth, needed;
++
++	if (path) {
++		/* probably there is space in leaf? */
++		depth = ext_depth(inode);
++		if (le16_to_cpu(path[depth].p_hdr->eh_entries)
++				< le16_to_cpu(path[depth].p_hdr->eh_max))
++			return 1;
++	}
++
++	/*
++	 * given 32bit logical block (4294967296 blocks), max. tree
++	 * can be 4 levels in depth -- 4 * 340^4 == 53453440000.
++	 * let's also add one more level for imbalance.
++	 */
++	depth = 5;
++
++	/* allocation of new data block(s) */
++	needed = 2;
++
++	/*
++	 * tree can be full, so it'd need to grow in depth:
++	 * we need one credit to modify old root, credits for
++	 * new root will be added in split accounting
++	 */
++	needed += 1;
++	/*
++	 * Index split can happen, we'd need:
++	 *    allocate intermediate indexes (bitmap + group)
++	 *  + change two blocks at each level, but root (already included)
++	 */
++	needed += (depth * 2) + (depth * 2);
++
++	/* any allocation modifies superblock */
++	needed += 1;
++
++	return needed;
++}
++EXPORT_SYMBOL(ext4_ext_calc_credits_for_insert);
++
++/*
+  * How many index/leaf blocks need to change/allocate to modify nrblocks?
+  *
+  * if nrblocks are fit in a single extent (chunk flag is 1), then
+diff -ur linux-stage.orig/fs/ext4/inode.c linux-stage/fs/ext4/inode.c
+--- linux-stage.orig/fs/ext4/inode.c	2013-02-11 14:58:21.000000000 -0500
++++ linux-stage/fs/ext4/inode.c	2013-02-11 15:02:26.000000000 -0500
+@@ -47,6 +47,7 @@
+ #include "xattr.h"
+ #include "acl.h"
+ #include "ext4_extents.h"
++#include "truncate.h"
+ 
+ #include <trace/events/ext4.h>
+ 
+@@ -89,33 +90,6 @@
+ }
+ 
+ /*
+- * Work out how many blocks we need to proceed with the next chunk of a
+- * truncate transaction.
+- */
+-static unsigned long blocks_for_truncate(struct inode *inode)
+-{
+-	ext4_lblk_t needed;
+-
+-	needed = inode->i_blocks >> (inode->i_sb->s_blocksize_bits - 9);
+-
+-	/* Give ourselves just enough room to cope with inodes in which
+-	 * i_blocks is corrupt: we've seen disk corruptions in the past
+-	 * which resulted in random data in an inode which looked enough
+-	 * like a regular file for ext4 to try to delete it.  Things
+-	 * will go a bit crazy if that happens, but at least we should
+-	 * try not to panic the whole kernel. */
+-	if (needed < 2)
+-		needed = 2;
+-
+-	/* But we need to bound the transaction so we don't overflow the
+-	 * journal. */
+-	if (needed > EXT4_MAX_TRANS_DATA)
+-		needed = EXT4_MAX_TRANS_DATA;
+-
+-	return EXT4_DATA_TRANS_BLOCKS(inode->i_sb) + needed;
+-}
+-
+-/*
+  * Truncate transactions can be complex and absolutely huge.  So we need to
+  * be able to restart the transaction at a conventient checkpoint to make
+  * sure we don't overflow the journal.
+@@ -129,7 +103,7 @@
+ {
+ 	handle_t *result;
+ 
+-	result = ext4_journal_start(inode, blocks_for_truncate(inode));
++	result = ext4_journal_start(inode, ext4_blocks_for_truncate(inode));
+ 	if (!IS_ERR(result))
+ 		return result;
+ 
+@@ -149,7 +123,7 @@
+ 		return 0;
+ 	if (ext4_handle_has_enough_credits(handle, EXT4_RESERVE_TRANS_BLOCKS+1))
+ 		return 0;
+-	if (!ext4_journal_extend(handle, blocks_for_truncate(inode)))
++	if (!ext4_journal_extend(handle, ext4_blocks_for_truncate(inode)))
+ 		return 0;
+ 	return 1;
+ }
+@@ -207,7 +181,7 @@
+ 	if (is_bad_inode(inode))
+ 		goto no_delete;
+ 
+-	handle = ext4_journal_start(inode, blocks_for_truncate(inode)+3);
++	handle = ext4_journal_start(inode, ext4_blocks_for_truncate(inode)+3);
+ 	if (IS_ERR(handle)) {
+ 		ext4_std_error(inode->i_sb, PTR_ERR(handle));
+ 		/*
+@@ -1601,16 +1575,6 @@
+ 	return ret;
+ }
+ 
+-/*
+- * Truncate blocks that were not used by write. We have to truncate the
+- * pagecache as well so that corresponding buffers get properly unmapped.
+- */
+-static void ext4_truncate_failed_write(struct inode *inode)
+-{
+-	truncate_inode_pages(inode->i_mapping, inode->i_size);
+-	ext4_truncate(inode);
+-}
+-
+ static int ext4_get_block_write(struct inode *inode, sector_t iblock,
+ 		   struct buffer_head *bh_result, int create);
+ static int ext4_write_begin(struct file *file, struct address_space *mapping,
+@@ -4219,7 +4183,7 @@
+ 		if (unlikely(err))
+ 			goto out_err;
+ 		err = ext4_truncate_restart_trans(handle, inode,
+-						  blocks_for_truncate(inode));
++						  ext4_blocks_for_truncate(inode));
+ 		if (unlikely(err))
+ 			goto out_err;
+ 		if (bh) {
+@@ -4414,7 +4378,7 @@
+ 			if (try_to_extend_transaction(handle, inode)) {
+ 				ext4_mark_inode_dirty(handle, inode);
+ 				ext4_truncate_restart_trans(handle, inode,
+-					    blocks_for_truncate(inode));
++					    ext4_blocks_for_truncate(inode));
+ 			}
+ 
+ 			/*
+diff -ur linux-stage.orig/fs/ext4/super.c linux-stage/fs/ext4/super.c
+--- linux-stage.orig/fs/ext4/super.c	2013-02-11 14:58:21.000000000 -0500
++++ linux-stage/fs/ext4/super.c	2013-02-11 14:59:38.000000000 -0500
+@@ -1347,12 +1347,14 @@
+ 	Opt_data_err_abort, Opt_data_err_ignore,
+ 	Opt_usrjquota, Opt_grpjquota, Opt_offusrjquota, Opt_offgrpjquota,
+ 	Opt_jqfmt_vfsold, Opt_jqfmt_vfsv0, Opt_jqfmt_vfsv1, Opt_quota,
++	Opt_iopen, Opt_noiopen, Opt_iopen_nopriv,
+ 	Opt_noquota, Opt_ignore, Opt_barrier, Opt_nobarrier, Opt_err,
+ 	Opt_resize, Opt_usrquota, Opt_grpquota, Opt_i_version,
+ 	Opt_stripe, Opt_delalloc, Opt_nodelalloc, Opt_mblk_io_submit,
+ 	Opt_nomblk_io_submit, Opt_block_validity, Opt_noblock_validity,
+ 	Opt_inode_readahead_blks, Opt_journal_ioprio,
+ 	Opt_dioread_nolock, Opt_dioread_lock,
++	Opt_mballoc,
+ 	Opt_discard, Opt_nodiscard, Opt_init_itable, Opt_noinit_itable,
+ };
+ 
+@@ -1405,6 +1407,9 @@
+ 	{Opt_noquota, "noquota"},
+ 	{Opt_quota, "quota"},
+ 	{Opt_usrquota, "usrquota"},
++	{Opt_iopen, "iopen"},
++	{Opt_noiopen, "noiopen"},
++	{Opt_iopen_nopriv, "iopen_nopriv"},
+ 	{Opt_barrier, "barrier=%u"},
+ 	{Opt_barrier, "barrier"},
+ 	{Opt_nobarrier, "nobarrier"},
+@@ -1424,6 +1429,7 @@
+ 	{Opt_noauto_da_alloc, "noauto_da_alloc"},
+ 	{Opt_dioread_nolock, "dioread_nolock"},
+ 	{Opt_dioread_lock, "dioread_lock"},
++	{Opt_mballoc, "mballoc"},
+ 	{Opt_discard, "discard"},
+ 	{Opt_nodiscard, "nodiscard"},
+ 	{Opt_init_itable, "init_itable=%u"},
+@@ -1808,6 +1814,10 @@
+ 			else
+ 				clear_opt(sb, BARRIER);
+ 			break;
++		case Opt_iopen:
++		case Opt_noiopen:
++		case Opt_iopen_nopriv:
++			break;
+ 		case Opt_ignore:
+ 			break;
+ 		case Opt_resize:
+@@ -1919,6 +1929,8 @@
+ 		case Opt_noinit_itable:
+ 			clear_opt(sb, INIT_INODE_TABLE);
+ 			break;
++		case Opt_mballoc:
++			break;
+ 		default:
+ 			ext4_msg(sb, KERN_ERR,
+ 			       "Unrecognized mount option \"%s\" "
+diff -ur linux-stage.orig/fs/ext4/truncate.h linux-stage/fs/ext4/truncate.h
+--- linux-stage.orig/fs/ext4/truncate.h	2013-02-11 14:58:21.000000000 -0500
++++ linux-stage/fs/ext4/truncate.h	2013-02-11 15:00:49.000000000 -0500
+@@ -0,0 +1,43 @@
++/*
++ * linux/fs/ext4/truncate.h
++ *
++ * Common inline functions needed for truncate support
++ */
++
++/*
++ * Truncate blocks that were not used by write. We have to truncate the
++ * pagecache as well so that corresponding buffers get properly unmapped.
++ */
++static inline void ext4_truncate_failed_write(struct inode *inode)
++{
++	truncate_inode_pages(inode->i_mapping, inode->i_size);
++	ext4_truncate(inode);
++}
++
++/*
++ * Work out how many blocks we need to proceed with the next chunk of a
++ * truncate transaction.
++ */
++static inline unsigned long ext4_blocks_for_truncate(struct inode *inode)
++{
++	ext4_lblk_t needed;
++
++	needed = inode->i_blocks >> (inode->i_sb->s_blocksize_bits - 9);
++
++	/* Give ourselves just enough room to cope with inodes in which
++	 * i_blocks is corrupt: we've seen disk corruptions in the past
++	 * which resulted in random data in an inode which looked enough
++	 * like a regular file for ext4 to try to delete it.  Things
++	 * will go a bit crazy if that happens, but at least we should
++	 * try not to panic the whole kernel. */
++	if (needed < 2)
++		needed = 2;
++
++	/* But we need to bound the transaction so we don't overflow the
++	 * journal. */
++	if (needed > EXT4_MAX_TRANS_DATA)
++		needed = EXT4_MAX_TRANS_DATA;
++
++	return EXT4_DATA_TRANS_BLOCKS(inode->i_sb) + needed;
++}
++
