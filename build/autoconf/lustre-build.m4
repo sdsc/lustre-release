@@ -567,6 +567,8 @@ AC_DEFUN([LB_CONFIG_FILES],
 		autoMakefile]
 		[Rules:build/Rules.in]
 		AC_PACKAGE_TARNAME[.spec]
+		[build/lustre-client_dkms.conf]
+		[build/lustre_dkms.conf]
 	)
 ])
 

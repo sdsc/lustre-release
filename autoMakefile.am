@@ -99,6 +99,9 @@ dist-hook:
 	  top_distdir="$(top_distdir)" distdir="$(distdir)" \
 	  module-dist-hook
 
+# autogen.sh and auto-tools are required to bypass problems at DKMS-build
+# time. This is due to the way DKMS is copying files to the build area
+# without preserving time-stamps (DKMS bug 952817).
 EXTRA_DIST = @PACKAGE_TARNAME@.spec					\
 	build/Makefile build/lbuild*					\
 	build/Rules.in 							\
@@ -108,7 +111,9 @@ EXTRA_DIST = @PACKAGE_TARNAME@.spec					\
 	build/autoconf/lustre-build-ldiskfs.m4				\
 	build/autoconf/lustre-build.m4 build/rdac_spec                  \
 	build/mptlinux.spec.patch build/patches                         \
-	build/funcs.sh build/find_linux_rpms build/exit_traps.sh
+	build/funcs.sh build/find_linux_rpms build/exit_traps.sh        \
+	autogen.sh libsysio/autogen.sh ldiskfs/autogen.sh               \
+	lustre-iokit/autogen.sh build/autoconf/lustre-build-zfs.m4
 
 rpms-real: @PACKAGE_TARNAME@.spec dist Makefile
 	CONFIGURE_ARGS=$$(echo $$(eval echo $(ac_configure_args)) | \
