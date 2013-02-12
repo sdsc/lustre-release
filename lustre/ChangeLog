@@ -1,3 +1,6 @@
+2013-02-12 Intel
+	dummy change to force a test run, not to be landed
+
 2012-xx-xx Whamcloud, Inc.
 	* version 1.8.9-wc1
 	* Support for kernels:
