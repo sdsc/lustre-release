@@ -63,70 +63,7 @@ int llog_origin_connect(struct llog_ctxt *ctxt,
                         struct llog_logid *logid, struct llog_gen *gen,
                         struct obd_uuid *uuid)
 {
-        struct llog_gen_rec    *lgr;
-        struct ptlrpc_request  *req;
-        struct llogd_conn_body *req_body;
-        struct inode* inode = ctxt->loc_handle->lgh_file->f_dentry->d_inode;
-        void *handle;
-        int rc, rc1;
-
-        ENTRY;
-
-        if (cfs_list_empty(&ctxt->loc_handle->u.chd.chd_head)) {
-                CDEBUG(D_HA, "there is no record related to ctxt %p\n", ctxt);
-                RETURN(0);
-        }
-
-        /* FIXME what value for gen->conn_cnt */
-        llog_gen_init(ctxt);
-
-        /* first add llog_gen_rec */
-        OBD_ALLOC_PTR(lgr);
-        if (!lgr)
-                RETURN(-ENOMEM);
-        lgr->lgr_hdr.lrh_len = lgr->lgr_tail.lrt_len = sizeof(*lgr);
-        lgr->lgr_hdr.lrh_type = LLOG_GEN_REC;
-
-        handle = fsfilt_start_log(ctxt->loc_exp->exp_obd, inode, 
-                                  FSFILT_OP_CANCEL_UNLINK, NULL, 1);
-        if (IS_ERR(handle)) {
-               CERROR("fsfilt_start failed: %ld\n", PTR_ERR(handle));
-               OBD_FREE(lgr, sizeof(*lgr));
-               rc = PTR_ERR(handle);
-               RETURN(rc);
-        }
-
-        lgr->lgr_gen = ctxt->loc_gen;
-	rc = llog_obd_add(NULL, ctxt, &lgr->lgr_hdr, NULL, NULL, 1);
-        OBD_FREE_PTR(lgr);
-        rc1 = fsfilt_commit(ctxt->loc_exp->exp_obd, inode, handle, 0);
-        if (rc != 1 || rc1 != 0) {
-                rc = (rc != 1) ? rc : rc1;
-                RETURN(rc);
-        }
-
-        LASSERT(ctxt->loc_imp);
-        req = ptlrpc_request_alloc_pack(ctxt->loc_imp, &RQF_LLOG_ORIGIN_CONNECT,
-                                        LUSTRE_LOG_VERSION,
-                                        LLOG_ORIGIN_CONNECT);
-        if (req == NULL)
-                RETURN(-ENOMEM);
-
-        CDEBUG(D_OTHER, "%s mount_count "LPU64", connection count "LPU64"\n",
-               ctxt->loc_exp->exp_obd->obd_type->typ_name,
-               ctxt->loc_gen.mnt_cnt, ctxt->loc_gen.conn_cnt);
-
-        req_body = req_capsule_client_get(&req->rq_pill, &RMF_LLOGD_CONN_BODY);
-        req_body->lgdc_gen = ctxt->loc_gen;
-        req_body->lgdc_logid = ctxt->loc_handle->lgh_id;
-        req_body->lgdc_ctxt_idx = ctxt->loc_idx + 1;
-        ptlrpc_request_set_replen(req);
-
-        req->rq_no_resend = req->rq_no_delay = 1;
-        rc = ptlrpc_queue_wait(req);
-        ptlrpc_req_finished(req);
-
-        RETURN(rc);
+        return -ENOTSUPP;
 }
 EXPORT_SYMBOL(llog_origin_connect);
 
