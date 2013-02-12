@@ -156,7 +156,7 @@ int llapi_hsm_copytool_fini(void **priv)
 {
 	struct hsm_copytool_private *ct;
 
-	ct = (struct hsm_copytool_private *)priv;
+	ct = (struct hsm_copytool_private *)*priv;
 	if (!ct || (ct->magic != CT_PRIV_MAGIC))
 		return -EINVAL;
 
