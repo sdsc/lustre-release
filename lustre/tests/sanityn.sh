@@ -2379,7 +2379,7 @@ test_60() {
 }
 run_test 60 "Verify data_version behaviour"
 
-test_70() {
+test_70a() {
 	local test_dir=$tdir/test_dir
 
 	mkdir -p $DIR1/$tdir
@@ -2395,7 +2395,26 @@ test_70() {
 
 	cd $DIR2/$tdir || error "exit directory"
 }
-run_test 70 "cd directory && rm directory"
+run_test 70a "cd directory && rm directory"
+
+test_70b() { # LU-2781
+	local i
+	mkdir -p $DIR1/$tdir
+
+	touch $DIR1/$tdir/file
+	for ((i = 0; i < 32; i++)); do
+	    $LFS rm_entry $DIR1/$tdir/non_existent_dir &>/dev/null
+	done
+	rm $DIR1/$tdir/file || error "cannot remove file after rm_entry"
+
+	touch $DIR1/$tdir/file
+	$LFS mkdir -i0 $DIR1/$tdir/test_dir
+	$LFS rm_entry $DIR1/$tdir/test_dir &>/dev/null
+	rm -rf $DIR1/$tdir/test_dir ||
+		error "cannot remove directory after rm_entry"
+	rm $DIR1/$tdir/file || error "cannot remove file after rm_entry"
+}
+run_test 70b ""
 
 log "cleanup: ======================================================"
 
