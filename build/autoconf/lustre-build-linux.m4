@@ -70,7 +70,7 @@ fi
 AC_MSG_RESULT([$LINUXRELEASE])
 AC_SUBST(LINUXRELEASE)
 
-moduledir='/lib/modules/'$LINUXRELEASE/updates/kernel
+moduledir='$(rootdir)/lib/modules/$(LINUXRELEASE)/updates/kernel'
 AC_SUBST(moduledir)
 
 modulefsdir='$(moduledir)/fs/$(PACKAGE)'
@@ -352,11 +352,13 @@ AC_DEFUN([LB_LINUX_MIC],
 	[AC_MSG_CHECKING([for cross compilation for the Intel(R) Many Integrated Core PCIe card.])
 CROSS_ARCH=
 CROSS_COMPILE=
+CROSS_INSTALL=
 case $target_vendor in
 	k1om)
 		AC_MSG_RESULT([yes])
 		CROSS_ARCH='ARCH=k1om'
 		CROSS_COMPILE=${CROSS_TOOLCHAIN:=/usr/linux-k1om-4.7}/bin/x86_64-k1om-linux-
+		CROSS_INSTALL=${CROSS_INSTALL:=/opt/intel/mic/lustre/device-k1om}
 		LB_CHECK_CROSS_TOOL([${CROSS_COMPILE}gcc],[CC=${CROSS_COMPILE}gcc],[
 			AC_MSG_WARN([GNU cross toolchain for the Intel(R) Many Integrated Core PCIe card not found.])
 			AC_MSG_WARN([Please, specify the path to it in CROSS_TOOLCHAIN=<PATH>.])
@@ -378,6 +380,9 @@ case $target_vendor in
 			AC_MSG_WARN([Please, specify the path to it in CROSS_TOOLCHAIN=<PATH>.])
 			AC_MSG_ERROR([${CROSS_COMPILE}ranlib not found.])])
 		CCAS=$CC
+		# need to produce special section for debuginfo extraction
+		LDFLAGS="${LDFLAGS} -Wl,--build-id"
+		EXTRA_KLDFLAGS="${EXTRA_KLDFLAGS} -Wl,--build-id"
 		AC_MSG_WARN([Disabling server because it is not supported for the Intel(R) Many Integrated Core PCIe card.])
 		enable_server='no'
 		;;
@@ -387,6 +392,9 @@ case $target_vendor in
 esac
 AC_SUBST(CROSS_ARCH)
 AC_SUBST(CROSS_COMPILE)
+AC_SUBST(CROSS_INSTALL)
+rootdir=${CROSS_INSTALL}
+AC_SUBST(rootdir)
 ])
 
 #
