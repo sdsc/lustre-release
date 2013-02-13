@@ -2185,23 +2185,10 @@ static void server_put_super(struct super_block *sb)
 
 /** Called only for 'umount -f'
  */
-#ifdef HAVE_UMOUNTBEGIN_VFSMOUNT
-static void server_umount_begin(struct vfsmount *vfsmnt, int flags)
-{
-        struct super_block *sb = vfsmnt->mnt_sb;
-#else
 static void server_umount_begin(struct super_block *sb)
 {
-#endif
         struct lustre_sb_info *lsi = s2lsi(sb);
         ENTRY;
-
-#ifdef HAVE_UMOUNTBEGIN_VFSMOUNT
-        if (!(flags & MNT_FORCE)) {
-                EXIT;
-                return;
-        }
-#endif
 
         CDEBUG(D_MOUNT, "umount -f\n");
         /* umount = failover

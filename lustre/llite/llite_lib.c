@@ -2018,25 +2018,12 @@ int ll_flush_ctx(struct inode *inode)
 }
 
 /* umount -f client means force down, don't save state */
-#ifdef HAVE_UMOUNTBEGIN_VFSMOUNT
-void ll_umount_begin(struct vfsmount *vfsmnt, int flags)
-{
-        struct super_block *sb = vfsmnt->mnt_sb;
-#else
 void ll_umount_begin(struct super_block *sb)
 {
-#endif
         struct ll_sb_info *sbi = ll_s2sbi(sb);
         struct obd_device *obd;
         struct obd_ioctl_data *ioc_data;
         ENTRY;
-
-#ifdef HAVE_UMOUNTBEGIN_VFSMOUNT
-        if (!(flags & MNT_FORCE)) {
-                EXIT;
-                return;
-        }
-#endif
 
         CDEBUG(D_VFSTRACE, "VFS Op: superblock %p count %d active %d\n", sb,
                sb->s_count, atomic_read(&sb->s_active));
@@ -2076,17 +2063,6 @@ void ll_umount_begin(struct super_block *sb)
          * schedule() and sleep one second if needed, and hope.
          */
         cfs_schedule();
-#ifdef HAVE_UMOUNTBEGIN_VFSMOUNT
-        if (atomic_read(&vfsmnt->mnt_count) > 2) {
-                cfs_schedule_timeout_and_set_state(CFS_TASK_INTERRUPTIBLE,
-                                                   cfs_time_seconds(1));
-                if (atomic_read(&vfsmnt->mnt_count) > 2)
-                        LCONSOLE_WARN("Mount still busy with %d refs! You "
-                                      "may try to umount it a bit later\n",
-                                      atomic_read(&vfsmnt->mnt_count));
-        }
-#endif
-
         EXIT;
 }
 
