@@ -433,14 +433,6 @@ AC_DEFUN([LC_CONFIG_GSS],
  fi
 ])
 
-AC_DEFUN([LC_TASK_CLENV_STORE],
-[
-        AC_MSG_CHECKING([if we can store cl_env in task_struct])
-        if test x$have_task_clenv_store != xyes ; then
-                LC_TASK_CLENV_TUX_INFO
-        fi
-])
-
 # 2.6.12
 
 # ~2.6.12 merge patch from oracle to convert tree_lock from spinlock to rwlock
@@ -2204,7 +2196,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_CAPA_CRYPTO
          LC_CONFIG_RMTCLIENT
          LC_CONFIG_GSS
-         LC_TASK_CLENV_STORE
 
          # 2.6.12
          LC_RW_TREE_LOCK
@@ -2586,23 +2577,6 @@ AC_MSG_RESULT([$enable_split])
 if test x$enable_split != xno; then
    AC_DEFINE(HAVE_SPLIT_SUPPORT, 1, [enable split support])
 fi
-])
-
-# RHEL5(2.6.18) has tux_info
-AC_DEFUN([LC_TASK_CLENV_TUX_INFO],
-[AC_MSG_CHECKING([tux_info])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/sched.h>
-],[
-        struct task_struct task;
-        &task.tux_info;
-],[
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(LL_TASK_CL_ENV, tux_info, [have tux_info])
-        have_task_clenv_store='yes'
-],[
-        AC_MSG_RESULT([no])
-])
 ])
 
 #
