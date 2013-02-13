@@ -82,25 +82,6 @@ LB_LINUX_TRY_COMPILE([
 EXTRA_KCFLAGS="$tmp_flags"
 ])
 
-# 2.6.19 API changes
-# kmem_cache_destroy(cachep) return void instead of
-# int
-AC_DEFUN([LIBCFS_KMEM_CACHE_DESTROY_INT],
-[AC_MSG_CHECKING([kmem_cache_destroy(cachep) return int])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/slab.h>
-],[
-	int i __attribute__ ((unused));
-	i = kmem_cache_destroy(NULL);
-],[
-        AC_MSG_RESULT(yes)
-        AC_DEFINE(HAVE_KMEM_CACHE_DESTROY_INT, 1,
-                [kmem_cache_destroy(cachep) return int])
-],[
-        AC_MSG_RESULT(NO)
-])
-])
-
 # 2.6.20 API change INIT_WORK use 2 args and not
 # store data inside
 AC_DEFUN([LIBCFS_3ARGS_INIT_WORK],
@@ -603,8 +584,6 @@ AC_DEFUN([LIBCFS_PROG_LINUX],
 LIBCFS_CONFIG_PANIC_DUMPLOG
 
 LIBCFS_U64_LONG_LONG_LINUX
-# 2.6.19
-LIBCFS_KMEM_CACHE_DESTROY_INT
 # 2.6.20
 LIBCFS_3ARGS_INIT_WORK
 # 2.6.21
