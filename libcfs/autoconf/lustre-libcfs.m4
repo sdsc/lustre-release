@@ -82,25 +82,6 @@ LB_LINUX_TRY_COMPILE([
 EXTRA_KCFLAGS="$tmp_flags"
 ])
 
-# 2.6.20 API change INIT_WORK use 2 args and not
-# store data inside
-AC_DEFUN([LIBCFS_3ARGS_INIT_WORK],
-[AC_MSG_CHECKING([check INIT_WORK want 3 args])
-LB_LINUX_TRY_COMPILE([
-	#include <linux/workqueue.h>
-],[
-	struct work_struct work __attribute__ ((unused));
-
-	INIT_WORK(&work, NULL, NULL);
-],[
-        AC_MSG_RESULT(yes)
-        AC_DEFINE(HAVE_3ARGS_INIT_WORK, 1,
-                  [INIT_WORK use 3 args and store data inside])
-],[
-        AC_MSG_RESULT(NO)
-])
-])
-
 # 2.6.21 api change. 'register_sysctl_table' use only one argument,
 # instead of more old which need two.
 AC_DEFUN([LIBCFS_2ARGS_REGISTER_SYSCTL],
@@ -584,8 +565,6 @@ AC_DEFUN([LIBCFS_PROG_LINUX],
 LIBCFS_CONFIG_PANIC_DUMPLOG
 
 LIBCFS_U64_LONG_LONG_LINUX
-# 2.6.20
-LIBCFS_3ARGS_INIT_WORK
 # 2.6.21
 LIBCFS_2ARGS_REGISTER_SYSCTL
 # 2.6.23
