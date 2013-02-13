@@ -100,23 +100,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-# 2.6.24
-AC_DEFUN([LIBCFS_NETWORK_NAMESPACE],
-[AC_MSG_CHECKING([for network stack has namespaces])
-LB_LINUX_TRY_COMPILE([
-        #include <net/net_namespace.h>
-],[
-        struct net *net __attribute__ ((unused));
-        net = &init_net;
-],[
-        AC_MSG_RESULT(yes)
-        AC_DEFINE(HAVE_INIT_NET, 1,
-                  [kernel is support network namespaces ])
-],[
-        AC_MSG_RESULT(NO)
-])
-])
-
 #
 # LIBCFS_FUNC_DUMP_TRACE
 #
@@ -484,7 +467,6 @@ LIBCFS_CONFIG_PANIC_DUMPLOG
 LIBCFS_U64_LONG_LONG_LINUX
 # 2.6.24
 LIBCFS_SYSCTL_UNNUMBERED
-LIBCFS_NETWORK_NAMESPACE
 LIBCFS_FUNC_DUMP_TRACE
 # 2.6.26
 LIBCFS_SEM_COUNT
