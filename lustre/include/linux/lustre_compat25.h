@@ -202,14 +202,6 @@ unsigned int ll_crypto_tfm_alg_min_keysize(struct crypto_blkcipher *tfm)
 #define SLAB_DESTROY_BY_RCU 0
 #endif
 
-#ifndef HAVE_SB_ANY_QUOTA_LOADED
-# ifdef HAVE_SB_ANY_QUOTA_ACTIVE
-# define sb_any_quota_loaded(sb) sb_any_quota_active(sb)
-# else
-# define sb_any_quota_loaded(sb) sb_any_quota_enabled(sb)
-# endif
-#endif
-
 static inline int
 ll_quota_on(struct super_block *sb, int off, int ver, char *name, int remount)
 {
