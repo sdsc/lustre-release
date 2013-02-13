@@ -567,6 +567,7 @@ AC_DEFUN([LB_CONFIG_FILES],
 		autoMakefile]
 		[Rules:build/Rules.in]
 		AC_PACKAGE_TARNAME[.spec]
+		[dkms.conf:build/dkms.conf.in]
 	)
 ])
 
