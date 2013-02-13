@@ -1296,29 +1296,6 @@ if test x$enable_liblustre_acl = xyes ; then
   AC_DEFINE(LIBLUSTRE_POSIX_ACL, 1, Liblustre Support ACL-enabled MDS)
 fi
 
-# 2.6.29 change prepare/commit_write to write_begin/end
-AC_DEFUN([LC_WRITE_BEGIN_END],
-[AC_MSG_CHECKING([if kernel has .write_begin/end])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/fs.h>
-        #include <linux/pagemap.h>
-        #include <linux/mm_types.h>
-],[
-        struct address_space_operations aops;
-        struct page *page;
-
-        aops.write_begin = NULL;
-        aops.write_end = NULL;
-        page = grab_cache_page_write_begin(NULL, 0, 0);
-], [
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(HAVE_KERNEL_WRITE_BEGIN_END, 1,
-                [kernel has .write_begin/end])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 # 2.6.29 blkdev_put has 2 arguments
 AC_DEFUN([LC_BLKDEV_PUT_2ARGS],
 [AC_MSG_CHECKING([blkdev_put needs 2 parameters])
@@ -1611,7 +1588,6 @@ if test x$enable_pgstat_track = xyes ; then
 fi
 
          #2.6.29
-         LC_WRITE_BEGIN_END
          LC_BLKDEV_PUT_2ARGS
          LC_DENTRY_OPEN_4ARGS
 
