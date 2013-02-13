@@ -146,27 +146,6 @@ AC_DEFUN([LIBCFS_HAVE_OOM_H],
 ])
 
 #
-# check set_mems_allowed
-# 2.6.31 adds function set_mems_allowed in cpuset.h
-#
-AC_DEFUN([LIBCFS_HAVE_SET_MEMS_ALLOWED],
-[AC_MSG_CHECKING([whether have set_mems_allowed()])
-LB_LINUX_TRY_COMPILE([
-	#include <linux/cpuset.h>
-],[
-	nodemask_t mask;
-
-	set_mems_allowed(mask);
-],[
-	AC_MSG_RESULT(yes)
-	AC_DEFINE(HAVE_SET_MEMS_ALLOWED, 1, [have set_mems_allowed()])
-],[
-	AC_MSG_RESULT(NO)
-])
-])
-
-
-#
 # RHEL6/2.6.32 want to have pointer to shrinker self pointer in handler function
 #
 AC_DEFUN([LC_SHRINKER_WANT_SHRINK_PTR],
@@ -293,8 +272,6 @@ LIBCFS_CONFIG_PANIC_DUMPLOG
 LIBCFS_U64_LONG_LONG_LINUX
 # 2.6.24
 LIBCFS_SYSCTL_UNNUMBERED
-# 2.6.31
-LIBCFS_HAVE_SET_MEMS_ALLOWED
 # 2.6.32
 LIBCFS_STACKTRACE_OPS_HAVE_WALK_STACK
 LC_SHRINKER_WANT_SHRINK_PTR
