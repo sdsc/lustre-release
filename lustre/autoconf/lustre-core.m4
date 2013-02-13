@@ -431,40 +431,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-# 2.6.27 sles11 has sb_any_quota_active
-AC_DEFUN([LC_SB_ANY_QUOTA_ACTIVE],
-[AC_MSG_CHECKING([Kernel has sb_any_quota_active])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/quotaops.h>
-],[
-        sb_any_quota_active(NULL);
-],[
-        AC_DEFINE(HAVE_SB_ANY_QUOTA_ACTIVE, 1,
-                [Kernel has a sb_any_quota_active])
-        AC_MSG_RESULT([yes])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
-#
-# 2.6.29 introduce sb_any_quota_loaded.
-#
-AC_DEFUN([LC_SB_ANY_QUOTA_LOADED],
-[AC_MSG_CHECKING([Kernel has sb_any_quota_loaded])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/quotaops.h>
-],[
-        sb_any_quota_loaded(NULL);
-],[
-        AC_DEFINE(HAVE_SB_ANY_QUOTA_LOADED, 1,
-                [Kernel has a sb_any_quota_loaded])
-        AC_MSG_RESULT([yes])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 # 2.6.31 replaces blk_queue_hardsect_size by blk_queue_logical_block_size function
 AC_DEFUN([LC_BLK_QUEUE_LOG_BLK_SIZE],
 [AC_MSG_CHECKING([if blk_queue_logical_block_size is defined])
@@ -1400,12 +1366,6 @@ AC_DEFUN([LC_PROG_LINUX],
 
          # raid5-zerocopy patch
          LC_PAGE_CONSTANT
-
-         # 2.6.27.15-2 sles11
-         LC_SB_ANY_QUOTA_ACTIVE
-
-         # 2.6.29
-         LC_SB_ANY_QUOTA_LOADED
 
          # 2.6.31
          LC_BLK_QUEUE_LOG_BLK_SIZE
