@@ -99,24 +99,6 @@ LB_LINUX_TRY_COMPILE([
         AC_MSG_RESULT(NO)
 ])
 ])
-
-# 2.6.24 lost scatterlist->page
-AC_DEFUN([LIBCFS_SCATTERLIST_SETPAGE],
-[AC_MSG_CHECKING([for exist sg_set_page])
-LB_LINUX_TRY_COMPILE([
-        #include <asm/types.h>
-        #include <linux/scatterlist.h>
-],[
-	sg_set_page(NULL,NULL,0,0);
-],[
-        AC_MSG_RESULT(yes)
-        AC_DEFINE(HAVE_SCATTERLIST_SETPAGE, 1,
-                  [struct scatterlist has no page member])
-],[
-        AC_MSG_RESULT(NO)
-])
-])
-
 # 2.6.24-rc1 sg_init_table
 AC_DEFUN([LIBCFS_SCATTERLIST_INITTABLE],
 [AC_MSG_CHECKING([for sg_init_table])
@@ -518,7 +500,6 @@ LIBCFS_CONFIG_PANIC_DUMPLOG
 LIBCFS_U64_LONG_LONG_LINUX
 # 2.6.24
 LIBCFS_SYSCTL_UNNUMBERED
-LIBCFS_SCATTERLIST_SETPAGE
 LIBCFS_SCATTERLIST_INITTABLE
 LIBCFS_NETWORK_NAMESPACE
 LIBCFS_FUNC_DUMP_TRACE
