@@ -116,26 +116,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-# LIBCFS_CRED_WRAPPERS
-#
-# wrappers for task's credentials are in sles11
-#
-AC_DEFUN([LIBCFS_CRED_WRAPPERS],
-[AC_MSG_CHECKING([if kernel has wrappers for task's credentials])
-LB_LINUX_TRY_COMPILE([
-       #include <linux/sched.h>
-],[
-       uid_t uid;
-
-       uid = current_uid() + sizeof(uid);
-],[
-       AC_MSG_RESULT([yes])
-       AC_DEFINE(HAVE_CRED_WRAPPERS, 1, [task's cred wrappers found])
-],[
-       AC_MSG_RESULT([no])
-])
-])
-
 #
 # LN_STRUCT_CRED_IN_TASK
 #
@@ -375,8 +355,6 @@ LIBCFS_CONFIG_PANIC_DUMPLOG
 LIBCFS_U64_LONG_LONG_LINUX
 # 2.6.24
 LIBCFS_SYSCTL_UNNUMBERED
-# 2.6.27
-LIBCFS_CRED_WRAPPERS
 # 2.6.29
 LIBCFS_STRUCT_CRED_IN_TASK
 LIBCFS_STRUCT_SHASH_ALG
