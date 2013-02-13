@@ -359,23 +359,6 @@ LB_LINUX_TRY_COMPILE([
 # 2.6.27
 #
 
-# 2.6.27 removed the read_inode from super_operations.
-AC_DEFUN([LC_READ_INODE_IN_SBOPS],
-[AC_MSG_CHECKING([super_operations has a read_inode field])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/fs.h>
-],[
-        struct super_operations *sop;
-        sop->read_inode(NULL);
-],[
-        AC_DEFINE(HAVE_READ_INODE_IN_SBOPS, 1,
-                [super_operations has a read_inode])
-        AC_MSG_RESULT([yes])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 # 2.6.27 has inode_permission instead of permisson
 AC_DEFUN([LC_EXPORT_INODE_PERMISSION],
 [LB_CHECK_SYMBOL_EXPORT([inode_permission],
@@ -1554,7 +1537,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_PAGE_CONSTANT
 
          # 2.6.27
-         LC_READ_INODE_IN_SBOPS
          LC_EXPORT_INODE_PERMISSION
          LC_QUOTA_ON_5ARGS
          LC_QUOTA_OFF_3ARGS
