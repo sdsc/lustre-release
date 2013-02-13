@@ -51,7 +51,6 @@
 # define UNLOCK_FS_STRUCT(fs)	spin_unlock(&(fs)->lock)
 #endif
 
-#ifdef HAVE_FS_STRUCT_USE_PATH
 static inline void ll_set_fs_pwd(struct fs_struct *fs, struct vfsmount *mnt,
                                  struct dentry *dentry)
 {
@@ -69,28 +68,6 @@ static inline void ll_set_fs_pwd(struct fs_struct *fs, struct vfsmount *mnt,
         if (old_pwd.dentry)
                 path_put(&old_pwd);
 }
-
-#else
-
-static inline void ll_set_fs_pwd(struct fs_struct *fs, struct vfsmount *mnt,
-                struct dentry *dentry)
-{
-        struct dentry *old_pwd;
-        struct vfsmount *old_pwdmnt;
-
-        LOCK_FS_STRUCT(fs);
-        old_pwd = fs->pwd;
-        old_pwdmnt = fs->pwdmnt;
-        fs->pwdmnt = mntget(mnt);
-        fs->pwd = dget(dentry);
-        UNLOCK_FS_STRUCT(fs);
-
-        if (old_pwd) {
-                dput(old_pwd);
-                mntput(old_pwdmnt);
-        }
-}
-#endif
 
 /*
  * set ATTR_BLOCKS to a high value to avoid any risk of collision with other
@@ -253,16 +230,6 @@ unsigned int ll_crypto_tfm_alg_min_keysize(struct crypto_blkcipher *tfm)
 #define cfs_for_each_possible_cpu(cpu) for_each_possible_cpu(cpu)
 #elif defined(for_each_cpu)
 #define cfs_for_each_possible_cpu(cpu) for_each_cpu(cpu)
-#endif
-
-#ifdef HAVE_FS_STRUCT_USE_PATH
-#define cfs_fs_pwd(fs)       ((fs)->pwd.dentry)
-#define cfs_fs_mnt(fs)       ((fs)->pwd.mnt)
-#define cfs_path_put(nd)     path_put(&(nd)->path)
-#else
-#define cfs_fs_pwd(fs)       ((fs)->pwd)
-#define cfs_fs_mnt(fs)       ((fs)->pwdmnt)
-#define cfs_path_put(nd)     path_release(nd)
 #endif
 
 #ifndef HAVE_SIMPLE_SETATTR
