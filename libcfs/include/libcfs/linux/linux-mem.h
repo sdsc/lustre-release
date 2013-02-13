@@ -192,7 +192,6 @@ extern void *cfs_mem_cache_cpt_alloc(cfs_mem_cache_t *cachep,
 # define shrink_param(sc, var) (var)
 #endif
 
-#ifdef HAVE_REGISTER_SHRINKER
 typedef int (*cfs_shrinker_t)(SHRINKER_ARGS(sc, nr_to_scan, gfp_mask));
 
 static inline
@@ -221,11 +220,6 @@ void cfs_remove_shrinker(struct cfs_shrinker *shrinker)
         unregister_shrinker(shrinker);
         kfree(shrinker);
 }
-#else
-typedef shrinker_t              cfs_shrinker_t;
-#define cfs_set_shrinker(s, f)  set_shrinker(s, f)
-#define cfs_remove_shrinker(s)  remove_shrinker(s)
-#endif
 
 #define CFS_DEFAULT_SEEKS                 DEFAULT_SEEKS
 #endif /* __LINUX_CFS_MEM_H__ */
