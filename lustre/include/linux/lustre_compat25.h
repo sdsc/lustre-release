@@ -90,12 +90,6 @@ static inline void ll_set_fs_pwd(struct fs_struct *fs, struct vfsmount *mnt,
 
 #define LTIME_S(time)                   (time.tv_sec)
 
-#ifdef HAVE_EXPORT_INODE_PERMISSION
-#define ll_permission(inode,mask,nd)    inode_permission(inode,mask)
-#else
-#define ll_permission(inode,mask,nd)    permission(inode,mask,nd)
-#endif
-
 #ifdef HAVE_GENERIC_PERMISSION_2ARGS
 # define ll_generic_permission(inode, mask, flags, check_acl) \
 	 generic_permission(inode, mask)

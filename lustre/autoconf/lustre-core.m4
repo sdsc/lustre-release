@@ -359,16 +359,6 @@ LB_LINUX_TRY_COMPILE([
 # 2.6.27
 #
 
-# 2.6.27 has inode_permission instead of permisson
-AC_DEFUN([LC_EXPORT_INODE_PERMISSION],
-[LB_CHECK_SYMBOL_EXPORT([inode_permission],
-[fs/namei.c],[
-AC_DEFINE(HAVE_EXPORT_INODE_PERMISSION, 1,
-            [inode_permission is exported by the kernel])
-],[
-])
-])
-
 # 2.6.27 use 5th parameter in quota_on for remount.
 AC_DEFUN([LC_QUOTA_ON_5ARGS],
 [AC_MSG_CHECKING([quota_on needs 5 parameters])
@@ -1537,7 +1527,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_PAGE_CONSTANT
 
          # 2.6.27
-         LC_EXPORT_INODE_PERMISSION
          LC_QUOTA_ON_5ARGS
          LC_QUOTA_OFF_3ARGS
          LC_VFS_DQ_OFF
