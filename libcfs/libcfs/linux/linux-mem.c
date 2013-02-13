@@ -117,12 +117,8 @@ cfs_mem_cache_create (const char *name, size_t size, size_t offset,
 int
 cfs_mem_cache_destroy (cfs_mem_cache_t * cachep)
 {
-#ifdef HAVE_KMEM_CACHE_DESTROY_INT
-        return kmem_cache_destroy(cachep);
-#else
         kmem_cache_destroy(cachep);
         return 0;
-#endif
 }
 
 void *
