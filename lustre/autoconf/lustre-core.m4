@@ -329,30 +329,6 @@ AC_DEFUN([LC_CONFIG_GSS],
  fi
 ])
 
-#2.6.18 + RHEL5 (fc6)
-
-#
-# LC_LINUX_FIEMAP_H
-#
-# fiemap.h is added since v2.6.28
-# RHEL5 2.6.18 has it, while SLES10 2.6.27 does not
-#
-AC_DEFUN([LC_LINUX_FIEMAP_H],
-[LB_CHECK_FILE([$LINUX/include/linux/fiemap.h],[
-        AC_MSG_CHECKING([if fiemap.h can be compiled])
-        LB_LINUX_TRY_COMPILE([
-                #include <linux/types.h>
-                #include <linux/fiemap.h>
-        ],[],[
-                AC_MSG_RESULT([yes])
-                AC_DEFINE(HAVE_LINUX_FIEMAP_H, 1, [Kernel has fiemap.h])
-        ],[
-                AC_MSG_RESULT([no])
-        ])
-],
-[])
-])
-
 # 2.6.19
 
 # LC_FILE_WRITEV
@@ -2001,9 +1977,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_CAPA_CRYPTO
          LC_CONFIG_RMTCLIENT
          LC_CONFIG_GSS
-
-         #2.6.18 + RHEL5 (fc6)
-         LC_LINUX_FIEMAP_H
 
          # 2.6.19
          LC_FILE_WRITEV
