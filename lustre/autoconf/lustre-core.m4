@@ -433,22 +433,6 @@ LB_LINUX_TRY_COMPILE([
 
 # 2.6.32
 
-# 2.6.32 introduced inode_newsize_ok
-AC_DEFUN([LC_VFS_INODE_NEWSIZE_OK],
-[AC_MSG_CHECKING([if inode_newsize_ok is defined])
-LB_LINUX_TRY_COMPILE([
-	#include <linux/fs.h>
-],[
-	return inode_newsize_ok(NULL, 0);
-],[
-	AC_MSG_RESULT(yes)
-	AC_DEFINE(HAVE_VFS_INODE_NEWSIZE_OK, 1,
-		  [inode_newsize_ok is defined])
-],[
-	AC_MSG_RESULT(no)
-])
-])
-
 # 2.6.32 changes cache_detail's member cache_request to cache_upcall
 # in kernel commit bc74b4f5e63a09fb78e245794a0de1e5a2716bbe
 AC_DEFUN([LC_CACHE_UPCALL],
@@ -1362,7 +1346,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_EXPORT_GENERIC_ERROR_REMOVE_PAGE
          LC_SELINUX_IS_ENABLED
          LC_EXPORT_ACCESS_PROCESS_VM
-	 LC_VFS_INODE_NEWSIZE_OK
 
 	 # 2.6.34
 	 LC_HAVE_DQUOT_FS_DISK_QUOTA
