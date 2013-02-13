@@ -1137,6 +1137,9 @@ struct ldlm_resource {
 	 * To serialize lvbo_init.
 	 */
 	struct mutex		lr_lvb_mutex;
+
+	unsigned int		lr_failed:1;
+
 	__u32			lr_lvb_len;
 	/** protected by lr_lock */
 	void			*lr_lvb_data;
