@@ -66,10 +66,6 @@
 #define ext3_mb_discard_inode_preallocations(inode) \
                  ext3_discard_preallocations(inode)
 
-#ifndef EXT3_EXTENTS_FL
-#define EXT3_EXTENTS_FL                 0x00080000 /* Inode uses extents */
-#endif
-
 #ifndef EXT_ASSERT
 #define EXT_ASSERT(cond)  BUG_ON(!(cond))
 #endif
@@ -104,7 +100,7 @@ static long ext3_ext_find_goal(struct inode *inode, struct ext3_ext_path *path,
 
                 /* try to predict block placement */
                 if ((ex = path[depth].p_ext))
-                        return ext_pblock(ex) + (block - le32_to_cpu(ex->ee_block));
+                        return ext4_ext_pblock(ex) + (block - le32_to_cpu(ex->ee_block));
 
                 /* it looks index is empty
                  * try to find starting from index itself */
@@ -120,25 +116,6 @@ static long ext3_ext_find_goal(struct inode *inode, struct ext3_ext_path *path,
         return bg_start + colour + block;
 }
 
-#define ll_unmap_underlying_metadata(sb, blocknr) \
-        unmap_underlying_metadata((sb)->s_bdev, blocknr)
-
-#ifndef EXT3_MB_HINT_GROUP_ALLOC
-static unsigned long new_blocks(handle_t *handle, struct ext3_ext_base *base,
-                                struct ext3_ext_path *path, unsigned long block,
-                                unsigned long *count, int *err)
-{
-        unsigned long pblock, goal;
-        int aflags = 0;
-        struct inode *inode = ext3_ext_base2inode(base);
-
-        goal = ext3_ext_find_goal(inode, path, block, &aflags);
-        aflags |= 2; /* block have been already reserved */
-        pblock = ext3_mb_new_blocks(handle, inode, goal, count, aflags, err);
-        return pblock;
-
-}
-#else
 static unsigned long new_blocks(handle_t *handle, struct ext3_ext_base *base,
                                 struct ext3_ext_path *path, unsigned long block,
                                 unsigned long *count, int *err)
@@ -168,7 +145,6 @@ static unsigned long new_blocks(handle_t *handle, struct ext3_ext_base *base,
         *count = ar.len;
         return pblock;
 }
-#endif
 
 static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
                                   struct ext3_ext_path *path,
@@ -253,11 +229,9 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
                 /* free data blocks we just allocated */
                 /* not a good idea to call discard here directly,
                  * but otherwise we'd need to call it every free() */
-#ifdef EXT3_MB_HINT_GROUP_ALLOC
-                ext3_mb_discard_inode_preallocations(inode);
-#endif
+		ext3_mb_discard_inode_preallocations(inode);
 #ifdef EXT4_FREE_BLOCKS_METADATA
-		ext3_free_blocks(handle, inode, NULL, ext_pblock(&nex),
+		ext3_free_blocks(handle, inode, NULL, ext4_ext_pblock(&nex),
 				 cpu_to_le16(nex.ee_len), 0);
 #endif
                 goto out;
@@ -269,7 +243,7 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
          * scaning after that block
          */
         cex->ec_len = le16_to_cpu(nex.ee_len);
-        cex->ec_start = ext_pblock(&nex);
+        cex->ec_start = ext4_ext_pblock(&nex);
         BUG_ON(le16_to_cpu(nex.ee_len) == 0);
         BUG_ON(le32_to_cpu(nex.ee_block) != cex->ec_block);
 
@@ -302,8 +276,8 @@ map:
                                 *(bp->created) = 1;
                                 /* unmap any possible underlying metadata from
                                  * the block device mapping.  bug 6998. */
-                                ll_unmap_underlying_metadata(inode->i_sb,
-                                                             *(bp->blocks));
+				unmap_underlying_metadata(inode->i_sb->s_bdev,
+							  *(bp->blocks));
                         }
                         bp->created++;
                         bp->blocks++;
