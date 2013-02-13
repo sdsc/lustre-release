@@ -357,16 +357,6 @@ LB_LINUX_TRY_COMPILE([
 
 # 2.6.24
 
-# 2.6.24 need linux/mm_types.h included
-AC_DEFUN([LC_HAVE_MMTYPES_H],
-[LB_CHECK_FILE([$LINUX/include/linux/mm_types.h], [
-        AC_DEFINE(HAVE_LINUX_MMTYPES_H, 1,
-                [kernel has include/mm_types.h])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 # 2.6.24 has bio_endio with 2 args
 AC_DEFUN([LC_BIO_ENDIO_2ARG],
 [AC_MSG_CHECKING([if kernel has bio_endio with 2 args])
@@ -1700,7 +1690,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_PAGE_CONSTANT
 
          # 2.6.24
-         LC_HAVE_MMTYPES_H
          LC_BIO_ENDIO_2ARG
          LC_FH_TO_DENTRY
          LC_EXPORT_BDI_INIT
@@ -1880,9 +1869,7 @@ AC_DEFUN([LC_WRITE_BEGIN_END],
 LB_LINUX_TRY_COMPILE([
         #include <linux/fs.h>
         #include <linux/pagemap.h>
-#ifdef HAVE_LINUX_MMTYPES_H
         #include <linux/mm_types.h>
-#endif
 ],[
         struct address_space_operations aops;
         struct page *page;
