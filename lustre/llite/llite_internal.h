@@ -847,11 +847,7 @@ void ll_delete_inode(struct inode *inode);
 int ll_iocontrol(struct inode *inode, struct file *file,
                  unsigned int cmd, unsigned long arg);
 int ll_flush_ctx(struct inode *inode);
-#ifdef HAVE_UMOUNTBEGIN_VFSMOUNT
-void ll_umount_begin(struct vfsmount *vfsmnt, int flags);
-#else
 void ll_umount_begin(struct super_block *sb);
-#endif
 int ll_remount_fs(struct super_block *sb, int *flags, char *data);
 #ifdef HAVE_SUPEROPS_USE_DENTRY
 int ll_show_options(struct seq_file *seq, struct dentry *dentry);

@@ -329,38 +329,6 @@ AC_DEFUN([LC_CONFIG_GSS],
  fi
 ])
 
-# 2.6.18
-
-# LC_UMOUNTBEGIN_HAS_VFSMOUNT
-# 2.6.18~2.6.25 umount_begin has different parameters
-AC_DEFUN([LC_UMOUNTBEGIN_HAS_VFSMOUNT],
-[AC_MSG_CHECKING([if umount_begin needs vfsmount parameter instead of super_block])
-tmp_flags="$EXTRA_KCFLAGS"
-EXTRA_KCFLAGS="-Werror"
-LB_LINUX_TRY_COMPILE([
-	#include <linux/fs.h>
-
-	struct vfsmount;
-	static void cfg_umount_begin (struct vfsmount *v, int flags)
-	{
-    		;
-	}
-
-	static struct super_operations cfg_super_operations = {
-		.umount_begin	= cfg_umount_begin,
-	};
-],[
-	cfg_super_operations.umount_begin(NULL,0);
-],[
-	AC_MSG_RESULT(yes)
-	AC_DEFINE(HAVE_UMOUNTBEGIN_VFSMOUNT, 1,
-		[Define umount_begin need second argument])
-],[
-	AC_MSG_RESULT(no)
-])
-EXTRA_KCFLAGS="$tmp_flags"
-])
-
 #2.6.18 + RHEL5 (fc6)
 
 #
@@ -2033,9 +2001,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_CAPA_CRYPTO
          LC_CONFIG_RMTCLIENT
          LC_CONFIG_GSS
-
-         # 2.6.18
-         LC_UMOUNTBEGIN_HAS_VFSMOUNT
 
          #2.6.18 + RHEL5 (fc6)
          LC_LINUX_FIEMAP_H
