@@ -82,17 +82,6 @@ LB_LINUX_TRY_COMPILE([
 EXTRA_KCFLAGS="$tmp_flags"
 ])
 
-# LIBCFS_TASKLIST_LOCK
-# 2.6.18 remove tasklist_lock export
-AC_DEFUN([LIBCFS_TASKLIST_LOCK],
-[LB_CHECK_SYMBOL_EXPORT([tasklist_lock],
-[kernel/fork.c],[
-AC_DEFINE(HAVE_TASKLIST_LOCK, 1,
-         [tasklist_lock exported])
-],[
-])
-])
-
 # LIBCFS_DIGEST_SETKEY_FLAGS
 # digest_alg.dia_setkey takes 4 args (2.6.18)
 #
@@ -656,7 +645,6 @@ LIBCFS_CONFIG_PANIC_DUMPLOG
 
 LIBCFS_U64_LONG_LONG_LINUX
 # 2.6.18
-LIBCFS_TASKLIST_LOCK
 LIBCFS_HAVE_IS_COMPAT_TASK
 LIBCFS_DIGEST_SETKEY_FLAGS
 # 2.6.19
