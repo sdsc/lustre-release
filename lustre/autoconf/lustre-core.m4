@@ -499,19 +499,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-#
-# LC_EXPORT_GENERIC_ERROR_REMOVE_PAGE
-#
-AC_DEFUN([LC_EXPORT_GENERIC_ERROR_REMOVE_PAGE],
-         [LB_CHECK_SYMBOL_EXPORT(
-                        [generic_error_remove_page],
-                        [mm/truncate.c],
-                        [AC_DEFINE(HAS_GENERIC_ERROR_REMOVE_PAGE, 1,
-                                [kernel export generic_error_remove_page])],
-                        [])
-         ]
-)
-
 # 2.6.32 if kernel export access_process_vm().
 AC_DEFUN([LC_EXPORT_ACCESS_PROCESS_VM],
         [LB_CHECK_SYMBOL_EXPORT([access_process_vm],
@@ -1227,7 +1214,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_PAGE_CONSTANT
 
          # 2.6.32
-         LC_EXPORT_GENERIC_ERROR_REMOVE_PAGE
          LC_SELINUX_IS_ENABLED
          LC_EXPORT_ACCESS_PROCESS_VM
 
