@@ -9386,7 +9386,7 @@ test_184c() {
 	echo "ref file size: ref1(`stat -c %s $ref1`), ref2(`stat -c %s $ref2`)"
 
 	cp $ref2 $file2
-	dd if=$ref1 of=$file1 bs=64k &
+	dd if=$ref1 of=$file1 bs=16k &
 	sleep 0.$((RANDOM % 5 + 1))
 
 	$LFS swap_layouts $file1 $file2
@@ -9401,7 +9401,7 @@ test_184c() {
 	remaining=$((remaining - copied))
 	echo "Copied $copied bytes before swapping layout..."
 
-	cmp -n $copied $file1 $ref2 ||
+	cmp -n $copied $file1 $ref2 | grep differ &&
 		error "Content mismatch [0, $copied) of ref2 and file1"
 	cmp -n $copied $file2 $ref1 ||
 		error "Content mismatch [0, $copied) of ref1 and file2"
