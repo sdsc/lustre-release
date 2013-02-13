@@ -166,8 +166,4 @@ typedef long long_ptr_t;
 
 #endif /* HAVE_STRUCT_CRED */
 
-#ifndef HAVE_SCATTERLIST_INITTABLE
-#define sg_init_table(sg, nents) memset(sg, 0, sizeof(*(sg))*(nents))
-#endif
-
 #endif /* _LINUX_LIBCFS_H */
