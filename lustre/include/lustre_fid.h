@@ -211,8 +211,6 @@ enum local_oid {
 	/** \see fid_mod_init */
 	FID_SEQ_CTL_OID		= 4UL,
 	FID_SEQ_SRV_OID		= 5UL,
-	/** \see mdd_mod_init */
-	MDD_ROOT_INDEX_OID	= 6UL,
 	MDD_ORPHAN_OID		= 7UL,
 	MDD_LOV_OBJ_OID		= 8UL,
 	MDD_CAPA_KEYS_OID	= 9UL,
