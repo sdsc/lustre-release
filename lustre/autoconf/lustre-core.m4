@@ -431,22 +431,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-# 2.6.31 replaces blk_queue_hardsect_size by blk_queue_logical_block_size function
-AC_DEFUN([LC_BLK_QUEUE_LOG_BLK_SIZE],
-[AC_MSG_CHECKING([if blk_queue_logical_block_size is defined])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/blkdev.h>
-],[
-        blk_queue_logical_block_size(NULL, 0);
-],[
-        AC_MSG_RESULT(yes)
-        AC_DEFINE(HAVE_BLK_QUEUE_LOG_BLK_SIZE, 1,
-                  [blk_queue_logical_block_size is defined])
-],[
-        AC_MSG_RESULT(no)
-])
-])
-
 # 2.6.32
 
 # 2.6.32 introduced inode_newsize_ok
@@ -1366,9 +1350,6 @@ AC_DEFUN([LC_PROG_LINUX],
 
          # raid5-zerocopy patch
          LC_PAGE_CONSTANT
-
-         # 2.6.31
-         LC_BLK_QUEUE_LOG_BLK_SIZE
 
          # 2.6.32
          LC_REQUEST_QUEUE_LIMITS
