@@ -82,22 +82,6 @@ LB_LINUX_TRY_COMPILE([
 EXTRA_KCFLAGS="$tmp_flags"
 ])
 
-# 2.6.23 lost dtor argument
-AC_DEFUN([LIBCFS_KMEM_CACHE_CREATE_DTOR],
-[AC_MSG_CHECKING([check kmem_cache_create has dtor argument])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/slab.h>
-],[
-	kmem_cache_create(NULL, 0, 0, 0, NULL, NULL);
-],[
-        AC_MSG_RESULT(yes)
-        AC_DEFINE(HAVE_KMEM_CACHE_CREATE_DTOR, 1,
-                  [kmem_cache_create has dtor argument])
-],[
-        AC_MSG_RESULT(NO)
-])
-])
-
 #2.6.23 has new shrinker API
 AC_DEFUN([LC_REGISTER_SHRINKER],
 [AC_MSG_CHECKING([if kernel has register_shrinker])
@@ -549,7 +533,6 @@ LIBCFS_CONFIG_PANIC_DUMPLOG
 
 LIBCFS_U64_LONG_LONG_LINUX
 # 2.6.23
-LIBCFS_KMEM_CACHE_CREATE_DTOR
 LC_REGISTER_SHRINKER
 # 2.6.24
 LIBCFS_SYSCTL_UNNUMBERED
