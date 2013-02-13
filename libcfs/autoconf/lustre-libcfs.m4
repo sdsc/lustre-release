@@ -82,22 +82,6 @@ LB_LINUX_TRY_COMPILE([
 EXTRA_KCFLAGS="$tmp_flags"
 ])
 
-#2.6.23 has new shrinker API
-AC_DEFUN([LC_REGISTER_SHRINKER],
-[AC_MSG_CHECKING([if kernel has register_shrinker])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/mm.h>
-],[
-        register_shrinker(NULL);
-], [
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(HAVE_REGISTER_SHRINKER, 1,
-                [kernel has register_shrinker])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 # 2.6.24 request not use real numbers for ctl_name
 AC_DEFUN([LIBCFS_SYSCTL_UNNUMBERED],
 [AC_MSG_CHECKING([for CTL_UNNUMBERED])
@@ -532,8 +516,6 @@ AC_DEFUN([LIBCFS_PROG_LINUX],
 LIBCFS_CONFIG_PANIC_DUMPLOG
 
 LIBCFS_U64_LONG_LONG_LINUX
-# 2.6.23
-LC_REGISTER_SHRINKER
 # 2.6.24
 LIBCFS_SYSCTL_UNNUMBERED
 LIBCFS_SCATTERLIST_SETPAGE
