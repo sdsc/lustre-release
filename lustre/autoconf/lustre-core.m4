@@ -234,28 +234,6 @@ AC_DEFUN([LC_EXPORT_TRUNCATE_COMPLETE_PAGE],
                                             [kernel export delete_from_page_cache])])
          ])
 
-# The actual symbol exported varies among architectures, so we need
-# to check many symbols (but only in the current architecture.)  No
-# matter what symbol is exported, the kernel #defines node_to_cpumask
-# to the appropriate function and that's what we use.
-AC_DEFUN([LC_EXPORT_NODE_TO_CPUMASK],
-         [LB_CHECK_SYMBOL_EXPORT([node_to_cpumask],
-                                 [arch/$LINUX_ARCH/mm/numa.c],
-                                 [AC_DEFINE(HAVE_NODE_TO_CPUMASK, 1,
-                                            [node_to_cpumask is exported by
-                                             the kernel])]) # x86_64
-          LB_CHECK_SYMBOL_EXPORT([node_to_cpu_mask],
-                                 [arch/$LINUX_ARCH/kernel/smpboot.c],
-                                 [AC_DEFINE(HAVE_NODE_TO_CPUMASK, 1,
-                                            [node_to_cpumask is exported by
-                                             the kernel])]) # ia64
-          LB_CHECK_SYMBOL_EXPORT([node_2_cpu_mask],
-                                 [arch/$LINUX_ARCH/kernel/smpboot.c],
-                                 [AC_DEFINE(HAVE_NODE_TO_CPUMASK, 1,
-                                            [node_to_cpumask is exported by
-                                             the kernel])]) # i386
-          ])
-
 #
 #
 # between 2.6.5 - 2.6.22 filemap_populate is exported in some kernels
@@ -1240,16 +1218,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-# 2.6.30 x86 node_to_cpumask has been removed. must use cpumask_of_node
-AC_DEFUN([LC_EXPORT_CPUMASK_OF_NODE],
-         [LB_CHECK_SYMBOL_EXPORT([node_to_cpumask_map],
-                                 [arch/$LINUX_ARCH/mm/numa.c],
-                                 [AC_DEFINE(HAVE_CPUMASK_OF_NODE, 1,
-                                            [node_to_cpumask_map is exported by
-                                             the kernel])]) # x86_64
-         ])
-
-
 # 2.6.31 replaces blk_queue_hardsect_size by blk_queue_logical_block_size function
 AC_DEFUN([LC_BLK_QUEUE_LOG_BLK_SIZE],
 [AC_MSG_CHECKING([if blk_queue_logical_block_size is defined])
@@ -2184,7 +2152,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_CONFIG_LRU_RESIZE
          LC_LLITE_LLOOP_MODULE
 
-         LC_EXPORT_NODE_TO_CPUMASK
 
          LC_FILEMAP_POPULATE
          LC_BIT_SPINLOCK_H
@@ -2263,9 +2230,6 @@ AC_DEFUN([LC_PROG_LINUX],
 
          # 2.6.29
          LC_SB_ANY_QUOTA_LOADED
-
-	 # 2.6.30
-	 LC_EXPORT_CPUMASK_OF_NODE
 
          # 2.6.31
          LC_BLK_QUEUE_LOG_BLK_SIZE
