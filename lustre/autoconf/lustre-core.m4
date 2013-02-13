@@ -433,23 +433,6 @@ LB_LINUX_TRY_COMPILE([
 
 # 2.6.32
 
-# 2.6.32 add a limits member in struct request_queue.
-AC_DEFUN([LC_REQUEST_QUEUE_LIMITS],
-[AC_MSG_CHECKING([if request_queue has a limits field])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/blkdev.h>
-],[
-        struct request_queue rq;
-        rq.limits.io_min = 0;
-],[
-        AC_MSG_RESULT(yes)
-        AC_DEFINE(HAVE_REQUEST_QUEUE_LIMITS, 1,
-                  [request_queue has a limits field])
-],[
-        AC_MSG_RESULT(no)
-])
-])
-
 # 2.6.32 has bdi_register() functions.
 AC_DEFUN([LC_EXPORT_BDI_REGISTER],
 [LB_CHECK_SYMBOL_EXPORT([bdi_register],
@@ -1318,7 +1301,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_PAGE_CONSTANT
 
          # 2.6.32
-         LC_REQUEST_QUEUE_LIMITS
          LC_EXPORT_BDI_REGISTER
          LC_SB_BDI
          LC_BLK_QUEUE_MAX_SECTORS
