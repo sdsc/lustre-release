@@ -357,22 +357,6 @@ LB_LINUX_TRY_COMPILE([
 
 # 2.6.22
 
-# 2.6.22 lost second parameter for invalidate_bdev
-AC_DEFUN([LC_INVALIDATE_BDEV_2ARG],
-[AC_MSG_CHECKING([if invalidate_bdev has second argument])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/buffer_head.h>
-],[
-        invalidate_bdev(NULL,0);
-],[
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(HAVE_INVALIDATE_BDEV_2ARG, 1,
-                [invalidate_bdev has second argument])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 #
 # check for crypto API
 #
@@ -1917,7 +1901,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_PAGE_CONSTANT
 
 	 # 2.6.22
-         LC_INVALIDATE_BDEV_2ARG
          LC_ASYNC_BLOCK_CIPHER
          LC_STRUCT_HASH_DESC
          LC_STRUCT_BLKCIPHER_DESC
