@@ -146,7 +146,7 @@ struct lod_device {
  */
 struct lod_object {
 	struct dt_object   ldo_obj;
-
+	struct mutex	   ldo_stripe_mutex;
 	/* if object is striped, then the next fields describe stripes */
 	__u16		   ldo_stripenr;
 	__u16		   ldo_layout_gen;
@@ -164,7 +164,6 @@ struct lod_object {
 	__u16		   ldo_def_stripe_offset;
 	mdsno_t		   ldo_mds_num;
 };
-
 
 struct lod_it {
 	struct dt_object	*lit_obj; /* object from the layer below */
@@ -259,6 +258,17 @@ static inline struct lod_thread_info *lod_env_info(const struct lu_env *env)
 #define lod_foreach_ost(__dev, index)	\
 	if ((__dev)->lod_osts_size > 0)	\
 		cfs_foreach_bit((__dev)->lod_ost_bitmap, (index))
+
+#define LOD_ASSERT_STRIPE_LOCKED(lo) \
+	LASSERT(mutex_is_locked(&(lo)->ldo_stripe_mutex))
+
+#define LOD_ASSERT_STRIPE_SANE(lo)					\
+	LASSERT(mutex_is_locked(&(lo)->ldo_stripe_mutex) &&		\
+		((lo)->ldo_stripe != NULL || (lo)->ldo_stripenr == 0))
+
+#define LOD_ASSERT_STRIPE_ALLOCED(lo)					\
+	LASSERT(mutex_is_locked(&(lo)->ldo_stripe_mutex) &&		\
+		(lo)->ldo_stripe != NULL && (lo)->ldo_stripenr > 0)
 
 /* lod_dev.c */
 int lod_fld_lookup(const struct lu_env *env, struct lod_device *lod,

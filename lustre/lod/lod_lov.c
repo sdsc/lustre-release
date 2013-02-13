@@ -504,7 +504,7 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 	ENTRY;
 
 	LASSERT(lo);
-	LASSERT(lo->ldo_stripenr > 0);
+	LOD_ASSERT_STRIPE_ALLOCED(lo);
 
 	magic = lo->ldo_pool ? LOV_MAGIC_V3 : LOV_MAGIC_V1;
 	lmm_size = lov_mds_md_size(lo->ldo_stripenr, magic);
@@ -670,6 +670,7 @@ int lod_initialize_objects(const struct lu_env *env, struct lod_object *lo,
 	ENTRY;
 
 	LASSERT(lo);
+	LOD_ASSERT_STRIPE_LOCKED(lo);
 	LASSERT(lo->ldo_stripe == NULL);
 	LASSERT(lo->ldo_stripenr > 0);
 	LASSERT(lo->ldo_stripe_size > 0);
@@ -776,7 +777,8 @@ int lod_load_striping(const struct lu_env *env, struct lod_object *lo)
 	 * currently this code is supposed to be called from declaration
 	 * phase only, thus the object is not expected to be locked by caller
 	 */
-	dt_write_lock(env, next, 0);
+	LOD_ASSERT_STRIPE_LOCKED(lo);
+
 	/* already initialized? */
 	if (lo->ldo_stripe) {
 		int i;
@@ -807,7 +809,6 @@ int lod_load_striping(const struct lu_env *env, struct lod_object *lo)
 	info->lti_buf.lb_len = info->lti_ea_store_size;
 	rc = lod_parse_striping(env, lo, &info->lti_buf);
 out:
-	dt_write_unlock(env, next);
 	RETURN(rc);
 }
 

@@ -52,6 +52,16 @@
 extern cfs_mem_cache_t *lod_object_kmem;
 static const struct dt_body_operations lod_body_lnk_ops;
 
+static inline void lod_stripe_lock(struct lod_object *lo)
+{
+	mutex_lock(&lo->ldo_stripe_mutex);
+}
+
+static inline void lod_stripe_unlock(struct lod_object *lo)
+{
+	mutex_unlock(&lo->ldo_stripe_mutex);
+}
+
 static int lod_index_lookup(const struct lu_env *env, struct dt_object *dt,
 			    struct dt_rec *rec, const struct dt_key *key,
 			    struct lustre_capa *capa)
@@ -291,6 +301,7 @@ static int lod_declare_attr_set(const struct lu_env *env,
 	if (rc)
 		RETURN(rc);
 
+	lod_stripe_lock(lo);
 	/*
 	 * load striping information, notice we don't do this when object
 	 * is being initialized as we don't need this information till
@@ -298,12 +309,12 @@ static int lod_declare_attr_set(const struct lu_env *env,
 	 */
 	rc = lod_load_striping(env, lo);
 	if (rc)
-		RETURN(rc);
+		GOTO(out, rc);
 
 	/*
 	 * if object is striped declare changes on the stripes
 	 */
-	LASSERT(lo->ldo_stripe || lo->ldo_stripenr == 0);
+	LOD_ASSERT_STRIPE_SANE(lo);
 	for (i = 0; i < lo->ldo_stripenr; i++) {
 		LASSERT(lo->ldo_stripe[i]);
 		rc = dt_declare_attr_set(env, lo->ldo_stripe[i], attr, handle);
@@ -312,6 +323,9 @@ static int lod_declare_attr_set(const struct lu_env *env,
 			break;
 		}
 	}
+
+out:
+	lod_stripe_unlock(lo);
 
 	RETURN(rc);
 }
@@ -337,7 +351,8 @@ static int lod_attr_set(const struct lu_env *env,
 	/*
 	 * if object is striped, apply changes to all the stripes
 	 */
-	LASSERT(lo->ldo_stripe || lo->ldo_stripenr == 0);
+	lod_stripe_lock(lo);
+	LOD_ASSERT_STRIPE_SANE(lo);
 	for (i = 0; i < lo->ldo_stripenr; i++) {
 		LASSERT(lo->ldo_stripe[i]);
 		rc = dt_attr_set(env, lo->ldo_stripe[i], attr, handle, capa);
@@ -346,6 +361,7 @@ static int lod_attr_set(const struct lu_env *env,
 			break;
 		}
 	}
+	lod_stripe_unlock(lo);
 
 	RETURN(rc);
 }
@@ -437,7 +453,9 @@ static int lod_declare_xattr_set(const struct lu_env *env,
 			attr->la_valid = LA_TYPE | LA_MODE;
 			attr->la_mode = S_IFREG;
 		}
+		lod_stripe_lock(lod_dt_obj(dt));
 		rc = lod_declare_striped_object(env, dt, attr, buf, th);
+		lod_stripe_unlock(lod_dt_obj(dt));
 		if (rc)
 			RETURN(rc);
 	}
@@ -528,10 +546,13 @@ static int lod_xattr_set(const struct lu_env *env,
 		 * already have during req replay, declare_xattr_set()
 		 * defines striping, then create() does the work
 		*/
-		if (fl & LU_XATTR_REPLACE)
+		if (fl & LU_XATTR_REPLACE) {
 			rc = dt_xattr_set(env, next, buf, name, fl, th, capa);
-		else
+		} else {
+			lod_stripe_lock(lod_dt_obj(dt));
 			rc = lod_striping_create(env, dt, NULL, NULL, th);
+			lod_stripe_unlock(lod_dt_obj(dt));
+		}
 		RETURN(rc);
 	} else {
 		/*
@@ -880,11 +901,12 @@ static int lod_declare_object_create(const struct lu_env *env,
 	 */
 	rc = dt_declare_create(env, next, attr, hint, dof, th);
 	if (rc)
-		GOTO(out, rc);
+		RETURN(rc);
 
 	if (dof->dof_type == DFT_SYM)
 		dt->do_body_ops = &lod_body_lnk_ops;
 
+	lod_stripe_lock(lo);
 	/*
 	 * it's lod_ah_init() who has decided the object will striped
 	 */
@@ -906,11 +928,11 @@ static int lod_declare_object_create(const struct lu_env *env,
 		if (LOVEA_DELETE_VALUES(lo->ldo_def_stripe_size,
 					lo->ldo_def_stripenr,
 					lo->ldo_def_stripe_offset))
-			RETURN(0);
+			GOTO(out, rc = 0);
 
 		OBD_ALLOC_PTR(v3);
 		if (v3 == NULL)
-			RETURN(-ENOMEM);
+			GOTO(out, rc = -ENOMEM);
 
 		v3->lmm_magic = cpu_to_le32(LOV_MAGIC_V3);
 		v3->lmm_pattern = cpu_to_le32(LOV_PATTERN_RAID0);
@@ -933,6 +955,8 @@ static int lod_declare_object_create(const struct lu_env *env,
 	}
 
 out:
+	lod_stripe_unlock(lo);
+
 	RETURN(rc);
 }
 
@@ -944,9 +968,7 @@ int lod_striping_create(const struct lu_env *env, struct dt_object *dt,
 	int		   rc = 0, i;
 	ENTRY;
 
-	LASSERT(lo->ldo_stripe);
-	LASSERT(lo->ldo_stripe > 0);
-	LASSERT(lo->ldo_striping_cached == 0);
+	LOD_ASSERT_STRIPE_SANE(lo);
 
 	/* create all underlying objects */
 	for (i = 0; i < lo->ldo_stripenr; i++) {
@@ -976,10 +998,15 @@ static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 	rc = dt_create(env, next, attr, hint, dof, th);
 
 	if (rc == 0) {
-		if (S_ISDIR(dt->do_lu.lo_header->loh_attr))
+		if (S_ISDIR(dt->do_lu.lo_header->loh_attr)) {
 			rc = lod_store_def_striping(env, dt, th);
-		else if (lo->ldo_stripe)
-			rc = lod_striping_create(env, dt, attr, dof, th);
+		} else {
+			lod_stripe_lock(lo);
+			if (lo->ldo_stripe != NULL)
+				rc = lod_striping_create(env, dt, attr,
+							 dof, th);
+			lod_stripe_unlock(lo);
+		}
 	}
 
 	RETURN(rc);
@@ -1006,9 +1033,10 @@ static int lod_declare_object_destroy(const struct lu_env *env,
 	 * is being initialized as we don't need this information till
 	 * few specific cases like destroy, chown
 	 */
+	lod_stripe_lock(lo);
 	rc = lod_load_striping(env, lo);
 	if (rc)
-		RETURN(rc);
+		GOTO(out, rc);
 
 	/* declare destroy for all underlying objects */
 	for (i = 0; i < lo->ldo_stripenr; i++) {
@@ -1018,6 +1046,9 @@ static int lod_declare_object_destroy(const struct lu_env *env,
 		if (rc)
 			break;
 	}
+
+out:
+	lod_stripe_unlock(lo);
 
 	RETURN(rc);
 }
@@ -1035,6 +1066,8 @@ static int lod_object_destroy(const struct lu_env *env,
 	if (rc)
 		RETURN(rc);
 
+	lod_stripe_lock(lo);
+
 	/* destroy all underlying objects */
 	for (i = 0; i < lo->ldo_stripenr; i++) {
 		LASSERT(lo->ldo_stripe[i]);
@@ -1042,6 +1075,7 @@ static int lod_object_destroy(const struct lu_env *env,
 		if (rc)
 			break;
 	}
+	lod_stripe_unlock(lo);
 
 	RETURN(rc);
 }
@@ -1188,6 +1222,7 @@ static int lod_object_init(const struct lu_env *env, struct lu_object *o,
 	struct lu_device  *under;
 	ENTRY;
 
+	mutex_init(&lu2lod_obj(o)->ldo_stripe_mutex);
 	/*
 	 * create local object
 	 */
@@ -1240,7 +1275,9 @@ static void lod_object_free(const struct lu_env *env, struct lu_object *o)
 	 * release all underlying object pinned
 	 */
 
+	lod_stripe_lock(mo);
 	lod_object_free_striping(env, mo);
+	lod_stripe_unlock(mo);
 
 	lod_object_set_pool(mo, NULL);
 
@@ -1282,6 +1319,8 @@ static int lod_robject_init(const struct lu_env *env, struct lu_object *lo,
 	struct lu_object  *c_obj;
 	int i;
 	ENTRY;
+
+	mutex_init(&lu2lod_obj(lo)->ldo_stripe_mutex);
 
 	lod_getref(ltd);
 	if (ltd->ltd_tgts_size > 0) {
