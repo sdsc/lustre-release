@@ -247,7 +247,6 @@ out:
         return rc;
 }
 
-#ifdef HAVE_FH_TO_DENTRY
 static struct dentry *ll_fh_to_dentry(struct super_block *sb, struct fid *fid,
                                       int fh_len, int fh_type)
 {
@@ -269,43 +268,6 @@ static struct dentry *ll_fh_to_parent(struct super_block *sb, struct fid *fid,
 
         RETURN(ll_iget_for_nfs(sb, &nfs_fid->lnf_parent, NULL));
 }
-
-#else
-
-/*
- * This length is counted as amount of __u32,
- *  It is composed of a fid and a mode
- */
-static struct dentry *ll_decode_fh(struct super_block *sb, __u32 *fh, int fh_len,
-                                   int fh_type,
-                                   int (*acceptable)(void *, struct dentry *),
-                                   void *context)
-{
-        struct lustre_nfs_fid *nfs_fid = (void *)fh;
-        struct dentry *entry;
-        ENTRY;
-
-        CDEBUG(D_INFO, "decoding for "DFID" fh_len=%d fh_type=%x\n", 
-                PFID(&nfs_fid->lnf_child), fh_len, fh_type);
-
-        if (fh_type != LUSTRE_NFS_FID)
-                RETURN(ERR_PTR(-EPROTO));
-
-        entry = sb->s_export_op->find_exported_dentry(sb, &nfs_fid->lnf_child,
-                                                      &nfs_fid->lnf_parent,
-                                                      acceptable, context);
-        RETURN(entry);
-}
-
-static struct dentry *ll_get_dentry(struct super_block *sb, void *data)
-{
-        struct dentry *entry;
-        ENTRY;
-
-        entry = ll_iget_for_nfs(sb, data, NULL);
-        RETURN(entry);
-}
-#endif
 static struct dentry *ll_get_parent(struct dentry *dchild)
 {
         struct ptlrpc_request *req = NULL;
@@ -353,11 +315,6 @@ struct export_operations lustre_export_operations = {
        .get_parent = ll_get_parent,
        .encode_fh  = ll_encode_fh,
        .get_name   = ll_get_name,
-#ifdef HAVE_FH_TO_DENTRY
         .fh_to_dentry = ll_fh_to_dentry,
         .fh_to_parent = ll_fh_to_parent,
-#else
-       .get_dentry = ll_get_dentry,
-       .decode_fh  = ll_decode_fh,
-#endif
 };

@@ -357,23 +357,6 @@ LB_LINUX_TRY_COMPILE([
 
 # 2.6.24
 
-# 2.6.24 has new members in exports struct.
-AC_DEFUN([LC_FH_TO_DENTRY],
-[AC_MSG_CHECKING([if kernel has .fh_to_dentry member in export_operations struct])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/fs.h>
-        #include <linux/exportfs.h>
-],[
-        do{ }while(sizeof(((struct export_operations *)0)->fh_to_dentry));
-], [
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(HAVE_FH_TO_DENTRY, 1,
-                [kernel has .fh_to_dentry member in export_operations struct])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 # 2.6.24 has bdi_init()/bdi_destroy() functions.
 AC_DEFUN([LC_EXPORT_BDI_INIT],
 [LB_CHECK_SYMBOL_EXPORT([bdi_init],
@@ -1674,7 +1657,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_PAGE_CONSTANT
 
          # 2.6.24
-         LC_FH_TO_DENTRY
          LC_EXPORT_BDI_INIT
 
          # 2.6.26
