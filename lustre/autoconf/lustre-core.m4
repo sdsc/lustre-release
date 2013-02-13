@@ -447,22 +447,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-# 2.6.27 sles11 has sb_has_quota_active
-AC_DEFUN([LC_SB_HAS_QUOTA_ACTIVE],
-[AC_MSG_CHECKING([Kernel has sb_has_quota_active])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/quotaops.h>
-],[
-        sb_has_quota_active(NULL, 0);
-],[
-        AC_DEFINE(HAVE_SB_HAS_QUOTA_ACTIVE, 1,
-                [Kernel has a sb_has_quota_active])
-        AC_MSG_RESULT([yes])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 # 2.6.27 exported add_to_page_cache_lru.
 AC_DEFUN([LC_EXPORT_ADD_TO_PAGE_CACHE_LRU],
 [LB_CHECK_SYMBOL_EXPORT([add_to_page_cache_lru],
@@ -1447,7 +1431,6 @@ AC_DEFUN([LC_PROG_LINUX],
          # 2.6.27.15-2 sles11
          LC_BDI_NAME
          LC_SB_ANY_QUOTA_ACTIVE
-         LC_SB_HAS_QUOTA_ACTIVE
          LC_EXPORT_ADD_TO_PAGE_CACHE_LRU
 
          # 2.6.29
