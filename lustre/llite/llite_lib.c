@@ -945,15 +945,11 @@ void ll_lli_init(struct ll_inode_info *lli)
 
 static inline int ll_bdi_register(struct backing_dev_info *bdi)
 {
-#ifdef HAVE_BDI_REGISTER
         static atomic_t ll_bdi_num = ATOMIC_INIT(0);
 
         bdi->name = "lustre";
         return bdi_register(bdi, NULL, "lustre-%d",
                             atomic_inc_return(&ll_bdi_num));
-#else
-        return 0;
-#endif
 }
 
 int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
