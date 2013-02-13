@@ -82,26 +82,6 @@ LB_LINUX_TRY_COMPILE([
 EXTRA_KCFLAGS="$tmp_flags"
 ])
 
-# LIBCFS_DIGEST_SETKEY_FLAGS
-# digest_alg.dia_setkey takes 4 args (2.6.18)
-#
-AC_DEFUN([LIBCFS_DIGEST_SETKEY_FLAGS],
-[AC_MSG_CHECKING([if kernel dia_setkey takes 4 args])
-LB_LINUX_TRY_COMPILE([
-	#include <linux/err.h>
-	#include <linux/crypto.h>
-],[
-	struct digest_alg alg;
-
-	alg.dia_setkey(NULL, NULL, 0, NULL);
-],[
-	AC_MSG_RESULT([yes])
-	AC_DEFINE(HAVE_DIGEST_SETKEY_FLAGS, 1, [kernel dia_setkey takes 4 args])
-],[
-	AC_MSG_RESULT([no])
-])
-])
-
 # 2.6.19 API changes
 # kmem_cache_destroy(cachep) return void instead of
 # int
@@ -623,8 +603,6 @@ AC_DEFUN([LIBCFS_PROG_LINUX],
 LIBCFS_CONFIG_PANIC_DUMPLOG
 
 LIBCFS_U64_LONG_LONG_LINUX
-# 2.6.18
-LIBCFS_DIGEST_SETKEY_FLAGS
 # 2.6.19
 LIBCFS_KMEM_CACHE_DESTROY_INT
 # 2.6.20
