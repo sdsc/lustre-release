@@ -355,18 +355,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-# 2.6.24
-
-# 2.6.24 has bdi_init()/bdi_destroy() functions.
-AC_DEFUN([LC_EXPORT_BDI_INIT],
-[LB_CHECK_SYMBOL_EXPORT([bdi_init],
-[mm/backing-dev.c],[
-        AC_DEFINE(HAVE_BDI_INIT, 1,
-                [bdi_init/bdi_destroy functions are present])
-],[
-])
-])
-
 # 2.6.26
 
 # 2.6.26 isn't export set_fs_pwd and change paramter in fs struct
@@ -1655,9 +1643,6 @@ AC_DEFUN([LC_PROG_LINUX],
 
          # raid5-zerocopy patch
          LC_PAGE_CONSTANT
-
-         # 2.6.24
-         LC_EXPORT_BDI_INIT
 
          # 2.6.26
          LC_FS_STRUCT_USE_PATH
