@@ -235,25 +235,6 @@ AC_DEFUN([LC_EXPORT_TRUNCATE_COMPLETE_PAGE],
          ])
 
 #
-#
-# between 2.6.5 - 2.6.22 filemap_populate is exported in some kernels
-#
-AC_DEFUN([LC_FILEMAP_POPULATE],
-[AC_MSG_CHECKING([for exported filemap_populate])
-LB_LINUX_TRY_COMPILE([
-        #include <asm/page.h>
-        #include <linux/mm.h>
-],[
-       filemap_populate(NULL, 0, 0, __pgprot(0), 0, 0);
-],[
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(HAVE_FILEMAP_POPULATE, 1, [Kernel exports filemap_populate])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
-#
 # added in 2.6.17
 #
 AC_DEFUN([LC_BIT_SPINLOCK_H],
@@ -733,24 +714,6 @@ AC_DEFUN([LC_HAVE_EXPORTFS_H],
 [LB_CHECK_FILE([$LINUX/include/linux/exportfs.h], [
         AC_DEFINE(HAVE_LINUX_EXPORTFS_H, 1,
                 [kernel has include/exportfs.h])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
-# 2.6.23 has new page fault handling API
-AC_DEFUN([LC_VM_OP_FAULT],
-[AC_MSG_CHECKING([kernel has .fault in vm_operation_struct])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/mm.h>
-],[
-        struct vm_operations_struct op;
-
-        op.fault = NULL;
-], [
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(HAVE_VM_OP_FAULT, 1,
-                [kernel has .fault in vm_operation_struct])
 ],[
         AC_MSG_RESULT([no])
 ])
@@ -2153,7 +2116,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_LLITE_LLOOP_MODULE
 
 
-         LC_FILEMAP_POPULATE
          LC_BIT_SPINLOCK_H
 
          LC_CONST_ACL_SIZE
@@ -2193,7 +2155,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_KERNEL_SPLICE_READ
          LC_KERNEL_SENDFILE
          LC_HAVE_EXPORTFS_H
-         LC_VM_OP_FAULT
          LC_PROCFS_USERS
          LC_EXPORTFS_DECODE_FH
 

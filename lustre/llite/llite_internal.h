@@ -942,19 +942,6 @@ struct vvp_io {
                          *  locked page returned from vvp_io
                          */
                         cfs_page_t            *ft_vmpage;
-#ifndef HAVE_VM_OP_FAULT
-                        struct vm_nopage_api {
-                                /**
-                                 * Virtual address at which fault occurred.
-                                 */
-                                unsigned long   ft_address;
-                                /**
-                                 * Fault type, as to be supplied to
-                                 * filemap_nopage().
-                                 */
-                                int             *ft_type;
-                        } nopage;
-#else
                         struct vm_fault_api {
                                 /**
                                  * kernel fault info
@@ -965,7 +952,6 @@ struct vvp_io {
                                  */
                                 unsigned int    ft_flags;
                         } fault;
-#endif
                 } fault;
         } u;
         /**
