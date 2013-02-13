@@ -310,22 +310,6 @@ extern int  lwt_snapshot (cfs_cycles_t *now, int *ncpu, int *total_size,
 
 #undef _LWORDSIZE
 
-/* compat macroses */
-#ifndef HAVE_SCATTERLIST_SETPAGE
-static inline void sg_set_page(struct scatterlist *sg, struct page *page,
-                               unsigned int len, unsigned int offset)
-{
-        sg->page = page;
-        sg->offset = offset;
-        sg->length = len;
-}
-
-static inline void sg_assign_page(struct scatterlist *sg, struct page *page)
-{
-	sg->page = page;
-}
-#endif
-
 #define cfs_smp_processor_id()  smp_processor_id()
 
 #ifndef get_cpu
