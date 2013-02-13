@@ -359,22 +359,6 @@ LB_LINUX_TRY_COMPILE([
 # 2.6.27
 #
 
-# 2.6.27 have new page locking API
-AC_DEFUN([LC_TRYLOCKPAGE],
-[AC_MSG_CHECKING([kernel uses trylock_page for page lock])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/pagemap.h>
-],[
-        trylock_page(NULL);
-],[
-        AC_DEFINE(HAVE_TRYLOCK_PAGE, 1,
-                  [kernel uses trylock_page for page lock])
-        AC_MSG_RESULT([yes])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 # 2.6.27 removed the read_inode from super_operations.
 AC_DEFUN([LC_READ_INODE_IN_SBOPS],
 [AC_MSG_CHECKING([super_operations has a read_inode field])
@@ -1570,7 +1554,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_PAGE_CONSTANT
 
          # 2.6.27
-         LC_TRYLOCKPAGE
          LC_READ_INODE_IN_SBOPS
          LC_EXPORT_INODE_PERMISSION
          LC_QUOTA_ON_5ARGS

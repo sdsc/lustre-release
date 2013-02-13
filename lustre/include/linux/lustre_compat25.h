@@ -88,10 +88,6 @@ static inline void ll_set_fs_pwd(struct fs_struct *fs, struct vfsmount *mnt,
 #define module_init(a)     late_initcall(a)
 #endif
 
-#ifndef HAVE_TRYLOCK_PAGE
-#define trylock_page(page)		(!TestSetPageLocked(page))
-#endif
-
 #define LTIME_S(time)                   (time.tv_sec)
 
 #ifdef HAVE_EXPORT_INODE_PERMISSION
