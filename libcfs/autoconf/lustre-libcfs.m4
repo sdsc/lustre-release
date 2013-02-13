@@ -118,30 +118,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
-# LIBCFS_FUNC_UNSHARE_FS_STRUCT
-#
-# unshare_fs_struct was introduced in 2.6.30 to prevent others to directly
-# mess with copy_fs_struct
-#
-AC_DEFUN([LIBCFS_FUNC_UNSHARE_FS_STRUCT],
-[AC_MSG_CHECKING([if kernel defines unshare_fs_struct()])
-tmp_flags="$EXTRA_KCFLAGS"
-EXTRA_KCFLAGS="-Werror"
-LB_LINUX_TRY_COMPILE([
-       #include <linux/sched.h>
-       #include <linux/fs_struct.h>
-],[
-       unshare_fs_struct();
-],[
-       AC_MSG_RESULT([yes])
-       AC_DEFINE(HAVE_UNSHARE_FS_STRUCT, 1, [unshare_fs_struct found])
-],[
-       AC_MSG_RESULT([no])
-])
-EXTRA_KCFLAGS="$tmp_flags"
-])
-
-#
 # LIBCFS_STACKTRACE_OPS_HAVE_WALK_STACK
 #
 # 2.6.32-30.el6 adds a new 'walk_stack' field in 'struct stacktrace_ops'
@@ -317,8 +293,6 @@ LIBCFS_CONFIG_PANIC_DUMPLOG
 LIBCFS_U64_LONG_LONG_LINUX
 # 2.6.24
 LIBCFS_SYSCTL_UNNUMBERED
-# 2.6.30
-LIBCFS_FUNC_UNSHARE_FS_STRUCT
 # 2.6.31
 LIBCFS_HAVE_SET_MEMS_ALLOWED
 # 2.6.32
