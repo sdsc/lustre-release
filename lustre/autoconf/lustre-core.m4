@@ -463,27 +463,6 @@ EXTRA_KCFLAGS=$tmp_flags
 ])
 
 #
-# LC_D_OBTAIN_ALIAS
-# starting from 2.6.28 kernel replaces d_alloc_anon() with
-# d_obtain_alias() for getting anonymous dentries
-# RHEL5(2.6.18) has d_obtain_alias but SLES11SP0(2.6.27) not
-#
-AC_DEFUN([LC_D_OBTAIN_ALIAS],
-[AC_MSG_CHECKING([d_obtain_alias exist in kernel])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/dcache.h>
-],[
-        d_obtain_alias(NULL);
-],[
-        AC_DEFINE(HAVE_D_OBTAIN_ALIAS, 1,
-                [d_obtain_alias exist in kernel])
-        AC_MSG_RESULT([yes])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
-#
 # 2.6.36 fs_struct.lock use spinlock instead of rwlock.
 #
 AC_DEFUN([LC_FS_STRUCT_RWLOCK],
@@ -1633,7 +1612,6 @@ fi
 
          #2.6.29
          LC_WRITE_BEGIN_END
-         LC_D_OBTAIN_ALIAS
          LC_BLKDEV_PUT_2ARGS
          LC_DENTRY_OPEN_4ARGS
 

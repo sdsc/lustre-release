@@ -147,22 +147,6 @@ static inline struct file *ll_dentry_open(struct path *path, int flags,
 #define FS_HAS_FIEMAP			(0)
 #endif
 
-#ifndef HAVE_D_OBTAIN_ALIAS
-/* The old d_alloc_anon() didn't free the inode reference on error
- * like d_obtain_alias().  Hide that difference/inconvenience here. */
-static inline struct dentry *d_obtain_alias(struct inode *inode)
-{
-	struct dentry *anon = d_alloc_anon(inode);
-
-	if (anon == NULL) {
-		iput(inode);
-                anon = ERR_PTR(-ENOMEM);
-        }
-
-	return anon;
-}
-#endif
-
 /* add a lustre compatible layer for crypto API */
 #include <linux/crypto.h>
 static inline int ll_crypto_hmac(struct crypto_hash *tfm,
