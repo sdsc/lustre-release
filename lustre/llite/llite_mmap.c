@@ -498,11 +498,7 @@ int ll_teardown_mmaps(struct address_space *mapping, __u64 first, __u64 last)
 
 static struct vm_operations_struct ll_file_vm_ops = {
 	.fault			= ll_fault,
-#ifndef HAVE_PGMKWRITE_COMPACT
 	.page_mkwrite		= ll_page_mkwrite,
-#else
-	._pmkw.page_mkwrite	= ll_page_mkwrite,
-#endif
 	.open			= ll_vm_open,
 	.close			= ll_vm_close,
 };

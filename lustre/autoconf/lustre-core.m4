@@ -359,27 +359,6 @@ LB_LINUX_TRY_COMPILE([
 # 2.6.27
 #
 
-AC_DEFUN([LC_PGMKWRITE_COMPACT],
-[AC_MSG_CHECKING([if kernel .page_mkwrite is located in vm_operation_struct._pmkw])
-tmp_flags="$EXTRA_KCFLAGS"
-EXTRA_KCFLAGS="-Werror"
-LB_LINUX_TRY_COMPILE([
-	#include <linux/mm.h>
-],[
-	struct vm_operations_struct *vm_ops;
-
-	vm_ops = NULL;
-	vm_ops->_pmkw.page_mkwrite(NULL, NULL);
-], [
-	AC_MSG_RESULT([yes])
-	AC_DEFINE(HAVE_PGMKWRITE_COMPACT, 1,
-		[kernel .page_mkwrite is located in vm_operation_struct._pmkw])
-],[
-	AC_MSG_RESULT([no])
-])
-EXTRA_KCFLAGS="$tmp_flags"
-])
-
 AC_DEFUN([LC_INODE_PERMISION_2ARGS],
 [AC_MSG_CHECKING([inode_operations->permission has two args])
 LB_LINUX_TRY_COMPILE([
@@ -1587,7 +1566,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_PAGE_CONSTANT
 
          # 2.6.27
-	 LC_PGMKWRITE_COMPACT
          LC_INODE_PERMISION_2ARGS
          LC_TRYLOCKPAGE
          LC_READ_INODE_IN_SBOPS
