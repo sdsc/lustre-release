@@ -1296,22 +1296,6 @@ if test x$enable_liblustre_acl = xyes ; then
   AC_DEFINE(LIBLUSTRE_POSIX_ACL, 1, Liblustre Support ACL-enabled MDS)
 fi
 
-# 2.6.29 dentry_open has 4 arguments
-AC_DEFUN([LC_DENTRY_OPEN_4ARGS],
-[AC_MSG_CHECKING([dentry_open needs 4 parameters])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/fs.h>
-],[
-        dentry_open(NULL, NULL, 0, NULL);
-],[
-        AC_DEFINE(HAVE_DENTRY_OPEN_4ARGS, 1,
-                [dentry_open needs 4 paramters])
-        AC_MSG_RESULT([yes])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 #
 # --enable-mpitest
 #
@@ -1570,10 +1554,6 @@ if test x$enable_pgstat_track = xyes ; then
         AC_DEFINE([CONFIG_DEBUG_PAGESTATE_TRACKING], 1,
                   [enable page state tracking code])
 fi
-
-         #2.6.29
-         LC_DENTRY_OPEN_4ARGS
-
 ])
 
 #
