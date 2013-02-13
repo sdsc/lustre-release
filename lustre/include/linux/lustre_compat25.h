@@ -133,18 +133,12 @@ static inline struct file *ll_dentry_open(struct path *path, int flags,
 }
 #endif
 
-#ifdef HAVE_SECURITY_PLUG
-#define ll_vfs_symlink(dir, dentry, mnt, path, mode) \
-                vfs_symlink(dir, dentry, mnt, path, mode)
-#else
 #ifdef HAVE_4ARGS_VFS_SYMLINK
 #define ll_vfs_symlink(dir, dentry, mnt, path, mode) \
                 vfs_symlink(dir, dentry, path, mode)
 #else
 #define ll_vfs_symlink(dir, dentry, mnt, path, mode) \
                        vfs_symlink(dir, dentry, path)
-#endif
-
 #endif
 
 #ifdef HAVE_INODE_DIO_WAIT
@@ -203,28 +197,6 @@ unsigned int ll_crypto_tfm_alg_min_keysize(struct crypto_blkcipher *tfm)
 {
         return crypto_blkcipher_tfm(tfm)->__crt_alg->cra_blkcipher.min_keysize;
 }
-
-#ifdef HAVE_SECURITY_PLUG
-#define ll_vfs_rmdir(dir,entry,mnt)             vfs_rmdir(dir,entry,mnt)
-#define ll_vfs_mkdir(inode,dir,mnt,mode)        vfs_mkdir(inode,dir,mnt,mode)
-#define ll_vfs_link(old,mnt,dir,new,mnt1)       vfs_link(old,mnt,dir,new,mnt1)
-#define ll_vfs_unlink(inode,entry,mnt)          vfs_unlink(inode,entry,mnt)
-#define ll_vfs_mknod(dir,entry,mnt,mode,dev)            \
-                vfs_mknod(dir,entry,mnt,mode,dev)
-#define ll_security_inode_unlink(dir,entry,mnt)         \
-                security_inode_unlink(dir,entry,mnt)
-#define ll_vfs_rename(old,old_dir,mnt,new,new_dir,mnt1) \
-                vfs_rename(old,old_dir,mnt,new,new_dir,mnt1)
-#else
-#define ll_vfs_rmdir(dir,entry,mnt)             vfs_rmdir(dir,entry)
-#define ll_vfs_mkdir(inode,dir,mnt,mode)        vfs_mkdir(inode,dir,mode)
-#define ll_vfs_link(old,mnt,dir,new,mnt1)       vfs_link(old,dir,new)
-#define ll_vfs_unlink(inode,entry,mnt)          vfs_unlink(inode,entry)
-#define ll_vfs_mknod(dir,entry,mnt,mode,dev)    vfs_mknod(dir,entry,mode,dev)
-#define ll_security_inode_unlink(dir,entry,mnt) security_inode_unlink(dir,entry)
-#define ll_vfs_rename(old,old_dir,mnt,new,new_dir,mnt1) \
-                vfs_rename(old,old_dir,new,new_dir)
-#endif /* HAVE_SECURITY_PLUG */
 
 #ifdef for_each_possible_cpu
 #define cfs_for_each_possible_cpu(cpu) for_each_possible_cpu(cpu)
