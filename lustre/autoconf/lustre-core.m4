@@ -329,44 +329,6 @@ AC_DEFUN([LC_CONFIG_GSS],
  fi
 ])
 
-# 2.6.19
-
-# LC_FILE_WRITEV
-# 2.6.19 replaced writev with aio_write
-AC_DEFUN([LC_FILE_WRITEV],
-[AC_MSG_CHECKING([writev in fops])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/fs.h>
-],[
-        struct file_operations *fops = NULL;
-        fops->writev = NULL;
-],[
-        AC_MSG_RESULT(yes)
-        AC_DEFINE(HAVE_FILE_WRITEV, 1,
-                [use fops->writev])
-],[
-	AC_MSG_RESULT(no)
-])
-])
-
-# LC_FILE_READV
-# 2.6.19 replaced readv with aio_read
-AC_DEFUN([LC_FILE_READV],
-[AC_MSG_CHECKING([readv in fops])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/fs.h>
-],[
-        struct file_operations *fops = NULL;
-        fops->readv = NULL;
-],[
-        AC_MSG_RESULT(yes)
-        AC_DEFINE(HAVE_FILE_READV, 1,
-                [use fops->readv])
-],[
-        AC_MSG_RESULT(no)
-])
-])
-
 # 2.6.20
 
 # LC_CANCEL_DIRTY_PAGE
@@ -1977,10 +1939,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_CAPA_CRYPTO
          LC_CONFIG_RMTCLIENT
          LC_CONFIG_GSS
-
-         # 2.6.19
-         LC_FILE_WRITEV
-         LC_FILE_READV
 
          # 2.6.20
          LC_CANCEL_DIRTY_PAGE
