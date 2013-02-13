@@ -117,26 +117,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-#
-# LN_STRUCT_CRED_IN_TASK
-#
-# struct cred was introduced in 2.6.29 to streamline credentials in task struct
-#
-AC_DEFUN([LIBCFS_STRUCT_CRED_IN_TASK],
-[AC_MSG_CHECKING([if kernel has struct cred])
-LB_LINUX_TRY_COMPILE([
-       #include <linux/sched.h>
-],[
-       struct task_struct *tsk = NULL;
-       tsk->real_cred = NULL;
-],[
-       AC_MSG_RESULT([yes])
-       AC_DEFINE(HAVE_STRUCT_CRED, 1, [struct cred found])
-],[
-       AC_MSG_RESULT([no])
-])
-])
-
 # LIBCFS_STRUCT_SHASH_ALG
 # struct shash_alg was introduced in 2.6.29
 #
@@ -357,7 +337,6 @@ LIBCFS_U64_LONG_LONG_LINUX
 # 2.6.24
 LIBCFS_SYSCTL_UNNUMBERED
 # 2.6.29
-LIBCFS_STRUCT_CRED_IN_TASK
 LIBCFS_STRUCT_SHASH_ALG
 # 2.6.30
 LIBCFS_FUNC_UNSHARE_FS_STRUCT

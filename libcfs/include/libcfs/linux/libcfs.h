@@ -132,24 +132,4 @@ typedef long long_ptr_t;
 #define WITH_WATCHDOG
 #endif
 
-#ifndef HAVE_STRUCT_CRED
-
-#define current_cred() (current)
-
-#define current_cred_xxx(xxx)                   \
-({                                              \
-        current->xxx;                     \
-})
-
-#define current_user()          (current_cred_xxx(user))
-#define current_user_ns()       (current_cred_xxx(user)->user_ns)
-#define current_security()      (current_cred_xxx(security))
-
-#define cred task_struct
-
-#define prepare_creds() (current)
-#define commit_creds(a)
-
-#endif /* HAVE_STRUCT_CRED */
-
 #endif /* _LINUX_LIBCFS_H */
