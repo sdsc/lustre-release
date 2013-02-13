@@ -259,10 +259,6 @@ static inline int ll_quota_off(struct super_block *sb, int off, int remount)
 # define ll_vfs_dq_off(sb, remount) dquot_suspend(sb, -1)
 #endif
 
-#ifdef HAVE_BLK_QUEUE_MAX_SECTORS /* removed in rhel6 */
-#define blk_queue_max_hw_sectors(q, sect) blk_queue_max_sectors(q, sect)
-#endif
-
 #ifndef HAVE_BLKDEV_GET_BY_DEV
 # define blkdev_get_by_dev(dev, mode, holder) open_by_devnum(dev, mode)
 #endif
