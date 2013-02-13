@@ -1296,22 +1296,6 @@ if test x$enable_liblustre_acl = xyes ; then
   AC_DEFINE(LIBLUSTRE_POSIX_ACL, 1, Liblustre Support ACL-enabled MDS)
 fi
 
-# 2.6.29 blkdev_put has 2 arguments
-AC_DEFUN([LC_BLKDEV_PUT_2ARGS],
-[AC_MSG_CHECKING([blkdev_put needs 2 parameters])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/fs.h>
-],[
-        blkdev_put(NULL, 0);
-],[
-        AC_DEFINE(HAVE_BLKDEV_PUT_2ARGS, 1,
-                [blkdev_put needs 2 paramters])
-        AC_MSG_RESULT([yes])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 # 2.6.29 dentry_open has 4 arguments
 AC_DEFUN([LC_DENTRY_OPEN_4ARGS],
 [AC_MSG_CHECKING([dentry_open needs 4 parameters])
@@ -1588,7 +1572,6 @@ if test x$enable_pgstat_track = xyes ; then
 fi
 
          #2.6.29
-         LC_BLKDEV_PUT_2ARGS
          LC_DENTRY_OPEN_4ARGS
 
 ])
