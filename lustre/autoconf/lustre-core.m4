@@ -355,18 +355,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-# 2.6.23
-
-# 2.6.23 exports exportfs_decode_fh
-AC_DEFUN([LC_EXPORTFS_DECODE_FH],
-[LB_CHECK_SYMBOL_EXPORT([exportfs_decode_fh],
-[fs/exportfs/expfs.c],[
-        AC_DEFINE(HAVE_EXPORTFS_DECODE_FH, 1,
-                [exportfs_decode_fh has been export])
-],[
-])
-])
-
 # 2.6.24
 
 # 2.6.24 need linux/mm_types.h included
@@ -1710,9 +1698,6 @@ AC_DEFUN([LC_PROG_LINUX],
 
          # raid5-zerocopy patch
          LC_PAGE_CONSTANT
-
-         # 2.6.23
-         LC_EXPORTFS_DECODE_FH
 
          # 2.6.24
          LC_HAVE_MMTYPES_H
