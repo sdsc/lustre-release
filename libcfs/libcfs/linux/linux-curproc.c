@@ -208,11 +208,7 @@ int cfs_capable(cfs_cap_t cap)
  * 32-bit system call. */
 int cfs_curproc_is_32bit(void)
 {
-#ifdef HAVE_IS_COMPAT_TASK
         return is_compat_task();
-#else
-        return (BITS_PER_LONG == 32);
-#endif
 }
 
 static int cfs_access_process_vm(struct task_struct *tsk, unsigned long addr,
