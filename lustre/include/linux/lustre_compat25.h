@@ -109,11 +109,7 @@ static inline struct file *ll_dentry_open(struct path *path, int flags,
 {
 	mntget(path->mnt);
 	dget(path->dentry);
-# ifdef HAVE_DENTRY_OPEN_4ARGS
 	return dentry_open(path->dentry, path->mnt, flags, cred);
-# else
-	return dentry_open(path->dentry, path->mnt, flags);
-# endif
 }
 #endif
 
