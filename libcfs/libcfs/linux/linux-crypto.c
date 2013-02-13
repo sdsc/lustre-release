@@ -63,15 +63,6 @@ static int cfs_crypto_hash_alloc(unsigned char alg_id,
 
 	desc->flags = 0;
 
-	/** Shash have different logic for initialization then digest
-	 * shash: crypto_hash_setkey, crypto_hash_init
-	 * digest: crypto_digest_init, crypto_digest_setkey
-	 * Skip this function for digest, because we use shash logic at
-	 * cfs_crypto_hash_alloc.
-	 */
-#ifndef HAVE_STRUCT_SHASH_ALG
-	crypto_hash_init(desc);
-#endif
 	if (key != NULL) {
 		err = crypto_hash_setkey(desc->tfm, key, key_len);
 	} else if ((*type)->cht_key != 0) {
@@ -90,11 +81,7 @@ static int cfs_crypto_hash_alloc(unsigned char alg_id,
 	       (crypto_hash_tfm(desc->tfm))->__crt_alg->cra_driver_name,
 	       cfs_crypto_hash_speeds[alg_id]);
 
-#ifdef HAVE_STRUCT_SHASH_ALG
 	return crypto_hash_init(desc);
-#else
-	return 0;
-#endif
 }
 
 int cfs_crypto_hash_digest(unsigned char alg_id,
