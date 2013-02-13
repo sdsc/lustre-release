@@ -82,23 +82,6 @@ LB_LINUX_TRY_COMPILE([
 EXTRA_KCFLAGS="$tmp_flags"
 ])
 
-# 2.6.21 api change. 'register_sysctl_table' use only one argument,
-# instead of more old which need two.
-AC_DEFUN([LIBCFS_2ARGS_REGISTER_SYSCTL],
-[AC_MSG_CHECKING([check register_sysctl_table want 2 args])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/sysctl.h>
-],[
-	register_sysctl_table(NULL,0);
-],[
-        AC_MSG_RESULT(yes)
-        AC_DEFINE(HAVE_2ARGS_REGISTER_SYSCTL, 1,
-                  [register_sysctl_table want 2 args])
-],[
-        AC_MSG_RESULT(NO)
-])
-])
-
 # 2.6.23 lost dtor argument
 AC_DEFUN([LIBCFS_KMEM_CACHE_CREATE_DTOR],
 [AC_MSG_CHECKING([check kmem_cache_create has dtor argument])
@@ -565,8 +548,6 @@ AC_DEFUN([LIBCFS_PROG_LINUX],
 LIBCFS_CONFIG_PANIC_DUMPLOG
 
 LIBCFS_U64_LONG_LONG_LINUX
-# 2.6.21
-LIBCFS_2ARGS_REGISTER_SYSCTL
 # 2.6.23
 LIBCFS_KMEM_CACHE_CREATE_DTOR
 LC_REGISTER_SHRINKER
