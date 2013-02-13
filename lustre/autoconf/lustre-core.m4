@@ -357,16 +357,6 @@ LB_LINUX_TRY_COMPILE([
 
 # 2.6.23
 
-# 2.6.23 extract nfs export related data into exportfs.h
-AC_DEFUN([LC_HAVE_EXPORTFS_H],
-[LB_CHECK_FILE([$LINUX/include/linux/exportfs.h], [
-        AC_DEFINE(HAVE_LINUX_EXPORTFS_H, 1,
-                [kernel has include/exportfs.h])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 # 2.6.23 add code to wait other users to complete before removing procfs entry
 AC_DEFUN([LC_PROCFS_USERS],
 [AC_MSG_CHECKING([if kernel has pde_users member in procfs entry struct])
@@ -440,9 +430,7 @@ AC_DEFUN([LC_FH_TO_DENTRY],
 [AC_MSG_CHECKING([if kernel has .fh_to_dentry member in export_operations struct])
 LB_LINUX_TRY_COMPILE([
         #include <linux/fs.h>
-#ifdef HAVE_LINUX_EXPORTFS_H
         #include <linux/exportfs.h>
-#endif
 ],[
         do{ }while(sizeof(((struct export_operations *)0)->fh_to_dentry));
 ], [
@@ -1772,7 +1760,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_PAGE_CONSTANT
 
          # 2.6.23
-         LC_HAVE_EXPORTFS_H
          LC_PROCFS_USERS
          LC_EXPORTFS_DECODE_FH
 
