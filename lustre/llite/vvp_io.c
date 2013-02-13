@@ -504,13 +504,6 @@ static int vvp_io_read_start(const struct lu_env *env,
         case IO_NORMAL:
                  result = lustre_generic_file_read(file, cio, &pos);
                  break;
-#ifdef HAVE_KERNEL_SENDFILE
-        case IO_SENDFILE:
-                result = generic_file_sendfile(file, &pos, cnt,
-                                vio->u.sendfile.cui_actor,
-                                vio->u.sendfile.cui_target);
-                break;
-#endif
         case IO_SPLICE:
                 result = generic_file_splice_read(file, &pos,
                                 vio->u.splice.cui_pipe, cnt,

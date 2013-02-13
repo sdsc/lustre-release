@@ -1090,34 +1090,6 @@ static ssize_t ll_file_write(struct file *file, const char *buf, size_t count,
         RETURN(result);
 }
 
-
-#ifdef HAVE_KERNEL_SENDFILE
-/*
- * Send file content (through pagecache) somewhere with helper
- */
-static ssize_t ll_file_sendfile(struct file *in_file, loff_t *ppos,size_t count,
-                                read_actor_t actor, void *target)
-{
-        struct lu_env      *env;
-        struct vvp_io_args *args;
-        ssize_t             result;
-        int                 refcheck;
-        ENTRY;
-
-        env = cl_env_get(&refcheck);
-        if (IS_ERR(env))
-                RETURN(PTR_ERR(env));
-
-        args = vvp_env_args(env, IO_SENDFILE);
-        args->u.sendfile.via_target = target;
-        args->u.sendfile.via_actor = actor;
-
-        result = ll_file_io_generic(env, args, in_file, CIT_READ, ppos, count);
-        cl_env_put(env, &refcheck);
-        RETURN(result);
-}
-#endif
-
 /*
  * Send file content (through pagecache) somewhere with helper
  */
@@ -2794,9 +2766,6 @@ struct file_operations ll_file_operations = {
         .release        = ll_file_release,
         .mmap           = ll_file_mmap,
         .llseek         = ll_file_seek,
-#ifdef HAVE_KERNEL_SENDFILE
-        .sendfile       = ll_file_sendfile,
-#endif
         .splice_read    = ll_file_splice_read,
         .fsync          = ll_fsync,
         .flush          = ll_flush
@@ -2812,9 +2781,6 @@ struct file_operations ll_file_operations_flock = {
         .release        = ll_file_release,
         .mmap           = ll_file_mmap,
         .llseek         = ll_file_seek,
-#ifdef HAVE_KERNEL_SENDFILE
-        .sendfile       = ll_file_sendfile,
-#endif
         .splice_read    = ll_file_splice_read,
         .fsync          = ll_fsync,
         .flush          = ll_flush,
@@ -2833,9 +2799,6 @@ struct file_operations ll_file_operations_noflock = {
         .release        = ll_file_release,
         .mmap           = ll_file_mmap,
         .llseek         = ll_file_seek,
-#ifdef HAVE_KERNEL_SENDFILE
-        .sendfile       = ll_file_sendfile,
-#endif
         .splice_read    = ll_file_splice_read,
         .fsync          = ll_fsync,
         .flush          = ll_flush,

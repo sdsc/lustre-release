@@ -357,25 +357,6 @@ LB_LINUX_TRY_COMPILE([
 
 # 2.6.23
 
-# 2.6.23 change .sendfile to .splice_read
-# RHEL4 (-92 kernel) have both sendfile and .splice_read API
-AC_DEFUN([LC_KERNEL_SENDFILE],
-[AC_MSG_CHECKING([if kernel has .sendfile])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/fs.h>
-],[
-        struct file_operations file;
-
-        file.sendfile = NULL;
-], [
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(HAVE_KERNEL_SENDFILE, 1,
-                [kernel has .sendfile])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 # 2.6.23 extract nfs export related data into exportfs.h
 AC_DEFUN([LC_HAVE_EXPORTFS_H],
 [LB_CHECK_FILE([$LINUX/include/linux/exportfs.h], [
@@ -1791,7 +1772,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_PAGE_CONSTANT
 
          # 2.6.23
-         LC_KERNEL_SENDFILE
          LC_HAVE_EXPORTFS_H
          LC_PROCFS_USERS
          LC_EXPORTFS_DECODE_FH
