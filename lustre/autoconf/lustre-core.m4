@@ -329,33 +329,6 @@ AC_DEFUN([LC_CONFIG_GSS],
  fi
 ])
 
-# 2.6.20
-
-# LC_CANCEL_DIRTY_PAGE
-# 2.6.20 introduced cancel_dirty_page instead of clear_page_dirty.
-AC_DEFUN([LC_CANCEL_DIRTY_PAGE],
-        [AC_MSG_CHECKING([kernel has cancel_dirty_page])
-        # the implementation of cancel_dirty_page in OFED 1.4.1's SLES10 SP2
-        # backport is broken, so ignore it
-        if test -f $OFED_BACKPORT_PATH/linux/mm.h &&
-           test "$(sed -ne '/^static inline void cancel_dirty_page(struct page \*page, unsigned int account_size)$/,/^}$/p' $OFED_BACKPORT_PATH/linux/mm.h | md5sum)" = "c518cb32d6394760c5bca14cb7538d3e  -"; then
-                AC_MSG_RESULT(no)
-        else
-                LB_LINUX_TRY_COMPILE([
-                        #include <linux/mm.h>
-                        #include <linux/page-flags.h>
-],[
-                        cancel_dirty_page(NULL, 0);
-],[
-                        AC_MSG_RESULT(yes)
-                        AC_DEFINE(HAVE_CANCEL_DIRTY_PAGE, 1,
-                                  [kernel has cancel_dirty_page instead of clear_page_dirty])
-],[
-                        AC_MSG_RESULT(no)
-])
-        fi
-])
-
 # raid5-zerocopy patch
 
 #
@@ -1939,9 +1912,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_CAPA_CRYPTO
          LC_CONFIG_RMTCLIENT
          LC_CONFIG_GSS
-
-         # 2.6.20
-         LC_CANCEL_DIRTY_PAGE
 
          # raid5-zerocopy patch
          LC_PAGE_CONSTANT
