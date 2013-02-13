@@ -624,10 +624,10 @@ static int llog_lvfs_open(const struct lu_env *env,  struct llog_handle *handle,
 			       logid->lgl_ogen, rc);
 			GOTO(out, rc);
 		}
-		/* l_dentry_open will call dput(dchild) if there is an error */
 		handle->lgh_file = l_dentry_open(&obd->obd_lvfs_ctxt, dchild,
 						 O_RDWR | O_LARGEFILE);
 		if (IS_ERR(handle->lgh_file)) {
+			dput(dchild);
 			rc = PTR_ERR(handle->lgh_file);
 			handle->lgh_file = NULL;
 			CERROR("%s: error opening llog #"LPX64"#"LPX64"#%08x: "
@@ -736,8 +736,10 @@ static int llog_lvfs_create(const struct lu_env *env,
 			GOTO(out, rc = PTR_ERR(dchild));
 
 		file = l_dentry_open(&obd->obd_lvfs_ctxt, dchild, open_flags);
-		if (IS_ERR(file))
+		if (IS_ERR(file)) {
+			dput(dchild);
 			GOTO(out, rc = PTR_ERR(file));
+		}
 		handle->lgh_id.lgl_oseq = oa->o_seq;
 		handle->lgh_id.lgl_oid = oa->o_id;
 		handle->lgh_id.lgl_ogen = oa->o_generation;
