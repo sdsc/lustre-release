@@ -355,63 +355,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-# 2.6.22
-
-#
-# check for crypto API
-#
-AC_DEFUN([LC_ASYNC_BLOCK_CIPHER],
-[AC_MSG_CHECKING([if kernel has block cipher support])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/err.h>
-        #include <linux/crypto.h>
-],[
-        struct crypto_blkcipher *tfm;
-        tfm = crypto_alloc_blkcipher("aes", 0, sizeof(tfm) );
-],[
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(HAVE_ASYNC_BLOCK_CIPHER, 1, [kernel has block cipher support])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
-#
-# check for struct hash_desc
-#
-AC_DEFUN([LC_STRUCT_HASH_DESC],
-[AC_MSG_CHECKING([if kernel has struct hash_desc])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/err.h>
-        #include <linux/crypto.h>
-],[
-        struct hash_desc foo __attribute__ ((unused));
-],[
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(HAVE_STRUCT_HASH_DESC, 1, [kernel has struct hash_desc])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
-#
-# check for struct blkcipher_desc
-#
-AC_DEFUN([LC_STRUCT_BLKCIPHER_DESC],
-[AC_MSG_CHECKING([if kernel has struct blkcipher_desc])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/err.h>
-        #include <linux/crypto.h>
-],[
-        struct blkcipher_desc foo __attribute__ ((unused));
-],[
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(HAVE_STRUCT_BLKCIPHER_DESC, 1, [kernel has struct blkcipher_desc])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 #
 # 2.6.19 check for FS_RENAME_DOES_D_MOVE flag
 #
@@ -1901,9 +1844,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_PAGE_CONSTANT
 
 	 # 2.6.22
-         LC_ASYNC_BLOCK_CIPHER
-         LC_STRUCT_HASH_DESC
-         LC_STRUCT_BLKCIPHER_DESC
          LC_FS_RENAME_DOES_D_MOVE
 
          # 2.6.23
