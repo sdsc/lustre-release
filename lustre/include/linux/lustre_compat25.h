@@ -263,15 +263,6 @@ static inline int ll_quota_off(struct super_block *sb, int off, int remount)
 # define blkdev_get_by_dev(dev, mode, holder) open_by_devnum(dev, mode)
 #endif
 
-#ifndef HAVE_BLK_QUEUE_MAX_SEGMENTS
-#define blk_queue_max_segments(rq, seg)                      \
-        do { blk_queue_max_phys_segments(rq, seg);           \
-             blk_queue_max_hw_segments(rq, seg); } while (0)
-#else
-#define queue_max_phys_segments(rq)       queue_max_segments(rq)
-#define queue_max_hw_segments(rq)         queue_max_segments(rq)
-#endif
-
 #ifdef HAVE_KMAP_ATOMIC_HAS_1ARG
 #define ll_kmap_atomic(a, b)	kmap_atomic(a)
 #define ll_kunmap_atomic(a, b)	kunmap_atomic(a)

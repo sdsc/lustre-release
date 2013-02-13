@@ -432,23 +432,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 # 2.6.32
-
-# 2.6.32 replaces 2 functions blk_queue_max_phys_segments and blk_queue_max_hw_segments by blk_queue_max_segments
-AC_DEFUN([LC_BLK_QUEUE_MAX_SEGMENTS],
-[AC_MSG_CHECKING([if blk_queue_max_segments is defined])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/blkdev.h>
-],[
-        blk_queue_max_segments(NULL, 0);
-],[
-        AC_MSG_RESULT(yes)
-        AC_DEFINE(HAVE_BLK_QUEUE_MAX_SEGMENTS, 1,
-                  [blk_queue_max_segments is defined])
-],[
-        AC_MSG_RESULT(no)
-])
-])
-
 #
 # LC_QUOTA64
 #
@@ -1257,7 +1240,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_PAGE_CONSTANT
 
          # 2.6.32
-         LC_BLK_QUEUE_MAX_SEGMENTS
          LC_SET_CPUS_ALLOWED
          LC_EXPORT_GENERIC_ERROR_REMOVE_PAGE
          LC_SELINUX_IS_ENABLED
