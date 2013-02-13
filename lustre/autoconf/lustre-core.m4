@@ -395,21 +395,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-# 2.6.27 has vfs_dq_off inline function.
-AC_DEFUN([LC_VFS_DQ_OFF],
-[AC_MSG_CHECKING([vfs_dq_off is defined])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/quotaops.h>
-],[
-        vfs_dq_off(NULL, 0);
-],[
-        AC_DEFINE(HAVE_VFS_DQ_OFF, 1, [vfs_dq_off is defined])
-        AC_MSG_RESULT([yes])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 # 2.6.34 has quotactl_ops->[sg]et_dqblk that take struct fs_disk_quota
 AC_DEFUN([LC_HAVE_DQUOT_FS_DISK_QUOTA],
 tmp_flags="$EXTRA_KCFLAGS"
@@ -1527,7 +1512,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_PAGE_CONSTANT
 
          # 2.6.27
-         LC_VFS_DQ_OFF
          LC_LOCK_MAP_ACQUIRE
 
          # 2.6.27.15-2 sles11

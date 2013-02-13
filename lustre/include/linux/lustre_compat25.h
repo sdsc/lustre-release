@@ -264,17 +264,10 @@ static inline int ll_quota_off(struct super_block *sb, int off, int remount)
 #endif
 
 #ifndef HAVE_DQUOT_SUSPEND
-#ifndef HAVE_VFS_DQ_OFF
-# define ll_vfs_dq_init             DQUOT_INIT
-# define ll_vfs_dq_drop             DQUOT_DROP
-# define ll_vfs_dq_transfer         DQUOT_TRANSFER
-# define ll_vfs_dq_off(sb, remount) DQUOT_OFF(sb)
-#else
 # define ll_vfs_dq_init             vfs_dq_init
 # define ll_vfs_dq_drop             vfs_dq_drop
 # define ll_vfs_dq_transfer         vfs_dq_transfer
 # define ll_vfs_dq_off(sb, remount) vfs_dq_off(sb, remount)
-#endif
 #else
 # define ll_vfs_dq_init             dquot_initialize
 # define ll_vfs_dq_drop             dquot_drop
