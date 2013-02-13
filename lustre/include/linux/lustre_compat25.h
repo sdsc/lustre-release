@@ -255,14 +255,6 @@ unsigned int ll_crypto_tfm_alg_min_keysize(struct crypto_blkcipher *tfm)
 #define cfs_for_each_possible_cpu(cpu) for_each_cpu(cpu)
 #endif
 
-#ifdef HAVE_BIO_ENDIO_2ARG
-#define cfs_bio_io_error(a,b)   bio_io_error((a))
-#define cfs_bio_endio(a,b,c)    bio_endio((a),(c))
-#else
-#define cfs_bio_io_error(a,b)   bio_io_error((a),(b))
-#define cfs_bio_endio(a,b,c)    bio_endio((a),(b),(c))
-#endif
-
 #ifdef HAVE_FS_STRUCT_USE_PATH
 #define cfs_fs_pwd(fs)       ((fs)->pwd.dentry)
 #define cfs_fs_mnt(fs)       ((fs)->pwd.mnt)

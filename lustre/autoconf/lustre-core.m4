@@ -357,22 +357,6 @@ LB_LINUX_TRY_COMPILE([
 
 # 2.6.24
 
-# 2.6.24 has bio_endio with 2 args
-AC_DEFUN([LC_BIO_ENDIO_2ARG],
-[AC_MSG_CHECKING([if kernel has bio_endio with 2 args])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/bio.h>
-],[
-        bio_endio(NULL, 0);
-], [
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(HAVE_BIO_ENDIO_2ARG, 1,
-                [kernel has bio_endio with 2 args])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 # 2.6.24 has new members in exports struct.
 AC_DEFUN([LC_FH_TO_DENTRY],
 [AC_MSG_CHECKING([if kernel has .fh_to_dentry member in export_operations struct])
@@ -1690,7 +1674,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_PAGE_CONSTANT
 
          # 2.6.24
-         LC_BIO_ENDIO_2ARG
          LC_FH_TO_DENTRY
          LC_EXPORT_BDI_INIT
 
