@@ -433,23 +433,6 @@ LB_LINUX_TRY_COMPILE([
 
 # 2.6.32
 
-# 2.6.32 add s_bdi for super block
-AC_DEFUN([LC_SB_BDI],
-[AC_MSG_CHECKING([if super_block has s_bdi field])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/fs.h>
-],[
-        struct super_block sb;
-        sb.s_bdi = NULL;
-],[
-        AC_MSG_RESULT(yes)
-        AC_DEFINE(HAVE_SB_BDI, 1,
-                  [super_block has s_bdi field])
-],[
-        AC_MSG_RESULT(no)
-])
-])
-
 # 2.6.32 removes blk_queue_max_sectors and add blk_queue_max_hw_sectors
 # check blk_queue_max_sectors and use it until disappear.
 AC_DEFUN([LC_BLK_QUEUE_MAX_SECTORS],
@@ -1291,7 +1274,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_PAGE_CONSTANT
 
          # 2.6.32
-         LC_SB_BDI
          LC_BLK_QUEUE_MAX_SECTORS
          LC_BLK_QUEUE_MAX_SEGMENTS
          LC_SET_CPUS_ALLOWED

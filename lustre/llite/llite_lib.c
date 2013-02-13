@@ -994,9 +994,7 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
 	if (err)
 		GOTO(out_free, err);
 
-#ifdef HAVE_SB_BDI
         sb->s_bdi = &lsi->lsi_bdi;
-#endif
 
         /* Generate a string unique to this super, in case some joker tries
            to mount the same fs at two mount points.
