@@ -177,13 +177,8 @@ static struct shash_alg alg = {
 	}
 };
 #else   /* HAVE_STRUCT_SHASH_ALG */
-#ifdef HAVE_DIGEST_SETKEY_FLAGS
-static int crc32_digest_setkey(struct crypto_tfm *tfm, const u8 *key,
-			       unsigned int keylen, unsigned int *flags)
-#else
 static int crc32_digest_setkey(struct crypto_tfm *tfm, const u8 *key,
 			       unsigned int keylen)
-#endif
 {
 	u32 *mctx = crypto_tfm_ctx(tfm);
 
