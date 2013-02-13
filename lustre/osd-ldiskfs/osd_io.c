@@ -332,13 +332,12 @@ static int osd_do_bio(struct osd_device *osd, struct inode *inode,
 
                                 /* Dang! I have to fragment this I/O */
                                 CDEBUG(D_INODE, "bio++ sz %d vcnt %d(%d) "
-                                       "sectors %d(%d) psg %d(%d) hsg %d(%d)\n",
+                                       "sectors %d(%d) psg %d(%d)\n",
                                        bio->bi_size,
                                        bio->bi_vcnt, bio->bi_max_vecs,
                                        bio->bi_size >> 9, queue_max_sectors(q),
                                        bio_phys_segments(q, bio),
-                                       queue_max_phys_segments(q),
-				       0, queue_max_hw_segments(q));
+                                       queue_max_segments(q));
 
                                 record_start_io(iobuf, bio->bi_size);
                                 osd_submit_bio(iobuf->dr_rw, bio);
