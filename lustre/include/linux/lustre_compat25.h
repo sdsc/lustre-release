@@ -182,17 +182,6 @@ static inline struct file *ll_dentry_open(struct path *path, int flags,
 # define inode_dio_done(i)		up_read(&(i)->i_alloc_sem)
 #endif
 
-#ifdef HAVE_UNREGISTER_BLKDEV_RETURN_INT
-#define ll_unregister_blkdev(a,b)       unregister_blkdev((a),(b))
-#else
-static inline
-int ll_unregister_blkdev(unsigned int dev, const char *name)
-{
-        unregister_blkdev(dev, name);
-        return 0;
-}
-#endif
-
 #ifndef FS_HAS_FIEMAP
 #define FS_HAS_FIEMAP			(0)
 #endif
