@@ -1771,7 +1771,6 @@ static long mdt_reint_opcode(struct mdt_thread_info *info,
         struct mdt_rec_reint *rec;
         long opc;
 
-        opc = err_serious(-EFAULT);
         rec = req_capsule_client_get(info->mti_pill, &RMF_REC_REINT);
         if (rec != NULL) {
                 opc = rec->rr_opcode;
@@ -1782,7 +1781,9 @@ static long mdt_reint_opcode(struct mdt_thread_info *info,
                         CERROR("Unsupported opc: %ld\n", opc);
                         opc = err_serious(opc);
                 }
-        }
+        } else {
+		opc = err_serious(-EFAULT);
+	}
         return opc;
 }
 
