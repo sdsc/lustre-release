@@ -540,6 +540,12 @@ download_ofed() {
         OFED_BASE_VERSION=${OFED_VERSION%.*}
     fi
 
+    if [[ $OFED_VERSION = 3.5-rc[0-9]* ]] ; then
+            # Remove trailing string indicating 'release candidate' status
+            # from version string
+        OFED_BASE_VERSION=${OFED_VERSION%-rc[0-9]*}
+    fi
+
     local location="http://www.openfabrics.org/downloads/OFED/ofed-${OFED_BASE_VERSION}/"
 
     if [[ $OFED_VERSION = daily-* ]]; then
