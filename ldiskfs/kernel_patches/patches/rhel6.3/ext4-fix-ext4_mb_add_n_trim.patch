@@ -20,3 +20,27 @@ Index: linux-stage/fs/ext4/mballoc.c
 
  	/* Now trim the list to be not more than 8 elements */
  	if (lg_prealloc_count > 8) {
+Index: linux-stage/fs/ext4/xattr.c
+--- linux-stage.orig/fs/ext4/xattr.c
++++ linux-stage/fs/ext4/xattr.c
+@@ -1715,8 +1715,18 @@ delete_external_ea:
+ 		goto cleanup;
+ 	bh = sb_bread(inode->i_sb, EXT4_I(inode)->i_file_acl);
+ 	if (!bh) {
+-		ext4_error(inode->i_sb, "inode %lu: block %llu read error",
+-			   inode->i_ino, EXT4_I(inode)->i_file_acl);
++		ext4_error(inode->i_sb, "inode %lu: i_data %x %x %x %x %x"
++			   " %x %x %x %x %x %x %x %x %x %x, i_dtime %x,"
++			   "block %llu read error",
++			   inode->i_ino, EXT4_I(inode)->i_data[0],
++			   EXT4_I(inode)->i_data[1], EXT4_I(inode)->i_data[2],
++			   EXT4_I(inode)->i_data[3], EXT4_I(inode)->i_data[4],
++			   EXT4_I(inode)->i_data[5], EXT4_I(inode)->i_data[6],
++			   EXT4_I(inode)->i_data[7], EXT4_I(inode)->i_data[8],
++			   EXT4_I(inode)->i_data[9], EXT4_I(inode)->i_data[10],
++			   EXT4_I(inode)->i_data[11], EXT4_I(inode)->i_data[12],
++			   EXT4_I(inode)->i_data[13], EXT4_I(inode)->i_data[14],
++			   EXT4_I(inode)->i_dtime, EXT4_I(inode)->i_file_acl);
+ 		goto cleanup;
+ 	}
+ 	if (BHDR(bh)->h_magic != cpu_to_le32(EXT4_XATTR_MAGIC) ||
