@@ -540,6 +540,12 @@ download_ofed() {
         OFED_BASE_VERSION=${OFED_VERSION%.*}
     fi
 
+    if [[ $OFED_VERSION = 3.5-rc[0-9]* ]] ; then
+            # Remove trailing string indicating 'release candidate' status
+            # from version string
+        OFED_BASE_VERSION=${OFED_VERSION%-rc[0-9]*}
+    fi
+
     local location="http://www.openfabrics.org/downloads/OFED/ofed-${OFED_BASE_VERSION}/"
 
     if [[ $OFED_VERSION = daily-* ]]; then
@@ -1199,8 +1205,15 @@ build_kernel_ib() {
     local BUILD_TYPE=${BUILD_TYPE:-"--rebuild"}
     local SOURCE="${TOPDIR}/OFED/SRPMS/ofa_kernel-*.src.rpm"
 
+        # OFED 3.5 uses different naming/packaging scheme for RPMs containing
+        # the kernel modules
+    if [[ $OFED_VERSION =~ '3.5' ]] ; then
+        SOURCE="${TOPDIR}/OFED/SRPMS/compat-rdma-3.5-*.src.rpm"
+        BUILD_TYPE='-ba'
+    fi
+
     # but switch to building from the SPEC if we need to apply patches
-    if ls ${TOPDIR}/lustre/build/patches/ofed/* >/dev/null; then
+    if [ ls ${TOPDIR}/lustre/build/patches/ofed/* >/dev/null -a ! $OFED_VERSION =~ '3.5' ] ; then
         BUILD_TYPE="-bb"
         rpm --define "_topdir ${TOPDIR}" -ivh $SOURCE
         SOURCE="${TOPDIR}/SPECS/ofa_kernel.spec"
