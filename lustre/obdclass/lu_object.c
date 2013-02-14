@@ -2199,7 +2199,11 @@ void lu_object_assign_fid(const struct lu_env *env, struct lu_object *o,
 	cfs_hash_bd_get_and_lock(hs, (void *)fid, &bd, 1);
 	shadow = htable_lookup(s, &bd, fid, &waiter, &version);
 	/* supposed to be unique */
-	LASSERT(shadow == NULL);
+	if (unlikely(shadow != NULL)) {
+		LU_OBJECT_DEBUG(D_ERROR, env, shadow, " new object\n");
+		LU_OBJECT_DEBUG(D_ERROR, env, o, " old object\n");
+		LBUG();
+	}
 	*old = *fid;
 	bkt = cfs_hash_bd_extra_get(hs, &bd);
 	cfs_hash_bd_add_locked(hs, &bd, &o->lo_header->loh_hash);
