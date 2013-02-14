@@ -119,12 +119,18 @@ int mdt_hsm_attr_set(struct mdt_thread_info *info, struct mdt_object *obj,
  */
 int mdt_hsm_progress(struct mdt_thread_info *info)
 {
+	struct mdt_body			*body;
 	struct hsm_progress_kernel	*hpk;
 	int				 rc;
 	ENTRY;
 
+	body = req_capsule_client_get(info->mti_pill, &RMF_MDT_BODY);
+	if (body == NULL)
+		RETURN(-EPROTO);
+
 	hpk = req_capsule_client_get(info->mti_pill, &RMF_MDS_HSM_PROGRESS);
-	LASSERT(hpk);
+	if (hpk == NULL)
+		RETURN(-EPROTO);
 
 	CDEBUG(D_HSM, "Progress on "DFID": len="LPU64" err=%d\n",
 	       PFID(&hpk->hpk_fid), hpk->hpk_extent.length, hpk->hpk_errval);
@@ -145,13 +151,19 @@ int mdt_hsm_progress(struct mdt_thread_info *info)
 
 int mdt_hsm_ct_register(struct mdt_thread_info *info)
 {
-	struct ptlrpc_request *req = mdt_info_req(info);
-	__u32 *archives;
-	int rc;
+	struct mdt_body		*body;
+	struct ptlrpc_request	*req = mdt_info_req(info);
+	__u32			*archives;
+	int			 rc;
 	ENTRY;
 
+	body = req_capsule_client_get(info->mti_pill, &RMF_MDT_BODY);
+	if (body == NULL)
+		RETURN(-EPROTO);
+
 	archives = req_capsule_client_get(info->mti_pill, &RMF_MDS_HSM_ARCHIVE);
-	LASSERT(archives);
+	if (archives == NULL)
+		RETURN(-EPROTO);
 
 	/* XXX: directly include this function here? */
 	rc = mdt_hsm_agent_register_mask(info, &req->rq_export->exp_client_uuid,
@@ -162,9 +174,14 @@ int mdt_hsm_ct_register(struct mdt_thread_info *info)
 
 int mdt_hsm_ct_unregister(struct mdt_thread_info *info)
 {
-	struct ptlrpc_request *req = mdt_info_req(info);
-	int rc;
+	struct mdt_body		*body;
+	struct ptlrpc_request	*req = mdt_info_req(info);
+	int			 rc;
 	ENTRY;
+
+	body = req_capsule_client_get(info->mti_pill, &RMF_MDT_BODY);
+	if (body == NULL)
+		RETURN(-EPROTO);
 
 	/* XXX: directly include this function here? */
 	rc = mdt_hsm_agent_unregister(info, &req->rq_export->exp_client_uuid);
@@ -213,7 +230,8 @@ int mdt_hsm_state_get(struct mdt_thread_info *info)
 			    req_capsule_client_get(info->mti_pill, &RMF_CAPA1));
 
 	hus = req_capsule_server_get(info->mti_pill, &RMF_HSM_USER_STATE);
-	LASSERT(hus);
+	if (hus == NULL)
+		GOTO(out_ucred, rc = -EPROTO);
 
 	/* Current HSM flags */
 	hus->hus_states = ma->ma_hsm.mh_flags;
@@ -266,7 +284,8 @@ int mdt_hsm_state_set(struct mdt_thread_info *info)
 		GOTO(out_ucred, rc);
 
 	hss = req_capsule_client_get(info->mti_pill, &RMF_HSM_STATE_SET);
-	LASSERT(hss);
+	if (hss == NULL)
+		GOTO(out_ucred, rc = -EPROTO);
 
 	if (req_capsule_get_size(info->mti_pill, &RMF_CAPA1, RCL_CLIENT))
 		mdt_set_capainfo(info, 0, &info->mti_body->fid1,
@@ -346,7 +365,8 @@ int mdt_hsm_action(struct mdt_thread_info *info)
 
 	hca = req_capsule_server_get(info->mti_pill,
 				     &RMF_MDS_HSM_CURRENT_ACTION);
-	LASSERT(hca);
+	if (hca == NULL)
+		GOTO(out_ucred, rc = -EPROTO);
 
 	/* Coordinator information */
 	len = sizeof(*hal) + MTI_NAME_MAXLEN /* fsname */ +
@@ -354,7 +374,7 @@ int mdt_hsm_action(struct mdt_thread_info *info)
 
 	OBD_ALLOC(hal, len);
 	if (hal == NULL)
-		GOTO(out_ucred, -ENOMEM);
+		GOTO(out_ucred, rc = -ENOMEM);
 
 	hal->hal_version = HAL_VERSION;
 	hal->hal_archive_id = 0;
@@ -436,16 +456,20 @@ int mdt_hsm_request(struct mdt_thread_info *info)
 	ENTRY;
 
 	body = req_capsule_client_get(pill, &RMF_MDT_BODY);
-	LASSERT(body);
+	if (body == NULL)
+		RETURN(-EPROTO);
 
 	hr = req_capsule_client_get(pill, &RMF_MDS_HSM_REQUEST);
-	LASSERT(hr);
+	if (hr == NULL)
+		RETURN(-EPROTO);
 
 	hui = req_capsule_client_get(pill, &RMF_MDS_HSM_USER_ITEM);
-	LASSERT(hui);
+	if (hui == NULL)
+		RETURN(-EPROTO);
 
 	opaque = req_capsule_client_get(pill, &RMF_GENERIC_DATA);
-	LASSERT(opaque);
+	if (opaque == NULL)
+		RETURN(-EPROTO);
 
 	/* Sanity check. Nothing to do with an empty list */
 	if (hr->hr_itemcount == 0)

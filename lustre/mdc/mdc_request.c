@@ -1211,9 +1211,13 @@ static int mdc_ioc_hsm_progress(struct obd_export *exp,
 	if (req == NULL)
 		GOTO(out, rc = -ENOMEM);
 
+	mdc_pack_body(req, NULL, NULL, OBD_MD_FLRMTPERM, 0, 0, 0);
+
 	/* Copy hsm_progress struct */
 	req_hpk = req_capsule_client_get(&req->rq_pill, &RMF_MDS_HSM_PROGRESS);
-	LASSERT(req_hpk);
+	if (req_hpk == NULL)
+		GOTO(out, rc = -EPROTO);
+
 	*req_hpk = *hpk;
 
 	ptlrpc_request_set_replen(req);
@@ -1238,10 +1242,14 @@ static int mdc_ioc_hsm_ct_register(struct obd_import *imp, __u32 archives)
 	if (req == NULL)
 		GOTO(out, rc = -ENOMEM);
 
+	mdc_pack_body(req, NULL, NULL, OBD_MD_FLRMTPERM, 0, 0, 0);
+
 	/* Copy hsm_progress struct */
 	archive_mask = req_capsule_client_get(&req->rq_pill,
 					      &RMF_MDS_HSM_ARCHIVE);
-	LASSERT(archive_mask);
+	if (archive_mask == NULL)
+		GOTO(out, rc = -EPROTO);
+
 	*archive_mask = archives;
 
 	ptlrpc_request_set_replen(req);
@@ -1308,6 +1316,8 @@ static int mdc_ioc_hsm_ct_unregister(struct obd_import *imp)
 					MDS_HSM_CT_UNREGISTER);
 	if (req == NULL)
 		GOTO(out, rc = -ENOMEM);
+
+	mdc_pack_body(req, NULL, NULL, OBD_MD_FLRMTPERM, 0, 0, 0);
 
 	ptlrpc_request_set_replen(req);
 
@@ -1388,7 +1398,8 @@ static int mdc_ioc_hsm_state_set(struct obd_export *exp,
 
 	/* Copy states */
 	req_hss = req_capsule_client_get(&req->rq_pill, &RMF_HSM_STATE_SET);
-	LASSERT(req_hss);
+	if (req_hss == NULL)
+		GOTO(out, rc = -EPROTO);
 	*req_hss = *hss;
 
 	ptlrpc_request_set_replen(req);
@@ -1433,18 +1444,21 @@ static int mdc_ioc_hsm_request(struct obd_export *exp,
 
 	/* Copy hsm_request struct */
 	req_hr = req_capsule_client_get(&req->rq_pill, &RMF_MDS_HSM_REQUEST);
-	LASSERT(req_hr);
+	if (req_hr == NULL)
+		GOTO(out, rc = -EPROTO);
 	*req_hr = hur->hur_request;
 
 	/* Copy hsm_user_item structs */
 	req_hui = req_capsule_client_get(&req->rq_pill, &RMF_MDS_HSM_USER_ITEM);
-	LASSERT(req_hui);
+	if (req_hui == NULL)
+		GOTO(out, rc = -EPROTO);
 	memcpy(req_hui, hur->hur_user_item,
 	       hur->hur_request.hr_itemcount * sizeof(struct hsm_user_item));
 
 	/* Copy opaque field */
 	req_opaque = req_capsule_client_get(&req->rq_pill, &RMF_GENERIC_DATA);
-	LASSERT(req_opaque);
+	if (req_opaque == NULL)
+		GOTO(out, rc = -EPROTO);
 	memcpy(req_opaque, hur_data(hur), hur->hur_request.hr_data_len);
 
 	ptlrpc_request_set_replen(req);
