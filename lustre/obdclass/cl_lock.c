@@ -304,26 +304,24 @@ static void cl_lock_free(const struct lu_env *env, struct cl_lock *lock)
  */
 void cl_lock_put(const struct lu_env *env, struct cl_lock *lock)
 {
-        struct cl_object        *obj;
-        struct cl_site          *site;
+	struct cl_object *obj;
 
-        LINVRNT(cl_lock_invariant(env, lock));
-        ENTRY;
-        obj = lock->cll_descr.cld_obj;
-        LINVRNT(obj != NULL);
-        site = cl_object_site(obj);
+	LINVRNT(cl_lock_invariant(env, lock));
+	ENTRY;
+	obj = lock->cll_descr.cld_obj;
+	LINVRNT(obj != NULL);
 
-        CDEBUG(D_TRACE, "releasing reference: %d %p %lu\n",
-               cfs_atomic_read(&lock->cll_ref), lock, RETIP);
+	CDEBUG(D_TRACE, "releasing reference: %d %p %lu\n",
+	       cfs_atomic_read(&lock->cll_ref), lock, RETIP);
 
-        if (cfs_atomic_dec_and_test(&lock->cll_ref)) {
-                if (lock->cll_state == CLS_FREEING) {
-                        LASSERT(cfs_list_empty(&lock->cll_linkage));
-                        cl_lock_free(env, lock);
-                }
+	if (cfs_atomic_dec_and_test(&lock->cll_ref)) {
+		if (lock->cll_state == CLS_FREEING) {
+			LASSERT(cfs_list_empty(&lock->cll_linkage));
+			cl_lock_free(env, lock);
+		}
 		CS_LOCK_DEC(obj, busy);
-        }
-        EXIT;
+	}
+	EXIT;
 }
 EXPORT_SYMBOL(cl_lock_put);
 
