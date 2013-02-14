@@ -357,9 +357,12 @@ struct page *ll_get_dir_page(struct inode *dir, __u64 hash,
         rc = md_lock_match(ll_i2sbi(dir)->ll_md_exp, LDLM_FL_BLOCK_GRANTED,
                            ll_inode2fid(dir), LDLM_IBITS, &policy, mode, &lockh);
         if (!rc) {
-                struct ldlm_enqueue_info einfo = { LDLM_IBITS, mode,
-                       ll_md_blocking_ast, ldlm_completion_ast,
-                       NULL, NULL, dir };
+		struct ldlm_enqueue_info einfo = {
+			.ei_type	= LDLM_IBITS,
+			.ei_mode	= mode,
+			.ei_cb_bl	= ll_md_blocking_ast,
+			.ei_cb_cp	= ldlm_completion_ast,
+			.ei_cbdata	= dir };
                 struct lookup_intent it = { .it_op = IT_READDIR };
                 struct ptlrpc_request *request;
                 struct md_op_data *op_data;
