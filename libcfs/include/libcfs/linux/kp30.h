@@ -354,6 +354,18 @@ static inline void sg_set_page(struct scatterlist *sg, struct page *page,
 # define cfs_put_cpu()   put_cpu()
 #endif /* get_cpu & put_cpu */
 
+#ifndef local_irq_disable
+# define cfs_local_irq_disable() do {} while (0)
+#else
+# define cfs_local_irq_disable() local_irq_disable()
+#endif
+
+#ifndef local_irq_enable
+# define cfs_local_irq_enable() do {} while (0)
+#else
+# define cfs_local_irq_enable() local_irq_enable()
+#endif
+
 #ifdef HAVE_SYSCTL_CTLNAME
 #define INIT_CTL_NAME(a) .ctl_name = a,
 #define INIT_STRATEGY(a) .strategy = a,

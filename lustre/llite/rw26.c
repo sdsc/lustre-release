@@ -122,12 +122,11 @@ static void ll_invalidatepage(struct page *vmpage, unsigned long offset)
 #endif
 static int ll_releasepage(struct page *vmpage, RELEASEPAGE_ARG_TYPE gfp_mask)
 {
-        struct cl_env_nest nest;
         struct lu_env     *env;
         struct cl_object  *obj;
         struct cl_page    *page;
         struct address_space *mapping;
-        int result;
+        int result, cpu;
 
         LASSERT(PageLocked(vmpage));
         if (PageWriteback(vmpage) || PageDirty(vmpage))
@@ -145,10 +144,9 @@ static int ll_releasepage(struct page *vmpage, RELEASEPAGE_ARG_TYPE gfp_mask)
         if (page_count(vmpage) > 3)
                 return 0;
 
-        /* TODO: determine what gfp should be used by @gfp_mask. */
-        env = cl_env_nested_get(&nest);
+        cl_env_percpu_get(&env, &cpu);
         if (IS_ERR(env))
-                /* If we can't allocate an env we won't call cl_page_put()
+                /* If we can't obtain an env we won't call cl_page_put()
                  * later on which further means it's impossible to drop
                  * page refcount by cl_page, so ask kernel to not free
                  * this page. */
@@ -163,7 +161,7 @@ static int ll_releasepage(struct page *vmpage, RELEASEPAGE_ARG_TYPE gfp_mask)
                 }
                 cl_page_put(env, page);
         }
-        cl_env_nested_put(&nest, env);
+        cl_env_percpu_put(env, cpu);
         return result;
 }
 
