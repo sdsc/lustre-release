@@ -255,6 +255,7 @@ if grep rhconfig $LINUX_OBJ/include/linux/version.h >/dev/null ; then
 fi
 
 # this is needed before we can build modules
+LB_LINUX_MIC
 LB_LINUX_UML
 LB_LINUX_VERSION
 
@@ -324,6 +325,70 @@ fi
 AC_SUBST(MODPOST_ARGS)
 ])
 
+
+#
+# LB_CHECK_CROSS_TOOL
+#
+# Check for cross toolchain existance
+#
+AC_DEFUN([LB_CHECK_CROSS_TOOL],
+[AS_VAR_PUSHDEF([lb_File], [lb_cv_file_$1])dnl
+AC_CACHE_CHECK([for $1], lb_File,
+[if test -x "$1"; then
+        AS_VAR_SET(lb_File, yes)
+else
+        AS_VAR_SET(lb_File, no)
+fi])
+AS_IF([test AS_VAR_GET(lb_File) = yes], [$2], [$3])[]dnl
+AS_VAR_POPDEF([lb_File])dnl
+])# LB_CHECK_CROSS_TOOL
+
+#
+# LB_LINUX_MIC
+#
+# check for cross compilation for MIC
+#
+AC_DEFUN([LB_LINUX_MIC],
+	[AC_MSG_CHECKING([for cross compilation for the Intel(R) Many Integrated Core PCIe card.])
+CROSS_ARCH=
+CROSS_COMPILE=
+case $target_vendor in
+	k1om)
+		AC_MSG_RESULT([yes])
+		CROSS_ARCH='ARCH=k1om'
+		CROSS_COMPILE=${CROSS_TOOLCHAIN:=/usr/linux-k1om-4.7}/bin/x86_64-k1om-linux-
+		LB_CHECK_CROSS_TOOL([${CROSS_COMPILE}gcc],[CC=${CROSS_COMPILE}gcc],[
+			AC_MSG_WARN([GNU cross toolchain for the Intel(R) Many Integrated Core PCIe card not found.])
+			AC_MSG_WARN([Please, specify the path to it in CROSS_TOOLCHAIN=<PATH>.])
+			AC_MSG_ERROR([${CROSS_COMPILE}gcc not found.])])
+		LB_CHECK_CROSS_TOOL([${CROSS_COMPILE}ld],[LD=${CROSS_COMPILE}ld],[
+			AC_MSG_WARN([GNU cross toolchain for the Intel(R) Many Integrated Core PCIe card not found.])
+			AC_MSG_WARN([Please, specify the path to it in CROSS_TOOLCHAIN=<PATH>.])
+			AC_MSG_ERROR([${CROSS_COMPILE}ld not found.])])
+		LB_CHECK_CROSS_TOOL([${CROSS_COMPILE}ar],[AR=${CROSS_COMPILE}ar],[
+			AC_MSG_WARN([GNU cross toolchain for the Intel(R) Many Integrated Core PCIe card not found.])
+			AC_MSG_WARN([Please, specify the path to it in CROSS_TOOLCHAIN=<PATH>.])
+			AC_MSG_ERROR([${CROSS_COMPILE}ar not found.])])
+		LB_CHECK_CROSS_TOOL([${CROSS_COMPILE}strip],[STRIP=${CROSS_COMPILE}strip],[
+			AC_MSG_WARN([GNU cross toolchain for the Intel(R) Many Integrated Core PCIe card not found.])
+			AC_MSG_WARN([Please, specify the path to it in CROSS_TOOLCHAIN=<PATH>.])
+			AC_MSG_ERROR([${CROSS_COMPILE}strip not found.])])
+		LB_CHECK_CROSS_TOOL([${CROSS_COMPILE}ranlib],[RANLIB=${CROSS_COMPILE}ranlib],[
+			AC_MSG_WARN([GNU cross toolchain for the Intel(R) Many Integrated Core PCIe card not found.])
+			AC_MSG_WARN([Please, specify the path to it in CROSS_TOOLCHAIN=<PATH>.])
+			AC_MSG_ERROR([${CROSS_COMPILE}ranlib not found.])])
+		CCAS=$CC
+		AC_MSG_WARN([Disabling server because it is not supported for the Intel(R) Many Integrated Core PCIe card.])
+		enable_server='no'
+		;;
+	*)
+		AC_MSG_RESULT([no])
+		;;
+esac
+AC_SUBST(CROSS_ARCH)
+AC_SUBST(CROSS_COMPILE)
+])
+
 #
 # LB_LINUX_UML
 #
@@ -377,7 +442,7 @@ $2
 AC_DEFUN([LB_LINUX_COMPILE_IFELSE],
 [m4_ifvaln([$1], [AC_LANG_CONFTEST([$1])])dnl
 rm -f build/conftest.o build/conftest.mod.c build/conftest.ko
-AS_IF([AC_TRY_COMMAND(cp conftest.c build && make -d [$2] ${LD:+"LD=$LD"} CC="$CC" -f $PWD/build/Makefile LUSTRE_LINUX_CONFIG=$LINUX_CONFIG LINUXINCLUDE="$EXTRA_LNET_INCLUDE -I$LINUX/arch/`echo $target_cpu|sed -e 's/powerpc64/powerpc/' -e 's/x86_64/x86/' -e 's/i.86/x86/'`/include -I$LINUX/arch/`echo $target_cpu|sed -e 's/ppc.*/powerpc/' -e 's/x86_64/x86/' -e 's/i.86/x86/'`/include/generated -I$LINUX_OBJ/include -I$LINUX/include -I$LINUX_OBJ/include2 -include $CONFIG_INCLUDE" -o tmp_include_depends -o scripts -o include/config/MARKER -C $LINUX_OBJ EXTRA_CFLAGS="-Werror-implicit-function-declaration $EXTRA_KCFLAGS" $ARCH_UM $MODULE_TARGET=$PWD/build) >/dev/null && AC_TRY_COMMAND([$3])],
+AS_IF([AC_TRY_COMMAND(cp conftest.c build && make -d [$2] ${LD:+"LD=$LD"} CC="$CC" -f $PWD/build/Makefile LUSTRE_LINUX_CONFIG=$LINUX_CONFIG LINUXINCLUDE="$EXTRA_LNET_INCLUDE -I$LINUX/arch/`echo $target_cpu|sed -e 's/powerpc64/powerpc/' -e 's/x86_64/x86/' -e 's/i.86/x86/'`/include -I$LINUX/arch/`echo $target_cpu|sed -e 's/ppc.*/powerpc/' -e 's/x86_64/x86/' -e 's/i.86/x86/'`/include/generated -I$LINUX_OBJ/include -I$LINUX/include -I$LINUX_OBJ/include2 -include $CONFIG_INCLUDE" -o tmp_include_depends -o scripts -o include/config/MARKER -C $LINUX_OBJ EXTRA_CFLAGS="-Werror-implicit-function-declaration $EXTRA_KCFLAGS" $ARCH_UM $CROSS_ARCH CROSS_COMPILE=$CROSS_COMPILE $MODULE_TARGET=$PWD/build) >/dev/null && AC_TRY_COMMAND([$3])],
 	[$4],
 	[_AC_MSG_LOG_CONFTEST
 m4_ifvaln([$5],[$5])dnl])
@@ -394,6 +459,7 @@ AC_DEFUN([LB_LINUX_ARCH],
           AS_IF([rm -f $PWD/build/arch
                  make -s --no-print-directory echoarch -f $PWD/build/Makefile \
                      LUSTRE_LINUX_CONFIG=$LINUX_CONFIG -C $LINUX $ARCH_UM \
+                     $CROSS_ARCH CROSS_COMPILE=$CROSS_COMPILE \
                      ARCHFILE=$PWD/build/arch && LINUX_ARCH=`cat $PWD/build/arch`],
                 [AC_MSG_RESULT([$LINUX_ARCH])],
                 [AC_MSG_ERROR([Could not determine the kernel architecture.])])
