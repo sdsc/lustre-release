@@ -266,6 +266,8 @@ static void lu_object_free(const struct lu_env *env, struct lu_object *o)
         cfs_list_t              *layers;
         cfs_list_t               splice;
 
+	cfs_might_sleep();
+
         site   = o->lo_dev->ld_site;
         layers = &o->lo_header->loh_layers;
         bkt    = lu_site_bkt_from_fid(site, &o->lo_header->loh_fid);
