@@ -5013,6 +5013,8 @@ static void osd_key_fini(const struct lu_context *ctx,
         if (info->oti_hlock != NULL)
                 ldiskfs_htree_lock_free(info->oti_hlock);
         OBD_FREE(info->oti_it_ea_buf, OSD_IT_EA_BUFSIZE);
+	lu_buf_free(&info->oti_iobuf.dr_pg_buf);
+	lu_buf_free(&info->oti_iobuf.dr_bl_buf);
         OBD_FREE_PTR(info);
 }
 

@@ -472,8 +472,10 @@ struct osd_iobuf {
         unsigned int       dr_ignore_quota:1;
         unsigned int       dr_elapsed_valid:1; /* we really did count time */
         unsigned int       dr_rw:1;
-        struct page       *dr_pages[PTLRPC_MAX_BRW_PAGES];
-        unsigned long      dr_blocks[PTLRPC_MAX_BRW_PAGES*MAX_BLOCKS_PER_PAGE];
+	struct lu_buf	   dr_pg_buf;
+	struct page      **dr_pages;
+	struct lu_buf	   dr_bl_buf;
+	unsigned long     *dr_blocks;
         unsigned long      dr_start_time;
         unsigned long      dr_elapsed;  /* how long io took */
         struct osd_device *dr_dev;
@@ -567,7 +569,6 @@ struct osd_thread_info {
         /** 0-copy IO */
         struct osd_iobuf       oti_iobuf;
         struct inode           oti_inode;
-        int                    oti_created[PTLRPC_MAX_BRW_PAGES];
         struct lu_env          oti_obj_delete_tx_env;
 #define OSD_FID_REC_SZ 32
         char                   oti_ldp[OSD_FID_REC_SZ];
