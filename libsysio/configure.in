@@ -3,13 +3,13 @@ AC_INIT(libsysio, 1.2)
 AC_CANONICAL_SYSTEM
 
 case "$host_os" in
-  aix*)
-  	;;
-  linux*)
-	;;
-  *)
-	AC_MSG_WARN('***' ${host_os}: Unsupported OS target)
-	;;
+    aix*)
+        ;;
+    linux*)
+        ;;
+    *)
+        AC_MSG_WARN('***' ${host_os}: Unsupported OS target)
+        ;;
 esac
 
 AM_INIT_AUTOMAKE([subdir-objects 1.9 tar-ustar])
@@ -21,6 +21,34 @@ AC_PROG_MAKE_SET
 AC_HEADER_STDC
 AC_HEADER_STAT
 AC_HEADER_TIME
+
+case $target_vendor in
+    k1om)
+	AC_CHECK_TOOL(CC, gcc, [no])
+	if test "$CC" != "x86_64-$target_vendor-linux-gcc"; then
+		AC_MSG_WARN([Cross compiler not found in PATH.])
+		MPSS_DEFAULT=/usr/linux-k1om-4.7/bin/x86_64-$target_vendor-linux-
+		CC=${MPSS_DEFAULT}gcc
+		if test ! -x "$CC"; then
+			AC_MSG_ERROR([MPSS GNU cross toolchain not found.])
+		fi
+		LD=${MPSS_DEFAULT}ld
+		AR=${MPSS_DEFAULT}ar
+		RANLIB=${MPSS_DEFAULT}ranlib
+		OBJDUMP=${MPSS_DEFAULT}objdump
+		STRIP=${MPSS_DEFAULT}strip
+	else
+		AC_CHECK_TOOL(LD, ld, [no])
+		AC_CHECK_TOOL(AR, ar, [no])
+		AC_CHECK_TOOL(RANLIB, ranlib, [no])
+		AC_CHECK_TOOL(OBJDUMP, objdump, [no])
+		AC_CHECK_TOOL(STRIP, strip, [no])
+	fi
+	CCAS=$CC
+        ;;
+    *)
+        ;;
+esac
 
 if test ${target_cpu} == "powerpc64"; then
 	AC_MSG_WARN([set compiler with -m64])
@@ -556,4 +584,3 @@ fi
 AC_OUTPUT(
 	Makefile
 	tests/Makefile)
-

@@ -255,6 +255,7 @@ if grep rhconfig $LINUX_OBJ/include/linux/version.h >/dev/null ; then
 fi
 
 # this is needed before we can build modules
+LB_LINUX_CROSS
 LB_LINUX_UML
 LB_LINUX_VERSION
 
@@ -325,6 +326,40 @@ AC_SUBST(MODPOST_ARGS)
 ])
 
 #
+# LB_LINUX_CROSS
+#
+# check for cross compilation
+#
+AC_DEFUN([LB_LINUX_CROSS],
+	[AC_MSG_CHECKING([for cross compilation])
+CROSS_VARS=
+case $target_vendor in
+	k1om)
+		AC_MSG_RESULT([Intel(R) Xeon Phi(TM)])
+		AC_CHECK_TOOL(CC, gcc, [no])
+		if test $CC != x86_64-$target_vendor-linux-gcc ; then
+			AC_MSG_ERROR([Cross compiler x86_64-$target_vendor-linux-gcc not found in PATH.])
+		fi
+		CROSS_VARS="ARCH=$target_vendor CROSS_COMPILE=x86_64-$target_vendor-linux-"
+		AC_CHECK_TOOL(LD, ld, [no])
+		AC_CHECK_TOOL(AR, ar, [no])
+		AC_CHECK_TOOL(RANLIB, ranlib, [no])
+		AC_CHECK_TOOL(OBJDUMP, objdump, [no])
+		AC_CHECK_TOOL(STRIP, strip, [no])
+		CCAS=$CC
+		if test x$enable_server = xyes ; then
+			AC_MSG_WARN([Disabling server (not supported for x86_64-$target_vendor-linux).])
+			enable_server='no'
+		fi
+		;;
+	*)
+		AC_MSG_RESULT([no])
+		;;
+esac
+AC_SUBST(CROSS_VARS)
+])
+
+#
 # LB_LINUX_UML
 #
 # check for a uml kernel
@@ -377,7 +412,7 @@ $2
 AC_DEFUN([LB_LINUX_COMPILE_IFELSE],
 [m4_ifvaln([$1], [AC_LANG_CONFTEST([$1])])dnl
 rm -f build/conftest.o build/conftest.mod.c build/conftest.ko
-AS_IF([AC_TRY_COMMAND(cp conftest.c build && make -d [$2] ${LD:+"LD=$LD"} CC="$CC" -f $PWD/build/Makefile LUSTRE_LINUX_CONFIG=$LINUX_CONFIG LINUXINCLUDE="$EXTRA_LNET_INCLUDE -I$LINUX/arch/`echo $target_cpu|sed -e 's/powerpc64/powerpc/' -e 's/x86_64/x86/' -e 's/i.86/x86/'`/include -I$LINUX/arch/`echo $target_cpu|sed -e 's/ppc.*/powerpc/' -e 's/x86_64/x86/' -e 's/i.86/x86/'`/include/generated -I$LINUX_OBJ/include -I$LINUX/include -I$LINUX_OBJ/include2 -include $CONFIG_INCLUDE" -o tmp_include_depends -o scripts -o include/config/MARKER -C $LINUX_OBJ EXTRA_CFLAGS="-Werror-implicit-function-declaration $EXTRA_KCFLAGS" $ARCH_UM $MODULE_TARGET=$PWD/build) >/dev/null && AC_TRY_COMMAND([$3])],
+AS_IF([AC_TRY_COMMAND(cp conftest.c build && make -d [$2] ${LD:+"LD=$LD"} CC="$CC" -f $PWD/build/Makefile LUSTRE_LINUX_CONFIG=$LINUX_CONFIG LINUXINCLUDE="$EXTRA_LNET_INCLUDE -I$LINUX/arch/`echo $target_cpu|sed -e 's/powerpc64/powerpc/' -e 's/x86_64/x86/' -e 's/i.86/x86/'`/include -I$LINUX/arch/`echo $target_cpu|sed -e 's/ppc.*/powerpc/' -e 's/x86_64/x86/' -e 's/i.86/x86/'`/include/generated -I$LINUX_OBJ/include -I$LINUX/include -I$LINUX_OBJ/include2 -include $CONFIG_INCLUDE" -o tmp_include_depends -o scripts -o include/config/MARKER -C $LINUX_OBJ EXTRA_CFLAGS="-Werror-implicit-function-declaration $EXTRA_KCFLAGS" $ARCH_UM $CROSS_VARS $MODULE_TARGET=$PWD/build) >/dev/null && AC_TRY_COMMAND([$3])],
 	[$4],
 	[_AC_MSG_LOG_CONFTEST
 m4_ifvaln([$5],[$5])dnl])
@@ -393,7 +428,7 @@ AC_DEFUN([LB_LINUX_ARCH],
          [AC_MSG_CHECKING([Linux kernel architecture])
           AS_IF([rm -f $PWD/build/arch
                  make -s --no-print-directory echoarch -f $PWD/build/Makefile \
-                     LUSTRE_LINUX_CONFIG=$LINUX_CONFIG -C $LINUX $ARCH_UM \
+                     LUSTRE_LINUX_CONFIG=$LINUX_CONFIG -C $LINUX $ARCH_UM $CROSS_VARS \
                      ARCHFILE=$PWD/build/arch && LINUX_ARCH=`cat $PWD/build/arch`],
                 [AC_MSG_RESULT([$LINUX_ARCH])],
                 [AC_MSG_ERROR([Could not determine the kernel architecture.])])
