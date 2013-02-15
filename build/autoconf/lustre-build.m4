@@ -488,6 +488,9 @@ LC_PATH_DEFAULTS
 #
 AC_DEFUN([LB_PROG_CC],
 [AC_PROG_RANLIB
+AC_CHECK_TOOL(LD, ld, [no])
+AC_CHECK_TOOL(OBJDUMP, objdump, [no])
+AC_CHECK_TOOL(STRIP, strip, [no])
 
 # ---------  unsigned long long sane? -------
 AC_CHECK_SIZEOF(unsigned long long, 0)
@@ -536,6 +539,7 @@ AM_CONDITIONAL(DARWIN, test x$lb_target_os = "xdarwin")
 AM_CONDITIONAL(SUNOS, test x$lb_target_os = "xSunOS")
 AM_CONDITIONAL(USES_DPKG, test x$uses_dpkg = "xyes")
 AM_CONDITIONAL(ARCH_x86, test x$target_cpu = "xx86_64" -o x$target_cpu = "xi686")
+AM_CONDITIONAL(ARCH_MIC, test x$target_vendor = "xk1om" -o x$target_vendor = "xl1om")
 
 # this lets lustre cancel libsysio, per-branch or if liblustre is
 # disabled
