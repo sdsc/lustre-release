@@ -1,0 +1,10 @@
+Verified+1: Hudson
+Code-Review+2: Oleg Drokin <oleg.drokin@intel.com>
+Code-Review+1: Jian Yu <jian.yu@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Jay J Lan <jay.j.lan@nasa.gov>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Sun, 17 Feb 2013 00:36:02 -0500
+Reviewed-on: http://review.whamcloud.com/3874
+Project: fs/lustre-release
+Branch: refs/heads/b2_1
