@@ -645,12 +645,10 @@ static int osd_iit_iget(struct osd_thread_info *info, struct osd_device *dev,
 
 	rc = osd_get_lma(info, inode, &info->oti_obj_dentry, lma);
 	if (rc == 0) {
-		if (!scrub) {
-			if (!fid_is_client_visible(&lma->lma_self_fid))
-				rc = SCRUB_NEXT_CONTINUE;
-			else
-				*fid = lma->lma_self_fid;
-		}
+		if (!scrub && !fid_is_client_visible(&lma->lma_self_fid))
+			rc = SCRUB_NEXT_CONTINUE;
+		else
+			*fid = lma->lma_self_fid;
 	} else if (rc == -ENODATA) {
 		lu_igif_build(fid, inode->i_ino, inode->i_generation);
 		if (scrub)
@@ -1873,6 +1871,13 @@ static int osd_otable_it_rec(const struct lu_env *env, const struct dt_it *di,
 	struct osd_otable_cache *ooc = &it->ooi_cache;
 
 	*(struct lu_fid *)rec = ooc->ooc_cache[ooc->ooc_consumer_idx].oic_fid;
+
+	/* Filter out Invald FID already. */
+	LASSERTF(fid_is_sane((struct lu_fid *)rec),
+		 "Invalid FID "DFID", p_idx = %d, c_idx = %d\n",
+		 PFID((struct lu_fid *)rec),
+		 ooc->ooc_producer_idx, ooc->ooc_consumer_idx);
+
 	return 0;
 }
 

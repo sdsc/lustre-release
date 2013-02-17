@@ -41,8 +41,8 @@ fi
 stopall
 do_rpc_nodes $(facet_active_host $SINGLEMDS) load_modules_local
 reformat_external_journal
-add $SINGLEMDS $(mkfs_opts $SINGLEMDS) --backfstype ldiskfs --reformat \
-	$MDT_DEVNAME > /dev/null || exit 2
+add ${SINGLEMDS} $(mkfs_opts ${SINGLEMDS} ${MDT_DEVNAME}) --backfstype ldiskfs \
+	--reformat ${MDT_DEVNAME} $(mdsvdevname 1) > /dev/null || exit 2
 
 scrub_attach() {
 	${ECHOCMD} "${LCTL} <<-EOF

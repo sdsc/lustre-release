@@ -1704,7 +1704,9 @@ static int mdd_acl_init(const struct lu_env *env, struct mdd_object *pobj,
 	} else if (rc == -ENODATA || rc == -EOPNOTSUPP) {
 		/* If there are no default ACL, fix mode by mask */
 		struct lu_ucred *uc = lu_ucred(env);
-		la->la_mode &= ~uc->uc_umask;
+
+		if (uc != NULL)
+			la->la_mode &= ~uc->uc_umask;
 		rc = 0;
 	}
 
@@ -2571,6 +2573,10 @@ int mdd_links_write(const struct lu_env *env, struct mdd_object *mdd_obj,
 {
 	const struct lu_buf *buf = mdd_buf_get_const(env, ldata->ml_buf->lb_buf,
 						     ldata->ml_leh->leh_len);
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_NO_LINKEA))
+		return 0;
+
 	return mdo_xattr_set(env, mdd_obj, buf, XATTR_NAME_LINK, 0, handle,
 			     mdd_object_capa(env, mdd_obj));
 }

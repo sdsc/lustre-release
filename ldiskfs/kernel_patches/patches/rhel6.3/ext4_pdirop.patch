@@ -190,7 +190,7 @@
 +#endif
 --- /dev/null	2011-12-14 22:16:16.000000000 +0800
 +++ linux-2.6.32-131.6.1-pdo/fs/ext4/htree_lock.c	2011-12-14 22:56:28.000000000 +0800
-@@ -0,0 +1,880 @@
+@@ -0,0 +1,892 @@
 +/*
 + * fs/ext4/htree_lock.c
 + *
@@ -457,15 +457,27 @@
 +	u8			mi_bits;
 +
 +	BUG_ON(mode != HTREE_LOCK_PW && mode != HTREE_LOCK_PR);
-+	BUG_ON(htree_node_is_granted(lck, dep));
 +
 +	key = hash_long(key, lhead->lh_hbits);
-+
 +	mi_bits = lhead->lh_hbits >> 1;
 +	ma_bits = lhead->lh_hbits - mi_bits;
++	major = key & ((1U << ma_bits) - 1);
++	minor = key >> ma_bits;
 +
-+	lck->lk_nodes[dep].ln_major_key = major = key & ((1U << ma_bits) - 1);
-+	lck->lk_nodes[dep].ln_minor_key = minor = key >> ma_bits;
++	if (htree_node_is_granted(lck, dep)) {
++		/* This is for special case, two modifications in the same
++		 * transaction, such as reinsert (delete + insert). */
++		BUG_ON(mode != HTREE_LOCK_PW ||
++		       lck->lk_nodes[dep].ln_mode != HTREE_LOCK_PW);
++
++		BUG_ON((lck->lk_nodes[dep].ln_major_key != major) ||
++		       (lck->lk_nodes[dep].ln_minor_key != minor));
++
++		return 1; /* still hold lh_lock */
++	}
++
++	lck->lk_nodes[dep].ln_major_key = major;
++	lck->lk_nodes[dep].ln_minor_key = minor;
 +	lck->lk_nodes[dep].ln_mode = mode;
 +
 +	/*

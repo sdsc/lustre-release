@@ -4551,6 +4551,15 @@ osd_dirent_has_space(__u16 reclen, __u16 namelen, unsigned blocksize)
 		return 0;
 }
 
+static inline int osd_dotdot_has_space(struct ldiskfs_dir_entry_2 *de)
+{
+	if (LDISKFS_DIR_REC_LEN(de) >=
+	    __LDISKFS_DIR_REC_LEN(2 + 1 + sizeof(struct osd_fid_pack)))
+		return 1;
+	else
+		return 0;
+}
+
 static int
 osd_dirent_reinsert(const struct lu_env *env, handle_t *jh,
 		    struct inode *dir, struct inode *inode,
@@ -4651,8 +4660,10 @@ osd_dirent_check_repair(const struct lu_env *env, struct osd_object *obj,
 	if (ent->oied_name[0] == '.') {
 		/* Skip dot entry, even if it has stale FID-in-dirent, because
 		 * we do not use such FID-in-dirent anymore, it is harmless. */
-		if (ent->oied_namelen == 1)
+		if (ent->oied_namelen == 1) {
+			*attr |= LUDA_IGNORE;
 			RETURN(0);
+		}
 
 		if (ent->oied_namelen == 2 && ent->oied_name[1] == '.')
 			is_dotdot = true;
@@ -4705,9 +4716,7 @@ again:
 	 * dotdot entry has no FID-in-dirent and needs to get FID from LMA when
 	 * readdir, it will not affect the performance much. */
 	if ((bh == NULL) || (le32_to_cpu(de->inode) != ent->oied_ino) ||
-	    (is_dotdot && !osd_dirent_has_space(de->rec_len,
-						ent->oied_namelen,
-						sb->s_blocksize))) {
+	    (is_dotdot && !osd_dotdot_has_space(de))) {
 		*attr |= LUDA_IGNORE;
 		GOTO(out_journal, rc = 0);
 	}
@@ -4757,6 +4766,7 @@ again:
 		} else {
 			/* Do not repair under dryrun mode. */
 			if (*attr & LUDA_VERIFY_DRYRUN) {
+				*fid = lma->lma_self_fid;
 				*attr |= LUDA_REPAIR;
 				GOTO(out_inode, rc = 0);
 			}
@@ -4783,10 +4793,13 @@ again:
 	} else if (rc == -ENODATA) {
 		/* Do not repair under dryrun mode. */
 		if (*attr & LUDA_VERIFY_DRYRUN) {
-			if (fid_is_sane(fid))
+			if (fid_is_sane(fid)) {
 				*attr |= LUDA_REPAIR;
-			else
+			} else {
+				lu_igif_build(fid, inode->i_ino,
+					      inode->i_generation);
 				*attr |= LUDA_UPGRADE;
+			}
 			GOTO(out_inode, rc = 0);
 		}
 
