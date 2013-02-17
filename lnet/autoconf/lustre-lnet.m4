@@ -351,6 +351,13 @@ AC_SUBST(MXLND)
 ])
 
 
+# check if kenrel has scsi/fc_compat.h
+AC_DEFUN([LN_HAVE_SCSI_FC_COMPAT_H],
+[LB_CHECK_FILE([$LINUX/include/scsi/fc_compat.h], [
+	AC_DEFINE(HAVE_SCSI_FC_COMPAT_H, 1,
+		[kernel has include/scsi/fc_compat.h])
+])
+])
 
 #
 # LN_CONFIG_O2IB
@@ -414,6 +421,9 @@ else
 		        #include <linux/pci.h>
 		        #if !HAVE_GFP_T
 		        typedef int gfp_t;
+		        #endif
+			#if !defined(HAVE_OFED_BACKPORT_H) && defined(HAVE_SCSI_FC_COMPAT_H)
+		        #include <scsi/fc_compat.h>
 		        #endif
 		        #include <rdma/rdma_cm.h>
 		        #include <rdma/ib_cm.h>
@@ -572,6 +582,7 @@ LB_LINUX_TRY_COMPILE([
 #
 AC_DEFUN([LN_PROG_LINUX],
 [
+LN_HAVE_SCSI_FC_COMPAT_H
 LN_FUNC_DEV_GET_BY_NAME_2ARG
 LN_CONFIG_AFFINITY
 LN_CONFIG_BACKOFF
