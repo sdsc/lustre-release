@@ -1,0 +1,12 @@
+Verified+1: Hudson
+Code-Review+1: Lai Siyao <lai.siyao@intel.com>
+Code-Review+1: Niu Yawei <yawei.niu@intel.com>
+Code-Review+2: Oleg Drokin <oleg.drokin@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Thomas LEIBOVICI - CEA <thomas.leibovici@cea.fr>
+Code-Review+1: Henri Doreau <henri.doreau@cea.fr>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Sun, 17 Feb 2013 00:44:16 -0500
+Reviewed-on: http://review.whamcloud.com/3835
+Project: fs/lustre-release
+Branch: refs/heads/b2_1
