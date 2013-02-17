@@ -1060,7 +1060,7 @@ static int __mds_lov_synchronize(void *data)
 
         EXIT;
 out:
-        if (rc) {
+        if (rc != 0 && rc != -EBUSY) {
                 /* Deactivate it for safety */
                 CERROR("%s sync failed %d, deactivating\n", obd_uuid2str(uuid),
                        rc);
