@@ -3115,11 +3115,9 @@ static int filter_destroy_precreated(struct obd_export *exp, struct obdo *oa,
         }
         doa.o_mode = S_IFREG;
 
-        if (!filter->fo_destroy_in_progress) {
-                CERROR("%s: destroy_in_progress already cleared\n",
-                        exp->exp_obd->obd_name);
-                RETURN(0);
-        }
+        if (!filter->fo_destroy_in_progress)
+                CWARN("%s: destroy_in_progress already cleared\n",
+                      exp->exp_obd->obd_name);
 
         last = filter_last_id(filter, doa.o_gr);
         skip_orphan = !!(exp->exp_connect_flags & OBD_CONNECT_SKIP_ORPHAN);
