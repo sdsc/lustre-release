@@ -173,34 +173,16 @@ static int llo_find_entry(const struct lu_env  *env,
         return result;
 }
 
-static struct md_object *llo_reg_open(const struct lu_env *env,
-                                      struct md_device *md,
-                                      struct md_object *p,
-                                      const char *name,
-                                      struct lu_fid *fid)
-{
-        struct md_object *o;
-        int result;
-
-        result = llo_lookup(env, p, name, fid);
-        if (result == 0)
-                o = llo_locate(env, md, fid);
-        else
-                o = ERR_PTR(result);
-
-        return o;
-}
-
 /**
  * Resolve given \a path, on success function returns
  * md object for last directory and \a fid points to
  * its fid.
  */
-struct md_object *llo_store_resolve(const struct lu_env *env,
-                                    struct md_device *md,
-                                    struct dt_device *dt,
-                                    const char *path,
-                                    struct lu_fid *fid)
+static struct md_object *llo_store_resolve(const struct lu_env *env,
+					   struct md_device *md,
+					   struct dt_device *dt,
+					   const char *path,
+					   struct lu_fid *fid)
 {
         struct llo_thread_info *info = llo_env_info(env);
         struct llo_find_hint *lfh = &info->lti_lfh;
@@ -232,39 +214,11 @@ struct md_object *llo_store_resolve(const struct lu_env *env,
         }
         return obj;
 }
-EXPORT_SYMBOL(llo_store_resolve);
-
-/**
- * Returns md object for \a objname in given \a dirname.
- */
-struct md_object *llo_store_open(const struct lu_env *env,
-                                 struct md_device *md,
-                                 struct dt_device *dt,
-                                 const char *dirname,
-                                 const char *objname,
-                                 struct lu_fid *fid)
-{
-        struct md_object *obj;
-        struct md_object *dir;
-
-        /* search md object for parent dir */
-        dir = llo_store_resolve(env, md, dt, dirname, fid);
-        if (!IS_ERR(dir)) {
-                obj = llo_reg_open(env, md, dir, objname, fid);
-                lu_object_put(env, &dir->mo_lu);
-        } else
-                obj = dir;
-
-        return obj;
-}
-EXPORT_SYMBOL(llo_store_open);
 
 static struct md_object *llo_create_obj(const struct lu_env *env,
                                         struct md_device *md,
                                         struct md_object *dir,
-                                        const char *objname,
-                                        const struct lu_fid *fid,
-                                        const struct dt_index_features *feat)
+					const struct lu_local_obj_desc *llod)
 {
         struct llo_thread_info *info = llo_env_info(env);
         struct md_object        *mdo;
@@ -274,25 +228,38 @@ static struct md_object *llo_create_obj(const struct lu_env *env,
         struct lu_attr          *la = &ma->ma_attr;
         int rc;
 
-        mdo = llo_locate(env, md, fid);
-        if (IS_ERR(mdo))
-                return mdo;
+	mdo = llo_locate(env, md, llod->llod_fid);
+	if (IS_ERR(mdo))
+		return mdo;
 
-        lname->ln_name = objname;
-        lname->ln_namelen = strlen(objname);
+	lname->ln_name = llod->llod_name;
+	lname->ln_namelen = strlen(llod->llod_name);
 
-        spec->sp_feat = feat;
-        spec->sp_cr_flags = 0;
-        spec->sp_cr_lookup = 1;
-        spec->sp_cr_mode = 0;
+	spec->sp_feat = llod->llod_feat;
+	spec->sp_cr_flags = 0;
+	spec->sp_cr_lookup = 1;
+	spec->sp_cr_mode = 0;
 
-        if (feat == &dt_directory_features)
-                la->la_mode = S_IFDIR | S_IXUGO;
-        else
-                la->la_mode = S_IFREG;
+	/* We only copy mode, uid, and gid, so reject anthing else. */
+	LASSERT((llod->llod_attr.la_valid & ~(LA_MODE | LA_UID | LA_GID)) == 0);
 
-        la->la_mode |= S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
-        la->la_uid = la->la_gid = 0;
+	if (llod->llod_attr.la_valid & LA_MODE)
+		la->la_mode = llod->llod_attr.la_mode;
+	else if (llod->llod_feat == &dt_directory_features)
+		la->la_mode = S_IFDIR | S_IRUGO | S_IWUSR | S_IXUGO;
+	else
+		la->la_mode = S_IFREG | S_IRUGO | S_IWUSR;
+
+	if (llod->llod_attr.la_valid & LA_UID)
+		la->la_uid = llod->llod_attr.la_uid;
+	else
+		la->la_uid = 0;
+
+	if (llod->llod_attr.la_valid & LA_GID)
+		la->la_gid = llod->llod_attr.la_gid;
+	else
+		la->la_gid = 0;
+
         la->la_valid = LA_MODE | LA_UID | LA_GID;
 
         ma->ma_valid = 0;
@@ -308,63 +275,33 @@ static struct md_object *llo_create_obj(const struct lu_env *env,
         return mdo;
 }
 
-/**
- * Create md object, object could be diretcory or
- * special index defined by \a feat in \a directory.
- *
- *       \param  md       device
- *       \param  dirname  parent directory
- *       \param  objname  file name
- *       \param  fid      object fid
- *       \param  feat     index features required for directory create
- */
-
-struct md_object *llo_store_create_index(const struct lu_env *env,
-                                         struct md_device *md,
-                                         struct dt_device *dt,
-                                         const char *dirname,
-                                         const char *objname,
-                                         const struct lu_fid *fid,
-                                         const struct dt_index_features *feat)
+struct md_object *llo_create(const struct lu_env *env,
+			     struct md_device *md,
+			     struct dt_device *dt,
+			     const struct lu_local_obj_desc *llod)
 {
-        struct llo_thread_info *info = llo_env_info(env);
-        struct md_object *obj;
-        struct md_object *dir;
-        struct lu_fid *ignore = &info->lti_fid;
+	struct llo_thread_info *info = llo_env_info(env);
+	struct md_object *obj;
+	struct md_object *dir;
+	struct lu_fid *ignore = &info->lti_fid;
 
-        dir = llo_store_resolve(env, md, dt, dirname, ignore);
-        if (!IS_ERR(dir)) {
-                obj = llo_create_obj(env, md, dir, objname, fid, feat);
-                lu_object_put(env, &dir->mo_lu);
-        } else {
-                obj = dir;
-        }
-        return obj;
+	if (fid_is_zero(llod->llod_dir))
+		dir = llo_store_resolve(env, md, dt, "", ignore);
+	else if (fid_is_sane(llod->llod_dir))
+		dir = llo_locate(env, md, llod->llod_dir_fid);
+	else
+		LBUG();
+
+	if (!IS_ERR(dir)) {
+		obj = llo_create_obj(env, md, dir, llod);
+		lu_object_put(env, &dir->mo_lu);
+	} else {
+		obj = dir;
+	}
+
+	return obj;
 }
-
-EXPORT_SYMBOL(llo_store_create_index);
-
-/**
- * Create md object for regular file in \a directory.
- *
- *       \param  md       device
- *       \param  dirname  parent directory
- *       \param  objname  file name
- *       \param  fid      object fid.
- */
-
-struct md_object *llo_store_create(const struct lu_env *env,
-                                   struct md_device *md,
-                                   struct dt_device *dt,
-                                   const char *dirname,
-                                   const char *objname,
-                                   const struct lu_fid *fid)
-{
-        return llo_store_create_index(env, md, dt, dirname,
-                                      objname, fid, NULL);
-}
-
-EXPORT_SYMBOL(llo_store_create);
+EXPORT_SYMBOL(llo_create);
 
 /**
  * Register object for 'create on first mount' facility.
@@ -394,44 +331,27 @@ EXPORT_SYMBOL(llo_local_obj_unregister);
  */
 
 int llo_local_objects_setup(const struct lu_env *env,
-                             struct md_device * md,
-                             struct dt_device *dt)
+			    struct md_device *md,
+			    struct dt_device *dt)
 {
-        struct llo_thread_info *info = llo_env_info(env);
-        struct lu_fid *fid;
         struct lu_local_obj_desc *scan;
         struct md_object *mdo;
-        const char *dir;
         int rc = 0;
 
-        fid = &info->lti_cfid;
 	mutex_lock(&llo_lock);
 
-        cfs_list_for_each_entry(scan, &llo_lobj_list, llod_linkage) {
-                lu_local_obj_fid(fid, scan->llod_oid);
-                dir = "";
-                if (scan->llod_dir)
-                        dir = scan->llod_dir;
+	cfs_list_for_each_entry(scan, &llo_lobj_list, llod_linkage) {
+		mdo = llo_create(env, md, dt, scan);
+		if (IS_ERR(mdo) && PTR_ERR(mdo) != -EEXIST) {
+			rc = PTR_ERR(mdo);
+			CERROR("creating obj [%s] fid = "DFID" rc = %d\n",
+			       scan->llod_name, PFID(scan->llod_fid), rc);
+			goto out;
+		}
 
-                if (scan->llod_is_index)
-                        mdo = llo_store_create_index(env, md, dt ,
-                                                     dir, scan->llod_name,
-                                                     fid,
-                                                     scan->llod_feat);
-                else
-                        mdo = llo_store_create(env, md, dt,
-                                               dir, scan->llod_name,
-                                               fid);
-                if (IS_ERR(mdo) && PTR_ERR(mdo) != -EEXIST) {
-                        rc = PTR_ERR(mdo);
-                        CERROR("creating obj [%s] fid = "DFID" rc = %d\n",
-                               scan->llod_name, PFID(fid), rc);
-                        goto out;
-                }
-
-                if (!IS_ERR(mdo))
-                        lu_object_put(env, &mdo->mo_lu);
-        }
+		if (!IS_ERR(mdo))
+			lu_object_put(env, &mdo->mo_lu);
+	}
 
 out:
 	mutex_unlock(&llo_lock);

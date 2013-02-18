@@ -1067,6 +1067,12 @@ stop:
 
 /* namespace APIs */
 
+static const struct lu_local_obj_desc llod_lfsck_namespace = {
+	.llod_name	= lfsck_namespace_name,
+	.llod_fid	= &LU_LOCAL_OBJ_FID(LFSCK_NAMESPACE_OID),
+	.llod_feat	= &dt_lfsck_features,
+};
+
 static int mdd_lfsck_namespace_reset(const struct lu_env *env,
 				     struct lfsck_component *com, bool init)
 {
@@ -1098,9 +1104,8 @@ static int mdd_lfsck_namespace_reset(const struct lu_env *env,
 		GOTO(out, rc);
 
 	lu_local_obj_fid(fid, LFSCK_NAMESPACE_OID);
-	mdo = llo_store_create_index(env, &mdd->mdd_md_dev, mdd->mdd_bottom, "",
-				     lfsck_namespace_name, fid,
-				     &dt_lfsck_features);
+	mdo = llo_create(env, &mdd->mdd_md_dev, mdd->mdd_bottom,
+			 &llod_lfsck_namespace);
 	if (IS_ERR(mdo))
 		GOTO(out, rc = PTR_ERR(mdo));
 
