@@ -96,6 +96,21 @@ Group: Development/Kernel
 %description source
 Lustre sources for further development
 
+%if %{is_client}
+%package modules-dkms
+Summary: DKMS package for the %{lustre_name} kernel module.
+Requires: dkms
+Group: Development/Kernel
+# BuildArch as noarch breaks SLES, at least v11, builds.
+#BuildArch: noarch
+Version: %{version}
+Release: 1
+
+%description modules-dkms
+This package contains %{lustre_name} source code and necessary DKMS 
+infrastructure needed to rebuild against installed kernels.
+%endif
+
 # Since the RPMs we ship are to be used on both SLES and RHEL, we
 # can't include any dependency information (since the package names
 # are different on the two platforms).
@@ -221,6 +236,12 @@ ln -s $RPM_BUILD_ROOT/usr/src lustre-source
 make distdir distdir=lustre-source/lustre-%{version}
 chmod -R go-w lustre-source/lustre-%{version}
 
+%if %{is_client}
+# Create the pristine source directory for DKMS rpm.
+make distdir distdir=lustre-source/%{lustre_name}-modules-%{version}
+chmod -R go-w lustre-source/%{lustre_name}-modules-%{version}
+%endif
+
 cat >lustre.files <<EOF
 %attr(-, root, root) /sbin/mount.lustre
 %attr(-, root, root) /usr/sbin/*
@@ -306,6 +327,11 @@ find $RPM_BUILD_ROOT/lib/modules/%{kversion}/updates -name "*.ko" -type f | \
 %files source
 %attr(-, root, root) /usr/src/lustre-%{version}
 
+%if %{is_client}
+%files modules-dkms
+%attr(-, root, root) %{_prefix}/src/%{lustre_name}-modules-%{version}
+%endif
+
 # uncomment these lines to enable deps packages
 # %files deps-sles
 # %files deps-rhel
@@ -387,6 +413,15 @@ if [ -f /boot/System.map-%{kversion} ]; then
 else
 	depmod -ae %{kversion} || exit 0
 fi
+%endif
+
+%if %{is_client}
+%post modules-dkms
+dkms add --rpm_safe_upgrade -m %{lustre_name}-modules -v %{version}
+dkms build -m %{lustre_name}-modules -v %{version} && dkms install -m %{lustre_name}-modules -v %{version} || true
+
+%preun modules-dkms
+dkms remove --rpm_safe_upgrade -m %{lustre_name}-modules -v %{version} --all || true
 %endif
 
 %clean
