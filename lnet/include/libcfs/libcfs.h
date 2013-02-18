@@ -118,6 +118,8 @@ extern unsigned int libcfs_debug_binary;
 extern char debug_file_path_arr[1024];
 #ifdef __KERNEL__
 extern char *debug_file_path;
+extern int libcfs_fast_ldlm_lock_expired;
+extern int libcfs_fast_ldlm_lock_ost_nids;
 #endif
 
 int libcfs_debug_mask2str(char *str, int size, int mask, int is_subsys);

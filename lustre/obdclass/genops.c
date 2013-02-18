@@ -361,9 +361,49 @@ int class_name2dev(const char *name)
         return -1;
 }
 
+int class_name2dev_n(const char *name, int length)
+{
+        int i;
+        int num = 0;
+
+        if (!name || length <= 0)
+                return -1;
+
+        spin_lock(&obd_dev_lock);
+        for (i = 0; i < class_devno_max(); i++) {
+                struct obd_device *obd = class_num2obd(i);
+                if (obd != NULL) {
+                        num++;
+                        if (obd->obd_name &&
+                           strncmp(name, obd->obd_name, length) == 0) {
+                                /* Make sure we finished attaching before we
+                                   give out any references */
+                                LASSERT(obd->obd_magic == OBD_DEVICE_MAGIC);
+                                if (obd->obd_attached) {
+                                        spin_unlock(&obd_dev_lock);
+                                        return i;
+                                }
+                                break;
+                        }
+                }
+        }
+        spin_unlock(&obd_dev_lock);
+
+        return -1;
+}
+
 struct obd_device *class_name2obd(const char *name)
 {
         int dev = class_name2dev(name);
+
+        if (dev < 0 || dev > class_devno_max())
+                return NULL;
+        return class_num2obd(dev);
+}
+
+struct obd_device *class_name2obd_n(const char *name, int length)
+{
+        int dev = class_name2dev_n(name, length);
 
         if (dev < 0 || dev > class_devno_max())
                 return NULL;
@@ -492,6 +532,74 @@ struct obd_device *class_find_client_notype(struct obd_uuid *tgt_uuid,
                                             grp_uuid);
         return obd;
 }
+
+int class_evict_all_exports_by_nid(char *nid, char **typ_name, int typ_num)
+{
+        int i, rc = 0;
+        ENTRY;
+        for (i = 0; i < class_devno_max(); i++) {
+                int j;
+                struct obd_device *obd;
+                spin_lock(&obd_dev_lock);
+                obd = class_num2obd(i);
+                if (obd == NULL || obd->obd_stopping || !obd->obd_set_up) {
+                        spin_unlock(&obd_dev_lock);
+                        continue;
+                }
+                class_incref(obd);
+                spin_unlock(&obd_dev_lock);
+                LASSERT(obd->obd_type != NULL);
+                LASSERT(obd->obd_type->typ_name != NULL);
+                for (j = 0; j < typ_num; j++) {
+                        if (0 == strncmp(obd->obd_type->typ_name,
+                                         typ_name[j], strlen(typ_name[j]))) {
+                                LCONSOLE_INFO("try to evict nid: %s from %s "
+                                        "because of an expired ldlm lock\n",
+                                        nid, obd->obd_uuid.uuid);
+                                rc += obd_export_evict_by_nid(obd, nid);
+                                break;
+                        }
+                }
+                class_decref(obd);
+        }
+        CDEBUG(D_HA, "Finally %d exports %s evicted\n", rc, (rc>1)? "are":"is");
+        RETURN(rc);
+}
+EXPORT_SYMBOL(class_evict_all_exports_by_nid);
+
+int class_evict_all_exports_by_uuid(char *uuid, char **typ_name, int typ_num)
+{
+        int i, rc = 0;
+        ENTRY;
+        for (i = 0; i < class_devno_max(); i++) {
+                int j;
+                struct obd_device *obd;
+                spin_lock(&obd_dev_lock);
+                obd = class_num2obd(i);
+                if (obd == NULL || obd->obd_stopping || !obd->obd_set_up) {
+                        spin_unlock(&obd_dev_lock);
+                        continue;
+                }
+                class_incref(obd);
+                spin_unlock(&obd_dev_lock);
+                LASSERT(obd->obd_type != NULL);
+                LASSERT(obd->obd_type->typ_name != NULL);
+                for (j = 0; j < typ_num; j++) {
+                        if (0 == strncmp(obd->obd_type->typ_name,
+                                         typ_name[j], strlen(typ_name[j]))) {
+                                LCONSOLE_INFO("try to evict uuid: %s from %s "
+                                        "because of an expired ldlm lock\n",
+                                        uuid, obd->obd_uuid.uuid);
+                                rc += obd_export_evict_by_uuid(obd, uuid);
+                                break;
+                        }
+                }
+                class_decref(obd);
+        }
+        CDEBUG(D_HA, "Finally %d exports %s evicted\n", rc, (rc>1)? "are":"is");
+        RETURN(rc);
+}
+EXPORT_SYMBOL(class_evict_all_exports_by_uuid);
 
 /* Iterate the obd_device list looking devices have grp_uuid. Start
    searching at *next, and if a device is found, the next index to look
@@ -1358,7 +1466,8 @@ int oig_wait(struct obd_io_group *oig)
 }
 EXPORT_SYMBOL(oig_wait);
 
-void class_fail_export(struct obd_export *exp)
+/* This function actually evicts an export object */
+void do_fail_export(struct obd_export *exp)
 {
         int rc, already_failed;
 
@@ -1390,7 +1499,7 @@ void class_fail_export(struct obd_export *exp)
                 CDEBUG(D_HA, "disconnected export %p/%s\n",
                        exp, exp->exp_client_uuid.uuid);
 }
-EXPORT_SYMBOL(class_fail_export);
+EXPORT_SYMBOL(do_fail_export);
 
 char *obd_export_nid2str(struct obd_export *exp)
 {
@@ -1400,6 +1509,151 @@ char *obd_export_nid2str(struct obd_export *exp)
         return "(no nid)";
 }
 EXPORT_SYMBOL(obd_export_nid2str);
+
+static int find_obds_by_type(struct obd_device **devs, const char *typ_name,
+                            int length)
+{
+        int i, num = 0, added = 0;
+        ENTRY;
+
+        spin_lock(&obd_dev_lock);
+        for (i = 0; i < class_devno_max(); i++) {
+                struct obd_device *obd = class_num2obd(i);
+                if (NULL == obd)
+                        continue;
+
+                num++;
+                if (0 == strncmp(obd->obd_type->typ_name, typ_name,
+                                 strlen(typ_name))) {
+                        /* devs has been already filled up */
+                        if (added >= length) {
+                                int j = 0;
+                                for (; j < added; j++) {
+                                        class_decref(devs[j]);
+                                        CERROR("%s: DEC:-> %d\n",
+                                               devs[j]->obd_name,
+                                               atomic_read(
+                                                      &devs[j]->obd_refcount));
+                                        devs[j] = NULL;
+                                }
+                                added = -EOVERFLOW;
+                                goto OUT;
+                        }
+                        class_incref(obd);
+                        CERROR("%s: INC:-> %d\n", obd->obd_name,
+                               atomic_read(&obd->obd_refcount));
+                        devs[added] = obd;
+                        added++;
+                }
+        }
+OUT:
+        spin_unlock(&obd_dev_lock);
+        RETURN(added);
+}
+
+/* "len" may be re-written if it's not long enough to accomordate
+   obd devices which should be included into the array */
+struct obd_device **class_get_dev_array(const char *typename, int *len)
+{
+        int rc, tmp;
+        size_t size = 0;
+        struct obd_device **devs = NULL;
+
+        if (!len || *len <= 0) {
+                CERROR("invalid argument\n");
+                return NULL;
+        }
+        tmp = *len;
+
+        do {
+                if (devs) {
+                        LASSERT(size != 0);
+                        OBD_FREE(devs, size);
+                        devs = NULL;
+                }
+                size = tmp * sizeof(struct obd_device *);
+
+                OBD_ALLOC(devs, size);
+                if (!devs) {
+                        CERROR("can't allocate memory\n");
+                        return NULL;
+                }
+
+                memset(devs, 0, size);
+                rc = find_obds_by_type(devs, typename, tmp);
+                if (rc == -EOVERFLOW) {
+                        CDEBUG(D_INFO, "try to allocate memory again");
+                        tmp *= 2;
+                }
+
+        } while (unlikely(rc == -EOVERFLOW));
+
+        *len = tmp;
+        return devs;
+}
+EXPORT_SYMBOL(class_get_dev_array);
+
+void class_put_dev_array(struct obd_device **devs, int len)
+{
+        int i;
+        struct obd_device *obd = NULL;
+
+        for (i = 0; i < len; i++) {
+                obd = devs[i];
+                if (!obd)
+                        continue;
+
+                class_decref(obd);
+                CERROR("%s: DEC:-> %d\n", obd->obd_name,
+                       atomic_read(&obd->obd_refcount));
+                devs[i] = NULL;
+        }
+        OBD_FREE(devs, sizeof(struct obd_device *) * len);
+        return;
+}
+EXPORT_SYMBOL(class_put_dev_array);
+
+void class_fail_export(struct obd_export *exp)
+{
+        int i, rc = 0, len = 4;
+        struct obd_device **mgc_array;
+        ENTRY;
+        LASSERT(exp->exp_obd);
+
+        mgc_array = class_get_dev_array(LUSTRE_MGC_NAME, &len);
+        if (mgc_array) {
+                for (i = 0; i < len; i++) {
+                        struct obd_device *mgc = mgc_array[i];
+                        /* There must be one MGC per node */
+                        LASSERT(i == 0);
+                        if (!mgc)
+                                continue;
+
+                        spin_lock(&mgc->obd_dev_lock);
+                        if (mgc->obd_stopping || !mgc->obd_set_up) {
+                                spin_unlock(&mgc->obd_dev_lock);
+                                continue;
+                        }
+                        atomic_inc(&mgc->obd_evict_inprogress);
+                        spin_unlock(&mgc->obd_dev_lock);
+
+                        rc = obd_notify(mgc, exp->exp_obd,
+                                         OBD_NOTIFY_EVICT, exp);
+
+                        atomic_dec(&mgc->obd_evict_inprogress);
+                        if (rc) {
+                                do_fail_export(exp);
+                                CERROR("failed to send a request: %d\n", rc);
+                        }
+                }
+                class_put_dev_array(mgc_array, len);
+                mgc_array = NULL;
+        } else {
+                do_fail_export(exp);
+        }
+        return;
+}
+EXPORT_SYMBOL(class_fail_export);
 
 int obd_export_evict_by_nid(struct obd_device *obd, char *nid)
 {

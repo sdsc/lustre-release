@@ -2641,6 +2641,7 @@ static int mdt_setup(struct obd_device *obd, obd_count len, void *buf)
                 GOTO(err_thread3, rc);
 
         ping_evictor_start();
+        eviction_notifier_start();
 
         RETURN(0);
 
@@ -2663,6 +2664,7 @@ static int mdt_cleanup(struct obd_device *obd)
         struct mds_obd *mds = &obd->u.mds;
         ENTRY;
 
+        eviction_notifier_stop(obd);
         ping_evictor_stop();
 
         down(&mds->mds_health_sem);

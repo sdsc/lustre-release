@@ -3094,6 +3094,8 @@ static int lov_set_info_async(struct obd_export *exp, obd_count keylen,
                 /* use defaults:
                 do_inactive = incr = 0;
                  */
+        } else if (KEY_IS(KEY_EVICT_BY_UUID)) {
+                /* do nothing */
         }
 
         for (i = 0; i < count; i++, val = (char *)val + incr) {

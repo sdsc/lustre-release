@@ -116,6 +116,13 @@ EXPORT_SYMBOL(libcfs_panic_on_lbug);
 atomic_t libcfs_kmemory = ATOMIC_INIT(0);
 EXPORT_SYMBOL(libcfs_kmemory);
 
+/* fast ldlm lock expired */
+int libcfs_fast_ldlm_lock_expired = 1;
+EXPORT_SYMBOL(libcfs_fast_ldlm_lock_expired);
+
+int libcfs_fast_ldlm_lock_ost_nids = 1;
+EXPORT_SYMBOL(libcfs_fast_ldlm_lock_ost_nids);
+
 static cfs_waitq_t debug_ctlwq;
 
 #ifdef HAVE_BGL_SUPPORT
