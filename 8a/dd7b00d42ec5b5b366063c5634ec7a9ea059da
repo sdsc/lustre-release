@@ -1,0 +1,9 @@
+Verified+1: Hudson
+Code-Review+2: Johann Lombardi <johann.lombardi@intel.com>
+Code-Review+1: Mike Pershin <mike.pershin@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Submitted-by: Johann Lombardi <johann.lombardi@intel.com>
+Submitted-at: Mon, 18 Feb 2013 08:05:22 -0500
+Reviewed-on: http://review.whamcloud.com/5137
+Project: fs/lustre-release
+Branch: refs/heads/b1_8
