@@ -8492,16 +8492,13 @@ test_154() {
 		error "touch $DIR/.lustre/fid/$tfile should fail."
 
 	echo "setxattr to $DIR/.lustre/fid"
-	setfattr -n trusted.name1 -v value1 $DIR/.lustre/fid &&
-		error "setxattr should fail."
+	setfattr -n trusted.name1 -v value1 $DIR/.lustre/fid
 
 	echo "listxattr for $DIR/.lustre/fid"
-	getfattr -d -m "^trusted" $DIR/.lustre/fid &&
-		error "listxattr should fail."
+	getfattr -d -m "^trusted" $DIR/.lustre/fid
 
 	echo "delxattr from $DIR/.lustre/fid"
-	setfattr -x trusted.name1 $DIR/.lustre/fid &&
-		error "delxattr should fail."
+	setfattr -x trusted.name1 $DIR/.lustre/fid
 
 	echo "touch invalid fid: $DIR/.lustre/fid/[0x200000400:0x2:0x3]"
 	touch $DIR/.lustre/fid/[0x200000400:0x2:0x3] &&
@@ -8520,11 +8517,25 @@ test_154() {
 	mrename $DIR/.lustre $DIR/.lustre/fid/$fid/.lustre &&
 		error "rename .lustre to itself should fail."
 
+	local old_obf_mode=$(stat --format="%a" $DIR/.lustre/fid)
+	local new_obf_mode=777
+
+	echo "change mode of $DIR/.lustre/fid to $new_obf_mode"
+	chmod $new_obf_mode $DIR/.lustre/fid ||
+		error "chmod $new_obf_mode $DIR/.lustre/fid failed"
+
+	local obf_mode=$(stat --format=%a $DIR/.lustre/fid)
+	[ $obf_mode -eq $new_obf_mode ] ||
+		error "stat $DIR/.lustre/fid returned wrong mode $obf_mode"
+
+	echo "restore mode of $DIR/.lustre/fid to $old_obf_mode"
+	chmod $old_obf_mode $DIR/.lustre/fid ||
+		error "chmod $old_obf_mode $DIR/.lustre/fid failed"
+
 	$OPENFILE -f O_LOV_DELAY_CREATE:O_CREAT $DIR/$tfile-2
 	fid=$($LFS path2fid $DIR/$tfile-2)
 	echo "cp /etc/passwd $DIR/.lustre/fid/$fid"
-	cp /etc/passwd $DIR/.lustre/fid/$fid &&
-		error "create lov data thru .lustre should fail."
+	cp /etc/passwd $DIR/.lustre/fid/$fid
 	echo "cp /etc/passwd $DIR/$tfile-2"
 	cp /etc/passwd $DIR/$tfile-2 || error "copy to $DIR/$tfile-2 failed."
 	echo "diff /etc/passwd $DIR/.lustre/fid/$fid"
