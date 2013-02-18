@@ -107,6 +107,8 @@ enum {
         PSDEV_LNET_DEBUG_LOG_UPCALL, /* debug log upcall script */
         PSDEV_LNET_WATCHDOG_RATELIMIT,  /* ratelimit watchdog messages  */
         PSDEV_LNET_FORCE_LBUG,    /* hook to force an LBUG */
+        PSDEV_FAST_LLOCK_EXPIRED, /* enable fast ldlm_lock expired feature */
+        PSDEV_LLOCK_OST_NIDS,
 };
 #else
 #define CTL_LNET                        CTL_UNNUMBERED
@@ -129,6 +131,8 @@ enum {
 #define PSDEV_LNET_DEBUG_LOG_UPCALL     CTL_UNNUMBERED
 #define PSDEV_LNET_WATCHDOG_RATELIMIT   CTL_UNNUMBERED
 #define PSDEV_LNET_FORCE_LBUG           CTL_UNNUMBERED
+#define PSDEV_FAST_LLOCK_EXPIRED        CTL_UNNUMBERED
+#define PSDEV_FAST_LLOCK_OST_NIDS       CTL_UNNUMBERED
 #endif
 
 
@@ -486,6 +490,24 @@ static cfs_sysctl_table_t lnet_table[] = {
                 .maxlen   = 0,
                 .mode     = 0200,
                 .proc_handler = &libcfs_force_lbug
+        },
+        {
+                .ctl_name = PSDEV_FAST_LLOCK_EXPIRED,
+                .procname = "fast_ldlm_lock_expired",
+                .data     = &libcfs_fast_ldlm_lock_expired,
+                .maxlen   = sizeof(int),
+                .mode     = 0644,
+                .proc_handler = &proc_dointvec,
+                .strategy = &sysctl_intvec,
+        },
+        {
+                .ctl_name = PSDEV_FAST_LLOCK_OST_NIDS,
+                .procname = "fast_ldlm_lock_ost_nids",
+                .data     = &libcfs_fast_ldlm_lock_ost_nids,
+                .maxlen   = sizeof(int),
+                .mode     = 0644,
+                .proc_handler = &proc_dointvec,
+                .strategy = &sysctl_intvec,
         },
         {0}
 };

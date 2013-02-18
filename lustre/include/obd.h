@@ -951,7 +951,9 @@ enum obd_notify_event {
         OBD_NOTIFY_CONFIG,
         /* Administratively deactivate/activate event */
         OBD_NOTIFY_DEACTIVATE,
-        OBD_NOTIFY_ACTIVATE
+        OBD_NOTIFY_ACTIVATE,
+        /* to notify evict from the server-side to MGS */
+        OBD_NOTIFY_EVICT,
 };
 
 #define CONFIG_LOG      0x1  /* finished processing config log */
@@ -1114,6 +1116,7 @@ enum obd_cleanup_stage {
 #define KEY_READONLY            "read-only"
 #define KEY_READONLY_166COMPAT  "readonly"
 #define KEY_EVICT_BY_NID        "evict_by_nid"
+#define KEY_EVICT_BY_UUID       "evict_by_uuid"
 #define KEY_REGISTER_TARGET     "register_target"
 #define KEY_SET_FS              "set_fs"
 #define KEY_CLEAR_FS            "clear_fs"

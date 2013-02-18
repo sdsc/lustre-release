@@ -4211,6 +4211,11 @@ static int osc_set_info_async(struct obd_export *exp, obd_count keylen,
                 size[1] = vallen;
                 ptlrpc_req_set_repsize(req, 2, size);
                 ptlrpcd_add_req(req);
+        } else if (KEY_IS(KEY_EVICT_BY_UUID)) {
+                /* we don't use a request set here */
+                ptlrpc_req_set_repsize(req, 1, NULL);
+                req->rq_no_resend = req->rq_no_delay = 1;
+                ptlrpcd_add_req(req);
         } else {
                 ptlrpc_req_set_repsize(req, 1, NULL);
                 ptlrpc_set_add_req(set, req);

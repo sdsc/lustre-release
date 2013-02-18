@@ -73,9 +73,13 @@ int class_unregister_type(const char *nm);
 
 struct obd_device *class_newdev(const char *type_name, const char *name);
 void class_release_dev(struct obd_device *obd);
+struct obd_device **class_setup_dev_array(const char *name, int *len);
+void class_cleanup_dev_array(struct obd_device **devs, int len);
 
 int class_name2dev(const char *name);
+int class_name2dev_n(const char *name, int len);
 struct obd_device *class_name2obd(const char *name);
+struct obd_device *class_name2obd_n(const char *name, int len);
 int class_uuid2dev(struct obd_uuid *uuid);
 struct obd_device *class_uuid2obd(struct obd_uuid *uuid);
 void class_obd_list(void);
@@ -86,6 +90,9 @@ struct obd_device * class_find_client_notype(struct obd_uuid *tgt_uuid,
                                              struct obd_uuid *grp_uuid);
 struct obd_device * class_devices_in_group(struct obd_uuid *grp_uuid,
                                            int *next);
+int class_evict_all_exports_by_nid(char *nid, char **typ_name, int typ_num);
+int class_evict_all_exports_by_uuid(char *nid, char **typ_name, int typ_num);
+
 struct obd_device * class_num2obd(int num);
 
 int oig_init(struct obd_io_group **oig);
@@ -223,6 +230,7 @@ int class_connect(struct lustre_handle *conn, struct obd_device *obd,
                   struct obd_uuid *cluuid);
 int class_disconnect(struct obd_export *exp);
 void class_fail_export(struct obd_export *exp);
+void do_fail_export(struct obd_export *exp);
 int class_connected_export(struct obd_export *exp);
 void class_disconnect_exports(struct obd_device *obddev);
 void class_set_export_delayed(struct obd_export *exp);

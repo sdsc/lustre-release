@@ -443,6 +443,40 @@ int ptlrpc_pinger_del_import(struct obd_import *imp)
         RETURN(0);
 }
 
+/* Sends ping to a target device which is specified by a request.
+ * which was sent from the server-side when an eviction happens */
+int ptlrpc_ping_to_evicted_target(struct ptlrpc_request *req)
+{
+        struct obd_uuid *uuid = NULL;
+        char *obd_name = NULL;
+        ENTRY;
+
+        if (lustre_msg_buflen(req->rq_reqmsg, REQ_REC_OFF)) {
+                uuid = lustre_swab_reqbuf(req, REQ_REC_OFF,
+                                          sizeof(struct obd_uuid), NULL);
+        }
+
+        if (lustre_msg_buflen(req->rq_reqmsg, REQ_REC_OFF+1)) {
+                obd_name = lustre_swab_reqbuf(req, REQ_REC_OFF+1,
+                                              MAX_OBD_NAME, NULL);
+        }
+        /* for debug purpose */
+        CWARN("target:%s, uuid:%s\n", obd_name ? obd_name : "(unknown)",
+                                      uuid ? uuid->uuid : "(unknown)");
+        if (uuid && obd_name) {
+                struct obd_device *obd;
+                obd = class_name2obd_n(obd_name, strlen(obd_name));
+                /* I may need a lot more checks on obd_device such as flags */
+                if (!obd || !obd->obd_uuid_hash) {
+                        CERROR("Cannot find obd device, obd_name: %s\n",
+                               obd_name);
+                        RETURN(0);
+                }
+                ptlrpc_ping(obd->u.cli.cl_import);
+        }
+        RETURN(0);
+}
+
 /**
  * Register a timeout callback to the pinger list, and the callback will
  * be called when timeout happens.
@@ -707,6 +741,183 @@ void ping_evictor_stop(void)
         wake_up(&pet_waitq);
 }
 EXPORT_SYMBOL(ping_evictor_stop);
+
+/*
+ * eviction-notifier thread
+ */
+
+/* ENT: Evict Notifier Thread */
+#define ENT_READY     1
+#define ENT_TERMINATE 2
+
+static atomic_t ent_refcount = ATOMIC_INIT(0);
+static int ent_state;
+static wait_queue_head_t ent_waitq;
+CFS_LIST_HEAD(ent_req_list);
+static spinlock_t ent_lock = SPIN_LOCK_UNLOCKED;
+
+/* the number of the in-flight EN requests */
+static atomic_t ent_reqs_inflight = ATOMIC_INIT(0);
+
+/* the number of the requests which have been registered to ent_req_list */
+static atomic_t ent_reqs_in_list = ATOMIC_INIT(0);
+
+/* the max number of inflight EN requests */
+static int ent_max_reqs_inflight = 128;
+
+static int eviction_notifier_interpret(struct ptlrpc_request *req,
+                                       void *data, int rc)
+{
+        atomic_dec(&ent_reqs_inflight);
+        wake_up(&ent_waitq);
+
+        /* for debug */
+        CERROR("ent_reqs_inflight: %d\n", atomic_read(&ent_reqs_inflight));
+        return 0;
+}
+
+/* When an obd device is specified, all the requests which have the same
+ * obd_device in req->rq_imp->imp_obd will be send or abandoned without
+ * checking ent_reqs_inflight. So it can be considered as a kind of a force
+ * mode */
+static void eviction_notifier_handle_reqs(struct obd_device *obd,
+                                          int send, int force)
+{
+        struct ptlrpc_request *req, *n;
+        ENTRY;
+
+        spin_lock(&ent_lock);
+        list_for_each_entry_safe(req, n, &ent_req_list, rq_list) {
+                struct obd_import *req_imp = req->rq_import;
+                LASSERT(req_imp);
+                LASSERT(req_imp->imp_obd);
+
+                if (obd && (obd != req_imp->imp_obd))
+                        continue;
+                else if (!force && (atomic_read(&ent_reqs_inflight) >=
+                                    ent_max_reqs_inflight))
+                        break;
+
+                list_del_init(&req->rq_list);
+                atomic_dec(&ent_reqs_in_list);
+                spin_unlock(&ent_lock);
+
+                if (send) {
+                        req->rq_interpret_reply = eviction_notifier_interpret;
+                        atomic_inc(&ent_reqs_inflight);
+                        /* for debug */
+                        CWARN("ent_reqs_inflight: %d\n",
+                              atomic_read(&ent_reqs_inflight));
+                        ptlrpcd_add_req(req);
+                } else {
+                        ptlrpc_req_finished(req);
+                }
+
+                spin_lock(&ent_lock);
+        }
+        spin_unlock(&ent_lock);
+
+        EXIT;
+}
+
+/* MGS will be filled up with the rpc reqs which notify MGS an eviction event
+ * when a lot of export objects were evicted on MDT and OSTs.
+ * That's why this thread sets a limit on the number of the rpc reqs */
+static int eviction_notifier_main(void *arg)
+{
+        struct l_wait_info lwi = { 0 };
+        ENTRY;
+
+        cfs_daemonize_ctxt("ll_ev_notifier");
+        ent_state = ENT_READY;
+        CDEBUG(D_HA, "Starting Evict Notifier\n");
+
+        while (1) {
+                l_wait_event(ent_waitq, !list_empty(&ent_req_list) ||
+                             (ent_state == ENT_TERMINATE), &lwi);
+
+                /* loop until all requests will be sent out */
+                if (ent_state == ENT_TERMINATE) {
+                        /* Now that EN-thread is being terminated,
+                         * we have to throw all requests away from
+                         * ent_req_list anyway.
+                         */
+                        eviction_notifier_handle_reqs(NULL, 0, 1);
+                        break;
+                }
+                eviction_notifier_handle_reqs(NULL, 1, 0);
+        }
+
+        CDEBUG(D_HA, "Exiting Evict Notifier\n");
+        LASSERT(ent_state == ENT_TERMINATE);
+
+        /* ent_reqs_inflight don't have to be zero but just check */
+        CDEBUG(D_HA, "ent_reqs_inflight: %d\n",
+               atomic_read(&ent_reqs_inflight));
+
+        RETURN(0);
+}
+
+void eviction_notifier_start(void)
+{
+        int rc = 0;
+
+        atomic_inc(&ent_refcount);
+        if (atomic_read(&ent_refcount) > 1)
+                return;
+
+        init_waitqueue_head(&ent_waitq);
+        rc = cfs_kernel_thread(eviction_notifier_main, NULL,
+                               CLONE_VM | CLONE_FILES);
+        if (rc < 0) {
+                atomic_dec(&ent_refcount);
+                CERROR("Cannot start eviction notifier thread: %d\n", rc);
+        }
+
+        return;
+}
+EXPORT_SYMBOL(eviction_notifier_start);
+
+void eviction_notifier_stop(struct obd_device *obd)
+{
+        if (!atomic_dec_and_test(&ent_refcount)) {
+                eviction_notifier_handle_reqs(obd, 0, 0);
+                return;
+        }
+        ent_state = ENT_TERMINATE;
+        wake_up(&ent_waitq);
+
+        return;
+}
+EXPORT_SYMBOL(eviction_notifier_stop);
+
+int eviction_notifier_add_req(struct ptlrpc_request *req)
+{
+
+        ENTRY;
+        if (ent_state == ENT_TERMINATE) {
+                CDEBUG(D_HA, "req: %p is being destroyed because of "
+                             "the terminating EN-thread\n", req);
+                ptlrpc_req_finished(req);
+        } else if (ent_state != ENT_READY) {
+                CWARN("There's no thread to handle eviction-notification, "
+                      "%p will be abandoned\n", req);
+                ptlrpc_req_finished(req);
+        } else {
+                CDEBUG(D_HA, "req: %p is being registered without accident\n",
+                       req);
+
+                spin_lock(&ent_lock);
+                list_add(&req->rq_list, &ent_req_list);
+                spin_unlock(&ent_lock);
+
+                atomic_inc(&ent_reqs_in_list);
+                wake_up(&ent_waitq);
+        }
+        RETURN(0);
+}
+EXPORT_SYMBOL(eviction_notifier_add_req);
+
 #else /* !__KERNEL__ */
 
 /* XXX
@@ -996,5 +1207,10 @@ void ptlrpc_pinger_wake_up()
         }
 #endif
         EXIT;
+}
+
+int ptlrpc_ping_to_evicted_target(struct ptlrpc_request *req)
+{
+        return 0;
 }
 #endif /* !__KERNEL__ */

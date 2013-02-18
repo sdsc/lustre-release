@@ -1275,6 +1275,10 @@ static int ost_set_info(struct obd_export *exp, struct ptlrpc_request *req)
                         obd_export_evict_by_nid(exp->exp_obd, val);
 
                 GOTO(out, rc = 0);
+        } else if (KEY_IS(KEY_EVICT_BY_UUID)) {
+                if (val && vallen)
+                        obd_export_evict_by_uuid(exp->exp_obd, val);
+                GOTO(out, rc = 0);
         }
 
         rc = obd_set_info_async(exp, keylen, key, vallen, val, NULL);
@@ -2146,6 +2150,7 @@ static int ost_setup(struct obd_device *obd, obd_count len, void *buf)
                 GOTO(out_io, rc = -EINVAL);
 
         ping_evictor_start();
+        eviction_notifier_start();
 
         RETURN(0);
 
@@ -2169,6 +2174,7 @@ static int ost_cleanup(struct obd_device *obd)
         int err = 0;
         ENTRY;
 
+        eviction_notifier_stop(obd);
         ping_evictor_stop();
 
         spin_lock_bh(&obd->obd_processing_task_lock);

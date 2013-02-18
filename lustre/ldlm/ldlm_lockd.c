@@ -144,6 +144,58 @@ struct ldlm_bl_work_item {
 };
 
 #ifdef __KERNEL__
+static void evict_exports_from_obdlist_by_uuid(char *uuid)
+{
+        int rc = 0;
+        char *typ_name[2];
+        if (NULL == uuid) {
+                CERROR("Invalid argument or arguments: uuid:%p. "
+                       "These mustn't be NULL\n", uuid);
+                return;
+        }
+        typ_name[0] = LUSTRE_MDS_NAME;
+        typ_name[1] = LUSTRE_OST_NAME;
+        rc = class_evict_all_exports_by_uuid(uuid, typ_name, 1);
+        if (rc && libcfs_fast_ldlm_lock_ost_nids) {
+                /* when this node is MDS */
+                int i, len = 8;
+                struct obd_device **mds_array = NULL;
+                /* this request set is used for nothing actually */
+                struct ptlrpc_request_set *dummy_set = ptlrpc_prep_set();
+
+                if (!dummy_set) {
+                        CERROR("Cannot allocate memory\n");
+                        goto OST_EVICT;
+                }
+
+                /* get mds objects */
+                 mds_array = class_setup_dev_array(LUSTRE_MDS_NAME, &len);
+                if (mds_array) {
+                        for (i = 0; i < len; i--) {
+                                struct mds_obd *mds = &(mds_array[i]->u.mds);
+                                /* confirm the mds's setting */
+                                LASSERT(mds->mds_lov_exp != NULL);
+                                LCONSOLE_INFO("Try to send evict %s requests"
+                                              "to OSSs\n",
+                                       uuid);
+                                rc = obd_set_info_async(mds->mds_lov_exp,
+                                                      sizeof(KEY_EVICT_BY_UUID),
+                                                      KEY_EVICT_BY_UUID,
+                                                      strlen(uuid)+1, uuid,
+                                                      dummy_set);
+                                if (rc)
+                                        CERROR("Faild to evict uuid:%s"
+                                               " from OSTs: rc %d\n", uuid, rc);
+                        }
+                        class_cleanup_dev_array(mds_array, len);
+                }
+                ptlrpc_check_set(dummy_set);
+                ptlrpc_set_destroy(dummy_set);
+        }
+OST_EVICT:
+        rc = class_evict_all_exports_by_uuid(uuid, typ_name+1, 1);
+        return;
+}
 
 static inline int have_expired_locks(void)
 {
@@ -224,8 +276,22 @@ static int expired_lock_main(void *arg)
                         LDLM_LOCK_PUT(lock);
 
                         do_dump++;
-                        class_fail_export(export);
-                        class_export_put(export);
+                        /* evict all exports have the same uuid from
+                         * the obdfilters in this node */
+                        if (!!libcfs_fast_ldlm_lock_expired) {
+                                char copied_uuid[40];
+                                memcpy(copied_uuid,
+                                       export->exp_client_uuid.uuid,
+                                       sizeof(copied_uuid));
+                                /* we have to decrement the refcount of this
+                                 * export here in order to evict the export
+                                 * object on this node  */
+                                class_export_put(export);
+                                evict_exports_from_obdlist_by_uuid(copied_uuid);
+                        } else {
+                                class_fail_export(export);
+                                class_export_put(export);
+                        }
                         spin_lock_bh(&waiting_locks_spinlock);
                 }
                 spin_unlock_bh(&waiting_locks_spinlock);
@@ -1697,6 +1763,8 @@ int ldlm_bl_to_thread_list(struct ldlm_namespace *ns, struct ldlm_lock_desc *ld,
 #endif
 }
 
+extern int ptlrpc_ping_to_evicted_target(struct ptlrpc_request *);
+
 static int ldlm_callback_handler(struct ptlrpc_request *req)
 {
         struct ldlm_namespace *ns;
@@ -1763,6 +1831,11 @@ static int ldlm_callback_handler(struct ptlrpc_request *req)
                 OBD_FAIL_RETURN(OBD_FAIL_OBD_LOGD_NET, 0);
                 rc = llog_origin_handle_close(req);
                 ldlm_callback_reply(req, rc);
+                RETURN(0);
+        case OBD_NOTIFY_EVICT:
+                OBD_FAIL_RETURN(OBD_FAIL_OBD_LOGD_NET, 0);
+                ldlm_callback_reply(req, 0);
+                ptlrpc_ping_to_evicted_target(req);
                 RETURN(0);
         default:
                 CERROR("unknown opcode %u\n",

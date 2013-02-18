@@ -1151,6 +1151,7 @@ enum timeout_event {
 };
 struct timeout_item;
 typedef int (*timeout_cb_t)(struct timeout_item *, void *);
+int ptlrpc_ping_to_evicted_target(struct ptlrpc_request *req);
 int ptlrpc_pinger_add_import(struct obd_import *imp);
 int ptlrpc_pinger_del_import(struct obd_import *imp);
 int ptlrpc_add_timeout_client(int time, enum timeout_event event,
@@ -1164,6 +1165,10 @@ int ptlrpc_obd_ping(struct obd_device *obd);
 void ping_evictor_start(void);
 void ping_evictor_stop(void);
 int ping_evictor_wake(struct obd_export *exp);
+
+void eviction_notifier_start(void);
+void eviction_notifier_stop(struct obd_device *obd);
+int  eviction_notifier_add_req(struct ptlrpc_request *req);
 #else
 #define ping_evictor_start()    do {} while (0)
 #define ping_evictor_stop()     do {} while (0)
@@ -1171,6 +1176,9 @@ static inline int ping_evictor_wake(struct obd_export *exp)
 {
         return 1;
 }
+
+#define eviction_notifier_start() do {} while (0)
+#define eviction_notifier_stop()  do {} while (0)
 #endif
 
 /* ptlrpc/ptlrpcd.c */

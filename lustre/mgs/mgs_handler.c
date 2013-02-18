@@ -221,6 +221,7 @@ static int mgs_setup(struct obd_device *obd, obd_count len, void *buf)
                 GOTO(err_thread, rc);
 
         ping_evictor_start();
+        eviction_notifier_start();
 
         LCONSOLE_INFO("MGS %s started\n", obd->obd_name);
 
@@ -274,6 +275,7 @@ static int mgs_cleanup(struct obd_device *obd)
         if (mgs->mgs_sb == NULL)
                 RETURN(0);
 
+        eviction_notifier_stop(obd);
         ping_evictor_stop();
 
         ptlrpc_unregister_service(mgs->mgs_service);
@@ -569,6 +571,140 @@ static int mgs_handle_exception(struct ptlrpc_request *req)
         RETURN(0);
 }
 
+static int mgs_notify_evict_to_client(struct obd_export *exp,
+                                      struct obd_uuid *uuid,
+                                      char *obd_name)
+{
+        int rc = 0;
+        int size[3] = { sizeof(struct ptlrpc_body),
+                        sizeof(struct obd_uuid), /* client's uuid */
+                        MAX_OBD_NAME };          /* target name */
+        struct ptlrpc_request *req = NULL;
+        struct obd_uuid *req_uuid = NULL;
+        char *req_obdname = NULL;
+
+        ENTRY;
+        LASSERT(exp->exp_imp_reverse);
+
+        CERROR("mgs_notify_evict_to_client\n");
+
+        req = ptlrpc_prep_req(exp->exp_imp_reverse,
+                              LUSTRE_DLM_VERSION, OBD_NOTIFY_EVICT,
+                              3, size, NULL);
+        if (!req) {
+                rc = -ENOMEM;
+                goto out;
+        }
+
+        req_uuid = lustre_msg_buf(req->rq_reqmsg, REQ_REC_OFF,
+                                  sizeof(struct obd_uuid));
+        if (!req_uuid) {
+                rc = -ENOMEM;
+                goto out;
+        }
+        memcpy(req_uuid, uuid, sizeof(struct obd_uuid));
+
+        req_obdname = lustre_msg_buf(req->rq_reqmsg, REQ_REC_OFF+1,
+                                     MAX_OBD_NAME);
+        if (!req_obdname) {
+                rc = -ENOMEM;
+                goto out;
+        }
+        memcpy(req_obdname, obd_name, strlen(obd_name)+1);
+
+        /* set flags */
+        req->rq_no_delay = req->rq_no_resend = 1;
+        /*
+        req->rq_no_delay = 1;
+        req->rq_timeout = 5;
+        req->rq_retry_max = 3;
+        req->rq_retry_timeout = 15;
+        */
+        req->rq_interpret_reply = NULL;
+        ptlrpc_req_set_repsize(req, 1, NULL);
+
+        rc = ptlrpc_queue_wait(req);
+
+out:
+        if (req)
+                ptlrpc_req_finished(req);
+
+        RETURN(rc);
+}
+
+static int mgs_notify_evict(struct ptlrpc_request *req)
+{
+        int rc = 0;
+        lnet_nid_t *nid = NULL;       /* client's nid */
+        struct obd_uuid *uuid = NULL; /* client's uuid */
+        char *obd_name = NULL;        /* target obd name */
+
+        int len = 1;
+        struct obd_device **mgs_array = NULL;
+        struct obd_export *exp = NULL;
+
+        ENTRY;
+
+        if (lustre_msg_buflen(req->rq_reqmsg, REQ_REC_OFF)) {
+                nid = lustre_swab_reqbuf(req, REQ_REC_OFF, sizeof(lnet_nid_t),
+                                         NULL);
+        }
+        if (lustre_msg_buflen(req->rq_reqmsg, REQ_REC_OFF+1)) {
+                uuid = lustre_swab_reqbuf(req, REQ_REC_OFF+1,
+                                          sizeof(struct obd_uuid), NULL);
+        }
+        if (lustre_msg_buflen(req->rq_reqmsg, REQ_REC_OFF+2)) {
+                obd_name = lustre_swab_reqbuf(req, REQ_REC_OFF+2, MAX_OBD_NAME,
+                                              NULL);
+        }
+        CWARN("target:%s, nid:%s, uuid:%s\n",
+              obd_name ? obd_name : "(unknown)",
+              nid ? libcfs_nid2str(*nid) : "(unknown)",
+              uuid ? uuid->uuid : "(unknown)");
+
+        rc = lustre_pack_reply(req, 1, NULL, NULL);
+        if (rc < 0)
+                goto out;
+
+        mgs_array = class_setup_dev_array(LUSTRE_MGS_NAME, &len);
+        if (!mgs_array) {
+                CERROR("Cannot find a MGS\n");
+                goto out; /* no error handling is needed */
+        } else if (len != 1) {
+                /* MGS must be one, at least, in Lustre-1.8.x */
+                CERROR("The number of MGS is unexpected: %d\n", len);
+                goto out;
+        }
+
+        LASSERT(mgs_array[0]);
+        exp = lustre_hash_lookup(mgs_array[0]->obd_nid_hash, nid);
+        if (!exp) {
+                CERROR("Cannot find a target client nid:%s\n",
+                       nid ? libcfs_nid2str(*nid) : "(unknown)");
+                goto out;
+        }
+        /*
+         * notifies an eviction to a client which has been already
+         * evicted on the server-side in order for the client to
+         * recover from "evicted state" automatically
+         */
+         rc = mgs_notify_evict_to_client(exp, uuid, obd_name);
+         if (rc < 0)
+                 CERROR("Cannot send request: %d\n", rc);
+
+out:
+        if (exp)
+                class_export_put(exp);
+
+        if (mgs_array) {
+                class_cleanup_dev_array(mgs_array, len);
+                mgs_array = NULL;
+        }
+
+        lustre_msg_set_status(req->rq_repmsg, 0);
+        RETURN(rc);
+}
+
 int mgs_handle(struct ptlrpc_request *req)
 {
         int fail = OBD_FAIL_MGS_ALL_REPLY_NET;
@@ -618,6 +754,9 @@ int mgs_handle(struct ptlrpc_request *req)
                 break;
         case MGS_SET_INFO:
                 rc = mgs_set_info_rpc(req);
+                break;
+        case MGS_NOTIFY_EVICT:
+                rc = mgs_notify_evict(req);
                 break;
 
         case LDLM_ENQUEUE:

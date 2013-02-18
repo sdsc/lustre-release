@@ -1276,6 +1276,110 @@ out:
         RETURN(rc);
 }
 
+/*
+        obd: mgc
+        watched: target obd_device
+        ev: OBD_NOTIFY_EVICT
+        data: export which is being evicted
+*/
+static int mgc_notify_evict(struct obd_device *obd, struct obd_device *watched,
+                            enum obd_notify_event ev, void *data)
+{
+        struct obd_import *imp = class_exp2cliimp(obd->obd_self_export);
+        struct obd_export *doomed_exp = (struct obd_export *)data;
+        struct ptlrpc_request *req = NULL;
+        lnet_nid_t *req_nid = NULL;
+        struct obd_uuid *req_uuid = NULL;
+        char *req_obd_name = NULL;
+        int size[4] = { sizeof(struct ptlrpc_body),
+                        sizeof(lnet_nid_t),        /* cleint's nid */
+                        sizeof(struct obd_uuid),   /* client's uuid */
+                        MAX_OBD_NAME };            /* target name */
+        int rc = 0;
+        ENTRY;
+
+        LASSERT(obd);
+        LASSERT(watched);
+        LASSERT(data);
+        LASSERT(imp);
+
+        if (!doomed_exp->exp_connection) {
+                rc = -EINVAL;
+                goto out;
+        }
+
+        req = ptlrpc_prep_req(imp, LUSTRE_MDS_VERSION, MGS_NOTIFY_EVICT,
+                              4, size, NULL);
+        if (!req) {
+                rc = -ENOMEM;
+                goto out;
+        }
+
+        req_nid = lustre_msg_buf(req->rq_reqmsg, REQ_REC_OFF,
+                                 sizeof(lnet_nid_t));
+        if (!req_nid) {
+                rc = -ENOMEM;
+                goto out;
+        }
+        memcpy(req_nid, &doomed_exp->exp_connection->c_peer.nid,
+               sizeof(lnet_nid_t));
+
+        req_uuid = lustre_msg_buf(req->rq_reqmsg, REQ_REC_OFF+1,
+                                  sizeof(struct obd_uuid));
+        if (!req_uuid) {
+                rc = -ENOMEM;
+                goto out;
+        }
+        memcpy(req_uuid, &doomed_exp->exp_client_uuid, sizeof(struct obd_uuid));
+
+        req_obd_name = lustre_msg_buf(req->rq_reqmsg, REQ_REC_OFF+2,
+                                      MAX_OBD_NAME);
+        if (!req_obd_name) {
+                rc = -ENOMEM;
+                goto out;
+        }
+        memcpy(req_obd_name, watched->obd_name, strlen(obd->obd_name)+1);
+
+        /* don't resend and wait for MGS recovery */
+        req->rq_no_resend = 1;
+        req->rq_no_delay = 1;
+        ptlrpc_req_set_repsize(req, 1, NULL);
+
+        CWARN("sends an evict-notification to a client"
+              "(nid:%s, uuid:%s) via MGS\n",
+              libcfs_nid2str(doomed_exp->exp_connection->c_peer.nid),
+              doomed_exp->exp_client_uuid.uuid);
+
+        /* To make sure that doomed_exp has been completely evicted
+           by when a target client returns a ping back */
+        do_fail_export(doomed_exp);
+        /* notifies an eviction event to MGS */
+        eviction_notifier_add_req(req);
+
+        RETURN(0);
+
+out:
+        if (req)
+                ptlrpc_req_finished(req);
+
+        RETURN(rc);
+}
+
+static int mgc_notify(struct obd_device *obd, struct obd_device *watched,
+                      enum obd_notify_event ev, void *data)
+{
+        int rc = 0;
+        ENTRY;
+        if (ev == OBD_NOTIFY_EVICT)
+                rc = mgc_notify_evict(obd, watched, ev, data);
+                /* are there anything to do here ? */
+        else
+                rc = -EINVAL;
+
+        RETURN(rc);
+}
+
+
 struct obd_ops mgc_obd_ops = {
         .o_owner        = THIS_MODULE,
         .o_setup        = mgc_setup,
@@ -1293,6 +1397,7 @@ struct obd_ops mgc_obd_ops = {
         .o_llog_init    = mgc_llog_init,
         .o_llog_finish  = mgc_llog_finish,
         .o_process_config = mgc_process_config,
+        .o_notify       = mgc_notify,
 };
 
 int __init mgc_init(void)

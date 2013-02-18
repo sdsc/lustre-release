@@ -1713,6 +1713,7 @@ typedef enum {
         MGS_TARGET_REG,        /* whenever target starts up */
         MGS_TARGET_DEL,
         MGS_SET_INFO,
+        MGS_NOTIFY_EVICT,
         MGS_LAST_OPC
 } mgs_cmd_t;
 #define MGS_FIRST_OPC MGS_CONNECT
