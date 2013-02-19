@@ -53,7 +53,9 @@ static void osp_object_assign_fid(const struct lu_env *env,
 {
 	struct osp_thread_info *osi = osp_env_info(env);
 
-	LASSERT(fid_is_zero(lu_object_fid(&o->opo_obj.do_lu)));
+	if (!fid_is_zero(lu_object_fid(&o->opo_obj.do_lu)))
+		return;
+
 	LASSERT(o->opo_reserved);
 	o->opo_reserved = 0;
 
