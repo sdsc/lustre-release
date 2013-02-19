@@ -2007,7 +2007,9 @@ static int mdd_acl_init(const struct lu_env *env, struct mdd_object *pobj,
 	} else if (rc == -ENODATA || rc == -EOPNOTSUPP) {
 		/* If there are no default ACL, fix mode by mask */
 		struct lu_ucred *uc = lu_ucred(env);
-		la->la_mode &= ~uc->uc_umask;
+
+		if (uc != NULL)
+			la->la_mode &= ~uc->uc_umask;
 		rc = 0;
 	}
 
