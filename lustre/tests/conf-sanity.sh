@@ -75,6 +75,10 @@ if [[ "$LDISKFS_MKFS_OPTS" != *lazy_itable_init* ]]; then
 	LDISKFS_MKFS_OPTS=$(csa_add "$LDISKFS_MKFS_OPTS" -E lazy_itable_init)
 fi
 
+[ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
+# bug number for skipped test:        LU-2778
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 57b"
+
 init_logging
 
 #
