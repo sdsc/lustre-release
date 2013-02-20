@@ -255,6 +255,7 @@ struct ost_id {
 #define LL_IOC_LMV_SETSTRIPE		_IOWR('f', 240, struct lmv_user_md)
 #define LL_IOC_LMV_GETSTRIPE		_IOWR('f', 241, struct lmv_user_md)
 #define LL_IOC_REMOVE_ENTRY		_IOWR('f', 242, __u64)
+#define LL_IOC_HSM_IMPORT		_IOWR('f', 243, struct hsm_user_import)
 
 #define LL_IOC_SET_LEASE		_IOWR('f', 243, long)
 #define LL_IOC_GET_LEASE		_IO('f', 244)
@@ -1138,6 +1139,19 @@ static inline int hal_size(struct hsm_action_list *hal)
         }
         return(sz);
 }
+
+/* HSM file import
+ * describe the attributes to be set on imported file
+ */
+struct hsm_user_import {
+	uid_t		hui_uid;
+	gid_t		hui_gid;
+	mode_t		hui_mode;
+	size_t		hui_size;
+	time_t		hui_atime;
+	time_t		hui_mtime;
+	__u32		hui_archive_id;
+};
 
 /* Copytool progress reporting */
 #define HP_FLAG_COMPLETED 0x01
