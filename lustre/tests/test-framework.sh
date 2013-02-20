@@ -568,8 +568,8 @@ unload_modules() {
 		local list=$(comma_list $(remote_nodes_list))
 		if [ -n "$list" ]; then
 			echo "unloading modules on: '$list'"
-			do_rpc_nodes "$list" $LUSTRE_RMMOD ldiskfs
-			do_rpc_nodes "$list" check_mem_leak
+			do_rpc_nodes "$list" $LUSTRE_RMMOD ldiskfs || return 2
+			do_rpc_nodes "$list" check_mem_leak || return 254
 		fi
 	fi
 

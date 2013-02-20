@@ -3971,6 +3971,139 @@ test_72() { #LU-2634
 }
 run_test 72 "test fast symlink with extents flag enabled"
 
+#
+# We assume that all servers have the same "suppress_pings"
+# setting and that the setting is represented by
+# MODOPTS_PTLRPC.
+#
+suppress_pings_enable() {
+	local i
+
+	if ! combined_mgs_mds; then
+		stop mgs
+	fi
+	SPE_LMR_ORIG=$LOAD_MODULES_REMOTE
+	LOAD_MODULES_REMOTE=true
+	#
+	# It might take a while before all the MDS modules could be removed
+	# cleanly.
+	#
+	for i in $(seq 5); do
+		echo "Removing modules (attempt $i)"
+		if unload_modules; then
+			break
+		elif ((i == 5)); then
+			error "Can't enable suppress_pings"
+		fi
+		sleep 2
+	done
+	SPE_MP_ORIG=$MODOPTS_PTLRPC
+	MODOPTS_PTLRPC="suppress_pings=1"
+	load_modules
+	if ! combined_mgs_mds; then
+		start_mgs
+	fi
+}
+
+suppress_pings_restore() {
+	if ! combined_mgs_mds; then
+		stop mgs
+	fi
+	unload_modules
+	MODOPTS_PTLRPC=$SPE_MP_ORIG
+	unset SPE_MP_ORIG
+	LOAD_MODULES_REMOTE=$SPE_LMR_ORIG
+	unset SPE_LMR_ORIG
+	load_modules
+	if ! combined_mgs_mds; then
+		start_mgs
+	fi
+}
+
+test_73() {
+	local n_mgs
+	local n_mdt
+	local n_ost
+	local rc=0
+
+	suppress_pings_enable
+	setup
+
+	sleep $TIMEOUT
+	n_mgs=$(do_facet mgs cat /proc/fs/lustre/mgs/MGS/mgs/stats | awk \
+		'/obd_ping/ {print $2}')
+	n_mdt=$(do_facet mds1 cat /proc/fs/lustre/mds/MDS/mdt/stats | awk \
+		'/obd_ping/ {print $2}')
+	n_ost=$(do_facet ost1 cat \
+		/proc/fs/lustre/obdfilter/$FSNAME-OST0000/stats | awk \
+		'/ping/ {print $2}')
+	if [[ -z $n_mgs ]] || [[ $n_mgs == 0 ]]; then
+		error_noexit "MGS pings: $n_mgs"
+		rc=1
+	fi
+	if [[ -n $n_mdt ]] && [[ $n_mdt != 0 ]]; then
+		error_noexit "MDT pings: $n_mdt"
+		rc=1
+	fi
+	if [[ -n $n_ost ]] && [[ $n_ost != 0 ]]; then
+		error_noexit "OST pings: $n_ost"
+		rc=1
+	fi
+
+	cleanup
+	suppress_pings_restore
+	return $rc
+}
+run_test 73 "suppress_pings: No pings when idle if enabled"
+
+test_74() {
+	local file=$DIR/$tfile
+	local fid
+	local id
+	local group
+	local version
+	local peer_committed
+	local tmp
+	local rc=0
+
+	suppress_pings_enable
+	setup
+
+	$SETSTRIPE -c 1 -i 0 $file
+	dd if=/dev/zero of=$file bs=1 count=1 oflag=sync
+	fid=$($LFS path2fid $file)
+	tmp=$($GETSTRIPE $file | awk 'BEGIN {parse = 0};
+		/^[[:space:]]*obdidx/ {parse = 1; next};
+		{if (parse == 1) print $2,$4}')
+	id=$(echo $tmp | awk '{print $1}')
+	group=$(echo $tmp | awk '{print $2}')
+	echo -n >$file
+	sleep $TIMEOUT
+	version=$(do_facet mds1 lctl --device $FSNAME-MDT0000 getobjversion \
+		"$fid")
+	peer_committed=$(cat /proc/fs/lustre/mdc/$FSNAME-MDT0000-mdc-*/import |
+		awk '/peer_committed/ {print $2}')
+	if ((version > peer_committed)); then
+		error_noexit "MDC peer_committed: $version > $peer_committed"
+		rc=1
+	fi
+	version=$(do_facet ost1 lctl --device $FSNAME-OST0000 getobjversion \
+		-i $id -g $group)
+	peer_committed=$(cat \
+		/proc/fs/lustre/osc/$FSNAME-OST0000-osc-[^M]*/import |
+		awk '/peer_committed/ {print $2}')
+	if ((version > peer_committed)); then
+		error_noexit "OSC peer_committed: $version > $peer_committed"
+		rc=1
+	fi
+
+	rm $file
+	cleanup
+	suppress_pings_restore
+	return $rc
+}
+run_test 74 "suppress_pings: Pings not suppressible with uncommitted requests"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
