@@ -242,8 +242,6 @@ rm -rf $RPM_BUILD_ROOT/lib/modules/%{kversion}/updates/kernel/fs/lustre-ldiskfs
 llog_base=$RPM_BUILD_DIR/lustre-%{version}/lustre/obdclass/llog_test
 if [ -e ${llog_base}.ko ]; then
   cp ${llog_base}.ko $RPM_BUILD_ROOT/lib/modules/%{kversion}/updates/kernel/fs/lustre
-elif [ -e ${llog_base}.o ]; then
-  cp ${llog_base}.o $RPM_BUILD_ROOT/lib/modules/%{kversion}/updates/kernel/fs/lustre
 fi
 
 # The .ha_v2 extension identifies the heartbeat resource agent as using
@@ -291,15 +289,18 @@ if [ -f $RPM_BUILD_ROOT%{_libdir}/libcfsutil.a ] ; then
   echo '%{_libdir}/libcfsutil.a' >>lustre.files
 fi
 
+# --enable-liblustre (default)
 if [ -f $RPM_BUILD_ROOT%{_libdir}/liblustre.so ] ; then
   echo '%{_libdir}/liblustre.a' >>lustre.files
   echo '%{_libdir}/liblustre.so' >>lustre.files
 fi
 
+# --enable-ldiskfs (default if server)
 if [ -f $RPM_BUILD_ROOT%{_libdir}/libiam.a ] ; then
   echo '%{_libdir}/libiam.a' >>lustre.files
 fi
 
+# --enable-snmp (defaults to auto; depends on system)
 if [ -d $RPM_BUILD_ROOT%{_libdir}/lustre/snmp ] ; then
   echo '%{_libdir}/lustre/snmp' >>lustre.files
   echo '%{_datadir}/lustre/snmp/mibs' >>lustre.files
@@ -317,8 +318,11 @@ if [ -f $RPM_BUILD_DIR/lustre-%{version}/lustre/include/linux/lustre_types.h ] ;
 fi
 
 %if %{build_lustre_tests}
+# --enable-tests
 echo '%{_libdir}/lustre/tests/*' >lustre-tests.files
-echo '/lib/modules/%{kversion}/updates/kernel/fs/lustre/llog_test.*' >>lustre-tests.files
+echo '/lib/modules/%{kversion}/updates/kernel/fs/lustre/llog_test.ko' >>lustre-tests.files
+
+# --enable-liblustre-tests
 if [ -d $RPM_BUILD_ROOT%{_libdir}/lustre/liblustre/tests ] ; then
   echo '%{_libdir}/lustre/liblustre/tests/*' >>lustre-tests.files
 fi
