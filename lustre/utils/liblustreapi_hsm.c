@@ -390,52 +390,73 @@ int llapi_hsm_progress(char *mnt, struct hsm_progress *hp)
  *                 be used.
  * \param newfid[out] Filled with new Lustre fid.
  */
-int llapi_hsm_import(const char *dst, int archive, struct stat *st,
+int llapi_hsm_import(const char *dst, int archive, const struct stat *st,
 		     unsigned long long stripe_size, int stripe_offset,
 		     int stripe_count, int stripe_pattern, char *pool_name,
 		     lustre_fid *newfid)
 {
-	struct utimbuf	time;
-	int		fd;
-	int		rc = 0;
+	struct timeval		 times[2];
+	int			 fd;
+	int			 rc = 0;
+
+	if (stripe_pattern == 0)
+		stripe_pattern = LOV_PATTERN_RAID0;
 
 	/* Create a non-striped file */
-	fd = open(dst, O_CREAT | O_EXCL | O_LOV_DELAY_CREATE | O_NONBLOCK,
-		  st->st_mode);
-
-	if (fd < 0)
+	fd = llapi_file_open_pool(dst, O_CREAT | O_WRONLY, st->st_mode,
+				  stripe_size, stripe_offset, stripe_count,
+				  stripe_pattern | LOV_PATTERN_F_RELEASED,
+				  pool_name);
+	if (fd < 0) {
+		llapi_error(LLAPI_MSG_ERROR, -errno,
+			    "cannot create '%s' for import", dst);
 		return -errno;
-	close(fd);
+	}
 
-	/* set size on MDT */
-	if (truncate(dst, st->st_size) != 0) {
-		rc = -errno;
+	/* Get the new fid in Lustre. Caller needs to use this fid
+	   from now on. */
+	rc = llapi_fd2fid(fd, newfid);
+	if (rc != 0) {
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "cannot get fid of '%s' for import", dst);
 		goto out_unlink;
 	}
-	/* Mark archived */
-	rc = llapi_hsm_state_set(dst, HS_EXISTS | HS_RELEASED | HS_ARCHIVED, 0,
-				 archive);
-	if (rc)
-		goto out_unlink;
 
-	/* Get the new fid in the archive. Caller needs to use this fid
-	   from now on. */
-	rc = llapi_path2fid(dst, newfid);
-	if (rc)
+	/* set size on MDT */
+	if (ftruncate(fd, st->st_size) != 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "cannot truncate '%s' for import", dst);
 		goto out_unlink;
+	}
+
+	/* set HSM flags */
+	rc = llapi_hsm_state_set_fd(fd, HS_EXISTS | HS_RELEASED | HS_ARCHIVED,
+				    0, archive);
+	if (rc != 0) {
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "cannot set HSM states on '%s' for import", dst);
+		goto out_unlink;
+	}
 
 	/* Copy the file attributes */
-	time.actime = st->st_atime;
-	time.modtime = st->st_mtime;
-	if (utime(dst, &time) == -1 ||
-		chmod(dst, st->st_mode) == -1 ||
-		chown(dst, st->st_uid, st->st_gid) == -1) {
+	times[0].tv_sec = st->st_atime;
+	times[0].tv_usec = 0;
+	times[1].tv_sec = st->st_mtime;
+	times[1].tv_usec = 0;
+	if (futimes(fd, times) == -1 ||
+	    fchmod(fd, st->st_mode) == -1 ||
+	    fchown(fd, st->st_uid, st->st_gid) == -1) {
 		/* we might fail here because we change perms/owner */
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "cannot set attributes of '%s' for import", dst);
 		rc = -errno;
 		goto out_unlink;
 	}
 
 out_unlink:
+	if (fd >= 0)
+		close(fd);
 	if (rc)
 		unlink(dst);
 	return rc;
@@ -451,6 +472,23 @@ out_unlink:
  * \retval 0 on success.
  * \retval -errno on error.
  */
+int llapi_hsm_state_get_fd(int fd, struct hsm_user_state *hus)
+{
+	int rc;
+
+	rc = ioctl(fd, LL_IOC_HSM_STATE_GET, hus);
+	/* If error, save errno value */
+	rc = rc ? -errno : 0;
+
+	return rc;
+}
+
+/**
+ * Return the current HSM states and HSM requests related to file pointed by \a
+ * path.
+ *
+ * see llapi_hsm_state_get_fd() for args use and return
+ */
 int llapi_hsm_state_get(const char *path, struct hsm_user_state *hus)
 {
 	int fd;
@@ -460,16 +498,14 @@ int llapi_hsm_state_get(const char *path, struct hsm_user_state *hus)
 	if (fd < 0)
 		return -errno;
 
-	rc = ioctl(fd, LL_IOC_HSM_STATE_GET, hus);
-	/* If error, save errno value */
-	rc = rc ? -errno : 0;
+	rc = llapi_hsm_state_get_fd(fd, hus);
 
 	close(fd);
 	return rc;
 }
 
 /**
- * Set HSM states of file pointed by \a path.
+ * Set HSM states of file pointed by \a fd
  *
  * Using the provided bitmasks, the current HSM states for this file will be
  * changed. \a archive_id could be used to change the archive number also. Set
@@ -482,16 +518,11 @@ int llapi_hsm_state_get(const char *path, struct hsm_user_state *hus)
  * \retval 0 on success.
  * \retval -errno on error.
  */
-int llapi_hsm_state_set(const char *path, __u64 setmask, __u64 clearmask,
-			__u32 archive_id)
+int llapi_hsm_state_set_fd(int fd, __u64 setmask, __u64 clearmask,
+			   __u32 archive_id)
 {
-	struct hsm_state_set hss;
-	int fd;
-	int rc;
-
-	fd = open(path, O_WRONLY | O_LOV_DELAY_CREATE | O_NONBLOCK);
-	if (fd < 0)
-		return -errno;
+	struct hsm_state_set	 hss;
+	int			 rc;
 
 	hss.hss_valid = HSS_SETMASK|HSS_CLEARMASK;
 	hss.hss_setmask = setmask;
@@ -506,10 +537,29 @@ int llapi_hsm_state_set(const char *path, __u64 setmask, __u64 clearmask,
 	/* If error, save errno value */
 	rc = rc ? -errno : 0;
 
-	close(fd);
 	return rc;
 }
 
+/**
+ * Set HSM states of file pointed by \a path.
+ *
+ * see llapi_hsm_state_set_fd() for args use and return
+ */
+int llapi_hsm_state_set(const char *path, __u64 setmask, __u64 clearmask,
+			__u32 archive_id)
+{
+	int fd;
+	int rc;
+
+	fd = open(path, O_WRONLY | O_LOV_DELAY_CREATE | O_NONBLOCK);
+	if (fd < 0)
+		return -errno;
+
+	rc = llapi_hsm_state_set_fd(fd, setmask, clearmask, archive_id);
+
+	close(fd);
+	return rc;
+}
 
 /**
  * Return the current HSM request related to file pointed by \a path.
