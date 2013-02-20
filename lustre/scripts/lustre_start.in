@@ -235,7 +235,7 @@ unload_modules() {
     command="PATH=\$PATH:/sbin:/usr/sbin
 if grep -q libcfs /proc/modules; then
     lctl net down 1>/dev/null 2>&1
-    lustre_rmmod
+    lustre_rmmod -i ldiskfs,libcfs
 fi"
 
     if is_pdsh; then
