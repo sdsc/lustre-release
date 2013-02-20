@@ -147,10 +147,11 @@ command_t cmdlist[] = {
 	 "To list the striping info for a given file or files in a\n"
 	 "directory or recursively for all files in a directory tree.\n"
 	 "usage: getstripe [--ost|-O <uuid>] [--quiet | -q] [--verbose | -v]\n"
-	 "                 [--stripe-count|-c] [--stripe-index|-i]\n"
-	 "                 [--pool|-p] [--stripe-size|-S] [--directory|-d]\n"
-	 "                 [--mdt-index|-M] [--recursive|-r] [--raw|-R]\n"
-	 "                 <directory|filename> ..."},
+	 "		   [--stripe-count|-c] [--stripe-index|-i]\n"
+	 "		   [--pool|-p] [--stripe-size|-S] [--directory|-d]\n"
+	 "		   [--mdt-index|-M] [--recursive|-r] [--raw|-R]\n"
+	 "		   [--pattern|-P]\n"
+	 "		   <directory|filename> ..."},
 	{"setdirstripe", lfs_setdirstripe, 0,
 	 "To create a remote directory on a specified MDT.\n"
 	 "usage: setdirstripe <--index|-i mdt_index> <dir>\n"
@@ -1196,63 +1197,64 @@ err:
 static int lfs_getstripe_internal(int argc, char **argv,
 				  struct find_param *param)
 {
-        struct option long_opts[] = {
+	struct option long_opts[] = {
 #if LUSTRE_VERSION >= OBD_OCD_VERSION(2,9,50,0)
 #warning "remove deprecated --count option"
 #else
-                /* This formerly implied "stripe-count", but was explicitly
-                 * made "stripe-count" for consistency with other options,
-                 * and to separate it from "mdt-count" when DNE arrives. */
-                {"count",        no_argument,       0, 'c'},
+		/* This formerly implied "stripe-count", but was explicitly
+		 * made "stripe-count" for consistency with other options,
+		 * and to separate it from "mdt-count" when DNE arrives. */
+		{"count",		no_argument,		0, 'c'},
 #endif
-                {"stripe-count", no_argument,       0, 'c'},
-                {"stripe_count", no_argument,       0, 'c'},
-                {"directory",    no_argument,       0, 'd'},
-                {"generation",   no_argument,       0, 'g'},
+		{"stripe-count",	no_argument,		0, 'c'},
+		{"stripe_count",	no_argument,		0, 'c'},
+		{"directory",		no_argument,		0, 'd'},
+		{"generation",		no_argument,		0, 'g'},
 #if LUSTRE_VERSION >= OBD_OCD_VERSION(2,9,50,0)
 #warning "remove deprecated --index option"
 #else
-                /* This formerly implied "stripe-index", but was explicitly
-                 * made "stripe-index" for consistency with other options,
-                 * and to separate it from "mdt-index" when DNE arrives. */
-                {"index",        no_argument,       0, 'i'},
+		/* This formerly implied "stripe-index", but was explicitly
+		 * made "stripe-index" for consistency with other options,
+		 * and to separate it from "mdt-index" when DNE arrives. */
+		{"index",		no_argument,		0, 'i'},
 #endif
-                {"stripe-index", no_argument,       0, 'i'},
-                {"stripe_index", no_argument,       0, 'i'},
-                {"mdt-index",    no_argument,       0, 'M'},
-                {"mdt_index",    no_argument,       0, 'M'},
+		{"stripe-index",	no_argument,		0, 'i'},
+		{"stripe_index",	no_argument,		0, 'i'},
+		{"mdt-index",		no_argument,		0, 'M'},
+		{"mdt_index",		no_argument,		0, 'M'},
 #if LUSTRE_VERSION >= OBD_OCD_VERSION(2,9,50,0)
 #warning "remove deprecated --offset option"
 #else
-                /* This formerly implied "stripe-index", but was confusing
-                 * with "file offset" (which will eventually be needed for
-                 * with different layouts by offset), so deprecate it. */
-                {"offset",       no_argument,       0, 'o'},
+		/* This formerly implied "stripe-index", but was confusing
+		 * with "file offset" (which will eventually be needed for
+		 * with different layouts by offset), so deprecate it. */
+		{"offset",		no_argument,		0, 'o'},
 #endif
-                {"obd",          required_argument, 0, 'O'},
-                {"ost",          required_argument, 0, 'O'},
-                {"pool",         no_argument,       0, 'p'},
-                {"quiet",        no_argument,       0, 'q'},
-                {"recursive",    no_argument,       0, 'r'},
-                {"raw",          no_argument,       0, 'R'},
+		{"obd",			required_argument,	0, 'O'},
+		{"ost",			required_argument,	0, 'O'},
+		{"pool",		no_argument,		0, 'p'},
+		{"pattern",		no_argument,		0, 'P'},
+		{"quiet",		no_argument,		0, 'q'},
+		{"recursive",		no_argument,		0, 'r'},
+		{"raw",			no_argument,		0, 'R'},
 #if LUSTRE_VERSION >= OBD_OCD_VERSION(2,9,50,0)
 #warning "remove deprecated --size option"
 #else
-                /* This formerly implied "--stripe-size", but was confusing
-                 * with "lfs find --size|-s", which means "file size", so use
-                 * the consistent "--stripe-size|-S" for all commands. */
-                {"size",         no_argument,       0, 's'},
+		/* This formerly implied "--stripe-size", but was confusing
+		 * with "lfs find --size|-s", which means "file size", so use
+		 * the consistent "--stripe-size|-S" for all commands. */
+		{"size",		no_argument,		0, 's'},
 #endif
-                {"stripe-size",  no_argument,       0, 'S'},
-                {"stripe_size",  no_argument,       0, 'S'},
-                {"verbose",      no_argument,       0, 'v'},
-                {0, 0, 0, 0}
-        };
-        int c, rc;
+		{"stripe-size",		no_argument,		0, 'S'},
+		{"stripe_size",		no_argument,		0, 'S'},
+		{"verbose",		no_argument,		0, 'v'},
+		{0, 0, 0, 0}
+	};
+	int c, rc;
 
 	param->maxdepth = 1;
 	optind = 0;
-	while ((c = getopt_long(argc, argv, "cdghiMoO:pqrRsSv",
+	while ((c = getopt_long(argc, argv, "cdghiMoO:pPqrRsSv",
 				long_opts, NULL)) != -1) {
 		switch (c) {
 		case 'O':
@@ -1328,6 +1330,12 @@ static int lfs_getstripe_internal(int argc, char **argv,
 		case 'p':
 			if (!(param->verbose & VERBOSE_DETAIL)) {
 				param->verbose |= VERBOSE_POOL;
+				param->maxdepth = 0;
+			}
+			break;
+		case 'P':
+			if (!(param->verbose & VERBOSE_DETAIL)) {
+				param->verbose |= VERBOSE_PATTERN;
 				param->maxdepth = 0;
 			}
 			break;

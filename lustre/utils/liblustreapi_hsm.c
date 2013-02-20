@@ -50,6 +50,7 @@
 #else
 #include <unistd.h>
 #endif
+#include <attr/xattr.h>
 
 #include <liblustre.h>
 #include <lnet/lnetctl.h>
@@ -395,34 +396,49 @@ int llapi_hsm_import(const char *dst, int archive, struct stat *st,
 		     int stripe_count, int stripe_pattern, char *pool_name,
 		     lustre_fid *newfid)
 {
-	struct utimbuf	time;
-	int		fd;
-	int		rc = 0;
+	struct utimbuf		 time;
+	int			 fd;
+	int			 rc = 0;
+
+	if (stripe_pattern == 0)
+		stripe_pattern = LOV_PATTERN_RAID0;
 
 	/* Create a non-striped file */
-	fd = open(dst, O_CREAT | O_EXCL | O_LOV_DELAY_CREATE | O_NONBLOCK,
-		  st->st_mode);
-
-	if (fd < 0)
+	fd = llapi_file_open_pool(dst, O_CREAT | O_WRONLY, st->st_mode,
+				  stripe_size, stripe_offset, stripe_count,
+				  stripe_pattern | LOV_PATTERN_F_RELEASED,
+				  pool_name);
+	if (fd < 0) {
+		llapi_error(LLAPI_MSG_ERROR, -errno,
+			    "cannot create %s for import\n", dst);
 		return -errno;
-	close(fd);
+	}
 
-	/* set size on MDT */
-	if (truncate(dst, st->st_size) != 0) {
-		rc = -errno;
+	/* Get the new fid in Lustre. Caller needs to use this fid
+	   from now on. */
+	rc = llapi_fd2fid(fd, newfid);
+	if (rc) {
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "cannot get fid of %s for import\n", dst);
 		goto out_unlink;
 	}
-	/* Mark archived */
+
+	/* set size on MDT */
+	if (ftruncate(fd, st->st_size) != 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "cannot truncate %s for import\n", dst);
+		goto out_unlink;
+	}
+
+	/* set HSM flags */
 	rc = llapi_hsm_state_set(dst, HS_EXISTS | HS_RELEASED | HS_ARCHIVED, 0,
 				 archive);
-	if (rc)
+	if (rc) {
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "cannot set HSM states on %s for import\n", dst);
 		goto out_unlink;
-
-	/* Get the new fid in the archive. Caller needs to use this fid
-	   from now on. */
-	rc = llapi_path2fid(dst, newfid);
-	if (rc)
-		goto out_unlink;
+	}
 
 	/* Copy the file attributes */
 	time.actime = st->st_atime;
@@ -436,6 +452,8 @@ int llapi_hsm_import(const char *dst, int archive, struct stat *st,
 	}
 
 out_unlink:
+	if (fd >= 0)
+		close(fd);
 	if (rc)
 		unlink(dst);
 	return rc;

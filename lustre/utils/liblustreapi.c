@@ -2186,10 +2186,12 @@ static void lov_dump_user_lmm_header(struct lov_user_md *lum, char *path,
                 }
         }
 
-        if ((verbose & VERBOSE_DETAIL) && !is_dir) {
-                llapi_printf(LLAPI_MSG_NORMAL, "lmm_stripe_pattern: %x%c",
-                             lum->lmm_pattern, nl);
-        }
+	if ((verbose & VERBOSE_PATTERN) && !is_dir) {
+		if (verbose & ~VERBOSE_PATTERN)
+			llapi_printf(LLAPI_MSG_NORMAL, "%spattern:        ",
+				     prefix);
+		llapi_printf(LLAPI_MSG_NORMAL, "%.x%c", lum->lmm_pattern, nl);
+	}
 
         if ((verbose & VERBOSE_GENERATION) && !is_dir) {
                 if (verbose & ~VERBOSE_GENERATION)
