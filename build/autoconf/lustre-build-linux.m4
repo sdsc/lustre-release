@@ -70,7 +70,7 @@ fi
 AC_MSG_RESULT([$LINUXRELEASE])
 AC_SUBST(LINUXRELEASE)
 
-moduledir='/lib/modules/'$LINUXRELEASE/updates/kernel
+moduledir='$(CROSS_PATH)/lib/modules/$(LINUXRELEASE)/updates/kernel'
 AC_SUBST(moduledir)
 
 modulefsdir='$(moduledir)/fs/$(PACKAGE)'
@@ -351,11 +351,13 @@ AS_VAR_POPDEF([lb_File])dnl
 AC_DEFUN([LB_LINUX_MIC],
 	[AC_MSG_CHECKING([for cross compilation for the Intel(R) Xeon Phi(TM) card.])
 CROSS_ARCH=
+CROSS_PATH=
 CROSS_COMPILE=
 case $target_vendor in
 	k1om)
 		AC_MSG_RESULT([yes])
 		CROSS_ARCH='ARCH=k1om'
+		CROSS_PATH=${CROSS_PATH:=/opt/intel/mic/lustre/device-k1om}
 		CROSS_COMPILE=${CROSS_TOOLCHAIN:=/usr/linux-k1om-4.7}/bin/x86_64-k1om-linux-
 		LB_CHECK_CROSS_TOOL([${CROSS_COMPILE}gcc],[CC=${CROSS_COMPILE}gcc],[
 			AC_MSG_WARN([GNU cross toolchain for the Intel(R) Xeon Phi(TM) card not found.])
@@ -378,6 +380,9 @@ case $target_vendor in
 			AC_MSG_WARN([Please, specify the path to it in CROSS_TOOLCHAIN=<PATH>.])
 			AC_MSG_ERROR([${CROSS_COMPILE}ranlib not found.])])
 		CCAS=$CC
+		# need to produce special section for debuginfo extraction
+		LDFLAGS="${LDFLAGS} -Wl,--build-id"
+		EXTRA_KLDFLAGS="${EXTRA_KLDFLAGS} -Wl,--build-id"
 		AC_MSG_WARN([Disabling server because it is not supported for the Intel(R) Xeon Phi(TM) card.])
 		enable_server='no'
 		;;
@@ -386,6 +391,7 @@ case $target_vendor in
 		;;
 esac
 AC_SUBST(CROSS_ARCH)
+AC_SUBST(CROSS_PATH)
 AC_SUBST(CROSS_COMPILE)
 ])
 
