@@ -562,13 +562,13 @@ check_mem_leak () {
 unload_modules() {
 	wait_exit_ST client # bug 12845
 
-	$LUSTRE_RMMOD ldiskfs || return 2
+	$LUSTRE_RMMOD -i ldiskfs,libcfs || return 2
 
 	if $LOAD_MODULES_REMOTE; then
 		local list=$(comma_list $(remote_nodes_list))
 		if [ -n "$list" ]; then
 			echo "unloading modules on: '$list'"
-			do_rpc_nodes "$list" $LUSTRE_RMMOD ldiskfs
+			do_rpc_nodes "$list" $LUSTRE_RMMOD -i ldiskfs,libcfs
 			do_rpc_nodes "$list" check_mem_leak
 		fi
 	fi
