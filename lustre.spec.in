@@ -257,37 +257,7 @@ ln -s $RPM_BUILD_ROOT/usr/src lustre-source
 make distdir distdir=lustre-source/lustre-%{version}
 chmod -R go-w lustre-source/lustre-%{version}
 
-cat >lustre.files <<EOF
-/sbin/mount.lustre
-/usr/sbin/*
-/usr/bin/*
-
-/usr/share/lustre
-
-%{_libdir}/libptlctl.a
-%{_libdir}/liblustreapi.a
-%{_libdir}/liblustreapi.so
-/usr/include/lustre
-/usr/include/libcfs
-
-%{_mandir}/man?/*
-
-%{_libexecdir}/lustre/lc_common
-
-%{_sysconfdir}/udev/rules.d/99-lustre.rules
-
-%{_sysconfdir}/init.d/lnet
-%{_sysconfdir}/init.d/lustre
-%config(noreplace) %{_sysconfdir}/ldev.conf
-%{_sysconfdir}/sysconfig/lustre
-%{_libexecdir}/lustre/haconfig
-%{_sysconfdir}/ha.d/resource.d/Lustre.ha_v2
-%{_sysconfdir}/ha.d/resource.d/Lustre
-EOF
-
-if [ -f $RPM_BUILD_ROOT%{_libdir}/libcfsutil.a ] ; then
-  echo '%{_libdir}/libcfsutil.a' >>lustre.files
-fi
+:> lustre.files
 
 # --enable-liblustre (default)
 if [ -f $RPM_BUILD_ROOT%{_libdir}/liblustre.so ] ; then
@@ -306,34 +276,33 @@ if [ -d $RPM_BUILD_ROOT%{_libdir}/lustre/snmp ] ; then
   echo '%{_datadir}/lustre/snmp/mibs' >>lustre.files
 fi
 
-# Have universal lustre headers
-if [ -f $RPM_BUILD_DIR/lustre-%{version}/lustre/include/lustre/lustre_idl.h ] ; then
-  echo '/usr/include/linux/lustre_user.h' >>lustre.files
-else
-  echo '/usr/include/linux/lustre_idl.h' >>lustre.files
-fi
-
-if [ -f $RPM_BUILD_DIR/lustre-%{version}/lustre/include/linux/lustre_types.h ] ; then
-  echo '/usr/include/linux/lustre_types.h' >>lustre.files
-fi
-
-%if %{build_lustre_tests}
-# --enable-tests
-echo '%{_libdir}/lustre/tests/*' >lustre-tests.files
-echo '/lib/modules/%{kversion}/updates/kernel/fs/lustre/llog_test.ko' >>lustre-tests.files
-
-# --enable-liblustre-tests
-if [ -d $RPM_BUILD_ROOT%{_libdir}/lustre/liblustre/tests ] ; then
-  echo '%{_libdir}/lustre/liblustre/tests/*' >>lustre-tests.files
-fi
-%endif
-
 # mark modules executable for find-debuginfo.sh
 find $RPM_BUILD_ROOT/lib/modules/%{kversion}/updates -name "*.ko" -type f | \
 	xargs --no-run-if-empty chmod u+x
 
 %files -f lustre.files
 %defattr(-,root,root)
+/sbin/mount.lustre
+/usr/sbin/*
+/usr/bin/*
+/usr/share/lustre
+%{_libdir}/libcfsutil.a
+%{_libdir}/libptlctl.a
+%{_libdir}/liblustreapi.a
+%{_libdir}/liblustreapi.so
+/usr/include/lustre
+/usr/include/libcfs
+%{_mandir}/man?/*
+%{_libexecdir}/lustre/lc_common
+%{_sysconfdir}/udev/rules.d/99-lustre.rules
+%{_sysconfdir}/init.d/lnet
+%{_sysconfdir}/init.d/lustre
+%config(noreplace) %{_sysconfdir}/ldev.conf
+%{_sysconfdir}/sysconfig/lustre
+%{_libexecdir}/lustre/haconfig
+%{_sysconfdir}/ha.d/resource.d/Lustre.ha_v2
+%{_sysconfdir}/ha.d/resource.d/Lustre
+%{_includedir}/linux/lustre_user.h
 
 %files modules
 %defattr(-,root,root)
@@ -372,8 +341,13 @@ find $RPM_BUILD_ROOT/lib/modules/%{kversion}/updates -name "*.ko" -type f | \
 # %files deps-rhel
 
 %if %{build_lustre_tests}
-%files tests -f lustre-tests.files
+%files tests
 %defattr(-,root,root)
+# --enable-tests
+%{_libdir}/lustre/tests/*
+# --enable-liblustre-tests
+%{_libdir}/lustre/liblustre/tests/*
+/lib/modules/%{kversion}/updates/kernel/fs/lustre/llog_test.ko
 %endif
 
 %post modules
