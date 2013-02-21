@@ -209,9 +209,9 @@ Index: linux-stage/fs/ext4/mballoc.c
  	if (sbi->s_journal)
  		sbi->s_journal->j_commit_callback = release_blocks_on_commit;
 @@ -2495,8 +2641,10 @@ int ext4_mb_release(struct super_block *
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
  	}
  
- 	free_percpu(sbi->s_locality_groups);
 -	if (sbi->s_proc)
 +	if (sbi->s_proc) {
  		remove_proc_entry("mb_groups", sbi->s_proc);

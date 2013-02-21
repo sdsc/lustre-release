@@ -88,10 +88,13 @@ Index: linux-stage/fs/ext4/mballoc.c
  	/*
  	 * For delayed allocation, we could skip the ENOSPC and
  	 * EDQUOT check, as blocks and quotas have been already
-@@ -4529,6 +4559,25 @@
- 			ac->ac_b_ex.fe_len = 0;
- 			ar->len = 0;
- 			ext4_mb_show_ac(ac);
+@@ -4529,10 +4559,29 @@ 
+			ac->ac_b_ex.fe_len = 0;
+			ac->ac_status = AC_STATUS_CONTINUE;
+			goto repeat;
+-		} else if (*errp)
++		} else if (*errp) {
+		errout:
 +			if (ac->ac_pa) {
 +				struct ext4_prealloc_space *pa = ac->ac_pa;
 +
@@ -111,10 +114,13 @@ Index: linux-stage/fs/ext4/mballoc.c
 +					(unsigned)pa->pa_error,
 +					pa->pa_inode ? pa->pa_inode->i_ino : 0);
 +			}
- 		} else {
- 			block = ext4_grp_offs_to_block(sb, &ac->ac_b_ex);
- 			ar->len = ac->ac_b_ex.fe_len;
-@@ -4691,6 +4740,15 @@
+			ext4_discard_allocated_blocks(ac);
+-		else {
++ 		} else {
+			block = ext4_grp_offs_to_block(sb, &ac->ac_b_ex);
+			ar->len = ac->ac_b_ex.fe_len;
+		}
+@@ -4691,6 +4740,16 @@
  		goto error_return;
  	}
  
@@ -124,7 +130,8 @@ Index: linux-stage/fs/ext4/mballoc.c
 +		printk(KERN_WARNING "Release to readonly device %s (%#x): "
 +			"[inode %lu] [block %llu] [count %lu] [is_meta %d]\n",
 +			bdev->bd_disk ? bdev->bd_disk->disk_name : "",
-+			bdev->bd_dev, inode->i_ino, block, count, metadata);
++			bdev->bd_dev, inode->i_ino, block, count,
++			(flags & EXT4_FREE_BLOCKS_METADATA));
 +	}
 +
  	ext4_debug("freeing block %llu\n", block);
