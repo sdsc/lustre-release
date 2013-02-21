@@ -146,14 +146,13 @@ Index: linux-stage/fs/ext4/extents.c
   * How many index/leaf blocks need to change/allocate to modify nrblocks?
   *
   * if nrblocks are fit in a single extent (chunk flag is 1), then
-@@ -3975,3 +4024,14 @@ int ext4_fiemap(struct inode *inode, str
+@@ -3975,3 +4024,13 @@ int ext4_fiemap(struct inode *inode, str
  	return error;
  }
  
 +EXPORT_SYMBOL(ext4_ext_store_pblock);
 +EXPORT_SYMBOL(ext4_ext_search_right);
 +EXPORT_SYMBOL(ext4_ext_search_left);
-+EXPORT_SYMBOL(ext_pblock);
 +EXPORT_SYMBOL(ext4_ext_insert_extent);
 +EXPORT_SYMBOL(ext4_mb_new_blocks);
 +EXPORT_SYMBOL(ext4_ext_calc_credits_for_insert);
@@ -214,9 +213,9 @@ Index: linux-stage/fs/ext4/super.c
  	Opt_block_validity, Opt_noblock_validity,
  	Opt_inode_readahead_blks, Opt_journal_ioprio,
 +	Opt_mballoc,
- 	Opt_discard, Opt_nodiscard,
- 	Opt_init_inode_table, Opt_noinit_inode_table,
+	Opt_discard, Opt_nodiscard, Opt_init_itable, Opt_noinit_itable,
  };
+ 
 @@ -1229,6 +1232,9 @@ static const match_table_t tokens = {
  	{Opt_noquota, "noquota"},
  	{Opt_quota, "quota"},
