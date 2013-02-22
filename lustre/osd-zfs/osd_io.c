@@ -48,7 +48,6 @@
 
 #include <lustre_ver.h>
 #include <libcfs/libcfs.h>
-#include <lustre_fsfilt.h>
 #include <obd_support.h>
 #include <lustre_net.h>
 #include <obd.h>
@@ -103,7 +102,7 @@ static ssize_t osd_read(const struct lu_env *env, struct dt_object *dt,
 		rc = size;
 		*pos += size;
 
-		/* XXX: workaround for bug in HEAD: fsfilt_ldiskfs_read() returns
+		/* XXX: workaround for bug in HEAD: -dmu_read() returns
 		 * requested number of bytes, not actually read ones */
 		if (S_ISLNK(obj->oo_dt.do_lu.lo_header->loh_attr))
 			rc = buf->lb_len;

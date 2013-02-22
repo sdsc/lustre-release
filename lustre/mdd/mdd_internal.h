@@ -45,7 +45,6 @@
 #include <lustre_eacl.h>
 #include <md_object.h>
 #include <dt_object.h>
-#include <lustre_fsfilt.h>
 #include <lustre/lustre_lfsck_user.h>
 #include <lustre_fid.h>
 #include <lustre_capa.h>

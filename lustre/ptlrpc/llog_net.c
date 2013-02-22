@@ -55,8 +55,6 @@
 #include <obd_class.h>
 #include <lustre_log.h>
 #include <libcfs/list.h>
-#include <lvfs.h>
-#include <lustre_fsfilt.h>
 
 #ifdef __KERNEL__
 int llog_origin_connect(struct llog_ctxt *ctxt,
