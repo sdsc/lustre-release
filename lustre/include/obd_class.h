@@ -1204,15 +1204,6 @@ static inline int obd_extent_calc(struct obd_export *exp,
         RETURN(rc);
 }
 
-static inline struct dentry *
-obd_lvfs_fid2dentry(struct obd_export *exp, __u64 id_ino, __u32 gen, __u64 gr)
-{
-	struct lvfs_run_ctxt *ctxt = &exp->exp_obd->obd_lvfs_ctxt;
-	LASSERT(exp->exp_obd);
-
-	return ctxt->cb_ops.l_fid2dentry(id_ino, gen, gr, exp->exp_obd);
-}
-
 /* @max_age is the oldest time in jiffies that we accept using a cached data.
  * If the cache is older than @max_age we will get a new value from the
  * target.  Use a value of "cfs_time_current() + HZ" to guarantee freshness. */
