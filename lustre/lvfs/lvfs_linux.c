@@ -48,7 +48,6 @@
 #include <linux/quotaops.h>
 #include <linux/version.h>
 #include <libcfs/libcfs.h>
-#include <lustre_fsfilt.h>
 #include <obd.h>
 #include <linux/module.h>
 #include <linux/init.h>
@@ -58,10 +57,7 @@
 #include <obd.h>
 #include <lustre_lib.h>
 
-struct lprocfs_stats *obd_memory = NULL;
-EXPORT_SYMBOL(obd_memory);
 /* refine later and change to seqlock or simlar from libcfs */
-
 /* Debugging check only needed during development */
 #ifdef OBD_CTXT_DEBUG
 # define ASSERT_CTXT_MAGIC(magic) LASSERT((magic) == OBD_RUN_CTXT_MAGIC)
@@ -233,59 +229,6 @@ put_old:
         RETURN(err);
 }
 EXPORT_SYMBOL(lustre_rename);
-
-/* Note: dput(dchild) will be called if there is an error */
-struct l_file *l_dentry_open(struct lvfs_run_ctxt *ctxt, struct l_dentry *de,
-                             int flags)
-{
-        mntget(ctxt->pwdmnt);
-        return ll_dentry_open(de, ctxt->pwdmnt, flags, current_cred());
-}
-EXPORT_SYMBOL(l_dentry_open);
-
-#ifdef LPROCFS
-__s64 lprocfs_read_helper(struct lprocfs_counter *lc,
-			  struct lprocfs_counter_header *header,
-			  enum lprocfs_stats_flags flags,
-			  enum lprocfs_fields_flags field)
-{
-	__s64 ret = 0;
-
-	if (lc == NULL || header == NULL)
-		RETURN(0);
-
-	switch (field) {
-		case LPROCFS_FIELDS_FLAGS_CONFIG:
-			ret = header->lc_config;
-			break;
-		case LPROCFS_FIELDS_FLAGS_SUM:
-			ret = lc->lc_sum;
-			if ((flags & LPROCFS_STATS_FLAG_IRQ_SAFE) != 0)
-				ret += lc->lc_sum_irq;
-			break;
-		case LPROCFS_FIELDS_FLAGS_MIN:
-			ret = lc->lc_min;
-			break;
-		case LPROCFS_FIELDS_FLAGS_MAX:
-			ret = lc->lc_max;
-			break;
-		case LPROCFS_FIELDS_FLAGS_AVG:
-			ret = (lc->lc_max - lc->lc_min) / 2;
-			break;
-		case LPROCFS_FIELDS_FLAGS_SUMSQUARE:
-			ret = lc->lc_sumsquare;
-			break;
-		case LPROCFS_FIELDS_FLAGS_COUNT:
-			ret = lc->lc_count;
-			break;
-		default:
-			break;
-	};
-
-	RETURN(ret);
-}
-EXPORT_SYMBOL(lprocfs_read_helper);
-#endif /* LPROCFS */
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
 MODULE_DESCRIPTION("Lustre VFS Filesystem Helper v0.1");

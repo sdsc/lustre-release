@@ -880,7 +880,7 @@ static struct mod_paths {
 	{ "obdfilter", "lustre/obdfilter" },
 	{ "lov", "lustre/lov" },
 	{ "lmv", "lustre/lmv" },
-	{ "fsfilt_ldiskfs", "lustre/lvfs" },
+	{ "lvfs", "lustre/lvfs" },
 	{ "lquota", "lustre/quota" },
 	{ "mgs", "lustre/mgs" },
 	{ "mgc", "lustre/mgc" },

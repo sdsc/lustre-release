@@ -20,7 +20,6 @@ modprobe mdt
 modprobe lquota
 modprobe cmm
 modprobe mdc
-modprobe fsfilt_ldiskfs
 modprobe lvfs
 modprobe obdclass
 modprobe mdd
