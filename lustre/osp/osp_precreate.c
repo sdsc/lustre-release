@@ -923,6 +923,10 @@ static int osp_precreate_thread(void *_arg)
 			break;
 		}
 
+		/* Not connected to OST yet */
+		if (d->opd_got_disconnected != 0)
+			continue;
+
 		if (d->opd_obd->u.cli.cl_seq->lcs_exp == NULL) {
 			/* Get new sequence for client first */
 			LASSERT(d->opd_exp != NULL);
