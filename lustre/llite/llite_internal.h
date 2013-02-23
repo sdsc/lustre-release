@@ -454,6 +454,17 @@ struct eacl_table {
 	cfs_list_t	et_entries[EE_HASHES];
 };
 
+/* Map server-side ROOT FID to a special local ino# - 12, which is an IGIF:
+ *
+ * 1) For other old IGIF objects returned by the server, they will not use
+ *    such IGIF, because it is used by some server-side local object.
+ *
+ * 2) For other normal FID objects returned by the server, the existing
+ *    converting mechanism should guarantee that the ino# converted from
+ *    normal FID should NOT be conflict with IFIG. The "LL_ROOT_INO" will
+ *    not make the things worse. */
+#define LL_ROOT_INO	12
+
 struct ll_sb_info {
 	cfs_list_t		  ll_list;
 	/* this protects pglist and ra_info.  It isn't safe to

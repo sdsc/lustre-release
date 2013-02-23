@@ -528,7 +528,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 	}
 
         LASSERT(fid_is_sane(&sbi->ll_root_fid));
-        root = ll_iget(sb, cl_fid_build_ino(&sbi->ll_root_fid, 0), &lmd);
+	root = ll_iget(sb, LL_ROOT_INO, &lmd);
         md_free_lustre_md(sbi->ll_md_exp, &lmd);
         ptlrpc_req_finished(request);
 
@@ -1734,7 +1734,10 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
 		spin_unlock(&lli->lli_lock);
 	}
 #endif
-        inode->i_ino = cl_fid_build_ino(&body->fid1, 0);
+	if (unlikely(lu_fid_eq(&body->fid1, &sbi->ll_root_fid)))
+		inode->i_ino = LL_ROOT_INO;
+	else
+		inode->i_ino = cl_fid_build_ino(&body->fid1, 0);
         inode->i_generation = cl_fid_build_gen(&body->fid1);
 
         if (body->valid & OBD_MD_FLATIME) {
@@ -2155,6 +2158,8 @@ int ll_prep_inode(struct inode **inode, struct ptlrpc_request *req,
         if (*inode) {
                 ll_update_inode(*inode, &md);
         } else {
+		ino_t ino;
+
                 LASSERT(sb != NULL);
 
                 /*
@@ -2163,7 +2168,11 @@ int ll_prep_inode(struct inode **inode, struct ptlrpc_request *req,
                  */
                 LASSERT(fid_is_sane(&md.body->fid1));
 
-                *inode = ll_iget(sb, cl_fid_build_ino(&md.body->fid1, 0), &md);
+		if (unlikely(lu_fid_eq(&md.body->fid1, &sbi->ll_root_fid)))
+			ino = LL_ROOT_INO;
+		else
+			ino = cl_fid_build_ino(&md.body->fid1, 0);
+                *inode = ll_iget(sb, ino, &md);
                 if (*inode == NULL || IS_ERR(*inode)) {
 #ifdef CONFIG_FS_POSIX_ACL
                         if (md.posix_acl) {
