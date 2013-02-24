@@ -42,7 +42,7 @@
  * are still using IGIF to identify /ROOT.
  *
  * The intention of this code is to fix on-disk state to use
- * FID_SEQ_ROOT for /ROOT:
+ * FID_SEQ_IGIF for /ROOT:
  *  - "." and ".." references in /ROOT itself and it`s subdirectories
  *  - LinkEA in all the objects listed in /ROOT
  *
@@ -310,12 +310,12 @@ int mdd_compat_fixes(const struct lu_env *env, struct mdd_device *mdd)
 		RETURN(0);
 
 	/*
-	 * FID is supposed to be FID_SEQ_ROOT for:
+	 * FID is supposed to be FID_SEQ_IGIF for:
 	 *  - new ldiskfs fs
 	 *  - new ZFS fs
 	 *  - old ZFS fs, by now processed with osd_convert_root_to_new_seq()
 	 */
-	if (fid_seq(&mdd->mdd_root_fid) != FID_SEQ_ROOT) {
+	if (fid_seq(&mdd->mdd_root_fid) != FID_SEQ_IGIF) {
 		CERROR("%s: wrong FID "DFID" is used for /ROOT\n",
 		       mdd2obd_dev(mdd)->obd_name,
 		       PFID(&mdd->mdd_root_fid));

@@ -250,11 +250,11 @@ static inline void lu_local_name_obj_fid(struct lu_fid *fid, __u32 oid)
 }
 
 /* For new FS (>= 2.4), the root FID will be changed to
- * [FID_SEQ_ROOT:1:0], for existing FS, (upgraded to 2.4),
+ * [FID_SEQ_IGIF:1:0], for existing FS, (upgraded to 2.4),
  * the root FID will still be IGIF */
 static inline int fid_is_root(const struct lu_fid *fid)
 {
-	return unlikely((fid_seq(fid) == FID_SEQ_ROOT &&
+	return unlikely((fid_seq(fid) == FID_SEQ_IGIF &&
 			 fid_oid(fid) == 1));
 }
 
@@ -297,7 +297,7 @@ static inline int fid_is_client_mdt_visible(const struct lu_fid *fid)
 	 * object or not. It is caller's duty to check more if needed. */
 	return (!fid_is_last_id(fid) &&
 		(fid_seq_is_norm(seq) || fid_seq_is_igif(seq))) ||
-	       fid_is_root(fid) || fid_is_dot_lustre(fid);
+	       fid_is_dot_lustre(fid);
 }
 
 static inline int fid_is_client_visible(const struct lu_fid *fid)
@@ -308,7 +308,7 @@ static inline int fid_is_client_visible(const struct lu_fid *fid)
 static inline int fid_seq_in_fldb(__u64 seq)
 {
 	return fid_seq_is_igif(seq) || fid_seq_is_norm(seq) ||
-	       fid_seq_is_root(seq) || fid_seq_is_dot(seq);
+	       fid_seq_is_dot(seq);
 }
 
 static inline void lu_last_id_fid(struct lu_fid *fid, __u64 seq)

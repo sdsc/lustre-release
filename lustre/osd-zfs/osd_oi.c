@@ -102,7 +102,6 @@ static const struct named_oid oids[] = {
 	{ OFD_HEALTH_CHECK_OID,		HEALTH_CHECK },
 	{ ACCT_USER_OID,		"acct_usr_inode" },
 	{ ACCT_GROUP_OID,		"acct_grp_inode" },
-	{ MDD_ROOT_INDEX_OID,		NULL },
 	{ MDD_ORPHAN_OID,		NULL },
 	{ 0,				NULL }
 };
@@ -715,7 +714,7 @@ int osd_convert_root_to_new_seq(const struct lu_env *env,
 	       PFID(&lze->lzd_fid), (long long int) lze->lzd_reg.zde_dnode);
 
 	/* already right one? */
-	if (fid_seq(&lze->lzd_fid) == FID_SEQ_ROOT)
+	if (fid_seq(&lze->lzd_fid) == FID_SEQ_IGIF)
 		return 0;
 
 	tx = dmu_tx_create(o->od_objset.os);
@@ -734,7 +733,7 @@ int osd_convert_root_to_new_seq(const struct lu_env *env,
 	dmu_tx_hold_zap(tx, zapid, FALSE, buf);
 
 	/* declare that we'll add object to fid-dnode mapping */
-	newfid.f_seq = FID_SEQ_ROOT;
+	newfid.f_seq = FID_SEQ_IGIF;
 	newfid.f_oid = 1;
 	newfid.f_ver = 0;
 	zapid = osd_get_name_n_idx(env, o, &newfid, buf);

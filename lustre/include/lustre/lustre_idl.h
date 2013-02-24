@@ -445,7 +445,6 @@ enum fid_seq {
 	FID_SEQ_SPECIAL		= 0x200000004ULL,
 	FID_SEQ_QUOTA		= 0x200000005ULL,
 	FID_SEQ_QUOTA_GLB	= 0x200000006ULL,
-	FID_SEQ_ROOT		= 0x200000007ULL,  /* Located on MDT0 */
 	FID_SEQ_NORMAL		= 0x200000400ULL,
 	FID_SEQ_LOV_DEFAULT	= 0xffffffffffffffffULL
 };
@@ -514,11 +513,6 @@ static inline int fid_seq_is_local_file(const __u64 seq)
 	return seq == FID_SEQ_LOCAL_FILE;
 };
 
-static inline int fid_seq_is_root(const __u64 seq)
-{
-	return seq == FID_SEQ_ROOT;
-}
-
 static inline int fid_seq_is_dot(const __u64 seq)
 {
 	return seq == FID_SEQ_DOT_LUSTRE;
@@ -531,7 +525,7 @@ static inline int fid_is_mdt0(const struct lu_fid *fid)
 
 static inline void lu_root_fid(struct lu_fid *fid)
 {
-	fid->f_seq = FID_SEQ_ROOT;
+	fid->f_seq = FID_SEQ_IGIF;
 	fid->f_oid = 1;
 	fid->f_ver = 0;
 }
