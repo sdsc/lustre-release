@@ -796,6 +796,8 @@ struct lov_obd {
         lustre_hash_t          *lov_pools_hash_body; /* used for key access */
         struct list_head        lov_pool_list; /* used for sequential access */
         cfs_proc_dir_entry_t   *lov_pool_proc_entry;
+        /* to see if there're ongoing notifies */
+        struct rw_semaphore     lov_notify_lock;
 };
 
 struct niobuf_local {
