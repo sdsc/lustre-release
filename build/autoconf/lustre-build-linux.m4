@@ -70,7 +70,7 @@ fi
 AC_MSG_RESULT([$LINUXRELEASE])
 AC_SUBST(LINUXRELEASE)
 
-moduledir='/lib/modules/'$LINUXRELEASE/updates/kernel
+moduledir='$(CROSS_PATH)/lib/modules/$(LINUXRELEASE)/updates/kernel'
 AC_SUBST(moduledir)
 
 modulefsdir='$(moduledir)/fs/$(PACKAGE)'
@@ -332,9 +332,11 @@ AC_SUBST(MODPOST_ARGS)
 AC_DEFUN([LB_LINUX_CROSS],
 	[AC_MSG_CHECKING([for cross compilation])
 CROSS_VARS=
+CROSS_PATH=
 case $target_vendor in
 	k1om)
 		AC_MSG_RESULT([Intel(R) Xeon Phi(TM)])
+		CROSS_PATH=${CROSS_PATH:=/opt/intel/mic/lustre/device-k1om}
 		AC_CHECK_TOOL(CC, gcc, [no])
 		if test $CC != x86_64-$target_vendor-linux-gcc ; then
 			AC_MSG_ERROR([Cross compiler x86_64-$target_vendor-linux-gcc not found in PATH.])
@@ -346,6 +348,9 @@ case $target_vendor in
 		AC_CHECK_TOOL(OBJDUMP, objdump, [no])
 		AC_CHECK_TOOL(STRIP, strip, [no])
 		CCAS=$CC
+		# need to produce special section for debuginfo extraction
+		LDFLAGS="${LDFLAGS} -Wl,--build-id"
+		EXTRA_KLDFLAGS="${EXTRA_KLDFLAGS} -Wl,--build-id"
 		if test x$enable_server = xyes ; then
 			AC_MSG_WARN([Disabling server (not supported for x86_64-$target_vendor-linux).])
 			enable_server='no'
@@ -356,6 +361,7 @@ case $target_vendor in
 		;;
 esac
 AC_SUBST(CROSS_VARS)
+AC_SUBST(CROSS_PATH)
 ])
 
 # these are like AC_TRY_COMPILE, but try to build modules against the
