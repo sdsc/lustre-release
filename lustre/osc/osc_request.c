@@ -2677,6 +2677,7 @@ osc_send_oap_rpc(const struct lu_env *env, struct client_obd *cli,
                             mem_tight ? (cmd | OBD_BRW_MEMALLOC) : cmd);
         if (IS_ERR(req)) {
                 LASSERT(cfs_list_empty(&rpc_list));
+		client_obd_list_lock(&cli->cl_loi_list_lock);
                 loi_list_maint(cli, loi);
                 RETURN(PTR_ERR(req));
         }
