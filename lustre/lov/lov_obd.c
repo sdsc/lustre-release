@@ -196,13 +196,21 @@ static int lov_notify(struct obd_device *obd, struct obd_device *watched,
                       enum obd_notify_event ev, void *data)
 {
         int rc = 0;
+        struct lov_obd *lov = &obd->u.lov;
         ENTRY;
+
+        down_read(&lov->lov_notify_lock);
+        if (!lov->lov_connects) {
+                up_read(&lov->lov_notify_lock);
+                RETURN(rc);
+        }
 
         if (ev == OBD_NOTIFY_ACTIVE || ev == OBD_NOTIFY_INACTIVE ||
             ev == OBD_NOTIFY_ACTIVATE || ev == OBD_NOTIFY_DEACTIVATE) {
                 LASSERT(watched);
 
                 if (strcmp(watched->obd_type->typ_name, LUSTRE_OSC_NAME)) {
+                        up_read(&lov->lov_notify_lock);
                         CERROR("unexpected notification of %s %s!\n",
                                watched->obd_type->typ_name,
                                watched->obd_name);
@@ -215,6 +223,7 @@ static int lov_notify(struct obd_device *obd, struct obd_device *watched,
                 rc = lov_set_osc_active(obd, &watched->u.cli.cl_target_uuid,
                                         ev);
                 if (rc < 0) {
+                        up_read(&lov->lov_notify_lock);
                         CERROR("event(%d) of %s failed: %d\n", ev,
                                obd_uuid2str(&watched->u.cli.cl_target_uuid),
                                rc);
@@ -258,7 +267,7 @@ static int lov_notify(struct obd_device *obd, struct obd_device *watched,
                 }
                 obd_putref(obd);
         }
-
+        up_read(&lov->lov_notify_lock);
         RETURN(rc);
 }
 
@@ -748,6 +757,8 @@ static int lov_del_target(struct obd_device *obd, __u32 index,
                 RETURN(-EINVAL);
         }
 
+        /* to make sure there's no ongoing lov_notify() now */
+        down_write(&lov->lov_notify_lock);
         obd_getref(obd);
 
         if (!lov->lov_tgts[index]) {
@@ -772,6 +783,7 @@ static int lov_del_target(struct obd_device *obd, __u32 index,
         /* we really delete it from obd_putref */
 out:
         obd_putref(obd);
+        up_write(&lov->lov_notify_lock);
 
         RETURN(rc);
 }
@@ -906,6 +918,8 @@ static int lov_setup(struct obd_device *obd, obd_count len, void *buf)
         if (NULL == lov->lov_qos.lq_statfs_data)
                 RETURN(-ENOMEM);
         cfs_waitq_init(&lov->lov_qos.lq_statfs_waitq);
+
+        init_rwsem(&lov->lov_notify_lock);
 
         lov->lov_pools_hash_body = lustre_hash_init("POOLS",
                                                     HASH_POOLS_CUR_BITS,
