@@ -91,11 +91,8 @@ endif
 if LIBLUSTRE
 LIB_SELFTEST = $(top_builddir)/libcfs/libcfs/libcfs.a $(top_builddir)/lnet/lnet/liblnet.a $(top_builddir)/lnet/selftest/libselftest.a
 
-export AR ?= ar
-export RANLIB ?= ranlib
-
 liblst.a : $(LIB_SELFTEST) $(LND_LIBS)
-	sh $(srcdir)/genlib.sh "$(LIBS)" "$(LND_LIBS)" "$(PTHREAD_LIBS)"
+	$(shell AR=$AR RANLIB=$RANLIB $(srcdir)/genlib.sh "$(LIBS)" "$(LND_LIBS)" "$(PTHREAD_LIBS)")
 
 lstclient_SOURCES = lstclient.c
 lstclient_LDADD = -L. -lptlctl -llst $(LIBREADLINE) $(LIBEFENCE) $(PTHREAD_LIBS)
