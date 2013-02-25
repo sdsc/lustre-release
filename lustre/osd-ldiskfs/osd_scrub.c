@@ -645,12 +645,11 @@ static int osd_iit_iget(struct osd_thread_info *info, struct osd_device *dev,
 
 	rc = osd_get_lma(info, inode, &info->oti_obj_dentry, lma);
 	if (rc == 0) {
-		if (!scrub) {
-			if (!fid_is_client_visible(&lma->lma_self_fid))
-				rc = SCRUB_NEXT_CONTINUE;
-			else
-				*fid = lma->lma_self_fid;
-		}
+		if (fid_is_llog(&lma->lma_self_fid) ||
+		    (!scrub && fid_is_internal(&lma->lma_self_fid)))
+			rc = SCRUB_NEXT_CONTINUE;
+		else
+			*fid = lma->lma_self_fid;
 	} else if (rc == -ENODATA) {
 		lu_igif_build(fid, inode->i_ino, inode->i_generation);
 		if (scrub)
@@ -764,6 +763,12 @@ static int osd_scrub_exec(struct osd_thread_info *info, struct osd_device *dev,
 	case SCRUB_NEXT_CONTINUE:
 		goto next;
 	case SCRUB_NEXT_WAIT:
+		if (it != NULL && it->ooi_waiting &&
+		    ooc->ooc_pos_preload < scrub->os_pos_current) {
+			it->ooi_waiting = 0;
+			cfs_waitq_broadcast(&thread->t_ctl_waitq);
+		}
+
 		goto wait;
 	case SCRUB_NEXT_NOSCRUB:
 		down_write(&scrub->os_rwsem);
@@ -1833,6 +1838,11 @@ again:
 		RETURN(1);
 	}
 
+	if (scrub->os_waiting && osd_scrub_has_window(scrub, ooc)) {
+		scrub->os_waiting = 0;
+		cfs_waitq_broadcast(&scrub->os_thread.t_ctl_waitq);
+	}
+
 	it->ooi_waiting = 1;
 	l_wait_event(thread->t_ctl_waitq,
 		     ooc->ooc_pos_preload < scrub->os_pos_current ||
@@ -2199,6 +2209,22 @@ int osd_scrub_dump(struct osd_device *dev, char *buf, int len)
 			      "real-time_speed: "LPU64" objects/sec\n"
 			      "current_position: %u\n",
 			      rtime, speed, new_checked, scrub->os_pos_current);
+		{
+			struct osd_otable_it *it = dev->od_otable_it;
+			struct osd_otable_cache *ooc = it ? &it->ooi_cache : NULL;
+
+			if (ooc != NULL) {
+				buf += rc;
+				len -= rc;
+				rc = snprintf(buf, len,
+					      "preload_pos: %u\n"
+					      "ooi_waiting: %d\n"
+					      "os_waiting: %d\n",
+					      ooc->ooc_pos_preload,
+					      it->ooi_waiting,
+					      scrub->os_waiting);
+			}
+		}
 	} else {
 		if (sf->sf_run_time != 0)
 			do_div(speed, sf->sf_run_time);
