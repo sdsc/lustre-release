@@ -2234,7 +2234,7 @@ int lmv_packmd(struct obd_export *exp, struct lov_mds_md **lmmp,
         meap->mea_master = cpu_to_le32(lsmp->mea_master);
 
         for (i = 0; i < lmv->desc.ld_tgt_count; i++) {
-                meap->mea_ids[i] = meap->mea_ids[i];
+                meap->mea_ids[i] = lsmp->mea_ids[i];
                 fid_cpu_to_le(&meap->mea_ids[i], &meap->mea_ids[i]);
         }
 
