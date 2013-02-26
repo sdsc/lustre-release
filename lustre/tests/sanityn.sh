@@ -844,14 +844,17 @@ cat \\\$procfile | head -1;")
 
 # commit on sharing tests
 test_33a() {
-    remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 
-    [ -n "$CLIENTS" ] || { skip "Need two or more clients" && return 0; }
-    [ $CLIENTCOUNT -ge 2 ] || \
-        { skip "Need two or more clients, have $CLIENTCOUNT" && return 0; }
+	[ -n "$CLIENTS" ] || { skip "Need two or more clients" && return 0; }
+	[ $CLIENTCOUNT -ge 2 ] ||
+		{ skip "Need two or more clients, have $CLIENTCOUNT" &&
+		  return 0; }
+	[ $(facet_fstype $SINGLEMDS) != "ldiskfs" ] &&
+		skip "only for ldiskfs MDT" && return 0
 
-    local nfiles=${TEST33_NFILES:-10000}
-    local param_file=$TMP/$tfile-params
+	local nfiles=${TEST33_NFILES:-10000}
+	local param_file=$TMP/$tfile-params
 
     save_lustre_params $(comma_list $(mdts_nodes)) "mdt.*.commit_on_sharing" > $param_file
 
@@ -900,6 +903,8 @@ test_33b() {
 		{ skip "Need two or more clients, have $CLIENTCOUNT" &&
 								return 0; }
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	[ $(facet_fstype $SINGLEMDS) != "ldiskfs" ] &&
+		skip "only for ldiskfs MDT" && return 0
 
 	local nfiles=${TEST33_NFILES:-10000}
 	local param_file=$TMP/$tfile-params
