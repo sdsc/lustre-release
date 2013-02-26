@@ -2181,8 +2181,11 @@ ost_evict_client() {
 }
 
 fail() {
-    facet_failover $* || error "failover: $?"
-    clients_up || error "post-failover df: $?"
+	local clients=${CLIENTS:-$HOMENAME}
+	local facets=$1
+	facet_failover $* || error "failover: $?"
+	wait_clients_import_state "$clients" "$facets" FULL
+	clients_up || error "post-failover df: $?"
 }
 
 fail_nodf() {
@@ -5003,7 +5006,8 @@ _wait_import_state () {
             error "can't put import for $CONN_PROC into ${expected} state after $i sec, have ${CONN_STATE}" && \
             return 1
         sleep 1
-        CONN_STATE=$($LCTL get_param -n $CONN_PROC 2>/dev/null | cut -f2)
+	# Add uniq for multi-mount case
+	CONN_STATE=$($LCTL get_param -n $CONN_PROC 2>/dev/null | cut -f2 | uniq)
         i=$(($i + 1))
     done
 
