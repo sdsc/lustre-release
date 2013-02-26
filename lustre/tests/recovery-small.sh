@@ -3,7 +3,7 @@
 set -e
 
 #         bug  5493  LU2034
-ALWAYS_EXCEPT="52    60      $RECOVERY_SMALL_EXCEPT"
+ALWAYS_EXCEPT="52    60   111   $RECOVERY_SMALL_EXCEPT"
 
 export MULTIOP=${MULTIOP:-multiop}
 PTLDEBUG=${PTLDEBUG:--1}
@@ -1756,6 +1756,26 @@ test_110f () {
 	rm -rf $DIR/$tdir || error "rmdir failed"
 }
 run_test 110f "remove remote directory: drop slave rep"
+
+test_111()
+{
+        local p="$TMP/sanityN-$TESTNAME.parameters"
+        save_lustre_params $HOSTNAME "llite.*.xattr_cache" > $p
+        lctl set_param llite.*.xattr_cache 1 || { skip "xattr cache is not supported"; return 0; }
+
+        touch $DIR/$tfile
+        # skip open intent, drop reply from PW refill
+        do_facet $SINGLEMDS lctl set_param fail_loc=0xa000030c
+        do_facet $SINGLEMDS lctl set_param fail_val=1
+        setfattr -n user.attr -v value $DIR/$tfile || error
+        do_facet $SINGLEMDS lctl set_param fail_loc=0
+        rm -f $DIR/$tfile
+
+        restore_lustre_params < $p
+        rm -f $p
+
+}
+run_test 111 "drop reply from getxattr in cached mode"
 
 complete $SECONDS
 check_and_cleanup_lustre
