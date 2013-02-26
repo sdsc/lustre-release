@@ -108,6 +108,8 @@ void lustre_register_client_process_config(int (*cpc)(struct lustre_cfg *lcfg));
 
 int vvp_global_init(void);
 void vvp_global_fini(void);
+int ll_xattr_init(void);
+void ll_xattr_fini(void);
 
 static int __init init_lustre_lite(void)
 {
@@ -190,6 +192,9 @@ static int __init init_lustre_lite(void)
         if (rc == 0)
                 rc = vvp_global_init();
 
+	if (rc == 0)
+		rc = ll_xattr_init();
+
         return rc;
 }
 
@@ -197,6 +202,7 @@ static void __exit exit_lustre_lite(void)
 {
         int rc;
 
+	ll_xattr_fini();
         vvp_global_fini();
         del_timer(&ll_capa_timer);
         ll_capa_thread_stop();
