@@ -2181,7 +2181,10 @@ ost_evict_client() {
 }
 
 fail() {
+    local clients=${CLIENTS:-$HOMENAME}
+    local facets=$1
     facet_failover $* || error "failover: $?"
+    wait_clients_import_state "$clients" "$facets" FULL
     clients_up || error "post-failover df: $?"
 }
 
