@@ -1189,6 +1189,8 @@ LB_LINUX_TRY_COMPILE([
 #
 # 2.6.27 sles11 move the quotaio_v1{2}.h from include/linux to fs
 # 2.6.32 move the quotaio_v1{2}.h from fs to fs/quota
+# The RHEL6 w/ IB environment in Jenkins does something strange here.
+# We should be able to remove this check otherwise.
 AC_DEFUN([LC_HAVE_QUOTAIO_H],
 [LB_CHECK_FILE([$LINUX/include/linux/quotaio_v2.h],[
         AC_DEFINE(HAVE_QUOTAIO_H, 1,
@@ -2126,6 +2128,22 @@ LB_LINUX_TRY_COMPILE([
 EXTRA_KCFLAGS="$tmp_flags"
 ])
 
+# 3.5 has generic_file_llseek_size with 5 args
+AC_DEFUN([LC_FILE_LLSEEK_SIZE_5ARG],
+[AC_MSG_CHECKING([if kernel has generic_file_llseek_size with 5 args])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/fs.h>
+],[
+	generic_file_llseek_size(NULL, 0, 0, 0, 0);
+], [
+	AC_MSG_RESULT([yes])
+	AC_DEFINE(HAVE_FILE_LLSEEK_SIZE_5ARGS, 1,
+		[kernel has generic_file_llseek_size with 5 args])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
 #
 # 3.6 switch i_dentry/d_alias from list to hlist
 #
@@ -2286,7 +2304,6 @@ AC_DEFUN([LC_PROG_LINUX],
 
          # 2.6.27.15-2 sles11
          LC_BI_HW_SEGMENTS
-         LC_HAVE_QUOTAIO_H
          LC_BDI_NAME
          LC_SB_ANY_QUOTA_ACTIVE
          LC_SB_HAS_QUOTA_ACTIVE
@@ -2379,6 +2396,7 @@ AC_DEFUN([LC_PROG_LINUX],
 		AC_DEFINE(HAVE_SERVER_SUPPORT, 1, [support server])
 		LC_FUNC_DEV_SET_RDONLY
 		LC_STACK_SIZE
+		LC_HAVE_QUOTAIO_H
 		LC_QUOTA64
 		LC_QUOTA_CONFIG
 	 fi
