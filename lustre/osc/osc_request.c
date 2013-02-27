@@ -59,6 +59,7 @@
 #include <lustre_debug.h>
 #include <lustre_param.h>
 #include <lustre_fid.h>
+#include <lustre_errno.h>
 #include "osc_internal.h"
 #include "osc_cl_internal.h"
 
@@ -2327,6 +2328,14 @@ static int osc_find_cbdata(struct obd_export *exp, struct lov_stripe_md *lsm,
         return(rc);
 }
 
+static inline void osc_unpack_policy_res(struct ldlm_reply *rep)
+{
+	int res = rep->lock_policy_res1;
+
+	if (res < 0)
+		rep->lock_policy_res1 = -lustre_errno_ntoh(-res);
+}
+
 static int osc_enqueue_fini(struct ptlrpc_request *req, struct ost_lvb *lvb,
                             obd_enqueue_update_f upcall, void *cookie,
 			    __u64 *flags, int agl, int rc)
@@ -2342,6 +2351,7 @@ static int osc_enqueue_fini(struct ptlrpc_request *req, struct ost_lvb *lvb,
                                                      &RMF_DLM_REP);
 
                         LASSERT(rep != NULL);
+			osc_unpack_policy_res(rep);
                         if (rep->lock_policy_res1)
                                 rc = rep->lock_policy_res1;
                 }

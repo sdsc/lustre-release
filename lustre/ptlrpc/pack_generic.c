@@ -54,6 +54,7 @@
 #include <lustre_net.h>
 #include <obd_cksum.h>
 #include <lustre/ll_fiemap.h>
+#include <lustre_errno.h>
 
 static inline int lustre_msg_hdr_size_v2(int count)
 {
@@ -644,6 +645,9 @@ static inline int lustre_unpack_ptlrpc_body_v2(struct ptlrpc_request *req,
                  CERROR("wrong lustre_msg version %08x\n", pb->pb_version);
                  return -EINVAL;
         }
+
+	if (!inout && (int)pb->pb_status < 0)
+		pb->pb_status = -lustre_errno_ntoh(-pb->pb_status);
 
         return 0;
 }
