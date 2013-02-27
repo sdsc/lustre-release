@@ -1290,8 +1290,10 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
 		       PFID(rr->rr_fid2));
 		GOTO(out, rc = -EREMOTE);
 	} else if (!mdt_object_exists(o)) {
-		mdt_set_disposition(info, rep, (DISP_LOOKUP_EXECD |
-				    DISP_LOOKUP_NEG));
+		mdt_set_disposition(info, rep,
+				    DISP_IT_EXECD |
+				    DISP_LOOKUP_EXECD |
+				    DISP_LOOKUP_NEG);
 		GOTO(out, rc = -ENOENT);
 	}
 
@@ -1472,11 +1474,18 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 	} else if ((rr->rr_namelen == 0 && create_flags & MDS_OPEN_LOCK) ||
 		   (create_flags & MDS_OPEN_BY_FID)) {
 		result = mdt_open_by_fid_lock(info, ldlm_rep, lhc);
-		if ((result != -ENOENT && !(create_flags & MDS_OPEN_CREAT)) &&
-		     result != -EREMOTE)
+		/* If result is 0 then the client has won and we can
+		 * bail out now.  If -ENOENT then we can bail out
+		 * unless MDS_OPEN_CREAT is set.  If -EREMOTE then we
+		 * need to return a LOOKUP lock to the client.  In all
+		 * other cases the client loses and we can bail. */
+		if (!(result == -ENOENT && (create_flags & MDS_OPEN_CREAT)) &&
+		    result != -EREMOTE)
 			GOTO(out, result);
+
 		if (unlikely(rr->rr_namelen == 0))
 			GOTO(out, result = -EINVAL);
+
 		CDEBUG(D_INFO, "No object(2), continue as regular open.\n");
 	}
 
