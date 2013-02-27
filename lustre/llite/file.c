@@ -917,6 +917,20 @@ restart:
                 result = io->ci_nob;
                 *ppos = io->u.ci_wr.wr.crw_pos;
         }
+
+	/* It is important the file is marked DIRTY as soon as the I/O is done
+	 * instead of waiting that dirty pages are flushed to disk. Indeed, when
+	 * cache is flushed, file could be already closed and it is too late to
+	 * warn the MDT.
+	 * It is acceptable that file is marked DIRTY even if I/O is dropped
+	 * for some reasons before being flushed to OST.
+	 */
+	if (iot == CIT_WRITE) {
+		spin_lock(&lli->lli_lock);
+		lli->lli_flags |= LLIF_DATA_MODIFIED;
+		spin_unlock(&lli->lli_lock);
+	}
+
         GOTO(out, result);
 out:
         cl_io_fini(env, io);
