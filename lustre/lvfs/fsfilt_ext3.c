@@ -216,7 +216,7 @@ static long ext3_ext_find_goal(struct inode *inode, struct ext3_ext_path *path,
 
                 /* try to predict block placement */
                 if ((ex = path[depth].p_ext))
-                        return ext_pblock(ex) + (block - le32_to_cpu(ex->ee_block));
+                        return ext4_ext_pblock(ex) + (block - le32_to_cpu(ex->ee_block));
 
                 /* it looks index is empty
                  * try to find starting from index itself */
@@ -374,10 +374,10 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
                 ext3_mb_discard_inode_preallocations(inode);
 #endif
 #ifdef EXT4_FREE_BLOCKS_METADATA
-		ext3_free_blocks(handle, inode, NULL, ext_pblock(&nex),
+		ext3_free_blocks(handle, inode, NULL, ext4_ext_pblock(&nex),
 				 cpu_to_le16(nex.ee_len), 0);
 #else
-		ext3_free_blocks(handle, inode, ext_pblock(&nex),
+		ext3_free_blocks(handle, inode, ext4_ext_pblock(&nex),
 				 cpu_to_le16(nex.ee_len), 0);
 #endif
                 goto out;
@@ -389,7 +389,7 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
          * scaning after that block
          */
         cex->ec_len = le16_to_cpu(nex.ee_len);
-        cex->ec_start = ext_pblock(&nex);
+        cex->ec_start = ext4_ext_pblock(&nex);
         BUG_ON(le16_to_cpu(nex.ee_len) == 0);
         BUG_ON(le32_to_cpu(nex.ee_block) != cex->ec_block);
 
