@@ -736,6 +736,9 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 	if (IS_ERR(mc))
 		GOTO(unlock_parent, rc = PTR_ERR(mc));
 
+	if (fid_is_dot_lustre(child_fid))
+		GOTO(unlock_parent, rc = -EPERM);
+
         child_lh = &info->mti_lh[MDT_LH_CHILD];
         mdt_lock_reg_init(child_lh, LCK_EX);
 	if (mdt_object_remote(mc)) {
