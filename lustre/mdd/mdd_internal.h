@@ -548,6 +548,11 @@ static inline int mdd_object_obf(const struct mdd_object *obj)
 	return lu_fid_eq(mdo2fid(obj), &LU_OBF_FID);
 }
 
+static inline int mdd_is_dot_lustre(const struct mdd_object *obj)
+{
+	return fid_is_dot_lustre(mdo2fid(obj));
+}
+
 static inline cfs_umode_t mdd_object_type(const struct mdd_object *obj)
 {
         return lu_object_attr(&obj->mod_obj.mo_lu);

@@ -423,6 +423,8 @@ int mdd_may_delete(const struct lu_env *env, struct mdd_object *pobj,
         if (mdd_is_dead_obj(cobj))
                 RETURN(-ESTALE);
 
+	if (mdd_is_dot_lustre(cobj))
+		RETURN(-EPERM);
 
 	if (mdd_is_sticky(env, pobj, cobj))
                 RETURN(-EPERM);
