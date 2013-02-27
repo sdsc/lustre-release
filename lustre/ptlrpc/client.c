@@ -1224,6 +1224,9 @@ static int after_reply(struct ptlrpc_request *req)
         }
 
 	/* retry indefinitely on EINPROGRESS */
+	/*
+	 * TODO: pb_status not swabbed/unpacked here!
+	 */
 	if (lustre_msg_get_status(req->rq_repmsg) == -EINPROGRESS &&
 	    ptlrpc_no_resend(req) == 0 && !req->rq_no_retry_einprogress) {
 		time_t	now = cfs_time_current_sec();

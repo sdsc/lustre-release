@@ -51,6 +51,7 @@
 /* fid_res_name_eq() */
 #include <lustre_fid.h>
 #include <lprocfs_status.h>
+#include <lustre_errno.h>
 #include "mdc_internal.h"
 
 struct mdc_getattr_args {
@@ -498,6 +499,14 @@ mdc_enqueue_pack(struct obd_export *exp, int lvb_len)
         RETURN(req);
 }
 
+static inline void mdc_unpack_policy_res(struct ldlm_reply *rep)
+{
+	int res = rep->lock_policy_res2;
+
+	if (res < 0)
+		rep->lock_policy_res2 = -lustre_errno_ntoh(-res);
+}
+
 static int mdc_finish_enqueue(struct obd_export *exp,
                               struct ptlrpc_request *req,
                               struct ldlm_enqueue_info *einfo,
@@ -836,6 +845,8 @@ resend:
         lockrep = req_capsule_server_get(&req->rq_pill, &RMF_DLM_REP);
         LASSERT(lockrep != NULL);
 
+	mdc_unpack_policy_res(lockrep);
+
         /* Retry the create infinitely when we get -EINPROGRESS from
          * server. This is required by the new quota design. */
         if (it && it->it_op & IT_CREAT &&
@@ -1135,6 +1146,7 @@ static int mdc_intent_getattr_async_interpret(const struct lu_env *env,
         struct lookup_intent     *it;
         struct lustre_handle     *lockh;
         struct obd_device        *obddev;
+	struct ldlm_reply	 *lockrep;
 	__u64                     flags = LDLM_FL_HAS_INTENT;
         ENTRY;
 
@@ -1154,6 +1166,11 @@ static int mdc_intent_getattr_async_interpret(const struct lu_env *env,
                 mdc_clear_replay_flag(req, rc);
                 GOTO(out, rc);
         }
+
+	lockrep = req_capsule_server_get(&req->rq_pill, &RMF_DLM_REP);
+	LASSERT(lockrep != NULL);
+
+	mdc_unpack_policy_res(lockrep);
 
         rc = mdc_finish_enqueue(exp, req, einfo, it, lockh, rc);
         if (rc)

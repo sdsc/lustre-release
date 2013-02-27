@@ -41,6 +41,7 @@
 
 #define DEBUG_SUBSYSTEM S_FILTER
 
+#include <lustre_errno.h>
 #include "ofd_internal.h"
 
 struct ofd_intent_args {
@@ -224,7 +225,7 @@ int ofd_intent_policy(struct ldlm_namespace *ns, struct ldlm_lock **lockp,
 	 */
 	if (l->l_glimpse_ast == NULL) {
 		/* We are racing with unlink(); just return -ENOENT */
-		rep->lock_policy_res1 = -ENOENT;
+		rep->lock_policy_res1 = -lustre_errno_hton(ENOENT);
 		goto out;
 	}
 

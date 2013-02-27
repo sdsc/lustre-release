@@ -50,6 +50,7 @@
 #include <lustre_dlm.h>
 #include <obd_class.h>
 #include <libcfs/list.h>
+#include <lustre_errno.h>
 #include "ldlm_internal.h"
 
 static int ldlm_num_threads;
@@ -1477,6 +1478,13 @@ int ldlm_handle_enqueue(struct ptlrpc_request *req,
 }
 EXPORT_SYMBOL(ldlm_handle_enqueue);
 
+static inline int ldlm_pack_special_status(int status)
+{
+	if (0 < status && status < ELDLM_LOCK_CHANGED)
+		status = lustre_errno_hton(status);
+	return status;
+}
+
 /**
  * Main LDLM entry point for server code to process lock conversion requests.
  */
@@ -1527,6 +1535,8 @@ int ldlm_handle_convert0(struct ptlrpc_request *req,
                 LDLM_LOCK_PUT(lock);
         } else
                 LDLM_DEBUG_NOLOCK("server-side convert handler END");
+
+	req->rq_status = ldlm_pack_special_status(req->rq_status);
 
         RETURN(0);
 }
@@ -1650,6 +1660,8 @@ int ldlm_handle_cancel(struct ptlrpc_request *req)
 
         if (!ldlm_request_cancel(req, dlm_req, 0))
                 req->rq_status = ESTALE;
+
+	req->rq_status = ldlm_pack_special_status(req->rq_status);
 
         RETURN(ptlrpc_reply(req));
 }
@@ -2067,6 +2079,14 @@ static inline void ldlm_callback_errmsg(struct ptlrpc_request *req,
                 CWARN("Send reply failed, maybe cause bug 21636.\n");
 }
 
+static inline void ldlm_unpack_quotactl(struct obd_quotactl *oqctl)
+{
+	int stat = oqctl->qc_stat;
+
+	if (stat < 0)
+		oqctl->qc_stat = -lustre_errno_ntoh(-stat);
+}
+
 static int ldlm_handle_qc_callback(struct ptlrpc_request *req)
 {
 	struct obd_quotactl *oqctl;
@@ -2077,6 +2097,8 @@ static int ldlm_handle_qc_callback(struct ptlrpc_request *req)
 		CERROR("Can't unpack obd_quotactl\n");
 		RETURN(-EPROTO);
 	}
+
+	ldlm_unpack_quotactl(oqctl);
 
 	cli->cl_qchk_stat = oqctl->qc_stat;
 	return 0;

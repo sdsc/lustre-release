@@ -68,6 +68,7 @@
 #include <lustre_dlm.h>
 #include <obd_class.h>
 #include <obd.h>
+#include <lustre_errno.h>
 
 #include "ldlm_internal.h"
 
@@ -1032,6 +1033,13 @@ static int ldlm_cli_convert_local(struct ldlm_lock *lock, int new_mode,
         RETURN(rc);
 }
 
+static inline int ldlm_unpack_special_status(int status)
+{
+	if (0 < status && status < ELDLM_LOCK_CHANGED)
+		status = lustre_errno_ntoh(status);
+	return status;
+}
+
 /* FIXME: one of ldlm_cli_convert or the server side should reject attempted
  * conversion of locks which are on the waiting or converting queue */
 /* Caller of this code is supposed to take care of lock readers/writers
@@ -1075,6 +1083,8 @@ int ldlm_cli_convert(struct lustre_handle *lockh, int new_mode, __u32 *flags)
 
         ptlrpc_request_set_replen(req);
         rc = ptlrpc_queue_wait(req);
+	rc = ldlm_unpack_special_status(rc);
+	req->rq_status = ldlm_unpack_special_status(req->rq_status);
         if (rc != ELDLM_OK)
                 GOTO(out, rc);
 
@@ -1249,6 +1259,7 @@ int ldlm_cli_cancel_req(struct obd_export *exp, cfs_list_t *cancels,
                         GOTO(out, 0);
                 } else {
                         rc = ptlrpc_queue_wait(req);
+			rc = ldlm_unpack_special_status(rc);
                 }
                 if (rc == ESTALE) {
                         CDEBUG(D_DLMTRACE, "client/server (nid %s) "

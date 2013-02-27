@@ -68,6 +68,7 @@
 #include <lustre_acl.h>
 #include <lustre_param.h>
 #include <lustre_quota.h>
+#include <lustre_errno.h>
 
 mdl_mode_t mdt_mdl_lock_modes[] = {
         [LCK_MINMODE] = MDL_MINMODE,
@@ -3686,8 +3687,8 @@ static int mdt_intent_getattr(enum mdt_it_code opcode,
         /* Get lock from request for possible resent case. */
         mdt_intent_fixup_resent(info, *lockp, &new_lock, lhc);
 
-        ldlm_rep->lock_policy_res2 =
-                mdt_getattr_name_lock(info, lhc, child_bits, ldlm_rep);
+	rc = mdt_getattr_name_lock(info, lhc, child_bits, ldlm_rep);
+        ldlm_rep->lock_policy_res2 = clear_serious(rc);
 
         if (mdt_get_disposition(ldlm_rep, DISP_LOOKUP_NEG))
                 ldlm_rep->lock_policy_res2 = 0;
@@ -3876,6 +3877,14 @@ static int mdt_intent_code(long itcode)
         return rc;
 }
 
+static inline void mdt_pack_policy_res(struct ldlm_reply *rep)
+{
+	int res = rep->lock_policy_res2;
+
+	if (res < 0)
+		rep->lock_policy_res2 = -lustre_errno_hton(-res);
+}
+
 static int mdt_intent_opc(long itopc, struct mdt_thread_info *info,
 			  struct ldlm_lock **lockp, __u64 flags)
 {
@@ -3917,8 +3926,13 @@ static int mdt_intent_opc(long itopc, struct mdt_thread_info *info,
 			RETURN(-EROFS);
         }
         if (rc == 0 && flv->it_act != NULL) {
+		struct ldlm_reply *rep;
+
                 /* execute policy */
                 rc = flv->it_act(opc, info, lockp, flags);
+
+		rep = req_capsule_server_get(pill, &RMF_DLM_REP);
+		mdt_pack_policy_res(rep);
         } else {
                 rc = -EOPNOTSUPP;
         }
