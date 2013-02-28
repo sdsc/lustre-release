@@ -201,7 +201,6 @@ struct ll_inode_info {
          * before child -- it is me should cleanup the dir readahead. */
         void                   *lli_opendir_key;
         struct ll_statahead_info *lli_sai;
-        __u64                   lli_sa_pos;
         struct cl_object       *lli_clob;
         /* the most recent timestamps obtained from mds */
         struct ost_lvb          lli_lvb;
@@ -423,7 +422,6 @@ struct ll_sb_info {
                                                  * clustred nfs */
         struct rmtacl_ctl_table   ll_rct;
         struct eacl_table         ll_et;
-        struct vfsmount          *ll_mnt;
 };
 
 #define LL_DEFAULT_MAX_RW_CHUNK      (32 * 1024 * 1024)
@@ -521,18 +519,13 @@ struct ll_readahead_state {
         unsigned long   ras_consecutive_stride_requests;
 };
 
-struct ll_file_dir {
-        __u64 lfd_pos;
-        __u64 lfd_next;
-};
-
 extern cfs_mem_cache_t *ll_file_data_slab;
 struct lustre_handle;
 struct ll_file_data {
         struct ll_readahead_state fd_ras;
         int fd_omode;
         struct ccc_grouplock fd_grouplock;
-        struct ll_file_dir fd_dir;
+        __u64 lfd_pos;
         __u32 fd_flags;
         struct file *fd_file;
 };
@@ -603,9 +596,10 @@ static inline void ll_put_page(struct page *page)
 
 extern struct file_operations ll_dir_operations;
 extern struct inode_operations ll_dir_inode_operations;
-struct page *ll_get_dir_page(struct file *filp, struct inode *dir, __u64 hash,
+struct page *ll_get_dir_page(struct inode *dir, __u64 hash,
                              int exact, struct ll_dir_chain *chain);
-int ll_readdir(struct file *filp, void *cookie, filldir_t filldir);
+int ll_dir_read(struct inode *inode, __u64 *_pos, void *cookie,
+                filldir_t filldir);
 
 int ll_get_mdt_idx(struct inode *inode);
 /* llite/namei.c */
