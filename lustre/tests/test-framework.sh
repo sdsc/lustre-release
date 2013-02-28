@@ -681,6 +681,10 @@ mount_facet() {
         [ -z "$label" ] && echo no label for ${!dev} && exit 1
         eval export ${facet}_svc=${label}
         echo Started ${label}
+
+        [ "${facet:0:3}" == "ost" ] &&
+            do_facet $facet \
+                "lctl set_param obdfilter.${FSNAME}-*.sync_journal=1" || true
     fi
     return $RC
 }
