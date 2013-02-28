@@ -411,8 +411,7 @@ static int ptlrpcd(void *arg)
         ENTRY;
 
 	cfs_daemonize_ctxt(pc->pc_name);
-#if defined(CONFIG_SMP) && \
-(defined(HAVE_CPUMASK_OF_NODE) || defined(HAVE_NODE_TO_CPUMASK))
+#if defined(CONFIG_SMP)
 	if (test_bit(LIOD_BIND, &pc->pc_flags)) {
 		int index = pc->pc_index;
 
@@ -529,8 +528,7 @@ static int ptlrpcd_bind(int index, int max)
 {
 	struct ptlrpcd_ctl *pc;
 	int rc = 0;
-#if defined(CONFIG_NUMA) && \
-(defined(HAVE_CPUMASK_OF_NODE) || defined(HAVE_NODE_TO_CPUMASK))
+#if defined(CONFIG_NUMA)
 	cpumask_t mask;
 #endif
 	ENTRY;
@@ -550,8 +548,7 @@ static int ptlrpcd_bind(int index, int max)
                 pc->pc_npartners = 1;
                 break;
 	case PDB_POLICY_NEIGHBOR:
-#if defined(CONFIG_NUMA) && \
-(defined(HAVE_CPUMASK_OF_NODE) || defined(HAVE_NODE_TO_CPUMASK))
+#if defined(CONFIG_NUMA)
 	{
 		int i;
 		mask = *cpumask_of_node(cpu_to_node(index));
@@ -588,8 +585,7 @@ static int ptlrpcd_bind(int index, int max)
                                 }
                                 break;
 			case PDB_POLICY_NEIGHBOR:
-#if defined(CONFIG_NUMA) && \
-(defined(HAVE_CPUMASK_OF_NODE) || defined(HAVE_NODE_TO_CPUMASK))
+#if defined(CONFIG_NUMA)
 			{
 				struct ptlrpcd_ctl *ppc;
 				int i, pidx;
