@@ -560,9 +560,9 @@ Index: linux-stage/fs/ext4/super.c
  	int i;
  #endif
 @@ -4108,6 +4118,13 @@ static int ext4_remount(struct super_blo
- 				goto restore_opts;
  			if (!ext4_setup_super(sb, es, 0))
  				sb->s_flags &= ~MS_RDONLY;
+			enable_quota = 1;
 +			if (EXT4_HAS_INCOMPAT_FEATURE(sb,
 +						    EXT4_FEATURE_INCOMPAT_MMP))
 +				if (ext4_multi_mount_protect(sb,
