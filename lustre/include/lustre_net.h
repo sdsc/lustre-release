@@ -1923,6 +1923,16 @@ static inline int thread_is_stopped(struct ptlrpc_thread *thread)
         return !!(thread->t_flags & SVC_STOPPED);
 }
 
+static inline int thread_is_stopped_with_lock(struct ptlrpc_service_part *svcpt,
+					      struct ptlrpc_thread *thread)
+{
+	int rc;
+	spin_lock(&svcpt->scp_lock);
+	rc = !!(thread->t_flags & SVC_STOPPED);
+	spin_unlock(&svcpt->scp_lock);
+	return rc;
+}
+
 static inline int thread_is_stopping(struct ptlrpc_thread *thread)
 {
         return !!(thread->t_flags & SVC_STOPPING);

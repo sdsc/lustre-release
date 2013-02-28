@@ -2681,7 +2681,8 @@ static void ptlrpc_svcpt_stop_threads(struct ptlrpc_service_part *svcpt)
 		CDEBUG(D_INFO, "waiting for stopping-thread %s #%u\n",
 		       svcpt->scp_service->srv_thread_name, thread->t_id);
 		l_wait_event(thread->t_ctl_waitq,
-			     thread_is_stopped(thread), &lwi);
+			     thread_is_stopped_with_lock(svcpt, thread),
+			     &lwi);
 
 		spin_lock(&svcpt->scp_lock);
 	}
@@ -2828,11 +2829,19 @@ int ptlrpc_start_thread(struct ptlrpc_service_part *svcpt, int wait)
 		CERROR("cannot start thread '%s': rc %d\n",
 		       thread->t_name, rc);
 		spin_lock(&svcpt->scp_lock);
-		cfs_list_del(&thread->t_link);
 		--svcpt->scp_nthrs_starting;
-		spin_unlock(&svcpt->scp_lock);
-
-                OBD_FREE(thread, sizeof(*thread));
+		if (thread_is_stopping(thread)) {
+			/* this ptlrpc_thread has already been being handled
+			 * by ptlrpc_svcpt_stop_threads
+			 */
+			thread_add_flags(thread, SVC_STOPPED);
+			cfs_waitq_signal(&thread->t_ctl_waitq);
+			spin_unlock(&svcpt->scp_lock);
+		} else {
+			cfs_list_del(&thread->t_link);
+			spin_unlock(&svcpt->scp_lock);
+			OBD_FREE(thread, sizeof(*thread));
+		}
                 RETURN(rc);
         }
 
