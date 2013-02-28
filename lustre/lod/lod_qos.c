@@ -629,7 +629,7 @@ static inline int lod_qos_ost_in_use_clear(const struct lu_env *env, int stripes
 		CERROR("can't allocate memory for ost-in-use array\n");
 		return -ENOMEM;
 	}
-	memset(info->lti_ea_store, 0, sizeof(int) * stripes);
+	memset(info->lti_ea_store, -1, sizeof(int) * stripes);
 	return 0;
 }
 
@@ -887,6 +887,7 @@ repeat_find:
 		 */
 		if (lod_qos_is_ost_used(env, ost_idx, stripe_num))
 			continue;
+		lod_qos_ost_in_use(env, stripe_num, ost_idx);
 
 		/* Drop slow OSCs if we can, but not for requested start idx.
 		 *
