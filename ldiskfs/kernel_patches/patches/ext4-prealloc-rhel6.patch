@@ -240,9 +240,9 @@ Index: linux-stage/fs/ext4/mballoc.c
  	kfree(sbi->s_mb_maxs);
  	if (sbi->s_buddy_cache)
 @@ -2495,8 +2643,10 @@ int ext4_mb_release(struct super_block *
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
  	}
  
- 	free_percpu(sbi->s_locality_groups);
 -	if (sbi->s_proc)
 +	if (sbi->s_proc) {
  		remove_proc_entry("mb_groups", sbi->s_proc);

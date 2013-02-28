@@ -98,9 +98,9 @@ Index: linux-stage/fs/ext4/super.c
  	Opt_inode_readahead_blks, Opt_journal_ioprio,
  	Opt_mballoc, Opt_bigendian_extents, Opt_force_over_128tb,
 +	Opt_extents, Opt_noextents,
- 	Opt_discard, Opt_nodiscard,
- 	Opt_init_inode_table, Opt_noinit_inode_table,
+	Opt_discard, Opt_nodiscard, Opt_init_itable, Opt_noinit_itable,
  };
+ 
 @@ -1260,6 +1263,8 @@ static const match_table_t tokens = {
  	{Opt_bigendian_extents, "bigendian_extents"},
  	{Opt_force_over_128tb, "force_over_128tb"},
