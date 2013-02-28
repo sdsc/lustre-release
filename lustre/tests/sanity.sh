@@ -61,8 +61,8 @@ init_logging
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 24v 27m 36f 36g 36h 51b 60c 63 64b 68 71 73 77f 78 101a 103 115 120g 124b"
 
 [ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
-# bug number for skipped test:        LU-2834 LU-1593 LU-2610 LU-2833 LU-1957 LU-2805
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 18      34h     40      48a     180     184c"
+# bug number for skipped test:        LU-2834 LU-2610 LU-2833 LU-1957 LU-2805
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 18      40      48a     180     184c"
 
 FAIL_ON_ERROR=false
 
@@ -2461,7 +2461,9 @@ test_34h() {
 	local sz=1000
 
 	dd if=/dev/zero of=$DIR/$tfile bs=1M count=10 || error
-	$MULTIOP $DIR/$tfile OG${gid}T${sz}g${gid}c &
+	sync
+	multiop_bg_pause $DIR/$tfile OG${gid}T${sz}g${gid}c ||
+		error "multiop failed"
 	MULTIPID=$!
 	sleep 2
 
