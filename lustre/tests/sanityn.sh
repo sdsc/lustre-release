@@ -476,6 +476,7 @@ cleanup_21() {
 }
 
 test_21() { # Bug 5907
+	rm -rf $DIR1/d21
 	test_mkdir $DIR1/d21
 	mount /etc $DIR1/d21 --bind || error "mount failed" # Poor man's mount.
 	trap cleanup_21 EXIT
