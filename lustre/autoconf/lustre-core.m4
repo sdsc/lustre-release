@@ -423,23 +423,6 @@ LB_LINUX_TRY_COMPILE([
 
 # 2.6.23
 
-# 2.6.23 have return type 'void' for unregister_blkdev
-AC_DEFUN([LC_UNREGISTER_BLKDEV_RETURN_INT],
-[AC_MSG_CHECKING([if unregister_blkdev return int])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/fs.h>
-],[
-        int i __attribute__ ((unused));
-        i = unregister_blkdev(0,NULL);
-],[
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(HAVE_UNREGISTER_BLKDEV_RETURN_INT, 1,
-                [unregister_blkdev return int])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 # 2.6.23 add code to wait other users to complete before removing procfs entry
 AC_DEFUN([LC_PROCFS_USERS],
 [AC_MSG_CHECKING([if kernel has pde_users member in procfs entry struct])
@@ -1474,7 +1457,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_PAGE_CONSTANT
 
          # 2.6.23
-         LC_UNREGISTER_BLKDEV_RETURN_INT
          LC_PROCFS_USERS
 
          # 2.6.24
