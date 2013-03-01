@@ -918,6 +918,7 @@ repeat_find:
 		/*
 		 * We've successfuly declared (reserved) an object
 		 */
+		lod_qos_ost_in_use(env, stripe_num, ost_idx);
 		stripe[stripe_num] = o;
 		stripe_num++;
 
