@@ -106,6 +106,10 @@ static void nrs_policy_stop0(struct ptlrpc_nrs_policy *policy)
 	policy->pol_private = NULL;
 
 	policy->pol_state = NRS_POL_STATE_STOPPED;
+
+	if (cfs_atomic_dec_and_test(&policy->pol_desc->pd_pols_active))
+		cfs_module_put(policy->pol_desc->pd_owner);
+
 	EXIT;
 }
 
@@ -244,7 +248,22 @@ static int nrs_policy_start_locked(struct ptlrpc_nrs_policy *policy)
 	}
 
 	/**
-	 * Serialize policy starting.across the NRS head
+	 * Increase the module usage count for policies registering from other
+	 * modules. Since policy starting and policy unregistration are
+	 * serialized by nrs_core::nrs_mutex, then as long as modules call
+	 * ptlrpc_nrs_policy_unregister() in their exit() handler,
+	 * ptlrpc_nrs_policy::pol_desc should be safe to access here,
+	 * even without a reference on the external module (if any) that holds
+	 * the policy.
+	 */
+	if (cfs_atomic_inc_return(&policy->pol_desc->pd_pols_active) == 1 &&
+		!cfs_try_module_get(policy->pol_desc->pd_owner)) {
+		CERROR("NRS: cannot get policy module; is it alive?\n");
+		RETURN(-ENODEV);
+	}
+
+	/**
+	 * Serialize policy starting across the NRS head
 	 */
 	nrs->nrs_policy_starting = 1;
 
@@ -257,6 +276,9 @@ static int nrs_policy_start_locked(struct ptlrpc_nrs_policy *policy)
 
 		spin_lock(&nrs->nrs_lock);
 		if (rc != 0) {
+			if (cfs_atomic_dec_and_test(
+					     &policy->pol_desc->pd_pols_active))
+				cfs_module_put(policy->pol_desc->pd_owner);
 			policy->pol_state = NRS_POL_STATE_STOPPED;
 			GOTO(out, rc);
 		}
@@ -1253,6 +1275,9 @@ int ptlrpc_nrs_policy_register(struct ptlrpc_nrs_pol_desc *desc)
 	ENTRY;
 
 	LASSERT(desc != NULL);
+	LASSERT(desc->pd_owner != NULL);
+
+	cfs_atomic_set(&desc->pd_pols_active, 0);
 
 	desc->pd_name[NRS_POL_NAME_MAX - 1] = '\0';
 
@@ -1805,6 +1830,7 @@ int ptlrpc_nrs_init(void)
 		 * This should not fail for in-tree policies.
 		 */
 		LASSERT(rc == false);
+		cfs_atomic_set(&nrs_pols_builtin[i]->pd_pols_active, 0);
 		cfs_list_add_tail(&nrs_pols_builtin[i]->pd_list,
 				  &nrs_core.nrs_policies);
 	}

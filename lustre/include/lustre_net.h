@@ -776,7 +776,7 @@ struct ptlrpc_nrs_pol_ops {
 	 *
 	 * \param[in,out] policy The policy being stopped
 	 *
-	 * \see nrs_policy_stop_final()
+	 * \see nrs_policy_stop0()
 	 */
 	void	(*op_policy_stop) (struct ptlrpc_nrs_policy *policy);
 	/**
@@ -1101,6 +1101,18 @@ struct ptlrpc_nrs_pol_desc {
 	 * Link into nrs_core::nrs_policies
 	 */
 	cfs_list_t			pd_list;
+	/**
+	 * Owner module for this policy descriptor; policies registering via
+	 * ptlrpc_nrs_policy_register() from a different module to the one the
+	 * NRS framework is held within, should set this field to THIS_MODULE.
+	 */
+	cfs_module_t		       *pd_owner;
+	/**
+	 * # of policy instances that are in a position to handle requests,
+	 * i.e. not in ptlrpc_nrs_pol_state::NRS_POL_STATE_STOPPED or
+	 * ptlrpc_nrs_pol_state::NRS_POL_STATE_INVALID.
+	 */
+	cfs_atomic_t			pd_pols_active;
 };
 
 /**
