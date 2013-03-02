@@ -284,6 +284,24 @@ Unregister an existing changelog user.  If the user's "clear" record number
 is the minimum for the device, changelog records will be purged until the
 next minimum.  
 .PP
+.SS LFSCK
+An Lustre consistency online check and repair tool.
+.TP
+.BI lfsck_start " <-M | --device MDT_device> -e | --error error_handle] [-h | --help] [-n | --dryrun switch] [-r | --reset] [-s | --speed speed_limit] [-t | --type lfsck_type[,lfsck_type...]]"
+Start LFSCK on the specified MDT device with specified parameters.
+-M: the MDT device
+-e abort|continue: failout or not
+-h: usage
+-n on|off: dryrun mode or not
+-r: reset LFSCK
+-s speed: the maximum speep limitation
+-t type(s): which type(s) check/repair will be done, FID-in-dirent and linkEA (namespace)/MDT-OST consistency (layout)/MDT-MDT consistency (DNE)
+.TP
+.BI lfsck_stop " <-M | --device MDT_device> [-h | --help]"
+Stop LFSCK on the specified MDT device.
+-M: the MDT device
+-h: usage
+.PP
 .SS Debug
 .TP 
 .BI debug_daemon 
