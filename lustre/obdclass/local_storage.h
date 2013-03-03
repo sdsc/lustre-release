@@ -29,6 +29,8 @@
  *
  * Author: Mikhail Pershin <mike.pershin@intel.com>
  */
+#ifndef __LOCAL_STORAGE_H
+#define __LOCAL_STORAGE_H
 
 #include <dt_object.h>
 #include <obd.h>
@@ -74,3 +76,4 @@ struct ls_device *ls_device_get(struct dt_device *dev);
 void ls_device_put(const struct lu_env *env, struct ls_device *ls);
 struct local_oid_storage *dt_los_find(struct ls_device *ls, __u64 seq);
 void dt_los_put(struct local_oid_storage *los);
+#endif
