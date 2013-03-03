@@ -34,11 +34,20 @@
  * Author: Liang Zhen <liang@whamcloud.com>
  * Author: Nikitas Angelinas <nikitas_angelinas@xyratex.com>
  */
+/* Include in server and liblustre builds, but not in client builds.
+ * HAVE_SERVER_SUPPORT is defined when performing a full build, and the macro
+ * persists throughout the liblustre build, so we rely on !__KERNEL__ for
+ * detecting liblustre builds when building with --disable-server. A side-effect
+ * of this is that a build performed using both --disable-modules and
+ * --disable-server would still include NRS, but it is doubtful that there is
+ * a need for such a configuration, and hopefully liblustre will soon be removed
+ * from the tree anyway. */
+#if defined(HAVE_SERVER_SUPPORT) || !defined(__KERNEL__)
+
 /**
  * \addtogoup nrs
  * @{
  */
-
 #define DEBUG_SUBSYSTEM S_RPC
 #ifndef __KERNEL__
 #include <liblustre.h>
@@ -895,11 +904,13 @@ static void ptlrpc_nrs_hpreq_add_nolock(struct ptlrpc_request *req)
 
 /* ptlrpc/nrs_fifo.c */
 extern struct ptlrpc_nrs_pol_desc ptlrpc_nrs_fifo_desc;
+#ifdef __KERNEL__
 /* ptlrpc/nrs_crr.c */
 extern struct ptlrpc_nrs_pol_desc ptlrpc_nrs_crrn_desc;
 /* ptlrpc/nrs_orr.c */
 extern struct ptlrpc_nrs_pol_desc ptlrpc_nrs_orr_desc;
 extern struct ptlrpc_nrs_pol_desc ptlrpc_nrs_trr_desc;
+#endif
 
 /**
  * Array of policies that ship alongside NRS core; i.e. ones that do not
@@ -907,9 +918,12 @@ extern struct ptlrpc_nrs_pol_desc ptlrpc_nrs_trr_desc;
  */
 static struct ptlrpc_nrs_pol_desc *nrs_pols_builtin[] = {
 	&ptlrpc_nrs_fifo_desc,
+	/* Use only FIFO for liblustre, since it is single-threaded. */
+#ifdef __KERNEL__
 	&ptlrpc_nrs_crrn_desc,
 	&ptlrpc_nrs_orr_desc,
 	&ptlrpc_nrs_trr_desc,
+#endif
 };
 
 /**
@@ -1845,3 +1859,5 @@ void ptlrpc_nrs_fini(void)
 }
 
 /** @} nrs */
+
+#endif /* (HAVE_SERVER_SUPPORT) || !(__KERNEL__) */

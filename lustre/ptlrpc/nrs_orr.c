@@ -35,15 +35,13 @@
  * Author: Liang Zhen <liang@whamcloud.com>
  * Author: Nikitas Angelinas <nikitas_angelinas@xyratex.com>
  */
+#ifdef HAVE_SERVER_SUPPORT
+
 /**
  * \addtogoup nrs
  * @{
  */
-
 #define DEBUG_SUBSYSTEM S_RPC
-#ifndef __KERNEL__
-#include <liblustre.h>
-#endif
 #include <obd_support.h>
 #include <obd_class.h>
 #include <lustre_net.h>
@@ -171,12 +169,10 @@ static int nrs_orr_key_fill(struct nrs_orr_data *orrd,
 	/**
 	 * Set the key's OST index.
 	 */
-#ifdef HAVE_SERVER_SUPPORT
 	key->ok_idx = class_server_data(req->rq_export->exp_obd)->lsd_osd_index;
 
 	if (!is_orr)
 		nrq->nr_u.orr.or_trr_set = 1;
-#endif
 
 	return 0;
 }
@@ -197,8 +193,6 @@ static void nrs_orr_range_fill_logical(struct niobuf_remote *nb, int niocount,
 	range->or_end = (nb[niocount - 1].offset +
 			 nb[niocount - 1].len - 1) | ~CFS_PAGE_MASK;
 }
-
-#ifdef __KERNEL__
 
 /**
  * We obtain information just for a single extent, as the request can only be in
@@ -269,17 +263,6 @@ static int nrs_orr_range_fill_physical(struct ptlrpc_nrs_request *nrq,
 out:
 	return rc;
 }
-#else
-/**
- * For liblustre.
- */
-static int nrs_orr_range_fill_physical(struct ptlrpc_nrs_request *nrq,
-				       struct obdo *oa,
-				       struct nrs_orr_req_range *range)
-{
-	return 0;
-}
-#endif
 
 /**
  * Sets the offset range the request covers; either in logical file
@@ -2034,3 +2017,5 @@ struct ptlrpc_nrs_pol_desc ptlrpc_nrs_trr_desc = {
 /** @} ORR/TRR policy */
 
 /** @} nrs */
+
+#endif /* HAVE_SERVER_SUPPORT */
