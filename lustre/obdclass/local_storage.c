@@ -764,13 +764,22 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 		if (rc)
 			GOTO(out_trans, rc);
 
-		dt_write_lock(env, root, 0);
+
 		dt_write_lock(env, o, 0);
 		if (dt_object_exists(o))
 			GOTO(out_lock, rc = 0);
 
 		rc = dt_create(env, o, &dti->dti_attr, NULL, &dti->dti_dof,
 			       th);
+		if (rc)
+			GOTO(out_lock, rc);
+
+		dt_write_lock(env, root, 0);
+		rc = dt_insert(env, root,
+			       (const struct dt_rec *)&dti->dti_fid,
+			       (const struct dt_key *)dti->dti_buf,
+			       th, BYPASS_CAPA, 1);
+		dt_write_unlock(env, root);
 		if (rc)
 			GOTO(out_lock, rc);
 
@@ -783,15 +792,8 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 		rc = dt_record_write(env, o, &dti->dti_lb, &dti->dti_off, th);
 		if (rc)
 			GOTO(out_lock, rc);
-		rc = dt_insert(env, root,
-			       (const struct dt_rec *)&dti->dti_fid,
-			       (const struct dt_key *)dti->dti_buf,
-			       th, BYPASS_CAPA, 1);
-		if (rc)
-			GOTO(out_lock, rc);
 out_lock:
 		dt_write_unlock(env, o);
-		dt_write_unlock(env, root);
 out_trans:
 		dt_trans_stop(env, dev, th);
 	} else {

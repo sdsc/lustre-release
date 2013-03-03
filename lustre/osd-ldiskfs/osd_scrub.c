@@ -1007,7 +1007,7 @@ static int osd_scrub_main(void *args)
 	ENTRY;
 
 	cfs_daemonize("OI_scrub");
-	rc = lu_env_init(&env, LCT_DT_THREAD);
+	rc = lu_env_init(&env, LCT_LOCAL);
 	if (rc != 0) {
 		CERROR("%.16s: OI scrub, fail to init env, rc = %d\n",
 		       LDISKFS_SB(sb)->s_es->s_volume_name, rc);
@@ -1177,7 +1177,7 @@ static const struct osd_lf_map osd_lf_maps[] = {
 		OLF_SHOW_NAME, NULL, NULL },
 
 	/* lfsck_namespace */
-	{ "lfsck_namespace", { FID_SEQ_LOCAL_FILE, LFSCK_BOOKMARK_OID, 0 }, 0,
+	{ "lfsck_namespace", { FID_SEQ_LOCAL_FILE, LFSCK_NAMESPACE_OID, 0 }, 0,
 		NULL, NULL },
 
 	/* OBJECTS, upgrade from old device */
@@ -1718,6 +1718,13 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
 	     (sf->sf_status == SS_INIT &&
 	      sf->sf_flags & (SF_RECREATED | SF_INCONSISTENT | SF_UPGRADE))))
 		rc = osd_scrub_start(dev);
+
+	/* it is possible that dcache entries may keep objects after they are
+	 * deleted by OSD. While it looks safe this can cause object data to
+	 * stay until umount causing failures in tests calculating free space,
+	 * e.g. replay-ost-single. Since those dcache entries are not used
+	 * anymore let's just free them after use here */
+	shrink_dcache_sb(sb);
 
 	RETURN(rc);
 }
