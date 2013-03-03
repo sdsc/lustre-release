@@ -34,15 +34,13 @@
  * Author: Liang Zhen <liang@whamcloud.com>
  * Author: Nikitas Angelinas <nikitas_angelinas@xyratex.com>
  */
+#ifdef HAVE_SERVER_SUPPORT
+
 /**
  * \addtogoup nrs
  * @{
  */
-
 #define DEBUG_SUBSYSTEM S_RPC
-#ifndef __KERNEL__
-#include <liblustre.h>
-#endif
 #include <obd_support.h>
 #include <obd_class.h>
 #include <lustre_net.h>
@@ -863,3 +861,5 @@ struct ptlrpc_nrs_pol_desc ptlrpc_nrs_crrn_desc = {
 /** @} CRR-N policy */
 
 /** @} nrs */
+
+#endif /* HAVE_SERVER_SUPPORT */

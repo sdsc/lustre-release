@@ -41,11 +41,20 @@
  * Author: Liang Zhen <liang@whamcloud.com>
  * Author: Nikitas Angelinas <nikitas_angelinas@xyratex.com>
  */
+/* Include in server and liblustre builds, but not in client builds.
+ * HAVE_SERVER_SUPPORT is defined when performing a full build, and the macro
+ * persists throughout the liblustre build, so we rely on !__KERNEL__ for
+ * detecting liblustre builds when building with --disable-server. A side-effect
+ * of this is that a build performed using both --disable-modules and
+ * --disable-server would still include NRS, but it is doubtful that there is
+ * a need for such a configuration, and hopefully liblustre will soon be removed
+ * from the tree anyway. */
+#if defined(HAVE_SERVER_SUPPORT) || !defined(__KERNEL__)
+
 /**
  * \addtogoup nrs
  * @{
  */
-
 #define DEBUG_SUBSYSTEM S_RPC
 #ifndef __KERNEL__
 #include <liblustre.h>
@@ -269,3 +278,4 @@ struct ptlrpc_nrs_pol_desc ptlrpc_nrs_fifo_desc = {
 
 /** @} nrs */
 
+#endif /* (HAVE_SERVER_SUPPORT) || !(__KERNEL__) */
