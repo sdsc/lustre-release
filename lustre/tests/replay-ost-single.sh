@@ -244,6 +244,13 @@ test_7() {
 	wait_delete_completed || return 5
     after=`kbytesfree`
     log "before: $before after: $after"
+	# debug code to find out real congifs size
+	if [ $(facet_fstype ost1) == ldiskfs ]; then
+		local LOGSIZE=$(do_facet ost1 "$DEBUGFS -c -R 'stat CONFIGS/$FSNAME-client' $(ostdevname 1)" | awk '/Size: / { print $NF; exit;}')
+		local LOGSIZE1=$(do_facet ost1 "$DEBUGFS -c -R 'stat CONFIGS/$FSNAME-OST0000' $(ostdevname 1)" | awk '/Size: / { print $NF; exit;}')
+		local LOGBLKS=$(($(($LOGSIZE+$LOGSIZE1))/1024))
+		log "config log size: $LOGBLKS"
+	fi
     (( $before <= $after + 40 )) || return 3	# take OST logs into account
 }
 run_test 7 "Fail OST before obd_destroy"
