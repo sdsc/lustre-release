@@ -122,7 +122,7 @@ int ofd_object_ff_check(const struct lu_env *env, struct ofd_object *fo)
 		 * has the "fid" EA or not.
 		 */
 		rc = dt_xattr_get(env, ofd_object_child(fo), &LU_BUF_NULL,
-				  XATTR_NAME_FID, BYPASS_CAPA);
+				  XATTR_NAME_FID);
 		if (rc >= 0 || rc == -ENODATA) {
 			/*
 			 * Here we assume that, if the object doesn't have the
@@ -324,7 +324,7 @@ int ofd_attr_handle_ugid(const struct lu_env *env, struct ofd_object *fo,
 	if (!(la->la_valid & LA_UID) && !(la->la_valid & LA_GID))
 		RETURN(0);
 
-	rc = dt_attr_get(env, ofd_object_child(fo), ln, BYPASS_CAPA);
+	rc = dt_attr_get(env, ofd_object_child(fo), ln);
 	if (rc != 0)
 		RETURN(rc);
 
@@ -413,14 +413,13 @@ int ofd_attr_set(const struct lu_env *env, struct ofd_object *fo,
 	if (rc)
 		GOTO(stop, rc);
 
-	rc = dt_attr_set(env, ofd_object_child(fo), la, th,
-			 ofd_object_capa(env, fo));
+	rc = dt_attr_set(env, ofd_object_child(fo), la, th);
 	if (rc)
 		GOTO(stop, rc);
 
 	if (ff_needed)
 		rc = dt_xattr_set(env, ofd_object_child(fo), &info->fti_buf,
-				  XATTR_NAME_FID, 0, th, BYPASS_CAPA);
+				  XATTR_NAME_FID, 0, th);
 
 stop:
 	ofd_trans_stop(env, ofd, th, rc);
@@ -498,18 +497,17 @@ int ofd_object_punch(const struct lu_env *env, struct ofd_object *fo,
 	if (rc)
 		GOTO(stop, rc);
 
-	rc = dt_punch(env, dob, start, OBD_OBJECT_EOF, th,
-		      ofd_object_capa(env, fo));
+	rc = dt_punch(env, dob, start, OBD_OBJECT_EOF, th);
 	if (rc)
 		GOTO(stop, rc);
 
-	rc = dt_attr_set(env, dob, la, th, ofd_object_capa(env, fo));
+	rc = dt_attr_set(env, dob, la, th);
 	if (rc)
 		GOTO(stop, rc);
 
 	if (ff_needed)
 		rc = dt_xattr_set(env, ofd_object_child(fo), &info->fti_buf,
-				  XATTR_NAME_FID, 0, th, BYPASS_CAPA);
+				  XATTR_NAME_FID, 0, th);
 
 stop:
 	ofd_trans_stop(env, ofd, th, rc);
@@ -563,8 +561,7 @@ int ofd_attr_get(const struct lu_env *env, struct ofd_object *fo,
 	ENTRY;
 
 	if (ofd_object_exists(fo)) {
-		rc = dt_attr_get(env, ofd_object_child(fo), la,
-				 ofd_object_capa(env, fo));
+		rc = dt_attr_get(env, ofd_object_child(fo), la);
 
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 7, 50, 0)
 		/* Try to correct for a bug in 2.1.0 (LU-221) that caused

@@ -301,7 +301,7 @@ struct ofd_seq *ofd_seq_load(const struct lu_env *env, struct ofd_device *ofd,
 
 	cfs_atomic_set(&oseq->os_refc, 1);
 
-	rc = dt_attr_get(env, dob, &info->fti_attr, BYPASS_CAPA);
+	rc = dt_attr_get(env, dob, &info->fti_attr);
 	if (rc)
 		GOTO(cleanup, rc);
 
@@ -518,8 +518,7 @@ int ofd_server_data_init(const struct lu_env *env, struct ofd_device *ofd)
 	__u32			index;
 	int			rc;
 
-	rc = dt_attr_get(env, ofd->ofd_lut.lut_last_rcvd, &info->fti_attr,
-			 BYPASS_CAPA);
+	rc = dt_attr_get(env, ofd->ofd_lut.lut_last_rcvd, &info->fti_attr);
 	if (rc)
 		RETURN(rc);
 

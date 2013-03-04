@@ -557,8 +557,7 @@ static int osp_md_declare_attr_set(const struct lu_env *env,
 }
 
 static int osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
-			   const struct lu_attr *attr, struct thandle *th,
-			   struct lustre_capa *capa)
+			   const struct lu_attr *attr, struct thandle *th)
 {
 	CDEBUG(D_INFO, "attr set object "DFID"\n",
 	       PFID(&dt->do_lu.lo_header->loh_fid));
@@ -600,7 +599,7 @@ static int osp_md_declare_xattr_set(const struct lu_env *env,
 
 static int osp_md_xattr_set(const struct lu_env *env, struct dt_object *dt,
 			    const struct lu_buf *buf, const char *name, int fl,
-			    struct thandle *th, struct lustre_capa *capa)
+			    struct thandle *th)
 {
 	CDEBUG(D_INFO, "xattr %s set object "DFID"\n", name,
 	       PFID(&dt->do_lu.lo_header->loh_fid));
@@ -609,8 +608,7 @@ static int osp_md_xattr_set(const struct lu_env *env, struct dt_object *dt,
 }
 
 static int osp_md_xattr_get(const struct lu_env *env, struct dt_object *dt,
-			    struct lu_buf *buf, const char *name,
-			    struct lustre_capa *capa)
+			    struct lu_buf *buf, const char *name)
 {
 	struct dt_device	*dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
 	struct update_request	*update = NULL;
@@ -724,8 +722,7 @@ static int osp_md_object_write_locked(const struct lu_env *env,
 }
 
 static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
-			       struct dt_rec *rec, const struct dt_key *key,
-			       struct lustre_capa *capa)
+			       struct dt_rec *rec, const struct dt_key *key)
 {
 	struct dt_device	*dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
 	struct update_request	*update;
@@ -850,7 +847,6 @@ static int osp_md_index_insert(const struct lu_env *env,
 			       const struct dt_rec *rec,
 			       const struct dt_key *key,
 			       struct thandle *th,
-			       struct lustre_capa *capa,
 			       int ignore_quota)
 {
 	return 0;
@@ -886,8 +882,7 @@ static int osp_md_declare_delete(const struct lu_env *env,
 static int osp_md_index_delete(const struct lu_env *env,
 			       struct dt_object *dt,
 			       const struct dt_key *key,
-			       struct thandle *th,
-			       struct lustre_capa *capa)
+			       struct thandle *th)
 {
 	CDEBUG(D_INFO, "index delete "DFID" %s\n",
 	       PFID(&dt->do_lu.lo_header->loh_fid), (char *)key);
@@ -906,9 +901,7 @@ static int osp_md_index_delete(const struct lu_env *env,
  * implemented, if we need it one day.
  */
 static struct dt_it *osp_it_init(const struct lu_env *env,
-				 struct dt_object *dt,
-				 __u32 attr,
-				struct lustre_capa *capa)
+				 struct dt_object *dt, __u32 attr)
 {
 	lu_object_get(&dt->do_lu);
 	return (struct dt_it *)dt;
@@ -1010,8 +1003,7 @@ static int osp_md_index_try(const struct lu_env *env,
 }
 
 static int osp_md_attr_get(const struct lu_env *env,
-			   struct dt_object *dt, struct lu_attr *attr,
-			   struct lustre_capa *capa)
+			   struct dt_object *dt, struct lu_attr *attr)
 {
 	struct osp_object     *obj = dt2osp_obj(dt);
 	struct dt_device      *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);

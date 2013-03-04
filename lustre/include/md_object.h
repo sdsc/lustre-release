@@ -74,15 +74,6 @@ enum {
         MD_CAPAINFO_MAX = 5
 };
 
-/** there are at most 5 fids in one operation, see rename, NOTE the last one
- * is a temporary one used for is_subdir() */
-struct md_capainfo {
-        __u32                   mc_auth;
-        __u32                   mc_padding;
-        struct lu_fid           mc_fid[MD_CAPAINFO_MAX];
-        struct lustre_capa     *mc_capa[MD_CAPAINFO_MAX];
-};
-
 struct md_quota {
         struct obd_export       *mq_exp;
 };
@@ -93,7 +84,6 @@ struct md_quota {
  * XXX should be moved into separate .h/.c together with all md security
  * related definitions.
  */
-struct md_capainfo *md_capainfo(const struct lu_env *env);
 struct md_quota *md_quota(const struct lu_env *env);
 
 /** metadata attributes */
@@ -166,7 +156,6 @@ struct md_attr {
         struct lmv_stripe_md   *ma_lmv;
         void                   *ma_acl;
         struct llog_cookie     *ma_cookie;
-        struct lustre_capa     *ma_capa;
         struct md_som_data     *ma_som;
         int                     ma_lmm_size;
         int                     ma_lmv_size;
@@ -267,9 +256,6 @@ struct md_object_operations {
         int (*moo_close)(const struct lu_env *env, struct md_object *obj,
                          struct md_attr *ma, int mode);
 
-        int (*moo_capa_get)(const struct lu_env *, struct md_object *,
-                            struct lustre_capa *, int renewal);
-
         int (*moo_object_sync)(const struct lu_env *, struct md_object *);
 
 	int (*moo_file_lock)(const struct lu_env *env, struct md_object *obj,
@@ -357,14 +343,6 @@ struct md_device_operations {
 
         int (*mdo_statfs)(const struct lu_env *env, struct md_device *m,
                           struct obd_statfs *sfs);
-
-        int (*mdo_init_capa_ctxt)(const struct lu_env *env, struct md_device *m,
-                                  int mode, unsigned long timeout, __u32 alg,
-                                  struct lustre_capa_key *keys);
-
-        int (*mdo_update_capa_key)(const struct lu_env *env,
-                                   struct md_device *m,
-                                   struct lustre_capa_key *key);
 
         int (*mdo_llog_ctxt_get)(const struct lu_env *env,
                                  struct md_device *m, int idx, void **h);
@@ -663,15 +641,6 @@ static inline int mo_ref_del(const struct lu_env *env,
 {
         LASSERT(m->mo_ops->moo_ref_del);
         return m->mo_ops->moo_ref_del(env, m, ma);
-}
-
-static inline int mo_capa_get(const struct lu_env *env,
-                              struct md_object *m,
-                              struct lustre_capa *c,
-                              int renewal)
-{
-        LASSERT(m->mo_ops->moo_capa_get);
-        return m->mo_ops->moo_capa_get(env, m, c, renewal);
 }
 
 static inline int mo_object_sync(const struct lu_env *env, struct md_object *m)
