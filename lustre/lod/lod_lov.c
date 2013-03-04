@@ -347,6 +347,9 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 	cfs_bitmap_set(ltd->ltd_tgt_bitmap, index);
 	ltd->ltd_tgtnr++;
 	mutex_unlock(&ltd->ltd_mutex);
+
+	obd_register_observer(obd, lod2obd(lod));
+
 	lod_putref(lod, ltd);
 	if (lod->lod_recovery_completed)
 		ldev->ld_ops->ldo_recovery_complete(env, ldev);
