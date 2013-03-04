@@ -223,8 +223,7 @@ out_rele:
 }
 
 int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
-		struct lu_buf *buf, const char *name,
-		struct lustre_capa *capa)
+		struct lu_buf *buf, const char *name)
 {
 	struct osd_object  *obj  = osd_dt_obj(dt);
 	int                 rc, size = 0;
@@ -552,7 +551,7 @@ out:
 
 int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 		  const struct lu_buf *buf, const char *name, int fl,
-		  struct thandle *handle, struct lustre_capa *capa)
+		  struct thandle *handle)
 {
 	struct osd_object  *obj = osd_dt_obj(dt);
 	struct osd_thandle *oh;
@@ -569,7 +568,7 @@ int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	down(&obj->oo_guard);
 	CDEBUG(D_INODE, "Setting xattr %s with size %d\n",
 		name, (int)buf->lb_len);
-	rc = osd_xattr_set_internal(env, obj, buf, name, fl, oh, capa);
+	rc = osd_xattr_set_internal(env, obj, buf, name, fl, oh);
 	up(&obj->oo_guard);
 
 	RETURN(rc);
@@ -687,8 +686,7 @@ int __osd_xattr_del(const struct lu_env *env, struct osd_object *obj,
 }
 
 int osd_xattr_del(const struct lu_env *env, struct dt_object *dt,
-		const char *name, struct thandle *handle,
-		struct lustre_capa *capa)
+		  const char *name, struct thandle *handle)
 {
 	struct osd_object  *obj = osd_dt_obj(dt);
 	struct osd_thandle *oh;
@@ -711,7 +709,7 @@ int osd_xattr_del(const struct lu_env *env, struct dt_object *dt,
 
 static int
 osd_sa_xattr_list(const struct lu_env *env, struct osd_object *obj,
-		struct lu_buf *lb)
+		  struct lu_buf *lb)
 {
 	nvpair_t *nvp = NULL;
 	int       len, counted = 0, remain = lb->lb_len;
@@ -743,7 +741,7 @@ osd_sa_xattr_list(const struct lu_env *env, struct osd_object *obj,
 }
 
 int osd_xattr_list(const struct lu_env *env, struct dt_object *dt,
-		struct lu_buf *lb, struct lustre_capa *capa)
+		   struct lu_buf *lb)
 {
 	struct osd_thread_info *oti = osd_oti_get(env);
 	struct osd_object      *obj = osd_dt_obj(dt);

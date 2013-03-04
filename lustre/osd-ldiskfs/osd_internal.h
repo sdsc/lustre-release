@@ -239,15 +239,6 @@ struct osd_device {
         struct osd_oi           **od_oi_table;
         /* total number of OI containers */
         int                       od_oi_count;
-        /*
-         * Fid Capability
-         */
-	unsigned int              od_fl_capa:1,
-				  od_is_md:1; /* set in ->ldo_prepare */
-        unsigned long             od_capa_timeout;
-        __u32                     od_capa_alg;
-        struct lustre_capa_key   *od_capa_keys;
-        cfs_hlist_head_t         *od_capa_hash;
 
         cfs_proc_dir_entry_t     *od_proc_entry;
         struct lprocfs_stats     *od_stats;

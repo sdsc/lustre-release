@@ -151,8 +151,6 @@ static int mdd_is_parent(const struct lu_env *env,
                 RETURN(0);
 
         for(;;) {
-                /* this is done recursively, bypass capa for each obj */
-                mdd_set_capainfo(env, 4, p1, BYPASS_CAPA);
                 rc = mdd_parent_fid(env, p1, pfid);
                 if (rc)
                         GOTO(out, rc);
@@ -239,7 +237,7 @@ static int mdd_dir_is_empty(const struct lu_env *env,
                 RETURN(-ENOTDIR);
 
         iops = &obj->do_index_ops->dio_it;
-        it = iops->init(env, obj, LUDA_64BITHASH, BYPASS_CAPA);
+	it = iops->init(env, obj, LUDA_64BITHASH);
         if (!IS_ERR(it)) {
                 result = iops->get(env, it, (const void *)"");
                 if (result > 0) {
@@ -270,7 +268,7 @@ static int __mdd_may_link(const struct lu_env *env, struct mdd_object *obj)
         int rc;
         ENTRY;
 
-        rc = mdd_la_get(env, obj, la, BYPASS_CAPA);
+	rc = mdd_la_get(env, obj, la);
         if (rc)
                 RETURN(rc);
 
@@ -351,7 +349,7 @@ static inline int mdd_is_sticky(const struct lu_env *env,
 	int rc;
 
 	if (pobj) {
-		rc = mdd_la_get(env, pobj, tmp_la, BYPASS_CAPA);
+		rc = mdd_la_get(env, pobj, tmp_la);
 		if (rc)
 			return rc;
 
@@ -360,7 +358,7 @@ static inline int mdd_is_sticky(const struct lu_env *env,
 			return 0;
 	}
 
-	rc = mdd_la_get(env, cobj, tmp_la, BYPASS_CAPA);
+	rc = mdd_la_get(env, cobj, tmp_la);
 	if (rc)
 		return rc;
 
@@ -495,58 +493,51 @@ int mdd_link_sanity_check(const struct lu_env *env,
         RETURN(rc);
 }
 
-static int __mdd_index_delete_only(const struct lu_env *env, struct mdd_object *pobj,
-                                   const char *name, struct thandle *handle,
-                                   struct lustre_capa *capa)
-{
-        struct dt_object *next = mdd_object_child(pobj);
-        int               rc;
-        ENTRY;
-
-        if (dt_try_as_dir(env, next)) {
-                rc = next->do_index_ops->dio_delete(env, next,
-                                                    (struct dt_key *)name,
-                                                    handle, capa);
-        } else
-                rc = -ENOTDIR;
-
-        RETURN(rc);
-}
-
-static int __mdd_index_insert_only(const struct lu_env *env,
-				   struct mdd_object *pobj,
-				   const struct lu_fid *lf, const char *name,
-				   struct thandle *handle,
-				   struct lustre_capa *capa)
+static int __mdd_index_delete_only(const struct lu_env *env,
+				   struct mdd_object *pobj, const char *name,
+				   struct thandle *thandle)
 {
 	struct dt_object *next = mdd_object_child(pobj);
 	int               rc;
 	ENTRY;
 
-	if (dt_try_as_dir(env, next)) {
-		struct lu_ucred  *uc = lu_ucred_check(env);
-		int ignore_quota;
+	if (dt_try_as_dir(env, next) == 0)
+		RETURN(-ENOTDIR);
 
-		ignore_quota = uc ? uc->uc_cap & CFS_CAP_SYS_RESOURCE_MASK : 1;
-		rc = next->do_index_ops->dio_insert(env, next,
-						    (struct dt_rec*)lf,
-						    (const struct dt_key *)name,
-						    handle, capa, ignore_quota);
-	} else {
-		rc = -ENOTDIR;
-	}
+	rc = dt_delete(env, next, (struct dt_key *)name, thandle);
+
+	RETURN(rc);
+}
+
+static int __mdd_index_insert_only(const struct lu_env *env,
+				   struct mdd_object *pobj,
+				   const struct lu_fid *lf, const char *name,
+				   struct thandle *handle)
+{
+	struct dt_object *next = mdd_object_child(pobj);
+	struct lu_ucred  *uc = lu_ucred_check(env);
+	int 		  rc, ignore_quota;
+	ENTRY;
+
+	if (dt_try_as_dir(env, next) == 0)
+		RETURN(-ENOTDIR);
+
+	ignore_quota = uc ? uc->uc_cap & CFS_CAP_SYS_RESOURCE_MASK : 1;
+	rc = dt_insert(env, next, (struct dt_rec*)lf,
+			(const struct dt_key *)name, handle, ignore_quota);
+
 	RETURN(rc);
 }
 
 /* insert named index, add reference if isdir */
 static int __mdd_index_insert(const struct lu_env *env, struct mdd_object *pobj,
-                              const struct lu_fid *lf, const char *name, int is_dir,
-                              struct thandle *handle, struct lustre_capa *capa)
+			      const struct lu_fid *lf, const char *name,
+			      int is_dir, struct thandle *handle)
 {
         int               rc;
         ENTRY;
 
-        rc = __mdd_index_insert_only(env, pobj, lf, name, handle, capa);
+	rc = __mdd_index_insert_only(env, pobj, lf, name, handle);
         if (rc == 0 && is_dir) {
                 mdd_write_lock(env, pobj, MOR_TGT_PARENT);
                 mdo_ref_add(env, pobj, handle);
@@ -557,74 +548,20 @@ static int __mdd_index_insert(const struct lu_env *env, struct mdd_object *pobj,
 
 /* delete named index, drop reference if isdir */
 static int __mdd_index_delete(const struct lu_env *env, struct mdd_object *pobj,
-                              const char *name, int is_dir, struct thandle *handle,
-                              struct lustre_capa *capa)
+			      const char *name, int is_dir,
+			      struct thandle *handle)
 {
-        int               rc;
-        ENTRY;
+	int rc;
+	ENTRY;
 
-        rc = __mdd_index_delete_only(env, pobj, name, handle, capa);
-        if (rc == 0 && is_dir) {
-                mdd_write_lock(env, pobj, MOR_TGT_PARENT);
-                mdo_ref_del(env, pobj, handle);
-                mdd_write_unlock(env, pobj);
-        }
+	rc = __mdd_index_delete_only(env, pobj, name, handle);
+	if (rc == 0 && is_dir) {
+		mdd_write_lock(env, pobj, MOR_TGT_PARENT);
+		mdo_ref_del(env, pobj, handle);
+		mdd_write_unlock(env, pobj);
+	}
 
-        RETURN(rc);
-}
-
-int mdd_declare_llog_record(const struct lu_env *env, struct mdd_device *mdd,
-                            int reclen, struct thandle *handle)
-{
-        int rc;
-
-        /* XXX: this is a temporary solution to declare llog changes
-         *      will be fixed in 2.3 with new llog implementation */
-
-        LASSERT(mdd->mdd_capa);
-
-        /* XXX: Since we use the 'mdd_capa' as fake llog object here, we
-         *      have to set the parameter 'size' as INT_MAX or 0 to inform
-         *      OSD that this record write is for a llog write or catalog
-         *      header update, and osd declare function will reserve less
-         *      credits for optimization purpose.
-         *
-         *      Reserve 6 blocks for a llog write, since the llog file is
-         *      usually small, reserve 2 blocks for catalog header update,
-         *      because we know for sure that catalog header is already
-         *      allocated.
-         *
-         *      This hack should be removed in 2.3.
-         */
-
-        /* record itself */
-        rc = dt_declare_record_write(env, mdd->mdd_capa,
-                                     DECLARE_LLOG_WRITE, 0, handle);
-        if (rc)
-                return rc;
-
-        /* header will be updated as well */
-        rc = dt_declare_record_write(env, mdd->mdd_capa,
-                                     DECLARE_LLOG_WRITE, 0, handle);
-        if (rc)
-                return rc;
-
-        /* also we should be able to create new plain log */
-        rc = dt_declare_create(env, mdd->mdd_capa, NULL, NULL, NULL, handle);
-        if (rc)
-                return rc;
-
-        /* new record referencing new plain llog */
-        rc = dt_declare_record_write(env, mdd->mdd_capa,
-                                     DECLARE_LLOG_WRITE, 0, handle);
-        if (rc)
-                return rc;
-
-        /* catalog's header will be updated as well */
-        rc = dt_declare_record_write(env, mdd->mdd_capa,
-                                     DECLARE_LLOG_REWRITE, 0, handle);
-
-        return rc;
+	RETURN(rc);
 }
 
 int mdd_declare_changelog_store(const struct lu_env *env,
@@ -987,8 +924,7 @@ static int mdd_link(const struct lu_env *env, struct md_object *tgt_obj,
 
 
 	rc = __mdd_index_insert_only(env, mdd_tobj, mdo2fid(mdd_sobj),
-				     name, handle,
-				     mdd_object_capa(env, mdd_tobj));
+				     name, handle);
 	if (rc != 0) {
 		mdo_ref_del(env, mdd_sobj, handle);
 		GOTO(out_unlock, rc);
@@ -1198,8 +1134,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 		mdd_write_lock(env, mdd_cobj, MOR_TGT_CHILD);
 
 		/* fetch cattr */
-		rc = mdd_la_get(env, mdd_cobj, cattr,
-				mdd_object_capa(env, mdd_cobj));
+		rc = mdd_la_get(env, mdd_cobj, cattr);
 		if (rc)
 			GOTO(cleanup, rc);
 
@@ -1211,8 +1146,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 	if (rc)
 		GOTO(cleanup, rc);
 
-	rc = __mdd_index_delete(env, mdd_pobj, name, is_dir, handle,
-				mdd_object_capa(env, mdd_pobj));
+	rc = __mdd_index_delete(env, mdd_pobj, name, is_dir, handle);
 	if (rc)
 		GOTO(cleanup, rc);
 
@@ -1221,8 +1155,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 		if (rc != 0) {
 			__mdd_index_insert_only(env, mdd_pobj,
 						mdo2fid(mdd_cobj),
-						name, handle,
-						mdd_object_capa(env, mdd_pobj));
+						name, handle);
 			GOTO(cleanup, rc);
 		}
 
@@ -1231,8 +1164,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 			mdo_ref_del(env, mdd_cobj, handle);
 
 		/* fetch updated nlink */
-		rc = mdd_la_get(env, mdd_cobj, cattr,
-				mdd_object_capa(env, mdd_cobj));
+		rc = mdd_la_get(env, mdd_cobj, cattr);
 		if (rc)
 			GOTO(cleanup, rc);
 	}
@@ -1267,8 +1199,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 
 	/* fetch updated nlink */
 	if (rc == 0)
-		rc = mdd_la_get(env, mdd_cobj, cattr,
-				mdd_object_capa(env, mdd_cobj));
+		rc = mdd_la_get(env, mdd_cobj, cattr);
 
         if (!is_dir)
 		/* old files may not have link ea; ignore errors */
@@ -1349,7 +1280,7 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
 	 *    striping can be specified or not
 	 * 2) CMD?
 	 */
-	rc = mdd_la_get(env, son, attr, mdd_object_capa(env, son));
+	rc = mdd_la_get(env, son, attr);
 	if (rc)
 		RETURN(rc);
 
@@ -1386,7 +1317,7 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
 		GOTO(stop, rc);
 
 	rc = dt_xattr_set(env, mdd_object_child(son), buf, XATTR_NAME_LOV,
-			  0, handle, mdd_object_capa(env, son));
+			  0, handle);
 stop:
 	mdd_trans_stop(env, mdd, rc, handle);
 out_free:
@@ -1425,18 +1356,12 @@ __mdd_lookup(const struct lu_env *env, struct md_object *pobj,
         if (rc)
                 RETURN(rc);
 
-        if (likely(S_ISDIR(mdd_object_type(mdd_obj)) &&
-                   dt_try_as_dir(env, dir))) {
-
-                rc = dir->do_index_ops->dio_lookup(env, dir,
-                                                 (struct dt_rec *)fid, key,
-                                                 mdd_object_capa(env, mdd_obj));
-                if (rc > 0)
-                        rc = 0;
-                else if (rc == 0)
-                        rc = -ENOENT;
-        } else
-                rc = -ENOTDIR;
+	if (unlikely(S_ISDIR(mdd_object_type(mdd_obj))) == 0)
+		rc = -ENOTDIR;
+	else if (unlikely(dt_try_as_dir(env, dir) == 0))
+		rc = -ENOTDIR;
+	else
+		rc = dt_lookup(env, dir, (struct dt_rec *)fid, key);
 
         RETURN(rc);
 }
@@ -1497,17 +1422,16 @@ int mdd_object_initialize(const struct lu_env *env, const struct lu_fid *pfid,
 	rc = mdd_attr_set_internal(env, child, attr, handle, 0);
 	/* arguments are supposed to stay the same */
 	if (S_ISDIR(attr->la_mode)) {
-                /* Add "." and ".." for newly created dir */
-                mdo_ref_add(env, child, handle);
-                rc = __mdd_index_insert_only(env, child, mdo2fid(child),
-                                             dot, handle, BYPASS_CAPA);
-                if (rc == 0)
-                        rc = __mdd_index_insert_only(env, child, pfid,
-                                                     dotdot, handle,
-                                                     BYPASS_CAPA);
-                if (rc != 0)
-                        mdo_ref_del(env, child, handle);
-        }
+		/* Add "." and ".." for newly created dir */
+		mdo_ref_add(env, child, handle);
+		rc = __mdd_index_insert_only(env, child, mdo2fid(child),
+					     dot, handle);
+		if (rc == 0)
+			rc = __mdd_index_insert_only(env, child, pfid,
+						     dotdot, handle);
+		if (rc != 0)
+			mdo_ref_del(env, child, handle);
+	}
 
 	if (rc == 0 && (fid_is_norm(mdo2fid(child)) ||
 			fid_is_dot_lustre(mdo2fid(child)) ||
@@ -1698,8 +1622,7 @@ static int mdd_acl_init(const struct lu_env *env, struct mdd_object *pobj,
 		RETURN(0);
 
 	mdd_read_lock(env, pobj, MOR_TGT_PARENT);
-	rc = mdo_xattr_get(env, pobj, acl_buf,
-			   XATTR_NAME_ACL_DEFAULT, BYPASS_CAPA);
+	rc = mdo_xattr_get(env, pobj, acl_buf, XATTR_NAME_ACL_DEFAULT);
 	mdd_read_unlock(env, pobj);
 	if (rc > 0) {
 		/* If there are default ACL, fix mode by default ACL */
@@ -1778,7 +1701,7 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
          *     2. insert            (__mdd_index_insert(), lookup again)
          */
 
-	rc = mdd_la_get(env, mdd_pobj, pattr, BYPASS_CAPA);
+	rc = mdd_la_get(env, mdd_pobj, pattr);
 	if (rc != 0)
 		RETURN(rc);
 
@@ -1873,8 +1796,7 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 
 		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
 				spec->u.sp_ea.eadatalen);
-		rc = mdo_xattr_set(env, son, buf, XATTR_NAME_LOV, 0, handle,
-				BYPASS_CAPA);
+		rc = mdo_xattr_set(env, son, buf, XATTR_NAME_LOV, 0, handle);
 	}
 
 	if (rc == 0 && spec->sp_cr_flags & MDS_OPEN_VOLATILE)
@@ -1893,8 +1815,7 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 
 	if (!(spec->sp_cr_flags & MDS_OPEN_VOLATILE))
 		rc = __mdd_index_insert(env, mdd_pobj, mdo2fid(son),
-					name, S_ISDIR(attr->la_mode), handle,
-					mdd_object_capa(env, mdd_pobj));
+					name, S_ISDIR(attr->la_mode), handle);
 
 	if (rc != 0)
 		GOTO(cleanup, rc);
@@ -1911,7 +1832,6 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 
                 buf = mdd_buf_get_const(env, target_name, sym_len);
 		rc = dt->do_body_ops->dbo_write(env, dt, buf, &pos, handle,
-						mdd_object_capa(env, son),
 						uc->uc_cap &
 						CFS_CAP_SYS_RESOURCE_MASK);
 
@@ -1943,7 +1863,7 @@ cleanup:
 			else
 				rc2 = __mdd_index_delete(env, mdd_pobj, name,
 							 S_ISDIR(attr->la_mode),
-							 handle, BYPASS_CAPA);
+							 handle);
 			if (rc2 != 0)
 				goto out_stop;
 		}
@@ -2253,14 +2173,12 @@ static int mdd_rename(const struct lu_env *env,
         if (sdlh == NULL || tdlh == NULL)
                 GOTO(cleanup, rc = -ENOMEM);
 
-	rc = mdd_la_get(env, mdd_sobj, so_attr,
-			mdd_object_capa(env, mdd_sobj));
+	rc = mdd_la_get(env, mdd_sobj, so_attr);
 	if (rc)
 		GOTO(cleanup, rc);
 
 	if (mdd_tobj) {
-		rc = mdd_la_get(env, mdd_tobj, tg_attr,
-				mdd_object_capa(env, mdd_tobj));
+		rc = mdd_la_get(env, mdd_tobj, tg_attr);
 		if (rc)
 			GOTO(cleanup, rc);
 	}
@@ -2273,20 +2191,18 @@ static int mdd_rename(const struct lu_env *env,
 	is_dir = S_ISDIR(so_attr->la_mode);
 
         /* Remove source name from source directory */
-        rc = __mdd_index_delete(env, mdd_spobj, sname, is_dir, handle,
-                                mdd_object_capa(env, mdd_spobj));
+	rc = __mdd_index_delete(env, mdd_spobj, sname, is_dir, handle);
         if (rc)
                 GOTO(cleanup, rc);
 
         /* "mv dir1 dir2" needs "dir1/.." link update */
         if (is_dir && mdd_sobj && !lu_fid_eq(spobj_fid, tpobj_fid)) {
-                rc = __mdd_index_delete_only(env, mdd_sobj, dotdot, handle,
-                                        mdd_object_capa(env, mdd_sobj));
+		rc = __mdd_index_delete_only(env, mdd_sobj, dotdot, handle);
                 if (rc)
                         GOTO(fixup_spobj2, rc);
 
-                rc = __mdd_index_insert_only(env, mdd_sobj, tpobj_fid, dotdot,
-                                      handle, mdd_object_capa(env, mdd_sobj));
+		rc = __mdd_index_insert_only(env, mdd_sobj, tpobj_fid, dotdot,
+					     handle);
                 if (rc)
                         GOTO(fixup_spobj, rc);
         }
@@ -2295,8 +2211,7 @@ static int mdd_rename(const struct lu_env *env,
          * Here tobj can be remote one, so we do index_delete unconditionally
          * and -ENOENT is allowed.
          */
-        rc = __mdd_index_delete(env, mdd_tpobj, tname, is_dir, handle,
-                                mdd_object_capa(env, mdd_tpobj));
+	rc = __mdd_index_delete(env, mdd_tpobj, tname, is_dir, handle);
         if (rc != 0) {
                 if (mdd_tobj) {
                         /* tname might been renamed to something else */
@@ -2307,8 +2222,7 @@ static int mdd_rename(const struct lu_env *env,
         }
 
         /* Insert new fid with target name into target dir */
-        rc = __mdd_index_insert(env, mdd_tpobj, lf, tname, is_dir, handle,
-                                mdd_object_capa(env, mdd_tpobj));
+	rc = __mdd_index_insert(env, mdd_tpobj, lf, tname, is_dir, handle);
         if (rc)
                 GOTO(fixup_tpobj, rc);
 
@@ -2345,8 +2259,7 @@ static int mdd_rename(const struct lu_env *env,
 		tobj_ref = 1;
 
 		/* fetch updated nlink */
-		rc = mdd_la_get(env, mdd_tobj, tg_attr,
-				mdd_object_capa(env, mdd_tobj));
+		rc = mdd_la_get(env, mdd_tobj, tg_attr);
 		if (rc != 0) {
 			CERROR("%s: Failed to get nlink for tobj "
 				DFID": rc = %d\n",
@@ -2378,8 +2291,7 @@ static int mdd_rename(const struct lu_env *env,
 		}
 
 		/* fetch updated nlink */
-		rc = mdd_la_get(env, mdd_tobj, tg_attr,
-				mdd_object_capa(env, mdd_tobj));
+		rc = mdd_la_get(env, mdd_tobj, tg_attr);
 		if (rc != 0) {
 			CERROR("%s: Failed to get nlink for tobj "
 				DFID": rc = %d\n",
@@ -2424,8 +2336,7 @@ static int mdd_rename(const struct lu_env *env,
 
 fixup_tpobj:
         if (rc) {
-                rc2 = __mdd_index_delete(env, mdd_tpobj, tname, is_dir, handle,
-                                         BYPASS_CAPA);
+		rc2 = __mdd_index_delete(env, mdd_tpobj, tname, is_dir, handle);
                 if (rc2)
                         CWARN("tp obj fix error %d\n",rc2);
 
@@ -2437,10 +2348,9 @@ fixup_tpobj:
 					mdo_ref_add(env, mdd_tobj, handle);
 			}
 
-                        rc2 = __mdd_index_insert(env, mdd_tpobj,
-                                         mdo2fid(mdd_tobj), tname,
-                                         is_dir, handle,
-                                         BYPASS_CAPA);
+			rc2 = __mdd_index_insert(env, mdd_tpobj,
+						 mdo2fid(mdd_tobj), tname,
+						 is_dir, handle);
 
                         if (rc2)
                                 CWARN("tp obj fix error %d\n",rc2);
@@ -2449,23 +2359,22 @@ fixup_tpobj:
 
 fixup_spobj:
         if (rc && is_dir && mdd_sobj) {
-                rc2 = __mdd_index_delete_only(env, mdd_sobj, dotdot, handle,
-                                              BYPASS_CAPA);
+		rc2 = __mdd_index_delete_only(env, mdd_sobj, dotdot, handle);
 
                 if (rc2)
                         CWARN("sp obj dotdot delete error %d\n",rc2);
 
 
-                rc2 = __mdd_index_insert_only(env, mdd_sobj, spobj_fid,
-                                              dotdot, handle, BYPASS_CAPA);
+		rc2 = __mdd_index_insert_only(env, mdd_sobj, spobj_fid,
+					      dotdot, handle);
                 if (rc2)
                         CWARN("sp obj dotdot insert error %d\n",rc2);
         }
 
 fixup_spobj2:
-        if (rc) {
-                rc2 = __mdd_index_insert(env, mdd_spobj,
-                                         lf, sname, is_dir, handle, BYPASS_CAPA);
+	if (rc) {
+		rc2 = __mdd_index_insert(env, mdd_spobj,
+					 lf, sname, is_dir, handle);
                 if (rc2)
                         CWARN("sp obj fix error %d\n",rc2);
         }
@@ -2511,7 +2420,6 @@ int mdd_links_new(const struct lu_env *env, struct mdd_link_data *ldata)
 int mdd_links_read(const struct lu_env *env, struct mdd_object *mdd_obj,
 		   struct mdd_link_data *ldata)
 {
-	struct lustre_capa *capa;
 	struct link_ea_header *leh;
 	int rc;
 
@@ -2524,21 +2432,19 @@ int mdd_links_read(const struct lu_env *env, struct mdd_object *mdd_obj,
 	if (!mdd_object_exists(mdd_obj))
 		return -ENODATA;
 
-	capa = mdd_object_capa(env, mdd_obj);
-	rc = mdo_xattr_get(env, mdd_obj, ldata->ml_buf,
-			   XATTR_NAME_LINK, capa);
+	rc = mdo_xattr_get(env, mdd_obj, ldata->ml_buf, XATTR_NAME_LINK);
 	if (rc == -ERANGE) {
 		/* Buf was too small, figure out what we need. */
 		mdd_buf_put(ldata->ml_buf);
 		rc = mdo_xattr_get(env, mdd_obj, ldata->ml_buf,
-				   XATTR_NAME_LINK, capa);
+				   XATTR_NAME_LINK);
 		if (rc < 0)
 			return rc;
 		ldata->ml_buf = mdd_buf_alloc(env, rc);
 		if (ldata->ml_buf->lb_buf == NULL)
 			return -ENOMEM;
 		rc = mdo_xattr_get(env, mdd_obj, ldata->ml_buf,
-				   XATTR_NAME_LINK, capa);
+				   XATTR_NAME_LINK);
 	}
 	if (rc < 0)
 		return rc;
@@ -2579,8 +2485,7 @@ int mdd_links_write(const struct lu_env *env, struct mdd_object *mdd_obj,
 {
 	const struct lu_buf *buf = mdd_buf_get_const(env, ldata->ml_buf->lb_buf,
 						     ldata->ml_leh->leh_len);
-	return mdo_xattr_set(env, mdd_obj, buf, XATTR_NAME_LINK, 0, handle,
-			     mdd_object_capa(env, mdd_obj));
+	return mdo_xattr_set(env, mdd_obj, buf, XATTR_NAME_LINK, 0, handle);
 }
 
 /** Pack a link_ea_entry.
