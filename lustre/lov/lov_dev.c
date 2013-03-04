@@ -58,7 +58,7 @@ cfs_mem_cache_t *lovsub_req_kmem;
 cfs_mem_cache_t *lov_lock_link_kmem;
 
 /** Lock class of lov_device::ld_mutex. */
-struct lock_class_key cl_lov_device_mutex_class;
+static struct lock_class_key cl_lov_device_mutex_class;
 
 struct lu_kmem_descr lov_caches[] = {
         {
@@ -528,6 +528,5 @@ struct lu_device_type lov_device_type = {
         .ldt_ops      = &lov_device_type_ops,
         .ldt_ctx_tags = LCT_CL_THREAD
 };
-EXPORT_SYMBOL(lov_device_type);
 
 /** @} lov */

@@ -239,7 +239,7 @@ static int lov_tgt_seq_show(struct seq_file *p, void *v)
                           tgt->ltd_active ? "" : "IN");
 }
 
-struct seq_operations lov_tgt_sops = {
+static struct seq_operations lov_tgt_sops = {
         .start = lov_tgt_seq_start,
         .stop = lov_tgt_seq_stop,
         .next = lov_tgt_seq_next,
@@ -264,7 +264,7 @@ static int lov_target_seq_open(struct inode *inode, struct file *file)
         return 0;
 }
 
-struct lprocfs_vars lprocfs_lov_obd_vars[] = {
+static struct lprocfs_vars lprocfs_lov_obd_vars[] = {
         { "uuid",         lprocfs_rd_uuid,        0, 0 },
         { "stripesize",   lov_rd_stripesize,      lov_wr_stripesize, 0 },
         { "stripeoffset", lov_rd_stripeoffset,    lov_wr_stripeoffset, 0 },
@@ -274,18 +274,17 @@ struct lprocfs_vars lprocfs_lov_obd_vars[] = {
         { "activeobd",    lov_rd_activeobd,       0, 0 },
         { "filestotal",   lprocfs_rd_filestotal,  0, 0 },
         { "filesfree",    lprocfs_rd_filesfree,   0, 0 },
-        /*{ "filegroups", lprocfs_rd_filegroups,  0, 0 },*/
         { "blocksize",    lprocfs_rd_blksize,     0, 0 },
         { "kbytestotal",  lprocfs_rd_kbytestotal, 0, 0 },
         { "kbytesfree",   lprocfs_rd_kbytesfree,  0, 0 },
         { "kbytesavail",  lprocfs_rd_kbytesavail, 0, 0 },
         { "desc_uuid",    lov_rd_desc_uuid,       0, 0 },
-        { 0 }
+	{ NULL }
 };
 
 static struct lprocfs_vars lprocfs_lov_module_vars[] = {
-        { "num_refs",     lprocfs_rd_numrefs,     0, 0 },
-        { 0 }
+	{ "num_refs",     lprocfs_rd_numrefs,     0, 0 },
+	{ NULL }
 };
 
 void lprocfs_lov_init_vars(struct lprocfs_static_vars *lvars)
