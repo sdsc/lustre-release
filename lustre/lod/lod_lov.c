@@ -560,8 +560,7 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 
 	info->lti_buf.lb_buf = lmm;
 	info->lti_buf.lb_len = lmm_size;
-	rc = dt_xattr_set(env, next, &info->lti_buf, XATTR_NAME_LOV, 0,
-			  th, BYPASS_CAPA);
+	rc = dt_xattr_set(env, next, &info->lti_buf, XATTR_NAME_LOV, 0, th);
 
 	RETURN(rc);
 }
@@ -582,8 +581,7 @@ int lod_get_lov_ea(const struct lu_env *env, struct lod_object *lo)
 repeat:
 		info->lti_buf.lb_buf = info->lti_ea_store;
 		info->lti_buf.lb_len = info->lti_ea_store_size;
-		rc = dt_xattr_get(env, next, &info->lti_buf, XATTR_NAME_LOV,
-				  BYPASS_CAPA);
+		rc = dt_xattr_get(env, next, &info->lti_buf, XATTR_NAME_LOV);
 	}
 	/* if object is not striped or inaccessible */
 	if (rc == -ENODATA)
@@ -591,8 +589,7 @@ repeat:
 
 	if (rc == -ERANGE) {
 		/* EA doesn't fit, reallocate new buffer */
-		rc = dt_xattr_get(env, next, &LU_BUF_NULL, XATTR_NAME_LOV,
-				  BYPASS_CAPA);
+		rc = dt_xattr_get(env, next, &LU_BUF_NULL, XATTR_NAME_LOV);
 		if (rc == -ENODATA)
 			RETURN(0);
 		else if (rc < 0)
@@ -655,8 +652,7 @@ int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
 
 	info->lti_buf.lb_buf = v3;
 	info->lti_buf.lb_len = sizeof(*v3);
-	rc = dt_xattr_set(env, next, &info->lti_buf, XATTR_NAME_LOV, 0, th,
-			BYPASS_CAPA);
+	rc = dt_xattr_set(env, next, &info->lti_buf, XATTR_NAME_LOV, 0, th);
 
 	OBD_FREE_PTR(v3);
 

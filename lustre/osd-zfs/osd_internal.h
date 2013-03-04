@@ -95,7 +95,6 @@ struct osd_it_quota {
 struct osd_zap_it {
 	zap_cursor_t		*ozi_zc;
 	struct osd_object	*ozi_obj;
-	struct lustre_capa	*ozi_capa;
 	unsigned		 ozi_reset:1;	/* 1 -- no need to advance */
 	/* ozi_pos - position of the cursor:
 	 * 0 - before any record
@@ -150,11 +149,6 @@ struct osd_thread_info {
 	 * XXX temporary: for ->i_op calls.
 	 */
 	struct timespec		 oti_time;
-	/*
-	 * XXX temporary: for capa operations.
-	 */
-	struct lustre_capa_key	 oti_capa_key;
-	struct lustre_capa	 oti_capa;
 
 	struct ost_id		 oti_ostid;
 
@@ -231,15 +225,6 @@ struct osd_device {
 	struct dt_device	 od_dt_dev;
 	/* information about underlying file system */
 	udmu_objset_t		 od_objset;
-
-	/*
-	 * Fid Capability
-	 */
-	unsigned int		 od_fl_capa:1;
-	unsigned long		 od_capa_timeout;
-	__u32			 od_capa_alg;
-	struct lustre_capa_key	*od_capa_keys;
-	cfs_hlist_head_t	*od_capa_hash;
 
 	cfs_proc_dir_entry_t	*od_proc_entry;
 	struct lprocfs_stats	*od_stats;
@@ -450,21 +435,19 @@ int __osd_xattr_get_large(const struct lu_env *env, udmu_objset_t *uos,
 			  uint64_t xattr, struct lu_buf *buf,
 			  const char *name, int *sizep);
 int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
-		  struct lu_buf *buf, const char *name,
-		  struct lustre_capa *capa);
+		  struct lu_buf *buf, const char *name);
 int osd_declare_xattr_set(const struct lu_env *env, struct dt_object *dt,
 			  const struct lu_buf *buf, const char *name,
 			  int fl, struct thandle *handle);
 int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 		  const struct lu_buf *buf, const char *name, int fl,
-		  struct thandle *handle, struct lustre_capa *capa);
+		  struct thandle *handle);
 int osd_declare_xattr_del(const struct lu_env *env, struct dt_object *dt,
 			  const char *name, struct thandle *handle);
 int osd_xattr_del(const struct lu_env *env, struct dt_object *dt,
-		  const char *name, struct thandle *handle,
-		  struct lustre_capa *capa);
+		  const char *name, struct thandle *handle);
 int osd_xattr_list(const struct lu_env *env, struct dt_object *dt,
-		   struct lu_buf *lb, struct lustre_capa *capa);
+		   struct lu_buf *lb);
 void __osd_xattr_declare_set(const struct lu_env *env, struct osd_object *obj,
 			int vallen, const char *name, struct osd_thandle *oh);
 int __osd_sa_xattr_set(const struct lu_env *env, struct osd_object *obj,
@@ -476,7 +459,7 @@ int __osd_xattr_set(const struct lu_env *env, struct osd_object *obj,
 static inline int
 osd_xattr_set_internal(const struct lu_env *env, struct osd_object *obj,
 		       const struct lu_buf *buf, const char *name, int fl,
-		       struct osd_thandle *oh, struct lustre_capa *capa)
+		       struct osd_thandle *oh)
 {
 	int rc;
 

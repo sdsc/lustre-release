@@ -275,35 +275,22 @@ int lprocfs_ofd_wr_fmd_max_age(struct file *file, const char *buffer,
 static int lprocfs_ofd_rd_capa(char *page, char **start, off_t off,
 			       int count, int *eof, void *data)
 {
-	struct obd_device	*obd = data;
-	int			 rc;
+	int rc;
 
-	rc = snprintf(page, count, "capability on: %s\n",
-		      obd->u.filter.fo_fl_oss_capa ? "oss" : "");
+	rc = snprintf(page, count, "capability on: \n");
 	return rc;
 }
 
 static int lprocfs_ofd_wr_capa(struct file *file, const char *buffer,
 			       unsigned long count, void *data)
 {
-	struct obd_device	*obd = data;
 	int			 val, rc;
 
 	rc = lprocfs_write_helper(buffer, count, &val);
 	if (rc)
 		return rc;
 
-	if (val & ~0x1) {
-		CERROR("invalid capability mode, only 0/1 are accepted.\n"
-		       " 1: enable oss fid capability\n"
-		       " 0: disable oss fid capability\n");
-		return -EINVAL;
-	}
-
-	obd->u.filter.fo_fl_oss_capa = val;
-	LCONSOLE_INFO("OSS %s %s fid capability.\n", obd->obd_name,
-		      val ? "enabled" : "disabled");
-	return count;
+	return -ENOTSUPP;
 }
 
 static int lprocfs_ofd_rd_capa_count(char *page, char **start, off_t off,

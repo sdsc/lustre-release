@@ -1020,6 +1020,7 @@ static int mdd_statfs(const struct lu_env *env, struct md_device *m,
         RETURN(rc);
 }
 
+<<<<<<< HEAD
 /*
  * No permission check is needed.
  */
@@ -1057,6 +1058,8 @@ static int mdd_update_capa_key(const struct lu_env *env,
 	return -EINVAL;
 }
 
+=======
+>>>>>>> e83871a... LU-3105 osd: remove capa related stuff from servers
 static int mdd_llog_ctxt_get(const struct lu_env *env, struct md_device *m,
                              int idx, void **h)
 {
@@ -1428,8 +1431,6 @@ LU_TYPE_INIT_FINI(mdd, &mdd_thread_key);
 const struct md_device_operations mdd_ops = {
 	.mdo_statfs         = mdd_statfs,
 	.mdo_root_get	    = mdd_root_get,
-	.mdo_init_capa_ctxt = mdd_init_capa_ctxt,
-	.mdo_update_capa_key= mdd_update_capa_key,
 	.mdo_llog_ctxt_get  = mdd_llog_ctxt_get,
 	.mdo_iocontrol      = mdd_iocontrol,
 	.mdo_maxeasize_get  = mdd_maxeasize_get,

@@ -117,12 +117,8 @@ static inline int mdd_orphan_insert_obj(const struct lu_env *env,
         struct dt_object        *dor    = mdd->mdd_orphans;
         const struct lu_fid     *lf     = mdo2fid(obj);
         struct dt_key           *key    = orph_key_fill(env, lf, op);
-        ENTRY;
 
-        return  dor->do_index_ops->dio_insert(env, dor,
-                                              (struct dt_rec *)lf,
-                                              key, th,
-                                              BYPASS_CAPA, 1);
+	return dt_insert(env, dor, (struct dt_rec *)lf, key, th, 1);
 }
 
 static inline int mdd_orphan_delete_obj(const struct lu_env *env,
@@ -132,25 +128,23 @@ static inline int mdd_orphan_delete_obj(const struct lu_env *env,
 {
         struct dt_object        *dor    = mdd->mdd_orphans;
 
-        return  dor->do_index_ops->dio_delete(env, dor,
-                                              key, th,
-                                              BYPASS_CAPA);
+	return dt_delete(env, dor, key, th);
 }
 
 static inline void mdd_orphan_ref_add(const struct lu_env *env,
-                                 struct mdd_device *mdd,
-                                 struct thandle *th)
+				      struct mdd_device *mdd,
+				      struct thandle *th)
 {
-        struct dt_object        *dor    = mdd->mdd_orphans;
-        dor->do_ops->do_ref_add(env, dor, th);
+	struct dt_object *dor = mdd->mdd_orphans;
+	dt_ref_add(env, dor, th);
 }
 
 static inline void mdd_orphan_ref_del(const struct lu_env *env,
-                                 struct mdd_device *mdd,
-                                 struct thandle *th)
+				      struct mdd_device *mdd,
+				      struct thandle *th)
 {
-        struct dt_object        *dor    = mdd->mdd_orphans;
-        dor->do_ops->do_ref_del(env, dor, th);
+	struct dt_object *dor = mdd->mdd_orphans;
+	dt_ref_del(env, dor, th);
 }
 
 
@@ -224,14 +218,11 @@ static int orph_index_insert(const struct lu_env *env,
          * from here */
         if (!dt_try_as_dir(env, next))
                 goto out;
-        next->do_index_ops->dio_delete(env, next,
-                                       (const struct dt_key *)dotdot,
-                                       th, BYPASS_CAPA);
 
-        next->do_index_ops->dio_insert(env, next,
-                                       (struct dt_rec *)lf_dor,
-                                       (const struct dt_key *)dotdot,
-                                       th, BYPASS_CAPA, 1);
+	dt_delete(env, next, (const struct dt_key *)dotdot, th);
+
+	dt_insert(env, next, (struct dt_rec *)lf_dor,
+			(const struct dt_key *)dotdot, th, 1);
 
 out:
         if (rc == 0)
@@ -438,18 +429,18 @@ static int orph_index_iterate(const struct lu_env *env,
         ENTRY;
 
         /* In recovery phase, do not need for any lock here */
-        iops = &dor->do_index_ops->dio_it;
-        it = iops->init(env, dor, LUDA_64BITHASH, BYPASS_CAPA);
-        if (IS_ERR(it)) {
-                rc = PTR_ERR(it);
-                CERROR("%s: cannot clean PENDING: rc = %d\n",
+	iops = &dor->do_index_ops->dio_it;
+	it = iops->init(env, dor, LUDA_64BITHASH);
+	if (IS_ERR(it)) {
+		rc = PTR_ERR(it);
+		CERROR("%s: cannot clean PENDING: rc = %d\n",
 		       mdd2obd_dev(mdd)->obd_name, rc);
-                GOTO(out, rc);
-        }
+		GOTO(out, rc);
+	}
 
-        rc = iops->load(env, it, 0);
-        if (rc < 0)
-                GOTO(out_put, rc);
+	rc = iops->load(env, it, 0);
+	if (rc < 0)
+		GOTO(out_put, rc);
         if (rc == 0) {
                 CERROR("%s: error loading iterator to clean PENDING\n",
 		       mdd2obd_dev(mdd)->obd_name);
