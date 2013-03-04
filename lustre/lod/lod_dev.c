@@ -993,6 +993,23 @@ static int lod_obd_health_check(const struct lu_env *env,
 	RETURN(rc);
 }
 
+static int lod_notify(struct obd_device *obd, struct obd_device *watched,
+		      enum obd_notify_event ev, void *data)
+{
+	int			rc	= 0;
+	struct	lod_device	*lod	= lu2lod_dev(obd->obd_lu_dev);
+	ENTRY;
+
+	lod_getref(&lod->lod_ost_descs);
+	if (ev == OBD_NOTIFY_ACTIVE)
+		lod->lod_desc.ld_active_tgt_count++;
+	else if (ev == OBD_NOTIFY_DISCON)
+		lod->lod_desc.ld_active_tgt_count--;
+	lod_putref(lod, &lod->lod_ost_descs);
+
+	RETURN(rc);
+}
+
 static struct obd_ops lod_obd_device_ops = {
 	.o_owner        = THIS_MODULE,
 	.o_connect      = lod_obd_connect,
@@ -1002,6 +1019,7 @@ static struct obd_ops lod_obd_device_ops = {
 	.o_pool_rem     = lod_pool_remove,
 	.o_pool_add     = lod_pool_add,
 	.o_pool_del     = lod_pool_del,
+	.o_notify	= lod_notify,
 };
 
 static int __init lod_mod_init(void)

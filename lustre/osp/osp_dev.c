@@ -1018,7 +1018,8 @@ out:
 static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 			    enum obd_import_event event)
 {
-	struct osp_device *d = lu2osp_dev(obd->obd_lu_dev);
+	struct osp_device	*d = lu2osp_dev(obd->obd_lu_dev);
+	int			rc = 0;
 
 	switch (event) {
 	case IMP_EVENT_DISCON:
@@ -1029,6 +1030,7 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 		osp_pre_update_status(d, -ENODEV);
 		cfs_waitq_signal(&d->opd_pre_waitq);
 		CDEBUG(D_HA, "got disconnected\n");
+		rc = obd_notify_observer(obd, obd, OBD_NOTIFY_DISCON, NULL);
 		break;
 	case IMP_EVENT_INACTIVE:
 		d->opd_imp_active = 0;
@@ -1049,6 +1051,7 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 		cfs_waitq_signal(&d->opd_pre_waitq);
 		__osp_sync_check_for_work(d);
 		CDEBUG(D_HA, "got connected\n");
+		rc = obd_notify_observer(obd, obd, OBD_NOTIFY_ACTIVE, NULL);
 		break;
 	case IMP_EVENT_INVALIDATE:
 		if (obd->obd_namespace == NULL)
@@ -1063,7 +1066,7 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 		CERROR("%s: unsupported import event: %#x\n",
 		       obd->obd_name, event);
 	}
-	return 0;
+	return rc;
 }
 
 static int osp_iocontrol(unsigned int cmd, struct obd_export *exp, int len,

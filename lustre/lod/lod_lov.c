@@ -85,11 +85,8 @@ void lod_putref(struct lod_device *lod, struct lod_tgt_descs *ltd)
 			cfs_list_add(&tgt_desc->ltd_kill, &kill);
 			LTD_TGT(ltd, idx) = NULL;
 			/*FIXME: only support ost pool for now */
-			if (ltd == &lod->lod_ost_descs) {
+			if (ltd == &lod->lod_ost_descs)
 				lod_ost_pool_remove(&lod->lod_pool_info, idx);
-				if (tgt_desc->ltd_active)
-					lod->lod_desc.ld_active_tgt_count--;
-			}
 			ltd->ltd_tgtnr--;
 			cfs_bitmap_clear(ltd->ltd_tgt_bitmap, idx);
 			ltd->ltd_death_row--;
@@ -339,14 +336,15 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 		/* The new OST is now a full citizen */
 		if (index >= lod->lod_desc.ld_tgt_count)
 			lod->lod_desc.ld_tgt_count = index + 1;
-		if (active)
-			lod->lod_desc.ld_active_tgt_count++;
 	}
 
 	LTD_TGT(ltd, index) = tgt_desc;
 	cfs_bitmap_set(ltd->ltd_tgt_bitmap, index);
 	ltd->ltd_tgtnr++;
 	mutex_unlock(&ltd->ltd_mutex);
+
+	obd_register_observer(obd, lod2obd(lod));
+
 	lod_putref(lod, ltd);
 	if (lod->lod_recovery_completed)
 		ldev->ld_ops->ldo_recovery_complete(env, ldev);
