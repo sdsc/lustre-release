@@ -172,10 +172,6 @@ static void mdd_device_shutdown(const struct lu_env *env,
         if (m->mdd_dot_lustre)
                 mdd_object_put(env, m->mdd_dot_lustre);
         orph_index_fini(env, m);
-        if (m->mdd_capa != NULL) {
-                lu_object_put(env, &m->mdd_capa->do_lu);
-                m->mdd_capa = NULL;
-        }
 	lu_site_purge(env, m->mdd_md_dev.md_lu_dev.ld_site, -1);
         /* remove upcall device*/
         md_upcall_fini(&m->mdd_md_dev);
@@ -726,7 +722,6 @@ static struct md_object_operations mdd_dot_lustre_obj_ops = {
 	.moo_ref_del		= dot_lustre_mdd_ref_del,
 	.moo_open		= dot_lustre_mdd_open,
 	.moo_close		= dot_lustre_mdd_close,
-	.moo_capa_get		= mdd_capa_get,
 	.moo_object_sync	= dot_lustre_mdd_object_sync,
 	.moo_file_lock		= dot_file_lock,
 	.moo_file_unlock	= dot_file_unlock,
@@ -881,8 +876,7 @@ static int obf_xattr_get(const struct lu_env *env,
 		root = mdd_object_find(env, mdd, &mdd->mdd_local_root_fid);
 		if (IS_ERR(root))
 			return PTR_ERR(root);
-		rc = mdo_xattr_get(env, root, buf, name,
-				   mdd_object_capa(env, md2mdd_obj(obj)));
+		rc = mdo_xattr_get(env, root, buf, name);
 		mdd_object_put(env, root);
 	}
 
@@ -1193,8 +1187,6 @@ static int mdd_prepare(const struct lu_env *env,
 {
 	struct mdd_device	*mdd = lu2mdd_dev(cdev);
 	struct lu_device	*next = &mdd->mdd_child->dd_lu_dev;
-	struct dt_object	*root;
-	struct lu_fid		 fid;
 	int			rc;
 
         ENTRY;
@@ -1231,14 +1223,6 @@ static int mdd_prepare(const struct lu_env *env,
 	rc = orph_index_init(env, mdd);
 	if (rc != 0)
                 GOTO(out, rc);
-
-        /* we use capa file to declare llog changes,
-         * will be fixed with new llog in 2.3 */
-	root = dt_store_open(env, mdd->mdd_child, "", CAPA_KEYS, &fid);
-	if (IS_ERR(root))
-		GOTO(out, rc = PTR_ERR(root));
-
-	mdd->mdd_capa = root;
 
 	rc = mdd_changelog_init(env, mdd);
 	if (rc != 0)
@@ -1283,32 +1267,6 @@ static int mdd_statfs(const struct lu_env *env, struct md_device *m,
         rc = mdd_child_ops(mdd)->dt_statfs(env, mdd->mdd_child, sfs);
 
         RETURN(rc);
-}
-
-/*
- * No permission check is needed.
- */
-static int mdd_init_capa_ctxt(const struct lu_env *env, struct md_device *m,
-                              int mode, unsigned long timeout, __u32 alg,
-                              struct lustre_capa_key *keys)
-{
-        struct mdd_device *mdd = lu2mdd_dev(&m->md_lu_dev);
-        int rc;
-        ENTRY;
-
-        /* need barrier for mds_capa_keys access. */
-
-        rc = mdd_child_ops(mdd)->dt_init_capa_ctxt(env, mdd->mdd_child, mode,
-                                                   timeout, alg, keys);
-        RETURN(rc);
-}
-
-static int mdd_update_capa_key(const struct lu_env *env,
-                               struct md_device *m,
-                               struct lustre_capa_key *key)
-{
-	/* we do not support capabilities ... */
-	return -EINVAL;
 }
 
 static int mdd_llog_ctxt_get(const struct lu_env *env, struct md_device *m,
@@ -1424,27 +1382,6 @@ static struct obd_ops mdd_obd_device_ops = {
 	.o_disconnect	= mdd_obd_disconnect,
 	.o_health_check	= mdd_obd_health_check
 };
-
-/*
- * context key constructor/destructor:
- * mdd_capainfo_key_init, mdd_capainfo_key_fini
- */
-LU_KEY_INIT_FINI(mdd_capainfo, struct md_capainfo);
-
-struct lu_context_key mdd_capainfo_key = {
-        .lct_tags = LCT_SESSION,
-        .lct_init = mdd_capainfo_key_init,
-        .lct_fini = mdd_capainfo_key_fini
-};
-
-struct md_capainfo *md_capainfo(const struct lu_env *env)
-{
-        /* NB, in mdt_init0 */
-        if (env->le_ses == NULL)
-                return NULL;
-        return lu_context_key_get(env->le_ses, &mdd_capainfo_key);
-}
-EXPORT_SYMBOL(md_capainfo);
 
 static int mdd_changelog_user_register(const struct lu_env *env,
 				       struct mdd_device *mdd, int *id)
@@ -1698,13 +1635,11 @@ static int mdd_iocontrol(const struct lu_env *env, struct md_device *m,
 }
 
 /* type constructor/destructor: mdd_type_init, mdd_type_fini */
-LU_TYPE_INIT_FINI(mdd, &mdd_thread_key, &mdd_capainfo_key);
+LU_TYPE_INIT_FINI(mdd, &mdd_thread_key);
 
 const struct md_device_operations mdd_ops = {
 	.mdo_statfs         = mdd_statfs,
 	.mdo_root_get	    = mdd_root_get,
-	.mdo_init_capa_ctxt = mdd_init_capa_ctxt,
-	.mdo_update_capa_key= mdd_update_capa_key,
 	.mdo_llog_ctxt_get  = mdd_llog_ctxt_get,
 	.mdo_iocontrol      = mdd_iocontrol,
 };
@@ -1749,12 +1684,6 @@ static void mdd_key_fini(const struct lu_context *ctx,
 /* context key: mdd_thread_key */
 LU_CONTEXT_KEY_DEFINE(mdd, LCT_MD_THREAD);
 
-static struct lu_local_obj_desc llod_capa_key = {
-        .llod_name      = CAPA_KEYS,
-        .llod_oid       = MDD_CAPA_KEYS_OID,
-        .llod_is_index  = 0,
-};
-
 static struct lu_local_obj_desc llod_mdd_orphan = {
         .llod_name      = orph_index_name,
         .llod_oid       = MDD_ORPHAN_OID,
@@ -1791,7 +1720,6 @@ static int __init mdd_mod_init(void)
 	changelog_orig_logops.lop_add = llog_cat_add_rec;
 	changelog_orig_logops.lop_declare_add = llog_cat_declare_add_rec;
 
-	llo_local_obj_register(&llod_capa_key);
 	llo_local_obj_register(&llod_mdd_orphan);
 	llo_local_obj_register(&llod_lfsck_bookmark);
 	llo_local_obj_register(&llod_lfsck_namespace);
@@ -1805,7 +1733,6 @@ static int __init mdd_mod_init(void)
 
 static void __exit mdd_mod_exit(void)
 {
-	llo_local_obj_unregister(&llod_capa_key);
 	llo_local_obj_unregister(&llod_mdd_orphan);
 	llo_local_obj_unregister(&llod_lfsck_bookmark);
 	llo_local_obj_unregister(&llod_lfsck_namespace);
