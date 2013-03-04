@@ -144,16 +144,7 @@ int mdt_init_sec_level(struct mdt_thread_info *info)
 		       mdt_obd_name(mdt), client, mdt_obd_name(mdt));
 	}
 
-	if (remote) {
-		if (!mdt->mdt_opts.mo_oss_capa) {
-			CDEBUG(D_SEC, "%s: client %s -> target %s is set as "
-			       "remote,but OSS capabilities are not enabled: "
-			       "%d.\n",
-			       mdt_obd_name(mdt), client, mdt_obd_name(mdt),
-			       mdt->mdt_opts.mo_oss_capa);
-			RETURN(-EACCES);
-		}
-	} else {
+	if (remote == 0) {
 		if (req->rq_auth_uid == INVALID_UID) {
 			CDEBUG(D_SEC, "%s: client %s -> target %s: user is not "
 			       "authenticated!\n",
@@ -182,10 +173,8 @@ int mdt_init_sec_level(struct mdt_thread_info *info)
                 if (!remote) {
                         reply->ocd_connect_flags &= ~(OBD_CONNECT_RMT_CLIENT |
                                                       OBD_CONNECT_RMT_CLIENT_FORCE);
-                        if (!mdt->mdt_opts.mo_mds_capa)
-                                reply->ocd_connect_flags &= ~OBD_CONNECT_MDS_CAPA;
-                        if (!mdt->mdt_opts.mo_oss_capa)
-                                reply->ocd_connect_flags &= ~OBD_CONNECT_OSS_CAPA;
+			reply->ocd_connect_flags &= ~OBD_CONNECT_MDS_CAPA;
+			reply->ocd_connect_flags &= ~OBD_CONNECT_OSS_CAPA;
                 }
                 break;
         default:

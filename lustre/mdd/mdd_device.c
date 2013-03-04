@@ -937,32 +937,6 @@ static int mdd_statfs(const struct lu_env *env, struct md_device *m,
         RETURN(rc);
 }
 
-/*
- * No permission check is needed.
- */
-static int mdd_init_capa_ctxt(const struct lu_env *env, struct md_device *m,
-                              int mode, unsigned long timeout, __u32 alg,
-                              struct lustre_capa_key *keys)
-{
-        struct mdd_device *mdd = lu2mdd_dev(&m->md_lu_dev);
-        int rc;
-        ENTRY;
-
-        /* need barrier for mds_capa_keys access. */
-
-        rc = mdd_child_ops(mdd)->dt_init_capa_ctxt(env, mdd->mdd_child, mode,
-                                                   timeout, alg, keys);
-        RETURN(rc);
-}
-
-static int mdd_update_capa_key(const struct lu_env *env,
-                               struct md_device *m,
-                               struct lustre_capa_key *key)
-{
-	/* we do not support capabilities ... */
-	return -EINVAL;
-}
-
 static int mdd_llog_ctxt_get(const struct lu_env *env, struct md_device *m,
                              int idx, void **h)
 {
@@ -1076,27 +1050,6 @@ static struct obd_ops mdd_obd_device_ops = {
 	.o_disconnect	= mdd_obd_disconnect,
 	.o_health_check	= mdd_obd_health_check
 };
-
-/*
- * context key constructor/destructor:
- * mdd_capainfo_key_init, mdd_capainfo_key_fini
- */
-LU_KEY_INIT_FINI(mdd_capainfo, struct md_capainfo);
-
-struct lu_context_key mdd_capainfo_key = {
-        .lct_tags = LCT_SESSION,
-        .lct_init = mdd_capainfo_key_init,
-        .lct_fini = mdd_capainfo_key_fini
-};
-
-struct md_capainfo *md_capainfo(const struct lu_env *env)
-{
-        /* NB, in mdt_init0 */
-        if (env->le_ses == NULL)
-                return NULL;
-        return lu_context_key_get(env->le_ses, &mdd_capainfo_key);
-}
-EXPORT_SYMBOL(md_capainfo);
 
 static int mdd_changelog_user_register(const struct lu_env *env,
 				       struct mdd_device *mdd, int *id)
@@ -1350,13 +1303,11 @@ static int mdd_iocontrol(const struct lu_env *env, struct md_device *m,
 }
 
 /* type constructor/destructor: mdd_type_init, mdd_type_fini */
-LU_TYPE_INIT_FINI(mdd, &mdd_thread_key, &mdd_capainfo_key);
+LU_TYPE_INIT_FINI(mdd, &mdd_thread_key);
 
 const struct md_device_operations mdd_ops = {
 	.mdo_statfs         = mdd_statfs,
 	.mdo_root_get	    = mdd_root_get,
-	.mdo_init_capa_ctxt = mdd_init_capa_ctxt,
-	.mdo_update_capa_key= mdd_update_capa_key,
 	.mdo_llog_ctxt_get  = mdd_llog_ctxt_get,
 	.mdo_iocontrol      = mdd_iocontrol,
 };
