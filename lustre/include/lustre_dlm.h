@@ -258,6 +258,10 @@ typedef enum {
  * Used by MGC locks, they are cancelled only at unmount or by callback. */
 #define LDLM_FL_NO_LRU		0x1000000000000ULL
 
+/* This is used for flock to avoid a race condition between cleanup_resource()
+ * and ldlm_flock_completion_ast() */
+#define LDLM_FL_DECREF_FLK	0x2000000000000ULL
+
 /**
  * The blocking callback is overloaded to perform two functions.  These flags
  * indicate which operation should be performed.
