@@ -678,12 +678,6 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 	rwlock_init(&obd->u.filter.fo_sptlrpc_lock);
 	sptlrpc_rule_set_init(&obd->u.filter.fo_sptlrpc_rset);
 
-	obd->u.filter.fo_fl_oss_capa = 0;
-	CFS_INIT_LIST_HEAD(&obd->u.filter.fo_capa_keys);
-	obd->u.filter.fo_capa_hash = init_capa_hash();
-	if (obd->u.filter.fo_capa_hash == NULL)
-		RETURN(-ENOMEM);
-
 	m->ofd_dt_dev.dd_lu_dev.ld_ops = &ofd_lu_ops;
 	m->ofd_dt_dev.dd_lu_dev.ld_obd = obd;
 	/* set this lu_device to obd, because error handling need it */
@@ -802,9 +796,6 @@ static void ofd_fini(const struct lu_env *env, struct ofd_device *m)
 
 	tgt_fini(env, &m->ofd_lut);
 	ofd_fs_cleanup(env, m);
-
-	ofd_free_capa_keys(m);
-	cleanup_capa_hash(obd->u.filter.fo_capa_hash);
 
 	if (m->ofd_namespace != NULL) {
 		ldlm_namespace_free(m->ofd_namespace, NULL,

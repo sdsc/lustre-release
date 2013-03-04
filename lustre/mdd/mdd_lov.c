@@ -57,27 +57,26 @@
 #include "mdd_internal.h"
 
 int mdd_get_md(const struct lu_env *env, struct mdd_object *obj,
-               void *md, int *md_size, const char *name)
+	       void *md, int *md_size, const char *name)
 {
-        int rc;
-        ENTRY;
+	int rc;
+	ENTRY;
 
-        rc = mdo_xattr_get(env, obj, mdd_buf_get(env, md, *md_size), name,
-                           mdd_object_capa(env, obj));
-        /*
-         * XXX: Handling of -ENODATA, the right way is to have ->do_md_get()
-         * exported by dt layer.
-         */
-        if (rc == 0 || rc == -ENODATA) {
-                *md_size = 0;
-                rc = 0;
-        } else if (rc < 0) {
-                CDEBUG(D_OTHER, "Error %d reading eadata - %d\n",
-                       rc, *md_size);
-        } else {
-                /* XXX: Convert lov EA but fixed after verification test. */
-                *md_size = rc;
-        }
+	rc = mdo_xattr_get(env, obj, mdd_buf_get(env, md, *md_size), name);
+	/*
+	 * XXX: Handling of -ENODATA, the right way is to have ->do_md_get()
+	 * exported by dt layer.
+	 */
+	if (rc == 0 || rc == -ENODATA) {
+		*md_size = 0;
+		rc = 0;
+	} else if (rc < 0) {
+		CDEBUG(D_OTHER, "Error %d reading eadata - %d\n",
+		       rc, *md_size);
+	} else {
+		/* XXX: Convert lov EA but fixed after verification test. */
+		*md_size = rc;
+	}
 
-        RETURN(rc);
+	RETURN(rc);
 }

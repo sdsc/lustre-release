@@ -165,10 +165,14 @@ struct mdt_device {
 		unsigned int       mo_user_xattr:1,
 				   mo_acl:1,
 				   mo_compat_resname:1,
+<<<<<<< HEAD
 				   mo_mds_capa:1,
 				   mo_oss_capa:1,
 				   mo_cos:1,
 				   mo_coordinator:1;
+=======
+				   mo_cos:1;
+>>>>>>> e83871a... LU-3105 osd: remove capa related stuff from servers
 	} mdt_opts;
         /* mdt state flags */
         unsigned long              mdt_state;
@@ -192,17 +196,7 @@ struct mdt_device {
 	rwlock_t		   mdt_sptlrpc_lock;
         struct sptlrpc_rule_set    mdt_sptlrpc_rset;
 
-        /* capability keys */
-        unsigned long              mdt_capa_timeout;
-        __u32                      mdt_capa_alg;
-        struct dt_object          *mdt_ck_obj;
-        unsigned long              mdt_ck_timeout;
-        unsigned long              mdt_ck_expiry;
-        cfs_timer_t                mdt_ck_timer;
-        struct ptlrpc_thread       mdt_ck_thread;
-        struct lustre_capa_key     mdt_capa_keys[2];
-	unsigned int               mdt_capa_conf:1,
-				   mdt_som_conf:1,
+	unsigned int               mdt_som_conf:1,
 				   /* Enable remote dir on non-MDT0 */
 				   mdt_enable_remote_dir:1;
 
@@ -526,7 +520,6 @@ struct mdt_thread_info {
 	loff_t                     mti_off;
 	struct lu_buf              mti_buf;
 	struct lu_buf              mti_big_buf;
-	struct lustre_capa_key     mti_capa_key;
 
         /* Ops object filename */
         struct lu_name             mti_name;
@@ -1182,6 +1175,7 @@ void mdt_rename_counter_tally(struct mdt_thread_info *info,
 			      struct ptlrpc_request *req,
 			      struct mdt_object *src, struct mdt_object *tgt);
 
+<<<<<<< HEAD
 /* Capability */
 int mdt_ck_thread_start(struct mdt_device *mdt);
 void mdt_ck_thread_stop(struct mdt_device *mdt);
@@ -1191,6 +1185,8 @@ void mdt_set_capainfo(struct mdt_thread_info *info, int offset,
 		      const struct lu_fid *fid, struct lustre_capa *capa);
 void mdt_dump_capainfo(struct mdt_thread_info *info);
 
+=======
+>>>>>>> e83871a... LU-3105 osd: remove capa related stuff from servers
 static inline struct obd_device *mdt2obd_dev(const struct mdt_device *mdt)
 {
 	return mdt->mdt_lu_dev.ld_obd;
