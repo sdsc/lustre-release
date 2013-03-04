@@ -1490,15 +1490,6 @@ static int ost_init_sec_level(struct ptlrpc_request *req)
                        "as remote by default.\n", client, obd->obd_name);
         }
 
-        if (remote) {
-                if (!filter->fo_fl_oss_capa) {
-                        CDEBUG(D_SEC, "client %s -> target %s is set as remote,"
-                               " but OSS capabilities are not enabled: %d.\n",
-                               client, obd->obd_name, filter->fo_fl_oss_capa);
-                        RETURN(-EACCES);
-                }
-        }
-
         switch (filter->fo_sec_level) {
         case LUSTRE_SEC_NONE:
                 if (!remote) {
@@ -1518,8 +1509,7 @@ static int ost_init_sec_level(struct ptlrpc_request *req)
                 if (!remote) {
                         reply->ocd_connect_flags &= ~(OBD_CONNECT_RMT_CLIENT |
                                                       OBD_CONNECT_RMT_CLIENT_FORCE);
-                        if (!filter->fo_fl_oss_capa)
-                                reply->ocd_connect_flags &= ~OBD_CONNECT_OSS_CAPA;
+			reply->ocd_connect_flags &= ~OBD_CONNECT_OSS_CAPA;
 
 			spin_lock(&exp->exp_lock);
 			*exp_connect_flags_ptr(exp) = reply->ocd_connect_flags;

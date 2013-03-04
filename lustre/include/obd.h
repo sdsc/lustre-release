@@ -385,10 +385,6 @@ struct filter_obd {
 	rwlock_t		fo_sptlrpc_lock;
         struct sptlrpc_rule_set  fo_sptlrpc_rset;
 
-        /* capability related */
-        unsigned int             fo_fl_oss_capa;
-        cfs_list_t               fo_capa_keys;
-        cfs_hlist_head_t        *fo_capa_hash;
         struct llog_commit_master *fo_lcm;
         int                      fo_sec_level;
 };
