@@ -58,6 +58,10 @@ libllite_a_SOURCES = llite_lib.c super.c namei.c rw.c file.c dir.c \
 liblustre_a_SOURCES = llite_lib.c super.c namei.c rw.c file.c dir.c \
 		     llite_lib.h llite_cl.c
 
+export CC
+export AR
+export RANLIB
+
 liblustre.a : $(LUSTRE_LIBS) $(LND_LIBS) $(LNET_LIBS) $(SYSIO_LIBS)
 	sh $(srcdir)/genlib.sh "$(SYSIO)" "$(LIBS)" "$(LND_LIBS)" "$(PTHREAD_LIBS)" "$(CAP_LIBS)" "$(ZLIB)"
 
