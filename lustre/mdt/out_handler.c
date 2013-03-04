@@ -348,8 +348,7 @@ static int out_tx_attr_set_exec(struct mdt_thread_info *info,
 	       PFID(lu_object_fid(&arg->object->do_lu)));
 
 	dt_write_lock(info->mti_env, dt_obj, MOR_TGT_CHILD);
-	rc = dt_attr_set(info->mti_env, dt_obj, &arg->u.attr_set.attr,
-			 th, NULL);
+	rc = dt_attr_set(info->mti_env, dt_obj, &arg->u.attr_set.attr, th);
 	dt_write_unlock(info->mti_env, dt_obj);
 
 	update_insert_reply(arg->reply, NULL, 0, arg->index, rc);
@@ -429,7 +428,7 @@ static int out_attr_get(struct mdt_thread_info *info)
 		RETURN(-ENOENT);
 
 	dt_read_lock(env, obj, MOR_TGT_CHILD);
-	rc = dt_attr_get(env, obj, la, NULL);
+	rc = dt_attr_get(env, obj, la);
 	if (rc)
 		GOTO(out_unlock, rc);
 	/*
@@ -447,7 +446,7 @@ static int out_attr_get(struct mdt_thread_info *info)
 			GOTO(out_unlock, rc = -ENOTDIR);
 
 		iops = &obj->do_index_ops->dio_it;
-		it = iops->init(env, obj, LUDA_64BITHASH, BYPASS_CAPA);
+		it = iops->init(env, obj, LUDA_64BITHASH);
 		if (!IS_ERR(it)) {
 			int  result;
 			result = iops->get(env, it, (const void *)"");
@@ -508,7 +507,7 @@ static int out_xattr_get(struct mdt_thread_info *info)
 	lbuf->lb_buf = (char *)ptr + sizeof(int);
 	lbuf->lb_len = UPDATE_BUFFER_SIZE - sizeof(struct update_reply);
 	dt_read_lock(env, obj, MOR_TGT_CHILD);
-	rc = dt_xattr_get(env, obj, lbuf, name, NULL);
+	rc = dt_xattr_get(env, obj, lbuf, name);
 	dt_read_unlock(env, obj);
 	if (rc < 0) {
 		lbuf->lb_len = 0;
@@ -554,7 +553,7 @@ static int out_index_lookup(struct mdt_thread_info *info)
 		GOTO(out_unlock, rc = -ENOTDIR);
 
 	rc = dt_lookup(env, obj, (struct dt_rec *)&info->mti_tmp_fid1,
-		(struct dt_key *)name, NULL);
+		       (struct dt_key *)name);
 
 	if (rc < 0)
 		GOTO(out_unlock, rc);
@@ -589,8 +588,7 @@ static int out_tx_xattr_set_exec(struct mdt_thread_info *info,
 
 	dt_write_lock(info->mti_env, dt_obj, MOR_TGT_CHILD);
 	rc = dt_xattr_set(info->mti_env, dt_obj, &arg->u.xattr_set.buf,
-			  arg->u.xattr_set.name, arg->u.xattr_set.flags,
-			  th, NULL);
+			  arg->u.xattr_set.name, arg->u.xattr_set.flags, th);
 	dt_write_unlock(info->mti_env, dt_obj);
 	/**
 	 * Ignore errors if this is LINK EA
@@ -829,7 +827,7 @@ static int out_tx_index_insert_exec(struct mdt_thread_info *info,
 
 	dt_write_lock(info->mti_env, dt_obj, MOR_TGT_CHILD);
 	rc = dt_insert(info->mti_env, dt_obj, arg->u.insert.rec,
-		       arg->u.insert.key, th, NULL, 0);
+		       arg->u.insert.key, th, 0);
 	dt_write_unlock(info->mti_env, dt_obj);
 
 	update_insert_reply(arg->reply, NULL, 0, arg->index, rc);
@@ -857,7 +855,7 @@ static int out_tx_index_insert_undo(struct mdt_thread_info *info,
 	}
 
 	dt_write_lock(info->mti_env, dt_obj, MOR_TGT_CHILD);
-	rc = dt_delete(info->mti_env, dt_obj, arg->u.insert.key, th, NULL);
+	rc = dt_delete(info->mti_env, dt_obj, arg->u.insert.key, th);
 	dt_write_unlock(info->mti_env, dt_obj);
 
 	update_insert_reply(arg->reply, NULL, 0, arg->index, rc);
