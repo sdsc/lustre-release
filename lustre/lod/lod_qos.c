@@ -166,7 +166,6 @@ static int lod_statfs_and_check(const struct lu_env *env, struct lod_device *d,
 		if (ost->ltd_active) {
 			ost->ltd_active = 0;
 			LASSERT(d->lod_desc.ld_active_tgt_count > 0);
-			d->lod_desc.ld_active_tgt_count--;
 			d->lod_qos.lq_dirty = 1;
 			d->lod_qos.lq_rr.lqr_dirty = 1;
 			CDEBUG(D_CONFIG, "%s: turns inactive\n",
@@ -175,11 +174,12 @@ static int lod_statfs_and_check(const struct lu_env *env, struct lod_device *d,
 		spin_unlock(&d->lod_desc_lock);
 	} else if (rc == 0 && ost->ltd_active == 0) {
 		/* turned active? */
-		LASSERT(d->lod_desc.ld_active_tgt_count < d->lod_ostnr);
+		LASSERTF(d->lod_desc.ld_active_tgt_count <= d->lod_ostnr,
+			 "active tgt count %d, ost nr %d\n",
+			 d->lod_desc.ld_active_tgt_count, d->lod_ostnr);
 		spin_lock(&d->lod_desc_lock);
 		if (ost->ltd_active == 0) {
 			ost->ltd_active = 1;
-			d->lod_desc.ld_active_tgt_count++;
 			d->lod_qos.lq_dirty = 1;
 			d->lod_qos.lq_rr.lqr_dirty = 1;
 			CDEBUG(D_CONFIG, "%s: turns active\n",
@@ -188,7 +188,7 @@ static int lod_statfs_and_check(const struct lu_env *env, struct lod_device *d,
 		spin_unlock(&d->lod_desc_lock);
 	}
 
-	return rc;
+	RETURN(rc);
 }
 
 static void lod_qos_statfs_update(const struct lu_env *env,
@@ -225,6 +225,7 @@ static void lod_qos_statfs_update(const struct lu_env *env,
 
 out:
 	up_write(&lod->lod_qos.lq_rw_sem);
+	EXIT;
 }
 
 /* Recalculate per-object penalties for OSSs and OSTs,
@@ -1394,6 +1395,8 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 
 		lod_getref(&d->lod_ost_descs);
 		/* XXX: support for non-0 files w/o objects */
+		CDEBUG(D_OTHER, "tgt_count %d stripenr %d\n",
+				d->lod_desc.ld_tgt_count, stripe_len);
 		if (lo->ldo_def_stripe_offset >= d->lod_desc.ld_tgt_count) {
 			lod_qos_statfs_update(env, d);
 			rc = lod_alloc_qos(env, lo, stripe, flag, th);

@@ -1018,7 +1018,8 @@ out:
 static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 			    enum obd_import_event event)
 {
-	struct osp_device *d = lu2osp_dev(obd->obd_lu_dev);
+	struct osp_device	*d = lu2osp_dev(obd->obd_lu_dev);
+	int			rc = 0;
 
 	switch (event) {
 	case IMP_EVENT_DISCON:
@@ -1056,14 +1057,18 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 		ldlm_namespace_cleanup(obd->obd_namespace, LDLM_FL_LOCAL_ONLY);
 		break;
 	case IMP_EVENT_OCD:
+		break;
 	case IMP_EVENT_DEACTIVATE:
+		rc = obd_notify_observer(obd, obd, OBD_NOTIFY_DEACTIVATE, NULL);
+		break;
 	case IMP_EVENT_ACTIVATE:
+		rc = obd_notify_observer(obd, obd, OBD_NOTIFY_ACTIVATE, NULL);
 		break;
 	default:
 		CERROR("%s: unsupported import event: %#x\n",
 		       obd->obd_name, event);
 	}
-	return 0;
+	return rc;
 }
 
 static int osp_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
