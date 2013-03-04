@@ -592,7 +592,7 @@ static int mdd_lfsck_namespace_load(const struct lu_env *env,
 
 	rc = dt_xattr_get(env, com->lc_obj,
 			  mdd_buf_get(env, com->lc_file_disk, len),
-			  XATTR_NAME_LFSCK_NAMESPACE, BYPASS_CAPA);
+			  XATTR_NAME_LFSCK_NAMESPACE);
 	if (rc == len) {
 		struct lfsck_namespace *ns = com->lc_file_ram;
 
@@ -656,8 +656,7 @@ static int mdd_lfsck_namespace_store(const struct lu_env *env,
 	rc = dt_xattr_set(env, obj,
 			  mdd_buf_get(env, com->lc_file_disk, len),
 			  XATTR_NAME_LFSCK_NAMESPACE,
-			  init ? LU_XATTR_CREATE : LU_XATTR_REPLACE,
-			  handle, BYPASS_CAPA);
+			  init ? LU_XATTR_CREATE : LU_XATTR_REPLACE, handle);
 	if (rc != 0)
 		CERROR("%.16s: fail to store lfsck_namespace, len = %d, "
 		       "rc = %d\n", mdd_lfsck2name(lfsck), len, rc);
@@ -741,7 +740,7 @@ static int mdd_lfsck_namespace_unlink(const struct lu_env *env,
 	dt_write_lock(env, child, MOR_TGT_CHILD);
 	locked = true;
 	rc = dt_delete(env, parent, (struct dt_key *)lfsck_namespace_name,
-		       handle, BYPASS_CAPA);
+		       handle);
 	if (rc != 0)
 		GOTO(stop, rc);
 
@@ -751,7 +750,7 @@ static int mdd_lfsck_namespace_unlink(const struct lu_env *env,
 		rc = dt_insert(env, parent,
 			       (const struct dt_rec*)fid,
 			       (const struct dt_key *)lfsck_namespace_name,
-			       handle, BYPASS_CAPA, 1);
+			       handle, 1);
 
 		GOTO(stop, rc);
 	}
@@ -787,7 +786,7 @@ static int mdd_lfsck_namespace_lookup(const struct lu_env *env,
 
 	fid_cpu_to_be(key, fid);
 	rc = dt_lookup(env, com->lc_obj, (struct dt_rec *)flags,
-		       (const struct dt_key *)key, BYPASS_CAPA);
+		       (const struct dt_key *)key);
 	return rc;
 }
 
@@ -815,8 +814,7 @@ static int mdd_lfsck_namespace_delete(const struct lu_env *env,
 		GOTO(out, rc);
 
 	fid_cpu_to_be(key, fid);
-	rc = dt_delete(env, obj, (const struct dt_key *)key, handle,
-		       BYPASS_CAPA);
+	rc = dt_delete(env, obj, (const struct dt_key *)key, handle);
 
 	GOTO(out, rc);
 
@@ -873,8 +871,7 @@ static int mdd_lfsck_namespace_update(const struct lu_env *env,
 
 	fid_cpu_to_be(key, fid);
 	if (exist) {
-		rc = dt_delete(env, obj, (const struct dt_key *)key, handle,
-			       BYPASS_CAPA);
+		rc = dt_delete(env, obj, (const struct dt_key *)key, handle);
 		if (rc != 0) {
 			CERROR("%s: fail to insert "DFID", rc = %d\n",
 			       mdd_lfsck2name(com->lc_lfsck), PFID(fid), rc);
@@ -883,7 +880,7 @@ static int mdd_lfsck_namespace_update(const struct lu_env *env,
 	}
 
 	rc = dt_insert(env, obj, (const struct dt_rec *)&flags,
-		       (const struct dt_key *)key, handle, BYPASS_CAPA, 1);
+		       (const struct dt_key *)key, handle, 1);
 
 	GOTO(out, rc);
 
@@ -954,7 +951,7 @@ again:
 		GOTO(stop, rc);
 	}
 
-	rc = mdd_la_get(env, child, la, BYPASS_CAPA);
+	rc = mdd_la_get(env, child, la);
 	if (rc != 0)
 		GOTO(stop, rc);
 
@@ -994,8 +991,7 @@ again:
 		info->mti_key[cname->ln_namelen] = 0;
 		cname->ln_name = info->mti_key;
 		rc = dt_lookup(env, dir, (struct dt_rec *)cfid,
-			       (const struct dt_key *)cname->ln_name,
-			       BYPASS_CAPA);
+			       (const struct dt_key *)cname->ln_name);
 		if (rc != 0 && rc != -ENOENT) {
 			mdd_object_put(env, parent);
 			GOTO(stop, rc);
@@ -1288,7 +1284,7 @@ static int mdd_lfsck_namespace_check_exist(const struct lu_env *env,
 		RETURN(LFSCK_NAMEENTRY_DEAD);
 
 	rc = dt_lookup(env, dir, (struct dt_rec *)fid,
-		       (const struct dt_key *)name, BYPASS_CAPA);
+		       (const struct dt_key *)name);
 	if (rc == -ENOENT)
 		RETURN(LFSCK_NAMEENTRY_REMOVED);
 
@@ -1396,7 +1392,7 @@ unmatch:
 					goto again;
 
 				rc = mdo_xattr_del(env, obj, XATTR_NAME_LINK,
-						   handle, BYPASS_CAPA);
+						   handle);
 				if (rc != 0)
 					GOTO(stop, rc);
 
@@ -1418,8 +1414,7 @@ unmatch:
 
 		/* The magic crashed, we are not sure whether there are more
 		 * corrupt data in the linkea, so remove all linkea entries. */
-		rc = mdo_xattr_del(env, obj, XATTR_NAME_LINK, handle,
-				   BYPASS_CAPA);
+		rc = mdo_xattr_del(env, obj, XATTR_NAME_LINK, handle);
 		if (rc != 0)
 			GOTO(stop, rc);
 
@@ -1458,7 +1453,7 @@ add:
 record:
 	LASSERT(count > 0);
 
-	rc = mdd_la_get(env, obj, la, BYPASS_CAPA);
+	rc = mdd_la_get(env, obj, la);
 	if (rc != 0)
 		GOTO(stop, rc);
 
@@ -1818,7 +1813,7 @@ static int mdd_lfsck_namespace_double_scan(const struct lu_env *env,
 	lfsck->ml_time_next_checkpoint = lfsck->ml_time_last_checkpoint +
 				cfs_time_seconds(LFSCK_CHECKPOINT_INTERVAL);
 
-	di = iops->init(env, obj, 0, BYPASS_CAPA);
+	di = iops->init(env, obj, 0);
 	if (IS_ERR(di))
 		RETURN(PTR_ERR(di));
 
@@ -2088,8 +2083,7 @@ static int object_is_client_visible(const struct lu_env *env,
 		}
 
 		rc = dt_xattr_get(env, mdd_object_child(obj),
-				  mdd_buf_get(env, NULL, 0), XATTR_NAME_LINK,
-				  BYPASS_CAPA);
+				  mdd_buf_get(env, NULL, 0), XATTR_NAME_LINK);
 		mdd_read_unlock(env, obj);
 		if (rc >= 0) {
 			if (depth > 0)
@@ -2256,7 +2250,7 @@ static int mdd_lfsck_prep(struct lu_env *env, struct md_lfsck *lfsck)
 
 	/* Init the namespace-based directory traverse. */
 	iops = &dt_obj->do_index_ops->dio_it;
-	di = iops->init(env, dt_obj, lfsck->ml_args_dir, BYPASS_CAPA);
+	di = iops->init(env, dt_obj, lfsck->ml_args_dir);
 	if (IS_ERR(di))
 		GOTO(out, rc = PTR_ERR(di));
 
@@ -2334,7 +2328,7 @@ static int mdd_lfsck_exec_oit(const struct lu_env *env, struct md_lfsck *lfsck,
 		GOTO(out, rc = -ENOTDIR);
 
 	iops = &dt_obj->do_index_ops->dio_it;
-	di = iops->init(env, dt_obj, lfsck->ml_args_dir, BYPASS_CAPA);
+	di = iops->init(env, dt_obj, lfsck->ml_args_dir);
 	if (IS_ERR(di))
 		GOTO(out, rc = PTR_ERR(di));
 
@@ -2623,7 +2617,7 @@ static int mdd_lfsck_main(void *args)
 		GOTO(noenv, rc);
 	}
 
-	oit_di = oit_iops->init(&env, oit_obj, lfsck->ml_args_oit, BYPASS_CAPA);
+	oit_di = oit_iops->init(&env, oit_obj, lfsck->ml_args_oit);
 	if (IS_ERR(oit_di)) {
 		rc = PTR_ERR(oit_di);
 		CERROR("%s: LFSCK, fail to init iteration, rc = %d\n",

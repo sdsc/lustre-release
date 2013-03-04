@@ -375,15 +375,10 @@ struct filter_obd {
         unsigned long            fo_syncjournal:1, /* sync journal on writes */
                                  fo_sync_lock_cancel:2;/* sync on lock cancel */
 
-
         /* sptlrpc stuff */
 	rwlock_t		fo_sptlrpc_lock;
         struct sptlrpc_rule_set  fo_sptlrpc_rset;
 
-        /* capability related */
-        unsigned int             fo_fl_oss_capa;
-        cfs_list_t               fo_capa_keys;
-        cfs_hlist_head_t        *fo_capa_hash;
         int                      fo_sec_level;
 };
 
