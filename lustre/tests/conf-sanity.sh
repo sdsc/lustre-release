@@ -868,9 +868,13 @@ test_24a() {
 
 	# test 8-char fsname as well
 	local FSNAME2=test1234
-	add fs2mds $MDS_MKFS_OPTS --fsname=${FSNAME2} --nomgs --mgsnode=$MGSNID --reformat $fs2mdsdev || exit 10
 
-	add fs2ost $OST_MKFS_OPTS --fsname=${FSNAME2} --reformat $fs2ostdev || exit 10
+	add fs2mds $(mkfs_opts mds) --nomgs --mgsnode=$MGSNID \
+		--fsname=$FSNAME2 --reformat $fs2mdsdev ||
+		error "add fs2mds $fs2mdsdev failed"
+
+	add fs2ost $(mkfs_opts ost) --fsname=$FSNAME2 --reformat $fs2ostdev ||
+		error "add fs2ost $fs2ostdev failed"
 
 	setup
 	start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS && trap cleanup_24a EXIT INT
@@ -915,7 +919,8 @@ test_24b() {
 
 	local fs2mdsdev=${fs2mds_DEV:-${MDSDEV}_2}
 
-	add fs2mds $MDS_MKFS_OPTS --fsname=${FSNAME}2 --mgs --reformat $fs2mdsdev || exit 10
+	add fs2mds $(mkfs_opts mds) --mgs --fsname=${FSNAME}2 \
+		--reformat $fs2mdsdev || error "add fs2mds $fs2mdsdev failed"
 	setup
 	start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS && return 2
 	cleanup || return 6
@@ -1355,8 +1360,13 @@ test_33a() { # bug 12333, was test_33
 
         local fs2mdsdev=${fs2mds_DEV:-${MDSDEV}_2}
         local fs2ostdev=${fs2ost_DEV:-$(ostdevname 1)_2}
-        add fs2mds $MDS_MKFS_OPTS --mkfsoptions='\"-J size=8\"' --fsname=${FSNAME2} --reformat $fs2mdsdev || exit 10
-        add fs2ost $OST_MKFS_OPTS --fsname=${FSNAME2} --index=8191 --mgsnode=$MGSNID --reformat $fs2ostdev || exit 10
+
+	add fs2mds $(mkfs_opts mds) --mkfsoptions='\"-J size=8\"' \
+		--fsname=$FSNAME2 --reformat $fs2mdsdev ||
+		error "add fs2mds $fs2mdsdev failed"
+	add fs2ost $(mkfs_opts ost) --mgsnode=$MGSNID \
+		--fsname=$FSNAME2 --index=8191 --reformat $fs2ostdev ||
+		error "add fs2ost $fs2ostdev failed"
 
         start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS && trap cleanup_24a EXIT INT
         start fs2ost $fs2ostdev $OST_MOUNT_OPTS
@@ -1587,11 +1597,17 @@ test_36() { # 12743
         local fs2mdsdev=${fs2mds_DEV:-${MDSDEV}_2}
         local fs2ostdev=${fs2ost_DEV:-$(ostdevname 1)_2}
         local fs3ostdev=${fs3ost_DEV:-$(ostdevname 2)_2}
-        add fs2mds $MDS_MKFS_OPTS --fsname=${FSNAME2} --reformat $fs2mdsdev || exit 10
-        # XXX after we support non 4K disk blocksize, change following --mkfsoptions with
-        # other argument
-        add fs2ost $OST_MKFS_OPTS --mkfsoptions='-b4096' --fsname=${FSNAME2} --mgsnode=$MGSNID --reformat $fs2ostdev || exit 10
-        add fs3ost $OST_MKFS_OPTS --mkfsoptions='-b4096' --fsname=${FSNAME2} --mgsnode=$MGSNID --reformat $fs3ostdev || exit 10
+
+	add fs2mds $(mkfs_opts mds) --fsname=$FSNAME2 --reformat $fs2mdsdev ||
+		error "add fs2mds $fs2mdsdev failed"
+	# XXX after we support non 4K disk blocksize in ldiskfs, specify a
+	#     different one than the default value here.
+	add fs2ost $OST_MKFS_OPTS --index=0 --mgsnode=$MGSNID \
+		--fsname=$FSNAME2 --mkfsoptions='-b4096' \
+		--reformat $fs2ostdev || error "add fs2ost $fs2ostdev failed"
+	add fs3ost $OST_MKFS_OPTS --index=1 --mgsnode=$MGSNID \
+		--fsname=$FSNAME2 --mkfsoptions='-b4096' \
+		--reformat $fs3ostdev || error "add fs3ost $fs3ostdev failed"
 
         start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS
         start fs2ost $fs2ostdev $OST_MOUNT_OPTS
@@ -2655,7 +2671,8 @@ test_55() {
 run_test 55 "check lov_objid size"
 
 test_56() {
-	add mds1 $MDS_MKFS_OPTS --mkfsoptions='\"-J size=16\"' --reformat $(mdsdevname 1)
+	add mds1 $(mkfs_opts mds) --mkfsoptions='\"-J size=16\"' \
+		--reformat $(mdsdevname 1)
 	add ost1 $OST_MKFS_OPTS --index=1000 --reformat $(ostdevname 1)
 	add ost2 $OST_MKFS_OPTS --index=10000 --reformat $(ostdevname 2)
 
@@ -2753,7 +2770,9 @@ test_59() {
 run_test 59 "writeconf mount option"
 
 test_60() { # LU-471
-	add mds1 $MDS_MKFS_OPTS --mkfsoptions='\" -E stride=64 -O ^uninit_bg\"' --reformat $(mdsdevname 1)
+	add mds1 $(mkfs_opts mds) \
+		--mkfsoptions='\" -E stride=64 -O ^uninit_bg\"' \
+		--reformat $(mdsdevname 1)
 
 	dump=$(do_facet $SINGLEMDS dumpe2fs $(mdsdevname 1))
 	rc=${PIPESTATUS[0]}
@@ -2815,10 +2834,10 @@ test_66() { #LU-2634
 
 	#tune MDT with "-O extents"
 	add $SINGLEMDS \
-		$(mkfs_opts $SINGLEMDS ${mdsdev}) --reformat $mdsdev ||
+		$(mkfs_opts $SINGLEMDS) --reformat $mdsdev ||
 			error "add $SINGLEMDS failed"
 	$TUNE2FS -O extents $mdsdev
-	add ost1 $(mkfs_opts ost1 $ostdev) --reformat $ostdev ||
+	add ost1 $(mkfs_opts ost) --reformat $ostdev ||
 		error "add $ostdev failed"
 	start_mgsmds || error "start mds failed"
 	start_ost || error "start ost failed"
