@@ -232,10 +232,9 @@ static void osc_page_touch_at(const struct lu_env *env,
 static void osc_page_touch(const struct lu_env *env,
                            struct osc_page *opage, unsigned to)
 {
-        struct cl_page    *page = opage->ops_cl.cpl_page;
         struct cl_object  *obj  = opage->ops_cl.cpl_obj;
 
-        osc_page_touch_at(env, obj, page->cp_index, to);
+        osc_page_touch_at(env, obj, osc_index(opage), to);
 }
 
 /**
@@ -254,10 +253,10 @@ static void osc_page_touch(const struct lu_env *env,
  */
 static int osc_io_prepare_write(const struct lu_env *env,
                                 const struct cl_io_slice *ios,
-                                const struct cl_page_slice *slice,
+                                struct cl_page *page,
                                 unsigned from, unsigned to)
 {
-        struct osc_device *dev = lu2osc_dev(slice->cpl_obj->co_lu.lo_dev);
+        struct osc_device *dev = lu2osc_dev(ios->cis_obj->co_lu.lo_dev);
         struct obd_import *imp = class_exp2cliimp(dev->od_exp);
         struct osc_io     *oio = cl2osc_io(env, ios);
         int result = 0;
@@ -274,19 +273,19 @@ static int osc_io_prepare_write(const struct lu_env *env,
                  * nobody can access the invalid data.
                  * in osc_io_commit_write(), we're going to write exact
                  * [from, to) bytes of this page to OST. -jay */
-                cl_page_export(env, slice->cpl_page, 1);
+                cl_page_export(env, page, 1);
 
         RETURN(result);
 }
 
 static int osc_io_commit_write(const struct lu_env *env,
                                const struct cl_io_slice *ios,
-                               const struct cl_page_slice *slice,
+                               struct cl_page *page,
                                unsigned from, unsigned to)
 {
         struct osc_io         *oio = cl2osc_io(env, ios);
-        struct osc_page       *opg = cl2osc_page(slice);
-        struct osc_object     *obj = cl2osc(opg->ops_cl.cpl_obj);
+        struct osc_object     *obj = cl2osc(ios->cis_obj);
+        struct osc_page       *opg = cl_object_page_slice(osc2cl(obj), page);
         struct osc_async_page *oap = &opg->ops_oap;
         ENTRY;
 
@@ -297,16 +296,41 @@ static int osc_io_commit_write(const struct lu_env *env,
          * cl_page_touch() method, that generic cl_io_commit_write() and page
          * fault code calls.
          */
-        osc_page_touch(env, cl2osc_page(slice), to);
+        osc_page_touch(env, opg, to);
         if (!client_is_remote(osc_export(obj)) &&
             cfs_capable(CFS_CAP_SYS_RESOURCE))
                 oap->oap_brw_flags |= OBD_BRW_NOQUOTA;
 
         if (oio->oi_lockless)
                 /* see osc_io_prepare_write() for lockless io handling. */
-                cl_page_clip(env, slice->cpl_page, from, to);
+                cl_page_clip(env, page, from, to);
 
         RETURN(0);
+}
+
+static int osc_io_cache_add(const struct lu_env *env,
+			      const struct cl_io_slice *ios,
+			      struct cl_page *page)
+{
+	struct cl_io    *io  = ios->cis_io;
+	struct osc_io   *oio = cl2osc_io(env, ios);
+	struct osc_page *opg = cl_object_page_slice(ios->cis_obj, page);
+	int result;
+	ENTRY;
+
+	result = osc_page_cache_add(env, io, opg);
+
+	/* for sync write, kernel will wait for this page to be flushed before
+	 * osc_io_end() is called, so release it earlier.
+	 * for mkwrite(), it's known there is no further pages. */
+	if (cl_io_is_sync_write(io) || cl_io_is_mkwrite(io)) {
+		if (oio->oi_active != NULL) {
+			osc_extent_release(env, oio->oi_active);
+			oio->oi_active = NULL;
+		}
+	}
+
+	RETURN(result);
 }
 
 static int osc_io_fault_start(const struct lu_env *env,
@@ -368,7 +392,7 @@ static int trunc_check_cb(const struct lu_env *env, struct cl_io *io,
 		cfs_page_t *vmpage = cl_page_vmpage(env, page);
 		if (PageLocked(vmpage))
 			CDEBUG(D_CACHE, "page %p index %lu locked for %d.\n",
-			       ops, page->cp_index,
+			       ops, osc_index(ops),
 			       (oap->oap_cmd & OBD_BRW_RWMASK));
 	}
 #endif
@@ -390,8 +414,9 @@ static void osc_trunc_check(const struct lu_env *env, struct cl_io *io,
         /*
          * Complain if there are pages in the truncated region.
          */
-	cl_page_gang_lookup(env, clob, io, start + partial, CL_PAGE_EOF,
-			    trunc_check_cb, (void *)&size);
+	osc_page_gang_lookup(env, io, cl2osc(clob),
+				start + partial, CL_PAGE_EOF,
+				trunc_check_cb, (void *)&size);
 }
 #else /* __KERNEL__ */
 static void osc_trunc_check(const struct lu_env *env, struct cl_io *io,
@@ -711,7 +736,8 @@ static const struct cl_io_operations osc_io_ops = {
                  }
          },
         .cio_prepare_write = osc_io_prepare_write,
-        .cio_commit_write  = osc_io_commit_write
+        .cio_commit_write  = osc_io_commit_write,
+        .cio_cache_add	   = osc_io_cache_add
 };
 
 /*****************************************************************************
@@ -779,18 +805,20 @@ static void osc_req_attr_set(const struct lu_env *env,
                 oa->o_valid |= OBD_MD_FLGROUP;
         }
         if (flags & OBD_MD_FLHANDLE) {
+		struct cl_object *obj;
+
                 clerq = slice->crs_req;
                 LASSERT(!cfs_list_empty(&clerq->crq_pages));
                 apage = container_of(clerq->crq_pages.next,
                                      struct cl_page, cp_flight);
                 opg = osc_cl_page_osc(apage);
-                apage = opg->ops_cl.cpl_page; /* now apage is a sub-page */
-                lock = cl_lock_at_page(env, apage->cp_obj, apage, NULL, 1, 1);
+		obj = opg->ops_cl.cpl_obj;
+                lock = cl_lock_at_pgoff(env, obj, osc_index(opg), NULL, 1, 1);
                 if (lock == NULL) {
                         struct cl_object_header *head;
                         struct cl_lock          *scan;
 
-                        head = cl_object_header(apage->cp_obj);
+                        head = cl_object_header(obj);
                         cfs_list_for_each_entry(scan, &head->coh_locks,
                                                 cll_linkage)
                                 CL_LOCK_DEBUG(D_ERROR, env, scan,

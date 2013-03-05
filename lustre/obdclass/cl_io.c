@@ -732,6 +732,8 @@ static int cl_page_in_io(const struct cl_page *page, const struct cl_io *io)
         loff_t  end;
         pgoff_t idx;
 
+		return 1;
+
         idx = page->cp_index;
         switch (io->ci_type) {
         case CIT_READ:
@@ -831,11 +833,8 @@ int cl_io_prepare_write(const struct lu_env *env, struct cl_io *io,
 
         cl_io_for_each_reverse(scan, io) {
                 if (scan->cis_iop->cio_prepare_write != NULL) {
-                        const struct cl_page_slice *slice;
-
-                        slice = cl_io_slice_page(scan, page);
                         result = scan->cis_iop->cio_prepare_write(env, scan,
-                                                                  slice,
+                                                                  page,
                                                                   from, to);
                         if (result != 0)
                                 break;
@@ -861,7 +860,7 @@ int cl_io_commit_write(const struct lu_env *env, struct cl_io *io,
         LINVRNT(cl_io_invariant(io));
         /*
          * XXX Uh... not nice. Top level cl_io_commit_write() call (vvp->lov)
-         * already called cl_page_cache_add(), moving page into CPS_CACHED
+         * already called cl_io_cache_add(), moving page into CPS_CACHED
          * state. Better (and more general) way of dealing with such situation
          * is needed.
          */
@@ -871,11 +870,8 @@ int cl_io_commit_write(const struct lu_env *env, struct cl_io *io,
 
         cl_io_for_each(scan, io) {
                 if (scan->cis_iop->cio_commit_write != NULL) {
-                        const struct cl_page_slice *slice;
-
-                        slice = cl_io_slice_page(scan, page);
                         result = scan->cis_iop->cio_commit_write(env, scan,
-                                                                 slice,
+                                                                 page,
                                                                  from, to);
                         if (result != 0)
                                 break;
@@ -885,6 +881,35 @@ int cl_io_commit_write(const struct lu_env *env, struct cl_io *io,
         RETURN(result);
 }
 EXPORT_SYMBOL(cl_io_commit_write);
+
+/**
+ * Called by write io to add a page into dirty cache.
+ *
+ * \see cl_io_cache_add::cio_cache_add()
+ */
+int cl_io_cache_add(const struct lu_env *env, struct cl_io *io,
+			struct cl_page *page)
+{
+        const struct cl_io_slice *scan;
+        int result = 0;
+
+        LINVRNT(io->ci_type == CIT_WRITE);
+        LINVRNT(cl_page_is_owned(page, io));
+        LINVRNT(io->ci_state == CIS_IO_GOING || io->ci_state == CIS_LOCKED);
+        LINVRNT(cl_io_invariant(io));
+        LASSERT(cl_page_in_io(page, io));
+        ENTRY;
+
+        cl_io_for_each(scan, io) {
+                if (scan->cis_iop->cio_cache_add != NULL) {
+                        result = scan->cis_iop->cio_cache_add(env, scan, page);
+                        if (result != 0)
+                                break;
+                }
+        }
+        RETURN(result);
+}
+EXPORT_SYMBOL(cl_io_cache_add);
 
 /**
  * Submits a list of pages for immediate io.

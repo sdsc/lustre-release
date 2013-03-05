@@ -87,7 +87,7 @@ static int osc_page_is_dlocked(const struct lu_env *env,
 
         dlmmode = osc_cl_lock2ldlm(mode) | LCK_PW;
         osc_lock_build_res(env, obj, resname);
-        osc_index2policy(policy, page->cp_obj, page->cp_index, page->cp_index);
+        osc_index2policy(policy, page->cp_obj, osc_index(opg), osc_index(opg));
         return osc_match_base(osc_export(obj), resname, LDLM_EXTENT, policy,
                               dlmmode, &flags, NULL, lockh, unref);
 }
@@ -124,8 +124,8 @@ static int osc_page_protected(const struct lu_env *env,
                 hdr = cl_object_header(opg->ops_cl.cpl_obj);
                 descr = &osc_env_info(env)->oti_descr;
                 descr->cld_mode = mode;
-                descr->cld_start = page->cp_index;
-                descr->cld_end   = page->cp_index;
+                descr->cld_start = osc_index(opg);
+                descr->cld_end   = osc_index(opg);
 		spin_lock(&hdr->coh_lock_guard);
                 cfs_list_for_each_entry(scan, &hdr->coh_locks, cll_linkage) {
                         /*
@@ -194,7 +194,7 @@ static void osc_page_transfer_put(const struct lu_env *env,
 
 /**
  * This is called once for every page when it is submitted for a transfer
- * either opportunistic (osc_page_cache_add()), or immediate
+ * either opportunistic (osc_io_cache_add()), or immediate
  * (osc_page_submit()).
  */
 static void osc_page_transfer_add(const struct lu_env *env,
@@ -212,12 +212,8 @@ static void osc_page_transfer_add(const struct lu_env *env,
 	spin_unlock(&obj->oo_seatbelt);
 }
 
-static int osc_page_cache_add(const struct lu_env *env,
-			      const struct cl_page_slice *slice,
-			      struct cl_io *io)
+int osc_page_cache_add(const struct lu_env *env, struct cl_io *io, struct osc_page *opg)
 {
-	struct osc_io   *oio = osc_env_io(env);
-	struct osc_page *opg = cl2osc_page(slice);
 	int result;
 	ENTRY;
 
@@ -229,16 +225,6 @@ static int osc_page_cache_add(const struct lu_env *env,
 		osc_page_transfer_put(env, opg);
 	else
 		osc_page_transfer_add(env, opg, CRT_WRITE);
-
-	/* for sync write, kernel will wait for this page to be flushed before
-	 * osc_io_end() is called, so release it earlier.
-	 * for mkwrite(), it's known there is no further pages. */
-	if (cl_io_is_sync_write(io) || cl_io_is_mkwrite(io)) {
-		if (oio->oi_active != NULL) {
-			osc_extent_release(env, oio->oi_active);
-			oio->oi_active = NULL;
-		}
-	}
 
 	RETURN(result);
 }
@@ -291,14 +277,15 @@ static int osc_page_is_under_lock(const struct lu_env *env,
                                   const struct cl_page_slice *slice,
                                   struct cl_io *unused)
 {
+	struct osc_page *opg = cl2osc_page(slice);
         struct cl_lock *lock;
         int             result = -ENODATA;
 
         ENTRY;
-        lock = cl_lock_at_page(env, slice->cpl_obj, slice->cpl_page,
+        lock = cl_lock_at_pgoff(env, slice->cpl_obj, osc_index(opg),
                                NULL, 1, 0);
         if (lock != NULL) {
-		if (osc_page_addref_lock(env, cl2osc_page(slice), lock) == 0)
+		if (osc_page_addref_lock(env, opg, lock) == 0)
 			result = -EBUSY;
 		cl_lock_put(env, lock);
 	}
@@ -336,18 +323,6 @@ static void osc_page_completion_write(const struct lu_env *env,
 
 	osc_lru_add(osc_cli(obj), opg);
 }
-
-static int osc_page_fail(const struct lu_env *env,
-                         const struct cl_page_slice *slice,
-                         struct cl_io *unused)
-{
-        /*
-         * Cached read?
-         */
-        LBUG();
-        return 0;
-}
-
 
 static const char *osc_list(cfs_list_t *head)
 {
@@ -440,6 +415,18 @@ static void osc_page_delete(const struct lu_env *env,
 	spin_unlock(&obj->oo_seatbelt);
 
 	osc_lru_del(osc_cli(obj), opg, true);
+
+	if (slice->cpl_page->cp_type == CPT_CACHEABLE) {
+		void *value;
+
+		spin_lock(&obj->oo_tree_lock);
+		value = radix_tree_delete(&obj->oo_tree, osc_index(opg));
+		spin_unlock(&obj->oo_tree_lock);
+
+		LASSERT(value == opg);
+		cl_page_put(env, slice->cpl_page);
+	}
+
 	EXIT;
 }
 
@@ -494,11 +481,9 @@ static const struct cl_page_operations osc_page_ops = {
         .cpo_disown        = osc_page_disown,
         .io = {
                 [CRT_READ] = {
-                        .cpo_cache_add  = osc_page_fail,
                         .cpo_completion = osc_page_completion_read
                 },
                 [CRT_WRITE] = {
-			.cpo_cache_add  = osc_page_cache_add,
 			.cpo_completion = osc_page_completion_write
 		}
 	},
@@ -508,7 +493,7 @@ static const struct cl_page_operations osc_page_ops = {
 };
 
 int osc_page_init(const struct lu_env *env, struct cl_object *obj,
-		struct cl_page *page, cfs_page_t *vmpage)
+		struct cl_page *page, pgoff_t index, cfs_page_t *vmpage)
 {
 	struct osc_object *osc = cl2osc(obj);
 	struct osc_page   *opg = cl_object_page_slice(obj, page);
@@ -516,9 +501,9 @@ int osc_page_init(const struct lu_env *env, struct cl_object *obj,
 
 	opg->ops_from = 0;
 	opg->ops_to   = CFS_PAGE_SIZE;
+	opg->ops_cl.cpl_index = index;
 
-	result = osc_prep_async_page(osc, opg, vmpage,
-					cl_offset(obj, page->cp_index));
+	result = osc_prep_async_page(osc, opg, vmpage, cl_offset(obj, index));
 	if (result == 0) {
 		struct osc_io *oio = osc_env_io(env);
 		opg->ops_srvlock = osc_io_srvlock(oio);
@@ -538,8 +523,17 @@ int osc_page_init(const struct lu_env *env, struct cl_object *obj,
 	CFS_INIT_LIST_HEAD(&opg->ops_lru);
 
 	/* reserve an LRU space for this page */
-	if (page->cp_type == CPT_CACHEABLE && result == 0)
+	if (page->cp_type == CPT_CACHEABLE && result == 0) {
 		result = osc_lru_reserve(env, osc, opg);
+		if (result == 0) {
+			spin_lock(&osc->oo_tree_lock);
+			result = radix_tree_insert(&osc->oo_tree, index, opg);
+			spin_unlock(&osc->oo_tree_lock);
+			LASSERT(result == 0);
+
+			cl_page_get(page);
+		}
+	}
 
 	return result;
 }
@@ -679,7 +673,7 @@ int osc_lru_shrink(struct client_obd *cli, int target)
 	if (IS_ERR(env))
 		RETURN(PTR_ERR(env));
 
-	pvec = osc_env_info(env)->oti_pvec;
+	pvec = (struct cl_page **)osc_env_info(env)->oti_pvec;
 	io = &osc_env_info(env)->oti_io;
 
 	client_obd_list_lock(&cli->cl_lru_list_lock);

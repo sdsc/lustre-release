@@ -58,7 +58,7 @@ static int   slp_type_init     (struct lu_device_type *t);
 static void  slp_type_fini     (struct lu_device_type *t);
 
 static int slp_page_init(const struct lu_env *env, struct cl_object *obj,
-			 struct cl_page *page, cfs_page_t *vmpage);
+			 struct cl_page *page, pgoff_t ind, cfs_page_t *vmpage);
 static int   slp_attr_get     (const struct lu_env *env, struct cl_object *obj,
                                struct cl_attr *attr);
 
@@ -224,7 +224,7 @@ void slp_global_fini(void)
  */
 
 static int slp_page_init(const struct lu_env *env, struct cl_object *obj,
-			struct cl_page *page, cfs_page_t *vmpage)
+			struct cl_page *page, pgoff_t ind, cfs_page_t *vmpage)
 {
         struct ccc_page *cpg = cl_object_page_slice(obj, page);
 

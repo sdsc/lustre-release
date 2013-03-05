@@ -97,6 +97,7 @@ static int osc_object_init(const struct lu_env *env, struct lu_object *obj,
 	cfs_atomic_set(&osc->oo_nr_reads, 0);
 	cfs_atomic_set(&osc->oo_nr_writes, 0);
 	spin_lock_init(&osc->oo_lock);
+	spin_lock_init(&osc->oo_tree_lock);
 
 	cl_object_page_init(lu2cl(obj), sizeof(struct osc_page));
 

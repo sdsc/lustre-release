@@ -92,7 +92,7 @@ int cl_object_header_init(struct cl_object_header *h)
                 /* XXX hard coded GFP_* mask. */
                 INIT_RADIX_TREE(&h->coh_tree, GFP_ATOMIC);
                 CFS_INIT_LIST_HEAD(&h->coh_locks);
-		h->coh_page_bufsize = ALIGN(sizeof(struct cl_page), 8);
+		h->coh_page_bufsize = 0;
         }
         RETURN(result);
 }
@@ -363,7 +363,7 @@ EXPORT_SYMBOL(cl_object_kill);
 void cl_object_prune(const struct lu_env *env, struct cl_object *obj)
 {
         ENTRY;
-        cl_pages_prune(env, obj);
+        //cl_pages_prune(env, obj);
         cl_locks_prune(env, obj, 1);
         EXIT;
 }

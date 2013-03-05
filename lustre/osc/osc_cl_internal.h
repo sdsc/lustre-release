@@ -112,7 +112,12 @@ struct osc_thread_info {
         struct lustre_handle    oti_handle;
         struct cl_page_list     oti_plist;
 	struct cl_io		oti_io;
-	struct cl_page	       *oti_pvec[OTI_PVEC_SIZE];
+	void			*oti_pvec[OTI_PVEC_SIZE];
+	/**
+	 * Fields used by cl_lock_discard_pages().
+	 */
+	pgoff_t			oti_next_index;
+	pgoff_t			oti_fn_index; /* first non-overlapped index */
 };
 
 struct osc_object {
@@ -169,6 +174,12 @@ struct osc_object {
 	/** Protect extent tree. Will be used to protect
 	 * oo_{read|write}_pages soon. */
 	spinlock_t	    oo_lock;
+
+	/**
+	 * Radix tree for caching pages
+	 */
+	struct radix_tree_root	oo_tree;
+	spinlock_t		oo_tree_lock;
 };
 
 static inline void osc_object_lock(struct osc_object *obj)
@@ -427,7 +438,7 @@ struct lu_object *osc_object_alloc(const struct lu_env *env,
                                    const struct lu_object_header *hdr,
                                    struct lu_device *dev);
 int osc_page_init(const struct lu_env *env, struct cl_object *obj,
-		  struct cl_page *page, cfs_page_t *vmpage);
+		  struct cl_page *page, pgoff_t ind, cfs_page_t *vmpage);
 
 void osc_index2policy  (ldlm_policy_data_t *policy, const struct cl_object *obj,
                         pgoff_t start, pgoff_t end);
@@ -459,6 +470,8 @@ int osc_cache_wait_range(const struct lu_env *env, struct osc_object *obj,
 			 pgoff_t start, pgoff_t end);
 void osc_io_unplug(const struct lu_env *env, struct client_obd *cli,
 		   struct osc_object *osc, pdl_policy_t pol);
+int osc_page_cache_add(const struct lu_env *env, struct cl_io *io,
+			struct osc_page *opg);
 
 void osc_object_set_contended  (struct osc_object *obj);
 void osc_object_clear_contended(struct osc_object *obj);
@@ -558,6 +571,11 @@ static inline struct osc_page *cl2osc_page(const struct cl_page_slice *slice)
 static inline struct osc_page *oap2osc(struct osc_async_page *oap)
 {
 	return container_of0(oap, struct osc_page, ops_oap);
+}
+
+static inline pgoff_t osc_index(struct osc_page *opg)
+{
+	return opg->ops_cl.cpl_index;
 }
 
 static inline struct cl_page *oap2cl_page(struct osc_async_page *oap)
@@ -685,6 +703,11 @@ struct osc_extent {
 int osc_extent_finish(const struct lu_env *env, struct osc_extent *ext,
 		      int sent, int rc);
 int osc_extent_release(const struct lu_env *env, struct osc_extent *ext);
+
+int osc_lock_discard_pages(const struct lu_env *env, struct osc_lock *lock);
+int osc_page_gang_lookup(const struct lu_env *env, struct cl_io *io,
+                        struct osc_object *osc, pgoff_t start, pgoff_t end,
+                        cl_page_gang_cb_t cb, void *cbdata);
 
 /** @} osc */
 

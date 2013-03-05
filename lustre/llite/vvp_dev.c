@@ -361,23 +361,17 @@ static loff_t vvp_pgcache_find(const struct lu_env *env,
                         return ~0ULL;
                 clob = vvp_pgcache_obj(env, dev, &id);
                 if (clob != NULL) {
-                        struct cl_object_header *hdr;
+			struct inode *inode = ccc_object_inode(clob);
                         int                      nr;
-                        struct cl_page          *pg;
+			struct page		*vmpage;
 
-                        /* got an object. Find next page. */
-                        hdr = cl_object_header(clob);
-
-			spin_lock(&hdr->coh_page_guard);
-                        nr = radix_tree_gang_lookup(&hdr->coh_tree,
-                                                    (void **)&pg,
-                                                    id.vpi_index, 1);
+			nr = find_get_pages_contig(inode->i_mapping, id.vpi_index, 1, &vmpage);
                         if (nr > 0) {
-                                id.vpi_index = pg->cp_index;
+                                id.vpi_index = vmpage->index;
                                 /* Cant support over 16T file */
-                                nr = !(pg->cp_index > 0xffffffff);
+                                nr = !(vmpage->index > 0xffffffff);
+				page_cache_release(vmpage);
                         }
-			spin_unlock(&hdr->coh_page_guard);
 
                         lu_object_ref_del(&clob->co_lu, "dump", cfs_current());
                         cl_object_put(env, clob);
@@ -451,9 +445,13 @@ static int vvp_pgcache_show(struct seq_file *f, void *v)
                 if (clob != NULL) {
                         hdr = cl_object_header(clob);
 
+#if 0
 			spin_lock(&hdr->coh_page_guard);
 			page = cl_page_lookup(hdr, id.vpi_index);
 			spin_unlock(&hdr->coh_page_guard);
+#else
+			page = NULL;
+#endif
 
                         seq_printf(f, "%8x@"DFID": ",
                                    id.vpi_index, PFID(&hdr->coh_lu.loh_fid));

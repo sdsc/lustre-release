@@ -416,7 +416,7 @@ static struct cl_lock_operations echo_lock_ops = {
  * @{
  */
 static int echo_page_init(const struct lu_env *env, struct cl_object *obj,
-			struct cl_page *page, cfs_page_t *vmpage)
+			struct cl_page *page, pgoff_t ind, cfs_page_t *vmpage)
 {
         struct echo_page *ep = cl_object_page_slice(obj, page);
 	struct echo_object *eco = cl2echo_obj(obj);
@@ -627,6 +627,8 @@ static struct lu_object *echo_object_alloc(const struct lu_env *env,
 
                 obj = &echo_obj2cl(eco)->co_lu;
                 cl_object_header_init(hdr);
+		hdr->coh_page_bufsize = ALIGN(sizeof(struct cl_page), 8);
+
                 lu_object_init(obj, &hdr->coh_lu, dev);
                 lu_object_add_top(&hdr->coh_lu, obj);
 
@@ -1302,7 +1304,7 @@ static int cl_echo_async_brw(const struct lu_env *env, struct cl_io *io,
 
         cl_page_list_for_each_safe(clp, temp, &queue->c2_qin) {
                 int rc;
-                rc = cl_page_cache_add(env, io, clp, CRT_WRITE);
+                rc = cl_io_cache_add(env, io, clp);
                 if (rc == 0)
                         continue;
                 result = result ?: rc;

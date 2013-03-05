@@ -598,16 +598,18 @@ int   lov_sublock_modify  (const struct lu_env *env, struct lov_lock *lov,
 
 
 int   lov_page_init       (const struct lu_env *env, struct cl_object *ob,
-                           struct cl_page *page, cfs_page_t *vmpage);
+                           struct cl_page *page, pgoff_t index,
+			   cfs_page_t *vmpage);
 int   lovsub_page_init    (const struct lu_env *env, struct cl_object *ob,
-                           struct cl_page *page, cfs_page_t *vmpage);
+                           struct cl_page *page, pgoff_t index,
+			   cfs_page_t *vmpage);
 
 int   lov_page_init_empty (const struct lu_env *env,
-                           struct cl_object *obj,
-                           struct cl_page *page, cfs_page_t *vmpage);
+                           struct cl_object *obj, struct cl_page *page,
+			   pgoff_t index, cfs_page_t *vmpage);
 int   lov_page_init_raid0 (const struct lu_env *env,
-                           struct cl_object *obj,
-                           struct cl_page *page, cfs_page_t *vmpage);
+                           struct cl_object *obj, struct cl_page *page,
+			   pgoff_t index, cfs_page_t *vmpage);
 struct lu_object *lov_object_alloc   (const struct lu_env *env,
                                       const struct lu_object_header *hdr,
                                       struct lu_device *dev);
@@ -620,7 +622,7 @@ struct lov_lock_link *lov_lock_link_find(const struct lu_env *env,
                                          struct lovsub_lock *sub);
 struct lov_io_sub    *lov_page_subio    (const struct lu_env *env,
                                          struct lov_io *lio,
-                                         const struct cl_page_slice *slice);
+                                         struct cl_page *page);
 
 void lov_lsm_decref(struct lov_object *lov, struct lov_stripe_md *lsm);
 struct lov_stripe_md *lov_lsm_addref(struct lov_object *lov);

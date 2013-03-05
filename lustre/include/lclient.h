@@ -242,6 +242,11 @@ static inline struct ccc_page *cl2ccc_page(const struct cl_page_slice *slice)
         return container_of(slice, struct ccc_page, cpg_cl);
 }
 
+static inline pgoff_t ccc_index(struct ccc_page *ccc)
+{
+	return ccc->cpg_cl.cpl_index;
+}
+
 struct cl_page    *ccc_vmpage_page_transient(cfs_page_t *vmpage);
 
 struct ccc_device {

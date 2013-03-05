@@ -248,24 +248,23 @@ void lov_sub_put(struct lov_io_sub *sub)
 static int lov_page_stripe(const struct cl_page *page)
 {
         struct lovsub_object *subobj;
+	const struct cl_page_slice *slice;
 
         ENTRY;
-        subobj = lu2lovsub(
-                lu_object_locate(page->cp_child->cp_obj->co_lu.lo_header,
-                                 &lovsub_device_type));
-        LASSERT(subobj != NULL);
+	slice = cl_page_at(page, &lovsub_device_type);
+	LASSERT(slice != NULL);
+        LASSERT(slice->cpl_obj != NULL);
+	subobj = cl2lovsub(slice->cpl_obj);
         RETURN(subobj->lso_index);
 }
 
 struct lov_io_sub *lov_page_subio(const struct lu_env *env, struct lov_io *lio,
-                                  const struct cl_page_slice *slice)
+                                  struct cl_page *page)
 {
 	struct lov_stripe_md *lsm  = lio->lis_object->lo_lsm;
-	struct cl_page       *page = slice->cpl_page;
 	int stripe;
 
         LASSERT(lio->lis_cl.cis_io != NULL);
-        LASSERT(cl2lov(slice->cpl_obj) == lio->lis_object);
         LASSERT(lsm != NULL);
         LASSERT(lio->lis_nr_subios > 0);
         ENTRY;
@@ -692,19 +691,18 @@ static int lov_io_submit(const struct lu_env *env,
 
 static int lov_io_prepare_write(const struct lu_env *env,
                                 const struct cl_io_slice *ios,
-                                const struct cl_page_slice *slice,
+                                struct cl_page *page,
                                 unsigned from, unsigned to)
 {
         struct lov_io     *lio      = cl2lov_io(env, ios);
-        struct cl_page    *sub_page = lov_sub_page(slice);
         struct lov_io_sub *sub;
         int result;
 
         ENTRY;
-        sub = lov_page_subio(env, lio, slice);
+        sub = lov_page_subio(env, lio, page);
         if (!IS_ERR(sub)) {
                 result = cl_io_prepare_write(sub->sub_env, sub->sub_io,
-                                             sub_page, from, to);
+                                             page, from, to);
                 lov_sub_put(sub);
         } else
                 result = PTR_ERR(sub);
@@ -713,25 +711,41 @@ static int lov_io_prepare_write(const struct lu_env *env,
 
 static int lov_io_commit_write(const struct lu_env *env,
                                const struct cl_io_slice *ios,
-                               const struct cl_page_slice *slice,
+                               struct cl_page *page,
                                unsigned from, unsigned to)
 {
         struct lov_io     *lio      = cl2lov_io(env, ios);
-        struct cl_page    *sub_page = lov_sub_page(slice);
         struct lov_io_sub *sub;
         int result;
 
         ENTRY;
-        sub = lov_page_subio(env, lio, slice);
+        sub = lov_page_subio(env, lio, page);
         if (!IS_ERR(sub)) {
                 result = cl_io_commit_write(sub->sub_env, sub->sub_io,
-                                            sub_page, from, to);
+                                            page, from, to);
                 lov_sub_put(sub);
         } else
                 result = PTR_ERR(sub);
         RETURN(result);
 }
 
+static int lov_io_cache_add(const struct lu_env *env,
+                            const struct cl_io_slice *ios,
+                            struct cl_page *page)
+{
+        struct lov_io     *lio      = cl2lov_io(env, ios);
+        struct lov_io_sub *sub;
+        int result;
+
+        ENTRY;
+        sub = lov_page_subio(env, lio, page);
+        if (!IS_ERR(sub)) {
+                result = cl_io_cache_add(sub->sub_env, sub->sub_io, page);
+                lov_sub_put(sub);
+        } else
+                result = PTR_ERR(sub);
+        RETURN(result);
+}
 static int lov_io_fault_start(const struct lu_env *env,
                               const struct cl_io_slice *ios)
 {
@@ -830,7 +844,8 @@ static const struct cl_io_operations lov_io_ops = {
                  }
          },
         .cio_prepare_write = lov_io_prepare_write,
-        .cio_commit_write  = lov_io_commit_write
+        .cio_commit_write  = lov_io_commit_write,
+        .cio_cache_add     = lov_io_cache_add
 };
 
 /*****************************************************************************

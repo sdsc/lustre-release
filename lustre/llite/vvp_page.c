@@ -534,12 +534,13 @@ static const struct cl_page_operations vvp_transient_page_ops = {
 };
 
 int vvp_page_init(const struct lu_env *env, struct cl_object *obj,
-		struct cl_page *page, cfs_page_t *vmpage)
+		struct cl_page *page, pgoff_t index, cfs_page_t *vmpage)
 {
 	struct ccc_page *cpg = cl_object_page_slice(obj, page);
 
 	CLOBINVRNT(env, obj, ccc_object_invariant(obj));
 
+	cpg->cpg_cl.cpl_index = index;
 	cpg->cpg_page = vmpage;
 	page_cache_get(vmpage);
 
@@ -547,8 +548,7 @@ int vvp_page_init(const struct lu_env *env, struct cl_object *obj,
 	if (page->cp_type == CPT_CACHEABLE) {
 		SetPagePrivate(vmpage);
 		vmpage->private = (unsigned long)page;
-		cl_page_slice_add(page, &cpg->cpg_cl, obj,
-				&vvp_page_ops);
+		cl_page_slice_add(page, &cpg->cpg_cl, obj, &vvp_page_ops);
 	} else {
 		struct ccc_object *clobj = cl2ccc(obj);
 

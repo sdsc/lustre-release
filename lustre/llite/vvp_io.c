@@ -781,7 +781,7 @@ static int vvp_io_fault_start(const struct lu_env *env,
                         /* Do not set Dirty bit here so that in case IO is
                          * started before the page is really made dirty, we
                          * still have chance to detect it. */
-                        result = cl_page_cache_add(env, io, page, CRT_WRITE);
+                        result = cl_io_cache_add(env, io, page);
 			LASSERT(cl_page_is_owned(page, io));
 
 			vmpage = NULL;
@@ -863,7 +863,7 @@ static int vvp_io_read_page(const struct lu_env *env,
 
         if (sbi->ll_ra_info.ra_max_pages_per_file &&
             sbi->ll_ra_info.ra_max_pages)
-                ras_update(sbi, inode, ras, page->cp_index,
+                ras_update(sbi, inode, ras, ccc_index(cp),
                            cp->cpg_defer_uptodate);
 
         /* Sanity check whether the page is protected by a lock. */
@@ -928,7 +928,7 @@ static int vvp_io_prepare_partial(const struct lu_env *env, struct cl_io *io,
                                   unsigned from, unsigned to)
 {
         struct cl_attr *attr   = ccc_env_thread_attr(env);
-        loff_t          offset = cl_offset(obj, pg->cp_index);
+        loff_t          offset = cl_offset(obj, ccc_index(cp));
         int             result;
 
         cl_object_attr_lock(obj);
@@ -965,12 +965,11 @@ static int vvp_io_prepare_partial(const struct lu_env *env, struct cl_io *io,
 
 static int vvp_io_prepare_write(const struct lu_env *env,
                                 const struct cl_io_slice *ios,
-                                const struct cl_page_slice *slice,
+                                struct cl_page *pg,
                                 unsigned from, unsigned to)
 {
-        struct cl_object *obj    = slice->cpl_obj;
-        struct ccc_page  *cp     = cl2ccc_page(slice);
-        struct cl_page   *pg     = slice->cpl_page;
+        struct cl_object *obj    = ios->cis_obj;
+        struct ccc_page  *cp     = cl_object_page_slice(obj, pg);
         cfs_page_t       *vmpage = cp->cpg_page;
 
         int result;
@@ -1001,13 +1000,12 @@ static int vvp_io_prepare_write(const struct lu_env *env,
 
 static int vvp_io_commit_write(const struct lu_env *env,
                                const struct cl_io_slice *ios,
-                               const struct cl_page_slice *slice,
+                               struct cl_page *pg,
                                unsigned from, unsigned to)
 {
-        struct cl_object  *obj    = slice->cpl_obj;
+        struct cl_object  *obj    = ios->cis_obj;
+        struct ccc_page   *cp     = cl_object_page_slice(obj, pg);
         struct cl_io      *io     = ios->cis_io;
-        struct ccc_page   *cp     = cl2ccc_page(slice);
-        struct cl_page    *pg     = slice->cpl_page;
         struct inode      *inode  = ccc_object_inode(obj);
         struct ll_sb_info *sbi    = ll_i2sbi(inode);
         cfs_page_t        *vmpage = cp->cpg_page;
@@ -1046,7 +1044,7 @@ static int vvp_io_commit_write(const struct lu_env *env,
          */
         if (!PageDirty(vmpage)) {
                 tallyop = LPROC_LL_DIRTY_MISSES;
-                result = cl_page_cache_add(env, io, pg, CRT_WRITE);
+                result = cl_io_cache_add(env, io, pg);
                 if (result == 0) {
                         /* page was added into cache successfully. */
                         set_page_dirty(vmpage);
@@ -1069,10 +1067,10 @@ static int vvp_io_commit_write(const struct lu_env *env,
                          * what the new code continues to do for the time
                          * being.
                          */
-                        if (last_index > pg->cp_index) {
+                        if (last_index > ccc_index(cp)) {
                                 to = CFS_PAGE_SIZE;
                                 need_clip = false;
-                        } else if (last_index == pg->cp_index) {
+                        } else if (last_index == ccc_index(cp)) {
                                 int size_to = i_size_read(inode) & ~CFS_PAGE_MASK;
                                 if (to < size_to)
                                         to = size_to;
@@ -1082,7 +1080,7 @@ static int vvp_io_commit_write(const struct lu_env *env,
                         result = vvp_page_sync_io(env, io, pg, cp, CRT_WRITE);
                         if (result)
                                 CERROR("Write page %lu of inode %p failed %d\n",
-                                       pg->cp_index, inode, result);
+                                       ccc_index(cp), inode, result);
                 }
         } else {
                 tallyop = LPROC_LL_DIRTY_HITS;
@@ -1090,7 +1088,7 @@ static int vvp_io_commit_write(const struct lu_env *env,
         }
         ll_stats_ops_tally(sbi, tallyop, 1);
 
-        size = cl_offset(obj, pg->cp_index) + to;
+        size = cl_offset(obj, ccc_index(cp)) + to;
 
 	ll_inode_size_lock(inode);
         if (result == 0) {

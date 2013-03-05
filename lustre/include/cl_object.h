@@ -322,7 +322,7 @@ struct cl_object_operations {
          *         to be used instead of newly created.
          */
 	int  (*coo_page_init)(const struct lu_env *env, struct cl_object *obj,
-				struct cl_page *page, cfs_page_t *vmpage);
+				struct cl_page *page, pgoff_t index, cfs_page_t *vmpage);
         /**
          * Initialize lock slice for this layer. Called top-to-bottom through
          * every object layer when a new cl_lock is instantiated. Layer
@@ -458,10 +458,6 @@ struct cl_object_header {
                                         &(obj)->co_lu.lo_header->loh_layers, \
                                         co_lu.lo_linkage)
 /** @} cl_object */
-
-#ifndef pgoff_t
-#define pgoff_t unsigned long
-#endif
 
 #define CL_PAGE_EOF ((pgoff_t)~0ull)
 
@@ -786,6 +782,7 @@ struct cl_page {
  */
 struct cl_page_slice {
         struct cl_page                  *cpl_page;
+	pgoff_t				 cpl_index;
         /**
          * Object slice corresponding to this page slice. Immutable after
          * creation.
@@ -1022,26 +1019,6 @@ struct cl_page_operations {
                  */
                 int  (*cpo_make_ready)(const struct lu_env *env,
                                        const struct cl_page_slice *slice);
-                /**
-                 * Announce that this page is to be written out
-                 * opportunistically, that is, page is dirty, it is not
-                 * necessary to start write-out transfer right now, but
-                 * eventually page has to be written out.
-                 *
-                 * Main caller of this is the write path (see
-                 * vvp_io_commit_write()), using this method to build a
-                 * "transfer cache" from which large transfers are then
-                 * constructed by the req-formation engine.
-                 *
-                 * \todo XXX it would make sense to add page-age tracking
-                 * semantics here, and to oblige the req-formation engine to
-                 * send the page out not later than it is too old.
-                 *
-                 * \see cl_page_cache_add()
-                 */
-                int  (*cpo_cache_add)(const struct lu_env *env,
-                                      const struct cl_page_slice *slice,
-                                      struct cl_io *io);
         } io[CRT_NR];
         /**
          * Tell transfer engine that only [to, from] part of a page should be
@@ -2143,7 +2120,7 @@ struct cl_io_operations {
          */
         int (*cio_prepare_write)(const struct lu_env *env,
                                  const struct cl_io_slice *slice,
-                                 const struct cl_page_slice *page,
+                                 struct cl_page *page,
                                  unsigned from, unsigned to);
         /**
          *
@@ -2154,8 +2131,29 @@ struct cl_io_operations {
          */
         int (*cio_commit_write)(const struct lu_env *env,
                                 const struct cl_io_slice *slice,
-                                const struct cl_page_slice *page,
+                                struct cl_page *page,
                                 unsigned from, unsigned to);
+
+	/**
+	 * Announce that this page is to be written out
+	 * opportunistically, that is, page is dirty, it is not
+	 * necessary to start write-out transfer right now, but
+	 * eventually page has to be written out.
+	 *
+	 * Main caller of this is the write path (see
+	 * vvp_io_commit_write()), using this method to build a
+	 * "transfer cache" from which large transfers are then
+	 * constructed by the req-formation engine.
+	 *
+	 * \todo XXX it would make sense to add page-age tracking
+	 * semantics here, and to oblige the req-formation engine to
+	 * send the page out not later than it is too old.
+	 *
+	 * \see cl_io_cache_add()
+	 */
+	int  (*cio_cache_add)(const struct lu_env *env,
+			const struct cl_io_slice *slice,
+			struct cl_page *page);
         /**
          * Optional debugging helper. Print given io slice.
          */
@@ -2760,8 +2758,10 @@ static inline int cl_object_same(struct cl_object *o0, struct cl_object *o1)
 
 static inline void cl_object_page_init(struct cl_object *clob, int size)
 {
-	clob->co_slice_off = cl_object_header(clob)->coh_page_bufsize;
-	cl_object_header(clob)->coh_page_bufsize += ALIGN(size, 8);
+	struct cl_object_header *hdr = cl_object_header(clob);
+
+	clob->co_slice_off = hdr->coh_page_bufsize;
+	hdr->coh_page_bufsize += ALIGN(size, 8);
 }
 
 static inline void *cl_object_page_slice(struct cl_object *clob,
@@ -2850,8 +2850,6 @@ void cl_page_completion (const struct lu_env *env,
                          struct cl_page *pg, enum cl_req_type crt, int ioret);
 int  cl_page_make_ready (const struct lu_env *env, struct cl_page *pg,
                          enum cl_req_type crt);
-int  cl_page_cache_add  (const struct lu_env *env, struct cl_io *io,
-                         struct cl_page *pg, enum cl_req_type crt);
 void cl_page_clip       (const struct lu_env *env, struct cl_page *pg,
                          int from, int to);
 int  cl_page_cancel     (const struct lu_env *env, struct cl_page *page);
@@ -2907,17 +2905,6 @@ struct cl_lock *cl_lock_at_pgoff(const struct lu_env *env,
 				 struct cl_object *obj, pgoff_t index,
 				 struct cl_lock *except, int pending,
 				 int canceld);
-static inline struct cl_lock *cl_lock_at_page(const struct lu_env *env,
-					      struct cl_object *obj,
-					      struct cl_page *page,
-					      struct cl_lock *except,
-					      int pending, int canceld)
-{
-	LASSERT(cl_object_header(obj) == cl_object_header(page->cp_obj));
-	return cl_lock_at_pgoff(env, obj, page->cp_index, except,
-				pending, canceld);
-}
-
 const struct cl_lock_slice *cl_lock_at(const struct cl_lock *lock,
                                        const struct lu_device_type *dtype);
 
@@ -3057,6 +3044,8 @@ int   cl_io_prepare_write(const struct lu_env *env, struct cl_io *io,
                           struct cl_page *page, unsigned from, unsigned to);
 int   cl_io_commit_write (const struct lu_env *env, struct cl_io *io,
                           struct cl_page *page, unsigned from, unsigned to);
+int   cl_io_cache_add    (const struct lu_env *env, struct cl_io *io,
+                          struct cl_page *page);
 int   cl_io_submit_rw    (const struct lu_env *env, struct cl_io *io,
 			  enum cl_req_type iot, struct cl_2queue *queue);
 int   cl_io_submit_sync  (const struct lu_env *env, struct cl_io *io,

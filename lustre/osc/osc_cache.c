@@ -240,7 +240,7 @@ static int osc_extent_sanity_check0(struct osc_extent *ext,
 
 	page_count = 0;
 	cfs_list_for_each_entry(oap, &ext->oe_pages, oap_pending_item) {
-		pgoff_t index = oap2cl_page(oap)->cp_index;
+		pgoff_t index = osc_index(oap2osc(oap));
 		++page_count;
 		if (index > ext->oe_end || index < ext->oe_start)
 			GOTO(out, rc = 110);
@@ -888,6 +888,8 @@ static int osc_extent_wait(const struct lu_env *env, struct osc_extent *ext,
 	if (rc == 1)
 		osc_extent_release(env, ext);
 
+	OSC_EXTENT_DUMP(D_CACHE, ext, "wait its state to become %d\n", state);
+
 	/* wait for the extent until its state becomes @state */
 	rc = l_wait_event(ext->oe_waitq, extent_wait_cb(ext, state), &lwi);
 	if (rc == -ETIMEDOUT) {
@@ -943,18 +945,18 @@ static int osc_extent_truncate(struct osc_extent *ext, pgoff_t trunc_index,
 	/* discard all pages with index greater then trunc_index */
 	cfs_list_for_each_entry_safe(oap, tmp, &ext->oe_pages,
 				     oap_pending_item) {
-		struct cl_page  *sub  = oap2cl_page(oap);
-		struct cl_page  *page = cl_page_top(sub);
+		pgoff_t index = osc_index(oap2osc(oap));
+		struct cl_page  *page = oap2cl_page(oap);
 
 		LASSERT(cfs_list_empty(&oap->oap_rpc_item));
 
 		/* only discard the pages with their index greater than
 		 * trunc_index, and ... */
-		if (sub->cp_index < trunc_index ||
-		    (sub->cp_index == trunc_index && partial)) {
+		if (index < trunc_index ||
+		    (index == trunc_index && partial)) {
 			/* accounting how many pages remaining in the chunk
 			 * so that we can calculate grants correctly. */
-			if (sub->cp_index >> ppc_bits == trunc_chunk)
+			if (index >> ppc_bits == trunc_chunk)
 				++pages_in_chunk;
 			continue;
 		}
@@ -1217,7 +1219,7 @@ static int osc_refresh_count(const struct lu_env *env,
 			     struct osc_async_page *oap, int cmd)
 {
 	struct osc_page  *opg = oap2osc_page(oap);
-	struct cl_page   *page = oap2cl_page(oap);
+	pgoff_t index = osc_index(oap2osc(oap));
 	struct cl_object *obj;
 	struct cl_attr   *attr = &osc_env_info(env)->oti_attr;
 
@@ -1235,10 +1237,10 @@ static int osc_refresh_count(const struct lu_env *env,
 	if (result < 0)
 		return result;
 	kms = attr->cat_kms;
-	if (cl_offset(obj, page->cp_index) >= kms)
+	if (cl_offset(obj, index) >= kms)
 		/* catch race with truncate */
 		return 0;
-	else if (cl_offset(obj, page->cp_index + 1) > kms)
+	else if (cl_offset(obj, index + 1) > kms)
 		/* catch sub-page write at end of file */
 		return kms % CFS_PAGE_SIZE;
 	else
@@ -2144,6 +2146,7 @@ static int osc_io_unplug0(const struct lu_env *env, struct client_obd *cli,
 {
 	int has_rpcs = 1;
 	int rc = 0;
+	ENTRY;
 
 	client_obd_list_lock(&cli->cl_loi_list_lock);
 	if (osc != NULL)
@@ -2159,7 +2162,7 @@ static int osc_io_unplug0(const struct lu_env *env, struct client_obd *cli,
 		}
 	}
 	client_obd_list_unlock(&cli->cl_loi_list_lock);
-	return rc;
+	RETURN(rc);
 }
 
 static int osc_io_unplug_async(const struct lu_env *env,
@@ -2269,7 +2272,7 @@ int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 	OSC_IO_DEBUG(osc, "oap %p page %p added for cmd %d\n",
 		     oap, oap->oap_page, oap->oap_cmd & OBD_BRW_RWMASK);
 
-	index = oap2cl_page(oap)->cp_index;
+	index = osc_index(oap2osc(oap));
 
 	/* Add this page into extent by the following steps:
 	 * 1. if there exists an active extent for this IO, mostly this page
@@ -2379,20 +2382,20 @@ int osc_teardown_async_page(const struct lu_env *env,
 	LASSERT(oap->oap_magic == OAP_MAGIC);
 
 	CDEBUG(D_INFO, "teardown oap %p page %p at index %lu.\n",
-	       oap, ops, oap2cl_page(oap)->cp_index);
+	       oap, ops, osc_index(oap2osc(oap)));
 
 	osc_object_lock(obj);
 	if (!cfs_list_empty(&oap->oap_rpc_item)) {
 		CDEBUG(D_CACHE, "oap %p is not in cache.\n", oap);
 		rc = -EBUSY;
 	} else if (!cfs_list_empty(&oap->oap_pending_item)) {
-		ext = osc_extent_lookup(obj, oap2cl_page(oap)->cp_index);
+		ext = osc_extent_lookup(obj, osc_index(oap2osc(oap)));
 		/* only truncated pages are allowed to be taken out.
 		 * See osc_extent_truncate() and osc_cache_truncate_start()
 		 * for details. */
 		if (ext != NULL && ext->oe_state != OES_TRUNC) {
 			OSC_EXTENT_DUMP(D_ERROR, ext, "trunc at %lu.\n",
-					oap2cl_page(oap)->cp_index);
+					osc_index(oap2osc(oap)));
 			rc = -EBUSY;
 		}
 	}
@@ -2415,7 +2418,7 @@ int osc_flush_async_page(const struct lu_env *env, struct cl_io *io,
 	struct osc_extent *ext   = NULL;
 	struct osc_object *obj   = cl2osc(ops->ops_cl.cpl_obj);
 	struct cl_page    *cp    = ops->ops_cl.cpl_page;
-	pgoff_t            index = cp->cp_index;
+	pgoff_t            index = osc_index(ops);
 	struct osc_async_page *oap = &ops->ops_oap;
 	bool unplug = false;
 	int rc = 0;
@@ -2427,6 +2430,8 @@ int osc_flush_async_page(const struct lu_env *env, struct cl_io *io,
 		osc_extent_tree_dump(D_ERROR, obj);
 		LASSERTF(0, "page index %lu is NOT covered.\n", index);
 	}
+
+	OSC_EXTENT_DUMP(D_CACHE, ext, "page flush\n");
 
 	switch (ext->oe_state) {
 	case OES_RPC:
@@ -2494,7 +2499,7 @@ int osc_cancel_async_page(const struct lu_env *env, struct osc_page *ops)
 	struct osc_extent     *ext;
 	struct osc_extent     *found = NULL;
 	cfs_list_t            *plist;
-	pgoff_t index = oap2cl_page(oap)->cp_index;
+	pgoff_t index = osc_index(ops);
 	int     rc = -EBUSY;
 	int     cmd;
 	ENTRY;
@@ -2557,11 +2562,11 @@ int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
 	ENTRY;
 
 	cfs_list_for_each_entry(oap, list, oap_pending_item) {
-		struct cl_page *cp = oap2cl_page(oap);
-		if (cp->cp_index > end)
-			end = cp->cp_index;
-		if (cp->cp_index < start)
-			start = cp->cp_index;
+		pgoff_t index = osc_index(oap2osc(oap));
+		if (index > end)
+			end = index;
+		if (index < start)
+			start = index;
 		++page_count;
 		mppr <<= (page_count > mppr);
 	}
@@ -2840,6 +2845,8 @@ int osc_cache_writeback_range(const struct lu_env *env, struct osc_object *obj,
 		if (ext->oe_start > end)
 			break;
 
+		OSC_EXTENT_DUMP(D_CACHE, ext, "trying to writeback\n");
+
 		ext->oe_fsync_wait = 1;
 		switch (ext->oe_state) {
 		case OES_CACHE:
@@ -2927,5 +2934,209 @@ int osc_cache_writeback_range(const struct lu_env *env, struct osc_object *obj,
 	OSC_IO_DEBUG(obj, "cache page out.\n");
 	RETURN(result);
 }
+
+/**
+ * Returns a list of pages by a given [start, end] of \a obj.
+ *
+ * \param resched If not NULL, then we give up before hogging CPU for too
+ * long and set *resched = 1, in that case caller should implement a retry
+ * logic.
+ *
+ * Gang tree lookup (radix_tree_gang_lookup()) optimization is absolutely
+ * crucial in the face of [offset, EOF] locks.
+ *
+ * Return at least one page in @queue unless there is no covered page.
+ */
+int osc_page_gang_lookup(const struct lu_env *env, struct cl_io *io,
+			struct osc_object *osc, pgoff_t start, pgoff_t end,
+                        cl_page_gang_cb_t cb, void *cbdata)
+{
+	struct osc_page		*ops;
+        struct cl_page          *page;
+        void			**pvec;
+        pgoff_t                  idx;
+        unsigned int             nr;
+        unsigned int             i;
+        unsigned int             j;
+        int                      res = CLP_GANG_OKAY;
+        bool                     tree_lock = true;
+        ENTRY;
+
+        idx = start;
+        pvec = osc_env_info(env)->oti_pvec;
+	spin_lock(&osc->oo_tree_lock);
+        while ((nr = radix_tree_gang_lookup(&osc->oo_tree, pvec,
+                                            idx, OTI_PVEC_SIZE)) > 0) {
+                bool end_of_region = false;
+
+                for (i = 0, j = 0; i < nr; ++i) {
+                        ops = pvec[i];
+                        pvec[i] = NULL;
+
+			idx = osc_index(ops);
+                        if (idx > end) {
+                                end_of_region = true;
+                                break;
+                        }
+
+			page = ops->ops_cl.cpl_page;
+                        LASSERT(page->cp_type == CPT_CACHEABLE);
+                        if (page->cp_state == CPS_FREEING)
+                                continue;
+
+                        cl_page_get(page);
+                        lu_ref_add_atomic(&page->cp_reference,
+                                          "gang_lookup", cfs_current());
+                        pvec[j++] = page;
+                }
+		++idx;
+
+                /*
+                 * Here a delicate locking dance is performed. Current thread
+                 * holds a reference to a page, but has to own it before it
+                 * can be placed into queue. Owning implies waiting, so
+                 * radix-tree lock is to be released. After a wait one has to
+                 * check that pages weren't truncated (cl_page_own() returns
+                 * error in the latter case).
+                 */
+		spin_unlock(&osc->oo_tree_lock);
+                tree_lock = false;
+
+                for (i = 0; i < j; ++i) {
+                        page = pvec[i];
+                        if (res == CLP_GANG_OKAY)
+                                res = (*cb)(env, io, page, cbdata);
+                        lu_ref_del(&page->cp_reference,
+                                   "gang_lookup", cfs_current());
+                        cl_page_put(env, page);
+                }
+                if (nr < OTI_PVEC_SIZE || end_of_region)
+                        break;
+
+                if (res == CLP_GANG_OKAY && cfs_need_resched())
+                        res = CLP_GANG_RESCHED;
+                if (res != CLP_GANG_OKAY)
+                        break;
+
+		spin_lock(&osc->oo_tree_lock);
+		tree_lock = true;
+	}
+	if (tree_lock)
+		spin_unlock(&osc->oo_tree_lock);
+	RETURN(res);
+}
+
+/**
+ * Check if page @page is covered by an extra lock or discard it.
+ */
+static int check_and_discard_cb(const struct lu_env *env, struct cl_io *io,
+                                struct cl_page *page, void *cbdata)
+{
+        struct osc_thread_info *info = osc_env_info(env);
+	struct cl_lock *lock = cbdata;
+        pgoff_t index;
+
+	index = osc_index(cl2osc_page(cl_page_at(page, &osc_device_type)));
+
+        if (index >= info->oti_fn_index) {
+                struct cl_lock *tmp;
+
+		/* refresh non-overlapped index */
+		tmp = cl_lock_at_pgoff(env, lock->cll_descr.cld_obj, index,
+					lock, 1, 0);
+                if (tmp != NULL) {
+                        /* Cache the first-non-overlapped index so as to skip
+                         * all pages within [index, oti_fn_index). This
+                         * is safe because if tmp lock is canceled, it will
+                         * discard these pages. */
+                        info->oti_fn_index = tmp->cll_descr.cld_end + 1;
+                        if (tmp->cll_descr.cld_end == CL_PAGE_EOF)
+                                info->oti_fn_index = CL_PAGE_EOF;
+                        cl_lock_put(env, tmp);
+                } else if (cl_page_own(env, io, page) == 0) {
+                        /* discard the page */
+                        cl_page_unmap(env, io, page);
+                        cl_page_discard(env, io, page);
+                        cl_page_disown(env, io, page);
+                } else {
+                        LASSERT(page->cp_state == CPS_FREEING);
+                }
+        }
+
+        info->oti_next_index = index + 1;
+        return CLP_GANG_OKAY;
+}
+
+static int discard_cb(const struct lu_env *env, struct cl_io *io,
+                      struct cl_page *page, void *cbdata)
+{
+	struct osc_thread_info *info = osc_env_info(env);
+	struct cl_lock *lock = cbdata;
+	pgoff_t index;
+
+	LASSERT(lock->cll_descr.cld_mode >= CLM_WRITE);
+	KLASSERT(ergo(page->cp_type == CPT_CACHEABLE,
+		      !PageWriteback(cl_page_vmpage(env, page))));
+	KLASSERT(ergo(page->cp_type == CPT_CACHEABLE,
+		      !PageDirty(cl_page_vmpage(env, page))));
+
+	index = osc_index(cl2osc_page(cl_page_at(page, &osc_device_type)));
+	info->oti_next_index = index + 1;
+	if (cl_page_own(env, io, page) == 0) {
+		/* discard the page */
+		cl_page_unmap(env, io, page);
+		cl_page_discard(env, io, page);
+		cl_page_disown(env, io, page);
+	} else {
+		LASSERT(page->cp_state == CPS_FREEING);
+	}
+
+	return CLP_GANG_OKAY;
+}
+
+/**
+ * Discard pages protected by the given lock. This function traverses radix
+ * tree to find all covering pages and discard them. If a page is being covered
+ * by other locks, it should remain in cache.
+ *
+ * If error happens on any step, the process continues anyway (the reasoning
+ * behind this being that lock cancellation cannot be delayed indefinitely).
+ */
+int osc_lock_discard_pages(const struct lu_env *env, struct osc_lock *ols)
+{
+        struct osc_thread_info *info  = osc_env_info(env);
+        struct cl_io		*io    = &info->oti_io;
+	struct cl_object	*osc = ols->ols_cl.cls_obj;
+	struct cl_lock 		*lock = ols->ols_cl.cls_lock;
+        struct cl_lock_descr	*descr = &lock->cll_descr;
+        cl_page_gang_cb_t	cb;
+        int res;
+        int result;
+
+        ENTRY;
+
+        io->ci_obj = cl_object_top(osc);
+	io->ci_ignore_layout = 1;
+        result = cl_io_init(env, io, CIT_MISC, io->ci_obj);
+        if (result != 0)
+                GOTO(out, result);
+
+	cb = descr->cld_mode == CLM_READ ? check_and_discard_cb : discard_cb;
+        info->oti_fn_index = info->oti_next_index = descr->cld_start;
+        do {
+                res = osc_page_gang_lookup(env, io, cl2osc(osc),
+                                          info->oti_next_index, descr->cld_end,
+                                          cb, (void *)lock);
+                if (info->oti_next_index > descr->cld_end)
+                        break;
+
+                if (res == CLP_GANG_RESCHED)
+                        cfs_cond_resched();
+        } while (res != CLP_GANG_OKAY);
+out:
+        cl_io_fini(env, io);
+        RETURN(result);
+}
+
 
 /** @} osc */
