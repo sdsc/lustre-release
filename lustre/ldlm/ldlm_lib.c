@@ -406,6 +406,10 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
 		else
 			cli->cl_max_rpcs_in_flight = OSC_MAX_RIF_DEFAULT;
         }
+
+	cli->cl_hsm_rpcs_in_flight = 0;
+	cli->cl_max_hsm_rpcs_in_flight = MDC_MAX_HSM_RIF_DEFAULT;
+
         rc = ldlm_get_ref();
         if (rc) {
                 CERROR("ldlm_get_ref failed: %d\n", rc);

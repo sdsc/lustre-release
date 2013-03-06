@@ -804,7 +804,7 @@ resend:
          * rpcs in flight counter. We do not do flock request limiting, though*/
         if (it) {
                 mdc_get_rpc_lock(obddev->u.cli.cl_rpc_lock, it);
-                rc = mdc_enter_request(&obddev->u.cli);
+		rc = mdc_enter_request(req);
                 if (rc != 0) {
                         mdc_put_rpc_lock(obddev->u.cli.cl_rpc_lock, it);
                         mdc_clear_replay_flag(req, 0);
@@ -823,7 +823,7 @@ resend:
                 RETURN(rc);
         }
 
-        mdc_exit_request(&obddev->u.cli);
+	mdc_exit_request(req);
         mdc_put_rpc_lock(obddev->u.cli.cl_rpc_lock, it);
 
         if (rc < 0) {
@@ -1143,7 +1143,7 @@ static int mdc_intent_getattr_async_interpret(const struct lu_env *env,
 
         obddev = class_exp2obd(exp);
 
-        mdc_exit_request(&obddev->u.cli);
+	mdc_exit_request(req);
         if (OBD_FAIL_CHECK(OBD_FAIL_MDC_GETATTR_ENQUEUE))
                 rc = -ETIMEDOUT;
 
@@ -1176,7 +1176,6 @@ int mdc_intent_getattr_async(struct obd_export *exp,
         struct lookup_intent    *it = &minfo->mi_it;
         struct ptlrpc_request   *req;
         struct mdc_getattr_args *ga;
-        struct obd_device       *obddev = class_exp2obd(exp);
         struct ldlm_res_id       res_id;
         /*XXX: Both MDS_INODELOCK_LOOKUP and MDS_INODELOCK_UPDATE are needed
          *     for statahead currently. Consider CMD in future, such two bits
@@ -1198,7 +1197,7 @@ int mdc_intent_getattr_async(struct obd_export *exp,
         if (!req)
                 RETURN(-ENOMEM);
 
-        rc = mdc_enter_request(&obddev->u.cli);
+	rc = mdc_enter_request(req);
         if (rc != 0) {
                 ptlrpc_req_finished(req);
                 RETURN(rc);
@@ -1207,7 +1206,7 @@ int mdc_intent_getattr_async(struct obd_export *exp,
         rc = ldlm_cli_enqueue(exp, &req, einfo, &res_id, &policy, &flags, NULL,
 			      0, LVB_T_NONE, &minfo->mi_lockh, 1);
         if (rc < 0) {
-                mdc_exit_request(&obddev->u.cli);
+		mdc_exit_request(req);
                 ptlrpc_req_finished(req);
                 RETURN(rc);
         }

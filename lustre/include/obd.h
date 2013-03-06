@@ -419,6 +419,8 @@ enum {
 
 #define MDC_MAX_RIF_DEFAULT       8
 #define MDC_MAX_RIF_MAX         512
+#define MDC_MAX_HSM_RIF_DEFAULT   8
+#define MDC_MAX_HSM_RIF_MAX     512
 
 struct mdc_rpc_lock;
 struct obd_import;
@@ -496,6 +498,8 @@ struct client_obd {
 	cfs_atomic_t             cl_pending_r_pages;
 	__u32			 cl_max_pages_per_rpc;
         int                      cl_max_rpcs_in_flight;
+	int			 cl_hsm_rpcs_in_flight;
+	int			 cl_max_hsm_rpcs_in_flight;
         struct obd_histogram     cl_read_rpc_hist;
         struct obd_histogram     cl_write_rpc_hist;
         struct obd_histogram     cl_read_page_hist;

@@ -525,54 +525,80 @@ static int mdc_req_avail(struct client_obd *cli, struct mdc_cache_waiter *mcw)
         RETURN(rc);
 };
 
+static inline bool req_is_hsm(struct ptlrpc_request *req)
+{
+	return lustre_opc_is_hsm(lustre_msg_get_opc(req->rq_reqmsg));
+}
+
 /* We record requests in flight in cli->cl_r_in_flight here.
  * There is only one write rpc possible in mdc anyway. If this to change
  * in the future - the code may need to be revisited. */
-int mdc_enter_request(struct client_obd *cli)
+int mdc_enter_request(struct ptlrpc_request *req)
 {
-        int rc = 0;
-        struct mdc_cache_waiter mcw;
-        struct l_wait_info lwi = LWI_INTR(LWI_ON_SIGNAL_NOOP, NULL);
+	struct client_obd *cli = &req->rq_import->imp_obd->u.cli;
+	struct mdc_cache_waiter mcw;
+	struct l_wait_info lwi = LWI_INTR(LWI_ON_SIGNAL_NOOP, NULL);
+	int *rpcs_in_flight, *max_rpcs_in_flight;
+	int rc = 0;
 
-        client_obd_list_lock(&cli->cl_loi_list_lock);
-        if (cli->cl_r_in_flight >= cli->cl_max_rpcs_in_flight) {
-                cfs_list_add_tail(&mcw.mcw_entry, &cli->cl_cache_waiters);
-                cfs_waitq_init(&mcw.mcw_waitq);
-                client_obd_list_unlock(&cli->cl_loi_list_lock);
-                rc = l_wait_event(mcw.mcw_waitq, mdc_req_avail(cli, &mcw), &lwi);
-                if (rc) {
-                        client_obd_list_lock(&cli->cl_loi_list_lock);
-                        if (cfs_list_empty(&mcw.mcw_entry))
-                                cli->cl_r_in_flight--;
-                        cfs_list_del_init(&mcw.mcw_entry);
-                        client_obd_list_unlock(&cli->cl_loi_list_lock);
-                }
-        } else {
-                cli->cl_r_in_flight++;
-                client_obd_list_unlock(&cli->cl_loi_list_lock);
-        }
-        return rc;
+	if (req_is_hsm(req)) {
+		rpcs_in_flight = &cli->cl_hsm_rpcs_in_flight;
+		max_rpcs_in_flight = &cli->cl_max_hsm_rpcs_in_flight;
+	} else {
+		rpcs_in_flight = &cli->cl_r_in_flight;
+		max_rpcs_in_flight = &cli->cl_max_rpcs_in_flight;
+	}
+
+	client_obd_list_lock(&cli->cl_loi_list_lock);
+	if (*rpcs_in_flight >= *max_rpcs_in_flight) {
+		cfs_list_add_tail(&mcw.mcw_entry, &cli->cl_cache_waiters);
+		cfs_waitq_init(&mcw.mcw_waitq);
+		client_obd_list_unlock(&cli->cl_loi_list_lock);
+		rc = l_wait_event(mcw.mcw_waitq, mdc_req_avail(cli, &mcw),
+				  &lwi);
+		if (rc) {
+			client_obd_list_lock(&cli->cl_loi_list_lock);
+			if (cfs_list_empty(&mcw.mcw_entry))
+				(*rpcs_in_flight)--;
+			cfs_list_del_init(&mcw.mcw_entry);
+			client_obd_list_unlock(&cli->cl_loi_list_lock);
+		}
+	} else {
+		(*rpcs_in_flight)++;
+		client_obd_list_unlock(&cli->cl_loi_list_lock);
+	}
+
+	return rc;
 }
 
-void mdc_exit_request(struct client_obd *cli)
+void mdc_exit_request(struct ptlrpc_request *req)
 {
-        cfs_list_t *l, *tmp;
-        struct mdc_cache_waiter *mcw;
+	struct client_obd *cli = &req->rq_import->imp_obd->u.cli;
+	cfs_list_t *l, *tmp;
+	struct mdc_cache_waiter *mcw;
+	int *rpcs_in_flight, *max_rpcs_in_flight;
 
-        client_obd_list_lock(&cli->cl_loi_list_lock);
-        cli->cl_r_in_flight--;
-        cfs_list_for_each_safe(l, tmp, &cli->cl_cache_waiters) {
-                if (cli->cl_r_in_flight >= cli->cl_max_rpcs_in_flight) {
-                        /* No free request slots anymore */
-                        break;
-                }
+	if (req_is_hsm(req)) {
+		rpcs_in_flight = &cli->cl_hsm_rpcs_in_flight;
+		max_rpcs_in_flight = &cli->cl_max_hsm_rpcs_in_flight;
+	} else {
+		rpcs_in_flight = &cli->cl_r_in_flight;
+		max_rpcs_in_flight = &cli->cl_max_rpcs_in_flight;
+	}
 
-                mcw = cfs_list_entry(l, struct mdc_cache_waiter, mcw_entry);
-                cfs_list_del_init(&mcw->mcw_entry);
-                cli->cl_r_in_flight++;
-                cfs_waitq_signal(&mcw->mcw_waitq);
-        }
-        /* Empty waiting list? Decrease reqs in-flight number */
+	client_obd_list_lock(&cli->cl_loi_list_lock);
+	(*rpcs_in_flight)--;
+	cfs_list_for_each_safe(l, tmp, &cli->cl_cache_waiters) {
+		if (*rpcs_in_flight >= *max_rpcs_in_flight) {
+			/* No free request slots anymore */
+			break;
+		}
 
-        client_obd_list_unlock(&cli->cl_loi_list_lock);
+		mcw = cfs_list_entry(l, struct mdc_cache_waiter, mcw_entry);
+		cfs_list_del_init(&mcw->mcw_entry);
+		(*rpcs_in_flight)++;
+		cfs_waitq_signal(&mcw->mcw_waitq);
+	}
+
+	client_obd_list_unlock(&cli->cl_loi_list_lock);
 }

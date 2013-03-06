@@ -1197,6 +1197,20 @@ out:
         return rc;
 }
 
+static inline int mdc_queue_wait(struct ptlrpc_request *req)
+{
+	int rc;
+
+	rc = mdc_enter_request(req);
+	if (rc != 0)
+		return rc;
+
+	rc = ptlrpc_queue_wait(req);
+	mdc_exit_request(req);
+
+	return rc;
+}
+
 static int mdc_ioc_hsm_progress(struct obd_export *exp,
 				struct hsm_progress_kernel *hpk)
 {
@@ -1218,7 +1232,7 @@ static int mdc_ioc_hsm_progress(struct obd_export *exp,
 
 	ptlrpc_request_set_replen(req);
 
-	rc = ptlrpc_queue_wait(req);
+	rc = mdc_queue_wait(req);
 	GOTO(out, rc);
 out:
 	ptlrpc_req_finished(req);
@@ -1246,7 +1260,7 @@ static int mdc_ioc_hsm_ct_register(struct obd_import *imp, __u32 archives)
 
 	ptlrpc_request_set_replen(req);
 
-	rc = ptlrpc_queue_wait(req);
+	rc = mdc_queue_wait(req);
 	GOTO(out, rc);
 out:
 	ptlrpc_req_finished(req);
@@ -1280,8 +1294,8 @@ static int mdc_ioc_hsm_current_action(struct obd_export *exp,
 
 	ptlrpc_request_set_replen(req);
 
-	rc = ptlrpc_queue_wait(req);
-	if (rc)
+	rc = mdc_queue_wait(req);
+	if (rc != 0)
 		GOTO(out, rc);
 
 	req_hca = req_capsule_server_get(&req->rq_pill,
@@ -1311,7 +1325,7 @@ static int mdc_ioc_hsm_ct_unregister(struct obd_import *imp)
 
 	ptlrpc_request_set_replen(req);
 
-	rc = ptlrpc_queue_wait(req);
+	rc = mdc_queue_wait(req);
 	GOTO(out, rc);
 out:
 	ptlrpc_req_finished(req);
@@ -1345,8 +1359,8 @@ static int mdc_ioc_hsm_state_get(struct obd_export *exp,
 
 	ptlrpc_request_set_replen(req);
 
-	rc = ptlrpc_queue_wait(req);
-	if (rc)
+	rc = mdc_queue_wait(req);
+	if (rc != 0)
 		GOTO(out, rc);
 
 	req_hus = req_capsule_server_get(&req->rq_pill, &RMF_HSM_USER_STATE);
@@ -1393,7 +1407,7 @@ static int mdc_ioc_hsm_state_set(struct obd_export *exp,
 
 	ptlrpc_request_set_replen(req);
 
-	rc = ptlrpc_queue_wait(req);
+	rc = mdc_queue_wait(req);
 	GOTO(out, rc);
 
 	EXIT;
@@ -1449,7 +1463,7 @@ static int mdc_ioc_hsm_request(struct obd_export *exp,
 
 	ptlrpc_request_set_replen(req);
 
-	rc = ptlrpc_queue_wait(req);
+	rc = mdc_queue_wait(req);
 	GOTO(out, rc);
 
 out:

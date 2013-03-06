@@ -76,6 +76,41 @@ static int mdc_wr_max_rpcs_in_flight(struct file *file, const char *buffer,
         return count;
 }
 
+static int mdc_rd_max_hsm_rpcs_in_flight(char *page, char **start, off_t off,
+					 int count, int *eof, void *data)
+{
+	struct obd_device *dev = data;
+	struct client_obd *cli = &dev->u.cli;
+	int rc;
+
+	client_obd_list_lock(&cli->cl_loi_list_lock);
+	rc = snprintf(page, count, "%u\n", cli->cl_max_hsm_rpcs_in_flight);
+	client_obd_list_unlock(&cli->cl_loi_list_lock);
+
+	return rc;
+}
+
+static int mdc_wr_max_hsm_rpcs_in_flight(struct file *file, const char *buffer,
+					 unsigned long count, void *data)
+{
+	struct obd_device *dev = data;
+	struct client_obd *cli = &dev->u.cli;
+	int val, rc;
+
+	rc = lprocfs_write_helper(buffer, count, &val);
+	if (rc)
+		return rc;
+
+	if (val < 1 || val > MDC_MAX_HSM_RIF_MAX)
+		return -ERANGE;
+
+	client_obd_list_lock(&cli->cl_loi_list_lock);
+	cli->cl_max_hsm_rpcs_in_flight = val;
+	client_obd_list_unlock(&cli->cl_loi_list_lock);
+
+	return count;
+}
+
 /* temporary for testing */
 static int mdc_wr_kuc(struct file *file, const char *buffer,
 		      unsigned long count, void *data)
@@ -160,6 +195,8 @@ static struct lprocfs_vars lprocfs_mdc_obd_vars[] = {
                                 /* lprocfs_obd_wr_max_pages_per_rpc */0, 0 },
         { "max_rpcs_in_flight", mdc_rd_max_rpcs_in_flight,
                                 mdc_wr_max_rpcs_in_flight, 0 },
+	{ "max_hsm_rpcs_in_flight", mdc_rd_max_hsm_rpcs_in_flight,
+				    mdc_wr_max_hsm_rpcs_in_flight, 0 },
         { "timeouts",        lprocfs_rd_timeouts,    0, 0 },
         { "import",          lprocfs_rd_import,      lprocfs_wr_import, 0 },
         { "state",           lprocfs_rd_state,       0, 0 },

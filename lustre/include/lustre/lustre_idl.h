@@ -1938,6 +1938,10 @@ typedef enum {
 
 #define MDS_FIRST_OPC    MDS_GETATTR
 
+static inline bool lustre_opc_is_hsm(int opc)
+{
+	return MDS_HSM_STATE_GET <= opc && opc <= MDS_HSM_CT_UNREGISTER;
+}
 
 /* opcodes for object update */
 typedef enum {
