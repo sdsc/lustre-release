@@ -147,6 +147,15 @@ lfs_migrate() {
 
 			[ -z "$COUNT" -o -z "$SIZE" ] && UNLINK=""
 		fi
+
+		# first try to migrate inside lustre
+		# if failed go back to old rsync mode
+		$LFS setstripe -c${COUNT} ${LFS_SIZE_OPT}${SIZE} $OLDNAME
+		if [[ $? == 0 ]]; then
+			$ECHO "done"
+			continue
+		fi
+
 		NEWNAME=$(mktemp $UNLINK "$OLDNAME.tmp.XXXXXX")
 		if [ $? -ne 0 -o -z "$NEWNAME" ]; then
 			echo -e "\r$OLDNAME: can't make temp file, skipped" 1>&2
