@@ -9296,36 +9296,6 @@ test_183() { # LU-2275
 }
 run_test 183 "No crash or request leak in case of strange dispositions ========"
 
-test_185() { # LU-2441
-	mkdir -p $DIR/$tdir || error "creating dir $DIR/$tdir"
-	touch $DIR/$tdir/spoo
-	local mtime1=$(stat -c "%Y" $DIR/$tdir)
-	local fid=$($MULTIOP $DIR/$tdir VFw4096c) ||
-		error "cannot create/write a volatile file"
-	$CHECKSTAT -t file $MOUNT/.lustre/fid/$fid 2>/dev/null &&
-		error "FID is still valid after close"
-
-	multiop_bg_pause $DIR/$tdir vVw4096_c
-	local multi_pid=$!
-
-	local OLD_IFS=$IFS
-	IFS=":"
-	local fidv=($fid)
-	IFS=$OLD_IFS
-	# assume that the next FID for this client is sequential, since stdout
-	# is unfortunately eaten by multiop_bg_pause
-	local n=$((${fidv[1]} + 1))
-	local next_fid="${fidv[0]}:$(printf "0x%x" $n):${fidv[2]}"
-	$CHECKSTAT -t file $MOUNT/.lustre/fid/$next_fid ||
-		error "FID is missing before close"
-	kill -USR1 $multi_pid
-	# 1 second delay, so if mtime change we will see it
-	sleep 1
-	local mtime2=$(stat -c "%Y" $DIR/$tdir)
-	[[ $mtime1 == $mtime2 ]] || error "mtime has changed"
-}
-run_test 185 "Volatile file support"
-
 check_swap_layouts_support()
 {
 	$LCTL get_param -n llite.*.sbi_flags | grep -q layout ||
@@ -9437,6 +9407,59 @@ test_184c() {
 	rm -f $ref1 $ref2 $file1 $file2
 }
 run_test 184c "Concurrent write and layout swap"
+
+test_185() { # LU-2441
+	mkdir -p $DIR/$tdir || error "creating dir $DIR/$tdir"
+	touch $DIR/$tdir/spoo
+	local mtime1=$(stat -c "%Y" $DIR/$tdir)
+	local fid=$($MULTIOP $DIR/$tdir VFw4096c) ||
+		error "cannot create/write a volatile file"
+	$CHECKSTAT -t file $MOUNT/.lustre/fid/$fid 2>/dev/null &&
+		error "FID is still valid after close"
+
+	multiop_bg_pause $DIR/$tdir vVw4096_c
+	local multi_pid=$!
+
+	local OLD_IFS=$IFS
+	IFS=":"
+	local fidv=($fid)
+	IFS=$OLD_IFS
+	# assume that the next FID for this client is sequential, since stdout
+	# is unfortunately eaten by multiop_bg_pause
+	local n=$((${fidv[1]} + 1))
+	local next_fid="${fidv[0]}:$(printf "0x%x" $n):${fidv[2]}"
+	$CHECKSTAT -t file $MOUNT/.lustre/fid/$next_fid ||
+		error "FID is missing before close"
+	kill -USR1 $multi_pid
+	# 1 second delay, so if mtime change we will see it
+	sleep 1
+	local mtime2=$(stat -c "%Y" $DIR/$tdir)
+	[[ $mtime1 == $mtime2 ]] || error "mtime has changed"
+}
+run_test 185 "Volatile file support"
+
+test_186() {
+	check_swap_layouts_support && return 0
+	[ "$OSTCOUNT" -lt "2" ] &&
+		skip_env "need 2 OST, skipping test" && return
+
+	local dir0=$DIR/$tdir/$testnum
+	mkdir -p $dir0 || error "creating dir $dir0"
+
+	local ref1=/etc/passwd
+	local file1=$dir0/file1
+
+	$SETSTRIPE -c 2 $file1
+	cp $ref1 $file1
+	$LFS migrate -c 1 $file1
+	stripe=$($GETSTRIPE -c $file1)
+	[[ $stripe == 1 ]] || error "stripe of $file1 is $stripe != 1"
+	cmp $file1 $ref1 || error "content mismatch $file1 differs from $ref1"
+
+	# clean up
+	rm -f $file1
+}
+run_test 186 "lfs migration support"
 
 # OST pools tests
 check_file_in_pool()
