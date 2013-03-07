@@ -1214,9 +1214,16 @@ Patch$n: ${file%%*/}"
             let n=$n+1
         done
         for file in $(ls ${TOPDIR}/lustre/build/patches/ofed/*.ed); do
-            ed_fragment3="$ed_fragment3
+            # Only apply the ed-scripts that should be used for the canonial target
+            # ed-files in ${TOPDIR}/lustre/build/patches/ofed/ have to follow the naming
+            # convention <descriptive-name>-<canonical_target>.ed
+            # To apply the same change to multiple canonical target simply specify
+            # a list of dash separted canoncial target names in the file name.
+            if [[ "$file" =~ "${CANONICAL_TARGET}" ]] ; then
+                ed_fragment3="$ed_fragment3
 $(cat $file)"
-            let n=$n+1
+                let n=$n+1
+            fi
         done
 
         if [ $n -gt 1 ]; then
@@ -1394,7 +1401,7 @@ build_kernel_with_srpm() {
     if $USE_BUILD_CACHE && [ -n "$REUSEBUILD" ]; then
         local REUSE_SIGNATURE=$({ echo -en $release_str;
                                   echo $BUILD_GEN;
-                                  cat $CONFIG_FILE $TARGET_FILE $FULL_PATCH; } |
+                                  cat $CONFIG_FILE $TARGET_FILE $FULL_PATCH ${0%/lbuild}/lbuild ${0%/lbuild}/lbuild-${DISTRO}; } |
                                 md5sum | cut -d" " -f1)
         # see if we can link to the reuse pool
         # XXX - hrm.  i'm not convinced this doesn't belong in the reuse
