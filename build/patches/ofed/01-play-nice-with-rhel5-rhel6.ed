@@ -9,3 +9,4 @@ deletetohere
 /%preun -n kernel-ib/,/^fi$/d
 /%postun -n kernel-ib/,/%postun -n kernel-ib-devel/d
 g/^\/etc\/init.d\/openibd$/d
+g/mlx4_en.conf/d
