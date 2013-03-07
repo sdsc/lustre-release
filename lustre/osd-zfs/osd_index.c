@@ -197,6 +197,86 @@ static inline void osd_it_append_attrs(struct lu_dirent *ent, __u32 attr,
 	ent->lde_attrs = cpu_to_le32(ent->lde_attrs);
 }
 
+/*
+ * as we don't know FID, we can't use LU object, so this function
+ * partially duplicate __osd_xattr_get() which is built around
+ * LU-object and uses it to cache data like regular EA dnode, etc
+ */
+static int osd_find_parent_by_dnode(const struct lu_env *env,
+				    struct dt_object *o,
+				    struct lu_fid *fid)
+{
+	struct lustre_mdt_attrs	*lma;
+	udmu_objset_t		*uos = &osd_obj2dev(osd_dt_obj(o))->od_objset;
+	struct lu_buf		 buf;
+	sa_handle_t		*sa_hdl;
+	nvlist_t		*nvbuf = NULL;
+	uchar_t			*value;
+	uint64_t		 dnode, xattr;
+	int			 rc, size;
+	ENTRY;
+
+	/* first of all, get parent dnode from own attributes */
+	LASSERT(osd_dt_obj(o)->oo_db);
+	rc = -sa_handle_get(uos->os, osd_dt_obj(o)->oo_db->db_object,
+			    NULL, SA_HDL_PRIVATE, &sa_hdl);
+	if (rc)
+		RETURN(rc);
+
+	dnode = xattr = ZFS_NO_OBJECT;
+
+	rc = -sa_lookup(sa_hdl, SA_ZPL_PARENT(uos), &dnode, 8);
+	if (rc == 0) {
+		rc = -sa_lookup(sa_hdl, SA_ZPL_XATTR(uos), &xattr, 8);
+		/* there might be no regular EA, only one in SA */
+		if (rc == -ENOENT)
+			rc = 0;
+	}
+	sa_handle_destroy(sa_hdl);
+	if (rc)
+		RETURN(rc);
+
+	/* now get EA buffer */
+	rc = __osd_xattr_load(uos, dnode, &nvbuf);
+	if (rc)
+		RETURN(rc);
+
+	/* XXX: if we get that far.. should we cache the result? */
+
+	/* try to find LMA attribute */
+	LASSERT(nvbuf != NULL);
+	rc = -nvlist_lookup_byte_array(nvbuf, XATTR_NAME_LMA, &value, &size);
+	if (rc == 0 && size >= sizeof(*lma)) {
+		lma = (struct lustre_mdt_attrs *)value;
+		lustre_lma_swab(lma);
+		*fid = lma->lma_self_fid;
+		GOTO(out, rc = 0);
+	}
+
+	/* no LMA attribute in SA, let's try regular EA */
+	CLASSERT(sizeof(*lma) <= sizeof(osd_oti_get(env)->oti_buf));
+	buf.lb_buf = osd_oti_get(env)->oti_buf;
+	buf.lb_len = sizeof(osd_oti_get(env)->oti_buf);
+
+	rc = __osd_xattr_get_large(env, uos, xattr, &buf,
+				   XATTR_NAME_LMA, &size);
+	if (rc >= sizeof(*lma)) {
+		lma = buf.lb_buf;
+		lustre_lma_swab(lma);
+		*fid = lma->lma_self_fid;
+		GOTO(out, rc = 0);
+	} else if (rc < 0) {
+		GOTO(out, rc);
+	} else {
+		GOTO(out, rc = -EINVAL);
+	}
+
+out:
+	if (nvbuf != NULL)
+		nvlist_free(nvbuf);
+	RETURN(rc);
+}
+
 static int osd_find_parent_fid(const struct lu_env *env, struct dt_object *o,
 			       struct lu_fid *fid)
 {
@@ -245,6 +325,11 @@ static int osd_find_parent_fid(const struct lu_env *env, struct dt_object *o,
 out:
 	if (buf.lb_buf != osd_oti_get(env)->oti_buf)
 		OBD_FREE(buf.lb_buf, buf.lb_len);
+
+	/* no LinkEA is found, let's try to find the fid in parent's LMA */
+	if (unlikely(rc != 0))
+		rc = osd_find_parent_by_dnode(env, o, fid);
+
 	RETURN(rc);
 }
 
@@ -431,9 +516,8 @@ static int osd_dir_insert(const struct lu_env *env, struct dt_object *dt,
 			/* update parent dnode in the child.
 			 * later it will be used to generate ".." */
 			udmu_objset_t *uos = &osd->od_objset;
-			rc = osd_object_sa_update(child,
-						  SA_ZPL_PARENT(uos),
-						  &parent->oo_db->db_object,
+			rc = osd_object_sa_update(parent, SA_ZPL_PARENT(uos),
+						  &child->oo_db->db_object,
 						  8, oh);
 
 #ifndef OSD_ZFS_INSERT_DOTS_FOR_TESTING
