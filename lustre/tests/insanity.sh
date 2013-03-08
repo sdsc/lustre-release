@@ -448,13 +448,13 @@ test_7() {
     #CLIENT Portion
     echo "Part 1: Failing CLIENT"
     fail_clients 2
-    
+
     #Check FS
     echo "Test Lustre stability after CLIENTs failure"
     clients_up
     $PDSH $LIVE_CLIENT "ls -l $TESTDIR"
     $PDSH $LIVE_CLIENT "rm -f $TESTDIR/*_testfile"
-    
+
     #Sleep
     echo "Wait 1 minutes"
     sleep 60
@@ -466,9 +466,14 @@ test_7() {
     clients_up
     client_rm testfile
 
-    #MDS Portion
+	#MDS Portion
 	for i in $(seq $MDSCOUNT) ; do
-		fail mds$i
+		fail_nodf mds$i || error "failing over mds$i failed"
+		do_rpc_nodes "$LIVE_CLIENT" is_mounted $MOUNT ||
+			error "post-failover: $MOUNT was not mounted"
+		wait_clients_import_state "$LIVE_CLIENT" mds$i FULL
+		client_up "$LIVE_CLIENT"||
+			error "post-failover: $MOUNT was not up"
 	done
 
     $PDSH $LIVE_CLIENT "ls -l $TESTDIR"
@@ -478,7 +483,7 @@ test_7() {
     echo "Reintegrating CLIENTs"
     reintegrate_clients || return 2
     clients_up
-    
+
     #Sleep
     echo "wait 1 minutes"
     sleep 60

@@ -1469,10 +1469,10 @@ test_102()
 
         zconf_umount_clients $clients $MOUNT || error "Cannot umount client"
 
-        # restart mgs
-        combined_mgs_mds && mgsdev=mds1
-        remount_facet $mgsdev
-        fail ost1
+	# restart mgs
+	combined_mgs_mds && mgsdev=mds1
+	remount_facet $mgsdev
+	fail_nodf ost1
 
         zconf_mount_clients $clients $MOUNT || error "Cannot mount client"
 
