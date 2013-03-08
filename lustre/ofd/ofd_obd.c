@@ -1278,8 +1278,8 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 					      &diff);
 			if (rc) {
 				CDEBUG(D_HA, "%s: failed to acquire grant space"
-				       "for precreate (%d)\n",
-				       ofd_name(ofd), diff);
+				       "for precreate (%d): rc = %d\n",
+				       ofd_name(ofd), diff, rc);
 				diff = 0;
 			}
 		}
@@ -1315,7 +1315,8 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 			 * them, even if last creation failed */
 			rc = 0;
 		else
-			CERROR("unable to precreate: %d\n", rc);
+			CERROR("%s: unable to precreate: rc = %d\n",
+			       ofd_name(ofd), rc);
 
 		oa->o_id = ofd_seq_last_oid(oseq);
 		oa->o_valid |= OBD_MD_FLID | OBD_MD_FLGROUP;

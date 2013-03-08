@@ -177,77 +177,90 @@ kbytesfree() {
    calc_osc_kbytes kbytesfree
 }
 
+ostlogsize() {
+	local fstype=$(facet_fstype ost1)
+	local size=0
+	case $fstype in
+		ldiskfs) size=40;;
+		zfs)     size=256;;
+	esac
+	
+	echo -n $size
+}
+
 test_6() {
-    remote_mds_nodsh && skip "remote MDS with nodsh" && return 0
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return 0
 
-    f=$TDIR/$tfile
-    rm -f $f
-    sync && sleep 2 && sync  # wait for delete thread
+	local f=$TDIR/$tfile
+	rm -f $f
+	sync && sleep 2 && sync  # wait for delete thread
 
-    # wait till space is returned, following
-    # (( $before > $after_dd)) test counting on that
-    wait_mds_ost_sync || return 4
-    wait_destroy_complete || return 5
+	# wait till space is returned, following
+	# (( $before > $after_dd)) test counting on that
+	wait_mds_ost_sync || return 4
+	wait_destroy_complete || return 5
 
-    before=`kbytesfree`
-    dd if=/dev/urandom bs=4096 count=1280 of=$f || return 28
-    lfs getstripe $f
-    stripe_index=$(lfs getstripe -i $f)
+	local before=`kbytesfree`
+	dd if=/dev/urandom bs=4096 count=1280 of=$f || return 28
+	lfs getstripe $f
+	local stripe_index=$(lfs getstripe -i $f)
 
-    sync
-    sleep 2 # ensure we have a fresh statfs
-    sync
+	sync
+	sleep 4 # ensure we have a fresh statfs
+	sync
 
-    #define OBD_FAIL_MDS_REINT_NET_REP       0x119
-    do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000119"
-    after_dd=`kbytesfree`
-    log "before: $before after_dd: $after_dd"
-    (( $before > $after_dd )) || return 1
-    rm -f $f
-    fail ost$((stripe_index + 1))
-    wait_recovery_complete ost$((stripe_index + 1)) ||
-        error "OST$((stripe_index + 1)) recovery not completed"
-    $CHECKSTAT -t file $f && return 2 || true
-    sync
-    # let the delete happen
-    wait_mds_ost_sync || return 4
+	#define OBD_FAIL_MDS_REINT_NET_REP       0x119
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000119"
+	local after_dd=`kbytesfree`
+	log "before: $before after_dd: $after_dd"
+	(( $before > $after_dd )) || return 1
+	rm -f $f
+	fail ost$((stripe_index + 1))
+	wait_recovery_complete ost$((stripe_index + 1)) ||
+		error "OST$((stripe_index + 1)) recovery not completed"
+	$CHECKSTAT -t file $f && return 2 || true
+	sync
+	# let the delete happen
+	wait_mds_ost_sync || return 4
 	wait_delete_completed || return 5
-    after=`kbytesfree`
-    log "before: $before after: $after"
-    (( $before <= $after + 40 )) || return 3   # take OST logs into account
+	local after=`kbytesfree`
+	log "before: $before after: $after"
+	(( $before <= $after + $(ostlogsize) )) || return 3
 }
 run_test 6 "Fail OST before obd_destroy"
 
 test_7() {
-    f=$TDIR/$tfile
-    rm -f $f
-    sync && sleep 5 && sync	# wait for delete thread
+	local f=$TDIR/$tfile
+	rm -f $f
+	sync && sleep 5 && sync	# wait for delete thread
 
-    # wait till space is returned, following
-    # (( $before > $after_dd)) test counting on that
-    wait_mds_ost_sync || return 4
-    wait_destroy_complete || return 5
+	# wait till space is returned, following
+	# (( $before > $after_dd)) test counting on that
+	wait_mds_ost_sync || return 4
+	wait_destroy_complete || return 5
 
-    before=`kbytesfree`
-    dd if=/dev/urandom bs=4096 count=1280 of=$f || return 4
-    sync
-    sleep 2 # ensure we have a fresh statfs
-    sync
-    after_dd=`kbytesfree`
-    log "before: $before after_dd: $after_dd"
-    (( $before > $after_dd )) || return 1
-    replay_barrier ost1
-    rm -f $f
-    fail ost1
-    wait_recovery_complete ost1 || error "OST recovery not done"
-    $CHECKSTAT -t file $f && return 2 || true
-    sync
-    # let the delete happen
-    wait_mds_ost_sync || return 4
+	local before=`kbytesfree`
+	dd if=/dev/urandom bs=4096 count=1280 of=$f || error "dd to file failed: $?"
+
+	sync
+	sleep 2 # ensure we have a fresh statfs
+	sync
+
+	local after_dd=`kbytesfree`
+	log "before: $before after_dd: $after_dd"
+	(( $before > $after_dd )) || return 1
+	replay_barrier ost1
+	rm -f $f
+	fail ost1
+	wait_recovery_complete ost1 || error "OST recovery not done"
+	$CHECKSTAT -t file $f && return 2 || true
+	sync
+	# let the delete happen
+	wait_mds_ost_sync || return 4
 	wait_delete_completed || return 5
-    after=`kbytesfree`
-    log "before: $before after: $after"
-    (( $before <= $after + 40 )) || return 3	# take OST logs into account
+	local after=`kbytesfree`
+	log "before: $before after: $after"
+	(( $before <= $after + $(ostlogsize) )) || return 3
 }
 run_test 7 "Fail OST before obd_destroy"
 
