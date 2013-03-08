@@ -8347,7 +8347,8 @@ run_test 150 "truncate/append tests"
 
 function roc_hit() {
 	local list=$(comma_list $(osts_nodes))
-
+	#debug only just want to see the full values
+	echo $(get_osd_param $list '' stats)
 	echo $(get_osd_param $list '' stats |
 	       awk '/'cache_hit'/ {sum+=$2} END {print sum}')
 }
