@@ -614,6 +614,31 @@ lnet_parse_hops (char *str, unsigned int *hops)
                 *hops > 0 && *hops < 256);
 }
 
+#define LNET_PRIORITY_SEPARATOR (':')
+
+int
+lnet_parse_priority(char *str, unsigned int *priority)
+{
+	int   nob;
+	char *sep;
+
+	sep = strchr(str, LNET_PRIORITY_SEPARATOR);
+	if (sep == NULL) {
+		*priority = 0;
+		return 0;
+	}
+
+	if (sscanf((sep+1), "%u%n", priority, &nob) < 1)
+		return -1;
+
+	CDEBUG(D_NET, "gateway %s, priority %d, nob %d\n", str, *priority, nob);
+
+	/*
+	 * terminate \0 to be able to parse NID
+	 */
+	*sep = '\0';
+	return 0;
+}
 
 int
 lnet_parse_route (char *str, int *im_a_router)
@@ -635,6 +660,7 @@ lnet_parse_route (char *str, int *im_a_router)
         int               myrc = -1;
         unsigned int      hops;
         int               got_hops = 0;
+	unsigned int	  priority;
 
 	CFS_INIT_LIST_HEAD(&gateways);
 	CFS_INIT_LIST_HEAD(&nets);
@@ -702,7 +728,21 @@ lnet_parse_route (char *str, int *im_a_router)
                                     LNET_NETTYP(net) == LOLND)
 					goto token_error;
 			} else {
-				nid = libcfs_str2nid(ltb->ltb_text);
+				lnet_text_buf_t  *ltb2;
+
+				ltb2 = lnet_new_text_buf(strlen(ltb->ltb_text));
+				if (ltb2 == NULL)
+					goto out;
+				strcpy(ltb2->ltb_text, ltb->ltb_text);
+				rc = lnet_parse_priority(ltb2->ltb_text,
+							 &priority);
+				if (rc < 0) {
+					lnet_free_text_buf(ltb2);
+					goto token_error;
+				}
+
+				nid = libcfs_str2nid(ltb2->ltb_text);
+				lnet_free_text_buf(ltb2);
 				if (nid == LNET_NID_ANY ||
                                     LNET_NETTYP(LNET_NIDNET(nid)) == LOLND)
 					goto token_error;
@@ -723,15 +763,17 @@ lnet_parse_route (char *str, int *im_a_router)
 
 		cfs_list_for_each (tmp2, &gateways) {
 			ltb = cfs_list_entry(tmp2, lnet_text_buf_t, ltb_list);
+			rc = lnet_parse_priority(ltb->ltb_text, &priority);
+			LASSERT(rc == 0);
 			nid = libcfs_str2nid(ltb->ltb_text);
-			LASSERT (nid != LNET_NID_ANY);
+			LASSERT(nid != LNET_NID_ANY);
 
                         if (lnet_islocalnid(nid)) {
                                 *im_a_router = 1;
                                 continue;
                         }
                         
-                        rc = lnet_add_route (net, hops, nid);
+			rc = lnet_add_route(net, hops, nid, priority);
                         if (rc != 0) {
                                 CERROR("Can't create route "
                                        "to %s via %s\n",
