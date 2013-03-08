@@ -920,8 +920,16 @@ restart:
         GOTO(out, result);
 out:
         cl_io_fini(env, io);
-	if (result == 0 && io->ci_need_restart) /* need to restart whole IO */
+	/* Need to restart whole IO. result == 0 indicating nothing has
+	 * been read/written, and 'ppos' & 'count' must not changed. */
+	if (result == 0 && io->ci_need_restart) {
+		CDEBUG(D_VFSTRACE, "Restart %s on %s from %lld, count:%zd\n",
+		       iot == CIT_READ ? "read" : "write",
+		       file->f_dentry->d_name.name, *ppos, count);
+		LASSERTF(io->u.ci_rw.crw_count == count, "%zd != %zd\n",
+			 io->u.ci_rw.crw_count, count);
 		goto restart;
+	}
 
         if (iot == CIT_READ) {
                 if (result >= 0)
