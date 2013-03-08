@@ -67,6 +67,7 @@ noinst_PROGRAMS += ll_sparseness_write mrename ll_dirstripe_verify mkdirmany
 noinst_PROGRAMS += openfilleddirunlink rename_many memhog
 noinst_PROGRAMS += mmap_sanity writemany reads flocks_test
 noinst_PROGRAMS += write_time_limit rwv copytool lgetxattr_size_check
+noinst_PROGRAMS += clientapi/simple_test
 # noinst_PROGRAMS += copy_attr mkdirdeep 
 bin_PROGRAMS = mcreate munlink
 testdir = $(libdir)/lustre/tests
