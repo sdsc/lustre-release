@@ -789,6 +789,9 @@ void ccc_io_update_iov(const struct lu_env *env,
         }
 
         cio->cui_nrsegs = i + 1;
+	LASSERTF(cio->cui_tot_nrsegs >= cio->cui_nrsegs,
+		 "tot_nrsegs: %lu, nrsegs: %lu\n",
+		 cio->cui_tot_nrsegs, cio->cui_nrsegs);
 }
 
 int ccc_io_one_lock(const struct lu_env *env, struct cl_io *io,

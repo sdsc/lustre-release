@@ -859,6 +859,7 @@ ll_file_io_generic(const struct lu_env *env, struct vvp_io_args *args,
 	struct ll_file_data  *fd  = LUSTRE_FPRIVATE(file);
         struct cl_io         *io;
         ssize_t               result;
+	struct iovec	      orig_iov;
         ENTRY;
 
 restart:
@@ -875,7 +876,9 @@ restart:
 
                 switch (vio->cui_io_subtype) {
                 case IO_NORMAL:
-                        cio->cui_iov = args->u.normal.via_iov;
+			/* in case of io restart later */
+			orig_iov = *(args->u.normal.via_iov);
+                        cio->cui_iov = &orig_iov;
                         cio->cui_nrsegs = args->u.normal.via_nrsegs;
                         cio->cui_tot_nrsegs = cio->cui_nrsegs;
 #ifndef HAVE_FILE_WRITEV
@@ -920,8 +923,14 @@ restart:
         GOTO(out, result);
 out:
         cl_io_fini(env, io);
-	if (result == 0 && io->ci_need_restart) /* need to restart whole IO */
+	/* Need to restart whole IO. result == 0 indicating nothing has
+	 * been read/written, and 'ppos' & 'count' must not changed. */
+	if (result == 0 && io->ci_need_restart) {
+		CDEBUG(D_VFSTRACE, "Restart %s on %s from %lld, count:%zd\n",
+		       iot == CIT_READ ? "read" : "write",
+		       file->f_dentry->d_name.name, *ppos, count);
 		goto restart;
+	}
 
         if (iot == CIT_READ) {
                 if (result >= 0)
