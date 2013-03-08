@@ -9438,6 +9438,37 @@ test_184c() {
 }
 run_test 184c "Concurrent write and layout swap"
 
+test_187a() {
+	local dir0=$DIR/$tdir/$testnum
+	mkdir -p $dir0 || error "creating dir $dir0"
+
+	local file=$dir0/file1
+	dd if=/dev/urandom of=$file count=10 bs=1M
+	local dv1=$($LFS data_version $file)
+	dd if=/dev/urandom of=$file seek=10 count=1 bs=1M
+	local dv2=$($LFS data_version $file)
+	[[ $dv1 != $dv2 ]] ||
+		error "data version did not change on write $dv1 == $dv2"
+
+	# clean up
+	rm -f $file1
+}
+run_test 187a "Test data version change"
+
+test_187b() {
+	local dir0=$DIR/$tdir/$testnum
+	mkdir -p $dir0 || error "creating dir $dir0"
+
+	declare -a DV=$($MULTIOP $dir0 Vw1000xw1000x | cut -f3 -d" ")
+	[[ ${DV[0]} != ${DV[1]} ]] ||
+		error "data version did not change on write"\
+		      " ${DV[0]} == ${DV[1]}"
+
+	# clean up
+	rm -f $file1
+}
+run_test 187b "Test data version change on volatile file"
+
 # OST pools tests
 check_file_in_pool()
 {

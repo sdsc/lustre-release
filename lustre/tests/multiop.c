@@ -66,37 +66,38 @@ sem_t sem;
 char usage[] =
 "Usage: %s filename command-sequence\n"
 "    command-sequence items:\n"
-"        c  close\n"
-"        C[num] create with optional stripes\n"
-"        d  mkdir\n"
-"        D  open(O_DIRECTORY)\n"
-"        f  statfs\n"
+"	 c  close\n"
+"	 C[num] create with optional stripes\n"
+"	 d  mkdir\n"
+"	 D  open(O_DIRECTORY)\n"
+"	 f  statfs\n"
 "	 F  print FID\n"
-"        G gid get grouplock\n"
-"        g gid put grouplock\n"
-"        L  link\n"
-"        l  symlink\n"
-"        m  mknod\n"
-"        M  rw mmap to EOF (must open and stat prior)\n"
-"        N  rename\n"
-"        o  open(O_RDONLY)\n"
-"        O  open(O_CREAT|O_RDWR)\n"
-"        r[num] read [optional length]\n"
-"        R  reference entire mmap-ed region\n"
-"        s  stat\n"
-"        S  fstat\n"
-"        t  fchmod\n"
-"        T[num] ftruncate [optional position, default 0]\n"
-"        u  unlink\n"
-"        U  munmap\n"
-"        v  verbose\n"
+"	 G gid get grouplock\n"
+"	 g gid put grouplock\n"
+"	 L  link\n"
+"	 l  symlink\n"
+"	 m  mknod\n"
+"	 M  rw mmap to EOF (must open and stat prior)\n"
+"	 N  rename\n"
+"	 o  open(O_RDONLY)\n"
+"	 O  open(O_CREAT|O_RDWR)\n"
+"	 r[num] read [optional length]\n"
+"	 R  reference entire mmap-ed region\n"
+"	 s  stat\n"
+"	 S  fstat\n"
+"	 t  fchmod\n"
+"	 T[num] ftruncate [optional position, default 0]\n"
+"	 u  unlink\n"
+"	 U  munmap\n"
+"	 v  verbose\n"
 "	 V  open a volatile file\n"
-"        w[num] write optional length\n"
-"        W  write entire mmap-ed region\n"
-"        y  fsync\n"
-"        Y  fdatasync\n"
-"        z[num] seek [optional position, default 0]\n"
-"        _  wait for signal\n";
+"	 w[num] write optional length\n"
+"	 x  get file data version\n"
+"	 W  write entire mmap-ed region\n"
+"	 y  fsync\n"
+"	 Y  fdatasync\n"
+"	 z[num] seek [optional position, default 0]\n"
+"	 _  wait for signal\n";
 
 void usr1_handler(int unused)
 {
@@ -204,6 +205,8 @@ int main(int argc, char **argv)
 	int		 gid = 0;
 	lustre_fid	 fid;
 	struct timespec	 ts;
+	__u64		 dv;
+
 
         if (argc < 3) {
                 fprintf(stderr, usage, argv[0]);
@@ -495,10 +498,19 @@ int main(int argc, char **argv)
 				len -= rc;
 			}
 			break;
-                case 'W':
-                        for (i = 0; i < mmap_len && mmap_ptr; i += 4096)
-                                mmap_ptr[i] += junk++;
-                        break;
+		case 'W':
+			for (i = 0; i < mmap_len && mmap_ptr; i += 4096)
+				mmap_ptr[i] += junk++;
+			break;
+		case 'x':
+			rc = llapi_get_data_version(fd, &dv, 0);
+			if (rc) {
+				fprintf(stderr, "cannot get file data version"
+					" %d\n", rc);
+				exit(-rc);
+			}
+			printf("dataversion is "LPU64"\n", dv);
+			break;
                 case 'y':
                         if (fsync(fd) == -1) {
                                 save_errno = errno;
