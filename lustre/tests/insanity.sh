@@ -466,9 +466,10 @@ test_7() {
     clients_up
     client_rm testfile
 
-    #MDS Portion
+	#MDS Portion
 	for i in $(seq $MDSCOUNT) ; do
-		fail mds$i
+		fail_nodf mds$i || error "failing over mds$i failed"
+		client_up $LIVE_CLIENT || error "client $LIVE_CLIENT was not up"
 	done
 
     $PDSH $LIVE_CLIENT "ls -l $TESTDIR"
