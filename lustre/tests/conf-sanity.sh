@@ -3502,8 +3502,10 @@ test_61() { # LU-80
     [[ "$new_value" != "$large_value" ]] &&
         error "$name different after growing"
 
-    log "check value of $name on $file after remounting MDS"
-    fail $SINGLEMDS
+	log "check value of $name on $file after remounting MDS"
+	fail_nodf $SINGLEMDS || error "failing over $SINGLEMDS failed"
+	client_up || error "client was not up"
+
     new_value=$(get_xattr_value $name $file)
     [[ "$new_value" != "$large_value" ]] &&
         error "$name different after remounting MDS"
