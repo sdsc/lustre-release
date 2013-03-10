@@ -438,7 +438,7 @@ test_20b() { # bug 10480
     wait_mds_ost_sync || return 3
     AFTERUSED=`df -P $DIR | tail -1 | awk '{ print $3 }'`
     log "before $BEFOREUSED, after $AFTERUSED"
-    [ $AFTERUSED -gt $((BEFOREUSED + 20)) ] && \
+    (( $AFTERUSED > $BEFOREUSED + $(fs_log_size) )) &&
         error "after $AFTERUSED > before $BEFOREUSED"
     return 0
 }
