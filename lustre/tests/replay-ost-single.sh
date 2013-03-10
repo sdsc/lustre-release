@@ -177,17 +177,6 @@ kbytesfree() {
    calc_osc_kbytes kbytesfree
 }
 
-ostlogsize() {
-	local fstype=$(facet_fstype ost1)
-	local size=0
-	case $fstype in
-		ldiskfs) size=40;;
-		zfs)     size=256;;
-	esac
-	
-	echo -n $size
-}
-
 test_6() {
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return 0
 
@@ -225,7 +214,7 @@ test_6() {
 	wait_delete_completed || return 5
 	local after=`kbytesfree`
 	log "before: $before after: $after"
-	(( $before <= $after + $(ostlogsize) )) || return 3
+	(( $before <= $after + $(fs_log_size) )) || return 3
 }
 run_test 6 "Fail OST before obd_destroy"
 
@@ -243,11 +232,15 @@ test_7() {
 	dd if=/dev/urandom bs=4096 count=1280 of=$f || error "dd to file failed: $?"
 
 	sync
-	sleep 2 # ensure we have a fresh statfs
-	sync
-
+	local i=0
 	local after_dd=`kbytesfree`
-	log "before: $before after_dd: $after_dd"
+	while (( $before <= $after_dd && $i < 10 )); do
+		sync
+		sleep 1
+		let ++i
+		after_dd=`kbytesfree`
+	done
+	log "before: $before after_dd: $after_dd took $i seconds"
 	(( $before > $after_dd )) || return 1
 	replay_barrier ost1
 	rm -f $f
@@ -260,7 +253,7 @@ test_7() {
 	wait_delete_completed || return 5
 	local after=`kbytesfree`
 	log "before: $before after: $after"
-	(( $before <= $after + $(ostlogsize) )) || return 3
+	(( $before <= $after + $(fs_log_size) )) || return 3
 }
 run_test 7 "Fail OST before obd_destroy"
 
