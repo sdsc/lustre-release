@@ -8378,7 +8378,7 @@ run_test 150 "truncate/append tests"
 function roc_hit() {
 	local list=$(comma_list $(osts_nodes))
 
-	echo $(get_osd_param $list '' stats |
+	echo $(get_osd_param $list '' stats | tee $TMP/roc_hit-debug |
 	       awk '/'cache_hit'/ {sum+=$2} END {print sum}')
 }
 
@@ -8415,12 +8415,19 @@ test_151() {
 
 	set_osd_param $list '' writethrough_cache_enable 1
 
+	echo "read cache: $(get_osd_param $list '' read_cache_enable)"
+	echo "write through cache: $(get_osd_param $list '' writethrough_cache_enable)"
+
         # pages should be in the case right after write
         dd if=/dev/urandom of=$DIR/$tfile bs=4k count=$CPAGES || error "dd failed"
         local BEFORE=`roc_hit`
+	cat $TMP/roc_hit-debug
+	rm $TMP/roc_hit-debug
         cancel_lru_locks osc
         cat $DIR/$tfile >/dev/null
         local AFTER=`roc_hit`
+	cat $TMP/roc_hit-debug
+	rm $TMP/roc_hit-debug
         if ! let "AFTER - BEFORE == CPAGES"; then
                 error "NOT IN CACHE: before: $BEFORE, after: $AFTER"
         fi
