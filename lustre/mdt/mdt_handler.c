@@ -5532,6 +5532,8 @@ static int mdt_fid2path(const struct lu_env *env, struct mdt_device *mdt,
 		rc = -EREMOTE;
 	else if (!mdt_object_exists(obj))
 		rc = -ENOENT;
+	else
+		rc = 0;
 
 	if (rc < 0) {
 		mdt_object_put(env, obj);
