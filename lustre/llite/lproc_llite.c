@@ -740,6 +740,163 @@ static int ll_rd_sbi_flags(char *page, char **start, off_t off,
 	return rc;
 }
 
+static int ll_rd_root_squash(char *page, char **start, off_t off,
+			     int count, int *eof, void *data)
+{
+	struct super_block *sb = data;
+	struct ll_sb_info *sbi = ll_s2sbi(sb);
+
+	return snprintf(page, count, "%u:%u\n", sbi->ll_squash_uid,
+			sbi->ll_squash_gid);
+}
+
+static int safe_strtoul(const char *str, char **endp, unsigned long *res)
+{
+	char n[24];
+
+	*res = simple_strtoul(str, endp, 0);
+	if (str == *endp)
+		return 1;
+
+	sprintf(n, "%lu", *res);
+	if (strncmp(n, str, *endp - str))
+		/* overflow */
+		return 1;
+	return 0;
+}
+
+static int ll_wr_root_squash(struct file *file, const char *buffer,
+			     unsigned long count, void *data)
+{
+	struct super_block *sb = data;
+	struct ll_sb_info *sbi = ll_s2sbi(sb);
+	int rc;
+	char kernbuf[50], *tmp, *end, *errmsg;
+	unsigned long uid, gid;
+	int nouid, nogid;
+	ENTRY;
+
+	if (count >= sizeof(kernbuf)) {
+		errmsg = "string too long";
+		GOTO(failed, rc = -EINVAL);
+	}
+	if (cfs_copy_from_user(kernbuf, buffer, count)) {
+		errmsg = "bad address";
+		GOTO(failed, rc = -EFAULT);
+	}
+	kernbuf[count] = '\0';
+
+	nouid = nogid = 0;
+	if (safe_strtoul(buffer, &tmp, &uid)) {
+		uid = sbi->ll_squash_uid;
+		nouid = 1;
+	}
+
+	/* skip ':' */
+	if (*tmp == ':') {
+		tmp++;
+		if (safe_strtoul(tmp, &end, &gid)) {
+			gid = sbi->ll_squash_gid;
+			nogid = 1;
+		}
+	} else {
+		gid = sbi->ll_squash_gid;
+		nogid = 1;
+	}
+
+	sbi->ll_squash_uid = uid;
+	sbi->ll_squash_gid = gid;
+
+	if (nouid && nogid) {
+		errmsg = "needs uid:gid format";
+		GOTO(failed, rc = -EINVAL);
+	}
+
+	LCONSOLE_INFO("root_squash is set to %u:%u\n",
+		      sbi->ll_squash_uid,  sbi->ll_squash_gid);
+	RETURN(count);
+
+ failed:
+	CWARN("failed to set root_squash to \"%s\", %s: rc %d\n",
+	      buffer, errmsg, rc);
+	RETURN(rc);
+}
+
+static int ll_rd_nosquash_nids(char *page, char **start, off_t off,
+			       int count, int *eof, void *data)
+{
+	struct super_block *sb = data;
+	struct ll_sb_info *sbi = ll_s2sbi(sb);
+
+	if (sbi->ll_nosquash_str)
+		return snprintf(page, count, "%s\n", sbi->ll_nosquash_str);
+	return snprintf(page, count, "NONE\n");
+}
+
+static int ll_wr_nosquash_nids(struct file *file, const char *buffer,
+			       unsigned long count, void *data)
+{
+	struct super_block *sb = data;
+	struct ll_sb_info *sbi = ll_s2sbi(sb);
+	int rc;
+	char *kernbuf, *errmsg;
+	cfs_list_t tmp;
+	ENTRY;
+
+	OBD_ALLOC(kernbuf, count + 1);
+	if (kernbuf == NULL) {
+		errmsg = "no memory";
+		GOTO(failed, rc = -ENOMEM);
+	}
+	if (cfs_copy_from_user(kernbuf, buffer, count)) {
+		errmsg = "bad address";
+		GOTO(failed, rc = -EFAULT);
+	}
+	kernbuf[count] = '\0';
+
+	if (!strcmp(kernbuf, "NONE") || !strcmp(kernbuf, "clear")) {
+		/* empty string is special case */
+		down_write(&sbi->ll_squash_sem);
+		if (!cfs_list_empty(&sbi->ll_nosquash_nids)) {
+			cfs_free_nidlist(&sbi->ll_nosquash_nids);
+			OBD_FREE(sbi->ll_nosquash_str,
+				 sbi->ll_nosquash_strlen);
+			sbi->ll_nosquash_str = NULL;
+			sbi->ll_nosquash_strlen = 0;
+		}
+		up_write(&sbi->ll_squash_sem);
+		LCONSOLE_INFO("nosquash_nids is cleared\n");
+		OBD_FREE(kernbuf, count + 1);
+		RETURN(count);
+	}
+
+	CFS_INIT_LIST_HEAD(&tmp);
+	if (cfs_parse_nidlist(kernbuf, count, &tmp) <= 0) {
+		errmsg = "can't parse";
+		GOTO(failed, rc = -EINVAL);
+	}
+
+	down_write(&sbi->ll_squash_sem);
+	if (!cfs_list_empty(&sbi->ll_nosquash_nids)) {
+		cfs_free_nidlist(&sbi->ll_nosquash_nids);
+		OBD_FREE(sbi->ll_nosquash_str, sbi->ll_nosquash_strlen);
+	}
+	sbi->ll_nosquash_str = kernbuf;
+	sbi->ll_nosquash_strlen = count + 1;
+	cfs_list_splice(&tmp, &sbi->ll_nosquash_nids);
+
+	LCONSOLE_INFO("nosquash_nids is set to %s\n", kernbuf);
+	up_write(&sbi->ll_squash_sem);
+	RETURN(count);
+
+ failed:
+	CWARN("failed to set nosquash_nids to \"%s\", %s: rc %d\n",
+	      kernbuf, errmsg, rc);
+	if (kernbuf)
+		OBD_FREE(kernbuf, count + 1);
+	RETURN(rc);
+}
+
 static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
         { "uuid",         ll_rd_sb_uuid,          0, 0 },
         //{ "mntpt_path",   ll_rd_path,             0, 0 },
@@ -771,6 +928,8 @@ static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
         { "lazystatfs",       ll_rd_lazystatfs, ll_wr_lazystatfs, 0 },
         { "max_easize",       ll_rd_maxea_size, 0, 0 },
 	{ "sbi_flags",        ll_rd_sbi_flags, 0, 0 },
+	{ "root_squash", ll_rd_root_squash, ll_wr_root_squash, 0 },
+	{ "nosquash_nids", ll_rd_nosquash_nids, ll_wr_nosquash_nids, 0 },
         { 0 }
 };
 

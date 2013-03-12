@@ -45,6 +45,7 @@
 #include <lustre_lite.h>
 #include <linux/pagemap.h>
 #include <linux/file.h>
+#include <linux/sched.h>
 #include "llite_internal.h"
 #include <lustre/ll_fiemap.h>
 
@@ -2846,6 +2847,58 @@ ll_check_acl(struct inode *inode, int mask)
 }
 #endif /* HAVE_GENERIC_PERMISSION_2ARGS */
 
+static int match_nosquash_list(struct rw_semaphore *sem,
+			       cfs_list_t *nidlist,
+			       lnet_nid_t nid)
+{
+	int rc;
+	ENTRY;
+	down_read(sem);
+	rc = cfs_match_nid(nid, nidlist);
+	up_read(sem);
+	RETURN(rc);
+}
+
+
+/* process root_squash from llite configuration */
+static int ll_root_squash(struct ll_sb_info *sbi)
+{
+	struct cred *cred;
+	__u32 *cap;
+	ENTRY;
+
+	if (!sbi->ll_squash_uid || cfs_curproc_fsuid())
+		RETURN(0);
+
+	if (sbi->ll_self_nid != LNET_NID_ANY &&
+	    match_nosquash_list(&sbi->ll_squash_sem,
+				&sbi->ll_nosquash_nids,
+				sbi->ll_self_nid)) {
+		CDEBUG(D_OTHER, "%s is in nosquash_nids list\n",
+		       libcfs_nid2str(sbi->ll_self_nid));
+		RETURN(0);
+	}
+
+	CDEBUG(D_OTHER, "squash req from %s, (%d:%d)=>(%d:%d)\n",
+	       libcfs_nid2str(sbi->ll_self_nid),
+	       cfs_curproc_fsuid(), cfs_curproc_fsgid(),
+	       sbi->ll_squash_uid, sbi->ll_squash_gid);
+
+	/* update current process's credentials */
+	cred = prepare_creds();
+	if (!cred)
+		RETURN(-ENOMEM);
+
+	cred->fsuid = sbi->ll_squash_uid;
+	cred->fsgid = sbi->ll_squash_gid;
+	cap = (__u32 *)&cred->cap_effective;
+	*cap = *cap & ~CFS_CAP_FS_MASK;
+
+	commit_creds(cred);
+
+	RETURN(0);
+}
+
 #ifdef HAVE_GENERIC_PERMISSION_4ARGS
 int ll_inode_permission(struct inode *inode, int mask, unsigned int flags)
 #else
@@ -2881,6 +2934,10 @@ int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd)
 
 	CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p), inode mode %x mask %o\n",
 	       inode->i_ino, inode->i_generation, inode, inode->i_mode, mask);
+
+	rc = ll_root_squash(ll_i2sbi(inode));
+	if (rc)
+		RETURN(rc);
 
 	if (ll_i2sbi(inode)->ll_flags & LL_SBI_RMT_CLIENT)
 		return lustre_check_remote_perm(inode, mask);
