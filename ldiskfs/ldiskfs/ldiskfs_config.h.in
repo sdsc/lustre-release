@@ -1,2 +1,5 @@
 /* enable extended attributes for ldiskfs */
 #undef CONFIG_LDISKFS_FS_XATTR
+
+/* ext4_free_blocks do not require struct buffer_head */
+#undef HAVE_EXT_FREE_BLOCK_WITH_BUFFER_HEAD
