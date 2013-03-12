@@ -45,6 +45,7 @@
 #include <lustre_lite.h>
 #include <linux/pagemap.h>
 #include <linux/file.h>
+#include <linux/sched.h>
 #include "llite_internal.h"
 #include <lustre/ll_fiemap.h>
 
@@ -2962,6 +2963,62 @@ ll_check_acl(struct inode *inode, int mask)
 }
 #endif /* HAVE_GENERIC_PERMISSION_2ARGS */
 
+static bool match_nosquash_list(struct rw_semaphore *sem,
+				cfs_list_t *nidlist,
+				lnet_nid_t nid)
+{
+	int rc;
+	bool match;
+	ENTRY;
+	down_read(sem);
+	rc = cfs_match_nid(nid, nidlist);
+	up_read(sem);
+	match = (rc == 1) ? true : false;
+	RETURN(match);
+}
+
+
+/* process root_squash from llite configuration */
+static int ll_root_squash(struct ll_sb_info *sbi)
+{
+	struct cred *cred;
+	cfs_cap_t cap;
+	ENTRY;
+
+	if (sbi->ll_squash_uid == 0 || cfs_curproc_fsuid() != 0)
+		RETURN(0);
+
+	if (sbi->ll_self_nid != LNET_NID_ANY &&
+	    match_nosquash_list(&sbi->ll_squash_sem,
+				&sbi->ll_nosquash_nids,
+				sbi->ll_self_nid)) {
+		CDEBUG(D_OTHER, "%s is in nosquash_nids list\n",
+		       libcfs_nid2str(sbi->ll_self_nid));
+		RETURN(0);
+	}
+
+	CDEBUG(D_OTHER, "squash req from %s, (%d:%d)=>(%d:%d)\n",
+	       libcfs_nid2str(sbi->ll_self_nid),
+	       cfs_curproc_fsuid(), cfs_curproc_fsgid(),
+	       sbi->ll_squash_uid, sbi->ll_squash_gid);
+
+	/* update current process's credentials */
+	cred = prepare_creds();
+	if (cred == NULL)
+		RETURN(-ENOMEM);
+	cred->fsuid = sbi->ll_squash_uid;
+	cred->fsgid = sbi->ll_squash_gid;
+	commit_creds(cred);
+
+	/* remove FS capability of current process */
+	for (cap = 1; cap != 0; cap <<= 1) {
+		if (cap & CFS_CAP_FS_MASK)
+			cfs_cap_lower(cap);
+	}
+
+	RETURN(0);
+}
+
 #ifdef HAVE_GENERIC_PERMISSION_4ARGS
 int ll_inode_permission(struct inode *inode, int mask, unsigned int flags)
 #else
@@ -2997,6 +3054,10 @@ int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd)
 
 	CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p), inode mode %x mask %o\n",
 	       inode->i_ino, inode->i_generation, inode, inode->i_mode, mask);
+
+	rc = ll_root_squash(ll_i2sbi(inode));
+	if (rc)
+		RETURN(rc);
 
 	if (ll_i2sbi(inode)->ll_flags & LL_SBI_RMT_CLIENT)
 		return lustre_check_remote_perm(inode, mask);

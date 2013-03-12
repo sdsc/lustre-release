@@ -3795,6 +3795,7 @@ int mgs_setparam(const struct lu_env *env, struct mgs_device *mgs,
         char *devname, *param;
 	char *ptr;
 	const char *tmp;
+	char *tmp2;
 	__u32 index;
 	int rc = 0;
 	ENTRY;
@@ -3873,6 +3874,51 @@ int mgs_setparam(const struct lu_env *env, struct mgs_device *mgs,
 	rc = mgs_write_log_param(env, mgs, fsdb, mti, mti->mti_params);
 	mutex_unlock(&fsdb->fsdb_mutex);
 
+	/* Ensure root squash settings are applied to both MDT and llite
+	 * config log (see LU-1778).
+	 * if param relates to MDT, do it for llite
+	 * if param relates to llite, do it for MDT
+	 */
+	if (rc == 0 &&
+	    (class_match_param(param, PARAM_MDT, &tmp2) == 0 ||
+	     class_match_param(param, PARAM_LLITE, &tmp2) == 0) &&
+	    ((memcmp(tmp2, "root_squash=", 12) == 0) ||
+	     (memcmp(tmp2, "nosquash_nids=", 14) == 0)) ) {
+		int rc2 = 0;
+		char *cmpnt = class_match_param(param, PARAM_MDT, NULL) == 0 ?
+			      PARAM_LLITE : PARAM_MDT;
+
+		/* rebuild mti
+		 * set mti fsname and svname to filesystem name
+		 * so that it applies to all MDT devices
+		 */
+		if (strlcpy(mti->mti_fsname, fsname, sizeof(mti->mti_fsname))
+		    >= sizeof(mti->mti_fsname))
+			GOTO(err, rc2 = -E2BIG);
+		if (strlcpy(mti->mti_svname, fsname, sizeof(mti->mti_svname))
+		    >= sizeof(mti->mti_svname))
+			GOTO(err, rc2 = -E2BIG);
+		if (strlcpy(mti->mti_params, cmpnt, sizeof(mti->mti_params))
+		    >= sizeof(mti->mti_params))
+			GOTO(err, rc2 = -E2BIG);
+		if (strlcat(mti->mti_params, tmp2, sizeof(mti->mti_params))
+		     >= sizeof(mti->mti_params))
+			GOTO(err, rc2 = -E2BIG);
+		mti->mti_stripe_index = 0;
+		mti->mti_flags = LDD_F_PARAM;
+
+		mutex_lock(&fsdb->fsdb_mutex);
+		rc2 = mgs_write_log_param(env, mgs, fsdb, mti, mti->mti_params);
+		mutex_unlock(&fsdb->fsdb_mutex);
+err:
+		if (rc2 != 0) {
+			CERROR("Failed to apply root squash settings "
+			       "to %s configuration log (rc=%d). The "
+			       "filesystem root squash configuration has "
+			       "been partially applied\n", cmpnt, rc2);
+		}
+	}
+
         /*
          * Revoke lock so everyone updates.  Should be alright if
          * someone was already reading while we were updating the logs,
@@ -3883,6 +3929,7 @@ int mgs_setparam(const struct lu_env *env, struct mgs_device *mgs,
 out:
         OBD_FREE_PTR(mti);
         RETURN(rc);
+
 }
 
 static int mgs_write_log_pool(const struct lu_env *env,
