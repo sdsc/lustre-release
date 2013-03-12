@@ -1891,6 +1891,7 @@ ptlrpc_server_handle_request(struct ptlrpc_service_part *svcpt,
 
         if (unlikely(fail_opc)) {
                 if (request->rq_export && request->rq_ops) {
+			ptlrpc_nrs_req_del_nolock(request);
 			spin_unlock(&svcpt->scp_req_lock);
 
 			OBD_FAIL_TIMEOUT(fail_opc, 4);
