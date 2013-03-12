@@ -8,7 +8,6 @@ rhel6.3/ext4-inode-version.patch
 sles11sp1/ext4-update-sles11-rhel6.patch
 rhel6.3/ext4-mmp.patch
 rhel6.3/ext4-lookup-dotdot.patch
-rhel6.3/ext4-max-dir-size.patch
 rhel6.3/ext4-print-inum-in-htree-warning.patch
 rhel6.3/ext4-xattr-no-update-ctime.patch
 rhel6.3/ext4-prealloc.patch
@@ -18,6 +17,7 @@ rhel6.3/ext4-big-endian-check-2.6.patch
 rhel6.3/ext4-alloc-policy-2.6.patch
 rhel6.3/ext4-force_over_128tb.patch
 rhel6.3/ext4-pdir-fix.patch
+rhel6.3/ext4-max-dir-size.patch
 rhel6.3/ext4-osd-iop-common.patch
 rhel6.3/ext4-osd-iam-exports.patch
 rhel6.3/ext4-dynlocks-common.patch

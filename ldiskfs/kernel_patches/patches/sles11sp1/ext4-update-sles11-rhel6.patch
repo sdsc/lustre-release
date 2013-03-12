@@ -137,8 +137,8 @@ diff -urpN linux-stage.orig/fs/ext4/dir.c linux-stage/fs/ext4/dir.c
  					   inode->i_ino,
  					   (unsigned long long) filp->f_pos);
 diff -urpN linux-stage.orig/fs/ext4/ext4.h linux-stage/fs/ext4/ext4.h
---- linux-stage.orig/fs/ext4/ext4.h	2012-07-02 12:07:23.000000000 -0400
-+++ linux-stage/fs/ext4/ext4.h	2012-07-02 12:10:15.000000000 -0400
+--- linux-stage.orig/fs/ext4/ext4.h	2013-02-26 15:01:09.000000000 -0500
++++ linux-stage/fs/ext4/ext4.h	2013-02-26 15:16:10.000000000 -0500
 @@ -23,6 +23,7 @@
  #include <linux/quota.h>
  #include <linux/rwsem.h>
@@ -160,7 +160,15 @@ diff -urpN linux-stage.orig/fs/ext4/ext4.h linux-stage/fs/ext4/ext4.h
  /* data type for block offset of block group */
  typedef int ext4_grpblk_t;
  
-@@ -970,7 +977,27 @@ struct ext4_super_block {
+@@ -851,6 +858,7 @@ struct ext4_inode_info {
+ #define EXT4_MOUNT_DATA_ERR_ABORT	0x10000000 /* Abort on file data write */
+ #define EXT4_MOUNT_BLOCK_VALIDITY	0x20000000 /* Block validity checking */
+ #define EXT4_MOUNT_DISCARD		0x40000000 /* Issue DISCARD requests */
++#define EXT4_MOUNT_INIT_INODE_TABLE	0x80000000 /* Initialize uninitialized itables */
+ 
+ #define clear_opt(o, opt)		o &= ~EXT4_MOUNT_##opt
+ #define set_opt(o, opt)			o |= EXT4_MOUNT_##opt
+@@ -969,7 +977,27 @@ struct ext4_super_block {
  	__u8	s_reserved_char_pad2;
  	__le16  s_reserved_pad;
  	__le64	s_kbytes_written;	/* nr of lifetime kilobytes written */
@@ -189,13 +197,15 @@ diff -urpN linux-stage.orig/fs/ext4/ext4.h linux-stage/fs/ext4/ext4.h
  };
  
  #ifdef __KERNEL__
-@@ -1110,6 +1137,9 @@ struct ext4_sb_info {
+@@ -1109,6 +1137,11 @@ struct ext4_sb_info {
  
  	/* workqueue for dio unwritten */
  	struct workqueue_struct *dio_unwritten_wq;
 +
 +	/* Lazy inode table initialization info */
 +	struct ext4_li_request *s_li_request;
++	/* Wait multiplier for lazy initialization thread */
++	unsigned int s_li_wait_mult;
  };
  
  static inline struct ext4_sb_info *EXT4_SB(struct super_block *sb)
@@ -1469,7 +1479,38 @@ diff -urpN linux-stage.orig/fs/ext4/super.c linux-stage/fs/ext4/super.c
  };
  
  static const match_table_t tokens = {
-@@ -2709,6 +2764,21 @@ static int ext4_fill_super(struct super_
+@@ -1170,6 +1225,9 @@ static const match_table_t tokens = {
+ 	{Opt_noauto_da_alloc, "noauto_da_alloc"},
+ 	{Opt_discard, "discard"},
+ 	{Opt_nodiscard, "nodiscard"},
++	{Opt_init_inode_table, "init_itable=%u"},
++	{Opt_init_inode_table, "init_itable"},
++	{Opt_noinit_inode_table, "noinit_itable"},
+ 	{Opt_err, NULL},
+ };
+ 
+@@ -1604,6 +1662,20 @@ set_qf_format:
+ 		case Opt_nodiscard:
+ 			clear_opt(sbi->s_mount_opt, DISCARD);
+ 			break;
++		case Opt_init_inode_table:
++			set_opt(sbi->s_mount_opt, INIT_INODE_TABLE);
++			if (args[0].from) {
++				if (match_int(&args[0], &option))
++					return 0;
++			} else
++				option = EXT4_DEF_LI_WAIT_MULT;
++			if (option < 0)
++				return 0;
++			sbi->s_li_wait_mult = option;
++			break;
++		case Opt_noinit_inode_table:
++			clear_opt(sbi->s_mount_opt, INIT_INODE_TABLE);
++			break;
+ 		default:
+ 			ext4_msg(sb, KERN_ERR,
+ 			       "Unrecognized mount option \"%s\" "
+@@ -2717,6 +2789,21 @@ static int ext4_fill_super(struct super_
  	get_random_bytes(&sbi->s_next_generation, sizeof(u32));
  	spin_lock_init(&sbi->s_next_gen_lock);
  
