@@ -1361,8 +1361,10 @@ static inline void d_lustre_invalidate(struct dentry *dentry)
 
         spin_lock(&dentry->d_lock);
         __d_lustre_invalidate(dentry);
-        if (atomic_read(&dentry->d_count) == 0)
-                __d_drop(dentry);
+	if (atomic_read(&dentry->d_count) == 0) {
+		LASSERT(spin_is_locked(&dcache_lock));
+		__d_drop(dentry);
+	}
         spin_unlock(&dentry->d_lock);
 }
 
