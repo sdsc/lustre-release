@@ -562,6 +562,7 @@ static struct lu_object *htable_lookup(struct lu_site *s,
          * drained), and moreover, lookup has to wait until object is freed.
          */
 
+	CWARN("found object %p dying but still hashed.\n", h);
         cfs_waitlink_init(waiter);
         cfs_waitq_add(&bkt->lsb_marche_funebre, waiter);
         cfs_set_current_state(CFS_TASK_UNINT);
