@@ -1,0 +1,10 @@
+Verified+1: Hudson
+Code-Review+2: Oleg Drokin <oleg.drokin@intel.com>
+Code-Review+1: Nikitas Angelinas <nikitas_angelinas@xyratex.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Liang Zhen <liang.zhen@intel.com>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Wed, 13 Mar 2013 02:10:37 -0400
+Reviewed-on: http://review.whamcloud.com/5665
+Project: fs/lustre-release
+Branch: refs/heads/master
