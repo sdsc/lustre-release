@@ -488,6 +488,9 @@ LC_PATH_DEFAULTS
 #
 AC_DEFUN([LB_PROG_CC],
 [AC_PROG_RANLIB
+AC_CHECK_TOOL(LD, ld, [no])
+AC_CHECK_TOOL(OBJDUMP, objdump, [no])
+AC_CHECK_TOOL(STRIP, strip, [no])
 
 # ---------  unsigned long long sane? -------
 AC_CHECK_SIZEOF(unsigned long long, 0)
@@ -536,6 +539,16 @@ AM_CONDITIONAL(DARWIN, test x$lb_target_os = "xdarwin")
 AM_CONDITIONAL(SUNOS, test x$lb_target_os = "xSunOS")
 AM_CONDITIONAL(USES_DPKG, test x$uses_dpkg = "xyes")
 AM_CONDITIONAL(ARCH_x86, test x$target_cpu = "xx86_64" -o x$target_cpu = "xi686")
+
+# Sanity check for PCLMUL instruction availability
+# Intel(R) PCLMULQDQ instruction is a new instruction available beginning with
+# the all new 2010 Intel(R) Core(TM) processor family based on the 32nm
+# Intel(R) microarchitecture codename Westmere. PCLMULQDQ instruction performs
+# carry-less multiplication of two 64-bit operands.
+AM_CONDITIONAL(HAVE_PCLMUL, test x$target_cpu = "xx86_64" -a x$target_vendor != "xk1om")
+if test x$target_cpu = "xx86_64" -a x$target_vendor != "xk1om" ; then
+	AC_DEFINE(HAVE_PCLMUL, 1, [have PCLMUL instruction])
+fi
 
 # this lets lustre cancel libsysio, per-branch or if liblustre is
 # disabled
