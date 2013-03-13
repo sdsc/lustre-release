@@ -314,6 +314,7 @@
 #define MDS_OTHR_NTHRS_MAX	MDS_MAX_OTHR_THREADS
 
 #define MDS_NBUFS		64
+
 /**
  * Assume file name length = FNAME_MAX = 256 (true for ext3).
  *	  path name length = PATH_MAX = 4096
@@ -353,8 +354,22 @@
  */
 #define MDS_LOV_MAXREPSIZE	MDS_LOV_MAXREQSIZE
 
+/**
+ * A "full" REINT_SETXATTR request is 66284 bytes:
+ *
+ *   lustre_msg		   52 (32 + 4 x 5)
+ *   ptlrpc_body	  184
+ *   mdt_rec_setxattr	  136
+ *   lustre_capa	  120
+ *   name		  256 (XATTR_NAME_MAX)
+ *   eadata		65536 (XATTR_SIZE_MAX)
+ */
+#define MDS_EA_MAXREQSIZE	max(MDS_LOV_MAXREQSIZE, 66284)
+#define MDS_EA_MAXREPSIZE	MDS_EA_MAXREQSIZE
+
 /** MDS_BUFSIZE = max_reqsize (w/o LOV EA) + max sptlrpc payload size */
-#define MDS_BUFSIZE		(MDS_MAXREQSIZE + 1024)
+#define MDS_BUFSIZE		(MDS_MAXREQSIZE + SPTLRPC_MAX_PAYLOAD)
+
 /**
  * MDS_LOV_BUFSIZE should be at least max_reqsize (with LOV EA) +
  * max sptlrpc payload size, however, we need to allocate a much larger buffer
@@ -373,6 +388,9 @@
  */
 /** MDS_LOV_BUFSIZE = max_reqsize (w/ LOV EA) + max sptlrpc payload size */
 #define MDS_LOV_BUFSIZE		(MDS_LOV_MAXREQSIZE + (1 << 17))
+
+/** Ditto. */
+#define MDS_EA_BUFSIZE		(MDS_EA_MAXREQSIZE + (1 << 17))
 
 /** FLD_MAXREQSIZE == lustre_msg + __u32 padding + ptlrpc_body + opc */
 #define FLD_MAXREQSIZE  (160)
