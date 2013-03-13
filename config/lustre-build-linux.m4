@@ -317,6 +317,34 @@ esac
 AC_SUBST(CROSS_VARS)
 ])
 
+#
+# LB_LINUX_CROSS
+#
+# check for cross compilation
+#
+AC_DEFUN([LB_LINUX_CROSS],
+	[AC_MSG_CHECKING([for cross compilation])
+CROSS_VARS=
+case $target_vendor in
+	k1om)
+		AC_MSG_RESULT([Intel(R) Xeon Phi(TM)])
+		if test $CC != x86_64-$target_vendor-linux-gcc ; then
+			AC_MSG_ERROR([Cross compiler x86_64-$target_vendor-linux-gcc not found in PATH.])
+		fi
+		CROSS_VARS="ARCH=$target_vendor CROSS_COMPILE=x86_64-$target_vendor-linux-"
+		CCAS=$CC
+		if test x$enable_server = xyes ; then
+			AC_MSG_WARN([Disabling server (not supported for x86_64-$target_vendor-linux).])
+			enable_server='no'
+		fi
+		;;
+	*)
+		AC_MSG_RESULT([no])
+		;;
+esac
+AC_SUBST(CROSS_VARS)
+])
+
 # these are like AC_TRY_COMPILE, but try to build modules against the
 # kernel, inside the build directory
 
