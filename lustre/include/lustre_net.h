@@ -2190,7 +2190,7 @@ struct ptlrpc_service_part {
 	/** # posted request buffers for receiving */
 	int				scp_nrqbds_posted;
 	/** in progress of allocating rqbd */
-	int				scp_rqbd_allocating;
+	cfs_atomic_t			scp_rqbd_allocating;
 	/** # incoming reqs */
 	int				scp_nreqs_incoming;
 	/** request buffers to be reposted */
