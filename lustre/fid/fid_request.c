@@ -51,10 +51,7 @@
 
 #include <obd.h>
 #include <obd_class.h>
-#include <dt_object.h>
-#include <md_object.h>
 #include <obd_support.h>
-#include <lustre_req_layout.h>
 #include <lustre_fid.h>
 /* mdc RPC locks */
 #include <lustre_mdc.h>
@@ -532,3 +529,59 @@ void seq_client_fini(struct lu_client_seq *seq)
         EXIT;
 }
 EXPORT_SYMBOL(seq_client_fini);
+
+int client_fid_init(struct obd_device *obd,
+		    struct obd_export *exp, enum lu_cli_type type)
+{
+	struct client_obd *cli = &obd->u.cli;
+	char *prefix;
+	int rc;
+	ENTRY;
+
+	OBD_ALLOC_PTR(cli->cl_seq);
+	if (cli->cl_seq == NULL)
+		RETURN(-ENOMEM);
+
+	OBD_ALLOC(prefix, MAX_OBD_NAME + 5);
+	if (prefix == NULL)
+		GOTO(out_free_seq, rc = -ENOMEM);
+
+	snprintf(prefix, MAX_OBD_NAME + 5, "cli-%s", obd->obd_name);
+
+	/* Init client side sequence-manager */
+	rc = seq_client_init(cli->cl_seq, exp, type, prefix, NULL);
+	OBD_FREE(prefix, MAX_OBD_NAME + 5);
+	if (rc)
+		GOTO(out_free_seq, rc);
+
+	RETURN(rc);
+out_free_seq:
+	OBD_FREE_PTR(cli->cl_seq);
+	cli->cl_seq = NULL;
+	return rc;
+}
+EXPORT_SYMBOL(client_fid_init);
+
+int client_fid_alloc(struct obd_export *exp, struct lu_fid *fid)
+{
+	struct client_obd *cli = &exp->exp_obd->u.cli;
+	struct lu_client_seq *seq = cli->cl_seq;
+	ENTRY;
+	RETURN(seq_client_alloc_fid(NULL, seq, fid));
+}
+EXPORT_SYMBOL(client_fid_alloc);
+
+int client_fid_fini(struct obd_device *obd)
+{
+	struct client_obd *cli = &obd->u.cli;
+	ENTRY;
+
+	if (cli->cl_seq != NULL) {
+		seq_client_fini(cli->cl_seq);
+		OBD_FREE_PTR(cli->cl_seq);
+		cli->cl_seq = NULL;
+	}
+
+	RETURN(0);
+}
+EXPORT_SYMBOL(client_fid_fini);
