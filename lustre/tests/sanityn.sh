@@ -1099,16 +1099,15 @@ test_36() { #bug 16417
 		rm -f $DIR1/$tdir/$tfile
 		kill -USR1 $read_pid
 		wait $read_pid
+		sync
 		wait_delete_completed
 		local after=$($LFS df | awk '{ if ($1 ~/^filesystem/) \
 					     { print $5; exit} }')
 		echo "*** cycle($i) *** before($before) after_dd($after_dd)" \
 			"after($after)"
 		# this free space! not used
-		if [ $after_dd -ge $after ]; then
-			error "space leaked"
-			return 1;
-		fi
+		(( $after_dd <= $after)) ||
+			error "space leaked after_dd:$after_dd > after:$after"
 		let i=i+1
 	done
 }
