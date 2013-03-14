@@ -449,38 +449,6 @@ struct md_object {
         const struct md_dir_operations    *mo_dir_ops;
 };
 
-/**
- * seq-server site.
- */
-struct seq_server_site {
-	struct lu_site	     *ss_lu;
-	/**
-	 * mds number of this site.
-	 */
-	mdsno_t               ss_node_id;
-	/**
-	 * Fid location database
-	 */
-	struct lu_server_fld *ss_server_fld;
-	struct lu_client_fld *ss_client_fld;
-
-	/**
-	 * Server Seq Manager
-	 */
-	struct lu_server_seq *ss_server_seq;
-
-	/**
-	 * Controller Seq Manager
-	 */
-	struct lu_server_seq *ss_control_seq;
-	struct obd_export    *ss_control_exp;
-
-	/**
-	 * Client Seq Manager
-	 */
-	struct lu_client_seq *ss_client_seq;
-};
-
 static inline int lu_device_is_md(const struct lu_device *d)
 {
         return ergo(d != NULL, d->ld_type->ldt_tags & LU_DEVICE_MD);
@@ -512,11 +480,6 @@ static inline struct md_device *md_obj2dev(const struct md_object *o)
 {
         LASSERT(o == NULL || IS_ERR(o) || lu_device_is_md(o->mo_lu.lo_dev));
         return container_of0(o->mo_lu.lo_dev, struct md_device, md_lu_dev);
-}
-
-static inline struct seq_server_site *lu_site2seq(const struct lu_site *s)
-{
-	return s->ld_seq_site;
 }
 
 static inline int md_device_init(struct md_device *md, struct lu_device_type *t)

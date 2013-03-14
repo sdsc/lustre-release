@@ -41,8 +41,6 @@
 #define __FID_INTERNAL_H
 
 #include <lustre/lustre_idl.h>
-#include <dt_object.h>
-
 #include <libcfs/libcfs.h>
 
 #ifdef __KERNEL__
@@ -63,6 +61,7 @@ int seq_client_alloc_super(struct lu_client_seq *seq,
                            const struct lu_env *env);
 
 /* Store API functions. */
+struct dt_device;
 int seq_store_init(struct lu_server_seq *seq,
                    const struct lu_env *env,
                    struct dt_device *dt);

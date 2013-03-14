@@ -1054,45 +1054,6 @@ static inline int obd_disconnect(struct obd_export *exp)
         RETURN(rc);
 }
 
-static inline int obd_fid_init(struct obd_device *obd, struct obd_export *exp,
-			       enum lu_cli_type type)
-{
-	int rc;
-	ENTRY;
-
-	OBD_CHECK_DT_OP(obd, fid_init, 0);
-	OBD_COUNTER_INCREMENT(obd, fid_init);
-
-	rc = OBP(obd, fid_init)(obd, exp, type);
-	RETURN(rc);
-}
-
-static inline int obd_fid_fini(struct obd_device *obd)
-{
-	int rc;
-	ENTRY;
-
-	OBD_CHECK_DT_OP(obd, fid_fini, 0);
-	OBD_COUNTER_INCREMENT(obd, fid_fini);
-
-	rc = OBP(obd, fid_fini)(obd);
-	RETURN(rc);
-}
-
-static inline int obd_fid_alloc(struct obd_export *exp,
-                                struct lu_fid *fid,
-                                struct md_op_data *op_data)
-{
-        int rc;
-        ENTRY;
-
-        EXP_CHECK_DT_OP(exp, fid_alloc);
-        EXP_COUNTER_INCREMENT(exp, fid_alloc);
-
-        rc = OBP(exp->exp_obd, fid_alloc)(exp, fid, op_data);
-        RETURN(rc);
-}
-
 static inline int obd_ping(const struct lu_env *env, struct obd_export *exp)
 {
         int rc;

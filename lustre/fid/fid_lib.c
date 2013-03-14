@@ -50,8 +50,7 @@
 # include <liblustre.h>
 #endif
 
-#include <obd.h>
-#include <lu_object.h>
+#include <lustre/lustre_idl.h>
 #include <lustre_fid.h>
 
 /**
