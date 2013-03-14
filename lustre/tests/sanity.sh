@@ -1,5 +1,5 @@
 #!/bin/bash
-# -*- tab-width: 4; indent-tabs-mode: t; -*-
+# -*- indent-tabs-mode: t; -*-
 #
 # Run select tests by setting ONLY, or as arguments to the script.
 # Skip specific tests by setting EXCEPT.
@@ -61,8 +61,8 @@ init_logging
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 24v 27m 36f 36g 36h 51b 60c 63 64b 68 71 73 77f 78 101a 115 120g 124b"
 
 [ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
-# bug number for skipped test:        LU-2834 LU-1593 LU-2610 LU-2833 LU-1957 LU-2805
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 18      34h     40      48a     180     184c"
+# bug number for skipped test:        LU-1593 LU-2610 LU-2833 LU-1957 LU-2805 LU-2951
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 34h     40      48a     180     184c    102ha"
 
 FAIL_ON_ERROR=false
 
@@ -519,12 +519,12 @@ test_17k() { #bug 22301
         rsync --help | grep -q xattr ||
                 skip_env "$(rsync --version| head -1) does not support xattrs"
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-        test_mkdir -p $DIR/$tdir
-	test_mkdir -p $DIR/$tdir.new
-        touch $DIR/$tdir/$tfile
-        ln -s $DIR/$tdir/$tfile $DIR/$tdir/$tfile.lnk
+        test_mkdir -p $DIR/$tdir || error "mkdir $DIR/$tdir failed: $?"
+	test_mkdir -p $DIR/$tdir.new || error "mkdir $DIR/$tdir.new failed: $?"
+        touch $DIR/$tdir/$tfile || error "touch $tdir/$tfile failed: $?"
+        ln -s $DIR/$tdir/$tfile $DIR/$tdir/$tfile.lnk || error "ln $tdir/$tfile failed: $?"
         rsync -av -X $DIR/$tdir/ $DIR/$tdir.new ||
-                error "rsync failed with xattrs enabled"
+                error "rsync failed with xattrs enabled: $?"
 }
 run_test 17k "symlinks: rsync with xattrs enabled ========================="
 
@@ -662,8 +662,8 @@ test_17n() {
 run_test 17n "run e2fsck against master/slave MDT which contains remote dir"
 
 test_18() {
-	touch $DIR/f
-	ls $DIR || error
+	touch $DIR/f || error "Failed to touch $DIR/f: $?"
+	ls $DIR || error "Failed to ls $DIR: $?"
 }
 run_test 18 "touch .../f ; ls ... =============================="
 
