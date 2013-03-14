@@ -2829,6 +2829,34 @@ lustre_shrink_reply(struct ptlrpc_request *req, int segment,
         req->rq_replen = lustre_shrink_msg(req->rq_repmsg, segment,
                                            newlen, move_data);
 }
+
+#ifdef LUSTRE_TRANSLATE_ERRNOS
+
+static inline int ptlrpc_status_hton(int h)
+{
+	/*
+	 * Positive errnos must be network errnos, such as LUSTRE_EDEADLK,
+	 * ELDLM_LOCK_ABORTED, etc.
+	 */
+	if (h < 0)
+		return -lustre_errno_hton(-h);
+}
+
+static inline int ptlrpc_status_ntoh(int n)
+{
+	/*
+	 * See the comment in ptlrpc_status_hton().
+	 */
+	if (n < 0)
+		return -lustre_errno_ntoh(-n);
+}
+
+#else
+
+#define ptlrpc_status_hton(h) (h)
+#define ptlrpc_status_ntoh(n) (n)
+
+#endif
 /** @} */
 
 /** Change request phase of \a req to \a new_phase */
