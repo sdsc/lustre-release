@@ -717,6 +717,7 @@ int osc_lru_shrink(struct client_obd *cli, int target)
 
 			clobj = tmp;
 			io->ci_obj = clobj;
+			io->ci_ignore_layout = 1;
 			rc = cl_io_init(env, io, CIT_MISC, clobj);
 
 			client_obd_list_lock(&cli->cl_lru_list_lock);
