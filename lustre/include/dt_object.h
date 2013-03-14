@@ -1474,4 +1474,19 @@ static inline struct dt_thread_info *dt_info(const struct lu_env *env)
 	return dti;
 }
 
+# ifdef LPROCFS
+int dt_proc_rd_blksize(char *page, char **start, off_t off,
+		       int count, int *eof, void *data);
+int dt_proc_rd_kbytestotal(char *page, char **start, off_t off,
+			   int count, int *eof, void *data);
+int dt_proc_rd_kbytesfree(char *page, char **start, off_t off,
+			  int count, int *eof, void *data);
+int dt_proc_rd_kbytesavail(char *page, char **start, off_t off,
+			   int count, int *eof, void *data);
+int dt_proc_rd_filestotal(char *page, char **start, off_t off,
+			  int count, int *eof, void *data);
+int dt_proc_rd_filesfree(char *page, char **start, off_t off,
+			 int count, int *eof, void *data);
+# endif /* LPROCFS */
+
 #endif /* __LUSTRE_DT_OBJECT_H */

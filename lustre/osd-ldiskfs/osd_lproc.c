@@ -490,12 +490,12 @@ int lprocfs_osd_wr_readcache(struct file *file, const char *buffer,
 }
 
 struct lprocfs_vars lprocfs_osd_obd_vars[] = {
-        { "blocksize",       lprocfs_osd_rd_blksize,     0, 0 },
-        { "kbytestotal",     lprocfs_osd_rd_kbytestotal, 0, 0 },
-        { "kbytesfree",      lprocfs_osd_rd_kbytesfree,  0, 0 },
-        { "kbytesavail",     lprocfs_osd_rd_kbytesavail, 0, 0 },
-        { "filestotal",      lprocfs_osd_rd_filestotal,  0, 0 },
-        { "filesfree",       lprocfs_osd_rd_filesfree,   0, 0 },
+	{ "blocksize",		dt_proc_rd_blksize,	0, 0 },
+	{ "kbytestotal",	dt_proc_rd_kbytestotal,	0, 0 },
+	{ "kbytesfree",		dt_proc_rd_kbytesfree,	0, 0 },
+	{ "kbytesavail",	dt_proc_rd_kbytesavail,	0, 0 },
+	{ "filestotal",		dt_proc_rd_filestotal,	0, 0 },
+	{ "filesfree",		dt_proc_rd_filesfree,	0, 0 },
         { "fstype",          lprocfs_osd_rd_fstype,      0, 0 },
         { "mntdev",          lprocfs_osd_rd_mntdev,      0, 0 },
 	{ "force_sync",      0, lprocfs_osd_wr_force_sync     },

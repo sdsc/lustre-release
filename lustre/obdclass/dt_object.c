@@ -934,3 +934,122 @@ out:
 	return rc;
 }
 EXPORT_SYMBOL(dt_index_read);
+
+#ifdef LPROCFS
+
+int dt_proc_rd_blksize(char *page, char **start, off_t off,
+		       int count, int *eof, void *data)
+{
+	struct dt_device *dt = data;
+	struct obd_statfs osfs;
+
+	int rc = dt_statfs(NULL, dt, &osfs);
+	if (rc != 0) {
+		*eof = 1;
+		rc = snprintf(page, count, "%d\n",
+				(unsigned) osfs.os_bsize);
+	}
+
+	return rc;
+}
+EXPORT_SYMBOL(dt_proc_rd_blksize);
+
+int dt_proc_rd_kbytestotal(char *page, char **start, off_t off,
+			   int count, int *eof, void *data)
+{
+	struct dt_device *dt = data;
+	struct obd_statfs osfs;
+
+	int rc = dt_statfs(NULL, dt, &osfs);
+	if (rc != 0) {
+		__u32 blk_size = osfs.os_bsize >> 10;
+		__u64 result = osfs.os_blocks;
+
+		while (blk_size >>= 1)
+			result <<= 1;
+
+		*eof = 1;
+		rc = snprintf(page, count, LPU64"\n", result);
+	}
+
+	return rc;
+}
+EXPORT_SYMBOL(dt_proc_rd_kbytestotal);
+
+int dt_proc_rd_kbytesfree(char *page, char **start, off_t off,
+			  int count, int *eof, void *data)
+{
+	struct dt_device *dt = data;
+	struct obd_statfs osfs;
+
+	int rc = dt_statfs(NULL, dt, &osfs);
+	if (rc != 0) {
+		__u32 blk_size = osfs.os_bsize >> 10;
+		__u64 result = osfs.os_bfree;
+
+		while (blk_size >>= 1)
+			result <<= 1;
+
+		*eof = 1;
+		rc = snprintf(page, count, LPU64"\n", result);
+	}
+
+	return rc;
+}
+EXPORT_SYMBOL(dt_proc_rd_kbytesfree);
+
+int dt_proc_rd_kbytesavail(char *page, char **start, off_t off,
+			   int count, int *eof, void *data)
+{
+	struct dt_device *dt = data;
+	struct obd_statfs osfs;
+
+	int rc = dt_statfs(NULL, dt, &osfs);
+	if (rc != 0) {
+		__u32 blk_size = osfs.os_bsize >> 10;
+		__u64 result = osfs.os_bavail;
+
+		while (blk_size >>= 1)
+			result <<= 1;
+
+		*eof = 1;
+		rc = snprintf(page, count, LPU64"\n", result);
+	}
+
+	return rc;
+}
+EXPORT_SYMBOL(dt_proc_rd_kbytesavail);
+
+int dt_proc_rd_filestotal(char *page, char **start, off_t off,
+			  int count, int *eof, void *data)
+{
+	struct dt_device *dt = data;
+	struct obd_statfs osfs;
+
+	int rc = dt_statfs(NULL, dt, &osfs);
+	if (rc != 0) {
+		*eof = 1;
+		rc = snprintf(page, count, LPU64"\n", osfs.os_files);
+	}
+
+	return rc;
+}
+EXPORT_SYMBOL(dt_proc_rd_filestotal);
+
+int dt_proc_rd_filesfree(char *page, char **start, off_t off,
+			 int count, int *eof, void *data)
+{
+	struct dt_device *dt = data;
+	struct obd_statfs osfs;
+
+	int rc = dt_statfs(NULL, dt, &osfs);
+	if (rc != 0) {
+		*eof = 1;
+		rc = snprintf(page, count, LPU64"\n", osfs.os_ffree);
+	}
+
+	return rc;
+}
+EXPORT_SYMBOL(dt_proc_rd_filesfree);
+
+#endif /* LPROCFS */
