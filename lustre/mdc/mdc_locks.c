@@ -1109,14 +1109,14 @@ int mdc_intent_lock(struct obd_export *exp, struct md_op_data *op_data,
                         { LDLM_IBITS, it_to_lock_mode(it), cb_blocking,
                           ldlm_completion_ast, NULL, NULL, NULL };
 
-                /* For case if upper layer did not alloc fid, do it now. */
-                if (!fid_is_sane(&op_data->op_fid2) && it->it_op & IT_CREAT) {
-                        rc = mdc_fid_alloc(exp, &op_data->op_fid2, op_data);
-                        if (rc < 0) {
-                                CERROR("Can't alloc new fid, rc %d\n", rc);
-                                RETURN(rc);
-                        }
-                }
+		/* For case if upper layer did not alloc fid, do it now. */
+		if (!fid_is_sane(&op_data->op_fid2) && it->it_op & IT_CREAT) {
+			rc = client_fid_alloc(exp, &op_data->op_fid2);
+			if (rc < 0) {
+				CERROR("Can't alloc new fid, rc %d\n", rc);
+				RETURN(rc);
+			}
+		}
                 rc = mdc_enqueue(exp, &einfo, it, op_data, &lockh,
                                  lmm, lmmsize, NULL, extra_lock_flags);
                 if (rc < 0)

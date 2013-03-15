@@ -378,7 +378,7 @@ int lmv_connect_mdc(struct obd_device *obd, struct lmv_tgt_desc *tgt)
 	/*
 	 * Init fid sequence client for this mdc and add new fld target.
 	 */
-	rc = obd_fid_init(mdc_obd, mdc_exp, LUSTRE_SEQ_METADATA);
+	rc = client_fid_init(mdc_obd, mdc_exp, LUSTRE_SEQ_METADATA);
 	if (rc)
 		RETURN(rc);
 
@@ -657,7 +657,7 @@ static int lmv_disconnect_mdc(struct obd_device *obd, struct lmv_tgt_desc *tgt)
                 }
         }
 #endif
-	rc = obd_fid_fini(tgt->ltd_exp->exp_obd);
+	rc = client_fid_fini(tgt->ltd_exp->exp_obd);
 	if (rc)
 		CERROR("Can't finanize fids factory\n");
 
@@ -1016,10 +1016,7 @@ int __lmv_fid_alloc(struct lmv_obd *lmv, struct lu_fid *fid,
 	if (tgt == NULL || tgt->ltd_active == 0 || tgt->ltd_exp == NULL)
 		GOTO(out, rc = -ENODEV);
 
-        /*
-         * Asking underlaying tgt layer to allocate new fid.
-         */
-        rc = obd_fid_alloc(tgt->ltd_exp, fid, NULL);
+	rc = client_fid_alloc(tgt->ltd_exp, fid);
         if (rc > 0) {
                 LASSERT(fid_is_sane(fid));
                 rc = 0;

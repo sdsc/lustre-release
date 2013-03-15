@@ -48,7 +48,6 @@
 #include <lustre_acl.h>
 #include <obd_class.h>
 #include <lustre_fid.h>
-#include <md_object.h>
 #include <lprocfs_status.h>
 #include <lustre_param.h>
 #include <lustre_log.h>
@@ -2381,15 +2380,6 @@ static int mdc_import_event(struct obd_device *obd, struct obd_import *imp,
         RETURN(rc);
 }
 
-int mdc_fid_alloc(struct obd_export *exp, struct lu_fid *fid,
-                  struct md_op_data *op_data)
-{
-        struct client_obd *cli = &exp->exp_obd->u.cli;
-        struct lu_client_seq *seq = cli->cl_seq;
-        ENTRY;
-        RETURN(seq_client_alloc_fid(NULL, seq, fid));
-}
-
 struct obd_uuid *mdc_get_uuid(struct obd_export *exp) {
         struct client_obd *cli = &exp->exp_obd->u.cli;
         return &cli->cl_target_uuid;
@@ -2717,9 +2707,6 @@ struct obd_ops mdc_obd_ops = {
         .o_statfs           = mdc_statfs,
         .o_pin              = mdc_pin,
         .o_unpin            = mdc_unpin,
-	.o_fid_init	    = client_fid_init,
-	.o_fid_fini	    = client_fid_fini,
-        .o_fid_alloc        = mdc_fid_alloc,
         .o_import_event     = mdc_import_event,
         .o_llog_init        = mdc_llog_init,
         .o_llog_finish      = mdc_llog_finish,
