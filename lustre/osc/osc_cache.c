@@ -1533,7 +1533,7 @@ static int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
 		ocw.ocw_rc = 0;
 		client_obd_list_unlock(&cli->cl_loi_list_lock);
 
-		osc_io_unplug_async(env, cli, NULL);
+		osc_io_unplug(env, cli, NULL, PDL_POLICY_ROUND);
 
 		CDEBUG(D_CACHE, "%s: sleeping for cache space @ %p for %p\n",
 		       cli->cl_import->imp_obd->obd_name, &ocw, oap);
@@ -2145,7 +2145,11 @@ static int osc_io_unplug0(const struct lu_env *env, struct client_obd *cli,
 		has_rpcs = __osc_list_maint(cli, osc);
 	if (has_rpcs) {
 		if (!async) {
+			/* disable osc_lru_shrink() temporarily to avoid
+			 * potential stack overrun problem. LU-2859 */
+			cfs_atomic_inc(&cli->cl_lru_shrinkers);
 			osc_check_rpcs(env, cli, pol);
+			cfs_atomic_dec(&cli->cl_lru_shrinkers);
 		} else {
 			CDEBUG(D_CACHE, "Queue writeback work for client %p.\n",
 			       cli);
