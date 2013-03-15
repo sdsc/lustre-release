@@ -69,13 +69,6 @@ struct md_object;
 struct obd_export;
 
 enum {
-        UCRED_INVALID   = -1,
-        UCRED_INIT      = 0,
-        UCRED_OLD       = 1,
-        UCRED_NEW       = 2
-};
-
-enum {
         MD_CAPAINFO_MAX = 5
 };
 
@@ -480,11 +473,6 @@ struct seq_server_site {
 	 */
 	struct lu_client_seq *ss_client_seq;
 };
-
-static inline int lu_device_is_md(const struct lu_device *d)
-{
-        return ergo(d != NULL, d->ld_type->ldt_tags & LU_DEVICE_MD);
-}
 
 static inline struct md_device *lu2md_dev(const struct lu_device *d)
 {
