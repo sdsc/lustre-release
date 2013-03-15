@@ -474,6 +474,15 @@ ssize_t ll_getxattr(struct dentry *dentry, const char *name,
                 if (rc < 0)
                        GOTO(out, rc);
 
+		if ((cpu_to_le32(LOV_MAGIC) != LOV_MAGIC) &&
+		    ((lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V1)) ||
+		     (lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V3)))) {
+			lustre_swab_lov_mds_md(lmm);
+			lustre_swab_lov_user_md_objects(
+				(struct lov_user_ost_data*)lmm->lmm_objects,
+				lmm->lmm_stripe_count);
+		}
+
                 if (size == 0) {
                         /* used to call ll_get_max_mdsize() forward to get
                          * the maximum buffer size, while some apps (such as
