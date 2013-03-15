@@ -1502,6 +1502,7 @@ static int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
 	struct osc_cache_waiter ocw;
 	struct l_wait_info lwi = LWI_INTR(LWI_ON_SIGNAL_NOOP, NULL);
 	int rc = -EDQUOT;
+	int repeat = 0;
 	ENTRY;
 
 	OSC_DUMP_GRANT(cli, "need:%d.\n", bytes);
@@ -1528,12 +1529,25 @@ static int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
 	cfs_waitq_init(&ocw.ocw_waitq);
 	ocw.ocw_oap   = oap;
 	ocw.ocw_grant = bytes;
-	if (cli->cl_dirty > 0 || cli->cl_w_in_flight > 0) {
+	while (cli->cl_dirty > 0 || cli->cl_w_in_flight > 0) {
+		if (repeat++ > 180) {
+			CWARN("%s: can't acquire grant after %d flush retries "
+			      "cl_dirty: %ld, turn to sync write.\n",
+			      cli->cl_import->imp_obd->obd_name, repeat,
+			      cli->cl_dirty);
+			GOTO(out, rc);
+		}
+
 		cfs_list_add_tail(&ocw.ocw_entry, &cli->cl_cache_waiters);
 		ocw.ocw_rc = 0;
 		client_obd_list_unlock(&cli->cl_loi_list_lock);
 
+		/* we can't do sync flush here, because it could cause stack
+		 * overrun sometimes. LU-2859 */
 		osc_io_unplug_async(env, cli, NULL);
+		/* give async flush a chance to start */
+		cfs_schedule_timeout_and_set_state(CFS_TASK_INTERRUPTIBLE,
+						   cfs_time_seconds(1) / 6);
 
 		CDEBUG(D_CACHE, "%s: sleeping for cache space @ %p for %p\n",
 		       cli->cl_import->imp_obd->obd_name, &ocw, oap);
@@ -1561,7 +1575,7 @@ static int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
 		if (rc != -EDQUOT)
 			GOTO(out, rc);
 		if (osc_enter_cache_try(cli, oap, bytes, 0))
-			rc = 0;
+			GOTO(out, rc = 0);
 	}
 	EXIT;
 out:
