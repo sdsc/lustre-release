@@ -489,6 +489,15 @@ ssize_t ll_getxattr(struct dentry *dentry, const char *name,
                         GOTO(out, rc = -ERANGE);
                 }
 
+		if ((cpu_to_le32(LOV_MAGIC) != LOV_MAGIC) &&
+		    ((lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V1)) ||
+		     (lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V3)))) {
+			lustre_swab_lov_mds_md(lmm);
+			lustre_swab_lov_user_md_objects(
+				(struct lov_user_ost_data*)lmm->lmm_objects,
+				lmm->lmm_stripe_count);
+		}
+
                 lump = (struct lov_user_md *)buffer;
                 memcpy(lump, lmm, lmmsize);
 		/* do not return layout gen for getxattr otherwise it would
