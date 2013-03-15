@@ -43,18 +43,14 @@
  */
 
 #include <lustre/lustre_idl.h>
-#include <lustre_mdt.h>
-#include <dt_object.h>
-
 #include <libcfs/libcfs.h>
 
+struct lu_env;
 struct lu_client_fld;
 struct lu_server_fld;
 struct lu_fld_hash;
 struct fld_cache;
-
-extern const struct dt_index_features fld_index_features;
-extern const char fld_index_name[];
+struct thandle;
 
 /*
  * FLD (Fid Location Database) interface.
@@ -63,7 +59,6 @@ enum {
         LUSTRE_CLI_FLD_HASH_DHT = 0,
         LUSTRE_CLI_FLD_HASH_RRB
 };
-
 
 struct lu_fld_target {
         cfs_list_t               ft_chain;
@@ -144,6 +139,7 @@ enum {
         FLD_TXN_INDEX_DELETE_CREDITS  = 20,
 };
 
+struct com_thread_info;
 int fld_query(struct com_thread_info *info);
 
 /* Server methods */

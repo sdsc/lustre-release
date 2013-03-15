@@ -398,6 +398,11 @@ struct lu_device_type_operations {
         void (*ldto_stop)(struct lu_device_type *t);
 };
 
+static inline int lu_device_is_md(const struct lu_device *d)
+{
+	return ergo(d != NULL, d->ld_type->ldt_tags & LU_DEVICE_MD);
+}
+
 /**
  * Flags for the object layers.
  */
@@ -1282,6 +1287,13 @@ int  lu_env_refill(struct lu_env *env);
 int  lu_env_refill_by_tags(struct lu_env *env, __u32 ctags, __u32 stags);
 
 /** @} lu_context */
+
+enum {
+	UCRED_INVALID	= -1,
+	UCRED_INIT	= 0,
+	UCRED_OLD	= 1,
+	UCRED_NEW	= 2
+};
 
 struct lu_ucred {
 	__u32               uc_valid;
