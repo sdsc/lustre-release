@@ -1258,87 +1258,6 @@ static ssize_t ll_file_splice_read(struct file *in_file, loff_t *ppos,
 }
 #endif
 
-static int ll_lov_recreate(struct inode *inode, obd_id id, obd_seq seq,
-                           obd_count ost_idx)
-{
-	struct obd_export *exp = ll_i2dtexp(inode);
-	struct obd_trans_info oti = { 0 };
-	struct obdo *oa = NULL;
-	int lsm_size;
-	int rc = 0;
-	struct lov_stripe_md *lsm = NULL, *lsm2;
-	ENTRY;
-
-	OBDO_ALLOC(oa);
-	if (oa == NULL)
-		RETURN(-ENOMEM);
-
-	lsm = ccc_inode_lsm_get(inode);
-        if (lsm == NULL)
-                GOTO(out, rc = -ENOENT);
-
-        lsm_size = sizeof(*lsm) + (sizeof(struct lov_oinfo) *
-                   (lsm->lsm_stripe_count));
-
-        OBD_ALLOC_LARGE(lsm2, lsm_size);
-        if (lsm2 == NULL)
-                GOTO(out, rc = -ENOMEM);
-
-        oa->o_id = id;
-        oa->o_seq = seq;
-        oa->o_nlink = ost_idx;
-        oa->o_flags |= OBD_FL_RECREATE_OBJS;
-        oa->o_valid = OBD_MD_FLID | OBD_MD_FLFLAGS | OBD_MD_FLGROUP;
-        obdo_from_inode(oa, inode, OBD_MD_FLTYPE | OBD_MD_FLATIME |
-                                   OBD_MD_FLMTIME | OBD_MD_FLCTIME);
-        obdo_set_parent_fid(oa, &ll_i2info(inode)->lli_fid);
-        memcpy(lsm2, lsm, lsm_size);
-	ll_inode_size_lock(inode);
-	rc = obd_create(NULL, exp, oa, &lsm2, &oti);
-	ll_inode_size_unlock(inode);
-
-	OBD_FREE_LARGE(lsm2, lsm_size);
-	GOTO(out, rc);
-out:
-	ccc_inode_lsm_put(inode, lsm);
-	OBDO_FREE(oa);
-	return rc;
-}
-
-static int ll_lov_recreate_obj(struct inode *inode, unsigned long arg)
-{
-	struct ll_recreate_obj ucreat;
-	ENTRY;
-
-	if (!cfs_capable(CFS_CAP_SYS_ADMIN))
-		RETURN(-EPERM);
-
-	if (copy_from_user(&ucreat, (struct ll_recreate_obj *)arg,
-			   sizeof(ucreat)))
-		RETURN(-EFAULT);
-
-	RETURN(ll_lov_recreate(inode, ucreat.lrc_id, 0,
-			       ucreat.lrc_ost_idx));
-}
-
-static int ll_lov_recreate_fid(struct inode *inode, unsigned long arg)
-{
-	struct lu_fid	fid;
-	obd_id		id;
-	obd_count	ost_idx;
-        ENTRY;
-
-	if (!cfs_capable(CFS_CAP_SYS_ADMIN))
-		RETURN(-EPERM);
-
-	if (copy_from_user(&fid, (struct lu_fid *)arg, sizeof(fid)))
-		RETURN(-EFAULT);
-
-	id = fid_oid(&fid) | ((fid_seq(&fid) & 0xffff) << 32);
-	ost_idx = (fid_seq(&fid) >> 16) & 0xffff;
-	RETURN(ll_lov_recreate(inode, id, 0, ost_idx));
-}
-
 int ll_lov_setstripe_ea_info(struct inode *inode, struct file *file,
                              int flags, struct lov_user_md *lum, int lum_size)
 {
@@ -1984,10 +1903,6 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	}
         case LL_IOC_LOV_GETSTRIPE:
                 RETURN(ll_lov_getstripe(inode, arg));
-        case LL_IOC_RECREATE_OBJ:
-                RETURN(ll_lov_recreate_obj(inode, arg));
-        case LL_IOC_RECREATE_FID:
-                RETURN(ll_lov_recreate_fid(inode, arg));
         case FSFILT_IOC_FIEMAP:
                 RETURN(ll_ioctl_fiemap(inode, arg));
         case FSFILT_IOC_GETFLAGS:
