@@ -70,6 +70,8 @@
 #include <lnet/lnet-sysctl.h>
 
 #ifdef HAVE_COMPAT_RDMA
+#undef rcu_dereference_protected
+#undef kfree_rcu
 #include <linux/compat-2.6.h>
 #endif
 #include <rdma/rdma_cm.h>
