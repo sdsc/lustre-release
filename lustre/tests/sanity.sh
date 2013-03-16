@@ -1417,29 +1417,6 @@ test_27p() {
 }
 run_test 27p "append to a truncated file with some full OSTs ==="
 
-test_27q() {
-	[ "$OSTCOUNT" -lt "2" ] && skip_env "too few OSTs" && return
-	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-	remote_mds_nodsh && skip "remote MDS with nodsh" && return
-	remote_ost_nodsh && skip "remote OST with nodsh" && return
-
-	reset_enospc
-	rm -f $DIR/$tdir/$tfile
-
-	test_mkdir -p $DIR/$tdir
-	$MCREATE $DIR/$tdir/$tfile || error "mcreate $DIR/$tdir/$tfile failed"
-	$TRUNCATE $DIR/$tdir/$tfile 80000000 ||error "truncate $DIR/$tdir/$tfile failed"
-	$CHECKSTAT -s 80000000 $DIR/$tdir/$tfile || error "checkstat failed"
-
-	exhaust_all_precreations 0x215
-
-	echo foo >> $DIR/$tdir/$tfile && error "append succeeded"
-	$CHECKSTAT -s 80000000 $DIR/$tdir/$tfile || error "checkstat 2 failed"
-
-	reset_enospc
-}
-run_test 27q "append to truncated file with all OSTs full (should error) ==="
-
 test_27r() {
 	[ "$OSTCOUNT" -lt "2" ] && skip_env "too few OSTs" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
@@ -2442,33 +2419,37 @@ TEST_34_SIZE=${TEST_34_SIZE:-2000000000000}
 test_34a() {
 	rm -f $DIR/f34
 	$MCREATE $DIR/f34 || error
-	$GETSTRIPE $DIR/f34 2>&1 | grep -q "no stripe info" || error
+	$GETSTRIPE $DIR/f34 2>&1 | grep -q "no stripe info" ||
+		error "mcreate should not create striping"
 	$TRUNCATE $DIR/f34 $TEST_34_SIZE || error
-	$GETSTRIPE $DIR/f34 2>&1 | grep -q "no stripe info" || error
+	$GETSTRIPE $DIR/f34 2>&1 | grep -qv "no stripe info" ||
+		error "trunncate should create striping"
 	$CHECKSTAT -s $TEST_34_SIZE $DIR/f34 || error
 }
 run_test 34a "truncate file that has not been opened ==========="
 
 test_34b() {
-	[ ! -f $DIR/f34 ] && test_34a
-	$CHECKSTAT -s $TEST_34_SIZE $DIR/f34 || error
+	rm -f $DIR/f34
+	$MCREATE $DIR/f34 || error
 	$OPENFILE -f O_RDONLY $DIR/f34
-	$GETSTRIPE $DIR/f34 2>&1 | grep -q "no stripe info" || error
-	$CHECKSTAT -s $TEST_34_SIZE $DIR/f34 || error
+	$GETSTRIPE $DIR/f34 2>&1 | grep -q "no stripe info" ||
+		error "open O_RDONLY should not create striping"
 }
 run_test 34b "O_RDONLY opening file doesn't create objects ====="
 
 test_34c() {
-	[ ! -f $DIR/f34 ] && test_34a
-	$CHECKSTAT -s $TEST_34_SIZE $DIR/f34 || error
+	rm -f $DIR/f34
+	$MCREATE $DIR/f34 || error
 	$OPENFILE -f O_RDWR $DIR/f34
-	$GETSTRIPE $DIR/f34 2>&1 | grep -q "no stripe info" && error
-	$CHECKSTAT -s $TEST_34_SIZE $DIR/f34 || error
+	$GETSTRIPE $DIR/f34 2>&1 | grep -qv "no stripe info" ||
+		error "open O_RDWR should create striping"
 }
 run_test 34c "O_RDWR opening file-with-size works =============="
 
 test_34d() {
-	[ ! -f $DIR/f34 ] && test_34a
+	rm -f $DIR/f34
+	$MCREATE $DIR/f34 || error
+	$TRUNCATE $DIR/f34 $TEST_34_SIZE || error
 	dd if=/dev/zero of=$DIR/f34 conv=notrunc bs=4k count=1 || error
 	$CHECKSTAT -s $TEST_34_SIZE $DIR/f34 || error
 	rm $DIR/f34

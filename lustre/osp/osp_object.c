@@ -65,42 +65,13 @@ static void osp_object_assign_fid(const struct lu_env *env,
 static int osp_declare_attr_set(const struct lu_env *env, struct dt_object *dt,
 				const struct lu_attr *attr, struct thandle *th)
 {
-	struct osp_device	*d = lu2osp_dev(dt->do_lu.lo_dev);
 	struct osp_object	*o = dt2osp_obj(dt);
 	int			 rc = 0;
 
 	ENTRY;
 
-	/*
-	 * Usually we don't allow server stack to manipulate size
-	 * but there is a special case when striping is created
-	 * late, after stripless file got truncated to non-zero.
-	 *
-	 * In this case we do the following:
-	 *
-	 * 1) grab id in declare - this can lead to leaked OST objects
-	 *    but we don't currently have proper mechanism and the only
-	 *    options we have are to do truncate RPC holding transaction
-	 *    open (very bad) or to grab id in declare at cost of leaked
-	 *    OST object in same very rare unfortunate case (just bad)
-	 *    notice 1.6-2.0 do assignment outside of running transaction
-	 *    all the time, meaning many more chances for leaked objects.
-	 *
-	 * 2) send synchronous truncate RPC with just assigned id
-	 */
-
-	/* there are few places in MDD code still passing NULL
-	 * XXX: to be fixed soon */
 	if (attr == NULL)
 		RETURN(0);
-
-	if (attr->la_valid & LA_SIZE && attr->la_size > 0) {
-		LASSERT(!dt_object_exists(dt));
-		osp_object_assign_fid(env, d, o);
-		rc = osp_object_truncate(env, dt, attr->la_size);
-		if (rc)
-			RETURN(rc);
-	}
 
 	if (o->opo_new) {
 		/* no need in logging for new objects being created */
@@ -299,6 +270,9 @@ static int osp_object_create(const struct lu_env *env, struct dt_object *dt,
 
 	CDEBUG(D_HA, "%s: Wrote last used FID: "DFID", index %d: %d\n",
 	       d->opd_obd->obd_name, PFID(fid), d->opd_index, rc);
+
+	if (rc == 0)
+		dt->do_lu.lo_header->loh_attr |= LOHA_EXISTS;
 
 	RETURN(rc);
 }

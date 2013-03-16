@@ -408,7 +408,7 @@ int mdt_attr_set(struct mdt_thread_info *info, struct mdt_object *mo,
 	 * client, but the old client will almost ignore that during
 	 * So it needs to revoke both LOOKUP and PERM lock here, so
 	 * both new and old client can cancel the dcache */
-	if (ma->ma_attr.la_valid & (LA_MODE|LA_UID|LA_GID))
+	if (ma->ma_attr.la_valid & (LA_SIZE|LA_MODE|LA_UID|LA_GID))
 		lockpart |= MDS_INODELOCK_LOOKUP | MDS_INODELOCK_PERM;
 
         rc = mdt_object_lock(info, mo, lh, lockpart, MDT_LOCAL_LOCK);

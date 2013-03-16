@@ -1386,15 +1386,15 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 	if (likely(lo->ldo_stripe == NULL)) {
 		/*
 		 * no striping has been created so far
-		 */
-		LASSERT(lo->ldo_stripenr > 0);
-		/*
+		 *
 		 * statfs and check OST targets now, since ld_active_tgt_count
 		 * could be changed if some OSTs are [de]activated manually.
 		 */
 		lod_qos_statfs_update(env, d);
 		lo->ldo_stripenr = lod_get_stripecnt(d, LOV_MAGIC,
 				lo->ldo_stripenr);
+
+		LASSERT(lo->ldo_stripenr > 0);
 
 		stripe_len = lo->ldo_stripenr;
 		OBD_ALLOC(stripe, sizeof(stripe[0]) * stripe_len);
