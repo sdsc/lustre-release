@@ -920,16 +920,8 @@ restart:
         GOTO(out, result);
 out:
         cl_io_fini(env, io);
-	/* If any bit been read/written (result != 0), we just return
-	 * short read/write instead of restart io. */
-	if (result == 0 && io->ci_need_restart) {
-		CDEBUG(D_VFSTRACE, "Restart %s on %s from %lld, count:%zd\n",
-		       iot == CIT_READ ? "read" : "write",
-		       file->f_dentry->d_name.name, *ppos, count);
-		LASSERTF(io->u.ci_rw.crw_count == count, "%zd != %zd\n",
-			 io->u.ci_rw.crw_count, count);
+	if (result == 0 && io->ci_need_restart) /* need to restart whole IO */
 		goto restart;
-	}
 
         if (iot == CIT_READ) {
                 if (result >= 0)
@@ -1972,14 +1964,14 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		if ((file->f_flags & O_ACCMODE) == 0) /* O_RDONLY */
 			RETURN(-EPERM);
 
-		file2 = fget(lsl.sl_fd);
+		file2 = cfs_get_fd(lsl.sl_fd);
 		if (file2 == NULL)
 			RETURN(-EBADF);
 
 		rc = -EPERM;
 		if ((file2->f_flags & O_ACCMODE) != 0) /* O_WRONLY or O_RDWR */
 			rc = ll_swap_layout(file, file2, &lsl);
-		fput(file2);
+		cfs_put_file(file2);
 		RETURN(rc);
 	}
         case LL_IOC_LOV_GETSTRIPE:
@@ -2322,16 +2314,37 @@ int cl_sync_file_range(struct inode *inode, loff_t start, loff_t end,
 	RETURN(result);
 }
 
+/*
+ * When dentry is provided (the 'else' case), *file->f_dentry may be
+ * null and dentry must be used directly rather than pulled from
+ * *file->f_dentry as is done otherwise.
+ */
+
 #ifdef HAVE_FILE_FSYNC_4ARGS
+struct inode* ll_fsync_get_inode(struct dentry *dentry, struct file *file)
+{
+	return file->f_dentry->d_inode;
+}
+
 int ll_fsync(struct file *file, loff_t start, loff_t end, int data)
 #elif defined(HAVE_FILE_FSYNC_2ARGS)
+struct inode* ll_fsync_get_inode(struct dentry *dentry, struct file *file)
+{
+	return file->f_dentry->d_inode;
+}
+
 int ll_fsync(struct file *file, int data)
 #else
+struct inode* ll_fsync_get_inode(struct dentry *dentry, struct file *file)
+{
+	return dentry->d_inode;
+}
+
 int ll_fsync(struct file *file, struct dentry *dentry, int data)
 #endif
 {
-        struct inode *inode = file->f_dentry->d_inode;
-        struct ll_inode_info *lli = ll_i2info(inode);
+        struct inode *inode = ll_fsync_get_inode(dentry, file); 
+	struct ll_inode_info *lli = ll_i2info(inode);
         struct ptlrpc_request *req;
         struct obd_capa *oc;
         int rc, err;
@@ -3255,7 +3268,7 @@ int ll_layout_refresh(struct inode *inode, __u32 *gen)
 					   .ei_mode = LCK_CR,
 					   .ei_cb_bl = ll_md_blocking_ast,
 					   .ei_cb_cp = ldlm_completion_ast,
-					   .ei_cbdata = NULL };
+					   .ei_cbdata = inode };
 	int rc;
 	ENTRY;
 
@@ -3317,8 +3330,6 @@ again:
 	it.d.lustre.it_data = NULL;
 
 	ll_finish_md_op_data(op_data);
-
-	md_set_lock_data(sbi->ll_md_exp, &it.d.lustre.it_lock_handle, inode, NULL);
 
 	mode = it.d.lustre.it_lock_mode;
 	it.d.lustre.it_lock_mode = 0;
