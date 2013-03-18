@@ -34,7 +34,7 @@
 # Lustre is a trademark of Sun Microsystems, Inc.
 #
 
-sbinscripts = lc_servip lustre_up14 lustre_rmmod lhbadm ldev
+sbinscripts = lc_servip lustre_up14 lustre_rmmod lhbadm ldev lustre_routes_config
 
 # These are scripts that are generated from .in files
 genscripts = lustre_config lc_modprobe lc_net lc_hb lc_cluman lustre_createcsv \

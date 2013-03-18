@@ -1,0 +1,110 @@
+# !/bin/bash
+#
+# route_config.sh
+# This script configures lnet with the routes in the passed in file.
+# The routes have to be in the following format
+# <network> <hop> <gateway>@<exit network>[:<prioirty>];
+# Ex:
+# tcp1 10.1.1.2@tcp0:1
+# or 
+# tcp1 10.1.1.2@tcp0
+#
+# The purpose of this script is to circumvent the limitation on the number
+# of routes which could be configured through the lustre.conf 
+#
+############################################################################
+
+# Usage: trim <string> 
+# trim the white space before and after a string
+trim () 
+{
+	local var=$1
+	var="${var#"${var%%[![:space:]]*}"}"   # remove leading whitespace characters
+	var="${var%"${var##*[![:space:]]}"}"   # remove trailing whitespace characters
+	echo -n $var
+}
+
+# Usage: read_and_parse <file name>
+# Read a routes_config file and parse it out, then feed the proper input
+# int lcl --net <> add_route <> to configure a route.
+read_and_parse ()
+{
+	local network=""
+	local gateway=""
+	local gatewayorhop=""
+	local priority=""
+	local hop=""
+	
+	# sanity check params
+	if [ $# -eq 0 ]
+	then
+		echo "$0 usage: $0 <routes config file name>"
+		exit 1
+	fi
+
+	while read line
+	do
+		#Split the input string at ';'
+		IFS=';'
+		ary=($line)
+		for key in "${!ary[@]}"; do
+			# initialize variables.
+			network=""
+			gateway=""
+			gatewayorhop=""
+			priority=""
+			hop=""
+
+			# Split at : to get the priority if it exists
+			IFS=':'
+			ary2=(${ary[$key]})
+			# Split at ' ' to separate the network from the gateway
+			# trim any whitespaces, and call lctl to add the route
+			IFS=' '
+			ary3=(${ary2[0]})
+			network=`trim ${ary3[0]}`
+			gatewayorhop=`trim ${ary3[1]}`
+			# since hop is an optional parameter after we get this
+			# position we need to check if we got the hop or gateway
+			# parameter.  Set gateway is always of the form ip@intf,
+			# then we can simply check for the '@' character in the
+			# string.  if it exists then we don't have a hop but a
+			# gateway.  If we don't then we assume that a hop exists
+			# and a gateway follows it
+			if [[ "$gatewayorhop" == *@* ]]; then
+				gateway=$gatewayorhop
+			else 
+				hop=$gatewayorhop
+				gateway=`trim ${ary3[2]}`
+			fi
+			priority=`trim ${ary2[1]}`
+			if [ -z "$network" ] || [ -z "$gateway" ]; then
+				continue;
+			fi
+
+			# Check: if hop is not defined but priority is, then we
+			# need to default hop to 1, because lctl expects that a
+			# hop parameter is defined if a priority parameter is
+			# defined.
+			if [ -n "$priority" ] && [ -z "$hop" ]; then
+				# Uncomment the line below in order to see the command being executed
+				#echo "lctl --net $network add_route $gateway 1 $priority"
+				lctl --net $network add_route $gateway 1 $priority
+			else
+				# Uncomment the line below in order to see the command being executed
+				#echo "lctl --net $network add_route $gateway $hop $priority"
+				lctl --net $network add_route $gateway $hop $priority
+			fi
+			# Uncomment the line below in order to delete routes
+			# specified in the file.  Comment out the add_route
+			# commands to avoid confusion.
+			#echo "lctl del_route $gateway"
+			#lctl del_route $gateway
+
+		done
+	done < "$1"
+	echo "Routes Configuration Complete"
+}
+
+# Main entry point for the script
+read_and_parse $1
