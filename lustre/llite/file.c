@@ -2315,7 +2315,7 @@ int cl_sync_file_range(struct inode *inode, loff_t start, loff_t end,
 }
 
 /*
- * When dentry is provided (the 'else' case), *file->f_dentry may be
+ * When dentry is provided (the else case), *file->f_dentry may be
  * null and dentry must be used directly rather than pulled from
  * *file->f_dentry as is done otherwise.
  */
