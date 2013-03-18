@@ -513,10 +513,11 @@ EXPORT_SYMBOL(llog_recov_thread_fini);
 static int llog_recov_thread_replay(struct llog_ctxt *ctxt,
                                     void *cb, void *arg)
 {
-        struct obd_device *obd = ctxt->loc_obd;
-        struct llog_process_cat_args *lpca;
-        int rc;
-        ENTRY;
+	struct obd_device *obd = ctxt->loc_obd;
+	struct llog_process_cat_args *lpca;
+	cfs_task_t *task;
+	int rc;
+	ENTRY;
 
         if (obd->obd_stopping)
                 RETURN(-ENODEV);
@@ -534,22 +535,23 @@ static int llog_recov_thread_replay(struct llog_ctxt *ctxt,
         /*
          * This will be balanced in llog_cat_process_thread()
          */
-        lpca->lpca_ctxt = llog_ctxt_get(ctxt);
-        if (!lpca->lpca_ctxt) {
-                OBD_FREE_PTR(lpca);
-                RETURN(-ENODEV);
-        }
-        rc = cfs_create_thread(llog_cat_process_thread, lpca, CFS_DAEMON_FLAGS);
-        if (rc < 0) {
-                CERROR("Error starting llog_cat_process_thread(): %d\n", rc);
-                OBD_FREE_PTR(lpca);
-                llog_ctxt_put(ctxt);
-        } else {
-                CDEBUG(D_HA, "Started llog_cat_process_thread(): %d\n", rc);
-                rc = 0;
-        }
+	lpca->lpca_ctxt = llog_ctxt_get(ctxt);
+	if (!lpca->lpca_ctxt) {
+		OBD_FREE_PTR(lpca);
+		RETURN(-ENODEV);
+	}
+	task = kthread_run(llog_cat_process_thread, lpca, "ll_log_process");
+	if (IS_ERR(task)) {
+		rc = PTR_ERR(task);
+		CERROR("Error starting llog_cat_process_thread(): %d\n", rc);
+		OBD_FREE_PTR(lpca);
+		llog_ctxt_put(ctxt);
+	} else {
+		CDEBUG(D_HA, "Started llog_cat_process_thread()\n");
+		rc = 0;
+	}
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 int llog_obd_repl_connect(struct llog_ctxt *ctxt,
