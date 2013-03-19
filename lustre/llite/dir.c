@@ -886,6 +886,7 @@ int ll_get_mdt_idx(struct inode *inode)
         struct ll_sb_info *sbi = ll_i2sbi(inode);
         struct md_op_data *op_data;
         int rc, mdtidx;
+	struct ptlrpc_request *req = NULL;
         ENTRY;
 
         op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL, 0,
@@ -894,7 +895,7 @@ int ll_get_mdt_idx(struct inode *inode)
                 RETURN(PTR_ERR(op_data));
 
 	op_data->op_flags |= MF_GET_MDT_IDX;
-        rc = md_getattr(sbi->ll_md_exp, op_data, NULL);
+        rc = md_getattr(sbi->ll_md_exp, op_data, &req);
         mdtidx = op_data->op_mds;
         ll_finish_md_op_data(op_data);
         if (rc < 0) {
