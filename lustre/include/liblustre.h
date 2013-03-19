@@ -458,6 +458,16 @@ struct posix_acl * posix_acl_from_xattr(const void *value, size_t size)
         return NULL;
 }
 
+#ifndef HAVE_POSIXACL_USER_NS
+/*
+ * Mask out &init_user_ns so we don't jump
+ * through hoops to define it somehow only
+ * to have it ignored anyway.
+ */
+#define posix_acl_from_xattr(a,b,c)	posix_acl_from_xattr(b,c)
+#define posix_acl_to_xattr(a,b,c)	posix_acl_to_xattr(b,c)
+#endif
+
 static inline
 int posix_acl_valid(const struct posix_acl *acl)
 {
