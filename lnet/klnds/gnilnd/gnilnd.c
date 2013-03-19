@@ -1,7 +1,6 @@
 /*
  * Copyright (C) 2012 Cray, Inc.
  *
- *   Author: Igor Gorodetsky <iogordet@cray.com>
  *   Author: Nic Henke <nic@cray.com>
  *   Author: James Shimek <jshimek@cray.com>
  *
@@ -36,7 +35,6 @@ lnd_t the_kgnilnd = {
 };
 
 kgn_data_t      kgnilnd_data;
-kgn_hssops_t	kgnilnd_hssops;
 
 /* needs write_lock on kgn_peer_conn_lock */
 int
@@ -175,11 +173,11 @@ kgnilnd_conn_isdup_locked(kgn_peer_t *peer, kgn_conn_t *newconn)
 }
 
 int
-kgnilnd_create_conn(kgn_conn_t **connp, kgn_device_t *dev)
+kgnilnd_create_conn(kgn_conn_t **connp, kgn_device_t *dev, int cpt)
 {
-	kgn_conn_t    *conn;
-	gni_return_t   rrc;
-	int            rc = 0;
+	kgn_conn_t	*conn;
+	gni_return_t	rrc;
+	int		rc = 0;
 
 	LASSERT (!in_interrupt());
 	atomic_inc(&kgnilnd_data.kgn_nconns);
@@ -192,13 +190,14 @@ kgnilnd_create_conn(kgn_conn_t **connp, kgn_device_t *dev)
 		return -E2BIG;
 	}
 
-	LIBCFS_ALLOC(conn, sizeof(*conn));
+	LIBCFS_CPT_ALLOC(conn, lnet_cpt_table(), cpt, sizeof(*conn));
 	if (conn == NULL) {
 		atomic_dec(&kgnilnd_data.kgn_nconns);
 		return -ENOMEM;
 	}
 
-	LIBCFS_ALLOC(conn->gnc_tx_ref_table, GNILND_MAX_MSG_ID * sizeof(void *));
+	LIBCFS_CPT_ALLOC(conn->gnc_tx_ref_table, lnet_cpt_table(), cpt,
+			 GNILND_MAX_MSG_ID * sizeof(void *));
 	if (conn->gnc_tx_ref_table == NULL) {
 		CERROR("Can't allocate conn tx_ref_table\n");
 		rc = -ENOMEM;
@@ -208,6 +207,7 @@ kgnilnd_create_conn(kgn_conn_t **connp, kgn_device_t *dev)
 	atomic_set(&conn->gnc_refcount, 1);
 	atomic_set(&conn->gnc_reaper_noop, 0);
 	atomic_set(&conn->gnc_sched_noop, 0);
+	atomic_set(&conn->gnc_tx_in_use, 0);
 	INIT_LIST_HEAD(&conn->gnc_list);
 	INIT_LIST_HEAD(&conn->gnc_hashlist);
 	INIT_LIST_HEAD(&conn->gnc_schedlist);
@@ -215,6 +215,7 @@ kgnilnd_create_conn(kgn_conn_t **connp, kgn_device_t *dev)
 	INIT_LIST_HEAD(&conn->gnc_mdd_list);
 	spin_lock_init(&conn->gnc_list_lock);
 	spin_lock_init(&conn->gnc_tx_lock);
+	conn->gnc_magic = GNILND_CONN_MAGIC;
 
 	/* set tx id to nearly the end to make sure we find wrapping
 	 * issues soon */
@@ -238,6 +239,7 @@ kgnilnd_create_conn(kgn_conn_t **connp, kgn_device_t *dev)
 	CDEBUG(D_NET, "alloc cqid %u for conn 0x%p\n",
 		conn->gnc_cqid, conn);
 
+	conn->sched = kgnilnd_data.kgn_scheds[cpt];
 	/* need to be set before gnc_ephandle to allow kgnilnd_destroy_conn_ep to
 	 * check context */
 	conn->gnc_device = dev;
@@ -278,7 +280,6 @@ kgn_conn_t *
 kgnilnd_find_conn_locked(kgn_peer_t *peer)
 {
 	kgn_conn_t      *conn = NULL;
-	ENTRY;
 
 	/* if we are in reset, this conn is going to die soon */
 	if (unlikely(kgnilnd_data.kgn_in_reset)) {
@@ -399,13 +400,15 @@ kgnilnd_destroy_conn(kgn_conn_t *conn)
 		list_empty(&conn->gnc_list) &&
 		list_empty(&conn->gnc_hashlist) &&
 		list_empty(&conn->gnc_schedlist) &&
-		list_empty(&conn->gnc_mdd_list),
-		"conn 0x%p->%s IRQ %d sched %d purg %d ep 0x%p lists %d/%d/%d/%d\n",
+		list_empty(&conn->gnc_mdd_list) &&
+		conn->gnc_magic == GNILND_CONN_MAGIC,
+		"conn 0x%p->%s IRQ %d sched %d purg %d ep 0x%p Mg %d lists %d/%d/%d/%d\n",
 		conn, conn->gnc_peer ? libcfs_nid2str(conn->gnc_peer->gnp_nid)
 				     : "<?>",
 		!!in_interrupt(), conn->gnc_scheduled,
 		conn->gnc_in_purgatory,
 		conn->gnc_ephandle,
+		conn->gnc_magic,
 		list_empty(&conn->gnc_list),
 		list_empty(&conn->gnc_hashlist),
 		list_empty(&conn->gnc_schedlist),
@@ -424,8 +427,16 @@ kgnilnd_destroy_conn(kgn_conn_t *conn)
 	CDEBUG(D_NET, "destroying conn %p ephandle %p error %d\n",
 		conn, conn->gnc_ephandle, conn->gnc_error);
 
+	/* We are freeing this memory remove the magic value from the connection */
+	conn->gnc_magic = 0;
+
 	/* if there is an FMA blk left here, we'll tear it down */
 	if (conn->gnc_fma_blk) {
+		if (conn->gnc_peer) {
+			kgn_mbox_info_t *mbox;
+			mbox = &conn->gnc_fma_blk->gnm_mbox_info[conn->gnc_mbox_id];
+			mbox->mbx_prev_nid = conn->gnc_peer->gnp_nid;
+		}
 		kgnilnd_release_mbox(conn, 0);
 	}
 
@@ -451,6 +462,7 @@ kgnilnd_peer_alive(kgn_peer_t *peer)
 void
 kgnilnd_peer_notify(kgn_peer_t *peer, int error)
 {
+	int			cpt = lnet_cpt_of_nid(peer->gnp_nid);
 	int                     tell_lnet = 0;
 	int                     nnets = 0;
 	int                     rc;
@@ -458,7 +470,6 @@ kgnilnd_peer_notify(kgn_peer_t *peer, int error)
 	kgn_conn_t             *conn;
 	kgn_net_t             **nets;
 	kgn_net_t              *net;
-
 
 	if (CFS_FAIL_CHECK(CFS_FAIL_GNI_DONT_NOTIFY))
 		return;
@@ -515,8 +526,8 @@ kgnilnd_peer_notify(kgn_peer_t *peer, int error)
 			return;
 		}
 
-		LIBCFS_ALLOC(nets, nnets * sizeof(*nets));
-
+		LIBCFS_CPT_ALLOC(nets, lnet_cpt_table(), cpt,
+				 nnets * sizeof(*nets));
 		if (nets == NULL) {
 			up_read(&kgnilnd_data.kgn_net_rw_sem);
 			CERROR("Failed to allocate nets[%d]\n", nnets);
@@ -574,7 +585,8 @@ kgnilnd_close_conn_locked(kgn_conn_t *conn, int error)
 	}
 
 	/* if we NETERROR, make sure it is rate limited */
-	if (!kgnilnd_conn_clean_errno(error)) {
+	if (!kgnilnd_conn_clean_errno(error) &&
+	    peer->gnp_down == GNILND_RCA_NODE_UP) {
 		CNETERR("closing conn to %s: error %d\n",
 		       libcfs_nid2str(peer->gnp_nid), error);
 	} else {
@@ -600,6 +612,7 @@ kgnilnd_close_conn_locked(kgn_conn_t *conn, int error)
 	/* Remove from conn hash table: no new callbacks */
 	list_del_init(&conn->gnc_hashlist);
 	kgnilnd_data.kgn_conn_version++;
+	kgnilnd_conn_decref(conn);
 
 	/* if we are in reset, go right to CLOSED as there is no scheduler
 	 * thread to move from CLOSING to CLOSED */
@@ -627,11 +640,6 @@ kgnilnd_close_conn_locked(kgn_conn_t *conn, int error)
 	/* schedule sending CLOSE - if we are in quiesce, this adds to
 	 * gnd_ready_conns and allows us to find it in quiesce processing */
 	kgnilnd_schedule_conn(conn);
-
-	/* lose peer's ref */
-	kgnilnd_conn_decref(conn);
-	/* -1 for conn table */
-	kgnilnd_conn_decref(conn);
 
 	EXIT;
 }
@@ -678,6 +686,17 @@ kgnilnd_complete_closed_conn(kgn_conn_t *conn)
 	LASSERT(list_empty(&conn->gnc_hashlist));
 
 	/* we've sent the close, start nuking */
+	if (CFS_FAIL_CHECK(CFS_FAIL_GNI_SCHEDULE_COMPLETE))
+		kgnilnd_schedule_conn(conn);
+
+	if (conn->gnc_scheduled != GNILND_CONN_PROCESS) {
+		CDEBUG(D_NETERROR, "Error someone scheduled us after we were "
+				"done, Attempting to recover conn 0x%p "
+				"scheduled %d function: %s line: %d\n", conn,
+				conn->gnc_scheduled, conn->gnc_sched_caller,
+				conn->gnc_sched_line);
+		RETURN_EXIT;
+	}
 
 	/* we don't use lists to track things that we can get out of the
 	 * tx_ref table... */
@@ -713,9 +732,13 @@ kgnilnd_complete_closed_conn(kgn_conn_t *conn)
 
 	/* nobody should have marked this as needing scheduling after
 	 * we called close - so only ref should be us handling it */
-	LASSERTF(conn->gnc_scheduled == GNILND_CONN_PROCESS,
-		 "conn 0x%p scheduled %d\n", conn, conn->gnc_scheduled);
-
+	if (conn->gnc_scheduled != GNILND_CONN_PROCESS) {
+		CDEBUG(D_NETERROR, "Error someone scheduled us after we were "
+				"done, Attempting to recover conn 0x%p "
+				"scheduled %d function %s line: %d\n", conn,
+				conn->gnc_scheduled, conn->gnc_sched_caller,
+				conn->gnc_sched_line);
+	}
 	/* now reset a few to actual counters... */
 	nrdma = atomic_read(&conn->gnc_nlive_rdma);
 	nq_rdma = atomic_read(&conn->gnc_nq_rdma);
@@ -732,17 +755,17 @@ kgnilnd_complete_closed_conn(kgn_conn_t *conn)
 	logmsg = (nlive + nrdma + nq_rdma);
 
 	if (logmsg) {
-		if (conn->gnc_peer_error != 0) {
+		if (conn->gnc_peer->gnp_down == GNILND_RCA_NODE_UP) {
 			CNETERR("Closed conn 0x%p->%s (errno %d, peer errno %d): "
 				"canceled %d TX, %d/%d RDMA\n",
 				conn, libcfs_nid2str(conn->gnc_peer->gnp_nid),
 				conn->gnc_error, conn->gnc_peer_error,
 				nlive, nq_rdma, nrdma);
 		} else {
-			CNETERR("Closed conn 0x%p->%s (errno %d): "
-				"canceled %d TX, %d/%d RDMA\n",
+			CDEBUG(D_NET, "Closed conn 0x%p->%s (errno %d,"
+				" peer errno %d): canceled %d TX, %d/%d RDMA\n",
 				conn, libcfs_nid2str(conn->gnc_peer->gnp_nid),
-				conn->gnc_error,
+				conn->gnc_error, conn->gnc_peer_error,
 				nlive, nq_rdma, nrdma);
 		}
 	}
@@ -767,6 +790,8 @@ kgnilnd_complete_closed_conn(kgn_conn_t *conn)
 	/* Remove from peer's list of valid connections if its not in purgatory */
 	if (!conn->gnc_in_purgatory) {
 		list_del_init(&conn->gnc_list);
+		/* Lose peers reference on the conn */
+		kgnilnd_conn_decref(conn);
 	}
 
 	/* NB - only unlinking if we set pending in del_peer_locked from admin or
@@ -795,6 +820,7 @@ kgnilnd_set_conn_params(kgn_dgram_t *dgram)
 	kgn_gniparams_t        *rem_param = &connreq->gncr_gnparams;
 	gni_return_t            rrc;
 	int                     rc = 0;
+	gni_smsg_attr_t        *remote = &connreq->gncr_gnparams.gnpr_smsg_attr;
 
 	/* set timeout vals in conn early so we can use them for the NAK */
 
@@ -829,7 +855,6 @@ kgnilnd_set_conn_params(kgn_dgram_t *dgram)
 			&connreq->gncr_gnparams.gnpr_smsg_attr);
 	if (unlikely(rrc == GNI_RC_INVALID_PARAM)) {
 		gni_smsg_attr_t *local = &conn->gnpr_smsg_attr;
-		gni_smsg_attr_t *remote = &connreq->gncr_gnparams.gnpr_smsg_attr;
 		/* help folks figure out if there is a tunable off, etc. */
 		LCONSOLE_ERROR("SMSG attribute mismatch. Data from local/remote:"
 			       " type %d/%d msg_maxsize %u/%u"
@@ -864,6 +889,7 @@ kgnilnd_set_conn_params(kgn_dgram_t *dgram)
 
 	conn->gnc_peerstamp = connreq->gncr_peerstamp;
 	conn->gnc_peer_connstamp = connreq->gncr_connstamp;
+	conn->remote_mbox_addr = (void *)((char *)remote->msg_buffer + remote->mbox_offset);
 
 	/* We update the reaper timeout once we have a valid conn and timeout */
 	kgnilnd_update_reaper_timeout(GNILND_TO2KA(conn->gnc_timeout));
@@ -892,8 +918,9 @@ return_out:
 int
 kgnilnd_create_peer_safe(kgn_peer_t **peerp, lnet_nid_t nid, kgn_net_t *net)
 {
-	kgn_peer_t    *peer;
-	int            rc;
+	kgn_peer_t	*peer;
+	int		rc;
+	int		cpt = lnet_cpt_of_nid(nid);
 
 	LASSERT(nid != LNET_NID_ANY);
 
@@ -916,12 +943,13 @@ kgnilnd_create_peer_safe(kgn_peer_t **peerp, lnet_nid_t nid, kgn_net_t *net)
 		kgnilnd_net_addref(net);
 	}
 
-	LIBCFS_ALLOC(peer, sizeof(*peer));
+	LIBCFS_CPT_ALLOC(peer, lnet_cpt_table(), cpt, sizeof(*peer));
 	if (peer == NULL) {
 		kgnilnd_net_decref(net);
 		return -ENOMEM;
 	}
 	peer->gnp_nid = nid;
+	peer->gnp_down = GNILND_RCA_NODE_UP;
 
 	/* translate from nid to nic addr & store */
 	rc = kgnilnd_nid_to_nicaddrs(LNET_NIDADDR(nid), 1, &peer->gnp_host_id);
@@ -1028,13 +1056,10 @@ kgnilnd_add_purgatory_locked(kgn_conn_t *conn, kgn_peer_t *peer)
 	CDEBUG(D_NET, "conn %p peer %p dev %p\n", conn, peer,
 		conn->gnc_device);
 
-	/* add ref for mbox purgatory hold */
-	kgnilnd_peer_addref(peer);
-	kgnilnd_conn_addref(conn);
 	conn->gnc_in_purgatory = 1;
 
 	mbox = &conn->gnc_fma_blk->gnm_mbox_info[conn->gnc_mbox_id];
-	mbox->mbx_prev_nid = peer->gnp_nid;
+	mbox->mbx_prev_purg_nid = peer->gnp_nid;
 	mbox->mbx_add_purgatory = jiffies;
 	kgnilnd_release_mbox(conn, 1);
 
@@ -1085,7 +1110,6 @@ kgnilnd_detach_purgatory_locked(kgn_conn_t *conn, struct list_head *conn_list)
 		 * on the peer's conn_list anymore.
 		 */
 
-		kgnilnd_peer_decref(conn->gnc_peer);
 		list_del_init(&conn->gnc_list);
 
 		/* NB - only unlinking if we set pending in del_peer_locked from admin or
@@ -1252,9 +1276,6 @@ kgnilnd_get_peer_info(int index,
 
 		list_for_each(ptmp, &kgnilnd_data.kgn_peers[i]) {
 			peer = list_entry(ptmp, kgn_peer_t, gnp_list);
-
-			if (peer->gnp_nid != *id)
-				continue;
 
 			if (index-- > 0)
 				continue;
@@ -1628,6 +1649,103 @@ kgnilnd_close_peer_conns_locked(kgn_peer_t *peer, int why)
 }
 
 int
+kgnilnd_report_node_state(lnet_nid_t nid, int down)
+{
+	int         rc;
+	kgn_peer_t  *peer, *new_peer;
+	CFS_LIST_HEAD(zombies);
+
+	write_lock(&kgnilnd_data.kgn_peer_conn_lock);
+	peer = kgnilnd_find_peer_locked(nid);
+
+	if (peer == NULL) {
+		int       i;
+		int       found_net = 0;
+		kgn_net_t *net;
+
+		write_unlock(&kgnilnd_data.kgn_peer_conn_lock);
+
+		/* Don't add a peer for node up events */
+		if (down == GNILND_RCA_NODE_UP) {
+			return 0;
+		}
+
+		/* find any valid net - we don't care which one... */
+		down_read(&kgnilnd_data.kgn_net_rw_sem);
+		for (i = 0; i < *kgnilnd_tunables.kgn_net_hash_size; i++) {
+			list_for_each_entry(net, &kgnilnd_data.kgn_nets[i],
+					    gnn_list) {
+				found_net = 1;
+				break;
+			}
+
+			if (found_net) {
+				break;
+			}
+		}
+		up_read(&kgnilnd_data.kgn_net_rw_sem);
+
+		if (!found_net) {
+			CNETERR("Could not find a net for nid %lld\n", nid);
+			return 1;
+		}
+
+		/* The nid passed in does not yet contain the net portion.
+		 * Let's build it up now
+		 */
+		nid = LNET_MKNID(LNET_NIDNET(net->gnn_ni->ni_nid), nid);
+		rc = kgnilnd_add_peer(net, nid, &new_peer);
+
+		if (rc) {
+			CNETERR("Could not add peer for nid %lld, rc %d\n",
+				nid, rc);
+			return 1;
+		}
+
+		write_lock(&kgnilnd_data.kgn_peer_conn_lock);
+		peer = kgnilnd_find_peer_locked(nid);
+
+		if (peer == NULL) {
+			CNETERR("Could not find peer for nid %lld\n", nid);
+			write_unlock(&kgnilnd_data.kgn_peer_conn_lock);
+			return 1;
+		}
+	}
+
+	peer->gnp_down = down;
+
+	if (down == GNILND_RCA_NODE_DOWN) {
+		kgn_conn_t *conn;
+
+		peer->gnp_down_event_time = jiffies;
+		kgnilnd_cancel_peer_connect_locked(peer, &zombies);
+		conn = kgnilnd_find_conn_locked(peer);
+
+		if (conn != NULL) {
+			kgnilnd_close_conn_locked(conn, -ENETRESET);
+		}
+	} else {
+		peer->gnp_up_event_time = jiffies;
+	}
+
+	write_unlock(&kgnilnd_data.kgn_peer_conn_lock);
+
+	if (down == GNILND_RCA_NODE_DOWN) {
+		/* using ENETRESET so we don't get messages from
+		 * kgnilnd_tx_done
+		 */
+		kgnilnd_txlist_done(&zombies, -ENETRESET);
+
+		if (*kgnilnd_tunables.kgn_peer_health) {
+			kgnilnd_peer_notify(peer, -ECONNRESET);
+		}
+	}
+
+	CDEBUG(D_INFO, "marking nid %lld %s\n", nid, down ? "down" : "up");
+	return 0;
+}
+
+int
 kgnilnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
 {
 	struct libcfs_ioctl_data *data = arg;
@@ -1847,6 +1965,8 @@ kgnilnd_dev_init(kgn_device_t *dev)
 		GOTO(failed, rc);
 	}
 
+	/* a bit gross, but not much we can do - Aries Sim doesn't have
+	 * hardcoded NIC/NID that we can use */
 	rc = kgnilnd_setup_nic_translation(dev->gnd_host_id);
 	if (rc != 0) {
 		rc = -ENODEV;
@@ -1857,7 +1977,9 @@ kgnilnd_dev_init(kgn_device_t *dev)
 	 * - this works because we have a single PTAG, if we had more
 	 * then we'd need to have multiple handlers */
 	if (dev->gnd_id == 0) {
-		rrc = kgnilnd_subscribe_errors(dev->gnd_handle, GNI_ERRMASK_CRITICAL,
+		rrc = kgnilnd_subscribe_errors(dev->gnd_handle,
+						GNI_ERRMASK_CRITICAL |
+						GNI_ERRMASK_UNKNOWN_TRANSACTION,
 					      0, NULL, kgnilnd_critical_error,
 					      &dev->gnd_err_handle);
 		if (rrc != GNI_RC_SUCCESS) {
@@ -2010,15 +2132,14 @@ kgnilnd_dev_fini(kgn_device_t *dev)
 	EXIT;
 }
 
-
 int kgnilnd_base_startup(void)
 {
-	struct timeval       tv;
-	int                  pkmem = atomic_read(&libcfs_kmemory);
-	int                  rc;
-	int                  i;
-	kgn_device_t        *dev;
-	struct task_struct  *thrd;
+	struct kgn_sched_info	*sched;
+	struct timeval		tv;
+	int			pkmem = atomic_read(&libcfs_kmemory);
+	int			rc, i, j;
+	kgn_device_t		*dev;
+	struct task_struct	*thrd;
 	ENTRY;
 
 	LASSERTF(kgnilnd_data.kgn_init == GNILND_INIT_NOTHING,
@@ -2026,7 +2147,6 @@ int kgnilnd_base_startup(void)
 
 	/* zero pointers, flags etc */
 	memset(&kgnilnd_data, 0, sizeof(kgnilnd_data));
-	memset(&kgnilnd_hssops, 0, sizeof(kgnilnd_hssops));
 
 	/* CAVEAT EMPTOR: Every 'Fma' message includes the sender's NID and
 	 * a unique (for all time) connstamp so we can uniquely identify
@@ -2041,6 +2161,52 @@ int kgnilnd_base_startup(void)
 
 	init_rwsem(&kgnilnd_data.kgn_net_rw_sem);
 
+	kgnilnd_data.kgn_scheds = cfs_percpt_alloc(lnet_cpt_table(),
+						   sizeof(*sched));
+	if (kgnilnd_data.kgn_scheds == NULL) {
+		rc = -ENOMEM;
+		GOTO(failed, rc);
+	}
+
+	cfs_percpt_for_each(sched, i, kgnilnd_data.kgn_scheds) {
+		int ncores = cfs_cpt_weight(lnet_cpt_table(), i);
+
+		/* Checksum page array allocation */
+		LIBCFS_CPT_ALLOC(sched->kgn_cksum_map_pages, lnet_cpt_table(), i,
+				 ncores * sizeof(struct page *));
+		if (sched->kgn_cksum_map_pages == NULL) {
+			CERROR("Can't allocate vmap cksum pages\n");
+			rc = -ENOMEM;
+			GOTO(failed, rc);
+		}
+		sched->kgn_cksum_npages = ncores;
+
+		/* allocate a MAX_IOV array of page pointers for each cpu */
+		for (j = 0; j < sched->kgn_cksum_npages; j++) {
+			LIBCFS_CPT_ALLOC(sched->kgn_cksum_map_pages[j], lnet_cpt_table(),
+					 sched->kgn_cpt, LNET_MAX_IOV * sizeof (struct page *));
+				if (sched->kgn_cksum_map_pages[j] == NULL) {
+					CERROR("Can't allocate vmap cksum pages for cpu %d\n", j);
+				rc = -ENOMEM;
+				GOTO(failed, rc);
+			}
+		}
+
+		/* initialize wait queue */
+		init_waitqueue_head(&sched->kgn_waitq);
+
+		/* setup timer for RDMAQ processing */
+		setup_timer(&sched->kgn_rdmaq_timer, kgnilnd_schedule_device_timer,
+			    (unsigned long) sched);
+
+		/* setup timer for mapping processing */
+		setup_timer(&sched->kgn_map_timer, kgnilnd_schedule_device_timer,
+			    (unsigned long) sched);
+
+		/* Which CPU partition this data is for */
+		sched->kgn_cpt = i;
+	}
+
 	for (i = 0; i < GNILND_MAXDEVS; i++) {
 		kgn_device_t  *dev = &kgnilnd_data.kgn_devices[i];
 
@@ -2051,7 +2217,6 @@ int kgnilnd_base_startup(void)
 		mutex_init(&dev->gnd_cq_mutex);
 		sema_init(&dev->gnd_fmablk_sem, 1);
 		spin_lock_init(&dev->gnd_fmablk_lock);
-		init_waitqueue_head(&dev->gnd_waitq);
 		init_waitqueue_head(&dev->gnd_dgram_waitq);
 		init_waitqueue_head(&dev->gnd_dgping_waitq);
 		spin_lock_init(&dev->gnd_lock);
@@ -2066,6 +2231,7 @@ int kgnilnd_base_startup(void)
 		spin_lock_init(&dev->gnd_dgram_lock);
 		spin_lock_init(&dev->gnd_rdmaq_lock);
 		INIT_LIST_HEAD(&dev->gnd_rdmaq);
+		init_rwsem(&dev->gnd_conn_sem);
 
 		/* alloc & setup nid based dgram table */
 		LIBCFS_ALLOC(dev->gnd_dgrams,
@@ -2080,10 +2246,7 @@ int kgnilnd_base_startup(void)
 			INIT_LIST_HEAD(&dev->gnd_dgrams[i]);
 		}
 		atomic_set(&dev->gnd_ndgrams, 0);
-
-		/* setup timer for RDMAQ processing */
-		setup_timer(&dev->gnd_rdmaq_timer, kgnilnd_schedule_device_timer,
-			    (unsigned long)dev);
+		atomic_set(&dev->gnd_nwcdgrams, 0);
 	}
 
 	/* CQID 0 isn't allowed, set to MAX_MSG_ID - 1 to check for conflicts early */
@@ -2098,6 +2261,10 @@ int kgnilnd_base_startup(void)
 	atomic_set(&kgnilnd_data.kgn_npending_conns, 0);
 	atomic_set(&kgnilnd_data.kgn_npending_unlink, 0);
 	atomic_set(&kgnilnd_data.kgn_npending_detach, 0);
+	atomic_set(&kgnilnd_data.kgn_rev_offset, 0);
+	atomic_set(&kgnilnd_data.kgn_rev_length, 0);
+	atomic_set(&kgnilnd_data.kgn_rev_copy_buff, 0);
+
 	/* OK to call kgnilnd_api_shutdown() to cleanup now */
 	kgnilnd_data.kgn_init = GNILND_INIT_DATA;
 	PORTAL_MODULE_USE;
@@ -2195,28 +2362,6 @@ int kgnilnd_base_startup(void)
 		GOTO(failed, rc);
 	}
 
-	/* allocate a MAX_IOV array of page pointers for each cpu */
-	kgnilnd_data.kgn_cksum_map_pages = kmalloc(num_possible_cpus() * sizeof (struct page *),
-						   GFP_KERNEL);
-	if (kgnilnd_data.kgn_cksum_map_pages == NULL) {
-		CERROR("Can't allocate vmap cksum pages\n");
-		rc = -ENOMEM;
-		GOTO(failed, rc);
-	}
-	kgnilnd_data.kgn_cksum_npages = num_possible_cpus();
-	memset(kgnilnd_data.kgn_cksum_map_pages, 0,
-		kgnilnd_data.kgn_cksum_npages * sizeof (struct page *));
-
-	for (i = 0; i < kgnilnd_data.kgn_cksum_npages; i++) {
-		kgnilnd_data.kgn_cksum_map_pages[i] = kmalloc(LNET_MAX_IOV * sizeof (struct page *),
-							      GFP_KERNEL);
-		if (kgnilnd_data.kgn_cksum_map_pages[i] == NULL) {
-			CERROR("Can't allocate vmap cksum pages for cpu %d\n", i);
-			rc = -ENOMEM;
-			GOTO(failed, rc);
-		}
-	}
-
 	LASSERT(kgnilnd_data.kgn_ndevs == 0);
 
 	/* Use all available GNI devices */
@@ -2247,6 +2392,12 @@ int kgnilnd_base_startup(void)
 		GOTO(failed, rc);
 	}
 
+	rc = kgnilnd_start_rca_thread();
+	if (rc != 0) {
+		CERROR("Can't spawn gnilnd rca: %d\n", rc);
+		GOTO(failed, rc);
+	}
+
 	/*
 	 * Start ruhroh thread.  We can't use kgnilnd_thread_start() because
 	 * we don't want this thread included in kgnilnd_data.kgn_nthreads
@@ -2259,46 +2410,6 @@ int kgnilnd_base_startup(void)
 		CERROR("Can't spawn gnilnd ruhroh thread: %d\n", rc);
 		GOTO(failed, rc);
 	}
-
-	/* threads will load balance across devs as they are available */
-	for (i = 0; i < *kgnilnd_tunables.kgn_sched_threads; i++) {
-		rc = kgnilnd_thread_start(kgnilnd_scheduler, (void *)((long)i),
-					  "kgnilnd_sd", i);
-		if (rc != 0) {
-			CERROR("Can't spawn gnilnd scheduler[%d]: %d\n",
-			       i, rc);
-			GOTO(failed, rc);
-		}
-	}
-
-	for (i = 0; i < kgnilnd_data.kgn_ndevs; i++) {
-		dev = &kgnilnd_data.kgn_devices[i];
-		rc = kgnilnd_thread_start(kgnilnd_dgram_mover, dev,
-					  "kgnilnd_dg", dev->gnd_id);
-		if (rc != 0) {
-			CERROR("Can't spawn gnilnd dgram_mover[%d]: %d\n",
-			       dev->gnd_id, rc);
-			GOTO(failed, rc);
-		}
-
-		rc = kgnilnd_thread_start(kgnilnd_dgram_waitq, dev,
-					  "kgnilnd_dgn", dev->gnd_id);
-		if (rc != 0) {
-			CERROR("Can't spawn gnilnd dgram_waitq[%d]: %d\n",
-				dev->gnd_id, rc);
-			GOTO(failed, rc);
-		}
-
-		rc = kgnilnd_setup_wildcard_dgram(dev);
-
-		if (rc != 0) {
-			CERROR("Can't create wildcard dgrams[%d]: %d\n",
-				dev->gnd_id, rc);
-			GOTO(failed, rc);
-		}
-	}
-
-
 
 	/* flag everything initialised */
 	kgnilnd_data.kgn_init = GNILND_INIT_ALL;
@@ -2316,7 +2427,8 @@ failed:
 void
 kgnilnd_base_shutdown(void)
 {
-	int           i;
+	struct kgn_sched_info	*sched;
+	int			i, j;
 	ENTRY;
 
 	while (CFS_FAIL_TIMEOUT(CFS_FAIL_GNI_PAUSE_SHUTDOWN, 1)) {};
@@ -2359,7 +2471,9 @@ kgnilnd_base_shutdown(void)
 		/* should clear all the MDDs */
 		kgnilnd_unmap_phys_fmablk(dev);
 
-		kgnilnd_schedule_device(dev);
+		for (j = 0; j < dev->gnd_ncpts; j++)
+			kgnilnd_schedule_device(dev->gnd_scheds[j]);
+
 		wake_up_all(&dev->gnd_dgram_waitq);
 		wake_up_all(&dev->gnd_dgping_waitq);
 		LASSERT(list_empty(&dev->gnd_connd_peers));
@@ -2368,6 +2482,8 @@ kgnilnd_base_shutdown(void)
 	spin_lock(&kgnilnd_data.kgn_reaper_lock);
 	wake_up_all(&kgnilnd_data.kgn_reaper_waitq);
 	spin_unlock(&kgnilnd_data.kgn_reaper_lock);
+
+	kgnilnd_wakeup_rca_thread();
 
 	/* Wait for threads to exit */
 	i = 2;
@@ -2458,14 +2574,19 @@ kgnilnd_base_shutdown(void)
 		LASSERTF(i == 0, "rc %d destroying kgn_dgram_cache\n", i);
 	}
 
-	if (kgnilnd_data.kgn_cksum_map_pages != NULL) {
-		for (i = 0; i < kgnilnd_data.kgn_cksum_npages; i++) {
-			if (kgnilnd_data.kgn_cksum_map_pages[i] != NULL) {
-				kfree(kgnilnd_data.kgn_cksum_map_pages[i]);
+	cfs_percpt_for_each(sched, i, kgnilnd_data.kgn_scheds) {
+		for (j = 0; j < sched->kgn_cksum_npages; j++) {
+			if (sched->kgn_cksum_map_pages[j] != NULL) {
+				LIBCFS_FREE(sched->kgn_cksum_map_pages[j],
+					    LNET_MAX_IOV * sizeof(struct page *));
 			}
 		}
-		kfree(kgnilnd_data.kgn_cksum_map_pages);
+		LIBCFS_FREE(sched->kgn_cksum_map_pages,
+			    sched->kgn_cksum_npages * sizeof (struct page *));
 	}
+
+	if (kgnilnd_data.kgn_scheds != NULL)
+		cfs_percpt_free(kgnilnd_data.kgn_scheds);
 
 	CDEBUG(D_MALLOC, "after NAL cleanup: kmem %d\n",
 	       atomic_read(&libcfs_kmemory));
@@ -2479,8 +2600,8 @@ kgnilnd_base_shutdown(void)
 int
 kgnilnd_startup(lnet_ni_t *ni)
 {
-	int               rc, devno;
-	kgn_net_t        *net;
+	int		devno, max_threads, rc, i, j = 0;
+	kgn_net_t	*net;
 	ENTRY;
 
 	LASSERTF(ni->ni_lnd == &the_kgnilnd,
@@ -2511,17 +2632,28 @@ kgnilnd_startup(lnet_ni_t *ni)
 
 	if (*kgnilnd_tunables.kgn_peer_health) {
 		int     fudge;
-
+		int     timeout;
 		/* give this a bit of leeway - we don't have a hard timeout
 		 * as we only check timeouts periodically - see comment in kgnilnd_reaper */
 		fudge = (GNILND_TO2KA(*kgnilnd_tunables.kgn_timeout) / GNILND_REAPER_NCHECKS);
+		timeout = *kgnilnd_tunables.kgn_timeout + fudge;
 
-		ni->ni_peertimeout = *kgnilnd_tunables.kgn_timeout + fudge;
+		if (*kgnilnd_tunables.kgn_peer_timeout >= timeout)
+			ni->ni_peertimeout = *kgnilnd_tunables.kgn_peer_timeout;
+		else if (*kgnilnd_tunables.kgn_peer_timeout > -1) {
+			LCONSOLE_ERROR("Peer_timeout is set to %d but needs to be >= %d\n",
+					*kgnilnd_tunables.kgn_peer_timeout,
+					timeout);
+			ni->ni_data = NULL;
+			LIBCFS_FREE(net, sizeof(*net));
+			rc = -EINVAL;
+			GOTO(failed, rc);
+		} else
+			ni->ni_peertimeout = timeout;
 
 		LCONSOLE_INFO("Enabling LNet peer health for gnilnd, timeout %ds\n",
 			      ni->ni_peertimeout);
 	}
-
 	atomic_set(&net->gnn_refcount, 1);
 
 	/* if we have multiple devices, spread the nets around */
@@ -2537,17 +2669,75 @@ kgnilnd_startup(lnet_ni_t *ni)
 
 	/* the instance id for the cdm is the NETNUM offset by MAXDEVS -
 	 * ensuring we'll have a unique id */
-
-
 	ni->ni_nid = LNET_MKNID(LNET_NIDNET(ni->ni_nid), net->gnn_dev->gnd_nid);
 	CDEBUG(D_NET, "adding net %p nid=%s on dev %d \n",
 		net, libcfs_nid2str(ni->ni_nid), net->gnn_dev->gnd_id);
 	/* until the gnn_list is set, we need to cleanup ourselves as
 	 * kgnilnd_shutdown is just gonna get confused */
-
 	down_write(&kgnilnd_data.kgn_net_rw_sem);
 	list_add_tail(&net->gnn_list, kgnilnd_netnum2netlist(net->gnn_netnum));
 	up_write(&kgnilnd_data.kgn_net_rw_sem);
+
+	LIBCFS_ALLOC(net->gnn_dev->gnd_scheds, sizeof(struct kgn_sched_info *) * ni->ni_ncpts);
+	if (net->gnn_dev->gnd_scheds == NULL) {
+		rc = -ENOMEM;
+		GOTO(failed, rc);
+	}
+	memset(net->gnn_dev->gnd_scheds, 0, sizeof(struct kgn_sched_info *) * ni->ni_ncpts);
+	net->gnn_dev->gnd_ncpts = ni->ni_ncpts;
+
+	/* Total maximum number of threads per LND interface */
+	if (*kgnilnd_tunables.kgn_sched_threads > 0) {
+		max_threads = *kgnilnd_tunables.kgn_sched_threads;
+	} else {
+		max_threads = max(GNILND_SCHED_THREADS, 1);
+	}
+
+	for (i = 0; i < ni->ni_ncpts; i++) {
+		int cpt = (ni->ni_cpts == NULL) ? i : ni->ni_cpts[i];
+		struct kgn_sched_info *sched = kgnilnd_data.kgn_scheds[cpt];
+		long id = atomic_read(&kgnilnd_data.kgn_nthreads) + i;
+
+		net->gnn_dev->gnd_scheds[cpt] = sched;
+
+		/* Create gnilnd schedulers up to the maximum number
+		 * of cores or the limit set by the user. */
+		if (j < max_threads && j < sched->kgn_cksum_npages) {
+			id = KGN_THREAD_ID(net->gnn_dev->gnd_id, sched->kgn_cpt, id);
+			rc = kgnilnd_thread_start(kgnilnd_scheduler,
+						  (void *)((long)id),
+						  "kgnilnd_sd", id);
+			if (rc != 0) {
+				CERROR("Can't spawn gnilnd scheduler[%ld]: %d\n",
+				       id, rc);
+				GOTO(failed, rc);
+			}
+			j++;
+		}
+	}
+
+	rc = kgnilnd_thread_start(kgnilnd_dgram_mover, net->gnn_dev,
+				  "kgnilnd_dg", net->gnn_dev->gnd_id);
+	if (rc != 0) {
+		CERROR("Can't spawn gnilnd dgram_mover[%d]: %d\n",
+		       net->gnn_dev->gnd_id, rc);
+		GOTO(failed, rc);
+	}
+
+	rc = kgnilnd_thread_start(kgnilnd_dgram_waitq, net->gnn_dev,
+				  "kgnilnd_dgn", net->gnn_dev->gnd_id);
+	if (rc != 0) {
+		CERROR("Can't spawn gnilnd dgram_waitq[%d]: %d\n",
+		       net->gnn_dev->gnd_id, rc);
+		GOTO(failed, rc);
+	}
+
+	rc = kgnilnd_setup_wildcard_dgram(net->gnn_dev);
+	if (rc != 0) {
+		CERROR("Can't create wildcard dgrams[%d]: %d\n",
+		       net->gnn_dev->gnd_id, rc);
+		GOTO(failed, rc);
+	}
 
 	/* we need a separate thread to call probe_wait_by_id until
 	 * we get a function callback notifier from kgni */
