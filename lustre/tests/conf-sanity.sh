@@ -3683,7 +3683,7 @@ test_66() {
 
 	setup_noconfig
 	check_mount || error "error after nid replace"
-	cleanup
+	cleanup || error "cleanup failed"
 	reformat
 }
 run_test 66 "replace nids"
