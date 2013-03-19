@@ -977,7 +977,7 @@ out_free:
 			CERROR("%s: error replacing nids: rc = %d\n",
 			       exp->exp_obd->obd_name, rc);
 
-		RETURN(rc);
+		break;
 	}
 
 	case OBD_IOC_POOL:
