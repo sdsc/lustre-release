@@ -2754,6 +2754,76 @@ facet_mntpt () {
     echo -n $mntpt
 }
 
+mount_ldiskfs() {
+	local node=$1
+	local dev=$2
+	local mnt=$3
+	local opts
+
+	if ! do_node $node test -b $dev; then
+		opts="-o loop"
+	fi
+	do_node $node mount -t ldiskfs $opts $dev $mnt
+}
+
+unmount_ldiskfs() {
+	local node=$1
+	local dev=$2
+	local mnt=$3
+
+	do_node $node umount -d $mnt
+}
+
+mount_zfs() {
+	local node=$1
+	local ds=$2
+	local mnt=$3
+
+	mz_canmount=$(do_node $node $ZFS get -H -o value canmount $ds)
+	mz_mountpoint=$(do_node $node $ZFS get -H -o value mountpoint $ds)
+	do_node $node $ZFS set canmount=noauto $ds
+	#
+	# The "legacy" mount method is used here because "zfs unmount $mnt"
+	# calls stat(2) on $mnt/../*, which may include $MOUNT.  If certain
+	# targets are not available at the time, the stat(2) on $MOUNT will
+	# hang.
+	#
+	do_node $node $ZFS set mountpoint=legacy $ds
+	do_node $node mount -t zfs $ds $mnt
+}
+
+unmount_zfs() {
+	local node=$1
+	local ds=$2
+	local mnt=$3
+
+	do_node $node umount $mnt
+	do_node $node $ZFS set mountpoint=$mz_mountpoint $ds
+	do_node $node $ZFS set canmount=$mz_canmount $ds
+	unset mz_mountpoint
+	unset mz_canmount
+}
+
+mount_fstype() {
+	local facet=$1
+	local dev=$2
+	local mnt=$3
+	local fstype=$(facet_fstype $facet)
+	local host=$(facet_active_host $facet)
+
+	mount_$fstype $host $dev $mnt
+}
+
+unmount_fstype() {
+	local facet=$1
+	local dev=$2
+	local mnt=$3
+	local fstype=$(facet_fstype $facet)
+	local host=$(facet_active_host $facet)
+
+	unmount_$fstype $host $dev $mnt
+}
+
 ########
 ## MountConf setup
 

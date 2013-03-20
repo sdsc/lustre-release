@@ -3365,20 +3365,17 @@ count_osts() {
 }
 
 test_58() { # bug 22658
-	if [ $(facet_fstype mds) != ldiskfs ]; then
-		skip "Only applicable to ldiskfs-based MDTs"
-		return
-	fi
 	setup_noconfig
 	mkdir -p $DIR/$tdir
 	createmany -o $DIR/$tdir/$tfile-%d 100
-	# make sure that OSTs do not cancel llog cookies before we unmount the MDS
+	# make sure that OSTs do not cancel llog cookies before we unmount the
+	# MDS
 #define OBD_FAIL_OBD_LOG_CANCEL_NET      0x601
 	do_facet mds "lctl set_param fail_loc=0x601"
 	unlinkmany $DIR/$tdir/$tfile-%d 100
 	stop mds
 	local MNTDIR=$(facet_mntpt mds)
-	# remove all files from the OBJECTS dir
+	# remove all 
 	do_facet mds "mount -t ldiskfs $MDSDEV $MNTDIR"
 	do_facet mds "find $MNTDIR/OBJECTS -type f -delete"
 	do_facet mds "umount $MNTDIR"
