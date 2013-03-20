@@ -520,15 +520,13 @@ static inline struct ofd_thread_info * ofd_info_init(const struct lu_env *env,
 
 	info = lu_context_key_get(&env->le_ctx, &ofd_thread_key);
 	LASSERT(info);
-	LASSERT(info->fti_exp == NULL);
-	LASSERT(info->fti_env == NULL);
-	LASSERT(info->fti_attr.la_valid == 0);
 
 	info->fti_env = env;
 	info->fti_exp = exp;
 	info->fti_pre_version = 0;
 	info->fti_transno = 0;
 	info->fti_has_trans = 0;
+	info->fti_attr.la_valid = 0;
 	return info;
 }
 
