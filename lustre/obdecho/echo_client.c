@@ -2653,6 +2653,10 @@ static int echo_client_prep_commit(const struct lu_env *env,
 
                 /* Reset oti otherwise it would confuse ldiskfs. */
                 memset(oti, 0, sizeof(*oti));
+
+		/* Reuse env context. */
+		lu_context_exit(&env->le_ctx);
+		lu_context_enter(&env->le_ctx);
         }
 
 out:
