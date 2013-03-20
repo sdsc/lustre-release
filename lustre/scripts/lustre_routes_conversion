@@ -1,0 +1,117 @@
+# !/bin/bash
+#
+# lustre_routes_conversion
+#   This script takes a file with routes configured as follows:
+# <network>  [<hop>] <gateway>@<exit network>[:<prioirty>];
+# Ex:
+# tcp1 10.1.1.2@tcp0:1
+# or
+# tcp1 1 10.1.1.2@tcp0
+#
+# and converts it to:
+# <network>: { gateway: <gateway>@<exit network> [hope: <hop>] [priority:
+#              <prioirty>] }
+#
+# The purpose of this script is to covert legacy route configuration
+# syntax to the new route configuration syntax
+#
+############################################################################
+
+progname=$(basename $0)
+
+usage() {
+	cat <<- USAGE
+	convert legacy route config syntax to new route config syntax"
+	usage: $progname <legacy file> <new file>
+            -h|--help: display this message
+	USAGE
+}
+
+while [ ! -f "$1" ]; do
+	case "$1" in
+	-h|--help)    usage; exit 0 ;;
+	*)            usage; exit 1 ;;
+	esac
+done
+
+[ -z "$1" ] && usage && exit 1
+
+# Usage: trim <string>
+# trim the white space before and after a string
+trim ()
+{
+	local var=$1
+	var="${var#"${var%%[![:space:]]*}"}"   # remove leading whitespace characters
+	var="${var%"${var##*[![:space:]]}"}"   # remove trailing whitespace characters
+	echo -n $var
+}
+
+# Usage: read_and_parse <file name>
+# Read a routes_config file and parse it out, then feed the proper input
+# int lcl --net <> add_route <> to configure a route.
+read_and_parse ()
+{
+	local network=""
+	local gateway=""
+	local gatewayorhop=""
+	local priority=""
+	local hop=""
+
+	while read line
+	do
+		#Split the input string at ';'
+		IFS=';'
+		ary=($line)
+		for key in "${!ary[@]}"; do
+			# initialize variables.
+			network=""
+			gateway=""
+			gatewayorhop=""
+			priority=""
+			hop=""
+
+			# Split at ':' and '  ' to get the priority if it exists
+			IFS=': '
+			ary2=(${ary[$key]})
+			# Split at ' ' to separate the network from the gateway
+			# trim any whitespaces, and call lctl to add the route
+			network=`trim ${ary2[0]}`
+			gatewayorhop=`trim ${ary2[1]}`
+			# since hop is an optional parameter after we get this
+			# position we need to check if we got the hop or gateway
+			# parameter.  Set gateway is always of the form ip@intf,
+			# then we can simply check for the '@' character in the
+			# string.  if it exists then we don't have a hop but a
+			# gateway.  If we don't then we assume that a hop exists
+			# and a gateway follows it
+			if [[ "$gatewayorhop" == *@* ]]; then
+				gateway=$gatewayorhop
+				priority=`trim ${ary2[2]}`
+			else
+				hop=$gatewayorhop
+				gateway=`trim ${ary2[2]}`
+				priority=`trim ${ary2[3]}`
+			fi
+
+			if [ -z "$network" ] || [ -z "$gateway" ]; then
+				continue;
+			fi
+
+			# Check: if hop is not defined but priority is, then we
+			# need to default hop to 1, because lctl expects that a
+			# hop parameter is defined if a priority parameter is
+			# defined.
+			if [ -n "$priority" ] && [ -z "$hop" ]; then
+				echo "$network: { gateway: $gateway, hop: 1, priority: $priority }" >> "$2"
+			elif [ -z "$priority" ] && [ -z "$hop" ]; then
+				echo "$network: { gateway: $gateway }" >> "$2"
+			elif [ -n "$hop" ]; then
+				echo "$network: { gateway: $gateway, hop: 1" >> "$2"
+			fi
+
+		done
+	done < "$1"
+	echo "Routes Configuration Complete"
+}
+
+read_and_parse $1 $2
