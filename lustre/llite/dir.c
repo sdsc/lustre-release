@@ -1177,6 +1177,30 @@ out:
         return rc;
 }
 
+static char *
+ll_getname(const char __user *filename)
+{
+	int ret = 0, len;
+	char *tmp = __getname();
+
+	if (!tmp)
+		return ERR_PTR(-ENOMEM);
+
+	len = strncpy_from_user(tmp, filename, PATH_MAX);
+	if (len == 0)
+		ret = -ENOENT;
+	else if (len > PATH_MAX)
+		ret = -ENAMETOOLONG;
+
+	if (ret) {
+		__putname(tmp);
+		tmp =  ERR_PTR(ret);
+	}
+	return tmp;
+}
+
+#define ll_putname(filename) __putname(filename)
+
 static int ll_dir_ioctl(struct inode *inode, struct file *file,
                         unsigned int cmd, unsigned long arg)
 {
@@ -1285,7 +1309,7 @@ static int ll_dir_ioctl(struct inode *inode, struct file *file,
 
                 if (cmd == IOC_MDC_GETFILEINFO ||
                     cmd == IOC_MDC_GETFILESTRIPE) {
-                        filename = getname((const char *)arg);
+                        filename = ll_getname((const char *)arg);
                         if (IS_ERR(filename))
                                 RETURN(PTR_ERR(filename));
 
@@ -1357,7 +1381,7 @@ static int ll_dir_ioctl(struct inode *inode, struct file *file,
         out_req:
                 ptlrpc_req_finished(request);
                 if (filename)
-                        putname(filename);
+                        ll_putname(filename);
                 return rc;
         }
         case IOC_LOV_GETINFO: {
