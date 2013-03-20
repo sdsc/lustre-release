@@ -2680,6 +2680,14 @@ static int echo_client_brw_ioctl(const struct lu_env *env, int rw,
 
         LASSERT(oa->o_valid & OBD_MD_FLGROUP);
 
+	if (data->ioc_count > PTLRPC_MAX_BRW_SIZE) {
+		CERROR("%s: bulk has too big size "LPU64", which exceeds the"
+		       "maximum bulk I/O RPC size of "LPU64"\n",
+		       ec->ec_exp->exp_obd->obd_name, data->ioc_count,
+		       PTLRPC_MAX_BRW_SIZE);
+		RETURN(-EPROTO);
+	}
+
         rc = echo_get_object(&eco, ed, oa);
         if (rc)
                 RETURN(rc);
@@ -2695,10 +2703,6 @@ static int echo_client_brw_ioctl(const struct lu_env *env, int rw,
                 test_mode = 3;
                 data->ioc_plen1 = data->ioc_count;
         }
-
-        /* Truncate batch size to maximum */
-        if (data->ioc_plen1 > PTLRPC_MAX_BRW_SIZE)
-                data->ioc_plen1 = PTLRPC_MAX_BRW_SIZE;
 
         switch (test_mode) {
         case 1:
