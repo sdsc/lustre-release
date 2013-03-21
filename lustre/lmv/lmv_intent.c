@@ -322,7 +322,7 @@ int lmv_intent_lock(struct obd_export *exp, struct md_op_data *op_data,
                 rc = lmv_intent_lookup(exp, op_data, lmm, lmmsize, it,
                                        flags, reqp, cb_blocking,
                                        extra_lock_flags);
-        else if (it->it_op & IT_OPEN)
+	else if (it->it_op & (IT_OPEN | IT_RELEASE_OPEN))
                 rc = lmv_intent_open(exp, op_data, lmm, lmmsize, it,
                                      flags, reqp, cb_blocking,
                                      extra_lock_flags);

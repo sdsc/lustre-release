@@ -164,6 +164,7 @@ extern struct req_format RQF_UPDATE_OBJ;
  */
 extern struct req_format RQF_MDS_GETATTR_NAME;
 extern struct req_format RQF_MDS_CLOSE;
+extern struct req_format RQF_MDS_RELEASE_CLOSE;
 extern struct req_format RQF_MDS_PIN;
 extern struct req_format RQF_MDS_UNPIN;
 extern struct req_format RQF_MDS_CONNECT;
@@ -292,6 +293,7 @@ extern struct req_msg_field RMF_HSM_USER_STATE;
 extern struct req_msg_field RMF_HSM_STATE_SET;
 extern struct req_msg_field RMF_MDS_HSM_CURRENT_ACTION;
 extern struct req_msg_field RMF_MDS_HSM_REQUEST;
+extern struct req_msg_field RMF_DATA_VERSION;
 
 /* seq-mgr fields */
 extern struct req_msg_field RMF_SEQ_OPC;
