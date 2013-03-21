@@ -291,6 +291,9 @@ static int lod_declare_attr_set(const struct lu_env *env,
 	if (rc)
 		RETURN(rc);
 
+	if (!(attr->la_valid & (LA_UID | LA_GID)))
+		RETURN(rc);
+
 	/*
 	 * load striping information, notice we don't do this when object
 	 * is being initialized as we don't need this information till
@@ -332,6 +335,9 @@ static int lod_attr_set(const struct lu_env *env,
 	 */
 	rc = dt_attr_set(env, next, attr, handle, capa);
 	if (rc)
+		RETURN(rc);
+
+	if (!(attr->la_valid & (LA_UID | LA_GID)))
 		RETURN(rc);
 
 	/*
@@ -440,9 +446,9 @@ static int lod_declare_xattr_set(const struct lu_env *env,
 		rc = lod_declare_striped_object(env, dt, attr, buf, th);
 		if (rc)
 			RETURN(rc);
+	} else {
+		rc = dt_declare_xattr_set(env, next, buf, name, fl, th);
 	}
-
-	rc = dt_declare_xattr_set(env, next, buf, name, fl, th);
 
 	RETURN(rc);
 }
