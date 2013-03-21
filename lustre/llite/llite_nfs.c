@@ -120,7 +120,7 @@ struct lustre_nfs_fid {
         struct lu_fid   lnf_parent;
 };
 
-static struct dentry *
+struct dentry *
 ll_iget_for_nfs(struct super_block *sb, struct lu_fid *fid, struct lu_fid *parent)
 {
         struct inode  *inode;

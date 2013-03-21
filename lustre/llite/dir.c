@@ -1837,8 +1837,28 @@ out_rmdir:
 			RETURN(-EFAULT);
 		}
 
-		rc = obd_iocontrol(cmd, ll_i2mdexp(inode), totalsize,
-				   hur, NULL);
+		if (hur->hur_request.hr_action == HUA_RELEASE) {
+			struct lu_fid *fid;
+			struct dentry *fl_dentry;
+			int i;
+			for (i = 0; i < hur->hur_request.hr_itemcount; i++) {
+				fid = &hur->hur_user_item[i].hui_fid;
+				fl_dentry = ll_iget_for_nfs(inode->i_sb, fid,
+							    NULL);
+				if (IS_ERR(fl_dentry)) {
+					rc = -EINVAL;
+					break;
+				}
+
+				rc = ll_file_hsm_release(fl_dentry->d_inode);
+				dput(fl_dentry);
+				if (rc)
+					break;
+			}
+		} else {
+			rc = obd_iocontrol(cmd, ll_i2mdexp(inode), totalsize,
+					   hur, NULL);
+		}
 
 		OBD_FREE_LARGE(hur, totalsize);
 

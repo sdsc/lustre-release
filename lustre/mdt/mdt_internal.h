@@ -194,6 +194,7 @@ struct mdt_object {
         __u64                   mot_ioepoch;
         __u64                   mot_flags;
         int                     mot_ioepoch_count;
+	int                     mot_opencount;
         int                     mot_writecount;
         /* Lock to protect object's IO epoch. */
 	struct mutex		mot_ioepoch_mutex;
@@ -477,6 +478,8 @@ struct mdt_thread_info {
 	char			   mti_xattr_buf[128];
 	struct thandle_exec_args   mti_handle;
 	struct ldlm_enqueue_info   mti_einfo;
+
+	__u64			   mti_data_version;
 };
 
 /* ptlrpc request handler for MDT. All handlers are
