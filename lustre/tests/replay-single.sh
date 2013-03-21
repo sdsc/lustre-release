@@ -2777,6 +2777,20 @@ test_90() { # bug 19494
 }
 run_test 90 "lfs find identifies the missing striped file segments"
 
+#LU-2827 mdt_intent_fixup_resent need to find the proper lock in hash
+test_91() {
+	touch $DIR/$tname
+	#define OBD_FAIL_LDLM_REPLY              0x30c
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0x8000030c"
+	setfattr -n user.attr -v value $DIR/$tname
+	sleep 200
+	#check the state of the system
+	sanity_mount_check ||
+		error "Client has been evicted"
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0x0"
+}
+run_test 91 "Find proper lock in hash LU-2827"
+
 complete $SECONDS
 check_and_cleanup_lustre
 exit_status
