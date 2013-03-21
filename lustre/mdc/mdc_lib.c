@@ -218,7 +218,7 @@ static __u64 mds_pack_open_flags(__u32 flags, __u32 mode)
 /* packing of MDS records */
 void mdc_open_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
 		   __u32 mode, __u64 rdev, __u32 flags, const void *lmm,
-		   int lmmlen)
+		   int lmmlen, int it_op)
 {
 	struct mdt_rec_create *rec;
 	char *tmp;
@@ -228,7 +228,10 @@ void mdc_open_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
 	rec = req_capsule_client_get(&req->rq_pill, &RMF_REC_REINT);
 
 	/* XXX do something about time, uid, gid */
-	rec->cr_opcode   = REINT_OPEN;
+	if (it_op & IT_RELEASE_OPEN)
+		rec->cr_opcode = REINT_RELEASE;
+	else
+		rec->cr_opcode = REINT_OPEN;
 	rec->cr_fsuid   = cfs_curproc_fsuid();
 	rec->cr_fsgid   = cfs_curproc_fsgid();
 	rec->cr_cap      = cfs_curproc_cap_pack();
@@ -502,6 +505,19 @@ void mdc_getattr_pack(struct ptlrpc_request *req, __u64 valid, int flags,
         }
 }
 
+void mdc_hsm_release_pack(struct ptlrpc_request *req,
+			  struct md_op_data *op_data)
+{
+	__u64 *data_version;
+
+	if (op_data->op_bias & MDS_HSM_RELEASE) {
+		data_version = req_capsule_client_get(&req->rq_pill,
+						      &RMF_DATA_VERSION);
+		LASSERT(data_version);
+		*data_version = op_data->op_data_version;
+	}
+}
+
 void mdc_close_pack(struct ptlrpc_request *req, struct md_op_data *op_data)
 {
         struct mdt_ioepoch *epoch;
@@ -513,6 +529,7 @@ void mdc_close_pack(struct ptlrpc_request *req, struct md_op_data *op_data)
         mdc_setattr_pack_rec(rec, op_data);
         mdc_pack_capa(req, &RMF_CAPA1, op_data->op_capa1);
         mdc_ioepoch_pack(epoch, op_data);
+	mdc_hsm_release_pack(req, op_data);
 }
 
 static int mdc_req_avail(struct client_obd *cli, struct mdc_cache_waiter *mcw)

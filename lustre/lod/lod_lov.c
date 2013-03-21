@@ -742,6 +742,33 @@ out:
 }
 
 /*
+ * Parse striping pattern information stored in \param buf.
+ */
+int lod_get_stripe_pattern(const struct lu_env *env, const struct lu_buf *buf,
+			__u32 *pattern)
+{
+	struct lov_mds_md_v1	*lmm;
+	__u32			 magic;
+	ENTRY;
+
+	LASSERT(buf);
+	LASSERT(buf->lb_buf);
+	LASSERT(buf->lb_len);
+
+	lmm = (struct lov_mds_md_v1 *) buf->lb_buf;
+	magic = le32_to_cpu(lmm->lmm_magic);
+
+	if (magic != LOV_MAGIC_V1 && magic != LOV_MAGIC_V3)
+		RETURN(-EINVAL);
+	if (lov_pattern(le32_to_cpu(lmm->lmm_pattern)) != LOV_PATTERN_RAID0)
+		RETURN(-EINVAL);
+
+	*pattern = le32_to_cpu(lmm->lmm_pattern);
+
+	RETURN(0);
+}
+
+/*
  * Parse striping information stored in lti_ea_store
  */
 int lod_parse_striping(const struct lu_env *env, struct lod_object *lo,

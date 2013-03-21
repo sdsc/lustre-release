@@ -320,6 +320,8 @@ int qos_del_tgt(struct lod_device *, struct lod_tgt_desc *);
 void lprocfs_lod_init_vars(struct lprocfs_static_vars *lvars);
 int lod_procfs_init(struct lod_device *lod);
 void lod_procfs_fini(struct lod_device *lod);
+int lod_get_stripe_pattern(const struct lu_env *env, const struct lu_buf *buf,
+			__u32 *pattern);
 
 /* lod_object.c */
 int lod_object_set_pool(struct lod_object *o, char *pool);
@@ -330,6 +332,10 @@ int lod_striping_create(const struct lu_env *env, struct dt_object *dt,
 			struct lu_attr *attr, struct dt_object_format *dof,
 			struct thandle *th);
 void lod_object_free_striping(const struct lu_env *env, struct lod_object *lo);
-
+int lod_declare_subobject_destroy(const struct lu_env *env,
+				  struct dt_object *dt,
+				  struct thandle *th);
+int lod_subobject_destroy(const struct lu_env *env, struct dt_object *dt,
+			  struct thandle *th);
 #endif
 
