@@ -104,10 +104,25 @@ int add_param(char *buf, char *key, char *val)
 {
 	int end = sizeof(((struct lustre_disk_data *)0)->ldd_params);
 	int start = strlen(buf);
+	char *anchor, *tosearch;
 	int keylen = 0;
 
-	if (key)
+	if (key != NULL) {
 		keylen = strlen(key);
+		tosearch = key;
+	} else {
+		tosearch = val;
+	}
+	/* do nothing if @key@val is already set in @buf */
+	anchor = strstr(buf, tosearch);
+	while (anchor != NULL) {
+		if (key == NULL)
+			return 0;
+		if (strncmp(anchor + keylen, val, strlen(val)) == 0)
+			return 0;
+		anchor = strstr(anchor + keylen, tosearch);
+	}
+
 	if (start + 1 + keylen + strlen(val) >= end) {
 		fprintf(stderr, "%s: params are too long-\n%s %s%s\n",
 			progname, buf, key ? key : "", val);

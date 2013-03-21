@@ -1625,10 +1625,25 @@ static int add_param(char *params, char *key, char *val)
 {
 	char *start = params + strlen(params);
 	char *end = params + sizeof(((struct mgs_target_info *)0)->mti_params);
+	char *anchor, *tosearch;
 	int keylen = 0;
 
-	if (key != NULL)
+	if (key != NULL) {
 		keylen = strlen(key);
+		tosearch = key;
+	} else {
+		tosearch = val;
+	}
+	/* do nothing if @key@val is already set in @params*/
+	anchor = strstr(params, tosearch);
+	while (anchor != NULL) {
+		if (key == NULL)
+			return 0;
+		if (strncmp(anchor + keylen, val, strlen(val)) == 0)
+			return 0;
+		anchor = strstr(anchor + keylen, tosearch);
+	}
+
 	if (start + 1 + keylen + strlen(val) >= end) {
 		CERROR("params are too long: %s %s%s\n",
 		       params, key != NULL ? key : "", val);
