@@ -1807,13 +1807,14 @@ static int mgs_steal_llog_handler(const struct lu_env *env,
 
                 tmti->mti_stripe_index = index;
 		rc = mgs_write_log_osc_to_lov(env, mgs, fsdb, tmti, logname,
-                                         mdt_index, lovname,
-                                         LUSTRE_SP_MDT, 0);
-                name_destroy(&logname);
-                name_destroy(&lovname);
-                RETURN(rc);
-        }
-        RETURN(rc);
+					      mdt_index, lovname, LUSTRE_SP_MDT,
+					      0);
+		memset(tmti, 0, sizeof(*tmti));
+		name_destroy(&logname);
+		name_destroy(&lovname);
+		RETURN(rc);
+	}
+	RETURN(rc);
 }
 
 /* fsdb->fsdb_mutex is already held  in mgs_write_log_target*/
