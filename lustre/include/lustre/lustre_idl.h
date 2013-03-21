@@ -2100,10 +2100,12 @@ typedef enum {
 	REINT_SETXATTR = 7,
 	REINT_RMENTRY  = 8,
 //      REINT_WRITE    = 9,
+	REINT_RELEASE  = 10,
         REINT_MAX
 } mds_reint_t, mdt_reint_t;
 
 extern void lustre_swab_generic_32s (__u32 *val);
+extern void lustre_swab_generic_64s(__u64 *val);
 
 /* the disposition of the intent outlines what was executed */
 #define DISP_IT_EXECD        0x00000001
@@ -2402,6 +2404,7 @@ enum {
 	MDS_DATA_MODIFIED	= 1 << 9,
 	MDS_CREATE_VOLATILE	= 1 << 10,
 	MDS_OWNEROVERRIDE	= 1 << 11,
+	MDS_HSM_RELEASE		= 1 << 12,
 };
 
 /* instance of mdt_reint_rec */

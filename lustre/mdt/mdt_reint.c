@@ -1353,7 +1353,8 @@ static mdt_reinter reinters[REINT_MAX] = {
 	[REINT_RENAME]   = mdt_reint_rename,
 	[REINT_OPEN]     = mdt_reint_open,
 	[REINT_SETXATTR] = mdt_reint_setxattr,
-	[REINT_RMENTRY]  = mdt_reint_unlink
+	[REINT_RMENTRY]  = mdt_reint_unlink,
+	[REINT_RELEASE]  = mdt_reint_open,
 };
 
 int mdt_reint_rec(struct mdt_thread_info *info,

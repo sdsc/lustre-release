@@ -396,7 +396,12 @@ void mdt_pack_attr2body(struct mdt_thread_info *info, struct mdt_body *b,
                 b->blocks = 0;
                 /* if no object is allocated on osts, the size on mds is valid. b=22272 */
                 b->valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
-        }
+	} else if ((ma->ma_valid & MA_LOV) &&
+		   (ma->ma_lmm->lmm_pattern & LOV_PATTERN_F_RELEASED)) {
+		/* A released file stores its size on MDS. */
+		b->blocks = 0;
+		b->valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
+	}
 
         if (fid) {
                 b->fid1 = *fid;
@@ -3436,6 +3441,7 @@ enum mdt_it_code {
         MDT_IT_GETXATTR,
         MDT_IT_LAYOUT,
 	MDT_IT_QUOTA,
+	MDT_IT_RELEASE,
         MDT_IT_NR
 };
 
@@ -3515,6 +3521,12 @@ static struct mdt_it_flavor {
 		.it_fmt   = &RQF_LDLM_INTENT_LAYOUT,
 		.it_flags = 0,
 		.it_act   = mdt_intent_layout
+	},
+	[MDT_IT_RELEASE] = {
+		.it_fmt   = &RQF_LDLM_INTENT,
+		.it_flags = MUTABOR,
+		.it_act   = mdt_intent_reint,
+		.it_reint = REINT_RELEASE
 	}
 };
 
@@ -3798,10 +3810,11 @@ static int mdt_intent_reint(enum mdt_it_code opcode,
         long                    opc;
         int                     rc;
 
-        static const struct req_format *intent_fmts[REINT_MAX] = {
-                [REINT_CREATE]  = &RQF_LDLM_INTENT_CREATE,
-                [REINT_OPEN]    = &RQF_LDLM_INTENT_OPEN
-        };
+	static const struct req_format *intent_fmts[REINT_MAX] = {
+		[REINT_CREATE]  = &RQF_LDLM_INTENT_CREATE,
+		[REINT_OPEN]    = &RQF_LDLM_INTENT_OPEN,
+		[REINT_RELEASE] = &RQF_LDLM_INTENT_OPEN
+	};
 
         ENTRY;
 
@@ -3915,6 +3928,9 @@ static int mdt_intent_code(long itcode)
 	case IT_QUOTA_DQACQ:
 	case IT_QUOTA_CONN:
 		rc = MDT_IT_QUOTA;
+		break;
+	case IT_RELEASE_OPEN:
+		rc = MDT_IT_RELEASE;
 		break;
         default:
                 CERROR("Unknown intent opcode: %ld\n", itcode);
@@ -5058,9 +5074,11 @@ static int mdt_object_print(const struct lu_env *env, void *cookie,
 {
         struct mdt_object *mdto = mdt_obj((struct lu_object *)o);
         return (*p)(env, cookie, LUSTRE_MDT_NAME"-object@%p(ioepoch="LPU64" "
-                    "flags="LPX64", epochcount=%d, writecount=%d)",
-                    mdto, mdto->mot_ioepoch, mdto->mot_flags,
-                    mdto->mot_ioepoch_count, mdto->mot_writecount);
+		    "flags="LPX64", epochcount=%d, opencount=%d, "
+		    "writecount=%d)",
+		    mdto, mdto->mot_ioepoch, mdto->mot_flags,
+		    mdto->mot_ioepoch_count, mdto->mot_opencount,
+		    mdto->mot_writecount);
 }
 
 static int mdt_prepare(const struct lu_env *env,

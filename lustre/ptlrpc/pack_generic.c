@@ -1822,6 +1822,13 @@ void lustre_swab_generic_32s(__u32 *val)
 }
 EXPORT_SYMBOL(lustre_swab_generic_32s);
 
+void lustre_swab_generic_64s(__u64 *val)
+{
+	__swab64s(val);
+}
+EXPORT_SYMBOL(lustre_swab_generic_64s);
+
+
 void lustre_swab_gl_desc(union ldlm_gl_desc *desc)
 {
 	lustre_swab_lu_fid(&desc->lquota_desc.gl_id.qid_fid);

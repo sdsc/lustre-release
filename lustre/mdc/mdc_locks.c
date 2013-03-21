@@ -308,7 +308,7 @@ static struct ptlrpc_request *mdc_intent_open_pack(struct obd_export *exp,
         }
 
         /* If CREATE, cancel parent's UPDATE lock. */
-        if (it->it_op & IT_CREAT)
+	if (it->it_op & (IT_CREAT|IT_RELEASE_OPEN))
                 mode = LCK_EX;
         else
                 mode = LCK_CR;
@@ -348,9 +348,9 @@ static struct ptlrpc_request *mdc_intent_open_pack(struct obd_export *exp,
         lit = req_capsule_client_get(&req->rq_pill, &RMF_LDLM_INTENT);
         lit->opc = (__u64)it->it_op;
 
-        /* pack the intended request */
-        mdc_open_pack(req, op_data, it->it_create_mode, 0, it->it_flags, lmm,
-                      lmmsize);
+	/* pack the intended request */
+	mdc_open_pack(req, op_data, it->it_create_mode, 0, it->it_flags, lmm,
+		      lmmsize, it->it_op);
 
         /* for remote client, fetch remote perm for current user */
         if (client_is_remote(exp))
@@ -772,7 +772,7 @@ resend:
                          einfo->ei_type);
                 policy = (ldlm_policy_data_t *)lmm;
                 res_id.name[3] = LDLM_FLOCK;
-        } else if (it->it_op & IT_OPEN) {
+	} else if (it->it_op & (IT_OPEN|IT_RELEASE_OPEN)) {
                 req = mdc_intent_open_pack(exp, it, op_data, lmm, lmmsize,
                                            einfo->ei_cbdata);
                 policy = &update_policy;
@@ -954,7 +954,7 @@ static int mdc_finish_intent_lock(struct obd_export *exp,
 
         if (it->it_op & IT_CREAT) {
                 /* XXX this belongs in ll_create_it */
-        } else if (it->it_op == IT_OPEN) {
+	} else if (it->it_op & (IT_OPEN|IT_RELEASE_OPEN)) {
                 LASSERT(!it_disposition(it, DISP_OPEN_CREATE));
         } else {
                 LASSERT(it->it_op & (IT_GETATTR | IT_LOOKUP | IT_LAYOUT));
