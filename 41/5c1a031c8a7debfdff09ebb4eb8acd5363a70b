@@ -1,0 +1,11 @@
+Verified+1: Hudson
+Code-Review+2: Alex Zhuravlev <alexey.zhuravlev@intel.com>
+Code-Review+1: James Simmons <uja.ornl@gmail.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: John Hammond <johnlockwoodhammond@gmail.com>
+Code-Review+1: Alexey Shvetsov <alexxy@gentoo.org>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Fri, 22 Mar 2013 14:28:23 -0400
+Reviewed-on: http://review.whamcloud.com/5656
+Project: fs/lustre-release
+Branch: refs/heads/master
