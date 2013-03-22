@@ -612,7 +612,7 @@ test_17() {
                 stop mgs
         fi
 
-        do_facet mgs "$DEBUGFS -w -R 'unlink CONFIGS/$FSNAME-MDT0000' $MGSDEV || return \$?" || return $?
+        do_facet mgs "$DEBUGFS -w -R 'unlink CONFIGS/$FSNAME-MDT0000' $(mgsdevname) || return \$?" || return $?
 
         if ! combined_mgs_mds ; then
                 start_mgs
