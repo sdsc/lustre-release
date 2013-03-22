@@ -934,7 +934,7 @@ AC_CHECK_TYPE([__s64],
 # check userland __u64 type
 AC_MSG_CHECKING([userspace __u64 is long long type])
 tmp_flags="$CFLAGS"
-CFLAGS="$CFLAGS -Werror"
+CFLAGS="$CFLAGS"
 AC_COMPILE_IFELSE([
 	#include <stdio.h>
 	#include <linux/types.h>
