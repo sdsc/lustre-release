@@ -709,7 +709,7 @@ int file_create(char *path, int size)
 		return errno;
 	}
 
-	ret = ftruncate(fd, size * 1024);
+	ret = ftruncate(fd, (off_t)size * 1024);
 	close(fd);
 	if (ret != 0) {
 		fatal();
