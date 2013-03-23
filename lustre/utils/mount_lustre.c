@@ -350,7 +350,7 @@ static int parse_ldd(char *source, struct mount_opts *mop, char *options)
 	}
 
 	/* Since we never rewrite ldd, ignore temp flags */
-	ldd->ldd_flags &= ~(LDD_F_VIRGIN | LDD_F_UPDATE | LDD_F_WRITECONF);
+	ldd->ldd_flags &= ~(LDD_F_VIRGIN | LDD_F_WRITECONF);
 
 	/* svname of the form lustre:OST1234 means never registered */
 	rc = strlen(ldd->ldd_svname);
@@ -391,6 +391,8 @@ static int parse_ldd(char *source, struct mount_opts *mop, char *options)
 		append_option(options, "writeconf");
 	if (ldd->ldd_flags & LDD_F_NO_PRIMNODE)
 		append_option(options, "noprimnode");
+	if (ldd->ldd_flags & LDD_F_UPDATE)
+		append_option(options, "update");
 
 	/* prefix every lustre parameter with param= so that in-kernel
 	 * mount can recognize them properly and send to MGS at registration */

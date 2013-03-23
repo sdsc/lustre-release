@@ -3003,7 +3003,7 @@ writeconf_facet() {
 	local dev=$2
 
 	stop ${facet} -f
-	rm -f ${facet}active
+	rm -f ${TMP}/${facet}active
 	do_facet ${facet} "$TUNEFS --quiet --writeconf $dev" || return 1
 	return 0
 }

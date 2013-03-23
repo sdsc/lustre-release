@@ -1646,11 +1646,11 @@ static int server_lsi2mti(struct lustre_sb_info *lsi,
 
 	rc = server_name2fsname(lsi->lsi_svname, mti->mti_fsname, NULL);
 	if (rc != 0)
-		return rc;
+		RETURN(rc);
 
 	rc = server_name2index(lsi->lsi_svname, &mti->mti_stripe_index, NULL);
 	if (rc < 0)
-		return rc;
+		RETURN(rc);
 	/* Orion requires index to be set */
 	LASSERT(!(rc & LDD_F_NEED_INDEX));
 	/* keep only LDD flags */
@@ -1660,8 +1660,8 @@ static int server_lsi2mti(struct lustre_sb_info *lsi,
 	cplen = strlcpy(mti->mti_params, lsi->lsi_lmd->lmd_params,
 			sizeof(mti->mti_params));
 	if (cplen >= sizeof(mti->mti_params))
-		return -E2BIG;
-	return 0;
+		RETURN(-E2BIG);
+	RETURN(0);
 }
 
 /* Register an old or new target with the MGS. If needed MGS will construct
@@ -1693,7 +1693,7 @@ static int server_register_target(struct lustre_sb_info *lsi)
                mti->mti_flags);
 
         /* if write_conf is true, the registration must succeed */
-	writeconf = !!(lsi->lsi_flags & (LDD_F_NEED_INDEX | LDD_F_UPDATE));
+	writeconf = !!(lsi->lsi_flags & LDD_F_NEED_INDEX);
         mti->mti_flags |= LDD_F_OPC_REG;
 
         /* Register the target */
@@ -2079,6 +2079,8 @@ static int lsi_prepare(struct lustre_sb_info *lsi)
 		LDD_F_SV_TYPE_MGS : 0;
 	lsi->lsi_flags |= (lsi->lsi_lmd->lmd_flags & LMD_FLG_NO_PRIMNODE) ?
 		LDD_F_NO_PRIMNODE : 0;
+	lsi->lsi_flags |= (lsi->lsi_lmd->lmd_flags & LMD_FLG_UPDATE) ?
+		LDD_F_UPDATE : 0;
 
 	RETURN(0);
 }
@@ -2798,6 +2800,9 @@ static int lmd_parse(char *options, struct lustre_mount_data *lmd)
                         clear++;
 		} else if (strncmp(s1, "virgin", 6) == 0) {
 			lmd->lmd_flags |= LMD_FLG_VIRGIN;
+			clear++;
+		} else if (strncmp(s1, "update", 6) == 0) {
+			lmd->lmd_flags |= LMD_FLG_UPDATE;
 			clear++;
 		} else if (strncmp(s1, "noprimnode", 10) == 0) {
 			lmd->lmd_flags |= LMD_FLG_NO_PRIMNODE;
