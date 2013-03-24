@@ -5,6 +5,7 @@
 #set -vx
 set -e
 
+#let's see if lfsck works well on b1_8
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
