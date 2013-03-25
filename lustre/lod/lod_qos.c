@@ -1357,6 +1357,7 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 			struct thandle *th)
 {
 	struct lod_device      *d = lu2lod_dev(lod2lu_obj(lo)->lo_dev);
+	struct dt_object       *next = dt_object_child(&lo->ldo_obj);
 	struct dt_object      **stripe;
 	int			stripe_len;
 	int			flag = LOV_USES_ASSIGNED_STRIPE;
@@ -1364,6 +1365,8 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 	ENTRY;
 
 	LASSERT(lo);
+
+	dt_write_lock(env, next, 0);
 
 	/* no OST available */
 	/* XXX: should we be waiting a bit to prevent failures during
@@ -1387,6 +1390,9 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 		/*
 		 * no striping has been created so far
 		 */
+		if (lo->ldo_stripenr == 0)
+			lo->ldo_stripenr = lo->ldo_def_stripenr;
+
 		LASSERT(lo->ldo_stripenr > 0);
 		/*
 		 * statfs and check OST targets now, since ld_active_tgt_count
@@ -1445,6 +1451,8 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 	}
 
 out:
+	dt_write_unlock(env, next);
+
 	RETURN(rc);
 }
 
