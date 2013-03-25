@@ -365,7 +365,7 @@ static int osp_shutdown(const struct lu_env *env, struct osp_device *d)
 		osp_last_used_fini(env, d);
 	}
 
-	obd_fid_fini(d->opd_obd);
+	client_fid_fini(d->opd_obd);
 
 	RETURN(rc);
 }
@@ -696,7 +696,7 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 		if (rc)
 			GOTO(out_proc, rc);
 
-		rc = obd_fid_init(m->opd_obd, NULL, LUSTRE_SEQ_DATA);
+		rc = client_fid_init(m->opd_obd, NULL, LUSTRE_SEQ_DATA);
 		if (rc) {
 			CERROR("%s: fid init error: rc = %d\n",
 			       m->opd_obd->obd_name, rc);
@@ -716,7 +716,6 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 		rc = osp_sync_init(env, m);
 		if (rc)
 			GOTO(out_precreat, rc);
-
 	}
 	/*
 	 * Initiate connect to OST
@@ -1184,8 +1183,6 @@ static struct obd_ops osp_obd_device_ops = {
 	.o_import_event	= osp_import_event,
 	.o_iocontrol	= osp_iocontrol,
 	.o_statfs	= osp_obd_statfs,
-	.o_fid_init	= client_fid_init,
-	.o_fid_fini	= client_fid_fini,
 };
 
 struct llog_operations osp_mds_ost_orig_logops;

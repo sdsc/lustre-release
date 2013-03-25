@@ -45,6 +45,7 @@
 #include <linux/version.h>
 #include <linux/mm.h>
 
+#include <lustre_fid.h>
 #include <lustre_lite.h>
 #include <lustre_ha.h>
 #include <lustre_dlm.h>
@@ -280,8 +281,8 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 
 	sbi->ll_md_exp->exp_connect_data = *data;
 
-	err = obd_fid_init(sbi->ll_md_exp->exp_obd, sbi->ll_md_exp,
-			   LUSTRE_SEQ_METADATA);
+	err = client_fid_init(sbi->ll_md_exp->exp_obd, sbi->ll_md_exp,
+			      LUSTRE_SEQ_METADATA);
 	if (err) {
 		CERROR("%s: Can't init metadata layer FID infrastructure, "
 		       "rc = %d\n", sbi->ll_md_exp->exp_obd->obd_name, err);
@@ -459,8 +460,8 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 
 	sbi->ll_dt_exp->exp_connect_data = *data;
 
-	err = obd_fid_init(sbi->ll_dt_exp->exp_obd, sbi->ll_dt_exp,
-			   LUSTRE_SEQ_METADATA);
+	err = client_fid_init(sbi->ll_dt_exp->exp_obd, sbi->ll_dt_exp,
+			      LUSTRE_SEQ_METADATA);
 	if (err) {
 		CERROR("%s: Can't init data layer FID infrastructure, "
 		       "rc = %d\n", sbi->ll_dt_exp->exp_obd->obd_name, err);
@@ -606,14 +607,14 @@ out_root:
         if (root)
                 iput(root);
 out_lock_cn_cb:
-	obd_fid_fini(sbi->ll_dt_exp->exp_obd);
+	client_fid_fini(sbi->ll_dt_exp->exp_obd);
 out_dt:
         obd_disconnect(sbi->ll_dt_exp);
         sbi->ll_dt_exp = NULL;
 	/* Make sure all OScs are gone, since cl_cache is accessing sbi. */
 	obd_zombie_barrier();
 out_md_fid:
-	obd_fid_fini(sbi->ll_md_exp->exp_obd);
+	client_fid_fini(sbi->ll_md_exp->exp_obd);
 out_md:
         obd_disconnect(sbi->ll_md_exp);
         sbi->ll_md_exp = NULL;
@@ -701,7 +702,7 @@ void client_common_put_super(struct super_block *sb)
 
         cfs_list_del(&sbi->ll_conn_chain);
 
-	obd_fid_fini(sbi->ll_dt_exp->exp_obd);
+	client_fid_fini(sbi->ll_dt_exp->exp_obd);
         obd_disconnect(sbi->ll_dt_exp);
         sbi->ll_dt_exp = NULL;
 	/* wait till all OSCs are gone, since cl_cache is accessing sbi.
@@ -710,7 +711,7 @@ void client_common_put_super(struct super_block *sb)
 
         lprocfs_unregister_mountpoint(sbi);
 
-	obd_fid_fini(sbi->ll_md_exp->exp_obd);
+	client_fid_fini(sbi->ll_md_exp->exp_obd);
         obd_disconnect(sbi->ll_md_exp);
         sbi->ll_md_exp = NULL;
 

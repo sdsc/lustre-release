@@ -1244,12 +1244,6 @@ typedef int (* md_enqueue_cb_t)(struct ptlrpc_request *req,
                                 struct md_enqueue_info *minfo,
                                 int rc);
 
-/* seq client type */
-enum lu_cli_type {
-	LUSTRE_SEQ_METADATA = 1,
-	LUSTRE_SEQ_DATA
-};
-
 struct md_enqueue_info {
         struct md_op_data       mi_data;
         struct lookup_intent    mi_it;
@@ -1297,15 +1291,6 @@ struct obd_ops {
                            struct obd_connect_data *ocd,
                            void *localdata);
         int (*o_disconnect)(struct obd_export *exp);
-
-	/* Initialize/finalize fids infrastructure. */
-	int (*o_fid_init)(struct obd_device *obd,
-			  struct obd_export *exp, enum lu_cli_type type);
-	int (*o_fid_fini)(struct obd_device *obd);
-
-        /* Allocate new fid according to passed @hint. */
-        int (*o_fid_alloc)(struct obd_export *exp, struct lu_fid *fid,
-                           struct md_op_data *op_data);
 
         /*
          * Object with @fid is getting deleted, we may want to do something
