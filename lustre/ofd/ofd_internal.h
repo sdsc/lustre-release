@@ -603,8 +603,6 @@ static inline void ofd_prepare_fidea(struct filter_fid *ff, struct obdo *oa)
 	/* XXX: we are ignoring o_parent_ver here, since this should
 	 *      be the same for all objects in this fileset. */
 	ff->ff_parent.f_ver = cpu_to_le32(oa->o_stripe_idx);
-	ff->ff_objid = cpu_to_le64(oa->o_id);
-	ff->ff_seq = cpu_to_le64(oa->o_seq);
 }
 
 /* niobuf_remote has no rnb_ prefix in master */
