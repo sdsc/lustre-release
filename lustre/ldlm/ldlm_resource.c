@@ -927,6 +927,7 @@ void ldlm_namespace_free_prior(struct ldlm_namespace *ns,
         }
         EXIT;
 }
+EXPORT_SYMBOL(ldlm_namespace_free_prior);
 
 /**
  * Performs freeing memory structures related to \a ns. This is only done
@@ -958,6 +959,7 @@ void ldlm_namespace_free_post(struct ldlm_namespace *ns)
 	ldlm_put_ref();
 	EXIT;
 }
+EXPORT_SYMBOL(ldlm_namespace_free_post);
 
 /**
  * Cleanup the resource, and free namespace.
