@@ -980,8 +980,15 @@ int cl_lock_state_wait(const struct lu_env *env, struct cl_lock *lock)
 		result = -EINTR;
 		if (likely(!OBD_FAIL_CHECK(OBD_FAIL_LOCK_STATE_WAIT_INTR))) {
 			cfs_waitq_wait(&waiter, CFS_TASK_INTERRUPTIBLE);
-			if (!cfs_signal_pending())
+			if (!cfs_signal_pending()) {
 				result = 0;
+			}
+			else {
+			/* Returning ERESTARTSYS if a signal is found so
+			 * system calls can be restarted if the signal handler
+			 * calls for it. */
+			result = -ERESTARTSYS;
+			}
 		}
 
                 cl_lock_mutex_get(env, lock);
