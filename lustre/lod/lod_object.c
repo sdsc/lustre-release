@@ -737,11 +737,11 @@ static void lod_ah_init(const struct lu_env *env,
 		if (lp->ldo_def_striping_set) {
 			if (lp->ldo_pool)
 				lod_object_set_pool(lc, lp->ldo_pool);
-			lc->ldo_stripenr = lp->ldo_def_stripenr;
+			lc->ldo_def_stripenr = lp->ldo_def_stripenr;
 			lc->ldo_stripe_size = lp->ldo_def_stripe_size;
 			lc->ldo_def_stripe_offset = lp->ldo_def_stripe_offset;
 			CDEBUG(D_OTHER, "striping from parent: #%d, sz %d %s\n",
-			       lc->ldo_stripenr, lc->ldo_stripe_size,
+			       lc->ldo_def_stripenr, lc->ldo_stripe_size,
 			       lp->ldo_pool ? lp->ldo_pool : "");
 		}
 	}
@@ -750,12 +750,12 @@ static void lod_ah_init(const struct lu_env *env,
 	 * if the parent doesn't provide with specific pattern, grab fs-wide one
 	 */
 	desc = &d->lod_desc;
-	if (lc->ldo_stripenr == 0)
-		lc->ldo_stripenr = desc->ld_default_stripe_count;
+	if (lc->ldo_def_stripenr == 0)
+		lc->ldo_def_stripenr = desc->ld_default_stripe_count;
 	if (lc->ldo_stripe_size == 0)
 		lc->ldo_stripe_size = desc->ld_default_stripe_size;
 	CDEBUG(D_OTHER, "final striping: # %d stripes, sz %d from %s\n",
-	       lc->ldo_stripenr, lc->ldo_stripe_size,
+	       lc->ldo_def_stripenr, lc->ldo_stripe_size,
 	       lc->ldo_pool ? lc->ldo_pool : "");
 
 	EXIT;
@@ -894,8 +894,8 @@ static int lod_declare_object_create(const struct lu_env *env,
 		 * to use striping, then ->declare_create() behaving differently
 		 * should be cleaned */
 		if (dof->u.dof_reg.striped == 0)
-			lo->ldo_stripenr = 0;
-		if (lo->ldo_stripenr > 0)
+			lo->ldo_def_stripenr = 0;
+		if (lo->ldo_def_stripenr > 0)
 			rc = lod_declare_striped_object(env, dt, attr,
 							NULL, th);
 	} else if (dof->dof_type == DFT_DIR && lo->ldo_striping_cached) {
