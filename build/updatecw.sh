@@ -3,7 +3,7 @@
 # Does not add copyright notices to files that are missing them
 #
 # Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2012, Intel Corporation.
+# Copyright (c) 2012, 2013, Intel Corporation.
 #
 TMP=${TMP:-/tmp}
 TMPFILE=$(mktemp $TMP/updatecopy.XXXXXX)
@@ -16,6 +16,7 @@ EXCLUDE=${EXCLUDE:-'e3a7c58aebafce40323db54bf6056029e5af4a70\n
 f2a9374170e4522b9d2ac3b7096cf2912339d480\n
 3f90f344ae059b30e7d23e4fe554a985eb827b02\n
 320e014a2c93cb905637d178269b80847cb8d277\n
+08aa217ce49aba1ded52e0f7adb8a607035123fd\n
 cd8c65642f1c36b56ae74a0414a1f1f27337a662'}
 
 XYRACOPY="Copyright.*Xyratex Technology Limited"
