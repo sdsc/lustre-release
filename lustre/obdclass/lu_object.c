@@ -443,6 +443,9 @@ int lu_cdebug_printer(const struct lu_env *env,
         int complete;
         va_list args;
 
+	if (env == NULL)
+		return 0;
+
         va_start(args, format);
 
         key = lu_context_key_get(&env->le_ctx, &lu_global_key);
