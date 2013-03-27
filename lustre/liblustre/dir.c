@@ -112,7 +112,7 @@ static int llu_dir_do_readpage(struct inode *inode, struct page *page)
         ptlrpc_req_finished(request);
         EXIT;
 
-        ldlm_lock_decref(&lockh, LCK_CR);
+        ldlm_lock_decref(NULL, &lockh, LCK_CR);
         return rc;
 }
 

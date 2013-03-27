@@ -526,7 +526,7 @@ static int qsd_reint_main(void *args)
 
 	EXIT;
 out_lock:
-	ldlm_lock_decref(&qqi->qqi_lockh, qsd_glb_einfo.ei_mode);
+	ldlm_lock_decref(env, &qqi->qqi_lockh, qsd_glb_einfo.ei_mode);
 out_env_init:
 	lu_env_fini(env);
 out_env:

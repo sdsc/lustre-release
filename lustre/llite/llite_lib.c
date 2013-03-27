@@ -608,14 +608,14 @@ out_root:
 out_lock_cn_cb:
 	obd_fid_fini(sbi->ll_dt_exp->exp_obd);
 out_dt:
-        obd_disconnect(sbi->ll_dt_exp);
+        obd_disconnect(NULL, sbi->ll_dt_exp);
         sbi->ll_dt_exp = NULL;
 	/* Make sure all OScs are gone, since cl_cache is accessing sbi. */
 	obd_zombie_barrier();
 out_md_fid:
 	obd_fid_fini(sbi->ll_md_exp->exp_obd);
 out_md:
-        obd_disconnect(sbi->ll_md_exp);
+        obd_disconnect(NULL, sbi->ll_md_exp);
         sbi->ll_md_exp = NULL;
 out:
         if (data != NULL)
@@ -702,7 +702,7 @@ void client_common_put_super(struct super_block *sb)
         cfs_list_del(&sbi->ll_conn_chain);
 
 	obd_fid_fini(sbi->ll_dt_exp->exp_obd);
-        obd_disconnect(sbi->ll_dt_exp);
+        obd_disconnect(NULL, sbi->ll_dt_exp);
         sbi->ll_dt_exp = NULL;
 	/* wait till all OSCs are gone, since cl_cache is accessing sbi.
 	 * see LU-2543. */
@@ -711,7 +711,7 @@ void client_common_put_super(struct super_block *sb)
         lprocfs_unregister_mountpoint(sbi);
 
 	obd_fid_fini(sbi->ll_md_exp->exp_obd);
-        obd_disconnect(sbi->ll_md_exp);
+        obd_disconnect(NULL, sbi->ll_md_exp);
         sbi->ll_md_exp = NULL;
 
         EXIT;
@@ -1120,7 +1120,7 @@ void ll_put_super(struct super_block *sb)
 
         next = 0;
         while ((obd = class_devices_in_group(&sbi->ll_sb_uuid, &next)) !=NULL) {
-                class_manual_cleanup(obd);
+                class_manual_cleanup(NULL, obd);
         }
 
         if (sbi->ll_flags & LL_SBI_VERBOSE)
@@ -1817,7 +1817,7 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
                                         i_size_write(inode, body->size);
                                         lli->lli_flags |= LLIF_MDS_SIZE_LOCK;
                                 }
-                                ldlm_lock_decref(&lockh, mode);
+                                ldlm_lock_decref(NULL, &lockh, mode);
                         }
                 } else {
                         /* Use old size assignment to avoid

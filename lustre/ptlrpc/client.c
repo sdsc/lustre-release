@@ -2108,7 +2108,8 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
                         lwi = LWI_TIMEOUT(cfs_time_seconds(timeout? timeout : 1),
                                           ptlrpc_expired_set, set);
 
-                rc = l_wait_event(set->set_waitq, ptlrpc_check_set(NULL, set), &lwi);
+                rc = l_wait_event(set->set_waitq,
+				  ptlrpc_check_set(set->set_env, set), &lwi);
 
                 /* LU-769 - if we ignored the signal because it was already
                  * pending when we started, we need to handle it now or we risk

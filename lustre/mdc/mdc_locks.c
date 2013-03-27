@@ -163,7 +163,7 @@ ldlm_mode_t mdc_lock_match(struct obd_export *exp, __u64 flags,
         ENTRY;
 
         fid_build_reg_res_name(fid, &res_id);
-        rc = ldlm_lock_match(class_exp2obd(exp)->obd_namespace, flags,
+        rc = ldlm_lock_match(NULL, class_exp2obd(exp)->obd_namespace, flags,
                              &res_id, type, policy, mode, lockh, 0);
         RETURN(rc);
 }
@@ -182,7 +182,7 @@ int mdc_cancel_unused(struct obd_export *exp,
         ENTRY;
 
         fid_build_reg_res_name(fid, &res_id);
-        rc = ldlm_cli_cancel_unused_resource(obd->obd_namespace, &res_id,
+        rc = ldlm_cli_cancel_unused_resource(NULL, obd->obd_namespace, &res_id,
                                              policy, mode, flags, opaque);
         RETURN(rc);
 }
@@ -544,7 +544,7 @@ static int mdc_finish_enqueue(struct obd_export *exp,
                  * fix up our variables. */
                 if (lock->l_req_mode != einfo->ei_mode) {
                         ldlm_lock_addref(lockh, lock->l_req_mode);
-                        ldlm_lock_decref(lockh, einfo->ei_mode);
+                        ldlm_lock_decref(NULL, lockh, einfo->ei_mode);
                         einfo->ei_mode = lock->l_req_mode;
                 }
 		LDLM_LOCK_PUT(lock);
@@ -869,7 +869,7 @@ resend:
 	rc = mdc_finish_enqueue(exp, req, einfo, it, lockh, rc);
 	if (rc < 0) {
 		if (lustre_handle_is_used(lockh)) {
-			ldlm_lock_decref(lockh, einfo->ei_mode);
+			ldlm_lock_decref(NULL, lockh, einfo->ei_mode);
 			memset(lockh, 0, sizeof(*lockh));
 		}
 		ptlrpc_req_finished(req);
@@ -979,9 +979,9 @@ static int mdc_finish_intent_lock(struct obd_export *exp,
                 LDLM_LOCK_PUT(lock);
 
                 memcpy(&old_lock, lockh, sizeof(*lockh));
-                if (ldlm_lock_match(NULL, LDLM_FL_BLOCK_GRANTED, NULL,
+                if (ldlm_lock_match(NULL, NULL, LDLM_FL_BLOCK_GRANTED, NULL,
                                     LDLM_IBITS, &policy, LCK_NL, &old_lock, 0)) {
-                        ldlm_lock_decref_and_cancel(lockh,
+                        ldlm_lock_decref_and_cancel(NULL, lockh,
                                                     it->d.lustre.it_lock_mode);
                         memcpy(lockh, &old_lock, sizeof(old_lock));
                         it->d.lustre.it_lock_handle = lockh->cookie;
@@ -1021,7 +1021,7 @@ int mdc_revalidate_lock(struct obd_export *exp, struct lookup_intent *it,
                         policy.l_inodebits.bits = MDS_INODELOCK_LOOKUP;
                         break;
                 }
-                mode = ldlm_lock_match(exp->exp_obd->obd_namespace,
+                mode = ldlm_lock_match(NULL, exp->exp_obd->obd_namespace,
                                        LDLM_FL_BLOCK_GRANTED, &res_id,
                                        LDLM_IBITS, &policy,
                                        LCK_CR|LCK_CW|LCK_PR|LCK_PW, &lockh, 0);

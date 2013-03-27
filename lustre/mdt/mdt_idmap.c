@@ -237,13 +237,14 @@ void mdt_cleanup_idmap(struct mdt_export_data *med)
 	mutex_unlock(&med->med_idmap_mutex);
 }
 
-static inline void mdt_revoke_export_locks(struct obd_export *exp)
+static inline void mdt_revoke_export_locks(const struct lu_env *env,
+					   struct obd_export *exp)
 {
         /* don't revoke locks during recovery */
         if (exp->exp_obd->obd_recovering)
                 return;
 
-        ldlm_revoke_export_locks(exp);
+        ldlm_revoke_export_locks(env, exp);
 }
 
 int mdt_handle_idmap(struct mdt_thread_info *info)
@@ -322,7 +323,7 @@ int mdt_handle_idmap(struct mdt_thread_info *info)
                 case SEC_CTX_INIT:
                 case SEC_CTX_INIT_CONT:
                 case SEC_CTX_FINI:
-                        mdt_revoke_export_locks(req->rq_export);
+                        mdt_revoke_export_locks(info->mti_env, req->rq_export);
                         break;
         }
 

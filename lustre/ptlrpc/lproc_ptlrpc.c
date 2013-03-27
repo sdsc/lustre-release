@@ -1261,11 +1261,11 @@ int lprocfs_wr_evict_client(struct file *file, const char *buffer,
 	class_incref(obd, __FUNCTION__, cfs_current());
 
         if (strncmp(tmpbuf, "nid:", 4) == 0)
-                obd_export_evict_by_nid(obd, tmpbuf + 4);
+                obd_export_evict_by_nid(NULL, obd, tmpbuf + 4);
         else if (strncmp(tmpbuf, "uuid:", 5) == 0)
-                obd_export_evict_by_uuid(obd, tmpbuf + 5);
+                obd_export_evict_by_uuid(NULL, obd, tmpbuf + 5);
         else
-                obd_export_evict_by_uuid(obd, tmpbuf);
+                obd_export_evict_by_uuid(NULL, obd, tmpbuf);
 
 	class_decref(obd, __FUNCTION__, cfs_current());
         LPROCFS_ENTRY();

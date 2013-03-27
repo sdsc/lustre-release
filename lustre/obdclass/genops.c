@@ -1253,6 +1253,7 @@ int class_connected_export(struct obd_export *exp)
 EXPORT_SYMBOL(class_connected_export);
 
 static void class_disconnect_export_list(cfs_list_t *list,
+					 const struct lu_env *env,
                                          enum obd_option flags)
 {
         int rc;
@@ -1289,7 +1290,7 @@ static void class_disconnect_export_list(cfs_list_t *list,
                        exp->exp_obd->obd_name, obd_export_nid2str(exp),
                        exp, exp->exp_last_request_time);
                 /* release one export reference anyway */
-                rc = obd_disconnect(exp);
+                rc = obd_disconnect(env, exp);
 
                 CDEBUG(D_HA, "disconnected export at %s (%p): rc %d\n",
                        obd_export_nid2str(exp), exp, rc);
@@ -1298,7 +1299,7 @@ static void class_disconnect_export_list(cfs_list_t *list,
         EXIT;
 }
 
-void class_disconnect_exports(struct obd_device *obd)
+void class_disconnect_exports(const struct lu_env *env, struct obd_device *obd)
 {
 	cfs_list_t work_list;
 	ENTRY;
@@ -1313,7 +1314,7 @@ void class_disconnect_exports(struct obd_device *obd)
         if (!cfs_list_empty(&work_list)) {
                 CDEBUG(D_HA, "OBD device %d (%p) has exports, "
                        "disconnecting them\n", obd->obd_minor, obd);
-                class_disconnect_export_list(&work_list,
+                class_disconnect_export_list(&work_list, env,
                                              exp_flags_from_obd(obd));
         } else
                 CDEBUG(D_HA, "OBD device %d (%p) has no exports\n",
@@ -1324,8 +1325,9 @@ EXPORT_SYMBOL(class_disconnect_exports);
 
 /* Remove exports that have not completed recovery.
  */
-void class_disconnect_stale_exports(struct obd_device *obd,
-                                    int (*test_export)(struct obd_export *))
+void class_disconnect_stale_exports(const struct lu_env *env,
+				    struct obd_device *obd,
+				    int (*test_export)(struct obd_export *))
 {
         cfs_list_t work_list;
 	struct obd_export *exp, *n;
@@ -1368,13 +1370,13 @@ void class_disconnect_stale_exports(struct obd_device *obd,
 		LCONSOLE_WARN("%s: disconnecting %d stale clients\n",
 			      obd->obd_name, evicted);
 
-	class_disconnect_export_list(&work_list, exp_flags_from_obd(obd) |
-						 OBD_OPT_ABORT_RECOV);
+	class_disconnect_export_list(&work_list, env, exp_flags_from_obd(obd) |
+						      OBD_OPT_ABORT_RECOV);
 	EXIT;
 }
 EXPORT_SYMBOL(class_disconnect_stale_exports);
 
-void class_fail_export(struct obd_export *exp)
+void class_fail_export(const struct lu_env *env, struct obd_export *exp)
 {
 	int rc, already_failed;
 
@@ -1402,7 +1404,7 @@ void class_fail_export(struct obd_export *exp)
          * (request, for example) in addition to the one from the hash table.
          * We don't have such a reference here, so make one. */
         class_export_get(exp);
-        rc = obd_disconnect(exp);
+        rc = obd_disconnect(env, exp);
         if (rc)
                 CERROR("disconnecting export %p failed: %d\n", exp, rc);
         else
@@ -1421,7 +1423,8 @@ char *obd_export_nid2str(struct obd_export *exp)
 }
 EXPORT_SYMBOL(obd_export_nid2str);
 
-int obd_export_evict_by_nid(struct obd_device *obd, const char *nid)
+int obd_export_evict_by_nid(const struct lu_env *env,
+			    struct obd_device *obd, const char *nid)
 {
 	cfs_hash_t *nid_hash;
 	struct obd_export *doomed_exp = NULL;
@@ -1456,7 +1459,7 @@ int obd_export_evict_by_nid(struct obd_device *obd, const char *nid)
 			      "request\n", obd->obd_name,
 			      obd_uuid2str(&doomed_exp->exp_client_uuid),
 			      obd_export_nid2str(doomed_exp));
-                class_fail_export(doomed_exp);
+                class_fail_export(env, doomed_exp);
                 class_export_put(doomed_exp);
         } while (1);
 
@@ -1469,7 +1472,8 @@ int obd_export_evict_by_nid(struct obd_device *obd, const char *nid)
 }
 EXPORT_SYMBOL(obd_export_evict_by_nid);
 
-int obd_export_evict_by_uuid(struct obd_device *obd, const char *uuid)
+int obd_export_evict_by_uuid(const struct lu_env *env,
+			     struct obd_device *obd, const char *uuid)
 {
 	cfs_hash_t *uuid_hash;
 	struct obd_export *doomed_exp = NULL;
@@ -1500,7 +1504,7 @@ int obd_export_evict_by_uuid(struct obd_device *obd, const char *uuid)
         } else {
                 CWARN("%s: evicting %s at adminstrative request\n",
                        obd->obd_name, doomed_exp->exp_client_uuid.uuid);
-                class_fail_export(doomed_exp);
+                class_fail_export(env, doomed_exp);
                 class_export_put(doomed_exp);
                 exports_evicted++;
         }

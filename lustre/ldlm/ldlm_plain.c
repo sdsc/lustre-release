@@ -140,8 +140,8 @@ ldlm_plain_compat_queue(cfs_list_t *queue, struct ldlm_lock *req,
  *   - blocking ASTs have not been sent yet, so list of conflicting locks
  *     would be collected and ASTs sent.
  */
-int ldlm_process_plain_lock(struct ldlm_lock *lock, __u64 *flags,
-			    int first_enq, ldlm_error_t *err,
+int ldlm_process_plain_lock(const struct lu_env *env, struct ldlm_lock *lock,
+			    __u64 *flags, int first_enq, ldlm_error_t *err,
 			    cfs_list_t *work_list)
 {
         struct ldlm_resource *res = lock->l_resource;
@@ -180,7 +180,7 @@ int ldlm_process_plain_lock(struct ldlm_lock *lock, __u64 *flags,
                 if (cfs_list_empty(&lock->l_res_link))
                         ldlm_resource_add_lock(res, &res->lr_waiting, lock);
                 unlock_res(res);
-                rc = ldlm_run_ast_work(ldlm_res_to_ns(res), &rpc_list,
+                rc = ldlm_run_ast_work(env, ldlm_res_to_ns(res), &rpc_list,
                                        LDLM_WORK_BL_AST);
                 lock_res(res);
                 if (rc == -ERESTART)

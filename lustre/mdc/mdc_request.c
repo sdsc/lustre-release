@@ -2372,7 +2372,7 @@ static int mdc_import_event(struct obd_device *obd, struct obd_import *imp,
         case IMP_EVENT_INVALIDATE: {
                 struct ldlm_namespace *ns = obd->obd_namespace;
 
-                ldlm_namespace_cleanup(ns, LDLM_FL_LOCAL_ONLY);
+                ldlm_namespace_cleanup(NULL, ns, LDLM_FL_LOCAL_ONLY);
 
                 break;
         }

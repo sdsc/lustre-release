@@ -138,7 +138,7 @@ static int mdd_init0(const struct lu_env *env, struct mdd_device *mdd,
 	 * It is passed from MDT in lustre_cfg[2] buffer */
 	rc = mdd_procfs_init(mdd, lustre_cfg_string(lcfg, 2));
 	if (rc < 0)
-		obd_disconnect(mdd->mdd_child_exp);
+		obd_disconnect(env, mdd->mdd_child_exp);
 
         RETURN(rc);
 }
@@ -181,7 +181,7 @@ static void mdd_device_shutdown(const struct lu_env *env,
         md_upcall_fini(&m->mdd_md_dev);
 
 	if (m->mdd_child_exp)
-		obd_disconnect(m->mdd_child_exp);
+		obd_disconnect(env, m->mdd_child_exp);
 
         EXIT;
 }
@@ -1388,7 +1388,7 @@ static int mdd_obd_connect(const struct lu_env *env, struct obd_export **exp,
  * once last export (we don't count self-export) disappeared
  * mdd can be released
  */
-static int mdd_obd_disconnect(struct obd_export *exp)
+static int mdd_obd_disconnect(const struct lu_env *env, struct obd_export *exp)
 {
 	struct obd_device *obd = exp->exp_obd;
 	struct mdd_device *mdd = lu2mdd_dev(obd->obd_lu_dev);
@@ -1402,7 +1402,7 @@ static int mdd_obd_disconnect(struct obd_export *exp)
 	rc = class_disconnect(exp);
 
 	if (rc == 0 && release)
-		class_manual_cleanup(obd);
+		class_manual_cleanup(env, obd);
 	RETURN(rc);
 }
 

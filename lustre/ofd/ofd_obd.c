@@ -324,10 +324,9 @@ out:
 	RETURN(rc);
 }
 
-static int ofd_obd_disconnect(struct obd_export *exp)
+static int ofd_obd_disconnect(const struct lu_env *env, struct obd_export *exp)
 {
 	struct ofd_device	*ofd = ofd_dev(exp->exp_obd->obd_lu_dev);
-	struct lu_env		 env;
 	int			 rc;
 
 	ENTRY;
@@ -338,19 +337,14 @@ static int ofd_obd_disconnect(struct obd_export *exp)
 	if (!(exp->exp_flags & OBD_OPT_FORCE))
 		ofd_grant_sanity_check(ofd_obd(ofd), __FUNCTION__);
 
-	rc = server_disconnect_export(exp);
+	rc = server_disconnect_export(env, exp);
 
 	ofd_grant_discard(exp);
-
-	rc = lu_env_init(&env, LCT_DT_THREAD);
-	if (rc)
-		RETURN(rc);
 
 	/* Do not erase record for recoverable client. */
 	if (exp->exp_obd->obd_replayable &&
 	    (!exp->exp_obd->obd_fail || exp->exp_failed))
-		tgt_client_del(&env, exp);
-	lu_env_fini(&env);
+		tgt_client_del(env, exp);
 
 	class_export_put(exp);
 	RETURN(rc);
@@ -1004,14 +998,14 @@ static int ofd_destroy_by_fid(const struct lu_env *env,
 	/* Tell the clients that the object is gone now and that they should
 	 * throw away any cached pages. */
 	ofd_build_resid(fid, &info->fti_resid);
-	rc = ldlm_cli_enqueue_local(ofd->ofd_namespace, &info->fti_resid,
+	rc = ldlm_cli_enqueue_local(env, ofd->ofd_namespace, &info->fti_resid,
 				    LDLM_EXTENT, &policy, LCK_PW, &flags,
 				    ldlm_blocking_ast, ldlm_completion_ast,
 				    NULL, NULL, 0, LVB_T_NONE, NULL, &lockh);
 
 	/* We only care about the side-effects, just drop the lock. */
 	if (rc == ELDLM_OK)
-		ldlm_lock_decref(&lockh, LCK_PW);
+		ldlm_lock_decref(env, &lockh, LCK_PW);
 
 	LASSERT(fo != NULL);
 

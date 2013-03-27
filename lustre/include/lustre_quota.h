@@ -112,8 +112,8 @@ struct qmt_handlers {
 	int (*qmth_lvbo_size)(struct lu_device *, struct ldlm_lock *);
 
 	/* Fill request buffer with lvb */
-	int (*qmth_lvbo_fill)(struct lu_device *, struct ldlm_lock *, void *,
-			      int);
+	int (*qmth_lvbo_fill)(const struct lu_env *, struct lu_device *,
+			      struct ldlm_lock *, void *, int);
 
 	/* Free lvb associated with ldlm resource */
 	int (*qmth_lvbo_free)(struct lu_device *, struct ldlm_resource *);

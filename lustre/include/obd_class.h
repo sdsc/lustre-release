@@ -111,8 +111,10 @@ int class_notify_sptlrpc_conf(const char *fsname, int namelen);
 
 char *obd_export_nid2str(struct obd_export *exp);
 
-int obd_export_evict_by_nid(struct obd_device *obd, const char *nid);
-int obd_export_evict_by_uuid(struct obd_device *obd, const char *uuid);
+int obd_export_evict_by_nid(const struct lu_env *env,
+			    struct obd_device *obd, const char *nid);
+int obd_export_evict_by_uuid(const struct lu_env *env,
+			     struct obd_device *obd, const char *uuid);
 int obd_connect_flags2str(char *page, int count, __u64 flags, char *sep);
 
 int obd_zombie_impexp_init(void);
@@ -133,12 +135,13 @@ typedef int (*llog_cb_t)(const struct lu_env *, struct llog_handle *,
 /* obd_config.c */
 struct lustre_cfg *lustre_cfg_rename(struct lustre_cfg *cfg,
 				     const char *new_name);
-int class_process_config(struct lustre_cfg *lcfg);
+int class_process_config(const struct lu_env *env, struct lustre_cfg *lcfg);
 int class_process_proc_param(char *prefix, struct lprocfs_vars *lvars,
                              struct lustre_cfg *lcfg, void *data);
 int class_attach(struct lustre_cfg *lcfg);
 int class_setup(struct obd_device *obd, struct lustre_cfg *lcfg);
-int class_cleanup(struct obd_device *obd, struct lustre_cfg *lcfg);
+int class_cleanup(const struct lu_env *env, struct obd_device *obd,
+		  struct lustre_cfg *lcfg);
 int class_detach(struct obd_device *obd, struct lustre_cfg *lcfg);
 struct obd_device *class_incref(struct obd_device *obd,
                                 const char *scope, const void *source);
@@ -301,11 +304,11 @@ void class_put_type(struct obd_type *type);
 int class_connect(struct lustre_handle *conn, struct obd_device *obd,
                   struct obd_uuid *cluuid);
 int class_disconnect(struct obd_export *exp);
-void class_fail_export(struct obd_export *exp);
+void class_fail_export(const struct lu_env *env, struct obd_export *exp);
 int class_connected_export(struct obd_export *exp);
-void class_disconnect_exports(struct obd_device *obddev);
-int class_manual_cleanup(struct obd_device *obd);
-void class_disconnect_stale_exports(struct obd_device *,
+void class_disconnect_exports(const struct lu_env *, struct obd_device *obddev);
+int class_manual_cleanup(const struct lu_env *env, struct obd_device *obd);
+void class_disconnect_stale_exports(const struct lu_env *, struct obd_device *,
                                     int (*test_export)(struct obd_export *));
 static inline enum obd_option exp_flags_from_obd(struct obd_device *obd)
 {
@@ -1042,7 +1045,8 @@ static inline int obd_reconnect(const struct lu_env *env,
         RETURN(rc);
 }
 
-static inline int obd_disconnect(struct obd_export *exp)
+static inline int obd_disconnect(const struct lu_env *env,
+				 struct obd_export *exp)
 {
         int rc;
         ENTRY;
@@ -1050,7 +1054,7 @@ static inline int obd_disconnect(struct obd_export *exp)
         EXP_CHECK_DT_OP(exp, disconnect);
         EXP_COUNTER_INCREMENT(exp, disconnect);
 
-        rc = OBP(exp->exp_obd, disconnect)(exp);
+        rc = OBP(exp->exp_obd, disconnect)(env, exp);
         RETURN(rc);
 }
 

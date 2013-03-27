@@ -143,7 +143,7 @@ out_free_op_data:
 	OBD_FREE_PTR(op_data);
 out:
 	if (rc && pmode)
-		ldlm_lock_decref(&plock, pmode);
+		ldlm_lock_decref(NULL, &plock, pmode);
 
 	ptlrpc_req_finished(*reqp);
 	*reqp = req;

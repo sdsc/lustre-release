@@ -655,13 +655,20 @@ static int ping_evictor_main(void *arg)
         struct obd_device *obd;
         struct obd_export *exp;
         struct l_wait_info lwi = { 0 };
+	struct lu_env env;
         time_t expire_time;
         ENTRY;
 
         cfs_daemonize_ctxt("ll_evictor");
 
+	if (lu_env_init(&env, LCT_LOCAL)) {
+		CERROR("failed to initialize env\n");
+		RETURN(0);
+	}
+
         CDEBUG(D_HA, "Starting Ping Evictor\n");
         pet_state = PET_READY;
+
         while (1) {
                 l_wait_event(pet_waitq, (!cfs_list_empty(&pet_list)) ||
                              (pet_state == PET_TERMINATE), &lwi);
@@ -710,7 +717,7 @@ static int ping_evictor_main(void *arg)
                                               (long)exp->exp_last_request_time);
                                 CDEBUG(D_HA, "Last request was at %ld\n",
                                        exp->exp_last_request_time);
-                                class_fail_export(exp);
+                                class_fail_export(&env, exp);
                                 class_export_put(exp);
 				spin_lock(&obd->obd_dev_lock);
 			} else {
@@ -728,6 +735,7 @@ static int ping_evictor_main(void *arg)
         }
         CDEBUG(D_HA, "Exiting Ping Evictor\n");
 
+	lu_env_fini(&env);
         RETURN(0);
 }
 

@@ -417,7 +417,7 @@ out_noadjust:
 
 	/* release reference on per-ID lock */
 	if (lustre_handle_is_used(lockh))
-		ldlm_lock_decref(lockh, qsd_id_einfo.ei_mode);
+		ldlm_lock_decref(env, lockh, qsd_id_einfo.ei_mode);
 
 	if (cancel) {
 		qsd_adjust_schedule(lqe, false, true);

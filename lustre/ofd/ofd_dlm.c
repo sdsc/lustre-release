@@ -87,7 +87,8 @@ static enum interval_iter ofd_intent_cb(struct interval_node *n, void *args)
 	return INTERVAL_ITER_CONT;
 }
 
-int ofd_intent_policy(struct ldlm_namespace *ns, struct ldlm_lock **lockp,
+int ofd_intent_policy(const struct lu_env *env, struct ldlm_namespace *ns,
+		      struct ldlm_lock **lockp,
 		      void *req_cookie, ldlm_mode_t mode, __u64 flags,
 		      void *data)
 {
@@ -142,7 +143,7 @@ int ofd_intent_policy(struct ldlm_namespace *ns, struct ldlm_lock **lockp,
 
 	LASSERT(ns == ldlm_res_to_ns(res));
 	lock_res(res);
-	rc = policy(lock, &tmpflags, 0, &err, NULL);
+	rc = policy(env, lock, &tmpflags, 0, &err, NULL);
 	check_res_locked(res);
 
 	/* The lock met with no resistance; we're finished. */
@@ -241,7 +242,7 @@ int ofd_intent_policy(struct ldlm_namespace *ns, struct ldlm_lock **lockp,
 	/* the ldlm_glimpse_work structure is allocated on the stack */
 	gl_work.gl_flags = LDLM_GL_WORK_NOFREE;
 
-	rc = ldlm_glimpse_locks(res, &gl_list); /* this will update the LVB */
+	rc = ldlm_glimpse_locks(env, res, &gl_list); /* this will update the LVB */
 
 	if (!cfs_list_empty(&gl_list))
 		LDLM_LOCK_RELEASE(l);
