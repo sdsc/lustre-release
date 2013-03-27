@@ -1683,9 +1683,16 @@ out_closel:
                 struct client_obd *cli = &obd->u.cli;
 
                 LASSERT(cli);
-                LASSERT(cli->cl_mgc_configs_dir);
-                rc = lustre_rename(cli->cl_mgc_configs_dir, cli->cl_mgc_vfsmnt,
-                                   temp_log, logname);
+		if (likely(cli->cl_mgc_configs_dir))
+			rc = lustre_rename(cli->cl_mgc_configs_dir,
+					   cli->cl_mgc_vfsmnt,
+					   temp_log, logname);
+		else {
+			/* This can happen if local fs hasn't fully started */
+			CERROR("%s: cli missing mgc_configs_dir entry\n",
+			       obd->obd_name);
+			GOTO(out, rc = -ENOENT);
+		}
         }
         CDEBUG(D_MGC, "Copied remote log %s (%d)\n", logname, rc);
 out:
