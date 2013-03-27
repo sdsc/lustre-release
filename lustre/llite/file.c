@@ -915,7 +915,12 @@ restart:
 
         if (io->ci_nob > 0) {
                 result = io->ci_nob;
-                *ppos = io->u.ci_wr.wr.crw_pos;
+		/* When O_APPEND is set, u.ci_rw.wr.crw_pos is incorrect
+		 * instead, the current value of ppos is correct.
+		 */
+		if(!cl_io_is_append(io)) {
+			*ppos = io->u.ci_wr.wr.crw_pos;
+		}
         }
         GOTO(out, result);
 out:
