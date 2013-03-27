@@ -127,8 +127,11 @@ int vvp_conf_set(const struct lu_env *env, struct cl_object *obj,
 		const struct cl_object_conf *conf)
 {
 	struct ll_inode_info *lli = ll_i2info(conf->coc_inode);
+	struct ll_sb_info *sbi = ll_i2sbi(conf->coc_inode);
 
 	if (conf->coc_opc == OBJECT_CONF_INVALIDATE) {
+		WARN_ONCE(sbi->ll_flags & LL_SBI_LAYOUT_LOCK,
+			  "server doesn't support layoutlock!");
 		lli->lli_layout_gen = LL_LAYOUT_GEN_NONE;
 		return 0;
 	}
@@ -142,13 +145,16 @@ int vvp_conf_set(const struct lu_env *env, struct cl_object *obj,
 			conf->u.coc_md->lsm->lsm_layout_gen);
 
 		lli->lli_has_smd = true;
-		lli->lli_layout_gen = conf->u.coc_md->lsm->lsm_layout_gen;
+		if (sbi->ll_flags & LL_SBI_LAYOUT_LOCK)
+			lli->lli_layout_gen =
+					conf->u.coc_md->lsm->lsm_layout_gen;
 	} else {
 		CDEBUG(D_VFSTRACE, "layout lock destroyed: %u.\n",
 			lli->lli_layout_gen);
 
 		lli->lli_has_smd = false;
-		lli->lli_layout_gen = LL_LAYOUT_GEN_EMPTY;
+		if (sbi->ll_flags & LL_SBI_LAYOUT_LOCK)
+			lli->lli_layout_gen = LL_LAYOUT_GEN_EMPTY;
 	}
 	return 0;
 }
