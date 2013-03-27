@@ -911,6 +911,9 @@ cleanup_24a() {
 }
 
 test_24a() {
+	[ $(lustre_version_code mds) -eq $(version_code 2.3.0) ] &&
+		skip "skipping test for 2.3.0 MDS due to LU-2468" && return 0
+
 	local MDSDEV=$(mdsdevname ${SINGLEMDS//mds/})
 
 	if [ -z "$fs2ost_DEV" -o -z "$fs2mds_DEV" ]; then
